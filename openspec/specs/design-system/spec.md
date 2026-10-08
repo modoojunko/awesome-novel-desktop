@@ -29,9 +29,11 @@ Single source of truth for product-wide visual vocabulary across both frontends 
 - When accent color is computed
 - Then it resolves to oklch(48% 0.11 170), identical to the pre-theme-system baseline
 ### Requirement: Shared status language and tone words
+
 - Progress-bearing objects SHALL express state through the three-state dot classes (`dot-empty`, `dot-warn`, `dot-ok`) plus a title attribute wherever progress semantics exist.
 - Evidence-bearing chapter rows in the reading preview (目录行) SHALL NOT use the three-state dot; they SHALL express 成稿状态 through the `.pill` status family with the labels 拟定 / 草稿 / 已归档, plus a word-count number in the mono/tabular style. 章纲 gap detail stays in the writing view.
 - Badges SHALL use the `.pill` family (roles tag/status/count x tones); callout bars SHALL use the `.notice` family with explicit modifiers; toast severity may add `warn`.
+- **待确认（AI 产出等作者裁决）为新增对象状态行**（design-language §5.1 同批加行）：页签行待确认计数 SHALL 以 count role × accent tone 软底泡泡表达（清零自消，非恒显警示），台账节奏类计数（如「该收 N」）SHALL 用 count role × warn tone；实底填充与新胶囊形态 SHALL NOT 引入（含微信式实底红——红色按 N6 保留给不可逆/即时生效，阻断缺项沿用既有 err 表达）。
 - The cross-end tone vocabulary is fixed at info / ok / warn / err. Retired synonyms (success/danger as notice or badge tones, the `.b` badge names, `.strip`) MUST NOT reappear. The save-state ladder remains autosaving, unsaved, failed-with-retry, saved.
 - Streaming/AI activity SHALL be expressed by a breathing accent dot; prose layout MUST NOT animate during streaming.
 
@@ -44,6 +46,12 @@ Single source of truth for product-wide visual vocabulary across both frontends 
 - Given any S端 console, auth or landing screen needs a badge or a callout bar
 - When the page renders
 - Then badges use `.pill` role × tone classes and callout bars use `.notice` with an explicit tone, and no `.b` or `.strip` class remains in S端 source or rendered DOM
+
+#### Scenario: 页签待确认泡泡用既有词汇组合
+- Given the chapter workbench needs a pending-confirmation count on a tab
+- When the bubble is rendered
+- Then it composes existing `.pill` count role with an existing tone (accent for 待确认 / warn for 台账节奏), shows a number with a title attribute, and disappears at zero — no solid fill, no red, no fourth capsule form
+
 ### Requirement: Prototype-first flow with per-end gates
 - Any user-visible C-end change SHALL update `docs/design-c/prototypes/<screen>.html` and record deviations in `docs/design-c/prototypes/ADJUSTMENTS.md` before implementation, and SHALL pass `npm run design:check` under 0.2% pixel difference per baseline scenario.
 - S-end changes have no prototype baseline; they SHALL provide before/after screenshot pairs inside the change folder as consistency evidence.
@@ -288,3 +296,53 @@ s5 的展示口径 SHALL 为「宿命认知观」＋hint「他和这个世界到
 - Given zhuque 域新词已登记入 book.css / model-config.css 本地段
 - When 跑 npm run design:lint 与 design:check
 - Then 无禁令违规、基线场景像素差 <0.2%
+
+### Requirement: C端 写作能力弹窗与菜单项词汇
+
+- 「写作能力」引导弹窗 SHALL 复用既有设计系统弹窗骨架（`Modal`/`mcard` 形态与进出场、
+  Esc/遮罩关闭、焦点圈行为），SHALL NOT 新造弹窗骨架；进度呈现为分步行（检查版本 →
+  下载 → 校验安装）而非百分比环形。
+- 弹窗三模式（首装自动／更新确认／手动检查）的标题、进度行、完成行与失败行文案
+  SHALL 在 design-language 状态总表登记新行；状态语气沿用既有 info/warn/err 档，
+  不新增语气档。（design-vocab.mjs 无新登记项——其机制只辖任意值/opacity 档/禁用
+  色板，类名与文案不入其白名单；review-agent 轮 P3 对齐。）
+- 账号面板「数据」组「写作能力」菜单项 SHALL 复用 `am-item` 组件词汇与图标位规格
+  （与「模型配置 · API Key」同行规），状态随行文案三态：`已就绪 vX`／`未就绪`／
+  `有新版本`；面板 foot 的 `am-pack` 小字行词汇与样式 SHALL 随本批退役。
+- 用户可见名词延续既有口径：统一「写作能力」，提示词包/pack/manifest/验签/换钥等
+  内部词 SHALL NOT 出现在弹窗与菜单项任何文案中。
+
+#### Scenario: 原型先行登记
+- **WHEN** 实现写作能力弹窗与菜单项
+- **THEN** 书架原型先行登记弹窗三模式变体（含进度行/完成行/失败行）并在 ADJUSTMENTS.md
+  留档，design-language 状态总表登记后才落实现（design-vocab.mjs 无涉，机制见上）
+
+#### Scenario: 内部词不进文案
+- **WHEN** 检查弹窗三模式与菜单项全部用户可见文案
+- **THEN** 仅出现「写作能力」及既有状态词汇；无「提示词包/manifest/验签」等内部词
+
+### Requirement: C端 toast 自动消失与可关闭基线
+
+- C端 全站 toast（底部居中深底胶囊）SHALL 默认 **3 秒自动消失**；多条叠放时 SHALL 各自独立计时、互不清除。
+- 每条 toast SHALL 带 **× 手动关闭钮**（无障碍名「关闭」）；点击 × SHALL 立即收掉该条。
+- toast SHALL NOT 常驻屏幕：不得存在永不自动消失的 toast（既有「sticky 常驻回执」口径自本 change 起退役）。
+- 撤销类入口（如剧情采纳回执的「撤销」链接）SHALL 随所在 toast 存活——toast 自动消失或被 × 关闭后，
+  该撤销入口不再可得；需要更长撤销窗口的场景走面板内自管回执（如软删除 8 秒撤销窗口，§12 L4），SHALL NOT
+  借 toast 常驻实现。
+- 自动消失与 × 关闭 SHALL NOT 中断 toast 内动作入口——窗口内点击撤销/补救链接 SHALL 照常生效；
+  动作处理方需要时可在自身回调内主动收掉该条（如剧情撤销链路经「编辑即收」），未主动收的按本基线自动收口。
+
+#### Scenario: 三秒自动消失
+
+- **WHEN** 任一操作弹出 toast 且作者 3 秒内不做任何点击
+- **THEN** 该 toast 自动消失，屏幕恢复干净；同屏多条 toast 各自计时、先到先走
+
+#### Scenario: × 立即收掉
+
+- **WHEN** toast 在场时作者点其右侧 ×
+- **THEN** 该条立即消失，其余 toast 不受影响
+
+#### Scenario: 撤销入口只在窗口内可得
+
+- **WHEN** 带撤销链接的 toast 弹出后作者未在窗口内点击，toast 自动消失
+- **THEN** 撤销入口一并消失，无法再触发该次撤销；已生效的操作结果保持不变

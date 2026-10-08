@@ -82,7 +82,7 @@ TBD - created by archiving change 004-free-workspace. Update Purpose after archi
 
 - `chapters` SHALL 增加两列并随版本换代自动建出（两列进 `models/chapter.py` 即随版本换代自动建出（新版本库 `create_all` 全量建出；旧库按 db-generation 指纹/版本分流留档只读；无任何显式版本常量或 DDL 步骤））：既有 `style_shadow`（JSON 文本，默认 `{}`）与 `ghost_of`（可空字符串）之外，本能力持有两列——`challenge`（可空字符串 ≤150——本章碰到的挑战）、`plot_stage`（可空字符串 ≤20，六档闭集：开局铺垫/冲突初现/矛盾升级/重要转折/高潮爆发/卷末收束——本章在卷剧情里的位置）。
 - 章装配（assemble_chapter）SHALL 输出 `style_shadow`（解析后的对象；损坏 JSON 回落 `{}` 且不阻塞读取）、`ghost_of`（set 时输出），以及两列（set 时输出）；全部 SHALL 随章档案导出并随导入回写（加键兼容：缺失键按默认值处理）。
-- 两列 SHALL 同步接入消费链路：写正文素材 SHALL 包含挑战（「本章要撞的墙」）与阶段（「本章在卷剧情里的位置」）两块，且**粗组兜底提示词与润色素材包两条组装路径均须包含**（c-og-slim-v2：此前仅素材包含这两块，未润色直写会丢失拆章成果）。
+- 两列 SHALL 同步接入消费链路：写正文素材 SHALL 包含挑战（「本章要撞的墙」）与阶段（「本章在卷剧情里的位置」）两块，且**粗组兜底提示词与全量素材包（`material_markdown`，原称「润色素材包」）两条组装路径均须包含**（c-og-slim-v2：此前仅全量素材包含这两块，直写路径会丢失拆章成果；c-retire-prompt-polish 起润色链退役，该渲染面保留为两路同源对拍面）。
 - 两列的 JSON 键路径 SHALL 为**章档案顶层**（与 `ladder_exit` 同层，不进 `outline.*`）；`plot_stage` 六档闭集与各列长度校验 SHALL 在 **API 请求 schema 层先于一切写入**（422；装配端 `_fit` 只截断不拒——SHALL NOT 以截断代替校验）。
 - `stale` 置位 SHALL 保留既有**第二触发面**：章保存事务内 `ladder_exit` 发生实质变更（trim 后不同）且下一主线章有正文 → 下一章置位「基于旧设定」（清除语义沿用既有「本章保存/归档即清」）；置位判定 SHALL 用 trim 后比较，措辞微调 SHALL NOT 触发。
 - 既有章读取契约 SHALL NOT 因新增键破坏：未设置挑战/阶段的章，装配结果语义与字段等价于新增前。
@@ -108,7 +108,7 @@ TBD - created by archiving change 004-free-workspace. Update Purpose after archi
 - **THEN** 该章 summary、challenge、plot_stage、ladder_exit 原样保留
 
 #### Scenario: 拆章内容进入写正文素材
-- **WHEN** 某章已填挑战与阶段后发起写正文，分别取粗组兜底与润色素材包两条路径
+- **WHEN** 某章已填挑战与阶段后发起写正文，分别取粗组兜底与全量素材包（`material_markdown`）两条路径
 - **THEN** 两条路径的产物均包含「本章要撞的墙」与「本章在卷剧情里的位置」两块（原「本章必须发生的动作」块随该格退役）
 
 #### Scenario: 保存章纲不清空拆章内容

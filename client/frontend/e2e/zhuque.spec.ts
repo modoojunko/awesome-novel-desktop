@@ -146,12 +146,8 @@ test.describe("朱雀 AI 检测（工作台三处消费点）", () => {
     await seedJson("PUT", `api/novels/${pid}/chapters/${cref}/prose`, {
       prose: "她握紧船桨，江风把斗笠掀得直响。\n\n船家压低嗓子说，渡口明早封江，过路人一律拦下。\n\n雨点砸在篷布上，像是谁在头顶擂鼓。",
     });
-    // 写作模型 Key 先行（B3.2 起朱雀 config 增删测挂 require_ai_access——
-    // 无写作 Key 时 503「AI 服务未配置」，须先有一条模型配置）
-    await seedJson("POST", "api/v1/api-configs", {
-      name: "e2e-zq-model", vendor_id: "openai-compat",
-      base_url: "http://host.docker.internal:45871/v1", api_key: "sk-e2e-zq",
-    });
+    // 不种写作模型配置（2026-10-08 清理）：本用例即「零大模型配置＋朱雀 Key」的回归网——
+    // 朱雀链路（配置/测试/检测）SHALL NOT 依赖写作大模型（c-zhuque-config-keyless）。
     // 朱雀 Key（就绪态行与台账卡的前提；ZHUQUE_API_BASE 指向 classify 桩，测试连接不真烧额度）
     await seedJson("PUT", "api/v1/zhuque/config", { api_key: "eo-mk-e2e-stub" });
   });

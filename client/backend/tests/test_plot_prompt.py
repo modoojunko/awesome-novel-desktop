@@ -3,8 +3,8 @@
 - 4.1 两路同源：`_plot_block` 单源渲染，material_markdown 与 to_user_material 都含同一块
   且逐字一致；单条内换行折叠为空格；空剧情两路产物逐字不变（golden fixture 对拍，
   fixture 抓自注入前的产物）。
-- 4.2 润色条件锚：plot_items 非空时产物须含剧情走向段（缺失判不合格），
-  为空时不要求该段。
+- 4.2 润色条件锚（随 c-retire-prompt-polish 退役）：原用例只覆盖润色产物校验，
+  校验函数已删；剧情块本身的两路同源钉由 4.1 继续看住。
 """
 
 import os
@@ -12,7 +12,6 @@ import os
 from write.chapter_writer import (
     ChapterContext,
     _plot_block,
-    validate_polished_prompt,
 )
 
 _GOLDEN_DIR = os.path.join(os.path.dirname(__file__), "golden")
@@ -86,31 +85,3 @@ class TestPlotBlockTwoPaths:
         assert prompt == _golden("plot_empty_prompt.txt")
         assert "剧情走向" not in material
         assert "剧情走向" not in prompt
-
-
-class TestPolishConditionalAnchor:
-    _OK = (
-        "## 任务指示\n第 2 章，目标字数约 2000 字。\n"
-        "## 前情上下文\n上章写的是：她在码头截住船家。\n"
-        "## 章纲概要\n她夜探库房调包账册；本章要撞的墙：船家改口要加钱。\n"
-        "## 爽点设计\n真相揭示·守夜人认错人。\n"
-        "## 红线\n本章必须完成——账册被调包。\n"
-        "## 质感要求\n留 1-2 个不服务主线的细碎生活细节。"
-    )
-
-    def test_non_empty_plots_require_plot_section(self):
-        """4.2：剧情非空→产物缺剧情走向段判不合格；补上即合格。"""
-        ctx = _rich_ctx()
-        ctx.plot_items = ["甲一：她翻墙进了库房"]
-        missing = validate_polished_prompt(self._OK, ctx)
-        assert "剧情走向" in missing
-        with_plot = self._OK + "\n## 剧情走向\n- 甲一：她翻墙进了库房"
-        assert validate_polished_prompt(with_plot, ctx) == []
-
-    def test_empty_plots_do_not_require_plot_section(self):
-        """4.2：剧情为空→不要求剧情走向段，其余锚词照常校验。"""
-        ctx = _rich_ctx()
-        assert validate_polished_prompt(self._OK, ctx) == []
-        missing = validate_polished_prompt("## 任务指示\n只有任务指示。", ctx)
-        assert "剧情走向" not in missing
-        assert "红线" in missing and "质感" in missing

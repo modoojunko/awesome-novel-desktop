@@ -58,7 +58,8 @@ class CreateApiConfigBody(BaseModel):
 
 
 class UpdateApiConfigBody(BaseModel):
-    name: str | None = None
+    # 与 create 同契约（长度上限 100）：update 侧曾裸奔，超长名可经 PUT 落库
+    name: str | None = Field(default=None, min_length=1, max_length=100)
     base_url: str | None = None
     api_key: str | None = None
     vendor_override: str | None = None
@@ -200,6 +201,18 @@ class TestRawBody(BaseModel):
     api_format: ApiFormat = "openai"
     # 探针优先模型 id（表单模型名称）；空则按「列表首个→候选首个」取
     model: str | None = None
+
+
+class FetchModelsBody(BaseModel):
+    """只拉清单轻探针的 raw 请求体（未保存态，c-api-config-auto-models）。
+
+    与 TestRawBody 同形去掉 model——轻探针不发生成请求，没有「探针优先模型」概念。
+    """
+
+    vendor_id: str
+    base_url: str
+    api_key: str = ""
+    api_format: ApiFormat = "openai"
 
 
 class TestResultResponse(BaseModel):

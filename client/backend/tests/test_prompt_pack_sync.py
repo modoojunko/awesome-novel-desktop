@@ -508,3 +508,243 @@ def test_sync_same_tier_probe_skips_redownload(env, cdn, monkeypatch):
     assert st["phase"] == "ready" and st["tier"] == "free"
     assert downloads == [], f"同档探测不应重下（实得 {downloads}）"
     assert pp.read_receipt()["tier"] == "free"
+
+
+# ── c-prompt-pack-onboard-modal：版本探测 / 进度面 / 触发可靠性 ──────────────
+
+
+def test_probe_reports_update_without_installing(env, cdn, monkeypatch):
+    """探测只查不装：返回已装→最新与有无更新；不调 S端、不改 receipt、不抖状态机。"""
+    _base, cdn_root = cdn
+    sk, pub = _keypair()
+    cek = os.urandom(32)
+    exchange_calls = []
+
+    def exchange(kid, ver):
+        exchange_calls.append((kid, ver))
+        return ({"cek": base64.b64encode(cek).decode(), "key_id": kid,
+                 "tier": "free", "version": ver}, 0)
+
+    _publish(cdn_root, "5", {"free": ("k-free-5", cek)}, TPL, sk, "test-kid")
+    pp, sync_mod = _wire(env, monkeypatch, sk, pub, exchange)
+    assert sync_mod.sync_once(local_tier="free")["phase"] == "ready"
+    _publish(cdn_root, "6", {"free": ("k-free-6", cek)}, TPL, sk, "test-kid")
+
+    calls_after_install = len(exchange_calls)
+    out = sync_mod.probe_latest()
+    assert out["installed_version"] == "5" and out["latest_version"] == "6"
+    assert out["update_available"] is True
+    assert len(exchange_calls) == calls_after_install  # 探测不换钥（不调 S端）
+    assert pp.read_receipt()["version"] == "5"      # 不安装
+    assert sync_mod.get_status()["phase"] == "ready"  # 状态机不被探测抖动
+
+
+def test_probe_no_update_when_already_latest(env, cdn, monkeypatch):
+    _base, cdn_root = cdn
+    sk, pub = _keypair()
+    cek = os.urandom(32)
+    _publish(cdn_root, "5", {"free": ("k-free-5", cek)}, TPL, sk, "test-kid")
+    _pp, sync_mod = _wire(env, monkeypatch, sk, pub, lambda kid, ver: (
+        {"cek": base64.b64encode(cek).decode(), "key_id": kid, "tier": "free", "version": ver}, 0))
+    assert sync_mod.sync_once(local_tier="free")["phase"] == "ready"
+    out = sync_mod.probe_latest()
+    assert out["update_available"] is False
+    assert out["installed_version"] == "5" and out["latest_version"] == "5"
+
+
+def test_probe_unavailable_on_bad_signature(env, cdn, monkeypatch):
+    """latest 验签不过＝探测不可得：无更新静默（reason 诊断字段）。"""
+    _base, cdn_root = cdn
+    sk, pub = _keypair()
+    cek = os.urandom(32)
+    _publish(cdn_root, "6", {"free": ("k-free-6", cek)}, TPL, sk, "test-kid")
+    _pp, sync_mod = _wire(env, monkeypatch, sk, pub, lambda kid, ver: (None, -1))
+    latest_path = cdn_root / "prompts" / "latest.json"
+    latest = json.loads(latest_path.read_text())
+    latest["signature"] = base64.b64encode(b"0" * 64).decode()
+    latest_path.write_text(json.dumps(latest))
+    out = sync_mod.probe_latest()
+    assert out["update_available"] is False and out["reason"] == "probe_unavailable"
+
+
+def test_probe_min_client_gate_skips(env, cdn, monkeypatch):
+    """新包要求更高客户端版本：探测按 min_client 闸跳过（无更新静默）。"""
+    _base, cdn_root = cdn
+    sk, pub = _keypair()
+    cek = os.urandom(32)
+    _publish(cdn_root, "6", {"free": ("k-free-6", cek)}, TPL, sk, "test-kid",
+             min_client_version="999.0.0")
+    _pp, sync_mod = _wire(env, monkeypatch, sk, pub, lambda kid, ver: (None, -1))
+    monkeypatch.setattr(sync_mod, "app_version", lambda: "0.1.0")
+    out = sync_mod.probe_latest()
+    assert out["update_available"] is False and out["reason"] == "min_client_version"
+
+
+def test_probe_dev_fallback_never_updates(env, monkeypatch):
+    """dev 态（非 force 且包内目录可用、无已装包）探测恒无更新——不外呼。"""
+    _, _, sync_mod, _ = env
+    monkeypatch.delenv("PROMPT_PACK_MODE", raising=False)
+    out = sync_mod.probe_latest()
+    assert out["update_available"] is False and out["installed_version"] == ""
+
+
+def test_sync_step_progress_visible_and_cleared(env, cdn, monkeypatch):
+    """分步进度：换钥等待期=download、安装期=install；终态清空。"""
+    _base, cdn_root = cdn
+    sk, pub = _keypair()
+    cek = os.urandom(32)
+    steps = {}
+
+    def exchange(kid, ver):
+        steps["during_exchange"] = sync_mod.get_status()["step"]
+        return ({"cek": base64.b64encode(cek).decode(), "key_id": kid,
+                 "tier": "free", "version": ver}, 0)
+
+    _publish(cdn_root, "5", {"free": ("k-free-5", cek)}, TPL, sk, "test-kid")
+    _pp, sync_mod = _wire(env, monkeypatch, sk, pub, exchange)
+    real_install = sync_mod._install
+
+    def install_spy(*a, **kw):
+        steps["during_install"] = sync_mod.get_status()["step"]
+        return real_install(*a, **kw)
+
+    monkeypatch.setattr(sync_mod, "_install", install_spy)
+    st = sync_mod.sync_once(local_tier="free")
+    assert st["phase"] == "ready" and st["step"] == ""
+    assert steps["during_exchange"] == "download"
+    assert steps["during_install"] == "install"
+
+
+def test_trigger_sync_queues_pending_rerun(env, monkeypatch):
+    """在途触发不丢弃：结束后按最新触发参数重跑一次（后到覆盖先到，只排一级）。"""
+    _, _, sync_mod, _ = env
+    import time as _time
+
+    calls = []
+    release = threading.Event()
+    started = threading.Event()
+
+    def fake(tier=None, **kw):
+        calls.append(tier)
+        if len(calls) == 1:
+            started.set()
+            release.wait(5)
+        return {"phase": "ready"}
+
+    monkeypatch.setattr(sync_mod, "sync_once", fake)
+    assert sync_mod.trigger_sync("free") is True
+    assert started.wait(2)
+    assert sync_mod.trigger_sync("pro") is False   # 在途 → 排队
+    sync_mod.trigger_sync("max")                   # 后到覆盖先到
+    release.set()
+    deadline = _time.time() + 5
+    while sync_mod._syncing and _time.time() < deadline:
+        _time.sleep(0.01)
+    assert calls == ["free", "max"]
+    assert sync_mod._pending_tier is None          # 收尾清空不残留
+
+
+def test_maybe_after_auth_skips_without_token(env, monkeypatch):
+    """未登录（本地无令牌）钩子早退：不发起同步（无必然失败的换钥外呼）。"""
+    import auth_local.service as svc
+
+    monkeypatch.setattr(svc, "get_local_config", lambda: {"token": "", "tier": "free"})
+    _, _, sync_mod, _ = env
+    called = []
+    monkeypatch.setattr(sync_mod, "trigger_sync", lambda tier=None: called.append(tier) or True)
+    sync_mod.maybe_after_auth()
+    assert called == []
+    # 有令牌且未装包 → 正常触发
+    monkeypatch.setattr(svc, "get_local_config", lambda: {"token": "t", "tier": "free"})
+    sync_mod.maybe_after_auth()
+    assert called == ["free"]
+
+
+def test_update_keeps_old_set_until_atomic_swap(env, cdn, monkeypatch):
+    """边升级边换提示词不允许（拍板 2026-10-07 三次）：更新安装中途被校验挡下时，
+    在用模板集保持完整旧版（receipt 不动、loader 照读旧文）；staging 目录永不参与
+    解析——任何时刻模板读取都是完整旧版或完整新版，无半套无混用。"""
+    import pathlib
+
+    _base, cdn_root = cdn
+    sk, pub = _keypair()
+    cek = os.urandom(32)
+    _publish(cdn_root, "5", {"free": ("k-free-5", cek)}, TPL, sk, "test-kid")
+    pp, sync_mod = _wire(env, monkeypatch, sk, pub, lambda kid, ver: (
+        {"cek": base64.b64encode(cek).decode(), "key_id": kid, "tier": "free", "version": ver}, 0))
+    assert sync_mod.sync_once(local_tier="free")["phase"] == "ready"
+
+    # 发 v6（模板内容不同）并篡改 bundle → 校验道挡下，安装不发生
+    _publish(cdn_root, "6", {"free": ("k-free-6", cek)},
+             {"write_chapter": "<<system>>\n你是新版半套\n<<user>>\n写"}, sk, "test-kid")
+    bin_path = cdn_root / "prompts" / "v6" / "free.bin"
+    bin_path.write_bytes(bin_path.read_bytes() + b"x")
+    st = sync_mod.sync_once(local_tier="free")
+    assert st["phase"] == "ready" and st["reason"] == "bundle_hash"
+
+    # 在用模板集仍是完整旧版：receipt 未动、loader 读旧文
+    assert pp.read_receipt()["version"] == "5"
+    _, _, _, prompts = env
+    assert "你是助手" in prompts.load("write_chapter")
+
+    # staging 残留（历史失败/外部塞入）不参与解析：resolve_dir 只认 receipt 指向
+    stage_dir = pathlib.Path(pp.pack_root()) / f"{pp.STAGING_PREFIX}v6"
+    stage_dir.mkdir(parents=True, exist_ok=True)
+    (stage_dir / "prompt.pack").write_bytes(b"garbage")
+    resolved = pp.resolve_dir()
+    assert resolved and resolved.endswith(os.sep + "v5")
+
+
+def test_sync_min_client_skip_lands_terminal_state(env, cdn, monkeypatch):
+    """评审 P1-2：min_client 跳过分支须落终态——未装包时不得永久停在 syncing
+    （否则前端弹窗锁着轮询 180s 假失败）。"""
+    _base, cdn_root = cdn
+    sk, pub = _keypair()
+    cek = os.urandom(32)
+    _publish(cdn_root, "6", {"free": ("k-free-6", cek)}, TPL, sk, "test-kid",
+             min_client_version="999.0.0")
+    _pp, sync_mod = _wire(env, monkeypatch, sk, pub, lambda kid, ver: (None, -1))
+    monkeypatch.setattr(sync_mod, "app_version", lambda: "0.1.0")
+    st = sync_mod.sync_once(local_tier="free")
+    assert st["phase"] == "missing" and st["reason"] == "min_client_version"
+    assert st["step"] == ""  # _set_state 迁相位即清分步
+
+
+def test_trigger_sync_pending_consumed_until_empty(env, monkeypatch):
+    """评审 P2-1：重跑在途窗口到达的新触发也最终执行（消费到空，不静默丢弃）。"""
+    import time as _time
+
+    _, _, sync_mod, _ = env
+    calls = []
+    releases = [threading.Event() for _ in range(6)]
+    idx = {"i": 0}
+
+    def fake(tier=None, **kw):
+        i = idx["i"]
+        idx["i"] += 1
+        calls.append(tier)
+        releases[i].wait(5)
+        return {"phase": "ready"}
+
+    def wait_run(n: int) -> None:
+        for _ in range(600):
+            if idx["i"] >= n:
+                return
+            _time.sleep(0.01)
+
+    monkeypatch.setattr(sync_mod, "sync_once", fake)
+    assert sync_mod.trigger_sync("free") is True
+    wait_run(1)                       # 第 1 轮在途
+    sync_mod.trigger_sync("pro")      # 排队
+    releases[0].set()                 # 第 1 轮结束 → 重跑 pro 开始
+    wait_run(2)
+    sync_mod.trigger_sync("max")      # 重跑在途时再触发（旧实现会丢）
+    releases[1].set()
+    wait_run(3)
+    releases[2].set()
+    for _ in range(600):
+        if not sync_mod._syncing:
+            break
+        _time.sleep(0.01)
+    assert calls == ["free", "pro", "max"]
+    assert sync_mod._pending_tier is None

@@ -7,6 +7,14 @@ import os
 from contextlib import asynccontextmanager
 from datetime import datetime
 
+from logging_setup import setup_logging
+
+# backend-logging（D3）：文件日志单点初始化，必须早于业务 import——任何 router
+# 导入期崩溃的 traceback 由 uvicorn error logger 打出时文件 handler 已在位
+# （2026-10-06「uvicorn.log 空＝导入期死」判据）。打包态壳层已在起 uvicorn 前预挂，
+# 此处幂等重入。AINOVEL_LOG_OFF=1 时跳过（conftest 全局设置）。
+setup_logging()
+
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
@@ -371,6 +379,13 @@ async def _loginless_loopback_guard(request: _Request, call_next):
         if not _is_local(host):
             return JSONResponse(status_code=403, content={"detail": "仅限本机访问"})
     return await call_next(request)
+
+
+# backend-logging（D6）：请求一行一条（含耗时）。必须最后注册＝最外层——被上面的
+# loginless guard / CORS 短路拦下的响应也要落行；/api/health 豁免。
+from request_logging import RequestLoggingMiddleware
+
+app.add_middleware(RequestLoggingMiddleware)
 
 # 迁入端点（db-generation）：免登（回环中间件已覆盖本前缀）
 from migration.router import router as migration_router

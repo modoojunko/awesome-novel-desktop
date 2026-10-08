@@ -144,7 +144,54 @@ describe("空 projectId 守卫", () => {
     for (const pid of [undefined, ""]) {
       renderHook(() => useOnboarding(pid, []));
     }
-    await act(async () => {}); // 排空 effects 与微任务，给「不该有的请求」机会冒头
+    await act(async () => {}); // 排空 effects 与微任务，给「不该有的请求」冒头机会
     expect(apiState.get).not.toHaveBeenCalled();
+  });
+});
+
+// ── 角色第三态精确回填与主动重取（c-chars-stale-reconfirm）────────────────
+// 回归背景：旧实现只置真（confirmed && stale 才 setTrue，仅 !confirmed 才 setFalse），
+// 且只在 [projectId, confirmedStatus] 变化时取一次 → 点「重新确认」后徽标要刷新页面才恢复。
+describe("charStale（GET /characters/gate/status）", () => {
+  /** 只认三个端点的桩：gate/status 由 callback 出，其余回空信封 */
+  const stub = (gateStatus: () => Promise<unknown>) =>
+    apiState.get.mockImplementation((path: string) =>
+      path.endsWith("/characters/gate/status") ? gateStatus() : Promise.resolve({}),
+    );
+
+  it("回填精确值：confirmed 但不再 stale → 清假（不再只置真）", async () => {
+    let stale = true;
+    stub(() => Promise.resolve({ data: { confirmed: true, stale } }));
+    const { result } = await mountHook();
+    await waitFor(() => expect(result.current.charStale).toBe(true));
+
+    stale = false; // 重新确认后服务端不再 stale
+    await act(async () => {
+      await result.current.refreshCharStale();
+    });
+    expect(result.current.charStale).toBe(false);
+  });
+
+  it("取回失败保持现值：网络抖动不得把「内容有变」抹成绿", async () => {
+    let fail = false;
+    stub(() =>
+      fail
+        ? Promise.reject(new Error("gate/status 500"))
+        : Promise.resolve({ data: { confirmed: true, stale: true } }),
+    );
+    const { result } = await mountHook();
+    await waitFor(() => expect(result.current.charStale).toBe(true));
+
+    fail = true;
+    await act(async () => {
+      await result.current.refreshCharStale();
+    });
+    expect(result.current.charStale).toBe(true);
+  });
+
+  it("无确认存档（data=null）→ false", async () => {
+    stub(() => Promise.resolve({ data: null }));
+    const { result } = await mountHook();
+    await waitFor(() => expect(result.current.charStale).toBe(false));
   });
 });

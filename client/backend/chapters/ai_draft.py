@@ -98,7 +98,7 @@ async def fill_outline_gaps(
         raw = await client.chat(
             model="haiku", system=system,
             messages=[{"role": "user", "content": user_content + "\n\n请补齐缺失字段。"}],
-            max_tokens=2000, usage=usage,
+            max_tokens=2000, usage=usage, operation="outline_fill_gaps",
         )
     except AITimeoutError:
         from api_configs.usage import record_usage

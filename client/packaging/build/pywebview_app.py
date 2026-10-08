@@ -17,8 +17,12 @@ import webview
 
 
 def get_base_dir() -> Path:
+    # Nuitka standalone（c-nuitka-full）：sys.frozen 恒 False，官方标记是主模块
+    # globals 里的 __compiled__；datas 与二进制同目录（无 _MEIPASS 等价物）
     if getattr(sys, 'frozen', False):
         return Path(sys._MEIPASS)
+    if "__compiled__" in globals():
+        return Path(sys.executable).parent
     # Dev 模式: pywebview_app.py 在 client/packaging/build/ → 项目根目录
     return Path(__file__).parent.parent.parent
 
@@ -88,7 +92,7 @@ def get_appdata() -> Path:
 def get_install_dir() -> Path:
     """数据目录（DATA_ROOT）。Windows 便携式：exe 同目录；macOS：不写进 .app bundle，
     数据放 Application Support（与运行时目录一致）。"""
-    if getattr(sys, 'frozen', False):
+    if getattr(sys, 'frozen', False) or "__compiled__" in globals():
         if sys.platform == "darwin":
             return get_appdata()
         return Path(sys.executable).parent
@@ -118,7 +122,9 @@ def get_runtime_dir() -> Path:
 
     macOS / dev：等同 get_appdata()（macOS 上该目录同时是数据目录；dev 不往仓库里写）。"""
     appdata = get_appdata()
-    if sys.platform == "darwin" or not getattr(sys, "frozen", False):
+    if sys.platform == "darwin" or not (
+        getattr(sys, "frozen", False) or "__compiled__" in globals()
+    ):
         return appdata
     install_dir = get_install_dir()
     if _install_dir_writable(install_dir):
@@ -190,12 +196,13 @@ def window_title() -> str:
 
 
 def log_line(appdata: Path, message: str) -> None:
-    """把一行带时间戳的启动日志追加到 <运行目录>/startup.log（运行目录见 get_runtime_dir）。
+    """把一行带时间戳的启动日志追加到 <运行目录>/logs/startup.log（backend-logging
+    单目录：全部诊断日志收进 logs/，求诊只看一个目录）。
 
-    运行目录不可写时退到系统临时目录（极端：安装目录与 %APPDATA% 都写不进去），
-    再失败则静默——日志本身绝不能把启动打崩。"""
+    回退链（仅插头不改尾）：logs/ → 运行目录根 → 系统临时目录（极端：安装目录
+    与 %APPDATA% 都写不进去）。再失败则静默——日志本身绝不能把启动打崩。"""
     stamp = time.strftime("%Y-%m-%d %H:%M:%S")
-    for target in (appdata, Path(tempfile.gettempdir()) / APP_DIR_NAME):
+    for target in (appdata / "logs", appdata, Path(tempfile.gettempdir()) / APP_DIR_NAME):
         try:
             target.mkdir(parents=True, exist_ok=True)
             with open(target / "startup.log", "a", encoding="utf-8") as f:
@@ -362,7 +369,7 @@ def webview2_version():
 
 
 def attach_pywebview_log(appdata: Path) -> None:
-    """把 pywebview 自己的调试日志旁路到 <运行目录>/pywebview.log。
+    """把 pywebview 自己的调试日志旁路到 <运行目录>/logs/pywebview.log（单目录口径）。
 
     GUI 模式下 stderr 是 devnull——缺这一步，pywebview 的 Loading URL /
     loaded event fired 这些关键判据就是黑洞。"""
@@ -373,8 +380,10 @@ def attach_pywebview_log(appdata: Path) -> None:
         logger = logging.getLogger("pywebview")
         if any(getattr(h, "_ai_novel_file", False) for h in logger.handlers):
             return
+        logs_dir = appdata / "logs"
+        logs_dir.mkdir(parents=True, exist_ok=True)
         handler = RotatingFileHandler(
-            appdata / "pywebview.log", maxBytes=2_000_000, backupCount=2, encoding="utf-8"
+            logs_dir / "pywebview.log", maxBytes=2_000_000, backupCount=2, encoding="utf-8"
         )
         handler._ai_novel_file = True
         handler.setFormatter(logging.Formatter("%(asctime)s %(levelname)s %(message)s"))
@@ -820,47 +829,29 @@ def start_server():
             json.dump({"port": port}, f)
 
         log_line(appdata, f"starting uvicorn on port {port}")
-        # GUI 模式下 sys.stdout 为 None，uvicorn 的日志格式化会崩溃
-        # 方案: 将日志输出重定向到文件
-        # 级别 INFO（shell-render-resilience 起）：WARNING 会把 lifespan 进度
-        # （db_lifecycle / seeding / Application startup complete）全吞掉——
-        # 「后端就绪超时」类现场就只剩一个空文件。access 日志是判据：渲染进程
-        # 的请求到底有没有走到后端（没走到＝卡在 WebView2/网络栈侧）。
-        log_config = {
-            "version": 1,
-            "disable_existing_loggers": False,
-            "formatters": {
-                "default": {
-                    "()": "uvicorn.logging.DefaultFormatter",
-                    # 时间戳必须有（2026-10-06 现场）：白屏期间"后端还在不在服务"是核心判据，
-                    # 没有时间戳就只能靠猜请求发生在哪一段。
-                    "fmt": "%(asctime)s %(levelprefix)s %(message)s",
-                    "use_colors": False,
-                },
-            },
-            "handlers": {
-                "default": {
-                    "formatter": "default",
-                    "class": "logging.handlers.RotatingFileHandler",
-                    "filename": str(appdata / "uvicorn.log"),
-                    "mode": "a",
-                    "maxBytes": 2_000_000,
-                    "backupCount": 2,
-                    "encoding": "utf-8",
-                },
-            },
-            "loggers": {
-                "uvicorn": {"handlers": ["default"], "level": "INFO", "propagate": False},
-                "uvicorn.error": {"handlers": ["default"], "level": "INFO", "propagate": False},
-                "uvicorn.access": {"handlers": ["default"], "level": "INFO", "propagate": False},
-            },
-        }
+        # backend-logging 单源：文件日志职责移交 backend/logging_setup（按天轮转＋
+        # 保 5 天＋全诊断日志单目录 logs/）。壳层只注入目录并预挂——backend_dir 已在
+        # sys.path（本线程前段插入），uvicorn.Config 构造前 setup_logging() 先行，
+        # 连「main.py 自身语法错误」类导入期死亡都有文件可考（幂等标记与 backend
+        # main.py 顶部的调用合一，双挂不可能）。
+        os.environ.setdefault("AINOVEL_LOG_DIR", str(appdata / "logs"))
+        try:
+            from logging_setup import setup_logging as _setup_logging
+
+            _setup_logging()
+        except Exception:
+            log_line(appdata, "logging_setup 预挂失败（backend 导入期会重试）：\n"
+                              + traceback.format_exc())
+        # log_config=None：uvicorn 跳过自带 dictConfig（stdout 在打包态已是 devnull）。
+        # uvicorn 消息经 logging_setup 的 uvicorn 桥接进按天文件；级别 INFO（等同旧
+        # 口径）：lifespan 进度（db_lifecycle / seeding / Application startup complete）
+        # 是「后端就绪超时」类现场的核心判据。
         # 留句柄（shell-hang-hardening 2.1）：`uvicorn.run()` 一走到底、没有停止入口，关窗后
         # 就只能硬退。换成 Config+Server 后可在窗口关闭时先请它退出再收尾。
         # Server.run() 在非主线程同样跳过信号处理，行为与 run() 一致。
         global _server_handle
         _server_handle = uvicorn.Server(
-            uvicorn.Config("main:app", host="127.0.0.1", port=port, log_config=log_config)
+            uvicorn.Config("main:app", host="127.0.0.1", port=port, log_config=None)
         )
         _server_handle.run()
     except Exception as e:
@@ -978,24 +969,66 @@ def loading_html() -> str:
     return LOADING_HTML_TEMPLATE.replace("__BRAND_NAME__", name)
 
 
-def write_error_page(appdata: Path, reason: str) -> Path:
-    """写启动失败页（含 startup.log 与 uvicorn.log 尾段）并返回路径。
+def _read_tail(path: Path, limit: int = 1500) -> str | None:
+    """读文件尾段；读不到返回 None（调用方决定兜底文案）。"""
+    try:
+        return path.read_text(encoding="utf-8", errors="replace")[-limit:]
+    except Exception:
+        return None
 
-    旧版只带 startup.log 尾段——而后端侧的真实死因（导入炸/lifespan 抛错）
-    全在 uvicorn.log 里，报错页反而漏了最有用的那份。"""
+
+def _startup_log_candidates(appdata: Path) -> list[Path]:
+    """startup.log 按写入侧同一回退链查找：logs/ → 运行目录根 → 系统临时目录。"""
+    return [
+        appdata / "logs" / "startup.log",
+        appdata / "startup.log",
+        Path(tempfile.gettempdir()) / APP_DIR_NAME / "startup.log",
+    ]
+
+
+def _backend_log_candidates(appdata: Path) -> list[Path]:
+    """后端日志查找：logs/ 内最新一份按天文件（app.log / app.log.日期）优先，
+    回退遗留 uvicorn.log（backend-logging 之前的现场，不删除）。"""
+    candidates: list[Path] = []
+    logs_dir = appdata / "logs"
+    try:
+        dated = sorted(
+            (p for p in logs_dir.glob("app.log*") if p.is_file()),
+            key=lambda p: p.stat().st_mtime,
+            reverse=True,
+        ) if logs_dir.is_dir() else []
+        candidates.extend(dated)
+    except Exception:
+        pass
+    candidates.append(appdata / "uvicorn.log")
+    return candidates
+
+
+def write_error_page(appdata: Path, reason: str) -> Path:
+    """写启动失败页（含壳层启动日志与后端按天日志尾段）并返回路径。
+
+    backend-logging：全部日志在运行目录 logs/ 下；后端侧真实死因（导入炸/
+    lifespan 抛错）在最新一份按天文件里——老现场回退遗留 uvicorn.log，不漏。"""
     import html
 
     blocks = []
-    for name in ("startup.log", "uvicorn.log"):
-        try:
-            tail = (appdata / name).read_text(encoding="utf-8", errors="replace")[-1500:]
-        except Exception:
-            tail = "（无此日志）"
+    for kind, candidates in (
+        ("startup.log", _startup_log_candidates(appdata)),
+        ("后端日志（logs/ 最新）", _backend_log_candidates(appdata)),
+    ):
+        tail = None
+        used: Path | None = None
+        for candidate in candidates:
+            tail = _read_tail(candidate)
+            if tail is not None:
+                used = candidate
+                break
         blocks.append(
-            f"<p style='margin:18px 0 6px;color:#9bb'>=== {name} ===</p><pre "
-            "style='white-space:pre-wrap;background:#0f3460;padding:16px;"
+            f"<p style='margin:18px 0 6px;color:#9bb'>=== {html.escape(kind)}"
+            f"{f'（{html.escape(str(used))}）' if used is not None else ''} ===</p>"
+            "<pre style='white-space:pre-wrap;background:#0f3460;padding:16px;"
             "border-radius:8px;max-height:32vh;overflow:auto'>"
-            + html.escape(tail) + "</pre>"
+            + html.escape(tail if tail is not None else "（无此日志）") + "</pre>"
         )
     err_path = appdata / "error.html"
     err_path.write_text(
@@ -1003,7 +1036,8 @@ def write_error_page(appdata: Path, reason: str) -> Path:
         "style='font-family:-apple-system,sans-serif;padding:40px;"
         "background:#1a1a2e;color:#e0e0e0'><h2>" + html.escape(window_title())
         + " 启动失败</h2><p>" + html.escape(reason) + "</p>"
-        "<p style='color:#9bb'>日志目录：" + html.escape(str(appdata)) + "</p>"
+        "<p style='color:#9bb'>日志目录：" + html.escape(str(appdata / "logs"))
+        + "（求诊请附其中最新两份文件）</p>"
         "<p style='color:#9bb'>浏览器兜底说明：用浏览器打开的应用依赖本程序运行（后端在本进程内）；"
         "关闭本程序后，那个页面会失去后端而不可用。</p>"
         "<p style='color:#9bb'>可调参数：" + html.escape(str(appdata / SHELL_CONFIG_NAME))
@@ -1059,7 +1093,7 @@ def check_backend_and_navigate(window, appdata, cfg: dict | None = None):
             else:
                 log_line(appdata,
                          f"backend NOT ready (timeout {backend_timeout}s；后端线程仍活着，"
-                         "多半还在导入/启动中——明细见同目录 uvicorn.log 与上方心跳行)")
+                         "多半还在导入/启动中——明细见 logs/ 下按天日志 app.log 与上方心跳行)")
             _show_error(window, appdata, "后端启动超时或启动失败，请检查下面的日志：")
             return
 
@@ -1144,6 +1178,20 @@ class NativeBridge:
     def pick_folder(self):
         result = self._window_ref.create_file_dialog(webview.FOLDER_DIALOG)
         return result[0] if result else None
+
+    def open_external(self, url: str):
+        """系统默认浏览器打开外链（登录授权页等）。
+
+        pywebview cocoa 只把「真实锚点点击」（WKNavigationTypeLinkActivated）转给
+        系统浏览器，编程式 window.open 的 navigationType=Other 落空（cocoa.py
+        createWebViewWith 判例，2026-10-07 Nuitka 包实测复现）——需要系统浏览器的
+        跳转走本桥；仅放行 http/https。桥探测不到时前端回退 window.open
+        （Windows 引擎下可达系统浏览器，行为不变）。"""
+        if not isinstance(url, str) or not url.startswith(("http://", "https://")):
+            return False
+        import webbrowser
+
+        return bool(webbrowser.open(url))
 
     def pick_save_file(self, default_name: str = "", file_types=None):
         result = self._window_ref.create_file_dialog(

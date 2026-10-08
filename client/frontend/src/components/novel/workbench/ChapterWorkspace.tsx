@@ -31,7 +31,7 @@ import { StyleShadowPane } from "./StyleShadowPane";
 import { SettingsChangelogPane } from "./SettingsChangelogPane";
 import { HooksPane } from "./HooksPane";
 import { RelationsGraphPane } from "./RelationsGraphPane";
-import { dossierApi } from "@/lib/dossierApi";
+import { DOSSIER_CHANGED_EVENT, dossierApi } from "@/lib/dossierApi";
 import {
   RelationChangesSection,
   SettingChangesSection,
@@ -92,6 +92,17 @@ import { chapterNoOf, volNoOf } from "@/lib/chapterRef";
 type OutlineApi = ReturnType<typeof useOutline>;
 type WorkbenchApi = ReturnType<typeof useWorkbench>;
 
+/** 章内页签键（页签行渲染与 chTab 状态共用；c-chtab-confirm-bubbles 起徽标带 title/testid） */
+type ChTabKey = "og" | "prose" | "settings" | "relations" | "hooks" | "actions" | "style";
+/** 页签徽标：既有 .cnt 文本计数，或 .pill 家族计数泡泡（count role × tone） */
+interface ChTabCnt {
+  text: string;
+  cls: string;
+  title?: string;
+  testid?: string;
+}
+const CH_TAB_EMPTY_CNT: ChTabCnt = { text: "", cls: "" };
+
 interface ChapterWorkspaceProps {
   projectId: string;
   chapterRef: string;
@@ -112,7 +123,7 @@ interface ChapterWorkspaceProps {
   onRailData: (data: RailChapterData | null) => void;
   /** 生成启动信号（计数器递增）：切正文页签 + 聚焦（真 bug #2） */
   aiWriteSignal: number;
-  /** 提示词落库信号（c-prompt-tab-retire）：弹窗润色/存稿后右栏提示词状态行刷新 */
+  /** 提示词落库信号（c-prompt-tab-retire）：弹窗存稿后右栏提示词状态行刷新 */
   promptSavedSignal?: number;
   /** 续写恢复信号（顶栏 CTA）：n 递增触发，落正文页签并滚回上次位置 */
   resumeSignal?: { ref: string; scroll: number; n: number };
@@ -122,7 +133,7 @@ interface ChapterWorkspaceProps {
   onRevert: (ref: string) => void;
   /** chapter-rewrite：树刷新（useWorkbench.refresh——旧稿分组与角标只在树 hook 里） */
   onTreeRefresh: () => Promise<void> | void;
-  /** 重新润色出口（已润色章改剧情软提示）：打开 AI 生成正文弹窗（内含 AI 润色） */
+  /** 刷新提示词出口（存量稿章改剧情软提示）：打开 AI 生成正文弹窗（可刷新提示词） */
   onOpenAiModal?: () => void;
 }
 
@@ -212,9 +223,7 @@ export default function ChapterWorkspace({
   // 为旧代字段，ADJUSTMENTS ⑤ 登记）。
 
   // ── 页签：点章强制落「章纲」（设计稿行为） ───────────────────────────
-  const [chTab, setChTab] = useState<
-    "og" | "prose" | "settings" | "relations" | "hooks" | "actions"
-   | "style">("og");
+  const [chTab, setChTab] = useState<ChTabKey>("og");
   const [showArchive, setShowArchive] = useState(false);
   // 章级变化轻量元数据（c-chapter-dossier）：归档态常驻一次＋弹窗打开时刷新——
   // 供重归档覆盖警示、归档卡「未提取」态（not_extracted）与三段进度条的待确认计数
@@ -224,35 +233,78 @@ export default function ChapterWorkspace({
     pending: number;
   } | null>(null);
   const [dossierEmpty, setDossierEmpty] = useState(false);
+  // 页签泡泡（c-chtab-confirm-bubbles）：设定三域/关系域 pending，与对应页签内
+  // 「全部采纳（N）」同一份数据派生（rows 现地过滤）；提取收口即取，零轮询
+  const [tabBubbles, setTabBubbles] = useState<{ settings: number; relations: number }>({
+    settings: 0,
+    relations: 0,
+  });
+  const applyDossierMeta = useCallback(
+    (d: Awaited<ReturnType<typeof dossierApi.get>>) => {
+      const n = d.progress.pending + d.progress.accepted + d.progress.rejected;
+      setRearchive(
+        n > 0
+          ? {
+              rows: n,
+              accepted: d.progress.accepted,
+              pending: d.progress.pending,
+            }
+          : null,
+      );
+      setDossierEmpty(d.not_extracted);
+      setTabBubbles({
+        settings: d.rows.filter((r) => r.domain !== "relations" && r.status === "pending")
+          .length,
+        relations: d.rows.filter((r) => r.domain === "relations" && r.status === "pending")
+          .length,
+      });
+    },
+    [],
+  );
+  const resetDossierMeta = useCallback(() => {
+    setRearchive(null);
+    setDossierEmpty(false);
+    setTabBubbles({ settings: 0, relations: 0 });
+  }, []);
+  // 提取刚收口、树尚未翻转 archived 的窗口也要取到（泡泡不迟于完成 toast 出现）
   useEffect(() => {
-    if (!showArchive && !archived) return;
+    if (!showArchive && !archived && store.archiveJob?.state !== "done") return;
     let cancelled = false;
     void (async () => {
       try {
         const d = await dossierApi.get(projectId, chapterRef);
         if (cancelled) return;
-        const n = d.progress.pending + d.progress.accepted + d.progress.rejected;
-        setRearchive(
-          n > 0
-            ? {
-                rows: n,
-                accepted: d.progress.accepted,
-                pending: d.progress.pending,
-              }
-            : null,
-        );
-        setDossierEmpty(d.not_extracted);
+        applyDossierMeta(d);
       } catch {
-        if (!cancelled) {
-          setRearchive(null);
-          setDossierEmpty(false);
-        }
+        if (!cancelled) resetDossierMeta();
       }
     })();
     return () => {
       cancelled = true;
     };
-  }, [showArchive, archived, store.archiveJob?.state, projectId, chapterRef]);
+  }, [showArchive, archived, store.archiveJob?.state, projectId, chapterRef, applyDossierMeta, resetDossierMeta]);
+  // 逐条/批量确认与驳回后即时递减（行动作既有广播；与本工作台章匹配才重取）
+  useEffect(() => {
+    if (!archived && store.archiveJob?.state !== "done") return;
+    let cancelled = false;
+    const onChanged = (e: Event) => {
+      const d = (e as CustomEvent).detail as { projectId?: string; chapterRef?: string };
+      if (d?.projectId !== projectId || d?.chapterRef !== chapterRef) return;
+      void (async () => {
+        try {
+          const fresh = await dossierApi.get(projectId, chapterRef);
+          if (!cancelled) applyDossierMeta(fresh);
+        } catch {
+          /* 重取失败保留现值，下次动作后再收敛 */
+        }
+      })();
+    };
+    window.addEventListener(DOSSIER_CHANGED_EVENT, onChanged);
+    return () => {
+      cancelled = true;
+      window.removeEventListener(DOSSIER_CHANGED_EVENT, onChanged);
+    };
+  }, [archived, store.archiveJob?.state, projectId, chapterRef, applyDossierMeta]);
   const [showHistory, setShowHistory] = useState(false);
   // 章纲查看/编辑两态（对齐卷纲）：默认查看态，切章回落查看
   const [ogEditing, setOgEditing] = useState(false);
@@ -263,6 +315,8 @@ export default function ChapterWorkspace({
     setShowHistory(false);
     setOgEditing(false);
     setProseEditing(false);
+    // 泡泡随章重取（c-chtab-confirm-bubbles）：先清上一章计数，未归档章不残留
+    setTabBubbles({ settings: 0, relations: 0 });
   }, [chapterRef]);
 
   // 生成启动信号（页面解锁链/AiModal 确认后递增）：切正文页签 + 进编辑态 + 聚焦（真 bug #2）
@@ -572,13 +626,13 @@ const [ogForm, setOgForm] = useState<OgForm>(EMPTY_OG_FORM);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [projectId, chapterRef, ogForm]);
 
-  // ── 章内剧情（c-plot-split）：门槛拦截 → 三版抽卡 → 采纳/撤销 → 润色软提示 ──
+  // ── 章内剧情（c-plot-split）：门槛拦截 → 三版抽卡 → 采纳/撤销 → 提示词软提示 ──
   const plotDraw = usePlotDraw(projectId, chapterRef);
   const navigate = useNavigate();
   /** 替换明示 N＝已写的非空条数（拍板②） */
   const writtenCount = ogForm.plots.filter((s) => s.trim() !== "").length;
 
-  // 采纳回执（常驻到下次编辑，拍板②）：撤销快照＝采纳前列表
+  // 采纳回执（3 秒自动消失＋×，c-toast-dismiss；「编辑即收/切章即收」保留为提前收口）：撤销快照＝采纳前列表
   const plotReceiptRef = useRef<{ id: number; prev: string[] } | null>(null);
   const killPlotReceipt = useCallback(() => {
     const r = plotReceiptRef.current;
@@ -598,34 +652,35 @@ const [ogForm, setOgForm] = useState<OgForm>(EMPTY_OG_FORM);
     toast.info("已恢复到 AI 填写前的列表");
   }, [killPlotReceipt]);
 
-  // 已润色章改剧情软提示（拍板⑥）：quiet 探提示词，润色产物才提示，不自动重算
-  const polishHintShownRef = useRef(false);
-  const polishHintTimerRef = useRef<number | null>(null);
+  // 存量稿章改剧情软提示（拍板⑥；c-retire-prompt-polish 后出口指向「刷新提示词」）：
+  // quiet 探提示词，存量稿才提示，不自动重算
+  const promptHintShownRef = useRef(false);
+  const promptHintTimerRef = useRef<number | null>(null);
   // 切章/卸载：清挂起的软提示 timer、重置「已提示」（新章要重新判定）
   useEffect(() => {
-    polishHintShownRef.current = false;
+    promptHintShownRef.current = false;
     return () => {
-      if (polishHintTimerRef.current) clearTimeout(polishHintTimerRef.current);
-      polishHintTimerRef.current = null;
+      if (promptHintTimerRef.current) clearTimeout(promptHintTimerRef.current);
+      promptHintTimerRef.current = null;
     };
   }, [chapterRef]);
-  const maybeHintPolish = useCallback(() => {
-    if (!isPro || polishHintShownRef.current) return;
-    if (polishHintTimerRef.current) clearTimeout(polishHintTimerRef.current);
-    polishHintTimerRef.current = window.setTimeout(() => {
+  const maybeHintPromptRefresh = useCallback(() => {
+    if (!isPro || promptHintShownRef.current) return;
+    if (promptHintTimerRef.current) clearTimeout(promptHintTimerRef.current);
+    promptHintTimerRef.current = window.setTimeout(() => {
       void (async () => {
         try {
           const d = (await request(
             `/novels/${projectId}/chapters/${chapterRef}/write/prompt`,
             { quiet: true },
           )) as { polished?: boolean };
-          if (!d?.polished || polishHintShownRef.current) return;
-          polishHintShownRef.current = true;
-          toast.info("提示词还是旧版、没带上新剧情——可以重新润色", {
+          if (!d?.polished || promptHintShownRef.current) return;
+          promptHintShownRef.current = true;
+          toast.info("提示词还是旧版、没带上新剧情——可以刷新提示词", {
             action: {
-              label: "去重新润色",
+              label: "去刷新提示词",
               onClick: () => {
-                polishHintShownRef.current = false; // 重润后下次改动还能再提示
+                promptHintShownRef.current = false; // 刷新后下次改动还能再提示
                 onOpenAiModal?.();
               },
             },
@@ -638,7 +693,7 @@ const [ogForm, setOgForm] = useState<OgForm>(EMPTY_OG_FORM);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [projectId, chapterRef, isPro, onOpenAiModal]);
 
-  // 剧情编辑（输入/加/删任一动作，OgPane 上抛）：下次编辑即收回执（拍板②）＋润色软提示
+  // 剧情编辑（输入/加/删任一动作，OgPane 上抛）：下次编辑即收回执（拍板②）＋提示词软提示
   const saveOgRef = useRef(saveOg);
   saveOgRef.current = saveOg;
   const outlineRef = useRef(outline);
@@ -647,8 +702,8 @@ const [ogForm, setOgForm] = useState<OgForm>(EMPTY_OG_FORM);
   ogFormRef.current = ogForm;
   const handlePlotEdit = useCallback(() => {
     killPlotReceipt();
-    maybeHintPolish();
-  }, [killPlotReceipt, maybeHintPolish]);
+    maybeHintPromptRefresh();
+  }, [killPlotReceipt, maybeHintPromptRefresh]);
 
   /** 「剧情抽卡」（右栏动作）：先 flush 表单，门槛读服务端值（拍板⑦三样） */
   const handlePlotDraw = useCallback(async () => {
@@ -678,7 +733,7 @@ const [ogForm, setOgForm] = useState<OgForm>(EMPTY_OG_FORM);
     plotDraw.openDraw();
   }, [chapterRef, plotDraw]);
 
-  /** 「就填这版」：整表替换（拍板②）＋常驻回执（撤销恢复填写前列表，含非空）。
+  /** 「就填这版」：整表替换（拍板②）＋回执（3 秒窗口内可撤销恢复填写前列表，含非空；c-toast-dismiss）。
    *  关窗在落库成功之后——保存失败时弹层留在原地、选中版还在，直接再点即可重试
    *  （先关后存会把失败变成「重抽一次烧 tokens」，评审 P3）；adoptingRef 挡落库期间重入。 */
   const adoptingRef = useRef(false);
@@ -707,15 +762,14 @@ const [ogForm, setOgForm] = useState<OgForm>(EMPTY_OG_FORM);
     plotReceiptRef.current = {
       prev,
       id: toast.success(`剧情已由 AI 填好（${items.length} 条）`, {
-        sticky: true,
         action: { label: "撤销 · 恢复填写前的列表", onClick: handlePlotUndo },
       }),
     };
     adoptingRef.current = false;
-    maybeHintPolish();
+    maybeHintPromptRefresh();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [plotDraw, ogForm, outline.saveChapter, outline.chaptersMap, chapterRef,
-      killPlotReceipt, handlePlotUndo, maybeHintPolish]);
+      killPlotReceipt, handlePlotUndo, maybeHintPromptRefresh]);
 
   // ── 剧情推演（plot-sim）：弹窗按回合走一遍；收进章纲＝追加一条剧情条目后走既有保存链
   // （c-og-slim-v2：原落点「预期策略」已退役，改追加剧情条目，既有条目不动）──
@@ -1103,6 +1157,40 @@ const [ogForm, setOgForm] = useState<OgForm>(EMPTY_OG_FORM);
     text: wordCount ? `${fmt(wordCount)} 字` : "空章",
   };
 
+  // ── 页签待确认泡泡（c-chtab-confirm-bubbles）：词汇＝.pill 家族既有组合
+  //    （count role × accent/warn，N6 禁红）；该收数＝ogHookHints.mres（台账
+  //    「该收了」共享判定），与 HooksPane 行内标注同源；0 条不出泡泡。
+  //    设定/关系两泡钉在归档态上：取消归档后章档行虽保留（后端不清），
+  //    泡泡须随章退出归档态即时退场（spec 场景「未归档章无泡」）──
+  const hooksDue = hookHints?.mres.length ?? 0;
+  const settingsBubble: ChTabCnt =
+    archived && tabBubbles.settings > 0
+      ? {
+          cls: "pill pill-count pill-accent",
+          text: String(tabBubbles.settings),
+          title: `${tabBubbles.settings} 条本章变化待确认`,
+          testid: "chtab-bubble-settings",
+        }
+      : CH_TAB_EMPTY_CNT;
+  const relationsBubble: ChTabCnt =
+    archived && tabBubbles.relations > 0
+      ? {
+          cls: "pill pill-count pill-accent",
+          text: String(tabBubbles.relations),
+          title: `${tabBubbles.relations} 条人物关系待确认`,
+          testid: "chtab-bubble-relations",
+        }
+      : CH_TAB_EMPTY_CNT;
+  const hooksBubble: ChTabCnt =
+    hooksDue > 0
+      ? {
+          cls: "pill pill-count pill-warn",
+          text: `该收 ${hooksDue}`,
+          title: `${hooksDue} 条伏笔到了计划收束章`,
+          testid: "chtab-bubble-hooks",
+        }
+      : CH_TAB_EMPTY_CNT;
+
   const saveView =
     saveState === "autosaving"
       ? { cls: "save-state saving", text: "保存中…" }
@@ -1158,12 +1246,12 @@ const [ogForm, setOgForm] = useState<OgForm>(EMPTY_OG_FORM);
           [
             ["og", "章纲", ogCnt],
             ["prose", "正文", proseCnt],
-            ["settings", "设定", { text: "", cls: "" }],
-            ["style", "文风", { text: "", cls: "" }],
-            ["relations", "角色关系", { text: "", cls: "" }],
-            ["hooks", "伏笔", { text: "", cls: "" }],
-            ["actions", "操作", { text: "", cls: "" }],
-          ] as const
+            ["settings", "设定", settingsBubble],
+            ["style", "文风", CH_TAB_EMPTY_CNT],
+            ["relations", "角色关系", relationsBubble],
+            ["hooks", "伏笔", hooksBubble],
+            ["actions", "操作", CH_TAB_EMPTY_CNT],
+          ] as Array<[ChTabKey, string, ChTabCnt]>
         ).map(([key, text, cnt]) => (
           <button
             key={key}
@@ -1172,7 +1260,10 @@ const [ogForm, setOgForm] = useState<OgForm>(EMPTY_OG_FORM);
             aria-selected={chTab === key}
             onClick={() => setChTab(key)}
           >
-            {text} <span className={cnt.cls}>{cnt.text}</span>
+            {text}{" "}
+            <span className={cnt.cls} title={cnt.title} data-testid={cnt.testid}>
+              {cnt.text}
+            </span>
           </button>
         ))}
         {/* 生成中徽章（c-prose-stream-guard）：提升到页签行——离开正文页签

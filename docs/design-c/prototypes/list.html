@@ -223,8 +223,11 @@
   .fin-done p{margin:3px 0 0;font-size:12.5px;color:var(--muted)}
 
   .toast-wrap{position:fixed;bottom:24px;left:50%;transform:translateX(-50%);z-index:80;display:flex;flex-direction:column;align-items:center;gap:8px;pointer-events:none}
-  .toast{display:inline-flex;align-items:center;gap:8px;background:var(--fg);color:var(--surface);padding:9px 16px;border-radius:10px;font-size:13px;box-shadow:var(--shadow-card);animation:toast-in .22s ease}
+  .toast{display:inline-flex;align-items:center;gap:8px;background:var(--fg);color:var(--surface);padding:9px 16px;border-radius:10px;font-size:13px;box-shadow:var(--shadow-card);animation:toast-in .22s ease;pointer-events:auto}
   .toast svg{width:14px;height:14px;color:var(--ok);flex:none}
+  .toast .toast-x{display:inline-flex;align-items:center;justify-content:center;width:18px;height:18px;margin-left:2px;padding:0;border:0;background:none;color:inherit;opacity:.7;cursor:pointer;flex:none}
+  .toast .toast-x:hover{opacity:1}
+  .toast .toast-x svg{width:12px;height:12px;color:inherit}
   @keyframes toast-in{from{opacity:0;transform:translateY(8px)}}
 
   /* 底部状态条：左版权、右版本，固定窗口底 */
@@ -247,6 +250,32 @@
   .am-item.danger svg{color:var(--warn)}
   .am-foot{border-top:1px solid var(--border);margin-top:4px;padding-top:4px}
   .am-version{display:block;padding:4px 12px 6px;font-size:11px;color:var(--muted);text-align:right}
+
+  /* ═══ 写作能力引导弹窗（c-prompt-pack-onboard-modal）：分步进行行 ═══ */
+  .pm-steps{display:flex;flex-direction:column;gap:9px;margin:14px 0 2px}
+  .pm-step{display:flex;align-items:center;gap:9px;font-size:13px;color:var(--muted)}
+  .pm-step .pm-ic{width:15px;height:15px;flex:none;display:inline-flex;align-items:center;justify-content:center}
+  .pm-step .pm-ic svg{width:13px;height:13px}
+  .pm-step.done{color:var(--fg)}
+  .pm-step.done .pm-ic{color:var(--accent)}
+  .pm-step.doing{color:var(--fg)}
+  .pm-step.doing .pm-ic .dot{width:7px;height:7px;border-radius:999px;background:var(--accent);animation:pm-breath 1.6s ease-in-out infinite}
+  .pm-step.wait .pm-ic .dot{width:7px;height:7px;border-radius:999px;border:1.5px solid var(--border)}
+  @keyframes pm-breath{0%,100%{opacity:.4}50%{opacity:1}}
+  .pm-ver{display:flex;align-items:center;gap:9px;font-size:13px;margin:14px 0 2px}
+  .pm-ver b{font-size:13px}
+  .pm-note{font-size:12.5px;color:var(--muted);line-height:1.75;margin:8px 0 0}
+  .pm-ok{display:flex;align-items:center;gap:9px;font-size:13px;color:var(--fg);margin:14px 0 2px}
+  .pm-ok .pm-ic{color:var(--accent)}
+  .pm-ok .pm-ic svg{width:15px;height:15px}
+  .pm-warn{font-size:12.5px;color:var(--warn);line-height:1.75;margin:12px 0 0}
+
+  /* 演示控制条（非基线；收编前删除） */
+  .demo-bar{position:fixed;bottom:0;left:0;right:0;z-index:70;display:flex;align-items:center;gap:6px;flex-wrap:wrap;
+    padding:7px 12px;background:color-mix(in oklch,var(--fg) 92%,transparent);color:var(--surface);font-size:11.5px}
+  .demo-bar .demo-h{font-family:var(--font-mono);font-size:10px;letter-spacing:.1em;opacity:.7;margin-right:2px}
+  .demo-bar .chip-btn{height:24px;padding:0 9px;border-radius:7px;border:1px solid color-mix(in oklch,var(--surface) 22%,transparent);background:none;color:var(--surface);font:inherit;font-size:11px}
+  .demo-bar .chip-btn.on{background:var(--surface);color:var(--fg)}
 
   @media (max-width:480px){
     .appbar{padding:0 12px;gap:8px}
@@ -349,6 +378,91 @@
   </div>
 </div>
 
+<!-- ══════════════ 写作能力引导弹窗（c-prompt-pack-onboard-modal）三模式＋终态变体 ══════════════ -->
+<!-- 变体经底部演示条切换（同 book.html pack 5 态口径）；产品实现为单实例 PromptPackModal（mode×stage 状态机）。
+     文案口径：统一「写作能力」；进度=分步行（检查版本/下载能力包/校验安装）；完成提示可关闭。 -->
+<div class="modal" id="packInstall" hidden data-od-id="pack-modal-install" role="dialog" aria-modal="true" aria-labelledby="pack-install-title">
+  <div class="mcard">
+    <div class="mcard-head">
+      <span class="mh serif" id="pack-install-title">正在准备写作能力</span>
+      <!-- 进度期锁定（拍板 10-07 二次）：X 钮 disabled、无 footer 退出出口，完成才提示可关闭 -->
+      <button class="icon-btn x" aria-label="关闭" disabled title="下载完成前不可关闭"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M6 6l12 12M18 6L6 18"/></svg></button>
+    </div>
+    <div class="mcard-body">
+      <p class="lead">首次登录自动获取，期间不能关闭此窗口；预计 1 分钟左右，网络较慢时可能需要几分钟。完成后即可使用全部 AI 写作。</p>
+      <div class="pm-steps">
+        <div class="pm-step done"><span class="pm-ic"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M3.5 8.6l3 3 6-7"/></svg></span>检查版本</div>
+        <div class="pm-step doing"><span class="pm-ic"><span class="dot"></span></span>下载能力包</div>
+        <div class="pm-step wait"><span class="pm-ic"><span class="dot"></span></span>校验安装</div>
+      </div>
+    </div>
+    <div class="mcard-foot"><!-- 进度期锁定：无退出按钮（演示稿留空） --></div>
+  </div>
+</div>
+<div class="modal" id="packUpdate" hidden data-od-id="pack-modal-update" role="dialog" aria-modal="true" aria-labelledby="pack-update-title">
+  <div class="mcard">
+    <div class="mcard-head">
+      <span class="mh serif" id="pack-update-title">写作能力有更新</span>
+      <button class="icon-btn x" data-close="packUpdate" aria-label="关闭"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M6 6l12 12M18 6L6 18"/></svg></button>
+    </div>
+    <div class="mcard-body">
+      <div class="pm-ver">当前 <b>v5</b><span aria-hidden="true">→</span>最新 <b>v6</b></div>
+      <p class="pm-note">更新会自动完成，期间不能关闭此窗口；预计 1 分钟左右，网络较慢时可能需要几分钟。现在不更新也不影响手头工作。</p>
+    </div>
+    <div class="mcard-foot">
+      <button class="btn btn-ghost btn-sm" data-close="packUpdate">暂不更新</button>
+      <button class="btn btn-primary btn-sm" id="packUpdateGo">立即更新</button>
+    </div>
+  </div>
+</div>
+<div class="modal" id="packUpdateRun" hidden data-od-id="pack-modal-update-run" role="dialog" aria-modal="true" aria-labelledby="pack-update-run-title">
+  <div class="mcard">
+    <div class="mcard-head">
+      <span class="mh serif" id="pack-update-run-title">正在更新写作能力</span>
+      <!-- 更新进行中同样锁定（拍板 10-07 三次）：X 禁用、无退出出口，完成才提示可关闭 -->
+      <button class="icon-btn x" aria-label="关闭" disabled title="更新完成前不可关闭"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M6 6l12 12M18 6L6 18"/></svg></button>
+    </div>
+    <div class="mcard-body">
+      <p class="lead">正在更新到最新版本，期间不能关闭此窗口；预计 1 分钟左右，网络较慢时可能需要几分钟。</p>
+      <div class="pm-steps">
+        <div class="pm-step done"><span class="pm-ic"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M3.5 8.6l3 3 6-7"/></svg></span>检查版本</div>
+        <div class="pm-step doing"><span class="pm-ic"><span class="dot"></span></span>下载能力包</div>
+        <div class="pm-step wait"><span class="pm-ic"><span class="dot"></span></span>校验安装</div>
+      </div>
+    </div>
+    <div class="mcard-foot"><!-- 进度期锁定：无退出按钮（演示稿留空） --></div>
+  </div>
+</div>
+<div class="modal" id="packDone" hidden data-od-id="pack-modal-done" role="dialog" aria-modal="true" aria-labelledby="pack-done-title">
+  <div class="mcard">
+    <div class="mcard-head">
+      <span class="mh serif" id="pack-done-title">写作能力已就绪</span>
+      <button class="icon-btn x" data-close="packDone" aria-label="关闭"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M6 6l12 12M18 6L6 18"/></svg></button>
+    </div>
+    <div class="mcard-body">
+      <div class="pm-ok"><span class="pm-ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 13l4 4L19 7"/></svg></span>v6 已安装完成，AI 写作可以使用了。</div>
+    </div>
+    <div class="mcard-foot">
+      <button class="btn btn-primary btn-sm" data-close="packDone">开始写作</button>
+    </div>
+  </div>
+</div>
+<div class="modal" id="packFail" hidden data-od-id="pack-modal-fail" role="dialog" aria-modal="true" aria-labelledby="pack-fail-title">
+  <div class="mcard">
+    <div class="mcard-head">
+      <span class="mh serif" id="pack-fail-title">写作能力没有就绪</span>
+      <button class="icon-btn x" data-close="packFail" aria-label="关闭"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M6 6l12 12M18 6L6 18"/></svg></button>
+    </div>
+    <div class="mcard-body">
+      <p class="pm-warn">获取没有完成（网络或服务暂时不可用）。手写不受影响，随时可以重试。</p>
+    </div>
+    <div class="mcard-foot">
+      <button class="btn btn-ghost btn-sm" data-close="packFail">复制诊断信息</button>
+      <button class="btn btn-primary btn-sm" data-close="packFail">重新获取</button>
+    </div>
+  </div>
+</div>
+
 <!-- ═══ 控制中心面板（c-account-control-center） ═══ -->
 <div class="acct-menu" id="acctMenu" hidden data-od-id="acct-menu" role="menu" aria-label="账号与设置">
   <div class="am-head" data-od-id="acct-menu-head">
@@ -360,6 +474,7 @@
   <button class="am-item" role="menuitem" data-out="备份" data-od-id="acct-menu-backup"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M12 15V4M7 8l5-5 5 5M5 20h14"/></svg>备份<span class="am-hint">选择文件夹导出</span></button>
   <button class="am-item" role="menuitem" data-out="恢复" data-od-id="acct-menu-restore"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12a9 9 0 109-9 9.75 9.75 0 00-6.74 2.74L3 8"/><path d="M3 3v5h5"/></svg>恢复<span class="am-hint">从备份文件导入</span></button>
   <button class="am-item" role="menuitem" data-out="模型配置 · API Key" data-od-id="acct-menu-config"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M4 7h13M10 12h10M4 17h7"/></svg>模型配置 · API Key<span class="am-hint">去配置</span></button>
+  <button class="am-item" role="menuitem" data-out="写作能力" data-od-id="acct-menu-pack"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M4 19.5A2.5 2.5 0 016.5 17H20M4 19.5A2.5 2.5 0 006.5 22H20V2H6.5A2.5 2.5 0 004 4.5z"/></svg>写作能力<span class="am-hint">已就绪 v5</span></button>
   <div class="am-group">支持</div>
   <a class="am-item" role="menuitem" data-od-id="acct-menu-support" href="https://www.awesomenovel.com/support" target="_blank" rel="noreferrer"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M4 5h16v11H8l-4 4z"/></svg>联系客服<span class="am-hint">新窗口打开</span></a>
   <div class="am-foot">
@@ -369,6 +484,18 @@
 </div>
 
 <div class="toast-wrap" id="toastWrap" role="status" aria-live="polite"></div>
+<!-- 演示控制条（非基线；收编前删除）：写作能力弹窗变体切换 -->
+<div class="demo-bar" role="tablist" aria-label="写作能力弹窗状态切换">
+  <span class="demo-h">写作能力弹窗 · 5 态</span>
+  <button class="chip-btn" data-pack-modal="packInstall">首装进行中</button>
+  <button class="chip-btn" data-pack-modal="packUpdate">更新确认</button>
+  <button class="chip-btn" data-pack-modal="packUpdateRun">更新进行中</button>
+  <button class="chip-btn" data-pack-modal="packDone">已完成</button>
+  <button class="chip-btn" data-pack-modal="packFail">失败</button>
+  <span class="demo-h">toast · 3 秒自消＋×</span>
+  <button class="chip-btn" data-toast-demo>弹一个</button>
+  <span class="demo-note">产品实现为单实例弹窗（mode×stage 状态机），此处并列四变体供评审</span>
+</div>
 <!-- 版本行文案口径（c-version-build-info）：正式构建=v{X.Y.Z}；dev 构建={分支}@{commit前5位}（如 main@f456e，muted 小字同款）；构建信息缺失降级「开发版 dev」；获取失败「版本未知」。原型示例值用正式版形态，dev 形态属实现态动态文案，不改可见文本以免 parity 漂移。 -->
 <footer class="statusbar" data-od-id="app-status-bar"><span data-od-id="app-credits">© 2026 星纬（海口）投资有限公司 · 爱小说</span><span class="sb-ver" data-od-id="status-version">v0.19</span></footer>
 
@@ -445,10 +572,13 @@ function persist(){ try { localStorage.setItem(STORE, JSON.stringify(books)); } 
 function toast(msg){
   const t = document.createElement('div');
   t.className = 'toast';
-  t.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 13l4 4L19 7"/></svg><span></span>';
+  t.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 13l4 4L19 7"/></svg><span></span>'
+    + '<button class="toast-x" type="button" aria-label="关闭"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 6l12 12M18 6L6 18"/></svg></button>';
   t.querySelector('span').textContent = msg;
+  const rm = () => { t.style.transition = 'opacity .3s'; t.style.opacity = '0'; setTimeout(() => t.remove(), 300); };
+  t.querySelector('.toast-x').addEventListener('click', rm);
   $('toastWrap').appendChild(t);
-  setTimeout(() => { t.style.transition = 'opacity .3s'; t.style.opacity = '0'; setTimeout(() => t.remove(), 300); }, 2400);
+  setTimeout(rm, 3000);
 }
 
 const FIRST_RUN_HTML = `
@@ -822,6 +952,28 @@ if (quota) {
   const b = document.querySelector('[data-od-id="btn-create-novel"]');
   if (b) b.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="4" y="10" width="16" height="10" rx="2"/><path d="M8 10V7a4 4 0 018 0v3"/></svg>新建作品';
 }
+// 写作能力弹窗演示切换（非基线）
+document.querySelectorAll('[data-pack-modal]').forEach(b => b.addEventListener('click', () => {
+  document.querySelectorAll('.demo-bar .chip-btn').forEach(x => x.classList.toggle('on', x === b));
+  const open = document.querySelector('.modal:not([hidden])');
+  if (open) closeModal(open.id);
+  openModal(b.getAttribute('data-pack-modal'));
+}));
+// toast 演示（非基线）：3 秒自消＋× 手动关
+document.querySelectorAll('[data-toast-demo]').forEach(b => b.addEventListener('click', () => {
+  document.querySelectorAll('.demo-bar .chip-btn').forEach(x => x.classList.remove('on'));
+  toast('演示：3 秒自动消失，也可点 × 立即收掉');
+}));
+// 更新确认 → 更新进行中（锁定态）：直接切变体，不经 closeModal（其 200ms 后会藏共享 scrim）
+$('packUpdateGo').addEventListener('click', () => {
+  $('packUpdate').hidden = true;
+  openModal('packUpdateRun');
+});
+// 遮罩点击关闭：仅解锁变体（确认/完成/失败）；锁定变体（首装/更新进行中）不吃遮罩点击
+['packUpdate', 'packDone', 'packFail'].forEach(id => {
+  const m = $(id);
+  m.addEventListener('click', e => { if (e.target === m) closeModal(id); });
+});
 renderCards();
 </script>
 </body>

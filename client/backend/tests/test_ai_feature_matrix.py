@@ -32,9 +32,17 @@ _CFG_PATH = os.path.join(_tmp_data_root, "config.json")
 _FAKE_KEY = "".join(("sk-", "test-placeholder"))  # noqa: FLY002
 _FUTURE = (datetime.now(UTC) + timedelta(days=30)).date().isoformat()
 
-from auth_local.deps import ai_feature, require_ai_access  # noqa: E402
+from sqlalchemy import delete  # noqa: E402
+
+from auth_local.deps import (  # noqa: E402
+    ai_feature,
+    require_ai_access,
+    require_tier_access,
+)
 from db import Base, async_session, engine  # noqa: E402
+from models.api_config import ApiConfig  # noqa: E402
 from models.user import User  # noqa: E402
+from zhuque import service as _zq_service  # noqa: E402
 
 _UID = "featmatrixuser"
 
@@ -67,6 +75,14 @@ def _call(feature: str | None):
         async with async_session() as session:
             req = _req(feature) if feature else None
             return await require_ai_access({"id": _UID}, session, req)
+    return _run(run())
+
+
+def _call_tier_only(feature: str | None):
+    """键自持门（`require_tier_access`）：无 session/Key 判据，只会员＋档位。"""
+    async def run():
+        req = _req(feature) if feature else None
+        return await require_tier_access({"id": _UID}, req)
     return _run(run())
 
 
@@ -139,10 +155,20 @@ def test_standard_ai_polish_403_max():
     _expect_403("ai-polish", "feature_required", "max")
 
 
+def test_standard_prompt_panel_403_pro():
+    """提示词面板＝PRO 专属：不是 PRO 就不能用（与「已配写作大模型 Key」判据叠加）——
+    2026-10-08 口径，端点级钉住（前端 features.ts minTier=pro 同源）。"""
+    _expect_403("prompt-panel", "feature_required", "pro")
+
+
 # ── pro：正文＋朱雀放行，MAX 件 403 ──
 def test_pro_ai_generate_pass():
     _seed("pro")
     assert _call("ai-generate") is True
+
+
+def test_pro_prompt_panel_pass():
+    assert _call("prompt-panel") is True
 
 
 def test_pro_ai_detect_pass():
@@ -186,6 +212,55 @@ def test_member_without_key_503():
     with pytest.raises(Exception) as e:
         _call("ai-generate")
     assert e.value.status_code == 503
+
+
+# ── 键自持门（require_tier_access）：档位照拦，**不查大模型 Key** ──
+def test_tier_only_gate_ignores_missing_key():
+    """键自持使用口（朱雀检测）：PRO/trial 无任何大模型 Key 也放行
+    （c-zhuque-config-keyless）。"""
+    for tier in ("pro", "trial"):
+        _seed(tier, with_key=False)
+        assert _call_tier_only("ai-detect") is True, tier
+
+
+def test_tier_only_gate_keeps_tier_blocks():
+    _seed("free", with_key=False)
+    with pytest.raises(Exception) as e:
+        _call_tier_only("ai-detect")
+    assert e.value.status_code == 403 and e.value.detail["reason"] == "member_required"
+    _seed("standard", with_key=False)
+    with pytest.raises(Exception) as e:
+        _call_tier_only("ai-detect")
+    assert e.value.status_code == 403 and e.value.detail["reason"] == "feature_required"
+
+
+# ── 两个 Key 世界互不顶替（2026-10-08 口径）──
+def test_zhuque_key_is_not_a_writing_model_key():
+    """只配朱雀（无写作大模型）→ 大模型门 503，文案引导去配写作大模型。
+
+    回归：门控的 Key 判据曾自建一条不看 vendor 的查询——朱雀行会被当成「已配大模型
+    Key」放过门（用户随后在深处吃到不明错误）；判据已收归判定层 `user_has_ai_key`
+    （`vendor="zhuque"` 排除 ＋ 可解密口径），与 `user_has_ai_key` 同源。
+    """
+    _seed("pro", with_key=False)
+
+    async def _add_zhuque():
+        async with async_session() as session:
+            await _zq_service.save_config(session, _UID, "eo-mk-live")
+
+    async def _clean():
+        async with async_session() as session:
+            await session.execute(delete(ApiConfig).where(ApiConfig.user_id == _UID))
+            await session.commit()
+
+    _run(_add_zhuque())
+    try:
+        with pytest.raises(Exception) as e:
+            _call("ai-generate")
+        assert e.value.status_code == 503
+        assert "大模型" in str(e.value.detail)
+    finally:
+        _run(_clean())
 
 
 # ── 完整快照在场时按快照档判定（快照单源）──

@@ -695,9 +695,8 @@ class TestModelCandidates:
         assert r.status_code == 200, r.text
         body = r.json()
         assert body["candidates"] == [
-            "deepseek-v4-flash",
+            "deepseek-flash",
             "deepseek-v4-pro",
-            "deepseek-v4-flash-vision-exp",
         ]
         assert "不提供模型列表" in body["note"]
 
@@ -754,7 +753,7 @@ class TestModelCandidates:
         )
         assert out["ok"] is True
         assert out["models"] == []
-        assert out["candidates"][0] == "deepseek-v4-flash"
+        assert out["candidates"][0] == "deepseek-flash"
         assert "不提供模型列表" in out["note"]
         assert calls[0][1].endswith("/v1/models") and calls[1][1].endswith("/v1/messages")
 

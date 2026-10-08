@@ -292,7 +292,7 @@ test("题材：五格面板（口味起点 → 自定义禁区 → 吃苦指数 
     await themeRow.locator('[data-g="theme:仙侠/修真"]').click();
     await page.locator('[data-od-id="sub-genre-row"] [data-g="sub:凡人流"]').click();
 
-    // 02 常见口味＝起点：填的是**一句话**（作家改的就是这句）+ 03/05 胶囊 + 04 指数
+    // 02 常见口味＝起点：只给**一句话**（作家改的就是这句）；03/04/05 不联动（c-genre-flavor-promise-only）
     await page.locator('[data-g="comeback"]').click();
     await expect(page.locator('[data-od-id="m1-input"]')).toHaveValue(/读者要看到/);
     await expect(page.locator('[data-od-id="genre-panel"]')).toContainText("标签：以弱破强的痛快");
@@ -301,10 +301,15 @@ test("题材：五格面板（口味起点 → 自定义禁区 → 吃苦指数 
       .locator('[data-od-id="m1-input"]')
       .fill("读者要看到弱者用脑子翻盘，每赢一次都痛快");
     await expect(page.locator('[data-od-id="genre-panel"]')).toContainText("/200");
-    await expect(page.locator('[data-forbid="forbidden:no-deus-ex-machina"]')).toHaveClass(/on/);
-    await expect(page.locator('[data-bf="battlefield:resources"]')).toHaveClass(/on/);
-    await expect(page.locator(".settings-v .cost-val")).toHaveText("8");
-    // 口味快捷填充不覆盖 01 已选题材（字段仍显示 大类 / 子类）
+    // 作者已写的内容：点胶囊不覆盖（2026-10-08 二轮拍板）
+    await page.locator('[data-g="mind"]').click();
+    await expect(page.locator('[data-od-id="m1-input"]')).toHaveValue(
+      "读者要看到弱者用脑子翻盘，每赢一次都痛快",
+    );
+    await expect(page.locator('[data-forbid="forbidden:no-deus-ex-machina"]')).not.toHaveClass(/on/);
+    await expect(page.locator('[data-bf="battlefield:resources"]')).not.toHaveClass(/on/);
+    await expect(page.locator(".settings-v .cost-val")).toHaveText("—");
+    // 口味起点不覆盖 01 已选题材（字段仍显示 大类 / 子类）
     await expect(trigger).toContainText("仙侠/修真 / 凡人流");
 
     // 03 回车自定义禁区
@@ -336,10 +341,8 @@ test("题材：五格面板（口味起点 → 自定义禁区 → 吃苦指数 
     expect(genre.sub_genre).toBe("凡人流");
     expect(genre.core_promise).toBe("以弱破强的痛快");
     expect(genre.cost_ratio).toBe(6);
-    expect(genre.forbidden_list).toEqual(
-      expect.arrayContaining([{ text: "禁穿越" }]),
-    );
-    expect(genre.battlefield).toContain("battlefield:resources");
+    expect(genre.forbidden_list).toEqual([{ text: "禁穿越" }]);
+    expect(genre.battlefield).toEqual([]); // 口味起点不再联动 05（作者没勾过战场）
     expect(genre.genre_id).toBeUndefined();
   } finally {
     await restore();
@@ -358,10 +361,10 @@ test("题材：长回执单行截断，确认完成点得到", async ({ page }) 
     await page.getByRole("button", { name: /^设定/ }).click();
     await openSetting(page, "题材");
 
-    // 口味胶囊＝一次点击改 5 格 → 最长的一条回执
+    // 口味胶囊回执携带起点全句 → 最长的一条回执（c-genre-flavor-promise-only）
     await page.locator('[data-g="comeback"]').click();
     const receipt = page.locator('[data-od-id="panel-receipt"]');
-    await expect(receipt).toContainText("覆盖：主要看什么 / 绝对禁止");
+    await expect(receipt).toContainText("给出「主要看什么」一句起点");
 
     // 文本单行截断（scrollWidth > clientWidth），全文挂 title 悬浮可读
     const rt = receipt.locator(".rt");
@@ -584,6 +587,10 @@ test("角色：分组列表新建 → 卷宗卡填写自动保存 → 名称确�
       (l: { data?: { items?: unknown[] } }) =>
         JSON.stringify(l.data?.items ?? []).includes("瘦高个的拾残人"),
     ); // 末格 PATCH 落库（条件轮询替代固定 sleep）
+    // 页脚提示＝整项口径（c-chars-confirm-scope）：未确认＝第一次确认档，只看主角名称+人设
+    await expect(page.locator(".panel-foot .note")).toHaveText(
+      "主角写全了——第一次确认只看主角；配角、反派后补也行，改动会自动保存",
+    );
     const confirmPost = page.waitForResponse(
       (r) =>
         r.request().method() === "POST" && r.url().includes("/characters/confirm"),
@@ -598,6 +605,14 @@ test("角色：分组列表新建 → 卷宗卡填写自动保存 → 名称确�
     const gate1 = await apiGetJSON(request, token, `/novels/${pid}/characters/gate/status`);
     expect(gate1.data?.confirmed).toBe(true);
     expect(gate1.data?.stale).toBe(false);
+    // 回角色面板（确认即前进会切走）：已确认＝此后档，页脚常驻点名缺口卡 + 按钮转「重新确认」
+    const charsReload = page.waitForResponse(`**/api/novels/${pid}/characters`);
+    await page.locator(".settings-v .col-tree .s-item", { hasText: "角色" }).click();
+    await charsReload;
+    await expect(page.locator('[data-od-id="chars-gate-hint"]')).toHaveText(
+      "还差：主角《林晚》缺 剧情定位、核心认知盲区、能力上限 等",
+    );
+    await expect(page.locator(".panel-foot").getByRole("button", { name: "重新确认" })).toBeVisible();
     // 清空人设（门禁字段）→ 内容有变
     const list3 = await apiGetJSON(request, token, `/novels/${pid}/characters`);
     const card3 = list3.data.items.find((x: { name: string }) => x.name === "林晚");
@@ -608,6 +623,46 @@ test("角色：分组列表新建 → 卷宗卡填写自动保存 → 名称确�
     expect(clr.status()).toBe(200);
     const gate2 = await apiGetJSON(request, token, `/novels/${pid}/characters/gate/status`);
     expect(gate2.data?.stale).toBe(true);
+
+    // c-chars-stale-reconfirm：内容有变期间页脚让位（缺口优先 → 点名缺口；不出现「已确认」标注），
+    // 补回/补齐门禁项后走「无缺口 + 内容有变」分支 → 重新确认 → 徽标与页脚当场恢复
+    /** 以库里最新 rev 单格写入（每次 PATCH 都 bump rev，写死 rev 会 409） */
+    const patchGate = async (path: string, value: string) => {
+      const cur = await apiGetJSON(request, token, `/novels/${pid}/characters`);
+      const c = cur.data.items.find((x: { name: string }) => x.name === "林晚");
+      const r = await request.patch(`/api/novels/${pid}/characters/${c.id}`, {
+        headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+        data: { path, value, base_rev: c.rev },
+      });
+      expect(r.status()).toBe(200);
+    };
+    await patchGate("persona", "拾残人，瘦高个");
+    for (const [path, value] of [
+      ["dossier.plot", "替人拾残卷，一步步刨出旧案"],
+      ["cog.w5", "以为旧案只是家事"],
+      ["cog.p3", "捡到的残卷越多，看得越远"],
+      ["cog.p4", "每拼一卷，忘掉一段自己的事"],
+    ] as const) {
+      await patchGate(path, value);
+    }
+    // 离开再回角色面板：数据刷新触发重取 → 徽标与页脚同源为「内容有变」
+    await page.locator(".settings-v .col-tree .s-item", { hasText: "主线" }).click();
+    const charsReload2 = page.waitForResponse(`**/api/novels/${pid}/characters`);
+    await page.locator(".settings-v .col-tree .s-item", { hasText: "角色" }).click();
+    await charsReload2;
+    await expect(page.locator(".col-middle .panel-head .badge")).toHaveText("内容有变 · 待重新确认");
+    await expect(page.locator(".panel-foot .note")).toHaveText(
+      "内容改过了——点「重新确认」即可，改动已自动保存",
+    );
+    await expect(page.locator(".done-note")).toHaveCount(0);
+    // 重新确认 → 徽标与页脚当场恢复（不刷新页面）
+    await page.locator(".panel-foot").getByRole("button", { name: "重新确认" }).click();
+    await expect(page.locator(".col-middle .panel-head .badge")).toHaveText("已确认", {
+      timeout: 8000,
+    });
+    await expect(page.locator(".panel-foot .note")).toHaveText(
+      "已确认 · 改动自动保存，可随时重新确认",
+    );
   } finally {
     await restore();
   }
@@ -1226,6 +1281,132 @@ test("角色：未命名卡可删除、可合并（占位名不进确认比对�
         { timeout: 5000 },
       )
       .toBe(1);
+  } finally {
+    await restore();
+  }
+});
+
+// -------------------------------------------------------------------------
+// ⑨ 一键立卡（c-char-ai-card-generic）：配角空卡右栏「一键立卡」行→出稿过目→
+//    采纳只补空格走真后端（不建卡）；名字/人设齐后提示行退场；路人卡不给行。
+//    出稿桩在页面层（本地栈无模型）；AI 就绪态桩同⑥。
+// -------------------------------------------------------------------------
+test("角色：一键立卡（配角）——右栏行→出稿→采纳只补空格", async ({ page, request }) => {
+  const { restore, token } = await setupSession(page);
+  try {
+    const pid = await createNovel(page, `立卡${Date.now() % 100000}`);
+    // AI 就绪态桩（ai-model + 配置清单）
+    await page.route(`**/api/v1/novels/${pid}/ai-model`, (r) =>
+      r.fulfill({
+        json: {
+          api_config_id: "c1",
+          model: "gpt-4o",
+          config_name: "主配置",
+          ai_state: "ready",
+          effective_model: "gpt-4o",
+          reason: "ready",
+          message: "",
+        },
+      }),
+    );
+    await page.route("**/api/v1/api-configs", (r) =>
+      r.fulfill({
+        json: [
+          {
+            id: "c1",
+            name: "主配置",
+            vendor: "openai",
+            models: ["gpt-4o"],
+            status: "active",
+            last_test_status: "ok",
+          },
+        ],
+      }),
+    );
+    // 立卡出稿桩（采纳的 PATCH 走真后端，端点路径与响应形同主角链）
+    await page.route("**/settings/ai/characters/bootstrap", (r) =>
+      r.fulfill({
+        json: {
+          ok: true,
+          data: {
+            name: "周船工",
+            aliases: ["老周"],
+            persona: "渡口撑船三十年，认得每一道水纹。",
+            cells: [
+              { path: "dossier.look", value: "黝黑精瘦" },
+              { path: "cog.v1", value: "攒钱换新船" },
+            ],
+            skipped: [],
+          },
+        },
+      }),
+    );
+
+    await page.getByRole("button", { name: /^设定/ }).click();
+    await openSetting(page, "角色");
+    // 连建两张：首张主角（自动选中），次张配角（自动选中＝当前卡）
+    await page.getByRole("button", { name: "添加角色" }).click();
+    await page.waitForTimeout(1200);
+    await page.getByRole("button", { name: "添加角色" }).click();
+    await page.waitForTimeout(1200);
+
+    // 配角空卡：卡区提示行与右栏「一键立卡」行同现
+    await expect(page.getByTestId("char-ai-hint")).toBeVisible({ timeout: 10000 });
+    const row = page.locator('[data-aiact="cardDraft"]');
+    await expect(row).toBeVisible();
+
+    await row.click();
+    await expect(
+      page.getByText("AI 拟稿 · 为「未命名」立卡（采纳才写入）"),
+    ).toBeVisible({ timeout: 10000 });
+    await page.getByRole("button", { name: "采纳 · 写入" }).click();
+
+    // 采纳走真后端：名字落库、仍只有 2 张卡（不建卡）；轮询钉到 detail 的
+    // 最后一格（列表只保证名字已落，中途采样会早退——首跑实锤过这个竞态）
+    await pollBackend(
+      () => apiGetJSON(request, token, `/novels/${pid}/characters`),
+      (l: { data?: { items?: Array<{ name: string; role: string }> } }) =>
+        (l.data?.items ?? []).some((x) => x.name === "周船工" && x.role === "配角"),
+    );
+    const list = await apiGetJSON(request, token, `/novels/${pid}/characters`);
+    expect(list.data.items.length).toBe(2);
+    const side = (list.data.items as Array<{ id: string; name: string }>).find(
+      (x) => x.name === "周船工",
+    );
+    await pollBackend(
+      () => apiGetJSON(request, token, `/novels/${pid}/characters/${side!.id}`),
+      (d: { data?: { cog?: Record<string, string> } }) =>
+        (d.data?.cog?.v1 ?? "") === "攒钱换新船",
+    );
+    const detail = await apiGetJSON(request, token, `/novels/${pid}/characters/${side!.id}`);
+    expect(detail.data.persona).toBe("渡口撑船三十年，认得每一道水纹。");
+    expect(detail.data.dossier.look).toBe("黝黑精瘦");
+    expect(detail.data.cog.v1).toBe("攒钱换新船");
+
+    // 名字/人设已齐 → 卡区提示行退场
+    await expect(page.getByTestId("char-ai-hint")).toHaveCount(0, { timeout: 10000 });
+
+    // 路人卡不给行：API 切路人后重载选卡（卡头「合并…」与类型 chips 在窄卡片上
+    // 存在重叠拦截点击的 #753 布局缺陷，点击路径由其修复，此处钉行为而非路径）
+    await request.patch(`${ORIGIN}/api/novels/${pid}/characters/${side!.id}`, {
+      headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+      data: { path: "role", value: "路人", base_rev: detail.data.rev },
+    });
+    await expect
+      .poll(
+        async () => {
+          const r = await apiGetJSON(request, token, `/novels/${pid}/characters`);
+          return (r.data?.items ?? []).some((x: { id: string; role: string }) => x.id === side!.id && x.role === "路人");
+        },
+        { timeout: 5000 },
+      )
+      .toBe(true);
+    await page.reload();
+    await page.getByRole("button", { name: /^设定/ }).click();
+    await openSetting(page, "角色");
+    await page.locator(".char-group-head", { hasText: "路人" }).click();
+    await page.locator(".char-row-btn", { hasText: "周船工" }).click();
+    await expect(page.locator('[data-aiact="cardDraft"]')).toHaveCount(0, { timeout: 10000 });
   } finally {
     await restore();
   }

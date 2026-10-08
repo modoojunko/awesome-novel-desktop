@@ -797,17 +797,9 @@ describe("AcctMenu 带回旧版（接线 + 后台守望）", () => {
 });
 
 
-describe("AcctMenu 写作能力包行（c-prompt-pack-client）", () => {
-  // 覆盖率契约：434-435（「检查」按钮 onClick 体）必须有用例走通——main CI 曾因这两行
-  // 全局线 99.87%<100% 恒红（c-prompt-pack-client 合入后）。
-  const fetchMock = vi.fn();
-  beforeEach(() => {
-    fetchMock.mockClear();
-    toastState.info.mockClear();
-    fetchMock.mockResolvedValue({ ok: true, status: 200, json: async () => ({ started: true }) });
-    vi.stubGlobal("fetch", fetchMock);
-  });
-
+describe("AcctMenu 写作能力菜单项（c-prompt-pack-onboard-modal）", () => {
+  // 覆盖率契约：菜单项 onClick 体（close + openPackModal）必须有用例走通。
+  // foot 小字行（c-prompt-pack-client am-pack）已退役，入口升级为数据组菜单项。
   async function openWithPack(pack: TierState["pack"]) {
     const { default: AcctMenu } = await import("@/components/AcctMenu");
     const { useTier } = await import("@/hooks/useTier");
@@ -818,29 +810,40 @@ describe("AcctMenu 写作能力包行（c-prompt-pack-client）", () => {
     return utils;
   }
 
-  it("就绪态显示版本；点「检查」POST /prompt-pack/check 并 toast", async () => {
+  it("就绪态 hint「已就绪 v7」；点击广播 pack-modal:open(mode manual) 并收起面板", async () => {
     await openWithPack({ phase: "ready", version: "7" });
     const row = document.querySelector('[data-od-id="acct-menu-pack"]');
-    expect(row?.textContent).toContain("写作能力 v7");
+    expect(row?.textContent).toContain("已就绪 v7");
 
-    fireEvent.click(document.querySelector('[data-od-id="acct-menu-pack-check"]') as HTMLElement);
-    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
-    const [url, init] = fetchMock.mock.calls[0] as [string, RequestInit];
-    expect(String(url)).toContain("/api/prompt-pack/check");
-    expect(init.method).toBe("POST");
-    expect(toastState.info).toHaveBeenCalledWith("正在检查写作能力…");
+    const events: Array<CustomEvent> = [];
+    const onOpen = (e: Event) => events.push(e as CustomEvent);
+    window.addEventListener("pack-modal:open", onOpen);
+    fireEvent.click(document.querySelector('[data-od-id="acct-menu-pack"]') as HTMLElement);
+    await act(async () => {});
+    window.removeEventListener("pack-modal:open", onOpen);
+    expect(events).toHaveLength(1);
+    expect(events[0].detail).toEqual({ mode: "manual" });
+    expect(document.querySelector('[data-od-id="acct-menu"]')).toBeNull(); // 面板收起
   });
 
-  it("就绪但缺版本号：显示 v-（?? 兜底分支，AcctMenu.tsx:427）", async () => {
+  it("就绪但缺版本号：显示 v-（?? 兜底分支）", async () => {
     await openWithPack({ phase: "ready" });
     const row = document.querySelector('[data-od-id="acct-menu-pack"]');
-    expect(row?.textContent).toContain("写作能力 v-");
+    expect(row?.textContent).toContain("已就绪 v-");
   });
 
-  it("未就绪态文案：不显示版本，显示「写作能力未就绪」", async () => {
+  it("最近探测有更新：hint 显示「有新版本」", async () => {
+    const { setLastProbe } = await import("@/lib/packProbe");
+    setLastProbe({ installed_version: "5", latest_version: "6", update_available: true });
+    await openWithPack({ phase: "ready", version: "5" });
+    const row = document.querySelector('[data-od-id="acct-menu-pack"]');
+    expect(row?.textContent).toContain("有新版本");
+  });
+
+  it("未就绪态：hint 显示「未就绪」", async () => {
     await openWithPack({ phase: "failed", reason: "cdn_unreachable" });
     const row = document.querySelector('[data-od-id="acct-menu-pack"]');
-    expect(row?.textContent).toContain("写作能力未就绪");
-    expect(row?.textContent).not.toContain("写作能力 v");
+    expect(row?.textContent).toContain("未就绪");
+    expect(row?.textContent).toContain("写作能力");
   });
 });

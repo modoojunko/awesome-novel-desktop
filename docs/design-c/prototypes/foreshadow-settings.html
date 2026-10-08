@@ -646,6 +646,11 @@
     const ok = HOOKS.some(h => h.desc.trim().length > 0);
     $('#hookHint').hidden = ok;
     $('#hookOkNote').hidden = !ok;
+    /* 页脚让位（c-chars-stale-reconfirm）：内容有变期间不出现「已确认」表述——
+       warn 结论只由徽标给一次，页脚改说"改动已自动保存、去重新确认"。 */
+    $('#hookOkNote').textContent = changed
+      ? '内容改过了——点「重新确认」即可，改动已自动保存'
+      : (confirmed ? '已确认 · 可随时回来修改并重新确认' : '改动自动保存 · 确认后停留本格（已是最后一项）');
     syncRail();
   }
 

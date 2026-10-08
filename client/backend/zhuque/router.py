@@ -1,13 +1,16 @@
 """朱雀检测路由（c-zhuque-ai-detect）。
 
-- ``/api/v1/zhuque/*``：配置域（GET/PUT/DELETE config、POST test）——只挂登录，
-  配置页签全档可见可配（门禁落使用口）。
+- ``/api/v1/zhuque/*``：配置域（GET/PUT/DELETE config、POST test）——**只挂登录**
+  （2026-10-08 拍板：配置不分套餐权益，门禁落使用口；Key 是作者自己的腾讯资产）。
+  两个「不得加的门」都对：`require_ai_access` 多含一道「已配写作大模型 Key」判据、
+  `require_tier_access` 多含档位判据——任一挂上都会拦掉本不该拦的配置动作
+  （c-zhuque-config-keyless）。
 - ``/api/novels/{project_id}/chapters/{chapter_ref}/zhuque-check``：执行域——
-  登录＋会员级防御校验（require_ai_access，同 ai-check）；MAX 精确判定在前端快照。
-  章数据只读；结果不落库。
+  登录＋会员＋`ai-detect` 档位门（`require_tier_access`，不含写作模型 Key 判据：
+  朱雀 Key 自持）；未配朱雀 Key 一律 503 `zhuque_not_configured`。章数据只读。
 
 错误语义（响应 detail 为可读中文，前端按状态码映射出口）：
-  400 empty_prose | 401 上游 Key 无效 | 403 会员校验（require_ai_access）
+  400 empty_prose | 401 上游 Key 无效 | 403 会员/档位校验（require_tier_access）
   404 章/项目不存在 | 409 zhuque_check_in_progress | 422 prose_too_long
   429 限流或额度耗尽 | 502 上游 5xx/分段错配 | 503 zhuque_not_configured
   504 网络/超时
@@ -18,7 +21,7 @@ from __future__ import annotations
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from auth_local.deps import ai_feature, require_ai_access
+from auth_local.deps import ai_feature, require_tier_access
 from auth_local.middleware import get_current_user
 from db import get_db
 from novels.service import get_novel
@@ -85,11 +88,9 @@ async def get_config(
 
 
 @config_router.put("/config")
-@ai_feature("ai-detect")
 async def put_config(
     body: dict,
     user: dict = Depends(get_current_user),
-    _: bool = Depends(require_ai_access),
     db: AsyncSession = Depends(get_db),
 ):
     api_key = str((body or {}).get("api_key", "") or "")
@@ -105,10 +106,8 @@ async def put_config(
 
 
 @config_router.delete("/config")
-@ai_feature("ai-detect")
 async def delete_config(
     user: dict = Depends(get_current_user),
-    _: bool = Depends(require_ai_access),
     db: AsyncSession = Depends(get_db),
 ):
     ok = await service.delete_config(db, user["id"])
@@ -116,10 +115,8 @@ async def delete_config(
 
 
 @config_router.post("/test")
-@ai_feature("ai-detect")
 async def test_config(
     user: dict = Depends(get_current_user),
-    _: bool = Depends(require_ai_access),
     db: AsyncSession = Depends(get_db),
 ):
     try:
@@ -137,7 +134,7 @@ async def check_chapter(
     project_id: str,
     chapter_ref: str,
     user: dict = Depends(get_current_user),
-    _: bool = Depends(require_ai_access),
+    _: bool = Depends(require_tier_access),
     db: AsyncSession = Depends(get_db),
 ):
     project = await get_novel(db, project_id, user["id"])

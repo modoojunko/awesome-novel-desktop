@@ -27,9 +27,9 @@ os.environ["DATA_ROOT"] = _tmp_data_root
 
 import auth_local.service as _service  # noqa: E402
 from auth_local.deps import (  # noqa: E402
-    require_ai_access,
     require_novel_model,
     require_project_limit,
+    require_tier_access,
 )
 from auth_local.middleware import get_current_user  # noqa: E402
 from db import Base, async_session, engine, get_db  # noqa: E402
@@ -94,8 +94,8 @@ def _setup_overrides():
     app.dependency_overrides[get_current_user] = _override_current_user
     app.dependency_overrides[require_novel_model] = lambda: True
     app.dependency_overrides[require_project_limit] = _override_true
-    # 批量端点与章级 /prompts 同挂 require_ai_access；503 口径章级已测，此处放行测聚合
-    app.dependency_overrides[require_ai_access] = _override_true
+    # 批量端点与章级 /prompts 同挂登录＋档位门（看/改不依赖写作大模型 Key，2026-10-08）
+    app.dependency_overrides[require_tier_access] = _override_true
     yield
     app.dependency_overrides.clear()
 

@@ -2,7 +2,9 @@
 // + 删除/合并（L3 名称输入确认）+ 单格自动保存（防抖 + 串行队列 + rev 冲突 409 处理）
 // + 右栏 AI 经 SettingsView 分发（本组件暴露 runAi/clearAi 句柄）；出稿/体检统一进 AiCardModal 弹窗（c-settings-ai-confirm-modal）。
 // + 首次进入引导与「从简介立主角」（character-bootstrap-from-intro：出稿采纳走既有单格写入）。
-import { forwardRef, useCallback, useEffect, useImperativeHandle, useRef, useState } from "react";
+// + 整项确认口径（c-chars-confirm-scope）：门禁缺口经 onGateHintChange 上抛给页脚提示；
+//   卡片级保存态归位卡头（「这张卡…」），与整项口径分开。
+import { forwardRef, useCallback, useEffect, useImperativeHandle, useMemo, useRef, useState } from "react";
 import { charactersApi, BootstrapDraft, CharacterCard } from "@/lib/charactersApi";
 import {
   COG_FIELD_HINTS,
@@ -12,6 +14,7 @@ import {
   DOSSIER_FIELDS,
   DOSSIER_FILL_KEYS,
   displayName,
+  GATE_FIELDS,
   ROLES,
   type CharAiCtx,
 } from "@/lib/characterModel";
@@ -30,6 +33,12 @@ interface Props {
   /** 本书 AI 就绪态（D13）：空态引导按钮与右栏行同一门控；不 ready 时点击走 onBlocked */
   aiState?: AiState;
   onBlocked?: (reason: AiState) => void;
+  /** 整项确认门禁缺口（c-chars-confirm-scope）：列表载入成功后上报，未载入/载入失败报 null
+   *  （页脚据此回落通用提示，不冒充「书里没有主角」） */
+  onGateHintChange?: (hint: CharGateHint | null) => void;
+  /** 面板数据刷新＝确认存档可能过期（c-chars-stale-reconfirm）：请父层重取确认存档状态。
+   *  挂载（进入面板）、单卡保存落库、增删合并后都会走到这里。 */
+  onRefreshConfirmState?: () => void;
 }
 
 export interface CharacterSaveHandle {
@@ -37,6 +46,39 @@ export interface CharacterSaveHandle {
   /** 兼容 SettingSaveHandle 可选成员 */
   clearAi?: () => void;
   runAi?: (key: string) => Promise<void>;
+}
+
+/** 整项确认门禁的缺口摘要（c-chars-confirm-scope）——页脚提示与主按钮同一档位口径：
+ *  未确认＝第一次确认档（只看主角名称/一句话人设），已确认＝此后档（全书卡扫六项）。 */
+export interface CharGateHint {
+  /** 书里还没有主角卡（两档的共同前置） */
+  noProtagonist: boolean;
+  /** 第一次确认档缺的项（空数组＝这一档可过） */
+  protagonistMissing: string[];
+  /** 主角显示名（点名用；无主角卡时为空串） */
+  protagonistName: string;
+  /** 此后确认档的缺口卡：主角 + 每张非路人卡六项、路人卡只剧情定位（缺口头由服务端列表下发） */
+  gapCards: { role: string; name: string; fields: string[] }[];
+}
+
+/** 门禁摘要（纯函数）：缺口取服务端列表下发的 gaps；首档判据＝名称/人设（后端 FIRST_CONFIRM_REQUIRED 同源，
+ *  标签仍从 GATE_FIELDS 取，不手抄第二份词表）。 */
+export function gateHintOf(list: CharacterCard[], noProtagonist: boolean): CharGateHint {
+  const prot = list.find((c) => c.role === "主角");
+  const label = (k: string) => GATE_FIELDS.find(([p]) => p === k)?.[1] ?? k;
+  const protagonistMissing: string[] = [];
+  if (prot) {
+    if (!displayName(prot.name)) protagonistMissing.push(label("name"));
+    if (!prot.persona.trim()) protagonistMissing.push(label("persona"));
+  }
+  return {
+    noProtagonist,
+    protagonistMissing,
+    protagonistName: prot ? displayName(prot.name) : "",
+    gapCards: list
+      .filter((c) => (c.gaps ?? []).length > 0)
+      .map((c) => ({ role: c.role, name: displayName(c.name), fields: c.gaps ?? [] })),
+  };
 }
 
 type SaveState = "saved" | "saving" | "dirty" | "failed";
@@ -67,11 +109,17 @@ const CharacterManager = forwardRef<CharacterSaveHandle, Props>(function Charact
   props,
   ref,
 ) {
-  const { projectId, onDirtyChange, onCtxChange, introReady, aiState, onBlocked } = props;
+  const {
+    projectId, onDirtyChange, onCtxChange, introReady, aiState, onBlocked, onGateHintChange,
+    onRefreshConfirmState,
+  } = props;
   const [list, setList] = useState<CharacterCard[]>([]);
   const [gate, setGate] = useState<{ ok: boolean; no_protagonist: boolean; confirmed: boolean }>({
     ok: false, no_protagonist: true, confirmed: false,
   });
+  /** 列表是否已成功载入（c-chars-confirm-scope 评审补丁）：未载入/载入失败时不上报门禁摘要——
+   *  初值 gate.no_protagonist=true 是「还不知道」，直接上报会把空列表当成「书里没有主角」。 */
+  const [listLoaded, setListLoaded] = useState(false);
   const [selectedId, setSelectedId] = useState("");
   const [card, setCard] = useState<CharacterCard | null>(null);
   const [groupsOpen, setGroupsOpen] = useState<Record<string, boolean>>({
@@ -88,13 +136,15 @@ const CharacterManager = forwardRef<CharacterSaveHandle, Props>(function Charact
   const [sink, setSink] = useState<AiDraft | null>(null);
   /** 最近一次出稿的能力（缓存命中判定：重开同一行展示缓存不再发请求，D9） */
   const [sinkAction, setSinkAction] = useState<"persona" | "dossier" | "cog" | null>(null);
-  /** 「从简介立主角」出稿（character-bootstrap-from-intro）：出稿过目，采纳才写入 */
+  /** 「从简介立主角」出稿（character-bootstrap-from-intro）：出稿过目，采纳才写入；
+      c-char-ai-card-generic 起同一槽位兼收配角/反派「一键立卡」稿（bootstrapKind 区分来路） */
   const [bootstrapSink, setBootstrapSink] = useState<BootstrapDraft | null>(null);
+  const [bootstrapKind, setBootstrapKind] = useState<"bootstrap" | "cardDraft">("bootstrap");
   const [check, setCheck] = useState<CheckResult | null>(null);
   // AI 出卡确认弹窗（c-settings-ai-confirm-modal）：出稿/体检统一进弹窗，内嵌预览块退役
-  const [cardAction, setCardAction] = useState<"persona" | "dossier" | "cog" | "bootstrap" | "check" | null>(null);
+  const [cardAction, setCardAction] = useState<"persona" | "dossier" | "cog" | "bootstrap" | "cardDraft" | "check" | null>(null);
   const aiBusyRef = useRef(false); // ref 同步判定：同一 tick 连点不穿透
-  const [versions, setVersions] = useState<Partial<Record<"persona" | "dossier" | "cog" | "bootstrap" | "check", number>>>({});
+  const [versions, setVersions] = useState<Partial<Record<"persona" | "dossier" | "cog" | "bootstrap" | "cardDraft" | "check", number>>>({});
   const [cardOpen, setCardOpen] = useState(false);
   const [cardCached, setCardCached] = useState(false);
   const [aiBusy, setAiBusy] = useState(false);
@@ -120,8 +170,10 @@ const CharacterManager = forwardRef<CharacterSaveHandle, Props>(function Charact
     const data = await charactersApi.list(projectId);
     setList(data.items);
     setGate({ ok: data.gate.ok, no_protagonist: data.gate.no_protagonist, confirmed: data.confirmed });
+    setListLoaded(true); // 只有真拿到列表才放行门禁摘要（失败路径保持静默，见 listLoaded 声明处）
+    onRefreshConfirmState?.(); // 数据已刷新＝存档可能过期：请父层重取（c-chars-stale-reconfirm）
     return data.items;
-  }, [projectId]);
+  }, [projectId, onRefreshConfirmState]);
 
   const loadCard = useCallback(async (id: string) => {
     const full = await charactersApi.get(projectId, id);
@@ -132,23 +184,35 @@ const CharacterManager = forwardRef<CharacterSaveHandle, Props>(function Charact
     onDirtyChange?.(false);
     setSink(null);
     setCheck(null);
+    // 出稿槽随卡清：bootstrapSink 泛化收配角/反派「一键立卡」稿后不清会把 A 卡的稿
+    // 借给 B 卡当缓存（评审 P2）——主角待立时代只有一张卡，这条不存在
+    setBootstrapSink(null);
+    setBootstrapKind("bootstrap");
     setCardOpen(false); // 换卡＝弹窗随结果一起清（D9 缓存面板级寿命）
     setVersions({}); // 版数随卡复位：新卡首稿是「第 1 版」，不带上一张卡的计数
+  }, [projectId, clearDirty, onDirtyChange]);
+
+  // 右栏 AI 作用域随卡走：加载与每次字段编辑都重报（一键立卡行门控吃 role/缺口，
+  // 卡上切类型、填格后行与「当前角色」行须即时进退——c-char-ai-card-generic）
+  useEffect(() => {
+    if (!card) return;
     onCtxChange?.({
-      name: displayName(full.name) || "未命名",
-      nameless: !displayName(full.name),
-      code: full.code,
-      role: full.role,
-      personaGap: full.persona.trim() ? 0 : 1,
-      dossierGap: DOSSIER_FILL_KEYS.filter((k) => !(full.dossier[k] ?? "").trim()).length,
+      name: displayName(card.name) || "未命名",
+      nameless: !displayName(card.name),
+      code: card.code,
+      role: card.role,
+      personaGap: card.persona.trim() ? 0 : 1,
+      dossierGap: DOSSIER_FILL_KEYS.filter((k) => !(card.dossier[k] ?? "").trim()).length,
       cogGap:
-        full.role === "路人"
+        card.role === "路人"
           ? 0
-          : COG_FILL_KEYS.filter((k) => !(full.cog[k] ?? "").trim()).length,
+          : COG_FILL_KEYS.filter((k) => !(card.cog[k] ?? "").trim()).length,
     });
-  }, [projectId, clearDirty, onDirtyChange, onCtxChange]);
+  }, [card, onCtxChange]);
 
   useEffect(() => {
+    setListLoaded(false); // 换书重取：旧书的缺口摘要不得借道新书的首帧（评审补丁）
+    selectedIdRef.current = ""; // 换书清选中：空书残留旧书 id 会让空态立主角被迟到守卫误弃
     (async () => {
       try {
         const items = await reloadList();
@@ -163,6 +227,17 @@ const CharacterManager = forwardRef<CharacterSaveHandle, Props>(function Charact
     })();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [projectId]);
+
+  // 整项确认门禁缺口上报（c-chars-confirm-scope）：页脚提示的数据源。
+  // 列表在单卡保存落库后会重取（reloadList），缺口因此天然新鲜；
+  // 未载入/载入失败时上报 null（页脚回落通用提示）——空列表不等于「书里没有主角」（评审补丁）。
+  const gateHint = useMemo(
+    () => (listLoaded ? gateHintOf(list, gate.no_protagonist) : null),
+    [listLoaded, list, gate.no_protagonist],
+  );
+  useEffect(() => {
+    onGateHintChange?.(gateHint);
+  }, [gateHint, onGateHintChange]);
 
   const flushQueue = useCallback(async () => {
     if (runningRef.current || queueRef.current.length === 0 || !card) return;
@@ -241,21 +316,23 @@ const CharacterManager = forwardRef<CharacterSaveHandle, Props>(function Charact
       setSink(null);
       setCheck(null);
       setBootstrapSink(null);
+      setBootstrapKind("bootstrap");
       setCardAction(null);
       setCardOpen(false);
       setVersions({});
     },
     runAi: async (key: string) => {
       if (aiBusyRef.current) return;
-      if (key === "bootstrap") {
-        // 从简介立主角：允许无卡（空态）触发；主角待立时带当前卡 id（出稿只补空格）
-        if (bootstrapSink) {
+      if (key === "bootstrap" || key === "cardDraft") {
+        // 从简介立主角：允许无卡（空态）触发；主角待立时带当前卡 id（出稿只补空格）。
+        // 一键立卡（c-char-ai-card-generic）：只挂在选中配角/反派卡的右栏行上，永远有卡。
+        if (bootstrapSink && bootstrapKind === key) {
           setCardCached(true); // 重开＝展示缓存，不重复生成（D9）
-          setCardAction("bootstrap");
+          setCardAction(key);
           setCardOpen(true);
           return;
         }
-        await runBootstrap();
+        await runBootstrap(key);
         return;
       }
       if (key !== "persona" && key !== "dossier" && key !== "cog" && key !== "check") return;
@@ -403,6 +480,7 @@ const CharacterManager = forwardRef<CharacterSaveHandle, Props>(function Charact
         await loadCard(card.id);
         await reloadList();
       } else {
+        if (bootstrapKind === "cardDraft") return; // 一键立卡不建卡（行只在有卡时出现）
         const created = await charactersApi.create(projectId, draft.name, { role: "主角" });
         selectedIdRef.current = created.id;
         setSelectedId(created.id);
@@ -432,26 +510,33 @@ const CharacterManager = forwardRef<CharacterSaveHandle, Props>(function Charact
       }
       showToast((e as Error).message || "\u91c7\u7eb3\u5931\u8d25");
     }
-  }, [bootstrapSink, card, projectId, flushQueue, loadCard, reloadList, showToast]);
+  }, [bootstrapSink, bootstrapKind, card, projectId, flushQueue, loadCard, reloadList, showToast]);
 
-  /** 空态引导卡入口与右栏行共用：门控（不 ready → onBlocked）后出稿 */
-  const runBootstrap = useCallback(async () => {
+  /** 空态引导卡入口与右栏行共用：门控（不 ready → onBlocked）后出稿；
+      kind＝「从简介立主角」/ 配角/反派「一键立卡」（同一端点，后端按卡角色分派模板） */
+  const runBootstrap = useCallback(async (kind: "bootstrap" | "cardDraft" = "bootstrap") => {
     if (aiBusyRef.current) return; // ref 同步判定（与 runAi 同锁）
+    if (kind === "cardDraft" && !card) return; // 一键立卡只挂在有卡上下文
     if (aiState && aiState !== "ready") {
       onBlocked?.(aiState);
       return;
     }
     aiBusyRef.current = true;
     setAiBusy(true);
+    // 迟到草稿守卫（与 runAi 的 selectedIdRef 判据同款）：出稿途中切卡后完成的稿
+    // 不得在别的卡上下文开弹窗——label 取当前卡名、内容却是出稿卡素材，采纳即串卡
+    const targetId = card?.id || "";
     try {
       const res = await charactersApi.bootstrapDraft(projectId, card?.id || undefined);
+      if (selectedIdRef.current !== targetId) return; // 已切卡：弃稿
       setSink(null);
       setCheck(null);
       setBootstrapSink(res);
+      setBootstrapKind(kind);
       setCardCached(false);
-      setCardAction("bootstrap");
+      setCardAction(kind);
       setCardOpen(true);
-      setVersions((prev) => ({ ...prev, bootstrap: (prev.bootstrap ?? 0) + 1 }));
+      setVersions((prev) => ({ ...prev, [kind]: (prev[kind] ?? 0) + 1 }));
     } catch (e) {
       showToast((e as Error).message || "AI \u751f\u6210\u5931\u8d25\uff0c\u53ef\u91cd\u8bd5");
     } finally {
@@ -640,15 +725,6 @@ const CharacterManager = forwardRef<CharacterSaveHandle, Props>(function Charact
           )
         ) : (
           <>
-            <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: 6 }}>
-              <span className={`char-save-state ${saveState}`}>
-                {saveState === "saving" && "保存中…"}
-                {saveState === "saved" && "已自动保存"}
-                {saveState === "dirty" && "有未保存修改"}
-                {saveState === "failed" && "保存失败 · 请重试"}
-              </span>
-            </div>
-
             <header className="char-head">
               <span className="char-seal">{sealChar}</span>
               <div className="char-idblock">
@@ -692,6 +768,14 @@ const CharacterManager = forwardRef<CharacterSaveHandle, Props>(function Charact
                 </div>
               </div>
               <div className="char-side">
+                {/* 卡片级保存态：与主角徽标/合并·删除同列（原型 ch-side），限定词「这张卡」
+                    与页脚的整项口径分开——c-chars-confirm-scope */}
+                <span className={`char-save-state ${saveState}`}>
+                  {saveState === "saving" && "这张卡保存中…"}
+                  {saveState === "saved" && "这张卡已自动保存"}
+                  {saveState === "dirty" && "这张卡有未保存修改"}
+                  {saveState === "failed" && "这张卡保存失败 · 请重试"}
+                </span>
                 <span className={`badge ${card.role === "主角" ? (card.name && card.persona ? "ok" : "warn") : "empty"}`}>
                   {card.role === "主角" ? (card.name && card.persona ? "已立主角" : "主角待立") : card.role}
                 </span>
@@ -701,6 +785,12 @@ const CharacterManager = forwardRef<CharacterSaveHandle, Props>(function Charact
                 </div>
               </div>
             </header>
+
+            {(card.role === "配角" || card.role === "反派") && !displayName(card.name) && !card.persona.trim() && (
+              <p className="opt" data-testid="char-ai-hint" style={{ margin: "2px 0 0" }}>
+                右侧「一键立卡」可以先为 TA 拟一稿——只补空格，采纳才写入。
+              </p>
+            )}
 
             {opsPanel === "del" && (
               <div className="char-ops-panel danger">
@@ -1002,9 +1092,12 @@ const CharacterManager = forwardRef<CharacterSaveHandle, Props>(function Charact
       <AiCardModal
         open={cardOpen && cardAction !== null}
         card={
-          cardAction === "bootstrap" && bootstrapSink
+          cardAction != null && (cardAction === "bootstrap" || cardAction === "cardDraft") && bootstrapSink
             ? {
-                label: "AI 拟稿 · 从简介立主角（采纳才写入）",
+                label:
+                  cardAction === "cardDraft"
+                    ? `AI 拟稿 · 为「${card ? displayName(card.name) || "未命名" : ""}」立卡（采纳才写入）`
+                    : "AI 拟稿 · 从简介立主角（采纳才写入）",
                 kind: "struct",
                 adoptText: "采纳 · 写入",
                 cached: cardCached,
@@ -1081,7 +1174,7 @@ const CharacterManager = forwardRef<CharacterSaveHandle, Props>(function Charact
         onRegenerate={
           cardAction
             ? () => {
-                if (cardAction === "bootstrap") void runBootstrap();
+                if (cardAction === "bootstrap" || cardAction === "cardDraft") void runBootstrap(cardAction);
                 else if (cardAction === "check") {
                   // 体检「重新检查」：报告卡在会话内可刷新（D2 报告卡骨架）
                   if (!card) return;

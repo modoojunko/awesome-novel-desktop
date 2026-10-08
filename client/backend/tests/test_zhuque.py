@@ -28,6 +28,7 @@ from api_configs.service import (
     get_user_api_configs,
 )
 from auth_local.deps import require_ai_access as _raa
+from auth_local.deps import require_tier_access as _rta
 from auth_local.middleware import get_current_user
 from db import async_session
 from main import app
@@ -47,6 +48,12 @@ from zhuque.segmentation import (
 
 REF = "vol-1-ch-1"
 _UIDS: dict[str, str] = {}
+
+# 本模块自持本地 config.json 路径：`auth_local.service.CONFIG_FILE` 是模块级全局，
+# 按首个 import 者的 DATA_ROOT 定型、又会被别的模块（如 test_ai_feature_matrix 的
+# `_seed`）在运行期改指到它们的 tier=pro＋占位 Key——本模块的用例以「空档位」为基线，
+# 故逐用例认领（真实门操作用 `local_tier` 临时覆盖，用完还原到本路径）。
+_CFG_PATH = os.path.join(tempfile.mkdtemp(prefix="test_zq_cfg_"), "config.json")
 
 
 async def _seed_project(prefix: str) -> tuple[str, str]:
@@ -85,6 +92,19 @@ async def _seed_project(prefix: str) -> tuple[str, str]:
 async def _save_zhuque(uid: str, key: str = "eo-mk-test") -> None:
     async with async_session() as session:
         await zq_service.save_config(session, uid, key)
+
+
+async def _save_llm_config(uid: str, name: str = "写作模型", key: str = "sk-test") -> None:
+    """种一条写作大模型配置行（与非朱雀行的真实形状一致：active＋密文 Key）。"""
+    from api_configs.crypto import encrypt_api_key
+
+    async with async_session() as session:
+        session.add(ApiConfig(
+            user_id=uid, name=name, vendor="openai-compat",
+            base_url="https://api.example.com/v1",
+            api_key=encrypt_api_key(key), status="active",
+        ))
+        await session.commit()
 
 
 def _stub_classify(monkeypatch, *, merge_every: int = 2, status: str = "success",
@@ -126,6 +146,7 @@ def _client(uid: str):
     c.__enter__()
     app.dependency_overrides[get_current_user] = lambda: {"id": uid}
     app.dependency_overrides[_raa] = lambda: True
+    app.dependency_overrides[_rta] = lambda: True  # 配置域门（键自持）同样整段绕过
     return c
 
 
@@ -418,7 +439,9 @@ def test_check_endpoint_free_tier_403(monkeypatch):
         def _deny():
             raise HTTPException(403, detail={"reason": "member_required", "message": "AI 是会员功能"})
 
-        app.dependency_overrides[_raa] = _deny
+        # 检测端点现走键自持门（require_tier_access）；覆盖它才是「免费档被拦」的本意
+        # ——覆盖 require_ai_access 不再生效（真门会按当时 config.json 判档，假绿/假红）
+        app.dependency_overrides[_rta] = _deny
         try:
             r = c.post(f"/api/novels/{pid}/chapters/{REF}/zhuque-check", json={})
             assert r.status_code == 403
@@ -491,6 +514,160 @@ def test_config_endpoints_lifecycle(monkeypatch):
     finally:
         c.__exit__(None, None, None)
         app.dependency_overrides.clear()
+    _UIDS.pop(uid, None)
+
+
+# ─── 配置域门禁（c-zhuque-config-keyless） ───
+
+
+@pytest.fixture(autouse=True)
+def _own_local_config():
+    """逐用例把本地 config.json 认回本模块的隔离路径（空档位基线）＋清缓存。
+
+    不认领＝别的模块运行期改指的 tier/Key 会串进来：如 matrix 先跑时，`_service.CONFIG_FILE`
+    停在其临时 config（tier=pro＋占位 Key），「只配朱雀不算已配写作模型 Key」用例假红
+    （config.json 兜底读到了别人写的 Key）。
+    """
+    import auth_local.service as _service
+
+    _service.CONFIG_FILE = _CFG_PATH
+    _service._reset_config_cache()
+    yield
+
+
+@pytest.fixture(scope="module", autouse=True)
+def _restore_local_config_on_exit():
+    """模块跑完把 `CONFIG_FILE` 还原到本模块进场时的值——本模块逐用例改写了该全局，
+    不还原会把「空档位」基线留给后续测试文件（c-zhuque-config-keyless review 整改）。
+    """
+    import auth_local.service as _service
+
+    prev = _service.CONFIG_FILE
+    yield
+    _service.CONFIG_FILE = prev
+    _service._reset_config_cache()
+
+
+@pytest.fixture
+def local_tier():
+    """真实门禁用：本地 config.json 切到隔离路径（用完还原原路径＋清缓存）。
+
+    不 override `require_ai_access` 时，档位与「Key 兜底」都以本地 config.json 为
+    事实源（`check_permission` / `get_local_config`），故必须以文件设档。
+    """
+    import auth_local.service as _service
+
+    path = os.path.join(tempfile.mkdtemp(prefix="test_zq_tier_"), "config.json")
+    prev = _service.CONFIG_FILE
+    _service.CONFIG_FILE = path
+
+    def _set(tier: str, api_key: str = "") -> None:
+        cfg = _service.get_local_config()
+        cfg.update({
+            "tier": tier,
+            "expires_at": "" if tier in ("none", "free") else "2099-01-01",
+            "api_key": api_key,
+        })
+        _service.save_local_config(cfg)
+
+    yield _set
+    _service.CONFIG_FILE = prev
+    _service._reset_config_cache()
+
+
+def _client_real_gate(uid: str):
+    """只 override 登录：门禁走真实依赖（旧 `_client` 把 require_ai_access 整段绕过，
+    配置域误挂门正是由此漏网）。"""
+    c = TestClient(app)
+    c.__enter__()
+    app.dependency_overrides[get_current_user] = lambda: {"id": uid}
+    return c
+
+
+def test_config_domain_open_for_all_tiers(monkeypatch, local_tier):
+    """配置域只挂登录、**不分套餐权益**（2026-10-08 拍板）：免费/标准/PRO/trial 全档
+    都能保存/测试/删除朱雀 Key，且不要求已配写作大模型 Key。
+
+    回归（tier-plan-four-tiers 起配置域误挂 require_ai_access）：该门含「已配写作
+    大模型 Key」判据（503「AI 服务未配置」）＋档位判据——只配朱雀的作者连首配都做不完。
+    权益门禁落使用口（工作台检测行），见 test_detect_endpoint_gate_keeps_tier。
+    """
+    async def scene():
+        uid, _ = await _seed_project("gate")
+        return uid
+
+    _stub_classify(monkeypatch, usage=5)
+    uid = asyncio.new_event_loop().run_until_complete(scene())
+
+    for tier in ("free", "standard", "pro", "trial"):
+        local_tier(tier)
+        c = _client_real_gate(uid)
+        try:
+            r = c.put("/api/v1/zhuque/config", json={"api_key": "eo-mk-live"})
+            assert r.status_code == 200, (tier, r.status_code, r.text)
+            assert r.json()["configured"] is True, (tier, r.text)
+            t = c.post("/api/v1/zhuque/test")
+            assert t.status_code == 200, (tier, t.status_code, t.text)
+            assert t.json()["ok"] is True, (tier, t.text)
+            d = c.delete("/api/v1/zhuque/config")
+            assert d.status_code == 200, (tier, d.status_code, d.text)
+            assert d.json()["ok"] is True, (tier, d.text)
+        finally:
+            c.__exit__(None, None, None)
+            app.dependency_overrides.clear()
+    _UIDS.pop(uid, None)
+
+
+def test_detect_endpoint_gate_keeps_tier(monkeypatch, local_tier):
+    """使用口门禁＝会员＋ai-detect 档位（键自持，不查写作模型 Key）：只配朱雀 Key 的
+    PRO 作者直接可检测；免费/标准档仍在门控层拦下（配置域撤门不得顺带松使用口）。"""
+    async def scene():
+        uid, pid = await _seed_project("gate2")
+        await _save_zhuque(uid)
+        return uid, pid
+
+    _stub_classify(monkeypatch, usage=11)
+    uid, pid = asyncio.new_event_loop().run_until_complete(scene())
+    url = f"/api/novels/{pid}/chapters/{REF}/zhuque-check"
+
+    for tier, code in (("free", 403), ("standard", 403), ("pro", 200)):
+        local_tier(tier)
+        c = _client_real_gate(uid)
+        try:
+            r = c.post(url, json={})
+            assert r.status_code == code, (tier, r.status_code, r.text)
+        finally:
+            c.__exit__(None, None, None)
+            app.dependency_overrides.clear()
+    _UIDS.pop(uid, None)
+
+
+def test_detect_endpoint_missing_zhuque_key_is_not_generic_503(monkeypatch, local_tier):
+    """PRO 但没有朱雀 Key（无论有没有写作大模型 Key）：检测端点返回精确的
+    `zhuque_not_configured`，SHALL NOT 被通用「AI 服务未配置」盖过；同一 author 的
+    写作大模型 Key **不能顶替**朱雀 Key（2026-10-08 口径：两个 Key 世界互不顶替）。"""
+    async def scene():
+        uid, pid = await _seed_project("gate3")
+        return uid, pid
+
+    def _check(uid: str, pid: str) -> None:
+        c = _client_real_gate(uid)
+        try:
+            r = c.post(f"/api/novels/{pid}/chapters/{REF}/zhuque-check", json={})
+            assert r.status_code == 503, r.text
+            assert r.json()["detail"]["reason"] == "zhuque_not_configured", r.text
+            assert "朱雀" in r.json()["detail"]["message"], r.text
+        finally:
+            c.__exit__(None, None, None)
+            app.dependency_overrides.clear()
+
+    _stub_classify(monkeypatch, usage=1)
+    uid, pid = asyncio.new_event_loop().run_until_complete(scene())
+    local_tier("pro")
+
+    _check(uid, pid)  # (a) 任何 Key 都没有
+    asyncio.new_event_loop().run_until_complete(_save_llm_config(uid))
+    _check(uid, pid)  # (b) 只配了写作大模型 Key → 仍报「未配朱雀」
     _UIDS.pop(uid, None)
 
 

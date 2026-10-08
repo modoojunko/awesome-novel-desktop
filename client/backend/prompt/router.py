@@ -4,7 +4,7 @@ from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from auth_local.deps import ai_feature, require_ai_access
+from auth_local.deps import ai_feature, require_tier_access
 from auth_local.middleware import get_current_user
 from db import get_db
 from models.archive import ChapterPrompt
@@ -33,7 +33,7 @@ book_router = APIRouter(prefix="/api/novels/{project_id}", tags=["prompts"])
 async def prompt_summary(
     project_id: str,
     user: dict = Depends(get_current_user),
-    _: bool = Depends(require_ai_access),
+    _: bool = Depends(require_tier_access),
     db: AsyncSession = Depends(get_db),
 ):
     """全书各章是否已有整章提示词（一次聚合；与章级 /prompts 同口径只认 write-prompt）。"""
@@ -62,7 +62,7 @@ async def list_prompts(
     project_id: str,
     chapter_ref: str,
     user: dict = Depends(get_current_user),
-    _: bool = Depends(require_ai_access),
+    _: bool = Depends(require_tier_access),
     db: AsyncSession = Depends(get_db),
 ):
     """整章单卡（ai-prompt-crafting）：只回 write-prompt 一条；存量 seg 行不迁移不返回。"""
@@ -92,7 +92,7 @@ async def get_prompt_content(
     chapter_ref: str,
     seg: str,
     user: dict = Depends(get_current_user),
-    _: bool = Depends(require_ai_access),
+    _: bool = Depends(require_tier_access),
     db: AsyncSession = Depends(get_db),
 ):
     project = await get_novel(db, project_id, user["id"])
@@ -125,7 +125,7 @@ async def update_prompt_content(
     seg: str,
     body: UpdatePromptRequest,
     user: dict = Depends(get_current_user),
-    _: bool = Depends(require_ai_access),
+    _: bool = Depends(require_tier_access),
     db: AsyncSession = Depends(get_db),
 ):
     project = await get_novel(db, project_id, user["id"])

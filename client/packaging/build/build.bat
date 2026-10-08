@@ -40,7 +40,7 @@ pip install -r requirements.txt >nul 2>&1
 if %errorlevel% neq 0 ( echo [ERROR] Backend deps install failed & exit /b 1 )
 echo [OK] Backend deps installed
 
-REM 3. Build with PyInstaller
+REM 3. Build with engine (BUILD_ENGINE=nuitka|pyinstaller，默认 pyinstaller——c-nuitka-full)
 cd /d "%BUILD_DIR%"
 if "%1"=="quick" (
   echo [3/4] Building single EXE (onefile)...
@@ -48,6 +48,12 @@ if "%1"=="quick" (
   pyinstaller build.spec --clean --noconfirm -- --onefile
   if %errorlevel% neq 0 ( echo [ERROR] PyInstaller failed & exit /b 1 )
   echo [OK] Output: dist\AwesomeNovel.exe
+) else if /I "%BUILD_ENGINE%"=="nuitka" (
+  echo [3/4] Building onedir via Nuitka...
+  rmdir /S /Q dist-nuitka 2>nul
+  python build_nuitka.py
+  if errorlevel 1 ( echo [ERROR] Nuitka build failed & exit /b 1 )
+  echo [OK] Output: dist-nuitka\AwesomeNovel\
 ) else (
   echo [3/4] Building onedir (for installer)...
   rmdir /S /Q dist build_py 2>nul

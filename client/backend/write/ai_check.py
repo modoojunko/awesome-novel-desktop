@@ -184,6 +184,7 @@ async def run_ai_check(
             system=system,
             messages=[{"role": "user", "content": _user}],
             max_tokens=1600,
+            operation=f"ai_check_{kind}",
             usage=usage,
         )
     except AITimeoutError:

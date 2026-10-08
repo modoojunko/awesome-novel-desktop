@@ -272,6 +272,7 @@ async def _extract_and_finalize(
                 system=sys_prompt,
                 messages=[{"role": "user", "content": user_prompt}],
                 max_tokens=1600,
+                operation="dossier_extract",
                 usage=usage,
                 json_mode=True,
             )

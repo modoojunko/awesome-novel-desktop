@@ -811,7 +811,7 @@ const ProsePane = forwardRef<ProseHandle, ProsePaneProps>(function ProsePane(
         {/* TipTap 渲染 contenteditable 宿主：.editor 类经 editorProps.attributes 挂载，
             只读/归档/流式态由 setEditable(false) 落成 contenteditable="false"
             （a11y + e2e 判定口保持） */}
-        <EditorContent editor={editor} />
+        <EditorContent editor={editor} className="editor-host" />
       </div>
 
       {preview && (

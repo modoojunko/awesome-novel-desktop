@@ -88,8 +88,11 @@ def parse_package(paths: list[str]) -> dict:
 async def persist_package(db, user_id: str, paths: list[str], include_config: bool = True) -> dict:
     """逐书落库+可选配置恢复；书为原子单元（单书 SAVEPOINT），失败可单独重试。
 
-    书全部落库后执行智能挂回（backup-restore spec）：active 配置唯一→全挂；
-    书内模型名命中恰一个配置→挂之；否则置空待选。
+    每书成功即显式提交——SQLite 下无真 BEGIN 时最外层 SAVEPOINT 的 RELEASE 恰好
+    等价提交（方言巧合），显式化后持久性不再依赖语句顺序。书全部落库后执行智能
+    挂回（backup-restore spec）：active 配置唯一→全挂；书内模型名命中恰一个
+    配置→挂之；否则置空待选。收尾提交让配置恢复（含 config-only 包）与挂回
+    在返回前确定持久化；挂回异常则冒泡，已落书保持，挂回不生效。
     """
     results = []
     info = parse_package(paths)
@@ -120,6 +123,7 @@ async def persist_package(db, user_id: str, paths: list[str], include_config: bo
                         novel_id = await _import_single_book(
                             db, zf, book_dir, user_id, warnings=book_warnings
                         )
+                    await db.commit()
                     novel_ids.append(novel_id)
                     results.append({
                         "book_id": book_dir, "status": "ok", "novel_id": novel_id,
@@ -135,6 +139,7 @@ async def persist_package(db, user_id: str, paths: list[str], include_config: bo
                     novel_id = await _import_single_book(
                         db, zf, "", user_id, warnings=book_warnings
                     )
+                await db.commit()
                 novel_ids.append(novel_id)
                 results.append({
                     "book_id": pn, "status": "ok", "novel_id": novel_id,
@@ -148,6 +153,8 @@ async def persist_package(db, user_id: str, paths: list[str], include_config: bo
         if novel_ids
         else {"mode": "none", "attached": 0}
     )
+    # 收尾提交：配置恢复（含 config-only 包）与挂回在此确定落库
+    await db.commit()
     # 逐书容错提示（伏笔章引用解析失败等）并进总 warnings——「置 NULL＋warning
     # 计数、不丢行」的契约要能在恢复摘要里看到
     book_level = [w for r in results for w in r.get("warnings", [])]
@@ -935,7 +942,7 @@ async def _reattach_configs(db, user_id: str, novel_ids: list[str]) -> dict:
         mode = "unique_active"
         for nid in novel_ids:
             novel = await db.get(Novel, nid)
-            if novel and not novel.api_config_id:
+            if novel and not novel.ai_config_id:
                 novel.ai_config_id = actives[0].id
                 attached += 1
     else:

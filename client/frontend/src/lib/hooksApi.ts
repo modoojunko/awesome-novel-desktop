@@ -133,24 +133,43 @@ async function unwrap<T>(p: Promise<unknown>): Promise<T> {
   return r.data;
 }
 
+/** 台账变更广播（c-chtab-confirm-bubbles）：create/patch/remove/restore 成功后派发，
+ *  useHooksLedger 消费方（页签「该收」泡泡、台账投影）据此重取，免切章刷新。 */
+export const HOOKS_CHANGED_EVENT = "hooks-changed";
+const broadcastHooksChanged = (projectId: string): void => {
+  window.dispatchEvent(new CustomEvent(HOOKS_CHANGED_EVENT, { detail: { projectId } }));
+};
+
 export const hooksApi = {
   list: (projectId: string) =>
     unwrap<HookListData>(api.get(`/novels/${projectId}/hooks`)),
 
-  create: (projectId: string, body: HookPatchBody = {}) =>
-    unwrap<HookEntry>(api.post(`/novels/${projectId}/hooks`, body)),
+  async create(projectId: string, body: HookPatchBody = {}) {
+    const r = await unwrap<HookEntry>(api.post(`/novels/${projectId}/hooks`, body));
+    broadcastHooksChanged(projectId);
+    return r;
+  },
 
-  patch: (projectId: string, id: string, body: HookPatchBody) =>
-    unwrap<HookEntry>(api.patch(`/novels/${projectId}/hooks/${id}`, body)),
+  async patch(projectId: string, id: string, body: HookPatchBody) {
+    const r = await unwrap<HookEntry>(api.patch(`/novels/${projectId}/hooks/${id}`, body));
+    broadcastHooksChanged(projectId);
+    return r;
+  },
 
-  remove: (projectId: string, id: string) =>
-    unwrap<HookDeleteResult>(api.delete(`/novels/${projectId}/hooks/${id}`)),
+  async remove(projectId: string, id: string) {
+    const r = await unwrap<HookDeleteResult>(api.delete(`/novels/${projectId}/hooks/${id}`));
+    broadcastHooksChanged(projectId);
+    return r;
+  },
 
   /** 按原 id 原样恢复（id 与 seq 不变）；token＝DELETE 返回的撤销凭证。 */
-  restore: (projectId: string, undo: HookUndo) =>
-    unwrap<HookEntry>(
+  async restore(projectId: string, undo: HookUndo) {
+    const r = await unwrap<HookEntry>(
       api.post(`/novels/${projectId}/hooks/${undo.hook_id}/restore`, { token: undo.token }),
-    ),
+    );
+    broadcastHooksChanged(projectId);
+    return r;
+  },
 
   /** 卷章树（伏笔选择器数据源；/volumes 返回裸数组，非 {ok,data} 信封）。 */
   volumes: (projectId: string) =>

@@ -153,3 +153,9 @@ client/backend/prompt_pack/*.c
 client/backend/prompt_pack/*.so
 client/backend/prompt_pack/*.pyd
 client/packaging/build/build_native/
+
+# c-nuitka-full：Nuitka 构建产物与诊断（不入仓）
+client/packaging/build/dist-nuitka/
+client/packaging/build/spike-*.log
+client/packaging/build/compilation-report.xml
+client/packaging/build/spike-report.xml

@@ -78,7 +78,8 @@ const BLOCK_TEXT: Record<string, string> = {
   missing_model: "先在本书选择模型",
   invalid: "本书绑定的模型已失效，重新选择模型",
   // c-prompt-pack-client：四态卡（PromptPackCard）承担引导与出口，此处为兜底文案
-  prompts_missing: "写作能力还没就绪——登录后会自动获取",
+  // 已登录失败不再「自动获取」（onboard-modal 定诊）：出口指向账号菜单手动重新获取
+  prompts_missing: "写作能力还没就绪——在账号菜单「写作能力」里重新获取",
 };
 
 export default function AiWriterAssistant({
@@ -192,7 +193,7 @@ export default function AiWriterAssistant({
   );
 }
 
-/** 角色右栏 AI 行（character-settings-v2 四行 + bootstrap；作用域见各行）：免费可见、点不动。 */
+/** 角色右栏 AI 行（character-settings-v2 四行 + bootstrap + cardDraft；作用域见各行）：免费可见、点不动。 */
 export function CharsAiRail(props: {
   ctx: CharAiCtx | null;
   aiState?: AiState;
@@ -227,8 +228,22 @@ export function CharsAiRail(props: {
           },
         ]
       : [];
+  // 一键立卡（c-char-ai-card-generic）：配角/反派且有任一空格才出现，卡满退场；
+  // 路人不给行（与体检排除同口径）、主角走 bootstrap，互不越位
+  const cardDraftRow: AiCapabilityRow[] =
+    ctx && (ctx.role === "配角" || ctx.role === "反派") && ctx.personaGap + ctx.dossierGap + ctx.cogGap > 0
+      ? [
+          {
+            key: "cardDraft",
+            name: "一键立卡",
+            desc: `按简介为「${ctx.name || "未命名"}」把人设、档案、认知的空格一次拟齐 · 采纳才写入`,
+            onClick: () => props.onRun("cardDraft"),
+          },
+        ]
+      : [];
   const rows: AiCapabilityRow[] = [
     ...bootstrapRow,
+    ...cardDraftRow,
     {
       key: "persona",
       name: "人设补充",
@@ -257,7 +272,7 @@ export function CharsAiRail(props: {
   return (
     <AiWriterAssistant
       rows={rows}
-      footNote="这些行都只对当前选中的角色生效（「从简介立主角」只认主角待立那一张）：先在弹窗里给你一稿，点「采纳 · 写入」才落到卡上，写错了能一步撤销。只补空格——你写过的字一个不动。重开同一行先看上次结果，重新生成才再跑一次。卡片上不放 AI 按钮：免费用户照样可以手填所有字段，这一栏看得见、点不动。"
+      footNote="这些行都只对当前选中的角色生效（「从简介立主角」只认主角待立那一张，「一键立卡」只认配角与反派）：先在弹窗里给你一稿，点「采纳 · 写入」才落到卡上，写错了能一步撤销。只补空格——你写过的字一个不动。重开同一行先看上次结果，重新生成才再跑一次。卡片上不放 AI 按钮：免费用户照样可以手填所有字段，这一栏看得见、点不动。"
       targetLine={targetLine}
       aiState={props.aiState}
       onBlocked={props.onBlocked}

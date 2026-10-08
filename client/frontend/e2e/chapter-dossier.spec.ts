@@ -215,6 +215,10 @@ test("变化分区全链：归档受理提取→设定/关系页签待确认→�
     await expect(stages).toContainText("待确认");
     await expect(stages).toContainText("完成");
 
+    // ②″ 页签泡泡（c-chtab-confirm-bubbles）：设定 3（设定+物品+认知三域 pending）／关系 1
+    await expect(page.getByTestId("chtab-bubble-settings")).toHaveText("3");
+    await expect(page.getByTestId("chtab-bubble-relations")).toHaveText("1");
+
     // ② 设定页签：设定/物品/认知变化（按子领域分组）＋证据展开＋一键采纳
     await page.getByRole("tab", { name: /^设定/ }).click();
     const pane = page.getByTestId("setting-changes-section");
@@ -238,6 +242,9 @@ test("变化分区全链：归档受理提取→设定/关系页签待确认→�
     // 批量只波及设定/物品/认知三域；关系行留给「角色关系」页签确认（跨域误采纳防线）
     expect(d.progress.pending).toBe(1);
     expect(d.progress.accepted).toBeGreaterThanOrEqual(3);
+    // 设定泡即时清零退场（DOSSIER_CHANGED_EVENT 重取）；关系泡保留
+    await expect(page.getByTestId("chtab-bubble-settings")).toHaveCount(0);
+    await expect(page.getByTestId("chtab-bubble-relations")).toHaveText("1");
 
     // ②′ 角色关系页签（c-chapter-relations-graph）：图为主表达——图在前、工作流在后；
     // 待确认关系行画虚线提案边；本书无角色卡 → 占位节点也上图
@@ -258,6 +265,8 @@ test("变化分区全链：归档受理提取→设定/关系页签待确认→�
     await expect(rg.locator(".rg-edge.hit .rg-line")).toHaveCount(1);
     await expect(rg.locator(".rg-edge.pending .rg-line")).toHaveCount(0);
     await expect(rg.locator(".rg-legend")).toContainText(/剧情演变 1 · 待确认 0/);
+    // 关系泡随采纳即时退场（c-chtab-confirm-bubbles：待确认清零自消）
+    await expect(page.getByTestId("chtab-bubble-relations")).toHaveCount(0);
     // 箭头＋极性：盟友＝友好绿，箭头 marker 同色挂在路径末端
     await expect(rg.locator(".rg-edge.hit.p-friendly .rg-line").first()).toHaveAttribute("marker-end", /friendly/);
     // 缩放按钮可点（真实点击序列；曾因容器 pointer capture 吞掉按钮 click 恒失效）

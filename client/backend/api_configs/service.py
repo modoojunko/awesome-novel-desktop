@@ -36,8 +36,14 @@ def _first_model(models_json: str | None) -> str | None:
     return None
 
 
-def _normalize_models(raw: list[str]) -> list[str]:
-    """models 写入归一化：去空白/去重保序/上限 100。"""
+def _normalize_models(raw: list[str], *, truncate: bool = False) -> list[str]:
+    """models 写入归一化：去空白/去重保序/上限 100。
+
+    超限行为分两条路（c-api-config-auto-models 拍板）：手动路径（create/update
+    请求体）超限报错——那是用户显式行为；自动路径（连接测试拉回的清单落库）
+    truncate=True 截断保留前 100——供应商清单长度不受用户控制（百炼逾百条），
+    原样超限落库会让之后任何手动 PUT 都 422。
+    """
     seen: set[str] = set()
     cleaned: list[str] = []
     for m in raw:
@@ -46,8 +52,48 @@ def _normalize_models(raw: list[str]) -> list[str]:
             seen.add(name)
             cleaned.append(name)
     if len(cleaned) > 100:
-        raise ValueError("模型数量过多（上限 100）")
+        if not truncate:
+            raise ValueError("模型数量过多（上限 100）")
+        cleaned = cleaned[:100]
     return cleaned
+
+
+async def _assert_name_available(db: AsyncSession, user_id: str, name: str) -> None:
+    """重名校验＋软删占名让位。
+
+    活跃（status != deleted）重名照旧拒绝；名字只被软删行占着时，把不可见的
+    软删行改名腾出名字再放行——DB 有 (user_id, name) 唯一约束
+    （uq_api_configs_user_name），不让位的话新建/改名必然撞约束。
+    撤销窗口（前端 8s toast）内行原样保留、restore 照常复活原名；窗口过期后
+    用户重建同名配置是正常诉求，不该被看不见的行堵死。改名后缀嵌行 id（PK）
+    保证唯一，软删行不在任何列表出现，该形态用户不可见。
+    朱雀行（vendor=zhuque）例外：保留名「朱雀 AI 检测」任何状态都拒借，见循环内注释。
+    """
+    existing = await db.execute(
+        select(ApiConfig).where(
+            ApiConfig.user_id == user_id,
+            ApiConfig.name == name,
+            ApiConfig.status != "deleted",
+        )
+    )
+    if existing.scalar_one_or_none():
+        raise ValueError("名称已被使用")
+    blocked = await db.execute(
+        select(ApiConfig).where(
+            ApiConfig.user_id == user_id,
+            ApiConfig.name == name,
+            ApiConfig.status == "deleted",
+        )
+    )
+    for row in blocked.scalars().all():
+        # 朱雀保留名不参与让位：get_zhuque_config 按 name+vendor 单槽位查行，
+        # 让普通配置借走该名，朱雀行从此查不到（zhuque 契约：active/deleted 一律 409）
+        if row.vendor == "zhuque":
+            raise ValueError("名称已被使用")
+        row.name = f"{name[:40]}（已删除 {row.id}）"
+    # flush 须在此处：让位 UPDATE 与调用方随后的改名/INSERT 不能归并进同一批次——
+    # SQLite 唯一约束逐行检查，同批内「B 先取名、A 后让位」会自撞约束
+    await db.flush()
 
 
 async def create_api_config(
@@ -62,12 +108,8 @@ async def create_api_config(
     models: list[str] | None = None,
 ) -> dict[str, Any]:
     """Create a new ApiConfig. Returns the created config as a dict."""
-    # Check name uniqueness
-    existing = await db.execute(
-        select(ApiConfig).where(ApiConfig.user_id == user_id, ApiConfig.name == name)
-    )
-    if existing.scalar_one_or_none():
-        raise ValueError("名称已被使用")
+    # Check name uniqueness（软删占名自动让位，见 helper）
+    await _assert_name_available(db, user_id, name)
 
     # Resolve vendor
     resolved_vendor_id, resolved_display_name, _ = resolve_vendor(
@@ -163,8 +205,20 @@ async def test_api_config(
     config.last_test_error = outcome.get("error")
     config.last_tested_at = datetime.now(UTC)
     if outcome.get("models"):
-        config.models = json.dumps(outcome["models"], ensure_ascii=False)
+        fetched = outcome["models"]
+        # 截断保头（评审 P1-2）：配置当前默认模型（models 首项＝用户登记/手选值）若在
+        # 清单内必须保留——绑定校验只认落库清单，丢头会让用户刚选的/已绑定的模型被
+        # 静默截掉，重绑被「不属于该配置模型列表」拒
+        preferred = _first_model(config.models)
+        if preferred and preferred in fetched:
+            fetched = [preferred] + [m for m in fetched if m != preferred]
+        # 自动落库走与手写路径一致的归一化（去空白/去重），超限截断而非原样超限
+        # （c-api-config-auto-models：百炼清单可逾百条，超限落库会堵死后续手动 PUT）；
+        # 响应体与落库同一份清单——两口径分叉会让前端态与 DB 不一致（评审 P1-1）
+        normalized = _normalize_models(fetched, truncate=True)
+        config.models = json.dumps(normalized, ensure_ascii=False)
         config.models_updated_at = datetime.now(UTC)
+        outcome = {**outcome, "models": normalized}
     await db.commit()
     await db.refresh(config)
 
@@ -185,17 +239,9 @@ async def update_api_config(
     if not config:
         return None
 
-    # Check name uniqueness if changing name
+    # Check name uniqueness if changing name（软删占名自动让位，见 helper）
     if "name" in updates and updates["name"] != config.name:
-        existing = await db.execute(
-            select(ApiConfig).where(
-                ApiConfig.user_id == user_id,
-                ApiConfig.name == updates["name"],
-                ApiConfig.id != config_id,
-            )
-        )
-        if existing.scalar_one_or_none():
-            raise ValueError("名称已被使用")
+        await _assert_name_available(db, user_id, updates["name"])
 
     # models 是 JSON 文本列：手动写入须归一化（去空白/去重保序/上限）后序列化
     if updates.get("models") is not None:

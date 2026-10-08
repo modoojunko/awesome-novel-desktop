@@ -422,6 +422,139 @@ class TestApiKeyCRUD:
         assert resp.status_code == 200
         assert captured["preferred_model"] == "deepseek-v4-pro"
 
+    def test_fetch_models_endpoint_passes_through(self, client, monkeypatch):
+        """只拉清单端点把 raw 配置透传给轻探针（无 preferred_model 概念）。"""
+        captured: dict = {}
+
+        async def fake_fetch(**kwargs):
+            captured.update(kwargs)
+            return {"ok": True, "status": "ok", "models": ["m-1"], "error": None}
+
+        monkeypatch.setattr("api_configs.router._fetch_models", fake_fetch)
+        resp = client.post(
+            "/api/v1/api-configs/fetch-models",
+            json={
+                "vendor_id": "kimi",
+                "base_url": "https://api.moonshot.cn/v1",
+                "api_key": "sk-x",
+                "api_format": "openai",
+            },
+        )
+        assert resp.status_code == 200, resp.text
+        assert resp.json()["models"] == ["m-1"]
+        assert captured == {
+            "vendor_id": "kimi",
+            "api_key": "sk-x",
+            "base_url": "https://api.moonshot.cn/v1",
+            "api_format": "openai",
+        }
+
+    def test_fetch_models_rejects_extra_model_key(self, client, monkeypatch):
+        """轻探针请求体与 TestRawBody 的差异钉死：即使误传 model 也不透传（无探针优先模型概念）。"""
+        captured: dict = {}
+
+        async def fake_fetch(**kwargs):
+            captured.update(kwargs)
+            return {"ok": True, "status": "ok", "models": [], "error": None}
+
+        monkeypatch.setattr("api_configs.router._fetch_models", fake_fetch)
+        resp = client.post(
+            "/api/v1/api-configs/fetch-models",
+            json={
+                "vendor_id": "kimi",
+                "base_url": "https://api.moonshot.cn/v1",
+                "api_key": "sk-x",
+                "api_format": "openai",
+                "model": "m-x",  # pydantic 忽略多余键——断言它没被透传
+            },
+        )
+        assert resp.status_code == 200, resp.text
+        assert "preferred_model" not in captured
+
+    def test_test_config_persist_normalizes_and_truncates(self, client, monkeypatch):
+        """自动落库走归一化（去空白/去重）且超限截断——百炼逾百条清单不再堵死手动 PUT；
+        响应体与落库同一份清单（评审 P1：两口径分叉会让前端态与 DB 不一致）。"""
+        big = [f"m-{i:03d}" for i in range(150)] + ["m-000", " m-001 "]  # 152 条含重复与空白
+
+        async def fake_test(**kwargs):
+            return {"ok": True, "status": "ok", "models": big, "error": None}
+
+        monkeypatch.setattr("api_configs.service._test_connection", fake_test)
+        resp = client.post(
+            "/api/v1/api-configs",
+            json={
+                "name": "超长清单",
+                "vendor_id": "qwen",
+                "base_url": "https://dashscope.aliyuncs.com/compatible-mode/v1",
+                "api_key": _test_api_key("long"),
+            },
+        )
+        cid = resp.json()["id"]
+        test_resp = client.post(f"/api/v1/api-configs/{cid}/test")
+        assert test_resp.status_code == 200
+        assert test_resp.json()["models"] == [f"m-{i:03d}" for i in range(100)]  # 响应体＝落库口径
+        got = client.get(f"/api/v1/api-configs/{cid}").json()["models"]
+        assert len(got) == 100  # 截断而非超限落库
+        assert got[:2] == ["m-000", "m-001"]  # 去重保序、空白已剥
+        # 归一化后的存量不再挡手动 PUT（修前：>100 原样落库 → 后续 PUT 422）
+        put = client.put(
+            f"/api/v1/api-configs/{cid}", json={"models": got + ["m-extra"]}
+        )
+        assert put.status_code == 422  # 手动路径超限仍报错（拍板口径：显式行为才拦）
+        put2 = client.put(f"/api/v1/api-configs/{cid}", json={"models": ["m-000"]})
+        assert put2.status_code == 200
+
+    def test_test_config_truncate_keeps_preferred_head(self, client, monkeypatch):
+        """截断保头（评审 P1-2）：配置默认模型（models 首项＝用户手选值）在清单尾部也不被截掉。"""
+        models = [f"v-{i:03d}" for i in range(150)]
+        models[120] = "my-pick"  # 用户手选值排在供应商清单第 121 位
+
+        async def fake_test(**kwargs):
+            return {"ok": True, "status": "ok", "models": models, "error": None}
+
+        monkeypatch.setattr("api_configs.service._test_connection", fake_test)
+        resp = client.post(
+            "/api/v1/api-configs",
+            json={
+                "name": "保头截断",
+                "vendor_id": "qwen",
+                "base_url": "https://dashscope.aliyuncs.com/compatible-mode/v1",
+                "api_key": _test_api_key("keep"),
+                "models": ["my-pick"],
+            },
+        )
+        cid = resp.json()["id"]
+        assert client.post(f"/api/v1/api-configs/{cid}/test").status_code == 200
+        got = client.get(f"/api/v1/api-configs/{cid}").json()["models"]
+        assert len(got) == 100
+        assert got[0] == "my-pick"  # 保头：不随供应商顺序被静默截掉
+        # 保头后绑定校验可救：书内重绑「my-pick」不再被「不属于该配置模型列表」拒
+        put = client.put(f"/api/v1/api-configs/{cid}", json={"models": ["my-pick"]})
+        assert put.status_code == 200
+
+    def test_test_config_keeps_head_under_limit(self, client, monkeypatch):
+        """未超限重测同样保头（首项＝已选模型语义）：用户手选值排供应商序第二位，落库仍居首。"""
+        async def fake_test(**kwargs):
+            return {"ok": True, "status": "ok", "models": ["v-first", "my-pick"], "error": None}
+
+        monkeypatch.setattr("api_configs.service._test_connection", fake_test)
+        resp = client.post(
+            "/api/v1/api-configs",
+            json={
+                "name": "保头未超限",
+                "vendor_id": "kimi",
+                "base_url": "https://api.moonshot.cn/v1",
+                "api_key": _test_api_key("head"),
+                "models": ["my-pick"],
+            },
+        )
+        cid = resp.json()["id"]
+        r = client.post(f"/api/v1/api-configs/{cid}/test")
+        assert r.status_code == 200
+        # 落库与响应体同序：手选值居首，其余按供应商原序跟随（下次探针优先用它）
+        assert r.json()["models"] == ["my-pick", "v-first"]
+        assert client.get(f"/api/v1/api-configs/{cid}").json()["models"] == ["my-pick", "v-first"]
+
     def test_create_config_with_vendor_detection(self, client):
         """Create config, verify vendor auto-detection."""
         resp = client.post(
@@ -971,7 +1104,7 @@ class TestSoftDeleteRestore:
                 "api_key": _test_api_key("restore"),
             },
         )
-        assert resp.status_code in (200, 201), resp.text
+        assert resp.status_code == 201, resp.text  # create 路由钉死 201
         return resp.json()["id"]
 
     def test_delete_is_soft_row_kept_list_excludes(self, client):
@@ -1012,8 +1145,14 @@ class TestSoftDeleteRestore:
         resp = client.post("/api/v1/api-configs/nonexistent/restore")
         assert resp.status_code == 404
 
-    def test_same_name_recreate_after_delete_409(self, client):
-        """TC-SOFT-04: 软删后同名重建 → 409（名称被 tombstone 保留，语义与软删一致）。"""
+    def test_same_name_recreate_after_delete_succeeds(self, client):
+        """TC-SOFT-04（2026-10-08 口径翻转）：软删后同名重建 → 放行。
+
+        原口径＝tombstone 永久占名（409）；用户实绩：撤销窗口（前端 8s toast）
+        过期后重建同名被看不见的软删行堵死，报「名称已被使用」，像「没删干净」。
+        现口径＝活跃重名仍拒；名字只被软删行占着时旧行自动改名让位
+        （DB (user_id,name) 唯一约束要求），重建放行。
+        """
         config_id = self._create(client, "软删-同名")
         client.delete(f"/api/v1/api-configs/{config_id}")
         resp = client.post(
@@ -1025,7 +1164,131 @@ class TestSoftDeleteRestore:
                 "api_key": _test_api_key("restore-2"),
             },
         )
-        assert resp.status_code == 409
+        assert resp.status_code == 201, resp.text
+        new_id = resp.json()["id"]
+        # 新配置进列表；旧行仍软删在库但已让出名字
+        listed = client.get("/api/v1/api-configs").json()
+        assert any(c["id"] == new_id for c in listed)
+        old = _run_async(_get_config(self.RESTORE_USER_ID, config_id))
+        assert old is not None, "软删行仍保留（撤销支撑不变）"
+        assert old.status == "deleted"
+        assert old.name != "软删-同名", "软删行应已改名让位"
+
+    def test_restore_after_name_reuse_both_survive(self, client):
+        """TC-SOFT-05: 重建同名后 restore 旧行 → 两份配置并存、名字不打架。"""
+        old_id = self._create(client, "软删-让位恢复")
+        client.delete(f"/api/v1/api-configs/{old_id}")
+        create_resp = client.post(
+            "/api/v1/api-configs",
+            json={
+                "name": "软删-让位恢复",
+                "vendor_id": "openai",
+                "base_url": "https://api.openai.com",
+                "api_key": _test_api_key("restore-3"),
+            },
+        )
+        assert create_resp.status_code == 201, create_resp.text
+        new_id = create_resp.json()["id"]
+        # 旧行在让位期间被改名过，restore 复活的是让位名——两行并存且名字互不冲突
+        resp = client.post(f"/api/v1/api-configs/{old_id}/restore")
+        assert resp.status_code == 200, resp.text
+        listed = client.get("/api/v1/api-configs").json()
+        pair = {c["id"]: c["name"] for c in listed if c["id"] in (old_id, new_id)}
+        assert set(pair) == {old_id, new_id}
+        assert len(set(pair.values())) == 2, "复活行与新行名字不得相同"
+
+    def test_update_rename_can_take_deleted_name(self, client):
+        """TC-SOFT-06: 改名到软删行占着的名字 → 放行（让位对改名路径同生效）。
+
+        同时钉让位名形态（{原名}（已删除 {行id}））与 update 路径的 flush 分批——
+        本用例曾以「组合跑红、单跑绿」的顺序依赖复现同批自撞约束。
+        """
+        a_id = self._create(client, "改名-让位A")
+        b_resp = client.post(
+            "/api/v1/api-configs",
+            json={
+                "name": "改名-让位B",
+                "vendor_id": "openai",
+                "base_url": "https://api.openai.com",
+                "api_key": _test_api_key("rename-b"),
+            },
+        )
+        assert b_resp.status_code == 201, b_resp.text
+        b_id = b_resp.json()["id"]
+        client.delete(f"/api/v1/api-configs/{a_id}")
+        resp = client.put(f"/api/v1/api-configs/{b_id}", json={"name": "改名-让位A"})
+        assert resp.status_code == 200, resp.text
+        assert resp.json()["name"] == "改名-让位A"
+        old = _run_async(_get_config(self.RESTORE_USER_ID, a_id))
+        assert old.name == f"改名-让位A（已删除 {a_id}）", "让位名形态钉子"
+
+    def test_same_name_recreate_twice_all_yielded(self, client):
+        """TC-SOFT-07: 删→建同名→再删→第三次重建——多个软删行让位互不撞，放行。"""
+        first_id = self._create(client, "软删-双让位")
+        client.delete(f"/api/v1/api-configs/{first_id}")
+        second_id = self._create(client, "软删-双让位")  # first 让位
+        client.delete(f"/api/v1/api-configs/{second_id}")
+        third_id = self._create(client, "软删-双让位")  # second 让位，first 已不在占名态
+        listed = client.get("/api/v1/api-configs").json()
+        assert any(c["id"] == third_id for c in listed)
+        first = _run_async(_get_config(self.RESTORE_USER_ID, first_id))
+        second = _run_async(_get_config(self.RESTORE_USER_ID, second_id))
+        assert first.status == "deleted" and second.status == "deleted"
+        assert first.name != second.name, "两个软删行让位名互异（嵌行 id）"
+
+    def test_zhuque_reserved_name_not_yielded(self, client):
+        """TC-SOFT-08: 软删朱雀行占保留名 → 同名普通配置 409（保留名不参与让位）。
+
+        get_zhuque_config 按 name+vendor 单槽位查行；让普通配置借走保留名会让
+        朱雀行从此查不到（zhuque 契约：active/deleted 一律 409）。
+        """
+        from zhuque.service import ZHUQUE_NAME
+
+        async def _insert_deleted_zhuque() -> None:
+            async with async_session() as session:
+                await session.execute(
+                    text(
+                        "INSERT INTO api_configs (id, user_id, name, vendor, vendor_display_name, api_key, base_url, status, created_at, updated_at) "
+                        "VALUES (:id, :uid, :name, 'zhuque', '朱雀 AI 检测', '', '', 'deleted', datetime('now'), datetime('now'))"
+                    ),
+                    {
+                        "id": str(uuid.uuid4()),
+                        "uid": self.RESTORE_USER_ID,
+                        "name": ZHUQUE_NAME,
+                    },
+                )
+                await session.commit()
+
+        _run_async(_insert_deleted_zhuque())
+        resp = client.post(
+            "/api/v1/api-configs",
+            json={
+                "name": ZHUQUE_NAME,
+                "vendor_id": "openai",
+                "base_url": "https://api.openai.com",
+                "api_key": _test_api_key("zhuque-name"),
+            },
+        )
+        assert resp.status_code == 409, resp.text
+
+    def test_yielded_name_colliding_with_literal_returns_409(self, client):
+        """TC-SOFT-09: 让位名与字面软删行相撞（构造态）→ 约束兜底 409，不出 500。"""
+        a_id = self._create(client, "兜底-X")
+        lit_id = self._create(client, f"兜底-X（已删除 {a_id}）")  # 字面行恰为让位名
+        client.delete(f"/api/v1/api-configs/{lit_id}")
+        client.delete(f"/api/v1/api-configs/{a_id}")
+        resp = client.post(
+            "/api/v1/api-configs",
+            json={
+                "name": "兜底-X",
+                "vendor_id": "openai",
+                "base_url": "https://api.openai.com",
+                "api_key": _test_api_key("fallback"),
+            },
+        )
+        # 重建「兜底-X」→ A 让位名＝字面行名 → flush 撞约束 → 路由兜底 409
+        assert resp.status_code == 409, resp.text
+        assert "名称已被使用" in resp.text
 
 
 # ═══════════════════════════════════════════════════════════════════════════

@@ -28,6 +28,7 @@ from pydantic import BaseModel
 
 from build_info import get_build_info
 from config import DATA_ROOT
+from http_client import build_async_client
 from schema_version import app_version, is_newer, is_valid_version
 
 router = APIRouter(tags=["update-check"])
@@ -143,7 +144,7 @@ def _save_state(state: dict) -> None:
 async def _fetch_one(url: str) -> dict | None:
     """抓取并解析单个 latest.json；任何失败返回 None（调用方负责切兜底）。"""
     try:
-        async with httpx.AsyncClient(timeout=_FETCH_TIMEOUT) as client:
+        async with build_async_client(timeout=_FETCH_TIMEOUT) as client:
             resp = await client.get(url)
         if resp.status_code != 200:
             return None

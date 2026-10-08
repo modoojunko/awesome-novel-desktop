@@ -102,6 +102,11 @@ def _post(path: str):
                        headers={"Authorization": "Bearer tok-feathttp"})
 
 
+def _get_prompt(path: str):
+    return client.get(f"/api/novels/{PROJ}/chapters/{CH}{path}",
+                      headers={"Authorization": "Bearer tok-feathttp"})
+
+
 def _post_ch(path: str):
     """章级路由（/chapters 前缀直挂、无 chapter_ref 段——ai-selfcheck 同形）。"""
     return client.post(f"/api/novels/{PROJ}/chapters{path}", json={},
@@ -238,3 +243,28 @@ def test_style_ai_standard_passes_feature_gate():
     r = client.post(f"/api/novels/{PROJ}/settings/ai/style/check",
                     json={}, headers=_hdr())
     assert r.status_code != 403
+
+
+# ── 提示词面板：PRO 专属（档位门）＋ 看/改不依赖写作大模型 Key ────────────────
+# 口径（2026-10-08 用户拍板）：买了 PRO、还没配模型 Key 的人，打开提示词面板看/改已存
+# 提示词 SHALL NOT 被拦；点生成才提示去配（生成端点仍走 require_ai_access 的 Key 判据）。
+# 真实 HTTP 路径＝门序可见：非 PRO 403 先于业务 404；PRO 过门后进业务（假项目 → 404）。
+
+@pytest.mark.parametrize(
+    ("tier", "code"),
+    [("free", 403), ("standard", 403), ("pro", 404), ("trial", 404)],
+)
+def test_prompt_panel_gate_is_tier_only(tier, code):
+    _set_session(tier)
+    r = _get_prompt("/prompts")
+    assert r.status_code == code, (tier, r.status_code, r.text)
+    if code == 403:
+        assert r.json()["detail"]["reason"] in ("member_required", "feature_required")
+
+
+def test_write_chapter_without_model_key_guides_to_writing_model():
+    """PRO 会话、零写作大模型 Key：生成端点仍 503 且文案指名「写作大模型」（点生成才提示）。"""
+    _set_session("pro")
+    r = _post("/write")
+    assert r.status_code == 503, r.text
+    assert "大模型" in r.json()["detail"], r.text

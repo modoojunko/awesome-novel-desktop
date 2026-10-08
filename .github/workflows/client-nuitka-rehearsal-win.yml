@@ -1,0 +1,112 @@
+# C端 Nuitka Windows 演练（c-nuitka-full）
+#
+# 手动 dispatch 的打包链演练载体（判例：打包链改动须先 dispatch 演练）：
+# 在 windows-latest 上以 Nuitka 引擎出 onedir 包并断言产物形态，工件上传供
+# 真机安装冒烟（4.2/4.3）。**不碰发布链**：不建 Release、不传 CDN；
+# 正式出包灰度（client-package.yml 的 BUILD_ENGINE）在真机全冒烟通过后另行启用。
+#
+# 成本预期：全量冷编 100 分钟上下（2 vCPU）；#722 起缓存 ccache，命中后编译段分钟级。
+# 判例登记（2026-10-07）：win32 必须显式 --mode=standalone；版本资源走离散旗标；
+# ISCC 的 define 用 -D 前缀（MSYS 会改写 /D）；dest 语义差见 bundle_manifest。
+
+name: C端 Nuitka 演练 (windows)
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  rehearsal:
+    runs-on: windows-latest
+    timeout-minutes: 150
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      # Nuitka 的 ccache 对象与工具下载目录缓存（%LOCALAPPDATA%\Nuitka）：
+      # 2 核 runner 每轮全量冷编 40-90 分钟，ccache 命中后编译段可压回几分钟。
+      # runner 即弃机器，不缓存则每次演练都是全价。
+      - name: Cache Nuitka ccache
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/AppData/Local/Nuitka
+          key: nuitka-windows-${{ hashFiles('client/backend/requirements.txt', 'client/packaging/build/requirements.txt') }}
+          restore-keys: |
+            nuitka-windows-
+
+      - name: Install backend + packaging deps
+        run: |
+          pip install -r client/backend/requirements.txt
+          pip install -r client/packaging/build/requirements.txt
+
+      - name: Build frontend
+        run: |
+          cd client/frontend
+          npm ci
+          npm run build
+
+      - name: Build app (Nuitka)
+        shell: bash
+        env:
+          # 版本资源口径：演练构建无 tag，退 0.0.0（win_version_info 兜底）
+          APP_VERSION: rehearsal
+          # Windows 控制台 cp1252 兜底（#705 判例）：python 及子进程（compile_native）统一 UTF-8
+          PYTHONUTF8: "1"
+        run: |
+          cd client/packaging/build
+          python build_nuitka.py
+
+      # 产物形态断言（与 mac 侧已验口径一致，钉在 CI 上防回归）
+      - name: Assert product shape
+        shell: bash
+        run: |
+          D="client/packaging/build/dist-nuitka/AwesomeNovel"
+          test -f "$D/AwesomeNovel.exe" || { echo "::error::主程序缺失"; exit 1; }
+          test -f "$D/frontend/index.html" || { echo "::error::前端 dist 未烘进产物"; exit 1; }
+          test -f "$D/build-engine.json" || { echo "::error::构建指纹缺失"; exit 1; }
+          test -f "$D/release.json" && echo "::warning::release.json 意外烘入（演练不应有）" || true
+          PYD=$(find "$D/prompt_pack" -name "*.pyd" 2>/dev/null | wc -l)
+          [ "$PYD" -ge 3 ] || { echo "::error::prompt_pack 原生扩展缺失（$PYD/3）"; exit 1; }
+          BAD=$(find "$D" \( -name "*.py" -o -name "*.pyc" -o -name "*.pyo" -o -name "*.prompt" \) | wc -l)
+          [ "$BAD" -eq 0 ] || { echo "::error::交付树出现字节码/源码/模板 $BAD 件"; exit 1; }
+          echo "产物形态断言全部通过（零字节码＋原生三件＋前端在位）"
+
+      # installer.iss 消费 Nuitka onedir 打安装包（Source: dist\AwesomeNovel\* 与
+      # build_nuitka 交付名对齐）——windows-latest 自带 Inno Setup 6，iscc 不在 PATH
+      # 时用安装目录全路径。演练不签名（sign_win 需 secrets），安装时 SmartScreen 会拦属预期。
+      - name: Build installer (Inno Setup)
+        shell: bash
+        run: |
+          # iss 的 Source 指向 PyInstaller 链的输出位（dist/AwesomeNovel）；Nuitka
+          # 产物在 dist-nuitka/——拷贝对齐而非改 iss（生产链零扰动）
+          mkdir -p client/packaging/build/dist
+          cp -r client/packaging/build/dist-nuitka/AwesomeNovel client/packaging/build/dist/AwesomeNovel
+          # Inno Setup 不赌镜像预装：choco 确定性安装（上一轮 ISCC 秒退零输出的教训）
+          choco install innosetup -y --no-progress
+          ISCC='/c/Program Files (x86)/Inno Setup 6/ISCC.exe'
+          [ -f "$ISCC" ] || { echo "::error::ISCC 缺失：$ISCC"; exit 1; }
+          cd client/packaging/build
+          # -D 而非 /D：Git Bash 的 MSYS 会把开头的 /D 参数改写成路径 → ISCC 报
+          # 「more than one script filename」（八轮判例）；ISCC 两种前缀都认
+          "$ISCC" installer.iss -DMyAppVersion=rehearsal
+          test -f ../dist/AwesomeNovel_Setup_vrehearsal.exe || { echo "::error::安装包未产出"; exit 1; }
+
+      - name: Upload onedir artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: awesomenovel-nuitka-windows
+          path: client/packaging/build/dist-nuitka/AwesomeNovel/
+          retention-days: 7
+
+      - name: Upload installer artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: awesomenovel-nuitka-setup
+          path: client/packaging/dist/AwesomeNovel_Setup_vrehearsal.exe
+          retention-days: 7

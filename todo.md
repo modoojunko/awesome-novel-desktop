@@ -220,6 +220,13 @@ POST /web/login      × 35 → 200×35 全部（限流完全没拦，登录逻�
 
 ## 高优先（建议尽快）
 
+- [ ] **c-api-config-foreign-vendors 真机冒烟（2026-10-08 已实施并合入 #741、已归档；实现 PR #741 = main c50436ca）**
+  国外厂商接入口径修正：OpenAI/Ollama 登记值补版本段（SDK 直拼路径实证裸域名 404）＋
+  探针 404 降级放开到 openai 格式（Gemini 官方兼容层可用；降级三件套＝reply_fn 随元组/
+  payload 现解 id 链/note 双文案）＋「OpenAI 兼容」引导文案（Gemini 兼容地址/手填模型 id/反代说明）。
+  后端 pytest 2042 绿＋前端 vitest 1258 绿＋隔离栈 config-page e2e 5/5 绿。
+  遗留：真机冒烟三项（OpenAI 预填只填 Key 全链、Gemini 兼容层直配、引导文案显示）。
+
 - [ ] **归档 theme-preferences change**
   实施与修复均已合入，openspec 归档流程未走（sync specs → design-system 与新 capability
   theme-preferences 入 `openspec/specs/`，纯文档 PR，勿 git add openspec/ 整目录）。

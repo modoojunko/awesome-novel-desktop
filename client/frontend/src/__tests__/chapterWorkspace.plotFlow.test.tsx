@@ -1,5 +1,6 @@
 // 章剧情全链集成（c-plot-split 5.3/5.4）：门槛拦截（缺要素不发请求）／采纳整表替换＋
-// 常驻回执／撤销只回滚 plots／编辑收掉回执／已润色章改剧情软提示／免费态锁定卡。
+// 回执（3 秒窗口内可撤销，c-toast-dismiss）／撤销只回滚 plots／编辑收掉回执／
+// 存量稿章改剧情软提示／免费态锁定卡。
 // 打桩层＝`@/lib/api`＋`@/lib/toast`（toast 断言回执与撤销语义）。
 import { createRef } from "react";
 import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
@@ -142,7 +143,7 @@ const FULL = {
 beforeEach(() => {
   vi.clearAllMocks();
   mockToast.success.mockReturnValue(101);
-  // 默认取数：章 payload + 角色列表 + 提示词探测 + 润色探测
+  // 默认取数：章 payload + 角色列表 + 提示词探测
   mockApi.get.mockImplementation(async (url: string) => {
     if (url.includes("/characters")) return [];
     return { ...FULL };
@@ -213,7 +214,7 @@ describe("门槛拦截（拍板⑦三样：概要/挑战/结尾）", () => {
 });
 
 describe("采纳与撤销（拍板②）", () => {
-  it("就填这版＝整表替换＋常驻回执；撤销只回滚 plots", async () => {
+  it("就填这版＝整表替换＋回执（窗口内可撤销）；撤销只回滚 plots", async () => {
     mockApi.post.mockResolvedValue(THREE);
     const { railData, outline } = mount({ server: { ...FULL } });
     await waitFor(() => expect(railData()).not.toBeNull());
@@ -233,11 +234,10 @@ describe("采纳与撤销（拍板②）", () => {
         expect.objectContaining({ plot_items: THREE.versions[1].items }),
       ),
     );
-    // 回执常驻（sticky）＋带撤销动作
+    // 回执（3 秒自动消失基线）＋带撤销动作（窗口内可点）
     expect(mockToast.success).toHaveBeenCalledWith(
       expect.stringContaining("剧情已由 AI 填好（3 条）"),
       expect.objectContaining({
-        sticky: true,
         action: expect.objectContaining({ label: "撤销 · 恢复填写前的列表" }),
       }),
     );
@@ -312,8 +312,8 @@ describe("采纳与撤销（拍板②）", () => {
   });
 });
 
-describe("已润色章改剧情软提示（拍板⑥）", () => {
-  it("润色产物＋剧情被编辑 → 软提示带「去重新润色」出口，不自动重算", async () => {
+describe("存量稿章改剧情软提示（拍板⑥，c-retire-prompt-polish：出口指向刷新提示词）", () => {
+  it("存量稿＋剧情被编辑 → 软提示带「去刷新提示词」出口，不自动重算", async () => {
     mockReq.mockResolvedValue({ polished: true });
     const onOpenAiModal = vi.fn();
     const { railData } = mount({ server: { ...FULL }, onOpenAiModal });
@@ -325,9 +325,9 @@ describe("已润色章改剧情软提示（拍板⑥）", () => {
     await waitFor(
       () =>
         expect(mockToast.info).toHaveBeenCalledWith(
-          expect.stringContaining("可以重新润色"),
+          expect.stringContaining("可以刷新提示词"),
           expect.objectContaining({
-            action: expect.objectContaining({ label: "去重新润色" }),
+            action: expect.objectContaining({ label: "去刷新提示词" }),
           }),
         ),
       { timeout: 3000 },
@@ -340,7 +340,7 @@ describe("已润色章改剧情软提示（拍板⑥）", () => {
     expect(onOpenAiModal).toHaveBeenCalled();
   });
 
-  it("非润色提示词（粗组稿）不提示", async () => {
+  it("非存量稿（本次组装稿）不提示", async () => {
     mockReq.mockResolvedValue({ polished: false });
     const { railData } = mount({ server: { ...FULL } });
     await waitFor(() => expect(railData()).not.toBeNull());
@@ -351,7 +351,7 @@ describe("已润色章改剧情软提示（拍板⑥）", () => {
     await waitFor(() => expect(mockReq).toHaveBeenCalled(), { timeout: 3000 });
     await new Promise((r) => setTimeout(r, 100));
     expect(mockToast.info).not.toHaveBeenCalledWith(
-      expect.stringContaining("可以重新润色"),
+      expect.stringContaining("可以刷新提示词"),
       expect.anything(),
     );
   });

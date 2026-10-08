@@ -11,6 +11,7 @@ from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from auth_local.middleware import get_current_user
@@ -27,10 +28,12 @@ from novels.service import (
     novel_to_dict,
 )
 
+from .connection import fetch_models as _fetch_models
 from .connection import test_connection as _test_raw_connection
 from .schemas import (
     ApplyModelToAllBody,
     CreateApiConfigBody,
+    FetchModelsBody,
     SetAiModelBody,
     TestRawBody,
     UpdateApiConfigBody,
@@ -133,6 +136,10 @@ async def create_config(
         if "名称已被使用" in str(e):
             raise HTTPException(409, "名称已被使用")
         raise HTTPException(422, str(e))
+    except IntegrityError:
+        # 唯一约束兜底（check-then-act 交错、让位名与字面名相撞等极端序）：转 409 不出 500
+        await db.rollback()
+        raise HTTPException(409, "名称已被使用")
 
 
 @router.get("/api-configs")
@@ -166,6 +173,24 @@ async def test_raw_connection(
         base_url=body.base_url,
         api_format=body.api_format,
         preferred_model=body.model,
+    )
+
+
+@router.post("/api-configs/fetch-models")
+async def fetch_raw_models(
+    body: FetchModelsBody,
+    user: dict = Depends(get_current_user),
+):
+    """Fetch a vendor's model list with raw config data (no saved config, no chat probe).
+
+    创建表单「Key 失焦自动拉清单」用（c-api-config-auto-models）：只 GET 模型清单
+    端点，不发对话探针（零生成调用）。anthropic 格式 404 → 空清单＋候选＋说明。
+    """
+    return await _fetch_models(
+        vendor_id=body.vendor_id,
+        api_key=body.api_key,
+        base_url=body.base_url,
+        api_format=body.api_format,
     )
 
 
@@ -225,6 +250,10 @@ async def update_config(
         if "名称已被使用" in str(e):
             raise HTTPException(409, "名称已被使用")
         raise HTTPException(422, str(e))
+    except IntegrityError:
+        # 唯一约束兜底（check-then-act 交错、让位名与现名相撞等极端序）：转 409 不出 500
+        await db.rollback()
+        raise HTTPException(409, "名称已被使用")
 
 
 @router.delete("/api-configs/{config_id}")
@@ -291,14 +320,14 @@ async def model_candidates(
     db: AsyncSession = Depends(get_db),
 ):
     """该配置所属 vendor 的候选模型 id（端点不提供 /models 时的起点，不触网）。"""
-    from .connection import NO_MODEL_LIST_NOTE, model_candidates_for
+    from .connection import model_candidates_for, no_model_list_note
 
     config = await get_api_config(db, _user_id(user), config_id)
     if not config:
         raise HTTPException(404, "配置不存在")
     return {
         "candidates": model_candidates_for(config.get("vendor", "")),
-        "note": NO_MODEL_LIST_NOTE,
+        "note": no_model_list_note(config.get("api_format") or "openai"),
     }
 
 

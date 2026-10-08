@@ -140,7 +140,7 @@ test("模型配置：空态 + 表单顺序校验（名称→供应商→Base URL
     await expect(page.getByText("请输入 Base URL")).toBeVisible();
 
     // 填 Base URL → API Key
-    await page.getByPlaceholder("https://api.openai.com").fill("http://127.0.0.1:1");
+    await page.getByPlaceholder("https://api.openai.com/v1").fill("http://127.0.0.1:1");
     await page.getByRole("button", { name: "保存并测试连接" }).click();
     await expect(page.getByText("请输入 API Key")).toBeVisible();
 
@@ -168,7 +168,7 @@ test("模型配置：添加（网络错误）→ 删除 → Undo toast 展示", 
     await page.getByRole("button", { name: "添加 API Key" }).first().click();
     await page.getByPlaceholder("例如：主线 · OpenAI").fill("e2e测试配置");
     await page.getByRole("button", { name: "OpenAI 兼容" }).click();
-    await page.getByPlaceholder("https://api.openai.com").fill("http://127.0.0.1:1");
+    await page.getByPlaceholder("https://api.openai.com/v1").fill("http://127.0.0.1:1");
     await page.getByPlaceholder("sk-...").fill("sk-e2e-invalid");
 
     // POST /api/v1/api-configs（创建；随后自动连接测试，127.0.0.1:1 → network_error）
@@ -298,10 +298,16 @@ test("模型配置：供应商默认值预填——选 DeepSeek 只填 Key 保�
     const urlInput = page.locator("#cfBase");
     const modelInput = page.locator("#cfModel");
 
-    // OpenAI 兼容：无登记值不预填（表单全新时做对照；重开新建不重置是存量行为）
+    // OpenAI 兼容：无登记值不预填＋兼容模版引导文案可见（c-api-config-foreign-vendors）
     await page.getByRole("button", { name: "OpenAI 兼容" }).click();
     await expect(urlInput).toHaveValue("");
     await expect(modelInput).toHaveValue("");
+    await expect(
+      page.getByText(/未列厂商（如 Google Gemini）走 OpenAI 兼容模版/),
+    ).toBeVisible();
+    await expect(
+      page.getByText(/generativelanguage\.googleapis\.com\/v1beta\/openai/),
+    ).toBeVisible();
 
     // 选 DeepSeek → Base URL 与模型名称自动填好（用户只需填 Key）
     await page.getByRole("button", { name: "DeepSeek" }).click();
@@ -331,6 +337,70 @@ test("模型配置：供应商默认值预填——选 DeepSeek 只填 Key 保�
     const resp = await created;
     expect(resp.request().postDataJSON().models).toEqual(["deepseek-v4-pro"]);
     const card = page.locator(".cfg-card", { hasText: "e2e预填" });
+    await expect(card).toBeVisible({ timeout: 10000 });
+    await expect(card.getByText("deepseek-v4-pro")).toBeVisible();
+  } finally {
+    restore();
+  }
+});
+
+// -------------------------------------------------------------------------
+// ⑤ 模型清单自动拉取（c-api-config-auto-models）：Key 失焦走 fetch-models
+//    轻探针；默认选中＝登记默认∈清单→登记值；弹层搜索选择改选；POST body 跟随
+// -------------------------------------------------------------------------
+
+test("模型配置：Key 失焦自动拉清单——默认选中登记模型，弹层搜索改选后保存", async ({
+  page,
+}, testInfo) => {
+  const { restore } = await setupSession(page);
+  // 桩轻探针端点（不打出网请求；真实 vendor /models 行为由后端 pytest 钉）
+  await page.route("**/api/v1/api-configs/fetch-models", (r) =>
+    r.fulfill({
+      json: { ok: true, status: "ok", models: ["deepseek-flash", "deepseek-v4-pro"] },
+    }),
+  );
+  try {
+    await page.goto(`${ORIGIN}/#/config`);
+    await expect(page.getByText("还没有模型配置")).toBeVisible({ timeout: 10000 });
+
+    await page.getByRole("button", { name: "添加 API Key" }).first().click();
+    await page.getByPlaceholder("例如：主线 · OpenAI").fill("e2e自动拉清单");
+    const modelInput = page.locator("#cfModel");
+
+    await page.getByRole("button", { name: "DeepSeek" }).click();
+    await expect(page.locator("#cfBase")).toHaveValue("https://api.deepseek.com");
+    await expect(modelInput).toHaveValue("deepseek-v4-pro"); // 预填初值
+
+    // 填 Key 失焦 → 自动走 fetch-models；清单到位，默认选中＝清单首项（登记默认不优先）
+    await page.getByPlaceholder("sk-...").fill("sk-e2e-auto");
+    await page.locator("#cfKey").blur();
+    await expect(page.getByText("已拉到 2 个模型")).toBeVisible({ timeout: 10000 });
+    await expect(modelInput).toHaveValue("deepseek-flash");
+    // 自动拉取完成态对照截图（随报告落 test-results）
+    await page.screenshot({ path: testInfo.outputPath("auto-fetch-models.png") });
+
+    // 聚焦模型框 → 弹层展开（组合框语义：当前值即过滤词）；清空看全量；输入过滤；点选改选
+    await modelInput.click();
+    await expect(page.locator(".mp-panel .mp-item")).toHaveCount(1);
+    await modelInput.fill("");
+    await expect(page.locator(".mp-panel .mp-item")).toHaveCount(2);
+    await modelInput.fill("v4-pro");
+    await expect(page.locator(".mp-panel .mp-item")).toHaveCount(1);
+    await page.locator(".mp-panel .mp-item", { hasText: "deepseek-v4-pro" }).click();
+    await expect(modelInput).toHaveValue("deepseek-v4-pro");
+    await expect(page.locator(".mp-panel")).toHaveCount(0); // 选中后收起
+
+    // 保存：POST body models 跟随改选值；卡片带改选的模型名
+    const created = page.waitForResponse(
+      (r) =>
+        r.request().method() === "POST" &&
+        r.url().includes("/api/v1/api-configs") &&
+        r.url().endsWith("/api-configs"),
+    );
+    await page.getByRole("button", { name: "保存并测试连接" }).click();
+    const resp = await created;
+    expect(resp.request().postDataJSON().models).toEqual(["deepseek-v4-pro"]);
+    const card = page.locator(".cfg-card", { hasText: "e2e自动拉清单" });
     await expect(card).toBeVisible({ timeout: 10000 });
     await expect(card.getByText("deepseek-v4-pro")).toBeVisible();
   } finally {

@@ -177,6 +177,55 @@ describe("浏览器授权", () => {
     expect(toast.success).toHaveBeenCalledWith("登录成功");
   });
 
+  it("壳层桥可用：走 open_external 弹系统浏览器，不编程式 window.open", async () => {
+    vi.useFakeTimers();
+    const openExternal = vi.fn(async () => true);
+    const openSpy = vi.fn();
+    vi.stubGlobal("open", openSpy);
+    (window as unknown as { pywebview?: unknown }).pywebview = {
+      api: { open_external: openExternal },
+    };
+    requestMock.mockImplementation(async (path: string) => {
+      if (path === "/auth/browser-auth") return { code: 0, data: { auth_url: "https://portal.example.com/oauth" } };
+      return noAuth;
+    });
+    renderPage();
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(0);
+    });
+    fireEvent.click(screen.getByText("打开浏览器登录"));
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(0);
+    });
+    expect(openExternal).toHaveBeenCalledWith("https://portal.example.com/oauth");
+    expect(openSpy).not.toHaveBeenCalled();
+  });
+
+  it("壳层桥调用被拒：回退 window.open（rejection 不悬空）", async () => {
+    vi.useFakeTimers();
+    const openExternal = vi.fn(async () => {
+      throw new Error("no default browser");
+    });
+    const openSpy = vi.fn();
+    vi.stubGlobal("open", openSpy);
+    (window as unknown as { pywebview?: unknown }).pywebview = {
+      api: { open_external: openExternal },
+    };
+    requestMock.mockImplementation(async (path: string) => {
+      if (path === "/auth/browser-auth") return { code: 0, data: { auth_url: "https://portal.example.com/oauth" } };
+      return noAuth;
+    });
+    renderPage();
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(0);
+    });
+    fireEvent.click(screen.getByText("打开浏览器登录"));
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(0);
+    });
+    expect(openSpy).toHaveBeenCalledWith("https://portal.example.com/oauth", "_blank");
+  });
+
   it("轮询超时：报超时并给出「重新检测」；重检成功即跳转", async () => {
     vi.useFakeTimers();
     vi.stubGlobal("open", vi.fn());

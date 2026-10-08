@@ -31,6 +31,7 @@ import ai_client as ai_client_module
 from ai_client import AIClient, get_ai_client_for_user
 from api_configs import connection as conn_mod
 from api_configs.connection import _build_probe
+from api_configs.connection import fetch_models as do_fetch_models
 from api_configs.connection import test_connection as do_test_connection
 from api_configs.crypto import encrypt_api_key
 from api_configs.schemas import CreateApiConfigBody
@@ -251,11 +252,9 @@ class TestBuildProbe:
         assert headers["x-api-key"] == "sk"
         assert headers["anthropic-version"] == "2023-06-01"
         assert fallback is not None
-        f_url, _f_headers, f_payload = fallback
+        f_url, _f_headers, f_reply = fallback
         assert f_url == "https://open.bigmodel.cn/api/anthropic/v1/messages"
-        assert f_payload["max_tokens"] == 32  # 短输出预算（「你好」最小生成）
-        assert f_payload["messages"][0]["content"] == "你好"
-        assert f_payload["thinking"] == {"type": "disabled"}
+        assert f_reply is conn_mod._anthropic_reply_text
 
     def test_anthropic_strips_trailing_v1(self):
         url, _, _, fallback = _build_probe(
@@ -284,7 +283,12 @@ class TestBuildProbe:
         url, headers, _, fallback = _build_probe("openai", "openai", "sk", base)
         assert url == expected
         assert headers == {"Authorization": "Bearer sk"}
-        assert fallback is None
+        # 404 同享降级（2026-10-08 拍板）：fallback＝(chat 地址, Bearer 头, openai 提取器)
+        assert fallback == (
+            f"{base.rstrip('/')}/chat/completions",
+            {"Authorization": "Bearer sk"},
+            conn_mod._openai_reply_text,
+        )
 
     def test_ollama_special_case(self):
         url, headers, _, fallback = _build_probe(
@@ -292,6 +296,14 @@ class TestBuildProbe:
         )
         assert url == "http://localhost:11434/api/tags"
         assert headers == {}
+        assert fallback is None
+
+    def test_ollama_strips_trailing_v1(self):
+        """登记预填值为 …/v1（SDK 生成需版本段），tags 探针剥掉防打去 /v1/api/tags。"""
+        url, _, _, fallback = _build_probe(
+            "openai", "ollama", "", "http://localhost:11434/v1"
+        )
+        assert url == "http://localhost:11434/api/tags"
         assert fallback is None
 
 
@@ -393,6 +405,79 @@ class TestConnectionFlow:
         payload = fake_http.calls[1][3]
         assert payload["messages"][0]["content"] == "你好"  # 「你好」最小生成（2026-10-05 拍板）
         assert payload["thinking"] == {"type": "disabled"}
+        # 无已选模型、glm 无候选 → 链尾垫占位 id（anthropic 专属）
+        assert payload["model"] == conn_mod._ANTHROPIC_PROBE_MODEL
+        # note 为 anthropic 版（含「改成 openai」尾句）
+        assert out["note"] == conn_mod.NO_MODEL_LIST_NOTE_ANTHROPIC
+
+    def test_anthropic_404_fallback_prefers_selected_model(self, fake_http):
+        """降级探针 id 链：已选模型优先于占位 id（存量分歧修齐，2026-10-08 评审）。"""
+        fake_http.script = [
+            ("GET", 404),
+            ("POST", 200, {"content": [{"type": "text", "text": "你好！"}]}),
+        ]
+        out = _run_async(
+            do_test_connection(
+                "glm",
+                "sk",
+                "https://open.bigmodel.cn/api/anthropic",
+                "anthropic",
+                preferred_model="glm-4.7",
+            )
+        )
+        assert out["ok"] is True
+        assert fake_http.calls[1][3]["model"] == "glm-4.7"
+
+    def test_openai_404_degrades_with_selected_model(self, fake_http):
+        """openai 格式 404 同享降级（Gemini 官方兼容层主路径）：手填模型 id → 生成探针通过。"""
+        fake_http.script = [
+            ("GET", 404),
+            ("POST", 200, {"choices": [{"message": {"content": "你好！"}}]}),
+        ]
+        out = _run_async(
+            do_test_connection(
+                "openai-compat",
+                "sk",
+                "https://generativelanguage.googleapis.com/v1beta/openai",
+                "openai",
+                preferred_model="gemini-2.5-pro",
+            )
+        )
+        assert out["ok"] is True and out["models"] == []
+        # 与生成调用同址（base 直拼 chat/completions）＋ openai 契约提取
+        assert fake_http.calls[1][1] == (
+            "https://generativelanguage.googleapis.com/v1beta/openai/chat/completions"
+        )
+        payload = fake_http.calls[1][3]
+        assert payload["model"] == "gemini-2.5-pro"
+        assert payload["thinking"] == {"type": "disabled"}
+        # note 为 openai 版（无「改成 openai」尾句）
+        assert out["note"] == conn_mod.NO_MODEL_LIST_NOTE_OPENAI
+
+    def test_openai_404_no_id_no_degrade(self, fake_http):
+        """openai 格式 404 且无已选模型、无候选 → 不发无 id 的生成探针，判负提示填写模型名。"""
+        fake_http.script = [("GET", 404)]
+        out = _run_async(
+            do_test_connection("openai", "sk", "https://api.openai.com", "openai")
+        )
+        assert out["ok"] is False
+        assert "模型名称" in out["error"]
+        assert [c[0] for c in fake_http.calls] == ["GET"]
+
+    def test_openai_404_degrade_probe_404_judges_failed(self, fake_http):
+        """降级探针也 404 → 判连接失败并点名实际请求地址（Base URL 指向处不提供对话接口）。"""
+        fake_http.script = [("GET", 404), ("POST", 404)]
+        out = _run_async(
+            do_test_connection(
+                "openai-compat",
+                "sk",
+                "https://relay.example.com/v1beta/openai",
+                "openai",
+                preferred_model="gemini-2.5-pro",
+            )
+        )
+        assert out["ok"] is False and out["status"] == "endpoint_mismatch"
+        assert "/chat/completions" in out["error"]
 
     def test_fallback_auth_failure(self, fake_http):
         fake_http.script = [("GET", 404), ("POST", 401)]
@@ -402,15 +487,6 @@ class TestConnectionFlow:
             )
         )
         assert out["ok"] is False and out["status"] == "auth_error"
-
-    def test_openai_format_no_fallback_on_404(self, fake_http):
-        fake_http.script = [("GET", 404)]
-        out = _run_async(
-            do_test_connection("openai", "sk", "https://api.openai.com", "openai")
-        )
-        # openai 格式 404 = 端点问题，原样走异常响应分支，不降级
-        assert out["ok"] is False
-        assert [c[0] for c in fake_http.calls] == ["GET"]
 
     def test_openai_format_uses_user_base_not_official(self, fake_http):
         fake_http.script = [("GET", 200)]
@@ -475,9 +551,12 @@ class TestConnectionFlow:
         assert "https://api.example.com/chat/completions" in out["error"]
 
     def test_openai_chat_probe_model_rejected_strict(self, fake_http):
-        """探针模型 id 被拒（400）判失败并点名所试 id——原「400 宽松不拦」口径作废（2026-10-05 拍板）。"""
+        """探针模型 id 被拒（400）判失败并点名所试 id——原「400 宽松不拦」口径作废（2026-10-05 拍板）。
+
+        探针失败仍带回已提取的清单（评审 P1 自恢复闭环）：落库后书内选择面板有正确
+        候选，用户手填错 id 后不必删配置重建。"""
         fake_http.script = [
-            ("GET", 200, {"data": [{"id": "embed-only"}]}),
+            ("GET", 200, {"data": [{"id": "embed-only"}, {"id": "good-model"}]}),
             ("POST", 400, {"error": {"message": "model not supported"}}),
         ]
         out = _run_async(
@@ -485,6 +564,7 @@ class TestConnectionFlow:
         )
         assert out["ok"] is False and out["status"] == "unknown"
         assert "embed-only" in out["error"]
+        assert out["models"] == ["embed-only", "good-model"]  # 失败信封携带真实清单
 
     def test_openai_probe_uses_vendor_candidate_when_no_models(self, fake_http):
         """模型列表为空 → 用 vendor 候选 id 做探针（deepseek 实测候选）。"""
@@ -496,7 +576,7 @@ class TestConnectionFlow:
             do_test_connection("deepseek", "sk", "https://api.deepseek.com", "openai")
         )
         assert out["ok"] is True
-        assert fake_http.calls[1][3]["model"] == "deepseek-v4-flash"
+        assert fake_http.calls[1][3]["model"] == "deepseek-flash"
 
     def test_probe_uses_preferred_model_first(self, fake_http):
         """探针模型 id：配置已选模型（preferred）压过列表首个——预填模型名直通探针。"""
@@ -645,6 +725,99 @@ class TestConnectionFlow:
         )
         assert out["ok"] is False and out["status"] == "endpoint_mismatch"
         assert "405" in out["error"]
+
+
+class TestFetchModels:
+    """只拉清单轻探针（c-api-config-auto-models）：GET-only、零生成调用。"""
+
+    def test_openai_200_no_generation_probe(self, fake_http):
+        """openai 格式拉清单成功：只发一条 GET，SHALL NOT 追加对话探针（与连接测试的关键差异）。"""
+        fake_http.script = [("GET", 200, {"data": [{"id": "m-1"}, {"id": "m-2"}]})]
+        out = _run_async(
+            do_fetch_models("kimi", "sk", "https://api.moonshot.cn/v1", "openai")
+        )
+        assert out["ok"] is True and out["models"] == ["m-1", "m-2"]
+        assert out["status"] == "ok"
+        assert [c[0] for c in fake_http.calls] == ["GET"]
+        assert fake_http.calls[0][1].endswith("/v1/models")
+
+    def test_anthropic_404_returns_candidates_without_generation(self, fake_http):
+        """anthropic 404 → 空清单＋候选＋说明，且不发降级生成请求（轻探针不发生成）。"""
+        fake_http.script = [("GET", 404)]
+        out = _run_async(
+            do_fetch_models(
+                "deepseek", "sk", "https://api.deepseek.com/anthropic", "anthropic"
+            )
+        )
+        assert out["ok"] is True and out["models"] == []
+        assert out["candidates"] == ["deepseek-flash", "deepseek-v4-pro"]
+        assert out["note"]
+        assert [c[0] for c in fake_http.calls] == ["GET"]  # 无 POST
+
+    def test_html_page_fails(self, fake_http):
+        """200 但体是网页 → 判败并提示核对 Base URL（填错网址提前暴露，无需等测试连接）。"""
+        fake_http.script = [("GET", 200, ValueError("not json"), "text/html")]
+        out = _run_async(
+            do_fetch_models("openai", "sk", "https://platform.deepseek.com", "openai")
+        )
+        assert out["ok"] is False and out["status"] == "endpoint_mismatch"
+        assert "不是 API 数据" in out["error"]
+
+    def test_empty_key_no_network(self, fake_http):
+        """非 ollama 且 Key 为空 → 鉴权失败，零网络请求。"""
+        out = _run_async(
+            do_fetch_models("openai", "", "https://api.openai.com", "openai")
+        )
+        assert out["ok"] is False and out["status"] == "auth_error"
+        assert fake_http.calls == []
+
+    def test_ollama_tags_free_of_key(self, fake_http):
+        """ollama 免 Key：GET /api/tags，按 tags 形态提取。"""
+        fake_http.script = [("GET", 200, {"models": [{"name": "llama3:8b"}]})]
+        out = _run_async(do_fetch_models("ollama", "", "http://localhost:11434", "openai"))
+        assert out["ok"] is True and out["models"] == ["llama3:8b"]
+        assert fake_http.calls[0][1].endswith("/api/tags")
+
+    def test_auth_401_fails(self, fake_http):
+        fake_http.script = [("GET", 401)]
+        out = _run_async(
+            do_fetch_models("glm", "sk", "https://open.bigmodel.cn/api/paas/v4", "openai")
+        )
+        assert out["ok"] is False and out["status"] == "auth_error"
+
+    def test_openai_404_is_error_not_no_list(self, fake_http):
+        """openai 格式 404＝Base URL 路径可疑（异常响应），SHALL NOT 误诊为「无清单端点」（评审 P1）。"""
+        fake_http.script = [("GET", 404)]
+        out = _run_async(
+            do_fetch_models("openai", "sk", "https://api.example.com/wrong-path", "openai")
+        )
+        assert out["ok"] is False and out["status"] == "unknown"
+        assert "404" in out["error"]
+        assert "note" not in out and "candidates" not in out
+
+    def test_rate_limited_429(self, fake_http):
+        fake_http.script = [("GET", 429)]
+        out = _run_async(
+            do_fetch_models("openai", "sk", "https://api.openai.com/v1", "openai")
+        )
+        assert out["ok"] is False and out["status"] == "rate_limited"
+
+    def test_server_error_500(self, fake_http):
+        fake_http.script = [("GET", 500, {"error": {"message": "upstream down"}})]
+        out = _run_async(
+            do_fetch_models("qwen", "sk", "https://dashscope.aliyuncs.com/compatible-mode/v1", "openai")
+        )
+        assert out["ok"] is False and out["status"] == "network_error"
+        assert "upstream down" in out["error"]
+
+    def test_ollama_custom_port_respected(self, fake_http):
+        """ollama 自定义端口的 base 一律照打——旧实现见 "localhost" 硬替 11434（评审 P2 实锤）。"""
+        fake_http.script = [("GET", 200, {"models": [{"name": "llama3:8b"}]})]
+        out = _run_async(
+            do_fetch_models("ollama", "", "http://localhost:12345", "openai")
+        )
+        assert out["ok"] is True and out["models"] == ["llama3:8b"]
+        assert fake_http.calls[0][1] == "http://localhost:12345/api/tags"
 
 
 # ═════════════════ 4. 契约：create/update 语义 ═════════════════

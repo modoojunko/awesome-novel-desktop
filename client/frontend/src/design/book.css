@@ -250,6 +250,13 @@
   border-top: none;
   border-radius: 0 0 10px 10px;
 }
+/* 编辑态填屏（10-08 用户反馈）：编辑列原本随内容高，呼吸框下面大片留白。
+   编辑态把编辑列撑满滚动区剩余高度（wrap→host→editor 逐级 flex 传下去），
+   内容超出时 flex-basis=auto 照常滚动；底部留白收到与顶对称。
+   查看态不加（阅读面随文走）；[hidden] 有 base.css !important 守卫。 */
+.editor-wrap.editing { display: flex; flex-direction: column; padding-bottom: 36px; }
+.editor-wrap.editing .editor-host { flex: 1 0 auto; display: flex; flex-direction: column; }
+.editor-wrap.editing .editor-host .editor { flex: 1 0 auto; }
 .ol-top.edit-bar {
   margin: 0;
   padding: 6px 10px;
@@ -317,6 +324,11 @@
 .chtab .cnt.ok { color: var(--ok); }
 .chtab .cnt.warn { color: var(--warn); }
 .chtab .cnt.err { color: var(--err); }
+/* 页签待确认泡泡（c-chtab-confirm-bubbles）：.pill 家族既有组合
+   （pill-count × accent/warn，见 base.css），这里只做页签行内尺寸适配
+   ＋挂载 pop（先例＝.ai-streaming .pulse）；零新胶囊形态 */
+.chtab .pill { flex: none; height: 16px; padding: 0 7px; font-size: 10.5px; line-height: 1; animation: chtab-pop 0.22s ease; }
+@keyframes chtab-pop { from { transform: scale(0.6); opacity: 0; } to { transform: scale(1); opacity: 1; } }
 /* 版本历史入口（2026-09-27 自 e-head 右侧移入页签行右端；非页签件不吃 ctab 视觉） */
 .ch-tabs .ch-history { flex: none; }
 .wb .view.on.three-col .ch-tabs .ch-history { align-self: center; }

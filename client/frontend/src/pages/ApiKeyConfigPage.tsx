@@ -31,7 +31,7 @@ export default function ApiKeyConfigPage() {
       navigate("/login", { replace: true });
     }
   }, [navigate]);
-  const { configs, loading, error, refresh, addConfig, updateConfig, deleteConfig, restoreConfig, refreshStatus, testConfig, testRawConfig } = useApiConfigs();
+  const { configs, loading, error, refresh, addConfig, updateConfig, deleteConfig, restoreConfig, refreshStatus, testConfig, testRawConfig, fetchRawModels } = useApiConfigs();
   const { data: usageData, loading: usageLoading, refresh: refreshUsage } = useUsageStats({});
   const [showForm, setShowForm] = useState(false);
   const [editConfig, setEditConfig] = useState<ApiConfig | null>(null);
@@ -255,6 +255,7 @@ export default function ApiKeyConfigPage() {
                 model: data.model || null,
               })
         }
+        onFetchModels={async (data) => fetchRawModels(data)}
       />
 
       {/* 删除确认 */}

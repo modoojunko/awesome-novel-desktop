@@ -1,4 +1,5 @@
 import { resetLicenseCache } from '@/lib/licenseCache';
+import { resetPackProbeState } from '@/lib/packProbe';
 
 const TOKEN_KEY = 'auth_token';
 const USERNAME_KEY = 'auth_username';
@@ -27,5 +28,6 @@ export function logout() {
   localStorage.removeItem(USERNAME_KEY);
   sessionStorage.setItem('manual_logout', '1');
   resetLicenseCache();
+  resetPackProbeState(); // 写作能力探测缓存随登出清（换号不沿用，评审 P2-3）
   window.location.hash = '#/';
 }

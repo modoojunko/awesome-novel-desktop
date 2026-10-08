@@ -8,3 +8,6 @@ pyinstaller>=6.11.1
 # c-prompt-pack-hardening 阶段二：把 prompt_pack 的钥匙/解密/同步器编译成原生扩展
 # （compile_native.py；需 C 工具链——macOS 走 clang、Windows 走 VS 生成工具，CI 两者自带）
 cython>=3.0
+# c-nuitka-full：全量编译引擎（build_nuitka.py）——钉实测版本，抬升须重跑双平台演练
+nuitka==4.2.2
+ordered-set

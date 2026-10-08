@@ -429,11 +429,9 @@ describe("写入两出口落账（3.4）", () => {
     await waitFor(() => expect(screen.getByTestId("gap-written")).toBeInTheDocument());
     expect(mockToast.success).toHaveBeenCalledWith(
       expect.stringContaining("已写入名单"),
-      expect.objectContaining({ sticky: true }),
     );
     expect(mockToast.success).toHaveBeenCalledWith(
       expect.stringContaining("还有 1 个缺的人"),
-      expect.anything(),
     );
   });
 
@@ -471,7 +469,6 @@ describe("写入两出口落账（3.4）", () => {
     await waitFor(() =>
       expect(mockToast.success).toHaveBeenCalledWith(
         expect.stringContaining("角色表多一卡「魏七」"),
-        expect.anything(),
       ),
     );
   });
@@ -502,7 +499,6 @@ describe("写入两出口落账（3.4）", () => {
     await waitFor(() =>
       expect(mockToast.success).toHaveBeenCalledWith(
         expect.stringContaining("已有同名卡，名单会自动挂上"),
-        expect.anything(),
       ),
     );
     // 名单仍写入、回结果页
@@ -526,7 +522,6 @@ describe("写入两出口落账（3.4）", () => {
     await waitFor(() =>
       expect(mockToast.success).toHaveBeenCalledWith(
         expect.stringContaining("卡已建好，这就把名字写进名单"),
-        expect.anything(),
       ),
     );
   });
@@ -786,7 +781,6 @@ describe("选已有角色（缺口复用书里已有的卡；零 AI 全免费）
     await waitFor(() =>
       expect(mockToast.success).toHaveBeenCalledWith(
         expect.stringContaining("用的是书里已有的角色卡"),
-        expect.anything(),
       ),
     );
   });

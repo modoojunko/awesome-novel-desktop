@@ -211,6 +211,7 @@ class DeductionEngine:
                 system=system,
                 messages=[{"role": "user", "content": prompt}],
                 max_tokens=1024,
+                operation="story_stage",
             )
             cleaned = text.strip()
             if cleaned.startswith("```"):

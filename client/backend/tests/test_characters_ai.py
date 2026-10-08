@@ -479,6 +479,95 @@ class TestBootstrap:
         assert r.status_code == 404
 
 
+class TestCardGeneric:
+    """c-char-ai-card-generic：配角/反派「一键立卡」——模板按角色分派，主角路径字节不动。"""
+
+    def test_side_card_dispatches_generic_template(self, client, monkeypatch):
+        c, nid, captured = client
+        card = asyncio.run(_add_card(nid, name="萧照尘", role="反派", persona="灯坊行会主事"))
+        _install_fake(monkeypatch, {"name": "", "aliases": [], "persona": "新人设",
+                                    "fills": {"background": "行会起家"}}, captured)
+        r = c.post(f"/api/novels/{nid}/settings/ai/characters/bootstrap",
+                   json={"character_id": card.id})
+        assert r.status_code == 200, r.text
+        prompt = captured[0]["messages"][0]["content"]
+        assert "这张卡的类型】反派" in prompt
+        assert "他站在主角这条线的哪一边" in prompt  # 通用模板的剧情定位口径
+        assert "小说主角立卡师" not in prompt  # 主角措辞不进配角链
+        assert captured[0]["system"].startswith("你是小说角色立卡师")
+        # 卡上已有人设 → 不回传（服务端空值基准与主角路径同一套）
+        assert r.json()["data"]["persona"] == ""
+
+    def test_side_role_wording_rendered(self, client, monkeypatch):
+        c, nid, captured = client
+        card = asyncio.run(_add_card(nid, name="", role="配角"))
+        _install_fake(monkeypatch, {"name": "老周", "persona": "渡口船工"}, captured)
+        r = c.post(f"/api/novels/{nid}/settings/ai/characters/bootstrap",
+                   json={"character_id": card.id})
+        assert r.status_code == 200
+        assert "这张卡的类型】配角" in captured[0]["messages"][0]["content"]
+
+    def test_protagonist_path_keeps_hero_template(self, client, monkeypatch):
+        """不变量哨兵：主角待立路径仍走主角模板（主角措辞、无类型行）。"""
+        c, nid, captured = client
+        card = asyncio.run(_add_card(nid, name="\u0000abcdef123456", role="主角"))
+        _install_fake(monkeypatch, {"name": "林拾", "persona": "人设"}, captured)
+        r = c.post(f"/api/novels/{nid}/settings/ai/characters/bootstrap",
+                   json={"character_id": card.id})
+        assert r.status_code == 200
+        assert captured[0]["system"].startswith("你是小说主角立卡师")
+        prompt = captured[0]["messages"][0]["content"]
+        assert "主角的名字" in prompt
+        assert "这张卡的类型" not in prompt
+
+    def test_side_card_400_copy_says_likaka(self, client, monkeypatch):
+        c, nid, _captured = client
+        card = asyncio.run(_add_card(nid, name="", role="配角"))
+
+        async def _wipe():
+            from filesystem.storage import get_storage
+            async with async_session() as session:
+                proj = await session.get(Novel, nid)
+                slug = proj.slug
+            st = get_storage()
+            data = await st.read_yaml(f"./data/{slug}", "story.yaml") or {}
+            data["synopsis"] = ""
+            await st.write_yaml(f"./data/{slug}", "story.yaml", data)
+
+        asyncio.run(_wipe())
+        _install_fake(monkeypatch, {"name": "x"}, [])
+        r = c.post(f"/api/novels/{nid}/settings/ai/characters/bootstrap",
+                   json={"character_id": card.id})
+        assert r.status_code == 400
+        assert "再来立卡" in r.json()["detail"]
+
+    def test_generic_timeout_records_same_operation(self, client, monkeypatch):
+        """usage operation 沿用 settings_char_bootstrap（llm.log 分诊不新增键值）。"""
+        c, nid, _captured = client
+        calls: list[dict] = []
+
+        async def _fake_record(db, **kw):
+            calls.append(kw)
+
+        monkeypatch.setattr("settings.characters_ai.record_usage", _fake_record)
+
+        class _TimeoutClient:
+            async def chat(self, **kwargs):
+                raise AITimeoutError("timed out")
+
+        async def _fake(novel_id):
+            return _TimeoutClient()
+
+        monkeypatch.setattr("ai_client.get_ai_client_for_novel", _fake)
+        monkeypatch.setattr("settings.characters_ai.get_ai_client_for_novel", _fake)
+
+        card = asyncio.run(_add_card(nid, name="", role="配角"))
+        r = c.post(f"/api/novels/{nid}/settings/ai/characters/bootstrap",
+                   json={"character_id": card.id})
+        assert r.status_code == 502
+        assert calls and calls[0]["operation"] == "settings_char_bootstrap_fail" and calls[0]["force"] is True
+
+
 async def _roster_count(nid: str) -> int:
     from sqlalchemy import select
 
