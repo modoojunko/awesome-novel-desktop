@@ -17,9 +17,12 @@ from __future__ import annotations
 # 比依赖自动 follow 稳（spike 判例）。清单必须诚实：模块退役时同批从这里删除。
 HIDDEN_IMPORTS: tuple[str, ...] = (
     "main", "config", "brand", "db", "ai_client",
+    "http_client",  # 出网工厂（c-httpx-socks-fallback）：6 模块顶层导入，静态可达仍显式列出
     "aiosqlite", "sqlalchemy.ext.asyncio",
     "anthropic", "openai",
-    "yaml", "httpx", "jose", "multipart",
+    # socksio（c-httpx-socks-fallback）：httpx 函数内懒导入——SOCKS 系统/环境代理的
+    # 构造期依赖，漏收＝该网络环境下全部出网调用构造期 ImportError（app.log 2026-10-08 实锤）
+    "yaml", "httpx", "socksio", "jose", "multipart",
     "auth_local", "auth_local.middleware", "auth_local.models",
     "auth_local.router", "auth_local.service",
     "settings", "chapters", "prompt", "write", "archive",

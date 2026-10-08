@@ -23,6 +23,8 @@ from urllib.parse import urlparse
 
 import httpx
 
+from http_client import build_async_client
+
 # llm.log 专项档挂载点（logging_setup._LLM_LOGGERS 同名登记）
 logger = logging.getLogger(__name__)
 
@@ -52,7 +54,7 @@ async def classify(text: str, api_key: str) -> dict[str, Any]:
     url = f"{base_url()}{CLASSIFY_PATH}"
     start = time.perf_counter()
     try:
-        async with httpx.AsyncClient(timeout=timeout()) as client:
+        async with build_async_client(timeout=timeout()) as client:
             resp = await client.post(
                 url,
                 headers={

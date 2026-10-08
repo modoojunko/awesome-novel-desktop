@@ -28,6 +28,8 @@ from urllib.parse import urlparse
 
 import httpx
 
+from http_client import build_async_client
+
 # llm.log 专项档挂载点（logging_setup._LLM_LOGGERS 同名登记）
 logger = logging.getLogger("llm_probe")
 
@@ -177,7 +179,7 @@ async def test_connection(
 
     start = time.perf_counter()
     try:
-        async with httpx.AsyncClient(timeout=timeout, follow_redirects=True) as client:
+        async with build_async_client(timeout=timeout, follow_redirects=True) as client:
             resp = await client.get(endpoint, headers=headers)
             # 200 体判废先于留痕（评审二轮 P3，内测 405 案形态）：Base URL 填成网站
             # 首页等场景函数裁定 endpoint_mismatch，留痕行不得与之相悖机械记 ok；
@@ -373,7 +375,7 @@ async def fetch_models(
 
     start = time.perf_counter()
     try:
-        async with httpx.AsyncClient(timeout=timeout, follow_redirects=True) as client:
+        async with build_async_client(timeout=timeout, follow_redirects=True) as client:
             resp = await client.get(endpoint, headers=headers)
             # 体判废先于留痕（评审二轮 P3，同 test_connection）
             not_api = _non_api_response(resp) if resp.status_code == 200 else ""
