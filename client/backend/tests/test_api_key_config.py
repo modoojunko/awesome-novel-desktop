@@ -1145,8 +1145,14 @@ class TestSoftDeleteRestore:
         resp = client.post("/api/v1/api-configs/nonexistent/restore")
         assert resp.status_code == 404
 
-    def test_same_name_recreate_after_delete_409(self, client):
-        """TC-SOFT-04: 软删后同名重建 → 409（名称被 tombstone 保留，语义与软删一致）。"""
+    def test_same_name_recreate_after_delete_succeeds(self, client):
+        """TC-SOFT-04（2026-10-08 口径翻转）：软删后同名重建 → 放行。
+
+        原口径＝tombstone 永久占名（409）；用户实绩：撤销窗口（前端 8s toast）
+        过期后重建同名被看不见的软删行堵死，报「名称已被使用」，像「没删干净」。
+        现口径＝活跃重名仍拒；名字只被软删行占着时旧行自动改名让位
+        （DB (user_id,name) 唯一约束要求），重建放行。
+        """
         config_id = self._create(client, "软删-同名")
         client.delete(f"/api/v1/api-configs/{config_id}")
         resp = client.post(
@@ -1158,7 +1164,56 @@ class TestSoftDeleteRestore:
                 "api_key": _test_api_key("restore-2"),
             },
         )
-        assert resp.status_code == 409
+        assert resp.status_code in (200, 201), resp.text
+        new_id = resp.json()["id"]
+        # 新配置进列表；旧行仍软删在库但已让出名字
+        listed = client.get("/api/v1/api-configs").json()
+        assert any(c["id"] == new_id for c in listed)
+        old = _run_async(_get_config(self.RESTORE_USER_ID, config_id))
+        assert old is not None, "软删行仍保留（撤销支撑不变）"
+        assert old.status == "deleted"
+        assert old.name != "软删-同名", "软删行应已改名让位"
+
+    def test_restore_after_name_reuse_both_survive(self, client):
+        """TC-SOFT-05: 重建同名后 restore 旧行 → 两份配置并存、名字不打架。"""
+        old_id = self._create(client, "软删-让位恢复")
+        client.delete(f"/api/v1/api-configs/{old_id}")
+        create_resp = client.post(
+            "/api/v1/api-configs",
+            json={
+                "name": "软删-让位恢复",
+                "vendor_id": "openai",
+                "base_url": "https://api.openai.com",
+                "api_key": _test_api_key("restore-3"),
+            },
+        )
+        assert create_resp.status_code in (200, 201), create_resp.text
+        new_id = create_resp.json()["id"]
+        # 旧行在让位期间被改名过，restore 复活的是让位名——两行并存且名字互不冲突
+        resp = client.post(f"/api/v1/api-configs/{old_id}/restore")
+        assert resp.status_code == 200, resp.text
+        listed = client.get("/api/v1/api-configs").json()
+        pair = {c["id"]: c["name"] for c in listed if c["id"] in (old_id, new_id)}
+        assert set(pair) == {old_id, new_id}
+        assert len(set(pair.values())) == 2, "复活行与新行名字不得相同"
+
+    def test_update_rename_can_take_deleted_name(self, client):
+        """TC-SOFT-06: 改名到软删行占着的名字 → 放行（让位对改名路径同生效）。"""
+        a_id = self._create(client, "改名-让位A")
+        b_resp = client.post(
+            "/api/v1/api-configs",
+            json={
+                "name": "改名-让位B",
+                "vendor_id": "openai",
+                "base_url": "https://api.openai.com",
+                "api_key": _test_api_key("rename-b"),
+            },
+        )
+        b_id = b_resp.json()["id"]
+        client.delete(f"/api/v1/api-configs/{a_id}")
+        resp = client.put(f"/api/v1/api-configs/{b_id}", json={"name": "改名-让位A"})
+        assert resp.status_code == 200, resp.text
+        assert resp.json()["name"] == "改名-让位A"
 
 
 # ═══════════════════════════════════════════════════════════════════════════

@@ -58,6 +58,39 @@ def _normalize_models(raw: list[str], *, truncate: bool = False) -> list[str]:
     return cleaned
 
 
+async def _assert_name_available(db: AsyncSession, user_id: str, name: str) -> None:
+    """重名校验＋软删占名让位。
+
+    活跃（status != deleted）重名照旧拒绝；名字只被软删行占着时，把不可见的
+    软删行改名腾出名字再放行——DB 有 (user_id, name) 唯一约束
+    （uq_api_configs_user_name），不让位的话新建/改名必然撞约束。
+    撤销窗口（前端 8s toast）内行原样保留、restore 照常复活原名；窗口过期后
+    用户重建同名配置是正常诉求，不该被看不见的行堵死。改名后缀嵌行 id（PK）
+    保证唯一，软删行不在任何列表出现，该形态用户不可见。
+    """
+    existing = await db.execute(
+        select(ApiConfig).where(
+            ApiConfig.user_id == user_id,
+            ApiConfig.name == name,
+            ApiConfig.status != "deleted",
+        )
+    )
+    if existing.scalar_one_or_none():
+        raise ValueError("名称已被使用")
+    blocked = await db.execute(
+        select(ApiConfig).where(
+            ApiConfig.user_id == user_id,
+            ApiConfig.name == name,
+            ApiConfig.status == "deleted",
+        )
+    )
+    for row in blocked.scalars().all():
+        row.name = f"{name[:40]}（已删除 {row.id}）"
+    # flush 须在此处：让位 UPDATE 与调用方随后的改名/INSERT 不能归并进同一批次——
+    # SQLite 唯一约束逐行检查，同批内「B 先取名、A 后让位」会自撞约束
+    await db.flush()
+
+
 async def create_api_config(
     db: AsyncSession,
     user_id: str,
@@ -70,12 +103,8 @@ async def create_api_config(
     models: list[str] | None = None,
 ) -> dict[str, Any]:
     """Create a new ApiConfig. Returns the created config as a dict."""
-    # Check name uniqueness
-    existing = await db.execute(
-        select(ApiConfig).where(ApiConfig.user_id == user_id, ApiConfig.name == name)
-    )
-    if existing.scalar_one_or_none():
-        raise ValueError("名称已被使用")
+    # Check name uniqueness（软删占名自动让位，见 helper）
+    await _assert_name_available(db, user_id, name)
 
     # Resolve vendor
     resolved_vendor_id, resolved_display_name, _ = resolve_vendor(
@@ -205,17 +234,9 @@ async def update_api_config(
     if not config:
         return None
 
-    # Check name uniqueness if changing name
+    # Check name uniqueness if changing name（软删占名自动让位，见 helper）
     if "name" in updates and updates["name"] != config.name:
-        existing = await db.execute(
-            select(ApiConfig).where(
-                ApiConfig.user_id == user_id,
-                ApiConfig.name == updates["name"],
-                ApiConfig.id != config_id,
-            )
-        )
-        if existing.scalar_one_or_none():
-            raise ValueError("名称已被使用")
+        await _assert_name_available(db, user_id, updates["name"])
 
     # models 是 JSON 文本列：手动写入须归一化（去空白/去重保序/上限）后序列化
     if updates.get("models") is not None:
