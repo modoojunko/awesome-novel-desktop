@@ -233,7 +233,7 @@
   | 会员 + 有 Key + 本书未选模型 | 503 | `missing_model` | 先在本书选择模型 | 本书模型设定 |
 
   ※ `invalid` **由判定层下发**（配置已删 / `model ∉ config.models` / R8 删除残留），非前端派生。**结构化 detail 全链路**：`api.ts` 503 分支须按 `detail.reason` 分流（`no_key`/`missing_model` 不进 infra 全局提示）并透传 `e.reason`；`ai.ts` 两处 fetch 统一取 `detail.message`（否则对象 detail 变 `[object Object]`）。
-- C端 AI 端点（简介/题材/章写作等）SHALL 走 `get_ai_client_for_novel(novel_id)`（读本书模型；`chat` 经 `resolve()` 落到本书模型），不复用全局 `get_ai_client()`（其不感知本书模型）；**全仓库调用点逐一替换（实测 14 处：替换 12 + 豁免 2）**，含章纲起草/提示词润色/归档摘要；**建书预填 `ai_prefill` 豁免**（早于选模型，降级为无 AI 或用户默认模型）。**双模型源权威链**：`project.ai_model` 为唯一权威，`writing_model` 仅允许 `haiku/sonnet` 别名（经 `resolve()` 映射），显式模型名一律忽略。**`polish_text`/`expand_text`/`archive_chapter` 须补 `novel_id` 参数**（现签名拿不到）。构造失败（配置已删/解密失败）须优雅返回，不裸 500。**写作页兜底另立 change**（本 change 只保证设置视图 AI 行的文案与跳转）。
+- C端 AI 端点（简介/题材/章写作等）SHALL 走 `get_ai_client_for_novel(novel_id)`（读本书模型；`chat` 经 `resolve()` 落到本书模型），不复用全局 `get_ai_client()`（其不感知本书模型）；**全仓库调用点逐一替换（实测 14 处：替换 12 + 豁免 2）**，含章纲起草/归档摘要（原「提示词润色」调用点随 c-retire-prompt-polish 退役）；**建书预填 `ai_prefill` 豁免**（早于选模型，降级为无 AI 或用户默认模型）。**双模型源权威链**：`project.ai_model` 为唯一权威，`writing_model` 仅允许 `haiku/sonnet` 别名（经 `resolve()` 映射），显式模型名一律忽略。**`polish_text`/`expand_text`/`archive_chapter` 须补 `novel_id` 参数**（现签名拿不到）。构造失败（配置已删/解密失败）须优雅返回，不裸 500。**写作页兜底另立 change**（本 change 只保证设置视图 AI 行的文案与跳转）。
 - 前端 AI 行点击 SHALL 走统一门控函数（优先级：非会员→升级 / 本书模型未就绪→跳模型设定 / 无可用 Key→跳模型配置 / 就绪→调用）；**门控只作用于 AI 助手行，不拦模型配置本身**（免费版可选模型）。就绪判据＝**后端 `ai_state === "ready"`**（前端不推导）。
 
 #### Scenario: 免费版可看可配模型、AI 助手全灰
@@ -320,7 +320,7 @@
 - When 该书的 AI 调用取模型
 - Then 仍以 `project.ai_model`（经解析层 `effective_model`）为准，字面覆盖被忽略
 ### Requirement: 模型选择的三层粒度与绑定
-- **粒度**：供应商/API 配置 SHALL 为 **C端用户级**（一次配置、所有书共用同一批供应商）；模型 SHALL 为 **书级**（一本书一个，全书所有 AI 助手共用同一 `effective_model`——简介三能力、题材五行、章写作/续写、章纲起草、提示词润色、归档摘要）；提示词/能力 SHALL 为 **页面级**（每助手一套模板，模板**模型无关**、不写模型名）。
+- **粒度**：供应商/API 配置 SHALL 为 **C端用户级**（一次配置、所有书共用同一批供应商）；模型 SHALL 为 **书级**（一本书一个，全书所有 AI 助手共用同一 `effective_model`——简介三能力、题材五行、章写作/续写、章纲起草、归档摘要（原「提示词润色」随 c-retire-prompt-polish 退役））；提示词/能力 SHALL 为 **页面级**（每助手一套模板，模板**模型无关**、不写模型名）。
 - **绑定**：模型与其供应商 SHALL 绑定——`project.ai_config_id` 与 `project.ai_model` 须来自**同一配置**；后端 `set_project_model`（函数名以现状为准）SHALL 校验 `model ∈ json.loads(config.models)`（处理 JSON 文本/`None`/空串/非法 JSON），**空列表拒绝**、**部分 null 拒绝**（不成对即拒，除非显式 clear）；失败返 **400**（Pydantic 缺字段才 422）。**跨配置混搭在 UI 上不可达**（每行携带所属配置）；**组内换模型＝同配置换 model，允许**。前端确认键遇 400 SHALL **保留 draft 选中态 + 行内报错**（不清空、不禁用）。
 - **存量错配与失效边界**（流程审查 O-7/O-8）：`ai_model` 存在但**不在**该配置 `models` 列表（存量/手工改库）时，`ai_state` SHALL NOT 为 `ready`（**已定：并入 `invalid`**，不派生第 6 个枚举值），前端按「重选模型」引导——D12 校验只挡写入、不挡存量读取，须在判定层兜住。**配置被删且用户无其他可用配置**时 SHALL NOT 死路：模型窗须给「去「模型配置」新建配置」入口（而非仅隐藏选择区）。
 - **清除本书模型**（O-12）：`(None, None)` 的显式 clear SHALL 被支持（API 层保留现有 `change_type="clear"` 语义）；**UI 不提供「清除」入口**（仅 API 保留），且**不得**让 `(config_id, None)`/`(None, model)` 这种**不成对**状态落库。
