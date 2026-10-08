@@ -55,13 +55,18 @@ function stubChars(items: Record<string, unknown>[], noProtagonist = false) {
   });
 }
 
-function renderChars(confirmed: boolean) {
+function renderChars(
+  confirmed: boolean,
+  opts: { charStale?: boolean; onRefreshConfirmState?: () => void } = {},
+) {
   return render(
     <SettingsView
       projectId="p1"
       initialPanel="characters"
       settingsStatus={{ characters: true }}
       confirmedStatus={confirmed ? { characters: true } : {}}
+      charStale={opts.charStale}
+      onRefreshConfirmState={opts.onRefreshConfirmState}
       confirmSetting={vi.fn().mockResolvedValue(true)}
       novelName="残卷听澜"
     />,
@@ -187,5 +192,59 @@ describe("角色面板 · 主按钮按保存模型分派", () => {
       expect(apiState.post).toHaveBeenCalledWith("/novels/p1/characters/confirm", { first: true }),
     );
     await waitFor(() => expect(confirmSetting).toHaveBeenCalledWith("characters"));
+  });
+});
+
+// 评审/收尾链（c-chars-stale-reconfirm）：内容有变期间页脚让位——不出现「已确认」表述与标注
+describe("角色面板 · 内容有变的页脚让位", () => {
+  it("无缺口 + 内容有变：改说「内容改过了…」，不渲染绿色已确认标注", async () => {
+    stubChars([card()]);
+    const { container } = renderChars(true, { charStale: true });
+
+    expect(
+      await screen.findByText("内容改过了——点「重新确认」即可，改动已自动保存"),
+    ).toBeTruthy();
+    expect(container.querySelector(".done-note")).toBeNull();
+    expect(container.querySelector('[data-od-id="chars-gate-hint"]')).toBeNull();
+    expect(screen.getByRole("button", { name: "重新确认" })).toBeTruthy();
+  });
+
+  it("缺口优先：有缺口时照旧点名缺口（那才是点下去会被拦的原因）", async () => {
+    stubChars([card(), card({ id: "c2", name: "苏晚芜", role: "配角", gaps: ["能力上限"] })]);
+    const { container } = renderChars(true, { charStale: true });
+
+    await waitFor(() =>
+      expect(container.querySelector('[data-od-id="chars-gate-hint"]')?.textContent).toBe(
+        "还差：配角《苏晚芜》缺 能力上限",
+      ),
+    );
+    expect(screen.queryByText(/内容改过了/)).toBeNull();
+  });
+
+  it("非内容有变：已确认口径与绿色标注都在（原样）", async () => {
+    stubChars([card()]);
+    const { container } = renderChars(true, { charStale: false });
+
+    expect(await screen.findByText("已确认 · 改动自动保存，可随时重新确认")).toBeTruthy();
+    expect(container.querySelector(".done-note")).toBeTruthy();
+  });
+
+  it("重新确认成功后重取确认存档状态（徽标/页脚当场恢复，不等刷新）", async () => {
+    stubChars([card()]);
+    const refresh = vi.fn();
+    renderChars(true, { charStale: true, onRefreshConfirmState: refresh });
+
+    fireEvent.click(await screen.findByRole("button", { name: "重新确认" }));
+
+    await waitFor(() => expect(refresh).toHaveBeenCalled());
+  });
+
+  it("进入面板的数据刷新后也会重取（编辑后回来即说真话）", async () => {
+    stubChars([card()]);
+    const refresh = vi.fn();
+    renderChars(true, { onRefreshConfirmState: refresh });
+
+    await screen.findAllByText("林拾"); // 列表载入（左列表 + 右栏作用域行各一处）
+    await waitFor(() => expect(refresh).toHaveBeenCalled());
   });
 });

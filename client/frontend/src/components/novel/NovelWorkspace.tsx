@@ -77,7 +77,9 @@ export default function NovelWorkspace() {
   const projectId = project?.id ?? "";
 
   const outline = useOutline(projectId);
-  const { settingsDone, settingsStatus, confirmedStatus, charStale, confirmSetting } = useOnboarding(projectId, []);
+  const {
+    settingsDone, settingsStatus, confirmedStatus, charStale, confirmSetting, refreshCharStale,
+  } = useOnboarding(projectId, []);
 
   const settingsDirtyRef = useRef(false);
   const handleSettingsDirty = useCallback((v: boolean) => {
@@ -1224,6 +1226,7 @@ export default function NovelWorkspace() {
           settingsStatus={settingsStatus}
           confirmedStatus={confirmedStatus}
           charStale={charStale}
+          onRefreshConfirmState={refreshCharStale}
           confirmSetting={handleConfirmSetting}
           onDirtyChange={handleSettingsDirty}
           onGoWrite={() => goTab("workbench")}

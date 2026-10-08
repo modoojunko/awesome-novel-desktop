@@ -759,7 +759,7 @@
   const DOT = { '主角': 'main', '配角': 'side', '反派': 'villain', '路人': 'extra' };
   /* 主角＝类型是「主角」的那张卡：一本书一位，改类型即换人（门禁、体检、进度都跟着它走） */
   function protKey() { const ks = Object.keys(DATA).filter(k => DATA[k].type === '主角'); return ks.length ? ks[0] : null; }
-  const UI = { sel: null, ops: '', relForm: 0, relEdit: null, cog: {}, grp: { '主角': 1, '配角': 1, '反派': 1, '路人': 0 }, q: '', zoneVar: { dossier: 0, cog: 0 }, checkVar: {}, confirmed: false };
+  const UI = { sel: null, ops: '', relForm: 0, relEdit: null, cog: {}, grp: { '主角': 1, '配角': 1, '反派': 1, '路人': 0 }, q: '', zoneVar: { dossier: 0, cog: 0 }, checkVar: {}, confirmed: false, snap: null };
   UI.sel = protKey() || Object.keys(DATA)[0];
   UI.cog[UI.sel] = { worldview: 1 };
 
@@ -1120,39 +1120,53 @@
     });
     return { ok: !list.length, noProt: false, list: list };
   }
-  /* 徽标与进度：草稿 / 已确认 / 已确认但有变（打回）。
+  /* 确认存档摘要（后端 gate_fingerprint 的同构简化版）：非路人卡的门禁六项按卡序拼接。
+     c-chars-stale-reconfirm：「内容有变」＝摘要与当前不一致，与「门禁缺不缺」是两件事。 */
+  function gateSnapshot() {
+    return Object.keys(DATA).filter(k => !DATA[k].simple)
+      .map(k => GATE_FIELDS.map(f => String(f.read(DATA[k]) || '').trim()).join('|'))
+      .join('||');
+  }
+  function isStale() { return UI.confirmed && UI.snap !== null && UI.snap !== gateSnapshot(); }
+  /* 徽标与进度：草稿 / 已确认 / 内容有变（打回）。
      页脚提示按"这次会走哪档"出缺口摘要（c-chars-confirm-scope）——通用静态句
      「高级项可后补 · 确认即计入进度」在本页由下列五态取代；卡片级保存态在卡头
-     （ch-side，「这张卡已自动保存」），两处口径不得混。 */
+     （ch-side，「这张卡已自动保存」），两处口径不得混。
+     c-chars-stale-reconfirm：内容有变期间页脚**让位**——不出现「已确认」表述与已确认标注，
+     只提示去重新确认；**缺口优先**（有缺口时点下去会被拦，那才是先说的事）。 */
   function syncFoot() {
     const note = $('#footNote');
     const g = charGate();
+    const st = isStale();
     if (g.noProt) {
       note.textContent = '确认「角色」要先有一位主角——在人物卡上把谁点成主角';
       note.className = 'note warnline';
-    } else if (g.ok) {
-      note.textContent = UI.confirmed
-        ? '已确认 · 改动自动保存，可随时重新确认'
-        : '主角写全了——第一次确认只看主角；配角、反派后补也行，改动会自动保存';
-      note.className = 'note';
-    } else {
+    } else if (!g.ok) {
       note.textContent = '还差：' + gapLine(g.list[0])
         + (g.list.length > 1 ? '（共 ' + g.list.length + ' 张卡）' : '')
         + (UI.confirmed ? '' : '（第一次确认只看主角）');
       note.className = 'note warnline';
+    } else if (UI.confirmed && st) {
+      note.textContent = '内容改过了——点「重新确认」即可，改动已自动保存';
+      note.className = 'note';
+    } else {
+      note.textContent = UI.confirmed
+        ? '已确认 · 改动自动保存，可随时重新确认'
+        : '主角写全了——第一次确认只看主角；配角、反派后补也行，改动会自动保存';
+      note.className = 'note';
     }
     $('#btnConfirm').textContent = UI.confirmed ? '重新确认' : '确认完成';
     const b = $('#charState');
     const item = $$('.s-item').filter(x => x.querySelector('.nm') && x.querySelector('.nm').textContent === '角色')[0];
     const badge = item ? item.querySelector('.badge') : null;
-    if (UI.confirmed && g.ok) {
-      b.textContent = '已确认'; b.className = 'badge ok';
-      if (badge) { badge.textContent = '已确认'; badge.className = 'badge ok'; }
-      setProg(4, '已确认');
-    } else if (UI.confirmed && !g.ok) {
+    if (UI.confirmed && st) {
       b.textContent = '内容有变 · 待重新确认'; b.className = 'badge warn';   /* 硬规则：含「已确认」字样必须绿色，故此处不含 */
       if (badge) { badge.textContent = '待重新确认'; badge.className = 'badge warn'; }
       setProg(3, '待重新确认');
+    } else if (UI.confirmed) {
+      b.textContent = '已确认'; b.className = 'badge ok';
+      if (badge) { badge.textContent = '已确认'; badge.className = 'badge ok'; }
+      setProg(4, '已确认');
     } else {
       b.textContent = g.noProt ? '草稿 · 未立主角' : '草稿 · 主角已立';
       b.className = 'badge ' + (g.noProt ? 'warn' : 'prog');
@@ -1817,9 +1831,13 @@
       toast('还差：' + gapLine(g.list[0]) + more + '——填上，或用右栏「认知补充」');
       return;
     }
+    const again = UI.confirmed;
     UI.confirmed = true;
+    UI.snap = gateSnapshot();   /* 确认＝把当前门禁字段收进存档（重新确认即把存档跟上最新内容） */
     syncFoot();
-    toast('已确认「角色」——之后改动关键字段会显示「内容有变」，改完再确认一次');
+    toast(again
+      ? '已重新确认「角色」——存档跟上最新内容，徽标与提示一并恢复'
+      : '已确认「角色」——之后改动关键字段会显示「内容有变」，改完再确认一次');
   });
 
   $$('.appbar .back').forEach(b => b.addEventListener('click', () => toast('这是示例稿：顶部书栏不属于本页，点「返回工作台」在正式版里才有效')));

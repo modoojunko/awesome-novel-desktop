@@ -36,6 +36,9 @@ interface Props {
   /** 整项确认门禁缺口（c-chars-confirm-scope）：列表载入成功后上报，未载入/载入失败报 null
    *  （页脚据此回落通用提示，不冒充「书里没有主角」） */
   onGateHintChange?: (hint: CharGateHint | null) => void;
+  /** 面板数据刷新＝确认存档可能过期（c-chars-stale-reconfirm）：请父层重取确认存档状态。
+   *  挂载（进入面板）、单卡保存落库、增删合并后都会走到这里。 */
+  onRefreshConfirmState?: () => void;
 }
 
 export interface CharacterSaveHandle {
@@ -106,7 +109,10 @@ const CharacterManager = forwardRef<CharacterSaveHandle, Props>(function Charact
   props,
   ref,
 ) {
-  const { projectId, onDirtyChange, onCtxChange, introReady, aiState, onBlocked, onGateHintChange } = props;
+  const {
+    projectId, onDirtyChange, onCtxChange, introReady, aiState, onBlocked, onGateHintChange,
+    onRefreshConfirmState,
+  } = props;
   const [list, setList] = useState<CharacterCard[]>([]);
   const [gate, setGate] = useState<{ ok: boolean; no_protagonist: boolean; confirmed: boolean }>({
     ok: false, no_protagonist: true, confirmed: false,
@@ -163,8 +169,9 @@ const CharacterManager = forwardRef<CharacterSaveHandle, Props>(function Charact
     setList(data.items);
     setGate({ ok: data.gate.ok, no_protagonist: data.gate.no_protagonist, confirmed: data.confirmed });
     setListLoaded(true); // 只有真拿到列表才放行门禁摘要（失败路径保持静默，见 listLoaded 声明处）
+    onRefreshConfirmState?.(); // 数据已刷新＝存档可能过期：请父层重取（c-chars-stale-reconfirm）
     return data.items;
-  }, [projectId]);
+  }, [projectId, onRefreshConfirmState]);
 
   const loadCard = useCallback(async (id: string) => {
     const full = await charactersApi.get(projectId, id);
