@@ -539,6 +539,9 @@ const GenreSettingForm = forwardRef<GenreHandle, GenreSettingFormProps>(function
             () => {
               setData((cur) => ({ ...cur, ...start }));
               setFlavorKey(key);
+              // ref 随撤销恢复：否则「取消→撤销→再取消」时 restore 为空，
+              // 第二次取消退化成只清高亮（起点句留在框里），与首次取消不一致。
+              flavorBeforeRef.current = restore;
             },
           );
           setNoteHint(false);

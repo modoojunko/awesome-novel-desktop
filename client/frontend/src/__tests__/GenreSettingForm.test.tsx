@@ -691,6 +691,33 @@ describe("GenreSettingForm · 改动回执 + 撤销", () => {
     expect(receipt()?.text).not.toContain("已取消");
   });
 
+  it("取消→撤销→再取消：每次取消都还原点前值（ref 随 undo 闭包恢复）", async () => {
+    const { receipt, container } = renderPanel({ promise_note: MIND_NOTE });
+    await waitFor(() => expect(container.querySelectorAll(".mod")).toHaveLength(5));
+
+    const comeback = container.querySelector('[data-g="comeback"]')!;
+    fireEvent.click(comeback); // 应用 A
+    fireEvent.click(comeback); // 取消 → 还原为 mind 起点句
+    await waitFor(() =>
+      expect((container.querySelector('[data-od-id="m1-input"]') as HTMLTextAreaElement).value)
+        .toBe(MIND_NOTE),
+    );
+
+    receipt()!.undo(); // 撤销取消 → A 起点句＋高亮回来
+    await waitFor(() =>
+      expect((container.querySelector('[data-od-id="m1-input"]') as HTMLTextAreaElement).value)
+        .toContain("弱者用脑子换来的痛快"),
+    );
+
+    fireEvent.click(comeback); // 再取消 → 仍须还原为 mind 起点句（回归：ref 未随 undo 恢复时只清高亮、A 句残留）
+    await waitFor(() =>
+      expect((container.querySelector('[data-od-id="m1-input"]') as HTMLTextAreaElement).value)
+        .toBe(MIND_NOTE),
+    );
+    expect(comeback.className).not.toContain("on");
+    expect(receipt()?.text).toContain("已取消「逆袭打脸」起点");
+  });
+
   it("切换口味：新起点覆盖 02；撤销回到上一颗的句子且高亮回上一颗", async () => {
     const { receipt, container } = renderPanel();
     await waitFor(() => expect(container.querySelectorAll(".mod")).toHaveLength(5));
