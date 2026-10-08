@@ -21,6 +21,11 @@ import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy import select
 
+# 提取链在后台 job 内读真实模板（chapter_archive_extract 等）；job_runner 失败
+# 静默落库（无日志/无异常外抛），conftest 的缺源信号收不到——整文件显式标记，
+# 无模板源环境收集期跳过（c-prompt-source-flip）。
+pytestmark = [pytest.mark.needs_prompts]
+
 # ── Test environment (isolated temp DB) ───────────────────────────────────
 _tmp_db = tempfile.NamedTemporaryFile(suffix="_archive_ai_summary.db", delete=False)  # noqa: SIM115
 _tmp_db.close()
