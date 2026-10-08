@@ -1,7 +1,7 @@
 // c-chars-confirm-scope：整项确认缺口上抛（页脚提示的数据源）+ 卡片级保存态归位卡头。
 // 手法照 CharacterManager.roleRegroup.test.tsx：mock @/lib/api，真渲染断言。
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { render, screen } from "@testing-library/react";
+import { render, screen, waitFor } from "@testing-library/react";
 import CharacterManager, { gateHintOf, type CharGateHint } from "@/components/novel/settings/CharacterManager";
 
 const apiGet = vi.fn();
@@ -103,15 +103,18 @@ describe("gateHintOf（纯函数）", () => {
 
 describe("CharacterManager · 整项缺口上抛与卡头保存态", () => {
   it("列表就绪即上抛缺口摘要（主角无缺口 / 配角两项）", async () => {
-    const seen: CharGateHint[] = [];
+    const seen: (CharGateHint | null)[] = [];
     render(<CharacterManager projectId="p1" onGateHintChange={(h) => seen.push(h)} />);
 
     await screen.findByText("林拾");
-    const last = seen[seen.length - 1];
-    expect(last.protagonistMissing).toEqual([]);
-    expect(last.gapCards).toEqual([
-      { role: "配角", name: "苏晚芜", fields: ["能力上限", "能力代价"] },
-    ]);
+    // 断言必须放进 waitFor：DOM 上屏先于被动 effect 的上报，直接取末项会抓到挂载期的 null
+    await waitFor(() => {
+      const last = seen[seen.length - 1];
+      expect(last?.protagonistMissing).toEqual([]);
+      expect(last?.gapCards).toEqual([
+        { role: "配角", name: "苏晚芜", fields: ["能力上限", "能力代价"] },
+      ]);
+    });
   });
 
   it("无主角卡时上抛 noProtagonist（页脚提示「先立主角」的数据源）", async () => {
@@ -119,11 +122,11 @@ describe("CharacterManager · 整项缺口上抛与卡头保存态", () => {
       items: [card({ id: "c9", code: "C-0009", name: "苏晚芜", role: "配角", gaps: ["剧情定位"] })],
       noProtagonist: true,
     });
-    const seen: CharGateHint[] = [];
+    const seen: (CharGateHint | null)[] = [];
     render(<CharacterManager projectId="p1" onGateHintChange={(h) => seen.push(h)} />);
 
     await screen.findByText("苏晚芜");
-    expect(seen[seen.length - 1].noProtagonist).toBe(true);
+    await waitFor(() => expect(seen[seen.length - 1]?.noProtagonist).toBe(true));
   });
 
   it("保存态归位卡头：带「这张卡」限定词且位于 .char-head 的 .char-side 内", async () => {
@@ -133,5 +136,43 @@ describe("CharacterManager · 整项缺口上抛与卡头保存态", () => {
     expect(chip.closest(".char-head")).toBeTruthy();
     expect(chip.closest(".char-side")).toBeTruthy();
     expect(container.querySelector(".char-main > div > .char-save-state")).toBeNull();
+  });
+
+  // 评审补丁：初值 gate.no_protagonist=true 是「还不知道」——列表没到手就上报，
+  // 会让有主角的书在开场闪一句「要先有一位主角」，加载失败时更会常驻这句假话。
+  it("列表未载入前保持静默：首报为 null，不得冒充「书里没有主角」", async () => {
+    let release!: (v: unknown) => void;
+    apiGet.mockImplementation((url: string) =>
+      String(url) === "/novels/p1/characters"
+        ? new Promise((r) => {
+            release = r;
+          })
+        : Promise.resolve({ data: card() }),
+    );
+    const seen: (CharGateHint | null)[] = [];
+    render(<CharacterManager projectId="p1" onGateHintChange={(h) => seen.push(h)} />);
+
+    await waitFor(() => expect(seen.length).toBeGreaterThan(0));
+    expect(seen.every((h) => h === null)).toBe(true);
+
+    release({
+      data: {
+        count: 1,
+        protagonist_id: "c1",
+        gate: { ok: false, no_protagonist: false },
+        confirmed: false,
+        items: [card()],
+      },
+    });
+    await waitFor(() => expect(seen[seen.length - 1]?.noProtagonist).toBe(false));
+  });
+
+  it("列表载入失败保持静默（页脚回落通用提示），不报「无主角」", async () => {
+    apiGet.mockRejectedValue(new Error("角色列表 500"));
+    const seen: (CharGateHint | null)[] = [];
+    render(<CharacterManager projectId="p1" onGateHintChange={(h) => seen.push(h)} />);
+
+    await waitFor(() => expect(seen.length).toBeGreaterThan(0));
+    expect(seen.every((h) => h === null)).toBe(true);
   });
 });
