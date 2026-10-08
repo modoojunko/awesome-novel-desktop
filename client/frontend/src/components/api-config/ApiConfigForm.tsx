@@ -5,6 +5,7 @@ import Modal from "../design/Modal";
 import { Ico, P } from "../icons";
 import { FORMAT_PLACEHOLDER, VENDOR_FORMAT_LOCK, VENDORS, VENDOR_LABELS, VendorGlyph } from "./ProviderIcon";
 import { applyPreset, defaultsFor, type PrefillFields } from "./vendorDefaults";
+import { placePanel, type PanelPlacement } from "../../lib/panelAnchor";
 
 interface ApiConfigFormProps {
   open: boolean;
@@ -74,7 +75,7 @@ export function ApiConfigForm({ open, config, onSubmit, onCancel, onTest, onFetc
   // 弹层 portal 节点（评审 P1：Modal 的 .mcard overflow 会裁剪卡内浮层，照 Modal 自身
   // 先例 portal 到 body；滚动/resize 重锚，外点用 pointerdown 关）
   const panelRef = useRef<HTMLDivElement | null>(null);
-  const [panelPos, setPanelPos] = useState<{ top: number; left: number; width: number } | null>(null);
+  const [panelPos, setPanelPos] = useState<PanelPlacement | null>(null);
   const [saving, setSaving] = useState(false);
   const [testing, setTesting] = useState(false);
   const [testResult, setTestResult] = useState<{ ok: boolean; message: string } | null>(null);
@@ -358,8 +359,8 @@ export function ApiConfigForm({ open, config, onSubmit, onCancel, onTest, onFetc
           ? "无模型清单"
           : "";
 
-  // 弹层定位（评审 P1：portal 出 .mcard 滚动容器后用 fixed 锚输入框矩形；
-  // 随滚动/resize 重锚，近视口底缘向上翻转——266≈弹层最大高＋边距）
+  // 弹层定位（评审 P1：portal 出 .mcard 滚动容器后用 fixed 锚输入框矩形；随滚动/resize
+  // 重锚。换算（大屏 zoom 折算＋放不下翻转/限高）走共享 placePanel——见 lib/panelAnchor.ts）
   useEffect(() => {
     if (!pickerOpen) return;
     const anchor = () => {
@@ -368,12 +369,12 @@ export function ApiConfigForm({ open, config, onSubmit, onCancel, onTest, onFetc
       if (!el) return;
       /* v8 ignore stop */
       const r = el.getBoundingClientRect();
-      const belowFits = r.bottom + 6 + 266 <= window.innerHeight;
-      setPanelPos({
-        top: belowFits ? r.bottom + 6 : Math.max(8, r.top - 6 - 266),
-        left: r.left,
-        width: r.width,
-      });
+      setPanelPos(
+        placePanel(
+          { top: r.top, bottom: r.bottom, left: r.left, width: r.width },
+          window.innerHeight,
+        ),
+      );
     };
     anchor();
     window.addEventListener("scroll", anchor, true);
@@ -612,7 +613,7 @@ export function ApiConfigForm({ open, config, onSubmit, onCancel, onTest, onFetc
                     role="listbox"
                     aria-label="模型清单"
                     ref={panelRef}
-                    style={{ position: "fixed", top: panelPos.top, left: panelPos.left, width: panelPos.width, zIndex: 70 }}
+                    style={{ position: "fixed", top: panelPos.top, bottom: panelPos.bottom, left: panelPos.left, width: panelPos.width, maxHeight: panelPos.maxHeight, zIndex: 70 }}
                     onMouseDown={(e) => e.preventDefault()} // 滚动条/说明区拖点不抢焦点不误关（评审 P1）
                   >
                     {modelNote && <div className="mp-note">{modelNote}</div>}

@@ -51,11 +51,26 @@ async def quality_check(
     return results
 
 
-async def _stream_chapter(db, project, root_path: str, chapter_ref: str, ctx, prompt: str):
+async def _stream_chapter(
+    db,
+    project,
+    root_path: str,
+    chapter_ref: str,
+    ctx,
+    prompt: str,
+    *,
+    override_client=None,
+    override_model: str = "",
+    override_config_id: str = "",
+):
     """Generate chapter text via AI streaming, save on completion (BE-01: 写完刷新 DB 元数据).
 
     三工序（ai-prompt-crafting）：①system 注入写作铁律；②完成时字数校验（<90% 提示不拦）；
     ③完成时叙事自查清单（提示性质）——随 done 事件返回。
+
+    c-prose-model-select：`override_client` 给定时走**按次覆盖对**（开流前已校验，仅本次
+    生成），否则流内按本书绑定构造；记账恒记**实际生效模型 id ＋ 配置 id**（成功/超时/失败
+    三处同口径——原记别名 `haiku` 且配置为空，违反「计量层记实际模型 id」）。
     """
     from ai_client import get_ai_client_for_novel
     from chapters.service import save_chapter
@@ -65,8 +80,15 @@ async def _stream_chapter(db, project, root_path: str, chapter_ref: str, ctx, pr
         word_target_floor,
     )
 
-    client = await get_ai_client_for_novel(project.id)
-    # 符号别名：模型由本书绑定决定（D12，不再读 writing_model）
+    if override_client is not None:
+        client = override_client
+        used_model = override_model
+        used_config_id = override_config_id
+    else:
+        client = await get_ai_client_for_novel(project.id)
+        used_model = effective_model(project)
+        used_config_id = project.ai_config_id or ""
+    # 符号别名：模型由构造期 self._model 决定（D12，不再读 writing_model）
     model = "haiku"
     # system 恒定层（c-write-prompt-layering）：本书设定组装、逐章字节一致，
     # 铁律与仲裁句在模板 prompts/write_chapter.prompt；身份句走 resolve_persona 单源
@@ -103,9 +125,10 @@ async def _stream_chapter(db, project, root_path: str, chapter_ref: str, ctx, pr
                     db,
                     user_id=project.user_id,
                     project_id=project.id,
+                    api_config_id=used_config_id or None,
                     chapter_id=chapter_ref,
                     operation="write_chapter",
-                    model=model,
+                    model=used_model,
                     tokens_out=event.tokens,
                     tokens_in=event.tokens_in,
                 )
@@ -135,9 +158,10 @@ async def _stream_chapter(db, project, root_path: str, chapter_ref: str, ctx, pr
             db,
             user_id=project.user_id,
             project_id=project.id,
+            api_config_id=used_config_id or None,
             chapter_id=chapter_ref,
             operation="write_chapter_fail",
-            model=model,
+            model=used_model,
             force=True,
         )
         yield f"data: {json.dumps({'type': 'error', 'error': 'AI 服务响应超时，请稍后重试'}, ensure_ascii=False)}\n\n"
@@ -148,9 +172,10 @@ async def _stream_chapter(db, project, root_path: str, chapter_ref: str, ctx, pr
             db,
             user_id=project.user_id,
             project_id=project.id,
+            api_config_id=used_config_id or None,
             chapter_id=chapter_ref,
             operation="write_chapter_fail",
-            model=model,
+            model=used_model,
             force=True,
         )
         yield f"data: {json.dumps({'type': 'error', 'error': f'AI 生成失败，可重试：{e!s}'}, ensure_ascii=False)}\n\n"
@@ -226,6 +251,9 @@ async def write_chapter(
     """Stream an AI-written chapter based on all context data.
 
     可选 body {"prompt": "..."}：AI 弹窗编辑后的提示词覆盖（空/缺省 = 自动组装）。
+    可选 body {"api_config_id": "...", "model": "..."}：**按次模型对**（c-prose-model-select
+    「生成模型」选择位）——成对给出时本次生成用该配置+模型（不落库、不改本书绑定），
+    开流前按绑定同源谓词校验，失败 400 可读错因；缺省 = 本书模型（今日路径逐字不变）。
     """
     project = await get_novel(db, project_id, user["id"])
     if not project:
@@ -239,13 +267,34 @@ async def write_chapter(
         raise HTTPException(409, reason)
 
     prompt_override = ""
+    api_config_id = ""
+    model_override = ""
     try:
         body = await request.json()
         if isinstance(body, dict):
             prompt_override = str(body.get("prompt") or "").strip()
+            api_config_id = str(body.get("api_config_id") or "").strip()
+            model_override = str(body.get("model") or "").strip()
     except (ValueError, UnicodeDecodeError):
         # 空体/非法 JSON = 无覆盖，走自动组装
         prompt_override = ""
+        api_config_id = ""
+        model_override = ""
+
+    # 按次模型对：开流前解析覆盖客户端——非法对 400（可读错因、可换模型重试），
+    # 不产生流式响应、不发起调用、不落任何副作用；缺省时保持今日路径（流内按本书绑定构造）
+    override_client = None
+    if api_config_id or model_override:
+        from ai_client import get_ai_client_for_novel
+
+        try:
+            override_client = await get_ai_client_for_novel(
+                project.id,
+                api_config_id=api_config_id or None,
+                model=model_override or None,
+            )
+        except ValueError as e:
+            raise HTTPException(400, str(e)) from e
 
     from write.chapter_writer import build_chapter_context
 
@@ -280,7 +329,17 @@ async def write_chapter(
     await db.commit()
 
     return StreamingResponse(
-        _stream_chapter(db, project, project.root_path, chapter_ref, ctx, prompt),
+        _stream_chapter(
+            db,
+            project,
+            project.root_path,
+            chapter_ref,
+            ctx,
+            prompt,
+            override_client=override_client,
+            override_model=model_override,
+            override_config_id=api_config_id,
+        ),
         media_type="text/event-stream",
         headers={
             "Cache-Control": "no-cache",

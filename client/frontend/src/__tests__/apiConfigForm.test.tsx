@@ -794,15 +794,58 @@ describe("ApiConfigForm 模型选择器覆盖补齐（CI 全局 100% 覆盖率�
     expect(panel()).toBeNull();
   });
 
-  it("弹层定位：近视口底缘向上翻转（flip 臂，fixed top 兜底 8px）", async () => {
+  it("弹层定位：近视口底缘向上翻转（flip 臂：改挂 bottom，自下向上长）", async () => {
     await setupFetched(async () => ({ ok: true, status: "ok", models: ["m-1"] }));
     const original = window.innerHeight;
-    Object.defineProperty(window, "innerHeight", { value: 40, configurable: true });
+    // jsdom 没有布局：显式给输入框一个贴视口底缘的矩形（视口 900、输入框 700..740）
+    const rectSpy = vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockReturnValue({
+      top: 700,
+      bottom: 740,
+      left: 20,
+      right: 320,
+      width: 300,
+      height: 40,
+      x: 20,
+      y: 700,
+      toJSON: () => ({}),
+    } as DOMRect);
+    Object.defineProperty(window, "innerHeight", { value: 900, configurable: true });
     try {
       fireEvent.focus(input());
       await waitFor(() => expect(panel()).toBeTruthy());
-      expect(panel()!.style.top).toBe("8px"); // jsdom 输入框矩形为 0 → 翻转臂取下限
+      // 下方仅 160px < 上限、上方 700px 更宽敞 → 翻转：下缘锚在输入框上缘上方 6px
+      expect(panel()!.style.bottom).toBe("206px");
+      expect(panel()!.style.top).toBe("");
+      expect(panel()!.style.maxHeight).toBe("360px"); // min(上限 360, 上方可用 700-6)
     } finally {
+      rectSpy.mockRestore();
+      Object.defineProperty(window, "innerHeight", { value: original, configurable: true });
+    }
+  });
+
+  it("弹层定位：空间充足时下方展开＋视口感知上限（评审整改：多配置不再落出视口）", async () => {
+    await setupFetched(async () => ({ ok: true, status: "ok", models: ["m-1"] }));
+    const original = window.innerHeight;
+    const rectSpy = vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockReturnValue({
+      top: 100,
+      bottom: 140,
+      left: 20,
+      right: 320,
+      width: 300,
+      height: 40,
+      x: 20,
+      y: 100,
+      toJSON: () => ({}),
+    } as DOMRect);
+    Object.defineProperty(window, "innerHeight", { value: 900, configurable: true });
+    try {
+      fireEvent.focus(input());
+      await waitFor(() => expect(panel()).toBeTruthy());
+      expect(panel()!.style.top).toBe("146px");
+      expect(panel()!.style.bottom).toBe("");
+      expect(panel()!.style.maxHeight).toBe("360px");
+    } finally {
+      rectSpy.mockRestore();
       Object.defineProperty(window, "innerHeight", { value: original, configurable: true });
     }
   });

@@ -17,6 +17,7 @@ import { ChapterPlanModal } from "@/components/novel/workbench/ChapterPlanModal"
 import { useChapterPlan } from "@/hooks/useChapterPlan";
 import { useVolumePlan } from "@/hooks/useVolumePlan";
 import type { VolumeExpandDraft } from "@/lib/volumePlanApi";
+import type { ModelSelection } from "@/types/api-config";
 import { AiModal } from "@/components/novel/workbench/modals";
 import UpgradeModal from "@/components/novel/UpgradeModal";
 import AcctMenu from "@/components/AcctMenu";
@@ -302,10 +303,13 @@ export default function NovelWorkspace() {
     [railData?.archived, runAiAction],
   );
 
-  const handleAiConfirm = useCallback((prompt: string) => {
-    setAiWriteSignal((n) => n + 1);
-    proseRef.current?.startWriting(prompt || undefined);
-  }, []);
+  const handleAiConfirm = useCallback(
+    (prompt: string, modelSelection?: ModelSelection) => {
+      setAiWriteSignal((n) => n + 1);
+      proseRef.current?.startWriting(prompt || undefined, modelSelection);
+    },
+    [],
+  );
 
   // PreviewView 挂载即调 onRefresh 且以它为 effect 依赖——内联箭头每次渲染都是
   // 新引用，会与 refresh→setVolumes→重渲染结成死循环（预览态每 ~9ms 打一次

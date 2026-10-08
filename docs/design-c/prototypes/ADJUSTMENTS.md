@@ -1851,3 +1851,31 @@ model-config.html 不在像素 parity 基线内（同 c-zhuque-ai-detect 登记�
 - **双端影响判定**：仅 C端、不触 `base.css` 令牌与 `pill/notice/sk/panel/f-err` 共享段
   （proposal Design Impact）→ 无需 design-cross；「设置 › 本机旧版本数据」为本版新增入口，
   实现侧同批建页，原型未建模其内部（后续如需再补登记）。
+
+## c-prose-model-select（「AI 生成正文」弹窗按次换模型，2026-10-08）
+
+用户口径（2026-10-08）：「生成正文的弹窗页面，需要增加一个作者可以选大模型的下拉选项，
+选了哪个大模型就用哪个大模型去生成正文，方便作家规划的时候用一种模型，生成正文的时候可以更换。
+前提是模型配置有多个模型可选，可以跨模型供应商」。
+
+1. **`book.html` `#modalAi` 增「生成模型」选择位**（置于提示词块之后、底部提示行之前）：
+   触发位＝`.input` 触感 + mono 文案「配置名 · 模型名」（默认本书模型），旁挂 chevron 图标；
+   弹层＝按配置分组的模型清单（组头＝配置名 + 供应商 mono 小字；组内模型行单选、选中态
+   accent；绑定行尾注「本书模型」）。标签行说明「仅本次生成生效（提示词润色/刷新仍用本书模型）」
+   ——与设置页「设为本书模型」（持久、全书生效）显式区分。
+2. **词汇复用＋入册三词**：复用 C端 model-config 作用域的 `.mp-*` 组合框＋弹层族
+   （`.mp-wrap`/`.mp-panel`/`.mp-list`/`.mp-item`/`.mp-cur|on`），本次新增并登记
+   **`.mp-trigger`（触发位）/`.mp-group`（配置组头）/`.mp-flag`（本书模型标记）**；
+   `.mp-item` 由 block 改 flex（容纳尾注），仍只用既有 token 与字号档（11.5/12/12.5px），
+   无新语气档、无第四种胶囊形态、**SHALL NOT** 用原生 `<select>`/optgroup（intro-genre-settings 口径）。
+3. **形态差异登记**：原型弹层**就地展开**（静态演示更直观）；实现侧沿 `.mp-panel` 既有
+   **portal 到 body + fixed 定位**先例（弹窗 `.mcard` 滚动区会裁剪卡内浮层——model-config
+   评审 P1 结论复用），且只在弹窗打开时挂载取数。原型内附演示 JS（展开/收起 + 点选改触发位，
+   重开弹窗回本书模型）＝非基线演示件，先例＝写作能力弹窗五态 chips。
+4. **不进 parity 截图的依据**：`#modalAi` 不在 `design-parity-book.spec.ts` 场景清单
+   （workbench/volume/settings/modal-delete/modal-prefs/modal-upgrade）内，与设置页模型面板
+   （ADJUSTMENTS #10「parity 排除」）同例；故本次无基线像素变更，`design:check` 预期零差异。
+5. **可选项 < 2 时不渲染该行**（含本书模型共 1 个可选＝与今日弹窗逐字一致）——原型演示态
+   含两个配置三个模型（深度求索 ×2 + 本地 Ollama ×1），仅示多模型场景。
+
+**补丁（同日评审轮，四整改）**：① 弹层高度改由弹层自身承担——`.mp-panel` 加视口上限（`max-height: 360px`）＋整层滚动，`.mp-list` 收掉自带的 `max-height: 240px/overflow-y`（原实现多配置逐组累加后下缘落出视口、fixed 弹层拽不回来）；② 定位换共享助手 `lib/panelAnchor.ts`（`getBoundingClientRect` 的视觉值按 `html { zoom }` 折算回布局 px，并覆盖「模型配置页模型选择器」同一模式）；③ 弹层补 `aria-activedescendant` 指向选项 id（键盘停在哪一行对读屏可见）；④ 后端按次覆盖对改与本书就绪同一谓词（`config_key_usable`：Key 非空＋可解密＋最近连接测试非失败态）。原型侧形态不变（原型弹层就地展开、无 fixed 定位/zoom 问题），本条只登记实现侧收口。

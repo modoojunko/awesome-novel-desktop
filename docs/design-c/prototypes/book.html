@@ -466,6 +466,24 @@
   .ver-row .cur { font-size: 11px; color: var(--accent); font-family: var(--font-mono); }
   .ai-prompt { width: 100%; min-height: 200px; padding: 12px 14px; border: 1px solid var(--border); border-radius: var(--radius); background: var(--bg); font-family: var(--font-mono); font-size: 12.5px; line-height: 1.7; resize: vertical; color: var(--fg); }
   .ai-prompt:focus { outline: 2px solid var(--accent-soft); border-color: var(--accent); }
+  /* c-prose-model-select：生成模型选择位——复用 model-config 组合框＋弹层词汇（.mp-*），
+     新词两枚：.mp-group（配置组头）/ .mp-flag（本书模型标记）。原型就地展开演示；
+     实现侧走 .mp-panel 的 portal＋fixed 定位先例（弹窗滚动区不裁剪浮层）。 */
+  .mp-wrap { position: relative; }
+  .mp-trigger { display: flex; align-items: center; gap: 8px; width: 100%; text-align: left; cursor: pointer; }
+  .mp-trigger .mt-name { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .mp-trigger > svg { flex: none; width: 14px; height: 14px; color: var(--muted); }
+  .mp-panel { margin-top: 8px; border: 1px solid var(--border); border-radius: 10px; background: var(--surface); box-shadow: var(--shadow-card); overflow: hidden; }
+  .mp-group { display: flex; align-items: center; gap: 6px; padding: 9px 12px 3px; font-size: 11.5px; color: var(--muted); }
+  .mp-group .mg-vendor { font-family: var(--font-mono); }
+  .mp-group + .mp-list { padding-top: 3px; }
+  .mp-list + .mp-group { border-top: 1px solid var(--border); margin-top: 4px; padding-top: 10px; }
+  .mp-list { margin: 0; padding: 6px; list-style: none; max-height: 208px; overflow-y: auto; }
+  .mp-item { display: flex; align-items: center; gap: 6px; width: 100%; padding: 7px 10px; border: 0; border-radius: 7px; background: none; font: inherit; font-size: 12.5px; font-family: var(--font-mono); color: var(--fg); text-align: left; cursor: pointer; }
+  .mp-item:hover { background: var(--fg-soft); }
+  .mp-item.on { background: var(--accent-soft); color: var(--accent-strong); }
+  .mp-item .mp-flag { margin-left: auto; font-size: 11px; color: var(--muted); }
+  .mp-item.on .mp-flag { color: var(--accent); }
   .ai-tag { display: inline-flex; align-items: center; gap: 5px; padding: 2px 8px; border-radius: 999px; background: var(--accent-soft); color: var(--accent); font-size: 11px; }
   .ai-tag svg { width: 11px; height: 11px; }
   .benefit-row { display: flex; gap: 12px; padding: 10px 0; align-items: flex-start; }
@@ -1260,6 +1278,27 @@
       <div class="field">
         <label>本章提示词 <span class="opt">由「设定 + 章纲」自动组装，可直接编辑</span></label>
         <textarea class="ai-prompt" id="aiPrompt"></textarea>
+      </div>
+      <!-- c-prose-model-select：生成模型选择位（跨配置/供应商，仅本次生成生效；可选项 < 2 时整行不出现） -->
+      <div class="field" id="aiModelField">
+        <label>生成模型 <span class="opt">仅本次生成生效（提示词润色/刷新仍用本书模型）</span></label>
+        <div class="mp-wrap">
+          <button type="button" class="input mono mp-trigger" id="aiModel" role="combobox" aria-haspopup="listbox" aria-expanded="false" aria-controls="aiModelPanel">
+            <span class="mt-name" id="aiModelName">深度求索 · deepseek-v4-pro</span>
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M6 9l6 6 6-6"/></svg>
+          </button>
+          <div class="mp-panel" id="aiModelPanel" role="listbox" aria-label="生成模型" hidden>
+            <div class="mp-group">深度求索 <span class="mg-vendor">deepseek</span></div>
+            <ul class="mp-list">
+              <li><button type="button" role="option" aria-selected="true" class="mp-item on" data-model="深度求索 · deepseek-v4-pro" data-default="1">deepseek-v4-pro<span class="mp-flag">本书模型</span></button></li>
+              <li><button type="button" role="option" aria-selected="false" class="mp-item" data-model="深度求索 · deepseek-v4-flash">deepseek-v4-flash</button></li>
+            </ul>
+            <div class="mp-group">本地 · Ollama <span class="mg-vendor">ollama</span></div>
+            <ul class="mp-list">
+              <li><button type="button" role="option" aria-selected="false" class="mp-item" data-model="本地 · Ollama · qwen2.5:14b">qwen2.5:14b</button></li>
+            </ul>
+          </div>
+        </div>
       </div>
       <p style="margin:0; font-size:12.5px; color:var(--muted);" id="aiHint"></p>
     </div>
@@ -2930,8 +2969,49 @@ function openAiModal(ch) {
   $('aiHint').textContent = hasOutline
     ? '提示词已由设定与章纲组装 · 可直接编辑。生成内容将追加到本章末尾。'
     : '本章尚未配置章纲，将仅依据设定生成。建议先去「大纲」补章纲（不强制）。';
+  resetAiModelPicker(); /* c-prose-model-select：每次打开回到本书模型（按次语义，不记忆） */
   openModal('modalAi');
 }
+/* c-prose-model-select：生成模型选择位演示（展开/收起 + 选中改触发位；实现侧为 portal＋fixed 弹层，
+   且只在全部配置合计 ≥2 个可选模型时才渲染本行）。 */
+function resetAiModelPicker() {
+  const btn = $('aiModel'), panel = $('aiModelPanel'), name = $('aiModelName');
+  if (!btn || !panel || !name) return;
+  panel.hidden = true;
+  btn.setAttribute('aria-expanded', 'false');
+  const rows = panel.querySelectorAll('.mp-item');
+  let fallback = '';
+  rows.forEach((b) => {
+    const def = !!b.dataset.default;
+    if (def) fallback = b.dataset.model;
+    b.classList.toggle('on', def);
+    b.setAttribute('aria-selected', String(def));
+  });
+  if (fallback) name.textContent = fallback;
+}
+(function aiModelPickerDemo() {
+  const btn = $('aiModel'), panel = $('aiModelPanel'), name = $('aiModelName');
+  if (!btn || !panel || !name) return;
+  const close = () => { panel.hidden = true; btn.setAttribute('aria-expanded', 'false'); };
+  btn.addEventListener('click', () => {
+    panel.hidden = !panel.hidden;
+    btn.setAttribute('aria-expanded', String(!panel.hidden));
+  });
+  panel.querySelectorAll('.mp-item').forEach((b) => b.addEventListener('click', () => {
+    /* 「本书模型」标记恒随本书绑定行（不随选择移动）；点选只改选中态与触发位 */
+    panel.querySelectorAll('.mp-item').forEach((x) => {
+      x.classList.remove('on');
+      x.setAttribute('aria-selected', 'false');
+    });
+    b.classList.add('on');
+    b.setAttribute('aria-selected', 'true');
+    name.textContent = b.dataset.model;
+    close();
+  }));
+  document.addEventListener('click', (e) => {
+    if (!panel.hidden && !btn.contains(e.target) && !panel.contains(e.target)) close();
+  });
+})();
 if ($('btnAi2')) $('btnAi2').addEventListener('click', () => $('btnAi').click());
 /* c-archived-readonly 小改路径：横幅「恢复编辑」＝unarchive 直改（不转存旧稿；重写走操作页签） */
 $('unarchiveBtn').addEventListener('click', () => {

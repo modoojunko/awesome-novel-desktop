@@ -670,7 +670,12 @@ async def get_ai_client_for_user(user_id: str | None = None) -> AIClient:
     )
 
 
-async def get_ai_client_for_novel(novel_id: str) -> AIClient:
+async def get_ai_client_for_novel(
+    novel_id: str,
+    *,
+    api_config_id: str | None = None,
+    model: str | None = None,
+) -> AIClient:
     """客户端层（D11 ④）：按**本书绑定**的配置与模型构造客户端。
 
     业务层唯一合法入口（除建书期 `世界 AI 起草（v2 通用起草端点）`/`suggest_meta` 豁免）。
@@ -679,6 +684,12 @@ async def get_ai_client_for_novel(novel_id: str) -> AIClient:
 
     前置未就绪（无书/未绑/配置已删/无 Key——含 Key 密文解不开）抛 `ValueError`
     ——业务层应先挂 `require_novel_model` 门控，正常路径不会走到这里。
+
+    c-prose-model-select：`api_config_id` + `model` **成对**给出时改用「按次覆盖对」
+    （生成正文弹窗的「生成模型」选择位：仅本次生成、不落库、不改本书绑定）。覆盖对按
+    与绑定/就绪同源的谓词校验——配置存在且未删除、归属本书用户、非朱雀检测配置、
+    **Key 可用（`config_key_usable`：非空＋可解密＋最近连接测试非失败态）**、
+    `model ∈ config.models`——任一不满足抛 `ValueError`，由调用方在**开流前**转成可读 4xx。
 
     门禁（grep ④，key-crypto-selfcontained）：本函数每个调用文件，其所在路由
     模块（或上游路由模块）须出现 `require_novel_model` 或 `ensure_novel_model_ready`
@@ -691,6 +702,27 @@ async def get_ai_client_for_novel(novel_id: str) -> AIClient:
         novel = await session.get(Novel, novel_id)
         if novel is None:
             raise ValueError("书籍不存在")
+        if api_config_id or model:
+            if not (api_config_id and model):
+                raise ValueError("按次模型选择不完整：请重新选择模型")
+            cfg = await session.get(ApiConfig, api_config_id)
+            if cfg is None or getattr(cfg, "status", "active") == "deleted":
+                raise ValueError("所选模型配置不存在，请重新选择模型")
+            if getattr(cfg, "user_id", None) != novel.user_id:
+                raise ValueError("所选模型配置不存在，请重新选择模型")
+            if getattr(cfg, "vendor", None) == "zhuque":
+                raise ValueError("所选配置不能用于正文生成，请重新选择模型")
+            from ai_state import config_key_usable, parse_models
+
+            # Key 可用性＝与本书就绪**同一谓词**（非空 + 可解密 + 最近一次连接测试非失败态，
+            # ai_state.config_key_usable）——否则同一状态挡得住本书、挡不住按次覆盖
+            # （评审 P3：Key 已吊销但清单还在的配置会被放行到流内才炸）
+            if not config_key_usable(cfg):
+                raise ValueError("所选配置没有可用 Key（或最近连接失败），去「模型配置」检查或重测后重试")
+            if model not in parse_models(cfg.models):
+                raise ValueError("所选模型不在该配置的模型清单里，去「模型配置」补上或换一个模型")
+            plain_key = decrypt_api_key(cfg.api_key)
+            return _client_from_config(cfg, model, plain_key)
         if not novel.ai_config_id or not novel.ai_model:
             raise ValueError("本书尚未选择模型")
         cfg = await session.get(ApiConfig, novel.ai_config_id)
@@ -701,13 +733,18 @@ async def get_ai_client_for_novel(novel_id: str) -> AIClient:
         plain_key = decrypt_api_key(cfg.api_key)
         if not plain_key:
             raise ValueError("本书绑定的 API 配置没有可用 Key")
-        return AIClient(
-            api_key=plain_key,
-            base_url=cfg.base_url,
-            model=novel.ai_model,
-            api_format=getattr(cfg, "api_format", None),
-            vendor=getattr(cfg, "vendor", "") or "",
-        )
+        return _client_from_config(cfg, novel.ai_model, plain_key)
+
+
+def _client_from_config(cfg: ApiConfig, model: str, plain_key: str) -> AIClient:
+    """按配置 + 模型构造客户端（本书绑定路径与按次覆盖路径同一形状）。"""
+    return AIClient(
+        api_key=plain_key,
+        base_url=cfg.base_url,
+        model=model,
+        api_format=getattr(cfg, "api_format", None),
+        vendor=getattr(cfg, "vendor", "") or "",
+    )
 
 
 async def get_ai_client() -> AIClient:

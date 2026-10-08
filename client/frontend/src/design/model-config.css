@@ -91,17 +91,28 @@
 .mp-meta { font-size: 11.5px; color: var(--muted); }
 .mp-meta.ok { color: var(--ok); }
 .mp-meta.warn { color: var(--warn); }
-.mp-panel { border: 1px solid var(--border); border-radius: 10px; background: var(--surface); box-shadow: var(--shadow-card); overflow: hidden; }
+.mp-panel { border: 1px solid var(--border); border-radius: 10px; background: var(--surface); box-shadow: var(--shadow-card); overflow-y: auto; max-height: 360px; }
 .mp-note { padding: 9px 12px; font-size: 12px; color: var(--muted); line-height: 1.6; border-bottom: 1px solid var(--border); }
 .cf-hint { margin: 6px 2px 0; font-size: 12px; color: var(--muted); line-height: 1.6; }
 .cf-hint code { font-family: var(--font-mono); font-size: 11.5px; word-break: break-all; }
 .mp-chips { display: flex; flex-wrap: wrap; gap: 6px; padding: 8px 10px; border-bottom: 1px solid var(--border); }
 .mp-cap { font-size: 11.5px; padding: 3px 9px; border-radius: 999px; border: 1px solid var(--border); background: var(--fg-soft); color: var(--muted); font-family: var(--font-mono); cursor: pointer; }
 .mp-cap:hover { border-color: var(--accent); color: var(--accent-strong); }
-.mp-list { margin: 0; padding: 6px; list-style: none; max-height: 240px; overflow-y: auto; }
-.mp-item { display: block; width: 100%; padding: 7px 10px; border: 0; border-radius: 7px; background: none; font: inherit; font-size: 12.5px; font-family: var(--font-mono); color: var(--fg); text-align: left; cursor: pointer; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.mp-list { margin: 0; padding: 6px; list-style: none; }
+.mp-item { display: flex; align-items: center; gap: 6px; width: 100%; padding: 7px 10px; border: 0; border-radius: 7px; background: none; font: inherit; font-size: 12.5px; font-family: var(--font-mono); color: var(--fg); text-align: left; cursor: pointer; overflow: hidden; white-space: nowrap; }
 .mp-item:hover, .mp-item.cur { background: var(--fg-soft); }
 .mp-item.on { background: var(--accent-soft); color: var(--accent-strong); }
+/* c-prose-model-select：生成弹窗模型选择位（.mp-* 族增三词——.mp-trigger 触发位 /
+   .mp-group 配置组头 / .mp-flag 本书模型标记；无新令牌、无新语气档） */
+.mp-trigger { display: flex; align-items: center; gap: 8px; width: 100%; text-align: left; cursor: pointer; font-family: var(--font-mono); font-size: 12.5px; }
+.mp-trigger .mt-name { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.mp-trigger > svg { flex: none; width: 14px; height: 14px; color: var(--muted); }
+.mp-group { display: flex; align-items: center; gap: 6px; padding: 9px 12px 3px; font-size: 11.5px; color: var(--muted); }
+.mp-group .mg-vendor { font-family: var(--font-mono); }
+.mp-group + .mp-list { padding-top: 3px; }
+.mp-list + .mp-group { border-top: 1px solid var(--border); margin-top: 4px; padding-top: 10px; }
+.mp-item .mp-flag { margin-left: auto; flex: none; font-size: 11px; color: var(--muted); }
+.mp-item.on .mp-flag { color: var(--accent-strong); }
 .mp-empty { padding: 12px; font-size: 12.5px; color: var(--muted); text-align: center; }
 .mp-err { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-top: 6px; font-size: 12px; color: var(--warn); }
 .mp-retry { border: 0; background: none; font: inherit; font-size: 12px; color: var(--accent-strong); cursor: pointer; text-decoration: underline; padding: 0; flex: none; }

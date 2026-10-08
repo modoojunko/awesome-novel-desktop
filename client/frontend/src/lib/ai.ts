@@ -1,6 +1,7 @@
 import { getToken } from "./auth";
 import { getApiBaseUrl } from "./env";
 import { handleAuthExpiry, request } from "./api";
+import type { ModelSelection } from "../types/api-config";
 
 const API_BASE = `${getApiBaseUrl()}/api`;
 
@@ -49,11 +50,20 @@ export function streamChapterWrite(
   chapterRef: string,
   callbacks: StreamCallbacks,
   promptOverride?: string,
+  modelSelection?: ModelSelection,
 ): AbortController {
   // promptOverride：AI 弹窗编辑后的提示词覆盖（空串/未传 = 后端自动组装）
+  // modelSelection：按次模型对（c-prose-model-select；未传 = 本书模型）——两覆盖皆缺时
+  // 不带 body，与旧链路逐字一致
+  const body: Record<string, unknown> = {};
+  if (promptOverride) body.prompt = promptOverride;
+  if (modelSelection) {
+    body.api_config_id = modelSelection.api_config_id;
+    body.model = modelSelection.model;
+  }
   return doStreamFetch(
     `${API_BASE}/novels/${projectId}/chapters/${chapterRef}/write`,
-    promptOverride ? { prompt: promptOverride } : undefined,
+    Object.keys(body).length ? body : undefined,
     callbacks,
   );
 }
