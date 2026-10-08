@@ -361,8 +361,59 @@ def _active_filename() -> str:
     return active_db_filename()
 
 
-# ── 候选扫描 ──────────────────────────────────────────────────────────────
+# ── 候选只读清单（c-lossless-upgrade：告知卡「作品＋模型配置」两块清单）──
+# 只对 recommended 候选计算（免登端点每次全量重扫大候选既慢又放大返回面）；
+# 逐本封顶，超出以 total 计数表达（前端显示「等 N 项」）。
+# **密钥永不返回**：本函数不得查询 api_key 列（test_db_lifecycle 断言响应全文无 enc:）。
 
+MANIFEST_BOOK_CAP = 50
+
+
+def candidate_manifest(db_path: Path, book_cap: int = MANIFEST_BOOK_CAP) -> dict | None:
+    """recommended 候选的只读内容清单。
+
+    返回 `{"books": [{"name","words"}…], "books_total": N, "configs": [{"name"}…],
+    "configs_total": N}`。库打不开或缺 novels 表返回 None（调用方降级为只报数量，
+    不阻塞搬运）；缺 api_configs 表按 0 条处理（更老的库没有该表属正常形态）。
+    候选均为可读库（book_count≥1 才进候选），这里只读连接直开即可——
+    「WAL 头缺 -shm」形态由 probe 口径负责，不重复 staging 复检。
+    """
+    try:
+        con = sqlite3.connect(f"file:{db_path}?mode=ro", uri=True, timeout=5)
+    except sqlite3.Error:
+        return None
+    try:
+        try:
+            book_rows = con.execute(
+                "SELECT n.name, COALESCE((SELECT SUM(c.word_count) FROM chapters c"
+                " WHERE c.novel_id = n.id), 0) FROM novels n ORDER BY n.created_at, n.name"
+            ).fetchall()
+        except sqlite3.Error:
+            # 老库 chapters 无 word_count 列：降级为书名清单（words=0），书名仍可列
+            try:
+                book_rows = con.execute(
+                    "SELECT n.name, 0 FROM novels n ORDER BY n.created_at, n.name"
+                ).fetchall()
+            except sqlite3.Error:
+                return None  # 缺 novels 表——清单取不到，整体降级
+        try:
+            cfg_rows = con.execute(
+                "SELECT name FROM api_configs ORDER BY created_at, name"
+            ).fetchall()
+        except sqlite3.Error:
+            cfg_rows = []  # 老库无 api_configs 表：配置清单为空而非整体失败
+        return {
+            "books": [{"name": str(b), "words": int(w or 0)}
+                      for b, w in book_rows[:book_cap]],
+            "books_total": len(book_rows),
+            "configs": [{"name": str(c)} for (c,) in cfg_rows],
+            "configs_total": len(cfg_rows),
+        }
+    finally:
+        con.close()
+
+
+# ── 候选扫描 ──────────────────────────────────────────────────────────────
 
 def scan_migration_candidates(data_root: Path, current_version: str | None = None,
                               active_db_path: Path | None = None) -> list[dict]:

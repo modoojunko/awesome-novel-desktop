@@ -265,7 +265,7 @@ describe("列表状态与卡片", () => {
     expect(opened).toHaveBeenCalledTimes(1);
   });
 
-  it("首启空态出口行：有旧版作品时并列两出口并给出书数", async () => {
+  it("首启仲裁（c-lossless-upgrade）：recommended 未带回未抑制 → 告知卡自动出现，角落小字让位", async () => {
     legacyStatusMock.value = {
       current_version: "0.25",
       quarantined: [],
@@ -285,15 +285,16 @@ describe("列表状态与卡片", () => {
     getMock.mockResolvedValue([]);
     renderPage();
     await screen.findByText("开始你的第一本书");
-    const bring = screen.getByText("把上一版的作品带过来");
-    expect(bring.closest(".fr-note")!.textContent).toContain("5");   // 3 + 2
+    // 告知卡经壳层队列入场：两块清单 + 主按钮覆盖作品与配置两样
+    const card = await screen.findByTestId("carry-card");
+    expect(card.textContent).toContain("3");
+    expect(card.textContent).toContain("把作品和模型配置带过来");
+    expect(card.textContent).toContain("另有更早的 1 份数据");
+    // 角落小字让位（卡在途不再渲染 bring-back 小字；弹窗标题同名不算）；备份包出口恒在
+    const note = document.querySelector(".fr-note") as HTMLElement;
+    expect(note).toBeTruthy();
+    expect(note.textContent).not.toContain("把上一版的作品带过来");
     expect(screen.getByText("从备份包恢复")).toBeTruthy();
-    const opened = vi.fn();
-    window.addEventListener("legacy-migrate:open", opened);
-    fireEvent.click(bring);
-    window.removeEventListener("legacy-migrate:open", opened);
-    expect(opened).toHaveBeenCalledTimes(1);
-    legacyStatusMock.value = null;
   });
 
   it("新建/导入入口：创建与导入成功都跳工作台", async () => {
@@ -921,7 +922,7 @@ describe("覆盖补齐（回看与多书局部更新）", () => {
     expect(within(card2).getByText("写作中")).toBeTruthy();
   });
 
-  it("旧库候选缺书数（null）：合计按 0 计入且不炸", async () => {
+  it("旧库候选缺书数（null）：卡按 recommended 计数，null 书数候选不炸", async () => {
     legacyStatusMock.value = {
       current_version: "0.25",
       quarantined: [],
@@ -941,8 +942,12 @@ describe("覆盖补齐（回看与多书局部更新）", () => {
     getMock.mockResolvedValue([]); // 空书架（首启态才渲染出口行）
     renderPage();
     await screen.findByText("开始你的第一本书");
-    const note = screen.getByText("把上一版的作品带过来").closest(".fr-note") as HTMLElement;
-    expect(note.textContent).toContain("3"); // 只计有书数的候选
+    // c-lossless-upgrade：卡只针对 recommended（书数 3）；null 书数的更早候选不出数不炸
+    const card = await screen.findByTestId("carry-card");
+    expect(card.textContent).toContain("3");
+    const note2 = document.querySelector(".fr-note") as HTMLElement;
+    expect(note2).toBeTruthy();
+    expect(note2.textContent).not.toContain("把上一版的作品带过来");
     legacyStatusMock.value = null;
   });
 });

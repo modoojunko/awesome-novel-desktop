@@ -38,7 +38,10 @@ import { fileURLToPath } from "node:url";
 const require = createRequire(import.meta.url);
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
-export const DEFAULT_DATA_DIR = path.resolve(HERE, "..", "..", "..", ".docker-data", "client");
+export const DEFAULT_DATA_DIR =
+  process.env.E2E_SWEEP_DATA_DIR || path.resolve(HERE, "..", "..", "..", ".docker-data", "client");
+// E2E_SWEEP_DATA_DIR：会话私有栈必须显式指过来（判例 10-08：默认指向共享
+// .docker-data/client——私有栈跑完 teardown 会清共享目录并重启共享容器，踩隔离红线）
 
 /** 库文件名＝C端版本（c-db-per-version）：`novel-v{版本}.db`，dev/PR 构建＝`novel-dev.db`。
  *  旧的固定名 `novel.db` 只作兜底（本 change 之前的落地形态）。多个候选取最新一个。 */

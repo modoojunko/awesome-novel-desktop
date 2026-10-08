@@ -49,7 +49,9 @@ export default function AcctMenu({
   // db-generation：找回旧书（条件菜单项——有未抑制候选才显示；单点渲染弹窗）
   const [migrateOpen, setMigrateOpen] = useState(false);
   const legacyDb = useLegacyDb();
-  const migrateCandidates = (legacyDb.status?.candidates ?? []).filter((c) => !c.suppressed);
+  // c-lossless-upgrade：入口**常驻**（含已带回/已抑制——更早候选、隔离件与清理
+  // 都从这里进；旧「有未抑制候选才显示」的条件形态退役）
+  const migrateCandidates = legacyDb.status?.candidates ?? [];
   const triggerRef = useRef<HTMLButtonElement>(null);
   const panelRef = useRef<HTMLDivElement>(null);
 
@@ -229,7 +231,7 @@ export default function AcctMenu({
           clearInterval(bgWatchRef.current!);
           bgWatchRef.current = null;
           import("@/lib/toast").then(({ toast }) => {
-            toast.info("带回耗时较长，可从菜单「带回旧版作品」查看进度");
+            toast.info("带回耗时较长，可从菜单「本机旧版本数据」查看进度");
           });
         }
       } catch {
@@ -365,8 +367,8 @@ export default function AcctMenu({
               }}
             >
               <Ico d={P.doc} sw={1.7} />
-              带回旧版作品
-              <span className="am-hint">把上一版的作品带过来</span>
+              本机旧版本数据
+              <span className="am-hint">带回更早候选 · 查看与清理旧文件</span>
             </button>
           )}
           <button

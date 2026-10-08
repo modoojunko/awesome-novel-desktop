@@ -7,6 +7,7 @@ import { api } from "@/lib/api";
 import type { PackStatus } from "@/lib/licenseCache";
 import { getLastProbe, setLastProbe, type PackModalMode, type PackProbe } from "@/lib/packProbe";
 import { toast } from "@/lib/toast";
+import { finishDialog } from "@/lib/dialogQueue";
 
 /**
  * 写作能力引导弹窗（c-prompt-pack-onboard-modal）：首装自动／更新确认／手动检查
@@ -157,6 +158,8 @@ export default function PromptPackModal() {
     // 中途关窗＝纯视觉退出：后台同步继续（不 abort），四态卡兜底
     stopPoll();
     setOpen(false);
+    // c-lossless-upgrade：出队（放行壳层队列的后续条目）
+    finishDialog("pack");
   }, [stopPoll]);
 
   const runProbe = useCallback(async () => {

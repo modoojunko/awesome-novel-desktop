@@ -25,12 +25,14 @@ from pydantic import BaseModel
 
 from config import DATA_ROOT
 from db_lifecycle import (
+    candidate_manifest,
     clean_stale_staging,
     deletable_candidates,
     delete_candidate,
     list_quarantined,
     scan_migration_candidates,
 )
+from migration.engine import completeness_from_history, is_complete_report
 from schema_version import app_version, candidate_stamp
 
 router = APIRouter(prefix="/api/backup/db-migration", tags=["db-migration"])
@@ -39,6 +41,11 @@ router = APIRouter(prefix="/api/backup/db-migration", tags=["db-migration"])
 RETENTION_KEEP = 2
 HISTORY_KEY = "migration.history"
 HISTORY_LIMIT = 20
+# 「稍后带」抑制键（c-lossless-upgrade）：值＝被「本版不再提醒」的候选 stamp。
+# 与旧 migration.dismissed 的区别：dismissed 是永久静默（退役口径），snoozed 绑
+# 当前库——下一版建新库时键天然不存在＝自动重开；搬完（migration.last 完整达成）
+# 亦由 _record_completion 清除。旧 dismissed 键不再参与抑制（存量用户不被永久静默）。
+SNOOZE_KEY = "migration.snoozed"
 
 
 class StartBody(BaseModel):
@@ -94,16 +101,15 @@ def _migrated_stamps() -> set[str]:
     stamp = str(last.get("source_stamp") or "")
     if not stamp:
         return set()
+    # 完整性单源判定（c-lossless-upgrade D8）：migration.last 内嵌完整 report 时
+    # 直接判；老数据（无 report）经 history 适配器归一后走同一条判定。
+    report = last.get("report") if isinstance(last.get("report"), dict) else None
+    if report is not None:
+        return {stamp} if is_complete_report(report) else set()
     for entry in _history_entries():
         if entry.get("source_stamp") != stamp:
             continue
-        if entry.get("tables_skipped") != 0 or entry.get("fk_violations") != 0:
-            return set()
-        src = entry.get("book_count_source")
-        mig = entry.get("book_count_migrated")
-        if src is not None and mig is not None and src != mig:
-            return set()
-        return {stamp}
+        return {stamp} if is_complete_report(completeness_from_history(entry)) else set()
     return set()
 
 
@@ -137,15 +143,25 @@ async def candidates():
     root = Path(DATA_ROOT)
     items = scan_migration_candidates(root, app_version(), _active_db_path())
     done_stamp = ""
+    done_complete = False
     done = _app_meta_value("migration.last")
     if done:
         try:
-            done_stamp = json.loads(done).get("source_stamp", "")
+            last = json.loads(done)
+            done_stamp = last.get("source_stamp", "")
+            report = last.get("report") if isinstance(last.get("report"), dict) else None
+            done_complete = is_complete_report(report)
         except json.JSONDecodeError:
             pass
-    dismissed_stamp = _app_meta_value("migration.dismissed") or ""
+    snoozed_stamp = _app_meta_value(SNOOZE_KEY) or ""
+    # 呈现状态两字段（c-lossless-upgrade）：carried＝本次已带回（完整才算）；
+    # suppressed＝被「本版不再提醒」抑制（snoozed 绑 stamp；不完整 last 永不抑制）。
     for it in items:
-        it["suppressed"] = it["stamp"] in (done_stamp, dismissed_stamp)
+        it["carried"] = done_complete and it["stamp"] == done_stamp
+        it["suppressed"] = it["carried"] or it["stamp"] == snoozed_stamp
+        # 只读清单只挂 recommended（免登端点返回面收敛；密钥永不返回）
+        if it.get("recommended") and not it["unreadable"]:
+            it["manifest"] = candidate_manifest(root / it["filename"])
     return {"code": 0, "data": {"candidates": items, "quarantined": list_quarantined(root),
                                 "current_version": app_version()}}
 
@@ -217,6 +233,7 @@ async def preview(body: StartBody):
                 con2.close()
         except _sq.Error:
             plan["book_count_source"] = None
+        plan["manifest"] = candidate_manifest(staged)
         return {"code": 0, "data": plan}
     finally:
         shutil.rmtree(tmpdir, ignore_errors=True)
@@ -284,13 +301,17 @@ async def status():
 
 @router.post("/dismiss")
 async def dismiss(body: DismissBody):
-    """「保留旧文件，不再提醒」——dismiss 键绑候选身份指纹（新数据自动重开）。"""
+    """「本版不再提醒」（稍后带）——snoozed 键绑候选身份指纹（源数据变化自动重开）。
+
+    旧 `migration.dismissed`（永久静默）语义退役：本端点自 c-lossless-upgrade 起
+    改写 SNOOZE_KEY；旧键不再被读取抑制（存量用户不被永久静默）。
+    """
     from db_lifecycle import validate_candidate_filename
 
     p = validate_candidate_filename(Path(DATA_ROOT), body.filename, _active_db_path())
     if p is None or not p.exists():
         return {"code": 1, "msg": "文件不存在"}
-    await _set_app_meta("migration.dismissed", candidate_stamp(body.filename, p))
+    await _set_app_meta(SNOOZE_KEY, candidate_stamp(body.filename, p))
     return {"code": 0}
 
 
@@ -335,7 +356,8 @@ async def _record_completion(source_filename: str, report: dict) -> None:
                "book_count_migrated": report.get("book_count_migrated"),
                "finished_at": datetime.now(UTC).isoformat(), "report": report}
     await _set_app_meta("migration.last", json.dumps(payload, ensure_ascii=False))
-    await _set_app_meta("migration.dismissed", "")
+    await _set_app_meta(SNOOZE_KEY, "")
+    await _set_app_meta("migration.dismissed", "")  # 旧键清废（不再参与抑制）
     raw = _app_meta_value(HISTORY_KEY)
     history: list[dict] = []
     if raw:

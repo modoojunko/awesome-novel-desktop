@@ -267,3 +267,281 @@ class TestDeadKeyMigrationNote:
         assert rep["status"] == "ok", rep
         notes = "\n".join(rep["notes"])
         assert "不可解" in notes and "重新粘贴保存" in notes, rep["notes"]
+
+
+# ── c-lossless-upgrade：密钥转接三态＋种子表源行胜出＋preview 同构 ─────────
+
+def _add_configs(conn, rows):
+    """往源库补 api_configs 表（列＝当前 schema 子集；显式列名）。"""
+    conn.execute(
+        "CREATE TABLE api_configs (id TEXT PRIMARY KEY, user_id TEXT, name TEXT, "
+        "vendor TEXT, api_format TEXT, base_url TEXT, api_key TEXT, models TEXT, status TEXT)"
+    )
+    for r in rows:
+        conn.execute(
+            "INSERT INTO api_configs (id, user_id, name, vendor, api_format, base_url, "
+            "api_key, models, status) VALUES (?,?,?,?,?,?,?,?,?)", r)
+
+
+class TestKeyTransfer:
+    def _source_with_key(self, root: Path, key: str | None, file_key: bytes | None = None) -> Path:
+        """源库：1 本书 + 2 条 enc: 配置；钥匙可选地写进 app_meta 行 / .fernet_key 文件。"""
+        from cryptography.fernet import Fernet
+
+        p = root / "novel.db"
+        conn = sqlite3.connect(p)
+        conn.execute(
+            "CREATE TABLE novels (id TEXT PRIMARY KEY, user_id TEXT, name TEXT, slug TEXT, root_path TEXT, "
+            "current_phase TEXT, status TEXT, total_volumes INTEGER, total_chapters INTEGER, "
+            "created_at TIMESTAMP, updated_at TIMESTAMP)"
+        )
+        conn.execute(
+            "INSERT INTO novels (id, user_id, name, slug, root_path, current_phase, status, "
+            "total_volumes, total_chapters, created_at, updated_at) VALUES ('n1','u1','书','s','./d','write','active',0,0,'2026-01-01','2026-01-01')"
+        )
+        if key:
+            fk = Fernet(key.encode())
+        elif file_key is not None:
+            fk = Fernet(file_key)  # B 态：密文钥＝旧文件里的那把
+        else:
+            fk = Fernet(Fernet.generate_key())  # C 态：谁都解不开
+        enc1 = "enc:" + fk.encrypt(b"sk-live-1").decode()
+        enc2 = "enc:" + fk.encrypt(b"sk-live-2").decode()
+        _add_configs(conn, [
+            ("c1", "u1", "配置一", "deepseek", "openai", "https://x", enc1, "[]", "active"),
+            ("c2", "u1", "配置二", "glm", "openai", "https://y", enc2, "[]", "active"),
+        ])
+        conn.execute("CREATE TABLE app_meta (key TEXT PRIMARY KEY, value TEXT)")
+        if key:
+            conn.execute("INSERT INTO app_meta VALUES ('fernet_key', ?)", (key,))
+        conn.execute("INSERT INTO app_meta VALUES ('schema_id', 'old')")
+        conn.commit()
+        conn.close()
+        if file_key is not None:
+            (root / ".fernet_key").write_bytes(file_key)
+        return p
+
+    def _decrypt_target(self, active: Path, row_id: str) -> str:
+        from api_configs.crypto import decrypt_api_key
+
+        con = sqlite3.connect(active)
+        stored = con.execute("SELECT api_key FROM api_configs WHERE id=?", (row_id,)).fetchone()[0]
+        con.close()
+        assert stored.startswith("enc:")
+        return decrypt_api_key(stored)
+
+    def test_state_a_key_in_source_row(self, sandbox):
+        """①源钥在源库 app_meta 行：转接后两条配置按目标钥匙可解，零死文。"""
+        from cryptography.fernet import Fernet
+
+        root, active = sandbox
+        self._source_with_key(root, key=Fernet.generate_key().decode())
+        rep = run_migration(root, "novel.db", active)
+        assert rep["status"] == "ok", rep
+        assert rep["dead_keys"] == 0, rep
+        assert self._decrypt_target(active, "c1") == "sk-live-1"
+        assert self._decrypt_target(active, "c2") == "sk-live-2"
+        assert not any("不可解" in n for n in rep["notes"]), rep["notes"]
+
+    def test_state_b_key_in_legacy_file(self, sandbox):
+        """②源钥只在旧 .fernet_key 文件（按本次搬运 data_root 解析）：同样转接成功。"""
+        from cryptography.fernet import Fernet
+
+        root, active = sandbox
+        fk = Fernet.generate_key()
+        self._source_with_key(root, key=None, file_key=fk)
+        rep = run_migration(root, "novel.db", active)
+        assert rep["status"] == "ok", rep
+        assert rep["dead_keys"] == 0, rep
+        assert self._decrypt_target(active, "c1") == "sk-live-1"
+
+    def test_state_c_no_source_key(self, sandbox):
+        """③两把源钥皆不可得：保持原样、dead_keys=2、notes 提示重填。"""
+        root, active = sandbox
+        self._source_with_key(root, key=None)
+        rep = run_migration(root, "novel.db", active)
+        assert rep["status"] == "ok", rep
+        assert rep["dead_keys"] == 2, rep
+        assert any("重新粘贴" in n for n in rep["notes"]), rep["notes"]
+
+    def test_idempotent_rerun(self, sandbox):
+        """幂等：转接后重跑（同源再搬）结果一致、零重复、可解行不被二次改写。"""
+        from cryptography.fernet import Fernet
+
+        root, active = sandbox
+        self._source_with_key(root, key=Fernet.generate_key().decode())
+        run_migration(root, "novel.db", active)
+        con = sqlite3.connect(active)
+        stored_after_1 = con.execute("SELECT api_key FROM api_configs WHERE id='c1'").fetchone()[0]
+        con.close()
+        rep2 = run_migration(root, "novel.db", active)
+        assert rep2["status"] == "ok" and rep2["dead_keys"] == 0, rep2
+        con = sqlite3.connect(active)
+        n_rows = con.execute("SELECT COUNT(*) FROM api_configs").fetchone()[0]
+        stored_after_2 = con.execute("SELECT api_key FROM api_configs WHERE id='c1'").fetchone()[0]
+        con.close()
+        assert n_rows == 2  # OR IGNORE 幂等
+        assert stored_after_2 == stored_after_1  # 可解行在第二次转接中不被触碰
+
+    def test_target_native_ciphertext_untouched(self, sandbox):
+        """目标库自有密文（先于搬运存在）不被转接影响。"""
+        from cryptography.fernet import Fernet
+
+        from api_configs.crypto import decrypt_api_key, encrypt_api_key
+
+        root, active = sandbox
+        native_stored = encrypt_api_key("sk-native")
+        con = sqlite3.connect(active)
+        con.execute(
+            "INSERT INTO api_configs (id, user_id, name, vendor, vendor_display_name, "
+            "api_format, base_url, api_key, models, status) "
+            "VALUES ('native','u1','原生','glm','智谱','openai','https://z',?,'[]','active')",
+            (native_stored,),
+        )
+        con.commit()
+        con.close()
+        self._source_with_key(root, key=Fernet.generate_key().decode())
+        rep = run_migration(root, "novel.db", active)
+        assert rep["status"] == "ok" and rep["dead_keys"] == 0, rep
+        con = sqlite3.connect(active)
+        stored = con.execute("SELECT api_key FROM api_configs WHERE id='native'").fetchone()[0]
+        con.close()
+        assert stored == native_stored  # 字节不变
+        assert decrypt_api_key(stored) == "sk-native"
+
+
+class TestSeedTablesSourceWins:
+    def test_user_edit_overrides_new_factory_text(self, sandbox):
+        """源库（含用户编辑过的预置行）胜出目标出厂行；目标独有行保留。"""
+        root, active = sandbox
+        # 目标：出厂两行（ensure_seed 播种后的形态）
+        con = sqlite3.connect(active)
+        con.execute(
+            "INSERT INTO genres (id, name, description, category, narrator_role, "
+            "typical_arc, tone_blueprint, taboos, prompt_injection, genre_config, "
+            "story_arc_templates, is_preset) VALUES "
+            "('xianxia','仙侠','新版出厂文案','fantasy','','','{}','[]','','{}','[]',1),"
+            "('newcomer','新增题材','仅新版有','fantasy','','','{}','[]','','{}','[]',1)"
+        )
+        con.commit()
+        con.close()
+        # 源库：同 PK 行文案不同（用户编辑或旧版出厂——不区分，一律源胜出）
+        p = root / "novel.db"
+        s = sqlite3.connect(p)
+        s.execute(
+            "CREATE TABLE novels (id TEXT PRIMARY KEY, user_id TEXT, name TEXT, slug TEXT, root_path TEXT, "
+            "current_phase TEXT, status TEXT, total_volumes INTEGER, total_chapters INTEGER, "
+            "created_at TIMESTAMP, updated_at TIMESTAMP)"
+        )
+        s.execute(
+            "INSERT INTO novels (id, user_id, name, slug, root_path, current_phase, status, "
+            "total_volumes, total_chapters, created_at, updated_at) VALUES ('n1','u1','书','s','./d','write','active',0,0,'2026-01-01','2026-01-01')"
+        )
+        s.execute(
+            "CREATE TABLE genres (id TEXT PRIMARY KEY, name TEXT, description TEXT, category TEXT, is_preset INTEGER)"
+        )
+        s.execute(
+            "INSERT INTO genres (id, name, description, category, is_preset) VALUES "
+            "('xianxia', '仙侠', '用户改过的文案', 'fantasy', 1)"
+        )
+        s.execute("CREATE TABLE app_meta (key TEXT PRIMARY KEY, value TEXT)")
+        s.execute("INSERT INTO app_meta VALUES ('schema_id', 'old')")
+        s.commit()
+        s.close()
+
+        rep = run_migration(root, "novel.db", active)
+        assert rep["status"] == "ok", rep
+        con = sqlite3.connect(active)
+        rows = dict(con.execute("SELECT id, description FROM genres").fetchall())
+        con.close()
+        assert rows["xianxia"] == "用户改过的文案"  # 源行胜出
+        assert rows["newcomer"] == "仅新版有"  # 目标独有（新版新增）保留
+        # 已知损失提示退役
+        assert not any("不随迁" in n for n in rep["notes"]), rep["notes"]
+
+    def test_report_completeness_flag(self, sandbox):
+        """report 带 complete 判定（搬运干净＝True）。"""
+        root, active = sandbox
+        _old_gen0(root, books=1)
+        rep = run_migration(root, "novel.db", active)
+        assert rep["status"] == "ok" and rep["complete"] is True, rep
+
+
+def test_preview_null_fields(sandbox, monkeypatch):
+    """preview 同构不造数：dead_keys/complete 恒 None（是搬后结果）。"""
+    from fastapi.testclient import TestClient
+
+    from main import app
+
+    root, _active = sandbox
+    _old_gen0(root, books=1)
+    monkeypatch.setattr("migration.router.DATA_ROOT", root)
+    with TestClient(app) as client:
+        r = client.post("/api/backup/db-migration/preview",
+                        json={"source_filename": "novel.db"})
+    assert r.status_code == 200, r.text
+    data = r.json()["data"]
+    assert data["dead_keys"] is None and data["complete"] is None
+    assert "manifest" in data and data["manifest"] is not None  # preview 挂只读清单
+
+
+# ── c-lossless-upgrade：candidates 载荷与 start→status 链路（端点级）───────
+
+class TestCandidatesManifest:
+    def test_manifest_only_on_recommended(self, sandbox, monkeypatch):
+        from fastapi.testclient import TestClient
+
+        from main import app
+
+        root, _active = sandbox
+        _old_gen0(root, name="novel-v0.24.db", books=2)
+        _old_gen0(root, name="novel-v0.23.db", books=1)
+        # v0.23 造得晚一点，避免与 v0.24 同 mtime 竞争（排序不影响本断言，防御性设置）
+        monkeypatch.setattr("migration.router.DATA_ROOT", root)
+        with TestClient(app) as client:
+            r = client.get("/api/backup/db-migration/candidates")
+        assert r.status_code == 200, r.text
+        items = r.json()["data"]["candidates"]
+        rec = [it for it in items if it["recommended"]]
+        assert len(rec) == 1 and rec[0]["version"] == "0.24"
+        assert rec[0]["manifest"]["books_total"] == 2  # recommended 挂清单
+        others = [it for it in items if not it["recommended"]]
+        assert others and all("manifest" not in it for it in others)  # 其余不挂
+        # 载荷呈现状态两字段（完整才算 carried）
+        assert all("carried" in it and "suppressed" in it for it in items)
+        # 序列化响应全文不含密钥材料形态（manifest 只读清单的安全红线）
+        assert "enc:" not in r.text
+
+
+class TestStartStatusChain:
+    def test_start_status_report_shape(self, sandbox, monkeypatch):
+        """start→status：report 带 dead_keys/complete（result 形态；搬运瞬间完成）。"""
+        from fastapi.testclient import TestClient
+
+        from main import app
+
+        root, active = sandbox
+        _old_gen0(root, books=1)
+        monkeypatch.setattr("migration.router.DATA_ROOT", root)
+        # 端点的目标库取 config.DATABASE_URL（会话共享库有先行残留）——显式指回
+        # 本沙箱，保证 complete/dead_keys 断言确定性（r1 用 ≥ 容忍残留，此处要精确）
+        monkeypatch.setattr("config.DATABASE_URL", f"sqlite+aiosqlite:///{active}")
+        # 不走 with（lifespan 会对被改写的 DATABASE_URL 跑 boot_lifecycle，把无戳
+        # 沙箱库分流改名）——start/status 本就不依赖 lifespan
+        client = TestClient(app)
+        r = client.post("/api/backup/db-migration/start",
+                        json={"source_filename": "novel.db"})
+        assert r.status_code == 200, r.text
+        import time as _t
+
+        deadline = _t.time() + 10
+        data = {}
+        while _t.time() < deadline:
+            data = client.get("/api/backup/db-migration/status").json()["data"]
+            if data.get("state") in ("done", "error"):
+                break
+            _t.sleep(0.05)
+        assert data.get("state") == "done", data
+        rep = data["report"]
+        assert rep["status"] == "ok"
+        assert rep["dead_keys"] == 0 and rep["complete"] is True, rep

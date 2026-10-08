@@ -2,8 +2,9 @@
  *  文案口径＝「带回」——新版本用新库，把上一版的作品带过来（用户层禁
  *  「迁入/迁移/数据库/版本号/文件路径」）。
  *  异步化（2026-09-20 评审实施）：start 立返→1s 轮询 status 的 progress 事件
- *  （stage/tables_done/tables_total→百分比）；可关弹窗（迁移后台继续，
- *  源只读＋OR IGNORE 幂等保证中断无损）；重开时先探测 status 附着现有任务。 */
+ *  （stage/tables_done/tables_total→百分比）。c-lossless-upgrade：进度期**锁定**
+ *  （用户拍板「不让离开」——引擎单事务长写锁，收起去写作会撞库锁）；关窗＝中断，
+ *  下次重来无半成品（源只读＋OR IGNORE 幂等）；重开时先探测 status 附着现有任务。 */
 
 import { useCallback, useEffect, useRef, useState } from 'react';
 import Modal from '@/components/design/Modal';
@@ -334,12 +335,13 @@ export default function LegacyMigrateModal({
               {progress.tables_done || 0}/{progress.tables_total || '?'} · {progress.rows_inserted ?? 0} 行
             </p>
           )}
-          <p style={{ fontSize: 12, color: 'var(--muted)', margin: '0 0 12px', textAlign: 'center' }}>
-            可以关闭此窗口，带回会在后台继续完成
+          <p style={{ fontSize: 12, color: 'var(--muted)', margin: '0 0 4px', textAlign: 'center' }}>
+            请保持本窗口开启，通常几秒钟完成
           </p>
-          <div style={{ display: 'flex', justifyContent: 'center' }}>
-            <button className="btn" onClick={onClose}>后台继续</button>
-          </div>
+          <p style={{ fontSize: 12, color: 'var(--muted)', margin: 0, textAlign: 'center' }}>
+            万一关闭了，下次打开会重新提示，已带回的部分不会重复
+          </p>
+          {/* c-lossless-upgrade：进度期锁定（用户拍板「不让离开」）——无取消、无收起 */}
         </div>
       )}
       {step === 'result' && result && (

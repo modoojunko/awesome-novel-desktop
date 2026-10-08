@@ -92,7 +92,7 @@ async function renderToResult(report: Record<string, unknown>) {
   // 单候选＝一次确认：打开即预演（无需点「下一步」）
   const confirm = await screen.findByRole("button", { name: "把上一版的作品带过来" });
   fireEvent.click(confirm);                     // 第二次点击：启动搬运
-  await screen.findByText(/已带回/, {}, { timeout: 5000 });
+  await screen.findByText(/已带回 \d+ 本书/, {}, { timeout: 5000 });
   return onDone;
 }
 
