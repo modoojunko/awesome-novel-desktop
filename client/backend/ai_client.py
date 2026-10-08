@@ -163,11 +163,15 @@ class AIClient:
         api_format: str | None = None,
         timeout: httpx.Timeout | None = None,
         max_retries: int = 1,
+        vendor: str = "",
     ):
         self._provider = "anthropic"  # default
         self._client: Any | None = None
         self._model = model
         self._base_url = base_url
+        # 留痕行身份字段（c-llm-call-log）：ApiConfig.vendor，工厂层传入；
+        # `__new__` 直装的测试实例可无此属性，_log_call 侧 getattr 兜底
+        self._vendor = vendor or ""
         self._init_client(api_key, base_url, api_format, timeout, max_retries)
 
     def _init_client(
@@ -253,18 +257,19 @@ class AIClient:
         duration_ms = (time.perf_counter() - start) * 1000
         op = operation or "-"
         mdl = model or self._model or "-"
+        vendor = getattr(self, "_vendor", "") or "-"  # c-llm-call-log 身份字段
         host = _host_of(self._base_url)
         if error is None:
             logger.info(
-                "event=ai_call op=%s model=%s host=%s attempt=%s duration_ms=%.0f"
+                "event=ai_call op=%s model=%s vendor=%s host=%s attempt=%s duration_ms=%.0f"
                 " tokens_in=%d tokens_out=%d result=ok",
-                op, mdl, host, attempt, duration_ms, tokens_in or 0, tokens_out or 0,
+                op, mdl, vendor, host, attempt, duration_ms, tokens_in or 0, tokens_out or 0,
             )
         else:
             logger.warning(
-                "event=ai_call op=%s model=%s host=%s attempt=%s duration_ms=%.0f"
+                "event=ai_call op=%s model=%s vendor=%s host=%s attempt=%s duration_ms=%.0f"
                 " result=%s error=%s",
-                op, mdl, host, attempt, duration_ms,
+                op, mdl, vendor, host, attempt, duration_ms,
                 _classify_error(error), str(error)[:200],
             )
 
@@ -594,6 +599,7 @@ async def get_ai_client_for_user(user_id: str | None = None) -> AIClient:
                         base_url=cfg.base_url,
                         model=model or "",
                         api_format=getattr(cfg, "api_format", None),
+                        vendor=getattr(cfg, "vendor", "") or "",
                     )
 
                 # Fallback: old User.api_key (migration period)
@@ -634,6 +640,7 @@ async def get_ai_client_for_user(user_id: str | None = None) -> AIClient:
                         base_url=cfg.base_url,
                         model=model,
                         api_format=getattr(cfg, "api_format", None),
+                        vendor=getattr(cfg, "vendor", "") or "",
                     )
 
                 # Fallback: any user with old api_key
@@ -699,6 +706,7 @@ async def get_ai_client_for_novel(novel_id: str) -> AIClient:
             base_url=cfg.base_url,
             model=novel.ai_model,
             api_format=getattr(cfg, "api_format", None),
+            vendor=getattr(cfg, "vendor", "") or "",
         )
 
 

@@ -9,7 +9,7 @@ import logging.handlers
 import time
 
 import logging_setup
-from logging_setup import FoldRepeatFilter, setup_logging
+from logging_setup import _LLM_LOGGERS, FoldRepeatFilter, setup_logging
 
 
 def _marker_handlers() -> list:
@@ -193,6 +193,13 @@ def test_missing_dirs_created(tmp_path, monkeypatch):
         for h in list(uv.handlers):
             if h not in snap_uv:
                 uv.removeHandler(h)
+        # llm 专项 handler 挂具名 logger（不在 root 上）——不摘会指向已删 tmp 目录
+        # 并泄漏进后续用例
+        for name in _LLM_LOGGERS:
+            lg = logging.getLogger(name)
+            for h in list(lg.handlers):
+                if getattr(h, "_ainovel_llm", False):
+                    lg.removeHandler(h)
 
 
 # 静音名单：httpx 等不进文件（D2）
@@ -202,3 +209,61 @@ def test_noisy_loggers_silenced(daily_file_log):
     _ensure_file_exists(daily_file_log)
     logging.getLogger("httpx").info("HTTPX-NOISE-XYZ")
     assert "HTTPX-NOISE-XYZ" not in _log_text(daily_file_log)
+
+
+# ⑨ llm.log 专项档（c-llm-call-log）：大模型出网调用双写 app.log＋llm.log
+
+
+def _llm_handlers(name: str) -> list[logging.Handler]:
+    return [
+        h for h in logging.getLogger(name).handlers
+        if getattr(h, "_ainovel_llm", False)
+    ]
+
+
+def test_llm_handler_mounted_with_rotation_params(daily_file_log):
+    for name in ("ai_client", "llm_probe", "zhuque.client"):
+        handlers = _llm_handlers(name)
+        assert len(handlers) == 1, f"{name} 须恰好挂一个 llm 专项 handler"
+    handler = _llm_handlers("ai_client")[0]
+    assert isinstance(handler, logging.handlers.TimedRotatingFileHandler)
+    assert handler.when == "MIDNIGHT", "llm.log 与 app.log 同口径按自然日轮转"
+    assert handler.backupCount == 5, "llm.log 同口径保留 5 天"
+
+
+def test_setup_idempotent_llm_handler_not_duplicated(daily_file_log):
+    setup_logging()
+    setup_logging()
+    assert len(_llm_handlers("ai_client")) == 1, "重入初始化不得重复挂 llm handler"
+
+
+def test_llm_line_dual_writes_app_and_llm(daily_file_log):
+    logging.getLogger("llm_probe").warning(
+        "event=llm_probe kind=models_list vendor=%s format=%s host=%s path=%s"
+        " model=%s status=%d duration_ms=%.0f result=%s",
+        "custom", "openai", "relay.example.com", "/v1/models", "-", 401, 123.0,
+        "auth_error",
+    )
+    llm_text = (daily_file_log / "llm.log").read_text(encoding="utf-8")
+    assert "status=401" in llm_text and "result=auth_error" in llm_text, (
+        "探针 401 行是 llm.log 的定诊本命（Gemini 401 案）"
+    )
+    assert "relay.example.com" in _log_text(daily_file_log), (
+        "双写：app.log 求诊主档不缺行"
+    )
+
+
+def test_llm_file_excludes_non_llm_loggers(daily_file_log):
+    _ensure_file_exists(daily_file_log)
+    logging.getLogger("biz.other").info("NOT-LLM-XYZ")
+    logging.getLogger("llm_probe").info("LLM-LINE-XYZ")
+    llm_text = (daily_file_log / "llm.log").read_text(encoding="utf-8")
+    assert "LLM-LINE-XYZ" in llm_text
+    assert "NOT-LLM-XYZ" not in llm_text, "llm.log 只收大模型出网调用，业务行不进"
+
+
+def test_log_off_no_llm_handler(monkeypatch):
+    monkeypatch.setenv("AINOVEL_LOG_OFF", "1")
+    assert setup_logging() is None
+    for name in ("ai_client", "llm_probe", "zhuque.client"):
+        assert _llm_handlers(name) == [], f"关闭态不得给 {name} 挂 llm handler"

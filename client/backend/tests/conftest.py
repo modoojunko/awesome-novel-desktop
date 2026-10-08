@@ -241,6 +241,7 @@ async def seed_chapter_db(root: str, chapter: dict, *, summary: str = "") -> Non
 # ── backend-logging：按天文件日志测试夹具 ────────────────────────────────────
 import logging as _logging
 
+from logging_setup import _LLM_LOGGERS
 from logging_setup import setup_logging as _setup_logging
 
 _NOISY = ("httpx", "httpcore", "openai", "sqlalchemy")
@@ -249,11 +250,13 @@ _NOISY = ("httpx", "httpcore", "openai", "sqlalchemy")
 @pytest.fixture()
 def daily_file_log(tmp_path, monkeypatch):
     """临时开启真实按天文件日志（AINOVEL_LOG_OFF 会被本夹具移除），结束后完整
-    还原 root/uvicorn/noisy 的 handler 与级别——测试互不渗漏。"""
+    还原 root/uvicorn/noisy/llm 专项挂点的 handler 与级别——测试互不渗漏。"""
     monkeypatch.delenv("AINOVEL_LOG_OFF", raising=False)
     monkeypatch.setenv("AINOVEL_LOG_DIR", str(tmp_path / "logs"))
     root, uv = _logging.getLogger(), _logging.getLogger("uvicorn")
+    llm_loggers = {n: _logging.getLogger(n) for n in _LLM_LOGGERS}
     snap_root_h, snap_uv_h = list(root.handlers), list(uv.handlers)
+    snap_llm_h = {n: list(lg.handlers) for n, lg in llm_loggers.items()}
     snap = (root.level, uv.level, uv.propagate,
             _logging.getLogger("uvicorn.access").level,
             {n: _logging.getLogger(n).level for n in _NOISY})
@@ -265,6 +268,10 @@ def daily_file_log(tmp_path, monkeypatch):
     for h in list(uv.handlers):
         if h not in snap_uv_h:
             uv.removeHandler(h)
+    for n, lg in llm_loggers.items():
+        for h in list(lg.handlers):
+            if h not in snap_llm_h[n]:
+                lg.removeHandler(h)
     root_level, uv_level, uv_prop, access_level, noisy = snap
     root.setLevel(root_level)
     uv.setLevel(uv_level)

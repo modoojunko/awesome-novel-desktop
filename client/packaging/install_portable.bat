@@ -54,5 +54,5 @@ echo ===== 安装完成 =====
 echo 启动: 双击桌面 "AwesomeNovel" 快捷方式
 echo 卸载: 删除 %INSTALL_DIR% 目录 + 桌面快捷方式
 echo 书稿数据: %INSTALL_DIR%\data\
-echo 日志与调参: 日志在 %INSTALL_DIR%\logs\（startup.log / app.log / pywebview.log）；调参文件 shell.json 在 %INSTALL_DIR%\
+echo 日志与调参: 日志在 %INSTALL_DIR%\logs\（startup.log / app.log / llm.log / pywebview.log）；调参文件 shell.json 在 %INSTALL_DIR%\
 pause

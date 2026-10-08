@@ -25,7 +25,10 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from release_components import build_components  # noqa: E402
-from release_json_assert import validate_pack_pubkeys  # noqa: E402
+from release_json_assert import (  # noqa: E402
+    normalize_server_base,
+    validate_pack_pubkeys,
+)
 
 _DEV = "dev"
 _VERSION_SHAPE_RE = re.compile(r"[0-9]+(\.[0-9]+)+([-._][A-Za-z0-9._-]+)?")
@@ -82,6 +85,13 @@ def generate(version: str) -> dict:
     for k in ("server_api_base", "public_server_api", "portal_url",
               "client_update_url", "client_update_url_fallback"):
         assert str(cfg[k]).startswith("https://"), (k, cfg[k])
+    # 主/兜底同址生成期即拦（与产物断言同一道闸、同一归一化单源）——
+    # 不待双平台打包烧完才在冒烟步红（v0.29.x 实锤：同址＝运行时去重后无兜底）
+    assert normalize_server_base(cfg["server_api_base"]) != normalize_server_base(
+        cfg["server_api_fallback"]), (
+        ("server_api_base 与 server_api_fallback 归一化后同址（运行时去重后无兜底——"
+         "兜底应为云托管直连源，主基址走自定义域名）"),
+        cfg["server_api_base"], cfg["server_api_fallback"])
     assert comp.get("db_filename") == (f"novel-v{version}.db" if version != _DEV else "novel-dev.db"), comp
     assert isinstance(comp.get("backup_format_version"), int), comp
     return cfg
