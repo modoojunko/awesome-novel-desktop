@@ -56,3 +56,10 @@
   - 登记：book parity 余红 4 例＝存量漂移（modal-delete/prefs/upgrade 三 modal 屏不含 og 右栏与档位文案零交集；free·workbench 11.7% 大头为 #666-672 密度/归档只读/退役链时代原型未同步的树/菜单区），原型全量重同步另立
 - [ ] 6.5 法律换版：付费须知/退款政策（agreement_version 升版）；存量文案 grep 清零（「试用可用全部 AI」「PRO 会员权益」含 ZhuquePanel、readiness:136「蒸馏是 PRO 功能」、world-settings:133、character-settings:256、outline-ai-draft「PRO 作者」、frontend-auth-heal:88 等陈旧档位词逐个归位或登记豁免）
 - [x] 6.6 全量门禁（10-05 收口）：C端 pytest 1789＋S端 pytest 480＋vitest 1177＋C端 e2e 202/202 全绿；design:lint 绿＋parity 基线重录（余红登记存量）；openspec validate ✓（余 INFO＝拆仓后 S端 五 spec 归属，归档时跨仓同步——server 仓 openspec 同批）
+
+## 归档注记（2026-10-08）
+
+- **C端 半批已 sync**（PR「chore(openspec): tier-plan-four-tiers C端 半批 sync」）：17 个本仓 capability 的 32 处 delta 已进主 spec（含 3 条新增：design-system「档位徽标与档位名词表」／tier-access「按 feature key 的 AI 门禁」／tier-gating「档位显示名单源渲染」），并新建 `tier-catalog`（只收 C端 侧「档位目录缓存兜底」一条）。
+- **手改五处**（含 delta 自身两处内部矛盾）：tier-gating 注册表去重 `ai-plot` 重复条＋检测行升级出口由「MAX」改正为「PRO」（与同块「ai-detect 留 PRO」自洽）；workbench 右栏块四处四档口径（体检归 ai-plan×2／整卡锁定按 feature key／剧情推演 MAX／头部副行档位感知，措辞按实现 `AiAssistPanel.tsx` 仲裁）；zhuque-config 试用口径「不含→同权」。
+- **按主 spec 更新跳过 1 处**：zhuque-detection「检测门禁与额度口径」——主 spec 现行（键自持门＋精确 503，c-zhuque-config-keyless 2026-10-08 归档）比本 delta 新，SHALL NOT 回灌。
+- **余 S端 半批（须在 awesome-novel-server 仓同步）**：`tiers` 表事实源／档位等级序以 DB 为源／s-payments「档位等级序（tier rank）」／check-auth 目录投影下发／account-control-center／entitlement-sync／s-landing-pricing／s-pay-cashier 等 capability 的 delta。**S端 半批落地前本 change 不归档**（移目录留待两边齐后一次做）。
