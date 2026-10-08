@@ -136,12 +136,18 @@ def _log_classify(
     error: str | None = None,
 ) -> None:
     """classify 一行留痕：成功 INFO / 失败 WARNING。正文只记 chars（隐私红线）。"""
-    parts = urlparse(url)
+    # 畸形 base 兜底同 connection._probe_target（评审 P2 同批加固；本处 URL 由
+    # env/常量构造，生产不可达，纯防御）
+    try:
+        parts = urlparse(url)
+    except ValueError:
+        parts = None
+    host, path = (parts.netloc, parts.path or "/") if parts else ("-", "-")
     logger.log(
         logging.INFO if result == "ok" else logging.WARNING,
         "event=llm_probe kind=zhuque_classify vendor=zhuque format=- host=%s path=%s"
         " model=- status=%d duration_ms=%.0f chars=%d result=%s%s",
-        parts.netloc, parts.path or "/", status,
+        host, path, status,
         (time.perf_counter() - start) * 1000, chars, result,
         f" error={error[:120]}" if error else "",
     )

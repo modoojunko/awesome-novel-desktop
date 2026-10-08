@@ -33,3 +33,9 @@ llm.log 是**附加专项档**，不是把 AI 留痕行从 app.log 挪走。三�
 ## D8 测试泄漏护栏（实施中实际踩到）
 
 llm handler 挂具名 logger 而**不在 root 上**——凡直调 `setup_logging()` 的测试（非 `daily_file_log` 夹具路径），finally 只清 root/uvicorn 就会漏摘，handler 指向已删 tmp 目录并污染后续用例（首跑实锤：`test_missing_dirs_created` 泄漏致 3 个后继用例假红）。修法两处同批：conftest 夹具 teardown 对 `_LLM_LOGGERS` 逐个摘新增 handler；`test_missing_dirs_created` finally 同款补摘。判例：**给具名 logger 加 handler 时，所有直调 setup 的测试清理块都要同批点名该 logger**。
+
+## D9 评审修复（PR #736 review 三条）
+
+- **urlparse 比 httpx 严（P2）**：`http://[`（未闭合 IPv6）httpx 0.28.1 接受并真实发起连接，urlparse 却抛 ValueError——留痕调用点多在 except 处理器里，二次抛会把既有友好报错（network_error dict）500 化（已端到端复现）。`_probe_target`／`_log_classify` 均兜底 `("-", "-")`：留痕行 host/path 可缺，「出网即有行」与「报错不劣化」两条不变量保住。钉子 `test_malformed_base_url_never_breaks_probe`。
+- **ollama format 误记（P3）**：探测走原生 `/api/tags`（`_build_probe` 特例），与 openai 格式无关——`_log_probe` 内对 ollama 记 `format=-`，不误记入参缺省 openai。钉子 `test_ollama_probe_logs_native_format`。
+- **`_LLM_MARK` 死常量（P3）**：删除——handler 标记字面量只此一处设置、测试按字面量 getattr 钉住，无引用常量反成误导（对照：app.log 侧 `_MARK` 真被幂等扫描引用）。

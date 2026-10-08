@@ -69,8 +69,16 @@ def model_candidates_for(vendor_id: str) -> list[str]:
 
 def _probe_target(url: str) -> tuple[str, str]:
     """URL → (host, path)。query 永不落日志——某些网关支持 ?key= 传钥，整 URL
-    与请求头一样按机密处理。"""
-    parts = urlparse(url)
+    与请求头一样按机密处理。
+
+    urlparse 对畸形 URL（如未闭合 `[`，实测 httpx 0.28.1 接受并真实发起连接）
+    会抛 ValueError——留痕调用点多在 except 处理器里，二次抛会把既有友好报错
+    （network_error dict）500 化（评审 P2 实锤）。兜底 ("-", "-")：host/path 可缺，
+    「出网即有行」与「报错不劣化」两条不变量保住。"""
+    try:
+        parts = urlparse(url)
+    except ValueError:
+        return "-", "-"
     return parts.netloc, parts.path or "/"
 
 
@@ -108,11 +116,14 @@ def _log_probe(
     """
     host, path = _probe_target(url)
     outcome = result or _status_result(status)
+    # ollama 特例（同 _build_probe）：探测走 Ollama 原生 /api/tags，与接口格式
+    # 无关——format 记 - 而非误记入参缺省 openai（评审 P3）
+    fmt = "-" if vendor == "ollama" else (api_format or "-")
     logger.log(
         logging.INFO if outcome == "ok" else logging.WARNING,
         "event=llm_probe kind=%s vendor=%s format=%s host=%s path=%s model=%s"
         " status=%d duration_ms=%.0f result=%s%s",
-        kind, vendor or "-", api_format or "-", host, path, model or "-",
+        kind, vendor or "-", fmt, host, path, model or "-",
         status, (time.perf_counter() - start) * 1000, outcome,
         f" error={error[:120]}" if error else "",
     )

@@ -26,3 +26,9 @@
 - [x] 4.3 `openspec validate c-llm-call-log --strict` 通过。产出：输出贴任务下。
   - 4.3 实测：`Change 'c-llm-call-log' is valid`。
 - [ ] 4.4 真机冒烟（随下次发版）：真机点一次「测试连接」（含一次失败配置），`logs/llm.log` 出现对应探针行且 app.log 双写可见；朱雀检测一次留痕 chars 行。产出：现场记录（可后补）。
+
+## 5. 评审修复（PR #736 review 三条，design D9）
+
+- [x] 5.1 P2：`_probe_target`／`_log_classify` 对畸形 URL（未闭合 `[`——httpx 0.28.1 接受并真实连接，urlparse 抛 ValueError）兜底 `("-", "-")`——探针不再从 except 处理器二次抛 500 化。钉子 `test_malformed_base_url_never_breaks_probe`。
+- [x] 5.2 P3：ollama 探针行 `format=-`（原生 /api/tags 非按格式探测）；`_log_probe` 内集中处理。钉子 `test_ollama_probe_logs_native_format`。
+- [x] 5.3 P3：删除死常量 `_LLM_MARK`（handler 标记字面量唯一设置点在 logging_setup，测试按字面量钉）。

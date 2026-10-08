@@ -29,7 +29,6 @@ from logging.handlers import TimedRotatingFileHandler
 from pathlib import Path
 
 _MARK = "_ainovel_daily"
-_LLM_MARK = "_ainovel_llm"
 
 # 第三方库静音名单（D2）：root 提到 INFO 后它们会刷屏/进求诊文件——httpx 每个
 # 上游请求一行且含完整 URL（隐私面）；AI 调用观测由 ai_client 的留痕行承载。

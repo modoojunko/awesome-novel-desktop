@@ -223,6 +223,33 @@ def test_probe_url_query_never_logged(fake_http, cap_probe):
     assert "key=" not in text
 
 
+def test_malformed_base_url_never_breaks_probe(fake_http, cap_probe):
+    """评审 P2：未闭合 `[` 等畸形 URL httpx 接受并真实连接失败——探针须仍返回
+    友好 network_error（不得从 except 处理器里二次抛 ValueError 500 化），
+    留痕行 host/path 兜底 -。"""
+    fake_http.script = [httpx.ConnectError("connection failed")]
+    out = _run_async(conn_mod.test_connection(
+        vendor_id="custom", api_key="sk", base_url="http://[",
+    ))
+    assert out["status"] == "network_error"
+    line = _probe_lines(cap_probe)[-1].getMessage()
+    assert "host=-" in line and "path=-" in line
+    assert "result=network_error" in line
+
+
+def test_ollama_probe_logs_native_format(fake_http, cap_probe):
+    """评审 P3：ollama 探测走原生 /api/tags（_build_probe 特例），format 记 -
+    而非误记入参缺省 openai。"""
+    fake_http.script = [_FakeResp(200, {"models": [{"name": "llama3"}]})]
+    out = _run_async(conn_mod.test_connection(
+        vendor_id="ollama", api_key="", base_url="http://localhost:11434",
+    ))
+    assert out["ok"] is True
+    line = _probe_lines(cap_probe)[-1].getMessage()
+    assert "vendor=ollama" in line and "path=/api/tags" in line
+    assert "format=-" in line
+
+
 # ── 朱雀检测（zhuque.client.classify）────────────────────────────────────────
 
 
