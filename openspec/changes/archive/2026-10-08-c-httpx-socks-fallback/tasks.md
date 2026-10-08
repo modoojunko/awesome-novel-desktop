@@ -51,7 +51,7 @@
   验证：pytest 汇总行 + ruff 零输出贴任务下。
   证据：`2076 passed, 1 skipped in 75.46s`（共享 venv 解释器、worktree 内）；
   `ruff 0.16.3 check .` → `All checks passed!`（曾揪出 SIM117 一处，已修复）。
-- [ ] 4.2 前端门禁不适用判定：本改零 UI、零共享段、零前端文件
+- [x] 4.2 前端门禁不适用判定：本改零 UI、零共享段、零前端文件
   （proposal 无 Design Impact 段即判定依据），design:lint / design:check /
   vitest / e2e 不涉及。
   验证：`git diff --stat` 无 client/frontend 命中。
