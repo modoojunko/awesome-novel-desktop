@@ -4,7 +4,7 @@
 
 ## 1. 原型先行
 
-- [x] 1.1 `docs/design-c/prototypes/book.html` `#modalAi` 补「生成模型」选择位（触发位「配置名 · 模型名」+ 就地展开的 `.mp-*` 弹层：按配置分组、组内模型行、绑定行标「本书模型」＋标签行说明「仅本次生成生效（提示词润色/刷新仍用本书模型）」）；原型局部样式新增 `.mp-trigger`/`.mp-group`/`.mp-flag` 三词，沿用既有 token 与字号档（11.5/12/12.5px）。**验证 ✓** `node scripts/design-lint.mjs`：严格扫描 31 文件（含 book.html 全量）零违规；存量统计段不变。
+- [x] 1.1 `docs/design-c/prototypes/book.html` `#modalAi` 补「生成模型」选择位（触发位「配置名 · 模型名」+ 就地展开的 `.mp-*` 弹层：按配置分组、组内模型行、绑定行标「本书模型」＋标签行说明「仅本次生成生效，不改本书模型」）；原型局部样式新增 `.mp-trigger`/`.mp-group`/`.mp-flag` 三词，沿用既有 token 与字号档（11.5/12/12.5px）。**验证 ✓** `node scripts/design-lint.mjs`：严格扫描 31 文件（含 book.html 全量）零违规；存量统计段不变。
 - [x] 1.2 `docs/design-c/prototypes/ADJUSTMENTS.md` 登记 c-prose-model-select 小节（5 条：选择位形态／三词入册／原型就地展开 vs 实现 portal+fixed 的形态差异／不进 parity 截图的依据／<2 可选不渲染）。**验证 ✓** 条目与原型、实现逐字对得上（触发位文案、组头、标记、说明行）。另判定：`.mp-*` 族未入 `docs/ux/design-language.html` 与 `scripts/design-vocab.mjs`（先例＝c-api-config-auto-models 业务层词汇），本次只增同族三词、不动令牌/语气档 → 无标准升格动作、无 design-cross。
 
 ## 2. 后端：按次模型对（解析 / 校验 / 记账）

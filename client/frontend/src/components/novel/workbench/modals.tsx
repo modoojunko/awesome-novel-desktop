@@ -657,7 +657,7 @@ function ModelField({
     <div className="field">
       <label>
         生成模型{" "}
-        <span className="opt">仅本次生成生效（提示词润色/刷新仍用本书模型）</span>
+        <span className="opt">仅本次生成生效，不改本书模型</span>
       </label>
       <ModelPicker
         options={modelOptions}
