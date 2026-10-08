@@ -9,6 +9,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from db import get_db
+from http_client import build_async_client
 from models.api_config import ApiConfig
 from models.user import User
 
@@ -59,7 +60,7 @@ async def get_current_device(
         }
 
     try:
-        async with httpx.AsyncClient(timeout=5) as client:
+        async with build_async_client(timeout=5) as client:
             resp = await client.get(
                 f"{_get_server_api()}/api/devices/current",
                 params={"pc_hash": pc_hash},
@@ -69,7 +70,7 @@ async def get_current_device(
 
         # 消费 enrolled
         if result.get("enrolled"):
-            async with httpx.AsyncClient(timeout=3) as client:
+            async with build_async_client(timeout=3) as client:
                 await client.post(
                     f"{_get_server_api()}/api/devices/consume-enrolled",
                     params={"pc_hash": pc_hash},

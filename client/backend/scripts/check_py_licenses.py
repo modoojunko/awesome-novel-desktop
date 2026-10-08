@@ -67,7 +67,11 @@ def extract_licenses(meta: metadata.PackageMetadata) -> list[str]:
     if expr:
         return [expr]
     lic = (meta.get("License") or "").strip()
-    if lic:
+    if lic and lic.upper() != "UNKNOWN":
+        # "UNKNOWN" 是 setuptools 旧式缺省占位，不是真实许可（socksio 1.0.0 实锤：
+        # License 字段填 UNKNOWN 但同包带 MIT classifier）。按缺省处理落 classifier，
+        # 否则占位符短路三级链、真实许可永远读不到；classifier 仍受白名单约束，
+        # 保守方向不变。
         # 多行自由文本（PyPI 长描述误填进 License）按段落 token 化前先粗归一
         return [lic]
     for c in meta.get_all("Classifier") or []:

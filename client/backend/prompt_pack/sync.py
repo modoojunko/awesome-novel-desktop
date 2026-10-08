@@ -38,6 +38,7 @@ from urllib.parse import urlparse
 
 import httpx
 
+from http_client import build_sync_client
 from prompt_pack import (
     STAGING_PREFIX,
     clear_receipt,
@@ -468,7 +469,7 @@ def probe_latest() -> dict:
     keys = _pubkeys()
     if not keys:
         return no_update
-    with httpx.Client(timeout=_FETCH_TIMEOUT, follow_redirects=False) as client:
+    with build_sync_client(timeout=_FETCH_TIMEOUT, follow_redirects=False) as client:
         latest = None
         for url in _candidate_urls():
             latest = _fetch_json(client, url)
@@ -518,7 +519,7 @@ def sync_once(
     # 走同版本重装修复（spec：读时校验失败须可自愈）
     intact = _installed_pack_intact(receipt)
 
-    with httpx.Client(timeout=_FETCH_TIMEOUT, follow_redirects=False) as client:
+    with build_sync_client(timeout=_FETCH_TIMEOUT, follow_redirects=False) as client:
         if _latest is not None:
             latest, latest_url = _latest
         else:

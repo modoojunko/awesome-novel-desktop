@@ -18,6 +18,8 @@ from pathlib import Path
 
 import httpx
 
+from http_client import build_async_client
+
 logger = logging.getLogger("auth_local.service")
 
 
@@ -515,7 +517,7 @@ async def call_server_api(
             if with_token:
                 tok = load_or_create_config().get("token", "")
                 headers = {"Authorization": f"Bearer {tok}"} if tok else None
-            async with httpx.AsyncClient(timeout=60) as client:
+            async with build_async_client(timeout=60) as client:
                 if method == "GET":
                     resp = await client.get(url, params=params, headers=headers)
                 else:

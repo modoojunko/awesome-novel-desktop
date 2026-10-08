@@ -68,6 +68,7 @@ Copyright (c) 2010-2023, PyInstaller Development Team
   python-jose ..................... MIT
   cryptography .................... Apache-2.0 或 BSD-3-Clause 双许可（Python Software Foundation / cryptography 开发者）
   httpx / httpcore / h11 .......... BSD-3-Clause
+  socksio（httpx SOCKS 代理支持）.. MIT
   anyio ........................... MIT
   anthropic ....................... MIT
   openai .......................... Apache-2.0
