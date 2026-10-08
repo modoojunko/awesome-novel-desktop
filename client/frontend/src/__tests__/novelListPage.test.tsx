@@ -1144,6 +1144,36 @@ describe("带回常驻行与四步收尾（c-lossless-upgrade 覆盖补齐）", 
   });
 
 
+  it("评审修复③：卡内「稍后带」→ 会话内常驻行接管（未 snooze 也提醒）→ 可重开卡", async () => {
+    withRec(); // 未抑制：此前稍后带后 SPA 会话内再无提醒路径
+    getMock.mockResolvedValue([]);
+    renderPage();
+    await screen.findByTestId("carry-card");
+    fireEvent.click(screen.getByTestId("carry-later"));
+    // 卡收起＋常驻行出现（suppressed=false 也显示——本地 later 态）
+    const strip = await screen.findByTestId("carry-strip-later");
+    expect(strip.textContent).toContain("上一版还有 3 本作品没有带过来");
+    fireEvent.click(screen.getByTestId("carry-strip-open"));
+    expect(await screen.findByTestId("carry-card")).toBeTruthy();
+  });
+
+  it("评审修复③附：入队→稍后带（占队）→snooze＝用户已处置 → carry 条目出队放行", async () => {
+    withRec();
+    getMock.mockResolvedValue([]);
+    postMock.mockResolvedValue({ code: 0 });
+    const { dialogQueueHead } = await import("@/lib/dialogQueue");
+    renderPage();
+    await screen.findByTestId("carry-card");
+    expect(dialogQueueHead()).toBe("carry"); // 卡在途＝占队（能力包不入场）
+    fireEvent.click(screen.getByTestId("carry-later")); // 稍后带：仍占队
+    await screen.findByTestId("carry-strip-later");
+    expect(dialogQueueHead()).toBe("carry");
+    fireEvent.click(screen.getByTestId("carry-strip-mute")); // 本版不再提醒＝处置完成
+    await waitFor(() =>
+      expect(postMock.mock.calls.some((c) => String(c[0]).includes("/dismiss"))).toBe(true));
+    await waitFor(() => expect(dialogQueueHead()).not.toBe("carry")); // 出队放行
+  });
+
   it("稍后带行书数缺（null）：按「?」兜底显示", async () => {
     withRec({ book_count: null, suppressed: true });
     getMock.mockResolvedValue([]);

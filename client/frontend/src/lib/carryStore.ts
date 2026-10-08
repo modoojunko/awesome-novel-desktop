@@ -117,17 +117,30 @@ export function watchCarryJob() {
   pollTimer = setInterval(() => void pollOnce(), 1000);
 }
 
-/** 应用启动/进入书架时的一次性探测（job 若在跑顺带附着） */
-export async function probeCarry() {
-  await refreshCarry();
+/**
+ * 一次性探测当前 job 并按需附着（评审修复：start 撞 409 时调用）。
+ * 仅当「搬运任务在跑」才开轮询并返回 true；备份/导出在跑（kind!=='migration'）
+ * 或无任务返回 false——调用方据此退回卡态提示，而非附着到一个永不推进的 job
+ * 上把锁定弹窗卡死。
+ */
+export async function attachCarryJob(): Promise<boolean> {
   try {
     const res = await api.get('/backup/db-migration/status', { quiet: true });
     const job = (res.data ?? null) as CarryJob | null;
+    set({ job });
     if (job?.state === 'running' && job.kind === 'migration') {
-      set({ job });
       watchCarryJob();
+      return true;
     }
-  } catch { /* 静默 */ }
+    return false;
+  } catch {
+    return false;
+  }
+}
+
+/** 重新发起搬运前清掉上一轮的终态 job（评审修复：否则进度态 effect 会用旧 report 立即跳回结果） */
+export function resetCarryJob() {
+  if (state.job !== null) set({ job: null });
 }
 
 export function snoozeCarry(filename: string) {

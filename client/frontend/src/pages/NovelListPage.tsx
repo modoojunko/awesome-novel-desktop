@@ -1,6 +1,6 @@
 import { migratableCandidates, recommendedCandidate, useLegacyDb } from '@/hooks/useLegacyDb';
 import CarryDialog from '@/components/CarryDialog';
-import { enqueueDialog } from '@/lib/dialogQueue';
+import { enqueueDialog, finishDialog } from '@/lib/dialogQueue';
 import { snoozeCarry, useCarryStore } from '@/lib/carryStore';
 import { claimPackProbe, openPackModal, releasePackProbe, setLastProbe } from "@/lib/packProbe";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -157,6 +157,7 @@ function NovelList() {
   const legacyAutoShown = useRef(false);
   const [carryOpen, setCarryOpen] = useState(false);
   const [carryConfirmed, setCarryConfirmed] = useState(false); // 本页访问周期内已确认（队列放行后不再弹卡）
+  const [carryLater, setCarryLater] = useState(false); // 本会话内点过「稍后带」——常驻行接管提醒（评审修复：否则 SPA 内再无提醒路径）
   const [stripClosed, setStripClosed] = useState(false); // 完成回执行的 ×（仅视觉收起）
 
   // 找回完成后书架自动刷新：AcctMenu 已改 queryClient 失效 novels key
@@ -543,7 +544,7 @@ function NovelList() {
           <button className="btn btn-ghost btn-sm" aria-label="关闭" onClick={() => setStripClosed(true)}>×</button>
         </div>
       )}
-      {carryRec?.suppressed && !carryRec.carried && !carryConfirmed && (
+      {carryRec && (carryRec.suppressed || carryLater) && !carryRec.carried && !carryConfirmed && (
         <div className="notice" data-testid="carry-strip-later">
           <span className="nt">
             <b>上一版还有 {carryRec.book_count ?? '?'} 本作品没有带过来</b>
@@ -553,7 +554,9 @@ function NovelList() {
             <button
               className="btn btn-ghost btn-sm"
               data-testid="carry-strip-mute"
-              onClick={() => void snoozeCarry(carryRec.filename)}
+              onClick={() => {
+                void snoozeCarry(carryRec.filename).then(() => finishDialog('carry'));
+              }}
             >
               本版不再提醒
             </button>
@@ -926,7 +929,10 @@ function NovelList() {
           candidate={carryRec}
           others={carryOthers}
           open={carryOpen}
-          onLater={() => setCarryOpen(false)}
+          onLater={() => {
+            setCarryOpen(false);
+            setCarryLater(true); // 常驻行接管（评审修复：稍后带≠静默——SPA 会话内保持提醒）
+          }}
           onConfirmed={() => {
             setCarryOpen(false);
             setCarryConfirmed(true);

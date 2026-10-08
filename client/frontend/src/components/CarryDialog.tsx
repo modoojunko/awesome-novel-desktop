@@ -16,7 +16,7 @@ import Modal from '@/components/design/Modal';
 import { api } from '@/lib/api';
 import { toast } from '@/lib/toast';
 import { finishDialog } from '@/lib/dialogQueue';
-import { useCarryStore, watchCarryJob, type CarryReport } from '@/lib/carryStore';
+import { attachCarryJob, resetCarryJob, useCarryStore, watchCarryJob, type CarryReport } from '@/lib/carryStore';
 import type { LegacyCandidate } from '@/hooks/useLegacyDb';
 
 type Step = 'card' | 'progress' | 'result';
@@ -67,15 +67,19 @@ export default function CarryDialog({
     if (job?.state === 'done' && job.report) {
       setReport(job.report);
       setStep('result');
+      starting.current = false; // 评审修复：结果态复位——「重新带一次」不再被守卫吞掉
     } else if (job?.state === 'error' || job?.state === 'idle') {
       setReport((job.report ?? null) as CarryReport | null);
       setStep('result'); // 结果卡按「不完整/未完成」变体承接
+      starting.current = false;
     }
   }, [step, job]);
 
   const start = async () => {
     if (starting.current) return;
     starting.current = true;
+    resetCarryJob(); // 评审修复：清上一轮终态——否则进度态 effect 立即用旧 report 跳回结果
+    setReport(null);
     setStep('progress');
     setPct(0);
     try {
@@ -85,7 +89,13 @@ export default function CarryDialog({
       watchCarryJob();
     } catch (e: unknown) {
       if ((e as { status?: number })?.status === 409) {
-        watchCarryJob(); // 单飞互斥：附着既有任务
+        // 单飞互斥：仅当「搬运任务在跑」才附着；备份/导出在跑则退回卡态提示——
+        // 否则轮询对非 migration job 自停，锁定弹窗会永久卡住（评审修复）
+        const attached = await attachCarryJob();
+        if (attached) return;
+        starting.current = false;
+        setStep('card');
+        toast.info('已有备份或导出任务在进行中，完成后再带');
         return;
       }
       starting.current = false;
@@ -128,7 +138,13 @@ export default function CarryDialog({
   const wordsTotal = (m?.books ?? []).reduce((n, b) => n + b.words, 0);
 
   return (
-    <Modal open={open} onClose={() => { /* 锁定态：进度期不可关，由各步自己的按钮收尾 */ }} width={460} title="把上一版的作品带过来">
+    <Modal
+      open={open}
+      onClose={onLater} /* X/Esc＝稍后带同义（卡态收卡；结果态未确认离开＝仍占队列，常驻行接管） */
+      locked={step === 'progress'} /* 进度期锁定（用户拍板「不让离开」）：X 禁用、Esc/遮罩失效 */
+      width={460}
+      title="把上一版的作品带过来"
+    >
       {step === 'card' && (
         <div data-testid="carry-card">
           <p style={{ fontSize: 12.5, color: 'var(--muted)', margin: '0 0 4px' }}>

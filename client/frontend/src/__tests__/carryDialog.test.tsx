@@ -31,6 +31,8 @@ vi.mock("@/lib/dialogQueue", async (importOriginal) => {
 const storeState = vi.hoisted(() => ({
   job: null as null | Record<string, unknown>,
   watch: vi.fn(),
+  reset: vi.fn(),
+  attach: vi.fn(async () => true),
 }));
 vi.mock("@/lib/carryStore", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@/lib/carryStore")>();
@@ -38,8 +40,12 @@ vi.mock("@/lib/carryStore", async (importOriginal) => {
     ...actual,
     useCarryStore: () => ({ job: storeState.job, status: null }),
     watchCarryJob: storeState.watch,
+    resetCarryJob: storeState.reset,
+    attachCarryJob: storeState.attach,
   };
 });
+// 注意：reset/attach 只在 hoisted 字面量里建一次——工厂在 import 期捕获引用，
+// 模块体再重赋值会让测试与组件各持一份实例（判例：实锤于评审修复回归用例）
 
 const toastState = vi.hoisted(() => ({
   success: vi.fn(), error: vi.fn(), info: vi.fn(), dismiss: vi.fn(),
@@ -217,5 +223,99 @@ describe("carryStore 单例（5.1）", () => {
     const statusCalls = apiState.get.mock.calls
       .filter(([url]) => url === "/backup/db-migration/status").length;
     expect(statusCalls).toBeGreaterThanOrEqual(1);
+  });
+});
+
+describe("评审修复回归（P1×3）", () => {
+  beforeEach(() => {
+    storeState.attach.mockResolvedValue(true);
+  });
+
+  it("修复①：不完整结果→「重新带一次」可再跑（starting 复位＋旧 job 清空）", async () => {
+    const { rere } = renderDialog();
+    await act(async () => { fireEvent.click(screen.getByTestId("carry-start")); });
+    storeState.job = {
+      state: "done",
+      report: { status: "ok", complete: false, dead_keys: 0,
+                book_count_migrated: 2, tables_skipped: [{ table: "x" }] },
+    };
+    rere();
+    await screen.findByTestId("carry-partial");
+    // 重试：旧 job 被清、回到进度（不再被旧 report 秒拉回结果）
+    storeState.job = null;
+    storeState.reset.mockClear();
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "重新带一次" }));
+    });
+    expect(storeState.reset).toHaveBeenCalled(); // 清上一轮终态
+    expect(screen.getByTestId("carry-progress")).toBeTruthy();
+    // 第二轮跑完为完整态
+    storeState.job = {
+      state: "done",
+      report: { status: "ok", complete: true, dead_keys: 0, book_count_migrated: 3 },
+    };
+    rere();
+    const result = await screen.findByTestId("carry-result");
+    expect(result.textContent).toContain("作品和模型配置已经带过来");
+  });
+
+  it("修复②：409 撞上备份任务（attach=false）→ 退回卡态＋提示，不卡死锁定", async () => {
+    apiState.post.mockRejectedValueOnce({ status: 409 });
+    storeState.attach.mockResolvedValue(false); // 探测：在跑的是备份不是搬运
+    renderDialog();
+    await act(async () => { fireEvent.click(screen.getByTestId("carry-start")); });
+    await waitFor(() => expect(toastState.info).toHaveBeenCalledWith(
+      "已有备份或导出任务在进行中，完成后再带"));
+    expect(await screen.findByTestId("carry-card")).toBeTruthy(); // 退回卡态（有出口）
+  });
+
+  it("修复②附：409 撞上搬运任务（attach=true）→ 附着留在进度态", async () => {
+    apiState.post.mockRejectedValueOnce({ status: 409 });
+    storeState.attach.mockResolvedValue(true);
+    renderDialog();
+    await act(async () => { fireEvent.click(screen.getByTestId("carry-start")); });
+    expect(await screen.findByTestId("carry-progress")).toBeTruthy();
+    expect(toastState.info).not.toHaveBeenCalled();
+  });
+
+  it("修复④：卡态 X＝稍后带同义（onLater 被调）；进度期 X 禁用（locked）", async () => {
+    const { onLater } = renderDialog();
+    fireEvent.click(screen.getByRole("button", { name: "关闭" }));
+    expect(onLater).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("carryStore attach/reset（评审修复单源）", () => {
+  it("attachCarryJob：搬运在跑→附着返回 true；备份在跑/异常→false", async () => {
+    const actual = await vi.importActual<typeof import("@/lib/carryStore")>("@/lib/carryStore");
+    const { resetCarryStoreForTests } = actual;
+    resetCarryStoreForTests();
+    apiState.get.mockResolvedValueOnce({
+      code: 0, data: { state: "idle" },
+    });
+    expect(await actual.attachCarryJob()).toBe(false);
+    apiState.get.mockResolvedValueOnce({
+      code: 0, data: { state: "running", kind: "backup" },
+    });
+    expect(await actual.attachCarryJob()).toBe(false);
+    apiState.get.mockRejectedValueOnce(new Error("down"));
+    expect(await actual.attachCarryJob()).toBe(false);
+    apiState.get.mockResolvedValue({
+      code: 0, data: { state: "idle" },
+    });
+    resetCarryStoreForTests(); // 停掉上一步可能开的轮询
+    apiState.get.mockResolvedValueOnce({
+      code: 0, data: { state: "running", kind: "migration" },
+    });
+    expect(await actual.attachCarryJob()).toBe(true);
+    resetCarryStoreForTests();
+  });
+
+  it("resetCarryJob：job 非空才重置（null 时不动状态）", async () => {
+    const actual = await vi.importActual<typeof import("@/lib/carryStore")>("@/lib/carryStore");
+    actual.resetCarryStoreForTests();
+    actual.resetCarryJob(); // job=null → 无操作分支
+    expect(actual.carrySnapshot().job).toBeNull();
+    actual.resetCarryStoreForTests();
   });
 });
