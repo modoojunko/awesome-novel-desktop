@@ -656,6 +656,70 @@ class TestConnectionFlow:
         assert fake_http.calls[0][1] == "https://api.lunarfox.cn/v1/models"
         assert fake_http.calls[1][1] == "https://api.lunarfox.cn/v1/chat/completions"
 
+    def test_openai_models_403_degrades_with_selected_model(self, fake_http):
+        """清单 403（中转站分组权限，lunarfox 案实锤「无权访问 gpt特定版分组」）
+        → 降级对话探针验证真实路径——旧实现拿 403 短路判「认证失败」是假阴性。"""
+        fake_http.script = [
+            ("GET", 403, {"error": {"message": "无权访问 gpt特定版分组"}}),
+            ("POST", 200, {"choices": [{"message": {"content": "你好！"}}]}),
+        ]
+        out = _run_async(
+            do_test_connection(
+                "openai-compat",
+                "sk",
+                "https://api.lunarfox.cn/v1",
+                "openai",
+                preferred_model="claude-sonnet-4-6",
+            )
+        )
+        assert out["ok"] is True
+        assert out["models"] == []  # 清单被拒：空清单＋说明
+        assert "403" in out["note"]
+        assert fake_http.calls[1][3]["model"] == "claude-sonnet-4-6"  # 已选模型直通探针
+
+    def test_openai_models_403_chat_also_403_reports_auth(self, fake_http):
+        """对话路径同样 403 → 按探针判定回认证失败（带上游原文，不假阴性也不假阳性）。"""
+        fake_http.script = [("GET", 403), ("POST", 403)]
+        out = _run_async(
+            do_test_connection(
+                "openai-compat", "sk", "https://relay.example.com/v1", "openai",
+                preferred_model="claude-sonnet-4-6",
+            )
+        )
+        assert out["ok"] is False and out["status"] == "auth_error"
+
+    def test_openai_models_403_without_id_fails_prompting(self, fake_http):
+        """403 降级同 404：无已选模型且无候选 → 不发无 id 探针，判负提示填写模型名。"""
+        fake_http.script = [("GET", 403)]
+        out = _run_async(
+            do_test_connection("openai-compat", "sk", "https://relay.example.com/v1", "openai")
+        )
+        assert out["ok"] is False
+        assert "填写模型名称" in out["error"]
+
+    def test_models_401_still_hard_auth_error(self, fake_http):
+        """清单 401（Key 无效）保持硬判不降级——对话必同样 401，不白花一次请求。"""
+        fake_http.script = [("GET", 401)]
+        out = _run_async(
+            do_test_connection("openai-compat", "sk", "https://relay.example.com/v1", "openai")
+        )
+        assert out["ok"] is False and out["status"] == "auth_error"
+        assert [c[0] for c in fake_http.calls] == ["GET"]
+
+    def test_anthropic_models_403_degrades(self, fake_http):
+        """anthropic 格式清单 403 同享降级（占位探测模型兜底）。"""
+        fake_http.script = [
+            ("GET", 403),
+            ("POST", 200, {"content": [{"type": "text", "text": "你好！"}]}),
+        ]
+        out = _run_async(
+            do_test_connection("glm", "sk", "https://x.example.com", "anthropic")
+        )
+        assert out["ok"] is True
+        assert out["models"] == []
+        assert "403" in out["note"]
+        assert fake_http.calls[1][1].endswith("/v1/messages")
+
     def test_openai_chat_probe_versioned_base_untouched(self, fake_http):
         """自带版本段的 base（GLM /api/paas/v4）归一不改写——探针与生成同址。"""
         fake_http.script = [
@@ -874,6 +938,26 @@ class TestFetchModels:
         assert out["candidates"] == ["deepseek-flash", "deepseek-v4-pro"]
         assert out["note"]
         assert [c[0] for c in fake_http.calls] == ["GET"]  # 无 POST
+
+    def test_openai_403_returns_note_without_error(self, fake_http):
+        """清单 403（中转站分组权限，lunarfox 案）→ 轻探针零生成不降级：
+        ok＋空清单＋说明，表单呈现说明而非「认证失败」（SHALL NOT 误导）。"""
+        fake_http.script = [("GET", 403)]
+        out = _run_async(
+            do_fetch_models("openai-compat", "sk", "https://api.lunarfox.cn/v1", "openai")
+        )
+        assert out["ok"] is True
+        assert out["models"] == []
+        assert "403" in out["note"]
+        assert [c[0] for c in fake_http.calls] == ["GET"]
+
+    def test_anthropic_403_still_auth_error(self, fake_http):
+        """anthropic 格式清单 403 保持鉴权失败硬判（零生成语义不降级）。"""
+        fake_http.script = [("GET", 403)]
+        out = _run_async(
+            do_fetch_models("glm", "sk", "https://x.example.com", "anthropic")
+        )
+        assert out["ok"] is False and out["status"] == "auth_error"
 
     def test_html_page_fails(self, fake_http):
         """200 但体是网页 → 判败并提示核对 Base URL（填错网址提前暴露，无需等测试连接）。"""

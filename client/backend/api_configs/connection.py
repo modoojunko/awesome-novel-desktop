@@ -2,7 +2,8 @@
 
 探测按接口格式（api_format：openai | anthropic）构造，不再按 vendor 一一分支；
 vendor 只保留 ollama 特例（本地服务、免 Key、自有 tags 端点）。
-models 端点缺失（部分 Anthropic 兼容端点不提供列表）时降级为同款最小生成探针。
+models 端点不可用（404 缺失，或中转站按分组权限拒绝访问的 403——token 本身有效）
+时降级为同款最小生成探针；只拉清单轻探针不降级（零生成调用语义）。
 
 「通」的判据（2026-10-05 拍板）：200 必须是 API JSON——网站首页/SPA 对任意路径
 回 200 HTML 不算通；可达且鉴权通过后向对话接口发**真实最小生成探针**——消息「你好」、
@@ -57,6 +58,13 @@ NO_MODEL_LIST_NOTE_ANTHROPIC = (
 )
 NO_MODEL_LIST_NOTE_OPENAI = (
     "该端点不提供模型列表——可手动填模型 id 后重新测试"
+)
+
+# 清单端点拒绝访问（HTTP 403）的统一说明（lunarfox 案：token 有效但中转站按
+# 分组权限拒绝清单——「无权访问 gpt特定版分组」；两格式同文案，手填是同一出口）
+MODEL_LIST_FORBIDDEN_NOTE = (
+    "该端点拒绝模型清单访问（HTTP 403，常见于中转站的分组权限限制）——"
+    "可手动填模型 id 后重新测试"
 )
 
 
@@ -190,14 +198,17 @@ async def test_connection(
                 result="endpoint_mismatch" if not_api else None,
                 error=not_api or None,
             )
-            if resp.status_code == 404 and fallback is not None:
-                # models 端点不存在 → 降级为「你好」最小生成探针（2026-10-05 拍板）。
-                # 两格式同享降级（Gemini 官方 OpenAI 兼容层等无清单端点因此可用，
-                # 2026-10-08 拍板）。payload 在此现解：404 时列表恒空，探针 id 链
-                # ＝已选模型 > 候选首个 >（仅 anthropic）占位——存量分歧一并修齐
-                # （原实现在 _build_probe 烤死占位 id，已选模型被无视）。openai 格式
-                # 链尾不垫占位 id：凭空猜 id 对兼容端点是噪音，无 id 不降级、判负提示
-                # 填写模型名。
+            if resp.status_code in (403, 404) and fallback is not None:
+                # models 端点不可用 → 降级为「你好」最小生成探针（2026-10-05 拍板）。
+                # 两格式同享降级：404＝Gemini 官方 OpenAI 兼容层等无清单端点
+                # （2026-10-08 拍板）；403＝中转站分组权限拒绝清单而 token 本身有效
+                # （lunarfox 案实锤「无权访问 gpt特定版分组」——对话路径可能完全
+                # 可用，拿清单 403 短路判「认证失败」是假阴性；401＝Key 无效保持
+                # 硬判，对话必同样 401 不白花请求）。payload 在此现解：降级时列表
+                # 恒空，探针 id 链＝已选模型 > 候选首个 >（仅 anthropic）占位——
+                # 存量分歧一并修齐（原实现在 _build_probe 烤死占位 id，已选模型被
+                # 无视）。openai 格式链尾不垫占位 id：凭空猜 id 对兼容端点是噪音，
+                # 无 id 不降级、判负提示填写模型名。
                 f_url, f_headers, f_reply = fallback
                 probe_model = _probe_model([], vendor_id, preferred_model)
                 if not probe_model and api_format != "anthropic":
@@ -206,8 +217,8 @@ async def test_connection(
                         "status": "unknown",
                         "models": None,
                         "error": (
-                            "该地址不提供模型列表（HTTP 404）且未填写模型名称——"
-                            "请填写模型名称后重新测试"
+                            f"该地址不提供模型列表（HTTP {resp.status_code}）且未"
+                            "填写模型名称——请填写模型名称后重新测试"
                         ),
                     }
                 probe = await _probe_generation(
@@ -227,7 +238,11 @@ async def test_connection(
                     "models": [],
                     "error": None,
                     "candidates": model_candidates_for(vendor_id),
-                    "note": no_model_list_note(api_format),
+                    "note": (
+                        MODEL_LIST_FORBIDDEN_NOTE
+                        if resp.status_code == 403
+                        else no_model_list_note(api_format)
+                    ),
                 }
 
             # 判定与探针必须全部在 client 存活期内执行——async with 退出即关，出块后
@@ -396,6 +411,18 @@ async def fetch_models(
                     "error": None,
                     "candidates": model_candidates_for(vendor_id),
                     "note": no_model_list_note("anthropic"),
+                }
+            # 中转站分组权限限制（lunarfox 案实锤）：token 有效但清单被拒——零生成
+            # 语义不降级，按「无清单」回 ok 并附说明引导手填模型 id；401（Key 无效）
+            # 与 anthropic/ollama 格式的 403 保持鉴权失败硬判（下方分支）
+            if resp.status_code == 403 and api_format == "openai":
+                return {
+                    "ok": True,
+                    "status": "ok",
+                    "models": [],
+                    "error": None,
+                    "candidates": model_candidates_for(vendor_id),
+                    "note": MODEL_LIST_FORBIDDEN_NOTE,
                 }
             if resp.status_code in (401, 403):
                 detail = _extract_error_detail(resp)
