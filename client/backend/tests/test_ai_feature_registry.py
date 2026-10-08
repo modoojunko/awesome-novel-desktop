@@ -3,7 +3,9 @@
 扫描 C端 全部 FastAPI 路由：
 ① 凡挂 `ai_feature(key)` 标注的端点，key MUST 在门禁 key 全集内（= entitlement-defaults
    的 standard/pro/max/trial features 并集）——拼错 key、登记表删 key 端点没同步，这里先红；
-② 已挂 key 的端点 MUST 同时挂 `require_ai_access`——key 标注不得成为无门死标注
+② 已挂 key 的端点 MUST 同时挂**相称**的门——LLM 类 key 只认 `require_ai_access`；
+   键自持端点（`KEYLESS_GATE_KEYS` 白名单：ai-detect/prompt-panel）才认
+   `require_tier_access`——key 标注不得成为无门死标注、也不得错挂门型
   （曾实锤：POST /api/novels 挂 ai-plan 无门零行为，误导后来人补门误伤免费建书）；
 ③ 关键档位 key 各有至少一个真实端点消费点——挪 key/收门漏改端点，这里先红；
 ④ 扫描 MUST 穿透 starlette ≥1.6 的懒路由包装：旧实现顶层 `isinstance(route, APIRoute)`
@@ -52,11 +54,33 @@ def _iter_api_routes(routes):
                 yield from _iter_api_routes(orig.routes)
 
 
-def _has_ai_gate(dep) -> bool:
-    """依赖树递归查 require_ai_access（门可挂端点参数或嵌套 Dependencies）。"""
-    if getattr(dep.call, "__name__", "") == "require_ai_access":
+# 允许挂「键自持门」的 key 白名单：端点用的是作者自持的第三方 Key，不需要写作大模型
+# （`ai-detect`＝朱雀检测；`prompt-panel`＝提示词取数与编辑，2026-10-08 拍板）。
+# 其余 key 一律要求 require_ai_access——防「LLM 端点错挂键自持门」凭空放行未配模型的作者。
+KEYLESS_GATE_KEYS = ("ai-detect", "prompt-panel")
+
+
+def _has_gate_named(dep, name: str) -> bool:
+    """依赖树递归查指定函数名的门（门可挂端点参数或嵌套 Dependencies）。"""
+    if getattr(dep.call, "__name__", "") == name:
         return True
-    return any(_has_ai_gate(d) for d in dep.dependencies)
+    return any(_has_gate_named(d, name) for d in dep.dependencies)
+
+
+def _has_key_gate(route) -> bool:
+    """端点是否挂了与其 key 相称的门。
+
+    两种门分工：`require_ai_access`（会员＋档位＋已配写作大模型 Key）为 LLM 类端点的
+    唯一合法门；`require_tier_access`（会员＋档位）**仅** `KEYLESS_GATE_KEYS` 内的
+    键自持端点可用——LLM 端点若只剩键自持门，等于把「未配模型」放行到深处才炸。
+    """
+    deps = route.dependant.dependencies
+    if any(_has_gate_named(d, "require_ai_access") for d in deps):
+        return True
+    key = getattr(route.endpoint, "__ai_feature__", None)
+    return key in KEYLESS_GATE_KEYS and any(
+        _has_gate_named(d, "require_tier_access") for d in deps
+    )
 
 
 def _gate_keys() -> set[str]:
@@ -97,13 +121,29 @@ def test_every_decorated_endpoint_key_in_vocabulary():
     assert not offenders, f"端点 key 不在词汇表（先登记 specs 再挂门）: {offenders}"
 
 
-def test_decorated_endpoint_must_have_gate():
-    """挂 key 而无 require_ai_access＝死标注（免费档直通），在此先红。"""
+def test_keyless_gate_keys_are_known_vocabulary():
+    """键自持门白名单本身必须非空且 ∈ 词汇表（白名单写坏＝守卫对 LLM 端点放水）。"""
+    assert KEYLESS_GATE_KEYS, "键自持门白名单为空——守卫退化成「任何门都算」"
+    unknown = [k for k in KEYLESS_GATE_KEYS if k not in _gate_keys()]
+    assert not unknown, f"白名单 key 不在门禁词汇表: {unknown}"
+
+
+def test_decorated_endpoint_must_have_matching_gate():
+    """挂 key 而无相称的门＝死标注/错门（免费档直通 或 未配模型放行到深处），在此先红。
+
+    相称＝「LLM 类 key → `require_ai_access`」；只有 `KEYLESS_GATE_KEYS` 内的键自持
+    端点才允许 `require_tier_access`（防错配：生成类端点错挂键自持门，等于把「未配
+    写作大模型」的作者放行到业务深处才炸——正是 c-zhuque-config-keyless 修的同类）。
+    """
     offenders = []
     for route in _decorated_endpoints():
-        if not any(_has_ai_gate(d) for d in route.dependant.dependencies):
-            offenders.append(f"{route.path} -> {route.endpoint.__ai_feature__}")
-    assert not offenders, f"挂 key 未挂门（补 require_ai_access 或删标注）: {offenders}"
+        if not _has_key_gate(route):
+            key = route.endpoint.__ai_feature__
+            offenders.append(f"{route.path} -> {key}")
+    assert not offenders, (
+        "挂 key 未挂相称的门（LLM 类 key 补 require_ai_access；键自持端点用 "
+        f"require_tier_access 且 key 须 ∈ {list(KEYLESS_GATE_KEYS)}）: {offenders}"
+    )
 
 
 def test_required_keys_have_consumers():

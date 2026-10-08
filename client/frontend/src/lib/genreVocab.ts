@@ -6,7 +6,8 @@
  * tagId 在后端查不到 label，注入会退化成裸 slug。
  *
  * - `GENRE_VOCAB`：候选源（promise / forbidden / battlefield），与后端种子同 id。
- * - `GENRE_FLAVORS`：01 口味胶囊的预置联动（选中后预填 02-06），**不落库、不计入判据**。
+ * - `GENRE_FLAVORS`：02「常见口味」起点胶囊（点选只写 02 示例句＋短标签，再点取消，
+ *   用户 2026-10-08 拍板；**不落库、不计入判据**）。
  * - `COST_SENTENCES` / `costAnchor`：04 吃苦指数的浮例句。
  */
 
@@ -89,23 +90,18 @@ export function vocabLabel(raw: string): string {
   return hits.length === 1 ? hits[0].label : s;
 }
 
-// ── 01 口味胶囊（预置联动；不落库、不计入确认判据）────────────────────────
+// ── 02 常见口味起点胶囊（只给 02 一句起点；不落库、不计入确认判据，
+//    再点取消——用户 2026-10-08 拍板收窄，预填 03/04/05 的联动已退役）──────────
 
 export interface GenreFlavor {
   /** 胶囊标识（data-g，e2e 定位用）。 */
   key: string;
   /** 胶囊文案。 */
   label: string;
-  /** 预填 02 的短标签（core_promise，注入「核心承诺」行、候选语义）。 */
+  /** 起点的短标签（core_promise，注入「核心承诺」行、候选语义）。 */
   corePromise: string;
-  /** 预填 02 的完整句（promise_note ≤200）——作家改的就是这句，AI 也产出同形。 */
+  /** 起点的完整句（promise_note ≤200）——作家改的就是这句，AI 也产出同形。 */
   promiseNote: string;
-  /** 预填 03 绝对禁止（tagId 列表）。 */
-  forbidden: string[];
-  /** 预填 04 吃苦指数。 */
-  costRatio: number;
-  /** 预填 05 主线战场（tagId 列表）。 */
-  battlefield: string[];
 }
 
 export const GENRE_FLAVORS: GenreFlavor[] = [
@@ -114,49 +110,30 @@ export const GENRE_FLAVORS: GenreFlavor[] = [
     label: "逆袭打脸",
     corePromise: "以弱破强的痛快",
     promiseNote: "读者要看到主角被境界、资源、人情全都压着，却专挑对方体系里的漏洞打；每赢一次，都是弱者用脑子换来的痛快。",
-    forbidden: [
-      "forbidden:no-deus-ex-machina",
-      "forbidden:no-free-powerup",
-      "forbidden:no-villain-idiot",
-    ],
-    costRatio: 8,
-    battlefield: ["battlefield:resources", "battlefield:status"],
   },
   {
     key: "mind",
     label: "烧脑博弈",
     corePromise: "层层反转的智力快感",
     promiseNote: "读者要看到眼前的局面每解释一层就翻一次，主角靠信息差布局收网；读到最后才发现最早那句话就是答案。",
-    forbidden: ["forbidden:no-foresight", "forbidden:no-villain-idiot"],
-    costRatio: 5,
-    battlefield: ["battlefield:status", "battlefield:truth"],
   },
   {
     key: "sweet",
     label: "独宠撒糖",
     corePromise: "甜到齁的情感满足",
     promiseNote: "读者要看到两个人的关系一点点靠近，误会当场解开、不拖不虐；甜在具体的照顾与偏心，不在嘴上。",
-    forbidden: ["forbidden:no-gratuitous-angst", "forbidden:no-third-wheel"],
-    costRatio: 3,
-    battlefield: ["battlefield:affection", "battlefield:infrastructure"],
   },
   {
     key: "survival",
     label: "绝境求生",
     corePromise: "绝处逢生的紧张",
     promiseNote: "读者要看到主角被逼到退无可退，靠胆量与临场判断硬撑过去；每一关都比上一关更险，喘口气的工夫都没有。",
-    forbidden: ["forbidden:no-deus-ex-machina", "forbidden:no-foresight"],
-    costRatio: 7,
-    battlefield: ["battlefield:external-enemy", "battlefield:resources"],
   },
   {
     key: "scheme",
     label: "权谋布局",
     corePromise: "算无遗策的掌控感",
     promiseNote: "读者要看到主角手里没牌却总在下一盘更大的棋：你看到的让步是局，你看到的败退也是局。",
-    forbidden: ["forbidden:no-villain-idiot", "forbidden:no-foresight"],
-    costRatio: 5,
-    battlefield: ["battlefield:status", "battlefield:truth"],
   },
 ];
 

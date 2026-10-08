@@ -292,7 +292,7 @@ test("题材：五格面板（口味起点 → 自定义禁区 → 吃苦指数 
     await themeRow.locator('[data-g="theme:仙侠/修真"]').click();
     await page.locator('[data-od-id="sub-genre-row"] [data-g="sub:凡人流"]').click();
 
-    // 02 常见口味＝起点：填的是**一句话**（作家改的就是这句）+ 03/05 胶囊 + 04 指数
+    // 02 常见口味＝起点：只给**一句话**（作家改的就是这句）；03/04/05 不联动（c-genre-flavor-promise-only）
     await page.locator('[data-g="comeback"]').click();
     await expect(page.locator('[data-od-id="m1-input"]')).toHaveValue(/读者要看到/);
     await expect(page.locator('[data-od-id="genre-panel"]')).toContainText("标签：以弱破强的痛快");
@@ -301,10 +301,15 @@ test("题材：五格面板（口味起点 → 自定义禁区 → 吃苦指数 
       .locator('[data-od-id="m1-input"]')
       .fill("读者要看到弱者用脑子翻盘，每赢一次都痛快");
     await expect(page.locator('[data-od-id="genre-panel"]')).toContainText("/200");
-    await expect(page.locator('[data-forbid="forbidden:no-deus-ex-machina"]')).toHaveClass(/on/);
-    await expect(page.locator('[data-bf="battlefield:resources"]')).toHaveClass(/on/);
-    await expect(page.locator(".settings-v .cost-val")).toHaveText("8");
-    // 口味快捷填充不覆盖 01 已选题材（字段仍显示 大类 / 子类）
+    // 作者已写的内容：点胶囊不覆盖（2026-10-08 二轮拍板）
+    await page.locator('[data-g="mind"]').click();
+    await expect(page.locator('[data-od-id="m1-input"]')).toHaveValue(
+      "读者要看到弱者用脑子翻盘，每赢一次都痛快",
+    );
+    await expect(page.locator('[data-forbid="forbidden:no-deus-ex-machina"]')).not.toHaveClass(/on/);
+    await expect(page.locator('[data-bf="battlefield:resources"]')).not.toHaveClass(/on/);
+    await expect(page.locator(".settings-v .cost-val")).toHaveText("—");
+    // 口味起点不覆盖 01 已选题材（字段仍显示 大类 / 子类）
     await expect(trigger).toContainText("仙侠/修真 / 凡人流");
 
     // 03 回车自定义禁区
@@ -336,10 +341,8 @@ test("题材：五格面板（口味起点 → 自定义禁区 → 吃苦指数 
     expect(genre.sub_genre).toBe("凡人流");
     expect(genre.core_promise).toBe("以弱破强的痛快");
     expect(genre.cost_ratio).toBe(6);
-    expect(genre.forbidden_list).toEqual(
-      expect.arrayContaining([{ text: "禁穿越" }]),
-    );
-    expect(genre.battlefield).toContain("battlefield:resources");
+    expect(genre.forbidden_list).toEqual([{ text: "禁穿越" }]);
+    expect(genre.battlefield).toEqual([]); // 口味起点不再联动 05（作者没勾过战场）
     expect(genre.genre_id).toBeUndefined();
   } finally {
     await restore();
@@ -358,10 +361,10 @@ test("题材：长回执单行截断，确认完成点得到", async ({ page }) 
     await page.getByRole("button", { name: /^设定/ }).click();
     await openSetting(page, "题材");
 
-    // 口味胶囊＝一次点击改 5 格 → 最长的一条回执
+    // 口味胶囊回执携带起点全句 → 最长的一条回执（c-genre-flavor-promise-only）
     await page.locator('[data-g="comeback"]').click();
     const receipt = page.locator('[data-od-id="panel-receipt"]');
-    await expect(receipt).toContainText("覆盖：主要看什么 / 绝对禁止");
+    await expect(receipt).toContainText("给出「主要看什么」一句起点");
 
     // 文本单行截断（scrollWidth > clientWidth），全文挂 title 悬浮可读
     const rt = receipt.locator(".rt");
@@ -620,6 +623,46 @@ test("角色：分组列表新建 → 卷宗卡填写自动保存 → 名称确�
     expect(clr.status()).toBe(200);
     const gate2 = await apiGetJSON(request, token, `/novels/${pid}/characters/gate/status`);
     expect(gate2.data?.stale).toBe(true);
+
+    // c-chars-stale-reconfirm：内容有变期间页脚让位（缺口优先 → 点名缺口；不出现「已确认」标注），
+    // 补回/补齐门禁项后走「无缺口 + 内容有变」分支 → 重新确认 → 徽标与页脚当场恢复
+    /** 以库里最新 rev 单格写入（每次 PATCH 都 bump rev，写死 rev 会 409） */
+    const patchGate = async (path: string, value: string) => {
+      const cur = await apiGetJSON(request, token, `/novels/${pid}/characters`);
+      const c = cur.data.items.find((x: { name: string }) => x.name === "林晚");
+      const r = await request.patch(`/api/novels/${pid}/characters/${c.id}`, {
+        headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+        data: { path, value, base_rev: c.rev },
+      });
+      expect(r.status()).toBe(200);
+    };
+    await patchGate("persona", "拾残人，瘦高个");
+    for (const [path, value] of [
+      ["dossier.plot", "替人拾残卷，一步步刨出旧案"],
+      ["cog.w5", "以为旧案只是家事"],
+      ["cog.p3", "捡到的残卷越多，看得越远"],
+      ["cog.p4", "每拼一卷，忘掉一段自己的事"],
+    ] as const) {
+      await patchGate(path, value);
+    }
+    // 离开再回角色面板：数据刷新触发重取 → 徽标与页脚同源为「内容有变」
+    await page.locator(".settings-v .col-tree .s-item", { hasText: "主线" }).click();
+    const charsReload2 = page.waitForResponse(`**/api/novels/${pid}/characters`);
+    await page.locator(".settings-v .col-tree .s-item", { hasText: "角色" }).click();
+    await charsReload2;
+    await expect(page.locator(".col-middle .panel-head .badge")).toHaveText("内容有变 · 待重新确认");
+    await expect(page.locator(".panel-foot .note")).toHaveText(
+      "内容改过了——点「重新确认」即可，改动已自动保存",
+    );
+    await expect(page.locator(".done-note")).toHaveCount(0);
+    // 重新确认 → 徽标与页脚当场恢复（不刷新页面）
+    await page.locator(".panel-foot").getByRole("button", { name: "重新确认" }).click();
+    await expect(page.locator(".col-middle .panel-head .badge")).toHaveText("已确认", {
+      timeout: 8000,
+    });
+    await expect(page.locator(".panel-foot .note")).toHaveText(
+      "已确认 · 改动自动保存，可随时重新确认",
+    );
   } finally {
     await restore();
   }

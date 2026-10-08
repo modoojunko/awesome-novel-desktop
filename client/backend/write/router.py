@@ -6,7 +6,12 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from ai_client import AITimeoutError
 from ai_state import effective_model
-from auth_local.deps import ai_feature, require_ai_access, require_novel_model
+from auth_local.deps import (
+    ai_feature,
+    require_ai_access,
+    require_novel_model,
+    require_tier_access,
+)
 from auth_local.middleware import get_current_user
 from db import get_db
 from novels.service import get_novel
@@ -158,7 +163,7 @@ async def get_write_prompt(
     chapter_ref: str,
     fresh: bool = False,
     user: dict = Depends(get_current_user),
-    _: bool = Depends(require_ai_access),
+    _: bool = Depends(require_tier_access),
     db: AsyncSession = Depends(get_db),
 ):
     """AI 弹窗提示词预览：存量 write-prompt 行优先（作家存稿/历史润色行），无则组装兜底。
