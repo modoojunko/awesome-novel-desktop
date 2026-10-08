@@ -513,7 +513,8 @@ const GenreSettingForm = forwardRef<GenreHandle, GenreSettingFormProps>(function
 
   // ── 02 常见口味起点胶囊：只写 02（示例句 + 短标签），再点一次取消（用户 2026-10-08
   //    拍板收窄——内测反馈「选题材和下面一堆要选要填的联动了，这里不需要」「选中的框无法
-  //    取消」；此前一次预填 02/03/04/05 退役）。高亮只是「起点来自哪颗」的 UI 标记。───
+  //    取消」；此前一次预填 02/03/04/05 退役）。作者已写的句子胶囊不覆盖（同日二轮拍板）。
+  //    高亮只是「起点来自哪颗」的 UI 标记。───
   /** 点选起点瞬间 02 的值：取消（起点句未被作者动过）时还原用。 */
   const flavorBeforeRef = useRef<{ core_promise: string; promise_note: string } | null>(null);
   const applyFlavor = useCallback(
@@ -543,6 +544,13 @@ const GenreSettingForm = forwardRef<GenreHandle, GenreSettingFormProps>(function
           setNoteHint(false);
         }
         flavorBeforeRef.current = null;
+        return;
+      }
+      // 用户 10-08 二轮拍板：作者已写的内容，胶囊不覆盖。判定按「当前句是否为任一颗
+      // 的起点原句」而非高亮（保存后重进面板高亮已丢，但起点句仍可被另一颗替换）。
+      const noteIsStart = GENRE_FLAVORS.some((x) => x.promiseNote === data.promise_note);
+      if (data.promise_note && !noteIsStart) {
+        toast.info("「主要看什么」已有你写的句子，起点没有动它；想用起点先清空那句");
         return;
       }
       // 点选/切换：以新起点覆盖 02（回执 + 一步撤销；快照含高亮，撤销后高亮跟着回）。

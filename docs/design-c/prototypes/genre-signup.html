@@ -737,6 +737,11 @@
     const f = GENRES.find(x => x.g === c.dataset.g);
     if (!f) return;
     const m1 = document.getElementById('m1Input');
+    /* 作者已写的内容，胶囊不覆盖（10-08 二轮拍板）：非起点原句的既有句子不动 */
+    if (m1.value && !GENRES.some(x => x.note === m1.value)) {
+      toast('「主要看什么」已有你写的句子，起点没有动它；想用起点先清空那句');
+      return;
+    }
     if (flavorOn === f.g) {
       /* 取消：起点句没动过才还原点前值；作者已改过就只清高亮、一个字不动 */
       c.classList.remove('on');

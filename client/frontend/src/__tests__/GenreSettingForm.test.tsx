@@ -4,6 +4,10 @@ import { act, fireEvent, render, screen, waitFor } from "@testing-library/react"
 import GenreSettingForm, {
   type GenreHandle,
 } from "@/components/novel/settings/GenreSettingForm";
+import { GENRE_FLAVORS } from "@/lib/genreVocab";
+
+/** mind（烧脑博弈）的起点句：充当「另一颗胶囊的起点原句」初始态（重载后高亮丢失的形态）。 */
+const MIND_NOTE = GENRE_FLAVORS.find((f) => f.key === "mind")!.promiseNote;
 
 // 题材六格面板（genre-signup-redesign tasks 4.1 / D18 新契约）
 const apiState = vi.hoisted(() => ({
@@ -608,10 +612,10 @@ describe("GenreSettingForm · 改动回执 + 撤销", () => {
     apiState.put.mockResolvedValue({ ok: true });
   });
 
-  it("口味胶囊＝覆盖 02 起点 → 回执含起点全句，撤销回到改前（04 不被动）", async () => {
+  it("口味胶囊＝覆盖起点句（非作者内容）→ 回执含起点全句，撤销回到改前（04 不被动）", async () => {
     const { ref, receipt, container } = renderPanel({
-      core_promise: "算无遗策的掌控感",
-      promise_note: "读者要看布局收网",
+      core_promise: "层层反转的智力快感",
+      promise_note: MIND_NOTE, // 已是另一颗的起点原句（重载态，高亮已丢）→ 可被替换
       cost_ratio: 5,
     });
     await waitFor(() => expect(container.querySelectorAll(".mod")).toHaveLength(5));
@@ -624,15 +628,27 @@ describe("GenreSettingForm · 改动回执 + 撤销", () => {
     receipt()!.undo();
     await waitFor(() =>
       expect((container.querySelector('[data-od-id="m1-input"]') as HTMLTextAreaElement).value)
-        .toBe("读者要看布局收网"),
+        .toBe(MIND_NOTE),
     );
     expect(container.querySelector(".cost-val")!.textContent).toBe("5");
     // 撤销后高亮跟着回：点选前的态＝未选中
     expect(container.querySelector('[data-g="comeback"]')?.className).not.toContain("on");
   });
 
+  it("作者已写的内容：点胶囊不覆盖、不高亮、出提示", async () => {
+    const { receipt, container } = renderPanel({ promise_note: "作者手写的那句话" });
+    await waitFor(() => expect(container.querySelectorAll(".mod")).toHaveLength(5));
+
+    fireEvent.click(container.querySelector('[data-g="comeback"]')!);
+    expect((container.querySelector('[data-od-id="m1-input"]') as HTMLTextAreaElement).value)
+      .toBe("作者手写的那句话");
+    expect(container.querySelector('[data-g="comeback"]')?.className).not.toContain("on");
+    expect(toastState.info).toHaveBeenCalledWith(expect.stringContaining("起点没有动它"));
+    expect(receipt()).toBeNull(); // 拒绝动作不记回执
+  });
+
   it("起点再点一次取消：未改过 → 还原点前值＋回执可撤销（撤销＝重新写回起点）", async () => {
-    const { receipt, container } = renderPanel({ promise_note: "作者原来的句子" });
+    const { receipt, container } = renderPanel({ promise_note: MIND_NOTE });
     await waitFor(() => expect(container.querySelectorAll(".mod")).toHaveLength(5));
 
     const comeback = container.querySelector('[data-g="comeback"]')!;
@@ -643,7 +659,7 @@ describe("GenreSettingForm · 改动回执 + 撤销", () => {
     fireEvent.click(comeback); // 再点＝取消
     await waitFor(() =>
       expect((container.querySelector('[data-od-id="m1-input"]') as HTMLTextAreaElement).value)
-        .toBe("作者原来的句子"),
+        .toBe(MIND_NOTE),
     );
     expect(comeback.className).not.toContain("on");
     expect(receipt()?.text).toContain("已取消「逆袭打脸」起点");
@@ -657,7 +673,7 @@ describe("GenreSettingForm · 改动回执 + 撤销", () => {
   });
 
   it("起点被作者改过后取消：只清高亮、字不动、不新增回执", async () => {
-    const { receipt, container } = renderPanel({ promise_note: "作者原来的句子" });
+    const { receipt, container } = renderPanel();
     await waitFor(() => expect(container.querySelectorAll(".mod")).toHaveLength(5));
 
     const comeback = container.querySelector('[data-g="comeback"]')!;

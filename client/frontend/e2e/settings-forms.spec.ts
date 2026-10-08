@@ -301,6 +301,11 @@ test("题材：五格面板（口味起点 → 自定义禁区 → 吃苦指数 
       .locator('[data-od-id="m1-input"]')
       .fill("读者要看到弱者用脑子翻盘，每赢一次都痛快");
     await expect(page.locator('[data-od-id="genre-panel"]')).toContainText("/200");
+    // 作者已写的内容：点胶囊不覆盖（2026-10-08 二轮拍板）
+    await page.locator('[data-g="mind"]').click();
+    await expect(page.locator('[data-od-id="m1-input"]')).toHaveValue(
+      "读者要看到弱者用脑子翻盘，每赢一次都痛快",
+    );
     await expect(page.locator('[data-forbid="forbidden:no-deus-ex-machina"]')).not.toHaveClass(/on/);
     await expect(page.locator('[data-bf="battlefield:resources"]')).not.toHaveClass(/on/);
     await expect(page.locator(".settings-v .cost-val")).toHaveText("—");
