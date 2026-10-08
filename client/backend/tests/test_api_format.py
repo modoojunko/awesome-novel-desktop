@@ -209,6 +209,44 @@ class TestAIClientFormat:
         c = _make_client(base_url="https://api.example.com")
         assert isinstance(c._client, _SentinelOpenAI)
 
+    @pytest.mark.parametrize(
+        "base,expected_sdk_base",
+        [
+            # 裸域名补 /v1（lunarfox 中转案：SDK 直拼路径不自补版本段）
+            ("https://api.lunarfox.cn", "https://api.lunarfox.cn/v1"),
+            ("http://localhost:11434", "http://localhost:11434/v1"),
+            # 自带版本段原样保留
+            ("https://api.lunarfox.cn/v1", "https://api.lunarfox.cn/v1"),
+            ("https://open.bigmodel.cn/api/paas/v4", "https://open.bigmodel.cn/api/paas/v4"),
+            ("https://dashscope.aliyuncs.com/compatible-mode/v1", "https://dashscope.aliyuncs.com/compatible-mode/v1"),
+            (
+                "https://generativelanguage.googleapis.com/v1beta/openai/",
+                "https://generativelanguage.googleapis.com/v1beta/openai",
+            ),
+            # 尾斜杠归一掉
+            ("https://api.openai.com/", "https://api.openai.com/v1"),
+        ],
+    )
+    def test_openai_base_version_normalized(self, sentinel_clients, monkeypatch, base, expected_sdk_base):
+        """生成侧 base 与探测同源归一（spec「同源推导」）：SDK base_url 与
+        self._base_url 均为归一形（留痕/禁思考记忆同形态）。"""
+
+        captured: dict = {}
+
+        class _RecordingOpenAI:
+            def __init__(self, *args, **kwargs):
+                captured.update(kwargs)
+
+        monkeypatch.setattr(ai_client_module, "AsyncOpenAI", _RecordingOpenAI)
+        c = _make_client(base_url=base, api_format="openai")
+        assert captured["base_url"] == expected_sdk_base
+        assert c._base_url == expected_sdk_base
+
+    def test_anthropic_base_not_normalized(self, sentinel_clients):
+        """anthropic 分支保持「base 不带 /v1、SDK 自拼」惯例，不受 openai 归一影响。"""
+        c = _make_client(base_url="https://x.example.com", api_format="anthropic")
+        assert c._base_url == "https://x.example.com"
+
 
 class TestGetAiClientForUser:
     def test_passes_config_api_format(self, sentinel_clients):
@@ -283,12 +321,63 @@ class TestBuildProbe:
         url, headers, _, fallback = _build_probe("openai", "openai", "sk", base)
         assert url == expected
         assert headers == {"Authorization": "Bearer sk"}
-        # 404 同享降级（2026-10-08 拍板）：fallback＝(chat 地址, Bearer 头, openai 提取器)
+        # 404 同享降级（2026-10-08 拍板）：fallback＝(chat 地址, Bearer 头, openai 提取器)；
+        # chat 地址与 models 探测同源归一（裸域名补 /v1，lunarfox 案）
         assert fallback == (
-            f"{base.rstrip('/')}/chat/completions",
+            f"{expected.removesuffix('/models')}/chat/completions",
             {"Authorization": "Bearer sk"},
             conn_mod._openai_reply_text,
         )
+
+    def test_normalize_openai_base_bare_fallback_url(self):
+        """404 降级地址：裸域名 base 归一补 /v1（与主链对话探针同一单源）。"""
+        _, _, _, fallback = _build_probe(
+            "openai", "openai-compat", "sk", "https://api.lunarfox.cn"
+        )
+        assert fallback is not None
+        assert fallback[0] == "https://api.lunarfox.cn/v1/chat/completions"
+
+    def test_gemini_compat_layer_paths_untouched(self):
+        """Gemini 官方 OpenAI 兼容层（版本段 v1beta 在路径中段）：不补 /v1——
+        models 还顺带修正到真实清单路径（旧端点锚 /v\\d+$ 误补成 /openai/v1/models）。"""
+        url, _, _, fallback = _build_probe(
+            "openai",
+            "openai-compat",
+            "sk",
+            "https://generativelanguage.googleapis.com/v1beta/openai/",
+        )
+        assert url == (
+            "https://generativelanguage.googleapis.com/v1beta/openai/models"
+        )
+        assert fallback is not None
+        assert fallback[0] == (
+            "https://generativelanguage.googleapis.com/v1beta/openai/chat/completions"
+        )
+
+
+class TestNormalizeOpenAIBase:
+    @pytest.mark.parametrize(
+        "base,expected",
+        [
+            ("https://api.lunarfox.cn", "https://api.lunarfox.cn/v1"),
+            ("https://api.lunarfox.cn/", "https://api.lunarfox.cn/v1"),
+            ("https://api.lunarfox.cn/v1", "https://api.lunarfox.cn/v1"),
+            ("https://api.deepseek.com", "https://api.deepseek.com/v1"),
+            ("https://open.bigmodel.cn/api/paas/v4", "https://open.bigmodel.cn/api/paas/v4"),
+            (
+                "https://dashscope.aliyuncs.com/compatible-mode/v1",
+                "https://dashscope.aliyuncs.com/compatible-mode/v1",
+            ),
+            (
+                "https://generativelanguage.googleapis.com/v1beta/openai",
+                "https://generativelanguage.googleapis.com/v1beta/openai",
+            ),
+            ("http://localhost:11434", "http://localhost:11434/v1"),
+            ("", ""),
+        ],
+    )
+    def test_table(self, base, expected):
+        assert conn_mod.normalize_openai_base(base) == expected
 
     def test_ollama_special_case(self):
         url, headers, _, fallback = _build_probe(
@@ -548,7 +637,39 @@ class TestConnectionFlow:
         )
         assert out["ok"] is False and out["status"] == "endpoint_mismatch"
         assert "405" in out["error"]
-        assert "https://api.example.com/chat/completions" in out["error"]
+        # 裸域名经版本段归一（与 models 探测同源）——点名的是实际打到的归一地址
+        assert "https://api.example.com/v1/chat/completions" in out["error"]
+
+    def test_openai_chat_probe_bare_base_hits_v1(self, fake_http):
+        """裸域名中转站（lunarfox 案）：models 探测与对话探针同源落 /v1——
+        旧实现只 models 补 /v1，清单拉得到而探针打到 SPA 网页（200 HTML 假象）。"""
+        fake_http.script = [
+            ("GET", 200, {"data": [{"id": "claude-sonnet-4-6"}]}),
+            ("POST", 200, {"choices": [{"message": {"content": "你好！"}}]}),
+        ]
+        out = _run_async(
+            do_test_connection(
+                "openai-compat", "sk", "https://api.lunarfox.cn", "openai"
+            )
+        )
+        assert out["ok"] is True
+        assert fake_http.calls[0][1] == "https://api.lunarfox.cn/v1/models"
+        assert fake_http.calls[1][1] == "https://api.lunarfox.cn/v1/chat/completions"
+
+    def test_openai_chat_probe_versioned_base_untouched(self, fake_http):
+        """自带版本段的 base（GLM /api/paas/v4）归一不改写——探针与生成同址。"""
+        fake_http.script = [
+            ("GET", 200, {"data": [{"id": "glm-x"}]}),
+            ("POST", 200, {"choices": [{"message": {"content": "你好！"}}]}),
+        ]
+        _run_async(
+            do_test_connection(
+                "openai-compat", "sk", "https://open.bigmodel.cn/api/paas/v4", "openai"
+            )
+        )
+        assert fake_http.calls[1][1] == (
+            "https://open.bigmodel.cn/api/paas/v4/chat/completions"
+        )
 
     def test_openai_chat_probe_model_rejected_strict(self, fake_http):
         """探针模型 id 被拒（400）判失败并点名所试 id——原「400 宽松不拦」口径作废（2026-10-05 拍板）。

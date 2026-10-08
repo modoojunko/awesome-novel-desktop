@@ -286,7 +286,9 @@ async def test_connection(
                     }
                 ping = await _probe_generation(
                     client,
-                    f"{base_url.rstrip('/')}/chat/completions",
+                    # 与 models 探测同源归一（裸域名补 /v1）——中转站 SPA 对非 /v1
+                    # 路径回 200 网页，裸拼会把探针打到网页上（lunarfox 案）
+                    f"{normalize_openai_base(base_url)}/chat/completions",
                     headers,
                     _generation_payload(probe_model),
                     _openai_reply_text,
@@ -470,10 +472,30 @@ async def fetch_models(
 # ── Protocol-based probe builder ────────────────────────────────────────────
 
 
+# 「路径已含版本段」判据：段以 v+数字开头即算（/v1、/v4、/v1beta…）——
+# 端点锚定 /v\d+$ 会漏掉 Gemini 官方兼容层（…/v1beta/openai，版本段在中段）
+_VERSION_SEG = re.compile(r"/v\d+[a-z]*(/|$)")
+
+
+def normalize_openai_base(base: str) -> str:
+    """OpenAI 格式 base 的版本段归一——「与生成调用同源推导」的单源实现。
+
+    models 探测、对话探针（主链＋404 降级）、生成调用（ai_client 传给 OpenAI SDK
+    的 base）三处共用：裸域名（路径无任何版本段）按 OpenAI 官方惯例补 /v1，自带
+    版本段的（/v1、/v4、compatible-mode/v1、Gemini 兼容层 /v1beta/openai）原样
+    保留。2026-10-08 lunarfox 中转案实勘：SPA 站对任意非 /v1 路径回 200 网页——
+    只有 models 探测补 /v1 时清单拉得到，对话探针/生成却打到网页上，呈现
+    「清单绿、测试红」的半通假象。
+    """
+    base = base.rstrip("/")
+    if not base or _VERSION_SEG.search(base):
+        return base
+    return f"{base}/v1"
+
+
 def _openai_models_url(base: str) -> str:
-    """OpenAI 格式探测端点：base 自带版本段（/v1、/v4、compatible-mode/v1）
-    直接拼 /models；裸域名按 OpenAI 官方惯例补 /v1/models。"""
-    return f"{base}/models" if re.search(r"/v\d+$", base) else f"{base}/v1/models"
+    """OpenAI 格式探测端点：统一经版本段归一后拼 /models。"""
+    return f"{normalize_openai_base(base)}/models"
 
 
 def _build_probe(
@@ -520,7 +542,8 @@ def _build_probe(
         {"Authorization": f"Bearer {api_key}"},
         _extract_openai_models,
         (
-            f"{base}/chat/completions",
+            # 降级地址同走版本段归一（与 models 探测/主链对话探针同源）
+            f"{normalize_openai_base(base)}/chat/completions",
             {"Authorization": f"Bearer {api_key}"},
             _openai_reply_text,
         ),
