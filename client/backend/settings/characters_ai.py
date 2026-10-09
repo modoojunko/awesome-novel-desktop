@@ -659,10 +659,10 @@ async def bootstrap_protagonist(
         model=effective_model(project),
         tokens_in=usage.get("tokens_in", 0), tokens_out=usage.get("tokens_out", 0),
     )
-    # 本次实际下发提示词原样带回（c-char-prompt-view）：弹窗可展开查看＋复制，
-    # 生成结果跑偏时用户报错有据可查；只读回显，不影响出稿契约。
+    # 只带回用户段（c-char-prompt-view）：弹窗「查看提示词」供用户报错有据；
+    # 系统段＝提示词资产，不下发不展示。
     return {"ok": True, "data": {
         "name": name, "aliases": aliases, "persona": persona,
         "cells": cells, "skipped": skipped,
-        "prompt": {"system": sys_text, "user": prompt},
+        "prompt": prompt,
     }}

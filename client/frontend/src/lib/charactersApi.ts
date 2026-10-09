@@ -61,12 +61,6 @@ export interface GateStatus {
   confirmed_at: string | null;
 }
 
-/** 本次实际下发的提示词回显（c-char-prompt-view）：弹窗展开查看＋复制，报错有据 */
-export interface AiPromptEcho {
-  system: string;
-  user: string;
-}
-
 /** 从简介立主角的出稿（character-bootstrap-from-intro）：只出稿不建卡，采纳走既有单格写入 */
 export interface BootstrapDraft {
   name: string;
@@ -74,8 +68,9 @@ export interface BootstrapDraft {
   persona: string;
   cells: { path: string; value: string }[];
   skipped?: { key: string; why: string }[];
-  /** 本次渲染提示词（旧后端无此字段＝undefined，弹窗不出折叠区） */
-  prompt?: AiPromptEcho;
+  /** 本次渲染提示词的**用户段**（c-char-prompt-view）：弹窗展开查看＋复制，报错有据；
+   *  系统段＝提示词资产不下发。旧后端无此字段＝undefined，弹窗不出折叠区 */
+  prompt?: string;
 }
 
 export interface UndoResult {

@@ -27,9 +27,10 @@ export interface AiCardState {
   canAdopt?: boolean;
   /** 展示的是缓存结果（重开未重新生成）→ 卡顶给来源提示条。 */
   cached?: boolean;
-  /** 本次实际下发提示词（c-char-prompt-view）：传了就在卡尾出「查看提示词」折叠区；
-   *  出稿跑偏时用户可展开复制，报错有据。不传＝不出（旧后端/未接线的域）。 */
-  prompt?: { system: string; user: string };
+  /** 本次下发提示词的**用户段**（c-char-prompt-view）：传了就在卡尾出「查看提示词」
+   *  折叠区，出稿跑偏时用户可展开复制，报错有据；系统段＝提示词资产不进前端。
+   *  不传＝不出（旧后端/未接线的域）。 */
+  prompt?: string;
 }
 
 interface AiCardModalProps {
@@ -78,7 +79,7 @@ export default function AiCardModal({
   const regenText = kind === "report" ? "重新检查" : "换一个";
   const initialLoading = running && !card;
 
-  // 提示词复制（c-char-prompt-view）：系统段＋用户段合并整段拷，报错时一次贴全。
+  // 提示词复制（c-char-prompt-view）：只拷用户段（系统段不进前端，无从泄漏）。
   // 复制态跟随卡切换复位（换一个/重开出新稿＝新提示词）；写不进剪贴板静默还原。
   const [copied, setCopied] = useState(false);
   useEffect(() => {
@@ -87,9 +88,7 @@ export default function AiCardModal({
   const copyPrompt = async () => {
     if (!card?.prompt) return;
     try {
-      await navigator.clipboard.writeText(
-        `【系统】\n${card.prompt.system}\n\n【用户】\n${card.prompt.user}`,
-      );
+      await navigator.clipboard.writeText(card.prompt);
       setCopied(true);
     } catch {
       setCopied(false);
@@ -175,7 +174,7 @@ export default function AiCardModal({
               </p>
             )}
             {card?.node}
-            {card?.prompt && !initialLoading && (
+            {card?.prompt && (
               <details className="ac-prompt" data-testid="ai-card-prompt" data-od-id="ai-card-prompt">
                 <summary>
                   查看本次提示词
@@ -188,13 +187,10 @@ export default function AiCardModal({
                     data-testid="ai-card-prompt-copy"
                     onClick={() => void copyPrompt()}
                   >
-                    {copied ? "已复制" : "复制全部"}
+                    {copied ? "已复制" : "复制"}
                   </button>
                 </div>
-                <span className="ac-prompt-tag">系统</span>
-                <pre className="ac-prompt-pre">{card.prompt.system}</pre>
-                <span className="ac-prompt-tag">用户</span>
-                <pre className="ac-prompt-pre">{card.prompt.user}</pre>
+                <pre className="ac-prompt-pre">{card.prompt}</pre>
               </details>
             )}
           </>

@@ -361,9 +361,10 @@ class TestBootstrap:
         prompt = captured[0]["messages"][0]["content"]
         assert "背残页翻盘" in prompt and "仙侠" in prompt
 
-    def test_prompt_echo_matches_sent_and_carries_name_ban(self, client, monkeypatch):
-        """c-char-prompt-view / c-charname-ban：响应带回本次实际下发提示词（系统＋用户段
-        逐字一致），供弹窗「查看提示词」与用户报错；用户段须含新拟名禁令禁字表。"""
+    def test_prompt_echo_user_only_and_carries_name_ban(self, client, monkeypatch):
+        """c-char-prompt-view / c-charname-ban：响应只带回本次实发**用户段**（逐字一致），
+        供弹窗「查看提示词」与用户报错；系统段＝提示词资产不下发（泄漏守卫钉）；
+        用户段须含新拟名禁令禁字表。"""
         c, nid, captured = client
         _install_fake(monkeypatch, {
             "name": "林拾", "aliases": [], "persona": "人设",
@@ -372,11 +373,12 @@ class TestBootstrap:
         r = c.post(f"/api/novels/{nid}/settings/ai/characters/bootstrap", json={})
         assert r.status_code == 200
         echo = r.json()["data"]["prompt"]
-        assert echo["system"] == captured[-1]["system"], "系统段须与实际下发一致"
-        assert echo["user"] == captured[-1]["messages"][0]["content"], "用户段须与实际下发逐字一致"
+        assert isinstance(echo, str), "prompt 回显＝用户段字符串"
+        assert echo == captured[-1]["messages"][0]["content"], "须与实际下发的用户段逐字一致"
+        assert captured[-1]["system"] not in r.text, "系统段不得出现在响应任何位置"
         # 新拟名禁令（提示词仓 c-charname-ban 同源钉：禁字表三模板同串）
-        assert "新拟名禁令" in echo["user"]
-        assert "晚、晴、墨、默、苟、满、砚、知、景、微、之、舟、念、国、建、梅" in echo["user"]
+        assert "新拟名禁令" in echo
+        assert "晚、晴、墨、默、苟、满、砚、知、景、微、之、舟、念、国、建、梅" in echo
 
     def test_gender_age_enter_cells(self, client, monkeypatch):
         """c-character-dossier-full-fill：性别/年龄照进 cells（与其他格同口径，只补空格）。"""

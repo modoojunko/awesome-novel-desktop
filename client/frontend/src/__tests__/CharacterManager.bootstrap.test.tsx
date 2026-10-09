@@ -304,7 +304,7 @@ describe("CharacterManager 从简介立主角", () => {
     expect(apiPost).toHaveBeenCalledTimes(1); // 缓存命中，无新请求
   });
 
-  it("出稿弹窗带「查看本次提示词」：展开可见系统/用户段，复制整段入剪贴板（c-char-prompt-view）", async () => {
+  it("出稿弹窗带「查看本次提示词」：只含用户段，复制入剪贴板（c-char-prompt-view，系统段不进前端）", async () => {
     const writeText = vi.fn((_text: string) => Promise.resolve());
     Object.defineProperty(window.navigator, "clipboard", {
       value: { writeText },
@@ -321,10 +321,8 @@ describe("CharacterManager 从简介立主角", () => {
         return Promise.resolve({
           data: {
             ...DRAFT,
-            prompt: {
-              system: "你是小说主角立卡师",
-              user: "【本书】测试书（东方仙侠）\n【新拟名禁令】晚、晴、墨、默……",
-            },
+            prompt:
+              "【本书】测试书（东方仙侠）\n【新拟名禁令】晚、晴、墨、默……",
           },
         });
       }
@@ -337,21 +335,21 @@ describe("CharacterManager 从简介立主角", () => {
       await ref.current?.runAi?.("bootstrap");
     });
     await screen.findByTestId("char-ai-card");
-    // 折叠区在卡尾（收起态也在 DOM）；系统段＋用户段都可见
+    // 折叠区在卡尾（收起态也在 DOM）；只有一段提示词文本
     const details = screen.getByTestId("ai-card-prompt");
     expect(details.textContent).toContain("查看本次提示词");
-    expect(details.textContent).toContain("你是小说主角立卡师");
     expect(details.textContent).toContain("【新拟名禁令】");
-    // 复制全部＝系统＋用户整段一次拷
+    expect(details.querySelectorAll("pre")).toHaveLength(1);
+    // 复制＝只拷用户段这一段
     fireEvent.click(screen.getByTestId("ai-card-prompt-copy"));
     await waitFor(() => expect(writeText).toHaveBeenCalledTimes(1));
-    expect(writeText.mock.calls[0][0]).toContain("【系统】\n你是小说主角立卡师");
-    expect(writeText.mock.calls[0][0]).toContain("【用户】\n【本书】测试书");
+    expect(writeText.mock.calls[0][0]).toContain("【新拟名禁令】");
+    expect(writeText.mock.calls[0][0]).not.toContain("【系统】");
     await waitFor(() => expect(screen.getByText("已复制")).toBeTruthy());
   });
 
   it("剪贴板写入被拒：复制钮静默还原，不弹错（出稿照常可采纳）", async () => {
-    const writeText = vi.fn(() => Promise.reject(new Error("denied")));
+    const writeText = vi.fn((_text: string) => Promise.reject(new Error("denied")));
     Object.defineProperty(window.navigator, "clipboard", {
       value: { writeText },
       configurable: true,
@@ -364,9 +362,7 @@ describe("CharacterManager 从简介立主角", () => {
     });
     apiPost.mockImplementation((url: string) => {
       if (String(url).includes("/bootstrap")) {
-        return Promise.resolve({
-          data: { ...DRAFT, prompt: { system: "s", user: "u" } },
-        });
+        return Promise.resolve({ data: { ...DRAFT, prompt: "u" } });
       }
       return Promise.resolve({ data: cardData() });
     });
@@ -379,7 +375,7 @@ describe("CharacterManager 从简介立主角", () => {
     await screen.findByTestId("char-ai-card");
     fireEvent.click(screen.getByTestId("ai-card-prompt-copy"));
     await waitFor(() => expect(writeText).toHaveBeenCalled());
-    expect(screen.getByText("复制全部")).toBeTruthy(); // 未变「已复制」
+    expect(screen.getByText("复制")).toBeTruthy(); // 未变「已复制」
     expect(screen.getByRole("button", { name: "采纳 · 写入" })).toBeTruthy(); // 出稿照常
   });
 

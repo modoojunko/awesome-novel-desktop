@@ -708,7 +708,6 @@ body.focus .editor-wrap { padding-inline: 8vw; }
 .ai-card-body .ac-prompt-bar { display: flex; justify-content: flex-end; margin: 8px 0 2px; }
 .ai-card-body .ac-prompt-copy { font-size: 11px; border: 1px solid var(--border); background: transparent; color: var(--muted); border-radius: 6px; padding: 2px 10px; cursor: pointer; }
 .ai-card-body .ac-prompt-copy:hover { color: var(--accent); border-color: var(--accent); }
-.ai-card-body .ac-prompt-tag { display: inline-block; font-family: var(--font-mono); font-size: 10.5px; color: var(--accent); margin: 7px 0 3px; }
 .ai-card-body .ac-prompt-pre { margin: 0; max-height: 180px; overflow: auto; white-space: pre-wrap; word-break: break-word; font-family: inherit; font-size: 11px; line-height: 1.6; color: var(--muted); background: color-mix(in oklch, var(--fg) 3%, transparent); border-radius: 8px; padding: 8px 10px; }
 
 /* ── AI 写作助手卡片 .rail-assist（genre-signup-redesign tasks 3.2 / D4）──
