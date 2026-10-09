@@ -2,7 +2,9 @@
 
 探测按接口格式（api_format：openai | anthropic）构造，不再按 vendor 一一分支；
 vendor 只保留 ollama 特例（本地服务、免 Key、自有 tags 端点）。
-models 端点缺失（部分 Anthropic 兼容端点不提供列表）时降级为同款最小生成探针。
+models 端点缺失（部分 Anthropic 兼容端点不提供列表）时降级为同款最小生成探针；
+models 端点回 200 网页体（网关对未知路径回首页的可用端点，内测反馈#1 残余）同样降级，
+对话接口探通即放行，探不通才按「不是 API 数据」判失败。
 
 「通」的判据（2026-10-05 拍板）：200 必须是 API JSON——网站首页/SPA 对任意路径
 回 200 HTML 不算通；可达且鉴权通过后向对话接口发**真实最小生成探针**——消息「你好」、
@@ -213,7 +215,6 @@ async def test_connection(
                 # （原实现在 _build_probe 烤死占位 id，已选模型被无视）。openai 格式
                 # 链尾不垫占位 id：凭空猜 id 对兼容端点是噪音，无 id 不降级、判负提示
                 # 填写模型名。
-                f_url, f_headers, f_reply = fallback
                 probe_model = _probe_model([], vendor_id, preferred_model)
                 if not probe_model and api_format != "anthropic":
                     return {
@@ -225,18 +226,14 @@ async def test_connection(
                             "请填写模型名称后重新测试"
                         ),
                     }
-                probe = await _probe_generation(
+                probe = await _fallback_probe(
                     client,
-                    f_url,
-                    f_headers,
-                    _generation_payload(
-                        probe_model or _ANTHROPIC_PROBE_MODEL,
-                        thinking_enabled=thinking_enabled,
-                        thinking_effort=thinking_effort,
-                    ),
-                    f_reply,
-                    vendor=vendor_id,
-                    api_format=api_format,
+                    fallback,
+                    api_format,
+                    vendor_id,
+                    preferred_model,
+                    thinking_enabled=thinking_enabled,
+                    thinking_effort=thinking_effort,
                 )
                 if probe is not None:
                     return probe
@@ -284,6 +281,32 @@ async def test_connection(
                 }
 
             if not_api:
+                # 200 但体判废也可能是可用端点（网关对未知路径回首页，内测反馈#1 残余
+                # ——ccswitch 类中转站对 /models 回 200 网页、对话接口正常）：与 404
+                # 同享降级探对话接口，探通即放行（该端点不提供清单，按无清单端点口径
+                # 返回空清单＋说明）；探不通（真网页站的对话接口也 HTML/不存在）保留
+                # 判废原文案。探针 id 同 404 口径：无 id 的 openai 格式不降级。
+                if fallback is not None:
+                    probe_model = _probe_model([], vendor_id, preferred_model)
+                    if probe_model or api_format == "anthropic":
+                        probe = await _fallback_probe(
+                            client,
+                            fallback,
+                            api_format,
+                            vendor_id,
+                            preferred_model,
+                            thinking_enabled=thinking_enabled,
+                            thinking_effort=thinking_effort,
+                        )
+                        if probe is None:
+                            return {
+                                "ok": True,
+                                "status": "ok",
+                                "models": [],
+                                "error": None,
+                                "candidates": model_candidates_for(vendor_id),
+                                "note": no_model_list_note(api_format),
+                            }
                 return {
                     "ok": False,
                     "status": "endpoint_mismatch",
@@ -652,6 +675,38 @@ def _generation_payload(
     if thinking_enabled:
         payload["reasoning_effort"] = thinking_effort or "low"
     return payload
+
+
+async def _fallback_probe(
+    client: httpx.AsyncClient,
+    fallback: tuple[str, dict[str, str], Any],
+    api_format: str,
+    vendor_id: str,
+    preferred_model: str | None,
+    thinking_enabled: bool = False,
+    thinking_effort: str = "low",
+) -> dict[str, Any] | None:
+    """models 端点判废（404 缺失／200 非 API 体）后的降级「你好」探针。
+
+    返回 None＝探通；dict＝探针失败形态（由调用方按其判废语义处置）。探针 id 链
+    现解（列表在判废路径恒空）：已选模型 > 候选首个 >（仅 anthropic）占位 id——
+    调用方 SHALL 先判 id 可用性（无 id 的 openai 不降级）。
+    """
+    f_url, f_headers, f_reply = fallback
+    probe_model = _probe_model([], vendor_id, preferred_model)
+    return await _probe_generation(
+        client,
+        f_url,
+        f_headers,
+        _generation_payload(
+            probe_model or _ANTHROPIC_PROBE_MODEL,
+            thinking_enabled=thinking_enabled,
+            thinking_effort=thinking_effort,
+        ),
+        f_reply,
+        vendor=vendor_id,
+        api_format=api_format,
+    )
 
 
 async def _probe_generation(
