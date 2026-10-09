@@ -551,7 +551,8 @@ class TestCardGeneric:
         assert "这张卡的类型】配角" in captured[0]["messages"][0]["content"]
 
     def test_protagonist_path_keeps_hero_template(self, client, monkeypatch):
-        """不变量哨兵：主角待立路径仍走主角模板（主角措辞、无类型行）。"""
+        """不变量哨兵：主角待立路径仍走主角模板（主角措辞、无类型行）。
+        c-charname-ban 分层重构后「主角的名字」等字段说明在系统段（输出契约归 system）。"""
         c, nid, captured = client
         card = asyncio.run(_add_card(nid, name="\u0000abcdef123456", role="主角"))
         _install_fake(monkeypatch, {"name": "林拾", "persona": "人设"}, captured)
@@ -559,8 +560,9 @@ class TestCardGeneric:
                    json={"character_id": card.id})
         assert r.status_code == 200
         assert captured[0]["system"].startswith("你是小说主角立卡师")
+        assert "主角的名字" in captured[0]["system"], "字段说明已随输出契约搬进系统段"
         prompt = captured[0]["messages"][0]["content"]
-        assert "主角的名字" in prompt
+        assert "主角的名字" not in prompt  # 用户段不再有格式说明
         assert "这张卡的类型" not in prompt
 
     def test_side_card_400_copy_says_likaka(self, client, monkeypatch):
