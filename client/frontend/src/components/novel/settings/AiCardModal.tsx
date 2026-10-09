@@ -38,6 +38,8 @@ interface AiCardModalProps {
   card: AiCardState | null;
   /** 该卡的生成在途（首跑＝loading 占位；已有卡在途＝「换一个」进行中，旧版保持可读）。 */
   running: boolean;
+  /** 在途提示条文案（缺省＝「正在生成新一版…」；提示词编辑流首跑另给措辞）。 */
+  runningText?: string;
   /** 生成失败信息（无卡时＝错误体；有卡时＝旧版上方提示条）。 */
   error?: string;
   /** 已生成版数（第 N 版，从 1 起）。 */
@@ -55,6 +57,7 @@ export default function AiCardModal({
   open,
   card,
   running,
+  runningText,
   error,
   version,
   onClose,
@@ -157,7 +160,7 @@ export default function AiCardModal({
             {running && (
               <p className="ac-busy" aria-busy="true">
                 <Ico d={P.spinner} className="spin" size={13} />
-                正在生成新一版…
+                {runningText ?? "正在生成新一版…"}
                 <span className="no-close">AI 创作中，请勿关闭弹窗</span>
               </p>
             )}

@@ -480,6 +480,8 @@ async def bootstrap_protagonist(
     唯一空值基准——已有的一律不返回、改记入 skipped。
     c-char-ai-card-generic：character_id 为配角/反派卡时按角色分派通用立卡
     模板（剧情定位口径改写为其与主角这条线的关系）；主角待立路径字节不动。
+    c-char-prompt-view 编辑流：body.preview＝只渲染提示词即返回（不调 AI）；
+    body.prompt＝作者编辑后的提示词逐字下发（用户段整体替换，系统段不动）。
     """
 
     project = await _get_project(db, project_id, user["id"])
@@ -556,6 +558,15 @@ async def bootstrap_protagonist(
             dossier_briefs=dossier_briefs,
             cog_briefs=cog_briefs,
         )
+
+    # 编辑流第一步（c-char-prompt-view）：preview＝只渲染提示词就返回，不调 AI 不计费；
+    # 弹窗给作者过目＋改写，点「生成」才带 prompt 覆写真跑。
+    if bool(body.get("preview")):
+        return {"ok": True, "data": {"prompt": prompt}}
+    # 作者编辑后的提示词逐字下发（空/缺省＝照常走服务端渲染稿）；系统段不受影响。
+    override = str(body.get("prompt") or "")
+    if override.strip():
+        prompt = _clamp(override, 8000)
 
     client = await get_ai_client_for_novel(project_id)
     usage: dict = {}

@@ -380,6 +380,30 @@ class TestBootstrap:
         assert "新拟名禁令" in echo
         assert "晚、晴、墨、默、苟、满、砚、知、景、微、之、舟、念、国、建、梅" in echo
 
+    def test_preview_returns_prompt_without_llm(self, client, monkeypatch):
+        """c-char-prompt-view 编辑流：preview＝只渲染提示词即返回，不调 AI 不计费。"""
+        c, nid, captured = client
+        _install_fake(monkeypatch, {"name": "x"}, captured)
+        r = c.post(f"/api/novels/{nid}/settings/ai/characters/bootstrap", json={"preview": True})
+        assert r.status_code == 200
+        assert captured == [], "预览不得触发 AI 调用"
+        prompt = r.json()["data"]["prompt"]
+        assert isinstance(prompt, str) and prompt
+        assert "新拟名禁令" in prompt, "渲染稿带禁令（编辑前就看得见）"
+
+    def test_prompt_override_sent_verbatim_blank_falls_back(self, client, monkeypatch):
+        """编辑流：body.prompt 非空＝逐字下发且回显＝实发；空白＝回落渲染稿。"""
+        c, nid, captured = client
+        _install_fake(monkeypatch, {"name": "林拾", "persona": "人设", "fills": {"race": "人族"}}, captured)
+        edited = "按下面的要求起稿：主角是雨区当铺学徒，命名要土要真。"
+        r = c.post(f"/api/novels/{nid}/settings/ai/characters/bootstrap", json={"prompt": edited})
+        assert r.status_code == 200
+        assert captured[-1]["messages"][0]["content"] == edited, "编辑稿逐字下发"
+        assert r.json()["data"]["prompt"] == edited, "回显＝实发"
+        r2 = c.post(f"/api/novels/{nid}/settings/ai/characters/bootstrap", json={"prompt": "   "})
+        assert r2.status_code == 200
+        assert "新拟名禁令" in r2.json()["data"]["prompt"], "空白覆写回落渲染稿"
+
     def test_gender_age_enter_cells(self, client, monkeypatch):
         """c-character-dossier-full-fill：性别/年龄照进 cells（与其他格同口径，只补空格）。"""
         c, nid, _captured = client
