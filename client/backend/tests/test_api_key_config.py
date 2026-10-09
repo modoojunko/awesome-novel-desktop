@@ -400,6 +400,35 @@ class TestApiKeyCRUD:
         assert resp2.status_code == 200
         assert captured["preferred_model"] == "deepseek-v4-pro"
 
+    def test_test_config_model_override(self, client, monkeypatch):
+        """编辑弹窗改选模型后试连：body.model 覆盖探针优先模型；空值回落已存首项。"""
+        captured: dict = {}
+
+        async def fake_test(**kwargs):
+            captured.update(kwargs)
+            return {"ok": True, "status": "ok", "models": [], "error": None}
+
+        monkeypatch.setattr("api_configs.service._test_connection", fake_test)
+        resp = client.post(
+            "/api/v1/api-configs",
+            json={
+                "name": "改选模型",
+                "vendor_id": "deepseek",
+                "base_url": "https://api.deepseek.com",
+                "api_key": _test_api_key("over2"),
+                "models": ["deepseek-v4-pro"],
+            },
+        )
+        cid = resp.json()["id"]
+        # 表单改选模型 → body.model 覆盖（不用已存首项）
+        resp2 = client.post(f"/api/v1/api-configs/{cid}/test", json={"model": "claude-opus-5.5"})
+        assert resp2.status_code == 200
+        assert captured["preferred_model"] == "claude-opus-5.5"
+        # 空串＝未提供 → 回落已存 models 首项
+        resp3 = client.post(f"/api/v1/api-configs/{cid}/test", json={"model": "  "})
+        assert resp3.status_code == 200
+        assert captured["preferred_model"] == "deepseek-v4-pro"
+
     def test_raw_test_passes_model_through(self, client, monkeypatch):
         """裸测试端点把表单模型名透传为探针优先模型。"""
         captured: dict = {}
