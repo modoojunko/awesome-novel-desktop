@@ -36,6 +36,9 @@ from models.user import User
 # 10s→1.4s、输出 tokens 2079→203；个别端点不认这个字段则去掉后重试一次，
 # 并把该 base 记下来不再重复尝试。
 _THINKING_UNSUPPORTED_BASES: set[str] = set()
+# disabled 被**值级**打回的端点（GLM-5.3 系强制思考）：「关」以 enabled＋low 替代
+# （GLM 迁移指引口径）；替代再被拒则升级进 _THINKING_UNSUPPORTED_BASES（不发参）
+_THINKING_FORCED_BASES: set[str] = set()
 _THINKING_DISABLED = {"type": "disabled"}
 
 # 超时纪律（ai-client-timeout-and-usage-accounting D1）：不依赖 SDK 默认
@@ -296,9 +299,12 @@ class AIClient:
         """按配置构造思考参数（c-thinking-config，原「默认关思考」语义的推广）。
 
         开＝thinking:{type:enabled}＋reasoning_effort（GLM-5.3 契约顶层参数）；
-        关（默认）＝thinking:{type:disabled}，与既有行为等价。端点打回过思考参数的
-        base（进程级记忆）不再主动发——重复发也只会再被打回、白白翻倍延迟。"""
-        if (self._base_url or "") in _THINKING_UNSUPPORTED_BASES:
+        关（默认）＝_off_thinking_params。base 级进程记忆分级：UNSPORTED（连思考
+        参数字段都不认）→ 什么都不发；FORCED（disabled 被**值级**打回，GLM-5.3
+        实锤）→「关」以 enabled＋low 替代（GLM 迁移指引口径），替代再被拒则升级
+        为 UNSPORTED。"""
+        base = self._base_url or ""
+        if base in _THINKING_UNSUPPORTED_BASES:
             return {}
         # getattr 兜底：`__new__` 直装的测试实例可无此属性（与 _vendor 同款约定）
         if getattr(self, "_thinking_enabled", False):
@@ -306,16 +312,41 @@ class AIClient:
                 "thinking": {"type": "enabled"},
                 "reasoning_effort": getattr(self, "_thinking_effort", "low") or "low",
             }
+        return self._off_thinking_params()
+
+    def _off_thinking_params(self) -> dict[str, Any]:
+        """「关思考」在本端点的可发形态（完整参数组）：FORCED＝enabled＋low（最接近
+        「关」的档位，GLM 迁移指引口径）；其余＝原样 disabled（UNSPORTED 已在
+        _thinking_params 入口拦下）。"""
+        if (self._base_url or "") in _THINKING_FORCED_BASES:
+            return {"thinking": {"type": "enabled"}, "reasoning_effort": "low"}
         return {"thinking": dict(_THINKING_DISABLED)}
+
+    def _explicit_thinking_params(self, explicit: Any) -> dict[str, Any] | None:
+        """调用方显式传的 thinking 的完整参数组：非 disabled 形态原样；disabled 按
+        端点记忆折算——FORCED＝enabled＋low（判定类保「短平快出文本」），
+        UNSPORTED＝None（发了也必被拒）。"""
+        if not self._is_disabled_shaped(explicit):
+            return {"thinking": explicit}
+        base = self._base_url or ""
+        if base in _THINKING_FORCED_BASES:
+            return self._off_thinking_params()
+        if base in _THINKING_UNSUPPORTED_BASES:
+            return None
+        return {"thinking": dict(_THINKING_DISABLED)}
+
+    @staticmethod
+    def _is_disabled_shaped(thinking: Any) -> bool:
+        return isinstance(thinking, dict) and thinking.get("type") == "disabled"
 
     def _with_thinking_disabled(self, kwargs: dict) -> dict:
         """anthropic 直参路径的思考参数落位：thinking 走形参，reasoning_effort
         SDK 无此形参、随 extra_body 透传（GLM anthropic 兼容端点认；端点不认时
         去参重试兜底）。调用方显式传的 thinking 最优先——此时配置强度不搭车。"""
-        params = self._thinking_params()
         if "thinking" in kwargs:
-            params["thinking"] = kwargs.pop("thinking")
-            params.pop("reasoning_effort", None)
+            params = self._explicit_thinking_params(kwargs.pop("thinking")) or {}
+        else:
+            params = self._thinking_params()
         effort = params.pop("reasoning_effort", None)
         if "thinking" in params:
             kwargs.setdefault("thinking", params["thinking"])
@@ -328,20 +359,45 @@ class AIClient:
     def _openai_thinking_extra(self, kwargs: dict) -> dict[str, Any]:
         """openai 路径的思考参数落位（extra_body）。调用方显式传的 thinking
         最优先——此时配置强度不搭车（判定类恒关思考，带 effort 自相矛盾）。"""
-        extra = self._thinking_params()
         if "thinking" in kwargs:
-            extra["thinking"] = kwargs.pop("thinking")
-            extra.pop("reasoning_effort", None)
-        return extra
+            return self._explicit_thinking_params(kwargs.pop("thinking")) or {}
+        return self._thinking_params()
 
     def _strip_thinking_from(self, target: dict) -> None:
         """去参重试：thinking/reasoning_effort 全部摘除。"""
         target.pop("thinking", None)
         target.pop("reasoning_effort", None)
 
-    def _remember_thinking_unsupported(self) -> None:
-        if self._base_url:
+    def _remember_thinking_rejection(self, sent_thinking: Any) -> None:
+        """按**本次被拒请求实际携带的 thinking** 分级记忆：disabled 形态＝disabled
+        被值级打回（FORCED，后续以 enabled＋low 替代）；enabled/无参形态＝参数本身
+        不被接受（UNSPORTED，后续不发）。替代请求再被拒时同样落到 UNSPORTED。"""
+        if not self._base_url:
+            return
+        if self._is_disabled_shaped(sent_thinking):
+            _THINKING_FORCED_BASES.add(self._base_url)
+            _THINKING_UNSUPPORTED_BASES.discard(self._base_url)
+        else:
             _THINKING_UNSUPPORTED_BASES.add(self._base_url)
+            _THINKING_FORCED_BASES.discard(self._base_url)
+
+    def _strip_thinking_from(self, target: dict) -> None:
+        """去参重试：thinking/reasoning_effort 全部摘除。"""
+        target.pop("thinking", None)
+        target.pop("reasoning_effort", None)
+
+    def _remember_thinking_rejection(self, sent_thinking: Any) -> None:
+        """按**本次被拒请求实际携带的 thinking** 分级记忆：disabled 形态＝disabled
+        被值级打回（FORCED，后续以 enabled＋low 替代）；enabled/无参形态＝参数本身
+        不被接受（UNSPORTED，后续不发）。替代请求再被拒时同样落到 UNSPORTED。"""
+        if not self._base_url:
+            return
+        if self._is_disabled_shaped(sent_thinking):
+            _THINKING_FORCED_BASES.add(self._base_url)
+            _THINKING_UNSUPPORTED_BASES.discard(self._base_url)
+        else:
+            _THINKING_UNSUPPORTED_BASES.add(self._base_url)
+            _THINKING_FORCED_BASES.discard(self._base_url)
 
     def _is_thinking_rejection(self, exc: Exception) -> bool:
         """端点在打回思考参数（去参重试的判据）。
@@ -424,19 +480,23 @@ class AIClient:
                     self._log_call(operation, model, start, error=e, attempt=attempt)
                     raise  # 网络层失败不做 thinking 重试
                 if extra and self._is_thinking_rejection(e):
-                    self._remember_thinking_unsupported()
+                    self._remember_thinking_rejection(extra.get("thinking"))
                     self._log_call(operation, model, start, error=e, attempt=attempt)
                     self._strip_thinking_from(extra)
                     attempt = 2
-                    response = await self._guarded(
-                        self._client.chat.completions.create(
-                            model=model,
-                            messages=openai_messages,
-                            max_tokens=max_tokens,
-                            extra_body=extra,
-                            **kwargs,
+                    try:
+                        response = await self._guarded(
+                            self._client.chat.completions.create(
+                                model=model,
+                                messages=openai_messages,
+                                max_tokens=max_tokens,
+                                extra_body=extra,
+                                **kwargs,
+                            )
                         )
-                    )
+                    except Exception as e2:  # noqa: BLE001 — 去参重试再失败也留痕（评审 P2）
+                        self._log_call(operation, model, start, error=e2, attempt=attempt)
+                        raise
                 else:
                     self._log_call(operation, model, start, error=e, attempt=attempt)
                     raise
@@ -484,22 +544,26 @@ class AIClient:
                     self._log_call(operation, model, start, error=e, attempt=attempt)
                     raise  # 网络层失败不做 thinking 重试
                 if "thinking" in kwargs and self._is_thinking_rejection(e):
-                    self._remember_thinking_unsupported()
+                    self._remember_thinking_rejection(kwargs.get("thinking"))
                     self._log_call(operation, model, start, error=e, attempt=attempt)
                     kwargs.pop("thinking", None)
                     extra_body = kwargs.get("extra_body")
                     if isinstance(extra_body, dict):
                         self._strip_thinking_from(extra_body)  # reasoning_effort 一并去参
                     attempt = 2
-                    response = await self._guarded(
-                        self._client.messages.create(
-                            model=model,
-                            system=system,
-                            messages=messages,
-                            max_tokens=max_tokens,
-                            **kwargs,
+                    try:
+                        response = await self._guarded(
+                            self._client.messages.create(
+                                model=model,
+                                system=system,
+                                messages=messages,
+                                max_tokens=max_tokens,
+                                **kwargs,
+                            )
                         )
-                    )
+                    except Exception as e2:  # noqa: BLE001 — 去参重试再失败也留痕（评审 P2）
+                        self._log_call(operation, model, start, error=e2, attempt=attempt)
+                        raise
                 else:
                     self._log_call(operation, model, start, error=e, attempt=attempt)
                     raise
@@ -578,7 +642,8 @@ class AIClient:
                     # 故此处重开不会重复产出
                     if not extra or not self._is_thinking_rejection(e):
                         raise
-                    self._remember_thinking_unsupported()
+                    self._remember_thinking_rejection(extra.get("thinking"))
+                    self._log_call(operation, model, start, error=e)  # 被拒的首次请求留痕（评审 P2）
                     self._strip_thinking_from(extra)
                     stream = await self._client.chat.completions.create(
                         model=model,
@@ -651,7 +716,10 @@ class AIClient:
                             and "thinking" in kwargs
                             and self._is_thinking_rejection(e)
                         ):
-                            self._remember_thinking_unsupported()
+                            self._remember_thinking_rejection(kwargs.get("thinking"))
+                            self._log_call(
+                                operation, model, start, error=e, attempt=attempt
+                            )  # 被拒的首次开流留痕（评审 P2）；重开再败由外层统一记录
                             kwargs.pop("thinking", None)
                             extra_body = kwargs.get("extra_body")
                             if isinstance(extra_body, dict):

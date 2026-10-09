@@ -623,7 +623,10 @@ async def _probe_generation(
     model = payload.get("model", "")
     start = time.perf_counter()
     try:
-        resp = await _post_with_thinking_retry(client, url, headers, payload)
+        resp = await _post_with_thinking_retry(
+            client, url, headers, payload,
+            vendor=vendor, api_format=api_format, model=model,
+        )
     except httpx.TimeoutException:
         _log_probe(
             "generation_probe", vendor=vendor, api_format=api_format,
@@ -744,6 +747,9 @@ async def _post_with_thinking_retry(
     url: str,
     headers: dict[str, str],
     payload: dict[str, Any],
+    vendor: str = "",
+    api_format: str = "",
+    model: str = "",
 ) -> httpx.Response:
     """POST 最小生成探针；端点 400 且请求带思考参数时去参重试一次（ai_client 同款约定）。
 
@@ -751,10 +757,18 @@ async def _post_with_thinking_retry(
     用户配 GLM 的连接测试全挂在 400——c-thinking-config 定诊）；探针是一次性用户动作，
     多一次请求换判稳，值。去参时预算同步放大（去参后强制思考模型会把预算花在推理上）。
     两次都 400 时回更贴切的那份：原始 400 若在说思考参数、重试 400 说了别的真因，
-    回重试的；否则回原始（原始文案更能代表配置的问题）。"""
+    回重试的；否则回原始（原始文案更能代表配置的问题）。
+    被拒的首个请求落一行 llm_probe（result=thinking_rejected，评审 P2：c-llm-call-log
+    的「每个出网请求一行」不变量——重试不该制造 llm.log 里的隐身请求）。"""
+    start = time.perf_counter()
     resp = await client.post(url, headers=headers, json=payload)
     if resp.status_code != 400 or not _has_thinking_params(payload):
         return resp
+    _log_probe(
+        "generation_probe", vendor=vendor, api_format=api_format, url=url,
+        start=start, model=model, status=resp.status_code,
+        result="thinking_rejected", error=_extract_error_detail(resp),
+    )
     stripped = {
         k: v for k, v in payload.items() if k not in ("thinking", "reasoning_effort")
     }

@@ -7,6 +7,7 @@ Usage:
 import asyncio
 import hashlib
 import json
+import logging
 import os
 import sqlite3
 import tempfile
@@ -656,10 +657,12 @@ class TestConnectionFlow:
         assert "thinking" in fake_http.calls[1][3]
         assert "thinking" not in fake_http.calls[2][3]
 
-    def test_chat_probe_glm_forced_thinking_rejected_retries_stripped(self, fake_http):
+    def test_chat_probe_glm_forced_thinking_rejected_retries_stripped(self, fake_http, caplog):
         """GLM-5.3 实锤回归钉（c-thinking-config 定诊）：强制思考模型拒「关思考」，
         报错是**纯中文**——去参重试不看文案措辞，重试成功即通；重试体不带思考参数
-        且预算放大（去参后推理会吃 max_tokens，32 只够思考、正文为空）。"""
+        且预算放大（去参后推理会吃 max_tokens，32 只够思考、正文为空）。
+        被拒的首个请求落一行 llm_probe（result=thinking_rejected，评审 P2：重试不造
+        隐身请求）。"""
         fake_http.script = [
             ("GET", 200, {"data": [{"id": "glm-5.3-flashx"}]}),
             (
@@ -673,15 +676,22 @@ class TestConnectionFlow:
             ),
             ("POST", 200, {"choices": [{"message": {"content": "你好！"}}]}),
         ]
-        out = _run_async(
-            do_test_connection("glm", "sk", "https://open.bigmodel.cn/api/paas/v4", "openai")
-        )
+        with caplog.at_level(logging.WARNING, logger="llm_probe"):
+            out = _run_async(
+                do_test_connection("glm", "sk", "https://open.bigmodel.cn/api/paas/v4", "openai")
+            )
         assert out["ok"] is True
         assert [c[0] for c in fake_http.calls] == ["GET", "POST", "POST"]
         stripped = fake_http.calls[2][3]
         assert "thinking" not in stripped
         assert "reasoning_effort" not in stripped
         assert stripped["max_tokens"] == conn_mod._PROBE_MAX_TOKENS_THINKING
+        rejected = [
+            r for r in caplog.records
+            if r.name == "llm_probe" and "thinking_rejected" in r.getMessage()
+        ]
+        assert len(rejected) == 1, "被拒的首个请求恰一行留痕"
+        assert "status=400" in rejected[0].getMessage()
 
     def test_chat_probe_thinking_enabled_sends_effort(self, fake_http):
         """思考开启（c-thinking-config）：探针按配置发 thinking:enabled＋reasoning_effort，

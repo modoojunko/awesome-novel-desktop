@@ -589,7 +589,7 @@ const STATUS = {
 const CARD_BORDER = { ok: '', untested: '', auth_error: 'b-err', timeout: 'b-warn', network_error: 'b-warn', rate_limited: 'b-muted', unknown: 'b-muted' };
 
 const SEED_CONFIGS = [
-  { id: 'c1', name: '主线 · OpenAI', vendor: 'openai', base_url: 'https://api.openai.com', api_key_masked: 'sk-••••••••••A3f9', status: 'ok', models: ['gpt-4o', 'gpt-4o-mini', 'o3-mini'], affected: 1, tested: '2 小时前' },
+  { id: 'c1', name: '主线 · OpenAI', vendor: 'openai', base_url: 'https://api.openai.com', api_key_masked: 'sk-••••••••••A3f9', status: 'ok', models: ['gpt-4o', 'gpt-4o-mini', 'o3-mini'], thinking_enabled: true, thinking_effort: 'high', affected: 1, tested: '2 小时前' },
   { id: 'c2', name: '备用 · Anthropic', vendor: 'anthropic', base_url: 'https://api.anthropic.com', api_key_masked: 'sk-ant-••••••••9q2L', status: 'auth_error', models: ['claude-sonnet-5'], affected: 1, tested: '昨天' },
   { id: 'c3', name: '深度求索', vendor: 'deepseek', base_url: 'https://api.deepseek.com', api_key_masked: 'sk-••••••••••x1Kp', status: 'untested', models: [], affected: 0, tested: null },
   { id: 'c4', name: '本地 · Ollama', vendor: 'ollama', base_url: 'http://localhost:11434', api_key_masked: '', status: 'ok', models: ['qwen2.5:14b', 'llama3.1:8b'], affected: 1, tested: '1 小时前' },
@@ -906,6 +906,10 @@ function openForm(edit) {
     picker.picked = true; // 已存初值视同手选
     renderPickerMeta();
   }
+  // 思考参数随表单播种/重置（c-thinking-config）：编辑态回读已存值
+  selThinking = !!(edit && edit.thinking_enabled);
+  selEffort = (edit && edit.thinking_effort) || 'low';
+  syncThinkingUI();
   $('cfgError').hidden = true;
   $('cfTest').hidden = true;
   $('cfSave').textContent = edit ? '保存' : '保存并测试连接';
@@ -1048,6 +1052,8 @@ $('cfSave').addEventListener('click', () => {
     if (picked) {
       editTarget.models = [picked].concat((editTarget.models || []).filter(m => m !== picked)).slice(0, 100);
     }
+    editTarget.thinking_enabled = f.thinking_enabled;
+    editTarget.thinking_effort = f.thinking_effort;
     toast(`已保存「${editTarget.name}」`);
   } else {
     const cfg = {
@@ -1058,6 +1064,8 @@ $('cfSave').addEventListener('click', () => {
       api_key_masked: maskKey(f.api_key),
       status: 'untested',
       models: f.model ? [f.model] : [],
+      thinking_enabled: f.thinking_enabled,
+      thinking_effort: f.thinking_effort,
       affected: 0,
       tested: null,
     };
