@@ -544,15 +544,23 @@ def deletable_candidates(data_root: Path, migrated_stamps: str | set[str] | None
 
 
 def validate_candidate_filename(data_root: Path, filename: str,
-                                active_db_path: Path | None = None) -> Path | None:
+                                active_db_path: Path | None = None,
+                                allow_sentinel: bool = False) -> Path | None:
     """路径安全校验：白名单形状＋`resolve()` 收敛在数据目录内＋非活跃库＋非哨兵。
 
+    `allow_sentinel=True` 供**迁入链**（start/preview/dismiss）放行 dev 哨兵候选——
+    哨兵本就在候选白名单（c-dev-sentinel-migration-candidate：扫得到就必须搬得动）；
+    cleanup 仍恒拒（待删清单 MUST NOT 是哨兵名）。判例 c-sentinel-carry-gate
+    （v0.30.1 真机实锤）：本函数曾把 cleanup 的非哨兵规则上扩到全家——哨兵候选
+    扫得到、点「带过来」即 400「文件名不合法或不在数据目录内」。
     返回可安全操作的文件路径；不合法返回 None（供 dismiss/cleanup 复用）。
     """
     if not filename or "/" in filename or "\\" in filename:
         return None
     parsed = parse_db_filename(filename)
-    if not parsed.is_candidate or parsed.kind == "sentinel":
+    if not parsed.is_candidate:
+        return None
+    if parsed.kind == "sentinel" and not allow_sentinel:
         return None
     root = Path(data_root)
     candidate = root / filename

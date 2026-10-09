@@ -210,6 +210,45 @@ class TestRouter:
         cand2 = client.get("/api/backup/db-migration/candidates").json()["data"]["candidates"]
         assert cand2[0]["suppressed"] is True
 
+    def test_r2_sentinel_source_full_chain(self, client, sandbox):
+        """R2（c-sentinel-carry-gate，v0.30.1 真机判例）：dev 哨兵库作迁入源全链。
+        曾把 cleanup 的「非哨兵」规则上扩到 start/preview/dismiss——哨兵候选扫得到、
+        点「带过来」即 400「文件名不合法或不在数据目录内」（0.29.1→0.30.1 升级现场）。
+        哨兵在候选白名单内：迁入链必须放行、搬运真实完成。"""
+        import time
+
+        root, _active = sandbox
+        _old_gen0(root, name="novel-dev.db", books=1)
+        # 全局测试库有先行迁入残留（r1 等）：id 换成本用例唯一值，避免 INSERT OR
+        # IGNORE 幂等跳过导致 book_count_migrated 被吃掉
+        conn = sqlite3.connect(root / "novel-dev.db")
+        conn.execute("UPDATE novels SET id='sent1', slug='sent-1', root_path='./data/sent-1'")
+        conn.execute("UPDATE volumes SET id='sent1-v1', novel_id='sent1'")
+        conn.execute("UPDATE chapters SET id='sent1-c1', novel_id='sent1', volume_id='sent1-v1'")
+        conn.commit()
+        conn.close()
+        names = [x["filename"] for x in client.get(
+            "/api/backup/db-migration/candidates").json()["data"]["candidates"]]
+        assert "novel-dev.db" in names
+        c2 = client.post("/api/backup/db-migration/preview",
+                         json={"source_filename": "novel-dev.db"}).json()
+        assert c2["code"] == 0, c2
+        c3 = client.post("/api/backup/db-migration/start",
+                         json={"source_filename": "novel-dev.db"}).json()
+        assert c3["code"] == 0, c3
+        for _ in range(30):
+            c4 = client.get("/api/backup/db-migration/status").json()["data"]
+            if c4.get("state") in ("done", "error"):
+                break
+            time.sleep(0.2)
+        assert c4["state"] == "done", c4
+        assert c4["report"]["status"] == "ok"
+        assert c4["report"]["book_count_migrated"] >= 1
+        # dismiss 同链放行（「本版不再提醒」对哨兵候选同样可用）
+        c5 = client.post("/api/backup/db-migration/dismiss",
+                         json={"filename": "novel-dev.db"}).json()
+        assert c5["code"] == 0, c5
+
     def test_m5_preview_channel_message(self, client, sandbox):
         """M5 路由面：世代门禁在 preview 返回资产包引导（422 之外的人话通道）。"""
         root, _active = sandbox

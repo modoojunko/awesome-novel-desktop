@@ -32,6 +32,15 @@ def test_validated_source_rejects_missing_file(tmp_path, monkeypatch):
     assert migration_router._validated_source("novel-v1.db") == tmp_path / "novel-v1.db"
 
 
+def test_validated_source_allows_sentinel(tmp_path, monkeypatch):
+    """c-sentinel-carry-gate（v0.30.1 真机判例）：哨兵候选在迁入白名单内——
+    start/preview 不得 400（曾把 cleanup 的非哨兵规则上扩到迁入链，
+    0.29.1→0.30.1 升级现场点「带过来」即被拒）。"""
+    monkeypatch.setattr(migration_router, "DATA_ROOT", str(tmp_path))
+    (tmp_path / "novel-dev.db").write_bytes(b"SQLite format 3\x00")
+    assert migration_router._validated_source("novel-dev.db") == tmp_path / "novel-dev.db"
+
+
 def test_attach_statement_survives_quoted_name():
     """ATTACH 字面量转义：文件名含引号时语句仍合法（双写 '）。"""
     staged = "/data/mig-staging/it's.db"

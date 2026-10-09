@@ -128,10 +128,13 @@ def _history_entries() -> list[dict]:
 def _validated_source(filename: str) -> Path:
     """start/preview 入参走与 dismiss/cleanup 同源的白名单校验
     （c-backend-infra-hygiene）：这两条路径会读文件、复制并 ATTACH，
-    MUST NOT 未过校验即操作。不合法 → 400 可读拒绝。"""
+    MUST NOT 未过校验即操作。不合法 → 400 可读拒绝。
+    allow_sentinel=True：哨兵候选在迁入白名单内（v0.30.1 真机判例
+    c-sentinel-carry-gate——cleanup 的非哨兵规则不得上扩到迁入链）。"""
     from db_lifecycle import validate_candidate_filename
 
-    p = validate_candidate_filename(Path(DATA_ROOT), filename, _active_db_path())
+    p = validate_candidate_filename(Path(DATA_ROOT), filename, _active_db_path(),
+                                    allow_sentinel=True)
     if p is None or not p.exists():
         raise HTTPException(400, "文件名不合法或不在数据目录内")
     return p
@@ -308,7 +311,9 @@ async def dismiss(body: DismissBody):
     """
     from db_lifecycle import validate_candidate_filename
 
-    p = validate_candidate_filename(Path(DATA_ROOT), body.filename, _active_db_path())
+    # allow_sentinel：哨兵候选可 snooze（c-sentinel-carry-gate——迁入链放行哨兵）
+    p = validate_candidate_filename(Path(DATA_ROOT), body.filename, _active_db_path(),
+                                    allow_sentinel=True)
     if p is None or not p.exists():
         return {"code": 1, "msg": "文件不存在"}
     await _set_app_meta(SNOOZE_KEY, candidate_stamp(body.filename, p))

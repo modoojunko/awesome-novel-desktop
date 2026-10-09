@@ -547,10 +547,18 @@ def test_up12_retention_and_cleanup(tmp_path):
     assert validate_candidate_filename(tmp_path, "../novel-v0.21.db") is None
     assert validate_candidate_filename(tmp_path, "sub/novel-v0.21.db") is None
     assert validate_candidate_filename(tmp_path, "novel-dev.db") is None
-    assert validate_candidate_filename(tmp_path, db_filename_for("0.21"),
-                                       tmp_path / db_filename_for("0.21")) is None
+    # 哨兵双口径（c-sentinel-carry-gate，v0.30.1 真机判例）：迁入链放行
+    # （哨兵在候选白名单内，扫得到就必须搬得动）；cleanup 恒拒（文件在场也删不得）
+    assert validate_candidate_filename(tmp_path, "novel-dev.db",
+                                       allow_sentinel=True) == tmp_path / "novel-dev.db"
     assert delete_candidate(tmp_path, "../novel-v0.21.db") is False
     assert never_migrated.exists()
+    sentinel = tmp_path / "novel-dev.db"
+    sentinel.write_bytes(b"SQLite format 3\x00")
+    assert delete_candidate(tmp_path, "novel-dev.db") is False, "cleanup 恒拒哨兵"
+    assert sentinel.exists()
+    assert validate_candidate_filename(tmp_path, db_filename_for("0.21"),
+                                       tmp_path / db_filename_for("0.21")) is None
 
     assert delete_candidate(tmp_path, db_filename_for("0.21")) is True
     assert not (tmp_path / db_filename_for("0.21")).exists()

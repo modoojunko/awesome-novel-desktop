@@ -75,7 +75,7 @@ def test_dismiss_endpoint_writes_snooze_key(monkeypatch):
     async def fake_set(key, value):
         written[key] = value
 
-    def fake_validate(root, filename, active):
+    def fake_validate(root, filename, active, allow_sentinel=False):
         f = _P(root) / filename
         f.write_bytes(b"x")
         return f
