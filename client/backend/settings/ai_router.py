@@ -585,6 +585,14 @@ def _sanitize_topic(raw) -> str:
     return re.sub(r"[\x00-\x1f\x7f\r]", "", topic).strip()[:60]
 
 
+def _sanitize_current(raw, limit: int = 300) -> str:
+    """current（作者底稿）消毒：同 topic 口径但保制表符/换行（CR 一并剥，防 CRLF 双写）。
+    limit：text 格＝300（与输入框 maxLength 对齐）；kv/faction 条目格序列化后更长，
+    调用方放宽到 2400——截太短会让模型看不到作者尾部条目（合并采纳前的丢行源）。"""
+    text = re.sub(r"[{}\[\]<>`]", "", str(raw or ""))
+    return re.sub(r"[\x00-\x08\x0b-\x1f\x7f]", "", text).strip()[:limit]
+
+
 def _normalize_draft_value(shape: str, raw) -> object:
     """按形状归一 AI 返回的 value：text 出一段话，kv/faction 出条目数组（空项丢弃）。"""
     if shape == "text":
@@ -621,6 +629,7 @@ async def draft_world_topic(
 
     后端不枚举合法主题——只要作家或体检觉得需要，就能 AI 起草。
     shape 声明落格形状：text（一段话）/ kv（名目条目）/ faction（势力行）。
+    current 带当前格作者底稿（前端页面文本，未保存的半稿也算）——模板在其上补全不推翻。
     """
     project = await get_novel(db, project_id, user["id"])
     if not project:
@@ -641,6 +650,9 @@ async def draft_world_topic(
     if bool(normalize_world(world_raw).get("no_power")) and topic in ("力量体系", "力量的代价"):
         raise HTTPException(400, "本书开了现实向（无超自然力量），不起草力量内容；可起草「更多世界细节」")
     ctx = await _world_context(project, story)
+    # 底稿上限随落格形态：text＝输入框 maxLength 300；条目格序列化（10 条铁律/6 行势力）
+    # 约 2400 字封顶，放宽保作者尾部条目进 prompt
+    current = _sanitize_current(body.get("current"), 300 if shape == "text" else 2400) or "（作者还没写）"
 
     _s_wd, prompt = load_layers("world_draft_topic")
     _sys_wd = _s_wd.format(topic=topic) if _s_wd else "你是小说设定专家。只输出 JSON，不要任何其他文字。"
@@ -651,6 +663,7 @@ async def draft_world_topic(
         theme=ctx["theme"],
         theme_desc=ctx["theme_desc"],
         world=ctx["world"],
+        current=current,
         shape_line=_DRAFT_SHAPE_LINE[shape],
         format_line=_DRAFT_FORMAT_LINE[shape],
         topic_line=_DRAFT_TOPIC_LINE.get(topic, ""),

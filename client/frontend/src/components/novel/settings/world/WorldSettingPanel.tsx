@@ -244,6 +244,23 @@ const WorldSettingPanel = forwardRef<WorldPanelHandle, WorldPanelProps>(function
     constraints: "铁律 × 简介",
     factions: "势力立场",
   };
+  /** 当前格作者底稿 → 起草 current 参数（c-world-draft-input）：页面文本直传，
+   *  未保存的半稿也算；条目格拼「名：值」行，让 AI 在已有内容上补全不推翻。 */
+  const currentTextOf = (key: WorldSinkKey, w: WorldData): string => {
+    if (key === "factions") {
+      return w.factions
+        .filter((f) => f.name.trim() || f.note.trim())
+        .map((f) => (f.note ? `${f.name}：${f.note}` : f.name))
+        .join("\n");
+    }
+    if (key === "constraints") {
+      return w.constraints
+        .filter((c) => c.key.trim() || c.value.trim())
+        .map((c) => (c.value ? `${c.key}：${c.value}` : c.key))
+        .join("\n");
+    }
+    return w[key];
+  };
 
   /** 采纳收尾：标注已处理；有体检报告在则自动回报告卡（D6 修补循环不断链） */
   const afterAdopt = useCallback((key: WorldSinkKey) => {
@@ -266,9 +283,14 @@ const WorldSettingPanel = forwardRef<WorldPanelHandle, WorldPanelProps>(function
         toast.error("结果形状不对，请重试");
         return;
       }
-      const next = entry.value;
+      // 合并（同铁律口径）：按名去重、只追加新行——整体替换会在 current 截断时
+      // 丢掉作者尾部条目（c-world-draft-input 评审 P2）
+      const existing = new Set(before.factions.map((f) => f.name));
+      const add = entry.value.filter((f) => !existing.has(f.name));
+      const next = [...before.factions, ...add].slice(0, 6);
+      const added = next.length - before.factions.length;
       record(
-        `已采纳「势力」（势力 ${before.factions.length} 行 → ${next.length} 行）`,
+        `已采纳「势力」${added} 行（势力 ${before.factions.length} 行 → ${next.length} 行）`,
         () => setWorld((w) => ({ ...w, factions: next })),
         () => setWorld((w) => ({ ...w, factions: before.factions })),
       );
@@ -339,8 +361,12 @@ const WorldSettingPanel = forwardRef<WorldPanelHandle, WorldPanelProps>(function
         });
         setCheckOpen(true);
       } else {
-        const shape = SINK_SHAPE[key as WorldSinkKey] ?? "text";
-        const res = await worldDraftTopic(SINK_TOPIC[key as WorldSinkKey] ?? key, projectId, shape);
+        const sink = key as WorldSinkKey;
+        const shape = SINK_SHAPE[sink] ?? "text";
+        // 作者底稿随请求直传（dataRef 取最新——含未保存的半稿）
+        const res = await worldDraftTopic(
+          SINK_TOPIC[sink] ?? key, projectId, shape, currentTextOf(sink, dataRef.current),
+        );
         const raw = res.value;
         const rows = Array.isArray(raw) ? raw : null;
         const txt = rows

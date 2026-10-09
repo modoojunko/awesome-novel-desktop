@@ -19,10 +19,10 @@ class TestPromptLoader:
         assert len(content) > 50
 
     def test_load_world_draft_topic(self):
-        """world v2 通用起草模板：占位符与 ai_router .format 键对齐。"""
+        """world 通用起草模板：占位符与 ai_router .format 键对齐（v3 加 {current} 底稿位）。"""
         content = load_prompt("world_draft_topic")
         assert isinstance(content, str)
-        for key in ("{topic}", "{world}", "{shape_line}", "{format_line}", "{topic_line}"):
+        for key in ("{topic}", "{world}", "{current}", "{shape_line}", "{format_line}", "{topic_line}"):
             assert key in content
 
     def test_load_story_stage(self):

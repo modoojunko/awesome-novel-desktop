@@ -330,15 +330,17 @@ export type WorldDraftValue =
   | Array<{ key: string; value: string }>
   | WorldFaction[];
 
-/** 通用按主题起草：topic 是任意世界要素名，后端动态构建 prompt */
+/** 通用按主题起草：topic 是任意世界要素名，后端动态构建 prompt。
+ *  current=当前格作者底稿（页面文本，未保存的半稿也算）——AI 只在其上补全不推翻。 */
 export async function worldDraftTopic(
   topic: string,
   projectId: string,
   shape: WorldDraftShape = "text",
+  current = "",
 ): Promise<{ value: WorldDraftValue; topic: string }> {
   return doJsonPost(
     `${API_BASE}/novels/${projectId}/settings/ai/world/draft`,
-    { topic, shape },
+    { topic, shape, current },
   );
 }
 
