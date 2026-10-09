@@ -181,6 +181,35 @@ describe("WorldSettingPanel", () => {
     expect(screen.getAllByDisplayValue("死者不可复生")).toHaveLength(1);
   });
 
+  it("势力采纳合并：已有行保留、同名去重，只追加新行（评审 P2 修复）", async () => {
+    apiGet.mockImplementation((url: string) => {
+      if (String(url).includes("settings/genre"))
+        return Promise.resolve({ theme: "仙侠/修真", sub_genre: "凡人流" });
+      return Promise.resolve({
+        ...EMPTY,
+        factions: [{ name: "丹阁", note: "要为残卷讨说法" }],
+      });
+    });
+    worldDraftTopic.mockResolvedValue({
+      value: [
+        { name: "丹阁", note: "要为残卷讨一个说法" },
+        { name: "散修联盟", note: "求活路" },
+      ],
+      topic: "势力",
+    });
+    const ref = createRef<WorldPanelHandle>();
+    render(<WorldSettingPanel projectId="p1" ref={ref} />);
+    await screen.findByText("势力");
+    await waitFor(() => expect(ref.current).not.toBeNull());
+    await act(async () => { await ref.current!.runAi("factions"); });
+    fireEvent.click(await screen.findByText("采纳 · 合并"));
+    // 原行保留、同名「丹阁」不重复、新行「散修联盟」追加——整体替换会丢原行
+    expect(screen.getAllByDisplayValue("丹阁")).toHaveLength(1);
+    expect(screen.getByDisplayValue("要为残卷讨说法")).toBeTruthy();
+    expect(screen.getByDisplayValue("散修联盟")).toBeTruthy();
+    expect(screen.getByDisplayValue("求活路")).toBeTruthy();
+  });
+
   it("历史与旧账：建议名目加一条", async () => {
     render(<WorldSettingPanel projectId="p1" />);
     await screen.findByText("历史与旧账");

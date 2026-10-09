@@ -525,16 +525,18 @@ class TestDraftShape:
         assert r.status_code == 502
 
     @staticmethod
-    def _capturing_client(prompts: list):
+    def _capturing_client(prompts: list, payload=None):
         """记录每次调用 user prompt 的假客户端（断言 {current} 落进模板用）。"""
         import json as _json
+
+        result = _json.dumps(payload if payload is not None else {"value": "一段话内容"})
 
         class _Fake:
             model = "fake"
 
             async def chat(self, *a, **k):
                 prompts.append(k.get("messages", [{}])[0].get("content", ""))
-                return _json.dumps({"value": "一段话内容"})
+                return result
 
         async def _fake_get_client(novel_id=None):
             return _Fake()
@@ -553,7 +555,9 @@ class TestDraftShape:
         assert r.status_code == 200, r.text
         assert "灵力九境" in prompts[0]
         assert "金丹可毁山、不可灭城" in prompts[0]
-        assert "{" not in prompts[0].split("输出格式")[0]
+        # 只断 current 行自身无花括号（{world} 值含花括号是合法的，不误伤）
+        seed_lines = [l for l in prompts[0].splitlines() if "灵力九境" in l or "金丹" in l]
+        assert seed_lines and all("{" not in l and "}" not in l for l in seed_lines)
 
     def test_current_missing_falls_back(self, client, pid, monkeypatch):
         """不带 current 的旧调用：模板回落「（作者还没写）」而非 KeyError。"""
@@ -565,6 +569,20 @@ class TestDraftShape:
                         json={"topic": "力量的代价"})
         assert r.status_code == 200, r.text
         assert "（作者还没写）" in prompts[0]
+
+    def test_current_entry_shape_keeps_long_seed(self, client, pid, monkeypatch):
+        """条目格底稿不受 300 截断（限 2400）——尾部条目必须进 prompt（评审 P2 配套）。"""
+        prompts: list = []
+        monkeypatch.setattr(
+            "settings.ai_router.get_ai_client_for_novel",
+            self._capturing_client(prompts, {"value": [{"key": "新增铁律", "value": "一句话"}]}),
+        )
+        seed = "\n".join(f"条目{i:02d}：{'设定内容' * 10}" for i in range(12))  # ≈1200 字 >300
+        assert len(seed) > 300
+        r = client.post(f"/api/novels/{pid}/settings/ai/world/draft",
+                        json={"topic": "世界铁律", "shape": "kv", "current": seed})
+        assert r.status_code == 200, r.text
+        assert "条目00" in prompts[0] and "条目11" in prompts[0]
 
 
 # ── 评审回归补充：上下文 await / 迁移往返 / 幂等键 / 模板 v2 ──────────────

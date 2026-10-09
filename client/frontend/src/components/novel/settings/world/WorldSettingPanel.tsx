@@ -283,9 +283,14 @@ const WorldSettingPanel = forwardRef<WorldPanelHandle, WorldPanelProps>(function
         toast.error("结果形状不对，请重试");
         return;
       }
-      const next = entry.value;
+      // 合并（同铁律口径）：按名去重、只追加新行——整体替换会在 current 截断时
+      // 丢掉作者尾部条目（c-world-draft-input 评审 P2）
+      const existing = new Set(before.factions.map((f) => f.name));
+      const add = entry.value.filter((f) => !existing.has(f.name));
+      const next = [...before.factions, ...add].slice(0, 6);
+      const added = next.length - before.factions.length;
       record(
-        `已采纳「势力」（势力 ${before.factions.length} 行 → ${next.length} 行）`,
+        `已采纳「势力」${added} 行（势力 ${before.factions.length} 行 → ${next.length} 行）`,
         () => setWorld((w) => ({ ...w, factions: next })),
         () => setWorld((w) => ({ ...w, factions: before.factions })),
       );
