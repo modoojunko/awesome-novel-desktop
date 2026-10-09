@@ -256,7 +256,11 @@
    查看态不加（阅读面随文走）；[hidden] 有 base.css !important 守卫。 */
 .editor-wrap.editing { display: flex; flex-direction: column; padding-bottom: 36px; }
 .editor-wrap.editing .editor-host { flex: 1 0 auto; display: flex; flex-direction: column; }
-.editor-wrap.editing .editor-host .editor { flex: 1 0 auto; }
+/* width:100% 钉版心宽（10-09 用户反馈）：.editor 的 margin-inline:auto 在 flex
+   交叉轴上会让 align-items:stretch 失效、宽度退化成 fit-content——空章生成时
+   呼吸框塌成一条竖条，首字到达后跟着内容从竖条长到 680 才稳住。钉满宽后
+   生成特效从第一帧起就是整个版心（宽 680 居中仍由 auto margin＋max-width 承担）。 */
+.editor-wrap.editing .editor-host .editor { flex: 1 0 auto; width: 100%; }
 .ol-top.edit-bar {
   margin: 0;
   padding: 6px 10px;
