@@ -319,3 +319,70 @@ describe("carryStore attach/reset（评审修复单源）", () => {
     actual.resetCarryStoreForTests();
   });
 });
+
+describe("c-carry-retry-complete 结果卡", () => {
+  const setReport = (report: Record<string, unknown>) => {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any -- 测试桩直接构 job
+    return { state: "done", report } as any;
+  };
+
+  it("成功卡书数取在场数（present）——重带幂等下 migrated=0 不得显示「0 本」", async () => {
+    const { rere } = renderDialog();
+    await act(async () => { fireEvent.click(screen.getByTestId("carry-start")); });
+    storeState.job = setReport({
+      status: "ok", complete: true, dead_keys: 0,
+      book_count_source: 3, book_count_migrated: 0, book_count_present: 3,
+    });
+    rere();
+    const result = await screen.findByTestId("carry-result");
+    expect(result.textContent).toContain("已带回 3 本书");
+    expect(result.textContent).not.toContain("已带回 0 本书");
+  });
+
+  it("成功卡带出引擎 notes（FK 孤儿留痕），API Key 死钥 note 不与死钥条件句重复", async () => {
+    const { rere } = renderDialog();
+    await act(async () => { fireEvent.click(screen.getByTestId("carry-start")); });
+    storeState.job = setReport({
+      status: "ok", complete: true, dead_keys: 1, book_count_present: 2,
+      notes: [
+        "1 条配置的 API Key 按当前加密钥匙不可解——请在「模型配置」重新粘贴保存",
+        "2 条数据的关联在旧库里就不完整（引用的对象已不存在），已原样带过来，不影响使用",
+      ],
+    });
+    rere();
+    const result = await screen.findByTestId("carry-result");
+    expect(result.textContent).toContain("1 条配置的 Key"); // 死钥条件句
+    expect(result.textContent).toContain("已原样带过来"); // 孤儿留痕 note
+    expect(result.textContent).not.toContain("按当前加密钥匙不可解"); // 不重复
+  });
+
+  it("不完整卡实名明细：跳过表名＋缺几本书＋缺行表名，退路句恒在", async () => {
+    const { rere } = renderDialog();
+    await act(async () => { fireEvent.click(screen.getByTestId("carry-start")); });
+    storeState.job = setReport({
+      status: "ok", complete: false, dead_keys: 0,
+      book_count_source: 5, book_count_present: 2, book_count_migrated: 0,
+      tables_skipped: [{ table: "chapters" }],
+      tables: [{ table: "chapter_contents", rows_source: 9, rows_missing: 7 }],
+    });
+    rere();
+    const result = await screen.findByTestId("carry-partial");
+    expect(result.textContent).toContain("这些数据段没有带过来：chapters");
+    expect(result.textContent).toContain("有 3 本书没有带过来");
+    expect(result.textContent).toContain("「chapter_contents」缺 7 行");
+    expect(result.textContent).toContain("可以重新带一次，或用备份包恢复");
+  });
+
+  it("对不上任何已知缺口时退回泛化文案（不空白）", async () => {
+    const { rere } = renderDialog();
+    await act(async () => { fireEvent.click(screen.getByTestId("carry-start")); });
+    storeState.job = setReport({
+      status: "ok", complete: false, dead_keys: 0,
+      book_count_source: null, book_count_present: null,
+      tables_skipped: [], tables: [],
+    });
+    rere();
+    const result = await screen.findByTestId("carry-partial");
+    expect(result.textContent).toContain("有内容没有完整迁入");
+  });
+});

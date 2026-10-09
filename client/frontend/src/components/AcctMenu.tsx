@@ -211,7 +211,8 @@ export default function AcctMenu({
           const rep = d.report;
           if (rep?.status === "ok") {
             import("@/lib/toast").then(({ toast }) => {
-              toast.success(`已带回 ${rep.book_count_migrated ?? "?"} 本书`);
+              // 书数取在场数（present）：重带幂等下「本次插入」恒 0（c-carry-retry-complete）
+              toast.success(`已带回 ${rep.book_count_present ?? rep.book_count_migrated ?? "?"} 本书`);
             });
           } else {
             import("@/lib/toast").then(({ toast }) => {

@@ -53,8 +53,13 @@ export interface CarryReport {
   complete?: boolean | null;
   book_count_source?: number | null;
   book_count_migrated?: number | null;
+  /** 源书在目标库的在场数（c-carry-retry-complete：完整判定与「已带回」展示单源） */
+  book_count_present?: number | null;
   tables_skipped?: Array<{ table: string; reason?: string }>;
   fk_violations?: unknown[];
+  /** 逐表搬运明细（存在性核对：rows_missing>0＝有行没带过来） */
+  tables?: Array<{ table: string; rows_source?: number | null; rows_missing?: number | null }>;
+  notes?: string[];
 }
 
 interface CarryState {

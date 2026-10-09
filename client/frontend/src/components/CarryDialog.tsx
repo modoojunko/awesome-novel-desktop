@@ -23,6 +23,30 @@ type Step = 'card' | 'progress' | 'result';
 
 const fmtWords = (n: number): string => (n >= 10000 ? `${(n / 10000).toFixed(1)} 万` : `${n}`);
 
+/**
+ * 结果卡实名明细（c-carry-retry-complete）：把「不完整」落到具体缺了什么——
+ * 整表跳过列名、缺几本书、哪些表缺几行；一样都对不上时才退回泛化文案。
+ */
+function carryGaps(report: CarryReport): string[] {
+  const lines: string[] = [];
+  const skipped = report.tables_skipped ?? [];
+  if (skipped.length > 0) {
+    lines.push(`这些数据段没有带过来：${skipped.map((s) => s.table).join('、')}`);
+  }
+  const src = report.book_count_source ?? null;
+  const present = report.book_count_present ?? report.book_count_migrated ?? null;
+  if (src != null && present != null && present < src) {
+    lines.push(`有 ${src - present} 本书没有带过来`);
+  }
+  const missing = (report.tables ?? []).filter((t) => (t.rows_missing ?? 0) > 0);
+  if (missing.length > 0) {
+    const head = missing.slice(0, 3)
+      .map((t) => `「${t.table}」缺 ${t.rows_missing} 行`).join('；');
+    lines.push(`部分数据没有带过来：${head}${missing.length > 3 ? ` 等 ${missing.length} 项` : ''}`);
+  }
+  return lines;
+}
+
 export default function CarryDialog({
   candidate,
   others,
@@ -221,9 +245,13 @@ export default function CarryDialog({
               <p style={{ fontSize: 12.5, color: 'var(--muted)', margin: '0 0 4px' }}>
                 跟升级前一模一样——书架、设定、章节都在；模型配置连 Key 一起可用，不用重新粘贴。
               </p>
+              {/* 书数取在场数（present）：重带幂等下「本次插入」恒 0，用户要的是总共带回几本 */}
               <p style={{ fontSize: 12, color: 'var(--muted)', margin: '4px 0 0' }}>
-                已带回 <span className="num">{report.book_count_migrated ?? '?'}</span> 本书；旧文件仍在原位置，随时可以装回旧版本。
+                已带回 <span className="num">{report.book_count_present ?? report.book_count_migrated ?? '?'}</span> 本书；旧文件仍在原位置，随时可以装回旧版本。
               </p>
+              {(report.notes ?? []).filter((n) => !n.includes('API Key')).map((n) => (
+                <p key={n} style={{ fontSize: 12, color: 'var(--muted)', margin: '4px 0 0' }}>{n}</p>
+              ))}
             </>
           ) : (
             <>
@@ -238,9 +266,19 @@ export default function CarryDialog({
                   borderRadius: 9,
                 }}
               >
-                {report.status === 'ok'
-                  ? `有 ${(report.tables_skipped?.length ?? 0) > 0 ? '数据段' : '内容'}没有完整迁入，旧版里可能有内容没带过来。可以重新带一次，或用备份包恢复。`
-                  : report.reason || '带回没有完成——已带过来的部分不会重复，稍后可重新执行。'}
+                {report.status === 'ok' ? (
+                  <>
+                    {(carryGaps(report).length > 0
+                      ? carryGaps(report)
+                      : ['有内容没有完整迁入，旧版里可能有内容没带过来。']
+                    ).map((line) => (
+                      <p key={line} style={{ margin: 0 }}>{line}</p>
+                    ))}
+                    <p style={{ margin: '6px 0 0' }}>可以重新带一次，或用备份包恢复。</p>
+                  </>
+                ) : (
+                  report.reason || '带回没有完成——已带过来的部分不会重复，稍后可重新执行。'
+                )}
               </div>
             </>
           )}

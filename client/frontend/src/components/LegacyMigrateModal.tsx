@@ -39,6 +39,9 @@ interface MigrationReport {
   reason?: string;
   book_count_source?: number;
   book_count_migrated?: number;
+  /** 源书在目标库的在场数（c-carry-retry-complete：重带幂等的完整口径） */
+  book_count_present?: number;
+  complete?: boolean;
   book_count_target_after?: number;
   fk_violations?: unknown[];
 }
@@ -190,11 +193,14 @@ export default function LegacyMigrateModal({
     }
   };
 
-  /** 清理入口的显示条件：**全部成功**才出现（部分失败不得引导删旧文件）。 */
+  /** 清理入口的显示条件：**全部成功**才出现（部分失败不得引导删旧文件）。
+   *  书覆盖按在场数（present）——migrated 是「本次插入」数，重带幂等下恒 0，
+   *  拿它对拍会让成功重带永远出不来清理入口（c-carry-retry-complete）。 */
   const cleanupEligible = (rep: MigrationReport | null): boolean =>
     !!rep && rep.status === 'ok'
     && (rep.fk_violations?.length ?? 0) === 0
-    && (rep.book_count_source ?? 0) === (rep.book_count_migrated ?? -1);
+    && (rep.book_count_source ?? 0)
+      === (rep.book_count_present ?? rep.book_count_migrated ?? -1);
 
   const loadRetention = async () => {
     setBusy(true);
@@ -346,8 +352,9 @@ export default function LegacyMigrateModal({
       )}
       {step === 'result' && result && (
         <div>
+          {/* 书数取在场数（present）：重带幂等下「本次插入」恒 0（c-carry-retry-complete） */}
           <p style={{ fontSize: 18, fontFamily: 'var(--font-display)', fontWeight: 600, margin: '0 0 8px', textAlign: 'center' }}>
-            已带回 {result.book_count_migrated ?? '?'} 本书
+            已带回 {result.book_count_present ?? result.book_count_migrated ?? '?'} 本书
           </p>
           <p style={{ fontSize: 12.5, color: 'var(--muted)', margin: '0 0 16px', textAlign: 'center' }}>
             原来的旧文件没有改动，保留在原处。

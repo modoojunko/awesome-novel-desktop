@@ -408,8 +408,10 @@ async def _record_completion(source_filename: str, report: dict) -> None:
         **{k: payload[k] for k in
            ("source_filename", "source_stamp", "source_version",
             "legacy_generation", "book_count_migrated", "finished_at")},
-        # 完整性字段（c-db-version-hardening）：cleanup 白名单据此拒绝半途搬运的源
+        # 完整性字段（c-db-version-hardening）：cleanup 白名单据此拒绝半途搬运的源；
+        # present＝源书在场数（c-carry-retry-complete——完整判定按在场不按本次插入）
         "book_count_source": report.get("book_count_source"),
+        "book_count_present": report.get("book_count_present"),
         "tables_skipped": len(skipped) if isinstance(skipped, list) else skipped,
         "fk_violations": len(fk) if isinstance(fk, list) else fk,
     })
