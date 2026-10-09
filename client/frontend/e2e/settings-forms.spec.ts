@@ -21,12 +21,13 @@ import { entitlementFor } from "./tier-features";
 
 const S_API = process.env.E2E_S_API || "http://127.0.0.1:19000/api/web";
 const ORIGIN = process.env.E2E_BASE_URL || "http://localhost:5174";
-// docker C端 后端的 config.json（bind mount .docker-data/client → /app/data）
+// docker C端 后端的 config.json（bind mount 数据目录 → /app/data）。
+// 会话隔离跑法可注入 E2E_DATA_ROOT（如 .docker-e2e-chars）——默认 .docker-data 不变。
 const CONFIG_PATH = path.join(
   process.cwd(),
   "..",
   "..",
-  ".docker-data",
+  process.env.E2E_DATA_ROOT || ".docker-data",
   "client",
   "config.json",
 );

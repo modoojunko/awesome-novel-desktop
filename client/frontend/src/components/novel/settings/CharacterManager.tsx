@@ -20,6 +20,10 @@ import {
 } from "@/lib/characterModel";
 import { Ico } from "@/components/icons";
 import AiCardModal from "./AiCardModal";
+import BatchAddModal from "./BatchAddModal";
+import type { BatchRow } from "@/lib/characterImport";
+import { effectiveRole } from "@/lib/characterImport";
+import { isNameTaken } from "@/lib/charactersApi";
 import type { AiState } from "@/types/api-config";
 
 interface Props {
@@ -153,6 +157,9 @@ const CharacterManager = forwardRef<CharacterSaveHandle, Props>(function Charact
   const [toast, setToast] = useState("");
   /** 删除/合并后的撤销句柄（后端 ops token），随下一次操作或刷新消失 */
   const [undoOp, setUndoOp] = useState<{ opId: string } | null>(null);
+  /** 批量导入（c-char-batch-import）：弹层开关＋本批已建卡 id（「撤销本次全部」的靶子） */
+  const [batchOpen, setBatchOpen] = useState(false);
+  const [batchCreatedIds, setBatchCreatedIds] = useState<string[]>([]);
 
   const queueRef = useRef<{ path: string; value: unknown }[]>([]);
   const runningRef = useRef(false);
@@ -423,6 +430,76 @@ const CharacterManager = forwardRef<CharacterSaveHandle, Props>(function Charact
     }
   }, [projectId, list.length, reloadList, loadCard, showToast]);
 
+  /** 批量导入确认（c-char-batch-import）：串行建卡（每卡恰 1 请求）；409 计跳过，
+   *  其他错误停批（failMsg＋剩余行回预览重试）。建卡前 flush 保存队列（照 adoptBootstrap）。 */
+  const handleBatchSubmit = useCallback(async (
+    rows: BatchRow[],
+    onProgress: (done: number, total: number) => void,
+  ) => {
+    if (timerRef.current) window.clearTimeout(timerRef.current);
+    await flushQueue();
+    const createdIds: string[] = [];
+    let skipped = 0;
+    let failMsg: string | undefined;
+    let remaining: BatchRow[] | undefined;
+    for (let i = 0; i < rows.length; i++) {
+      const row = rows[i];
+      onProgress(i, rows.length);
+      try {
+        const created = await charactersApi.create(projectId, row.name, {
+          role: effectiveRole(row),
+          persona: row.persona,
+          aliases: row.aliases,
+          dossier: row.dossier,
+        });
+        createdIds.push(created.id);
+      } catch (e) {
+        if (isNameTaken(e)) {
+          skipped += 1; // 建卡间隙被建了同名：按预览口径计跳过，继续
+          continue;
+        }
+        failMsg = `已建 ${createdIds.length}/${rows.length}——「${row.name || "未命名"}」失败：${(e as Error).message || "请重试"}`;
+        remaining = rows.slice(i);
+        break;
+      }
+    }
+    onProgress(rows.length, rows.length);
+    if (createdIds.length) {
+      setBatchCreatedIds(createdIds);
+      showToast(`已建 ${createdIds.length} 张卡${skipped ? ` · 跳过 ${skipped}` : ""}${failMsg ? "（部分未建，见弹窗）" : ""}`);
+      await reloadList();
+      if (createdIds[0]) {
+        selectedIdRef.current = createdIds[0];
+        setSelectedId(createdIds[0]);
+        await loadCard(createdIds[0]).catch(() => undefined);
+      }
+    } else {
+      showToast(skipped ? `全部跳过（${skipped} 个重名）` : "没有可建卡的有效行");
+    }
+    return { created: createdIds.length, skipped, createdIds, failMsg, remaining };
+  }, [projectId, flushQueue, reloadList, loadCard, showToast]);
+
+  /** 「撤销本次全部」：循环既有 DELETE（404＝已被手动删过，视为已撤），一次清掉本批卡 */
+  const doBatchUndo = useCallback(async () => {
+    for (const id of batchCreatedIds) {
+      await charactersApi.remove(projectId, id).catch(() => undefined);
+    }
+    setBatchCreatedIds([]);
+    const items = await reloadList();
+    if (!items.some((c) => c.id === selectedIdRef.current)) {
+      if (items[0]) {
+        selectedIdRef.current = items[0].id;
+        setSelectedId(items[0].id);
+        await loadCard(items[0].id).catch(() => undefined);
+      } else {
+        setSelectedId("");
+        setCard(null);
+        onCtxChange?.(null);
+      }
+    }
+    showToast("已撤销本次导入");
+  }, [batchCreatedIds, projectId, reloadList, loadCard, showToast, onCtxChange]);
+
   const adoptSink = useCallback(async () => {
     if (!sink || !card) return;
     // 逐格采纳：以服务端返回的 rev 为准（本地 +1 会与真实版本脱钩）；
@@ -649,6 +726,10 @@ const CharacterManager = forwardRef<CharacterSaveHandle, Props>(function Charact
   }));
   const sealChar = displayName(card?.name)?.trim()?.[0] ?? "\uff1f";
 
+  /** 批量导入的重名判定集（库内显示名；空名占位卡不参与匹配） */
+  const existingNames = useMemo(() => new Set(list.map((c) => displayName(c.name))), [list]);
+  const hasProtagonist = useMemo(() => list.some((c) => c.role === "主角"), [list]);
+
   /** 出稿逐格行（弹窗卡体内渲染；内嵌预览块词汇已退役） */
   const draftRows = (data: { cells: { path: string; value: string }[]; skipped?: { key: string; why: string }[] }) => (
     <>
@@ -671,9 +752,19 @@ const CharacterManager = forwardRef<CharacterSaveHandle, Props>(function Charact
           角色列表
           <span style={{ marginLeft: "auto", fontSize: 10.5, color: "var(--muted)" }}>{list.length}</span>
         </div>
-        <button type="button" className="char-add" onClick={() => void addCharacter()}>
-          <Ico d="plus" size={13} /> 添加角色
-        </button>
+        <div className="char-add-row">
+          <button type="button" className="char-add" onClick={() => void addCharacter()}>
+            <Ico d="plus" size={13} /> 添加角色
+          </button>
+          <button
+            type="button"
+            className="char-add char-add-more"
+            data-testid="char-batch-open"
+            onClick={() => setBatchOpen(true)}
+          >
+            批量添加
+          </button>
+        </div>
         <input
           className="char-search"
           type="search"
@@ -1120,7 +1211,27 @@ const CharacterManager = forwardRef<CharacterSaveHandle, Props>(function Charact
             )}
           </p>
         )}
+        {/* 批量导入回执（c-char-batch-import）：常驻（不随 toast 2.6s 消失），
+            撤销或下一批导入前一直可点——撤销入口不能是限时入口 */}
+        {batchCreatedIds.length > 0 && (
+          <p className="opt" data-testid="char-batch-receipt">
+            本批已导入 {batchCreatedIds.length} 张卡{" "}
+            <button type="button" className="char-undo" data-testid="char-batch-undo" onClick={() => void doBatchUndo()}>
+              撤销本次全部
+            </button>
+          </p>
+        )}
       </div>
+
+      {/* 批量添加弹层（c-char-batch-import）：解析/预览在弹层内，建卡串行上抛本组件 */}
+      <BatchAddModal
+        open={batchOpen}
+        existingNames={existingNames}
+        hasProtagonist={hasProtagonist}
+        onClose={() => setBatchOpen(false)}
+        onToast={showToast}
+        onSubmit={handleBatchSubmit}
+      />
 
       {/* AI 出卡确认弹窗：出稿（bootstrap/persona/dossier/cog）＋体检统一进卡，
           关闭即弃；缓存重开免请求（D9）；「去改」＝关卡＋展开对应认知层 */}

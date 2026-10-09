@@ -1960,3 +1960,12 @@ baseurl 到什么程度，要有个案例。」——中转站/自建网关用�
 2. **形态**：复用 `.cf-hint`/`code`（原型内补 `.cf-hint code` 样式登记），无新语气档；
    「OpenAI 兼容」供应商的 Gemini/反代引导行保持不变（两条提示互补：一条讲 URL 深度、
    一条讲兼容模版）。
+
+## c-char-batch-import（角色批量导入：下载模版→Excel 填好→上传，2026-10-09）
+
+- **character-settings.html 左栏**：「添加角色」旁新增次级按钮「批量添加」（`data-od-id="btn-batch-add"`，两按钮外包 `data-od-id="char-add-row"` 双列行）。按钮词动词（§13）；「批量添加」刻意避开 e2e `getByRole name:"添加角色"` 的 substring 匹配。
+- **新增批量添加弹层**（`data-od-id="batch-modal"`，默认 `hidden`，不进 parity 截图）：单路径三步＝下载模版 →（Excel/WPS 填）→ 选择文件导入 → 预览确认。构成：说明行（含 AI 代替填写出口与「中英文列头都认」）、文件行（下载 .csv / 选择文件 / 文件名）、实时预览表（行内改名字/类型/补人设；行级状态徽标本地位 `.batch-st ok/warn/err`，语气 token 取现役 ok/warn/err——canonical 的 `.pill` 是关系语义档 kin/ally/foe，不复用）、字段说明折叠块（「字段怎么填？」，内容＝模版「填写说明」sheet 同源文案）、计数条＋取消/确认（禁用态随有效行数）。
+- **口径钉子**：示例行「示例-」前缀标黄不计数；重名（库内/批内）标黄跳过、不覆盖已有卡；多主角标红禁确认；解析失败红条禁确认；类型不填默认配角（弹窗无默认类型选择器，五轮拍板）；确认回执 toast 报「建 N · 跳过 M」。原型确认只回执不改演示种子（parity 种子零变化）。
+- **parity 影响**：默认态唯一新增像素＝左栏「批量添加」按钮（弹层 hidden）。角色屏 parity 用例（design-parity-book `settings-characters`）当前整体 skip（在案），不阻塞；解禁前须把按钮区纳入新基线截图。
+- **原型截图**（本 change 验证）：`/tmp/an-chars-proto-shots/60-canon-batch.png`（弹层＋示例行全跳过＋说明块展开）、`61-canon-filled.png`（填好名单 建 2 张）；file:// 全程零 JS 错误。
+- **文案 §13 自查**：「批量添加/下载模版/选择文件/建 N 张卡」均动词短语；报错文案带出口（「请用『下载模版』的格式」）；无内部术语。

@@ -85,11 +85,14 @@ async function unwrap<T>(p: Promise<unknown>): Promise<T> {
   return r.data;
 }
 
-/** 建卡扩参（c-character-intro）：persona 一句人设＋prefill 只收 dossier.plot/background */
+/** 建卡扩参（c-character-intro）：persona 一句人设＋prefill 只收 dossier.plot/background。
+ *  c-char-batch-import：另收 aliases（服务端 ≤20×50 clamp）＋ dossier（白名单八格、同格胜 prefill）。 */
 export interface CreateCharacterOpts {
   role?: string;
   persona?: string;
   prefill?: { plot?: string; background?: string };
+  aliases?: string[];
+  dossier?: Record<string, string>;
 }
 
 /** 建卡撞同名（409 {"detail":{"code":"name_taken"}}）判定 */
@@ -106,7 +109,8 @@ export const charactersApi = {
 
   /** 建卡（向后兼容扩参，c-character-intro 2.3）：role 缺省「配角」；
    *  persona 一句人设（服务端 clamp 300）；prefill 只收 dossier.plot/background
-   *  （非法键服务端 400）。撞同名 409（isNameTaken）。 */
+   *  （非法键服务端 400）。撞同名 409（isNameTaken）。
+   *  c-char-batch-import：aliases/dossier 直传（服务端 clamp＋白名单校验）。 */
   create: (projectId: string, name: string, opts: CreateCharacterOpts = {}) =>
     unwrap<CharacterCard>(
       api.post(`/novels/${projectId}/characters`, {
@@ -114,6 +118,8 @@ export const charactersApi = {
         role: opts.role ?? "配角",
         ...(opts.persona ? { persona: opts.persona } : {}),
         ...(opts.prefill ? { prefill: opts.prefill } : {}),
+        ...(opts.aliases?.length ? { aliases: opts.aliases } : {}),
+        ...(opts.dossier && Object.keys(opts.dossier).length ? { dossier: opts.dossier } : {}),
       }),
     ),
 
