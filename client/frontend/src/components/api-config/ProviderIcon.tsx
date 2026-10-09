@@ -13,8 +13,8 @@ export const VENDORS = [
 ] as const;
 
 // 接口格式锁定矩阵（拍板 09-06）：单格式厂商锁定，双格式厂商可切换；
-// 不在表内 = 双格式可选。placeholder 随格式给示例域名（openai 版含 /v1——SDK 以
-// base_url 直拼路径不自补版本段，登记值/示例域名与生成调用同源，2026-10-08 修正）。
+// 不在表内 = 双格式可选。placeholder 随格式给示例域名（openai 版含 /v1——与生成调用
+// 同源显式表达实际请求地址，SDK 侧另有同源版本段归一兜底，2026-10-08 修正）。
 export const VENDOR_FORMAT_LOCK: Partial<Record<VendorId, ApiFormat>> = {
   openai: "openai",
   anthropic: "anthropic",

@@ -15,6 +15,12 @@ models 端点缺失（部分 Anthropic 兼容端点不提供列表）时降级�
 留痕（c-llm-call-log）：每个出网请求落一行 `llm_probe` 日志（llm.log 专项档＋
 app.log 双写）——Gemini 401 定诊实锤：探针不落日志时远程只能靠推断。行只含
 host＋path（丢弃 query；headers 含 Key 永不落）＋上游状态码＋耗时＋结果分类。
+
+openai 格式的 base 全链路版本段归一（2026-10-09 kakou 中转案）：models 探测、对话
+探针（主链＋404 降级）、生成调用（ai_client 传 SDK 的 base）共用 `normalize_openai_base`
+单源——裸域名按 OpenAI 官方惯例补 /v1，自带版本段（含 Gemini 兼容层 /v1beta/openai
+的中段形态）原样保留；此前只有 models 探测补 /v1，中转站网页壳对非 /v1 路径回 200
+网页时呈「清单绿、测试红」半通形态。
 """
 
 from __future__ import annotations
@@ -190,7 +196,9 @@ async def test_connection(
             # 首页等场景函数裁定 endpoint_mismatch，留痕行不得与之相悖机械记 ok；
             # 仅 200 做体判废——非 200 的错误体（鉴权失败 JSON 等）过 _non_api_response
             # 会误报「返回了错误」
-            not_api = _non_api_response(resp) if resp.status_code == 200 else ""
+            not_api = _non_api_response(
+                resp, _v1_hint(api_format, vendor_id)
+            ) if resp.status_code == 200 else ""
             _log_probe(
                 "models_list", vendor=vendor_id, api_format=api_format,
                 url=endpoint, start=start, status=resp.status_code,
@@ -297,7 +305,10 @@ async def test_connection(
                     }
                 ping = await _probe_generation(
                     client,
-                    f"{base_url.rstrip('/')}/chat/completions",
+                    # 与 models 探测/生成调用同源归一（裸域名补 /v1）——中转站
+                    # 网页壳对非 /v1 路径回 200 网页，裸拼会把探针打到网页上
+                    # （2026-10-09 kakou 案 llm.log 实锤）
+                    f"{normalize_openai_base(base_url)}/chat/completions",
                     headers,
                     _generation_payload(
                         probe_model,
@@ -395,7 +406,9 @@ async def fetch_models(
         async with build_async_client(timeout=timeout, follow_redirects=True) as client:
             resp = await client.get(endpoint, headers=headers)
             # 体判废先于留痕（评审二轮 P3，同 test_connection）
-            not_api = _non_api_response(resp) if resp.status_code == 200 else ""
+            not_api = _non_api_response(
+                resp, _v1_hint(api_format, vendor_id)
+            ) if resp.status_code == 200 else ""
             _log_probe(
                 "models_list", vendor=vendor_id, api_format=api_format,
                 url=endpoint, start=start, status=resp.status_code,
@@ -489,10 +502,33 @@ async def fetch_models(
 # ── Protocol-based probe builder ────────────────────────────────────────────
 
 
+# 「路径已含版本段」判据：段以 v+数字开头即算（/v1、/v4、/v1beta…）——行尾锚定
+# /v\d+$ 会漏掉版本段在中段的形态（Gemini 官方兼容层 …/v1beta/openai 被误判
+# 「无版本段」而追补出 …/v1beta/openai/v1/… 死址）
+_VERSION_SEG = re.compile(r"/v\d+[a-z]*(/|$)")
+
+
+def normalize_openai_base(base: str) -> str:
+    """OpenAI 格式 base 的版本段归一——「与生成调用同源推导」的单源实现。
+
+    models 探测、对话探针（主链＋404 降级）、生成调用（ai_client 传给 OpenAI SDK
+    的 base）四处共用：裸域名（路径无任何版本段）按 OpenAI 官方惯例补 /v1，自带
+    版本段的（/v1、/v4、compatible-mode/v1、Gemini 兼容层 /v1beta/openai）原样
+    保留。2026-10-09 kakou 中转案实锤：SPA 网页壳对任意非 /v1 路径回 200 网页——
+    只有 models 探测补 /v1 时清单拉得到，对话探针/生成却打到网页上，呈现
+    「清单绿、测试红」半通形态；且 SDK 直传裸 base 生成必败，探针必须与生成
+    同一归一，否则修出「测试绿、写作红」的假通。anthropic 格式不适用（惯例
+    相反：SDK 自拼 /v1/messages）；落库值不改写，归一只在构造请求时发生。
+    """
+    base = base.rstrip("/")
+    if not base or _VERSION_SEG.search(base):
+        return base
+    return f"{base}/v1"
+
+
 def _openai_models_url(base: str) -> str:
-    """OpenAI 格式探测端点：base 自带版本段（/v1、/v4、compatible-mode/v1）
-    直接拼 /models；裸域名按 OpenAI 官方惯例补 /v1/models。"""
-    return f"{base}/models" if re.search(r"/v\d+$", base) else f"{base}/v1/models"
+    """OpenAI 格式探测端点：统一经版本段归一后拼 /models。"""
+    return f"{normalize_openai_base(base)}/models"
 
 
 def _build_probe(
@@ -539,7 +575,8 @@ def _build_probe(
         {"Authorization": f"Bearer {api_key}"},
         _extract_openai_models,
         (
-            f"{base}/chat/completions",
+            # 降级地址同走版本段归一（与 models 探测/主链对话探针/生成调用同源）
+            f"{normalize_openai_base(base)}/chat/completions",
             {"Authorization": f"Bearer {api_key}"},
             _openai_reply_text,
         ),
@@ -549,11 +586,22 @@ def _build_probe(
 # ── 「通」的判据组件：非 API 响应识别 / 对话路径探针 ──────────────────────────
 
 
-def _non_api_response(resp: httpx.Response) -> str:
+def _v1_hint(api_format: str, vendor: str = "") -> str:
+    """网页体误判文案的补救出口：仅 openai 兼容格式给「补 /v1」指引（评审 2026-10-09）。
+
+    anthropic 惯例 base 不带 /v1（探针侧会把结尾 /v1 剥掉，补了是空操作）；
+    ollama tags 探针同样剥 /v1——两者不出该指引。"""
+    if api_format == "openai" and vendor != "ollama":
+        return "（若地址确认无误，尝试在末尾补 /v1）"
+    return ""
+
+
+def _non_api_response(resp: httpx.Response, v1_hint: str = "") -> str:
     """200 响应但体不是 API JSON → 返回给用户的说明；是 JSON 则返回空串。
 
     典型：Base URL 填成网站首页，SPA 对任意路径回 200 HTML——旧实现按 200 判
-    「连接正常」，坏配置到生成期才炸（内测 405 案）。
+    「连接正常」，坏配置到生成期才炸（内测 405 案）。v1_hint＝openai 格式专属
+    补救出口（_v1_hint 按格式/vendor 分流）。
     """
     ctype = (resp.headers.get("content-type") or "").split(";")[0].strip().lower()
     try:
@@ -563,6 +611,7 @@ def _non_api_response(resp: httpx.Response) -> str:
             "该地址返回的不是 API 数据"
             + (f"（Content-Type: {ctype}）" if ctype else "")
             + "——看起来像网页。请检查 Base URL 是否填成了网站地址"
+            + v1_hint
         )
     if isinstance(body, dict) and body.get("error"):
         msg = body["error"]
@@ -650,7 +699,9 @@ async def _probe_generation(
             "models": None,
             "error": f"网络错误: {exc}",
         }
-    verdict = _probe_verdict(resp, url, model, reply_fn)
+    verdict = _probe_verdict(
+        resp, url, model, reply_fn, v1_hint=_v1_hint(api_format, vendor)
+    )
     _log_probe(
         "generation_probe", vendor=vendor, api_format=api_format,
         url=url, start=start, model=model, status=resp.status_code,
@@ -661,9 +712,11 @@ async def _probe_generation(
 
 
 def _probe_verdict(
-    resp: httpx.Response, url: str, model: str, reply_fn: Any
+    resp: httpx.Response, url: str, model: str, reply_fn: Any, v1_hint: str = ""
 ) -> dict[str, Any] | None:
-    """生成探针的响应判定（无副作用纯判定）：None = 通过；否则失败形态 dict。"""
+    """生成探针的响应判定（无副作用纯判定）：None = 通过；否则失败形态 dict。
+
+    v1_hint＝网页体误判文案的格式分流出口（openai 兼容格式才有，见 _v1_hint）。"""
     if resp.status_code in (401, 403):
         detail = _extract_error_detail(resp)
         return {
@@ -708,7 +761,7 @@ def _probe_verdict(
                 f"{detail}；请核对模型 id 是否有效（可在配置里填写模型名称）"
             ),
         }
-    not_api = _non_api_response(resp)
+    not_api = _non_api_response(resp, v1_hint)
     if not_api:
         return {
             "ok": False,

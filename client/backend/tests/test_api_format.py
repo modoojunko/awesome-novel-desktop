@@ -169,12 +169,12 @@ class TestMigration:
 
 class _SentinelAnthropic:
     def __init__(self, *args, **kwargs):
-        pass
+        self.kwargs = kwargs
 
 
 class _SentinelOpenAI:
     def __init__(self, *args, **kwargs):
-        pass
+        self.kwargs = kwargs
 
 
 @pytest.fixture
@@ -210,6 +210,24 @@ class TestAIClientFormat:
         c = _make_client(base_url="https://api.example.com")
         assert isinstance(c._client, _SentinelOpenAI)
 
+    def test_openai_bare_base_normalized_for_sdk(self, sentinel_clients):
+        """裸域名 base 归一后才传 SDK（2026-10-09 kakou 案）：SDK 直拼路径不自补版本段，
+        裸传会打到官方 404／中转站网页壳；_base_url 同步归一形（留痕/禁思考记忆同形）。"""
+        c = _make_client(base_url="https://api.kakouai.com")
+        assert c._client.kwargs["base_url"] == "https://api.kakouai.com/v1"
+        assert c._base_url == "https://api.kakouai.com/v1"
+
+    def test_openai_versioned_base_kept_for_sdk(self, sentinel_clients):
+        c = _make_client(base_url="https://generativelanguage.googleapis.com/v1beta/openai")
+        assert c._client.kwargs["base_url"] == (
+            "https://generativelanguage.googleapis.com/v1beta/openai"
+        )
+
+    def test_anthropic_base_not_normalized(self, sentinel_clients):
+        """anthropic 惯例相反：base 不带版本段（SDK 自拼 /v1/messages），SHALL NOT 归一。"""
+        c = _make_client(base_url="https://relay.example.com", api_format="anthropic")
+        assert c._client.kwargs["base_url"] == "https://relay.example.com"
+
 
 class TestGetAiClientForUser:
     def test_passes_config_api_format(self, sentinel_clients):
@@ -242,6 +260,80 @@ class TestGetAiClientForUser:
 
 
 # ═════════════════ 3. 连接测试：按协议构造探测 + 404 降级 ═════════════════
+
+
+class TestNormalizeOpenAiBase:
+    """版本段归一单源（2026-10-09 kakou 中转案）：裸域名补 /v1，四消费点共用同一判据。"""
+
+    @pytest.mark.parametrize(
+        "base,expected",
+        [
+            # 裸域名按 OpenAI 官方惯例补 /v1
+            ("https://api.kakouai.com", "https://api.kakouai.com/v1"),
+            ("https://api.kakouai.com/", "https://api.kakouai.com/v1"),  # 尾斜杠先剥
+            ("http://localhost:12345", "http://localhost:12345/v1"),
+            # 自带版本段（行尾／中段）原样保留
+            ("https://api.openai.com/v1", "https://api.openai.com/v1"),
+            ("https://open.bigmodel.cn/api/paas/v4", "https://open.bigmodel.cn/api/paas/v4"),
+            (
+                "https://dashscope.aliyuncs.com/compatible-mode/v1",
+                "https://dashscope.aliyuncs.com/compatible-mode/v1",
+            ),
+            # 中段版本段（Gemini 官方兼容层）——行尾锚会误判「无版本段」追补出死址
+            (
+                "https://generativelanguage.googleapis.com/v1beta/openai",
+                "https://generativelanguage.googleapis.com/v1beta/openai",
+            ),
+            (
+                "https://generativelanguage.googleapis.com/v1beta/openai/",
+                "https://generativelanguage.googleapis.com/v1beta/openai",
+            ),
+            # 版本段带字母后缀的行尾形态（段锚 $ 分支）
+            ("https://gw.example.com/v1beta", "https://gw.example.com/v1beta"),
+            ("", ""),  # 空串原样（上层自行处理缺省 base）
+        ],
+    )
+    def test_normalize(self, base, expected):
+        assert conn_mod.normalize_openai_base(base) == expected
+
+
+class TestWebPageV1Hint:
+    """网页体误判文案的「补 /v1」出口按格式分流（评审 2026-10-09）：
+    anthropic（惯例 base 不带 /v1，探针侧剥掉）与 ollama（tags 探针剥 /v1）不出。"""
+
+    @pytest.mark.parametrize(
+        "api_format,vendor,expected",
+        [
+            ("openai", "openai-compat", "（若地址确认无误，尝试在末尾补 /v1）"),
+            ("openai", "deepseek", "（若地址确认无误，尝试在末尾补 /v1）"),
+            ("openai", "ollama", ""),
+            ("anthropic", "glm", ""),
+        ],
+    )
+    def test_v1_hint_routing(self, api_format, vendor, expected):
+        assert conn_mod._v1_hint(api_format, vendor) == expected
+
+    def test_anthropic_html_page_no_v1_hint(self, fake_http):
+        """anthropic 格式探测打到网页：有「检查 Base URL」无「补 /v1」。"""
+        fake_http.script = [("GET", 200, ValueError("Expecting value"), "text/html")]
+        out = _run_async(
+            do_test_connection("glm", "sk", "https://spa.example.com", "anthropic")
+        )
+        assert out["ok"] is False and out["status"] == "endpoint_mismatch"
+        assert "Base URL" in out["error"]
+        assert "补 /v1" not in out["error"]
+
+    def test_generation_probe_html_page_openai_has_hint(self, fake_http):
+        """对话探针 200 网页体（openai 格式）：verdict 链路文案同样带「补 /v1」出口。"""
+        fake_http.script = [
+            ("GET", 200, {"data": [{"id": "m-1"}]}),
+            ("POST", 200, ValueError("Expecting value"), "text/html"),
+        ]
+        out = _run_async(
+            do_test_connection("openai-compat", "sk", "https://spa.example.com", "openai")
+        )
+        assert out["ok"] is False and out["status"] == "endpoint_mismatch"
+        assert "补 /v1" in out["error"]
 
 
 class TestBuildProbe:
@@ -278,6 +370,11 @@ class TestBuildProbe:
                 "https://dashscope.aliyuncs.com/compatible-mode/v1",
                 "https://dashscope.aliyuncs.com/compatible-mode/v1/models",
             ),
+            # 中段版本段原样保留（行尾锚旧实现会误补 /v1/models 死址）
+            (
+                "https://generativelanguage.googleapis.com/v1beta/openai",
+                "https://generativelanguage.googleapis.com/v1beta/openai/models",
+            ),
         ],
     )
     def test_openai_format_urls(self, base, expected):
@@ -285,8 +382,9 @@ class TestBuildProbe:
         assert url == expected
         assert headers == {"Authorization": "Bearer sk"}
         # 404 同享降级（2026-10-08 拍板）：fallback＝(chat 地址, Bearer 头, openai 提取器)
+        # 地址同走版本段归一（与 models 探测/对话探针主链/生成调用同源）
         assert fallback == (
-            f"{base.rstrip('/')}/chat/completions",
+            f"{conn_mod.normalize_openai_base(base)}/chat/completions",
             {"Authorization": "Bearer sk"},
             conn_mod._openai_reply_text,
         )
@@ -496,6 +594,23 @@ class TestConnectionFlow:
         )
         assert fake_http.calls[0][1] == "https://my-relay.example.com/v1/models"
 
+    def test_bare_base_full_chain_targets_v1(self, fake_http):
+        """kakou 案主钉（2026-10-09）：裸域名 base 全链路同归一——models GET /v1/models、
+        对话探针 POST /v1/chat/completions；SHALL NOT 清单打归一地址、对话打裸路径网页
+        （「清单绿、测试红」半通形态）。"""
+        fake_http.script = [
+            ("GET", 200, {"data": [{"id": "gpt-6-astra"}]}),
+            ("POST", 200, {"choices": [{"message": {"content": "你好！"}}]}),
+        ]
+        out = _run_async(
+            do_test_connection(
+                "openai-compat", "sk", "https://api.kakouai.com", "openai"
+            )
+        )
+        assert out["ok"] is True and out["models"] == ["gpt-6-astra"]
+        assert fake_http.calls[0][1] == "https://api.kakouai.com/v1/models"
+        assert fake_http.calls[1][1] == "https://api.kakouai.com/v1/chat/completions"
+
     def test_empty_key_rejected(self, fake_http):
         out = _run_async(do_test_connection("glm", "  ", "https://x.example.com", "openai"))
         assert out["ok"] is False and out["status"] == "auth_error"
@@ -504,13 +619,14 @@ class TestConnectionFlow:
     # ── 内测 405 案收紧：「通」必须真能对话（非 JSON 判败 / 对话探针 / 降级 405 判败）──
 
     def test_models_200_html_page_fails(self, fake_http):
-        """Base URL 填成网站首页（SPA 对任意路径回 200 HTML）→ 不算通。"""
+        """Base URL 填成网站首页（SPA 对任意路径回 200 HTML）→ 不算通；文案带补 /v1 出口。"""
         fake_http.script = [("GET", 200, ValueError("Expecting value"), "text/html")]
         out = _run_async(
             do_test_connection("openai-compat", "sk", "https://blog.example.com", "openai")
         )
         assert out["ok"] is False and out["status"] == "endpoint_mismatch"
         assert "Base URL" in out["error"]
+        assert "补 /v1" in out["error"]
 
     def test_models_200_error_envelope_fails(self, fake_http):
         """200 但体是错误信封（部分中转站的软错误形态）→ 不算通。"""
@@ -539,7 +655,7 @@ class TestConnectionFlow:
         assert payload["thinking"] == {"type": "disabled"}
 
     def test_openai_chat_probe_405_fails_with_actual_url(self, fake_http):
-        """对话探针 405（地址/格式错）→ 判败，错误文案点名实际请求地址。"""
+        """对话探针 405（地址/格式错）→ 判败，错误文案点名实际请求地址（裸域名已归一）。"""
         fake_http.script = [
             ("GET", 200, {"data": [{"id": "m-1"}]}),
             ("POST", 405, {"detail": "Method Not Allowed"}),
@@ -549,7 +665,7 @@ class TestConnectionFlow:
         )
         assert out["ok"] is False and out["status"] == "endpoint_mismatch"
         assert "405" in out["error"]
-        assert "https://api.example.com/chat/completions" in out["error"]
+        assert "https://api.example.com/v1/chat/completions" in out["error"]
 
     def test_openai_chat_probe_model_rejected_strict(self, fake_http):
         """探针模型 id 被拒（400）判失败并点名所试 id——原「400 宽松不拦」口径作废（2026-10-05 拍板）。
