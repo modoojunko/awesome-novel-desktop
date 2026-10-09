@@ -739,7 +739,7 @@ const MODEL_SEEDS = {
   ollama: ['llama3:8b'],
   'openai-compat': ['my-model-a', 'my-model-b'],
 };
-const picker = { list: [], candidates: [], note: null, fetching: false, err: null, open: false, picked: false, fp: '', cursor: 0 };
+const picker = { list: [], candidates: [], note: null, fetching: false, err: null, open: false, picked: false, seeded: false, fp: '', cursor: 0 };
 function pickerParams() {
   return selVendor + '|' + $('cfBase').value.trim() + '|' + $('cfKey').value + '|' + selFormat;
 }
@@ -748,7 +748,7 @@ function renderPickerMeta() {
   let tone = '', text = '';
   if (picker.fetching) text = '正在获取模型清单…';
   else if (picker.err) { tone = 'warn'; text = '清单获取失败'; }
-  else if (picker.list.length) { tone = 'ok'; text = `已拉到 ${picker.list.length} 个模型`; }
+  else if (picker.list.length) { tone = 'ok'; text = picker.seeded ? `已存 ${picker.list.length} 个模型` : `已拉到 ${picker.list.length} 个模型`; }
   else if (picker.note) { tone = 'warn'; text = '无模型清单'; }
   el.hidden = !text;
   el.className = 'mp-meta' + (tone ? ' ' + tone : '');
@@ -787,7 +787,8 @@ function autoSelect(models) {
   $('cfModel').value = models[0];
 }
 function fetchModelList(force) {
-  if (editTarget) return;
+  /* 编辑态同口径（c-api-config-edit-model）：raw 轻探针要明文 Key——未重填时被
+     下方 Key 前置条件自然挡住（已存清单已在选择器可选，不阻塞改选） */
   if (!selVendor || !$('cfBase').value.trim()) return;
   if (selVendor !== 'ollama' && !$('cfKey').value.trim()) return;
   const fp = pickerParams();
@@ -799,7 +800,7 @@ function fetchModelList(force) {
     if (selVendor !== 'ollama' && $('cfKey').value.startsWith('bad')) {
       picker.fp = ''; picker.err = '认证失败 (HTTP 401)';
     } else {
-      picker.list = MODEL_SEEDS[selVendor] || []; picker.candidates = []; picker.note = null;
+      picker.list = MODEL_SEEDS[selVendor] || []; picker.candidates = []; picker.note = null; picker.seeded = false;
       autoSelect(picker.list);
     }
     renderPickerMeta(); if (picker.open) renderPickerPanel();
@@ -807,7 +808,7 @@ function fetchModelList(force) {
 }
 /* 供应商/格式切换：旧端点清单作废（含指纹），Key 已填或免 Key 即重拉 */
 function invalidatePicker() {
-  picker.list = []; picker.candidates = []; picker.note = null; picker.err = null; picker.fp = '';
+  picker.list = []; picker.candidates = []; picker.note = null; picker.err = null; picker.fp = ''; picker.seeded = false;
   renderPickerMeta(); if (picker.open) renderPickerPanel();
 }
 function resetPicker() {
@@ -838,8 +839,8 @@ $('cfModelPanel').addEventListener('click', e => {
   if (b) pickModel(b.dataset.pick);
 });
 $('cfModelRetry').addEventListener('click', () => fetchModelList(true));
-$('cfKey').addEventListener('blur', () => { if (!editTarget && selVendor !== 'ollama' && $('cfKey').value.trim()) fetchModelList(); });
-$('cfBase').addEventListener('blur', () => { if (!editTarget && $('cfBase').value.trim() && (selVendor === 'ollama' || $('cfKey').value.trim())) fetchModelList(); });
+$('cfKey').addEventListener('blur', () => { if (selVendor !== 'ollama' && $('cfKey').value.trim()) fetchModelList(); });
+$('cfBase').addEventListener('blur', () => { if ($('cfBase').value.trim() && (selVendor === 'ollama' || $('cfKey').value.trim())) fetchModelList(); });
 document.addEventListener('click', e => {
   if (picker.open && !$('cfModelWrap').contains(e.target)) { picker.open = false; renderPickerPanel(); }
 });
@@ -890,10 +891,21 @@ function openForm(edit) {
   $('cfBase').value = edit ? edit.base_url : '';
   $('cfKey').value = '';
   lastPreset = null;
-  $('cfModel').value = '';
+  // 模型名称＝创建/编辑表单一级字段（c-api-config-edit-model）：编辑态初值＝已存
+  // 模型列表首项、清单种子＝已存列表（meta「已存 N 个模型」）；已存初值视同手选，
+  // 不被拉取/测试的「清单首项」默认选中覆盖；编辑态不施加供应商预填
+  const seed = edit ? (edit.models || []) : [];
+  $('cfModel').value = seed[0] || '';
+  $('cfModel').placeholder = edit
+    ? '留空则保留当前模型；可从已存清单改选或手动输入'
+    : '填 Key 后自动获取清单；也可直接输入模型 id';
   resetPicker(); // 清单/候选/拉取态/手选标记随表单重置
-  // 模型名称＝创建表单一级字段；编辑态沿用已存值，不施加预填
-  $('cfModel').closest('.field').hidden = !!edit;
+  if (edit && seed.length) {
+    picker.list = seed.slice();
+    picker.seeded = true;
+    picker.picked = true; // 已存初值视同手选
+    renderPickerMeta();
+  }
   $('cfgError').hidden = true;
   $('cfTest').hidden = true;
   $('cfSave').textContent = edit ? '保存' : '保存并测试连接';
@@ -993,7 +1005,8 @@ function validateForm() {
 }
 function simulateTest(f) {
   if (f.vendor === 'ollama') return { ok: true };
-  if (!f.api_key) return { ok: false, error: '请填写 API Key' };
+  // 编辑态未重敲 Key＝用已存密钥测（与实现同口径），不误报「请填写 API Key」
+  if (!f.api_key && !editTarget) return { ok: false, error: '请填写 API Key' };
   if (f.api_key.startsWith('bad')) return { ok: false, error: '401 · 认证失败，请检查 Key' };
   if (!/^https?:\/\//.test(f.base_url)) return { ok: false, error: 'Base URL 需以 http(s):// 开头' };
   return { ok: true };
@@ -1030,6 +1043,11 @@ $('cfSave').addEventListener('click', () => {
   const base = { vendor: f.vendor, base_url: f.base_url };
   if (editTarget) {
     Object.assign(editTarget, base);
+    // 改选模型置首（其余已存项保序，截 100 对齐手动路径上限）；留空沿用已存列表
+    const picked = (f.model || '').trim();
+    if (picked) {
+      editTarget.models = [picked].concat((editTarget.models || []).filter(m => m !== picked)).slice(0, 100);
+    }
     toast(`已保存「${editTarget.name}」`);
   } else {
     const cfg = {
