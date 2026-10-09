@@ -575,7 +575,7 @@ def run_migration(data_root: Path, source_filename: str, active_db_path: Path,
                     e.get("rows_missing") == 0 for e in report["tables"]):
                 report["notes"].append(
                     f"{len(report['fk_violations'])} 条数据的关联在旧库里就不完整"
-                    "（引用的对象已不存在），已原样带过来，不影响使用")
+                    "（引用的对象已不存在），已原样迁移，不影响使用")
             # 库自证来源：把本机版本与组件快照写进目标库（app_meta 不随行搬运）
             if _has_table(tgt, "main.app_meta"):
                 for k, v in version_stamp_payload().items():

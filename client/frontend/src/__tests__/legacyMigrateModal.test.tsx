@@ -90,9 +90,9 @@ async function renderToResult(report: Record<string, unknown>) {
                         onClose={vi.fn()} onDone={onDone} />,
   );
   // 单候选＝一次确认：打开即预演（无需点「下一步」）
-  const confirm = await screen.findByRole("button", { name: "把上一版的作品带过来" });
+  const confirm = await screen.findByRole("button", { name: "立即迁移" });
   fireEvent.click(confirm);                     // 第二次点击：启动搬运
-  await screen.findByText(/已带回 \d+ 本书/, {}, { timeout: 5000 });
+  await screen.findByText(/已迁移 \d+ 本书/, {}, { timeout: 5000 });
   return onDone;
 }
 
@@ -106,7 +106,7 @@ describe("带回向导：清理清单与只读隔离件", () => {
     routeApi();
     render(<LegacyMigrateModal open candidates={[cand()]} onClose={vi.fn()} onDone={vi.fn()} />);
     // 自动预演后直接停在预览步：主按钮可见，且未点过「下一步」
-    expect(await screen.findByRole("button", { name: "把上一版的作品带过来" })).toBeTruthy();
+    expect(await screen.findByRole("button", { name: "立即迁移" })).toBeTruthy();
     await waitFor(() =>
       expect(postMock.mock.calls.some((c) => String(c[0]).includes("/preview"))).toBe(true),
     );
@@ -141,7 +141,7 @@ describe("带回向导：清理清单与只读隔离件", () => {
     fireEvent.click(entry);
     expect(await screen.findByText("1 本")).toBeTruthy();       // 后端给的书数
     expect(screen.getByText("3 本")).toBeTruthy();
-    expect(screen.getByText(/删除不可撤销，已带回的内容不受影响/)).toBeTruthy();
+    expect(screen.getByText(/删除不可撤销，已迁移的内容不受影响/)).toBeTruthy();
 
     fireEvent.click(screen.getByRole("button", { name: "删除这些旧文件" }));
     const finalBtn = screen.getByRole("button", { name: /确认删除/ });

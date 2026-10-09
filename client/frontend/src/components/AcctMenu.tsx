@@ -212,11 +212,11 @@ export default function AcctMenu({
           if (rep?.status === "ok") {
             import("@/lib/toast").then(({ toast }) => {
               // 书数取在场数（present）：重带幂等下「本次插入」恒 0（c-carry-retry-complete）
-              toast.success(`已带回 ${rep.book_count_present ?? rep.book_count_migrated ?? "?"} 本书`);
+              toast.success(`迁移完成：已迁移 ${rep.book_count_present ?? rep.book_count_migrated ?? "?"} 本书`);
             });
           } else {
             import("@/lib/toast").then(({ toast }) => {
-              toast.error("带回没有完成，可从菜单重新打开向导重试");
+              toast.error("迁移没有完成，可从菜单重新打开向导重试");
             });
           }
           queryClient.invalidateQueries({ queryKey: queryKeys.novels });
@@ -225,14 +225,14 @@ export default function AcctMenu({
           clearInterval(bgWatchRef.current!);
           bgWatchRef.current = null;
           import("@/lib/toast").then(({ toast }) => {
-            toast.info("带回已停止，可从菜单重新打开向导");
+            toast.info("迁移已停止，可从菜单重新打开向导");
           });
           void legacyDb.refresh();
         } else if (Date.now() - bgStartRef.current > 120_000) {
           clearInterval(bgWatchRef.current!);
           bgWatchRef.current = null;
           import("@/lib/toast").then(({ toast }) => {
-            toast.info("带回耗时较长，可从菜单「本机旧版本数据」查看进度");
+            toast.info("迁移耗时较长，可从菜单「本机旧版本数据」查看进度");
           });
         }
       } catch {
@@ -369,7 +369,7 @@ export default function AcctMenu({
             >
               <Ico d={P.doc} sw={1.7} />
               本机旧版本数据
-              <span className="am-hint">带回更早候选 · 查看与清理旧文件</span>
+              <span className="am-hint">迁移更早候选 · 查看与清理旧文件</span>
             </button>
           )}
           <button
