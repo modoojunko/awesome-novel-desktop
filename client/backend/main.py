@@ -52,6 +52,7 @@ from prompt.router import router as prompt_router
 from prompt_pack.router import router as prompt_pack_router  # c-prompt-pack-client
 from prompts import PromptPackMissing  # c-prompt-pack-client
 from settings.ai_router import router as settings_ai_router
+from settings.book_prefs_router import router as book_prefs_router
 from settings.characters_ai import router as characters_ai_router
 from settings.characters_router import router as characters_router
 from settings.hooks_router import router as hooks_router
@@ -409,6 +410,7 @@ app.include_router(settings_status_router)  # 先注册：GET /settings/status �
 app.include_router(characters_router)  # 角色端点同理：不能被 GET /settings/{type} 兜底吃掉
 app.include_router(hooks_router)  # 伏笔端点同理：不能被 GET /settings/{type} 兜底吃掉
 app.include_router(style_quant_router)  # style-quant 同理：专用端点不能被 /{type} 兜底吃掉
+app.include_router(book_prefs_router)  # book-prefs 同理：专用端点不能被 /{type} 兜底吃掉
 app.include_router(characters_ai_router)
 app.include_router(settings_router)
 app.include_router(settings_ai_router)

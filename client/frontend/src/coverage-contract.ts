@@ -55,4 +55,7 @@ export const COVERAGE_CONTRACT_FILES = [
   // c-char-batch-import（角色批量导入：模版解析纯函数＋弹层）
   "src/lib/characterImport.ts",
   "src/components/novel/settings/BatchAddModal.tsx",
+  // c-chapter-default-words（作品偏好「章节默认字数」：后端 book-prefs KV 读写＋
+  // localStorage 展示缓存＋变更订阅）
+  "src/lib/chapterTarget.ts",
 ] as const;

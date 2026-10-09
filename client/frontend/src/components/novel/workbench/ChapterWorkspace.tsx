@@ -81,6 +81,11 @@ import { fillOutlineGaps, type AiCheckKind } from "@/lib/aiCheck";
 import type { useOutline } from "@/hooks/useOutline";
 import type { useWorkbench } from "@/hooks/useWorkbench";
 import { api, errMessage, request } from "@/lib/api";
+import {
+  getCachedChapterWordTarget,
+  loadChapterWordTarget,
+  subscribeChapterWordTarget,
+} from "@/lib/chapterTarget";
 import { nodeLabel } from "@/lib/nodeTitle";
 import {
   getBookArchiveAiSummary,
@@ -481,9 +486,25 @@ const [ogForm, setOgForm] = useState<OgForm>(EMPTY_OG_FORM);
     if (warnings && warnings.length > 0) toast.info(warnings.join("；"));
   }, []);
 
+  // ── 作品偏好「章节默认字数」（c-chapter-default-words）：同步读缓存（文案/校验即
+  //    刻可用）＋项目切换时从后端回灌（换设备/清缓存后仍是真值）＋变更事件跟随。 ──
+  const [chapterWordTarget, setChapterWordTarget] = useState(() =>
+    getCachedChapterWordTarget(projectId),
+  );
+  useEffect(() => {
+    setChapterWordTarget(getCachedChapterWordTarget(projectId));
+    const off = subscribeChapterWordTarget(() =>
+      setChapterWordTarget(getCachedChapterWordTarget(projectId)),
+    );
+    loadChapterWordTarget(projectId)
+      .then(setChapterWordTarget)
+      .catch(() => undefined); // 后端不可达：保持缓存值（保存时另有明确报错）
+    return off;
+  }, [projectId]);
+
   const saveOg = useCallback(async (): Promise<boolean> => {
     if (ogLoadingRef.current) return false;
-    const issues = ogFormIssues(ogForm);
+    const issues = ogFormIssues(ogForm, chapterWordTarget);
     if (issues.length > 0) {
       toast.error(issues[0]);
       return false;
@@ -517,7 +538,7 @@ const [ogForm, setOgForm] = useState<OgForm>(EMPTY_OG_FORM);
     if (ogLoadingRef.current) return;
     if (ogKey === ogSnapRef.current) return;
     // 校验不过时静默跳过（不打扰），待用户补齐后下一次输入触发重试
-    if (ogFormIssues(ogForm).length > 0) return;
+    if (ogFormIssues(ogForm, chapterWordTarget).length > 0) return;
     ogAutoSaveTimerRef.current = window.setTimeout(() => {
       ogAutoSaveTimerRef.current = null;
       const epoch = ogSaveEpochRef.current;
@@ -796,7 +817,7 @@ const [ogForm, setOgForm] = useState<OgForm>(EMPTY_OG_FORM);
       if (!walking) return false;
       const plots = [...ogForm.plots, walking].slice(0, PLOT_MAX_ITEMS);
       const patched: OgForm = { ...ogForm, plots };
-      const issues = ogFormIssues(patched);
+      const issues = ogFormIssues(patched, chapterWordTarget);
       if (issues.length > 0) {
         toast.error(issues[0]);
         return false;
@@ -862,7 +883,7 @@ const [ogForm, setOgForm] = useState<OgForm>(EMPTY_OG_FORM);
       const castBefore = dedup.length;
       if (!dedup.includes(name)) dedup.push(name);
       const patched: OgForm = { ...cur, chars: dedup.join("\n") };
-      const issues = ogFormIssues(patched);
+      const issues = ogFormIssues(patched, chapterWordTarget);
       if (issues.length > 0) {
         return {
           ok: false,
@@ -1593,7 +1614,8 @@ const [ogForm, setOgForm] = useState<OgForm>(EMPTY_OG_FORM);
           onSaveDraft={() => void handleSaveDraft()}
           onConfirm={() => void handleConfirm()}
           onUnconfirm={() => void handleUnconfirm()}
-          onGoWrite={() => void handleGoWrite()}
+          defaultWordTarget={chapterWordTarget}
+    onGoWrite={() => void handleGoWrite()}
           onQuickCreateChar={(name) => void handleQuickCreateChar(name)}
         />
       )}

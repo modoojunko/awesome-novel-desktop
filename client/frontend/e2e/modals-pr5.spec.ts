@@ -383,6 +383,31 @@ test("本书偏好：字号 per-book 持久 + 免费态升级套餐链升级弹�
         .getByRole("dialog")
         .getByRole("button", { name: "大", exact: true }),
     ).toHaveClass(/on/);
+
+    // 章节默认字数（c-chapter-default-words，内测反馈#10）：改 3200 → 保存 →
+    // 后端 book-prefs 落库 + localStorage 展示缓存回写；重开弹窗从后端读回
+    await page.locator('[data-od-id="pref-word-target"]').fill("3200");
+    await page.getByRole("dialog").getByRole("button", { name: "保存" }).click();
+    await expect(page.getByRole("dialog")).toHaveCount(0);
+    expect(
+      await page.evaluate(
+        (p) => localStorage.getItem(`pref.book.${p}.chapter_words`),
+        pid,
+      ),
+    ).toBe("3200");
+    const bookPrefs = await page.evaluate(async (p) => {
+      const token = localStorage.getItem("auth_token") ?? "";
+      const r = await fetch(`/api/novels/${p}/settings/book-prefs`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      return r.json();
+    }, pid);
+    expect(bookPrefs).toEqual({ chapter_word_target: 3200 });
+    await page.locator('[data-od-id="acct-trigger"]').click();
+    await page.locator('[data-od-id="acct-menu-bookprefs"]').click();
+    await expect(
+      page.getByRole("dialog").locator('[data-od-id="pref-word-target"]'),
+    ).toHaveValue("3200");
   } finally {
     await restore();
   }
