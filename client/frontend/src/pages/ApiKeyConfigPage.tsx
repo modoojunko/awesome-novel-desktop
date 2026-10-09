@@ -61,14 +61,22 @@ export default function ApiKeyConfigPage() {
   }, []);
 
   const handleFormSubmit = useCallback(async (data: ApiConfigFormData) => {
-    // model 是创建表单的预填模型名称，落 models 首项；编辑不带（沿用已存值）
+    // model 是表单的模型选择位：创建时落 models 首项；编辑时选中值置首（保留其余已存项，
+    // 截 100 对齐后端手动路径上限），留空沿用已存值（与密钥同语义）
     const { model, ...rest } = data;
     if (editConfig) {
       // 「留空则保留当前密钥」：编辑态空 Key **必须省略字段**——原样发 "" 会被后端
       // 当作更新值（encrypt("") == ""）把已存密钥清空（2026-09-18 覆盖率专项实锤，
       // 后端同时收紧为「空串=未提供」，两侧各一道）
       const { api_key, ...fields } = rest;
-      await updateConfig(editConfig.id, api_key.trim() ? rest : fields);
+      const picked = model.trim();
+      const models = picked
+        ? [picked, ...editConfig.models.filter((m) => m !== picked)].slice(0, 100)
+        : null;
+      await updateConfig(editConfig.id, {
+        ...(api_key.trim() ? rest : fields),
+        ...(models ? { models } : {}),
+      });
       setEditConfig(null);
       toast.success(`已保存「${data.name}」`);
     } else {
@@ -246,7 +254,7 @@ export default function ApiKeyConfigPage() {
         onCancel={closeForm}
         onTest={async (data) =>
           editConfig && !data.api_key.trim()
-            ? testConfig(editConfig.id) // 未重敲 Key：用已存密钥测，避免误报「API Key 为空」
+            ? testConfig(editConfig.id, data.model.trim() || undefined) // 未重敲 Key：用已存密钥测；表单改选模型作探针覆盖
             : testRawConfig({
                 vendor_id: data.vendor_id,
                 base_url: data.base_url,

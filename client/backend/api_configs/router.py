@@ -35,6 +35,7 @@ from .schemas import (
     CreateApiConfigBody,
     FetchModelsBody,
     SetAiModelBody,
+    TestConfigBody,
     TestRawBody,
     UpdateApiConfigBody,
 )
@@ -288,11 +289,21 @@ async def restore_config(
 @router.post("/api-configs/{config_id}/test")
 async def test_config(
     config_id: str,
+    body: TestConfigBody | None = None,
     user: dict = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    """Test a single config's connection and save results."""
-    result = await _test_api_config(db, _user_id(user), config_id)
+    """Test a single config's connection and save results.
+
+    body.model 可选（编辑弹窗改选模型后试连）：探针优先模型覆盖，
+    缺省/空按已存 models 首项取。
+    """
+    result = await _test_api_config(
+        db,
+        _user_id(user),
+        config_id,
+        preferred_model=body.model if body else None,
+    )
     if result.get("status") == "not_found":
         raise HTTPException(404, "配置不存在")
     return result

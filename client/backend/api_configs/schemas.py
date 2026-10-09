@@ -203,6 +203,15 @@ class TestRawBody(BaseModel):
     model: str | None = None
 
 
+class TestConfigBody(BaseModel):
+    """已存配置连接测试的可选请求体（编辑弹窗改选模型后试连）。
+
+    model＝探针优先模型覆盖；缺省/空则按已存 models 首项取。
+    """
+
+    model: str | None = None
+
+
 class FetchModelsBody(BaseModel):
     """只拉清单轻探针的 raw 请求体（未保存态，c-api-config-auto-models）。
 

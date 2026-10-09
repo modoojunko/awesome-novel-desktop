@@ -1,7 +1,9 @@
 // ApiKeyConfigPage 接线契约（覆盖率专项·批 1；本波新增的**凭据安全**守卫）：
 //   编辑态「留空则保留当前密钥」在**页面层**必须省略 api_key 字段——原样发 "" 会被后端
-//   当更新值（encrypt("") == ""）把已存密钥清空（2026-09-18 覆盖率专项实锤，后端同步
+//   当作更新值（encrypt("") == ""）把已存密钥清空（2026-09-18 覆盖率专项实锤，后端同步
 //   收紧为「空串=未提供」）；未重敲 Key 时「测试连接」用已存密钥（testConfig(id)）。
+//   编辑态模型选择位（修复「编辑页没有模型可选、测试连接却要用模型」）：改选值置 models
+//   首项随 PUT（留空沿用已存值）；测试连接把表单模型作探针覆盖传给 test 端点。
 import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -125,6 +127,70 @@ describe("ApiKeyConfigPage · 编辑态密钥安全", () => {
     });
     const raw = calls.find((c) => c.url.includes("test-connection"))!;
     expect((raw.body as { api_key?: string }).api_key).toBe("sk-new-typed");
+  });
+});
+
+describe("ApiKeyConfigPage · 编辑态模型选择位", () => {
+  it("改选模型后保存：PUT models 首项＝选中值，保留其余已存项", async () => {
+    stubApi();
+    renderPage();
+    await openEditForm();
+    fireEvent.change(document.getElementById("cfModel")!, { target: { value: "claude-opus-5.5" } });
+    fireEvent.submit(document.getElementById("api-config-form")!);
+    await waitFor(() => expect(calls.find((c) => c.method === "PUT")).toBeTruthy());
+    expect((calls.find((c) => c.method === "PUT")!.body as { models?: string[] }).models).toEqual([
+      "claude-opus-5.5",
+      "gpt-4o",
+    ]);
+  });
+
+  it("未重敲 Key 测试连接把表单模型作探针覆盖；未改模型保存 models 原样随 PUT", async () => {
+    stubApi();
+    renderPage();
+    await openEditForm();
+    // 先测试（保存会关表单）：走已存密钥端点，body.model＝表单当前模型（种子值）
+    fireEvent.click(within(document.querySelector(".mcard-foot") as HTMLElement).getByText("测试连接"));
+    await waitFor(() => expect(calls.some((c) => /\/api-configs\/c1\/test$/.test(c.url))).toBe(true));
+    const testCall = calls.find((c) => /\/api-configs\/c1\/test$/.test(c.url))!;
+    expect((testCall.body as { model?: string }).model).toBe("gpt-4o"); // 种子值＝探针覆盖
+    // 再保存：models 原样随 PUT
+    fireEvent.submit(document.getElementById("api-config-form")!);
+    await waitFor(() => expect(calls.find((c) => c.method === "PUT")).toBeTruthy());
+    expect((calls.find((c) => c.method === "PUT")!.body as { models?: string[] }).models).toEqual(["gpt-4o"]);
+  });
+
+  it("清空模型保存：PUT 不含 models（沿用已存值，与密钥同语义）", async () => {
+    stubApi();
+    renderPage();
+    await openEditForm();
+    fireEvent.change(document.getElementById("cfModel")!, { target: { value: "" } });
+    fireEvent.submit(document.getElementById("api-config-form")!);
+    await waitFor(() => expect(calls.find((c) => c.method === "PUT")).toBeTruthy());
+    const put = calls.find((c) => c.method === "PUT")!;
+    expect(Object.keys(put.body as object)).not.toContain("models");
+    expect(Object.keys(put.body as object)).not.toContain("api_key");
+  });
+
+  it("清空模型后未重敲 Key 测试连接：test 端点不带 body（探针回落已存首项）", async () => {
+    stubApi();
+    renderPage();
+    await openEditForm();
+    fireEvent.change(document.getElementById("cfModel")!, { target: { value: "" } });
+    fireEvent.click(within(document.querySelector(".mcard-foot") as HTMLElement).getByText("测试连接"));
+    await waitFor(() => expect(calls.some((c) => /\/api-configs\/c1\/test$/.test(c.url))).toBe(true));
+    expect(calls.find((c) => /\/api-configs\/c1\/test$/.test(c.url))!.body).toBeUndefined();
+  });
+
+  it("清空模型后重敲 Key 测试连接：raw 测试 model 置 null（探针按清单/候选取）", async () => {
+    stubApi();
+    renderPage();
+    await openEditForm();
+    fireEvent.change(document.getElementById("cfModel")!, { target: { value: "" } });
+    fireEvent.change(document.getElementById("cfKey")!, { target: { value: "sk-new-typed" } });
+    fireEvent.click(within(document.querySelector(".mcard-foot") as HTMLElement).getByText("测试连接"));
+    await waitFor(() => expect(calls.some((c) => c.url.includes("test-connection"))).toBe(true));
+    const raw = calls.find((c) => c.url.includes("test-connection"))!;
+    expect((raw.body as { model?: string | null }).model).toBeNull();
   });
 });
 

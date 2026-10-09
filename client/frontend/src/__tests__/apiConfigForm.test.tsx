@@ -201,8 +201,12 @@ describe("ApiConfigForm 编辑态", () => {
     expect(document.querySelector(".vfix")).toBeTruthy();
     expect(document.querySelector(".vgrid")).toBeNull();
     expect(document.querySelector(".vfix")!.textContent).toContain("OpenAI");
-    // 模型名称＝创建表单一级字段，编辑态不渲染（沿用已存值，不施加预填）
-    expect(document.getElementById("cfModel")).toBeNull();
+    // 模型选择位编辑态同渲染（修复「编辑页没有模型可选、测试连接却要用模型」）：
+    // 已存清单为空 → 空输入＋手填引导文案
+    const model = document.getElementById("cfModel") as HTMLInputElement;
+    expect(model).toBeTruthy();
+    expect(model.value).toBe("");
+    expect(model.placeholder).toBe("留空则保留当前模型；可从已存清单改选或手动输入");
   });
 
   it("编辑态留空：表单提交空串（**省略字段是页面层职责**，见 ApiKeyConfigPage 用例），占位与掩码提示齐备", async () => {
@@ -216,7 +220,7 @@ describe("ApiConfigForm 编辑态", () => {
     expect(onSubmit.mock.calls[0][0]).toMatchObject({ name: "主力", api_key: "" });
   });
 
-  it("编辑态仍可切接口格式（格式按钮可点，双格式厂商）", () => {
+  it("编辑态仍可切接口格式（格式按钮可点，双格式厂商），且不施加供应商预填", () => {
     render(
       <ApiConfigForm
         open
@@ -225,26 +229,112 @@ describe("ApiConfigForm 编辑态", () => {
         onCancel={vi.fn()}
       />,
     );
+    const base = document.getElementById("cfBase") as HTMLInputElement;
+    const model = document.getElementById("cfModel") as HTMLInputElement;
     fireEvent.click(screen.getByText("Anthropic 格式"));
     expect(screen.getByText("Anthropic 格式").className).toContain("on");
+    // 编辑态不施加预填（沿用已存值）：Base URL 与模型不随「供应商×格式」登记值变化
+    expect(base.value).toBe("https://api.openai.com");
+    expect(model.value).toBe("");
     fireEvent.click(screen.getByText("OpenAI 格式"));
     expect(screen.getByText("OpenAI 格式").className).toContain("on");
+    expect(base.value).toBe("https://api.openai.com");
   });
 
-  it("编辑态 Key 失焦不触发自动拉取（编辑态无模型选择器）", () => {
-    const onFetchModels = vi.fn(async (_d: unknown) => ({ ok: false, status: "ok", models: [] }));
+  it("编辑态重填 Key 失焦自动拉清单，种子值视同手选不被清单首项覆盖", async () => {
+    const onFetchModels = vi.fn(async () => ({ ok: true, status: "ok", models: ["fresh-1", "fresh-2"] }));
     render(
       <ApiConfigForm
         open
-        config={editCfg()}
+        config={editCfg({ models: ["stored-1"] })}
         onSubmit={vi.fn(async () => {})}
         onCancel={vi.fn()}
         onFetchModels={onFetchModels}
       />,
     );
+    const input = () => document.getElementById("cfModel") as HTMLInputElement;
+    expect(input().value).toBe("stored-1"); // 种子＝已存首项
     fireEvent.change(document.getElementById("cfKey")!, { target: { value: "sk-typed" } });
     fireEvent.blur(document.getElementById("cfKey")!);
-    expect(onFetchModels).not.toHaveBeenCalled();
+    await waitFor(() => expect(screen.getByText("已拉到 2 个模型")).toBeTruthy());
+    expect(onFetchModels).toHaveBeenCalledWith({
+      vendor_id: "openai",
+      base_url: "https://api.openai.com",
+      api_key: "sk-typed",
+      api_format: "openai",
+    });
+    expect(input().value).toBe("stored-1"); // 已存已选模型不被「清单首项」默认选中覆盖
+  });
+
+  it("编辑态模型选择位：清单种子可选可改选，提交带选中值；已存 N 个模型文案区分拉取来源", async () => {
+    const onSubmit = vi.fn(async (_data: ApiConfigFormData) => {});
+    render(
+      <ApiConfigForm
+        open
+        config={editCfg({ models: ["aion-3.0", "aion-3.0-mini", "claude-opus-5.5"] })}
+        onSubmit={onSubmit}
+        onCancel={vi.fn()}
+      />,
+    );
+    const input = () => document.getElementById("cfModel") as HTMLInputElement;
+    expect(input().value).toBe("aion-3.0"); // 初值＝已存首项（探针优先模型）
+    expect(screen.getByText("已存 3 个模型")).toBeTruthy(); // 种子清单（非拉取）文案
+    // 弹层列已存清单：当前值即过滤词，清空看全量后改选
+    fireEvent.focus(input());
+    expect(screen.getByRole("listbox", { name: "模型清单" })).toBeTruthy();
+    fireEvent.change(input(), { target: { value: "" } });
+    fireEvent.click(screen.getByText("claude-opus-5.5"));
+    expect(input().value).toBe("claude-opus-5.5");
+    fireEvent.submit(document.getElementById("api-config-form")!);
+    await waitFor(() => expect(onSubmit).toHaveBeenCalledTimes(1));
+    expect(onSubmit.mock.calls[0][0]).toMatchObject({ model: "claude-opus-5.5" });
+  });
+
+  it("编辑态获取模型按钮：Key 未重填禁用（title 提示重填），重填后可点强拉", async () => {
+    const onFetchModels = vi.fn(async () => ({ ok: true, status: "ok", models: ["m-1"] }));
+    render(
+      <ApiConfigForm
+        open
+        config={editCfg({ models: ["stored-1"] })}
+        onSubmit={vi.fn(async () => {})}
+        onCancel={vi.fn()}
+        onFetchModels={onFetchModels}
+      />,
+    );
+    const fetchBtn = () => screen.getByText("获取模型").closest("button") as HTMLButtonElement;
+    expect(fetchBtn().disabled).toBe(true); // raw 轻探针需要明文 Key
+    expect(fetchBtn().title).toBe("重填 API Key 后可重新拉取清单");
+    setField("cfKey", "sk-typed");
+    expect(fetchBtn().disabled).toBe(false);
+    fireEvent.click(fetchBtn()); // 显式点击：force 重拉＋弹层展开正对模型框
+    await waitFor(() => expect(onFetchModels).toHaveBeenCalled());
+    expect(onFetchModels).toHaveBeenLastCalledWith({
+      vendor_id: "openai",
+      base_url: "https://api.openai.com",
+      api_key: "sk-typed",
+      api_format: "openai",
+    });
+  });
+
+  it("编辑态测试连接带改选模型；空清单种子给手填引导文案", async () => {
+    const onTest = vi.fn(async () => ({ ok: true, status: "ok", models: ["gpt-4o"] }));
+    render(
+      <ApiConfigForm
+        open
+        config={editCfg({ models: [] })}
+        onSubmit={vi.fn(async () => {})}
+        onCancel={vi.fn()}
+        onTest={onTest}
+      />,
+    );
+    const input = () => document.getElementById("cfModel") as HTMLInputElement;
+    expect(input().value).toBe("");
+    fireEvent.focus(input());
+    expect(screen.getByText("暂无已存模型清单——可手动填模型 id")).toBeTruthy();
+    setField("cfModel", "claude-opus-5.5");
+    fireEvent.click(screen.getByText("测试连接"));
+    await waitFor(() => expect(onTest).toHaveBeenCalledTimes(1));
+    expect(onTest).toHaveBeenLastCalledWith(expect.objectContaining({ model: "claude-opus-5.5" }));
   });
 
   it("测试连接返回不带 models 字段：按空列表 + note 判定", async () => {
@@ -281,7 +371,7 @@ describe("ApiConfigForm 编辑态", () => {
     rerender(
       <ApiConfigForm
         open
-        config={editCfg({ id: "c2", name: "备用", base_url: "https://api.anthropic.com", vendor: "anthropic", api_format: "anthropic" })}
+        config={editCfg({ id: "c2", name: "备用", base_url: "https://api.anthropic.com", vendor: "anthropic", api_format: "anthropic", models: ["claude-opus-5.5"] })}
         onSubmit={vi.fn(async () => {})}
         onCancel={vi.fn()}
         onTest={onTest}
@@ -290,9 +380,11 @@ describe("ApiConfigForm 编辑态", () => {
     expect((document.getElementById("cfName") as HTMLInputElement).value).toBe("备用");
     expect((document.getElementById("cfBase") as HTMLInputElement).value).toBe("https://api.anthropic.com");
     expect((document.getElementById("cfKey") as HTMLInputElement).value).toBe("");
+    expect((document.getElementById("cfModel") as HTMLInputElement).value).toBe("claude-opus-5.5"); // 模型随编辑目标重新种子
     expect(screen.queryByText("密钥无效")).toBeNull();
     rerender(<ApiConfigForm open config={null} onSubmit={vi.fn(async () => {})} onCancel={vi.fn()} />);
     expect((document.getElementById("cfName") as HTMLInputElement).value).toBe(""); // 新建态重置
+    expect((document.getElementById("cfModel") as HTMLInputElement).value).toBe(""); // 模型清空（新建无种子）
     expect(document.querySelector(".vgrid")).toBeTruthy();
   });
 });
@@ -700,6 +792,9 @@ describe("ApiConfigForm 模型选择器覆盖补齐（CI 全局 100% 覆盖率�
     fireEvent.click(screen.getByText("Kimi"));
     setField("cfName", "x");
     blurBase(); // Key 空 → 不拉
+    await Promise.resolve();
+    expect(onFetchModels).not.toHaveBeenCalled();
+    blurKey(); // Key 空失焦：同样不拉（编辑态放开后仍以「Key 非空」为闸）
     await Promise.resolve();
     expect(onFetchModels).not.toHaveBeenCalled();
     setField("cfKey", "sk-1");

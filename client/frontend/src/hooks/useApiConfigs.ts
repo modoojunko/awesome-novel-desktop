@@ -125,10 +125,18 @@ export function useApiConfigs() {
     return request(`/api-configs/${id}/refresh-models`, { apiBase: V1, method: "POST" });
   };
 
-  const testConfig = async (id: string): Promise<{ ok: boolean; status: string; models?: string[]; error?: string }> => {
+  // model 可选（编辑弹窗改选模型后试连）：探针优先模型覆盖，缺省用已存 models 首项
+  const testConfig = async (
+    id: string,
+    model?: string,
+  ): Promise<{ ok: boolean; status: string; models?: string[]; error?: string }> => {
     const result = await request<
       Partial<ApiConfig> & { ok: boolean; status: string; error?: string }
-    >(`/api-configs/${id}/test`, { apiBase: V1, method: "POST" });
+    >(`/api-configs/${id}/test`, {
+      apiBase: V1,
+      method: "POST",
+      ...(model ? { body: JSON.stringify({ model }) } : {}),
+    });
     // Refresh configs to pick up persisted test status
     if (result.ok || result.status) {
       setConfigs((prev) =>

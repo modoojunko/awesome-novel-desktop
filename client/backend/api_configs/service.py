@@ -175,9 +175,13 @@ async def get_api_config(
 
 
 async def test_api_config(
-    db: AsyncSession, user_id: str, config_id: str
+    db: AsyncSession, user_id: str, config_id: str, preferred_model: str | None = None
 ) -> dict[str, Any]:
-    """Test a config's connection, save results to DB, and return outcome."""
+    """Test a config's connection, save results to DB, and return outcome.
+
+    preferred_model：探针优先模型覆盖（编辑弹窗改选模型后试连）；
+    缺省/空按已存 models 首项取。
+    """
     result = await db.execute(
         select(ApiConfig).where(ApiConfig.id == config_id, ApiConfig.user_id == user_id)
     )
@@ -191,13 +195,13 @@ async def test_api_config(
         }
 
     plain_key = decrypt_api_key(config.api_key)
-    # 探针优先用配置已选模型（models 首项；c-api-config-vendor-defaults 预填即它）
+    # 探针优先＝调用方覆盖（表单改选）> 配置已选模型（models 首项；c-api-config-vendor-defaults 预填即它）
     outcome = await _test_connection(
         vendor_id=config.vendor,
         api_key=plain_key,
         base_url=config.base_url,
         api_format=getattr(config, "api_format", None) or "openai",
-        preferred_model=_first_model(config.models),
+        preferred_model=(preferred_model or "").strip() or _first_model(config.models),
     )
 
     # Persist results
