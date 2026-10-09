@@ -524,6 +524,48 @@ class TestDraftShape:
                         json={"topic": "世界铁律", "shape": "kv"})
         assert r.status_code == 502
 
+    @staticmethod
+    def _capturing_client(prompts: list):
+        """记录每次调用 user prompt 的假客户端（断言 {current} 落进模板用）。"""
+        import json as _json
+
+        class _Fake:
+            model = "fake"
+
+            async def chat(self, *a, **k):
+                prompts.append(k.get("messages", [{}])[0].get("content", ""))
+                return _json.dumps({"value": "一段话内容"})
+
+        async def _fake_get_client(novel_id=None):
+            return _Fake()
+
+        return _fake_get_client
+
+    def test_current_draft_seed_in_prompt(self, client, pid, monkeypatch):
+        """c-world-draft-input：作者底稿随请求进 prompt（多行保留，花括号剥除）。"""
+        prompts: list = []
+        monkeypatch.setattr(
+            "settings.ai_router.get_ai_client_for_novel", self._capturing_client(prompts)
+        )
+        r = client.post(f"/api/novels/{pid}/settings/ai/world/draft",
+                        json={"topic": "力量体系",
+                              "current": "灵力九境\n金丹{可毁山}、不可灭城"})
+        assert r.status_code == 200, r.text
+        assert "灵力九境" in prompts[0]
+        assert "金丹可毁山、不可灭城" in prompts[0]
+        assert "{" not in prompts[0].split("输出格式")[0]
+
+    def test_current_missing_falls_back(self, client, pid, monkeypatch):
+        """不带 current 的旧调用：模板回落「（作者还没写）」而非 KeyError。"""
+        prompts: list = []
+        monkeypatch.setattr(
+            "settings.ai_router.get_ai_client_for_novel", self._capturing_client(prompts)
+        )
+        r = client.post(f"/api/novels/{pid}/settings/ai/world/draft",
+                        json={"topic": "力量的代价"})
+        assert r.status_code == 200, r.text
+        assert "（作者还没写）" in prompts[0]
+
 
 # ── 评审回归补充：上下文 await / 迁移往返 / 幂等键 / 模板 v2 ──────────────
 

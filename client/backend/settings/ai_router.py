@@ -585,6 +585,12 @@ def _sanitize_topic(raw) -> str:
     return re.sub(r"[\x00-\x1f\x7f\r]", "", topic).strip()[:60]
 
 
+def _sanitize_current(raw) -> str:
+    """current（作者底稿）消毒：同 topic 口径但保换行——底稿本就是多行文本。"""
+    text = re.sub(r"[{}\[\]<>`]", "", str(raw or ""))
+    return re.sub(r"[\x00-\x09\x0b-\x1f\x7f\r]", "", text).strip()[:300]
+
+
 def _normalize_draft_value(shape: str, raw) -> object:
     """按形状归一 AI 返回的 value：text 出一段话，kv/faction 出条目数组（空项丢弃）。"""
     if shape == "text":
@@ -621,6 +627,7 @@ async def draft_world_topic(
 
     后端不枚举合法主题——只要作家或体检觉得需要，就能 AI 起草。
     shape 声明落格形状：text（一段话）/ kv（名目条目）/ faction（势力行）。
+    current 带当前格作者底稿（前端页面文本，未保存的半稿也算）——模板在其上补全不推翻。
     """
     project = await get_novel(db, project_id, user["id"])
     if not project:
@@ -651,6 +658,7 @@ async def draft_world_topic(
         theme=ctx["theme"],
         theme_desc=ctx["theme_desc"],
         world=ctx["world"],
+        current=_sanitize_current(body.get("current")) or "（作者还没写）",
         shape_line=_DRAFT_SHAPE_LINE[shape],
         format_line=_DRAFT_FORMAT_LINE[shape],
         topic_line=_DRAFT_TOPIC_LINE.get(topic, ""),

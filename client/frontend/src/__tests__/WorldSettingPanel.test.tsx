@@ -85,7 +85,7 @@ describe("WorldSettingPanel", () => {
     const stage = await screen.findByPlaceholderText(/云梁界，古典王朝的修仙世界/);
     await waitFor(() => expect(ref.current).not.toBeNull());
     await ref.current!.runAi("stage");
-    expect(worldDraftTopic).toHaveBeenCalledWith("世界舞台", "p1", "text");
+    expect(worldDraftTopic).toHaveBeenCalledWith("世界舞台", "p1", "text", "");
     const adopt = await screen.findByText("采纳 · 覆盖");
     fireEvent.click(adopt);
     expect(stage).toHaveValue("云梁界，古典王朝的修仙世界。");
@@ -94,6 +94,17 @@ describe("WorldSettingPanel", () => {
     expect(receipt.text).toContain("世界舞台");
     await act(async () => { await receipt.undo(); });
     expect(stage).toHaveValue("");
+  });
+
+  it("起草带作者底稿：输入框已敲的半稿（未保存）随请求直传（c-world-draft-input）", async () => {
+    worldDraftTopic.mockResolvedValue({ value: "灵力九境……", topic: "力量体系" });
+    const ref = createRef<WorldPanelHandle>();
+    render(<WorldSettingPanel projectId="p1" ref={ref} />);
+    const power = await screen.findByPlaceholderText(/灵力——修为靠功法传承/);
+    fireEvent.change(power, { target: { value: "灵力分九境，金丹可毁山" } });
+    await waitFor(() => expect(ref.current).not.toBeNull());
+    await act(async () => { await ref.current!.runAi("power"); });
+    expect(worldDraftTopic).toHaveBeenCalledWith("力量体系", "p1", "text", "灵力分九境，金丹可毁山");
   });
 
   it("一致性体检：结果渲染 + 去哪补 + AI 起草入口", async () => {
