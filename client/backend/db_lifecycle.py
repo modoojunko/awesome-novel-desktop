@@ -40,7 +40,9 @@ from schema_version import (
     three_file_size,
 )
 
-logger = logging.getLogger("uvicorn.error")
+# c-upgrade-log：库生命周期属无损升级链——migration 具名 logger（upgrade.log 专项档
+# ＋propagate 双写 app.log）。
+logger = logging.getLogger("migration")
 
 SCHEMA_ID_KEY = "schema_id"
 APP_VERSION_KEY = "app_version"

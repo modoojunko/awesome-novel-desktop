@@ -584,3 +584,104 @@ class TestStartStatusChain:
         rep = data["report"]
         assert rep["status"] == "ok"
         assert rep["dead_keys"] == 0 and rep["complete"] is True, rep
+
+
+# ── c-upgrade-log：无损升级全链 migration logger 留痕 ─────────────────────
+
+
+def test_upgrade_log_success_trace(sandbox, caplog):
+    """成功路径：启动行/计划行/逐表行/核对行＋终局报告恰一行（整份 report JSON）。"""
+    import logging as _logging
+
+    root, active = sandbox
+    _old_gen0(root, books=1)
+    with caplog.at_level(_logging.INFO, logger="migration"):
+        rep = run_migration(root, "novel.db", active)
+    assert rep["status"] == "ok"
+    msgs = [r.getMessage() for r in caplog.records if r.name == "migration"]
+    assert any("event=migration_start" in m for m in msgs)
+    assert any("event=migration_plan" in m for m in msgs)
+    assert any("event=migration_table" in m and "table=novels" in m for m in msgs)
+    assert any("event=migration_verify" in m for m in msgs)
+    report_lines = [m for m in msgs if "event=migration_report" in m]
+    assert len(report_lines) == 1, "终局报告恰一行（所有退出路径经 finally）"
+    assert '"status": "ok"' in report_lines[0], "终局行必须是整份 report JSON"
+    assert '"book_count_source"' in report_lines[0]
+
+
+def test_upgrade_log_precheck_rejected_trace(sandbox, caplog):
+    """预检拒绝：拒绝行带原因码＋终局行 status=precheck_failed——无需复现即可定位。"""
+    import logging as _logging
+
+    root, active = sandbox
+    with caplog.at_level(_logging.INFO, logger="migration"):
+        rep = run_migration(root, "missing.db", active)
+    assert rep["status"] == "precheck_failed"
+    msgs = [r.getMessage() for r in caplog.records if r.name == "migration"]
+    assert any("event=migration_precheck_failed" in m and "reason=source_missing" in m
+               for m in msgs)
+    assert any("event=migration_report" in m and "precheck_failed" in m for m in msgs)
+
+
+def test_upgrade_log_error_trace(sandbox, caplog, monkeypatch):
+    """异常路径：ERROR 级完整堆栈（exc_info 不丢）＋终局行 status=error——堆栈不静默。"""
+    import logging as _logging
+
+    root, active = sandbox
+    _old_gen0(root, books=1)
+
+    def _boom(*a, **k):
+        raise RuntimeError("mig-boom")
+
+    monkeypatch.setattr("migration.engine.prepare_staged", _boom)
+    with caplog.at_level(_logging.INFO, logger="migration"):
+        rep = run_migration(root, "novel.db", active)
+    assert rep["status"] == "error"
+    err = [r for r in caplog.records
+           if r.name == "migration" and r.levelno == _logging.ERROR]
+    assert any("event=migration_error" in r.getMessage() for r in err)
+    assert any(r.exc_info for r in err), "异常行必须带完整堆栈"
+    report_lines = [r.getMessage() for r in caplog.records if r.name == "migration"
+                    and "event=migration_report" in r.getMessage()]
+    assert any('"status": "error"' in m for m in report_lines)
+
+
+def test_completion_log_requires_persistence(sandbox, caplog, monkeypatch):
+    """评审 P2：migration.last 持久化失败 MUST NOT 落 completed 行——完成判据以落库为前提。"""
+    import asyncio
+    import logging as _logging
+
+    from migration import router as migration_router
+
+    root, _active = sandbox
+    _old_gen0(root, books=1)
+
+    async def _boom(key, value):
+        raise RuntimeError("db-write-failed")
+
+    monkeypatch.setattr(migration_router, "_set_app_meta", _boom)
+    with caplog.at_level(_logging.INFO, logger="migration"), \
+            pytest.raises(RuntimeError):
+        asyncio.run(migration_router._record_completion(
+            "novel.db", {"source_version": "0.24", "book_count_migrated": 2}))
+    msgs = [r.getMessage() for r in caplog.records if r.name == "migration"]
+    assert not any("event=migration_completed" in m for m in msgs), (
+        "持久化失败时 upgrade.log 不得出现完成行（不得谎报已完成）"
+    )
+
+
+def test_invalid_filename_rejected_line(sandbox, caplog):
+    """评审 P3：白名单 400 拒绝（start/preview 共用 _validated_source）带原因码落行。"""
+    import logging as _logging
+
+    from fastapi import HTTPException
+
+    from migration import router as migration_router
+
+    _root, _active = sandbox
+    with caplog.at_level(_logging.INFO, logger="migration"), \
+            pytest.raises(HTTPException):
+        migration_router._validated_source("../escape.db")
+    msgs = [r.getMessage() for r in caplog.records if r.name == "migration"]
+    assert any("event=migration_source_rejected" in m and "reason=invalid_filename" in m
+               for m in msgs)
