@@ -473,6 +473,40 @@ class TestApiKeyCRUD:
         assert resp3.status_code == 200
         assert captured["preferred_model"] == "deepseek-v4-pro"
 
+    def test_test_config_thinking_override(self, client, monkeypatch):
+        """编辑弹窗改思考后试连：body 思考参数覆盖已存值；None 按已存配置（c-thinking-config）。"""
+        captured: dict = {}
+
+        async def fake_test(**kwargs):
+            captured.update(kwargs)
+            return {"ok": True, "status": "ok", "models": [], "error": None}
+
+        monkeypatch.setattr("api_configs.service._test_connection", fake_test)
+        resp = client.post(
+            "/api/v1/api-configs",
+            json={
+                "name": "思考覆盖",
+                "vendor_id": "glm",
+                "base_url": "https://open.bigmodel.cn/api/paas/v4",
+                "api_key": _test_api_key("think-over"),
+                "thinking_enabled": False,
+            },
+        )
+        cid = resp.json()["id"]
+        # 表单拨了思考开关 → body 覆盖已存值
+        resp2 = client.post(
+            f"/api/v1/api-configs/{cid}/test",
+            json={"thinking_enabled": True, "thinking_effort": "high"},
+        )
+        assert resp2.status_code == 200
+        assert captured["thinking_enabled"] is True
+        assert captured["thinking_effort"] == "high"
+        # 未传（旧客户端）→ 按已存配置
+        resp3 = client.post(f"/api/v1/api-configs/{cid}/test")
+        assert resp3.status_code == 200
+        assert captured["thinking_enabled"] is False
+        assert captured["thinking_effort"] == "low"
+
     def test_raw_test_passes_model_through(self, client, monkeypatch):
         """裸测试端点把表单模型名透传为探针优先模型。"""
         captured: dict = {}

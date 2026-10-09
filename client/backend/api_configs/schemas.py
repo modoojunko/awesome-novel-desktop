@@ -222,12 +222,15 @@ class TestRawBody(BaseModel):
 
 
 class TestConfigBody(BaseModel):
-    """已存配置连接测试的可选请求体（编辑弹窗改选模型后试连）。
+    """已存配置连接测试的可选请求体（编辑弹窗改选模型/思考后试连）。
 
-    model＝探针优先模型覆盖；缺省/空则按已存 models 首项取。
+    model＝探针优先模型覆盖，缺省/空按已存 models 首项取；
+    thinking_enabled/thinking_effort＝思考参数覆盖（表单当前值），None 按已存值。
     """
 
     model: str | None = None
+    thinking_enabled: bool | None = None
+    thinking_effort: ThinkingEffort | None = None
 
 
 class FetchModelsBody(BaseModel):

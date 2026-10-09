@@ -131,13 +131,20 @@ export function useApiConfigs() {
   const testConfig = async (
     id: string,
     model?: string,
+    thinking?: { thinking_enabled: boolean; thinking_effort: ThinkingEffort },
   ): Promise<{ ok: boolean; status: string; models?: string[]; error?: string }> => {
+    const overrides = {
+      ...(model ? { model } : {}),
+      ...(thinking ?? {}),
+    };
     const result = await request<
       Partial<ApiConfig> & { ok: boolean; status: string; error?: string }
     >(`/api-configs/${id}/test`, {
       apiBase: V1,
       method: "POST",
-      ...(model ? { body: JSON.stringify({ model }) } : {}),
+      ...(Object.keys(overrides).length
+        ? { body: JSON.stringify(overrides) }
+        : {}),
     });
     // Refresh configs to pick up persisted test status
     if (result.ok || result.status) {
