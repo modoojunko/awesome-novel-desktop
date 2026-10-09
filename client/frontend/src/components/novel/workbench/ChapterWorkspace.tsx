@@ -27,6 +27,7 @@ import ArchiveStages, { useElapsedSec } from "./ArchiveStages";
 import SimModal from "./SimModal";
 import { useNavigate } from "react-router-dom";
 import { charactersApi } from "@/lib/charactersApi";
+import type { CastInfo } from "./CastHover";
 import { StyleShadowPane } from "./StyleShadowPane";
 import { SettingsChangelogPane } from "./SettingsChangelogPane";
 import { HooksPane } from "./HooksPane";
@@ -354,6 +355,8 @@ export default function ChapterWorkspace({
   const [cardNames, setCardNames] = useState<string[]>([]);
   /** 本书主角名（role=主角的主卡名；名单缺人探测置顶标，c-character-intro 6.x） */
   const [protagonistName, setProtagonistName] = useState("");
+  /** 名字（含别名）→ 角色卡摘要（c-og-cast-role-hover）：出场胶囊身份标＋悬停身份卡 */
+  const [castInfos, setCastInfos] = useState<Record<string, CastInfo>>({});
   /** 拉取角色名（含别名展开——别名不误标没卡，c-character-intro 4.1）；
    *  建卡成功后显式刷新（3.5；原 effect deps 仅 projectId）。 */
   const refreshCharacterNames = useCallback(async () => {
@@ -361,17 +364,30 @@ export default function ChapterWorkspace({
       const data = await charactersApi.list(projectId);
       const names = new Set<string>();
       const cards: string[] = [];
+      const infos: Record<string, CastInfo> = {};
       for (const item of data.items) {
+        const aliasList = (item.aliases ?? []).filter(
+          (a) => a && !a.startsWith("\u0000"),
+        );
         if (item.name && !item.name.startsWith("\u0000")) {
           names.add(item.name);
           cards.push(item.name);
+          const info: CastInfo = {
+            name: item.name,
+            role: item.role,
+            aliases: aliasList,
+            persona: item.persona ?? "",
+            dossier: item.dossier ?? {},
+            firstChapter: item.first_chapter ?? null,
+          };
+          infos[item.name] = info;
+          for (const a of aliasList) infos[a] = info;
         }
-        for (const a of item.aliases ?? []) {
-          if (a && !a.startsWith("\u0000")) names.add(a);
-        }
+        for (const a of aliasList) names.add(a);
       }
       setCharacterNames([...names]);
       setCardNames(cards);
+      setCastInfos(infos);
       setProtagonistName(
         data.items.find((i) => i.role === "主角")?.name ?? "",
       );
@@ -1559,6 +1575,7 @@ const [ogForm, setOgForm] = useState<OgForm>(EMPTY_OG_FORM);
         <OgPane
           form={ogForm}
           characterNames={characterNames}
+          castInfos={castInfos}
           protagonistName={protagonistName}
           label={label}
           editing={ogEditing}

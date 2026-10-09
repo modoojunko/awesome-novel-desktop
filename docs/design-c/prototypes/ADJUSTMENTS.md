@@ -1879,3 +1879,36 @@ model-config.html 不在像素 parity 基线内（同 c-zhuque-ai-detect 登记�
    含两个配置三个模型（深度求索 ×2 + 本地 Ollama ×1），仅示多模型场景。
 
 **补丁（同日评审轮，四整改）**：① 弹层高度改由弹层自身承担——`.mp-panel` 加视口上限（`max-height: 360px`）＋整层滚动，`.mp-list` 收掉自带的 `max-height: 240px/overflow-y`（原实现多配置逐组累加后下缘落出视口、fixed 弹层拽不回来）；② 定位换共享助手 `lib/panelAnchor.ts`（`getBoundingClientRect` 的视觉值按 `html { zoom }` 折算回布局 px，并覆盖「模型配置页模型选择器」同一模式）；③ 弹层补 `aria-activedescendant` 指向选项 id（键盘停在哪一行对读屏可见）；④ 后端按次覆盖对改与本书就绪同一谓词（`config_key_usable`：Key 非空＋可解密＋最近连接测试非失败态）。原型侧形态不变（原型弹层就地展开、无 fixed 定位/zoom 问题），本条只登记实现侧收口。
+
+## c-og-cast-role-hover（章纲出场角色胶囊：身份标＋悬停身份卡，2026-10-09）
+
+用户口径（2026-10-09）：「章纲界面出场角色胶囊，每个角色要有标记 ta 是主角、反派、配角的
+标记。鼠标放上去可以看到 ta 的基本信息，人设」。
+
+1. **`book.html` `og-char-picker` 胶囊补身份小标 `.cast-role`**：chip 内 10px 小标，沿
+   `.no-card`「chip 内小标」形制（10px 胶囊、padding 0 6px、margin-left 5px）；四档配色沿
+   **角色类型色语言**（关系图 `.rg-node.role-*` 先例，修饰词同名复用）：主角
+   `role-protagonist`（accent-soft 底＋accent-strong 字）／反派 `role-villain`（err-soft 底
+   ＋err 字）／配角 `role-extra`（fg-soft 底＋muted 字）／路人 `role-ghost`（muted 虚线
+   描边，对应关系图虚线节点语义）。无新状态色、无新语气档、无第四种胶囊形态档位
+   （小标＝身份标签非状态，与 `CharacterManager` 卡头 `.badge` 的 ok/warn 状态档分开）。
+   demo 种子五名：沉舟[主角]/老陆[配角]/银铎[反派]/老周[路人]/魏七[配角＋「新」标]，
+   秦伯维持「没卡」标**不出身份标**（没卡名不出标不出卡）。
+2. **悬停身份卡 `.cast-hover` 一族**（正名＋身份标 → 别名行（有才出）→ 一句话人设 →
+   基础档案已填格（性别·年龄·种族合一行，其余逐行；空格不出行）→ 首次出场脚注（有才出））；
+   卡宽 300px、限高 360px 整层滚动、`--shadow-card` 浮层阴影（沿 `.mp-panel`/`.acct-menu`
+   先例）、长值行内折 2 行（line-clamp）；字号只用既有档（10/11/11.5/12/12.5/13.5px）。
+   只读信息面，无编辑/跳转动作；档案字段标签取 `characterModel.DOSSIER_FIELDS` 单源。
+3. **形态差异登记**：原型悬停卡 demo 就地按 `getBoundingClientRect` 视觉坐标铺 fixed
+   （演示件，先例＝写作能力弹窗五态 chips 的演示 JS）；实现侧沿 `.mp-panel` 既有
+   **portal 到 body + fixed**（`.og-pane` 滚动容器会裁切卡内绝对定位浮层）＋
+   `lib/panelAnchor.ts` 的 `htmlZoom()` zoom 折算（大屏缩放层双重放大对策），开 150ms/
+   关 150ms 宽限、Esc 收、滚动/resize 重锚、移出胶囊与卡即收。
+4. **`role` 四档同标**（用户点名主角/反派/配角；role 闭集还有「路人」）：缺标会产生
+   「没标＝配角还是漏标」歧义，故路人也标。别名胶囊按所属卡标同身份，身份卡正名位
+   显示角色卡正名（名单里写作别名也能看到卡上正名）。
+5. **不进 parity 截图的依据**：workbench 场景的章纲面板默认呈现查看态（`.fro` 逐名渲染），
+   原型只建模编辑态表单（沿 c-character-intro ⑥「查看态 .fro 逐名渲染与编辑态 chips
+   两态同词」先例，查看态不入原型）；且 `design-parity-book` 不在 `design:check` 矩阵
+   （design:check 只跑 书架＋preview）。原型编辑态胶囊已同貌更新，基线诚实由
+   design-parity-book A/B 对拍兜底（见 change tasks 4.5）。
