@@ -738,8 +738,12 @@
   .pill-new { background: var(--accent); border-color: transparent; color: var(--on-accent); letter-spacing: 0.06em; }
   .rail-assist .ra-body b .pill { margin-left: 6px; }
   .editor p { position: relative; }
-  .editor p.zq-warn { background: linear-gradient(transparent 62%, var(--warn-soft) 62%); border-radius: 4px; }
-  .editor p.zq-err { background: linear-gradient(transparent 62%, var(--err-soft) 62%); border-radius: 4px; }
+  /* 行底色带：周期＝行盒高（--zq-lh × 本段字号，fs-系／lh-系／章题 1.15em 自动跟随），带体上下各留 --zq-gap 呼吸缝（0.15em ≤ 三档行距最小半前导，不切字） */
+  .editor p.zq-warn, .editor p.zq-err { --zq-lh: 2; --zq-gap: 0.15em; background-image: repeating-linear-gradient(to bottom, transparent 0, transparent var(--zq-gap), var(--zq-tint) var(--zq-gap), var(--zq-tint) calc(1em * var(--zq-lh) - var(--zq-gap)), transparent calc(1em * var(--zq-lh) - var(--zq-gap)), transparent calc(1em * var(--zq-lh))); }
+  .editor p.zq-warn { --zq-tint: var(--warn-soft); }
+  .editor p.zq-err { --zq-tint: var(--err-soft); }
+  .editor.lh-tight p.zq-warn, .editor.lh-tight p.zq-err { --zq-lh: 1.8; }
+  .editor.lh-loose p.zq-warn, .editor.lh-loose p.zq-err { --zq-lh: 2.2; }
   .zq-mark { position: absolute; right: -6px; top: -4px; font-family: var(--font-mono); font-size: 10.5px; line-height: 1; padding: 3px 8px; border-radius: 999px; white-space: nowrap; }
   .zq-mark.m-warn { background: var(--warn-soft); color: color-mix(in oklch, var(--warn) 85%, var(--fg)); }
   .zq-mark.m-err { background: var(--err-soft); color: color-mix(in oklch, var(--err) 90%, var(--fg)); font-weight: 600; }
