@@ -60,3 +60,49 @@ export const resetPackProbeState = () => {
 export const resetPackProbeSlotForTests = () => {
   probeInFlight = false;
 };
+
+// ── 引导弹窗关闭记忆（c-pack-modal-dismiss） ──────────────────────────────
+// 单 key JSON：install＝用户关过首装引导（自动弹资格取消，装上即清自愈）；
+// updateVersion＝「暂不更新」时所见的 CDN 版本锚（同版不重弹，版本变化自动重臂）。
+// 纯本机 UX 偏好（design Non-Goals：不进服务端）；写失败（隐私模式等）静默——
+// 最坏退回现状「每次重弹」。
+const DISMISS_KEY = "pack-modal-dismissed";
+
+interface PackDismissal {
+  install?: boolean;
+  updateVersion?: string;
+}
+
+export const readPackDismissal = (): PackDismissal => {
+  try {
+    const raw = window.localStorage.getItem(DISMISS_KEY);
+    if (!raw) return {};
+    const parsed = JSON.parse(raw) as PackDismissal;
+    return typeof parsed === "object" && parsed !== null ? parsed : {};
+  } catch {
+    return {};
+  }
+};
+
+const writePackDismissal = (next: PackDismissal) => {
+  try {
+    window.localStorage.setItem(DISMISS_KEY, JSON.stringify(next));
+  } catch {
+    /* 写失败不补偿：关闭记忆是打扰抑制，丢标记只回到基线行为 */
+  }
+};
+
+/** 关过首装引导（包仍未装上时关窗）——自动首装提醒资格取消 */
+export const writePackInstallDismissed = () => {
+  writePackDismissal({ ...readPackDismissal(), install: true });
+};
+/** 安装成功自愈：清首装标记（包再度缺失时自动提醒资格恢复，spec 场景钉） */
+export const clearPackInstallDismissed = () => {
+  const cur = readPackDismissal();
+  if (!cur.install) return;
+  writePackDismissal({ updateVersion: cur.updateVersion });
+};
+/** 暂不更新：记当下 CDN 版本锚——同版不再弹，probe 版本号变化即重臂 */
+export const writePackUpdateDismissed = (version: string) => {
+  writePackDismissal({ ...readPackDismissal(), updateVersion: version });
+};

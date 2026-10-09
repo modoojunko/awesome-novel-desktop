@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import PromptPackModal from "@/components/novel/license/PromptPackModal";
+import { readPackDismissal } from "@/lib/packProbe";
 
 // c-prompt-pack-onboard-modal 4.1：写作能力弹窗三模式状态机（design D7）——
 // install 开窗即跑／update 确认后跑／manual 手动检查；running 轮询到终态；
@@ -235,5 +236,77 @@ describe("PromptPackModal（c-prompt-pack-onboard-modal）", () => {
     });
     expect(screen.getByTestId("pack-done")).toBeTruthy();
     expect(screen.getByRole("button", { name: "开始写作" })).toHaveProperty("disabled", false);
+  });
+});
+
+describe("PromptPackModal 关闭记忆（c-pack-modal-dismiss）", () => {
+  beforeEach(() => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    tierState.pack = null;
+    tierState.refetch.mockClear();
+    apiGet.mockReset();
+    apiPost.mockReset();
+    apiPost.mockResolvedValue({ started: true });
+    apiGet.mockResolvedValue({ phase: "syncing", step: "" });
+    window.localStorage.clear();
+  });
+
+  async function runToFailed() {
+    apiGet.mockResolvedValue({ phase: "failed", reason: "cdn_unreachable", step: "" });
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(1100);
+    });
+    expect(screen.getByText("写作能力没有就绪")).toBeTruthy();
+  }
+
+  it("首装失败态关闭（反馈#4 主场景）→ 写入首装关闭标记，不再自动弹", async () => {
+    render(<PromptPackModal />);
+    openPack({ mode: "install" });
+    await waitFor(() => expect(screen.getByText("正在准备写作能力")).toBeTruthy());
+    await runToFailed();
+    fireEvent.keyDown(window, { key: "Escape" });
+    expect(readPackDismissal()).toEqual({ install: true });
+  });
+
+  it("安装成功后关闭 → 清除首装标记（自愈，spec 场景钉）", async () => {
+    window.localStorage.setItem("pack-modal-dismissed", JSON.stringify({ install: true }));
+    render(<PromptPackModal />);
+    openPack({ mode: "install" });
+    await waitFor(() => expect(apiPost).toHaveBeenCalledWith("/prompt-pack/check", undefined, { quiet: true }));
+    apiGet.mockResolvedValue({ phase: "ready", version: "6", step: "" });
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(1100);
+    });
+    await waitFor(() => expect(screen.getByTestId("pack-done")).toBeTruthy());
+    fireEvent.click(screen.getByRole("button", { name: "开始写作" }));
+    expect(readPackDismissal().install).toBeFalsy();
+  });
+
+  it("更新确认态「暂不更新」→ 记版本锚（同版不重弹）", async () => {
+    render(<PromptPackModal />);
+    openPack({ mode: "update", from: "5", to: "6" });
+    expect(screen.getByText("写作能力有更新")).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "暂不更新" }));
+    expect(readPackDismissal()).toEqual({ updateVersion: "6" });
+  });
+
+  it("更新流失败且包已装 → 关闭不写首装标记（包在场不该误标未装）", async () => {
+    tierState.pack = { version: "5" };
+    render(<PromptPackModal />);
+    openPack({ mode: "update", from: "5", to: "6" });
+    fireEvent.click(screen.getByTestId("pack-confirm-update"));
+    await waitFor(() => expect(screen.getByText("正在更新写作能力")).toBeTruthy());
+    await runToFailed();
+    fireEvent.keyDown(window, { key: "Escape" });
+    expect(readPackDismissal().install).toBeFalsy();
+    expect(readPackDismissal().updateVersion).toBeFalsy();
+  });
+
+  it("manual 空闲态关闭不记标记——手动检查窗不带「别再提醒」语义", async () => {
+    render(<PromptPackModal />);
+    openPack({ mode: "manual" });
+    expect(screen.getByTestId("pack-manual-note")).toBeTruthy();
+    fireEvent.keyDown(window, { key: "Escape" });
+    expect(readPackDismissal()).toEqual({});
   });
 });

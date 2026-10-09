@@ -10,8 +10,8 @@ import { stableClick } from "./helpers";
  * 口径（spec「写作能力引导弹窗」）：
  * - 首装：进入「我的作品」页未装包 → 自动弹窗并立即开始（POST /prompt-pack/check），
  *   分步进度 → 完成提示可关闭（开始写作）；
- * - 更新确认制：探测有新版 → 「当前 vN → 最新 vM」确认弹窗；暂不更新＝不安装不重复
- *   打扰当前停留，再进页面再探测；确认后复用下载安装进度；
+ * - 更新确认制：探测有新版 → 「当前 vN → 最新 vM」确认弹窗；暂不更新＝不安装且记
+ *   版本锚（c-pack-modal-dismiss：同版不再重弹，CDN 新版重臂）；确认后复用下载安装进度；
  * - 菜单入口：账号面板「数据」组「写作能力」→ 同一弹窗手动检查更新；
  * - running 中途关窗＝纯视觉退出，后台同步不中断。
  *
@@ -155,7 +155,7 @@ test.describe("写作能力引导弹窗（c-prompt-pack-onboard-modal）", () =>
     }
   });
 
-  test("更新确认制：暂不更新不安装，再进页面再探测；确认后复用进度", async ({ page }) => {
+  test("更新确认制：暂不更新同版不重弹（c-pack-modal-dismiss），新版重臂；确认后复用进度", async ({ page }) => {
     test.setTimeout(180_000);
     const { token, username } = await sRegisterAndLogin();
     const restore = await writeOAuthSession(token, username);
@@ -178,18 +178,20 @@ test.describe("写作能力引导弹窗（c-prompt-pack-onboard-modal）", () =>
       await expect(confirm).toContainText("预计 1 分钟左右");
       await expect.poll(async () => checkCalls.n).toBe(0);
 
-      // 暂不更新：关闭、不安装
+      // 暂不更新：关闭、不安装（记版本锚 v8）
       await confirm.getByRole("button", { name: "暂不更新" }).click();
       await expect(page.locator(".modal", { hasText: "写作能力有更新" })).toHaveCount(0);
 
-      // 再进页面（reload 重挂载）→ 再探测再提示
+      // 再进页面（reload 重挂载）→ 同版本不再提示（c-pack-modal-dismiss：暂不更新记忆）
       await page.reload();
-      await expect(page.locator(".modal", { hasText: "写作能力有更新" })).toBeVisible({
-        timeout: 15000,
-      });
+      await expect(page.getByText("我的作品").first()).toBeVisible({ timeout: 15000 });
+      await expect(page.locator(".modal", { hasText: "写作能力有更新" })).toHaveCount(0);
 
-      // 确认 → 立即更新：触发同步并复用进度；ready v8 → 完成
+      // CDN 出新版本 v9 → 版本锚变化，提醒重臂；确认 → 立即更新：复用进度
+      probe.latest_version = "9";
+      await page.reload();
       const confirm2 = page.locator(".modal", { hasText: "写作能力有更新" });
+      await expect(confirm2).toBeVisible({ timeout: 15000 });
       await confirm2.getByRole("button", { name: "立即更新" }).click();
       // 点确认不关窗：转「正在更新写作能力」锁定态并显示进度（拍板 10-07 三次）
       const running = page.locator(".modal", { hasText: "正在更新写作能力" });
@@ -197,8 +199,41 @@ test.describe("写作能力引导弹窗（c-prompt-pack-onboard-modal）", () =>
       await expect(running.getByTestId("pack-steps")).toBeVisible();
       await expect(running).toContainText("不能关闭此窗口");
       await expect.poll(async () => checkCalls.n, { timeout: 10000 }).toBe(1);
-      st = { phase: "ready", version: "8", step: "" };
-      await expect(page.getByTestId("pack-done")).toContainText("v8", { timeout: 15000 });
+      st = { phase: "ready", version: "9", step: "" };
+      await expect(page.getByTestId("pack-done")).toContainText("v9", { timeout: 15000 });
+    } finally {
+      restore();
+    }
+  });
+
+  test("首装失败关闭记忆（c-pack-modal-dismiss 反馈#4 主场景）：关闭后不再自动弹", async ({ page }) => {
+    test.setTimeout(120_000);
+    const { token, username } = await sRegisterAndLogin();
+    const restore = await writeOAuthSession(token, username);
+    try {
+      const st: PackStub = { phase: "failed", reason: "cdn_unreachable", step: "" };
+      const checkCalls = await stubOnboard(page, token, {
+        status: () => ({ ...st }),
+        probe: () => ({ installed_version: "", latest_version: "", update_available: false, source: "pack" }),
+      });
+      await page.goto(`${ORIGIN}/#/novels`);
+
+      // 未装包自动弹 → 网络失败落「写作能力没有就绪」
+      const failed = page.locator(".modal", { hasText: "写作能力没有就绪" });
+      await expect(failed).toBeVisible({ timeout: 15000 });
+      await expect.poll(async () => checkCalls.n, { timeout: 10000 }).toBe(1);
+
+      // 失败态解锁，Esc 关闭＝记住（关闭记忆落 localStorage）
+      await page.keyboard.press("Escape");
+      await expect(failed).toHaveCount(0);
+      await expect
+        .poll(async () => page.evaluate(() => localStorage.getItem("pack-modal-dismissed")))
+        .toContain("install");
+
+      // 再进页面 → 不再自动弹（账号菜单「写作能力」手动入口仍在，此处只钉静默面）
+      await page.reload();
+      await expect(page.getByText("我的作品").first()).toBeVisible({ timeout: 15000 });
+      await expect(page.locator(".modal")).toHaveCount(0);
     } finally {
       restore();
     }
