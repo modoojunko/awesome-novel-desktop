@@ -122,3 +122,97 @@ def test_pywebview_injects_build_info_env(tmp_path, monkeypatch):
         exec(compile(line, "<injection-smoke>", "exec"), globs)  # noqa: S102
     assert os.environ.get("CLIENT_BUILD_BRANCH") == "main"
     assert os.environ.get("CLIENT_BUILD_COMMIT") == "f456e"
+
+
+# ── c-shell-release-env-order：env 注入必须先于 config 首次导入 ──────────────
+# 实锤判例（v0.30 用户现场 10-09）：壳层曾用 `from config import load_release_overrides`
+# 读取 release.json——那次 import 让 config.DATABASE_URL 在 CLIENT_VERSION 注入
+# **之前**求值，正式包全部落 dev 哨兵库 novel-dev.db（#464 起 v0.25–v0.30 真机全中；
+# dev 环境 CLIENT_VERSION 本就空、CI 断言只验烘焙内容，两条测试路都测不出）。
+
+
+def _shell_source() -> str:
+    from pathlib import Path
+
+    return (Path(__file__).resolve().parent.parent.parent
+            / "packaging" / "build" / "pywebview_app.py").read_text(encoding="utf-8")
+
+
+def test_pywebview_never_imports_config():
+    """门禁一（源码级）：壳层永不得 import config——config 模块常量
+    （DATABASE_URL/SERVER_API_BASE）在 import 期求值，顺序回潮＝正式包
+    版本注入被旁路、恒落 novel-dev.db。"""
+    import re as _re
+
+    offenders = [ln.strip() for ln in _shell_source().splitlines()
+                 if _re.match(r"\s*(from|import)\s+config\b", ln)]
+    assert not offenders, (
+        "pywebview_app.py 不得 import config（release.json 走壳内 _load_release_json）："
+        f"发现 {offenders!r}——config.DATABASE_URL 在 import 期按 CLIENT_VERSION 定库名，"
+        "先导入＝版本注入被旁路、正式包恒落 novel-dev.db（c-shell-release-env-order 判例）")
+
+
+def test_database_url_follows_client_version_at_import(tmp_path):
+    """门禁二（行为级）：env 先注 → config 后导 → DATABASE_URL 按版本定名。
+    子进程实跑 import config（规避本进程已缓存的 config 模块求值次序污染）。"""
+    import os
+    import subprocess
+    import sys
+    from pathlib import Path
+
+    backend_dir = Path(__file__).resolve().parent.parent
+    for ver, expect in (("9.9", "novel-v9.9.db"), (None, "novel-dev.db")):
+        env = {k: v for k, v in os.environ.items()
+               if k not in ("DATABASE_URL", "CLIENT_VERSION")}
+        env["DATA_ROOT"] = str(tmp_path)
+        if ver:
+            env["CLIENT_VERSION"] = ver
+        out = subprocess.run(
+            [sys.executable, "-c", "import config; print(config.DATABASE_URL)"],
+            cwd=backend_dir, env=env, capture_output=True, text=True, check=True,
+        ).stdout.strip()
+        assert out.endswith(expect), f"CLIENT_VERSION={ver} → 应含 {expect}，实得 {out}"
+
+
+def test_shell_load_release_json_semantics(tmp_path):
+    """门禁三：壳内 _load_release_json 与 load_release_overrides 语义等价
+    （缺/坏/非对象容忍、空值过滤、strip）——它替代了旧的 `from config import` 路径。"""
+    import importlib.util
+    import sys
+    import types
+    from pathlib import Path
+
+    if "webview" not in sys.modules:
+        stub = types.ModuleType("webview")
+        stub.screens = []
+        stub.FOLDER_DIALOG = "folder"
+        stub.SAVE_DIALOG = "save"
+        stub.OPEN_DIALOG = "open"
+        sys.modules["webview"] = stub
+    src_path = (Path(__file__).resolve().parent.parent.parent
+                / "packaging" / "build" / "pywebview_app.py")
+    spec = importlib.util.spec_from_file_location("pywebview_app_release_env_test", src_path)
+    assert spec and spec.loader
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+
+    assert module._load_release_json(tmp_path / "nope") == {}
+
+    bad = tmp_path / "bad"
+    bad.mkdir()
+    (bad / "release.json").write_text("{not json", encoding="utf-8")
+    assert module._load_release_json(bad) == {}
+
+    nonobj = tmp_path / "nonobj"
+    nonobj.mkdir()
+    (nonobj / "release.json").write_text('["array"]', encoding="utf-8")
+    assert module._load_release_json(nonobj) == {}
+
+    ok = tmp_path / "ok"
+    ok.mkdir()
+    (ok / "release.json").write_text(
+        '{"client_version": " 9.9 ", "server_api_base": "", "components": {}}',
+        encoding="utf-8")
+    # 空串/空对象（falsy）一律过滤，字符串值 strip——与 load_release_overrides 的
+    # 「非空值才回」口径一致
+    assert module._load_release_json(ok) == {"client_version": "9.9"}

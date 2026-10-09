@@ -156,6 +156,27 @@ def get_resource_root() -> Path:
     return base
 
 
+def _load_release_json(res_root: Path) -> dict:
+    """壳内直读资源根下的 release.json（缺/坏/非对象返回 {}；空值过滤＋strip，
+    与 config.load_release_overrides 语义等价）。
+
+    **永不 import config**（c-shell-release-env-order 实锤判例）：config 的
+    DATABASE_URL / SERVER_API_BASE 是 import 期求值的模块常量，而 release 的
+    env 注入段在本函数之后才跑——「先 import config 再注 env」＝CLIENT_VERSION
+    注入被旁路，正式包库文件恒落 dev 哨兵名 novel-dev.db（v0.25–v0.30 真机全中；
+    dev 环境 CLIENT_VERSION 本就空、CI 断言只验烘焙内容，双双测不出）。
+    test_config_release.py 钉「壳禁 import config」＋「DATABASE_URL 随 CLIENT_VERSION」双门禁。
+    """
+    try:
+        with open(res_root / "release.json", "r", encoding="utf-8") as f:
+            raw = json.load(f)
+    except (OSError, ValueError):
+        return {}
+    if not isinstance(raw, dict):
+        return {}
+    return {k: str(v).strip() for k, v in raw.items() if str(v or "").strip()}
+
+
 def _load_brand():
     """品牌桥接入（brand-name-single-source）：单源是 backend/brand.py。
     壳与后端的 sys.path 布局不同，这里自行引导；import 或取值任何异常都
@@ -771,11 +792,13 @@ def start_server():
         # ── S端 地址解析链：显式环境变量 > 发布期 release.json（CI 构建期烘焙）> 占位 ──
         # release.json 由打包工作流生成并随 datas 分发；本地开发没有它 → 行为与历史一致。
         # 注意 server_api 字段自 c-server-api-sync 起 env（release.json 烘焙）恒胜——启动会把 config.json 对齐到本值，手工改 config 会在下次 auth 调用被回滚（其余字段仍手工优先）。
-        try:
-            from config import load_release_overrides
-            release = load_release_overrides(str(res_root))
-        except Exception:
-            release = {}
+        #
+        # 读取必须走壳内 _load_release_json（json 直读），**不得 `from config import ...`**：
+        # config 的 DATABASE_URL / SERVER_API_BASE 在 import 期求值，而下面的 env 注入段
+        # 尚未跑——先导入＝CLIENT_VERSION 注入被旁路，库文件恒落 dev 哨兵名 novel-dev.db
+        # （c-shell-release-env-order 判例：v0.25–v0.30 正式包全中）。config 的首次导入
+        # 由此顺延到 uvicorn 线程（main:app 装载时），届时 env 已全部就绪。
+        release = _load_release_json(res_root)
 
         def _env_with_release(name: str, key: str, fallback: str):
             if not os.environ.get(name) and release.get(key):
