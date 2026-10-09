@@ -8,7 +8,7 @@ import { MemoryRouter, Route, Routes, useLocation } from "react-router-dom";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import NovelListPage from "@/pages/NovelListPage";
-import { resetPackProbeSlotForTests } from "@/lib/packProbe";
+import { getLastProbe, resetPackProbeSlotForTests } from "@/lib/packProbe";
 import { SHELF_PAGE_SIZE } from "@/lib/shelfSort";
 import { toast } from "@/lib/toast";
 
@@ -956,6 +956,9 @@ describe("覆盖补齐（回看与多书局部更新）", () => {
 describe("写作能力探测（c-prompt-pack-onboard-modal）", () => {
   beforeEach(() => {
     resetPackProbeSlotForTests();
+    // 关闭记忆是持久态（c-pack-modal-dismiss）：只清本 key 防串染——
+    // 整个 localStorage.clear() 会抹掉文件级夹具种的登录态（AuthGuard 挡死）
+    window.localStorage.removeItem("pack-modal-dismissed");
   });
 
   function listen() {
@@ -980,6 +983,70 @@ describe("写作能力探测（c-prompt-pack-onboard-modal）", () => {
     window.removeEventListener("pack-modal:open", on);
     expect(events).toHaveLength(1);
     expect(events[0].detail).toEqual({ mode: "install" });
+  });
+
+  it("关过首装引导（关闭记忆 install）→ 未装包也不再自动弹（反馈#4 主场景）", async () => {
+    window.localStorage.setItem("pack-modal-dismissed", JSON.stringify({ install: true }));
+    getMock.mockImplementation(async (path: string) => {
+      if (String(path).includes("/prompt-pack/probe"))
+        return { installed_version: "", latest_version: "", update_available: false, source: "pack" };
+      return [novel()];
+    });
+    const off = listen();
+    renderPage();
+    await waitFor(() => expect(getMock).toHaveBeenCalledWith("/prompt-pack/probe", { quiet: true }));
+    await act(async () => {});
+    off();
+    // 手动入口兜底不受影响：探测缓存照常写入（菜单 hint 未就绪可见）
+    expect(getLastProbe()?.installed_version).toBe("");
+  });
+
+  it("暂不更新同版本（版本锚命中）→ 不再广播 update", async () => {
+    window.localStorage.setItem("pack-modal-dismissed", JSON.stringify({ updateVersion: "6" }));
+    getMock.mockImplementation(async (path: string) => {
+      if (String(path).includes("/prompt-pack/probe"))
+        return { installed_version: "5", latest_version: "6", update_available: true, source: "pack" };
+      return [novel()];
+    });
+    const off = listen();
+    renderPage();
+    await waitFor(() => expect(getMock).toHaveBeenCalledWith("/prompt-pack/probe", { quiet: true }));
+    await act(async () => {});
+    off();
+    expect(getLastProbe()?.update_available).toBe(true);
+  });
+
+  it("版本锚变化（CDN 回滚改指旧版）→ 提醒同样重臂（召回场景）", async () => {
+    // 锚 v9 时暂不更新，其后 CDN 回滚指 v8（对已装 v7 仍 update_available）→ 差异即重臂
+    window.localStorage.setItem("pack-modal-dismissed", JSON.stringify({ updateVersion: "9" }));
+    getMock.mockImplementation(async (path: string) => {
+      if (String(path).includes("/prompt-pack/probe"))
+        return { installed_version: "7", latest_version: "8", update_available: true, source: "pack" };
+      return [novel()];
+    });
+    const events: CustomEvent[] = [];
+    const on = (e: Event) => events.push(e as CustomEvent);
+    window.addEventListener("pack-modal:open", on);
+    renderPage();
+    await waitFor(() => expect(events.length).toBe(1));
+    window.removeEventListener("pack-modal:open", on);
+    expect(events[0].detail).toEqual({ mode: "update", from: "7", to: "8" });
+  });
+
+  it("版本锚变化（CDN 升到新版本）→ update 提醒重臂照常广播", async () => {
+    window.localStorage.setItem("pack-modal-dismissed", JSON.stringify({ updateVersion: "5" }));
+    getMock.mockImplementation(async (path: string) => {
+      if (String(path).includes("/prompt-pack/probe"))
+        return { installed_version: "5", latest_version: "6", update_available: true, source: "pack" };
+      return [novel()];
+    });
+    const events: CustomEvent[] = [];
+    const on = (e: Event) => events.push(e as CustomEvent);
+    window.addEventListener("pack-modal:open", on);
+    renderPage();
+    await waitFor(() => expect(events.length).toBe(1));
+    window.removeEventListener("pack-modal:open", on);
+    expect(events[0].detail).toEqual({ mode: "update", from: "5", to: "6" });
   });
 
   it("已装且探测有更新 → 广播 update（当前→最新版本对）", async () => {

@@ -2,7 +2,13 @@ import { migratableCandidates, recommendedCandidate, useLegacyDb } from '@/hooks
 import CarryDialog from '@/components/CarryDialog';
 import { enqueueDialog, finishDialog } from '@/lib/dialogQueue';
 import { snoozeCarry, useCarryStore } from '@/lib/carryStore';
-import { claimPackProbe, openPackModal, releasePackProbe, setLastProbe } from "@/lib/packProbe";
+import {
+  claimPackProbe,
+  openPackModal,
+  readPackDismissal,
+  releasePackProbe,
+  setLastProbe,
+} from "@/lib/packProbe";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { queryKeys } from "@/lib/queryKeys";
@@ -228,13 +234,19 @@ function NovelList() {
         const out = await api.get("/prompt-pack/probe", { quiet: true });
         setLastProbe(out);
         if (out?.update_available) {
-          openPackModal({ mode: "update", from: out.installed_version, to: out.latest_version });
+          // c-pack-modal-dismiss：同版本「暂不更新」不再重弹——版本锚变化
+          // （含 CDN 指针回滚）自动重臂；手动入口（账号菜单）不受影响。
+          if (readPackDismissal().updateVersion !== out.latest_version) {
+            openPackModal({ mode: "update", from: out.installed_version, to: out.latest_version });
+          }
         } else if (
           out &&
           !out.installed_version &&
           out.source !== "dev" &&
           // min_client 闸跳过＝全静默（评审 P1-2：旧客户端未装包不弹首装窗）
-          out.reason !== "min_client_version"
+          out.reason !== "min_client_version" &&
+          // c-pack-modal-dismiss：关过首装引导不再自动弹（手动入口兜底，装上自愈）
+          !readPackDismissal().install
         ) {
           openPackModal({ mode: "install" });
         }

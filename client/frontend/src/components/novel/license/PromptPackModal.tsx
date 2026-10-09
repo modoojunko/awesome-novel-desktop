@@ -5,7 +5,15 @@ import { useTier } from "@/hooks/useTier";
 import { isLoggedIn } from "@/lib/auth";
 import { api } from "@/lib/api";
 import type { PackStatus } from "@/lib/licenseCache";
-import { getLastProbe, setLastProbe, type PackModalMode, type PackProbe } from "@/lib/packProbe";
+import {
+  clearPackInstallDismissed,
+  getLastProbe,
+  setLastProbe,
+  writePackInstallDismissed,
+  writePackUpdateDismissed,
+  type PackModalMode,
+  type PackProbe,
+} from "@/lib/packProbe";
 import { toast } from "@/lib/toast";
 import { finishDialog } from "@/lib/dialogQueue";
 
@@ -157,10 +165,21 @@ export default function PromptPackModal() {
   const close = useCallback(() => {
     // 中途关窗＝纯视觉退出：后台同步继续（不 abort），四态卡兜底
     stopPoll();
+    // 关闭记忆（c-pack-modal-dismiss）：装上了清首装标记自愈；更新确认态关＝
+    // 暂不更新记版本锚（同版不重弹）；其余未装上就关（首装失败/中途退出、
+    // tier_denied 去升级）＝记首装关闭不再自动弹。manual 空闲态不记——用户
+    // 主动开的检查窗，关闭不带「别再提醒」语义。
+    if (stage === "confirm") {
+      writePackUpdateDismissed(toVersion);
+    } else if (stage === "done") {
+      clearPackInstallDismissed();
+    } else if (stage !== "idle" && !tier?.pack?.version) {
+      writePackInstallDismissed();
+    }
     setOpen(false);
     // c-lossless-upgrade：出队（放行壳层队列的后续条目）
     finishDialog("pack");
-  }, [stopPoll]);
+  }, [stopPoll, stage, toVersion, tier]);
 
   const runProbe = useCallback(async () => {
     if (checking) return;
