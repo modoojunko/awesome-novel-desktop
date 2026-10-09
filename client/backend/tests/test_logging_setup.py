@@ -267,3 +267,53 @@ def test_log_off_no_llm_handler(monkeypatch):
     assert setup_logging() is None
     for name in ("ai_client", "llm_probe", "zhuque.client"):
         assert _llm_handlers(name) == [], f"关闭态不得给 {name} 挂 llm handler"
+
+
+# ⑩ 启动首行＋目录回退链（c-shell-release-env-order：v0.30 真机「只有 startup.log
+#    没有 app.log」排查教训——delay=True 首条 emit 失败会被静默吞掉、整份日志消失）
+
+
+def test_boot_line_creates_app_log_immediately(daily_file_log):
+    """setup_logging 返回时 app.log 必已存在且带「logging ready」启动行（含最终落点）。"""
+    log_dir = daily_file_log
+    text = (log_dir / "app.log").read_text(encoding="utf-8")
+    assert "logging ready" in text, "启动即落首行——app.log 不得等首条业务日志才出现"
+    assert str(log_dir) in text, "首行必须写明最终落点（回退发生过时现场一眼可辨）"
+
+
+def test_unwritable_log_dir_falls_back_to_next_candidate(tmp_path, monkeypatch):
+    """AINOVEL_LOG_DIR 写不出（被文件占位）→ 落 DATA_ROOT/logs 并返回该目录；
+    绝不静默——返回 None 只发生在全链不可写。"""
+    monkeypatch.delenv("AINOVEL_LOG_OFF", raising=False)
+    blocker = tmp_path / "blocked"
+    blocker.write_text("i am a file", encoding="utf-8")
+    monkeypatch.setenv("AINOVEL_LOG_DIR", str(blocker / "logs"))
+    monkeypatch.setenv("DATA_ROOT", str(tmp_path / "data"))
+    root, uv = logging.getLogger(), logging.getLogger("uvicorn")
+    snap_root, snap_uv = list(root.handlers), list(uv.handlers)
+    try:
+        got = setup_logging()
+        assert got == tmp_path / "data" / "logs", "写不出必须回退到 DATA_ROOT/logs"
+        assert "logging ready" in (got / "app.log").read_text(encoding="utf-8")
+    finally:
+        for h in list(root.handlers):
+            if h not in snap_root:
+                root.removeHandler(h)
+        for h in list(uv.handlers):
+            if h not in snap_uv:
+                uv.removeHandler(h)
+        for name in _LLM_LOGGERS:
+            lg = logging.getLogger(name)
+            for h in list(lg.handlers):
+                if getattr(h, "_ainovel_llm", False):
+                    lg.removeHandler(h)
+
+
+def test_fold_filter_unhashable_args_never_raises():
+    """过滤器纪律：args 含 dict（logger.info(msg, {"k": v}) 的 %()s 形态，元组包 dict）
+    整体不可哈希——不得 TypeError 炸调用方，参数不同照常放行不折叠。"""
+    f = FoldRepeatFilter()
+    rec = logging.LogRecord("x", logging.INFO, "p", 1, "hi %(k)s", ({"k": 1},), None)
+    assert f.filter(rec) is True
+    rec2 = logging.LogRecord("x", logging.INFO, "p", 1, "hi %(k)s", ({"k": 2},), None)
+    assert f.filter(rec2) is True, "参数不同必须照常放行（不折叠）"

@@ -861,7 +861,14 @@ def start_server():
         try:
             from logging_setup import setup_logging as _setup_logging
 
-            _setup_logging()
+            _backend_log_dir = _setup_logging()
+            if _backend_log_dir:
+                # 指针行（v0.30 真机「日志去哪了」判例）：startup.log 是现场必看的
+                # 文件——在这里写明 app.log 的最终落点（回退发生过时不靠猜）。
+                log_line(appdata, f"backend logs at: {_backend_log_dir}")
+            else:
+                log_line(appdata, "backend 文件日志未挂载（AINOVEL_LOG_OFF 或日志目录"
+                                  f"全链不可写）——AINOVEL_LOG_DIR={os.environ.get('AINOVEL_LOG_DIR')}")
         except Exception:
             log_line(appdata, "logging_setup 预挂失败（backend 导入期会重试）：\n"
                               + traceback.format_exc())

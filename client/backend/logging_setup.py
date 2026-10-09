@@ -4,6 +4,8 @@
 设计要点（openspec/changes/c-backend-daily-logging/design.md）：
 - 单一日志目录：打包态由壳层注入 AINOVEL_LOG_DIR（运行目录/logs），开发态兜底
   DATA_ROOT/logs；AINOVEL_LOG_OFF=1 整体关闭（conftest 全局设置，测试零副作用）。
+  目录逐级实测可写（写探针）后才挂 handler，写不出换下一级直至系统临时目录；
+  启动即写「logging ready dir=…」首行（app.log 从启动即存在＋现场可辨落点）。
 - 按天轮转：TimedRotatingFileHandler（midnight、backupCount=5、UTF-8、delay=True），
   现文件 app.log、轮转产物 app.log.YYYY-MM-DD。
 - llm.log 专项档（c-llm-call-log）：同参第二个 handler，只挂三类大模型出网调用的
@@ -24,11 +26,13 @@
 import logging
 import os
 import sys
+import tempfile
 import time
 from logging.handlers import TimedRotatingFileHandler
 from pathlib import Path
 
 _MARK = "_ainovel_daily"
+_LOG_DIR_FALLBACK_NAME = "AwesomeNovel-logs"
 
 # 第三方库静音名单（D2）：root 提到 INFO 后它们会刷屏/进求诊文件——httpx 每个
 # 上游请求一行且含完整 URL（隐私面）；AI 调用观测由 ai_client 的留痕行承载。
@@ -52,20 +56,38 @@ class FoldRepeatFilter(logging.Filter):
         self._state: dict[tuple, tuple[float, int]] = {}
 
     def filter(self, record: logging.LogRecord) -> bool:
-        now = time.monotonic()
-        template = record.msg if isinstance(record.msg, str) else str(record.msg)
-        # args 必须进 key：请求行/AI 留痕行共用固定模板、参数各异——不含 args 会把
-        # 连续正常操作折叠成一行（违反 spec「一行一条」）；风暴场景（同异常文本、
-        # args=() 或相同参数）折叠语义不变。
-        key = (record.name, record.levelno, template, record.args)
-        state = self._state.get(key)
-        if state is not None and (now - state[0]) < self._window:
-            self._state[key] = (state[0], state[1] + 1)
-            return False
-        if state is not None and state[1] and isinstance(record.msg, str):
-            record.msg = f"{record.msg} [+{state[1]} 重复已折叠]"
-        self._state[key] = (now, 0)
+        # 过滤器纪律：任何异常只放行、绝不吞行、绝不炸调用方——折叠是降噪手段，
+        # 不能变成日志消失的原因（v0.30 真机「只有 startup.log 没有 app.log」排查教训）。
+        # args 进 key 用 repr：dict/list 形态的 args 不可哈希，直接进元组会 TypeError。
+        try:
+            now = time.monotonic()
+            template = record.msg if isinstance(record.msg, str) else str(record.msg)
+            # args 必须进 key：请求行/AI 留痕行共用固定模板、参数各异——不含 args 会把
+            # 连续正常操作折叠成一行（违反 spec「一行一条」）；风暴场景（同异常文本、
+            # args=() 或相同参数）折叠语义不变。
+            key = (record.name, record.levelno, template, repr(record.args))
+            state = self._state.get(key)
+            if state is not None and (now - state[0]) < self._window:
+                self._state[key] = (state[0], state[1] + 1)
+                return False
+            if state is not None and state[1] and isinstance(record.msg, str):
+                record.msg = f"{record.msg} [+{state[1]} 重复已折叠]"
+            self._state[key] = (now, 0)
+            return True
+        except Exception:  # noqa: BLE001 —— 判例化：过滤器只降噪不判案，任何异常只放行
+            return True
+
+
+def _dir_writable(p: Path) -> bool:
+    """日志目录实测可写：mkdir 级联＋写探针（写完即删）。"""
+    try:
+        p.mkdir(parents=True, exist_ok=True)
+        probe = p / ".ainovel-write-probe"
+        probe.write_text("ok", encoding="utf-8")
+        probe.unlink()
         return True
+    except OSError:
+        return False
 
 
 def setup_logging(log_dir: str | os.PathLike | None = None) -> Path | None:
@@ -82,13 +104,21 @@ def setup_logging(log_dir: str | os.PathLike | None = None) -> Path | None:
             return getattr(handler, "_ainovel_dir", None)
 
     if log_dir is None:
-        log_dir = os.environ.get("AINOVEL_LOG_DIR") or os.path.join(
-            os.environ.get("DATA_ROOT", "./data"), "logs"
-        )
-    log_dir = Path(log_dir)
-    # logging 不创建父目录；漏建＝全新安装首条 emit 失败被 handleError 静默吞掉
-    # （整份日志静默消失，恰是本 change 要消灭的形态）。
-    log_dir.mkdir(parents=True, exist_ok=True)
+        log_dir = os.environ.get("AINOVEL_LOG_DIR")
+    # 目录回退链（v0.30 真机「只有 startup.log 没有 app.log」判例）：delay=True 的
+    # 首条 emit 才建文件，emit 失败被 handleError 静默吞掉（GUI 态 stderr=devnull）
+    # ——整份日志无声消失。这里初始化即逐级实测可写（mkdir＋写探针），写不出就换
+    # 下一级（显式 arg > AINOVEL_LOG_DIR > DATA_ROOT/logs > 系统临时目录），全链
+    # 失败返回 None（不挂 handler），由壳层把结果写进 startup.log 留痕。
+    candidates: list[Path] = []
+    for cand in (log_dir,
+                 os.path.join(os.environ.get("DATA_ROOT", "./data"), "logs"),
+                 os.path.join(tempfile.gettempdir(), f"{_LOG_DIR_FALLBACK_NAME}")):
+        if cand and Path(cand) not in candidates:
+            candidates.append(Path(cand))
+    log_dir = next((c for c in candidates if _dir_writable(c)), None)
+    if log_dir is None:
+        return None
 
     handler = TimedRotatingFileHandler(
         log_dir / "app.log",
@@ -138,5 +168,15 @@ def setup_logging(log_dir: str | os.PathLike | None = None) -> Path | None:
         console = logging.StreamHandler(sys.stdout)
         console.setFormatter(logging.Formatter("%(levelname)s:%(name)s %(message)s"))
         root.addHandler(console)
+
+    # 启动即落首行（delay=True 本要等首条 emit 才建文件——这里是那个首条）：
+    # app.log 从启动即存在，打包冒烟可断言「logging ready」；行内带最终目录，
+    # 现场求诊一眼可辨日志到底落在哪一级（回退发生过时尤其关键）。
+    logging.getLogger("logging_setup").info("logging ready dir=%s", log_dir)
+    for h in (handler, llm_handler):
+        try:
+            h.flush()
+        except Exception:  # noqa: BLE001, S110 —— flush 失败不阻断启动（与打戳失败同口径）
+            pass
 
     return log_dir

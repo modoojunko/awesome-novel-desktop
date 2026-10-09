@@ -272,6 +272,7 @@ jobs:
             echo "::error::SMOKE FAILED — backend not ready"
             echo "--- app log ---"; cat /tmp/ainovel-smoke.log || true
             for d in "${RT_DIRS[@]}"; do
+              echo "--- $d/logs/startup.log ---"; cat "$d/logs/startup.log" 2>/dev/null || true
               echo "--- $d/startup.log ---"; cat "$d/startup.log" 2>/dev/null || true
               echo "--- $d/uvicorn.log ---"; cat "$d/uvicorn.log" 2>/dev/null || true
             done
@@ -281,7 +282,27 @@ jobs:
             echo "::error::SMOKE FAILED — SPA index.html not served at /"
             exit 1
           }
-          echo "SMOKE OK — health + SPA on port $PORT"
+          # 文件日志断言（c-shell-release-env-order 判例）：健康起来＝后端已 boot
+          # ＝app.log 必已落「logging ready」启动行——缺失即打包态文件日志断链
+          # （v0.30 真机「只有 startup.log 没有 app.log」形态），必须红。
+          LOGDIR=""
+          for d in "${RT_DIRS[@]}"; do
+            if [ -f "$d/logs/app.log" ]; then LOGDIR="$d/logs"; break; fi
+          done
+          if [ -z "$LOGDIR" ]; then
+            echo "::error::SMOKE FAILED — logs/app.log 未生成（打包态文件日志断链）"
+            for d in "${RT_DIRS[@]}"; do
+              echo "--- $d ---"; ls -la "$d" 2>/dev/null || true
+              echo "--- $d/logs ---"; ls -la "$d/logs" 2>/dev/null || true
+            done
+            exit 1
+          fi
+          grep -q "logging ready" "$LOGDIR/app.log" || {
+            echo "::error::SMOKE FAILED — app.log 缺 logging ready 启动行"
+            cat "$LOGDIR/app.log" || true
+            exit 1
+          }
+          echo "SMOKE OK — health + SPA on port $PORT, logs at $LOGDIR"
 
       # 程序本体签名：必须在 Inno 打包**之前**——安装包里的 exe 是打包时的快照，
       # 打完包再签外面这份等于没签（用户装出来的仍是「未知发布者」）。
@@ -368,7 +389,8 @@ jobs:
         shell: bash
         run: |
           APP="client/packaging/build/dist/AwesomeNovel.app/Contents/MacOS/AwesomeNovel"
-          PORT_JSON="$HOME/Library/Application Support/AwesomeNovel/port.json"
+          RT_DIR="$HOME/Library/Application Support/AwesomeNovel"
+          PORT_JSON="$RT_DIR/port.json"
           "$APP" --smoke >/tmp/ainovel-smoke.log 2>&1 &
           APP_PID=$!
           trap 'kill $APP_PID 2>/dev/null || true' EXIT
@@ -383,15 +405,28 @@ jobs:
           if [ -z "$PORT" ] || ! curl -sf "http://127.0.0.1:$PORT/api/health" >/dev/null; then
             echo "::error::SMOKE FAILED — backend not ready"
             echo "--- app log ---"; cat /tmp/ainovel-smoke.log || true
-            echo "--- startup.log ---"; cat "$HOME/Library/Application Support/AwesomeNovel/startup.log" 2>/dev/null || true
-            echo "--- uvicorn.log ---"; cat "$HOME/Library/Application Support/AwesomeNovel/uvicorn.log" 2>/dev/null || true
+            echo "--- logs/startup.log ---"; cat "$RT_DIR/logs/startup.log" 2>/dev/null || true
+            echo "--- startup.log ---"; cat "$RT_DIR/startup.log" 2>/dev/null || true
+            echo "--- uvicorn.log ---"; cat "$RT_DIR/uvicorn.log" 2>/dev/null || true
             exit 1
           fi
           curl -sf "http://127.0.0.1:$PORT/" | grep -q 'id="root"' || {
             echo "::error::SMOKE FAILED — SPA index.html not served at /"
             exit 1
           }
-          echo "SMOKE OK — health + SPA on port $PORT"
+          # 文件日志断言（c-shell-release-env-order 判例）：app.log 必带「logging ready」
+          # 启动行——缺失即打包态文件日志断链（v0.30 真机「只有 startup.log」形态）。
+          if [ ! -f "$RT_DIR/logs/app.log" ]; then
+            echo "::error::SMOKE FAILED — logs/app.log 未生成（打包态文件日志断链）"
+            ls -la "$RT_DIR" "$RT_DIR/logs" 2>/dev/null || true
+            exit 1
+          fi
+          grep -q "logging ready" "$RT_DIR/logs/app.log" || {
+            echo "::error::SMOKE FAILED — app.log 缺 logging ready 启动行"
+            cat "$RT_DIR/logs/app.log" || true
+            exit 1
+          }
+          echo "SMOKE OK — health + SPA on port $PORT, logs at $RT_DIR/logs"
 
       - name: Build DMG
         if: runner.os == 'macOS'
