@@ -267,9 +267,9 @@
 }
 .ol-top.edit-bar .tool-seg { display: inline-flex; align-items: center; gap: 2px; }
 .ol-top.edit-bar .icon-btn { width: 28px; height: 28px; }
-.editor { max-width: 680px; margin-inline: auto; outline: none; font-family: var(--font-display); font-size: 17px; line-height: 2.0; color: var(--fg); }
+.editor { max-width: 680px; margin-inline: auto; outline: none; font-family: var(--font-display); font-size: 17px; line-height: 2.0; color: var(--fg); --zq-lh: 2; } /* --zq-lh＝朱雀带周期系数，与行高同源声明（unitless 继承到段上按本段字号 calc） */
 .editor.fs-s { font-size: 15px; } .editor.fs-m { font-size: 17px; } .editor.fs-l { font-size: 19px; }
-.editor.lh-tight { line-height: 1.8; } .editor.lh-comfy { line-height: 2.0; } .editor.lh-loose { line-height: 2.2; }
+.editor.lh-tight { line-height: 1.8; --zq-lh: 1.8; } .editor.lh-comfy { line-height: 2.0; --zq-lh: 2; } .editor.lh-loose { line-height: 2.2; --zq-lh: 2.2; }
 .editor p { margin: 0 0 0.9em; text-indent: 2em; }
 .editor p.chapter-head { text-indent: 0; font-weight: 600; font-size: 1.15em; margin-bottom: 1.6em; }
 .editor[contenteditable="false"] { opacity: 1; }
@@ -1972,14 +1972,12 @@ button.dep-row:hover{background:var(--hl)}
 .zq-hd.stale .hd-bar { opacity: 0.35; }
 .zq-hd.stale .hd-ratio { opacity: 0.55; }
 .editor p { position: relative; }
-/* 行底色带（c-zhuque-mark-band）：周期＝行盒高（--zq-lh × 本段字号，fs-系／lh-系／章题 1.15em 自动跟随），
-   带体上下各留 --zq-gap 呼吸缝（0.15em ≤ 三档行距的最小半前导，缝恒定边距自适应，不切字）——
-   旧「段落盒 62% 渐变带」以段落盒定位，多行段色带横切字身且与行错位。 */
-.editor p.zq-warn, .editor p.zq-err { --zq-lh: 2; --zq-gap: 0.15em; background-image: repeating-linear-gradient(to bottom, transparent 0, transparent var(--zq-gap), var(--zq-tint) var(--zq-gap), var(--zq-tint) calc(1em * var(--zq-lh) - var(--zq-gap)), transparent calc(1em * var(--zq-lh) - var(--zq-gap)), transparent calc(1em * var(--zq-lh))); }
+/* 行底色带（c-zhuque-mark-band）：周期＝行盒高（--zq-lh × 本段字号；--zq-lh 与 .editor 行高同源声明后继承，
+   fs-系／章题 1.15em 自动跟随），带体上下各留 --zq-gap 呼吸缝（0.15em ≤ 三档行距的最小半前导，缝恒定边距自适应，
+   不切字）——旧「段落盒 62% 渐变带」以段落盒定位，多行段色带横切字身且与行错位。 */
+.editor p.zq-warn, .editor p.zq-err { --zq-gap: 0.15em; background-image: repeating-linear-gradient(to bottom, transparent 0, transparent var(--zq-gap), var(--zq-tint) var(--zq-gap), var(--zq-tint) calc(1em * var(--zq-lh) - var(--zq-gap)), transparent calc(1em * var(--zq-lh) - var(--zq-gap)), transparent calc(1em * var(--zq-lh))); }
 .editor p.zq-warn { --zq-tint: var(--warn-soft); }
 .editor p.zq-err { --zq-tint: var(--err-soft); }
-.editor.lh-tight p.zq-warn, .editor.lh-tight p.zq-err { --zq-lh: 1.8; }
-.editor.lh-loose p.zq-warn, .editor.lh-loose p.zq-err { --zq-lh: 2.2; }
 .zq-mark { position: absolute; right: -6px; top: -4px; font-family: var(--font-mono); font-size: 10.5px; line-height: 1; padding: 3px 8px; border-radius: 999px; white-space: nowrap; pointer-events: none; }
 .zq-mark.m-warn { background: var(--warn-soft); color: color-mix(in oklch, var(--warn) 85%, var(--fg)); }
 .zq-mark.m-err { background: var(--err-soft); color: color-mix(in oklch, var(--err) 90%, var(--fg)); font-weight: 600; }
