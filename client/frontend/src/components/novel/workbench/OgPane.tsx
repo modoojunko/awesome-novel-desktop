@@ -14,6 +14,7 @@ import { toast } from "@/lib/toast";
 import Modal from "@/components/design/Modal";
 import type { OgHookHints, HookHint } from "@/lib/hookHints";
 import { hookChipCandidates } from "@/lib/hookHints";
+import { CastHover, RoleTag, type CastInfo } from "./CastHover";
 import {
   PAYOFF_KINDS,
   PLOT_MAX_ITEMS,
@@ -27,6 +28,9 @@ interface OgPaneProps {
   form: OgForm;
   /** 本书角色名清单（character-settings-v2）：出场角色多选候选取这里 */
   characterNames?: string[];
+  /** 名字（含别名）→ 角色卡摘要（c-og-cast-role-hover）：胶囊身份标＋悬停身份卡；
+   *  缺省＝纯名字胶囊（角色清单不可用时的退化态） */
+  castInfos?: Record<string, CastInfo>;
   /** 完整章标题（第X章 · 名称，nodeLabel 派生）——原型 panel-head 口径 */
   label: string;
   /** 查看/编辑两态：false＝只读一页纸（默认），true＝表单可写 */
@@ -95,6 +99,7 @@ const clipDesc = (s: string) => (s.length > 14 ? `${s.slice(0, 14)}…` : s);
 export default function OgPane({
   form,
   characterNames,
+  castInfos,
   label,
   editing,
   loading,
@@ -367,24 +372,36 @@ export default function OgPane({
           <div className="fro">
             <em>出场角色</em>
             {charLines.length ? (
-              // 查看态逐名渲染（c-character-intro 4.1）：chip＋没卡标＋建卡入口（照读者获得行多子节点先例）
+              // 查看态逐名渲染（c-character-intro 4.1）：chip＋没卡标＋建卡入口（照读者获得行多子节点先例）；
+              // 有卡名字带身份小标＋悬停身份卡（c-og-cast-role-hover），没卡名维持原貌
               <div className="og-char-picker" data-testid="og-cast-view">
-                {charLines.map((n) => (
-                  <span className="chip" key={n}>
-                    {n}
-                    {!known.has(n) && <span className="no-card">没卡</span>}
-                    {!known.has(n) && onQuickCreateChar && (
-                      <button
-                        className="lnk"
-                        data-testid={`claim-${n}`}
-                        title="用这个名字建一张角色卡（只带名字，卡面回头在设定页补）"
-                        onClick={() => onQuickCreateChar(n)}
-                      >
-                        建卡
-                      </button>
-                    )}
-                  </span>
-                ))}
+                {charLines.map((n) => {
+                  const info = castInfos?.[n];
+                  const chip = (
+                    <span className="chip">
+                      {n}
+                      {info && <RoleTag role={info.role} />}
+                      {!known.has(n) && <span className="no-card">没卡</span>}
+                      {!known.has(n) && onQuickCreateChar && (
+                        <button
+                          className="lnk"
+                          data-testid={`claim-${n}`}
+                          title="用这个名字建一张角色卡（只带名字，卡面回头在设定页补）"
+                          onClick={() => onQuickCreateChar(n)}
+                        >
+                          建卡
+                        </button>
+                      )}
+                    </span>
+                  );
+                  return info ? (
+                    <CastHover key={n} info={info}>
+                      {chip}
+                    </CastHover>
+                  ) : (
+                    <span key={n}>{chip}</span>
+                  );
+                })}
               </div>
             ) : (
               <p className="none">（未填）</p>
@@ -575,9 +592,9 @@ export default function OgPane({
                 <div className="og-char-picker" role="group" aria-label="从角色卡选择出场角色">
                   {(characterNames ?? []).map((n) => {
                     const on = form.chars.split("\n").some((line) => line.trim() === n);
-                    return (
+                    const info = castInfos?.[n];
+                    const btn = (
                       <button
-                        key={n}
                         type="button"
                         className={`chip${on ? " on" : ""}`}
                         onClick={() => {
@@ -592,7 +609,16 @@ export default function OgPane({
                         }}
                       >
                         {n}
+                        {info && <RoleTag role={info.role} />}
                       </button>
+                    );
+                    // 有卡候选带身份小标＋悬停身份卡（c-og-cast-role-hover），与查看态同词同貌
+                    return info ? (
+                      <CastHover key={n} info={info}>
+                        {btn}
+                      </CastHover>
+                    ) : (
+                      <span key={n}>{btn}</span>
                     );
                   })}
                   {/* 非候选名字 chip（c-character-intro 4.1）：没卡标＋建卡入口；textarea 照旧 */}
