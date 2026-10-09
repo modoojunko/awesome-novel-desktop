@@ -576,12 +576,12 @@ export function AiAssistPanel({
       targetLine={targetLine}
       footNote={footNote}
       rows={rows}
+      // 朱雀显示开关关（zhuque-workbench）：检测行整行不渲染，卡片副行注明去处
+      statusNote={tab === "prose" && !zqShow ? "朱雀检测已关闭 · 其余可用" : undefined}
       data-od-id={`ai-assist-${tab}`}
     >
       {/* 未到 ai-generate（免费/标准）才给统一升级出口：锁定行自带档位 hint（文案单源
           upgradeHintOf）自解释，故只留按钮不带说明文案；PRO/MAX 不显示。 */}
-      {/* 朱雀显示开关关（zhuque-workbench）：检测行整行不渲染，卡片副行注明去处 */}
-      statusNote={tab === "prose" && !zqShow ? "朱雀检测已关闭 · 其余可用" : undefined}
       {tab === "og" && !aiGenerate && (
         <p className="none" data-testid="og-upgrade-exit">
           <button
