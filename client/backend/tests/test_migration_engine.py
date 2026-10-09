@@ -685,3 +685,147 @@ def test_invalid_filename_rejected_line(sandbox, caplog):
     msgs = [r.getMessage() for r in caplog.records if r.name == "migration"]
     assert any("event=migration_source_rejected" in m and "reason=invalid_filename" in m
                for m in msgs)
+# ── c-carry-retry-complete：重带恒不完整悖论根治 ────────────────────────────
+#
+# 事故形态（v0.30.x 真机）：首带完成后（或中断后）再点「重新带一次」，OR IGNORE
+# 幂等让 book_count_migrated（本次插入数）恒 0，旧判据拿它对拍 book_count_source
+# → 重带永远报「有内容没有完整迁入」，无法收尾。修复＝完整判定改按「源行在目标
+# 在场」（book_count_present / rows_missing），FK 违规在零行损时降级为实名留痕。
+
+
+class TestCarryRetryCompleteness:
+    def test_rerun_stays_complete(self, sandbox):
+        """重带幂等：第二次起 rows_inserted=0，但完整判定按在场数仍 complete。"""
+        root, active = sandbox
+        _old_gen0(root, books=2)
+        rep1 = run_migration(root, "novel.db", active)
+        assert rep1["status"] == "ok" and rep1["complete"] is True, rep1
+        rep2 = run_migration(root, "novel.db", active)
+        assert rep2["status"] == "ok", rep2
+        assert rep2["book_count_migrated"] == 0, "OR IGNORE 重带零重复（本次写入 0）"
+        assert rep2["book_count_present"] == 2, "源书全部在场"
+        assert rep2["complete"] is True, rep2
+        assert all(e["rows_missing"] == 0 for e in rep2["tables"]), rep2["tables"]
+
+    def test_resume_after_interrupted_transfer(self, sandbox):
+        """中断重带：首带半途（子表缺行）后重跑，补齐且判完整。"""
+        root, active = sandbox
+        _old_gen0(root, books=2)
+        run_migration(root, "novel.db", active)
+        con = sqlite3.connect(active)
+        con.execute("DELETE FROM chapters")
+        con.commit()
+        con.close()
+        rep = run_migration(root, "novel.db", active)
+        assert rep["status"] == "ok", rep
+        assert rep["book_count_present"] == 2
+        ch = next(e for e in rep["tables"] if e["table"] == "chapters")
+        assert ch["rows_inserted"] == 2 and ch["rows_missing"] == 0, ch
+        assert rep["complete"] is True, rep
+
+    def test_constraint_rejected_row_is_visible_loss(self, sandbox):
+        """重插也进不去的行（目标 CHECK 拒收）＝真丢行：rows_missing 显式化，
+        完整判定保守（不再静默吞）。"""
+        root, active = sandbox
+        p = _old_gen0(root, books=1)
+        con = sqlite3.connect(p)
+        # 源表无 CHECK（旧世代形态）：vocab_id/custom_text 双空的行目标装不下
+        con.execute("CREATE TABLE novel_genre_forbidden "
+                    "(id TEXT PRIMARY KEY, novel_id TEXT, vocab_id TEXT, custom_text TEXT)")
+        con.execute("INSERT INTO novel_genre_forbidden (id, novel_id, vocab_id, custom_text) "
+                    "VALUES ('gf1','n0',NULL,NULL)")
+        con.commit()
+        con.close()
+        rep = run_migration(root, "novel.db", active)
+        assert rep["status"] == "ok", rep
+        gf = next(e for e in rep["tables"] if e["table"] == "novel_genre_forbidden")
+        assert gf["rows_source"] == 1 and gf["rows_missing"] == 1, gf
+        assert rep["complete"] is False, rep
+
+    def test_fk_orphans_from_source_reported_but_complete(self, sandbox):
+        """旧库自带孤儿行（零行损）：FK 违规只留痕＋实名 note，不再判不完整。"""
+        root, active = sandbox
+        p = _old_gen0(root, books=1)
+        con = sqlite3.connect(p)
+        con.execute(
+            "INSERT INTO chapters (id, novel_id, volume_id, chapter_no, ref, title, status) "
+            "VALUES ('c-orphan','n-ghost','v0',9,'第孤儿章','孤儿章','draft')")
+        con.commit()
+        con.close()
+        rep = run_migration(root, "novel.db", active)
+        assert rep["status"] == "ok", rep
+        assert len(rep["fk_violations"]) > 0, "违规照报（只报不删的纪律不变）"
+        assert all(e["rows_missing"] == 0 for e in rep["tables"]), rep["tables"]
+        assert rep["complete"] is True, rep
+        assert any("关联在旧库里就不完整" in n for n in rep["notes"]), rep["notes"]
+
+    def test_null_in_target_notnull_column_not_dropped(self, sandbox):
+        """旧世代 NULL 存量（源表无该约束）：COALESCE 中性填充，行不丢。"""
+        root, active = sandbox
+        p = _old_gen0(root, books=1)
+        con = sqlite3.connect(p)
+        con.execute("UPDATE chapters SET title = NULL WHERE id = 'c0-1'")
+        con.commit()
+        con.close()
+        rep = run_migration(root, "novel.db", active)
+        assert rep["status"] == "ok", rep
+        ch = next(e for e in rep["tables"] if e["table"] == "chapters")
+        assert ch["rows_missing"] == 0, "NULL 行不得被 OR IGNORE 静默吞掉"
+        con = sqlite3.connect(f"file:{active}?mode=ro", uri=True)
+        try:
+            title = con.execute("SELECT title FROM chapters WHERE id='c0-1'").fetchone()[0]
+        finally:
+            con.close()
+        assert title == "", "NULL 按中性字面量落库"
+        assert rep["complete"] is True, rep
+
+
+class TestCompletenessUnit:
+    """is_complete_report / completeness_from_history 判定单源（含老数据口径）。"""
+
+    def test_old_report_without_present_stays_conservative(self):
+        """老报告（无 present 字段）退回 migrated 口径：重带悖论形态仍判不完整。"""
+        from migration.engine import is_complete_report
+
+        assert is_complete_report({"status": "ok", "book_count_source": 2,
+                                   "book_count_migrated": 0}) is False
+        assert is_complete_report({"status": "ok", "book_count_source": 2,
+                                   "book_count_migrated": 2}) is True
+
+    def test_present_overrides_migrated(self):
+        from migration.engine import is_complete_report
+
+        assert is_complete_report({"status": "ok", "book_count_source": 2,
+                                   "book_count_migrated": 0,
+                                   "book_count_present": 2}) is True
+        assert is_complete_report({"status": "ok", "book_count_source": 2,
+                                   "book_count_migrated": 0,
+                                   "book_count_present": 1}) is False
+
+    def test_fk_downgrade_requires_table_evidence(self):
+        """FK 降级必须每张已搬表有零行损证据；无表级数据（history 适配形态）保守。"""
+        from migration.engine import completeness_from_history, is_complete_report
+
+        base = {"status": "ok", "book_count_source": 1, "book_count_present": 1,
+                "fk_violations": [{"table": "chapters"}]}
+        assert is_complete_report({**base, "tables": [
+            {"table": "novels", "rows_missing": 0},
+            {"table": "chapters", "rows_missing": 0},
+        ]}) is True
+        assert is_complete_report({**base, "tables": [
+            {"table": "novels", "rows_missing": 0},
+            {"table": "chapters", "rows_missing": None},
+        ]}) is False
+        assert is_complete_report({**base, "tables": [
+            {"table": "novels", "rows_missing": 0},
+            {"table": "chapters", "rows_missing": 2},
+        ]}) is False
+        # 无 tables（history 适配形态）→ 缺证保守
+        assert is_complete_report(base) is False
+        # history 适配器：老条目（fk 计数>0）判不完整；新条目（present 齐全）完整
+        assert is_complete_report(completeness_from_history(
+            {"tables_skipped": 0, "fk_violations": 1,
+             "book_count_source": 1, "book_count_present": 1})) is False
+        assert is_complete_report(completeness_from_history(
+            {"tables_skipped": 0, "fk_violations": 0,
+             "book_count_source": 1, "book_count_present": 1})) is True

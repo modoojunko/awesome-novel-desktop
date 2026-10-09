@@ -55,9 +55,18 @@ def _now_iso() -> str:
 
 
 def is_complete_report(report: dict | None) -> bool:
-    """完整达成＝无整表跳过 ∧ 无 FK 违规 ∧ 源/迁入书数一致 ∧ 状态 ok。
+    """完整达成＝无整表跳过 ∧ 源书全部在场 ∧ 无行损失证据下的 FK 违规 ∧ 状态 ok。
 
     None/缺字段一律 False（宁保守：不完整者继续提醒、不进清理白名单）。
+
+    c-carry-retry-complete 判据修正（重带恒不完整事故）：
+    - 书覆盖看 book_count_present（源书在目标库的在场数，幂等于重带）——
+      book_count_migrated 是「本次真正 INSERT」数，OR IGNORE 重带时恒 0，
+      拿它对拍源数会让任何重带永远不完整；老报告缺 present 时退回 migrated。
+    - FK 违规不再一票否决：每张已搬表都能证明「源行全在场」（rows_missing==0）
+      时，违规只可能源自旧库自带的孤儿行（一行没丢，带着旧伤过来）→ 仍算完整；
+      无表级核对数据（老报告/history 适配形态）或任一表缺证/缺行 → 保守判不完整。
+    - 整表跳过维持一票否决（显式损失面，宁少勿错）。
     """
     if not isinstance(report, dict):
         return False
@@ -66,12 +75,23 @@ def is_complete_report(report: dict | None) -> bool:
     skipped = report.get("tables_skipped")
     if isinstance(skipped, list) and skipped:
         return False
-    fk = report.get("fk_violations")
-    if isinstance(fk, list) and fk:
+    # 通用行损失：任一已搬表存在「源行没在目标在场」（CHECK 拒收等重插也进不去
+    # 的行）→ 不完整。None（无法核对）不在此判——只作 FK 降级的缺证保守。
+    if any(isinstance(e, dict) and isinstance(e.get("rows_missing"), int)
+           and e["rows_missing"] > 0 for e in (report.get("tables") or [])):
         return False
     src = report.get("book_count_source")
-    mig = report.get("book_count_migrated")
-    return not (src is not None and mig is not None and src != mig)
+    present = report.get("book_count_present")
+    if present is None:
+        present = report.get("book_count_migrated")
+    if src is not None and present is not None and src != present:
+        return False
+    fk = report.get("fk_violations")
+    if isinstance(fk, list) and fk:
+        entries = [e for e in (report.get("tables") or []) if isinstance(e, dict)]
+        if not entries or any(e.get("rows_missing") != 0 for e in entries):
+            return False
+    return True
 
 
 def completeness_from_history(entry: dict) -> dict:
@@ -79,6 +99,7 @@ def completeness_from_history(entry: dict) -> dict:
 
     字段**缺失**（老格式）按不完整处理——少删优于误删（沿用既有保守语义）；
     书数两缺一时不在适配器里判（is_complete_report 对缺计数容忍，同旧口径）。
+    无表级核对数据（本适配器不带 tables）→ 有 FK 计数即判不完整（保守不变）。
     """
     skipped = entry.get("tables_skipped")
     fk = entry.get("fk_violations")
@@ -87,6 +108,7 @@ def completeness_from_history(entry: dict) -> dict:
         "tables_skipped": [] if skipped == 0 else [{"table": "history"}],
         "fk_violations": [] if fk == 0 else [{"table": "history"}],
         "book_count_source": entry.get("book_count_source"),
+        "book_count_present": entry.get("book_count_present"),
         "book_count_migrated": entry.get("book_count_migrated"),
     }
 
@@ -267,6 +289,11 @@ def build_plan(staged: Path) -> dict:
         # INSERT OR IGNORE 静默吞整行：total_archives 事故根因）
         blocker = []
         entry_backfill: dict[str, str] = {}
+        # c-carry-retry-complete：源实有列也可能装着目标 NOT NULL 容不下的值
+        # （旧世代表没这条约束，NULL 是合法存量）——显式 NULL 直插必被 OR IGNORE
+        # 静默吞行。按目标类型给中性字面量 COALESCE，行保住、值取中性（与缺失列
+        # backfill 同一哲学：丢一行远比一个空串丢得多）。
+        null_guards: dict[str, str] = {}
         for c in meta[tname].columns:
             if c.name in missing_tgt:
                 # NOT NULL 且无 server_default → SQL 直插必须显式给值。
@@ -287,6 +314,10 @@ def build_plan(staged: Path) -> dict:
                     # 但 created_at 的 server_default=func.now() 在 create_all
                     # DDL 里是 DEFAULT CURRENT_TIMESTAMP——不进列清单即可。
                     pass
+            elif c.name in inter and not c.nullable:
+                lit = _neutral_literal(c)
+                if lit is not None:
+                    null_guards[c.name] = lit
         entry = {
             "table": tname,
             "columns": inter,
@@ -294,9 +325,13 @@ def build_plan(staged: Path) -> dict:
             "select_columns": [c for c in inter if c in src_cols],
             "rows_source": None,  # 执行时填
             "rows_inserted": None,
+            # 存在性核对（执行时填）：源行里没能在目标在场的行数；无法核对的表
+            # （无主键、或源缺主键列）恒 None——完整判定按缺证保守
+            "rows_missing": None,
             "skipped_source_cols": skipped_src,
             "missing_target_cols": missing_tgt,
             "backfill": entry_backfill,
+            "null_guards": null_guards,
         }
         if blocker:
             skipped.append({"table": tname, "reason": "notnull_nodefault",
@@ -331,9 +366,10 @@ def run_migration(data_root: Path, source_filename: str, active_db_path: Path,
               "tables": [], "tables_skipped": [], "fk_violations": [],
               "dead_keys": 0, "complete": None,
               # source＝源库书数；migrated＝**本次真正带回**的书数（目标已有书时不得虚高）；
-              # target_after＝合并后目标库总数（诊断用）
+              # present＝源书在目标库的在场数（幂等于重带——完整判定与「已带回」
+              # 展示的单源，c-carry-retry-complete）；target_after＝合并后目标库总数
               "book_count_source": None, "book_count_migrated": None,
-              "book_count_target_after": None,
+              "book_count_present": None, "book_count_target_after": None,
               "status": "ok", "notes": []}
 
     def _emit(stage: str, **kw) -> None:
@@ -418,7 +454,13 @@ def run_migration(data_root: Path, source_filename: str, active_db_path: Path,
             for entry in plan["tables"]:
                 t = entry["table"]
                 cols = list(entry["columns"])
-                selects = [f'"{c}"' for c in cols]
+                guards = entry.get("null_guards") or {}
+                # 源实有列按目标 NOT NULL 约束包 COALESCE（旧世代 NULL 存量直插
+                # 会被 OR IGNORE 静默吞行——c-carry-retry-complete）
+                selects = [
+                    f'COALESCE("{c}", {guards[c]})' if c in guards else f'"{c}"'
+                    for c in cols
+                ]
                 # 缺失 NOT NULL 列补中性字面量（SQL 直插不经 ORM——Python
                 # default 不生效，DDL 无 DEFAULT 的 NOT NULL 必须显式给值，
                 # 否则 INSERT OR IGNORE 静默吞整行）
@@ -477,16 +519,43 @@ def run_migration(data_root: Path, source_filename: str, active_db_path: Path,
                 else:
                     logger.info("event=migration_dead_keys dead=%d", report["dead_keys"])
 
-            # 5 核对：FK 违规只报不删 + 书计数
+            # 5 核对：FK 违规只报不删 + 存在性核对 + 书计数
             _emit("verify", tables_total=tables_total, tables_done=tables_done)
             for row in tgt.execute("PRAGMA foreign_key_check"):
                 report["fk_violations"].append({"table": row[0], "rowid": row[1],
                                                 "parent": row[2]})
+            # 5.1 存在性核对（c-carry-retry-complete）：逐表数「源行有多少真的在
+            # 目标在场」。OR IGNORE 的幂等让 rows_inserted 在重带时恒 0——「带回
+            # 全了没有」必须以在场数为准；顺带把「被约束静默吞掉的行」显式化。
+            # 无主键或源缺主键列的表无从按行配对（rows_missing 保持 None＝缺证，
+            # 完整判定保守处理）。
+            for entry in report["tables"]:
+                pk_cols = [c for c in _table_pk_cols(entry["table"])
+                           if c in entry["columns"]]
+                if not pk_cols:
+                    continue
+                tup = ",".join(f'"{c}"' for c in pk_cols)
+                present = tgt.execute(
+                    f'SELECT COUNT(*) FROM main."{entry["table"]}" WHERE ({tup}) IN '
+                    f'(SELECT {tup} FROM mig_src."{entry["table"]}")'
+                ).fetchone()[0]
+                entry["rows_missing"] = max((entry.get("rows_source") or 0) - present, 0)
             book_src = src_con.execute(
                 "SELECT COUNT(*) FROM novels").fetchone()[0] \
                 if _has_table(src_con, "novels") else 0
             book_tgt = tgt.execute("SELECT COUNT(*) FROM main.novels").fetchone()[0] \
                 if _has_table(tgt, "main.novels") else 0
+            # present＝源书在目标在场数（完整判定单源；重带幂等，见 5.1）。
+            # 源 novels 缺 id 列（不可配对）时保持 None＝按缺证保守。
+            book_present = None
+            if _has_table(tgt, "main.novels") and _has_table(src_con, "novels"):
+                src_cols = {r[1] for r in tgt.execute(
+                    'PRAGMA mig_src.table_info("novels")')}
+                if "id" in src_cols:
+                    book_present = tgt.execute(
+                        "SELECT COUNT(*) FROM main.novels WHERE id IN "
+                        "(SELECT id FROM mig_src.novels)").fetchone()[0]
+            report["book_count_present"] = book_present
             report["book_count_source"] = book_src
             report["book_count_target_after"] = book_tgt
             # migrated＝本次真正写入；books 表被跳过（NOT NULL 阻塞等）时**只能是 0**——
@@ -500,6 +569,13 @@ def run_migration(data_root: Path, source_filename: str, active_db_path: Path,
                 len(report["fk_violations"]), book_src,
                 report["book_count_migrated"], book_tgt,
             )
+            # FK 违规＋全表零行损＝违规源自旧库自带孤儿行（一行没丢）——不再判
+            # 不完整，但须实名留痕（is_complete_report 同判据降级，c-carry-retry-complete）
+            if report["fk_violations"] and report["tables"] and all(
+                    e.get("rows_missing") == 0 for e in report["tables"]):
+                report["notes"].append(
+                    f"{len(report['fk_violations'])} 条数据的关联在旧库里就不完整"
+                    "（引用的对象已不存在），已原样迁移，不影响使用")
             # 库自证来源：把本机版本与组件快照写进目标库（app_meta 不随行搬运）
             if _has_table(tgt, "main.app_meta"):
                 for k, v in version_stamp_payload().items():
@@ -541,6 +617,14 @@ def run_migration(data_root: Path, source_filename: str, active_db_path: Path,
         if work_dir is not None:
             shutil.rmtree(work_dir, ignore_errors=True)
     return report
+
+
+def _table_pk_cols(tname: str) -> list[str]:
+    """主键列名表（存在性核对的按行配对键，支持复合主键的行值 IN）；无主键 → []。"""
+    table = Base.metadata.tables.get(tname)
+    if table is None:
+        return []
+    return [c.name for c in table.primary_key.columns]
 
 
 def _has_table(con: sqlite3.Connection, name: str) -> bool:

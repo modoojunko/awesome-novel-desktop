@@ -256,7 +256,7 @@ describe("列表状态与卡片", () => {
     renderPage();
     await screen.findByText("开始你的第一本书");
     const restore = screen.getByText("从备份包恢复");
-    expect(screen.queryByText("把上一版的作品带过来")).toBeNull();
+    expect(screen.queryByText("迁移上一版的作品与模型配置")).toBeNull();
     // 点第二出口 → 派发 restore:open 事件（AcctMenu 单实例消费；避免双弹窗双轮询）
     const opened = vi.fn();
     window.addEventListener("restore:open", opened);
@@ -288,12 +288,12 @@ describe("列表状态与卡片", () => {
     // 告知卡经壳层队列入场：两块清单 + 主按钮覆盖作品与配置两样
     const card = await screen.findByTestId("carry-card");
     expect(card.textContent).toContain("3");
-    expect(card.textContent).toContain("把作品和模型配置带过来");
+    expect(card.textContent).toContain("立即迁移");
     expect(card.textContent).toContain("另有更早的 1 份数据");
     // 角落小字让位（卡在途不再渲染 bring-back 小字；弹窗标题同名不算）；备份包出口恒在
     const note = document.querySelector(".fr-note") as HTMLElement;
     expect(note).toBeTruthy();
-    expect(note.textContent).not.toContain("把上一版的作品带过来");
+    expect(note.textContent).not.toContain("迁移上一版的作品与模型配置");
     expect(screen.getByText("从备份包恢复")).toBeTruthy();
   });
 
@@ -947,7 +947,7 @@ describe("覆盖补齐（回看与多书局部更新）", () => {
     expect(card.textContent).toContain("3");
     const note2 = document.querySelector(".fr-note") as HTMLElement;
     expect(note2).toBeTruthy();
-    expect(note2.textContent).not.toContain("把上一版的作品带过来");
+    expect(note2.textContent).not.toContain("迁移上一版的作品与模型配置");
     legacyStatusMock.value = null;
   });
 });
@@ -1112,7 +1112,7 @@ describe("带回常驻行与四步收尾（c-lossless-upgrade 覆盖补齐）", 
     getMock.mockResolvedValue([]);
     renderPage();
     const strip = await screen.findByTestId("carry-strip-done");
-    expect(strip.textContent).toContain("已把上一版的作品和模型配置带过来");
+    expect(strip.textContent).toContain("已迁移上一版的作品和模型配置");
     fireEvent.click(strip.querySelector("button") as HTMLElement);
     expect(screen.queryByTestId("carry-strip-done")).toBeNull(); // 仅视觉收起
   });
@@ -1122,10 +1122,10 @@ describe("带回常驻行与四步收尾（c-lossless-upgrade 覆盖补齐）", 
     getMock.mockResolvedValue([]);
     renderPage();
     const strip = await screen.findByTestId("carry-strip-later");
-    expect(strip.textContent).toContain("上一版还有 3 本作品没有带过来");
+    expect(strip.textContent).toContain("上一版还有 3 本作品未迁移");
     // 角落小字真分支（fr-note）：卡不在途（suppressed）→ 出口行回到带链接形态
     const note = document.querySelector(".fr-note") as HTMLElement;
-    expect(note.textContent).toContain("把上一版的作品带过来");
+    expect(note.textContent).toContain("迁移上一版的作品与模型配置");
     postMock.mockResolvedValue({ code: 0 });
     fireEvent.click(screen.getByTestId("carry-strip-mute"));
     await waitFor(() =>
@@ -1133,7 +1133,7 @@ describe("带回常驻行与四步收尾（c-lossless-upgrade 覆盖补齐）", 
     // 角落小字链接出口：派发 legacy-migrate:open（791 行 onClick）
     const opened = vi.fn();
     window.addEventListener("legacy-migrate:open", opened);
-    fireEvent.click(screen.getByText("把上一版的作品带过来"));
+    fireEvent.click(screen.getByText("迁移上一版的作品与模型配置"));
     window.removeEventListener("legacy-migrate:open", opened);
     expect(opened).toHaveBeenCalledTimes(1);
     fireEvent.click(screen.getByTestId("carry-strip-open"));
@@ -1152,7 +1152,7 @@ describe("带回常驻行与四步收尾（c-lossless-upgrade 覆盖补齐）", 
     fireEvent.click(screen.getByTestId("carry-later"));
     // 卡收起＋常驻行出现（suppressed=false 也显示——本地 later 态）
     const strip = await screen.findByTestId("carry-strip-later");
-    expect(strip.textContent).toContain("上一版还有 3 本作品没有带过来");
+    expect(strip.textContent).toContain("上一版还有 3 本作品未迁移");
     fireEvent.click(screen.getByTestId("carry-strip-open"));
     expect(await screen.findByTestId("carry-card")).toBeTruthy();
   });
@@ -1179,7 +1179,7 @@ describe("带回常驻行与四步收尾（c-lossless-upgrade 覆盖补齐）", 
     getMock.mockResolvedValue([]);
     renderPage();
     const strip = await screen.findByTestId("carry-strip-later");
-    expect(strip.textContent).toContain("上一版还有 ? 本作品没有带过来");
+    expect(strip.textContent).toContain("上一版还有 ? 本作品未迁移");
   });
 
   it("recommended 缺书数（null/0）：不自动入队出卡（守卫早退＋?? 兜底）", async () => {
@@ -1243,7 +1243,7 @@ describe("带回常驻行与四步收尾（c-lossless-upgrade 覆盖补齐）", 
       report: { status: "ok", complete: true, dead_keys: 0, book_count_migrated: 3 },
     };
     const result = await screen.findByTestId("carry-result", {}, { timeout: 4000 });
-    expect(result.textContent).toContain("作品和模型配置已经带过来");
+    expect(result.textContent).toContain("迁移完成");
     fireEvent.click(screen.getByTestId("carry-confirm"));
     await waitFor(() => expect(screen.queryByTestId("carry-result")).toBeNull());
   });

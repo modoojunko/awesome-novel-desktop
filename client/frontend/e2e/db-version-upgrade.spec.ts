@@ -122,7 +122,7 @@ test.describe("UP-11 版本升级：空态双出口与带回全链", () => {
     const card = page.getByTestId("carry-card");
     await expect(card).toBeVisible({ timeout: 15_000 });
     await expect(card).toContainText("上一版的书0");
-    await expect(card).toContainText("把作品和模型配置带过来");
+    await expect(card).toContainText("立即迁移");
     // 角落小字让位：卡在途不再渲染空态出口行的带回小字
     await expect(page.locator(".fr-note").filter({ hasText: "旧版作品" })).toHaveCount(0);
 
@@ -133,7 +133,7 @@ test.describe("UP-11 版本升级：空态双出口与带回全链", () => {
 
     // ③ 完成确认：结果卡 → 点「好，开始写作」收尾
     await expect(page.getByTestId("carry-result")).toBeVisible({ timeout: 60_000 });
-    await expect(page.getByTestId("carry-result")).toContainText("已带回 2 本书");
+    await expect(page.getByTestId("carry-result")).toContainText("已迁移 2 本书");
     await page.getByTestId("carry-confirm").click();
     // 完成常驻行
     await expect(page.getByTestId("carry-strip-done")).toBeVisible();

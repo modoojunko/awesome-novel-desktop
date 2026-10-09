@@ -538,7 +538,7 @@ function NovelList() {
       {carryRec?.carried && !stripClosed && (
         <div className="notice ok" data-testid="carry-strip-done">
           <span className="nt">
-            <b>已把上一版的作品和模型配置带过来</b>
+            <b>已迁移上一版的作品和模型配置</b>
             <span>旧文件仍在原位置（账户 › 本机旧版本数据）</span>
           </span>
           <button className="btn btn-ghost btn-sm" aria-label="关闭" onClick={() => setStripClosed(true)}>×</button>
@@ -547,7 +547,7 @@ function NovelList() {
       {carryRec && (carryRec.suppressed || carryLater) && !carryRec.carried && !carryConfirmed && (
         <div className="notice" data-testid="carry-strip-later">
           <span className="nt">
-            <b>上一版还有 {carryRec.book_count ?? '?'} 本作品没有带过来</b>
+            <b>上一版还有 {carryRec.book_count ?? '?'} 本作品未迁移</b>
             <span>旧文件原样保留，下次打开还会提醒</span>
           </span>
           <span className="flex items-center gap-2">
@@ -565,7 +565,7 @@ function NovelList() {
               data-testid="carry-strip-open"
               onClick={() => setCarryOpen(true)}
             >
-              带过来
+              迁移
             </button>
           </span>
         </div>
@@ -777,8 +777,8 @@ function NovelList() {
                 导入已有文稿
               </button>
             </div>
-            {/* c-db-per-version：出口行**常驻**并并列两条出路——「把上一版的作品
-                带过来」（有可搬运候选时）与「从备份包恢复」（恒在：换安装目录/换机的
+            {/* c-db-per-version：出口行**常驻**并并列两条出路——「迁移上一版的作品
+                与模型配置」（有可搬运候选时）与「从备份包恢复」（恒在：换安装目录/换机的
                 用户候选扫描看不到，必须第二条出口可达）。
                 位置＝原型 list.html 首启 `fr-note`（CTA 之后一行，出口与「免费版可创建
                 1 部作品 · 无需绑卡」同句）——实现侧曾把它另起一行放在 .fr-steps 之前、
@@ -795,7 +795,7 @@ function NovelList() {
                     data-od-id="first-run-bring-back"
                     onClick={() => window.dispatchEvent(new CustomEvent('legacy-migrate:open'))}
                   >
-                    把上一版的作品带过来
+                    迁移上一版的作品与模型配置
                   </button>
                   {' · '}
                 </>

@@ -115,14 +115,14 @@ describe("CarryDialog 四步", () => {
     expect(card.textContent).toContain("含 API Key 与用量统计");
     expect(card.textContent).toContain("另有更早的 1 份数据");
     expect(screen.getByTestId("carry-start").textContent)
-      .toBe("把作品和模型配置带过来"); // 一次点击覆盖两样
+      .toBe("立即迁移"); // 一次点击覆盖两样
   });
 
   it("清单缺失（老载荷）时降级为数量口径，不阻塞", () => {
     renderDialog({
       candidate: { ...CAND, manifest: null },
     });
-    expect(screen.getByTestId("carry-card").textContent).toContain("模型配置随作品一并带过来");
+    expect(screen.getByTestId("carry-card").textContent).toContain("模型配置将随作品一并迁移");
   });
 
   it("同意→进度锁定：无取消/收起出口，文案明示保持窗口开启", async () => {
@@ -152,7 +152,7 @@ describe("CarryDialog 四步", () => {
     };
     rere();
     const result = await screen.findByTestId("carry-result");
-    expect(result.textContent).toContain("作品和模型配置已经带过来");
+    expect(result.textContent).toContain("迁移完成");
     expect(result.textContent).toContain("不用重新粘贴");
     await act(async () => {
       fireEvent.click(screen.getByTestId("carry-confirm"));
@@ -175,7 +175,7 @@ describe("CarryDialog 四步", () => {
     rere();
     const result = await screen.findByTestId("carry-result");
     expect(screen.getByTestId("carry-partial")).toBeTruthy();
-    expect(result.textContent).toContain("重新带一次");
+    expect(result.textContent).toContain("重新迁移");
     expect(result.textContent).toContain("先这样，开始写作");
     expect(result.textContent).not.toContain("不再提醒");
   });
@@ -245,7 +245,7 @@ describe("评审修复回归（P1×3）", () => {
     storeState.job = null;
     storeState.reset.mockClear();
     await act(async () => {
-      fireEvent.click(screen.getByRole("button", { name: "重新带一次" }));
+      fireEvent.click(screen.getByRole("button", { name: "重新迁移" }));
     });
     expect(storeState.reset).toHaveBeenCalled(); // 清上一轮终态
     expect(screen.getByTestId("carry-progress")).toBeTruthy();
@@ -256,7 +256,7 @@ describe("评审修复回归（P1×3）", () => {
     };
     rere();
     const result = await screen.findByTestId("carry-result");
-    expect(result.textContent).toContain("作品和模型配置已经带过来");
+    expect(result.textContent).toContain("迁移完成");
   });
 
   it("修复②：409 撞上备份任务（attach=false）→ 退回卡态＋提示，不卡死锁定", async () => {
@@ -317,5 +317,72 @@ describe("carryStore attach/reset（评审修复单源）", () => {
     actual.resetCarryJob(); // job=null → 无操作分支
     expect(actual.carrySnapshot().job).toBeNull();
     actual.resetCarryStoreForTests();
+  });
+});
+
+describe("c-carry-retry-complete 结果卡", () => {
+  const setReport = (report: Record<string, unknown>) => {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any -- 测试桩直接构 job
+    return { state: "done", report } as any;
+  };
+
+  it("成功卡书数取在场数（present）——重带幂等下 migrated=0 不得显示「0 本」", async () => {
+    const { rere } = renderDialog();
+    await act(async () => { fireEvent.click(screen.getByTestId("carry-start")); });
+    storeState.job = setReport({
+      status: "ok", complete: true, dead_keys: 0,
+      book_count_source: 3, book_count_migrated: 0, book_count_present: 3,
+    });
+    rere();
+    const result = await screen.findByTestId("carry-result");
+    expect(result.textContent).toContain("已迁移 3 本书");
+    expect(result.textContent).not.toContain("已迁移 0 本书");
+  });
+
+  it("成功卡带出引擎 notes（FK 孤儿留痕），API Key 死钥 note 不与死钥条件句重复", async () => {
+    const { rere } = renderDialog();
+    await act(async () => { fireEvent.click(screen.getByTestId("carry-start")); });
+    storeState.job = setReport({
+      status: "ok", complete: true, dead_keys: 1, book_count_present: 2,
+      notes: [
+        "1 条配置的 API Key 按当前加密钥匙不可解——请在「模型配置」重新粘贴保存",
+        "2 条数据的关联在旧库里就不完整（引用的对象已不存在），已原样迁移，不影响使用",
+      ],
+    });
+    rere();
+    const result = await screen.findByTestId("carry-result");
+    expect(result.textContent).toContain("1 条配置的 Key"); // 死钥条件句
+    expect(result.textContent).toContain("已原样迁移"); // 孤儿留痕 note
+    expect(result.textContent).not.toContain("按当前加密钥匙不可解"); // 不重复
+  });
+
+  it("不完整卡实名明细：跳过表名＋缺几本书＋缺行表名，退路句恒在", async () => {
+    const { rere } = renderDialog();
+    await act(async () => { fireEvent.click(screen.getByTestId("carry-start")); });
+    storeState.job = setReport({
+      status: "ok", complete: false, dead_keys: 0,
+      book_count_source: 5, book_count_present: 2, book_count_migrated: 0,
+      tables_skipped: [{ table: "chapters" }],
+      tables: [{ table: "chapter_contents", rows_source: 9, rows_missing: 7 }],
+    });
+    rere();
+    const result = await screen.findByTestId("carry-partial");
+    expect(result.textContent).toContain("这些数据段未能迁移：chapters");
+    expect(result.textContent).toContain("有 3 本书未能迁移");
+    expect(result.textContent).toContain("「chapter_contents」缺 7 行");
+    expect(result.textContent).toContain("可以重新迁移，或用备份包恢复");
+  });
+
+  it("对不上任何已知缺口时退回泛化文案（不空白）", async () => {
+    const { rere } = renderDialog();
+    await act(async () => { fireEvent.click(screen.getByTestId("carry-start")); });
+    storeState.job = setReport({
+      status: "ok", complete: false, dead_keys: 0,
+      book_count_source: null, book_count_present: null,
+      tables_skipped: [], tables: [],
+    });
+    rere();
+    const result = await screen.findByTestId("carry-partial");
+    expect(result.textContent).toContain("有内容没有完整迁入");
   });
 });

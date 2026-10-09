@@ -1,5 +1,5 @@
-/** 带回向导（c-db-per-version）：发现 → 预览 → 进度（异步轮询）→ 结果。
- *  文案口径＝「带回」——新版本用新库，把上一版的作品带过来（用户层禁
+/** 迁移向导（c-db-per-version）：发现 → 预览 → 进度（异步轮询）→ 结果。
+ *  文案口径＝「迁移」——新版本用新库，把上一版的作品与模型配置迁进来（用户层禁
  *  「迁入/迁移/数据库/版本号/文件路径」）。
  *  异步化（2026-09-20 评审实施）：start 立返→1s 轮询 status 的 progress 事件
  *  （stage/tables_done/tables_total→百分比）。c-lossless-upgrade：进度期**锁定**
@@ -25,6 +25,7 @@ interface PreviewReport {
   tables: Array<{ table: string; rows_source: number | null; rows_inserted: number | null }>;
   tables_skipped: Array<{ table: string; reason: string }>;
   book_count_source: number | null;
+  manifest?: { configs_total: number } | null;
 }
 
 export interface RetentionItem {
@@ -39,6 +40,9 @@ interface MigrationReport {
   reason?: string;
   book_count_source?: number;
   book_count_migrated?: number;
+  /** 源书在目标库的在场数（c-carry-retry-complete：重带幂等的完整口径） */
+  book_count_present?: number;
+  complete?: boolean;
   book_count_target_after?: number;
   fk_violations?: unknown[];
 }
@@ -49,7 +53,7 @@ const STAGE_LABEL: Record<string, string> = {
   copy: '正在复制安全副本…',
   prepare: '正在检查数据完整性…',
   plan: '正在分析数据结构…',
-  transfer: '正在带回作品…',
+  transfer: '正在迁移作品…',
   verify: '正在核对写入结果…',
 };
 
@@ -114,15 +118,15 @@ export default function LegacyMigrateModal({
           const rep = d.report as MigrationReport;
           setResult(rep);
           setStep(rep?.status === 'ok' ? 'result' : 'error');
-          if (rep?.status !== 'ok') setErrorMsg(rep?.reason || '带回未完成');
+          if (rep?.status !== 'ok') setErrorMsg(rep?.reason || '迁移未完成');
         } else if (d?.state === 'error') {
           clearPoll();
           setStep('error');
-          setErrorMsg(d.error?.message || '带回过程中出现错误');
+          setErrorMsg(d.error?.message || '迁移过程中出现错误');
         } else if (d?.state === 'idle') {
           clearPoll();
           setStep('error');
-          setErrorMsg('带回可能未完成（应用曾重启），可重新执行——已带过来的部分不会重复。');
+          setErrorMsg('迁移可能未完成（应用曾重启），可重新执行——已迁移的部分不会重复。');
         }
       } catch {
         failCountRef.current += 1;
@@ -190,11 +194,14 @@ export default function LegacyMigrateModal({
     }
   };
 
-  /** 清理入口的显示条件：**全部成功**才出现（部分失败不得引导删旧文件）。 */
+  /** 清理入口的显示条件：**全部成功**才出现（部分失败不得引导删旧文件）。
+   *  书覆盖按在场数（present）——migrated 是「本次插入」数，重带幂等下恒 0，
+   *  拿它对拍会让成功重带永远出不来清理入口（c-carry-retry-complete）。 */
   const cleanupEligible = (rep: MigrationReport | null): boolean =>
     !!rep && rep.status === 'ok'
     && (rep.fk_violations?.length ?? 0) === 0
-    && (rep.book_count_source ?? 0) === (rep.book_count_migrated ?? -1);
+    && (rep.book_count_source ?? 0)
+      === (rep.book_count_present ?? rep.book_count_migrated ?? -1);
 
   const loadRetention = async () => {
     setBusy(true);
@@ -269,12 +276,12 @@ export default function LegacyMigrateModal({
   const stageText = progress ? STAGE_LABEL[progress.stage] || progress.stage : '准备中…';
 
   return (
-    <Modal open={open} onClose={onClose} width={440} title="把上一版的作品带过来">
+    <Modal open={open} onClose={onClose} width={440} title="迁移上一版的作品与模型配置">
       {step === 'detect' && (
         <div>
           <p style={{ fontSize: 13, color: 'var(--muted)', margin: '0 0 12px' }}>
             没有丢失——在这台电脑上找到了旧版作品。
-            {candidates.length > 1 && ` 找到 ${candidates.length} 份，选一份先带回。`}
+            {candidates.length > 1 && ` 找到 ${candidates.length} 份，选一份先迁移。`}
           </p>
           {candidates.length > 1 && (
             <select className="input" value={picked} onChange={(e) => setPicked(e.target.value)} style={{ marginBottom: 10 }}>
@@ -293,7 +300,7 @@ export default function LegacyMigrateModal({
           )}
           {quarantinedList}
           <p style={{ fontSize: 12, color: 'var(--muted)', margin: '0 0 16px' }}>
-            带回是把作品复制回书架，原来的文件一个字都不会动（旧文件原位保留，可随时装回旧版本）。
+            迁移会把作品与模型配置复制进书架，原来的文件一个字都不会动（旧文件原位保留，可随时装回旧版本）。
           </p>
           {errorMsg && <p style={{ fontSize: 12.5, color: 'var(--err)', margin: '0 0 10px' }}>{errorMsg}</p>}
           <div style={{ display: 'flex', justifyContent: 'space-between' }}>
@@ -305,8 +312,13 @@ export default function LegacyMigrateModal({
       {step === 'preview' && preview && (
         <div>
           {quarantinedList}
-          <p style={{ fontSize: 13, color: 'var(--muted)', margin: '0 0 8px' }}>将带回以下作品：</p>
+          <p style={{ fontSize: 13, color: 'var(--muted)', margin: '0 0 8px' }}>将迁移：</p>
           <p style={{ fontSize: 14, fontWeight: 500, margin: '0 0 8px' }}>{preview.book_count_source ?? '?'} 本书</p>
+          {(preview.manifest?.configs_total ?? 0) > 0 && (
+            <p style={{ fontSize: 12.5, color: 'var(--muted)', margin: '0 0 8px' }}>
+              模型配置 <span className="num">{preview.manifest!.configs_total}</span> 条（含 API Key）一并迁移
+            </p>
+          )}
           {(preview.tables_skipped || []).length > 0 && (
             <p style={{ fontSize: 12, color: 'var(--warn)', margin: '0 0 8px' }}>
               {preview.tables_skipped.length} 个旧格式数据段将跳过（不影响其余内容）
@@ -317,7 +329,7 @@ export default function LegacyMigrateModal({
           </p>
           <div style={{ display: 'flex', justifyContent: 'space-between' }}>
             <button className="btn" onClick={() => setStep('detect')}>上一步</button>
-            <button className="btn btn-primary" onClick={() => void startMigrate()}>把上一版的作品带过来</button>
+            <button className="btn btn-primary" onClick={() => void startMigrate()}>立即迁移</button>
           </div>
         </div>
       )}
@@ -339,15 +351,16 @@ export default function LegacyMigrateModal({
             请保持本窗口开启，通常几秒钟完成
           </p>
           <p style={{ fontSize: 12, color: 'var(--muted)', margin: 0, textAlign: 'center' }}>
-            万一关闭了，下次打开会重新提示，已带回的部分不会重复
+            万一关闭了，下次打开会重新提示，已迁移的部分不会重复
           </p>
           {/* c-lossless-upgrade：进度期锁定（用户拍板「不让离开」）——无取消、无收起 */}
         </div>
       )}
       {step === 'result' && result && (
         <div>
+          {/* 书数取在场数（present）：重带幂等下「本次插入」恒 0（c-carry-retry-complete） */}
           <p style={{ fontSize: 18, fontFamily: 'var(--font-display)', fontWeight: 600, margin: '0 0 8px', textAlign: 'center' }}>
-            已带回 {result.book_count_migrated ?? '?'} 本书
+            已迁移 {result.book_count_present ?? result.book_count_migrated ?? '?'} 本书
           </p>
           <p style={{ fontSize: 12.5, color: 'var(--muted)', margin: '0 0 16px', textAlign: 'center' }}>
             原来的旧文件没有改动，保留在原处。
@@ -368,7 +381,7 @@ export default function LegacyMigrateModal({
               ) : (
                 <div>
                   <p style={{ fontSize: 12.5, color: 'var(--muted)', margin: '0 0 8px' }}>
-                    将清理下列旧文件——删除不可撤销，已带回的内容不受影响。建议先
+                    将清理下列旧文件——删除不可撤销，已迁移的内容不受影响。建议先
                     <button className="text-btn" onClick={() => { onClose(); onDone(); }}>备份一份</button>。
                   </p>
                   <ul style={{ margin: '0 0 10px', padding: 0, listStyle: 'none' }}>
@@ -402,7 +415,7 @@ export default function LegacyMigrateModal({
       )}
       {step === 'error' && (
         <div>
-          <p style={{ fontSize: 14, fontWeight: 500, color: 'var(--err)', margin: '0 0 8px' }}>带回没有完成</p>
+          <p style={{ fontSize: 14, fontWeight: 500, color: 'var(--err)', margin: '0 0 8px' }}>迁移没有完成</p>
           <p style={{ fontSize: 12.5, color: 'var(--muted)', margin: '0 0 16px' }}>{errorMsg || '请稍后重试。'}</p>
           <div style={{ display: 'flex', justifyContent: 'space-between' }}>
             <button className="btn" onClick={onClose}>关闭</button>

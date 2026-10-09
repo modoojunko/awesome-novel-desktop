@@ -675,7 +675,7 @@ describe("AcctMenu 带回旧版（接线 + 后台守望）", () => {
 
     statusPayload = { state: "done", kind: "migration", report: { status: "ok", book_count_migrated: 3 } };
     await tickWatch();
-    expect(toastState.success).toHaveBeenCalledWith("已带回 3 本书");
+    expect(toastState.success).toHaveBeenCalledWith("迁移完成：已迁移 3 本书");
     expect(legacyState.refresh).toHaveBeenCalledTimes(3); // close×2 刷候选 + 完成拍再刷
     const after = fetchMock.mock.calls.length;
     await tickWatch(3000);
@@ -691,7 +691,7 @@ describe("AcctMenu 带回旧版（接线 + 后台守望）", () => {
 
     statusPayload = { state: "done", report: { status: "error", reason: "disk full" } };
     await tickWatch();
-    expect(toastState.error).toHaveBeenCalledWith("带回没有完成，可从菜单重新打开向导重试");
+    expect(toastState.error).toHaveBeenCalledWith("迁移没有完成，可从菜单重新打开向导重试");
 
     // 二轮：探测必须仍在 running 才会重启守望；完成 payload 只给轮询拍
     statusPayload = { state: "running", kind: "migration" };
@@ -699,7 +699,7 @@ describe("AcctMenu 带回旧版（接线 + 后台守望）", () => {
     await closeMigrateModal();
     statusPayload = { state: "done", report: { status: "ok", book_count_migrated: null } };
     await tickWatch();
-    expect(toastState.success).toHaveBeenCalledWith("已带回 ? 本书");
+    expect(toastState.success).toHaveBeenCalledWith("迁移完成：已迁移 ? 本书");
   });
 
   it("守望·任务被停（error / idle）→ info toast + 停止轮询", async () => {
@@ -713,7 +713,7 @@ describe("AcctMenu 带回旧版（接线 + 后台守望）", () => {
     statusPayload = { state: "error", error: { message: "boom" } };
     await tickWatch();
     expect(toastState.info).toHaveBeenCalledTimes(1);
-    expect(toastState.info).toHaveBeenCalledWith("带回已停止，可从菜单重新打开向导");
+    expect(toastState.info).toHaveBeenCalledWith("迁移已停止，可从菜单重新打开向导");
     const after = fetchMock.mock.calls.length;
     await tickWatch(3000);
     expect(fetchMock.mock.calls.length).toBe(after); // error 即停
@@ -725,7 +725,7 @@ describe("AcctMenu 带回旧版（接线 + 后台守望）", () => {
     statusPayload = { state: "idle" };
     await tickWatch();
     expect(toastState.info).toHaveBeenCalledTimes(2);
-    expect(toastState.info).toHaveBeenLastCalledWith("带回已停止，可从菜单重新打开向导");
+    expect(toastState.info).toHaveBeenLastCalledWith("迁移已停止，可从菜单重新打开向导");
   });
 
   it("守望·轮询超 120s → 提示可从菜单查看进度（不误报完成/停止）", async () => {
@@ -739,7 +739,7 @@ describe("AcctMenu 带回旧版（接线 + 后台守望）", () => {
     await tickWatch(121_000); // 前 120 拍都还是 running，第 121 拍越限
     expect(toastState.success).not.toHaveBeenCalled();
     expect(toastState.error).not.toHaveBeenCalled();
-    expect(toastState.info).toHaveBeenCalledWith("带回耗时较长，可从菜单「本机旧版本数据」查看进度");
+    expect(toastState.info).toHaveBeenCalledWith("迁移耗时较长，可从菜单「本机旧版本数据」查看进度");
     const after = fetchMock.mock.calls.length;
     await tickWatch(3000);
     expect(fetchMock.mock.calls.length).toBe(after); // 超时也停

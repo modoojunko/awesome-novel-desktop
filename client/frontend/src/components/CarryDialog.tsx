@@ -1,6 +1,6 @@
 /**
- * 带回告知卡（c-lossless-upgrade）：四步闭环——① 告知（作品＋模型配置两块平级
- * 清单）→ ② 用户点「把作品和模型配置带过来」（唯一操作）→ ③ 进度（**锁定**：
+ * 迁移告知卡（c-lossless-upgrade）：四步闭环——① 告知（作品＋模型配置两块平级
+ * 清单）→ ② 用户点「立即迁移」（唯一操作）→ ③ 进度（**锁定**：
  * 无取消/无收起——引擎单事务长写锁，收起去写作会撞 database is locked；关窗＝
  * 中断，下次重来无半成品）→ ④ 完成点确认收尾（队列在这时才放行给能力包弹窗）。
  *
@@ -22,6 +22,30 @@ import type { LegacyCandidate } from '@/hooks/useLegacyDb';
 type Step = 'card' | 'progress' | 'result';
 
 const fmtWords = (n: number): string => (n >= 10000 ? `${(n / 10000).toFixed(1)} 万` : `${n}`);
+
+/**
+ * 结果卡实名明细（c-carry-retry-complete）：把「不完整」落到具体缺了什么——
+ * 整表跳过列名、缺几本书、哪些表缺几行；一样都对不上时才退回泛化文案。
+ */
+function carryGaps(report: CarryReport): string[] {
+  const lines: string[] = [];
+  const skipped = report.tables_skipped ?? [];
+  if (skipped.length > 0) {
+    lines.push(`这些数据段未能迁移：${skipped.map((s) => s.table).join('、')}`);
+  }
+  const src = report.book_count_source ?? null;
+  const present = report.book_count_present ?? report.book_count_migrated ?? null;
+  if (src != null && present != null && present < src) {
+    lines.push(`有 ${src - present} 本书未能迁移`);
+  }
+  const missing = (report.tables ?? []).filter((t) => (t.rows_missing ?? 0) > 0);
+  if (missing.length > 0) {
+    const head = missing.slice(0, 3)
+      .map((t) => `「${t.table}」缺 ${t.rows_missing} 行`).join('；');
+    lines.push(`部分数据未能迁移：${head}${missing.length > 3 ? ` 等 ${missing.length} 项` : ''}`);
+  }
+  return lines;
+}
 
 export default function CarryDialog({
   candidate,
@@ -140,15 +164,15 @@ export default function CarryDialog({
   return (
     <Modal
       open={open}
-      onClose={onLater} /* X/Esc＝稍后带同义（卡态收卡；结果态未确认离开＝仍占队列，常驻行接管） */
+      onClose={onLater} /* X/Esc＝稍后迁移同义（卡态收卡；结果态未确认离开＝仍占队列，常驻行接管） */
       locked={step === 'progress'} /* 进度期锁定（用户拍板「不让离开」）：X 禁用、Esc/遮罩失效 */
       width={460}
-      title="把上一版的作品带过来"
+      title="迁移上一版的作品与模型配置"
     >
       {step === 'card' && (
         <div data-testid="carry-card">
           <p style={{ fontSize: 12.5, color: 'var(--muted)', margin: '0 0 4px' }}>
-            连同模型配置一起——检测到上一版里要带过来的内容：
+            检测到上一版中有以下内容可以迁移：
           </p>
           <section>
             {secTitle('作品', <><span className="num">{bookCount}</span> 本{wordsTotal > 0 && <> · <span className="num">{fmtWords(wordsTotal)}</span> 字</>}</>)}
@@ -162,18 +186,18 @@ export default function CarryDialog({
           )}
           {!m && candidate.book_count != null && candidate.book_count > 0 && (
             <p style={{ fontSize: 12, color: 'var(--muted)', margin: '6px 0 0' }}>
-              模型配置随作品一并带过来。
+              模型配置将随作品一并迁移。
             </p>
           )}
           {others > 0 && (
             <p style={{ fontSize: 12, color: 'var(--muted)', margin: '8px 0 0' }}>
-              另有更早的 <span className="num">{others}</span> 份数据，之后可在「账户 › 本机旧版本数据」里带。
+              另有更早的 <span className="num">{others}</span> 份数据，之后可在「账户 › 本机旧版本数据」里迁移。
             </p>
           )}
           <ul style={{ listStyle: 'none', margin: '14px 0 0', padding: 0, display: 'flex', flexDirection: 'column', gap: 10 }}>
             <li style={{ display: 'flex', gap: 10 }}>
               <b style={{ fontSize: 13, fontWeight: 500 }}>复制到新版本</b>
-              <span style={{ fontSize: 12.5, color: 'var(--muted)' }}>点「带过来」后，作品与模型配置的副本会进入这一版。</span>
+              <span style={{ fontSize: 12.5, color: 'var(--muted)' }}>点「立即迁移」后，作品与模型配置的副本会进入这一版。</span>
             </li>
             <li style={{ display: 'flex', gap: 10 }}>
               <b style={{ fontSize: 13, fontWeight: 500 }}>旧文件一个字不动</b>
@@ -181,13 +205,13 @@ export default function CarryDialog({
             </li>
             <li style={{ display: 'flex', gap: 10 }}>
               <b style={{ fontSize: 13, fontWeight: 500 }}>Key 不用重新粘贴</b>
-              <span style={{ fontSize: 12.5, color: 'var(--muted)' }}>模型配置连 Key 一起带；登录状态、字号等偏好本来就跟随本机。</span>
+              <span style={{ fontSize: 12.5, color: 'var(--muted)' }}>模型配置连 Key 一起迁移；登录状态、字号等偏好本来就跟随本机。</span>
             </li>
           </ul>
           <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, marginTop: 16 }}>
-            <button className="btn" data-testid="carry-later" onClick={onLater}>稍后带</button>
+            <button className="btn" data-testid="carry-later" onClick={onLater}>稍后迁移</button>
             <button className="btn btn-primary" data-testid="carry-start" onClick={() => void start()}>
-              把作品和模型配置带过来
+              立即迁移
             </button>
           </div>
         </div>
@@ -199,13 +223,13 @@ export default function CarryDialog({
             <div style={{ height: '100%', background: 'var(--accent)', width: `${pct}%`, transition: 'width 0.4s ease' }} />
           </div>
           <p style={{ fontSize: 12.5, color: 'var(--muted)', margin: '12px 0 4px' }}>
-            正在带回…{job?.progress?.stage === 'transfer' && job.progress.tables_total
+            正在迁移…{job?.progress?.stage === 'transfer' && job.progress.tables_total
               ? ` 第 ${job.progress.tables_done ?? 0}/${job.progress.tables_total} 段`
               : ''}
           </p>
           <p style={{ fontSize: 12, color: 'var(--muted)', margin: '0 0 8px' }}>
-            旧文件原样保留，一个字都不会动。带回期间请保持本窗口开启，通常几秒钟完成；
-            万一关了，下次打开会重新提示，已带回的部分不会重复。
+            旧文件原样保留，一个字都不会动。迁移期间请保持本窗口开启，通常几秒钟完成；
+            万一关了，下次打开会重新提示，已迁移的部分不会重复。
           </p>
           {/* 锁定态（用户拍板 10-08「不让离开」）：无取消、无收起出口 */}
         </div>
@@ -216,19 +240,23 @@ export default function CarryDialog({
           {report.status === 'ok' && report.complete !== false ? (
             <>
               <p style={{ fontSize: 15, fontFamily: 'var(--font-display)', fontWeight: 600, margin: '0 0 8px' }}>
-                作品和模型配置已经带过来
+                迁移完成
               </p>
               <p style={{ fontSize: 12.5, color: 'var(--muted)', margin: '0 0 4px' }}>
-                跟升级前一模一样——书架、设定、章节都在；模型配置连 Key 一起可用，不用重新粘贴。
+                作品与模型配置已就位——书架、设定、章节都在；模型配置连 Key 一起可用，不用重新粘贴。
               </p>
+              {/* 书数取在场数（present）：重迁移幂等下「本次插入」恒 0，用户要的是总共迁移几本 */}
               <p style={{ fontSize: 12, color: 'var(--muted)', margin: '4px 0 0' }}>
-                已带回 <span className="num">{report.book_count_migrated ?? '?'}</span> 本书；旧文件仍在原位置，随时可以装回旧版本。
+                已迁移 <span className="num">{report.book_count_present ?? report.book_count_migrated ?? '?'}</span> 本书{m && m.configs_total > 0 && <> · <span className="num">{m.configs_total}</span> 条模型配置</>}；旧文件仍在原位置，随时可以装回旧版本。
               </p>
+              {(report.notes ?? []).filter((n) => !n.includes('API Key')).map((n) => (
+                <p key={n} style={{ fontSize: 12, color: 'var(--muted)', margin: '4px 0 0' }}>{n}</p>
+              ))}
             </>
           ) : (
             <>
               <p style={{ fontSize: 15, fontFamily: 'var(--font-display)', fontWeight: 600, margin: '0 0 8px' }}>
-                作品已经带过来，有一项要留意
+                迁移基本完成，有一项要留意
               </p>
               <div
                 data-testid="carry-partial"
@@ -238,15 +266,25 @@ export default function CarryDialog({
                   borderRadius: 9,
                 }}
               >
-                {report.status === 'ok'
-                  ? `有 ${(report.tables_skipped?.length ?? 0) > 0 ? '数据段' : '内容'}没有完整迁入，旧版里可能有内容没带过来。可以重新带一次，或用备份包恢复。`
-                  : report.reason || '带回没有完成——已带过来的部分不会重复，稍后可重新执行。'}
+                {report.status === 'ok' ? (
+                  <>
+                    {(carryGaps(report).length > 0
+                      ? carryGaps(report)
+                      : ['有内容没有完整迁入，旧版里可能仍有未迁移的内容。']
+                    ).map((line) => (
+                      <p key={line} style={{ margin: 0 }}>{line}</p>
+                    ))}
+                    <p style={{ margin: '6px 0 0' }}>可以重新迁移，或用备份包恢复。</p>
+                  </>
+                ) : (
+                  report.reason || '迁移没有完成——已迁移的部分不会重复，稍后可重新执行。'
+                )}
               </div>
             </>
           )}
           {(report.dead_keys ?? 0) > 0 && (
             <p style={{ fontSize: 12, color: 'var(--muted)', margin: '8px 0 0' }}>
-              其中 <span className="num">{report.dead_keys}</span> 条配置的 Key 无法直接迁过来，需在「模型配置」里重新粘贴。
+              其中 <span className="num">{report.dead_keys}</span> 条配置的 Key 未能自动迁移，需在「模型配置」里重新粘贴。
             </p>
           )}
           <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, marginTop: 16 }}>
@@ -265,7 +303,7 @@ export default function CarryDialog({
                   先这样，开始写作
                 </button>
                 <button className="btn btn-primary" onClick={() => void start()}>
-                  重新带一次
+                  重新迁移
                 </button>
               </>
             )}
