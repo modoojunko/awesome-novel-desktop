@@ -8,7 +8,7 @@
  * 面板 state，重开同一行直接展示缓存（cached=true 给来源提示条），「换一个」才
  * 重新生成（D9）；「换一个」在途期间旧版保持可读可采纳（D3）。
  */
-import { useEffect, useRef, type ReactNode } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import Modal from "@/components/design/Modal";
 import { Ico, P } from "@/components/icons";
 
@@ -27,6 +27,9 @@ export interface AiCardState {
   canAdopt?: boolean;
   /** 展示的是缓存结果（重开未重新生成）→ 卡顶给来源提示条。 */
   cached?: boolean;
+  /** 本次实际下发提示词（c-char-prompt-view）：传了就在卡尾出「查看提示词」折叠区；
+   *  出稿跑偏时用户可展开复制，报错有据。不传＝不出（旧后端/未接线的域）。 */
+  prompt?: { system: string; user: string };
 }
 
 interface AiCardModalProps {
@@ -74,6 +77,24 @@ export default function AiCardModal({
   const adoptText = card?.adoptText ?? (kind === "text" ? "接受这个" : "采纳");
   const regenText = kind === "report" ? "重新检查" : "换一个";
   const initialLoading = running && !card;
+
+  // 提示词复制（c-char-prompt-view）：系统段＋用户段合并整段拷，报错时一次贴全。
+  // 复制态跟随卡切换复位（换一个/重开出新稿＝新提示词）；写不进剪贴板静默还原。
+  const [copied, setCopied] = useState(false);
+  useEffect(() => {
+    setCopied(false);
+  }, [card]);
+  const copyPrompt = async () => {
+    if (!card?.prompt) return;
+    try {
+      await navigator.clipboard.writeText(
+        `【系统】\n${card.prompt.system}\n\n【用户】\n${card.prompt.user}`,
+      );
+      setCopied(true);
+    } catch {
+      setCopied(false);
+    }
+  };
 
   return (
     <Modal
@@ -154,6 +175,28 @@ export default function AiCardModal({
               </p>
             )}
             {card?.node}
+            {card?.prompt && !initialLoading && (
+              <details className="ac-prompt" data-testid="ai-card-prompt" data-od-id="ai-card-prompt">
+                <summary>
+                  查看本次提示词
+                  <span className="ac-prompt-sumhint">出稿跑偏时，复制给客服好定位</span>
+                </summary>
+                <div className="ac-prompt-bar">
+                  <button
+                    type="button"
+                    className="ac-prompt-copy"
+                    data-testid="ai-card-prompt-copy"
+                    onClick={() => void copyPrompt()}
+                  >
+                    {copied ? "已复制" : "复制全部"}
+                  </button>
+                </div>
+                <span className="ac-prompt-tag">系统</span>
+                <pre className="ac-prompt-pre">{card.prompt.system}</pre>
+                <span className="ac-prompt-tag">用户</span>
+                <pre className="ac-prompt-pre">{card.prompt.user}</pre>
+              </details>
+            )}
           </>
         )}
       </div>

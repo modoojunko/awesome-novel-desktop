@@ -1101,6 +1101,7 @@ const CharacterManager = forwardRef<CharacterSaveHandle, Props>(function Charact
                 kind: "struct",
                 adoptText: "采纳 · 写入",
                 cached: cardCached,
+                prompt: bootstrapSink.prompt,
                 node: (
                   <>
                     {bootstrapSink.name && (

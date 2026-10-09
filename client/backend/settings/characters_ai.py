@@ -559,10 +559,11 @@ async def bootstrap_protagonist(
 
     client = await get_ai_client_for_novel(project_id)
     usage: dict = {}
+    sys_text = _s_bs or "你是小说设定专家。只输出 JSON，不要任何其他文字。"
     try:
         text = await client.chat(
             model="haiku",
-            system=_s_bs or "你是小说设定专家。只输出 JSON，不要任何其他文字。",
+            system=sys_text,
             messages=[{"role": "user", "content": prompt}],
             temperature=0.5,
             json_mode=True,
@@ -658,7 +659,10 @@ async def bootstrap_protagonist(
         model=effective_model(project),
         tokens_in=usage.get("tokens_in", 0), tokens_out=usage.get("tokens_out", 0),
     )
+    # 本次实际下发提示词原样带回（c-char-prompt-view）：弹窗可展开查看＋复制，
+    # 生成结果跑偏时用户报错有据可查；只读回显，不影响出稿契约。
     return {"ok": True, "data": {
         "name": name, "aliases": aliases, "persona": persona,
         "cells": cells, "skipped": skipped,
+        "prompt": {"system": sys_text, "user": prompt},
     }}
