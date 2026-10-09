@@ -468,6 +468,25 @@ jobs:
       # 必须写显式 refspec。
       - name: Fetch tag object (annotation)
         run: git fetch origin "+refs/tags/${GITHUB_REF_NAME}:refs/tags/${GITHUB_REF_NAME}" --no-tags --force
+      # Release 正文＝tag 附注全文（版本更新说明的源头在打 tag 人手里）＋随包安装
+      # 说明固定附尾。此前是写死样板——结构化更新说明只进了 notes.html，GitHub
+      # Release 页永远只有安装说明（v0.30.3 发版说明被批「写得差」的根因之一）。
+      - name: Extract tag annotation for release body
+        run: |
+          git tag -l --format='%(contents)' "$GITHUB_REF_NAME" > release_body.md
+          if [ ! -s release_body.md ]; then
+            echo "::error::tag 附注为空——发版说明必须在 tag annotation 里写全（新特性/问题修复，用户视角）"
+            exit 1
+          fi
+          cat >> release_body.md <<'BOILERPLATE'
+
+          ---
+
+          双平台桌面客户端安装包：Windows（exe）与 macOS（DMG）。
+          macOS 首次打开若提示"无法验证开发者"：先点"完成"关掉提示（勿点"移到废纸篓"），再到 系统设置 → 隐私与安全性 点"仍要打开"。
+          Windows 若出现 SmartScreen 提示（自签构建会有；正式证书签名后一般不再出现）：点「更多信息」→「仍要运行」。
+          首次登录后会自动获取「写作能力」（提示词包）；换电脑或重装系统后需联网重新获取一次（本地钥匙与机器绑定，属预期）。
+          BOILERPLATE
       - uses: actions/download-artifact@v4
         with:
           path: artifacts
@@ -475,11 +494,7 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           files: artifacts/**/*
-          body: |
-            双平台桌面客户端安装包：Windows（exe）与 macOS（DMG）。
-            macOS 首次打开若提示"无法验证开发者"：先点"完成"关掉提示（勿点"移到废纸篓"），再到 系统设置 → 隐私与安全性 点"仍要打开"。
-            Windows 若出现 SmartScreen 提示（自签构建会有；正式证书签名后一般不再出现）：点「更多信息」→「仍要运行」。
-            首次登录后会自动获取「写作能力」（提示词包）；换电脑或重装系统后需联网重新获取一次（本地钥匙与机器绑定，属预期）。
+          body_path: release_body.md
       # ── 国内分发：转存安装包到静态托管 + 更新 latest.json + 生成版本更新说明页 ──
       # www 根路径路由指向静态托管（/api 才是云托管），上传后 www/download/… 即可直接下载。
       # 版本化路径只增不改，CDN 长缓存安全；latest.json 是落地页下载弹窗与 C端 更新检测
