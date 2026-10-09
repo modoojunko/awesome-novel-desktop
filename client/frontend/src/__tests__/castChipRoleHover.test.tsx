@@ -73,11 +73,11 @@ function renderPane(editing: boolean, castInfos?: Record<string, CastInfo>) {
 /** 「林野」胶囊的悬停宿主（有卡名＝.cast-wrap 包裹层） */
 function chipWrap(name: string): HTMLElement {
   const view = screen.getByTestId("og-cast-view");
-  const chip = [...view.querySelectorAll(".chip")].find((c) =>
+  const chip = [...view.querySelectorAll<HTMLElement>(".chip")].find((c) =>
     c.textContent?.startsWith(name),
   );
   expect(chip, `找不到「${name}」胶囊`).toBeTruthy();
-  return chip!.closest(".cast-wrap") ?? chip!;
+  return chip!.closest<HTMLElement>(".cast-wrap") ?? chip!;
 }
 
 beforeEach(() => vi.useFakeTimers());
