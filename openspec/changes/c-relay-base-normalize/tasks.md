@@ -19,3 +19,10 @@
 - [x] 3.1 `openspec validate --change c-relay-base-normalize` 通过
 - [x] 3.2 Design Impact 判定：单端（C端后端）不触共享段，无 UI 结构变更——无原型先行、无 design:check/design-cross 义务（回归门禁＝pytest＋ruff＋coverage，见 2.5）
 - [x] 3.3 按路径提交（backend 两文件＋tests＋openspec change），推分支开 PR
+
+## 4. 评审整改（2026-10-09 review-agent 三发现）
+
+- [x] 4.1 网页体「补 /v1」出口按格式分流：`_v1_hint`（openai 兼容格式专属，anthropic/ollama 出空串），`_non_api_response`／`_probe_verdict` 传参贯通；spec delta 场景同步拆分
+- [x] 4.2 design.md 风险段如实化：裸根端点改动前经 404 降级链端到端可用，归一化后「锁死」为显式接受的取舍（escape 出口待真实反馈另行立项）；proposal 过程留痕补评审轮记录
+- [x] 4.3 前端登记表三处理由句更新（vendorDefaults.ts／ProviderIcon.tsx／apiVendorDefaults.test.ts 用例名——「SDK 不自补版本段」表述随归一化过时）
+- [x] 4.4 回归：pytest 触文件＋ruff＋vitest apiVendorDefaults 全绿

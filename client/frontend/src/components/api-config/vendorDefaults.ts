@@ -13,9 +13,10 @@ export interface VendorDefault {
 }
 
 export const VENDOR_DEFAULTS: Partial<Record<VendorId, Partial<Record<ApiFormat, VendorDefault>>>> = {
-  // OpenAI/Ollama 2026-10-08 实证修正（c-api-config-foreign-vendors）：SDK 生成调用以
-  // base_url 直拼路径、不自补版本段（裸域名打 /chat/completions，官方 404），登记值须含
-  // 版本段（OpenAI 官方 /v1；Ollama 官方 README 同款 /v1；后端 tags 探针会剥尾 /v1）
+  // OpenAI/Ollama 2026-10-08 实证修正（c-api-config-foreign-vendors）；2026-10-09 随
+  // c-relay-base-normalize 更新理由：SDK 侧对 openai 格式 base 已有同源版本段归一兜底
+  // （裸域名补 /v1），登记值仍须含版本段以显式表达实际请求地址（OpenAI 官方 /v1；
+  // Ollama 官方 README 同款 /v1；后端 tags 探针会剥尾 /v1）
   openai: { openai: { base_url: "https://api.openai.com/v1", model: "" } },
   anthropic: { anthropic: { base_url: "https://api.anthropic.com", model: "" } },
   // DeepSeek 首批全量（URL 与模型均有实测在案）；×anthropic 无实测端点（实测 404）不登记

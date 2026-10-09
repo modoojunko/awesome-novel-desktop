@@ -297,6 +297,45 @@ class TestNormalizeOpenAiBase:
         assert conn_mod.normalize_openai_base(base) == expected
 
 
+class TestWebPageV1Hint:
+    """网页体误判文案的「补 /v1」出口按格式分流（评审 2026-10-09）：
+    anthropic（惯例 base 不带 /v1，探针侧剥掉）与 ollama（tags 探针剥 /v1）不出。"""
+
+    @pytest.mark.parametrize(
+        "api_format,vendor,expected",
+        [
+            ("openai", "openai-compat", "（若地址确认无误，尝试在末尾补 /v1）"),
+            ("openai", "deepseek", "（若地址确认无误，尝试在末尾补 /v1）"),
+            ("openai", "ollama", ""),
+            ("anthropic", "glm", ""),
+        ],
+    )
+    def test_v1_hint_routing(self, api_format, vendor, expected):
+        assert conn_mod._v1_hint(api_format, vendor) == expected
+
+    def test_anthropic_html_page_no_v1_hint(self, fake_http):
+        """anthropic 格式探测打到网页：有「检查 Base URL」无「补 /v1」。"""
+        fake_http.script = [("GET", 200, ValueError("Expecting value"), "text/html")]
+        out = _run_async(
+            do_test_connection("glm", "sk", "https://spa.example.com", "anthropic")
+        )
+        assert out["ok"] is False and out["status"] == "endpoint_mismatch"
+        assert "Base URL" in out["error"]
+        assert "补 /v1" not in out["error"]
+
+    def test_generation_probe_html_page_openai_has_hint(self, fake_http):
+        """对话探针 200 网页体（openai 格式）：verdict 链路文案同样带「补 /v1」出口。"""
+        fake_http.script = [
+            ("GET", 200, {"data": [{"id": "m-1"}]}),
+            ("POST", 200, ValueError("Expecting value"), "text/html"),
+        ]
+        out = _run_async(
+            do_test_connection("openai-compat", "sk", "https://spa.example.com", "openai")
+        )
+        assert out["ok"] is False and out["status"] == "endpoint_mismatch"
+        assert "补 /v1" in out["error"]
+
+
 class TestBuildProbe:
     def test_anthropic_format_targets_user_base(self):
         url, headers, _extract, fallback = _build_probe(

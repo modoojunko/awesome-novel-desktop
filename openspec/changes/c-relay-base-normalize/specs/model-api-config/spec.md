@@ -68,7 +68,7 @@
 
 连接测试与模型列表拉取 SHALL 按配置的接口格式构造探测请求，探测目标一律为用户填写的 base_url：`openai` 格式 GET `{归一 base}/models`＋ Bearer 头——归一＝版本段归一（2026-10-09 kakou 中转案）：base 路径无任何版本段时按 OpenAI 惯例补 `/v1`，自带版本段原样保留；版本段判据＝路径段以 `v+数字` 开头即算（`/v1`、`/v4`、`/v1beta/openai`），SHALL NOT 行尾锚定（漏判中段版本段会向 Gemini 官方兼容层 `…/v1beta/openai` 误补出 `…/v1beta/openai/v1/models` 死址）；归一为探测与生成调用的同源单判据——models 探测、对话探针（主链与 models 404 降级链）、生成调用 SHALL 命中同一归一地址，SHALL NOT 出现「清单打归一地址、对话打裸路径」的半通形态；`anthropic` 格式 GET `{base}/v1/models` + `x-api-key` 与 `anthropic-version` 头（不适用版本段归一）。探测 SHALL NOT 使用硬编码的官方域名。连接测试中 models 端点返回 404 时 SHALL 自动降级为最小生成探针（见下）验证鉴权与对话路径——anthropic 与 openai 两格式同享降级（Gemini 官方 OpenAI 兼容层等不提供模型清单端点的兼容地址因此可用）；只拉清单轻探针（见「模型清单自动拉取」）SHALL NOT 发起降级生成探针（保持零生成调用语义）。
 
-「连接正常」的最终判据 SHALL 是收到格式正确的最小生成回复（2026-10-05 拍板），SHALL NOT 仅凭 models 探测的地位码、可达性或鉴权通过：models 探测的 200 响应体 SHALL 为 API JSON——返回网页等非 JSON 体 SHALL 判失败并提示检查 Base URL，错误指引 SHALL 含「若地址确认无误，尝试在末尾补 /v1」补救出口（典型：网站首页/SPA 对任意路径回 200 HTML；裸域名缺 `/v1` 时地址本身没填错，只是缺版本段）。可达且鉴权通过后，SHALL 向对话接口发一条真实最小生成探针：用户消息「你好」、关闭思考（与生成调用同一禁思考约定，端点拒绝该参数时去掉重试一次）、短输出预算（足出一句短答复），与生成调用同址同鉴权头——`openai` 格式 `POST {归一 base}/chat/completions`，`anthropic` 格式 `POST {base}/v1/messages`。探针收到「响应体符合接口格式且含可见回复文本」的响应 SHALL 判「连接正常」；非 2xx、响应体不符合接口格式、回复文本为空 SHALL 一律判失败并给可读原因——400/422 类业务性拒绝（探针模型 id 不被接受等）SHALL NOT 视为通过（原「探针 id 是猜的不拦」口径作废），错误 SHALL 点名所试模型 id 与实际请求地址。探针模型 id 取用顺序：调用方显式覆盖（2026-10-09：已存配置连接测试 `POST /api-configs/{id}/test` 的可选请求体字段 `model`——编辑弹窗改选模型后试连用；空/缺省视同未提供）> 配置已选模型 > 模型列表首个 > 该 vendor 候选 id 首个 >（anthropic 无列表降级时）占位探测模型；openai 格式 404 降级的探针模型 id 取用顺序：调用方显式覆盖 > 配置已选模型（含表单手填初值）> 该 vendor 候选 id 首个，两者皆无时 SHALL NOT 降级（无 id 的生成探针必然无意义），按「提示填写模型名」判失败。无任何可用模型 id（openai 格式模型列表为空且该 vendor 无候选）时 SHALL 判失败并提示填写模型名，SHALL NOT 仅凭可达性或鉴权通过报「连接正常」（原「跳过对话探针」口径作废）。覆盖模型仅影响当次探针取 id，SHALL NOT 单独改变落库清单的保头顺序（落库保头仍按配置已选模型，见「模型清单自动拉取」）。
+「连接正常」的最终判据 SHALL 是收到格式正确的最小生成回复（2026-10-05 拍板），SHALL NOT 仅凭 models 探测的地位码、可达性或鉴权通过：models 探测的 200 响应体 SHALL 为 API JSON——返回网页等非 JSON 体 SHALL 判失败并提示检查 Base URL，openai 格式的错误指引 SHALL 含「若地址确认无误，尝试在末尾补 /v1」补救出口（典型：网站首页/SPA 对任意路径回 200 HTML；裸域名缺 `/v1` 时地址本身没填错，只是缺版本段），anthropic 格式 SHALL NOT 出该指引（惯例 base 不带 `/v1`，探针侧会剥掉，补了是空操作；评审 2026-10-09）。可达且鉴权通过后，SHALL 向对话接口发一条真实最小生成探针：用户消息「你好」、关闭思考（与生成调用同一禁思考约定，端点拒绝该参数时去掉重试一次）、短输出预算（足出一句短答复），与生成调用同址同鉴权头——`openai` 格式 `POST {归一 base}/chat/completions`，`anthropic` 格式 `POST {base}/v1/messages`。探针收到「响应体符合接口格式且含可见回复文本」的响应 SHALL 判「连接正常」；非 2xx、响应体不符合接口格式、回复文本为空 SHALL 一律判失败并给可读原因——400/422 类业务性拒绝（探针模型 id 不被接受等）SHALL NOT 视为通过（原「探针 id 是猜的不拦」口径作废），错误 SHALL 点名所试模型 id 与实际请求地址。探针模型 id 取用顺序：调用方显式覆盖（2026-10-09：已存配置连接测试 `POST /api-configs/{id}/test` 的可选请求体字段 `model`——编辑弹窗改选模型后试连用；空/缺省视同未提供）> 配置已选模型 > 模型列表首个 > 该 vendor 候选 id 首个 >（anthropic 无列表降级时）占位探测模型；openai 格式 404 降级的探针模型 id 取用顺序：调用方显式覆盖 > 配置已选模型（含表单手填初值）> 该 vendor 候选 id 首个，两者皆无时 SHALL NOT 降级（无 id 的生成探针必然无意义），按「提示填写模型名」判失败。无任何可用模型 id（openai 格式模型列表为空且该 vendor 无候选）时 SHALL 判失败并提示填写模型名，SHALL NOT 仅凭可达性或鉴权通过报「连接正常」（原「跳过对话探针」口径作废）。覆盖模型仅影响当次探针取 id，SHALL NOT 单独改变落库清单的保头顺序（落库保头仍按配置已选模型，见「模型清单自动拉取」）。
 
 #### Scenario: Anthropic 格式探测用户地址
 
@@ -107,8 +107,13 @@
 
 #### Scenario: 网页地址不算通
 
-- **WHEN** 探测地址对 models 端点返回 200 但响应体是网页（非 JSON）
+- **WHEN** openai 格式探测地址对 models 端点或对话探针返回 200 但响应体是网页（非 JSON）
 - **THEN** 判连接失败并提示「该地址返回的不是 API 数据——请检查 Base URL 是否填成了网站地址（若地址确认无误，尝试在末尾补 /v1）」
+
+#### Scenario: anthropic 格式网页体不提示补 /v1
+
+- **WHEN** anthropic 格式探测地址返回 200 但响应体是网页（非 JSON）
+- **THEN** 判连接失败并提示检查 Base URL，SHALL NOT 含「补 /v1」指引（该格式惯例 base 不带 /v1，探针侧会剥掉）
 
 #### Scenario: openai 格式对话探针
 

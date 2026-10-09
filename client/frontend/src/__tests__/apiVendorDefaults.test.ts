@@ -37,7 +37,7 @@ describe("vendorDefaults 登记表", () => {
     }
   });
 
-  it("OpenAI/Ollama 登记值含版本段（SDK 直拼路径不自补 /v1，2026-10-08 实证修正）", () => {
+  it("OpenAI/Ollama 登记值含版本段（显式表达实际请求地址；SDK 侧另有同源归一兜底）", () => {
     expect(defaultsFor("openai", "openai").base_url).toBe("https://api.openai.com/v1");
     expect(defaultsFor("ollama", "openai").base_url).toBe("http://localhost:11434/v1");
   });

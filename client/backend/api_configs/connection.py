@@ -196,7 +196,9 @@ async def test_connection(
             # 首页等场景函数裁定 endpoint_mismatch，留痕行不得与之相悖机械记 ok；
             # 仅 200 做体判废——非 200 的错误体（鉴权失败 JSON 等）过 _non_api_response
             # 会误报「返回了错误」
-            not_api = _non_api_response(resp) if resp.status_code == 200 else ""
+            not_api = _non_api_response(
+                resp, _v1_hint(api_format, vendor_id)
+            ) if resp.status_code == 200 else ""
             _log_probe(
                 "models_list", vendor=vendor_id, api_format=api_format,
                 url=endpoint, start=start, status=resp.status_code,
@@ -404,7 +406,9 @@ async def fetch_models(
         async with build_async_client(timeout=timeout, follow_redirects=True) as client:
             resp = await client.get(endpoint, headers=headers)
             # 体判废先于留痕（评审二轮 P3，同 test_connection）
-            not_api = _non_api_response(resp) if resp.status_code == 200 else ""
+            not_api = _non_api_response(
+                resp, _v1_hint(api_format, vendor_id)
+            ) if resp.status_code == 200 else ""
             _log_probe(
                 "models_list", vendor=vendor_id, api_format=api_format,
                 url=endpoint, start=start, status=resp.status_code,
@@ -582,11 +586,22 @@ def _build_probe(
 # ── 「通」的判据组件：非 API 响应识别 / 对话路径探针 ──────────────────────────
 
 
-def _non_api_response(resp: httpx.Response) -> str:
+def _v1_hint(api_format: str, vendor: str = "") -> str:
+    """网页体误判文案的补救出口：仅 openai 兼容格式给「补 /v1」指引（评审 2026-10-09）。
+
+    anthropic 惯例 base 不带 /v1（探针侧会把结尾 /v1 剥掉，补了是空操作）；
+    ollama tags 探针同样剥 /v1——两者不出该指引。"""
+    if api_format == "openai" and vendor != "ollama":
+        return "（若地址确认无误，尝试在末尾补 /v1）"
+    return ""
+
+
+def _non_api_response(resp: httpx.Response, v1_hint: str = "") -> str:
     """200 响应但体不是 API JSON → 返回给用户的说明；是 JSON 则返回空串。
 
     典型：Base URL 填成网站首页，SPA 对任意路径回 200 HTML——旧实现按 200 判
-    「连接正常」，坏配置到生成期才炸（内测 405 案）。
+    「连接正常」，坏配置到生成期才炸（内测 405 案）。v1_hint＝openai 格式专属
+    补救出口（_v1_hint 按格式/vendor 分流）。
     """
     ctype = (resp.headers.get("content-type") or "").split(";")[0].strip().lower()
     try:
@@ -596,7 +611,7 @@ def _non_api_response(resp: httpx.Response) -> str:
             "该地址返回的不是 API 数据"
             + (f"（Content-Type: {ctype}）" if ctype else "")
             + "——看起来像网页。请检查 Base URL 是否填成了网站地址"
-            "（若地址确认无误，尝试在末尾补 /v1）"
+            + v1_hint
         )
     if isinstance(body, dict) and body.get("error"):
         msg = body["error"]
@@ -684,7 +699,9 @@ async def _probe_generation(
             "models": None,
             "error": f"网络错误: {exc}",
         }
-    verdict = _probe_verdict(resp, url, model, reply_fn)
+    verdict = _probe_verdict(
+        resp, url, model, reply_fn, v1_hint=_v1_hint(api_format, vendor)
+    )
     _log_probe(
         "generation_probe", vendor=vendor, api_format=api_format,
         url=url, start=start, model=model, status=resp.status_code,
@@ -695,9 +712,11 @@ async def _probe_generation(
 
 
 def _probe_verdict(
-    resp: httpx.Response, url: str, model: str, reply_fn: Any
+    resp: httpx.Response, url: str, model: str, reply_fn: Any, v1_hint: str = ""
 ) -> dict[str, Any] | None:
-    """生成探针的响应判定（无副作用纯判定）：None = 通过；否则失败形态 dict。"""
+    """生成探针的响应判定（无副作用纯判定）：None = 通过；否则失败形态 dict。
+
+    v1_hint＝网页体误判文案的格式分流出口（openai 兼容格式才有，见 _v1_hint）。"""
     if resp.status_code in (401, 403):
         detail = _extract_error_detail(resp)
         return {
@@ -742,7 +761,7 @@ def _probe_verdict(
                 f"{detail}；请核对模型 id 是否有效（可在配置里填写模型名称）"
             ),
         }
-    not_api = _non_api_response(resp)
+    not_api = _non_api_response(resp, v1_hint)
     if not_api:
         return {
             "ok": False,
