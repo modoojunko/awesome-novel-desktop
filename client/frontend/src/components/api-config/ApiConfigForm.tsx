@@ -552,6 +552,27 @@ export function ApiConfigForm({ open, config, onSubmit, onCancel, onTest, onFetc
             placeholder={FORMAT_PLACEHOLDER[apiFormat]}
             disabled={saving}
           />
+          {/* Base URL 案例引导（2026-10-09 用户反馈：非标准接口要给「填到哪一截」的案例；
+              文案与后端拼接规则同源——openai 拼 /chat/completions，anthropic 补 /v1 且误带剥除） */}
+          {vendorId !== "ollama" && (
+            <p className="cf-hint">
+              {apiFormat === "openai" ? (
+                <>
+                  填到「域名＋版本段」为止：标准接口如{" "}
+                  <code>https://api.deepseek.com/v1</code>，中转站/自建网关如{" "}
+                  <code>https://你的中转域名/v1</code>；不要带{" "}
+                  <code>/chat/completions</code>，系统自动拼接。
+                </>
+              ) : (
+                <>
+                  填到域名即可（系统自动补 <code>/v1</code>，误带{" "}
+                  <code>/v1</code> 也会自动剥掉）：标准接口如{" "}
+                  <code>https://api.anthropic.com</code>，中转站/自建网关如{" "}
+                  <code>https://你的中转域名</code>。
+                </>
+              )}
+            </p>
+          )}
           {vendorId === "openai-compat" && (
             <p className="cf-hint">
               未列厂商（如 Google Gemini）走 OpenAI 兼容模版：Gemini 官方兼容地址{" "}

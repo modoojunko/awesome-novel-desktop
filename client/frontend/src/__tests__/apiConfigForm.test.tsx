@@ -563,6 +563,25 @@ describe("ApiConfigForm 模型清单自动拉取（c-api-config-auto-models）",
     expect(hint.textContent).toContain("反代/转发");
   });
 
+  it("Base URL 案例引导：按格式示「填到哪一截」（openai 到版本段/anthropic 到域名），ollama 不显示", () => {
+    render(<ApiConfigForm open onSubmit={vi.fn(async () => {})} onCancel={vi.fn()} />);
+    // 默认 openai 格式：填到「域名＋版本段」＋中转站案例＋不带 /chat/completions
+    const openaiHint = screen.getByText(/填到「域名＋版本段」为止/);
+    expect(openaiHint.textContent).toContain("https://api.deepseek.com/v1");
+    expect(openaiHint.textContent).toContain("https://你的中转域名/v1");
+    expect(openaiHint.textContent).toContain("/chat/completions");
+    // 切 anthropic 格式（DeepSeek 双格式可切）：到域名＋自动补 /v1 案例
+    fireEvent.click(screen.getByText("DeepSeek"));
+    fireEvent.click(screen.getByText("Anthropic 格式"));
+    const anthropicHint = screen.getByText(/填到域名即可/);
+    expect(anthropicHint.textContent).toContain("https://api.anthropic.com");
+    expect(anthropicHint.textContent).toContain("自动剥掉");
+    // Ollama：免示（本地服务有自己的占位与说明）
+    fireEvent.click(screen.getByText("Ollama"));
+    expect(screen.queryByText(/填到「域名＋版本段」为止/)).toBeNull();
+    expect(screen.queryByText(/填到域名即可/)).toBeNull();
+  });
+
   it("Ollama 免 Key：选供应商即拉本地清单并默认选首项", async () => {
     const onFetchModels = vi.fn(async () => ({
       ok: true,

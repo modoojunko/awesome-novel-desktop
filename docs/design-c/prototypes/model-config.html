@@ -164,6 +164,7 @@
   .seg.lock { opacity: 0.45; pointer-events: none; }
   /* c-thinking-config：弹窗内提示行（组件同 model-config.css .cf-hint） */
   .cf-hint { margin: 6px 2px 0; font-size: 12px; color: var(--muted); line-height: 1.6; }
+  .cf-hint code { font-family: var(--font-mono); font-size: 11.5px; word-break: break-all; }
 
   /* ─── 配置域页签（c-zhuque-ai-detect 登记：.cfg-tabs/.cfg-tab，激活态沿 seg 口径）─── */
   .cfg-tabs { display: inline-flex; gap: 2px; padding: 3px; background: var(--fg-soft); border-radius: 11px; margin-bottom: 22px; }
@@ -478,6 +479,9 @@
           </div>
         </div>
         <input class="input mono" id="cfBase" placeholder="https://api.openai.com" />
+        <!-- Base URL 案例引导（2026-10-09 用户反馈：非标准接口要给「填到哪一截」的案例） -->
+        <p class="cf-hint" id="cfBaseHintOpenai">填到「域名＋版本段」为止：标准接口如 <code>https://api.deepseek.com/v1</code>，中转站/自建网关如 <code>https://你的中转域名/v1</code>；不要带 <code>/chat/completions</code>，系统自动拼接。</p>
+        <p class="cf-hint" id="cfBaseHintAnthropic" hidden>填到域名即可（系统自动补 <code>/v1</code>，误带 <code>/v1</code> 也会自动剥掉）：标准接口如 <code>https://api.anthropic.com</code>，中转站/自建网关如 <code>https://你的中转域名</code>。</p>
       </div>
       <div class="field">
         <label for="cfKey">API Key</label>
@@ -863,6 +867,9 @@ function syncFormatUI() {
     b.disabled = !!lock && b.dataset.fmt !== lock;
   });
   $('cfBase').placeholder = selFormat === 'anthropic' ? 'https://api.anthropic.com' : 'https://api.openai.com';
+  // Base URL 案例引导随格式切换（ollama 有自己的本地服务说明，两案都不显）
+  $('cfBaseHintOpenai').hidden = selVendor === 'ollama' || selFormat !== 'openai';
+  $('cfBaseHintAnthropic').hidden = selVendor === 'ollama' || selFormat !== 'anthropic';
 }
 function syncVendorUI() {
   document.querySelectorAll('#cfVendors .vbtn').forEach(b => b.classList.toggle('on', b.dataset.v === selVendor));

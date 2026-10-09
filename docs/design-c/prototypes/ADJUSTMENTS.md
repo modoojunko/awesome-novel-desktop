@@ -1942,3 +1942,21 @@ enabled＋设 effort）。
    清单（raw 轻探针要明文 Key，未重填时被前置条件挡住，不阻塞改选）；保存改选值置首
    （其余已存项保序，截 100）；编辑态未重敲 Key 的「测试连接」用已存密钥测（不误报
    「请填写 API Key」）。
+
+## Base URL 案例引导（2026-10-09 用户反馈）
+
+用户口径：「文案要有引导，不是大模型供应商的标准接口的。需要有个案例，要用户提供
+baseurl 到什么程度，要有个案例。」——中转站/自建网关用户不知道 Base URL 填到哪一截
+（内测 405 案：填成控制台网页；社区常见误带 `/chat/completions`）。
+
+1. **`model-config.html` `#modalConfig` Base URL 下新增案例提示行**（随接口格式切换、
+   ollama 不显——本地服务有专属占位与说明）：openai 格式＝「填到『域名＋版本段』为止：
+   标准接口如 `https://api.deepseek.com/v1`，中转站/自建网关如 `https://你的中转域名/v1`；
+   不要带 `/chat/completions`，系统自动拼接。」；anthropic 格式＝「填到域名即可（系统
+   自动补 `/v1`，误带 `/v1` 也会自动剥掉）：标准接口如 `https://api.anthropic.com`，
+   中转站/自建网关如 `https://你的中转域名`。」文案与后端拼接规则逐条对源
+   （`_build_probe`：openai 拼 `/chat/completions`＋models 无版本段补 `/v1`；
+   anthropic 剥 `/v1` 防双拼后自拼）。
+2. **形态**：复用 `.cf-hint`/`code`（原型内补 `.cf-hint code` 样式登记），无新语气档；
+   「OpenAI 兼容」供应商的 Gemini/反代引导行保持不变（两条提示互补：一条讲 URL 深度、
+   一条讲兼容模版）。
