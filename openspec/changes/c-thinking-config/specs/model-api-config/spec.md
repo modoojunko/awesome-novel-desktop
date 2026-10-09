@@ -61,7 +61,7 @@ SHALL 含中文「思考」与 `reasoning`/`effort` 字样（GLM-5.3 拒关思�
 
 连接测试与模型列表拉取 SHALL 按配置的接口格式构造探测请求，探测目标一律为用户填写的 base_url：`openai` 格式 GET `{base}/models`（base 无版本段时按 OpenAI 惯例补 `/v1`，与生成调用同源推导）+ Bearer 头；`anthropic` 格式 GET `{base}/v1/models` + `x-api-key` 与 `anthropic-version` 头。探测 SHALL NOT 使用硬编码的官方域名。连接测试中 models 端点返回 404 时 SHALL 自动降级为最小生成探针（见下）验证鉴权与对话路径——anthropic 与 openai 两格式同享降级（Gemini 官方 OpenAI 兼容层等不提供模型清单端点的兼容地址因此可用）；只拉清单轻探针（见「模型清单自动拉取」）SHALL NOT 发起降级生成探针（保持零生成调用语义）。
 
-「连接正常」的最终判据 SHALL 是收到格式正确的最小生成回复（2026-10-05 拍板），SHALL NOT 仅凭 models 探测的地位码、可达性或鉴权通过：models 探测的 200 响应体 SHALL 为 API JSON——返回网页等非 JSON 体 SHALL 判失败并提示检查 Base URL（典型：网站首页/SPA 对任意路径回 200 HTML）。可达且鉴权通过后，SHALL 向对话接口发一条真实最小生成探针：用户消息「你好」、思考参数按配置下发（与生成调用同一约定：关＝禁思考；开＝`thinking:{type:enabled}`＋`reasoning_effort`，见「思考参数可配」；端点对带思考参数的请求回 400 时 SHALL 去掉思考参数重试一次，触发 SHALL NOT 依赖错误文案措辞，重试时 SHALL 放大输出预算）、短输出预算（足出一句短答复），与生成调用同址同鉴权头——`openai` 格式 `POST {base}/chat/completions`，`anthropic` 格式 `POST {base}/v1/messages`。探针收到「响应体符合接口格式且含可见回复文本」的响应 SHALL 判「连接正常」；非 2xx、响应体不符合接口格式、回复文本为空 SHALL 一律判失败并给可读原因——400/422 类业务性拒绝（探针模型 id 不被接受等）SHALL NOT 视为通过（原「探针 id 是猜的不拦」口径作废），错误 SHALL 点名所试模型 id 与实际请求地址。探针模型 id 取用顺序：配置已选模型 > 模型列表首个 > 该 vendor 候选 id 首个 >（anthropic 无列表降级时）占位探测模型；openai 格式 404 降级的探针模型 id 取用顺序：配置已选模型（含表单手填初值）> 该 vendor 候选 id 首个，两者皆无时 SHALL NOT 降级（无 id 的生成探针必然无意义），按「提示填写模型名」判失败。无任何可用模型 id（openai 格式模型列表为空且该 vendor 无候选）时 SHALL 判失败并提示填写模型名，SHALL NOT 仅凭可达性或鉴权通过报「连接正常」（原「跳过对话探针」口径作废）。
+「连接正常」的最终判据 SHALL 是收到格式正确的最小生成回复（2026-10-05 拍板），SHALL NOT 仅凭 models 探测的地位码、可达性或鉴权通过：models 探测的 200 响应体 SHALL 为 API JSON——返回网页等非 JSON 体 SHALL 判失败并提示检查 Base URL（典型：网站首页/SPA 对任意路径回 200 HTML）。可达且鉴权通过后，SHALL 向对话接口发一条真实最小生成探针：用户消息「你好」、思考参数按配置下发（与生成调用同一约定：关＝禁思考；开＝`thinking:{type:enabled}`＋`reasoning_effort`，见「思考参数可配」；端点对带思考参数的请求回 400 时 SHALL 去掉思考参数重试一次，触发 SHALL NOT 依赖错误文案措辞，重试时 SHALL 放大输出预算）、短输出预算（足出一句短答复），与生成调用同址同鉴权头——`openai` 格式 `POST {base}/chat/completions`，`anthropic` 格式 `POST {base}/v1/messages`。探针收到「响应体符合接口格式且含可见回复文本」的响应 SHALL 判「连接正常」；非 2xx、响应体不符合接口格式、回复文本为空 SHALL 一律判失败并给可读原因——400/422 类业务性拒绝（探针模型 id 不被接受等）SHALL NOT 视为通过（原「探针 id 是猜的不拦」口径作废），错误 SHALL 点名所试模型 id 与实际请求地址。探针模型 id 取用顺序：调用方显式覆盖（2026-10-09：已存配置连接测试 `POST /api-configs/{id}/test` 的可选请求体字段 `model`——编辑弹窗改选模型后试连用；空/缺省视同未提供）> 配置已选模型 > 模型列表首个 > 该 vendor 候选 id 首个 >（anthropic 无列表降级时）占位探测模型；openai 格式 404 降级的探针模型 id 取用顺序：调用方显式覆盖 > 配置已选模型（含表单手填初值）> 该 vendor 候选 id 首个，两者皆无时 SHALL NOT 降级（无 id 的生成探针必然无意义），按「提示填写模型名」判失败。无任何可用模型 id（openai 格式模型列表为空且该 vendor 无候选）时 SHALL 判失败并提示填写模型名，SHALL NOT 仅凭可达性或鉴权通过报「连接正常」（原「跳过对话探针」口径作废）。覆盖模型仅影响当次探针取 id，SHALL NOT 单独改变落库清单的保头顺序（落库保头仍按配置已选模型，见「模型清单自动拉取」）。
 
 #### Scenario: Anthropic 格式探测用户地址
 
@@ -117,3 +117,8 @@ SHALL 含中文「思考」与 `reasoning`/`effort` 字样（GLM-5.3 拒关思�
 
 - **WHEN** openai 格式 models 探测返回空列表且该 vendor 无候选 id
 - **THEN** 判连接失败并提示填写模型名，SHALL NOT 仅凭可达性或鉴权通过报「连接正常」
+
+#### Scenario: 已存配置按覆盖模型试连
+
+- **WHEN** 用户在编辑弹窗改选模型后点「测试连接」且未重敲 API Key（走已存密钥的配置测试端点）
+- **THEN** 对话探针以改选模型为探针 id（改选模型被拒时错误点名该 id）；未改选/留空时仍按已存模型列表首项
