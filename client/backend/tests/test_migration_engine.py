@@ -644,3 +644,44 @@ def test_upgrade_log_error_trace(sandbox, caplog, monkeypatch):
     report_lines = [r.getMessage() for r in caplog.records if r.name == "migration"
                     and "event=migration_report" in r.getMessage()]
     assert any('"status": "error"' in m for m in report_lines)
+
+
+def test_completion_log_requires_persistence(sandbox, caplog, monkeypatch):
+    """评审 P2：migration.last 持久化失败 MUST NOT 落 completed 行——完成判据以落库为前提。"""
+    import asyncio
+    import logging as _logging
+
+    from migration import router as migration_router
+
+    root, _active = sandbox
+    _old_gen0(root, books=1)
+
+    async def _boom(key, value):
+        raise RuntimeError("db-write-failed")
+
+    monkeypatch.setattr(migration_router, "_set_app_meta", _boom)
+    with caplog.at_level(_logging.INFO, logger="migration"), \
+            pytest.raises(RuntimeError):
+        asyncio.run(migration_router._record_completion(
+            "novel.db", {"source_version": "0.24", "book_count_migrated": 2}))
+    msgs = [r.getMessage() for r in caplog.records if r.name == "migration"]
+    assert not any("event=migration_completed" in m for m in msgs), (
+        "持久化失败时 upgrade.log 不得出现完成行（不得谎报已完成）"
+    )
+
+
+def test_invalid_filename_rejected_line(sandbox, caplog):
+    """评审 P3：白名单 400 拒绝（start/preview 共用 _validated_source）带原因码落行。"""
+    import logging as _logging
+
+    from fastapi import HTTPException
+
+    from migration import router as migration_router
+
+    _root, _active = sandbox
+    with caplog.at_level(_logging.INFO, logger="migration"), \
+            pytest.raises(HTTPException):
+        migration_router._validated_source("../escape.db")
+    msgs = [r.getMessage() for r in caplog.records if r.name == "migration"]
+    assert any("event=migration_source_rejected" in m and "reason=invalid_filename" in m
+               for m in msgs)

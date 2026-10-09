@@ -140,6 +140,8 @@ def _validated_source(filename: str) -> Path:
     p = validate_candidate_filename(Path(DATA_ROOT), filename, _active_db_path(),
                                     allow_sentinel=True)
     if p is None or not p.exists():
+        logger.warning("event=migration_source_rejected source=%s reason=invalid_filename",
+                       filename)
         raise HTTPException(400, "文件名不合法或不在数据目录内")
     return p
 
@@ -382,12 +384,14 @@ async def _record_completion(source_filename: str, report: dict) -> None:
                "legacy_generation": report.get("legacy_generation"),
                "book_count_migrated": report.get("book_count_migrated"),
                "finished_at": datetime.now(UTC).isoformat(), "report": report}
-    logger.info("event=migration_completed source=%s stamp=%s source_version=%s books=%s",
-                source_filename, stamp, report.get("source_version"),
-                report.get("book_count_migrated"))
     await _set_app_meta("migration.last", json.dumps(payload, ensure_ascii=False))
     await _set_app_meta(SNOOZE_KEY, "")
     await _set_app_meta("migration.dismissed", "")  # 旧键清废（不再参与抑制）
+    # 完成行以持久化成功为前提（评审 P2）：migration.last 写库失败时此行不落——
+    # upgrade.log 不得在没写进完成记录时谎报已完成。
+    logger.info("event=migration_completed source=%s stamp=%s source_version=%s books=%s",
+                source_filename, stamp, report.get("source_version"),
+                report.get("book_count_migrated"))
     raw = _app_meta_value(HISTORY_KEY)
     history: list[dict] = []
     if raw:
