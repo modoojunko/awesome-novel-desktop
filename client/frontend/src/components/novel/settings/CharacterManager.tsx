@@ -140,6 +140,8 @@ const CharacterManager = forwardRef<CharacterSaveHandle, Props>(function Charact
       c-char-ai-card-generic 起同一槽位兼收配角/反派「一键立卡」稿（bootstrapKind 区分来路） */
   const [bootstrapSink, setBootstrapSink] = useState<BootstrapDraft | null>(null);
   const [bootstrapKind, setBootstrapKind] = useState<"bootstrap" | "cardDraft">("bootstrap");
+  /** 编辑流（c-char-prompt-view）：本次起草的提示词（服务端渲染稿，弹窗里可改后再生成） */
+  const [bootstrapPrompt, setBootstrapPrompt] = useState("");
   const [check, setCheck] = useState<CheckResult | null>(null);
   // AI 出卡确认弹窗（c-settings-ai-confirm-modal）：出稿/体检统一进弹窗，内嵌预览块退役
   const [cardAction, setCardAction] = useState<"persona" | "dossier" | "cog" | "bootstrap" | "cardDraft" | "check" | null>(null);
@@ -188,6 +190,7 @@ const CharacterManager = forwardRef<CharacterSaveHandle, Props>(function Charact
     // 借给 B 卡当缓存（评审 P2）——主角待立时代只有一张卡，这条不存在
     setBootstrapSink(null);
     setBootstrapKind("bootstrap");
+    setBootstrapPrompt(""); // 编辑流提示词随卡清：不把 A 卡的渲染稿借给 B 卡
     setCardOpen(false); // 换卡＝弹窗随结果一起清（D9 缓存面板级寿命）
     setVersions({}); // 版数随卡复位：新卡首稿是「第 1 版」，不带上一张卡的计数
   }, [projectId, clearDirty, onDirtyChange]);
@@ -317,6 +320,7 @@ const CharacterManager = forwardRef<CharacterSaveHandle, Props>(function Charact
       setCheck(null);
       setBootstrapSink(null);
       setBootstrapKind("bootstrap");
+      setBootstrapPrompt("");
       setCardAction(null);
       setCardOpen(false);
       setVersions({});
@@ -512,8 +516,9 @@ const CharacterManager = forwardRef<CharacterSaveHandle, Props>(function Charact
     }
   }, [bootstrapSink, bootstrapKind, card, projectId, flushQueue, loadCard, reloadList, showToast]);
 
-  /** 空态引导卡入口与右栏行共用：门控（不 ready → onBlocked）后出稿；
-      kind＝「从简介立主角」/ 配角/反派「一键立卡」（同一端点，后端按卡角色分派模板） */
+  /** 空态引导卡入口与右栏行共用：门控（不 ready → onBlocked）后进编辑流第一步；
+      kind＝「从简介立主角」/ 配角/反派「一键立卡」（同一端点，后端按卡角色分派模板）。
+      c-char-prompt-view：先取服务端渲染稿（不调 AI），弹窗给提示词可改，点「生成」才真跑 */
   const runBootstrap = useCallback(async (kind: "bootstrap" | "cardDraft" = "bootstrap") => {
     if (aiBusyRef.current) return; // ref 同步判定（与 runAi 同锁）
     if (kind === "cardDraft" && !card) return; // 一键立卡只挂在有卡上下文
@@ -523,11 +528,40 @@ const CharacterManager = forwardRef<CharacterSaveHandle, Props>(function Charact
     }
     aiBusyRef.current = true;
     setAiBusy(true);
-    // 迟到草稿守卫（与 runAi 的 selectedIdRef 判据同款）：出稿途中切卡后完成的稿
+    // 迟到守卫（与 runAi 的 selectedIdRef 判据同款）：预览途中切卡后返回的稿
     // 不得在别的卡上下文开弹窗——label 取当前卡名、内容却是出稿卡素材，采纳即串卡
     const targetId = card?.id || "";
     try {
-      const res = await charactersApi.bootstrapDraft(projectId, card?.id || undefined);
+      const res = await charactersApi.bootstrapPreview(projectId, card?.id || undefined);
+      if (selectedIdRef.current !== targetId) return; // 已切卡：弃稿
+      setSink(null);
+      setCheck(null);
+      setBootstrapSink(null); // 编辑流第一步永远回到提示词段，旧稿不留
+      setBootstrapPrompt(res.prompt);
+      setBootstrapKind(kind);
+      setCardCached(false);
+      setCardAction(kind);
+      setCardOpen(true);
+    } catch (e) {
+      showToast((e as Error).message || "AI \u751f\u6210\u5931\u8d25\uff0c\u53ef\u91cd\u8bd5");
+    } finally {
+      aiBusyRef.current = false;
+      setAiBusy(false);
+    }
+  }, [aiBusy, aiState, onBlocked, card, projectId, showToast]);
+
+  /** 编辑流第二步（c-char-prompt-view）：以（可编辑后的）提示词真跑出稿；
+      「换一个」同款重跑——提示词保留在编辑态，改完再点生成即按新要求出稿 */
+  const generateBootstrap = useCallback(async (kind: "bootstrap" | "cardDraft") => {
+    if (aiBusyRef.current) return;
+    if (!bootstrapPrompt.trim()) return; // 空提示词不出手（生成钮已置灰，双保险）
+    aiBusyRef.current = true;
+    setAiBusy(true);
+    const targetId = card?.id || "";
+    try {
+      const res = await charactersApi.bootstrapDraft(
+        projectId, card?.id || undefined, bootstrapPrompt,
+      );
       if (selectedIdRef.current !== targetId) return; // 已切卡：弃稿
       setSink(null);
       setCheck(null);
@@ -538,12 +572,13 @@ const CharacterManager = forwardRef<CharacterSaveHandle, Props>(function Charact
       setCardOpen(true);
       setVersions((prev) => ({ ...prev, [kind]: (prev[kind] ?? 0) + 1 }));
     } catch (e) {
+      // 失败留在提示词段：稿子可改可重试，不空白弹窗滞留
       showToast((e as Error).message || "AI \u751f\u6210\u5931\u8d25\uff0c\u53ef\u91cd\u8bd5");
     } finally {
       aiBusyRef.current = false;
       setAiBusy(false);
     }
-  }, [aiBusy, aiState, onBlocked, card, projectId, showToast]);
+  }, [bootstrapPrompt, card, projectId, showToast]);
 
   const doDelete = useCallback(async () => {
     if (!card) return;
@@ -701,7 +736,7 @@ const CharacterManager = forwardRef<CharacterSaveHandle, Props>(function Charact
                   : "先去 01 简介写几句，主角就有了眉目"}
               </p>
               <p className="opt">
-                「从简介立主角」会读你的简介，把名字、人设和各空格先拟一稿——在弹窗里看过再采纳；也可以直接手动建一张主角卡。
+                「从简介立主角」先给你起草用的提示词——可以直接改、加要求，点「生成」出稿；在弹窗里看过再采纳，也可以直接手动建一张主角卡。
               </p>
               <div className="guide-act">
                 {introReady && (
@@ -1092,7 +1127,34 @@ const CharacterManager = forwardRef<CharacterSaveHandle, Props>(function Charact
       <AiCardModal
         open={cardOpen && cardAction !== null}
         card={
-          cardAction != null && (cardAction === "bootstrap" || cardAction === "cardDraft") && bootstrapSink
+          cardAction != null && (cardAction === "bootstrap" || cardAction === "cardDraft") && !bootstrapSink
+            ? {
+                /* 编辑流第一步（c-char-prompt-view）：先给渲染稿提示词，可改，点「生成」才真跑 */
+                label:
+                  cardAction === "cardDraft"
+                    ? `AI 起草 · 为「${card ? displayName(card.name) || "未命名" : ""}」立卡（提示词可改）`
+                    : "AI 起草 · 从简介立主角（提示词可改）",
+                kind: "struct",
+                adoptText: "生成",
+                canAdopt: !!bootstrapPrompt.trim(),
+                node: (
+                  <>
+                    <p style={{ margin: "0 0 6px", fontSize: 11.5, color: "var(--muted)" }}>
+                      这是本次起草用的提示词——想加要求（比如命名口味、出身限制）直接写进去，点「生成」出稿。
+                    </p>
+                    <textarea
+                      className="ac-prompt-edit"
+                      aria-label="本次提示词（可编辑）"
+                      data-testid="char-ai-prompt-edit"
+                      value={bootstrapPrompt}
+                      disabled={aiBusy}
+                      onChange={(e) => setBootstrapPrompt(e.target.value)}
+                    />
+                  </>
+                ),
+                adopt: () => void generateBootstrap(cardAction),
+              }
+            : cardAction != null && (cardAction === "bootstrap" || cardAction === "cardDraft") && bootstrapSink
             ? {
                 label:
                   cardAction === "cardDraft"
@@ -1101,6 +1163,7 @@ const CharacterManager = forwardRef<CharacterSaveHandle, Props>(function Charact
                 kind: "struct",
                 adoptText: "采纳 · 写入",
                 cached: cardCached,
+                prompt: bootstrapSink.prompt,
                 node: (
                   <>
                     {bootstrapSink.name && (
@@ -1170,11 +1233,24 @@ const CharacterManager = forwardRef<CharacterSaveHandle, Props>(function Charact
                 : null
         }
         running={aiBusy}
-        version={cardAction ? versions[cardAction] : undefined}
-        onRegenerate={
+        runningText={
+          cardAction === "bootstrap" || cardAction === "cardDraft"
+            ? (bootstrapSink ? "正在生成新一版…" : "AI 正在按提示词起草…")
+            : undefined
+        }
+        version={
           cardAction
+            ? (cardAction === "bootstrap" || cardAction === "cardDraft") && !bootstrapSink
+              ? undefined // 提示词编辑段＝还没出稿，不带「第 N 版」
+              : versions[cardAction]
+            : undefined
+        }
+        onRegenerate={
+          cardAction && (cardAction !== "bootstrap" && cardAction !== "cardDraft" || bootstrapSink)
             ? () => {
-                if (cardAction === "bootstrap" || cardAction === "cardDraft") void runBootstrap(cardAction);
+                // 立卡结果段的「换一个」＝按当前（可编辑后的）提示词重跑（c-char-prompt-view）；
+                // 提示词编辑段没有换一个（先点生成才有得换）
+                if (cardAction === "bootstrap" || cardAction === "cardDraft") void generateBootstrap(cardAction);
                 else if (cardAction === "check") {
                   // 体检「重新检查」：报告卡在会话内可刷新（D2 报告卡骨架）
                   if (!card) return;

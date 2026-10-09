@@ -68,6 +68,9 @@ export interface BootstrapDraft {
   persona: string;
   cells: { path: string; value: string }[];
   skipped?: { key: string; why: string }[];
+  /** 本次渲染提示词的**用户段**（c-char-prompt-view）：弹窗展开查看＋复制，报错有据；
+   *  系统段＝提示词资产不下发。旧后端无此字段＝undefined，弹窗不出折叠区 */
+  prompt?: string;
 }
 
 export interface UndoResult {
@@ -202,12 +205,23 @@ export const charactersApi = {
       ),
     ),
 
+  /** 立卡预览（c-char-prompt-view 编辑流第一步）：只渲染本次提示词（用户段）不调 AI */
+  bootstrapPreview: (projectId: string, characterId?: string) =>
+    unwrap<{ prompt: string }>(
+      api.post(`/novels/${projectId}/settings/ai/characters/bootstrap`, {
+        character_id: characterId || undefined,
+        preview: true,
+      }),
+    ),
+
   /** 立卡出稿（书级端点，c-char-ai-card-generic）：characterId 缺省＝从简介立主角；
-      带配角/反派卡 id＝右栏「一键立卡」，后端按卡角色分派模板，出稿只补空格 */
-  bootstrapDraft: (projectId: string, characterId?: string) =>
+      带配角/反派卡 id＝右栏「一键立卡」，后端按卡角色分派模板，出稿只补空格；
+      promptOverride＝作者编辑后的提示词逐字下发（缺省＝服务端渲染稿） */
+  bootstrapDraft: (projectId: string, characterId?: string, promptOverride?: string) =>
     unwrap<BootstrapDraft>(
       api.post(`/novels/${projectId}/settings/ai/characters/bootstrap`, {
         character_id: characterId || undefined,
+        ...(promptOverride ? { prompt: promptOverride } : {}),
       }),
     ),
 

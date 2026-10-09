@@ -361,6 +361,49 @@ class TestBootstrap:
         prompt = captured[0]["messages"][0]["content"]
         assert "背残页翻盘" in prompt and "仙侠" in prompt
 
+    def test_prompt_echo_user_only_and_carries_name_ban(self, client, monkeypatch):
+        """c-char-prompt-view / c-charname-ban：响应只带回本次实发**用户段**（逐字一致），
+        供弹窗「查看提示词」与用户报错；系统段＝提示词资产不下发（泄漏守卫钉）；
+        用户段须含新拟名禁令禁字表。"""
+        c, nid, captured = client
+        _install_fake(monkeypatch, {
+            "name": "林拾", "aliases": [], "persona": "人设",
+            "fills": {"race": "人族"},
+        }, captured)
+        r = c.post(f"/api/novels/{nid}/settings/ai/characters/bootstrap", json={})
+        assert r.status_code == 200
+        echo = r.json()["data"]["prompt"]
+        assert isinstance(echo, str), "prompt 回显＝用户段字符串"
+        assert echo == captured[-1]["messages"][0]["content"], "须与实际下发的用户段逐字一致"
+        assert captured[-1]["system"] not in r.text, "系统段不得出现在响应任何位置"
+        # 新拟名禁令（提示词仓 c-charname-ban 同源钉：禁字表三模板同串）
+        assert "新拟名禁令" in echo
+        assert "晚、晴、墨、默、苟、满、砚、知、景、微、之、舟、念、国、建、梅" in echo
+
+    def test_preview_returns_prompt_without_llm(self, client, monkeypatch):
+        """c-char-prompt-view 编辑流：preview＝只渲染提示词即返回，不调 AI 不计费。"""
+        c, nid, captured = client
+        _install_fake(monkeypatch, {"name": "x"}, captured)
+        r = c.post(f"/api/novels/{nid}/settings/ai/characters/bootstrap", json={"preview": True})
+        assert r.status_code == 200
+        assert captured == [], "预览不得触发 AI 调用"
+        prompt = r.json()["data"]["prompt"]
+        assert isinstance(prompt, str) and prompt
+        assert "新拟名禁令" in prompt, "渲染稿带禁令（编辑前就看得见）"
+
+    def test_prompt_override_sent_verbatim_blank_falls_back(self, client, monkeypatch):
+        """编辑流：body.prompt 非空＝逐字下发且回显＝实发；空白＝回落渲染稿。"""
+        c, nid, captured = client
+        _install_fake(monkeypatch, {"name": "林拾", "persona": "人设", "fills": {"race": "人族"}}, captured)
+        edited = "按下面的要求起稿：主角是雨区当铺学徒，命名要土要真。"
+        r = c.post(f"/api/novels/{nid}/settings/ai/characters/bootstrap", json={"prompt": edited})
+        assert r.status_code == 200
+        assert captured[-1]["messages"][0]["content"] == edited, "编辑稿逐字下发"
+        assert r.json()["data"]["prompt"] == edited, "回显＝实发"
+        r2 = c.post(f"/api/novels/{nid}/settings/ai/characters/bootstrap", json={"prompt": "   "})
+        assert r2.status_code == 200
+        assert "新拟名禁令" in r2.json()["data"]["prompt"], "空白覆写回落渲染稿"
+
     def test_gender_age_enter_cells(self, client, monkeypatch):
         """c-character-dossier-full-fill：性别/年龄照进 cells（与其他格同口径，只补空格）。"""
         c, nid, _captured = client
@@ -508,7 +551,8 @@ class TestCardGeneric:
         assert "这张卡的类型】配角" in captured[0]["messages"][0]["content"]
 
     def test_protagonist_path_keeps_hero_template(self, client, monkeypatch):
-        """不变量哨兵：主角待立路径仍走主角模板（主角措辞、无类型行）。"""
+        """不变量哨兵：主角待立路径仍走主角模板（主角措辞、无类型行）。
+        c-charname-ban 分层重构后「主角的名字」等字段说明在系统段（输出契约归 system）。"""
         c, nid, captured = client
         card = asyncio.run(_add_card(nid, name="\u0000abcdef123456", role="主角"))
         _install_fake(monkeypatch, {"name": "林拾", "persona": "人设"}, captured)
@@ -516,8 +560,9 @@ class TestCardGeneric:
                    json={"character_id": card.id})
         assert r.status_code == 200
         assert captured[0]["system"].startswith("你是小说主角立卡师")
+        assert "主角的名字" in captured[0]["system"], "字段说明已随输出契约搬进系统段"
         prompt = captured[0]["messages"][0]["content"]
-        assert "主角的名字" in prompt
+        assert "主角的名字" not in prompt  # 用户段不再有格式说明
         assert "这张卡的类型" not in prompt
 
     def test_side_card_400_copy_says_likaka(self, client, monkeypatch):

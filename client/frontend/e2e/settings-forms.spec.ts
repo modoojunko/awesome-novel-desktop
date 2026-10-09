@@ -1323,9 +1323,16 @@ test("角色：一键立卡（配角）——右栏行→出稿→采纳只补�
         ],
       }),
     );
-    // 立卡出稿桩（采纳的 PATCH 走真后端，端点路径与响应形同主角链）
-    await page.route("**/settings/ai/characters/bootstrap", (r) =>
-      r.fulfill({
+    // 立卡桩（c-char-prompt-view 编辑流）：preview＝渲染稿提示词；生成＝出稿。
+    // 采纳的 PATCH 走真后端，端点路径与响应形同主角链
+    await page.route("**/settings/ai/characters/bootstrap", (r) => {
+      const body = (r.request().postDataJSON() ?? {}) as { preview?: boolean };
+      if (body.preview) {
+        return r.fulfill({
+          json: { ok: true, data: { prompt: "【本书】（渲染稿）\n【产出】为这张配角卡拟齐空格。" } },
+        });
+      }
+      return r.fulfill({
         json: {
           ok: true,
           data: {
@@ -1339,8 +1346,8 @@ test("角色：一键立卡（配角）——右栏行→出稿→采纳只补�
             skipped: [],
           },
         },
-      }),
-    );
+      });
+    });
 
     await page.getByRole("button", { name: /^设定/ }).click();
     await openSetting(page, "角色");
@@ -1369,6 +1376,9 @@ test("角色：一键立卡（配角）——右栏行→出稿→采纳只补�
     await expect(row).toBeVisible();
 
     await row.click();
+    // 编辑流第一步：渲染稿提示词可改，点「生成」才出稿
+    await expect(page.getByTestId("char-ai-prompt-edit")).toBeVisible({ timeout: 10000 });
+    await page.getByRole("button", { name: "生成" }).click();
     await expect(
       page.getByText("AI 拟稿 · 为「未命名」立卡（采纳才写入）"),
     ).toBeVisible({ timeout: 10000 });
