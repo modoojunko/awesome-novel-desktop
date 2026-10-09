@@ -1,9 +1,9 @@
-# db-generation Specification
+## RENAMED Requirements
 
-## Purpose
-C端 SQLite 库文件**版本治理**：库文件名＝C端 版本（每版首启新建自己的库、旧库只读留存），首启状态机（current / fresh_boot / 形状不符分流 / 损坏隔离）、旧库迁入引擎（副本列交集搬运、源只读、一致性守卫、幂等）、候选与版本门禁（白名单形状＋活跃库按路径排除＋推荐位单源）、旧库留存与清理（只删已成功带回的件）、跨版本转换器链纪律——使升级、回滚、找回在任何组合下数据无损。
+- FROM: `### Requirement: 带回告知卡（四步）与「稍后带」`
+- TO: `### Requirement: 迁移告知卡（四步）与「稍后迁移」`
 
-## Requirements
+## MODIFIED Requirements
 
 ### Requirement: 旧库迁入引擎（六步＋预检）
 
@@ -139,115 +139,6 @@ C端 SQLite 库文件**版本治理**：库文件名＝C端 版本（每版首�
 - **WHEN** 同族内多份候选，其中一份主文件 mtime 更早但 WAL 里刚写过
 - **THEN** 排序按三件套 `max(mtime)`，推荐位落在真正最近使用的那份；`recommended` 由后端给出
 
-### Requirement: 库文件版本命名与首启状态机
-
-- 库文件 SHALL 按 `novel-v{app_version}.db` 命名，`app_version` 取自打包期烘入的 C端 版本（`v*` 标签构建＝去前缀真实版本；PR/手动构建＝`dev`，映射为**固定哨兵文件名**，不随构建变化）。`SCHEMA_VERSION` 与「代数计数器」概念退役：版本号本身即库文件身份，**不存在**「删列要升代、加列不升代」的分叉。
-- 每个版本 SHALL 只读写自己版本号的库文件；SHALL NOT 改名、写入或删除任何其他版本库文件与历史文件（**拷贝前进**）。
-- **活跃库 SHALL 按路径判定**（`DATABASE_URL` 解析出的文件路径），SHALL NOT 依赖版本比较来区分「哪一份是当前库」——版本相等（`0.24` 与 `0.24.0`）与全数字版本（tag `v1`）都不得导致已无主的库不可达。
-- 首启自己版本库不存在 SHALL 以空库启动（`create_all` 兜底建表），并进入候选扫描态；**代内就地补列机制 SHALL 退役**（不再存在对既有库执行 DDL 的路径）。
-- 自己版本库存在但 schema 指纹不符时 SHALL 按**可读性分流**，两条路都不得让数据在产品内不可达：
-  - **可读而形状不同**（指纹不符但能打开）→ 改名为 `novel-v{X}.db.mismatch-<stamp>`（版本构建）／`novel-dev.db.mismatch-<stamp>`（dev 哨兵构建——本机版本为 `dev` 时无 `{X}` 可代入），该件 SHALL 作为候选参与找回（可一键带回其内容）——候选扫描 SHALL 同时认两种前缀形状，SHALL NOT 让哨兵分流件成为扫描盲区。
-  - **不可读/损坏** → 三件套改名为 `novel-v{X}.db.corrupt-<stamp>`（版本构建）／`novel-dev.db.corrupt-<stamp>`（dev 哨兵）隔离，SHALL NOT 进候选，但 SHALL 在只读诊断面可见（文件名·体积·时间）。
-- **空文件豁免**：文件存在但无任何表且无 `schema_id`（中断首启的残壳）SHALL 判为 `fresh_boot` 直接复用，SHALL NOT 隔离——避免每次中断多攒一个隔离件。
-- **隔离/改名 SHALL NOT 让应用起不来**：迁移前先尝试把当前库 WAL 落盘（`wal_checkpoint(TRUNCATE)`，失败不阻断）；改名失败（Windows 文件锁/杀软占用）SHALL 重试一次，仍失败则记日志、保持原文件原位并返回可展示的启动状态，SHALL NOT 抛未捕获异常。
-- 第 0 代旧库（`novel.db`、`novel.db.legacy-*`）、历史版本库（`novel-v{k}.db`）、遗留代数名（全数字 `novel-v{k}.db`）、`.mismatch-*` 件 SHALL 只读留存、可作候选；`.corrupt-*`、`.bak*`、`-wal`、`-shm`、`migration-staging/` SHALL NOT 进候选。
-- 数据目录 SHALL 维持跟随程序安装目录（便携式，既定裁定）；候选扫描 SHALL 只覆盖本机当前数据目录。
-
-#### Scenario: 每版新建自己的库
-
-- **WHEN** v0.25 首启且盘上只有 v0.24 的库（`novel-v0.24.db`）
-- **THEN** 建 `novel-v0.25.db` 空库启动；`novel-v0.24.db` 字节不变并进入候选
-
-#### Scenario: 回滚装回旧版
-
-- **WHEN** 用户已用 v0.25 写过书，随后装回 v0.24 启动
-- **THEN** v0.24 打开自己的 `novel-v0.24.db` 直接可用（数据为升级当时状态＋此后在 v0.24 里的写入），不出现空书架；`novel-v0.25.db` 不因版本比较而被误当作当前库
-
-#### Scenario: 同版本形状不符仍可带回
-
-- **WHEN** 同一版本号的库由另一份 schema 不同的构建写过（同 tag 重打包、删 tag 重打、dev 哨兵下的连续开发）
-- **THEN** 该件改名为 `novel-v{X}.db.mismatch-<stamp>`（版本构建）或 `novel-dev.db.mismatch-<stamp>`（dev 哨兵）并作为候选出现，用户可一键带回其内容；当前版本新建空库；`.mismatch` 件字节不变
-
-#### Scenario: 损坏库只读可见
-
-- **WHEN** 当前版本库文件不可读（非 SQLite 字节流）
-- **THEN** 三件套隔离为 `.corrupt-<stamp>`，空库启动；隔离件不进候选但在只读诊断面列出；应用正常起得来
-
-#### Scenario: 空壳文件不积隔离件
-
-- **WHEN** 首次建库过程中进程被杀，留下 0 表且无 `schema_id` 的同名文件
-- **THEN** 判为 `fresh_boot` 复用该文件，不产生任何 `.corrupt-*`
-
-### Requirement: 跨版本转换器链纪律
-
-- 跨版本搬运 SHALL 以**通用列交集搬运**为基线（多数版本无需任何专用转换）；需要语义转换的相邻版本 SHALL 在 `migration/converters/` 提供 `(from_version, to_version)` 转换器，跨多版本 SHALL 按序叠加相邻转换器，SHALL NOT 维护任何直通转换器。
-- 链完整性 SHALL 由测试断言：若 `converters/` 存在条目，其 `(from, to)` MUST 相邻且 MUST 可链式到达当前版本；当前无条目时断言 MUST 为绿（空链合法）。
-- 版本 PR SHALL 同时携带：必要的相邻转换器（当且仅当存在语义变化）、drill seed 场景。仅列形状变化（加列/加表）的版本 SHALL NOT 需要转换器。
-
-#### Scenario: 跨两代迁入
-
-- **WHEN** 候选为 x.y 库、当前版本 x.z（z ≥ y+2）
-- **THEN** 副本上按相邻跳链式转换后入列交集搬运；报告含各跳转换摘要
-
-#### Scenario: 空链合法
-
-- **WHEN** 当前无任何转换器条目
-- **THEN** 链完整性断言通过（不得因「目录为空」判失败）
-
-#### Scenario: 非相邻转换器被拒
-
-- **WHEN** 有人新增一条 `(0.24 → 0.26)` 的直通转换器
-- **THEN** 链完整性断言失败（必须补 `0.25 → 0.26` 这一跳）
-
-### Requirement: 升级演练升格（version-chain）
-
-- `upgrade_drill` SHALL 提供 `version-chain` 阶段：seed 旧版本库→boot 新 build→断言源文件逐字节不变、自己版本新库空库启动、候选检出、搬运计数对拍、搬后再导出 roundtrip 全绿；SHALL 覆盖跨两版链式搬运（N-2 → N）并在摘要中打印实际版本对。
-- 演练 SHALL 增**等价对拍阶段**（`version-chain-parity`）：以**同一投影器**分别读取源库与目标库的「用户可见状态」并产规范 JSON——作品（书名/状态/卷章数/字数）、设定与角色关键格、伏笔引用（经 ref）、模型配置（名称/供应商/模型清单/**明文 Key 可解**/用量）、预置题材行——逐项比对 SHALL 相等（允许 id 重映射，经 ref/名称对齐）；差异 SHALL 打印可读清单，第三方（非白名单）差异即判失败。
-- 演练 SHALL 覆盖密钥转接三态（源钥匙在库行 / 在旧文件 / 两者皆无）与「源 key 不可得时报告按条计数」。
-- 全部阶段 SHALL 由**单一库名派生辅助**取库路径，且每个阶段显式设定 `CLIENT_VERSION`。
-- 每个版本 PR SHALL 以本演练全绿为验收门。
-
-#### Scenario: 升代验收
-
-- **WHEN** 任一版本 PR 提交
-- **THEN** version-chain 演练全绿（含源只读、空库启动、候选检出、搬运对拍、搬后 roundtrip），摘要含实际版本对
-
-#### Scenario: 等价对拍抓得住 Key 死文回归
-
-- **WHEN** 人为回退密钥转接实现（搬后不重加密）
-- **THEN** `version-chain-parity` 的「明文 Key 可解」一项转红，演练整体失败
-
-### Requirement: 打包期组件清单（BOM）
-
-- 打包期 SHALL 在 `release.json` 增写 `components` 对象，至少含该版本实际使用的 `db_filename` 与 `backup_format_version`；取值 MUST 由构建期从后端单源读取，**版本号 MUST 由流水线显式传入**（MUST NOT 用环境变量推断，否则自检与产物同源同错）。
-- 库内 SHALL 以 `app_meta` 记录本机版本（`app_version`）与同批组件快照（`app_components`），供库文件脱离数据目录后自证来源。
-- 组件清单缺失或与实际单源不一致时，打包冒烟断言 MUST 失败，不得静默发布；`components` MUST NOT 进入运行时可覆盖键白名单（它只作断言与诊断锚）。
-
-#### Scenario: 冒烟断言辨识组件
-
-- **WHEN** 某版本出包
-- **THEN** 产物内 `release.json.components.db_filename` 等于该版本运行时会打开的库文件名，且与后端单源派生结果逐字相等；删掉该键后同一条断言必须转红
-
-#### Scenario: 库自证来源
-
-- **WHEN** 用户把某版本的库文件拷到别处后打开（如人工备份、排障）
-- **THEN** 库内 `app_meta` 可读出写入它的 C端 版本与组件快照
-
-### Requirement: 打戳失败必须可见
-
-启动期把 schema 指纹与版本/组件快照写入当前库 `app_meta` 失败时，系统 MUST 输出 error 级日志，含库路径与异常摘要，MUST NOT 静默吞掉；日志 MUST NOT 包含凭据或行数据。打戳失败 MUST NOT 阻断本次启动。
-
-#### Scenario: 打戳失败有线索
-
-- **WHEN** 当前库所在目录只读或库被独占导致打戳写入失败
-- **THEN** 启动日志出现 error 级记录（含库路径与异常摘要），服务照常启动
-- **THEN** 此后该库被判 `mismatch` 时，日志中可回溯到打戳失败这一前因
-
-#### Scenario: 打戳成功不新增噪声
-
-- **WHEN** 打戳正常完成
-- **THEN** 不出现 error 级记录，启动行为与现状一致
-
 ### Requirement: 清理候选必须通过完整性校验
 
 待删清单 SHALL 只包含**本次成功迁移且完整性达标**的源（`stamp == migration.last.source_stamp` 且完整性判定为「完整达成」）。搬运记录（`migration.history`）SHALL 记入 `book_count_source`、`book_count_present`、`tables_skipped`、`fk_violations`；含整表跳过或行损失的搬运源 MUST NOT 进入待删清单；FK 违规但零行损可证（孤儿行随迁，判定见「旧库迁入引擎」单源条款）SHALL 按「完整达成」放行；缺证形态（老版本写入的 history 条目无表级核对数据，或 `book_count_present` 缺失退回 `book_count_migrated` 口径）SHALL 沿用同一单源判定——少删优于误删。清理判定 MUST 在后端完成，前端只做展示。**「完整达成」SHALL 为单源判定**，同一判定 SHALL 同时供三处消费：① 告知卡/常驻行的抑制与继续提醒 ② 清理白名单 ③ 演练对拍结论——SHALL NOT 各处各写一套阈值。
@@ -266,20 +157,6 @@ C端 SQLite 库文件**版本治理**：库文件名＝C端 版本（每版首�
 
 - **WHEN** 盘中存在更早成功搬运的源库
 - **THEN** 待删清单不含该更早源库（`stamp != migration.last.source_stamp`）
-
-### Requirement: 迁移端点入参必须经白名单与参数化
-
-免登迁入端点全家（start/preview/dismiss/cleanup/retention）的 `source_filename` 入参 SHALL 经同一白名单校验（候选形状白名单＋`resolve()` 收敛在数据目录内＋非活跃库），MUST NOT 存在未过校验即读文件/复制/ATTACH 的路径。拼接进 SQLite 语句的路径 SHALL 做字面量转义或参数化，MUST NOT 依赖「文件名碰巧不含引号」。
-
-#### Scenario: start 与 dismiss 同源校验
-
-- **WHEN** start/preview 收到 `../x.db`、子目录路径或含引号的文件名
-- **THEN** 返回 400 级可读拒绝，不发生任何读文件、复制或 ATTACH
-
-#### Scenario: 含引号文件名不破坏语句
-
-- **WHEN** 数据目录内出现名字含 `'` 的文件并尝试搬运
-- **THEN** ATTACH 语句仍为合法 SQL（转义生效），不产生注入面
 
 ### Requirement: 迁移告知卡（四步）与「稍后迁移」
 
