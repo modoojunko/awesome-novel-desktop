@@ -1016,6 +1016,23 @@ describe("写作能力探测（c-prompt-pack-onboard-modal）", () => {
     expect(getLastProbe()?.update_available).toBe(true);
   });
 
+  it("版本锚变化（CDN 回滚改指旧版）→ 提醒同样重臂（召回场景）", async () => {
+    // 锚 v9 时暂不更新，其后 CDN 回滚指 v8（对已装 v7 仍 update_available）→ 差异即重臂
+    window.localStorage.setItem("pack-modal-dismissed", JSON.stringify({ updateVersion: "9" }));
+    getMock.mockImplementation(async (path: string) => {
+      if (String(path).includes("/prompt-pack/probe"))
+        return { installed_version: "7", latest_version: "8", update_available: true, source: "pack" };
+      return [novel()];
+    });
+    const events: CustomEvent[] = [];
+    const on = (e: Event) => events.push(e as CustomEvent);
+    window.addEventListener("pack-modal:open", on);
+    renderPage();
+    await waitFor(() => expect(events.length).toBe(1));
+    window.removeEventListener("pack-modal:open", on);
+    expect(events[0].detail).toEqual({ mode: "update", from: "7", to: "8" });
+  });
+
   it("版本锚变化（CDN 升到新版本）→ update 提醒重臂照常广播", async () => {
     window.localStorage.setItem("pack-modal-dismissed", JSON.stringify({ updateVersion: "5" }));
     getMock.mockImplementation(async (path: string) => {
