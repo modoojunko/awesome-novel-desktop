@@ -15,6 +15,12 @@ models 端点缺失（部分 Anthropic 兼容端点不提供列表）时降级�
 留痕（c-llm-call-log）：每个出网请求落一行 `llm_probe` 日志（llm.log 专项档＋
 app.log 双写）——Gemini 401 定诊实锤：探针不落日志时远程只能靠推断。行只含
 host＋path（丢弃 query；headers 含 Key 永不落）＋上游状态码＋耗时＋结果分类。
+
+openai 格式的 base 全链路版本段归一（2026-10-09 kakou 中转案）：models 探测、对话
+探针（主链＋404 降级）、生成调用（ai_client 传 SDK 的 base）共用 `normalize_openai_base`
+单源——裸域名按 OpenAI 官方惯例补 /v1，自带版本段（含 Gemini 兼容层 /v1beta/openai
+的中段形态）原样保留；此前只有 models 探测补 /v1，中转站网页壳对非 /v1 路径回 200
+网页时呈「清单绿、测试红」半通形态。
 """
 
 from __future__ import annotations
@@ -297,7 +303,10 @@ async def test_connection(
                     }
                 ping = await _probe_generation(
                     client,
-                    f"{base_url.rstrip('/')}/chat/completions",
+                    # 与 models 探测/生成调用同源归一（裸域名补 /v1）——中转站
+                    # 网页壳对非 /v1 路径回 200 网页，裸拼会把探针打到网页上
+                    # （2026-10-09 kakou 案 llm.log 实锤）
+                    f"{normalize_openai_base(base_url)}/chat/completions",
                     headers,
                     _generation_payload(
                         probe_model,
@@ -489,10 +498,33 @@ async def fetch_models(
 # ── Protocol-based probe builder ────────────────────────────────────────────
 
 
+# 「路径已含版本段」判据：段以 v+数字开头即算（/v1、/v4、/v1beta…）——行尾锚定
+# /v\d+$ 会漏掉版本段在中段的形态（Gemini 官方兼容层 …/v1beta/openai 被误判
+# 「无版本段」而追补出 …/v1beta/openai/v1/… 死址）
+_VERSION_SEG = re.compile(r"/v\d+[a-z]*(/|$)")
+
+
+def normalize_openai_base(base: str) -> str:
+    """OpenAI 格式 base 的版本段归一——「与生成调用同源推导」的单源实现。
+
+    models 探测、对话探针（主链＋404 降级）、生成调用（ai_client 传给 OpenAI SDK
+    的 base）四处共用：裸域名（路径无任何版本段）按 OpenAI 官方惯例补 /v1，自带
+    版本段的（/v1、/v4、compatible-mode/v1、Gemini 兼容层 /v1beta/openai）原样
+    保留。2026-10-09 kakou 中转案实锤：SPA 网页壳对任意非 /v1 路径回 200 网页——
+    只有 models 探测补 /v1 时清单拉得到，对话探针/生成却打到网页上，呈现
+    「清单绿、测试红」半通形态；且 SDK 直传裸 base 生成必败，探针必须与生成
+    同一归一，否则修出「测试绿、写作红」的假通。anthropic 格式不适用（惯例
+    相反：SDK 自拼 /v1/messages）；落库值不改写，归一只在构造请求时发生。
+    """
+    base = base.rstrip("/")
+    if not base or _VERSION_SEG.search(base):
+        return base
+    return f"{base}/v1"
+
+
 def _openai_models_url(base: str) -> str:
-    """OpenAI 格式探测端点：base 自带版本段（/v1、/v4、compatible-mode/v1）
-    直接拼 /models；裸域名按 OpenAI 官方惯例补 /v1/models。"""
-    return f"{base}/models" if re.search(r"/v\d+$", base) else f"{base}/v1/models"
+    """OpenAI 格式探测端点：统一经版本段归一后拼 /models。"""
+    return f"{normalize_openai_base(base)}/models"
 
 
 def _build_probe(
@@ -539,7 +571,8 @@ def _build_probe(
         {"Authorization": f"Bearer {api_key}"},
         _extract_openai_models,
         (
-            f"{base}/chat/completions",
+            # 降级地址同走版本段归一（与 models 探测/主链对话探针/生成调用同源）
+            f"{normalize_openai_base(base)}/chat/completions",
             {"Authorization": f"Bearer {api_key}"},
             _openai_reply_text,
         ),
@@ -563,6 +596,7 @@ def _non_api_response(resp: httpx.Response) -> str:
             "该地址返回的不是 API 数据"
             + (f"（Content-Type: {ctype}）" if ctype else "")
             + "——看起来像网页。请检查 Base URL 是否填成了网站地址"
+            "（若地址确认无误，尝试在末尾补 /v1）"
         )
     if isinstance(body, dict) and body.get("error"):
         msg = body["error"]

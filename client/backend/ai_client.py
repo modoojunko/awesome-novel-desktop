@@ -26,6 +26,7 @@ from openai import AsyncOpenAI
 from openai import Timeout as OpenAITimeout
 from sqlalchemy import select
 
+from api_configs.connection import normalize_openai_base
 from api_configs.crypto import decrypt_api_key
 from db import async_session
 from models.api_config import ApiConfig
@@ -220,7 +221,14 @@ class AIClient:
             self._provider = "openai"
             kwargs = {"api_key": api_key, **common}
             if base_url:
+                # SDK 以 base_url 直拼请求路径、不自补版本段——裸域名会打到官方
+                # 404 或中转站网页壳（2026-10-09 kakou 案）。与探测链路同源归一
+                # （connection.normalize_openai_base）；_base_url 同步成归一形，
+                # 留痕行与禁思考记忆（_THINKING_UNSUPPORTED_BASES）才和实际请求
+                # base 同一形态。anthropic 分支不归一（惯例相反：SDK 自拼 /v1/…）
+                base_url = normalize_openai_base(base_url)
                 kwargs["base_url"] = base_url
+                self._base_url = base_url
             self._client = AsyncOpenAI(**kwargs)
 
     def _raise_normalized(self, e: Exception) -> None:
