@@ -4,6 +4,7 @@ import uuid
 from datetime import datetime
 
 from sqlalchemy import (
+    Boolean,
     DateTime,
     ForeignKey,
     String,
@@ -35,6 +36,15 @@ class ApiConfig(Base):
     # 接口格式（wire format），与 vendor 正交：同厂商可有两种报文契约
     api_format: Mapped[str] = mapped_column(
         String(20), nullable=False, default="openai", server_default="openai"
+    )
+    # 思考参数（c-thinking-config）：thinking.type 开关＋reasoning_effort 强度（low/high/max）。
+    # GLM-5.3 系列强制思考不能关（disabled 被 400 打回），强度靠 reasoning_effort 下发；
+    # 关（默认）＝现状语义（thinking:{type:disabled}），端点拒参时调用侧自动去参重试。
+    thinking_enabled: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=False, server_default="0"
+    )
+    thinking_effort: Mapped[str] = mapped_column(
+        String(10), nullable=False, default="low", server_default="low"
     )
     api_key: Mapped[str] = mapped_column(String(512), default="")
     base_url: Mapped[str] = mapped_column(String(500), default="")

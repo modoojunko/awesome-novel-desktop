@@ -1912,3 +1912,51 @@ model-config.html 不在像素 parity 基线内（同 c-zhuque-ai-detect 登记�
    两态同词」先例，查看态不入原型）；且 `design-parity-book` 不在 `design:check` 矩阵
    （design:check 只跑 书架＋preview）。原型编辑态胶囊已同貌更新，基线诚实由
    design-parity-book A/B 对拍兜底（见 change tasks 4.5）。
+
+## c-thinking-config（思考开关与强度可配，2026-10-09）
+
+用户口径（2026-10-09）：「我觉得可以把是否 think 的开关拿出来，think 的 low-max 选项
+也拿出来可配」。起因＝内测配 GLM（glm-5.3-flashx）连接测试 400：「该模型始终思考，
+不支持关闭思考；请使用 low、high 或 max」——GLM-5.3 系列强制思考，`thinking.type`
+仅剩 `enabled`，强度改走顶层参数 `reasoning_effort`（官方迁移指引明确 disabled 须改
+enabled＋设 effort）。
+
+1. **`model-config.html` `#modalConfig` 增两控件**（置于 API Key 之后、模型名称之前）：
+   「思考模式」seg（开启/关闭，默认关闭＝现状语义）＋「思考强度」seg（低 low/高 high/
+   深 max，默认低 low）。关闭时强度 seg 走 `.seg.lock` 灰置但保留已选值，重开即还原；
+   开启时显示提示行（.cf-hint，组件同 model-config.css 同名类，原型内补样式登记）：
+   「开启后模型先思考再作答，更慢、更耗 token；GLM-5.3 系列为强制思考模型，关闭会被
+   端点拒绝。」控件为新增形态，不新增语气档/胶囊形态（复用 .seg/.label-row/.cf-hint）。
+2. **形态差异登记**：需求确认时的预览稿把强度画成下拉（`[低 low ▾]`）；实现按弹窗既有
+   设计语言归一为 **seg 分段钮**（与同弹窗「接口格式」seg 同构，三档全量可见、少一次
+   点击），原型与实现一致，均非下拉。
+3. **读数语义**：`readForm()` 增 `thinking_enabled`/`thinking_effort`（演示态默认
+   false/low）；连接探针与生成调用按同一套参数下发（测试连接＝保存后的真实行为预演）。
+4. **判定类不随开关**：JSON 判定/短答复类调用（卷规划等）恒关思考（volume-plan-ai
+   口径不变），原型不建模该内部口径。
+5. **同批补齐 c-api-config-edit-model 的原型挂账**：该 change 实现已合（#789，编辑弹窗
+   模型选择位），但原型编辑态当时未同步（其 tasks「原型基线」在途）。本次原型编辑态补齐
+   同一形态——模型字段双态渲染：初值＝已存模型列表首项、清单种子＝已存列表（meta
+   「已存 N 个模型」）、已存初值视同手选（不被拉取/测试的默认选中覆盖）、占位文案
+   「留空则保留当前模型；可从已存清单改选或手动输入」；编辑态 Key 重填后失焦同口径拉
+   清单（raw 轻探针要明文 Key，未重填时被前置条件挡住，不阻塞改选）；保存改选值置首
+   （其余已存项保序，截 100）；编辑态未重敲 Key 的「测试连接」用已存密钥测（不误报
+   「请填写 API Key」）。
+
+## Base URL 案例引导（2026-10-09 用户反馈）
+
+用户口径：「文案要有引导，不是大模型供应商的标准接口的。需要有个案例，要用户提供
+baseurl 到什么程度，要有个案例。」——中转站/自建网关用户不知道 Base URL 填到哪一截
+（内测 405 案：填成控制台网页；社区常见误带 `/chat/completions`）。
+
+1. **`model-config.html` `#modalConfig` Base URL 下新增案例提示行**（随接口格式切换、
+   ollama 不显——本地服务有专属占位与说明）：openai 格式＝「填到『域名＋版本段』为止：
+   标准接口如 `https://api.deepseek.com/v1`，中转站/自建网关如 `https://你的中转域名/v1`；
+   不要带 `/chat/completions`，系统自动拼接。」；anthropic 格式＝「填到域名即可（系统
+   自动补 `/v1`，误带 `/v1` 也会自动剥掉）：标准接口如 `https://api.anthropic.com`，
+   中转站/自建网关如 `https://你的中转域名`。」文案与后端拼接规则逐条对源
+   （`_build_probe`：openai 拼 `/chat/completions`＋models 无版本段补 `/v1`；
+   anthropic 剥 `/v1` 防双拼后自拼）。
+2. **形态**：复用 `.cf-hint`/`code`（原型内补 `.cf-hint code` 样式登记），无新语气档；
+   「OpenAI 兼容」供应商的 Gemini/反代引导行保持不变（两条提示互补：一条讲 URL 深度、
+   一条讲兼容模版）。

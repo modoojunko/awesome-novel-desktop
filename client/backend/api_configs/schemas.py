@@ -13,6 +13,11 @@ from pydantic import BaseModel, Field, field_validator
 # 服务层按 vendor/URL 推荐值兜底，与旧版运行时推断等价。
 ApiFormat = Literal["openai", "anthropic"]
 
+# 思考强度（c-thinking-config）：GLM-5.3 契约三档——reasoning_effort 顶层参数
+# （low 轻度 / high 增强 / max 深度，厂商默认 max）。默认 low：整条链一直按
+# 「省 token 省延迟」取向（现状是干脆关思考），开了思考也先给最省的一档。
+ThinkingEffort = Literal["low", "high", "max"]
+
 KNOWN_VENDORS = {
     "openai",
     "anthropic",
@@ -46,6 +51,9 @@ class CreateApiConfigBody(BaseModel):
     api_format: ApiFormat | None = None
     # 预填的模型名称落 models 首项（c-api-config-vendor-defaults）；与更新同语义可手动补清单
     models: list[str] | None = None
+    # 思考参数（c-thinking-config）：开＝thinking:{type:enabled}＋reasoning_effort；关＝disabled
+    thinking_enabled: bool = False
+    thinking_effort: ThinkingEffort = "low"
 
     @field_validator("vendor_id")
     @classmethod
@@ -66,6 +74,9 @@ class UpdateApiConfigBody(BaseModel):
     api_format: ApiFormat | None = None
     # 手动补模型清单（部分 Anthropic 兼容端点不提供 /models 列表）
     models: list[str] | None = None
+    # 思考参数：None = 未传（不更新）
+    thinking_enabled: bool | None = None
+    thinking_effort: ThinkingEffort | None = None
 
 
 class SetAiModelBody(BaseModel):
@@ -88,6 +99,8 @@ class ApiConfigResponse(BaseModel):
     vendor_display_name: str
     vendor_override: str | None = None
     api_format: str = "openai"
+    thinking_enabled: bool = False
+    thinking_effort: str = "low"
     base_url: str
     api_key_masked: str
     status: str
@@ -119,6 +132,8 @@ class ApiConfigResponse(BaseModel):
             vendor_display_name=row.get("vendor_display_name", ""),
             vendor_override=row.get("vendor_override"),
             api_format=row.get("api_format", "openai") or "openai",
+            thinking_enabled=bool(row.get("thinking_enabled", False)),
+            thinking_effort=row.get("thinking_effort", "low") or "low",
             base_url=row.get("base_url", ""),
             api_key_masked=mask_api_key(raw_key),
             status=row.get("status", "active"),
@@ -201,15 +216,21 @@ class TestRawBody(BaseModel):
     api_format: ApiFormat = "openai"
     # 探针优先模型 id（表单模型名称）；空则按「列表首个→候选首个」取
     model: str | None = None
+    # 思考参数（c-thinking-config）：探针按表单当前值发，与保存后的生成行为同判据
+    thinking_enabled: bool = False
+    thinking_effort: ThinkingEffort = "low"
 
 
 class TestConfigBody(BaseModel):
-    """已存配置连接测试的可选请求体（编辑弹窗改选模型后试连）。
+    """已存配置连接测试的可选请求体（编辑弹窗改选模型/思考后试连）。
 
-    model＝探针优先模型覆盖；缺省/空则按已存 models 首项取。
+    model＝探针优先模型覆盖，缺省/空按已存 models 首项取；
+    thinking_enabled/thinking_effort＝思考参数覆盖（表单当前值），None 按已存值。
     """
 
     model: str | None = None
+    thinking_enabled: bool | None = None
+    thinking_effort: ThinkingEffort | None = None
 
 
 class FetchModelsBody(BaseModel):

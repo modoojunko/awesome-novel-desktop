@@ -171,14 +171,19 @@ describe("ApiKeyConfigPage · 编辑态模型选择位", () => {
     expect(Object.keys(put.body as object)).not.toContain("api_key");
   });
 
-  it("清空模型后未重敲 Key 测试连接：test 端点不带 body（探针回落已存首项）", async () => {
+  it("清空模型后未重敲 Key 测试连接：test 端点 body 不带 model（探针回落已存首项）", async () => {
     stubApi();
     renderPage();
     await openEditForm();
     fireEvent.change(document.getElementById("cfModel")!, { target: { value: "" } });
     fireEvent.click(within(document.querySelector(".mcard-foot") as HTMLElement).getByText("测试连接"));
     await waitFor(() => expect(calls.some((c) => /\/api-configs\/c1\/test$/.test(c.url))).toBe(true));
-    expect(calls.find((c) => /\/api-configs\/c1\/test$/.test(c.url))!.body).toBeUndefined();
+    const body = calls.find((c) => /\/api-configs\/c1\/test$/.test(c.url))!.body as
+      | { model?: string; thinking_enabled?: boolean }
+      | undefined;
+    // c-thinking-config：body 恒带思考覆盖（表单当前值），但 model 留空＝省略该键回落已存首项
+    expect(body ? Object.keys(body) : []).not.toContain("model");
+    expect(body?.thinking_enabled).toBe(false);
   });
 
   it("清空模型后重敲 Key 测试连接：raw 测试 model 置 null（探针按清单/候选取）", async () => {

@@ -14,12 +14,18 @@ export type AiState =
   | 'prompts_missing';
 export type ChangeType = 'initial' | 'switch' | 'clear' | 'restore';
 
+/** 思考强度（c-thinking-config）：GLM-5.3 契约三档 reasoning_effort（low 轻度/high 增强/max 深度）。 */
+export type ThinkingEffort = 'low' | 'high' | 'max';
+
 export interface ApiConfig {
   id: string;
   name: string;
   vendor: VendorId;
   vendor_display_name: string;
   api_format: ApiFormat;
+  /** 思考开关（c-thinking-config）：开＝thinking:enabled＋reasoning_effort；关＝disabled（现状语义） */
+  thinking_enabled: boolean;
+  thinking_effort: ThinkingEffort;
   base_url: string;
   api_key_masked: string;
   status: string;

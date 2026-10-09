@@ -874,6 +874,9 @@ async def _restore_config(db, user_id: str, config_data: dict) -> dict:
             vendor_override=c.get("vendor_override") or None,
             # 旧包无 api_format 键 → 默认 openai（与旧版运行行为等价）
             api_format=c.get("api_format") or "openai",
+            # 旧包无思考参数键 → 关（与旧版运行行为等价，c-thinking-config）
+            thinking_enabled=bool(c.get("thinking_enabled", False)),
+            thinking_effort=c.get("thinking_effort") or "low",
             api_key=encrypt_api_key(c.get("api_key") or ""),
             base_url=c.get("base_url") or "",
             models=c.get("models") or None,

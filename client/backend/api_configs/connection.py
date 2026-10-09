@@ -70,9 +70,12 @@ def no_model_list_note(api_format: str) -> str:
         else NO_MODEL_LIST_NOTE_ANTHROPIC
     )
 
-# 最小生成探针（2026-10-05 拍板）：「你好」＋禁思考＋短输出预算，格式正确回复才算通
+# 最小生成探针（2026-10-05 拍板）：「你好」＋禁思考＋短输出预算，格式正确回复才算通。
+# c-thinking-config：思考开启（或端点强制思考、去参重试后）预算放大——强制思考模型
+# （GLM-5.3）会把输出预算花在推理上，32 只够思考、正文为空，探针会误判「回复为空」。
 _PROBE_PROMPT = "你好"
 _PROBE_MAX_TOKENS = 32
+_PROBE_MAX_TOKENS_THINKING = 1024
 _THINKING_DISABLED = {"type": "disabled"}
 
 
@@ -153,6 +156,8 @@ async def test_connection(
     api_format: str = "openai",
     timeout: int = CONNECTION_TEST_TIMEOUT,
     preferred_model: str | None = None,
+    thinking_enabled: bool = False,
+    thinking_effort: str = "low",
 ) -> dict[str, Any]:
     """Test connectivity to a vendor's API.
 
@@ -216,7 +221,11 @@ async def test_connection(
                     client,
                     f_url,
                     f_headers,
-                    _generation_payload(probe_model or _ANTHROPIC_PROBE_MODEL),
+                    _generation_payload(
+                        probe_model or _ANTHROPIC_PROBE_MODEL,
+                        thinking_enabled=thinking_enabled,
+                        thinking_effort=thinking_effort,
+                    ),
                     f_reply,
                     vendor=vendor_id,
                     api_format=api_format,
@@ -290,7 +299,11 @@ async def test_connection(
                     client,
                     f"{base_url.rstrip('/')}/chat/completions",
                     headers,
-                    _generation_payload(probe_model),
+                    _generation_payload(
+                        probe_model,
+                        thinking_enabled=thinking_enabled,
+                        thinking_effort=thinking_effort,
+                    ),
                     _openai_reply_text,
                     vendor=vendor_id,
                     api_format=api_format,
@@ -305,7 +318,11 @@ async def test_connection(
                     client,
                     f_url,
                     f_headers,
-                    _generation_payload(probe_model or _ANTHROPIC_PROBE_MODEL),
+                    _generation_payload(
+                        probe_model or _ANTHROPIC_PROBE_MODEL,
+                        thinking_enabled=thinking_enabled,
+                        thinking_effort=thinking_effort,
+                    ),
                     f_reply,
                     vendor=vendor_id,
                     api_format=api_format,
@@ -567,14 +584,25 @@ def _probe_model(
     return candidates[0] if candidates else ""
 
 
-def _generation_payload(model: str) -> dict[str, Any]:
-    """「你好」最小生成探针请求体（双格式同形）：禁思考＋短输出预算。"""
-    return {
+def _generation_payload(
+    model: str,
+    thinking_enabled: bool = False,
+    thinking_effort: str = "low",
+) -> dict[str, Any]:
+    """「你好」最小生成探针请求体（双格式同形）：思考参数按配置＋短输出预算。
+
+    开（c-thinking-config）＝thinking:{type:enabled}＋reasoning_effort（GLM-5.3 契约
+    顶层参数，low/high/max）；关（默认）＝现状 disabled。思考开启时预算放大——
+    推理会吃 max_tokens，32 可能只见思考不见正文。"""
+    payload: dict[str, Any] = {
         "model": model,
         "messages": [{"role": "user", "content": _PROBE_PROMPT}],
-        "max_tokens": _PROBE_MAX_TOKENS,
-        "thinking": dict(_THINKING_DISABLED),
+        "max_tokens": _PROBE_MAX_TOKENS_THINKING if thinking_enabled else _PROBE_MAX_TOKENS,
+        "thinking": {"type": "enabled"} if thinking_enabled else dict(_THINKING_DISABLED),
     }
+    if thinking_enabled:
+        payload["reasoning_effort"] = thinking_effort or "low"
+    return payload
 
 
 async def _probe_generation(
@@ -595,7 +623,10 @@ async def _probe_generation(
     model = payload.get("model", "")
     start = time.perf_counter()
     try:
-        resp = await _post_with_thinking_retry(client, url, headers, payload)
+        resp = await _post_with_thinking_retry(
+            client, url, headers, payload,
+            vendor=vendor, api_format=api_format, model=model,
+        )
     except httpx.TimeoutException:
         _log_probe(
             "generation_probe", vendor=vendor, api_format=api_format,
@@ -698,20 +729,57 @@ def _probe_verdict(
     return None
 
 
+def _is_thinking_rejection_text(text: str) -> bool:
+    """错误文案是否在说思考参数（选哪份 400 展示用，不决定是否重试）。
+
+    判据含中文「思考」：GLM-5.3 拒关思考的报错是纯中文（「该模型始终思考，不支持
+    关闭思考」），按英文字样判会漏。"""
+    low = (text or "").lower()
+    return "thinking" in low or "思考" in text or "reasoning" in low
+
+
+def _has_thinking_params(payload: dict[str, Any]) -> bool:
+    return "thinking" in payload or "reasoning_effort" in payload
+
+
 async def _post_with_thinking_retry(
     client: httpx.AsyncClient,
     url: str,
     headers: dict[str, str],
     payload: dict[str, Any],
+    vendor: str = "",
+    api_format: str = "",
+    model: str = "",
 ) -> httpx.Response:
-    """POST 最小生成探针；端点拒绝 thinking 参数时去参重试一次（ai_client 同款约定）。"""
+    """POST 最小生成探针；端点 400 且请求带思考参数时去参重试一次（ai_client 同款约定）。
+
+    触发不看错误文案措辞（GLM-5.3 实锤：拒「关思考」的报错纯中文，文案匹配会漏判，
+    用户配 GLM 的连接测试全挂在 400——c-thinking-config 定诊）；探针是一次性用户动作，
+    多一次请求换判稳，值。去参时预算同步放大（去参后强制思考模型会把预算花在推理上）。
+    两次都 400 时回更贴切的那份：原始 400 若在说思考参数、重试 400 说了别的真因，
+    回重试的；否则回原始（原始文案更能代表配置的问题）。
+    被拒的首个请求落一行 llm_probe（result=thinking_rejected，评审 P2：c-llm-call-log
+    的「每个出网请求一行」不变量——重试不该制造 llm.log 里的隐身请求）。"""
+    start = time.perf_counter()
     resp = await client.post(url, headers=headers, json=payload)
-    if "thinking" in payload and resp.status_code == 400:
-        body = getattr(resp, "text", "") or ""
-        if "thinking" in body.lower():
-            stripped = {k: v for k, v in payload.items() if k != "thinking"}
-            resp = await client.post(url, headers=headers, json=stripped)
-    return resp
+    if resp.status_code != 400 or not _has_thinking_params(payload):
+        return resp
+    _log_probe(
+        "generation_probe", vendor=vendor, api_format=api_format, url=url,
+        start=start, model=model, status=resp.status_code,
+        result="thinking_rejected", error=_extract_error_detail(resp),
+    )
+    stripped = {
+        k: v for k, v in payload.items() if k not in ("thinking", "reasoning_effort")
+    }
+    if stripped.get("max_tokens", 0) < _PROBE_MAX_TOKENS_THINKING:
+        stripped["max_tokens"] = _PROBE_MAX_TOKENS_THINKING
+    retry = await client.post(url, headers=headers, json=stripped)
+    if retry.status_code == 400 and not _is_thinking_rejection_text(
+        getattr(resp, "text", "") or ""
+    ):
+        return resp
+    return retry
 
 
 def _openai_reply_text(resp: httpx.Response) -> str:

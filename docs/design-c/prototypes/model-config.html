@@ -162,6 +162,9 @@
   .seg button:hover { color: var(--fg); }
   .seg button.on { background: var(--surface); color: var(--fg); box-shadow: 0 1px 2px color-mix(in oklch, var(--fg) 8%, transparent); font-weight: 500; }
   .seg.lock { opacity: 0.45; pointer-events: none; }
+  /* c-thinking-config：弹窗内提示行（组件同 model-config.css .cf-hint） */
+  .cf-hint { margin: 6px 2px 0; font-size: 12px; color: var(--muted); line-height: 1.6; }
+  .cf-hint code { font-family: var(--font-mono); font-size: 11.5px; word-break: break-all; }
 
   /* ─── 配置域页签（c-zhuque-ai-detect 登记：.cfg-tabs/.cfg-tab，激活态沿 seg 口径）─── */
   .cfg-tabs { display: inline-flex; gap: 2px; padding: 3px; background: var(--fg-soft); border-radius: 11px; margin-bottom: 22px; }
@@ -476,11 +479,33 @@
           </div>
         </div>
         <input class="input mono" id="cfBase" placeholder="https://api.openai.com" />
+        <!-- Base URL 案例引导（2026-10-09 用户反馈：非标准接口要给「填到哪一截」的案例） -->
+        <p class="cf-hint" id="cfBaseHintOpenai">填到「域名＋版本段」为止：标准接口如 <code>https://api.deepseek.com/v1</code>，中转站/自建网关如 <code>https://你的中转域名/v1</code>；不要带 <code>/chat/completions</code>，系统自动拼接。</p>
+        <p class="cf-hint" id="cfBaseHintAnthropic" hidden>填到域名即可（系统自动补 <code>/v1</code>，误带 <code>/v1</code> 也会自动剥掉）：标准接口如 <code>https://api.anthropic.com</code>，中转站/自建网关如 <code>https://你的中转域名</code>。</p>
       </div>
       <div class="field">
         <label for="cfKey">API Key</label>
         <input class="input mono" id="cfKey" type="password" placeholder="sk-..." autocomplete="off" />
         <span class="alt" id="cfKeyAlt" hidden></span>
+      </div>
+      <!-- c-thinking-config：思考模式＋强度（每个配置各一套；关闭时强度灰置、值保留） -->
+      <div class="field">
+        <div class="label-row">
+          <label for="cfThinkSeg">思考模式</label>
+          <div class="seg" id="cfThinkSeg" role="group" aria-label="思考模式">
+            <button type="button" data-think="on">开启</button>
+            <button type="button" class="on" data-think="off">关闭</button>
+          </div>
+        </div>
+        <div class="label-row">
+          <label for="cfEffortSeg">思考强度</label>
+          <div class="seg" id="cfEffortSeg" role="group" aria-label="思考强度">
+            <button type="button" class="on" data-effort="low">低 low</button>
+            <button type="button" data-effort="high">高 high</button>
+            <button type="button" data-effort="max">深 max</button>
+          </div>
+        </div>
+        <p class="cf-hint" id="cfThinkHint">开启后模型先思考再作答，更慢、更耗 token；GLM-5.3 系列为强制思考模型，关闭会被端点拒绝。</p>
       </div>
       <div class="field">
         <div class="label-row">
@@ -568,7 +593,7 @@ const STATUS = {
 const CARD_BORDER = { ok: '', untested: '', auth_error: 'b-err', timeout: 'b-warn', network_error: 'b-warn', rate_limited: 'b-muted', unknown: 'b-muted' };
 
 const SEED_CONFIGS = [
-  { id: 'c1', name: '主线 · OpenAI', vendor: 'openai', base_url: 'https://api.openai.com', api_key_masked: 'sk-••••••••••A3f9', status: 'ok', models: ['gpt-4o', 'gpt-4o-mini', 'o3-mini'], affected: 1, tested: '2 小时前' },
+  { id: 'c1', name: '主线 · OpenAI', vendor: 'openai', base_url: 'https://api.openai.com', api_key_masked: 'sk-••••••••••A3f9', status: 'ok', models: ['gpt-4o', 'gpt-4o-mini', 'o3-mini'], thinking_enabled: true, thinking_effort: 'high', affected: 1, tested: '2 小时前' },
   { id: 'c2', name: '备用 · Anthropic', vendor: 'anthropic', base_url: 'https://api.anthropic.com', api_key_masked: 'sk-ant-••••••••9q2L', status: 'auth_error', models: ['claude-sonnet-5'], affected: 1, tested: '昨天' },
   { id: 'c3', name: '深度求索', vendor: 'deepseek', base_url: 'https://api.deepseek.com', api_key_masked: 'sk-••••••••••x1Kp', status: 'untested', models: [], affected: 0, tested: null },
   { id: 'c4', name: '本地 · Ollama', vendor: 'ollama', base_url: 'http://localhost:11434', api_key_masked: '', status: 'ok', models: ['qwen2.5:14b', 'llama3.1:8b'], affected: 1, tested: '1 小时前' },
@@ -718,7 +743,7 @@ const MODEL_SEEDS = {
   ollama: ['llama3:8b'],
   'openai-compat': ['my-model-a', 'my-model-b'],
 };
-const picker = { list: [], candidates: [], note: null, fetching: false, err: null, open: false, picked: false, fp: '', cursor: 0 };
+const picker = { list: [], candidates: [], note: null, fetching: false, err: null, open: false, picked: false, seeded: false, fp: '', cursor: 0 };
 function pickerParams() {
   return selVendor + '|' + $('cfBase').value.trim() + '|' + $('cfKey').value + '|' + selFormat;
 }
@@ -727,7 +752,7 @@ function renderPickerMeta() {
   let tone = '', text = '';
   if (picker.fetching) text = '正在获取模型清单…';
   else if (picker.err) { tone = 'warn'; text = '清单获取失败'; }
-  else if (picker.list.length) { tone = 'ok'; text = `已拉到 ${picker.list.length} 个模型`; }
+  else if (picker.list.length) { tone = 'ok'; text = picker.seeded ? `已存 ${picker.list.length} 个模型` : `已拉到 ${picker.list.length} 个模型`; }
   else if (picker.note) { tone = 'warn'; text = '无模型清单'; }
   el.hidden = !text;
   el.className = 'mp-meta' + (tone ? ' ' + tone : '');
@@ -766,7 +791,8 @@ function autoSelect(models) {
   $('cfModel').value = models[0];
 }
 function fetchModelList(force) {
-  if (editTarget) return;
+  /* 编辑态同口径（c-api-config-edit-model）：raw 轻探针要明文 Key——未重填时被
+     下方 Key 前置条件自然挡住（已存清单已在选择器可选，不阻塞改选） */
   if (!selVendor || !$('cfBase').value.trim()) return;
   if (selVendor !== 'ollama' && !$('cfKey').value.trim()) return;
   const fp = pickerParams();
@@ -778,7 +804,7 @@ function fetchModelList(force) {
     if (selVendor !== 'ollama' && $('cfKey').value.startsWith('bad')) {
       picker.fp = ''; picker.err = '认证失败 (HTTP 401)';
     } else {
-      picker.list = MODEL_SEEDS[selVendor] || []; picker.candidates = []; picker.note = null;
+      picker.list = MODEL_SEEDS[selVendor] || []; picker.candidates = []; picker.note = null; picker.seeded = false;
       autoSelect(picker.list);
     }
     renderPickerMeta(); if (picker.open) renderPickerPanel();
@@ -786,7 +812,7 @@ function fetchModelList(force) {
 }
 /* 供应商/格式切换：旧端点清单作废（含指纹），Key 已填或免 Key 即重拉 */
 function invalidatePicker() {
-  picker.list = []; picker.candidates = []; picker.note = null; picker.err = null; picker.fp = '';
+  picker.list = []; picker.candidates = []; picker.note = null; picker.err = null; picker.fp = ''; picker.seeded = false;
   renderPickerMeta(); if (picker.open) renderPickerPanel();
 }
 function resetPicker() {
@@ -817,8 +843,8 @@ $('cfModelPanel').addEventListener('click', e => {
   if (b) pickModel(b.dataset.pick);
 });
 $('cfModelRetry').addEventListener('click', () => fetchModelList(true));
-$('cfKey').addEventListener('blur', () => { if (!editTarget && selVendor !== 'ollama' && $('cfKey').value.trim()) fetchModelList(); });
-$('cfBase').addEventListener('blur', () => { if (!editTarget && $('cfBase').value.trim() && (selVendor === 'ollama' || $('cfKey').value.trim())) fetchModelList(); });
+$('cfKey').addEventListener('blur', () => { if (selVendor !== 'ollama' && $('cfKey').value.trim()) fetchModelList(); });
+$('cfBase').addEventListener('blur', () => { if ($('cfBase').value.trim() && (selVendor === 'ollama' || $('cfKey').value.trim())) fetchModelList(); });
 document.addEventListener('click', e => {
   if (picker.open && !$('cfModelWrap').contains(e.target)) { picker.open = false; renderPickerPanel(); }
 });
@@ -841,6 +867,9 @@ function syncFormatUI() {
     b.disabled = !!lock && b.dataset.fmt !== lock;
   });
   $('cfBase').placeholder = selFormat === 'anthropic' ? 'https://api.anthropic.com' : 'https://api.openai.com';
+  // Base URL 案例引导随格式切换（ollama 有自己的本地服务说明，两案都不显）
+  $('cfBaseHintOpenai').hidden = selVendor === 'ollama' || selFormat !== 'openai';
+  $('cfBaseHintAnthropic').hidden = selVendor === 'ollama' || selFormat !== 'anthropic';
 }
 function syncVendorUI() {
   document.querySelectorAll('#cfVendors .vbtn').forEach(b => b.classList.toggle('on', b.dataset.v === selVendor));
@@ -869,10 +898,25 @@ function openForm(edit) {
   $('cfBase').value = edit ? edit.base_url : '';
   $('cfKey').value = '';
   lastPreset = null;
-  $('cfModel').value = '';
+  // 模型名称＝创建/编辑表单一级字段（c-api-config-edit-model）：编辑态初值＝已存
+  // 模型列表首项、清单种子＝已存列表（meta「已存 N 个模型」）；已存初值视同手选，
+  // 不被拉取/测试的「清单首项」默认选中覆盖；编辑态不施加供应商预填
+  const seed = edit ? (edit.models || []) : [];
+  $('cfModel').value = seed[0] || '';
+  $('cfModel').placeholder = edit
+    ? '留空则保留当前模型；可从已存清单改选或手动输入'
+    : '填 Key 后自动获取清单；也可直接输入模型 id';
   resetPicker(); // 清单/候选/拉取态/手选标记随表单重置
-  // 模型名称＝创建表单一级字段；编辑态沿用已存值，不施加预填
-  $('cfModel').closest('.field').hidden = !!edit;
+  if (edit && seed.length) {
+    picker.list = seed.slice();
+    picker.seeded = true;
+    picker.picked = true; // 已存初值视同手选
+    renderPickerMeta();
+  }
+  // 思考参数随表单播种/重置（c-thinking-config）：编辑态回读已存值
+  selThinking = !!(edit && edit.thinking_enabled);
+  selEffort = (edit && edit.thinking_effort) || 'low';
+  syncThinkingUI();
   $('cfgError').hidden = true;
   $('cfTest').hidden = true;
   $('cfSave').textContent = edit ? '保存' : '保存并测试连接';
@@ -922,6 +966,34 @@ document.querySelector('#fmtSeg').addEventListener('click', e => {
   if ($('cfKey').value.trim() || selVendor === 'ollama') fetchModelList();
 });
 
+// ── c-thinking-config：思考模式＋强度（关闭时强度灰置、值保留；提示行随开关显隐） ──
+let selThinking = false;
+let selEffort = 'low';
+function syncThinkingUI() {
+  document.querySelectorAll('#cfThinkSeg button').forEach(b =>
+    b.classList.toggle('on', (b.dataset.think === 'on') === selThinking));
+  const seg = $('cfEffortSeg');
+  seg.classList.toggle('lock', !selThinking);
+  seg.querySelectorAll('button').forEach(b => {
+    b.disabled = !selThinking;
+    b.classList.toggle('on', b.dataset.effort === selEffort);
+  });
+  $('cfThinkHint').hidden = !selThinking;
+}
+document.querySelector('#cfThinkSeg').addEventListener('click', e => {
+  const b = e.target.closest('button');
+  if (!b) return;
+  selThinking = b.dataset.think === 'on';
+  syncThinkingUI();
+});
+document.querySelector('#cfEffortSeg').addEventListener('click', e => {
+  const b = e.target.closest('button');
+  if (!b || b.disabled) return;
+  selEffort = b.dataset.effort;
+  syncThinkingUI();
+});
+syncThinkingUI();
+
 function readForm() {
   return {
     name: $('cfName').value.trim(),
@@ -930,6 +1002,8 @@ function readForm() {
     model: $('cfModel').value.trim(),
     api_key: $('cfKey').value,
     api_format: selFormat,
+    thinking_enabled: selThinking,
+    thinking_effort: selEffort,
   };
 }
 function validateForm() {
@@ -942,7 +1016,8 @@ function validateForm() {
 }
 function simulateTest(f) {
   if (f.vendor === 'ollama') return { ok: true };
-  if (!f.api_key) return { ok: false, error: '请填写 API Key' };
+  // 编辑态未重敲 Key＝用已存密钥测（与实现同口径），不误报「请填写 API Key」
+  if (!f.api_key && !editTarget) return { ok: false, error: '请填写 API Key' };
   if (f.api_key.startsWith('bad')) return { ok: false, error: '401 · 认证失败，请检查 Key' };
   if (!/^https?:\/\//.test(f.base_url)) return { ok: false, error: 'Base URL 需以 http(s):// 开头' };
   return { ok: true };
@@ -979,6 +1054,13 @@ $('cfSave').addEventListener('click', () => {
   const base = { vendor: f.vendor, base_url: f.base_url };
   if (editTarget) {
     Object.assign(editTarget, base);
+    // 改选模型置首（其余已存项保序，截 100 对齐手动路径上限）；留空沿用已存列表
+    const picked = (f.model || '').trim();
+    if (picked) {
+      editTarget.models = [picked].concat((editTarget.models || []).filter(m => m !== picked)).slice(0, 100);
+    }
+    editTarget.thinking_enabled = f.thinking_enabled;
+    editTarget.thinking_effort = f.thinking_effort;
     toast(`已保存「${editTarget.name}」`);
   } else {
     const cfg = {
@@ -989,6 +1071,8 @@ $('cfSave').addEventListener('click', () => {
       api_key_masked: maskKey(f.api_key),
       status: 'untested',
       models: f.model ? [f.model] : [],
+      thinking_enabled: f.thinking_enabled,
+      thinking_effort: f.thinking_effort,
       affected: 0,
       tested: null,
     };

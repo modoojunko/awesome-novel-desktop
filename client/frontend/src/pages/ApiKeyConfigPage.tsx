@@ -254,13 +254,19 @@ export default function ApiKeyConfigPage() {
         onCancel={closeForm}
         onTest={async (data) =>
           editConfig && !data.api_key.trim()
-            ? testConfig(editConfig.id, data.model.trim() || undefined) // 未重敲 Key：用已存密钥测；表单改选模型作探针覆盖
+            ? testConfig(editConfig.id, data.model.trim() || undefined, {
+                // 未重敲 Key：用已存密钥测；模型与思考参数按表单当前值覆盖（c-thinking-config）
+                thinking_enabled: data.thinking_enabled,
+                thinking_effort: data.thinking_effort,
+              })
             : testRawConfig({
                 vendor_id: data.vendor_id,
                 base_url: data.base_url,
                 api_key: data.api_key,
                 api_format: data.api_format,
                 model: data.model || null,
+                thinking_enabled: data.thinking_enabled,
+                thinking_effort: data.thinking_effort,
               })
         }
         onFetchModels={async (data) => fetchRawModels(data)}

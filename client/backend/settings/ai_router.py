@@ -121,8 +121,13 @@ async def _judge_chat(client, **kwargs):
     不能被重试覆盖（旧实现只记最后一次，用量偏低）。回填走 finally：
     任何退出路径（成功 / 空文本重试耗尽 / 超时或其他异常）都把累计
     用量写回调用方，失败记账据此落库。
+
+    判定/短答复类恒关思考（volume-plan-ai spec 钉住的路径）：思考型模型会把预算
+    花在推理上、JSON 判定只回思考不回文本。配置级思考开关（c-thinking-config）
+    不改变这一类调用的口径——显式传参压过配置，端点拒参时 ai_client 去参重试兜底。
     """
     caller_usage = kwargs.pop("usage", None)
+    kwargs.setdefault("thinking", {"type": "disabled"})
     total_in = 0
     total_out = 0
     last_err: Exception | None = None
