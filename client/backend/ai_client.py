@@ -164,6 +164,8 @@ class AIClient:
         timeout: httpx.Timeout | None = None,
         max_retries: int = 1,
         vendor: str = "",
+        thinking_enabled: bool = False,
+        thinking_effort: str = "low",
     ):
         self._provider = "anthropic"  # default
         self._client: Any | None = None
@@ -172,6 +174,10 @@ class AIClient:
         # 留痕行身份字段（c-llm-call-log）：ApiConfig.vendor，工厂层传入；
         # `__new__` 直装的测试实例可无此属性，_log_call 侧 getattr 兜底
         self._vendor = vendor or ""
+        # 思考参数（c-thinking-config）：ApiConfig 落库的两字段随客户端下发；
+        # 未传（旧兜底路径）＝关思考，与既有行为等价
+        self._thinking_enabled = bool(thinking_enabled)
+        self._thinking_effort = thinking_effort or "low"
         self._init_client(api_key, base_url, api_format, timeout, max_retries)
 
     def _init_client(
@@ -286,19 +292,67 @@ class AIClient:
             self._temp_supported = cached
         return cached
 
+    def _thinking_params(self) -> dict[str, Any]:
+        """按配置构造思考参数（c-thinking-config，原「默认关思考」语义的推广）。
+
+        开＝thinking:{type:enabled}＋reasoning_effort（GLM-5.3 契约顶层参数）；
+        关（默认）＝thinking:{type:disabled}，与既有行为等价。端点打回过思考参数的
+        base（进程级记忆）不再主动发——重复发也只会再被打回、白白翻倍延迟。"""
+        if (self._base_url or "") in _THINKING_UNSUPPORTED_BASES:
+            return {}
+        # getattr 兜底：`__new__` 直装的测试实例可无此属性（与 _vendor 同款约定）
+        if getattr(self, "_thinking_enabled", False):
+            return {
+                "thinking": {"type": "enabled"},
+                "reasoning_effort": getattr(self, "_thinking_effort", "low") or "low",
+            }
+        return {"thinking": dict(_THINKING_DISABLED)}
+
     def _with_thinking_disabled(self, kwargs: dict) -> dict:
-        """默认关闭思考（判定类短答复不划算全预算在推理上）。"""
-        base = self._base_url or ""
-        if base not in _THINKING_UNSUPPORTED_BASES:
-            kwargs.setdefault("thinking", dict(_THINKING_DISABLED))
+        """anthropic 直参路径的思考参数落位：thinking 走形参，reasoning_effort
+        SDK 无此形参、随 extra_body 透传（GLM anthropic 兼容端点认；端点不认时
+        去参重试兜底）。调用方显式传的 thinking 最优先——此时配置强度不搭车。"""
+        params = self._thinking_params()
+        if "thinking" in kwargs:
+            params["thinking"] = kwargs.pop("thinking")
+            params.pop("reasoning_effort", None)
+        effort = params.pop("reasoning_effort", None)
+        if "thinking" in params:
+            kwargs.setdefault("thinking", params["thinking"])
+        if effort:
+            extra = dict(kwargs.pop("extra_body", None) or {})
+            extra.setdefault("reasoning_effort", effort)
+            kwargs["extra_body"] = extra
         return kwargs
+
+    def _openai_thinking_extra(self, kwargs: dict) -> dict[str, Any]:
+        """openai 路径的思考参数落位（extra_body）。调用方显式传的 thinking
+        最优先——此时配置强度不搭车（判定类恒关思考，带 effort 自相矛盾）。"""
+        extra = self._thinking_params()
+        if "thinking" in kwargs:
+            extra["thinking"] = kwargs.pop("thinking")
+            extra.pop("reasoning_effort", None)
+        return extra
+
+    def _strip_thinking_from(self, target: dict) -> None:
+        """去参重试：thinking/reasoning_effort 全部摘除。"""
+        target.pop("thinking", None)
+        target.pop("reasoning_effort", None)
 
     def _remember_thinking_unsupported(self) -> None:
         if self._base_url:
             _THINKING_UNSUPPORTED_BASES.add(self._base_url)
 
     def _is_thinking_rejection(self, exc: Exception) -> bool:
-        return "thinking" in str(exc).lower()
+        """端点在打回思考参数（去参重试的判据）。
+
+        判据含中文「思考」与 reasoning/effort：GLM-5.3 拒关思考的报错是纯中文
+        （「该模型始终思考，不支持关闭思考；请使用 low、high 或 max」），只按
+        英文 thinking 判会漏——正文生成曾因此对 GLM-5.3 全挂（c-thinking-config）。"""
+        low = str(exc).lower()
+        return (
+            "thinking" in low or "思考" in str(exc) or "reasoning" in low or "effort" in low
+        )
 
     def _anthropic_kwargs(self, kwargs: dict) -> dict:
         """把 Anthropic 侧不支持的入参落到 extra_body（跨 SDK 版本兼容）。"""
@@ -350,12 +404,11 @@ class AIClient:
                 openai_messages.append({"role": "system", "content": system})
             for m in messages:
                 openai_messages.append({"role": m["role"], "content": m["content"]})
-            extra = {"thinking": {"type": "disabled"}}
-            if "thinking" in kwargs:
-                extra["thinking"] = kwargs.pop("thinking")
+            extra = self._openai_thinking_extra(kwargs)
             # json_mode 分层归属（D12）：业务层只传语义参数，客户端层按 api_format 落地
             if kwargs.pop("json_mode", False):
                 kwargs["response_format"] = {"type": "json_object"}
+            attempt = 1
             try:
                 response = await self._guarded(
                     self._client.chat.completions.create(
@@ -366,9 +419,27 @@ class AIClient:
                         **kwargs,
                     )
                 )
-            except Exception as e:
-                self._log_call(operation, model, start, error=e)
-                raise
+            except Exception as e:  # noqa: BLE001 — 端点不认思考参数时去掉再试一次
+                if isinstance(e, AITimeoutError):
+                    self._log_call(operation, model, start, error=e, attempt=attempt)
+                    raise  # 网络层失败不做 thinking 重试
+                if extra and self._is_thinking_rejection(e):
+                    self._remember_thinking_unsupported()
+                    self._log_call(operation, model, start, error=e, attempt=attempt)
+                    self._strip_thinking_from(extra)
+                    attempt = 2
+                    response = await self._guarded(
+                        self._client.chat.completions.create(
+                            model=model,
+                            messages=openai_messages,
+                            max_tokens=max_tokens,
+                            extra_body=extra,
+                            **kwargs,
+                        )
+                    )
+                else:
+                    self._log_call(operation, model, start, error=e, attempt=attempt)
+                    raise
             if usage is not None:
                 u = getattr(response, "usage", None)
                 # OpenAI 的 prompt_tokens **已含**缓存命中部分（details.cached_tokens
@@ -390,6 +461,7 @@ class AIClient:
                 operation, model, start,
                 tokens_in=(usage or {}).get("tokens_in", 0),
                 tokens_out=(usage or {}).get("tokens_out", 0),
+                attempt=attempt,
             )
             return choices[0].message.content or ""
         else:
@@ -415,6 +487,9 @@ class AIClient:
                     self._remember_thinking_unsupported()
                     self._log_call(operation, model, start, error=e, attempt=attempt)
                     kwargs.pop("thinking", None)
+                    extra_body = kwargs.get("extra_body")
+                    if isinstance(extra_body, dict):
+                        self._strip_thinking_from(extra_body)  # reasoning_effort 一并去参
                     attempt = 2
                     response = await self._guarded(
                         self._client.messages.create(
@@ -486,19 +561,34 @@ class AIClient:
                 openai_messages.append({"role": "system", "content": system})
             for m in messages:
                 openai_messages.append({"role": m["role"], "content": m["content"]})
-            extra = {"thinking": {"type": "disabled"}}
-            if "thinking" in kwargs:
-                extra["thinking"] = kwargs.pop("thinking")
+            extra = self._openai_thinking_extra(kwargs)
             try:
-                stream = await self._client.chat.completions.create(
-                    model=model,
-                    messages=openai_messages,
-                    max_tokens=max_tokens,
-                    stream=True,
-                    extra_body=extra,
-                    timeout=_to_sdk_timeout("openai", _stream_timeout()),
-                    **kwargs,
-                )
+                try:
+                    stream = await self._client.chat.completions.create(
+                        model=model,
+                        messages=openai_messages,
+                        max_tokens=max_tokens,
+                        stream=True,
+                        extra_body=extra,
+                        timeout=_to_sdk_timeout("openai", _stream_timeout()),
+                        **kwargs,
+                    )
+                except Exception as e:  # noqa: BLE001 — 端点不认思考参数时去参重开一次流（开流前）
+                    # 思考参数被拒只会发生在开流（请求体校验），流中途不会冒这类错，
+                    # 故此处重开不会重复产出
+                    if not extra or not self._is_thinking_rejection(e):
+                        raise
+                    self._remember_thinking_unsupported()
+                    self._strip_thinking_from(extra)
+                    stream = await self._client.chat.completions.create(
+                        model=model,
+                        messages=openai_messages,
+                        max_tokens=max_tokens,
+                        stream=True,
+                        extra_body=extra,
+                        timeout=_to_sdk_timeout("openai", _stream_timeout()),
+                        **kwargs,
+                    )
                 done_out, done_in = 0, 0
                 async for chunk in stream:
                     # 兼容供应商流末会发 choices=[] 的 usage-only 块——裸取 [0] 是
@@ -523,32 +613,51 @@ class AIClient:
             kwargs = self._anthropic_kwargs(kwargs)
             kwargs = self._with_thinking_disabled(kwargs)
             try:
-                async with self._client.messages.stream(
-                    model=model,
-                    system=system,
-                    messages=messages,
-                    max_tokens=max_tokens,
-                    timeout=_to_sdk_timeout("anthropic", _stream_timeout()),
-                    **kwargs,
-                ) as stream:
-                    tokens_in = 0
-                    async for event in stream:
-                        if event.type == "message_start":
-                            usage = getattr(event.message, "usage", None)
-                            tokens_in = getattr(usage, "input_tokens", 0) or 0
-                        elif event.type == "content_block_delta":
-                            delta_type = getattr(event.delta, "type", "")
-                            if delta_type == "text_delta":
-                                yield StreamEvent(text=event.delta.text)
-                        elif event.type == "message_stop":
-                            tokens = 0
-                            if hasattr(event, "usage") and event.usage:
-                                tokens = event.usage.output_tokens
-                            self._log_call(
-                                operation, model, start,
-                                tokens_in=tokens_in, tokens_out=tokens,
-                            )
-                            yield StreamEvent(is_done=True, tokens=tokens, tokens_in=tokens_in)
+                # 思考参数被拒只会发生在开流（请求体校验），流中途不会冒这类错——
+                # 去参重开一次流不会重复产出（c-thinking-config；此前此路径无重试，
+                # 开思考后 anthropic 兼容端点拒缺 budget_tokens 会硬失败）
+                for attempt in (1, 2):
+                    try:
+                        async with self._client.messages.stream(
+                            model=model,
+                            system=system,
+                            messages=messages,
+                            max_tokens=max_tokens,
+                            timeout=_to_sdk_timeout("anthropic", _stream_timeout()),
+                            **kwargs,
+                        ) as stream:
+                            tokens_in = 0
+                            async for event in stream:
+                                if event.type == "message_start":
+                                    usage = getattr(event.message, "usage", None)
+                                    tokens_in = getattr(usage, "input_tokens", 0) or 0
+                                elif event.type == "content_block_delta":
+                                    delta_type = getattr(event.delta, "type", "")
+                                    if delta_type == "text_delta":
+                                        yield StreamEvent(text=event.delta.text)
+                                elif event.type == "message_stop":
+                                    tokens = 0
+                                    if hasattr(event, "usage") and event.usage:
+                                        tokens = event.usage.output_tokens
+                                    self._log_call(
+                                        operation, model, start,
+                                        tokens_in=tokens_in, tokens_out=tokens,
+                                    )
+                                    yield StreamEvent(is_done=True, tokens=tokens, tokens_in=tokens_in)
+                        break
+                    except Exception as e:  # noqa: BLE001 — 端点不认思考参数时去参重开一次
+                        if (
+                            attempt == 1
+                            and "thinking" in kwargs
+                            and self._is_thinking_rejection(e)
+                        ):
+                            self._remember_thinking_unsupported()
+                            kwargs.pop("thinking", None)
+                            extra_body = kwargs.get("extra_body")
+                            if isinstance(extra_body, dict):
+                                self._strip_thinking_from(extra_body)
+                            continue
+                        raise
             except Exception as e:  # noqa: BLE001 — 归一目标外的异常原样重抛（_raise_normalized 尾行 raise）
                 self._log_call(operation, model, start, error=e)
                 self._raise_normalized(e)
@@ -600,6 +709,8 @@ async def get_ai_client_for_user(user_id: str | None = None) -> AIClient:
                         model=model or "",
                         api_format=getattr(cfg, "api_format", None),
                         vendor=getattr(cfg, "vendor", "") or "",
+                        thinking_enabled=getattr(cfg, "thinking_enabled", False) or False,
+                        thinking_effort=getattr(cfg, "thinking_effort", None) or "low",
                     )
 
                 # Fallback: old User.api_key (migration period)
@@ -641,6 +752,8 @@ async def get_ai_client_for_user(user_id: str | None = None) -> AIClient:
                         model=model,
                         api_format=getattr(cfg, "api_format", None),
                         vendor=getattr(cfg, "vendor", "") or "",
+                        thinking_enabled=getattr(cfg, "thinking_enabled", False) or False,
+                        thinking_effort=getattr(cfg, "thinking_effort", None) or "low",
                     )
 
                 # Fallback: any user with old api_key
@@ -744,6 +857,8 @@ def _client_from_config(cfg: ApiConfig, model: str, plain_key: str) -> AIClient:
         model=model,
         api_format=getattr(cfg, "api_format", None),
         vendor=getattr(cfg, "vendor", "") or "",
+        thinking_enabled=getattr(cfg, "thinking_enabled", False) or False,
+        thinking_effort=getattr(cfg, "thinking_effort", None) or "low",
     )
 
 

@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import type { ApiConfig, ApiFormat } from "../../types/api-config";
+import type { ApiConfig, ApiFormat, ThinkingEffort } from "../../types/api-config";
 import Modal from "../design/Modal";
 import { Ico, P } from "../icons";
 import { FORMAT_PLACEHOLDER, VENDOR_FORMAT_LOCK, VENDORS, VENDOR_LABELS, VendorGlyph } from "./ProviderIcon";
@@ -42,7 +42,16 @@ export interface ApiConfigFormData {
   model: string;
   api_key: string;
   api_format: ApiFormat;
+  thinking_enabled: boolean;
+  thinking_effort: ThinkingEffort;
 }
+
+/** 思考强度档位（c-thinking-config 拍板）：文案照 GLM 文档（low 轻度/high 增强/max 深度）。 */
+const THINKING_EFFORTS: Array<{ value: ThinkingEffort; label: string }> = [
+  { value: "low", label: "低 low" },
+  { value: "high", label: "高 high" },
+  { value: "max", label: "深 max" },
+];
 
 /** 添加/编辑配置弹窗（model-config.html modalConfig 原样：520px（ADJUSTMENTS 登记加宽）、vgrid 供应商格、编辑态 vfix） */
 export function ApiConfigForm({ open, config, onSubmit, onCancel, onTest, onFetchModels }: ApiConfigFormProps) {
@@ -50,6 +59,9 @@ export function ApiConfigForm({ open, config, onSubmit, onCancel, onTest, onFetc
   const [name, setName] = useState(config?.name || "");
   const [vendorId, setVendorId] = useState(config?.vendor || "");
   const [apiFormat, setApiFormat] = useState<ApiFormat>(config?.api_format || "openai");
+  // 思考参数（c-thinking-config）：默认关/low＝现状语义；编辑态回读已存值
+  const [thinkingEnabled, setThinkingEnabled] = useState(config?.thinking_enabled ?? false);
+  const [thinkingEffort, setThinkingEffort] = useState<ThinkingEffort>(config?.thinking_effort ?? "low");
   const [baseUrl, setBaseUrl] = useState(config?.base_url || "");
   // 编辑态模型选择位（修复「编辑页没有模型可选、测试连接却要用模型」）：
   // 初值＝已存 models 首项（＝该配置已选模型/探针优先模型），清单种子＝已存 models
@@ -100,6 +112,8 @@ export function ApiConfigForm({ open, config, onSubmit, onCancel, onTest, onFetc
     setName(config?.name || "");
     setVendorId(config?.vendor || "");
     setApiFormat(config?.api_format || "openai");
+    setThinkingEnabled(config?.thinking_enabled ?? false);
+    setThinkingEffort(config?.thinking_effort ?? "low");
     setBaseUrl(config?.base_url || "");
     setModel(config?.models?.[0] ?? "");
     setApiKey("");
@@ -277,6 +291,8 @@ export function ApiConfigForm({ open, config, onSubmit, onCancel, onTest, onFetc
         model: modelName.trim(),
         api_key: apiKey,
         api_format: apiFormat,
+        thinking_enabled: thinkingEnabled,
+        thinking_effort: thinkingEffort,
       });
       const noModels = r.ok && (r.models ?? []).length === 0 && !!r.note;
       setTestResult({
@@ -308,7 +324,16 @@ export function ApiConfigForm({ open, config, onSubmit, onCancel, onTest, onFetc
     if (err) return;
     setSaving(true);
     try {
-      await onSubmit({ name: name.trim(), vendor_id: vendorId, base_url: baseUrl.trim(), model: modelName.trim(), api_key: apiKey, api_format: apiFormat });
+      await onSubmit({
+        name: name.trim(),
+        vendor_id: vendorId,
+        base_url: baseUrl.trim(),
+        model: modelName.trim(),
+        api_key: apiKey,
+        api_format: apiFormat,
+        thinking_enabled: thinkingEnabled,
+        thinking_effort: thinkingEffort,
+      });
     } catch (e) {
       setError(e instanceof Error ? e.message : "保存失败");
     } finally {
@@ -557,6 +582,55 @@ export function ApiConfigForm({ open, config, onSubmit, onCancel, onTest, onFetc
           />
           {isEdit && config?.api_key_masked && (
             <span className="alt">当前密钥：{config.api_key_masked}</span>
+          )}
+        </div>
+        <div className="field">
+          {/* 思考参数（c-thinking-config）：开＝thinking:enabled＋reasoning_effort；关＝disabled。
+              强度档位在关闭时灰置（值保留，重开即还原）。 */}
+          <div className="label-row">
+            <label>思考模式</label>
+            <div className="seg" role="group" aria-label="思考模式">
+              <button
+                type="button"
+                className={thinkingEnabled ? "on" : ""}
+                aria-pressed={thinkingEnabled}
+                disabled={saving}
+                onClick={() => setThinkingEnabled(true)}
+              >
+                开启
+              </button>
+              <button
+                type="button"
+                className={!thinkingEnabled ? "on" : ""}
+                aria-pressed={!thinkingEnabled}
+                disabled={saving}
+                onClick={() => setThinkingEnabled(false)}
+              >
+                关闭
+              </button>
+            </div>
+          </div>
+          <div className="label-row">
+            <label>思考强度</label>
+            <div className={"seg" + (!thinkingEnabled ? " lock" : "")} role="group" aria-label="思考强度">
+              {THINKING_EFFORTS.map((e) => (
+                <button
+                  key={e.value}
+                  type="button"
+                  className={thinkingEffort === e.value ? "on" : ""}
+                  aria-pressed={thinkingEffort === e.value}
+                  disabled={saving || !thinkingEnabled}
+                  onClick={() => setThinkingEffort(e.value)}
+                >
+                  {e.label}
+                </button>
+              ))}
+            </div>
+          </div>
+          {thinkingEnabled && (
+            <p className="cf-hint">
+              开启后模型先思考再作答，更慢、更耗 token；GLM-5.3 系列为强制思考模型，关闭会被端点拒绝。
+            </p>
           )}
         </div>
         <div className="field">

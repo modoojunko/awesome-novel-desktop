@@ -106,6 +106,8 @@ async def create_api_config(
     vendor_override: str | None = None,
     api_format: str | None = None,
     models: list[str] | None = None,
+    thinking_enabled: bool = False,
+    thinking_effort: str = "low",
 ) -> dict[str, Any]:
     """Create a new ApiConfig. Returns the created config as a dict."""
     # Check name uniqueness（软删占名自动让位，见 helper）
@@ -134,6 +136,8 @@ async def create_api_config(
         vendor_display_name=resolved_display_name,
         vendor_override=vendor_override,
         api_format=resolved_format,
+        thinking_enabled=thinking_enabled,
+        thinking_effort=thinking_effort or "low",
         api_key=encrypt_api_key(api_key),
         base_url=base_url,
         status="active",
@@ -195,13 +199,16 @@ async def test_api_config(
         }
 
     plain_key = decrypt_api_key(config.api_key)
-    # 探针优先＝调用方覆盖（表单改选）> 配置已选模型（models 首项；c-api-config-vendor-defaults 预填即它）
+    # 探针优先＝调用方覆盖（表单改选）> 配置已选模型（models 首项；c-api-config-vendor-defaults 预填即它）；
+    # 思考参数按配置下发（c-thinking-config）——测试连接与生成同判据
     outcome = await _test_connection(
         vendor_id=config.vendor,
         api_key=plain_key,
         base_url=config.base_url,
         api_format=getattr(config, "api_format", None) or "openai",
         preferred_model=(preferred_model or "").strip() or _first_model(config.models),
+        thinking_enabled=getattr(config, "thinking_enabled", False) or False,
+        thinking_effort=getattr(config, "thinking_effort", None) or "low",
     )
 
     # Persist results
@@ -256,7 +263,10 @@ async def update_api_config(
     old_api_format = config.api_format
     if "api_key" in updates:
         updates["api_key"] = encrypt_api_key(updates["api_key"])
-    for field in ("name", "api_key", "vendor_override", "models", "models_updated_at", "api_format"):
+    for field in (
+        "name", "api_key", "vendor_override", "models", "models_updated_at",
+        "api_format", "thinking_enabled", "thinking_effort",
+    ):
         if field in updates:
             setattr(config, field, updates[field])
 
@@ -892,6 +902,8 @@ def _config_to_dict(config: ApiConfig) -> dict[str, Any]:
         "vendor_display_name": config.vendor_display_name,
         "vendor_override": config.vendor_override,
         "api_format": getattr(config, "api_format", None) or "openai",
+        "thinking_enabled": bool(getattr(config, "thinking_enabled", False)),
+        "thinking_effort": getattr(config, "thinking_effort", None) or "low",
         "base_url": config.base_url,
         "api_key": mask_api_key(plain_key),
         "api_key_masked": mask_api_key(plain_key),

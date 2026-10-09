@@ -65,6 +65,8 @@ describe("ApiConfigForm 新建态", () => {
       model: "deepseek-v4-pro",
       api_key: "sk-1",
       api_format: "openai",
+      thinking_enabled: false,
+      thinking_effort: "low",
     });
   });
 
@@ -129,6 +131,8 @@ describe("ApiConfigForm 新建态", () => {
       model: "",
       api_key: "",
       api_format: "openai",
+      thinking_enabled: false,
+      thinking_effort: "low",
     });
   });
 
@@ -961,5 +965,51 @@ describe("ApiConfigForm 模型选择器覆盖补齐（CI 全局 100% 覆盖率�
     expect(await screen.findByText(/探针被拒/)).toBeTruthy();
     expect(await screen.findByText("已拉到 2 个模型")).toBeTruthy(); // 失败信封清单照常刷新
     expect(input().value).toBe("m-bad"); // 不自动改选（手填值保留），用户可从列表改选
+  });
+});
+
+describe("ApiConfigForm 思考参数（c-thinking-config）", () => {
+  it("默认关/low；开→选强度→提交负载携带；关闭时强度灰置（值保留）", async () => {
+    const onSubmit = vi.fn(async (_data: ApiConfigFormData) => {});
+    render(<ApiConfigForm open onSubmit={onSubmit} onCancel={vi.fn()} />);
+    // 默认：关＋low（「低 low」高亮且强度 seg 未锁）
+    expect(screen.getByText("低 low").className).toContain("on");
+    expect(screen.getByText("关闭").className).toContain("on");
+    // 开启 → 强度可选，选「深 max」
+    fireEvent.click(screen.getByText("开启"));
+    expect(screen.getByText("开启").className).toContain("on");
+    const maxBtn = () => screen.getByText("深 max") as HTMLButtonElement;
+    expect(maxBtn().disabled).toBe(false);
+    fireEvent.click(maxBtn());
+    expect(maxBtn().className).toContain("on");
+    // 提示行只在开启时出现
+    expect(screen.getByText(/强制思考模型/)).toBeTruthy();
+    // 关闭 → 强度灰置（disabled）但保留已选值
+    fireEvent.click(screen.getByText("关闭"));
+    expect(maxBtn().disabled).toBe(true);
+    fireEvent.click(screen.getByText("开启"));
+    expect(maxBtn().className).toContain("on"); // 值保留，重开即还原
+
+    setField("cfName", "思考");
+    fireEvent.click(screen.getByText("DeepSeek"));
+    setField("cfKey", "sk-1");
+    fireEvent.submit(document.getElementById("api-config-form")!);
+    await waitFor(() => expect(onSubmit).toHaveBeenCalledTimes(1));
+    expect(onSubmit).toHaveBeenCalledWith(
+      expect.objectContaining({ thinking_enabled: true, thinking_effort: "max" }),
+    );
+  });
+
+  it("编辑态回读已存思考值；强度 seg 锁定时不可点", () => {
+    render(
+      <ApiConfigForm
+        open
+        config={editCfg({ thinking_enabled: true, thinking_effort: "high" })}
+        onSubmit={vi.fn(async () => {})}
+        onCancel={vi.fn()}
+      />,
+    );
+    expect(screen.getByText("开启").className).toContain("on");
+    expect(screen.getByText("高 high").className).toContain("on");
   });
 });

@@ -349,6 +349,50 @@ class TestApiKeyCRUD:
         assert resp.status_code == 201, f"Create failed: {resp.text}"
         assert resp.json()["models"] == ["deepseek-v4-pro", "deepseek-v4-flash"]
 
+    def test_create_config_thinking_fields_roundtrip(self, client):
+        """思考参数落库＋回读（c-thinking-config）：缺省＝关/low；创建携带即存；PUT 可改。"""
+        resp = client.post(
+            "/api/v1/api-configs",
+            json={
+                "name": "GLM 思考",
+                "vendor_id": "glm",
+                "base_url": "https://open.bigmodel.cn/api/paas/v4",
+                "api_key": _test_api_key("glm-think"),
+                "thinking_enabled": True,
+                "thinking_effort": "high",
+            },
+        )
+        assert resp.status_code == 201, f"Create failed: {resp.text}"
+        data = resp.json()
+        assert data["thinking_enabled"] is True
+        assert data["thinking_effort"] == "high"
+
+        cfg_id = data["id"]
+        resp = client.put(
+            f"/api/v1/api-configs/{cfg_id}",
+            json={"thinking_enabled": False, "thinking_effort": "max"},
+        )
+        assert resp.status_code == 200, f"Update failed: {resp.text}"
+        data = resp.json()
+        assert data["thinking_enabled"] is False
+        assert data["thinking_effort"] == "max"
+
+    def test_create_config_thinking_defaults_off_low(self, client):
+        """不传思考参数（旧前端）＝关/low——与既有「默认关思考」行为等价。"""
+        resp = client.post(
+            "/api/v1/api-configs",
+            json={
+                "name": "默认思考态",
+                "vendor_id": "glm",
+                "base_url": "https://open.bigmodel.cn/api/paas/v4",
+                "api_key": _test_api_key("glm-default"),
+            },
+        )
+        assert resp.status_code == 201
+        data = resp.json()
+        assert data["thinking_enabled"] is False
+        assert data["thinking_effort"] == "low"
+
     def test_create_config_without_models_defaults_empty(self, client):
         resp = client.post(
             "/api/v1/api-configs",

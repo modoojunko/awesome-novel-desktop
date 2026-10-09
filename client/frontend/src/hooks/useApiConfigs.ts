@@ -1,7 +1,7 @@
 // 模型配置域数据源（c-fetch-unify 收编）：原 9 处手写 fetch + 自拼 authHeaders
 // 全部迁回中心栈 request()——401 踢出／503 全局提示／member_required 广播不再缺位。
 import { useCallback, useEffect, useState } from "react";
-import type { ApiConfig, FetchModelsResult } from "../types/api-config";
+import type { ApiConfig, FetchModelsResult, ThinkingEffort } from "../types/api-config";
 import { errMessage, request } from "../lib/api";
 
 const V1 = "/api/v1";
@@ -39,6 +39,8 @@ export function useApiConfigs() {
     api_key: string;
     api_format: "openai" | "anthropic";
     models?: string[];
+    thinking_enabled?: boolean;
+    thinking_effort?: ThinkingEffort;
   }): Promise<ApiConfig> => {
     let config: ApiConfig;
     try {
@@ -160,6 +162,8 @@ export function useApiConfigs() {
     api_key: string;
     api_format: "openai" | "anthropic";
     model?: string | null;
+    thinking_enabled?: boolean;
+    thinking_effort?: ThinkingEffort;
   }): Promise<{ ok: boolean; status: string; models?: string[]; error?: string }> => {
     return request(`/api-configs/test-connection`, {
       apiBase: V1,

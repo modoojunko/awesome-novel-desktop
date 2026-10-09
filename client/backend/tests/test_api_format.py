@@ -554,9 +554,12 @@ class TestConnectionFlow:
         """探针模型 id 被拒（400）判失败并点名所试 id——原「400 宽松不拦」口径作废（2026-10-05 拍板）。
 
         探针失败仍带回已提取的清单（评审 P1 自恢复闭环）：落库后书内选择面板有正确
-        候选，用户手填错 id 后不必删配置重建。"""
+        候选，用户手填错 id 后不必删配置重建。
+        400 与思考参数无关 → 去参重试同败（c-thinking-config），仍回**原始**响应——
+        原始文案更能代表配置的问题。"""
         fake_http.script = [
             ("GET", 200, {"data": [{"id": "embed-only"}, {"id": "good-model"}]}),
+            ("POST", 400, {"error": {"message": "model not supported"}}),
             ("POST", 400, {"error": {"message": "model not supported"}}),
         ]
         out = _run_async(
@@ -652,6 +655,56 @@ class TestConnectionFlow:
         assert [c[0] for c in fake_http.calls] == ["GET", "POST", "POST"]
         assert "thinking" in fake_http.calls[1][3]
         assert "thinking" not in fake_http.calls[2][3]
+
+    def test_chat_probe_glm_forced_thinking_rejected_retries_stripped(self, fake_http):
+        """GLM-5.3 实锤回归钉（c-thinking-config 定诊）：强制思考模型拒「关思考」，
+        报错是**纯中文**——去参重试不看文案措辞，重试成功即通；重试体不带思考参数
+        且预算放大（去参后推理会吃 max_tokens，32 只够思考、正文为空）。"""
+        fake_http.script = [
+            ("GET", 200, {"data": [{"id": "glm-5.3-flashx"}]}),
+            (
+                "POST",
+                400,
+                {
+                    "error": {
+                        "message": "1005:该模型始终思考，不支持关闭思考；请使用 low、high 或 max"
+                    }
+                },
+            ),
+            ("POST", 200, {"choices": [{"message": {"content": "你好！"}}]}),
+        ]
+        out = _run_async(
+            do_test_connection("glm", "sk", "https://open.bigmodel.cn/api/paas/v4", "openai")
+        )
+        assert out["ok"] is True
+        assert [c[0] for c in fake_http.calls] == ["GET", "POST", "POST"]
+        stripped = fake_http.calls[2][3]
+        assert "thinking" not in stripped
+        assert "reasoning_effort" not in stripped
+        assert stripped["max_tokens"] == conn_mod._PROBE_MAX_TOKENS_THINKING
+
+    def test_chat_probe_thinking_enabled_sends_effort(self, fake_http):
+        """思考开启（c-thinking-config）：探针按配置发 thinking:enabled＋reasoning_effort，
+        预算放大——测试连接与生成同判据。"""
+        fake_http.script = [
+            ("GET", 200, {"data": [{"id": "glm-5.3-flashx"}]}),
+            ("POST", 200, {"choices": [{"message": {"content": "你好！"}}]}),
+        ]
+        out = _run_async(
+            do_test_connection(
+                "glm",
+                "sk",
+                "https://open.bigmodel.cn/api/paas/v4",
+                "openai",
+                thinking_enabled=True,
+                thinking_effort="high",
+            )
+        )
+        assert out["ok"] is True
+        payload = fake_http.calls[1][3]
+        assert payload["thinking"] == {"type": "enabled"}
+        assert payload["reasoning_effort"] == "high"
+        assert payload["max_tokens"] == conn_mod._PROBE_MAX_TOKENS_THINKING
 
     def test_no_model_id_fails_with_prompt(self, fake_http):
         """模型列表为空且无候选 → 判失败提示填模型名（不再只凭可达性报通）。"""

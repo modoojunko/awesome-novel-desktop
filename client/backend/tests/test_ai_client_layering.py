@@ -416,6 +416,123 @@ class TestThinkingDisabledByDefault:
         assert sent["thinking"] == {"type": "disabled"}
 
 
+class _FakeGlmRejectingOpenAI:
+    """模拟 GLM-5.3 强制思考端点（openai 格式）：请求带思考参数报**中文** 400，去参后成功。"""
+
+    def __init__(self, **kwargs):
+        self.recorder = _Recorder("openai")
+        create = self.recorder._create
+        self.extra_bodies: list[dict] = []
+        self.calls = 0
+
+        class _Completions:
+            @staticmethod
+            async def create(**kw):
+                outer.calls += 1
+                eb = kw.get("extra_body") or {}
+                outer.extra_bodies.append(dict(eb))  # 快照：去参重试原地改 dict，不能存引用
+                if "thinking" in eb or "reasoning_effort" in eb:
+                    raise ValueError(
+                        "Error code: 400 - {'error': {'message': "
+                        "'1005:该模型始终思考，不支持关闭思考；请使用 low、high 或 max'}}"
+                    )
+                return await create(**kw)
+
+        outer = self
+        self.chat = type("Chat", (), {"completions": _Completions()})()
+
+
+class TestThinkingConfig:
+    """c-thinking-config：思考开关/强度按配置下发（GLM-5.3 reasoning_effort 契约）；
+    端点打回思考参数（含纯中文报错）时去参重试＋记 base 不再重复送。"""
+
+    def test_openai_thinking_enabled_sends_effort(self, monkeypatch):
+        import ai_client as mod
+
+        mod._THINKING_UNSUPPORTED_BASES.clear()
+        monkeypatch.setattr(mod, "AsyncOpenAI", _FakeOpenAI)
+        c = AIClient(
+            api_key="sk-x", base_url="https://open.bigmodel.cn/api/paas/v4",
+            model="glm-5.3-flashx", thinking_enabled=True, thinking_effort="high",
+        )
+        _run_async(c.chat(model="haiku", system="", messages=[{"role": "user", "content": "x"}]))
+        extra = c._client.recorder.kwargs["extra_body"]
+        assert extra["thinking"] == {"type": "enabled"}
+        assert extra["reasoning_effort"] == "high"
+
+    def test_openai_glm_chinese_rejection_retries_stripped_and_remembers(self, monkeypatch):
+        import ai_client as mod
+
+        mod._THINKING_UNSUPPORTED_BASES.clear()
+        monkeypatch.setattr(mod, "AsyncOpenAI", _FakeGlmRejectingOpenAI)
+        c = AIClient(
+            api_key="sk-x", base_url="https://open.bigmodel.cn/api/paas/v4",
+            model="glm-5.3-flashx", thinking_enabled=True, thinking_effort="low",
+        )
+        out = _run_async(
+            c.chat(model="haiku", system="", messages=[{"role": "user", "content": "x"}])
+        )
+        assert out == "ok"
+        # 第一次带思考参数被打回（纯中文 400），第二次去参成功
+        assert "thinking" in c._client.extra_bodies[0]
+        assert "thinking" not in c._client.extra_bodies[1]
+        assert "reasoning_effort" not in c._client.extra_bodies[1]
+        assert "https://open.bigmodel.cn/api/paas/v4" in mod._THINKING_UNSUPPORTED_BASES
+        # 已记忆 → 下次调用直接不带思考参数，不再触发一次失败重试
+        _run_async(c.chat(model="haiku", system="", messages=[{"role": "user", "content": "x"}]))
+        assert c._client.calls == 3
+        assert "thinking" not in c._client.extra_bodies[2]
+
+    def test_openai_default_still_disables_thinking(self, monkeypatch):
+        import ai_client as mod
+
+        mod._THINKING_UNSUPPORTED_BASES.clear()
+        monkeypatch.setattr(mod, "AsyncOpenAI", _FakeOpenAI)
+        c = AIClient(
+            api_key="sk-x", base_url="https://api.example.com/v1", model="gpt-4o",
+        )
+        _run_async(c.chat(model="haiku", system="", messages=[{"role": "user", "content": "x"}]))
+        assert c._client.recorder.kwargs["extra_body"]["thinking"] == {"type": "disabled"}
+        assert "reasoning_effort" not in c._client.recorder.kwargs["extra_body"]
+
+    def test_anthropic_thinking_enabled_effort_via_extra_body(self, monkeypatch):
+        import ai_client as mod
+
+        mod._THINKING_UNSUPPORTED_BASES.clear()
+        monkeypatch.setattr(mod, "AsyncAnthropic", _FakeAnthropic)
+        c = AIClient(
+            api_key="sk-x", base_url="https://open.bigmodel.cn/api/anthropic",
+            model="glm-5.3", api_format="anthropic",
+            thinking_enabled=True, thinking_effort="max",
+        )
+        _run_async(c.chat(model="haiku", system="", messages=[{"role": "user", "content": "x"}]))
+        kwargs = c._client.recorder.kwargs
+        assert kwargs["thinking"] == {"type": "enabled"}
+        assert kwargs["extra_body"]["reasoning_effort"] == "max"
+
+    def test_explicit_thinking_override_suppresses_config_effort(self, monkeypatch):
+        """显式传 thinking（判定类恒关思考，_judge_chat 口径）时配置强度不搭车——
+        关思考还带 reasoning_effort 自相矛盾，部分端点会当未知参数打回。"""
+        import ai_client as mod
+
+        mod._THINKING_UNSUPPORTED_BASES.clear()
+        monkeypatch.setattr(mod, "AsyncOpenAI", _FakeOpenAI)
+        c = AIClient(
+            api_key="sk-x", base_url="https://api.example.com/v1", model="m",
+            thinking_enabled=True, thinking_effort="max",
+        )
+        _run_async(
+            c.chat(
+                model="haiku", system="",
+                messages=[{"role": "user", "content": "x"}],
+                thinking={"type": "disabled"},
+            )
+        )
+        extra = c._client.recorder.kwargs["extra_body"]
+        assert extra["thinking"] == {"type": "disabled"}
+        assert "reasoning_effort" not in extra
+
+
 class TestAnthropicCacheAccounting:
     """Anthropic 的 input_tokens 不含缓存读写 → 漏加会让重复调用被系统性少算。"""
 

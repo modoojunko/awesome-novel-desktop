@@ -131,6 +131,8 @@ async def create_config(
             vendor_override=body.vendor_override,
             api_format=body.api_format,
             models=body.models,
+            thinking_enabled=body.thinking_enabled,
+            thinking_effort=body.thinking_effort,
         )
         return result
     except ValueError as e:
@@ -174,6 +176,8 @@ async def test_raw_connection(
         base_url=body.base_url,
         api_format=body.api_format,
         preferred_model=body.model,
+        thinking_enabled=body.thinking_enabled,
+        thinking_effort=body.thinking_effort,
     )
 
 
@@ -241,6 +245,10 @@ async def update_config(
         updates["api_format"] = body.api_format
     if body.models is not None:
         updates["models"] = body.models
+    if body.thinking_enabled is not None:
+        updates["thinking_enabled"] = body.thinking_enabled
+    if body.thinking_effort is not None:
+        updates["thinking_effort"] = body.thinking_effort
 
     try:
         result = await update_api_config(db, _user_id(user), config_id, updates)

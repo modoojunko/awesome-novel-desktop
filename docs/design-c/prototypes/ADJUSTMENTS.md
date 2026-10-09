@@ -1912,3 +1912,25 @@ model-config.html 不在像素 parity 基线内（同 c-zhuque-ai-detect 登记�
    两态同词」先例，查看态不入原型）；且 `design-parity-book` 不在 `design:check` 矩阵
    （design:check 只跑 书架＋preview）。原型编辑态胶囊已同貌更新，基线诚实由
    design-parity-book A/B 对拍兜底（见 change tasks 4.5）。
+
+## c-thinking-config（思考开关与强度可配，2026-10-09）
+
+用户口径（2026-10-09）：「我觉得可以把是否 think 的开关拿出来，think 的 low-max 选项
+也拿出来可配」。起因＝内测配 GLM（glm-5.3-flashx）连接测试 400：「该模型始终思考，
+不支持关闭思考；请使用 low、high 或 max」——GLM-5.3 系列强制思考，`thinking.type`
+仅剩 `enabled`，强度改走顶层参数 `reasoning_effort`（官方迁移指引明确 disabled 须改
+enabled＋设 effort）。
+
+1. **`model-config.html` `#modalConfig` 增两控件**（置于 API Key 之后、模型名称之前）：
+   「思考模式」seg（开启/关闭，默认关闭＝现状语义）＋「思考强度」seg（低 low/高 high/
+   深 max，默认低 low）。关闭时强度 seg 走 `.seg.lock` 灰置但保留已选值，重开即还原；
+   开启时显示提示行（.cf-hint，组件同 model-config.css 同名类，原型内补样式登记）：
+   「开启后模型先思考再作答，更慢、更耗 token；GLM-5.3 系列为强制思考模型，关闭会被
+   端点拒绝。」控件为新增形态，不新增语气档/胶囊形态（复用 .seg/.label-row/.cf-hint）。
+2. **形态差异登记**：需求确认时的预览稿把强度画成下拉（`[低 low ▾]`）；实现按弹窗既有
+   设计语言归一为 **seg 分段钮**（与同弹窗「接口格式」seg 同构，三档全量可见、少一次
+   点击），原型与实现一致，均非下拉。
+3. **读数语义**：`readForm()` 增 `thinking_enabled`/`thinking_effort`（演示态默认
+   false/low）；连接探针与生成调用按同一套参数下发（测试连接＝保存后的真实行为预演）。
+4. **判定类不随开关**：JSON 判定/短答复类调用（卷规划等）恒关思考（volume-plan-ai
+   口径不变），原型不建模该内部口径。
