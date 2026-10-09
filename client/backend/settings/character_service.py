@@ -263,10 +263,14 @@ async def create_character(
     if novel is None:
         raise Unprocessable("not_found", "书不存在")
     novel.character_seq_high += 1
-    ch_kwargs: dict = dict(
-        novel_id=novel_id, seq=novel.character_seq_high, name=name, role=role,
-        persona=persona, dossier=_json_dumps(dossier),
-    )
+    ch_kwargs: dict = {
+        "novel_id": novel_id,
+        "seq": novel.character_seq_high,
+        "name": name,
+        "role": role,
+        "persona": persona,
+        "dossier": _json_dumps(dossier),
+    }
     if clean_aliases:
         ch_kwargs["aliases"] = _json_dumps(clean_aliases)
     ch = Character(**ch_kwargs)
