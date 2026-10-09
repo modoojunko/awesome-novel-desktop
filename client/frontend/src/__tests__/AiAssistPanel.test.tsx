@@ -1,4 +1,5 @@
 import { setVerifyCache } from "@/lib/licenseCache";
+import { setZhuqueShow } from "@/lib/prefs";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { AiAssistPanel } from "@/components/novel/workbench/AiAssistPanel";
@@ -269,6 +270,47 @@ describe("AiAssistPanel（随页签，ra-* 统一布局）", () => {
   });
 });
 
+
+describe("卡头副行注记走 statusNote prop（回归：误落 children 渲成字面量）", () => {
+  // 回归 2179c6dd：statusNote= 写进 <AiWriterAssistant> 的 children 区，
+  // JSX 把「statusNote=」当纯文本渲染进卡面（每个页签都可见），prop 反而没传。
+  it("章纲页签：卡面不得出现 statusNote 字面量", () => {
+    renderPanel("og");
+    expect(screen.queryByText(/statusNote/)).toBeNull();
+  });
+
+  it("正文页签 · 朱雀显示开关关：副行注明去处，不漏字面量", async () => {
+    setZhuqueShow(false);
+    apiState.get.mockImplementation(async (p: string) => {
+      if (p.endsWith("/prompt-sources")) return { total_chars: 100, cast_count: 1 };
+      throw new Error("unexpected " + p);
+    });
+    apiState.request.mockImplementation(async (p: string) => {
+      if (p.endsWith("/prompts")) return [];
+      throw new Error("unexpected " + p);
+    });
+    renderPanel("prose");
+    await act(async () => {}); // 懒取数回填的状态更新收进 act
+    expect(screen.getByText("朱雀检测已关闭 · 其余可用")).toBeTruthy();
+    expect(screen.queryByText(/statusNote/)).toBeNull();
+  });
+
+  it("正文页签 · 朱雀显示开关开：不出关闭注记", async () => {
+    setZhuqueShow(true);
+    apiState.get.mockImplementation(async (p: string) => {
+      if (p.endsWith("/prompt-sources")) return { total_chars: 100, cast_count: 1 };
+      throw new Error("unexpected " + p);
+    });
+    apiState.request.mockImplementation(async (p: string) => {
+      if (p.endsWith("/prompts")) return [];
+      throw new Error("unexpected " + p);
+    });
+    renderPanel("prose");
+    await act(async () => {});
+    expect(screen.queryByText(/朱雀检测已关闭/)).toBeNull();
+    expect(screen.queryByText(/statusNote/)).toBeNull();
+  });
+});
 
 describe("故事状态缺口标注（c-chapter-dossier 评审 P2）", () => {
   it("缺 N 条未确认 → 聚合行追加提示并指路设定页签", async () => {
