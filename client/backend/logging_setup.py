@@ -11,6 +11,9 @@
 - llm.log 专项档（c-llm-call-log）：同参第二个 handler，只挂三类大模型出网调用的
   具名 logger（ai_client / llm_probe / zhuque.client）；这些 logger 保持
   propagate=True——行双写 app.log（求诊主档不缺行）＋ llm.log（专项档）。
+- upgrade.log 专项档（c-upgrade-log）：同参第三个 handler，挂无损升级（旧库迁入）
+  全链的具名 logger（migration——engine/db_lifecycle/router）；同 llm.log 口径
+  propagate=True 双写 app.log，升级报错可直查一个文件。
 - Handler 拓扑（D1）：挂 root＋`uvicorn` 两个挂点，并显式 `uvicorn.propagate=False`
   ——log_config=None 跳过 dictConfig 后，uvicorn 默认配置里的 propagate 护栏不再
   生效，不钉这条同一个 record 会在两个挂点各写一行（dev 看不出、打包必现双行）。
@@ -41,6 +44,10 @@ _NOISY_LOGGERS = ("httpx", "httpcore", "openai", "sqlalchemy")
 # llm.log 专项档挂载点（c-llm-call-log）：大模型出网调用的三类具名 logger
 # （生成调用 / 连接探针 / 朱雀检测）。不设 propagate=False——app.log 双写保留。
 _LLM_LOGGERS = ("ai_client", "llm_probe", "zhuque.client")
+
+# upgrade.log 专项档挂载点（c-upgrade-log）：无损升级（旧库迁入）全链具名 logger。
+# 同 llm.log 口径不设 propagate=False——app.log 双写保留。
+_UPGRADE_LOGGERS = ("migration",)
 
 
 class FoldRepeatFilter(logging.Filter):
@@ -164,6 +171,24 @@ def setup_logging(log_dir: str | os.PathLike | None = None) -> Path | None:
     for name in _LLM_LOGGERS:
         logging.getLogger(name).addHandler(llm_handler)
 
+    # upgrade.log 专项档（c-upgrade-log）：同参第三 handler，独立折叠实例（filter
+    # 状态不共享——同一条 record 在两个 handler 各自独立判定，互不干扰）。
+    upgrade_handler = TimedRotatingFileHandler(
+        log_dir / "upgrade.log",
+        when="midnight",
+        backupCount=5,
+        encoding="utf-8",
+        delay=True,
+    )
+    upgrade_handler._ainovel_upgrade = True
+    upgrade_handler._ainovel_dir = log_dir
+    upgrade_handler.setFormatter(
+        logging.Formatter("%(asctime)s %(levelname)s %(name)s %(message)s")
+    )
+    upgrade_handler.addFilter(FoldRepeatFilter())
+    for name in _UPGRADE_LOGGERS:
+        logging.getLogger(name).addHandler(upgrade_handler)
+
     if sys.stdout is not None:  # 打包 GUI 态 stdout 可能是 None（壳层已垫 devnull 则非 None）
         console = logging.StreamHandler(sys.stdout)
         console.setFormatter(logging.Formatter("%(levelname)s:%(name)s %(message)s"))
@@ -173,7 +198,7 @@ def setup_logging(log_dir: str | os.PathLike | None = None) -> Path | None:
     # app.log 从启动即存在，打包冒烟可断言「logging ready」；行内带最终目录，
     # 现场求诊一眼可辨日志到底落在哪一级（回退发生过时尤其关键）。
     logging.getLogger("logging_setup").info("logging ready dir=%s", log_dir)
-    for h in (handler, llm_handler):
+    for h in (handler, llm_handler, upgrade_handler):
         try:
             h.flush()
         except Exception:  # noqa: BLE001, S110 —— flush 失败不阻断启动（与打戳失败同口径）

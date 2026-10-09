@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import logging
 import shutil
 import sqlite3
@@ -25,7 +26,9 @@ from db_lifecycle import (
 )
 from schema_version import parse_db_filename
 
-logger = logging.getLogger("uvicorn.error")
+# c-upgrade-log：无损升级全链走 migration 具名 logger——upgrade.log 专项档
+# （logging_setup 同参第三 handler）＋propagate 双写 app.log，升级报错直查专项档。
+logger = logging.getLogger("migration")
 
 # 迁移排除表：app_meta（旧 schema_id 污染新戳；migration.* 是新库私产）
 EXCLUDED_TABLES = {"app_meta"}
@@ -337,12 +340,15 @@ def run_migration(data_root: Path, source_filename: str, active_db_path: Path,
         if report_progress:
             report_progress({"stage": stage, **kw})
 
+    logger.info("event=migration_start source=%s data_root=%s", source_filename, data_root)
     try:
         # 0 预检
         pc = precheck(data_root, source_filename, active_db_path)
         if not pc["ok"]:
             report["status"] = "precheck_failed"
             report["reason"] = pc["reason"]
+            logger.warning("event=migration_precheck_failed source=%s reason=%s",
+                           source_filename, pc["reason"])
             return report
         report["source_version"] = pc.get("source_version")
         report["legacy_generation"] = pc.get("legacy_generation")
@@ -362,6 +368,7 @@ def run_migration(data_root: Path, source_filename: str, active_db_path: Path,
                 report["status"] = "source_busy"
                 report["reason"] = "source_busy"
                 report["notes"].append("旧版本应用可能仍在运行，请关闭后重试")
+                logger.warning("event=migration_source_busy source=%s", source_filename)
                 return report
             time.sleep(0.3)
 
@@ -369,6 +376,8 @@ def run_migration(data_root: Path, source_filename: str, active_db_path: Path,
         _emit("prepare")
         if not prepare_staged(staged):
             report["status"] = "source_corrupt"
+            logger.warning("event=migration_source_corrupt source=%s stage=prepare",
+                           source_filename)
             return report
         for suf in ("-wal", "-shm"):
             side = Path(str(staged) + suf)
@@ -388,10 +397,14 @@ def run_migration(data_root: Path, source_filename: str, active_db_path: Path,
         plan = build_plan(staged)
         if plan.get("error"):
             report["status"] = "source_corrupt"
+            logger.warning("event=migration_source_corrupt source=%s stage=plan error=%s",
+                           source_filename, plan["error"])
             return report
         report["tables_skipped"] = plan["tables_skipped"]
         tables_total = len(plan["tables"])
         tables_done = 0
+        logger.info("event=migration_plan source=%s tables=%d skipped=%d",
+                    source_filename, tables_total, len(plan["tables_skipped"]))
 
         # 4 搬运：ATTACH ro 副本 → 目标（FK OFF 逐表 OR IGNORE）
         tgt = _sqlite_rw(active_db_path)
@@ -422,6 +435,8 @@ def run_migration(data_root: Path, source_filename: str, active_db_path: Path,
                 entry["rows_inserted"] = max(cur.rowcount, 0)
                 report["tables"].append(entry)
                 tables_done += 1
+                logger.info("event=migration_table table=%s rows_source=%d rows_inserted=%d",
+                            t, rows_src, entry["rows_inserted"])
                 _emit("transfer", tables_total=tables_total, tables_done=tables_done,
                       table=t, rows_inserted=entry["rows_inserted"])
             # 4.5 预置种子表源行胜出（c-lossless-upgrade D4）：清单钉死＝ensure_seed_*
@@ -459,6 +474,8 @@ def run_migration(data_root: Path, source_filename: str, active_db_path: Path,
                         tgt, src_con, data_root)
                 except Exception:  # noqa: BLE001 —— 转接失败不阻断迁入（沿用死文统计的容错口径）
                     logger.warning("migration: 密钥转接失败（按不转接处理）", exc_info=True)
+                else:
+                    logger.info("event=migration_dead_keys dead=%d", report["dead_keys"])
 
             # 5 核对：FK 违规只报不删 + 书计数
             _emit("verify", tables_total=tables_total, tables_done=tables_done)
@@ -477,6 +494,12 @@ def run_migration(data_root: Path, source_filename: str, active_db_path: Path,
             inserted = next((e.get("rows_inserted") for e in report["tables"]
                              if e["table"] == "novels"), None)
             report["book_count_migrated"] = inserted or 0
+            logger.info(
+                "event=migration_verify fk_violations=%d books_source=%s "
+                "books_migrated=%s books_target_after=%s",
+                len(report["fk_violations"]), book_src,
+                report["book_count_migrated"], book_tgt,
+            )
             # 库自证来源：把本机版本与组件快照写进目标库（app_meta 不随行搬运）
             if _has_table(tgt, "main.app_meta"):
                 for k, v in version_stamp_payload().items():
@@ -506,9 +529,14 @@ def run_migration(data_root: Path, source_filename: str, active_db_path: Path,
         report["complete"] = is_complete_report(report)
 
     except Exception:
-        logger.exception("migration failed: %s", source_filename)
+        logger.exception("event=migration_error source=%s", source_filename)
         report["status"] = "error"
     finally:
+        # 终局单行＝整份 report JSON（specs：终局行整份单行落迁移报告 JSON）——
+        # 与 app_meta.migration.last 存的 payload 同源，失败现场一份行即可复盘。
+        # return 路径（precheck_failed/source_busy/corrupt）也经 finally，恰一行。
+        logger.info("event=migration_report %s",
+                    json.dumps(report, ensure_ascii=False, default=str))
         shutil.rmtree(staging, ignore_errors=True)
         if work_dir is not None:
             shutil.rmtree(work_dir, ignore_errors=True)

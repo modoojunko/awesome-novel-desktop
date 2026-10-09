@@ -17,6 +17,7 @@ main.py 注册本前缀）；与导出/下载 job_runner 跨 kind 单飞互斥�
 from __future__ import annotations
 
 import json
+import logging
 from datetime import UTC, datetime
 from pathlib import Path
 
@@ -34,6 +35,9 @@ from db_lifecycle import (
 )
 from migration.engine import completeness_from_history, is_complete_report
 from schema_version import app_version, candidate_stamp
+
+# c-upgrade-log：无损升级全链具名 logger——upgrade.log 专项档＋双写 app.log。
+logger = logging.getLogger("migration")
 
 router = APIRouter(prefix="/api/backup/db-migration", tags=["db-migration"])
 
@@ -193,6 +197,7 @@ async def cleanup(body: CleanupBody):
             refused.append(name)
             continue
         (deleted if delete_candidate(root, name, _active_db_path()) else refused).append(name)
+    logger.info("event=migration_cleanup deleted=%s refused=%s", deleted, refused)
     return {"code": 0, "data": {"deleted": deleted, "refused": refused}}
 
 
@@ -208,6 +213,8 @@ async def preview(body: StartBody):
     _validated_source(body.source_filename)
     pc = precheck(Path(DATA_ROOT), body.source_filename, _active_db_path())
     if not pc["ok"]:
+        logger.warning("event=migration_precheck_rejected source=%s reason=%s entry=preview",
+                       body.source_filename, pc["reason"])
         if pc["reason"] in ("pre_adr_generation", "pre_rename_generation"):
             return {"code": 1, "data": {
                 "reason": pc["reason"],
@@ -225,6 +232,9 @@ async def preview(body: StartBody):
         plan["source"] = body.source_filename
         plan["source_version"] = pc.get("source_version")
         plan["legacy_generation"] = pc.get("legacy_generation")
+        if plan.get("error"):
+            logger.warning("event=migration_preview_failed source=%s error=%s",
+                           body.source_filename, plan["error"])
         try:
             import sqlite3 as _sq
 
@@ -251,12 +261,16 @@ async def start(body: StartBody):
     rk = running_kind()
     if rk:
         label = {"backup": "备份", "single": "导出", "download": "下载"}.get(rk, rk)
+        logger.warning("event=migration_start_rejected source=%s reason=job_busy running_kind=%s",
+                       body.source_filename, rk)
         raise HTTPException(409, {"message": f"已有{label}任务在进行中", "running_kind": rk})
     from migration.engine import precheck
 
     _validated_source(body.source_filename)
     pc = precheck(Path(DATA_ROOT), body.source_filename, _active_db_path())
     if not pc["ok"]:
+        logger.warning("event=migration_precheck_rejected source=%s reason=%s entry=start",
+                       body.source_filename, pc["reason"])
         raise HTTPException(422, {"message": _precheck_msg(pc["reason"])})
 
     def _run(payload: dict, user_id: str) -> None:
@@ -276,13 +290,19 @@ async def start(body: StartBody):
             job_runner.set_job(progress=event)
 
         def _body() -> None:
-            report = run_migration(
-                Path(DATA_ROOT), body.source_filename, _active_db_path(),
-                report_progress=_on_progress,
-            )
-            job_runner.set_job(report=report)
-            if report.get("status") == "ok":
-                asyncio.run(_record_completion(body.source_filename, report))
+            # c-upgrade-log：run_thread 兜底只把 str(e) 吞进 state=error、零落日志
+            # ——堆栈必须在重抛前经 migration logger 落双档，否则无法定位。
+            try:
+                report = run_migration(
+                    Path(DATA_ROOT), body.source_filename, _active_db_path(),
+                    report_progress=_on_progress,
+                )
+                job_runner.set_job(report=report)
+                if report.get("status") == "ok":
+                    asyncio.run(_record_completion(body.source_filename, report))
+            except Exception:
+                logger.exception("event=migration_job_error source=%s", body.source_filename)
+                raise
 
         run_thread(_body)
 
@@ -290,6 +310,8 @@ async def start(body: StartBody):
                                target=body.source_filename,
                                report=None, progress=None)
     if started is None:
+        logger.warning("event=migration_start_rejected source=%s reason=job_busy running_kind=%s",
+                       body.source_filename, running_kind())
         raise HTTPException(409, {"message": "已有任务在进行中", "running_kind": running_kind()})
     return {"code": 0, "data": started}
 
@@ -360,6 +382,9 @@ async def _record_completion(source_filename: str, report: dict) -> None:
                "legacy_generation": report.get("legacy_generation"),
                "book_count_migrated": report.get("book_count_migrated"),
                "finished_at": datetime.now(UTC).isoformat(), "report": report}
+    logger.info("event=migration_completed source=%s stamp=%s source_version=%s books=%s",
+                source_filename, stamp, report.get("source_version"),
+                report.get("book_count_migrated"))
     await _set_app_meta("migration.last", json.dumps(payload, ensure_ascii=False))
     await _set_app_meta(SNOOZE_KEY, "")
     await _set_app_meta("migration.dismissed", "")  # 旧键清废（不再参与抑制）

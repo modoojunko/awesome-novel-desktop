@@ -9,7 +9,12 @@ import logging.handlers
 import time
 
 import logging_setup
-from logging_setup import _LLM_LOGGERS, FoldRepeatFilter, setup_logging
+from logging_setup import (
+    _LLM_LOGGERS,
+    _UPGRADE_LOGGERS,
+    FoldRepeatFilter,
+    setup_logging,
+)
 
 
 def _marker_handlers() -> list:
@@ -193,12 +198,12 @@ def test_missing_dirs_created(tmp_path, monkeypatch):
         for h in list(uv.handlers):
             if h not in snap_uv:
                 uv.removeHandler(h)
-        # llm 专项 handler 挂具名 logger（不在 root 上）——不摘会指向已删 tmp 目录
-        # 并泄漏进后续用例
-        for name in _LLM_LOGGERS:
+        # llm/upgrade 专项 handler 挂具名 logger（不在 root 上）——不摘会指向已删
+        # tmp 目录并泄漏进后续用例
+        for name in (*_LLM_LOGGERS, *_UPGRADE_LOGGERS):
             lg = logging.getLogger(name)
             for h in list(lg.handlers):
-                if getattr(h, "_ainovel_llm", False):
+                if getattr(h, "_ainovel_llm", False) or getattr(h, "_ainovel_upgrade", False):
                     lg.removeHandler(h)
 
 
@@ -302,10 +307,10 @@ def test_unwritable_log_dir_falls_back_to_next_candidate(tmp_path, monkeypatch):
         for h in list(uv.handlers):
             if h not in snap_uv:
                 uv.removeHandler(h)
-        for name in _LLM_LOGGERS:
+        for name in (*_LLM_LOGGERS, *_UPGRADE_LOGGERS):
             lg = logging.getLogger(name)
             for h in list(lg.handlers):
-                if getattr(h, "_ainovel_llm", False):
+                if getattr(h, "_ainovel_llm", False) or getattr(h, "_ainovel_upgrade", False):
                     lg.removeHandler(h)
 
 
@@ -317,3 +322,59 @@ def test_fold_filter_unhashable_args_never_raises():
     assert f.filter(rec) is True
     rec2 = logging.LogRecord("x", logging.INFO, "p", 1, "hi %(k)s", ({"k": 2},), None)
     assert f.filter(rec2) is True, "参数不同必须照常放行（不折叠）"
+
+
+# ⑪ upgrade.log 专项档（c-upgrade-log）：无损升级（旧库迁入）全链双写 app.log＋upgrade.log
+
+_UPGRADE_LOGGER = "migration"
+
+
+def _upgrade_handlers(name: str) -> list[logging.Handler]:
+    return [
+        h for h in logging.getLogger(name).handlers
+        if getattr(h, "_ainovel_upgrade", False)
+    ]
+
+
+def test_upgrade_handler_mounted_with_rotation_params(daily_file_log):
+    for name in _UPGRADE_LOGGERS:
+        handlers = _upgrade_handlers(name)
+        assert len(handlers) == 1, f"{name} 须恰好挂一个 upgrade 专项 handler"
+    handler = _upgrade_handlers(_UPGRADE_LOGGER)[0]
+    assert isinstance(handler, logging.handlers.TimedRotatingFileHandler)
+    assert handler.when == "MIDNIGHT", "upgrade.log 与 app.log 同口径按自然日轮转"
+    assert handler.backupCount == 5, "upgrade.log 同口径保留 5 天"
+
+
+def test_setup_idempotent_upgrade_handler_not_duplicated(daily_file_log):
+    setup_logging()
+    setup_logging()
+    assert len(_upgrade_handlers(_UPGRADE_LOGGER)) == 1, "重入初始化不得重复挂 upgrade handler"
+
+
+def test_upgrade_line_dual_writes_app_and_upgrade(daily_file_log):
+    logging.getLogger(_UPGRADE_LOGGER).warning(
+        "event=migration_precheck_rejected source=%s reason=%s entry=start",
+        "novel.db", "disk_full",
+    )
+    upgrade_text = (daily_file_log / "upgrade.log").read_text(encoding="utf-8")
+    assert "migration_precheck_rejected" in upgrade_text and "disk_full" in upgrade_text, (
+        "预检拒绝行是 upgrade.log 的定诊本命（升级报错直查专项档）"
+    )
+    assert "disk_full" in _log_text(daily_file_log), "双写：app.log 求诊主档不缺行"
+
+
+def test_upgrade_file_excludes_non_upgrade_loggers(daily_file_log):
+    _ensure_file_exists(daily_file_log)
+    logging.getLogger("biz.other").info("NOT-UPGRADE-XYZ")
+    logging.getLogger(_UPGRADE_LOGGER).info("UPGRADE-LINE-XYZ")
+    upgrade_text = (daily_file_log / "upgrade.log").read_text(encoding="utf-8")
+    assert "UPGRADE-LINE-XYZ" in upgrade_text
+    assert "NOT-UPGRADE-XYZ" not in upgrade_text, "upgrade.log 只收无损升级链，业务行不进"
+
+
+def test_log_off_no_upgrade_handler(monkeypatch):
+    monkeypatch.setenv("AINOVEL_LOG_OFF", "1")
+    assert setup_logging() is None
+    for name in _UPGRADE_LOGGERS:
+        assert _upgrade_handlers(name) == [], f"关闭态不得给 {name} 挂 upgrade handler"
