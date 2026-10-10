@@ -12,6 +12,7 @@
 import { useRef, useState } from "react";
 import { toast } from "@/lib/toast";
 import Modal from "@/components/design/Modal";
+import { CHAPTER_WORD_TARGET_DEFAULT, CHAPTER_WORD_TARGET_MAX, CHAPTER_WORD_TARGET_MIN } from "@/lib/chapterTarget";
 import type { OgHookHints, HookHint } from "@/lib/hookHints";
 import { hookChipCandidates } from "@/lib/hookHints";
 import { CastHover, RoleTag, type CastInfo } from "./CastHover";
@@ -62,6 +63,9 @@ interface OgPaneProps {
   onQuickCreateChar?: (name: string) => void;
   /** 本书主角名（role=主角的主卡名；名单缺人探测置顶标，c-character-intro 6.x） */
   protagonistName?: string;
+  /** 作品偏好「章节默认字数」（c-chapter-default-words）：留空时生成侧按它取，
+   *  文案/占位/查看态默认值同步显示；缺省＝2500（存量行为不变） */
+  defaultWordTarget?: number;
 }
 
 const MOODS = ["紧张", "悬疑", "温暖", "悲伤", "激昂", "轻松", "压抑", "浪漫", "惊悚"];
@@ -119,6 +123,7 @@ export default function OgPane({
   onGoWrite,
   onQuickCreateChar,
   protagonistName,
+  defaultWordTarget = CHAPTER_WORD_TARGET_DEFAULT,
 }: OgPaneProps) {
   const moodVal = form.mood || "";
   const moodCustom = moodVal && !MOODS.includes(moodVal) ? moodVal : "";
@@ -259,7 +264,7 @@ export default function OgPane({
     const lines = (form.chars || "").split("\n").map((x) => x.trim()).filter(Boolean);
     if (!lines.includes(n)) lines.push(n);
     onPatch({ chars: lines.join("\n") });
-    const issues = ogFormIssues(form);
+    const issues = ogFormIssues(form, defaultWordTarget);
     if (issues.length > 0) toast.error(`名单改动暂不落库：${issues[0]}`);
   };
   const ignoreMiss = (n: string) => {
@@ -467,7 +472,7 @@ export default function OgPane({
           </div>
           <div className="fro">
             <em>本章目标字数</em>
-            <p>{form.wt.trim() ? `${form.wt} 字` : "默认 2500"}</p>
+            <p>{form.wt.trim() ? `${form.wt} 字` : `默认 ${defaultWordTarget}`}</p>
           </div>
           <div className="fro">
             <em>
@@ -905,16 +910,20 @@ export default function OgPane({
               </div>
               <div className="field">
                 <label>
-                  本章目标字数 <span className="opt">500-6000，留空默认 2500</span>
+                  本章目标字数{" "}
+                  <span className="opt">
+                    {CHAPTER_WORD_TARGET_MIN}-{CHAPTER_WORD_TARGET_MAX}，留空默认{" "}
+                    {defaultWordTarget}
+                  </span>
                 </label>
                 <input
                   className="input num"
                   id="wf-wt"
                   type="number"
-                  min={500}
-                  max={6000}
+                  min={CHAPTER_WORD_TARGET_MIN}
+                  max={CHAPTER_WORD_TARGET_MAX}
                   step={100}
-                  placeholder="2500"
+                  placeholder={String(defaultWordTarget)}
                   value={form.wt}
                   onChange={(e) => onPatch({ wt: e.target.value })}
                 />

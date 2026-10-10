@@ -1,3 +1,7 @@
+import {
+  CHAPTER_WORD_TARGET_DEFAULT,
+  getCachedChapterWordTarget,
+} from "@/lib/chapterTarget";
 import { useEffect, useMemo, useSyncExternalStore } from "react";
 import { api } from "@/lib/api";
 
@@ -80,7 +84,9 @@ function targetKey(projectId: string, ref: string): string {
   return `target-words-${projectId}-${ref}`;
 }
 
-export const DEFAULT_TARGET = 2500;
+/** 本章目标字数的兜底默认＝作品偏好「章节默认字数」（c-chapter-default-words，缓存读；
+ *  逐章未单独设定时生效）；常量缺省 2500 与后端 book_prefs_model 同源。 */
+export const DEFAULT_TARGET = CHAPTER_WORD_TARGET_DEFAULT;
 
 /** 自动保存防抖窗口（N8）。 */
 const AUTOSAVE_DEBOUNCE_MS = 1500;
@@ -133,7 +139,7 @@ class ChapterStore {
       status: "outline",
       initial: { prose: "", status: "outline" },
       saveState: "saved",
-      targetWords: Number.isFinite(n) && n > 0 ? n : DEFAULT_TARGET,
+      targetWords: Number.isFinite(n) && n > 0 ? n : getCachedChapterWordTarget(projectId),
       archiveJob: null,
     };
   }
@@ -399,7 +405,8 @@ class ChapterStore {
   };
 
   setTargetWords = (n: number) => {
-    const safe = Number.isFinite(n) && n > 0 ? Math.round(n) : DEFAULT_TARGET;
+    const safe =
+      Number.isFinite(n) && n > 0 ? Math.round(n) : getCachedChapterWordTarget(this.projectId);
     localStorage.setItem(targetKey(this.projectId, this.ref), String(safe));
     this.update({ targetWords: safe });
   };

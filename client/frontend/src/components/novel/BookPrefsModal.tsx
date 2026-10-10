@@ -7,6 +7,16 @@ import Modal from "@/components/design/Modal";
 import UpgradeModal from "@/components/novel/UpgradeModal";
 import { api } from "@/lib/api";
 import { isLoggedIn } from "@/lib/auth";
+import {
+  CHAPTER_WORD_TARGET_DEFAULT,
+  CHAPTER_WORD_TARGET_MAX,
+  CHAPTER_WORD_TARGET_MIN,
+  chapterWordTargetIssue,
+  getCachedChapterWordTarget,
+  loadChapterWordTarget,
+  saveChapterWordTarget,
+} from "@/lib/chapterTarget";
+import { toast } from "@/lib/toast";
 import { tierLabel as sharedTierLabel } from "@/lib/tier";
 import { formatVersion, useClientVersion } from "@/lib/version";
 import {
@@ -49,6 +59,9 @@ export default function BookPrefsModal({
   const [fs, setFs] = useState<FontSizePref>("fs-m");
   const [lh, setLh] = useState<LineHeightPref>("lh-comfy");
   const [aiSummary, setAiSummary] = useState(true);
+  // 章节默认字数（c-chapter-default-words）：字符串态容纳输入中途（空/超界由保存时归一）
+  const [wordTarget, setWordTarget] = useState(String(CHAPTER_WORD_TARGET_DEFAULT));
+  const [saving, setSaving] = useState(false);
   const [tier, setTier] = useState<string>("");
   const [isMember, setIsMember] = useState(false);
   const [showUpgrade, setShowUpgrade] = useState(false);
@@ -59,6 +72,17 @@ export default function BookPrefsModal({
     setFs(getBookFontSize(projectId));
     setLh(getBookLineHeight(projectId));
     setAiSummary(getBookArchiveAiSummary(projectId));
+    // 字数是唯一走后端的偏好（生成链要用）：弹窗开启时从后端回灌缓存与输入框；
+    // 失败回落缓存值（不打扰——保存时另有明确报错）
+    setWordTarget(String(getCachedChapterWordTarget(projectId)));
+    let alive = true;
+    loadChapterWordTarget(projectId)
+      .then((v) => {
+        if (alive) setWordTarget(String(v));
+      })
+      .catch(() => {
+        // 后端不可达：保持缓存值
+      });
     api
       .post("/auth/verify")
       .then((r: any) => {
@@ -69,9 +93,30 @@ export default function BookPrefsModal({
         setTier(tierLabel(null));
         setIsMember(false);
       });
+    return () => {
+      alive = false;
+    };
   }, [open, projectId]);
 
-  const save = () => {
+  const save = async () => {
+    if (saving) return;
+    // 越界/非整数输入拦在保存前（对齐逐章 word_target 拦截口径）：
+    // 静默改写成缺省会让「输入的数」与「落库的数」不一致且无提示（评审 2026-10-10）
+    const issue = chapterWordTargetIssue(wordTarget);
+    if (issue) {
+      toast.error(issue);
+      return;
+    }
+    setSaving(true);
+    try {
+      // 先写后端（生成侧权威）再收尾：失败保持弹窗可重试，本地缓存不被写坏
+      await saveChapterWordTarget(projectId, wordTarget);
+    } catch {
+      setSaving(false);
+      toast.error("章节默认字数保存失败，请重试");
+      return;
+    }
+    setSaving(false);
     setBookFontSize(projectId, fs);
     setBookLineHeight(projectId, lh);
     setBookArchiveAiSummary(projectId, aiSummary);
@@ -91,7 +136,7 @@ export default function BookPrefsModal({
             <span className="note" data-od-id="pref-version">
               {formatVersion(version)}
             </span>
-            <button className="btn btn-primary" onClick={save}>
+            <button className="btn btn-primary" onClick={save} disabled={saving}>
               保存
             </button>
           </>
@@ -130,6 +175,28 @@ export default function BookPrefsModal({
               </button>
             ))}
           </span>
+        </div>
+        <div className="pref-row">
+          <div>
+            <div className="pl">章节默认字数</div>
+            <div className="pm">
+              新建章节留空「本章目标字数」时按此值（
+              {CHAPTER_WORD_TARGET_MIN}-{CHAPTER_WORD_TARGET_MAX}）；逐章可单独设定
+            </div>
+          </div>
+          <input
+            className="input num"
+            id="pref-word-target"
+            data-od-id="pref-word-target"
+            type="number"
+            min={CHAPTER_WORD_TARGET_MIN}
+            max={CHAPTER_WORD_TARGET_MAX}
+            step={100}
+            aria-label="章节默认字数"
+            style={{ width: 130 }}
+            value={wordTarget}
+            onChange={(e) => setWordTarget(e.target.value)}
+          />
         </div>
         <div className="pref-row">
           <div>

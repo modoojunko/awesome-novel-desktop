@@ -49,6 +49,10 @@ def test_paths_routing():
     # threads.yaml → KV 专用路由（PR④）；不得进 PATH_TO_KEY（会泄漏 /settings/threads 端点）
     assert route_relative_path("threads.yaml") == "threads"
     assert "threads.yaml" not in PATH_TO_KEY
+    # book-prefs → KV 专用路由（c-chapter-default-words）；同样不得进 PATH_TO_KEY
+    # （否则会经 KEY_TO_PATH 泄漏进 /settings 通用端点白名单）
+    assert route_relative_path("settings/book-prefs.yaml") == "book-prefs"
+    assert "settings/book-prefs.yaml" not in PATH_TO_KEY
     # hooks 已退役（foreshadow-settings-v2 2.5）：伏笔升级真表 novel_hooks，
     # settings/hooks.yaml 不再路由 DB —— GET/PUT /settings/hooks 走「Invalid settings type」400
     assert route_relative_path("settings/hooks.yaml") is None

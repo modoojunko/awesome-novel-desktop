@@ -383,6 +383,41 @@ def test_material_markdown_skeleton():
 # ── 前情三分支（build_chapter_context 集成）──────────────────────────────
 
 
+def test_word_target_default_from_book_prefs():
+    """章纲未填目标字数 → 走作品偏好「章节默认字数」（c-chapter-default-words，内测反馈#10）；
+    逐章显式值优先（现状不变）；未设置＝缺省 2500（存量行为不变）。"""
+
+    async def _run():
+        from filesystem.paths import BOOK_PREFS_PATH
+        from filesystem.storage import get_storage
+
+        project = await _new_project("cwc_bookprefs")
+        ref_empty = await _make_chapter(project, 1, {"title": "未填章"})
+        ref_set = await _make_chapter(
+            project, 1, {"title": "定值章", "word_target": 1000}
+        )
+        # 未设置作品偏好：缺省 2500（存量口径）
+        ctx = await build_chapter_context(project.root_path, ref_empty, "暗流")
+        assert ctx.word_target == 2500
+        # 本书设置 3000：未填章跟随；逐章显式值不受影响
+        await get_storage().write_yaml(
+            project.root_path, BOOK_PREFS_PATH, {"chapter_word_target": 3000}
+        )
+        ctx = await build_chapter_context(project.root_path, ref_empty, "暗流")
+        assert ctx.word_target == 3000
+        assert "至少 3000 字" in ctx.to_user_material()  # 实际生成口径生效
+        ctx = await build_chapter_context(project.root_path, ref_set, "暗流")
+        assert ctx.word_target == 1000
+        # 值损坏（越界）→ 回落缺省，不阻塞写章
+        await get_storage().write_yaml(
+            project.root_path, BOOK_PREFS_PATH, {"chapter_word_target": 99999}
+        )
+        ctx = await build_chapter_context(project.root_path, ref_empty, "暗流")
+        assert ctx.word_target == 2500
+
+    _run_async(_run())
+
+
 def test_build_context_semantic_previous():
     """ch-2 且上章章纲有留存字段 → 语义前情＋上章结尾原文尾块两路并存。"""
 

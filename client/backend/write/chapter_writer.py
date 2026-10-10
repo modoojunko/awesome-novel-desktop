@@ -20,9 +20,20 @@ import re
 from sqlalchemy import select
 
 from db import async_session
+from filesystem.paths import BOOK_PREFS_PATH
 from filesystem.storage import get_storage
 from genres.service import build_genre_section, resolve_genre_context
 from prompt.context import inject_world_setting
+from settings.book_prefs_model import (
+    CHAPTER_WORD_TARGET_DEFAULT as WORD_TARGET_DEFAULT,
+)
+from settings.book_prefs_model import (
+    CHAPTER_WORD_TARGET_MAX as WORD_TARGET_MAX,
+)
+from settings.book_prefs_model import (
+    CHAPTER_WORD_TARGET_MIN as WORD_TARGET_MIN,
+)
+from settings.book_prefs_model import effective_chapter_word_target
 from settings.character_model import (
     WRITE_STATE_KEYS as _WRITE_STATE_KEYS,
 )
@@ -38,10 +49,9 @@ from settings.world_model import render_red_lines
 
 logger = logging.getLogger(__name__)
 
-# 目标字数夹取区间（服务层守卫：越界值按默认处理）
-WORD_TARGET_MIN = 500
-WORD_TARGET_MAX = 6000
-WORD_TARGET_DEFAULT = 2500
+# 目标字数夹取区间与缺省＝settings/book_prefs_model 单源（作品偏好「章节默认字数」
+# 与逐章 word_target 同组数值；前端镜像 src/lib/chapterTarget.ts，parity 对拍）：
+# 本模块沿用 WORD_TARGET_* 历史名。
 
 # 主线注入预算（storyline-settings-v2 D4）：存储不截断，写章组装是唯一裁剪点
 STORY_ARC_INJECT_MAX = 600
@@ -273,16 +283,17 @@ def lint_assembled_prompt(
     return warns
 
 
-def clamp_word_target(value) -> int:
-    """目标字数守卫：空/非法/越界 → 默认 2500；否则夹取 [500, 6000]。"""
+def clamp_word_target(value, default: int = WORD_TARGET_DEFAULT) -> int:
+    """目标字数守卫：空/非法/越界 → default（本书「章节默认字数」，缺省 2500）；
+    否则夹取 [500, 6000]。"""
     try:
         n = int(value) if value is not None else None
     except (TypeError, ValueError):
         n = None
     if n is None:
-        return WORD_TARGET_DEFAULT
+        return default
     if n < WORD_TARGET_MIN or n > WORD_TARGET_MAX:
-        return WORD_TARGET_DEFAULT
+        return default
     return n
 
 
@@ -991,8 +1002,11 @@ async def build_chapter_context(
     emotional = chapter.get("emotional_design") or {}
     ctx.primary_mood = str(emotional.get("primary_mood", "") or "").strip()
 
-    # 字数目标（夹取守卫；章纲未填走默认）
-    ctx.word_target = clamp_word_target(chapter.get("word_target"))
+    # 字数目标（夹取守卫；章纲未填走本书偏好「章节默认字数」，缺省 2500）
+    book_prefs = await get_storage().read_yaml(root_path, BOOK_PREFS_PATH)
+    ctx.word_target = clamp_word_target(
+        chapter.get("word_target"), default=effective_chapter_word_target(book_prefs)
+    )
 
     vol_match = re.match(r"vol-(\d+)", chapter_ref)
     ch_num = chapter.get("chapter", 0)
