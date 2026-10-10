@@ -18,7 +18,7 @@ import { useChapterPlan } from "@/hooks/useChapterPlan";
 import { useVolumePlan } from "@/hooks/useVolumePlan";
 import type { VolumeExpandDraft } from "@/lib/volumePlanApi";
 import type { ModelSelection } from "@/types/api-config";
-import { AiModal } from "@/components/novel/workbench/modals";
+import { AiModal, RegenConfirmModal } from "@/components/novel/workbench/modals";
 import UpgradeModal from "@/components/novel/UpgradeModal";
 import AcctMenu from "@/components/AcctMenu";
 import BookPrefsModal from "@/components/novel/BookPrefsModal";
@@ -275,30 +275,42 @@ export default function NovelWorkspace() {
     | { kind: "selection"; mode: "polish"; capture: SelectionCapture | null };
 
   const [showAiModal, setShowAiModal] = useState(false);
+  // 重新生成确认（c-prose-regen-replace）：已有正文章再生成＝清空重写，
+  // 进提示词弹窗前先确认；确认后才进 AiModal。取消＝零副作用。
+  const [showRegenConfirm, setShowRegenConfirm] = useState(false);
   // 生成已启动的信号（计数器）：ChapterWorkspace 收到即切正文页签 + 聚焦（真 bug #2）
   const [aiWriteSignal, setAiWriteSignal] = useState(0);
   // 提示词落库信号（c-prompt-tab-retire）：弹窗存稿后右栏提示词状态行刷新
   const [promptSavedSignal, setPromptSavedSignal] = useState(0);
 
-  const runAiAction = useCallback((action: AiAction) => {
-    if (action.kind === "write") {
-      setShowAiModal(true);
-      return;
-    }
-    if (action.capture) {
-      proseRef.current?.polish(action.capture);
-    } else {
-      toast.info("请先在正文中选中一段文字");
-    }
-  }, []);
+  const runAiAction = useCallback(
+    (action: AiAction, opts?: { skipRegenConfirm?: boolean }) => {
+      if (action.kind === "write") {
+        // 生成意图入口先过确认（右栏「生成正文」等）；skip 仅用于「去刷新提示词」
+        // 软提示出口——只看/刷新意图不拦（AiModal 内提示行仍告知替换后果）
+        if (!opts?.skipRegenConfirm && (railData?.wordCount ?? 0) > 0) {
+          setShowRegenConfirm(true);
+          return;
+        }
+        setShowAiModal(true);
+        return;
+      }
+      if (action.capture) {
+        proseRef.current?.polish(action.capture);
+      } else {
+        toast.info("请先在正文中选中一段文字");
+      }
+    },
+    [railData?.wordCount],
+  );
 
   const requestAi = useCallback(
-    (action: AiAction) => {
+    (action: AiAction, opts?: { skipRegenConfirm?: boolean }) => {
       if (railData?.archived) {
         toast.info("本章已归档 · 恢复编辑后可用");
         return;
       }
-      runAiAction(action);
+      runAiAction(action, opts);
     },
     [railData?.archived, runAiAction],
   );
@@ -1062,7 +1074,7 @@ export default function NovelWorkspace() {
               onTreeRefresh={refresh}
               aiWriteSignal={aiWriteSignal}
               promptSavedSignal={promptSavedSignal}
-              onOpenAiModal={() => requestAi({ kind: "write" })}
+              onOpenAiModal={() => requestAi({ kind: "write" }, { skipRegenConfirm: true })}
             />
           ) : volumeSelId ? (
             <VolumeWorkspace
@@ -1332,8 +1344,14 @@ export default function NovelWorkspace() {
       )}
 
 
-      {/* PR 5 弹窗群：升级引导 / AI 生成（提示词预览） */}
+      {/* PR 5 弹窗群：升级引导 / 重新生成确认（c-prose-regen-replace）/ AI 生成（提示词预览） */}
       <UpgradeModal open={showUpgrade} required={upgradeRequired} onClose={() => { setShowUpgrade(false); setUpgradeRequired(undefined); }} />
+      <RegenConfirmModal
+        open={showRegenConfirm}
+        onClose={() => setShowRegenConfirm(false)}
+        onConfirm={() => setShowAiModal(true)}
+        words={railData?.wordCount ?? 0}
+      />
       {chapterRef && (
         <>
           <AiModal
@@ -1341,6 +1359,7 @@ export default function NovelWorkspace() {
             onClose={() => setShowAiModal(false)}
             projectId={projectId}
             chapterRef={chapterRef}
+            hasProse={(railData?.wordCount ?? 0) > 0}
             onConfirm={handleAiConfirm}
             onPromptSaved={() => setPromptSavedSignal((n) => n + 1)}
           />

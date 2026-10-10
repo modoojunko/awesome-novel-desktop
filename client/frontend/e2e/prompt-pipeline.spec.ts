@@ -304,6 +304,14 @@ async function setupModelPickerCase(
   await page.getByRole("tab", { name: /^正文/ }).click();
   const openModal = async () => {
     await page.getByTestId("ai-write-btn").click();
+    // c-prose-regen-replace：章内已有正文（前一次生成过）→ 先确认清空重写；空章直进
+    const regen = page.getByTestId("regen-confirm");
+    try {
+      await regen.waitFor({ state: "visible", timeout: 3000 });
+      await regen.click();
+    } catch {
+      /* 空章无确认门禁 */
+    }
     const ai = page.getByRole("dialog", { name: "AI 生成正文" });
     await expect(ai.getByTestId("ai-prompt")).toBeEnabled({ timeout: 10000 });
     return ai;
@@ -408,7 +416,7 @@ test("生成模型弹层：多配置不越出视口、大屏 zoom 下与触发�
 // ═══ 编辑器内核（c-prose-editor-tiptap）═══════════════════════════════════════
 //   spec 场景「AI 生成可整体撤销」＋「采纳替换走范围事务」的回归护栏。
 
-test("流式写入可整体撤销：一次撤销回到生成前，落库同步", async ({ page, request }) => {
+test("重新生成＝替换写：旧正文清空、一次撤销回空稿，落库同步（c-prose-regen-replace）", async ({ page, request }) => {
   test.setTimeout(120_000);
   const { restore, token } = await setupSession(page);
   try {
@@ -426,23 +434,28 @@ test("流式写入可整体撤销：一次撤销回到生成前，落库同步",
       }),
     );
     await page.getByRole("tab", { name: /^正文/ }).click();
-    // 先手写一段（撤销的「生成前」基线）
+    // 先手写一段（被替换的旧正文）
     await page.getByTestId("prose-edit").click();
     const editor = page.locator(".editor");
     await editor.click();
     await page.keyboard.type("原有的一段话。");
-    await page.waitForTimeout(700); // 拉开与生成的历史分组窗口（newGroupDelay 500ms）
+    await page.waitForTimeout(700); // 等正文入 store（门禁判定读实时字数）
+    // 有正文章再生成：先过「重新生成正文」确认（c-prose-regen-replace）
     await page.getByTestId("ai-write-btn").click();
+    const regen = page.getByTestId("regen-confirm");
+    await expect(regen).toBeVisible({ timeout: 10000 });
+    await regen.click();
     const ai = page.getByRole("dialog", { name: "AI 生成正文" });
     await expect(ai.getByTestId("ai-prompt")).toBeEnabled({ timeout: 10000 });
     await ai.getByTestId("ai-confirm").click();
     await expect(editor).toContainText(CHUNK, { timeout: 10000 });
-    await expect(editor).toContainText("原有的一段话。");
-    // 一次撤销 → 回到生成前（CHUNK 消失、原段保留）
+    // 替换语义：旧正文清空，终稿＝本次生成物（不再追加）
+    await expect(editor).not.toContainText("原有的一段话。");
+    // 一次撤销 → 回空稿（旧正文找回路径＝版本历史）
     await editor.click();
     await page.keyboard.press("ControlOrMeta+z");
     await expect(editor).not.toContainText(CHUNK, { timeout: 5000 });
-    await expect(editor).toContainText("原有的一段话。");
+    await expect(editor).not.toContainText("原有的一段话。");
     // 落库同步确认
     const H = { Authorization: `Bearer ${token}` };
     await expect

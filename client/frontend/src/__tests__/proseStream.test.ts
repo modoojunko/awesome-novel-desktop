@@ -1,21 +1,31 @@
 // 流式写入复现（fix/stream-mirror-normalize 后续）：appendChunk 增量镜像＋
 // 段落 split 位移（+2）在真实 TipTap 编辑器上的端到端行为——
 // 回归钉：多 chunk 带 \n\n 流式后，文档必须与后端归一文本逐字一致、零碎片
+// c-prose-regen-replace：另钉「替换写」链——生成前整档清除，终稿＝生成物
 import { describe, expect, it, vi } from "vitest";
 import { Editor } from "@tiptap/core";
 import Document from "@tiptap/extension-document";
 import Paragraph from "@tiptap/extension-paragraph";
 import Text from "@tiptap/extension-text";
+import { UndoRedo } from "@tiptap/extensions";
 import {
   docToProse,
   linesToParagraphs,
   normalizeStreamedProse,
   proseDelta,
+  proseToDoc,
 } from "@/components/novel/workbench/proseDoc";
 
-function makeEditor() {
+function makeEditor(withHistory = false) {
   return new Editor({
-    extensions: [Document, Paragraph, Text],
+    extensions: [
+      Document,
+      Paragraph,
+      Text,
+      // newGroupDelay 0：真实链里「清空」与「写回」隔着整段流式时长（≫500ms 默认
+      // 分组窗），恒为两个历史条目；测试里两者只隔毫秒，须关掉合并才同构
+      ...(withHistory ? [UndoRedo.configure({ newGroupDelay: 0 })] : []),
+    ],
     content: "",
   });
 }
@@ -142,5 +152,102 @@ describe("段落 split 位移回归（多 chunk 碎片化）", () => {
     const { doc, expected } = simulate(tokenize(text, [2, 3, 1, 4, 2]));
     expect(doc).toBe(expected);
     expect(expected).toBe(text);
+  });
+});
+
+// ── c-prose-regen-replace：生成＝替换本章正文（ProsePane.startStream 同链复现）──
+describe("替换写（c-prose-regen-replace）", () => {
+  /** 替换链复现：预置旧正文 → 整档清除（入撤销史）→ 垫段 → 流式 → finish 重排 */
+  function simulateReplace(oldProse: string, chunks: string[]) {
+    const editor = makeEditor(true);
+    // 章正文投影走 JSON（与 ProsePane proseToDoc 同源；setContent 字符串会按
+    // HTML 解析、把 \n 吞成同段空格）
+    editor.commands.setContent(proseToDoc(oldProse));
+    const before = docToProse(editor.getJSON());
+
+    // startStream：流式标记后整档清除（ProsePane 里该事务入撤销史）。
+    // prosemirror 删除全域会留一个空段作保底结构——它恰是流式脚手架，
+    // 与 ProsePane 的 size===0 垫段守卫同款分流：非零文档不再垫段
+    editor.view.dispatch(
+      editor.state.tr.delete(0, editor.state.doc.content.size),
+    );
+    let pos: number;
+    if (editor.state.doc.content.size === 0) {
+      const para = editor.state.schema.nodes.paragraph.create();
+      const padTr = editor.state.tr.insert(0, para);
+      padTr.setMeta("addToHistory", false);
+      editor.view.dispatch(padTr);
+      pos = 1;
+    } else {
+      pos = editor.state.doc.content.size - 1; // 空段内
+    }
+    const start = pos;
+
+    const streamReceived = { current: "" };
+    const insertedLen = { current: 0 };
+    for (const chunk of chunks) {
+      streamReceived.current += chunk;
+      const full = normalizeStreamedProse(streamReceived.current);
+      const delta = proseDelta(full, insertedLen.current);
+      if (!delta) continue;
+      const tr = editor.state.tr;
+      // chunk 事务不入史（与 ProsePane appendChunk 同款）
+      tr.setMeta("addToHistory", false);
+      let cur = pos;
+      delta.split("\n").forEach((line, i, arr) => {
+        if (line) {
+          tr.insertText(line, cur, cur);
+          cur += line.length;
+        }
+        if (i < arr.length - 1) {
+          tr.split(cur);
+          cur += 2;
+        }
+      });
+      editor.view.dispatch(tr);
+      pos = cur;
+      insertedLen.current = full.length;
+    }
+
+    // finishStream：删流式区间（不入史）→ 整段写回（入史）；正文终态＝生成物
+    const generated = normalizeStreamedProse(streamReceived.current);
+    if (pos > start) {
+      const tr = editor.state.tr.delete(start, pos);
+      tr.setMeta("addToHistory", false);
+      editor.view.dispatch(tr);
+    }
+    if (generated.trim()) {
+      editor
+        .chain()
+        .insertContentAt(start, linesToParagraphs(generated), {
+          updateSelection: false,
+        })
+        .run();
+    }
+    return { editor, before, generated };
+  }
+
+  it("已有正文章生成：旧正文清空，终稿＝本次生成物（不再追加）", () => {
+    const text = "夜禁的钟声敲过第三下。\n林野走在队伍最外侧。";
+    const { editor, before, generated } = simulateReplace(
+      "旧的一段。\n旧的另一段。",
+      tokenize(text, [3, 5, 2]),
+    );
+    expect(before).toBe("旧的一段。\n旧的另一段。");
+    const doc = docToProse(editor.getJSON());
+    expect(doc).toBe(generated);
+    expect(doc).toBe(text);
+    expect(doc).not.toContain("旧的一段");
+  });
+
+  it("一次撤销回到空稿（旧正文的找回路径＝版本历史，产品口径）", () => {
+    const { editor } = simulateReplace(
+      "旧的一段。\n旧的另一段。",
+      tokenize("新生成的第一段。\n新生成的第二段。", [2, 4, 1]),
+    );
+    editor.commands.undo();
+    expect(docToProse(editor.getJSON())).toBe("");
+    // 深层撤销跨越生成段的回放不构成找回承诺（untracked 流式事务夹层），
+    // 不在此钉——「清空与找回」的产品口径见 RegenConfirmModal 文案与 spec delta。
   });
 });

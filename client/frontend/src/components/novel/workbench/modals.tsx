@@ -2,7 +2,8 @@
 //   DeleteConfirmModal  删除确认（章=内容盘点 chips / 卷=带章数字数文案）
 //   ArchiveModal        归档本章
 //   HistoryModal        版本历史（wide · ver-rows + 恢复；产品扩展=行内对比）
-//   AiModal             AI 生成正文（tall · 提示词预览可编辑 + 追加语义提示）
+//   RegenConfirmModal   重新生成确认（c-prose-regen-replace：有正文章再生成＝清空重写）
+//   AiModal             AI 生成正文（tall · 提示词预览可编辑；生成＝替换本章正文）
 // 文案与结构与原型 modalDelete/modalArchive/modalHistory/modalAi 逐字对齐
 // （modalUnlock 随「解除只读」解锁链退役，c-archived-readonly）；
 // 产品化差异（升级跳 S端 等）见 docs/design-c/prototypes/ADJUSTMENTS.md。
@@ -674,14 +675,71 @@ function ModelField({
 }
 
 // ---------------------------------------------------------------------------
+// 重新生成确认（c-prose-regen-replace）：已有正文章再点「生成正文」→ 先确认
+// 「重复生成将清空当前正文」，找回只有版本历史；确认后才进 AiModal 提示词预览。
+// ---------------------------------------------------------------------------
+export function RegenConfirmModal({
+  open,
+  onClose,
+  onConfirm,
+  words,
+}: {
+  open: boolean;
+  onClose: () => void;
+  /** 确认后进 AiModal 提示词预览（本弹窗自身零副作用，不触发生成） */
+  onConfirm: () => void;
+  /** 当前正文字数（提示语带数量；0＝不显字数） */
+  words: number;
+}) {
+  return (
+    <Modal
+      open={open}
+      onClose={onClose}
+      title="重新生成正文"
+      wbStyle
+      hideClose
+      footer={
+        <>
+          <button className="btn btn-secondary" onClick={onClose}>
+            取消
+          </button>
+          <button
+            className="btn btn-primary"
+            style={{ background: "var(--err)" }}
+            data-testid="regen-confirm"
+            onClick={() => {
+              onClose();
+              onConfirm();
+            }}
+          >
+            继续生成
+          </button>
+        </>
+      }
+    >
+      <p style={{ margin: 0, fontSize: 13.5, lineHeight: 1.7 }}>
+        本章已有正文{words > 0 ? <>（{fmt(words)} 字）</> : null}，重新生成将
+        <b>清空当前正文</b>后写入新内容。
+      </p>
+      <p style={{ margin: "8px 0 0", fontSize: 12.5, color: "var(--muted)" }}>
+        被清空的正文无法在编辑器撤销找回，只能通过页签行右端「版本历史」恢复。
+      </p>
+    </Modal>
+  );
+}
+
+// ---------------------------------------------------------------------------
 // AI 生成正文（tall）：打开展示存量/本次组装稿 → 作家过目/编辑 →「生成正文」
-// 流式追加。c-prompt-tab-retire：提示词页签退役后本弹窗兼任「查看/编辑/存稿」
+// 流式写入。c-prompt-tab-retire：提示词页签退役后本弹窗兼任「查看/编辑/存稿」
 // 入口——「存为本章提示词」把编辑稿落库（PUT prompts/write），此后每次生成本弹窗
 // 打开即显示这一版；只查看不生成＝打开后取消（零副作用）。
 // 「刷新提示词」＝GET ?fresh=1 忽略存量行按当前素材重新组装（只换预览稿，
 // 不动存量行）；章纲/设定改过之后用它拿到新组装稿。
 // c-retire-prompt-polish：原「AI 润色」两段式第二段退役（组装稿直接可编辑用），
 // 弹窗内不再有润色入口。
+// c-prose-regen-replace：写入语义由「追加到本章末尾」改「清空并替换本章正文」；
+// 已有正文章的再生成在入口层先过 RegenConfirmModal（「去刷新提示词」软提示
+// 出口除外——只看/刷新意图不拦，生成后果由弹窗内提示行告知）。
 // ---------------------------------------------------------------------------
 
 export function AiModal({
@@ -689,6 +747,7 @@ export function AiModal({
   onClose,
   projectId,
   chapterRef,
+  hasProse,
   onConfirm,
   onPromptSaved,
 }: {
@@ -696,6 +755,8 @@ export function AiModal({
   onClose: () => void;
   projectId: string;
   chapterRef: string;
+  /** 本章已有正文（c-prose-regen-replace）：提示行按「替换」口径出文案 */
+  hasProse?: boolean;
   /** 携带编辑后的提示词启动生成；modelSelection＝按次模型对（c-prose-model-select：
    *  未换模型/与本书模型相同＝undefined，走本书模型路径） */
   onConfirm: (prompt: string, modelSelection?: ModelSelection) => void;
@@ -922,7 +983,9 @@ export function AiModal({
       ) : (
         <p style={{ margin: 0, fontSize: 12.5, color: "var(--muted)" }}>
           {hasOutline
-            ? "过目／编辑后点「生成正文」；生成内容将追加到本章末尾。"
+            ? hasProse
+              ? "过目／编辑后点「生成正文」；本次生成将清空并替换本章现有正文，旧正文可从版本历史找回。"
+              : "过目／编辑后点「生成正文」；生成内容将写入本章。"
             : "本章尚未配置章纲，将仅依据设定生成。建议先去「大纲」补章纲（不强制）。"}
         </p>
       )}
