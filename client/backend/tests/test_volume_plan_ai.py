@@ -356,6 +356,95 @@ class TestVolumeOptions:
         assert r.status_code == 403
         assert fake.calls == []  # AI 不被触达（免费档生成类归 PRO）
 
+    # ── 目标卷号解析（c-vol-options-prev-ending）：上一卷结尾按 vol_no 解析，缺省＝下一卷 ──
+
+    def _seed_archived_chapter(self, pid: str, vol_no: int, chapter_no: int, summary: str) -> None:
+        from models.chapter import Chapter
+        from models.volume import Volume
+
+        async def _s():
+            async with async_session() as session:
+                vol = (await session.execute(
+                    select(Volume).where(Volume.project_id == pid, Volume.volume_no == vol_no)
+                )).scalar_one()
+                session.add(Chapter(
+                    project_id=pid, volume_id=vol.id, chapter_no=chapter_no,
+                    ref=f"vol-{vol_no}-ch-{chapter_no}", title=f"第{chapter_no}章",
+                    status="archived", summary=summary,
+                ))
+                await session.commit()
+
+        _run_async(_s())
+
+    def _prev_block(self, prompt: str) -> str:
+        """【上一卷的结尾】块单独摘出（user 段）——system 规则与【已拆卷】里也出现
+        各卷卷末字样，须从最后一处标记切，再截到【作者这一卷的想法】。"""
+        tail = prompt.rsplit("【上一卷的结尾】", 1)[1]
+        return tail.split("【作者这一卷的想法】")[0]
+
+    def test_explicit_vol_no_uses_actual_archived_ending(self, client, monkeypatch):
+        """①vol_no=2 且第 1 卷有归档章 → 注入实际收尾（非主线起步）。"""
+        _set_tier("trial")
+        pid = _mk_project(client)
+        client.post(f"/api/novels/{pid}/volumes", json={"title": "血酬", "ending": "盟约成立，他签了"})
+        self._seed_archived_chapter(pid, 1, 12, "信标当众暴露，舰队连夜改航")
+        fake = _setup_ai(monkeypatch, [VALID_PLANS])
+        r = client.post(f"/api/novels/{pid}/volumes/ai/options", json={"line": "", "vol_no": 2})
+        assert r.status_code == 200, r.text
+        prev = self._prev_block(_layered_prompt(fake.last_kwargs))
+        assert "信标当众暴露" in prev
+        assert "第1卷 · 实际收尾（第12章）" in prev
+        assert "来自主线全景" not in prev  # 不再是首卷口径
+
+    def test_default_vol_no_falls_back_to_next(self, client, monkeypatch):
+        """②缺省 vol_no → max+1（与 expand 同构）：既有 1 卷时按第 2 卷解析＝第 1 卷预期结局。"""
+        _set_tier("trial")
+        pid = _mk_project(client)
+        client.post(f"/api/novels/{pid}/volumes", json={"title": "血酬", "ending": "盟约成立，他签了"})
+        fake = _setup_ai(monkeypatch, [VALID_PLANS])
+        r = client.post(f"/api/novels/{pid}/volumes/ai/options", json={"line": ""})
+        assert r.status_code == 200, r.text
+        prev = self._prev_block(_layered_prompt(fake.last_kwargs))
+        assert "盟约成立，他签了" in prev
+        assert "第1卷 · 预期结局" in prev
+
+    def test_first_volume_uses_fullstory_start(self, client, monkeypatch):
+        """③空书缺省（max=0→1）与显式 vol_no=1 都走主线全景起步，第一卷行为不变。"""
+        _set_tier("trial")
+        pid = _mk_project(client)
+        fake = _setup_ai(monkeypatch, [VALID_PLANS])
+        for body in ({"line": ""}, {"line": "", "vol_no": 1}):
+            r = client.post(f"/api/novels/{pid}/volumes/ai/options", json=body)
+            assert r.status_code == 200, r.text
+            assert "来自主线全景" in self._prev_block(_layered_prompt(fake.last_kwargs))
+
+    def test_replan_existing_volume_never_self_feeds(self, client, monkeypatch):
+        """④重规划已有卷 vol_no=2 → 注入第 1 卷收尾＋来源标注，不把本卷卷末当进场。"""
+        _set_tier("trial")
+        pid = _mk_project(client)
+        client.post(f"/api/novels/{pid}/volumes", json={"title": "血酬", "ending": "第1卷的收尾锚点"})
+        client.post(f"/api/novels/{pid}/volumes", json={"title": "长夜", "ending": "第2卷自己的卷末"})
+        fake = _setup_ai(monkeypatch, [VALID_PLANS])
+        r = client.post(f"/api/novels/{pid}/volumes/ai/options", json={"line": "", "vol_no": 2})
+        assert r.status_code == 200, r.text
+        prev = self._prev_block(_layered_prompt(fake.last_kwargs))
+        assert "第1卷的收尾锚点" in prev
+        assert "第1卷 · 预期结局" in prev  # 来源标注钉：恒 1 口径下这里是「第一卷 · 来自主线全景」
+        assert "第2卷自己的卷末" not in prev
+
+    def test_prev_volume_deleted_gives_placeholder(self, client, monkeypatch):
+        """⑤vol_no=3 且第 2 卷已删 → 「（上一卷不存在）」占位，不 500。"""
+        _set_tier("trial")
+        pid = _mk_project(client)
+        client.post(f"/api/novels/{pid}/volumes", json={"title": "血酬"})
+        client.post(f"/api/novels/{pid}/volumes", json={"title": "长夜"})
+        r_del = client.delete(f"/api/novels/{pid}/volumes/vol-2")
+        assert r_del.status_code == 200, r_del.text
+        fake = _setup_ai(monkeypatch, [VALID_PLANS])
+        r = client.post(f"/api/novels/{pid}/volumes/ai/options", json={"line": "", "vol_no": 3})
+        assert r.status_code == 200, r.text
+        assert "（上一卷不存在）" in self._prev_block(_layered_prompt(fake.last_kwargs))
+
 
 # ═══════════════ 展开卷纲草稿 ═══════════════
 

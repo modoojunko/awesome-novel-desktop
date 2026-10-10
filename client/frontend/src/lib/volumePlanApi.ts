@@ -85,8 +85,8 @@ export interface VolumeCheckResult {
 const path = (pid: string, suffix: string) => `/novels/${pid}/volumes${suffix}`;
 
 export const volumePlanApi = {
-  /** 3 套可行走法（PRO）——answers 带四问已答约束 */
-  options: (pid: string, answers: PlanAnswers, exclude?: DrawExcludeItem[]): Promise<VolumeOptionsResult> =>
+  /** 3 套可行走法（PRO）——answers 带四问已答约束；volNo＝目标卷号，上一卷结尾按它解析 */
+  options: (pid: string, answers: PlanAnswers, exclude?: DrawExcludeItem[], volNo?: number | null): Promise<VolumeOptionsResult> =>
     api.post(path(pid, "/ai/options"), {
       line: answers.q1,
       conflict: answers.conflict,
@@ -94,6 +94,7 @@ export const volumePlanApi = {
       antagonist_line: answers.antagonist_line,
       ending: answers.q4,
       ...(exclude?.length ? { exclude } : {}),
+      vol_no: volNo ?? null,
     }),
   /** 展开卷纲草稿（PRO）——卡面/手写四问带入，AI 不覆盖 */
   expand: (

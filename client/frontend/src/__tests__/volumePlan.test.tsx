@@ -1374,13 +1374,17 @@ describe("volume/form 契约（表单态 ↔ payload）", () => {
 });
 
 describe("volumePlanApi 契约", () => {
-  it("options/expand 发 answers 形状；vol_no 缺省 null", async () => {
+  it("options/expand 发 answers 形状；vol_no 缺省 null，options 随目标卷号", async () => {
     apiState.post.mockReset();
     apiState.post.mockResolvedValue(THREE_PLANS);
     const { volumePlanApi } = await import("@/lib/volumePlanApi");
     await volumePlanApi.options("p1", { ...EMPTY_ANSWERS, q1: "一句" });
     expect(apiState.post).toHaveBeenCalledWith("/novels/p1/volumes/ai/options", {
-      line: "一句", conflict: "", antagonist_type: "", antagonist_line: "", ending: "",
+      line: "一句", conflict: "", antagonist_type: "", antagonist_line: "", ending: "", vol_no: null,
+    });
+    await volumePlanApi.options("p1", { ...EMPTY_ANSWERS, q1: "一句" }, [], 3);
+    expect(apiState.post).toHaveBeenCalledWith("/novels/p1/volumes/ai/options", {
+      line: "一句", conflict: "", antagonist_type: "", antagonist_line: "", ending: "", vol_no: 3,
     });
     await volumePlanApi.expand("p1", { ...EMPTY_ANSWERS, q4: "卷末" });
     expect(apiState.post).toHaveBeenCalledWith("/novels/p1/volumes/ai/expand", {
