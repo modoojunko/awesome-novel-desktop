@@ -144,3 +144,46 @@ def test_data_drift_breaks_both_forms(monkeypatch):
     monkeypatch.setattr(router, "scan_migration_candidates", fake_scan)
     cands = asyncio.run(router.candidates())["data"]["candidates"]
     assert cands[0]["carried"] is False and cands[0]["suppressed"] is False
+
+
+def test_partial_state_flag(monkeypatch):
+    """c-carry-degrade-remigrate：部分迁移态＝有完成记录、status ok、完整性未达标。
+
+    carried_partial 与 carried 互斥；完整达成与无记录均不置位。"""
+    import asyncio
+
+    def run(last_payload, scanned_stamp="S1"):
+        def fake_get(key: str):
+            if key == "migration.last":
+                return json.dumps(last_payload) if last_payload is not None else None
+            return None
+
+        monkeypatch.setattr(router, "_app_meta_value", fake_get)
+        scanned = [{"filename": "novel.db", "stamp": scanned_stamp,
+                    "stamp_legacy": scanned_stamp + "-l",
+                    "recommended": True, "unreadable": False}]
+
+        def fake_scan(root, ver, active):
+            return [dict(it) for it in scanned]
+
+        monkeypatch.setattr(router, "scan_migration_candidates", fake_scan)
+        return asyncio.run(router.candidates())["data"]["candidates"][0]
+
+    incomplete_ok = {"source_stamp": "S1",
+                     "report": {"status": "ok", "tables_skipped": [],
+                                "fk_violations": [],
+                                "book_count_source": 2,
+                                "book_count_present": 1}}
+    it = run(incomplete_ok)
+    assert it["carried_partial"] is True and it["carried"] is False
+
+    complete_ok = {"source_stamp": "S1",
+                   "report": {"status": "ok", "tables_skipped": [],
+                              "fk_violations": [],
+                              "book_count_source": 2,
+                              "book_count_present": 2}}
+    it = run(complete_ok)
+    assert it["carried_partial"] is False and it["carried"] is True
+
+    it = run(None)
+    assert it["carried_partial"] is False and it["carried"] is False
