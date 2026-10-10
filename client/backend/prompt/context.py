@@ -196,3 +196,15 @@ def cast_profile_block(items: list[dict], footer_template: str = "") -> str:
 
 # 主角/反派给认知六层全量（与 ai_router 主线起草同口径）
 _CAST_DEPTH_ROLES = ("主角", "反派")
+
+
+def cast_anchors_block(items: list[dict]) -> str:
+    """system 恒定层档案锚（c-cast-split-user-layer）：只收主角与反派。
+
+    两张极性卡（含认知六层全量）逐章恒定吃前缀缓存；配角与未设角色卡
+    按本章出场走 user 层（chapter_writer.to_user_material 的「本章出场配角」块），
+    新增配角不再改写 system 缓存前缀。空集返回空串（恒定层不出空节）。
+    """
+    return cast_profile_block(
+        [it for it in items if it.get("role") in _CAST_DEPTH_ROLES]
+    )

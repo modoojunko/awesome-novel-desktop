@@ -28,7 +28,7 @@ logger = logging.getLogger("uvicorn.error")
 # c-og-slim-v2：location/time/narrative_pov 与 reader_expectation 两键、情绪设计两暗字段
 # （mood_progression/emotional_hook）与 intensity_* 一并退役——列随模型摘除，拆装链不再含。
 _OUTLINE_SCALARS = [
-    ("summary", "summary", 300),
+    ("summary", "summary", None),
 ]
 _EMOTIONAL_SCALARS = [
     ("primary_mood", "primary_mood", 50),
@@ -415,7 +415,7 @@ async def _replace_children_impl(
                 sort_order=i,
                 character_name=name,
                 character_id=name_map.get(name),
-                state_change=_fit(state_by_name.get(name, ""), 200),
+                state_change=_fit(state_by_name.get(name, ""), None),
             )
             for i, name in enumerate(names)
         ]

@@ -133,7 +133,7 @@ export function useVolumePlan(projectId: string) {
     track(kind === "redraw" ? "pick_redraw" : "pick_drawn");
     setState((s) => ({ ...s, exclude: [...excludeRef.current], pickPhase: "busy", pickError: "", pickPick: null }));
     try {
-      const d = await volumePlanApi.options(projectId, answersNow(), excludeRef.current);
+      const d = await volumePlanApi.options(projectId, answersNow(), excludeRef.current, state.volNo);
       if (token !== tokenRef.current) return;
       if (d.degraded) {
         setState((s) => ({ ...s, pickPhase: "error", pickError: d.hint || "AI 的输出没法结构化——可重试，或自己答四个问题" }));

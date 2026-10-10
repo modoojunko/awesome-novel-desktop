@@ -13,6 +13,7 @@
 
 import difflib
 import json
+import logging
 import re
 
 from fastapi import APIRouter, Depends, HTTPException
@@ -39,6 +40,7 @@ from settings.world_model import render_red_lines, world_summary_text
 from volumes.render import volume_outline_text
 from volumes.service import resolve_prev_ending
 
+logger = logging.getLogger("uvicorn.error")  # 同 volumes/service.py 口径
 router = APIRouter(prefix="/api/novels/{project_id}/volumes", tags=["volumes"])
 
 _MODEL = "haiku"  # 符号别名，落到本书模型（D12；与章纲起草同口径）
@@ -123,7 +125,11 @@ class ExcludeItem(BaseModel):
 
 
 class PlanLineBody(BaseModel):
-    """抽卡/四问约束（可空——空则 AI 自由推）。作家已答的照抄不改写。"""
+    """抽卡/四问约束（可空——空则 AI 自由推）。作家已答的照抄不改写。
+
+    `vol_no` ＝本次规划的目标卷号（c-vol-options-prev-ending）：上一卷结尾按它解析，
+    缺省＝下一卷（与 ExpandBody 同构；老客户端回落，重规划已有卷须显式带）。
+    """
 
     line: str = Field(default="", max_length=LINE_MAX)
     conflict: str = Field(default="", max_length=150)
@@ -131,6 +137,7 @@ class PlanLineBody(BaseModel):
     antagonist_line: str = Field(default="", max_length=150)
     ending: str = Field(default="", max_length=300)
     exclude: list[ExcludeItem] = Field(default_factory=list, max_length=9)
+    vol_no: int | None = Field(default=None, ge=1, le=99)
 
 
 def _exclude_block(exclude: list[tuple[str, str]]) -> str:
@@ -216,7 +223,7 @@ async def _closed_hooks_summary(novel_id: str) -> str:
     for status, label in (("resolved", "已收"), ("abandoned", "已弃")):
         row = next((r for r in rows if r.status == status), None)
         if row is not None:
-            lines.append(f"- {label}：[H-{row.seq:04d}] {row.description[:60]}")
+            lines.append(f"- {label}：[H-{row.seq:04d}] {row.description}")
     return "\n".join(lines)
 
 
@@ -290,7 +297,7 @@ async def _book_material(
                 card_names.add(na)
 
     cast_brief = "\n".join(
-        f"- {it.get('name', '')}（{it.get('role', '')}）：{(it.get('persona') or '')[:80]}"
+        f"- {it.get('name', '')}（{it.get('role', '')}）：{it.get('persona') or ''}"
         for it in items
     )
 
@@ -487,14 +494,15 @@ def _sanitize_plans(parsed: dict | None) -> dict | None:
         out.append(
             {
                 "no": len(out) + 1,
-                # 钳位＝提示词字段上限（对齐——上限说明不该被更宽的兜底架空）
-                "spine": spine[:40],
-                "conflict": conflict[:40],
-                "ending": ending[:40],
+                # c-field-truncation-alignment 终版：内容字段完整直通（进提示词不截断）；
+                # 标签类（focus/name）保卡片预算
+                "spine": spine,
+                "conflict": conflict,
+                "ending": ending,
                 "focus": str(p.get("focus", "") or "").strip()[:20],
                 "focus_axis": axis,
                 "antagonist_type": p_ant_type,
-                "antagonist_line": str(p.get("antagonist_line", "") or "").strip()[:150],
+                "antagonist_line": str(p.get("antagonist_line", "") or "").strip(),
             }
         )
         if len(out) == MAX_PLANS:
@@ -582,7 +590,11 @@ async def ai_volume_options(
     # 重抽排除（D21）：已出批的轴＋走向；中性禁令入素材，服务端对拍丢撞车套
     exclude = [(i.axis.strip(), i.line.strip()) for i in body.exclude if i.axis.strip() and i.line.strip()][:9]
 
-    prev = await resolve_prev_ending(db, project, 1)
+    # 目标卷号：显式（前端规划流既定卷号）→ 缺省＝下一卷；上一卷结尾按它解析（事实优先）
+    target_vol_no = body.vol_no or (await _next_volume_no(db, project))
+    if not body.vol_no:
+        logger.info("volume options: vol_no absent, resolved target=%s (project %s)", target_vol_no, project.id)
+    prev = await resolve_prev_ending(db, project, target_vol_no)
     _sys_t, _usr_t = load_layers("volume_options")
     system = _render(_sys_t, focus_axes="／".join(FOCUS_AXES))
     _user = _render(
@@ -679,11 +691,12 @@ def _sanitize_expand(obj: dict | None) -> dict | None:
         ant_type = "人物" if ant_type else ""
     return {
         "name": str(obj.get("name", "") or "").strip()[:6],
-        "summary": summary[:80],
-        "conflict": conflict[:60],
-        "ending": ending[:60],
+        # c-field-truncation-alignment 终版：内容字段完整直通（进提示词不截断）
+        "summary": summary,
+        "conflict": conflict,
+        "ending": ending,
         "antagonist_type": ant_type,
-        "antagonist_line": str(obj.get("antagonist_line", "") or "").strip()[:150],
+        "antagonist_line": str(obj.get("antagonist_line", "") or "").strip(),
         "plants": _lines(obj.get("plants"), 2),
         "reveals": _lines(obj.get("reveals"), 2),
         "chapter_target": min(9999, max(0, total)),
@@ -774,12 +787,12 @@ async def ai_volume_expand(
         }
     # 卡面四问胜出（评审拍板：expand 只补空缺，不覆盖带入值）
     if body.conflict.strip():
-        draft["conflict"] = body.conflict.strip()[:60]
+        draft["conflict"] = body.conflict.strip()
     if body.antagonist_line.strip():
         draft["antagonist_type"] = body.antagonist_type or "人物"
-        draft["antagonist_line"] = body.antagonist_line.strip()[:150]
+        draft["antagonist_line"] = body.antagonist_line.strip()
     if body.ending.strip():
-        draft["ending"] = body.ending.strip()[:60]
+        draft["ending"] = body.ending.strip()
     warnings = _entity_warnings(draft.pop("cast", []), draft.pop("factions", []), mat["known_entities"])
     return {"ok": True, "vol_no": vol_no, "draft": draft, "warnings": warnings}
 

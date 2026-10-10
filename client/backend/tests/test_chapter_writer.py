@@ -58,6 +58,15 @@ class TestUserMaterial:
         assert "- 张三：正在调查（语言特征：话短句沉）" in prompt
         assert "- 李四：隐藏身份" in prompt
 
+    def test_character_state_cell_passes_through_complete(self):
+        """c-field-truncation-alignment 终版：角色状态逐格完整直通（旧 40 字封顶退役）——
+        超长格逐字进素材，不被切。"""
+        ctx = ChapterContext()
+        long_cell = "他" + "想" * 60 + "。"
+        ctx.characters = [{"name": "张三", "state": long_cell}]
+        prompt = ctx.to_user_material()
+        assert long_cell in prompt
+
     def test_with_previous_chapter_recap(self):
         ctx = ChapterContext()
         ctx.previous_chapter_recap = "上一章结尾，张三推开了那扇门。"
@@ -145,6 +154,28 @@ class TestSystemPrompt:
         assert "你是。" not in ctx.build_system_prompt()
         assert "一位小说家" in ctx.build_system_prompt()
 
+    def test_persona_strips_sentence_tail_keeps_ellipsis(self):
+        """c-cast-split-user-layer 配套：role 尾部句读剥除（模板「叙事身份：{persona}。」
+        自带句号），省略号不算句尾——剥了会剩半句。"""
+        assert resolve_persona({"role": "冷静克制，不替他下判断。"}) == "冷静克制，不替他下判断"
+        assert resolve_persona({"role": "冷峻叙事者！"}) == "冷峻叙事者"
+        assert resolve_persona({"role": "他是个……"}) == "他是个……"
+
+    def test_persona_pure_punctuation_falls_back_to_default(self):
+        """纯句读 role 剥尾后为空 → 与空串同路兜底默认（「你是。」残句变体防御）。"""
+        assert resolve_persona({"role": "。"}) == "一位小说家"
+        assert resolve_persona({"role": "！！！"}) == "一位小说家"
+
+    def test_theme_in_identity_line(self):
+        """身份句先立题材作家（v9）：「深耕{theme}题材」；空题材兜底「网文」。"""
+        ctx = ChapterContext()
+        ctx.theme = "西式奇幻（黑暗奇幻）"
+        system = ctx.build_system_prompt()
+        assert system.startswith("你是深耕西式奇幻（黑暗奇幻）题材的中文连载小说家")
+        assert "本次执笔的叙事身份：一位小说家。" in system
+        empty = ChapterContext()
+        assert "深耕网文题材" in empty.build_system_prompt()
+
     def test_premise_and_arc_in_system(self):
         ctx = ChapterContext()
         ctx.novel_title = "暗流"
@@ -224,15 +255,18 @@ class TestSystemPrompt:
         assert "## 人物档案" not in system
 
     def test_cast_anchors_full_roster_not_chapter_filtered(self):
-        """档案锚＝全书角色静态档案：不按单章出场名单过滤（设计决策 5）。"""
+        """c-cast-split-user-layer：system 锚＝主角/反派恒定卡；配角与未设角色不入 system。"""
         ctx = ChapterContext()
         ctx.cast_items = [
             {"name": "林野", "role": "主角", "persona": "求安稳的夜班巡护员"},
+            {"name": "银铎", "role": "配角", "persona": "教团猎魔人"},
             {"name": "猎魔人", "role": "", "dossier": {"speech": "教规腔"}},
         ]
         system = ctx.build_system_prompt()
         assert "林野" in system
-        assert "猎魔人" in system
+        assert "求安稳的夜班巡护员" in system
+        assert "银铎" not in system
+        assert "猎魔人" not in system
         assert "求安稳的夜班巡护员" in system
 
     def test_system_stable_across_chapters(self):
@@ -253,20 +287,42 @@ class TestSystemPrompt:
         assert a.build_system_prompt() == b.build_system_prompt()
 
     def test_new_character_changes_system_once_user_carries_appearance(self):
-        """新角色入册：system 恒定集合变化一次后恒定；未出场章 user 状态行不出现。"""
+        """c-cast-split-user-layer：新增配角 system 逐字节不变；出场配角走 user 层。
+
+        旧口径（配角入 system、新增时 system 变化一次）随 c-cast-split-user-layer
+        退役：极性卡（主角/反派）恒定，配角按本章素材文本匹配出场进 user。
+        """
         base = ChapterContext()
         base.cast_items = [{"name": "林野", "role": "主角", "persona": "巡护员"}]
-        before = base.build_system_prompt()
-
         grown = ChapterContext()
         grown.cast_items = [
             {"name": "林野", "role": "主角", "persona": "巡护员"},
-            {"name": "猎魔人", "role": "", "persona": "教团猎手"},
+            {"name": "银铎", "role": "配角", "persona": "教团猎魔人"},
         ]
-        after = grown.build_system_prompt()
-        assert "猎魔人" in after and "猎魔人" not in before  # system 变化一次
-        # 该角色未出场：user 层角色状态行不出现（出场与否由 user 表达）
-        assert "猎魔人" not in grown.to_user_material()
+        # 新增配角：system 不动（缓存前缀不受新角色影响）
+        assert base.build_system_prompt() == grown.build_system_prompt()
+        # 本章素材提到银铎 → user 层出「本章出场配角」卡
+        onstage = ChapterContext()
+        onstage.cast_items = grown.cast_items
+        onstage.plot_items = ["银铎在巷口拦住林野盘问"]
+        user = onstage.to_user_material()
+        assert "## 本章出场配角" in user
+        assert "银铎" in user
+        # 未出场 → 两层都不出现
+        offstage = ChapterContext()
+        offstage.cast_items = grown.cast_items
+        assert "银铎" not in offstage.to_user_material()
+
+    def test_supporting_cast_matched_by_alias(self):
+        """出场判定含别名：本章素材用别名提到，卡仍按出场注入。"""
+        ctx = ChapterContext()
+        ctx.cast_items = [
+            {"name": "银铎", "role": "配角", "aliases": ["教团女人"], "persona": "猎魔人"},
+        ]
+        ctx.previous_tail = "教团女人收起银盘，转身离开。"
+        user = ctx.to_user_material()
+        assert "## 本章出场配角" in user
+        assert "银铎" in user
 
     def test_braces_in_material_do_not_crash(self):
         """花括号素材（JSON/修辞）不崩：占位符填充 SHALL 用顺序 replace。"""

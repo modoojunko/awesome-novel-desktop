@@ -17,9 +17,27 @@ PLOT_MAX_ITEMS = 12
 PLOT_MAX_LEN = 200
 
 
+_SENT_ENDS = "。！？；…"
+
+
+def clip_sentence(text, limit: int) -> str:
+    """句读点截断工具（c-field-truncation-alignment）：超预算截到最后一个句读点。
+    终版口径下内容字段已改完整直通、生产链不再调用；本工具保留供自检/导出等
+    可选场景（chapters/ai_plot.clip_plot_item 委托此处）。"""
+    t = str(text or "").strip()
+    if len(t) <= limit:
+        return t
+    cut = t[:limit]
+    for i in range(len(cut) - 1, -1, -1):
+        if cut[i] in _SENT_ENDS:
+            return cut[: i + 1]
+    return cut
+
+
 def normalize_plot_items(items: list) -> list[str]:
     """剧情条目归一：只收字符串项（非字符串丢弃＝防御性兜底，请求层已 422 拒收）＋
-    单条截 200＋截 12 条；含换行的条目单条完整保留。
+    截 12 条（计数预算保留）；**单条不截**（c-field-truncation-alignment 终版：内容
+    完整引入提示词）；含换行的条目单条完整保留。
 
     越界只夹不报错——保存链不产生错误、自动保存不被冻结（spec：越界内容只在
     输入侧硬夹，服务端夹是防御性兜底）。
@@ -31,7 +49,7 @@ def normalize_plot_items(items: list) -> list[str]:
     for item in items[:PLOT_MAX_ITEMS]:
         if not isinstance(item, str):
             continue
-        out.append(item[:PLOT_MAX_LEN])
+        out.append(item)
     return out
 
 

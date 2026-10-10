@@ -54,7 +54,7 @@ def _sanitize_fills(d: dict) -> dict:
             if vals:
                 out[k] = vals
         elif isinstance(v, str) and v.strip():
-            out[k] = v.strip()[:300]
+            out[k] = v.strip()
     return out
 
 

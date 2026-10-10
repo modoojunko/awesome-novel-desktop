@@ -26,7 +26,7 @@ from chapters.ai_plan import (
     position_label,
     resolve_prev_chapter_ending,
 )
-from chapters.schemas import PLOT_MAX_LEN
+from chapters.schemas import PLOT_MAX_LEN, clip_sentence
 from db import get_db
 from novels.service import get_novel
 from prompts import load_layers
@@ -42,19 +42,9 @@ _SENT_ENDS = "。！？；…"
 
 
 def clip_plot_item(text, limit: int = PLOT_MAX_LEN) -> str:
-    """条目截断（生成侧）：超预算截到最后一个句读点（末句不腰斩）；全条无句读才硬截。
-
-    与存储预算的静默夹（chapters.schemas.normalize_plot_items）同值不同法：
-    生成产物要保结尾句完整，存储兜底只保预算。
-    """
-    t = str(text or "").strip()
-    if len(t) <= limit:
-        return t
-    cut = t[:limit]
-    for i in range(len(cut) - 1, -1, -1):
-        if cut[i] in _SENT_ENDS:
-            return cut[: i + 1]
-    return cut
+    """条目截断（生成侧）：委托 schemas.clip_sentence（c-field-truncation-alignment 起单源下沉）；
+    超预算截到最后一个句读点（末句不腰斩）；全条无句读才硬截。保留函数名供既有调用方。"""
+    return clip_sentence(text, limit)
 
 
 def _sanitize_versions(parsed: dict | None) -> tuple[list[dict], list[str]]:
@@ -66,13 +56,12 @@ def _sanitize_versions(parsed: dict | None) -> tuple[list[dict], list[str]]:
     warn: list[str] = []
     if not isinstance(parsed, dict):
         return [], ["AI 没有返回可读的结果"]
-    entry = clip_plot_item(parsed.get("entry"))
-    exit_ = clip_plot_item(parsed.get("exit"))
+    entry = str(parsed.get("entry") or "").strip()
+    exit_ = str(parsed.get("exit") or "").strip()
     if not entry or not exit_:
         return [], ["首条（接进场）或末条（收结尾）没给出来"]
     middles = parsed.get("middles")
     middles = middles if isinstance(middles, list) else []
-    clipped = 0
     versions: list[dict] = []
     for slot in middles[:3]:
         if not isinstance(slot, list):
@@ -81,15 +70,9 @@ def _sanitize_versions(parsed: dict | None) -> tuple[list[dict], list[str]]:
         items: list[str] = []
         for it in slot[:_MAX_MIDDLE]:
             s = str(it or "").strip()
-            if not s:
-                continue
-            c = clip_plot_item(s)
-            if len(c) < len(s):
-                clipped += 1
-            items.append(c)
+            if s:
+                items.append(s)  # c-field-truncation-alignment 终版：单条完整直通，不截
         versions.append({"items": [entry, *items, exit_]})
-    if clipped:
-        warn.append(f"有 {clipped} 条超过 200 字，已截到最后一个句号")
     return versions, warn[:5]
 
 
