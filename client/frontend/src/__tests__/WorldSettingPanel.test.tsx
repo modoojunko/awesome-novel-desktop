@@ -70,6 +70,19 @@ describe("WorldSettingPanel", () => {
     expect(onDirty).toHaveBeenCalledWith(true);
   });
 
+  it("现实向收起代价格后编号顺延重排（不跳号：01 02 04 → 01 02 03）", async () => {
+    render(<WorldSettingPanel projectId="p1" />);
+    await screen.findByText("世界舞台");
+    const nos = () =>
+      Array.from(document.querySelectorAll(".m-no")).map((el) => el.textContent);
+    expect(nos()).toEqual(["01", "02", "03", "04", "05"]);
+    expect(screen.getByText("06 更多世界细节")).toBeTruthy();
+    fireEvent.click(screen.getByRole("switch"));
+    expect(screen.queryByText("力量的代价")).toBeNull();
+    expect(nos()).toEqual(["01", "02", "03", "04"]);
+    expect(screen.getByText("05 更多世界细节")).toBeTruthy();
+  });
+
   it("铁律名目建议点选即加一条", async () => {
     render(<WorldSettingPanel projectId="p1" />);
     await screen.findByText("世界铁律");

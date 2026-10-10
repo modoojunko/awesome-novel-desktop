@@ -70,6 +70,18 @@ const EXTRA_SUGGESTS = [
 ];
 const HIST_SUGGESTS = ["大战与灾变", "旧仇恨", "未还的契约", "上古诅咒", "兴起与覆灭"];
 
+/** 世界页格子次序——编号唯一出处；现实向收起「力量的代价」后后续格顺延，不跳号。 */
+const WORLD_MOD_ORDER = ["世界舞台", "力量体系", "力量的代价", "势力", "世界铁律", "更多世界细节"];
+
+/**
+ * 格名 → 两位编号。收起的格（现实向查「力量的代价」）返回 "00"——
+ * 该组合后端体检不会下发（CHECK_ITEMS_REAL 白名单），真出现即是可见的错号信号。
+ */
+const worldModNo = (name: string, noPower: boolean): string => {
+  const order = noPower ? WORLD_MOD_ORDER.filter((n) => n !== "力量的代价") : WORLD_MOD_ORDER;
+  return String(order.indexOf(name) + 1).padStart(2, "0");
+};
+
 function normalizeWorld(data: unknown): WorldData {
   const d = (data ?? {}) as Record<string, unknown>;
   const entries = (v: unknown): KvRow[] =>
@@ -446,15 +458,17 @@ const WorldSettingPanel = forwardRef<WorldPanelHandle, WorldPanelProps>(function
 
   /** 体检项 → 补充目标格（项名与后端 CHECK_ITEMS_* 逐字对应）：告诉用户去哪个格子补内容 */
   const checkFixTarget = (name: string): string => {
+    const label = (mod: string): string => `${worldModNo(mod, noPower)} ${mod}`;
+    const extraNo = worldModNo("更多世界细节", noPower); // 历史与旧账挂在「更多世界细节」组内，跟组号走
     const map: Record<string, string> = {
-      "简介 × 世界": "01 世界舞台",
-      "题材 × 世界": "01 世界舞台",
-      "力量与上限": "02 力量体系",
-      "代价与边界": "03 力量的代价",
-      "铁律 × 简介": "05 世界铁律",
-      "势力立场": "04 势力",
-      "历史自洽": "06 历史与旧账",
-      "现实规则完备": "06 更多世界细节",
+      "简介 × 世界": label("世界舞台"),
+      "题材 × 世界": label("世界舞台"),
+      "力量与上限": label("力量体系"),
+      "代价与边界": label("力量的代价"),
+      "铁律 × 简介": label("世界铁律"),
+      "势力立场": label("势力"),
+      "历史自洽": `${extraNo} 历史与旧账`,
+      "现实规则完备": `${extraNo} 更多世界细节`,
     };
     return map[name] || name;
   };
@@ -501,7 +515,7 @@ const WorldSettingPanel = forwardRef<WorldPanelHandle, WorldPanelProps>(function
       {/* 01 世界舞台 */}
       <div className="mod" data-od-id="mod-base">
         <div className="mod-head">
-          <span className="m-no">01</span>
+          <span className="m-no">{worldModNo("世界舞台", noPower)}</span>
           <span className="m-name">世界舞台</span>
           <span className="m-why">这是什么世界：定时代、选形态、圈出主要地点</span>
         </div>
@@ -542,7 +556,7 @@ const WorldSettingPanel = forwardRef<WorldPanelHandle, WorldPanelProps>(function
       {/* 02 力量体系 */}
       <div className="mod" data-od-id="mod-power">
         <div className="mod-head">
-          <span className="m-no">02</span>
+          <span className="m-no">{worldModNo("力量体系", noPower)}</span>
           <span className="m-name">力量体系</span>
           <span className="m-why">力量叫什么、分几级、怎么获得——上限要写死</span>
         </div>
@@ -586,7 +600,7 @@ const WorldSettingPanel = forwardRef<WorldPanelHandle, WorldPanelProps>(function
       {!noPower && (
         <div className="mod" data-od-id="mod-cost">
           <div className="mod-head">
-            <span className="m-no">03</span>
+            <span className="m-no">{worldModNo("力量的代价", noPower)}</span>
             <span className="m-name">力量的代价</span>
             <span className="m-why">用它要付什么：消耗、副作用、冷却、弱点</span>
           </div>
@@ -611,7 +625,7 @@ const WorldSettingPanel = forwardRef<WorldPanelHandle, WorldPanelProps>(function
       {/* 04 势力 */}
       <div className="mod" data-od-id="mod-faction">
         <div className="mod-head">
-          <span className="m-no">04</span>
+          <span className="m-no">{worldModNo("势力", noPower)}</span>
           <span className="m-name">势力</span>
           <span className="m-why">谁和谁在争：先立两三个，各自想要什么、是敌是友</span>
         </div>
@@ -670,7 +684,7 @@ const WorldSettingPanel = forwardRef<WorldPanelHandle, WorldPanelProps>(function
       {/* 05 世界铁律 */}
       <div className="mod" data-od-id="mod-lock">
         <div className="mod-head">
-          <span className="m-no">05</span>
+          <span className="m-no">{worldModNo("世界铁律", noPower)}</span>
           <span className="m-name">世界铁律</span>
           <span className="m-why">不许破的硬边界——想到哪条写哪条，也可以自己加</span>
         </div>
@@ -689,7 +703,7 @@ const WorldSettingPanel = forwardRef<WorldPanelHandle, WorldPanelProps>(function
       {/* 06 更多世界细节（可后补，折叠组） */}
       <details className="cfg" data-od-id="mod-extra">
         <summary>
-          06 更多世界细节
+          {worldModNo("更多世界细节", noPower)} 更多世界细节
           <span className="tag">可后补</span>
           <span className="chint">常用名目点一下就加一条，也能自己起名目——随归档持续生长</span>
           <svg className="chev" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" width="13" height="13"><path d="m6 9 6 6 6-6" /></svg>
