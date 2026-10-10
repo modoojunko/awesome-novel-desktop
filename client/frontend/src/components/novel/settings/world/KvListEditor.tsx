@@ -24,7 +24,7 @@ interface KvListEditorProps {
  * 名目+内容 条目编辑器（world-setting-v2）。
  *
  * 受控组件：rows 由父级持有；建议名目点选即加一条，名目可改可自定义，
- * 随时增删——不锁死字段（06 更多世界细节 / 05 世界铁律 共用）。
+ * 随时增删——不锁死字段（「世界铁律」/「更多世界细节」共用）。
  */
 export default function KvListEditor({
   rows,
