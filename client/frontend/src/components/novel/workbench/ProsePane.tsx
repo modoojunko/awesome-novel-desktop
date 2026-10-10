@@ -29,6 +29,7 @@ import type { Editor, JSONContent } from "@tiptap/core";
 import StarterKit from "@tiptap/starter-kit";
 import { Placeholder } from "@tiptap/extensions";
 import ContrastPreviewModal from "@/components/novel/ContrastPreviewModal";
+import PolishWizard from "./polishWizard/PolishWizard";
 import { useChapterData } from "@/hooks/useChapterData";
 import { toast } from "@/lib/toast";
 import {
@@ -84,6 +85,8 @@ export interface ProseHandle {
   stopWriting(): void;
   /** capture：解锁链等场景预先捕获的选区/光标（弹窗焦点会丢现场选区） */
   polish(capture: SelectionCapture): void;
+  /** 打开「去 AI 味 · 修稿向导」（c-deai-wizard；入口在右栏 AI 工具卡） */
+  openPolishWizard?: () => void;
 }
 
 interface ProsePaneProps {
@@ -693,6 +696,36 @@ const ProsePane = forwardRef<ProseHandle, ProsePaneProps>(function ProsePane(
     [projectId, chapterRef, onAIStateChange],
   );
 
+  // c-deai-wizard：修稿向导（开闭态＋写回执行器；向导在面板内挂载，
+  // 写回经「逆序单事务＋双写 store」——与既有 accept 链同款，可整批 ⌘Z）
+  const [wizardOpen, setWizardOpen] = useState(false);
+  const applyParagraphEdits = useCallback(
+    (items: Array<{ paraIndex: number; from: string; text: string }>): boolean => {
+      if (!editor || editor.isDestroyed || items.length === 0) return false;
+      const paras: Array<{ start: number; end: number; text: string }> = [];
+      editor.state.doc.forEach((node, pos) => {
+        const t = node.textContent;
+        if (!t.trim()) return;
+        paras.push({ start: pos + 1, end: pos + 1 + node.content.size, text: t });
+      });
+      const chain = editor.chain();
+      let applied = 0;
+      for (const it of [...items].sort((a, b) => b.paraIndex - a.paraIndex)) {
+        const range = paras[it.paraIndex];
+        if (!range) continue;
+        if (range.text.trim() !== it.from.trim()) continue; // 段文本漂移防护
+        chain.insertContentAt({ from: range.start, to: range.end }, linesToParagraphs(it.text));
+        applied += 1;
+      }
+      if (applied === 0) return false;
+      chain.run();
+      const next = docToProse(editor.getJSON());
+      lastSyncedRef.current = next;
+      setProse(next);
+      return true;
+    },
+    [editor, setProse],
+  );
   useImperativeHandle(
     ref,
     () => ({
@@ -706,8 +739,9 @@ const ProsePane = forwardRef<ProseHandle, ProsePaneProps>(function ProsePane(
         finishStream(streamReceivedRef.current, false);
       },
       polish: (capture: SelectionCapture) => void runTransform("polish", capture),
+      openPolishWizard: () => setWizardOpen(true),
     }),
-    [editor, captureNow, startStream, finishStream, runTransform],
+    [editor, captureNow, startStream, finishStream, runTransform, setWizardOpen],
   );
 
   const words = prose.replace(/\s/g, "").length;
@@ -735,8 +769,10 @@ const ProsePane = forwardRef<ProseHandle, ProsePaneProps>(function ProsePane(
         </div>
       )}
       {/* 编辑体（c-prose-gen-phases）：呼吸灯环绕范围＝编辑工具行＋正文区整列，
-          至底部状态条上沿；纯 box-shadow，不动版式（流式写作位置不变） */}
-      <div className={proseBodyClass}>
+          至底部状态条上沿；纯 box-shadow，不动版式（流式写作位置不变）。
+          hidden 属性必须跟着页签走：.prose-body 是 display:flex，会压掉 hidden
+          属性的历史坑同 .ol-top——非正文页签不得占位（回退：三页签切换仅隐藏） */}
+      <div className={proseBodyClass} hidden={hidden}>
       {/* 查看态顶行（c-prose-edit-gate）：只读阅读＋「编辑正文」；
           归档/排队/旧稿锁各有横幅，锁定期不出现本行。
           条件渲染而非 hidden：.ol-top 是 display:flex，会压掉 hidden 属性（历史坑） */}
@@ -890,6 +926,15 @@ const ProsePane = forwardRef<ProseHandle, ProsePaneProps>(function ProsePane(
       </div>
       </div>
 
+      {/* 去 AI 味修稿向导（c-deai-wizard）：入口在右栏 AI 工具卡（openPolishWizard） */}
+      <PolishWizard
+        open={wizardOpen}
+        onClose={() => setWizardOpen(false)}
+        projectId={projectId}
+        chapterRef={chapterRef}
+        prose={prose}
+        onApply={applyParagraphEdits}
+      />
       {preview && (
         <ContrastPreviewModal
           open
