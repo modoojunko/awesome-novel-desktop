@@ -11,6 +11,7 @@ import {
   CHAPTER_WORD_TARGET_DEFAULT,
   CHAPTER_WORD_TARGET_MAX,
   CHAPTER_WORD_TARGET_MIN,
+  chapterWordTargetIssue,
   getCachedChapterWordTarget,
   loadChapterWordTarget,
   saveChapterWordTarget,
@@ -99,6 +100,13 @@ export default function BookPrefsModal({
 
   const save = async () => {
     if (saving) return;
+    // 越界/非整数输入拦在保存前（对齐逐章 word_target 拦截口径）：
+    // 静默改写成缺省会让「输入的数」与「落库的数」不一致且无提示（评审 2026-10-10）
+    const issue = chapterWordTargetIssue(wordTarget);
+    if (issue) {
+      toast.error(issue);
+      return;
+    }
     setSaving(true);
     try {
       // 先写后端（生成侧权威）再收尾：失败保持弹窗可重试，本地缓存不被写坏
@@ -172,7 +180,8 @@ export default function BookPrefsModal({
           <div>
             <div className="pl">章节默认字数</div>
             <div className="pm">
-              新建章节留空「本章目标字数」时按此值；逐章可单独设定
+              新建章节留空「本章目标字数」时按此值（
+              {CHAPTER_WORD_TARGET_MIN}-{CHAPTER_WORD_TARGET_MAX}）；逐章可单独设定
             </div>
           </div>
           <input

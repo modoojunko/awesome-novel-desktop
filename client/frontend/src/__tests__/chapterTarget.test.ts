@@ -13,6 +13,7 @@ import {
   CHAPTER_WORD_TARGET_MAX,
   CHAPTER_WORD_TARGET_MIN,
   cacheChapterWordTarget,
+  chapterWordTargetIssue,
   getCachedChapterWordTarget,
   loadChapterWordTarget,
   normalizeChapterWordTarget,
@@ -83,16 +84,29 @@ describe("缓存读写与订阅", () => {
     off();
   });
 
-  it("localStorage 写入抛错 → 不派发事件但仍返回归一值", () => {
+  it("localStorage 写入抛错 → 事件照常派发＋本会话读取由内存覆盖接管（评审 2026-10-10）", () => {
+    // 预置旧缓存值：落盘失败后读取 MUST 取新值而非残留旧值（隐私模式防「旧值冒充最新」）
+    localStorage.setItem("pref.book.p-mem.chapter_words", "2500");
     const spy = vi.spyOn(Storage.prototype, "setItem").mockImplementation(() => {
       throw new Error("quota");
     });
     const fn = vi.fn();
     const off = subscribeChapterWordTarget(fn);
-    expect(cacheChapterWordTarget("p1", 3000)).toBe(3000);
-    expect(fn).not.toHaveBeenCalled();
+    expect(cacheChapterWordTarget("p-mem", 3000)).toBe(3000);
+    expect(fn).toHaveBeenCalledTimes(1); // 吞事件会让工作台文案与真值劈叉
+    expect(getCachedChapterWordTarget("p-mem")).toBe(3000); // 非 localStorage 里的 2500
     off();
     spy.mockRestore();
+    // 落盘恢复成功 → 覆盖清除，读取回归 localStorage 单源
+    cacheChapterWordTarget("p-mem", 2800);
+    expect(localStorage.getItem("pref.book.p-mem.chapter_words")).toBe("2800");
+    expect(getCachedChapterWordTarget("p-mem")).toBe(2800);
+  });
+
+  it("内存覆盖只接管网写失败的本会话：正常项目读取不受影响", () => {
+    localStorage.setItem("pref.book.p-other.chapter_words", "2600");
+    cacheChapterWordTarget("p-other", 3200);
+    expect(getCachedChapterWordTarget("p-other")).toBe(3200);
   });
 });
 
@@ -139,5 +153,27 @@ describe("后端读写", () => {
     apiState.put.mockRejectedValue(new Error("500"));
     await expect(saveChapterWordTarget("p1", 3000)).rejects.toThrow("500");
     expect(localStorage.getItem("pref.book.p1.chapter_words")).toBe("2600");
+  });
+});
+
+describe("chapterWordTargetIssue（弹窗保存前校验，评审 2026-10-10）", () => {
+  it("空/纯空白＝回落缺省，放行", () => {
+    expect(chapterWordTargetIssue("")).toBeNull();
+    expect(chapterWordTargetIssue("   ")).toBeNull();
+  });
+
+  it("区间内整数（含首尾空白）放行", () => {
+    expect(chapterWordTargetIssue(String(CHAPTER_WORD_TARGET_MIN))).toBeNull();
+    expect(chapterWordTargetIssue(String(CHAPTER_WORD_TARGET_MAX))).toBeNull();
+    expect(chapterWordTargetIssue(" 3200 ")).toBeNull();
+  });
+
+  it("越界/非整数给出区间文案（拦截保存，不静默改写成缺省）", () => {
+    expect(chapterWordTargetIssue("6500")).toBe(
+      `章节默认字数需在 ${CHAPTER_WORD_TARGET_MIN}-${CHAPTER_WORD_TARGET_MAX} 之间`,
+    );
+    expect(chapterWordTargetIssue("499")).toMatch(/之间$/);
+    expect(chapterWordTargetIssue("12.5")).toMatch(/之间$/);
+    expect(chapterWordTargetIssue("abc")).toMatch(/之间$/);
   });
 });

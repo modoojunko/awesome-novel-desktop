@@ -20,6 +20,10 @@ export const CHAPTER_WORD_TARGET_DEFAULT = 2500;
 
 const EVENT = "chapter-word-target-changed";
 
+/** 本会话落盘失败覆盖（隐私模式/quota 等写不进 localStorage 时）：读取以它为准，
+ *  防 localStorage 残留旧值冒充最新；落盘恢复成功即清除，正常态永不介入。 */
+const memOverride = new Map<string, number>();
+
 function cacheKey(projectId: string): string {
   return `pref.book.${projectId}.chapter_words`;
 }
@@ -35,14 +39,33 @@ export function normalizeChapterWordTarget(value: unknown): number {
   return rounded;
 }
 
-/** 展示缓存同步读：未缓存/损坏 → 缺省 2500（存量行为不变）。 */
+/** 弹窗保存前校验：空＝回落缺省（放行）；非整数/越界＝用户可读问题文案（拦截保存，
+ *  SHALL NOT 静默改写成缺省——与逐章 word_target 的拦截口径一致，评审 2026-10-10）。 */
+export function chapterWordTargetIssue(raw: string): string | null {
+  const t = raw.trim();
+  if (t === "") return null;
+  const n = Number(t);
+  if (
+    !Number.isInteger(n) ||
+    n < CHAPTER_WORD_TARGET_MIN ||
+    n > CHAPTER_WORD_TARGET_MAX
+  ) {
+    return `章节默认字数需在 ${CHAPTER_WORD_TARGET_MIN}-${CHAPTER_WORD_TARGET_MAX} 之间`;
+  }
+  return null;
+}
+
+/** 展示缓存同步读：落盘失败覆盖 → 缓存 → 未缓存/损坏 → 缺省 2500（存量行为不变）。 */
 export function getCachedChapterWordTarget(projectId: string): number {
+  const mem = memOverride.get(projectId);
+  if (mem !== undefined) return mem;
   try {
     const raw = localStorage.getItem(cacheKey(projectId));
-    return raw === null ? CHAPTER_WORD_TARGET_DEFAULT : normalizeChapterWordTarget(raw);
+    if (raw !== null) return normalizeChapterWordTarget(raw);
   } catch {
-    return CHAPTER_WORD_TARGET_DEFAULT;
+    // localStorage 不可用：回落缺省（写失败的会话已由 memOverride 接管）
   }
+  return CHAPTER_WORD_TARGET_DEFAULT;
 }
 
 /** 缓存写（含缺省值回写）：派发变更事件，工作台文案/目标立即跟随（prefs 同款约定）。 */
@@ -50,10 +73,13 @@ export function cacheChapterWordTarget(projectId: string, value: unknown): numbe
   const safe = normalizeChapterWordTarget(value);
   try {
     localStorage.setItem(cacheKey(projectId), String(safe));
-    window.dispatchEvent(new CustomEvent(EVENT));
+    memOverride.delete(projectId);
   } catch {
-    // localStorage 不可用（隐私模式等）：本次仅内存态生效
+    // 落盘失败不阻塞：本会话读取由 memOverride 接管
+    memOverride.set(projectId, safe);
   }
+  // 无论落盘是否成功都派发：吞事件会让工作台文案与真值劈叉（评审 2026-10-10）
+  window.dispatchEvent(new CustomEvent(EVENT));
   return safe;
 }
 
