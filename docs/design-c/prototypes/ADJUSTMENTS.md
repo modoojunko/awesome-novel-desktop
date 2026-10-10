@@ -545,7 +545,7 @@ modalAi/modalPrefs 标记与 CSS 在 PR 3/PR 4 已随屏落地（spec-report §6
     badge.acc（页签 PRO 小徽用 .ptab-pro）。
 
     **状态语言登记**：页签徽标 文字文风=「题材默认」ok→「已自定义 · N 处」warn；
-    量化=「未蒸馏」empty→「置信度 N」acc；蒸馏三步完成=ok；锁定按钮 aria-pressed、
+    量化=「未蒸馏」empty→「已蒸馏」acc；蒸馏三步完成=ok；锁定按钮 aria-pressed、
     五层条 aria-hidden。**data-od-id**：style-tabs/input-style-role/list-rules/
     list-craft/list-fewshots/field-*/chain-anchor/quant-*/lock-{row}/distill-*/
     author-portrait/btn-portrait-keep/btn-portrait-retry/sink-style-check。

@@ -268,10 +268,10 @@ test.describe.serial("文风量化蒸馏链路", () => {
       await page.locator('[data-od-id="btn-run-distill"]').click();
       await expect(page.locator('[data-od-id="author-portrait"]')).toBeVisible({ timeout: 5000 });
 
-      // 落卡：基线六行渲染＋页签徽标翻「置信度 82」
+      // 落卡：基线六行渲染＋页签徽标翻「已蒸馏」
       await page.locator('[data-od-id="btn-portrait-keep"]').click();
       await expect(page.locator('[data-od-id="quant-panel"]')).toBeVisible({ timeout: 5000 });
-      await expect(page.locator('[data-od-id="quant-tab-badge"]')).toContainText("置信度 82");
+      await expect(page.locator('[data-od-id="quant-tab-badge"]')).toContainText("已蒸馏");
       await expect(page.locator('[data-od-id="quant-baseline"]')).toContainText("镜头与人称");
       await expect(page.locator('[data-od-id="quant-baseline"]')).toContainText("±10%");
       await expect(page.locator('[data-od-id="quant-note"]')).toContainText("写章的 AI 按本章剧情自行调节");
@@ -507,7 +507,7 @@ test.describe.serial("文风量化蒸馏链路", () => {
       // 落卡：正式区六行与预览渲染格式一致；样本字数＝粘贴字数
       await page.locator('[data-od-id="btn-portrait-keep"]').click();
       await expect(page.locator('[data-od-id="quant-panel"]')).toBeVisible({ timeout: 5000 });
-      await expect(page.locator('[data-od-id="quant-tab-badge"]')).toContainText("置信度 60");
+      await expect(page.locator('[data-od-id="quant-tab-badge"]')).toContainText("已蒸馏");
       await expect(page.locator('[data-od-id="quant-baseline"]')).toContainText(
         `约 ${PREVIEW_ROWS.narrative.value}（±20%）`,
       );
