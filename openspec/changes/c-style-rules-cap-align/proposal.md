@@ -13,6 +13,7 @@
 ## What Changes
 
 - **前端 `StyleSettingForm`**：硬约束 ListEditor `maxItems` 5→100（与后端 `style_model._MAX_RULES` 对齐）；计数器随即显示「N/100 条」；`items.length < 100` 时「添加一项」恢复可用。提示文案保留「（3–5 条）」建议口径（模板预填的通用红线计入上限、可直接删改）。
+- **原型**：`docs/design-c/prototypes/style-settings.html` 硬约束 `LIMITS.rules` 5→100（与实现口径对齐，预填 5 条不动）＋ `ADJUSTMENTS.md` 登记——评审 P3：原型此前演示的正是本笔修掉的形态。
 - **测试**：新增钉子——预填 58 条（> 旧上限 5）时「添加一项」可见可用、计数「58/100 条」、点添加行数 +1 且保存载荷含新行；预填 100 条时按钮收起（真上限行为不变）。
 - **spec delta**：`style-banned-words`「硬约束三块与面板退役」① 禁令上限口径改写（「上限不变」→「上限 100 条，与后端 `_MAX_RULES` 对齐」）＋新增「预填超旧上限仍可添加」与「上限 100 收起添加」两个场景。
 
@@ -34,4 +35,5 @@
 ## Impact
 
 - C端 前端：`components/novel/settings/StyleSettingForm.tsx`（一处 maxItems）＋新增 `__tests__/StyleSettingForm.rulesCap.test.tsx`；e2e `settings-forms.spec.ts` 无感知（其「添加一项」点击按折叠组定位、填首行硬规则不受上限影响）。
+- 设计产物：`docs/design-c/prototypes/style-settings.html`（`LIMITS.rules`）＋`ADJUSTMENTS.md` 登记条目；parity 无像素影响（该文件不在 `design:check` 截图矩阵）。
 - 无后端/契约/数据变化；已归一的 58 条 rules 原样保留（作者可删改）。

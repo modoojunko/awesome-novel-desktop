@@ -3,6 +3,7 @@
 ## 1. 实现
 
 - [x] 1.1 `StyleSettingForm.tsx` 硬约束 ListEditor：`maxItems` 5→100（注释点明与后端 `_MAX_RULES` 对齐；计数器/添加按钮行为随之恢复）
+- [x] 1.2 原型 `style-settings.html`：`LIMITS.rules` 5→100（预填 5 条不动）＋`ADJUSTMENTS.md` 登记（评审 P3）
 
 ## 2. 测试
 
