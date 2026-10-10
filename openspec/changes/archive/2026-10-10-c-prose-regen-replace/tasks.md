@@ -28,5 +28,5 @@
 
 ## 5. 归档（另行 PR）
 
-- [ ] 5.1 specs sync：workbench 三处（ADDED 门禁 requirement＋两处 MODIFIED 逐字对拍）
+- [x] 5.1 specs sync：workbench 三处（ADDED 门禁 requirement＋两处 MODIFIED 逐字对拍）——归档 PR 落地，sync 后五项对拍全过
 - [x] 5.2 全链预验（e2e 常驻钉 b408b668 在隔离栈真链通过：确认→替换写入→停止留半截→版本历史找回）；真机抽检留给作者随手一次
