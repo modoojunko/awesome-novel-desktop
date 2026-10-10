@@ -32,12 +32,13 @@ from schema_version import (
     app_version,
     candidate_rank,
     candidate_stamp,
+    candidate_stamp_legacy,
+    data_file_mtime,
+    data_file_size,
     is_newer,
     is_release_version,
     parse_db_filename,
     sidecar_paths,
-    three_file_mtime,
-    three_file_size,
 )
 
 # c-upgrade-log：库生命周期属无损升级链——migration 具名 logger（upgrade.log 专项档
@@ -377,49 +378,70 @@ def candidate_manifest(db_path: Path, book_cap: int = MANIFEST_BOOK_CAP) -> dict
     返回 `{"books": [{"name","words"}…], "books_total": N, "configs": [{"name"}…],
     "configs_total": N}`。库打不开或缺 novels 表返回 None（调用方降级为只报数量，
     不阻塞搬运）；缺 api_configs 表按 0 条处理（更老的库没有该表属正常形态）。
-    候选均为可读库（book_count≥1 才进候选），这里只读连接直开即可——
-    「WAL 头缺 -shm」形态由 probe 口径负责，不重复 staging 复检。
+    **WAL 库一律暂存复检**（probe_library 同口径）：只读连接也会就地创建/改写
+    `-shm`，违「源三件套字节与 mtime 均不变」——本函数曾在每次候选扫描就地主开
+    只读连接，边车 mtime 被顶新 → 完成记录指纹永不对上 → 告知卡复弹
+    （c-carry-modal-reshow 真机判例）。非 WAL（回滚日志模式）库直接只读体检。
     """
+    def _open_ro(target: Path) -> sqlite3.Connection:
+        return sqlite3.connect(f"file:{target}?mode=ro", uri=True, timeout=5)
+
     try:
-        con = sqlite3.connect(f"file:{db_path}?mode=ro", uri=True, timeout=5)
+        if _is_wal_mode(db_path):
+            with tempfile.TemporaryDirectory(prefix="manifest-") as tmp:
+                staged = Path(tmp) / db_path.name
+                copy_sidecars(db_path, staged)
+                if not prepare_staged(staged):
+                    return None
+                con = _open_ro(staged)
+                try:
+                    return _manifest_rows(con, book_cap)
+                finally:
+                    con.close()
+        con = _open_ro(db_path)
+        try:
+            return _manifest_rows(con, book_cap)
+        finally:
+            con.close()
     except sqlite3.Error:
         return None
+
+
+def _manifest_rows(con: sqlite3.Connection, book_cap: int) -> dict | None:
+    """清单查询体（candidate_manifest 共用）：书名＋字数与配置名两块。"""
     try:
+        book_rows = con.execute(
+            "SELECT n.name, COALESCE((SELECT SUM(c.word_count) FROM chapters c"
+            " WHERE c.novel_id = n.id), 0) FROM novels n ORDER BY n.created_at, n.name"
+        ).fetchall()
+    except sqlite3.Error:
+        # 老库 chapters 无 word_count 列：降级为书名清单（words=0），书名仍可列
         try:
             book_rows = con.execute(
-                "SELECT n.name, COALESCE((SELECT SUM(c.word_count) FROM chapters c"
-                " WHERE c.novel_id = n.id), 0) FROM novels n ORDER BY n.created_at, n.name"
+                "SELECT n.name, 0 FROM novels n ORDER BY n.created_at, n.name"
             ).fetchall()
         except sqlite3.Error:
-            # 老库 chapters 无 word_count 列：降级为书名清单（words=0），书名仍可列
-            try:
-                book_rows = con.execute(
-                    "SELECT n.name, 0 FROM novels n ORDER BY n.created_at, n.name"
-                ).fetchall()
-            except sqlite3.Error:
-                return None  # 缺 novels 表——清单取不到，整体降级
-        try:
-            cfg_rows = con.execute(
-                "SELECT name FROM api_configs ORDER BY created_at, name"
-            ).fetchall()
-        except sqlite3.Error:
-            cfg_rows = []  # 老库无 api_configs 表：配置清单为空而非整体失败
-        return {
-            "books": [{"name": str(b), "words": int(w or 0)}
-                      for b, w in book_rows[:book_cap]],
-            "books_total": len(book_rows),
-            "configs": [{"name": str(c)} for (c,) in cfg_rows],
-            "configs_total": len(cfg_rows),
-        }
-    finally:
-        con.close()
+            return None  # 缺 novels 表——清单取不到，整体降级
+    try:
+        cfg_rows = con.execute(
+            "SELECT name FROM api_configs ORDER BY created_at, name"
+        ).fetchall()
+    except sqlite3.Error:
+        cfg_rows = []  # 老库无 api_configs 表：配置清单为空而非整体失败
+    return {
+        "books": [{"name": str(b), "words": int(w or 0)}
+                  for b, w in book_rows[:book_cap]],
+        "books_total": len(book_rows),
+        "configs": [{"name": str(c)} for (c,) in cfg_rows],
+        "configs_total": len(cfg_rows),
+    }
 
 
 # ── 候选扫描 ──────────────────────────────────────────────────────────────
 
 def scan_migration_candidates(data_root: Path, current_version: str | None = None,
                               active_db_path: Path | None = None) -> list[dict]:
-    """迁入候选：白名单形状枚举＋活跃库按路径排除＋三件套 max(mtime) 排序。"""
+    """迁入候选：白名单形状枚举＋活跃库按路径排除＋数据件 max(mtime) 排序。"""
     root = Path(data_root)
     items: list[dict] = []
     if not root.is_dir():
@@ -441,8 +463,8 @@ def scan_migration_candidates(data_root: Path, current_version: str | None = Non
                 continue  # 活跃库按路径排除（不靠版本比较）
         except OSError:
             continue
-        mtime = three_file_mtime(f)
-        size = three_file_size(f)
+        mtime = data_file_mtime(f)
+        size = data_file_size(f)
         info = probe_library(f)
         book_count = info.get("book_count")
         if book_count in (None, 0) and not (info.get("unreadable") and size > 0):
@@ -457,7 +479,10 @@ def scan_migration_candidates(data_root: Path, current_version: str | None = Non
             "book_count": book_count,
             "unreadable": bool(info.get("unreadable")),
             "recommended": False,
+            # stamp＝现行指纹（数据件）；stamp_legacy＝旧三件套形态，供完成/抑制
+            # 存量记录兼容对拍（c-carry-modal-reshow——升级前写入的记录可能是旧形）
             "stamp": candidate_stamp(f.name, f),
+            "stamp_legacy": candidate_stamp_legacy(f.name, f),
         })
     items.sort(
         key=lambda it: (candidate_rank(parse_db_filename(it["filename"])), it["mtime"],
@@ -533,8 +558,9 @@ def deletable_candidates(data_root: Path, migrated_stamps: str | set[str] | None
     """待删清单：仅「已成功带回」的候选，且默认保留最近 `keep` 份。
 
     `migrated_stamps` 来自运行库 `app_meta['migration.history']` 的 source_stamp 集合
-    （本次与历次成功带回的源）。**未成功带回过的件一律不可删**——它们是用户还没
-    带过来的数据；「最近」按三件套 `max(mtime)` 计（只看主文件会被 WAL 骗到）。
+    （本次与历次成功带回的源；router 侧已把旧三件套形态换算成现行指纹）。**未成功
+    带回过的件一律不可删**——它们是用户还没带过来的数据；「最近」按数据件
+    `max(mtime)` 计（只看主文件会被 WAL 骗到；`-shm` 非数据不算，c-carry-modal-reshow）。
     """
     if not migrated_stamps:
         return []

@@ -34,7 +34,7 @@ from db_lifecycle import (
     scan_migration_candidates,
 )
 from migration.engine import completeness_from_history, is_complete_report
-from schema_version import app_version, candidate_stamp
+from schema_version import app_version, candidate_stamp, candidate_stamp_legacy
 
 # c-upgrade-log：无损升级全链具名 logger——upgrade.log 专项档＋双写 app.log。
 logger = logging.getLogger("migration")
@@ -109,12 +109,27 @@ def _migrated_stamps() -> set[str]:
     # 直接判；老数据（无 report）经 history 适配器归一后走同一条判定。
     report = last.get("report") if isinstance(last.get("report"), dict) else None
     if report is not None:
-        return {stamp} if is_complete_report(report) else set()
-    for entry in _history_entries():
-        if entry.get("source_stamp") != stamp:
-            continue
-        return {stamp} if is_complete_report(completeness_from_history(entry)) else set()
-    return set()
+        complete = is_complete_report(report)
+    else:
+        complete = any(
+            entry.get("source_stamp") == stamp
+            and is_complete_report(completeness_from_history(entry))
+            for entry in _history_entries()
+        )
+    if not complete:
+        return set()
+    # c-carry-modal-reshow 兼容：升级前的完成记录可能编着 -shm 分量（读者会改写、
+    # 恒漂移）。现行文件按两种形态对拍，任一命中（＝数据件未变）即换发现行指纹，
+    # 让白名单与现行扫描同键；都不命中＝文件已变，保守退回原串（对不上任何扫描
+    # 项＝不可删，少删优于误删）。
+    fname = str(last.get("source_filename") or "")
+    if fname:
+        src = Path(DATA_ROOT) / fname
+        if src.exists():
+            current = {candidate_stamp(fname, src), candidate_stamp_legacy(fname, src)}
+            if stamp in current:
+                return {candidate_stamp(fname, src)}
+    return {stamp}
 
 
 def _history_entries() -> list[dict]:
@@ -165,9 +180,12 @@ async def candidates():
     snoozed_stamp = _app_meta_value(SNOOZE_KEY) or ""
     # 呈现状态两字段（c-lossless-upgrade）：carried＝本次已带回（完整才算）；
     # suppressed＝被「本版不再提醒」抑制（snoozed 绑 stamp；不完整 last 永不抑制）。
+    # 对拍按双形态：现行指纹（数据件）或旧三件套指纹（c-carry-modal-reshow——升级前
+    # 写入的记录可能编着 -shm 分量）任一命中即同一源；数据件变了两者都不命中。
     for it in items:
-        it["carried"] = done_complete and it["stamp"] == done_stamp
-        it["suppressed"] = it["carried"] or it["stamp"] == snoozed_stamp
+        stamps = {it["stamp"], it.get("stamp_legacy") or it["stamp"]}
+        it["carried"] = done_complete and done_stamp in stamps
+        it["suppressed"] = it["carried"] or snoozed_stamp in stamps
         # 只读清单只挂 recommended（免登端点返回面收敛；密钥永不返回）
         if it.get("recommended") and not it["unreadable"]:
             it["manifest"] = candidate_manifest(root / it["filename"])

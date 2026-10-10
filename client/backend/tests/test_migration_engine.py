@@ -829,3 +829,122 @@ class TestCompletenessUnit:
         assert is_complete_report(completeness_from_history(
             {"tables_skipped": 0, "fk_violations": 0,
              "book_count_source": 1, "book_count_present": 1})) is True
+
+
+class TestCarryModalReshow:
+    """c-carry-modal-reshow：迁移完成后告知卡复弹根治。
+
+    真机判例（v0.30.x 升级现场）：旧版库带 -wal/-shm 边车时，candidate_manifest
+    每次候选扫描就地主开只读连接 → -shm 被顶新（实测一次跨进程只读连接就改其字节
+    与 mtime）→ 完成记录指纹（旧三件套形态）永不对上 → candidates 的 carried 恒
+    false → 书架告知卡复弹不止。三针：边车漂移不动指纹、清单读取零接触源、
+    旧形态完成记录兼容对拍。
+    """
+
+    @pytest.fixture()
+    def client(self, sandbox, monkeypatch):
+        from main import app
+
+        monkeypatch.setattr("migration.router.DATA_ROOT", sandbox[0])
+        with TestClient(app) as c:
+            yield c
+
+    @staticmethod
+    def _leave_sidecars(p: Path):
+        """让 -wal/-shm 留在源目录（实勘：空闲连接不持边车——关连接时 checkpoint
+        即删，要等下一个连接首次读才就地重建）。
+
+        返回持连接——它一旦关闭，最后的 checkpoint 会删边车；调用方 MUST 持到
+        断言结束。"""
+        w1 = sqlite3.connect(p)
+        w1.execute("PRAGMA journal_mode=WAL")
+        w1.execute("INSERT INTO app_meta (key, value) VALUES ('t', '1')")
+        w1.commit()
+        w2 = sqlite3.connect(p)
+        w1.close()
+        w2.execute("SELECT COUNT(*) FROM novels").fetchone()  # 首次读：边车就地重建留盘
+        return w2
+
+    def test_carried_survives_shm_drift_full_chain(self, client, sandbox):
+        """全链：start→done 后 -shm 漂移，carried 仍为真（修复前恒 false）。"""
+        import os
+        import time
+
+        root, _active = sandbox
+        old = _old_gen0(root, books=1)
+        keeper = self._leave_sidecars(old)
+        try:
+            def cands():
+                return {c["filename"]: c for c in client.get(
+                    "/api/backup/db-migration/candidates").json()["data"]["candidates"]}
+
+            assert cands()["novel.db"]["carried"] is False
+            assert client.post("/api/backup/db-migration/start",
+                               json={"source_filename": "novel.db"}).json()["code"] == 0
+            job: dict = {}
+            for _ in range(30):
+                job = client.get("/api/backup/db-migration/status").json()["data"]
+                if job.get("state") in ("done", "error"):
+                    break
+                time.sleep(0.2)
+            assert job["state"] == "done", job
+            assert job["report"]["status"] == "ok"
+            # 扫描侧边车漂移（＝manifest 只读连接顶新 -shm 的等价物）
+            st = os.stat(f"{old}-shm")
+            os.utime(f"{old}-shm", (st.st_atime, st.st_mtime + 30))
+            c = cands()["novel.db"]
+            assert c["carried"] is True, f"stamp={c['stamp']} drifted"
+            assert c["suppressed"] is True
+        finally:
+            keeper.close()
+
+    def test_manifest_zero_contact(self, sandbox):
+        """清单读取零接触源三件套（WAL 库走暂存；修复前就地主开只读连接）。"""
+        root, _active = sandbox
+        old = _old_gen0(root, books=1)
+        keeper = self._leave_sidecars(old)
+        try:
+            self._assert_manifest_zero_contact(old)
+        finally:
+            keeper.close()
+
+    @staticmethod
+    def _assert_manifest_zero_contact(old: Path) -> None:
+        """跨进程读（真机形态：边车是旧版应用进程留下的，读的是新版进程）。
+
+        同进程内读者对已是本进程形态的 -shm 常常零写入，测不出违例——真机判例的
+        改写发生在跨进程（实勘：子进程一次只读连接即改 -shm 的 sha 与 mtime）。"""
+        import hashlib
+        import json
+        import subprocess
+        import sys
+
+        def sig():
+            return {s.name: (hashlib.sha256(s.read_bytes()).hexdigest(),
+                             s.stat().st_mtime_ns)
+                    for s in (old, Path(f"{old}-wal"), Path(f"{old}-shm"))}
+
+        before = sig()
+        backend_dir = Path(__file__).resolve().parent.parent
+        code = ("import json;from pathlib import Path;"
+                "from db_lifecycle import candidate_manifest;"
+                f"m = candidate_manifest(Path({str(old)!r}));"
+                "print(json.dumps({'books_total': m and m['books_total'],"
+                " 'configs_total': m and m['configs_total']}))")
+        # check=False：returncode 自判（失败信息走 stderr 断言，不靠抛异常）
+        r = subprocess.run([sys.executable, "-c", code], capture_output=True, text=True,
+                           cwd=backend_dir, timeout=60, check=False)
+        assert r.returncode == 0, r.stderr[-500:]
+        out = json.loads(r.stdout.strip().splitlines()[-1])
+        assert out["books_total"] == 1
+        assert out["configs_total"] == 0, "缺 api_configs 表按 0 条降级（非整体失败）"
+        assert sig() == before, "manifest 读取不得改写源三件套任一文件"
+
+    def test_scan_items_carry_both_stamp_forms(self, sandbox):
+        """扫描项带现行＋旧两种指纹（兼容对拍的载体）。"""
+        from db_lifecycle import scan_migration_candidates
+
+        root, active = sandbox
+        _old_gen0(root, books=1)
+        items = scan_migration_candidates(root, "0.25", active)
+        assert items and all("stamp" in it and "stamp_legacy" in it for it in items)
