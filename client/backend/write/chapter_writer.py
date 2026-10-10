@@ -311,6 +311,40 @@ def _plot_block(items) -> str:
     return "\n".join(lines)
 
 
+def _onstage_supporting_cast(ctx: "ChapterContext") -> str:
+    """本章出场配角档案（c-cast-split-user-layer）：配角/未设角色卡按出场进 user 层。
+
+    出场判定＝卡名或别名逐字出现在本章素材文本（章纲概要/要撞的墙/章末落点/
+    剧情条目/前情/上章结尾原文/故事状态/必须完成）。主角与反派不在此列
+    （system 恒定锚，见 cast_anchors_block）。无命中回空串（不出空节）。
+    """
+    from prompt.context import _CAST_DEPTH_ROLES, cast_profile_block
+
+    story = ctx.story_state if isinstance(ctx.story_state, dict) else {}
+    corpus_parts = [
+        str(ctx.chapter_outline.get("summary") or ""),
+        str(getattr(ctx, "challenge", "") or ""),
+        ctx.ladder_exit or "",
+        ctx.previous_context or ctx.previous_chapter_recap or "",
+        ctx.previous_tail or "",
+        json.dumps(story, ensure_ascii=False),
+        *ctx.plot_items,
+        *ctx.required_changes,
+    ]
+    corpus = "\n".join(p for p in corpus_parts if p)
+    if not corpus:
+        return ""
+    items = []
+    for it in ctx.cast_items:
+        if it.get("role") in _CAST_DEPTH_ROLES:
+            continue
+        names = [str(it.get("name") or "").strip()]
+        names += [str(a).strip() for a in (it.get("aliases") or []) if str(a).strip()]
+        if any(n and n in corpus for n in names):
+            items.append(it)
+    return cast_profile_block(items) if items else ""
+
+
 # ── 故事状态块（c-chapter-dossier）──────────────────────────────────────────
 
 _STORY_STATE_TITLE = "【故事状态（截至上章）】"
@@ -427,8 +461,8 @@ class ChapterContext:
         # 本章文风影子（chapter-style-shadow）：命中行覆盖基线渲染；直建 ctx 默认空
         self.style_shadow: dict = {}
         self.hooks = []
-        # 全书角色静态档案锚（c-write-prompt-layering）：system 恒定层用，
-        # 不按单章出场名单过滤——出场与否由 user 层角色状态行表达
+        # 全书角色档案（c-write-prompt-layering 装、c-cast-split-user-layer 拆）：
+        # system 锚只取主角/反派（cast_anchors_block），配角按本章出场进 user 层
         self.cast_items: list[dict] = []
         # 组装期素材病告警（lint_assembled_prompt）：显式透出，不阻断
         self.lint_warnings: list[str] = []
@@ -648,7 +682,7 @@ class ChapterContext:
         世界观走全量通道（势力/历史/细节不裁剪、无「另有 N 条从略」）；
         文风影子 SHALL NOT 进本层（user 层覆盖块承接）。
         """
-        from prompt.context import cast_profile_block, render_template
+        from prompt.context import cast_anchors_block, render_template
         from prompts import load_layers
         from settings.world_model import render_world_block
 
@@ -697,7 +731,7 @@ class ChapterContext:
             "iron_rules": iron_rules,
             "volume_outline": self.volume_outline,
             "cast_anchors": (
-                cast_profile_block(self.cast_items) if self.cast_items else ""
+                cast_anchors_block(self.cast_items) if self.cast_items else ""
             ),
         }
 
@@ -785,6 +819,15 @@ class ChapterContext:
                 if speech:
                     seg += f"（语言特征：{speech}）"
                 lines.append(seg)
+            lines.append("")
+
+        # c-cast-split-user-layer：配角档案按本章出场进 user 层——system 恒定锚
+        # 只留主角/反派；出场判定＝配角名（含别名）出现在本章素材文本
+        # （章纲/要撞的墙/章末落点/剧情条目/前情/上章结尾/故事状态/必须完成）中。
+        supporting = _onstage_supporting_cast(self)
+        if supporting:
+            lines.append("## 本章出场配角")
+            lines.append(supporting)
             lines.append("")
 
         # 章级文风影子覆盖块（chapter-style-shadow）：基线恒定层不动，命中行在此
@@ -1090,8 +1133,9 @@ async def build_chapter_context(
                     }
                 )
 
-    # 全书角色静态档案锚（c-write-prompt-layering）：system 恒定层用，全书角色集，
-    # 不按本章出场名单过滤——第 2 章新增角色只让 system 变化一次，此后恒定。
+    # 全书角色档案（c-write-prompt-layering 装、c-cast-split-user-layer 拆）：
+    # system 锚＝主角/反派恒定卡（设定变更才变）；配角/未设角色按本章出场走
+    # to_user_material 的「本章出场配角」块——新增配角不再改写 system 缓存前缀。
     if novel_id:
         try:
             from settings.character_service import list_characters
