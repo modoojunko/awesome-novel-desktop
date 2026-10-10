@@ -240,3 +240,102 @@ def test_scan_endpoint_empty_prose_400():
     nid = asyncio.run(_seed_scan())
     r = _scan_post(nid, ref="vol-1-ch-2")  # 空正文 → 400「先写正文」
     assert r.status_code == 400
+
+
+# ── 评审盲区补钉（c-deai-wizard 评审 B1/M2/M3/B2/健壮性） ────────────────
+
+
+def test_quick_verdict_balanced_single_quote_pair_not_flagged():
+    """B1 回归钉：恰一对引号＝正常对白，不得判引号不成对。"""
+    v = quick_verdict("他站着。", "“你走吧。”她转身走了。", banned_words=[])
+    assert not any(f["kind"] == "quote_parity" for f in v["flags"])
+    assert v["blocking"] is False
+
+
+def test_trailing_tag_know_da_not_flagged():
+    """M3 回归钉：「知道/味道」的道不触发尾随标签。"""
+    assert "trailing_tag" not in _rules(scan_prose("“行。”他点点头，他知道。"))
+    assert "trailing_tag" not in _rules(scan_prose("“别提了。”他摆手，“那味道。”"))
+
+
+def test_build_problem_segments_excludes_chapter_metrics():
+    """B2 回归钉：章级软指标（逗句比/极短段占比）不构成段落问题。"""
+    report = {
+        "findings": [
+            {"rule": "comma_period_ratio", "para": 0, "severity": "advisory"},
+            {"rule": "short_para_ratio", "para": 0, "severity": "advisory"},
+        ]
+    }
+    paras = ["第一段。", "第二段独白。", "第三段。"]
+    out = build_problem_segments(paras, report, [])
+    assert out == []
+
+
+def test_ellipsis_in_quotes_not_flagged():
+    """M2 回归钉：引号内省略号合法，不进问题清单。"""
+    r = scan_prose("“你怎么不早说……”他把伞递过来。")
+    assert "ellipsis_misuse" not in _rules(r)
+
+
+# ── 端点：404／损坏存档健壮性 ────────────────────────────────────────────
+
+
+async def _seed_scan_with_archive(result_json: str) -> str:
+    root = tempfile.mkdtemp(prefix="test_scan_arch_")
+    uid = f"ar-{os.path.basename(root)[-12:]}"
+    async with async_session() as session:
+        session.add(User(
+            id=uid, email=f"{uid}@test.local", password_hash="x",
+            display_name="存档测试", api_key="", api_base_url="", api_model="",
+        ))
+        session.add(Novel(
+            user_id=uid, name="存档书", slug=f"ar-{os.path.basename(root)}", root_path=root,
+            source="manual", current_phase="write",
+        ))
+        await session.flush()
+        proj = (await session.scalars(select(Novel).where(Novel.root_path == root))).one()
+        vol = Volume(project_id=proj.id, volume_no=1, title="第一卷")
+        session.add(vol)
+        await session.flush()
+        ch = Chapter(
+            project_id=proj.id, volume_id=vol.id, chapter_no=1,
+            ref="vol-1-ch-1", title="第1章", status="writing", has_prose=True,
+        )
+        session.add(ch)
+        await session.flush()
+        session.add(ChapterContent(chapter_id=ch.id, prose="第一段。\n第二段。"))
+        from models.zhuque import ZhuqueResultArchive
+        session.add(ZhuqueResultArchive(
+            chapter_id=ch.id, result=result_json, prose_hash="x", checked_at="2026-10-10",
+        ))
+        await session.commit()
+        _SCAN_UIDS[proj.id] = uid
+        return proj.id
+
+
+def _scan_post_raw(nid: str, ref: str = "vol-1-ch-1"):
+    c = TestClient(app)
+    c.__enter__()
+    app.dependency_overrides[get_current_user] = lambda: {"id": _SCAN_UIDS[nid]}
+    app.dependency_overrides[_raa] = lambda: True
+    app.dependency_overrides[_rnm] = lambda: True
+    try:
+        return c.post(f"/api/novels/{nid}/chapters/{ref}/ai-flavor-scan", json={})
+    finally:
+        c.__exit__(None, None, None)
+
+
+def test_scan_endpoint_corrupted_archive_no_500():
+    """存档 result 非法（segments 非数组/summary null）→ 规则模式降级，不 500。"""
+    nid = asyncio.run(_seed_scan_with_archive('{"summary": null, "segments": "oops"}'))
+    r = _scan_post_raw(nid)
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert body["detector"]["stored"] is True
+    assert body["problems"] == [] or all(p["source"] != "detector" for p in body["problems"])
+
+
+def test_scan_endpoint_missing_chapter_404():
+    nid = asyncio.run(_seed_scan_with_archive('{"summary": null, "segments": []}'))
+    r = _scan_post_raw(nid, ref="vol-1-ch-99")
+    assert r.status_code == 404

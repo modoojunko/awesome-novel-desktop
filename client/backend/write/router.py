@@ -58,6 +58,8 @@ async def ai_flavor_scan(
         raise HTTPException(404, "Project not found")
     _validate_ref(chapter_ref)
     chapter = await load_chapter(project.root_path, chapter_ref) or {}
+    if not chapter:
+        raise HTTPException(404, "章不存在")
     prose = chapter.get("prose") or ""
     if not prose.strip():
         raise HTTPException(400, "先写正文，再跑 AI 味检查")
@@ -68,10 +70,10 @@ async def ai_flavor_scan(
     from zhuque.service import get_stored_result
 
     stored = await get_stored_result(db, project_id=project_id, chapter_ref=chapter_ref)
-    stored_segments = stored.get("result", {}).get("segments") if stored.get("stored") else None
-    human_ratio = (
-        stored.get("result", {}).get("summary", {}).get("human_ratio") if stored.get("stored") else None
-    )
+    result = stored.get("result") if isinstance(stored.get("result"), dict) else {}
+    summary = result.get("summary") if isinstance(result.get("summary"), dict) else {}
+    stored_segments = result.get("segments") if isinstance(result.get("segments"), list) else None
+    human_ratio = summary.get("human_ratio") if stored.get("stored") else None
 
     problems = build_problem_segments(paragraphs, report, stored_segments)
     return {

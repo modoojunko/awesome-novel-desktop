@@ -700,8 +700,9 @@ const ProsePane = forwardRef<ProseHandle, ProsePaneProps>(function ProsePane(
   // 写回经「逆序单事务＋双写 store」——与既有 accept 链同款，可整批 ⌘Z）
   const [wizardOpen, setWizardOpen] = useState(false);
   const applyParagraphEdits = useCallback(
-    (items: Array<{ paraIndex: number; from: string; text: string }>): boolean => {
-      if (!editor || editor.isDestroyed || items.length === 0) return false;
+    (items: Array<{ paraIndex: number; from: string; text: string }>): { applied: number; skipped: number } => {
+      if (!editor || editor.isDestroyed || items.length === 0)
+        return { applied: 0, skipped: items.length };
       const paras: Array<{ start: number; end: number; text: string }> = [];
       editor.state.doc.forEach((node, pos) => {
         const t = node.textContent;
@@ -717,12 +718,13 @@ const ProsePane = forwardRef<ProseHandle, ProsePaneProps>(function ProsePane(
         chain.insertContentAt({ from: range.start, to: range.end }, linesToParagraphs(it.text));
         applied += 1;
       }
-      if (applied === 0) return false;
+      const skipped = items.length - applied;
+      if (applied === 0) return { applied: 0, skipped };
       chain.run();
       const next = docToProse(editor.getJSON());
       lastSyncedRef.current = next;
       setProse(next);
-      return true;
+      return { applied, skipped };
     },
     [editor, setProse],
   );

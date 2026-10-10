@@ -4,7 +4,7 @@
  *  收口＝顶栏朱雀条重检（作家自点，本组件不做复测）。 */
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Modal from "@/components/design/Modal";
-import { aiFlavorScan, polishText } from "@/lib/ai";
+import { aiFlavorScan, polishTextDetail } from "@/lib/ai";
 import { toast } from "@/lib/toast";
 import type {
   AiFlavorScanResponse,
@@ -21,14 +21,14 @@ export interface PolishWizardProps {
   chapterRef: string;
   /** 编辑器当前正文（切段上下文＋应用前校验的事实源） */
   prose: string;
-  /** 写回执行器（ProsePane 注入；采用段逆序单事务替换，返回 false＝全部失配被拒） */
-  onApply: (items: Array<{ paraIndex: number; from: string; text: string }>) => boolean;
+  /** 写回执行器（ProsePane 注入；采用段逆序单事务替换，返回实际应用/跳过数） */
+  onApply: (items: Array<{ paraIndex: number; from: string; text: string }>) => {
+    applied: number;
+    skipped: number;
+  };
 }
 
-const SEVERITY_TEXT: Record<string, string> = {
-  blocking: "硬伤",
-  advisory: "提示",
-};
+const SEVERITY_TEXT: Record<string, string> = { blocking: "硬伤", advisory: "提示" };
 
 export default function PolishWizard({
   open,
@@ -47,7 +47,6 @@ export default function PolishWizard({
   const [step, setStep] = useState<WizardStep>(1);
   const [cands, setCands] = useState<Map<number, FixCandidate>>(new Map());
   const [fixIdx, setFixIdx] = useState(0);
-  const [decided, setDecided] = useState<Array<{ para: number; keep: boolean; label: string }>>([]);
   const [applying, setApplying] = useState(false);
   const scanReqId = useRef(0);
 
@@ -56,7 +55,7 @@ export default function PolishWizard({
     [prose],
   );
 
-  // ── 开窗即扫（①） ──
+  // ── 开窗即扫（①）；重置全部会话态 ──
   useEffect(() => {
     if (!open) return;
     const reqId = ++scanReqId.current;
@@ -69,7 +68,7 @@ export default function PolishWizard({
     setStep(1);
     setCands(new Map());
     setFixIdx(0);
-    setDecided([]);
+    inflightRef.current.clear();
     aiFlavorScan(projectId, chapterRef)
       .then((d) => {
         if (reqId !== scanReqId.current) return;
@@ -90,23 +89,33 @@ export default function PolishWizard({
     () => problems.filter((p) => !excluded.has(p.para)),
     [problems, excluded],
   );
-  const queueParas = useMemo(() => queue.map((p) => p.para), [queue]);
 
-  // ── ③ 逐段生成（串行：当前段无候选即生成） ──
+  // ── ③ 上下文保鲜：已采用候选替换进段落副本，后续段的改写看得见前序定稿 ──
+  const effective = useMemo(() => {
+    const base = [...paragraphs];
+    for (const [para, c] of cands) {
+      if (c.decision === "adopt" && c.after && para >= 0 && para < base.length) {
+        base[para] = c.after;
+      }
+    }
+    return base;
+  }, [paragraphs, cands]);
+
   const segContext = useCallback(
     (para: number) => {
-      const before = paragraphs.slice(0, para).join("\n");
-      const after = paragraphs.slice(para + 1).join("\n");
-      return {
-        contextBefore: before.slice(-200),
-        contextAfter: after.slice(0, 200),
-      };
+      const before = effective.slice(0, para).join("\n");
+      const after = effective.slice(para + 1).join("\n");
+      return { contextBefore: before.slice(-200), contextAfter: after.slice(0, 200) };
     },
-    [paragraphs],
+    [effective],
   );
+
+  const inflightRef = useRef<Set<number>>(new Set());
 
   const generate = useCallback(
     (seg: ProblemSegment) => {
+      if (inflightRef.current.has(seg.para)) return; // StrictMode 双触发防重入
+      inflightRef.current.add(seg.para);
       setCands((prev) => {
         const next = new Map(prev);
         next.set(seg.para, {
@@ -118,21 +127,45 @@ export default function PolishWizard({
         return next;
       });
       const { contextBefore, contextAfter } = segContext(seg.para);
-      polishText(projectId, chapterRef, seg.text, contextBefore, contextAfter)
-        .then((after) => {
+      polishTextDetail(projectId, chapterRef, seg.text, contextBefore, contextAfter)
+        .then((d) => {
+          inflightRef.current.delete(seg.para);
           setCands((prev) => {
             const next = new Map(prev);
             const cur = prev.get(seg.para);
             if (!cur) return prev;
-            if (!after.trim()) {
-              next.set(seg.para, { ...cur, status: "empty", error: "没有产出改稿" });
+            if (!d.changed) {
+              // 确诊为零＝逐字原样输出：合法的无操作，不是失败（PE 评审 A）
+              next.set(seg.para, {
+                ...cur,
+                status: "ready",
+                after: d.polished_text,
+                changed: false,
+                flagsBlocking: false,
+                flags: d.flags,
+                decision: "keep",
+                notice: "未查出可修的硬伤——原样保留是合规结果。",
+              });
             } else {
-              next.set(seg.para, { ...cur, status: "ready", after });
+              const blocking = d.flags.filter((f) => f.level === "block");
+              next.set(seg.para, {
+                ...cur,
+                status: "ready",
+                after: d.polished_text,
+                changed: true,
+                flagsBlocking: d.flags_blocking,
+                flags: d.flags,
+                notice: d.flags_blocking
+                  ? `改稿命中红线：${blocking.map((f) => f.detail).join("；")}——建议保留原文或重新生成。`
+                  : undefined,
+                decision: d.flags_blocking ? "keep" : "undecided",
+              });
             }
             return next;
           });
         })
         .catch((e: { message?: string }) => {
+          inflightRef.current.delete(seg.para);
           setCands((prev) => {
             const next = new Map(prev);
             const cur = prev.get(seg.para);
@@ -151,75 +184,100 @@ export default function PolishWizard({
     const seg = queue[fixIdx];
     if (!seg) return;
     const cur = cands.get(seg.para);
-    if (!cur || cur.status === "error" || cur.status === "empty") generate(seg);
+    if (!cur || (cur.status === "error" && !inflightRef.current.has(seg.para))) generate(seg);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [step, fixIdx]);
 
   const adoptedItems = useMemo(
     () =>
-      decided
-        .filter((d) => !d.keep)
-        .map((d) => {
-          const c = cands.get(d.para);
-          return c?.after ? { paraIndex: d.para, from: c.seg.text, text: c.after } : null;
-        })
-        .filter((x): x is NonNullable<typeof x> => x !== null),
-    [decided, cands],
+      queue
+        .map((s) => cands.get(s.para))
+        .filter((c): c is FixCandidate => !!c && c.decision === "adopt" && !!c.after)
+        .map((c) => ({ paraIndex: c.seg.para, from: c.seg.text, text: c.after as string })),
+    [queue, cands],
+  );
+  const keptCount = useMemo(
+    () => queue.filter((s) => cands.get(s.para)?.decision === "keep").length,
+    [queue, cands],
   );
 
-  // ── 步进 ──
-  const step1Done = !loading && !loadErr && report !== null;
-  const step2Done = queue.length > 0;
   const allDecided = queue.length > 0 && queue.every((s) => {
     const c = cands.get(s.para);
-    return c && c.decision !== "undecided" && c.status === "ready";
+    return c && c.status === "ready" && c.decision !== "undecided";
   });
-  const anyAdopted = decided.some((d) => !d.keep);
+  const step1Done = !loading && !loadErr && report !== null;
+  const step2Done = queue.length > 0;
   const canApply = step === 4 && adoptedItems.length > 0 && !applying;
 
   function nextClick() {
     if (step === 1) { if (step1Done) setStep(2); return; }
     if (step === 2) { if (step2Done) setStep(3); return; }
     if (step === 3) {
-      decide(false);  // 主按钮＝采用当前段；最后一段采用后自动进④
+      const seg = queue[fixIdx];
+      if (seg) adopt(seg);
       return;
     }
     if (step === 4) {
       if (!canApply) return;
       setApplying(true);
-      const ok = onApply(adoptedItems);
+      const r = onApply(adoptedItems);
       setApplying(false);
-      if (ok) {
-        toast.success("已应用到正文——顶部重检一次看效果");
+      if (r.applied > 0) {
+        toast.success(
+          r.skipped > 0
+            ? `已应用 ${r.applied} 段；${r.skipped} 段因正文已变动未应用——顶部重检一次看效果`
+            : "已应用到正文——顶部重检一次看效果",
+        );
         onClose();
       } else {
-        toast.error("段落与当前正文不一致（可能已改动），请重新生成");
+        toast.error("段落与当前正文不一致（可能已改动），请重新打开向导");
       }
     }
   }
 
-  function decide(keep: boolean) {
-    const seg = queue[fixIdx];
-    if (!seg) return;
+  function adopt(seg: ProblemSegment) {
     const c = cands.get(seg.para);
-    if (!c || c.status !== "ready") return;
+    if (!c || c.status !== "ready" || c.decision !== "undecided") return;
     setCands((prev) => {
       const next = new Map(prev);
-      next.set(seg.para, { ...c, decision: keep ? "keep" : "adopt" });
+      next.set(seg.para, { ...c, decision: "adopt" });
       return next;
     });
-    setDecided((prev) => [
-      ...prev.filter((d) => d.para !== seg.para),
-      { para: seg.para, keep, label: seg.suggested_fix },
-    ]);
     if (fixIdx + 1 < queue.length) setFixIdx(fixIdx + 1);
     else setStep(4);
   }
 
+  function keep(seg: ProblemSegment) {
+    const c = cands.get(seg.para);
+    if (!c || c.decision !== "undecided") return;
+    setCands((prev) => {
+      const next = new Map(prev);
+      next.set(seg.para, { ...c, decision: "keep" });
+      return next;
+    });
+    if (fixIdx + 1 < queue.length) setFixIdx(fixIdx + 1);
+    else setStep(4);
+  }
+
+  function flip(seg: ProblemSegment) {
+    setCands((prev) => {
+      const next = new Map(prev);
+      const c = next.get(seg.para);
+      if (c) next.set(seg.para, { ...c, decision: c.decision === "adopt" ? "keep" : "adopt" });
+      return next;
+    });
+  }
+
   function requestClose() {
-    const pending = Array.from(cands.values()).filter((c) => c.status === "ready").length;
-    if (pending > 0 && adoptedItems.length === 0) {
-      if (window.confirm(`已生成 ${pending} 段改稿尚未应用，关闭将丢弃。确定关闭？`)) onClose();
+    const undecided = Array.from(cands.values()).filter(
+      (c) => c.status === "ready" && c.decision === "undecided",
+    ).length;
+    if (adoptedItems.length > 0) {
+      if (window.confirm(`已采用 ${adoptedItems.length} 段但未应用，关闭将丢弃这些取舍。确定关闭？`)) onClose();
+      return;
+    }
+    if (undecided > 0) {
+      if (window.confirm(`有 ${undecided} 段已生成改稿尚未取舍，关闭将丢弃。确定关闭？`)) onClose();
       return;
     }
     onClose();
@@ -255,7 +313,7 @@ export default function PolishWizard({
             {nextLabel}
           </button>
           {step === 3 && curCand && curCand.status === "ready" && curCand.decision === "undecided" && (
-            <button className="btn btn-secondary" onClick={() => decide(true)}>
+            <button className="btn btn-secondary" onClick={() => keep(curSeg)}>
               这段保留原文
             </button>
           )}
@@ -267,7 +325,7 @@ export default function PolishWizard({
           <button className="btn btn-ghost" onClick={requestClose}>
             取消
           </button>
-          <span style={{ marginLeft: "auto", fontSize: 11, color: "var(--faint)" }} id="gl-foot-note">
+          <span style={{ marginLeft: "auto", fontSize: 11, color: "var(--faint)" }}>
             {step === 1
               ? "AI 味检查不耗检测额度 · 收口重检 1 次"
               : step === 3
@@ -305,15 +363,14 @@ export default function PolishWizard({
           <ul className="gl-checks">
             {report.findings.map((f, i) => (
               <li key={i}>
-                <span className="gl-tag">{SEVERITY_TEXT[f.severity]}</span>
-                <span>
-                  {f.detail}
-                  {f.count > 1 && f.rule === "multi_period" ? `（${f.count} 处）` : ""}
-                </span>
+                <span className="gl-tag">{SEVERITY_TEXT[f.severity] || f.severity}</span>
+                <span>{f.detail}</span>
                 <em>段 {f.para + 1}</em>
               </li>
             ))}
-            {report.findings.length === 0 && <li><span>规则清单全绿——文字层没有可机查的违规。</span></li>}
+            {report.findings.length === 0 && (
+              <li><span>规则清单全绿——文字层没有可机查的违规。</span></li>
+            )}
           </ul>
           {report.metrics.comma_period_ratio !== null && (
             <p className="gl-hint">
@@ -373,7 +430,7 @@ export default function PolishWizard({
         <div className="gl-pane">
           <p className="gl-meta">
             <b>第 {fixIdx + 1} / {queue.length} 段</b>
-            <span>{curSeg.para === 0 ? "段 1" : `段 ${curSeg.para + 1}`} · {curSeg.source === "detector" || curSeg.source === "both" ? `朱雀判定 ${Math.round((curSeg.confidence ?? 0) * 100)}%` : "规则命中"}</span>
+            <span>段 {curSeg.para + 1} · {curSeg.source === "detector" || curSeg.source === "both" ? `朱雀判定 ${Math.round((curSeg.confidence ?? 0) * 100)}%` : "规则命中"}</span>
           </p>
           <p className="gl-meta"><b>问题：</b><span>{curSeg.reasons.join("；") || "无具体定位——按整段指纹处理"}</span></p>
           {curCand?.status === "loading" && <p className="gl-meta">生成改稿中…</p>}
@@ -385,6 +442,16 @@ export default function PolishWizard({
           )}
           {curCand?.status === "ready" && (
             <>
+              {curCand.notice && (
+                <p className="gl-meta" style={{ color: curCand.flagsBlocking ? "var(--err)" : "var(--muted)" }}>
+                  {curCand.notice}
+                </p>
+              )}
+              {!curCand.flagsBlocking && (curCand.flags?.length ?? 0) > 0 && (
+                <p className="gl-hint">
+                  改稿快扫提示：{curCand.flags?.map((f) => f.detail).join("；")}——请核对。
+                </p>
+              )}
               <blockquote className="gl-quote">{curSeg.text}</blockquote>
               <div className="gl-ab">
                 <p className="gl-ab-a">{curCand.after}</p>
@@ -396,49 +463,68 @@ export default function PolishWizard({
             </>
           )}
           <ul className="gl-runs">
-            {decided.map((d) => (
-              <li key={d.para} className={d.keep ? "down" : "up"}>
-                <span>段 {d.para + 1}</span>
-                <b>{d.keep ? "保留原文" : "采用改稿"}</b>
-                <em>{d.label}</em>
-              </li>
-            ))}
+            {queue.slice(0, fixIdx + 1).map((s) => {
+              const c = cands.get(s.para);
+              if (!c || c.decision === "undecided") return null;
+              return (
+                <li key={s.para} className={c.decision === "adopt" ? "up" : "down"}>
+                  <span>段 {s.para + 1}</span>
+                  <b>{c.decision === "adopt" ? "采用改稿" : "保留原文"}</b>
+                  <em>{s.suggested_fix}</em>
+                </li>
+              );
+            })}
           </ul>
         </div>
       )}
 
-      {/* ④ 应用确认 */}
+      {/* ④ 应用确认（终选可翻转） */}
       {step === 4 && (
         <div className="gl-pane">
           <div className="gl-ratio-row">
             <b className="gl-big">{adoptedItems.length} 段</b>
             <span className="gl-sub">
-              本轮处理完毕：采用 {adoptedItems.length} 段 · 保留原文 {decided.length - adoptedItems.length} 段<br />
+              本轮处理完毕：采用 {adoptedItems.length} 段 · 保留原文 {keptCount} 段<br />
               应用后正文更新，旧检测结果标为「已过期」——到顶部重检一次看效果
             </span>
           </div>
-          {decided.map((d) => {
-            const c = cands.get(d.para);
+          {queue.map((s) => {
+            const c = cands.get(s.para);
+            if (!c) return null;
             return (
-              <div key={d.para} className="gl-diff-row" style={{ opacity: d.keep ? 0.6 : 1 }}>
+              <div key={s.para} className="gl-diff-row" style={{ opacity: c.decision === "keep" ? 0.6 : 1 }}>
                 <div className="gl-diff-head">
-                  <span className="pill pill-tag">段 {d.para + 1}</span>
-                  <span>{d.label}</span>
+                  <span className="pill pill-tag">段 {s.para + 1}</span>
+                  <span>{s.suggested_fix}</span>
                   <span className="gl-tag" style={{ marginLeft: "auto" }}>
-                    {d.keep ? "保留原文" : "已采用"}
+                    {c.decision === "adopt" ? "已采用" : "保留原文"}
                   </span>
                 </div>
-                {c?.after && !d.keep && (
+                {c.decision === "adopt" && c.after && (
                   <div className="gl-pair">
                     <div><p className="gl-col-k">原文</p><p>{c.seg.text}</p></div>
                     <div><p className="gl-col-k">改稿</p><p className="gl-new">{c.after}</p></div>
                   </div>
                 )}
+                <div className="gl-pick" style={{ marginTop: 6 }}>
+                  <button
+                    className={c.decision === "adopt" ? "on" : ""}
+                    onClick={() => flip(s)}
+                  >
+                    采用改稿
+                  </button>
+                  <button
+                    className={c.decision === "keep" ? "on" : ""}
+                    onClick={() => flip(s)}
+                  >
+                    保留原文
+                  </button>
+                </div>
               </div>
             );
           })}
           <p className="gl-hint">
-            最后的反悔口：这里还能逐段改主意；「应用到正文」后走顶部朱雀条重检收口。
+            终选翻转即时生效；「应用到正文」后走顶部朱雀条重检收口。
           </p>
         </div>
       )}

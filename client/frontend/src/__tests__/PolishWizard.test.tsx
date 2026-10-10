@@ -30,15 +30,15 @@ const SCAN = vi.hoisted(() => ({
 
 vi.mock("@/lib/ai", () => ({
   aiFlavorScan: vi.fn().mockResolvedValue(SCAN),
-  polishText: vi.fn(async (_p: string, _c: string, sel: string) => `【改】${sel.slice(0, 6)}`),
+  polishTextDetail: vi.fn(async (_p: string, _c: string, sel: string) => ({ polished_text: `【改】${sel.slice(0, 6)}`, changed: true, flags: [], flags_blocking: false })),
 }));
 
 vi.mock("@/lib/toast", () => ({ toast: { success: vi.fn(), error: vi.fn(), info: vi.fn() } }));
 
-import { aiFlavorScan, polishText } from "@/lib/ai";
+import { aiFlavorScan, polishTextDetail } from "@/lib/ai";
 
 function mount(over: Partial<Parameters<typeof PolishWizard>[0]> = {}) {
-  const onApply = vi.fn((_items: Array<{ paraIndex: number; text: string }>) => true);
+  const onApply = vi.fn((_items: Array<{ paraIndex: number; from: string; text: string }>) => ({ applied: _items.length, skipped: 0 }));
   const onClose = vi.fn();
   render(
     <PolishWizard
@@ -110,11 +110,54 @@ describe("PolishWizard", () => {
   });
 
   it("polish 失败可重试", async () => {
-    vi.mocked(polishText).mockRejectedValueOnce(new Error("AI 服务响应超时"));
+    vi.mocked(polishTextDetail).mockRejectedValueOnce(new Error("AI 服务响应超时"));
     const { } = mount();
     await walkToStep3();
     await screen.findByText(/生成失败：AI 服务响应超时/);
     fireEvent.click(screen.getByRole("button", { name: /重新生成/ }));
     await screen.findByText(/【改】掌心贴上砖/);
+  });
+});
+
+describe("PolishWizard · 评审盲区补钉", () => {
+  it("规则模式：无检测存档时无占比行、无朱雀文案露出", async () => {
+    const ruleModeScan = { ...SCAN, detector: { stored: false, human_ratio: null, stale_hint: null } };
+    vi.mocked(aiFlavorScan).mockResolvedValueOnce(ruleModeScan);
+    render(<PolishWizard open onClose={vi.fn()} projectId="p" chapterRef="c" prose={PROSE.join("\n")} onApply={vi.fn()} />);
+    expect(await screen.findByText(/规则扫描完成/)).toBeTruthy();
+    expect(screen.queryByText(/人味占比（检测存档）/)).toBeNull();
+  });
+
+  it("漂移拒写：onApply 报 skipped 时弹窗不关、error toast", async () => {
+    const onClose = vi.fn();
+    const toast = await import("@/lib/toast");
+    const onApply = vi.fn(() => ({ applied: 0, skipped: 2 }));
+    render(<PolishWizard open onClose={onClose} projectId="p" chapterRef="c" prose={PROSE.join("\n")} onApply={onApply} />);
+    await screen.findByText(/规则扫描完成/);
+    fireEvent.click(screen.getByRole("button", { name: "下一步：选择段落" }));
+    fireEvent.click(screen.getByRole("button", { name: "开始修改（3 段）" }));
+    for (let i = 0; i < 3; i += 1) {
+      await screen.findByText(/【改】/);
+      fireEvent.click(screen.getByRole("button", { name: "采用改稿，看下一段" }));
+    }
+    await screen.findByText(/应用确认/);
+    fireEvent.click(screen.getByRole("button", { name: "应用到正文" }));
+    expect(onClose).not.toHaveBeenCalled();
+    expect(toast.toast.error).toHaveBeenCalled();
+  });
+
+  it("关闭保护：已采用未应用时确认放弃才关；全保留原文静默关", async () => {
+    const confirmSpy = vi.spyOn(window, "confirm").mockReturnValue(false);
+    const onClose = vi.fn();
+    render(<PolishWizard open onClose={onClose} projectId="p" chapterRef="c" prose={PROSE.join("\n")} onApply={vi.fn(() => ({ applied: 1, skipped: 0 }))} />);
+    await screen.findByText(/规则扫描完成/);
+    fireEvent.click(screen.getByRole("button", { name: "下一步：选择段落" }));
+    fireEvent.click(screen.getByRole("button", { name: "开始修改（3 段）" }));
+    await screen.findByText(/【改】/);
+    fireEvent.click(screen.getByRole("button", { name: "采用改稿，看下一段" }));
+    fireEvent.click(screen.getByRole("button", { name: "取消" }));
+    expect(confirmSpy).toHaveBeenCalled();
+    expect(onClose).not.toHaveBeenCalled();
+    confirmSpy.mockRestore();
   });
 });

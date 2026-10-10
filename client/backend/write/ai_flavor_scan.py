@@ -56,7 +56,7 @@ _ADVIS = "advisory"
 
 # ── 正则（移植/改写自资产包 _precheck.py，去书内角色硬编码） ────────────
 
-_VERBS = r"说|问|答|回|喊|叫|接|嘀咕|嘟囔|插|应|道|念|骂|劝|催"
+_VERBS = r"说|问|答|回|喊|叫|接|嘀咕|嘟囔|插|应|念|骂|劝|催|(?<![知味报通轨介讯])道"
 _TAIL_TAG = re.compile(r"”[^”\n]{0,12}(?:我|他|她|你|老[\u4e00-\u9fa5]{1,2}|小[\u4e00-\u9fa5]{1,2}|[\u4e00-\u9fa5]{2,3})(?:又)?(?:"
                        + _VERBS + r")[。！？]")
 _SANDWICH = re.compile(r"”[^\n”]{0,20}，\s*[“]")
@@ -67,6 +67,9 @@ _CANNED = re.compile(r"愣了一下|愣了愣|沉默了几秒|沉默片刻|看�
 _HALFWORD = re.compile(r"[\u4e00-\u9fa5][,.;:!?]|[,.;:!?][\u4e00-\u9fa5]")
 _NESTED_QUOTE = re.compile(r"“[^“”\n]*“")
 _COUNT_CLAIM = re.compile(r"[这那]【?一?】?[两三四五六七八九\d]{1,3}个字")
+
+
+CHAPTER_SCOPE_RULES = {"comma_period_ratio", "short_para_ratio"}
 
 
 def split_paragraphs(prose: str) -> list[str]:
@@ -118,7 +121,8 @@ def scan_prose(prose: str) -> dict:
             add("quote_sandwich", _BLOCK, i, para, "引语夹层——同上归属处理")
         if _DASH.search(para):
             add("dash_ban", _BLOCK, i, para, "破折号——改逗号或句号")
-        if "……" in para and para.strip() != "……":
+        narr = re.sub(r"“[^”]*”", "", para)  # 引号内省略号合法（人味二-8）
+        if "……" in narr and para.strip() != "……":
             add("ellipsis_misuse", _ADVIS, i, para, "省略号在叙述句中——只留独立成段与引号内两种用法")
         if _HALFWORD.search(para):
             add("halfwidth_punct", _BLOCK, i, para, "半角标点——改中文全角")
@@ -131,7 +135,8 @@ def scan_prose(prose: str) -> dict:
     # 相邻段首同词（advisory；引号段落以外的一般段）
     for i in range(1, len(paras)):
         w_prev, w_cur = _first_word(paras[i - 1]), _first_word(paras[i])
-        if w_prev and w_prev == w_cur:
+        # 引号起手＝对白段豁免（对白密集章同词起手是常态，不误报）
+        if w_prev and w_prev == w_cur and not paras[i - 1].startswith(("“", "「")) and not paras[i].startswith(("“", "「")):
             add("para_head_repeat", _ADVIS, i, paras[i],
                 f"与上一段同以「{w_prev}」起手——改物件/动作/时间/对方起手")
 
@@ -140,7 +145,7 @@ def scan_prose(prose: str) -> dict:
     n_comma, n_period_all = all_text.count("，"), all_text.count("。")
     comma_ratio = round(n_comma / n_period_all, 2) if n_period_all else None
     short_ratio = round(sum(1 for p in paras if len(p) <= 20) / len(paras), 2) if paras else None
-    dialogue = sum(1 for p in paras if p.startswith("“") or p.startswith("「"))
+    dialogue = sum(1 for p in paras if p.startswith(("“", "「")))
     dialogue_ratio = round(dialogue / len(paras), 2) if paras else None
 
     metrics = {
@@ -180,15 +185,14 @@ _SUGGEST_BY_RULE = {
 }
 
 
-def _suggest_for(reasons: list[str], conf: float | None, para: str) -> str:
-    if any("独白" in r or "引号" in r for r in reasons) and para.count("“") >= 2:
-        return SUGGESTED_FIX_LABELS.get("monologue_dequote", "rough_shorten")
+def _suggest_for(rule_ids: list[str], conf: float | None) -> str:
+    """rule id → 改法建议标签（按 id 精确匹配——禁止拿中文文案做子串猜测）。"""
+    for rid in rule_ids:
+        sug = _SUGGEST_BY_RULE.get(rid)
+        if sug:
+            return SUGGESTED_FIX_LABELS.get(sug, "rough_shorten")
     if conf is not None and conf < 0.55:
-        return "merge_periods"
-    for r in reasons:
-        for rule, sug in _SUGGEST_BY_RULE.items():
-            if rule in r:
-                return sug
+        return SUGGESTED_FIX_LABELS["merge_periods"]
     return "rough_shorten"
 
 
@@ -203,6 +207,8 @@ def build_problem_segments(
     """
     rule_hits: dict[int, list[str]] = {}
     for f in report.get("findings", []):
+        if f["rule"] in CHAPTER_SCOPE_RULES:
+            continue  # 章级软指标（逗句比/极短段占比）在步骤①整章展示，不构成段落问题
         if f.get("para", 0) in rule_hits:
             rule_hits[f["para"]].append(f["rule"])
         else:
@@ -226,17 +232,18 @@ def build_problem_segments(
         if idx in detector:
             source_parts.append("detector")
             reasons.append(f"朱雀判定疑似 AI 腔 {conf:.0%}（整段指纹，无具体病灶定位）")
+        rule_ids = rule_hits.get(idx, [])
         if idx in rule_hits:
             source_parts.append("rule")
-            for rule in rule_hits[idx]:
-                reasons.append(RULE_LABELS.get(rule, rule))
+            for rid in rule_ids:
+                reasons.append(RULE_LABELS.get(rid, rid))
         out.append({
             "para": idx,
             "text": para,
             "source": "both" if len(source_parts) == 2 else source_parts[0],
             "confidence": conf,
             "reasons": reasons,
-            "suggested_fix": _suggest_for(reasons, conf, para),
+            "suggested_fix": _suggest_for(rule_ids, conf),
         })
     return out
 
@@ -244,11 +251,11 @@ def build_problem_segments(
 # ── polish 产物快扫（quick_verdict，PE 评审 E） ─────────────────────────
 
 _REDLINE_AFTER = [
-    ("dash", _DASH),
-    ("halfwidth", _HALFWORD),
-    ("trailing_tag", _TAIL_TAG),
-    ("quote_sandwich", _SANDWICH),
-    ("not_a_but_b", _NOT_A_BUT_B),
+    ("dash", _DASH, "block"),
+    ("halfwidth", _HALFWORD, "block"),
+    ("quote_sandwich", _SANDWICH, "block"),
+    ("not_a_but_b", _NOT_A_BUT_B, "block"),
+    ("trailing_tag", _TAIL_TAG, "advise"),  # 主语判定正则误报面大（「知道/味道」），降 advise
 ]
 _BANNED_BLOCK = "block"
 _BANNED_ADVIS = "advise"
@@ -267,14 +274,15 @@ def quick_verdict(before: str, after: str, banned_words: list[str] | None = None
         if w and w in after:
             flags.append({"level": _BANNED_BLOCK, "kind": "banned_word", "detail": f"书级禁用词「{w}」"})
 
-    for kind, rx in _REDLINE_AFTER:
+    for kind, rx, level in _REDLINE_AFTER:
         hit_b, hit_a = bool(rx.search(before or "")), bool(rx.search(after or ""))
         if hit_a and not hit_b:
-            flags.append({"level": _BANNED_BLOCK, "kind": kind, "detail": f"新增{kind}（改前没有）"})
+            flags.append({"level": level, "kind": kind, "detail": f"新增{kind}（改前没有）"})
         elif hit_a and hit_b:
             flags.append({"level": _BANNED_ADVIS, "kind": kind, "detail": f"红线项未清（原文已有）：{kind}"})
 
-    if (after or "").count("“") % 2 == 1 or (after or "").count("”") % 2 == 1:
+    # 引号奇偶＝两边计数不等（恰一对引号两 count 各 1，是正常对白，不是错误）
+    if (after or "").count("“") != (after or "").count("”"):
         flags.append({"level": _BANNED_BLOCK, "kind": "quote_parity", "detail": "引号不成对"})
 
     lb, la = len(before or ""), len(after or "")

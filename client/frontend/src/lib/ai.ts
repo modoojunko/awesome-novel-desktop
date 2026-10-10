@@ -254,6 +254,29 @@ export async function polishText(
   return data.polished_text;
 }
 
+/** polish 完整出参（c-deai-wizard 修稿向导用：changed/flags 供向导做质量兜底呈现）。 */
+export interface PolishTextDetail {
+  polished_text: string;
+  /** 空白折叠后与选区比对派生——false＝确诊为零的合法无操作 */
+  changed: boolean;
+  flags: Array<{ level: string; kind: string; detail: string }>;
+  flags_blocking: boolean;
+}
+
+/** 同 polishText，但返回完整出参（含 changed/flags）。 */
+export async function polishTextDetail(
+  projectId: string,
+  chapterRef: string,
+  selectedText: string,
+  contextBefore: string,
+  contextAfter: string,
+): Promise<PolishTextDetail> {
+  return await doJsonPost(
+    `${API_BASE}/novels/${projectId}/chapters/${chapterRef}/write/polish`,
+    { selected_text: selectedText, context_before: contextBefore, context_after: contextAfter },
+  ) as PolishTextDetail;
+}
+
 // ---------------------------------------------------------------------------
 // 题材五行 AI（genre-signup-redesign tasks 4.2 / D18）
 // ---------------------------------------------------------------------------

@@ -44,12 +44,18 @@ export interface ProblemSegment {
 export type CandidateStatus = "loading" | "ready" | "error" | "empty";
 
 export interface FixCandidate {
-  seg: ProblemSegment;
+  seg: { para: number; text: string };
   status: CandidateStatus;
   after?: string;
   error?: string;
   attempts: number;
   decision: "adopt" | "keep" | "undecided";
+  /** polish 派生：false＝确诊零合法无操作（默认保留原文） */
+  changed?: boolean;
+  flagsBlocking?: boolean;
+  flags?: Array<{ level: string; kind: string; detail: string }>;
+  /** 向导提示（确诊零说明／红线命中告警） */
+  notice?: string;
 }
 
 /** ④ 应用项（采用段的写回指令） */
@@ -68,4 +74,3 @@ export interface AiFlavorScanResponse {
 }
 
 /** 写回执行器（ProsePane 内部实现经 props 注入） */
-export type ApplyParagraphEdits = (items: ParagraphApplyItem[]) => boolean;
