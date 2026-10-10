@@ -87,3 +87,60 @@ def test_dismiss_endpoint_writes_snooze_key(monkeypatch):
     out = asyncio.run(router.dismiss(router.DismissBody(filename="novel-v0.24.db")))
     assert out == {"code": 0}
     assert router.SNOOZE_KEY in written and "migration.dismissed" not in written
+
+
+def test_olderstamp_record_still_carries(monkeypatch):
+    """c-carry-modal-reshow 兼容：升级前的完成记录是旧三件套指纹（含 -shm 分量），
+    与现行扫描指纹（数据件形态）不同串——按「数据件未变即同一源」对拍，carried 仍
+    为真（否则这台机器告知卡复弹不止，恰是真机事故形态）。"""
+    import asyncio
+
+    state = {"snoozed": "", "dismissed": ""}
+
+    def fake_get(key: str):
+        if key == "migration.last":
+            return json.dumps({"source_stamp": "S1-legacy",
+                               "report": {"status": "ok", "tables_skipped": [],
+                                          "fk_violations": [],
+                                          "book_count_source": 1,
+                                          "book_count_present": 1}})
+        return state.get(key.replace("migration.", "")) or None
+
+    monkeypatch.setattr(router, "_app_meta_value", fake_get)
+    scanned = [{"filename": "novel-v0.30.2.db", "stamp": "S1", "stamp_legacy": "S1-legacy",
+                "recommended": True, "unreadable": False}]
+
+    def fake_scan(root, ver, active):
+        return [dict(it) for it in scanned]
+
+    monkeypatch.setattr(router, "scan_migration_candidates", fake_scan)
+    cands = asyncio.run(router.candidates())["data"]["candidates"]
+    assert cands[0]["carried"] is True and cands[0]["suppressed"] is True
+
+
+def test_data_drift_breaks_both_forms(monkeypatch):
+    """数据件变了：现行与旧指纹都不命中 → carried/suppressed 均假（不放松
+    「dismiss 不吞新数据」）。"""
+    import asyncio
+
+    state = {"snoozed": "S1-legacy", "dismissed": ""}
+
+    def fake_get(key: str):
+        if key == "migration.last":
+            return json.dumps({"source_stamp": "S1",
+                               "report": {"status": "ok", "tables_skipped": [],
+                                          "fk_violations": [],
+                                          "book_count_source": 1,
+                                          "book_count_present": 1}})
+        return state.get(key.replace("migration.", "")) or None
+
+    monkeypatch.setattr(router, "_app_meta_value", fake_get)
+    scanned = [{"filename": "novel-v0.30.2.db", "stamp": "S1-new", "stamp_legacy": "S1-legacy-new",
+                "recommended": True, "unreadable": False}]
+
+    def fake_scan(root, ver, active):
+        return [dict(it) for it in scanned]
+
+    monkeypatch.setattr(router, "scan_migration_candidates", fake_scan)
+    cands = asyncio.run(router.candidates())["data"]["candidates"]
+    assert cands[0]["carried"] is False and cands[0]["suppressed"] is False
