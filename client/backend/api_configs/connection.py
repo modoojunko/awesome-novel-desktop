@@ -284,8 +284,10 @@ async def test_connection(
                 # 200 但体判废也可能是可用端点（网关对未知路径回首页，内测反馈#1 残余
                 # ——ccswitch 类中转站对 /models 回 200 网页、对话接口正常）：与 404
                 # 同享降级探对话接口，探通即放行（该端点不提供清单，按无清单端点口径
-                # 返回空清单＋说明）；探不通（真网页站的对话接口也 HTML/不存在）保留
-                # 判废原文案。探针 id 同 404 口径：无 id 的 openai 格式不降级。
+                # 返回空清单＋说明）；探针判「对话端点亦不存在/网页体」（404/405/网页）
+                # 才保留判废原文案——其余失败形态（鉴权/限流/网络/模型被拒）只可能
+                # 来自真实对话端点，如实透传，SHALL NOT 让原文案把死因引向 Base URL。
+                # 探针 id 同 404 口径：无 id 的 openai 格式不降级。
                 if fallback is not None:
                     probe_model = _probe_model([], vendor_id, preferred_model)
                     if probe_model or api_format == "anthropic":
@@ -307,6 +309,8 @@ async def test_connection(
                                 "candidates": model_candidates_for(vendor_id),
                                 "note": no_model_list_note(api_format),
                             }
+                        if probe.get("status") != "endpoint_mismatch":
+                            return probe
                 return {
                     "ok": False,
                     "status": "endpoint_mismatch",

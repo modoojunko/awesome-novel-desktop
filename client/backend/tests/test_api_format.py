@@ -679,6 +679,47 @@ class TestConnectionFlow:
         assert "不是 API 数据" in out["error"] and "看起来像网页" in out["error"]
         assert [c[0] for c in fake_http.calls] == ["GET", "POST"]
 
+    def test_models_200_html_degrade_auth_error_surfaces(self, fake_http):
+        """网关形态但 Key 错：对话端点真实存在（401）→ 探针的鉴权失败如实透传，
+        SHALL NOT 被「不是 API 数据」原文案遮蔽（死因在 Key 不在地址，与 404 降级同构）。"""
+        fake_http.script = [
+            ("GET", 200, ValueError("Expecting value"), "text/html"),
+            ("POST", 401, {"error": {"message": "invalid key"}}),
+        ]
+        out = _run_async(
+            do_test_connection(
+                "openai-compat",
+                "sk",
+                "https://relay.example.com",
+                "openai",
+                preferred_model="m-1",
+            )
+        )
+        assert out["ok"] is False and out["status"] == "auth_error"
+        assert "认证失败" in out["error"] and "invalid key" in out["error"]
+        assert [c[0] for c in fake_http.calls] == ["GET", "POST"]
+
+    def test_models_200_envelope_degrade_auth_error_surfaces(self, fake_http):
+        """软错误信封＋探针模型被拒（400）：对话端点存在且应答 → 透传探针失败
+        （点名所试模型 id），SHALL NOT 回落体判废原文案。"""
+        fake_http.script = [
+            ("GET", 200, {"error": {"message": "models endpoint disabled"}}),
+            ("POST", 400, {"error": {"message": "model not found"}}),
+            ("POST", 400, {"error": {"message": "model not found"}}),
+        ]
+        out = _run_async(
+            do_test_connection(
+                "openai-compat",
+                "sk",
+                "https://relay.example.com/v4",
+                "openai",
+                preferred_model="m-1",
+            )
+        )
+        assert out["ok"] is False and out["status"] == "unknown"
+        assert "m-1" in out["error"]
+        assert [c[0] for c in fake_http.calls] == ["GET", "POST", "POST"]
+
     def test_models_200_error_envelope_degrades_to_chat_probe(self, fake_http):
         """软错误信封（200+error 体）同属体判废：对话接口可用时同样降级放行
         （同一 not_api 分支；真鉴权问题会在探针处以 401 现形，不会误放）。"""
