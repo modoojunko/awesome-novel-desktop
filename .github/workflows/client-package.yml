@@ -231,7 +231,7 @@ jobs:
         shell: bash
         run: python client/packaging/build/compile_native.py --scan client/packaging/build/dist
 
-      # 法律文件随包断言（relicense-proprietary）：EULA 与第三方声明必须烘进产物
+      # 法律文件随包断言（c-relicense-agpl）：许可全文与第三方声明必须烘进产物
       - name: Assert LICENSE & THIRD-PARTY-NOTICES baked into bundle
         shell: bash
         run: |
@@ -438,7 +438,7 @@ jobs:
           STAGE=.dmg_stage
           rm -rf "$STAGE"; mkdir -p "$STAGE"
           cp -R "dist/AwesomeNovel.app" "$STAGE/"
-          # EULA 与第三方声明随包：DMG 根与 .app 内 _internal/ 双份（relicense-proprietary）。
+          # 许可全文与第三方声明随包：DMG 根与 .app 内 _internal/ 双份（c-relicense-agpl）。
           # 源在仓库根——相对本目录 ../../.. 与 installer.iss 的 ..\..\..\ 同款（CWD 无此二文件，2026-10-01 彩排实锤）
           cp ../../../LICENSE ../../../THIRD-PARTY-NOTICES.txt "$STAGE/"
           ln -s /Applications "$STAGE/Applications"

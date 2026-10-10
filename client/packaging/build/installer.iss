@@ -25,10 +25,10 @@
 
 [Setup]
 ; 基础设置
-; 许可协议页：展示仓库根 LICENSE（EULA v2026.09），未点「我接受」不能继续；
-; 静默安装（/SILENT）按 EULA 条款视同接受。路径相对本文件：..\..\..\ = 仓库根。
-; 全局 directive 对双语言生效（现有 [Languages] 均无 per-language LicenseFile 覆盖）。
-LicenseFile=..\..\..\LICENSE
+; 许可协议页已撤（c-relicense-agpl）：软件以 AGPL-3.0 开源，是授权声明而非接受式合同，
+; 安装期「我接受」门槛随 EULA（v2026.09）退役；许可全文仍随包落安装目录根（见 [Files]），
+; 官网公示同步改「开源许可」页（S端 跨仓同批）。勿直接恢复 LicenseFile 指向英文全文——
+; 将来要做中文引导页，另行立项。
 AppId={{B8F1A2D3-4E5F-6A7B-8C9D-0E1F2A3B4C5D}
 AppName={#MyAppName}
 AppVersion={#MyAppVersion}
@@ -101,7 +101,7 @@ Name: "desktopicon"; Description: "创建桌面快捷方式"; GroupDescription: 
 [Files]
 ; PyInstaller onedir 输出的所有文件
 Source: "dist\AwesomeNovel\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
-; EULA 与第三方声明落安装目录根（与 _internal\ 内 PyInstaller datas 双份属预期冗余）
+; 许可全文与第三方声明落安装目录根（与 _internal\ 内 PyInstaller datas 双份属预期冗余）
 Source: "..\..\..\LICENSE"; DestDir: "{app}"; Flags: ignoreversion
 Source: "..\..\..\THIRD-PARTY-NOTICES.txt"; DestDir: "{app}"; Flags: ignoreversion
 
