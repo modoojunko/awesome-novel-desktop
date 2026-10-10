@@ -259,6 +259,27 @@ describe("AiModal（组装 → 编辑/存稿 → 生成）", () => {
     expect(screen.queryByText(/追加到本章末尾/)).toBeNull();
   });
 
+  it("有正文但无章纲：仍出替换口径（hasProse 第一优先，评审 P3 整改）", async () => {
+    installRequestMock({
+      prompt: "## 角色定位\n仅依据设定组装",
+      has_outline: false,
+      polished: false,
+    });
+    render(
+      <AiModal
+        open
+        onClose={vi.fn()}
+        projectId="p1"
+        chapterRef="vol-1-ch-1"
+        hasProse
+        onConfirm={vi.fn()}
+      />,
+    );
+    await screen.findByTestId("ai-prompt");
+    expect(screen.getByText(/清空并替换本章现有正文/)).toBeTruthy();
+    expect(screen.queryByText(/本章尚未配置章纲/)).toBeNull();
+  });
+
   it("空章：提示行为写入口径", async () => {
     render(
       <AiModal
