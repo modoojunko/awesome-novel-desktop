@@ -226,7 +226,7 @@ def _roster_brief(items: list[dict]) -> str:
             continue
         aliases = [str(a).strip() for a in (it.get("aliases") or []) if str(a).strip()]
         head = f"{name}（别名：{'、'.join(aliases)}）" if aliases else name
-        out.append(f"- {head}（{it.get('role') or ''}）：{str(it.get('persona') or '')}")
+        out.append(f"- {head}（{it.get('role') or ''}）：{it.get('persona') or ''}")
     return "\n".join(out) or "（人物表还是空的）"
 
 
