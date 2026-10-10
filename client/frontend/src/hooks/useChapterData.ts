@@ -380,6 +380,10 @@ class ChapterStore {
         initial: { prose: p, status: nextStatus },
         saveState: "saved",
       });
+      // 保存期间内容又变了（在途早退的 doSave 调用不排定时器，如 AI 生成收尾
+      // setProse 覆盖）→ 补排一次防抖保存，否则新稿搁浅到下次输入/卸载。
+      // 常规路径此刻不脏，零副作用；disposed 不补（release 已收尾）。
+      if (!this.disposed && this.isDirty()) this.afterChange();
     } catch (e: any) {
       this.update({ saveState: "failed", error: e.message || "保存失败" });
     } finally {

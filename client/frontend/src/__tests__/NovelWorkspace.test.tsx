@@ -1082,3 +1082,95 @@ describe("页签待确认泡泡（c-chtab-confirm-bubbles）", () => {
     confirmSpy.mockRestore();
   });
 });
+
+// -------------------------------------------------------------------------
+// c-prose-regen-replace：已有正文章再点「生成正文」＝清空重写——
+// 进 AiModal 提示词弹窗之前先出「重新生成正文」确认（找回＝版本历史）；
+// 空章不拦直进（原路径不变）。
+// -------------------------------------------------------------------------
+const ONE_CHAPTER_WITH_PROSE_REGEN = {
+  ...ONE_CHAPTER_WITH_PROSE,
+  status: "writing",
+};
+
+function mockProseChapterTree() {
+  apiState.get.mockImplementation((path: string) => {
+    if (path === "/novels/p1/volumes") return Promise.resolve(ONE_VOL_ONE_CHAPTER);
+    if (path === "/novels/p1/chapters/vol-1-ch-1")
+      return Promise.resolve(ONE_CHAPTER_WITH_PROSE_REGEN);
+    if (path === "/novels/p1/workflow/phase-status")
+      return Promise.resolve({
+        phases: {
+          settings: "done",
+          outline: "pending",
+          prompt: "pending",
+          write: "pending",
+          archive: "pending",
+        },
+        warnings: [],
+      });
+    return Promise.resolve({});
+  });
+  // AiModal 提示词 GET：has_outline=true 才渲染「替换」口径提示行
+  apiState.request.mockImplementation((url: string) => {
+    if (typeof url === "string" && url.includes("/write/prompt"))
+      return Promise.resolve({
+        prompt: "## 任务指示\n组装稿",
+        has_outline: true,
+        polished: false,
+      });
+    return Promise.resolve([]);
+  });
+  apiState.fetchStory.mockResolvedValue({ synopsis: "" });
+  apiState.put.mockResolvedValue({});
+  apiState.post.mockResolvedValue({});
+}
+
+describe("重新生成确认门禁（c-prose-regen-replace）", () => {
+  it("有正文章：先出「重新生成正文」确认，AiModal 不直接开；文案点名清空与版本历史", async () => {
+    mockProseChapterTree();
+    renderWorkspace("monthly");
+    await selectFirstChapter();
+    fireEvent.click(screen.getByRole("tab", { name: /^正文/ }));
+    // ai-write-btn 只在 railData 上抛后渲染＝门禁判定的字数已就绪
+    fireEvent.click(await screen.findByTestId("ai-write-btn"));
+    expect(await screen.findByTestId("regen-confirm")).toBeTruthy();
+    expect(screen.queryByTestId("ai-confirm")).toBeNull();
+    const dlg = screen.getByTestId("regen-confirm").closest(
+      "[role='dialog']",
+    ) as HTMLElement;
+    expect(dlg.textContent).toContain("清空当前正文");
+    expect(dlg.textContent).toContain("版本历史");
+  });
+
+  it("取消：两弹窗都不开（零副作用，可再点）", async () => {
+    mockProseChapterTree();
+    renderWorkspace("monthly");
+    await selectFirstChapter();
+    fireEvent.click(screen.getByRole("tab", { name: /^正文/ }));
+    fireEvent.click(await screen.findByTestId("ai-write-btn"));
+    const dlg = (await screen.findByTestId("regen-confirm")).closest(
+      "[role='dialog']",
+    ) as HTMLElement;
+    fireEvent.click(within(dlg).getByRole("button", { name: "取消" }));
+    await waitFor(() => expect(screen.queryByTestId("regen-confirm")).toBeNull());
+    expect(screen.queryByTestId("ai-confirm")).toBeNull();
+    // 再点入口仍能走完整链（无一次性锁死）
+    fireEvent.click(screen.getByTestId("ai-write-btn"));
+    fireEvent.click(await screen.findByTestId("regen-confirm"));
+    expect(await screen.findByTestId("ai-confirm")).toBeTruthy();
+    // AiModal 提示行为替换口径（c-prose-regen-replace）
+    expect(screen.getByText(/清空并替换本章现有正文/)).toBeTruthy();
+    expect(screen.queryByText(/追加到本章末尾/)).toBeNull();
+  });
+
+  it("空章：不拦，直接进 AiModal（原路径不变）", async () => {
+    mockOneChapterTreePro();
+    renderWorkspace("monthly");
+    await selectFirstChapter();
+    fireEvent.click(screen.getByRole("tab", { name: /^正文/ }));
+    fireEvent.click(await screen.findByTestId("ai-write-btn"));
+    expect(await screen.findByTestId("ai-confirm")).toBeTruthy();
+    expect(screen.queryByTestId("regen-confirm")).toBeNull();
+  });
+});

@@ -241,6 +241,61 @@ describe("AiModal（组装 → 编辑/存稿 → 生成）", () => {
     expect(onPromptSaved).toHaveBeenCalled();
   });
 
+  // c-prose-regen-replace：提示行按本章是否有正文出「替换／写入」口径
+  it("hasProse：提示行为替换口径（清空并替换＋版本历史找回）", async () => {
+    render(
+      <AiModal
+        open
+        onClose={vi.fn()}
+        projectId="p1"
+        chapterRef="vol-1-ch-1"
+        hasProse
+        onConfirm={vi.fn()}
+      />,
+    );
+    await screen.findByTestId("ai-prompt");
+    expect(screen.getByText(/清空并替换本章现有正文/)).toBeTruthy();
+    expect(screen.getByText(/版本历史/)).toBeTruthy();
+    expect(screen.queryByText(/追加到本章末尾/)).toBeNull();
+  });
+
+  it("有正文但无章纲：仍出替换口径（hasProse 第一优先，评审 P3 整改）", async () => {
+    installRequestMock({
+      prompt: "## 角色定位\n仅依据设定组装",
+      has_outline: false,
+      polished: false,
+    });
+    render(
+      <AiModal
+        open
+        onClose={vi.fn()}
+        projectId="p1"
+        chapterRef="vol-1-ch-1"
+        hasProse
+        onConfirm={vi.fn()}
+      />,
+    );
+    await screen.findByTestId("ai-prompt");
+    expect(screen.getByText(/清空并替换本章现有正文/)).toBeTruthy();
+    expect(screen.queryByText(/本章尚未配置章纲/)).toBeNull();
+  });
+
+  it("空章：提示行为写入口径", async () => {
+    render(
+      <AiModal
+        open
+        onClose={vi.fn()}
+        projectId="p1"
+        chapterRef="vol-1-ch-1"
+        hasProse={false}
+        onConfirm={vi.fn()}
+      />,
+    );
+    await screen.findByTestId("ai-prompt");
+    expect(screen.getByText(/生成内容将写入本章/)).toBeTruthy();
+    expect(screen.queryByText(/追加到本章末尾/)).toBeNull();
+  });
+
   it("编辑后「生成正文」透传当前提示词", async () => {
     const { onConfirm } = renderModal();
     await screen.findByTestId("ai-prompt");
