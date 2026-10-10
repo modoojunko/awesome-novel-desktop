@@ -10,7 +10,7 @@
 
 - `client/frontend/src/components/novel/workbench/modals.tsx`：新增 `RegenConfirmModal`（重新生成确认：点名清空当前正文＋字数、指路版本历史；`testid=regen-confirm`）；`AiModal` 新增 `hasProse` prop，提示行按「替换／写入」双口径出文案。
 - `client/frontend/src/components/novel/NovelWorkspace.tsx`：生成意图入口（右栏「生成正文」等 `requestAi({kind:"write"})`）加门禁——`railData.wordCount > 0` 先开 `RegenConfirmModal`，确认后才 `setShowAiModal(true)`；「去刷新提示词」出口传 `skipRegenConfirm`。
-- `client/frontend/src/components/novel/workbench/ProsePane.tsx`：`startStream` 改替换语义——开始前 `store.flush()`（快照前置，重写链同款）→ 整档清除（入撤销史，一次撤销回空稿）→ 从空文档流式写入；`finishStream` 正文终态＝生成物（`streamBaseRef` 追加合并退役）。
+- `client/frontend/src/components/novel/workbench/ProsePane.tsx`：`startStream` 改替换语义——开始前 `store.flush()`（快照前置，重写链同款）→ 整档清除（**不入撤销史**：⌘Z 确定性地回空稿、与生成快慢无关——e2e 隔离栈实测，快生成会与收尾写回落进 history 分组窗直跳旧正文）→ 从空文档流式写入；`finishStream` 正文终态＝生成物（`streamBaseRef` 追加合并退役）。
 - `client/frontend/src/components/novel/workbench/AiAssistPanel.tsx`：生成正文动作行描述改「生成／替换本章正文」。
 - e2e：`prompt-pipeline.spec.ts` 两处适配——`openModal` 助手兼容确认门禁；「可整体撤销」用例改钉替换语义（旧正文清空、一次撤销回空稿）。
 - 单测：NovelWorkspace 门禁三态（有正文先确认／取消零副作用／空章直进）、AiModal 提示行双口径、proseStream 替换链（旧正文清空、终稿＝生成物、一次撤销回空稿）。

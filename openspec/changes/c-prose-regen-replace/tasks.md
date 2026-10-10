@@ -13,7 +13,7 @@
 
 ## 3. 替换写入
 
-- [x] 3.1 `ProsePane.startStream`：`void store.flush()`（快照前置）→ 整档清除（入撤销史）→ size===0 守卫下垫段/取插入点 → 流式
+- [x] 3.1 `ProsePane.startStream`：`void store.flush()`（快照前置）→ 整档清除（**不入撤销史**，e2e 实测整改 62a9de4e）→ size===0 守卫下垫段/取插入点 → 流式
 - [x] 3.2 `ProsePane.finishStream`：正文终态＝生成物；`streamBaseRef` 退役
 - [x] 3.3 验证 prosemirror 整档删除留下的空段即流式脚手架（insertContentAt 收尾不留尾随空段）
 
@@ -21,9 +21,9 @@
 
 - [x] 4.1 NovelWorkspace 门禁三用例（先确认／取消零副作用可重入／空章直进）
 - [x] 4.2 AiModal 提示行双口径两用例
-- [x] 4.3 proseStream 替换链两用例（终稿＝生成物且旧正文清空；一次撤销回空稿）
+- [x] 4.3 proseStream 替换链三用例（终稿＝生成物且旧正文清空；一次撤销回空稿；瞬时生成同拍确定性）
 - [x] 4.4 e2e `prompt-pipeline.spec.ts`：`openModal` 兼容门禁；撤销用例改钉替换语义
-- [ ] 4.5 e2e 隔离栈全量复跑（需自建 compose 栈，随 CI/验收执行）
+- [ ] 4.5 e2e 隔离栈复跑（regen-e2e 独占栈）：写作流四 spec 31/31 后全量套件复跑
 
 ## 5. 归档（另行 PR）
 
