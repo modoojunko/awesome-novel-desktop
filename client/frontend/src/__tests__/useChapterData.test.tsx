@@ -136,6 +136,59 @@ describe("自动保存（1.5s 防抖）", () => {
     expect(result.current.saveState).toBe("saved");
   });
 
+  it("保存期间内容又变（AI 生成收尾覆盖）：在途早退后补排保存，最终落新稿", async () => {
+    // 场景（c-prose-regen-replace 评审遗留）：flush/防抖 PUT 在飞时生成完成
+    // setProse 新稿 → 防抖定时器打到 doSave 早退（saving=true）且不排定时器——
+    // 修复前新稿搁浅到下次输入/卸载；修复后第一个 PUT 完成即补排一次防抖保存。
+    vi.useFakeTimers();
+    apiState.get.mockResolvedValue({ ...CHAPTER, prose: "旧稿" });
+    let resolvePut!: (v: unknown) => void;
+    let putCall = 0;
+    apiState.put.mockImplementation(() => {
+      putCall += 1;
+      // 仅第一笔挂起（在飞窗口）；第二笔即完成
+      return putCall === 1
+        ? new Promise((res) => (resolvePut = res))
+        : Promise.resolve({});
+    });
+    const { result } = await mountHook();
+
+    act(() => result.current.setProse("旧稿二")); // 第一笔：触发保存（flush 前置角色）
+    await act(async () => {
+      vi.advanceTimersByTime(1500);
+    });
+    expect(result.current.saveState).toBe("autosaving");
+
+    // 第二笔：PUT 在飞时生成收尾覆盖
+    act(() => result.current.setProse("生成稿"));
+    await act(async () => {
+      vi.advanceTimersByTime(1500);
+    });
+    await act(async () => {});
+    // 在途早退：未发第二次 PUT（保持串行，不与第一笔乱序）
+    expect(apiState.put).toHaveBeenCalledTimes(1);
+    expect(apiState.put).toHaveBeenCalledWith(
+      "/novels/p1/chapters/vol-1-ch-1/prose",
+      { prose: "旧稿二" },
+    );
+
+    await act(async () => {
+      resolvePut({});
+    });
+    // 第一笔完成（initial=旧稿二）→ 补排定时器 → 第二笔落新稿
+    await act(async () => {
+      vi.advanceTimersByTime(1500);
+    });
+    await act(async () => {});
+    expect(apiState.put).toHaveBeenCalledTimes(2);
+    expect(apiState.put).toHaveBeenLastCalledWith(
+      "/novels/p1/chapters/vol-1-ch-1/prose",
+      { prose: "生成稿" },
+    );
+    expect(result.current.saveState).toBe("saved");
+    expect(result.current.isDirty).toBe(false);
+  });
+
   it("保存端点降级：/prose 404（结构性缺失）→ 重取最新章合并后全量 PUT", async () => {
     vi.useFakeTimers();
     apiState.get.mockResolvedValue({ ...CHAPTER });
