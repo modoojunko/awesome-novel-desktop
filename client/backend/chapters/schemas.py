@@ -17,6 +17,23 @@ PLOT_MAX_ITEMS = 12
 PLOT_MAX_LEN = 200
 
 
+_SENT_ENDS = "。！？；…"
+
+
+def clip_sentence(text, limit: int) -> str:
+    """句读点截断单源（c-field-truncation-alignment）：超预算截到最后一个句读点
+    （末句不腰斩）；整段无句读才硬截。生成钳位与存储预算共用的唯一实现——
+    chapters/ai_plot.clip_plot_item 与各组装侧均委托此处，禁止再写第二份循环。"""
+    t = str(text or "").strip()
+    if len(t) <= limit:
+        return t
+    cut = t[:limit]
+    for i in range(len(cut) - 1, -1, -1):
+        if cut[i] in _SENT_ENDS:
+            return cut[: i + 1]
+    return cut
+
+
 def normalize_plot_items(items: list) -> list[str]:
     """剧情条目归一：只收字符串项（非字符串丢弃＝防御性兜底，请求层已 422 拒收）＋
     单条截 200＋截 12 条；含换行的条目单条完整保留。

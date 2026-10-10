@@ -24,6 +24,7 @@ from auth_local.deps import (
     require_ai_access,
     require_novel_model,
 )
+from chapters.schemas import clip_sentence
 from db import get_db
 from novels.service import get_novel
 from prompts import load_layers
@@ -66,7 +67,7 @@ MAX_ATTEMPTS = 3  # 重试预算：3 次尝试后仍不足 2 张 → degraded
 POS_FRAGMENTS = {"ch1": "pos_ch1", "golden3": "pos_golden3", "vol_start": "pos_vol_start"}
 _NEXT_STAGE = {"开局铺垫": "冲突初现", "冲突初现": "矛盾升级", "矛盾升级": "重要转折"}
 
-_LIMITS = {"title": 12, "plot": 150, "obstacle": 60, "ending": 80, "why": 30, "gap": 30}
+_LIMITS = {"title": 12, "plot": 300, "obstacle": 60, "ending": 80, "why": 30, "gap": 30}
 _PLACE_SPLIT_RE = re.compile(r"[、，,；;。\n\r\t 　]+")
 
 
@@ -359,7 +360,12 @@ def _blocks_chapter(mat: dict) -> str:
 
 
 def _fit(v, key: str) -> str:
-    return str(v or "").strip()[:_LIMITS[key]]
+    """字段钳位（c-field-truncation-alignment）：句读点截断——末句不腰斩，超限即告警。"""
+    raw = str(v or "").strip()
+    out = clip_sentence(raw, _LIMITS[key])
+    if len(out) < len(raw):
+        logger.warning("field clipped: key=%s %d→%d chars", key, len(raw), len(out))
+    return out
 
 
 def _similar(a: dict, b: dict) -> bool:

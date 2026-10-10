@@ -21,6 +21,7 @@ from sqlalchemy import select
 
 from db import async_session
 from filesystem.storage import get_storage
+from chapters.schemas import clip_sentence
 from genres.service import build_genre_section, resolve_genre_context
 from prompt.context import inject_world_setting
 from settings.character_model import (
@@ -1133,7 +1134,7 @@ async def build_chapter_context(
                 # c-ai-material-audit：逐格 40 字封顶（旧实现整串切 120——首格写长一点
                 # 就把后五层整段挤掉，人物行为/决策层直接消失）
                 parts = [
-                    str(cog.get(k, "") or "").strip()[:_WRITE_STATE_PER_CELL_MAX]
+                    clip_sentence(str(cog.get(k, "") or "").strip(), _WRITE_STATE_PER_CELL_MAX)
                     for k in _WRITE_STATE_KEYS
                 ]
                 parts = [p for p in parts if p]

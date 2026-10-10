@@ -25,6 +25,7 @@ from ai_client import AITimeoutError, get_ai_client_for_novel
 from ai_state import effective_model
 from auth_local.deps import ai_feature, require_ai_access, require_novel_model
 from auth_local.middleware import get_current_user
+from chapters.schemas import clip_sentence
 from db import get_db
 from filesystem.storage import get_storage
 from genres.service import build_genre_section, resolve_genre_context
@@ -495,9 +496,9 @@ def _sanitize_plans(parsed: dict | None) -> dict | None:
             {
                 "no": len(out) + 1,
                 # 钳位＝提示词字段上限（对齐——上限说明不该被更宽的兜底架空）
-                "spine": spine[:40],
-                "conflict": conflict[:40],
-                "ending": ending[:40],
+                "spine": clip_sentence(spine, 40),
+                "conflict": clip_sentence(conflict, 150),
+                "ending": clip_sentence(ending, 300),
                 "focus": str(p.get("focus", "") or "").strip()[:20],
                 "focus_axis": axis,
                 "antagonist_type": p_ant_type,
@@ -690,9 +691,9 @@ def _sanitize_expand(obj: dict | None) -> dict | None:
         ant_type = "人物" if ant_type else ""
     return {
         "name": str(obj.get("name", "") or "").strip()[:6],
-        "summary": summary[:80],
-        "conflict": conflict[:60],
-        "ending": ending[:60],
+        "summary": clip_sentence(summary, 150),
+        "conflict": clip_sentence(conflict, 150),
+        "ending": clip_sentence(ending, 300),
         "antagonist_type": ant_type,
         "antagonist_line": str(obj.get("antagonist_line", "") or "").strip()[:150],
         "plants": _lines(obj.get("plants"), 2),
