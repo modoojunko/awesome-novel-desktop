@@ -10,6 +10,7 @@ M7 预置种子幂等（OR IGNORE，新版定义胜出）
 R1 候选/preview/start/status/dismiss 免登端点链
 """
 
+import json
 import sqlite3
 from pathlib import Path
 
@@ -829,3 +830,362 @@ class TestCompletenessUnit:
         assert is_complete_report(completeness_from_history(
             {"tables_skipped": 0, "fk_violations": 0,
              "book_count_source": 1, "book_count_present": 1})) is True
+
+
+class TestCarryModalReshow:
+    """c-carry-modal-reshow：迁移完成后告知卡复弹根治。
+
+    真机判例（v0.30.x 升级现场）：旧版库带 -wal/-shm 边车时，candidate_manifest
+    每次候选扫描就地主开只读连接 → -shm 被顶新（实测一次跨进程只读连接就改其字节
+    与 mtime）→ 完成记录指纹（旧三件套形态）永不对上 → candidates 的 carried 恒
+    false → 书架告知卡复弹不止。三针：边车漂移不动指纹、清单读取零接触源、
+    旧形态完成记录兼容对拍。
+    """
+
+    @pytest.fixture()
+    def client(self, sandbox, monkeypatch):
+        from main import app
+
+        monkeypatch.setattr("migration.router.DATA_ROOT", sandbox[0])
+        # 顺序 flake 防疫：清理全局运行库遗留的完成/抑制记录——上例的
+        # migration.last 与本例 sandbox 同秒同尺寸时指纹相撞，carried 起跑即真
+        import sqlite3 as _sq
+
+        from config import DATABASE_URL
+
+        _db = Path(DATABASE_URL.split("///")[-1])
+        if _db.exists():
+            con = _sq.connect(_db)
+            con.execute("DELETE FROM app_meta WHERE key IN "
+                        "('migration.last', 'migration.snoozed')")
+            con.commit()
+            con.close()
+        with TestClient(app) as c:
+            yield c
+
+    @staticmethod
+    def _leave_sidecars(p: Path):
+        """让 -wal/-shm 留在源目录（实勘：空闲连接不持边车——关连接时 checkpoint
+        即删，要等下一个连接首次读才就地重建）。
+
+        返回持连接——它一旦关闭，最后的 checkpoint 会删边车；调用方 MUST 持到
+        断言结束。"""
+        w1 = sqlite3.connect(p)
+        w1.execute("PRAGMA journal_mode=WAL")
+        w1.execute("INSERT INTO app_meta (key, value) VALUES ('t', '1')")
+        w1.commit()
+        w2 = sqlite3.connect(p)
+        w1.close()
+        w2.execute("SELECT COUNT(*) FROM novels").fetchone()  # 首次读：边车就地重建留盘
+        return w2
+
+    def test_carried_survives_shm_drift_full_chain(self, client, sandbox):
+        """全链：start→done 后 -shm 漂移，carried 仍为真（修复前恒 false）。"""
+        import os
+        import time
+
+        root, _active = sandbox
+        old = _old_gen0(root, books=1)
+        keeper = self._leave_sidecars(old)
+        try:
+            def cands():
+                return {c["filename"]: c for c in client.get(
+                    "/api/backup/db-migration/candidates").json()["data"]["candidates"]}
+
+            assert cands()["novel.db"]["carried"] is False
+            assert client.post("/api/backup/db-migration/start",
+                               json={"source_filename": "novel.db"}).json()["code"] == 0
+            job: dict = {}
+            for _ in range(30):
+                job = client.get("/api/backup/db-migration/status").json()["data"]
+                if job.get("state") in ("done", "error"):
+                    break
+                time.sleep(0.2)
+            assert job["state"] == "done", job
+            assert job["report"]["status"] == "ok"
+            # 扫描侧边车漂移（＝manifest 只读连接顶新 -shm 的等价物）
+            st = os.stat(f"{old}-shm")
+            os.utime(f"{old}-shm", (st.st_atime, st.st_mtime + 30))
+            c = cands()["novel.db"]
+            assert c["carried"] is True, f"stamp={c['stamp']} drifted"
+            assert c["suppressed"] is True
+        finally:
+            keeper.close()
+
+    def test_manifest_zero_contact(self, sandbox):
+        """清单读取零接触源三件套（WAL 库走暂存；修复前就地主开只读连接）。"""
+        root, _active = sandbox
+        old = _old_gen0(root, books=1)
+        keeper = self._leave_sidecars(old)
+        try:
+            self._assert_manifest_zero_contact(old)
+        finally:
+            keeper.close()
+
+    @staticmethod
+    def _assert_manifest_zero_contact(old: Path) -> None:
+        """跨进程读（真机形态：边车是旧版应用进程留下的，读的是新版进程）。
+
+        同进程内读者对已是本进程形态的 -shm 常常零写入，测不出违例——真机判例的
+        改写发生在跨进程（实勘：子进程一次只读连接即改 -shm 的 sha 与 mtime）。"""
+        import hashlib
+        import json
+        import subprocess
+        import sys
+
+        def sig():
+            return {s.name: (hashlib.sha256(s.read_bytes()).hexdigest(),
+                             s.stat().st_mtime_ns)
+                    for s in (old, Path(f"{old}-wal"), Path(f"{old}-shm"))}
+
+        before = sig()
+        backend_dir = Path(__file__).resolve().parent.parent
+        code = ("import json;from pathlib import Path;"
+                "from db_lifecycle import candidate_manifest;"
+                f"m = candidate_manifest(Path({str(old)!r}));"
+                "print(json.dumps({'books_total': m and m['books_total'],"
+                " 'configs_total': m and m['configs_total']}))")
+        # check=False：returncode 自判（失败信息走 stderr 断言，不靠抛异常）
+        r = subprocess.run([sys.executable, "-c", code], capture_output=True, text=True,
+                           cwd=backend_dir, timeout=60, check=False)
+        assert r.returncode == 0, r.stderr[-500:]
+        out = json.loads(r.stdout.strip().splitlines()[-1])
+        assert out["books_total"] == 1
+        assert out["configs_total"] == 0, "缺 api_configs 表按 0 条降级（非整体失败）"
+        assert sig() == before, "manifest 读取不得改写源三件套任一文件"
+
+    def test_scan_items_carry_both_stamp_forms(self, sandbox):
+        """扫描项带现行＋旧两种指纹（兼容对拍的载体）。"""
+        from db_lifecycle import scan_migration_candidates
+
+        root, active = sandbox
+        _old_gen0(root, books=1)
+        items = scan_migration_candidates(root, "0.25", active)
+        assert items and all("stamp" in it and "stamp_legacy" in it for it in items)
+
+
+class TestDegradeRemigrate:
+    """c-carry-degrade-remigrate：值域降级回迁——映射表驱动、保行、实名、幂等。
+
+    形态即 c-legacy-drill-gate 牙齿自证的延续：目标 chapters 带
+    CHECK(status IN ('draft','done'))，源库含旧值域形态 status='writing_v2'——
+    无映射时该行被 OR IGNORE 拒收（rows_missing>0、不完整）；声明映射后降级为
+    'draft' 落库，其余列（标题/章节号）原样。
+    """
+
+    @pytest.fixture()
+    def checked_target(self, sandbox):
+        """当前 schema 目标库 + chapters 重建为带值域 CHECK（SQLite 不能 ALTER 加表级约束）。"""
+
+        _root, active = sandbox
+        con = sqlite3.connect(active)
+        ddl = con.execute(
+            "SELECT sql FROM sqlite_master WHERE type='table' AND name='chapters'"
+        ).fetchone()[0]
+        assert ddl.rstrip().endswith(")")
+        con.execute("PRAGMA foreign_keys=OFF")
+        con.execute("ALTER TABLE chapters RENAME TO chapters_tmp")
+        con.execute(ddl.rstrip()[:-1].rstrip().rstrip(",")
+                    + ", CHECK (status IN ('draft','done')))")
+        con.execute("INSERT INTO chapters SELECT * FROM chapters_tmp")
+        con.execute("DROP TABLE chapters_tmp")
+        con.commit()
+        con.close()
+        return active
+
+    @staticmethod
+    def _seed_old_value(root: Path) -> None:
+        """源库一章状态为旧值域形态 writing_v2（目标 CHECK 拒收）。"""
+        con = sqlite3.connect(root / "novel.db")
+        con.execute("UPDATE chapters SET status='writing_v2' WHERE id='c0-1'")
+        con.commit()
+        con.close()
+
+    def test_degrade_saves_row_with_mapping(self, sandbox, checked_target, monkeypatch):
+        from migration import value_mappings as vm
+        from migration.value_mappings import ValueRule
+
+        root, _active = sandbox
+        _old_gen0(root, books=2)
+        self._seed_old_value(root)
+        monkeypatch.setattr(vm, "VALUE_MAPPINGS", {
+            ("chapters", "status"): ValueRule(
+                mapping={"writing_v2": "draft", "writing_v1": "draft"},
+                default="draft"),
+        })
+        rep = run_migration(root, "novel.db", checked_target)
+        assert rep["status"] == "ok", rep
+        ch = next(e for e in rep["tables"] if e["table"] == "chapters")
+        assert ch["rows_missing"] == 0 and ch.get("rows_degraded") == 1, rep
+        assert rep["complete"] is True
+        assert any("降级" in n and "chapters.status" in n for n in rep["notes"]), rep["notes"]
+        con = sqlite3.connect(checked_target)
+        try:
+            row = con.execute(
+                "SELECT title, chapter_no, status FROM chapters WHERE id='c0-1'").fetchone()
+        finally:
+            con.close()
+        assert row[2] == "draft", "状态降级为映射值"
+        assert row[0] == "章节0" and row[1] == 1, "其余列一字不动"
+
+    def test_no_mapping_keeps_gap(self, sandbox, checked_target, monkeypatch):
+        from migration import value_mappings as vm
+
+        root, _active = sandbox
+        _old_gen0(root, books=2)
+        self._seed_old_value(root)
+        monkeypatch.setattr(vm, "VALUE_MAPPINGS", {})  # 未声明＝禁降级
+        rep = run_migration(root, "novel.db", checked_target)
+        ch = next(e for e in rep["tables"] if e["table"] == "chapters")
+        assert ch["rows_missing"] == 1, rep
+        assert rep["complete"] is False
+        assert not any("降级" in n for n in rep["notes"]), rep["notes"]
+
+    def test_degrade_idempotent_rerun(self, sandbox, checked_target, monkeypatch):
+        from migration import value_mappings as vm
+        from migration.value_mappings import ValueRule
+
+        root, _active = sandbox
+        _old_gen0(root, books=2)
+        self._seed_old_value(root)
+        monkeypatch.setattr(vm, "VALUE_MAPPINGS", {
+            ("chapters", "status"): ValueRule(mapping={"writing_v2": "draft"},
+                                              default="draft"),
+        })
+        assert run_migration(root, "novel.db", checked_target)["complete"] is True
+        rep2 = run_migration(root, "novel.db", checked_target)
+        assert rep2["complete"] is True, rep2
+        ch = next(e for e in rep2["tables"] if e["table"] == "chapters")
+        assert ch["rows_inserted"] == 0 and ch["rows_missing"] == 0, "重跑零重复"
+        con = sqlite3.connect(checked_target)
+        try:
+            n = con.execute("SELECT COUNT(*) FROM chapters").fetchone()[0]
+        finally:
+            con.close()
+        assert n == 2, "降级不产生重复行"
+
+
+class TestGapsEndpoint:
+    """c-carry-degrade-remigrate：缺口清单端点——「旧版有、这一版没有」实名内容。
+
+    按在场判定（源书 id 对拍目标 / 配置名对拍）；密钥红线同 manifest（响应体
+    无 enc:）；已迁入的内容不出现。"""
+
+    @pytest.fixture()
+    def client(self, sandbox, monkeypatch):
+        from main import app
+
+        monkeypatch.setattr("migration.router.DATA_ROOT", sandbox[0])
+        with TestClient(app) as c:
+            yield c
+
+    def test_gap_lists_missing_books_only(self, client, sandbox, monkeypatch):
+        # 引擎直跑进 sandbox 目标（/start 链的目标是全局运行库，隔离性差）；
+        # gaps 的目标侧同样 monkeypatch 到 sandbox——被测口径不受全局残留污染
+        root, active = sandbox
+        monkeypatch.setattr("migration.router._active_db_path", lambda: active)
+        _old_gen0(root, books=2)
+        assert run_migration(root, "novel.db", active)["complete"] is True
+        # 迁后删走一本书（连同卷章）＝「旧版有、这版没有」
+        con = sqlite3.connect(active)
+        con.execute("PRAGMA foreign_keys=OFF")
+        con.execute("DELETE FROM chapters WHERE novel_id='n1'")
+        con.execute("DELETE FROM volumes WHERE novel_id='n1'")
+        con.execute("DELETE FROM novels WHERE id='n1'")
+        con.commit()
+        con.close()
+
+        out = client.get("/api/backup/db-migration/gaps",
+                         params={"filename": "novel.db"}).json()
+        assert out["code"] == 0
+        data = out["data"]
+        assert data["books_total"] == 1
+        assert data["books"][0]["name"] == "旧书1"
+        assert data["configs_total"] == 0  # 源无 api_configs 表 → 空降级
+        assert "enc:" not in json.dumps(out), "密钥红线：响应体不得含密文"
+
+    def test_gap_degrades_on_bad_filename(self, client, sandbox):
+        out = client.get("/api/backup/db-migration/gaps",
+                         params={"filename": "../../etc/passwd"}).json()
+        assert out["code"] == 0 and out["data"]["books_total"] == 0
+
+
+class TestReviewFixes:
+    """review 整改钉子（c-carry-degrade-remigrate）：返回面封顶＋降级不变量。"""
+
+    @pytest.fixture()
+    def client(self, sandbox, monkeypatch):
+        from main import app
+
+        monkeypatch.setattr("migration.router.DATA_ROOT", sandbox[0])
+        import sqlite3 as _sq
+
+        from config import DATABASE_URL
+
+        _db = Path(DATABASE_URL.split("///")[-1])
+        if _db.exists():
+            con = _sq.connect(_db)
+            con.execute("DELETE FROM app_meta WHERE key IN "
+                        "('migration.last', 'migration.snoozed')")
+            con.commit()
+            con.close()
+        with TestClient(app) as c:
+            yield c
+
+    def test_gap_response_capped(self, client, sandbox, monkeypatch):
+        """免登返回面收敛：清单封顶 50、total 保持真值（前端按 total 渲染溢出）。"""
+        root, active = sandbox
+        monkeypatch.setattr("migration.router._active_db_path", lambda: active)
+        _old_gen0(root, books=60)
+        assert run_migration(root, "novel.db", active)["complete"] is True
+        con = sqlite3.connect(active)
+        con.execute("PRAGMA foreign_keys=OFF")
+        con.execute("DELETE FROM chapters WHERE novel_id LIKE 'n%' AND novel_id != 'n0'")
+        con.execute("DELETE FROM volumes WHERE novel_id LIKE 'n%' AND novel_id != 'n0'")
+        con.execute("DELETE FROM novels WHERE id LIKE 'n%' AND id != 'n0'")
+        con.commit()
+        con.close()
+        data = client.get("/api/backup/db-migration/gaps",
+                          params={"filename": "novel.db"}).json()["data"]
+        assert data["books_total"] == 59 and len(data["books"]) == 50, "封顶 50、total 真值"
+
+    def test_default_never_clobbers_legal_value(self, sandbox, monkeypatch):
+        """降级不变量：本列合法、行因其它列违约 → 改写救不进、行保持缺失。
+
+        合法值不可能被落库成降级值（改写无法修复其它列的违约，OR IGNORE 仍拒）。
+        """
+        from migration import value_mappings as vm
+        from migration.value_mappings import ValueRule
+
+        root, active = sandbox
+        _old_gen0(root, books=1)
+        # 源行：status='draft'（对下述 CHECK 合法）、chapter_no=9（违约）
+        con = sqlite3.connect(root / "novel.db")
+        con.execute("UPDATE chapters SET status='draft', chapter_no=9 WHERE id='c0-1'")
+        con.commit()
+        con.close()
+        # 目标库加 CHECK(chapter_no < 2)（重建表法）＋登记表声明 status default
+        con = sqlite3.connect(active)
+        ddl = con.execute(
+            "SELECT sql FROM sqlite_master WHERE type='table' AND name='chapters'"
+        ).fetchone()[0]
+        con.execute("PRAGMA foreign_keys=OFF")
+        con.execute("ALTER TABLE chapters RENAME TO chapters_tmp")
+        con.execute(ddl.rstrip()[:-1].rstrip().rstrip(",")
+                    + ", CHECK (chapter_no < 2))")
+        con.execute("INSERT INTO chapters SELECT * FROM chapters_tmp")
+        con.execute("DROP TABLE chapters_tmp")
+        con.commit()
+        con.close()
+        monkeypatch.setattr(vm, "VALUE_MAPPINGS", {
+            ("chapters", "status"): ValueRule(mapping={}, default="outline"),
+        })
+        rep = run_migration(root, "novel.db", active)
+        ch = next(e for e in rep["tables"] if e["table"] == "chapters")
+        assert ch["rows_missing"] == 1 and rep["complete"] is False, rep
+        con = sqlite3.connect(active)
+        try:
+            n = con.execute("SELECT COUNT(*) FROM chapters").fetchone()[0]
+        finally:
+            con.close()
+        assert n == 0, "合法值不得以降级形态落库"

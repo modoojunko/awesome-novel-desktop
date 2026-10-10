@@ -260,9 +260,12 @@ function NovelList() {
 
   /* c-lossless-upgrade：首启仲裁——存在 recommended 且未带回/未抑制的候选时，
      告知卡经壳层弹窗队列入场（数据类优先；一次点击≠一次同意，能力包弹窗等
-     队列放行）。多候选只带最接近的一份，其余在卡上留一行提示。 */
+     队列放行）。多候选只带最接近的一份，其余在卡上留一行提示。
+     c-carry-degrade-remigrate：部分迁移态（曾带回但不完整）不自动重弹整卡
+     ——像「从没迁过」一样重弹会误导，提醒由持续行承接；点「迁移」仍可达。 */
   useEffect(() => {
-    if (!carryRec || carryRec.carried || carryRec.suppressed || carryConfirmed) return;
+    if (!carryRec || carryRec.carried || carryRec.suppressed
+      || carryRec.carried_partial || carryConfirmed) return;
     if ((carryRec.book_count ?? 0) <= 0) return;
     /* v8 ignore next -- dispatch 闭包经队列同步执行（运行时必达，46 次调用全命中）；
        v8 provider 对「调用实参里的箭头体」存在双映射幻影（调用语句命中、闭包体记 0） */
@@ -556,10 +559,17 @@ function NovelList() {
           <button className="btn btn-ghost btn-sm" aria-label="关闭" onClick={() => setStripClosed(true)}>×</button>
         </div>
       )}
-      {carryRec && (carryRec.suppressed || carryLater) && !carryRec.carried && !carryConfirmed && (
+      {/* c-carry-degrade-remigrate：部分迁移态也走提醒行（spec「搬运不完整必须
+          提示用户」既有义务）——自动弹卡已让位，这里是缺口候选的唯一提醒面 */}
+      {carryRec && (carryRec.suppressed || carryLater || carryRec.carried_partial)
+        && !carryRec.carried && !carryConfirmed && (
         <div className="notice" data-testid="carry-strip-later">
           <span className="nt">
-            <b>上一版还有 {carryRec.book_count ?? '?'} 本作品未迁移</b>
+            {/* partial 态不报总书数（部分迁移下会夸大缺口，review 整改）：
+                真实缺口只有结果卡/gaps 清单知道 */}
+            <b>{carryRec.carried_partial
+              ? "上一版迁移有缺口，可继续迁移"
+              : `上一版还有 ${carryRec.book_count ?? '?'} 本作品未迁移`}</b>
             <span>旧文件原样保留，下次打开还会提醒</span>
           </span>
           <span className="flex items-center gap-2">
@@ -947,7 +957,10 @@ function NovelList() {
           }}
           onConfirmed={() => {
             setCarryOpen(false);
-            setCarryConfirmed(true);
+            // c-carry-degrade-remigrate（review 整改）：部分迁移确认后提醒行须
+            // 立即接管（spec「确认后保留持续提醒行」）——不置 carryConfirmed；
+            // 自动弹卡的仲裁已由 carried_partial 承担，这里置位只会藏掉提醒行
+            if (!carryRec.carried_partial) setCarryConfirmed(true);
           }}
         />
       )}

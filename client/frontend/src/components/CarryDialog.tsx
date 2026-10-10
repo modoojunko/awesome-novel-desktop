@@ -21,6 +21,14 @@ import type { LegacyCandidate } from '@/hooks/useLegacyDb';
 
 type Step = 'card' | 'progress' | 'result';
 
+/** 缺口清单（c-carry-degrade-remigrate /gaps）：旧版有、这一版没有的实名内容。 */
+interface GapList {
+  books: Array<{ name: string; words: number }>;
+  books_total: number;
+  configs: string[];
+  configs_total: number;
+}
+
 const fmtWords = (n: number): string => (n >= 10000 ? `${(n / 10000).toFixed(1)} 万` : `${n}`);
 
 /**
@@ -64,6 +72,7 @@ export default function CarryDialog({
   const [step, setStep] = useState<Step>('card');
   const [pct, setPct] = useState(0);
   const [report, setReport] = useState<CarryReport | null>(null);
+  const [gaps, setGaps] = useState<GapList | null>(null);
   const starting = useRef(false);
   const queryClient = useQueryClient();
   const { job } = useCarryStore();
@@ -73,9 +82,29 @@ export default function CarryDialog({
       setStep('card');
       setPct(0);
       setReport(null);
+      setGaps(null);
       starting.current = false;
     }
   }, [open]);
+
+  // 缺口清单（c-carry-degrade-remigrate）：不完整结果态拉一次「旧版有、这版没有」
+  // 实名清单；失败降级不展示（清单 SHALL NOT 阻塞任何迁移动作）
+  useEffect(() => {
+    const partial = step === 'result' && report != null
+      && report.status === 'ok' && report.complete === false;
+    if (!partial || !open) {
+      setGaps(null);
+      return;
+    }
+    let alive = true;
+    api.get(`/backup/db-migration/gaps?filename=${encodeURIComponent(candidate.filename)}`,
+      { quiet: true })
+      .then((res: { code?: number; data?: GapList }) => {
+        if (alive && res?.code === 0 && res.data) setGaps(res.data);
+      })
+      .catch(() => {});
+    return () => { alive = false; };
+  }, [step, report, open, candidate.filename]);
 
   // job 报告落位（progress 轮询由 carryStore 承载，这里只消费）
   useEffect(() => {
@@ -274,6 +303,29 @@ export default function CarryDialog({
                     ).map((line) => (
                       <p key={line} style={{ margin: 0 }}>{line}</p>
                     ))}
+                    {/* 缺口清单（c-carry-degrade-remigrate）：把「缺几行」落到作家
+                        看得懂的实名内容；拉取失败不展示（不阻塞迁移） */}
+                    {gaps && (gaps.books_total > 0 || gaps.configs_total > 0) && (
+                      <div data-testid="carry-gap-list" style={{ margin: '8px 0 0' }}>
+                        <p style={{ margin: '0 0 4px', fontWeight: 500 }}>旧版有、这一版还没有：</p>
+                        <ul style={{ listStyle: 'none', margin: 0, padding: 0 }}>
+                          {gaps.books.slice(0, 5).map((b) => (
+                            <li key={b.name} style={{ margin: 0 }}>
+                              《{b.name}》{b.words > 0 && <span className="num">（{fmtWords(b.words)}字）</span>}
+                            </li>
+                          ))}
+                          {gaps.books_total > 5 && (
+                            <li style={{ margin: 0 }}>…等 {gaps.books_total} 本作品</li>
+                          )}
+                          {gaps.configs.slice(0, 3).map((c) => (
+                            <li key={c} style={{ margin: 0 }}>模型配置「{c}」</li>
+                          ))}
+                          {gaps.configs_total > 3 && (
+                            <li style={{ margin: 0 }}>…等 {gaps.configs_total} 条配置</li>
+                          )}
+                        </ul>
+                      </div>
+                    )}
                     <p style={{ margin: '6px 0 0' }}>可以重新迁移，或用备份包恢复。</p>
                   </>
                 ) : (

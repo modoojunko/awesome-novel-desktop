@@ -49,7 +49,7 @@ DATAS: tuple[tuple[str, str], ...] = (
     ("client/frontend/dist", "frontend"),
     ("client/backend/reference", "reference"),
     ("brand/brand.json", "."),  # 品牌单源：backend/brand.py 运行时探测读取
-    ("LICENSE", "."),  # EULA/声明随包：PyInstaller≥6 落 _internal/（macOS 唯一通道；
+    ("LICENSE", "."),  # 许可全文与声明随包（c-relicense-agpl）：PyInstaller≥6 落 _internal/（macOS 唯一通道；
     ("THIRD-PARTY-NOTICES.txt", "."),  # Windows 另由 installer.iss 显式落 {app} 根，双份冗余属预期）
 )
 

@@ -27,6 +27,8 @@ export interface CarryCandidate {
   stamp: string;
   recommended: boolean;
   carried?: boolean;
+  /** c-carry-degrade-remigrate：曾带回但不完整（不自动重弹整卡，提醒行承接） */
+  carried_partial?: boolean;
   suppressed?: boolean;
   unreadable: boolean;
   book_count: number | null;

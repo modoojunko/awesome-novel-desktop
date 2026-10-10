@@ -189,6 +189,15 @@ describe("ogFormIssues（保存前拦截校验）", () => {
     expect(ogFormIssues({ ...EMPTY_OG_FORM, wt: "6000" })).toEqual([]);
   });
 
+  it("提示文案跟随作品偏好「章节默认字数」（c-chapter-default-words，内测反馈#10）", () => {
+    expect(ogFormIssues({ ...EMPTY_OG_FORM, wt: "100" }, 3200)).toEqual([
+      "本章目标字数需在 500-6000 之间（留空默认 3200）",
+    ]);
+    // 区间判定与默认值无关：改默认不改变拦截范围
+    expect(ogFormIssues({ ...EMPTY_OG_FORM, wt: "500" }, 3200)).toEqual([]);
+    expect(ogFormIssues({ ...EMPTY_OG_FORM, wt: "6001" }, 3200).length).toBe(1);
+  });
+
   it("退役字段不再产生保存拦截（场景名门槛随场景卡退役）", () => {
     // 留存格子填满 + 空字数 → 无问题
     expect(

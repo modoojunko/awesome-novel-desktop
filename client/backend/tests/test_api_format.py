@@ -314,14 +314,19 @@ class TestWebPageV1Hint:
         assert conn_mod._v1_hint(api_format, vendor) == expected
 
     def test_anthropic_html_page_no_v1_hint(self, fake_http):
-        """anthropic 格式探测打到网页：有「检查 Base URL」无「补 /v1」。"""
-        fake_http.script = [("GET", 200, ValueError("Expecting value"), "text/html")]
+        """anthropic 格式探测打到网页：降级探针（占位 id）也打不通 → 判废原文案
+        有「检查 Base URL」无「补 /v1」（按格式分流的出口只给 openai 系）。"""
+        fake_http.script = [
+            ("GET", 200, ValueError("Expecting value"), "text/html"),
+            ("POST", 404),
+        ]
         out = _run_async(
             do_test_connection("glm", "sk", "https://spa.example.com", "anthropic")
         )
         assert out["ok"] is False and out["status"] == "endpoint_mismatch"
         assert "Base URL" in out["error"]
         assert "补 /v1" not in out["error"]
+        assert [c[0] for c in fake_http.calls] == ["GET", "POST"]
 
     def test_generation_probe_html_page_openai_has_hint(self, fake_http):
         """对话探针 200 网页体（openai 格式）：verdict 链路文案同样带「补 /v1」出口。"""
@@ -619,7 +624,10 @@ class TestConnectionFlow:
     # ── 内测 405 案收紧：「通」必须真能对话（非 JSON 判败 / 对话探针 / 降级 405 判败）──
 
     def test_models_200_html_page_fails(self, fake_http):
-        """Base URL 填成网站首页（SPA 对任意路径回 200 HTML）→ 不算通；文案带补 /v1 出口。"""
+        """Base URL 填成网站首页（SPA 对任意路径回 200 HTML）→ 不算通。
+
+        无探针 id（无已选模型、无候选）→ 不降级（无 id 的生成探针必然无意义），
+        保留判废原文案。"""
         fake_http.script = [("GET", 200, ValueError("Expecting value"), "text/html")]
         out = _run_async(
             do_test_connection("openai-compat", "sk", "https://blog.example.com", "openai")
@@ -627,6 +635,109 @@ class TestConnectionFlow:
         assert out["ok"] is False and out["status"] == "endpoint_mismatch"
         assert "Base URL" in out["error"]
         assert "补 /v1" in out["error"]
+        assert [c[0] for c in fake_http.calls] == ["GET"]
+
+    def test_models_200_html_degrades_to_chat_probe(self, fake_http):
+        """网关形态（内测反馈#1 残余）：models 对未知路径回 200 网页体，但对话接口正常
+        → 与 404 同享降级探「你好」，探通即放行（空清单＋说明，同无清单端点口径）。"""
+        fake_http.script = [
+            ("GET", 200, ValueError("Expecting value"), "text/html"),
+            ("POST", 200, {"choices": [{"message": {"content": "你好！"}}]}),
+        ]
+        out = _run_async(
+            do_test_connection(
+                "openai-compat",
+                "sk",
+                "https://relay.example.com",
+                "openai",
+                preferred_model="relay-model",
+            )
+        )
+        assert out["ok"] is True and out["models"] == []
+        assert out["note"] == conn_mod.NO_MODEL_LIST_NOTE_OPENAI
+        assert [c[0] for c in fake_http.calls] == ["GET", "POST"]
+        # 与生成同址同头、探针 id 用已选模型（表单手填初值）；裸域名按 #798 归一补 /v1
+        assert fake_http.calls[1][1] == "https://relay.example.com/v1/chat/completions"
+        assert fake_http.calls[1][3]["model"] == "relay-model"
+
+    def test_models_200_html_degrade_failure_keeps_page_copy(self, fake_http):
+        """真网页站：降级探针也打不通（对话接口 404）→ 保留判废原文案，判连接失败。"""
+        fake_http.script = [
+            ("GET", 200, ValueError("Expecting value"), "text/html"),
+            ("POST", 404),
+        ]
+        out = _run_async(
+            do_test_connection(
+                "openai-compat",
+                "sk",
+                "https://blog.example.com",
+                "openai",
+                preferred_model="m-1",
+            )
+        )
+        assert out["ok"] is False and out["status"] == "endpoint_mismatch"
+        assert "不是 API 数据" in out["error"] and "看起来像网页" in out["error"]
+        assert [c[0] for c in fake_http.calls] == ["GET", "POST"]
+
+    def test_models_200_html_degrade_auth_error_surfaces(self, fake_http):
+        """网关形态但 Key 错：对话端点真实存在（401）→ 探针的鉴权失败如实透传，
+        SHALL NOT 被「不是 API 数据」原文案遮蔽（死因在 Key 不在地址，与 404 降级同构）。"""
+        fake_http.script = [
+            ("GET", 200, ValueError("Expecting value"), "text/html"),
+            ("POST", 401, {"error": {"message": "invalid key"}}),
+        ]
+        out = _run_async(
+            do_test_connection(
+                "openai-compat",
+                "sk",
+                "https://relay.example.com",
+                "openai",
+                preferred_model="m-1",
+            )
+        )
+        assert out["ok"] is False and out["status"] == "auth_error"
+        assert "认证失败" in out["error"] and "invalid key" in out["error"]
+        assert [c[0] for c in fake_http.calls] == ["GET", "POST"]
+
+    def test_models_200_envelope_degrade_auth_error_surfaces(self, fake_http):
+        """软错误信封＋探针模型被拒（400）：对话端点存在且应答 → 透传探针失败
+        （点名所试模型 id），SHALL NOT 回落体判废原文案。"""
+        fake_http.script = [
+            ("GET", 200, {"error": {"message": "models endpoint disabled"}}),
+            ("POST", 400, {"error": {"message": "model not found"}}),
+            ("POST", 400, {"error": {"message": "model not found"}}),
+        ]
+        out = _run_async(
+            do_test_connection(
+                "openai-compat",
+                "sk",
+                "https://relay.example.com/v4",
+                "openai",
+                preferred_model="m-1",
+            )
+        )
+        assert out["ok"] is False and out["status"] == "unknown"
+        assert "m-1" in out["error"]
+        assert [c[0] for c in fake_http.calls] == ["GET", "POST", "POST"]
+
+    def test_models_200_error_envelope_degrades_to_chat_probe(self, fake_http):
+        """软错误信封（200+error 体）同属体判废：对话接口可用时同样降级放行
+        （同一 not_api 分支；真鉴权问题会在探针处以 401 现形，不会误放）。"""
+        fake_http.script = [
+            ("GET", 200, {"error": {"message": "models endpoint disabled"}}),
+            ("POST", 200, {"choices": [{"message": {"content": "你好！"}}]}),
+        ]
+        out = _run_async(
+            do_test_connection(
+                "openai-compat",
+                "sk",
+                "https://relay.example.com/v4",
+                "openai",
+                preferred_model="relay-model",
+            )
+        )
+        assert out["ok"] is True and out["models"] == []
+        assert [c[0] for c in fake_http.calls] == ["GET", "POST"]
 
     def test_models_200_error_envelope_fails(self, fake_http):
         """200 但体是错误信封（部分中转站的软错误形态）→ 不算通。"""

@@ -18,6 +18,9 @@ from __future__ import annotations
 
 import json
 import logging
+import shutil
+import sqlite3
+import tempfile
 from datetime import UTC, datetime
 from pathlib import Path
 
@@ -34,7 +37,7 @@ from db_lifecycle import (
     scan_migration_candidates,
 )
 from migration.engine import completeness_from_history, is_complete_report
-from schema_version import app_version, candidate_stamp
+from schema_version import app_version, candidate_stamp, candidate_stamp_legacy
 
 # c-upgrade-log：无损升级全链具名 logger——upgrade.log 专项档＋双写 app.log。
 logger = logging.getLogger("migration")
@@ -109,12 +112,27 @@ def _migrated_stamps() -> set[str]:
     # 直接判；老数据（无 report）经 history 适配器归一后走同一条判定。
     report = last.get("report") if isinstance(last.get("report"), dict) else None
     if report is not None:
-        return {stamp} if is_complete_report(report) else set()
-    for entry in _history_entries():
-        if entry.get("source_stamp") != stamp:
-            continue
-        return {stamp} if is_complete_report(completeness_from_history(entry)) else set()
-    return set()
+        complete = is_complete_report(report)
+    else:
+        complete = any(
+            entry.get("source_stamp") == stamp
+            and is_complete_report(completeness_from_history(entry))
+            for entry in _history_entries()
+        )
+    if not complete:
+        return set()
+    # c-carry-modal-reshow 兼容：升级前的完成记录可能编着 -shm 分量（读者会改写、
+    # 恒漂移）。现行文件按两种形态对拍，任一命中（＝数据件未变）即换发现行指纹，
+    # 让白名单与现行扫描同键；都不命中＝文件已变，保守退回原串（对不上任何扫描
+    # 项＝不可删，少删优于误删）。
+    fname = str(last.get("source_filename") or "")
+    if fname:
+        src = Path(DATA_ROOT) / fname
+        if src.exists():
+            current = {candidate_stamp(fname, src), candidate_stamp_legacy(fname, src)}
+            if stamp in current:
+                return {candidate_stamp(fname, src)}
+    return {stamp}
 
 
 def _history_entries() -> list[dict]:
@@ -153,6 +171,7 @@ async def candidates():
     items = scan_migration_candidates(root, app_version(), _active_db_path())
     done_stamp = ""
     done_complete = False
+    done_partial = False
     done = _app_meta_value("migration.last")
     if done:
         try:
@@ -160,19 +179,119 @@ async def candidates():
             done_stamp = last.get("source_stamp", "")
             report = last.get("report") if isinstance(last.get("report"), dict) else None
             done_complete = is_complete_report(report)
+            # 部分迁移态（c-carry-degrade-remigrate）：有完成记录且搬运「成功跑完」
+            # 但完整性未达标——前端据此不再自动重弹完整告知卡（提醒行承接）。
+            # status!=ok 的搬运不写完成记录，天然不进这里。
+            done_partial = (report is not None and report.get("status") == "ok"
+                            and not done_complete)
         except json.JSONDecodeError:
             pass
     snoozed_stamp = _app_meta_value(SNOOZE_KEY) or ""
-    # 呈现状态两字段（c-lossless-upgrade）：carried＝本次已带回（完整才算）；
+    # 呈现状态三字段（c-lossless-upgrade / c-carry-degrade-remigrate）：carried＝
+    # 已带回（完整才算）；carried_partial＝曾带回但不完整（不自动重弹整卡）；
     # suppressed＝被「本版不再提醒」抑制（snoozed 绑 stamp；不完整 last 永不抑制）。
+    # 对拍按双形态：现行指纹（数据件）或旧三件套指纹（c-carry-modal-reshow——升级前
+    # 写入的记录可能编着 -shm 分量）任一命中即同一源；数据件变了两者都不命中。
     for it in items:
-        it["carried"] = done_complete and it["stamp"] == done_stamp
-        it["suppressed"] = it["carried"] or it["stamp"] == snoozed_stamp
+        stamps = {it["stamp"], it.get("stamp_legacy") or it["stamp"]}
+        it["carried"] = done_complete and done_stamp in stamps
+        it["carried_partial"] = (not it["carried"]) and done_partial \
+            and done_stamp in stamps
+        it["suppressed"] = it["carried"] or snoozed_stamp in stamps
         # 只读清单只挂 recommended（免登端点返回面收敛；密钥永不返回）
         if it.get("recommended") and not it["unreadable"]:
             it["manifest"] = candidate_manifest(root / it["filename"])
     return {"code": 0, "data": {"candidates": items, "quarantined": list_quarantined(root),
                                 "current_version": app_version()}}
+
+
+# 免登端点返回面收敛（MANIFEST_BOOK_CAP 同纪律）：清单封顶、total 保持真值，
+# 前端按 total 渲染溢出行
+GAP_LIST_CAP = 50
+
+
+@router.get("/gaps")
+async def gaps(filename: str):
+    """缺口清单（c-carry-degrade-remigrate）：「旧版有、这一版没有」的实名内容。
+
+    只读免登（candidates 同防护面）：白名单校验 → WAL 源走暂存读取（零接触）→
+    按在场判定缺书（源书 id 对拍目标）与缺配置（名称对拍）。密钥红线同 manifest
+    （不返回任何密钥材料）。任何读取失败按空清单降级——清单 SHALL NOT 阻塞迁移。
+    """
+    try:
+        src = _validated_source(filename)
+    except HTTPException:
+        return {"code": 0, "data": {"books": [], "books_total": 0,
+                                    "configs": [], "configs_total": 0}}
+    staged = _staged_copy(src)
+    if staged is None:
+        return {"code": 0, "data": {"books": [], "books_total": 0,
+                                    "configs": [], "configs_total": 0}}
+    try:
+        con = sqlite3.connect(f"file:{staged}?mode=ro", uri=True, timeout=5)
+        try:
+            try:
+                src_books = con.execute(
+                    "SELECT n.id, n.name, COALESCE((SELECT SUM(c.word_count) FROM chapters c"
+                    " WHERE c.novel_id = n.id), 0) FROM novels n ORDER BY n.created_at, n.name"
+                ).fetchall()
+            except sqlite3.Error:
+                # 老库 chapters 无 word_count 列：降级为书名清单（words=0），
+                # 与 candidate_manifest 同口径（清单失败不阻塞）
+                src_books = con.execute(
+                    "SELECT n.id, n.name, 0 FROM novels n ORDER BY n.created_at, n.name"
+                ).fetchall()
+            try:
+                src_cfgs = [r[0] for r in con.execute(
+                    "SELECT name FROM api_configs ORDER BY created_at, name")]
+            except sqlite3.Error:
+                src_cfgs = []
+        finally:
+            con.close()
+        active = _active_db_path()
+        tgt = sqlite3.connect(f"file:{active}?mode=ro", uri=True, timeout=5) \
+            if active.exists() else None
+        try:
+            tgt_book_ids = {r[0] for r in tgt.execute("SELECT id FROM novels")} \
+                if tgt else set()
+            try:
+                tgt_cfgs = {r[0] for r in tgt.execute("SELECT name FROM api_configs")} \
+                    if tgt else set()
+            except sqlite3.Error:
+                tgt_cfgs = set()
+        finally:
+            if tgt is not None:
+                tgt.close()
+        books_all = [{"name": str(name), "words": int(w or 0)}
+                     for bid, name, w in src_books if bid not in tgt_book_ids]
+        configs_all = [str(c) for c in src_cfgs if c not in tgt_cfgs]
+        return {"code": 0, "data": {"books": books_all[:GAP_LIST_CAP],
+                                    "books_total": len(books_all),
+                                    "configs": configs_all[:GAP_LIST_CAP],
+                                    "configs_total": len(configs_all)}}
+    except sqlite3.Error:
+        return {"code": 0, "data": {"books": [], "books_total": 0,
+                                    "configs": [], "configs_total": 0}}
+    finally:
+        shutil.rmtree(staged.parent, ignore_errors=True)
+
+
+def _staged_copy(src: Path) -> Path | None:
+    """源库零接触暂存副本（candidate_manifest 同口径）：WAL 库 checkpoint 后可读。"""
+    try:
+        from db_lifecycle import _is_wal_mode, copy_sidecars, prepare_staged
+    except ImportError:  # pragma: no cover — 同包内导入失败即降级
+        return None
+    tmpdir = tempfile.mkdtemp(prefix="mig-gaps-")
+    staged = Path(tmpdir) / src.name
+    copy_sidecars(src, staged)
+    if not prepare_staged(staged):
+        shutil.rmtree(tmpdir, ignore_errors=True)
+        return None
+    if not _is_wal_mode(src):
+        # 非 WAL 源无需整备副本，直读即可——但保留暂存形态统一出口
+        pass
+    return staged
 
 
 @router.get("/retention")

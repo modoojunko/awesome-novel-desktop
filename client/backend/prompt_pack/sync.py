@@ -12,7 +12,7 @@
 失败一律静默沿用已装版本（评审失败矩阵）；状态经 get_status() 供 /auth/verify 与
 前端四态卡消费。
 
-**bundle 与 manifest 格式契约（与 prompts 仓 publish.py 对齐）**：
+**bundle 与 manifest 格式契约（与提示词私有仓发布链 publish.py 对齐）**：
 - `{tier}.bin` = `nonce(12 bytes) || AES-256-GCM ciphertext`；明文 = JSON
   `{"version": str, "tier": str, "templates": {名: 文本}}`。
 - manifest 签名 = Ed25519 over `json.dumps(manifest_without_signature, sort_keys=True,

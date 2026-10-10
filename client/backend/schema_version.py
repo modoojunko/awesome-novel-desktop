@@ -169,8 +169,33 @@ def sidecar_paths(db_path: Path) -> list[Path]:
     return [Path(f"{db_path}{suf}") for suf in ("-wal", "-shm")]
 
 
+def data_file_mtime(db_path: Path) -> int:
+    """数据件 `max(mtime)`：主文件＋`-wal`（未 checkpoint 的已提交数据在 WAL 里）。
+
+    **不含 `-shm`**——那是任何读者（含只读连接）都会就地改写的共享索引，实测
+    一次跨进程只读连接就改其字节与 mtime。编入指纹/排序会让候选身份随每次扫描
+    漂移，完成记录比对永不相等（c-carry-modal-reshow 真机判例：迁移完成后告知卡
+    复弹）。
+    """
+    stamps = [db_path.stat().st_mtime]
+    wal = Path(f"{db_path}-wal")
+    if wal.exists():
+        stamps.append(wal.stat().st_mtime)
+    return int(max(stamps))
+
+
+def data_file_size(db_path: Path) -> int:
+    """数据件体积合计：主文件＋`-wal`（`-shm` 不算数，理由见 data_file_mtime）。"""
+    total = db_path.stat().st_size
+    wal = Path(f"{db_path}-wal")
+    if wal.exists():
+        total += wal.stat().st_size
+    return total
+
+
 def three_file_mtime(db_path: Path) -> int:
-    """三件套 `max(mtime)`：只看主文件会漏掉 WAL 里刚写的提交（mtime 滞后）。"""
+    """三件套 `max(mtime)`（含 `-shm`）。**仅旧指纹兼容用**——现行身份一律
+    data_file_mtime；本函数只被 candidate_stamp_legacy 消费。"""
     stamps = [db_path.stat().st_mtime]
     for side in sidecar_paths(db_path):
         if side.exists():
@@ -179,6 +204,7 @@ def three_file_mtime(db_path: Path) -> int:
 
 
 def three_file_size(db_path: Path) -> int:
+    """三件套体积合计（含 `-shm`）。仅 candidate_stamp_legacy 消费。"""
     total = db_path.stat().st_size
     for side in sidecar_paths(db_path):
         if side.exists():
@@ -187,5 +213,18 @@ def three_file_size(db_path: Path) -> int:
 
 
 def candidate_stamp(filename: str, db_path: Path) -> str:
-    """候选身份指纹（dismiss 记忆键与完成记录同源）：名字＋三件套 max(mtime)＋体积。"""
+    """候选身份指纹（dismiss 记忆键与完成记录同源）：名字＋数据件 max(mtime)＋体积。
+
+    指纹只由数据件（主文件＋`-wal`）构成；`-shm` 是读者会就地改写的临时索引，
+    编入只会让身份随扫描漂移（c-carry-modal-reshow）。
+    """
+    return f"{filename}:{data_file_mtime(db_path)}:{data_file_size(db_path)}"
+
+
+def candidate_stamp_legacy(filename: str, db_path: Path) -> str:
+    """旧版指纹（v0.30.x 及以前形态）：三件套 max(mtime)＋体积（含 `-shm` 分量）。
+
+    仅作存量完成/抑制记录的兼容对拍——升级前写入的 `migration.last`/snooze 键
+    可能是此形态。对拍规则（router）：现行或旧指纹任一命中即同一源；数据件变了
+    则两者都不命中，不放松「dismiss 不吞新数据」。"""
     return f"{filename}:{three_file_mtime(db_path)}:{three_file_size(db_path)}"

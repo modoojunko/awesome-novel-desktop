@@ -33,7 +33,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      # C端 两镜像（拆仓后 S端 两镜像在 awesome-novel-server 仓构建；
+      # C端 两镜像（拆仓后 S端 两镜像在 S端 私有仓构建；
       # compose 的 server 构建上下文指向 sibling 仓，CI 单仓检出不具备——
       # 只构建 client 两服务；编排合法性校验随四服务栈移至 e2e-scheduled（双 checkout）。
       - name: Build client-backend (C端 后端)

@@ -24,6 +24,7 @@ from models.project import Novel
 from models.volume import Volume
 from settings.character_model import (
     COG_KEYS,
+    DOSSIER_FIELDS,
     DOSSIER_KEYS,
     RELATION_TYPES,
     ROLES,
@@ -40,6 +41,13 @@ _PATCH_ROOTS = {"name", "aliases", "role", "persona"}
 PERSONA_MAX = 300
 # prefill 白名单：DOSSIER_FILL_KEYS 里只放「剧情定位」「背景」两格（其余格不预填）
 PREFILL_KEYS = ("plot", "background")
+
+# 批量导入落库护栏（c-char-batch-import）：aliases ≤20 条各 50 字、八格各 300 字、name ≤50
+ALIAS_MAX = 50
+ALIAS_MAX_COUNT = 20
+DOSSIER_CELL_MAX = 300
+NAME_MAX = 50
+_DOSSIER_LABELS = {f["k"]: f["label"] for f in DOSSIER_FIELDS}
 
 
 class Conflict(Exception):
@@ -224,17 +232,22 @@ def _display_name(name: str) -> str:
 async def create_character(
     session: AsyncSession, novel_id: str, name: str, role: str = "配角",
     persona: str = "", prefill: dict | None = None,
+    aliases: list | None = None, dossier: dict | None = None,
 ) -> Character:
     """建卡（c-character-intro 决策 6 向后兼容扩参）：可选 persona（clamp 300）＋
     prefill（白名单硬校验只收 dossier.plot/background——非法键 400，不静默丢）。
+    c-char-batch-import 再扩：可选 aliases（≤20 条各 50 字）＋ dossier（白名单八格
+    逐格 300，非法键/形态 400 点名），与 prefill 并存、同格 dossier 胜——批量导入
+    每卡恰一次请求、单事务原子落卡。
 
     单事务落卡：校验全在写入前，失败不留半张卡、不烧 seq 号。
     """
     if role not in ROLES:
         raise Unprocessable("invalid_role", f"角色类型只能是 {'/'.join(ROLES)}")
     persona = str(persona or "").strip()[:PERSONA_MAX]
-    dossier = _prefill_dossier(prefill)
-    name = (name or "").strip()
+    dossier = {**_prefill_dossier(prefill), **_import_dossier(dossier)}
+    clean_aliases = _import_aliases(aliases)
+    name = (name or "").strip()[:NAME_MAX]
     if not name:
         # 空名允许（作者可以从称呼写起），但 DB 的 UNIQUE(novel_id, name) 会对空串撞车
         # → 空名用占位（唯一 uuid 段），展示层把空名显示为「未命名」
@@ -250,10 +263,17 @@ async def create_character(
     if novel is None:
         raise Unprocessable("not_found", "书不存在")
     novel.character_seq_high += 1
-    ch = Character(
-        novel_id=novel_id, seq=novel.character_seq_high, name=name, role=role,
-        persona=persona, dossier=_json_dumps(dossier),
-    )
+    ch_kwargs: dict = {
+        "novel_id": novel_id,
+        "seq": novel.character_seq_high,
+        "name": name,
+        "role": role,
+        "persona": persona,
+        "dossier": _json_dumps(dossier),
+    }
+    if clean_aliases:
+        ch_kwargs["aliases"] = _json_dumps(clean_aliases)
+    ch = Character(**ch_kwargs)
     session.add(ch)
     await session.flush()
     if role == "主角":
@@ -288,6 +308,56 @@ def _prefill_dossier(prefill) -> dict:
         v = v.strip()[:PERSONA_MAX]
         if v:
             out[k] = v
+    return out
+
+
+def _import_dossier(dossier) -> dict:
+    """批量导入的 dossier 白名单（c-char-batch-import）：严格取 DOSSIER_KEYS 八格、
+    逐格 strip+clamp 300、空值丢弃；非对象/非法键/非字符串值一律 400 并点名。"""
+    if dossier is None:
+        return {}
+    if not isinstance(dossier, dict):
+        raise Unprocessable(
+            "invalid_dossier",
+            "档案只能是对象，且只收这八格："
+            + "、".join(_DOSSIER_LABELS[k] for k in DOSSIER_KEYS),
+        )
+    bad = [k for k in dossier if k not in DOSSIER_KEYS]
+    if bad:
+        known = "、".join(_DOSSIER_LABELS[k] for k in DOSSIER_KEYS)
+        raise Unprocessable(
+            "invalid_dossier",
+            f"档案不收这些格：{'、'.join(sorted(bad))}——只收：{known}",
+        )
+    out: dict = {}
+    for k in DOSSIER_KEYS:
+        v = dossier.get(k)
+        if v is None or v == "":
+            continue
+        if not isinstance(v, str):
+            raise Unprocessable(
+                "invalid_dossier", f"「{_DOSSIER_LABELS[k]}」这一格只能填文字"
+            )
+        v = v.strip()[:DOSSIER_CELL_MAX]
+        if v:
+            out[k] = v
+    return out
+
+
+def _import_aliases(aliases) -> list[str]:
+    """批量导入的别名护栏（c-char-batch-import）：list[str] → strip → 空串丢 →
+    每条截 50 字 → 只留前 20 条；非列表/非字符串元素一律 400。"""
+    if aliases is None:
+        return []
+    if not isinstance(aliases, list) or any(not isinstance(a, str) for a in aliases):
+        raise Unprocessable("invalid_aliases", "别名只能是文字列表")
+    out: list[str] = []
+    for a in aliases:
+        a = a.strip()[:ALIAS_MAX]
+        if a:
+            out.append(a)
+        if len(out) >= ALIAS_MAX_COUNT:
+            break
     return out
 
 

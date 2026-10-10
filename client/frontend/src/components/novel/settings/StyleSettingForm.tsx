@@ -471,6 +471,9 @@ const StyleSettingForm = forwardRef<StylePanelHandle, Props>(function StyleSetti
     const activePaste = opts?.text ?? null;
     try {
       let step: 0 | 1 | 2 | 3 = opts?.startStep ?? distillStep;
+      // 显式重启（粘贴链带 text 从 0 起跑）：进度 UI 同步归零（内测反馈#13）——
+      // 上一轮/旧 draft 的步数不得冒充本轮进度（否则进度条恒「已完成」、按钮恒「继续蒸馏」）
+      if (opts?.startStep === 0) setDistillStep(0);
       if (from === 1) {
         while (step < 3) {
           const next = (step + 1) as 1 | 2 | 3;
@@ -941,7 +944,7 @@ const StyleSettingForm = forwardRef<StylePanelHandle, Props>(function StyleSetti
                     </div>
                   )}
 
-                  {distillStep > 0 && (
+                  {(distillStep > 0 || distillBusy) && (
                     <div className="sample-box" style={{ marginTop: 12 }} data-od-id="distill-steps">
                       {STEPS.map(([no, t, d]) => {
                         const done = distillStep >= no;
@@ -971,7 +974,12 @@ const StyleSettingForm = forwardRef<StylePanelHandle, Props>(function StyleSetti
                       className="btn btn-primary"
                       type="button"
                       data-od-id="btn-run-distill"
-                      disabled={distillBusy || (distillStep === 0 && samples != null && !inRange)}
+                      // 样本不齐才拦「从样本起跑」——带活动粘贴样本（pasteText）时文本由
+                      // 粘贴链供，重启/重试照放行（进度复位到 0 后不得把粘贴重试拦死）
+                      disabled={
+                        distillBusy ||
+                        (distillStep === 0 && !pasteText && samples != null && !inRange)
+                      }
                       onClick={() =>
                         // 粘贴链重试必须显式从 step1 起跑：state distillStep 可能还挂着
                         // 旧蒸馏的步数（甚至旧 draft 的步数），而带 text 的 step1 是重启语义
@@ -983,7 +991,7 @@ const StyleSettingForm = forwardRef<StylePanelHandle, Props>(function StyleSetti
                     <button className="btn btn-ghost" type="button" onClick={() => closeDistill()}>
                       取消
                     </button>
-                    {samples != null && !samples.in_range && distillStep === 0 && (
+                    {samples != null && !samples.in_range && distillStep === 0 && !pasteText && (
                       <span className="opt">{samples.hint}</span>
                     )}
                   </div>

@@ -200,8 +200,8 @@ class TestCandidateScan:
         assert [c["filename"] for c in cands] == ["novel-v0.24.db"]
         assert same_version_sibling.exists()
 
-    def test_v7d_three_file_mtime_ordering(self, tmp_path):
-        """同族排序按三件套 max(mtime)：只看主文件会被 WAL 滞后骗到。"""
+    def test_v7d_data_file_mtime_ordering(self, tmp_path):
+        """同族排序按数据件 max(mtime)（主文件＋-wal）：只看主文件会被 WAL 滞后骗到。"""
         older = tmp_path / "novel-v0.21.db"
         newer = tmp_path / "novel-v0.22.db"
         for p in (older, newer):
@@ -217,7 +217,7 @@ class TestCandidateScan:
         cands = db_lifecycle.scan_migration_candidates(tmp_path, "0.25", tmp_path / CUR)
         # 同族（同为 semver、不同版本）先按版本降序：0.22 在前；此处只钉 mtime 参与
         assert [c["filename"] for c in cands] == ["novel-v0.22.db", "novel-v0.21.db"]
-        assert cands[0]["mtime"] == int(base + 100), "mtime 取三件套 max"
+        assert cands[0]["mtime"] == int(base + 100), "mtime 取数据件 max"
 
     def test_v6b_stale_staging_cleaned(self, tmp_path):
         """staging 残留清理（硬杀/断电遗留的整份副本）。"""
@@ -341,3 +341,52 @@ class TestCandidateManifest:
         m = db_lifecycle.candidate_manifest(db)
         payload = _json.dumps({"candidates": [{"manifest": m}]}, ensure_ascii=False)
         assert "enc:" not in payload and "deadbeefsecret" not in payload
+
+
+class TestStampDataFileForm:
+    """c-carry-modal-reshow：候选身份指纹只由数据件（主文件＋-wal）构成。
+
+    真机判例：-shm 是任何读者（含只读连接）都会就地改写的共享索引，编入指纹后
+    每次候选扫描都让身份漂移，完成记录比对永不相等 → 迁移完成后告知卡复弹。
+    """
+
+    def test_stamp_ignores_shm_drift(self, tmp_path):
+        import os
+
+        from schema_version import candidate_stamp, candidate_stamp_legacy
+
+        p = tmp_path / "novel-v0.30.2.db"
+        p.write_bytes(b"m" * 4096)
+        wal = Path(f"{p}-wal")
+        wal.write_bytes(b"w" * 512)
+        shm = Path(f"{p}-shm")
+        shm.write_bytes(b"s" * 32768)
+        stamp = candidate_stamp(p.name, p)
+        legacy = candidate_stamp_legacy(p.name, p)
+
+        os.utime(shm, (time.time() + 90, time.time() + 90))
+        shm.write_bytes(b"s" * 65536)
+        assert candidate_stamp(p.name, p) == stamp, "-shm 漂移不得动现行指纹"
+        assert candidate_stamp_legacy(p.name, p) != legacy, "旧三件套形态会漂（兼容对拍存在的理由）"
+
+    def test_stamp_tracks_wal_write(self, tmp_path):
+        """数据件语义不放宽：-wal 刚写过（旧版应用还在写）→ 指纹必须变。"""
+        import os
+
+        from schema_version import candidate_stamp
+
+        p = tmp_path / "novel-v0.30.2.db"
+        p.write_bytes(b"m" * 4096)
+        wal = Path(f"{p}-wal")
+        wal.write_bytes(b"w" * 512)
+        stamp = candidate_stamp(p.name, p)
+        os.utime(wal, (time.time() + 90, time.time() + 90))
+        assert candidate_stamp(p.name, p) != stamp, "-wal 是数据，指纹必须跟着走"
+
+    def test_no_sidecar_stamp_forms_agree(self, tmp_path):
+        """无边车（干净退出的常态）：新旧指纹同串——存量比对零迁移成本。"""
+        from schema_version import candidate_stamp, candidate_stamp_legacy
+
+        p = tmp_path / "novel-v0.24.db"
+        p.write_bytes(b"m" * 4096)
+        assert candidate_stamp(p.name, p) == candidate_stamp_legacy(p.name, p)

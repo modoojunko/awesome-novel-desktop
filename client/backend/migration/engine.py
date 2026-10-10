@@ -540,6 +540,22 @@ def run_migration(data_root: Path, source_filename: str, active_db_path: Path,
                     f'(SELECT {tup} FROM mig_src."{entry["table"]}")'
                 ).fetchone()[0]
                 entry["rows_missing"] = max((entry.get("rows_source") or 0) - present, 0)
+                # 5.2 值域降级回迁（c-carry-degrade-remigrate）：被值域约束拒收的
+                # 行，按映射登记表（value_mappings 单源）改写声明过的列后重插缺
+                # 行——保行优先，降级必须实名；未声明的拒收行不降级（如实报缺口）。
+                if entry["rows_missing"] > 0:
+                    saved, cols_hit = _degrade_missing_rows(tgt, entry)
+                    if saved:
+                        present = tgt.execute(
+                            f'SELECT COUNT(*) FROM main."{entry["table"]}" WHERE ({tup}) IN '
+                            f'(SELECT {tup} FROM mig_src."{entry["table"]}")'
+                        ).fetchone()[0]
+                        entry["rows_missing"] = max(
+                            (entry.get("rows_source") or 0) - present, 0)
+                        entry["rows_degraded"] = saved
+                        report["notes"].append(
+                            f"「{entry['table']}.{','.join(sorted(cols_hit))}」"
+                            f"{saved} 行按新值域降级迁入，建议检查")
             book_src = src_con.execute(
                 "SELECT COUNT(*) FROM novels").fetchone()[0] \
                 if _has_table(src_con, "novels") else 0
@@ -617,6 +633,67 @@ def run_migration(data_root: Path, source_filename: str, active_db_path: Path,
         if work_dir is not None:
             shutil.rmtree(work_dir, ignore_errors=True)
     return report
+
+
+def _degrade_missing_rows(tgt: sqlite3.Connection, entry: dict) -> tuple[int, set[str]]:
+    """值域降级回迁（c-carry-degrade-remigrate 5.2）：对仍有行损失的表，按映射
+    登记表改写**声明过的列**后对缺行重插。
+
+    集合式：与主搬运同一 SELECT 形态（含 null_guards/backfill），声明列包一层
+    CASE——精确映射命中取映射值，其余非 NULL 取保守 default，NULL 沿用原守卫。
+    只对缺行插（主键 NOT IN 目标），OR IGNORE 保幂等。返回 (救回行数, 降级列集)；
+    无登记条目或列不在交集内＝(0, set())（不降级，行损如实保留）。
+
+    不变量（review 钉死）：改写只可能救回「本列值即拒收原因」的行——本列值合法
+    而行因其它列违约时，改写后仍插不进、行保持缺失，因此合法值不可能被实际
+    落库成降级值；default 的误伤面止于「白费一次重插」，不产生数据篡改。
+    """
+    from migration.value_mappings import VALUE_MAPPINGS
+
+    t = entry["table"]
+    declared = {c: rule for (tab, c), rule in VALUE_MAPPINGS.items()
+                if tab == t and c in entry["columns"]}
+    if not declared:
+        return 0, set()
+
+    cols = list(entry["columns"])
+    guards = entry.get("null_guards") or {}
+    selects: list[str] = []
+    params: list[str] = []
+    hit_cols: set[str] = set()
+    for c in cols:
+        base = f'COALESCE("{c}", {guards[c]})' if c in guards else f'"{c}"'
+        rule = declared.get(c)
+        if rule is None:
+            selects.append(base)
+            continue
+        branches = []
+        for old, new in rule.mapping.items():
+            branches.append(f'WHEN "{c}" = ? THEN ?')
+            params.extend([old, new])
+        if rule.default is not None:
+            branches.append(f'WHEN "{c}" IS NOT NULL THEN ?')
+            params.append(rule.default)
+        if branches:
+            selects.append("CASE " + " ".join(branches) + f' ELSE {base} END')
+            hit_cols.add(c)
+        else:
+            selects.append(base)
+    for cname, lit in (entry.get("backfill") or {}).items():
+        cols.append(cname)
+        selects.append(lit)
+    pk_cols = [c for c in _table_pk_cols(t) if c in entry["columns"]]
+    if not pk_cols:
+        return 0, set()
+    tup = ",".join(f'"{c}"' for c in pk_cols)
+    cl = ",".join(f'"{c}"' for c in cols)
+    sl = ",".join(selects)
+    cur = tgt.execute(
+        f'INSERT OR IGNORE INTO main."{t}" ({cl}) SELECT {sl} FROM mig_src."{t}" '
+        f'WHERE ({tup}) NOT IN (SELECT {tup} FROM main."{t}")',
+        params,
+    )
+    return max(cur.rowcount, 0), hit_cols
 
 
 def _table_pk_cols(tname: str) -> list[str]:

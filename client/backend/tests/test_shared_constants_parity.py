@@ -341,3 +341,59 @@ class TestCastClosedSetsParity:
         assert arr("GRADES") == GRADES, "等级表前后端不一致"
         assert arr("RANK_DIMS") == CAST_DIMS, "三维名前后端不一致"
 
+
+
+class TestChapterWordTargetParity:
+    """章节默认字数区间/缺省前后端同源（c-chapter-default-words）。
+
+    数值分叉的后果：表单按 500-6000 放行、生成侧夹取用另一组数 → 用户填的值
+    静默回落，表单还说「留空默认 2500」而生成按别的数跑。
+    """
+
+    def _frontend_src(self) -> str:
+        return _read("chapterTarget.ts")
+
+    def test_range_and_default_match(self):
+        from settings.book_prefs_model import (
+            CHAPTER_WORD_TARGET_DEFAULT,
+            CHAPTER_WORD_TARGET_MAX,
+            CHAPTER_WORD_TARGET_MIN,
+        )
+
+        src = self._frontend_src()
+        front = {
+            name: int(re.search(rf"{name} = (\d+)", src).group(1))
+            for name in (
+                "CHAPTER_WORD_TARGET_MIN",
+                "CHAPTER_WORD_TARGET_MAX",
+                "CHAPTER_WORD_TARGET_DEFAULT",
+            )
+        }
+        assert front == {
+            "CHAPTER_WORD_TARGET_MIN": CHAPTER_WORD_TARGET_MIN,
+            "CHAPTER_WORD_TARGET_MAX": CHAPTER_WORD_TARGET_MAX,
+            "CHAPTER_WORD_TARGET_DEFAULT": CHAPTER_WORD_TARGET_DEFAULT,
+        }, "章节默认字数区间/缺省前后端不一致——以 settings/book_prefs_model.py 为准"
+
+    def test_writer_aliases_share_single_source(self):
+        """写章夹取用的是同一组数值（历史名 WORD_TARGET_* 只是别名，防两处各写一份）。"""
+        from settings.book_prefs_model import (
+            CHAPTER_WORD_TARGET_DEFAULT,
+            CHAPTER_WORD_TARGET_MAX,
+            CHAPTER_WORD_TARGET_MIN,
+        )
+        from write.chapter_writer import (
+            WORD_TARGET_DEFAULT,
+            WORD_TARGET_MAX,
+            WORD_TARGET_MIN,
+        )
+
+        assert (
+            WORD_TARGET_MIN,
+            WORD_TARGET_MAX,
+            WORD_TARGET_DEFAULT,
+        ) == (
+            CHAPTER_WORD_TARGET_MIN,
+            CHAPTER_WORD_TARGET_MAX,
+            CHAPTER_WORD_TARGET_DEFAULT,
+        )

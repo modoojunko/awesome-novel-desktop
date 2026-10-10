@@ -431,7 +431,7 @@ export function AiAssistPanel({
       </>
     );
     rows = [
-      cap("write", "生成正文", "由设定＋章纲组装提示词，可编辑后流式写入正文末尾", {
+      cap("write", "生成正文", "由设定＋章纲组装提示词，可编辑后生成／替换本章正文", {
         // 归档章禁用（c-archived-readonly）：恢复编辑/重写后可用，「解除只读」解锁链保持退役
         onClick: onAiWrite,
         disabled: streaming || archived,

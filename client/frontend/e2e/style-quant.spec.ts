@@ -543,7 +543,7 @@ test.describe.serial("文风量化蒸馏链路", () => {
       await page.route(`**/api/novels/${pid}/settings/style-samples`, (r) =>
         r.fulfill({ json: SAMPLES_IN_RANGE }),
       );
-      await page.route(`**/api/novels/${pid}/settings/ai/style-distill/step1`, (r) => {
+      await page.route(`**/api/novels/${pid}/settings/ai/style-distill/step1`, async (r) => {
         const body = r.request().postDataJSON() as { text?: unknown };
         if (typeof body?.text === "string" && body.text.length > 0) {
           pasteAttempts += 1;
@@ -554,6 +554,8 @@ test.describe.serial("文风量化蒸馏链路", () => {
           pasted = true;
           draftState.step = 1;
           draftState.sample_chars = 3600;
+          // 重试留窗口：复位后的「三步未开始」在飞态可断言（内测反馈#13）
+          await new Promise((res) => setTimeout(res, 900));
           r.fulfill({ json: { ok: true, step: 1 } });
           return;
         }
@@ -583,6 +585,9 @@ test.describe.serial("文风量化蒸馏链路", () => {
       // 旧 draft 挂起（step2 无画像）：仍可进样本页，粘贴入口在样本框顶部
       await page.locator('[data-od-id="btn-open-distill"]').click();
       await expect(page.locator('[data-od-id="distill-samples"]')).toBeVisible();
+      // 旧现场（内测反馈#13）：旧 draft 在 step2 → 进度条显示两步已完成、按钮「继续蒸馏」
+      await expect(page.locator('[data-od-id="distill-steps"] .ds-ok')).toHaveCount(2);
+      await expect(page.locator('[data-od-id="btn-run-distill"]')).toHaveText("继续蒸馏");
       await page.locator('[data-od-id="btn-open-paste"]').click();
       const textarea = page.locator('[data-od-id="input-paste-sample"]');
       await textarea.fill(PASTE_TEXT);
@@ -590,8 +595,16 @@ test.describe.serial("文风量化蒸馏链路", () => {
 
       // 粘贴重启：首试 502 → 错误可见，但按钮可重试（粘贴文本仍由前端携带）
       await expect(page.locator('[data-od-id="style-error"]')).toBeVisible({ timeout: 5000 });
+      // 进度复位（内测反馈#13）：不再残留上一轮/旧 draft 的「已完成」，按钮回初始文案
+      await expect(page.locator('[data-od-id="distill-steps"]')).toHaveCount(0);
+      await expect(page.locator('[data-od-id="btn-run-distill"]')).toHaveText("开始蒸馏");
       await expect(page.locator('[data-od-id="btn-run-distill"]')).toBeEnabled();
       await page.locator('[data-od-id="btn-run-distill"]').click();
+      // 在飞：本轮三步全为未开始（进度条归零重跑），按钮「蒸馏中…」
+      await expect(page.locator('[data-od-id="distill-steps"]')).toBeVisible();
+      await expect(page.locator('[data-od-id="distill-steps"] .ds-ok')).toHaveCount(0);
+      await expect(page.locator('[data-od-id="distill-steps"] .dist-step.pending')).toHaveCount(3);
+      await expect(page.locator('[data-od-id="btn-run-distill"]')).toHaveText("蒸馏中…");
 
       // 重试携 text：粘贴链通过 → 画像确认卡
       await expect(page.locator('[data-od-id="author-portrait"]')).toBeVisible({ timeout: 5000 });

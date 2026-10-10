@@ -4,6 +4,11 @@
 // c-og-slim-v2：字段收敛到 13 格——关键事件/地点/时间/叙事视角/视角指导/预期策略/
 // 预期细节/可部分推进/段落规划/本章行动/场景卡整组退役（控件、映射、校验同批摘除）。
 import type { ChapterData } from "@/hooks/useOutline";
+import {
+  CHAPTER_WORD_TARGET_DEFAULT,
+  CHAPTER_WORD_TARGET_MAX,
+  CHAPTER_WORD_TARGET_MIN,
+} from "@/lib/chapterTarget";
 
 export interface OgPayoff {
   k: string; // kind 类型枚举（PAYOFF_KINDS 的 key）
@@ -141,13 +146,20 @@ export function ogToForm(d: ChapterData | null | undefined): OgForm {
   };
 }
 
-/** 字数区间校验：返回用户可读问题列表，非空则保存被拦截。 */
-export function ogFormIssues(form: OgForm): string[] {
+/** 字数区间校验：返回用户可读问题列表，非空则保存被拦截。
+ *  defaultTarget＝作品偏好「章节默认字数」（c-chapter-default-words）：留空时生成侧
+ *  按它取目标，提示文案须与之一致；缺省 2500（存量调用点/存量行为不变）。 */
+export function ogFormIssues(
+  form: OgForm,
+  defaultTarget: number = CHAPTER_WORD_TARGET_DEFAULT,
+): string[] {
   const issues: string[] = [];
   if (form.wt.trim() !== "") {
     const wt = parseInt(form.wt, 10);
-    if (!Number.isFinite(wt) || wt < 500 || wt > 6000) {
-      issues.push("本章目标字数需在 500-6000 之间（留空默认 2500）");
+    if (!Number.isFinite(wt) || wt < CHAPTER_WORD_TARGET_MIN || wt > CHAPTER_WORD_TARGET_MAX) {
+      issues.push(
+        `本章目标字数需在 ${CHAPTER_WORD_TARGET_MIN}-${CHAPTER_WORD_TARGET_MAX} 之间（留空默认 ${defaultTarget}）`,
+      );
     }
   }
   return issues;
@@ -198,6 +210,8 @@ export function ogToPartial(
     challenge: form.challenge.trim(),
     plot_stage: form.stage.trim(),
     // 兜底 clamp（正常路径已被 ogFormIssues 拦截，此处防绕过）
-    word_target: Number.isFinite(wt) && wt > 0 ? Math.min(6000, Math.max(500, wt)) : null,
+    word_target: Number.isFinite(wt) && wt > 0
+      ? Math.min(CHAPTER_WORD_TARGET_MAX, Math.max(CHAPTER_WORD_TARGET_MIN, wt))
+      : null,
   };
 }

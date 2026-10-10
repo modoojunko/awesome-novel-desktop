@@ -6,8 +6,8 @@
 登录后按权益档位从 CDN 拉取加密包（free⊂standard⊂pro⊂max 累积超集），经内置信任钥
 验签、向 S端 换内容密钥、本地解密安装；装完离线自持（S端/CDN 不可达不影响已装能力）。
 loader 与同步器、四态卡 UI、打包冒烟均为本 capability 的落点。S端 按档发钥契约见
-awesome-novel-server 仓 prompt-pack-key-issuance；发布链（切包/加密/签名/上 CDN）见
-awesome-novel-prompts 仓 publish.py。
+S端 私有仓的 prompt-pack-key-issuance；发布链（切包/加密/签名/上 CDN）见
+提示词私有仓的 publish.py。
 
 ## Requirements
 

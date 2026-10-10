@@ -429,10 +429,116 @@
     .ch-name { width: 100%; }
     .dtri { flex-direction: column; gap: 4px; }
   }
+  /* [c-char-batch-import] 批量添加：双按钮行＋模版导入弹层（弹层不进 parity 截图：默认 hidden，行为走 e2e） */
+  .tree-add-row { display: grid; grid-template-columns: 1fr auto; gap: 6px; margin-bottom: 8px; flex: none; }
+  .tree-add-row .tree-add { margin-bottom: 0; }
+  .tree-add-more { border-style: dashed; }
+  .batch-scrim { position: fixed; inset: 0; background: color-mix(in oklch, var(--fg) 28%, transparent); z-index: 40; }
+  .batch-modal { position: fixed; inset: 0; z-index: 60; display: grid; place-items: center; padding: 24px; }
+  .batch-card { width: min(760px, 94vw); max-height: calc(100vh - 48px); overflow-y: auto; background: var(--surface); border: 1px solid var(--border); border-radius: 16px; box-shadow: var(--shadow-card); }
+  .batch-head { display: flex; align-items: center; padding: 18px 22px 0; }
+  .batch-head .mh { font-family: var(--font-display); font-size: 17px; font-weight: 600; }
+  .batch-head .bx { margin-left: auto; border: none; background: transparent; color: var(--muted); cursor: pointer; font-size: 15px; }
+  .batch-body { padding: 12px 22px 6px; }
+  .batch-hint { font-size: 12px; color: var(--muted); line-height: 1.8; margin: 0 0 10px; }
+  .batch-hint code { font-family: var(--font-mono); font-size: 11px; background: var(--fg-soft); border-radius: 5px; padding: 1px 6px; color: var(--fg); }
+  .batch-file-row { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-bottom: 10px; }
+  .batch-file-name { font-size: 11.5px; color: var(--muted); min-width: 0; }
+  .batch-btn { display: inline-flex; align-items: center; gap: 5px; height: 28px; padding: 0 12px; border-radius: 8px; font-size: 12.5px; cursor: pointer; border: 1px solid var(--border); background: var(--surface); color: var(--fg); }
+  .batch-btn:hover { border-color: var(--fg); }
+  .batch-btn.primary { background: var(--accent); border-color: transparent; color: var(--on-accent); }
+  .batch-btn.primary:disabled { opacity: .5; cursor: not-allowed; }
+  .batch-pv { border: 1px solid var(--border); border-radius: 9px; min-height: 150px; max-height: 260px; overflow-y: auto; margin-bottom: 6px; }
+  .batch-pv-head { display: flex; gap: 8px; padding: 7px 12px; border-bottom: 1px solid var(--border); font-size: 11px; color: var(--muted); position: sticky; top: 0; background: var(--surface); }
+  .batch-row { display: flex; align-items: center; gap: 8px; padding: 6px 12px; border-bottom: 1px dashed var(--border); font-size: 12px; }
+  .batch-row:last-child { border-bottom: none; }
+  .batch-row.bad { background: color-mix(in oklch, var(--err) 6%, transparent); }
+  .batch-row.warn { background: color-mix(in oklch, var(--warn) 8%, transparent); }
+  .batch-no { flex: none; width: 20px; font-family: var(--font-mono); font-size: 10.5px; color: var(--muted); }
+  .batch-name { flex: 0 0 128px; }
+  .batch-role { flex: none; }
+  .batch-persona { flex: 1; min-width: 0; }
+  .batch-row input, .batch-row select { height: 27px; padding: 0 8px; border: 1px solid var(--border); border-radius: 7px; background: var(--surface); color: var(--fg); font-size: 12px; font-family: inherit; width: 100%; }
+  .batch-row select { width: auto; }
+  .batch-st { flex: none; font-size: 10.5px; padding: 1px 8px; border-radius: 999px; border: 1px solid var(--border); white-space: nowrap; }
+  .batch-st.ok { color: var(--ok); border-color: color-mix(in oklch, var(--ok) 35%, transparent); background: var(--ok-soft); }
+  .batch-st.warn { color: var(--warn); border-color: color-mix(in oklch, var(--warn) 35%, transparent); background: var(--warn-soft); }
+  .batch-st.err { color: var(--err); border-color: color-mix(in oklch, var(--err) 30%, transparent); background: var(--err-soft); }
+  .batch-pv-empty { padding: 22px 14px; font-size: 12px; color: var(--muted); text-align: center; line-height: 1.9; }
+  .batch-pv-err { padding: 14px; font-size: 12px; color: var(--err); background: color-mix(in oklch, var(--err) 8%, transparent); line-height: 1.8; }
+  .batch-cnt { font-size: 12px; color: var(--muted); }
+  .batch-cnt b { color: var(--fg); font-family: var(--font-mono); }
+  .batch-cnt .skip { color: var(--warn); }
+  .batch-foot { display: flex; justify-content: space-between; align-items: center; gap: 8px; padding: 10px 22px 18px; }
+  .batch-foot .note { font-size: 12px; color: var(--muted); }
+  .batch-foot .acts { display: flex; gap: 8px; }
+  .batch-guide { margin: 2px 0 6px; border: 1px dashed var(--border); border-radius: 9px; }
+  .batch-guide summary { cursor: pointer; padding: 8px 12px; font-size: 12px; color: var(--accent); list-style: none; }
+  .batch-guide summary::before { content: ""; display: inline-block; width: 0; height: 0; border-left: 5px solid currentColor; border-top: 4px solid transparent; border-bottom: 4px solid transparent; margin-right: 6px; vertical-align: 1px; }
+  .batch-guide[open] summary::before { transform: rotate(90deg); vertical-align: -1px; }
+  .batch-guide-scroll { max-height: 220px; overflow-y: auto; padding: 0 12px 10px; }
+  .batch-guide-t { width: 100%; border-collapse: collapse; font-size: 11.5px; }
+  .batch-guide-t th, .batch-guide-t td { text-align: left; padding: 5px 8px; border-bottom: 1px dashed var(--border); vertical-align: top; line-height: 1.65; }
+  .batch-guide-t th { color: var(--muted); font-weight: 500; position: sticky; top: 0; background: var(--surface); }
+  .batch-guide-t td:first-child { white-space: nowrap; font-weight: 500; }
+  .batch-guide-t td:nth-child(2) { color: var(--muted); }
+  .batch-guide-t td:last-child { font-family: var(--font-mono); font-size: 11px; }
+  .batch-guide-note { margin: 8px 0 0; font-size: 11.5px; color: var(--warn); line-height: 1.7; }
 </style>
 </head>
 <body>
 <div class="toast-wrap" id="toastWrap" data-od-id="toast-wrap"></div>
+
+<!-- [c-char-batch-import] 批量添加弹层（默认 hidden；演示数据流＝下载/解析/预览/校验，确认只回执不落库） -->
+<div class="batch-scrim" id="batchScrim" hidden data-od-id="batch-scrim"></div>
+<div class="batch-modal" id="batchModal" hidden role="dialog" aria-modal="true" aria-label="批量添加角色" data-od-id="batch-modal">
+  <div class="batch-card">
+    <div class="batch-head"><span class="mh">批量添加角色</span><button class="bx" id="batchX" type="button" aria-label="关闭" data-od-id="batch-close"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14"><path d="M18 6 6 18M6 6l12 12"/></svg></button></div>
+    <div class="batch-body">
+      <p class="batch-hint">
+        下载模版，在 Excel / WPS 里一行一个角色填好再导入。<b>只填名字也行</b>；类型四选一（主角/配角/反派/路人），
+        不填默认配角；别名用 <code>·</code> 分隔；模版里的「示例-」行导入时会自动跳过。
+        填不动可以让 AI 照列头帮你填，粘回表格再导入。中英文列头都认。
+      </p>
+      <div class="batch-file-row" data-od-id="batch-file-row">
+        <button class="batch-btn" id="batchDl" type="button" data-od-id="batch-download">下载模版(.csv)</button>
+        <button class="batch-btn primary" id="batchPick" type="button" data-od-id="batch-upload">选择文件…</button>
+        <input type="file" id="batchFile" accept=".csv" hidden data-od-id="batch-file-input">
+        <span class="batch-file-name" id="batchFileName" data-od-id="batch-file-name">未选择文件——真实现支持 .xlsx（SheetJS），原型以 CSV 演示同一套交互</span>
+      </div>
+      <div class="batch-pv" id="batchPv" data-od-id="batch-preview"></div>
+      <details class="batch-guide" data-od-id="batch-guide">
+        <summary>字段怎么填？点开看说明和示例</summary>
+        <div class="batch-guide-scroll">
+          <table class="batch-guide-t">
+            <thead><tr><th>字段</th><th>填什么</th><th>示例</th></tr></thead>
+            <tbody>
+              <tr><td>名字*</td><td>必填，书内唯一（重名会跳过）。只写称呼本身，称号昵称放「别名」</td><td>苏晚</td></tr>
+              <tr><td>类型</td><td>四选一：主角/配角/反派/路人。不填默认配角；主角全书只能一位</td><td>配角</td></tr>
+              <tr><td>一句话人设</td><td>此人是谁、凭什么是他——一句 60 字内最好（上限 300）。每章都会带进 AI 上下文，写「身份＋特质＋关系钩子」</td><td>船家女，掌渡船二十载，认得每个潮汛</td></tr>
+              <tr><td>别名（用·分隔）</td><td>称呼变体：昵称、称号、职衔，用 · 隔开。AI 靠它认出「二副」「窈姐」都是同一人</td><td>老柳·二副</td></tr>
+              <tr><td>性别 / 年龄 / 种族</td><td>照实填，可留空；年龄概数也行</td><td>女 / 31 / 人类</td></tr>
+              <tr><td>势力·身份</td><td>所属组织＋职位，用 · 分隔；无组织就写身份</td><td>漕帮 · 舵主</td></tr>
+              <tr><td>外貌标签</td><td>2~4 个短语，标签化，别写成散文</td><td>瘦长个 · 旧道袍</td></tr>
+              <tr><td>语言特征</td><td>说话习惯、口吻、口头禅</td><td>话少 · 命令句式</td></tr>
+              <tr><td>背景</td><td>出身与来路，一两句（上限 300）</td><td>祖上三代摆渡，渡口就是家。</td></tr>
+              <tr><td>剧情定位</td><td>这个人在故事里干什么、承担什么功能（主角必填）</td><td>渡主角过江，捎来第一封密信</td></tr>
+            </tbody>
+          </table>
+          <p class="batch-guide-note">只有名字是必填，其余都可以留空、建完在角色设定里补；一格一句别换行；类型不填默认配角。</p>
+        </div>
+      </details>
+    </div>
+    <div class="batch-foot">
+      <span class="note">重名的角色会跳过，不覆盖已有卡。</span>
+      <span class="batch-cnt" id="batchCnt" data-od-id="batch-count"></span>
+      <div class="acts">
+        <button class="batch-btn" id="batchCancel" type="button" data-od-id="batch-cancel">取消</button>
+        <button class="batch-btn primary" id="batchOk" type="button" disabled data-od-id="batch-confirm">建 0 张卡</button>
+      </div>
+    </div>
+  </div>
+</div>
 <div class="wrap">
 
   <header class="doc-head" data-od-id="doc-head">
@@ -506,7 +612,10 @@
 
               <nav class="char-list" data-od-id="char-list">
                 <div class="tree-top">角色列表<span class="cnt num" id="treeCnt">43</span></div>
-                <button class="tree-add" id="btnAddChar" data-od-id="btn-add-char" type="button"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="13" height="13"><path d="M12 5v14M5 12h14"/></svg>添加角色</button>
+                <div class="tree-add-row" data-od-id="char-add-row">
+                  <button class="tree-add" id="btnAddChar" data-od-id="btn-add-char" type="button"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="13" height="13"><path d="M12 5v14M5 12h14"/></svg>添加角色</button>
+                  <button class="tree-add tree-add-more" id="btnBatchAdd" data-od-id="btn-batch-add" type="button">批量添加</button>
+                </div>
                 <input class="tree-search" id="treeSearch" data-od-id="search-char" type="search" placeholder="搜名字 / 别名" aria-label="搜索角色" />
                 <div class="tree-groups" id="treeList"></div>
               </nav>
@@ -1862,6 +1971,171 @@
 
   $$('.appbar .back').forEach(b => b.addEventListener('click', () => toast('这是示例稿：顶部书栏不属于本页，点「返回工作台」在正式版里才有效')));
   $$('.modnav span').forEach(s => s.addEventListener('click', () => { if (!s.classList.contains('on')) toast('这是示例稿：只演示「设定 · 角色」这一页，写作和预览在正式版里用'); }));
+
+  /* ═══ [c-char-batch-import] 批量添加：下载模版 → 解析 → 预览校验（确认只回执，不改动演示种子） ═══ */
+  const B_ROLES = ['主角', '配角', '反派', '路人'];
+  const B_DEFAULT_ROLE = '配角';
+  const B_KEYS = ['gender', 'age', 'race', 'faction', 'look', 'speech', 'background', 'plot'];
+  const B_BATCH = { rows: [], error: '', fmt: '' };
+  const B_HEADERS = ['名字*', '类型', '一句话人设', '别名(用·分隔)', '性别', '年龄', '种族', '势力·身份', '外貌标签', '语言特征', '背景', '剧情定位'];
+  const B_SAMPLE = [
+    ['示例-韩十三', '配角', '北岭号新来的锅炉工', '老韩头·十三', '男', '28', '人类', '北岭号 · 锅炉工', '壮实 · 满手油灰', '嗓门大 · 爱哼船歌', '在货运航线跑了六年。', '守着锅炉，也守着一个秘密'],
+    ['示例-灯嫂', '配角', '航标站看守，认得每一盏灯', '', '', '', '', '', '', '', '', ''],
+    ['示例-唐九', '', '', '', '', '', '', '', '', '', '', '']
+  ];
+  const B_COL = {
+    '名字': 'name', '名称': 'name', 'name': 'name',
+    '类型': 'role', '角色类型': 'role', 'role': 'role',
+    '一句话人设': 'persona', '人设': 'persona', 'persona': 'persona',
+    '别名': 'aliases', '别名(用·分隔)': 'aliases', '别名（用·分隔）': 'aliases', 'aliases': 'aliases',
+    '性别': 'gender', 'gender': 'gender', '年龄': 'age', 'age': 'age', '种族': 'race', 'race': 'race',
+    '势力·身份': 'faction', '势力身份': 'faction', 'faction': 'faction',
+    '外貌标签': 'look', '外貌': 'look', 'look': 'look',
+    '语言特征': 'speech', 'speech': 'speech',
+    '背景': 'background', 'background': 'background',
+    '剧情定位': 'plot', 'plot': 'plot'
+  };
+  /* 库内重名演示集＝当前种子卡名（含别名），预览校验用 */
+  const B_EXISTING = (typeof CHARS !== 'undefined' ? CHARS : []).map(c => [c.name, ...(c.aliases || [])]).flat().filter(Boolean);
+
+  function bNorm(o) {
+    const d = (o && typeof o.dossier === 'object' && o.dossier) || {};
+    const dossier = {};
+    B_KEYS.forEach(k => { if (d[k]) dossier[k] = String(d[k]).slice(0, 300); });
+    const al = o && o.aliases;
+    const aliases = (Array.isArray(al) ? al : (al ? [String(al)] : [])).map(s => String(s).trim()).filter(Boolean);
+    return { name: String((o && o.name) || '').trim(), role: String((o && o.role) || '').trim(),
+      persona: String((o && o.persona) || '').trim().slice(0, 300), aliases, dossier };
+  }
+  function bEffRole(r) { return B_ROLES.indexOf(r.role) >= 0 ? r.role : B_DEFAULT_ROLE; }
+  function bStatus(row, idx) {
+    if (/^示例/.test(row.name || '')) return { cls: 'warn', txt: '示例行，不导入', row: 'warn', ok: false };
+    if (!row.name) return { cls: 'err', txt: '没写名字', row: 'bad', ok: false };
+    if (row.name.length > 50) return { cls: 'err', txt: '名字超 50 字', row: 'bad', ok: false };
+    const dupExisting = B_EXISTING.indexOf(row.name) >= 0;
+    const dupBatch = B_BATCH.rows.some((r, j) => j < idx && r.name === row.name);
+    if (dupExisting || dupBatch) return { cls: 'warn', txt: dupExisting ? '已有同名，跳过' : '批内重名，跳过', row: 'warn', ok: false };
+    const mains = B_BATCH.rows.filter(r => bEffRole(r) === '主角').length + (typeof CHARS !== 'undefined' && CHARS.some(c => c.role === '主角') ? 1 : 0);
+    if (bEffRole(row) === '主角' && mains > 1) return { cls: 'err', txt: '每书一位主角', row: 'bad', ok: false };
+    const extras = [];
+    if (row.aliases.length) extras.push('别名×' + row.aliases.length);
+    if (Object.keys(row.dossier).length) extras.push('含档案');
+    return { cls: 'ok', txt: '将新建' + (extras.length ? ' · ' + extras.join(' · ') : ''), row: '', ok: true };
+  }
+  function bRenderPreview() {
+    const rows = B_BATCH.rows;
+    let html = '<div class="batch-pv-head"><span class="batch-no">#</span><span class="batch-name">名字</span><span class="batch-role">类型</span><span class="batch-persona">一句话人设（可补）</span><span class="batch-no" style="width:auto">状态</span></div>';
+    if (B_BATCH.error) html += '<div class="batch-pv-err">' + esc(B_BATCH.error) + '</div>';
+    else if (!rows.length) html += '<div class="batch-pv-empty">点「下载模版」，在 Excel / WPS 里填好角色再导入——这里实时解析预览。<br>识别不了的会标红，可以就地改。</div>';
+    rows.forEach((r, i) => {
+      const st = bStatus(r, i);
+      const role = bEffRole(r);
+      html += '<div class="batch-row ' + st.row + '" data-i="' + i + '"><span class="batch-no">' + (i + 1) + '</span>'
+        + '<span class="batch-name"><input value="' + esc(r.name) + '" placeholder="名字" data-f="name"></span>'
+        + '<span class="batch-role"><select data-f="role">' + B_ROLES.map(x => '<option' + (x === role ? ' selected' : '') + '>' + x + '</option>').join('') + '</select></span>'
+        + '<span class="batch-persona"><input value="' + esc(r.persona) + '" placeholder="一句话人设" data-f="persona"></span>'
+        + '<span class="batch-no" style="width:auto"><span class="batch-st ' + st.cls + '">' + st.txt + '</span></span></div>';
+    });
+    $('#batchPv').innerHTML = html;
+    const okN = rows.filter((r, i) => bStatus(r, i).ok).length;
+    const skip = rows.length - okN;
+    $('#batchCnt').innerHTML = (B_BATCH.fmt ? esc(B_BATCH.fmt) + ' · ' : '') + '建 <b>' + okN + '</b> 张' + (skip ? ' · <span class="skip">跳过 ' + skip + '</span>' : '');
+    const okBtn = $('#batchOk');
+    okBtn.textContent = '建 ' + okN + ' 张卡';
+    okBtn.disabled = okN === 0;
+  }
+  function bParseCsv(text) {
+    const rows = [[]]; let cur = '', inQ = false;
+    for (let i = 0; i < text.length; i++) {
+      const ch = text.charAt(i);
+      if (inQ) {
+        if (ch === '"') { if (text.charAt(i + 1) === '"') { cur += '"'; i++; } else inQ = false; }
+        else cur += ch;
+      } else {
+        if (ch === '"') inQ = true;
+        else if (ch === ',') { rows[rows.length - 1].push(cur); cur = ''; }
+        else if (ch === '\n') { rows[rows.length - 1].push(cur); rows.push([]); cur = ''; }
+        else if (ch !== '\r') cur += ch;
+      }
+    }
+    rows[rows.length - 1].push(cur);
+    return rows.filter(r => r.some(c => String(c).trim() !== ''));
+  }
+  function bImportRows(text, fname) {
+    B_BATCH.error = ''; B_BATCH.fmt = '';
+    const grid = bParseCsv(text);
+    if (!grid.length) { B_BATCH.error = '文件是空的'; B_BATCH.rows = []; return; }
+    const cols = grid[0].map(h => {
+      const key = String(h).trim().replace(/\*$/, '').replace(/\s+/g, '');
+      if (B_COL[key]) return B_COL[key];
+      if (key.indexOf('别名') === 0) return 'aliases';
+      return null;
+    });
+    if (cols.indexOf('name') < 0) { B_BATCH.error = '模版列头不对——没有「名字」列。请用「下载模版」的格式，或把列头改成与模版一致'; B_BATCH.rows = []; return; }
+    const rows = [];
+    for (let r = 1; r < grid.length; r++) {
+      const o = { dossier: {} };
+      for (let c = 0; c < cols.length; c++) {
+        const k = cols[c]; if (!k) continue;
+        const v = String(grid[r][c] == null ? '' : grid[r][c]).trim();
+        if (!v) continue;
+        if (k === 'aliases') o.aliases = v.split(/[·・、,，]/);
+        else if (B_KEYS.indexOf(k) >= 0) o.dossier[k] = v;
+        else o[k] = v;
+      }
+      rows.push(bNorm(o));
+    }
+    B_BATCH.fmt = fname + ' · ' + rows.length + ' 行';
+    B_BATCH.rows = rows;
+  }
+  function bCsvCell(v) { v = String(v == null ? '' : v); return /[",\r\n]/.test(v) ? '"' + v.replace(/"/g, '""') + '"' : v; }
+  $('#btnBatchAdd').addEventListener('click', () => {
+    bRenderPreview();
+    $('#batchScrim').hidden = false;
+    $('#batchModal').hidden = false;
+  });
+  const bClose = () => { $('#batchScrim').hidden = true; $('#batchModal').hidden = true; };
+  $('#batchX').addEventListener('click', bClose);
+  $('#batchCancel').addEventListener('click', bClose);
+  $('#batchScrim').addEventListener('click', bClose);
+  $('#batchDl').addEventListener('click', () => {
+    const lines = [B_HEADERS.map(bCsvCell).join(',')].concat(B_SAMPLE.map(r => r.map(bCsvCell).join(',')));
+    const blob = new Blob(['\ufeff' + lines.join('\r\n') + '\r\n'], { type: 'text/csv;charset=utf-8' });
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = '角色批量导入模版.csv';
+    document.body.appendChild(a); a.click(); a.remove();
+    toast('模版已下载——填好角色后点「选择文件」导入');
+  });
+  $('#batchPick').addEventListener('click', () => $('#batchFile').click());
+  $('#batchFile').addEventListener('change', (e) => {
+    const f = e.target.files[0];
+    e.target.value = '';
+    if (!f) return;
+    $('#batchFileName').textContent = f.name;
+    const reader = new FileReader();
+    reader.onload = () => { bImportRows(String(reader.result), f.name); bRenderPreview(); };
+    reader.readAsText(f, 'utf-8');
+  });
+  $('#batchPv').addEventListener('input', (e) => {
+    const row = e.target.closest('.batch-row'); if (!row) return;
+    const i = parseInt(row.getAttribute('data-i'), 10);
+    const f = e.target.getAttribute('data-f');
+    if (f && B_BATCH.rows[i]) { B_BATCH.rows[i][f] = e.target.value; bRenderPreview(); }
+  });
+  $('#batchPv').addEventListener('change', (e) => {
+    const row = e.target.closest('.batch-row'); if (!row) return;
+    if (e.target.getAttribute('data-f') === 'role') {
+      const i = parseInt(row.getAttribute('data-i'), 10);
+      if (B_BATCH.rows[i]) { B_BATCH.rows[i].role = e.target.value; bRenderPreview(); }
+    }
+  });
+  $('#batchOk').addEventListener('click', () => {
+    const okN = B_BATCH.rows.filter((r, i) => bStatus(r, i).ok).length;
+    const skip = B_BATCH.rows.length - okN;
+    bClose();
+    toast('已建 ' + okN + ' 张卡' + (skip ? '，跳过 ' + skip + ' 个' : '') + '——原型演示：实际落库见应用内');
+  });
 
   renderTree();
   renderCard();

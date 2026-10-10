@@ -33,6 +33,12 @@ THREADS_KEY = "threads"
 STYLE_QUANT_PATH = "settings/style-quant.yaml"
 STYLE_QUANT_KEY = "style-quant"
 
+# 作品偏好（c-chapter-default-words，内测反馈#10）：本章目标字数的全局默认等
+# per-book 偏好，同 style-quant 先例——专用键不进 PATH_TO_KEY（不进通用设定端点），
+# 只走 settings/book_prefs_router.py；生成链（chapter_writer）按本键取未填章的字数默认。
+BOOK_PREFS_PATH = "settings/book-prefs.yaml"
+BOOK_PREFS_KEY = "book-prefs"
+
 # 目录型设定：无单文件端点，/settings/{type} 泛化端点应拒绝（指引走 /character/{name} 等）
 MULTI_FILE_SETTING_KEYS = {"characters"}
 
@@ -47,6 +53,8 @@ def route_relative_path(relative_path: str) -> str | None:
         return THREADS_KEY
     if relative_path == STYLE_QUANT_PATH:
         return STYLE_QUANT_KEY
+    if relative_path == BOOK_PREFS_PATH:
+        return BOOK_PREFS_KEY
     if relative_path.startswith(CHARACTER_DIR + "/"):
         return CHARACTER_PREFIX + relative_path[len(CHARACTER_DIR) + 1 :]
     return None
