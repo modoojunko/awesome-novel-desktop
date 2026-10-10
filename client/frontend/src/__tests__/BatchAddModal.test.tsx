@@ -213,3 +213,38 @@ describe("BatchAddModal", () => {
     await waitFor(() => expect(screen.getAllByTestId("char-batch-row")).toHaveLength(1));
   });
 });
+
+describe("BatchAddModal 提交拒绝", () => {
+  it("onSubmit 整体拒绝（如建卡前保存队列网络失败）：红条＋行保留＋不关弹层", async () => {
+    const onSubmit = vi.fn(async () => {
+      throw new Error("自动保存失败——请检查网络后重试");
+    });
+    const onClose = vi.fn();
+    render(
+      <BatchAddModal
+        open
+        existingNames={new Set()}
+        hasProtagonist={false}
+        onClose={onClose}
+        onToast={vi.fn()}
+        onSubmit={onSubmit}
+      />,
+    );
+    const input = screen.getByTestId("char-batch-file-input");
+    const bytes = new TextEncoder().encode("\ufeff名字*,类型\n甲,配角");
+    const f = new File([bytes as unknown as BlobPart], "名单.csv", { type: "text/csv" });
+    Object.defineProperty(f, "arrayBuffer", { value: async () => bytes.buffer.slice(0) });
+    await waitFor(async () => {
+      fireEvent.change(input, { target: { files: [f] } });
+    });
+    await waitFor(() => expect(screen.getAllByTestId("char-batch-row")).toHaveLength(1));
+    fireEvent.click(screen.getByTestId("char-batch-confirm"));
+    await waitFor(() =>
+      expect(screen.getByTestId("char-batch-fail").textContent).toContain("自动保存失败"),
+    );
+    expect(onClose).not.toHaveBeenCalled();
+    expect(screen.getAllByTestId("char-batch-row")).toHaveLength(1);
+    // busy 复位：确认键可再点
+    expect((screen.getByTestId("char-batch-confirm") as HTMLButtonElement).disabled).toBe(false);
+  });
+});

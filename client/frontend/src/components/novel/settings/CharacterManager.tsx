@@ -431,10 +431,12 @@ const CharacterManager = forwardRef<CharacterSaveHandle, Props>(function Charact
   }, [projectId, list.length, reloadList, loadCard, showToast]);
 
   /** 批量导入确认（c-char-batch-import）：串行建卡（每卡恰 1 请求）；409 计跳过，
-   *  其他错误停批（failMsg＋剩余行回预览重试）。建卡前 flush 保存队列（照 adoptBootstrap）。 */
+   *  其他错误停批（failMsg＋剩余行回预览重试）。建卡前 flush 保存队列（照 adoptBootstrap）。
+   *  meta.retry＝停批后的重试：撤销范围累积（覆盖整个导入会话）；非重试＝替换（撤销只认最新一批）。 */
   const handleBatchSubmit = useCallback(async (
     rows: BatchRow[],
     onProgress: (done: number, total: number) => void,
+    meta: { retry: boolean } = { retry: false },
   ) => {
     if (timerRef.current) window.clearTimeout(timerRef.current);
     await flushQueue();
@@ -465,7 +467,7 @@ const CharacterManager = forwardRef<CharacterSaveHandle, Props>(function Charact
     }
     onProgress(rows.length, rows.length);
     if (createdIds.length) {
-      setBatchCreatedIds(createdIds);
+      setBatchCreatedIds((prev) => (meta.retry ? [...prev, ...createdIds] : createdIds));
       showToast(`已建 ${createdIds.length} 张卡${skipped ? ` · 跳过 ${skipped}` : ""}${failMsg ? "（部分未建，见弹窗）" : ""}`);
       await reloadList();
       if (createdIds[0]) {
@@ -479,10 +481,23 @@ const CharacterManager = forwardRef<CharacterSaveHandle, Props>(function Charact
     return { created: createdIds.length, skipped, createdIds, failMsg, remaining };
   }, [projectId, flushQueue, reloadList, loadCard, showToast]);
 
-  /** 「撤销本次全部」：循环既有 DELETE（404＝已被手动删过，视为已撤），一次清掉本批卡 */
+  /** 「撤销本次全部」：循环既有 DELETE。404＝已被手动删过，视为已撤；
+   *  其他错误保留未删 id（回执不清＝重试入口保留），toast 报残留数。 */
   const doBatchUndo = useCallback(async () => {
+    const remaining: string[] = [];
     for (const id of batchCreatedIds) {
-      await charactersApi.remove(projectId, id).catch(() => undefined);
+      try {
+        await charactersApi.remove(projectId, id);
+      } catch (e) {
+        const err = e as { status?: number };
+        if (err.status !== 404) remaining.push(id);
+      }
+    }
+    if (remaining.length) {
+      setBatchCreatedIds(remaining);
+      showToast(`还有 ${remaining.length} 张未删干净——可再点一次撤销`);
+      await reloadList().catch(() => undefined);
+      return;
     }
     setBatchCreatedIds([]);
     const items = await reloadList();

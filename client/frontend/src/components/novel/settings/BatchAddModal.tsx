@@ -43,6 +43,8 @@ interface BatchAddModalProps {
   onSubmit: (
     rows: BatchRow[],
     onProgress: (done: number, total: number) => void,
+    /** retry＝停批后的重试：调用方据此累积撤销范围（覆盖整个导入会话） */
+    meta: { retry: boolean },
   ) => Promise<BatchCreateOutcome>;
 }
 
@@ -53,6 +55,8 @@ export default function BatchAddModal(props: BatchAddModalProps) {
   const [parseErr, setParseErr] = useState("");
   const [fileName, setFileName] = useState("");
   const [failMsg, setFailMsg] = useState("");
+  /** 停批后的重试态：确认时上抛给调用方累积撤销范围；换文件/成功后清除 */
+  const [retrying, setRetrying] = useState(false);
   const [busy, setBusy] = useState(false);
   const [progress, setProgress] = useState<{ done: number; total: number } | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
@@ -73,6 +77,7 @@ export default function BatchAddModal(props: BatchAddModalProps) {
     setParseErr("");
     setFileName("");
     setFailMsg("");
+    setRetrying(false);
   };
 
   /* v8 ignore start -- jsdom 无 URL.createObjectURL，下载路径由 e2e「下载模版回读」钉 */
@@ -86,6 +91,7 @@ export default function BatchAddModal(props: BatchAddModalProps) {
   const onFile = async (file: File | undefined) => {
     if (!file) return;
     setFailMsg("");
+    setRetrying(false); // 换了文件＝新一轮导入，重试态作废
     try {
       const parsed = await readFileAsRows(file);
       setRows(parsed);
@@ -111,15 +117,21 @@ export default function BatchAddModal(props: BatchAddModalProps) {
     setBusy(true);
     setProgress({ done: 0, total: targets.length });
     try {
-      const outcome = await onSubmit(targets, (done, total) => setProgress({ done, total }));
+      const outcome = await onSubmit(targets, (done, total) => setProgress({ done, total }), {
+        retry: retrying,
+      });
       if (outcome.failMsg) {
         setRows(outcome.remaining ?? []);
         setFailMsg(outcome.failMsg);
+        setRetrying(true);
         setFmt(outcome.remaining ? `${outcome.remaining.length} 行未建` : fmt);
       } else {
         resetDraft();
         onClose();
       }
+    } catch (e) {
+      // onSubmit 整体拒绝（如建卡前保存队列网络失败）：红条＋行保留，弹层不关可重试
+      setFailMsg((e as Error).message || "导入失败——请重试");
     } finally {
       setBusy(false);
       setProgress(null);
