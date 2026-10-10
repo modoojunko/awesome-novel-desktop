@@ -1211,6 +1211,18 @@ describe("带回常驻行与四步收尾（c-lossless-upgrade 覆盖补齐）", 
   });
 
 
+  it("部分迁移（carried_partial）：不自动重弹整卡，提醒行承接、点迁移可达（c-carry-degrade-remigrate）", async () => {
+    withRec({ carried_partial: true });
+    getMock.mockResolvedValue([]);
+    renderPage();
+    await screen.findByTestId("carry-strip-later");
+    // 自动仲裁不得把缺口候选当「从没迁过」重弹完整告知卡
+    expect(screen.queryByTestId("carry-card")).toBeNull();
+    // 用户显式点「迁移」整卡照常可达
+    fireEvent.click(screen.getByTestId("carry-strip-open"));
+    expect(await screen.findByTestId("carry-card")).toBeTruthy();
+  });
+
   it("评审修复③：卡内「稍后带」→ 会话内常驻行接管（未 snooze 也提醒）→ 可重开卡", async () => {
     withRec(); // 未抑制：此前稍后带后 SPA 会话内再无提醒路径
     getMock.mockResolvedValue([]);

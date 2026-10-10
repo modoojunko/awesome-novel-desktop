@@ -27,6 +27,8 @@ export interface LegacyCandidate {
   suppressed: boolean;
   /** c-lossless-upgrade：本次已带回（migration.last 完整达成才算） */
   carried?: boolean;
+  /** c-carry-degrade-remigrate：曾带回但不完整（书架不自动重弹整卡，提醒行承接） */
+  carried_partial?: boolean;
   /** c-lossless-upgrade：recommended 候选的只读内容清单（后端只挂 recommended） */
   manifest?: {
     books: Array<{ name: string; words: number }>;
