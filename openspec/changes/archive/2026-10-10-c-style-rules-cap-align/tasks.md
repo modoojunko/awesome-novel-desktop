@@ -14,4 +14,4 @@
 ## 3. 文档与归档
 
 - [x] 3.1 `openspec validate`（本 change）过
-- [ ] 3.2 归档时 sync 主 spec（style-banned-words ① 禁令上限口径）
+- [x] 3.2 归档时 sync 主 spec（style-banned-words ① 禁令上限口径）
