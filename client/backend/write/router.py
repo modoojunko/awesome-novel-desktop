@@ -4,7 +4,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import StreamingResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from ai_client import AITimeoutError
+from ai_client import FIRST_CONTENT_TIMEOUT, AIThinkingTimeoutError, AITimeoutError
 from ai_state import effective_model
 from auth_local.deps import (
     ai_feature,
@@ -174,6 +174,9 @@ async def _stream_chapter(
             messages=[{"role": "user", "content": prompt}],
             max_tokens=8192,
             operation="write_chapter",
+            # 思考太久即失败（c-prose-thinking-timeout）：开思考后思考与正文共用
+            # max_tokens 预算，reasoning delta 不断流则 read 超时永不触发
+            first_content_timeout=FIRST_CONTENT_TIMEOUT,
         ):
             if event.text:
                 full_text += event.text
@@ -221,6 +224,22 @@ async def _stream_chapter(
                 yield f"data: {json.dumps(done, ensure_ascii=False)}\n\n"
             elif event.error:
                 yield f"data: {json.dumps({'type': 'error', 'error': event.error}, ensure_ascii=False)}\n\n"
+    except AIThinkingTimeoutError as e:
+        # 思考太久即失败（c-prose-thinking-timeout）：首字守卫在 is_done 前把流掐断，
+        # 走不到落库——已存稿保持原样，用户拿到可读文案而非 3 分钟静默后空收场
+        from api_configs.usage import record_usage
+
+        await record_usage(
+            db,
+            user_id=project.user_id,
+            project_id=project.id,
+            api_config_id=used_config_id or None,
+            chapter_id=chapter_ref,
+            operation="write_chapter_fail",
+            model=used_model,
+            force=True,
+        )
+        yield f"data: {json.dumps({'type': 'error', 'error': f'模型思考太久（{int(e.seconds)} 秒未产出正文），已停止——可直接重试；反复出现时把思考强度调低'}, ensure_ascii=False)}\n\n"
     except AITimeoutError:
         from api_configs.usage import record_usage
 

@@ -452,3 +452,49 @@ class TestGenerationPhases:
         err = next(e for e in _events(r.text) if e.get("type") == "error")
         assert "写作能力还没就绪" in err["error"]
         assert any("prompts_missing" in (rec.getMessage() or "") for rec in caplog.records)
+
+    def test_thinking_timeout_keeps_stored_prose(self, client, monkeypatch):
+        """思考太久即失败（c-prose-thinking-timeout）：首字守卫判死后给可读 error、
+        无 done、**不走落库**——原稿分毫不动（12:22 空流覆盖存稿事故的守门钉）。"""
+        from ai_client import FIRST_CONTENT_TIMEOUT, AIThinkingTimeoutError
+
+        _set_member()
+        pid, ref, _ = _create_project_and_chapter(client)
+
+        # 垫一份已存稿：守卫失败必须原样保留
+        from chapters.store import load_chapter, save_chapter
+        from models import Novel
+
+        async def _seed():
+            async with async_session() as session:
+                proj = await session.get(Novel, pid)
+            await save_chapter(proj.root_path, ref, {"title": "第1章", "prose": CLEAN_PROSE})
+
+        _run_async(_seed())
+
+        fake = _FakeStreamClient(CLEAN_PROSE)
+
+        async def chat_stream(**kwargs):
+            fake.last_kwargs = kwargs
+            raise AIThinkingTimeoutError(kwargs.get("first_content_timeout") or 0)
+            # 不可达 yield 仅为让本函数成为异步生成器（真守卫在生成器体内判死）
+            yield
+
+        fake.chat_stream = chat_stream
+        self._patch_fake(monkeypatch, fake)
+
+        r = client.post(f"/api/novels/{pid}/chapters/{ref}/write", json={})
+        assert r.status_code == 200, r.text
+        evs = _events(r.text)
+        assert fake.last_kwargs.get("first_content_timeout") == FIRST_CONTENT_TIMEOUT
+        err = next(e for e in evs if e.get("type") == "error")
+        assert "思考太久" in err["error"] and "思考强度" in err["error"]
+        assert not any(e.get("type") == "done" for e in evs)
+
+        async def _check():
+            async with async_session() as session:
+                proj = await session.get(Novel, pid)
+            loaded = await load_chapter(proj.root_path, ref)
+            assert loaded["prose"] == CLEAN_PROSE  # 空转失败不落库
+
+        _run_async(_check())

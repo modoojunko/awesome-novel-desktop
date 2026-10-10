@@ -11,7 +11,7 @@ import types
 
 import pytest
 
-from ai_client import AIClient
+from ai_client import AIClient, AIThinkingTimeoutError
 
 
 def _run_async(agen_factory):
@@ -122,3 +122,83 @@ def test_anthropic_split_from_message_start_and_stop():
     out = _run(client)
     done = [e for e in out if e.is_done][-1]
     assert done.tokens == 17 and done.tokens_in == 42
+
+
+# ── c-prose-thinking-timeout：首字守卫 ───────────────────────────────────
+# 开思考后 reasoning delta 不断流、read 超时（相邻事件间隔）永不触发——首字前
+# 总时长超限必须判死（实测 effort=max 180s 烧光 8192 预算正文零字）。
+
+
+def _trickle_client(chunks, gap: float) -> AIClient:
+    client = AIClient(api_key="sk-test", api_format="openai",
+                      base_url="https://example.com/v1")
+
+    async def create(**kwargs):
+        async def _gen():
+            for c in chunks:
+                await asyncio.sleep(gap)
+                yield c
+        return _gen()
+
+    client._client = types.SimpleNamespace(
+        chat=types.SimpleNamespace(completions=types.SimpleNamespace(create=create))
+    )
+    return client
+
+
+def _run_guarded(client, **kw):
+    async def _go():
+        out, err = [], None
+        try:
+            async for ev in client.chat_stream(
+                model="m", system="",
+                messages=[{"role": "user", "content": "hi"}], **kw
+            ):
+                out.append(ev)
+        except AIThinkingTimeoutError as e:
+            err = e
+        return out, err
+
+    return asyncio.new_event_loop().run_until_complete(_go())
+
+
+def test_first_content_timeout_fires_on_reasoning_trickle():
+    # 思考心跳：delta 一直来但 content 全空（reasoning_content 不进 delta.content）
+    client = _trickle_client([_delta_chunk(None) for _ in range(10)], gap=0.03)
+    out, err = _run_guarded(client, first_content_timeout=0.05)
+    assert err is not None and err.seconds == 0.05
+    assert not any(e.is_done for e in out)  # 走不到 done，上游调用方按失败收尾
+
+
+def test_first_content_guard_disarmed_after_first_chunk():
+    # 首字立即到达即撤守卫：此后思考间隙再长也不误杀（长文持续出 chunk 不受影响）
+    client = AIClient(api_key="sk-test", api_format="openai",
+                      base_url="https://example.com/v1")
+
+    async def create(**kwargs):
+        async def _gen():
+            yield _delta_chunk("首字")  # 首字零延迟——deadline 前就位
+            for _ in range(3):
+                await asyncio.sleep(0.12)  # 合计远超 0.05s 时限
+                yield _delta_chunk(None)
+            yield _chunk([], usage=types.SimpleNamespace(
+                prompt_tokens=10, completion_tokens=5))
+
+        return _gen()
+
+    client._client = types.SimpleNamespace(
+        chat=types.SimpleNamespace(completions=types.SimpleNamespace(create=create))
+    )
+    out, err = _run_guarded(client, first_content_timeout=0.05)
+    assert err is None
+    done = [e for e in out if e.is_done][-1]
+    assert "".join(e.text for e in out if e.text) == "首字"
+    assert done.tokens == 5
+
+
+def test_first_content_guard_off_by_default():
+    # 不传参＝行为不变（守卫缺省关闭，anthropic 分支与其余调用方不受影响）
+    client = _trickle_client([_delta_chunk(None), _delta_chunk("正文")], gap=0.0)
+    out, err = _run_guarded(client)
+    assert err is None
+    assert any(e.is_done for e in out)
