@@ -846,6 +846,19 @@ class TestCarryModalReshow:
         from main import app
 
         monkeypatch.setattr("migration.router.DATA_ROOT", sandbox[0])
+        # 顺序 flake 防疫：清理全局运行库遗留的完成/抑制记录——上例的
+        # migration.last 与本例 sandbox 同秒同尺寸时指纹相撞，carried 起跑即真
+        import sqlite3 as _sq
+
+        from config import DATABASE_URL
+
+        _db = Path(DATABASE_URL.split("///")[-1])
+        if _db.exists():
+            con = _sq.connect(_db)
+            con.execute("DELETE FROM app_meta WHERE key IN "
+                        "('migration.last', 'migration.snoozed')")
+            con.commit()
+            con.close()
         with TestClient(app) as c:
             yield c
 
