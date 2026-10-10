@@ -145,6 +145,23 @@ class TestSystemPrompt:
         assert "你是。" not in ctx.build_system_prompt()
         assert "一位小说家" in ctx.build_system_prompt()
 
+    def test_persona_strips_sentence_tail_keeps_ellipsis(self):
+        """c-cast-split-user-layer 配套：role 尾部句读剥除（模板「叙事身份：{persona}。」
+        自带句号），省略号不算句尾——剥了会剩半句。"""
+        assert resolve_persona({"role": "冷静克制，不替他下判断。"}) == "冷静克制，不替他下判断"
+        assert resolve_persona({"role": "冷峻叙事者！"}) == "冷峻叙事者"
+        assert resolve_persona({"role": "他是个……"}) == "他是个……"
+
+    def test_theme_in_identity_line(self):
+        """身份句先立题材作家（v9）：「深耕{theme}题材」；空题材兜底「网文」。"""
+        ctx = ChapterContext()
+        ctx.theme = "西式奇幻（黑暗奇幻）"
+        system = ctx.build_system_prompt()
+        assert system.startswith("你是深耕西式奇幻（黑暗奇幻）题材的中文连载小说家")
+        assert "本次执笔的叙事身份：一位小说家。" in system
+        empty = ChapterContext()
+        assert "深耕网文题材" in empty.build_system_prompt()
+
     def test_premise_and_arc_in_system(self):
         ctx = ChapterContext()
         ctx.novel_title = "暗流"

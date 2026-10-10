@@ -201,8 +201,12 @@ def resolve_persona(style_setting: dict) -> str:
 
     get(key, default) 对「键存在但值为空串」不生效——历史「你是。」缺陷根因。
     system 恒定层与素材包（【叙事身份】）同源消费，SHALL NOT 出现两个身份表述。
+    尾部句读剥离（c-cast-split-user-layer 配套）：role 由作者/AI 手写，句尾带不带
+    句号不可预期——模板「叙事身份：{persona}。」自带句号，此处归一化；省略号
+    （……）不算句尾，剥了会剩半句。
     """
-    return str((style_setting or {}).get("role") or "").strip() or "一位小说家"
+    raw = str((style_setting or {}).get("role") or "").strip() or "一位小说家"
+    return re.sub(f"[{re.escape('。，,；;．.！!？?')}]+$", "", raw)
 
 
 def legacy_prompt_kind(text: str) -> str:
@@ -472,6 +476,9 @@ class ChapterContext:
         self.previous_chapter_recap = ""
         self.novel_title = ""
         self.genre_section = ""
+        # 题材标签（c-cast-split-user-layer 配套）：身份句「深耕{theme}题材」用；
+        # 空时 values 兜底「网文」
+        self.theme = ""
         # ── ai-prompt-crafting 素材扩展 ──────────────────────────────
         self.volume_no: int | None = None
         self.chapter_no: int | None = None
@@ -722,6 +729,9 @@ class ChapterContext:
 
         values = {
             "persona": resolve_persona(self.style_setting),
+            # c-cast-split-user-layer：题材标签进身份句（「深耕{theme}题材」），
+            # 空题材兜底「网文」——身份句先立「某题材作家」，再谈叙事机位。
+            "theme": self.theme or "网文",
             # c-write-prompt-anti-ai：craft_rules 占位注入退役——反AI结构红线清单
             # 上收为 write_chapter.prompt「## 写法要求」模板静态文本（书章无关，恒定层）。
             "premise_story": "\n".join(premise_rows),
@@ -999,6 +1009,10 @@ async def build_chapter_context(
     gctx = await resolve_genre_context(root_path, novel_id)
     if gctx:
         ctx.genre_section = build_genre_section(gctx)
+        # c-cast-split-user-layer 配套：题材标签供身份句「深耕{theme}题材」
+        theme = str(gctx.get("theme") or "").strip()
+        sub = str(gctx.get("sub_genre") or "").strip()
+        ctx.theme = f"{theme}（{sub}）" if theme and sub else (theme or sub)
 
     # Chapter
     from workflow.engine import load_chapter
