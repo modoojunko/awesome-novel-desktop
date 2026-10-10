@@ -165,12 +165,13 @@ describe("替换写（c-prose-regen-replace）", () => {
     editor.commands.setContent(proseToDoc(oldProse));
     const before = docToProse(editor.getJSON());
 
-    // startStream：流式标记后整档清除（ProsePane 里该事务入撤销史）。
+    // startStream：流式标记后整档清除（**不入撤销史**——与 ProsePane 同款，
+    // 否则快生成与收尾写回落进 history 分组窗并成一条，撤销语义随快慢漂移）。
     // prosemirror 删除全域会留一个空段作保底结构——它恰是流式脚手架，
     // 与 ProsePane 的 size===0 垫段守卫同款分流：非零文档不再垫段
-    editor.view.dispatch(
-      editor.state.tr.delete(0, editor.state.doc.content.size),
-    );
+    const clearTr = editor.state.tr.delete(0, editor.state.doc.content.size);
+    clearTr.setMeta("addToHistory", false);
+    editor.view.dispatch(clearTr);
     let pos: number;
     if (editor.state.doc.content.size === 0) {
       const para = editor.state.schema.nodes.paragraph.create();
@@ -247,7 +248,30 @@ describe("替换写（c-prose-regen-replace）", () => {
     );
     editor.commands.undo();
     expect(docToProse(editor.getJSON())).toBe("");
-    // 深层撤销跨越生成段的回放不构成找回承诺（untracked 流式事务夹层），
-    // 不在此钉——「清空与找回」的产品口径见 RegenConfirmModal 文案与 spec delta。
+  });
+
+  it("瞬时生成（清空与写回同拍）：撤销语义不随生成快慢漂移，仍回空稿", () => {
+    // e2e 实测回归钉：mock 流式瞬时完成时，若清空入撤销史会与收尾写回被
+    // history 分组窗（newGroupDelay 500ms）并成一条 → 一次撤销直跳旧正文。
+    // 清空不入史后同拍也必回空稿（newGroupDelay 500 保持默认分组窗）。
+    const fastEditor = makeEditor(true); // newGroupDelay 默认 500ms
+    fastEditor.commands.setContent(proseToDoc("旧的一段。"));
+    const clearTr = fastEditor.state.tr.delete(
+      0,
+      fastEditor.state.doc.content.size,
+    );
+    clearTr.setMeta("addToHistory", false);
+    fastEditor.view.dispatch(clearTr);
+    // 生成收尾（tracked 写回）与清空间隔 <500ms → 会撞分组窗
+    fastEditor
+      .chain()
+      .insertContentAt(1, linesToParagraphs("瞬时生成稿。"), {
+        updateSelection: false,
+      })
+      .run();
+    expect(docToProse(fastEditor.getJSON())).toBe("瞬时生成稿。");
+    fastEditor.commands.undo();
+    expect(docToProse(fastEditor.getJSON())).toBe("");
+    expect(docToProse(fastEditor.getJSON())).not.toContain("旧的一段");
   });
 });
