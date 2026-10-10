@@ -282,13 +282,33 @@
 .editor p.is-editor-empty:first-child::before { content: attr(data-placeholder); color: var(--muted); float: left; height: 0; pointer-events: none; }
 /* 零段落空文档（完全没有 <p>）时 Placeholder 类挂不上，用 :empty 兜底 */
 .editor:empty::before { content: attr(data-placeholder); color: var(--muted); }
-/* 生成中呼吸灯（c-prose-stream-guard，参数＝用户拍板演示页）：accent 光环绕
-   680 版心 2s 起伏，流式开始即起、收尾即止；纯 box-shadow 不位移布局 */
-.editor.generating { cursor: progress; animation: stream-breath 2s ease-in-out infinite; }
+/* 生成呼吸灯（c-prose-stream-guard 起；c-prose-gen-phases 修正范围与时序）：
+   accent 光环绕**编辑体**（编辑工具行＋正文区整列，至底部状态条上沿），
+   2s 起伏；**首个正文片段到达起**、收尾即止（首字前不出现呼吸框）；
+   纯 box-shadow 不位移布局——流式写作仍在 680 版心，位置不变 */
+.editor.generating { cursor: progress; }
+.prose-body { display: flex; flex-direction: column; flex: 1 1 auto; min-height: 0; }
+.prose-body.generating { animation: stream-breath 2s ease-in-out infinite; border-radius: 10px; }
 @keyframes stream-breath {
   0%, 100% { box-shadow: 0 0 0 1px color-mix(in oklch, var(--accent) 18%, transparent), 0 0 14px color-mix(in oklch, var(--accent) 6%, transparent); }
   50% { box-shadow: 0 0 0 1px color-mix(in oklch, var(--accent) 55%, transparent), 0 0 28px color-mix(in oklch, var(--accent) 20%, transparent); }
 }
+/* 生成等待呈现（c-prose-gen-phases，2026-10-10 用户拍板变体 A）：首字前**无框**行内——
+   落在正文版心首行位置（与正文同字体同缩进），不进文档；行内文案＋accent 闪烁光标＋浅字尾注。
+   .editor-wrap 作定位基准：行内呈现随内容区（版心首行）对齐，不受工具行高度影响 */
+.editor-wrap { position: relative; }
+.gen-line { position: absolute; top: 36px; left: 50%; transform: translateX(-50%); width: min(680px, calc(100% - 48px)); pointer-events: none; z-index: 6; }
+.gen-line .gl-main { margin: 0; font-family: var(--font-display); font-size: 17px; line-height: 2; color: var(--muted); text-indent: 2em; }
+.gen-line .gl-text { animation: gl-fade 0.22s ease; }
+@keyframes gl-fade { from { opacity: 0; } to { opacity: 1; } }
+.gen-line .gl-caret { display: inline-block; width: 2px; height: 1em; margin-left: 3px; vertical-align: -0.14em; background: var(--accent); animation: gl-blink 1.06s steps(1, end) infinite; }
+@keyframes gl-blink { 0%, 55% { opacity: 1; } 55.01%, 100% { opacity: 0; } }
+.gen-line .gl-note { margin: 4px 0 0; font-size: 12px; line-height: 1.7; color: var(--muted); opacity: 0.72; text-indent: 2em; }
+/* 等待/生成期占位退场（「从这一章开始写……」不与等待呈现抢位） */
+.prose-body.awaiting .editor p.is-editor-empty:first-child::before,
+.prose-body.awaiting .editor:empty::before,
+.prose-body.generating .editor p.is-editor-empty:first-child::before,
+.prose-body.generating .editor:empty::before { content: none; }
 /* 流式期间左栏树锁定（c-prose-stream-guard）：整树置灰＋禁用手感，
    点击拦截在 NovelWorkspace 壳层捕获（onClickCapture），出口＝页签行「停止」 */
 .col-tree.ai-lock .tree, .col-tree.ai-lock .tree-head, .col-tree.ai-lock .tree-foot, .col-tree.ai-lock .tree-add { opacity: 0.55; }

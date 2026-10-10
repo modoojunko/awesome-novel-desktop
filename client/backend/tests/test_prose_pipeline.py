@@ -371,3 +371,84 @@ class TestWritePipeline:
         assert "认知动词节制" in rules
         assert "Markdown/引导语残留" in rules
         assert "泛化标签词" in rules
+
+
+# ── c-prose-gen-phases：流内阶段事件 ＋ 准备段失败的错误收尾 ────────────────
+
+
+def _events(resp_text: str) -> list[dict]:
+    out: list[dict] = []
+    for line in resp_text.splitlines():
+        if line.startswith("data: "):
+            out.append(json.loads(line[6:]))
+    return out
+
+
+class TestGenerationPhases:
+    """阶段事件按真实进度下发；准备段失败必须以 error 事件收尾（SHALL NOT 静默空流）。"""
+
+    def _patch_fake(self, monkeypatch, fake):
+        async def _fake_get_ai_client(novel_id=None, **kw):
+            return fake
+
+        import ai_client as ai_client_mod
+
+        monkeypatch.setattr(ai_client_mod, "get_ai_client_for_novel", _fake_get_ai_client)
+
+    def test_phase_events_precede_chunks_and_done(self, client, monkeypatch):
+        _set_member()
+        pid, ref, _ = _create_project_and_chapter(client)
+        fake = _FakeStreamClient(CLEAN_PROSE)
+        self._patch_fake(monkeypatch, fake)
+
+        r = client.post(f"/api/novels/{pid}/chapters/{ref}/write", json={})
+        assert r.status_code == 200, r.text
+        evs = _events(r.text)
+        phases = [e.get("phase") for e in evs if e.get("type") == "phase"]
+        assert phases == ["assemble", "prompt", "model"], evs[:4]
+        # 首事件＝assemble 阶段：准备段本身也在流内（等待呈现从第一帧就有东西可指）
+        assert evs[0] == {"type": "phase", "phase": "assemble"}
+        first_chunk = next(i for i, e in enumerate(evs) if e.get("type") == "chunk")
+        model_i = next(i for i, e in enumerate(evs) if e.get("phase") == "model")
+        assert model_i < first_chunk
+        assert evs[-1]["type"] == "done"
+
+    def test_prepare_failure_yields_error_event_not_empty_stream(self, client, monkeypatch):
+        _set_member()
+        pid, ref, _ = _create_project_and_chapter(client)
+        fake = _FakeStreamClient(CLEAN_PROSE)
+        self._patch_fake(monkeypatch, fake)
+
+        def _boom(*a, **k):
+            raise RuntimeError("素材组装炸了")
+
+        monkeypatch.setattr("write.chapter_writer.build_chapter_context", _boom)
+        r = client.post(f"/api/novels/{pid}/chapters/{ref}/write", json={})
+        assert r.status_code == 200, r.text
+        evs = _events(r.text)
+        assert [e.get("phase") for e in evs if e.get("type") == "phase"] == ["assemble"]
+        err = next(e for e in evs if e.get("type") == "error")
+        assert "准备生成失败" in err["error"]
+        assert not any(e.get("type") in ("chunk", "done") for e in evs)
+        assert fake.last_kwargs == {}  # 未发起模型调用
+
+    def test_prompt_pack_missing_reports_setup_message(self, client, monkeypatch, caplog):
+        """缺模板源：error 文案＝写作能力未就绪 ＋ prompts_missing 留痕（与 503 口径同源）。"""
+        import logging
+
+        _set_member()
+        pid, ref, _ = _create_project_and_chapter(client)
+        self._patch_fake(monkeypatch, _FakeStreamClient(CLEAN_PROSE))
+
+        from prompts import PromptPackMissing
+
+        def _boom(*a, **k):
+            raise PromptPackMissing("pack broken")
+
+        monkeypatch.setattr("write.chapter_writer.build_chapter_context", _boom)
+        caplog.set_level(logging.INFO, logger="uvicorn.error")
+        r = client.post(f"/api/novels/{pid}/chapters/{ref}/write", json={})
+        assert r.status_code == 200, r.text
+        err = next(e for e in _events(r.text) if e.get("type") == "error")
+        assert "写作能力还没就绪" in err["error"]
+        assert any("prompts_missing" in (rec.getMessage() or "") for rec in caplog.records)

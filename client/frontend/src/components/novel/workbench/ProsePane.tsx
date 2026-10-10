@@ -65,6 +65,14 @@ export const INITIAL_PROSE_AI_STATE: ProseAIState = {
   streaming: false,
 };
 
+/** 首字前阶段文案（c-prose-gen-phases）：服务端 phase 事件 key → 作者语汇；
+ *  未知 key 不渲染（旧后端不下发 phase 时停在首步文案，随后由首个片段直接接棒）。 */
+const GEN_STAGE_LABELS: Record<string, string> = {
+  assemble: "正在准备本章素材",
+  prompt: "正在组装提示词",
+  model: "模型思考中，等待首字",
+};
+
 export interface ProseHandle {
   focus(): void;
   captureNow(): SelectionCapture | null;
@@ -157,6 +165,10 @@ const ProsePane = forwardRef<ProseHandle, ProsePaneProps>(function ProsePane(
   // 查看/编辑两态（c-prose-edit-gate）：编辑态＋非锁定才可写；锁定语义优先
   const editable = !!editing && !notEditable;
   const [streaming, setStreaming] = useState(false);
+  // 生成等待呈现（c-prose-gen-phases）：首字前的真实阶段（服务端 phase 事件驱动）；
+  // 首字到达即退场；呼吸灯（.prose-body 的环）此时才亮起
+  const [genStage, setGenStage] = useState<string | null>(null);
+  const sawFirstChunkRef = useRef(false);
 
   // 本地输入回路标记：store.prose 变化若来自本地输入则跳过重渲（保光标）
   const lastSyncedRef = useRef<string | null>(null);
@@ -504,6 +516,7 @@ const ProsePane = forwardRef<ProseHandle, ProsePaneProps>(function ProsePane(
       if (!streamingRef.current) return; // 已收尾（停止后又 onDone 等）
       streamingRef.current = false;
       setStreaming(false);
+      setGenStage(null); // 等待呈现随流式态一并复位
       onAIStateChange((prev) => ({ ...prev, streaming: false }));
       // c-prose-regen-replace：生成＝替换语义，正文终态＝本次生成物
       // （开始前旧正文已清空；停止/中断保留已收到的半截）
@@ -557,7 +570,10 @@ const ProsePane = forwardRef<ProseHandle, ProsePaneProps>(function ProsePane(
       streamReceivedRef.current = "";
       streamInsertedLenRef.current = 0;
       streamingRef.current = true;
+      sawFirstChunkRef.current = false;
       setStreaming(true);
+      // 请求在飞＝后端确在准备（服务端 phase 事件随后逐段推进等待呈现）
+      setGenStage("assemble");
       onAIStateChange((prev) => ({ ...prev, streaming: true }));
       const { view } = editor;
       if (editor.state.doc.content.size > 0) {
@@ -587,6 +603,10 @@ const ProsePane = forwardRef<ProseHandle, ProsePaneProps>(function ProsePane(
       scrollInsertIntoView();
       const cbs = {
         onChunk: (t: string) => {
+          if (!sawFirstChunkRef.current) {
+            sawFirstChunkRef.current = true;
+            setGenStage(null); // 首字到达：等待呈现退场、呼吸灯亮起
+          }
           streamReceivedRef.current += t;
           appendChunk(t);
         },
@@ -594,6 +614,11 @@ const ProsePane = forwardRef<ProseHandle, ProsePaneProps>(function ProsePane(
         onError: (e: string) => {
           toast.error(e);
           finishStream(streamReceivedRef.current, false);
+        },
+        // c-prose-gen-phases：服务端真实阶段（assemble|prompt|model）；未知值不渲染
+        onPhase: (phase: string) => {
+          if (sawFirstChunkRef.current) return; // 首字后不再呈现阶段
+          if (GEN_STAGE_LABELS[phase]) setGenStage(phase);
         },
       };
       abortRef.current = streamChapterWrite(
@@ -686,6 +711,11 @@ const ProsePane = forwardRef<ProseHandle, ProsePaneProps>(function ProsePane(
   );
 
   const words = prose.replace(/\s/g, "").length;
+  // 等待呈现 vs 呼吸灯（c-prose-gen-phases）：等待期＝无框行内、**不出现呼吸框**；
+  // 首个正文片段到达＝等待期结束，呼吸灯在编辑体（工具行＋正文区整列）上亮起
+  const awaiting = streaming && !!genStage;
+  const ringOn = streaming && !genStage;
+  const proseBodyClass = `prose-body${awaiting ? " awaiting" : ""}${ringOn ? " generating" : ""}`;
 
   return (
     <>
@@ -704,6 +734,9 @@ const ProsePane = forwardRef<ProseHandle, ProsePaneProps>(function ProsePane(
           </span>
         </div>
       )}
+      {/* 编辑体（c-prose-gen-phases）：呼吸灯环绕范围＝编辑工具行＋正文区整列，
+          至底部状态条上沿；纯 box-shadow，不动版式（流式写作位置不变） */}
+      <div className={proseBodyClass}>
       {/* 查看态顶行（c-prose-edit-gate）：只读阅读＋「编辑正文」；
           归档/排队/旧稿锁各有横幅，锁定期不出现本行。
           条件渲染而非 hidden：.ol-top 是 display:flex，会压掉 hidden 属性（历史坑） */}
@@ -837,10 +870,24 @@ const ProsePane = forwardRef<ProseHandle, ProsePaneProps>(function ProsePane(
         hidden={hidden}
         ref={wrapRef}
       >
+        {/* 生成等待呈现（c-prose-gen-phases）：首字前无框行内——与正文同字体同首行缩进，
+            不进文档、不参与撤销/保存/字数；首字到达即退场（呼吸灯此刻在编辑体上亮起） */}
+        {genStage && !hidden && (
+          <div className="gen-line" data-testid="gen-line">
+            <p className="gl-main">
+              <span className="gl-text" key={genStage}>
+                {GEN_STAGE_LABELS[genStage]}
+              </span>
+              <i className="gl-caret" aria-hidden="true" />
+            </p>
+            <p className="gl-note">通常要半分钟到一分钟；期间可点「停止」。</p>
+          </div>
+        )}
         {/* TipTap 渲染 contenteditable 宿主：.editor 类经 editorProps.attributes 挂载，
             只读/归档/流式态由 setEditable(false) 落成 contenteditable="false"
             （a11y + e2e 判定口保持） */}
         <EditorContent editor={editor} className="editor-host" />
+      </div>
       </div>
 
       {preview && (

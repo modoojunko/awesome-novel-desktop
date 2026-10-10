@@ -20,6 +20,9 @@ export interface StreamCallbacks {
   /** meta：done 事件附带的完工检查（ai-prompt-crafting 三工序③） */
   onDone: (fullText: string, meta?: StreamDoneMeta) => void;
   onError: (error: string) => void;
+  /** 生成阶段（c-prose-gen-phases）：首字前的真实阶段（assemble|prompt|model）。
+   *  旧后端不下发＝不触发（等待呈现停在首步、至首字到达）。 */
+  onPhase?: (phase: string) => void;
 }
 
 /** 字数校验（目标 ±10% 口径；below_limit = 低于目标 90%） */
@@ -116,6 +119,9 @@ function doStreamFetch(
 
       const decoder = new TextDecoder();
       let buffer = "";
+      // 终态事件（done/error）是否出现过：流干净结束却未见终态＝服务端异常中止
+      // （c-prose-stream-silent-hang 路径①）——必须按失败收尾，SHALL NOT 静默永挂
+      let sawTerminal = false;
 
       while (true) {
         const { done, value } = await reader.read();
@@ -132,17 +138,28 @@ function doStreamFetch(
             if (data.type === "chunk") {
               callbacks.onChunk(data.text);
             } else if (data.type === "done") {
+              sawTerminal = true;
               callbacks.onDone(data.full_text, {
                 word_check: data.word_check,
                 self_check: data.self_check,
               });
             } else if (data.type === "error") {
+              sawTerminal = true;
               callbacks.onError(data.error);
+            } else if (data.type === "phase") {
+              callbacks.onPhase?.(String(data.phase ?? ""));
             }
           } catch {
             // Skip malformed lines
           }
         }
+      }
+
+      // 无终态事件即收流：按失败收尾（已收到内容由调用方按「停止」语义保留）
+      if (!sawTerminal) {
+        callbacks.onError(
+          "生成中断：未收到完成信号（可能被中断或服务异常）；已生成的部分会保留，可点「生成正文」重试",
+        );
       }
     })
     .catch((err) => {

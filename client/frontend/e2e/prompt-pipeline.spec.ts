@@ -424,15 +424,19 @@ test("重新生成＝替换写：旧正文清空、一次撤销回空稿，落�
     const pid = await createNovel(page, `撤销流式${Date.now() % 100000}`);
     await setupFirstChapter(page);
     const CHUNK = "雨点砸在铁皮棚上，他没有抬头。";
-    await page.route("**/api/novels/*/chapters/*/write", (route) =>
-      route.fulfill({
+    // c-prose-gen-phases：阶段事件先行；延迟一拍 fulfill——首字前停留窗内等待呈现可断言
+    await page.route("**/api/novels/*/chapters/*/write", async (route) => {
+      await new Promise((r) => setTimeout(r, 600));
+      await route.fulfill({
         status: 200,
         contentType: "text/event-stream",
         body:
+          `data: ${JSON.stringify({ type: "phase", phase: "assemble" })}\n\n` +
+          `data: ${JSON.stringify({ type: "phase", phase: "model" })}\n\n` +
           `data: ${JSON.stringify({ type: "chunk", text: CHUNK })}\n\n` +
           `data: ${JSON.stringify({ type: "done", full_text: CHUNK })}\n\n`,
-      }),
-    );
+      });
+    });
     await page.getByRole("tab", { name: /^正文/ }).click();
     // 先手写一段（被替换的旧正文）
     await page.getByTestId("prose-edit").click();
@@ -448,7 +452,15 @@ test("重新生成＝替换写：旧正文清空、一次撤销回空稿，落�
     const ai = page.getByRole("dialog", { name: "AI 生成正文" });
     await expect(ai.getByTestId("ai-prompt")).toBeEnabled({ timeout: 10000 });
     await ai.getByTestId("ai-confirm").click();
+    // 首字前（c-prose-gen-phases）：无框行内等待呈现可见、呼吸框未出现、旧正文已清空
+    await expect(page.getByTestId("gen-line")).toBeVisible({ timeout: 10000 });
+    await expect(page.locator(".prose-body.awaiting")).toHaveCount(1);
+    await expect(page.locator(".prose-body.generating")).toHaveCount(0);
+    await expect(editor).not.toContainText("原有的一段话。");
     await expect(editor).toContainText(CHUNK, { timeout: 10000 });
+    // 首字到达：等待呈现退场（「呼吸灯环已挂到编辑体」由单测断——e2e 的静态
+    // fulfill 把 chunk 与 done 同批送达，流中间态在浏览器侧抓不稳）
+    await expect(page.getByTestId("gen-line")).toHaveCount(0);
     // 替换语义：旧正文清空，终稿＝本次生成物（不再追加）
     await expect(editor).not.toContainText("原有的一段话。");
     // 一次撤销 → 回空稿（旧正文找回路径＝版本历史）
@@ -470,7 +482,7 @@ test("重新生成＝替换写：旧正文清空、一次撤销回空稿，落�
   }
 });
 
-test("替换写中断与找回：停止留半截，旧正文经版本历史恢复（c-prose-regen-replace）", async ({
+test("替换写被截断＝自动失败收尾（半截保留），旧正文经版本历史恢复（c-prose-regen-replace / c-prose-gen-phases）", async ({
   page,
   request,
 }) => {
@@ -516,14 +528,13 @@ test("替换写中断与找回：停止留半截，旧正文经版本历史恢�
     await expect(ai.getByTestId("ai-prompt")).toBeEnabled({ timeout: 10000 });
     await ai.getByTestId("ai-confirm").click();
 
-    // 半截已写入、旧正文已清空、流式标记停留（无 done）
+    // 半截已写入、旧正文已清空；流被切断（无 done/error）＝新口径按失败收尾，不再永挂生成态
     await expect(editor).toContainText("新稿第二段半截。", { timeout: 10000 });
     await expect(editor).not.toContainText("找回甲");
-    await expect(page.getByTestId("ai-streaming-badge")).toBeVisible();
-
-    // 「停止」：半截即为该章正文并走自动保存
-    await page.getByTestId("ai-streaming-badge").getByRole("button", { name: "停止" }).click();
+    await expect(page.getByText(/未收到完成信号/)).toBeVisible({ timeout: 10000 });
     await expect(page.getByTestId("ai-streaming-badge")).toHaveCount(0, { timeout: 10000 });
+
+    // 半截即为该章正文并走自动保存（与「停止」语义一致）
     await expect
       .poll(
         async () =>

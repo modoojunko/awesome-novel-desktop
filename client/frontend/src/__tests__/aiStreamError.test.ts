@@ -61,3 +61,70 @@ describe("streamChapterWrite 失败反馈", () => {
     expect((init.headers as Record<string, string>).Authorization).toBe("Bearer tok");
   });
 });
+
+// ── c-prose-gen-phases：流内阶段事件透传 ＋ 流无终态事件的失败收尾 ──────────
+
+/** 用 ReadableStream 造真流式响应体（比 Response(string) 更接近真实分块） */
+function stubStream(lines: string[]) {
+  const body = new ReadableStream<Uint8Array>({
+    start(controller) {
+      controller.enqueue(new TextEncoder().encode(lines.join("")));
+      controller.close();
+    },
+  });
+  const fetchMock = vi.fn(
+    async () =>
+      new Response(body, {
+        status: 200,
+        headers: { "Content-Type": "text/event-stream" },
+      }),
+  );
+  vi.stubGlobal("fetch", fetchMock);
+  return fetchMock;
+}
+
+describe("流内阶段事件与无终态事件兜底（c-prose-gen-phases）", () => {
+  it("phase 事件透传 onPhase；done 到达不触发兜底", async () => {
+    stubStream([
+      'data: {"type":"phase","phase":"assemble"}\n\n',
+      'data: {"type":"phase","phase":"model"}\n\n',
+      'data: {"type":"chunk","text":"甲"}\n\n',
+      'data: {"type":"done","full_text":"甲"}\n\n',
+    ]);
+    localStorage.setItem("auth_token", "tok");
+    const onPhase = vi.fn();
+    const onDone = vi.fn();
+    const onError = vi.fn();
+    streamChapterWrite("p1", "vol-1-ch-1", { onChunk: vi.fn(), onDone, onError, onPhase });
+    await vi.waitFor(() => expect(onDone).toHaveBeenCalled());
+    expect(onPhase.mock.calls.map((c) => c[0])).toEqual(["assemble", "model"]);
+    expect(onError).not.toHaveBeenCalled();
+  });
+
+  it("流干净结束但无 done/error：按失败补报恰一次（半截保留、可重试）", async () => {
+    stubStream([
+      'data: {"type":"phase","phase":"assemble"}\n\n',
+      'data: {"type":"chunk","text":"半截"}\n\n',
+    ]);
+    localStorage.setItem("auth_token", "tok");
+    const onError = vi.fn();
+    const onDone = vi.fn();
+    streamChapterWrite("p1", "vol-1-ch-1", { onChunk: vi.fn(), onDone, onError });
+    await vi.waitFor(() => expect(onError).toHaveBeenCalled());
+    await new Promise((r) => setTimeout(r, 30)); // 静置再看有无第二次
+    expect(onError).toHaveBeenCalledTimes(1);
+    expect(onError.mock.calls[0][0]).toContain("未收到完成信号");
+    expect(onDone).not.toHaveBeenCalled();
+  });
+
+  it("error 事件后收流：不补报兜底（终态已出现）", async () => {
+    stubStream(['data: {"type":"error","error":"AI 生成失败，可重试：上游挂了"}\n\n']);
+    localStorage.setItem("auth_token", "tok");
+    const onError = vi.fn();
+    streamChapterWrite("p1", "vol-1-ch-1", { onChunk: vi.fn(), onDone: vi.fn(), onError });
+    await vi.waitFor(() => expect(onError).toHaveBeenCalled());
+    await new Promise((r) => setTimeout(r, 30));
+    expect(onError).toHaveBeenCalledTimes(1);
+    expect(onError.mock.calls[0][0]).toContain("上游挂了");
+  });
+});
