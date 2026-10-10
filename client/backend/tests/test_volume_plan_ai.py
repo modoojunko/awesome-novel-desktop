@@ -932,6 +932,24 @@ class TestMetricsEvents:
 class TestReviewFixes:
     """检视整改回归（P2-5/P2-6/P2-1）：闭集、坎名字入差集、同毫秒双条不撞主键。"""
 
+    def test_sanitize_plans_content_fields_pass_through_complete(self):
+        """c-field-truncation-alignment 终版：spine/conflict/ending/antagonist_line
+        完整直通（旧 40/40/40/150 硬切退役）——超长内容逐字保留进卡与提示词。"""
+        from volumes.ai_plan import _sanitize_plans
+
+        long_conflict = "教" * 300
+        long_ending = "局" * 400
+        parsed = {"plans": [
+            {"spine": "甲", "conflict": long_conflict, "ending": long_ending,
+             "antagonist_line": "坎" * 200, "focus_axis": "代价"},
+            {"spine": "乙", "conflict": "c2", "ending": "e2", "focus_axis": "关系"},
+        ]}
+        out = _sanitize_plans(parsed)
+        assert out is not None
+        assert out["plans"][0]["conflict"] == long_conflict
+        assert out["plans"][0]["ending"] == long_ending
+        assert out["plans"][0]["antagonist_line"] == "坎" * 200
+
     def test_options_focus_axis_closed_set(self, client, monkeypatch):
         """模型自造侧重轴不收（FR-2 闭集）。"""
         from volumes.ai_plan import FOCUS_AXES, _sanitize_plans

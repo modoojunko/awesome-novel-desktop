@@ -1,25 +1,37 @@
 # Tasks: c-field-truncation-alignment
 
-## 1. 代码（client/backend）
+## 1. 生成侧钳位（终版：内容字段完整直通）
 
-- [x] 1.1 `chapters/schemas.py` 新增 `clip_sentence` 句读截断单源；`chapters/ai_plot.clip_plot_item` 委托之（函数名与行为保留，既有钉子继续绿）
-- [x] 1.2 `chapters/ai_plan.py`：`_LIMITS["plot"]` 150→300；`_fit` 换句读截断＋超限 logger.warning
-- [x] 1.3 `volumes/ai_plan.py`：`_sanitize_plans` conflict/ending 40→150/300（spine 保留 40）；`_sanitize_expand` 80/60/60→150/150/300；全部句读截断
-- [x] 1.4 `write/chapter_writer.py`：角色状态逐格 40 字改 `clip_sentence`（上限保留，只修句边界）
-- [x] 1.5 语法检查五文件过；受影响测试 107/107 绿（容器内挂提示词仓跑）
+- [x] 1.1 `chapters/ai_plan._fit`：plot/obstacle/ending 直通（limit=None）；title/why/gap 保列宽
+- [x] 1.2 `chapters/ai_plot._sanitize_versions`：条目不截断，「已截到最后一个句号」告警退役；计数预算保留
+- [x] 1.3 `chapters/schemas.normalize_plot_items`：单条不截（只保 12 条）；`clip_sentence`/`clip_plot_item` 转可选工具（生产链零调用）
+- [x] 1.4 `volumes/ai_plan`：`_sanitize_plans`（spine/conflict/ending/antagonist_line）与 `_sanitize_expand`（summary/conflict/ending/antagonist_line）直通；expand 卡面带入值直通；伏笔台账 description、人物 persona brief 直通
+- [x] 1.5 `chapters/ai_cast` 人物 persona brief 直通
 
-## 2. 提示词仓（awesome-novel-prompts）
+## 2. 存储/装配侧夹删除
 
-- [x] 2.1 `chapter_split` plot 声明 ≤150→≤300；`volume_options` conflict/ending ≤40→≤150/≤300；`volume_expand` summary/conflict/ending ≤80/60/60→≤150/150/300
-- [x] 2.2 `sync.py all`＋lint＋pytest 51 绿
+- [x] 2.1 `chapters/store`：章纲 summary 列宽夹（300）与角色状态 state_change（200）退役
+- [x] 2.2 `chapters/ai_draft`：fills `[:300]` 退役
+- [x] 2.3 `write/chapter_writer`：角色状态逐格 40 字封顶退役（完整直通）；clip import 清理
 
-## 3. 合入与生效
+## 3. 验证上限放宽（完整内容可保存）
 
-- [ ] 3.1 双仓提交（ai-novel ＋ prompts）
-- [ ] 3.2 5274 compose 重建 client-backend，容器内冒烟（拆章/卷纲出卡不再腰斩需真实模型调用，留验收 4.1）
+- [x] 3.1 `volumes/schemas`：summary 300→2000、core_conflict 150→1000、ending 300→2000、antagonist_line 150→1000
 
-## 4. 验收（真机/演示栈）
+## 4. 测试
 
-- [ ] 4.1 重新出一版拆章卡与卷走法卡：plot 可完整写到 300 字内不腰斩；卷纲 conflict/ending 到 150/300
-- [ ] 4.2 存量断句数据：卷纲表单手工补全「同时应对」「独自走」两处；ch-5/ch-6 章纲概要待重跑或手工补
-- [ ] 4.3 触发一次超限（如塞 400 字 plot）确认日志有 `field clipped` warning
+- [x] 4.1 旧契约钉子改写：`test_plot_ai` 超长条目（截断+告警 → 完整直通）、`test_plot_items_save` ×3（预算夹 → 直通）
+- [x] 4.2 新增防回归钉子：`test_chapter_writer` 角色状态直通、`test_volume_plan_ai` 卷纲 sanitize 直通
+- [x] 4.3 受影响套件 200/200 绿；全量 2156 passed（15 存量环境失败不变，原版对照实证；批量跑 volume_crud 的 database-locked 为环境问题）
+
+## 5. 合入与生效
+
+- [ ] 5.1 ai-novel 提交（本 change 追加拍板）
+- [ ] 5.2 5274 compose 重建 client-backend，容器内冒烟（直通行为验证）
+- [ ] 5.3 prompts 仓预算声明（前批 3b0ebec 已提交；终版下为「目标值」——无需再改）
+
+## 6. 验收（真机/演示栈）
+
+- [ ] 6.1 重新出一版拆章卡与卷走法卡：超长内容完整保留（不腰斩）
+- [ ] 6.2 生成一版正文素材：角色状态/剧情条目/卷纲块完整（可对照旧 dump）
+- [ ] 6.3 存量断句数据作者手工：卷纲「同时应对/独自走」、ch-5/ch-6 章纲概要（或重跑出卡）

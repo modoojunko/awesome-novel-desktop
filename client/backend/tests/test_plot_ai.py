@@ -235,8 +235,9 @@ class TestJudgementDiscipline:
         assert clip_plot_item("吵" * 250) == "吵" * 200  # 全条无句读→硬截 200
         assert clip_plot_item("短句。") == "短句。"  # 预算内不改编
 
-    def test_overlong_item_clipped_with_warning(self, monkeypatch):
-        """3.2：端点层超长条目句读截断＋进 warnings；条目全部 ≤200。"""
+    def test_overlong_item_passes_through_complete(self, monkeypatch):
+        """c-field-truncation-alignment 终版：超长条目不截断——完整进版本（含提示词），
+        也不再出「已截到最后一个句号」告警。"""
         nid = asyncio.run(_seed())
         over = "他推门进了院子。" + "吵" * 199
         reply = (
@@ -248,10 +249,8 @@ class TestJudgementDiscipline:
         r = _post(nid, "plot/ai-draw")
         body = r.json()
         assert body["ok"] is True
-        assert any("已截到最后一个句号" in w for w in body["warnings"])
-        for v in body["versions"]:
-            assert all(len(x) <= 200 for x in v["items"])
-        assert body["versions"][0]["items"][1] == "他推门进了院子。"
+        assert not any("已截" in w for w in body["warnings"])
+        assert body["versions"][0]["items"][1] == over  # 逐字完整
 
     def test_retry_only_on_zero_versions(self, monkeypatch):
         """3.2：0 可用版本才重试（temp 0.3、把失败原因喂回、记 _retry 账）。"""

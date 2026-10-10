@@ -21,14 +21,10 @@ from sqlalchemy import select
 
 from db import async_session
 from filesystem.storage import get_storage
-from chapters.schemas import clip_sentence
 from genres.service import build_genre_section, resolve_genre_context
 from prompt.context import inject_world_setting
 from settings.character_model import (
     WRITE_STATE_KEYS as _WRITE_STATE_KEYS,
-)
-from settings.character_model import (
-    WRITE_STATE_PER_CELL_MAX as _WRITE_STATE_PER_CELL_MAX,
 )
 from settings.render import (
     quant_section,
@@ -1131,12 +1127,9 @@ async def build_chapter_context(
                     continue
                 cog = json.loads(ch_row.cog or "{}")
                 dossier = json.loads(ch_row.dossier or "{}")
-                # c-ai-material-audit：逐格 40 字封顶（旧实现整串切 120——首格写长一点
-                # 就把后五层整段挤掉，人物行为/决策层直接消失）
-                parts = [
-                    clip_sentence(str(cog.get(k, "") or "").strip(), _WRITE_STATE_PER_CELL_MAX)
-                    for k in _WRITE_STATE_KEYS
-                ]
+                # c-field-truncation-alignment 终版：逐格完整直通（原逐格 40 字封顶退役——
+                # 内容进提示词不截断；六层各有标题分隔，长格不再挤掉后层）
+                parts = [str(cog.get(k, "") or "").strip() for k in _WRITE_STATE_KEYS]
                 parts = [p for p in parts if p]
                 state = "；".join(parts) if parts else ""
                 ctx.characters.append(

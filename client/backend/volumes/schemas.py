@@ -44,11 +44,11 @@ class VolumeCreate(BaseModel):
     """建卷（统一入口）：四问可选直写＋章数——抽卡确认与免费「直接创建」共用（一次写入）。"""
 
     title: str = Field(default="", max_length=200)
-    summary: str = Field(default="", max_length=300)
-    core_conflict: str = Field(default="", max_length=150)
-    ending: str = Field(default="", max_length=300)
+    summary: str = Field(default="", max_length=2000)
+    core_conflict: str = Field(default="", max_length=1000)
+    ending: str = Field(default="", max_length=2000)
     antagonist_type: str | None = Field(default=None, max_length=20)
-    antagonist_line: str = Field(default="", max_length=150)
+    antagonist_line: str = Field(default="", max_length=1000)
     chapter_target: int | None = Field(default=None, ge=1, le=9999)
 
     @field_validator("antagonist_type")

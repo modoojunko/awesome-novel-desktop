@@ -87,10 +87,11 @@ async def _set_plot_raw(root: str, raw: str) -> None:
 
 
 def test_normalize_budget_and_newline_intact():
-    from chapters.schemas import PLOT_MAX_ITEMS, PLOT_MAX_LEN, normalize_plot_items
+    """c-field-truncation-alignment 终版：单条完整直通（长度不截，只保 12 条计数预算）。"""
+    from chapters.schemas import PLOT_MAX_ITEMS, normalize_plot_items
 
     out = normalize_plot_items(["汉" * 205, "含\n换行的一条", 5])
-    assert len(out[0]) == PLOT_MAX_LEN
+    assert out[0] == "汉" * 205  # 超长条目不截——完整进提示词
     assert out[1] == "含\n换行的一条"  # 含换行的条目单条完整保留，不切条
     # c-og-slim-v2：非字符串项丢弃（不再 str() 成 "5" / "{'text':…}" 落库）
     assert len(out) == 2
@@ -100,11 +101,12 @@ def test_normalize_budget_and_newline_intact():
 def test_validate_plot_items_shape_and_silent_clamp():
     from chapters.schemas import validate_chapter_fields
 
-    # 超长/超条数只静默夹，不 422——保存链不报错（2.3：超长输入不产生保存错误）
+    # 超条数只静默夹（计数预算保留）、超长不截（c-field-truncation-alignment 终版：
+    # 内容完整直通）；保存链不报错（2.3：输入越界不产生保存错误）
     body = {"plot_items": ["汉" * 500] * 15}
     validate_chapter_fields(body)
     assert len(body["plot_items"]) == 12
-    assert all(len(x) == 200 for x in body["plot_items"])
+    assert all(len(x) == 500 for x in body["plot_items"])
 
     # 形状非数组才 422
     with pytest.raises(HTTPException) as e:
@@ -182,7 +184,7 @@ def test_over_budget_save_is_silent_not_error():
     _run(save_chapter(root, "vol-1-ch-1", {"plot_items": big}))  # 不抛
     got = _run(_load(root))["plot_items"]
     assert len(got) == 12
-    assert len(got[0]) == 200  # 超长条截 200，不报错
+    assert len(got[0]) == 500  # c-field-truncation-alignment 终版：超长不截，完整落库（进提示词）
     assert got[1:] == [f"第{i}条" for i in range(11)]  # 超条数截 12，顺序不乱
 
 

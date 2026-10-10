@@ -56,13 +56,12 @@ def _sanitize_versions(parsed: dict | None) -> tuple[list[dict], list[str]]:
     warn: list[str] = []
     if not isinstance(parsed, dict):
         return [], ["AI 没有返回可读的结果"]
-    entry = clip_plot_item(parsed.get("entry"))
-    exit_ = clip_plot_item(parsed.get("exit"))
+    entry = str(parsed.get("entry") or "").strip()
+    exit_ = str(parsed.get("exit") or "").strip()
     if not entry or not exit_:
         return [], ["首条（接进场）或末条（收结尾）没给出来"]
     middles = parsed.get("middles")
     middles = middles if isinstance(middles, list) else []
-    clipped = 0
     versions: list[dict] = []
     for slot in middles[:3]:
         if not isinstance(slot, list):
@@ -71,15 +70,9 @@ def _sanitize_versions(parsed: dict | None) -> tuple[list[dict], list[str]]:
         items: list[str] = []
         for it in slot[:_MAX_MIDDLE]:
             s = str(it or "").strip()
-            if not s:
-                continue
-            c = clip_plot_item(s)
-            if len(c) < len(s):
-                clipped += 1
-            items.append(c)
+            if s:
+                items.append(s)  # c-field-truncation-alignment 终版：单条完整直通，不截
         versions.append({"items": [entry, *items, exit_]})
-    if clipped:
-        warn.append(f"有 {clipped} 条超过 200 字，已截到最后一个句号")
     return versions, warn[:5]
 
 

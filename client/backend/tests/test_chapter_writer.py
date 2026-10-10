@@ -58,6 +58,15 @@ class TestUserMaterial:
         assert "- 张三：正在调查（语言特征：话短句沉）" in prompt
         assert "- 李四：隐藏身份" in prompt
 
+    def test_character_state_cell_passes_through_complete(self):
+        """c-field-truncation-alignment 终版：角色状态逐格完整直通（旧 40 字封顶退役）——
+        超长格逐字进素材，不被切。"""
+        ctx = ChapterContext()
+        long_cell = "他" + "想" * 60 + "。"
+        ctx.characters = [{"name": "张三", "state": long_cell}]
+        prompt = ctx.to_user_material()
+        assert long_cell in prompt
+
     def test_with_previous_chapter_recap(self):
         ctx = ChapterContext()
         ctx.previous_chapter_recap = "上一章结尾，张三推开了那扇门。"

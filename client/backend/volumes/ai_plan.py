@@ -25,7 +25,6 @@ from ai_client import AITimeoutError, get_ai_client_for_novel
 from ai_state import effective_model
 from auth_local.deps import ai_feature, require_ai_access, require_novel_model
 from auth_local.middleware import get_current_user
-from chapters.schemas import clip_sentence
 from db import get_db
 from filesystem.storage import get_storage
 from genres.service import build_genre_section, resolve_genre_context
@@ -224,7 +223,7 @@ async def _closed_hooks_summary(novel_id: str) -> str:
     for status, label in (("resolved", "已收"), ("abandoned", "已弃")):
         row = next((r for r in rows if r.status == status), None)
         if row is not None:
-            lines.append(f"- {label}：[H-{row.seq:04d}] {row.description[:60]}")
+            lines.append(f"- {label}：[H-{row.seq:04d}] {row.description}")
     return "\n".join(lines)
 
 
@@ -298,7 +297,7 @@ async def _book_material(
                 card_names.add(na)
 
     cast_brief = "\n".join(
-        f"- {it.get('name', '')}（{it.get('role', '')}）：{(it.get('persona') or '')[:80]}"
+        f"- {it.get('name', '')}（{it.get('role', '')}）：{it.get('persona') or ''}"
         for it in items
     )
 
@@ -495,14 +494,15 @@ def _sanitize_plans(parsed: dict | None) -> dict | None:
         out.append(
             {
                 "no": len(out) + 1,
-                # 钳位＝提示词字段上限（对齐——上限说明不该被更宽的兜底架空）
-                "spine": clip_sentence(spine, 40),
-                "conflict": clip_sentence(conflict, 150),
-                "ending": clip_sentence(ending, 300),
+                # c-field-truncation-alignment 终版：内容字段完整直通（进提示词不截断）；
+                # 标签类（focus/name）保卡片预算
+                "spine": spine,
+                "conflict": conflict,
+                "ending": ending,
                 "focus": str(p.get("focus", "") or "").strip()[:20],
                 "focus_axis": axis,
                 "antagonist_type": p_ant_type,
-                "antagonist_line": str(p.get("antagonist_line", "") or "").strip()[:150],
+                "antagonist_line": str(p.get("antagonist_line", "") or "").strip(),
             }
         )
         if len(out) == MAX_PLANS:
@@ -691,11 +691,12 @@ def _sanitize_expand(obj: dict | None) -> dict | None:
         ant_type = "人物" if ant_type else ""
     return {
         "name": str(obj.get("name", "") or "").strip()[:6],
-        "summary": clip_sentence(summary, 150),
-        "conflict": clip_sentence(conflict, 150),
-        "ending": clip_sentence(ending, 300),
+        # c-field-truncation-alignment 终版：内容字段完整直通（进提示词不截断）
+        "summary": summary,
+        "conflict": conflict,
+        "ending": ending,
         "antagonist_type": ant_type,
-        "antagonist_line": str(obj.get("antagonist_line", "") or "").strip()[:150],
+        "antagonist_line": str(obj.get("antagonist_line", "") or "").strip(),
         "plants": _lines(obj.get("plants"), 2),
         "reveals": _lines(obj.get("reveals"), 2),
         "chapter_target": min(9999, max(0, total)),
@@ -786,12 +787,12 @@ async def ai_volume_expand(
         }
     # 卡面四问胜出（评审拍板：expand 只补空缺，不覆盖带入值）
     if body.conflict.strip():
-        draft["conflict"] = body.conflict.strip()[:60]
+        draft["conflict"] = body.conflict.strip()
     if body.antagonist_line.strip():
         draft["antagonist_type"] = body.antagonist_type or "人物"
-        draft["antagonist_line"] = body.antagonist_line.strip()[:150]
+        draft["antagonist_line"] = body.antagonist_line.strip()
     if body.ending.strip():
-        draft["ending"] = body.ending.strip()[:60]
+        draft["ending"] = body.ending.strip()
     warnings = _entity_warnings(draft.pop("cast", []), draft.pop("factions", []), mat["known_entities"])
     return {"ok": True, "vol_no": vol_no, "draft": draft, "warnings": warnings}
 
