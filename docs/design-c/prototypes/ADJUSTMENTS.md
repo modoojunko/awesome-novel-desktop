@@ -1979,3 +1979,10 @@ baseurl 到什么程度，要有个案例。」——中转站/自建网关用�
 - **验证**：file:// 直驱演示链实测——等待期 `lineShown=true / ring=false`；首字后 `lineShown=false / ring=true` 且正文开写；控制台零报错。截图：`/tmp/an-proto-shots4/bookhtml-awaiting.png`、`/tmp/an-proto-shots4/bookhtml-typing.png`。
 - **视觉真值**：本特性界面底稿取**真实应用快照**（v0.31 写作页·编辑态）：`docs/design-c/drafts/ai-novel-c端-生成等待呈现-无框三变体-真界面原型.html`（变体 A 已拍板）；book.html 与真界面的存量漂移不在本条目范围。
 - **文案 §13 自查**：阶段句为陈述句（「正在准备本章素材／正在组装提示词／模型思考中，等待首字」），无内部术语；动作出口＝既有动词按钮「停止」。
+
+## c-style-rules-cap-align（硬约束上限对齐后端，2026-10-10）
+
+- **`style-settings.html` `LIMITS`**：`rules: 5` → `rules: 100`——对齐实现 `style_model._MAX_RULES`（PR #825，评审 P3 整改：原型此前演示的正是修掉的那个形态）。背景（测试反馈「禁用词有数量上限」定诊）：模板/迁移把 ≈58 条通用反 AI 红线预填进硬约束，5 条上限使「加一条」在预填即恒隐藏（计数器恒「58/5 条」超限形态），作者加不了新红线；实现侧拍板对齐到 100。
+- **预填不动**：原型预填的 5 条红线（题材默认演示内容）保持不变——「红线几条」的设计意图未变，只把**上限**口径与实现对齐；计数器随 LIMITS 呈现「5/100 条」，「加一条」恢复可见。
+- **文案**：②硬约束 hint「（3–5 条）」两侧一致保留（本笔未动）。
+- **parity 影响**：style-settings.html 不在 `design:check` 截图矩阵；无像素基线重录需求。

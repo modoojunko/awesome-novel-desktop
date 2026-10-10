@@ -777,7 +777,7 @@
   style.rules[1] = '对话中不插旁白解释情感——修真语境里改成「以气机与称谓传情」，禁直接点破';
   style.craft[1] = '环境感知融入角色行动：焦虑时看到的不是房间全貌，是出口、窗户、能当武器的东西';
 
-  const LIMITS = { rules: 5, craft: 8 };
+  const LIMITS = { rules: 100, craft: 8 };   /* 上限对齐实现（c-style-rules-cap-align）：后端 _MAX_RULES；模板预填 ≈58 条，5 条会让「加一条」恒隐藏 */
   let edited = { role: false, rules: [1], craft: [1] };   /* 与题材默认的差异 */
 
   /* ═══ ListEditor：编号行＋行删＋上移＋上限到量隐藏添加 ═══ */
