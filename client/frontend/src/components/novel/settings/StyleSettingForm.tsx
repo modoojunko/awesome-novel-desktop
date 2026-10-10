@@ -693,7 +693,9 @@ const StyleSettingForm = forwardRef<StylePanelHandle, Props>(function StyleSetti
                   setRules(n);
                 }}
                 showCount
-                maxItems={5}
+                // 上限与后端 style_model._MAX_RULES 对齐（c-style-rules-cap-align）：
+                // 模板/迁移预填 ≈58 条，旧上限 5 会让「添加一项」恒隐藏——作者加不了新硬约束
+                maxItems={100}
                 placeholder="可执行的硬规则。例：「突然」每章不超过 4 次"
               />
             </div>
