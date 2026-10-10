@@ -1108,3 +1108,84 @@ class TestGapsEndpoint:
         out = client.get("/api/backup/db-migration/gaps",
                          params={"filename": "../../etc/passwd"}).json()
         assert out["code"] == 0 and out["data"]["books_total"] == 0
+
+
+class TestReviewFixes:
+    """review 整改钉子（c-carry-degrade-remigrate）：返回面封顶＋降级不变量。"""
+
+    @pytest.fixture()
+    def client(self, sandbox, monkeypatch):
+        from main import app
+
+        monkeypatch.setattr("migration.router.DATA_ROOT", sandbox[0])
+        import sqlite3 as _sq
+
+        from config import DATABASE_URL
+
+        _db = Path(DATABASE_URL.split("///")[-1])
+        if _db.exists():
+            con = _sq.connect(_db)
+            con.execute("DELETE FROM app_meta WHERE key IN "
+                        "('migration.last', 'migration.snoozed')")
+            con.commit()
+            con.close()
+        with TestClient(app) as c:
+            yield c
+
+    def test_gap_response_capped(self, client, sandbox, monkeypatch):
+        """免登返回面收敛：清单封顶 50、total 保持真值（前端按 total 渲染溢出）。"""
+        root, active = sandbox
+        monkeypatch.setattr("migration.router._active_db_path", lambda: active)
+        _old_gen0(root, books=60)
+        assert run_migration(root, "novel.db", active)["complete"] is True
+        con = sqlite3.connect(active)
+        con.execute("PRAGMA foreign_keys=OFF")
+        con.execute("DELETE FROM chapters WHERE novel_id LIKE 'n%' AND novel_id != 'n0'")
+        con.execute("DELETE FROM volumes WHERE novel_id LIKE 'n%' AND novel_id != 'n0'")
+        con.execute("DELETE FROM novels WHERE id LIKE 'n%' AND id != 'n0'")
+        con.commit()
+        con.close()
+        data = client.get("/api/backup/db-migration/gaps",
+                          params={"filename": "novel.db"}).json()["data"]
+        assert data["books_total"] == 59 and len(data["books"]) == 50, "封顶 50、total 真值"
+
+    def test_default_never_clobbers_legal_value(self, sandbox, monkeypatch):
+        """降级不变量：本列合法、行因其它列违约 → 改写救不进、行保持缺失。
+
+        合法值不可能被落库成降级值（改写无法修复其它列的违约，OR IGNORE 仍拒）。
+        """
+        from migration import value_mappings as vm
+        from migration.value_mappings import ValueRule
+
+        root, active = sandbox
+        _old_gen0(root, books=1)
+        # 源行：status='draft'（对下述 CHECK 合法）、chapter_no=9（违约）
+        con = sqlite3.connect(root / "novel.db")
+        con.execute("UPDATE chapters SET status='draft', chapter_no=9 WHERE id='c0-1'")
+        con.commit()
+        con.close()
+        # 目标库加 CHECK(chapter_no < 2)（重建表法）＋登记表声明 status default
+        con = sqlite3.connect(active)
+        ddl = con.execute(
+            "SELECT sql FROM sqlite_master WHERE type='table' AND name='chapters'"
+        ).fetchone()[0]
+        con.execute("PRAGMA foreign_keys=OFF")
+        con.execute("ALTER TABLE chapters RENAME TO chapters_tmp")
+        con.execute(ddl.rstrip()[:-1].rstrip().rstrip(",")
+                    + ", CHECK (chapter_no < 2))")
+        con.execute("INSERT INTO chapters SELECT * FROM chapters_tmp")
+        con.execute("DROP TABLE chapters_tmp")
+        con.commit()
+        con.close()
+        monkeypatch.setattr(vm, "VALUE_MAPPINGS", {
+            ("chapters", "status"): ValueRule(mapping={}, default="outline"),
+        })
+        rep = run_migration(root, "novel.db", active)
+        ch = next(e for e in rep["tables"] if e["table"] == "chapters")
+        assert ch["rows_missing"] == 1 and rep["complete"] is False, rep
+        con = sqlite3.connect(active)
+        try:
+            n = con.execute("SELECT COUNT(*) FROM chapters").fetchone()[0]
+        finally:
+            con.close()
+        assert n == 0, "合法值不得以降级形态落库"

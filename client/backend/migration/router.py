@@ -205,6 +205,11 @@ async def candidates():
                                 "current_version": app_version()}}
 
 
+# 免登端点返回面收敛（MANIFEST_BOOK_CAP 同纪律）：清单封顶、total 保持真值，
+# 前端按 total 渲染溢出行
+GAP_LIST_CAP = 50
+
+
 @router.get("/gaps")
 async def gaps(filename: str):
     """缺口清单（c-carry-degrade-remigrate）：「旧版有、这一版没有」的实名内容。
@@ -257,11 +262,13 @@ async def gaps(filename: str):
         finally:
             if tgt is not None:
                 tgt.close()
-        books = [{"name": str(name), "words": int(w or 0)}
-                 for bid, name, w in src_books if bid not in tgt_book_ids]
-        configs = [str(c) for c in src_cfgs if c not in tgt_cfgs]
-        return {"code": 0, "data": {"books": books, "books_total": len(books),
-                                    "configs": configs, "configs_total": len(configs)}}
+        books_all = [{"name": str(name), "words": int(w or 0)}
+                     for bid, name, w in src_books if bid not in tgt_book_ids]
+        configs_all = [str(c) for c in src_cfgs if c not in tgt_cfgs]
+        return {"code": 0, "data": {"books": books_all[:GAP_LIST_CAP],
+                                    "books_total": len(books_all),
+                                    "configs": configs_all[:GAP_LIST_CAP],
+                                    "configs_total": len(configs_all)}}
     except sqlite3.Error:
         return {"code": 0, "data": {"books": [], "books_total": 0,
                                     "configs": [], "configs_total": 0}}

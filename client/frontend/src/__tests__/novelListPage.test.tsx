@@ -1211,16 +1211,39 @@ describe("带回常驻行与四步收尾（c-lossless-upgrade 覆盖补齐）", 
   });
 
 
-  it("部分迁移（carried_partial）：不自动重弹整卡，提醒行承接、点迁移可达（c-carry-degrade-remigrate）", async () => {
-    withRec({ carried_partial: true });
-    getMock.mockResolvedValue([]);
+  it("部分迁移（carried_partial）：不自动重弹整卡，文案不夸大、确认后提醒行接管（c-carry-degrade-remigrate）", async () => {
+    withRec({ carried_partial: true, book_count: 3 });
+    let statusPayload: { state: string; kind?: string; report?: unknown } = {
+      state: "running", kind: "migration",
+    };
+    postMock.mockResolvedValue({ code: 0 });
+    getMock.mockImplementation(async (path: unknown) => {
+      const u = String(path);
+      if (u.includes("db-migration/status")) return { code: 0, data: statusPayload };
+      if (u.includes("db-migration/gaps"))
+        return { code: 0, data: { books: [{ name: "旧书", words: 100 }],
+                                  books_total: 1, configs: [], configs_total: 0 } };
+      if (u.includes("db-migration/candidates"))
+        return { code: 0, data: { candidates: [], quarantined: [], current_version: "0.25" } };
+      return [novel()];
+    });
     renderPage();
-    await screen.findByTestId("carry-strip-later");
+    const strip = await screen.findByTestId("carry-strip-later");
+    // partial 态不报源总书数（部分迁移下夸大缺口）
+    expect(strip.textContent).toContain("上一版迁移有缺口");
+    expect(strip.textContent).not.toContain("3 本作品未迁移");
     // 自动仲裁不得把缺口候选当「从没迁过」重弹完整告知卡
     expect(screen.queryByTestId("carry-card")).toBeNull();
-    // 用户显式点「迁移」整卡照常可达
+    // 用户显式点「迁移」→ 走到不完整结果 → 部分确认 → 提醒行同访问内立即接管
     fireEvent.click(screen.getByTestId("carry-strip-open"));
-    expect(await screen.findByTestId("carry-card")).toBeTruthy();
+    await screen.findByTestId("carry-card");
+    fireEvent.click(screen.getByTestId("carry-start"));
+    statusPayload = { state: "done", kind: "migration",
+                      report: { status: "ok", complete: false, dead_keys: 0 } };
+    await screen.findByTestId("carry-result", {}, { timeout: 4000 });
+    fireEvent.click(await screen.findByTestId("carry-confirm-partial"));
+    await waitFor(() => expect(screen.queryByTestId("carry-card")).toBeNull());
+    expect(screen.getByTestId("carry-strip-later")).toBeTruthy();
   });
 
   it("评审修复③：卡内「稍后带」→ 会话内常驻行接管（未 snooze 也提醒）→ 可重开卡", async () => {

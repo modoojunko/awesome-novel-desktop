@@ -565,7 +565,11 @@ function NovelList() {
         && !carryRec.carried && !carryConfirmed && (
         <div className="notice" data-testid="carry-strip-later">
           <span className="nt">
-            <b>上一版还有 {carryRec.book_count ?? '?'} 本作品未迁移</b>
+            {/* partial 态不报总书数（部分迁移下会夸大缺口，review 整改）：
+                真实缺口只有结果卡/gaps 清单知道 */}
+            <b>{carryRec.carried_partial
+              ? "上一版迁移有缺口，可继续迁移"
+              : `上一版还有 ${carryRec.book_count ?? '?'} 本作品未迁移`}</b>
             <span>旧文件原样保留，下次打开还会提醒</span>
           </span>
           <span className="flex items-center gap-2">
@@ -953,7 +957,10 @@ function NovelList() {
           }}
           onConfirmed={() => {
             setCarryOpen(false);
-            setCarryConfirmed(true);
+            // c-carry-degrade-remigrate（review 整改）：部分迁移确认后提醒行须
+            // 立即接管（spec「确认后保留持续提醒行」）——不置 carryConfirmed；
+            // 自动弹卡的仲裁已由 carried_partial 承担，这里置位只会藏掉提醒行
+            if (!carryRec.carried_partial) setCarryConfirmed(true);
           }}
         />
       )}

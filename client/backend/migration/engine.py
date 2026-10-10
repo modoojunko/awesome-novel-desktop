@@ -643,6 +643,10 @@ def _degrade_missing_rows(tgt: sqlite3.Connection, entry: dict) -> tuple[int, se
     CASE——精确映射命中取映射值，其余非 NULL 取保守 default，NULL 沿用原守卫。
     只对缺行插（主键 NOT IN 目标），OR IGNORE 保幂等。返回 (救回行数, 降级列集)；
     无登记条目或列不在交集内＝(0, set())（不降级，行损如实保留）。
+
+    不变量（review 钉死）：改写只可能救回「本列值即拒收原因」的行——本列值合法
+    而行因其它列违约时，改写后仍插不进、行保持缺失，因此合法值不可能被实际
+    落库成降级值；default 的误伤面止于「白费一次重插」，不产生数据篡改。
     """
     from migration.value_mappings import VALUE_MAPPINGS
 
