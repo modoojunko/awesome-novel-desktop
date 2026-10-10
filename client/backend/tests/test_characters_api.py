@@ -400,3 +400,103 @@ class TestDeleteMergeUndo:
             "path": "name", "value": "x", "base_rev": 1,
         })
         assert r.status_code == 400
+
+
+class TestCreatePayload:
+    """c-char-batch-import：create 载荷扩容（aliases + dossier 白名单）与护栏。"""
+
+    def test_create_with_aliases_and_dossier_full(self, client):
+        """全字段落卡：别名落 aliases 栏、八格落 dossier，列表可读回。"""
+        c, nid = client
+        r = c.post(f"/api/novels/{nid}/characters", json={
+            "name": "白芷", "role": "配角",
+            "persona": "药铺学徒，认药不全认人",
+            "aliases": ["芷丫头", "小白的"],
+            "dossier": {
+                "gender": "女", "age": "16", "race": "人类",
+                "faction": "回春堂 · 学徒", "look": "圆脸 · 药渍围裙",
+                "speech": "语速快", "background": "自小在药铺长大。",
+                "plot": "替主角配出关键解药",
+            },
+        })
+        assert r.status_code == 200, r.text
+        card = r.json()["data"]
+        assert card["aliases"] == ["芷丫头", "小白的"]
+        assert card["dossier"]["gender"] == "女" and card["dossier"]["age"] == "16"
+        assert card["dossier"]["plot"] == "替主角配出关键解药"
+        lst = c.get(f"/api/novels/{nid}/characters").json()["data"]
+        row = next(x for x in lst["items"] if x["id"] == card["id"])
+        assert row["aliases"] == ["芷丫头", "小白的"] and row["dossier"]["faction"] == "回春堂 · 学徒"
+
+    def test_create_dossier_unknown_key_400(self, client):
+        """非法键点名（不静默丢）。"""
+        c, nid = client
+        r = c.post(f"/api/novels/{nid}/characters", json={
+            "name": "甲一", "dossier": {"gender": "女", "nope": "x"},
+        })
+        assert r.status_code == 400, r.text
+        detail = r.json()["detail"]
+        assert detail["code"] == "invalid_dossier"
+        assert "nope" in detail["message"]
+
+    def test_create_dossier_non_object_and_non_string_400(self, client):
+        c, nid = client
+        r = c.post(f"/api/novels/{nid}/characters", json={"name": "甲二", "dossier": ["gender"]})
+        assert r.status_code == 400 and r.json()["detail"]["code"] == "invalid_dossier"
+        r = c.post(f"/api/novels/{nid}/characters", json={
+            "name": "甲三", "dossier": {"age": 31},
+        })
+        assert r.status_code == 400, r.text
+        assert "年龄" in r.json()["detail"]["message"]
+
+    def test_create_aliases_clamp_20x50_and_empty_dropped(self, client):
+        """护栏：截前 20 条、每条截 50 字、空串丢弃；非列表/非字符串 400。"""
+        c, nid = client
+        aliases = [f"别名{i:02d}" for i in range(25)] + ["", "   "]
+        aliases[3] = "长" * 60
+        r = c.post(f"/api/novels/{nid}/characters", json={"name": "甲四", "aliases": aliases})
+        assert r.status_code == 200, r.text
+        got = r.json()["data"]["aliases"]
+        assert len(got) == 20
+        assert got[3] == "长" * 50
+        assert all(a.strip() for a in got)
+        r = c.post(f"/api/novels/{nid}/characters", json={"name": "甲五", "aliases": "芷丫头"})
+        assert r.status_code == 400 and r.json()["detail"]["code"] == "invalid_aliases"
+        r = c.post(f"/api/novels/{nid}/characters", json={"name": "甲六", "aliases": [1, 2]})
+        assert r.status_code == 400 and r.json()["detail"]["code"] == "invalid_aliases"
+
+    def test_create_name_clamp_50(self, client):
+        """name 截 50（SQLite 不强制 String(50)，服务层必须收）。"""
+        c, nid = client
+        long_name = "名" * 60
+        r = c.post(f"/api/novels/{nid}/characters", json={"name": long_name})
+        assert r.status_code == 200, r.text
+        assert len(r.json()["data"]["name"]) == 50
+
+    def test_create_prefill_and_dossier_merge_dossier_wins(self, client):
+        """同格冲突 dossier 胜（新契约优先）；prefill 独有格保留。"""
+        c, nid = client
+        r = c.post(f"/api/novels/{nid}/characters", json={
+            "name": "甲七",
+            "prefill": {"plot": "旧定位", "background": "旧背景"},
+            "dossier": {"plot": "新定位"},
+        })
+        assert r.status_code == 200, r.text
+        d = r.json()["data"]["dossier"]
+        assert d["plot"] == "新定位" and d["background"] == "旧背景"
+
+    def test_create_prefill_only_backward_compat(self, client):
+        """回归：不带 aliases/dossier 的老载荷行为不变。"""
+        c, nid = client
+        r = c.post(f"/api/novels/{nid}/characters", json={
+            "name": "甲八", "role": "主角", "persona": "老载荷",
+            "prefill": {"plot": "定位", "background": "背景"},
+        })
+        assert r.status_code == 200, r.text
+        card = r.json()["data"]
+        assert card["aliases"] == [] and card["persona"] == "老载荷"
+        assert card["dossier"]["plot"] == "定位"
+        r = c.post(f"/api/novels/{nid}/characters", json={
+            "name": "甲九", "prefill": {"nope": "x"},
+        })
+        assert r.status_code == 400 and r.json()["detail"]["code"] == "invalid_prefill"
