@@ -1,5 +1,5 @@
 import { beforeEach, afterEach, describe, expect, it, vi } from "vitest";
-import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { fireEvent, act, render, screen, waitFor, within } from "@testing-library/react";
 import { MemoryRouter, Route, Routes } from "react-router-dom";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import type { ReactNode } from "react";
@@ -819,8 +819,45 @@ describe("正文生成中的现场保护（c-prose-stream-guard）", () => {
     expect(document.querySelectorAll(".ai-streaming").length).toBe(1);
   });
 
-  it("生成中左栏树锁定：点另一章被拦（不加载该章＋置灰指路），点「停止」后恢复可切", async () => {
-    await startStreaming();
+  it("首字前等待呈现：无框行内随真实阶段推进、呼吸灯未亮；首字到达即退场并亮环（c-prose-gen-phases）", async () => {
+    mockTwoChapterTreePro();
+    renderWorkspace("monthly");
+    await selectFirstChapter();
+    fireEvent.click(screen.getByRole("tab", { name: /^正文/ }));
+    let captured: {
+      onChunk: (t: string) => void;
+      onPhase?: (p: string) => void;
+    } | null = null;
+    writeMock.mockImplementation(((_pid: string, _ref: string, cbs: never) => {
+      captured = cbs;
+      return new AbortController();
+    }) as unknown as typeof streamChapterWrite);
+    fireEvent.click(screen.getByTestId("ai-write-btn"));
+    fireEvent.click(await screen.findByTestId("ai-confirm"));
+    await waitFor(() => expect(captured).toBeTruthy());
+
+    const body = () => document.querySelector(".prose-body") as HTMLElement;
+    // 请求在飞＝首步；等待期不出现呼吸框（环＝首个正文片段起）
+    expect(screen.getByTestId("gen-line")).toBeTruthy();
+    expect(screen.getByText("正在准备本章素材")).toBeTruthy();
+    expect(body().classList.contains("awaiting")).toBe(true);
+    expect(body().classList.contains("generating")).toBe(false);
+
+    // 服务端阶段事件逐段推进（真实进度，非固定时长剧本）
+    act(() => captured!.onPhase!("prompt"));
+    await waitFor(() => expect(screen.getByText("正在组装提示词")).toBeTruthy());
+    act(() => captured!.onPhase!("model"));
+    await waitFor(() => expect(screen.getByText("模型思考中，等待首字")).toBeTruthy());
+    expect(body().classList.contains("generating")).toBe(false);
+
+    // 首字到达：等待呈现退场 ＋ 呼吸灯在编辑体上亮起
+    act(() => captured!.onChunk("雨落在铁皮屋顶上。"));
+    await waitFor(() => expect(screen.queryByTestId("gen-line")).toBeNull());
+    await waitFor(() => expect(body().classList.contains("generating")).toBe(true));
+    expect(body().classList.contains("awaiting")).toBe(false);
+  });
+
+  it("生成中左栏树锁定：点另一章被拦（不加载该章＋置灰指路），点「停止」后恢复可切", async () => {    await startStreaming();
     const rows = () => document.querySelectorAll(".tree .ch");
     const aside = () => document.querySelector(".col-tree");
     expect(rows().length).toBe(2);

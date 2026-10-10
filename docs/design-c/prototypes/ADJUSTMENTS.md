@@ -1969,3 +1969,13 @@ baseurl 到什么程度，要有个案例。」——中转站/自建网关用�
 - **parity 影响**：默认态唯一新增像素＝左栏「批量添加」按钮（弹层 hidden）。角色屏 parity 用例（design-parity-book `settings-characters`）当前整体 skip（在案），不阻塞；解禁前须把按钮区纳入新基线截图。
 - **原型截图**（本 change 验证）：`/tmp/an-chars-proto-shots/60-canon-batch.png`（弹层＋示例行全跳过＋说明块展开）、`61-canon-filled.png`（填好名单 建 2 张）；file:// 全程零 JS 错误。
 - **文案 §13 自查**：「批量添加/下载模版/选择文件/建 N 张卡」均动词短语；报错文案带出口（「请用『下载模版』的格式」）；无内部术语。
+
+## c-prose-gen-phases（生成等待呈现＋呼吸灯口径修正，2026-10-10）
+
+- **book.html 生成态新增「等待呈现」**（`#genLine`，默认 `hidden`）：版心首行位置的行内文案＋accent 闪烁光标（`.gl-main/.gl-caret`）＋浅字尾注（`.gl-note`），随原型自包含引入样式（`.gen-line / @keyframes gl-blink`）；与正文同字体（`--font-display`）同首行缩进（2em）。**无框**——不用边框卡片/底色块（用户 10-10 反馈「写作区冒框突兀」）。
+- **呼吸灯口径修正（同批）**：原「流式开始即起、只环 680 版心」→「**首个正文片段到达起**、环编辑区整片」——`.editor-wrap.generating` 承载 `stream-breath`（本基线的编辑区即 `.editor-wrap`；实现侧为 [编辑工具行＋正文区] 包裹层）。等待期（`.editor-wrap.awaiting`）不呈现环；等待/生成期占位「从这一章开始写……」退场。环为 box-shadow，SHALL NOT 动版式（流式写作位置不变）。
+- **演示链**：`streamGenerate()` 改为「等待三阶段推进（节拍模拟服务端阶段事件，无环）→ 首字到达（行内退场＋环亮起）→ 流式写入」；等待期「停止」＝直接收尾（同产品语义）。
+- **parity 影响**：book 屏不在 `design:check` 矩阵（在案）；默认态像素零变化（新元素 `hidden`），仅生成演示链中途可见。
+- **验证**：file:// 直驱演示链实测——等待期 `lineShown=true / ring=false`；首字后 `lineShown=false / ring=true` 且正文开写；控制台零报错。截图：`/tmp/an-proto-shots4/bookhtml-awaiting.png`、`/tmp/an-proto-shots4/bookhtml-typing.png`。
+- **视觉真值**：本特性界面底稿取**真实应用快照**（v0.31 写作页·编辑态）：`docs/design-c/drafts/ai-novel-c端-生成等待呈现-无框三变体-真界面原型.html`（变体 A 已拍板）；book.html 与真界面的存量漂移不在本条目范围。
+- **文案 §13 自查**：阶段句为陈述句（「正在准备本章素材／正在组装提示词／模型思考中，等待首字」），无内部术语；动作出口＝既有动词按钮「停止」。

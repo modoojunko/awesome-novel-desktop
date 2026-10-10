@@ -205,6 +205,26 @@
   .editor[contenteditable="false"]::selection { background: var(--fg-soft); }
   .editor:empty::before { content: attr(data-placeholder); color: var(--muted); }
   .editor.generating { cursor: progress; }
+  /* ── 生成等待呈现（c-prose-gen-phases，2026-10-10 用户拍板变体 A）─────────
+     首字前：无框行内（与正文同字体同缩进），不进文档；**不出现呼吸灯**。
+     首字到达：行内退场 + 呼吸灯在编辑体上亮起。环＝编辑区整片（不再只环
+     680 版心；本基线的编辑体即 .editor-wrap），纯 box-shadow 不动版式。 */
+  .editor-wrap { position: relative; }
+  .editor-wrap.awaiting::before,
+  .editor-wrap.awaiting .editor:empty::before,
+  .editor-wrap.awaiting .editor.generating:empty::before,
+  .editor-wrap.generating .editor:empty::before { content: none; }   /* 等待/生成期占位退场 */
+  .editor-wrap.generating { animation: stream-breath 2s ease-in-out infinite; border-radius: 10px; }
+  @keyframes stream-breath {
+    0%, 100% { box-shadow: 0 0 0 1px color-mix(in oklch, var(--accent) 18%, transparent), 0 0 14px color-mix(in oklch, var(--accent) 6%, transparent); }
+    50% { box-shadow: 0 0 0 1px color-mix(in oklch, var(--accent) 55%, transparent), 0 0 28px color-mix(in oklch, var(--accent) 20%, transparent); }
+  }
+  .gen-line { position: absolute; top: 36px; left: 50%; transform: translateX(-50%); width: min(680px, calc(100% - 48px)); pointer-events: none; z-index: 6; }
+  .gen-line .gl-main { margin: 0; font-family: var(--font-display); font-size: 17px; line-height: 2; color: var(--muted); text-indent: 2em; transition: opacity .16s ease; }
+  .gen-line .gl-main.swap { opacity: 0; }
+  .gen-line .gl-caret { display: inline-block; width: 2px; height: 1em; margin-left: 3px; vertical-align: -0.14em; background: var(--accent); animation: gl-blink 1.06s steps(1, end) infinite; }
+  @keyframes gl-blink { 0%, 55% { opacity: 1; } 55.01%, 100% { opacity: 0; } }
+  .gen-line .gl-note { margin: 4px 0 0; font-size: 12px; line-height: 1.7; color: var(--muted); opacity: .72; text-indent: 2em; }
   .editor-status { flex: none; display: flex; align-items: center; gap: 14px; height: 32px; padding: 0 18px; border-top: 1px solid var(--border); background: var(--surface); font-size: 12px; color: var(--muted); }
   .editor-status .right { margin-left: auto; display: inline-flex; align-items: center; gap: 14px; }
   .save-state { display: inline-flex; align-items: center; gap: 6px; }
@@ -1057,6 +1077,11 @@
         <button class="btn btn-ghost btn-sm" id="unarchiveBtn">恢复编辑</button>
       </div>
       <div class="editor-wrap" id="editorWrap">
+        <!-- 生成等待呈现（首字前，无框行内；阶段推进由服务端事件驱动，演示按节拍模拟） -->
+        <div class="gen-line" id="genLine" hidden>
+          <p class="gl-main"><span class="gl-text">正在准备本章素材</span><i class="gl-caret"></i></p>
+          <p class="gl-note">通常要半分钟到一分钟；期间可点「停止」。</p>
+        </div>
         <div class="editor fs-m lh-comfy" id="editor" contenteditable="true" data-placeholder="从这一章开始写……"></div>
       </div>
       <div class="og-pane" id="ogPane" hidden></div>
@@ -1880,6 +1905,9 @@ const REQUIRED = ['changes', 'mood'];
 const REQ_LABELS = { changes: '必须完成的变化', mood: '主情绪' };
 const MOODS = ['紧张', '悬疑', '温暖', '悲伤', '激昂', '轻松', '压抑', '浪漫', '惊悚'];
 let saveTimer = null, savePhase = 'idle', streamTimer = null, aiAbort = false;
+/* 生成等待呈现（c-prose-gen-phases）：阶段节拍模拟服务端 phase 事件；停止在等待期同样可收尾 */
+let genPhaseTimers = [], genWaiting = false, genFinishRef = null;
+const GEN_LABELS = ['正在准备本章素材', '正在组装提示词', '模型思考中，等待首字'];
 
 /* ═══════════ 工具 ═══════════ */
 function countWords(text) { return (text || '').replace(/\s/g, '').length; }
@@ -3056,14 +3084,41 @@ $('aiConfirm').addEventListener('click', () => {
   closeModal('modalAi');
   streamGenerate();
 });
+function showGenLine(i) {
+  const line = $('genLine'); if (!line) return;
+  line.hidden = false;
+  const main = line.querySelector('.gl-main');
+  const text = line.querySelector('.gl-text');
+  if (text.textContent !== GEN_LABELS[i]) {
+    main.classList.add('swap');
+    setTimeout(() => { text.textContent = GEN_LABELS[i]; main.classList.remove('swap'); }, 160);
+  }
+}
+function hideGenLine() { const line = $('genLine'); if (line) line.hidden = true; }
 function streamGenerate() {
   const ch = curCh(); if (!ch) return;
   const editor = $('editor');
   if (isArchived(ch)) { toast('已归档章节不可生成'); return; }
+  const wrap = $('editorWrap');
   aiAbort = false;
   $('aiStreaming').hidden = false;
-  editor.classList.add('generating');
+  wrap.classList.remove('generating');      /* 首字前不出现呼吸灯 */
+  wrap.classList.add('awaiting');
+  editor.classList.add('generating');       /* 仅承 cursor:progress 语义 */
   editor.contentEditable = 'false';
+  editor.innerHTML = '';                    /* 替换语义：生成＝清空重写 */
+  genWaiting = true;
+  genFinishRef = finishStream;
+  showGenLine(0);
+  genPhaseTimers.push(setTimeout(() => showGenLine(1), 1400));
+  genPhaseTimers.push(setTimeout(() => showGenLine(2), 2600));
+  genPhaseTimers.push(setTimeout(() => {
+    genWaiting = false;
+    hideGenLine();
+    wrap.classList.remove('awaiting');
+    wrap.classList.add('generating');       /* 首字到达：呼吸灯在编辑体上亮起 */
+    startTyping();
+  }, 4300));
   const blocks = [
     "信标再次亮起时，沉舟正在核对航线。这一次光没有停在她眼前，而是从导航屏上流过，像一条细长的河流，指向同一个坐标——冰卫星，裂谷，界碑。",
     "她本该害怕。但奇怪的是，当「拾荒者」的船头转向那颗灰色的冰卫星时，她心里只剩下一件事：希望那道信号，真的是在等她。",
@@ -3072,6 +3127,7 @@ function streamGenerate() {
   let bi = 0, pi = 0;
   const total = blocks.reduce((a, b) => a + b.length, 0);
   let written = 0;
+  function startTyping() {
   streamTimer = setInterval(() => {
     if (aiAbort) { finishStream(); return; }
     if (bi >= blocks.length) { finishStream(); return; }
@@ -3091,7 +3147,12 @@ function streamGenerate() {
     if (written >= total) finishStream();
     else if (pi >= block.length) { pi = 0; bi++; }
   }, 30);
+  }
   function finishStream() {
+    genPhaseTimers.forEach(clearTimeout); genPhaseTimers = [];
+    genWaiting = false; genFinishRef = null;
+    hideGenLine();
+    wrap.classList.remove('awaiting', 'generating');
     clearInterval(streamTimer);
     $('aiStreaming').hidden = true;
     editor.classList.remove('generating');
@@ -3107,7 +3168,10 @@ function streamGenerate() {
     toast('AI 生成完成 · 已保存');
   }
 }
-$('btnStopAi').addEventListener('click', () => { aiAbort = true; });
+$('btnStopAi').addEventListener('click', () => {
+  aiAbort = true;
+  if (genWaiting && genFinishRef) genFinishRef();   /* 等待期停止＝直接收尾（产品语义） */
+});
 
 /* 进度卡目标编辑 */
 if ($('targetText')) $('targetText').addEventListener('click', () => {

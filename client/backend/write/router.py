@@ -56,46 +56,116 @@ async def _stream_chapter(
     project,
     root_path: str,
     chapter_ref: str,
-    ctx,
-    prompt: str,
     *,
+    prompt_override: str = "",
     override_client=None,
     override_model: str = "",
     override_config_id: str = "",
 ):
     """Generate chapter text via AI streaming, save on completion (BE-01: 写完刷新 DB 元数据).
 
+    事件契约（c-prose-gen-phases）：`phase`（assemble|prompt|model，标记当前阶段**开始**）
+    → `chunk`* → `done`｜`error`。阶段事件按真实进度下发，供首字前等待呈现消费
+    （SHALL NOT 用固定时长剧本充数）。
+
     三工序（ai-prompt-crafting）：①system 注入写作铁律；②完成时字数校验（<90% 提示不拦）；
     ③完成时叙事自查清单（提示性质）——随 done 事件返回。
+
+    准备段（素材组装／提示词定稿／恒定层组装）在**流内**执行并包错误收尾：原实现该段在
+    响应开始之后、try 之外，一失败即「200 + 干净空流」——客户端收不到任何终态事件
+    （c-prose-stream-silent-hang 路径①）。可读 4xx 校验（会员/档位/模型就绪/排队门禁/
+    按次模型对）仍留在路由层、开流前。
 
     c-prose-model-select：`override_client` 给定时走**按次覆盖对**（开流前已校验，仅本次
     生成），否则流内按本书绑定构造；记账恒记**实际生效模型 id ＋ 配置 id**（成功/超时/失败
     三处同口径——原记别名 `haiku` 且配置为空，违反「计量层记实际模型 id」）。
     """
+    import logging
+
     from ai_client import get_ai_client_for_novel
     from chapters.service import save_chapter
+    from prompt.store import load_prompt, save_prompt
     from write.chapter_writer import (
         WRITE_CLOSING_LINE,
+        build_chapter_context,
         normalize_generated_prose,
+        should_refresh_stored_prompt,
         word_target_floor,
     )
 
-    if override_client is not None:
-        client = override_client
-        used_model = override_model
-        used_config_id = override_config_id
-    else:
-        client = await get_ai_client_for_novel(project.id)
-        used_model = effective_model(project)
-        used_config_id = project.ai_config_id or ""
+    logger = logging.getLogger(__name__)
+
+    def _phase(name: str) -> str:
+        return f"data: {json.dumps({'type': 'phase', 'phase': name}, ensure_ascii=False)}\n\n"
+
+    ctx = None
+    client = None
+    system = ""
+    prompt = ""
+    used_model = ""
+    used_config_id = ""
+    try:
+        # ① 组装本章素材（章纲／卷纲／设定／世界观／角色档案／伏笔／前情／故事状态）
+        yield _phase("assemble")
+        ctx = await build_chapter_context(
+            root_path, chapter_ref, project.name, novel_id=project.id
+        )
+        # ② 定稿提示词（弹窗覆盖 > 存量回升 > 本次组装）＋恒定层组装；阶段推进与存稿同批
+        yield _phase("prompt")
+        if prompt_override:
+            prompt = prompt_override
+        else:
+            stored = (await load_prompt(root_path, chapter_ref, "write-prompt")).strip()
+            prompt = (
+                ctx.to_user_material()
+                if should_refresh_stored_prompt(stored, ctx)
+                else (stored or ctx.to_user_material())
+            )
+        await save_prompt(root_path, chapter_ref, "write-prompt", prompt)
+        # 无覆盖直写路径：outline→prompt→write 桥接；返工回退跳过
+        if project.current_phase == "outline":
+            _advance_phase(project, "prompt")
+        _advance_phase(project, "write")
+        await db.commit()
+        # system 恒定层（c-write-prompt-layering）：本书设定组装、逐章字节一致，
+        # 铁律与仲裁句在模板 prompts/write_chapter.prompt；身份句走 resolve_persona 单源
+        system = ctx.build_system_prompt()
+        if override_client is not None:
+            client = override_client
+            used_model = override_model
+            used_config_id = override_config_id
+        else:
+            client = await get_ai_client_for_novel(project.id)
+            used_model = effective_model(project)
+            used_config_id = project.ai_config_id or ""
+    except Exception as e:  # noqa: BLE001 — 准备段失败也必须有终态事件（SHALL NOT 静默空流）
+        from prompts import PromptPackMissing
+
+        if isinstance(e, PromptPackMissing):
+            # 写作能力（提示词包）未就绪：与 503 收敛点同款留痕（c-prompt-pack-client 4.1）
+            # ——缺包信号进日志（uvicorn.error）：前端四态卡口径与测试「缺源跳过」判据同源
+            logging.getLogger("uvicorn.error").info(
+                "event=prompts_missing path=write/%s", chapter_ref
+            )
+            msg = "写作能力还没就绪 — 登录后会自动获取；也可点「重新获取」重试"
+        else:
+            msg = f"准备生成失败，可重试：{e!s}"
+        logger.warning(
+            "write prepare failed: project=%s ref=%s err=%s",
+            project.id, chapter_ref, e, exc_info=True,
+        )
+        yield (
+            "data: " + json.dumps({"type": "error", "error": msg}, ensure_ascii=False) + "\n\n"
+        )
+        return
+
     # 符号别名：模型由构造期 self._model 决定（D12，不再读 writing_model）
     model = "haiku"
-    # system 恒定层（c-write-prompt-layering）：本书设定组装、逐章字节一致，
-    # 铁律与仲裁句在模板 prompts/write_chapter.prompt；身份句走 resolve_persona 单源
-    system = ctx.build_system_prompt()
     # 收尾重申行：user 内容最末字节强制追加（同词不同句），不落库不进预览
     prompt = f"{prompt.rstrip()}\n\n{WRITE_CLOSING_LINE}"
     full_text = ""
+    # ③ 调用模型（首字前停留最久的一段；等待呈现以此阶段为当前步）
+    yield _phase("model")
 
     try:
         async for event in client.chat_stream(
@@ -296,46 +366,16 @@ async def write_chapter(
         except ValueError as e:
             raise HTTPException(400, str(e)) from e
 
-    from write.chapter_writer import build_chapter_context
-
-    ctx = await build_chapter_context(
-        project.root_path, chapter_ref, project.name, novel_id=project.id
-    )
-    if prompt_override:
-        prompt = prompt_override
-    else:
-        # 无覆盖直写：优先复用存量 write-prompt（通常是作家存稿版），与 GET 端点同优先级；
-        # 避免组装兜底静默覆盖存量稿。无存量才落兜底组装。
-        # c-chapter-seam-hardcut：存量旧组装稿缺「上章结尾」块（旧版组装的行）时回落
-        # 重组，让升级后的重生成吃到新素材；三锚判定的存量稿不受影响（守卫内保护）。
-        from prompt.store import load_prompt
-        from write.chapter_writer import should_refresh_stored_prompt
-
-        stored = (await load_prompt(project.root_path, chapter_ref, "write-prompt")).strip()
-        if should_refresh_stored_prompt(stored, ctx):
-            prompt = ctx.to_user_material()
-        else:
-            prompt = stored or ctx.to_user_material()
-
-    # Save prompt for review（chapter_prompts 表，PR④）
-    from prompt.store import save_prompt
-
-    await save_prompt(project.root_path, chapter_ref, "write-prompt", prompt)
-
-    # 无覆盖直写路径：outline→prompt→write 桥接；返工回退跳过
-    if project.current_phase == "outline":
-        _advance_phase(project, "prompt")
-    _advance_phase(project, "write")
-    await db.commit()
-
+    # c-prose-gen-phases：准备段（素材组装／提示词定稿／存稿／阶段推进／恒定层组装）
+    # 移入流内执行——阶段事件要按真实进度下发，且该段失败须以 error 事件收尾
+    # （原先在响应开始后、try 之外，失败即静默 200 空流）。开流前只保留可读 4xx 校验。
     return StreamingResponse(
         _stream_chapter(
             db,
             project,
             project.root_path,
             chapter_ref,
-            ctx,
-            prompt,
+            prompt_override=prompt_override,
             override_client=override_client,
             override_model=model_override,
             override_config_id=api_config_id,
