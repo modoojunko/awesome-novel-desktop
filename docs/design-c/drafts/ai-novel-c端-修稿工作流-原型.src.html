@@ -1,0 +1,477 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>设计原型 · 去 AI 味修稿向导（朱雀驱动）· 爱小说 C端</title>
+<!-- ═══════════════════════════════════════════════════════════════
+  设计原型 · 「去 AI 味」修稿向导（朱雀驱动）· v2 · 2026-10-10
+  ── v2 口径（用户 2026-10-10 拍板，v1 右栏面板版式作废）──────────
+  · 入口：朱雀检测完成后（检测数据在手）→ 正文右栏「去 AI 味」→ **弹窗向导**。
+  · 弹窗内＝《人味.md》第七章定义的流程，**一步一确认**：
+      ① AI 味检查（机器可查项，不耗额度）→ 确认
+      ② 选择段落（在①的问题清单上勾选；朱雀判定段默认排前）→ 确认
+      ③ 整体修改（逐段出改稿，作家当场取舍：采用 / 保留原文；全程候选，不写正文、不花检测额度）
+      ④ 应用确认（逐段对照回看 + 终选 → 一次写回正文；旧检测自动标过期，收口=顶栏重检）
+  · 数据为演示种子：样本章＝《我在夜晚打吸血鬼》第 6 章；检测数字与取舍记录为示意。
+  · 壳与标记全真：写作页壳逐字复制自 docs/design-c/pages/book-write.html；弹窗壳走
+    base.css 真实 .scrim/.modal/.mcard.wb-style；朱雀条取 zhuqueHeadStrip.tsx 真实标记；
+    段落标注 p.zq-warn/.zq-err/.zq-mark 取真实实现。新增件仅 gl- 前缀（向导步骤条与
+    对照取舍件）。样式由 build-xiugao-proto.py 从 design/*.css 逐字注入。
+  · 顶部 demo-bar 为非基线元素。
+  · 重放：python3 docs/design-c/drafts/build-xiugao-proto.py
+═══════════════════════════════════════════════════════════════ -->
+<style>
+/*__INJECT_STYLE_BASE__*/
+/*__INJECT_STYLE_BOOK__*/
+
+/* ══════════ 以下均为 gl- 新增 graft（非基线；产品落地前仅本原型） ══════════ */
+
+/* demo-bar（非基线） */
+.demo-bar { position: fixed; left: 0; right: 0; bottom: 0; z-index: 80; height: 30px; display: flex; align-items: center; gap: 14px; padding: 0 14px; background: color-mix(in oklch, var(--fg) 92%, #000); color: var(--bg); font-size: 11.5px; }
+.demo-bar .db-k { font-weight: 600; letter-spacing: 0.04em; }
+.demo-bar .db-scenes button { border: 1px solid color-mix(in oklch, var(--bg) 35%, transparent); background: transparent; color: inherit; border-radius: 999px; height: 20px; padding: 0 10px; font-size: 11px; cursor: pointer; }
+.demo-bar .db-note { margin-left: auto; color: color-mix(in oklch, var(--bg) 62%, transparent); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+/* 向导步骤条（弹窗内） */
+.gl-steps { display: flex; align-items: center; gap: 6px; padding: 0 0 2px; }
+.gl-steps .gl-step { flex: none; font-size: 11px; line-height: 1; padding: 5px 9px; border-radius: 999px; background: var(--fg-soft); color: var(--muted); white-space: nowrap; }
+.gl-steps .gl-step.done { background: var(--ok-soft); color: color-mix(in oklch, var(--ok) 80%, var(--fg)); }
+.gl-steps .gl-step.on { background: var(--accent-soft); color: var(--accent-strong); font-weight: 600; }
+.gl-steps i { flex: 1; height: 1px; background: var(--border); min-width: 6px; }
+
+/* AI 味检查清单 */
+.gl-checks { list-style: none; margin: 0; padding: 0; display: grid; gap: 5px; }
+.gl-checks li { display: flex; align-items: baseline; gap: 8px; font-size: 12.5px; color: var(--fg); padding: 7px 10px; border: 1px solid var(--border); border-radius: 8px; background: var(--bg); }
+.gl-checks li span { color: var(--muted); }
+.gl-checks li b { font-family: var(--font-mono); font-variant-numeric: tabular-nums; font-weight: 600; }
+.gl-checks li em { font-style: normal; color: var(--faint); font-size: 11px; margin-left: auto; }
+
+/* 检测数据摘要 + 问题段落列表 */
+.gl-ratio-row { display: flex; align-items: center; gap: 14px; padding: 9px 12px; border: 1px solid var(--border); border-radius: 8px; background: var(--bg); }
+.gl-ratio-row .gl-big { font-family: var(--font-mono); font-variant-numeric: tabular-nums; font-size: 20px; font-weight: 600; color: var(--fg); }
+.gl-ratio-row .gl-sub { font-size: 11px; color: var(--muted); line-height: 1.6; }
+.gl-heats { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; }
+.gl-heat { display: flex; align-items: center; gap: 9px; padding: 8px 10px; border: 1px solid var(--border); border-radius: 8px; background: var(--bg); }
+.gl-heat.on { border-color: var(--accent); background: var(--accent-soft); }
+.gl-heat input { accent-color: var(--accent); }
+.gl-heat .gl-conf { flex: none; font-family: var(--font-mono); font-variant-numeric: tabular-nums; font-size: 11px; font-weight: 600; line-height: 1; padding: 4px 7px; border-radius: 999px; }
+.gl-conf.m-err { background: var(--err-soft); color: color-mix(in oklch, var(--err) 90%, var(--fg)); }
+.gl-conf.m-warn { background: var(--warn-soft); color: color-mix(in oklch, var(--warn) 85%, var(--fg)); }
+.gl-heat-t { font-size: 12.5px; color: var(--fg); line-height: 1.5; }
+.gl-heat-t em { display: block; font-style: normal; font-size: 11px; color: var(--muted); }
+
+/* 逐处修卡片 */
+.gl-quote { margin: 0; padding: 8px 11px; border-left: 2px solid var(--accent); background: var(--fg-soft); border-radius: 0 8px 8px 0; font-size: 12.5px; line-height: 1.8; color: var(--fg); }
+.gl-ab { display: grid; gap: 5px; }
+.gl-ab p { margin: 0; font-size: 12px; line-height: 1.8; padding: 6px 10px; border-radius: 8px; }
+.gl-ab .gl-ab-b { background: var(--err-soft); color: color-mix(in oklch, var(--err) 55%, var(--fg)); }
+.gl-ab .gl-ab-a { background: var(--ok-soft); color: color-mix(in oklch, var(--ok) 60%, var(--fg)); }
+.gl-ab p::before { font-family: var(--font-mono); font-weight: 600; margin-right: 6px; }
+.gl-ab .gl-ab-b::before { content: "前"; }
+.gl-ab .gl-ab-a::before { content: "后"; }
+.gl-meta { display: flex; align-items: baseline; gap: 8px; font-size: 12px; color: var(--muted); }
+.gl-meta b { color: var(--fg); font-weight: 600; }
+.gl-runs { list-style: none; margin: 0; padding: 0; display: grid; gap: 4px; }
+.gl-runs li { display: flex; align-items: baseline; gap: 8px; font-size: 11.5px; color: var(--fg); padding: 6px 10px; border-radius: 8px; background: var(--bg); border: 1px solid var(--border); }
+.gl-runs li b { margin-left: auto; font-family: var(--font-mono); font-variant-numeric: tabular-nums; font-weight: 600; white-space: nowrap; }
+.gl-runs li em { font-style: normal; font-size: 11px; white-space: nowrap; }
+.gl-runs li.up em { color: color-mix(in oklch, var(--ok) 80%, var(--fg)); }
+.gl-runs li.down em { color: color-mix(in oklch, var(--err) 80%, var(--fg)); }
+
+/* 对照取舍 */
+.gl-pair { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.gl-pair .gl-col-k { font-size: 11px; color: var(--faint); margin: 0 0 4px; }
+.gl-pair p { margin: 0; font-size: 12px; line-height: 1.8; padding: 8px 10px; border: 1px solid var(--border); border-radius: 8px; background: var(--bg); }
+.gl-pair .gl-new { border-color: color-mix(in oklch, var(--ok) 45%, var(--border)); background: var(--ok-soft); }
+.gl-pick { display: inline-flex; gap: 0; border: 1px solid var(--border); border-radius: 999px; overflow: hidden; }
+.gl-pick button { border: 0; background: var(--bg); color: var(--muted); font-size: 11.5px; height: 26px; padding: 0 12px; cursor: pointer; }
+.gl-pick button.on { background: var(--accent-soft); color: var(--accent-strong); font-weight: 600; }
+.gl-diff-row { display: grid; gap: 8px; padding: 12px; border: 1px solid var(--border); border-radius: 10px; background: var(--surface); }
+.gl-diff-row.dropped { opacity: 0.6; }
+.gl-diff-head { display: flex; align-items: center; gap: 8px; font-size: 12px; color: var(--fg); }
+.gl-diff-head .gl-tag { margin-left: 0; }
+.gl-hint { margin: 0; font-size: 11px; line-height: 1.7; color: var(--faint); }
+.gl-sec-title { margin: 0; font-size: 12.5px; font-weight: 600; color: var(--fg); }
+
+/* 正文当前段高亮（修稿步联动） */
+.editor p.gl-cur { outline: 1.5px solid var(--accent); outline-offset: 5px; border-radius: 4px; }
+
+/* 弹窗参数 */
+.gl-wizard .mcard { width: min(840px, 94vw); }
+.gl-wizard .mcard-body { display: grid; gap: 12px; }
+.gl-pane { display: grid; gap: 10px; }
+.gl-pane[hidden] { display: none; }
+.gl-foot { display: flex; align-items: center; gap: 8px; padding: 12px 22px 18px; border-top: 1px solid var(--border); }
+.gl-foot .gl-note { margin-left: auto; font-size: 11px; color: var(--faint); }
+</style>
+</head>
+<body>
+
+<!-- demo-bar（非基线元素；仅供原型浏览） -->
+<div class="demo-bar">
+  <span class="db-k">原型 v2 · 去 AI 味修稿向导</span>
+  <span class="db-scenes"><button id="gl-reopen">重开弹窗</button></span>
+  <span class="db-note">入口：朱雀检测完成 → 右栏「去 AI 味」→ 弹窗向导：AI 味检查 → 选择段落 → 整体修改 → 应用（收口=顶栏朱雀条重检）</span>
+</div>
+
+<div class="wb">
+
+  <!-- ═══ appbar（真实壳） ═══ -->
+  <header class="appbar appbar-wb">
+    <a class="logo" href="#"><span class="logo-mark">爱</span>爱小说</a>
+    <span class="sep"></span>
+    <span class="novel-title serif">我在夜晚打吸血鬼</span>
+    <span class="genre-tag">西式奇幻 · 黑暗奇幻</span>
+    <span class="sep"></span>
+    <div class="bar-here">
+      <p class="bh-k">当前主线</p>
+      <span class="bh-rule" aria-hidden="true"></span>
+      <p class="bh-t"><span class="n">第 6 章</span>值夜</p>
+      <span class="bh-tag bh-tag-live">草稿</span>
+      <div class="bh-prog">
+        <span class="bh-vol">第一卷 · 6/12</span>
+        <span class="prog-bar"><span style="width:50%"></span></span>
+      </div>
+      <button class="btn btn-primary btn-sm">续写</button>
+    </div>
+    <span class="spacer" style="flex:1"></span>
+    <span class="badge badge-accent">MAX</span>
+  </header>
+
+  <!-- ═══ modnav（真实壳） ═══ -->
+  <nav class="modnav">
+    <a class="mtab" href="#"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" width="15" height="15"><path d="M12 20h9M16.5 3.5a2.1 2.1 0 013 3L7 19l-4 1 1-4L16.5 3.5z"/></svg>设定 <span class="cnt">5/7</span></a>
+    <a class="mtab on" href="#" aria-current="page"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" width="15" height="15"><path d="M4 6h16M4 12h16M4 18h10"/></svg>写作 <span class="cnt">6/12 章纲</span></a>
+    <a class="mtab" href="#"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" width="15" height="15"><path d="M2 12s3.5-6 10-6 10 6 10 6-3.5 6-10 6S2 12 2 12z"/><circle cx="12" cy="12" r="2.5"/></svg>预览</a>
+    <span class="spacer"></span>
+    <span class="side">写作 · 卷有卷纲；点章即可配章纲、提示词并写正文</span>
+  </nav>
+
+  <div class="view on three-col">
+
+    <!-- ═══ 左：目录树（真实壳，节选） ═══ -->
+    <aside class="col-tree">
+      <div class="tree-head">
+        <span class="t">目录 · <b>1 卷 12 章</b></span>
+        <button class="icon-btn" title="新增一章">＋</button>
+      </div>
+      <div style="padding:6px 10px 0">
+        <p class="f-hint" style="margin:4px 2px">第一卷 · 夜禁之下 · 6/12</p>
+        <button class="rail-card" style="text-align:left;width:100%"><b>第 5 章 · 补档</b><span class="f-hint">已归档 · 2,760 字</span></button>
+        <button class="rail-card" style="text-align:left;width:100%;border-color:var(--accent)"><b>第 6 章 · 值夜</b><span class="f-hint">草稿 · 1,180 字</span></button>
+        <button class="rail-card" style="text-align:left;width:100%"><b>第 7 章 · 待拆</b><span class="f-hint">未排剧情</span></button>
+      </div>
+    </aside>
+
+    <!-- ═══ 中：正文（真实壳；检测标注已在正文） ═══ -->
+    <main class="col-middle">
+      <div class="col-editor" data-state="chapter">
+        <div class="ch-tabs" role="tablist" aria-label="章对象">
+          <button class="chtab" role="tab">章纲</button>
+          <button class="chtab on" role="tab" aria-selected="true">正文</button>
+          <button class="chtab" role="tab">提示词</button>
+          <button class="chtab" role="tab">设定</button>
+          <button class="chtab" role="tab">文风</button>
+          <button class="chtab" role="tab">操作</button>
+        </div>
+
+        <!-- 标题行：章题 + 朱雀结果条（真实组件标记 zq-hd） -->
+        <div class="ol-top" style="padding-right:14px">
+          <span class="note" style="font-weight:600;color:var(--fg)">第 6 章 · 值夜</span>
+          <span class="push" style="flex:1"></span>
+          <div class="zq-hd" id="gl-zqstrip">
+            <div class="hd-bar"><i style="width:37%;background:color-mix(in oklch, var(--ok) 72%, transparent)"></i><i style="width:34%;background:color-mix(in oklch, var(--warn) 72%, transparent)"></i><i style="width:29%;background:color-mix(in oklch, var(--err) 72%, transparent)"></i></div>
+            <div class="hd-ratio">
+              <span class="lg"><i style="background:color-mix(in oklch, var(--ok) 72%, transparent)"></i>人工 <b>37%</b></span>
+              <span class="lg"><i style="background:color-mix(in oklch, var(--warn) 72%, transparent)"></i>疑似 AI <b>34%</b></span>
+              <span class="lg"><i style="background:color-mix(in oklch, var(--err) 72%, transparent)"></i>AI <b>29%</b></span>
+              <span style="font-size:10.5px;color:var(--muted)">概率参考 · 非平台判定 · 10-10 检测</span>
+              <span class="hd-act"><button class="btn btn-ghost" style="font-size:11px;height:22px;padding:0 7px">清除标注</button><button class="btn btn-ghost" style="font-size:11px;height:22px;padding:0 7px">重检</button></span>
+            </div>
+          </div>
+        </div>
+
+        <div class="editor-wrap editing">
+          <div class="ol-top edit-bar">
+            <span class="push">
+              <span class="note">正在编辑正文 · 1,180 字</span>
+              <span class="note">写完自动保存</span>
+            </span>
+          </div>
+          <div class="editor-host">
+            <div class="editor" id="gl-prose">
+              <p id="gl-p1">哨站里只剩林野一个人。他把巡更表翻到最后一页，又合上，掌心的凉从纸面透回来。</p>
+              <p id="gl-p2" class="zq-err">掌心贴上砖墙，一片冰凉。“撑住，撑住。”他对着煤炉低声说，“熬到天亮就好了，别出岔子。”炉膛里的火苗跳了一下，没人接话。<span class="zq-mark m-err">71%</span></p>
+              <p id="gl-p3">门轴响了一声，阿蓟探进半个脑袋，肩上还挂着短铳：“林野？我落东西了。”</p>
+              <p id="gl-p4" class="zq-warn">他的心跳忽地漏了一拍，他知道这是血源反噬的开始，这意味着他撑不过明夜的出勤。<span class="zq-mark m-warn">58%</span></p>
+              <p id="gl-p5">“拿了就走。”林野把手收进袖口，压在旧咬痕上。阿蓟盯着他看了两秒，把巡更表从桌上捞起来，退到门外。</p>
+              <p id="gl-p6" class="zq-warn">天亮前阿蓟把体温计递过来。林野接过去甩了甩。水银柱停在一个活人不会有的高度。阿蓟愣了愣。骂了句这破表该换了。林野没接话，把短刃收回鞘里。<span class="zq-mark m-warn">52%</span></p>
+            </div>
+          </div>
+        </div>
+      </div>
+    </main>
+
+    <!-- ═══ 右：本章进度 + AI 工具（真实壳；去 AI 味＝弹窗入口） ═══ -->
+    <aside class="col-ai" data-state="chapter">
+      <p class="progress-head">本章进度</p>
+      <div class="pct num">1,180<span class="sub">/2,500</span></div>
+      <div class="pbar"><i style="width:47%"></i></div>
+      <div class="target-row"><span>目标 2,500 字</span><button class="edit">改</button></div>
+
+      <p class="ai-sec">AI 工具</p>
+      <div class="ai-feat">
+        <div class="ai-feat-head"><b>生成正文</b></div>
+        <p>按已确认的章纲与设定写正文，先出提示词预览。</p>
+        <button class="btn btn-secondary btn-sm">生成</button>
+      </div>
+      <div class="ai-tool" style="border-color:var(--accent)">
+        <div class="ai-feat-head"><b>去 AI 味</b></div>
+        <p>朱雀检测数据在手（人味 37% · 判定段 3 处）。打开修稿向导：AI 味检查 → 选择段落 → 整体修改 → 应用。</p>
+        <button class="btn btn-primary btn-sm" id="gl-open">去 AI 味</button>
+      </div>
+      <div class="ai-tool"><div class="ai-feat-head"><b>章节体检</b></div><p>逻辑硬伤 / 风格跑偏 / 人物走形 / 节奏失衡。</p><button class="btn btn-secondary btn-sm">体检</button></div>
+      <div class="mini-stat">
+        <div class="row"><span>本书字数</span><b class="num">41,300</b></div>
+        <div class="row"><span>已归档</span><b class="num">5/12 章</b></div>
+      </div>
+    </aside>
+
+  </div>
+</div>
+
+<!-- ══════════════ 弹窗：去 AI 味 · 修稿向导（gl- 新增 graft · 本原型主体） ══════════════ -->
+<div class="scrim" id="gl-scrim" hidden></div>
+<div class="modal gl-wizard" id="gl-modal" hidden>
+  <div class="mcard wb-style">
+    <div class="mcard-head">
+      <span class="mh">去 AI 味 · 第 6 章</span>
+      <button class="icon-btn x" id="gl-close" aria-label="关闭">✕</button>
+    </div>
+    <div class="mcard-body">
+      <p class="hint" style="margin:0">朱雀检测数据已在手（人味 <b class="num">37%</b> · 判定段 3 处）。流程按《人味.md》第七章裁剪：查问题 → 选段落 → 逐段出改稿、当场取舍 → 应用；之后到顶部重检一次看效果。</p>
+
+      <div class="gl-steps" id="gl-steps">
+        <span class="gl-step on" data-step="1">① AI 味检查</span><i></i>
+        <span class="gl-step" data-step="2">② 选择段落</span><i></i>
+        <span class="gl-step" data-step="3">③ 整体修改</span><i></i>
+        <span class="gl-step" data-step="4">④ 应用确认</span>
+      </div>
+
+      <!-- ① AI 味检查 -->
+      <div class="gl-pane" data-pane="1">
+        <p class="gl-sec-title">AI 味检查 · 机器可查项（不耗检测额度）</p>
+        <ul class="gl-checks">
+          <li><span>段内句号 &gt; 1</span><b>6 处</b><em>可清</em></li>
+          <li><span>相邻段首同词</span><b>1 处</b><em>可清</em></li>
+          <li><span>罐装反应句</span><b>1 处</b><em>可清</em></li>
+          <li><span>逗句比</span><b>2.1</b><em>目标 ≥ 2.3，随修稿抬升</em></li>
+          <li><span>比喻词（仿佛 / 似的）</span><b>0</b><em>达标</em></li>
+        </ul>
+        <p class="gl-hint">机器可查项先清一遍再进入修稿——省检测次数（7.6 第一步）。</p>
+      </div>
+
+      <!-- ② 选择段落（问题清单勾选） -->
+      <div class="gl-pane" data-pane="2" hidden>
+        <div class="gl-ratio-row">
+          <b class="gl-big">37%</b>
+          <span class="gl-sub">人味占比（labels_ratio[0]）· 达标线 50%<br>疑似 34% · AI 29% · 判定段 3 处（置信度 ≥ 0.5）</span>
+        </div>
+        <p class="gl-sec-title">问题清单 · 勾选要修的段落</p>
+        <ul class="gl-heats">
+          <li class="gl-heat"><input type="checkbox" checked><span class="gl-conf m-err">71%</span><span class="gl-heat-t">段 2 · 引号独白干挂<em>建议改法：独白去引号化</em></span></li>
+          <li class="gl-heat"><input type="checkbox" checked><span class="gl-conf m-warn">58%</span><span class="gl-heat-t">段 4 · 解释尾巴「这意味着」<em>建议改法：删解释尾巴</em></span></li>
+          <li class="gl-heat on"><input type="checkbox" checked><span class="gl-conf m-warn">52%</span><span class="gl-heat-t">段 6 · 短截句号密 + 罐装反应<em>建议先修 · 最靠前 + 贴线</em></span></li>
+        </ul>
+        <p class="gl-hint">来源两栏：朱雀判定（带百分比）＋ AI 味检查命中的段；默认全选，不修的取消勾选。</p>
+      </div>
+
+      <!-- ③ 整体修改（逐段出改稿 · 当场取舍） -->
+      <div class="gl-pane" data-pane="3" hidden>
+        <p class="gl-meta"><b id="gl-fix-progress">第 1 / 3 段</b><span id="gl-fix-seg">段 2 · 朱雀判定 71%</span><span style="margin-left:auto">候选 · 应用前不写正文</span></p>
+        <p class="gl-meta"><b>问题：</b><span id="gl-fix-dx">整段独白干挂在引号里</span></p>
+        <blockquote class="gl-quote" id="gl-fix-before">掌心贴上砖墙，一片冰凉。“撑住，撑住。”他对着煤炉低声说，“熬到天亮就好了，别出岔子。”炉膛里的火苗跳了一下，没人接话。</blockquote>
+        <div class="gl-ab">
+          <p class="gl-ab-a" id="gl-fix-after">掌心贴上砖墙，一片冰凉。他缩在煤炉边嘟囔了句撑住，熬到天亮就好了，声音低得自己都没听清，炉膛里的火苗跳了一下，没人接话。</p>
+        </div>
+        <p class="gl-hint" id="gl-fix-why">建议改法：独白去引号化——整段独白改成叙述句带出，全章留最狠的一两处就够。</p>
+        <ul class="gl-runs" id="gl-runs"></ul>
+      </div>
+
+      <!-- ④ 对照取舍 -->
+      <div class="gl-pane" data-pane="4" hidden>
+        <div class="gl-ratio-row">
+          <b class="gl-big">3 段</b>
+          <span class="gl-sub">本轮处理完毕：采用 2 段 · 保留原文 1 段<br>应用后正文更新，旧检测结果标为「已过期」——到顶部重检一次看效果</span>
+        </div>
+        <div class="gl-diff-row">
+          <div class="gl-diff-head"><span class="pill pill-accent">段 2</span><span>独白去引号化</span><span class="gl-tag ok" style="margin-left:auto">已采用</span></div>
+          <div class="gl-pair">
+            <div><p class="gl-col-k">原文</p><p>掌心贴上砖墙，一片冰凉。“撑住，撑住。”他对着煤炉低声说，“熬到天亮就好了，别出岔子。”炉膛里的火苗跳了一下，没人接话。</p></div>
+            <div><p class="gl-col-k">润色后</p><p class="gl-new">掌心贴上砖墙，一片冰凉。他缩在煤炉边嘟囔了句撑住，熬到天亮就好了，声音低得自己都没听清，炉膛里的火苗跳了一下，没人接话。</p></div>
+          </div>
+          <div class="gl-pick" data-pick="p2"><button class="on">采用修改</button><button>保留原文</button></div>
+        </div>
+        <div class="gl-diff-row">
+          <div class="gl-diff-head"><span class="pill pill-tag">段 6</span><span>句号合并 + 换具体动作</span><span class="gl-tag ok" style="margin-left:auto">已采用</span></div>
+          <div class="gl-pair">
+            <div><p class="gl-col-k">原文</p><p>天亮前阿蓟把体温计递过来。林野接过去甩了甩。水银柱停在一个活人不会有的高度。阿蓟愣了愣。骂了句这破表该换了。林野没接话，把短刃收回鞘里。</p></div>
+            <div><p class="gl-col-k">润色后</p><p class="gl-new">天亮前阿蓟把体温计递过来，林野接过去甩了两下，水银柱停在活人不会有的高度，阿蓟把表翻过来又看了看，骂了句这破表该换了，林野没接话，把短刃收回鞘里。</p></div>
+          </div>
+          <div class="gl-pick" data-pick="p6"><button class="on">采用修改</button><button>保留原文</button></div>
+        </div>
+        <div class="gl-diff-row dropped">
+          <div class="gl-diff-head"><span class="pill pill-tag">段 4</span><span>删解释尾巴（「这意味着」）</span><span class="gl-tag" style="margin-left:auto">保留原文</span></div>
+          <p class="gl-hint">这一段你选了保留原文：应用时保持原样，不改。</p>
+        </div>
+        <p class="gl-hint">最后的反悔口：这里还能逐段改主意；「应用到正文」后走顶部朱雀条重检收口。</p>
+      </div>
+    </div>
+
+    <div class="gl-foot">
+      <button class="btn btn-primary" id="gl-next">清理机器项并继续</button>
+      <button class="btn btn-secondary" id="gl-keep" hidden>这段保留原文</button>
+      <button class="btn btn-ghost" id="gl-cancel">取消</button>
+      <span class="gl-note" id="gl-foot-note">AI 味检查不耗检测额度 · 收口重检 1 次</span>
+    </div>
+  </div>
+</div>
+
+<script>
+(function () {
+  "use strict";
+  var modal = document.getElementById("gl-modal");
+  var scrim = document.getElementById("gl-scrim");
+  var steps = Array.prototype.slice.call(document.querySelectorAll("#gl-steps .gl-step"));
+  var panes = Array.prototype.slice.call(document.querySelectorAll(".gl-pane"));
+  var next = document.getElementById("gl-next");
+  var footNote = document.getElementById("gl-foot-note");
+  var runs = document.getElementById("gl-runs");
+  var cur = 1;            // 当前步
+  var fixIdx = 0;         // 当前问题段
+
+  // 三段问题段落的演示数据（改法逐条对应 7.5 战法；数字为示意）
+  var SEGS = [
+    { seg: "段 2 · 朱雀判定 71%", dx: "整段独白干挂在引号里",
+      before: "掌心贴上砖墙，一片冰凉。“撑住，撑住。”他对着煤炉低声说，“熬到天亮就好了，别出岔子。”炉膛里的火苗跳了一下，没人接话。",
+      after: "掌心贴上砖墙，一片冰凉。他缩在煤炉边嘟囔了句撑住，熬到天亮就好了，声音低得自己都没听清，炉膛的火苗跳了一下，没人接话。",
+      why: "建议改法：独白去引号化——整段独白改成叙述句带出，全章留最狠的一两处就够。",
+      el: "gl-p2", run: "段 2 · 独白去引号化" },
+    { seg: "段 4 · 朱雀判定 58%", dx: "解释尾巴「这意味着」（叙述者下结论）",
+      before: "他的心跳忽地漏了一拍，他知道这是血源反噬的开始，这意味着他撑不过明夜的出勤。",
+      after: "心跳忽地漏了一拍。",
+      why: "建议改法：删掉「这意味着」这类替读者下结论的半句，只留动作与所见。",
+      el: "gl-p4", run: "段 4 · 删解释尾巴" },
+    { seg: "段 6 · 朱雀判定 52%", dx: "短句太密 + 罐装反应「愣了愣」",
+      before: "天亮前阿蓟把体温计递过来。林野接过去甩了甩。水银柱停在一个活人不会有的高度。阿蓟愣了愣。骂了句这破表该换了。林野没接话，把短刃收回鞘里。",
+      after: "天亮前阿蓟把体温计递过来，林野接过去甩了两下，水银柱停在活人不会有的高度，阿蓟把表翻过来又看了看，骂了句这破表该换了，林野没接话，把短刃收回鞘里。",
+      why: "建议改法：一口气读完的动作用逗号连起来；「愣了愣」换成他手上的动作。",
+      el: "gl-p6", run: "段 6 · 句号合并＋换具体动作" }
+  ];
+
+  function setStep(n) {
+    cur = n;
+    steps.forEach(function (s) {
+      var k = +s.dataset.step;
+      s.classList.toggle("done", k < n);
+      s.classList.toggle("on", k === n);
+    });
+    panes.forEach(function (p) { p.hidden = +p.dataset.pane !== n; });
+    if (n === 1) { next.textContent = "清理机器项并继续"; footNote.textContent = "AI 味检查不耗检测额度 · 收口重检 1 次"; }
+    if (n === 2) { next.textContent = "开始修改（3 段）"; footNote.textContent = "已选 3 段 · 修改全程为候选，应用前不写正文"; }
+    document.getElementById("gl-keep").hidden = n !== 3;
+    if (n === 3) { next.textContent = "采用改稿，看下一段"; footNote.textContent = "修改全程为候选 · 应用前不写正文、不花检测额度"; renderFix(); }
+    if (n === 4) { next.textContent = "应用到正文"; footNote.textContent = "应用后旧检测标为过期 · 顶部重检一次收口"; }
+  }
+
+  function renderFix() {
+    var s = SEGS[fixIdx];
+    document.getElementById("gl-fix-progress").textContent = "第 " + (fixIdx + 1) + " / " + SEGS.length + " 处";
+    document.getElementById("gl-fix-seg").textContent = s.seg;
+    document.getElementById("gl-fix-dx").textContent = s.dx;
+    document.getElementById("gl-fix-before").textContent = s.before;
+    document.getElementById("gl-fix-after").textContent = s.after;
+    document.getElementById("gl-fix-why").textContent = s.why;
+    document.querySelectorAll(".editor p.gl-cur").forEach(function (p) { p.classList.remove("gl-cur"); });
+    var el = document.getElementById(s.el);
+    if (el) el.classList.add("gl-cur");
+  }
+
+  function adopt(keepOriginal) {
+    var s = SEGS[fixIdx];
+    var li = document.createElement("li");
+    li.className = keepOriginal ? "down" : "up";
+    li.innerHTML = "<span>" + s.run + "</span><b>" + (keepOriginal ? "保留原文" : "采用改稿") + "</b>";
+    runs.appendChild(li);
+    runs.scrollTop = runs.scrollHeight;
+    fixIdx += 1;
+    if (fixIdx < SEGS.length) {
+      renderFix();
+    } else {
+      document.querySelectorAll(".editor p.gl-cur").forEach(function (p) { p.classList.remove("gl-cur"); });
+      next.textContent = "查看应用确认";
+      document.getElementById("gl-keep").hidden = true;
+    }
+  }
+
+  function applyToProse() {
+    // 取舍：默认「采用修改」的两段写回；选「保留原文」的跳过
+    [["p2", "gl-p2"], ["p6", "gl-p6"]].forEach(function (pair) {
+      var pick = document.querySelector('.gl-pick[data-pick="' + pair[0] + '"]');
+      if (pick && pick.querySelector("button.on").textContent === "保留原文") return;
+      var el = document.getElementById(pair[1]);
+      if (!el) return;
+      var idx = pair[0] === "p2" ? 0 : 2;
+      el.classList.remove("zq-err", "zq-warn");
+      el.textContent = SEGS[idx].after;   // 覆盖后标注章随旧文本一并清除（应用后建议重检）
+    });
+    // 朱雀结果条 → stale（真实口径：正文已修改，结果可能过期）
+    var strip = document.getElementById("gl-zqstrip");
+    strip.classList.add("stale");
+    strip.innerHTML =
+      '<div class="hd-bar"><i style="width:37%;background:color-mix(in oklch, var(--ok) 72%, transparent)"></i><i style="width:34%;background:color-mix(in oklch, var(--warn) 72%, transparent)"></i><i style="width:29%;background:color-mix(in oklch, var(--err) 72%, transparent)"></i></div>' +
+      '<div class="hd-ratio"><span style="font-size:10.5px;color:var(--muted)">正文已修改，结果可能过期</span>' +
+      '<span class="hd-act"><button class="btn btn-ghost" style="font-size:11px;height:22px;padding:0 7px">重检</button></span></div>';
+    close();
+  }
+
+  function open() {
+    modal.hidden = false; scrim.hidden = false;
+    requestAnimationFrame(function () { modal.classList.add("show"); scrim.classList.add("show"); });
+    setStep(1);
+  }
+  function close() {
+    modal.classList.remove("show"); scrim.classList.remove("show");
+    setTimeout(function () { modal.hidden = true; scrim.hidden = true; }, 200);
+  }
+
+  next.addEventListener("click", function () {
+    if (cur === 1 || cur === 2) { setStep(cur + 1); return; }
+    if (cur === 3) {
+      if (document.getElementById("gl-runs").children.length >= SEGS.length) { setStep(4); return; }
+      adopt(true);
+      return;
+    }
+    if (cur === 4) applyToProse();
+  });
+  document.getElementById("gl-keep").addEventListener("click", function () { adopt(false); });
+  document.getElementById("gl-cancel").addEventListener("click", close);
+  document.getElementById("gl-close").addEventListener("click", close);
+  scrim.addEventListener("click", close);
+  document.getElementById("gl-open").addEventListener("click", open);
+  document.getElementById("gl-reopen").addEventListener("click", open);
+  document.querySelectorAll(".gl-pick").forEach(function (pick) {
+    pick.querySelectorAll("button").forEach(function (b) {
+      b.addEventListener("click", function () {
+        pick.querySelectorAll("button").forEach(function (x) { x.classList.remove("on"); });
+        b.classList.add("on");
+      });
+    });
+  });
+
+  open();  // 原型默认打开弹窗便于评审
+})();
+</script>
+</body>
+</html>

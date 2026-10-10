@@ -196,6 +196,50 @@ async function doJsonPost(
   }
 }
 
+/** AI 味检查出参（c-deai-wizard ①；段号为 0-based 非空段序，与朱雀 segments 同轨）。 */
+export interface AiFlavorScanFinding {
+  rule: string;
+  severity: "blocking" | "advisory";
+  para: number;
+  excerpt: string;
+  detail: string;
+  count: number;
+  autofixable: boolean;
+}
+
+export interface AiFlavorScanResult {
+  ok: true;
+  report: {
+    metrics: {
+      comma_period_ratio: number | null;
+      short_para_ratio: number | null;
+      dialogue_ratio: number | null;
+    };
+    findings: AiFlavorScanFinding[];
+    para_count: number;
+  };
+  problems: Array<{
+    para: number;
+    text: string;
+    source: "detector" | "rule" | "both";
+    confidence: number | null;
+    reasons: string[];
+    suggested_fix: string;
+  }>;
+  detector: { stored: boolean; human_ratio: number | null; stale_hint: null };
+}
+
+/** AI 味检查（本地规则扫描＋读检测存档；0 模型 0 检测额度）。 */
+export async function aiFlavorScan(
+  projectId: string,
+  chapterRef: string,
+): Promise<AiFlavorScanResult> {
+  return await doJsonPost(
+    `${API_BASE}/novels/${projectId}/chapters/${chapterRef}/ai-flavor-scan`,
+    {},
+  );
+}
+
 export async function polishText(
   projectId: string,
   chapterRef: string,
@@ -208,6 +252,29 @@ export async function polishText(
     { selected_text: selectedText, context_before: contextBefore, context_after: contextAfter },
   );
   return data.polished_text;
+}
+
+/** polish 完整出参（c-deai-wizard 修稿向导用：changed/flags 供向导做质量兜底呈现）。 */
+export interface PolishTextDetail {
+  polished_text: string;
+  /** 空白折叠后与选区比对派生——false＝确诊为零的合法无操作 */
+  changed: boolean;
+  flags: Array<{ level: string; kind: string; detail: string }>;
+  flags_blocking: boolean;
+}
+
+/** 同 polishText，但返回完整出参（含 changed/flags）。 */
+export async function polishTextDetail(
+  projectId: string,
+  chapterRef: string,
+  selectedText: string,
+  contextBefore: string,
+  contextAfter: string,
+): Promise<PolishTextDetail> {
+  return await doJsonPost(
+    `${API_BASE}/novels/${projectId}/chapters/${chapterRef}/write/polish`,
+    { selected_text: selectedText, context_before: contextBefore, context_after: contextAfter },
+  ) as PolishTextDetail;
 }
 
 // ---------------------------------------------------------------------------

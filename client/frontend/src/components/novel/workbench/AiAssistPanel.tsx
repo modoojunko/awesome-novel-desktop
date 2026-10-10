@@ -445,6 +445,19 @@ export function AiAssistPanel({
         hint: !aiPolish ? upgradeHintOf("ai-polish") : !aiState?.hasSelection ? "先在正文选中一段" : aiState?.polishLoading ? "生成中" : undefined,
         testid: "ai-polish",
       }),
+      // c-deai-wizard：修稿向导（整章清单驱动；规则模式不要求检测存档）
+      cap("polish-wizard", "去AI味 · 修稿向导", "整章按问题清单逐段清AI味——查问题/选段落/改稿/应用，全程你拍板", {
+        onClick: () => proseRef?.current?.openPolishWizard?.(),
+        disabled: streaming || !aiPolish || wordCount === 0 || archived
+          || zq.state.status === "running" || zq.state.stale,
+        hint: !aiPolish ? upgradeHintOf("ai-polish")
+          : wordCount === 0 ? "先写正文"
+          : zq.state.status === "running" ? "检测中"
+          : zq.state.stale ? "正文已修改，先到顶部重检"
+          : archived ? "已归档 · 先恢复编辑再用向导"
+          : undefined,
+        testid: "ai-polish-wizard",
+      }),
     ];
     // c-zhuque-ai-detect：朱雀检测行（四态）
     // 无 ai-detect 权益（免费/试用，快照无该 key）→ maxlk 锁定（免费档整卡锁定承载；会员行级锁定），点击统一升级出口
