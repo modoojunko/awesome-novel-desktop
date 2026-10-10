@@ -11,9 +11,11 @@
 
 - [x] 2.1 提示词仓 `sync.py` CURATED：write_chapter `{cast_anchors}` 占位符描述同步（cb4d53b；模板正文零改动；lint＋50 绿）
 - [x] 2.2 演示栈重建：compose build client-backend ＋ up -d，容器内验证（配角不入 system／出场配角进 user）
+- [x] 2.3 specs delta 补齐：`specs/prose-writing/spec.md` MODIFIED「system 恒定层组装」（拆层＋身份句题材化＋剥尾句读）；`openspec validate` 过
 
 ## 3. 验收（真机/演示栈）
 
 - [ ] 3.1 生成正文弹窗「查看本次提示词」：system 段无配角卡、user 段尾部有本章出场配角（或无该节＝本章无配角出场）
 - [ ] 3.2 新建一张配角卡后连生成两章：第二章 system 不因新配角变化（提示词缓存前缀稳定）
 - [ ] 3.3 废卡（小憨憨类）删除后确认不再出现在任何层（数据侧手工）
+- [ ] 3.4 发包顺序（硬依赖）：本仓先合 → 提示词仓同批 PR（feat/renwei-chain-field-limits，含 `{theme}` 占位）后合 → 重发提示词包。render_template 是顺序 replace——包先于码发布会把字面量 `{theme}` 漏进 system 身份句；码先于包只是多一个无害 value

@@ -29,6 +29,8 @@
 - [ ] 5.1 ai-novel 提交（本 change 追加拍板）
 - [ ] 5.2 5274 compose 重建 client-backend，容器内冒烟（直通行为验证）
 - [ ] 5.3 prompts 仓预算声明（前批 3b0ebec 已提交；终版下为「目标值」——无需再改）
+- [x] 5.4 specs delta 补齐：`specs/chapter-plan-ai/spec.md`（拆章素材包与输出契约＋章卡写法提示词约束）、`specs/volume-plan-ai/spec.md`（两条并行入口＋生成时自查＋存储与数据；含随行提交 c-vol-options-prev-ending 的目标卷号口径）；`openspec validate` 过
+- [ ] 5.5 发包顺序随 c-cast-split-user-layer 3.4：本仓先合 → 提示词仓同批 PR 后合 → 重发包（本 change 模板侧只是预算声明文案，无占位符硬依赖，随同批走）
 
 ## 6. 验收（真机/演示栈）
 

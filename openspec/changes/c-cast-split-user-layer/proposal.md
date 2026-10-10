@@ -27,7 +27,7 @@
 
 ### Modified Capabilities
 
-- `prose-writing`：「system 恒定层组装」Requirement——cast_anchors 由「全书角色集」改为「主角/反派恒定锚」；user 段新增「本章出场配角」块（按出场注入，别名参与匹配）。
+- `prose-writing`：「system 恒定层组装」Requirement——cast_anchors 由「全书角色集」改为「主角/反派恒定锚」；user 段新增「本章出场配角」块（按出场注入，别名参与匹配）；身份句先立题材作家（`{theme}` 空兜底「网文」）＋手填值剥尾句读（纯句读走兜底）。delta 见本 change `specs/prose-writing/spec.md`。
 
 ## Impact
 

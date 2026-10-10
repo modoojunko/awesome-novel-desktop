@@ -210,10 +210,12 @@ def resolve_persona(style_setting: dict) -> str:
     system 恒定层与素材包（【叙事身份】）同源消费，SHALL NOT 出现两个身份表述。
     尾部句读剥离（c-cast-split-user-layer 配套）：role 由作者/AI 手写，句尾带不带
     句号不可预期——模板「叙事身份：{persona}。」自带句号，此处归一化；省略号
-    （……）不算句尾，剥了会剩半句。
+    （……）不算句尾，剥了会剩半句。纯句读 role（如「。」）剥后为空，与空串同路
+    兜底默认——否则「你是。」残句缺陷借纯标点输入复活。
     """
-    raw = str((style_setting or {}).get("role") or "").strip() or "一位小说家"
-    return re.sub(f"[{re.escape('。，,；;．.！!？?')}]+$", "", raw)
+    raw = str((style_setting or {}).get("role") or "").strip()
+    stripped = re.sub(f"[{re.escape('。，,；;．.！!？?')}]+$", "", raw)
+    return stripped or "一位小说家"
 
 
 def legacy_prompt_kind(text: str) -> str:

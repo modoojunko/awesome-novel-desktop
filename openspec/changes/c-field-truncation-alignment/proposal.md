@@ -43,8 +43,8 @@
 
 ### Modified Capabilities
 
-- `chapter-plan-ai`：「拆章卡面」字段内容不再截断（plot/obstacle/ending 完整进卡与提示词）；条目计数预算不变。
-- `volume-plan-ai`：「两条并行入口」/「生成、生成完成与回填」内容字段完整直通；验证上限放宽。
+- `chapter-plan-ai`：「拆章素材包与输出契约」内容字段（plot/obstacle/ending）完整直通、生成侧钳位与存储侧列宽夹退役（标签类预算保留）；「章卡写法提示词约束（客观局面）」剧情条目保 ≤12 条计数、单条长度预算退役。delta 见本 change `specs/chapter-plan-ai/spec.md`。
+- `volume-plan-ai`：「两条并行入口（作家那句话 / 3 套可行走法）」套卡内容字段直通＋上一卷结尾按目标卷号解析（随行提交 c-vol-options-prev-ending，无独立 change 档，delta 随本 change 入库）；「生成时自查（checks）」展开内容字段直通（旧 80/60/60/150 退役）；「存储与数据」验证上限放宽（2000/1000/2000/1000）。delta 见本 change `specs/volume-plan-ai/spec.md`。
 
 ## Impact
 

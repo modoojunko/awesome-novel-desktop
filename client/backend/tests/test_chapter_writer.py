@@ -161,6 +161,11 @@ class TestSystemPrompt:
         assert resolve_persona({"role": "冷峻叙事者！"}) == "冷峻叙事者"
         assert resolve_persona({"role": "他是个……"}) == "他是个……"
 
+    def test_persona_pure_punctuation_falls_back_to_default(self):
+        """纯句读 role 剥尾后为空 → 与空串同路兜底默认（「你是。」残句变体防御）。"""
+        assert resolve_persona({"role": "。"}) == "一位小说家"
+        assert resolve_persona({"role": "！！！"}) == "一位小说家"
+
     def test_theme_in_identity_line(self):
         """身份句先立题材作家（v9）：「深耕{theme}题材」；空题材兜底「网文」。"""
         ctx = ChapterContext()
