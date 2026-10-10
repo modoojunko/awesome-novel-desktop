@@ -9,7 +9,8 @@
 //   AI 流式＝chunk 事务追加（addToHistory:false，SHALL NOT 整文档重建），
 //   收尾两步「删流式区间（不入史）＋整段写回（入史）」使整次生成成为
 //   可整体撤销的历史单元；c-prose-regen-replace 后生成＝替换本章正文：
-//   开始前旧正文整档清除（入撤销史，一次撤销回空稿、两次撤销回旧正文），
+//   开始前旧正文整档清除（入撤销史，一次撤销回空稿；深层撤销跨越流式
+//   untracked 夹层不作找回承诺，找回路径＝版本历史），
 //   chunk 仍按增量事务插入空文档（「整文档重建」禁令只约束流式过程）；
 //   粘贴一律降级纯文本段落；选区捕获改走 PM 选区（SelectionCapture 形状不变）；
 //   Enter 分段由 TipTap 核心键位（splitBlock）承担，execCommand 退役。
@@ -511,7 +512,7 @@ const ProsePane = forwardRef<ProseHandle, ProsePaneProps>(function ProsePane(
       );
       const next = generated;
       // 两步收尾（c-prose-editor-tiptap）：①删流式区间（不入史）②整段写回（入史）
-      // ——整次生成成为可整体撤销的一个历史单元（一次撤销回到生成前起点）
+      // ——一次撤销回到本次生成的写入起点（替换写＝清空后的空稿）
       if (editor && !editor.isDestroyed) {
         const start = streamStartRef.current;
         const end = streamPosRef.current;
@@ -548,7 +549,7 @@ const ProsePane = forwardRef<ProseHandle, ProsePaneProps>(function ProsePane(
       }
       // c-prose-regen-replace：生成＝全量替换。①旧正文先 flush（版本快照前置，
       // 重写链同款——「从版本历史找回」的承诺以落库为前提）；②清空现有正文
-      // （入撤销史：一次撤销回空稿，再一次撤销回旧正文）；③从空文档流式写入。
+      // （入撤销史：一次撤销回空稿；深层撤销不作找回承诺）；③从空文档流式写入。
       // 旧「base+generated 追加」语义随本 change 退役。
       void store.flush();
       streamReceivedRef.current = "";
