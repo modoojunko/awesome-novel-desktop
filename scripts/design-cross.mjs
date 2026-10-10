@@ -9,9 +9,9 @@ import { fileURLToPath } from 'node:url'
 import path from 'node:path'
 
 const root = path.join(path.dirname(fileURLToPath(import.meta.url)), '..')
-// 拆仓（s-server-repo-split）：S端 前端在 sibling 私有仓 awesome-novel-server——
-// S_SERVER_DIR 环境变量可覆盖（默认指向同级检出的 server/ 子目录，与 compose 同约定）。
-const serverRoot = process.env.S_SERVER_DIR || path.join(root, '../awesome-novel-server/server')
+// 拆仓（s-server-repo-split）：S端 前端在 sibling 私有仓（仓名不入库）——
+// S_SERVER_DIR 指向其 server/ 子目录（与 compose 同约定；未设时默认路径为占位，会报不存在）。
+const serverRoot = process.env.S_SERVER_DIR || path.join(root, '../<S端私有仓检出>/server')
 const FILES = {
   client: path.join(root, 'client/frontend/src/design/base.css'),
   server: path.join(serverRoot, 'frontend/src/design/base.css'),
