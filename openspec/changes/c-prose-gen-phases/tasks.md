@@ -54,4 +54,5 @@
 
 - [x] 7.1 `openspec validate c-prose-gen-phases` 通过；proposal/design/tasks 与本回填的实测结论一致（含 proposal 已声明的规范补丁：徽章承载位旧句修正）
   - 证据：`openspec validate` 通过（4/4 artifacts；spec delta 两处 Requirement：ADDED 生成阶段呈现（无框行内＋呼吸灯后置）／MODIFIED 现场保护（环＝编辑体＋无终态事件兜底））；实现与 design.md D5a/D5b/D6 口径一致（`.prose-body` 包裹层＋`onPhase`＋终态兜底）
-- [ ] 7.2 提交与 PR：分支 `c-prose-gen-phases`（worktree `ai-novel-wt-genphases`）按仓规范提交；PR 描述含判据（组 6 输出）与截图
+- [x] 7.2 提交与 PR：分支 `c-prose-gen-phases`（worktree `ai-novel-wt-genphases`）按仓规范提交；PR 描述含判据（组 6 输出）与截图
+  - 证据：提交 b3c33cd9（rebase 到 origin/main d6458f14）→ **PR #823**（https://github.com/modoojunko/awesome-novel-desktop/pull/823）；CI `check` 2m38s／`test` 5m1s 双绿、mergeable CLEAN
