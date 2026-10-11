@@ -134,6 +134,11 @@ export default function PolishWizard({
             const next = new Map(prev);
             const cur = prev.get(seg.para);
             if (!cur) return prev;
+            if (!d.polished_text.trim()) {
+              // 模型吐空串：不进 ready（面板空白、按钮可点的破损呈现）
+              next.set(seg.para, { ...cur, status: "empty" });
+              return next;
+            }
             if (!d.changed) {
               // 确诊为零＝逐字原样输出：合法的无操作，不是失败（PE 评审 A）
               next.set(seg.para, {
@@ -361,7 +366,9 @@ export default function PolishWizard({
             </span>
           </div>
           <ul className="gl-checks">
-            {report.findings.map((f, i) => (
+            {report.findings
+              .filter((f) => f.rule !== "comma_period_ratio" && f.rule !== "short_para_ratio")
+              .map((f, i) => (
               <li key={i}>
                 <span className="gl-tag">{SEVERITY_TEXT[f.severity] || f.severity}</span>
                 <span>{f.detail}</span>

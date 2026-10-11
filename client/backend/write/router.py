@@ -520,9 +520,3 @@ async def polish_writing(
         "flags": verdict["flags"],
         "flags_blocking": verdict["blocking"],
     }
-
-
-    return {"compressed_text": text}
-
-
-    return {"expanded_text": text}
