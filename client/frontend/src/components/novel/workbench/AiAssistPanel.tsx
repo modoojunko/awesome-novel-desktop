@@ -504,11 +504,11 @@ export function AiAssistPanel({
         disabled: (!maxlk && !guide && wordCountEmpty) || !!streaming,
       });
     }
-    // c-seam-refill：章际衔接向导入口（检查→重写方案三选一→对照→应用）
+    // c-seam-refill：章际衔接修复向导入口（检查→重写方案三选一→对照→应用）
     rows.push({
       key: "seam-check",
-      name: "章际衔接检查与修复",
-      desc: "查本章开头与上一章结尾的衔接；有问题起草三选一重写方案",
+      name: "接上一章 · 查开头衔接",
+      desc: "看这一章开头有没有接住上一章的结尾；接不上，起草三种改法给你挑，确认后改进正文",
       onClick: () => proseRef?.current?.openSeamWizard?.(),
       testid: "rail-seam-check",
       odId: "rail-seam-check",

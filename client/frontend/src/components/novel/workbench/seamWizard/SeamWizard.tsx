@@ -29,6 +29,12 @@ const AXIS: Array<{ key: string; label: string }> = [
   { key: "过渡", label: "B" },
   { key: "重排", label: "C" },
 ];
+/** 卡片标题作家化（后端 approach 为轴名，展示层翻译） */
+const AXIS_TEXT: Record<string, string> = {
+  直承: "顺着上一章写",
+  过渡: "垫一拍再接",
+  重排: "换个顺序起笔",
+};
 
 export default function SeamWizard({
   open,
@@ -167,7 +173,7 @@ export default function SeamWizard({
     <Modal
       open={open}
       onClose={onClose}
-      title={stepTitle}
+      title="接上一章 · 衔接修复"
       wbStyle
       width={840}
       locked={applying || drafting}
@@ -213,7 +219,7 @@ export default function SeamWizard({
           {!checking && checkErr && <div style={{ color: "crimson" }}>{checkErr}</div>}
           {!checking && !checkErr && !hasProblems && (
             <div>
-              <b>与上一章衔接良好。</b>
+              <b>这一章的开头接住了上一章，不用改。</b>
               <div style={{ color: "var(--faint)", fontSize: 12, marginTop: 6 }}>
                 本章开头接住了上一章结尾（无另起炉灶、无过渡跳切、未重写上章画面）。可以直接关闭。
               </div>
@@ -222,7 +228,7 @@ export default function SeamWizard({
           {!checking && !checkErr && hasProblems && (
             <div>
               <div style={{ marginBottom: 8 }}>
-                检查到 <b>{findings.length}</b> 处与上一章衔接不上的问题：
+                这一章的开头，有 <b>{findings.length}</b> 处没接住上一章的结尾：
               </div>
               {findings.map((f, i) => (
                 <div key={i} style={{ marginBottom: 8 }}>
@@ -231,7 +237,7 @@ export default function SeamWizard({
                 </div>
               ))}
               <div style={{ fontSize: 12, color: "var(--faint)", marginTop: 8 }}>
-                下一步将按「知前后补中间」起草三种接法：上章结尾与本章后文原样保留，只重写断裂的开场段。
+                下一步会给你三种改法挑：上一章的结尾和这一章后面的内容都原样保留，只重写中间接不上的开场。
               </div>
             </div>
           )}
@@ -245,7 +251,7 @@ export default function SeamWizard({
               <div style={{ display: "flex", gap: 8, marginBottom: 8 }}>
                 {AXIS.map((a) => (
                   <div key={a.key} className="card bg-base-200" style={{ flex: 1, padding: "10px 12px", animation: "pulse 1.6s ease-in-out infinite" }}>
-                    <b>{a.label} · {a.key}</b>
+                    <b>{a.label} · {AXIS_TEXT[a.key] || a.key}</b>
                     <div style={{ fontSize: 12, color: "var(--faint)" }}>起草中…</div>
                   </div>
                 ))}
@@ -280,7 +286,7 @@ export default function SeamWizard({
                   }}
                   onClick={() => setSelected(o)}
                 >
-                  <b>{AXIS[i]?.label ?? "·"} · {o.key}</b>
+                  <b>{AXIS[i]?.label ?? "·"} · {AXIS_TEXT[o.key] || o.key}</b>
                   <span style={{ marginLeft: 8, fontSize: 12, color: "var(--faint)" }}>{o.how}</span>
                   <div style={{ whiteSpace: "pre-wrap", fontSize: 13, marginTop: 4 }}>{o.text}</div>
                 </div>
