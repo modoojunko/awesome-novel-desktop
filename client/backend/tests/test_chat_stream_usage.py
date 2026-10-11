@@ -166,7 +166,9 @@ def test_first_content_timeout_fires_on_reasoning_trickle():
     # 思考心跳：delta 一直来但 content 全空（reasoning_content 不进 delta.content）
     client = _trickle_client([_delta_chunk(None) for _ in range(10)], gap=0.03)
     out, err = _run_guarded(client, first_content_timeout=0.05)
-    assert err is not None and err.seconds == 0.05
+    assert err is not None
+    # seconds＝实测等待（守卫在过线后的下一个 delta 落刀，可略超配置上限）
+    assert err.seconds >= 0.05
     assert not any(e.is_done for e in out)  # 走不到 done，上游调用方按失败收尾
 
 
@@ -202,3 +204,79 @@ def test_first_content_guard_off_by_default():
     out, err = _run_guarded(client)
     assert err is None
     assert any(e.is_done for e in out)
+
+
+# ── anthropic 分支同构守卫（评审 P2：deepseek /anthropic 兼容端点同样要判死）──
+
+
+def _ev(type_, **kw):
+    return types.SimpleNamespace(type=type_, **kw)
+
+
+def _anthropic_timed_client(events, gap: float):
+    """带间隔的 anthropic 流假件：首事件零延迟（先于时限到位），后续按 gap；
+    opens 记录开流次数（重开检测用）。"""
+    client = AIClient(api_key="sk-test", api_format="anthropic",
+                      base_url="https://example.com")
+    opens: list[int] = []
+    served = {"n": 0}
+
+    class _Stream:
+        async def __aenter__(self):
+            opens.append(1)
+            return self
+
+        async def __aexit__(self, *args):
+            return False
+
+        def __aiter__(self):
+            return self
+
+        async def __anext__(self):
+            if not events:
+                raise StopAsyncIteration
+            if served["n"]:
+                await asyncio.sleep(gap)
+            served["n"] += 1
+            return events.pop(0)
+
+    client._client = types.SimpleNamespace(
+        messages=types.SimpleNamespace(stream=lambda **kw: _Stream())
+    )
+    return client, opens
+
+
+def test_anthropic_first_content_timeout_fires_and_does_not_retry():
+    # thinking_delta 一直滴＝正文零字；判死后必须原样上抛——判死消息含「thinking」
+    # 字样，若被内层重试的 _is_thinking_rejection 模糊匹配误判成拒参，会剥参重开
+    # 再烧一遍（评审修复的回归钉：opens 恰 1）
+    events = [
+        _ev("content_block_delta", delta=types.SimpleNamespace(
+            type="thinking_delta", thinking="思路"))
+        for _ in range(10)
+    ]
+    client, opens = _anthropic_timed_client(events, gap=0.03)
+    out, err = _run_guarded(client, first_content_timeout=0.05)
+    assert err is not None and err.seconds >= 0.05
+    assert not any(e.is_done for e in out)
+    assert opens == [1]
+
+
+def test_anthropic_first_content_guard_disarmed_after_first_text():
+    # 首个 text_delta 即撤守卫：此后思考间隙再长也不误杀，照常走到 done
+    events = [
+        _ev("content_block_delta", delta=types.SimpleNamespace(
+            type="text_delta", text="正文")),
+        *[
+            _ev("content_block_delta", delta=types.SimpleNamespace(
+                type="thinking_delta", thinking="补想"))
+            for _ in range(3)
+        ],
+        _ev("message_stop", usage=types.SimpleNamespace(output_tokens=7)),
+    ]
+    client, _opens = _anthropic_timed_client(events, gap=0.12)
+    out, err = _run_guarded(client, first_content_timeout=0.05)
+    assert err is None
+    done = [e for e in out if e.is_done][-1]
+    assert "".join(e.text for e in out if e.text) == "正文"
+    assert done.tokens == 7
