@@ -57,7 +57,7 @@
   .btn svg{width:15px;height:15px}
   .btn-sm svg{width:13px;height:13px}
 
-  /* ═══ 全局更新提示条（client-update-notify）：所有屏顶端，info 语气，可关闭 ═══ */
+  /* ═══ 全局更新提示条（client-update-notify）：顶栏正下方，info 语气，可关闭 ═══ */
   .notice{display:flex;align-items:center;gap:12px;border:1px solid color-mix(in oklch,var(--warn) 28%,var(--border));
     background:var(--warn-soft);border-radius:var(--radius);padding:10px 14px;margin-bottom:14px;font-size:13px}
   .notice.info{border-color:color-mix(in oklch,var(--accent) 30%,var(--border));background:var(--accent-soft)}
@@ -293,19 +293,6 @@
 </head>
 <body>
 
-<!-- ═══ 全局更新提示条（client-update-notify）：所有屏顶端，info 语气，可关闭 ═══ -->
-<div class="update-strip" data-od-id="update-notice-strip">
-  <div class="notice info" data-od-id="update-notice">
-    <span class="nt">
-      <b>发现新版本 v0.13（当前 v0.11）</b>
-      <span>提升章纲 AI 起草的稳定性，修复若干问题</span>
-    </span>
-    <button class="btn btn-secondary btn-sm" data-out="去下载">去下载</button>
-    <button class="btn btn-ghost btn-sm" data-out="查看更新内容">查看更新内容</button>
-    <button class="btn btn-ghost btn-sm" data-dismiss-strip>知道了</button>
-  </div>
-</div>
-
 <header class="appbar" data-od-id="appbar">
   <a class="logo" href="works.html" data-od-id="appbar-logo"><span class="logo-mark">爱</span>爱小说</a>
   <nav class="nav">
@@ -320,6 +307,19 @@
     </button>
   </div>
 </header>
+
+<!-- ═══ 全局更新提示条（client-update-notify）：顶栏正下方，info 语气，可关闭（c-update-strip-below-appbar） ═══ -->
+<div class="update-strip" data-od-id="update-notice-strip">
+  <div class="notice info" data-od-id="update-notice">
+    <span class="nt">
+      <b>发现新版本 v0.13（当前 v0.11）</b>
+      <span>提升章纲 AI 起草的稳定性，修复若干问题</span>
+    </span>
+    <button class="btn btn-secondary btn-sm" data-out="去下载">去下载</button>
+    <button class="btn btn-ghost btn-sm" data-out="查看更新内容">查看更新内容</button>
+    <button class="btn btn-ghost btn-sm" data-dismiss-strip>知道了</button>
+  </div>
+</div>
 
 <main class="main" data-od-id="book-list">
   <div class="page-head">

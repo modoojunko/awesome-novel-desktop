@@ -221,19 +221,6 @@
 </head>
 <body>
 
-<!-- ═══ 全局更新提示条（client-update-notify）：逐字同 book.html ═══ -->
-<div class="update-strip" data-od-id="update-notice-strip">
-  <div class="notice info" data-od-id="update-notice">
-    <span class="nt">
-      <b>发现新版本 v0.13（当前 v0.11）</b>
-      <span>提升章纲 AI 起草的稳定性，修复若干问题</span>
-    </span>
-    <button class="btn btn-secondary btn-sm" data-od-id="update-download">去下载</button>
-    <button class="btn btn-ghost btn-sm" data-od-id="update-notes">查看更新内容</button>
-    <button class="btn btn-ghost btn-sm" data-od-id="update-dismiss">知道了</button>
-  </div>
-</div>
-
 <!-- ═══ 应用栏（行头归一：logo 即返回 · 书名 · 题材 · 当前主线定位 · 账户） ═══ -->
 <header class="appbar" data-od-id="appbar">
   <a class="logo" href="list.html" data-od-id="appbar-logo" title="返回我的小说"><span class="logo-mark">爱</span>爱小说</a>
@@ -258,6 +245,19 @@
     </button>
   </div>
 </header>
+
+<!-- ═══ 全局更新提示条（client-update-notify）：顶栏正下方，逐字同 book.html（c-update-strip-below-appbar） ═══ -->
+<div class="update-strip" data-od-id="update-notice-strip">
+  <div class="notice info" data-od-id="update-notice">
+    <span class="nt">
+      <b>发现新版本 v0.13（当前 v0.11）</b>
+      <span>提升章纲 AI 起草的稳定性，修复若干问题</span>
+    </span>
+    <button class="btn btn-secondary btn-sm" data-od-id="update-download">去下载</button>
+    <button class="btn btn-ghost btn-sm" data-od-id="update-notes">查看更新内容</button>
+    <button class="btn btn-ghost btn-sm" data-od-id="update-dismiss">知道了</button>
+  </div>
+</div>
 
 <!-- ═══ 书内模块导航：设定 / 写作 / 预览（预览 = 当前视图） ═══ -->
 <nav class="modnav" data-od-id="modnav">

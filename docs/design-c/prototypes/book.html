@@ -864,7 +864,6 @@
 </head>
 <body>
 
-<!-- ═══ 全局更新提示条（client-update-notify）：所有屏顶端，info 语气，可关闭；工作台为全宽贴边版 ═══ -->
 <!-- 盘点出场人物 · 11 态演示导航（设计稿口径，非产品 UI；点击直达各态） -->
 <div class="demo-bar" role="tablist" aria-label="写作能力状态切换">
     <span class="dl">写作能力 · 5 态</span>
@@ -888,17 +887,6 @@
   <button class="chip" data-scene="s10">⑩ 抽卡中</button>
   <button class="chip" data-scene="s11">⑪ 抽卡失败</button>
 </div>
-<div class="update-strip" data-od-id="update-notice-strip">
-  <div class="notice info" data-od-id="update-notice">
-    <span class="nt">
-      <b>发现新版本 v0.13（当前 v0.11）</b>
-      <span>提升章纲 AI 起草的稳定性，修复若干问题</span>
-    </span>
-    <button class="btn btn-secondary btn-sm" data-od-id="update-download">去下载</button>
-    <button class="btn btn-ghost btn-sm" data-od-id="update-notes">查看更新内容</button>
-    <button class="btn btn-ghost btn-sm" data-od-id="update-dismiss">知道了</button>
-  </div>
-</div>
 
 <!-- ═══ 应用栏（行头归一：logo 即返回 · 书名 · 题材 · 当前主线定位 · 账户） ═══ -->
 <header class="appbar" data-od-id="appbar">
@@ -914,6 +902,19 @@
     </button>
   </div>
 </header>
+
+<!-- ═══ 全局更新提示条（client-update-notify）：顶栏正下方，info 语气，可关闭；工作台为全宽贴边版（c-update-strip-below-appbar） ═══ -->
+<div class="update-strip" data-od-id="update-notice-strip">
+  <div class="notice info" data-od-id="update-notice">
+    <span class="nt">
+      <b>发现新版本 v0.13（当前 v0.11）</b>
+      <span>提升章纲 AI 起草的稳定性，修复若干问题</span>
+    </span>
+    <button class="btn btn-secondary btn-sm" data-od-id="update-download">去下载</button>
+    <button class="btn btn-ghost btn-sm" data-od-id="update-notes">查看更新内容</button>
+    <button class="btn btn-ghost btn-sm" data-od-id="update-dismiss">知道了</button>
+  </div>
+</div>
 
 <!-- ═══ 控制中心面板（c-account-control-center）：工作台语境含「本书偏好」项 ═══ -->
 <div class="acct-menu" id="acctMenu" hidden data-od-id="acct-menu" role="menu" aria-label="账号与设置">
