@@ -168,6 +168,15 @@ const ProsePane = forwardRef<ProseHandle, ProsePaneProps>(function ProsePane(
   // 生成等待呈现（c-prose-gen-phases）：首字前的真实阶段（服务端 phase 事件驱动）；
   // 首字到达即退场；呼吸灯（.prose-body 的环）此时才亮起
   const [genStage, setGenStage] = useState<string | null>(null);
+  // 等首字计时（c-prose-thinking-timeout 顺带）：开思考后首字可能要等上一阵，
+  // 秒表随等待呈现同行——静默等 90s 判死与正常等待都有数；随 genStage 退场停表
+  const [genSecs, setGenSecs] = useState(0);
+  const genAwaiting = genStage !== null;
+  useEffect(() => {
+    if (!genAwaiting) return;
+    const t = window.setInterval(() => setGenSecs((s) => s + 1), 1000);
+    return () => window.clearInterval(t);
+  }, [genAwaiting]);
   const sawFirstChunkRef = useRef(false);
 
   // 本地输入回路标记：store.prose 变化若来自本地输入则跳过重渲（保光标）
@@ -574,6 +583,7 @@ const ProsePane = forwardRef<ProseHandle, ProsePaneProps>(function ProsePane(
       setStreaming(true);
       // 请求在飞＝后端确在准备（服务端 phase 事件随后逐段推进等待呈现）
       setGenStage("assemble");
+      setGenSecs(0); // 等首字计时从本次生成起点起算（阶段推进不重置）
       onAIStateChange((prev) => ({ ...prev, streaming: true }));
       const { view } = editor;
       if (editor.state.doc.content.size > 0) {
@@ -877,6 +887,10 @@ const ProsePane = forwardRef<ProseHandle, ProsePaneProps>(function ProsePane(
             <p className="gl-main">
               <span className="gl-text" key={genStage}>
                 {GEN_STAGE_LABELS[genStage]}
+              </span>
+              {/* 等首字秒表（c-prose-thinking-timeout 顺带）：在 key 外＝不随阶段切换重放入场动画 */}
+              <span className="gl-sec" data-testid="gen-line-sec">
+                · {genSecs}s
               </span>
               <i className="gl-caret" aria-hidden="true" />
             </p>
