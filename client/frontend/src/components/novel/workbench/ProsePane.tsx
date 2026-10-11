@@ -746,9 +746,10 @@ const ProsePane = forwardRef<ProseHandle, ProsePaneProps>(function ProsePane(
       const next = docToProse(editor.getJSON());
       lastSyncedRef.current = next;
       setProse(next);
+      void store.flush?.(); // 应用即刻落盘（flush 自带 isDirty 门）：防 1.5s 防抖窗口内关页丢稿
       return true;
     },
-    [editor, seamParaCount, seamSnapshotFolded, setProse],
+    [editor, store, seamParaCount, seamSnapshotFolded, setProse],
   );
   const applyParagraphEdits = useCallback(
     (items: Array<{ paraIndex: number; from: string; text: string }>): { applied: number; skipped: number } => {
