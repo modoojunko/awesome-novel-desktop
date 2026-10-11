@@ -735,8 +735,10 @@ const ProsePane = forwardRef<ProseHandle, ProsePaneProps>(function ProsePane(
         </div>
       )}
       {/* 编辑体（c-prose-gen-phases）：呼吸灯环绕范围＝编辑工具行＋正文区整列，
-          至底部状态条上沿；纯 box-shadow，不动版式（流式写作位置不变） */}
-      <div className={proseBodyClass}>
+          至底部状态条上沿；纯 box-shadow，不动版式（流式写作位置不变）。
+          hidden 属性必须跟着页签走：.prose-body 是 display:flex，会压掉 hidden
+          属性的历史坑同 .ol-top——非正文页签不得占位（三页签切换仅隐藏） */}
+      <div className={proseBodyClass} hidden={hidden}>
       {/* 查看态顶行（c-prose-edit-gate）：只读阅读＋「编辑正文」；
           归档/排队/旧稿锁各有横幅，锁定期不出现本行。
           条件渲染而非 hidden：.ol-top 是 display:flex，会压掉 hidden 属性（历史坑） */}
