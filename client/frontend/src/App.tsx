@@ -1,6 +1,5 @@
 import { Routes, Route, Navigate, useLocation, useParams } from "react-router-dom";
 import ClientShell from "@/components/ClientShell";
-import Navbar from "@/components/Navbar";
 import LandingPage from "@/pages/LandingPage";
 import LoginPage from "@/pages/LoginPage";
 import ApiKeyConfigPage from "@/pages/ApiKeyConfigPage";
@@ -35,7 +34,8 @@ export default function App() {
 
   return (
     <ClientShell>
-      <Navbar />
+      {/* 顶栏（Navbar）与更新/到期提示条已上移 ClientShell（c-update-strip-below-appbar）：
+          顶栏恒在窗口顶端，提示条挂顶栏之下，不再互相推移 */}
       <div className="flex-1 flex flex-col page-enter" key={location.pathname}>
         <Routes>
           <Route path="/" element={<HomeGate />} />

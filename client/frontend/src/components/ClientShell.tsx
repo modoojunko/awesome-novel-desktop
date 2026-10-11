@@ -1,6 +1,8 @@
 import { useEffect } from "react";
+import { useLocation } from "react-router-dom";
 import { Toaster, toast } from "@/lib/toast";
 import { useAuthHeal } from "@/hooks/useAuthHeal";
+import Navbar from "@/components/Navbar";
 import UpdateNotice from "@/components/UpdateNotice";
 import ExpiryNoticeBar from "@/components/ExpiryNoticeBar";
 import StatusBar from "@/components/StatusBar";
@@ -8,6 +10,11 @@ import { LicenseProvider } from "@/components/novel/license/LicenseProvider";
 
 export default function ClientShell({ children }: { children: React.ReactNode }) {
   useAuthHeal(); // 启动自愈登录态：后端会话有效则写回 localStorage
+  const { pathname } = useLocation();
+  // 书内态（/novel/*）：全局顶栏让位给工作台行头（Navbar 返回 null），两条提示条
+  // 也随之下场——由 NovelWorkspace 渲染在其应用栏之下（c-update-strip-below-appbar），
+  // 提示条永不把顶栏从窗口顶端推走。
+  const immersive = pathname.startsWith("/novel/");
 
   useEffect(() => {
     const handler = (e: PromiseRejectionEvent) => {
@@ -24,8 +31,9 @@ export default function ClientShell({ children }: { children: React.ReactNode })
   return (
     <LicenseProvider>
       <div className="app-shell">
-        <UpdateNotice />
-        <ExpiryNoticeBar />
+        <Navbar />
+        {!immersive && <UpdateNotice />}
+        {!immersive && <ExpiryNoticeBar />}
         {children}
         <StatusBar />
         <Toaster />

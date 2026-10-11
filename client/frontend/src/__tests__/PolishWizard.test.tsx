@@ -1,6 +1,8 @@
-/** 修稿向导（c-deai-wizard）：四步流程组件测试。
- *  mock @/lib/ai（扫描与改写）；写回经 onApply 断言（ProsePane 内部实现不在本测）。 */
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+/** 修稿向导（c-deai-wizard 列表版）组件测试：四步流程＋死锁回归钉（c-deai-wizard-keep-advance）。
+ *  mock @/lib/ai（扫描与改写）；写回经 onApply 断言（ProsePane 内部实现不在本测）。
+ *  本套件随列表式重构复活——#832 合并时旧套件被删未补；用户实报的③步死锁
+ *  （零改稿/红线自动判保留后无入口可点）正是无钉窗口期的回归，故死锁面逐条钉死。 */
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 import PolishWizard from "@/components/novel/workbench/polishWizard/PolishWizard";
 
@@ -55,16 +57,23 @@ function mount(over: Partial<Parameters<typeof PolishWizard>[0]> = {}) {
 }
 
 async function walkToStep3() {
-  await screen.findByText("AI 味检查中…").catch(() => {});
   await screen.findByText("段内句号 3 处", { exact: false });
   fireEvent.click(screen.getByRole("button", { name: "下一步：选择段落" }));
   await screen.findByText(/问题清单 · 勾选要修的段落/);
-  expect(screen.getByDisplayValue).toBeTruthy();
   fireEvent.click(screen.getByRole("button", { name: "开始修改（3 段）" }));
-  await screen.findByText("第 1 / 3 段");
+  await screen.findByTestId("seg-1");
 }
 
-describe("PolishWizard", () => {
+async function waitRowsReady() {
+  await waitFor(() => {
+    for (const id of ["seg-1", "seg-2", "seg-3"]) {
+      // getAllByText：红线段的 notice 与角标会同时命中「命中红线」，单数查询会抛多元素错
+      expect(within(screen.getByTestId(id)).getAllByText(/【改】|未查出可修的硬伤|命中红线|没有产出改稿|生成失败/).length).toBeGreaterThan(0);
+    }
+  });
+}
+
+describe("PolishWizard · 列表版四步流程", () => {
   it("开窗即跑 AI 味检查并展示规则清单", async () => {
     mount();
     expect(await screen.findByText("段内句号 3 处", { exact: false })).toBeTruthy();
@@ -75,19 +84,12 @@ describe("PolishWizard", () => {
   it("四步走完：逐段取舍后应用只写采用段", async () => {
     const { onApply, onClose } = mount();
     await walkToStep3();
-
-    // 段 1 采用
-    await screen.findByText(/【改】掌心贴上砖/);
-    fireEvent.click(screen.getByRole("button", { name: "采用改稿，看下一段" }));
-    // 段 2 保留原文
-    await screen.findByText("第 2 / 3 段");
-    fireEvent.click(screen.getByRole("button", { name: "这段保留原文" }));
-    // 段 3 采用
-    await screen.findByText("第 3 / 3 段");
-    fireEvent.click(screen.getByRole("button", { name: "采用改稿，看下一段" }));
-
-    // ④ 应用确认
-    await screen.findByText("本轮处理完毕", { exact: false });
+    await waitRowsReady();
+    fireEvent.click(within(screen.getByTestId("seg-1")).getByRole("button", { name: "采用改稿" }));
+    fireEvent.click(within(screen.getByTestId("seg-2")).getByRole("button", { name: "保留原文" }));
+    fireEvent.click(within(screen.getByTestId("seg-3")).getByRole("button", { name: "采用改稿" }));
+    fireEvent.click(screen.getByRole("button", { name: "下一步：应用确认" }));
+    expect(await screen.findByText(/即将写入正文：采用 2 段 · 保留原文 1 段/)).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: "应用到正文" }));
 
     expect(onApply).toHaveBeenCalledTimes(1);
@@ -100,26 +102,24 @@ describe("PolishWizard", () => {
   it("全部保留原文时应用禁用（空写回护栏）", async () => {
     mount();
     await walkToStep3();
-    for (let i = 0; i < 3; i += 1) {
-      await screen.findByText(new RegExp(`第 ${i + 1} / 3 段`));
-      fireEvent.click(screen.getByRole("button", { name: "这段保留原文" }));
+    await waitRowsReady();
+    for (const id of ["seg-1", "seg-2", "seg-3"]) {
+      fireEvent.click(within(screen.getByTestId(id)).getByRole("button", { name: "保留原文" }));
     }
-    await screen.findByText("本轮处理完毕", { exact: false });
-    const btn = screen.getByRole("button", { name: "应用到正文" }) as HTMLButtonElement;
-    expect(btn.disabled).toBe(true);
+    fireEvent.click(screen.getByRole("button", { name: "下一步：应用确认" }));
+    expect(await screen.findByText(/即将写入正文：采用 0 段/)).toBeTruthy();
+    expect((screen.getByRole("button", { name: "应用到正文" }) as HTMLButtonElement).disabled).toBe(true);
   });
 
   it("polish 失败可重试", async () => {
     vi.mocked(polishTextDetail).mockRejectedValueOnce(new Error("AI 服务响应超时"));
-    const { } = mount();
+    mount();
     await walkToStep3();
     await screen.findByText(/生成失败：AI 服务响应超时/);
-    fireEvent.click(screen.getByRole("button", { name: /重新生成/ }));
-    await screen.findByText(/【改】掌心贴上砖/);
+    fireEvent.click(within(screen.getByTestId("seg-1")).getByRole("button", { name: "重新生成" }));
+    await within(screen.getByTestId("seg-1")).findByText(/【改】/);
   });
-});
 
-describe("PolishWizard · 评审盲区补钉", () => {
   it("规则模式：无检测存档时无占比行、无朱雀文案露出", async () => {
     const ruleModeScan = { ...SCAN, detector: { stored: false, human_ratio: null, stale_hint: null } };
     vi.mocked(aiFlavorScan).mockResolvedValueOnce(ruleModeScan);
@@ -127,6 +127,7 @@ describe("PolishWizard · 评审盲区补钉", () => {
     expect(await screen.findByText(/规则扫描完成/)).toBeTruthy();
     expect(screen.queryByText(/人味占比（检测存档）/)).toBeNull();
   });
+
   it("漂移拒写：onApply 报 skipped 时弹窗不关、error toast", async () => {
     const onClose = vi.fn();
     const toast = await import("@/lib/toast");
@@ -135,95 +136,94 @@ describe("PolishWizard · 评审盲区补钉", () => {
     await screen.findByText(/规则扫描完成/);
     fireEvent.click(screen.getByRole("button", { name: "下一步：选择段落" }));
     fireEvent.click(screen.getByRole("button", { name: "开始修改（3 段）" }));
-    for (let i = 0; i < 3; i += 1) {
-      await screen.findByText(/【改】/);
-      fireEvent.click(screen.getByRole("button", { name: "采用改稿，看下一段" }));
+    await waitRowsReady();
+    for (const id of ["seg-1", "seg-2", "seg-3"]) {
+      fireEvent.click(within(screen.getByTestId(id)).getByRole("button", { name: "采用改稿" }));
     }
-    await screen.findByText(/应用确认/);
+    fireEvent.click(screen.getByRole("button", { name: "下一步：应用确认" }));
+    await screen.findByText(/即将写入正文：采用 3 段/);
     fireEvent.click(screen.getByRole("button", { name: "应用到正文" }));
     expect(onClose).not.toHaveBeenCalled();
     expect(toast.toast.error).toHaveBeenCalled();
   });
 
-  it("关闭保护：已采用未应用时确认放弃才关；全保留原文静默关", async () => {
+  it("关闭保护：已采用未应用时先确认（列表版曾静默丢弃）", async () => {
     const confirmSpy = vi.spyOn(window, "confirm").mockReturnValue(false);
     const onClose = vi.fn();
     render(<PolishWizard open onClose={onClose} projectId="p" chapterRef="c" prose={PROSE.join("\n")} onApply={vi.fn(() => ({ applied: 1, skipped: 0 }))} />);
     await screen.findByText(/规则扫描完成/);
     fireEvent.click(screen.getByRole("button", { name: "下一步：选择段落" }));
     fireEvent.click(screen.getByRole("button", { name: "开始修改（3 段）" }));
-    await screen.findByText(/【改】/);
-    fireEvent.click(screen.getByRole("button", { name: "采用改稿，看下一段" }));
+    await waitRowsReady();
+    fireEvent.click(within(screen.getByTestId("seg-1")).getByRole("button", { name: "采用改稿" }));
     fireEvent.click(screen.getByRole("button", { name: "取消" }));
-    expect(confirmSpy).toHaveBeenCalled();
+    expect(confirmSpy).toHaveBeenCalledWith(expect.stringContaining("已采用 1 段但未应用"));
+    expect(onClose).not.toHaveBeenCalled();
+    confirmSpy.mockRestore();
+  });
+
+  it("关闭保护：仅未取舍候选时也确认；全保留原文静默关", async () => {
+    const confirmSpy = vi.spyOn(window, "confirm").mockReturnValue(false);
+    const onClose = vi.fn();
+    render(<PolishWizard open onClose={onClose} projectId="p" chapterRef="c" prose={PROSE.join("\n")} onApply={vi.fn()} />);
+    await screen.findByText(/规则扫描完成/);
+    fireEvent.click(screen.getByRole("button", { name: "下一步：选择段落" }));
+    fireEvent.click(screen.getByRole("button", { name: "开始修改（3 段）" }));
+    await waitRowsReady();
+    fireEvent.click(screen.getByRole("button", { name: "取消" }));
+    expect(confirmSpy).toHaveBeenCalledWith(expect.stringContaining("尚未取舍"));
     expect(onClose).not.toHaveBeenCalled();
     confirmSpy.mockRestore();
   });
 });
 
-describe("PolishWizard · 自动判保留段放行（反馈死锁修复 c-deai-wizard-keep-advance）", () => {
-  it("零改稿段不再卡死：主按钮放行为「这段保留原文，看下一段」且可前进", async () => {
-    vi.mocked(polishTextDetail)
-      .mockResolvedValueOnce({ polished_text: PROSE[1], changed: false, flags: [], flags_blocking: false })
-      .mockResolvedValue({ polished_text: "【改】重写的第二段。", changed: true, flags: [], flags_blocking: false });
-    mount();
-    await walkToStep3();
-    await screen.findByText(/未查出可修的硬伤——原样保留是合规结果/);
-    const btn = screen.getByRole("button", { name: "这段保留原文，看下一段" }) as HTMLButtonElement;
-    expect(btn.disabled).toBe(false);
-    fireEvent.click(btn);
-    await screen.findByText("第 2 / 3 段");
-    await screen.findByText(/【改】重写的第二段/);
-  });
-
-  it("红线段自动判保留后可前进，④步终选翻转仍可强行采用", async () => {
-    vi.mocked(polishTextDetail)
-      .mockResolvedValueOnce({ polished_text: "【改】带红线的改稿。", changed: true, flags: [{ level: "block", kind: "dash", detail: "新增破折号" }], flags_blocking: true });
-    const { onApply } = mount();
-    await walkToStep3();
-    // 段 1 命中红线：默认翻「保留原文」但不卡段
-    await screen.findByText(/改稿命中红线/);
-    const btn = screen.getByRole("button", { name: "这段保留原文，看下一段" }) as HTMLButtonElement;
-    expect(btn.disabled).toBe(false);
-    fireEvent.click(btn);
-    // 段 2、3 正常采用
-    await screen.findByText("第 2 / 3 段");
-    await screen.findByText(/【改】/);
-    fireEvent.click(screen.getByRole("button", { name: "采用改稿，看下一段" }));
-    await screen.findByText("第 3 / 3 段");
-    await screen.findByText(/【改】/);
-    fireEvent.click(screen.getByRole("button", { name: "采用改稿，看下一段" }));
-    await screen.findByText(/本轮处理完毕/, { exact: false });
-    // ④ 终选翻转：红线段强行采用
-    fireEvent.click(screen.getAllByRole("button", { name: "采用改稿" })[0]);
-    fireEvent.click(screen.getByRole("button", { name: "应用到正文" }));
-    const items = (onApply.mock.calls[0]?.[0] ?? []) as Array<{ paraIndex: number }>;
-    expect(items.map((i) => i.paraIndex).sort()).toEqual([1, 2, 3]);
-  });
-
-  it("空产出段可「这段保留原文」跳过（兑现面板文案承诺的入口）", async () => {
-    vi.mocked(polishTextDetail)
-      .mockResolvedValueOnce({ polished_text: "  ", changed: false, flags: [], flags_blocking: false })
-      .mockResolvedValue({ polished_text: "【改】有产出。", changed: true, flags: [], flags_blocking: false });
-    mount();
-    await walkToStep3();
-    await screen.findByText(/没有产出改稿——可重新生成，或保留原文/);
-    fireEvent.click(screen.getByRole("button", { name: "这段保留原文" }));
-    await screen.findByText("第 2 / 3 段");
-  });
-
-  it("全队列自动判保留时也能走到④：应用禁用但流程不卡死", async () => {
-    vi.mocked(polishTextDetail)
-      .mockResolvedValue({ polished_text: "【改】带红线。", changed: true, flags: [{ level: "block", kind: "dash", detail: "新增破折号" }], flags_blocking: true });
-    mount();
-    await walkToStep3();
+describe("PolishWizard · ③步死锁回归钉（用户实报：零改稿/红线段点不动）", () => {
+  it("零改稿段：默认保留原文，但「采用改稿」仍可点（强行采用），footer 恒可前进", async () => {
     for (let i = 0; i < 3; i += 1) {
-      await screen.findByText(new RegExp(`第 ${i + 1} / 3 段`));
-      await screen.findByText(/改稿命中红线/);
-      fireEvent.click(screen.getByRole("button", { name: i < 2 ? "这段保留原文，看下一段" : "下一步：应用确认" }));
+      vi.mocked(polishTextDetail).mockImplementationOnce(async (_p: string, _c: string, sel: string) => ({ polished_text: sel, changed: false, flags: [], flags_blocking: false }));
     }
-    await screen.findByText(/本轮处理完毕/, { exact: false });
-    const btn = screen.getByRole("button", { name: "应用到正文" }) as HTMLButtonElement;
-    expect(btn.disabled).toBe(true);
+    mount();
+    await walkToStep3();
+    await waitRowsReady();
+    const row1 = within(screen.getByTestId("seg-1"));
+    expect(row1.getByText(/未查出可修的硬伤——原样保留是合规结果/)).toBeTruthy();
+    expect((row1.getByRole("button", { name: "保留原文" }) as HTMLButtonElement).disabled).toBe(true);
+    const adoptBtn = row1.getByRole("button", { name: "采用改稿" }) as HTMLButtonElement;
+    expect(adoptBtn.disabled).toBe(false);
+    fireEvent.click(adoptBtn);
+    expect(row1.getByText("已采用")).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "下一步：应用确认" }));
+    expect(await screen.findByText(/即将写入正文：采用 1 段 · 保留原文 2 段/)).toBeTruthy();
+  });
+
+  it("红线段：候选标红默认保留，「采用改稿」仍可强行采用", async () => {
+    vi.mocked(polishTextDetail)
+      .mockResolvedValueOnce({ polished_text: "【改】掌心贴上砖墙——一片冰凉。", changed: true, flags: [{ level: "block", kind: "dash", detail: "新增破折号" }], flags_blocking: true });
+    mount();
+    await walkToStep3();
+    await waitRowsReady();
+    const row1 = within(screen.getByTestId("seg-1"));
+    expect(row1.getByText(/改稿命中红线/)).toBeTruthy();
+    expect(row1.getByText("命中红线")).toBeTruthy();
+    const adoptBtn = row1.getByRole("button", { name: "采用改稿" }) as HTMLButtonElement;
+    expect(adoptBtn.disabled).toBe(false);
+    fireEvent.click(adoptBtn);
+    fireEvent.click(screen.getByRole("button", { name: "下一步：应用确认" }));
+    expect(await screen.findByText(/即将写入正文：采用 1 段/)).toBeTruthy();
+  });
+
+  it("空产出段：保留原文可跳过、采用禁用（不再出现无产出的「已采用」）", async () => {
+    vi.mocked(polishTextDetail)
+      .mockResolvedValueOnce({ polished_text: "  ", changed: false, flags: [], flags_blocking: false });
+    mount();
+    await walkToStep3();
+    await waitRowsReady();
+    const row1 = within(screen.getByTestId("seg-1"));
+    expect(row1.getByText(/没有产出改稿——可重新生成，或保留原文/)).toBeTruthy();
+    expect((row1.getByRole("button", { name: "采用改稿" }) as HTMLButtonElement).disabled).toBe(true);
+    fireEvent.click(row1.getByRole("button", { name: "保留原文" }));
+    fireEvent.click(screen.getByRole("button", { name: "下一步：应用确认" }));
+    expect(await screen.findByText(/即将写入正文：采用 0 段/)).toBeTruthy();
+    expect((screen.getByRole("button", { name: "应用到正文" }) as HTMLButtonElement).disabled).toBe(true);
   });
 });

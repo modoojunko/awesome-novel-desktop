@@ -452,15 +452,9 @@ export function AiAssistPanel({
         hint: archived ? "已归档 · 恢复编辑后可用" : streaming ? "生成中" : undefined,
         testid: "ai-write-btn",
       }),
-      // c-retire-selection-transforms：去AI味单卡（扩写/压缩两动作已退役），未选中置灰
-      cap("polish", "去AI味", "选中段落去掉机器腔，对照预览后替换", {
-        onClick: () => onAiSelection?.("polish", sel()),
-        disabled: streaming || !aiPolish || !aiState?.hasSelection || !!aiState?.polishLoading,
-        hint: !aiPolish ? upgradeHintOf("ai-polish") : !aiState?.hasSelection ? "先在正文选中一段" : aiState?.polishLoading ? "生成中" : undefined,
-        testid: "ai-polish",
-      }),
-      // c-deai-wizard：修稿向导（整章清单驱动；规则模式不要求检测存档）
-      cap("polish-wizard", "去AI味 · 修稿向导", "整章按问题清单逐段清AI味——查问题/选段落/改稿/应用，全程你拍板", {
+      // c-deai-wizard：修稿向导（整章清单驱动；规则模式不要求检测存档）——
+      // 取代旧「去AI味」选区单发（c-retire-selection-transforms 遗留），入口收敛为一个
+      cap("polish-wizard", "去AI味", "整章按问题清单逐段清AI味——查问题/选段落/改稿/应用，全程你拍板", {
         onClick: () => proseRef?.current?.openPolishWizard?.(),
         disabled: streaming || !aiPolish || wordCount === 0 || archived
           || zq.state.status === "running" || zq.state.stale,
@@ -518,6 +512,17 @@ export function AiAssistPanel({
         disabled: (!maxlk && !guide && wordCountEmpty) || !!streaming,
       });
     }
+    // c-seam-refill：章际衔接修复向导入口（检查→重写方案三选一→对照→应用）
+    rows.push({
+      key: "seam-check",
+      name: "接上一章 · 查开头衔接",
+      desc: "看这一章开头有没有接住上一章的结尾；接不上，起草三种改法给你挑，确认后改进正文",
+      onClick: () => proseRef?.current?.openSeamWizard?.(),
+      testid: "rail-seam-check",
+      odId: "rail-seam-check",
+      hint: streaming ? "生成中" : undefined,
+      disabled: wordCount === 0 || !!streaming,
+    });
     footNote =
       "去AI味作用于正文编辑器；朱雀检测整章送检，结果在标题右侧的结果条里，段落标注打在正文行上。检测需在「模型配置 → 朱雀」配好 Key（PRO 会员权益）。";
   } else if (tab === "settings") {
