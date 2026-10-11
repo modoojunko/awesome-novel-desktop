@@ -69,6 +69,7 @@ from write.plot_sim import router as plot_sim_router
 from write.prompt_sources import router as prompt_sources_router
 from write.router import router as write_router
 from write.router import scan_router as write_scan_router
+from write.seam_refill import router as seam_refill_router
 from write.style_shadow import router as style_shadow_router
 from zhuque.router import check_router as zhuque_check_router
 from zhuque.router import config_router as zhuque_config_router
@@ -426,6 +427,7 @@ app.include_router(prompt_book_router)  # 书级批量：prompt-summary（提示
 app.include_router(write_router)
 app.include_router(write_scan_router)  # 章前缀 AI 味检查（c-deai-wizard）
 app.include_router(ai_check_router)
+app.include_router(seam_refill_router)
 app.include_router(archive_router)
 app.include_router(archives_router)
 app.include_router(style_shadow_router)

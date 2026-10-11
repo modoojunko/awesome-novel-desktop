@@ -207,8 +207,10 @@ def build_problem_segments(
     """
     rule_hits: dict[int, list[str]] = {}
     for f in report.get("findings", []):
-        if f["rule"] in CHAPTER_SCOPE_RULES:
-            continue  # 章级软指标（逗句比/极短段占比）在步骤①整章展示，不构成段落问题
+        # 章级软指标（逗句比/极短段占比）与 advisory 提示（句号密度/段首同词/比喻词）
+        # 只在步骤①整章展示——逐段改写队列只收 blocking 硬伤段＋朱雀判定段
+        if f["rule"] in CHAPTER_SCOPE_RULES or f.get("severity") != _BLOCK:
+            continue
         if f.get("para", 0) in rule_hits:
             rule_hits[f["para"]].append(f["rule"])
         else:

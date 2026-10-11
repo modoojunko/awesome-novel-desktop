@@ -113,8 +113,7 @@ describe("AiAssistPanel（随页签，ra-* 统一布局）", () => {
     expect(last.disabled).toBe(true);
   });
 
-  it("正文页签：统计＋提示词状态进作用域行；选中才可点（走 onAiSelection）", async () => {
-    const onAiSelection = vi.fn();
+  it("正文页签：修稿向导入口在（旧去AI味单卡退役）", async () => {
     apiState.get.mockImplementation(async (p: string) => {
       if (p.endsWith("/prompt-sources")) return { total_chars: 1234, cast_count: 3 };
       throw new Error("unexpected " + p);
@@ -123,39 +122,19 @@ describe("AiAssistPanel（随页签，ra-* 统一布局）", () => {
       if (p.endsWith("/prompts")) return [];
       throw new Error("unexpected " + p);
     });
-    renderPanel("prose", { onAiSelection });
+    renderPanel("prose", {});
     const target = document.querySelector(".ai-target")?.textContent ?? "";
     expect(target).toContain("500 字");
     expect(target).toContain("28%"); // 500/1800
     expect(screen.getByText("AI 助手 · 正文")).toBeTruthy();
-    // c-prompt-tab-retire：提示词状态与组装来源收编正文页签作用域行（懒取回填后）
     await waitFor(() =>
       expect(document.querySelector(".ai-target")?.textContent).toContain("组装来源 1,234 字"),
     );
     expect(document.querySelector(".ai-target")?.textContent).toContain("自动组装");
-    // 未选中 → 去AI味单卡置灰（c-retire-selection-transforms：扩写/压缩已退役）
-    const polishBtn = screen.getByTestId("ai-polish") as HTMLButtonElement;
-    expect(polishBtn.disabled).toBe(true);
-    expect(polishBtn.textContent).toContain("先在正文选中一段");
-    expect(screen.queryByText(/场景扩写/)).toBeNull();
-    expect(screen.queryByText(/压缩啰嗦段落/)).toBeNull();
+    // c-deai-wizard：旧「去AI味」选区单发已退役，入口收敛为修稿向导
+    expect(screen.queryByTestId("ai-polish")).toBeNull();
+    expect(screen.getByTestId("ai-polish-wizard")).toBeTruthy();
     expect(screen.getByRole("button", { name: /生成正文/ })).toBeTruthy();
-
-    // 选中 → 去AI味可点，走 onAiSelection（capture 取自 proseRef）
-    const capture = { text: "选中的一段" };
-    renderPanel("prose", {
-      onAiSelection,
-      aiState: { hasSelection: true, polishLoading: false } as never,
-      proseRef: { current: { captureNow: () => capture } } as never,
-    });
-    // 第二次 render 追加进容器：取最后一份（选中态）的卡
-    const btns = screen.getAllByTestId("ai-polish") as HTMLButtonElement[];
-    const btn = btns[btns.length - 1];
-    expect(btn.disabled).toBe(false);
-    await act(async () => {
-      fireEvent.click(btn);
-    });
-    expect(onAiSelection).toHaveBeenCalledWith("polish", capture);
   });
 
   it("收尾入口只剩伏笔（设定/关系两入口已迁章档）；未归档禁用", async () => {

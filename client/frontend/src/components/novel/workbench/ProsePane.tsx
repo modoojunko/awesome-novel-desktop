@@ -30,6 +30,7 @@ import StarterKit from "@tiptap/starter-kit";
 import { Placeholder } from "@tiptap/extensions";
 import ContrastPreviewModal from "@/components/novel/ContrastPreviewModal";
 import PolishWizard from "./polishWizard/PolishWizard";
+import SeamWizard from "./seamWizard/SeamWizard";
 import { useChapterData } from "@/hooks/useChapterData";
 import { toast } from "@/lib/toast";
 import {
@@ -87,6 +88,8 @@ export interface ProseHandle {
   polish(capture: SelectionCapture): void;
   /** 打开「去 AI 味 · 修稿向导」（c-deai-wizard；入口在右栏 AI 工具卡） */
   openPolishWizard?: () => void;
+  /** 打开「章际衔接修复向导」（c-seam-refill；入口同在右栏 AI 工具卡） */
+  openSeamWizard?: () => void;
 }
 
 interface ProsePaneProps {
@@ -709,6 +712,55 @@ const ProsePane = forwardRef<ProseHandle, ProsePaneProps>(function ProsePane(
   // c-deai-wizard：修稿向导（开闭态＋写回执行器；向导在面板内挂载，
   // 写回经「逆序单事务＋双写 store」——与既有 accept 链同款，可整批 ⌘Z）
   const [wizardOpen, setWizardOpen] = useState(false);
+  // c-seam-refill：章际衔接修复向导（开闭态＋打开时开场快照＋锚文校验执行器）
+  const [seamOpen, setSeamOpen] = useState(false);
+  const [seamParaCount, setSeamParaCount] = useState(3);
+  const [seamCurrentOpening, setSeamCurrentOpening] = useState("");
+  const [seamSnapshotFolded, setSeamSnapshotFolded] = useState("");
+  const openSeamWizard = useCallback(() => {
+    if (!editor || editor.isDestroyed) return;
+    const paras: string[] = [];
+    editor.state.doc.forEach((node) => {
+      const t = node.textContent;
+      if (t.trim()) paras.push(t);
+    });
+    const count = Math.min(3, paras.length);
+    if (count === 0) return;
+    setSeamParaCount(count);
+    setSeamCurrentOpening(paras.slice(0, count).join("\n"));
+    setSeamSnapshotFolded(paras.slice(0, count).map((s) => s.replace(/\s/g, "")).join(""));
+    setSeamOpen(true);
+  }, [editor]);
+  // 应用（c-seam-refill 终版）：锚文全等校验（漂移拒做）＋单事务替换＋flush
+  const applySeamOpening = useCallback(
+    (newText: string): boolean => {
+      if (!editor || editor.isDestroyed) return false;
+      const paras: Array<{ start: number; end: number; text: string }> = [];
+      editor.state.doc.forEach((node, pos) => {
+        const t = node.textContent;
+        if (!t.trim()) return;
+        paras.push({ start: pos + 1, end: pos + 1 + node.content.size, text: t });
+      });
+      if (paras.length < seamParaCount) return false;
+      const folded = paras
+        .slice(0, seamParaCount)
+        .map((p) => p.text.replace(/\s/g, ""))
+        .join("");
+      if (folded !== seamSnapshotFolded) return false; // 正文已变动，锚文校验失败
+      // 整节点删除（含段落边界）再同位插入——不留空段节点（旧法只删段内文本，
+      // 会遗留 N 个空段＝正文里多出空行，违反单换行分段契约）
+      const chain = editor.chain();
+      chain.deleteRange({ from: paras[0].start - 1, to: paras[seamParaCount - 1].end + 1 });
+      chain.insertContentAt(paras[0].start - 1, linesToParagraphs(newText));
+      chain.run();
+      const next = docToProse(editor.getJSON());
+      lastSyncedRef.current = next;
+      setProse(next);
+      void store.flush?.(); // 应用即刻落盘（flush 自带 isDirty 门）：防 1.5s 防抖窗口内关页丢稿
+      return true;
+    },
+    [editor, store, seamParaCount, seamSnapshotFolded, setProse],
+  );
   const applyParagraphEdits = useCallback(
     (items: Array<{ paraIndex: number; from: string; text: string }>): { applied: number; skipped: number } => {
       if (!editor || editor.isDestroyed || items.length === 0)
@@ -752,8 +804,9 @@ const ProsePane = forwardRef<ProseHandle, ProsePaneProps>(function ProsePane(
       },
       polish: (capture: SelectionCapture) => void runTransform("polish", capture),
       openPolishWizard: () => setWizardOpen(true),
+      openSeamWizard: () => openSeamWizard(),
     }),
-    [editor, captureNow, startStream, finishStream, runTransform, setWizardOpen],
+    [editor, captureNow, startStream, finishStream, runTransform, setWizardOpen, openSeamWizard],
   );
 
   const words = prose.replace(/\s/g, "").length;
@@ -950,6 +1003,17 @@ const ProsePane = forwardRef<ProseHandle, ProsePaneProps>(function ProsePane(
         chapterRef={chapterRef}
         prose={prose}
         onApply={applyParagraphEdits}
+      />
+      {/* 章际衔接修复向导（c-seam-refill）：入口同在右栏 AI 工具卡（openSeamWizard） */}
+      <SeamWizard
+        open={seamOpen}
+        onClose={() => setSeamOpen(false)}
+        projectId={projectId}
+        chapterRef={chapterRef}
+        paraCount={seamParaCount}
+        currentOpening={seamCurrentOpening}
+        snapshotFolded={seamSnapshotFolded}
+        onApply={applySeamOpening}
       />
       {preview && (
         <ContrastPreviewModal

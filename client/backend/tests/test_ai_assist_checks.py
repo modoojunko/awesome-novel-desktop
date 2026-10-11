@@ -180,6 +180,38 @@ class TestAiCheck:
         prompt = _layered_prompt(captured[-1])
         assert "林晚 → 老聋" in prompt and "师徒" in prompt
 
+    def test_chapter_seam_material_carries_prev_tail(self, monkeypatch):
+        """c-chapter-seam-check：章际素材带上「上章结尾（原文）」＋前情＋状态域锚。"""
+        _root, nid = asyncio.run(_seed())
+        # 造 ch-2（同一卷；ch-1 已有正文 → previous_tail 应取到 ch-1 末段）
+        async def _add_ch2():
+            async with async_session() as session:
+                proj = (await session.get(Novel, nid))
+                vol = (await session.scalars(select(Volume).where(Volume.project_id == proj.id))).one()
+                _ch1 = (await session.scalars(
+                    select(Chapter).where(Chapter.ref == REF, Chapter.project_id == proj.id)
+                )).one()
+                ch2 = Chapter(
+                    project_id=proj.id, volume_id=vol.id, chapter_no=2,
+                    ref="vol-1-ch-2", title="第2章", status="writing",
+                    word_count=10, has_prose=True,
+                )
+                session.add(ch2)
+                await session.flush()
+                session.add(ChapterContent(
+                    chapter_id=ch2.id, prose="林野推开哨站的门，煤炉的火还没灭。"
+                ))
+                await session.commit()
+        asyncio.run(_add_ch2())
+        captured: list = []
+        _patch(monkeypatch, "write.ai_check", _FakeClient(FINDINGS_JSON, captured))
+        r = _post(nid, "ai-check", {"kind": "chapter_seam"})
+        assert r.status_code == 200, r.text
+        prompt = _layered_prompt(captured[-1])
+        assert "【上章结尾（原文）】" in prompt
+        assert "船家说渡口明早封江" in prompt  # ch-1 正文末段进了素材
+        assert "【本章章纲】" in prompt
+
     def test_unknown_kind_400(self):
         _root, nid = asyncio.run(_seed())
         r = _post(nid, "ai-check", {"kind": "nope"})
