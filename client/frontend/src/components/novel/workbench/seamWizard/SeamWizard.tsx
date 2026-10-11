@@ -57,7 +57,7 @@ export default function SeamWizard({
   const reqId = useRef(0);
 
   const runDraft = useCallback(
-    (excluded: string[]) => {
+    (excluded: string[], rejectedOverride?: Array<{ approach: string; text: string }>) => {
       const id = ++reqId.current;
       setDrafting(true);
       setDraftErr(null);
@@ -65,13 +65,14 @@ export default function SeamWizard({
       setSelected(null);
       setChars(0);
       setPhaseText("正在读上一章结尾与本章现状…");
+      const rejList = rejectedOverride ?? rejected;
       const controller = seamRefillDraft(
         projectId,
         chapterRef,
         {
           para_count: paraCount,
           findings: findings.map((f) => ({ title: f.title, detail: f.detail })),
-          rejected: rejected.filter((r) => !excluded.includes(r.approach)),
+          rejected: rejList.filter((r) => !excluded.includes(r.approach)),
         },
         {
           onPhase: (phase) => {
@@ -253,7 +254,7 @@ export default function SeamWizard({
                 {phaseText}
                 {chars > 0 && <span style={{ color: "var(--faint)" }}> · 已生成 {chars.toLocaleString("zh-CN")} 字</span>}
               </div>
-              <button className="btn btn-ghost btn-sm" style={{ marginTop: 8 }} onClick={() => { abortRef.current?.abort(); setDrafting(false); }}>
+              <button className="btn btn-ghost btn-sm" style={{ marginTop: 8 }} onClick={() => { abortRef.current?.abort(); setDrafting(false); setDraftErr("已取消，可重新起草"); }}>
                 取消
               </button>
             </div>
@@ -264,7 +265,9 @@ export default function SeamWizard({
               <button className="btn btn-sm" style={{ marginLeft: 8 }} onClick={() => runDraft([])}>重试</button>
             </div>
           )}
-          {!drafting && options.length > 0 && (
+          {!drafting && options.length > 0 && (() => {
+            const excludedNow = options.map((o) => o.key);
+            return (
             <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
               {options.map((o, i) => (
                 <div
@@ -286,18 +289,31 @@ export default function SeamWizard({
                 className="btn btn-ghost btn-sm"
                 style={{ alignSelf: "flex-start" }}
                 onClick={() => {
-                  if (selected) setRejected([...rejected, { approach: selected.key, text: selected.text }]);
-                  runDraft(options.map((o) => o.key));
+                  const rej = [...rejected, ...options.map((o) => ({ approach: o.key, text: o.text }))];
+                  setRejected(rej);
+                  runDraft(
+                    rej.filter((r) => !excludedNow.includes(r.approach)).map((r) => r.approach),
+                    rej,
+                  );
                 }}
                 disabled={!options.length}
               >
                 都不满意 · 重出一批（避开已否决）
               </button>
             </div>
-          )}
+            );
+          })()}
         </div>
       )}
 
+      {step === 2 && selected && draftErr && (
+        <div style={{ color: "crimson", marginBottom: 8 }}>
+          {draftErr}
+          <button className="btn btn-sm" style={{ marginLeft: 8 }} onClick={onClose}>
+            重开向导
+          </button>
+        </div>
+      )}
       {step === 2 && selected && (
         <div>
           <div style={{ fontSize: 12, color: "var(--faint)", marginBottom: 8 }}>

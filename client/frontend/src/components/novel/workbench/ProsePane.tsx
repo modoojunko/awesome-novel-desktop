@@ -735,10 +735,10 @@ const ProsePane = forwardRef<ProseHandle, ProsePaneProps>(function ProsePane(
         .map((p) => p.text.replace(/\s/g, ""))
         .join("");
       if (folded !== seamSnapshotFolded) return false; // 正文已变动，锚文校验失败
+      // 整节点删除（含段落边界）再同位插入——不留空段节点（旧法只删段内文本，
+      // 会遗留 N 个空段＝正文里多出空行，违反单换行分段契约）
       const chain = editor.chain();
-      for (const p of [...paras.slice(0, seamParaCount)].sort((a, b) => b.start - a.start)) {
-        chain.deleteRange({ from: p.start, to: p.end });
-      }
+      chain.deleteRange({ from: paras[0].start - 1, to: paras[seamParaCount - 1].end + 1 });
       chain.insertContentAt(paras[0].start - 1, linesToParagraphs(newText));
       chain.run();
       const next = docToProse(editor.getJSON());

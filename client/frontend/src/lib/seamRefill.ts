@@ -54,7 +54,7 @@ export function seamRefillDraft(
       if (!response.ok) {
         if (response.status === 401) {
           handleAuthExpiry();
-          handlers.onError("登录状态已失效，请重新登录");
+          handlers.onError?.("登录状态已失效，请重新登录");
           return;
         }
         const err = await response.json().catch(() => ({ detail: response.statusText }));
@@ -62,11 +62,11 @@ export function seamRefillDraft(
           typeof err?.detail === "string"
             ? err.detail
             : err?.detail?.message || response.statusText;
-        handlers.onError(`${msg}（HTTP ${response.status}）`);
+        handlers.onError?.(`${msg}（HTTP ${response.status}）`);
         return;
       }
       if (!response.body) {
-        handlers.onError("响应为空，请重试");
+        handlers.onError?.("响应为空，请重试");
         return;
       }
       const reader = response.body.getReader();
@@ -87,7 +87,7 @@ export function seamRefillDraft(
               if (ev.type === "phase" && handlers.onPhase) handlers.onPhase(ev.phase);
               else if (ev.type === "chunk" && handlers.onChars) handlers.onChars(ev.chars);
               else if (ev.type === "done" && handlers.onDone) handlers.onDone(ev.options || []);
-              else if (ev.type === "error") handlers.onError(ev.error || "生成失败");
+              else if (ev.type === "error") handlers.onError?.(ev.error || "生成失败");
             } catch {
               // 非 JSON 帧（心跳等）忽略
             }
@@ -97,7 +97,7 @@ export function seamRefillDraft(
     })
     .catch((e) => {
       if ((e as Error).name !== "AbortError") {
-        handlers.onError(`衔接方案生成失败：${(e as Error).message || e}`);
+        handlers.onError?.(`衔接方案生成失败：${(e as Error).message || e}`);
       }
     });
   return controller;
