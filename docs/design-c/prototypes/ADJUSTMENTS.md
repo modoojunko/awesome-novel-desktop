@@ -1986,3 +1986,11 @@ baseurl 到什么程度，要有个案例。」——中转站/自建网关用�
 - **预填不动**：原型预填的 5 条红线（题材默认演示内容）保持不变——「红线几条」的设计意图未变，只把**上限**口径与实现对齐；计数器随 LIMITS 呈现「5/100 条」，「加一条」恢复可见。
 - **文案**：②硬约束 hint「（3–5 条）」两侧一致保留（本笔未动）。
 - **parity 影响**：style-settings.html 不在 `design:check` 截图矩阵；无像素基线重录需求。
+
+## c-update-strip-below-appbar（全局提示条挂顶栏之下，2026-10-11）
+
+- **list.html / book.html / preview.html 的 update-strip 挪到 appbar 之下**（顶栏正下方、页面内容之上）：对齐实现侧挂载调整——顶栏（Navbar/书内应用栏）恒在窗口顶端，提示条只推内容不推顶栏（用户报修：书架屏「发现新版本」横幅把 48px 顶栏推离窗口顶）。原型注释同步（「所有屏顶端」→「顶栏正下方」）；条目 15 的「在 appbar 之上新增 update-strip 全局层」为当时口径，挂载位置以本条目为准（strip 样式、文案字面量、两版布局宽度口径均未动）。
+- **parity 影响**：design-parity 书架屏 / 预览屏 / design-parity-book 三侧均以「有更新」打桩（stubUpdateNotice "update"）参加像素比对——原型不同步会产生整条横幅带的基线外像素差（总栈高虽不变，strip 与 appbar 互换位置）。本批同步后两侧 DOM 序一致（strip 均在 appbar 之后），横幅带对位恢复；其余区域零位移。
+- **实现侧同批**：ClientShell 收编 Navbar（壳层骨架＝顶栏 → 提示条 → 内容 → 状态条）；/novel/* 壳层整组让位、NovelWorkspace 在书内应用栏之下补挂；openspec change 同名（client-update「更新提示条交互」补呈现位置口径）。
+- **范围说明**：backup-restore.html 亦含 update-strip，但该文件是「更新通知两形态」修订演示稿（屏 5 演示先备份链路文案变体，非应用布局基线，不在 design:check/parity 矩阵），本批不动。
+- **文案 §13 自查**：本批未新增/未改动任何用户可见文案。

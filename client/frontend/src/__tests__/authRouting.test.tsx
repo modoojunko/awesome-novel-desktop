@@ -17,9 +17,14 @@ vi.mock("@/lib/auth", () => ({
   logout: vi.fn(),
 }));
 vi.mock("@/components/ClientShell", () => ({
-  default: ({ children }: { children: React.ReactNode }) => <div data-testid="shell">{children}</div>,
+  // 顶栏（Navbar）已上移壳层（c-update-strip-below-appbar）：mock 同构——navbar 在 shell 内、children 之前
+  default: ({ children }: { children: React.ReactNode }) => (
+    <div data-testid="shell">
+      <div data-testid="navbar" />
+      {children}
+    </div>
+  ),
 }));
-vi.mock("@/components/Navbar", () => ({ default: () => <div data-testid="navbar" /> }));
 vi.mock("@/components/novel/license/MemberBlockPrompt", () => ({ default: () => null }));
 vi.mock("@/pages/LandingPage", () => ({ default: () => <div data-testid="landing" /> }));
 vi.mock("@/pages/LoginPage", () => ({ default: () => <div data-testid="login" /> }));
