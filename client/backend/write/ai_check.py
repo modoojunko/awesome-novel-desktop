@@ -22,7 +22,11 @@ from db import get_db
 from novels.service import get_novel
 from prompts import load_layers
 from workflow.engine import _validate_ref, load_chapter
-from write.chapter_writer import build_chapter_context, strip_code_fences
+from write.chapter_writer import (
+    _story_state_block,
+    build_chapter_context,
+    strip_code_fences,
+)
 
 router = APIRouter(
     prefix="/api/novels/{project_id}/chapters/{chapter_ref}/ai-check", tags=["ai-check"]
@@ -54,6 +58,14 @@ CHECK_KINDS: dict[str, str] = {
     "relation_suggest": (
         "根据本章发生的事，建议「全书角色关系」中缺失或可补充的关系边（含已有关系的"
         "立场/备注更新建议）。"
+    ),
+    "chapter_seam": (
+        "对照「上章结尾（原文）」「前文回顾」与「故事状态（截至上章）」检查本章正文，"
+        "只报章际衔接断点：①开场没接住上章结尾——另起炉灶、无过渡的时间或场景跳切、"
+        "把上章已写的画面重写一遍；②人物态度与关系域矛盾且正文没给过渡拍——上一章敌对"
+        "本章亲密等跳变；③道具与物品域/世界细节断环——持有者错位、已分离部件被完整使用；"
+        "④同一拍重复写两遍；⑤与状态域「已得知/仍不知」的认知矛盾。"
+        "每条给证据：引用本章原句，并指出对照的素材点。没有断点就给空数组。"
     ),
 }
 
@@ -111,6 +123,18 @@ def _material(kind: str, chapter: dict, ctx) -> str:
             blocks.append("【活跃伏笔台账】\n" + "\n".join(lines))
         else:
             blocks.append("【活跃伏笔台账】\n（暂无活跃伏笔）")
+    if kind == "chapter_seam":
+        # c-chapter-seam-check：章际素材——上章结尾原文＋前情＋状态域（build_chapter_context 已组装在 ctx）
+        blocks.append(
+            "【上章结尾（原文）】\n"
+            + (ctx.previous_tail or "（无——第一章或上一章没有正文）")
+        )
+        prev = ctx.previous_context or ctx.previous_chapter_recap
+        if prev:
+            blocks.append("【前文回顾】\n" + prev)
+        story = _story_state_block(ctx.story_state)
+        if story:
+            blocks.append(story)
     if kind in ("style_consistency", "style_deviations"):
         from settings.render import quant_section, style_section
 

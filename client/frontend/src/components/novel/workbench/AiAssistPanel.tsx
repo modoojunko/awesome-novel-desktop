@@ -528,6 +528,9 @@ export function AiAssistPanel({
         hint: archived ? "本章已归档" : undefined,
         testid: "style-suggest-btn",
       }),
+      cap("seam-check", "章际衔接检查", "对照上章结尾与故事状态，报开场断裂、态度跳变、道具断环", {
+        onClick: () => onAiCheck?.("chapter_seam"),
+      }),
       cap("style-check", "文风一致性检查", "对照全书文风基线查本章偏离", {
         onClick: () => onAiCheck?.("style_consistency"),
       }),

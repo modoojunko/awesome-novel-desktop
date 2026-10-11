@@ -7,6 +7,7 @@
 import { api } from "./api";
 
 export type AiCheckKind =
+  | "chapter_seam"
   | "volume_conflict"
   | "relations_conflict"
   | "hooks_conflict"
@@ -15,6 +16,7 @@ export type AiCheckKind =
   | "relation_suggest";
 
 export const CHECK_TITLE: Record<AiCheckKind, string> = {
+  chapter_seam: "章际衔接检查",
   volume_conflict: "卷纲冲突检测",
   relations_conflict: "关系冲突检测",
   hooks_conflict: "伏笔冲突检测",
