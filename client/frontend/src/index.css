@@ -39,7 +39,9 @@ body,
   animation: page-fade-in 0.4s cubic-bezier(0.22, 1, 0.36, 1) both;
 }
 
-/* ── 全局更新提示条（client-update-notify，ClientShell 顶端）──
+/* ── 全局更新提示条（client-update-notify）──
+   挂载（c-update-strip-below-appbar）：常规屏在 ClientShell 顶栏（Navbar）之下、
+   页面内容之上；书内态由 NovelWorkspace 挂其应用栏之下——提示条不推移顶栏。
    布局两版同原型：书架等居中内容栏（list.html 1080px）/ 工作台沉浸全宽贴边
    （book.html，appbar 口径 12px 16px 0）。.notice 家族样式在 design/list.css，
    此处只管挂载定位。 */

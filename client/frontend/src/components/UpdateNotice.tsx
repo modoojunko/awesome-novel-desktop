@@ -19,7 +19,9 @@ import { DOWNLOAD_HOME } from "@/lib/updateUrl";
 
 /**
  * 全局更新提示条（client-update-notify）。
- * 启动拉一次 + 每 15 分钟复查；有更新时所有屏顶端呈现 info 提示条，
+ * 启动拉一次 + 每 15 分钟复查；有更新时在顶栏正下方呈现 info 提示条
+ * （c-update-strip-below-appbar：常规屏挂 ClientShell 顶栏之下，书内态由
+ * NovelWorkspace 挂其应用栏之下——顶栏恒在窗口顶端，不被提示条推走），
  * 「去下载」开官网下载页、「查看更新内容」开该版本说明页（均为系统浏览器），
  * 「知道了」按版本关闭（后端 data/update-check.json 记忆）。
  */

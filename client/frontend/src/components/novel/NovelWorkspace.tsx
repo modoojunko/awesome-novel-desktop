@@ -21,6 +21,8 @@ import type { ModelSelection } from "@/types/api-config";
 import { AiModal, RegenConfirmModal } from "@/components/novel/workbench/modals";
 import UpgradeModal from "@/components/novel/UpgradeModal";
 import AcctMenu from "@/components/AcctMenu";
+import UpdateNotice from "@/components/UpdateNotice";
+import ExpiryNoticeBar from "@/components/ExpiryNoticeBar";
 import BookPrefsModal from "@/components/novel/BookPrefsModal";
 import type { SelectionCapture } from "@/lib/selection";
 import {
@@ -920,6 +922,11 @@ export default function NovelWorkspace() {
           projectId={projectId}
         />
       </header>
+
+      {/* 更新/到期提示条（c-update-strip-below-appbar）：壳层实例在 /novel/* 让位，
+          书内改挂应用栏之下——顶栏恒在窗口顶端，不被提示条推走 */}
+      <UpdateNotice />
+      <ExpiryNoticeBar />
 
       {/* PRO 阶段催促子树：免费态整棵不渲染、零 phase-status 请求 */}
       <ProContainer>
