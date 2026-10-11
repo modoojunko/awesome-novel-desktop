@@ -188,7 +188,7 @@ class TestAiCheck:
             async with async_session() as session:
                 proj = (await session.get(Novel, nid))
                 vol = (await session.scalars(select(Volume).where(Volume.project_id == proj.id))).one()
-                ch1 = (await session.scalars(
+                _ch1 = (await session.scalars(
                     select(Chapter).where(Chapter.ref == REF, Chapter.project_id == proj.id)
                 )).one()
                 ch2 = Chapter(
