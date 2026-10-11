@@ -612,7 +612,7 @@ describe("PRO 态：徽标 + phase-status + AI 入口", () => {
     expect(within(rail).getByTestId("ai-write-btn")).toBeDefined();
     // c-retire-selection-transforms：去AI味单卡（扩写/压缩退役缺席钉）
     // c-retire-selection-transforms：去AI味单卡（未选中置灰），扩写/压缩退役
-    const polishCard = within(rail).getByTestId("ai-polish") as HTMLButtonElement;
+    const polishCard = within(rail).getByTestId("ai-polish-wizard") as HTMLButtonElement;
     expect(polishCard).toBeDefined();
     expect(within(rail).queryByText(/^场景扩写$/)).toBeNull();
   });
