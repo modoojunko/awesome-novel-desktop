@@ -2,7 +2,7 @@
 
 ### Requirement: JSON 响应模式调用必须自证满足供应商前置约束
 
-以 JSON 响应模式（response_format 为 json_object）向 OpenAI 兼容供应商发出的调用，其生效提示词——system 段与用户消息的合并全文——SHALL 含「json」字样（大小写不限）；不满足时 DeepSeek 等供应商以 400 invalid_request_error 整单拒收。该约束 SHALL 由提示词仓测试链的仓库不变量守卫强制：除显式登记的「成品文本类」例外名单（散文正文、提示词成品等非 JSON 输出模板）与注入片段资产外，一切对外调用模板剥除注释后的有效文本缺「json」字样即守卫失败并指名模板；例外名单只减不增、逐条有据。例句提炼调用点另 SHALL 有行为钉：桩化客户端捕获实发提示词，断言含「json」字样且模板声明了 JSON 输出契约。
+以 JSON 响应模式（response_format 为 json_object）向 OpenAI 兼容供应商发出的调用，其生效提示词——system 段与用户消息的合并全文——SHALL 含「json」字样（大小写不限）；不满足时 DeepSeek 等供应商以 400 invalid_request_error 整单拒收。该约束 SHALL 由提示词仓测试链的仓库不变量守卫强制：除显式登记的「成品文本类」例外名单（散文正文、提示词成品等非 JSON 输出模板）与注入片段资产外，一切对外调用模板剥除注释后的有效文本缺「json」字样即守卫失败并指名模板；例外名单的每次增删 SHALL 逐条有据并在变更 diff 中可审。例句提炼调用点另 SHALL 有行为钉：桩化客户端捕获实发提示词，断言含「json」字样且模板声明了 JSON 输出契约。
 
 #### Scenario: 例句提炼不再被供应商拒收
 - **WHEN** 用户在文风面板触发例句提炼且本书存在已归档章节
