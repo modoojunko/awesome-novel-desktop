@@ -271,25 +271,23 @@ export default function SeamWizard({
               <button className="btn btn-sm" style={{ marginLeft: 8 }} onClick={() => runDraft([])}>重试</button>
             </div>
           )}
-          {!drafting && options.length > 0 && (() => {
-            const excludedNow = options.map((o) => o.key);
-            return (
-            <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-              {options.map((o, i) => (
-                <div
+          {!drafting && options.length > 0 && (
+            <div className="pick-grid" data-testid="seam-grid">
+              {options.map((o) => (
+                <button
+                  type="button"
                   key={o.key}
-                  className="card bg-base-200"
-                  style={{
-                    padding: "10px 12px",
-                    outline: selected?.key === o.key ? "2px solid var(--p)" : undefined,
-                    cursor: "pointer",
-                  }}
+                  className={`pick-card${selected?.key === o.key ? " on" : ""}`}
                   onClick={() => setSelected(o)}
                 >
-                  <b>{AXIS[i]?.label ?? "·"} · {AXIS_TEXT[o.key] || o.key}</b>
-                  <span style={{ marginLeft: 8, fontSize: 12, color: "var(--faint)" }}>{o.how}</span>
-                  <div style={{ whiteSpace: "pre-wrap", fontSize: 13, marginTop: 4 }}>{o.text}</div>
-                </div>
+                  <span className="pk-axis">{AXIS_TEXT[o.key] || o.key}</span>
+                  <p className="pk-title">{o.text}</p>
+                  <div className="pk-row">
+                    <b>怎么接</b>
+                    <span>{o.how}</span>
+                  </div>
+                  {selected?.key === o.key && <span className="pk-picked">✓ 已选这一版</span>}
+                </button>
               ))}
               <button
                 className="btn btn-ghost btn-sm"
@@ -297,18 +295,14 @@ export default function SeamWizard({
                 onClick={() => {
                   const rej = [...rejected, ...options.map((o) => ({ approach: o.key, text: o.text }))];
                   setRejected(rej);
-                  runDraft(
-                    rej.filter((r) => !excludedNow.includes(r.approach)).map((r) => r.approach),
-                    rej,
-                  );
+                  runDraft(rej.map((r) => r.approach), rej);
                 }}
                 disabled={!options.length}
               >
-                都不满意 · 重出一批（避开已否决）
+                都不满意 · 换一批（避开已否决）
               </button>
             </div>
-            );
-          })()}
+          )}
         </div>
       )}
 
