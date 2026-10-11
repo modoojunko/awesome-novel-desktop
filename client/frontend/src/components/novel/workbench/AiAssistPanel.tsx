@@ -504,12 +504,12 @@ export function AiAssistPanel({
         disabled: (!maxlk && !guide && wordCountEmpty) || !!streaming,
       });
     }
-    // c-chapter-seam-check：章际衔接检查（对照上章结尾/状态域，报开场断裂、态度跳变、道具断环）
+    // c-seam-refill：章际衔接向导入口（检查→重写方案三选一→对照→应用）
     rows.push({
       key: "seam-check",
-      name: "章际衔接检查",
-      desc: "对照上章结尾与故事状态，报开场断裂、态度跳变、道具断环、重复拍",
-      onClick: () => onAiCheck?.("chapter_seam"),
+      name: "章际衔接检查与修复",
+      desc: "查本章开头与上一章结尾的衔接；有问题起草三选一重写方案",
+      onClick: () => proseRef?.current?.openSeamWizard?.(),
       testid: "rail-seam-check",
       odId: "rail-seam-check",
       hint: streaming ? "生成中" : undefined,
