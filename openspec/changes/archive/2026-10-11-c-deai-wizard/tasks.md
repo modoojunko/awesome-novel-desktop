@@ -18,10 +18,10 @@
 
 - [x] 3.1 前端：tsc clean；vitest 全量 1499 passed（124 files）；vite build 成功。后端：受影响套件＋全量（真 CI 口径）2001→2059 passed 0 failed；ruff clean
 - [x] 3.2 三路设计评审（PE/FE/PM，汇总见 drafts/修稿向导-三路评审汇总.md）＋实现后 Code Reviewer 复审轮（PASS-WITH-FINDINGS：上轮 7 findings 全 FIXED-VERIFIED；新发现 N1/N2/MINOR-5 已修，N3 备案）＋PE 接口契约复核（四项裁决 CONFIRMED；MAJOR-1 映射失效已修）
-- [ ] 3.3 提交推分支＋PR #828（已建；等 CI）
+- [x] 3.3 提交推分支＋PR #828/#830 已合入 main（#830＝移除选区去AI味旧入口，向导归一）
 
 ## 4. 验收（真机/演示栈）
 
-- [ ] 4.1 真机走一轮：检测 → 向导四步 → 应用 → 顶部重检看人味变化
+- [x] 4.1 真机走一轮：检测 → 向导四步 → 应用 → 顶部重检看人味变化（5274 多轮走查，2026-10-11 确认界面定稿）
 - [ ] 4.2 PRO 无检测存档：规则模式全程无朱雀数据露出
 - [ ] 4.3 空应用（全保留原文）：不置 stale、不弹「正文已更新」
