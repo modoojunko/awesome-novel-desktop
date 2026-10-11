@@ -65,11 +65,11 @@ from volumes.ai_plan import router as volume_ai_plan_router
 from workflow.router import backfill_router as workflow_backfill_router
 from workflow.router import router as workflow_router
 from write.ai_check import router as ai_check_router
-from write.seam_refill import router as seam_refill_router
 from write.plot_sim import router as plot_sim_router
 from write.prompt_sources import router as prompt_sources_router
 from write.router import router as write_router
 from write.router import scan_router as write_scan_router
+from write.seam_refill import router as seam_refill_router
 from write.style_shadow import router as style_shadow_router
 from zhuque.router import check_router as zhuque_check_router
 from zhuque.router import config_router as zhuque_config_router
