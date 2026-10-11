@@ -12,10 +12,12 @@
 - [x] 2.2 `workbench/AiAssistPanel.tsx`：人物/关系边统计改随章 graph；「本章变化」改章档 relations 行数（待确认＋已采纳，驳回不算）
 - [x] 2.3 `__tests__/workbenchExtras.test.tsx`：存量 mock 适配带参 URL；新增过滤（未登记边/ghost 裁剪、登记无卡占位、空登记引导态、图例注记）用例
 - [x] 2.4 `__tests__/AiAssistPanel.test.tsx`：统计口径用例（随章计数＋本章变化=章档行数）
+- [x] 2.5 `e2e/chapter-dossier.spec.ts`：两章播种 `outline.characters`（林晚/阿蓟，只登记不建卡——ghost 断言依赖）；评审 2026-10-11 补（登记集口径下原断言会落引导空态）
 
 ## 3. 门禁与收尾
 
 - [x] 3.1 后端全量 pytest 绿（worktree 内跑，防主检出旧提示词假红）；前端 vitest 全量绿；tsc／ruff 过
 - [x] 3.2 `openspec validate c-rel-graph-cast-filter` 过
+- [x] 3.2a specs delta 补 `volume-outline` MODIFIED（卷域投影同步登记集口径；评审 2026-10-11 补：跨 capability sync）
 - [ ] 3.3 演示栈换包自测（可选）：第六章页签只剩章纲登记角色、随章切换图收窄
 - [ ] 3.4 归档另行 PR（本 change 实现合入后做 specs sync）

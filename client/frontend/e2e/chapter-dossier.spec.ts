@@ -160,6 +160,12 @@ async function seed(page: Page, request: APIRequestContext, token: string, name:
     data: { prose: PROSE }, headers: auth,
   });
   expect(rp.ok(), `prose ch1: ${await rp.text()}`).toBeTruthy();
+  // 章纲出场角色登记（c-rel-graph-cast-filter）：关系页签随章口径按登记集上图；
+  // 只登记名字不建卡——ghost 占位节点断言依赖这一点
+  const ro = await request.put(`${base}/chapters/vol-1-ch-1`, {
+    data: { outline: { characters: ["林晚", "阿蓟"] } }, headers: auth,
+  });
+  expect(ro.ok(), `outline ch1: ${await ro.text()}`).toBeTruthy();
   await bindStubModel(request, token, pid);
   return pid;
 }
@@ -176,6 +182,10 @@ async function addChapter2(request: APIRequestContext, token: string, pid: strin
     data: { prose: PROSE }, headers: auth,
   });
   expect(rp.ok(), `prose ch2: ${await rp.text()}`).toBeTruthy();
+  const ro = await request.put(`${base}/chapters/vol-1-ch-2`, {
+    data: { outline: { characters: ["林晚", "阿蓟"] } }, headers: auth,
+  });
+  expect(ro.ok(), `outline ch2: ${await ro.text()}`).toBeTruthy();
 }
 
 async function waitArchived(base: string, auth: Record<string, string>) {
@@ -247,7 +257,8 @@ test("变化分区全链：归档受理提取→设定/关系页签待确认→�
     await expect(page.getByTestId("chtab-bubble-relations")).toHaveText("1");
 
     // ②′ 角色关系页签（c-chapter-relations-graph）：图为主表达——图在前、工作流在后；
-    // 待确认关系行画虚线提案边；本书无角色卡 → 占位节点也上图
+    // 待确认关系行画虚线提案边；只登记章纲出场角色不建卡（c-rel-graph-cast-filter
+    // 登记集口径）→ 占位节点也上图
     await page.getByRole("tab", { name: /^角色关系/ }).click();
     const rg = page.locator('[data-od-id="relations-graph"]');
     await expect(rg).toBeVisible({ timeout: 15000 });

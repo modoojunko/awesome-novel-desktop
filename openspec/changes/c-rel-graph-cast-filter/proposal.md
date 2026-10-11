@@ -35,10 +35,11 @@
 ### Modified Capabilities
 
 - `workbench`：「角色关系页签（关系图为主表达）」Requirement——全书统一视图口径改为**随章收窄**：章/卷态按章纲出场角色登记集过滤节点与边、设定边按来源章序收窄、登记集为空给引导空态；端点增 `up_to_ref`/`volume_no` 口径参数。delta 见本 change `specs/workbench/spec.md`。
+- `volume-outline`：「卷域关系与伏笔投影」Requirement——卷选中态「全书关系图」措辞同步为登记集收窄口径（同一表面，`volume_no` 参数；评审 2026-10-11 补：跨 capability sync 纪律）。delta 见本 change `specs/volume-outline/spec.md`。
 
 ## Impact
 
-- C端：`client/backend/{settings/character_service.py,settings/characters_router.py,tests/test_relations_graph.py}`；`client/frontend/src/components/novel/workbench/{RelationsGraphPane.tsx,AiAssistPanel.tsx}`＋`client/frontend/src/__tests__/{workbenchExtras.test.tsx,AiAssistPanel.test.tsx}`
+- C端：`client/backend/{settings/character_service.py,settings/characters_router.py,tests/test_relations_graph.py}`；`client/frontend/src/components/novel/workbench/{RelationsGraphPane.tsx,AiAssistPanel.tsx}`＋`client/frontend/src/__tests__/{workbenchExtras.test.tsx,AiAssistPanel.test.tsx}`；e2e `client/frontend/e2e/chapter-dossier.spec.ts`（两章补 `outline.characters` 播种——登记集口径下图断言需书内有登记；e2e 为每日定时门禁，不在 PR CI）
 - 端点：`GET /characters/graph` 加可选参数，缺省行为不变（全书视图）；唯一消费方＝关系图页签＋右栏统计
 - 数据：零迁移、零回填（登记集现查现用）；章档行、设定边零接触
 - 发布：随下次客户端镜像生效；5274 演示栈重建后即时体验

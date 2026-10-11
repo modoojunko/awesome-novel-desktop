@@ -595,8 +595,11 @@ describe("RelationsGraphPane 随章过滤（c-rel-graph-cast-filter）", () => {
         // 待确认提案端点「温勋」未进章纲登记集 → 边与占位节点都不上图
         { id: "r1", domain: "relations", status: "pending", owner: "林晚", other: "温勋",
           rel_type: "追缉", change_note: "悬赏", flags: "", evidence: "", decided_at: "" },
+        // 双端点都登记（船帮＝登记过但无卡）→ 边照常上图，船帮给虚线占位
+        { id: "r2", domain: "relations", status: "pending", owner: "林晚", other: "船帮",
+          rel_type: "盟友", change_note: "入伙", flags: "", evidence: "", decided_at: "" },
       ],
-      progress: { pending: 1, accepted: 0, rejected: 0 },
+      progress: { pending: 2, accepted: 0, rejected: 0 },
       extraction: null,
       not_extracted: false,
       stale: false,
@@ -609,12 +612,15 @@ describe("RelationsGraphPane 随章过滤（c-rel-graph-cast-filter）", () => {
     expect(apiState.get.mock.calls.some(([p]) => String(p).includes("up_to_ref=vol"))).toBe(true);
     expect(screen.queryByText("温勋")).toBeNull();
     expect(screen.queryByText(/追缉/)).toBeNull();
-    // 被裁的提案不进图例计数（剧情演变/待确认段不出现）
-    expect(screen.queryByText(/（剧情演变 /)).toBeNull();
-    // 登记过但无卡的名「船帮」：虚线占位上图（孤点）
+    // 登记集内的待确认提案照常上图（虚线边，端点无卡＝占位节点）
+    expect(document.querySelectorAll(".rg-edge.pending")).toHaveLength(1);
+    expect(screen.getByText(/盟友 · 待确认/)).toBeTruthy();
+    // 被裁的提案不进图例计数（剧情演变/待确认段只数可见边：1 条待确认）
+    expect(screen.getByText(/（剧情演变 0 · 待确认 1）/)).toBeTruthy();
+    // 登记过但无卡的名「船帮」：虚线占位上图（随登记集内的提案边）
     expect(screen.getByText("船帮")).toBeTruthy();
     expect(document.querySelectorAll(".rg-node.ghost")).toHaveLength(1);
-    expect(screen.getByText(/还没连线/).textContent).toContain("船帮");
+    expect(screen.queryByText(/还没连线/)).toBeNull(); // 全部节点都有边，无孤点
     // 图例注明过滤口径
     expect(screen.getByText(/仅章纲已登记角色（截至本章）/)).toBeTruthy();
   });
