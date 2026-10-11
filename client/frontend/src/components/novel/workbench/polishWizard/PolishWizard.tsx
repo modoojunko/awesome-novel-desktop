@@ -251,6 +251,11 @@ export default function PolishWizard({
   }
 
   function requestClose() {
+    // 采用未应用的取舍是最接近落稿的丢失面——先于「尚未取舍」确认（spec：丢弃须显式确认）
+    if (adoptedItems.length > 0) {
+      if (window.confirm(`已采用 ${adoptedItems.length} 段但未应用，关闭将丢弃这些取舍。确定关闭？`)) onClose();
+      return;
+    }
     const undecided = Array.from(cands.values()).filter(
       (c) => c.status === "ready" && c.decision === "undecided",
     ).length;
@@ -430,7 +435,7 @@ export default function PolishWizard({
                 )}
                 {!loadingSeg && (
                   <div style={{ display: "flex", gap: 6, marginTop: 6 }}>
-                    <button className="btn btn-primary btn-sm" onClick={() => adopt(s)} disabled={c?.decision === "adopt"}>
+                    <button className="btn btn-primary btn-sm" onClick={() => adopt(s)} disabled={c?.decision === "adopt" || c?.status === "empty"}>
                       采用改稿
                     </button>
                     <button className="btn btn-secondary btn-sm" onClick={() => keep(s)} disabled={c?.decision === "keep"}>
