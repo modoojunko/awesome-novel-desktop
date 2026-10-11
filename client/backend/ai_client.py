@@ -49,6 +49,12 @@ _THINKING_DISABLED = {"type": "disabled"}
 _CHAT_TIMEOUT = httpx.Timeout(connect=10.0, read=90.0, write=30.0, pool=10.0)
 _STREAM_READ_TIMEOUT = 120.0
 
+# 流式首字守卫（c-prose-thinking-timeout）：开思考后「思考」与正文共用 max_tokens
+# 预算，reasoning delta 一直滴、read 超时（相邻事件间隔口径）永远打不到——实测
+# effort=max 180s 烧光 8192 预算、正文零字（llm.log 指纹 tokens_out=8192 顶格）。
+# 首个正文 delta 前的总时长超过该值即按失败收场；首字到达后守卫即撤，长文不受影响。
+FIRST_CONTENT_TIMEOUT = 90.0
+
 # 网络层失败（超时/连接不通）——归一为 AITimeoutError 对外统一语义。
 _NETWORK_ERRORS: tuple[type[Exception], ...] = (
     OpenAITimeoutError,
@@ -61,6 +67,18 @@ _NETWORK_ERRORS: tuple[type[Exception], ...] = (
 
 class AITimeoutError(Exception):
     """AI 调用网络层失败（超时/连接不通）——区别于供应商拒绝业务参数。"""
+
+
+class AIThinkingTimeoutError(AITimeoutError):
+    """首字守卫超时：流上有动静但迟迟不出正文（多为思考强度过高烧光输出预算）。
+
+    归一出口按 AITimeoutError 语义原样放行（不在 _NETWORK_ERRORS 内），调用方
+    以子类先行捕获给出可读文案；seconds＝判死时刻的**实测**等待秒数（守卫在
+    deadline 过线后的下一个流事件才落刀，实测可略超配置上限），作文案与测试取值。"""
+
+    def __init__(self, seconds: float) -> None:
+        self.seconds = seconds
+        super().__init__(f"thinking timeout: no prose within {seconds:g}s")
 
 
 class AIRequestError(Exception):
@@ -618,11 +636,15 @@ class AIClient:
         messages: list[dict[str, str]],
         max_tokens: int = 4096,
         operation: str = "",
+        first_content_timeout: float | None = None,
         **kwargs: Any,
     ) -> AsyncIterator[StreamEvent]:
         """Streaming chat. Yields StreamEvent with text, is_done, tokens.
 
         operation: 业务动作名（backend-logging D7 留痕行用，与 TokenLog 同名）。
+        first_content_timeout: 首个正文 delta 前的总时长上限（秒；None/0＝不设，
+        openai/anthropic 两分支同构实现）——超时抛 AIThinkingTimeoutError，供
+        「思考太久即失败」（c-prose-thinking-timeout）。
         """
         model = self.resolve(model)
         start = time.perf_counter()
@@ -663,7 +685,18 @@ class AIClient:
                         **kwargs,
                     )
                 done_out, done_in = 0, 0
+                # 首字守卫：思考期 reasoning delta 不带正文、只会让 read 超时
+                # （相邻事件间隔口径）一直顺延——核对首字前总时长，超限即判死
+                # （零 chunk 静默仍由 read 超时兜底）；秒数记实测值非配置值
+                first_started = time.monotonic() if first_content_timeout else 0.0
+                first_deadline = (
+                    first_started + first_content_timeout
+                    if first_content_timeout
+                    else None
+                )
                 async for chunk in stream:
+                    if first_deadline is not None and time.monotonic() >= first_deadline:
+                        raise AIThinkingTimeoutError(time.monotonic() - first_started)
                     # 兼容供应商流末会发 choices=[] 的 usage-only 块——裸取 [0] 是
                     # IndexError（不在 _NETWORK_ERRORS 内，会把成功生成记成 _fail）
                     usage = getattr(chunk, "usage", None)
@@ -674,6 +707,7 @@ class AIClient:
                         continue
                     delta = chunk.choices[0].delta
                     if delta and delta.content:
+                        first_deadline = None  # 首字已到，守卫即撤
                         yield StreamEvent(text=delta.content)
                 self._log_call(
                     operation, model, start, tokens_in=done_in, tokens_out=done_out
@@ -685,6 +719,14 @@ class AIClient:
         else:
             kwargs = self._anthropic_kwargs(kwargs)
             kwargs = self._with_thinking_disabled(kwargs)
+            # 首字守卫（与 openai 分支同构，c-prose-thinking-timeout）：思考期只有
+            # thinking_delta，read 超时（相邻事件间隔口径）打不到——核对首个
+            # text_delta 前的总时长。时钟含建连与至多一次思考拒参重开＝作者真实
+            # 等待；判死后 async with 退出即关流。
+            first_started = time.monotonic() if first_content_timeout else 0.0
+            first_deadline = (
+                first_started + first_content_timeout if first_content_timeout else None
+            )
             try:
                 # 思考参数被拒只会发生在开流（请求体校验），流中途不会冒这类错——
                 # 去参重开一次流不会重复产出（c-thinking-config；此前此路径无重试，
@@ -701,12 +743,20 @@ class AIClient:
                         ) as stream:
                             tokens_in = 0
                             async for event in stream:
+                                if (
+                                    first_deadline is not None
+                                    and time.monotonic() >= first_deadline
+                                ):
+                                    raise AIThinkingTimeoutError(
+                                        time.monotonic() - first_started
+                                    )
                                 if event.type == "message_start":
                                     usage = getattr(event.message, "usage", None)
                                     tokens_in = getattr(usage, "input_tokens", 0) or 0
                                 elif event.type == "content_block_delta":
                                     delta_type = getattr(event.delta, "type", "")
                                     if delta_type == "text_delta":
+                                        first_deadline = None  # 首字已到，守卫即撤
                                         yield StreamEvent(text=event.delta.text)
                                 elif event.type == "message_stop":
                                     tokens = 0
@@ -719,6 +769,8 @@ class AIClient:
                                     yield StreamEvent(is_done=True, tokens=tokens, tokens_in=tokens_in)
                         break
                     except Exception as e:  # noqa: BLE001 — 端点不认思考参数时去参重开一次
+                        if isinstance(e, AIThinkingTimeoutError):
+                            raise  # 首字判死≠拒参：流中途裁决不可重开（重开＝再烧一遍；消息含「thinking」会被下方模糊匹配误判）
                         if (
                             attempt == 1
                             and "thinking" in kwargs

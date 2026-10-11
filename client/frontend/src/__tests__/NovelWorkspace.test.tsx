@@ -857,6 +857,51 @@ describe("正文生成中的现场保护（c-prose-stream-guard）", () => {
     expect(body().classList.contains("awaiting")).toBe(false);
   });
 
+  it("等首字秒表：随等待呈现同行逐秒走、阶段推进不重置；首字到达停表退场（c-prose-thinking-timeout 顺带）", async () => {
+    mockTwoChapterTreePro();
+    renderWorkspace("monthly");
+    await selectFirstChapter();
+    fireEvent.click(screen.getByRole("tab", { name: /^正文/ }));
+    let captured: {
+      onChunk: (t: string) => void;
+      onPhase?: (p: string) => void;
+    } | null = null;
+    writeMock.mockImplementation(((_pid: string, _ref: string, cbs: never) => {
+      captured = cbs;
+      return new AbortController();
+    }) as unknown as typeof streamChapterWrite);
+    fireEvent.click(screen.getByTestId("ai-write-btn"));
+    await screen.findByTestId("ai-confirm");
+
+    // 先装假时钟再点确认：秒表 interval 随 effect 在假时钟下创建（先前注册的
+    // 真实 interval 推不动——顺序即判据）
+    vi.useFakeTimers();
+    try {
+      fireEvent.click(screen.getByTestId("ai-confirm"));
+      expect(captured).toBeTruthy();
+      const secsEl = () => screen.getByTestId("gen-line-sec");
+      const secs = () =>
+        parseInt((secsEl().textContent ?? "").match(/(\d+)s/)?.[1] ?? "0", 10);
+      expect(secs()).toBe(0); // 起表归零
+      act(() => {
+        vi.advanceTimersByTime(3100);
+      });
+      expect(secs()).toBe(3);
+      // 阶段推进（assemble→model）不重置秒表：计时从生成起点起算
+      act(() => captured!.onPhase!("model"));
+      act(() => {
+        vi.advanceTimersByTime(1000);
+      });
+      expect(secs()).toBe(4);
+      // 首字到达：秒表随等待呈现一并退场，不残留
+      act(() => captured!.onChunk("雨落在铁皮屋顶上。"));
+      expect(screen.queryByTestId("gen-line-sec")).toBeNull();
+      expect(screen.queryByTestId("gen-line")).toBeNull();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("生成中左栏树锁定：点另一章被拦（不加载该章＋置灰指路），点「停止」后恢复可切", async () => {    await startStreaming();
     const rows = () => document.querySelectorAll(".tree .ch");
     const aside = () => document.querySelector(".col-tree");
