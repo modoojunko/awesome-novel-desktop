@@ -14,6 +14,8 @@ from fastapi import HTTPException
 from fastapi.testclient import TestClient
 from sqlalchemy import select
 
+import pytest
+
 from ai_client import StreamEvent
 from auth_local.deps import require_ai_access as _raa
 from auth_local.deps import require_novel_model as _rnm
@@ -24,6 +26,8 @@ from models.chapter import Chapter, ChapterContent
 from models.project import Novel
 from models.user import User
 from models.volume import Volume
+
+pytestmark = [pytest.mark.needs_prompts]
 from write import seam_refill
 
 REF1 = "vol-1-ch-1"
