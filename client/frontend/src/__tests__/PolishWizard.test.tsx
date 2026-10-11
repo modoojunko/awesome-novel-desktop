@@ -127,7 +127,6 @@ describe("PolishWizard · 评审盲区补钉", () => {
     expect(await screen.findByText(/规则扫描完成/)).toBeTruthy();
     expect(screen.queryByText(/人味占比（检测存档）/)).toBeNull();
   });
-
   it("漂移拒写：onApply 报 skipped 时弹窗不关、error toast", async () => {
     const onClose = vi.fn();
     const toast = await import("@/lib/toast");
@@ -159,5 +158,72 @@ describe("PolishWizard · 评审盲区补钉", () => {
     expect(confirmSpy).toHaveBeenCalled();
     expect(onClose).not.toHaveBeenCalled();
     confirmSpy.mockRestore();
+  });
+});
+
+describe("PolishWizard · 自动判保留段放行（反馈死锁修复 c-deai-wizard-keep-advance）", () => {
+  it("零改稿段不再卡死：主按钮放行为「这段保留原文，看下一段」且可前进", async () => {
+    vi.mocked(polishTextDetail)
+      .mockResolvedValueOnce({ polished_text: PROSE[1], changed: false, flags: [], flags_blocking: false })
+      .mockResolvedValue({ polished_text: "【改】重写的第二段。", changed: true, flags: [], flags_blocking: false });
+    mount();
+    await walkToStep3();
+    await screen.findByText(/未查出可修的硬伤——原样保留是合规结果/);
+    const btn = screen.getByRole("button", { name: "这段保留原文，看下一段" }) as HTMLButtonElement;
+    expect(btn.disabled).toBe(false);
+    fireEvent.click(btn);
+    await screen.findByText("第 2 / 3 段");
+    await screen.findByText(/【改】重写的第二段/);
+  });
+
+  it("红线段自动判保留后可前进，④步终选翻转仍可强行采用", async () => {
+    vi.mocked(polishTextDetail)
+      .mockResolvedValueOnce({ polished_text: "【改】带红线的改稿。", changed: true, flags: [{ level: "block", kind: "dash", detail: "新增破折号" }], flags_blocking: true });
+    const { onApply } = mount();
+    await walkToStep3();
+    // 段 1 命中红线：默认翻「保留原文」但不卡段
+    await screen.findByText(/改稿命中红线/);
+    const btn = screen.getByRole("button", { name: "这段保留原文，看下一段" }) as HTMLButtonElement;
+    expect(btn.disabled).toBe(false);
+    fireEvent.click(btn);
+    // 段 2、3 正常采用
+    await screen.findByText("第 2 / 3 段");
+    await screen.findByText(/【改】/);
+    fireEvent.click(screen.getByRole("button", { name: "采用改稿，看下一段" }));
+    await screen.findByText("第 3 / 3 段");
+    await screen.findByText(/【改】/);
+    fireEvent.click(screen.getByRole("button", { name: "采用改稿，看下一段" }));
+    await screen.findByText(/本轮处理完毕/, { exact: false });
+    // ④ 终选翻转：红线段强行采用
+    fireEvent.click(screen.getAllByRole("button", { name: "采用改稿" })[0]);
+    fireEvent.click(screen.getByRole("button", { name: "应用到正文" }));
+    const items = (onApply.mock.calls[0]?.[0] ?? []) as Array<{ paraIndex: number }>;
+    expect(items.map((i) => i.paraIndex).sort()).toEqual([1, 2, 3]);
+  });
+
+  it("空产出段可「这段保留原文」跳过（兑现面板文案承诺的入口）", async () => {
+    vi.mocked(polishTextDetail)
+      .mockResolvedValueOnce({ polished_text: "  ", changed: false, flags: [], flags_blocking: false })
+      .mockResolvedValue({ polished_text: "【改】有产出。", changed: true, flags: [], flags_blocking: false });
+    mount();
+    await walkToStep3();
+    await screen.findByText(/没有产出改稿——可重新生成，或保留原文/);
+    fireEvent.click(screen.getByRole("button", { name: "这段保留原文" }));
+    await screen.findByText("第 2 / 3 段");
+  });
+
+  it("全队列自动判保留时也能走到④：应用禁用但流程不卡死", async () => {
+    vi.mocked(polishTextDetail)
+      .mockResolvedValue({ polished_text: "【改】带红线。", changed: true, flags: [{ level: "block", kind: "dash", detail: "新增破折号" }], flags_blocking: true });
+    mount();
+    await walkToStep3();
+    for (let i = 0; i < 3; i += 1) {
+      await screen.findByText(new RegExp(`第 ${i + 1} / 3 段`));
+      await screen.findByText(/改稿命中红线/);
+      fireEvent.click(screen.getByRole("button", { name: i < 2 ? "这段保留原文，看下一段" : "下一步：应用确认" }));
+    }
+    await screen.findByText(/本轮处理完毕/, { exact: false });
+    const btn = screen.getByRole("button", { name: "应用到正文" }) as HTMLButtonElement;
+    expect(btn.disabled).toBe(true);
   });
 });

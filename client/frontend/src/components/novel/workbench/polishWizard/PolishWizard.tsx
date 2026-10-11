@@ -219,7 +219,15 @@ export default function PolishWizard({
     if (step === 2) { if (step2Done) setStep(3); return; }
     if (step === 3) {
       const seg = queue[fixIdx];
-      if (seg) adopt(seg);
+      if (!seg) return;
+      const c = cands.get(seg.para);
+      if (c && c.status === "ready" && c.decision === "keep") {
+        // 零改稿/红线被自动判保留的段：放行前进（否则无任何可点入口，卡死本段）
+        if (fixIdx + 1 < queue.length) setFixIdx(fixIdx + 1);
+        else setStep(4);
+        return;
+      }
+      adopt(seg);
       return;
     }
     if (step === 4) {
@@ -288,14 +296,18 @@ export default function PolishWizard({
     onClose();
   }
 
+  const curSeg = queue[fixIdx];
+  const curCand = curSeg ? cands.get(curSeg.para) : undefined;
+  // 已定段中只有「自动判保留」（零改稿/红线）会停在屏上——采用段总是即时前进
+  const forcedKeep = step === 3 && curCand?.status === "ready" && curCand.decision === "keep";
   const nextLabel =
     step === 1 ? "下一步：选择段落"
     : step === 2 ? `开始修改（${queue.length} 段）`
-    : step === 3 ? (allDecided ? "下一步：应用确认" : "采用改稿，看下一段")
+    : step === 3
+      ? allDecided ? "下一步：应用确认"
+        : forcedKeep ? "这段保留原文，看下一段"
+        : "采用改稿，看下一段"
     : "应用到正文";
-
-  const curSeg = queue[fixIdx];
-  const curCand = curSeg ? cands.get(curSeg.para) : undefined;
 
   return (
     <Modal
@@ -312,12 +324,14 @@ export default function PolishWizard({
             onClick={nextClick}
             disabled={applying
               || (step === 2 && queue.length === 0)
-              || (step === 3 && (!curCand || curCand.status !== "ready" || curCand.decision !== "undecided"))
+              || (step === 3 && (!curCand || curCand.status !== "ready"))
               || (step === 4 && adoptedItems.length === 0)}
           >
             {nextLabel}
           </button>
-          {step === 3 && curCand && curCand.status === "ready" && curCand.decision === "undecided" && (
+          {step === 3 && curCand
+            && (curCand.status === "empty"
+              || (curCand.status === "ready" && curCand.decision === "undecided")) && (
             <button className="btn btn-secondary" onClick={() => keep(curSeg)}>
               这段保留原文
             </button>
