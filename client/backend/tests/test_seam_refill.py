@@ -10,11 +10,10 @@ import logging
 import os
 import tempfile
 
+import pytest
 from fastapi import HTTPException
 from fastapi.testclient import TestClient
 from sqlalchemy import select
-
-import pytest
 
 from ai_client import StreamEvent
 from auth_local.deps import require_ai_access as _raa
