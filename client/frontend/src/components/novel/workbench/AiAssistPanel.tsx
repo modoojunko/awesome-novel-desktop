@@ -504,6 +504,17 @@ export function AiAssistPanel({
         disabled: (!maxlk && !guide && wordCountEmpty) || !!streaming,
       });
     }
+    // c-chapter-seam-check：章际衔接检查（对照上章结尾/状态域，报开场断裂、态度跳变、道具断环）
+    rows.push({
+      key: "seam-check",
+      name: "章际衔接检查",
+      desc: "对照上章结尾与故事状态，报开场断裂、态度跳变、道具断环、重复拍",
+      onClick: () => onAiCheck?.("chapter_seam"),
+      testid: "rail-seam-check",
+      odId: "rail-seam-check",
+      hint: streaming ? "生成中" : undefined,
+      disabled: wordCount === 0 || !!streaming,
+    });
     footNote =
       "去AI味作用于正文编辑器；朱雀检测整章送检，结果在标题右侧的结果条里，段落标注打在正文行上。检测需在「模型配置 → 朱雀」配好 Key（PRO 会员权益）。";
   } else if (tab === "settings") {
@@ -527,9 +538,6 @@ export function AiAssistPanel({
         disabled: !onStyleSuggest || archived,
         hint: archived ? "本章已归档" : undefined,
         testid: "style-suggest-btn",
-      }),
-      cap("seam-check", "章际衔接检查", "对照上章结尾与故事状态，报开场断裂、态度跳变、道具断环", {
-        onClick: () => onAiCheck?.("chapter_seam"),
       }),
       cap("style-check", "文风一致性检查", "对照全书文风基线查本章偏离", {
         onClick: () => onAiCheck?.("style_consistency"),
