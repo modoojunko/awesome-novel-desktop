@@ -213,6 +213,7 @@ export default function PolishWizard({
   function nextClick() {
     if (step === 1) { if (step1Done) setStep(2); return; }
     if (step === 2) { if (step2Done) setStep(3); return; }
+    if (step === 3) { setStep(4); return; }
     if (step === 4) {
       if (!canApply) return;
       setApplying(true);
@@ -263,7 +264,7 @@ export default function PolishWizard({
   const nextLabel =
     step === 1 ? "下一步：选择段落"
     : step === 2 ? `开始修改（${queue.length} 段）`
-    : step === 3 ? (allDecided ? "应用到正文（" + adoptedItems.length + " 段）" : "生成改稿中…")
+    : step === 3 ? "下一步：应用确认"
     : "应用到正文";
 
   return (
@@ -281,7 +282,7 @@ export default function PolishWizard({
             onClick={nextClick}
             disabled={applying
               || (step === 2 && queue.length === 0)
-              || (step === 3 && !allDecided)
+
               || (step === 4 && adoptedItems.length === 0)}
           >
             {nextLabel}
