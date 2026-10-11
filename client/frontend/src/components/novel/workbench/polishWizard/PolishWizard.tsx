@@ -1,5 +1,5 @@
 /** 去 AI 味修稿向导（c-deai-wizard）：四步弹窗——
- *  ① AI 味检查（本地规则＋读检测存档）② 选择段落 ③ 整体修改·逐段取舍 ④ 应用确认。
+ *  ① AI 味检查（本地规则＋读检测存档）② 选择段落 ③ 整体修改·逐段取舍 ④ 应用。
  *  向导内一切产出为候选态；唯一写正文口＝④应用（经 ProsePane 注入的 onApply）。
  *  收口＝顶栏朱雀条重检（作家自点，本组件不做复测）。 */
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -46,9 +46,9 @@ export default function PolishWizard({
   const [excluded, setExcluded] = useState<Set<number>>(new Set());
   const [step, setStep] = useState<WizardStep>(1);
   const [cands, setCands] = useState<Map<number, FixCandidate>>(new Map());
-  const [fixIdx, setFixIdx] = useState(0);
   const [applying, setApplying] = useState(false);
   const scanReqId = useRef(0);
+  const inflight = useRef<Set<number>>(new Set()); // 防重入：同段在途不重复发
 
   const paragraphs = useMemo(
     () => prose.split("\n").filter((p) => p.trim()),
@@ -67,8 +67,7 @@ export default function PolishWizard({
     setExcluded(new Set());
     setStep(1);
     setCands(new Map());
-    setFixIdx(0);
-    inflightRef.current.clear();
+    inflight.current.clear();
     aiFlavorScan(projectId, chapterRef)
       .then((d) => {
         if (reqId !== scanReqId.current) return;
@@ -89,8 +88,10 @@ export default function PolishWizard({
     () => problems.filter((p) => !excluded.has(p.para)),
     [problems, excluded],
   );
+  const step1Done = !loading && !loadErr && report !== null;
+  const step2Done = queue.length > 0;
 
-  // ── ③ 上下文保鲜：已采用候选替换进段落副本，后续段的改写看得见前序定稿 ──
+  // ── 上下文保鲜：已采用候选替换进段落副本，后续段的改写看得见前序定稿 ──
   const effective = useMemo(() => {
     const base = [...paragraphs];
     for (const [para, c] of cands) {
@@ -110,12 +111,10 @@ export default function PolishWizard({
     [effective],
   );
 
-  const inflightRef = useRef<Set<number>>(new Set());
-
   const generate = useCallback(
     (seg: ProblemSegment) => {
-      if (inflightRef.current.has(seg.para)) return; // StrictMode 双触发防重入
-      inflightRef.current.add(seg.para);
+      if (inflight.current.has(seg.para)) return; // 同段在途防重入
+      inflight.current.add(seg.para);
       setCands((prev) => {
         const next = new Map(prev);
         next.set(seg.para, {
@@ -129,7 +128,7 @@ export default function PolishWizard({
       const { contextBefore, contextAfter } = segContext(seg.para);
       polishTextDetail(projectId, chapterRef, seg.text, contextBefore, contextAfter)
         .then((d) => {
-          inflightRef.current.delete(seg.para);
+          inflight.current.delete(seg.para);
           setCands((prev) => {
             const next = new Map(prev);
             const cur = prev.get(seg.para);
@@ -170,7 +169,7 @@ export default function PolishWizard({
           });
         })
         .catch((e: { message?: string }) => {
-          inflightRef.current.delete(seg.para);
+          inflight.current.delete(seg.para);
           setCands((prev) => {
             const next = new Map(prev);
             const cur = prev.get(seg.para);
@@ -183,15 +182,15 @@ export default function PolishWizard({
     [projectId, chapterRef, segContext],
   );
 
-  // 步骤③进入/换段：当前段候选未生成则自动生成
+  // 步骤③进入：勾选段全部自动出改稿（并行，inflight 防重入）
   useEffect(() => {
     if (step !== 3) return;
-    const seg = queue[fixIdx];
-    if (!seg) return;
-    const cur = cands.get(seg.para);
-    if (!cur || (cur.status === "error" && !inflightRef.current.has(seg.para))) generate(seg);
+    for (const seg of queue) {
+      const cur = cands.get(seg.para);
+      if (!cur || cur.status === "error") generate(seg);
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [step, fixIdx]);
+  }, [step]);
 
   const adoptedItems = useMemo(
     () =>
@@ -205,23 +204,15 @@ export default function PolishWizard({
     () => queue.filter((s) => cands.get(s.para)?.decision === "keep").length,
     [queue, cands],
   );
-
   const allDecided = queue.length > 0 && queue.every((s) => {
     const c = cands.get(s.para);
     return c && c.status === "ready" && c.decision !== "undecided";
   });
-  const step1Done = !loading && !loadErr && report !== null;
-  const step2Done = queue.length > 0;
   const canApply = step === 4 && adoptedItems.length > 0 && !applying;
 
   function nextClick() {
     if (step === 1) { if (step1Done) setStep(2); return; }
     if (step === 2) { if (step2Done) setStep(3); return; }
-    if (step === 3) {
-      const seg = queue[fixIdx];
-      if (seg) adopt(seg);
-      return;
-    }
     if (step === 4) {
       if (!canApply) return;
       setApplying(true);
@@ -241,34 +232,19 @@ export default function PolishWizard({
   }
 
   function adopt(seg: ProblemSegment) {
-    const c = cands.get(seg.para);
-    if (!c || c.status !== "ready" || c.decision !== "undecided") return;
-    setCands((prev) => {
-      const next = new Map(prev);
-      next.set(seg.para, { ...c, decision: "adopt" });
-      return next;
-    });
-    if (fixIdx + 1 < queue.length) setFixIdx(fixIdx + 1);
-    else setStep(4);
-  }
-
-  function keep(seg: ProblemSegment) {
-    const c = cands.get(seg.para);
-    if (!c || c.decision !== "undecided") return;
-    setCands((prev) => {
-      const next = new Map(prev);
-      next.set(seg.para, { ...c, decision: "keep" });
-      return next;
-    });
-    if (fixIdx + 1 < queue.length) setFixIdx(fixIdx + 1);
-    else setStep(4);
-  }
-
-  function flip(seg: ProblemSegment) {
     setCands((prev) => {
       const next = new Map(prev);
       const c = next.get(seg.para);
-      if (c) next.set(seg.para, { ...c, decision: c.decision === "adopt" ? "keep" : "adopt" });
+      if (c) next.set(seg.para, { ...c, decision: "adopt" });
+      return next;
+    });
+  }
+
+  function keep(seg: ProblemSegment) {
+    setCands((prev) => {
+      const next = new Map(prev);
+      const c = next.get(seg.para);
+      if (c) next.set(seg.para, { ...c, decision: "keep" });
       return next;
     });
   }
@@ -277,10 +253,6 @@ export default function PolishWizard({
     const undecided = Array.from(cands.values()).filter(
       (c) => c.status === "ready" && c.decision === "undecided",
     ).length;
-    if (adoptedItems.length > 0) {
-      if (window.confirm(`已采用 ${adoptedItems.length} 段但未应用，关闭将丢弃这些取舍。确定关闭？`)) onClose();
-      return;
-    }
     if (undecided > 0) {
       if (window.confirm(`有 ${undecided} 段已生成改稿尚未取舍，关闭将丢弃。确定关闭？`)) onClose();
       return;
@@ -291,11 +263,8 @@ export default function PolishWizard({
   const nextLabel =
     step === 1 ? "下一步：选择段落"
     : step === 2 ? `开始修改（${queue.length} 段）`
-    : step === 3 ? (allDecided ? "下一步：应用确认" : "采用改稿，看下一段")
+    : step === 3 ? (allDecided ? "应用到正文（" + adoptedItems.length + " 段）" : "生成改稿中…")
     : "应用到正文";
-
-  const curSeg = queue[fixIdx];
-  const curCand = curSeg ? cands.get(curSeg.para) : undefined;
 
   return (
     <Modal
@@ -312,21 +281,11 @@ export default function PolishWizard({
             onClick={nextClick}
             disabled={applying
               || (step === 2 && queue.length === 0)
-              || (step === 3 && (!curCand || curCand.status !== "ready" || curCand.decision !== "undecided"))
+              || (step === 3 && !allDecided)
               || (step === 4 && adoptedItems.length === 0)}
           >
             {nextLabel}
           </button>
-          {step === 3 && curCand && curCand.status === "ready" && curCand.decision === "undecided" && (
-            <button className="btn btn-secondary" onClick={() => keep(curSeg)}>
-              这段保留原文
-            </button>
-          )}
-          {step === 3 && curCand && curCand.status !== "loading" && (
-            <button className="btn btn-ghost" onClick={() => generate(curSeg)}>
-              重新生成{curCand.attempts > 0 ? `（已 ${curCand.attempts} 次）` : ""}
-            </button>
-          )}
           <button className="btn btn-ghost" onClick={requestClose}>
             取消
           </button>
@@ -334,10 +293,8 @@ export default function PolishWizard({
             {step === 1
               ? "AI 味检查不耗检测额度 · 收口重检 1 次"
               : step === 3
-                ? "修改全程为候选 · 应用前不写正文、不花检测额度"
-                : step === 4
-                  ? "应用后旧检测标为过期 · 顶部重检一次收口"
-                  : "勾选要修的段落 · 不修的取消勾选"}
+                ? "每段都可采用改稿或保留原文 · 应用前不写正文、不花检测额度"
+                : "应用后旧检测标为过期 · 顶部重检一次收口"}
           </span>
         </div>
       }
@@ -349,7 +306,7 @@ export default function PolishWizard({
         <i />
         <span className={`gl-step${step === 3 ? " on" : step > 3 ? " done" : ""}`}>③ 整体修改</span>
         <i />
-        <span className={`gl-step${step === 4 ? " on" : ""}`}>④ 应用确认</span>
+        <span className={`gl-step${step === 4 ? " on" : ""}`}>④ 应用</span>
       </div>
 
       {loading && <p className="hint" style={{ margin: 0 }}>AI 味检查中…</p>}
@@ -432,106 +389,90 @@ export default function PolishWizard({
         </div>
       )}
 
-      {/* ③ 整体修改 */}
-      {step === 3 && curSeg && (
+      {/* ③ 整体修改（同屏全部待修段，逐段取舍） */}
+      {step === 3 && (
         <div className="gl-pane">
-          <p className="gl-meta">
-            <b>第 {fixIdx + 1} / {queue.length} 段</b>
-            <span>段 {curSeg.para + 1} · {curSeg.source === "detector" || curSeg.source === "both" ? `朱雀判定 ${Math.round((curSeg.confidence ?? 0) * 100)}%` : "规则命中"}</span>
-          </p>
-          <p className="gl-meta"><b>问题：</b><span>{curSeg.reasons.join("；") || "无具体定位——按整段指纹处理"}</span></p>
-          {curCand?.status === "loading" && <p className="gl-meta">生成改稿中…</p>}
-          {curCand?.status === "error" && (
-            <p className="gl-meta" style={{ color: "var(--err)" }}>生成失败：{curCand.error}</p>
-          )}
-          {curCand?.status === "empty" && (
-            <p className="gl-meta">没有产出改稿——可重新生成，或保留原文。</p>
-          )}
-          {curCand?.status === "ready" && (
-            <>
-              {curCand.notice && (
-                <p className="gl-meta" style={{ color: curCand.flagsBlocking ? "var(--err)" : "var(--muted)" }}>
-                  {curCand.notice}
-                </p>
-              )}
-              {!curCand.flagsBlocking && (curCand.flags?.length ?? 0) > 0 && (
-                <p className="gl-hint">
-                  改稿快扫提示：{curCand.flags?.map((f) => f.detail).join("；")}——请核对。
-                </p>
-              )}
-              <blockquote className="gl-quote">{curSeg.text}</blockquote>
-              <div className="gl-ab">
-                <p className="gl-ab-a">{curCand.after}</p>
+          <p className="gl-sec-title">逐段取舍 · 每段可采用改稿或保留原文</p>
+          {queue.map((s) => {
+            const c = cands.get(s.para);
+            const loadingSeg = c?.status === "loading";
+            return (
+              <div key={s.para} data-testid={`seg-${s.para}`} className="gl-diff-row" style={{ opacity: c?.decision === "keep" ? 0.6 : 1 }}>
+                <div className="gl-diff-head">
+                  <span className="pill pill-tag">段 {s.para + 1}</span>
+                  <span>{s.reasons.join("；") || "按整段指纹处理"}</span>
+                  {c?.flagsBlocking && (
+                    <span className="gl-tag" style={{ color: "var(--err)" }}>命中红线</span>
+                  )}
+                  <span className="gl-tag" style={{ marginLeft: "auto" }}>
+                    {loadingSeg ? "生成中…" : c?.decision === "adopt" ? "已采用" : c?.decision === "keep" ? "保留原文" : c?.status === "error" ? "生成失败" : c?.status === "empty" ? "无改稿产出" : "待处理"}
+                  </span>
+                </div>
+                {c?.notice && (
+                  <p className="gl-meta" style={{ color: c.flagsBlocking ? "var(--err)" : "var(--muted)" }}>
+                    {c.notice}
+                  </p>
+                )}
+                {c?.status === "error" && (
+                  <p className="gl-meta" style={{ color: "var(--err)" }}>生成失败：{c.error}</p>
+                )}
+                {c?.status === "empty" && (
+                  <p className="gl-meta">没有产出改稿——可重新生成，或保留原文。</p>
+                )}
+                {c?.status === "ready" && c.after && (
+                  <>
+                    <blockquote className="gl-quote">{s.text}</blockquote>
+                    <div className="gl-ab">
+                      <p className="gl-ab-a">{c.after}</p>
+                    </div>
+                  </>
+                )}
+                {!loadingSeg && (
+                  <div style={{ display: "flex", gap: 6, marginTop: 6 }}>
+                    <button className="btn btn-primary btn-sm" onClick={() => adopt(s)} disabled={c?.decision === "adopt"}>
+                      采用改稿
+                    </button>
+                    <button className="btn btn-secondary btn-sm" onClick={() => keep(s)} disabled={c?.decision === "keep"}>
+                      保留原文
+                    </button>
+                    <button className="btn btn-ghost btn-sm" onClick={() => { inflight.current.delete(s.para); generate(s); }}>
+                      重新生成
+                    </button>
+                  </div>
+                )}
               </div>
-              <p className="gl-hint">
-                {SUGGEST_TEXT[curSeg.suggested_fix] || "按问题清单逐段清 AI 味；动不动以改稿实际产出为准。"}
-                {curCand.attempts > 1 && `（已重新生成 ${curCand.attempts - 1} 次）`}
-              </p>
-            </>
+            );
+          })}
+          {queue.length === 0 && (
+            <p className="gl-meta">没有勾选任何段落。</p>
           )}
-          <ul className="gl-runs">
-            {queue.slice(0, fixIdx + 1).map((s) => {
-              const c = cands.get(s.para);
-              if (!c || c.decision === "undecided") return null;
-              return (
-                <li key={s.para} className={c.decision === "adopt" ? "up" : "down"}>
-                  <span>段 {s.para + 1}</span>
-                  <b>{c.decision === "adopt" ? "采用改稿" : "保留原文"}</b>
-                  <em>{s.suggested_fix}</em>
-                </li>
-              );
-            })}
-          </ul>
         </div>
       )}
 
-      {/* ④ 应用确认（终选可翻转） */}
+      {/* ④ 应用（一次写回） */}
       {step === 4 && (
         <div className="gl-pane">
           <div className="gl-ratio-row">
             <b className="gl-big">{adoptedItems.length} 段</b>
             <span className="gl-sub">
-              本轮处理完毕：采用 {adoptedItems.length} 段 · 保留原文 {keptCount} 段<br />
+              即将写入正文：采用 {adoptedItems.length} 段 · 保留原文 {keptCount} 段<br />
               应用后正文更新，旧检测结果标为「已过期」——到顶部重检一次看效果
             </span>
           </div>
-          {queue.map((s) => {
-            const c = cands.get(s.para);
-            if (!c) return null;
-            return (
-              <div key={s.para} className="gl-diff-row" style={{ opacity: c.decision === "keep" ? 0.6 : 1 }}>
-                <div className="gl-diff-head">
-                  <span className="pill pill-tag">段 {s.para + 1}</span>
-                  <span>{s.suggested_fix}</span>
-                  <span className="gl-tag" style={{ marginLeft: "auto" }}>
-                    {c.decision === "adopt" ? "已采用" : "保留原文"}
-                  </span>
-                </div>
-                {c.decision === "adopt" && c.after && (
-                  <div className="gl-pair">
-                    <div><p className="gl-col-k">原文</p><p>{c.seg.text}</p></div>
-                    <div><p className="gl-col-k">改稿</p><p className="gl-new">{c.after}</p></div>
-                  </div>
-                )}
-                <div className="gl-pick" style={{ marginTop: 6 }}>
-                  <button
-                    className={c.decision === "adopt" ? "on" : ""}
-                    onClick={() => flip(s)}
-                  >
-                    采用改稿
-                  </button>
-                  <button
-                    className={c.decision === "keep" ? "on" : ""}
-                    onClick={() => flip(s)}
-                  >
-                    保留原文
-                  </button>
-                </div>
+          {adoptedItems.map((it) => (
+            <div key={it.paraIndex} className="gl-diff-row">
+              <div className="gl-diff-head">
+                <span className="pill pill-accent">段 {it.paraIndex + 1}</span>
+                <span>采用改稿</span>
               </div>
-            );
-          })}
+              <div className="gl-pair">
+                <div><p className="gl-col-k">原文</p><p>{it.from}</p></div>
+                <div><p className="gl-col-k">改稿</p><p className="gl-new">{it.text}</p></div>
+              </div>
+            </div>
+          ))}
           <p className="gl-hint">
-            终选翻转即时生效；「应用到正文」后走顶部朱雀条重检收口。
+            保留原文的段落不写入。应用后走顶部朱雀条重检收口。
           </p>
         </div>
       )}
@@ -545,5 +486,5 @@ const SUGGEST_TEXT: Record<string, string> = {
   merge_periods: "建议改法：句号合并——一口气读完的动作之间用逗号。",
   delete_or_concretize: "建议改法：删解释尾巴，罐装反应换成具体动作。",
   thin_stacking: "建议改法：削堆叠——删修饰词与重复生理描写。",
-  rough_shorten: "建议改法：糙短化——删修饰、删解释尾巴、删重复。",
+  rough_shorten: "建议改法：糙短化——删修饰词与解释尾巴。",
 };
