@@ -38,13 +38,23 @@ async def list_characters(
 @router.get("/graph")
 async def relations_graph(
     project_id: str,
+    up_to_ref: str = "",
+    volume_no: int | None = None,
     db: AsyncSession = Depends(get_db),
     _user: dict = Depends(get_current_user),
 ):
-    """全书关系图：节点=角色，边=单向视角关系（带来源章）。"""
+    """关系图：节点=角色，边=单向视角关系（带来源章）。
+
+    口径参数（c-rel-graph-cast-filter，随章走）：up_to_ref＝截至该章（含）、
+    volume_no＝截至该卷末——按章纲出场角色登记集收窄节点与边；缺省＝全书视图。"""
     from settings.character_service import relations_graph as relations_graph_svc
 
-    return {"ok": True, "data": await relations_graph_svc(db, project_id)}
+    return {
+        "ok": True,
+        "data": await relations_graph_svc(
+            db, project_id, up_to_ref=up_to_ref or None, volume_no=volume_no
+        ),
+    }
 
 
 @router.post("")

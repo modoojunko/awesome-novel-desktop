@@ -918,10 +918,37 @@ async def confirm_characters(session: AsyncSession, novel_id: str, first: bool) 
 _ = attributes  # 保持 import（sqlalchemy.attributes 供后续审计扩展）
 
 
-async def relations_graph(session: AsyncSession, novel_id: str) -> dict:
-    """全书关系图（workbench 角色关系页签）：节点=角色，边=单向视角关系。
+def _ref_order_key(ref: str) -> tuple[int, int] | None:
+    """章 ref → (volume_no, chapter_no)；解析失败返回 None（story_state 同 idiom）。
 
-    边带来源章 ref（origin_chapter，可空）；孤立角色也返回（无边的节点）。"""
+    与 story_state._ref_key 的差别：后者解析失败给 (10**9, 10**9)（恒落在截点后），
+    这里调用方要区分「解析不了」与「在口径点之后」——解析不了的存量 ref 不收窄。"""
+    try:
+        v = int(ref.split("-")[1])
+        c = int(ref.rsplit("ch-", 1)[-1].split("-")[0])
+        return (v, c)
+    except (IndexError, ValueError):
+        return None
+
+
+async def relations_graph(
+    session: AsyncSession,
+    novel_id: str,
+    *,
+    up_to_ref: str | None = None,
+    volume_no: int | None = None,
+) -> dict:
+    """关系图（workbench 角色关系页签）：节点=角色，边=单向视角关系。
+
+    边带来源章 ref（origin_chapter，可空）；孤立角色也返回（无边的节点）。
+    口径（c-rel-graph-cast-filter，随章走）：up_to_ref＝章态（截至该章含该章）、
+    volume_no＝卷态（截至该卷末）——节点/边按章纲出场角色登记集收窄（chapter_characters
+    ⋈ 主线章，按 (volume_no, chapter_no) 累计；登记判角色 id 与现名），设定边按
+    origin 章序收窄（来源章在口径点之后不上图；空 origin＝开书设定恒在）；响应附
+    cast_names（登记名清单，含登记过但卡已删的名，前端虚线占位用）。
+    缺省＝全书视图，不过滤；up_to_ref 找不到章 → 回落全书（与 dossier/preview 同先例）。"""
+    from models.chapter import Chapter, ChapterCharacter
+
     cards = (
         await session.scalars(
             select(Character).where(Character.novel_id == novel_id).order_by(Character.seq)
@@ -934,8 +961,6 @@ async def relations_graph(session: AsyncSession, novel_id: str) -> dict:
     ).all()
     names = await _names_by_ids(session, [r.other_id for r in rels])
     # 来源章 ref（含存量 ch_ref 回填结果）：一次取本章全部章 ref
-    from models.chapter import Chapter
-
     chapter_refs = {
         c.id: c.ref
         for c in await session.scalars(
@@ -949,20 +974,93 @@ async def relations_graph(session: AsyncSession, novel_id: str) -> dict:
         return rel.ch_ref or ""
     by_id = {c.id: c for c in cards}
 
-    edges = [
-        {
-            "owner_id": r.owner_id,
-            "other_id": r.other_id,
-            "owner_name": by_id[r.owner_id].name if r.owner_id in by_id else "",
-            "other_name": names.get(r.other_id, r.other_id),
-            "rel_type": r.rel_type,
-            "stance": r.stance,
-            "origin_chapter": _origin_ref(r),
-        }
-        for r in rels
-    ]
+    # ── 口径：章序截止点＋登记集（角色 id 集＋现名集）─────────────────
+    cutoff: tuple[int, int] | None = None
+    if up_to_ref:
+        row = (
+            await session.execute(
+                select(Volume.volume_no, Chapter.chapter_no)
+                .join(Volume, Volume.id == Chapter.volume_id)
+                .where(Chapter.project_id == novel_id, Chapter.ref == up_to_ref)
+            )
+        ).first()
+        if row is not None:
+            cutoff = (row[0], row[1])
+        else:
+            up_to_ref = None  # 找不到章 → 回落全书（与 preview 同先例）
+    if cutoff is None and volume_no is not None:
+        cutoff = (volume_no, 10**9)
+    scoped = cutoff is not None
+
+    cast_ids: set[str] = set()
+    cast_names: set[str] = set()
+    if scoped:
+        scope_ids = [
+            cid
+            for cid, vol_no, ch_no in (
+                await session.execute(
+                    select(Chapter.id, Volume.volume_no, Chapter.chapter_no)
+                    .join(Volume, Volume.id == Chapter.volume_id)
+                    .where(Chapter.project_id == novel_id, Chapter.ghost_of.is_(None))
+                    .order_by(Volume.volume_no, Chapter.chapter_no)
+                )
+            ).all()
+            if (vol_no, ch_no) <= cutoff
+        ]
+        if scope_ids:
+            for char_id, snap, cur in (
+                await session.execute(
+                    select(
+                        ChapterCharacter.character_id,
+                        ChapterCharacter.character_name,
+                        Character.name,
+                    )
+                    .join(Chapter, Chapter.id == ChapterCharacter.chapter_id)
+                    .outerjoin(Character, Character.id == ChapterCharacter.character_id)
+                    .where(Chapter.id.in_(scope_ids))
+                )
+            ).all():
+                # 登记名：现名优先（卡改名后按 id 命中仍取到新名）；卡已删留快照名
+                nm = (cur or snap or "").strip()
+                if char_id:
+                    cast_ids.add(char_id)
+                if nm:
+                    cast_names.add(nm)
+
+    def _endpoint_in(char_id: str, nm: str) -> bool:
+        if not scoped:
+            return True
+        return char_id in cast_ids or nm.strip() in cast_names
+
+    edges = []
+    for r in rels:
+        owner_name = by_id[r.owner_id].name if r.owner_id in by_id else ""
+        other_name = names.get(r.other_id, r.other_id)
+        if not (_endpoint_in(r.owner_id, owner_name) and _endpoint_in(r.other_id, other_name)):
+            continue
+        origin = _origin_ref(r)
+        # 设定边随章收窄：来源章在口径点之后＝"还没发生"的剧情事实，不上图
+        if scoped and origin:
+            key = _ref_order_key(origin)
+            if key is not None and key > cutoff:
+                continue
+        edges.append(
+            {
+                "owner_id": r.owner_id,
+                "other_id": r.other_id,
+                "owner_name": owner_name,
+                "other_name": other_name,
+                "rel_type": r.rel_type,
+                "stance": r.stance,
+                "origin_chapter": origin,
+            }
+        )
     nodes = [
         {"id": c.id, "name": c.name, "role": c.role}
         for c in cards
+        if _endpoint_in(c.id, c.name)
     ]
-    return {"nodes": nodes, "edges": edges}
+    payload: dict = {"nodes": nodes, "edges": edges}
+    if scoped:
+        payload["cast_names"] = sorted(cast_names)
+    return payload

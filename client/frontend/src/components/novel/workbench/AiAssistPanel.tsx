@@ -9,6 +9,7 @@
 import { useEffect, useMemo, useState } from "react";
 import type { ReactNode } from "react";
 import { api, request } from "@/lib/api";
+import { dossierApi } from "@/lib/dossierApi";
 import { useFeature, useTier } from "@/hooks/useTier";
 import { upgradeHintOf, type FeatureKey } from "@/lib/features";
 import { getZhuqueShow } from "@/lib/prefs";
@@ -201,22 +202,35 @@ export function AiAssistPanel({
         });
     }
     if (tab === "relations") {
-      api
-        .get(`/novels/${projectId}/characters/graph`)
+      Promise.all([
+        // 随章口径（c-rel-graph-cast-filter）：与中栏关系图同源，人物/关系边按章纲登记集收窄
+        api.get(`/novels/${projectId}/characters/graph?up_to_ref=${encodeURIComponent(chapterRef)}`),
+        // 「本章变化」＝本章章档 relations 行数（待确认＋已采纳，驳回不算），
+        // 与页签气泡、「本章关系变化」工作流区同源；此前数的是设定边 origin=本章（口径错）
+        dossierApi.get(projectId, chapterRef),
+      ])
         .then(
-          (d: {
-            data?: {
-              nodes?: Array<{ id?: string }>;
-              edges?: Array<{ origin_chapter?: string | null }>;
-            };
-          }) => {
-            // 端点返回 {ok, data} 信封（与中栏关系图同源）；此前直读顶层恒 0
-            const edges = d.data?.edges ?? [];
+          (
+            d: [
+              {
+                data?: {
+                  nodes?: Array<{ id?: string }>;
+                  edges?: Array<{ origin_chapter?: string | null }>;
+                };
+              },
+              { rows?: Array<{ domain?: string; status?: string }> },
+            ],
+          ) => {
+            // graph 端点返回 {ok, data} 信封；dossierApi.get 已拆信封
+            const edges = d[0]?.data?.edges ?? [];
+            const mine = (d[1]?.rows ?? []).filter(
+              (r) => r.domain === "relations" && r.status !== "rejected",
+            ).length;
             if (!cancelled)
               setGraphStats({
-                nodes: (d.data?.nodes ?? []).length,
+                nodes: (d[0]?.data?.nodes ?? []).length,
                 edges: edges.length,
-                here: edges.filter((e) => e.origin_chapter === chapterRef).length,
+                here: mine,
               });
           },
         )

@@ -1,12 +1,13 @@
 /** 「角色关系」页签（workbench-relations-graph）：关系图为主表达，行清单兜底。
- *  节点=角色卡（本章变化里未登记的名字给虚线占位节点），边=单向视角关系。
- *  章打开态（chapterRef）双源：往章演变边＝dossier/preview（写章消费同源：已采纳
- *  ∧已归档∧非 stale，按 (owner,other) 后章覆盖）；本章边＝章档端点（已采纳高亮、
- *  待确认虚线，与「本章关系变化」工作流区同源同态，不要求本章已归档）。
- *  同向剧情边覆盖开书设定边。行清单只列开书设定与往章演变边，本章边由工作流区
- *  呈现（证据＋采纳/驳回）。
+ *  节点=章纲登记过的角色（随章口径 c-rel-graph-cast-filter：章态截至本章累计、卷态
+ *  截至本卷末，未登记卡与仅涉未登记名的边不上图；登记无卡名给虚线占位），边=单向
+ *  视角关系。章打开态（chapterRef）双源：往章演变边＝dossier/preview（写章消费
+ *  同源：已采纳∧已归档∧非 stale，按 (owner,other) 后章覆盖）；本章边＝章档端点
+ *  （已采纳高亮、待确认虚线，与「本章关系变化」工作流区同源同态，不要求本章已归档）。
+ *  同向剧情边覆盖开书设定边（设定边另按来源章序收窄，服务端做）。行清单只列开书
+ *  设定与往章演变边，本章边由工作流区呈现（证据＋采纳/驳回）。
  *  卷选中态（volumeScope）：截至该卷末的剧情投影，只读无章高亮——剧情边＝preview
- *  截至本卷末章（已归档折叠单源）＋范围内未归档章的已采纳行并入，随时对齐本卷剧情
+ *  截至本卷末章（已归档折叠单源）＋范围内未归档章已采纳行并入，随时对齐本卷剧情
  *  最新的已确认关系；待确认提案不上图（c-volume-rels-live）。 */
 import { useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
 import { api } from "@/lib/api";
@@ -30,6 +31,9 @@ interface GraphEdge {
 interface GraphData {
   nodes: GraphNode[];
   edges: GraphEdge[];
+  /** 章/卷态登记集（c-rel-graph-cast-filter）：章纲出场角色累计登记名（含无卡名）。
+   *  缺省（全书视图）不带此键＝不过滤。 */
+  cast_names?: string[];
 }
 
 /** 剧情关系条目（preview 折叠行 / 本章待确认行同形）。 */
@@ -56,7 +60,7 @@ interface MergedEdge {
   polarity: Polarity;
 }
 interface PaneNode extends GraphNode {
-  /** 无角色卡的未登记名（虚线占位） */
+  /** 登记过但无角色卡的名（虚线占位；章/卷态登记集口径下才有意义） */
   ghost?: boolean;
 }
 
@@ -129,10 +133,14 @@ function layout(nodes: PaneNode[]): Map<string, { x: number; y: number }> {
   return pos;
 }
 
-/** 合并：开书设定边＋剧情关系边（同向覆盖），未登记名补占位节点。 */
+/** 合并：开书设定边＋剧情关系边（同向覆盖），登记集内未建卡名补占位节点。
+ *  allowedNames（章/卷态登记集，c-rel-graph-cast-filter）：非 null 时剧情边端点必须
+ *  都在登记集内（端点未登记＝连边带占位节点一起不上图），登记过但无卡的名补虚线
+ *  占位节点（含无边孤点）；null＝全书视图，不过滤。 */
 function mergeGraph(
   graph: GraphData,
   dossier: Array<EvoRelation & { kind: EdgeKind }>,
+  allowedNames: Set<string> | null,
 ): { nodes: PaneNode[]; edges: MergedEdge[] } {
   const nodes: PaneNode[] = graph.nodes.map((nd) => ({ ...nd }));
   const byName = new Map<string, PaneNode>();
@@ -140,6 +148,7 @@ function mergeGraph(
   const ensure = (name: string): PaneNode | null => {
     const k = norm(name);
     if (!k) return null;
+    if (allowedNames && !allowedNames.has(k)) return null;
     const known = byName.get(k);
     if (known) return known;
     const ghost: PaneNode = { id: `ghost:${k}`, name: k, role: "", ghost: true };
@@ -187,6 +196,16 @@ function mergeGraph(
       polarity: relPolarity(e.rel_type || ""),
     });
   }
+  // 登记过但无卡的名字：虚线占位上图（含无边孤点），仅章/卷态登记集口径
+  if (allowedNames) {
+    for (const k of allowedNames) {
+      if (!byName.has(k)) {
+        const ghost: PaneNode = { id: `ghost:${k}`, name: k, role: "", ghost: true };
+        byName.set(k, ghost);
+        nodes.push(ghost);
+      }
+    }
+  }
   return { nodes, edges: [...edges.values()] };
 }
 
@@ -225,6 +244,11 @@ export function RelationsGraphPane({
   volumeScope?: number;
 }) {
   const [graph, setGraph] = useState<GraphData | null>(null);
+  /** 关系图已就位的域键（章 ref / `vol:{N}`；null＝加载中；""＝书态全书视图）。
+   *  口径随章变化要重拉（c-rel-graph-cast-filter），拉取期沿用旧渲染前先挡加载态。 */
+  const [graphFor, setGraphFor] = useState<string | null>(
+    chapterRef || volumeScope != null ? null : "",
+  );
   const [chapters, setChapters] = useState<ChapterMeta>([]);
   /** 卷树是否已就位（卷态投影要等它圈定本卷末章与未归档章清单） */
   const [chaptersReady, setChaptersReady] = useState(false);
@@ -243,12 +267,21 @@ export function RelationsGraphPane({
     let alive = true;
     (async () => {
       try {
-        const data = (await api.get(`/novels/${projectId}/characters/graph`)) as {
+        // 随章口径（c-rel-graph-cast-filter）：章态截至本章（含）、卷态截至本卷末——
+        // 节点/边按章纲出场角色登记集收窄；书态（书级无此页签，兜底）＝全书视图
+        const q =
+          chapterRef
+            ? `?up_to_ref=${encodeURIComponent(chapterRef)}`
+            : volumeScope != null
+              ? `?volume_no=${volumeScope}`
+              : "";
+        const data = (await api.get(`/novels/${projectId}/characters/graph${q}`)) as {
           ok: boolean;
           data: GraphData;
         };
         if (alive) {
           setGraph(data.data);
+          setGraphFor(scopeKey);
           setError(null);
         }
       } catch {
@@ -258,7 +291,7 @@ export function RelationsGraphPane({
     return () => {
       alive = false;
     };
-  }, [projectId]);
+  }, [projectId, chapterRef, volumeScope, scopeKey]);
 
   // 来源章题名、「基于旧设定」角标与卷态投影材料（未归档章清单；失败静默，不阻断图）
   useEffect(() => {
@@ -418,10 +451,14 @@ export function RelationsGraphPane({
     return () => window.removeEventListener(DOSSIER_CHANGED_EVENT, h);
   }, [chapterRef]);
 
-  const merged = useMemo(
-    () => (graph ? mergeGraph(graph, dossier) : { nodes: [], edges: [] }),
-    [graph, dossier],
-  );
+  const merged = useMemo(() => {
+    if (!graph) return { nodes: [], edges: [] };
+    // 章/卷态登记集：剧情边端点必须都在集内；登记无卡名补占位。书态无此键＝不过滤
+    const allowed = graph.cast_names
+      ? new Set(graph.cast_names.map(norm).filter(Boolean))
+      : null;
+    return mergeGraph(graph, dossier, allowed);
+  }, [graph, dossier]);
   const pos = useMemo(() => layout(merged.nodes), [merged.nodes]);
 
   // 卷域投影：来源卷号 > 该卷的边不显示（开书设定与剧情边同规则）
@@ -526,10 +563,21 @@ export function RelationsGraphPane({
   };
 
   if (error) return <p className="vempty">{error}</p>;
-  if (!graph || (scopeKey && loadedForRef !== scopeKey))
+  if (!graph || graphFor !== scopeKey || (scopeKey && loadedForRef !== scopeKey))
     return <p className="vempty">加载中……</p>;
-  if (merged.nodes.length === 0)
+  if (merged.nodes.length === 0) {
+    // 章/卷态登记集为空 → 引导去章纲登记（登记集空时后端 nodes 即空），不出全书图
+    if (graph.cast_names) {
+      return (
+        <p className="vempty">
+          {chapterRef
+            ? "本章还没有可上图的角色：到章纲「出场角色」登记后，这里会画出截至本章的关系图。"
+            : `第 ${volumeScope} 卷还没有可上图的角色：到章纲「出场角色」登记后，这里会画出截至本卷末的关系图。`}
+        </p>
+      );
+    }
     return <p className="vempty">还没有角色卡。到「设定 · 角色」里建卡后，这里会画出关系图。</p>;
+  }
 
   return (
     <div className="relations-graph" data-od-id="relations-graph">
@@ -657,10 +705,12 @@ export function RelationsGraphPane({
       </div>
       <p className="rg-legend">
         {merged.nodes.length} 个角色 · {visibleEdges.length} 条关系
-        {chapterRef && dossier.length > 0 &&
-          `（剧情演变 ${dossier.length - pendingCnt} · 待确认 ${pendingCnt}）`}
+        {chapterRef && (evoCnt > 0 || pendingCnt > 0) &&
+          `（剧情演变 ${evoCnt} · 待确认 ${pendingCnt}）`}
         {volumeScope != null && evoCnt > 0 && `（含剧情演变 ${evoCnt} 条）`}
         {volumeScope != null && ` · 截至第 ${volumeScope} 卷末（只读投影）`}
+        {(chapterRef || volumeScope != null) && graph.cast_names &&
+          ` · 仅章纲已登记角色（${chapterRef ? "截至本章" : `截至第 ${volumeScope} 卷末`}）`}
         {chapterRef && " · 本章采纳边高亮，虚线为待确认提案"}
         {" · 滚轮缩放，拖拽平移"}
         <span className="rg-key"><i className="rg-swatch friendly" />友好</span>
