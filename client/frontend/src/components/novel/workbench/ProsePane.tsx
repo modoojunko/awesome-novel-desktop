@@ -88,6 +88,8 @@ export interface ProseHandle {
   polish(capture: SelectionCapture): void;
   /** 打开「去 AI 味 · 修稿向导」（c-deai-wizard；入口在右栏 AI 工具卡） */
   openPolishWizard?: () => void;
+  /** 打开「章际衔接修复向导」（c-seam-refill；入口同在右栏 AI 工具卡） */
+  openSeamWizard?: () => void;
 }
 
 interface ProsePaneProps {
