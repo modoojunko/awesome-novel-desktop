@@ -117,7 +117,7 @@ const TREE = [
 
 function mockBookApi() {
   apiState.get.mockImplementation(async (p: string) => {
-    if (p.endsWith("/characters/graph")) return GRAPH;
+    if (p.split("?")[0].endsWith("/characters/graph")) return GRAPH;
     if (p.endsWith("/volumes")) return TREE;
     throw new Error("unexpected " + p);
   });
@@ -374,7 +374,7 @@ describe("RelationsGraphPane 章态并入剧情关系", () => {
       role: i === 0 ? "主角" : i === 1 ? "反派" : "配角",
     }));
     apiState.get.mockImplementation(async (p: string) => {
-      if (p.endsWith("/characters/graph"))
+      if (p.split("?")[0].endsWith("/characters/graph"))
         return {
           ok: true,
           data: {
@@ -409,7 +409,7 @@ describe("RelationsGraphPane 章态并入剧情关系", () => {
     dossierState.preview.mockRejectedValue(new Error("preview down"));
     dossierState.get.mockRejectedValue(new Error("dossier down"));
     apiState.get.mockImplementation(async (p: string) => {
-      if (p.endsWith("/characters/graph"))
+      if (p.split("?")[0].endsWith("/characters/graph"))
         return {
           ok: true,
           data: { nodes: [...GRAPH.data.nodes, { id: "c9", name: "独行客", role: "路人" }], edges: GRAPH.data.edges },
@@ -474,7 +474,7 @@ describe("RelationsGraphPane 章态并入剧情关系", () => {
   it("卷态未归档章的已采纳行并入投影（随时对齐最新），待确认不上图", async () => {
     // 第 2 章归档后回草稿（未归档）：其已采纳关系行仍属已确认剧情事实
     apiState.get.mockImplementation(async (p: string) => {
-      if (p.endsWith("/characters/graph")) return GRAPH;
+      if (p.split("?")[0].endsWith("/characters/graph")) return GRAPH;
       if (p.endsWith("/volumes")) {
         return [
           {
@@ -554,5 +554,111 @@ describe("RelationsGraphPane 章态并入剧情关系", () => {
       ),
     ).toBe(true);
     expect(screen.queryByText(/含剧情演变/)).toBeNull();
+  });
+});
+
+describe("RelationsGraphPane 随章过滤（c-rel-graph-cast-filter）", () => {
+  // 章/卷态：后端按章纲登记集收窄后的 graph（节点只含登记卡，附登记名清单）
+  const CAST_GRAPH = {
+    ok: true,
+    data: {
+      nodes: [
+        { id: "c1", name: "林晚", role: "主角" },
+        { id: "c2", name: "老聋", role: "配角" },
+      ],
+      edges: [
+        { owner_id: "c1", other_id: "c2", owner_name: "林晚", other_name: "老聋",
+          rel_type: "同盟", stance: "", origin_chapter: "" },
+      ],
+      cast_names: ["林晚", "老聋", "船帮"], // 船帮＝登记过但无卡
+    },
+  };
+
+  function mockCastApi() {
+    apiState.get.mockImplementation(async (p: string) => {
+      if (p.split("?")[0].endsWith("/characters/graph")) return CAST_GRAPH;
+      if (p.endsWith("/volumes")) return TREE;
+      throw new Error("unexpected " + p);
+    });
+  }
+
+  it("章态带 up_to_ref 拉取；未登记端点的剧情边连占位节点一起不上图", async () => {
+    mockCastApi();
+    dossierState.preview.mockResolvedValue({
+      up_to_ref: "vol-1-ch-2",
+      domains: { relations: [] },
+      counts: { relations: 0 },
+      skipped_stale_refs: [],
+    });
+    dossierState.get.mockResolvedValue({
+      rows: [
+        // 待确认提案端点「温勋」未进章纲登记集 → 边与占位节点都不上图
+        { id: "r1", domain: "relations", status: "pending", owner: "林晚", other: "温勋",
+          rel_type: "追缉", change_note: "悬赏", flags: "", evidence: "", decided_at: "" },
+      ],
+      progress: { pending: 1, accepted: 0, rejected: 0 },
+      extraction: null,
+      not_extracted: false,
+      stale: false,
+      archived: true,
+      accepted_count: 0,
+    });
+    render(<RelationsGraphPane projectId="p1" chapterRef="vol-1-ch-2" />);
+    await screen.findByRole("img", { name: "角色关系图（含截至本章剧情演变）" });
+    // 口径参数随章拉取
+    expect(apiState.get.mock.calls.some(([p]) => String(p).includes("up_to_ref=vol"))).toBe(true);
+    expect(screen.queryByText("温勋")).toBeNull();
+    expect(screen.queryByText(/追缉/)).toBeNull();
+    // 被裁的提案不进图例计数（剧情演变/待确认段不出现）
+    expect(screen.queryByText(/（剧情演变 /)).toBeNull();
+    // 登记过但无卡的名「船帮」：虚线占位上图（孤点）
+    expect(screen.getByText("船帮")).toBeTruthy();
+    expect(document.querySelectorAll(".rg-node.ghost")).toHaveLength(1);
+    expect(screen.getByText(/还没连线/).textContent).toContain("船帮");
+    // 图例注明过滤口径
+    expect(screen.getByText(/仅章纲已登记角色（截至本章）/)).toBeTruthy();
+  });
+
+  it("登记集为空：引导空态，不出未过滤全书图", async () => {
+    apiState.get.mockImplementation(async (p: string) => {
+      if (p.split("?")[0].endsWith("/characters/graph")) {
+        return { ok: true, data: { nodes: [], edges: [], cast_names: [] } };
+      }
+      if (p.endsWith("/volumes")) return TREE;
+      throw new Error("unexpected " + p);
+    });
+    dossierState.preview.mockResolvedValue({
+      up_to_ref: "vol-1-ch-2",
+      domains: { relations: [] },
+      counts: { relations: 0 },
+      skipped_stale_refs: [],
+    });
+    dossierState.get.mockResolvedValue({
+      rows: [],
+      progress: { pending: 0, accepted: 0, rejected: 0 },
+      extraction: null,
+      not_extracted: false,
+      stale: false,
+      archived: true,
+      accepted_count: 0,
+    });
+    render(<RelationsGraphPane projectId="p1" chapterRef="vol-1-ch-2" />);
+    await screen.findByText(/到章纲「出场角色」登记后/);
+    expect(screen.queryByText(/还没有角色卡/)).toBeNull();
+  });
+
+  it("卷态：graph 带 volume_no 口径，图例注记截至本卷末", async () => {
+    mockCastApi();
+    dossierState.preview.mockResolvedValue({
+      up_to_ref: "vol-1-ch-2",
+      domains: { relations: [] },
+      counts: { relations: 0 },
+      skipped_stale_refs: [],
+    });
+    render(<RelationsGraphPane projectId="p1" volumeScope={1} />);
+    await screen.findByRole("img", { name: "角色关系图（截至第 1 卷末剧情投影）" });
+    expect(apiState.get.mock.calls.some(([p]) => String(p).includes("volume_no=1"))).toBe(true);
+    expect(screen.getByText(/仅章纲已登记角色（截至第 1 卷末）/)).toBeTruthy();
+    expect(screen.getByText("船帮")).toBeTruthy();
   });
 });

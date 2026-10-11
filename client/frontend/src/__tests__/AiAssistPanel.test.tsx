@@ -375,4 +375,30 @@ describe("归档章写入锁死（c-archived-readonly）", () => {
     });
     expect(onAiWrite).not.toHaveBeenCalled();
   });
+  it("关系页签统计随章口径：人物/边走登记集 graph，本章变化＝章档 relations 行（驳回不算）", async () => {
+    apiState.get.mockImplementation(async (p: string) => {
+      if (p.includes("/characters/graph")) {
+        // 随章口径：graph 拉取必须带 up_to_ref（c-rel-graph-cast-filter）
+        expect(p).toContain("up_to_ref=vol-1-ch-2");
+        return {
+          ok: true,
+          data: { nodes: [{ id: "c1" }, { id: "c2" }], edges: [{ origin_chapter: "" }] },
+        };
+      }
+      if (p.endsWith("/dossier")) {
+        return {
+          rows: [
+            { domain: "relations", status: "pending" },
+            { domain: "relations", status: "accepted" },
+            { domain: "relations", status: "rejected" }, // 驳回不算变化
+            { domain: "settings", status: "pending" },   // 他域不算
+          ],
+        };
+      }
+      throw new Error("unexpected " + p);
+    });
+    renderPanel("relations");
+    // 此前「本章变化」数的是设定边 origin=本章（恒 0 口径错）；现与页签气泡同源
+    await screen.findByText(/人物与势力 2 个 · 关系边 1 条 · 本章变化 2 条/);
+  });
 });
