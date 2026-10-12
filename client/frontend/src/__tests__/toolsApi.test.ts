@@ -6,6 +6,8 @@ vi.stubGlobal("fetch", state.fetch);
 
 import {
   cancelDeconstructTask,
+  deleteDeconstructTask,
+  resumeDeconstructTask,
   createDeconstructTask,
   exportTaskProducts,
   fetchModelOptions,
@@ -57,6 +59,39 @@ describe("deconstructApi", () => {
     expect(await probeModel("c1", "m1")).toBe(true);
     state.fetch.mockRejectedValueOnce(new Error("boom"));
     expect(await probeModel("c1", "m1")).toBe(false);
+  });
+
+
+  it("retryUploadDeconstructTask 401/失败/成功三态", async () => {
+    state.fetch.mockResolvedValueOnce(jsonResponse(401, {}));
+    await expect(retryUploadDeconstructTask("t", new File(["x"], "a.txt"))).rejects.toThrow("Unauthorized");
+    state.fetch.mockResolvedValueOnce(jsonResponse(400, { detail: "文件超过 50MB 上限，请拆分后重试" }));
+    await expect(retryUploadDeconstructTask("t", new File(["x"], "a.txt"))).rejects.toThrow("50MB");
+    state.fetch.mockResolvedValueOnce(jsonResponse(200, { status: "queued" }));
+    expect((await retryUploadDeconstructTask("t", new File(["x"], "a.txt"))).status).toBe("queued");
+  });
+
+  it("importBookFromTask 与 exportTaskProducts 走 request（返回值透传）", async () => {
+    state.fetch.mockResolvedValueOnce(jsonResponse(200, { book_id: "b1" }));
+    expect((await importBookFromTask("t")).book_id).toBe("b1");
+    state.fetch.mockResolvedValueOnce(jsonResponse(200, { written: ["简介.md"], readme: "README.md", dest: "/tmp/x" }));
+    const r = await exportTaskProducts("t", "/tmp/x", ["简介.md"]);
+    expect(r.dest).toBe("/tmp/x");
+  });
+
+
+  it("deleteDeconstructTask 走 DELETE 端点", async () => {
+    state.fetch.mockResolvedValueOnce(jsonResponse(200, { deleted: "t" }));
+    await deleteDeconstructTask("t");
+    expect(String(state.fetch.mock.calls[0][0])).toContain("/api/deconstruct/tasks/t");
+    expect(state.fetch.mock.calls[0][1].method).toBe("DELETE");
+  });
+
+  it("resumeDeconstructTask 走 resume 端点", async () => {
+    state.fetch.mockResolvedValueOnce(jsonResponse(200, { status: "queued" }));
+    const r = await resumeDeconstructTask("t");
+    expect(r.status).toBe("queued");
+    expect(String(state.fetch.mock.calls[0][0])).toContain("/resume");
   });
 
   it("fetchModelOptions：字符串/数组 models、deleted 过滤、无 models 跳过", async () => {

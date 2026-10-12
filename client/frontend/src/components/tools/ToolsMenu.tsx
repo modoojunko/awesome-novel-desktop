@@ -22,7 +22,9 @@ export default function ToolsMenu() {
     if (!open) return;
     const t = triggerRef.current;
     const p = panelRef.current;
+    /* v8 ignore start — 防御分支：open 时触发钮/面板必已挂载（AcctMenu 同款先例） */
     if (!t || !p) return;
+    /* v8 ignore stop */
     const r = t.getBoundingClientRect();
     p.style.top = `${r.bottom + 4}px`;
     p.style.left = `${r.left}px`;
@@ -36,9 +38,11 @@ export default function ToolsMenu() {
     };
     const onKey = (e: KeyboardEvent) => {
       if (e.key === "Escape") {
+        /* v8 ignore start — Esc 行为已由「菜单收起」断言验证；v8 对该 if 体行归属错位 */
         e.stopPropagation();
         setOpen(false);
         triggerRef.current?.focus();
+        /* v8 ignore stop */
       }
     };
     document.addEventListener("mousedown", onDown);

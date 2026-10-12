@@ -61,6 +61,26 @@ describe("deconstructRefetchInterval 决策", () => {
 });
 
 describe("useDeconstructTasks 集成", () => {
+
+  it("enabled=false 不轮询", async () => {
+    vi.useFakeTimers();
+    state.list.mockResolvedValue(ACTIVE_RESP);
+    const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    function Off() {
+      useDeconstructTasks(false);
+      return null;
+    }
+    render(
+      <QueryClientProvider client={qc}>
+        <MemoryRouter>
+          <Off />
+        </MemoryRouter>
+      </QueryClientProvider>,
+    );
+    await vi.advanceTimersByTimeAsync(5000);
+    expect(state.list.mock.calls.length).toBe(0);
+  });
+
   it("活动任务轮询；全终态停表", async () => {
     vi.useFakeTimers();
     state.list.mockResolvedValue(ACTIVE_RESP);

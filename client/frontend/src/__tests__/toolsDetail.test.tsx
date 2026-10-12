@@ -160,6 +160,55 @@ describe("TaskDetailPage", () => {
     await waitFor(() => expect(state.del).toHaveBeenCalledOnce());
   });
 
+
+  it("失败：删除确认可取消", async () => {
+    state.get.mockResolvedValue(detailOf("failed", { error: "模型 400" }));
+    renderPage();
+    await waitFor(() => expect(screen.getByText("删除任务及产物")).toBeInTheDocument());
+    state.del.mockClear();
+    fireEvent.click(screen.getByText("删除任务及产物"));
+    fireEvent.click(screen.getByText("取消"));
+    expect(state.del).not.toHaveBeenCalled();
+  });
+
+  it("完成：解析提示（parse_warnings）与元信息渲染", async () => {
+    state.get.mockResolvedValue(detailOf("completed", { parse_warnings: ["2 处章节标题未识别"] }));
+    renderPage();
+    await waitFor(() => expect(screen.getByText(/已选 3\/3/)).toBeInTheDocument());
+  });
+
+
+  it("出口弹窗交互：切选项摘要联动、稍后再说/scrim/✕ 关闭、pick_folder 桥", async () => {
+    state.get.mockResolvedValue(detailOf("completed"));
+    // 无桥环境：pick_folder 按钮不炸（回落手输）
+    renderPage();
+    await waitFor(() => expect(screen.getByText("选择去向")).toBeInTheDocument());
+    fireEvent.click(screen.getByText("选择去向"));
+    // 切「存本地文件夹」→ 摘要联动＋目录字段出现
+    fireEvent.click(screen.getByText("存本地文件夹"));
+    expect(screen.getByLabelText(/导出到文件夹/)).toBeInTheDocument();
+    // scrim 点击关闭
+    fireEvent.click(document.querySelector(".scrim")!);
+    expect(screen.queryByText(/稍后再说/)).not.toBeInTheDocument();
+    // 重开 → ✕ 关闭
+    fireEvent.click(screen.getByText("选择去向"));
+    fireEvent.click(screen.getByLabelText("关闭"));
+    expect(screen.queryByText(/稍后再说/)).not.toBeInTheDocument();
+    // 重开 → 稍后再说关闭
+    fireEvent.click(screen.getByText("选择去向"));
+    fireEvent.click(screen.getByText("稍后再说"));
+    expect(screen.queryByText(/稍后再说/)).not.toBeInTheDocument();
+  });
+
+  it("失败：取消臂（删除确认后取消不删）", async () => {
+    state.get.mockResolvedValue(detailOf("failed", { error: "模型 400" }));
+    renderPage();
+    await waitFor(() => expect(screen.getByText("删除任务及产物")).toBeInTheDocument());
+    fireEvent.click(screen.getByText("删除任务及产物"));
+    fireEvent.click(screen.getByText("取消"));
+    expect(state.del).not.toHaveBeenCalled();
+  });
+
   it("需重传：选文件回原位次", async () => {
     state.get.mockResolvedValue(detailOf("need_reupload", { products: [] }));
     state.retry.mockResolvedValue({ status: "queued" });

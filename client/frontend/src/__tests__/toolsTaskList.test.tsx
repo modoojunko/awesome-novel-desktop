@@ -72,6 +72,23 @@ describe("TaskListPage", () => {
     await waitFor(() => expect(state.del).toHaveBeenCalledOnce());
   });
 
+
+  it("行点击与详情按钮导航；删除确认执行删除", async () => {
+    state.list.mockResolvedValue({ tasks: [DONE], heartbeat: { running: 0, queued: 0 }, badge: 1 });
+    state.del.mockResolvedValue(undefined);
+    renderPage();
+    await waitFor(() => expect(screen.getByText("星海远征")).toBeInTheDocument());
+    fireEvent.click(screen.getByLabelText(/查看任务 星海远征/)); // 行点击
+    fireEvent.click(screen.getAllByText("删除")[0]);
+    fireEvent.click(screen.getAllByText("取消")[0]); // 取消臂
+    expect(screen.queryByText(/确认？/)).not.toBeInTheDocument();
+    fireEvent.click(screen.getAllByText("删除")[0]);
+    state.del.mockClear(); // 清前序用例调用历史
+    fireEvent.click(screen.getByText("确认删除"));
+    await waitFor(() => expect(state.del).toHaveBeenCalledOnce());
+    fireEvent.click(screen.getByText("详情"));
+  });
+
   it("加载失败显重试；重试成功收起", async () => {
     state.list.mockRejectedValue(new Error("x"));
     renderPage();

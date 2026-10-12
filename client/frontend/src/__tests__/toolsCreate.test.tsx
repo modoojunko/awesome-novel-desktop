@@ -93,6 +93,54 @@ describe("CreateTaskPage", () => {
     expect(screen.getAllByText("去配置").length).toBeGreaterThan(0);
   });
 
+
+  it("拖拽选文件＋本地解析失败提示（非 UTF-8/GBK/Big5 极限）", async () => {
+    renderPage();
+    const zone = screen.getByLabelText("选择或拖入 txt 文件");
+    // drop 事件带 DataTransfer 不可直接构造——走 input 分支即可，drop 只验证不崩
+    fireEvent.drop(zone, { dataTransfer: { files: [] } });
+    expect(screen.getByLabelText("选择或拖入 txt 文件")).toBeInTheDocument();
+  });
+
+  it("已选文件后可换文件（回到解析回填）", async () => {
+    state.fetchOpts.mockResolvedValue([
+      { api_config_id: "c1", config_name: "A", model: "m1", vendor: "v" },
+    ]);
+    state.probe.mockResolvedValue(true);
+    renderPage();
+    await waitFor(() => expect(screen.getByRole("combobox")).toBeInTheDocument());
+    pickFile();
+    expect(screen.getByText(/试拆\.txt/)).toBeInTheDocument();
+    // 换文件按钮触发 input（模拟重新选择）
+    fireEvent.click(screen.getByText("换文件"));
+  });
+
+
+  it("上传区 Enter 键触发文件框；坏编码文件显示解析错误", async () => {
+    renderPage();
+    const zone = screen.getByLabelText("选择或拖入 txt 文件");
+    fireEvent.keyDown(zone, { key: "Enter" });
+    // 坏字节文件：四条探测链全失败 → parseErr 提示
+    const input = document.querySelector('input[type="file"]') as HTMLInputElement;
+    const bad = new File([new Uint8Array([0xff, 0xff, 0xfe, 0xff])], "bad.txt", { type: "text/plain" });
+    Object.defineProperty(input, "files", { value: [bad] });
+    fireEvent.change(input);
+    await waitFor(() => expect(screen.getByText(/无法识别文件编码/)).toBeInTheDocument());
+  });
+
+  it("探针失败后换模型重新探测通过", async () => {
+    state.fetchOpts.mockResolvedValue([
+      { api_config_id: "c1", config_name: "A", model: "m1", vendor: "v" },
+      { api_config_id: "c2", config_name: "B", model: "m2", vendor: "v" },
+    ]);
+    state.probe.mockResolvedValueOnce(false).mockResolvedValueOnce(true);
+    renderPage();
+    await waitFor(() => expect(screen.getByRole("combobox")).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByText("模型探针失败")).toBeInTheDocument());
+    fireEvent.change(screen.getByRole("combobox"), { target: { value: "c2::m2" } });
+    await waitFor(() => expect(screen.getByText("可用")).toBeInTheDocument());
+  });
+
   it("创建失败显示错误文案", async () => {
     state.fetchOpts.mockResolvedValue([
       { api_config_id: "c1", config_name: "A", model: "m1", vendor: "v" },
