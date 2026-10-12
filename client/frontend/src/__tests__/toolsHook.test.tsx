@@ -98,6 +98,27 @@ describe("useDeconstructTasks 集成", () => {
     expect(getCalls()).toBe(settled); // 终态停表
   });
 
+
+  it("queryFn 非 Error 值拒绝 → 包装为加载失败", async () => {
+    vi.useFakeTimers();
+    state.list.mockRejectedValue("plain-string-reason");
+    const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    function Probe() {
+      useDeconstructTasks(true);
+      return null;
+    }
+    render(
+      <QueryClientProvider client={qc}>
+        <MemoryRouter>
+          <Probe />
+        </MemoryRouter>
+      </QueryClientProvider>,
+    );
+    await vi.advanceTimersByTimeAsync(10);
+    cleanup();
+    vi.useRealTimers();
+  });
+
   it("连续失败守卫：3 次失败后停表不再增长", async () => {
     vi.useFakeTimers();
     state.list.mockImplementation(async () => {

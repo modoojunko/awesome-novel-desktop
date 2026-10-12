@@ -54,7 +54,7 @@ describe("TaskListPage", () => {
         DONE,
         { ...DONE, id: "t3", status: "queued", queued_ahead: 2, book_name: "排队书", finished_at: null },
         { ...DONE, id: "t4", status: "failed", book_name: "失败书", error: "模型 400", finished_at: null },
-        { ...DONE, id: "t5", status: "cancelled", book_name: "取消书" },
+        { ...DONE, id: "t5", status: "cancelled", book_name: "取消书", created_at: null },
         { ...DONE, id: "t6", status: "need_reupload", book_name: "重传书" },
       ],
       heartbeat: { running: 1, queued: 1 },

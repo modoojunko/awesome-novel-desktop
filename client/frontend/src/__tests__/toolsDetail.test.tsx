@@ -79,6 +79,19 @@ afterEach(() => {
 });
 
 describe("TaskDetailPage", () => {
+
+  it("建书成功：跳新书并关闭弹窗", async () => {
+    state.get.mockResolvedValue(detailOf("completed", { book_id: "book-9" }));
+    state.importBook.mockResolvedValue({ book_id: "book-9", name: "星海远征", skipped: [], warnings: [] });
+    renderPage();
+    await waitFor(() => expect(screen.getByText("选择去向")).toBeInTheDocument());
+    fireEvent.click(screen.getByText("选择去向"));
+    await waitFor(() => expect(screen.getByText("就建这本书")).toBeInTheDocument());
+    fireEvent.click(screen.getByText("就建这本书"));
+    await waitFor(() => expect(state.importBook).toHaveBeenCalledOnce());
+    await waitFor(() => expect(screen.queryByText(/稍后再说/)).not.toBeInTheDocument());
+  });
+
   beforeEach(() => {
     state.importBook.mockResolvedValue({ book_id: "book-9", name: "星海远征", skipped: [], warnings: [] });
     state.export.mockResolvedValue({ written: ["简介.md"], readme: "README.md", dest: "/tmp/x" });
@@ -229,6 +242,36 @@ describe("TaskDetailPage", () => {
   });
 
   it("需重传：重传按钮触发文件框（不崩）", async () => {
+    state.get.mockResolvedValue(detailOf("need_reupload", { products: [] }));
+    renderPage();
+    await waitFor(() => expect(screen.getByText("源文件缺失")).toBeInTheDocument());
+    fireEvent.click(screen.getByText("重传文件"));
+  });
+
+
+  it("进行中：维度失败臂渲染", async () => {
+    state.get.mockResolvedValue(detailOf("running"));
+    renderPage();
+    await waitFor(() => expect(screen.getByText("取消任务")).toBeInTheDocument());
+    // failed 臂：detailOf("failed") 单测已盖；此处断言 running 态无 err 徽标
+    expect(screen.queryByText(/已失败/)).not.toBeInTheDocument();
+  });
+
+
+  it("防御臂：未知状态徽标回落＋空勾选进度归零＋缺维度键默认排队", async () => {
+    state.get.mockResolvedValue({
+      ...detailOf("running"),
+      status: "mystery-status",
+      selected_dims: [],
+      dims: {},
+      products: [],
+    });
+    renderPage();
+    await waitFor(() => expect(screen.getByText("mystery-status")).toBeInTheDocument());
+    // unknown status → STATUS_PILL/STATUS_LABEL 回落默认 pill
+  });
+
+  it("需重传：重传按钮点击触发文件框（不崩）", async () => {
     state.get.mockResolvedValue(detailOf("need_reupload", { products: [] }));
     renderPage();
     await waitFor(() => expect(screen.getByText("源文件缺失")).toBeInTheDocument());

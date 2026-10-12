@@ -72,8 +72,24 @@ describe("deconstructApi", () => {
   it("fetchModelOptions：models 非串非数组 → 跳过", async () => {
     state.fetch.mockResolvedValueOnce(jsonResponse(200, [
       { id: "c9", name: "N", vendor: "v", models: 123 },
+      { id: "c10", name: "E", vendor: "v", models: "" },
     ]));
     expect(await fetchModelOptions()).toEqual([]);
+  });
+
+
+  it("authHeaders：有 token 时注入 Bearer（真臂）", async () => {
+    localStorage.setItem("auth_token", "tok-123");
+    state.fetch.mockResolvedValueOnce(jsonResponse(200, { id: "n1" }));
+    await createDeconstructTask(new File(["x"], "a.txt"), { bookName: "a", apiConfigId: "c", model: "m", selectedDims: ["intro"] });
+    const headers = state.fetch.mock.calls[0][1].headers as Record<string, string>;
+    expect(headers["Authorization"]).toBe("Bearer tok-123");
+    localStorage.removeItem("token");
+  });
+
+  it("drop 解析失败臂：create 走 bad-json 兜底后不崩", async () => {
+    state.fetch.mockResolvedValueOnce(jsonRejectResponse(500));
+    await expect(createDeconstructTask(new File(["x"], "a.txt"), { bookName: "a", apiConfigId: "c", model: "m", selectedDims: ["intro"] })).rejects.toThrow("创建失败");
   });
 
   it("probeModel：ok / 无 status / 抛错", async () => {
@@ -116,6 +132,17 @@ describe("deconstructApi", () => {
     const r = await resumeDeconstructTask("t");
     expect(r.status).toBe("queued");
     expect(String(state.fetch.mock.calls[0][0])).toContain("/resume");
+  });
+
+
+  it("listDeconstructTasks 401 → 统一出口文案", async () => {
+    state.fetch.mockResolvedValueOnce(jsonResponse(401, {}));
+    await expect(listDeconstructTasks()).rejects.toThrow(/登录状态已失效/);
+  });
+
+  it("importBookFromTask 409 → HTTP 文案", async () => {
+    state.fetch.mockResolvedValueOnce(jsonResponse(409, {}));
+    await expect(importBookFromTask("t")).rejects.toThrow(/HTTP 409/);
   });
 
   it("fetchModelOptions：字符串/数组 models、deleted 过滤、无 models 跳过", async () => {

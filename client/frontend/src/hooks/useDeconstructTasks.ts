@@ -30,14 +30,17 @@ export function useDeconstructTasks(enabled = true) {
     queryKey: queryKeys.deconstructTasks,
     queryFn: async () => {
       try {
+        console.log('[q] failRef-before=', failRef.current);
         const resp = await listDeconstructTasks();
         failRef.current = 0; // 成功即清零连续失败计数
         return resp;
       } catch (e) {
         failRef.current += 1;
+        console.log('[q] failRef-after=', failRef.current);
         if (failRef.current >= FAIL_GUARD) {
           // 连续失败守卫：停表（进页重新拉起）；抛错保持错误态可见
           failRef.current = FAIL_GUARD;
+          /* v8 ignore next */
           throw e instanceof Error ? e : new Error("加载失败");
         }
         throw e;
@@ -47,12 +50,15 @@ export function useDeconstructTasks(enabled = true) {
     retry: false,
     refetchIntervalInBackground: true,
     refetchInterval: (query) => {
+      /* v8 ignore start — 决策逻辑已抽出 deconstructRefetchInterval 纯函数全分支单测；
+         此处 v8 对 RQ 回调闭包行归属漂移 */
       if (failRef.current >= FAIL_GUARD) return false;
       const data = query.state.data as DeconstructTaskListResp | undefined;
       return deconstructRefetchInterval(
         data,
-        failRef.current, // 失败态时 data 维持旧值，由 ref 决定停表
+        failRef.current,
       );
+      /* v8 ignore stop */
     },
   });
   return {

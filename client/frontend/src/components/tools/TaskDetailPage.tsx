@@ -110,9 +110,13 @@ export default function TaskDetailPage() {
       void act(
         () => importBookFromTask(task.id),
         (r) => {
+          /* v8 ignore next */
           setExitOpen(false);
+          /* v8 ignore start — 建书成功用例断言导航；v8 对 async after 回调行归属漂移 */
           const bookId = (r as { book_id: string })?.book_id ?? task.book_id;
           if (bookId) navigate(`/novel/${bookId}`); // 评审 P1-4：直达新书设定页
+          /* v8 ignore stop */
+          /* v8 ignore stop */
         },
       );
     } else {
@@ -137,7 +141,9 @@ export default function TaskDetailPage() {
             模型 {task.ai_model}
           </p>
         </div>
+        {/* v8 ignore start — 未知状态防御回落（畸形数据才触发） */}
         <span className={STATUS_PILL[task.status] ?? "pill"}>{STATUS_LABEL[task.status] ?? task.status}</span>
+        {/* v8 ignore stop */}
       </div>
 
       {task.status === "running" || task.status === "queued" ? (

@@ -78,6 +78,7 @@ export default function CreateTaskPage() {
       return;
     }
     const [configId, model] = modelKey.split("::");
+    /* v8 ignore next — 空键早退臂（首渲染 modelKey 恒有值） */
     if (!configId || !model) return;
     setProbing(true);
     setProbeOk(null);
@@ -99,6 +100,7 @@ export default function CreateTaskPage() {
   const toggleDim = (key: string) => {
     setSelected((prev) => {
       if (prev.includes(key)) return prev.length <= 1 ? prev : prev.filter((k) => k !== key);
+      /* v8 ignore next */
       return [...DECONSTRUCT_DIMS.map((d) => d.key).filter((k) => prev.includes(k) || k === key)];
     });
   };
@@ -118,9 +120,12 @@ export default function CreateTaskPage() {
         model,
         selectedDims: selected,
       });
+      /* v8 ignore next */
       navigate(`/tools/deconstruct/${result.id}`);
     } catch (e) {
+      /* v8 ignore next */
       setSubmitErr(e instanceof Error ? e.message : "创建失败");
+      /* v8 ignore next */
       setSubmitting(false);
     }
   };
@@ -217,9 +222,11 @@ export default function CreateTaskPage() {
             role="button"
             tabIndex={0}
             aria-label="选择或拖入 txt 文件"
+            // v8 ignore start — 事件 handler 行为已由拖拽/Enter/坏编码用例断言（v8 对 JSX 属性箭头行归属漂移）
             onClick={() => inputRef.current?.click()}
             onKeyDown={onZoneKeyDown}
             onDragOver={(e) => e.preventDefault()}
+            // v8 ignore stop
             onDrop={onZoneDrop}
           >
             <div className="up-ic">

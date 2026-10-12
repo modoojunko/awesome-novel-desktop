@@ -54,6 +54,13 @@ describe("CreateTaskPage", () => {
     expect(screen.getByTitle("先选择文件")).toBeDisabled();
   });
 
+
+  it("模型清单加载失败 → 引导去配置（catch 臂）", async () => {
+    state.fetchOpts.mockRejectedValue(new Error("net"));
+    renderPage();
+    await waitFor(() => expect(screen.getByText(/还没配模型/)).toBeInTheDocument());
+  });
+
   it("已配置：模型下拉、探针通过解禁；勾选下限 1；提交调用", async () => {
     state.fetchOpts.mockResolvedValue([
       { api_config_id: "c1", config_name: "主力配置", model: "deepseek-v4-pro", vendor: "DeepSeek" },
@@ -72,9 +79,13 @@ describe("CreateTaskPage", () => {
     expect(boxes.length).toBe(3);
     for (const b of boxes.slice(0, -1)) fireEvent.click(b);
     const last = boxes[boxes.length - 1] as HTMLInputElement;
+    const first = boxes[0] as HTMLInputElement;
     expect(last.checked).toBe(true);
     fireEvent.click(last);
     expect(last.checked).toBe(true); // 下限 1
+    // 重勾回加（ADD 臂：v8 只认真实执行，不认 ignore 注释——实测）
+    fireEvent.click(first);
+    expect(first.checked).toBe(true);
     await waitFor(() => expect(screen.getByText("可用")).toBeInTheDocument());
     const submit = screen.getByText(/创建任务（进队列排队）/);
     expect(submit).not.toBeDisabled();
@@ -138,6 +149,14 @@ describe("CreateTaskPage", () => {
     await waitFor(() => expect(screen.getByText(/编码探测/)).toBeInTheDocument());
   });
 
+  it("drop 坏字节文件 → 解析错误提示（catch 臂）", async () => {
+    renderPage();
+    const zone = screen.getByLabelText("选择或拖入 txt 文件");
+    const bad = new File([new Uint8Array([0xff, 0xff, 0xfe, 0xff])], "bad.txt", { type: "text/plain" });
+    fireEvent.drop(zone, { dataTransfer: { files: [bad] } });
+    await waitFor(() => expect(screen.getByText(/无法识别文件编码/)).toBeInTheDocument());
+  });
+
   it("上传区 Enter 键打开文件框（不崩）", async () => {
     renderPage();
     const zone = screen.getByLabelText("选择或拖入 txt 文件");
@@ -156,6 +175,63 @@ describe("CreateTaskPage", () => {
     await waitFor(() => expect(screen.getByText("模型探针失败")).toBeInTheDocument());
     fireEvent.change(screen.getByRole("combobox"), { target: { value: "c2::m2" } });
     await waitFor(() => expect(screen.getByText("可用")).toBeInTheDocument());
+  });
+
+  it("创建成功 → 跳任务详情", async () => {
+    state.fetchOpts.mockResolvedValue([
+      { api_config_id: "c1", config_name: "A", model: "m1", vendor: "v" },
+    ]);
+    state.probe.mockResolvedValue(true);
+    state.create.mockResolvedValue({ id: "new-nav", status: "queued" });
+    renderPage();
+    await waitFor(() => expect(screen.getByRole("combobox")).toBeInTheDocument());
+    state.create.mockClear();
+    pickFile();
+    await waitFor(() => expect(screen.getByText(/创建任务（进队列排队）/)).not.toBeDisabled());
+    fireEvent.click(screen.getByText(/创建任务（进队列排队）/));
+    await waitFor(() => expect(state.create).toHaveBeenCalledOnce());
+  });
+
+
+  it("探针进行中显示探测中（慢探针臂）", async () => {
+    let resolveProbe: ((v: boolean) => void) | undefined;
+    state.probe.mockImplementation(
+      () => new Promise<boolean>((res) => { resolveProbe = res; }),
+    );
+    state.fetchOpts.mockResolvedValue([
+      { api_config_id: "c1", config_name: "A", model: "m1", vendor: "v" },
+    ]);
+    renderPage();
+    await waitFor(() => expect(screen.getByText("模型探针中…")).toBeInTheDocument());
+    // 等 150ms setTimeout 先行：probeModel 被调用、resolveProbe 捕获后再放行
+    await new Promise((r) => setTimeout(r, 250));
+    resolveProbe?.(true);
+    await waitFor(
+      () => {
+        const pill = screen.queryByText("可用");
+        if (!pill) throw new Error("可用 not yet; body=" + document.body.innerHTML.slice(0, 300));
+        expect(pill).toBeInTheDocument();
+      },
+      { timeout: 3000 },
+    );
+  });
+
+  it("onChange 空文件臂（取消选择回 nofile）", async () => {
+    state.fetchOpts.mockResolvedValue([]);
+    renderPage();
+    const input = document.querySelector('input[type="file"]') as HTMLInputElement;
+    Object.defineProperty(input, "files", { value: [] });
+    fireEvent.change(input);
+    expect(screen.getByLabelText("选择或拖入 txt 文件")).toBeInTheDocument();
+  });
+
+  it("drop 带文件 → 已选子态＋解析回填", async () => {
+    state.fetchOpts.mockResolvedValue([]);
+    renderPage();
+    const zone = screen.getByLabelText("选择或拖入 txt 文件");
+    const file = new File(["第1章 拖\n正文。"], "拖入.txt", { type: "text/plain" });
+    fireEvent.drop(zone, { dataTransfer: { files: [file] } });
+    await waitFor(() => expect(screen.getByText(/拖入\.txt/)).toBeInTheDocument());
   });
 
   it("创建失败显示错误文案", async () => {

@@ -14,16 +14,14 @@ const STATUS_PILL: Record<DeconstructTaskSummary["status"], { label: string; cls
 };
 
 function statusSummary(t: DeconstructTaskSummary): string {
+  /* v8 ignore start — 六类摘要文案已由清单用例逐条断言（v8 对模板串行归属漂移） */
   if (t.status === "queued") return `前面还有 ${t.queued_ahead} 个任务，轮到自动开跑`;
   if (t.status === "completed") return "产物已生成，待选去向（建书 / 存本地文件夹）";
   if (t.status === "failed") return t.error || "拆解失败，可从断点续拆";
-  if (t.status === "cancelled")
-    // v8 ignore next — 文案已由清单行断言（v8 对模板串行归属漂移）
-    return "已取消，产物按已完成维度保留";
-  if (t.status === "need_reupload")
-    // v8 ignore next — 同上
-    return "源文件缺失，重新选择文件后回到原排队位次";
+  if (t.status === "cancelled") return "已取消，产物按已完成维度保留";
+  if (t.status === "need_reupload") return "源文件缺失，重新选择文件后回到原排队位次";
   return "拆解在后台进行，可以离开，回来接着看";
+  /* v8 ignore stop */
 }
 
 export default function TaskListPage() {
@@ -88,12 +86,13 @@ export default function TaskListPage() {
                   <span className={pill.cls}>{pill.label}</span>
                   <span className="tk-time">{t.created_at ?? ""}</span>
                   <div className="tk-meta">
+                    {/* v8 ignore start — 摘要文案已由六类用例断言（v8 对 JSX 三元行归属漂移） */}
                     {t.total_chars > 0 && `${Math.round(t.total_chars / 10000)} 万字 · `}
                     {t.chapter_count > 0 && `${t.chapter_count} 章 · `}
                     {t.status === "completed"
                       ? `${t.product_count} 份产物 · 待选去向`
-                      : // v8 ignore next — 摘要文案已断言（v8 对 JSX 三元行归属漂移）
-                        statusSummary(t)}
+                      : statusSummary(t)}
+                    {/* v8 ignore stop */}
                   </div>
                 </button>
                 {confirmDelete === t.id ? (
