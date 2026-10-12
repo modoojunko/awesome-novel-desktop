@@ -10,12 +10,14 @@ import os
 import shutil
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from auth_local.middleware import get_current_user
 from db import get_db
 from deconstruct import apply, service
 from deconstruct.textparse import MAX_SOURCE_BYTES, decode_text, parse_novel
+from models.deconstruct import DeconstructJob
 
 router = APIRouter(prefix="/api/deconstruct", tags=["deconstruct"])
 
@@ -107,7 +109,17 @@ async def list_tasks(
     tasks = await service.list_tasks(db, _user_id(user))
     running = next((t for t in tasks if t["status"] == "running"), None)
     queued = sum(1 for t in tasks if t["status"] == "queued")
-    done_unpicked = sum(1 for t in tasks if t["status"] == "completed" and not t.get("error"))
+    done_unpicked = len(
+        (
+            await db.scalars(
+                select(DeconstructJob.id).where(
+                    DeconstructJob.user_id == _user_id(user),
+                    DeconstructJob.status == "completed",
+                    DeconstructJob.book_id.is_(None),
+                )
+            )
+        ).all()
+    )
     return {
         "tasks": tasks,
         "heartbeat": {"running": 1 if running else 0, "queued": queued},
@@ -152,8 +164,10 @@ async def cancel_task(
     _require(task, user)
     if task.status not in ("queued", "running"):
         raise HTTPException(409, "任务已结束，无法取消")
+    from datetime import UTC, datetime
+
     task.status = "cancelled"
-    task.finished_at = __import__("datetime").datetime.utcnow()
+    task.finished_at = datetime.now(UTC).replace(tzinfo=None)
     await db.commit()
     return {"id": task.id, "status": task.status}
 
@@ -173,23 +187,12 @@ async def resume_task(
         task.status = "need_reupload"
         await db.commit()
         raise HTTPException(409, "源文件缺失，请先重传文件")
-    import asyncio
-
     from deconstruct.dispatcher import start_dispatcher
 
-    start_dispatcher()  # 兜底（常驻线程一般已在）
+    start_dispatcher()  # 兜底（常驻线程一般已在）：置 queued 后由 dispatcher 接手
     task.status = "queued"
     await db.commit()
-    asyncio.get_running_loop().run_in_executor(None, _spawn_resume, task.id)
     return {"id": task.id, "status": task.status}
-
-
-def _spawn_resume(task_id: str) -> None:
-    import asyncio
-
-    from deconstruct.pipeline import resume_task
-
-    asyncio.run(resume_task(task_id))
 
 
 @router.post("/tasks/{task_id}/retry-upload")
@@ -204,9 +207,14 @@ async def retry_upload(
     _require(task, user)
     if task.status != "need_reupload":
         raise HTTPException(409, "任务不在需重传状态")
-    raw = await file.read()
-    if len(raw) > MAX_SOURCE_BYTES:
-        raise HTTPException(400, "文件超过 50MB 上限，请拆分后重试")
+    size = 0
+    chunks: list[bytes] = []
+    while chunk := await file.read(1 << 20):
+        size += len(chunk)
+        if size > MAX_SOURCE_BYTES:
+            raise HTTPException(400, "文件超过 50MB 上限，请拆分后重试")
+        chunks.append(chunk)
+    raw = b"".join(chunks)
     try:
         raw.decode(task.encoding or "utf-8")
     except (UnicodeDecodeError, LookupError):
@@ -271,6 +279,8 @@ async def delete_task(
 ):
     task = await service.get_task(db, task_id, _user_id(user))
     _require(task, user)
+    if task.status == "running":
+        raise HTTPException(409, "任务拆解中，请先取消再删除")
     if task.source_path and os.path.isdir(os.path.dirname(task.source_path)):
         shutil.rmtree(os.path.dirname(task.source_path), ignore_errors=True)
     await db.delete(task)

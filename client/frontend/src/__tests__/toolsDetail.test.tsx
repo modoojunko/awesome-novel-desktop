@@ -105,7 +105,7 @@ describe("TaskDetailPage", () => {
     await waitFor(() => expect(state.cancel).toHaveBeenCalledOnce());
   });
 
-  it("完成：默认全选、下限 1、出口二选一（建书/导出）", async () => {
+  it("完成：默认全选、下限 1、导出流（含 pick 桥占位）", async () => {
     state.get.mockResolvedValue(detailOf("completed"));
     renderPage();
     await waitFor(() => expect(screen.getByText("选择去向")).toBeInTheDocument());
@@ -121,17 +121,22 @@ describe("TaskDetailPage", () => {
     // 恢复全选
     for (const b of boxes) if (!(b as HTMLInputElement).checked) fireEvent.click(b);
 
-    // 出口：建书
-    fireEvent.click(screen.getByText("选择去向"));
-    fireEvent.click(screen.getByText("就建这本书"));
-    await waitFor(() => expect(state.importBook).toHaveBeenCalledOnce());
-
-    // 出口：导出
+    // 出口：导出（先测导出，建书成功导航另测）
     fireEvent.click(screen.getByText("选择去向"));
     fireEvent.click(screen.getByText("存本地文件夹"));
     fireEvent.change(screen.getByLabelText(/导出到文件夹/), { target: { value: "/tmp/out" } });
     fireEvent.click(screen.getByText("选择文件夹并导出"));
     await waitFor(() => expect(state.export).toHaveBeenCalledOnce());
+  });
+
+  it("完成：建书失败显示错误（不导航）", async () => {
+    state.get.mockResolvedValue(detailOf("completed"));
+    state.importBook.mockRejectedValue(new Error("书数已达套餐上限"));
+    renderPage();
+    await waitFor(() => expect(screen.getByText("选择去向")).toBeInTheDocument());
+    fireEvent.click(screen.getByText("选择去向"));
+    fireEvent.click(screen.getByText("就建这本书"));
+    await waitFor(() => expect(screen.getByText(/书数已达套餐上限/)).toBeInTheDocument());
   });
 
   it("建书失败显示错误（书满额）", async () => {

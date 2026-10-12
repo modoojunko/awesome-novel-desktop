@@ -26,6 +26,8 @@ _thread: threading.Thread | None = None
 
 def start_dispatcher() -> None:
     global _started, _thread
+    if os.environ.get("DECONSTRUCT_DISPATCHER_OFF") == "1":
+        return  # 测试开关：TestClient lifespan 不起真轮询线程（评审 P2-12）
     with _lock:
         if _started:
             return

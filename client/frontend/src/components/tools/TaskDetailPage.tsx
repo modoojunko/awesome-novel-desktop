@@ -85,12 +85,12 @@ export default function TaskDetailPage() {
     return total ? Math.round((done / total) * 100) : 0;
   })();
 
-  const act = async (fn: () => Promise<unknown>, after?: () => void) => {
+  const act = async (fn: () => Promise<unknown>, after?: (r: unknown) => void) => {
     setBusy(true);
     setExitErr("");
     try {
-      await fn();
-      after?.();
+      const r = await fn();
+      after?.(r);
     } catch (e) {
       setExitErr(e instanceof Error ? e.message : "操作失败");
     } finally {
@@ -107,10 +107,14 @@ export default function TaskDetailPage() {
 
   const doExit = () => {
     if (exitOpt === "book") {
-      void act(() => importBookFromTask(task.id), () => {
-        setExitOpen(false);
-        if (task.book_id) navigate(`/novel/${task.book_id}`);
-      });
+      void act(
+        () => importBookFromTask(task.id),
+        (r) => {
+          setExitOpen(false);
+          const bookId = (r as { book_id: string })?.book_id ?? task.book_id;
+          if (bookId) navigate(`/novel/${bookId}`); // 评审 P1-4：直达新书设定页
+        },
+      );
     } else {
       void act(() => exportTaskProducts(task.id, destDir, selectedFiles), () => {
         setExitMsg(`已导出 ${selectedFiles.length} 份产物到 ${destDir}`);
@@ -324,16 +328,30 @@ export default function TaskDetailPage() {
                 </div>
                 {exitOpt === "files" && (
                   <div className="field" style={{ marginTop: 12 }}>
-                    <label htmlFor="dest-dir">导出到文件夹（绝对路径）</label>
+                    <label htmlFor="dest-dir">导出到文件夹</label>
                     <div style={{ display: "flex", gap: 8 }}>
                       <input
                         id="dest-dir"
                         className="input"
                         value={destDir}
                         onChange={(e) => setDestDir(e.target.value)}
-                        placeholder="/Users/you/Documents/拆书"
+                        placeholder="点击「选择文件夹」或粘贴绝对路径"
                         data-od-id="dest-dir"
                       />
+                      <button
+                        className="btn btn-secondary btn-sm"
+                        data-od-id="btn-pick-folder"
+                        onClick={async () => {
+                          // pywebview 壳层桥（OfflineExportModal 同款）；浏览器回落手输
+                          const bridge = (window as unknown as { pywebview?: { api?: { pick_folder?: () => Promise<string> } } }).pywebview;
+                          if (bridge?.api?.pick_folder) {
+                            const d = await bridge.api.pick_folder();
+                            if (d) setDestDir(d);
+                          }
+                        }}
+                      >
+                        选择文件夹
+                      </button>
                     </div>
                   </div>
                 )}

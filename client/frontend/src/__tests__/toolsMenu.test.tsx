@@ -2,6 +2,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 
 const state = vi.hoisted(() => ({ list: vi.fn() }));
 vi.mock("@/lib/deconstructApi", () => ({ listDeconstructTasks: state.list }));
@@ -9,10 +10,13 @@ vi.mock("@/lib/deconstructApi", () => ({ listDeconstructTasks: state.list }));
 import ToolsMenu from "@/components/tools/ToolsMenu";
 
 function renderMenu() {
+  const qc = new QueryClient();
   return render(
-    <MemoryRouter>
-      <ToolsMenu />
-    </MemoryRouter>,
+    <QueryClientProvider client={qc}>
+      <MemoryRouter>
+        <ToolsMenu />
+      </MemoryRouter>
+    </QueryClientProvider>,
   );
 }
 

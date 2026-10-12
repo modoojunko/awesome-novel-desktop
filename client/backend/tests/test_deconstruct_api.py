@@ -13,6 +13,7 @@ _tmp_db = tempfile.NamedTemporaryFile(suffix="_dec_api.db", delete=False)  # noq
 _tmp_db.close()
 os.environ["DATABASE_URL"] = f"sqlite+aiosqlite:///{_tmp_db.name}"
 os.environ["DATA_ROOT"] = tempfile.mkdtemp(prefix="test_dec_api_")
+os.environ["DECONSTRUCT_DISPATCHER_OFF"] = "1"
 
 from fastapi.testclient import TestClient  # noqa: E402
 
@@ -56,7 +57,7 @@ def client():
 
 
 def _mk_completed(task_id: str, products: dict) -> None:
-    """直插一个已完成任务（产物 md 用管线同款固定 H2 渲染形状）。"""
+    """直插一个已完成任务（products 新形状：{dim: {file, data, md}}）。"""
     import json
 
     async def _go():
@@ -74,13 +75,17 @@ def _mk_completed(task_id: str, products: dict) -> None:
                     encoding="utf-8",
                     api_config_id="cfg-1",
                     ai_model="qwen3-max",
-                    selected_dims_json=json.dumps(["intro", "world", "foreshadow"]),
+                    selected_dims_json=json.dumps(["intro", "genre", "world", "mainplot", "style", "foreshadow"]),
                     products_json=json.dumps(products, ensure_ascii=False),
                 )
             )
             await s.commit()
 
     _run(_go())
+
+
+def _product(dim: str, file: str, data: dict, md: str) -> dict:
+    return {"file": file, "data": data, "md": md}
 
 
 def test_create_task_streams_and_parses(client):
@@ -126,22 +131,59 @@ def test_list_tasks_shape(client):
 
 
 def test_import_book_idempotent_and_clamps(client):
-    factions = "\n".join(f"- 势力{i}：描述{i}" for i in range(1, 9))  # 8 方 > 上限 6
-    world_md = "# 世界设定｜星海远征\n\n## no_power\n\n无超凡\n\n## factions\n\n" + factions + "\n"
-    intro_md = "# 简介｜星海远征\n\n## intro\n\n一部星际远征的故事。\n"
-    foreshadow_md = "# 伏笔｜星海远征\n\n## hooks\n\n- 神秘罗盘 埋设于第3章（未收束）\n"
-    _mk_completed("dec-imp-1", {"简介.md": intro_md, "世界设定.md": world_md, "伏笔.md": foreshadow_md})
+    products = {
+        "intro": _product("intro", "简介.md", {"intro": "一部星际远征的故事。"}, "# 简介"),
+        "genre": _product("genre", "题材.md", {"genre": "科幻", "tags": ["星际"]}, "# 题材"),
+        "world": _product("world", "世界设定.md",
+            {"no_power": "无超凡设定", "stage": "银河系边缘",
+             "power": [], "cost": [],
+             "history": [{"name": "大迁徙", "note": "文明迁移", "evidence_ch": "第2章"}],
+             "factions": [{"name": f"势力{i}", "note": "描述", "evidence_ch": "第3章"} for i in range(1, 9)],
+             "constraints": [], "extra": []},
+            "# 世界设定"),
+        "mainplot": _product("mainplot", "主线剧情.md",
+            {"arcs": [{"title": "远征", "ch_start": 1, "ch_end": 318, "summary": "远征与救赎"}],
+             "ending": "抵达新星系。"},
+            "# 主线"),
+        "style": _product("style", "写作文风.md",
+            {"narration": "贴背第三人称", "dialogue": "短句对话", "rhythm": "张弛交替"},
+            "# 文风"),
+        "foreshadow": _product("foreshadow", "伏笔.md",
+            {"hooks": [{"desc": "神秘罗盘", "plant_ch": 3, "payoff_ch": None, "status": "active", "note": "", "confidence": "high"}]},
+            "# 伏笔"),
+    }
+    _mk_completed("dec-imp-1", products)
 
     r1 = client.post("/api/deconstruct/tasks/dec-imp-1/import-book")
     assert r1.status_code == 200, r1.text
     body = r1.json()
     assert body["book_id"]
     assert any("截断" in w for w in body["warnings"])  # 势力 8 → clamp 6 降级提示
-    assert set(body["skipped"]) == {"characters", "mainplot", "style", "genre"}  # 未勾选不写入
+    assert body["skipped"] == ["characters"]  # 未勾选不写入
 
     r2 = client.post("/api/deconstruct/tasks/dec-imp-1/import-book")
     assert r2.status_code == 200
     assert r2.json()["book_id"] == body["book_id"]  # 幂等：同一本书
+
+    # 建书内容抽查：书存在、世界 factions 已 clamp、伏笔章号入文本、主线 fullstory 非空
+    async def _check():
+        async with async_session() as s:
+            from models.project import Novel
+
+            n = await s.get(Novel, body["book_id"])
+            return n
+
+    n = _run(_check())
+    assert n is not None and n.name == "星海远征"
+
+
+def _run(coro):
+    loop = asyncio.new_event_loop()
+    asyncio.set_event_loop(loop)
+    try:
+        return loop.run_until_complete(coro)
+    finally:
+        loop.close()
 
 
 def test_import_book_requires_completed(client):
@@ -150,7 +192,10 @@ def test_import_book_requires_completed(client):
     assert r.status_code == 409
 
 
-def _mk_queued(task_id: str) -> None:
+def _mk_queued(task_id: str, *, with_source: bool = True) -> None:
+    from deconstruct.service import source_path_of
+
+    os.makedirs(os.path.dirname(source_path_of(task_id)), exist_ok=True)
 
     async def _go():
         async with async_session() as s:
@@ -164,18 +209,23 @@ def _mk_queued(task_id: str) -> None:
                     queue_seq=await next_queue_seq(s),
                     book_name="排队书",
                     source_path=source_path_of(task_id),
+                    **({"source_size": 10} if with_source else {}),
                 )
             )
             await s.commit()
+
+    if with_source:
+        with open(source_path_of(task_id), "w", encoding="utf-8") as f:
+            f.write(_TXT)
 
     _run(_go())
 
 
 def test_export_writes_selected_and_readme(client):
     products = {
-        "简介.md": "# 简介\n\n正文A",
-        "世界设定.md": "# 世界设定\n\n正文B",
-        "伏笔.md": "# 伏笔\n\n正文C",
+        "intro": _product("intro", "简介.md", {}, "# 简介\n\n正文A"),
+        "world": _product("world", "世界设定.md", {}, "# 世界设定\n\n正文B"),
+        "foreshadow": _product("foreshadow", "伏笔.md", {}, "# 伏笔\n\n正文C"),
     }
     _mk_completed("dec-exp-1", products)
     dest = tempfile.mkdtemp(prefix="dec-export-")
@@ -215,6 +265,32 @@ def test_cancel_and_delete(client):
     assert r.status_code == 200
     r = client.get("/api/deconstruct/tasks/dec-cx-1")
     assert r.status_code == 404
+
+
+def test_retry_upload_roundtrip(client):
+    _mk_queued("dec-ru-1")
+
+    async def _lose():
+        async with async_session() as s:
+            t = await s.get(DeconstructJob, "dec-ru-1")
+            os.remove(t.source_path)
+            t.status = "need_reupload"
+            await s.commit()
+
+    _run(_lose())
+    r = client.post(
+        "/api/deconstruct/tasks/dec-ru-1/retry-upload",
+        files={"file": ("雪落无声.txt", _TXT.encode("utf-8"), "text/plain")},
+    )
+    assert r.status_code == 200 and r.json()["status"] == "queued"
+
+    async def _back():
+        async with async_session() as s:
+            t = await s.get(DeconstructJob, "dec-ru-1")
+            return t.status, os.path.exists(t.source_path)
+
+    status, src_exists = _run(_back())
+    assert status == "queued" and src_exists
 
 
 def test_resume_guard_requires_failed_or_cancelled(client):

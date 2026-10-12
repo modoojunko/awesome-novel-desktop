@@ -1,68 +1,93 @@
-// useDeconstructTasks（c-deconstruct-book 5.2）：活动轮询、终态停表、失败守卫停表。
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+// useDeconstructTasks（RQ refetchInterval＋failRef 守卫版）：
+// 决策纯函数全分支＋集成：活动轮询、终态停表、连续失败守卫停表。
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { cleanup, render } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { MemoryRouter } from "react-router-dom";
 
 const state = vi.hoisted(() => ({ list: vi.fn() }));
 vi.mock("@/lib/deconstructApi", () => ({ listDeconstructTasks: state.list }));
 
-import { useDeconstructTasks } from "@/hooks/useDeconstructTasks";
-
-function Probe() {
-  useDeconstructTasks(true);
-  return null;
-}
+import {
+  deconstructRefetchInterval,
+  useDeconstructTasks,
+} from "@/hooks/useDeconstructTasks";
 
 function renderProbe() {
   const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
-  return render(
+  function Probe() {
+    useDeconstructTasks(true);
+    return null;
+  }
+  render(
     <QueryClientProvider client={qc}>
-      <Probe />
+      <MemoryRouter>
+        <Probe />
+      </MemoryRouter>
     </QueryClientProvider>,
   );
+  return () => state.list.mock.calls.length;
 }
 
-beforeEach(() => state.list.mockClear());
+const ACTIVE_RESP = {
+  tasks: [{ id: "t", status: "running" }],
+  heartbeat: { running: 1, queued: 0 },
+  badge: 1,
+};
+const DONE_RESP = {
+  tasks: [{ id: "t", status: "completed" }],
+  heartbeat: { running: 0, queued: 0 },
+  badge: 0,
+};
+
 afterEach(() => {
   cleanup();
   vi.useRealTimers();
   vi.restoreAllMocks();
 });
 
-describe("useDeconstructTasks", () => {
-  it("活动任务持续轮询；全终态停表", async () => {
-    vi.useFakeTimers();
-    state.list.mockResolvedValue({
-      tasks: [{ id: "t", status: "running" }],
-      heartbeat: { running: 1, queued: 0 },
-      badge: 1,
-    });
-    renderProbe();
-    await vi.advanceTimersByTimeAsync(10);
-    const during = state.list.mock.calls.length;
-    expect(during).toBeGreaterThanOrEqual(1);
-    await vi.advanceTimersByTimeAsync(2000);
-    expect(state.list.mock.calls.length).toBeGreaterThan(during); // 活动中持续轮询
+describe("deconstructRefetchInterval 决策", () => {
+  it("failures≥3 → false（守卫停表）", () => {
+    expect(deconstructRefetchInterval(ACTIVE_RESP as never, 3)).toBe(false);
+    expect(deconstructRefetchInterval(undefined, 5)).toBe(false);
+  });
+  it("无数据 → 1500（先轮一次）", () => {
+    expect(deconstructRefetchInterval(undefined, 0)).toBe(1500);
+  });
+  it("有活动任务 → 1500；全终态 → false", () => {
+    expect(deconstructRefetchInterval(ACTIVE_RESP as never, 0)).toBe(1500);
+    expect(deconstructRefetchInterval(DONE_RESP as never, 0)).toBe(false);
+  });
+});
 
-    state.list.mockResolvedValue({
-      tasks: [{ id: "t", status: "completed" }],
-      heartbeat: { running: 0, queued: 0 },
-      badge: 0,
-    });
+describe("useDeconstructTasks 集成", () => {
+  it("活动任务轮询；全终态停表", async () => {
+    vi.useFakeTimers();
+    state.list.mockResolvedValue(ACTIVE_RESP);
+    const getCalls = renderProbe();
+    await vi.advanceTimersByTimeAsync(10);
+    const during = getCalls();
+    expect(during).toBeGreaterThanOrEqual(1);
+    await vi.advanceTimersByTimeAsync(4500);
+    expect(getCalls()).toBeGreaterThan(during);
+
+    state.list.mockResolvedValue(DONE_RESP);
     await vi.advanceTimersByTimeAsync(2000);
-    const settled = state.list.mock.calls.length;
+    const settled = getCalls();
     await vi.advanceTimersByTimeAsync(5000);
-    expect(state.list.mock.calls.length).toBe(settled); // 全终态停表
+    expect(getCalls()).toBe(settled); // 终态停表
   });
 
-  it("连续失败 3 次守卫停表", async () => {
+  it("连续失败守卫：3 次失败后停表不再增长", async () => {
     vi.useFakeTimers();
-    state.list.mockResolvedValue({ tasks: null }); // resp.tasks.some → TypeError → 走 catch 路径
-    renderProbe();
-    await vi.advanceTimersByTimeAsync(5000);
-    const calls = state.list.mock.calls.length;
-    expect(calls).toBe(3); // 初次 + 2 次重试，第 3 次失败即停
-    await vi.advanceTimersByTimeAsync(5000);
-    expect(state.list.mock.calls.length).toBe(3);
+    state.list.mockImplementation(async () => {
+      throw new Error("down");
+    });
+    const getCalls = renderProbe();
+    await vi.advanceTimersByTimeAsync(6000);
+    const stalled = getCalls();
+    expect(stalled).toBeGreaterThanOrEqual(3); // 失败期确实在轮询
+    await vi.advanceTimersByTimeAsync(8000);
+    expect(getCalls()).toBe(stalled); // 守卫停表（failRef≥3 → refetchInterval false）
   });
 });

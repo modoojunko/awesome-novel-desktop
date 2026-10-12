@@ -10,6 +10,30 @@ import {
   type ModelOption,
 } from "../../lib/deconstructApi";
 
+
+/** 本地解析（评审 P1-5）：编码探测链（utf-8-sig→utf-8→gb18030→big5）＋字数/章节统计。
+ *  与后端 deconstruct/textparse 同规则；GBK/Big5 由浏览器 TextDecoder 原生支持。 */
+async function localParse(file: File): Promise<{ encoding: string; totalChars: number; chapters: number }> {
+  const raw = new Uint8Array(await file.arrayBuffer());
+  const encodings = ["utf-8-sig", "utf-8", "gb18030", "big5"] as const;
+  let text = "";
+  let encoding = "";
+  for (const enc of encodings) {
+    try {
+      text = new TextDecoder(enc, { fatal: true }).decode(raw);
+      encoding = enc;
+      break;
+    } catch {
+      /* 下一个 */
+    }
+  }
+  if (!encoding) throw new Error("无法识别文件编码（已尝试 UTF-8/GBK/Big5），请转码为 UTF-8 后重试");
+  const chapterRe = /^\s*(第[0-9零一二两三四五六七八九十百千]+[章回节][^\n]{0,40})\s*$/gm;
+  const chapters = [...text.matchAll(chapterRe)].length;
+  const totalChars = text.replace(/\s+/g, "").length;
+  return { encoding, totalChars, chapters };
+}
+
 export default function CreateTaskPage() {
   const navigate = useNavigate();
   const [file, setFile] = useState<File | null>(null);
@@ -21,6 +45,8 @@ export default function CreateTaskPage() {
   const [selected, setSelected] = useState<string[]>(DECONSTRUCT_DIMS.map((d) => d.key));
   const [submitting, setSubmitting] = useState(false);
   const [submitErr, setSubmitErr] = useState("");
+  const [parsed, setParsed] = useState<{ encoding: string; totalChars: number; chapters: number } | null>(null);
+  const [parseErr, setParseErr] = useState("");
   const inputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
@@ -183,7 +209,14 @@ export default function CreateTaskPage() {
             onDrop={(e) => {
               e.preventDefault();
               const f = e.dataTransfer.files?.[0];
-              if (f) setFile(f);
+              if (f) {
+                setFile(f);
+                setParsed(null);
+                setParseErr("");
+                localParse(f)
+                  .then(setParsed)
+                  .catch((err: Error) => setParseErr(err.message));
+              }
             }}
           >
             <div className="up-ic">
@@ -205,7 +238,17 @@ export default function CreateTaskPage() {
             accept=".txt"
             hidden
             data-od-id="file-input"
-            onChange={(e) => setFile(e.target.files?.[0] ?? null)}
+            onChange={(e) => {
+              const f = e.target.files?.[0] ?? null;
+              setFile(f);
+              setParsed(null);
+              setParseErr("");
+              if (f) {
+                localParse(f)
+                  .then(setParsed)
+                  .catch((err: Error) => setParseErr(err.message));
+              }
+            }}
           />
           <div style={{ display: "flex", gap: 8, marginTop: 18 }}>
             <button className="btn btn-primary" disabled data-od-id="btn-submit-nofile" title="先选择文件">
@@ -222,8 +265,10 @@ export default function CreateTaskPage() {
             <span className="fs-ic">📄</span>
             <div className="fs-tx">
               <b>{file.name}</b>
-              <span>
-                {(file.size / 1024 / 1024).toFixed(1)} MB · 选完文件即在本地解析（秒级、不消耗模型额度）
+              <span data-od-id="parse-backfill">
+                {(file.size / 1024 / 1024).toFixed(1)} MB
+                {parsed ? ` · 编码探测：${parsed.encoding} · ${parsed.totalChars} 字 · ${parsed.chapters} 章` : ""}
+                {parseErr ? ` · ${parseErr}` : " · 本地解析（秒级、不消耗模型额度）"}
               </span>
             </div>
             <button className="btn btn-secondary btn-sm" onClick={() => setFile(null)}>

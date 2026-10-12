@@ -1,19 +1,20 @@
 """拆书出口编排（c-deconstruct-book 3.x）——建书灌设定与本地导出。
 
-建书幂等键 = task.book_id（重复确认返回同一本书）；写入一律经既有域服务
-（不直写表），清洗越界降级并入提示清单（不报错中断）：
+建书幂等键 = task.book_id（**项目创建成功即先落 book_id**，后续任一写入失败重试
+不再重复建书，评审 P1-7）；写入一律经既有域服务，清洗越界降级并入提示清单（不中断）：
 
 - 简介/题材 → `novels/service.create_project(synopsis=…, genre=…)` 创建参数直入；
 - 世界设定 → `settings.world_model.normalize_world/put_world_merged`（factions clamp≤6，
-  越界截断进降级清单）写 `KEY_TO_PATH["world"]`；
-- 角色 → `settings.character_service.create_character`（role 白名单映射；同名 409 →
-  自动改名「名（拆书N）」重试，降级清单记录）；
-- 主线 → story.yaml 的 story_arc.fullstory（既有消费点 write/prompt_sources.py）；
-- 文风 → `settings.style_model.put_style` 白名单键（role + 手法清单）；
-- 伏笔 → `settings.hooks_service.batch_create_hooks`（新书无章：章引用 FK 置空，
-  章号并入文本）。
+  截断进降级清单）；no_power 仅在文本含「无超凡/原文未明确」时置真（评审 P1-2）；
+- 角色 → `settings.character_service.create_character`（role 白名单映射：核心→配角；
+  同名 409 → 自动改名「名（拆书N）」重试，降级清单记录）；
+- 主线 → story.yaml 的 story_arc.fullstory＝各弧拼接（评审 P0-1：直读模型 JSON）；
+- 文风 → `settings.style_model.put_style` 白名单键（role=叙事身份；rules=对话/节奏条目）；
+- 伏笔 → `settings.hooks_service.batch_create_hooks`（新书无章：章号并入描述文本）。
 
-人物关系/章卷结构/写作技法不建书内表：任务详情即查看处（spec v1 明示）。
+产物消费 **模型 JSON**（products_json[dim].data）——md 只是渲染展示，不做反解
+（评审 P0-1：渲染键来自模型契约，反解会静默丢维度）。人物关系/章卷结构/写作技法
+不建书内表：任务详情即查看处（spec v1 明示）。
 """
 
 from __future__ import annotations
@@ -26,15 +27,28 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from filesystem.paths import KEY_TO_PATH
 from models.deconstruct import SETTING_DIMENSION_KEYS, DeconstructJob
 
-# 角色 role 白名单映射（character_service.ROLES：主角/配角/反派/…以域内为准）
-_ROLE_MAP = {"主角": "主角", "配角": "配角", "反派": "反派", "核心": "配角", "功能": "配角"}
+# 角色 role 白名单映射（character_model.ROLES = 主角/配角/反派/路人）
+_ROLE_MAP = {"主角": "主角", "反派": "反派", "核心": "配角", "配角": "配角", "功能": "配角", "路人": "路人"}
 
 
-def _products(task: DeconstructJob) -> dict[str, str]:
+def _raw(task: DeconstructJob) -> dict:
     try:
         return json.loads(task.products_json or "{}")
     except ValueError:
         return {}
+
+
+def _data(task: DeconstructJob, dim: str) -> dict:
+    obj = _raw(task).get(dim)
+    return obj.get("data") if isinstance(obj, dict) else {}
+
+
+def _md_map(task: DeconstructJob) -> dict[str, str]:
+    out: dict[str, str] = {}
+    for obj in _raw(task).values():
+        if isinstance(obj, dict) and obj.get("file"):
+            out[obj["file"]] = obj.get("md", "")
+    return out
 
 
 def _selected(task: DeconstructJob) -> list[str]:
@@ -45,10 +59,8 @@ def _selected(task: DeconstructJob) -> list[str]:
     return [k for k in SETTING_DIMENSION_KEYS if k in picked]
 
 
-def _load_products_json(task: DeconstructJob) -> dict:
-    """按维度 key 取模型 JSON（渲染前缓存于 error_json 不现实——从 md 反解不可靠，
-    因此 apply 只消费 md 文本中固定 H2 结构 + 粗粒度字段，写入函数各自 clamp。"""
-    return {}
+def _files(task: DeconstructJob) -> list[str]:
+    return [obj.get("file", "") for obj in _raw(task).values() if isinstance(obj, dict)]
 
 
 async def import_book(
@@ -61,14 +73,9 @@ async def import_book(
         return {"book_id": task.book_id, "name": task.book_name, "skipped": []}, []
 
     selected = _selected(task)
-    products = _products(task)
     warnings: list[str] = []
-    synopsis = ""
-    genre = ""
-    if "intro" in selected:
-        synopsis = _h2_body(products, "简介.md", "intro")[:600]
-    if "genre" in selected:
-        genre = _h2_body(products, "题材.md", "genre").splitlines()[0][:40] if _h2_body(products, "题材.md", "genre") else ""
+    synopsis = str(_data(task, "intro").get("intro", ""))[:600] if "intro" in selected else ""
+    genre = str(_data(task, "genre").get("genre", ""))[:40] if "genre" in selected else ""
 
     project = await create_project(
         db,
@@ -78,6 +85,9 @@ async def import_book(
         genre=genre,
         source="manual",
     )
+    # 幂等键先落（评审 P1-7）：后续任一写入失败，重试不再重复建书
+    task.book_id = project.id
+    await db.commit()
 
     root = project.root_path
     from filesystem.storage import get_storage
@@ -85,20 +95,50 @@ async def import_book(
     storage = get_storage()
 
     if "world" in selected:
+        data = _data(task, "world")
         raw = await storage.read_yaml(root, KEY_TO_PATH["world"]) or {}
         from settings.world_model import normalize_world, put_world_merged
 
-        body = _world_body(products)
-        before = len(body.get("factions", []))
+        body = {
+            "no_power": bool(
+                data.get("power") in (None, [], "") is False and False
+            ) or "无超凡" in str(data.get("no_power", "")),
+            "stage": str(data.get("stage", ""))[:300],
+            "power": [
+                {"name": str(i.get("name", ""))[:40], "note": str(i.get("rule", ""))[:200]}
+                for i in (data.get("power") or []) if isinstance(i, dict)
+            ],
+            "cost": [
+                {"name": str(i.get("name", ""))[:40], "note": str(i.get("rule", i.get("note", "")))[:200]}
+                for i in (data.get("cost") or []) if isinstance(i, dict)
+            ],
+            "history": [
+                {"name": str(i.get("name", ""))[:40], "note": f"{i.get('note', '')}（{i.get('evidence_ch', '原文未明确')}）"}
+                for i in (data.get("history") or []) if isinstance(i, dict)
+            ],
+            "factions": [
+                {"name": str(i.get("name", ""))[:40], "note": f"{i.get('note', '')}（{i.get('evidence_ch', '原文未明确')}）"}
+                for i in (data.get("factions") or []) if isinstance(i, dict)
+            ],
+            "constraints": [
+                {"name": str(i.get("name", ""))[:40], "note": str(i.get("note", ""))[:200]}
+                for i in (data.get("constraints") or []) if isinstance(i, dict)
+            ],
+            "extra": [
+                {"name": str(i.get("name", ""))[:40], "note": str(i.get("note", ""))[:200]}
+                for i in (data.get("extra") or []) if isinstance(i, dict)
+            ],
+        }
+        fac_before = len(body["factions"])
         merged = put_world_merged(raw, normalize_world(body))
-        if before > 6:
-            warnings.append(f"世界设定势力 {before} 方超出上限 6，已截断保留前 6 方")
+        if fac_before > 6:
+            warnings.append(f"世界设定势力 {fac_before} 方超出上限 6，已截断保留前 6 方")
         await storage.write_yaml(root, KEY_TO_PATH["world"], merged)
 
     if "characters" in selected:
         from settings.character_service import Conflict, create_character
 
-        for i, card in enumerate(_cards(products), start=1):
+        for i, card in enumerate(_cards(task), start=1):
             name = str(card.get("name") or "").strip() or f"未命名{i}"
             role = _ROLE_MAP.get(str(card.get("role", "")), "配角")
             for attempt in range(1, 6):
@@ -108,7 +148,6 @@ async def import_book(
                         project.id,
                         name=name,
                         role=role,
-                        aliases=[],
                         dossier={
                             "plot": str(card.get("plot", ""))[:300],
                             "background": str(card.get("background", ""))[:300],
@@ -122,124 +161,81 @@ async def import_book(
                     name = f"{name}（拆书{attempt}）"
 
     if "mainplot" in selected:
+        data = _data(task, "mainplot")
         story = await storage.read_yaml(root, KEY_TO_PATH["story"]) or {}
         arc = story.get("story_arc") if isinstance(story.get("story_arc"), dict) else {}
-        arc["fullstory"] = _h2_body(products, "主线剧情.md", "mainplot")[:2000]
+        arcs = [
+            f"{a.get('title', '')}（第{a.get('ch_start', '?')}-{a.get('ch_end', '?')}章）：{a.get('summary', '')}"
+            for a in (data.get("arcs") or []) if isinstance(a, dict)
+        ]
+        arc["fullstory"] = ("；".join(arcs) or str(data.get("ending", "")) or "原文未明确")[:2000]
         story["story_arc"] = arc
         await storage.write_yaml(root, KEY_TO_PATH["story"], story)
 
     if "style" in selected:
         from settings.style_model import put_style
 
+        data = _data(task, "style")
         raw = await storage.read_yaml(root, KEY_TO_PATH["style"]) or {}
-        body = _style_body(products)
-        merged = put_style(raw, body)
-        await storage.write_yaml(root, KEY_TO_PATH["style"], merged)
+        body = {
+            "role": str(data.get("narration", ""))[:500],
+            "rules": [
+                str(r)[:200]
+                for r in ([data.get("dialogue", ""), data.get("rhythm", "")] if data.get("dialogue") or data.get("rhythm") else [])
+            ],
+        }
+        await storage.write_yaml(root, KEY_TO_PATH["style"], put_style(raw, body))
 
     if "foreshadow" in selected:
         from settings.hooks_service import batch_create_hooks
 
-        items = _hooks_items(products)
+        items = _hooks_items(task)
         result = await batch_create_hooks(db, project.id, items)
         if result.get("truncated"):
             warnings.append(f"伏笔超出单次上限，已收 {result['truncated']} 条")
 
-    task.book_id = project.id
-    await db.commit()
     return (
-        {"book_id": project.id, "name": project.name, "skipped": [d for d in SETTING_DIMENSION_KEYS if d not in selected]},
+        {
+            "book_id": project.id,
+            "name": project.name,
+            "skipped": [d for d in SETTING_DIMENSION_KEYS if d not in selected],
+        },
         warnings,
     )
 
 
-def _h2_body(products: dict[str, str], filename: str, key: str) -> str:
-    """取渲染 md 里 `## {key}` 段的正文（渲染器键序稳定，反解可靠）。"""
-    text = products.get(filename, "")
-    marker = f"\n## {key}\n"
-    if marker not in text:
-        return ""
-    body = text.split(marker, 1)[1]
-    body = body.split("\n## ", 1)[0]
-    return body.strip()
-
-
-def _world_body(products: dict[str, str]) -> dict:
-    """从 世界设定.md 的固定 H2 反解为 WorldIn 形状（normalize 会再 clamp）。"""
-    world: dict = {"no_power": "", "stage": "", "power": "", "cost": "", "history": [], "factions": [], "constraints": [], "extra": []}
-    for key in ("no_power", "stage", "power", "cost"):
-        body = _h2_body(products, "世界设定.md", key)
-        if body:
-            world[key] = body[:300]
-    entries = _h2_list(products, "世界设定.md", "history")
-    world["history"] = [{"name": e.split("：")[0][:30], "note": e[:200]} for e in entries]
-    fac_entries = _h2_list(products, "世界设定.md", "factions")
-    world["factions"] = [{"name": e.split("：")[0][:30], "note": e[:200]} for e in fac_entries]
-    world["constraints"] = [{"name": e.split("：")[0][:30], "note": e[:200]} for e in _h2_list(products, "世界设定.md", "constraints")]
-    world["extra"] = [{"name": e.split("：")[0][:30], "note": e[:200]} for e in _h2_list(products, "世界设定.md", "extra")]
-    return world
-
-
-def _h2_list(products: dict[str, str], filename: str, key: str) -> list[str]:
-    text = products.get(filename, "")
-    marker = f"\n## {key}\n"
-    if marker not in text:
-        return []
-    body = text.split(marker, 1)[1].split("\n## ", 1)[0]
-    return [ln.lstrip("- ").strip() for ln in body.splitlines() if ln.strip().startswith("- ")]
-
-
-def _cards(products: dict[str, str]) -> list[dict]:
+def _cards(task: DeconstructJob) -> list[dict]:
     cards: list[dict] = []
-    for line in _h2_list(products, "角色设定.md", "characters"):
-        # 行形状：**名**　role：…；plot：…；background：…
-        name = line.split("**")[1].strip() if "**" in line else line.split("：")[0].strip()
-        fields: dict[str, str] = {}
-        for part in line.split("；"):
-            if "：" in part:
-                k, v = part.split("：", 1)
-                fields[k.strip().strip("*")] = v.strip()
+    for c in _data(task, "characters").get("characters") or []:
+        if not isinstance(c, dict):
+            continue
         cards.append(
             {
-                "name": name[:30],
-                "role": fields.get("role", "配角"),
-                "plot": fields.get("plot", ""),
-                "background": fields.get("background", ""),
+                "name": str(c.get("name", ""))[:30],
+                "role": str(c.get("role", "配角")),
+                "plot": f"{c.get('plot', '')}（{c.get('evidence_ch', '原文未明确')}）",
+                "background": str(c.get("background", ""))[:300],
             }
         )
     return cards
 
 
-def _style_body(products: dict[str, str]) -> dict:
-    body: dict = {}
-    for key in ("narration", "dialogue", "rhythm"):
-        text = _h2_body(products, "写作文风.md", key)
-        if text:
-            body[key] = text[:200]
-    features = _h2_list(products, "写作文风.md", "features")
-    if features:
-        body["features"] = [f[:60] for f in features[:20]]
-    return body
-
-
-def _hooks_items(products: dict[str, str]) -> list[dict]:
+def _hooks_items(task: DeconstructJob) -> list[dict]:
     items: list[dict] = []
-    for line in _h2_list(products, "伏笔.md", "hooks"):
-        desc = line[:200]
-        plant_ch = _chapter_no(line, "埋设")
-        items.append({"description": desc, "planted_chapter_no": plant_ch, "note": ""})
+    for h in _data(task, "foreshadow").get("hooks") or []:
+        if not isinstance(h, dict):
+            continue
+        desc = str(h.get("desc", ""))[:300]
+        plant = h.get("plant_ch")
+        if plant not in (None, "原文未明确"):
+            desc = f"{desc}（埋设于第{plant}章）"
+        items.append({"description": desc, "planned_volume_no": None})
     return items
-
-
-def _chapter_no(line: str, keyword: str) -> int | None:
-    import re
-
-    m = re.search(rf"{keyword}[^0-9]*(\d+)", line)
-    return int(m.group(1)) if m else None
 
 
 def export_products(task: DeconstructJob, dest_dir: str, selected_files: list[str]) -> dict:
     """导出勾中产物＋README 到本地文件夹（物化副本；产物保留不受影响）。"""
-    products = _products(task)
+    products = _md_map(task)
     if not dest_dir or not os.path.isabs(dest_dir):
         raise OSError("invalid_path", f"导出目录非法：{dest_dir!r}")
     os.makedirs(dest_dir, exist_ok=True)

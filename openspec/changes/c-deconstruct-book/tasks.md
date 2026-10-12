@@ -38,6 +38,22 @@
 - [x] 5.5 详情页三态：进行中（十步进度＋取消）、完成（目录树勾选＋出口弹窗：建书摘要动态 N/7＋导出 N 份）、失败/已取消（错误面板＋续拆＋删除确认）、需重传引导
 - [x] 5.6 文案语气过 design-language §13（动词按钮、出口齐全、info/ok/warn/err）＋ coverage-contract 登记新文件
 
+## 7. PR 评审修复（2026-10-12，Code Reviewer 一轮）
+
+- [x] 7.1 P0：建书消费模型 JSON（products_json 带 data），废除 md 反解（mainplot 静默失效根因）
+- [x] 7.2 P1：world no_power 语义修正（仅「无超凡/原文未明确」置真）；power/cost 条目化；伏笔章号从 JSON 取（plant_ch）
+- [x] 7.3 P1：前端建书成功用返回值 book_id 直达新书设定页
+- [x] 7.4 P1：导出目录接 pywebview pick_folder 桥（手输回落）
+- [x] 7.5 P1：建书幂等先落 book_id（创建成功即记，失败重试不重复建书）
+- [x] 7.6 P2：dispatcher env 开关（测试禁真轮询线程）；DELETE 拒 running；retry-upload 上限前置（块累计）；selected_dims 坏 JSON 400；datetime 统一 UTC；徽标排除已建书
+- [x] 7.7 P2：轮询 hook 改 React Query refetchInterval＋failRef 守卫（fetchFailureCount 每 interval 重置不合守卫语义，实测后换 ref）；console.log 清理
+
+## 8. 待办（后续批）
+
+- [ ] 8.1 e2e 全链（隔离栈）
+- [ ] 8.2 前端「本地解析回填」GBK 大文件极限（浏览器 TextDecoder 内存上限）观测
+- [ ] 8.3 提示词仓发包（build+上传+S端登记+翻 latest.json，随下个发版窗口）
+
 ## 6. 测试
 
 - [x] 6.1 后端 pytest：textparse（GBK/纯文本章标题/探测失败）、队列串行与 sweep（直调 dispatcher）、cancel 段边界、管线段级重试与 JSON 校验（模型打桩）、建书清洗降级（同名/clamp/FK 置空）、导出错误分类、缺包引导

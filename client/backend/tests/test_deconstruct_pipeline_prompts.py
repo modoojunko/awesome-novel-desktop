@@ -58,18 +58,15 @@ def test_all_12_templates_load_and_format(_dev_dir):
     user_tpl.format(dim_name="world", partials="【覆盖第1-40章】{}")
 
 
-def test_render_md_fixed_h2_roundtrip(_dev_dir):
+def test_render_md_fixed_h2_structure(_dev_dir):
+    """渲染 md 的固定 H2 键序（展示用；建书消费模型 JSON 不做 md 反解——评审 P0-1）。"""
     from deconstruct.pipeline import _render_md
 
     md = _render_md(
         "世界设定",
-        {"no_power": "无超凡", "factions": [{"name": "甲", "note": "evidence 3章"}]},
+        {"no_power": "无超凡", "factions": [{"name": "甲", "note": "证据 3章"}]},
         "书名",
         "第1-40章",
     )
     assert "\n## no_power\n" in md and "\n## factions\n" in md
-    # apply 反解：_h2_body 能取回段落
-    import deconstruct.apply as apply_mod
-
-    body = apply_mod._h2_body({"世界设定.md": md}, "世界设定.md", "no_power")
-    assert "无超凡" in body
+    assert "无超凡" in md and "甲" in md

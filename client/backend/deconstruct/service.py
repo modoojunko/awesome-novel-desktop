@@ -154,14 +154,10 @@ def _dims_state(task: DeconstructJob) -> dict:
 
 def task_view(task: DeconstructJob) -> dict:
     """详情视图：全量（含 dims/products 元信息，不含产物正文）。"""
-    products = {}
-    try:
-        products = json.loads(task.products_json or "{}")
-    except ValueError:
-        pass
     product_meta = [
-        {"filename": fn, "size": len(text), "dim": fn.removesuffix(".md")}
-        for fn, text in products.items()
+        {"filename": p["file"], "size": len(p.get("md", "")), "dim": dim}
+        for dim, p in products_raw(task).items()
+        if isinstance(p, dict)
     ]
     selected = []
     try:
@@ -190,11 +186,23 @@ def task_view(task: DeconstructJob) -> dict:
     }
 
 
-def products_of(task: DeconstructJob) -> dict[str, str]:
+def products_raw(task: DeconstructJob) -> dict:
+    """{dim: {file, data, md}} 原始结构（apply 建书消费 data）。"""
     try:
         return json.loads(task.products_json or "{}")
     except ValueError:
         return {}
+
+
+def products_of(task: DeconstructJob) -> dict[str, str]:
+    """{filename: md} 扁平视图（导出/下载用）。"""
+    out: dict[str, str] = {}
+    for dim, obj in products_raw(task).items():
+        if isinstance(obj, dict) and obj.get("file"):
+            out[obj["file"]] = obj.get("md", "")
+        elif isinstance(obj, str):  # 兼容旧形状
+            out[dim] = obj
+    return out
 
 
 def dim_names() -> dict[str, str]:

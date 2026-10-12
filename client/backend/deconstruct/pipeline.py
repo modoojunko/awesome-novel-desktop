@@ -293,7 +293,11 @@ async def run_task(task_id: str) -> None:
                     f"deconstruct_{dim}_reduce",
                 )
             covered = f"第1-{task.chapter_count}章" if task.chapter_count else "全本"
-            products[f"{_dim_filename(dim)}"] = _render_md(dim_names()[dim], final, task.book_name, covered)
+            products[dim] = {
+                "file": _dim_filename(dim),
+                "data": final,
+                "md": _render_md(dim_names()[dim], final, task.book_name, covered),
+            }
             dstate["state"] = "completed"
             dims[dim] = dstate
             await _patch(
