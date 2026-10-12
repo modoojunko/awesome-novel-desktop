@@ -140,6 +140,36 @@ describe("CreateTaskPage", () => {
   });
 
 
+
+  it("上传区 Space 键触发文件框（第二键臂）", async () => {
+    renderPage();
+    const zone = screen.getByLabelText("选择或拖入 txt 文件");
+    fireEvent.keyDown(zone, { key: " " });
+    expect(zone.getAttribute("aria-label")).toContain("选择或拖入");
+  });
+
+  it("探针空键早退臂：options 为空时 probe effect 早退（不设探针态）", async () => {
+    state.fetchOpts.mockResolvedValue([]);
+    renderPage();
+    await waitFor(() => expect(screen.getByText(/还没配模型/)).toBeInTheDocument());
+    // 探针门 notice 不渲染（hasModels false）
+    expect(screen.queryByText(/模型探针/)).not.toBeInTheDocument();
+  });
+
+  it("submit 非 Error 拒绝 → 兜底文案（e instanceof Error 假臂）", async () => {
+    state.fetchOpts.mockResolvedValue([
+      { api_config_id: "c1", config_name: "A", model: "m1", vendor: "v" },
+    ]);
+    state.probe.mockResolvedValue(true);
+    state.create.mockRejectedValue("plain-reason");
+    renderPage();
+    await waitFor(() => expect(screen.getByRole("combobox")).toBeInTheDocument());
+    pickFile();
+    await waitFor(() => expect(screen.getByText(/创建任务（进队列排队）/)).not.toBeDisabled());
+    fireEvent.click(screen.getByText(/创建任务（进队列排队）/));
+    await waitFor(() => expect(screen.getAllByText(/创建失败/).length).toBeGreaterThan(0));
+  });
+
   it("拖拽带文件 → 进入已选子态并本地解析回填", async () => {
     renderPage();
     const zone = screen.getByLabelText("选择或拖入 txt 文件");

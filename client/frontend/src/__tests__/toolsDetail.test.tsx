@@ -278,6 +278,37 @@ describe("TaskDetailPage", () => {
     fireEvent.click(screen.getByText("重传文件"));
   });
 
+
+  it("防御臂：未知状态/空 selected_dims/缺 dims 键/空 error", async () => {
+    const d = detailOf("running");
+    d.dims = { intro: { state: "completed", seg_done: 1, seg_total: 1, error: "" } }; // world/techniques 缺键 → 默认排队
+    state.get.mockResolvedValue(d);
+    renderPage();
+    await waitFor(() => expect(screen.getByText("取消任务")).toBeInTheDocument());
+    expect(screen.getAllByText("排队").length).toBeGreaterThanOrEqual(2); // 缺键维度默认排队
+  });
+
+  it("出口臂：非 Error 拒绝 → 兜底文案（操作失败）", async () => {
+    state.get.mockResolvedValue(detailOf("completed"));
+    state.export.mockRejectedValue("plain-reason");
+    renderPage();
+    await waitFor(() => expect(screen.getByText("选择去向")).toBeInTheDocument());
+    fireEvent.click(screen.getByText("选择去向"));
+    await waitFor(() => expect(screen.getByText("稍后再说")).toBeInTheDocument());
+    fireEvent.click(screen.getByText("存本地文件夹"));
+    fireEvent.click(screen.getByText("选择文件夹并导出"));
+    await waitFor(() => expect(screen.getByText(/操作失败/)).toBeInTheDocument());
+  });
+
+  it("需重传：取消文件选择（空 files 臂）", async () => {
+    state.get.mockResolvedValue(detailOf("need_reupload", { products: [] }));
+    renderPage();
+    await waitFor(() => expect(screen.getByText("源文件缺失")).toBeInTheDocument());
+    const input = document.querySelector('input[type="file"]') as HTMLInputElement;
+    fireEvent.change(input, { target: { files: [] } });
+    expect(screen.getByText("源文件缺失")).toBeInTheDocument();
+  });
+
   it("需重传：选文件回原位次", async () => {
     state.get.mockResolvedValue(detailOf("need_reupload", { products: [] }));
     state.retry.mockResolvedValue({ status: "queued" });
