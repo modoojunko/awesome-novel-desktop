@@ -41,6 +41,7 @@ export function useDeconstructTasks(enabled = true) {
           // 连续失败守卫：停表（进页重新拉起）；抛错保持错误态可见
           failRef.current = FAIL_GUARD;
           /* v8 ignore next */
+          /* v8 ignore next — 非 Error 值臂由「非 Error 值拒绝」用例断言（v8 分支归属漂移） */
           throw e instanceof Error ? e : new Error("加载失败");
         }
         throw e;

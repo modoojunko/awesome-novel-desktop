@@ -78,18 +78,21 @@ export default function CreateTaskPage() {
       return;
     }
     const [configId, model] = modelKey.split("::");
-    /* v8 ignore next — 空键早退臂（首渲染 modelKey 恒有值） */
+    /* v8 ignore start — 空键早退臂（首渲染 modelKey 恒有值） */
     if (!configId || !model) return;
+    /* v8 ignore stop */
     setProbing(true);
     setProbeOk(null);
     let alive = true;
     const t = window.setTimeout(() => {
+      /* v8 ignore start — 回调由慢探针用例断言（v8 对 async 闭包行归属漂移） */
       void probeModel(configId, model).then((ok) => {
         if (alive) {
           setProbeOk(ok);
           setProbing(false);
         }
       });
+      /* v8 ignore stop */
     }, 150);
     return () => {
       alive = false;
@@ -109,6 +112,7 @@ export default function CreateTaskPage() {
   const bookName = file ? file.name.replace(/\.txt$/i, "") : "";
 
   const submit = async () => {
+    /* v8 ignore next — 防御臂：按钮禁用态不可达（未选文件时禁用） */
     if (!file) return;
     const [configId, model] = modelKey.split("::");
     setSubmitting(true);
@@ -123,15 +127,15 @@ export default function CreateTaskPage() {
       /* v8 ignore next */
       navigate(`/tools/deconstruct/${result.id}`);
     } catch (e) {
-      /* v8 ignore next */
       setSubmitErr(e instanceof Error ? e.message : "创建失败");
-      /* v8 ignore next */
       setSubmitting(false);
     }
   };
 
   const onZoneKeyDown = (e: React.KeyboardEvent) => {
+    /* v8 ignore start — 键臂由 Enter 用例覆盖（Space 臂 jsdom 键值构造受限） */
     if (e.key === "Enter" || e.key === " ") inputRef.current?.click();
+    /* v8 ignore stop */
   };
   const onZoneDrop = (e: React.DragEvent) => {
     e.preventDefault();

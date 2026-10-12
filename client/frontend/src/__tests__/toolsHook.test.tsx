@@ -104,7 +104,8 @@ describe("useDeconstructTasks 集成", () => {
     state.list.mockRejectedValue("plain-string-reason");
     const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
     function Probe() {
-      useDeconstructTasks(true);
+      const { error } = useDeconstructTasks(true);
+      if (error) console.log("[probe] err=", String(error).slice(0, 60));
       return null;
     }
     render(
@@ -115,6 +116,9 @@ describe("useDeconstructTasks 集成", () => {
       </QueryClientProvider>,
     );
     await vi.advanceTimersByTimeAsync(10);
+    // 第 2、3 次失败：failRef 达 3 → queryFn 抛包装后的「加载失败」（三元假臂）
+    state.list.mockRejectedValue(new Error("third"));
+    await vi.advanceTimersByTimeAsync(4000);
     cleanup();
     vi.useRealTimers();
   });

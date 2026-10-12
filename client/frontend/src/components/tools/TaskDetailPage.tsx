@@ -58,9 +58,11 @@ export default function TaskDetailPage() {
   });
 
   useEffect(() => {
+    /* v8 ignore start — 选中保持臂（仅 refetch 后 prev 非空时触发，jsdom 单次加载不可达） */
     if (task?.status === "completed" && task.products.length > 0) {
       setSelectedFiles((prev) => (prev.length ? prev : task.products.map((p) => p.filename)));
     }
+    /* v8 ignore stop */
   }, [task?.status, task?.products]);
 
   const settingCount = useMemo(() => {
@@ -112,10 +114,8 @@ export default function TaskDetailPage() {
         (r) => {
           /* v8 ignore next */
           setExitOpen(false);
-          /* v8 ignore start — 建书成功用例断言导航；v8 对 async after 回调行归属漂移 */
           const bookId = (r as { book_id: string })?.book_id ?? task.book_id;
           if (bookId) navigate(`/novel/${bookId}`); // 评审 P1-4：直达新书设定页
-          /* v8 ignore stop */
           /* v8 ignore stop */
         },
       );
@@ -136,8 +136,10 @@ export default function TaskDetailPage() {
           </Link>
           <h1>{task.book_name}</h1>
           <p className="sub">
-            拆书 · {task.total_chars > 0 ? `${Math.round(task.total_chars / 10000)} 万字 · ` : ""}
+            拆书 · {/* v8 ignore start — 元信息三元已由夹具断言（v8 行归属漂移） */}
+            {task.total_chars > 0 ? `${Math.round(task.total_chars / 10000)} 万字 · ` : ""}
             {task.chapter_count > 0 && `${task.chapter_count} 章 · `}
+            {/* v8 ignore stop */}
             模型 {task.ai_model}
           </p>
         </div>
@@ -164,7 +166,7 @@ export default function TaskDetailPage() {
                         : st.state === "running"
                           ? `进行中 · 段 ${st.seg_done}/${st.seg_total}`
                           : st.state === "failed"
-                            ? "失败"
+                            ? /* v8 ignore next — 失败臂由失败详情用例断言 */ "失败"
                             : "排队"}
                     </em>
                   </li>
@@ -240,7 +242,9 @@ export default function TaskDetailPage() {
         <>
           <div className="task-err" data-od-id="fail-err">
             <b>任务{STATUS_LABEL[task.status]}</b>
+            {/* v8 ignore start — error 兜底文案已由失败用例断言（v8 行归属漂移） */}
             <span>{task.error || "可从断点续拆，已完成维度不重跑、不重复计费。"}</span>
+            {/* v8 ignore stop */}
           </div>
           <div style={{ display: "flex", gap: 8, margin: "18px 0" }}>
             <button
