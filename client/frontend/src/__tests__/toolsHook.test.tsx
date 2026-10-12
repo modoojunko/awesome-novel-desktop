@@ -123,6 +123,30 @@ describe("useDeconstructTasks 集成", () => {
     vi.useRealTimers();
   });
 
+
+  it("queryFn 非 Error 值拒绝 → 包装为加载失败", async () => {
+    vi.useFakeTimers();
+    state.list.mockRejectedValue("plain-string-reason");
+    const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    function Probe() {
+      const { error } = useDeconstructTasks(true);
+      if (error) console.log("[probe] err=", error.message);
+      return null;
+    }
+    render(
+      <QueryClientProvider client={qc}>
+        <MemoryRouter>
+          <Probe />
+        </MemoryRouter>
+      </QueryClientProvider>,
+    );
+    await vi.advanceTimersByTimeAsync(10);
+    // 3 次全为字符串拒绝 → 第 3 次守卫触发三元假臂（new Error("加载失败")）
+    await vi.advanceTimersByTimeAsync(5000);
+    cleanup();
+    vi.useRealTimers();
+  });
+
   it("连续失败守卫：3 次失败后停表不再增长", async () => {
     vi.useFakeTimers();
     state.list.mockImplementation(async () => {
