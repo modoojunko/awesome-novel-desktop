@@ -6,6 +6,9 @@ import ApiKeyConfigPage from "@/pages/ApiKeyConfigPage";
 import NovelListPage from "@/pages/NovelListPage";
 import NovelLayout from "@/pages/NovelLayout";
 import NovelWorkspace from "@/components/novel/NovelWorkspace";
+import TaskListPage from "@/components/tools/TaskListPage";
+import CreateTaskPage from "@/components/tools/CreateTaskPage";
+import TaskDetailPage from "@/components/tools/TaskDetailPage";
 import MemberBlockPrompt from "@/components/novel/license/MemberBlockPrompt";
 import PromptPackModal from "@/components/novel/license/PromptPackModal";
 import AuthGuard from "@/components/auth/AuthGuard";
@@ -50,6 +53,30 @@ export default function App() {
             element={
               <Authed>
                 <NovelListPage />
+              </Authed>
+            }
+          />
+          <Route
+            path="/tools"
+            element={
+              <Authed>
+                <TaskListPage />
+              </Authed>
+            }
+          />
+          <Route
+            path="/tools/deconstruct/new"
+            element={
+              <Authed>
+                <CreateTaskPage />
+              </Authed>
+            }
+          />
+          <Route
+            path="/tools/deconstruct/:id"
+            element={
+              <Authed>
+                <TaskDetailPage />
               </Authed>
             }
           />

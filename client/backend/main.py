@@ -41,6 +41,7 @@ from chapters.ai_plot import router as chapter_plot_router
 from chapters.router import router as chapters_router
 from chapters.versions import router as chapters_versions_router
 from db import Base, async_session, engine
+from deconstruct.router import router as deconstruct_router  # c-deconstruct-book
 from genres.router import router as genres_router
 from manuscript.router import router as manuscript_router
 from models.user import User
@@ -278,6 +279,15 @@ async def lifespan(app: FastAPI):
 
         logging.getLogger("uvicorn.error").warning("ApiConfig migration failed: %s", e)
 
+    # ── 拆书（c-deconstruct-book）：常驻串行 dispatcher（自带启动 sweep）─────
+    # 独立于 job_runner 全局单飞槽（备份/成稿下载共用该槽，拆解不得锁死它们）。
+    try:
+        from deconstruct.dispatcher import start_dispatcher
+
+        start_dispatcher()
+    except Exception as _e:  # noqa: BLE001 — 调度启动失败不挡启动（续拆入口可再拉起）
+        _log.warning("deconstruct dispatcher start failed: %s", _e)
+
     yield
 
 
@@ -407,6 +417,7 @@ app.include_router(prompt_pack_router)
 # 业务路由
 app.include_router(ai_router)
 app.include_router(novels_router)
+app.include_router(deconstruct_router)  # c-deconstruct-book
 app.include_router(events_router)  # 度量落点（PRD §7）：前端意图事件白名单收口
 app.include_router(settings_status_router)  # 先注册：GET /settings/status 不能被 /{type} 抢先匹配
 app.include_router(characters_router)  # 角色端点同理：不能被 GET /settings/{type} 兜底吃掉

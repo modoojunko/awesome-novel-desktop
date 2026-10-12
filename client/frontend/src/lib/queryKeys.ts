@@ -4,4 +4,7 @@
 export const queryKeys = {
   /** 书架列表（GET /novels 全量树） */
   novels: ["novels"] as const,
+  /** 拆书任务清单/详情（c-deconstruct-book）：列表轮询与写后失效同源 */
+  deconstructTasks: ["deconstruct", "tasks"] as const,
+  deconstructTask: (id: string) => ["deconstruct", "task", id] as const,
 };
