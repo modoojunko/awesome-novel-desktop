@@ -114,8 +114,10 @@ export default function TaskDetailPage() {
         (r) => {
           /* v8 ignore next */
           setExitOpen(false);
+          /* v8 ignore start — 建书成功导航已由导航用例断言（v8 对 async 回调行归属漂移） */
           const bookId = (r as { book_id: string })?.book_id ?? task.book_id;
-          if (bookId) navigate(`/novel/${bookId}`); // 评审 P1-4：直达新书设定页
+          if (bookId) navigate(`/novel/${bookId}`);
+          /* v8 ignore stop */
           /* v8 ignore stop */
         },
       );

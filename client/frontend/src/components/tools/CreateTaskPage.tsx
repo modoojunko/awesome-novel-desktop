@@ -112,8 +112,9 @@ export default function CreateTaskPage() {
   const bookName = file ? file.name.replace(/\.txt$/i, "") : "";
 
   const submit = async () => {
-    /* v8 ignore next — 防御臂：按钮禁用态不可达（未选文件时禁用） */
+    /* v8 ignore start — 防御臂：按钮禁用态不可达（未选文件时禁用） */
     if (!file) return;
+    /* v8 ignore stop */
     const [configId, model] = modelKey.split("::");
     setSubmitting(true);
     setSubmitErr("");

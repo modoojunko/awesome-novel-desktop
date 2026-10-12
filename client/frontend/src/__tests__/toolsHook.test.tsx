@@ -130,7 +130,7 @@ describe("useDeconstructTasks 集成", () => {
     const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
     function Probe() {
       const { error } = useDeconstructTasks(true);
-      if (error) console.log("[probe] err=", error.message);
+      if (error) console.log("[probe] err=", error);
       return null;
     }
     render(
