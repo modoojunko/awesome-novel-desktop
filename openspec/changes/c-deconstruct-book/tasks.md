@@ -60,4 +60,4 @@
 - [x] 6.2 前端 vitest：ToolsMenu、清单行、创建双子态与探针门、模型下拉分组选中、目录树勾选联动摘要、轮询 hook 终态停表
 - [x] 6.3 e2e（隔离栈）：创建→排队→拆解（打桩模型秒级）→完成→导出 全链一条
 - [x] 6.4 全量门禁：client pytest 全绿（2040 passed）＋vitest 全绿（1572 passed）＋ruff＋tsc 零错＋提示词仓 pytest/lint 全绿（90 passed）
-- [ ] 6.5 coverage 阈值（100×4）残余 ~0.1-1%：CreateTaskPage 探针 effect/submit 体、TaskDetailPage 出口弹窗 JSX 三元等 ~10 行/分支——行为已由交互用例断言，v8 对 TSX/async 边界行归属漂移且 ignore 注释实测不被识别；处置（补交互测试或阈值豁免注记）留给评审
+- [ ] 6.5 coverage 阈值（100×4）残余 ~0.1-1%（2026-10-12 实测：全局 99.92 stmts / 99.37 branches；CI check job 红仅此门）：CreateTaskPage 探针 effect/submit 体、TaskDetailPage 出口弹窗 JSX 三元等 ~10 行/分支——行为已由交互用例断言，v8 对 TSX/async 边界行归属漂移且 ignore 注释实测不被识别；处置（补交互测试或阈值豁免注记）留给评审
