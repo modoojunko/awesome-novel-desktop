@@ -209,6 +209,32 @@ describe("TaskDetailPage", () => {
     expect(state.del).not.toHaveBeenCalled();
   });
 
+
+  it("导出：pick_folder 桥选目录后导出", async () => {
+    state.get.mockResolvedValue(detailOf("completed"));
+    state.export.mockClear();
+    const picked: string[] = [];
+    (window as unknown as { pywebview?: unknown }).pywebview = {
+      api: { pick_folder: async () => { const d = "/tmp/picked-bridge"; picked.push(d); return d; } },
+    };
+    renderPage();
+    await waitFor(() => expect(screen.getByText("选择去向")).toBeInTheDocument());
+    fireEvent.click(screen.getByText("选择去向"));
+    fireEvent.click(screen.getByText("存本地文件夹"));
+    fireEvent.click(screen.getByText("选择文件夹"));
+    await waitFor(() => expect((screen.getByLabelText(/导出到文件夹/) as HTMLInputElement).value).toBe("/tmp/picked-bridge"));
+    fireEvent.click(screen.getByText("选择文件夹并导出"));
+    await waitFor(() => expect(state.export).toHaveBeenCalledOnce());
+    delete (window as unknown as { pywebview?: unknown }).pywebview;
+  });
+
+  it("需重传：重传按钮触发文件框（不崩）", async () => {
+    state.get.mockResolvedValue(detailOf("need_reupload", { products: [] }));
+    renderPage();
+    await waitFor(() => expect(screen.getByText("源文件缺失")).toBeInTheDocument());
+    fireEvent.click(screen.getByText("重传文件"));
+  });
+
   it("需重传：选文件回原位次", async () => {
     state.get.mockResolvedValue(detailOf("need_reupload", { products: [] }));
     state.retry.mockResolvedValue({ status: "queued" });

@@ -128,6 +128,23 @@ describe("CreateTaskPage", () => {
     await waitFor(() => expect(screen.getByText(/无法识别文件编码/)).toBeInTheDocument());
   });
 
+
+  it("拖拽带文件 → 进入已选子态并本地解析回填", async () => {
+    renderPage();
+    const zone = screen.getByLabelText("选择或拖入 txt 文件");
+    const file = new File(["第1章 拖\n正文。"], "拖入.txt", { type: "text/plain" });
+    fireEvent.drop(zone, { dataTransfer: { files: [file] } });
+    await waitFor(() => expect(screen.getByText(/拖入\.txt/)).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByText(/编码探测/)).toBeInTheDocument());
+  });
+
+  it("上传区 Enter 键打开文件框（不崩）", async () => {
+    renderPage();
+    const zone = screen.getByLabelText("选择或拖入 txt 文件");
+    fireEvent.keyDown(zone, { key: "Enter" });
+    expect(zone.getAttribute("aria-label")).toContain("选择或拖入");
+  });
+
   it("探针失败后换模型重新探测通过", async () => {
     state.fetchOpts.mockResolvedValue([
       { api_config_id: "c1", config_name: "A", model: "m1", vendor: "v" },

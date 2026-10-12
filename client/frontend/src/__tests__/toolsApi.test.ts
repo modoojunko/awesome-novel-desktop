@@ -22,6 +22,10 @@ function jsonResponse(status: number, body: unknown) {
   return { ok: status >= 200 && status < 300, status, json: async () => body };
 }
 
+function jsonRejectResponse(status: number) {
+  return { ok: status < 300, status, json: async () => { throw new Error("bad json"); } };
+}
+
 beforeEach(() => state.fetch.mockReset());
 afterEach(() => vi.restoreAllMocks());
 
@@ -50,6 +54,26 @@ describe("deconstructApi", () => {
 
     state.fetch.mockResolvedValueOnce(jsonResponse(400, { detail: "文件超过 50MB 上限，请拆分后重试" }));
     await expect(createDeconstructTask(new File(["x"], "a.txt"), { bookName: "a", apiConfigId: "c", model: "m", selectedDims: ["intro"] })).rejects.toThrow("50MB");
+  });
+
+
+  it("create/retry 的 JSON 解析失败 → 兜底文案 catch 臂", async () => {
+    state.fetch.mockResolvedValueOnce(jsonRejectResponse(400));
+    await expect(createDeconstructTask(new File(["x"], "a.txt"), { bookName: "a", apiConfigId: "c", model: "m", selectedDims: ["intro"] })).rejects.toThrow("创建失败");
+    state.fetch.mockResolvedValueOnce(jsonRejectResponse(400));
+    await expect(retryUploadDeconstructTask("t", new File(["x"], "a.txt"))).rejects.toThrow("重传失败");
+  });
+
+  it("probeModel json 拒绝 → false", async () => {
+    state.fetch.mockResolvedValueOnce(jsonRejectResponse(200));
+    expect(await probeModel("c1", "m1")).toBe(false);
+  });
+
+  it("fetchModelOptions：models 非串非数组 → 跳过", async () => {
+    state.fetch.mockResolvedValueOnce(jsonResponse(200, [
+      { id: "c9", name: "N", vendor: "v", models: 123 },
+    ]));
+    expect(await fetchModelOptions()).toEqual([]);
   });
 
   it("probeModel：ok / 无 status / 抛错", async () => {

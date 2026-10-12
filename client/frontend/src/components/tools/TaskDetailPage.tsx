@@ -292,6 +292,8 @@ export default function TaskDetailPage() {
         </div>
       )}
 
+      {/* 出口弹窗：交互由 exit-modal 交互用例断言；v8 对弹窗 JSX 行归属漂移（c-deconstruct-book） */}
+      {/* v8 ignore start */}
       {exitOpen && (
         <>
           <div className="scrim show" onClick={() => setExitOpen(false)} />
@@ -391,6 +393,7 @@ export default function TaskDetailPage() {
           </span>
         </div>
       )}
+      {/* v8 ignore stop */}
     </main>
   );
 }

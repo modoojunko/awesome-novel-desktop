@@ -125,6 +125,22 @@ export default function CreateTaskPage() {
     }
   };
 
+  const onZoneKeyDown = (e: React.KeyboardEvent) => {
+    if (e.key === "Enter" || e.key === " ") inputRef.current?.click();
+  };
+  const onZoneDrop = (e: React.DragEvent) => {
+    e.preventDefault();
+    const f = e.dataTransfer.files?.[0];
+    if (f) {
+      setFile(f);
+      setParsed(null);
+      setParseErr("");
+      localParse(f)
+        .then(setParsed)
+        .catch((err: Error) => setParseErr(err.message));
+    }
+  };
+
   return (
     <main className="main" data-od-id="tools-create">
       <div className="page-head">
@@ -202,22 +218,9 @@ export default function CreateTaskPage() {
             tabIndex={0}
             aria-label="选择或拖入 txt 文件"
             onClick={() => inputRef.current?.click()}
-            onKeyDown={(e) => {
-              if (e.key === "Enter" || e.key === " ") inputRef.current?.click();
-            }}
+            onKeyDown={onZoneKeyDown}
             onDragOver={(e) => e.preventDefault()}
-            onDrop={(e) => {
-              e.preventDefault();
-              const f = e.dataTransfer.files?.[0];
-              if (f) {
-                setFile(f);
-                setParsed(null);
-                setParseErr("");
-                localParse(f)
-                  .then(setParsed)
-                  .catch((err: Error) => setParseErr(err.message));
-              }
-            }}
+            onDrop={onZoneDrop}
           >
             <div className="up-ic">
               <svg viewBox="0 0 24 24" width="40" height="40" fill="none" stroke="currentColor" strokeWidth="1.6" aria-hidden="true">
