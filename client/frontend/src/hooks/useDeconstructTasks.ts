@@ -30,13 +30,11 @@ export function useDeconstructTasks(enabled = true) {
     queryKey: queryKeys.deconstructTasks,
     queryFn: async () => {
       try {
-        console.log('[q] failRef-before=', failRef.current);
         const resp = await listDeconstructTasks();
         failRef.current = 0; // 成功即清零连续失败计数
         return resp;
       } catch (e) {
         failRef.current += 1;
-        console.log('[q] failRef-after=', failRef.current);
         if (failRef.current >= FAIL_GUARD) {
           // 连续失败守卫：停表（进页重新拉起）；抛错保持错误态可见
           failRef.current = FAIL_GUARD;
