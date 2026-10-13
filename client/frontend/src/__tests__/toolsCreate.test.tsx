@@ -298,10 +298,10 @@ describe("CreateTaskPage", () => {
     await waitFor(() => expect(screen.getByText(/排队服务不可用/)).toBeInTheDocument());
   });
 
-  it("容量口径明示：入口文案含单本 ≤30 万字（spec「单本容量口径」）", async () => {
+  it("容量口径明示：入口文案含单本 ≤60 万字（spec「单本容量口径」v2 分级归并线）", async () => {
     state.fetchOpts.mockResolvedValue([]);
     renderPage();
-    expect(screen.getByText(/单本 ≤30 万字/)).toBeInTheDocument();
+    expect(screen.getByText(/单本 ≤60 万字/)).toBeInTheDocument();
     expect(screen.queryByText(/超过单本建议量/)).not.toBeInTheDocument();
   });
 
@@ -313,11 +313,12 @@ describe("CreateTaskPage", () => {
     renderPage();
     await waitFor(() => expect(screen.getByRole("combobox")).toBeInTheDocument());
     const input = document.querySelector('input[type="file"]') as HTMLInputElement;
-    const big = new File(["第1章 试\n" + "字".repeat(310000)], "大部头.txt", { type: "text/plain" });
+    const big = new File(["第1章 试\n" + "字".repeat(610000)], "大部头.txt", { type: "text/plain" });
     Object.defineProperty(input, "files", { value: [big] });
     fireEvent.change(input);
     await waitFor(() => expect(screen.getByText(/超过单本建议量/)).toBeInTheDocument());
     expect(screen.getByText(/按卷分次拆解/)).toBeInTheDocument();
+    expect(screen.getByText(/超过单本建议量（60 万字）/)).toBeInTheDocument();
     // 不拦截：探针过后创建钮照常解禁
     await waitFor(() => expect(screen.getByText(/创建任务（进队列排队）/)).not.toBeDisabled());
     expect(screen.queryByLabelText("书名（取自文件名，可改）")?.closest(".fcard")).toBeInTheDocument();

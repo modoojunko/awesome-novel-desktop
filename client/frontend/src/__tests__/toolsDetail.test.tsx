@@ -125,9 +125,10 @@ describe("TaskDetailPage", () => {
     state.del.mockResolvedValue(undefined);
   });
 
-  it("进行中：十步明细＋取消调用", async () => {
+  it("进行中：拆卡步＋归并明细＋取消调用", async () => {
     state.get.mockResolvedValue(
       detailOf("running", {
+        cards: { state: "running", done: 40, total: 100 },
         dims: Object.fromEntries(
           ["intro", "world", "techniques"].map((k, i) => [
             k,
@@ -138,9 +139,27 @@ describe("TaskDetailPage", () => {
     );
     renderPage();
     await waitFor(() => expect(screen.getByText("取消任务")).toBeInTheDocument());
-    expect(screen.getByText(/进行中 · 段 1\/3/)).toBeInTheDocument();
+    expect(screen.getByText(/进行中 · 40\/100 章/)).toBeInTheDocument(); // 逐章拆卡步
+    expect(screen.getByText(/进行中 · 归并 1\/3/)).toBeInTheDocument();
     fireEvent.click(screen.getByText("取消任务"));
     await waitFor(() => expect(state.cancel).toHaveBeenCalledOnce());
+  });
+
+  it("拆卡步三态：排队臂与完成臂", async () => {
+    state.get.mockResolvedValue(detailOf("running", {
+      cards: { state: "completed", done: 2, total: 2 },
+      dims: Object.fromEntries(["intro", "world", "techniques"].map((k) => [k, { state: "queued", seg_done: 0, seg_total: 0, error: "" }])),
+    }));
+    renderPage();
+    await waitFor(() => expect(document.querySelector('[data-od-id="step-cards"] em')).not.toBeNull());
+    const doneCell = document.querySelector('[data-od-id="step-cards"] em')!;
+    expect(doneCell.textContent).toBe("完成");
+    expect(doneCell.className).toContain("ok");
+    cleanup();
+    state.get.mockResolvedValue(detailOf("queued", { cards: { state: "queued", done: 0, total: 50 } }));
+    renderPage();
+    await waitFor(() => expect(document.querySelector('[data-od-id="step-cards"] em')).not.toBeNull());
+    expect(document.querySelector('[data-od-id="step-cards"] em')!.textContent).toBe("排队");
   });
 
   it("完成：默认全选、下限 1、导出流（含 pick 桥占位）", async () => {

@@ -46,6 +46,8 @@ export interface DeconstructTaskDetail {
   ai_model: string;
   api_config_id: string;
   selected_dims: string[];
+  /** v2 逐章拆卡进度（后端 task_view.cards） */
+  cards?: { state: string; done: number; total: number };
   dims: Record<string, { state: string; seg_done: number; seg_total: number; error: string }>;
   products: { filename: string; size: number; dim: string }[];
   error: string;

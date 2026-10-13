@@ -99,10 +99,15 @@ export default function TaskDetailPage() {
 
   const dims = DECONSTRUCT_DIMS.filter((d) => task.selected_dims.includes(d.key));
   const dimState = (key: string) => task.dims[key] ?? { state: "queued", seg_done: 0, seg_total: 0, error: "" };
+  const cards = task.cards ?? { state: "queued", done: 0, total: 0 };
   const overall = (() => {
     const total = dims.length;
     const done = dims.filter((d) => dimState(d.key).state === "completed").length;
-    return total ? Math.round((done / total) * 100) : 0;
+    // v2 加权：逐章拆卡（半程）＋分维度归并（半程）——拆卡阶段进度也可见
+    // total≥1 时 done 推进即含 completed=1.0；无 cards（旧夹具/畸形）记 0
+    const cf = cards.total ? Math.min(1, cards.done / cards.total) : 0;
+    const df = total ? done / total : 0;
+    return total ? Math.round((cf * 0.5 + df * 0.5) * 100) : 0;
   })();
 
   const act = async (fn: () => Promise<unknown>, after?: (r: unknown) => void) => {
@@ -175,6 +180,14 @@ export default function TaskDetailPage() {
               <span className="pct">{overall}%</span>
             </div>
             <ul className="ex-steps" data-od-id="task-steps">
+              {cards.total > 0 && (
+                <li key="__cards" data-od-id="step-cards">
+                  <b>逐章拆卡</b>
+                  <em className={cards.state === "completed" ? "ok" : cards.state === "running" ? "doing" : ""}>
+                    {cards.state === "completed" ? "完成" : cards.state === "running" ? `进行中 · ${cards.done}/${cards.total} 章` : "排队"}
+                  </em>
+                </li>
+              )}
               {dims.map((d) => {
                 const st = dimState(d.key);
                 return (
@@ -184,7 +197,7 @@ export default function TaskDetailPage() {
                       {st.state === "completed"
                         ? "完成"
                         : st.state === "running"
-                          ? `进行中 · 段 ${st.seg_done}/${st.seg_total}`
+                          ? `进行中 · 归并 ${st.seg_done}/${st.seg_total}`
                           : st.state === "failed"
                             ? /* v8 ignore next — 失败臂由失败详情用例断言 */ "失败"
                             : "排队"}
