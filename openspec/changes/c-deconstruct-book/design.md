@@ -22,7 +22,7 @@
 - 与既有体系零冲突：不占全局单飞槽；建书经域服务（不直写表）；提示词走既有分层包机制。
 
 **Non-Goals:**
-- 维度并行/多 worker；格级（段内）续拆；epub/docx 输入解析；产物应用内预览/编辑；
+- 维度并行/多 worker；批内（单批归并中途）续拆；epub/docx 输入解析；产物应用内预览/编辑；
   优先级插队；S 端任何改动；书内附属资料独立入口（v1 仅任务详情可见）。
 
 ## Decisions
@@ -30,7 +30,7 @@
 1. **调度：专属表＋私有常驻串行 worker。** 新表 `deconstruct_jobs`（全局/版本库），字段：
    `id, user_id, status(queued|running|completed|failed|cancelled|need_reupload), queue_seq,
    source_name, source_size, encoding, book_name, total_chars, chapter_count, volume_count,
-   parse_warnings_json, api_config_id, ai_model, dims_json(十维 {key,selected,state,seg_done,seg_total,error}),
+   parse_warnings_json, api_config_id, ai_model, dims_json(cards{state,done,entries{章:卡}}＋十维 {state,seg_done,seg_total,error}),
    products_json(十份产物事实源), source_path, error_json, book_id, created/started/finished_at`；
    索引 `(status, queue_seq)`；queue_seq 分配 `MAX+1`，排序兜底 `(queue_seq, created_at)`。
    **线程模型钉死**：常驻 daemon 线程自带事件循环（照 `archive/dossier.py` 先例）＋进程内单例守卫
@@ -42,13 +42,16 @@
    **解析新建 `deconstruct/textparse.py` 纯函数**（编码探测 utf-8-sig→gb18030→big5；「第X章/卷」纯文本
    正则分卷分章——不复用 importer 的 markdown 逻辑，仅对齐其数据结构与字数口径），解析在线程池，
    内存峰值注明（50MB 全量文本 ≈ 150MB 字符串，可接受单机）。真实网文 txt 样本进测试夹具。
-3. **管线：两阶段，模板 12 份，模型输出 JSON、代码渲染 md。** 阶段一 prescan（逐章梗概，章号由代码
-   记录）；阶段二十维度 map（各维度独立模板）＋**1 份通用 reduce 模板**（合并各段、冲突以章号靠后
-   为准）。摘录由代码加 `【第N章】` 前缀注入，模板写明「章号只来自材料标注，禁止自行编号」——证据
-   可回指不靠模型记忆。段窗用自建启发式 `_estimate_tokens`（中文 ≈1.6 字/token 保守值＋缺省上下文
-   窗口），落 `pipeline.py`。模型输出 JSON（沿提示词仓 JSON 契约倒置默认），C端代码渲染为 md
-   （front matter＋固定 H2 键序）存 products_json。三铁律逐字进每份模板 system 段＋提示词仓 pins
-   测试逐字断言防漂移。段级重试 2 次（内存计数＋dims_json.error 留痕），维度失败即停任务。
+3. **管线 v2：逐章拆卡＋分维度分级语义归并，模板 12 份，模型输出 JSON、代码渲染 md**
+   （2026-10-13 用户拍板替代 v1「prescan＋段×维度 map-reduce」：证据粒度到章、去重去冲突成为显式
+   职责、合并截断废除）。阶段一每章一次调用 `deconstruct-card` 产出十维拆书卡（summary＋各维碎片，
+   只以本章可见内容为据、每维限量宁缺勿滥）；阶段二按维度把逐章碎片按字数分批喂 `deconstruct-{dim}`
+   （模板同批改造为「卡片归并口径」：语义去重别名合并、冲突并立降 low、零新增），多批产物用
+   `deconstruct-reduce` **树状收敛**（`_pack_units` 分组循环直到单份）——任意长度无截断。卡片碎片由
+   代码盖 `【第N章】` 前缀，模板写明「章号只来自材料标注，禁止自行编号」。落库粒度：cards.entries
+   按章（断点复用到章），归并 partials 内存态不落库（维度失败重跑整维度）。模型输出 JSON（沿提示词
+   仓 JSON 契约倒置默认），C端代码渲染 md（固定 H2 键序）存 products_json。三铁律逐字进每份模板
+   system 段＋提示词仓 pins 逐字断言防漂移。单元级重试 2 次（章/批），维度失败即停任务。
 4. **产物事实源=DB。** 十份 md（代码渲染）存 `products_json`；`存本地文件夹`＝从 DB 物化写盘
    （pick_folder 桥已有，错误分类 disk_full/permission/path）；staging 清理仅限 completed/deleted
    （**failed/cancelled 保留源文件以支持续拆/重传**）＋启动清陈旧 staging（照 `clean_stale_staging`）。
@@ -69,8 +72,9 @@
 
 ## Risks / Trade-offs
 
-- 31 分钟长任务×自备模型：段级重试+断点续拆把最坏损失限制在单段；探针门前置拦截配置错误。
-- DB 存 10×几十 KB md＝单任务约数百 KB，SQLite 无压力；中间分块不落 DB（staging 即弃）。
+- 31 分钟长任务×自备模型：单元重试+断点续拆把最坏损失限制在单章/单批；探针门前置拦截配置错误。
+- DB 存卡 JSON＋10×几十 KB md＝单任务约 0.5–2MB（百章量级），SQLite 无压力；归并 partials 不落 DB。
+- 无状态单发的跨章一致性押在归并口径上：别名漏归并/弧拼接变弱是 map-merge 形态固有残差，如实标注。
 - 任意 txt 是提示词注入面：产物仅静态呈现、入库全走域服务清洗；不执行产物内指令。
 - 提示词发包晚于本仓发版：按模板名存在性探测降级为创建禁用＋引导（不 503 白屏）；
   **发布顺序铁律**：本仓合码 → 提示词仓合入+build+上传+S端登记 → 翻 latest.json → 用户更新客户端。

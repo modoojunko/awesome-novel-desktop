@@ -71,3 +71,12 @@
 - [x] 6.3 e2e（隔离栈）：创建→排队→拆解（打桩模型秒级）→完成→导出 全链一条
 - [x] 6.4 全量门禁：client pytest 全绿（2040 passed）＋vitest 全绿（1572 passed）＋ruff＋tsc 零错＋提示词仓 pytest/lint 全绿（90 passed）
 - [x] 6.5 coverage 阈值 100×4 全绿（2026-10-12 收口：探针慢臂/非 Error 臂/JSON 兜底臂/防御回落/勾选加臂全部补测后通过；v8 对 TSX/async 行归属漂移为工具链已知限制，与门禁无关）
+
+## 9. 管线 v2——逐章拆卡＋分级语义归并（2026-10-13 用户拍板）
+
+- [x] 9.1 提示词仓：新建 deconstruct-card（单章十维卡）；十维度模板改「卡片归并口径」（语义去重别名合并／冲突并立降 low／零新增）；reduce 冲突改并存制；prescan 退役；sync CURATED＋publish TIER_FREE＋pins 更名（lint＋90/90 绿）
+- [x] 9.2 后端 pipeline v2：阶段一逐章拆卡（章级断点 entries 复用）；阶段二分维度碎片装箱 L1 归并＋树状收敛（_pack_units 无截断）。行为测试新建 6 例（happy／树收敛零丢失／单元重试／章边界取消／维度失败保留／章级续拆）——并揪出 v1 运行时必崩缺陷：_now_iso 返 str 绑 SQLite DateTime 列即 StatementError（「从未被执行路径」判例三度重演），改 datetime 对象
+- [x] 9.3 service/models：dims_json 形状换 cards 段＋task_view 透出「拆卡 x/y 章」；models docstring 同步
+- [x] 9.4 前端：详情页步骤列表头插「逐章拆卡」步＋维度文案「段」改「归并」＋总进度加权（拆卡 50/归并 50）；容量口径随 v2 上修 30 万→60 万字（约 200 章；截断已废除、残留为梗概注入界），入口文案/warn/spec 三处同步
+- [x] 9.5 spec 重写「十维度拆解管线与断点续拆」为两阶段卡片＋归并，新增章级断点 Scenario；容量 Requirement 改 60 万线；design D1/D3/Non-Goals/Risks 同步
+- [x] 9.6 门禁全绿：后端 2328 passed（含 258 个原 skip 的 prompts 门测试经 v2 模板全量跑通）＋ruff；前端 vitest 1586/1586＋coverage 无缺口＋tsc；提示词仓 lint＋pytest 90；openspec validate 通过
