@@ -33,8 +33,10 @@ class DeconstructJob(Base):
 
     独立于 job_runner 全局单飞槽（备份/成稿下载共用该槽，31 分钟拆解不得锁死它们）：
     专属队列 FIFO（queue_seq），全局同一时刻最多一个 running（串行 worker）。
-    dims_json：{"prescan": {...}, "dims": {key: {state, seg_done, seg_total, error}}}.
-    products_json：{filename: md 全文}（代码从模型 JSON 渲染，应用内不预览不编辑）。
+    dims_json：{"prescan": {"state", "chapters_done", "entries": {章号: 梗概}},
+                "dims": {key: {state, seg_done, seg_total, error}}}.
+    products_json：{dim: {"file": 文件名, "data": 模型JSON终稿, "md": 代码渲染全文}}
+    （建书消费 data、导出消费 md，不反解；应用内不预览不编辑）。
     """
 
     __tablename__ = "deconstruct_jobs"
