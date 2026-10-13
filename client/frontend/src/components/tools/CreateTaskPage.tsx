@@ -11,6 +11,9 @@ import {
 } from "../../lib/deconstructApi";
 
 
+/** 单本容量口径（spec「单本容量口径」）：合并截断推算的保质线；超线只提示不拦截 */
+const OVER_CAPACITY_CHARS = 300_000;
+
 /** 本地解析（评审 P1-5）：编码探测链（utf-8-sig→utf-8→gb18030→big5）＋字数/章节统计。
  *  与后端 deconstruct/textparse 同规则；GBK/Big5 由浏览器 TextDecoder 原生支持。 */
 async function localParse(file: File): Promise<{ encoding: string; totalChars: number; chapters: number }> {
@@ -245,7 +248,10 @@ export default function CreateTaskPage() {
               </svg>
             </div>
             <p className="up-main">拖拽整本小说到此处，或点击选择文件</p>
-            <p className="up-sub">选完文件即在本地解析（秒级、不消耗模型额度），书名/字数/章节数随之而来</p>
+            <p className="up-sub">
+              选完文件即在本地解析（秒级、不消耗模型额度），书名/字数/章节数随之而来；单本 ≤30 万字（约 100
+              章）一次任务完成
+            </p>
             <div className="fmt-row" data-od-id="fmt-row">
               <span className="fmt-chip on">.txt 可拆</span>
               <span className="fmt-chip off">.epub 即将支持</span>
@@ -299,6 +305,17 @@ export default function CreateTaskPage() {
               />
             </div>
           </div>
+
+          {parsed && parsed.totalChars > OVER_CAPACITY_CHARS && (
+            <div className="notice warn" data-od-id="over-capacity" style={{ margin: "14px 0" }}>
+              <span className="nt">
+                <b>超过单本建议量（30 万字）</b>
+                <span>
+                  任务仍会一次跑完，但主线剧情、章卷结构这类全本维度的后期内容会稀释；建议按卷分次拆解
+                </span>
+              </span>
+            </div>
+          )}
 
           <div className="dims" data-od-id="parse-dims">
             <div className="dim-group">

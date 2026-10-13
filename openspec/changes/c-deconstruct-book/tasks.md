@@ -56,6 +56,7 @@
 - [x] 7b.4 P3 六处：selected_dims 坏 JSON 500→400；queued_ahead 按仍 queued 行计数（空洞不虚高）；started_at 在 _claim 落笔；删死代码 pipeline.resume_task；清单删除失败显提示；时间列格式化；详情页加载失败分支
 - [x] 7b.5 PR 卫生：剥离 ab2c8757 夹带的两个无关 openspec 变更目录（c-api-config-save-gate／c-polish-v5-diagnostic-gate，工作区保留归原会话）
 - [x] 7b.6 三轮评审（修复批增量）P3×3：exported_at 列注释补 db-per-version 处置口径（实勘全仓无旧形状表，零暴露）；详情页错误分支改 taskErr&&!task（RQ 留旧 data，轮询单次抖动不踢错误屏，含回归用例）；test _run 重复定义删一处
+- [x] 7b.7 单本容量口径明示（用户拍板）：30 万字（约 100 章）一次任务完成——创建页入口文案＋超线 warn 提示（不拦截）＋spec 新 Requirement「单本容量口径」两 Scenario；vitest 1586＋coverage 无缺口＋tsc＋validate
 
 ## 8. 待办（后续批）
 
