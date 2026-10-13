@@ -78,6 +78,16 @@ MinVersion=10.0.0
 ; （PrivilegesRequired=lowest）则 {commondesktop} 与 Permissions 都不可用，
 ; 需同批改按用户桌面/去 ACL，另立 change 再谈。
 PrivilegesRequired=admin
+; ── 静默升级承重柱（2026-10-13 实验分支 silent-upgrade-lab）───────────────────
+; 允许**命令行**开关覆盖权限级别：/ALLUSERS（＝维持本文件的 admin 流程）或
+; /CURRENTUSER（纯 per-user 静默安装——自动升级链「立即升级」后的执行形态，免 UAC
+; 的硬前提，admin 必弹框无解绕开）。手动双击路径不受影响：缺省仍按 PrivilegesRequired
+; =admin 走原向导（含恒显位置页、桌面图标、[Dirs] ACL 授权，一切如旧）。
+; ⚠️「/CURRENTUSER 覆盖 admin 装过的旧版时是否真的零 UAC」官方无正面成文（间接证据：
+; commandline 模式下 UsePreviousPrivileges 实效忽略、Default.isl 无权限冲突提示消息），
+; **真机 V-1 立碑方可量产**——步骤见 docs/design-c/drafts/upgrade-lab/README.md E3/E4。
+; 副作用清单（幻影双卸载条目/双快捷/commondesktop 可写性）同见该手册与设计草案 §4.4-4。
+PrivilegesRequiredOverridesAllowed=commandline
 ; 卸载
 Uninstallable=yes
 UninstallDisplayIcon={app}\{#MyAppExeName}
@@ -150,6 +160,16 @@ Name: "{commondesktop}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"; Tasks: 
 ; 改名机制，卸载器必须保持 unins000.exe + unins000.dat 成对原始名。
 ; 安装完成后是否立即运行
 Filename: "{app}\{#MyAppExeName}"; Description: "运行 {#MyAppName}"; Flags: postinstall nowait skipifsilent
+; ── 静默升级自动拉起（2026-10-13 实验分支）────────────────────────────────────
+; 上一行带 skipifsilent：静默安装时**恒跳过**——正是自动升级链「装完自动回新版」拿不到
+; 的入口（评审 P1：照抄上一行的 skipifsilent 会让静默链里自动拉起永远不发生）。故单开一条
+; 不带 skipifsilent、改由 Check 判命令行参数：仅 /AUTOLAUNCH=1 时才拉起 GUI。
+; ⚠️ 形态必须写 /AUTOLAUNCH=1（带值），不能写裸 /AUTOLAUNCH——官方 {param:} 语义里
+; 不带值的参数落「value could not be determined」取默认值，裸 flag 判不中（评审 P1/V-3）。
+; ⚠️ 不带 runhidden：SW_HIDE 起 pywebview GUI 是否显示未证（评审 P1）；postinstall 默认
+; 用**原始非提权用户令牌**启动，恰满足「壳层 GUI 普通身份」铁律，勿加 runascurrentuser。
+; 手动安装不带该参数 → Check 返回 false → 本条不触发（现有带 skipifsilent 的那行照常工作）。
+Filename: "{app}\{#MyAppExeName}"; Check: AutoLaunchRequested; Flags: postinstall nowait
 
 [UninstallRun]
 ; 卸载时清理运行时目录（日志/端口文件/"启动失败"页）。两个名字都清：AwesomeNovel
@@ -157,3 +177,14 @@ Filename: "{app}\{#MyAppExeName}"; Description: "运行 {#MyAppName}"; Flags: po
 ; 注意 Windows 的**书稿数据**不在这个目录——它在 {app}\data（便携式），随 [Files] 一并移除。
 Filename: "{cmd}"; Parameters: "/C rmdir /S /Q ""{userappdata}\AwesomeNovel"""; Flags: runhidden; RunOnceId: "CleanRuntimeDir"
 Filename: "{cmd}"; Parameters: "/C rmdir /S /Q ""{userappdata}\AI Novel"""; Flags: runhidden; RunOnceId: "CleanLegacyRuntimeDir"
+
+[Code]
+// 自动升级链（silent-upgrade-lab 实验分支）：安装器据此决定是否在静默装完后拉起新版 GUI。
+// 注意本段注释必须用 //（Pascal 语法）——`;` 是 Inno 配置段注释、在 [Code] 里会被当语句解析，
+// 首编实锤报 "'BEGIN' expected"（docker iscc 判例 2026-10-13）。
+// 判据＝命令行是否给了带值的 /AUTOLAUNCH=1（写裸 flag 或不写都判不中，成因见上方 [Run] 注释）。
+// {param:AUTOLAUNCH|} 缺值时返回空串，与 '1' 不等 → 手动安装路径恒 false，零副作用。
+function AutoLaunchRequested: Boolean;
+begin
+  Result := ExpandConstant('{param:AUTOLAUNCH|}') = '1';
+end;
