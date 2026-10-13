@@ -207,6 +207,26 @@ describe("CreateTaskPage", () => {
     await waitFor(() => expect(screen.getByText("可用")).toBeInTheDocument());
   });
 
+  it("书名可编辑：取自文件名，改动随提交（评审 P2：label 可改与 readOnly 相悖）", async () => {
+    state.fetchOpts.mockResolvedValue([
+      { api_config_id: "c1", config_name: "A", model: "m1", vendor: "v" },
+    ]);
+    state.probe.mockResolvedValue(true);
+    state.create.mockResolvedValue({ id: "x", status: "queued" });
+    renderPage();
+    await waitFor(() => expect(screen.getByRole("combobox")).toBeInTheDocument());
+    state.create.mockClear();
+    pickFile("原书名.txt");
+    const nameInput = screen.getByLabelText("书名（取自文件名，可改）") as HTMLInputElement;
+    expect(nameInput.value).toBe("原书名");
+    fireEvent.change(nameInput, { target: { value: "改过的书名" } });
+    expect(nameInput.value).toBe("改过的书名");
+    await waitFor(() => expect(screen.getByText(/创建任务（进队列排队）/)).not.toBeDisabled());
+    fireEvent.click(screen.getByText(/创建任务（进队列排队）/));
+    await waitFor(() => expect(state.create).toHaveBeenCalledOnce());
+    expect((state.create.mock.calls[0][1] as { bookName: string }).bookName).toBe("改过的书名");
+  });
+
   it("创建成功 → 跳任务详情", async () => {
     state.fetchOpts.mockResolvedValue([
       { api_config_id: "c1", config_name: "A", model: "m1", vendor: "v" },

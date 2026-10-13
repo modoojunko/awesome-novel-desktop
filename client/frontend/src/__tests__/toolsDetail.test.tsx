@@ -80,6 +80,14 @@ afterEach(() => {
 
 describe("TaskDetailPage", () => {
 
+  it("详情加载失败 → 错误提示＋返回清单（不再停在加载中）", async () => {
+    state.get.mockRejectedValue(new Error("任务不存在"));
+    renderPage();
+    await waitFor(() => expect(screen.getByText("任务加载失败")).toBeInTheDocument());
+    expect(screen.getByText("任务不存在")).toBeInTheDocument();
+    expect(screen.getByText("返回任务清单")).toBeInTheDocument();
+  });
+
   it("建书成功：跳新书并关闭弹窗", async () => {
     state.get.mockResolvedValue(detailOf("completed", { book_id: "book-9" }));
     state.importBook.mockResolvedValue({ book_id: "book-9", name: "星海远征", skipped: [], warnings: [] });

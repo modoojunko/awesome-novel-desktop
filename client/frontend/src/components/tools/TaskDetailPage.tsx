@@ -47,7 +47,7 @@ export default function TaskDetailPage() {
   const [reuploadFile, setReuploadFile] = useState<File | null>(null);
   const reuploadRef = useRef<HTMLInputElement>(null);
 
-  const { data: task } = useQuery({
+  const { data: task, error: taskErr } = useQuery({
     queryKey: queryKeys.deconstructTask(id),
     queryFn: () => getDeconstructTask(id),
     enabled: !!id,
@@ -70,6 +70,22 @@ export default function TaskDetailPage() {
     const settingFiles = DECONSTRUCT_DIMS.filter((d) => d.setting).map((d) => d.file);
     return selectedFiles.filter((f) => settingFiles.includes(f)).length;
   }, [task, selectedFiles]);
+
+  if (taskErr) {
+    return (
+      <main className="main" data-od-id="tools-detail">
+        <div className="notice" role="alert">
+          <span className="nt">
+            <b>任务加载失败</b>
+            <span>{taskErr.message}</span>
+          </span>
+          <Link className="btn btn-secondary btn-sm" to="/tools">
+            返回任务清单
+          </Link>
+        </div>
+      </main>
+    );
+  }
 
   if (!task) {
     return (

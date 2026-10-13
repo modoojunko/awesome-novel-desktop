@@ -25,13 +25,13 @@ function renderPage() {
 
 const RUNNING = {
   id: "t1", status: "running", book_name: "雾都侦探手记", total_chars: 386000,
-  chapter_count: 214, volume_count: 8, ai_model: "qwen3-max", created_at: "14:02",
+  chapter_count: 214, volume_count: 8, ai_model: "qwen3-max", created_at: "2026-10-13T14:02:00",
   finished_at: null, queued_ahead: 0, product_count: 0, error: "",
 };
 const DONE = {
   id: "t2", status: "completed", book_name: "星海远征", total_chars: 542000,
-  chapter_count: 318, volume_count: 10, ai_model: "qwen3-max", created_at: "22:10",
-  finished_at: "22:41", queued_ahead: 0, product_count: 10, error: "",
+  chapter_count: 318, volume_count: 10, ai_model: "qwen3-max", created_at: "2026-10-12T22:10:00",
+  finished_at: "2026-10-12T22:41:00", queued_ahead: 0, product_count: 10, error: "",
 };
 
 afterEach(() => {
@@ -96,5 +96,26 @@ describe("TaskListPage", () => {
     state.list.mockResolvedValue({ tasks: [], heartbeat: { running: 0, queued: 0 }, badge: 0 });
     fireEvent.click(screen.getByText("重试"));
     await waitFor(() => expect(screen.getByText("还没有任务")).toBeInTheDocument());
+  });
+
+  it("删除失败双臂：Error 显文案／非 Error 兜底（评审 P3：running 409 不再静默）", async () => {
+    state.list.mockResolvedValue({ tasks: [DONE], heartbeat: { running: 0, queued: 0 }, badge: 1 });
+    renderPage();
+    await waitFor(() => expect(screen.getByText("星海远征")).toBeInTheDocument());
+    state.del.mockRejectedValueOnce(new Error("任务拆解中，请先取消再删除"));
+    fireEvent.click(screen.getAllByText("删除")[0]);
+    fireEvent.click(screen.getByText("确认删除"));
+    await waitFor(() => expect(screen.getByText(/请先取消再删除/)).toBeInTheDocument());
+    state.del.mockRejectedValueOnce("boom");
+    fireEvent.click(screen.getAllByText("删除")[0]);
+    fireEvent.click(screen.getByText("确认删除"));
+    await waitFor(() => expect(screen.getAllByText("删除失败").length).toBe(2));
+  });
+
+  it("创建时间格式化为 MM-DD HH:mm；空值留白", async () => {
+    state.list.mockResolvedValue({ tasks: [RUNNING, DONE, { ...DONE, id: "t9", created_at: null }], heartbeat: { running: 1, queued: 0 }, badge: 2 });
+    renderPage();
+    await waitFor(() => expect(screen.getByText("10-13 14:02")).toBeInTheDocument());
+    expect(screen.getAllByText("10-12 22:10").length).toBe(1);
   });
 });

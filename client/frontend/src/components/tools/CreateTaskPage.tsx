@@ -43,6 +43,7 @@ export default function CreateTaskPage() {
   const [probeOk, setProbeOk] = useState<boolean | null>(null);
   const [probing, setProbing] = useState(false);
   const [selected, setSelected] = useState<string[]>(DECONSTRUCT_DIMS.map((d) => d.key));
+  const [bookName, setBookName] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [submitErr, setSubmitErr] = useState("");
   const [parsed, setParsed] = useState<{ encoding: string; totalChars: number; chapters: number } | null>(null);
@@ -109,7 +110,18 @@ export default function CreateTaskPage() {
   };
 
   const canSubmit = file !== null && hasModels && probeOk === true && !probing && !submitting;
-  const bookName = file ? file.name.replace(/\.txt$/i, "") : "";
+
+  const pickFile = (f: File | null) => {
+    setFile(f);
+    setBookName(f ? f.name.replace(/\.txt$/i, "") : "");
+    setParsed(null);
+    setParseErr("");
+    if (f) {
+      localParse(f)
+        .then(setParsed)
+        .catch((err: Error) => setParseErr(err.message));
+    }
+  };
 
   const submit = async () => {
     /* v8 ignore start — 防御臂：按钮禁用态不可达（未选文件时禁用） */
@@ -141,14 +153,7 @@ export default function CreateTaskPage() {
   const onZoneDrop = (e: React.DragEvent) => {
     e.preventDefault();
     const f = e.dataTransfer.files?.[0];
-    if (f) {
-      setFile(f);
-      setParsed(null);
-      setParseErr("");
-      localParse(f)
-        .then(setParsed)
-        .catch((err: Error) => setParseErr(err.message));
-    }
+    if (f) pickFile(f);
   };
 
   return (
@@ -254,15 +259,7 @@ export default function CreateTaskPage() {
             hidden
             data-od-id="file-input"
             onChange={(e) => {
-              const f = e.target.files?.[0] ?? null;
-              setFile(f);
-              setParsed(null);
-              setParseErr("");
-              if (f) {
-                localParse(f)
-                  .then(setParsed)
-                  .catch((err: Error) => setParseErr(err.message));
-              }
+              pickFile(e.target.files?.[0] ?? null);
             }}
           />
           <div style={{ display: "flex", gap: 8, marginTop: 18 }}>
@@ -288,13 +285,18 @@ export default function CreateTaskPage() {
             </div>
             <button className="btn btn-secondary btn-sm" onClick={() => setFile(null)}>
               换文件
-            </button>
-          </div>
+            </button>          </div>
 
           <div className="fcard" data-od-id="parse-card">
             <div className="field" style={{ margin: 0, maxWidth: 340 }}>
               <label htmlFor="bk-name">书名（取自文件名，可改）</label>
-              <input id="bk-name" className="input" value={bookName} readOnly data-od-id="parse-bookname" />
+              <input
+                id="bk-name"
+                className="input"
+                value={bookName}
+                onChange={(e) => setBookName(e.target.value)}
+                data-od-id="parse-bookname"
+              />
             </div>
           </div>
 

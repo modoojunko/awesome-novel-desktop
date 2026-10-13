@@ -24,17 +24,30 @@ function statusSummary(t: DeconstructTaskSummary): string {
   /* v8 ignore stop */
 }
 
+/** 创建时间展示：MM-DD HH:mm（ISO 原串太工程师向）；空值留白 */
+function fmtTime(iso: string | null): string {
+  if (!iso) return "";
+  const d = new Date(iso);
+  return `${d.getMonth() + 1}-${String(d.getDate()).padStart(2, "0")} ${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
+}
+
 export default function TaskListPage() {
   const navigate = useNavigate();
   const { data, error, refresh } = useDeconstructTasks(true);
   const [confirmDelete, setConfirmDelete] = useState<string | null>(null);
+  const [removeErr, setRemoveErr] = useState("");
 
   const tasks = data?.tasks ?? [];
 
   const remove = async (id: string) => {
-    await deleteDeconstructTask(id);
-    setConfirmDelete(null);
-    refresh();
+    try {
+      await deleteDeconstructTask(id);
+      setConfirmDelete(null);
+      refresh();
+    } catch (e) {
+      setRemoveErr(e instanceof Error ? e.message : "删除失败");
+      setConfirmDelete(null);
+    }
   };
 
   return (
@@ -61,6 +74,15 @@ export default function TaskListPage() {
         </div>
       )}
 
+      {removeErr && (
+        <div className="notice" role="alert">
+          <span className="nt">
+            <b>删除失败</b>
+            <span>{removeErr}</span>
+          </span>
+        </div>
+      )}
+
       {tasks.length === 0 && !error ? (
         <div className="tk-empty" data-od-id="tk-empty">
           <p className="serif">还没有任务</p>
@@ -84,7 +106,7 @@ export default function TaskListPage() {
                   <span className="tk-type">拆书</span>
                   <span className="tk-title">{t.book_name}</span>
                   <span className={pill.cls}>{pill.label}</span>
-                  <span className="tk-time">{t.created_at ?? ""}</span>
+                  <span className="tk-time">{fmtTime(t.created_at)}</span>
                   <div className="tk-meta">
                     {/* v8 ignore start — 摘要文案已由六类用例断言（v8 对 JSX 三元行归属漂移） */}
                     {t.total_chars > 0 && `${Math.round(t.total_chars / 10000)} 万字 · `}
