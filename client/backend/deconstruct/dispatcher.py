@@ -90,6 +90,8 @@ async def _source_exists(task_id: str) -> bool:
 
 async def _claim(task_id: str) -> bool:
     """queued→running 单句 UPDATE 抢占（WHERE status='queued' 防并发双跑）。"""
+    from datetime import UTC, datetime
+
     from sqlalchemy import update
 
     from models.deconstruct import DeconstructJob
@@ -98,7 +100,7 @@ async def _claim(task_id: str) -> bool:
         result = await session.execute(
             update(DeconstructJob)
             .where(DeconstructJob.id == task_id, DeconstructJob.status == "queued")
-            .values(status="running")
+            .values(status="running", started_at=datetime.now(UTC).replace(tzinfo=None))
         )
         await session.commit()
         return result.rowcount > 0

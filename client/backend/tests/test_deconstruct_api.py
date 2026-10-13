@@ -56,7 +56,7 @@ def client():
     c.__exit__(None, None, None)
 
 
-def _mk_completed(task_id: str, products: dict) -> None:
+def _mk_completed(task_id: str, products: dict, *, book_name: str = "星海远征") -> None:
     """直插一个已完成任务（products 新形状：{dim: {file, data, md}}）。"""
     import json
 
@@ -70,7 +70,7 @@ def _mk_completed(task_id: str, products: dict) -> None:
                     user_id=_UID,
                     status="completed",
                     queue_seq=await next_queue_seq(s),
-                    book_name="星海远征",
+                    book_name=book_name,
                     source_path=source_path_of(task_id),
                     encoding="utf-8",
                     api_config_id="cfg-1",
@@ -121,6 +121,13 @@ def test_create_task_rejects_oversize_and_bad_dims(client):
         data={"api_config_id": "cfg-1", "ai_model": "m"},
     )
     assert r.status_code == 400
+    r2 = client.post(
+        "/api/deconstruct/tasks",
+        files={"file": ("a.txt", _TXT.encode("utf-8"), "text/plain")},
+        data={"api_config_id": "cfg-1", "ai_model": "m", "selected_dims": "not-json"},
+    )
+    assert r2.status_code == 400  # 坏 JSON 拒 400 而非 500（评审 P3）
+    assert "拆解范围" in r2.json()["detail"]
 
 
 def test_list_tasks_shape(client):
@@ -192,6 +199,30 @@ def test_import_book_requires_completed(client):
     assert r.status_code == 409
 
 
+def test_import_book_no_power_markers(client):
+    """no_power 只认「无超凡/原文未明确」两个标记串（评审 P2：死表达式修复后的双臂）。"""
+    _EMPTY_WORLD = {"stage": "", "power": [], "cost": [], "history": [], "factions": [], "constraints": [], "extra": []}
+    _mk_completed("dec-np-1", {"world": _product("world", "世界设定.md", {**_EMPTY_WORLD, "no_power": "超凡体系：原文未明确"}, "# 世界设定")}, book_name="标记书")
+    _mk_completed("dec-np-2", {"world": _product("world", "世界设定.md", {**_EMPTY_WORLD, "no_power": "普通的都市故事"}, "# 世界设定")}, book_name="无标记书")
+    r1 = client.post("/api/deconstruct/tasks/dec-np-1/import-book")
+    r2 = client.post("/api/deconstruct/tasks/dec-np-2/import-book")
+    assert r1.status_code == 200 and r2.status_code == 200, r1.text
+
+    async def _world(book_id):
+        from filesystem.paths import KEY_TO_PATH
+        from filesystem.storage import get_storage
+        from models.project import Novel
+
+        async with async_session() as s:
+            n = await s.get(Novel, book_id)
+        return await get_storage().read_yaml(n.root_path, KEY_TO_PATH["world"])
+
+    w1 = _run(_world(r1.json()["book_id"]))
+    w2 = _run(_world(r2.json()["book_id"]))
+    assert w1["no_power"] is True  # 原文未明确 → 置真
+    assert w2["no_power"] is False  # 无标记 → 不置真
+
+
 def _mk_queued(task_id: str, *, with_source: bool = True) -> None:
     from deconstruct.service import source_path_of
 
@@ -255,6 +286,37 @@ def test_export_invalid_dest(client):
         json={"dest_dir": "相对路径", "files": ["简介.md"]},
     )
     assert r.status_code == 400
+
+
+def test_badge_clears_after_folder_export(client):
+    """文件夹出口也算「已取」：导出后 badge 不再计数（评审 P2）。"""
+    _mk_completed("dec-bdg-1", {"intro": _product("intro", "简介.md", {}, "# 简介")})
+    tasks = {t["id"]: t for t in client.get("/api/deconstruct/tasks").json()["tasks"]}
+    assert tasks["dec-bdg-1"]["status"] == "completed"
+    body = client.get("/api/deconstruct/tasks").json()
+    before = body["badge"]
+    dest = tempfile.mkdtemp(prefix="dec-bdg-")
+    r = client.post(
+        "/api/deconstruct/tasks/dec-bdg-1/export",
+        json={"dest_dir": dest, "files": ["简介.md"]},
+    )
+    assert r.status_code == 200, r.text
+    assert client.get("/api/deconstruct/tasks").json()["badge"] == before - 1
+
+
+def test_queued_ahead_ignores_cancelled_gaps(client):
+    """排队位次按仍在排队的行计数，取消留洞不虚高（评审 P3）。"""
+    _mk_queued("dec-qa-1")
+    _mk_queued("dec-qa-2")
+
+    def _ahead_of_qa2():
+        tasks = {t["id"]: t for t in client.get("/api/deconstruct/tasks").json()["tasks"]}
+        return tasks["dec-qa-2"]["queued_ahead"]
+
+    before = _ahead_of_qa2()
+    r = client.post("/api/deconstruct/tasks/dec-qa-1/cancel")
+    assert r.status_code == 200
+    assert _ahead_of_qa2() == before - 1
 
 
 def test_cancel_and_delete(client):

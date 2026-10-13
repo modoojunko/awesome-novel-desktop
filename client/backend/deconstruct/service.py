@@ -112,12 +112,13 @@ async def list_tasks(db: AsyncSession, user_id: str) -> list[dict]:
             .order_by(DeconstructJob.queue_seq.desc(), DeconstructJob.created_at.desc())
         )
     ).all()
-    running_seq = next((r.queue_seq for r in rows if r.status == "running"), None)
+    # 排队位次按仍处 queued 的行计数（取消/删除留下的序号空洞不计入，评审 P3）
+    queued_seqs = [r.queue_seq for r in rows if r.status == "queued"]
     out = []
     for r in rows:
         ahead = 0
-        if r.status == "queued" and running_seq is not None:
-            ahead = max(0, r.queue_seq - running_seq - 1)
+        if r.status == "queued":
+            ahead = sum(1 for q in queued_seqs if q < r.queue_seq)
         out.append(
             {
                 "id": r.id,

@@ -99,10 +99,10 @@ async def import_book(
         raw = await storage.read_yaml(root, KEY_TO_PATH["world"]) or {}
         from settings.world_model import normalize_world, put_world_merged
 
+        no_power_txt = str(data.get("no_power", ""))
         body = {
-            "no_power": bool(
-                data.get("power") in (None, [], "") is False and False
-            ) or "无超凡" in str(data.get("no_power", "")),
+            # 评审 P1-2 口径：仅当模型输出含「无超凡/原文未明确」才置真，不凭空断言力量体系
+            "no_power": "无超凡" in no_power_txt or "原文未明确" in no_power_txt,
             "stage": str(data.get("stage", ""))[:300],
             "power": [
                 {"name": str(i.get("name", ""))[:40], "note": str(i.get("rule", ""))[:200]}

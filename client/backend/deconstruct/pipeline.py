@@ -354,18 +354,6 @@ async def _read_dims(task_id: str) -> dict:
             return {}
 
 
-async def resume_task(task_id: str) -> None:
-    """断点续拆：置回 running 并只补勾选且未完成的维度（run_task 内按 state 跳过）。"""
-    async with async_session() as session:
-        task = await session.get(DeconstructJob, task_id)
-        if task is None or task.status not in ("failed", "cancelled"):
-            return
-        task.status = "running"
-        task.error_json = "{}"
-        await session.commit()
-    await run_task(task_id)
-
-
 async def list_queued_ids() -> list[str]:
     async with async_session() as session:
         rows = (

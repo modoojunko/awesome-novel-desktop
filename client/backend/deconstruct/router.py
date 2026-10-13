@@ -8,6 +8,7 @@ from __future__ import annotations
 import json
 import os
 import shutil
+from datetime import UTC, datetime
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
 from sqlalchemy import select
@@ -71,7 +72,11 @@ async def create_task(
             del raw
 
         parse = await asyncio.to_thread(parse_novel, text)
-        dims = service.normalize_dims(json.loads(selected_dims) if selected_dims else [])
+        try:
+            picked = json.loads(selected_dims) if selected_dims else []
+        except ValueError as e:
+            raise HTTPException(400, "拆解范围参数不合法，请重选维度后重试") from e
+        dims = service.normalize_dims(picked)
         task = await service.create_task(
             db,
             _user_id(user),
@@ -116,6 +121,7 @@ async def list_tasks(
                     DeconstructJob.user_id == _user_id(user),
                     DeconstructJob.status == "completed",
                     DeconstructJob.book_id.is_(None),
+                    DeconstructJob.exported_at.is_(None),  # 文件夹出口也算「已取」
                 )
             )
         ).all()
@@ -164,8 +170,6 @@ async def cancel_task(
     _require(task, user)
     if task.status not in ("queued", "running"):
         raise HTTPException(409, "任务已结束，无法取消")
-    from datetime import UTC, datetime
-
     task.status = "cancelled"
     task.finished_at = datetime.now(UTC).replace(tzinfo=None)
     await db.commit()
@@ -266,9 +270,12 @@ async def export_task(
     if not files:
         raise HTTPException(400, "至少勾选 1 份产物")
     try:
-        return apply.export_products(task, dest, files)
+        result = apply.export_products(task, dest, files)
     except OSError as e:
         raise HTTPException(400, f"导出失败：{e.strerror or e}") from e
+    task.exported_at = datetime.now(UTC).replace(tzinfo=None)  # 已取标记：badge 不再计数
+    await db.commit()
+    return result
 
 
 @router.delete("/tasks/{task_id}")
