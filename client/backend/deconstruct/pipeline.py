@@ -1,12 +1,13 @@
-"""拆解管线（c-deconstruct-book 2.x）——prescan＋维度 map-reduce，模型输出 JSON、代码渲染 md。
+"""拆解管线 v2（c-deconstruct-book 2.x，2026-10-13 用户拍板架构）——逐章拆卡＋分维度分级语义归并。
 
-- 模板 12 份（提示词仓 awesome-novel-prompts）：`deconstruct-prescan`、`deconstruct-{dim}`×10、
-  `deconstruct-reduce`（通用合并）。分层加载（load_layers），占位符 str.format 注入。
-- 证据章号不靠模型记忆：摘录由代码盖 `【第N章】` 前缀注入，模板明令「章号只来自材料标注」。
-- 段窗：自建启发式 `_estimate_tokens`（中文 ≈1.6 字/token 保守值），按 ESTIMATE_TOKEN_BUDGET 切章。
-- 段级重试 2 次（内存计数＋dims_json.error 留痕），维度失败即停任务；cancel 在段边界生效
-  （每段前重读任务 status 列）。
-- 断点续拆：dims_json 中 state=completed 的维度跳过；resume 只跑勾选且未完成的维度。
+- v1→v2：prescan 梗概与「段×维度 map」合并为**每章一次拆卡调用**（十维碎片＋梗概，章级断点）；
+  「每维度一次 reduce 且 40k 截断」改为**分级归并**：卡片碎片按字数分批归并（L1，复用十维度
+  模板＝卡片归并口径）→ 归并产物**树状收敛**（reduce 轮次循环直到单份）——任意长度零截断。
+- 模板 12 份（提示词仓 awesome-novel-prompts）：`deconstruct-card`、`deconstruct-{dim}`×10
+  （输入为逐章卡片碎片）、`deconstruct-reduce`（通用树合并）。load_layers 分层，str.format 注入。
+- 证据章号不靠模型记忆：碎片由代码盖 `【第N章】` 前缀，模板明令「章号只来自材料标注」。
+- 单元级重试 2 次、cancel 在章/批边界生效（每单元前重读任务 status 列）。
+- 断点续拆：cards.entries 已有章号跳过；dims 中 state=completed 的维度跳过。
 """
 
 from __future__ import annotations
@@ -21,52 +22,70 @@ from db import async_session
 from models.deconstruct import DIMENSION_KEYS, DeconstructJob
 from prompts import PromptPackMissing, load_layers
 
-# 段窗预算（token 估算值）：单次调用素材上限。中文 1.6 字/token 保守 → ~14k 字/段。
-ESTIMATE_TOKEN_BUDGET = 9000
-CHARS_PER_TOKEN = 1.6
+# 单章喂料上限（超长章截断，梗概与碎片以可见部分为据）
+_CARD_TEXT_LIMIT = 6000
+# L1 归并单批卡片碎片输入上限（字）
+CARD_BATCH_CHARS = 30000
+# 树收敛每轮合并输入上限（字）
+MERGE_INPUT_CAP = 40000
+# 梗概注入上限（全书骨架，卡片 summary 拼接）
+_SYNOPSIS_CAP = 12000
 SEGMENT_RETRIES = 2
-# 每章摘录上限（首尾拼接），控制 map 输入规模
-_EXCERPT_HEAD, _EXCERPT_TAIL = 900, 300
 
 _CANCELLED = "cancelled"
 
 
-class TaskCancelled(Exception):
-    """段边界捕获的取消信号（worker 捕获后落 cancelled 终态）。"""
-
-
-def _estimate_tokens(text: str) -> int:
-    return max(1, int(len(text or "") / CHARS_PER_TOKEN))
-
-
-def _now_iso() -> str:
+def _now():
+    """DateTime 列必须收 datetime 对象（SQLite 绑 str 即 StatementError，行为测试实锤）。"""
     from datetime import UTC, datetime
 
-    return datetime.now(UTC).replace(tzinfo=None).isoformat()
+    return datetime.now(UTC).replace(tzinfo=None)
 
 
-def _segments(chapters: list[dict]) -> list[list[dict]]:
-    """按估算 token 预算把章列表切成确定性的段（贪心装箱，章不跨段）。"""
-    segs: list[list[dict]] = []
-    cur: list[dict] = []
-    cur_est = 0
-    for ch in chapters:
-        est = _estimate_tokens(ch.get("text", ""))
-        if cur and cur_est + est > ESTIMATE_TOKEN_BUDGET:
-            segs.append(cur)
-            cur, cur_est = [], 0
-        cur.append(ch)
-        cur_est += est
+def _pack_pairs(pairs: list[tuple[str, str]], budget: int) -> list[list[tuple[str, str]]]:
+    """确定性装箱（章号, 碎片行）：单行不拆，超预算起新批，单行超预算独占一批。"""
+    batches: list[list[tuple[str, str]]] = []
+    cur: list[tuple[str, str]] = []
+    cur_len = 0
+    for no, line in pairs:
+        add = len(line) + (1 if cur else 0)  # "\n"
+        if cur and cur_len + add > budget:
+            batches.append(cur)
+            cur, cur_len = [], 0
+            add = len(line)
+        cur.append((no, line))
+        cur_len += add
     if cur:
-        segs.append(cur)
-    return segs or [[]]
+        batches.append(cur)
+    return batches or [[]]
 
 
-def _excerpt(ch: dict) -> str:
-    text = ch.get("text", "")
-    head, tail = text[:_EXCERPT_HEAD], text[-_EXCERPT_TAIL:] if len(text) > _EXCERPT_HEAD + _EXCERPT_TAIL else ""
-    body = head + ("……" + tail if tail else "")
-    return f"【第{ch.get('no', 1)}章 · {ch.get('title', '')}】\n{body}"
+def _pack_units(units: list[str], budget: int, joiner: str = "\n\n") -> list[list[str]]:
+    """确定性装箱（字符串单元）：用于树收敛轮次的 partials 分组。"""
+    batches: list[list[str]] = []
+    cur: list[str] = []
+    cur_len = 0
+    for u in units:
+        add = len(u) + (len(joiner) if cur else 0)
+        if cur and cur_len + add > budget:
+            batches.append(cur)
+            cur, cur_len = [], 0
+            add = len(u)
+        cur.append(u)
+        cur_len += add
+    if cur:
+        batches.append(cur)
+    return batches or [[]]
+
+
+def _card_frag(no: str, card: dict, dim: str) -> str:
+    """单卡某维度 → 一行碎片（空维度不给行）。structure 契约为数组，dict 容错包装。"""
+    items = card.get(dim)
+    if isinstance(items, dict):
+        items = [items]
+    if not items:
+        return ""
+    return f"【第{no}章】{json.dumps(items, ensure_ascii=False)}"
 
 
 def _parse_json_response(raw: str) -> dict:
@@ -88,33 +107,6 @@ def _parse_json_response(raw: str) -> dict:
             if depth == 0:
                 return json.loads(text[start : i + 1])
     raise ValueError("模型输出 JSON 不完整")
-
-
-def _fmt_warning(value) -> str:
-    if isinstance(value, str):
-        return value
-    try:
-        return json.dumps(value, ensure_ascii=False)
-    except (TypeError, ValueError):
-        return str(value)
-
-
-def dim_names() -> dict[str, str]:
-    from models.deconstruct import DIMENSIONS
-
-    return {k: name for k, name, _ in DIMENSIONS}
-
-
-async def _chat_json(client, model: str, system: str, user: str, operation: str) -> dict:
-    raw = await client.chat(
-        model=model,
-        system=system,
-        messages=[{"role": "user", "content": user}],
-        max_tokens=4096,
-        json_mode=True,
-        operation=operation,
-    )
-    return _parse_json_response(raw)
 
 
 def _render_md(dim: str, data: dict, book_name: str, covered: str) -> str:
@@ -175,6 +167,12 @@ def _selected(task: DeconstructJob) -> list[str]:
     return valid or list(DIMENSION_KEYS)
 
 
+def dim_names() -> dict[str, str]:
+    from models.deconstruct import DIMENSIONS
+
+    return {k: name for k, name, _ in DIMENSIONS}
+
+
 class _Cancelled(Exception):
     pass
 
@@ -184,8 +182,20 @@ async def _check_cancel(task_id: str) -> None:
         raise _Cancelled()
 
 
+async def _chat_json(client, model: str, system: str, user: str, operation: str) -> dict:
+    raw = await client.chat(
+        model=model,
+        system=system,
+        messages=[{"role": "user", "content": user}],
+        max_tokens=4096,
+        json_mode=True,
+        operation=operation,
+    )
+    return _parse_json_response(raw)
+
+
 async def _call_with_retry(client, model, system_tpl, user_vars, operation):
-    """段级调用：重试 2 次（重试属同一段内的模型调用，不涉及内容截断）。"""
+    """单元级调用：重试 2 次（重试属同一单元内的模型调用，不涉及内容截断）。"""
     system, user_tpl = system_tpl
     last_err: Exception | None = None
     for _ in range(SEGMENT_RETRIES + 1):
@@ -193,10 +203,18 @@ async def _call_with_retry(client, model, system_tpl, user_vars, operation):
             return await _chat_json(client, model, system, user_tpl.format(**user_vars), operation)
         except _Cancelled:
             raise
-        except Exception as e:  # noqa: BLE001 — 段级重试后放行（管线自兜底）
+        except Exception as e:  # noqa: BLE001 — 单元级重试后放行（管线自兜底）
             last_err = e
             await asyncio.sleep(0.2)
     raise last_err if last_err else RuntimeError("模型调用失败")
+
+
+def _synopses(cards: dict) -> str:
+    """卡片 summary → 全书逐章梗概（注入 L1 归并调用）。"""
+    return "\n".join(
+        f"第{no}章 {card.get('summary', '')}"
+        for no, card in sorted(cards.get("entries", {}).items(), key=lambda kv: int(kv[0] or 0))
+    )
 
 
 async def run_task(task_id: str) -> None:
@@ -204,7 +222,6 @@ async def run_task(task_id: str) -> None:
     task = await _load_task(task_id)
     if task is None:
         return
-    client, model = (None, "")
     try:
         from deconstruct.service import resolve_client
 
@@ -219,39 +236,43 @@ async def run_task(task_id: str) -> None:
     dims = state.get("dims", {})
 
     try:
-        # ── 阶段一：prescan（逐章梗概；断点：已完成章跳过）──
-        prescan = state.get("prescan", {"state": "queued", "chapters_done": 0, "entries": {}})
-        if prescan.get("state") != "completed":
-            prescan.setdefault("entries", {})
-            prescan["state"] = "running"
-            await _patch(task_id, dims_json=json.dumps({"prescan": prescan, "dims": dims}, ensure_ascii=False))
-            sys_p, usr_p = load_layers("deconstruct_prescan")
+        # ── 阶段一：逐章拆卡（章级断点：entries 已有章号跳过）──
+        cards = state.get("cards", {"state": "queued", "done": 0, "entries": {}})
+        if cards.get("state") != "completed":
+            cards.setdefault("entries", {})
+            cards["state"] = "running"
+            await _patch(task_id, dims_json=json.dumps({"cards": cards, "dims": dims}, ensure_ascii=False))
+            sys_c, usr_c = load_layers("deconstruct_card")
             for ch in chapters:
                 await _check_cancel(task_id)
                 no = str(ch.get("no", 0))
-                if no in prescan["entries"]:
+                if no in cards["entries"]:
                     continue
                 data = await _call_with_retry(
-                    client, model, (sys_p, usr_p),
-                    {"chapter_no": no, "chapter_title": ch.get("title", ""), "chapter_text": ch["text"][:6000]},
-                    "deconstruct_prescan",
+                    client, model, (sys_c, usr_c),
+                    {
+                        "book_name": task.book_name,
+                        "chapter_no": no,
+                        "chapter_title": ch.get("title", ""),
+                        "chapter_text": ch.get("text", "")[:_CARD_TEXT_LIMIT],
+                    },
+                    "deconstruct_card",
                 )
-                prescan["entries"][no] = data.get("summary", "")
-                prescan["chapters_done"] = len(prescan["entries"])
-                await _patch(task_id, dims_json=json.dumps({"prescan": prescan, "dims": dims}, ensure_ascii=False))
-            prescan["state"] = "completed"
-            await _patch(task_id, dims_json=json.dumps({"prescan": prescan, "dims": dims}, ensure_ascii=False))
+                cards["entries"][no] = data
+                cards["done"] = len(cards["entries"])
+                await _patch(task_id, dims_json=json.dumps({"cards": cards, "dims": dims}, ensure_ascii=False))
+            cards["state"] = "completed"
+            await _patch(task_id, dims_json=json.dumps({"cards": cards, "dims": dims}, ensure_ascii=False))
 
-        full_synopsis = "\n".join(
-            f"第{no}章 {summary}" for no, summary in sorted(prescan.get("entries", {}).items(), key=lambda kv: int(kv[0] or 0))
-        )
+        full_synopsis = _synopses(cards)
 
-        # ── 阶段二：十维度 map-reduce（勾选集；completed 跳过＝断点续拆）──
-        products: dict[str, str] = {}
+        # ── 阶段二：分维度分级归并（勾选集；completed 跳过＝断点续拆）──
+        products: dict[str, dict] = {}
         try:
             products = json.loads((await _load_task(task_id)).products_json or "{}")
         except (ValueError, AttributeError):
             pass
+        names = dim_names()
         for dim in DIMENSION_KEYS:
             if dim not in selected:
                 continue
@@ -260,53 +281,80 @@ async def run_task(task_id: str) -> None:
             if dstate.get("state") == "completed" and dim in products:
                 continue
             sys_m, usr_m = load_layers(f"deconstruct_{dim}")
-            segs = _segments(chapters)
-            dstate.update({"state": "running", "seg_total": len(segs), "seg_done": 0, "error": ""})
+            pairs = [
+                (no, line)
+                for no, card in sorted(cards["entries"].items(), key=lambda kv: int(kv[0] or 0))
+                if (line := _card_frag(no, card, dim))
+            ]
+            batches = _pack_pairs(pairs, CARD_BATCH_CHARS)
+            dstate.update({"state": "running", "seg_done": 0, "seg_total": len(batches), "error": ""})
             dims[dim] = dstate
-            await _patch(task_id, dims_json=json.dumps({"prescan": prescan, "dims": dims}, ensure_ascii=False))
+            await _patch(task_id, dims_json=json.dumps({"cards": cards, "dims": dims}, ensure_ascii=False))
 
             partials: list[str] = []
-            for i, seg in enumerate(segs):
+            for i, batch in enumerate(batches):
                 await _check_cancel(task_id)
-                ch_from, ch_to = seg[0].get("no", 1), seg[-1].get("no", 1)
-                excerpts = "\n\n".join(_excerpt(c) for c in seg)
+                ch_from, ch_to = batch[0][0] if batch else "1", batch[-1][0] if batch else "1"
                 data = await _call_with_retry(
                     client, model, (sys_m, usr_m),
-                    {"book_name": task.book_name, "genre_or_unknown": "unknown",
-                     "full_synopsis": full_synopsis[:12000], "seg_range": f"第{ch_from}-{ch_to}章",
-                     "excerpts": excerpts[:20000]},
+                    {
+                        "book_name": task.book_name, "genre_or_unknown": "unknown",
+                        "full_synopsis": full_synopsis[:_SYNOPSIS_CAP],
+                        "seg_range": f"第{ch_from}-{ch_to}章",
+                        "excerpts": "\n".join(line for _, line in batch),
+                    },
                     f"deconstruct_{dim}",
                 )
-                partials.append(f"【覆盖第{ch_from}-{ch_to}章】\n" + json.dumps(data, ensure_ascii=False))
+                partials.append(json.dumps(data, ensure_ascii=False))
                 dstate["seg_done"] = i + 1
                 dims[dim] = dstate
-                await _patch(task_id, dims_json=json.dumps({"prescan": prescan, "dims": dims}, ensure_ascii=False))
+                await _patch(task_id, dims_json=json.dumps({"cards": cards, "dims": dims}, ensure_ascii=False))
 
-            await _check_cancel(task_id)
-            if len(partials) == 1:
-                final = _parse_json_response(partials[0].partition("】\n")[2]) if "】" in partials[0] else json.loads(partials[0])
-            else:
+            # 树收敛：多批产物反复合并直到单份（无头尾截断＝任意长度零丢失）
+            if len(partials) > 1:
                 sys_r, usr_r = load_layers("deconstruct_reduce")
-                final = await _call_with_retry(
-                    client, model, (sys_r, usr_r),
-                    {"dim_name": dim, "partials": "\n\n".join(partials)[:40000]},
-                    f"deconstruct_{dim}_reduce",
-                )
+                while len(partials) > 1:
+                    await _check_cancel(task_id)
+                    groups = _pack_units(partials, MERGE_INPUT_CAP)
+                    if len(groups) >= len(partials):
+                        # 每份都超单组预算：两两配对保底收敛
+                        groups = [partials[i : i + 2] for i in range(0, len(partials), 2)]
+                    nxt: list[str] = []
+                    dstate["seg_total"] += len(groups)
+                    for group in groups:
+                        if len(group) == 1:
+                            nxt.append(group[0])
+                            continue
+                        await _check_cancel(task_id)
+                        merged = await _call_with_retry(
+                            client, model, (sys_r, usr_r),
+                            {"dim_name": names[dim], "partials": "\n\n".join(group)},
+                            f"deconstruct_{dim}_reduce",
+                        )
+                        nxt.append(json.dumps(merged, ensure_ascii=False))
+                        dstate["seg_done"] += 1
+                        dims[dim] = dstate
+                        await _patch(
+                            task_id, dims_json=json.dumps({"cards": cards, "dims": dims}, ensure_ascii=False)
+                        )
+                    partials = nxt
+
+            final = _parse_json_response(partials[0]) if partials else {}
             covered = f"第1-{task.chapter_count}章" if task.chapter_count else "全本"
             products[dim] = {
                 "file": _dim_filename(dim),
                 "data": final,
-                "md": _render_md(dim_names()[dim], final, task.book_name, covered),
+                "md": _render_md(names[dim], final, task.book_name, covered),
             }
             dstate["state"] = "completed"
             dims[dim] = dstate
             await _patch(
                 task_id,
-                dims_json=json.dumps({"prescan": prescan, "dims": dims}, ensure_ascii=False),
+                dims_json=json.dumps({"cards": cards, "dims": dims}, ensure_ascii=False),
                 products_json=json.dumps(products, ensure_ascii=False),
             )
     except _Cancelled:
-        await _patch(task_id, finished_at=_now_iso())
+        await _patch(task_id, finished_at=_now())
         return
     except PromptPackMissing as e:
         await _fail(task_id, error={"message": f"写作能力包缺少拆书模板：{e}", "kind": "prompts_missing"})
@@ -315,7 +363,7 @@ async def run_task(task_id: str) -> None:
         await _fail(task_id, error={"message": str(e)[:500], "kind": "pipeline"})
         return
 
-    await _patch(task_id, status="completed", finished_at=_now_iso())
+    await _patch(task_id, status="completed", finished_at=_now())
 
 
 async def _fail(task_id: str, error: dict) -> None:
@@ -323,7 +371,7 @@ async def _fail(task_id: str, error: dict) -> None:
         task_id,
         status="failed",
         error_json=json.dumps(error, ensure_ascii=False),
-        finished_at=_now_iso(),
+        finished_at=_now(),
     )
 
 

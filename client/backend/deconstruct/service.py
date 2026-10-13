@@ -82,7 +82,7 @@ async def create_task(
         selected_dims_json=json.dumps(selected_dims, ensure_ascii=False),
         dims_json=json.dumps(
             {
-                "prescan": {"state": "queued", "chapters_done": 0},
+                "cards": {"state": "queued", "done": 0, "entries": {}},
                 "dims": {
                     k: {"state": "queued", "seg_done": 0, "seg_total": 0, "error": ""}
                     for k in selected_dims
@@ -153,6 +153,13 @@ def _dims_state(task: DeconstructJob) -> dict:
         return {}
 
 
+def _cards_state(task: DeconstructJob) -> dict:
+    try:
+        return json.loads(task.dims_json or "{}").get("cards", {})
+    except ValueError:
+        return {}
+
+
 def task_view(task: DeconstructJob) -> dict:
     """详情视图：全量（含 dims/products 元信息，不含产物正文）。"""
     product_meta = [
@@ -178,6 +185,11 @@ def task_view(task: DeconstructJob) -> dict:
         "ai_model": task.ai_model,
         "api_config_id": task.api_config_id,
         "selected_dims": selected,
+        "cards": {
+            "state": str(_cards_state(task).get("state", "queued")),
+            "done": int(_cards_state(task).get("done", 0) or 0),
+            "total": task.chapter_count,
+        },
         "dims": _dims_state(task),
         "products": product_meta,
         "error": _first_error(task),
