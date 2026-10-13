@@ -48,6 +48,14 @@
 - [x] 7.6 P2：dispatcher env 开关（测试禁真轮询线程）；DELETE 拒 running；retry-upload 上限前置（块累计）；selected_dims 坏 JSON 400；datetime 统一 UTC；徽标排除已建书
 - [x] 7.7 P2：轮询 hook 改 React Query refetchInterval＋failRef 守卫（fetchFailureCount 每 interval 重置不合守卫语义，实测后换 ref）；console.log 清理
 
+## 7b. 二轮评审修复（2026-10-13，review-agent 全 diff 扫）
+
+- [x] 7b.1 P2：文件夹出口落「已取」标记——新增 exported_at 列＋导出成功落笔＋badge done_unpicked 收窄（book_id 与 exported_at 双空才计数）
+- [x] 7b.2 P2：书名输入框 readOnly 与 label「可改」相悖——改可编辑（bookName 提升 state，换文件重置）
+- [x] 7b.3 P2：apply no_power 死表达式（`... and False` 恒假）——按 P1-2 口径重写为「无超凡/原文未明确」双标记匹配＋双臂测试
+- [x] 7b.4 P3 六处：selected_dims 坏 JSON 500→400；queued_ahead 按仍 queued 行计数（空洞不虚高）；started_at 在 _claim 落笔；删死代码 pipeline.resume_task；清单删除失败显提示；时间列格式化；详情页加载失败分支
+- [x] 7b.5 PR 卫生：剥离 ab2c8757 夹带的两个无关 openspec 变更目录（c-api-config-save-gate／c-polish-v5-diagnostic-gate，工作区保留归原会话）
+
 ## 8. 待办（后续批）
 
 - [ ] 8.1 e2e 全链（隔离栈）
