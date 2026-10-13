@@ -70,7 +70,8 @@ class DeconstructJob(Base):
     book_id: Mapped[str | None] = mapped_column(
         String(36), nullable=True
     )  # 建书幂等键：重复确认返回同一本书
-    # 「已取结果」标记（评审 P3）：任一出口（建书/导出）消费后 badge 不再计数
+    # 「已取结果」标记（评审 P3）：任一出口（建书/导出）消费后 badge 不再计数。
+    # db-per-version 下发版库全新建表；dev 旧形状库（本列之前建的表）直接 DROP 本表重建。
     exported_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
     started_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)

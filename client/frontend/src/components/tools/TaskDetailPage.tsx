@@ -71,7 +71,9 @@ export default function TaskDetailPage() {
     return selectedFiles.filter((f) => settingFiles.includes(f)).length;
   }, [task, selectedFiles]);
 
-  if (taskErr) {
+  // 无数据才出错误屏：refetch 失败时 RQ 保留旧 data——running 态 1.5s 轮询的
+  // 单次网络抖动不该把用户从进度页踢走（二轮评审 P3）。
+  if (taskErr && !task) {
     return (
       <main className="main" data-od-id="tools-detail">
         <div className="notice" role="alert">

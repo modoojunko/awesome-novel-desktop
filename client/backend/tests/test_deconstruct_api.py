@@ -184,15 +184,6 @@ def test_import_book_idempotent_and_clamps(client):
     assert n is not None and n.name == "星海远征"
 
 
-def _run(coro):
-    loop = asyncio.new_event_loop()
-    asyncio.set_event_loop(loop)
-    try:
-        return loop.run_until_complete(coro)
-    finally:
-        loop.close()
-
-
 def test_import_book_requires_completed(client):
     _mk_queued("dec-imp-2")
     r = client.post("/api/deconstruct/tasks/dec-imp-2/import-book")

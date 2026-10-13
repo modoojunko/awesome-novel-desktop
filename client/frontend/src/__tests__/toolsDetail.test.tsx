@@ -88,6 +88,23 @@ describe("TaskDetailPage", () => {
     expect(screen.getByText("返回任务清单")).toBeInTheDocument();
   });
 
+  it("轮询单次失败保留旧数据视图（taskErr&&!task 的 !task 假臂：不踢错误屏）", async () => {
+    state.get.mockReset(); // Vitest4 restoreAllMocks 不清 vi.fn 历史/实现——本用例自管
+    state.get.mockResolvedValueOnce(detailOf("running"));
+    renderPage();
+    await waitFor(() => expect(screen.getByText("取消任务")).toBeInTheDocument());
+    const base = state.get.mock.calls.length;
+    state.get.mockRejectedValueOnce(new Error("net blip"));
+    state.get.mockResolvedValue(detailOf("running")); // 下一拍自愈，避免 undefined 数据态
+    // 等失败的那一拍真实发生（基线后的下一次调用＝1.5s 轮询），再断言仍在进度视图
+    await waitFor(
+      () => expect(state.get.mock.calls.length).toBeGreaterThan(base),
+      { timeout: 5000 },
+    );
+    expect(screen.queryByText("任务加载失败")).not.toBeInTheDocument();
+    expect(screen.getByText("取消任务")).toBeInTheDocument();
+  }, 10000);
+
   it("建书成功：跳新书并关闭弹窗", async () => {
     state.get.mockResolvedValue(detailOf("completed", { book_id: "book-9" }));
     state.importBook.mockResolvedValue({ book_id: "book-9", name: "星海远征", skipped: [], warnings: [] });
