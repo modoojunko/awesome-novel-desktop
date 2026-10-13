@@ -39,6 +39,18 @@ export function normalizeChapterWordTarget(value: unknown): number {
   return rounded;
 }
 
+/** 字数→建议场景条数（c-scene-density）：与后端 chapters/ai_plot.py::plot_count_hint
+ *  同档。交叉对拍闸在 C端 tests/test_shared_constants_parity.py::TestPlotCountHintParity
+ *  （读本源逐字比对——两侧各自的档位测试只锁各自实现，拦不住漂移）。
+ *  ≥2000 字档密度 330–500 字/条、单调爬升，上限钉存储单源 PLOT_MAX_ITEMS=12——
+ *  2500 与 4000 同上限＝档位饱和（2026-10-13 用户否掉），故一路爬到 12。 */
+export function plotCountHint(wordTarget: number): string {
+  if (wordTarget >= 4000) return "10–12 条场景";
+  if (wordTarget >= 3000) return "8–10 条场景";
+  if (wordTarget >= 2000) return "6–8 条场景";
+  return "4–6 条场景";
+}
+
 /** 弹窗保存前校验：空＝回落缺省（放行）；非整数/越界＝用户可读问题文案（拦截保存，
  *  SHALL NOT 静默改写成缺省——与逐章 word_target 的拦截口径一致，评审 2026-10-10）。 */
 export function chapterWordTargetIssue(raw: string): string | null {

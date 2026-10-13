@@ -229,6 +229,32 @@ def test_should_refresh_stored_prompt():
     assert should_refresh_stored_prompt(polished, ctx) is False
 
 
+def test_should_refresh_scene_share_anchor():
+    """c-scene-density 评审（产品：存量行缺「字数与场景分量」节会绕过分量链）：
+    本轮会出分量节而存量缺锚 → 重组取代；本轮也不出 → 不白重组。"""
+    from write.chapter_writer import ChapterContext, should_refresh_stored_prompt
+
+    old_line = "## 当前章节\n章纲：旧稿"
+    ctx = ChapterContext()
+    ctx.word_target = 2500
+    ctx.plot_items = ["一", "二", "三", "四", "五"]
+    assert should_refresh_stored_prompt(old_line, ctx) is True
+    # 存量已含锚（新代际）→ False
+    assert (
+        should_refresh_stored_prompt(old_line + "\n## 字数与场景分量\n…", ctx) is False
+    )
+    # 本轮不发分量行（均摊<200）→ 重组无收益 → False
+    thin = ChapterContext()
+    thin.word_target = 600
+    thin.plot_items = ["一", "二", "三", "四"]
+    assert should_refresh_stored_prompt(old_line, thin) is False
+    # 无条数章（首草稿）→ False（与旧行为一致）
+    assert should_refresh_stored_prompt(old_line, ChapterContext()) is False
+    # 润色稿照旧不动（作者资产，两分支同罩）
+    polished = "## 任务指示\n旧润色。\n## 红线\n无。\n## 质感\n细节。"
+    assert should_refresh_stored_prompt(polished, ctx) is False
+
+
 # ── 预算与占位符守卫（纯 ChapterContext）─────────────────────────────────
 
 

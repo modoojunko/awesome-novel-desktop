@@ -451,3 +451,56 @@ describe("归档章章纲只读（c-archived-readonly）", () => {
     expect(screen.getByTestId("og-view")).toBeInTheDocument();
   });
 });
+
+describe("抽卡携带表单字数（c-scene-density 联动）", () => {
+  it("表单填了 4000：ai-draw 请求体带 word_target=4000（页面显示什么，模型收到什么）", async () => {
+    mockApi.post.mockResolvedValue(THREE);
+    const { railData } = mount({ server: { ...FULL } });
+    await waitFor(() => expect(railData()).not.toBeNull());
+    await enterOgEdit();
+    fireEvent.change(document.getElementById("wf-wt")!, {
+      target: { value: "4000" },
+    });
+    await act(async () => {
+      await railData().onPlotDraw();
+    });
+    await waitFor(() =>
+      expect(mockApi.post).toHaveBeenCalledWith(
+        `/novels/p1/chapters/${REF}/plot/ai-draw`,
+        { word_target: 4000 },
+      ),
+    );
+  });
+
+  it("留空不带 word_target 键（回退链交给服务端：存值→本书默认）", async () => {
+    mockApi.post.mockResolvedValue(THREE);
+    const { railData } = mount({ server: { ...FULL } });
+    await waitFor(() => expect(railData()).not.toBeNull());
+    await enterOgEdit();
+    await act(async () => {
+      await railData().onPlotDraw();
+    });
+    await waitFor(() =>
+      expect(mockApi.post).toHaveBeenCalledWith(
+        `/novels/p1/chapters/${REF}/plot/ai-draw`,
+        {},
+      ),
+    );
+  });
+  it("越界值照发（9999）：由服务端 clamp 回落本书默认，与页面提示回落口径同源", async () => {
+    mockApi.post.mockResolvedValue(THREE);
+    const { railData } = mount({ server: { ...FULL } });
+    await waitFor(() => expect(railData()).not.toBeNull());
+    await enterOgEdit();
+    fireEvent.change(document.getElementById("wf-wt")!, { target: { value: "9999" } });
+    await act(async () => {
+      await railData().onPlotDraw();
+    });
+    await waitFor(() =>
+      expect(mockApi.post).toHaveBeenCalledWith(
+        `/novels/p1/chapters/${REF}/plot/ai-draw`,
+        { word_target: 9999 },
+      ),
+    );
+  });
+});

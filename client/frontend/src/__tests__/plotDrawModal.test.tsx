@@ -25,8 +25,9 @@ function Host({
   const draw: PlotDrawController = usePlotDraw("p1", "vol-1-ch-2");
   return (
     <>
-      <button data-testid="open" onClick={draw.openDraw}>开</button>
-      <button data-testid="redraw" onClick={draw.redraw}>换一批</button>
+      <button data-testid="open" onClick={() => draw.openDraw()}>开</button>
+      <button data-testid="open-wt" onClick={() => draw.openDraw(4000)}>开(4000)</button>
+      <button data-testid="redraw" onClick={() => draw.redraw()}>换一批</button>
       <button data-testid="close" onClick={draw.close}>关</button>
       <span data-testid="phase">{draw.state.phase}</span>
       <span data-testid="pick">{draw.state.pick == null ? "-" : String(draw.state.pick)}</span>
@@ -108,6 +109,24 @@ describe("三版抽卡弹窗（c-plot-split）", () => {
     await waitFor(() => expect(screen.getByTestId("plot-grid")).toBeInTheDocument());
     expect(screen.getByTestId("pick")).toHaveTextContent("-");
     expect(screen.getByTestId("plot-adopt")).toBeDisabled();
+  });
+
+  it("开抽带 4000 后换一批：请求体仍带 word_target=4000（评审阻断修捕手）", async () => {
+    mockApi.post.mockClear();
+    mockApi.post.mockResolvedValue(THREE);
+    render(<Host />);
+    fireEvent.click(screen.getByTestId("open-wt"));
+    await waitFor(() => expect(screen.getByTestId("plot-grid")).toBeInTheDocument());
+    fireEvent.click(screen.getByTestId("redraw"));
+    await waitFor(() =>
+      expect(mockApi.post.mock.calls[mockApi.post.mock.calls.length - 1][1]).toEqual({
+        word_target: 4000,
+      }),
+    );
+    // 本用例内恰两次 ai-draw 调用，都带字数：换一批无参沿用、不污染、不丢值
+    // （MouseEvent 进不了被调方——typeof 守卫＋redraw 无参转调双防线）
+    expect(mockApi.post).toHaveBeenCalledTimes(2);
+    expect(mockApi.post.mock.calls[0][1]).toEqual({ word_target: 4000 });
   });
 
   it("关窗后晚到响应不落表（代际守卫丢弃）", async () => {

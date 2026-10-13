@@ -12,7 +12,7 @@
 import { useRef, useState } from "react";
 import { toast } from "@/lib/toast";
 import Modal from "@/components/design/Modal";
-import { CHAPTER_WORD_TARGET_DEFAULT, CHAPTER_WORD_TARGET_MAX, CHAPTER_WORD_TARGET_MIN } from "@/lib/chapterTarget";
+import { CHAPTER_WORD_TARGET_DEFAULT, CHAPTER_WORD_TARGET_MAX, CHAPTER_WORD_TARGET_MIN, plotCountHint } from "@/lib/chapterTarget";
 import type { OgHookHints, HookHint } from "@/lib/hookHints";
 import { hookChipCandidates } from "@/lib/hookHints";
 import { CastHover, RoleTag, type CastInfo } from "./CastHover";
@@ -143,6 +143,17 @@ export default function OgPane({
   const plotIds = useRef<number[]>([]);
   const plotRows = form.plots.length ? form.plots : [""];
   while (plotIds.current.length < plotRows.length) plotIds.current.push(++plotSeq.current);
+  // c-scene-density：按本章生效字数（填了用填值，空/越界回落本书默认）算建议条数——
+  // 字数框与剧情区同步显示，作者拆条前就有「该拆几条」的锚（算法单源后端 plot_count_hint）
+  const parsedWt = parseInt(form.wt, 10);
+  const effWordTarget =
+    Number.isFinite(parsedWt) &&
+    parsedWt >= CHAPTER_WORD_TARGET_MIN &&
+    parsedWt <= CHAPTER_WORD_TARGET_MAX
+      ? parsedWt
+      : defaultWordTarget;
+  const plotHint = plotCountHint(effWordTarget);
+  const filledPlots = form.plots.map((s) => s.trim()).filter(Boolean).length;
   if (plotIds.current.length > plotRows.length) plotIds.current.length = plotRows.length;
 
   const patchPayoff = (i: number, patch: Partial<OgPayoff>) => {
@@ -489,6 +500,7 @@ export default function OgPane({
                 ))}
               </div>
             )}
+            <p className="opt">按本章 {effWordTarget} 字，建议拆 {plotHint}</p>
           </div>
           {gaps.length > 0 && (
             <p className="gap-line">
@@ -927,6 +939,7 @@ export default function OgPane({
                   value={form.wt}
                   onChange={(e) => onPatch({ wt: e.target.value })}
                 />
+                <p className="opt">按本章 {effWordTarget} 字，建议拆 {plotHint}</p>
               </div>
             </div>
           </div>
@@ -937,6 +950,9 @@ export default function OgPane({
           <div className="plot-sec-head">
             <h3>剧情</h3>
             <span className="hint-inline">一条一段 · 每条 200 字以内 · 不填也能写</span>
+            <span className="hint-inline">
+              按本章 {effWordTarget} 字，建议拆 {plotHint}（现 {filledPlots} 条）
+            </span>
           </div>
           <div className="pi-list">
             {plotRows.map((t, i) => (
