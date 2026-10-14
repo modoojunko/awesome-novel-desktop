@@ -250,7 +250,7 @@ async def run_task(task_id: str) -> None:
         if cards.get("state") != "completed":
             cards.setdefault("entries", {})
             cards["state"] = "running"
-            await _patch(task_id, dims_json=json.dumps({"cards": cards, "dims": dims}, ensure_ascii=False))
+            await _patch(task_id, dims_json=_state_json(state, cards=cards, dims=dims))
             sys_c, usr_c = load_layers("deconstruct_card")
             for ch in chapters:
                 await _check_cancel(task_id)
@@ -269,9 +269,9 @@ async def run_task(task_id: str) -> None:
                 )
                 cards["entries"][no] = data
                 cards["done"] = len(cards["entries"])
-                await _patch(task_id, dims_json=json.dumps({"cards": cards, "dims": dims}, ensure_ascii=False))
+                await _patch(task_id, dims_json=_state_json(state, cards=cards, dims=dims))
             cards["state"] = "completed"
-            await _patch(task_id, dims_json=json.dumps({"cards": cards, "dims": dims}, ensure_ascii=False))
+            await _patch(task_id, dims_json=_state_json(state, cards=cards, dims=dims))
 
         full_synopsis = _synopses(cards)
 
@@ -298,7 +298,7 @@ async def run_task(task_id: str) -> None:
             batches = _pack_pairs(pairs, CARD_BATCH_CHARS)
             dstate.update({"state": "running", "seg_done": 0, "seg_total": len(batches), "error": ""})
             dims[dim] = dstate
-            await _patch(task_id, dims_json=json.dumps({"cards": cards, "dims": dims}, ensure_ascii=False))
+            await _patch(task_id, dims_json=_state_json(state, cards=cards, dims=dims))
 
             partials: list[str] = []
             for i, batch in enumerate(batches):
@@ -317,7 +317,7 @@ async def run_task(task_id: str) -> None:
                 partials.append(json.dumps(data, ensure_ascii=False))
                 dstate["seg_done"] = i + 1
                 dims[dim] = dstate
-                await _patch(task_id, dims_json=json.dumps({"cards": cards, "dims": dims}, ensure_ascii=False))
+                await _patch(task_id, dims_json=_state_json(state, cards=cards, dims=dims))
 
             # 树收敛：多批产物反复合并直到单份（无头尾截断＝任意长度零丢失）
             if len(partials) > 1:
@@ -344,7 +344,7 @@ async def run_task(task_id: str) -> None:
                         dstate["seg_done"] += 1
                         dims[dim] = dstate
                         await _patch(
-                            task_id, dims_json=json.dumps({"cards": cards, "dims": dims}, ensure_ascii=False)
+                            task_id, dims_json=_state_json(state, cards=cards, dims=dims)
                         )
                     partials = nxt
 
@@ -359,7 +359,7 @@ async def run_task(task_id: str) -> None:
             dims[dim] = dstate
             await _patch(
                 task_id,
-                dims_json=json.dumps({"cards": cards, "dims": dims}, ensure_ascii=False),
+                dims_json=_state_json(state, cards=cards, dims=dims),
                 products_json=json.dumps(products, ensure_ascii=False),
             )
     except _Cancelled:
@@ -400,6 +400,15 @@ async def _load_chapters(task: DeconstructJob) -> list[dict]:
         raw = f.read()
     text, _ = decode_text(raw)
     return parse_novel(text)["chapters"]
+
+
+def _state_json(state: dict, *, cards: dict, dims: dict) -> str:
+    """dims_json 全量落库：**保留未知顶键**——评审 P0：阶段三 graph 归一化缓存（及未来新段）
+    不得被卡片/维度边界的 patch 抹掉；管线为 dims_json 唯一写者。"""
+    out = dict(state)
+    out["cards"] = cards
+    out["dims"] = dims
+    return json.dumps(out, ensure_ascii=False)
 
 
 async def _read_dims(task_id: str) -> dict:

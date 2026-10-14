@@ -351,3 +351,30 @@ def test_run_task_cards_use_head_tail_clip(monkeypatch):
     assert "首" * 3900 in sent and "尾" * 1900 in sent
     assert "埋" not in sent and "中略" in sent  # 中段丢、显式标注
     assert _load("p-clip").status == "completed"
+
+
+def test_state_roundtrip_preserves_unknown_keys(monkeypatch):
+    """评审 P0：dims_json 未知顶键（阶段三 graph 缓存）不被卡片/维度 patch 抹掉。"""
+    from deconstruct import pipeline
+
+    _stub_layers(monkeypatch)
+    card1 = {"summary": "梗概1", "world": [{"name": "地1", "note": "n"}], "characters": [],
+             "intro": [], "genre": [], "relations": [], "mainplot": [], "structure": [],
+             "style": [], "techniques": [], "foreshadow": []}
+    seed = json.dumps({
+        # 卡片未完成但本章已在 entries → 走卡片边界 patch；再走维度全链 patch
+        "cards": {"state": "running", "done": 1, "entries": {"1": card1}},
+        "dims": {"world": {"state": "queued", "seg_done": 0, "seg_total": 0, "error": ""}},
+        "graph": {"sentinel": True},  # 阶段三缓存占位：任何 patch 后都必须原样存在
+    })
+    client = FakeClient({"deconstruct_world": _seen_handler("world")})
+    _stub_client(monkeypatch, client)
+    _mk_job("p-keep", selected=["world"], chapters=1, dims_json=seed)
+
+    _run(pipeline.run_task("p-keep"))
+    t = _load("p-keep")
+    assert t.status == "completed"
+    state = json.loads(t.dims_json)
+    assert state["graph"] == {"sentinel": True}  # 未知顶键存活
+    assert state["cards"]["state"] == "completed"
+    assert state["dims"]["world"]["state"] == "completed"
