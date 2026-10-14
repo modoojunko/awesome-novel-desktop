@@ -83,13 +83,15 @@
 
 ## 10. 图谱并入 #842（2026-10-14 用户拍板；三路评审两轮意见已吸收；开工按此序）
 
-- [ ] 10.0 真值与契约冻结闸：原型 v1–v7＋graph.json 伴侣件、拆书 v9 稿入库本分支（现均未跟踪）；查看器生产模板落 `client/backend/deconstruct/assets/graph_viewer.html`（唯一 token 注入；原型 chrome 文案清零；v7 头注/契约串版本自洽修正）；契约正身抽 schema 落 `docs/design-c/contracts/deconstruct-graph-6.schema.json`＋变更史表；流程钉死：图谱面后续任何变更＝先 openspec update-change 改 spec/D8 再动码，additive 不升版、破坏性升 graph/7 写迁移
-- [ ] 10.1 提示词仓：card 加 places/presence（插 characters 后；卡内自查句；禁补专名）；十维度模板加关系专款（原文→relTypes 映射/同义归户/方向）；新模板 deconstruct_place（地点归并：别名保守并户＋parent 只认隶属直陈）；sync/publish/pins 12→13＋六枚新钉；card max_tokens 按 operation 预算上调
-- [ ] 10.1a presence 熔断 spike：真书 20 章跑批（在场覆盖率/错并户/token 实测增量），过关进 10.2；不过关切轻量 presence 模板预案
-- [ ] 10.2 装配器 `deconstruct/graph.py`（管线阶段三，置 completed 前）：cards＋归并终稿＋一次归一化调用→`dims_json["graph"]` 缓存（append-only、id 永不重排）；events＝mainplot arcs 投影（at=区间 presence 众数、members=区间在场∩提及名；无 arcs→[]＋warning）；parent 传递闭包＋环检测；三查 lint＋quote 原文回验（模糊）＋形状防御（复用 apply 口径，噪声计数入 warnings）；run_task round-trip 保留未知顶键（管线唯一写者）＋「graph 段落笔后继续拆章不被抹」回归例
-- [ ] 10.3 渲染器：layout 计算住 graph.py 产物、html/svg 共读 layout 块；html 模板＝后端静态资产 token 替换（禁 .format）；模型文本全转义/textContent（对抗夹具：`</script>`、U+2028、img onerror）；原型 chrome grep 断言清零；CJK 字体栈保留、svg 自带同栈；golden 同输入同字节（禁 wall-clock）；阅读过滤器 ego＋TopN（实现裁量，spec 文字为准绳）
-- [ ] 10.4 导出链：files 语义仍＝md（.md 白名单不扩）；三件套＋清单无条件随包、内存装配先行失败零写入、清单最后写；.bak 轮转＋响应 backups[]；图谱导出总开关（env 默认开，关＝md＋README 回落）＋关径用例；README「正身副本不回流」段；badge 零改动说明
-- [ ] 10.5 能力戳：创建时探测 card 契约含 presence→caps 记任务行（receipt 版本≥13 模板首发）；导出/降级只认戳；无 caps 创建页 warn（不拦截）——**取代 tasks 4.4「不升 min_pack_version」口径**
-- [ ] 10.6 前端：task_view.graph{available,files?,warnings?,completion?} 可选字段；横幅三元（available 真→含三件套文案，假/缺省→现文案）；目录树三件套不可勾三行＋警告注记；导出摘要文案；.bak backups[] 上浮；product_count 语义钉＝md 数；vitest 三夹具（available 真/缺省/导出契约锁「仅 md 文件名」）＋两页文案
+- [x] 10.0 真值与契约冻结闸：原型 v1–v7＋graph.json 伴侣件、拆书 v9 稿入库本分支（现均未跟踪）；查看器生产模板落 `client/backend/deconstruct/assets/graph_viewer.html`（唯一 token 注入；原型 chrome 文案清零；v7 头注/契约串版本自洽修正）；契约正身抽 schema 落 `docs/design-c/contracts/deconstruct-graph-6.schema.json`＋变更史表；流程钉死：图谱面后续任何变更＝先 openspec update-change 改 spec/D8 再动码，additive 不升版、破坏性升 graph/7 写迁移
+- [x] 10.1 提示词仓：card 加 places/presence（插 characters 后；卡内自查句；禁补专名）；十维度模板加关系专款（原文→relTypes 映射/同义归户/方向）；新模板 deconstruct_place（地点归并：别名保守并户＋parent 只认隶属直陈）；sync/publish/pins 12→13＋六枚新钉；card max_tokens 按 operation 预算上调
+- [ ] 10.1a presence 熔断 spike（挂待执行：需真书＋真 key，投产前人工）：真书 20 章跑批（在场覆盖率/错并户/token 实测增量），过关进 10.2；不过关切轻量 presence 模板预案
+- [x] 10.2 装配器 `deconstruct/graph.py`（管线阶段三，置 completed 前）：cards＋归并终稿＋一次归一化调用→`dims_json["graph"]` 缓存（append-only、id 永不重排）；events＝mainplot arcs 投影（at=区间 presence 众数、members=区间在场∩提及名；无 arcs→[]＋warning）；parent 传递闭包＋环检测；三查 lint＋quote 原文回验（模糊）＋形状防御（复用 apply 口径，噪声计数入 warnings）；run_task round-trip 保留未知顶键（管线唯一写者）＋「graph 段落笔后继续拆章不被抹」回归例
+- [x] 10.3 渲染器：layout 计算住 graph.py 产物、html/svg 共读 layout 块；html 模板＝后端静态资产 token 替换（禁 .format）；模型文本全转义/textContent（对抗夹具：`</script>`、U+2028、img onerror）；原型 chrome grep 断言清零；CJK 字体栈保留、svg 自带同栈；golden 同输入同字节（禁 wall-clock）；阅读过滤器 ego＋TopN（实现裁量，spec 文字为准绳）
+- [x] 10.4 导出链：files 语义仍＝md（.md 白名单不扩）；三件套＋清单无条件随包、内存装配先行失败零写入、清单最后写；.bak 轮转＋响应 backups[]；图谱导出总开关（env 默认开，关＝md＋README 回落）＋关径用例；README「正身副本不回流」段；badge 零改动说明
+- [x] 10.5 能力戳：创建时探测 card 契约含 presence→caps 记任务行（receipt 版本≥13 模板首发）；导出/降级只认戳；无 caps 创建页 warn（不拦截）——**取代 tasks 4.4「不升 min_pack_version」口径**
+- [x] 10.6 前端：task_view.graph{available,files?,warnings?,completion?} 可选字段；横幅三元（available 真→含三件套文案，假/缺省→现文案）；目录树三件套不可勾三行＋警告注记；导出摘要文案；.bak backups[] 上浮；product_count 语义钉＝md 数；vitest 三夹具（available 真/缺省/导出契约锁「仅 md 文件名」）＋两页文案
 - [ ] 10.7 全量门禁：装配器 golden（自生成冻结）＋查看器 fixture＝v7 JSON＋降级链三例＋噪声注入＋400 结构异常臂＋.bak 轮转臂＋开关关径臂；pytest/ruff/vitest/coverage/tsc/prompts lint+pytest；**具名真书走查**：开发者 2–3 本 60 万字真书跑批（过滤器走查＋完成度/警告统计），结论＋导出物入 10.8 评审记录
 - [ ] 10.8 评审与交付：Code Reviewer 全量 diff（图谱面重点）；PR 标题/描述改「文档＋图谱」完整体并写明发布编排（13 模板包发布完成前不发含图谱客户端）；作者侧三题验收撤为发版后观察项（无作者池即时执行）
+
+- 开工进展（2026-10-14）：10.0–10.6 全落地（卡 a1323d3/0c7452e7→8d23c059→a420fa01→31411bd4→36254fe7→10.6 在途提交）；10.1a 熔断 spike 与 10.7 真书走查为**人工项**（需真书＋真实 key，投产前执行，判据：在场覆盖率≥97%／token 实测）；10.8 二轮评审（Code Reviewer 全量 diff）待发。
