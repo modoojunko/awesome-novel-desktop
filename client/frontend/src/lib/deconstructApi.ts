@@ -72,23 +72,23 @@ export const DECONSTRUCT_DIMS: { key: string; name: string; file: string; settin
 ];
 
 export async function listDeconstructTasks(): Promise<DeconstructTaskListResp> {
-  return request<DeconstructTaskListResp>("/api/deconstruct/tasks");
+  return request<DeconstructTaskListResp>("/deconstruct/tasks");
 }
 
 export async function getDeconstructTask(id: string): Promise<DeconstructTaskDetail> {
-  return request<DeconstructTaskDetail>(`/api/deconstruct/tasks/${id}`);
+  return request<DeconstructTaskDetail>(`/deconstruct/tasks/${id}`);
 }
 
 export async function cancelDeconstructTask(id: string): Promise<void> {
-  await request(`/api/deconstruct/tasks/${id}/cancel`, { method: "POST" });
+  await request(`/deconstruct/tasks/${id}/cancel`, { method: "POST" });
 }
 
 export async function deleteDeconstructTask(id: string): Promise<void> {
-  await request(`/api/deconstruct/tasks/${id}`, { method: "DELETE" });
+  await request(`/deconstruct/tasks/${id}`, { method: "DELETE" });
 }
 
 export async function resumeDeconstructTask(id: string): Promise<{ status: string }> {
-  return request(`/api/deconstruct/tasks/${id}/resume`, { method: "POST" });
+  return request(`/deconstruct/tasks/${id}/resume`, { method: "POST" });
 }
 
 export async function retryUploadDeconstructTask(id: string, file: File): Promise<{ status: string }> {
@@ -115,7 +115,7 @@ export async function retryUploadDeconstructTask(id: string, file: File): Promis
 export async function importBookFromTask(
   id: string,
 ): Promise<{ book_id: string; name: string; skipped: string[]; warnings: string[] }> {
-  return request(`/api/deconstruct/tasks/${id}/import-book`, { method: "POST" });
+  return request(`/deconstruct/tasks/${id}/import-book`, { method: "POST" });
 }
 
 export async function exportTaskProducts(
@@ -123,7 +123,7 @@ export async function exportTaskProducts(
   destDir: string,
   files: string[],
 ): Promise<{ written: string[]; readme: string; dest: string; graph?: string[]; backups?: string[] }> {
-  return request(`/api/deconstruct/tasks/${id}/export`, {
+  return request(`/deconstruct/tasks/${id}/export`, {
     method: "POST",
     body: JSON.stringify({ dest_dir: destDir, files }),
   });
