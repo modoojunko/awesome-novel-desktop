@@ -17,6 +17,7 @@ from models.chapter import (
     ChapterVersion,
 )
 from models.character import Character, CharacterGate, CharacterOp, CharacterRelation
+from models.deconstruct import DeconstructJob
 from models.event import Event
 from models.genre import Genre
 from models.hook import HookOp, NovelHook
@@ -56,6 +57,7 @@ __all__ = [
     "CharacterGate",
     "CharacterOp",
     "CharacterRelation",
+    "DeconstructJob",
     "Event",
     "Genre",
     "GenreVocab",

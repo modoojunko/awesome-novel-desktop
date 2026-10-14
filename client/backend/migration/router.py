@@ -53,6 +53,10 @@ HISTORY_LIMIT = 20
 # 当前库——下一版建新库时键天然不存在＝自动重开；搬完（migration.last 完整达成）
 # 亦由 _record_completion 清除。旧 dismissed 键不再参与抑制（存量用户不被永久静默）。
 SNOOZE_KEY = "migration.snoozed"
+# 完成回执已阅键（c-carry-receipt-ack）：值＝被 × 收起的完成回执候选 stamp。
+# 与 snoozed 同纪律：绑当前库 app_meta（下一版建新库天然重评估）；绑候选身份指纹，
+# 源数据件变化＝新一次迁移，回执自然重开（不吞新数据的对拍同 SNOOZE_KEY）。
+RECEIPT_ACK_KEY = "migration.receipt_acked"
 
 
 class StartBody(BaseModel):
@@ -187,9 +191,12 @@ async def candidates():
         except json.JSONDecodeError:
             pass
     snoozed_stamp = _app_meta_value(SNOOZE_KEY) or ""
-    # 呈现状态三字段（c-lossless-upgrade / c-carry-degrade-remigrate）：carried＝
-    # 已带回（完整才算）；carried_partial＝曾带回但不完整（不自动重弹整卡）；
-    # suppressed＝被「本版不再提醒」抑制（snoozed 绑 stamp；不完整 last 永不抑制）。
+    acked_stamp = _app_meta_value(RECEIPT_ACK_KEY) or ""
+    # 呈现状态四字段（c-lossless-upgrade / c-carry-degrade-remigrate /
+    # c-carry-receipt-ack）：carried＝已带回（完整才算）；carried_partial＝曾带回但
+    # 不完整（不自动重弹整卡）；suppressed＝被「本版不再提醒」抑制（snoozed 绑
+    # stamp；不完整 last 永不抑制）；receipt_acked＝完成回执被用户收起过（× 持久化，
+    # 刷新/重开不再复现；数据件变化＝新一次迁移，对拍不命中即重开）。
     # 对拍按双形态：现行指纹（数据件）或旧三件套指纹（c-carry-modal-reshow——升级前
     # 写入的记录可能编着 -shm 分量）任一命中即同一源；数据件变了两者都不命中。
     for it in items:
@@ -198,6 +205,7 @@ async def candidates():
         it["carried_partial"] = (not it["carried"]) and done_partial \
             and done_stamp in stamps
         it["suppressed"] = it["carried"] or snoozed_stamp in stamps
+        it["receipt_acked"] = bool(acked_stamp) and acked_stamp in stamps
         # 只读清单只挂 recommended（免登端点返回面收敛；密钥永不返回）
         if it.get("recommended") and not it["unreadable"]:
             it["manifest"] = candidate_manifest(root / it["filename"])
@@ -460,6 +468,25 @@ async def dismiss(body: DismissBody):
     if p is None or not p.exists():
         return {"code": 1, "msg": "文件不存在"}
     await _set_app_meta(SNOOZE_KEY, candidate_stamp(body.filename, p))
+    return {"code": 0}
+
+
+@router.post("/receipt-ack")
+async def receipt_ack(body: DismissBody):
+    """完成回执「收起」（c-carry-receipt-ack）——持久化已阅态。
+
+    用户报修：完成提示条点 × 后刷新即复现（原实现只改组件内 state）。× 语义改为
+    「收起并记住」：写 RECEIPT_ACK_KEY（绑候选 stamp），candidates 据此置
+    receipt_acked，前端不再渲染完成行；下次打开也不复现。数据件变化＝新一次迁移，
+    指纹对拍不命中，回执重开。校验/存储纪律与 /dismiss 同源（白名单 + app_meta）。
+    """
+    from db_lifecycle import validate_candidate_filename
+
+    p = validate_candidate_filename(Path(DATA_ROOT), body.filename, _active_db_path(),
+                                    allow_sentinel=True)
+    if p is None or not p.exists():
+        return {"code": 1, "msg": "文件不存在"}
+    await _set_app_meta(RECEIPT_ACK_KEY, candidate_stamp(body.filename, p))
     return {"code": 0}
 
 

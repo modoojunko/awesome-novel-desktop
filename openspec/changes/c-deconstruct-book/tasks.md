@@ -1,0 +1,99 @@
+# Tasks
+
+## 1. 后端：任务域骨架
+
+- [x] 1.1 全局库新表 `deconstruct_jobs`（含 user_id、(status,queue_seq) 索引）＋ models 注册＋迁移：升 CLIENT_VERSION、版本库搬运清单核验、upgrade_drill 跑绿（dev 哨兵库首启 mismatch 属预期）
+- [x] 1.2 `deconstruct/` 域目录：`router.py`/`service.py`/`pipeline.py`/`textparse.py`/`apply.py`
+- [x] 1.3 端点：POST /api/deconstruct/tasks（multipart ≤50MB：Content-Length 预检＋块累计双检、流式落盘 staging）、GET /tasks（含位次，心跳/徽标由此派生）、GET /{id}、POST /{id}/cancel、POST /{id}/resume、POST /{id}/retry-upload、POST /{id}/import-book、POST /{id}/export、DELETE /{id}；探针**复用** POST /api/configs/{id}/test（model 覆盖），不新增端点
+- [x] 1.4 dispatcher：常驻 daemon 线程自带 loop＋进程内单例守卫；启动 sweep（running 无线程→failed(interrupted)；queued 缺源→need_reupload；有源按 seq 续跑）；cancel 走 jobs 表列、段边界检查；逻辑拆为可直调函数（pytest 不触发 lifespan）
+- [x] 1.5 路由按 user 过滤，风格对齐既有 routers
+
+## 2. 后端：解析与管线
+
+- [x] 2.1 **新建** `textparse.py`：编码探测（utf-8-sig→gb18030→big5，全失败明确报错）＋「第X章/卷」纯文本正则分卷分章＋字数/解析提示统计（仅对齐 importer 数据结构与字数口径，不复用其 markdown 解析）；真实网文 txt 样本（含 GBK、无空行章标题）进夹具
+- [x] 2.2 阶段一 prescan：逐章梗概（模板 deconstruct-prescan，JSON 输出），章号由代码记录入 dims_json
+- [x] 2.3 阶段二十维度 map＋通用 reduce（12 份模板；`_estimate_tokens` 启发式中文≈1.6 字/token 切段窗；摘录代码盖 `【第N章】` 前缀；段级重试 2 次＝内存计数＋dims_json.error 留痕；维度失败即停）
+- [x] 2.4 模型输出 JSON 校验（对每维度 schema）→ 代码渲染 md（front matter＋固定 H2）入 products_json；缺证据标记的条目按维度重试一次
+- [x] 2.5 staging 规则：仅 completed/deleted 清理；failed/cancelled 保留源文件；启动清陈旧 staging
+
+## 3. 后端：出口
+
+- [x] 3.1 `apply.import_book`：幂等（task.book_id）→ create_project（满额错误上浮）→ 勾中维度写入（world KV factions clamp≤6、character_service.create_character 同名 409→改名/role 白名单映射、hooks FK 置空＋章号文本、主线/文风走既有写入）→ 降级清单回传；各维度入口函数名在 apply.py 头注登记（实现时勘探对齐）
+- [x] 3.2 `apply.export`：勾中产物＋README 物化到所选目录，错误分类 disk_full/permission/path
+- [x] 3.3 删除任务：连带 staging 源文件与产物（已导出副本不受影响）；二次确认由前端承担
+
+## 4. 提示词仓（awesome-novel-prompts）
+
+- [x] 4.1 **12 份模板**：`deconstruct-prescan` ＋ 10 份维度 map ＋ 1 份通用 `deconstruct-reduce`；每份 `<<system>>/<<user>>` 分层，system=角色＋三铁律（逐字同句）＋JSON 输出契约，禁自行编号章号；变量清单按评审草案（book_name/genre_or_unknown/full_synopsis/seg_range/excerpts/dim_name/partials…）
+- [x] 4.2 三铁律逐字锚 pins 测试（每份模板断言三句在 system 段）＋ JSON 契约测试过 test_json_contract
+- [x] 4.3 TIER_FREE 登记（free 累积集）＋ `sync.py all`（manifest/README 重生成）＋ `sync.py lint` ＋ 仓 pytest 全绿（本机 venv ≥3.10）
+- [x] 4.4 发布链四步登记进仓 README/任务：build --version → 上传 → S端登记 → verify+smoke → 最后翻 latest.json；双仓 commit 互引 c-deconstruct-book；缺包探测按模板名存在性（不升 min_pack_version）
+
+## 5. 前端
+
+- [x] 5.1 `ToolsMenu` 共享下拉原语（portal+fixed，Esc/点外收起，z-index 压 scrim 下）挂 Navbar；路由 /tools、/tools/deconstruct/new、/tools/deconstruct/:id（Authed 段）
+- [x] 5.2 queryKeys `deconstruct` 键族＋`useDeconstructTasks` 轮询 hook（1.5s＋quiet/stall 守卫，终态停表）；心跳胶囊（非交互 span）与菜单徽标（进行中+排队+已完成未取）
+- [x] 5.3 清单页（六类状态行＋空态引导＋删除二次确认）
+- [x] 5.4 创建页（双子态：未选文件空上传区+创建禁用／已选·解析完成；编码探测回填；模型选择字段复用 ModelPicker＋全局选项 hook；探针门复用 configs test；范围勾选下限 1；隐私/费用/耗时提示）
+- [x] 5.5 详情页三态：进行中（十步进度＋取消）、完成（目录树勾选＋出口弹窗：建书摘要动态 N/7＋导出 N 份）、失败/已取消（错误面板＋续拆＋删除确认）、需重传引导
+- [x] 5.6 文案语气过 design-language §13（动词按钮、出口齐全、info/ok/warn/err）＋ coverage-contract 登记新文件
+
+## 7. PR 评审修复（2026-10-12，Code Reviewer 一轮）
+
+- [x] 7.1 P0：建书消费模型 JSON（products_json 带 data），废除 md 反解（mainplot 静默失效根因）
+- [x] 7.2 P1：world no_power 语义修正（仅「无超凡/原文未明确」置真）；power/cost 条目化；伏笔章号从 JSON 取（plant_ch）
+- [x] 7.3 P1：前端建书成功用返回值 book_id 直达新书设定页
+- [x] 7.4 P1：导出目录接 pywebview pick_folder 桥（手输回落）
+- [x] 7.5 P1：建书幂等先落 book_id（创建成功即记，失败重试不重复建书）
+- [x] 7.6 P2：dispatcher env 开关（测试禁真轮询线程）；DELETE 拒 running；retry-upload 上限前置（块累计）；selected_dims 坏 JSON 400；datetime 统一 UTC；徽标排除已建书
+- [x] 7.7 P2：轮询 hook 改 React Query refetchInterval＋failRef 守卫（fetchFailureCount 每 interval 重置不合守卫语义，实测后换 ref）；console.log 清理
+
+## 7b. 二轮评审修复（2026-10-13，review-agent 全 diff 扫）
+
+- [x] 7b.1 P2：文件夹出口落「已取」标记——新增 exported_at 列＋导出成功落笔＋badge done_unpicked 收窄（book_id 与 exported_at 双空才计数）
+- [x] 7b.2 P2：书名输入框 readOnly 与 label「可改」相悖——改可编辑（bookName 提升 state，换文件重置）
+- [x] 7b.3 P2：apply no_power 死表达式（`... and False` 恒假）——按 P1-2 口径重写为「无超凡/原文未明确」双标记匹配＋双臂测试
+- [x] 7b.4 P3 六处：selected_dims 坏 JSON 500→400；queued_ahead 按仍 queued 行计数（空洞不虚高）；started_at 在 _claim 落笔；删死代码 pipeline.resume_task；清单删除失败显提示；时间列格式化；详情页加载失败分支
+- [x] 7b.5 PR 卫生：剥离 ab2c8757 夹带的两个无关 openspec 变更目录（c-api-config-save-gate／c-polish-v5-diagnostic-gate，工作区保留归原会话）
+- [x] 7b.6 三轮评审（修复批增量）P3×3：exported_at 列注释补 db-per-version 处置口径（实勘全仓无旧形状表，零暴露）；详情页错误分支改 taskErr&&!task（RQ 留旧 data，轮询单次抖动不踢错误屏，含回归用例）；test _run 重复定义删一处
+- [x] 7b.7 单本容量口径明示（用户拍板）：30 万字（约 100 章）一次任务完成——创建页入口文案＋超线 warn 提示（不拦截）＋spec 新 Requirement「单本容量口径」两 Scenario；vitest 1586＋coverage 无缺口＋tsc＋validate
+
+## 8. 待办（后续批）
+
+- [ ] 8.1 e2e 全链（隔离栈）
+- [ ] 8.2 前端「本地解析回填」GBK 大文件极限（浏览器 TextDecoder 内存上限）观测
+- [ ] 8.3 提示词仓发包（build+上传+S端登记+翻 latest.json，随下个发版窗口）
+
+## 6. 测试
+
+- [x] 6.1 后端 pytest：textparse（GBK/纯文本章标题/探测失败）、队列串行与 sweep（直调 dispatcher）、cancel 段边界、管线段级重试与 JSON 校验（模型打桩）、建书清洗降级（同名/clamp/FK 置空）、导出错误分类、缺包引导
+- [x] 6.2 前端 vitest：ToolsMenu、清单行、创建双子态与探针门、模型下拉分组选中、目录树勾选联动摘要、轮询 hook 终态停表
+- [x] 6.3 e2e（隔离栈）：创建→排队→拆解（打桩模型秒级）→完成→导出 全链一条
+- [x] 6.4 全量门禁：client pytest 全绿（2040 passed）＋vitest 全绿（1572 passed）＋ruff＋tsc 零错＋提示词仓 pytest/lint 全绿（90 passed）
+- [x] 6.5 coverage 阈值 100×4 全绿（2026-10-12 收口：探针慢臂/非 Error 臂/JSON 兜底臂/防御回落/勾选加臂全部补测后通过；v8 对 TSX/async 行归属漂移为工具链已知限制，与门禁无关）
+
+## 9. 管线 v2——逐章拆卡＋分级语义归并（2026-10-13 用户拍板）
+
+- [x] 9.1 提示词仓：新建 deconstruct-card（单章十维卡）；十维度模板改「卡片归并口径」（语义去重别名合并／冲突并立降 low／零新增）；reduce 冲突改并存制；prescan 退役；sync CURATED＋publish TIER_FREE＋pins 更名（lint＋90/90 绿）
+- [x] 9.2 后端 pipeline v2：阶段一逐章拆卡（章级断点 entries 复用）；阶段二分维度碎片装箱 L1 归并＋树状收敛（_pack_units 无截断）。行为测试新建 6 例（happy／树收敛零丢失／单元重试／章边界取消／维度失败保留／章级续拆）——并揪出 v1 运行时必崩缺陷：_now_iso 返 str 绑 SQLite DateTime 列即 StatementError（「从未被执行路径」判例三度重演），改 datetime 对象
+- [x] 9.3 service/models：dims_json 形状换 cards 段＋task_view 透出「拆卡 x/y 章」；models docstring 同步
+- [x] 9.4 前端：详情页步骤列表头插「逐章拆卡」步＋维度文案「段」改「归并」＋总进度加权（拆卡 50/归并 50）；容量口径随 v2 上修 30 万→60 万字（约 200 章；截断已废除、残留为梗概注入界），入口文案/warn/spec 三处同步
+- [x] 9.5 spec 重写「十维度拆解管线与断点续拆」为两阶段卡片＋归并，新增章级断点 Scenario；容量 Requirement 改 60 万线；design D1/D3/Non-Goals/Risks 同步
+- [x] 9.6 门禁全绿：后端 2328 passed（含 258 个原 skip 的 prompts 门测试经 v2 模板全量跑通）＋ruff；前端 vitest 1586/1586＋coverage 无缺口＋tsc；提示词仓 lint＋pytest 90；openspec validate 通过
+
+## 10. 图谱并入 #842（2026-10-14 用户拍板；三路评审两轮意见已吸收；开工按此序）
+
+- [x] 10.0 真值与契约冻结闸：原型 v1–v7＋graph.json 伴侣件、拆书 v9 稿入库本分支（现均未跟踪）；查看器生产模板落 `client/backend/deconstruct/assets/graph_viewer.html`（唯一 token 注入；原型 chrome 文案清零；v7 头注/契约串版本自洽修正）；契约正身抽 schema 落 `docs/design-c/contracts/deconstruct-graph-6.schema.json`＋变更史表；流程钉死：图谱面后续任何变更＝先 openspec update-change 改 spec/D8 再动码，additive 不升版、破坏性升 graph/7 写迁移
+- [x] 10.1 提示词仓：card 加 places/presence（插 characters 后；卡内自查句；禁补专名）；十维度模板加关系专款（原文→relTypes 映射/同义归户/方向）；新模板 deconstruct_place（地点归并：别名保守并户＋parent 只认隶属直陈）；sync/publish/pins 12→13＋六枚新钉；card max_tokens 按 operation 预算上调
+- [x] 10.1a presence 熔断 spike（2026-10-14 已执行）：真书《在红海滩变红之前》前 20 章 × GLM-5.3-flash 真机跑批（20/20 卡片成功、where 闭环 100%、token in 76k/out 26k、耗时 648s）——**在场覆盖率 15%，硬指标不达，熔断触发**。归因（逐章量化）：缺席集中在功能级（15/16）与配角（5/21），核心也缺 6 处（主要角色覆盖率 89.5%）——自查句对真书不够硬。**裁决＝切预案：选择性 presence 补写**（缺失检测→轻量补写调用，仅不达标章节触发；新模板 13→14）→ 下一批工程；60 万字真书走查顺延至补写落地后（当前质量下走查是烧钱验证已知问题）。跑批产物 /tmp/spike-report.json＋spike-cards.json。**附带真书判例**：parent 名为别名（白家村）→ 装配 KeyError，已修（parent 经别名索引归一后补户）：真书 20 章跑批（在场覆盖率/错并户/token 实测增量），过关进 10.2；不过关切轻量 presence 模板预案
+- [x] 10.2 装配器 `deconstruct/graph.py`（管线阶段三，置 completed 前）：cards＋归并终稿＋一次归一化调用→`dims_json["graph"]` 缓存（append-only、id 永不重排）；events＝mainplot arcs 投影（at=区间 presence 众数、members=区间在场∩提及名；无 arcs→[]＋warning）；parent 传递闭包＋环检测；三查 lint＋quote 原文回验（模糊）＋形状防御（复用 apply 口径，噪声计数入 warnings）；run_task round-trip 保留未知顶键（管线唯一写者）＋「graph 段落笔后继续拆章不被抹」回归例
+- [x] 10.3 渲染器：layout 计算住 graph.py 产物、html/svg 共读 layout 块；html 模板＝后端静态资产 token 替换（禁 .format）；模型文本全转义/textContent（对抗夹具：`</script>`、U+2028、img onerror）；原型 chrome grep 断言清零；CJK 字体栈保留、svg 自带同栈；golden 同输入同字节（禁 wall-clock）；阅读过滤器 ego＋TopN（实现裁量，spec 文字为准绳）
+- [x] 10.4 导出链：files 语义仍＝md（.md 白名单不扩）；三件套＋清单无条件随包、内存装配先行失败零写入、清单最后写；.bak 轮转＋响应 backups[]；图谱导出总开关（env 默认开，关＝md＋README 回落）＋关径用例；README「正身副本不回流」段；badge 零改动说明
+- [x] 10.5 能力戳：创建时探测 card 契约含 presence→caps 记任务行（receipt 版本≥13 模板首发）；导出/降级只认戳；无 caps 创建页 warn（不拦截）——**取代 tasks 4.4「不升 min_pack_version」口径**
+- [x] 10.6 前端：task_view.graph{available,files?,warnings?,completion?} 可选字段；横幅三元（available 真→含三件套文案，假/缺省→现文案）；目录树三件套不可勾三行＋警告注记；导出摘要文案；.bak backups[] 上浮；product_count 语义钉＝md 数；vitest 三夹具（available 真/缺省/导出契约锁「仅 md 文件名」）＋两页文案
+- [ ] 10.7 全量门禁：装配器 golden（自生成冻结）＋查看器 fixture＝v7 JSON＋降级链三例＋噪声注入＋400 结构异常臂＋.bak 轮转臂＋开关关径臂；pytest/ruff/vitest/coverage/tsc/prompts lint+pytest；**具名真书走查**：开发者 2–3 本 60 万字真书跑批（过滤器走查＋完成度/警告统计），结论＋导出物入 10.8 评审记录
+- [x] 10.8 评审与交付：Code Reviewer 全量 diff（图谱面重点）；PR 标题/描述改「文档＋图谱」完整体并写明发布编排（13 模板包发布完成前不发含图谱客户端）；作者侧三题验收撤为发版后观察项（无作者池即时执行）
+
+- 开工进展（2026-10-14）：10.0–10.6 全落地（卡 a1323d3/0c7452e7→8d23c059→a420fa01→31411bd4→36254fe7→10.6 在途提交）；10.1a 熔断 spike 与 10.7 真书走查为**人工项**（需真书＋真实 key，投产前执行，判据：在场覆盖率≥97%／token 实测）；10.8 二轮评审（Code Reviewer 全量 diff）待发。
+
+- 10.8 二轮评审闭环（2026-10-14，Code Reviewer 全量 diff）：**0 P0／2 P1／10 P2／8 P3 全修复**——P1：场景 viewBox 按 `layout.scene_canvas` 动态（超界裁切）/graph_error 回落文档版＋响应注记（md 永不互拖，前端文案同步）；P2：导出读总开关全关径/完成度恒显（html·svg·README 三处）/老卡 presence_missing 留痕/能力戳呈现口径改「任务详情常驻」（spec 同步）/首现继承迭代收敛（顺序无关）/别名补户查别名索引（**测试当场抓出的真 bug**）/edges dict 形状包装/events 成员回落留痕；P3：token 替换顺序防二次污染/归并调用段边界取消/备份同秒防撞/TopN 连带滤边/append 单参兼容/浏览器基线注/章号与伏笔边界校验/文案订正。测试：图单元 14（t 语义落钉等）＋导出两例重写＋取消窗例，后端 2363／前端 1594＋coverage 无缺口＋tsc＋validate 全绿。人工项保留：10.1a 熔断 spike 与 60 万字真书走查（需真书＋真 key）。

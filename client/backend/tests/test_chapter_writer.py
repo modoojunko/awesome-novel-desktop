@@ -465,6 +465,21 @@ class TestSceneShareSection:
         common = _longest_common_run(share_line, WRITE_CLOSING_LINE)
         assert len(common) < 8, f"收尾行与分量行逐字重复：{common!r}"
 
+    def test_refill_line_not_verbatim_of_closing(self):
+        """c-shortfall-refill 治理钉：续写指令行与收尾行/字数节同词不同句
+        （字数只评估结构不投配额——指令行仅报下限缺口，无逐场字数）。"""
+        from write.chapter_writer import refill_instruction
+
+        for wt in (500, 600, 2500, 3000, 4000, 6000):
+            line = refill_instruction(int(wt * 0.85), wt, int(wt * 0.9))
+            ctx = ChapterContext()
+            ctx.word_target = wt
+            ctx.plot_items = ["一", "二", "三", "四", "五"]
+            mat = ctx.to_user_material()
+            assert len(_longest_common_run(line, mat)) < 8, (wt, mat)
+            assert len(_longest_common_run(line, WRITE_CLOSING_LINE)) < 8, wt
+            assert "每条约" not in line  # 无逐场配额（拍板 2026-10-13）
+
     def test_closing_line_not_verbatim_of_word_section(self):
         """防回声扩面（评审 2026-10-13）：收尾行 vs 整节「字数与场景分量」——
         不止分量行，字数下限行与扩写句同样不许被逐字复读。"""

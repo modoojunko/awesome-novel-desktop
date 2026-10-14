@@ -142,10 +142,12 @@ def client():
 
 
 class _FakeStreamClient:
-    """正文路径：client.chat_stream 吐两段 chunk + done。"""
+    """正文路径：client.chat_stream 吐两段 chunk + done（finish_reason 可注入，
+    c-shortfall-refill 遥测分桶验证用）。"""
 
-    def __init__(self, text: str = "雨下了一夜。他把伞收在门后。"):
+    def __init__(self, text: str = "雨下了一夜。他把伞收在门后。", finish_reason: str = ""):
         self._text = text
+        self._fr = finish_reason
         self.last_kwargs: dict = {}
 
     async def chat_stream(self, **kwargs):
@@ -155,7 +157,7 @@ class _FakeStreamClient:
         mid = len(self._text) // 2
         yield StreamEvent(text=self._text[:mid])
         yield StreamEvent(text=self._text[mid:])
-        yield StreamEvent(is_done=True, tokens=42)
+        yield StreamEvent(is_done=True, tokens=42, finish_reason=self._fr)
 
 
 def _create_project_and_chapter(client) -> tuple[str, str]:
@@ -419,3 +421,146 @@ class TestPhaseRegressionsTolerated:
         r = client.post(f"/api/novels/{pid}/chapters/{ref}/write", json={})
         assert r.status_code == 200, r.text
         assert _done_event(r.text)["type"] == "done"
+
+
+class TestRefillChain:
+    """c-shortfall-refill：/write/refill append 语义、前置校验、遥测落列。"""
+
+    def _seed_prose(self, client, pid: str, ref: str, text: str) -> None:
+        """用生成链落正文（真链路造数据）：/write + fake client。"""
+        fake = _FakeStreamClient(text=text)
+        import ai_client as ai_client_mod
+
+        async def _fake_client(novel_id=None):
+            return fake
+
+        ai_client_mod_get = ai_client_mod.get_ai_client_for_novel
+        ai_client_mod.get_ai_client_for_novel = _fake_client
+        try:
+            r = client.post(f"/api/novels/{pid}/chapters/{ref}/write", json={})
+            assert r.status_code == 200, r.text
+        finally:
+            ai_client_mod.get_ai_client_for_novel = ai_client_mod_get
+
+    def _refill(self, client, pid: str, ref: str, tail: str, finish_reason: str = ""):
+        import ai_client as ai_client_mod
+
+        fake = _FakeStreamClient(text=tail, finish_reason=finish_reason)
+
+        async def _fake_client(novel_id=None):
+            return fake
+
+        saved = ai_client_mod.get_ai_client_for_novel
+        ai_client_mod.get_ai_client_for_novel = _fake_client
+        try:
+            r = client.post(f"/api/novels/{pid}/chapters/{ref}/write/refill", json={})
+        finally:
+            ai_client_mod.get_ai_client_for_novel = saved
+        return r, fake
+
+    def test_refill_requires_existing_prose(self, client, monkeypatch):
+        _set_member()
+        pid, ref = _create_project_and_chapter(client)
+        r = client.post(f"/api/novels/{pid}/chapters/{ref}/write/refill", json={})
+        assert r.status_code == 422
+        assert "先「生成正文」" in r.text
+
+    @pytest.mark.needs_prompts  # 同上
+    def test_refill_appends_and_preserves(self, client, monkeypatch):
+        _set_member()
+        pid, ref = _create_project_and_chapter(client)
+        old_prose = "前段：她推开库房的门。" * 4
+        self._seed_prose(client, pid, ref, old_prose)
+
+        from workflow.engine import load_chapter
+
+        def _load():
+            async def _r():
+                root = await _get_root(pid)
+                ch = await load_chapter(root, ref)
+                return str(ch.get("prose") or "")
+
+            return _run_async(_r())
+
+        base = _load()
+        assert base.strip()
+        r, fake = self._refill(client, pid, ref, "接笔段：灯芯爆了一下。")
+        assert r.status_code == 200, r.text
+        import json as _json
+
+        events = [
+            _json.loads(line[6:])
+            for line in r.text.splitlines()
+            if line.startswith("data: ")
+        ]
+        done = next(e for e in events if e.get("type") == "done")
+        assert done["full_text"].startswith(base)
+        assert "接笔段" in done["full_text"]
+        assert _load() == done["full_text"]  # 已写正文原样在前（append 语义）
+        assert "word_check" in done
+        # 续写不吃本章提示词行：write-prompt 存稿仍是生成路径的产物
+        assert "已写正文" not in _read_stored_prompt(pid, ref)
+        # 续写指令行进请求：user 层含尾窗＋续写任务行，system 恒定层与生成同款
+        assert "续写任务" in fake.last_kwargs["messages"][0]["content"]
+        assert "已写正文（末段窗口" in fake.last_kwargs["messages"][0]["content"]
+
+    @pytest.mark.needs_prompts  # 走 prepare→write_chapter 模板：缺包环境跳过（CI 无包）
+    def test_refill_preserves_user_blank_lines(self, client, monkeypatch):
+        """评审 P2：归一只作用于 AI 尾段——手动编辑链（save_prose 不归一）留下的
+        段间空行是作者的排版，补足合并不得无声改写。"""
+        _set_member()
+        pid, ref = _create_project_and_chapter(client)
+        r = client.put(
+            f"/api/novels/{pid}/chapters/{ref}/prose",
+            json={"prose": "段一。\n\n段二。"},
+        )
+        assert r.status_code in (200, 204), r.text
+
+        from workflow.engine import load_chapter
+
+        def _load():
+            async def _r():
+                root = await _get_root(pid)
+                ch = await load_chapter(root, ref)
+                return str(ch.get("prose") or "")
+
+            return _run_async(_r())
+
+        base = _load()
+        assert "\n\n" in base  # 手动链确实保住了空行
+        r, _fake = self._refill(client, pid, ref, "接笔段。")
+        assert r.status_code == 200, r.text
+        merged = _load()
+        assert merged.startswith("段一。\n\n段二。")  # 空行原样
+        assert merged.endswith("接笔段。")
+
+    @pytest.mark.needs_prompts  # 同上
+    def test_refill_telemetry_columns(self, client, monkeypatch):
+        _set_member()
+        pid, ref = _create_project_and_chapter(client)
+        self._seed_prose(client, pid, ref, "短。" * 30)
+        r, _fake = self._refill(client, pid, ref, "补。" * 200, finish_reason="length")
+        assert r.status_code == 200, r.text
+
+        async def _rows():
+            from sqlalchemy import select
+
+            from models.token_log import TokenLog
+
+            async with async_session() as s:
+                rows = (await s.scalars(
+                    select(TokenLog).where(TokenLog.chapter_id == ref)
+                )).all()
+            return {x.operation: x for x in rows if x.operation.startswith("write_chapter")}
+
+        by_op = _run_async(_rows())
+        gen = by_op.get("write_chapter")
+        ref_row = by_op.get("write_chapter_refill")
+        assert gen is not None and ref_row is not None
+        # 生成路径记 stop 桶（fake 未注入 finish_reason＝空串），补足路径记 length 桶
+        assert gen.finish_reason == ""
+        assert ref_row.finish_reason == "length"
+        assert ref_row.target_words and ref_row.actual_words
+        assert ref_row.below_limit in (True, False)
+        # 无剧情条的测试章：命中判定 NULL（不参与命中率聚合）
+        assert ref_row.tier_hit is None

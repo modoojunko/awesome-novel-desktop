@@ -27,14 +27,18 @@ from prompt.context import inject_world_setting
 from settings.book_prefs_model import (
     CHAPTER_WORD_TARGET_DEFAULT as WORD_TARGET_DEFAULT,
 )
+
+# 别名保留：shared_constants_parity 钉「writer 与共享常量单一来源对齐」，缺失即红（#844 债）
 from settings.book_prefs_model import (
-    CHAPTER_WORD_TARGET_MAX as WORD_TARGET_MAX,
+    CHAPTER_WORD_TARGET_MAX as WORD_TARGET_MAX,  # noqa: F401 — parity 别名
 )
 from settings.book_prefs_model import (
-    CHAPTER_WORD_TARGET_MIN as WORD_TARGET_MIN,
+    CHAPTER_WORD_TARGET_MIN as WORD_TARGET_MIN,  # noqa: F401 — parity 别名
 )
-from settings.book_prefs_model import effective_chapter_word_target
-from settings.book_prefs_model import clamp_word_target  # re-export：既有调用方口径不变
+from settings.book_prefs_model import (
+    clamp_word_target,  # re-export：既有调用方口径不变
+    effective_chapter_word_target,
+)
 from settings.character_model import (
     WRITE_STATE_KEYS as _WRITE_STATE_KEYS,
 )
@@ -210,6 +214,42 @@ def normalize_generated_prose(text: str) -> str:
     收敛——只管 AI 产物，不碰作者手写稿（save/save_prose 不归一）。"""
     return re.sub(r"\n{2,}", "\n", text or "").strip("\n")
 
+
+# 续写接缝窗口（c-shortfall-refill）：比章际接缝（800）略宽——补写要接住的是
+# 本章节奏，不只是最后画面；全文进 prompt 的 token 成本不取。
+REFILL_TAIL_MAX_CHARS = 1200
+
+
+def refill_instruction(actual: int, target: int, floor: int) -> str:
+    """续写指令行（c-shortfall-refill）：章级下限要求的合法续写表述——
+    只报「已写多少、距下限差多少、补写到哪里停」，SHALL NOT 投逐场字数配额
+    （用户拍板 2026-10-13：字数只评估结构不投结论）。措辞与分量行/收尾行
+    同词不同句（治理钉子 test_refill_line_not_verbatim_of_closing 守 <8）。"""
+    gap = max(0, floor - actual)
+    return (
+        f"续写任务：本章现有正文 {actual} 字，距本章下限 {floor} 字（本章目标 {target}）"
+        f"尚缺 {gap}。请从「已写正文」的末拍接着往下写："
+        "不重述、不改写已写内容，同一时空同场景顺下去，一场接一场继续，"
+        "补够下限或写到素材「章末落点」，先到者收笔；只发新写的正文。"
+    )
+
+
+def build_refill_material(ctx: "ChapterContext", existing_prose: str) -> str:
+    """续写 user 层（c-shortfall-refill）：章级素材包原样复用（同素材＝同判定口径）
+    ＋已写正文尾窗＋续写指令行；system 恒定层与收尾行由调用端点按生成同款追加。"""
+    tail = clip_tail_paragraphs(existing_prose, REFILL_TAIL_MAX_CHARS)
+    return ctx.to_user_material() + (
+        "\n\n## 已写正文（末段窗口，只用于接笔，逐字输出禁止）\n"
+        + tail
+        + "\n\n"
+        + refill_instruction(
+            len(normalize_generated_prose(existing_prose)),
+            ctx.word_target,
+            word_target_floor(ctx.word_target),
+        )
+    )
+
+
 # 旧版整包行判定标记：粗组存稿行按恒定块标题；润色稿行按 _POLISH_ANCHORS 三锚
 # 同现（凡成功落库的润色行必然满足，新 user 层不含「任务指示」「质感」两词）。
 _LEGACY_HEADING_MARKERS = (
@@ -273,9 +313,7 @@ def should_refresh_stored_prompt(stored: str, ctx: "ChapterContext") -> bool:
         return False
     if ctx.previous_tail and "上章结尾" not in stored:
         return True
-    if SCENE_SHARE_ANCHOR not in stored:
-        return True
-    return False
+    return SCENE_SHARE_ANCHOR not in stored
 
 
 def lint_assembled_prompt(
