@@ -1,0 +1,1291 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>拆书知识图谱 · 原型 v5（契约冻结版：坐标入 layout·where 可 null·派生代码盖章）</title>
+<!--
+   AwesomeNovel 拆书 · 知识图谱原型 v4（docs/design-c/drafts/，v3 提案配图）
+  · 用户反馈 v3→v4（2026-10-14）：用框框住人来表示每章的人物所在位置与行为——地点=框、人=框中点、
+    关系=线；一章一幅「谁在哪儿干什么」的场景画。
+  · 契约升 deconstruct-graph/4：chapters[].presence=[{who,where}]（逐章在场位置）。
+    注意：presence 是现有拆卡管线【尚未产出】的字段——卡契约需补「本章人物所在＋本章地名闭集 places」抽取（name→id 归装配层，卡片无名册），
+    这正是本视图暴露出的真实管线缺口，提案须如实登记。
+  · 保留 v3 三轴（章链/地点树/关系网）；中央画布加页签：社会轴（网）⇄ 场景图（框）。
+  · 单文件离线零依赖（无 CDN）。
+-->
+<style>
+:root {
+  --bg: oklch(98% 0.004 240); --surface: oklch(100% 0 0); --fg: oklch(20% 0.02 240);
+  --muted: oklch(50% 0.018 240); --border: oklch(90% 0.006 240);
+  --accent: oklch(48% 0.11 170); --accent-strong: oklch(41% 0.10 170);
+  --accent-soft: color-mix(in oklch, var(--accent) 12%, transparent);
+  --ok: oklch(52% 0.11 155); --ok-soft: color-mix(in oklch, var(--ok) 14%, transparent);
+  --warn: oklch(50% 0.13 75); --warn-soft: color-mix(in oklch, var(--warn) 16%, transparent);
+  --err: oklch(50% 0.17 25); --err-soft: color-mix(in oklch, var(--err) 12%, transparent);
+  --fg-soft: color-mix(in oklch, var(--fg) 5%, transparent);
+  --faint: color-mix(in oklch, var(--muted) 68%, transparent);
+  --on-accent: oklch(100% 0 0);
+  --shadow-card: 0 1px 2px color-mix(in oklch, var(--fg) 5%, transparent), 0 12px 32px -12px color-mix(in oklch, var(--fg) 14%, transparent);
+  --font-display: 'Noto Serif SC', 'Songti SC', 'STSong', 'Iowan Old Style', Georgia, serif;
+  --font-body: -apple-system, BlinkMacSystemFont, 'PingFang SC', 'Hiragino Sans GB', 'Microsoft YaHei', system-ui, sans-serif;
+  --font-mono: ui-monospace, 'SF Mono', Menlo, 'JetBrains Mono', monospace;
+  --radius: 10px; --radius-lg: 16px;
+}
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--bg); color: var(--fg); font: 14px/1.65 var(--font-body); }
+.top { padding: 15px 22px 9px; border-bottom: 1px solid var(--border); background: var(--surface); }
+.top h1 { margin: 0; font: 600 19px/1.3 var(--font-display); }
+.top h1 .sub { font: 400 12.5px var(--font-body); color: var(--muted); margin-left: 10px; }
+.badges { margin-top: 7px; display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+.badge { font-size: 12px; padding: 3px 10px; border-radius: 999px; border: 1px solid var(--border); color: var(--muted); background: var(--bg); }
+.badge.ed { border-color: var(--accent); color: var(--accent-strong); background: var(--accent-soft); }
+.legend { margin-left: auto; display: flex; gap: 13px; font-size: 12px; color: var(--muted); flex-wrap: wrap; }
+.legend i { display: inline-block; width: 10px; height: 10px; border-radius: 50%; margin-right: 5px; vertical-align: -1px; }
+.legend .l-fac { border-radius: 3px; } .legend .l-item { transform: rotate(45deg); border-radius: 2px; width: 9px; height: 9px; }
+.note { margin: 9px 22px 0; padding: 10px 14px; border: 1px dashed var(--border); border-radius: var(--radius); font-size: 12.5px; color: var(--muted); background: var(--surface); }
+.note b { color: var(--fg); }
+.stage { display: grid; grid-template-columns: 268px minmax(0,1fr) 320px; gap: 14px; padding: 13px 22px; }
+.rail { display: flex; flex-direction: column; gap: 14px; min-width: 0; }
+.panel { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-lg); box-shadow: var(--shadow-card); overflow: hidden; }
+.panel > h2 { margin: 0; padding: 10px 14px 8px; font: 600 13.5px var(--font-body); border-bottom: 1px solid var(--border); display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap; }
+.panel > h2 .hint { font: 400 11px var(--font-body); color: var(--faint); margin-left: auto; }
+.tabs { display: inline-flex; gap: 4px; }
+.tabs button { font: 600 12px var(--font-body); padding: 3px 12px; border-radius: 999px; border: 1px solid var(--border); background: var(--bg); color: var(--muted); cursor: pointer; }
+.tabs button.on { background: var(--accent); border-color: var(--accent); color: var(--on-accent); }
+.tree { padding: 7px 6px 10px; overflow: auto; }
+#tree { max-height: 235px; } #chapters { max-height: 310px; }
+.trow { display: flex; align-items: center; gap: 6px; padding: 4px 8px; border-radius: 8px; cursor: pointer; }
+.trow:hover { background: var(--fg-soft); }
+.trow.on { background: var(--accent-soft); } .trow.on .tn { color: var(--accent-strong); font-weight: 600; }
+.trow.hl .tn { border-bottom: 2px solid var(--accent); }
+.tconn { color: var(--faint); font: 11px var(--font-mono); flex-shrink: 0; }
+.tn { font-size: 13px; } .tc { margin-left: auto; font: 10.5px var(--font-mono); color: var(--faint); white-space: nowrap; flex-shrink: 0; }
+.trow .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--accent); opacity: 0; flex-shrink: 0; } .trow.hl .dot { opacity: 1; }
+.cbeat { display: block; font-size: 12px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.canvas-wrap { position: relative; display: flex; flex-direction: column; }
+#netwrap, #scenewrap { flex: 1; display: flex; flex-direction: column; min-height: 430px; }
+#graph { flex: 1; display: block; width: 100%; cursor: grab; touch-action: none; }
+#scene { flex: 1; display: block; width: 100%; }
+#graph.grabbing { cursor: grabbing; }
+.chapnav { display: flex; align-items: center; gap: 8px; padding: 8px 12px; border-top: 1px solid var(--border); background: var(--bg); font-size: 12.5px; }
+.chapnav button { width: 26px; height: 26px; border-radius: 7px; border: 1px solid var(--border); background: var(--surface); cursor: pointer; }
+.chapnav button:hover { border-color: var(--accent); color: var(--accent-strong); }
+.chapnav .now { font-weight: 600; } .chapnav .beat { color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.zoomctl { position: absolute; top: 52px; right: 12px; display: flex; gap: 6px; z-index: 2; }
+.zoomctl button { width: 28px; height: 28px; border-radius: 8px; border: 1px solid var(--border); background: var(--surface); font-size: 14px; cursor: pointer; }
+.edge { stroke: color-mix(in oklch, var(--muted) 55%, transparent); stroke-linecap: round; }
+.edge.hot { stroke: var(--accent-strong); }
+.sedge { stroke: color-mix(in oklch, var(--muted) 62%, transparent); fill: none; stroke-width: 1.6; }
+.sedge.hot { stroke: var(--accent-strong); stroke-width: 2.2; }
+.slab { font: 10px var(--font-mono); fill: var(--muted); }
+.node { cursor: pointer; }
+.n-zj { fill: var(--accent); stroke: var(--accent-strong); } .n-pj { fill: var(--surface); stroke: var(--accent); }
+.n-fp { fill: var(--err); stroke: var(--err); } .n-fac { fill: var(--warn-soft); stroke: var(--warn); } .n-item { fill: var(--ok-soft); stroke: var(--ok); }
+.node text { font: 12px var(--font-body); fill: var(--fg); pointer-events: none; }
+.node .alias { fill: var(--faint); font-size: 10.5px; }
+.dim { opacity: 0.16; }
+.box { fill: var(--bg); stroke: var(--border); stroke-width: 1.4; rx: 12; }
+.box.county { fill: none; stroke: color-mix(in oklch, var(--accent) 45%, var(--border)); stroke-dasharray: 5 4; }
+.blab { font: 600 12.5px var(--font-body); fill: var(--accent-strong); }
+.bsub { font: 10.5px var(--font-mono); fill: var(--faint); }
+.pin { cursor: pointer; }
+.pin circle { stroke-width: 2; }
+.pin text { font: 11px var(--font-body); fill: var(--fg); pointer-events: none; }
+.side { padding: 14px 16px; max-height: 588px; overflow: auto; }
+.side h3 { margin: 0 0 4px; font: 600 17px var(--font-display); }
+.rolechip { display: inline-block; font-size: 11.5px; padding: 2px 9px; border-radius: 999px; margin-left: 6px; vertical-align: 2px; }
+.rc-主角 { background: var(--accent); color: var(--on-accent); }
+.rc-配角 { background: var(--accent-soft); color: var(--accent-strong); border: 1px solid var(--accent); }
+.rc-反派 { background: var(--err-soft); color: var(--err); border: 1px solid var(--err); }
+.rc-组织 { background: var(--warn-soft); color: var(--warn); border: 1px solid var(--warn); }
+.rc-物品 { background: var(--ok-soft); color: var(--ok); border: 1px solid var(--ok); }
+.rc-地点 { background: var(--accent-soft); color: var(--accent-strong); border: 1px solid var(--accent); }
+.rc-章 { background: var(--fg-soft); color: var(--fg); border: 1px solid var(--border); }
+.side p { margin: 8px 0; color: var(--muted); font-size: 13px; }
+.chips { display: flex; flex-wrap: wrap; gap: 5px; margin: 6px 0 10px; }
+.chip { font: 11px var(--font-mono); padding: 2px 7px; border: 1px solid var(--border); border-radius: 6px; color: var(--muted); background: var(--bg); cursor: pointer; }
+.chip.none { cursor: default; } .chip.loc { border-color: var(--accent); color: var(--accent-strong); } .chip.ev { border-color: var(--warn); color: var(--warn); background: var(--warn-soft); }
+.crumb { font: 11.5px var(--font-mono); color: var(--faint); margin: 2px 0 6px; } .crumb b { color: var(--accent-strong); }
+.sh { margin: 12px 0 6px; font: 600 13px var(--font-body); color: var(--fg); border-top: 1px solid var(--border); padding-top: 10px; }
+.erow { display: flex; gap: 8px; align-items: baseline; padding: 5px 0; border-bottom: 1px dashed color-mix(in oklch, var(--border) 60%, transparent); font-size: 13px; cursor: pointer; }
+.erow:hover { color: var(--accent-strong); }
+.erow .k { flex-shrink: 0; font-weight: 600; min-width: 4.5em; }
+.erow .ev { color: var(--faint); font-size: 11.5px; } .erow .q { color: var(--muted); font-style: italic; }
+.tl { margin: 0 22px 18px; background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-lg); padding: 11px 16px 13px; box-shadow: var(--shadow-card); }
+.tl h2 { margin: 0 0 7px; font: 600 13px var(--font-body); }
+.tl .ruler { display: flex; font: 10.5px var(--font-mono); color: var(--faint); margin-left: 150px; }
+.tl .ruler span { flex: 1; text-align: center; }
+.evrow { position: relative; height: 25px; margin-left: 150px; }
+.evrow .lab { position: absolute; left: -150px; top: 2px; width: 142px; text-align: right; font-size: 12px; color: var(--muted); cursor: pointer; }
+.evrow .lab b { color: var(--faint); font-weight: 400; } .evrow .lab:hover { color: var(--accent-strong); }
+.evbar { position: absolute; top: 2px; height: 19px; border-radius: 6px; background: var(--accent-soft); border: 1px solid var(--accent); cursor: pointer; padding-left: 8px; font-size: 11px; color: var(--accent-strong); line-height: 18px; white-space: nowrap; overflow: hidden; }
+.hookline { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 9px; }
+.hook { font-size: 12px; padding: 3px 10px; border-radius: 999px; border: 1px dashed var(--warn); color: var(--warn); background: var(--warn-soft); }
+.hook.closed { border-style: solid; border-color: var(--ok); color: var(--ok); background: var(--ok-soft); }
+#tip { position: fixed; pointer-events: none; z-index: 9; background: var(--surface); border: 1px solid var(--border); border-radius: 8px; box-shadow: var(--shadow-card); padding: 7px 10px; font-size: 12px; color: var(--muted); max-width: 270px; display: none; }
+#tip b { color: var(--fg); }
+.foot { margin: 0 22px 20px; font-size: 11.5px; color: var(--faint); }
+@media (max-width: 1000px) { .stage { grid-template-columns: 1fr; } }
+</style>
+</head>
+<body>
+
+<header class="top">
+  <h1>《雪落无声》<span class="sub">拆书知识图谱 · 原型 v5（契约冻结）—— 场景图（地点为框 · 人在框中 · 未定位落未知区）</span></h1>
+  <div class="badges">
+    <span class="badge ed">v5 契约冻结（2026-10-14 三路评审落地：坐标→layout 块 · where 可 null · 派生字段代码盖章 · meta.warnings）</span>
+    <span class="badge">单文件离线 · 无 CDN</span>
+    <div class="legend">
+      <span><i style="background:var(--accent)"></i>主角</span>
+      <span><i style="background:var(--surface);border:1.5px solid var(--accent)"></i>配角</span>
+      <span><i style="background:var(--err)"></i>反派</span>
+      <span><i class="l-fac" style="background:var(--warn-soft);border:1.5px solid var(--warn)"></i>势力</span>
+      <span><i class="l-item" style="background:var(--ok-soft);border:1.5px solid var(--ok)"></i>物品</span>
+      <span>框＝地点（虚线大框＝县）</span>
+    </div>
+  </div>
+  <div class="note"><b>这一屏回答"谁在哪儿干什么"：</b>地点画成<b>框</b>（县是虚线大框装着四个小地点，京城另一框），本章在场的人/势力/物品作为<b>图钉落在自己所在的框里</b>，框内框外<b>牵线＝本章可见的关系</b>，线旁标关系名——线跨出框就是"人在此、事涉彼"。底部翻章（◀▶ 或点左栏章链）逐章放动画册：第12章整幕收进公堂一框，第7章一左一右两框千里传令。<b>数据口径：</b>「本章谁在哪个地点」＝契约 v4 新增 presence 字段——现有拆卡管线<b>尚未</b>产出它（卡需加抽"本章人物所在"），原型如实标注此缺口。</div>
+</header>
+
+<main class="stage">
+  <div class="rail">
+    <section class="panel">
+      <h2>章链（进度轴）<span class="hint">点章＝场景图翻到此章</span></h2>
+      <div class="tree" id="chapters"></div>
+    </section>
+    <section class="panel">
+      <h2>地点归属树（空间轴）<span class="hint">朝▸道▸县▸地</span></h2>
+      <div class="tree" id="tree"></div>
+    </section>
+  </div>
+
+  <section class="panel canvas-wrap">
+    <h2>
+      <span class="tabs">
+        <button id="tabScene" class="on">场景 · 人在哪</button>
+        <button id="tabNet">社会轴 · 关系网</button>
+      </span>
+      <span class="hint" id="canvasHint">地点为框 · 图钉＝本章在场 · 线＝本章关系</span>
+    </h2>
+    <div id="scenewrap">
+      <svg id="scene" viewBox="0 0 860 470" aria-label="本章场景图"></svg>
+      <div class="chapnav">
+        <button id="prev" title="上一章">◀</button>
+        <span class="now" id="nowNo">第1章</span>
+        <button id="next" title="下一章">▶</button>
+        <span class="beat" id="nowBeat"></span>
+      </div>
+    </div>
+    <div id="netwrap" style="display:none">
+      <div class="zoomctl"><button id="zin" title="放大">＋</button><button id="zout" title="缩小">－</button><button id="zreset" title="复位">⟲</button></div>
+      <svg id="graph" viewBox="0 0 860 460" aria-label="人物关系钉板图"></svg>
+    </div>
+  </section>
+
+  <aside class="panel side" id="side"></aside>
+</main>
+
+<footer class="tl">
+  <h2>主线事件（跨章段落）</h2>
+  <div class="ruler" id="ruler"></div>
+  <div id="evrows"></div>
+  <div class="hookline" id="hooks"></div>
+</footer>
+
+<p class="foot">原型件 v4 · AwesomeNovel 拆书 v3 提案配图（2026-10-14）。契约 deconstruct-graph/5（评审冻结版）：presence=[{who,where|null}]（null＝在场未定位，画入未知区）；坐标从节点体挪出、入独立 layout 块（语义正身不带渲染字段）；meta.warnings＋完成度恒在；章号/首现/who/at/『到过』一律代码盖章或派生——模型只产文本与关系；卡片层产全名＋本章地名闭集，name→id 由装配代码分配。v3 三轴全保留。</p>
+
+<script id="graphdata" type="application/json">
+{
+  "contract": "deconstruct-graph/5",
+  "meta": {
+    "rule": "章号/首现/who/at/『到过』基线一律代码盖章或派生；模型只产文本与关系；契约冻结后只增不改（additive only）",
+    "completion": {
+      "chapters": 12,
+      "presence_total": 31,
+      "presence_placed": 30
+    },
+    "warnings": [
+      {
+        "ch": 8,
+        "who": "linwan",
+        "kind": "presence_unplaced",
+        "msg": "本章出场但原文未落具体地点——where=null，场景图入『未知区』。宁可承认不知道，不让图谱替作者编地图（评审 P0 不变量松绑）"
+      }
+    ]
+  },
+  "book": "雪落无声",
+  "stats": {
+    "chapters": 12,
+    "words": 38600
+  },
+  "logline": "船家女林晚渡口救下阿蓟，牵出盐案旧罪；拜师学艺、玉佩认亲，风雪夜公堂翻案。",
+  "places": [
+    {
+      "id": "dali",
+      "label": "大李朝",
+      "parent": null,
+      "ch": 1,
+      "note": "架空王朝。"
+    },
+    {
+      "id": "jiangnan",
+      "label": "江南道",
+      "parent": "dali",
+      "ch": 1,
+      "note": "水路密布，私盐之路。"
+    },
+    {
+      "id": "jingcheng",
+      "label": "京城",
+      "parent": "dali",
+      "ch": 7,
+      "note": "转运使司所在；第7章裴衡发密令，首次入镜。"
+    },
+    {
+      "id": "qingxi",
+      "label": "青溪县",
+      "parent": "jiangnan",
+      "ch": 2,
+      "note": "主舞台。"
+    },
+    {
+      "id": "dukou",
+      "label": "竹湾渡口",
+      "parent": "qingxi",
+      "ch": 1,
+      "note": "林晚摆渡处。"
+    },
+    {
+      "id": "liujia",
+      "label": "柳家小院",
+      "parent": "qingxi",
+      "ch": 2,
+      "note": "认亲学艺的家宅。"
+    },
+    {
+      "id": "houtan",
+      "label": "盐局后巷",
+      "parent": "qingxi",
+      "ch": 9,
+      "note": "截杀现场。"
+    },
+    {
+      "id": "goutang",
+      "label": "县衙公堂",
+      "parent": "qingxi",
+      "ch": 4,
+      "note": "开堂场地。"
+    }
+  ],
+  "nodes": [
+    {
+      "id": "linwan",
+      "type": "person",
+      "label": "林晚",
+      "role": "主角",
+      "appear": [
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        8,
+        10,
+        12
+      ],
+      "bio": "渡口船家女，后拜师学刑名，翻案发起人。"
+    },
+    {
+      "id": "aji",
+      "type": "person",
+      "label": "阿蓟",
+      "role": "配角",
+      "alias": [
+        "蓟姐",
+        "小蓟"
+      ],
+      "appear": [
+        1,
+        2,
+        5,
+        9,
+        10,
+        12
+      ],
+      "bio": "被救者，盐案旧证的关键证人。"
+    },
+    {
+      "id": "shenyan",
+      "type": "person",
+      "label": "沈砚",
+      "role": "配角",
+      "appear": [
+        3,
+        4,
+        5,
+        7,
+        11,
+        12
+      ],
+      "bio": "退隐刑名师爷，收林晚为记名弟子。"
+    },
+    {
+      "id": "liu",
+      "type": "person",
+      "label": "柳氏",
+      "role": "配角",
+      "appear": [
+        2,
+        6,
+        10,
+        12
+      ],
+      "bio": "林晚生母，半块玉佩持有者。"
+    },
+    {
+      "id": "peiheng",
+      "type": "person",
+      "label": "裴衡",
+      "role": "反派",
+      "appear": [
+        6,
+        7,
+        9,
+        10,
+        11,
+        12
+      ],
+      "bio": "盐铁转运使，旧案主谋。"
+    },
+    {
+      "id": "yanbang",
+      "type": "faction",
+      "label": "盐帮",
+      "appear": [
+        3,
+        7,
+        8,
+        9
+      ],
+      "bio": "私盐势力，受裴衡驱使。"
+    },
+    {
+      "id": "guanfu",
+      "type": "faction",
+      "label": "县衙",
+      "appear": [
+        4,
+        8,
+        11,
+        12
+      ],
+      "bio": "公堂开处。"
+    },
+    {
+      "id": "luopan",
+      "type": "item",
+      "label": "神秘罗盘",
+      "appear": [
+        3
+      ],
+      "bio": "沉船所获，指向埋赃处（伏笔未收）。"
+    }
+  ],
+  "edges": [
+    {
+      "from": "linwan",
+      "to": "aji",
+      "kind": "恩义",
+      "w": 3,
+      "ch": 1,
+      "quote": "林晚在渡口救人。"
+    },
+    {
+      "from": "linwan",
+      "to": "shenyan",
+      "kind": "师徒",
+      "w": 2,
+      "ch": 3,
+      "quote": "沈砚收其为记名弟子。"
+    },
+    {
+      "from": "liu",
+      "to": "linwan",
+      "kind": "亲缘",
+      "w": 2,
+      "ch": 6,
+      "quote": "半块玉佩认亲。"
+    },
+    {
+      "from": "shenyan",
+      "to": "peiheng",
+      "kind": "旧案仇",
+      "w": 2,
+      "ch": 5,
+      "quote": "当年沈砚因裴衡构陷去职。"
+    },
+    {
+      "from": "peiheng",
+      "to": "yanbang",
+      "kind": "主使",
+      "w": 2,
+      "ch": 7,
+      "quote": "灭口之令出自转运使司。"
+    },
+    {
+      "from": "yanbang",
+      "to": "aji",
+      "kind": "追索灭口",
+      "w": 1,
+      "ch": 9,
+      "quote": "阿蓟遭盐帮截杀于巷口。"
+    },
+    {
+      "from": "aji",
+      "to": "guanfu",
+      "kind": "作证",
+      "w": 1,
+      "ch": 12,
+      "quote": "风雪夜公堂指认。"
+    },
+    {
+      "from": "linwan",
+      "to": "luopan",
+      "kind": "持有",
+      "w": 1,
+      "ch": 3,
+      "quote": "打捞沉船所得。"
+    },
+    {
+      "from": "peiheng",
+      "to": "guanfu",
+      "kind": "施压",
+      "w": 1,
+      "ch": 11,
+      "quote": "递帖逼县令缓审。"
+    },
+    {
+      "from": "liu",
+      "to": "aji",
+      "kind": "收留",
+      "w": 1,
+      "ch": 2,
+      "quote": "阿蓟寄宿柳家。"
+    }
+  ],
+  "links": [
+    {
+      "who": "linwan",
+      "where": "dukou",
+      "kind": "据地",
+      "ch": 1,
+      "quote": "林晚世代在竹湾摆渡。"
+    },
+    {
+      "who": "aji",
+      "where": "dukou",
+      "kind": "到过",
+      "ch": 1,
+      "quote": "阿蓟于渡口获救。"
+    },
+    {
+      "who": "aji",
+      "where": "liujia",
+      "kind": "寄居",
+      "ch": 2,
+      "quote": "阿蓟养伤寄居柳家。"
+    },
+    {
+      "who": "liu",
+      "where": "liujia",
+      "kind": "据地",
+      "ch": 2,
+      "quote": "柳氏守着小院度日。"
+    },
+    {
+      "who": "shenyan",
+      "where": "qingxi",
+      "kind": "隐于",
+      "ch": 3,
+      "quote": "沈砚隐于青溪县东郊。"
+    },
+    {
+      "who": "aji",
+      "where": "houtan",
+      "kind": "到过",
+      "ch": 9,
+      "quote": "阿蓟于盐局后巷遭截杀。"
+    },
+    {
+      "who": "yanbang",
+      "where": "houtan",
+      "kind": "行凶于",
+      "ch": 9,
+      "quote": "盐帮打手巷口围堵。"
+    },
+    {
+      "who": "aji",
+      "where": "goutang",
+      "kind": "到过",
+      "ch": 12,
+      "quote": "风雪夜公堂指认。"
+    },
+    {
+      "who": "linwan",
+      "where": "goutang",
+      "kind": "到过",
+      "ch": 12,
+      "quote": "随师登堂呈证。"
+    },
+    {
+      "who": "guanfu",
+      "where": "goutang",
+      "kind": "据地",
+      "ch": 4,
+      "quote": "县衙于此开堂听讼。"
+    },
+    {
+      "who": "yanbang",
+      "where": "qingxi",
+      "kind": "活动于",
+      "ch": 7,
+      "quote": "盐帮伙计频现青溪县。"
+    },
+    {
+      "who": "peiheng",
+      "where": "jingcheng",
+      "kind": "据地",
+      "ch": 11,
+      "quote": "转运使司衙门在京城。"
+    }
+  ],
+  "events": [
+    {
+      "id": "e1",
+      "title": "渡口救恩",
+      "ch": [
+        1,
+        2
+      ],
+      "at": "dukou",
+      "members": [
+        "linwan",
+        "aji",
+        "liu"
+      ],
+      "note": "善念起链。"
+    },
+    {
+      "id": "e2",
+      "title": "认亲学艺",
+      "ch": [
+        3,
+        5
+      ],
+      "at": "liujia",
+      "members": [
+        "linwan",
+        "shenyan",
+        "liu",
+        "luopan"
+      ],
+      "note": "师徒线与玉佩伏笔。"
+    },
+    {
+      "id": "e3",
+      "title": "县城风波",
+      "ch": [
+        6,
+        9
+      ],
+      "at": "qingxi",
+      "members": [
+        "linwan",
+        "peiheng",
+        "yanbang",
+        "aji",
+        "guanfu"
+      ],
+      "note": "旧案浮出水面。"
+    },
+    {
+      "id": "e4",
+      "title": "风雪夜翻案",
+      "ch": [
+        10,
+        12
+      ],
+      "at": "goutang",
+      "members": [
+        "linwan",
+        "aji",
+        "shenyan",
+        "peiheng",
+        "guanfu",
+        "liu"
+      ],
+      "note": "三线同堂收束。"
+    }
+  ],
+  "chapters": [
+    {
+      "no": 1,
+      "beat": "渡口救恩：林晚雪夜救起落水阿蓟",
+      "at": [
+        "dukou"
+      ],
+      "who": [
+        "linwan",
+        "aji"
+      ],
+      "ev": "e1",
+      "presence": [
+        {
+          "who": "linwan",
+          "where": "dukou"
+        },
+        {
+          "who": "aji",
+          "where": "dukou"
+        }
+      ]
+    },
+    {
+      "no": 2,
+      "beat": "柳家寄居：柳氏收留养伤的阿蓟",
+      "at": [
+        "liujia"
+      ],
+      "who": [
+        "aji",
+        "liu"
+      ],
+      "ev": "e1",
+      "presence": [
+        {
+          "who": "aji",
+          "where": "liujia"
+        },
+        {
+          "who": "liu",
+          "where": "liujia"
+        }
+      ]
+    },
+    {
+      "no": 3,
+      "beat": "沉船罗盘：打捞得罗盘，沈砚识破来历",
+      "at": [
+        "dukou"
+      ],
+      "who": [
+        "linwan",
+        "shenyan",
+        "luopan"
+      ],
+      "ev": "e2",
+      "presence": [
+        {
+          "who": "linwan",
+          "where": "dukou"
+        },
+        {
+          "who": "shenyan",
+          "where": "dukou"
+        },
+        {
+          "who": "luopan",
+          "where": "dukou"
+        }
+      ]
+    },
+    {
+      "no": 4,
+      "beat": "公堂初现：县衙听讼，市井闲话入耳",
+      "at": [
+        "goutang"
+      ],
+      "who": [
+        "linwan",
+        "guanfu"
+      ],
+      "ev": null,
+      "presence": [
+        {
+          "who": "linwan",
+          "where": "goutang"
+        },
+        {
+          "who": "guanfu",
+          "where": "goutang"
+        }
+      ]
+    },
+    {
+      "no": 5,
+      "beat": "旧案初闻：沈砚道出当年构陷去职",
+      "at": [
+        "qingxi"
+      ],
+      "who": [
+        "shenyan",
+        "linwan"
+      ],
+      "ev": "e2",
+      "presence": [
+        {
+          "who": "shenyan",
+          "where": "qingxi"
+        },
+        {
+          "who": "linwan",
+          "where": "qingxi"
+        }
+      ]
+    },
+    {
+      "no": 6,
+      "beat": "玉佩半枚：柳氏取出半块玉佩",
+      "at": [
+        "liujia"
+      ],
+      "who": [
+        "liu",
+        "linwan"
+      ],
+      "ev": "e3",
+      "presence": [
+        {
+          "who": "liu",
+          "where": "liujia"
+        },
+        {
+          "who": "linwan",
+          "where": "liujia"
+        }
+      ]
+    },
+    {
+      "no": 7,
+      "beat": "京中密令：裴衡千里致书，盐帮青溪接令",
+      "at": [
+        "qingxi"
+      ],
+      "who": [
+        "peiheng",
+        "yanbang"
+      ],
+      "ev": "e3",
+      "presence": [
+        {
+          "who": "peiheng",
+          "where": "jingcheng"
+        },
+        {
+          "who": "yanbang",
+          "where": "qingxi"
+        }
+      ]
+    },
+    {
+      "no": 8,
+      "beat": "夜寻渡口：盐帮夜叩竹湾",
+      "at": [
+        "dukou"
+      ],
+      "who": [
+        "yanbang",
+        "linwan"
+      ],
+      "ev": "e3",
+      "presence": [
+        {
+          "who": "yanbang",
+          "where": "dukou"
+        },
+        {
+          "who": "linwan",
+          "where": null
+        }
+      ]
+    },
+    {
+      "no": 9,
+      "beat": "巷口截杀：阿蓟盐局后巷遭围",
+      "at": [
+        "houtan"
+      ],
+      "who": [
+        "aji",
+        "yanbang"
+      ],
+      "ev": "e3",
+      "presence": [
+        {
+          "who": "aji",
+          "where": "houtan"
+        },
+        {
+          "who": "yanbang",
+          "where": "houtan"
+        }
+      ]
+    },
+    {
+      "no": 10,
+      "beat": "认亲吐实：母女相认，罗盘指埋赃处",
+      "at": [
+        "liujia"
+      ],
+      "who": [
+        "liu",
+        "linwan",
+        "aji"
+      ],
+      "ev": "e4",
+      "presence": [
+        {
+          "who": "liu",
+          "where": "liujia"
+        },
+        {
+          "who": "linwan",
+          "where": "liujia"
+        },
+        {
+          "who": "aji",
+          "where": "liujia"
+        }
+      ]
+    },
+    {
+      "no": 11,
+      "beat": "帖压公堂：裴衡递帖逼缓审，沈砚夜访衙门",
+      "at": [
+        "goutang"
+      ],
+      "who": [
+        "peiheng",
+        "guanfu",
+        "shenyan"
+      ],
+      "ev": "e4",
+      "presence": [
+        {
+          "who": "peiheng",
+          "where": "jingcheng"
+        },
+        {
+          "who": "guanfu",
+          "where": "goutang"
+        },
+        {
+          "who": "shenyan",
+          "where": "goutang"
+        }
+      ]
+    },
+    {
+      "no": 12,
+      "beat": "风雪翻案：公堂指认，旧案昭雪",
+      "at": [
+        "goutang"
+      ],
+      "who": [
+        "linwan",
+        "aji",
+        "shenyan",
+        "peiheng",
+        "guanfu",
+        "liu"
+      ],
+      "ev": "e4",
+      "presence": [
+        {
+          "who": "linwan",
+          "where": "goutang"
+        },
+        {
+          "who": "aji",
+          "where": "goutang"
+        },
+        {
+          "who": "shenyan",
+          "where": "goutang"
+        },
+        {
+          "who": "peiheng",
+          "where": "goutang"
+        },
+        {
+          "who": "guanfu",
+          "where": "goutang"
+        },
+        {
+          "who": "liu",
+          "where": "goutang"
+        }
+      ]
+    }
+  ],
+  "hooks": [
+    {
+      "desc": "神秘罗盘",
+      "plant": 3,
+      "payoff": null,
+      "status": "未收"
+    },
+    {
+      "desc": "半块玉佩",
+      "plant": 6,
+      "payoff": 10,
+      "status": "已收"
+    },
+    {
+      "desc": "阿蓟真实身份",
+      "plant": 2,
+      "payoff": 12,
+      "status": "已收"
+    }
+  ],
+  "layout": {
+    "net": {
+      "linwan": [
+        400,
+        220
+      ],
+      "aji": [
+        580,
+        130
+      ],
+      "shenyan": [
+        230,
+        120
+      ],
+      "liu": [
+        230,
+        330
+      ],
+      "peiheng": [
+        620,
+        330
+      ],
+      "yanbang": [
+        780,
+        220
+      ],
+      "guanfu": [
+        400,
+        400
+      ],
+      "luopan": [
+        90,
+        230
+      ]
+    },
+    "note": "渲染器输入：确定性预计算坐标（正式版＝规则泳道算法），声明为可再生成，语义 lint 不校验——坐标不入语义正身（评审 P1）"
+  }
+}
+</script>
+
+<script>
+(() => {
+  "use strict";
+  const DATA = JSON.parse(document.getElementById("graphdata").textContent);
+  // graph/5：坐标在 layout 块——渲染器读入时 hydrate 回节点（语义正身不带渲染字段）
+  for (const nh of DATA.nodes) { const xy = (DATA.layout.net || {})[nh.id]; if (xy) { nh.x = xy[0]; nh.y = xy[1]; } }
+  const SVGNS = "http://www.w3.org/2000/svg";
+  const nodeById = new Map(DATA.nodes.map((n) => [n.id, n]));
+  const placeById = new Map(DATA.places.map((p) => [p.id, p]));
+  const eventById = new Map(DATA.events.map((e) => [e.id, e]));
+  const chapByNo = new Map(DATA.chapters.map((c) => [c.no, c]));
+  const tip = document.getElementById("tip");
+  const state = { chap: 1, t: { x: 0, y: 0, k: 1 } };
+
+  const el = (tag, cls, parent) => {
+    const e = document.createElementNS(SVGNS, tag);
+    if (cls) e.setAttribute("class", cls);
+    if (parent) parent.appendChild(e);
+    return e;
+  };
+  function moveTip(ev) { tip.style.left = ev.clientX + 12 + "px"; tip.style.top = ev.clientY + 12 + "px"; }
+  const roleCls = (n) => n.type === "faction" ? "n-fac" : n.type === "item" ? "n-item"
+    : n.role === "主角" ? "n-zj" : n.role === "反派" ? "n-fp" : "n-pj";
+
+  // ───────── 场景图：地点为框，图钉为人 ─────────
+  const scene = document.getElementById("scene");
+  const BOX = {
+    qingxi:   { x: 24,  y: 40,  w: 560, h: 412 },   // 虚线县框
+    dukou:    { x: 48,  y: 84,  w: 168, h: 132 },
+    liujia:   { x: 236, y: 84,  w: 168, h: 132 },
+    goutang:  { x: 140, y: 288, w: 260, h: 140 },
+    houtan:   { x: 424, y: 84,  w: 140, h: 132 },
+    jingcheng:{ x: 620, y: 120, w: 210, h: 150 },
+    _unknown:  { x: 620, y: 330, w: 210, h: 110 },  // 在场未定位落此虚线区
+    _band:    { x: 48,  y: 240, w: 168, h: 30 },    // 县域内（非具体地点）停留带
+  };
+  const leafOf = (where) => (where == null ? "_unknown" : where === "qingxi" ? "_band" : where);
+  function renderScene() {
+    scene.replaceChildren();
+    const c = chapByNo.get(state.chap);
+    document.getElementById("nowNo").textContent = "第" + c.no + "章";
+    document.getElementById("nowBeat").textContent = c.beat;
+    for (const [id, b] of Object.entries(BOX)) {
+      if (id === "_band") continue;
+      if (id === "qingxi") {
+        const r = el("rect", "box county", scene);
+        r.setAttribute("x", b.x); r.setAttribute("y", b.y); r.setAttribute("width", b.w); r.setAttribute("height", b.h); r.setAttribute("rx", 14);
+        const t = el("text", "bsub", scene); t.setAttribute("x", b.x + 8); t.setAttribute("y", b.y + 15); t.textContent = "青溪县（虚线大框＝县域，四个小框在内）";
+        continue;
+      }
+      const r = el("rect", "box", scene);
+      r.setAttribute("x", b.x); r.setAttribute("y", b.y); r.setAttribute("width", b.w); r.setAttribute("height", b.h); r.setAttribute("rx", 12);
+      const t = el("text", "blab", scene); t.setAttribute("x", b.x + 12); t.setAttribute("y", b.y + 21); t.textContent = id === "_unknown" ? "未知区 · 在场未定位" : placeById.get(id).label;
+    }
+    const band = BOX._band;
+    const bt = el("text", "bsub", scene); bt.setAttribute("x", band.x); bt.setAttribute("y", band.y + 20); bt.textContent = "县域内 · 无具体小地（如『东郊闲谈』）";
+    // 图钉布位：每框内网格
+    const slot = {};
+    const pins = new Map();
+    for (const p of c.presence) {
+      const boxId = leafOf(p.where);
+      slot[boxId] = (slot[boxId] || 0);
+      const i = slot[boxId]++;
+      const b = BOX[boxId];
+      const cols = boxId === "goutang" ? 4 : (boxId === "_band" ? 6 : 3);
+      const col = i % cols, row = Math.floor(i / cols);
+      const x = b.x + 26 + col * (boxId === "_band" ? 26 : 46) + (boxId === "goutang" ? 6 : 0);
+      const y = b.y + (boxId === "_band" ? 8 : 52) + row * 44;
+      pins.set(p.who, { x, y });
+      const g = el("g", "pin", scene);
+      const n = nodeById.get(p.who);
+      const shape = n.type === "faction"
+        ? (() => { const r = el("rect", roleCls(n), g); r.setAttribute("x", x - 11); r.setAttribute("y", y - 11); r.setAttribute("width", 22); r.setAttribute("height", 22); r.setAttribute("rx", 6); return r; })()
+        : n.type === "item"
+          ? (() => { const q = el("path", roleCls(n), g); q.setAttribute("d", `M ${x} ${y - 12} L ${x + 12} ${y} L ${x} ${y + 12} L ${x - 12} ${y} Z`); return q; })()
+          : (() => { const cc = el("circle", roleCls(n), g); cc.setAttribute("cx", x); cc.setAttribute("cy", y); cc.setAttribute("r", n.role === "主角" ? 13 : 10); return cc; })();
+      shape.setAttribute("stroke-width", 2);
+      const t = el("text", "", g); t.setAttribute("x", x); t.setAttribute("y", y + (n.role === "主角" ? 25 : 22)); t.setAttribute("text-anchor", "middle");
+      t.textContent = n.label;
+      g.addEventListener("click", () => selectWho(n.id));
+      g.addEventListener("pointerenter", (ev) => { tip.innerHTML = `<b>${n.label}</b><br>${n.bio || ""}<br>${p.where ? "本章在：" + placeById.get(p.where).label : "在场，位置不明（where=null）"}`; tip.style.display = "block"; moveTip(ev); });
+      g.addEventListener("pointermove", moveTip);
+      g.addEventListener("pointerleave", () => { tip.style.display = "none"; });
+    }
+    // 本章可见关系：两端都在场的边（含跨框——线穿出去正表达「事涉彼地」）
+    for (const e of DATA.edges) {
+      if (!pins.has(e.from) || !pins.has(e.to)) continue;
+      const a = pins.get(e.from), b = pins.get(e.to);
+      const ln = el("path", "sedge", scene);
+      const mx = (a.x + b.x) / 2, my = (a.y + b.y) / 2 - 16;
+      ln.setAttribute("d", `M ${a.x} ${a.y} Q ${mx} ${my} ${b.x} ${b.y}`);
+      const lab = el("text", "slab", scene);
+      lab.setAttribute("x", mx); lab.setAttribute("y", my + 4); lab.setAttribute("text-anchor", "middle"); lab.textContent = e.kind;
+      ln.addEventListener("pointerenter", (ev) => { tip.innerHTML = `<b>${nodeById.get(e.from).label} —${e.kind}→ ${nodeById.get(e.to).label}</b><br>第${e.ch}章 ·「${e.quote}」`; tip.style.display = "block"; moveTip(ev); });
+      ln.addEventListener("pointerleave", () => { tip.style.display = "none"; });
+    }
+    // 本章伏笔旗标
+    const hk = DATA.hooks.filter((h) => h.plant === c.no || h.payoff === c.no);
+    if (hk.length) {
+      const t = el("text", "bsub", scene);
+      t.setAttribute("x", 24); t.setAttribute("y", 466);
+      t.textContent = "本章伏笔：" + hk.map((h) => `⚑${h.desc}（${h.plant === c.no ? "埋" : "收"}）`).join("　");
+    }
+  }
+
+  // ───────── 社会轴：v3 关系网（保留） ─────────
+  const svg = document.getElementById("graph");
+  const world = el("g", "", svg);
+  const gEdges = el("g", "", world), gNodes = el("g", "", world);
+  const edgeEls = DATA.edges.map((e) => {
+    const a = nodeById.get(e.from), b = nodeById.get(e.to);
+    const ln = el("line", "edge", gEdges);
+    ln.setAttribute("x1", a.x); ln.setAttribute("y1", a.y); ln.setAttribute("x2", b.x); ln.setAttribute("y2", b.y);
+    ln.setAttribute("stroke-width", 1.2 + e.w * 1.3);
+    ln.addEventListener("pointerenter", (ev) => { tip.innerHTML = `<b>${a.label} —${e.kind}→ ${b.label}</b><br>第${e.ch}章 ·「${e.quote}」`; tip.style.display = "block"; moveTip(ev); });
+    ln.addEventListener("pointermove", moveTip);
+    ln.addEventListener("pointerleave", () => { tip.style.display = "none"; });
+    return { e, ln };
+  });
+  const nodeEls = DATA.nodes.map((n) => {
+    const g = el("g", "node", gNodes);
+    if (n.type === "faction") { const r = el("rect", "n-fac", g); r.setAttribute("x", n.x - 32); r.setAttribute("y", n.y - 14); r.setAttribute("width", 64); r.setAttribute("height", 28); r.setAttribute("rx", 8); }
+    else if (n.type === "item") { const p = el("path", "n-item", g); p.setAttribute("d", `M ${n.x} ${n.y - 16} L ${n.x + 16} ${n.y} L ${n.x} ${n.y + 16} L ${n.x - 16} ${n.y} Z`); }
+    else { const c2 = el("circle", roleCls(n), g); c2.setAttribute("cx", n.x); c2.setAttribute("cy", n.y); c2.setAttribute("r", n.role === "主角" ? 21 : 15); }
+    const t = el("text", "", g); t.setAttribute("x", n.x); t.setAttribute("y", n.y + (n.type === "person" ? (n.role === "主角" ? 21 : 15) + 15 : 29)); t.setAttribute("text-anchor", "middle"); t.textContent = n.label;
+    if (n.alias && n.alias.length) { const a = el("text", "alias", g); a.setAttribute("x", n.x); a.setAttribute("y", n.y - 25); a.setAttribute("text-anchor", "middle"); a.textContent = "「" + n.alias.join("·") + "」"; }
+    g.addEventListener("click", () => selectWho(n.id));
+    return { n, g };
+  });
+  function applyT() { world.setAttribute("transform", `translate(${state.t.x} ${state.t.y}) scale(${state.t.k})`); }
+  function zoom(f) { state.t.k = Math.min(2.6, Math.max(0.5, state.t.k * f)); applyT(); }
+  document.getElementById("zin").onclick = () => zoom(1.18);
+  document.getElementById("zout").onclick = () => zoom(1 / 1.18);
+  document.getElementById("zreset").onclick = () => { state.t = { x: 0, y: 0, k: 1 }; applyT(); };
+  svg.addEventListener("wheel", (e) => { e.preventDefault(); zoom(e.deltaY < 0 ? 1.12 : 1 / 1.12); }, { passive: false });
+  let drag = null;
+  svg.addEventListener("pointerdown", (e) => { if (e.target.closest(".node")) return; drag = { x: e.clientX, y: e.clientY, t: { ...state.t } }; svg.classList.add("grabbing"); });
+  window.addEventListener("pointermove", (e) => { if (!drag) return; state.t.x = drag.t.x + (e.clientX - drag.x) * (860 / svg.clientWidth); state.t.y = drag.t.y + (e.clientY - drag.y) * (860 / svg.clientWidth); applyT(); });
+  window.addEventListener("pointerup", () => { drag = null; svg.classList.remove("grabbing"); });
+  svg.addEventListener("click", (e) => { if (!e.target.closest(".node")) clearSel(); });
+
+  // ───────── 页签 ─────────
+  const tabScene = document.getElementById("tabScene"), tabNet = document.getElementById("tabNet");
+  function setTab(sceneOn) {
+    document.getElementById("scenewrap").style.display = sceneOn ? "" : "none";
+    document.getElementById("netwrap").style.display = sceneOn ? "none" : "";
+    tabScene.classList.toggle("on", sceneOn); tabNet.classList.toggle("on", !sceneOn);
+    document.getElementById("canvasHint").textContent = sceneOn ? "地点为框 · 图钉＝本章在场 · 线＝本章关系" : "滚轮缩放 · 拖拽平移 · Esc 全景";
+  }
+  tabScene.onclick = () => setTab(true);
+  tabNet.onclick = () => setTab(false);
+
+  // ───────── 左栏 章链＋地点树（v3 保留） ─────────
+  const side = document.getElementById("side");
+  const chapBox = document.getElementById("chapters"); const chapRows = new Map();
+  DATA.chapters.forEach((c) => {
+    const row = document.createElement("div"); row.className = "trow";
+    row.innerHTML = `<span class="dot"></span><span class="tc">第${c.no}章</span><span class="cbeat">${c.beat}</span><span class="tc">${c.at.length}地·${c.who.length}人</span>`;
+    row.addEventListener("click", () => { selectChapter(c.no); setTab(true); });
+    chapBox.appendChild(row); chapRows.set(c.no, row);
+  });
+  const treeBox = document.getElementById("tree"); const treeRows = new Map();
+  (function buildTree() {
+    const kids = (pid) => DATA.places.filter((p) => p.parent === pid);
+    const walk = (p, depth, isLast) => {
+      const row = document.createElement("div"); row.className = "trow";
+      row.style.paddingLeft = 8 + depth * 14 + "px";
+      const evs = DATA.events.filter((e) => e.at === p.id).length;
+      row.innerHTML = `<span class="dot"></span><span class="tconn">${depth === 0 ? "" : (isLast ? "└─" : "├─")}</span><span class="tn">${p.label}</span><span class="tc">${DATA.links.filter((l) => l.where === p.id).length}人·${evs}事</span>`;
+      row.title = p.note;
+      row.addEventListener("click", () => selectPlace(p.id));
+      treeBox.appendChild(row); treeRows.set(p.id, row);
+      const cs = kids(p.id); cs.forEach((x, i) => walk(x, depth + 1, i === cs.length - 1));
+    };
+    DATA.places.filter((p) => !p.parent).forEach((r) => walk(r, 0, true));
+  })();
+
+  // ───────── 联动 ─────────
+  const linksOfWho = (id) => DATA.links.filter((l) => l.who === id);
+  const linksOfPlace = (id) => DATA.links.filter((l) => l.where === id);
+  const chaptersOfWho = (id) => DATA.chapters.filter((c) => c.who.includes(id)).map((c) => c.no);
+  function subtreePlaces(id) {
+    const out = new Set([id]);
+    for (let ch = true; ch;) { ch = false; for (const p of DATA.places) if (p.parent && out.has(p.parent) && !out.has(p.id)) { out.add(p.id); ch = true; } }
+    return out;
+  }
+  function paint(nos, placeIds, whoSet) {
+    for (const [no, row] of chapRows) row.classList.toggle("hl", nos ? nos.has(no) : false);
+    for (const [id, row] of treeRows) row.classList.toggle("hl", placeIds ? placeIds.has(id) : false);
+    for (const { n, g } of nodeEls) g.classList.toggle("dim", whoSet ? !whoSet.has(n.id) : false);
+    for (const { e, ln } of edgeEls) { const inSet = whoSet ? (whoSet.has(e.from) && whoSet.has(e.to)) : false; ln.classList.toggle("dim", whoSet ? !inSet : false); ln.classList.toggle("hot", inSet); }
+  }
+  function selectChapter(no) {
+    state.chap = no;
+    paint(new Set([no]), new Set(chapByNo.get(no).at), new Set(chapByNo.get(no).who));
+    for (const [n2, row] of chapRows) row.classList.toggle("on", n2 === no);
+    renderScene(); renderChapter(chapByNo.get(no));
+  }
+  function selectWho(id) {
+    const set = new Set([id]);
+    for (const e of DATA.edges) { if (e.from === id) set.add(e.to); if (e.to === id) set.add(e.from); }
+    paint(new Set(chaptersOfWho(id)), new Set(linksOfWho(id).map((l) => l.where)), set);
+    renderWho(nodeById.get(id));
+  }
+  function selectPlace(id) {
+    const scope = subtreePlaces(id);
+    const set = new Set();
+    for (const sub of scope) for (const l of linksOfPlace(sub.id)) set.add(l.who);
+    paint(new Set(DATA.chapters.filter((c) => c.presence.some((p) => scope.has(p.where))).map((c) => c.no)), scope, set);
+    renderPlace(placeById.get(id), scope);
+  }
+  function selectEvent(ev) {
+    paint(new Set(DATA.chapters.filter((c) => c.no >= ev.ch[0] && c.no <= ev.ch[1]).map((c) => c.no)), new Set([ev.at]), new Set(ev.members));
+    renderEv(ev);
+  }
+  function clearSel() { paint(null, null, null); for (const row of chapRows.values()) row.classList.remove("on"); setTab(true); renderHome(); }
+  window.addEventListener("keydown", (e) => { if (e.key === "Escape") clearSel(); });
+  document.getElementById("prev").onclick = () => selectChapter(Math.max(1, state.chap - 1));
+  document.getElementById("next").onclick = () => selectChapter(Math.min(DATA.stats.chapters, state.chap + 1));
+
+  // ───────── 侧栏 ─────────
+  const chips = (arr) => `<div class="chips">${arr.join("")}</div>`;
+  const whoChip = (id) => `<span class="chip" data-who="${id}">${nodeById.get(id).label}</span>`;
+  const locChip = (id) => `<span class="chip loc" data-place="${id}">📍${placeById.get(id).label}</span>`;
+  function renderHome() {
+    side.innerHTML = `<h3>本书书眼</h3>${chips([`<span class="chip none">共 ${DATA.stats.chapters} 章</span>`, `<span class="chip none">${DATA.stats.words.toLocaleString()} 字</span>`])}
+      <p>${DATA.logline}</p>
+      <h3 class="sh">四视图一屏</h3>
+      <p>章链（进度轴）·地点树（空间轴）·关系网（社会轴）·<b>场景图（人在哪·干什么）</b>——点章即翻场景动画册：图钉落进本章所在的框，跨框的线表达"人在此、事涉彼"（如第7章裴衡在京城、盐帮在青溪，一条『主使』线横穿两框）。</p>
+      <h3 class="sh">数据缺口（如实标注）</h3>
+      <p>presence＝「本章谁在哪个地点」为契约 v4 新增，现有拆卡管线尚未产出；v3 立项时卡片契约需补此抽取。</p>`;
+  }
+  function renderChapter(c) {
+    const rels = DATA.edges.filter((e) => c.presence.some((p) => p.who === e.from) && c.presence.some((p) => p.who === e.to))
+      .map((e) => `<div class="erow"><span class="k">${e.kind}</span><span><b>${nodeById.get(e.from).label}—${nodeById.get(e.to).label}</b> <span class="q">「${e.quote}」</span></div>`).join("");
+    const whereList = c.presence.map((p) => `<div class="erow" data-who="${p.who}"><span class="k">${nodeById.get(p.who).label}</span><span>在 <b>${p.where ? placeById.get(p.where).label : "未知区（在场未定位）"}</b><span class="ev">（${c.beat.split("：")[0]}）</span></span></div>`).join("");
+    side.innerHTML = `<h3>第${c.no}章<span class="rolechip rc-章">章</span></h3>
+      <p style="color:var(--fg)">${c.beat}</p>
+      ${c.ev ? chips([`<span class="chip ev" data-ev="${c.ev}">⚡ 属「${eventById.get(c.ev).title}」</span>`]) : ""}
+      <h3 class="sh">谁在哪儿（本章）</h3>${whereList}
+      ${rels ? `<h3 class="sh">本章可见关系</h3>${rels}` : ""}`;
+    bindSide();
+  }
+  function crumb(id) { const parts = []; for (let p = placeById.get(id); p; p = p.parent ? placeById.get(p.parent) : null) parts.unshift(p.label); const last = parts.pop(); return parts.length ? `${parts.join(" ▸ ")} ▸ <b>${last}</b>` : `<b>${last}</b>`; }
+  function renderWho(n) {
+    const foot = linksOfWho(n.id).map((l) => `<div class="erow" data-place="${l.where}"><span class="k">${l.kind}</span><span><b>${placeById.get(l.where).label}</b> <span class="q">「${l.quote}」</span><span class="ev"> 第${l.ch}章</span></span></div>`).join("");
+    const rels = DATA.edges.filter((e) => e.from === n.id || e.to === n.id).map((e) => { const other = nodeById.get(e.from === n.id ? e.to : e.from); return `<div class="erow" data-who="${other.id}"><span class="k">${e.kind}</span><span><b>${other.label}</b> <span class="q">「${e.quote}」</span><span class="ev"> 第${e.ch}章</span></span></div>`; }).join("");
+    side.innerHTML = `<h3>${n.label}<span class="rolechip rc-${n.type === "faction" ? "组织" : n.type === "item" ? "物品" : n.role}">${n.type === "faction" ? "组织" : n.type === "item" ? "物品" : n.role}</span></h3>
+      ${n.alias ? `<p>别名：${n.alias.join("、")}</p>` : ""}<p>${n.bio || ""}</p>
+      <h3 class="sh">出现的章</h3>${chips(chaptersOfWho(n.id).length ? [chaptersOfWho(n.id).map((no) => `<span class="chip" data-chap="${no}">第${no}章</span>`).join("")] : ['<span class="chip none">无</span>'])}
+      <h3 class="sh">足迹</h3>${foot || "<p>无记录。</p>"}<h3 class="sh">关系</h3>${rels}`;
+    side.querySelectorAll("[data-chap]").forEach((r) => r.addEventListener("click", () => { setTab(true); selectChapter(Number(r.dataset.chap)); }));
+    bindSide();
+  }
+  function renderPlace(p, scope) {
+    const rowsData = [];
+    for (const sub of scope) for (const l of linksOfPlace(sub.id)) rowsData.push({ l, loc: sub });
+    const wrows = rowsData.map(({ l, loc }) => `<div class="erow" data-who="${l.who}"><span class="k">${l.kind}</span><span><b>${nodeById.get(l.who).label}</b> @${loc.label}<span class="ev"> 第${l.ch}章</span></span></div>`).join("");
+    const chaps = DATA.chapters.filter((c) => c.at.some((a) => scope.has(a)) || c.presence.some((x) => scope.has(x.where))).map((c) => `<span class="chip" data-chap="${c.no}">第${c.no}章</span>`).join("");
+    side.innerHTML = `<h3>${p.label}<span class="rolechip rc-地点">地点</span></h3><p class="crumb">${crumb(p.id)}</p><p>${p.note || ""}</p>
+      <h3 class="sh">章链到此地</h3>${chips(chaps ? [chaps] : ['<span class="chip none">无</span>'])}
+      <h3 class="sh">此地之人</h3>${wrows || "<p>暂无。</p>"}`;
+    side.querySelectorAll("[data-chap]").forEach((r) => r.addEventListener("click", () => { setTab(true); selectChapter(Number(r.dataset.chap)); }));
+    bindSide();
+  }
+  function renderEv(ev) {
+    const p = placeById.get(ev.at);
+    side.innerHTML = `<h3>${ev.title}</h3>${chips([`<span class="chip none">第${ev.ch[0]}-${ev.ch[1]}章</span>`, `<span class="chip loc" data-place="${p.id}">📍 ${p.label}</span>`])}<p>${ev.note}</p>
+      <h3 class="sh">参与</h3>${chips(ev.members.map(whoChip))}`;
+    bindSide();
+  }
+  function bindSide() {
+    side.querySelectorAll("[data-who]").forEach((r) => r.addEventListener("click", () => selectWho(r.dataset.who)));
+    side.querySelectorAll("[data-place]").forEach((r) => r.addEventListener("click", () => selectPlace(r.dataset.place)));
+    side.querySelectorAll("[data-ev]").forEach((r) => r.addEventListener("click", () => selectEvent(eventById.get(r.dataset.ev))));
+  }
+
+  // ───────── 底部时间轴 ─────────
+  const CH = DATA.stats.chapters;
+  document.getElementById("ruler").innerHTML = Array.from({ length: CH }, (_, i) => `<span>${i + 1}</span>`).join("");
+  const rowsBox = document.getElementById("evrows");
+  DATA.events.forEach((ev) => {
+    const d = document.createElement("div"); d.className = "evrow";
+    const pct = (c) => ((c - 1) / CH) * 100;
+    d.innerHTML = `<span class="lab">${ev.title} <b>📍${placeById.get(ev.at).label}</b></span><div class="evbar" style="left:${pct(ev.ch[0])}%;width:${pct(ev.ch[1] - ev.ch[0] + 1)}%" title="${ev.note}">${ev.title}</div>`;
+    d.querySelector(".evbar").addEventListener("click", () => selectEvent(ev));
+    d.querySelector(".lab").addEventListener("click", () => selectEvent(ev));
+    rowsBox.appendChild(d);
+  });
+  document.getElementById("hooks").innerHTML = DATA.hooks.map((h) => {
+    const closed = h.status === "已收";
+    return `<span class="hook ${closed ? "closed" : ""}">伏笔 · ${h.desc}〔埋第${h.plant}章${closed ? " · 收第" + h.payoff + "章" : " · 未收"}〕</span>`;
+  }).join("");
+
+  renderHome(); selectChapter(1); setTab(true);
+})();
+</script>
+</body>
+</html>

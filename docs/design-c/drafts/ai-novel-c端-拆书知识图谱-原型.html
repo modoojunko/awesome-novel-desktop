@@ -1,0 +1,355 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>拆书知识图谱 · 原型（导出件 图谱.html）</title>
+<!--
+   AwesomeNovel 拆书 · 知识图谱原型（docs/design-c/drafts/，v3.0 提案配图）
+  · 这是「导出文件夹第 11 件」图谱.html 的自包含原型：双击浏览器打开，离线零依赖（无 CDN）。
+  · 页内 <script type="application/json" id="graphdata"> 即正式版的「图谱 JSON 事实源」——
+    正式版中 图谱.svg 与本视图共用同一份数据与坐标（坐标由导出器预计算写入，原型手工摆放同理）。
+  · 本版为「人·事」：人物/势力/物品＋关系边＋主线事件＋伏笔。地点立户与事件卡全量
+    随 v3 本体账本接入——骨架不变，只是多点几类点。
+-->
+<style>
+:root {
+  --bg:      oklch(98% 0.004 240);
+  --surface: oklch(100% 0 0);
+  --fg:      oklch(20% 0.02 240);
+  --muted:   oklch(50% 0.018 240);
+  --border:  oklch(90% 0.006 240);
+  --accent: oklch(48% 0.11 170);
+  --accent-strong: oklch(41% 0.10 170);
+  --accent-soft:   color-mix(in oklch, var(--accent) 12%, transparent);
+  --ok:    oklch(52% 0.11 155);  --ok-soft:   color-mix(in oklch, var(--ok) 14%, transparent);
+  --warn:  oklch(50% 0.13 75);   --warn-soft: color-mix(in oklch, var(--warn) 16%, transparent);
+  --err:   oklch(50% 0.17 25);   --err-soft:  color-mix(in oklch, var(--err) 12%, transparent);
+  --fg-soft:   color-mix(in oklch, var(--fg) 5%, transparent);
+  --faint: color-mix(in oklch, var(--muted) 68%, transparent);
+  --on-accent: oklch(100% 0 0);
+  --shadow-card: 0 1px 2px color-mix(in oklch, var(--fg) 5%, transparent),
+                 0 12px 32px -12px color-mix(in oklch, var(--fg) 14%, transparent);
+  --font-display: 'Noto Serif SC', 'Songti SC', 'STSong', 'Iowan Old Style', Georgia, serif;
+  --font-body: -apple-system, BlinkMacSystemFont, 'PingFang SC', 'Hiragino Sans GB', 'Microsoft YaHei', system-ui, sans-serif;
+  --font-mono: ui-monospace, 'SF Mono', Menlo, 'JetBrains Mono', monospace;
+  --radius: 10px; --radius-lg: 16px;
+}
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--bg); color: var(--fg); font: 14px/1.65 var(--font-body); }
+.top { padding: 18px 22px 10px; border-bottom: 1px solid var(--border); background: var(--surface); }
+.top h1 { margin: 0; font: 600 20px/1.3 var(--font-display); }
+.top h1 .sub { font: 400 13px var(--font-body); color: var(--muted); margin-left: 10px; }
+.badges { margin-top: 8px; display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+.badge { font-size: 12px; padding: 3px 10px; border-radius: 999px; border: 1px solid var(--border); color: var(--muted); background: var(--bg); }
+.badge.ed { border-color: var(--accent); color: var(--accent-strong); background: var(--accent-soft); }
+.legend { margin-left: auto; display: flex; gap: 14px; font-size: 12px; color: var(--muted); flex-wrap: wrap; }
+.legend i { display: inline-block; width: 10px; height: 10px; border-radius: 50%; margin-right: 5px; vertical-align: -1px; }
+.legend .l-fac { border-radius: 3px; } .legend .l-item { transform: rotate(45deg); border-radius: 2px; width: 9px; height: 9px; }
+.note { margin: 10px 22px 0; padding: 10px 14px; border: 1px dashed var(--border); border-radius: var(--radius); font-size: 12.5px; color: var(--muted); background: var(--surface); }
+.note b { color: var(--fg); }
+.stage { display: flex; gap: 14px; padding: 14px 22px; }
+.canvas-wrap { position: relative; flex: 1; min-width: 0; background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-lg); box-shadow: var(--shadow-card); overflow: hidden; }
+#graph { display: block; width: 100%; height: auto; cursor: grab; touch-action: none; }
+#graph.grabbing { cursor: grabbing; }
+.zoomctl { position: absolute; top: 10px; left: 10px; display: flex; gap: 6px; }
+.zoomctl button { width: 30px; height: 30px; border-radius: 8px; border: 1px solid var(--border); background: var(--surface); color: var(--fg); font-size: 15px; cursor: pointer; }
+.zoomctl button:hover { border-color: var(--accent); color: var(--accent-strong); }
+.edge { stroke: color-mix(in oklch, var(--muted) 55%, transparent); stroke-linecap: round; }
+.edge.hot { stroke: var(--accent-strong); }
+.node { cursor: pointer; }
+.node circle, .node rect, .node path { stroke-width: 2px; }
+.n-zj  { fill: var(--accent);      stroke: var(--accent-strong); }   /* 主角 */
+.n-pj  { fill: var(--surface);     stroke: var(--accent); }
+.n-fp  { fill: var(--err);         stroke: var(--err); }
+.n-fac { fill: var(--warn-soft);   stroke: var(--warn); }
+.n-item{ fill: var(--ok-soft);     stroke: var(--ok); }
+.node text { font: 12px var(--font-body); fill: var(--fg); pointer-events: none; }
+.node .alias { fill: var(--faint); font-size: 10.5px; }
+.dim { opacity: 0.16; }
+.side { width: 320px; flex-shrink: 0; background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-lg); box-shadow: var(--shadow-card); padding: 14px 16px; overflow: auto; max-height: 560px; }
+.side h2 { margin: 0 0 4px; font: 600 17px var(--font-display); }
+.side .rolechip { display: inline-block; font-size: 11.5px; padding: 2px 9px; border-radius: 999px; margin-left: 6px; vertical-align: 2px; }
+.rc-主角 { background: var(--accent); color: var(--on-accent); }
+.rc-配角 { background: var(--accent-soft); color: var(--accent-strong); border: 1px solid var(--accent); }
+.rc-反派 { background: var(--err-soft); color: var(--err); border: 1px solid var(--err); }
+.rc-组织, .rc-物品 { background: var(--warn-soft); color: var(--warn); border: 1px solid var(--warn); }
+.rc-物品 { background: var(--ok-soft); color: var(--ok); border: 1px solid var(--ok); }
+.side p { margin: 8px 0; color: var(--muted); font-size: 13px; }
+.side .chips { display: flex; flex-wrap: wrap; gap: 5px; margin: 6px 0 10px; }
+.side .chip { font: 11px var(--font-mono); padding: 2px 7px; border: 1px solid var(--border); border-radius: 6px; color: var(--muted); background: var(--bg); }
+.side h3 { margin: 12px 0 6px; font: 600 13px var(--font-body); color: var(--fg); border-top: 1px solid var(--border); padding-top: 10px; }
+.erow { display: flex; gap: 8px; align-items: baseline; padding: 5px 0; border-bottom: 1px dashed color-mix(in oklch, var(--border) 60%, transparent); font-size: 13px; cursor: pointer; }
+.erow:hover { color: var(--accent-strong); }
+.erow .k { flex-shrink: 0; font-weight: 600; min-width: 4.5em; }
+.erow .ev { color: var(--faint); font-size: 11.5px; }
+.erow .q { color: var(--muted); font-style: italic; }
+.tl { margin: 0 22px 20px; background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-lg); padding: 12px 16px 14px; box-shadow: var(--shadow-card); }
+.tl h2 { margin: 0 0 8px; font: 600 13px var(--font-body); }
+.tl .ruler { display: flex; font: 10.5px var(--font-mono); color: var(--faint); margin-left: 96px; }
+.tl .ruler span { flex: 1; text-align: center; }
+.evrow { position: relative; height: 26px; margin-left: 96px; }
+.evrow .lab { position: absolute; left: -96px; top: 3px; width: 90px; text-align: right; font-size: 12px; color: var(--muted); cursor: pointer; }
+.evrow .lab:hover { color: var(--accent-strong); }
+.evbar { position: absolute; top: 3px; height: 20px; border-radius: 6px; background: var(--accent-soft); border: 1px solid var(--accent); cursor: pointer; padding-left: 8px; font-size: 11px; color: var(--accent-strong); line-height: 19px; white-space: nowrap; overflow: hidden; }
+.evbar:hover { background: color-mix(in oklch, var(--accent) 20%, transparent); }
+.hookline { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px; }
+.hook { font-size: 12px; padding: 3px 10px; border-radius: 999px; border: 1px dashed var(--warn); color: var(--warn); background: var(--warn-soft); cursor: default; }
+.hook.closed { border-style: solid; border-color: var(--ok); color: var(--ok); background: var(--ok-soft); }
+#tip { position: fixed; pointer-events: none; z-index: 9; background: var(--surface); border: 1px solid var(--border); border-radius: 8px; box-shadow: var(--shadow-card); padding: 7px 10px; font-size: 12px; color: var(--muted); max-width: 260px; display: none; }
+#tip b { color: var(--fg); }
+.foot { margin: 0 22px 22px; font-size: 11.5px; color: var(--faint); }
+@media (max-width: 860px) { .stage { flex-direction: column; } .side { width: auto; max-height: none; } }
+</style>
+</head>
+<body>
+
+<header class="top">
+  <h1>《雪落无声》<span class="sub">拆书知识图谱 · 导出件「图谱.html」原型</span></h1>
+  <div class="badges">
+    <span class="badge ed">人·事版 v3.0 原型</span>
+    <span class="badge">地点 · 事件卡：v3 本体账本立户后并入</span>
+    <span class="badge">单文件离线 · 无 CDN</span>
+    <div class="legend">
+      <span><i style="background:var(--accent)"></i>主角</span>
+      <span><i style="background:var(--surface);border:1.5px solid var(--accent)"></i>配角</span>
+      <span><i style="background:var(--err)"></i>反派</span>
+      <span><i class="l-fac" style="background:var(--warn-soft);border:1.5px solid var(--warn)"></i>势力</span>
+      <span><i class="l-item" style="background:var(--ok-soft);border:1.5px solid var(--ok)"></i>物品</span>
+      <span>—线粗＝戏份—</span>
+    </div>
+  </div>
+  <div class="note"><b>看这页怎么对应正式实现：</b>图中每个点/线的数据，就是页内嵌的「图谱 JSON」（正式版单独落盘为 <code>图谱.json</code>，本文件与 图谱.svg 共用它，坐标由导出器预计算）；点人＝选中高亮＋右侧证据栏；点底部事件＝按参与人聚焦；每条关系带<b>出处章号＋原文一句</b>——防编造是结构性的。当前关系为「人·势力·物品」，地点接入后同法长在同一骨架上。</div>
+</header>
+
+<main class="stage">
+  <section class="canvas-wrap">
+    <div class="zoomctl">
+      <button id="zin" title="放大">＋</button>
+      <button id="zout" title="缩小">－</button>
+      <button id="zreset" title="复位">⟲</button>
+    </div>
+    <svg id="graph" viewBox="0 0 900 520" aria-label="人物关系钉板图"></svg>
+  </section>
+  <aside class="side" id="side"></aside>
+</main>
+
+<footer class="tl">
+  <h2>主线时间轴（章序）</h2>
+  <div class="ruler" id="ruler"></div>
+  <div id="evrows"></div>
+  <div class="hookline" id="hooks"></div>
+</footer>
+
+<p class="foot">原型件 · AwesomeNovel 拆书 v3.0 提案配图（2026-10-14）；数据为本仓测试夹具书《雪落无声》（林晚/阿蓟/渡口）扩写，仅示意契约与交互，非真实拆解结果。</p>
+
+<script id="graphdata" type="application/json">
+{
+  "contract": "deconstruct-graph/1",
+  "book": "雪落无声",
+  "edition": "人·事版（地点/事件卡为 v3 本体版扩展位）",
+  "stats": { "chapters": 12, "words": 38600 },
+  "logline": "船家女林晚渡口救下阿蓟，牵出盐案旧罪；拜师学艺、玉佩认亲，风雪夜公堂翻案。",
+  "nodes": [
+    { "id": "linwan",  "type": "person",  "label": "林晚",     "role": "主角", "x": 430, "y": 250, "appear": [1,2,4,6,8,10,12], "bio": "渡口船家女，后拜师学刑名，翻案发起人。" },
+    { "id": "aji",     "type": "person",  "label": "阿蓟",     "role": "配角", "alias": ["蓟姐", "小蓟"], "x": 620, "y": 150, "appear": [1,2,5,9,10,12], "bio": "被救者，实为盐案旧证的关键证人。" },
+    { "id": "shenyan", "type": "person",  "label": "沈砚",     "role": "配角", "x": 250, "y": 140, "appear": [3,4,5,7,11], "bio": "退隐刑名师爷，因旧案去职，收林晚为记名弟子。" },
+    { "id": "liu",     "type": "person",  "label": "柳氏",     "role": "配角", "x": 250, "y": 380, "appear": [2,6,10,12], "bio": "林晚生母，半块玉佩的另一半持有者。" },
+    { "id": "peiheng", "type": "person",  "label": "裴衡",     "role": "反派", "x": 660, "y": 380, "appear": [6,7,9,10,11], "bio": "盐铁转运使，旧案主谋，翻案对象。" },
+    { "id": "yanbang", "type": "faction", "label": "盐帮",     "x": 810, "y": 250, "appear": [3,7,9], "bio": "私盐势力，受裴衡驱使执行灭口。" },
+    { "id": "guanfu",  "type": "faction", "label": "县城衙门", "x": 450, "y": 450, "appear": [4,8,11,12], "bio": "公堂所在，翻案的场地与程序。" },
+    { "id": "luopan",  "type": "item",    "label": "神秘罗盘", "x": 110, "y": 270, "appear": [3], "bio": "沉船所获，指向旧案埋赃处（伏笔未收）。" }
+  ],
+  "edges": [
+    { "from": "linwan",  "to": "aji",     "kind": "恩义",     "w": 3, "ch": 1,  "quote": "林晚在渡口救人。" },
+    { "from": "linwan",  "to": "shenyan", "kind": "师徒",     "w": 2, "ch": 3,  "quote": "沈砚收其为记名弟子。" },
+    { "from": "liu",     "to": "linwan",  "kind": "亲缘",     "w": 2, "ch": 6,  "quote": "半块玉佩认亲。" },
+    { "from": "shenyan", "to": "peiheng", "kind": "旧案仇",   "w": 2, "ch": 5,  "quote": "当年沈砚因裴衡构陷去职。" },
+    { "from": "peiheng", "to": "yanbang", "kind": "主使",     "w": 2, "ch": 7,  "quote": "灭口之令出自转运使司。" },
+    { "from": "yanbang", "to": "aji",     "kind": "追索灭口", "w": 1, "ch": 9,  "quote": "阿蓟遭盐帮截杀于巷口。" },
+    { "from": "aji",     "to": "guanfu",  "kind": "作证",     "w": 1, "ch": 12, "quote": "风雪夜公堂指认。" },
+    { "from": "linwan",  "to": "luopan",  "kind": "持有",     "w": 1, "ch": 3,  "quote": "打捞沉船所得。" },
+    { "from": "peiheng", "to": "guanfu",  "kind": "施压",     "w": 1, "ch": 11, "quote": "递帖逼县令缓审。" },
+    { "from": "liu",     "to": "aji",     "kind": "收留",     "w": 1, "ch": 2,  "quote": "阿蓟寄宿柳家。" }
+  ],
+  "events": [
+    { "id": "e1", "title": "渡口救恩",   "ch": [1, 2],   "members": ["linwan", "aji", "liu"],         "note": "善念起链，全书发动机。" },
+    { "id": "e2", "title": "认亲学艺",   "ch": [3, 5],   "members": ["linwan", "shenyan", "liu", "luopan"], "note": "师徒线与玉佩伏笔埋设。" },
+    { "id": "e3", "title": "县城风波",   "ch": [6, 9],   "members": ["linwan", "peiheng", "yanbang", "aji", "guanfu"], "note": "旧案浮出水面，杀机启动。" },
+    { "id": "e4", "title": "风雪夜翻案", "ch": [10, 12], "members": ["linwan", "aji", "shenyan", "peiheng", "guanfu", "liu"], "note": "全线收束，证人、师徒、亲缘三线同堂。" }
+  ],
+  "hooks": [
+    { "desc": "神秘罗盘",     "plant": 3,  "payoff": null, "status": "未收" },
+    { "desc": "半块玉佩",     "plant": 6,  "payoff": 10,   "status": "已收" },
+    { "desc": "阿蓟真实身份", "plant": 2,  "payoff": 12,   "status": "已收" }
+  ]
+}
+</script>
+
+<script>
+(() => {
+  "use strict";
+  const DATA = JSON.parse(document.getElementById("graphdata").textContent);
+  const SVGNS = "http://www.w3.org/2000/svg";
+  const svg = document.getElementById("graph");
+  const side = document.getElementById("side");
+  const tip = document.getElementById("tip");
+  const nodeById = new Map(DATA.nodes.map((n) => [n.id, n]));
+  const state = { sel: null, t: { x: 0, y: 0, k: 1 } };
+
+  const el = (tag, cls, parent) => {
+    const e = document.createElementNS(SVGNS, tag);
+    if (cls) e.setAttribute("class", cls);
+    if (parent) parent.appendChild(e);
+    return e;
+  };
+  const roleCls = (n) => n.type === "faction" ? "n-fac" : n.type === "item" ? "n-item"
+    : n.role === "主角" ? "n-zj" : n.role === "反派" ? "n-fp" : "n-pj";
+  const neighbors = (id) => {
+    const set = new Set([id]);
+    for (const e of DATA.edges) { if (e.from === id) set.add(e.to); if (e.to === id) set.add(e.from); }
+    return set;
+  };
+
+  // ── 画：边层 → 点层（组在可平移缩放的 g#world 里）──
+  const world = el("g", "", svg); world.id = "world";
+  const gEdges = el("g", "", world), gNodes = el("g", "", world);
+  const edgeEls = DATA.edges.map((e) => {
+    const a = nodeById.get(e.from), b = nodeById.get(e.to);
+    const ln = el("line", "edge", gEdges);
+    ln.setAttribute("x1", a.x); ln.setAttribute("y1", a.y);
+    ln.setAttribute("x2", b.x); ln.setAttribute("y2", b.y);
+    ln.setAttribute("stroke-width", 1.2 + e.w * 1.3);
+    ln.addEventListener("pointerenter", (ev) => {
+      tip.innerHTML = `<b>${a.label} —${e.kind}→ ${b.label}</b><br>第${e.ch}章 ·「${e.quote}」`;
+      tip.style.display = "block"; moveTip(ev);
+    });
+    ln.addEventListener("pointermove", moveTip);
+    ln.addEventListener("pointerleave", () => { tip.style.display = "none"; });
+    return { e, ln };
+  });
+  const nodeEls = DATA.nodes.map((n) => {
+    const g = el("g", "node", gNodes);
+    if (n.type === "faction") {
+      const r = el("rect", "n-fac", g);
+      r.setAttribute("x", n.x - 34); r.setAttribute("y", n.y - 15);
+      r.setAttribute("width", 68); r.setAttribute("height", 30); r.setAttribute("rx", 8);
+    } else if (n.type === "item") {
+      const p = el("path", "n-item", g);
+      p.setAttribute("d", `M ${n.x} ${n.y - 17} L ${n.x + 17} ${n.y} L ${n.x} ${n.y + 17} L ${n.x - 17} ${n.y} Z`);
+    } else {
+      const c = el("circle", roleCls(n), g);
+      c.setAttribute("cx", n.x); c.setAttribute("cy", n.y);
+      c.setAttribute("r", n.role === "主角" ? 22 : 16);
+    }
+    const t = el("text", "", g);
+    t.setAttribute("x", n.x); t.setAttribute("y", n.y + (n.type === "person" ? (n.role === "主角" ? 22 : 16) + 16 : 30));
+    t.setAttribute("text-anchor", "middle"); t.textContent = n.label;
+    if (n.alias && n.alias.length) {
+      const a = el("text", "alias", g);
+      a.setAttribute("x", n.x); a.setAttribute("y", n.y - 26);
+      a.setAttribute("text-anchor", "middle"); a.textContent = "「" + n.alias.join("·") + "」";
+    }
+    g.addEventListener("click", () => select(n.id));
+    return { n, g };
+  });
+
+  function moveTip(ev) { tip.style.left = ev.clientX + 12 + "px"; tip.style.top = ev.clientY + 12 + "px"; }
+  function applyT() { world.setAttribute("transform", `translate(${state.t.x} ${state.t.y}) scale(${state.t.k})`); }
+  function zoom(f) { state.t.k = Math.min(2.6, Math.max(0.5, state.t.k * f)); applyT(); }
+  document.getElementById("zin").onclick = () => zoom(1.18);
+  document.getElementById("zout").onclick = () => zoom(1 / 1.18);
+  document.getElementById("zreset").onclick = () => { state.t = { x: 0, y: 0, k: 1 }; applyT(); };
+  svg.addEventListener("wheel", (e) => { e.preventDefault(); zoom(e.deltaY < 0 ? 1.12 : 1 / 1.12); }, { passive: false });
+  let drag = null;
+  svg.addEventListener("pointerdown", (e) => {
+    if (e.target.closest(".node")) return;
+    drag = { x: e.clientX, y: e.clientY, t: { ...state.t } }; svg.classList.add("grabbing");
+  });
+  window.addEventListener("pointermove", (e) => {
+    if (!drag) return;
+    state.t.x = drag.t.x + (e.clientX - drag.x) * (900 / svg.clientWidth);
+    state.t.y = drag.t.y + (e.clientY - drag.y) * (900 / svg.clientWidth);
+    applyT();
+  });
+  window.addEventListener("pointerup", () => { drag = null; svg.classList.remove("grabbing"); });
+
+  // ── 选中与高亮 ──
+  function focusSet(ids, mode) {
+    const set = new Set(ids);
+    for (const { n, g } of nodeEls) g.classList.toggle("dim", !set.has(n.id));
+    for (const { e, ln } of edgeEls) {
+      const inSet = mode === "event" ? (set.has(e.from) && set.has(e.to)) : set.has(e.from) || set.has(e.to);
+      ln.classList.toggle("dim", !inSet);
+      ln.classList.toggle("hot", inSet);
+    }
+  }
+  function clearFocus() {
+    for (const { g } of nodeEls) g.classList.remove("dim");
+    for (const { ln } of edgeEls) { ln.classList.remove("dim"); ln.classList.remove("hot"); }
+  }
+  function select(id) { state.sel = id; focusSet([...neighbors(id)], "node"); renderSideNode(nodeById.get(id)); }
+  function selectEvent(ev) { state.sel = ev.id; focusSet(ev.members, "event"); renderSideEvent(ev); }
+  function clearSel() { state.sel = null; clearFocus(); renderSideHome(); }
+  svg.addEventListener("click", (e) => { if (!e.target.closest(".node")) clearSel(); });
+  window.addEventListener("keydown", (e) => { if (e.key === "Escape") clearSel(); });
+
+  // ── 侧栏三面板 ──
+  const chips = (arr) => `<div class="chips">${arr.map((c) => `<span class="chip">${c}</span>`).join("")}</div>`;
+  function renderSideHome() {
+    side.innerHTML = `
+      <h2>本书书眼</h2>${chips(["共 " + DATA.stats.chapters + " 章", DATA.stats.words.toLocaleString() + " 字"])}
+      <p>${DATA.logline}</p>
+      <h3>版本说明</h3><p>${DATA.edition}——地点与全量事件卡随 v3 本体立户，长在同一份 JSON 骨架上。</p>
+      <h3>怎么用这页</h3>
+      <p>滚轮缩放 · 拖拽平移 · 点人物看证据 · 点底部事件按参与人聚焦 · 悬停关系线看出处 · Esc 回全景。</p>`;
+  }
+  function renderSideNode(n) {
+    const rels = DATA.edges.filter((e) => e.from === n.id || e.to === n.id).map((e) => {
+      const other = nodeById.get(e.from === n.id ? e.to : e.from);
+      return `<div class="erow" data-goto="${other.id}"><span class="k">${e.from === n.id ? e.kind : e.kind}(回)</span><span><b>${other.label}</b> <span class="q">「${e.quote}」</span><span class="ev"> 第${e.ch}章</span></span></div>`;
+    }).join("");
+    const evs = DATA.events.filter((ev) => ev.members.includes(n.id))
+      .map((ev) => `<div class="erow" data-ev="${ev.id}"><span class="k">${ev.title}</span><span>第${ev.ch[0]}-${ev.ch[1]}章 <span class="ev">${ev.note}</span></span></div>`).join("");
+    const rk = n.type === "faction" ? "组织" : n.type === "item" ? "物品" : n.role;
+    side.innerHTML = `
+      <h2>${n.label}<span class="rolechip rc-${rk}">${rk}</span></h2>
+      ${n.alias ? `<p>别名：${n.alias.join("、")}（账本同源，图上同户）</p>` : ""}
+      <p>${n.bio || ""}</p>
+      <h3>出场章</h3>${chips(n.appear.map((c) => "第" + c + "章"))}
+      <h3>关系（${DATA.edges.filter((e) => e.from === n.id || e.to === n.id).length} 条·每条带出处）</h3>${rels}
+      <h3>卷入事件</h3>${evs}`;
+    side.querySelectorAll("[data-goto]").forEach((r) => r.addEventListener("click", () => select(r.dataset.goto)));
+    side.querySelectorAll("[data-ev]").forEach((r) => r.addEventListener("click", () => selectEvent(DATA.events.find((ev) => ev.id === r.dataset.ev))));
+  }
+  function renderSideEvent(ev) {
+    side.innerHTML = `
+      <h2>${ev.title}</h2>${chips(["第" + ev.ch[0] + "-" + ev.ch[1] + "章"])}
+      <p>${ev.note}</p>
+      <h3>参与（点名字跳钉板）</h3>
+      ${ev.members.map((id) => { const n = nodeById.get(id); return `<div class="erow" data-goto="${id}"><span class="k">${n.type === "faction" ? "势力" : n.type === "item" ? "物品" : "人物"}</span><span><b>${n.label}</b> <span class="ev">${n.bio || ""}</span></span></div>`; }).join("")}`;
+    side.querySelectorAll("[data-goto]").forEach((r) => r.addEventListener("click", () => select(r.dataset.goto)));
+  }
+
+  // ── 底部时间轴 ──
+  const CH = DATA.stats.chapters;
+  document.getElementById("ruler").innerHTML = Array.from({ length: CH }, (_, i) => `<span>${i + 1}</span>`).join("");
+  const rows = document.getElementById("evrows");
+  DATA.events.forEach((ev) => {
+    const d = document.createElement("div"); d.className = "evrow";
+    const pct = (c) => ((c - 1) / CH) * 100;
+    d.innerHTML = `<span class="lab">${ev.title}</span><div class="evbar" style="left:${pct(ev.ch[0])}%;width:${pct(ev.ch[1] - ev.ch[0] + 1)}%" title="${ev.note}">${ev.title}</div>`;
+    d.querySelector(".evbar").addEventListener("click", () => selectEvent(ev));
+    d.querySelector(".lab").addEventListener("click", () => selectEvent(ev));
+    rows.appendChild(d);
+  });
+  document.getElementById("hooks").innerHTML = DATA.hooks.map((h) => {
+    const closed = h.status === "已收";
+    return `<span class="hook ${closed ? "closed" : ""}" title="埋于第${h.plant}章${closed ? "，收于第" + h.payoff + "章" : "，未收——拆书报告如实标注"}">伏笔 · ${h.desc}〔埋第${h.plant}章${closed ? " · 收第" + h.payoff + "章" : " · 未收"}〕</span>`;
+  }).join("");
+
+  renderSideHome();
+})();
+</script>
+</body>
+</html>
