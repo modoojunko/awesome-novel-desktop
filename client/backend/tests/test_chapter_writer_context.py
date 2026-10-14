@@ -218,13 +218,48 @@ def test_should_refresh_stored_prompt():
     assert should_refresh_stored_prompt("## 当前章节\n章纲：旧稿", ctx) is True
     # 存量空 → False（无存量走粗组兜底，无需守卫）
     assert should_refresh_stored_prompt("", ctx) is False
-    # 素材无尾块（首章/上章无正文）→ False
-    assert should_refresh_stored_prompt("## 当前章节\n章纲：旧稿", ChapterContext()) is False
-    # 存量稿已含块（新代际）→ False
+    # c-scene-density 扩锚后：无尾块但缺「字数与场景分量」节 → 仍回落（缺锚必旧代际）
+    assert should_refresh_stored_prompt("## 当前章节\n章纲：旧稿", ChapterContext()) is True
+    # 含新节锚、无尾块 → False（新代际行照旧复用）
     assert (
-        should_refresh_stored_prompt("## 上章结尾（原文）\n枪口。", ctx) is False
+        should_refresh_stored_prompt(
+            "## 当前章节\n章纲：新稿\n## 字数与场景分量\n…", ChapterContext()
+        )
+        is False
+    )
+    # 存量稿两锚齐备（上章结尾＋场景分量，新代际）→ False
+    assert (
+        should_refresh_stored_prompt(
+            "## 上章结尾（原文）\n枪口。\n## 字数与场景分量\n…", ctx
+        )
+        is False
     )
     # 润色稿（三锚）缺块 → False（作者资产不覆盖）
+    polished = "## 任务指示\n旧润色。\n## 红线\n无。\n## 质感\n细节。"
+    assert should_refresh_stored_prompt(polished, ctx) is False
+
+
+def test_should_refresh_scene_share_anchor():
+    """c-scene-density 评审（产品：存量行缺「字数与场景分量」节会绕过分量链）：
+    字数线恒出＝新节恒在：缺锚即旧代际，与条数/目标组合无关（拍板 2026-10-13）。"""
+    from write.chapter_writer import ChapterContext, should_refresh_stored_prompt
+
+    old_line = "## 当前章节\n章纲：旧稿"
+    ctx = ChapterContext()
+    ctx.word_target = 2500
+    ctx.plot_items = ["一", "二", "三", "四", "五"]
+    assert should_refresh_stored_prompt(old_line, ctx) is True
+    # 存量已含锚（新代际）→ False
+    assert (
+        should_refresh_stored_prompt(old_line + "\n## 字数与场景分量\n…", ctx) is False
+    )
+    # 空 ctx / 薄目标章同样回落（字数线恒出，缺锚＝旧行）
+    thin = ChapterContext()
+    thin.word_target = 600
+    thin.plot_items = ["一", "二", "三", "四"]
+    assert should_refresh_stored_prompt(old_line, thin) is True
+    assert should_refresh_stored_prompt(old_line, ChapterContext()) is True
+    # 润色稿照旧不动（作者资产，两分支同罩）
     polished = "## 任务指示\n旧润色。\n## 红线\n无。\n## 质感\n细节。"
     assert should_refresh_stored_prompt(polished, ctx) is False
 

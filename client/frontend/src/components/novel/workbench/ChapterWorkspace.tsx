@@ -767,7 +767,11 @@ const [ogForm, setOgForm] = useState<OgForm>(EMPTY_OG_FORM);
       }
       return;
     }
-    plotDraw.openDraw();
+    // c-scene-density 联动：表单「本章目标字数」现值随抽卡请求直发——flush 成功时
+    // 服务端已==表单（冗余但无害）；flush 失败时兜住，素材建议条数仍与页面显示同一数。
+    // 越界值照发：服务端 clamp 回落本书默认，与 OgPane 提示行的回落口径同源。
+    const wtNow = parseInt(ogFormRef.current.wt, 10);
+    plotDraw.openDraw(Number.isFinite(wtNow) ? wtNow : null);
   }, [chapterRef, plotDraw]);
 
   /** 「就填这版」：整表替换（拍板②）＋回执（3 秒窗口内可撤销恢复填写前列表，含非空；c-toast-dismiss）。

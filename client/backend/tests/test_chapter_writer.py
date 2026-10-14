@@ -15,6 +15,19 @@ from write.chapter_writer import (
 )
 
 
+def _longest_common_run(a: str, b: str) -> str:
+    """两段文本的最长逐字公共子串（防回声钉用：同义不同句的量化判据）。"""
+    best = ""
+    for i in range(len(a)):
+        for j in range(len(b)):
+            k = 0
+            while i + k < len(a) and j + k < len(b) and a[i + k] == b[j + k]:
+                k += 1
+            if k > len(best):
+                best = a[i : i + k]
+    return best
+
+
 class TestUserMaterial:
     """to_user_material：章级动态素材（原 to_prompt 整包退役）。"""
 
@@ -396,3 +409,79 @@ def test_closing_line_constant():
     assert "Markdown" in WRITE_CLOSING_LINE
     assert "章末落点" in WRITE_CLOSING_LINE
     assert "不写一个字" in WRITE_CLOSING_LINE
+
+
+def test_closing_line_scene_fill():
+    """c-scene-density：收尾重申行补「场景写足」——最末字节的信号不再只催停。"""
+    assert "每个场景都写足" in WRITE_CLOSING_LINE
+    assert "不是提前收卷的理由" in WRITE_CLOSING_LINE
+
+
+class TestSceneShareSection:
+    """c-scene-density：字数与场景分量独立节——分量是定性要求（每场写足再走）。
+
+    用户拍板 2026-10-13：字数只评估场景条数（住素材【本章字数】），素材 SHALL NOT
+    投出「每条约 N 字」的逐场配额结论——数字配额诱导每场注水凑数。"""
+
+    def test_scene_line_qualitative_no_per_scene_number(self):
+        ctx = ChapterContext()
+        ctx.word_target = 2500
+        ctx.plot_items = ["一", "二", "三", "四", "五"]
+        prompt = ctx.to_user_material()
+        assert "## 字数与场景分量" in prompt
+        assert "本章剧情共 5 场戏" in prompt
+        assert "这场没写完不进下一场" in prompt
+
+    def test_material_carries_no_per_scene_word_quota(self):
+        """任何条数×字数组合下素材都不得出现「每条约 N 字」式配额。"""
+        for wt in (500, 600, 2500, 6000):
+            for n in (0, 1, 4, 12):
+                ctx = ChapterContext()
+                ctx.word_target = wt
+                ctx.plot_items = [f"条{i}" for i in range(n)]
+                prompt = ctx.to_user_material()
+                assert "平均每条约" not in prompt
+                assert "每条约" not in prompt
+                assert "写故事至少" in prompt  # 章级下限不受影响
+
+    def test_no_plot_items_keeps_word_floor_only(self):
+        ctx = ChapterContext()
+        ctx.word_target = 2500
+        prompt = ctx.to_user_material()
+        assert "## 字数与场景分量" in prompt
+        assert "写故事至少 2500 字，可以多，不可以少" in prompt
+        assert "场景分量：本章剧情共" not in prompt
+
+    def test_closing_line_not_verbatim_of_share_line(self):
+        """防回声：收尾行与素材分量行同词不同句——逐字复读会被当回声折价。"""
+        ctx = ChapterContext()
+        ctx.word_target = 2500
+        ctx.plot_items = ["一", "二", "三", "四", "五"]
+        prompt = ctx.to_user_material()
+        share_line = next(
+            ln for ln in prompt.splitlines() if "场景分量：本章剧情共" in ln
+        )
+        # 两段文本不存在 ≥8 字的逐字公共串（短词「写足」「下一场」同用不算回声）
+        common = _longest_common_run(share_line, WRITE_CLOSING_LINE)
+        assert len(common) < 8, f"收尾行与分量行逐字重复：{common!r}"
+
+    def test_closing_line_not_verbatim_of_word_section(self):
+        """防回声扩面（评审 2026-10-13）：收尾行 vs 整节「字数与场景分量」——
+        不止分量行，字数下限行与扩写句同样不许被逐字复读。"""
+        ctx = ChapterContext()
+        ctx.word_target = 2500
+        ctx.plot_items = ["一", "二", "三", "四", "五"]
+        section = ctx.to_user_material().split("## 字数与场景分量", 1)[1]
+        common = _longest_common_run(section, WRITE_CLOSING_LINE)
+        assert len(common) < 8, f"收尾行与字数节逐字重复：{common!r}"
+
+    def test_word_section_outside_red_lines_header(self):
+        """字数线不再挂在「优先于字数」节内——字面上不再是最低优先级。"""
+        ctx = ChapterContext()
+        ctx.word_target = 2500
+        ctx.required_changes = ["林野交出账本"]
+        prompt = ctx.to_user_material()
+        red_header = prompt.index("## 章级红线")
+        word_header = prompt.index("## 字数与场景分量")
+        assert red_header < word_header
+        assert "写故事至少" not in prompt[red_header:word_header]

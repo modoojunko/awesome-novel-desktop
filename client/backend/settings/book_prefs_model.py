@@ -62,3 +62,22 @@ def effective_chapter_word_target(doc: Any) -> int:
     return read_book_prefs(doc).get(
         CHAPTER_WORD_TARGET_FIELD, CHAPTER_WORD_TARGET_DEFAULT
     )
+
+
+def clamp_word_target(value: Any, default: int = CHAPTER_WORD_TARGET_DEFAULT) -> int:
+    """目标字数守卫：空/非法/越界 → default；否则照用（区间 500-6000）。
+
+    c-scene-density 评审（2026-10-13）自 write/chapter_writer 迁入本模块：数值单源
+    本就住这里，写章组装（write/）与剧情抽卡（chapters/ai_plot）共用——函数留在
+    write 域会逼出 chapters→write 的跨域 import。越界语义是「同落 default」而非
+    逐层回落（与写章侧同 clamp，见 chapters/ai_plot 取值链注释）。
+    """
+    try:
+        n = int(value) if value is not None else None
+    except (TypeError, ValueError):
+        n = None
+    if n is None:
+        return default
+    if n < CHAPTER_WORD_TARGET_MIN or n > CHAPTER_WORD_TARGET_MAX:
+        return default
+    return n

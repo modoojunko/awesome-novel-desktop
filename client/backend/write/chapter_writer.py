@@ -34,6 +34,7 @@ from settings.book_prefs_model import (
     CHAPTER_WORD_TARGET_MIN as WORD_TARGET_MIN,
 )
 from settings.book_prefs_model import effective_chapter_word_target
+from settings.book_prefs_model import clamp_word_target  # re-export：既有调用方口径不变
 from settings.character_model import (
     WRITE_STATE_KEYS as _WRITE_STATE_KEYS,
 )
@@ -57,6 +58,14 @@ STORY_ARC_INJECT_MAX = 600
 def word_target_floor(target: int) -> int:
     """字数下限（目标 -10%）：提示词文案与完成时校验（write/router）共用的同一口径。"""
     return int(target * 0.9)
+
+
+# 「字数与场景分量」节锚（c-scene-density）：to_user_material 判发（有剧情条目即发
+# 定性行）、should_refresh_stored_prompt 判存量行缺锚，两处共用此名单源。
+# 用户拍板 2026-10-13：字数对结构的正确用法是「评估场景条数」；SHALL NOT 向模型投出
+# 「每条写 N 字」的配额结论——逐场数字配额会诱导每场注水凑数，是另一种 AI 指纹。
+# 场景体量由场面本身决定，全章体量由「下限要求＋写足句」管。
+SCENE_SHARE_ANCHOR = "字数与场景分量"
 
 
 def clip_story_arc(text: str, limit: int = STORY_ARC_INJECT_MAX) -> str:
@@ -175,9 +184,18 @@ _CH1_PREVIOUS = "无前置章节，开篇直接切入角色当下行动，禁止
 
 # 收尾重申行（同词不同句，防被当回声）：_stream_chapter 在 user 内容最末字节
 # 强制追加，不落库、不进弹窗预览，对存量稿路径与重组路径同样生效。
+# c-scene-density（2026-10-13）：补「每个场景写足」——原行只重申停笔，是全文
+# 最硬的位置信号，模型读到的最后指令是「到落点一个字不多写」，与字数下限对冲。
+# 「场景写足」句与 to_user_material 分量行同义不同句（逐字复读会被当回声折价）。
+# 停笔两句（评审修）：原「停在素材「章末落点」的画面/瞬间上」「末句落在动作、
+# 台词或声响上」与 system 契约第 5 条逐字重叠 10-11 字，改同义句式；术语
+# （「章末落点」「动作、台词或声响」「一句未展开的新动向」）按跨层同词原则保留。
 WRITE_CLOSING_LINE = (
     "输出：仅正文，无标题、无总结、无引导语、无 Markdown；段落之间直接换行，不留空行；"
-    "结尾停在素材「章末落点」的画面/瞬间上，末句落在动作、台词或声响上，"
+    "每个场景都写足——这一场戏从起手写到见分晓，一个动作要激起一个反应，"
+    "这条没到分量不换下一场；不足目标字数就回到当前场景继续展开，"
+    "落点是收笔的位置，不是提前收卷的理由；"
+    "结尾收在「章末落点」那一瞬，末句停在动作、台词或声响；"
     "落点是局面陈述或未给动向时以一句未展开的新动向（已登场势力的新压力）硬切，"
     "收束章停在落点本身；落点之后不写一个字。"
 )
@@ -242,20 +260,22 @@ def is_legacy_write_prompt(text: str) -> bool:
 
 
 def should_refresh_stored_prompt(stored: str, ctx: "ChapterContext") -> bool:
-    """存量 write-prompt 是否应被本轮重组稿取代（c-chapter-seam-hardcut）。
+    """存量 write-prompt 是否应被本轮重组稿取代（c-chapter-seam-hardcut；
+    c-scene-density 扩场景分量锚）。
 
-    仅当三者同时成立：存量稿缺「上章结尾」块（旧版组装的行）、本轮素材
-    含该块（previous_tail 非空）、且存量稿非润色产物——润色稿是作者资产
-    （三锚判定同 legacy_prompt_kind），缺锚是旧素材下润色的历史产物，
-    回落重组会覆盖作者内容，SHALL NOT 触发。GET 预览与生成端点共用
-    本判定，保证弹窗展示与实际生成的来源一致。"""
-    if not stored:
+    润色稿是作者资产（三锚判定同 legacy_prompt_kind），任何缺锚都不许覆盖它；
+    其余存量行任一分支命中即重组——
+    ① 缺「上章结尾」块（旧版组装的行）而本轮素材含该块（previous_tail 非空）；
+    ② 缺「字数与场景分量」节——新组装恒含此节（字数线无条件出），缺锚必是
+      本批之前的行，不回落则老章重写拿到旧行、字数链对其打五折（产品评审 2026-10-13）。
+    GET 预览与生成端点共用本判定，保证弹窗展示与实际生成的来源一致。"""
+    if not stored or legacy_prompt_kind(stored) == "polished":
         return False
-    if not ctx.previous_tail:
-        return False
-    if "上章结尾" in stored:
-        return False
-    return legacy_prompt_kind(stored) != "polished"
+    if ctx.previous_tail and "上章结尾" not in stored:
+        return True
+    if SCENE_SHARE_ANCHOR not in stored:
+        return True
+    return False
 
 
 def lint_assembled_prompt(
@@ -284,20 +304,6 @@ def lint_assembled_prompt(
         if desc.startswith(("揭：", "揭:")):
             warns.append(f"活跃伏笔混入已兑现记录：{desc[:40]}")
     return warns
-
-
-def clamp_word_target(value, default: int = WORD_TARGET_DEFAULT) -> int:
-    """目标字数守卫：空/非法/越界 → default（本书「章节默认字数」，缺省 2500）；
-    否则夹取 [500, 6000]。"""
-    try:
-        n = int(value) if value is not None else None
-    except (TypeError, ValueError):
-        n = None
-    if n is None:
-        return default
-    if n < WORD_TARGET_MIN or n > WORD_TARGET_MAX:
-        return default
-    return n
 
 
 # 旧版润色行的三锚标记——c-retire-prompt-polish 后不再有新润色产物，本常量只服务
@@ -872,15 +878,35 @@ class ChapterContext:
                 )
             lines.append("")
 
-        # 章级红线（世界铁律已上收 system 恒定层；本段只留随章变化的承诺）
-        lines.append("## 章级红线（优先于字数与写法；世界铁律见指令恒定层）")
+        # 章级红线（世界铁律已上收 system 恒定层；本段只留随章变化的承诺）。
+        # 节名不写「优先于字数」（c-scene-density 同批改口）：字数线已拆到下一节，
+        # 节名再宣布字数居其下，等于紧跟「字数照达」又把它压回去；保留的语义是
+        # 「不许为凑字破线」，写成否定式而不是排位式。
+        lines.append("## 章级红线（不以字数、写法为由破线；世界铁律见指令恒定层）")
         red_lines = self._red_lines(include_world=False)
         if red_lines:
             lines.extend(f"- {r}" for r in red_lines)
+
+        # 字数与场景分量（c-scene-density）：字数从红线节内拆出单独立节——原字数线
+        # 挂在「优先于字数」节内，字面上被降到最低优先级。分量＝定性要求（每场戏把
+        # 交锋写足再走），对冲「到落点即交卷」的赶路式短章；用户拍板 2026-10-13：
+        # 字数只评估场景条数（住素材【本章字数】），本节 SHALL NOT 出现「每条约 N 字」
+        # 的逐场配额结论——数字配额诱导每场注水。分量句与 WRITE_CLOSING_LINE 同词不同句。
+        lines.append("")
+        lines.append("## 字数与场景分量（章级红线照守，字数照达）")
         lines.append(
-            f"字数：写故事至少 {self.word_target} 字，可以多，不可以少；"
-            f"低于 {word_target_floor(self.word_target)} 字不合格——不足就用对话、"
-            "感官细节、心理活动扩写既有场景补足，不得新增冲突事件。"
+            f"- 字数：写故事至少 {self.word_target} 字，可以多，不可以少；"
+            f"低于 {word_target_floor(self.word_target)} 字不合格。"
+        )
+        plot_n = len(self.plot_items)
+        if plot_n:
+            lines.append(
+                f"- 场景分量：本章剧情共 {plot_n} 场戏，每场写到自己收得住——"
+                "动作有回应、局面有推进，这场没写完不进下一场，"
+                "不得一场两三句带过。"
+            )
+        lines.append(
+            "- 不足就用对话、感官细节、心理活动扩写既有场景补足，不得新增冲突事件。"
         )
 
         return "\n".join(lines)

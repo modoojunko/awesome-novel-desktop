@@ -17,6 +17,7 @@ import {
   getCachedChapterWordTarget,
   loadChapterWordTarget,
   normalizeChapterWordTarget,
+  plotCountHint,
   saveChapterWordTarget,
   subscribeChapterWordTarget,
 } from "@/lib/chapterTarget";
@@ -175,5 +176,20 @@ describe("chapterWordTargetIssue（弹窗保存前校验，评审 2026-10-10）"
     expect(chapterWordTargetIssue("499")).toMatch(/之间$/);
     expect(chapterWordTargetIssue("12.5")).toMatch(/之间$/);
     expect(chapterWordTargetIssue("abc")).toMatch(/之间$/);
+  });
+});
+
+describe("plotCountHint（c-scene-density，与后端 ai_plot.plot_count_hint 同档对拍）", () => {
+  it("密度带 330–500 字/条，单调爬升到存储上限 12（档位不提前饱和）", () => {
+    expect(plotCountHint(500)).toBe("4–6 条场景");
+    expect(plotCountHint(1500)).toBe("4–6 条场景");
+    expect(plotCountHint(2000)).toBe("6–8 条场景");
+    expect(plotCountHint(2400)).toBe("6–8 条场景");
+    expect(plotCountHint(2500)).toBe("6–8 条场景");
+    expect(plotCountHint(2999)).toBe("6–8 条场景");
+    expect(plotCountHint(3000)).toBe("8–10 条场景");
+    expect(plotCountHint(3999)).toBe("8–10 条场景");
+    expect(plotCountHint(4000)).toBe("10–12 条场景");
+    expect(plotCountHint(6000)).toBe("10–12 条场景");
   });
 });
