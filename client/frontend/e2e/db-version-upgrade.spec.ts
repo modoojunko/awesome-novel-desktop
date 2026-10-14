@@ -159,7 +159,10 @@ con.close()
     expect(after.mtimeMs).toBe(before.mtimeMs);
 
     // ⑥ 完成回执收起（c-carry-receipt-ack）：点 × → 刷新不复现，已阅态落当前库 app_meta
+    // 先挂响应监听再点：导航会中止在途 fetch，不等 receipt-ack 回包就 reload 会让落库探针假红
+    const ackDone = page.waitForResponse((r) => r.url().includes("/receipt-ack"));
     await page.getByTestId("carry-strip-done").getByRole("button", { name: "关闭" }).click();
+    await ackDone;
     await expect(page.getByTestId("carry-strip-done")).toHaveCount(0);
     await page.reload();
     await expect(page.getByRole("heading", { name: "我的作品" })).toBeVisible({ timeout: 15_000 });
