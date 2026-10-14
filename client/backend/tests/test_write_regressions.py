@@ -503,6 +503,35 @@ class TestRefillChain:
         assert "续写任务" in fake.last_kwargs["messages"][0]["content"]
         assert "已写正文（末段窗口" in fake.last_kwargs["messages"][0]["content"]
 
+    def test_refill_preserves_user_blank_lines(self, client, monkeypatch):
+        """评审 P2：归一只作用于 AI 尾段——手动编辑链（save_prose 不归一）留下的
+        段间空行是作者的排版，补足合并不得无声改写。"""
+        _set_member()
+        pid, ref = _create_project_and_chapter(client)
+        r = client.put(
+            f"/api/novels/{pid}/chapters/{ref}/prose",
+            json={"prose": "段一。\n\n段二。"},
+        )
+        assert r.status_code in (200, 204), r.text
+
+        from workflow.engine import load_chapter
+
+        def _load():
+            async def _r():
+                root = await _get_root(pid)
+                ch = await load_chapter(root, ref)
+                return str(ch.get("prose") or "")
+
+            return _run_async(_r())
+
+        base = _load()
+        assert "\n\n" in base  # 手动链确实保住了空行
+        r, _fake = self._refill(client, pid, ref, "接笔段。")
+        assert r.status_code == 200, r.text
+        merged = _load()
+        assert merged.startswith("段一。\n\n段二。")  # 空行原样
+        assert merged.endswith("接笔段。")
+
     def test_refill_telemetry_columns(self, client, monkeypatch):
         _set_member()
         pid, ref = _create_project_and_chapter(client)

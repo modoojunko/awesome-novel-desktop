@@ -18,10 +18,12 @@
   > 治理钉 `test_refill_line_not_verbatim_of_closing`：6 档目标×素材/收尾行公共串全 <8，且「每条约」零出现（字数只评估不投配额，拍板 2026-10-13）。
 - [x] 2.2 续写端点：append 落库走既有保存链＋分段归一；独立计量 `write_chapter_refill` 族；双门控照生成
   > 事件契约照 write（phase/chunk/done/error）；失败族 `write_chapter_refill_fail`；钉 `test_refill_requires_existing_prose`（空章 422）＋`test_refill_appends_and_preserves`（旧文逐字在前、写-prompt 不脏、续写指令行进请求）。
+  > 评审agent 修复（P2）：合并只归一 AI 尾段，已写正文仅去尾换行原样拼接——手动链（save_prose）留的段间空行是作者排版，钉 `test_refill_preserves_user_blank_lines`。前端中断分支同口径。
 - [x] 2.3 两轮封顶收口：第三轮起动作位换成「重新生成整章」引导（复用既有重生成出口）
   > refillRounds 会话态（换章/整章生成复位）；两轮后渲染 prose-regen → startStream 原链（版本快照前置自带）。
 - [x] 2.4 前端完成卡动作位＋进行中阶段呈现；达标/仍不足/两轮收口三态
   > 等待呈现复用 genStage 链；复刻钉 proseStream「续写补足复刻」两案（done 合并＋中断半截保留）。
+  > 评审agent 修复（P1）：startRefill 改 async——先立守卫再 `await store.flush()`（refill 是链上唯一 read-modify-write，防抖窗口未落盘编辑会被服务端按旧稿合并覆盖；flush 失败释放守卫中止）；await 后复核章号/编辑器存活（落盘窗口内切章即放弃）。
 
 ## 3. 写链遥测
 
@@ -37,6 +39,7 @@
 
 - [x] 4.1 后端：pytest 全量（续写三态、免费档零调用、append 不毁稿、遥测落列、<8 治理钉）实际输出结论追加本条下
   > `2306 passed, 14 failed, 1 skipped`——14 失败与基线（git stash 对照原样复跑 14 failed/2301 passed）同集合，均为已知环境缺件族（auth_middleware_session/story_engine/version_snapshot_cap/outdated_signal）；本次 +5 枚新钉全绿。免费档门控走 @ai_feature＋require_ai_access 既有依赖（/write 同构，ai_feature_matrix 覆盖门控形态），未另造重复用例。
-- [x] 4.2 前端：vitest（动作位三态渲染、点击发出 append 请求体）＋`tsc --noEmit`；`design:lint` exit 0 实际结论
-  > proseStream 11 过（复刻两案＋streamChapterRefill URL/无体钉）；相邻 chapterWorkspace.plotFlow＋castReviewFlow 53 过（edit-bar 渲染无回归）；`tsc --noEmit` 净；design:lint exit 0。
+- [x] 4.2 前端：vitest（append 请求形状＋收尾合并/中断复刻）＋`tsc --noEmit`；`design:lint` exit 0 实际结论
+  > proseStream 12 过（复刻两案＋streamChapterRefill URL/无体钉）；相邻 chapterWorkspace.plotFlow＋castReviewFlow 53 过（edit-bar 渲染无回归）；`tsc --noEmit` 净；design:lint exit 0。
+  > 如实备注（评审agent 指出）：**动作位三态渲染无组件级直测**——按钮出现/计数/两轮收口仅有复刻级与挂载路过覆盖，属测试缺口；补组件级挂载测成本高（tiptap＋workbench 上下文），登记为已知缺口，真栈验收（4.3）人工核三态。
 - [ ] 4.3 真栈实测（5274 独立环境纪律）：一章故意写短触发补足闭环；一本 6000 字档观察截断桶是否出数——结论回写 c-scene-density tasks 5.6 对应观察项（两仓 change 数据互认）

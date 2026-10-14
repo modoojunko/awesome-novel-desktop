@@ -539,10 +539,11 @@ async def _stream_refill(db, project, root_path: str, chapter_ref: str, existing
                 full_text += event.text
                 yield f"data: {json.dumps({'type': 'chunk', 'text': event.text}, ensure_ascii=False)}\n\n"
             elif event.is_done:
+                # 评审 P2：归一只作用于 AI 产物（尾段）——normalize 的 docstring
+                # 「不碰作者手写稿」对补足同样成立，已写正文仅去尾换行原样拼接
                 tail_out = normalize_generated_prose(full_text)
-                merged = normalize_generated_prose(
-                    normalize_generated_prose(existing) + ("\n" + tail_out if tail_out else "")
-                )
+                existing_body = existing.rstrip()
+                merged = existing_body + ("\n" + tail_out if tail_out else "")
                 try:
                     chapter = await load_chapter(root_path, chapter_ref)
                     chapter["prose"] = merged

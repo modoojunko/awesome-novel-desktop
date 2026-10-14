@@ -553,10 +553,8 @@ const ProsePane = forwardRef<ProseHandle, ProsePaneProps>(function ProsePane(
         : normalizeStreamedProse(fullText || streamReceivedRef.current);
       const next = isRefill
         ? ok
-          ? normalizeStreamedProse(fullText)
-          : normalizeStreamedProse(
-              lastSyncedRef.current + (tail ? "\n" + tail : ""),
-            )
+          ? normalizeStreamedProse(fullText) // 服务端合并整章（旧文仅去尾换行）
+          : lastSyncedRef.current + (tail ? "\n" + tail.replace(/\n+$/, "") : "")
         : generated;
       // 两步收尾（c-prose-editor-tiptap）：①删流式区间（不入史）②整段写回（入史）
       // ——一次撤销回到本次生成的写入起点（替换写＝清空后的空稿）
@@ -670,21 +668,41 @@ const ProsePane = forwardRef<ProseHandle, ProsePaneProps>(function ProsePane(
 
   /** 字数不足一键续写（c-shortfall-refill）：不删旧文、在文末开流式区间，
    *  产物 append（服务端合并落库，done.full_text＝整章）；停止/中断保留已收半截尾段。 */
-  const startRefill = useCallback(() => {
+  const startRefill = useCallback(async () => {
     if (!editor || editor.isDestroyed || streamingRef.current || archived) return;
     if (editor.state.doc.content.size <= 1) {
       void startStream("", undefined); // 空章退化＝整章生成（后端 422 的 UI 侧兜前）
       return;
     }
+    const refAtStart = chapterRef; // await 落盘期间可能已切章：闭包章号过期即放弃
+    // 先立守卫防双击/并发动作，flush 失败即释放
+    streamingRef.current = true;
+    setStreaming(true);
+    onAIStateChange((prev) => ({ ...prev, streaming: true }));
+    // 评审 P1：refill 是链上唯一 read-modify-write（服务端读存稿→合并→落库），
+    // 防抖窗口内的未落盘编辑必须先落盘——startStream 的 fire-and-forget 在这里
+    // 不够（服务端开流即读，PUT 会与读赛跑）。落盘失败宁可不补，绝不按旧稿合并。
+    try {
+      await store.flush();
+    } catch {
+      streamingRef.current = false;
+      setStreaming(false);
+      onAIStateChange((prev) => ({ ...prev, streaming: false }));
+      toast.error("正文还没保存成功，暂不能补足——请稍后重试");
+      return;
+    }
+    // await 窗口内切章/卸载：换章 cleanup 已释放守卫，此处静默放弃
+    // （ref 经 as 读回——TS 对 .current 的字面量收窄会把「被别处释放」判成不可达）
+    const stillArmed: boolean = streamingRef.current;
+    if (chapterRef !== refAtStart || !editor || editor.isDestroyed || !stillArmed) {
+      return;
+    }
     setRefillRounds((r) => r + 1);
     streamReceivedRef.current = "";
     streamInsertedLenRef.current = 0;
-    streamingRef.current = true;
     sawFirstChunkRef.current = false;
-    setStreaming(true);
     setGenStage("assemble");
     setGenSecs(0);
-    onAIStateChange((prev) => ({ ...prev, streaming: true }));
     const size = editor.state.doc.content.size;
     streamStartRef.current = size - 1; // 末段内起流；不删任何旧内容
     streamPosRef.current = size - 1;
@@ -722,6 +740,7 @@ const ProsePane = forwardRef<ProseHandle, ProsePaneProps>(function ProsePane(
     scrollInsertIntoView,
     startStream,
     onAIStateChange,
+    store,
   ]);
 
   // ── 续写恢复：每个信号号只恢复一次（appliedResumeRef 守卫）。
