@@ -11,7 +11,7 @@ c-scene-density 已让 `done.word_check`（target/actual/below_limit）在生成
 
 ## Decisions
 
-1. **append 续写而非整章重写**：done 已有精确 target/actual，续写＝「从尾接写到落点或下限，先到者停」是确定性最高的补法；作者编辑保留的优先级高于生成连贯性（重写毁编辑不可接受）。实现落点 apply 阶段二选一（POST /write 增 append 模式 vs 独立 /refill 端点），判据＝能否原样复用恒定层组装与 SSE 阶段流；两案均走既有保存链与分段归一。
+1. **append 续写而非整章重写**：done 已有精确 target/actual，续写＝「从尾接写到落点或下限，先到者停」是确定性最高的补法；作者编辑保留的优先级高于生成连贯性（重写毁编辑不可接受）。实现落点已定（apply 1.3）＝**独立 `/write/refill` 端点**：/write 通道携带提示词覆盖、write-prompt 读写、替换写、按次模型四重语义，append 塞入每处都需条件分支且续写指令会污染本章存稿；独立端点原样复用 build_chapter_context/恒定层组装/SSE 事件契约与保存链＋分段归一，write-prompt 零触碰（续写指令不是本章提示词）。
 2. **两轮封顶**：补足两轮仍低于下限＝素材/预算结构性问题，继续补只会注水——收口引导重生成，与「宁缺毋滥」的写链红线一致。
 3. **遥测加列复用 TokenLog 先例**（c-llm-call-log 一族）：finish_reason 从供应商 usage 原样落列；档位命中在生成留痕时按 `plot_count_hint(target)` 与实发条数现算（同源函数即判据，不建第二套口径）。
 4. **治理自查**：续写指令行是章级下限的合法表述（「已写 X 字，距下限尚差 Y——从当前局面继续写足，落点或下限先到即停」），无逐场配额；与收尾行公共串 <8 由既有钉子模式扩一条守住。

@@ -35,6 +35,7 @@ import { useChapterData } from "@/hooks/useChapterData";
 import { toast } from "@/lib/toast";
 import {
   polishText,
+  streamChapterRefill,
   streamChapterWrite,
   type StreamDoneMeta,
 } from "@/lib/ai";
@@ -197,6 +198,8 @@ const ProsePane = forwardRef<ProseHandle, ProsePaneProps>(function ProsePane(
   const streamReceivedRef = useRef("");
   // 生成完工检查（三工序③：字数 + 叙事自查；提示性质，可关闭）
   const [qcReport, setQcReport] = useState<StreamDoneMeta | null>(null);
+  // 续写会话轮数（c-shortfall-refill）：两轮封顶在 UI 收口，换章/整章生成即复位
+  const [refillRounds, setRefillRounds] = useState(0);
   // 完工检查并入工具行（c-workbench-density）：胶囊点击展开叙事自查明细
   const [qcOpen, setQcOpen] = useState(false);
   const [preview, setPreview] = useState<{
@@ -433,6 +436,7 @@ const ProsePane = forwardRef<ProseHandle, ProsePaneProps>(function ProsePane(
   // 切章到此处 streamingRef 已 false，整段跳过。
   useEffect(() => {
     setQcReport(null);
+    setRefillRounds(0);
     return () => {
       abortRef.current?.abort();
       if (streamingRef.current) {
@@ -527,7 +531,12 @@ const ProsePane = forwardRef<ProseHandle, ProsePaneProps>(function ProsePane(
   );
 
   const finishStream = useCallback(
-    (fullText: string, ok: boolean, meta?: StreamDoneMeta) => {
+    (
+      fullText: string,
+      ok: boolean,
+      meta?: StreamDoneMeta,
+      opts?: { refill?: boolean },
+    ) => {
       if (!streamingRef.current) return; // 已收尾（停止后又 onDone 等）
       streamingRef.current = false;
       setStreaming(false);
@@ -535,10 +544,20 @@ const ProsePane = forwardRef<ProseHandle, ProsePaneProps>(function ProsePane(
       onAIStateChange((prev) => ({ ...prev, streaming: false }));
       // c-prose-regen-replace：生成＝替换语义，正文终态＝本次生成物
       // （开始前旧正文已清空；停止/中断保留已收到的半截）
-      const generated = normalizeStreamedProse(
-        fullText || streamReceivedRef.current,
-      );
-      const next = generated;
+      // c-shortfall-refill refill 模式：编辑器只插本次尾段（两步收尾不变），
+      // prose/lastSynced 落服务端合并整章（done.full_text）；中断＝旧文+半截尾段
+      const isRefill = opts?.refill === true;
+      const tail = normalizeStreamedProse(streamReceivedRef.current);
+      const generated = isRefill
+        ? tail
+        : normalizeStreamedProse(fullText || streamReceivedRef.current);
+      const next = isRefill
+        ? ok
+          ? normalizeStreamedProse(fullText)
+          : normalizeStreamedProse(
+              lastSyncedRef.current + (tail ? "\n" + tail : ""),
+            )
+        : generated;
       // 两步收尾（c-prose-editor-tiptap）：①删流式区间（不入史）②整段写回（入史）
       // ——一次撤销回到本次生成的写入起点（替换写＝清空后的空稿）
       if (editor && !editor.isDestroyed) {
@@ -561,7 +580,7 @@ const ProsePane = forwardRef<ProseHandle, ProsePaneProps>(function ProsePane(
       lastSyncedRef.current = next;
       setProse(next);
       if (ok) {
-        toast.success("AI 生成完成 · 已保存");
+        toast.success(isRefill ? "续写完成 · 已保存" : "AI 生成完成 · 已保存");
         if (meta && (meta.word_check || meta.self_check)) setQcReport(meta);
       }
     },
@@ -582,6 +601,7 @@ const ProsePane = forwardRef<ProseHandle, ProsePaneProps>(function ProsePane(
       // 却回空稿，撤销语义随生成快慢漂移，e2e 实测）；③从空文档流式写入。
       // 旧「base+generated 追加」语义随本 change 退役。
       void store.flush();
+      setRefillRounds(0); // 整章生成重开补足预算（c-shortfall-refill）
       streamReceivedRef.current = "";
       streamInsertedLenRef.current = 0;
       streamingRef.current = true;
@@ -647,6 +667,62 @@ const ProsePane = forwardRef<ProseHandle, ProsePaneProps>(function ProsePane(
     },
     [projectId, chapterRef, archived, editor, appendChunk, finishStream, scrollInsertIntoView, onAIStateChange, store],
   );
+
+  /** 字数不足一键续写（c-shortfall-refill）：不删旧文、在文末开流式区间，
+   *  产物 append（服务端合并落库，done.full_text＝整章）；停止/中断保留已收半截尾段。 */
+  const startRefill = useCallback(() => {
+    if (!editor || editor.isDestroyed || streamingRef.current || archived) return;
+    if (editor.state.doc.content.size <= 1) {
+      void startStream("", undefined); // 空章退化＝整章生成（后端 422 的 UI 侧兜前）
+      return;
+    }
+    setRefillRounds((r) => r + 1);
+    streamReceivedRef.current = "";
+    streamInsertedLenRef.current = 0;
+    streamingRef.current = true;
+    sawFirstChunkRef.current = false;
+    setStreaming(true);
+    setGenStage("assemble");
+    setGenSecs(0);
+    onAIStateChange((prev) => ({ ...prev, streaming: true }));
+    const size = editor.state.doc.content.size;
+    streamStartRef.current = size - 1; // 末段内起流；不删任何旧内容
+    streamPosRef.current = size - 1;
+    scrollInsertIntoView();
+    const cbs = {
+      onChunk: (t: string) => {
+        if (!sawFirstChunkRef.current) {
+          sawFirstChunkRef.current = true;
+          setGenStage(null);
+        }
+        streamReceivedRef.current += t;
+        appendChunk(t);
+      },
+      onDone: (full: string, meta?: StreamDoneMeta) =>
+        finishStream(full, true, meta, { refill: true }),
+      onError: (e: string) => {
+        toast.error(e);
+        finishStream(streamReceivedRef.current, false, undefined, {
+          refill: true,
+        });
+      },
+      onPhase: (phase: string) => {
+        if (sawFirstChunkRef.current) return;
+        if (GEN_STAGE_LABELS[phase]) setGenStage(phase);
+      },
+    };
+    abortRef.current = streamChapterRefill(projectId, chapterRef, cbs);
+  }, [
+    projectId,
+    chapterRef,
+    archived,
+    editor,
+    appendChunk,
+    finishStream,
+    scrollInsertIntoView,
+    startStream,
+    onAIStateChange,
+  ]);
 
   // ── 续写恢复：每个信号号只恢复一次（appliedResumeRef 守卫）。
   //    换章加载时内容未就绪 → rAF 轮询等 scrollHeight 长出来（上限 2s），
@@ -866,6 +942,33 @@ const ProsePane = forwardRef<ProseHandle, ProsePaneProps>(function ProsePane(
                 <> · 叙事自查 {qcReport.self_check.length > 0 ? `${qcReport.self_check.length} 处` : "0/7"}</>
               )}
             </button>
+          )}
+          {/* 字数不足出路（c-shortfall-refill）：below_limit 才现动作；两轮封顶
+              后收口为「重新生成整章」（复用既有 startStream 替换语义与版本快照前置） */}
+          {qcReport?.word_check?.below_limit && editable && !archived && (
+            <span className="tool-seg">
+              {refillRounds < 2 ? (
+                <button
+                  className="btn btn-secondary btn-sm"
+                  data-testid="prose-refill"
+                  disabled={streaming}
+                  onClick={startRefill}
+                  title="从末尾续写，补到本章下限（目标字的九成）"
+                >
+                  补足字数{refillRounds > 0 ? `（第 ${refillRounds + 1} 次）` : ""}
+                </button>
+              ) : (
+                <button
+                  className="btn btn-secondary btn-sm"
+                  data-testid="prose-regen"
+                  disabled={streaming}
+                  onClick={() => startStream("", undefined)}
+                  title="两轮补足仍未达标——整章重新生成"
+                >
+                  重新生成整章
+                </button>
+              )}
+            </span>
           )}
           <span className="tool-seg">
             <button

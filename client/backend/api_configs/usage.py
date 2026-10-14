@@ -25,6 +25,14 @@ async def record_usage(
     tokens_in: int = 0,
     tokens_out: int = 0,
     force: bool = False,
+    # ── 写链遥测（c-shortfall-refill）：正文生成/续写两路传入，其余调用不传即 NULL ──
+    target_words: int | None = None,
+    actual_words: int | None = None,
+    below_limit: bool | None = None,
+    finish_reason: str | None = None,
+    plot_hint_low: int | None = None,
+    plot_hint_high: int | None = None,
+    tier_hit: bool | None = None,
 ) -> None:
     # force=True 供失败记账用：调用真实发生但未返回用量（多为零 token）也要留痕；
     # 成功调用零 token 仍早退（防噪音）。
@@ -49,6 +57,13 @@ async def record_usage(
                     model=model or "haiku",
                     tokens_in=tokens_in,
                     tokens_out=tokens_out,
+                    target_words=target_words,
+                    actual_words=actual_words,
+                    below_limit=below_limit,
+                    finish_reason=finish_reason or "",
+                    plot_hint_low=plot_hint_low,
+                    plot_hint_high=plot_hint_high,
+                    tier_hit=tier_hit,
                 )
             )
             await session.commit()

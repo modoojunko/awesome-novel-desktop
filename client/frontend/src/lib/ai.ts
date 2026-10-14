@@ -71,6 +71,20 @@ export function streamChapterWrite(
   );
 }
 
+/** 字数不足一键续写（c-shortfall-refill）：POST /write/refill，无参数体。
+ *  事件契约与 /write 同款（phase→chunk*→done｜error），done.full_text＝合并后整章。*/
+export function streamChapterRefill(
+  projectId: string,
+  chapterRef: string,
+  callbacks: StreamCallbacks,
+): AbortController {
+  return doStreamFetch(
+    `${API_BASE}/novels/${projectId}/chapters/${chapterRef}/write/refill`,
+    undefined,
+    callbacks,
+  );
+}
+
 function doStreamFetch(
   url: string,
   body: Record<string, unknown> | undefined,
