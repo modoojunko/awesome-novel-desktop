@@ -111,3 +111,29 @@ describe("建议条数展示（c-scene-density）", () => {
     ).toBeTruthy();
   });
 });
+
+describe("剧情计数过滤（c-scene-density 评审⑤）", () => {
+  it("「现 n 条」按非空条目计：混空列表计实数", () => {
+    render(
+      <OgPane
+        form={{ ...EMPTY_OG_FORM, summary: "夜巡", plots: ["甲", "乙", ""] }}
+        label="第02章 · 夜巡"
+        editing
+        loading={false}
+        onPatch={vi.fn()}
+        gaps={[]}
+        confirmed={false}
+        saving={false}
+        onStartEdit={vi.fn()}
+        onCancelEdit={vi.fn()}
+        onGapClick={vi.fn()}
+        onSaveDraft={vi.fn()}
+        onConfirm={vi.fn()}
+        onGoWrite={vi.fn()}
+      />,
+    );
+    expect(
+      screen.getByText("按本章 2500 字，建议拆 6–8 条场景（现 2 条）"),
+    ).toBeTruthy();
+  });
+});

@@ -117,7 +117,9 @@ describe("三版抽卡弹窗（c-plot-split）", () => {
     render(<Host />);
     fireEvent.click(screen.getByTestId("open-wt"));
     await waitFor(() => expect(screen.getByTestId("plot-grid")).toBeInTheDocument());
-    fireEvent.click(screen.getByTestId("redraw"));
+    // 点弹窗内的「换一批」（生产同款裸绑接线 onClick={onRedraw}，MouseEvent 直入）——
+    // 探针按钮包了箭头测不到这条路径，评审⑤：捕手必须走真实接线
+    fireEvent.click(screen.getByTestId("plot-redraw"));
     await waitFor(() =>
       expect(mockApi.post.mock.calls[mockApi.post.mock.calls.length - 1][1]).toEqual({
         word_target: 4000,

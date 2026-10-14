@@ -32,7 +32,19 @@
 ## 5. 回归（实际输出结论）
 
 - [x] 5.1 后端：`pytest tests/test_chapter_writer.py tests/test_chapter_writer_context.py tests/test_plot_ai.py tests/test_plot_prompt.py tests/test_shared_constants_parity.py tests/test_write_regressions.py tests/test_prose_pipeline.py tests/test_book_prefs.py -q` → **171 passed**（PR worktree 独立复跑与主检出一致；已知无关失败四文件不属本批，基线复现）
-- [x] 5.2 前端：`vitest run`（plotDrawModal/plotFlow/ogWordTarget/chapterTarget）→ **51 passed**；`tsc --noEmit` → **净**
+- [x] 5.2 前端：`vitest run`（plotDrawModal/plotFlow/ogWordTarget/chapterTarget）→ **52 passed**（含评审⑤两枚新钉：换一批走弹窗真实裸绑接线、「现 n 条」非空过滤）；`tsc --noEmit` → **净**
 - [x] 5.3 `npm run design:lint`（node scripts/design-lint.mjs）→ **exit 0**（无新令牌：原生色板 0、裸 hex/emoji 计数与前值持平，改动仅文案与既有版式类）
-- [ ] 5.4 `npm run design:check`（DESIGN_PARITY playwright e2e）——依赖 5174 dev server＋登录态，合并部署时随 PM 验收单同跑（本批不触共享段，design:cross 不适用）
+- [ ] 5.4 `npm run design:check`（DESIGN_PARITY playwright e2e）——依赖 5174 dev server＋登录态，合并部署时与 tasks 5.6 验收实测同批执行（本批不触共享段，design:cross 不适用）
 - [x] 5.5 提示词仓侧配套：`sync all` 单次收敛＋`lint 通过`＋`pytest` 52 过 1 跳（其仓 tasks 登记）
+
+- [ ] 5.6 合并后验收实测（PM 验收单，评审④落仓；与 5.4 同批在合并部署后执行，执行并登记结论为归档前置）：
+  · 三步全链：2500 字书 ×2 本，各跑「抽卡（应出 6–8 档建议）→选版→写章」3 轮；
+    另取 1 章「存量老条数未重抽」走同链，验证定性分量行按实存条数现出。
+  · 对照档：≥4000 字章 2 章（10–12 档），验证 16384 预算不截断；
+    指定 1 本 8k 输出上限模型的书重跑 4000 字档，记录降级路径成功率与截断失败次数。
+  · 指标：字数达标率（实≥目标×0.9）目标 ≥80%（基线：修复前 1284/2500≈51%）；
+    缺字数 P50（仅不达标章）≤ 目标×10%；抽卡档内命中率作观察不设红线（对应 spec「模型行为期望」判据）。
+  · 观察项一并登记结论：写侧 8192×thinking 截断余量实测；<1200 字小目标档观感（疏/密）。
+  · 完成证据＝指标表＋8k 实测记录追加本条下；未达标→开后续 change，不回填本批规格。
+
+- [ ] 5.7 归档前置核对：#843 已先于提示词仓 #7 合入（git log 证据追加本条下）；本仓 commit 与 PR #7 互引 c-scene-density 标记齐全；5.4/5.6 均已执行并登记结论。

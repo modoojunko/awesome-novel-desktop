@@ -37,4 +37,4 @@
 - 代码：`chapters/ai_plot.py`（档位单源/素材块/请求体/预算降级/剪条 warn）、`write/chapter_writer.py`（分量节/收尾行/守卫/clamp 迁移+re-export）、`settings/book_prefs_model.py`（clamp 新家）、前端 `chapterTarget.ts`/`usePlotDraw.ts`/`OgPane.tsx`/`ChapterWorkspace.tsx`。
 - 测试：后端八套件 171 过（新增档位/携带/降级/中间层/无 body/剪条/刷新锚/回声扩面/交叉对拍钉）；前端四文件 51 过＋tsc 净；提示词仓 lint＋52 过。
 - 双仓顺序：**本仓 PR #843 先合**→提示词仓 PR #7 翻入→dev 态直挂即时生效、生产随下批 publish（旧客户端 `min_client_version` 闸兜住劈叉窗口）。
-- 兼容：无 body/`{}` 请求旧客户端行为不变（走存值→书默认链）；8k 输出上限模型经降级路径仍可抽卡；存量章未重抽剧情时行为退化保护＝分量行按实存条数出（无配额可比对）。
+- 兼容：无 body/`{}` 请求旧客户端行为不变（走存值→书默认链）；8k 输出上限模型经降级路径仍可抽卡（每发多一次失败重试留痕；满档截断风险实测见 tasks 5.6）；存量章未重抽剧情时行为退化保护＝分量行按实存条数出（无配额可比对）。
