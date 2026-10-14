@@ -107,6 +107,9 @@ def _prod(products: dict, dim: str) -> dict:
 
 
 def _dicts(seq) -> list[dict]:
+    """形状防御（与 apply 口径对齐）：dict 容错包装为单元素表；列表中非 dict 项剔除。"""
+    if isinstance(seq, dict):
+        return [seq]
     return [x for x in seq if isinstance(x, dict)] if isinstance(seq, list) else []
 
 
@@ -134,6 +137,11 @@ def assemble(
             norm[str(no)] = {}
             missing += 1
     w.count("card_missing", missing, f"{missing} 章无卡片数据（按空卡降级出图）")
+    legacy_no_presence = sum(
+        1 for card in norm.values() if card and "presence" not in card
+    )
+    w.count("presence_missing", legacy_no_presence,
+            f"{legacy_no_presence} 章卡片无 presence 键（老卡降级：在场账为空）")
 
     chars = [c for c in _dicts(_prod(products, "characters").get("characters")) if _clean(c.get("name"))]
     char_by_name = {_clean(c["name"]): c for c in chars}
@@ -151,8 +159,8 @@ def assemble(
             who = _clean(p.get("who"))
             if not who:
                 continue
-            where = p.get("where")
-            where = None if where in (None, "", "原文未明确") else _clean(where)
+            where_raw = _clean(p.get("where"))
+            where = None if where_raw in ("", "原文未明确") else where_raw
             entry: dict = {"who": who, "where": where}
             if p.get("t") in _TIME_TAGS:
                 entry["t"] = p["t"]
@@ -186,12 +194,17 @@ def assemble(
 
     # 地点名册：place_merge 优先，union 卡片引用补户
     pm = place_merge if isinstance(place_merge, dict) else {}
+    shapes_fixed = 0
     place_entries: dict[str, dict] = {}
     for p in _dicts(pm.get("places")):
         name = _clean(p.get("name"))
         if name:
+            aliases_raw = p.get("aliases")
+            if isinstance(aliases_raw, str):
+                shapes_fixed += 1
+                aliases_raw = [aliases_raw]
             place_entries[name] = {
-                "aliases": [_clean(a) for a in (p.get("aliases") or []) if isinstance(a, str) and _clean(a)],
+                "aliases": [_clean(a) for a in (aliases_raw or []) if isinstance(a, str) and _clean(a)],
                 "parent": _clean(p.get("parent")),
                 "note": _clean(p.get("note")),
             }
@@ -205,23 +218,30 @@ def assemble(
         for e in presence_by_ch.get(no, []):
             if e["where"]:
                 place_ref.setdefault(no, set()).add(e["where"])
+    def _alias_index() -> dict[str, str]:
+        idx: dict[str, str] = {}
+        for nm2, e2 in place_entries.items():
+            idx.setdefault(nm2, nm2)
+            for a2 in e2["aliases"]:
+                idx.setdefault(a2, nm2)
+        return idx
+
     auto_places = 0
+    idx0 = _alias_index()
     for refs in place_ref.values():
         for nm in refs:
-            if nm not in place_entries:
+            if nm not in place_entries and nm not in idx0:  # 别名已覆盖者不补户（评审修复：原漏查别名）
                 place_entries[nm] = {"aliases": [], "parent": "", "note": ""}
                 auto_places += 1
     w.count("place_autocreated", auto_places, f"{auto_places} 个地点未在归并名册中，按卡片原名立户（未归并）")
+    w.count("shape_coerced", shapes_fixed, f"{shapes_fixed} 处形状噪声已容错包装（如 aliases 字符串）")
+    idx1 = _alias_index()
     for name, entry in list(place_entries.items()):
         pname = entry["parent"]
-        if pname and pname not in place_entries:
+        if pname and pname not in place_entries and pname not in idx1:
             place_entries[pname] = {"aliases": [], "parent": "", "note": "（由 parent 引用立户）"}
 
-    alias_to_name: dict[str, str] = {}
-    for name, entry in place_entries.items():
-        alias_to_name.setdefault(name, name)
-        for a in entry["aliases"]:
-            alias_to_name.setdefault(a, name)
+    alias_to_name = _alias_index()
 
     place_id = _assign_ids(list(place_entries), "p")
 
@@ -234,10 +254,20 @@ def assemble(
         chs = [no for no, refs in place_ref.items()
                if name in refs or any(_place_of(x) == place_id[name] for x in refs)]
         place_first[name] = min(chs) if chs else None
-    for name in place_entries:
-        if place_first[name] is None:
-            kids = [place_first[k] for k, v in place_entries.items() if v["parent"] == name and place_first.get(k)]
-            place_first[name] = min(kids) if kids else None
+    for _ in range(len(place_entries) + 1):  # 纯 parent 链迭代继承至收敛（顺序无关）
+        changed = False
+        for name in place_entries:
+            if place_first[name] is not None:
+                continue
+            kids = [place_first[k] for k, v in place_entries.items()
+                    if v["parent"] == name and place_first.get(k)]
+            if kids:  # 纯 parent 户继承子代最早章（评审修复：原条件写反）
+                place_first[name] = min(kids)
+                changed = True
+        if not changed:
+            break
+    w.count("place_unreferenced", sum(1 for f in place_first.values() if f is None),
+            "存在既无引用章也无子代章的地点（首现章记 0，不伪造）")
     first_by_pid = {place_id[nm]: (place_first[nm] or _BIG) for nm in place_entries}
 
     # parent 解析＋环检测（有环边降 null 留痕）
@@ -310,13 +340,16 @@ def assemble(
 
     places_out = [
         {"id": place_id[nm], "label": nm, "parent": place_parent.get(nm),
-         "ch": place_first.get(nm) or 1, "note": place_entries[nm]["note"]}
+         "ch": place_first.get(nm) or 0, "note": place_entries[nm]["note"]}
         for nm in sorted(place_entries, key=lambda x: (first_by_pid[place_id[x]], x))
     ]
 
     # ── 4) presence → chapters（who/at 派生）──
+    # t 语义（评审 P2-10 落钉）：回忆/插叙/它线条目参与 who/appear 展示；
+    # 但不计 w 共场、不得到过基线、不入事件成员/事发地（避免「已故者到过」类误账）
     where_unresolved = 0
     ch_who: dict[int, set[str]] = {}
+    ch_who_main: dict[int, set[str]] = {}
     chapters_out: list[dict] = []
     for no in range(1, chapter_count + 1):
         presence_out: list[dict] = []
@@ -338,6 +371,8 @@ def assemble(
             if wid and wid not in at_ids:
                 at_ids.append(wid)
         ch_who[no] = set(who_ids)
+        ch_who_main[no] = {e["who"] and person_id.get(e["who"]) for e in presence_by_ch.get(no, [])
+                           if not e.get("t") and person_id.get(e["who"])}
         chapters_out.append({
             "no": no, "beat": _clean(norm[str(no)].get("summary"))[:120],
             "at": at_ids, "who": who_ids, "presence": presence_out,
@@ -349,6 +384,7 @@ def assemble(
     events_out: list[dict] = []
     arc_ranges: list[tuple[str, int, int]] = []
     arcs_bad = 0
+    events_members_fallback = 0
     for i, arc in enumerate(arc_list, start=1):
         title = _clean(arc.get("title"))
         start, end = _as_ch(arc.get("ch_start")), _as_ch(arc.get("ch_end"))
@@ -362,16 +398,23 @@ def assemble(
         summary = _clean(arc.get("summary"))
         in_range: set[str] = set()
         for no in range(start, end + 1):
-            in_range |= ch_who.get(no, set())
+            in_range |= ch_who_main.get(no, set())
+        members_fallback = 0
         if summary:
             mentioned = {pid for nm, pid in person_id.items() if nm in summary}
-            members = sorted(in_range & mentioned) or sorted(in_range)
+            inter = in_range & mentioned
+            if not inter and in_range:
+                members_fallback += 1
+            members = sorted(inter) or sorted(in_range)
         else:
             members = sorted(in_range)
+        events_members_fallback += members_fallback
         counts: dict[str, int] = {}
         first_seen: dict[str, int] = {}
         for no in range(start, end + 1):
             for e in presence_by_ch.get(no, []):
+                if e.get("t"):
+                    continue
                 wid = _place_of(e["where"]) if e["where"] else None
                 if wid:
                     counts[wid] = counts.get(wid, 0) + 1
@@ -382,6 +425,8 @@ def assemble(
                            "members": members, "note": summary})
         arc_ranges.append((eid, start, end))
     w.count("arcs_invalid", arcs_bad, f"{arcs_bad} 条主线弧段字段不齐，已跳过")
+    w.count("events_members_fallback", events_members_fallback,
+            f"{events_members_fallback} 段事件摘要未提及任何在册人物，成员回落为区间全员（已留痕）")
     if arc_list and not events_out:
         w.add("events_empty", "主线弧段全部无效，events 为空数组（契约保形）")
 
@@ -412,14 +457,14 @@ def assemble(
             edge_rejected += 1
             continue
         ch = _as_ch(e.get("evidence_ch"))
-        if ch is None:
+        if ch is None or not (1 <= ch <= chapter_count):
             ch_missing += 1
             continue
         quote = _clean(e.get("quote"))
         if quote and norm_text is not None and _norm(quote) not in norm_text:
             quote = ""
             quote_failed += 1
-        common = sum(1 for who in ch_who.values() if fid in who and tid in who)
+        common = sum(1 for who in ch_who_main.values() if fid in who and tid in who)
         edge: dict = {"from": fid, "to": tid, "kind": kind, "ch": max(1, ch), "w": max(1, common)}
         if raw:
             edge["raw"] = raw[:120]
@@ -434,8 +479,8 @@ def assemble(
     baseline: dict[tuple[str, str], dict] = {}
     for no, entries in presence_by_ch.items():
         for e in entries:
-            if not e["where"]:
-                continue
+            if not e["where"] or e.get("t"):
+                continue  # t 条目不计到过（t 语义落钉）
             pid = person_id.get(e["who"])
             wid = _place_of(e["where"])
             if not pid or not wid:
@@ -475,7 +520,7 @@ def assemble(
     for h in _dicts(foreshadow.get("hooks")):
         desc = _clean(h.get("desc"))
         plant = _as_ch(h.get("plant_ch")) if h.get("plant_ch") not in (None, "", "原文未明确") else None
-        if not desc or plant is None:
+        if not desc or plant is None or not (1 <= plant <= chapter_count):
             hooks_bad += 1
             continue
         payoff = _as_ch(h.get("payoff_ch")) if h.get("payoff_ch") not in (None, "", "原文未明确") else None
@@ -540,6 +585,10 @@ def assemble(
     for nm in place_entries:
         scene.setdefault(place_id[nm], [20, 30, cw, chh])
 
+    max_x = max((b[0] + b[2] for b in scene.values()), default=0)
+    max_y = max((b[1] + b[3] for b in scene.values()), default=0)
+    scene_canvas = [int(max_x + 28), int(max_y + 28)]
+
     return {
         "contract": "deconstruct-graph/6",
         "meta": meta,
@@ -554,6 +603,6 @@ def assemble(
         "events": events_out,
         "chapters": chapters_out,
         "hooks": hooks_out,
-        "layout": {"net": net, "scene": scene,
+        "layout": {"net": net, "scene": scene, "scene_canvas": scene_canvas,
                    "note": "渲染器输入：确定性坐标（规则布局），可再生成，语义 lint 不校验"},
     }

@@ -276,14 +276,21 @@ async def export_task(
         state = json.loads(task.dims_json or "{}")
     except ValueError:
         state = {}
-    if state.get("graph_error"):
-        # 装配结构性异常：可读 400（图谱与文档都不发，防半截；零写入——导出端内存先行）
-        raise HTTPException(400, f"图谱装配失败：{state['graph_error']}")
-    graph = state.get("graph") if isinstance(state.get("graph"), dict) else None
+    from deconstruct.pipeline import _graph_export_on
+
+    graph_err = ""
+    graph = None
+    if _graph_export_on():  # 开关关＝一律文档版（缓存图谱也不发——评审 P2-1 关径全实现）
+        if state.get("graph_error"):
+            # 装配结构性异常：回落文档版（md 永不互拖），响应携错因供前端提示
+            graph_err = str(state["graph_error"])
+        elif isinstance(state.get("graph"), dict):
+            graph = state["graph"]
     try:
         result = apply.export_products(task, dest, files, graph=graph)
     except OSError as e:
         raise HTTPException(400, f"导出失败：{e.strerror or e}") from e
+    result["graph_error"] = graph_err
     task.exported_at = datetime.now(UTC).replace(tzinfo=None)  # 已取标记：badge 不再计数
     await db.commit()
     return result

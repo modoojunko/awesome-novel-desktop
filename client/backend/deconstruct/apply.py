@@ -288,6 +288,17 @@ def export_products(
     if graph is not None:
         readme += ["", "## 知识图谱（固定附带，不参与勾选）"]
         readme += ["- 图谱.json（唯一机器正身）", "- 图谱.html（双击浏览器打开，离线可用）", "- 图谱.svg（静态图）"]
+        meta = graph.get("meta") if isinstance(graph.get("meta"), dict) else {}
+        comp = meta.get("completion") if isinstance(meta.get("completion"), dict) else {}
+        warns = meta.get("warnings") if isinstance(meta.get("warnings"), list) else []
+        n_warn = sum(int(w.get("count") or 1) for w in warns if isinstance(w, dict))
+        readme += [
+            "",
+            (
+                f"图谱完成度：在场 {comp.get('presence_placed', 0)}/{comp.get('presence_total', 0)}"
+                f" · 警告 {n_warn} 处（详见 图谱.html 顶栏横幅）"
+            ),
+        ]
     readme += [
         "",
         (
@@ -314,6 +325,10 @@ def export_products(
                 disk_text = None
             if disk_text is None or recorded.get(name) != _sha256(disk_text):
                 bak = f"{name}.bak-{stamp}"
+                n2 = 1
+                while os.path.exists(os.path.join(dest_dir, bak)):  # 同秒重导防撞（评审 P3）
+                    n2 += 1
+                    bak = f"{name}.bak-{stamp}-{n2}"
                 os.replace(target, os.path.join(dest_dir, bak))
                 backups.append(bak)
         with open(target, "w", encoding="utf-8") as f:

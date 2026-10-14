@@ -24,3 +24,7 @@
 - parent：只认隶属直陈＋代码传递闭包＋环检测（有环边降 null 留痕）。
 - quote 原文回验（去空白/标点模糊匹配）失败→剥 quote 留关系＋warning。
 - 双指标：在场覆盖率（出场章有 presence 行）≥97% 硬指标；定位率（where≠null 占比）只报数不设死线。
+- `links[].evidence` 为归并材料引文（卡片碎片），**不回验**；原文回验对象仅 `edges[].quote`（评审 P2-2 口径）。
+- `t` 语义落钉（评审 P2-10）：回忆/插叙/它线条目参与 who/appear 展示；不计 w 共场、不得到过基线、不入事件成员与事发地。
+- 完成度恒在：html 顶栏横幅/README/svg 三处恒显（零警告也显覆盖账）；`layout.scene_canvas` 为场景画布尺寸（渲染器 viewBox 依据）。
+- 装配整体失败（graph_error）＝导出回落文档版并在响应/README 注明；总开关关＝一律文档版（缓存亦不发）。

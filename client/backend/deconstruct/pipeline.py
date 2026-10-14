@@ -396,6 +396,7 @@ async def run_task(task_id: str) -> None:
                          "excerpts": frag_text},
                         "deconstruct_place",
                     )
+                await _check_cancel(task_id)  # 归并调用是新段边界：取消在此生效（评审 P3）
                 graph = assemble(
                     book_name=task.book_name,
                     chapter_count=task.chapter_count,

@@ -33,9 +33,11 @@ def render_html(graph: dict) -> str:
         .replace("\u2028", "\\u2028")
         .replace("\u2029", "\\u2029")
     )
-    return tpl.replace(_JSON_TOKEN, payload).replace(
-        _TITLE_TOKEN, html.escape(str(graph.get("book") or ""), quote=True)
-    )
+    # 顺序纪律（评审 P3）：标题先替——若岛先替，数据内含 __BOOK_TITLE__ 会被二次替换污染
+    tpl = tpl.replace(_TITLE_TOKEN, html.escape(str(graph.get("book") or ""), quote=True))
+    if tpl.count(_JSON_TOKEN) != 1:
+        raise RuntimeError(f"视图模板缺唯一占位符 {_JSON_TOKEN}")
+    return tpl.replace(_JSON_TOKEN, payload)
 
 
 def _esc(s: object) -> str:
@@ -78,6 +80,7 @@ def render_svg(graph: dict) -> str:
     ledger_h = 34 + len(ledger) * 22 + 10
     warn_list = (graph.get("meta") or {}).get("warnings") or []
     comp = (graph.get("meta") or {}).get("completion") or {}
+    n_warn_total = sum(int(w.get("count") or 1) for w in warn_list)
     foot_h = 34
     height = net_h + ledger_h + foot_h
 
@@ -95,12 +98,13 @@ def render_svg(graph: dict) -> str:
         f'势力 {sum(1 for n in nodes if n.get("type") == "faction")} · 物 {sum(1 for n in nodes if n.get("type") == "item")} · '
         f'关系 {len(edges)} 条 · 地点 {len(places)} 处</text>'
     )
-    if warn_list:
-        n_warn = sum(int(w.get("count") or 1) for w in warn_list)
-        out.append(
-            f'<text x="{_SVG_W - 20}" y="30" font-size="12" fill="#a76b00" text-anchor="end">'
-            f'完成度 {_esc(comp.get("presence_placed"))}/{_esc(comp.get("presence_total"))} · 警告 {n_warn} 处（详见 图谱.html）</text>'
-        )
+    # 完成度恒显（评审 P2-3：非空警告才显示会把零警告书也藏起来）
+    warn_color = "#a76b00" if n_warn_total else "#8a929b"
+    warn_txt = f"警告 {n_warn_total} 处" if n_warn_total else "无警告"
+    out.append(
+        f'<text x="{_SVG_W - 20}" y="30" font-size="12" fill="{warn_color}" text-anchor="end">'
+        f'完成度 {_esc(comp.get("presence_placed"))}/{_esc(comp.get("presence_total"))} · {warn_txt}（详见 图谱.html）</text>'
+    )
     # 图例
     out.append('<text x="20" y="80" font-size="11.5" fill="#666">实心圆＝主角 · 空心圆＝配角 · 红＝反派 · 方＝势力 · 菱＝物品 · 线粗＝戏份 · 红＝敌对 · 黄＝从属</text>')
 
@@ -173,7 +177,7 @@ def render_svg(graph: dict) -> str:
     # 页脚
     out.append(
         f'<text x="20" y="{height - 12}" font-size="11" fill="#8a929b">'
-        f'由 AwesomeNovel 拆书导出（契约 deconstruct-graph/6）· 图谱.json 为唯一机器正身，本图与其视 图谱.html 同源'
+        f'由 AwesomeNovel 拆书导出（契约 deconstruct-graph/6）· 图谱.json 为唯一机器正身，本图与 图谱.html 同源'
         f'</text>'
     )
     out.append("</svg>")

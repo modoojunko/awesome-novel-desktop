@@ -4,6 +4,7 @@
 """
 
 import asyncio
+import json
 import os
 import tempfile
 
@@ -435,16 +436,35 @@ def test_export_backup_rotation(client):
     assert any(".bak-" in n for n in os.listdir(dest))
 
 
-def test_export_graph_error_blocks_with_400(client):
+def test_export_graph_error_falls_back_to_docs(client):
+    """评审 P1-2：装配失败回落文档版（md 永不互拖），响应携 graph_error 注记。"""
     products = {"intro": _product("intro", "简介.md", {}, "# A")}
     _mk_completed("dec-exp-gerr", products)
     _seed_graph("dec-exp-gerr", graph_error="装配期异常")
     dest = tempfile.mkdtemp(prefix="dec-export-gerr-")
     r = client.post("/api/deconstruct/tasks/dec-exp-gerr/export",
                     json={"dest_dir": dest, "files": ["简介.md"]})
-    assert r.status_code == 400
-    assert "图谱装配失败" in r.json()["detail"]
-    assert os.listdir(dest) == []  # 零写入
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert body["graph_error"] == "装配期异常" and body["graph"] == []
+    names = os.listdir(dest)
+    assert "简介.md" in names and "图谱.json" not in names and "导出清单.json" in names
+    with open(os.path.join(dest, "导出清单.json"), encoding="utf-8") as f:
+        assert json.load(f)["contract"] == "document-only"
+
+
+def test_export_switch_off_suppresses_cached_graph(client, monkeypatch):
+    """评审 P2-1 关径全实现：开关关＝缓存图谱也不发，且 graph_error 不再影响导出。"""
+    products = {"intro": _product("intro", "简介.md", {}, "# A")}
+    _mk_completed("dec-exp-off", products)
+    _seed_graph("dec-exp-off", graph=_mini_graph())
+    monkeypatch.setenv("DECONSTRUCT_GRAPH_EXPORT", "0")
+    dest = tempfile.mkdtemp(prefix="dec-export-off-")
+    r = client.post("/api/deconstruct/tasks/dec-exp-off/export",
+                    json={"dest_dir": dest, "files": ["简介.md"]})
+    assert r.status_code == 200, r.text
+    assert r.json()["graph"] == [] and r.json()["graph_error"] == ""
+    assert "图谱.html" not in os.listdir(dest)
 
 
 # ── 能力戳与图谱视图（10.5）──────────────────────────────────────────

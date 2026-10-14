@@ -92,6 +92,8 @@
 - [x] 10.5 能力戳：创建时探测 card 契约含 presence→caps 记任务行（receipt 版本≥13 模板首发）；导出/降级只认戳；无 caps 创建页 warn（不拦截）——**取代 tasks 4.4「不升 min_pack_version」口径**
 - [x] 10.6 前端：task_view.graph{available,files?,warnings?,completion?} 可选字段；横幅三元（available 真→含三件套文案，假/缺省→现文案）；目录树三件套不可勾三行＋警告注记；导出摘要文案；.bak backups[] 上浮；product_count 语义钉＝md 数；vitest 三夹具（available 真/缺省/导出契约锁「仅 md 文件名」）＋两页文案
 - [ ] 10.7 全量门禁：装配器 golden（自生成冻结）＋查看器 fixture＝v7 JSON＋降级链三例＋噪声注入＋400 结构异常臂＋.bak 轮转臂＋开关关径臂；pytest/ruff/vitest/coverage/tsc/prompts lint+pytest；**具名真书走查**：开发者 2–3 本 60 万字真书跑批（过滤器走查＋完成度/警告统计），结论＋导出物入 10.8 评审记录
-- [ ] 10.8 评审与交付：Code Reviewer 全量 diff（图谱面重点）；PR 标题/描述改「文档＋图谱」完整体并写明发布编排（13 模板包发布完成前不发含图谱客户端）；作者侧三题验收撤为发版后观察项（无作者池即时执行）
+- [x] 10.8 评审与交付：Code Reviewer 全量 diff（图谱面重点）；PR 标题/描述改「文档＋图谱」完整体并写明发布编排（13 模板包发布完成前不发含图谱客户端）；作者侧三题验收撤为发版后观察项（无作者池即时执行）
 
 - 开工进展（2026-10-14）：10.0–10.6 全落地（卡 a1323d3/0c7452e7→8d23c059→a420fa01→31411bd4→36254fe7→10.6 在途提交）；10.1a 熔断 spike 与 10.7 真书走查为**人工项**（需真书＋真实 key，投产前执行，判据：在场覆盖率≥97%／token 实测）；10.8 二轮评审（Code Reviewer 全量 diff）待发。
+
+- 10.8 二轮评审闭环（2026-10-14，Code Reviewer 全量 diff）：**0 P0／2 P1／10 P2／8 P3 全修复**——P1：场景 viewBox 按 `layout.scene_canvas` 动态（超界裁切）/graph_error 回落文档版＋响应注记（md 永不互拖，前端文案同步）；P2：导出读总开关全关径/完成度恒显（html·svg·README 三处）/老卡 presence_missing 留痕/能力戳呈现口径改「任务详情常驻」（spec 同步）/首现继承迭代收敛（顺序无关）/别名补户查别名索引（**测试当场抓出的真 bug**）/edges dict 形状包装/events 成员回落留痕；P3：token 替换顺序防二次污染/归并调用段边界取消/备份同秒防撞/TopN 连带滤边/append 单参兼容/浏览器基线注/章号与伏笔边界校验/文案订正。测试：图单元 14（t 语义落钉等）＋导出两例重写＋取消窗例，后端 2363／前端 1594＋coverage 无缺口＋tsc＋validate 全绿。人工项保留：10.1a 熔断 spike 与 60 万字真书走查（需真书＋真 key）。

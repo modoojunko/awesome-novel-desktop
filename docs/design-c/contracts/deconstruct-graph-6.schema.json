@@ -4,61 +4,157 @@
   "title": "拆书知识图谱契约 deconstruct-graph/6",
   "description": "图谱.json 的机器正身 schema（评审：契约正文不得散落原型注释；本文件为正身，原型 v7 降为示意物）。跨字段规则（schema 无法表达，归装配器 lint）：kind 逐字∈relTypes 扁平集或 {kind:'自定义',raw}；where∈places.id 或 null；id 由装配层分配（label 排序＋序号）且 append-only 永不重排；首现=min(引用章) 代码盖章；chapters.who/at、links 基线'到过'为 presence 派生；parent 闭包无环。冻结规则：additive 不升级，破坏性改动升 graph/7 并写迁移。",
   "type": "object",
-  "required": ["contract", "meta", "book", "stats", "logline", "relTypes", "places", "nodes", "edges", "links", "events", "chapters", "hooks", "layout"],
+  "required": [
+    "contract",
+    "meta",
+    "book",
+    "stats",
+    "logline",
+    "relTypes",
+    "places",
+    "nodes",
+    "edges",
+    "links",
+    "events",
+    "chapters",
+    "hooks",
+    "layout"
+  ],
   "properties": {
-    "contract": { "const": "deconstruct-graph/6" },
+    "contract": {
+      "const": "deconstruct-graph/6"
+    },
     "meta": {
       "type": "object",
-      "required": ["rule", "completion", "warnings"],
+      "required": [
+        "rule",
+        "completion",
+        "warnings"
+      ],
       "properties": {
-        "rule": { "type": "string", "description": "派生纪律：模型只产文本与关系；章号/首现/who/at/到过基线一律代码盖章或派生" },
+        "rule": {
+          "type": "string",
+          "description": "派生纪律：模型只产文本与关系；章号/首现/who/at/到过基线一律代码盖章或派生"
+        },
         "completion": {
           "type": "object",
-          "required": ["chapters", "presence_total", "presence_placed"],
+          "required": [
+            "chapters",
+            "presence_total",
+            "presence_placed"
+          ],
           "properties": {
-            "chapters": { "type": "integer" },
-            "presence_total": { "type": "integer" },
-            "presence_placed": { "type": "integer", "description": "定位数；在场覆盖率=presence_total/出场章数 为硬指标，定位率仅报数" }
+            "chapters": {
+              "type": "integer"
+            },
+            "presence_total": {
+              "type": "integer"
+            },
+            "presence_placed": {
+              "type": "integer",
+              "description": "定位数；在场覆盖率=presence_total/出场章数 为硬指标，定位率仅报数"
+            }
           }
         },
         "warnings": {
           "type": "array",
           "items": {
             "type": "object",
-            "required": ["kind", "msg"],
+            "required": [
+              "kind",
+              "msg"
+            ],
             "properties": {
-              "ch": { "type": ["integer", "null"] },
-              "who": { "type": "string" },
-              "kind": { "type": "string", "examples": ["presence_unplaced", "quote_unverified", "parent_cycle_dropped", "edges_remapped"] },
-              "msg": { "type": "string" }
+              "ch": {
+                "type": [
+                  "integer",
+                  "null"
+                ]
+              },
+              "who": {
+                "type": "string"
+              },
+              "kind": {
+                "type": "string",
+                "examples": [
+                  "presence_unplaced",
+                  "quote_unverified",
+                  "parent_cycle_dropped",
+                  "edges_remapped"
+                ]
+              },
+              "msg": {
+                "type": "string"
+              }
             }
           }
         }
       }
     },
-    "book": { "type": "string" },
+    "book": {
+      "type": "string"
+    },
     "stats": {
       "type": "object",
-      "required": ["chapters", "words"],
-      "properties": { "chapters": { "type": "integer" }, "words": { "type": "integer" } }
+      "required": [
+        "chapters",
+        "words"
+      ],
+      "properties": {
+        "chapters": {
+          "type": "integer"
+        },
+        "words": {
+          "type": "integer"
+        }
+      }
     },
-    "logline": { "type": "string" },
+    "logline": {
+      "type": "string"
+    },
     "relTypes": {
       "type": "object",
       "description": "封闭关系类型表：五组＋规则串键（_rule/_boundary）。edges.kind 只从组数组逐字选或走自定义逃生口。",
-      "additionalProperties": { "type": ["array", "string"] }
+      "additionalProperties": {
+        "type": [
+          "array",
+          "string"
+        ]
+      }
     },
     "places": {
       "type": "array",
       "items": {
         "type": "object",
-        "required": ["id", "label", "parent", "ch", "note"],
+        "required": [
+          "id",
+          "label",
+          "parent",
+          "ch",
+          "note"
+        ],
         "properties": {
-          "id": { "type": "string", "description": "装配层分配，append-only" },
-          "label": { "type": "string" },
-          "parent": { "type": ["string", "null"], "description": "归属上级；只认原文隶属直陈＋传递闭包；无直陈为 null（孤悬顶层户，不编边）" },
-          "ch": { "type": "integer", "description": "首现章号：代码盖章 min(引用章)" },
-          "note": { "type": "string" }
+          "id": {
+            "type": "string",
+            "description": "装配层分配，append-only"
+          },
+          "label": {
+            "type": "string"
+          },
+          "parent": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "归属上级；只认原文隶属直陈＋传递闭包；无直陈为 null（孤悬顶层户，不编边）"
+          },
+          "ch": {
+            "type": "integer",
+            "description": "首现章号：代码盖章 min(引用章)"
+          },
+          "note": {
+            "type": "string"
+          }
         }
       }
     },
@@ -66,15 +162,47 @@
       "type": "array",
       "items": {
         "type": "object",
-        "required": ["id", "type", "label"],
+        "required": [
+          "id",
+          "type",
+          "label"
+        ],
         "properties": {
-          "id": { "type": "string" },
-          "type": { "enum": ["person", "faction", "item"] },
-          "label": { "type": "string" },
-          "role": { "enum": ["主角", "配角", "反派"] },
-          "alias": { "type": "array", "items": { "type": "string" } },
-          "appear": { "type": "array", "items": { "type": "integer" } },
-          "bio": { "type": "string" }
+          "id": {
+            "type": "string"
+          },
+          "type": {
+            "enum": [
+              "person",
+              "faction",
+              "item"
+            ]
+          },
+          "label": {
+            "type": "string"
+          },
+          "role": {
+            "enum": [
+              "主角",
+              "配角",
+              "反派"
+            ]
+          },
+          "alias": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "appear": {
+            "type": "array",
+            "items": {
+              "type": "integer"
+            }
+          },
+          "bio": {
+            "type": "string"
+          }
         }
       }
     },
@@ -83,15 +211,40 @@
       "description": "边＝跨章稳定关系；动作词（作证/施压/截杀/收留）不入边表（归 events/presence）",
       "items": {
         "type": "object",
-        "required": ["from", "to", "kind", "ch", "quote"],
+        "required": [
+          "from",
+          "to",
+          "kind",
+          "ch",
+          "quote"
+        ],
         "properties": {
-          "from": { "type": "string" },
-          "to": { "type": "string" },
-          "kind": { "type": "string", "description": "∈relTypes 扁平集，或自定义逃生口（raw 携原文措辞）" },
-          "raw": { "type": "string", "description": "kind=自定义 时的原文措辞" },
-          "w": { "type": "integer", "description": "戏份权重（线粗）" },
-          "ch": { "type": "integer", "description": "关系确立章号" },
-          "quote": { "type": "string", "description": "原文证据；quote 回验（模糊匹配）失败则剥除并留 warning" }
+          "from": {
+            "type": "string"
+          },
+          "to": {
+            "type": "string"
+          },
+          "kind": {
+            "type": "string",
+            "description": "∈relTypes 扁平集，或自定义逃生口（raw 携原文措辞）"
+          },
+          "raw": {
+            "type": "string",
+            "description": "kind=自定义 时的原文措辞"
+          },
+          "w": {
+            "type": "integer",
+            "description": "戏份权重（线粗）"
+          },
+          "ch": {
+            "type": "integer",
+            "description": "关系确立章号"
+          },
+          "quote": {
+            "type": "string",
+            "description": "原文证据；quote 回验（模糊匹配）失败则剥除并留 warning"
+          }
         }
       }
     },
@@ -100,13 +253,34 @@
       "description": "人↔地：到过=presence 代码派生基线；据地/寄居/隐于/活动于=归并层凭原文短语升级（无据回落到过）",
       "items": {
         "type": "object",
-        "required": ["who", "where", "kind", "ch"],
+        "required": [
+          "who",
+          "where",
+          "kind",
+          "ch"
+        ],
         "properties": {
-          "who": { "type": "string" },
-          "where": { "type": "string" },
-          "kind": { "enum": ["到过", "据地", "寄居", "隐于", "活动于", "行凶于"] },
-          "ch": { "type": "integer" },
-          "quote": { "type": "string" }
+          "who": {
+            "type": "string"
+          },
+          "where": {
+            "type": "string"
+          },
+          "kind": {
+            "enum": [
+              "到过",
+              "据地",
+              "寄居",
+              "隐于",
+              "活动于"
+            ]
+          },
+          "ch": {
+            "type": "integer"
+          },
+          "quote": {
+            "type": "string"
+          }
         }
       }
     },
@@ -115,14 +289,46 @@
       "description": "跨章事件段＝mainplot arcs 代码投影（title/起止章直映射；at=区间 presence 众数；members=区间在场∩提及名）；无 arcs 时为空数组＋warning",
       "items": {
         "type": "object",
-        "required": ["id", "title", "ch", "at", "members", "note"],
+        "required": [
+          "id",
+          "title",
+          "ch",
+          "at",
+          "members",
+          "note"
+        ],
         "properties": {
-          "id": { "type": "string" },
-          "title": { "type": "string" },
-          "ch": { "type": "array", "items": { "type": "integer" }, "minItems": 2, "maxItems": 2, "description": "[起章, 止章]，起≤止" },
-          "at": { "type": ["string", "null"], "description": "主要事发地 place id（区间 presence 众数）" },
-          "members": { "type": "array", "items": { "type": "string" } },
-          "note": { "type": "string" }
+          "id": {
+            "type": "string"
+          },
+          "title": {
+            "type": "string"
+          },
+          "ch": {
+            "type": "array",
+            "items": {
+              "type": "integer"
+            },
+            "minItems": 2,
+            "maxItems": 2,
+            "description": "[起章, 止章]，起≤止"
+          },
+          "at": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "主要事发地 place id（区间 presence 众数）"
+          },
+          "members": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "note": {
+            "type": "string"
+          }
         }
       }
     },
@@ -130,22 +336,68 @@
       "type": "array",
       "items": {
         "type": "object",
-        "required": ["no", "beat", "at", "who", "presence"],
+        "required": [
+          "no",
+          "beat",
+          "at",
+          "who",
+          "presence"
+        ],
         "properties": {
-          "no": { "type": "integer" },
-          "beat": { "type": "string", "description": "一句话剧情＝卡片 summary" },
-          "at": { "type": "array", "items": { "type": "string" }, "description": "场景地点集（presence 派生）" },
-          "who": { "type": "array", "items": { "type": "string" }, "description": "在场人物集（presence 派生，单一来源）" },
-          "ev": { "type": ["string", "null"], "description": "所属事件段 id 或 null（过场章）" },
+          "no": {
+            "type": "integer"
+          },
+          "beat": {
+            "type": "string",
+            "description": "一句话剧情＝卡片 summary"
+          },
+          "at": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "场景地点集（presence 派生）"
+          },
+          "who": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "在场人物集（presence 派生，单一来源）"
+          },
+          "ev": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "所属事件段 id 或 null（过场章）"
+          },
           "presence": {
             "type": "array",
             "items": {
               "type": "object",
-              "required": ["who"],
+              "required": [
+                "who"
+              ],
               "properties": {
-                "who": { "type": "string" },
-                "where": { "type": ["string", "null"], "description": "place id；null＝在场未定位（渲染入未知区）——宁可承认不知道，不替作者编地图" },
-                "t": { "enum": ["回忆", "插叙", "它线"], "description": "非主时间线标签；主线条省略" }
+                "who": {
+                  "type": "string"
+                },
+                "where": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "description": "place id；null＝在场未定位（渲染入未知区）——宁可承认不知道，不替作者编地图"
+                },
+                "t": {
+                  "enum": [
+                    "回忆",
+                    "插叙",
+                    "它线"
+                  ],
+                  "description": "非主时间线标签；主线条省略"
+                }
               }
             }
           }
@@ -156,12 +408,30 @@
       "type": "array",
       "items": {
         "type": "object",
-        "required": ["desc", "plant", "status"],
+        "required": [
+          "desc",
+          "plant",
+          "status"
+        ],
         "properties": {
-          "desc": { "type": "string" },
-          "plant": { "type": "integer" },
-          "payoff": { "type": ["integer", "null"] },
-          "status": { "enum": ["未收", "已收"] }
+          "desc": {
+            "type": "string"
+          },
+          "plant": {
+            "type": "integer"
+          },
+          "payoff": {
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "status": {
+            "enum": [
+              "未收",
+              "已收"
+            ]
+          }
         }
       }
     },
@@ -169,8 +439,20 @@
       "type": "object",
       "description": "渲染器输入（非语义）：确定性预计算坐标，声明可再生成，语义 lint 不校验——坐标不入语义正身",
       "properties": {
-        "net": { "type": "object", "additionalProperties": { "type": "array", "items": { "type": "number" }, "minItems": 2, "maxItems": 2 } },
-        "note": { "type": "string" }
+        "net": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "array",
+            "items": {
+              "type": "number"
+            },
+            "minItems": 2,
+            "maxItems": 2
+          }
+        },
+        "note": {
+          "type": "string"
+        }
       }
     }
   }

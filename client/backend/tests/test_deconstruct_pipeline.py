@@ -530,3 +530,31 @@ def test_stage3_skipped_when_no_caps(monkeypatch):
     assert t.status == "completed"
     assert "deconstruct_place" not in client.calls
     assert "graph" not in json.loads(t.dims_json)
+
+
+def test_cancel_at_place_merge_boundary(monkeypatch):
+    """评审 P3：归并调用是新段边界——调用后取消，任务停机且不产图谱。"""
+    from deconstruct import pipeline
+
+    _stub_layers(monkeypatch)
+
+    async def place_cancel(kw, n):
+        async with async_session() as s:
+            t = await s.get(DeconstructJob, "p-cancel3")
+            t.status = "cancelled"
+            await s.commit()
+        return _PLACE_OK  # 归并成功返回后，段边界取消检查应生效
+
+    client = FakeClient({
+        "deconstruct_card": _graph_card_handler,
+        "deconstruct_characters": lambda kw, n: json.dumps({"characters": [
+            {"name": "林晚", "role": "主角", "plot": "p", "evidence_ch": "第1章"}]}),
+        "deconstruct_place": place_cancel,
+    })
+    _stub_client(monkeypatch, client)
+    _mk_job("p-cancel3", selected=["characters"], chapters=1)
+
+    _run(pipeline.run_task("p-cancel3"))
+    t = _load("p-cancel3")
+    assert t.status == "cancelled"
+    assert "graph" not in json.loads(t.dims_json) and "graph_error" not in json.loads(t.dims_json)

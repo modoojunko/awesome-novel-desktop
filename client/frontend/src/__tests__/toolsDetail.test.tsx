@@ -391,7 +391,7 @@ describe("TaskDetailPage", () => {
     );
     renderPage();
     await waitFor(() => expect(screen.getByText("图谱装配失败")).toBeInTheDocument());
-    expect(screen.getByText(/导出将被阻断/)).toBeInTheDocument();
+    expect(screen.getByText(/按文档版进行/)).toBeInTheDocument();
   });
 
   it("完成：老包能力戳 false 提示（文档版不受影响）", async () => {
@@ -426,5 +426,21 @@ describe("TaskDetailPage", () => {
     fireEvent.click(screen.getByText("选择文件夹并导出"));
     await waitFor(() => expect(state.export).toHaveBeenCalledOnce());
     await waitFor(() => expect(screen.getByText(/旧文件已备份 1 个/)).toBeInTheDocument());
+  });
+  it("导出：图谱装配失败注记臂（graph_error 非空 → 文档版提示）", async () => {
+    state.get.mockResolvedValue(
+      detailOf("completed", { graph: { state: "error", available: false, warnings: 0, caps: true } }),
+    );
+    state.export.mockClear();
+    state.export.mockResolvedValue({
+      written: ["简介.md"], readme: "README.md", dest: "/tmp/gx", graph_error: "装配期异常",
+    });
+    renderPage();
+    await waitFor(() => expect(screen.getByText("选择去向")).toBeInTheDocument());
+    fireEvent.click(screen.getByText("选择去向"));
+    fireEvent.click(screen.getByText("存本地文件夹"));
+    fireEvent.change(screen.getByLabelText(/导出到文件夹/), { target: { value: "/tmp/gx" } });
+    fireEvent.click(screen.getByText("选择文件夹并导出"));
+    await waitFor(() => expect(screen.getByText(/本次为文档版/)).toBeInTheDocument());
   });
 });

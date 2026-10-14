@@ -148,9 +148,11 @@ export default function TaskDetailPage() {
     } else {
       void act(() => exportTaskProducts(task.id, destDir, selectedFiles), (r) => {
         const backups = (r as { backups?: string[] } | undefined)?.backups ?? [];
+        const graphErr = (r as { graph_error?: string } | undefined)?.graph_error ?? "";
         setExitMsg(
           `已导出 ${selectedFiles.length} 份产物到 ${destDir}` +
-            (backups.length > 0 ? `（旧文件已备份 ${backups.length} 个为 .bak-时间戳）` : ""),
+            (backups.length > 0 ? `（旧文件已备份 ${backups.length} 个为 .bak-时间戳）` : "") +
+            (graphErr ? "（图谱装配失败，本次为文档版）" : ""),
         );
         setExitOpen(false);
       });
@@ -243,7 +245,7 @@ export default function TaskDetailPage() {
             <div className="notice" data-od-id="graph-error" style={{ marginBottom: 18 }}>
               <span className="nt">
                 <b>图谱装配失败</b>
-                <span>导出将被阻断（文档与图谱均不发）；可重跑任务或反馈。文档产物不受影响。</span>
+                <span>本次导出将按文档版进行（不含图谱三件套）；可重跑任务或反馈。</span>
               </span>
             </div>
           ) : graph.caps === false ? (

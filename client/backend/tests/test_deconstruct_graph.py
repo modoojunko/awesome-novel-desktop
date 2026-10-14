@@ -166,3 +166,94 @@ def test_card_missing_degraded():
     g = _g(cards=cards)
     assert _kinds(g, "card_missing")[0]["count"] == 1
     assert g["chapters"][1]["presence"] == [] and g["chapters"][1]["beat"] == ""
+
+
+def test_t_entries_excluded_from_derivations():
+    """t 语义落钉（评审 P2-10）：回忆条目不得到过、不入事件成员；who/appear 照常展示。"""
+    cards = {
+        "1": _card("其一", places=[{"name": "渡口", "parent": "", "note": ""}],
+                   presence=[{"who": "林晚", "where": "渡口"}]),
+        "2": _card("其二", places=[{"name": "渡口", "parent": "", "note": ""}],
+                   presence=[{"who": "林晚", "where": "渡口"},
+                             {"who": "阿蓟", "where": "渡口", "t": "回忆"}]),
+    }
+    g = _g(cards=cards, place_merge=None)
+    pid, wid = _lbl_pid(g), _lbl_wid(g)
+    # 展示：who 与 appear 仍含阿蓟（回忆里也是在场上屏）
+    assert pid["阿蓟"] in g["chapters"][1]["who"]
+    assert 2 in next(n for n in g["nodes"] if n["label"] == "阿蓟")["appear"]
+    # 到过基线排除回忆
+    assert not any(l["who"] == pid["阿蓟"] for l in g["links"])
+    assert any(l["who"] == pid["林晚"] and l["where"] == wid["渡口"] for l in g["links"])
+    # 事件成员排除回忆条目
+    ev = g["events"][0]
+    assert pid["林晚"] in ev["members"] and pid["阿蓟"] not in ev["members"]
+
+
+def test_events_members_fallback_warning():
+    products = _products()
+    products["mainplot"]["data"]["arcs"][0]["summary"] = "风起云涌"  # 不含任何在册人名
+    g = _g(products=products)
+    assert _kinds(g, "events_members_fallback")[0]["count"] == 1
+    assert len(g["events"][0]["members"]) == 3  # 回落为区间全员（林晚/阿蓟/柳氏）
+
+
+def test_presence_missing_legacy_card_warning():
+    cards = {"1": {"summary": "老卡", "places": [], "characters": []}}  # 无 presence 键
+    g = _g(cards=cards, chapter_count=1, place_merge=None)
+    assert _kinds(g, "presence_missing")[0]["count"] == 1
+
+
+def test_aliases_string_coerced():
+    pm = {"places": [{"name": "竹湾渡口", "aliases": "渡口", "parent": "", "note": ""}], "links": []}
+    cards = {"1": _card("开场", places=[], presence=[{"who": "林晚", "where": "渡口"}])}
+    g = _g(cards=cards, place_merge=pm, chapter_count=1)
+    assert _kinds(g, "shape_coerced")  # 字符串形状已容错
+    assert not _kinds(g, "place_autocreated")  # 别名并户成功，无补户
+    assert g["chapters"][0]["presence"][0]["where"] == next(
+        p for p in g["places"] if p["label"] == "竹湾渡口")["id"]
+
+
+def test_relations_edges_dict_wrapped():
+    products = _products()
+    products["relations"]["data"]["edges"] = {
+        "from": "林晚", "to": "阿蓟", "rel_type": "恩义", "evidence_ch": "第1章", "quote": "林晚在渡口救人"}
+    g = _g(products=products)
+    assert any(e["kind"] == "恩义" for e in g["edges"])
+
+
+def test_place_first_order_insensitive():
+    a = [{"name": "青溪县", "aliases": [], "parent": "", "note": ""},
+         {"name": "竹湾渡口", "aliases": [], "parent": "青溪县", "note": ""}]
+    b = list(reversed(a))
+    cards = {"1": _card("开场", places=[{"name": "竹湾渡口", "parent": "青溪县", "note": ""}],
+                        presence=[{"who": "林晚", "where": "竹湾渡口"}])}
+    ga = _g(cards=cards, place_merge={"places": a, "links": []}, chapter_count=1)
+    gb = _g(cards=cards, place_merge={"places": b, "links": []}, chapter_count=1)
+    ca = next(p["ch"] for p in ga["places"] if p["label"] == "青溪县")
+    cb = next(p["ch"] for p in gb["places"] if p["label"] == "青溪县")
+    assert ca == cb == 1  # 继承收敛，顺序无关
+
+
+def test_scene_canvas_covers_boxes():
+    pm = {"places": [{"name": f"地{i}", "aliases": [], "parent": "", "note": ""} for i in range(9)], "links": []}
+    g = _g(place_merge=pm)
+    xs = [b[0] + b[2] for b in g["layout"]["scene"].values()]
+    ys = [b[1] + b[3] for b in g["layout"]["scene"].values()]
+    assert g["layout"]["scene_canvas"][0] >= max(xs)
+    assert g["layout"]["scene_canvas"][1] >= max(ys)
+
+
+def test_edge_ch_out_of_range_rejected():
+    products = _products()
+    products["relations"]["data"]["edges"] = [
+        {"from": "林晚", "to": "阿蓟", "rel_type": "恩义", "evidence_ch": "第99章"}]
+    g = _g(products=products)
+    assert g["edges"] == [] and _kinds(g, "edge_ch_missing")[0]["count"] == 1
+
+
+def test_hook_plant_out_of_range_rejected():
+    products = _products()
+    products["foreshadow"]["data"]["hooks"] = [{"desc": "罗盘", "plant_ch": "第99章", "payoff_ch": None}]
+    g = _g(products=products)
+    assert g["hooks"] == [] and _kinds(g, "hooks_invalid")[0]["count"] == 1

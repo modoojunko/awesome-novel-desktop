@@ -206,7 +206,7 @@ body { margin: 0; background: var(--bg); color: var(--fg); font: 14px/1.65 var(-
   <div class="hookline" id="hooks"></div>
 </footer>
 
-<p class="foot">本文件为拆书导出件，由 AwesomeNovel 生成（契约 deconstruct-graph/6）；图谱.json 为唯一机器正身，本页与 图谱.svg 皆其视图；手改本文件不回流应用。</p>
+<p class="foot">本文件为拆书导出件，由 AwesomeNovel 生成（契约 deconstruct-graph/6）；图谱.json 为唯一机器正身，本页与 图谱.svg 皆其视图；手改本文件不回流应用。建议使用现代浏览器打开（Chrome/Edge 111+ 或 Safari 16.4+）。</p>
 
 <script id="graphdata" type="application/json">__GRAPH_JSON__</script>
 
@@ -284,21 +284,21 @@ body { margin: 0; background: var(--bg); color: var(--fg); font: 14px/1.65 var(-
     "共 " + (st.chapters || 0) + " 章 · " + (st.words || 0).toLocaleString() + " 字";
   var warns = (DATA.meta && DATA.meta.warnings) || [];
   var comp = (DATA.meta && DATA.meta.completion) || {};
+  // 完成度恒显（评审 P2-3：零警告书也要看得到覆盖账）；警告明细条件展开
+  var nWarn = 0;
+  warns.forEach(function (w) { nWarn += (w.count || 1); });
+  banner.style.display = "block";
+  banner.appendChild(document.createTextNode(
+    "图谱完成度：在场 " + (comp.presence_placed || 0) + "/" + (comp.presence_total || 0)
+    + " 条已定位 · " + (warns.length ? "警告 " + warns.length + " 类（约 " + nWarn + " 处）" : "无警告")));
   if (warns.length) {
-    var n = 0;
-    warns.forEach(function (w) { n += (w.count || 1); });
-    var d = document.createElement("div");
-    var head = document.createTextNode(
-      "在场 " + (comp.presence_placed || 0) + "/" + (comp.presence_total || 0) + " 条已定位 · 警告 " + warns.length + " 类（约 " + n + " 处）");
-    banner.style.display = "block";
-    banner.appendChild(head);
     var dets = document.createElement("details");
     var sum = document.createElement("summary"); sum.textContent = "查看明细";
     dets.appendChild(sum);
     warns.forEach(function (w) {
-      var p = document.createElement("div");
-      p.textContent = "· " + String(w.msg || w.kind || "");
-      dets.appendChild(p);
+      var pl = document.createElement("div");
+      pl.textContent = "· " + String(w.msg || w.kind || "");
+      dets.appendChild(pl);
     });
     banner.appendChild(dets);
   }
@@ -312,7 +312,7 @@ body { margin: 0; background: var(--bg); color: var(--fg); font: 14px/1.65 var(-
     var beat = document.createElement("span"); beat.className = "cbeat"; beat.textContent = c.beat || "";
     var cnt = document.createElement("span"); cnt.className = "tc";
     cnt.textContent = (c.at || []).length + "地·" + (c.who || []).length + "人";
-    row.append(dot, no, beat, cnt);
+    row.appendChild(dot); row.appendChild(no); row.appendChild(beat); row.appendChild(cnt);
     row.addEventListener("click", function () { selectChapter(c.no); setTab("scene"); });
     chapBox.appendChild(row);
     c.__row = row;
@@ -329,7 +329,7 @@ body { margin: 0; background: var(--bg); color: var(--fg); font: 14px/1.65 var(-
       conn.textContent = depth ? "└─" : "";
       var nm = document.createElement("span"); nm.className = "tn"; nm.textContent = p.label;
       var ch = document.createElement("span"); ch.className = "tc"; ch.textContent = "第" + (p.ch || 1) + "章";
-      row.append(conn, nm, ch);
+      row.appendChild(conn); row.appendChild(nm); row.appendChild(ch);
       row.addEventListener("click", function () { selectPlace(p.id); });
       treeBox.appendChild(row);
       p.__row = row;
@@ -380,8 +380,14 @@ body { margin: 0; background: var(--bg); color: var(--fg); font: 14px/1.65 var(-
 
     // 未知区：本章有 where=null 的在场才画
     var unplaced = c.presence.filter(function (p) { return !p.where; });
-    var maxY = 0;
-    Object.keys(SCENE).forEach(function (k) { maxY = Math.max(maxY, SCENE[k][1] + SCENE[k][3]); });
+    var maxY = 0, maxX = 0;
+    Object.keys(SCENE).forEach(function (k) {
+      maxY = Math.max(maxY, SCENE[k][1] + SCENE[k][3]);
+      maxX = Math.max(maxX, SCENE[k][0] + SCENE[k][2]);
+    });
+    var canvas = (LAY.scene_canvas && LAY.scene_canvas.length === 2) ? LAY.scene_canvas : [860, 470];
+    var vh = Math.max(canvas[1], maxY + (unplaced.length ? 172 : 24));
+    svg.setAttribute("viewBox", "0 0 " + Math.max(canvas[0], maxX + 28) + " " + vh);
     var ub = [20, maxY + 36, 220, 96];
     if (unplaced.length) {
       var ur = el("rect", "box unknown", svg);
@@ -467,6 +473,7 @@ body { margin: 0; background: var(--bg); color: var(--fg); font: 14px/1.65 var(-
       var ln = el("line", "edge" + (e.kind === "敌对" ? " edge-fp" : ["师徒", "主从", "同门", "同僚"].indexOf(e.kind) >= 0 ? " edge-hier" : ""), gEdges);
       ln.setAttribute("x1", a[0]); ln.setAttribute("y1", a[1]); ln.setAttribute("x2", b[0]); ln.setAttribute("y2", b[1]);
       ln.setAttribute("stroke-width", 1.2 + (e.w || 1) * 1.3);
+      if (topSet && (!topSet[e.from] || !topSet[e.to])) ln.classList.add("dim");
       var ti3 = el("title", "", ln); ti3.textContent = nodeById[e.from].label + " —" + e.kind + "→ " + nodeById[e.to].label + " · 第" + e.ch + "章" + (e.quote ? "「" + e.quote + "」" : "");
     });
     (DATA.nodes || []).forEach(function (n) {
@@ -609,7 +616,7 @@ body { margin: 0; background: var(--bg); color: var(--fg); font: 14px/1.65 var(-
       "<p><b>在哪</b>：左栏地点树 " + (DATA.places || []).length + " 处<br>" +
       "<b>有谁</b>：" + persons + " 人 · " + facs + " 势力 · " + items + " 物，" + (DATA.edges || []).length + " 条关系条条带出处<br>" +
       "<b>发生了啥</b>：底轴 " + (DATA.events || []).length + " 段主线 · " + (DATA.hooks || []).length + " 枚伏笔</p>" +
-      '<h3 class="sh">怎么用</h3><p>场景页签看\u201c谁在哪儿干什么\u201d（点人＝同步亮章链）；关系网页签点人只亮关系圈（不涉地点）；点地点＝聚焦此地之人与章；Esc 无操作，刷新回默认。</p>';
+      '<h3 class="sh">怎么用</h3><p>场景页签看\u201c谁在哪儿干什么\u201d（点人＝同步亮章链）；关系网页签点人只亮关系圈（不涉地点）；点地点＝聚焦此地之人与章；Esc 回本书书眼面板。</p>';
   }
 
   // ── 底部：时间轴＋伏笔 ──
