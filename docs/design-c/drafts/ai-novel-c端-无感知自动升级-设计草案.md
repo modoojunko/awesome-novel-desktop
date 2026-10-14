@@ -226,10 +226,11 @@ workflow_dispatch 作业，P0 交付，见 §4.1-5）。
    **不带 `runhidden`**（SW_HIDE 起 GUI 是否显示未证）；`postinstall` 默认以原始用户令牌
    启动——恰满足「壳层 GUI 普通身份」铁律，勿加 `runascurrentuser`。手动安装不带参数→
    Check 不过→不多出勾选框。
-4. **per-user 覆盖 admin 装的后遗症全清单**（比 v2 认知更大，求诊手册逐条收录）：
-   - 卸载双条目：新旧 UninstallString 同指被覆写的 unins000.exe（两条款暂时都能卸）；
-     但任一侧卸载后**另一根键成悬挂幻影条目**（点开报找不到文件）——手册给一条
-     **管理员** `reg delete` 出口；low 权限清不了 HKLM。
+4. **per-user 覆盖 admin 装的后遗症全清单**（求诊手册逐条收录）：
+   - 卸载双条目：实测比预估温和（10-14 真机 installer.log：Inno 检测到旧 admin 安装后
+     **自动把新条目显示名改名去重**——"Awesome Novel 版本 X (当前用户)"，HKLM 旧＋HKCU 新
+     两条目并列显示但可辨识）；仍未证的是任一侧卸载后另一根键是否成悬挂幻影（点开报
+     找不到文件）——手册预留**管理员** `reg delete` 出口；low 权限清不了 HKLM。
    - 开始菜单双快捷：旧 All Users 快捷＋per-user 新建（同路径，功能正常外观双份）。
    - `{commondesktop}` 图标：per-user 静默可否写 Public Desktop **无条文、环境相关**，
      失败即中止整链翻车——更新器已按 §4.3 传 `/MERGETASKS=!desktopicon`（官方支持），
@@ -376,6 +377,14 @@ workflow_dispatch 作业，P0 交付，见 §4.1-5）。
   （拉起件是记事本非常驻进程），须 E9 真实包复跑补验。
   - V-1 admin 装旧版→/CURRENTUSER 静默覆盖：零 UAC 零闪现、退出码 0、data\ 逐字节不动、
     新版自动回；对照组不带 /CURRENTUSER 必弹 UAC。
+    **✅ 已立碑（10-14 boss 真机 D:\AwesomeNovel，真实实验包）**：全程零弹窗；
+    installer.log＝`Installation process succeeded`＋HKCU 卸载键＋`Detected previous
+    administrative install? Yes`＋自动改名去重；`[Run] Run as: Original user` 自动拉起
+    生效（角标显示 silent-upgrade-lab@commit＝包身份同证）。首启启动页 60s 被外力终结
+    （无壳层日志＝疑似杀软首扫杀进程，二启正常——杀软共存列 §10 持续观察项）。
+    同夜实锤并修复真 bug：**CI 冒烟残留（构建机 logs＋data\novel-dev.db）被 [Files]
+    整目录烧进安装包**——工作流已加 `Clean smoke residue before packaging (Windows)`
+    卫生闸＋门禁钉；生产发版包同洞，**下一发版必须带此修复重建**。
   - V-2 {commondesktop} per-user 可写性（挂了就靠 !desktopicon，复测到绿）。
   - V-3 AUTOLAUNCH 三形态（裸/=1/缺省）＋[Run] 项窗口可见性。
   - V-4 argv 直传中文空格&路径抵达（installer.log 落点为证）。

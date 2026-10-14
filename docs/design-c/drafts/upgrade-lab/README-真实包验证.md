@@ -81,3 +81,31 @@ $APP = "$env:LOCALAPPDATA\Programs\AwesomeNovel"
 3. 应用日志目录 `<安装目录>\logs\` 里最新两份文件。
 
 判读结论会决定 P1 是照案开工，还是切双安装包路线（设计草案 §4.4）。
+
+---
+
+## 实验结论（2026-10-14 · boss 真机 · D:\AwesomeNovel）
+
+**V-1 承重柱＝立碑 ✅**（零 UAC 静默覆盖 admin 旧装成立，真实 70MB 级包）：
+
+| 判据 | 结果 | 证据 |
+|---|---|---|
+| 全程零弹窗 | ✅ | 用户屏幕证词（仅自动拉起的应用窗） |
+| 覆盖安装成功 | ✅ | installer.log `Installation process succeeded`，无提权行 |
+| per-user 落键 | ✅ | `Creating new uninstall key: HKCU\...\_is1`；`Detected previous administrative install? Yes` |
+| 双条目外观 | ✅ 比预估温和 | Inno **自动改名去重**：「…版本 silent-upgrade-lab (当前用户)」 |
+| 自动拉起 | ✅ | `[Run] Run as: Original user → D:\AwesomeNovel\AwesomeNovel.exe`，应用确实起了 |
+| 包身份 | ✅ | 应用角标 `silent-upgrade-lab@commit`（非 tag 构建信息展示同证） |
+
+**首启悬念已定性**：启动页 60s 消失且壳层**零收尾日志**（自家看门狗任何路径都会留行）＝
+外力终结，头号嫌疑＝杀软对"安装器刚放出的新 exe"首扫；二启手动正常。列入 §10 杀软共存
+持续观察。**数据终账待补**：重跑「第一步」哈希命令，应与留底逐字一致。
+
+**同夜战果（实验价值兑现）**：实锤 **CI 冒烟残留被烧进安装包**（用户目录出现构建机时间戳
+的 `logs/startup.log` 与 `data\novel-dev.db(+wal)`）——流水线已加
+`Clean smoke residue before packaging (Windows)` 卫生闸（清理＋未净即红）＋门禁钉；
+生产发版包同洞，**下一发版必须带此修复重建**。本机脏 dev 库清理：
+`Remove-Item D:\AwesomeNovel\data\novel-dev.db*` 后重启，恢复"全新首启＋带回卡"正戏。
+
+**对照组**：地基已由 HKCU 落键＋成功日志证死，改判**可选**；补拍"去 /CURRENTUSER 必弹"
+留档更好，非必需。

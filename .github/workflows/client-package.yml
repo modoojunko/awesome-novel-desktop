@@ -318,6 +318,26 @@ jobs:
         shell: pwsh
         run: choco install innosetup -y
 
+      # ── 打包卫生闸：iscc 前清除冒烟测试的运行时残留 ────────────────────────
+      # 实锤（10-14 silent-upgrade-lab 真机实验首夜）：Windows onedir 的 --smoke 把
+      # startup.log / logs/ / port.json 与 data\novel-dev.db(+wal) 就地写进
+      # dist/AwesomeNovel/——[Files] 整目录收，等于把构建机的脏 dev 库与日志烧进安装包：
+      # 升级安装会覆盖用户本地的同名哨兵库（dev 名跨版本共用），新用户的「全新首启」也会被
+      # 预置成别人（CI）的数据。macOS 冒烟的运行/数据目录在 Application Support（bundle
+      # 之外），无此形态。本步只做包侧清理——**绝不碰 [InstallDelete]**：用户 data\ 里
+      # 的 novel-dev.db 可能是 ≤0.24 时代的真·旧库，安装器永远不得删数据目录内容。
+      - name: Clean smoke residue before packaging (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $APP = 'client/packaging/build/dist/AwesomeNovel'
+          Remove-Item -Force "$APP\startup.log","$APP\port.json","$APP\error.html","$APP\loading.html","$APP\render-hang.flag","$APP\shell.json","$APP\hang-dump.txt","$APP\.awesome-novel-write-probe" -ErrorAction SilentlyContinue
+          Remove-Item -Recurse -Force "$APP\logs","$APP\data" -ErrorAction SilentlyContinue
+          foreach ($p in @("$APP\logs","$APP\data","$APP\port.json","$APP\startup.log")) {
+            if (Test-Path $p) { throw "冒烟残留未清干净: $p" }
+          }
+          "冒烟残留已清理（dist 内无 logs/data/port.json/startup.log）"
+
       - name: Build Windows installer
         if: runner.os == 'Windows'
         # pwsh 而非 bash：不再需要 MSYS2_ARG_CONV_EXCL 绕路径转换（旧坑见历史），

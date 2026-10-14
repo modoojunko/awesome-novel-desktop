@@ -66,3 +66,21 @@ def test_autolaunch_param_form_is_value_flag():
     assert "ExpandConstant('{param:AUTOLAUNCH|}') = '1'" in text, (
         "判据必须是 {param:AUTOLAUNCH|} 与 '1' 的精确比较（形态 V-3 真机钉死）"
     )
+
+
+def test_package_workflow_cleans_smoke_residue_before_iscc():
+    """打包卫生钉（10-14 真机实验实锤）：Windows iscc 前必须有「清冒烟残留」步骤。
+
+    --smoke 在 onedir 目录内就地写 startup.log/logs/port.json/data\\novel-dev.db，
+    [Files] 整目录收会把构建机残留烧进安装包（升级覆盖用户哨兵库／新用户首启带脏数据）。
+    步骤必须排在 Build Windows installer **之前**，且带清不干净即 throw 的自断言。
+    """
+    repo_root = INSTALLER_ISS.parents[3]
+    wf = (repo_root / ".github" / "workflows" / "client-package.yml").read_text(encoding="utf-8")
+    clean_at = wf.find("Clean smoke residue before packaging (Windows)")
+    build_at = wf.find("Build Windows installer")
+    assert clean_at != -1, "缺 iscc 前的冒烟残留清理步骤（打包卫生闸）"
+    assert build_at != -1 and clean_at < build_at, "清理步骤必须排在打安装包之前"
+    assert 'Remove-Item -Recurse -Force "$APP\\logs","$APP\\data"' in wf
+    assert "冒烟残留未清干净" in wf, "清理后必须自断言，未净即红"
+    assert "[InstallDelete]" in (INSTALLER_ISS.read_text(encoding="utf-8"))  # 不变式在场
