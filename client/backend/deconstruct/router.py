@@ -270,7 +270,15 @@ async def export_task(
     if not files:
         raise HTTPException(400, "至少勾选 1 份产物")
     try:
-        result = apply.export_products(task, dest, files)
+        state = json.loads(task.dims_json or "{}")
+    except ValueError:
+        state = {}
+    if state.get("graph_error"):
+        # 装配结构性异常：可读 400（图谱与文档都不发，防半截；零写入——导出端内存先行）
+        raise HTTPException(400, f"图谱装配失败：{state['graph_error']}")
+    graph = state.get("graph") if isinstance(state.get("graph"), dict) else None
+    try:
+        result = apply.export_products(task, dest, files, graph=graph)
     except OSError as e:
         raise HTTPException(400, f"导出失败：{e.strerror or e}") from e
     task.exported_at = datetime.now(UTC).replace(tzinfo=None)  # 已取标记：badge 不再计数

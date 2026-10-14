@@ -257,7 +257,7 @@ def test_export_writes_selected_and_readme(client):
     )
     assert r.status_code == 200, r.text
     written = sorted(os.listdir(dest))
-    assert written == ["README.md", "世界设定.md", "简介.md"]  # 未勾选的伏笔不导出
+    assert written == ["README.md", "世界设定.md", "导出清单.json", "简介.md"]  # 未勾选的伏笔不导出；清单随包
     with open(os.path.join(dest, "README.md"), encoding="utf-8") as f:
         assert "正文C" not in f.read()
 
@@ -350,3 +350,98 @@ def test_resume_guard_requires_failed_or_cancelled(client):
     _mk_queued("dec-rs-1")
     r = client.post("/api/deconstruct/tasks/dec-rs-1/resume")
     assert r.status_code == 409
+
+
+# ── 图谱三件套导出（10.4）────────────────────────────────────────────
+
+def _seed_graph(task_id: str, *, graph: dict | None = None, graph_error: str = "") -> None:
+    import json as _json
+
+    async def _go():
+        async with async_session() as s:
+            t = await s.get(DeconstructJob, task_id)
+            state = {"cards": {}, "dims": {}}
+            if graph is not None:
+                state["graph"] = graph
+            if graph_error:
+                state["graph_error"] = graph_error
+            t.dims_json = _json.dumps(state, ensure_ascii=False)
+            await s.commit()
+
+    _run(_go())
+
+
+def _mini_graph() -> dict:
+    from deconstruct.graph import assemble
+
+    cards = {"1": {"summary": "开场", "characters": [{"name": "林晚", "role": "主角", "traits": "", "alias": ""}],
+                   "places": [{"name": "渡口", "parent": "", "note": ""}],
+                   "presence": [{"who": "林晚", "where": "渡口"}],
+                   "intro": [], "genre": [], "world": [], "relations": [], "mainplot": [],
+                   "structure": [], "style": [], "techniques": [], "foreshadow": []}}
+    products = {"characters": {"data": {"characters": [
+        {"name": "林晚", "role": "主角", "plot": "", "evidence_ch": "第1章"}]}},
+        "intro": {"data": {"intro": "渡口开场"}}}
+    return assemble(book_name="星海远征", chapter_count=1, words=10, cards=cards,
+                    products=products, place_merge=None, source_text="第1章 开场\n林晚在渡口。")
+
+
+def test_export_with_graph_trio_and_manifest(client):
+    import hashlib
+    import json as _json
+
+    products = {"intro": _product("intro", "简介.md", {}, "# 简介\n\n正文A")}
+    _mk_completed("dec-exp-g", products)
+    _seed_graph("dec-exp-g", graph=_mini_graph())
+    dest = tempfile.mkdtemp(prefix="dec-export-g-")
+    r = client.post("/api/deconstruct/tasks/dec-exp-g/export",
+                    json={"dest_dir": dest, "files": ["简介.md"]})
+    assert r.status_code == 200, r.text
+    body = r.json()
+    names = sorted(os.listdir(dest))
+    for f in ("图谱.json", "图谱.html", "图谱.svg", "导出清单.json", "README.md", "简介.md"):
+        assert f in names, names
+    assert body["graph"] == ["图谱.json", "图谱.html", "图谱.svg"]
+    with open(os.path.join(dest, "导出清单.json"), encoding="utf-8") as f:
+        manifest = _json.load(f)
+    assert manifest["contract"] == "deconstruct-graph/6" and manifest["task"] == "dec-exp-g"
+    for name, sha in manifest["files"].items():
+        with open(os.path.join(dest, name), encoding="utf-8") as f:
+            assert hashlib.sha256(f.read().encode("utf-8")).hexdigest() == sha, name
+    with open(os.path.join(dest, "README.md"), encoding="utf-8") as f:
+        readme = f.read()
+    assert "不会回流" in readme and "图谱.html" in readme
+    # html 可自包含打开（含数据岛）
+    with open(os.path.join(dest, "图谱.html"), encoding="utf-8") as f:
+        assert '<script id="graphdata"' in f.read()
+
+
+def test_export_backup_rotation(client):
+    products = {"intro": _product("intro", "简介.md", {}, "# A")}
+    _mk_completed("dec-exp-bak", products)
+    _seed_graph("dec-exp-bak", graph=_mini_graph())
+    dest = tempfile.mkdtemp(prefix="dec-export-bak-")
+
+    r1 = client.post("/api/deconstruct/tasks/dec-exp-bak/export",
+                     json={"dest_dir": dest, "files": ["简介.md"]})
+    assert r1.status_code == 200 and r1.json()["backups"] == []
+    # 用户手改 图谱.json → 再导出必留 .bak
+    with open(os.path.join(dest, "图谱.json"), "a", encoding="utf-8") as f:
+        f.write("\n用户手改\n")
+    r2 = client.post("/api/deconstruct/tasks/dec-exp-bak/export",
+                     json={"dest_dir": dest, "files": ["简介.md"]})
+    assert r2.status_code == 200
+    assert any(b.startswith("图谱.json.bak-") for b in r2.json()["backups"])
+    assert any(".bak-" in n for n in os.listdir(dest))
+
+
+def test_export_graph_error_blocks_with_400(client):
+    products = {"intro": _product("intro", "简介.md", {}, "# A")}
+    _mk_completed("dec-exp-gerr", products)
+    _seed_graph("dec-exp-gerr", graph_error="装配期异常")
+    dest = tempfile.mkdtemp(prefix="dec-export-gerr-")
+    r = client.post("/api/deconstruct/tasks/dec-exp-gerr/export",
+                    json={"dest_dir": dest, "files": ["简介.md"]})
+    assert r.status_code == 400
+    assert "图谱装配失败" in r.json()["detail"]
+    assert os.listdir(dest) == []  # 零写入

@@ -233,23 +233,104 @@ def _hooks_items(task: DeconstructJob) -> list[dict]:
     return items
 
 
-def export_products(task: DeconstructJob, dest_dir: str, selected_files: list[str]) -> dict:
-    """导出勾中产物＋README 到本地文件夹（物化副本；产物保留不受影响）。"""
+def _sha256(text: str) -> str:
+    import hashlib
+
+    return hashlib.sha256(text.encode("utf-8")).hexdigest()
+
+
+def _load_manifest(path: str) -> dict:
+    try:
+        with open(path, encoding="utf-8") as f:
+            data = json.load(f)
+        return data if isinstance(data, dict) else {}
+    except (OSError, ValueError):
+        return {}
+
+
+def export_products(
+    task: DeconstructJob, dest_dir: str, selected_files: list[str], graph: dict | None = None
+) -> dict:
+    """导出到本地文件夹：勾中 md＋图谱三件套（固定附带）＋README＋`导出清单.json`。
+
+    评审纪律：**内存装配先行**——全部内容在内存成形后才落笔（渲染异常零写入）；
+    清单（sha256 账）最后写：磁盘文件与清单不符（手改/外来）者，本导出先转 `.bak-时间戳` 再写。
+    """
+    from datetime import UTC, datetime
+
+    from deconstruct.render import render_html, render_svg
+
     products = _md_map(task)
     if not dest_dir or not os.path.isabs(dest_dir):
         raise OSError("invalid_path", f"导出目录非法：{dest_dir!r}")
-    os.makedirs(dest_dir, exist_ok=True)
-    written = []
+
+    payload: dict[str, str] = {}
+    written: list[str] = []
     for fn in selected_files:
         text = products.get(fn)
         if text is None:
             continue
         safe = fn.replace("/", "_").replace("\\", "_")
-        with open(os.path.join(dest_dir, safe), "w", encoding="utf-8") as f:
-            f.write(text)
+        payload[safe] = text
         written.append(safe)
-    readme = ["# 拆书产物目录", "", f"书名：{task.book_name}", ""]
+    graph_files: list[str] = []
+    if graph is not None:
+        trio = {
+            "图谱.json": json.dumps(graph, ensure_ascii=False, indent=2) + "\n",
+            "图谱.html": render_html(graph),
+            "图谱.svg": render_svg(graph),
+        }
+        payload.update(trio)
+        graph_files = list(trio)
+
+    readme = ["# 拆书产物目录", "", f"书名：{task.book_name}", "", "## Markdown 产物（可勾选）"]
     readme += [f"- {fn}" for fn in sorted(products)]
-    with open(os.path.join(dest_dir, "README.md"), "w", encoding="utf-8") as f:
-        f.write("\n".join(readme) + "\n")
-    return {"written": written, "readme": "README.md", "dest": dest_dir}
+    if graph is not None:
+        readme += ["", "## 知识图谱（固定附带，不参与勾选）"]
+        readme += ["- 图谱.json（唯一机器正身）", "- 图谱.html（双击浏览器打开，离线可用）", "- 图谱.svg（静态图）"]
+    readme += [
+        "",
+        (
+            "> 本目录内文件均为导出副本：手改不会回流应用；需要更新请回任务重新导出"
+            "（被改过的旧文件将转 .bak-时间戳 备份保留）。"
+        ),
+    ]
+    payload["README.md"] = "\n".join(readme) + "\n"
+
+    os.makedirs(dest_dir, exist_ok=True)
+    manifest_path = os.path.join(dest_dir, "导出清单.json")
+    recorded = _load_manifest(manifest_path).get("files")
+    recorded = recorded if isinstance(recorded, dict) else {}
+    stamp = datetime.now(UTC).strftime("%Y%m%d-%H%M%S")
+    backups: list[str] = []
+    for name, content in payload.items():
+        target = os.path.join(dest_dir, name)
+        if os.path.exists(target):
+            disk_text: str | None
+            try:
+                with open(target, encoding="utf-8") as f:
+                    disk_text = f.read()
+            except OSError:
+                disk_text = None
+            if disk_text is None or recorded.get(name) != _sha256(disk_text):
+                bak = f"{name}.bak-{stamp}"
+                os.replace(target, os.path.join(dest_dir, bak))
+                backups.append(bak)
+        with open(target, "w", encoding="utf-8") as f:
+            f.write(content)
+    manifest = {
+        "task": task.id,
+        "book": task.book_name,
+        "contract": "deconstruct-graph/6" if graph is not None else "document-only",
+        "exported_at": datetime.now(UTC).replace(tzinfo=None).isoformat(),
+        "files": {name: _sha256(text) for name, text in payload.items()},
+    }
+    with open(manifest_path, "w", encoding="utf-8") as f:
+        json.dump(manifest, f, ensure_ascii=False, indent=2)
+    return {
+        "written": written,
+        "graph": graph_files,
+        "readme": "README.md",
+        "dest": dest_dir,
+        "backups": backups,
+    }
