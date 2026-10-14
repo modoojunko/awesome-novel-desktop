@@ -18,9 +18,9 @@
 ## 3. 写章链（write/chapter_writer.py 等）
 
 - [x] 3.1 「## 字数与场景分量（章级红线照守，字数照达）」独立节；红线节名改否定式仲裁「不以字数、写法为由破线」
-- [x] 3.2 `scene_share_chars` 均摊行（<200 不发防超写；与守卫共用判定）
+- [x] 3.2 场景分量行＝定性写足（拍板二轮：`scene_share_chars` 逐场配额数字撤出模型可见文案，任何条数×目标组合恒无「每条约 N 字」，新钉 `test_material_carries_no_per_scene_word_quota` 全组合扫）
 - [x] 3.3 收尾重申行扩三件语义（写足句同词不同句）；防回声钉子×2（分量行、整节，公共串<8 判据）
-- [x] 3.4 `should_refresh_stored_prompt` 扩「场景分量」锚（润色资产豁免同罩）；golden 重生成
+- [x] 3.4 `should_refresh_stored_prompt` 扩「场景分量」锚（缺锚即旧代际，纯判定；润色资产豁免同罩；首章回落新行为有钉 `test_pre_density_stored_row_falls_back`）；golden 重生成
 - [x] 3.5 `clamp_word_target` 迁 `settings/book_prefs_model`（消 chapters→write 跨域边；re-export 兼容）
 
 ## 4. 前端（章纲页签）

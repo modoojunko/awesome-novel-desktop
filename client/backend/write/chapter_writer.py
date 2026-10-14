@@ -60,20 +60,12 @@ def word_target_floor(target: int) -> int:
     return int(target * 0.9)
 
 
-# 「字数与场景分量」节锚（c-scene-density）：to_user_material 判发、
-# should_refresh_stored_prompt 判存量行缺锚，两处共用此名单源。
+# 「字数与场景分量」节锚（c-scene-density）：to_user_material 判发（有剧情条目即发
+# 定性行）、should_refresh_stored_prompt 判存量行缺锚，两处共用此名单源。
+# 用户拍板 2026-10-13：字数对结构的正确用法是「评估场景条数」；SHALL NOT 向模型投出
+# 「每条写 N 字」的配额结论——逐场数字配额会诱导每场注水凑数，是另一种 AI 指纹。
+# 场景体量由场面本身决定，全章体量由「下限要求＋写足句」管。
 SCENE_SHARE_ANCHOR = "字数与场景分量"
-
-
-def scene_share_chars(word_target: int, plot_n: int) -> int:
-    """场景均摊字数（每条约 N 字）：0＝不发分量行。
-
-    均摊不足 200 字/条（目标字数配不上条数）不发：硬给 200 下限会把小目标章
-    推成「条数×200」的超写；此时字数下限行＋扩写句管住（评审 2026-10-13 定）。"""
-    if not plot_n:
-        return 0
-    share = int(round(word_target / plot_n / 10.0)) * 10
-    return share if share >= 200 else 0
 
 
 def clip_story_arc(text: str, limit: int = STORY_ARC_INJECT_MAX) -> str:
@@ -274,16 +266,14 @@ def should_refresh_stored_prompt(stored: str, ctx: "ChapterContext") -> bool:
     润色稿是作者资产（三锚判定同 legacy_prompt_kind），任何缺锚都不许覆盖它；
     其余存量行任一分支命中即重组——
     ① 缺「上章结尾」块（旧版组装的行）而本轮素材含该块（previous_tail 非空）；
-    ② 缺「字数与场景分量」节（本批之前的行）而本轮会出该节（share>0）——
-      否则升级后老章重写拿到旧行，字数链改造对这些章打五折（产品评审 2026-10-13）。
+    ② 缺「字数与场景分量」节——新组装恒含此节（字数线无条件出），缺锚必是
+      本批之前的行，不回落则老章重写拿到旧行、字数链对其打五折（产品评审 2026-10-13）。
     GET 预览与生成端点共用本判定，保证弹窗展示与实际生成的来源一致。"""
     if not stored or legacy_prompt_kind(stored) == "polished":
         return False
     if ctx.previous_tail and "上章结尾" not in stored:
         return True
-    if SCENE_SHARE_ANCHOR not in stored and scene_share_chars(
-        ctx.word_target, len(ctx.plot_items)
-    ):
+    if SCENE_SHARE_ANCHOR not in stored:
         return True
     return False
 
@@ -898,9 +888,10 @@ class ChapterContext:
             lines.extend(f"- {r}" for r in red_lines)
 
         # 字数与场景分量（c-scene-density）：字数从红线节内拆出单独立节——原字数线
-        # 挂在「优先于字数」节内，字面上被降到最低优先级；分量按剧情条数均摊，
-        # 场景是字数的计量单位，每条写足再走，对冲「到落点即交卷」的赶路式短章。
-        # 分量行与 WRITE_CLOSING_LINE 同义不同句：收尾行是重申，逐字复读会被当回声。
+        # 挂在「优先于字数」节内，字面上被降到最低优先级。分量＝定性要求（每场戏把
+        # 交锋写足再走），对冲「到落点即交卷」的赶路式短章；用户拍板 2026-10-13：
+        # 字数只评估场景条数（住素材【本章字数】），本节 SHALL NOT 出现「每条约 N 字」
+        # 的逐场配额结论——数字配额诱导每场注水。分量句与 WRITE_CLOSING_LINE 同词不同句。
         lines.append("")
         lines.append("## 字数与场景分量（章级红线照守，字数照达）")
         lines.append(
@@ -908,12 +899,11 @@ class ChapterContext:
             f"低于 {word_target_floor(self.word_target)} 字不合格。"
         )
         plot_n = len(self.plot_items)
-        share = scene_share_chars(self.word_target, plot_n)
-        if share:
+        if plot_n:
             lines.append(
-                f"- 场景分量：本章剧情共 {plot_n} 条场景，平均每条约 {share} 字——"
-                "每条把场面写足，动作有回应、局面有推进，写足一条再进下一条，"
-                "不得一条两三句带过。"
+                f"- 场景分量：本章剧情共 {plot_n} 场戏，每场写到自己收得住——"
+                "动作有回应、局面有推进，这场没写完不进下一场，"
+                "不得一场两三句带过。"
             )
         lines.append(
             "- 不足就用对话、感官细节、心理活动扩写既有场景补足，不得新增冲突事件。"

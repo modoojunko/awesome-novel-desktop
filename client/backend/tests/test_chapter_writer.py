@@ -418,16 +418,31 @@ def test_closing_line_scene_fill():
 
 
 class TestSceneShareSection:
-    """c-scene-density：字数与场景分量独立节——按剧情条数均摊、每条写足再走。"""
+    """c-scene-density：字数与场景分量独立节——分量是定性要求（每场写足再走）。
 
-    def test_share_line_scales_with_plot_count(self):
+    用户拍板 2026-10-13：字数只评估场景条数（住素材【本章字数】），素材 SHALL NOT
+    投出「每条约 N 字」的逐场配额结论——数字配额诱导每场注水凑数。"""
+
+    def test_scene_line_qualitative_no_per_scene_number(self):
         ctx = ChapterContext()
         ctx.word_target = 2500
         ctx.plot_items = ["一", "二", "三", "四", "五"]
         prompt = ctx.to_user_material()
         assert "## 字数与场景分量" in prompt
-        assert "共 5 条场景，平均每条约 500 字" in prompt
-        assert "写足一条再进下一条" in prompt
+        assert "本章剧情共 5 场戏" in prompt
+        assert "这场没写完不进下一场" in prompt
+
+    def test_material_carries_no_per_scene_word_quota(self):
+        """任何条数×字数组合下素材都不得出现「每条约 N 字」式配额。"""
+        for wt in (500, 600, 2500, 6000):
+            for n in (0, 1, 4, 12):
+                ctx = ChapterContext()
+                ctx.word_target = wt
+                ctx.plot_items = [f"条{i}" for i in range(n)]
+                prompt = ctx.to_user_material()
+                assert "平均每条约" not in prompt
+                assert "每条约" not in prompt
+                assert "写故事至少" in prompt  # 章级下限不受影响
 
     def test_no_plot_items_keeps_word_floor_only(self):
         ctx = ChapterContext()
@@ -435,30 +450,18 @@ class TestSceneShareSection:
         prompt = ctx.to_user_material()
         assert "## 字数与场景分量" in prompt
         assert "写故事至少 2500 字，可以多，不可以少" in prompt
-        assert "平均每条约" not in prompt
-        assert "写足一条再进下一条" not in prompt
-
-    def test_thin_share_drops_scene_line(self):
-        """均摊不足 200 字/条（目标字数配不上条数）不出发分量行——
-        硬给 200 下限会把小目标章推成「条数×200」的超写。"""
-        ctx = ChapterContext()
-        ctx.word_target = 600
-        ctx.plot_items = ["一", "二", "三", "四"]
-        prompt = ctx.to_user_material()
-        assert "## 字数与场景分量" in prompt
-        assert "写故事至少 600 字，可以多，不可以少" in prompt
-        assert "平均每条约" not in prompt
+        assert "场景分量：本章剧情共" not in prompt
 
     def test_closing_line_not_verbatim_of_share_line(self):
-        """防回声：收尾行与素材分量行同义不同句——逐字复读会被当回声折价。"""
+        """防回声：收尾行与素材分量行同词不同句——逐字复读会被当回声折价。"""
         ctx = ChapterContext()
         ctx.word_target = 2500
         ctx.plot_items = ["一", "二", "三", "四", "五"]
         prompt = ctx.to_user_material()
         share_line = next(
-            ln for ln in prompt.splitlines() if "平均每条约" in ln
+            ln for ln in prompt.splitlines() if "场景分量：本章剧情共" in ln
         )
-        # 两段文本不存在 ≥8 字的逐字公共串（短词「写足」「下一」同用不算回声）
+        # 两段文本不存在 ≥8 字的逐字公共串（短词「写足」「下一场」同用不算回声）
         common = _longest_common_run(share_line, WRITE_CLOSING_LINE)
         assert len(common) < 8, f"收尾行与分量行逐字重复：{common!r}"
 
