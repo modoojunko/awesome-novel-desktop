@@ -1,0 +1,450 @@
+{
+  "contract": "deconstruct-graph/2",
+  "book": "雪落无声",
+  "edition": "人·地·事 v2 原型（事件卡全量立户为 v3 本体版扩展位）",
+  "stats": {
+    "chapters": 12,
+    "words": 38600
+  },
+  "logline": "船家女林晚渡口救下阿蓟，牵出盐案旧罪；拜师学艺、玉佩认亲，风雪夜公堂翻案。",
+  "places": [
+    {
+      "id": "dali",
+      "label": "大李朝",
+      "parent": null,
+      "ch": 1,
+      "note": "架空王朝，全书舞台。"
+    },
+    {
+      "id": "jiangnan",
+      "label": "江南道",
+      "parent": "dali",
+      "ch": 1,
+      "note": "水路密布，私盐之路。"
+    },
+    {
+      "id": "jingcheng",
+      "label": "京城",
+      "parent": "dali",
+      "ch": 11,
+      "note": "转运使司所在，压力千里外递来。"
+    },
+    {
+      "id": "qingxi",
+      "label": "青溪县",
+      "parent": "jiangnan",
+      "ch": 2,
+      "note": "主舞台：故事几乎全部在此发生。"
+    },
+    {
+      "id": "dukou",
+      "label": "竹湾渡口",
+      "parent": "qingxi",
+      "ch": 1,
+      "note": "林晚系船摆渡处——全书第一幕。"
+    },
+    {
+      "id": "liujia",
+      "label": "柳家小院",
+      "parent": "qingxi",
+      "ch": 2,
+      "note": "认亲与学艺发生的家宅。"
+    },
+    {
+      "id": "houtan",
+      "label": "盐局后巷",
+      "parent": "qingxi",
+      "ch": 9,
+      "note": "截杀案发现场。"
+    },
+    {
+      "id": "goutang",
+      "label": "县衙公堂",
+      "parent": "qingxi",
+      "ch": 4,
+      "note": "开堂与翻案的场地。"
+    }
+  ],
+  "nodes": [
+    {
+      "id": "linwan",
+      "type": "person",
+      "label": "林晚",
+      "role": "主角",
+      "x": 400,
+      "y": 220,
+      "appear": [
+        1,
+        2,
+        4,
+        6,
+        8,
+        10,
+        12
+      ],
+      "bio": "渡口船家女，后拜师学刑名，翻案发起人。"
+    },
+    {
+      "id": "aji",
+      "type": "person",
+      "label": "阿蓟",
+      "role": "配角",
+      "alias": [
+        "蓟姐",
+        "小蓟"
+      ],
+      "x": 580,
+      "y": 130,
+      "appear": [
+        1,
+        2,
+        5,
+        9,
+        10,
+        12
+      ],
+      "bio": "被救者，盐案旧证的关键证人。"
+    },
+    {
+      "id": "shenyan",
+      "type": "person",
+      "label": "沈砚",
+      "role": "配角",
+      "x": 230,
+      "y": 120,
+      "appear": [
+        3,
+        4,
+        5,
+        7,
+        11
+      ],
+      "bio": "退隐刑名师爷，因旧案去职，收林晚为记名弟子。"
+    },
+    {
+      "id": "liu",
+      "type": "person",
+      "label": "柳氏",
+      "role": "配角",
+      "x": 230,
+      "y": 330,
+      "appear": [
+        2,
+        6,
+        10,
+        12
+      ],
+      "bio": "林晚生母，半块玉佩的另一半持有者。"
+    },
+    {
+      "id": "peiheng",
+      "type": "person",
+      "label": "裴衡",
+      "role": "反派",
+      "x": 620,
+      "y": 330,
+      "appear": [
+        6,
+        7,
+        9,
+        10,
+        11
+      ],
+      "bio": "盐铁转运使，旧案主谋，翻案对象。"
+    },
+    {
+      "id": "yanbang",
+      "type": "faction",
+      "label": "盐帮",
+      "x": 780,
+      "y": 220,
+      "appear": [
+        3,
+        7,
+        9
+      ],
+      "bio": "私盐势力，受裴衡驱使执行灭口。"
+    },
+    {
+      "id": "guanfu",
+      "type": "faction",
+      "label": "县衙",
+      "x": 400,
+      "y": 400,
+      "appear": [
+        4,
+        8,
+        11,
+        12
+      ],
+      "bio": "公堂开处，翻案的程序与场地之主。"
+    },
+    {
+      "id": "luopan",
+      "type": "item",
+      "label": "神秘罗盘",
+      "x": 90,
+      "y": 230,
+      "appear": [
+        3
+      ],
+      "bio": "沉船所获，指向旧案埋赃处（伏笔未收）。"
+    }
+  ],
+  "edges": [
+    {
+      "from": "linwan",
+      "to": "aji",
+      "kind": "恩义",
+      "w": 3,
+      "ch": 1,
+      "quote": "林晚在渡口救人。"
+    },
+    {
+      "from": "linwan",
+      "to": "shenyan",
+      "kind": "师徒",
+      "w": 2,
+      "ch": 3,
+      "quote": "沈砚收其为记名弟子。"
+    },
+    {
+      "from": "liu",
+      "to": "linwan",
+      "kind": "亲缘",
+      "w": 2,
+      "ch": 6,
+      "quote": "半块玉佩认亲。"
+    },
+    {
+      "from": "shenyan",
+      "to": "peiheng",
+      "kind": "旧案仇",
+      "w": 2,
+      "ch": 5,
+      "quote": "当年沈砚因裴衡构陷去职。"
+    },
+    {
+      "from": "peiheng",
+      "to": "yanbang",
+      "kind": "主使",
+      "w": 2,
+      "ch": 7,
+      "quote": "灭口之令出自转运使司。"
+    },
+    {
+      "from": "yanbang",
+      "to": "aji",
+      "kind": "追索灭口",
+      "w": 1,
+      "ch": 9,
+      "quote": "阿蓟遭盐帮截杀于巷口。"
+    },
+    {
+      "from": "aji",
+      "to": "guanfu",
+      "kind": "作证",
+      "w": 1,
+      "ch": 12,
+      "quote": "风雪夜公堂指认。"
+    },
+    {
+      "from": "linwan",
+      "to": "luopan",
+      "kind": "持有",
+      "w": 1,
+      "ch": 3,
+      "quote": "打捞沉船所得。"
+    },
+    {
+      "from": "peiheng",
+      "to": "guanfu",
+      "kind": "施压",
+      "w": 1,
+      "ch": 11,
+      "quote": "递帖逼县令缓审。"
+    },
+    {
+      "from": "liu",
+      "to": "aji",
+      "kind": "收留",
+      "w": 1,
+      "ch": 2,
+      "quote": "阿蓟寄宿柳家。"
+    }
+  ],
+  "links": [
+    {
+      "who": "linwan",
+      "where": "dukou",
+      "kind": "据地",
+      "ch": 1,
+      "quote": "林晚世代在竹湾摆渡。"
+    },
+    {
+      "who": "aji",
+      "where": "dukou",
+      "kind": "到过",
+      "ch": 1,
+      "quote": "阿蓟于渡口获救。"
+    },
+    {
+      "who": "aji",
+      "where": "liujia",
+      "kind": "寄居",
+      "ch": 2,
+      "quote": "阿蓟养伤寄居柳家。"
+    },
+    {
+      "who": "liu",
+      "where": "liujia",
+      "kind": "据地",
+      "ch": 2,
+      "quote": "柳氏守着小院度日。"
+    },
+    {
+      "who": "shenyan",
+      "where": "qingxi",
+      "kind": "隐于",
+      "ch": 3,
+      "quote": "沈砚隐于青溪县东郊。"
+    },
+    {
+      "who": "aji",
+      "where": "houtan",
+      "kind": "到过",
+      "ch": 9,
+      "quote": "阿蓟于盐局后巷遭截杀。"
+    },
+    {
+      "who": "yanbang",
+      "where": "houtan",
+      "kind": "行凶于",
+      "ch": 9,
+      "quote": "盐帮打手巷口围堵。"
+    },
+    {
+      "who": "aji",
+      "where": "goutang",
+      "kind": "到过",
+      "ch": 12,
+      "quote": "风雪夜公堂指认。"
+    },
+    {
+      "who": "linwan",
+      "where": "goutang",
+      "kind": "到过",
+      "ch": 12,
+      "quote": "随师登堂呈证。"
+    },
+    {
+      "who": "guanfu",
+      "where": "goutang",
+      "kind": "据地",
+      "ch": 4,
+      "quote": "县衙于此开堂听讼。"
+    },
+    {
+      "who": "yanbang",
+      "where": "qingxi",
+      "kind": "活动于",
+      "ch": 7,
+      "quote": "盐帮伙计频现青溪县。"
+    },
+    {
+      "who": "peiheng",
+      "where": "jingcheng",
+      "kind": "据地",
+      "ch": 11,
+      "quote": "转运使司衙门在京城。"
+    }
+  ],
+  "events": [
+    {
+      "id": "e1",
+      "title": "渡口救恩",
+      "ch": [
+        1,
+        2
+      ],
+      "at": "dukou",
+      "members": [
+        "linwan",
+        "aji",
+        "liu"
+      ],
+      "note": "善念起链，全书发动机。"
+    },
+    {
+      "id": "e2",
+      "title": "认亲学艺",
+      "ch": [
+        3,
+        5
+      ],
+      "at": "liujia",
+      "members": [
+        "linwan",
+        "shenyan",
+        "liu",
+        "luopan"
+      ],
+      "note": "师徒线与玉佩伏笔埋设。"
+    },
+    {
+      "id": "e3",
+      "title": "县城风波",
+      "ch": [
+        6,
+        9
+      ],
+      "at": "qingxi",
+      "members": [
+        "linwan",
+        "peiheng",
+        "yanbang",
+        "aji",
+        "guanfu"
+      ],
+      "note": "旧案浮出水面，杀机启动。"
+    },
+    {
+      "id": "e4",
+      "title": "风雪夜翻案",
+      "ch": [
+        10,
+        12
+      ],
+      "at": "goutang",
+      "members": [
+        "linwan",
+        "aji",
+        "shenyan",
+        "peiheng",
+        "guanfu",
+        "liu"
+      ],
+      "note": "全线收束，证人、师徒、亲缘三线同堂。"
+    }
+  ],
+  "hooks": [
+    {
+      "desc": "神秘罗盘",
+      "plant": 3,
+      "payoff": null,
+      "status": "未收"
+    },
+    {
+      "desc": "半块玉佩",
+      "plant": 6,
+      "payoff": 10,
+      "status": "已收"
+    },
+    {
+      "desc": "阿蓟真实身份",
+      "plant": 2,
+      "payoff": 12,
+      "status": "已收"
+    }
+  ]
+}

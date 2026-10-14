@@ -2,6 +2,7 @@ import { useLocation, Link } from "react-router-dom";
 import { isLoggedIn } from "../lib/auth";
 import { BRAND } from "../lib/brand";
 import AcctMenu from "../components/AcctMenu";
+import ToolsMenu from "./tools/ToolsMenu";
 
 /** 顶栏（c-account-control-center）：动作区收敛为头像胶囊唯一入口。
  * 书架/配置态：logo + 导航 + 触发钮。
@@ -28,6 +29,7 @@ export default function Navbar() {
           <Link to="/novels" className={on("/novels")} aria-current={on("/novels") ? "page" : undefined}>
             我的作品
           </Link>
+          <ToolsMenu />
           <Link to="/config" className={on("/config")}>
             模型配置
           </Link>

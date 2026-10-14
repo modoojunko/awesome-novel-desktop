@@ -16,6 +16,13 @@ export const COVERAGE_CONTRACT_FILES = [
   "src/components/novel/workbench/VolumePlanModal.tsx",
   "src/components/novel/workbench/VolumeAssistPanel.tsx",
   "src/lib/metrics.ts",
+  // c-deconstruct-book（拆书：写作工具入口/任务清单/创建/详情/API/轮询）
+  "src/lib/deconstructApi.ts",
+  "src/hooks/useDeconstructTasks.ts",
+  "src/components/tools/ToolsMenu.tsx",
+  "src/components/tools/TaskListPage.tsx",
+  "src/components/tools/CreateTaskPage.tsx",
+  "src/components/tools/TaskDetailPage.tsx",
   // 批 0（#417/#418 交付触及的 5 个文件）
   "src/lib/api.ts",
   "src/lib/nodeTitle.ts",
