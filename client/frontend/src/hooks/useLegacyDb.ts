@@ -29,6 +29,8 @@ export interface LegacyCandidate {
   carried?: boolean;
   /** c-carry-degrade-remigrate：曾带回但不完整（书架不自动重弹整卡，提醒行承接） */
   carried_partial?: boolean;
+  /** c-carry-receipt-ack：完成回执已被用户收起（持久化已阅，刷新/重开不复现） */
+  receipt_acked?: boolean;
   /** c-lossless-upgrade：recommended 候选的只读内容清单（后端只挂 recommended） */
   manifest?: {
     books: Array<{ name: string; words: number }>;
