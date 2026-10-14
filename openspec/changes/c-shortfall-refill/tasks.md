@@ -25,6 +25,7 @@
   > 等待呈现复用 genStage 链；复刻钉 proseStream「续写补足复刻」两案（done 合并＋中断半截保留）。
   > 评审agent 修复（P1）：startRefill 改 async——先立守卫再 `await store.flush()`（refill 是链上唯一 read-modify-write，防抖窗口未落盘编辑会被服务端按旧稿合并覆盖；flush 失败释放守卫中止）；await 后复核章号/编辑器存活（落盘窗口内切章即放弃）。
   > 评审agent 二轮收口（P1 补＋P3）：doSave 吞错（saveState:"failed"、flush 照常 resolve），失败检测改 flush 后核 `store.isDirty()`；落盘窗口改独立 pending 标志防重入（不立 streaming 守卫，旧区间 refs 不会被换章 cleanup 误删），flush 完成后再统一立守卫＋写区间。
+  > 评审agent 三轮（P2）：入口守卫补 `refillPendingRef.current`——落盘窗口内双击会发出两路并行续写（上一击占坑后 streaming 尚未立，二击穿入口），后端 append 互覆＋前端 chunk 交错；一行收口。
 
 ## 3. 写链遥测
 

@@ -672,7 +672,15 @@ const ProsePane = forwardRef<ProseHandle, ProsePaneProps>(function ProsePane(
   /** 字数不足一键续写（c-shortfall-refill）：不删旧文、在文末开流式区间，
    *  产物 append（服务端合并落库，done.full_text＝整章）；停止/中断保留已收半截尾段。 */
   const startRefill = useCallback(async () => {
-    if (!editor || editor.isDestroyed || streamingRef.current || archived) return;
+    if (
+      !editor ||
+      editor.isDestroyed ||
+      streamingRef.current ||
+      refillPendingRef.current || // flush 窗口内双击：上一击已占坑（评审三轮）
+      archived
+    ) {
+      return;
+    }
     if (editor.state.doc.content.size <= 1) {
       void startStream("", undefined); // 空章退化＝整章生成（后端 422 的 UI 侧兜前）
       return;
