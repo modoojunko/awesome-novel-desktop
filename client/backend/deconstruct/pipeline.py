@@ -19,7 +19,11 @@ import os
 from sqlalchemy import select
 
 from db import async_session
-from deconstruct.graph import _TIME_TAGS, _clean, _dicts  # noqa: PLC2701 — 域内复用形状防御（graph 无回环）
+from deconstruct.graph import (  # noqa: PLC2701 — 域内复用形状防御（graph 无回环）
+    _TIME_TAGS,
+    _clean,
+    _dicts,
+)
 from models.deconstruct import DIMENSION_KEYS, DeconstructJob
 from prompts import PromptPackMissing, load_layers
 
