@@ -29,6 +29,8 @@ export interface CarryCandidate {
   carried?: boolean;
   /** c-carry-degrade-remigrate：曾带回但不完整（不自动重弹整卡，提醒行承接） */
   carried_partial?: boolean;
+  /** c-carry-receipt-ack：完成回执已被用户收起（持久化已阅；数据件变化自动重开） */
+  receipt_acked?: boolean;
   suppressed?: boolean;
   unreadable: boolean;
   book_count: number | null;
@@ -152,6 +154,13 @@ export function resetCarryJob() {
 
 export function snoozeCarry(filename: string) {
   return api.post('/backup/db-migration/dismiss', { filename }, { quiet: true })
+    .then(() => refreshCarry());
+}
+
+/** 完成回执「收起」（c-carry-receipt-ack）：写已阅态——刷新/重开不再复现；
+ *  源数据件变化（新一次迁移）指纹对拍不命中，回执自动重开。 */
+export function ackCarryReceipt(filename: string) {
+  return api.post('/backup/db-migration/receipt-ack', { filename }, { quiet: true })
     .then(() => refreshCarry());
 }
 

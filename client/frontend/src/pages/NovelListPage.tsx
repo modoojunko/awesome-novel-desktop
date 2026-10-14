@@ -1,7 +1,7 @@
 import { migratableCandidates, recommendedCandidate, useLegacyDb } from '@/hooks/useLegacyDb';
 import CarryDialog from '@/components/CarryDialog';
 import { enqueueDialog, finishDialog } from '@/lib/dialogQueue';
-import { snoozeCarry, useCarryStore } from '@/lib/carryStore';
+import { ackCarryReceipt, snoozeCarry, useCarryStore } from '@/lib/carryStore';
 import {
   claimPackProbe,
   openPackModal,
@@ -164,7 +164,7 @@ function NovelList() {
   const [carryOpen, setCarryOpen] = useState(false);
   const [carryConfirmed, setCarryConfirmed] = useState(false); // 本页访问周期内已确认（队列放行后不再弹卡）
   const [carryLater, setCarryLater] = useState(false); // 本会话内点过「稍后带」——常驻行接管提醒（评审修复：否则 SPA 内再无提醒路径）
-  const [stripClosed, setStripClosed] = useState(false); // 完成回执行的 ×（仅视觉收起）
+  const [stripClosed, setStripClosed] = useState(false); // 完成回执行的 ×（乐观收起；已阅态由后端持久化）
 
   // 找回完成后书架自动刷新：AcctMenu 已改 queryClient 失效 novels key
   // （c-query-cache-layer 5.1：事件广播退役，失效语义由查询缓存承载）
@@ -549,14 +549,24 @@ function NovelList() {
     // pg-works：书架屏垂直节奏（works.html 口径，list.css 屏级作用域；ADJUSTMENTS 换代节 #12）
     <main className="main pg-works">
       {/* c-lossless-upgrade：带回常驻行（完成 ok / 稍后带 warn＋本版不再提醒）。
-          同屏提示上限＝模态 1＋常驻行 1＋notice ≤2；完成行仅视觉可收起。 */}
-      {carryRec?.carried && !stripClosed && (
+          同屏提示上限＝模态 1＋常驻行 1＋notice ≤2；完成行的 ×（c-carry-receipt-ack）
+          收起即持久化已阅态——刷新/重开不复现，数据件变化（新一次迁移）自动重开。 */}
+      {carryRec?.carried && !carryRec.receipt_acked && !stripClosed && (
         <div className="notice ok" data-testid="carry-strip-done">
           <span className="nt">
             <b>已迁移上一版的作品和模型配置</b>
             <span>旧文件仍在原位置（账户 › 本机旧版本数据）</span>
           </span>
-          <button className="btn btn-ghost btn-sm" aria-label="关闭" onClick={() => setStripClosed(true)}>×</button>
+          <button
+            className="btn btn-ghost btn-sm"
+            aria-label="关闭"
+            onClick={() => {
+              setStripClosed(true);
+              void ackCarryReceipt(carryRec.filename);
+            }}
+          >
+            ×
+          </button>
         </div>
       )}
       {/* c-carry-degrade-remigrate：部分迁移态也走提醒行（spec「搬运不完整必须

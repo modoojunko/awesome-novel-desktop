@@ -1174,14 +1174,30 @@ describe("带回常驻行与四步收尾（c-lossless-upgrade 覆盖补齐）", 
     };
   }
 
-  it("已带回（carried）：完成常驻行渲染，× 可收起", async () => {
+  it("已带回（carried）：完成常驻行渲染，× 收起并写已阅态（c-carry-receipt-ack）", async () => {
     withRec({ carried: true, suppressed: true });
     getMock.mockResolvedValue([]);
     renderPage();
     const strip = await screen.findByTestId("carry-strip-done");
     expect(strip.textContent).toContain("已迁移上一版的作品和模型配置");
+    postMock.mockResolvedValue({ code: 0 });
     fireEvent.click(strip.querySelector("button") as HTMLElement);
-    expect(screen.queryByTestId("carry-strip-done")).toBeNull(); // 仅视觉收起
+    expect(screen.queryByTestId("carry-strip-done")).toBeNull(); // 乐观收起
+    // 已阅态持久化到后端（刷新/重开不复现的载体），文件名随请求走
+    await waitFor(() =>
+      expect(
+        postMock.mock.calls.some(
+          (c) => String(c[0]).includes("/receipt-ack") && (c[1] as { filename?: string })?.filename === "novel-v0.24.db",
+        ),
+      ).toBe(true));
+  });
+
+  it("已完成阅（receipt_acked）：完成常驻行不再渲染", async () => {
+    withRec({ carried: true, suppressed: true, receipt_acked: true });
+    getMock.mockResolvedValue([]);
+    renderPage();
+    await screen.findByText("我的作品");
+    expect(screen.queryByTestId("carry-strip-done")).toBeNull();
   });
 
   it("稍后带（suppressed）：常驻行两出口——本版不再提醒走 snooze、带过来重开卡", async () => {
