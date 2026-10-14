@@ -387,3 +387,121 @@ def test_op_max_tokens_budget():
     assert _OP_MAX_TOKENS.get("deconstruct_card", 4096) == 6144
     assert _OP_MAX_TOKENS.get("deconstruct_world", 4096) == 4096
     assert _OP_MAX_TOKENS.get("deconstruct_place", 4096) == 4096
+
+
+# ── 阶段三（图谱装配）集成 ─────────────────────────────────────────────
+
+def _graph_card_handler(kw, n):
+    no = kw["messages"][0]["content"].split("|")[1]
+    return json.dumps({
+        "summary": f"梗概{no}",
+        "characters": [{"name": "林晚", "role": "主角", "traits": "t", "alias": ""}],
+        "places": [{"name": "竹湾渡口", "parent": "", "note": ""}],
+        "presence": [{"who": "林晚", "where": "竹湾渡口"}],
+        "intro": [], "genre": [], "world": [], "relations": [], "mainplot": [],
+        "structure": [], "style": [], "techniques": [], "foreshadow": [],
+    })
+
+
+_PLACE_OK = json.dumps({"places": [
+    {"name": "竹湾渡口", "aliases": [], "parent": "", "note": "", "evidence_ch": "第1章"}],
+    "links": [{"who": "林晚", "where": "竹湾渡口", "kind": "据地", "evidence": "世代摆渡", "ch": "第1章"}]})
+
+
+def test_stage3_assembles_graph(monkeypatch):
+    from deconstruct import pipeline
+
+    _stub_layers(monkeypatch)
+    client = FakeClient({
+        "deconstruct_card": _graph_card_handler,
+        "deconstruct_characters": lambda kw, n: json.dumps({"characters": [
+            {"name": "林晚", "role": "主角", "plot": "渡口救人", "evidence_ch": "第1章"}]}),
+        "deconstruct_mainplot": lambda kw, n: json.dumps({"arcs": [
+            {"title": "救恩", "ch_start": 1, "ch_end": 2, "summary": "林晚救人", "confidence": "high"}]}),
+        "deconstruct_place": lambda kw, n: _PLACE_OK,
+    })
+    _stub_client(monkeypatch, client)
+    _mk_job("p-graph", selected=["characters", "mainplot"], chapters=2)
+
+    _run(pipeline.run_task("p-graph"))
+    t = _load("p-graph")
+    assert t.status == "completed", t.error_json
+    g = json.loads(t.dims_json)["graph"]
+    assert g["contract"] == "deconstruct-graph/6" and g["stats"]["chapters"] == 2
+    assert client.counts.get("deconstruct_place") == 1
+    assert any(l["kind"] == "据地" for l in g["links"])
+    assert len(g["chapters"]) == 2 and g["events"][0]["ch"] == [1, 2]
+    assert g["chapters"][0]["beat"] == "梗概1"
+
+
+def test_stage3_place_failure_records_graph_error(monkeypatch):
+    """图谱病着也要出：装配异常不拖垮任务，graph_error 留痕（导出端 400）。"""
+    from deconstruct import pipeline
+
+    _stub_layers(monkeypatch)
+
+    def boom(kw, n):
+        raise RuntimeError("装配期异常")
+
+    client = FakeClient({
+        "deconstruct_card": _graph_card_handler,
+        "deconstruct_characters": lambda kw, n: json.dumps({"characters": [
+            {"name": "林晚", "role": "主角", "plot": "p", "evidence_ch": "第1章"}]}),
+        "deconstruct_place": boom,
+    })
+    _stub_client(monkeypatch, client)
+    _mk_job("p-graph-err", selected=["characters"], chapters=2)
+
+    _run(pipeline.run_task("p-graph-err"))
+    t = _load("p-graph-err")
+    assert t.status == "completed"  # md 出口不受拖累
+    state = json.loads(t.dims_json)
+    assert "graph" not in state and state.get("graph_error")
+    assert "characters" in json.loads(t.products_json)
+
+
+def test_graph_switch_off_skips_stage3(monkeypatch):
+    from deconstruct import pipeline
+
+    _stub_layers(monkeypatch)
+    monkeypatch.setenv("DECONSTRUCT_GRAPH_EXPORT", "0")
+    client = FakeClient({
+        "deconstruct_card": _graph_card_handler,
+        "deconstruct_characters": lambda kw, n: json.dumps({"characters": []}),
+        "deconstruct_place": lambda kw, n: _PLACE_OK,
+    })
+    _stub_client(monkeypatch, client)
+    _mk_job("p-graph-off", selected=["characters"], chapters=1)
+
+    _run(pipeline.run_task("p-graph-off"))
+    t = _load("p-graph-off")
+    assert t.status == "completed"
+    assert "deconstruct_place" not in client.calls
+    assert "graph" not in json.loads(t.dims_json)
+
+
+def test_stage3_skips_when_cache_present(monkeypatch):
+    """缓存存在即不重算（append-only id 语义：重算会平移旧 id）。"""
+    from deconstruct import pipeline
+
+    _stub_layers(monkeypatch)
+    card1 = {"summary": "梗概1", "characters": [], "places": [], "presence": [],
+             "intro": [], "genre": [], "world": [], "relations": [], "mainplot": [],
+             "structure": [], "style": [], "techniques": [], "foreshadow": []}
+    seed = json.dumps({
+        "cards": {"state": "completed", "done": 1, "entries": {"1": card1}},
+        "dims": {"characters": {"state": "completed", "seg_done": 1, "seg_total": 1, "error": ""}},
+        "graph": {"contract": "deconstruct-graph/6", "sentinel": True},
+    })
+    preset = json.dumps({"characters": {"file": "角色设定.md",
+                                        "data": {"characters": []}, "md": "# 旧"}})
+    _mk_job("p-graph-cache", selected=["characters"], chapters=1,
+            dims_json=seed, products_json=preset)
+    client = FakeClient({})
+    _stub_client(monkeypatch, client)
+
+    _run(pipeline.run_task("p-graph-cache"))
+    t = _load("p-graph-cache")
+    assert t.status == "completed"
+    assert client.calls == []  # 全缓存：零模型调用
+    assert json.loads(t.dims_json)["graph"]["sentinel"] is True

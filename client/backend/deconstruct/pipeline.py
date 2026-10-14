@@ -36,6 +36,11 @@ SEGMENT_RETRIES = 2
 # 每 operation 输出 token 预算（评审：卡片加 places/presence 后输出加量，默认 4096 会贴顶截断）
 _OP_MAX_TOKENS = {"deconstruct_card": 6144}
 
+
+def _graph_export_on() -> bool:
+    """图谱导出总开关（默认开；关＝跳过阶段三装配与导出三件套——评审：开关＝具名交付物）。"""
+    return os.environ.get("DECONSTRUCT_GRAPH_EXPORT", "1") != "0"
+
 _CANCELLED = "cancelled"
 
 
@@ -365,6 +370,52 @@ async def run_task(task_id: str) -> None:
                 dims_json=_state_json(state, cards=cards, dims=dims),
                 products_json=json.dumps(products, ensure_ascii=False),
             )
+
+        # ── 阶段三：图谱装配（deconstruct-graph/6）——开关关则跳过；病着也要出：
+        #    装配异常只记 graph_error 留痕（导出端报可读 400），md 出口永不拖累 ──
+        if _graph_export_on() and cards.get("entries") and not state.get("graph"):
+            await _check_cancel(task_id)
+            try:
+                from deconstruct.graph import assemble, place_merge_input
+
+                frags = place_merge_input(cards["entries"])
+                place_merge = None
+                truncated = False
+                if frags:
+                    frag_text = "\n".join(frags)
+                    if len(frag_text) > MERGE_INPUT_CAP:
+                        frag_text = frag_text[:MERGE_INPUT_CAP]
+                        truncated = True
+                    sys_pl, usr_pl = load_layers("deconstruct_place")
+                    place_merge = await _call_with_retry(
+                        client, model, (sys_pl, usr_pl),
+                        {"book_name": task.book_name, "genre_or_unknown": "unknown",
+                         "full_synopsis": full_synopsis[:_SYNOPSIS_CAP],
+                         "seg_range": f"第1-{task.chapter_count}章" if task.chapter_count else "全本",
+                         "excerpts": frag_text},
+                        "deconstruct_place",
+                    )
+                graph = assemble(
+                    book_name=task.book_name,
+                    chapter_count=task.chapter_count,
+                    words=task.total_chars,
+                    cards=cards["entries"],
+                    products=products,
+                    place_merge=place_merge,
+                    source_text="\n".join(ch.get("text", "") for ch in chapters),
+                )
+                if truncated:
+                    graph["meta"]["warnings"].append({
+                        "kind": "place_merge_truncated", "count": 1,
+                        "msg": "地点归并输入超上限被截断：未覆盖地点按卡片原名补户（fallback 已兜底）",
+                    })
+                state["graph"] = graph
+                await _patch(task_id, dims_json=_state_json(state, cards=cards, dims=dims))
+            except _Cancelled:
+                raise
+            except Exception as e:  # noqa: BLE001 — 图谱不拖累任务：错误留痕，导出端 400
+                state["graph_error"] = str(e)[:300]
+                await _patch(task_id, dims_json=_state_json(state, cards=cards, dims=dims))
     except _Cancelled:
         await _patch(task_id, finished_at=_now())
         return
