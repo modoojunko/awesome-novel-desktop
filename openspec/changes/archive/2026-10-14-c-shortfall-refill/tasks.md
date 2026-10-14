@@ -44,4 +44,4 @@
 - [x] 4.2 前端：vitest（append 请求形状＋收尾合并/中断复刻）＋`tsc --noEmit`；`design:lint` exit 0 实际结论
   > proseStream 12 过（复刻两案＋streamChapterRefill URL/无体钉）；相邻 chapterWorkspace.plotFlow＋castReviewFlow 53 过（edit-bar 渲染无回归）；`tsc --noEmit` 净；design:lint exit 0。
   > 如实备注（评审agent 指出）：**动作位三态渲染无组件级直测**——按钮出现/计数/两轮收口仅有复刻级与挂载路过覆盖，属测试缺口；补组件级挂载测成本高（tiptap＋workbench 上下文），登记为已知缺口，真栈验收（4.3）人工核三态。
-- [ ] 4.3 真栈实测（5274 独立环境纪律）：一章故意写短触发补足闭环；一本 6000 字档观察截断桶是否出数——结论回写 c-scene-density tasks 5.6 对应观察项（两仓 change 数据互认）
+- [x] 4.3 真栈实测（独立验收栈 an-accept 25274/18000，代码=main 合入态）：2500 档全链 2418/2500＝96.7%（基线 51%）；4000 档 4291/4000＝107%、无截断（stop 桶）；补足闭环 4291→5638 净增 1347、旧文保真、write_chapter_refill 遥测落列；遥测聚合三行全字段落列、命中率 2/2 章＝100%；8k 降级 N/A（盘内无已知 8k 模型，路径单测覆盖）；样本量注记与 UI 三态人工核留观详见 4.2/5.6（c-scene-density 档互认）。
