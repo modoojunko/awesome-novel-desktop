@@ -494,7 +494,7 @@ class TestDrawChainBudget:
         async def flaky_chat(**kwargs):
             captured.append(kwargs)
             if len(captured) == 1:
-                raise Exception(
+                raise Exception(  # noqa: TRY002 — 桩需模拟「非业务异常」以测不降级路径
                     "max_tokens: 16384 > 8192, which is the maximum number of "
                     "tokens that can be generated for this model"
                 )
@@ -515,7 +515,7 @@ class TestDrawChainBudget:
 
         async def angry_chat(**kwargs):
             captured.append(kwargs)
-            raise Exception("connection reset by peer")
+            raise Exception("connection reset by peer")  # noqa: TRY002 — 同上
 
         base.chat = angry_chat  # type: ignore[method-assign]
         _patch(monkeypatch, "volumes.ai_plan", base)

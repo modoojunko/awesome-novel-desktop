@@ -27,14 +27,18 @@ from prompt.context import inject_world_setting
 from settings.book_prefs_model import (
     CHAPTER_WORD_TARGET_DEFAULT as WORD_TARGET_DEFAULT,
 )
+
+# 别名保留：shared_constants_parity 钉「writer 与共享常量单一来源对齐」，缺失即红（#844 债）
 from settings.book_prefs_model import (
-    CHAPTER_WORD_TARGET_MAX as WORD_TARGET_MAX,
+    CHAPTER_WORD_TARGET_MAX as WORD_TARGET_MAX,  # noqa: F401 — parity 别名
 )
 from settings.book_prefs_model import (
-    CHAPTER_WORD_TARGET_MIN as WORD_TARGET_MIN,
+    CHAPTER_WORD_TARGET_MIN as WORD_TARGET_MIN,  # noqa: F401 — parity 别名
 )
-from settings.book_prefs_model import effective_chapter_word_target
-from settings.book_prefs_model import clamp_word_target  # re-export：既有调用方口径不变
+from settings.book_prefs_model import (
+    clamp_word_target,  # re-export：既有调用方口径不变
+    effective_chapter_word_target,
+)
 from settings.character_model import (
     WRITE_STATE_KEYS as _WRITE_STATE_KEYS,
 )
@@ -309,9 +313,7 @@ def should_refresh_stored_prompt(stored: str, ctx: "ChapterContext") -> bool:
         return False
     if ctx.previous_tail and "上章结尾" not in stored:
         return True
-    if SCENE_SHARE_ANCHOR not in stored:
-        return True
-    return False
+    return SCENE_SHARE_ANCHOR not in stored
 
 
 def lint_assembled_prompt(
