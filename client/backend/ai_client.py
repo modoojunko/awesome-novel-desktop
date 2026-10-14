@@ -166,6 +166,10 @@ class StreamEvent:
     tokens: int = 0
     # 输入侧 tokens（anthropic=message_start.input_tokens；OpenAI=prompt_tokens）
     tokens_in: int = 0
+    # 终止原因（c-shortfall-refill 遥测）：openai=choices[].finish_reason、
+    # anthropic=message_delta.delta.stop_reason；length＝输出预算耗尽截断，
+    # 供「撞预算截断」与「模型自愿写短」分桶；供应商未回传＝空串（unknown 桶）
+    finish_reason: str = ""
     error: str = ""
 
 
@@ -685,6 +689,7 @@ class AIClient:
                         **kwargs,
                     )
                 done_out, done_in = 0, 0
+                done_fr = ""  # 终止原因（c-shortfall-refill 遥测）
                 # 首字守卫：思考期 reasoning delta 不带正文、只会让 read 超时
                 # （相邻事件间隔口径）一直顺延——核对首字前总时长，超限即判死
                 # （零 chunk 静默仍由 read 超时兜底）；秒数记实测值非配置值
@@ -705,6 +710,9 @@ class AIClient:
                         done_in = getattr(usage, "prompt_tokens", 0) or 0
                     if not chunk.choices:
                         continue
+                    fr = getattr(chunk.choices[0], "finish_reason", None)
+                    if fr:
+                        done_fr = fr  # 终止原因以流内最后一条为准（c-shortfall-refill）
                     delta = chunk.choices[0].delta
                     if delta and delta.content:
                         first_deadline = None  # 首字已到，守卫即撤
@@ -712,7 +720,10 @@ class AIClient:
                 self._log_call(
                     operation, model, start, tokens_in=done_in, tokens_out=done_out
                 )
-                yield StreamEvent(is_done=True, tokens=done_out, tokens_in=done_in)
+                yield StreamEvent(
+                    is_done=True, tokens=done_out, tokens_in=done_in,
+                    finish_reason=done_fr,
+                )
             except Exception as e:  # noqa: BLE001 — 归一目标外的异常原样重抛（_raise_normalized 尾行 raise）
                 self._log_call(operation, model, start, error=e)
                 self._raise_normalized(e)
@@ -742,6 +753,7 @@ class AIClient:
                             **kwargs,
                         ) as stream:
                             tokens_in = 0
+                            tokens_fr = ""  # 终止原因（c-shortfall-refill 遥测）
                             async for event in stream:
                                 if (
                                     first_deadline is not None
@@ -758,6 +770,13 @@ class AIClient:
                                     if delta_type == "text_delta":
                                         first_deadline = None  # 首字已到，守卫即撤
                                         yield StreamEvent(text=event.delta.text)
+                                elif event.type == "message_delta":
+                                    # 终止原因在 message_delta.stop_reason（c-shortfall-refill）
+                                    sr = getattr(
+                                        getattr(event, "delta", None), "stop_reason", None
+                                    )
+                                    if sr:
+                                        tokens_fr = sr
                                 elif event.type == "message_stop":
                                     tokens = 0
                                     if hasattr(event, "usage") and event.usage:
@@ -766,7 +785,10 @@ class AIClient:
                                         operation, model, start,
                                         tokens_in=tokens_in, tokens_out=tokens,
                                     )
-                                    yield StreamEvent(is_done=True, tokens=tokens, tokens_in=tokens_in)
+                                    yield StreamEvent(
+                                        is_done=True, tokens=tokens, tokens_in=tokens_in,
+                                        finish_reason=tokens_fr,
+                                    )
                         break
                     except Exception as e:  # noqa: BLE001 — 端点不认思考参数时去参重开一次
                         if isinstance(e, AIThinkingTimeoutError):

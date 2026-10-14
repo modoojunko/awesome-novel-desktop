@@ -4,6 +4,7 @@
 // c-prose-regen-replace：另钉「替换写」链——生成前整档清除，终稿＝生成物
 import { describe, expect, it, vi } from "vitest";
 import { Editor } from "@tiptap/core";
+import { streamChapterRefill } from "@/lib/ai";
 import Document from "@tiptap/extension-document";
 import Paragraph from "@tiptap/extension-paragraph";
 import Text from "@tiptap/extension-text";
@@ -273,5 +274,125 @@ describe("替换写（c-prose-regen-replace）", () => {
     fastEditor.commands.undo();
     expect(docToProse(fastEditor.getJSON())).toBe("");
     expect(docToProse(fastEditor.getJSON())).not.toContain("旧的一段");
+  });
+});
+
+// ── c-shortfall-refill：续写 append 复刻（不删旧文，尾段两步收尾） ──
+describe("续写补足复刻", () => {
+  function makeSeededEditor(oldProse: string) {
+    // 旧文在创建时注入（不占撤销史——等价生产链：旧正文由页面加载写入）
+    return new Editor({
+      extensions: [Document, Paragraph, Text, UndoRedo.configure({ newGroupDelay: 0 })],
+      content: { type: "doc", content: linesToParagraphs(oldProse) },
+    });
+  }
+
+  function simulateRefill(oldProse: string, chunks: string[], ok: boolean) {
+    const editor = makeSeededEditor(oldProse);
+    const streamReceivedRef = { current: "" };
+    const streamInsertedLenRef = { current: 0 };
+    const size = editor.state.doc.content.size;
+    let streamPos = size - 1; // 末段内起流，不删任何旧内容
+    const streamStart = streamPos;
+
+    const appendChunk = (chunk: string) => {
+      if (!chunk) return;
+      streamReceivedRef.current += chunk;
+      const full = normalizeStreamedProse(streamReceivedRef.current);
+      const delta = proseDelta(full, streamInsertedLenRef.current);
+      if (!delta) return;
+      const { state, view } = editor;
+      const tr = state.tr;
+      let cur = streamPos;
+      const lines = delta.split("\n");
+      lines.forEach((line, i) => {
+        if (line) {
+          tr.insertText(line, cur, cur);
+          cur += line.length;
+        }
+        if (i < lines.length - 1) {
+          tr.split(cur);
+          cur += 2;
+        }
+      });
+      view.dispatch(tr);
+      streamPos = cur;
+      streamInsertedLenRef.current = full.length;
+    };
+    for (const c of chunks) appendChunk(c);
+
+    // finishStream refill 模式：删流式区间（不入史）→ 插归一尾段（入史）；
+    // 中断（ok=false）走同一路径——半截尾段照常保留
+    const tail = normalizeStreamedProse(streamReceivedRef.current);
+    const end = streamPos;
+    if (end > streamStart) {
+      const tr = editor.state.tr.delete(streamStart, end);
+      tr.setMeta("addToHistory", false);
+      editor.view.dispatch(tr);
+    }
+    if (tail.trim()) {
+      editor
+        .chain()
+        .insertContentAt(streamStart, linesToParagraphs(tail))
+        .run();
+    }
+    const merged = normalizeStreamedProse(
+      oldProse + (tail ? "\n" + tail : ""),
+    );
+    return { doc: docToProse(editor.getJSON()), merged, editor, ok };
+  }
+
+  it("done 合并：旧文逐字在前＋尾段落进，prose 终态＝服务端合并整章", () => {
+    const old = "前段甲。\n前段乙。";
+    const { doc, merged, editor } = simulateRefill(
+      old,
+      tokenize("接笔一。\n接笔二。", [3, 4]),
+      true,
+    );
+    expect(doc).toBe(merged);
+    expect(doc.startsWith("前段甲。\n前段乙。")).toBe(true);
+    // 一步撤销回到补足前（删除不入史、插入入史——与生成链同构）
+    editor.commands.undo();
+    expect(docToProse(editor.getJSON())).toBe(old);
+    editor.commands.redo();
+    expect(docToProse(editor.getJSON())).toBe(merged);
+  });
+
+  it("中断半截：已收尾段保留、旧文不丢（prose＝旧文+半截）", () => {
+    const old = "前段甲。";
+    const { doc } = simulateRefill(old, ["半截一。", "半截"], false);
+    expect(doc).toContain("前段甲。");
+    expect(doc).toContain("半截一。");
+    expect(doc.endsWith("半截")).toBe(true);
+  });
+});
+
+describe("streamChapterRefill 请求形状（c-shortfall-refill）", () => {
+  it("URL 落 /write/refill、POST 无参数体", async () => {
+    const seen: { url: string; init: RequestInit }[] = [];
+    const reader = { read: async () => ({ done: true, value: undefined }) };
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (url: unknown, init: unknown) => {
+        seen.push({ url: String(url), init: init as RequestInit });
+        return {
+          ok: true,
+          status: 200,
+          body: { getReader: () => reader },
+        };
+      }),
+    );
+    const abort = streamChapterRefill("p1", "vol-1-ch-1", {
+      onChunk: () => {},
+      onDone: () => {},
+      onError: () => {},
+    });
+    await new Promise((r) => setTimeout(r, 0));
+    expect(seen).toHaveLength(1);
+    expect(seen[0].url).toContain("/novels/p1/chapters/vol-1-ch-1/write/refill");
+    expect(seen[0].init.method).toBe("POST");
+    expect(seen[0].init.body).toBeUndefined();
+    abort.abort();
+    vi.unstubAllGlobals();
   });
 });

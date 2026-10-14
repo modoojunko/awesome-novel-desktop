@@ -397,3 +397,24 @@ class TestChapterWordTargetParity:
             CHAPTER_WORD_TARGET_MAX,
             CHAPTER_WORD_TARGET_DEFAULT,
         )
+
+
+class TestPlotCountHintParity:
+    """字数→建议条数档位文案前后端同源（c-scene-density 评审）。
+
+    两侧各有档位测试（test_plot_count_hint_bands / chapterTarget.test.ts）但各锁各的
+    实现——单侧改档另一侧照绿，本测试读前端 TS 源逐字比对才是真交叉闸
+    （手法同 TestChapterWordTargetParity）。劈叉后果：页面说 6–8、素材直给另一档。"""
+
+    def test_hint_literals_match(self):
+        from chapters.ai_plot import plot_count_hint
+
+        src = _read("chapterTarget.ts")
+        body = src.split("export function plotCountHint", 1)[1].split("\n}", 1)[0]
+        front = re.findall(r'return "([^"]+)"', body)
+        assert front == [
+            plot_count_hint(4500),  # ≥4000 档
+            plot_count_hint(3500),  # ≥3000 档
+            plot_count_hint(2500),  # ≥2000 档
+            plot_count_hint(1500),  # 默认档
+        ], "建议条数档位文案前后端不一致"
