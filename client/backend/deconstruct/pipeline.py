@@ -19,6 +19,7 @@ import os
 from sqlalchemy import select
 
 from db import async_session
+from deconstruct.graph import _TIME_TAGS, _clean, _dicts  # noqa: PLC2701 — 域内复用形状防御（graph 无回环）
 from models.deconstruct import DIMENSION_KEYS, DeconstructJob
 from prompts import PromptPackMissing, load_layers
 
@@ -234,6 +235,76 @@ def _synopses(cards: dict) -> str:
     )
 
 
+def _presence_gaps(card: dict) -> list[str]:
+    """单卡在场缺口：characters 全名（非空）− presence.who（评审钉的代码侧强制）。"""
+    chars = {_clean(c.get("name"))
+             for c in _dicts(card.get("characters")) if _clean(c.get("name"))}
+    whos = {_clean(p.get("who"))
+            for p in _dicts(card.get("presence")) if _clean(p.get("who"))}
+    return sorted(chars - whos)
+
+
+async def _backfill_presence(task_id, task, chapters, cards, dims, state, client, model,
+                             graph_on: bool, caps: bool) -> None:
+
+    """阶段 3.0（10.1a 熔断预案落地）：在场缺口选择性补写。
+
+    - 逐章检测 characters 全名 ⊆ presence.who；缺口非空才触发轻量调用（达标章零成本）；
+    - 补写只收名单内 who（模型越权输出丢弃）；合并进卡（断点随卡持久）；
+    - caps=false（老包无 presence 契约）或开关关：整段跳过（模板不存在，调用必炸）。
+    """
+    if not graph_on or not caps:
+        return
+    entries = cards.get("entries") if isinstance(cards.get("entries"), dict) else {}
+    if not entries:
+        return
+    sys_b, usr_b = load_layers("deconstruct_presence")
+    text_by_no = {str(ch.get("no", 0)): _card_text(ch) for ch in chapters}
+    for ch in chapters:
+        no = str(ch.get("no", 0))
+        card = entries.get(no)
+        if not isinstance(card, dict):
+            continue
+        if "places" not in card:
+            continue  # 老契约卡（spec：在场账留空降级，不重跑拆卡）
+        missing = _presence_gaps(card)
+        if not missing:
+            continue
+        await _check_cancel(task_id)
+        known = "、".join(
+            _clean(pl.get("name")) for pl in _dicts(card.get("places")) if _clean(pl.get("name"))
+        ) or "（本章无已知地点，where 一律空串）"
+        data = await _call_with_retry(
+            client, model, (sys_b, usr_b),
+            {
+                "book_name": task.book_name,
+                "chapter_no": no,
+                "chapter_title": ch.get("title", ""),
+                "missing_names": "、".join(missing),
+                "places_known": known,
+                "chapter_text": text_by_no.get(no, ch.get("text", "")),
+            },
+            "deconstruct_presence",
+        )
+        existing_whos = {_clean(p.get("who")) for p in _dicts(card.get("presence"))}
+        added = 0
+        for p in _dicts(data.get("presence") if isinstance(data, dict) else None):
+            who = _clean(p.get("who"))
+            if who not in missing or who in existing_whos:
+                continue
+            where = _clean(p.get("where"))
+            entry: dict = {"who": who, "where": where or ""}
+            if p.get("t") in _TIME_TAGS:
+                entry["t"] = p["t"]
+            card.setdefault("presence", []).append(entry)
+            existing_whos.add(who)
+            added += 1
+        if added:
+            entries[no] = card
+            await _patch(task_id, dims_json=_state_json(state, cards=cards, dims=dims))
+    # 逐章即时落库：中断后已补的在场不重付（断点随卡）
+
+
 async def run_task(task_id: str) -> None:
     """执行一个拆书任务（dispatcher 串行调用；亦为断点续拆入口）。"""
     task = await _load_task(task_id)
@@ -379,6 +450,12 @@ async def run_task(task_id: str) -> None:
             try:
                 from deconstruct.graph import assemble, place_merge_input
 
+                # 阶段 3.0：presence 补写（10.9 熔断预案落地）——卡上 characters 全名 ⊄ 在场者时，
+                # 轻量调用逐人定位（只补名单、where 抄本章闭集），合并回卡片；达标章零调用
+                await _backfill_presence(
+                    task_id, task, chapters, cards, dims, state, client, model,
+                    graph_on=_graph_export_on(), caps=state.get("caps_graph", True),
+                )
                 frags = place_merge_input(cards["entries"])
                 place_merge = None
                 truncated = False

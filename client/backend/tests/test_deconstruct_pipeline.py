@@ -120,6 +120,8 @@ def _stub_layers(monkeypatch):
     def load_layers(name):
         if name == "deconstruct_card":
             return "sys", "u {book_name}|{chapter_no}|{chapter_title}|{chapter_text}"
+        if name == "deconstruct_presence":
+            return "sys", "u {book_name}|{chapter_no}|{chapter_title}|{missing_names}|{places_known}|{chapter_text}"
         if name == "deconstruct_reduce":
             return "sys", "u {dim_name}|{partials}"
         return "sys", "u {book_name}|{genre_or_unknown}|{full_synopsis}|{seg_range}|{excerpts}"
@@ -558,3 +560,67 @@ def test_cancel_at_place_merge_boundary(monkeypatch):
     t = _load("p-cancel3")
     assert t.status == "cancelled"
     assert "graph" not in json.loads(t.dims_json) and "graph_error" not in json.loads(t.dims_json)
+
+
+# ── 10.9 在场补写（熔断预案落地）────────────────────────────────────
+
+def _gap_card_handler(kw, n):
+    no = kw["messages"][0]["content"].split("|")[1]
+    return json.dumps({
+        "summary": f"梗概{no}",
+        "characters": [{"name": "林晚", "role": "主角", "traits": "t", "alias": ""},
+                       {"name": "老郭", "role": "配角", "traits": "t", "alias": ""}],
+        "places": [{"name": "竹湾渡口", "parent": "", "note": ""}],
+        "presence": [{"who": "林晚", "where": "竹湾渡口"}],  # 老郭缺席
+        "intro": [], "genre": [], "world": [], "relations": [], "mainplot": [],
+        "structure": [], "style": [], "techniques": [], "foreshadow": [],
+    })
+
+
+def _presence_patch_handler(kw, n):
+    return json.dumps({"presence": [
+        {"who": "老郭", "where": "竹湾渡口"},
+        {"who": "名单外的人", "where": "竹湾渡口"},  # 越权输出：应被丢弃
+    ]})
+
+
+def test_backfill_triggers_on_gap_and_merges(monkeypatch):
+    from deconstruct import pipeline
+
+    _stub_layers(monkeypatch)
+    client = FakeClient({
+        "deconstruct_card": _gap_card_handler,
+        "deconstruct_characters": lambda kw, n: json.dumps({"characters": [
+            {"name": "林晚", "role": "主角", "plot": "p", "evidence_ch": "第1章"},
+            {"name": "老郭", "role": "配角", "plot": "p", "evidence_ch": "第1章"}]}),
+        "deconstruct_presence": _presence_patch_handler,
+    })
+    _stub_client(monkeypatch, client)
+    _mk_job("p-bf1", selected=["characters"], chapters=1)
+
+    _run(pipeline.run_task("p-bf1"))
+    t = _load("p-bf1")
+    assert t.status == "completed", t.error_json
+    assert client.counts.get("deconstruct_presence") == 1
+    g = json.loads(t.dims_json)["graph"]
+    ch1 = g["chapters"][0]
+    assert {p["who"] for p in ch1["presence"]} == {pid for pid in (n["id"] for n in g["nodes"] if n["label"] in ("林晚", "老郭"))}
+    assert not any(n["label"] == "名单外的人" for n in g["nodes"])  # 越权输出未入户
+
+
+def test_backfill_skipped_when_presence_complete(monkeypatch):
+    from deconstruct import pipeline
+
+    _stub_layers(monkeypatch)
+    client = FakeClient({
+        "deconstruct_card": _graph_card_handler,  # characters=林晚，presence 有林晚 → 达标
+        "deconstruct_characters": lambda kw, n: json.dumps({"characters": [
+            {"name": "林晚", "role": "主角", "plot": "p", "evidence_ch": "第1章"}]}),
+        "deconstruct_presence": _presence_patch_handler,
+    })
+    _stub_client(monkeypatch, client)
+    _mk_job("p-bf2", selected=["characters"], chapters=1)
+
+    _run(pipeline.run_task("p-bf2"))
+    assert "deconstruct_presence" not in client.calls
+    assert _load("p-bf2").status == "completed"
