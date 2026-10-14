@@ -98,12 +98,14 @@ class FakeClient:
     def __init__(self, handlers=None, default=None):
         self.calls: list[str] = []
         self.counts: dict[str, int] = {}
+        self.last_by_op: dict[str, str] = {}
         self.handlers = handlers or {}
         self.default = default or (lambda *a: "{}")
 
     async def chat(self, **kw):
         op = kw.get("operation", "")
         self.calls.append(op)
+        self.last_by_op[op] = kw["messages"][0]["content"]
         n = self.counts.get(op, 0)
         self.counts[op] = n + 1
         result = self.handlers.get(op, self.default)(kw, n)
@@ -317,3 +319,35 @@ def test_resume_skips_done_cards_and_dims(monkeypatch):
     prods = json.loads(t.products_json)
     assert prods["world"]["md"] == "# 旧"  # 已完成维度产物原样保留
     assert set(prods) == {"world", "characters"}
+
+
+def test_card_text_head_tail():
+    """超长章＝头4000＋尾2000（转场句在章尾不失明）；≤6000 原样；恰 6000 不截。"""
+    from deconstruct.pipeline import _card_text
+
+    assert _card_text({"text": "甲" * 100}) == "甲" * 100
+    assert _card_text({"text": "X" * 6000}) == "X" * 6000
+    long = "H" * 4000 + "M" * 5000 + "T" * 2000
+    out = _card_text({"text": long})
+    assert out.startswith("H" * 4000) and out.endswith("T" * 2000)
+    assert "中略" in out and "M" not in out
+
+
+def test_run_task_cards_use_head_tail_clip(monkeypatch):
+    """run_task 集成：超长章卡片只收到首尾拼接正文（中段被显式中略）。"""
+    from deconstruct import pipeline
+
+    _stub_layers(monkeypatch)
+    client = FakeClient({"deconstruct_card": _card_handler, "deconstruct_world": _seen_handler("world")})
+    _stub_client(monkeypatch, client)
+    _mk_job("p-clip", selected=["world"], chapters=1)
+    from deconstruct.service import source_path_of
+
+    with open(source_path_of("p-clip"), "w", encoding="utf-8") as f:
+        f.write("第1章 长夜\n" + "首" * 4200 + "埋" * 3000 + "尾" * 2100 + "\n")
+
+    _run(pipeline.run_task("p-clip"))
+    sent = client.last_by_op["deconstruct_card"]
+    assert "首" * 3900 in sent and "尾" * 1900 in sent
+    assert "埋" not in sent and "中略" in sent  # 中段丢、显式标注
+    assert _load("p-clip").status == "completed"

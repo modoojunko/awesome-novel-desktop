@@ -22,8 +22,9 @@ from db import async_session
 from models.deconstruct import DIMENSION_KEYS, DeconstructJob
 from prompts import PromptPackMissing, load_layers
 
-# 单章喂料上限（超长章截断，梗概与碎片以可见部分为据）
+# 单章喂料：超长章取头 4000＋尾 2000（评审 P2：转场/到达/位置句多落在章尾，纯截头会漏 presence 证据）
 _CARD_TEXT_LIMIT = 6000
+_CARD_HEAD, _CARD_TAIL = 4000, 2000
 # L1 归并单批卡片碎片输入上限（字）
 CARD_BATCH_CHARS = 30000
 # 树收敛每轮合并输入上限（字）
@@ -76,6 +77,14 @@ def _pack_units(units: list[str], budget: int, joiner: str = "\n\n") -> list[lis
     if cur:
         batches.append(cur)
     return batches or [[]]
+
+
+def _card_text(chapter: dict) -> str:
+    """单章喂料：≤6000 字原样；超长取头 4000＋尾 2000（中略显式标注，卡以此可见部分为据）。"""
+    text = chapter.get("text", "") or ""
+    if len(text) <= _CARD_TEXT_LIMIT:
+        return text
+    return text[:_CARD_HEAD] + "\n……（中略——仅以首尾为据）……\n" + text[-_CARD_TAIL:]
 
 
 def _card_frag(no: str, card: dict, dim: str) -> str:
@@ -254,7 +263,7 @@ async def run_task(task_id: str) -> None:
                         "book_name": task.book_name,
                         "chapter_no": no,
                         "chapter_title": ch.get("title", ""),
-                        "chapter_text": ch.get("text", "")[:_CARD_TEXT_LIMIT],
+                        "chapter_text": _card_text(ch),
                     },
                     "deconstruct_card",
                 )
