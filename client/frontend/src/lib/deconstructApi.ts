@@ -48,6 +48,8 @@ export interface DeconstructTaskDetail {
   selected_dims: string[];
   /** v2 逐章拆卡进度（后端 task_view.cards） */
   cards?: { state: string; done: number; total: number };
+  /** 图谱视图（10.5 起）：ready/absent/error＋警告计数＋能力戳（老包出不了图） */
+  graph?: { state: "ready" | "absent" | "error"; available: boolean; warnings: number; caps: boolean };
   dims: Record<string, { state: string; seg_done: number; seg_total: number; error: string }>;
   products: { filename: string; size: number; dim: string }[];
   error: string;
@@ -120,7 +122,7 @@ export async function exportTaskProducts(
   id: string,
   destDir: string,
   files: string[],
-): Promise<{ written: string[]; readme: string; dest: string }> {
+): Promise<{ written: string[]; readme: string; dest: string; graph?: string[]; backups?: string[] }> {
   return request(`/api/deconstruct/tasks/${id}/export`, {
     method: "POST",
     body: JSON.stringify({ dest_dir: destDir, files }),
@@ -137,6 +139,8 @@ export interface CreateTaskResult {
   volume_count: number;
   parse_warnings: string[];
   selected_dims: string[];
+  /** 能力戳：false＝当前提示词包出不了图谱（文档版照常） */
+  graph_caps?: boolean;
 }
 
 export async function createDeconstructTask(

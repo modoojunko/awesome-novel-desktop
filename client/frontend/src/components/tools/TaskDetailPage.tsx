@@ -100,6 +100,7 @@ export default function TaskDetailPage() {
   const dims = DECONSTRUCT_DIMS.filter((d) => task.selected_dims.includes(d.key));
   const dimState = (key: string) => task.dims[key] ?? { state: "queued", seg_done: 0, seg_total: 0, error: "" };
   const cards = task.cards ?? { state: "queued", done: 0, total: 0 };
+  const graph = task.graph ?? { state: "absent" as const, available: false, warnings: 0, caps: true };
   const overall = (() => {
     const total = dims.length;
     const done = dims.filter((d) => dimState(d.key).state === "completed").length;
@@ -145,8 +146,12 @@ export default function TaskDetailPage() {
         },
       );
     } else {
-      void act(() => exportTaskProducts(task.id, destDir, selectedFiles), () => {
-        setExitMsg(`已导出 ${selectedFiles.length} 份产物到 ${destDir}`);
+      void act(() => exportTaskProducts(task.id, destDir, selectedFiles), (r) => {
+        const backups = (r as { backups?: string[] } | undefined)?.backups ?? [];
+        setExitMsg(
+          `已导出 ${selectedFiles.length} 份产物到 ${destDir}` +
+            (backups.length > 0 ? `（旧文件已备份 ${backups.length} 个为 .bak-时间戳）` : ""),
+        );
         setExitOpen(false);
       });
     }
@@ -228,10 +233,27 @@ export default function TaskDetailPage() {
         <>
           <div className="ex-done" data-od-id="done-banner" style={{ marginBottom: 18 }}>
             <div>
-              <b>拆解完成 · {task.products.length} 份 Markdown 已生成到结果目录</b>
+              <b>
+                拆解完成 · {task.products.length} 份 Markdown{graph.available ? "＋图谱三件套" : ""} 已生成到结果目录
+              </b>
               <span>产物随应用数据在本机永久保留；删除任务行将连带清除其结果目录</span>
             </div>
           </div>
+          {graph.state === "error" ? (
+            <div className="notice" data-od-id="graph-error" style={{ marginBottom: 18 }}>
+              <span className="nt">
+                <b>图谱装配失败</b>
+                <span>导出将被阻断（文档与图谱均不发）；可重跑任务或反馈。文档产物不受影响。</span>
+              </span>
+            </div>
+          ) : graph.caps === false ? (
+            <div className="notice warn" data-od-id="graph-nocaps" style={{ marginBottom: 18 }}>
+              <span className="nt">
+                <b>当前写作能力包出不了图谱</b>
+                <span>更新能力包后重跑任务可产出知识图谱；本次导出为文档版（10 份 Markdown）。</span>
+              </span>
+            </div>
+          ) : null}
           <div style={{ display: "flex", gap: 8, marginBottom: 18 }}>
             <button className="btn btn-primary" data-od-id="btn-exit" onClick={() => setExitOpen(true)}>
               选择去向
@@ -263,6 +285,22 @@ export default function TaskDetailPage() {
                 <span className="d-mt">{p.size} 字符</span>
               </label>
             ))}
+            {graph.available && (
+              <div className="dim-group" data-od-id="graph-trio" style={{ marginTop: 10 }}>
+                知识图谱 · 固定附带（不参与勾选） · {graph.warnings > 0 ? `带 ${graph.warnings} 处警告` : "无警告"}
+              </div>
+            )}
+            {graph.available &&
+              ["图谱.json", "图谱.html", "图谱.svg"].map((fn) => (
+                <div key={fn} className="dim-row" data-od-id={`graph-${fn}`}>
+                  <span className="d-tx">
+                    <b>{fn}</b>
+                  </span>
+                  <span className="d-mt">
+                    {fn === "图谱.html" ? "双击浏览器打开" : fn === "图谱.json" ? "唯一正身" : "静态图"}
+                  </span>
+                </div>
+              ))}
           </div>
           <div className="hint">
             <b>去哪看内容：</b>结果目录里的 .md 文件，或点「建书」之后到书内设定页查看与编辑。

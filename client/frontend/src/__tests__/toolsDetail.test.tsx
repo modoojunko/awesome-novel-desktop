@@ -41,6 +41,7 @@ function detailOf(status: string, over: Record<string, unknown> = {}) {
     chapter_count: 318,
     volume_count: 10,
     parse_warnings: [],
+    graph: { state: "absent", available: false, warnings: 0, caps: true },
     ai_model: "qwen3-max",
     api_config_id: "c1",
     selected_dims: ["intro", "world", "techniques"],
@@ -362,5 +363,68 @@ describe("TaskDetailPage", () => {
     Object.defineProperty(input, "files", { value: [new File(["x"], "星海远征.txt")] });
     fireEvent.change(input);
     await waitFor(() => expect(state.retry).toHaveBeenCalledOnce());
+  });
+  it("完成：图谱就绪臂——横幅含三件套＋固定附带行（无警告）", async () => {
+    state.get.mockResolvedValue(
+      detailOf("completed", { graph: { state: "ready", available: true, warnings: 0, caps: true } }),
+    );
+    renderPage();
+    await waitFor(() => expect(screen.getByText(/份 Markdown＋图谱三件套/)).toBeInTheDocument());
+    expect(screen.getByText(/知识图谱 · 固定附带/)).toBeInTheDocument();
+    expect(screen.getByText(/无警告/)).toBeInTheDocument();
+    expect(screen.getByText("双击浏览器打开")).toBeInTheDocument();
+    expect(screen.getByText("唯一正身")).toBeInTheDocument();
+    expect(screen.getByText("静态图")).toBeInTheDocument();
+  });
+
+  it("完成：图谱带警告臂", async () => {
+    state.get.mockResolvedValue(
+      detailOf("completed", { graph: { state: "ready", available: true, warnings: 3, caps: true } }),
+    );
+    renderPage();
+    await waitFor(() => expect(screen.getByText(/带 3 处警告/)).toBeInTheDocument());
+  });
+
+  it("完成：图谱装配失败提示（导出阻断说明）", async () => {
+    state.get.mockResolvedValue(
+      detailOf("completed", { graph: { state: "error", available: false, warnings: 0, caps: true } }),
+    );
+    renderPage();
+    await waitFor(() => expect(screen.getByText("图谱装配失败")).toBeInTheDocument());
+    expect(screen.getByText(/导出将被阻断/)).toBeInTheDocument();
+  });
+
+  it("完成：老包能力戳 false 提示（文档版不受影响）", async () => {
+    state.get.mockResolvedValue(
+      detailOf("completed", { graph: { state: "absent", available: false, warnings: 0, caps: false } }),
+    );
+    renderPage();
+    await waitFor(() => expect(screen.getByText("当前写作能力包出不了图谱")).toBeInTheDocument());
+  });
+
+  it("完成：缺 graph 字段回落文档版（?? 兜底臂，不出三件套行）", async () => {
+    const full = detailOf("completed");
+    const { graph: _drop, ...noGraph } = full;
+    state.get.mockResolvedValue(noGraph);
+    renderPage();
+    await waitFor(() => expect(screen.getByText(/份 Markdown 已生成到结果目录/)).toBeInTheDocument());
+    expect(screen.queryByText(/图谱三件套/)).not.toBeInTheDocument();
+  });
+
+  it("导出：旧文件备份提示臂（backups 非空）", async () => {
+    state.get.mockResolvedValue(detailOf("completed"));
+    state.export.mockClear();
+    state.export.mockResolvedValue({
+      written: ["简介.md"], readme: "README.md", dest: "/tmp/bx",
+      backups: ["图谱.json.bak-20261014-120000"],
+    });
+    renderPage();
+    await waitFor(() => expect(screen.getByText("选择去向")).toBeInTheDocument());
+    fireEvent.click(screen.getByText("选择去向"));
+    fireEvent.click(screen.getByText("存本地文件夹"));
+    fireEvent.change(screen.getByLabelText(/导出到文件夹/), { target: { value: "/tmp/bx" } });
+    fireEvent.click(screen.getByText("选择文件夹并导出"));
+    await waitFor(() => expect(state.export).toHaveBeenCalledOnce());
+    await waitFor(() => expect(screen.getByText(/旧文件已备份 1 个/)).toBeInTheDocument());
   });
 });
