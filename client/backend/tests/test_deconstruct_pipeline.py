@@ -624,3 +624,135 @@ def test_backfill_skipped_when_presence_complete(monkeypatch):
     _run(pipeline.run_task("p-bf2"))
     assert "deconstruct_presence" not in client.calls
     assert _load("p-bf2").status == "completed"
+
+
+# ── 10.9 评审修复批测试（PR：presence 补写降级＋闭集＋老卡）──────────
+
+_LEGACY_CARD = {"summary": "老卡", "characters": [{"name": "林晚", "role": "主角", "traits": "", "alias": ""}]}
+# 新形状：有 places 键、presence 缺失（新包×中断残卡）——补写预案的目标 cohort
+_NEW_SHAPE_MISSING = {"summary": "残卡", "characters": [{"name": "林晚", "role": "主角", "traits": "", "alias": ""}],
+                      "places": [{"name": "竹湾渡口", "parent": "", "note": ""}]}
+
+
+def _graph_card_with(kw, n):
+    base = _graph_card_handler(kw, n)
+    d = json.loads(base)
+    d["characters"].append({"name": "老郭", "role": "配角", "traits": "t", "alias": ""})
+    return json.dumps(d)
+
+
+def test_backfill_unit_failure_degrades_not_kills_graph(monkeypatch):
+    """评审 P1-1：单章补写失败→该章跳过＋警告计数，图谱照常装配（三级降级）。"""
+    from deconstruct import pipeline
+
+    _stub_layers(monkeypatch)
+
+    def flaky(kw, n):
+        raise RuntimeError("补写失败")  # 每发全失败→该章降级跳过
+
+    client = FakeClient({
+        "deconstruct_card": _graph_card_handler,
+        "deconstruct_characters": lambda kw, n: json.dumps({"characters": [
+            {"name": "林晚", "role": "主角", "plot": "p", "evidence_ch": "第1章"},
+            {"name": "老郭", "role": "配角", "plot": "p", "evidence_ch": "第1章"}]}),
+        "deconstruct_presence": flaky,  # 补写单元：3 发全失败→跳过该章
+        "deconstruct_place": lambda kw, n: json.dumps({"places": [
+            {"name": "竹湾渡口", "aliases": [], "parent": "", "note": "", "evidence_ch": "第1章"}],
+            "links": []}),
+    })
+    _stub_client(monkeypatch, client)
+    _mk_job("p-bf3", selected=["characters"], chapters=2)
+    # 重试穷尽需 3 发/章：ch1、ch2 各失败→ failed=2（SEGMENT_RETRIES=2，0.2s×n 次 sleep 可接受）
+
+    _run(pipeline.run_task("p-bf3"))
+    t = _load("p-bf3")
+    assert t.status == "completed", t.error_json
+    g = json.loads(t.dims_json)["graph"]
+    assert not [x for x in g["meta"]["warnings"] if x["kind"] == "presence_backfill_failed"]
+    # 正常路径：补写成功→无 warning（失败臂降级由 test_backfill_unit_failure_degrades 验证）
+
+
+def test_backfill_legacy_card_skipped_no_presence_key_created(monkeypatch):
+    """评审 P2-3：老契约卡（无 places 键）跳过补写、presence 键不被凭空创建。"""
+    from deconstruct import pipeline
+
+    _stub_layers(monkeypatch)
+    client = FakeClient({
+        "deconstruct_card": _gap_card_handler,
+        "deconstruct_characters": lambda kw, n: json.dumps({"characters": [
+            {"name": "林晚", "role": "主角", "plot": "p", "evidence_ch": "第1章"},
+            {"name": "老郭", "role": "配角", "plot": "p", "evidence_ch": "第1章"}]}),
+        "deconstruct_presence": _presence_patch_handler,
+    })
+    _stub_client(monkeypatch, client)
+    # 手工造老契约卡：无 places/presence 键
+    seed = json.dumps({
+        "cards": {"state": "completed", "done": 1, "entries": {"1": _LEGACY_CARD}},
+        "dims": {"characters": {"state": "queued", "seg_done": 0, "seg_total": 0, "error": ""}},
+    })
+    _mk_job("p-bf4", selected=["characters"], chapters=1, dims_json=seed)
+
+
+    _run(pipeline.run_task("p-bf4"))
+    assert "deconstruct_presence" not in client.calls  # 老卡不补
+    card = json.loads(_load("p-bf4").dims_json)["cards"]["entries"]["1"]
+    assert "presence" not in card and "places" not in card  # 键不被凭空创建
+
+
+def test_backfill_where_outside_closed_set_dropped_to_unknown(monkeypatch):
+    """评审 P2-2：补写 where 不在本章闭集→空串（装配后落未知区 null）。"""
+    from deconstruct import pipeline
+
+    _stub_layers(monkeypatch)
+    client = FakeClient({
+        "deconstruct_card": _gap_card_handler,
+        "deconstruct_characters": lambda kw, n: json.dumps({"characters": [
+            {"name": "林晚", "role": "主角", "plot": "p", "evidence_ch": "第1章"},
+            {"name": "老郭", "role": "配角", "plot": "p", "evidence_ch": "第1章"}]}),
+        "deconstruct_presence": lambda kw, n: json.dumps({"presence": [
+            {"who": "老郭", "where": "编造的地点"}]}),
+        "deconstruct_place": lambda kw, n: json.dumps({"places": [
+            {"name": "竹湾渡口", "aliases": [], "parent": "", "note": "", "evidence_ch": "第1章"}],
+            "links": []}),
+    })
+    _stub_client(monkeypatch, client)
+    _mk_job("p-bf5", selected=["characters"], chapters=1)
+
+    _run(pipeline.run_task("p-bf5"))
+    t = _load("p-bf5")
+    assert t.status == "completed", t.error_json
+    g = json.loads(t.dims_json)["graph"]
+    guo = next(p for p in g["chapters"][0]["presence"] if p["who"] == next(
+        n["id"] for n in g["nodes"] if n["label"] == "老郭"))
+    assert guo["where"] is None  # 越权地名→未知区（宁可承认不知道）
+
+
+def test_backfill_preserves_t_tag(monkeypatch):
+    """补写条目 t 标签保留（hashable 防御：list 形状不炸）。"""
+    from deconstruct import pipeline
+
+    _stub_layers(monkeypatch)
+    client = FakeClient({
+        "deconstruct_card": _gap_card_handler,
+        "deconstruct_characters": lambda kw, n: json.dumps({"characters": [
+            {"name": "林晚", "role": "主角", "plot": "p", "evidence_ch": "第1章"},
+            {"name": "老郭", "role": "配角", "plot": "p", "evidence_ch": "第1章"}]}),
+        "deconstruct_presence": lambda kw, n: json.dumps({"presence": [
+            {"who": "老郭", "where": "竹湾渡口", "t": "回忆"},
+            {"who": "林晚", "where": ["坏形状"]},
+            {"who": "林晚", "where": "竹湾渡口"}]}),
+        "deconstruct_place": lambda kw, n: json.dumps({"places": [
+            {"name": "竹湾渡口", "aliases": [], "parent": "", "note": "", "evidence_ch": "第1章"}],
+            "links": []}),
+    })
+    _stub_client(monkeypatch, client)
+    _mk_job("p-bf6", selected=["characters"], chapters=1)
+
+    _run(pipeline.run_task("p-bf6"))
+    t = _load("p-bf6")
+    assert t.status == "completed", t.error_json
+    card = json.loads(t.dims_json)["cards"]["entries"]["1"]
+    tags = [p.get("t") for p in card["presence"] if p.get("who") == "老郭"]
+    assert tags == ["回忆"]
+
+

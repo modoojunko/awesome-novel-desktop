@@ -162,7 +162,7 @@ def assemble(
             where_raw = _clean(p.get("where"))
             where = None if where_raw in ("", "原文未明确") else where_raw
             entry: dict = {"who": who, "where": where}
-            if p.get("t") in _TIME_TAGS:
+            if str(p.get("t") or "") in _TIME_TAGS:
                 entry["t"] = p["t"]
             entries.append(entry)
         presence_by_ch[int(no_s)] = entries
