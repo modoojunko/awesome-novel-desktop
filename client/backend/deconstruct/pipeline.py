@@ -33,6 +33,9 @@ MERGE_INPUT_CAP = 40000
 _SYNOPSIS_CAP = 12000
 SEGMENT_RETRIES = 2
 
+# 每 operation 输出 token 预算（评审：卡片加 places/presence 后输出加量，默认 4096 会贴顶截断）
+_OP_MAX_TOKENS = {"deconstruct_card": 6144}
+
 _CANCELLED = "cancelled"
 
 
@@ -196,7 +199,7 @@ async def _chat_json(client, model: str, system: str, user: str, operation: str)
         model=model,
         system=system,
         messages=[{"role": "user", "content": user}],
-        max_tokens=4096,
+        max_tokens=_OP_MAX_TOKENS.get(operation, 4096),
         json_mode=True,
         operation=operation,
     )

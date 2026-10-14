@@ -37,11 +37,12 @@ def _dev_dir(monkeypatch):
     monkeypatch.setenv("PROMPT_PACK_DEV_DIR", d)
 
 
-def test_all_12_templates_load_and_format(_dev_dir):
+def test_all_prompts_load_and_format(_dev_dir):
     from models.deconstruct import DIMENSIONS
     from prompts import load_layers
 
-    names = ["deconstruct_card"] + [f"deconstruct_{k}" for k, _, _ in DIMENSIONS] + ["deconstruct_reduce"]
+    names = (["deconstruct_card", "deconstruct_place"]
+             + [f"deconstruct_{k}" for k, _, _ in DIMENSIONS] + ["deconstruct_reduce"])
     for name in names:
         system, user_tpl = load_layers(name)
         assert system and user_tpl, f"{name} 分层缺段"
@@ -53,6 +54,8 @@ def test_all_12_templates_load_and_format(_dev_dir):
     for key, _, _ in DIMENSIONS:
         _, user_tpl = load_layers(f"deconstruct_{key}")
         user_tpl.format(**base)  # 不抛 KeyError 即可
+    _, user_tpl = load_layers("deconstruct_place")
+    user_tpl.format(**base)  # 地点归并吃同一组五件套变量
     _, user_tpl = load_layers("deconstruct_card")
     user_tpl.format(book_name="书", chapter_no=1, chapter_title="第1章", chapter_text="正文")
     _, user_tpl = load_layers("deconstruct_reduce")

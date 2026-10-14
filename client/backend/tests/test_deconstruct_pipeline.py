@@ -378,3 +378,12 @@ def test_state_roundtrip_preserves_unknown_keys(monkeypatch):
     assert state["graph"] == {"sentinel": True}  # 未知顶键存活
     assert state["cards"]["state"] == "completed"
     assert state["dims"]["world"]["state"] == "completed"
+
+
+def test_op_max_tokens_budget():
+    """卡片输出预算上调（places/presence 加量）；其余 operation 默认 4096。"""
+    from deconstruct.pipeline import _OP_MAX_TOKENS
+
+    assert _OP_MAX_TOKENS.get("deconstruct_card", 4096) == 6144
+    assert _OP_MAX_TOKENS.get("deconstruct_world", 4096) == 4096
+    assert _OP_MAX_TOKENS.get("deconstruct_place", 4096) == 4096
