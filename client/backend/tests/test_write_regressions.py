@@ -465,6 +465,7 @@ class TestRefillChain:
         assert r.status_code == 422
         assert "先「生成正文」" in r.text
 
+    @pytest.mark.needs_prompts  # 同上
     def test_refill_appends_and_preserves(self, client, monkeypatch):
         _set_member()
         pid, ref = _create_project_and_chapter(client)
@@ -503,6 +504,7 @@ class TestRefillChain:
         assert "续写任务" in fake.last_kwargs["messages"][0]["content"]
         assert "已写正文（末段窗口" in fake.last_kwargs["messages"][0]["content"]
 
+    @pytest.mark.needs_prompts  # 走 prepare→write_chapter 模板：缺包环境跳过（CI 无包）
     def test_refill_preserves_user_blank_lines(self, client, monkeypatch):
         """评审 P2：归一只作用于 AI 尾段——手动编辑链（save_prose 不归一）留下的
         段间空行是作者的排版，补足合并不得无声改写。"""
@@ -532,6 +534,7 @@ class TestRefillChain:
         assert merged.startswith("段一。\n\n段二。")  # 空行原样
         assert merged.endswith("接笔段。")
 
+    @pytest.mark.needs_prompts  # 同上
     def test_refill_telemetry_columns(self, client, monkeypatch):
         _set_member()
         pid, ref = _create_project_and_chapter(client)
