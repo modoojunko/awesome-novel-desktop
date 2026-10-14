@@ -332,6 +332,18 @@ class TestFillGapsExclusion:
 class TestSceneDensity:
     """c-scene-density：条数联动字数——素材恒带【本章字数】；中段上限 4→10。"""
 
+    def test_band_and_hint_single_source(self):
+        """c-shortfall-refill：hint 文案＝band 区间渲染（遥测与素材同源）。"""
+        from chapters.ai_plot import plot_count_band, plot_count_hint
+
+        for wt in (500, 1500, 2000, 2500, 2999, 3000, 3500, 4000, 6000):
+            lo, hi = plot_count_band(wt)
+            assert plot_count_hint(wt) == f"{lo}–{hi} 条场景"
+        assert plot_count_band(500) == (4, 6)
+        assert plot_count_band(2500) == (6, 8)
+        assert plot_count_band(3000) == (8, 10)
+        assert plot_count_band(6000) == (10, 12)
+
     def test_plot_blocks_carries_word_target(self):
         from types import SimpleNamespace
 

@@ -247,6 +247,23 @@ async def _stream_chapter(
                 except Exception as e:  # noqa: BLE001 — AI 已成功，落库失败不记 _fail
                     yield f"data: {json.dumps({'type': 'error', 'error': f'内容已生成，但保存失败：{e!s}'}, ensure_ascii=False)}\n\n"
                     return
+                # 工序②：写完字数校验（低于下限＝目标-10%，与提示词同口径；提示不拦落库）
+                target = getattr(ctx, "word_target", 2500) or 2500
+                actual = len(full_text)
+                word_check = {
+                    "target": target,
+                    "actual": actual,
+                    "below_limit": actual < word_target_floor(target),
+                }
+                if word_check["below_limit"]:
+                    word_check["message"] = f"字数不足：目标 {target}，实写 {actual}"
+                # 写链遥测（c-shortfall-refill）：截断分桶＋档内命中现算——口径全部
+                # 走同源函数（word_target_floor/plot_count_band），SHALL NOT 另立判据
+                from chapters.ai_plot import plot_count_band
+
+                hint_lo, hint_hi = plot_count_band(target)
+                plot_n = len(getattr(ctx, "plot_items", []) or [])
+                tier_hit = None if plot_n == 0 else hint_lo <= plot_n <= hint_hi
                 from api_configs.usage import record_usage
 
                 await record_usage(
@@ -259,18 +276,15 @@ async def _stream_chapter(
                     model=used_model,
                     tokens_out=event.tokens,
                     tokens_in=event.tokens_in,
+                    target_words=target,
+                    actual_words=actual,
+                    below_limit=word_check["below_limit"],
+                    finish_reason=getattr(event, "finish_reason", "") or "",
+                    plot_hint_low=hint_lo,
+                    plot_hint_high=hint_hi,
+                    tier_hit=tier_hit,
                 )
                 done: dict = {"type": "done", "full_text": full_text, "tokens": event.tokens}
-                # 工序②：写完字数校验（低于下限＝目标-10%，与提示词同口径；提示不拦落库）
-                target = getattr(ctx, "word_target", 2500) or 2500
-                actual = len(full_text)
-                word_check = {
-                    "target": target,
-                    "actual": actual,
-                    "below_limit": actual < word_target_floor(target),
-                }
-                if word_check["below_limit"]:
-                    word_check["message"] = f"字数不足：目标 {target}，实写 {actual}"
                 done["word_check"] = word_check
                 # 工序③：写后叙事自查（七条规则确定性扫描，提示性质）
                 from write.quality import run_narrative_self_check
@@ -454,6 +468,192 @@ async def write_chapter(
             override_model=model_override,
             override_config_id=api_config_id,
         ),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "X-Accel-Buffering": "no",
+        },
+    )
+
+
+async def _stream_refill(db, project, root_path: str, chapter_ref: str, existing: str):
+    """续写补足（c-shortfall-refill）：从已写正文末拍接着写，产物 **append** 落库——
+    不重掷整章、不改写已写内容（作者手改部分同样原样保留）。
+
+    与 /write 的差异：无提示词覆盖/按次模型对（沿用本书绑定与生成同款双门控）；
+    user 层＝章级素材包＋已写正文尾窗＋续写指令行（build_refill_material 单源）；
+    system 恒定层与收尾重申行同生成路径逐字复用（前缀缓存同享）；write-prompt
+    存量行不动（续写指令不是本章提示词）。事件契约照 write：phase→chunk*→done｜error。
+    """
+    import logging
+
+    from ai_client import get_ai_client_for_novel
+    from chapters.service import save_chapter
+    from write.chapter_writer import (
+        WRITE_CLOSING_LINE,
+        build_chapter_context,
+        build_refill_material,
+        normalize_generated_prose,
+        word_target_floor,
+    )
+
+    logger = logging.getLogger(__name__)
+
+    def _phase(name: str) -> str:
+        return f"data: {json.dumps({'type': 'phase', 'phase': name}, ensure_ascii=False)}\n\n"
+
+    try:
+        yield _phase("assemble")
+        ctx = await build_chapter_context(
+            root_path, chapter_ref, project.name, novel_id=project.id
+        )
+        prompt = f"{build_refill_material(ctx, existing).rstrip()}\n\n{WRITE_CLOSING_LINE}"
+        system = ctx.build_system_prompt()
+        client = await get_ai_client_for_novel(project.id)
+        used_model = effective_model(project)
+        used_config_id = project.ai_config_id or ""
+    except Exception as e:  # noqa: BLE001 — 准备段失败也必须有终态事件（同 write 纪律）
+        logger.warning("refill prepare failed: ref=%s err=%s", chapter_ref, e, exc_info=True)
+        yield (
+            "data: "
+            + json.dumps(
+                {"type": "error", "error": f"准备续写失败，可重试：{e!s}"},
+                ensure_ascii=False,
+            )
+            + "\n\n"
+        )
+        return
+
+    yield _phase("model")
+    full_text = ""
+    try:
+        async for event in client.chat_stream(
+            model="haiku",
+            system=system,
+            messages=[{"role": "user", "content": prompt}],
+            max_tokens=8192,
+            operation="write_chapter_refill",
+            first_content_timeout=FIRST_CONTENT_TIMEOUT,
+        ):
+            if event.text:
+                full_text += event.text
+                yield f"data: {json.dumps({'type': 'chunk', 'text': event.text}, ensure_ascii=False)}\n\n"
+            elif event.is_done:
+                # 评审 P2：归一只作用于 AI 产物（尾段）——normalize 的 docstring
+                # 「不碰作者手写稿」对补足同样成立，已写正文仅去尾换行原样拼接
+                tail_out = normalize_generated_prose(full_text)
+                existing_body = existing.rstrip()
+                merged = existing_body + ("\n" + tail_out if tail_out else "")
+                try:
+                    chapter = await load_chapter(root_path, chapter_ref)
+                    chapter["prose"] = merged
+                    await save_chapter(db, project, chapter_ref, chapter)
+                except Exception as e:  # noqa: BLE001 — AI 已成功，落库失败不记 _fail
+                    yield f"data: {json.dumps({'type': 'error', 'error': f'续写已生成，但保存失败：{e!s}'}, ensure_ascii=False)}\n\n"
+                    return
+                target = getattr(ctx, "word_target", 2500) or 2500
+                actual = len(merged)
+                word_check = {
+                    "target": target,
+                    "actual": actual,
+                    "below_limit": actual < word_target_floor(target),
+                }
+                if word_check["below_limit"]:
+                    word_check["message"] = f"字数不足：目标 {target}，实写 {actual}"
+                from chapters.ai_plot import plot_count_band
+
+                hint_lo, hint_hi = plot_count_band(target)
+                plot_n = len(getattr(ctx, "plot_items", []) or [])
+                tier_hit = None if plot_n == 0 else hint_lo <= plot_n <= hint_hi
+                from api_configs.usage import record_usage
+
+                await record_usage(
+                    db,
+                    user_id=project.user_id,
+                    project_id=project.id,
+                    api_config_id=used_config_id or None,
+                    chapter_id=chapter_ref,
+                    operation="write_chapter_refill",
+                    model=used_model,
+                    tokens_out=event.tokens,
+                    tokens_in=event.tokens_in,
+                    target_words=target,
+                    actual_words=actual,
+                    below_limit=word_check["below_limit"],
+                    finish_reason=getattr(event, "finish_reason", "") or "",
+                    plot_hint_low=hint_lo,
+                    plot_hint_high=hint_hi,
+                    tier_hit=tier_hit,
+                )
+                done: dict = {"type": "done", "full_text": merged, "tokens": event.tokens}
+                done["word_check"] = word_check
+                from write.quality import run_narrative_self_check
+
+                done["self_check"] = run_narrative_self_check(merged)
+                yield f"data: {json.dumps(done, ensure_ascii=False)}\n\n"
+            elif event.error:
+                yield f"data: {json.dumps({'type': 'error', 'error': event.error}, ensure_ascii=False)}\n\n"
+    except AIThinkingTimeoutError as e:
+        from api_configs.usage import record_usage
+
+        await record_usage(
+            db,
+            user_id=project.user_id,
+            project_id=project.id,
+            api_config_id=used_config_id or None,
+            chapter_id=chapter_ref,
+            operation="write_chapter_refill_fail",
+            model=used_model,
+            force=True,
+        )
+        yield f"data: {json.dumps({'type': 'error', 'error': f'模型思考太久（{int(e.seconds)} 秒未产出正文），已停止——可直接重试；反复出现时把思考强度调低'}, ensure_ascii=False)}\n\n"
+    except Exception as e:  # noqa: BLE001 — 流中断也留痕（调用已发生；已写正文未动）
+        from api_configs.usage import record_usage
+
+        await record_usage(
+            db,
+            user_id=project.user_id,
+            project_id=project.id,
+            api_config_id=used_config_id or None,
+            chapter_id=chapter_ref,
+            operation="write_chapter_refill_fail",
+            model=used_model,
+            force=True,
+        )
+        yield f"data: {json.dumps({'type': 'error', 'error': f'续写失败，可重试：{e!s}'}, ensure_ascii=False)}\n\n"
+
+
+@router.post("/refill")
+@ai_feature("ai-generate")
+async def refill_chapter(
+    project_id: str,
+    chapter_ref: str,
+    user: dict = Depends(get_current_user),
+    _: bool = Depends(require_ai_access),
+    __: bool = Depends(require_novel_model),
+    db: AsyncSession = Depends(get_db),
+):
+    """字数不足的一键续写（c-shortfall-refill）：append 语义、本书模型、无 body 参数。
+
+    前置校验全部在开流前（可读 4xx）：章存在、排队门禁放行、已有正文非空
+    （无正文＝该走整章生成，不是续写）。
+    """
+    project = await get_novel(db, project_id, user["id"])
+    if not project:
+        raise HTTPException(404, "Project not found")
+    _validate_ref(chapter_ref)
+    from chapters.frontier import is_writable
+
+    writable, reason = await is_writable(db, project.id, chapter_ref)
+    if not writable:
+        raise HTTPException(409, reason)
+    chapter = await load_chapter(project.root_path, chapter_ref)
+    existing = str(chapter.get("prose") or "").strip()
+    if not existing:
+        raise HTTPException(422, "这一章还没有正文——先「生成正文」，再补足字数")
+
+    return StreamingResponse(
+        _stream_refill(db, project, project.root_path, chapter_ref, existing),
         media_type="text/event-stream",
         headers={
             "Cache-Control": "no-cache",

@@ -72,18 +72,26 @@ def _is_max_tokens_rejection(detail: str) -> bool:
     )
 
 
-def plot_count_hint(word_target: int) -> str:
-    """字数→建议条数（c-scene-density 单源）：模板只说「照建议拆」，对照表住这里——
-    改档位只动本函数。≥2000 字档密度 330–500 字/条、单调爬升，上限钉
-    PLOT_MAX_ITEMS=12（线性比率会越过存储上限，锚点不会；最低档受 4 条下限饱和，
-    小目标章密度自然更疏，作者可自行删条）。前端 chapterTarget.plotCountHint 同档对拍。"""
+def plot_count_band(word_target: int) -> tuple[int, int]:
+    """字数→建议条数区间（c-scene-density 单源，文案与命中判定共用）：
+    模板只说「照建议拆」，对照表住这里——改档位只动本函数。≥2000 字档密度
+    330–500 字/条、单调爬升，上限钉 PLOT_MAX_ITEMS=12（线性比率会越过存储上限，
+    锚点不会；最低档受 4 条下限饱和，小目标章密度自然更疏，作者可自行删条）。
+    前端 chapterTarget.plotCountHint 同档对拍；c-shortfall-refill 遥测的
+    「档内命中」按本区间现算，SHALL NOT 另立第二套口径。"""
     if word_target >= 4000:
-        return "10–12 条场景"
+        return (10, 12)
     if word_target >= 3000:
-        return "8–10 条场景"
+        return (8, 10)
     if word_target >= 2000:
-        return "6–8 条场景"
-    return "4–6 条场景"
+        return (6, 8)
+    return (4, 6)
+
+
+def plot_count_hint(word_target: int) -> str:
+    """建议条数文案（band 的渲染面，保持双仓对拍字面）。"""
+    lo, hi = plot_count_band(word_target)
+    return f"{lo}–{hi} 条场景"
 _GRADE_BY_RANK = {1: "S", 2: "A", 3: "B"}  # 拍板⑧：模型给名次（1–3），服务端映射字母
 _SENT_ENDS = "。！？；…"
 
