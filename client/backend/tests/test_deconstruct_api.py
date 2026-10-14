@@ -445,3 +445,38 @@ def test_export_graph_error_blocks_with_400(client):
     assert r.status_code == 400
     assert "图谱装配失败" in r.json()["detail"]
     assert os.listdir(dest) == []  # 零写入
+
+
+# ── 能力戳与图谱视图（10.5）──────────────────────────────────────────
+
+def test_create_reports_graph_caps(client, monkeypatch):
+    import prompts as _prompts
+
+    monkeypatch.setattr(_prompts, "load_layers", lambda name: ("含 presence 契约的 system", "u"))
+    r1 = client.post(
+        "/api/deconstruct/tasks",
+        files={"file": ("caps.txt", _TXT.encode("utf-8"), "text/plain")},
+        data={"api_config_id": "cfg-1", "ai_model": "m"},
+    )
+    assert r1.status_code == 200 and r1.json()["graph_caps"] is True
+    monkeypatch.setattr(_prompts, "load_layers", lambda name: ("老包 system 无该字段", "u"))
+    r2 = client.post(
+        "/api/deconstruct/tasks",
+        files={"file": ("caps2.txt", _TXT.encode("utf-8"), "text/plain")},
+        data={"api_config_id": "cfg-1", "ai_model": "m"},
+    )
+    assert r2.status_code == 200 and r2.json()["graph_caps"] is False
+
+
+def test_task_view_graph_states(client):
+    products = {"intro": _product("intro", "简介.md", {}, "# A")}
+    _mk_completed("dec-gv-1", products)
+    body = client.get("/api/deconstruct/tasks/dec-gv-1").json()
+    assert body["graph"]["state"] == "absent" and body["graph"]["available"] is False
+    _seed_graph("dec-gv-1", graph=_mini_graph())
+    body = client.get("/api/deconstruct/tasks/dec-gv-1").json()
+    assert body["graph"]["state"] == "ready" and body["graph"]["available"] is True
+    assert isinstance(body["graph"]["warnings"], int)
+    _seed_graph("dec-gv-1", graph_error="boom")
+    body = client.get("/api/deconstruct/tasks/dec-gv-1").json()
+    assert body["graph"]["state"] == "error" and body["graph"]["available"] is False

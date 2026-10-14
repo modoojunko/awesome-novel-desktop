@@ -373,7 +373,8 @@ async def run_task(task_id: str) -> None:
 
         # ── 阶段三：图谱装配（deconstruct-graph/6）——开关关则跳过；病着也要出：
         #    装配异常只记 graph_error 留痕（导出端报可读 400），md 出口永不拖累 ──
-        if _graph_export_on() and cards.get("entries") and not state.get("graph"):
+        if (_graph_export_on() and state.get("caps_graph", True)
+                and cards.get("entries") and not state.get("graph")):
             await _check_cancel(task_id)
             try:
                 from deconstruct.graph import assemble, place_merge_input

@@ -505,3 +505,28 @@ def test_stage3_skips_when_cache_present(monkeypatch):
     assert t.status == "completed"
     assert client.calls == []  # 全缓存：零模型调用
     assert json.loads(t.dims_json)["graph"]["sentinel"] is True
+
+
+def test_stage3_skipped_when_no_caps(monkeypatch):
+    """老包能力戳为假：阶段三不跑（不产空转图谱），文档版照常。"""
+    from deconstruct import pipeline
+
+    _stub_layers(monkeypatch)
+    card1 = {"summary": "梗概1", "characters": [], "places": [], "presence": [],
+             "intro": [], "genre": [], "world": [], "relations": [], "mainplot": [],
+             "structure": [], "style": [], "techniques": [], "foreshadow": []}
+    seed = json.dumps({
+        "caps_graph": False,
+        "cards": {"state": "completed", "done": 1, "entries": {"1": card1}},
+        "dims": {"world": {"state": "queued", "seg_done": 0, "seg_total": 0, "error": ""}},
+    })
+    client = FakeClient({"deconstruct_world": _seen_handler("world"),
+                         "deconstruct_place": lambda kw, n: _PLACE_OK})
+    _stub_client(monkeypatch, client)
+    _mk_job("p-nocaps", selected=["world"], chapters=1, dims_json=seed)
+
+    _run(pipeline.run_task("p-nocaps"))
+    t = _load("p-nocaps")
+    assert t.status == "completed"
+    assert "deconstruct_place" not in client.calls
+    assert "graph" not in json.loads(t.dims_json)

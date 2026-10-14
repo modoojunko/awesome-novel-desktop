@@ -48,6 +48,20 @@ async def next_queue_seq(db: AsyncSession) -> int:
     return (seq or 0) + 1
 
 
+def graph_caps() -> bool:
+    """能力戳（评审 P1：判点前移到创建时）：card 模板契约是否含 presence。
+
+    老包（无 presence）出不了图谱——创建照常（md 仍值钱），导出端只认行内戳回落文档版。
+    """
+    try:
+        from prompts import load_layers
+
+        system, _user = load_layers("deconstruct_card")
+        return "presence" in (system or "")
+    except Exception:  # noqa: BLE001 — 缺包/读失败一律按无能力（创建不拦）
+        return False
+
+
 async def create_task(
     db: AsyncSession,
     user_id: str,
@@ -60,6 +74,7 @@ async def create_task(
     api_config_id: str,
     ai_model: str,
     selected_dims: list[str],
+    graph_caps_flag: bool = True,
 ) -> DeconstructJob:
     task_id = str(uuid.uuid4())
     os.makedirs(staging_dir(task_id), exist_ok=True)
@@ -82,6 +97,7 @@ async def create_task(
         selected_dims_json=json.dumps(selected_dims, ensure_ascii=False),
         dims_json=json.dumps(
             {
+                "caps_graph": graph_caps_flag,  # 能力戳：判点在创建时（导出只认行内戳）
                 "cards": {"state": "queued", "done": 0, "entries": {}},
                 "dims": {
                     k: {"state": "queued", "seg_done": 0, "seg_total": 0, "error": ""}
@@ -153,6 +169,32 @@ def _dims_state(task: DeconstructJob) -> dict:
         return {}
 
 
+def _graph_view(task: DeconstructJob) -> dict:
+    """图谱视图（可选字段）：ready/absent/error＋警告计数＋完成度。"""
+    try:
+        raw = json.loads(task.dims_json or "{}")
+    except ValueError:
+        raw = {}
+    graph = raw.get("graph")
+    if isinstance(graph, dict):
+        meta = graph.get("meta") if isinstance(graph.get("meta"), dict) else {}
+        warnings = meta.get("warnings") if isinstance(meta.get("warnings"), list) else []
+        n_warn = sum(int(w.get("count") or 1) for w in warnings if isinstance(w, dict))
+        state = "ready"
+    elif raw.get("graph_error"):
+        n_warn = 0
+        state = "error"
+    else:
+        n_warn = 0
+        state = "absent"
+    return {
+        "state": state,
+        "available": state == "ready",
+        "warnings": n_warn,
+        "caps": bool(raw.get("caps_graph", True)),
+    }
+
+
 def _cards_state(task: DeconstructJob) -> dict:
     try:
         return json.loads(task.dims_json or "{}").get("cards", {})
@@ -190,6 +232,7 @@ def task_view(task: DeconstructJob) -> dict:
             "done": int(_cards_state(task).get("done", 0) or 0),
             "total": task.chapter_count,
         },
+        "graph": _graph_view(task),
         "dims": _dims_state(task),
         "products": product_meta,
         "error": _first_error(task),

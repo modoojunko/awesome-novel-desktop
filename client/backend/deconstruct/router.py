@@ -72,6 +72,7 @@ async def create_task(
             del raw
 
         parse = await asyncio.to_thread(parse_novel, text)
+        caps = service.graph_caps()  # 能力戳：创建时判卡模板是否含 presence
         try:
             picked = json.loads(selected_dims) if selected_dims else []
         except ValueError as e:
@@ -88,6 +89,7 @@ async def create_task(
             api_config_id=api_config_id,
             ai_model=ai_model,
             selected_dims=dims,
+            graph_caps_flag=caps,
         )
         os.replace(part_path, task.source_path)  # 上传即落盘契约：排队不依赖浏览器 File
     finally:
@@ -103,6 +105,7 @@ async def create_task(
         "volume_count": task.volume_count,
         "parse_warnings": json.loads(task.parse_warnings_json),
         "selected_dims": dims,
+        "graph_caps": caps,
     }
 
 
