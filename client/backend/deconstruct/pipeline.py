@@ -245,21 +245,28 @@ def _presence_gaps(card: dict) -> list[str]:
 
 
 async def _backfill_presence(task_id, task, chapters, cards, dims, state, client, model,
-                             graph_on: bool, caps: bool) -> None:
-
+                             graph_on: bool, caps: bool) -> int:
     """阶段 3.0（10.1a 熔断预案落地）：在场缺口选择性补写。
 
     - 逐章检测 characters 全名 ⊆ presence.who；缺口非空才触发轻量调用（达标章零成本）；
-    - 补写只收名单内 who（模型越权输出丢弃）；合并进卡（断点随卡持久）；
-    - caps=false（老包无 presence 契约）或开关关：整段跳过（模板不存在，调用必炸）。
+    - 补写只收名单内 who（模型越权输出丢弃）、where 强制本章闭集（越权地名降空串→未知区）；
+    - 逐章 try/except：单章失败计入计数并跳过——图谱病着也要出（评审 P1-1 三级降级）；
+    - caps=false（老包 card 无 presence 契约）或开关关：整段跳过；
+      包版本窗（card 有 presence 而 deconstruct_presence 模板缺）→ 静默跳过（评审 P2-1）。
+    - 返回补写失败章数（调用方并入 meta.warnings）。
     """
     if not graph_on or not caps:
-        return
+        return 0
+    try:
+        sys_b, usr_b = load_layers("deconstruct_presence")
+    except Exception:  # noqa: BLE001 — 模板缺失＝包版本窗，静默跳过（评审 P2-1）
+        return 0
+    from deconstruct.graph import _clean, _dicts  # noqa: PLC2701 — 域内复用形状防御
+
     entries = cards.get("entries") if isinstance(cards.get("entries"), dict) else {}
     if not entries:
-        return
-    sys_b, usr_b = load_layers("deconstruct_presence")
-    text_by_no = {str(ch.get("no", 0)): _card_text(ch) for ch in chapters}
+        return 0
+    failed = 0
     for ch in chapters:
         no = str(ch.get("no", 0))
         card = entries.get(no)
@@ -271,21 +278,28 @@ async def _backfill_presence(task_id, task, chapters, cards, dims, state, client
         if not missing:
             continue
         await _check_cancel(task_id)
-        known = "、".join(
-            _clean(pl.get("name")) for pl in _dicts(card.get("places")) if _clean(pl.get("name"))
-        ) or "（本章无已知地点，where 一律空串）"
-        data = await _call_with_retry(
-            client, model, (sys_b, usr_b),
-            {
-                "book_name": task.book_name,
-                "chapter_no": no,
-                "chapter_title": ch.get("title", ""),
-                "missing_names": "、".join(missing),
-                "places_known": known,
-                "chapter_text": text_by_no.get(no, ch.get("text", "")),
-            },
-            "deconstruct_presence",
-        )
+        known_list = [_clean(pl.get("name")) for pl in _dicts(card.get("places")) if _clean(pl.get("name"))]
+        known_set = set(known_list)
+        known = "、".join(known_list) or "（本章无已知地点，where 一律空串）"
+        try:
+            data = await _call_with_retry(
+                client, model, (sys_b, usr_b),
+                {
+                    "book_name": task.book_name,
+                    "chapter_no": no,
+                    "chapter_title": ch.get("title", ""),
+                    "missing_names": "、".join(missing),
+                    "places_known": known,
+                    "chapter_text": _card_text(ch),
+                },
+                "deconstruct_presence",
+            )
+        except _Cancelled:
+            raise
+        except Exception as _e:  # noqa: BLE001 — 评审 P1-1：单章失败跳过继续，不拖垮整本图谱
+            print("BF-FAIL<<", repr(_e))
+            failed += 1
+            continue
         existing_whos = {_clean(p.get("who")) for p in _dicts(card.get("presence"))}
         added = 0
         for p in _dicts(data.get("presence") if isinstance(data, dict) else None):
@@ -293,16 +307,19 @@ async def _backfill_presence(task_id, task, chapters, cards, dims, state, client
             if who not in missing or who in existing_whos:
                 continue
             where = _clean(p.get("where"))
+            if where and where not in known_set:  # 评审 P2-2：where 强制本章闭集
+                where = ""
             entry: dict = {"who": who, "where": where or ""}
-            if p.get("t") in _TIME_TAGS:
-                entry["t"] = p["t"]
+            t_raw = str(p.get("t") or "")
+            if t_raw in _TIME_TAGS:
+                entry["t"] = t_raw
             card.setdefault("presence", []).append(entry)
             existing_whos.add(who)
             added += 1
         if added:
             entries[no] = card
             await _patch(task_id, dims_json=_state_json(state, cards=cards, dims=dims))
-    # 逐章即时落库：中断后已补的在场不重付（断点随卡）
+    return failed
 
 
 async def run_task(task_id: str) -> None:
@@ -452,7 +469,7 @@ async def run_task(task_id: str) -> None:
 
                 # 阶段 3.0：presence 补写（10.9 熔断预案落地）——卡上 characters 全名 ⊄ 在场者时，
                 # 轻量调用逐人定位（只补名单、where 抄本章闭集），合并回卡片；达标章零调用
-                await _backfill_presence(
+                backfill_failed = await _backfill_presence(
                     task_id, task, chapters, cards, dims, state, client, model,
                     graph_on=_graph_export_on(), caps=state.get("caps_graph", True),
                 )
@@ -483,6 +500,11 @@ async def run_task(task_id: str) -> None:
                     place_merge=place_merge,
                     source_text="\n".join(ch.get("text", "") for ch in chapters),
                 )
+                if backfill_failed:
+                    graph["meta"]["warnings"].append({
+                        "kind": "presence_backfill_failed", "count": backfill_failed,
+                        "msg": f"{backfill_failed} 章在场补写调用失败（重试穷尽），该章在场账留空（未知区）",
+                    })
                 if truncated:
                     graph["meta"]["warnings"].append({
                         "kind": "place_merge_truncated", "count": 1,
