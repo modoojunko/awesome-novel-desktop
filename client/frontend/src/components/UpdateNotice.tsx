@@ -2,6 +2,12 @@ import { useCallback, useEffect, useState } from "react";
 import { useLocation } from "react-router-dom";
 import { request } from "@/lib/api";
 import { formatVersion } from "@/lib/version";
+import { toast } from "@/lib/toast";
+
+interface AutoState {
+  state: "idle" | "downloading" | "staged" | "applied";
+  version: string | null;
+}
 
 interface UpdateCheckState {
   current: string;
@@ -10,24 +16,37 @@ interface UpdateCheckState {
   notes: string;
   notes_url: string;
   download_url: string;
+  auto?: AutoState;
 }
 
-/** 会话内复查节奏：只打本地端点；真实外呼由后端 1 小时节流统一裁决 */
-const POLL_INTERVAL_MS = 15 * 60 * 1000;
+/** 常规复查节奏：只打本地端点；真实外呼由后端 1 小时节流统一裁决。
+ *  下载中提速（评审 §4.6 时效缝）：staged 通知延迟压到 ≤1 分钟，轮的仍是本地端点。 */
+const POLL_MS = 15 * 60 * 1000;
+const POLL_MS_DOWNLOADING = 60 * 1000;
 
 import { DOWNLOAD_HOME } from "@/lib/updateUrl";
 
+declare global {
+  interface Window {
+    /** 「已自动更新」一次笛的会话内去重标记（applied 版本号） */
+    __updateAppliedSeen?: string;
+  }
+}
+
 /**
- * 全局更新提示条（client-update-notify）。
- * 启动拉一次 + 每 15 分钟复查；有更新时在顶栏正下方呈现 info 提示条
- * （c-update-strip-below-appbar：常规屏挂 ClientShell 顶栏之下，书内态由
- * NovelWorkspace 挂其应用栏之下——顶栏恒在窗口顶端，不被提示条推走），
- * 「去下载」开官网下载页、「查看更新内容」开该版本说明页（均为系统浏览器），
- * 「知道了」按版本关闭（后端 data/update-check.json 记忆）。
+ * 全局更新提示条（client-update-notify ＋ silent-upgrade P1 三态）。
+ * - 手动态（auto 非 staged）：发现新版本 →「去下载」开官网（现有手动链不变）；
+ * - staged（新包已备好已验签）：主按钮「重启更新」＝ POST /apply → 桥 quit_app →
+ *   退出链尾部静默装＋自动回新版；「暂不」＝ auto-skip（删暂存、本版本不再自动）；
+ * - downloading：只说"正在后台准备"，不给按钮（不打扰写作）；
+ * - applied：一次性「已更新」轻提示由 toast 承担，横幅回到常规态。
+ * ⚠️「重启更新」的保护做在点击处（后端 /apply 成功才关窗）：destroy 不触发
+ * beforeunload，生成/保存中请先在业务处确认（桥路径绕不过关窗链）。
  */
 export default function UpdateNotice() {
   const { pathname } = useLocation();
   const [state, setState] = useState<UpdateCheckState | null>(null);
+  const [applying, setApplying] = useState(false);
 
   const refresh = useCallback(async () => {
     try {
@@ -38,13 +57,28 @@ export default function UpdateNotice() {
     }
   }, []);
 
+  const auto = state?.auto;
+  const downloading = auto?.state === "downloading";
+
   useEffect(() => {
     refresh();
-    const timer = setInterval(refresh, POLL_INTERVAL_MS);
+    const timer = setInterval(refresh, downloading ? POLL_MS_DOWNLOADING : POLL_MS);
     return () => clearInterval(timer);
-  }, [refresh]);
+  }, [refresh, downloading]);
 
-  if (!state?.has_update || !state.latest) return null;
+  if (!state?.latest) return null;
+
+  const stagedVersion = auto?.state === "staged" ? auto.version : null;
+
+  // staged 的横幅独立于 has_update（dismissed 只管手动文案；就绪态要一直可见）
+  if (!stagedVersion && (!state.has_update || !state.latest)) {
+    // 「已自动更新」一次笛（按版本记忆由后端 applied 标记承担，会话内只说一次）
+    if (auto?.state === "applied" && auto.version && window.__updateAppliedSeen !== auto.version) {
+      window.__updateAppliedSeen = auto.version;
+      toast.success(`已自动更新到 v${auto.version}`);
+    }
+    return null;
+  }
 
   const immersive = pathname.startsWith("/novel/");
 
@@ -62,41 +96,110 @@ export default function UpdateNotice() {
     }
   };
 
+  const skipAuto = async () => {
+    const v = auto?.version ?? state.latest;
+    setState((s) => (s ? { ...s, auto: { state: "idle", version: null } } : s));
+    try {
+      await request("/update-check/auto-skip", {
+        method: "POST",
+        body: JSON.stringify({ version: v }),
+        quiet: true,
+      });
+    } catch {
+      /* 失败无感：下个检测窗自动链会回来 */
+    }
+  };
+
+  const restartToUpdate = async () => {
+    if (applying) return;
+    // 前置确认（唯一一次点击语义）：在途生成/未保存由用户此刻自查——桥路径不经 beforeunload
+    if (!window.confirm(`即将退出并安装 v${auto?.version ?? state.latest}，完成后自动重新打开。继续？`)) {
+      return;
+    }
+    setApplying(true);
+    try {
+      await request("/update-check/apply", { method: "POST", quiet: true });
+    } catch {
+      toast.error("更新未能就绪（可能已被发布方暂停），请稍后用「检查更新」重试");
+      setApplying(false);
+      return;
+    }
+    const bridge = (window as unknown as {
+      pywebview?: { api?: { quit_app?: () => void } };
+    }).pywebview?.api;
+    if (bridge?.quit_app) {
+      bridge.quit_app(); // 壳层退出链接管：静默装＋自动回新版
+    } else {
+      // 浏览器兜底形态（无桥）：pending 已落，用户关闭应用即生效
+      toast.info("更新已就绪：关闭应用后将自动安装并重新打开");
+      setApplying(false);
+    }
+  };
+
   // 外链用真实锚点（target=_blank）而非编程式 window.open：pywebview cocoa
   // 后端只对 LinkActivated（锚点点击）走 OPEN_EXTERNAL_LINKS_IN_BROWSER →
   // 系统浏览器；与 NovelListPage upgradeBtn 同款写法。
   return (
     <div className={immersive ? "update-strip update-strip--imm" : "update-strip"}>
       <div className="notice info">
-        <span className="nt">
-          <b>
-            发现新版本 v{state.latest}
-            {/* 对照的当前版本取自同一次检测响应，零额外请求；缺失时退回原文案 */}
-            {state.current ? `（当前 ${formatVersion(state.current)}）` : ""}
-          </b>
-          {state.notes ? <span>{state.notes}</span> : null}
-        </span>
-        <a
-          className="btn btn-secondary btn-sm"
-          href={state.download_url || DOWNLOAD_HOME}
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          去下载
-        </a>
-        {state.notes_url ? (
-          <a
-            className="btn btn-ghost btn-sm"
-            href={state.notes_url}
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            查看更新内容
-          </a>
-        ) : null}
-        <button type="button" className="btn btn-ghost btn-sm" onClick={dismiss}>
-          知道了
-        </button>
+        {stagedVersion ? (
+          <>
+            <span className="nt">
+              <b>
+                新版本 v{stagedVersion} 已就绪
+                {state.current ? `（当前 ${formatVersion(state.current)}）` : ""}
+              </b>
+              <span>重启后自动完成安装，书稿与配置不受影响</span>
+            </span>
+            <button
+              type="button"
+              className="btn btn-secondary btn-sm"
+              disabled={applying}
+              onClick={restartToUpdate}
+            >
+              {applying ? "正在准备…" : "重启更新"}
+            </button>
+            <button type="button" className="btn btn-ghost btn-sm" onClick={skipAuto}>
+              暂不
+            </button>
+          </>
+        ) : (
+          <>
+            <span className="nt">
+              <b>
+                {downloading
+                  ? `新版本 v${state.latest} 正在后台准备…`
+                  : `发现新版本 v${state.latest}${state.current ? `（当前 ${formatVersion(state.current)}）` : ""}`}
+              </b>
+              {state.notes ? <span>{state.notes}</span> : null}
+            </span>
+            {!downloading ? (
+              <>
+                <a
+                  className="btn btn-secondary btn-sm"
+                  href={state.download_url || DOWNLOAD_HOME}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                >
+                  去下载
+                </a>
+                {state.notes_url ? (
+                  <a
+                    className="btn btn-ghost btn-sm"
+                    href={state.notes_url}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                  >
+                    查看更新内容
+                  </a>
+                ) : null}
+                <button type="button" className="btn btn-ghost btn-sm" onClick={dismiss}>
+                  知道了
+                </button>
+              </>
+            ) : null}
+          </>
+        )}
       </div>
     </div>
   );

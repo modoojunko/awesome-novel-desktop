@@ -14,10 +14,14 @@
 """
 
 import asyncio
+import hashlib
 import ipaddress
 import json
 import os
+import shutil
 import socket
+import sys
+import threading
 import time
 from pathlib import Path
 from urllib.parse import urlparse
@@ -130,19 +134,39 @@ def _load_state() -> dict:
         return {}
 
 
+# 全部状态文件读写收口到这把锁（评审 P1-3：写者不再只有事件循环——下载线程、
+# 各端点都会碰 update-check.json；RMW 必须整段持锁，且**锁内不得 await**）。
+_state_lock = threading.Lock()
+
+
 def _save_state(state: dict) -> None:
+    """tmp＋os.replace 原子写（评审 P1-3：截断的 JSON 会让全部记忆归零）。"""
     try:
         _state_path.parent.mkdir(parents=True, exist_ok=True)
-        _state_path.write_text(
-            json.dumps(state, ensure_ascii=False, indent=2), encoding="utf-8"
-        )
+        tmp = _state_path.with_name(_state_path.name + ".tmp")
+        tmp.write_text(json.dumps(state, ensure_ascii=False, indent=2), encoding="utf-8")
+        os.replace(tmp, _state_path)
     except OSError:
         # 状态文件写失败不影响主流程：下次检测重来一次而已
         pass
 
 
+def _mutate_state(mutate) -> dict:
+    """持锁读-改-写；mutate 就地改 dict，返回改后全文（调用方不得再持有引用跨锁）。"""
+    with _state_lock:
+        state = _load_state()
+        mutate(state)
+        _save_state(state)
+        return state
+
+
 async def _fetch_one(url: str) -> dict | None:
-    """抓取并解析单个 latest.json；任何失败返回 None（调用方负责切兜底）。"""
+    """抓取并解析单个 latest.json；任何失败返回 None（调用方负责切兜底）。
+
+    v2 增量（silent-upgrade P1）：`platforms`（各平台包 url/sha256/size）与
+    `auto_enabled`（发布侧总闸，缺省 true）可选透传——旧格式（仅 version/notes）
+    照常工作，platforms=None 即自动下载链关闭，手动链不受影响。
+    """
     try:
         async with build_async_client(timeout=_FETCH_TIMEOUT) as client:
             resp = await client.get(url)
@@ -153,9 +177,12 @@ async def _fetch_one(url: str) -> dict | None:
         if not is_valid_version(latest):
             return None  # 格式非法按本次失败处理（载荷校验边界）
         notes = data.get("notes")
+        platforms = data.get("platforms")
         return {
             "latest": latest,
             "notes": notes.strip() if isinstance(notes, str) else "",
+            "platforms": platforms if isinstance(platforms, dict) else None,
+            "auto_enabled": data.get("auto_enabled", True),
         }
     except (httpx.HTTPError, ValueError):
         return None
@@ -184,15 +211,195 @@ def _derived_urls(source_url: str, latest: str) -> tuple[str, str]:
     return f"{base}v{latest}/notes.html", f"{p.scheme}://{p.netloc}"
 
 
+# ── silent-upgrade P1 第二片：后台自动下载（staged → 用户点「重启更新」）───────
+# 暂存目录 = DATA_ROOT/updates（评审 P2-6：后端零新路径逻辑；安装器覆写清单不含
+# data\，暂存件天然在保护区）。状态机落 update-check.json 的 auto 键：
+#   idle → downloading → staged（→ applied，由壳层尾部写的 applied.json 认定）。
+# 并发纪律（评审 P1-3/P1-4）：状态 RMW 全走 _mutate_state；下载单飞锁＋代际号＋
+# 取消位——新版本检出/闸翻 false/用户「暂不」都让旧线程在下个检查点自尽。
+# 签名：manifest 的 Ed25519 顶层签名待 update-k1 钥与 CI 发布链就位后强制（本片
+# 实验期仅 sha256 双验，出站仍锁烘焙可信域——风险面＝CDN 写权限，记录在案）。
+
+_UPDATES_DIR = Path(DATA_ROOT) / "updates"
+_PENDING_PATH = _UPDATES_DIR / "pending.json"
+_APPLIED_PATH = _UPDATES_DIR / "applied.json"
+_PLATFORM_KEY = {"win32": "win", "darwin": "mac"}.get(sys.platform)
+_DOWNLOAD_TIMEOUT = 60.0
+_MAX_ATTEMPTS = 5
+_DISK_FACTOR = 2.5
+
+_dl_lock = threading.Lock()
+_dl_thread: threading.Thread | None = None
+_dl_cancel = threading.Event()
+_dl_epoch = 0
+
+
+def _staged_path(platform: dict) -> Path:
+    name = Path(urlparse(str(platform.get("url") or "")).path).name or "update.pkg"
+    return _UPDATES_DIR / name
+
+
+def _sha256_of(path: Path) -> str:
+    h = hashlib.sha256()
+    with open(path, "rb") as f:
+        for chunk in iter(lambda: f.read(1024 * 1024), b""):
+            h.update(chunk)
+    return h.hexdigest()
+
+
+def _set_auto_state(state: str, version: str, error: str = "") -> None:
+    _mutate_state(lambda st: st.__setitem__(
+        "auto", {"state": state, "version": version, "last_error": error,
+                 "updated_at": time.time()}))
+
+
+def _validate_outbound_url_sync(url: str) -> bool:
+    """线程版出站校验：与 async 版同规则（https＋可信域＋解析结果全公网）。
+
+    评审 P2-7：async 版走事件循环线程池解析是为防 DNS 冻共享循环；下载线程里
+    同步解析只阻塞自己，不构成冻结面。
+    """
+    try:
+        p = urlparse(url)
+        if p.scheme != "https" or not p.hostname:
+            return False
+        if p.hostname.lower() not in _trusted_hosts():
+            return False
+        infos = socket.getaddrinfo(p.hostname, 443, proto=socket.IPPROTO_TCP)
+    except (OSError, ValueError):
+        return False
+    for info in infos:
+        try:
+            ip = ipaddress.ip_address(info[4][0])
+        except ValueError:
+            return False
+        if not ip.is_global:
+            return False
+    return True
+
+
+def _download_worker(version: str, platform: dict, epoch: int) -> None:
+    """同步下载线程：.part 原子落盘 → sha256 复验 → staged。
+
+    失败矩阵（评审 §4.2）：传输类（超时/断连/非 200）线程内退避重试 ≤5；
+    环境类（磁盘不足）直接 failed 等下窗；sha 不符＝隔离重试；取消/换代即自尽。
+    """
+    url = str(platform.get("url") or "")
+    want = str(platform.get("sha256") or "").lower()
+    size = int(platform.get("size") or 0)
+    dest = _staged_path(platform)
+    part = dest.with_name(dest.name + ".part")
+    attempts = 0
+    try:
+        while attempts < _MAX_ATTEMPTS:
+            if _dl_cancel.is_set() or epoch != _dl_epoch:
+                return
+            attempts += 1
+            try:
+                free = shutil.disk_usage(Path(DATA_ROOT)).free
+                need = int(size * _DISK_FACTOR) if size else 200 * 1024 * 1024
+                if free < need:
+                    _set_auto_state("failed", version, "disk full")
+                    return
+            except OSError:
+                pass  # 预检本身失败不拦路：让下载去撞真实错误
+            _set_auto_state("downloading", version)
+            try:
+                with (
+                    httpx.Client(timeout=_DOWNLOAD_TIMEOUT, follow_redirects=True) as client,
+                    client.stream("GET", url) as resp,
+                ):
+                    if resp.status_code != 200:
+                        raise OSError(f"http {resp.status_code}")
+                    _UPDATES_DIR.mkdir(parents=True, exist_ok=True)
+                    with open(part, "wb") as fh:
+                        for chunk in resp.iter_bytes(512 * 1024):
+                            if _dl_cancel.is_set() or epoch != _dl_epoch:
+                                return
+                            fh.write(chunk)
+                os.replace(part, dest)
+            except (httpx.HTTPError, OSError):
+                part.unlink(missing_ok=True)
+                time.sleep(min(30, 2 * attempts))
+                continue
+            got = _sha256_of(dest)
+            if want and got != want:
+                dest.rename(dest.with_name(f"{dest.name}.quarantine-{int(time.time())}"))
+                _set_auto_state("downloading", version, "sha mismatch")
+                time.sleep(min(30, 2 * attempts))
+                continue
+            _set_auto_state("staged", version)
+            return
+        _set_auto_state("failed", version, "attempts exhausted")
+    finally:
+        part.unlink(missing_ok=True)
+
+
+def maybe_start_auto_download(fetched: dict, current: str) -> None:
+    """自动下载触发闸：与 has_update/dismissed 解耦（评审 P2-11——「知道了」只关
+    横幅，不停下载）。闸＝is_newer × auto_enabled × 本平台包在册 × 未「暂不」；
+    已 staged 同版本不重下；单飞＝新触发使旧线程作废（epoch 递增）。
+    """
+    global _dl_thread, _dl_epoch
+    latest = str(fetched.get("latest") or "")
+    if not latest or not is_newer(latest, current):
+        return
+    if fetched.get("auto_enabled") is False:
+        return
+    platforms = fetched.get("platforms")
+    if not isinstance(platforms, dict) or _PLATFORM_KEY is None:
+        return
+    platform = platforms.get(_PLATFORM_KEY)
+    if not isinstance(platform, dict) or not platform.get("url"):
+        return
+    if not _validate_outbound_url_sync(str(platform["url"])):
+        return
+    with _state_lock:
+        st = _load_state()
+    if st.get("skipped_version") == latest:
+        return
+    auto = st.get("auto") if isinstance(st.get("auto"), dict) else {}
+    if auto.get("state") == "staged" and auto.get("version") == latest:
+        return
+    with _dl_lock:
+        _dl_epoch += 1
+        _dl_cancel.set()
+        if _dl_thread is not None and _dl_thread.is_alive():
+            _dl_thread.join(timeout=5)
+        _dl_cancel.clear()
+        epoch = _dl_epoch
+        _dl_thread = threading.Thread(
+            target=_download_worker, args=(latest, platform, epoch),
+            daemon=True, name=f"update-download-{latest}",
+        )
+        _dl_thread.start()
+
+
+def auto_public_state() -> dict:
+    """GET 载荷里的 auto 块（前端三态横幅唯一事实源）；壳层 applied 记录优先。"""
+    with _state_lock:
+        st = _load_state()
+    auto = st.get("auto") if isinstance(st.get("auto"), dict) else {}
+    out = {"state": str(auto.get("state") or "idle"), "version": auto.get("version") or None}
+    try:
+        marker = json.loads(_APPLIED_PATH.read_text(encoding="utf-8"))
+        if isinstance(marker, dict) and marker.get("version"):
+            out = {"state": "applied", "version": marker["version"]}
+    except (OSError, ValueError):
+        pass
+    return out
+
+
 async def get_update_state() -> dict:
     """检测入口：dev 跳过；节流内吃缓存；真实外呼每小时至多一次。"""
     current = get_client_version()
     if current == "dev":
         return _payload(current=current, latest=None)
 
-    state = _load_state()
-    cached = state.get("cached") if isinstance(state.get("cached"), dict) else None
     now = time.time()
+    with _state_lock:
+        state = _load_state()
+    cached = state.get("cached") if isinstance(state.get("cached"), dict) else None
     last = float(state.get("last_check_at") or 0)
 
     # 节流只看 last_check_at（成败都记时）：失败后 cached 为空也占节流窗，
@@ -201,9 +408,15 @@ async def get_update_state() -> dict:
         fetched = await _fetch_latest()
         if fetched is not None:
             cached = fetched
-        state["last_check_at"] = now
-        state["cached"] = cached or {}
-        _save_state(state)
+
+        def _record(st: dict) -> None:
+            st["last_check_at"] = now
+            st["cached"] = cached or {}
+
+        state = _mutate_state(_record)
+        if fetched is not None:
+            # 自动下载触发（fire-and-forget；闸门与单飞见 maybe_start_auto_download）
+            maybe_start_auto_download(fetched, current)
 
     if not cached or not cached.get("latest"):
         return _payload(current=current, latest=None)
@@ -221,6 +434,7 @@ async def get_update_state() -> dict:
         "notes": cached.get("notes") or "",
         "notes_url": notes_url if has_update else "",
         "download_url": download_url if has_update else "",
+        "auto": auto_public_state(),
         # c-version-build-info：与 _payload 同批装配，两条返回路径 shape 一致
         # （tag 构建 get_build_info 自回 None——dev 总闸）
         "build": get_build_info(current),
@@ -235,6 +449,7 @@ def _payload(*, current: str, latest: str | None) -> dict:
         "notes": "",
         "notes_url": "",
         "download_url": "",
+        "auto": auto_public_state(),
         "build": get_build_info(current),
     }
 
@@ -253,9 +468,7 @@ async def dismiss_update(payload: DismissIn):
     version = payload.version.strip()
     if not is_valid_version(version):
         raise HTTPException(status_code=422, detail="invalid version format")
-    state = _load_state()
-    state["dismissed_version"] = version
-    _save_state(state)
+    _mutate_state(lambda st: st.__setitem__("dismissed_version", version))
     return {"dismissed": version}
 
 
@@ -275,12 +488,91 @@ async def refresh_update_check():
     if fetched is None:
         return {"current": current, "latest": None, "has_update": False,
                 "notes": "", "checked": False, "build": get_build_info(current)}
-    state = _load_state()
-    state["last_check_at"] = time.time()
-    state["cached"] = fetched
-    _save_state(state)
+
+    def _record(st: dict) -> None:
+        st["last_check_at"] = time.time()
+        st["cached"] = fetched
+
+    _mutate_state(_record)
+    maybe_start_auto_download(fetched, current)
     latest = fetched["latest"]
     return {"current": current, "latest": latest,
             "has_update": _has_newer(latest, current),
             "notes": fetched.get("notes") or "", "checked": True,
             "build": get_build_info(current)}
+
+
+class SkipIn(BaseModel):
+    version: str
+
+
+@router.post("/api/update-check/auto-skip")
+async def auto_skip_update(payload: SkipIn):
+    """「暂不」（P1 第二片）：本版本不再自动（取消在途下载＋删暂存件）；手动
+    「检查更新」不受影响（换回该版本只消把 skip 记忆清掉——暂只随版本升级自然失效）。
+    """
+    version = payload.version.strip()
+    if not is_valid_version(version):
+        raise HTTPException(status_code=422, detail="invalid version format")
+    global _dl_epoch
+    with _dl_lock:
+        _dl_epoch += 1
+        _dl_cancel.set()
+
+    def _mut(st: dict) -> None:
+        st["skipped_version"] = version
+        auto = st.get("auto") if isinstance(st.get("auto"), dict) else {}
+        if auto.get("version") == version:
+            st["auto"] = {"state": "idle", "version": None}
+
+    _mutate_state(_mut)
+    if _UPDATES_DIR.is_dir():
+        for p in _UPDATES_DIR.iterdir():
+            try:
+                if p.is_file() and p.name != "applied.json":
+                    p.unlink(missing_ok=True)
+            except OSError:
+                pass
+    return {"skipped": version}
+
+
+@router.post("/api/update-check/apply")
+async def apply_update():
+    """「重启更新」点击（P1 第二片）：复验就位包 → 落一次性 pending（壳层退出链消费）。
+
+    闸（评审 P2-5）：即时重取 manifest——auto_enabled 翻 false / 版本已换代 /
+    暂存件缺失或损坏 → 一律 409 拒绝，**不落标记不关窗**（前端提示走手动链）。
+    pending 唯一属主＝后端写、壳层只读（评审 P1-3）；TTL 与壳层同值 10 分钟。
+    """
+    with _state_lock:
+        st = _load_state()
+    auto = st.get("auto") if isinstance(st.get("auto"), dict) else {}
+    if auto.get("state") != "staged" or not auto.get("version"):
+        raise HTTPException(status_code=409, detail="no staged update")
+    version = str(auto["version"])
+    fetched = await _fetch_latest()
+    if fetched is None or fetched.get("auto_enabled") is False:
+        raise HTTPException(status_code=409, detail="update channel unavailable")
+    if str(fetched.get("latest") or "") != version:
+        raise HTTPException(status_code=409, detail="staged version stale")
+    platforms = fetched.get("platforms") or {}
+    platform = platforms.get(_PLATFORM_KEY) if _PLATFORM_KEY else None
+    if not isinstance(platform, dict):
+        raise HTTPException(status_code=409, detail="no package for this platform")
+    dest = _staged_path(platform)
+    if not dest.exists():
+        raise HTTPException(status_code=409, detail="staged file missing")
+    got = await asyncio.to_thread(_sha256_of, dest)
+    want = str(platform.get("sha256") or "").lower()
+    if want and got != want:
+        raise HTTPException(status_code=409, detail="staged file corrupt")
+    pending = {"version": version, "file": str(dest), "sha256": got,
+               "relaunch": True, "issued_at": time.time()}
+    try:
+        _UPDATES_DIR.mkdir(parents=True, exist_ok=True)
+        tmp = _PENDING_PATH.with_name("pending.json.tmp")
+        tmp.write_text(json.dumps(pending, ensure_ascii=False), encoding="utf-8")
+        os.replace(tmp, _PENDING_PATH)
+    except OSError as exc:
+        raise HTTPException(status_code=500, detail=f"cannot write pending marker: {exc}")
+    return {"ok": True, "version": version}

@@ -1223,6 +1223,15 @@ class NativeBridge:
 
         return bool(webbrowser.open(url))
 
+    def quit_app(self):
+        """「重启更新」确认后的关窗口（silent-upgrade P1 第二片）。
+
+        destroy → GUI 循环退出 → main() 退出链尾部消费后端落的 pending.json
+        （静默装新版并自动回）。⚠️ destroy 不触发页面 beforeunload——在途生成/
+        未保存保护必须由前端按钮处理器先行完成（后端 /apply 成功是前置条件）。
+        """
+        self._window_ref.destroy()
+
     def pick_save_file(self, default_name: str = "", file_types=None):
         result = self._window_ref.create_file_dialog(
             webview.SAVE_DIALOG,
@@ -1398,7 +1407,99 @@ def main():
     cancel_hang_dump()
     graceful = stop_server_gracefully()
     log_line(runtime_dir, f"backend shutdown: graceful={graceful}；强制退出收尾（不留残留进程）")
+    try:
+        apply_pending_update(runtime_dir)
+    except Exception:
+        # apply 段任何异常都不改退出语义：最坏＝这次不更新，下次再来
+        log_line(runtime_dir, "auto-update: apply pending FAILED:\n" + traceback.format_exc())
     _force_exit(0)
+
+
+# ── silent-upgrade P1 第二片：退出链尾部消费「重启更新」pending ────────────────
+# 契约（评审 §4.3）：后端 /apply 落 pending.json（version/file/sha256/relaunch/issued_at），
+# 唯一属主＝后端写、壳层只读；本函数在 uvicorn 线程收尾之后、os._exit 之前执行——
+# 文件锁随 _force_exit 释放，安装器 Popen（detached）存活得过本进程死亡。
+# 闸：TTL 10 分钟（「点了重启却拖着不关」不构成偷装后门）＋sha256 复验＋Windows 才动手。
+_PENDING_TTL_SECONDS = 600.0
+
+
+def _sha256_of_file(path: Path) -> str:
+    import hashlib
+
+    h = hashlib.sha256()
+    with open(path, "rb") as f:
+        for chunk in iter(lambda: f.read(1024 * 1024), b""):
+            h.update(chunk)
+    return h.hexdigest()
+
+
+def apply_pending_update(runtime_dir: Path) -> None:
+    """消费 pending：复验→写 applied 痕→detached 拉起静默安装器（装完自动回新版）。
+
+    判据逐条（评审 §4.3/§4.7）：TTL 内、文件在、sha 对上、Windows 平台；任一不过
+    只留日志不动手（横幅自动回手动链）。/DIR 钉当前安装目录（数据跟目录走铁律）；
+    /AUTOLAUNCH=1 由安装器以原始用户令牌拉起新版（V-3 真机判例：必须带值）。
+    """
+    data_root = get_install_dir() / "data"
+    pending_path = data_root / "updates" / "pending.json"
+    try:
+        pending = json.loads(pending_path.read_text(encoding="utf-8"))
+    except FileNotFoundError:
+        return  # 无 pending＝日常退出，零日志零动作
+    except (OSError, ValueError):
+        log_line(runtime_dir, "auto-update: pending.json unreadable, skipped")
+        return
+    if not isinstance(pending, dict) or not pending.get("file"):
+        log_line(runtime_dir, "auto-update: pending.json malformed, skipped")
+        return
+    version = str(pending.get("version") or "?")
+    issued = float(pending.get("issued_at") or 0)
+    if time.time() - issued > _PENDING_TTL_SECONDS:
+        log_line(runtime_dir, f"auto-update: relaunch expired (v{version}), skipped")
+        return
+    installer = Path(str(pending["file"]))
+    if not installer.is_file():
+        log_line(runtime_dir, f"auto-update: staged file missing ({installer}), skipped")
+        return
+    want = str(pending.get("sha256") or "").lower()
+    if want:
+        got = _sha256_of_file(installer)
+        if got != want:
+            log_line(runtime_dir, f"auto-update: sha mismatch on apply (v{version}), skipped")
+            return
+    if sys.platform != "win32":
+        # v1 只 Windows 自动链（用户拍板 2026-10-14）：其他平台留 pending 不动手
+        log_line(runtime_dir, f"auto-update: non-windows platform, pending v{version} ignored")
+        return
+    # 痕迹先落：新版首启 GET /update-check 的 auto 块据此报 applied（横幅「已更新」一次笛）
+    try:
+        marker = data_root / "updates" / "applied.json"
+        marker.write_text(
+            json.dumps({"version": version, "applied_at": time.time()},
+                       ensure_ascii=False), encoding="utf-8")
+    except OSError:
+        pass
+    install_dir = Path(sys.executable).parent
+    updates_dir = installer.parent
+    import subprocess
+
+    flags = getattr(subprocess, "DETACHED_PROCESS", 0) | getattr(
+        subprocess, "CREATE_NEW_PROCESS_GROUP", 0)
+    subprocess.Popen(
+        [str(installer),
+         "/VERYSILENT", "/SUPPRESSMSGBOXES", "/NORESTART", "/CURRENTUSER",
+         "/MERGETASKS=!desktopicon",
+         f"/DIR={install_dir}",
+         f"/LOG={updates_dir / 'installer.log'}",
+         "/AUTOLAUNCH=1"],
+        close_fds=True, creationflags=flags,
+    )
+    try:
+        pending_path.unlink(missing_ok=True)  # 一次性消费（自愈靠版本对拍，见草案 §4.3）
+    except OSError:
+        pass
+    log_line(runtime_dir, f"auto-update: installer launched for v{version} "
+                          f"({installer.name}), exiting for silent install")
 
 
 if __name__ == "__main__":

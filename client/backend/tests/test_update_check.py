@@ -1,7 +1,9 @@
 """client-update-notify：版本自报、节流、出站校验、版本比较、关闭记忆、兜底切换。"""
 
 import asyncio
+import hashlib
 import json
+import threading
 
 import pytest
 
@@ -48,7 +50,8 @@ def test_dev_env_reports_dev_and_skips(monkeypatch):
     monkeypatch.setattr(uc, "_fetch_latest", fake_fetch)
     st = _run(uc.get_update_state())
     assert st == {"current": "dev", "latest": None, "has_update": False,
-                  "notes": "", "notes_url": "", "download_url": "", "build": None}
+                  "notes": "", "notes_url": "", "download_url": "",
+                  "auto": {"state": "idle", "version": None}, "build": None}
     assert calls == []  # dev 跳过，零外呼
 
 
@@ -396,3 +399,193 @@ def test_endpoint_refresh_roundtrip(monkeypatch):
     with _client() as c:
         r = c.post("/api/update-check/refresh")
         assert r.status_code == 200 and r.json()["checked"] is True
+
+
+# ── P1 第二片：自动下载状态机／触发闸／apply·skip ─────────────────────────
+
+
+def _manifest(**over):
+    base = {"latest": "0.33", "notes": "", "auto_enabled": True,
+            "platforms": {"win": {"url": MAIN_URL.replace("latest.json", "pkg.exe"),
+                                  "sha256": "", "size": 0}},
+            "source_url": MAIN_URL}
+    base.update(over)
+    return base
+
+
+def test_trigger_gates(monkeypatch):
+    """闸＝is_newer × auto_enabled × 本平台包 × 未 skip × 未 staged 同版本；任一不过零线程。"""
+    monkeypatch.setattr(uc, "_PLATFORM_KEY", "win")
+    started = []
+    done = threading.Event()
+
+    def fake_worker(version, platform, epoch):
+        started.append((version, platform, epoch))
+        done.set()
+
+    monkeypatch.setattr(uc, "_download_worker", fake_worker)
+
+    def _state(**over):
+        st = {"auto": {"state": "idle", "version": None}}
+        st.update(over)
+        uc._state_path.write_text(json.dumps(st), encoding="utf-8")
+
+    uc.maybe_start_auto_download(_manifest(latest="0.11"), current="0.33")  # 不比当前新
+    uc.maybe_start_auto_download(_manifest(auto_enabled=False), current="0.11")
+    uc.maybe_start_auto_download(_manifest(platforms=None), current="0.11")
+    uc.maybe_start_auto_download(_manifest(platforms={"mac": None}), current="0.11")
+    _state(skipped_version="0.33")
+    uc.maybe_start_auto_download(_manifest(), current="0.11")
+    _state(auto={"state": "staged", "version": "0.33"})
+    uc.maybe_start_auto_download(_manifest(), current="0.11")
+    assert started == []
+
+    _state()
+    uc.maybe_start_auto_download(_manifest(), current="0.11")
+    assert done.wait(timeout=5)
+    version, platform, _epoch = started[0]
+    assert version == "0.33" and platform["url"].endswith("pkg.exe")
+
+
+def test_download_worker_stages_verified_package(monkeypatch, tmp_path):
+    """成功路径：.part→原子改名→sha 对上→staged；内容逐字节等于喂进来的流。"""
+    payload = b"PKG-BYTES"
+    want = hashlib.sha256(payload).hexdigest()
+    monkeypatch.setattr(uc, "_UPDATES_DIR", tmp_path)
+    monkeypatch.setattr(uc, "_PENDING_PATH", tmp_path / "pending.json")
+    monkeypatch.setattr(uc, "_APPLIED_PATH", tmp_path / "applied.json")
+    monkeypatch.setattr(uc, "_state_path", tmp_path / "update-check.json")
+    # 直调 worker：把跨用例残留的取消位/代际号复位（worker 入口即查这两样）
+    monkeypatch.setattr(uc, "_dl_cancel", threading.Event())
+    monkeypatch.setattr(uc, "_dl_epoch", 1)
+
+    class _Resp:
+        status_code = 200
+        def __enter__(self):
+            return self
+        def __exit__(self, *a):
+            return False
+        def iter_bytes(self, n):
+            yield payload
+
+    class _Client:
+        def __init__(self, *a, **k):
+            pass
+        def __enter__(self):
+            return self
+        def __exit__(self, *a):
+            return False
+        def stream(self, method, url):
+            return _Resp()
+
+    monkeypatch.setattr(uc.httpx, "Client", _Client)
+    platform = {"url": "https://host.example/pkg.exe", "sha256": want, "size": len(payload)}
+    uc._download_worker("0.33", platform, epoch=1)
+    dest = tmp_path / "pkg.exe"
+    assert dest.read_bytes() == payload
+    state = json.loads((tmp_path / "update-check.json").read_text(encoding="utf-8"))
+    assert state["auto"]["state"] == "staged"
+    assert state["auto"]["version"] == "0.33"
+
+
+def test_download_worker_quarantines_sha_mismatch(monkeypatch, tmp_path):
+    """sha 不符＝隔离件＋退避重试；超限＝failed（attempts exhausted）。"""
+    monkeypatch.setattr(uc, "_UPDATES_DIR", tmp_path)
+    monkeypatch.setattr(uc, "_state_path", tmp_path / "update-check.json")
+    monkeypatch.setattr(uc, "_MAX_ATTEMPTS", 1)
+    monkeypatch.setattr(uc.time, "sleep", lambda s: None)
+    monkeypatch.setattr(uc, "_dl_cancel", threading.Event())
+    monkeypatch.setattr(uc, "_dl_epoch", 1)
+
+    class _Resp:
+        status_code = 200
+        def __enter__(self):
+            return self
+        def __exit__(self, *a):
+            return False
+        def iter_bytes(self, n):
+            yield b"TAMPERED"
+
+    class _Client:
+        def __init__(self, *a, **k):
+            pass
+        def __enter__(self):
+            return self
+        def __exit__(self, *a):
+            return False
+        def stream(self, method, url):
+            return _Resp()
+
+    monkeypatch.setattr(uc.httpx, "Client", _Client)
+    platform = {"url": "https://host.example/pkg.exe", "sha256": "0" * 64, "size": 8}
+    uc._download_worker("0.33", platform, epoch=1)
+    state = json.loads((tmp_path / "update-check.json").read_text(encoding="utf-8"))
+    assert state["auto"]["state"] == "failed"
+    assert any(p.name.startswith("pkg.exe.quarantine-") for p in tmp_path.iterdir())
+
+
+def test_apply_writes_pending_and_refuses_when_gate_closed(monkeypatch, tmp_path):
+    """apply：staged＋manifest 对得上→pending 落盘（一次性＋TTL 字段）；渠道不可达→409。"""
+    payload = b"PKG"
+    pkg = tmp_path / "pkg.exe"
+    pkg.write_bytes(payload)
+    monkeypatch.setattr(uc, "_UPDATES_DIR", tmp_path)
+    monkeypatch.setattr(uc, "_PENDING_PATH", tmp_path / "pending.json")
+    monkeypatch.setattr(uc, "_APPLIED_PATH", tmp_path / "applied.json")
+    monkeypatch.setattr(uc, "_state_path", tmp_path / "update-check.json")
+    monkeypatch.setenv("CLIENT_VERSION", "0.11")
+    monkeypatch.setattr(uc, "_PLATFORM_KEY", "win")  # 测试机无关：钉平台键
+    (tmp_path / "update-check.json").write_text(
+        json.dumps({"auto": {"state": "staged", "version": "0.33"}}), encoding="utf-8")
+    monkeypatch.setattr(
+        uc, "_fetch_latest",
+        _async_returns(_manifest(platforms={
+            "win": {"url": "https://host.example/pkg.exe",
+                    "sha256": hashlib.sha256(payload).hexdigest(), "size": 3}})),
+    )
+    r = _run(uc.apply_update())
+    assert r == {"ok": True, "version": "0.33"}
+    pending = json.loads((tmp_path / "pending.json").read_text(encoding="utf-8"))
+    assert pending["relaunch"] is True and pending["version"] == "0.33"
+    assert pending["file"] == str(pkg) and pending["issued_at"] > 0
+    assert pending["sha256"] == hashlib.sha256(payload).hexdigest()
+
+    monkeypatch.setattr(uc, "_fetch_latest", _async_returns(None))
+    import pytest as _pytest
+    with _pytest.raises(uc.HTTPException) as ei:
+        _run(uc.apply_update())
+    assert ei.value.status_code == 409
+
+
+def test_auto_skip_cancels_and_cleans(monkeypatch, tmp_path):
+    """「暂不」：记 skip＋auto 回 idle＋删暂存件（保留 applied 历史）。"""
+    updates = tmp_path / "updates"  # 生产布局：暂存目录≠状态文件所在目录
+    updates.mkdir()
+    monkeypatch.setattr(uc, "_UPDATES_DIR", updates)
+    monkeypatch.setattr(uc, "_PENDING_PATH", updates / "pending.json")
+    monkeypatch.setattr(uc, "_APPLIED_PATH", updates / "applied.json")
+    monkeypatch.setattr(uc, "_state_path", tmp_path / "update-check.json")
+    (updates / "pkg.exe").write_bytes(b"x")
+    (updates / "applied.json").write_text("{}", encoding="utf-8")
+    (tmp_path / "update-check.json").write_text(
+        json.dumps({"auto": {"state": "staged", "version": "0.33"}}), encoding="utf-8")
+    r = _run(uc.auto_skip_update(uc.SkipIn(version="0.33")))
+    assert r == {"skipped": "0.33"}
+    state = json.loads((tmp_path / "update-check.json").read_text(encoding="utf-8"))
+    assert state["skipped_version"] == "0.33" and state["auto"]["state"] == "idle"
+    assert not (updates / "pkg.exe").exists()
+    assert (updates / "applied.json").exists()
+
+
+def test_auto_public_state_applied_marker_wins(monkeypatch, tmp_path):
+    """壳层写过 applied.json → GET 的 auto 块报 applied（横幅可做「已更新」一次笛）。"""
+    monkeypatch.setattr(uc, "_UPDATES_DIR", tmp_path)
+    monkeypatch.setattr(uc, "_PENDING_PATH", tmp_path / "pending.json")
+    monkeypatch.setattr(uc, "_APPLIED_PATH", tmp_path / "applied.json")
+    monkeypatch.setattr(uc, "_state_path", tmp_path / "update-check.json")
+    (tmp_path / "update-check.json").write_text(
+        json.dumps({"auto": {"state": "staged", "version": "0.33"}}), encoding="utf-8")
+    assert uc.auto_public_state() == {"state": "staged", "version": "0.33"}
+    (tmp_path / "applied.json").write_text(
+        json.dumps({"version": "0.33"}), encoding="utf-8")
+    assert uc.auto_public_state() == {"state": "applied", "version": "0.33"}
