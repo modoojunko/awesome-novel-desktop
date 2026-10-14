@@ -147,8 +147,10 @@ SHALL 显示总体进度、逐章拆卡与分维度归并步骤及取消入口�
 
 ### Requirement: 结果目录与出口勾选
 
-完成详情 SHALL 呈现结果目录树（根目录+README+10 份产物，含元信息与生成状态），每份产物
-SHALL 可勾选（默认全选；README 固定附带不可勾；下限 1 份）。出口二选一 SHALL 受勾选约束：
+完成详情 SHALL 呈现结果目录树（根目录+README+10 份产物＋图谱三件套与 `导出清单.json`，含元信息与
+生成状态）；图谱三件套与清单为**固定附带**（与 README 同列：不可勾、不计入「已选 N/M」与导出摘要
+份数、不进 files 参数——files 语义恒为 Markdown 勾选集）。每份 Markdown SHALL 可勾选（默认全选；
+下限 1 份）。出口二选一 SHALL 受勾选约束：
 建书只写入勾中的设定项，导出只带勾中的产物。应用内 SHALL NOT 提供拆解产物的内容预览与编辑。
 
 #### Scenario: 默认全选
@@ -218,9 +220,10 @@ SHALL NOT 影响任务产物的保留。
 13 份拆书提示词模板（card＋十维度＋reduce＋place 归并；system 段含输出三铁律：硬事实回指章节号、
 结论标可信度、原文没写标「原文未明确」）SHALL 存放于提示词仓并随分层包发布；客户端 SHALL 经既有
 提示词包机制加载。提示词包缺失或版本不满足时，创建入口 SHALL 给出「写作能力包需更新」引导（可点击
-去检查/更新），SHALL 禁用创建且 SHALL NOT 崩溃或产生半途任务。老包（card 无 places/presence 键）
-SHALL 经 min_pack_version 门槛禁用图谱出口并给升级引导——SHALL NOT 出现「契约合法但图谱空转」
-的静默劣化。
+去检查/更新），SHALL 禁用创建且 SHALL NOT 崩溃或产生半途任务。**能力戳**：任务创建时系统 SHALL 探测 card 模板契约含 places/presence（以已装包 receipt 版本≥13 模板
+首发判定），结果记入任务行；无 caps 时创建页 SHALL warn「当前能力包出不了图谱」（不拦截，md 仍值钱），
+导出端 SHALL 只认行内戳不认当前包态并回落 md＋README——SHALL NOT 出现「契约合法但图谱空转」
+的静默劣化，亦 SHALL NOT 在跑完任务后才于导出时告知无图谱。本条取代原「模板名存在性、不升版本」口径。
 
 #### Scenario: 缺包引导
 - **WHEN** 提示词包未包含拆书模板时用户进入创建任务
@@ -230,10 +233,12 @@ SHALL 经 min_pack_version 门槛禁用图谱出口并给升级引导——SHALL
 
 任务完成后的导出文件夹 SHALL 在 10 份 Markdown 之外包含图谱三件套：`图谱.json`（契约
 deconstruct-graph/6＝唯一数据正身）、`图谱.html`（自包含单文件查看器，离线零依赖、禁引 CDN）、
-`图谱.svg`（静态一张：关系全网＋地点账）。图谱 SHALL 为导出时刻由 cards/归并终稿装配的**纯代码投影**
-（模型不产 id/章号/计数；归一化产物持久化 dims_json.graph 供续拆复用），SHALL 附 `导出清单.json`
-（文件名→sha256＋任务号＋契约版本）：用户手改过的导出文件在下次导出时 SHALL 先转 `.bak-时间戳`
-再写入新件。README SHALL 写明「图谱.json 与 md 为导出副本，手改不回流应用」。
+`图谱.svg`（静态一张：关系全网＋地点账）。图谱装配 SHALL 为**管线阶段三**（全部维度归并完成后、置 completed 之前）：输入 cards/归并终稿＋
+一次归一化模型调用，产物缓存 `dims_json["graph"]`（append-only，**已分配 id 永不重排**）；导出端
+SHALL 只做读缓存＋确定性渲染（内存装配完成后落笔、`导出清单.json` 最后写、失败零半成品）。清单含
+文件名→sha256＋任务号＋契约版本：用户手改过的导出件下次导出 SHALL 先转 `.bak-时间戳` 再写新件，
+响应 SHALL 回传备份名且前端 SHALL 上浮提示。README SHALL 写明「图谱.json 与 md 为导出副本，
+手改不回流应用」。图谱导出 SHALL 受总开关（配置项，默认开）控制。
 
 #### Scenario: 三件套齐出
 - **WHEN** 用户完成导出选择文件夹
@@ -242,6 +247,10 @@ deconstruct-graph/6＝唯一数据正身）、`图谱.html`（自包含单文件
 #### Scenario: 覆盖保护
 - **WHEN** 用户改过旧导出的 图谱.json 后再次导出
 - **THEN** 旧文件转 .bak-时间戳 保留，新文件写入，响应与 README 明示备份名
+
+#### Scenario: 开关回落
+- **WHEN** 图谱导出总开关关闭时用户导出
+- **THEN** 目录仅 10 份 md＋README＋清单，完成横幅与导出摘要文案同步回落，无报错
 
 ### Requirement: 视图分工与阅读过滤器
 
