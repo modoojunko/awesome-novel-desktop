@@ -154,8 +154,11 @@ jobs:
             # download/lab/latest.json（由 lab-publish job 随 dispatch 部署，与生产
             # latest.json 完全隔离——生产客户端永不读该路径，反之亦然）。主/兜底同址
             # 会让 update_check 候选去重成单源，属预期：lab 包不需要生产兜底。
-            RELEASE_DOWNLOAD_BASE="${RELEASE_DOWNLOAD_FALLBACK_BASE%/}/download/lab"
-            RELEASE_DOWNLOAD_FALLBACK_BASE="${RELEASE_DOWNLOAD_FALLBACK_BASE%/}/download/lab"
+            # ⚠️ 兜底基址已含 /download（…/download），此处只追加 /lab——拼成
+            # /download/download/lab 会被静态托管的 SPA 兜底页接住（200+HTML），
+            # 客户端 JSON 解析失败＝「渠道不可达」（10-14 实锤：v4 包检查更新恒失败）
+            RELEASE_DOWNLOAD_BASE="${RELEASE_DOWNLOAD_FALLBACK_BASE%/}/lab"
+            RELEASE_DOWNLOAD_FALLBACK_BASE="${RELEASE_DOWNLOAD_FALLBACK_BASE%/}/lab"
             export RELEASE_DOWNLOAD_BASE RELEASE_DOWNLOAD_FALLBACK_BASE
           fi
           python ../../backend/scripts/release_json_generate.py "$CLIENT_VERSION" -o release.json
