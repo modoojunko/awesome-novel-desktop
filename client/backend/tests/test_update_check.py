@@ -324,3 +324,75 @@ def test_endpoint_dismiss_roundtrip():
 def test_endpoint_dismiss_invalid_version_422():
     with _client() as c:
         assert c.post("/api/update-check/dismiss", json={"version": "abc"}).status_code == 422
+
+
+# ── 手动「检查更新」入口（silent-upgrade P1 首片）─────────────────────────
+
+
+def test_refresh_bypasses_throttle_and_caches(monkeypatch):
+    """节流窗内 fresh 的 last_check_at 拦不住 refresh：照外呼，且结果回写缓存。"""
+    monkeypatch.setenv("CLIENT_VERSION", "0.11")
+    import time as _t
+    uc._state_path.write_text(
+        json.dumps({"last_check_at": _t.time(), "cached": {"latest": "0.11", "notes": ""}}),
+        encoding="utf-8",
+    )
+    calls = []
+
+    async def fake_fetch():
+        calls.append(1)
+        return {"latest": "0.13", "notes": "修复", "source_url": MAIN_URL}
+
+    monkeypatch.setattr(uc, "_fetch_latest", fake_fetch)
+    r = _run(uc.refresh_update_check())
+    assert calls == [1]
+    assert r["checked"] is True and r["has_update"] is True and r["latest"] == "0.13"
+    saved = json.loads(uc._state_path.read_text(encoding="utf-8"))
+    assert saved["cached"]["latest"] == "0.13"
+
+
+def test_refresh_dev_still_answers(monkeypatch):
+    """dev 构建周期横幅照旧跳过，但手动点击照实返回（dev 序最低→任何官方版皆更新）。"""
+    monkeypatch.setattr(
+        uc, "_fetch_latest",
+        _async_returns({"latest": "0.33", "notes": "", "source_url": MAIN_URL}),
+    )
+    r = _run(uc.refresh_update_check())
+    assert r["current"] == "dev" and r["checked"] is True and r["has_update"] is True
+
+
+def test_refresh_ignores_dismissed(monkeypatch):
+    """两路语义分叉：refresh 不查 dismissed（手动＝要看真相）；周期 GET 照旧受其约束。"""
+    monkeypatch.setenv("CLIENT_VERSION", "0.11")
+    uc._state_path.write_text(json.dumps({"dismissed_version": "0.12"}), encoding="utf-8")
+    monkeypatch.setattr(
+        uc, "_fetch_latest",
+        _async_returns({"latest": "0.12", "notes": "", "source_url": MAIN_URL}),
+    )
+    assert _run(uc.refresh_update_check())["has_update"] is True
+    assert _run(uc.get_update_state())["has_update"] is False
+
+
+def test_refresh_failure_marks_checked_false_and_keeps_cache(monkeypatch):
+    """外呼失败→checked=False 且不动缓存（横幅继续吃上一次好结果，失败零污染）。"""
+    monkeypatch.setenv("CLIENT_VERSION", "0.11")
+    uc._state_path.write_text(
+        json.dumps({"last_check_at": 0.0, "cached": {"latest": "0.12", "notes": ""}}),
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(uc, "_fetch_latest", _async_returns(None))
+    r = _run(uc.refresh_update_check())
+    assert r["checked"] is False and r["latest"] is None and r["has_update"] is False
+    saved = json.loads(uc._state_path.read_text(encoding="utf-8"))
+    assert saved["cached"]["latest"] == "0.12"
+
+
+def test_endpoint_refresh_roundtrip(monkeypatch):
+    monkeypatch.setenv("CLIENT_VERSION", "0.11")
+    monkeypatch.setattr(
+        uc, "_fetch_latest",
+        _async_returns({"latest": "0.12", "notes": "", "source_url": MAIN_URL}),
+    )
+    with _client() as c:
+        r = c.post("/api/update-check/refresh")
+        assert r.status_code == 200 and r.json()["checked"] is True

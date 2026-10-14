@@ -15,10 +15,11 @@ import RestoreModal from "@/components/RestoreModal";
 import { Ico, P } from "@/components/icons";
 import { useLegacyDb } from "@/hooks/useLegacyDb";
 import { useTier } from "@/hooks/useTier";
-import { api, errMessage, type ApiError } from "@/lib/api";
+import { api, errMessage, request, type ApiError } from "@/lib/api";
 import { getUsername, logout } from "@/lib/auth";
 import { getLastProbe, openPackModal } from "@/lib/packProbe";
 import { supportUrl } from "@/lib/support";
+import { toast } from "@/lib/toast";
 import { formatVersion, useClientVersion } from "@/lib/version";
 import { queryClient } from "@/lib/queryClient";
 import { queryKeys } from "@/lib/queryKeys";
@@ -30,6 +31,14 @@ const BADGE_CLASS: Record<Tone, string> = {
   muted: "badge badge-muted",
   warn: "badge badge-warn",
 };
+
+/** POST /update-check/refresh 载荷（silent-upgrade P1 首片：手动检查更新入口） */
+interface UpdateRefresh {
+  current: string;
+  latest: string | null;
+  has_update: boolean;
+  checked: boolean;
+}
 
 export default function AcctMenu({
   onBookPrefs,
@@ -420,6 +429,34 @@ export default function AcctMenu({
               <span className="am-hint">新窗口打开</span>
             </a>
           )}
+
+          {/* silent-upgrade P1 首片：手动「检查更新」——绕过节流打一次真实外呼，
+              toast 三分支（发现新版/已最新/渠道不可达）；自动下载升级在后续批接入 */}
+          <button
+            className="am-item"
+            role="menuitem"
+            data-od-id="acct-menu-check-update"
+            data-testid="acct-menu-check-update"
+            onClick={async () => {
+              close();
+              try {
+                const r = await request<UpdateRefresh>("/update-check/refresh", { method: "POST", quiet: true });
+                if (!r.checked || !r.latest) {
+                  toast.error("未能连接更新渠道，请稍后再试");
+                } else if (r.has_update) {
+                  toast.info(`发现新版本 v${r.latest}（当前 ${formatVersion(r.current)}）`);
+                } else {
+                  toast.success(`已是最新版本 v${r.latest}`);
+                }
+              } catch {
+                toast.error("检查更新失败，请稍后再试");
+              }
+            }}
+          >
+            <Ico d={P.refresh} sw={1.7} />
+            检查更新
+            <span className="am-hint">立即连接官方渠道</span>
+          </button>
 
           <div className="am-foot">
             <button

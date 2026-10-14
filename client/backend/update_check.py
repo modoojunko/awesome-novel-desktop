@@ -257,3 +257,30 @@ async def dismiss_update(payload: DismissIn):
     state["dismissed_version"] = version
     _save_state(state)
     return {"dismissed": version}
+
+
+@router.post("/api/update-check/refresh")
+async def refresh_update_check():
+    """手动「检查更新」入口（P1 首片）：绕过节流做一次真实外呼取真相。
+
+    口径：
+    - 外呼仍走 `_fetch_latest` 单源（出站校验/兜底域/载荷校验全复用），只绕节流节奏；
+    - dev 构建的周期横幅照旧整体跳过（无版本语义），本端点是**人 explicit 点击**——
+      dev 排序恒最低，任何官方版都判「更新可用」，测试包可当场验入口通不通；
+    - 不查 dismissed_version：手动点击＝要看真相，不因先前关过横幅而吞提示；
+    - 成功顺带回写缓存（小时节流窗内后续 GET 直接吃新鲜结果），失败不动缓存。
+    """
+    current = get_client_version()
+    fetched = await _fetch_latest()
+    if fetched is None:
+        return {"current": current, "latest": None, "has_update": False,
+                "notes": "", "checked": False, "build": get_build_info(current)}
+    state = _load_state()
+    state["last_check_at"] = time.time()
+    state["cached"] = fetched
+    _save_state(state)
+    latest = fetched["latest"]
+    return {"current": current, "latest": latest,
+            "has_update": _has_newer(latest, current),
+            "notes": fetched.get("notes") or "", "checked": True,
+            "build": get_build_info(current)}

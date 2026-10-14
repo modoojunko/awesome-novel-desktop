@@ -847,3 +847,66 @@ describe("AcctMenu 写作能力菜单项（c-prompt-pack-onboard-modal）", () =
     expect(row?.textContent).toContain("写作能力");
   });
 });
+
+describe("AcctMenu 检查更新入口（silent-upgrade P1 首片）", () => {
+  async function openMenu() {
+    const { default: AcctMenu } = await import("@/components/AcctMenu");
+    const { useTier } = await import("@/hooks/useTier");
+    vi.mocked(useTier).mockReturnValue(tierState());
+    mount(<AcctMenu />);
+    fireEvent.click(document.querySelector('[data-od-id="acct-trigger"]') as HTMLElement);
+    await act(async () => {});
+  }
+
+  function stubRefresh(payload: unknown) {
+    vi.stubGlobal("fetch", vi.fn().mockImplementation(async (url: string) => {
+      if (String(url).includes("/update-check/refresh")) {
+        return { ok: true, status: 200, json: async () => payload };
+      }
+      return { ok: true, status: 200, json: async () => [] };
+    }));
+  }
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    // toast 探针：文件顶层 mock 返回的是 toastState，这里让断言走独立探针需同步引用
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  async function clickCheckUpdate(payload?: unknown, mode: "ok" | "fail" = "ok") {
+    if (mode === "fail") {
+      vi.stubGlobal("fetch", vi.fn().mockRejectedValue(new TypeError("Failed to fetch")));
+    } else {
+      stubRefresh(payload);
+    }
+    await openMenu();
+    fireEvent.click(document.querySelector('[data-od-id="acct-menu-check-update"]') as HTMLElement);
+    await act(async () => {});
+  }
+
+  it("发现新版本：info toast 带版本号，面板收起", async () => {
+    await clickCheckUpdate({ current: "0.19", latest: "0.33", has_update: true, checked: true });
+    expect(toastState.info).toHaveBeenCalledWith(expect.stringContaining("发现新版本 v0.33"));
+    await waitFor(() =>
+      expect(document.querySelector('[data-od-id="acct-menu-check-update"]')).toBeNull(),
+    );
+  });
+
+  it("已是最新：success toast 带版本号", async () => {
+    await clickCheckUpdate({ current: "0.33", latest: "0.33", has_update: false, checked: true });
+    expect(toastState.success).toHaveBeenCalledWith(expect.stringContaining("已是最新版本 v0.33"));
+  });
+
+  it("渠道不可达（checked=false）：error toast 提示稍后再试", async () => {
+    await clickCheckUpdate({ current: "0.19", latest: null, has_update: false, checked: false });
+    expect(toastState.error).toHaveBeenCalledWith(expect.stringContaining("未能连接更新渠道"));
+  });
+
+  it("请求异常：error toast 兜底（不外抛不白屏）", async () => {
+    await clickCheckUpdate(undefined, "fail");
+    expect(toastState.error).toHaveBeenCalledWith(expect.stringContaining("检查更新失败"));
+  });
+});
