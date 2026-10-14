@@ -190,6 +190,9 @@ const ProsePane = forwardRef<ProseHandle, ProsePaneProps>(function ProsePane(
   const lastSyncedRef = useRef<string | null>(null);
   const streamingRef = useRef(false);
   const abortRef = useRef<AbortController | null>(null);
+  // 补足落盘窗口防重入（c-shortfall-refill 评审二轮 P3）：flush 期间不立
+  // streaming 守卫——旧区间 refs 会被换章 cleanup 的 finishStream 拿去误删
+  const refillPendingRef = useRef(false);
   // 流式现场（插入点 / 起点 / 收尾定位用）
   const streamPosRef = useRef(0);
   // 流式增量镜像：已插入的「归一全量」长度（appendChunk 与后端归一同口径）
@@ -675,26 +678,31 @@ const ProsePane = forwardRef<ProseHandle, ProsePaneProps>(function ProsePane(
       return;
     }
     const refAtStart = chapterRef; // await 落盘期间可能已切章：闭包章号过期即放弃
-    // 先立守卫防双击/并发动作，flush 失败即释放
-    streamingRef.current = true;
-    setStreaming(true);
-    onAIStateChange((prev) => ({ ...prev, streaming: true }));
-    // 评审 P1：refill 是链上唯一 read-modify-write（服务端读存稿→合并→落库），
-    // 防抖窗口内的未落盘编辑必须先落盘——startStream 的 fire-and-forget 在这里
-    // 不够（服务端开流即读，PUT 会与读赛跑）。落盘失败宁可不补，绝不按旧稿合并。
+    // 评审 P1（二轮收口）：refill 是链上唯一 read-modify-write（服务端读存稿→合并→
+    // 落库），防抖窗口内的未落盘编辑必须先落盘。flush 落盘窗口不立 streaming 守卫
+    // （二轮 P3：旧区间 refs 会被换章 cleanup 的 finishStream 拿去误删），防重入用
+    // 独立 pending 标志；doSave 吞错（saveState:"failed"、flush 照常 resolve），
+    // 失败检测靠 flush 后核 isDirty——宁可不补，绝不按旧稿合并。
+    refillPendingRef.current = true;
     try {
       await store.flush();
     } catch {
-      streamingRef.current = false;
-      setStreaming(false);
-      onAIStateChange((prev) => ({ ...prev, streaming: false }));
       toast.error("正文还没保存成功，暂不能补足——请稍后重试");
       return;
+    } finally {
+      refillPendingRef.current = false;
     }
-    // await 窗口内切章/卸载：换章 cleanup 已释放守卫，此处静默放弃
-    // （ref 经 as 读回——TS 对 .current 的字面量收窄会把「被别处释放」判成不可达）
-    const stillArmed: boolean = streamingRef.current;
-    if (chapterRef !== refAtStart || !editor || editor.isDestroyed || !stillArmed) {
+    if (
+      chapterRef !== refAtStart ||
+      !editor ||
+      editor.isDestroyed ||
+      streamingRef.current
+    ) {
+      // flush 窗口内切章/有动作在跑：静默放弃
+      return;
+    }
+    if (store.isDirty) {
+      toast.error("正文还没保存成功，暂不能补足——请稍后重试");
       return;
     }
     setRefillRounds((r) => r + 1);
