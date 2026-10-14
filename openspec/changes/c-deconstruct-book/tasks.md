@@ -80,3 +80,15 @@
 - [x] 9.4 前端：详情页步骤列表头插「逐章拆卡」步＋维度文案「段」改「归并」＋总进度加权（拆卡 50/归并 50）；容量口径随 v2 上修 30 万→60 万字（约 200 章；截断已废除、残留为梗概注入界），入口文案/warn/spec 三处同步
 - [x] 9.5 spec 重写「十维度拆解管线与断点续拆」为两阶段卡片＋归并，新增章级断点 Scenario；容量 Requirement 改 60 万线；design D1/D3/Non-Goals/Risks 同步
 - [x] 9.6 门禁全绿：后端 2328 passed（含 258 个原 skip 的 prompts 门测试经 v2 模板全量跑通）＋ruff；前端 vitest 1586/1586＋coverage 无缺口＋tsc；提示词仓 lint＋pytest 90；openspec validate 通过
+
+## 10. 图谱并入 #842（2026-10-14 用户拍板「一本书拆书后的知识图谱合并到 #842」；开工单按此序）
+
+- [ ] 10.1 提示词仓：card 契约加 places/presence（插 characters 后防尾部漏项；卡内自洽自查句；禁补专名）；十维度模板加「关系专款」（自由措辞→relTypes 映射/同义归户/方向）；新模板 deconstruct_place（地点归并：别名保守并户＋parent 只认隶属直陈）；relTypes 19 型进 card 与关系模板；sync/publish/pins 12→13＋新钉六枚；lint＋pytest 全绿
+- [ ] 10.2 后端装配器 `deconstruct/graph.py`：cards＋归并终稿→graph/6 投影（id 分配/首现盖章/chapters.who·at 派生/到过派生 links 基线/parent 传递闭包＋环检测/三查 lint＋quote 原文回验）；归一化产物落 dims_json["graph"]；三级降级与 meta（warnings/完成度）
+- [ ] 10.3 渲染器：确定性布局（场景泳道/网格＋关系规则布局，禁自写力导向）坐标入 layout 块；图谱.html 模板＝原型 v7 交互真值生产化（relTypes 表/未知区/警告横幅/过滤器 ego+TopN）；图谱.svg 静态一张；golden 测试（同输入同字节）
+- [ ] 10.4 导出链：router 导出白名单加 .json/.html/.svg（红旗：现只认 .md 会无声丢图）＋`导出清单.json` sha256 覆盖保护＋.bak；README 加「正身副本不回流」段；badge/exported_at 语义覆盖三件
+- [ ] 10.5 老包门槛：min_pack_version 判 card 是否含 presence——不达标禁图谱出口＋升级引导；「无键≠空数组」区分留痕
+- [ ] 10.6 任务详情/清单文案：完成横幅加「＋图谱三件套」；容量提示保持 60 万（评审判定 presence 不上调不下调）；创建页提示补图谱产出
+- [ ] 10.7 测试与门禁：后端行为测试扩 presence 抽取段/装配器 golden/降级链三例；vitest 前端导出面适配；全量 pytest＋ruff＋vitest＋coverage＋tsc＋提示词 lint/pytest；openspec validate
+- [ ] 10.8 二轮评审（Code Reviewer 全量 diff：引擎面沿前轮结论、图谱面重点）→修复→CI 双绿；#842 标题/描述改写为「文档＋图谱」完整体
+
