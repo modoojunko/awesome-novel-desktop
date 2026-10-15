@@ -240,17 +240,25 @@ async def retry_upload(
 @router.post("/tasks/{task_id}/import-book")
 async def import_book(
     task_id: str,
+    body: dict | None = None,
     user: dict = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    """建书出口：勾选维度经域服务灌入新书（幂等）。"""
+    """建书出口：勾选维度经域服务灌入新书（幂等）。
+
+    body.items＝弹窗勾选的灌入项（7 设定项＋structure/relations/techniques）；
+    缺省＝旧口径（任务勾选维度里的设定项）。
+    """
     task = await service.get_task(db, task_id, _user_id(user))
     _require(task, user)
     if task.status != "completed":
         raise HTTPException(409, "任务未完成，无法建书")
     if not task.api_config_id:
         raise HTTPException(409, "任务缺模型信息")
-    result, warnings = await apply.import_book(db, task, _user_id(user))
+    items = None
+    if isinstance(body, dict) and body.get("items") is not None:
+        items = [str(x) for x in body["items"]]
+    result, warnings = await apply.import_book(db, task, _user_id(user), items=items)
     return {**result, "warnings": warnings}
 
 

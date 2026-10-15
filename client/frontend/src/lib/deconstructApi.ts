@@ -116,8 +116,12 @@ export async function retryUploadDeconstructTask(id: string, file: File): Promis
 
 export async function importBookFromTask(
   id: string,
+  items?: string[],
 ): Promise<{ book_id: string; name: string; skipped: string[]; warnings: string[] }> {
-  return request(`/deconstruct/tasks/${id}/import-book`, { method: "POST" });
+  return request(`/deconstruct/tasks/${id}/import-book`, {
+    method: "POST",
+    body: JSON.stringify(items ? { items } : {}),
+  });
 }
 
 export async function exportTaskProducts(

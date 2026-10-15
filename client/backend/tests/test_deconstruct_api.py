@@ -581,3 +581,87 @@ def test_import_world_v2_product_shapes(client):
     assert w["constraints"] and w["constraints"][0]["key"] == "诅咒绑定"
     assert "走不了" in w["constraints"][0]["value"]
     assert w["factions"][0]["name"] == "公交公司" and w["factions"][0]["note"] == "老吴知情并隐瞒"
+
+
+def test_import_book_items_structure_relations_techniques(client):
+    """勾选导入三项扩展：卷行创建／关系别名解析＋未入库跳过／技法并入文风 rules。"""
+    chars = [
+        {"name": "李耀", "role": "主角", "plot": "p", "traits": "", "alias": "小李/我"},
+        {"name": "老吴", "role": "配角", "plot": "p", "traits": "", "alias": ""},
+        {"name": "队长", "role": "配角", "plot": "p", "traits": "", "alias": ""},
+    ]
+    _mk_completed("dec-items-1", {
+        "characters": _product("characters", "角色设定.md", {"characters": chars}, "# 角色"),
+        "structure": _product("structure", "章卷结构.md", {"volumes": [
+            {"title": "夜班车鬼线", "ch_range": "第1-13章", "note": "开局至铜钟事件"},
+            {"title": "原文未明确", "ch_range": "第14-40章", "note": "水库收束"},
+        ]}, "# 章卷"),
+        "relations": _product("relations", "人物关系与势力.md", {"edges": [
+            {"from": "老吴", "to": "李耀", "rel_type": "主从", "note": "强塞夜班车", "evidence_ch": "第1章"},
+            {"from": "队长", "to": "小李/我", "rel_type": "主从", "note": "别名命中"},
+            {"from": "名单外人", "to": "李耀", "rel_type": "敌对", "note": "未入库跳过"},
+        ]}, "# 关系"),
+        "techniques": _product("techniques", "写作技法.md", {"techniques": [
+            {"name": "短句急促", "how": "惊悚段落用短句"},
+            {"name": "动作描写", "how": "身体动作展示情绪"},
+        ]}, "# 技法"),
+    })
+    items = ["world", "characters", "structure", "relations", "techniques"]
+    r = client.post("/api/deconstruct/tasks/dec-items-1/import-book", json={"items": items})
+    assert r.status_code == 200, r.text
+    body = r.json()
+    bid = body["book_id"]
+    assert any("角色未入库" in w for w in body["warnings"])  # 名单外人被跳过留痕
+
+    async def _check():
+        from sqlalchemy import select
+
+        from filesystem.paths import KEY_TO_PATH
+        from filesystem.storage import get_storage
+        from models.character import Character, CharacterRelation
+        from models.project import Novel
+        from models.volume import Volume
+
+        async with async_session() as s:
+            vols = (await s.execute(select(Volume).where(Volume.project_id == bid))).scalars().all()
+            rels = (await s.execute(select(CharacterRelation).where(CharacterRelation.novel_id == bid))).scalars().all()
+            c = (await s.execute(select(Character).where(Character.novel_id == bid, Character.name == "李耀"))).scalars().first()
+            n = await s.get(Novel, bid)
+        style = await get_storage().read_yaml(n.root_path, KEY_TO_PATH["style"])
+        return vols, rels, c, style
+
+    vols, rels, c, style = _run(_check())
+    assert [v.title for v in sorted(vols, key=lambda v: v.volume_no)] == ["夜班车鬼线", "第2卷"]  # 「原文未明确」→服务端兜底
+    assert "水库收束" in vols[1].summary
+    assert len(rels) == 2  # 队长（别名命中）＋老吴
+    assert all(r.owner_id == c.id or r.other_id == c.id for r in rels)
+    assert "短句急促：惊悚段落用短句" in (style.get("rules") or [])
+
+
+def test_import_book_default_items_legacy(client):
+    """缺省 items＝旧口径：任务维度里的设定项——structure/relations/techniques 不灌。"""
+    _mk_completed("dec-items-2", {
+        "structure": _product("structure", "章卷结构.md", {"volumes": [
+            {"title": "不该出现的卷", "ch_range": "第1-9章", "note": ""},
+        ]}, "# 章卷"),
+        "relations": _product("relations", "人物关系与势力.md", {"edges": [
+            {"from": "甲", "to": "乙", "rel_type": "敌对", "note": ""},
+        ]}, "# 关系"),
+    })
+    r = client.post("/api/deconstruct/tasks/dec-items-2/import-book")
+    assert r.status_code == 200, r.text
+    bid = r.json()["book_id"]
+
+    async def _check():
+        from sqlalchemy import select
+
+        from models.character import CharacterRelation
+        from models.volume import Volume
+
+        async with async_session() as s:
+            vols = (await s.execute(select(Volume).where(Volume.project_id == bid))).scalars().all()
+            rels = (await s.execute(select(CharacterRelation).where(CharacterRelation.novel_id == bid))).scalars().all()
+        return vols, rels
+
+    vols, rels = _run(_check())
+    assert vols == [] and rels == []  # 未勾不灌（旧行为不变）

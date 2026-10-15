@@ -21,6 +21,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -29,6 +30,9 @@ from models.deconstruct import SETTING_DIMENSION_KEYS, DeconstructJob
 
 # 角色 role 白名单映射（character_model.ROLES = 主角/配角/反派/路人）
 _ROLE_MAP = {"主角": "主角", "反派": "反派", "核心": "配角", "配角": "配角", "功能": "配角", "路人": "路人"}
+
+# 建书可勾项＝7 设定项＋三项扩展（章卷结构→卷行；人物关系→关系行；写作技法→文风 rules）
+IMPORT_ITEM_KEYS = (*SETTING_DIMENSION_KEYS, "structure", "relations", "techniques")
 
 
 def _raw(task: DeconstructJob) -> dict:
@@ -116,15 +120,24 @@ def _world_body(data: dict) -> dict:
 
 
 async def import_book(
-    db: AsyncSession, task: DeconstructJob, user_id: str
+    db: AsyncSession, task: DeconstructJob, user_id: str, items: list[str] | None = None
 ) -> tuple[dict, list[str]]:
-    """建书：返回 ({book_id, name, skipped}, 降级提示清单)。幂等：book_id 已存在直接返回。"""
+    """建书：返回 ({book_id, name, skipped}, 降级提示清单)。幂等：book_id 已存在直接返回。
+
+    items＝作家在弹窗勾选的灌入项（7 设定项＋章卷结构/人物关系/写作技法）；
+    None＝旧口径（任务勾选维度里的设定项）——二创默认轻量，自书续写勾三项。
+    """
     from novels.service import create_project
 
     if task.book_id:
         return {"book_id": task.book_id, "name": task.book_name, "skipped": []}, []
 
-    selected = _selected(task)
+    if items is None:
+        selected = _selected(task)
+    else:
+        picked = set(items)
+        selected = [k for k in IMPORT_ITEM_KEYS if k in picked]
+
     warnings: list[str] = []
     synopsis = str(_data(task, "intro").get("intro", ""))[:600] if "intro" in selected else ""
     genre = str(_data(task, "genre").get("genre", ""))[:40] if "genre" in selected else ""
@@ -171,6 +184,7 @@ async def import_book(
                         project.id,
                         name=name,
                         role=role,
+                        aliases=card.get("aliases") or None,
                         dossier={
                             "plot": str(card.get("plot", ""))[:300],
                             "background": str(card.get("background", ""))[:300],
@@ -217,6 +231,95 @@ async def import_book(
         if result.get("truncated"):
             warnings.append(f"伏笔超出单次上限，已收 {result['truncated']} 条")
 
+    if "structure" in selected:
+        # 章卷结构 → 卷行（title 产物常写「原文未明确」→ 落「第N卷」由服务端兜底）
+        from volumes.service import create_volume
+
+        data_v = _data(task, "structure")
+        for v in data_v.get("volumes") or []:
+            if not isinstance(v, dict):
+                continue
+            title = str(v.get("title", "")).strip()
+            title = "" if title == "原文未明确" else title
+            note = str(v.get("note", "")).strip()
+            rng = str(v.get("ch_range", "")).strip()
+            summary = "；".join(x for x in (rng, note) if x)[:300]
+            try:
+                await create_volume(db, project, title=title, summary=summary)
+            except Exception as e:  # noqa: BLE001 — 套餐卷数上限等：降级提示不中断（详情在任务资料）
+                warnings.append(f"卷「{title or '未命名'}」未导入（{str(e)[:60]}），章卷结构详见任务资料")
+                break
+
+    if "relations" in selected:
+        # 人物关系 → 关系行：边端点名解析到已导入角色（名/别名/去括注变体），未入库/自环跳过留痕
+        from sqlalchemy import select
+
+        from models.character import Character, CharacterRelation
+
+        chars = (await db.execute(select(Character).where(Character.novel_id == project.id))).scalars().all()
+        by_name: dict = {}
+        for c in chars:
+            variants = _name_variants(c.name)
+            try:
+                for a in json.loads(c.aliases or "[]"):
+                    variants.extend(_name_variants(str(a)))
+            except ValueError:
+                pass
+            for v in variants:
+                by_name.setdefault(v, c)
+
+        def _resolve(edge_name: str):
+            for v in _name_variants(edge_name):
+                if v in by_name:
+                    return by_name[v]
+            return None
+
+        skipped = 0
+        data_r = _data(task, "relations")
+        for e in data_r.get("edges") or []:
+            if not isinstance(e, dict):
+                continue
+            owner = _resolve(str(e.get("from", "")))
+            other = _resolve(str(e.get("to", "")))
+            if not owner or not other or owner.id == other.id:
+                skipped += 1
+                continue
+            dup = await db.execute(
+                select(CharacterRelation).where(
+                    CharacterRelation.novel_id == project.id,
+                    CharacterRelation.owner_id == owner.id,
+                    CharacterRelation.other_id == other.id,
+                    CharacterRelation.rel_type == str(e.get("rel_type", ""))[:20],
+                )
+            )
+            if dup.scalars().first() is not None:
+                continue
+            db.add(CharacterRelation(
+                novel_id=project.id, owner_id=owner.id, other_id=other.id,
+                rel_type=str(e.get("rel_type", ""))[:20], stance="",
+                note=str(e.get("note", ""))[:300], ch_ref=str(e.get("evidence_ch", ""))[:40],
+            ))
+        await db.commit()
+        if skipped:
+            warnings.append(f"{skipped} 条人物关系因角色未入库（未勾角色设定或名单外）被跳过")
+
+    if "techniques" in selected:
+        # 写作技法 → 文风 rules 追加（「名：怎么用」；已存在的不重复）
+        from settings.style_model import put_style
+
+        data_t = _data(task, "techniques")
+        raw = await storage.read_yaml(root, KEY_TO_PATH["style"]) or {}
+        cur = [str(x) for x in (raw.get("rules") or [])] if isinstance(raw, dict) else []
+        for t in data_t.get("techniques") or []:
+            if not isinstance(t, dict):
+                continue
+            name = str(t.get("name", "")).strip()
+            how = str(t.get("how", "")).strip()
+            line = f"{name}：{how}" if name and how else (name or how)
+            if line and line not in cur:
+                cur.append(line[:200])
+        await storage.write_yaml(root, KEY_TO_PATH["style"], put_style(raw, {"rules": cur}))
+
     return (
         {
             "book_id": project.id,
@@ -232,12 +335,14 @@ def _cards(task: DeconstructJob) -> list[dict]:
     for c in _data(task, "characters").get("characters") or []:
         if not isinstance(c, dict):
             continue
+        aliases = [a.strip() for a in str(c.get("alias", "") or "").replace("／", "/").split("/") if a.strip()]
         cards.append(
             {
                 "name": str(c.get("name", ""))[:30],
                 "role": str(c.get("role", "配角")),
                 "plot": f"{c.get('plot', '')}（{c.get('evidence_ch', '原文未明确')}）",
                 "background": str(c.get("background", ""))[:300],
+                "aliases": aliases[:20],
             }
         )
     return cards
@@ -254,6 +359,21 @@ def _hooks_items(task: DeconstructJob) -> list[dict]:
             desc = f"{desc}（埋设于第{plant}章）"
         items.append({"description": desc, "planned_volume_no": None})
     return items
+
+
+def _name_variants(name: str) -> list[str]:
+    """角色名匹配变体：全名＋去括注＋斜杠拆分——产物关系边的端点写法很野
+    （「李耀（小李/我）」「小李/我」「队长」都见过），精确名之外全都要能认。"""
+    n = name.strip()
+    out = [n]
+    stripped = re.sub(r"（[^）]*）|\([^)]*\)", "", n).strip()
+    if stripped and stripped not in out:
+        out.append(stripped)
+    for part in re.split(r"[/／]", n):
+        p = part.strip()
+        if p and p not in out:
+            out.append(p)
+    return out
 
 
 def _sha256(text: str) -> str:

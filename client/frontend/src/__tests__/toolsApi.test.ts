@@ -114,6 +114,10 @@ describe("deconstructApi", () => {
   it("importBookFromTask 与 exportTaskProducts 走 request（返回值透传）", async () => {
     state.fetch.mockResolvedValueOnce(jsonResponse(200, { book_id: "b1" }));
     expect((await importBookFromTask("t")).book_id).toBe("b1");
+    expect(JSON.parse(state.fetch.mock.calls[0][1].body)).toEqual({});  // 无 items＝旧口径（空 body）
+    state.fetch.mockResolvedValueOnce(jsonResponse(200, { book_id: "b2" }));
+    await importBookFromTask("t", ["world", "relations"]);
+    expect(JSON.parse(state.fetch.mock.calls[1][1].body)).toEqual({ items: ["world", "relations"] });
     state.fetch.mockResolvedValueOnce(jsonResponse(200, { written: ["简介.md"], readme: "README.md", dest: "/tmp/x" }));
     const r = await exportTaskProducts("t", "/tmp/x", ["简介.md"]);
     expect(r.dest).toBe("/tmp/x");
