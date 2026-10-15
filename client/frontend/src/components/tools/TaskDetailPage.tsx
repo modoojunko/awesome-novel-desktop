@@ -241,17 +241,6 @@ export default function TaskDetailPage() {
               <span>产物随应用数据在本机永久保留；删除任务行将连带清除其结果目录</span>
             </div>
           </div>
-          {task.error && task.error.includes("内容安全审核") ? (
-            <div className="notice" data-od-id="content-filter" style={{ marginBottom: 18, borderLeft: "3px solid var(--err)" }}>
-              <div>
-                <b style={{ color: "var(--err)" }}>模型拒绝了该书的题材</b>
-                <span>{task.error}</span>
-              </div>
-              <Link className="btn btn-secondary btn-sm" to="/config" style={{ marginTop: 8 }}>
-                去换模型
-              </Link>
-            </div>
-          ) : null}
           {graph.state === "error" ? (
             <div className="notice" data-od-id="graph-error" style={{ marginBottom: 18 }}>
               <span className="nt">
@@ -330,6 +319,17 @@ export default function TaskDetailPage() {
             <span>{task.error || "可从断点续拆，已完成维度不重跑、不重复计费。"}</span>
             {/* v8 ignore stop */}
           </div>
+          {task.error && task.error.includes("内容安全审核") ? (
+            <div className="notice" data-od-id="content-filter" style={{ marginTop: 10, borderLeft: "3px solid var(--err)" }}>
+              <div>
+                <b style={{ color: "var(--err)" }}>模型拒绝了该书的题材</b>
+                <span style={{ display: "block", marginTop: 4 }}>{task.error}</span>
+              </div>
+              <Link className="btn btn-secondary btn-sm" to="/config" style={{ marginTop: 8 }}>
+                去换模型
+              </Link>
+            </div>
+          ) : null}
           <div style={{ display: "flex", gap: 8, margin: "18px 0" }}>
             <button
               className="btn btn-primary"
