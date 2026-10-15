@@ -184,15 +184,16 @@ _THINK_CLOSE = "</think>"
 class _InlineThinkStripper:
     """跨 chunk 的内联思考剥离状态机。
 
-    HOLDING：攒前缀判明（不足开标签长度不产出）→ 是前缀转 STRIPPING，
-    不是则缓冲整体放行转 PASSING（普通模型放行延迟≈一个 chunk）；
+    HOLDING：以「缓冲是否为 `<think>` 的前缀」判定——凑齐完整开标签转
+    STRIPPING；仍可能是前缀（如 "<th"）继续攒；一旦偏离（首个字符 ≠ "<"
+    即命中）缓冲整体放行转 PASSING，普通模型首 chunk 零延迟直通；
     STRIPPING：思考段即攒即弃，仅保留尾部 ≤len(闭标签)-1 字符滑窗防
     `</think>` 裂在 chunk 边界，内存有界；PASSING：直通。
-    流结束仍 HOLDING＝余量按非思考形态交付（攒不满开标签长度即永不匹配
-    前缀）；仍 STRIPPING＝整段按思考处理不交付（未闭合兜底，空产物由既有
-    重试/报错路径接管）。内部异常按原始文本兜底——净化尽力而为，不得毁掉
-    正常生成。流式逐 chunk feed、非流式 strip_inline_think 一次喂入，共用
-    同一核心防双实现漂移。
+    流结束仍 HOLDING＝余量按非思考形态交付（未凑齐完整开标签即永不命中
+    剥离形态，如 "<th" 截断流）；仍 STRIPPING＝整段按思考处理不交付
+    （未闭合兜底，空产物由既有重试/报错路径接管）。内部异常按原始文本
+    兜底——净化尽力而为，不得毁掉正常生成。流式逐 chunk feed、非流式
+    strip_inline_think 一次喂入，共用同一核心防双实现漂移。
     """
 
     def __init__(self) -> None:
