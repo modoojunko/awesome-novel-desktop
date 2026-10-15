@@ -475,7 +475,10 @@ async def get_update_state() -> dict:
 
     latest = cached["latest"]
     dismissed = state.get("dismissed_version")
-    has_update = _has_newer(latest, current) and latest != dismissed
+    # 「暂不」与「知道了」同权关闭横幅面（自动下载闸已在触发段单查 skipped_version）；
+    # 手动检查（refresh）照答真相，不受两者约束
+    skipped = state.get("skipped_version")
+    has_update = _has_newer(latest, current) and latest != dismissed and latest != skipped
     # 旧状态文件（无 source_url）回退主地址；正常路径取实际成功的地址
     source = str(cached.get("source_url") or "").strip() or _candidate_urls()[0]
     notes_url, download_url = _derived_urls(source, latest)
@@ -551,6 +554,7 @@ async def refresh_update_check():
     return {"current": current, "latest": latest,
             "has_update": _has_newer(latest, current),
             "notes": fetched.get("notes") or "", "checked": True,
+            "auto": auto_public_state(),
             "build": get_build_info(current)}
 
 

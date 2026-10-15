@@ -154,10 +154,12 @@ export default function UpdateNotice({
 
   const restartToUpdate = async () => {
     if (applying) return;
-    // 前置确认（唯一一次点击语义）：在途生成/未保存由用户此刻自查——桥路径不经 beforeunload
+    // 前置确认（唯一一次点击语义）：桥路径不经 beforeunload、不触发自动保存——
+    // 文案必须如实（真机复盘：承诺「会先自动保存」但路径上没有保存动作＝假承诺）
     if (!window.confirm(
       `即将更新到 v${auto?.version ?? state.latest}，完成后自动重新打开。` +
-      "未保存的书稿内容会先自动保存；若有在生成的结果，建议等它完成。继续？",
+      "继续前请先保存书稿（快捷键 Ctrl＋S），未保存的内容不会带进更新；" +
+      "若有在生成的结果，建议等它完成。继续？",
     )) {
       return;
     }

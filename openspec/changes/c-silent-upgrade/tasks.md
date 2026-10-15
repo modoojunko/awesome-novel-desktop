@@ -74,3 +74,14 @@
 - [ ] 5.2 打包链改动 dispatch 演练（判例强制）＋真机 V 组抽查
 - [ ] 5.3 v0.34 发版：一键升级＋冒烟残留修复交付全体用户；发版四件套核验
       （CDN latest.json／双包 content-length／notes.html／旧版清理）
+
+## 4c. PR 检视增补（review-agent 2026-10-15）
+
+- [x] 4c.1 confirm 假承诺修复：路径上无自动保存动作，文案改「继续前请先保存书稿」
+      （产品 P1-3 短期修；中期接业务保存态检查仍挂 4b）
+- [x] 4c.2 「暂不」横幅面闭环：has_update 认 skipped_version（下一节拍不再复活手动态；
+      refresh 真相臂照答不变）＋5 秒快轮询随之自然停
+- [x] 4c.3 检查更新 toast 条件化：refresh 响应带 auto 块，自动链不可用时不虚报
+      「正在后台自动下载」（生产渠道 v1 窗口期必现的假话）
+- [ ] 4c.4 P3 缓修账：auto-skip 清目录误删 installer.log；marker 优先用严格更新而非
+      !=；applied toast 移出 render 体；UpdateNotice 注释漂移（1 分钟→5 秒）
