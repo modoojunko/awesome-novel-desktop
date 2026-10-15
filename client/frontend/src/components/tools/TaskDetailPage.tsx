@@ -319,6 +319,17 @@ export default function TaskDetailPage() {
             <span>{task.error || "可从断点续拆，已完成维度不重跑、不重复计费。"}</span>
             {/* v8 ignore stop */}
           </div>
+          {task.error && task.error.includes("内容安全审核") ? (
+            <div className="notice" data-od-id="content-filter" style={{ marginTop: 10, borderLeft: "3px solid var(--err)" }}>
+              <div>
+                <b style={{ color: "var(--err)" }}>模型拒绝了该书的题材</b>
+                <span style={{ display: "block", marginTop: 4 }}>{task.error}</span>
+              </div>
+              <Link className="btn btn-secondary btn-sm" to="/config" style={{ marginTop: 8 }}>
+                去换模型
+              </Link>
+            </div>
+          ) : null}
           <div style={{ display: "flex", gap: 8, margin: "18px 0" }}>
             <button
               className="btn btn-primary"

@@ -528,7 +528,15 @@ async def run_task(task_id: str) -> None:
         await _fail(task_id, error={"message": f"写作能力包缺少拆书模板：{e}", "kind": "prompts_missing"})
         return
     except Exception as e:  # noqa: BLE001 — 终态收敛：任务失败保留已完成维度
-        await _fail(task_id, error={"message": str(e)[:500], "kind": "pipeline"})
+        err_str = str(e)
+        if "contentFilter" in err_str or "1301" in err_str:
+            await _fail(task_id, error={
+                "message": "模型的内容安全审核拒绝了该书的题材（恐怖/暴力等敏感内容）。"
+                           "请更换模型（如 DeepSeek）或拆解其他作品。",
+                "kind": "content_filter",
+            })
+            return
+        await _fail(task_id, error={"message": err_str[:500], "kind": "pipeline"})
         return
 
     await _patch(task_id, status="completed", finished_at=_now())
