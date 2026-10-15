@@ -59,8 +59,60 @@ def _selected(task: DeconstructJob) -> list[str]:
     return [k for k in SETTING_DIMENSION_KEYS if k in picked]
 
 
+def _entries_paragraph(entries) -> str:
+    """条目列表 → 段落文本。world.power/cost 的书内契约是 str 段落（非列表）——
+    直接灌列表会被 normalize_world str() 成 repr 乱码（真机实证）。"""
+    if not isinstance(entries, list):
+        return str(entries or "").strip()
+    parts: list[str] = []
+    for i in entries:
+        if isinstance(i, dict):
+            name = str(i.get("name", "")).strip()
+            rule = str(i.get("rule", i.get("note", ""))).strip()
+            parts.append(f"{name}：{rule}" if name and rule else (name or rule))
+        elif str(i or "").strip():
+            parts.append(str(i).strip())
+    return "\n".join(parts)
+
+
 def _files(task: DeconstructJob) -> list[str]:
     return [obj.get("file", "") for obj in _raw(task).values() if isinstance(obj, dict)]
+
+
+def _world_body(data: dict) -> dict:
+    """产物 world.data → 书内世界设定 body（对齐 v2 产物形状与 world 契约）。"""
+    no_power_txt = str(data.get("no_power", ""))
+    return {
+        # 评审 P1-2 口径：仅当模型输出含「无超凡/原文未明确」才置真，不凭空断言力量体系
+        "no_power": "无超凡" in no_power_txt or "原文未明确" in no_power_txt,
+        "stage": str(data.get("stage", ""))[:300],
+        # power/cost 契约＝段落 str：条目列表拼「名：规则」段落（v2 产物是列表）
+        "power": _entries_paragraph(data.get("power"))[:600],
+        "cost": _entries_paragraph(data.get("cost"))[:600],
+        # 历史条目契约＝{key,value[,origin]}：产物是 {name,note[,evidence_ch]}
+        "history": [
+            {"key": str(i.get("name", ""))[:40],
+             "value": str(i.get("note", ""))[:200],
+             "origin": str(i.get("evidence_ch", ""))[:40]}
+            for i in (data.get("history") or []) if isinstance(i, dict)
+        ],
+        # 势力备注在产物的 rule 键（note 是旧形状假设，真机实证全丢成「原文未明确」）
+        "factions": [
+            {"name": str(i.get("name", ""))[:40],
+             "note": str(i.get("rule", i.get("note", "")))[:200]}
+            for i in (data.get("factions") or []) if isinstance(i, dict)
+        ],
+        "constraints": [
+            {"key": str(i.get("name", ""))[:40],
+             "value": str(i.get("rule", i.get("note", "")))[:200]}
+            for i in (data.get("constraints") or []) if isinstance(i, dict)
+        ],
+        "extra": [
+            {"key": str(i.get("name", ""))[:40],
+             "value": str(i.get("note", ""))[:200]}
+            for i in (data.get("extra") or []) if isinstance(i, dict)
+        ],
+    }
 
 
 async def import_book(
@@ -99,36 +151,7 @@ async def import_book(
         raw = await storage.read_yaml(root, KEY_TO_PATH["world"]) or {}
         from settings.world_model import normalize_world, put_world_merged
 
-        no_power_txt = str(data.get("no_power", ""))
-        body = {
-            # 评审 P1-2 口径：仅当模型输出含「无超凡/原文未明确」才置真，不凭空断言力量体系
-            "no_power": "无超凡" in no_power_txt or "原文未明确" in no_power_txt,
-            "stage": str(data.get("stage", ""))[:300],
-            "power": [
-                {"name": str(i.get("name", ""))[:40], "note": str(i.get("rule", ""))[:200]}
-                for i in (data.get("power") or []) if isinstance(i, dict)
-            ],
-            "cost": [
-                {"name": str(i.get("name", ""))[:40], "note": str(i.get("rule", i.get("note", "")))[:200]}
-                for i in (data.get("cost") or []) if isinstance(i, dict)
-            ],
-            "history": [
-                {"name": str(i.get("name", ""))[:40], "note": f"{i.get('note', '')}（{i.get('evidence_ch', '原文未明确')}）"}
-                for i in (data.get("history") or []) if isinstance(i, dict)
-            ],
-            "factions": [
-                {"name": str(i.get("name", ""))[:40], "note": f"{i.get('note', '')}（{i.get('evidence_ch', '原文未明确')}）"}
-                for i in (data.get("factions") or []) if isinstance(i, dict)
-            ],
-            "constraints": [
-                {"name": str(i.get("name", ""))[:40], "note": str(i.get("note", ""))[:200]}
-                for i in (data.get("constraints") or []) if isinstance(i, dict)
-            ],
-            "extra": [
-                {"name": str(i.get("name", ""))[:40], "note": str(i.get("note", ""))[:200]}
-                for i in (data.get("extra") or []) if isinstance(i, dict)
-            ],
-        }
+        body = _world_body(data)
         fac_before = len(body["factions"])
         merged = put_world_merged(raw, normalize_world(body))
         if fac_before > 6:
