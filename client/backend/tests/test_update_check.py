@@ -602,3 +602,138 @@ def test_auto_public_state_applied_marker_wins(monkeypatch, tmp_path):
     # staged 比已记账版本新 → staged 优先（就绪按钮必须可见）
     _seed({"state": "staged", "version": "0.34"})
     assert uc.auto_public_state() == {"state": "staged", "version": "0.34"}
+
+
+# ── 评审补臂（四路评审测试缺口清单）────────────────────────────────────────
+
+
+def test_trigger_dev_build_vetoed(monkeypatch):
+    """R7：dev/冒烟（无版本语义）即使清单含本平台包也一票否决自动链（真机击穿实锤）。"""
+    monkeypatch.setattr(uc, "_PLATFORM_KEY", "win")
+    started = []
+    done = threading.Event()
+
+    def fake_worker(version, platform, epoch):
+        started.append(1)
+        done.set()
+
+    monkeypatch.setattr(uc, "_download_worker", fake_worker)
+    uc.maybe_start_auto_download(_manifest(), current="dev")
+    assert not done.wait(timeout=1)
+
+
+def test_download_worker_disk_full_aborts(monkeypatch, tmp_path):
+    """R1 环境类失败：磁盘不足直接 failed 等下窗，不进重试循环。"""
+    monkeypatch.setattr(uc, "_UPDATES_DIR", tmp_path)
+    monkeypatch.setattr(uc, "_state_path", tmp_path / "update-check.json")
+    monkeypatch.setattr(uc, "_dl_cancel", threading.Event())
+    monkeypatch.setattr(uc, "_dl_epoch", 1)
+
+    class _FakeUsage:
+        free = 1  # 1 字节可用 < 任何安全倍数
+
+    monkeypatch.setattr(uc.shutil, "disk_usage", lambda _p: _FakeUsage())
+    called = []
+
+    def _fail_stream(*a, **k):
+        called.append(1)
+        raise AssertionError("磁盘不足必须终止，不得发起下载")
+
+    class _Client:
+        def __init__(self, *a, **k):
+            pass
+        def __enter__(self):
+            return self
+        def __exit__(self, *a):
+            return False
+        def stream(self, method, url):
+            return _fail_stream(method, url)
+
+    monkeypatch.setattr(uc.httpx, "Client", _Client)
+    platform = {"url": "https://host.example/pkg.exe", "sha256": "", "size": 10**9}
+    uc._download_worker("0.33", platform, epoch=1)
+    state = json.loads((tmp_path / "update-check.json").read_text(encoding="utf-8"))
+    assert state["auto"]["state"] == "failed" and state["auto"]["last_error"] == "disk full"
+    assert called == []
+
+
+def test_apply_auto_enabled_false_is_hard_409(monkeypatch, tmp_path):
+    """R2：发布侧总闸显式关闭＝硬拒绝（区别于渠道抖动的缓存降级）。"""
+    pkg = tmp_path / "pkg.exe"
+    pkg.write_bytes(b"x")
+    monkeypatch.setattr(uc, "_UPDATES_DIR", tmp_path)
+    monkeypatch.setattr(uc, "_PENDING_PATH", tmp_path / "pending.json")
+    monkeypatch.setattr(uc, "_APPLIED_PATH", tmp_path / "applied.json")
+    monkeypatch.setattr(uc, "_state_path", tmp_path / "update-check.json")
+    monkeypatch.setenv("CLIENT_VERSION", "0.11")
+    monkeypatch.setattr(uc, "_PLATFORM_KEY", "win")
+    (tmp_path / "update-check.json").write_text(
+        json.dumps({"auto": {"state": "staged", "version": "0.33"},
+                    "cached": {"latest": "0.33", "auto_enabled": False,
+                               "platforms": {"win": {"url": "https://h/p.exe",
+                                                     "sha256": "", "size": 0}}}}),
+        encoding="utf-8")
+
+    def _fetch_offline():
+        return None
+
+    monkeypatch.setattr(uc, "_fetch_latest", _fetch_offline)
+    import pytest as _pytest
+    # 渠道抖动（重取 None）＋缓存有清单 → 降级消费缓存而非拒绝
+    monkeypatch.setattr(
+        uc, "_fetch_latest",
+        _async_returns(None))
+    # 缓存里 auto_enabled=True 的情形
+    (tmp_path / "update-check.json").write_text(
+        json.dumps({"auto": {"state": "staged", "version": "0.33"},
+                    "cached": {"latest": "0.33", "auto_enabled": True,
+                               "notes": "", "source_url": MAIN_URL,
+                               "platforms": {"win": {"url": "https://host.example/pkg.exe",
+                                                     "sha256": "", "size": 1}}}}),
+        encoding="utf-8")
+    pkg.write_bytes(b"y")
+    monkeypatch.setattr(
+        uc, "_fetch_latest", _async_returns(None))
+    r = _run(uc.apply_update())
+    assert r == {"ok": True, "version": "0.33"}
+
+    # 缓存里 auto_enabled=False → 硬 409
+    (tmp_path / "update-check.json").write_text(
+        json.dumps({"auto": {"state": "staged", "version": "0.33"},
+                    "cached": {"latest": "0.33", "auto_enabled": False,
+                               "platforms": {"win": {"url": "https://h/p.exe",
+                                                     "sha256": "", "size": 0}}}}),
+        encoding="utf-8")
+    monkeypatch.setattr(uc, "_fetch_latest", _async_returns(None))
+    with _pytest.raises(uc.HTTPException) as ei:
+        _run(uc.apply_update())
+    assert ei.value.status_code == 409
+
+
+def test_channel_self_report_logs(monkeypatch, tmp_path, caplog):
+    """渠道自报日志：成功行含渠道地址与版本；全不可达落警告。"""
+    monkeypatch.setenv("CLIENT_VERSION", "0.11")
+    monkeypatch.setattr(uc, "_state_path", tmp_path / "update-check.json")
+
+    # 桩内层（_fetch_one/出站校验），让真 _fetch_latest 跑——日志行在它体内
+    async def ok_one(url):
+        return {"latest": "0.33", "notes": "", "platforms": None, "auto_enabled": True}
+
+    async def ok_validate(url):
+        return True
+
+    monkeypatch.setattr(uc, "_fetch_one", ok_one)
+    monkeypatch.setattr(uc, "_validate_outbound_url", ok_validate)
+    import logging
+    with caplog.at_level(logging.INFO, logger="update_check"):
+        _run(uc.refresh_update_check())
+    assert any("update-check: channel=" in r.message and "0.33" in r.message
+               for r in caplog.records)
+
+    async def none_one(url):
+        return None
+
+    monkeypatch.setattr(uc, "_fetch_one", none_one)
+    with caplog.at_level(logging.WARNING, logger="update_check"):
+        _run(uc.refresh_update_check())
+    assert any("渠道全部不可达" in r.message for r in caplog.records)

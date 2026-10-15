@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useLocation } from "react-router-dom";
-import { request } from "@/lib/api";
+import { errMessage, request } from "@/lib/api";
 import { formatVersion } from "@/lib/version";
 import { toast } from "@/lib/toast";
 
@@ -68,9 +68,11 @@ export default function UpdateNotice({
   const auto = state?.auto;
   const downloading = auto?.state === "downloading";
   const downloadPct =
-    downloading && auto?.total
+    downloading && auto?.total && (auto.received ?? 0) > 0
       ? Math.min(99, Math.round(((auto.received ?? 0) / auto.total) * 100))
       : null;
+  // 纯字符串插值（判例：模板字面量 ${} 里放 JSX 会被 toString 成 [object Object]）
+  const downloadPctText = downloadPct !== null ? ` ${downloadPct}%` : "";
   // 快轮询面（10-14 真机复盘）：只要「有更新且尚未生效/未被暂缓」就 1 分钟复查——
   // 否则下载触发后横幅最长 15 分钟才变脸（v6 验收实锤「没有你说的这些」）。
   // 轮的是本地端点，零外呼负担。
@@ -136,7 +138,9 @@ export default function UpdateNotice({
 
   const skipAuto = async () => {
     const v = auto?.version ?? state.latest;
-    setState((s) => (s ? { ...s, auto: { state: "idle", version: null } } : s));
+    setState((s) =>
+      s ? { ...s, auto: { state: "idle", version: null }, has_update: false } : s,
+    );
     try {
       await request("/update-check/auto-skip", {
         method: "POST",
@@ -151,14 +155,27 @@ export default function UpdateNotice({
   const restartToUpdate = async () => {
     if (applying) return;
     // 前置确认（唯一一次点击语义）：在途生成/未保存由用户此刻自查——桥路径不经 beforeunload
-    if (!window.confirm(`即将退出并安装 v${auto?.version ?? state.latest}，完成后自动重新打开。继续？`)) {
+    if (!window.confirm(
+      `即将更新到 v${auto?.version ?? state.latest}，完成后自动重新打开。` +
+      "未保存的书稿内容会先自动保存；若有在生成的结果，建议等它完成。继续？",
+    )) {
       return;
     }
     setApplying(true);
     try {
       await request("/update-check/apply", { method: "POST", quiet: true });
-    } catch {
-      toast.error("更新未能就绪（可能已被发布方暂停），请稍后用「检查更新」重试");
+    } catch (e) {
+      // 拒绝臂必须给持久、可点击的手动链出口（spec：不落标记不关窗＝界面保持原状）
+      toast.error(errMessage(e, "更新未能就绪，可先手动下载"), {
+        action: {
+          label: "去下载",
+          onClick: () => {
+            import("@/lib/updateUrl").then(({ DOWNLOAD_HOME }) => {
+              window.open(state?.download_url || DOWNLOAD_HOME, "_blank", "noopener");
+            });
+          },
+        },
+      });
       setApplying(false);
       return;
     }
@@ -178,7 +195,10 @@ export default function UpdateNotice({
   // 后端只对 LinkActivated（锚点点击）走 OPEN_EXTERNAL_LINKS_IN_BROWSER →
   // 系统浏览器；与 NovelListPage upgradeBtn 同款写法。
   return (
-    <div className={immersive ? "update-strip update-strip--imm" : "update-strip"}>
+    <div
+      className={immersive ? "update-strip update-strip--imm" : "update-strip"}
+      role="status"
+    >
       <div className="notice info">
         {stagedVersion ? (
           <>
@@ -206,7 +226,7 @@ export default function UpdateNotice({
             <span className="nt">
               <b>
                 {downloading
-                  ? `新版本 v${state.latest} 正在后台下载${downloadPct !== null ? ` ${downloadPct}%` : ""}，就绪后一键安装`
+                  ? `新版本 v${state.latest} 正在后台下载${downloadPctText}，就绪后一键安装`
                   : !autoStalled
                     ? `正在自动准备新版本 v${state.latest}…`
                     : `发现新版本 v${state.latest}（自动准备不可用，可手动下载）`}

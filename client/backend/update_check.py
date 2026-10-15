@@ -34,7 +34,7 @@ from pydantic import BaseModel
 from build_info import get_build_info
 from config import DATA_ROOT
 from http_client import build_async_client
-from schema_version import app_version, is_newer, is_valid_version
+from schema_version import app_version, is_newer, is_release_version, is_valid_version
 
 logger = logging.getLogger(__name__)
 
@@ -341,11 +341,15 @@ def _download_worker(version: str, platform: dict, epoch: int) -> None:
                                 _set_auto_state("downloading", version,
                                                 received=received,
                                                 total=got_size or None)
+                if _dl_cancel.is_set() or epoch != _dl_epoch:
+                    return
                 os.replace(part, dest)
             except (httpx.HTTPError, OSError):
                 part.unlink(missing_ok=True)
                 time.sleep(min(30, 2 * attempts))
                 continue
+            if _dl_cancel.is_set() or epoch != _dl_epoch:
+                return
             got = _sha256_of(dest)
             if want and got != want:
                 dest.rename(dest.with_name(f"{dest.name}.quarantine-{int(time.time())}"))
@@ -365,6 +369,8 @@ def maybe_start_auto_download(fetched: dict, current: str) -> None:
     已 staged 同版本不重下；单飞＝新触发使旧线程作废（epoch 递增）。
     """
     global _dl_thread, _dl_epoch
+    if not is_release_version(current):
+        return  # dev/冒烟无版本语义：手动检查可答真相，但自动链一票否决（R7）
     latest = str(fetched.get("latest") or "")
     if not latest or not is_newer(latest, current):
         return
@@ -390,6 +396,11 @@ def maybe_start_auto_download(fetched: dict, current: str) -> None:
         _dl_cancel.set()
         if _dl_thread is not None and _dl_thread.is_alive():
             _dl_thread.join(timeout=5)
+            if _dl_thread.is_alive():
+                # 旧线程未在时限内自尽：放弃本轮触发（下个检测窗再来）——
+                # 宁可不下载，也绝不出现两个写者写同一暂存文件
+                _dl_cancel.clear()
+                return
         _dl_cancel.clear()
         epoch = _dl_epoch
         _dl_thread = threading.Thread(
@@ -450,8 +461,9 @@ async def get_update_state() -> dict:
 
         state = _mutate_state(_record)
         if fetched is not None:
-            # 自动下载触发（fire-and-forget；闸门与单飞见 maybe_start_auto_download）
-            maybe_start_auto_download(fetched, current)
+            # 自动下载触发（fire-and-forget；闸门与单飞见 maybe_start_auto_download）。
+            # to_thread：触发段含同步 DNS 解析与 join，MUST NOT 跑在共享事件循环上。
+            await asyncio.to_thread(maybe_start_auto_download, fetched, current)
 
     if not cached or not cached.get("latest"):
         return _payload(current=current, latest=None)
@@ -529,7 +541,7 @@ async def refresh_update_check():
         st["cached"] = fetched
 
     _mutate_state(_record)
-    maybe_start_auto_download(fetched, current)
+    await asyncio.to_thread(maybe_start_auto_download, fetched, current)
     latest = fetched["latest"]
     return {"current": current, "latest": latest,
             "has_update": _has_newer(latest, current),
@@ -553,6 +565,10 @@ async def auto_skip_update(payload: SkipIn):
     with _dl_lock:
         _dl_epoch += 1
         _dl_cancel.set()
+        # 与 worker 收尾段（sha 复验→staged 写入）串行：否则 skip 先落盘、
+        # worker 后收尾时 staged 状态与暂存件双双复活，「本版本不再自动」被绕过
+        if _dl_thread is not None and _dl_thread.is_alive():
+            _dl_thread.join(timeout=15)
 
     def _mut(st: dict) -> None:
         st["skipped_version"] = version
@@ -592,8 +608,17 @@ async def apply_update():
         raise HTTPException(status_code=409, detail="no staged update")
     version = str(auto["version"])
     fetched = await _fetch_latest()
-    if fetched is None or fetched.get("auto_enabled") is False:
-        raise HTTPException(status_code=409, detail="update channel unavailable")
+    if fetched is None:
+        # 渠道瞬时抖动 ≠ 总闸关闭：降级消费缓存清单（≤1h 新鲜度）——真机复盘：
+        # 弱网下把暂态抖动变成用户意图失败（409）会中断链条；安全裕度由退出链
+        # 的完整 sha 复验兜底。显式 auto_enabled=False / 版本换代仍硬拒。
+        with _state_lock:
+            cached = st.get("cached") if isinstance(st.get("cached"), dict) else {}
+        fetched = cached or None
+        if fetched is None:
+            raise HTTPException(status_code=409, detail="update channel unavailable")
+    if fetched.get("auto_enabled") is False:
+        raise HTTPException(status_code=409, detail="auto updates disabled")
     if str(fetched.get("latest") or "") != version:
         raise HTTPException(status_code=409, detail="staged version stale")
     platforms = fetched.get("platforms") or {}

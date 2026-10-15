@@ -7,7 +7,11 @@ const requestMock = vi.fn();
 beforeEach(() => {
   requestMock.mockReset();
   vi.resetModules();
-  vi.doMock("@/lib/api", () => ({ request: requestMock }));
+  vi.doMock("@/lib/api", () => ({
+    request: requestMock,
+    errMessage: (e: unknown, fallback?: string) =>
+      fallback ?? (e instanceof Error ? e.message : String(e)),
+  }));
 });
 
 function state(over: Partial<Record<string, unknown>> = {}) {
@@ -119,7 +123,11 @@ describe("UpdateNotice silent-upgrade 三态（P1 第二片）", () => {
   beforeEach(() => {
     requestMock.mockReset();
     vi.resetModules();
-    vi.doMock("@/lib/api", () => ({ request: requestMock }));
+    vi.doMock("@/lib/api", () => ({
+      request: requestMock,
+      errMessage: (e: unknown, fallback?: string) =>
+        fallback ?? (e instanceof Error ? e.message : String(e)),
+    }));
     vi.doMock("@/lib/toast", () => ({ toast: toastMock }));
     delete (window as unknown as { __updateAppliedSeen?: string }).__updateAppliedSeen;
     delete (window as unknown as { pywebview?: unknown }).pywebview;
@@ -174,13 +182,13 @@ describe("UpdateNotice silent-upgrade 三态（P1 第二片）", () => {
     expect(quitMock).not.toHaveBeenCalled();
   });
 
-  it("「暂不」＝auto-skip（删暂存、本版本不再自动），横幅回手动态", async () => {
+  it("「暂不」＝auto-skip（删暂存、本版本不再自动），横幅整体消失", async () => {
     requestMock.mockImplementation(async (path: string) =>
       path === "/update-check"
         ? state({ auto: { state: "staged", version: "0.13" } })
         : { skipped: "0.13" },
     );
-    await mountAt("/novels");
+    const { container } = await mountAt("/novels");
     fireEvent.click(await screen.findByRole("button", { name: "暂不" }));
     await waitFor(() =>
       expect(requestMock).toHaveBeenCalledWith("/update-check/auto-skip", {
@@ -189,7 +197,8 @@ describe("UpdateNotice silent-upgrade 三态（P1 第二片）", () => {
         quiet: true,
       }),
     );
-    expect(await screen.findByText(/正在自动准备新版本 v0\.13/)).toBeTruthy();
+    // 「暂不」＝横幅整体消失（同时关闭记忆面：不再闪回「正在自动准备」假话）
+    await waitFor(() => expect(container.querySelector(".update-strip")).toBeNull());
   });
 
   it("downloading：只说后台准备中，无任何动作钮", async () => {
@@ -212,5 +221,84 @@ describe("UpdateNotice silent-upgrade 三态（P1 第二片）", () => {
     await mountAt("/novels");
     await waitFor(() => expect(requestMock).toHaveBeenCalledTimes(2));
     expect(toastMock.success).toHaveBeenCalledTimes(1); // 去重
+  });
+});
+
+describe("UpdateNotice 评审补臂（可见性/安全网/防御）", () => {
+  beforeEach(() => {
+    requestMock.mockReset();
+    vi.resetModules();
+    vi.doMock("@/lib/api", () => ({
+      request: requestMock,
+      errMessage: (e: unknown, fallback?: string) =>
+        fallback ?? (e instanceof Error ? e.message : String(e)),
+    }));
+    delete (window as unknown as { pywebview?: unknown }).pywebview;
+  });
+
+  afterEach(() => {
+    vi.doUnmock("@/lib/toast");
+    vi.restoreAllMocks();
+  });
+
+  it("下载百分比：received/total 渲染百分比，received=0 不闪 0%", async () => {
+    requestMock.mockResolvedValue(
+      state({ has_update: true, auto: { state: "downloading", version: "0.13", received: 45, total: 100 } }),
+    );
+    await mountAt("/novels");
+    expect(await screen.findByText(/正在后台下载 45%/)).toBeTruthy();
+  });
+
+  it("下载无进度（received=0）：退化为无百分比文案，不闪 0%", async () => {
+    requestMock.mockResolvedValue(
+      state({ has_update: true, auto: { state: "downloading", version: "0.13", received: 0, total: 100 } }),
+    );
+    await mountAt("/novels");
+    const el = await screen.findByText(/正在后台下载，就绪后一键安装/);
+    expect(el.textContent).not.toContain("0%");
+  });
+
+  it("拒绝臂：/apply 失败 toast 带可点击「去下载」出口", async () => {
+    const toastMock2 = { success: vi.fn(), error: vi.fn(), info: vi.fn() };
+    vi.doMock("@/lib/toast", () => ({ toast: toastMock2 }));
+    requestMock.mockImplementation(async (path: string) => {
+      if (path === "/update-check") {
+        return state({ auto: { state: "staged", version: "0.13" } });
+      }
+      const err = new Error("auto updates disabled") as Error & { status?: number };
+      err.status = 409;
+      throw err;
+    });
+    vi.spyOn(window, "confirm").mockReturnValue(true);
+    await mountAt("/novels");
+    fireEvent.click(await screen.findByRole("button", { name: "重启更新" }));
+    await waitFor(() => expect(toastMock2.error).toHaveBeenCalled());
+    const call = toastMock2.error.mock.calls[0];
+    expect(String(call[0])).toContain("可先手动下载");
+    const opts = call[1] as { action?: { label: string } };
+    expect(opts.action?.label).toBe("去下载");
+    vi.doUnmock("@/lib/toast");
+  });
+
+  it("confirm 取消：不调 /apply 不关窗", async () => {
+    const applyMock = vi.fn();
+    requestMock.mockImplementation(async (path: string) => {
+      if (path === "/update-check") {
+        return state({ auto: { state: "staged", version: "0.13" } });
+      }
+      applyMock();
+      return { ok: true };
+    });
+    vi.spyOn(window, "confirm").mockReturnValue(false);
+    await mountAt("/novels");
+    fireEvent.click(await screen.findByRole("button", { name: "重启更新" }));
+    await waitFor(() => expect(applyMock).not.toHaveBeenCalled());
+    expect(screen.getByRole("button", { name: "重启更新" })).toBeTruthy();
+  });
+
+  it("横幅根节点带 role=status（读屏可播报状态翻转）", async () => {
+    requestMock.mockResolvedValue(state());
+    const { container } = await mountAt("/novels");
+    await waitFor(() => expect(container.querySelector('[role="status"]')).toBeTruthy());
   });
 });
