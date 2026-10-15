@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import logging
 import os
 
 from sqlalchemy import select
@@ -96,16 +97,36 @@ def _pack_units(units: list[str], budget: int, joiner: str = "\n\n") -> list[lis
 def _card_text(chapter: dict) -> str:
     """单章喂料：≤6000 字原样；超长取头 4000＋尾 2000（中略显式标注，卡以此可见部分为据）。
 
-    出口统一过敏感词中性替换（sanitize：只改喂模型的副本，原书数据不动），
-    拆卡与在场补写两个调用点自动全覆盖；替换发生时落一行日志供排查 1301。
+    脱敏不在本函数做——所有模型调用统一在 _call_with_retry 咽喉处过
+    _sanitize_vars（拆卡/补写/归并/reduce 一处全覆盖，单点不会漏）。
     """
     text = chapter.get("text", "") or ""
-    if len(text) > _CARD_TEXT_LIMIT:
-        text = text[:_CARD_HEAD] + "\n……（中略——仅以首尾为据）……\n" + text[-_CARD_TAIL:]
-    text, hits = sanitize_for_model(text)
-    if hits:
-        print(f"SANITIZE<< 第{chapter.get('no', '?')}章 敏感词替换 {len(hits)} 类：{'；'.join(hits)}")
-    return text
+    if len(text) <= _CARD_TEXT_LIMIT:
+        return text
+    return text[:_CARD_HEAD] + "\n……（中略——仅以首尾为据）……\n" + text[-_CARD_TAIL:]
+
+
+_log = logging.getLogger("deconstruct.sanitize")
+
+
+def _sanitize_vars(user_vars: dict) -> dict:
+    """模型调用前统一脱敏：所有 str 值过中性替换（非 str 原样）。
+
+    覆盖全部调用点的输入——章节原文（拆卡/补写）之外，还有**归并与 reduce
+    的碎片/归并稿**：它们凝结了原文敏感内容（13路末班车实测 1301 死在
+    mainplot_reduce，L1 与拆卡均过），单盖 _card_text 挡不住这一层。
+    已脱敏文本再过一遍是幂等 no-op（替换输出不含任何词表原词，测试钉死）。
+    """
+    out: dict = {}
+    for k, v in user_vars.items():
+        if isinstance(v, str):
+            clean, hits = sanitize_for_model(v)
+            if hits:
+                _log.info("SANITIZE %s: %s", k, "；".join(hits[:8]))
+            out[k] = clean
+        else:
+            out[k] = v
+    return out
 
 
 def _quote_corpus(chapters: list[dict]) -> str:
@@ -236,8 +257,13 @@ async def _chat_json(client, model: str, system: str, user: str, operation: str)
 
 
 async def _call_with_retry(client, model, system_tpl, user_vars, operation):
-    """单元级调用：重试 2 次（重试属同一单元内的模型调用，不涉及内容截断）。"""
+    """单元级调用：重试 2 次（重试属同一单元内的模型调用，不涉及内容截断）。
+
+    user 变量在咽喉处统一脱敏（_sanitize_vars）：章节原文＋归并/reduce 碎片
+    全覆盖，绕内容审核 1301。
+    """
     system, user_tpl = system_tpl
+    user_vars = _sanitize_vars(user_vars)
     last_err: Exception | None = None
     for _ in range(SEGMENT_RETRIES + 1):
         try:

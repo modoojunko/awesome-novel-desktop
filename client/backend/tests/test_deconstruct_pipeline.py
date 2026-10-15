@@ -335,16 +335,35 @@ def test_card_text_head_tail():
     assert "中略" in out and "M" not in out
 
 
-def test_card_text_sanitized():
-    """喂料出口统一脱敏：敏感词中性替换（绕内容审核），原章数据不被改写。"""
+def test_card_text_clips_only():
+    """_card_text 只管截选，脱敏已下沉 _call_with_retry 咽喉（归并/reduce 同盖，不在此重复）。"""
     from deconstruct.pipeline import _card_text
 
     raw = "她推门看见了尸体，满地鲜血。"
-    ch = {"no": 3, "text": raw}
-    out = _card_text(ch)
-    assert "遗体" in out and "血液" in out
-    assert "尸体" not in out and "鲜血" not in out
-    assert ch["text"] == raw  # 只改喂模型的副本，原书数据不动
+    out = _card_text({"no": 3, "text": raw})
+    assert "尸体" in out  # 本层原样保留；脱敏在咽喉层（见 test_call_with_retry_sanitizes_user_vars）
+
+
+def test_sanitize_vars_mixed_types():
+    """咽喉脱敏：str 值替换、非 str 原样、混合 dict 全覆盖。"""
+    from deconstruct.pipeline import _sanitize_vars
+
+    out = _sanitize_vars({"chapter_text": "他看见了尸体。", "chapter_no": 3, "flag": True})
+    assert out["chapter_text"] == "他看见了遗体。"
+    assert out["chapter_no"] == 3 and out["flag"] is True
+
+
+def test_call_with_retry_sanitizes_user_vars():
+    """_call_with_retry 咽喉实钉：归并/reduce 碎片（凝结原文敏感词）也必过脱敏。"""
+    from deconstruct import pipeline
+
+    client = FakeClient()
+    out = _run(pipeline._call_with_retry(
+        client, "m-1", ("sys", "u {partials}"), {"partials": "【第1章】她看见了尸体"}, "op_x",
+    ))
+    assert out == {}
+    sent = client.last_by_op["op_x"]
+    assert "遗体" in sent and "尸体" not in sent
 
 
 def test_quote_corpus_dual_text():
