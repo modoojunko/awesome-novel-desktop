@@ -171,7 +171,7 @@ export default function UpdateNotice({
     if (!window.confirm(
       `即将更新到 v${auto?.version ?? state.latest}，完成后自动重新打开。` +
       "继续前请先保存书稿（快捷键 Ctrl＋S），未保存的内容不会带进更新；" +
-      "若有在生成的结果，建议等它完成。继续？",
+      "若有在生成的结果，建议等它完成。若几分钟后没有自动重新打开，再打开一次即可，书稿不受影响。继续？",
     )) {
       return;
     }

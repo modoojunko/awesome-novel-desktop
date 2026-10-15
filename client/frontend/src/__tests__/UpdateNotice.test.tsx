@@ -296,6 +296,15 @@ describe("UpdateNotice 评审补臂（可见性/安全网/防御）", () => {
     expect(screen.getByRole("button", { name: "重启更新" })).toBeTruthy();
   });
 
+  it("就绪态独立于关闭记忆：曾点「知道了」，包就位后入口照常可见", async () => {
+    requestMock.mockResolvedValue(
+      state({ has_update: false, latest: "0.11", auto: { state: "staged", version: "0.13" } }),
+    );
+    await mountAt("/novels");
+    expect(await screen.findByText(/新版本 v0\.13 已就绪/)).toBeTruthy();
+    expect(screen.getByRole("button", { name: "重启更新" })).toBeTruthy();
+  });
+
   it("横幅根节点带 role=status（读屏可播报状态翻转）", async () => {
     requestMock.mockResolvedValue(state());
     const { container } = await mountAt("/novels");
