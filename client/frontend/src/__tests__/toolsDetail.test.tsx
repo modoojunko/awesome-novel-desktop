@@ -299,6 +299,40 @@ describe("TaskDetailPage", () => {
     await waitFor(() => expect(toastState.info).toHaveBeenCalledWith(expect.stringContaining("桌面版应用")));
   });
 
+  it("阶段三进度账：在场补写行＋overall 封顶 90（100% 只留给 completed）", async () => {
+    state.get.mockResolvedValue(
+      detailOf("running", {
+        cards: { state: "completed", done: 318, total: 318 },
+        graph_phase: { step: "presence", done: 3, total: 17 },
+      }),
+    );
+    renderPage();
+    await waitFor(() => expect(screen.getByText(/在场补写 3\/17 章/)).toBeInTheDocument());
+    expect(screen.getByText("90%")).toBeInTheDocument();
+  });
+
+  it("阶段三进度账：地点归并与图谱装配行", async () => {
+    state.get.mockResolvedValue(
+      detailOf("running", { cards: { state: "completed", done: 10, total: 10 }, graph_phase: { step: "place_merge" } }),
+    );
+    const { unmount } = renderPage();
+    await waitFor(() => expect(screen.getByText("进行中 · 地点归并")).toBeInTheDocument());
+    unmount();
+    state.get.mockResolvedValue(
+      detailOf("running", { cards: { state: "completed", done: 10, total: 10 }, graph_phase: { step: "assemble" } }),
+    );
+    const u2 = renderPage();
+    await waitFor(() => expect(screen.getByText("进行中 · 图谱装配")).toBeInTheDocument());
+    u2.unmount();
+    // 防御臂：缺 done/total 的 presence 账渲染 0/0（后端 place_merge/assemble 本就无计数）
+    state.get.mockResolvedValue(
+      detailOf("running", { cards: { state: "completed", done: 10, total: 10 }, graph_phase: { step: "presence" } }),
+    );
+    const u3 = renderPage();
+    await waitFor(() => expect(screen.getByText(/在场补写 0\/0 章/)).toBeInTheDocument());
+    u3.unmount();
+  });
+
   it("需重传：重传按钮触发文件框（不崩）", async () => {
     state.get.mockResolvedValue(detailOf("need_reupload", { products: [] }));
     renderPage();
