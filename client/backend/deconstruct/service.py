@@ -202,6 +202,22 @@ def _cards_state(task: DeconstructJob) -> dict:
         return {}
 
 
+def _graph_phase(task: DeconstructJob) -> dict | None:
+    """阶段三进度账（pipeline 写、终态 pop）：presence n/m ／ place_merge ／ assemble。"""
+    try:
+        raw = json.loads(task.dims_json or "{}")
+    except ValueError:
+        return None
+    p = raw.get("graph_phase")
+    if not isinstance(p, dict) or not p.get("step"):
+        return None
+    out: dict = {"step": str(p["step"])}
+    if "done" in p or "total" in p:
+        out["done"] = int(p.get("done") or 0)
+        out["total"] = int(p.get("total") or 0)
+    return out
+
+
 def task_view(task: DeconstructJob) -> dict:
     """详情视图：全量（含 dims/products 元信息，不含产物正文）。"""
     product_meta = [
@@ -233,6 +249,7 @@ def task_view(task: DeconstructJob) -> dict:
             "total": task.chapter_count,
         },
         "graph": _graph_view(task),
+        "graph_phase": _graph_phase(task),
         "dims": _dims_state(task),
         "products": product_meta,
         "error": _first_error(task),

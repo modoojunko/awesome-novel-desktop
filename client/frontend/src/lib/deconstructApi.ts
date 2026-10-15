@@ -50,6 +50,8 @@ export interface DeconstructTaskDetail {
   cards?: { state: string; done: number; total: number };
   /** 图谱视图（10.5 起）：ready/absent/error＋警告计数＋能力戳（老包出不了图） */
   graph?: { state: "ready" | "absent" | "error"; available: boolean; warnings: number; caps: boolean };
+  /** 阶段三进度账（在场补写 n/m／地点归并／图谱装配）；缺席＝阶段三未开始或已结束 */
+  graph_phase?: { step: "presence" | "place_merge" | "assemble"; done?: number; total?: number } | null;
   dims: Record<string, { state: string; seg_done: number; seg_total: number; error: string }>;
   products: { filename: string; size: number; dim: string }[];
   error: string;

@@ -514,3 +514,34 @@ def test_task_view_graph_states(client):
     _seed_graph("dec-gv-1", graph_error="boom")
     body = client.get("/api/deconstruct/tasks/dec-gv-1").json()
     assert body["graph"]["state"] == "error" and body["graph"]["available"] is False
+
+
+# ── 阶段三进度账透出（graph_phase：补写/地点归并/装配）──────────────────
+
+def _seed_dims(task_id: str, state: dict) -> None:
+    import json as _json
+
+    async def _go():
+        async with async_session() as s:
+            t = await s.get(DeconstructJob, task_id)
+            t.dims_json = _json.dumps(state, ensure_ascii=False)
+            await s.commit()
+
+    _run(_go())
+
+
+def test_task_view_includes_graph_phase(client):
+    _mk_queued("dec-gp-1", with_source=False)
+    _seed_dims("dec-gp-1", {
+        "cards": {"state": "completed", "done": 3, "entries": {}},
+        "dims": {},
+        "graph_phase": {"step": "presence", "done": 2, "total": 5},
+    })
+    d = client.get("/api/deconstruct/tasks/dec-gp-1").json()
+    assert d["graph_phase"] == {"step": "presence", "done": 2, "total": 5}
+
+
+def test_task_view_graph_phase_absent_is_none(client):
+    _mk_queued("dec-gp-2", with_source=False)
+    d = client.get("/api/deconstruct/tasks/dec-gp-2").json()
+    assert d["graph_phase"] is None

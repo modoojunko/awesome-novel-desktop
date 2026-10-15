@@ -341,6 +341,18 @@ async def _backfill_presence(task_id, task, chapters, cards, dims, state, client
     entries = cards.get("entries") if isinstance(cards.get("entries"), dict) else {}
     if not entries:
         return 0
+    # 阶段进度账（graph_phase）：补写是多次轻量调用，之前全程暗跑——UI 在
+    # 全维度 completed 后几分钟数字不动，用户以为卡死（真机实证）。
+    gaps_total = sum(
+        1
+        for ch in chapters
+        if isinstance(entries.get(str(ch.get("no", 0))), dict)
+        and "places" in entries[str(ch.get("no", 0))]
+        and _presence_gaps(entries[str(ch.get("no", 0))])
+    )
+    phase = {"step": "presence", "done": 0, "total": gaps_total}
+    state["graph_phase"] = phase
+    await _patch(task_id, dims_json=_state_json(state, cards=cards, dims=dims))
     failed = 0
     for ch in chapters:
         no = str(ch.get("no", 0))
@@ -353,6 +365,8 @@ async def _backfill_presence(task_id, task, chapters, cards, dims, state, client
         if not missing:
             continue
         await _check_cancel(task_id)
+        phase["done"] += 1
+        await _patch(task_id, dims_json=_state_json(state, cards=cards, dims=dims))
         known_list = [_clean(pl.get("name")) for pl in _dicts(card.get("places")) if _clean(pl.get("name"))]
         known_set = set(known_list)
         known = "、".join(known_list) or "（本章无已知地点，where 一律空串）"
@@ -568,6 +582,8 @@ async def run_task(task_id: str) -> None:
                     if len(frag_text) > MERGE_INPUT_CAP:
                         frag_text = frag_text[:MERGE_INPUT_CAP]
                         truncated = True
+                    state["graph_phase"] = {"step": "place_merge"}
+                    await _patch(task_id, dims_json=_state_json(state, cards=cards, dims=dims))
                     sys_pl, usr_pl = load_layers("deconstruct_place")
                     place_merge = await _call_with_retry(
                         client, model, (sys_pl, usr_pl),
@@ -578,6 +594,8 @@ async def run_task(task_id: str) -> None:
                         "deconstruct_place",
                     )
                 await _check_cancel(task_id)  # 归并调用是新段边界：取消在此生效（评审 P3）
+                state["graph_phase"] = {"step": "assemble"}
+                await _patch(task_id, dims_json=_state_json(state, cards=cards, dims=dims))
                 graph = assemble(
                     book_name=task.book_name,
                     chapter_count=task.chapter_count,
@@ -598,11 +616,13 @@ async def run_task(task_id: str) -> None:
                         "msg": "地点归并输入超上限被截断：未覆盖地点按卡片原名补户（fallback 已兜底）",
                     })
                 state["graph"] = graph
+                state.pop("graph_phase", None)  # 终态不残留：轮询端以 phase 缺席＝阶段三已结束
                 await _patch(task_id, dims_json=_state_json(state, cards=cards, dims=dims))
             except _Cancelled:
                 raise
             except Exception as e:  # noqa: BLE001 — 图谱不拖累任务：错误留痕，导出端 400
                 state["graph_error"] = str(e)[:300]
+                state.pop("graph_phase", None)
                 await _patch(task_id, dims_json=_state_json(state, cards=cards, dims=dims))
     except _Cancelled:
         await _patch(task_id, finished_at=_now())

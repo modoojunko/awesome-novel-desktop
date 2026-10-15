@@ -839,3 +839,44 @@ def test_backfill_preserves_t_tag(monkeypatch):
     assert tags == ["回忆"]
 
 
+
+
+def test_graph_phase_reported_and_cleared(monkeypatch):
+    """阶段三进度账：presence n/m 入账递增，place_merge/assemble 相继接棒，终态 pop 不残留。
+
+    真机实证动因：阶段三全程暗跑（全维 completed 后几分钟数字不动）＝「进度慢」体感主因。
+    """
+    from deconstruct import pipeline
+
+    _stub_layers(monkeypatch)
+    seen: list[dict] = []
+    real_patch = pipeline._patch
+
+    async def spy_patch(task_id, **kw):
+        dj = kw.get("dims_json")
+        if dj and '"graph_phase"' in dj:
+            gp = json.loads(dj).get("graph_phase")
+            if gp:
+                seen.append(gp)
+        return await real_patch(task_id, **kw)
+
+    monkeypatch.setattr(pipeline, "_patch", spy_patch)
+    client = FakeClient({
+        "deconstruct_card": _gap_card_handler,
+        "deconstruct_characters": lambda kw, n: json.dumps({"characters": [
+            {"name": "林晚", "role": "主角", "plot": "p", "evidence_ch": "第1章"},
+            {"name": "老郭", "role": "配角", "plot": "p", "evidence_ch": "第1章"}]}),
+        "deconstruct_presence": _presence_patch_handler,
+    })
+    _stub_client(monkeypatch, client)
+    _mk_job("p-bfphase", selected=["characters"], chapters=1)
+
+    _run(pipeline.run_task("p-bfphase"))
+    t = _load("p-bfphase")
+    assert t.status == "completed", t.error_json
+    steps = [p["step"] for p in seen]
+    assert "presence" in steps and "place_merge" in steps and "assemble" in steps
+    pres = [p for p in seen if p["step"] == "presence"]
+    assert pres and pres[0]["total"] >= 1 and all(0 <= p["done"] <= p["total"] for p in pres)
+    assert any(p["done"] >= 1 for p in pres)  # 补写推进至少走一笔（首笔 done:0＝开账）
+    assert "graph_phase" not in json.loads(t.dims_json)  # 终态不残留

@@ -109,7 +109,17 @@ export default function TaskDetailPage() {
     // total≥1 时 done 推进即含 completed=1.0；无 cards（旧夹具/畸形）记 0
     const cf = cards.total ? Math.min(1, cards.done / cards.total) : 0;
     const df = total ? done / total : 0;
-    return total ? Math.round((cf * 0.5 + df * 0.5) * 100) : 0;
+    const raw = total ? Math.round((cf * 0.5 + df * 0.5) * 100) : 0;
+    // 阶段三（图谱）进行中封顶 90%：卡＋维全满后还有补写/归并/装配几分钟——
+    // 真"100%"只在任务 completed 时出现（真机实证：100% 停几 分钟像卡死）
+    return task.graph_phase ? Math.min(raw, 90) : raw;
+  })();
+  const phaseLine = (() => {
+    const p = task.graph_phase;
+    if (!p) return null;
+    if (p.step === "presence") return `进行中 · 在场补写 ${p.done ?? 0}/${p.total ?? 0} 章`;
+    if (p.step === "place_merge") return "进行中 · 地点归并";
+    return "进行中 · 图谱装配";
   })();
 
   const act = async (fn: () => Promise<unknown>, after?: (r: unknown) => void) => {
@@ -213,6 +223,12 @@ export default function TaskDetailPage() {
                   </li>
                 );
               })}
+              {phaseLine && (
+                <li data-od-id="step-graph-phase">
+                  <b>知识图谱</b>
+                  <em className="doing">{phaseLine}</em>
+                </li>
+              )}
             </ul>
             <div style={{ display: "flex", gap: 8, marginTop: 20 }}>
               <button
