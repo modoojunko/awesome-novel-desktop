@@ -10,6 +10,14 @@ on:
     tags:
       - 'v*'
   workflow_dispatch:
+    inputs:
+      # lab 预发渠道的真实版本号：烘进非 tag 构建（client_version/库名/角标），
+      # 也作为 lab manifest 的 version——两次 dispatch（0.99.0→0.99.1）即一次
+      # 真实发版节奏彩排：旧版客户端检测新版→自动下载→重启更新→角标真变。
+      lab_version:
+        description: 'lab 渠道版本号（0.99.x 形态；tag 正式发版不使用此输入）'
+        required: false
+        default: '0.99.0'
 
 # 同 ref 重复触发时取消旧构建，省 CI 分钟
 concurrency:
@@ -149,7 +157,7 @@ jobs:
           if [[ "$GITHUB_REF" == refs/tags/* ]]; then
             CLIENT_VERSION="$(printf '%s' "${GITHUB_REF_NAME#v}" | tr -c 'A-Za-z0-9._-' '-')"
           else
-            CLIENT_VERSION="dev"
+            CLIENT_VERSION="${{ inputs.lab_version || 'dev' }}"
             # ── silent-upgrade lab 渠道（仅本实验分支）：非 tag 构建的检测/下载一律指向
             # download/lab/latest.json（由 lab-publish job 随 dispatch 部署，与生产
             # latest.json 完全隔离——生产客户端永不读该路径，反之亦然）。主/兜底同址
@@ -706,15 +714,15 @@ jobs:
           tcb login --cloudbase-api-key "$TCB_API_KEY" -e "$TCB_ENV_ID"
           tcb hosting deploy "$EXE" "download/lab/$EXE_NAME" -e "$TCB_ENV_ID"
           LAB_BASE="${RELEASE_DOWNLOAD_FALLBACK_BASE%/}/lab"
-          export LAB_BASE LAB_EXE="$EXE_NAME"
+          export LAB_BASE LAB_EXE="$EXE_NAME" LAB_VERSION="${{ inputs.lab_version || '0.99.0' }}"
           python3 - <<'PY'
           import hashlib, json, os
           from pathlib import Path
           base = os.environ["LAB_BASE"].rstrip("/")
           exe = next(Path("artifacts").glob("**/AwesomeNovel_Setup_*.exe"))
           latest = {
-              "version": "0.33-lab",
-              "notes": "silent-upgrade lab 渠道：仅实验分支构建消费",
+              "version": os.environ.get("LAB_VERSION", "0.99.0"),
+              "notes": "lab 预发渠道：仅实验分支构建消费（真实版本号，随 dispatch 递进）",
               "auto_enabled": True,
               "platforms": {
                   "win": {
