@@ -335,6 +335,30 @@ def test_card_text_head_tail():
     assert "中略" in out and "M" not in out
 
 
+def test_card_text_sanitized():
+    """喂料出口统一脱敏：敏感词中性替换（绕内容审核），原章数据不被改写。"""
+    from deconstruct.pipeline import _card_text
+
+    raw = "她推门看见了尸体，满地鲜血。"
+    ch = {"no": 3, "text": raw}
+    out = _card_text(ch)
+    assert "遗体" in out and "血液" in out
+    assert "尸体" not in out and "鲜血" not in out
+    assert ch["text"] == raw  # 只改喂模型的副本，原书数据不动
+
+
+def test_quote_corpus_dual_text():
+    """quote 回验语料＝原稿＋替换稿（有替换时两稿都认）；无替换恒等只用原稿。"""
+    from deconstruct.pipeline import _quote_corpus
+
+    chs = [{"text": "第1章\n他看见了尸体。"}, {"text": "第2章\n平静收场。"}]
+    corpus = _quote_corpus(chs)
+    assert "他看见了尸体。" in corpus  # 原稿在
+    assert "他看见了遗体。" in corpus  # 替换稿也在（模型引用可能出自替换稿）
+
+    assert _quote_corpus([{"text": "渡口救人。"}]) == "渡口救人。"  # 无替换不附第二稿
+
+
 def test_run_task_cards_use_head_tail_clip(monkeypatch):
     """run_task 集成：超长章卡片只收到首尾拼接正文（中段被显式中略）。"""
     from deconstruct import pipeline

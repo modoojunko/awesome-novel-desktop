@@ -24,6 +24,7 @@ from deconstruct.graph import (  # noqa: PLC2701 — 域内复用形状防御（
     _clean,
     _dicts,
 )
+from deconstruct.sanitize import sanitize_for_model
 from models.deconstruct import DIMENSION_KEYS, DeconstructJob
 from prompts import PromptPackMissing, load_layers
 
@@ -93,11 +94,29 @@ def _pack_units(units: list[str], budget: int, joiner: str = "\n\n") -> list[lis
 
 
 def _card_text(chapter: dict) -> str:
-    """单章喂料：≤6000 字原样；超长取头 4000＋尾 2000（中略显式标注，卡以此可见部分为据）。"""
+    """单章喂料：≤6000 字原样；超长取头 4000＋尾 2000（中略显式标注，卡以此可见部分为据）。
+
+    出口统一过敏感词中性替换（sanitize：只改喂模型的副本，原书数据不动），
+    拆卡与在场补写两个调用点自动全覆盖；替换发生时落一行日志供排查 1301。
+    """
     text = chapter.get("text", "") or ""
-    if len(text) <= _CARD_TEXT_LIMIT:
-        return text
-    return text[:_CARD_HEAD] + "\n……（中略——仅以首尾为据）……\n" + text[-_CARD_TAIL:]
+    if len(text) > _CARD_TEXT_LIMIT:
+        text = text[:_CARD_HEAD] + "\n……（中略——仅以首尾为据）……\n" + text[-_CARD_TAIL:]
+    text, hits = sanitize_for_model(text)
+    if hits:
+        print(f"SANITIZE<< 第{chapter.get('no', '?')}章 敏感词替换 {len(hits)} 类：{'；'.join(hits)}")
+    return text
+
+
+def _quote_corpus(chapters: list[dict]) -> str:
+    """quote 回验语料：原稿全文＋替换稿（仅在有替换时附）——卡片引用可能来自任一稿。
+
+    _card_text 先截选再替换，边界截断的敏感词短语会以半截原形留在喂料里，
+    模型引用于是可能出自原稿或替换稿；两稿拼一起让 quote 回验（子串匹配）两认。
+    """
+    raw = "\n".join(ch.get("text", "") or "" for ch in chapters)
+    clean = sanitize_for_model(raw)[0]
+    return raw if clean == raw else f"{raw}\n{clean}"
 
 
 def _card_frag(no: str, card: dict, dim: str) -> str:
@@ -502,7 +521,7 @@ async def run_task(task_id: str) -> None:
                     cards=cards["entries"],
                     products=products,
                     place_merge=place_merge,
-                    source_text="\n".join(ch.get("text", "") for ch in chapters),
+                    source_text=_quote_corpus(chapters),
                 )
                 if backfill_failed:
                     graph["meta"]["warnings"].append({
@@ -531,7 +550,7 @@ async def run_task(task_id: str) -> None:
         err_str = str(e)
         if "contentFilter" in err_str or "1301" in err_str:
             await _fail(task_id, error={
-                "message": "模型的内容安全审核拒绝了该书的题材（恐怖/暴力等敏感内容）。"
+                "message": "已对原文做敏感词中性替换，模型的内容安全审核仍拒绝了该书的题材。"
                            "请更换模型（如 DeepSeek）或拆解其他作品。",
                 "kind": "content_filter",
             })
