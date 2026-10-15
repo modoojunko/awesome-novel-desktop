@@ -22,38 +22,48 @@ function state(over: Partial<Record<string, unknown>> = {}) {
   };
 }
 
-async function mountAt(path: string) {
+async function mountAt(path: string, stallMs?: number) {
   const { default: UpdateNotice } = await import("@/components/UpdateNotice");
   return render(
     <MemoryRouter initialEntries={[path]}>
-      <UpdateNotice />
+      <UpdateNotice stallMs={stallMs} />
     </MemoryRouter>,
   );
 }
 
 describe("UpdateNotice", () => {
-  it("有更新：呈现版本号与当前版本对照、摘要与三个动作；外链为 target=_blank 锚点", async () => {
+  it("有更新（自动链正常）：文案「正在自动准备」，等待期内不给手动入口", async () => {
     requestMock.mockResolvedValue(state());
     await mountAt("/novels");
 
-    expect(await screen.findByText("发现新版本 v0.13（当前 v0.11）")).toBeTruthy();
+    expect(await screen.findByText(/正在自动准备新版本 v0\.13/)).toBeTruthy();
     expect(requestMock).toHaveBeenCalledWith("/update-check", { quiet: true });
     expect(screen.getByText("提升章纲 AI 起草的稳定性，修复若干问题")).toBeTruthy();
-    const download = screen.getByRole("link", { name: "去下载" }) as HTMLAnchorElement;
+    expect(screen.queryByRole("link", { name: "去下载" })).toBeNull();
     const notes = screen.getByRole("link", { name: "查看更新内容" }) as HTMLAnchorElement;
-    expect(download.href).toBe("https://www.awesomenovel.com/");
-    expect(download.target).toBe("_blank");
-    expect(download.rel).toContain("noopener");
     expect(notes.href).toBe(
       "https://www.awesomenovel.com/download/v0.13/notes.html",
     );
     expect(screen.getByRole("button", { name: "知道了" })).toBeTruthy();
   });
 
+  it("双轨兜底：自动链停摆（stallMs=0）→ 「去下载」出现且为外链锚点", async () => {
+    requestMock.mockResolvedValue(state());
+    await mountAt("/novels", 0);
+
+    const download = (await screen.findByRole("link", {
+      name: "去下载",
+    })) as HTMLAnchorElement;
+    expect(download.href).toBe("https://www.awesomenovel.com/");
+    expect(download.target).toBe("_blank");
+    expect(download.rel).toContain("noopener");
+    expect(await screen.findByText(/自动准备不可用，可手动下载/)).toBeTruthy();
+  });
+
   it("有更新但响应缺失 current：对照文案退回仅含新版本号", async () => {
     requestMock.mockResolvedValue(state({ current: "" }));
     await mountAt("/novels");
-    expect(await screen.findByText("发现新版本 v0.13")).toBeTruthy();
+    expect(await screen.findByText(/正在自动准备新版本 v0\.13/)).toBeTruthy();
   });
 
   it("无更新 / 检测失败：不渲染任何更新元素", async () => {
@@ -73,7 +83,7 @@ describe("UpdateNotice", () => {
       path === "/update-check" ? state() : { dismissed: "0.13" },
     );
     const { container } = await mountAt("/novels");
-    await screen.findByText("发现新版本 v0.13（当前 v0.11）");
+    await screen.findByText(/正在自动准备新版本 v0\.13/);
 
     fireEvent.click(screen.getByRole("button", { name: "知道了" }));
     await waitFor(() =>
@@ -179,7 +189,7 @@ describe("UpdateNotice silent-upgrade 三态（P1 第二片）", () => {
         quiet: true,
       }),
     );
-    expect(await screen.findByText("发现新版本 v0.13（当前 v0.11）")).toBeTruthy();
+    expect(await screen.findByText(/正在自动准备新版本 v0\.13/)).toBeTruthy();
   });
 
   it("downloading：只说后台准备中，无任何动作钮", async () => {

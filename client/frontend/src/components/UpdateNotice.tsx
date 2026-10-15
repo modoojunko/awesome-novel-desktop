@@ -46,7 +46,12 @@ declare global {
  * ⚠️「重启更新」的保护做在点击处（后端 /apply 成功才关窗）：destroy 不触发
  * beforeunload，生成/保存中请先在业务处确认（桥路径绕不过关窗链）。
  */
-export default function UpdateNotice() {
+export default function UpdateNotice({
+  /** 双轨兜底判定阈值（测试注入 0＝立即判定自动链不可用）；默认 90 秒 */
+  stallMs = 90_000,
+}: {
+  stallMs?: number;
+} = {}) {
   const { pathname } = useLocation();
   const [state, setState] = useState<UpdateCheckState | null>(null);
   const [applying, setApplying] = useState(false);
@@ -70,6 +75,16 @@ export default function UpdateNotice() {
   // 否则下载触发后横幅最长 15 分钟才变脸（v6 验收实锤「没有你说的这些」）。
   // 轮的是本地端点，零外呼负担。
   const pollFast = downloading || auto?.state === "staged" || !!state?.has_update;
+
+  // 双轨收敛（10-15 boss 口径「有这套了，老的还在起作用」）：检测到更新后正常几秒内
+  // 就转 downloading——手动态横幅若 90 秒仍停在 idle，判定自动链不可用（渠道坏/闸关），
+  // 这时才亮「去下载」兜底；90 秒内只说「正在自动准备」，不给手动入口。
+  const [idleSince, setIdleSince] = useState<number | null>(null);
+  const manualIdle = !!state?.has_update && (auto?.state ?? "idle") === "idle";
+  useEffect(() => {
+    setIdleSince(manualIdle ? (t) => t ?? Date.now() : null);
+  }, [manualIdle]);
+  const autoStalled = idleSince !== null && Date.now() - idleSince >= stallMs;
 
   // 节拍器模式（判例：把节奏量放进 effect 依赖＝状态每翻转一次就重拉一次，
   // 「知道了」刚关掉的横幅被立刻拉回）。定时器恒 1 分钟一跳：快面每跳都拉，
@@ -192,20 +207,24 @@ export default function UpdateNotice() {
               <b>
                 {downloading
                   ? `新版本 v${state.latest} 正在后台下载${downloadPct !== null ? ` ${downloadPct}%` : ""}，就绪后一键安装`
-                  : `发现新版本 v${state.latest}${state.current ? `（当前 ${formatVersion(state.current)}）` : ""}`}
+                  : !autoStalled
+                    ? `正在自动准备新版本 v${state.latest}…`
+                    : `发现新版本 v${state.latest}（自动准备不可用，可手动下载）`}
               </b>
               {state.notes ? <span>{state.notes}</span> : null}
             </span>
             {!downloading ? (
               <>
-                <a
-                  className="btn btn-secondary btn-sm"
-                  href={state.download_url || DOWNLOAD_HOME}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                >
-                  去下载
-                </a>
+                {autoStalled ? (
+                  <a
+                    className="btn btn-secondary btn-sm"
+                    href={state.download_url || DOWNLOAD_HOME}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                  >
+                    去下载
+                  </a>
+                ) : null}
                 {state.notes_url ? (
                   <a
                     className="btn btn-ghost btn-sm"
