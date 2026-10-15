@@ -129,6 +129,32 @@ def _sanitize_vars(user_vars: dict) -> dict:
     return out
 
 
+def _merge_final(partials: list[str]) -> dict:
+    """终稿归一：单份直取；多份（reduce 降级残留）＝同键列表拼接的保底合并。
+
+    降级稿内容与收敛稿基本一致（L1 每批都见过全书梗概），只是段间可能有
+    重复条目——保底可用优先，不为此再冒一次被拦的调用。
+    """
+    if not partials:
+        return {}
+    parsed = [_parse_json_response(p) for p in partials]
+    if len(parsed) == 1:
+        return parsed[0]
+    merged: dict = {}
+    for data in parsed:
+        if not isinstance(data, dict):
+            continue
+        for k, v in data.items():
+            if isinstance(v, list) and isinstance(merged.get(k), list):
+                merged[k] = merged[k] + v
+            elif isinstance(v, dict) and isinstance(merged.get(k), dict):
+                merged[k] = {**merged[k], **v}
+            elif k not in merged:
+                merged[k] = v
+            # 其余标量冲突：保留首份（seen/seg 口径以第一段为准可读性最好）
+    return merged
+
+
 def _quote_corpus(chapters: list[dict]) -> str:
     """quote 回验语料：原稿全文＋替换稿（仅在有替换时附）——卡片引用可能来自任一稿。
 
@@ -465,35 +491,47 @@ async def run_task(task_id: str) -> None:
                 await _patch(task_id, dims_json=_state_json(state, cards=cards, dims=dims))
 
             # 树收敛：多批产物反复合并直到单份（无头尾截断＝任意长度零丢失）
+            reduce_degraded = ""
             if len(partials) > 1:
                 sys_r, usr_r = load_layers("deconstruct_reduce")
-                while len(partials) > 1:
-                    await _check_cancel(task_id)
-                    groups = _pack_units(partials, MERGE_INPUT_CAP)
-                    if len(groups) >= len(partials):
-                        # 每份都超单组预算：两两配对保底收敛
-                        groups = [partials[i : i + 2] for i in range(0, len(partials), 2)]
-                    nxt: list[str] = []
-                    dstate["seg_total"] += len(groups)
-                    for group in groups:
-                        if len(group) == 1:
-                            nxt.append(group[0])
-                            continue
+                try:
+                    while len(partials) > 1:
                         await _check_cancel(task_id)
-                        merged = await _call_with_retry(
-                            client, model, (sys_r, usr_r),
-                            {"dim_name": names[dim], "partials": "\n\n".join(group)},
-                            f"deconstruct_{dim}_reduce",
-                        )
-                        nxt.append(json.dumps(merged, ensure_ascii=False))
-                        dstate["seg_done"] += 1
-                        dims[dim] = dstate
-                        await _patch(
-                            task_id, dims_json=_state_json(state, cards=cards, dims=dims)
-                        )
-                    partials = nxt
+                        groups = _pack_units(partials, MERGE_INPUT_CAP)
+                        if len(groups) >= len(partials):
+                            # 每份都超单组预算：两两配对保底收敛
+                            groups = [partials[i : i + 2] for i in range(0, len(partials), 2)]
+                        nxt: list[str] = []
+                        dstate["seg_total"] += len(groups)
+                        for group in groups:
+                            if len(group) == 1:
+                                nxt.append(group[0])
+                                continue
+                            await _check_cancel(task_id)
+                            merged = await _call_with_retry(
+                                client, model, (sys_r, usr_r),
+                                {"dim_name": names[dim], "partials": "\n\n".join(group)},
+                                f"deconstruct_{dim}_reduce",
+                            )
+                            nxt.append(json.dumps(merged, ensure_ascii=False))
+                            dstate["seg_done"] += 1
+                            dims[dim] = dstate
+                            await _patch(
+                                task_id, dims_json=_state_json(state, cards=cards, dims=dims)
+                            )
+                        partials = nxt
+                except _Cancelled:
+                    raise
+                except Exception as e:  # noqa: BLE001 — 收敛被拦（13路实测：reduce 输入脱敏后仍 1301，
+                    # 分类器读的是全书恐怖梗概的语义，词表救不了）不拖垮维度：保留分段归并稿
+                    reduce_degraded = (
+                        f"reduce 收敛被模型拒绝（{str(e)[:60]}），保留 {len(partials)} 段归并稿"
+                    )
+                    _log.warning("REDUCE-DEGRADE %s: %s", dim, reduce_degraded)
+                if reduce_degraded:
+                    dstate["degraded"] = reduce_degraded
 
-            final = _parse_json_response(partials[0]) if partials else {}
+            final = _merge_final(partials)
             covered = f"第1-{task.chapter_count}章" if task.chapter_count else "全本"
             products[dim] = {
                 "file": _dim_filename(dim),

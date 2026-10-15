@@ -224,6 +224,46 @@ def test_tree_merge_zero_loss(monkeypatch):
     assert len(reduce_calls) >= 3  # 4 批至少 2+1 轮
 
 
+def test_reduce_blocked_degrades_to_partials(monkeypatch):
+    """reduce 被拦（13路实测：脱敏后仍 1301＝语义级）维度不死：保留分段归并稿＋degraded 留痕。"""
+    from deconstruct import pipeline
+
+    _stub_layers(monkeypatch)
+
+    def blocked_reduce(kw, n):
+        raise RuntimeError("Error code: 400 - contentFilter 1301")
+
+    client = FakeClient({"deconstruct_card": _card_handler,
+                         "deconstruct_world": _seen_handler("world"),
+                         "deconstruct_world_reduce": blocked_reduce})
+    _stub_client(monkeypatch, client)
+    _mk_job("p-degrade", selected=["world"], chapters=4)
+    monkeypatch.setattr(pipeline, "CARD_BATCH_CHARS", 30)  # 4 批 → 必有 reduce 轮
+
+    _run(pipeline.run_task("p-degrade"))
+    t = _load("p-degrade")
+    assert t.status == "completed", t.error_json  # 维度不死、任务不 failed
+    final = json.loads(t.products_json)["world"]["data"]
+    assert sorted(final["seen"]) == [1, 2, 3, 4]  # 分段保底合并零丢失
+    state = json.loads(t.dims_json)["dims"]["world"]
+    assert "reduce 收敛被模型拒绝" in state.get("degraded", "")
+
+
+def test_merge_final_passthrough_and_concat():
+    """终稿归一：单份直取；多份同键列表拼接、dict 浅并、标量保首份。"""
+    from deconstruct.pipeline import _merge_final
+
+    assert _merge_final([]) == {}
+    assert _merge_final(['{"seen": [1]}']) == {"seen": [1]}
+    out = _merge_final([
+        '{"arcs": [{"a": 1}], "meta": {"x": 1}, "seg": "1-2"}',
+        '{"arcs": [{"a": 2}], "meta": {"y": 2}, "seg": "3-4"}',
+    ])
+    assert out["arcs"] == [{"a": 1}, {"a": 2}]  # 列表拼接
+    assert out["meta"] == {"x": 1, "y": 2}  # dict 浅并
+    assert out["seg"] == "1-2"  # 标量保首份
+
+
 def test_unit_retry_then_success(monkeypatch):
     from deconstruct import pipeline
 
