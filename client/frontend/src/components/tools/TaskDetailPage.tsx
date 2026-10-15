@@ -45,6 +45,8 @@ export default function TaskDetailPage() {
   const [exitMsg, setExitMsg] = useState("");
   const [exitErr, setExitErr] = useState("");
   const [busy, setBusy] = useState(false);
+  // 断点续拆过渡：点击起「正在恢复…」直到状态翻面（queued/running）——期间按钮不可再点
+  const [resuming, setResuming] = useState(false);
   const [reuploadFile, setReuploadFile] = useState<File | null>(null);
   const reuploadRef = useRef<HTMLInputElement>(null);
 
@@ -57,6 +59,10 @@ export default function TaskDetailPage() {
       return s === "queued" || s === "running" ? 1500 : false;
     },
   });
+
+  useEffect(() => {
+    if (task && task.status !== "failed" && task.status !== "cancelled") setResuming(false);
+  }, [task?.status]);
 
   useEffect(() => {
     /* v8 ignore start — 选中保持臂（仅 refetch 后 prev 非空时触发，jsdom 单次加载不可达） */
@@ -193,7 +199,7 @@ export default function TaskDetailPage() {
 
       {task.status === "running" || task.status === "queued" ? (
         <>
-          <div className="task-card" data-od-id="task-running">
+          <div className="task-card animate-fade-up" data-od-id="task-running">
             <div className="task-pct">
               <span className="pct">{overall}%</span>
             </div>
@@ -351,10 +357,21 @@ export default function TaskDetailPage() {
             <button
               className="btn btn-primary"
               data-od-id="btn-resume"
-              disabled={busy}
-              onClick={() => void act(() => resumeDeconstructTask(task.id))}
+              disabled={busy || resuming}
+              onClick={() => {
+                setResuming(true);
+                void (async () => {
+                  try {
+                    await resumeDeconstructTask(task.id);
+                    toast.info("已从断点恢复，正在继续拆书");
+                  } catch (e) {
+                    toast.error(e instanceof Error ? e.message : "恢复失败");
+                    setResuming(false);
+                  }
+                })();
+              }}
             >
-              从断点续拆
+              {resuming ? "正在恢复…" : "从断点续拆"}
             </button>
             {confirmDelete ? (
               <>

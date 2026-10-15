@@ -333,6 +333,41 @@ describe("TaskDetailPage", () => {
     u3.unmount();
   });
 
+  it("断点续拆过渡：恢复中态按钮＋toast，运行卡 fade-up 入场", async () => {
+    state.get.mockResolvedValue(detailOf("failed", { error: "模型 400" }));
+    state.resume.mockResolvedValue(undefined);
+    const u1 = renderPage();
+    await waitFor(() => expect(screen.getByText("从断点续拆")).toBeInTheDocument());
+    fireEvent.click(screen.getByText("从断点续拆"));
+    await waitFor(() => expect(screen.getByText("正在恢复…")).toBeInTheDocument());
+    await waitFor(() => expect(toastState.info).toHaveBeenCalledWith(expect.stringContaining("从断点恢复")));
+    u1.unmount();
+    // 状态翻面（failed 不轮询，重挂载模拟轮询后视图）：运行卡 fade-up 入场
+    state.get.mockResolvedValue(detailOf("running", { cards: { state: "running", done: 5, total: 10 } }));
+    renderPage();
+    await waitFor(() => expect(screen.getByText("取消任务")).toBeInTheDocument());
+    const card = screen.getByText("取消任务").closest('[data-od-id="task-running"]') as HTMLElement;
+    expect(card.classList.contains("animate-fade-up")).toBe(true);
+  });
+
+  it("断点续拆失败：toast.error 明示＋按钮回原态", async () => {
+    state.get.mockResolvedValue(detailOf("failed", { error: "模型 400" }));
+    state.resume.mockRejectedValue(new Error("仅失败/已取消任务可续拆"));
+    const u = renderPage();
+    await waitFor(() => expect(screen.getByText("从断点续拆")).toBeInTheDocument());
+    fireEvent.click(screen.getByText("从断点续拆"));
+    await waitFor(() => expect(toastState.error).toHaveBeenCalledWith("仅失败/已取消任务可续拆"));
+    await waitFor(() => expect(screen.getByText("从断点续拆")).toBeInTheDocument());
+    u.unmount();
+    // 非 Error 拒绝走兜底文案；cancelled 态同样出续拆按钮（恢复中态不残留）
+    state.resume.mockRejectedValue("boom");
+    state.get.mockResolvedValue(detailOf("cancelled"));
+    renderPage();
+    await waitFor(() => expect(screen.getByText("从断点续拆")).toBeInTheDocument());
+    fireEvent.click(screen.getByText("从断点续拆"));
+    await waitFor(() => expect(toastState.error).toHaveBeenCalledWith("恢复失败"));
+  });
+
   it("需重传：重传按钮触发文件框（不崩）", async () => {
     state.get.mockResolvedValue(detailOf("need_reupload", { products: [] }));
     renderPage();
