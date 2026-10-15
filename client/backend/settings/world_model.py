@@ -22,9 +22,9 @@ import re
 from pydantic import BaseModel, Field, field_validator, model_validator
 
 # ── 上限基线（D3；产品可调，调整即改这里）───────────────────────────────
-PARAGRAPH_MAX = 300
+PARAGRAPH_MAX = 2000
 KEY_MAX = 20
-VALUE_MAX = 200
+VALUE_MAX = 500
 FACTION_NAME_MAX = 20
 FACTION_NOTE_MAX = 200
 HISTORY_MAX = 100
@@ -32,7 +32,7 @@ FACTIONS_MAX = 6
 CONSTRAINTS_MAX = 10
 EXTRA_MAX = 50
 ORIGIN_MAX = 40
-WORLD_BLOCK_BUDGET = 600
+WORLD_BLOCK_BUDGET = 2400
 
 SET_NAMES = ("history", "factions", "constraints", "extra")
 _SET_LIMITS = {"history": HISTORY_MAX, "factions": FACTIONS_MAX,

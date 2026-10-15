@@ -105,10 +105,10 @@ def _world_body(data: dict) -> dict:
     return {
         # 评审 P1-2 口径：仅当模型输出含「无超凡/原文未明确」才置真，不凭空断言力量体系
         "no_power": "无超凡" in no_power_txt or "原文未明确" in no_power_txt,
-        "stage": _clean_para(data.get("stage", ""), 300),
+        "stage": _clean_para(data.get("stage", ""), 2000),
         # power/cost 契约＝段落 str：条目列表拼「名：规则」段落（v2 产物是列表）
-        "power": _clean_para(_entries_paragraph(data.get("power")), 300),
-        "cost": _clean_para(_entries_paragraph(data.get("cost")), 300),
+        "power": _clean_para(_entries_paragraph(data.get("power")), 2000),
+        "cost": _clean_para(_entries_paragraph(data.get("cost")), 2000),
         # 历史条目契约＝{key,value[,origin]}：产物是 {name,note[,evidence_ch]}
         "history": [
             {"key": str(i.get("name", ""))[:40],
@@ -119,12 +119,12 @@ def _world_body(data: dict) -> dict:
         # 势力备注在产物的 rule 键（note 是旧形状假设，真机实证全丢成「原文未明确」）
         "factions": [
             {"name": _clean_para(i.get("name", ""), 20),
-             "note": _clean_para(i.get("rule", i.get("note", "")), 200)}
+             "note": _clean_para(i.get("rule", i.get("note", "")), 500)}
             for i in (data.get("factions") or []) if isinstance(i, dict)
         ],
         "constraints": [
             {"key": _clean_para(i.get("name", ""), 20),
-             "value": _clean_para(i.get("rule", i.get("note", "")), 200)}
+             "value": _clean_para(i.get("rule", i.get("note", "")), 500)}
             for i in (data.get("constraints") or []) if isinstance(i, dict)
         ],
         "extra": [
