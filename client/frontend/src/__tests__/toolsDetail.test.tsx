@@ -443,4 +443,18 @@ describe("TaskDetailPage", () => {
     fireEvent.click(screen.getByText("选择文件夹并导出"));
     await waitFor(() => expect(screen.getByText(/本次为文档版/)).toBeInTheDocument());
   });
+  it("内容审核拒绝：红色提示＋去换模型出口", async () => {
+    state.get.mockResolvedValue(detailOf("failed", { error: "模型的内容安全审核拒绝了该书的题材（恐怖/暴力等敏感内容）。请更换模型（如 DeepSeek）或拆解其他作品。" }));
+    renderPage();
+    await waitFor(() => expect(screen.getByText("模型拒绝了该书的题材")).toBeInTheDocument());
+    expect(screen.getByText("去换模型")).toBeInTheDocument();
+  });
+
+  it("error 不含内容安全审核关键词→内容审核 UI 不渲染（covers 不匹配臂）", async () => {
+    state.get.mockResolvedValue(detailOf("failed", { error: "某些其他错误" }));
+    renderPage();
+    await waitFor(() => expect(screen.getByText("某些其他错误")).toBeInTheDocument());
+    expect(screen.queryByTestId("content-filter")).not.toBeInTheDocument();
+  });
+
 });
