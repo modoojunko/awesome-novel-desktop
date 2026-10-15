@@ -545,3 +545,39 @@ def test_task_view_graph_phase_absent_is_none(client):
     _mk_queued("dec-gp-2", with_source=False)
     d = client.get("/api/deconstruct/tasks/dec-gp-2").json()
     assert d["graph_phase"] is None
+
+
+def test_import_world_v2_product_shapes(client):
+    """建书 world 映射对齐 v2 产物形状（真机实证：power/cost 列表→repr 乱码、
+    history/constraints 因 key 缺失整条被丢、faction note 因 rule 键错配全丢）。"""
+    _mk_completed("dec-imp-w", {"world": _product("world", "世界设定.md", {
+        "no_power": "",
+        "stage": "北方某市",
+        "power": [{"name": "鬼与邪祟体系", "rule": "溺亡者成水鬼需拉替死鬼"}],
+        "cost": [{"name": "折寿", "rule": "过阴寻人需折寿"}],
+        "history": [{"name": "十年前连环车祸", "note": "三任司机坠水库", "evidence_ch": "第1章"}],
+        "factions": [{"name": "公交公司", "rule": "老吴知情并隐瞒"}],
+        "constraints": [{"name": "诅咒绑定", "rule": "开了第一遭走不了"}],
+    }, "# 世界设定")})
+    r = client.post("/api/deconstruct/tasks/dec-imp-w/import-book")
+    assert r.status_code == 200, r.text
+    bid = r.json()["book_id"]
+
+    async def _world(book_id):
+        from filesystem.paths import KEY_TO_PATH
+        from filesystem.storage import get_storage
+        from models.project import Novel
+
+        async with async_session() as s:
+            n = await s.get(Novel, book_id)
+        return await get_storage().read_yaml(n.root_path, KEY_TO_PATH["world"])
+
+    w = _run(_world(bid))
+    assert "鬼与邪祟体系：溺亡者成水鬼需拉替死鬼" in w["power"]  # 段落化
+    assert "'name'" not in w["power"]  # 不再是 repr 串
+    assert "折寿" in w["cost"]
+    assert w["history"] and w["history"][0]["key"] == "十年前连环车祸"
+    assert "坠水库" in w["history"][0]["value"] and w["history"][0].get("origin") == "第1章"
+    assert w["constraints"] and w["constraints"][0]["key"] == "诅咒绑定"
+    assert "走不了" in w["constraints"][0]["value"]
+    assert w["factions"][0]["name"] == "公交公司" and w["factions"][0]["note"] == "老吴知情并隐瞒"
