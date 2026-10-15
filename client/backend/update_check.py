@@ -352,7 +352,9 @@ def _download_worker(version: str, platform: dict, epoch: int) -> None:
                 return
             got = _sha256_of(dest)
             if want and got != want:
-                dest.rename(dest.with_name(f"{dest.name}.quarantine-{int(time.time())}"))
+                quarantine = dest.with_name(dest.name + ".quarantine")
+                quarantine.unlink(missing_ok=True)  # 替换式：至多滞留一份坏包
+                dest.rename(quarantine)
                 _set_auto_state("downloading", version, "sha mismatch")
                 time.sleep(min(30, 2 * attempts))
                 continue
@@ -387,14 +389,19 @@ def maybe_start_auto_download(fetched: dict, current: str) -> None:
     if not isinstance(platform, dict) or not platform.get("url"):
         logger.info("update-check: no package for platform %s in manifest", _PLATFORM_KEY)
         return
-    if not _validate_outbound_url_sync(str(platform["url"])):
-        return
     with _state_lock:
         st = _load_state()
     if st.get("skipped_version") == latest:
         return
     auto = st.get("auto") if isinstance(st.get("auto"), dict) else {}
     if auto.get("state") == "staged" and auto.get("version") == latest:
+        return
+    # pending 在场＝用户已确认「重启更新」在途：绝不覆盖暂存件（否则同名路径被
+    # 新一代包顶掉、指纹失配，已确认的安装被退出链静默取消——三轮检视实锤）
+    if _PENDING_PATH.exists():
+        logger.info("update-check: pending install in flight, skip re-download")
+        return
+    if not _validate_outbound_url_sync(str(platform["url"])):
         return
     with _dl_lock:
         _dl_epoch += 1

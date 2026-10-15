@@ -523,7 +523,7 @@ def test_download_worker_quarantines_sha_mismatch(monkeypatch, tmp_path):
     uc._download_worker("0.33", platform, epoch=1)
     state = json.loads((tmp_path / "update-check.json").read_text(encoding="utf-8"))
     assert state["auto"]["state"] == "failed"
-    assert any(p.name.startswith("pkg.exe.quarantine-") for p in tmp_path.iterdir())
+    assert (tmp_path / "pkg.exe.quarantine").exists()
 
 
 def test_apply_writes_pending_and_refuses_when_gate_closed(monkeypatch, tmp_path):
@@ -755,3 +755,24 @@ def test_trigger_v1_manifest_logs_and_skips(monkeypatch, caplog):
         uc.maybe_start_auto_download(_manifest(platforms=None), current="0.11")
     assert not done.wait(timeout=1)
     assert any("manifest v1" in r.message for r in caplog.records)
+
+
+def test_trigger_skips_redownload_while_pending_in_flight(monkeypatch):
+    """pending 在场＝用户已确认在途：新一代检出 MUST NOT 覆盖暂存件（三轮检视实锤）。"""
+    monkeypatch.setattr(uc, "_PLATFORM_KEY", "win")
+    done = threading.Event()
+
+    def fake_worker(version, platform, epoch):
+        done.set()
+
+    monkeypatch.setattr(uc, "_download_worker", fake_worker)
+    (uc._state_path.parent if uc._state_path.parent.exists() else None)
+    uc._state_path.write_text(
+        json.dumps({"auto": {"state": "staged", "version": "0.33"},
+                    "pending": {"version": "0.33"}}),
+        encoding="utf-8")
+    import os as _os
+    uc._PENDING_PATH.parent.mkdir(parents=True, exist_ok=True)
+    uc._PENDING_PATH.write_text("{}", encoding="utf-8")
+    uc.maybe_start_auto_download(_manifest(), current="0.11")
+    assert not done.wait(timeout=1)
