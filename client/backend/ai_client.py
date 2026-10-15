@@ -173,6 +173,102 @@ class StreamEvent:
     error: str = ""
 
 
+# ── 内联思考剥离（c-inline-think-strip）─────────────────────────────────
+# MiniMax M2/M3 系（OpenAI 协议原生格式）把思考以 `<think>…</think>` 内联在
+# content 交付（官方文档明示需手动解析）；这是 openai 路径交付前的卫生层：
+# 仅当响应以 `<think>` 开头才判定为内联思考形态，非该形态逐字放行。
+_THINK_OPEN = "<think>"
+_THINK_CLOSE = "</think>"
+
+
+class _InlineThinkStripper:
+    """跨 chunk 的内联思考剥离状态机。
+
+    HOLDING：以「缓冲是否为 `<think>` 的前缀」判定——凑齐完整开标签转
+    STRIPPING；仍可能是前缀（如 "<th"）继续攒；一旦偏离（首个字符 ≠ "<"
+    即命中）缓冲整体放行转 PASSING，普通模型首 chunk 零延迟直通；
+    STRIPPING：思考段即攒即弃，仅保留尾部 ≤len(闭标签)-1 字符滑窗防
+    `</think>` 裂在 chunk 边界，内存有界；PASSING：直通。
+    流结束仍 HOLDING＝余量按非思考形态交付（未凑齐完整开标签即永不命中
+    剥离形态，如 "<th" 截断流）；仍 STRIPPING＝整段按思考处理不交付
+    （未闭合兜底，空产物由既有重试/报错路径接管）。内部异常按原始文本
+    兜底——净化尽力而为，不得毁掉正常生成。流式逐 chunk feed、非流式
+    strip_inline_think 一次喂入，共用同一核心防双实现漂移。
+    """
+
+    def __init__(self) -> None:
+        self._mode = "holding"
+        self._buf = ""
+        self._broken = False
+
+    def _flush_close(self) -> str:
+        """在当前缓冲上找闭标签：未闭合→保留尾部滑窗（防标签裂边界）；
+        闭合→丢弃思考段、余量转 PASSING 放行。"""
+        end = self._buf.find(_THINK_CLOSE)
+        if end < 0:
+            keep = len(_THINK_CLOSE) - 1
+            if len(self._buf) > keep:
+                self._buf = self._buf[-keep:]
+            return ""
+        self._mode = "passing"
+        out = self._buf[end + len(_THINK_CLOSE):]
+        self._buf = ""
+        return out
+
+    def feed(self, chunk: str) -> str:
+        """喂入一个增量，返回本次可放行的正文（思考段零产出）。"""
+        if self._broken:
+            return chunk
+        if not chunk:
+            return ""
+        try:
+            if self._mode == "passing":
+                return chunk
+            if self._mode == "holding":
+                self._buf += chunk
+                if self._buf.startswith(_THINK_OPEN):
+                    # 判明内联思考：本 chunk 余量（摘除开标签）就地进剥离段
+                    self._mode = "stripping"
+                    self._buf = self._buf[len(_THINK_OPEN):]
+                    return self._flush_close()
+                if (
+                    len(self._buf) < len(_THINK_OPEN)
+                    and _THINK_OPEN.startswith(self._buf)
+                ):
+                    return ""  # 仍可能是开标签前缀（如 "<th"），继续攒
+                # 判明非思考形态：全部放行——首个字符 ≠ "<" 时零延迟直通
+                self._mode = "passing"
+                out, self._buf = self._buf, ""
+                return out
+            # stripping：先累积本 chunk 再找闭标签
+            self._buf += chunk
+            return self._flush_close()
+        except Exception:  # noqa: BLE001 — 异常按原始交付兜底（spec 行为钉）
+            self._broken = True
+            self._buf = ""
+            return chunk
+
+    def finish(self) -> str:
+        """流结束收尾：返回剩余应交付的正文（见类注的未闭合/短文本兜底）。"""
+        if self._broken:
+            return ""
+        if self._mode == "holding":
+            out, self._buf = self._buf, ""
+            self._mode = "passing"
+            return out
+        self._mode = "passing"
+        self._buf = ""
+        return ""
+
+
+def strip_inline_think(text: str) -> str:
+    """非流式出口的内联思考剥离：一次喂入＋收尾，与流式共用状态机。"""
+    if not text or not text.startswith(_THINK_OPEN):
+        return text
+    s = _InlineThinkStripper()
+    return s.feed(text) + s.finish()
+
+
 class AIClient:
     """Provider-agnostic AI client.
 
@@ -553,7 +649,8 @@ class AIClient:
                 tokens_out=(usage or {}).get("tokens_out", 0),
                 attempt=attempt,
             )
-            return choices[0].message.content or ""
+            # 内联思考剥离（c-inline-think-strip）：非 `<think>` 前缀形态原样返回
+            return strip_inline_think(choices[0].message.content or "")
         else:
             kwargs.pop("json_mode", None)  # Anthropic 无 response_format，靠 prompt + 归一化兜底
             kwargs = self._anthropic_kwargs(kwargs)
@@ -699,6 +796,9 @@ class AIClient:
                     if first_content_timeout
                     else None
                 )
+                # 内联思考剥离（c-inline-think-strip）：思考段零产出且不撤守卫
+                # ——守卫口径＝首个「交付正文」片段，内联思考不算首字
+                stripper = _InlineThinkStripper()
                 async for chunk in stream:
                     if first_deadline is not None and time.monotonic() >= first_deadline:
                         raise AIThinkingTimeoutError(time.monotonic() - first_started)
@@ -715,8 +815,15 @@ class AIClient:
                         done_fr = fr  # 终止原因以流内最后一条为准（c-shortfall-refill）
                     delta = chunk.choices[0].delta
                     if delta and delta.content:
-                        first_deadline = None  # 首字已到，守卫即撤
-                        yield StreamEvent(text=delta.content)
+                        prose = stripper.feed(delta.content)
+                        if prose:
+                            first_deadline = None  # 首个正文片段已到，守卫即撤
+                            yield StreamEvent(text=prose)
+                # 流结束收尾：HOLDING 短文本残余按正文交付（未闭合思考不产出）
+                tail = stripper.finish()
+                if tail:
+                    first_deadline = None
+                    yield StreamEvent(text=tail)
                 self._log_call(
                     operation, model, start, tokens_in=done_in, tokens_out=done_out
                 )
