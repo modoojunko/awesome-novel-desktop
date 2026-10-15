@@ -59,12 +59,16 @@ export default function UpdateNotice() {
 
   const auto = state?.auto;
   const downloading = auto?.state === "downloading";
+  // 快轮询面（10-14 真机复盘）：只要「有更新且尚未生效/未被暂缓」就 1 分钟复查——
+  // 否则下载触发后横幅最长 15 分钟才变脸（v6 验收实锤「没有你说的这些」）。
+  // 轮的是本地端点，零外呼负担。
+  const pollFast = downloading || auto?.state === "staged" || !!state?.has_update;
 
   useEffect(() => {
     refresh();
-    const timer = setInterval(refresh, downloading ? POLL_MS_DOWNLOADING : POLL_MS);
+    const timer = setInterval(refresh, pollFast ? POLL_MS_DOWNLOADING : POLL_MS);
     return () => clearInterval(timer);
-  }, [refresh, downloading]);
+  }, [refresh, pollFast]);
 
   if (!state?.latest) return null;
 
