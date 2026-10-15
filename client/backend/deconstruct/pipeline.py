@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import logging
 import os
 
 from sqlalchemy import select
@@ -24,6 +25,7 @@ from deconstruct.graph import (  # noqa: PLC2701 — 域内复用形状防御（
     _clean,
     _dicts,
 )
+from deconstruct.sanitize import sanitize_for_model
 from models.deconstruct import DIMENSION_KEYS, DeconstructJob
 from prompts import PromptPackMissing, load_layers
 
@@ -93,11 +95,75 @@ def _pack_units(units: list[str], budget: int, joiner: str = "\n\n") -> list[lis
 
 
 def _card_text(chapter: dict) -> str:
-    """单章喂料：≤6000 字原样；超长取头 4000＋尾 2000（中略显式标注，卡以此可见部分为据）。"""
+    """单章喂料：≤6000 字原样；超长取头 4000＋尾 2000（中略显式标注，卡以此可见部分为据）。
+
+    脱敏不在本函数做——所有模型调用统一在 _call_with_retry 咽喉处过
+    _sanitize_vars（拆卡/补写/归并/reduce 一处全覆盖，单点不会漏）。
+    """
     text = chapter.get("text", "") or ""
     if len(text) <= _CARD_TEXT_LIMIT:
         return text
     return text[:_CARD_HEAD] + "\n……（中略——仅以首尾为据）……\n" + text[-_CARD_TAIL:]
+
+
+_log = logging.getLogger("deconstruct.sanitize")
+
+
+def _sanitize_vars(user_vars: dict) -> dict:
+    """模型调用前统一脱敏：所有 str 值过中性替换（非 str 原样）。
+
+    覆盖全部调用点的输入——章节原文（拆卡/补写）之外，还有**归并与 reduce
+    的碎片/归并稿**：它们凝结了原文敏感内容（13路末班车实测 1301 死在
+    mainplot_reduce，L1 与拆卡均过），单盖 _card_text 挡不住这一层。
+    已脱敏文本再过一遍是幂等 no-op（替换输出不含任何词表原词，测试钉死）。
+    """
+    out: dict = {}
+    for k, v in user_vars.items():
+        if isinstance(v, str):
+            clean, hits = sanitize_for_model(v)
+            if hits:
+                _log.info("SANITIZE %s: %s", k, "；".join(hits[:8]))
+            out[k] = clean
+        else:
+            out[k] = v
+    return out
+
+
+def _merge_final(partials: list[str]) -> dict:
+    """终稿归一：单份直取；多份（reduce 降级残留）＝同键列表拼接的保底合并。
+
+    降级稿内容与收敛稿基本一致（L1 每批都见过全书梗概），只是段间可能有
+    重复条目——保底可用优先，不为此再冒一次被拦的调用。
+    """
+    if not partials:
+        return {}
+    parsed = [_parse_json_response(p) for p in partials]
+    if len(parsed) == 1:
+        return parsed[0]
+    merged: dict = {}
+    for data in parsed:
+        if not isinstance(data, dict):
+            continue
+        for k, v in data.items():
+            if isinstance(v, list) and isinstance(merged.get(k), list):
+                merged[k] = merged[k] + v
+            elif isinstance(v, dict) and isinstance(merged.get(k), dict):
+                merged[k] = {**merged[k], **v}
+            elif k not in merged:
+                merged[k] = v
+            # 其余标量冲突：保留首份（seen/seg 口径以第一段为准可读性最好）
+    return merged
+
+
+def _quote_corpus(chapters: list[dict]) -> str:
+    """quote 回验语料：原稿全文＋替换稿（仅在有替换时附）——卡片引用可能来自任一稿。
+
+    _card_text 先截选再替换，边界截断的敏感词短语会以半截原形留在喂料里，
+    模型引用于是可能出自原稿或替换稿；两稿拼一起让 quote 回验（子串匹配）两认。
+    """
+    raw = "\n".join(ch.get("text", "") or "" for ch in chapters)
+    clean = sanitize_for_model(raw)[0]
+    return raw if clean == raw else f"{raw}\n{clean}"
 
 
 def _card_frag(no: str, card: dict, dim: str) -> str:
@@ -217,8 +283,13 @@ async def _chat_json(client, model: str, system: str, user: str, operation: str)
 
 
 async def _call_with_retry(client, model, system_tpl, user_vars, operation):
-    """单元级调用：重试 2 次（重试属同一单元内的模型调用，不涉及内容截断）。"""
+    """单元级调用：重试 2 次（重试属同一单元内的模型调用，不涉及内容截断）。
+
+    user 变量在咽喉处统一脱敏（_sanitize_vars）：章节原文＋归并/reduce 碎片
+    全覆盖，绕内容审核 1301。
+    """
     system, user_tpl = system_tpl
+    user_vars = _sanitize_vars(user_vars)
     last_err: Exception | None = None
     for _ in range(SEGMENT_RETRIES + 1):
         try:
@@ -420,35 +491,47 @@ async def run_task(task_id: str) -> None:
                 await _patch(task_id, dims_json=_state_json(state, cards=cards, dims=dims))
 
             # 树收敛：多批产物反复合并直到单份（无头尾截断＝任意长度零丢失）
+            reduce_degraded = ""
             if len(partials) > 1:
                 sys_r, usr_r = load_layers("deconstruct_reduce")
-                while len(partials) > 1:
-                    await _check_cancel(task_id)
-                    groups = _pack_units(partials, MERGE_INPUT_CAP)
-                    if len(groups) >= len(partials):
-                        # 每份都超单组预算：两两配对保底收敛
-                        groups = [partials[i : i + 2] for i in range(0, len(partials), 2)]
-                    nxt: list[str] = []
-                    dstate["seg_total"] += len(groups)
-                    for group in groups:
-                        if len(group) == 1:
-                            nxt.append(group[0])
-                            continue
+                try:
+                    while len(partials) > 1:
                         await _check_cancel(task_id)
-                        merged = await _call_with_retry(
-                            client, model, (sys_r, usr_r),
-                            {"dim_name": names[dim], "partials": "\n\n".join(group)},
-                            f"deconstruct_{dim}_reduce",
-                        )
-                        nxt.append(json.dumps(merged, ensure_ascii=False))
-                        dstate["seg_done"] += 1
-                        dims[dim] = dstate
-                        await _patch(
-                            task_id, dims_json=_state_json(state, cards=cards, dims=dims)
-                        )
-                    partials = nxt
+                        groups = _pack_units(partials, MERGE_INPUT_CAP)
+                        if len(groups) >= len(partials):
+                            # 每份都超单组预算：两两配对保底收敛
+                            groups = [partials[i : i + 2] for i in range(0, len(partials), 2)]
+                        nxt: list[str] = []
+                        dstate["seg_total"] += len(groups)
+                        for group in groups:
+                            if len(group) == 1:
+                                nxt.append(group[0])
+                                continue
+                            await _check_cancel(task_id)
+                            merged = await _call_with_retry(
+                                client, model, (sys_r, usr_r),
+                                {"dim_name": names[dim], "partials": "\n\n".join(group)},
+                                f"deconstruct_{dim}_reduce",
+                            )
+                            nxt.append(json.dumps(merged, ensure_ascii=False))
+                            dstate["seg_done"] += 1
+                            dims[dim] = dstate
+                            await _patch(
+                                task_id, dims_json=_state_json(state, cards=cards, dims=dims)
+                            )
+                        partials = nxt
+                except _Cancelled:
+                    raise
+                except Exception as e:  # noqa: BLE001 — 收敛被拦（13路实测：reduce 输入脱敏后仍 1301，
+                    # 分类器读的是全书恐怖梗概的语义，词表救不了）不拖垮维度：保留分段归并稿
+                    reduce_degraded = (
+                        f"reduce 收敛被模型拒绝（{str(e)[:60]}），保留 {len(partials)} 段归并稿"
+                    )
+                    _log.warning("REDUCE-DEGRADE %s: %s", dim, reduce_degraded)
+                if reduce_degraded:
+                    dstate["degraded"] = reduce_degraded
 
-            final = _parse_json_response(partials[0]) if partials else {}
+            final = _merge_final(partials)
             covered = f"第1-{task.chapter_count}章" if task.chapter_count else "全本"
             products[dim] = {
                 "file": _dim_filename(dim),
@@ -502,7 +585,7 @@ async def run_task(task_id: str) -> None:
                     cards=cards["entries"],
                     products=products,
                     place_merge=place_merge,
-                    source_text="\n".join(ch.get("text", "") for ch in chapters),
+                    source_text=_quote_corpus(chapters),
                 )
                 if backfill_failed:
                     graph["meta"]["warnings"].append({
@@ -531,7 +614,7 @@ async def run_task(task_id: str) -> None:
         err_str = str(e)
         if "contentFilter" in err_str or "1301" in err_str:
             await _fail(task_id, error={
-                "message": "模型的内容安全审核拒绝了该书的题材（恐怖/暴力等敏感内容）。"
+                "message": "已对原文做敏感词中性替换，模型的内容安全审核仍拒绝了该书的题材。"
                            "请更换模型（如 DeepSeek）或拆解其他作品。",
                 "kind": "content_filter",
             })

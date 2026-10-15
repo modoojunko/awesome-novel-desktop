@@ -224,6 +224,46 @@ def test_tree_merge_zero_loss(monkeypatch):
     assert len(reduce_calls) >= 3  # 4 批至少 2+1 轮
 
 
+def test_reduce_blocked_degrades_to_partials(monkeypatch):
+    """reduce 被拦（13路实测：脱敏后仍 1301＝语义级）维度不死：保留分段归并稿＋degraded 留痕。"""
+    from deconstruct import pipeline
+
+    _stub_layers(monkeypatch)
+
+    def blocked_reduce(kw, n):
+        raise RuntimeError("Error code: 400 - contentFilter 1301")
+
+    client = FakeClient({"deconstruct_card": _card_handler,
+                         "deconstruct_world": _seen_handler("world"),
+                         "deconstruct_world_reduce": blocked_reduce})
+    _stub_client(monkeypatch, client)
+    _mk_job("p-degrade", selected=["world"], chapters=4)
+    monkeypatch.setattr(pipeline, "CARD_BATCH_CHARS", 30)  # 4 批 → 必有 reduce 轮
+
+    _run(pipeline.run_task("p-degrade"))
+    t = _load("p-degrade")
+    assert t.status == "completed", t.error_json  # 维度不死、任务不 failed
+    final = json.loads(t.products_json)["world"]["data"]
+    assert sorted(final["seen"]) == [1, 2, 3, 4]  # 分段保底合并零丢失
+    state = json.loads(t.dims_json)["dims"]["world"]
+    assert "reduce 收敛被模型拒绝" in state.get("degraded", "")
+
+
+def test_merge_final_passthrough_and_concat():
+    """终稿归一：单份直取；多份同键列表拼接、dict 浅并、标量保首份。"""
+    from deconstruct.pipeline import _merge_final
+
+    assert _merge_final([]) == {}
+    assert _merge_final(['{"seen": [1]}']) == {"seen": [1]}
+    out = _merge_final([
+        '{"arcs": [{"a": 1}], "meta": {"x": 1}, "seg": "1-2"}',
+        '{"arcs": [{"a": 2}], "meta": {"y": 2}, "seg": "3-4"}',
+    ])
+    assert out["arcs"] == [{"a": 1}, {"a": 2}]  # 列表拼接
+    assert out["meta"] == {"x": 1, "y": 2}  # dict 浅并
+    assert out["seg"] == "1-2"  # 标量保首份
+
+
 def test_unit_retry_then_success(monkeypatch):
     from deconstruct import pipeline
 
@@ -333,6 +373,49 @@ def test_card_text_head_tail():
     out = _card_text({"text": long})
     assert out.startswith("H" * 4000) and out.endswith("T" * 2000)
     assert "中略" in out and "M" not in out
+
+
+def test_card_text_clips_only():
+    """_card_text 只管截选，脱敏已下沉 _call_with_retry 咽喉（归并/reduce 同盖，不在此重复）。"""
+    from deconstruct.pipeline import _card_text
+
+    raw = "她推门看见了尸体，满地鲜血。"
+    out = _card_text({"no": 3, "text": raw})
+    assert "尸体" in out  # 本层原样保留；脱敏在咽喉层（见 test_call_with_retry_sanitizes_user_vars）
+
+
+def test_sanitize_vars_mixed_types():
+    """咽喉脱敏：str 值替换、非 str 原样、混合 dict 全覆盖。"""
+    from deconstruct.pipeline import _sanitize_vars
+
+    out = _sanitize_vars({"chapter_text": "他看见了尸体。", "chapter_no": 3, "flag": True})
+    assert out["chapter_text"] == "他看见了遗体。"
+    assert out["chapter_no"] == 3 and out["flag"] is True
+
+
+def test_call_with_retry_sanitizes_user_vars():
+    """_call_with_retry 咽喉实钉：归并/reduce 碎片（凝结原文敏感词）也必过脱敏。"""
+    from deconstruct import pipeline
+
+    client = FakeClient()
+    out = _run(pipeline._call_with_retry(
+        client, "m-1", ("sys", "u {partials}"), {"partials": "【第1章】她看见了尸体"}, "op_x",
+    ))
+    assert out == {}
+    sent = client.last_by_op["op_x"]
+    assert "遗体" in sent and "尸体" not in sent
+
+
+def test_quote_corpus_dual_text():
+    """quote 回验语料＝原稿＋替换稿（有替换时两稿都认）；无替换恒等只用原稿。"""
+    from deconstruct.pipeline import _quote_corpus
+
+    chs = [{"text": "第1章\n他看见了尸体。"}, {"text": "第2章\n平静收场。"}]
+    corpus = _quote_corpus(chs)
+    assert "他看见了尸体。" in corpus  # 原稿在
+    assert "他看见了遗体。" in corpus  # 替换稿也在（模型引用可能出自替换稿）
+
+    assert _quote_corpus([{"text": "渡口救人。"}]) == "渡口救人。"  # 无替换不附第二稿
 
 
 def test_run_task_cards_use_head_tail_clip(monkeypatch):
