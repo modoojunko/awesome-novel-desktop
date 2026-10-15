@@ -73,7 +73,7 @@ export default function UpdateNotice({
       : null;
   // 纯字符串插值（判例：模板字面量 ${} 里放 JSX 会被 toString 成 [object Object]）
   const downloadPctText = downloadPct !== null ? ` ${downloadPct}%` : "";
-  // 快轮询面（10-14 真机复盘）：只要「有更新且尚未生效/未被暂缓」就 1 分钟复查——
+  // 快轮询面（10-14 真机复盘）：只要「有更新且尚未生效/未被暂缓」就按 5 秒节拍复查——
   // 否则下载触发后横幅最长 15 分钟才变脸（v6 验收实锤「没有你说的这些」）。
   // 轮的是本地端点，零外呼负担。
   const pollFast = downloading || auto?.state === "staged" || !!state?.has_update;
@@ -95,6 +95,23 @@ export default function UpdateNotice({
   pollFastRef.current = pollFast;
   const tickRef = useRef(0);
 
+  // 「已自动更新」一次笛（判例双记：render 体副作用非正形；hooks MUST 全部住在
+  // 早退 return 之前——插在早退之间＝hooks 顺序崩溃、整树卸载，PR 检视实锤）
+  const appliedToastRef = useRef<string | null>(null);
+  const appliedVersion = !pollFastRef.current && auto?.state === "applied"
+    ? auto.version
+    : null;
+  useEffect(() => {
+    if (!appliedVersion || appliedToastRef.current === appliedVersion) {
+      return;
+    }
+    appliedToastRef.current = appliedVersion;
+    if (window.__updateAppliedSeen !== appliedVersion) {
+      window.__updateAppliedSeen = appliedVersion;
+      toast.success(`已自动更新到 v${appliedVersion}`);
+    }
+  }, [appliedVersion]);
+
   useEffect(() => {
     refresh();
     const timer = setInterval(() => {
@@ -112,11 +129,6 @@ export default function UpdateNotice({
 
   // staged 的横幅独立于 has_update（dismissed 只管手动文案；就绪态要一直可见）
   if (!stagedVersion && (!state.has_update || !state.latest)) {
-    // 「已自动更新」一次笛（按版本记忆由后端 applied 标记承担，会话内只说一次）
-    if (auto?.state === "applied" && auto.version && window.__updateAppliedSeen !== auto.version) {
-      window.__updateAppliedSeen = auto.version;
-      toast.success(`已自动更新到 v${auto.version}`);
-    }
     return null;
   }
 

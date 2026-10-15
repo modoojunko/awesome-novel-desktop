@@ -434,8 +434,9 @@ def auto_public_state() -> dict:
     # applied 记账只在「没有更新的 staged」时生效——10-15 真机实锤：marker 永久
     # 压住新 staged（「已就绪」按钮永不可见，升级链卡死在新版已备好却无入口）。
     if marker_version is not None:
-        if out["state"] == "staged" and out["version"] and out["version"] != marker_version:
-            pass  # staged 比已记账版本新 → staged 优先（就绪按钮可见）
+        if (out["state"] == "staged" and out["version"]
+                and is_newer(out["version"], marker_version)):
+            pass  # staged 严格新于已记账版本 → staged 优先（就绪按钮可见）
         else:
             out = {"state": "applied", "version": marker_version}
     return out
@@ -593,7 +594,8 @@ async def auto_skip_update(payload: SkipIn):
     if _UPDATES_DIR.is_dir():
         for p in _UPDATES_DIR.iterdir():
             try:
-                if p.is_file() and p.name != "applied.json":
+                # 保留 applied 记账与安装器日志（诊断面）；其余（暂存包/部分件/标记）清
+                if p.is_file() and p.name not in ("applied.json", "installer.log"):
                     p.unlink(missing_ok=True)
             except OSError:
                 pass

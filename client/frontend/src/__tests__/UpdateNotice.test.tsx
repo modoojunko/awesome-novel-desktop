@@ -38,7 +38,7 @@ async function mountAt(path: string, stallMs?: number) {
 describe("UpdateNotice", () => {
   it("有更新（自动链正常）：文案「正在自动准备」，等待期内不给手动入口", async () => {
     requestMock.mockResolvedValue(state());
-    await mountAt("/novels");
+    const dbg = await mountAt("/novels");
 
     expect(await screen.findByText(/正在自动准备新版本 v0\.13/)).toBeTruthy();
     expect(requestMock).toHaveBeenCalledWith("/update-check", { quiet: true });
@@ -300,5 +300,38 @@ describe("UpdateNotice 评审补臂（可见性/安全网/防御）", () => {
     requestMock.mockResolvedValue(state());
     const { container } = await mountAt("/novels");
     await waitFor(() => expect(container.querySelector('[role="status"]')).toBeTruthy());
+  });
+});
+
+describe("UpdateNotice 4c.4 缓修", () => {
+  beforeEach(() => {
+    requestMock.mockReset();
+    vi.resetModules();
+    vi.doMock("@/lib/api", () => ({
+      request: requestMock,
+      errMessage: (e: unknown, fallback?: string) =>
+        fallback ?? (e instanceof Error ? e.message : String(e)),
+    }));
+    delete (window as unknown as { __updateAppliedSeen?: string }).__updateAppliedSeen;
+  });
+
+  afterEach(() => {
+    vi.doUnmock("@/lib/toast");
+  });
+
+  it("StrictMode 双挂载下 applied toast 仍恰一次（effect 承载）", async () => {
+    const toastMock3 = { success: vi.fn(), error: vi.fn(), info: vi.fn() };
+    vi.doMock("@/lib/toast", () => ({ toast: toastMock3 }));
+    requestMock.mockResolvedValue(
+      state({ has_update: false, latest: "0.11", auto: { state: "applied", version: "0.13" } }),
+    );
+    const first = await mountAt("/novels");
+    await waitFor(() => expect(toastMock3.success).toHaveBeenCalledTimes(1));
+    const second = await mountAt("/novels");
+    await waitFor(() => expect(requestMock).toHaveBeenCalledTimes(2));
+    expect(toastMock3.success).toHaveBeenCalledTimes(1);
+    first.unmount();
+    second.unmount();
+    vi.doUnmock("@/lib/toast");
   });
 });
