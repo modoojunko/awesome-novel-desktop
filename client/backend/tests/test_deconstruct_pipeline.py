@@ -21,6 +21,7 @@ _tmp_db.close()
 os.environ["DATABASE_URL"] = f"sqlite+aiosqlite:///{_tmp_db.name}"
 os.environ["DATA_ROOT"] = tempfile.mkdtemp(prefix="test_dep_")
 os.environ["DECONSTRUCT_DISPATCHER_OFF"] = "1"
+os.environ["DECONSTRUCT_CONCURRENCY"] = "1"  # 串行口径保调用序列钉确定性；并发行为另钉
 
 from db import Base, async_session, engine  # noqa: E402
 from models.deconstruct import DeconstructJob  # noqa: E402
@@ -116,6 +117,8 @@ class FakeClient:
 
 def _stub_layers(monkeypatch):
     from deconstruct import pipeline
+
+    monkeypatch.setattr(pipeline, "CONCURRENCY", 1)  # 串行口径保调用序列钉确定性（其他测试模块可能抢先 import 把 env 固化成默认 4）
 
     def load_layers(name):
         if name == "deconstruct_card":
@@ -880,3 +883,46 @@ def test_graph_phase_reported_and_cleared(monkeypatch):
     assert pres and pres[0]["total"] >= 1 and all(0 <= p["done"] <= p["total"] for p in pres)
     assert any(p["done"] >= 1 for p in pres)  # 补写推进至少走一笔（首笔 done:0＝开账）
     assert "graph_phase" not in json.loads(t.dims_json)  # 终态不残留
+
+
+def test_concurrent_cards_overlap_and_complete(monkeypatch):
+    """并发拆卡：CONCURRENCY=3 下 4 章调用真重叠（max_in_flight≥2），结果与串行等价。
+
+    真机动因：258 章串行拆卡要数小时（每章一次 10-90s 调用）——I/O 密集，
+    asyncio 共享信号量并发即可，无需子进程。
+    """
+    from deconstruct import pipeline
+
+    _stub_layers(monkeypatch)
+    monkeypatch.setattr(pipeline, "CONCURRENCY", 3)  # 在 _stub_layers 串行钉之后覆盖
+    inflight = {"cur": 0, "max": 0}
+
+    async def card_handler(kw, n):
+        inflight["cur"] += 1
+        inflight["max"] = max(inflight["max"], inflight["cur"])
+        await asyncio.sleep(0.05)  # 让出循环：并发单元真重叠
+        inflight["cur"] -= 1
+        content = kw["messages"][0]["content"]
+        no = content.split("|")[1]
+        return json.dumps({
+            "summary": f"梗概{no}",
+            "world": [{"name": f"地{no}", "note": "n"}],
+            "characters": [{"name": f"人{no}", "role": "主角", "traits": "t", "alias": ""}],
+            "intro": [], "genre": [], "relations": [], "mainplot": [],
+            "structure": [], "style": [], "techniques": [], "foreshadow": [],
+            "places": [{"name": f"地{no}", "parent": "", "note": ""}],
+            "presence": [{"who": f"人{no}", "where": f"地{no}"}],
+        })
+
+    client = FakeClient({"deconstruct_card": card_handler, "deconstruct_world": _seen_handler("world")})
+    _stub_client(monkeypatch, client)
+    _mk_job("p-cc", selected=["world"], chapters=4)
+
+    _run(pipeline.run_task("p-cc"))
+    t = _load("p-cc")
+    assert t.status == "completed", t.error_json
+    assert inflight["max"] >= 2, "并发单元未重叠＝没提速"
+    cards = json.loads(t.dims_json)["cards"]
+    assert cards["done"] == 4 and set(cards["entries"]) == {"1", "2", "3", "4"}
+    prods = json.loads(t.products_json)
+    assert prods["world"]["data"]["seen"] == [1, 2, 3, 4]  # 并发不改归并结果
