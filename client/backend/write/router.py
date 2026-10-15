@@ -4,7 +4,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import StreamingResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from ai_client import FIRST_CONTENT_TIMEOUT, AIThinkingTimeoutError, AITimeoutError
+from ai_client import AIThinkingTimeoutError, AITimeoutError
 from ai_state import effective_model
 from auth_local.deps import (
     ai_feature,
@@ -32,6 +32,14 @@ router = APIRouter(
     prefix="/api/novels/{project_id}/chapters/{chapter_ref}/write",
     tags=["write"],
 )
+
+# 正文级生成的守卫与输出预算（c-prose-generation-headroom）：深度思考模型
+# （MiniMax M3 实测 effort=low 思考 >90s，llm.log 90.034s 判死行）按「思考＋正文」
+# 合计给足——守卫只封顶「健康流式但迟迟无正文」的畸形态，真挂死仍由相邻事件
+# 间隔 read 上限（120s）兜底；预算按实际用量计费，未用不产生成本。
+# 判定类短调用不在此列，维持 ai_client 默认 90 秒。
+PROSE_FIRST_CONTENT_TIMEOUT = 600.0
+PROSE_MAX_TOKENS = 32768
 
 
 # 章前缀扫描路由（c-deai-wizard）：AI 味检查挂在章上而非 /write 下——它是读侧
@@ -227,11 +235,11 @@ async def _stream_chapter(
             model=model,
             system=system,
             messages=[{"role": "user", "content": prompt}],
-            max_tokens=8192,
+            max_tokens=PROSE_MAX_TOKENS,
             operation="write_chapter",
             # 思考太久即失败（c-prose-thinking-timeout）：开思考后思考与正文共用
             # max_tokens 预算，reasoning delta 不断流则 read 超时永不触发
-            first_content_timeout=FIRST_CONTENT_TIMEOUT,
+            first_content_timeout=PROSE_FIRST_CONTENT_TIMEOUT,
         ):
             if event.text:
                 full_text += event.text
@@ -531,9 +539,9 @@ async def _stream_refill(db, project, root_path: str, chapter_ref: str, existing
             model="haiku",
             system=system,
             messages=[{"role": "user", "content": prompt}],
-            max_tokens=8192,
+            max_tokens=PROSE_MAX_TOKENS,
             operation="write_chapter_refill",
-            first_content_timeout=FIRST_CONTENT_TIMEOUT,
+            first_content_timeout=PROSE_FIRST_CONTENT_TIMEOUT,
         ):
             if event.text:
                 full_text += event.text
