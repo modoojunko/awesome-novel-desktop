@@ -37,6 +37,10 @@ const STATUS_PILL: Record<string, string> = {
 export default function TaskDetailPage() {
   const { id = "" } = useParams();
   const navigate = useNavigate();
+  // 建书勾选：7 设定项默认勾（二创轻量），章卷/关系/技法默认不勾（自书续写再勾）
+  const [bookItems, setBookItems] = useState<string[]>(
+    DECONSTRUCT_DIMS.filter((d) => d.setting).map((d) => d.key),
+  );
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [exitOpen, setExitOpen] = useState(false);
   const [exitOpt, setExitOpt] = useState<"book" | "files">("book");
@@ -71,12 +75,6 @@ export default function TaskDetailPage() {
     }
     /* v8 ignore stop */
   }, [task?.status, task?.products]);
-
-  const settingCount = useMemo(() => {
-    if (!task) return 0;
-    const settingFiles = DECONSTRUCT_DIMS.filter((d) => d.setting).map((d) => d.file);
-    return selectedFiles.filter((f) => settingFiles.includes(f)).length;
-  }, [task, selectedFiles]);
 
   // 无数据才出错误屏：refetch 失败时 RQ 保留旧 data——running 态 1.5s 轮询的
   // 单次网络抖动不该把用户从进度页踢走（二轮评审 P3）。
@@ -151,7 +149,7 @@ export default function TaskDetailPage() {
   const doExit = () => {
     if (exitOpt === "book") {
       void act(
-        () => importBookFromTask(task.id),
+        () => importBookFromTask(task.id, bookItems),
         (r) => {
           /* v8 ignore next */
           setExitOpen(false);
@@ -488,9 +486,32 @@ export default function TaskDetailPage() {
                     </div>
                   </div>
                 )}
+                {exitOpt === "book" && (
+                  <div className="field" style={{ marginTop: 12 }} data-od-id="book-items">
+                    <label>灌入新书的内容</label>
+                    {DECONSTRUCT_DIMS.map((d) => (
+                      <label key={d.key} className="dim-row" style={{ cursor: "pointer" }}>
+                        <input
+                          type="checkbox"
+                          checked={bookItems.includes(d.key)}
+                          onChange={() =>
+                            setBookItems((prev) =>
+                              prev.includes(d.key) ? prev.filter((k) => k !== d.key) : [...prev, d.key],
+                            )
+                          }
+                          data-od-id={`bi-${d.key}`}
+                        />
+                        <span className="d-tx">
+                          <b>{d.name}</b>
+                          {!d.setting && <span style={{ color: "var(--muted)" }}>（默认不勾）</span>}
+                        </span>
+                      </label>
+                    ))}
+                  </div>
+                )}
                 <div className="ex-sum" data-od-id="exit-sum">
                   {exitOpt === "book"
-                    ? `将创建新书《${task.book_name}》，写入所选 ${settingCount}/7 项设定（未勾的不写入）。`
+                    ? `将创建新书《${task.book_name}》，写入勾选的 ${bookItems.length}/${DECONSTRUCT_DIMS.length} 项（未勾的不写入）。`
                     : `将导出所选 ${selectedFiles.length} 份产物（＋README 目录页）到选择的文件夹。`}
                 </div>
                 {exitErr && (

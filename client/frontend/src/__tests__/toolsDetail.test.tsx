@@ -540,3 +540,25 @@ describe("TaskDetailPage", () => {
   });
 
 });
+
+
+describe("建书勾选导入", () => {
+  it("默认 7/10：设定项勾、三项扩展不勾；勾选真实传 items", async () => {
+    state.get.mockResolvedValue(detailOf("completed"));
+    state.importBook.mockClear();
+    renderPage();
+    await waitFor(() => expect(screen.getByText("选择去向")).toBeInTheDocument());
+    fireEvent.click(screen.getByText("选择去向"));
+    await waitFor(() => expect(screen.getByText("灌入新书的内容")).toBeInTheDocument());
+    expect(screen.getByText(/写入勾选的 2\/3 项/)).toBeInTheDocument();  // mock 口径：intro/world 勾、techniques 不勾
+    // 勾「写作技法」、取消「简介」
+    fireEvent.click(document.querySelector('[data-od-id="bi-techniques"]') as HTMLInputElement);
+    fireEvent.click(document.querySelector('[data-od-id="bi-intro"]') as HTMLInputElement);
+    expect(screen.getByText(/写入勾选的 2\/3 项/)).toBeInTheDocument();
+    fireEvent.click(screen.getByText("就建这本书"));
+    await waitFor(() => expect(state.importBook).toHaveBeenCalledOnce());
+    const items = state.importBook.mock.calls[0][1] as string[];
+    expect(items).toEqual(["world", "techniques"]);
+    expect(items).not.toContain("intro");
+  });
+});
