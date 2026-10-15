@@ -261,6 +261,7 @@ def export_products(
     from deconstruct.render import render_html, render_svg
 
     products = _md_map(task)
+    dest_dir = os.path.expanduser(dest_dir or "")
     if not dest_dir or not os.path.isabs(dest_dir):
         raise OSError("invalid_path", f"导出目录非法：{dest_dir!r}")
 

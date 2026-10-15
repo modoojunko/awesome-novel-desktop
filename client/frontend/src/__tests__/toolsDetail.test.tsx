@@ -13,6 +13,8 @@ const state = vi.hoisted(() => ({
   importBook: vi.fn(),
   export: vi.fn(),
 }));
+const toastState = vi.hoisted(() => ({ info: vi.fn(), success: vi.fn(), error: vi.fn() }));
+vi.mock("@/lib/toast", () => ({ toast: toastState }));
 vi.mock("@/lib/deconstructApi", () => ({
   getDeconstructTask: state.get,
   cancelDeconstructTask: state.cancel,
@@ -284,6 +286,17 @@ describe("TaskDetailPage", () => {
     fireEvent.click(screen.getByText("选择文件夹并导出"));
     await waitFor(() => expect(state.export).toHaveBeenCalledOnce());
     delete (window as unknown as { pywebview?: unknown }).pywebview;
+  });
+
+  it("导出：浏览器无 pick 桥→toast 明示手输（不静默装死）", async () => {
+    state.get.mockResolvedValue(detailOf("completed"));
+    delete (window as unknown as { pywebview?: unknown }).pywebview; // 防前序用例桥泄漏
+    renderPage();
+    await waitFor(() => expect(screen.getByText("选择去向")).toBeInTheDocument());
+    fireEvent.click(screen.getByText("选择去向"));
+    fireEvent.click(screen.getByText("存本地文件夹"));
+    fireEvent.click(screen.getByText("选择文件夹"));
+    await waitFor(() => expect(toastState.info).toHaveBeenCalledWith(expect.stringContaining("桌面版应用")));
   });
 
   it("需重传：重传按钮触发文件框（不崩）", async () => {

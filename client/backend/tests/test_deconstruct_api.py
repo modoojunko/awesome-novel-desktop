@@ -280,6 +280,20 @@ def test_export_invalid_dest(client):
     assert r.status_code == 400
 
 
+def test_export_tilde_dest_expands(client, monkeypatch):
+    """~/ 开头先 expanduser 再校验（真机实证：~/download/chaishu/ 被拒导出目录非法）。"""
+    home = tempfile.mkdtemp(prefix="dec-export-home-")
+    monkeypatch.setenv("HOME", home)
+    _mk_completed("dec-exp-tilde", {"intro": _product("intro", "简介.md", {}, "# 简介")})
+    r = client.post(
+        "/api/deconstruct/tasks/dec-exp-tilde/export",
+        json={"dest_dir": "~/chaishu-out/", "files": ["简介.md"]},
+    )
+    assert r.status_code == 200, r.text
+    out = os.path.join(home, "chaishu-out")
+    assert os.path.isdir(out) and "简介.md" in os.listdir(out)
+
+
 def test_badge_clears_after_folder_export(client):
     """文件夹出口也算「已取」：导出后 badge 不再计数（评审 P2）。"""
     _mk_completed("dec-bdg-1", {"intro": _product("intro", "简介.md", {}, "# 简介")})

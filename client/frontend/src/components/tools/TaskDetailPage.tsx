@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
+import { toast } from "../../lib/toast";
 import { queryKeys } from "../../lib/queryKeys";
 import {
   cancelDeconstructTask,
@@ -438,11 +439,14 @@ export default function TaskDetailPage() {
                         className="btn btn-secondary btn-sm"
                         data-od-id="btn-pick-folder"
                         onClick={async () => {
-                          // pywebview 壳层桥（OfflineExportModal 同款）；浏览器回落手输
+                          // pywebview 壳层桥（OfflineExportModal 同款）；浏览器无桥＝调不起
+                          // 系统选folder器（File System Access 只给句柄不给路径）——toast 明示，别静默装死
                           const bridge = (window as unknown as { pywebview?: { api?: { pick_folder?: () => Promise<string> } } }).pywebview;
                           if (bridge?.api?.pick_folder) {
                             const d = await bridge.api.pick_folder();
                             if (d) setDestDir(d);
+                          } else {
+                            toast.info("选择文件夹需要桌面版应用；浏览器里请直接粘贴绝对路径");
                           }
                         }}
                       >
