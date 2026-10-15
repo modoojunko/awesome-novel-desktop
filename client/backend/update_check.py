@@ -561,14 +561,18 @@ async def auto_skip_update(payload: SkipIn):
     version = payload.version.strip()
     if not is_valid_version(version):
         raise HTTPException(status_code=422, detail="invalid version format")
-    global _dl_epoch
-    with _dl_lock:
-        _dl_epoch += 1
-        _dl_cancel.set()
-        # 与 worker 收尾段（sha 复验→staged 写入）串行：否则 skip 先落盘、
-        # worker 后收尾时 staged 状态与暂存件双双复活，「本版本不再自动」被绕过
-        if _dl_thread is not None and _dl_thread.is_alive():
-            _dl_thread.join(timeout=15)
+    def _cancel_and_join() -> None:
+        global _dl_epoch
+        # 同步段（含 join）MUST 卸出事件循环——本模块自己的禁令（与触发段同修）
+        with _dl_lock:
+            _dl_epoch += 1
+            _dl_cancel.set()
+            # 与 worker 收尾段（sha 复验→staged 写入）串行：否则 skip 先落盘、
+            # worker 后收尾时 staged 状态与暂存件双双复活，「本版本不再自动」被绕过
+            if _dl_thread is not None and _dl_thread.is_alive():
+                _dl_thread.join(timeout=15)
+
+    await asyncio.to_thread(_cancel_and_join)
 
     def _mut(st: dict) -> None:
         st["skipped_version"] = version

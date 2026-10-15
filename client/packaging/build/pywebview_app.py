@@ -1541,7 +1541,7 @@ def apply_pending_update(runtime_dir: Path) -> None:
     # 由 _reconcile_pending 版本对拍收尾（成功→记账；未升级→下次退出链重跑，至多
     # _PENDING_MAX_ATTEMPTS 次后清标记升手动）。
     try:
-        pending.write_text(
+        pending_path.write_text(
             json.dumps({**pending, "attempts": attempts + 1,
                         "issued_at": time.time()}, ensure_ascii=False),
             encoding="utf-8")
