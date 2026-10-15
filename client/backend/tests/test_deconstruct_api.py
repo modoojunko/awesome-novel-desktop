@@ -669,7 +669,7 @@ def test_import_book_default_items_legacy(client):
 
 def test_import_world_strips_evidence_and_cuts_sentences(client):
     """世界正文清洗：证据章标（【第N章】分析工件）剥除；超长段落在句号处截断不留半句。"""
-    long_stage = "北方某市为舞台，唐洼子水库是核心怪谈地标，十年间事故不断。" + "阴气在冬夜最盛，说书人不敢细讲。" * 25 + "末尾半句被截断的字"
+    long_stage = "北方某市为舞台，唐洼子水库是核心怪谈地标，十年间事故不断。" + "阴气在冬夜最盛，说书人不敢细讲。" * 130 + "末尾半句被截断的字"
     _mk_completed("dec-imp-clean", {"world": _product("world", "世界设定.md", {
         "no_power": "",
         "stage": f"北方某市【第1-2/177/180章】；虎腰山村有封印古井【第14/172章】。{long_stage}",
@@ -694,5 +694,5 @@ def test_import_world_strips_evidence_and_cuts_sentences(client):
         text = json.dumps(w.get(field), ensure_ascii=False)
         assert "【第" not in text, f"{field} 仍带证据章标"
     assert w["stage"].startswith("北方某市；虎腰山村有封印古井。")
-    assert len(w["stage"]) <= 300 and (w["stage"][-1] in "。！？；\n")
+    assert len(w["stage"]) <= 2000 and (w["stage"][-1] in "。！？；\n")
     assert "替死鬼" in w["power"] and "走不了" in w["constraints"][0]["value"]

@@ -78,14 +78,14 @@ def pid(client) -> str:
 class TestWorldInContract:
     def test_value_over_limit_400(self, client, pid):
         r = client.put(f"/api/novels/{pid}/settings/world", json={
-            "stage": "长" * 301,
+            "stage": "长" * 2001,
         })
         assert r.status_code == 400
         assert "世界设定校验失败" in r.json()["detail"]
 
     def test_entry_value_over_limit_400(self, client, pid):
         r = client.put(f"/api/novels/{pid}/settings/world", json={
-            "constraints": [{"key": "不可推翻的事", "value": "长" * 201}],
+            "constraints": [{"key": "不可推翻的事", "value": "长" * 501}],
         })
         assert r.status_code == 400
 
@@ -237,7 +237,7 @@ class TestRender:
 
     def test_world_block_budget_whole_entry_skip(self):
         extra = [{"key": f"条目{i}", "value": "长" * 200} for i in range(10)]
-        block = render_world_block({"stage": "云梁界", "extra": extra})
+        block = render_world_block({"stage": "云梁界", "extra": extra}, char_budget=600)
         assert len(block) < 3000  # 不再是段落+全量硬塞
         assert "从略" in block
         assert "另有 世界细节" in block  # 按类别计数
@@ -259,7 +259,7 @@ class TestRender:
         # 从略注按类别计数，SHALL NOT 混称「世界细节」
         factions = [{"name": f"势力{i}", "note": "注" * 200} for i in range(3)]
         extra = [{"key": f"条目{i}", "value": "长" * 200} for i in range(4)]
-        block = render_world_block({"stage": "云梁界", "factions": factions, "extra": extra})
+        block = render_world_block({"stage": "云梁界", "factions": factions, "extra": extra}, char_budget=600)
         assert "另有" in block and "从略" in block
         assert "势力 1 条、世界细节 4 条" in block  # 按类别分别计数
         assert "另有 3 条世界细节从略" not in block  # 旧混称退役
@@ -621,7 +621,7 @@ class TestReviewRegression:
             {"key": "大条丙", "value": "字" * 200},
             {"key": "小二", "value": "短"},
         ]}
-        block = render_world_block(raw)
+        block = render_world_block(raw, char_budget=600)
         assert "小一" in block and "小二" in block, "小条目不被大条目拖累"
         assert block.count("字" * 200) == 2, "只装得下两条大条目"
         assert "另有 历史与旧账 1 条 从略" in block  # c-plan-material-fullinfo：按类别计数（旧混称「世界细节」退役）
@@ -634,7 +634,7 @@ class TestReviewRegression:
         """老书升级链：v1 十字段（超长 climate）→ GET → 整包 PUT 必须 200 可保存。"""
 
         raw_v1 = {
-            "geography": {"scenes": "南境修仙界", "climate": "气" * 300, "limits": "灵气南浓北稀"},
+            "geography": {"scenes": "南境修仙界", "climate": "气" * 600, "limits": "灵气南浓北稀"},
             "politics": {"rule": "宗门议会制", "factions": "丹阁与青梧宗世仇", "social": "修士为尊"},
             "rules": {"world": "灵力体系", "personal": "代价是寿数", "society": "凡人不知修士"},
         }
@@ -646,7 +646,7 @@ class TestReviewRegression:
         assert r.status_code == 200, r.text
         got = client.get(f"/api/novels/{pid}/settings/world").json()
         assert got["extra"], "迁移产物应含 extra 条目"
-        assert all(len(e["value"]) <= 200 for e in got["extra"]), "超限截断加省略号且 ≤VALUE_MAX"
+        assert all(len(e["value"]) <= 500 for e in got["extra"]), "超限截断加省略号且 ≤VALUE_MAX"
         assert any(e["value"].endswith("…") for e in got["extra"]), "省略号必须落地"
         # GET → PUT 往返（老书首次保存不再 400）
         r2 = client.put(f"/api/novels/{pid}/settings/world", json=got)

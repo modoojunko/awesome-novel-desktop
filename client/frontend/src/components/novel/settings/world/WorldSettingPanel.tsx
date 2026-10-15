@@ -545,7 +545,7 @@ const WorldSettingPanel = forwardRef<WorldPanelHandle, WorldPanelProps>(function
             rows={3}
             data-od-id="stage-input"
             value={world.stage}
-            maxLength={300}
+            maxLength={2000}
             placeholder="例：云梁界，古典王朝的修仙世界——故事集中在南境：青梧宗、柳安坊市、闭生死关的落霞谷；北境只闻其名，暂不出场"
             onChange={(e) => patch({ stage: e.target.value })}
           />
@@ -585,7 +585,7 @@ const WorldSettingPanel = forwardRef<WorldPanelHandle, WorldPanelProps>(function
               rows={3}
               data-od-id="power-text"
               value={world.power}
-              maxLength={300}
+              maxLength={2000}
               placeholder="例：灵力——修为靠功法传承，天生灵根者入门快；练气到元婴共九境，金丹可毁山、不可灭城，元婴全书不出三人"
               onChange={(e) => patch({ power: e.target.value })}
             />
@@ -614,7 +614,7 @@ const WorldSettingPanel = forwardRef<WorldPanelHandle, WorldPanelProps>(function
               rows={3}
               data-od-id="cost-input"
               value={world.cost}
-              maxLength={300}
+              maxLength={2000}
               placeholder="例：那双看穿修为漏洞的眼，每用一次自瞎一日，连用三次永久丢一段记忆；强行冲境会走火入魔，灵力枯竭仍施法，燃的是寿数"
               onChange={(e) => patch({ cost: e.target.value })}
             />
