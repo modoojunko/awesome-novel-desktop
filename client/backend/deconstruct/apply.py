@@ -63,7 +63,7 @@ def _selected(task: DeconstructJob) -> list[str]:
     return [k for k in SETTING_DIMENSION_KEYS if k in picked]
 
 
-_EVIDENCE_RE = re.compile(r"【第[^】]{0,60}章】")
+_EVIDENCE_RE = re.compile(r"【[^】]{0,50}章】")
 _SENT_END = "。！？；!?\n"
 
 
