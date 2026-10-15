@@ -713,7 +713,9 @@ class AIClient:
                         tokens_out=(usage or {}).get("tokens_out", 0),
                         attempt=attempt,
                     )
-                    return block.text
+                    # 内联思考剥离（c-prose-generation-headroom）：anthropic 端点
+                    # 思考关断时可能把 `<think>` 内联进 text 块；非该形态原样返回
+                    return strip_inline_think(block.text)
             # 无 text 块（偶发：预算全用在思考 / 供应商只回 thinking）——
             # 明确报错让上层可重试，**不得静默返回空串**（会被当成「非法 JSON」）；
             # ok 行在文本确认后落（评审 P3：先记 ok 再抛错会让日志与调用方 _fail 矛盾）
@@ -861,6 +863,10 @@ class AIClient:
                         ) as stream:
                             tokens_in = 0
                             tokens_fr = ""  # 终止原因（c-shortfall-refill 遥测）
+                            # 内联思考剥离（c-prose-generation-headroom，与 openai
+                            # 分支同构）：MiniMax anthropic 端点思考关断时把
+                            # `<think>` 内联进 text_delta；思考段零产出且不撤守卫
+                            stripper = _InlineThinkStripper()
                             async for event in stream:
                                 if (
                                     first_deadline is not None
@@ -875,8 +881,10 @@ class AIClient:
                                 elif event.type == "content_block_delta":
                                     delta_type = getattr(event.delta, "type", "")
                                     if delta_type == "text_delta":
-                                        first_deadline = None  # 首字已到，守卫即撤
-                                        yield StreamEvent(text=event.delta.text)
+                                        prose = stripper.feed(event.delta.text)
+                                        if prose:
+                                            first_deadline = None  # 首个正文片段已到
+                                            yield StreamEvent(text=prose)
                                 elif event.type == "message_delta":
                                     # 终止原因在 message_delta.stop_reason（c-shortfall-refill）
                                     sr = getattr(
@@ -885,6 +893,10 @@ class AIClient:
                                     if sr:
                                         tokens_fr = sr
                                 elif event.type == "message_stop":
+                                    tail = stripper.finish()
+                                    if tail:
+                                        first_deadline = None
+                                        yield StreamEvent(text=tail)
                                     tokens = 0
                                     if hasattr(event, "usage") and event.usage:
                                         tokens = event.usage.output_tokens
