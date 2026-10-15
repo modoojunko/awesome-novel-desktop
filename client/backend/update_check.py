@@ -547,8 +547,14 @@ async def apply_update():
     """「重启更新」点击（P1 第二片）：复验就位包 → 落一次性 pending（壳层退出链消费）。
 
     闸（评审 P2-5）：即时重取 manifest——auto_enabled 翻 false / 版本已换代 /
-    暂存件缺失或损坏 → 一律 409 拒绝，**不落标记不关窗**（前端提示走手动链）。
+    暂存件缺失 → 一律 409 拒绝，**不落标记不关窗**（前端提示走手动链）。
     pending 唯一属主＝后端写、壳层只读（评审 P1-3）；TTL 与壳层同值 10 分钟。
+
+    ⚠️ 性能契约（10-15 真机复盘实锤）：本端点必须**秒回**——首次上线把 34MB 完整
+    sha256 复验也放在这里（to_thread 也要 1-3s），叠加 manifest 重取后用户点下
+    「重启更新」窗口 3-5 秒没动静＝被当成没反应手动关窗，链条中断（V 系现场：
+    第一次点击 pending 未落盘，退出链无活可干）。完整复验的职责本来就在壳层
+    退出链 apply 段（关窗之后用户不再盯屏）——此处只做闸门＋存在性检查。
     """
     with _state_lock:
         st = _load_state()
@@ -568,11 +574,8 @@ async def apply_update():
     dest = _staged_path(platform)
     if not dest.exists():
         raise HTTPException(status_code=409, detail="staged file missing")
-    got = await asyncio.to_thread(_sha256_of, dest)
-    want = str(platform.get("sha256") or "").lower()
-    if want and got != want:
-        raise HTTPException(status_code=409, detail="staged file corrupt")
-    pending = {"version": version, "file": str(dest), "sha256": got,
+    pending = {"version": version, "file": str(dest),
+               "sha256": str(platform.get("sha256") or "").lower(),
                "relaunch": True, "issued_at": time.time()}
     try:
         _UPDATES_DIR.mkdir(parents=True, exist_ok=True)
