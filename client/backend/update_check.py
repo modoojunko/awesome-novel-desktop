@@ -414,6 +414,12 @@ def maybe_start_auto_download(fetched: dict, current: str) -> None:
                 _dl_cancel.clear()
                 return
         _dl_cancel.clear()
+        with _state_lock:
+            st2 = _load_state()
+            if st2.get("skipped_version") == latest:
+                # TOCTOU 收口：闸门检查与线程启动之间用户点了「暂不」→ 放弃本轮
+                _dl_cancel.clear()
+                return
         epoch = _dl_epoch
         _dl_thread = threading.Thread(
             target=_download_worker, args=(latest, platform, epoch),
@@ -429,8 +435,14 @@ def auto_public_state() -> dict:
     auto = st.get("auto") if isinstance(st.get("auto"), dict) else {}
     out = {"state": str(auto.get("state") or "idle"), "version": auto.get("version") or None}
     if out["state"] == "downloading":
-        out["received"] = int(auto.get("received") or 0)
-        out["total"] = int(auto.get("total") or 0) or None
+        # downloading 仅在存在存活下载执行体时有效：进程中断（崩溃/强杀/断电）后
+        # 状态文件残留的 downloading 若照常透出，横幅会卡「下载 0%」最长一小时
+        # （节流吃缓存不触发重下载）——无执行体一律回落 idle，下个检测窗自然重来
+        if not (_dl_thread is not None and _dl_thread.is_alive()):
+            out = {"state": "idle", "version": None}
+        else:
+            out["received"] = int(auto.get("received") or 0)
+            out["total"] = int(auto.get("total") or 0) or None
     marker_version = None
     try:
         marker = json.loads(_APPLIED_PATH.read_text(encoding="utf-8"))

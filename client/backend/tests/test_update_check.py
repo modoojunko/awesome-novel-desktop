@@ -757,6 +757,31 @@ def test_trigger_v1_manifest_logs_and_skips(monkeypatch, caplog):
     assert any("manifest v1" in r.message for r in caplog.records)
 
 
+def test_stale_downloading_state_falls_back_to_idle(monkeypatch, tmp_path):
+    """进程中断残留的 downloading：无存活执行体 → 查询回落 idle（不卡「下载 0%」）。"""
+    monkeypatch.setattr(uc, "_UPDATES_DIR", tmp_path)
+    monkeypatch.setattr(uc, "_PENDING_PATH", tmp_path / "pending.json")
+    monkeypatch.setattr(uc, "_APPLIED_PATH", tmp_path / "applied.json")
+    monkeypatch.setattr(uc, "_state_path", tmp_path / "update-check.json")
+    (tmp_path / "update-check.json").write_text(
+        json.dumps({"auto": {"state": "downloading", "version": "0.99.4",
+                             "received": 1, "total": 100}}),
+        encoding="utf-8")
+    monkeypatch.setattr(uc, "_dl_thread", None)  # 无存活执行体（进程中断残留）
+    assert uc.auto_public_state() == {"state": "idle", "version": None}
+
+    block = threading.Event()
+    fake_thread = threading.Thread(target=block.wait, daemon=True)
+    fake_thread.start()
+    try:
+        monkeypatch.setattr(uc, "_dl_thread", fake_thread)
+        assert uc.auto_public_state() == {"state": "downloading", "version": "0.99.4",
+                                          "received": 1, "total": 100}
+    finally:
+        block.set()
+        fake_thread.join(timeout=5)
+
+
 def test_trigger_skips_redownload_while_pending_in_flight(monkeypatch):
     """pending 在场＝用户已确认在途：新一代检出 MUST NOT 覆盖暂存件（三轮检视实锤）。"""
     monkeypatch.setattr(uc, "_PLATFORM_KEY", "win")
