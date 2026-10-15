@@ -17,6 +17,7 @@ import asyncio
 import hashlib
 import ipaddress
 import json
+import logging
 import os
 import shutil
 import socket
@@ -34,6 +35,8 @@ from build_info import get_build_info
 from config import DATA_ROOT
 from http_client import build_async_client
 from schema_version import app_version, is_newer, is_valid_version
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(tags=["update-check"])
 
@@ -200,7 +203,10 @@ async def _fetch_latest() -> dict | None:
         got = await _fetch_one(url)
         if got is not None:
             got["source_url"] = url
+            logger.info("update-check: channel=%s latest=%s（本机 %s）",
+                        url, got.get("latest"), get_client_version())
             return got
+    logger.warning("update-check: 渠道全部不可达（candidates=%s）", _candidate_urls())
     return None
 
 
