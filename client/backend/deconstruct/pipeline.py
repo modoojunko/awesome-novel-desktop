@@ -6,7 +6,10 @@
 - 模板 12 份（提示词仓 awesome-novel-prompts）：`deconstruct-card`、`deconstruct-{dim}`×10
   （输入为逐章卡片碎片）、`deconstruct-reduce`（通用树合并）。load_layers 分层，str.format 注入。
 - 证据章号不靠模型记忆：碎片由代码盖 `【第N章】` 前缀，模板明令「章号只来自材料标注」。
-- 单元级重试 2 次、cancel 在章/批边界生效（每单元前重读任务 status 列）。
+- 单元级重试 2 次（429 限流退避 3s）、cancel 在章/批边界生效（每单元前重读任务 status 列）。
+- LLM 调用并发度＝DECONSTRUCT_CONCURRENCY（默认 4，=1 与旧串行实现逐字等价）：拆卡章间／
+  维度间／维度内 L1 批次／在场补写四处并发，共享信号量限流；reduce 收敛保持串行（树形依赖）。
+  纯 I/O 并发用 asyncio，无需子进程。
 - 断点续拆：cards.entries 已有章号跳过；dims 中 state=completed 的维度跳过。
 """
 
@@ -39,6 +42,9 @@ MERGE_INPUT_CAP = 40000
 # 梗概注入上限（全书骨架，卡片 summary 拼接）
 _SYNOPSIS_CAP = 12000
 SEGMENT_RETRIES = 2
+# 并发调用上限（DECONSTRUCT_CONCURRENCY，默认 4；=1 即原串行）——拆书是 I/O 密集
+# （等模型返回），asyncio 并发即可成倍提速、无需子进程；上限同时压住 429 限流风险
+CONCURRENCY = max(1, int(os.environ.get("DECONSTRUCT_CONCURRENCY", "4") or 4))
 
 # 每 operation 输出 token 预算（评审：卡片加 places/presence 后输出加量，默认 4096 会贴顶截断）
 _OP_MAX_TOKENS = {"deconstruct_card": 6144}
@@ -282,6 +288,21 @@ async def _chat_json(client, model: str, system: str, user: str, operation: str)
     return _parse_json_response(raw)
 
 
+async def _run_units(units: list) -> list:
+    """单元集执行：CONCURRENCY=1＝逐个 await（与旧串行逐字等价：调用序/取消时机不变）；
+    否则 gather 收齐在途单元再抛首错（并发下取消/失败的越界≤上限个单元，断点保留已完成）。"""
+    if CONCURRENCY == 1:
+        out: list = []
+        for c in units:
+            out.append(await c)
+        return out
+    outcomes = await asyncio.gather(*units, return_exceptions=True)
+    for oc in outcomes:
+        if isinstance(oc, BaseException):
+            raise oc
+    return outcomes
+
+
 async def _call_with_retry(client, model, system_tpl, user_vars, operation):
     """单元级调用：重试 2 次（重试属同一单元内的模型调用，不涉及内容截断）。
 
@@ -298,7 +319,9 @@ async def _call_with_retry(client, model, system_tpl, user_vars, operation):
             raise
         except Exception as e:  # noqa: BLE001 — 单元级重试后放行（管线自兜底）
             last_err = e
-            await asyncio.sleep(0.2)
+            msg = str(e)
+            # 429＝限流：并发下更易触发，退避 3s 再试（其余失败 0.2s 快速重试）
+            await asyncio.sleep(3.0 if "429" in msg or "rate limit" in msg.lower() else 0.2)
     raise last_err if last_err else RuntimeError("模型调用失败")
 
 
@@ -320,8 +343,8 @@ def _presence_gaps(card: dict) -> list[str]:
 
 
 async def _backfill_presence(task_id, task, chapters, cards, dims, state, client, model,
-                             graph_on: bool, caps: bool) -> int:
-    """阶段 3.0（10.1a 熔断预案落地）：在场缺口选择性补写。
+                             graph_on: bool, caps: bool, sem: asyncio.Semaphore) -> int:
+    """阶段 3.0（10.1a 熔断预案落地）：在场缺口选择性补写（章间并发，sem 共享限流）。
 
     - 逐章检测 characters 全名 ⊆ presence.who；缺口非空才触发轻量调用（达标章零成本）；
     - 补写只收名单内 who（模型越权输出丢弃）、where 强制本章闭集（越权地名降空串→未知区）；
@@ -341,54 +364,51 @@ async def _backfill_presence(task_id, task, chapters, cards, dims, state, client
     entries = cards.get("entries") if isinstance(cards.get("entries"), dict) else {}
     if not entries:
         return 0
-    # 阶段进度账（graph_phase）：补写是多次轻量调用，之前全程暗跑——UI 在
-    # 全维度 completed 后几分钟数字不动，用户以为卡死（真机实证）。
-    gaps_total = sum(
-        1
-        for ch in chapters
-        if isinstance(entries.get(str(ch.get("no", 0))), dict)
-        and "places" in entries[str(ch.get("no", 0))]
-        and _presence_gaps(entries[str(ch.get("no", 0))])
-    )
-    phase = {"step": "presence", "done": 0, "total": gaps_total}
-    state["graph_phase"] = phase
-    await _patch(task_id, dims_json=_state_json(state, cards=cards, dims=dims))
-    failed = 0
+    gap_work: list[tuple[dict, list[str]]] = []
     for ch in chapters:
         no = str(ch.get("no", 0))
         card = entries.get(no)
-        if not isinstance(card, dict):
-            continue
-        if "places" not in card:
-            continue  # 老契约卡（spec：在场账留空降级，不重跑拆卡）
-        missing = _presence_gaps(card)
-        if not missing:
-            continue
-        await _check_cancel(task_id)
-        phase["done"] += 1
-        await _patch(task_id, dims_json=_state_json(state, cards=cards, dims=dims))
-        known_list = [_clean(pl.get("name")) for pl in _dicts(card.get("places")) if _clean(pl.get("name"))]
-        known_set = set(known_list)
-        known = "、".join(known_list) or "（本章无已知地点，where 一律空串）"
-        try:
-            data = await _call_with_retry(
-                client, model, (sys_b, usr_b),
-                {
-                    "book_name": task.book_name,
-                    "chapter_no": no,
-                    "chapter_title": ch.get("title", ""),
-                    "missing_names": "、".join(missing),
-                    "places_known": known,
-                    "chapter_text": _card_text(ch),
-                },
-                "deconstruct_presence",
-            )
-        except _Cancelled:
-            raise
-        except Exception as _e:  # noqa: BLE001 — 评审 P1-1：单章失败跳过继续，不拖垮整本图谱
-            print("BF-FAIL<<", repr(_e))
-            failed += 1
-            continue
+        if isinstance(card, dict) and "places" in card:  # 老契约卡（无 places）留空降级不重跑
+            missing = _presence_gaps(card)
+            if missing:
+                gap_work.append((ch, missing))
+    # 阶段进度账（graph_phase）：补写是多次轻量调用，之前全程暗跑——UI 在
+    # 全维度 completed 后几分钟数字不动，用户以为卡死（真机实证）。
+    phase = {"step": "presence", "done": 0, "total": len(gap_work)}
+    state["graph_phase"] = phase
+    await _patch(task_id, dims_json=_state_json(state, cards=cards, dims=dims))
+    failed = 0
+
+    async def _bf_one(ch: dict, missing: list[str]) -> bool:  # → True＝该章补写失败（降级留痕）
+        nonlocal failed
+        no = str(ch.get("no", 0))
+        card = entries[no]
+        async with sem:
+            await _check_cancel(task_id)
+            phase["done"] += 1
+            await _patch(task_id, dims_json=_state_json(state, cards=cards, dims=dims))
+            known_list = [_clean(pl.get("name")) for pl in _dicts(card.get("places")) if _clean(pl.get("name"))]
+            known_set = set(known_list)
+            known = "、".join(known_list) or "（本章无已知地点，where 一律空串）"
+            try:
+                data = await _call_with_retry(
+                    client, model, (sys_b, usr_b),
+                    {
+                        "book_name": task.book_name,
+                        "chapter_no": no,
+                        "chapter_title": ch.get("title", ""),
+                        "missing_names": "、".join(missing),
+                        "places_known": known,
+                        "chapter_text": _card_text(ch),
+                    },
+                    "deconstruct_presence",
+                )
+            except _Cancelled:
+                raise
+            except Exception as _e:  # noqa: BLE001 — 评审 P1-1：单章失败跳过继续，不拖垮整本图谱
+                _log.warning("BF-FAIL %s: %r", no, _e)
+                failed += 1
+                return True
         existing_whos = {_clean(p.get("who")) for p in _dicts(card.get("presence"))}
         added = 0
         for p in _dicts(data.get("presence") if isinstance(data, dict) else None):
@@ -408,6 +428,9 @@ async def _backfill_presence(task_id, task, chapters, cards, dims, state, client
         if added:
             entries[no] = card
             await _patch(task_id, dims_json=_state_json(state, cards=cards, dims=dims))
+        return False
+
+    await _run_units([_bf_one(ch, missing) for ch, missing in gap_work])
     return failed
 
 
@@ -430,31 +453,36 @@ async def run_task(task_id: str) -> None:
     dims = state.get("dims", {})
 
     try:
-        # ── 阶段一：逐章拆卡（章级断点：entries 已有章号跳过）──
+        _sem = asyncio.Semaphore(CONCURRENCY)  # 全管线共享限流：卡/L1/补写/reduce 统一在册
+
+        # ── 阶段一：逐章拆卡（章级断点：entries 已有章号跳过；章间并发）──
         cards = state.get("cards", {"state": "queued", "done": 0, "entries": {}})
         if cards.get("state") != "completed":
             cards.setdefault("entries", {})
             cards["state"] = "running"
             await _patch(task_id, dims_json=_state_json(state, cards=cards, dims=dims))
             sys_c, usr_c = load_layers("deconstruct_card")
-            for ch in chapters:
-                await _check_cancel(task_id)
+            todo = [ch for ch in chapters if str(ch.get("no", 0)) not in cards["entries"]]
+
+            async def _card_one(ch: dict) -> None:
+                async with _sem:
+                    await _check_cancel(task_id)
+                    data = await _call_with_retry(
+                        client, model, (sys_c, usr_c),
+                        {
+                            "book_name": task.book_name,
+                            "chapter_no": str(ch.get("no", 0)),
+                            "chapter_title": ch.get("title", ""),
+                            "chapter_text": _card_text(ch),
+                        },
+                        "deconstruct_card",
+                    )
                 no = str(ch.get("no", 0))
-                if no in cards["entries"]:
-                    continue
-                data = await _call_with_retry(
-                    client, model, (sys_c, usr_c),
-                    {
-                        "book_name": task.book_name,
-                        "chapter_no": no,
-                        "chapter_title": ch.get("title", ""),
-                        "chapter_text": _card_text(ch),
-                    },
-                    "deconstruct_card",
-                )
-                cards["entries"][no] = data
+                cards["entries"][no] = data  # 事件循环单线程：await 间串行改写，无竞争
                 cards["done"] = len(cards["entries"])
                 await _patch(task_id, dims_json=_state_json(state, cards=cards, dims=dims))
+
+            await _run_units([_card_one(ch) for ch in todo])
             cards["state"] = "completed"
             await _patch(task_id, dims_json=_state_json(state, cards=cards, dims=dims))
 
@@ -467,13 +495,14 @@ async def run_task(task_id: str) -> None:
         except (ValueError, AttributeError):
             pass
         names = dim_names()
-        for dim in DIMENSION_KEYS:
-            if dim not in selected:
-                continue
+        incomplete = [
+            dim for dim in DIMENSION_KEYS
+            if dim in selected and not (dims.get(dim, {}).get("state") == "completed" and dim in products)
+        ]
+
+        async def _run_dim(dim: str) -> None:
             await _check_cancel(task_id)
             dstate = dims.get(dim, {"state": "queued", "seg_done": 0, "seg_total": 0, "error": ""})
-            if dstate.get("state") == "completed" and dim in products:
-                continue
             sys_m, usr_m = load_layers(f"deconstruct_{dim}")
             pairs = [
                 (no, line)
@@ -485,26 +514,29 @@ async def run_task(task_id: str) -> None:
             dims[dim] = dstate
             await _patch(task_id, dims_json=_state_json(state, cards=cards, dims=dims))
 
-            partials: list[str] = []
-            for i, batch in enumerate(batches):
-                await _check_cancel(task_id)
-                ch_from, ch_to = batch[0][0] if batch else "1", batch[-1][0] if batch else "1"
-                data = await _call_with_retry(
-                    client, model, (sys_m, usr_m),
-                    {
-                        "book_name": task.book_name, "genre_or_unknown": "unknown",
-                        "full_synopsis": full_synopsis[:_SYNOPSIS_CAP],
-                        "seg_range": f"第{ch_from}-{ch_to}章",
-                        "excerpts": "\n".join(line for _, line in batch),
-                    },
-                    f"deconstruct_{dim}",
-                )
-                partials.append(json.dumps(data, ensure_ascii=False))
-                dstate["seg_done"] = i + 1
+            async def _batch(batch: list[tuple[str, str]]) -> str:
+                async with _sem:
+                    await _check_cancel(task_id)
+                    ch_from, ch_to = batch[0][0] if batch else "1", batch[-1][0] if batch else "1"
+                    data = await _call_with_retry(
+                        client, model, (sys_m, usr_m),
+                        {
+                            "book_name": task.book_name, "genre_or_unknown": "unknown",
+                            "full_synopsis": full_synopsis[:_SYNOPSIS_CAP],
+                            "seg_range": f"第{ch_from}-{ch_to}章",
+                            "excerpts": "\n".join(line for _, line in batch),
+                        },
+                        f"deconstruct_{dim}",
+                    )
+                dstate["seg_done"] += 1  # 并发完成计数（gather 保序，partials 与批序一致）
                 dims[dim] = dstate
                 await _patch(task_id, dims_json=_state_json(state, cards=cards, dims=dims))
+                return json.dumps(data, ensure_ascii=False)
 
-            # 树收敛：多批产物反复合并直到单份（无头尾截断＝任意长度零丢失）
+            batch_out = await _run_units([_batch(b) for b in batches])
+            partials: list[str] = batch_out
+
+            # 树收敛：多批产物反复合并直到单份（无头尾截断＝任意长度零丢失；串行——树形依赖）
             reduce_degraded = ""
             if len(partials) > 1:
                 sys_r, usr_r = load_layers("deconstruct_reduce")
@@ -522,11 +554,12 @@ async def run_task(task_id: str) -> None:
                                 nxt.append(group[0])
                                 continue
                             await _check_cancel(task_id)
-                            merged = await _call_with_retry(
-                                client, model, (sys_r, usr_r),
-                                {"dim_name": names[dim], "partials": "\n\n".join(group)},
-                                f"deconstruct_{dim}_reduce",
-                            )
+                            async with _sem:
+                                merged = await _call_with_retry(
+                                    client, model, (sys_r, usr_r),
+                                    {"dim_name": names[dim], "partials": "\n\n".join(group)},
+                                    f"deconstruct_{dim}_reduce",
+                                )
                             nxt.append(json.dumps(merged, ensure_ascii=False))
                             dstate["seg_done"] += 1
                             dims[dim] = dstate
@@ -560,6 +593,8 @@ async def run_task(task_id: str) -> None:
                 products_json=json.dumps(products, ensure_ascii=False),
             )
 
+        await _run_units([_run_dim(dim) for dim in incomplete])
+
         # ── 阶段三：图谱装配（deconstruct-graph/6）——开关关则跳过；病着也要出：
         #    装配异常只记 graph_error 留痕（导出端报可读 400），md 出口永不拖累 ──
         if (_graph_export_on() and state.get("caps_graph", True)
@@ -572,7 +607,7 @@ async def run_task(task_id: str) -> None:
                 # 轻量调用逐人定位（只补名单、where 抄本章闭集），合并回卡片；达标章零调用
                 backfill_failed = await _backfill_presence(
                     task_id, task, chapters, cards, dims, state, client, model,
-                    graph_on=_graph_export_on(), caps=state.get("caps_graph", True),
+                    graph_on=_graph_export_on(), caps=state.get("caps_graph", True), sem=_sem,
                 )
                 frags = place_merge_input(cards["entries"])
                 place_merge = None
