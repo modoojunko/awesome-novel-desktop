@@ -580,14 +580,25 @@ def test_auto_skip_cancels_and_cleans(monkeypatch, tmp_path):
 
 
 def test_auto_public_state_applied_marker_wins(monkeypatch, tmp_path):
-    """壳层写过 applied.json → GET 的 auto 块报 applied（横幅可做「已更新」一次笛）。"""
+    """applied 记账语义（10-15 真机实锤修正）：marker 只在「没有更新的 staged」时生效。
+
+    反例即本次事故：0.99.1 的 marker 永久压住 staged 0.99.4 → 「已就绪」按钮永不可见。
+    """
     monkeypatch.setattr(uc, "_UPDATES_DIR", tmp_path)
     monkeypatch.setattr(uc, "_PENDING_PATH", tmp_path / "pending.json")
     monkeypatch.setattr(uc, "_APPLIED_PATH", tmp_path / "applied.json")
     monkeypatch.setattr(uc, "_state_path", tmp_path / "update-check.json")
-    (tmp_path / "update-check.json").write_text(
-        json.dumps({"auto": {"state": "staged", "version": "0.33"}}), encoding="utf-8")
+
+    def _seed(auto):
+        (tmp_path / "update-check.json").write_text(
+            json.dumps({"auto": auto}), encoding="utf-8")
+
+    _seed({"state": "staged", "version": "0.33"})
     assert uc.auto_public_state() == {"state": "staged", "version": "0.33"}
     (tmp_path / "applied.json").write_text(
         json.dumps({"version": "0.33"}), encoding="utf-8")
     assert uc.auto_public_state() == {"state": "applied", "version": "0.33"}
+
+    # staged 比已记账版本新 → staged 优先（就绪按钮必须可见）
+    _seed({"state": "staged", "version": "0.34"})
+    assert uc.auto_public_state() == {"state": "staged", "version": "0.34"}

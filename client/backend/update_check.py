@@ -408,12 +408,20 @@ def auto_public_state() -> dict:
     if out["state"] == "downloading":
         out["received"] = int(auto.get("received") or 0)
         out["total"] = int(auto.get("total") or 0) or None
+    marker_version = None
     try:
         marker = json.loads(_APPLIED_PATH.read_text(encoding="utf-8"))
-        if isinstance(marker, dict) and marker.get("version"):
-            out = {"state": "applied", "version": marker["version"]}
+        if isinstance(marker, dict):
+            marker_version = marker.get("version") or None
     except (OSError, ValueError):
         pass
+    # applied 记账只在「没有更新的 staged」时生效——10-15 真机实锤：marker 永久
+    # 压住新 staged（「已就绪」按钮永不可见，升级链卡死在新版已备好却无入口）。
+    if marker_version is not None:
+        if out["state"] == "staged" and out["version"] and out["version"] != marker_version:
+            pass  # staged 比已记账版本新 → staged 优先（就绪按钮可见）
+        else:
+            out = {"state": "applied", "version": marker_version}
     return out
 
 
