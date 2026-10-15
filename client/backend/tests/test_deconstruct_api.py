@@ -665,3 +665,34 @@ def test_import_book_default_items_legacy(client):
 
     vols, rels = _run(_check())
     assert vols == [] and rels == []  # 未勾不灌（旧行为不变）
+
+
+def test_import_world_strips_evidence_and_cuts_sentences(client):
+    """世界正文清洗：证据章标（【第N章】分析工件）剥除；超长段落在句号处截断不留半句。"""
+    long_stage = "北方某市为舞台，唐洼子水库是核心怪谈地标，十年间事故不断。" + "阴气在冬夜最盛，说书人不敢细讲。" * 25 + "末尾半句被截断的字"
+    _mk_completed("dec-imp-clean", {"world": _product("world", "世界设定.md", {
+        "no_power": "",
+        "stage": f"北方某市【第1-2/177/180章】；虎腰山村有封印古井【第14/172章】。{long_stage}",
+        "power": [{"name": "鬼与邪祟体系", "rule": "溺亡者成水鬼需拉替死鬼【第5/19/32章】"}],
+        "constraints": [{"name": "诅咒绑定", "rule": "开了第一遭走不了【第12/39章】"}],
+    }, "# 世界设定")})
+    r = client.post("/api/deconstruct/tasks/dec-imp-clean/import-book")
+    assert r.status_code == 200, r.text
+    bid = r.json()["book_id"]
+
+    async def _world(book_id):
+        from filesystem.paths import KEY_TO_PATH
+        from filesystem.storage import get_storage
+        from models.project import Novel
+
+        async with async_session() as s:
+            n = await s.get(Novel, book_id)
+        return await get_storage().read_yaml(n.root_path, KEY_TO_PATH["world"])
+
+    w = _run(_world(bid))
+    for field in ("stage", "power", "constraints"):
+        text = json.dumps(w.get(field), ensure_ascii=False)
+        assert "【第" not in text, f"{field} 仍带证据章标"
+    assert w["stage"].startswith("北方某市；虎腰山村有封印古井。")
+    assert len(w["stage"]) <= 300 and (w["stage"][-1] in "。！？；\n")
+    assert "替死鬼" in w["power"] and "走不了" in w["constraints"][0]["value"]

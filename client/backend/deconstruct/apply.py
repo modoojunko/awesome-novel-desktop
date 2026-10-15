@@ -63,6 +63,22 @@ def _selected(task: DeconstructJob) -> list[str]:
     return [k for k in SETTING_DIMENSION_KEYS if k in picked]
 
 
+_EVIDENCE_RE = re.compile(r"【第[^】]{0,60}章】")
+_SENT_END = "。！？；!?\n"
+
+
+def _clean_para(text, limit: int) -> str:
+    """设定正文清洗：剥证据章标（【第N章】类分析工件，该留在任务资料）＋
+    句界截断——书内段落契约有字数上限，宁可短一句也不切半句（真机实证）。"""
+    text = _EVIDENCE_RE.sub("", str(text or "")).strip()
+    text = re.sub(r"\n{3,}", "\n\n", text)
+    if len(text) <= limit:
+        return text
+    cut = text[:limit]
+    last = max(cut.rfind(ch) for ch in _SENT_END)
+    return cut[: last + 1] if last >= limit // 2 else cut
+
+
 def _entries_paragraph(entries) -> str:
     """条目列表 → 段落文本。world.power/cost 的书内契约是 str 段落（非列表）——
     直接灌列表会被 normalize_world str() 成 repr 乱码（真机实证）。"""
@@ -89,10 +105,10 @@ def _world_body(data: dict) -> dict:
     return {
         # 评审 P1-2 口径：仅当模型输出含「无超凡/原文未明确」才置真，不凭空断言力量体系
         "no_power": "无超凡" in no_power_txt or "原文未明确" in no_power_txt,
-        "stage": str(data.get("stage", ""))[:300],
+        "stage": _clean_para(data.get("stage", ""), 300),
         # power/cost 契约＝段落 str：条目列表拼「名：规则」段落（v2 产物是列表）
-        "power": _entries_paragraph(data.get("power"))[:600],
-        "cost": _entries_paragraph(data.get("cost"))[:600],
+        "power": _clean_para(_entries_paragraph(data.get("power")), 300),
+        "cost": _clean_para(_entries_paragraph(data.get("cost")), 300),
         # 历史条目契约＝{key,value[,origin]}：产物是 {name,note[,evidence_ch]}
         "history": [
             {"key": str(i.get("name", ""))[:40],
@@ -102,18 +118,18 @@ def _world_body(data: dict) -> dict:
         ],
         # 势力备注在产物的 rule 键（note 是旧形状假设，真机实证全丢成「原文未明确」）
         "factions": [
-            {"name": str(i.get("name", ""))[:40],
-             "note": str(i.get("rule", i.get("note", "")))[:200]}
+            {"name": _clean_para(i.get("name", ""), 20),
+             "note": _clean_para(i.get("rule", i.get("note", "")), 200)}
             for i in (data.get("factions") or []) if isinstance(i, dict)
         ],
         "constraints": [
-            {"key": str(i.get("name", ""))[:40],
-             "value": str(i.get("rule", i.get("note", "")))[:200]}
+            {"key": _clean_para(i.get("name", ""), 20),
+             "value": _clean_para(i.get("rule", i.get("note", "")), 200)}
             for i in (data.get("constraints") or []) if isinstance(i, dict)
         ],
         "extra": [
-            {"key": str(i.get("name", ""))[:40],
-             "value": str(i.get("note", ""))[:200]}
+            {"key": _clean_para(i.get("name", ""), 20),
+             "value": _clean_para(i.get("note", ""), 200)}
             for i in (data.get("extra") or []) if isinstance(i, dict)
         ],
     }
@@ -297,7 +313,7 @@ async def import_book(
             db.add(CharacterRelation(
                 novel_id=project.id, owner_id=owner.id, other_id=other.id,
                 rel_type=str(e.get("rel_type", ""))[:20], stance="",
-                note=str(e.get("note", ""))[:300], ch_ref=str(e.get("evidence_ch", ""))[:40],
+                note=_clean_para(e.get("note", ""), 300), ch_ref=str(e.get("evidence_ch", ""))[:40],
             ))
         await db.commit()
         if skipped:
