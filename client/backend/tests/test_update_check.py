@@ -737,3 +737,21 @@ def test_channel_self_report_logs(monkeypatch, tmp_path, caplog):
     with caplog.at_level(logging.WARNING, logger="update_check"):
         _run(uc.refresh_update_check())
     assert any("渠道全部不可达" in r.message for r in caplog.records)
+
+
+def test_trigger_v1_manifest_logs_and_skips(monkeypatch, caplog):
+    """旧代载荷（无 platforms）：自动链禁用且留日志，手动链不受影响。"""
+    monkeypatch.setattr(uc, "_PLATFORM_KEY", "win")
+    started = []
+    done = threading.Event()
+
+    def fake_worker(version, platform, epoch):
+        started.append(1)
+        done.set()
+
+    monkeypatch.setattr(uc, "_download_worker", fake_worker)
+    import logging
+    with caplog.at_level(logging.INFO, logger="update_check"):
+        uc.maybe_start_auto_download(_manifest(platforms=None), current="0.11")
+    assert not done.wait(timeout=1)
+    assert any("manifest v1" in r.message for r in caplog.records)

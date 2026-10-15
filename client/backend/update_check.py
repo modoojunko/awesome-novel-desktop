@@ -377,10 +377,15 @@ def maybe_start_auto_download(fetched: dict, current: str) -> None:
     if fetched.get("auto_enabled") is False:
         return
     platforms = fetched.get("platforms")
-    if not isinstance(platforms, dict) or _PLATFORM_KEY is None:
+    if not isinstance(platforms, dict):
+        logger.info("update-check: manifest v1 (no platforms), auto chain disabled")
+        return
+    if _PLATFORM_KEY is None:
+        logger.info("update-check: platform %s not supported by auto chain", sys.platform)
         return
     platform = platforms.get(_PLATFORM_KEY)
     if not isinstance(platform, dict) or not platform.get("url"):
+        logger.info("update-check: no package for platform %s in manifest", _PLATFORM_KEY)
         return
     if not _validate_outbound_url_sync(str(platform["url"])):
         return
