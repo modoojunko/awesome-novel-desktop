@@ -253,10 +253,18 @@ def _sha256_of(path: Path) -> str:
     return h.hexdigest()
 
 
-def _set_auto_state(state: str, version: str, error: str = "") -> None:
-    _mutate_state(lambda st: st.__setitem__(
-        "auto", {"state": state, "version": version, "last_error": error,
-                 "updated_at": time.time()}))
+def _set_auto_state(state: str, version: str, error: str = "",
+                    received: int | None = None, total: int | None = None) -> None:
+    def _mut(st: dict) -> None:
+        block = {"state": state, "version": version, "last_error": error,
+                 "updated_at": time.time()}
+        if received is not None:
+            block["received"] = received
+        if total is not None:
+            block["total"] = total
+        st["auto"] = block
+
+    _mutate_state(_mut)
 
 
 def _validate_outbound_url_sync(url: str) -> bool:
@@ -309,7 +317,7 @@ def _download_worker(version: str, platform: dict, epoch: int) -> None:
                     return
             except OSError:
                 pass  # 预检本身失败不拦路：让下载去撞真实错误
-            _set_auto_state("downloading", version)
+            _set_auto_state("downloading", version, received=0, total=size or None)
             try:
                 with (
                     httpx.Client(timeout=_DOWNLOAD_TIMEOUT, follow_redirects=True) as client,
@@ -318,11 +326,21 @@ def _download_worker(version: str, platform: dict, epoch: int) -> None:
                     if resp.status_code != 200:
                         raise OSError(f"http {resp.status_code}")
                     _UPDATES_DIR.mkdir(parents=True, exist_ok=True)
+                    got_size = int(resp.headers.get("content-length") or 0) or size
+                    received = 0
+                    last_progress = 0.0
                     with open(part, "wb") as fh:
                         for chunk in resp.iter_bytes(512 * 1024):
                             if _dl_cancel.is_set() or epoch != _dl_epoch:
                                 return
                             fh.write(chunk)
+                            received += len(chunk)
+                            now = time.time()
+                            if now - last_progress >= 1.0:
+                                last_progress = now
+                                _set_auto_state("downloading", version,
+                                                received=received,
+                                                total=got_size or None)
                 os.replace(part, dest)
             except (httpx.HTTPError, OSError):
                 part.unlink(missing_ok=True)
@@ -387,6 +405,9 @@ def auto_public_state() -> dict:
         st = _load_state()
     auto = st.get("auto") if isinstance(st.get("auto"), dict) else {}
     out = {"state": str(auto.get("state") or "idle"), "version": auto.get("version") or None}
+    if out["state"] == "downloading":
+        out["received"] = int(auto.get("received") or 0)
+        out["total"] = int(auto.get("total") or 0) or None
     try:
         marker = json.loads(_APPLIED_PATH.read_text(encoding="utf-8"))
         if isinstance(marker, dict) and marker.get("version"):

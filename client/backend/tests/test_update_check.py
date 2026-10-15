@@ -461,6 +461,7 @@ def test_download_worker_stages_verified_package(monkeypatch, tmp_path):
 
     class _Resp:
         status_code = 200
+        headers = {"content-length": str(len(payload))}
         def __enter__(self):
             return self
         def __exit__(self, *a):
@@ -499,6 +500,7 @@ def test_download_worker_quarantines_sha_mismatch(monkeypatch, tmp_path):
 
     class _Resp:
         status_code = 200
+        headers = {"content-length": "8"}
         def __enter__(self):
             return self
         def __exit__(self, *a):

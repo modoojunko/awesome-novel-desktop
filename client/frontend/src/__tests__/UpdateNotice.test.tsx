@@ -187,7 +187,7 @@ describe("UpdateNotice silent-upgrade 三态（P1 第二片）", () => {
       state({ has_update: true, auto: { state: "downloading", version: "0.13" } }),
     );
     const { container } = await mountAt("/novels");
-    expect(await screen.findByText("新版本 v0.13 正在后台准备…")).toBeTruthy();
+    expect(await screen.findByText(/新版本 v0\.13 正在后台下载/)).toBeTruthy();
     expect(container.querySelector("a[rel]")).toBeNull();
     expect(container.querySelector("button")).toBeNull();
   });

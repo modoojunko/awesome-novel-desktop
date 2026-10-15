@@ -7,6 +7,8 @@ import { toast } from "@/lib/toast";
 interface AutoState {
   state: "idle" | "downloading" | "staged" | "applied";
   version: string | null;
+  received?: number;
+  total?: number | null;
 }
 
 interface UpdateCheckState {
@@ -19,10 +21,11 @@ interface UpdateCheckState {
   auto?: AutoState;
 }
 
-/** 常规复查节奏：只打本地端点；真实外呼由后端 1 小时节流统一裁决。
- *  下载中提速（评审 §4.6 时效缝）：staged 通知延迟压到 ≤1 分钟，轮的仍是本地端点。 */
-const POLL_MS = 15 * 60 * 1000;
-const POLL_MS_DOWNLOADING = 60 * 1000;
+/** 节拍＝5 秒一跳（轮本地端点零负担）：快面（下载中/已就绪/有更新未生效）每跳都拉
+ *  ——10-15 boss 口径「都要有地方可以看到，不然就像没反应」，下载百分比实时走这；
+ *  慢面每 180 跳（＝15 分钟）拉一次。真实外呼仍由后端 1 小时节流统一裁决。 */
+const TICK_MS = 5 * 1000;
+const SLOW_TICKS = 180;
 
 import { DOWNLOAD_HOME } from "@/lib/updateUrl";
 
@@ -59,6 +62,10 @@ export default function UpdateNotice() {
 
   const auto = state?.auto;
   const downloading = auto?.state === "downloading";
+  const downloadPct =
+    downloading && auto?.total
+      ? Math.min(99, Math.round(((auto.received ?? 0) / auto.total) * 100))
+      : null;
   // 快轮询面（10-14 真机复盘）：只要「有更新且尚未生效/未被暂缓」就 1 分钟复查——
   // 否则下载触发后横幅最长 15 分钟才变脸（v6 验收实锤「没有你说的这些」）。
   // 轮的是本地端点，零外呼负担。
@@ -66,7 +73,7 @@ export default function UpdateNotice() {
 
   // 节拍器模式（判例：把节奏量放进 effect 依赖＝状态每翻转一次就重拉一次，
   // 「知道了」刚关掉的横幅被立刻拉回）。定时器恒 1 分钟一跳：快面每跳都拉，
-  // 慢面每 15 跳拉一次（＝15 分钟），轮的始终是本地端点。
+  // 慢面每 180 跳拉一次（＝15 分钟），轮的始终是本地端点。
   const pollFastRef = useRef(pollFast);
   pollFastRef.current = pollFast;
   const tickRef = useRef(0);
@@ -75,10 +82,10 @@ export default function UpdateNotice() {
     refresh();
     const timer = setInterval(() => {
       tickRef.current += 1;
-      if (pollFastRef.current || tickRef.current % 15 === 0) {
+      if (pollFastRef.current || tickRef.current % SLOW_TICKS === 0) {
         refresh();
       }
-    }, POLL_MS_DOWNLOADING);
+    }, TICK_MS);
     return () => clearInterval(timer);
   }, [refresh]);
 
@@ -184,7 +191,7 @@ export default function UpdateNotice() {
             <span className="nt">
               <b>
                 {downloading
-                  ? `新版本 v${state.latest} 正在后台准备…`
+                  ? `新版本 v${state.latest} 正在后台下载${downloadPct !== null ? ` ${downloadPct}%` : ""}，就绪后一键安装`
                   : `发现新版本 v${state.latest}${state.current ? `（当前 ${formatVersion(state.current)}）` : ""}`}
               </b>
               {state.notes ? <span>{state.notes}</span> : null}

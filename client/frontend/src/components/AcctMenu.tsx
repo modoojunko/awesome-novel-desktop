@@ -444,7 +444,7 @@ export default function AcctMenu({
                 if (!r.checked || !r.latest) {
                   toast.error("未能连接更新渠道，请稍后再试");
                 } else if (r.has_update) {
-                  toast.info(`发现新版本 v${r.latest}（当前 ${formatVersion(r.current)}）`);
+                  toast.info(`发现新版本 v${r.latest}（当前 ${formatVersion(r.current)}）——正在后台自动下载，就绪后一键重启更新`);
                 } else {
                   toast.success(`已是最新版本 v${r.latest}`);
                 }
