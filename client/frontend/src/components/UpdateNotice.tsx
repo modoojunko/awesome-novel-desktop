@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useLocation } from "react-router-dom";
 import { request } from "@/lib/api";
 import { formatVersion } from "@/lib/version";
@@ -64,11 +64,23 @@ export default function UpdateNotice() {
   // 轮的是本地端点，零外呼负担。
   const pollFast = downloading || auto?.state === "staged" || !!state?.has_update;
 
+  // 节拍器模式（判例：把节奏量放进 effect 依赖＝状态每翻转一次就重拉一次，
+  // 「知道了」刚关掉的横幅被立刻拉回）。定时器恒 1 分钟一跳：快面每跳都拉，
+  // 慢面每 15 跳拉一次（＝15 分钟），轮的始终是本地端点。
+  const pollFastRef = useRef(pollFast);
+  pollFastRef.current = pollFast;
+  const tickRef = useRef(0);
+
   useEffect(() => {
     refresh();
-    const timer = setInterval(refresh, pollFast ? POLL_MS_DOWNLOADING : POLL_MS);
+    const timer = setInterval(() => {
+      tickRef.current += 1;
+      if (pollFastRef.current || tickRef.current % 15 === 0) {
+        refresh();
+      }
+    }, POLL_MS_DOWNLOADING);
     return () => clearInterval(timer);
-  }, [refresh, pollFast]);
+  }, [refresh]);
 
   if (!state?.latest) return null;
 
