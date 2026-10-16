@@ -696,3 +696,101 @@ def test_import_world_strips_evidence_and_cuts_sentences(client):
     assert w["stage"].startswith("北方某市；虎腰山村有封印古井。")
     assert len(w["stage"]) <= 2000 and (w["stage"][-1] in "。！？；\n")
     assert "替死鬼" in w["power"] and "走不了" in w["constraints"][0]["value"]
+
+
+# ── 建书 AI 精炼（世界设定超字段契约时压缩成合规形态）────────────────────
+
+def _mk_condense_stubs(monkeypatch, *, chat, resolve_raises=False):
+    import deconstruct.service
+
+    class _Client:
+        async def chat(self, **kw):
+            return chat(kw)
+
+    async def fake_resolve(user_id, cfg, model):
+        if resolve_raises:
+            raise ValueError("no cfg")
+        return _Client(), "m-1"
+
+    monkeypatch.setattr(deconstruct.service, "resolve_client", fake_resolve)
+    monkeypatch.setattr("prompts.load_layers", lambda name: ("sys", "u {source_json}"))
+
+
+def test_import_book_condenses_over_contract_world(client, monkeypatch):
+    """产物超字段契约 → 一次 AI 精炼按字段形态重写（经 normalize 收敛进契约）。"""
+    _mk_completed("dec-cd-1", {"world": _product("world", "世界设定.md", {
+        "no_power": "",
+        "stage": "超长分析稿。" * 60 + "【第1章】",
+        "power": [{"name": "鬼与邪祟体系", "rule": "规则" * 150}],
+        "constraints": [{"name": "诅咒绑定", "rule": "规则" * 150}],
+    }, "# 世界设定")})
+
+    def fake_chat(kw):
+        assert kw["operation"] == "deconstruct_condense"
+        return json.dumps({
+            "stage": "精炼后的世界舞台，一句话立住。",
+            "power": "精炼后的力量体系。",
+            "cost": "精炼后的代价。",
+            "history": [{"key": "十年前车祸", "value": "三任司机坠水库"}],
+            "constraints": [{"key": "诅咒绑定", "value": "开了第一遭走不了"}],
+            "factions": [], "extra": [], "no_power": False,
+        })
+
+    _mk_condense_stubs(monkeypatch, chat=fake_chat)
+    r = client.post("/api/deconstruct/tasks/dec-cd-1/import-book")
+    assert r.status_code == 200, r.text
+    assert not [w for w in r.json()["warnings"] if "精炼" in w]  # 精炼成功无降级提示
+
+    async def _world(book_id):
+        from filesystem.paths import KEY_TO_PATH
+        from filesystem.storage import get_storage
+        from models.project import Novel
+
+        async with async_session() as s:
+            n = await s.get(Novel, book_id)
+        return await get_storage().read_yaml(n.root_path, KEY_TO_PATH["world"])
+
+    w = _run(_world(r.json()["book_id"]))
+    assert w["stage"] == "精炼后的世界舞台，一句话立住。"
+    assert w["power"] == "精炼后的力量体系。"
+    assert w["constraints"][0]["key"] == "诅咒绑定"
+
+
+def test_import_book_condense_unavailable_falls_back(client, monkeypatch):
+    """模型不可用 → 机械句界截断兜底＋提示条（不中断建书）。"""
+    _mk_completed("dec-cd-2", {"world": _product("world", "世界设定.md", {
+        "no_power": "",
+        "stage": "北方某市为舞台。" + "阴气冬夜最盛，说书人不敢细讲。" * 30,
+    }, "# 世界设定")})
+    _mk_condense_stubs(monkeypatch, chat=lambda kw: "{}", resolve_raises=True)
+    r = client.post("/api/deconstruct/tasks/dec-cd-2/import-book")
+    assert r.status_code == 200, r.text
+    assert any("AI 精炼不可用" in w for w in r.json()["warnings"])
+
+    async def _world(book_id):
+        from filesystem.paths import KEY_TO_PATH
+        from filesystem.storage import get_storage
+        from models.project import Novel
+
+        async with async_session() as s:
+            n = await s.get(Novel, book_id)
+        return await get_storage().read_yaml(n.root_path, KEY_TO_PATH["world"])
+
+    w = _run(_world(r.json()["book_id"]))
+    assert len(w["stage"]) <= 300 and w["stage"].endswith("。")
+
+
+def test_import_book_within_contract_no_condense_call(client, monkeypatch):
+    """契约内内容零精炼调用（resolve 根本不该被碰）。"""
+    _mk_completed("dec-cd-3", {"world": _product("world", "世界设定.md", {
+        "no_power": "", "stage": "短舞台。",
+    }, "# 世界设定")})
+
+    from deconstruct import service as dc_service
+
+    def _boom(*a, **k):
+        raise AssertionError("契约内不应触发精炼调用")
+
+    monkeypatch.setattr(dc_service, "resolve_client", _boom)
+    r = client.post("/api/deconstruct/tasks/dec-cd-3/import-book")
+    assert r.status_code == 200, r.text
