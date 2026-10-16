@@ -418,3 +418,50 @@ class TestPlotCountHintParity:
             plot_count_hint(2500),  # ≥2000 档
             plot_count_hint(1500),  # 默认档
         ], "建议条数档位文案前后端不一致"
+
+
+class TestDeconstructStructureParity:
+    """拆书入口结构判定阈值（c-deconstruct-book 11）：textparse.py ↔ lib/deconstructStructure.ts。
+
+    两侧各有一套同规则实现（本地秒级判定不耗额度），阈值劈叉＝同一文件前端判 ok、
+    后端 risk（或反之），创建页判定与任务详情 parse_warnings 对不上。
+    """
+
+    def test_thresholds_match(self):
+        from deconstruct.textparse import (
+            AVG_CHAPTER_WARN_CHARS,
+            CARD_TEXT_LIMIT,
+            NUL_RATIO_LIMIT,
+            SINGLE_CHAPTER_RISK_CHARS,
+            TINY_CHAPTER_CHARS,
+            TINY_CHAPTER_MIN_COUNT,
+        )
+
+        src = _read("deconstructStructure.ts")
+        front = {}
+        for name in (
+            "SINGLE_CHAPTER_RISK_CHARS",
+            "AVG_CHAPTER_WARN_CHARS",
+            "TINY_CHAPTER_CHARS",
+            "TINY_CHAPTER_MIN_COUNT",
+            "CARD_TEXT_LIMIT",
+            "NUL_RATIO_LIMIT",
+        ):
+            m = re.search(rf"export const {name} = ([\d_.]+);", src)
+            assert m, f"{name} 形态变了"
+            front[name] = float(m.group(1).replace("_", ""))
+        assert front == {
+            "SINGLE_CHAPTER_RISK_CHARS": float(SINGLE_CHAPTER_RISK_CHARS),
+            "AVG_CHAPTER_WARN_CHARS": float(AVG_CHAPTER_WARN_CHARS),
+            "TINY_CHAPTER_CHARS": float(TINY_CHAPTER_CHARS),
+            "TINY_CHAPTER_MIN_COUNT": float(TINY_CHAPTER_MIN_COUNT),
+            "CARD_TEXT_LIMIT": float(CARD_TEXT_LIMIT),
+            "NUL_RATIO_LIMIT": float(NUL_RATIO_LIMIT),
+        }, "拆书结构判定阈值前后端不一致——以 deconstruct/textparse.py 为准同步 lib/deconstructStructure.ts"
+
+    def test_card_text_limit_matches_pipeline_feed(self):
+        """risk 文案引用的喂料上限必须等于管线实际喂料（否则文案骗人）。"""
+        from deconstruct.pipeline import _CARD_HEAD, _CARD_TAIL
+        from deconstruct.textparse import CARD_TEXT_LIMIT
+
+        assert _CARD_HEAD + _CARD_TAIL == CARD_TEXT_LIMIT

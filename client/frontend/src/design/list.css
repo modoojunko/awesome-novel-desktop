@@ -104,6 +104,7 @@
    用设计 token 的 soft 色带表达，非 parity 对象（比对态全部隐藏）。 */
 .notice { display: flex; align-items: center; gap: 12px; border: 1px solid color-mix(in oklch, var(--warn) 28%, var(--border)); background: var(--warn-soft); border-radius: var(--radius); padding: 10px 14px; margin-bottom: 14px; font-size: 13px; }
 .notice.info { border-color: color-mix(in oklch, var(--accent) 30%, var(--border)); background: var(--accent-soft); }
+.notice.risk { border-color: color-mix(in oklch, var(--err) 35%, var(--border)); background: var(--err-soft); }
 .notice .nt { flex: 1; }
 .notice .nt b { font-weight: 500; }
 .notice .nt span { color: var(--muted); font-size: 12.5px; margin-left: 8px; }

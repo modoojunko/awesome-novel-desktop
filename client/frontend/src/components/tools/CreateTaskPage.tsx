@@ -9,32 +9,69 @@ import {
   probeModel,
   type ModelOption,
 } from "../../lib/deconstructApi";
+import {
+  detectUtfBom,
+  nulRatioOverLimit,
+  structureVerdict,
+  type StructureVerdict,
+} from "../../lib/deconstructStructure";
 
 
 /** 单本容量口径（spec「单本容量口径」）：v2 分级归并后残留为全书梗概注入截断（约 200 章）；超线只提示不拦截 */
 const OVER_CAPACITY_CHARS = 600_000;
 
-/** 本地解析（评审 P1-5）：编码探测链（utf-8-sig→utf-8→gb18030→big5）＋字数/章节统计。
- *  与后端 deconstruct/textparse 同规则；GBK/Big5 由浏览器 TextDecoder 原生支持。 */
-async function localParse(file: File): Promise<{ encoding: string; totalChars: number; chapters: number }> {
+interface LocalParse {
+  encoding: string;
+  totalChars: number;
+  chapters: number;
+  chapterChars: number[];
+}
+
+/** 本地解析（评审 P1-5）：编码探测链（utf-8-sig→utf-8→gb18030→big5）＋字数/章节统计＋结构判定。
+ *  与后端 deconstruct/textparse 同规则（BOM 直判/空字节拒收/判定阈值 parity 钉死）；
+ *  GBK/Big5 由浏览器 TextDecoder 原生支持。 */
+async function localParse(file: File): Promise<LocalParse> {
   const raw = new Uint8Array(await file.arrayBuffer());
+  const bom = detectUtfBom(raw);
+  if (bom === "utf-32") throw new Error("文件是 UTF-32 编码，请在编辑器中另存为 UTF-8 后重试");
+  if (bom === "utf-16") throw new Error("文件是 UTF-16 编码（Windows「Unicode」格式），请另存为 UTF-8 后重试");
   const encodings = ["utf-8-sig", "utf-8", "gb18030", "big5"] as const;
   let text = "";
   let encoding = "";
+  let nulSeen = false;
   for (const enc of encodings) {
     try {
       text = new TextDecoder(enc, { fatal: true }).decode(raw);
-      encoding = enc;
-      break;
     } catch {
       /* 下一个 */
+      continue;
     }
+    if (nulRatioOverLimit(text)) {
+      nulSeen = true; // 解出来也是乱码（典型：无 BOM UTF-16 被当 GBK），试下一条
+      continue;
+    }
+    encoding = enc;
+    break;
   }
-  if (!encoding) throw new Error("无法识别文件编码（已尝试 UTF-8/GBK/Big5），请转码为 UTF-8 后重试");
+  if (!encoding) {
+    throw new Error(
+      nulSeen
+        ? "文件内容疑似 UTF-16 等宽字节编码（解出大量空字节），请另存为 UTF-8 后重试"
+        : "无法识别文件编码（已尝试 UTF-8/GBK/Big5），请转码为 UTF-8 后重试",
+    );
+  }
   const chapterRe = /^\s*(第[0-9零一二两三四五六七八九十百千]+[章回节][^\n]{0,40})\s*$/gm;
-  const chapters = [...text.matchAll(chapterRe)].length;
+  const matches = [...text.matchAll(chapterRe)];
+  const chapterChars: number[] = [];
+  for (let i = 0; i < matches.length; i++) {
+    /* v8 ignore start — index?? 兜底臂：matchAll 结果 index 恒存在（TS 类型放宽才可达） */
+    const start = (matches[i].index ?? 0) + matches[i][0].length;
+    const end = i + 1 < matches.length ? (matches[i + 1].index ?? text.length) : text.length;
+    /* v8 ignore stop */
+    chapterChars.push(text.slice(start, end).replace(/\s+/g, "").length);
+  }
   const totalChars = text.replace(/\s+/g, "").length;
-  return { encoding, totalChars, chapters };
+  return { encoding, totalChars, chapters: matches.length, chapterChars };
 }
 
 export default function CreateTaskPage() {
@@ -49,7 +86,9 @@ export default function CreateTaskPage() {
   const [bookName, setBookName] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [submitErr, setSubmitErr] = useState("");
-  const [parsed, setParsed] = useState<{ encoding: string; totalChars: number; chapters: number } | null>(null);
+  const [parsed, setParsed] = useState<LocalParse | null>(null);
+  const [verdict, setVerdict] = useState<StructureVerdict | null>(null);
+  const [riskAck, setRiskAck] = useState(false);
   const [parseErr, setParseErr] = useState("");
   const inputRef = useRef<HTMLInputElement>(null);
 
@@ -112,16 +151,30 @@ export default function CreateTaskPage() {
     });
   };
 
-  const canSubmit = file !== null && hasModels && probeOk === true && !probing && !submitting;
+  // 解析未落定（本地解析进行中或失败）不解禁创建：risk 判定随解析结果同批返回，
+  // 提前放行会绕过确认闸把无章标题大部头直接送进队列（评审 P2 竞态口）；解析失败的书后端同样拒收。
+  const canSubmit =
+    file !== null &&
+    parsed !== null &&
+    hasModels &&
+    probeOk === true &&
+    !probing &&
+    !submitting &&
+    (verdict?.level !== "risk" || riskAck);
 
   const pickFile = (f: File | null) => {
     setFile(f);
     setBookName(f ? f.name.replace(/\.txt$/i, "") : "");
     setParsed(null);
+    setVerdict(null);
+    setRiskAck(false);
     setParseErr("");
     if (f) {
       localParse(f)
-        .then(setParsed)
+        .then((p) => {
+          setParsed(p);
+          setVerdict(structureVerdict({ chapterChars: p.chapterChars, totalChars: p.totalChars }));
+        })
         .catch((err: Error) => setParseErr(err.message));
     }
   };
@@ -286,6 +339,7 @@ export default function CreateTaskPage() {
               <span data-od-id="parse-backfill">
                 {(file.size / 1024 / 1024).toFixed(1)} MB
                 {parsed ? ` · 编码探测：${parsed.encoding} · ${parsed.totalChars} 字 · ${parsed.chapters} 章` : ""}
+                {parsed && verdict?.level === "ok" ? " · 结构判定：正常" : ""}
                 {parseErr ? ` · ${parseErr}` : " · 本地解析（秒级、不消耗模型额度）"}
               </span>
             </div>
@@ -305,6 +359,34 @@ export default function CreateTaskPage() {
               />
             </div>
           </div>
+
+          {verdict && verdict.level !== "ok" && (
+            <div
+              className={`notice${verdict.level === "risk" ? " risk" : " warn"}`}
+              data-od-id="structure-verdict"
+              style={{ margin: "14px 0" }}
+              role={verdict.level === "risk" ? "alert" : undefined}
+            >
+              <span className="nt">
+                <b>{verdict.level === "risk" ? "结构判定：不建议直接拆解" : "结构判定：有风险"}</b>
+                <span>{verdict.issues.join("；")}</span>
+              </span>
+            </div>
+          )}
+          {verdict?.level === "risk" && (
+            <label className="dim-row" style={{ border: "1px solid var(--border)", borderRadius: 8, cursor: "pointer" }} data-od-id="risk-ack-row">
+              <input
+                type="checkbox"
+                checked={riskAck}
+                onChange={(e) => setRiskAck(e.target.checked)}
+                data-od-id="risk-ack"
+              />
+              <span className="d-tx">
+                <b>我了解质量风险，仍要用当前文件创建任务</b>
+                <span>不勾选则「创建任务」保持禁用；换掉问题文件后本确认自动复位</span>
+              </span>
+            </label>
+          )}
 
           {parsed && parsed.totalChars > OVER_CAPACITY_CHARS && (
             <div className="notice warn" data-od-id="over-capacity" style={{ margin: "14px 0" }}>

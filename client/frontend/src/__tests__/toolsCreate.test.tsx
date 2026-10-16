@@ -323,4 +323,124 @@ describe("CreateTaskPage", () => {
     await waitFor(() => expect(screen.getByText(/创建任务（进队列排队）/)).not.toBeDisabled());
     expect(screen.queryByLabelText("书名（取自文件名，可改）")?.closest(".fcard")).toBeInTheDocument();
   });
+
+  it("结构判定 risk：无章标题大部头出警示＋确认闸，勾选才解禁创建", async () => {
+    state.fetchOpts.mockResolvedValue([
+      { api_config_id: "c1", config_name: "A", model: "m1", vendor: "v" },
+    ]);
+    state.probe.mockResolvedValue(true);
+    state.create.mockResolvedValue({ id: "new-risk", status: "queued" });
+    renderPage();
+    await waitFor(() => expect(screen.getByRole("combobox")).toBeInTheDocument());
+    state.create.mockClear();
+    const input = document.querySelector('input[type="file"]') as HTMLInputElement;
+    const noTitle = new File(["没有章节标题的长文。" + "内容".repeat(20000)], "无章.txt", { type: "text/plain" });
+    Object.defineProperty(input, "files", { value: [noTitle] });
+    fireEvent.change(input);
+    await waitFor(() => expect(screen.getByText(/结构判定：不建议直接拆解/)).toBeInTheDocument());
+    // 探针虽过，risk 未确认 → 创建禁用
+    await waitFor(() => expect(screen.getByText("可用")).toBeInTheDocument());
+    expect(screen.getByText(/创建任务（进队列排队）/)).toBeDisabled();
+    // 勾选风险确认 → 解禁；提交走通
+    const ack = screen.getByRole("checkbox", { name: /我了解质量风险/ });
+    fireEvent.click(ack);
+    expect(screen.getByText(/创建任务（进队列排队）/)).not.toBeDisabled();
+    fireEvent.click(screen.getByText(/创建任务（进队列排队）/));
+    await waitFor(() => expect(state.create).toHaveBeenCalledOnce());
+  });
+
+  it("结构判定 warn：平均章长异常出黄条，不拦创建也不出确认闸", async () => {
+    state.fetchOpts.mockResolvedValue([
+      { api_config_id: "c1", config_name: "A", model: "m1", vendor: "v" },
+    ]);
+    state.probe.mockResolvedValue(true);
+    renderPage();
+    await waitFor(() => expect(screen.getByRole("combobox")).toBeInTheDocument());
+    const input = document.querySelector('input[type="file"]') as HTMLInputElement;
+    const body = "很长的正文。\n".repeat(4000); // 单章 2.8 万字（行尾换行保证下章标题顶行首）
+    const fewTitle = new File(["第1章 甲\n" + body + "第2章 乙\n" + body + "第3章 丙\n" + body], "长章.txt", {
+      type: "text/plain",
+    });
+    Object.defineProperty(input, "files", { value: [fewTitle] });
+    fireEvent.change(input);
+    await waitFor(() => expect(screen.getByText(/结构判定：有风险/)).toBeInTheDocument());
+    expect(screen.getByText(/远超常见网文章长/)).toBeInTheDocument();
+    expect(screen.queryByRole("checkbox", { name: /我了解质量风险/ })).not.toBeInTheDocument();
+    await waitFor(() => expect(screen.getByText(/创建任务（进队列排队）/)).not.toBeDisabled());
+  });
+
+  it("结构判定 ok：回填行显示「结构判定：正常」", async () => {
+    state.fetchOpts.mockResolvedValue([]);
+    renderPage();
+    pickFile();
+    await waitFor(() => expect(screen.getByText(/结构判定：正常/)).toBeInTheDocument());
+  });
+
+  it("UTF-16 BOM 文件：解析错误点名 UTF-16，不进创建流程", async () => {
+    renderPage();
+    const input = document.querySelector('input[type="file"]') as HTMLInputElement;
+    const u16 = new File([new Uint8Array([0xff, 0xfe, 0x41, 0x00, 0x42, 0x00])], "u16.txt", { type: "text/plain" });
+    Object.defineProperty(input, "files", { value: [u16] });
+    fireEvent.change(input);
+    await waitFor(() => expect(screen.getByText(/UTF-16 编码/)).toBeInTheDocument());
+    expect(screen.getByText(/另存为 UTF-8/)).toBeInTheDocument();
+  });
+
+  it("UTF-32 BOM 文件：解析错误点名 UTF-32", async () => {
+    renderPage();
+    const input = document.querySelector('input[type="file"]') as HTMLInputElement;
+    const u32 = new File([new Uint8Array([0xff, 0xfe, 0x00, 0x00, 0x41, 0x00, 0x00, 0x00])], "u32.txt", {
+      type: "text/plain",
+    });
+    Object.defineProperty(input, "files", { value: [u32] });
+    fireEvent.change(input);
+    await waitFor(() => expect(screen.getByText(/UTF-32 编码/)).toBeInTheDocument());
+  });
+
+  it("无 BOM 空字节文件（UTF-16 形态）：探测链解得开也按乱码拒收", async () => {
+    renderPage();
+    const input = document.querySelector('input[type="file"]') as HTMLInputElement;
+    const bytes = new Uint8Array(4000);
+    for (let i = 0; i < bytes.length; i += 2) bytes[i] = 0x41; // "A\x00A\x00…"＝UTF-16LE 的 ASCII 形态
+    const raw16 = new File([bytes], "raw16.txt", { type: "text/plain" });
+    Object.defineProperty(input, "files", { value: [raw16] });
+    fireEvent.change(input);
+    await waitFor(() => expect(screen.getByText(/空字节/)).toBeInTheDocument());
+  });
+
+  it("本地解析未落定前创建保持禁用（评审 P2 竞态口：提前放行会绕过 risk 确认闸）", async () => {
+    state.fetchOpts.mockResolvedValue([
+      { api_config_id: "c1", config_name: "A", model: "m1", vendor: "v" },
+    ]);
+    state.probe.mockResolvedValue(true);
+    let release!: (b: ArrayBuffer) => void;
+    const gate = new Promise<ArrayBuffer>((res) => {
+      release = res;
+    });
+    const spy = vi.spyOn(Blob.prototype, "arrayBuffer").mockReturnValue(gate);
+    renderPage();
+    await waitFor(() => expect(screen.getByRole("combobox")).toBeInTheDocument());
+    pickFile();
+    // 探针已过但解析未返回：创建必须禁用（此时 risk 判定还无从谈起）
+    await waitFor(() => expect(screen.getByText("可用")).toBeInTheDocument());
+    expect(screen.getByText(/创建任务（进队列排队）/)).toBeDisabled();
+    release(new TextEncoder().encode("第1章 试\n正文。").buffer as ArrayBuffer);
+    await waitFor(() => expect(screen.getByText(/创建任务（进队列排队）/)).not.toBeDisabled());
+    spy.mockRestore();
+  });
+
+  it("本地解析失败（坏编码）创建保持禁用——解析不了的书不送队列", async () => {
+    state.fetchOpts.mockResolvedValue([
+      { api_config_id: "c1", config_name: "A", model: "m1", vendor: "v" },
+    ]);
+    state.probe.mockResolvedValue(true);
+    renderPage();
+    await waitFor(() => expect(screen.getByRole("combobox")).toBeInTheDocument());
+    const input = document.querySelector('input[type="file"]') as HTMLInputElement;
+    const bad = new File([new Uint8Array([0xff, 0xff, 0xfe, 0xff])], "bad.txt", { type: "text/plain" });
+    Object.defineProperty(input, "files", { value: [bad] });
+    fireEvent.change(input);
+    await waitFor(() => expect(screen.getByText(/无法识别文件编码/)).toBeInTheDocument());
+    expect(screen.getByText(/创建任务（进队列排队）/)).toBeDisabled();
+  });
 });
