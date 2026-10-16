@@ -41,6 +41,7 @@ jobs:
           [ -n "$PRIVATE" ] || { echo "::error::UPDATE_SIGNING_PRIVATE_KEY 未配置"; exit 1; }
           BASE="${RELEASE_DOWNLOAD_FALLBACK_BASE%/}/download"
           npm install -g @cloudbase/cli
+          pip install cryptography -q
           tcb login --cloudbase-api-key "$TCB_API_KEY" -e "$TCB_ENV_ID"
           curl -sf "$BASE/latest.json" -o /tmp/current.json \
             || { echo "::error::现网清单拉取失败"; exit 1; }
@@ -55,6 +56,9 @@ jobs:
           cur = json.loads(Path("/tmp/current.json").read_text(encoding="utf-8"))
           trusted = set(os.environ.get("RESIGN_TRUSTED_HOSTS", "").split("|")) - {""}
           plats = cur.get("platforms") or {}
+          if not plats:
+              print("::error::现网清单为 v1 格式（无 platforms）——请先升级发布链再重签")
+              sys.exit(1)
           for pk, ent in plats.items():
               host = (urlparse(str(ent.get("url") or "")).hostname or "")
               if host not in trusted:

@@ -591,8 +591,11 @@ jobs:
           with open("latest.json", "w", encoding="utf-8") as f:
               json.dump(latest, f, ensure_ascii=False)
           # 有私钥则顶层 Ed25519 签名（客户端强制验签的前提）；无钥不签＋auto_enabled 已强制 false
-          if os.environ.get("UPDATE_SIGNING_PRIVATE_KEY"):
-              import pathlib as _pl
+          if [ -n "$UPDATE_SIGNING_PRIVATE_KEY" ]; then
+            python -m pip install cryptography -q
+          fi
+          python - <<'PY'
+          import html, json, os, sys, textwrap
               _be = _pl.Path("client/backend")
               sys.path.insert(0, str(_be.resolve()) if _be.exists() else str(_pl.Path.cwd()))
               from scripts.release_manifest_sign import main as _sign_main
