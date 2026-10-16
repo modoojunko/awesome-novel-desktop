@@ -910,3 +910,37 @@ describe("AcctMenu 检查更新入口（silent-upgrade P1 首片）", () => {
     expect(toastState.error).toHaveBeenCalledWith(expect.stringContaining("检查更新失败"));
   });
 });
+
+describe("AcctMenu 检查更新·自动链接手文案（评审覆盖缺口）", () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it("渠道带 auto.state=downloading：toast 明示正在后台自动下载（true 臂）", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockImplementation(async (url: string) => {
+      if (String(url).includes("/update-check/refresh")) {
+        return {
+          ok: true,
+          status: 200,
+          json: async () => ({
+            current: "0.19", latest: "0.33", has_update: true, checked: true,
+            auto: { state: "downloading", version: "0.33" },
+          }),
+        };
+      }
+      return { ok: true, status: 200, json: async () => ({}) };
+    }));
+    const { default: AcctMenu } = await import("@/components/AcctMenu");
+    const { useTier } = await import("@/hooks/useTier");
+    vi.mocked(useTier).mockReturnValue(tierState());
+    mount(<AcctMenu />);
+    fireEvent.click(document.querySelector('[data-od-id="acct-trigger"]') as HTMLElement);
+    await act(async () => {});
+    fireEvent.click(document.querySelector('[data-od-id="acct-menu-check-update"]') as HTMLElement);
+    await waitFor(() =>
+      expect(toastState.info).toHaveBeenCalledWith(
+        expect.stringContaining("正在后台自动下载"),
+      ),
+    );
+  });
+});

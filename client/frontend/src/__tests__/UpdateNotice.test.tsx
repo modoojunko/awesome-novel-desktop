@@ -258,6 +258,52 @@ describe("UpdateNotice 评审补臂（可见性/安全网/防御）", () => {
     expect(el.textContent).not.toContain("0%");
   });
 
+  it("拒绝臂出口被点击：window.open 直达下载页（action 执行体）", async () => {
+    const toastMock2 = { success: vi.fn(), error: vi.fn(), info: vi.fn() };
+    vi.doMock("@/lib/toast", () => ({ toast: toastMock2 }));
+    const openSpy = vi.fn();
+    vi.stubGlobal("open", openSpy);
+    requestMock.mockImplementation(async (path: string) => {
+      if (path === "/update-check") {
+        return state({ auto: { state: "staged", version: "0.13" } });
+      }
+      const err = new Error("auto updates disabled") as Error & { status?: number };
+      err.status = 409;
+      throw err;
+    });
+    vi.spyOn(window, "confirm").mockReturnValue(true);
+    await mountAt("/novels");
+    fireEvent.click(await screen.findByRole("button", { name: "重启更新" }));
+    await waitFor(() => expect(toastMock2.error).toHaveBeenCalled());
+    (toastMock2.error.mock.calls[0][1] as { action: { onClick: () => void } })
+      .action.onClick();
+    await waitFor(() => expect(openSpy).toHaveBeenCalledWith(
+        expect.stringContaining("awesomenovel.com"),
+        "_blank",
+        "noopener",
+      ));
+    vi.doUnmock("@/lib/toast");
+    vi.unstubAllGlobals();
+  });
+
+  it("成功 /apply 但无桥（浏览器兜底）：info 引导关闭即生效，不关窗", async () => {
+    const toastMock2 = { success: vi.fn(), error: vi.fn(), info: vi.fn() };
+    vi.doMock("@/lib/toast", () => ({ toast: toastMock2 }));
+    requestMock.mockImplementation(async (path: string) =>
+      path === "/update-check"
+        ? state({ auto: { state: "staged", version: "0.13" } })
+        : { ok: true },
+    );
+    vi.spyOn(window, "confirm").mockReturnValue(true);
+    await mountAt("/novels");
+    fireEvent.click(await screen.findByRole("button", { name: "重启更新" }));
+    await waitFor(() => expect(toastMock2.info).toHaveBeenCalledWith(
+      expect.stringContaining("关闭应用后将自动安装"),
+    ));
+    expect(await screen.findByRole("button", { name: "重启更新" })).toBeTruthy();
+    vi.doUnmock("@/lib/toast");
+  });
+
   it("拒绝臂：/apply 失败 toast 带可点击「去下载」出口", async () => {
     const toastMock2 = { success: vi.fn(), error: vi.fn(), info: vi.fn() };
     vi.doMock("@/lib/toast", () => ({ toast: toastMock2 }));
