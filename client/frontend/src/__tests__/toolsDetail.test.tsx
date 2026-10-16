@@ -562,3 +562,65 @@ describe("建书勾选导入", () => {
     expect(items).not.toContain("intro");
   });
 });
+
+
+describe("进度可视二阶", () => {
+  it("当前动作行＋拆卡 ETA 后缀＋已运行时长", async () => {
+    state.get.mockResolvedValue(detailOf("running", {
+      cards: { state: "running", done: 40, total: 258, eta_seconds: 720 },
+      created_at: new Date(Date.now() - 5 * 60000).toISOString(),
+      activity: { label: "正在拆解 第41章", age_seconds: 23 },
+    }));
+    renderPage();
+    await waitFor(() => expect(screen.getByText(/正在拆解 第41章/)).toBeInTheDocument());
+    expect(screen.getByText(/已进行 23 秒/)).toBeInTheDocument();
+    expect(screen.getByText(/约剩 12 分/)).toBeInTheDocument();
+    expect(screen.getByText("已运行 5 分")).toBeInTheDocument();
+  });
+
+  it("维度归并 ETA 后缀", async () => {
+    state.get.mockResolvedValue(detailOf("running", {
+      dims: Object.fromEntries(
+        ["intro", "world", "techniques"].map((k, i) => [
+          k,
+          i === 0
+            ? { state: "running", seg_done: 2, seg_total: 9, error: "", eta_seconds: 240 }
+            : { state: "completed", seg_done: 1, seg_total: 1, error: "" },
+        ]),
+      ),
+    }));
+    renderPage();
+    await waitFor(() => expect(screen.getByText(/归并 2\/9 · 约剩 4 分/)).toBeInTheDocument());
+  });
+
+  it("activity 缺席不渲染行", async () => {
+    state.get.mockResolvedValue(detailOf("running"));
+    renderPage();
+    await waitFor(() => expect(screen.getByText("取消任务")).toBeInTheDocument());
+    expect(screen.queryByText("当前动作")).not.toBeInTheDocument();
+  });
+});
+
+
+describe("进度可视二阶（边界臂）", () => {
+  it("无 eta/半分钟内/无 age 的展示口径", async () => {
+    state.get.mockResolvedValue(detailOf("running", {
+      cards: { state: "running", done: 5, total: 9 },
+      created_at: new Date(Date.now() - 30 * 1000).toISOString(),
+      activity: { label: "正在归并 简介", age_seconds: null },
+    }));
+    renderPage();
+    await waitFor(() => expect(screen.getByText(/进行中 · 5\/9 章/)).toBeInTheDocument()); // 无 eta 无后缀
+    expect(screen.getByText("已运行 1 分内")).toBeInTheDocument();
+    expect(screen.getByText("正在归并 简介")).toBeInTheDocument(); // age null＝无时长后缀
+  });
+
+  it("created_at 在未来（时钟偏差）不出已运行", async () => {
+    state.get.mockResolvedValue(detailOf("running", {
+      created_at: new Date(Date.now() + 10 * 60000).toISOString(),
+    }));
+    renderPage();
+    await waitFor(() => expect(screen.getByText("取消任务")).toBeInTheDocument());
+    expect(screen.queryByText(/已运行/)).not.toBeInTheDocument();
+  });
+});
