@@ -1,6 +1,7 @@
 """client-update-notify：版本自报、节流、出站校验、版本比较、关闭记忆、兜底切换。"""
 
 import asyncio
+import base64
 import hashlib
 import json
 import threading
@@ -800,3 +801,136 @@ def test_trigger_skips_redownload_while_pending_in_flight(monkeypatch):
     uc._PENDING_PATH.write_text("{}", encoding="utf-8")
     uc.maybe_start_auto_download(_manifest(), current="0.11")
     assert not done.wait(timeout=1)
+
+
+# ── 签名链（tasks 2.2/2.3）────────────────────────────────────────────────
+
+
+def _signed_manifest(monkeypatch, *, auto_enabled=True, sign=True):
+    import base64 as _b64
+
+    from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
+
+    key = Ed25519PrivateKey.generate()
+    priv_b64 = _b64.b64encode(key.private_bytes_raw()).decode()
+    pub_b64 = _b64.b64encode(key.public_key().public_bytes_raw()).decode()
+    monkeypatch.setenv("CLIENT_UPDATE_PUBKEYS",
+                       json.dumps({"update-k1": pub_b64}))
+    manifest = {"latest": "0.33", "notes": "", "auto_enabled": auto_enabled,
+                "platforms": {"win": {"url": MAIN_URL.replace("latest.json", "pkg.exe"),
+                                      "sha256": "", "size": 0}},
+                "source_url": MAIN_URL}
+    if sign:
+        signed = dict(manifest)
+        signed["signer_key_id"] = "update-k1"
+        signed["signature"] = base64.b64encode(
+            Ed25519PrivateKey.from_private_bytes(_b64.b64decode(priv_b64)).sign(
+                __import__("json").dumps(
+                    {k: v for k, v in signed.items() if k != "signature"},
+                    sort_keys=True, separators=(",", ":")).encode("utf-8")
+            )).decode()
+        return manifest, signed
+    return manifest, manifest
+
+
+def _make_keys_and_signed(monkeypatch, *, sign=True):
+    """生成钥对＋按客户端 canonical 规则签名的 v2 清单；注入 CLIENT_UPDATE_PUBKEYS。"""
+    import base64 as _b64
+
+    from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
+
+    key = Ed25519PrivateKey.generate()
+    priv_b64 = _b64.b64encode(key.private_bytes_raw()).decode()
+    pub_b64 = _b64.b64encode(key.public_key().public_bytes_raw()).decode()
+    monkeypatch.setenv("CLIENT_UPDATE_PUBKEYS", json.dumps({"update-k1": pub_b64}))
+    manifest = {"version": "0.33", "notes": "", "auto_enabled": True,
+                "platforms": {"win": {"url": MAIN_URL.replace("latest.json", "pkg.exe"),
+                                      "sha256": "", "size": 0}}}
+    raw = dict(manifest)
+    if sign:
+        raw["signer_key_id"] = "update-k1"
+        raw["signature"] = base64.b64encode(
+            Ed25519PrivateKey.from_private_bytes(_b64.b64decode(priv_b64)).sign(
+                json.dumps({k: v for k, v in raw.items() if k != "signature"},
+                           sort_keys=True, separators=(",", ":")).encode("utf-8")
+            )).decode()
+    return raw
+
+
+def _stub_http_json(monkeypatch, payload):
+    """按真 _fetch_one 的调用形态打桩：build_async_client → await client.get → json()。"""
+    class _Resp:
+        status_code = 200
+        def __init__(self, pl):
+            self._pl = pl
+        def json(self):
+            return self._pl
+
+    class _Client:
+        def __init__(self, pl):
+            self._pl = pl
+        async def __aenter__(self):
+            return self
+        async def __aexit__(self, *a):
+            return False
+        async def get(self, url):
+            return _Resp(self._pl)
+
+    monkeypatch.setattr(uc, "build_async_client", lambda timeout=None, **k: _Client(payload))
+
+
+def test_fetch_v2_unsigned_manifest_rejected(monkeypatch, caplog):
+    """v2 清单（含平台包）无有效签名 → _fetch_one 返回 None（自动链硬停＋日志）。"""
+    raw = _make_keys_and_signed(monkeypatch, sign=False)
+    _stub_http_json(monkeypatch, raw)
+    import logging
+    with caplog.at_level(logging.WARNING, logger="update_check"):
+        got = _run(uc._fetch_one(MAIN_URL))
+    assert got is None
+    assert any("SIGNATURE REJECT" in r.message for r in caplog.records)
+
+
+def test_fetch_v2_signed_manifest_accepted(monkeypatch):
+    """有效签名 → 正常解析（平台/总闸透传给自动链）。"""
+    raw = _make_keys_and_signed(monkeypatch, sign=True)
+    _stub_http_json(monkeypatch, raw)
+    got = _run(uc._fetch_one(MAIN_URL))
+    assert got["latest"] == "0.33" and got["auto_enabled"] is True
+    assert got["platforms"]["win"]["url"].endswith("pkg.exe")
+    assert got["_raw"]["signature"] == raw["signature"]
+
+
+def test_fetch_v1_manifest_needs_no_signature(monkeypatch):
+    """v1 清单（无 platforms）：不要求签名，照常解析（自动链由 platforms 缺失禁用）。"""
+    _make_keys_and_signed(monkeypatch, sign=False)
+    _stub_http_json(monkeypatch, {"version": "0.33", "notes": ""})
+    got = _run(uc._fetch_one(MAIN_URL))
+    assert got["latest"] == "0.33" and got["platforms"] is None
+
+
+def test_update_pubkeys_env_parsing(monkeypatch):
+    """信任集合 env：合法 JSON 解析为 {kid: bytes}；非法/缺失＝空集合（安全默认）。"""
+    monkeypatch.setenv("CLIENT_UPDATE_PUBKEYS",
+                       '{"update-k1":"Ktq81Y4Qf9cPapmfbLw2h4SGGo1E72X3HaGUxOBU/EU="}')
+    keys = uc._update_pubkeys()
+    assert set(keys) == {"update-k1"} and len(keys["update-k1"]) == 32
+    monkeypatch.setenv("CLIENT_UPDATE_PUBKEYS", "not-json")
+    assert uc._update_pubkeys() == {}
+    monkeypatch.delenv("CLIENT_UPDATE_PUBKEYS")
+    assert uc._update_pubkeys() == {}
+
+
+def test_fetch_v2_empty_pubkeys_fail_closed(monkeypatch, caplog):
+    """fail-closed：空钥集合（env 非法/缺失）时 v2 清单一律 REJECT，绝不 fail-open。"""
+    raw = _make_keys_and_signed(monkeypatch, sign=True)  # 有签名的 v2 清单
+    monkeypatch.setenv("CLIENT_UPDATE_PUBKEYS", "corrupted-not-json")  # 钥非法
+    _stub_http_json(monkeypatch, raw)
+    import logging
+    with caplog.at_level(logging.WARNING, logger="update_check"):
+        got = _run(uc._fetch_one(MAIN_URL))
+    assert got is None
+    assert any("SIGNATURE REJECT" in r.message for r in caplog.records)
+
+    monkeypatch.delenv("CLIENT_UPDATE_PUBKEYS")  # 钥缺失
+    got = _run(uc._fetch_one(MAIN_URL))
+    assert got is None

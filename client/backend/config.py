@@ -78,6 +78,10 @@ RELEASE_OVERRIDE_KEYS = (
     # 与 S端 签发侧 kid 一一对应）。漏登记＝pywebview 注入 CLIENT_PACK_PUBKEYS 静默失效
     # → 打包端恒无钥可验（AI 永久「未就绪」）。只装公钥；签名私钥永不入仓/入产物。
     "pack_pubkeys",
+    # c-silent-upgrade tasks 2.1：自动升级清单验签公钥（{kid: base64(32B Ed25519)} 的
+    # **JSON 串**，信任集合语义支持轮换）。漏登记＝pywebview 注入 CLIENT_UPDATE_PUBKEYS
+    # 静默失效 → 打包端恒无钥 → v2 清单自动链禁用（安全默认，非故障）。只装公钥。
+    "update_pubkeys",
 )
 
 
