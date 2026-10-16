@@ -927,3 +927,25 @@ def test_concurrent_cards_overlap_and_complete(monkeypatch):
     assert cards["done"] == 4 and set(cards["entries"]) == {"1", "2", "3", "4"}
     prods = json.loads(t.products_json)
     assert prods["world"]["data"]["seen"] == [1, 2, 3, 4]  # 并发不改归并结果
+
+
+def test_l1_merge_ops_get_long_read_timeout():
+    """8192-token 归并类操作传 read=600（90s 写不完 8192 tokens，真机五批连排超时实锤）；
+    其余操作维持 ai_client 默认（read=90 纪律）。"""
+    import httpx
+
+    from deconstruct import pipeline
+
+    captured: dict = {}
+
+    class _C:
+        async def chat(self, **kw):
+            captured.update(kw)
+            return "{}"
+
+    _run(pipeline._chat_json(_C(), "m", "s", "u", "deconstruct_characters"))
+    t = captured.get("timeout")
+    assert isinstance(t, httpx.Timeout) and t.read == 600.0
+    captured.clear()
+    _run(pipeline._chat_json(_C(), "m", "s", "u", "deconstruct_place"))
+    assert captured.get("timeout") is None

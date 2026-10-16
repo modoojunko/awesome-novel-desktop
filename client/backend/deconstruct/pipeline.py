@@ -20,6 +20,7 @@ import json
 import logging
 import os
 
+import httpx
 from sqlalchemy import select
 
 from db import async_session
@@ -284,13 +285,21 @@ async def _check_cancel(task_id: str) -> None:
 
 
 async def _chat_json(client, model: str, system: str, user: str, operation: str) -> dict:
+    # ai_client 的 read=90 是按 4096 tokens 生成上限校准的（ai-client-timeout D1）；
+    # 归并类提到 8192 后 90 秒写不完（真机实证：五批连排 180s 超时），长输出
+    # 操作改传 read=600——收敛最坏等待仍由单元级重试次数兜住。
+    budget = _OP_MAX_TOKENS.get(operation, 4096)
+    timeout = None
+    if budget >= 8192:
+        timeout = httpx.Timeout(connect=10.0, read=600.0, write=30.0, pool=10.0)
     raw = await client.chat(
         model=model,
         system=system,
         messages=[{"role": "user", "content": user}],
-        max_tokens=_OP_MAX_TOKENS.get(operation, 4096),
+        max_tokens=budget,
         json_mode=True,
         operation=operation,
+        timeout=timeout,
     )
     return _parse_json_response(raw)
 
