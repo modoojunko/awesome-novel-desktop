@@ -469,11 +469,12 @@ def test_state_roundtrip_preserves_unknown_keys(monkeypatch):
 
 
 def test_op_max_tokens_budget():
-    """卡片输出预算上调（places/presence 加量）；其余 operation 默认 4096。"""
+    """卡片/角色/世界输出预算上调（角色档案格＋世界 extra 扩容后 4096 截断 JSON）；其余默认 4096。"""
     from deconstruct.pipeline import _OP_MAX_TOKENS
 
     assert _OP_MAX_TOKENS.get("deconstruct_card", 4096) == 6144
-    assert _OP_MAX_TOKENS.get("deconstruct_world", 4096) == 4096
+    assert _OP_MAX_TOKENS.get("deconstruct_world", 4096) == 8192
+    assert _OP_MAX_TOKENS.get("deconstruct_characters", 4096) == 8192
     assert _OP_MAX_TOKENS.get("deconstruct_place", 4096) == 4096
 
 
