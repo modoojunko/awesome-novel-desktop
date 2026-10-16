@@ -20,14 +20,14 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from manifest_crypto import sign_manifest  # noqa: E402
 
 
-def main(argv: list[str]) -> int:
+def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("manifest", help="清单 JSON 文件路径（原地写回）")
     ap.add_argument("--key-id", default="update-k1")
     group = ap.add_mutually_exclusive_group(required=True)
     group.add_argument("--private-b64", help="私钥 base64(32B raw)")
     group.add_argument("--private-file", help="私钥文件（内容为 base64(32B raw)）")
-    args = ap.parse_args()
+    args = ap.parse_args(argv)
 
     private_b64 = args.private_b64
     if args.private_file:
