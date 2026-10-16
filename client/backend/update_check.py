@@ -516,6 +516,20 @@ async def get_update_state() -> dict:
 
         state = _mutate_state(_record)
         if fetched is not None:
+            # 换代清账：持久化的 staged 残留（异渠道/旧验收遗留）在检测无更新或
+            # 检测版≠staged 版时必须清掉——真机实证：lab E2E 残留 staged 0.99.5，
+            # 装上正式版 v0.34.2 后横幅永不灭（清账位缺失＝闸门提前 return 不打扫）。
+            latest_now = str(fetched.get("latest") or "")
+            with _state_lock:
+                st_now = _load_state()
+            auto_now = st_now.get("auto") if isinstance(st_now.get("auto"), dict) else {}
+            if (auto_now.get("state") == "staged"
+                    and str(auto_now.get("version") or "") != latest_now):
+                def _clear(st: dict) -> None:
+                    st["auto"] = {"state": "idle", "version": None}
+                state = _mutate_state(_clear)
+                logger.info("update-check: 清掉异源/过期 staged 残留（staged=%s，检测=%s）",
+                            auto_now.get("version"), latest_now or "<无>")
             # 自动下载触发（fire-and-forget；闸门与单飞见 maybe_start_auto_download）。
             # to_thread：触发段含同步 DNS 解析与 join，MUST NOT 跑在共享事件循环上。
             await asyncio.to_thread(maybe_start_auto_download, fetched, current)

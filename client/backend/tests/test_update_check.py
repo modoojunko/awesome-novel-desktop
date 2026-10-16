@@ -934,3 +934,26 @@ def test_fetch_v2_empty_pubkeys_fail_closed(monkeypatch, caplog):
     monkeypatch.delenv("CLIENT_UPDATE_PUBKEYS")  # 钥缺失
     got = _run(uc._fetch_one(MAIN_URL))
     assert got is None
+
+
+# ── 换代清账：异源/过期 staged 残留清理（真机实证：lab E2E 残留 0.99.5 横幅不灭）──
+
+
+def test_stale_staged_cleared_when_no_update(monkeypatch):
+    """运行版≥检测版（无更新）时，残留 staged 状态必须清账——横幅不能永久挂异渠道版本。"""
+    monkeypatch.setenv("CLIENT_VERSION", "0.34.2")
+    monkeypatch.setattr(uc, "_CHECK_INTERVAL", 0)
+    uc._state_path.parent.mkdir(parents=True, exist_ok=True)
+    uc._state_path.write_text(
+        json.dumps({"auto": {"state": "staged", "version": "0.99.5"}}),
+        encoding="utf-8",
+    )
+
+    async def fake_fetch():
+        return {"latest": "0.34.2", "notes": "", "source_url": MAIN_URL}
+
+    monkeypatch.setattr(uc, "_fetch_latest", fake_fetch)
+    got = _run(uc.get_update_state())
+    assert got["auto"]["state"] == "idle"
+    st = json.loads(uc._state_path.read_text(encoding="utf-8"))
+    assert st["auto"]["state"] == "idle"
