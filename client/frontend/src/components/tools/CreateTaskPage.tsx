@@ -20,6 +20,47 @@ import {
 /** 单本容量口径（spec「单本容量口径」）：v2 分级归并后残留为全书梗概注入截断（约 200 章）；超线只提示不拦截 */
 const OVER_CAPACITY_CHARS = 600_000;
 
+/** 格式示例（c-deconstruct-book 12）：与 deconstruct/textparse 夹具同款的网文形态样例，
+ *  页内展示与「下载示例 .txt」共用同一份文本——作家照这个样子排自己的稿子即可被正确切章。 */
+const FORMAT_EXAMPLE_TEXT = `第一卷 风起
+第1章 开端
+张三出门买药，顺路打听城里的消息。暮色四合，他加快了脚步。
+
+第2章 遇敌
+李四拦在巷口，一言不合便动了手。刀光一闪，张三侧身避过。`;
+
+/** 下载示例 txt（UTF-8，探测链首选编码；记事本/写作软件打开即见式样）。 */
+function downloadExample() {
+  const blob = new Blob([FORMAT_EXAMPLE_TEXT], { type: "text/plain;charset=utf-8" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = "拆书格式示例.txt";
+  a.click();
+  URL.revokeObjectURL(url);
+}
+
+/** 格式示例块：完整版＝样例＋要点＋下载；精简版（compact）＝仅样例，risk 判定卡旁就近展示。 */
+function FormatExample({ compact = false }: { compact?: boolean }) {
+  return (
+    <div className={`fmt-example${compact ? " fmt-example-compact" : ""}`} data-od-id={compact ? "fmt-example-compact" : "fmt-example"}>
+      <pre>{FORMAT_EXAMPLE_TEXT}</pre>
+      {!compact && (
+        <>
+          <ul>
+            <li>章标题（第X章／第X回／第X节，汉字或数字均可）<b>独占一行</b>，行内不跟正文；卷标题同理（可不分卷）</li>
+            <li>UTF-8 / GBK / Big5 编码均可；单本 ≤50MB、≤60 万字（约 200 章）</li>
+            <li>建议删除目录页再上传——目录行会被误认为章标题</li>
+          </ul>
+          <button type="button" className="btn btn-ghost btn-sm" data-od-id="fmt-example-download" onClick={downloadExample}>
+            下载示例 .txt
+          </button>
+        </>
+      )}
+    </div>
+  );
+}
+
 interface LocalParse {
   encoding: string;
   totalChars: number;
@@ -90,6 +131,7 @@ export default function CreateTaskPage() {
   const [verdict, setVerdict] = useState<StructureVerdict | null>(null);
   const [riskAck, setRiskAck] = useState(false);
   const [parseErr, setParseErr] = useState("");
+  const [showExample, setShowExample] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
@@ -321,6 +363,18 @@ export default function CreateTaskPage() {
               pickFile(e.target.files?.[0] ?? null);
             }}
           />
+          <div style={{ textAlign: "center", marginTop: 12 }}>
+            <button
+              type="button"
+              className="btn btn-ghost btn-sm"
+              data-od-id="fmt-example-toggle"
+              aria-expanded={showExample}
+              onClick={() => setShowExample((v) => !v)}
+            >
+              {showExample ? "收起格式示例" : "不确定格式？查看示例"}
+            </button>
+          </div>
+          {showExample && <FormatExample />}
           <div style={{ display: "flex", gap: 8, marginTop: 18 }}>
             <button className="btn btn-primary" disabled data-od-id="btn-submit-nofile" title="先选择文件">
               创建任务
@@ -373,6 +427,7 @@ export default function CreateTaskPage() {
               </span>
             </div>
           )}
+          {verdict?.level === "risk" && <FormatExample compact />}
           {verdict?.level === "risk" && (
             <label className="dim-row" style={{ border: "1px solid var(--border)", borderRadius: 8, cursor: "pointer" }} data-od-id="risk-ack-row">
               <input

@@ -338,6 +338,8 @@ describe("CreateTaskPage", () => {
     Object.defineProperty(input, "files", { value: [noTitle] });
     fireEvent.change(input);
     await waitFor(() => expect(screen.getByText(/结构判定：不建议直接拆解/)).toBeInTheDocument());
+    // risk 判定卡旁就近展示精简格式示例（教在出错那一刻）
+    expect(screen.getByText(/第1章 开端/)).toBeInTheDocument();
     // 探针虽过，risk 未确认 → 创建禁用
     await waitFor(() => expect(screen.getByText("可用")).toBeInTheDocument());
     expect(screen.getByText(/创建任务（进队列排队）/)).toBeDisabled();
@@ -442,5 +444,38 @@ describe("CreateTaskPage", () => {
     fireEvent.change(input);
     await waitFor(() => expect(screen.getByText(/无法识别文件编码/)).toBeInTheDocument());
     expect(screen.getByText(/创建任务（进队列排队）/)).toBeDisabled();
+  });
+
+  it("格式示例：展开/收起＋下载示例 txt（样例与要点同块）", async () => {
+    state.fetchOpts.mockResolvedValue([]);
+    renderPage();
+    await waitFor(() => expect(screen.getByText(/还没配模型/)).toBeInTheDocument());
+    fireEvent.click(screen.getByText(/不确定格式/));
+    expect(screen.getByText(/第1章 开端/)).toBeInTheDocument();
+    expect(screen.getByText(/独占一行/)).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /收起格式示例/ })).toHaveAttribute("aria-expanded", "true");
+    // 下载：jsdom 无 createObjectURL——手工替换并还原
+    const createObj = vi.fn(() => "blob:mock");
+    const revokeObj = vi.fn();
+    const prevCreate = URL.createObjectURL;
+    const prevRevoke = URL.revokeObjectURL;
+    URL.createObjectURL = createObj as unknown as typeof URL.createObjectURL;
+    URL.revokeObjectURL = revokeObj as unknown as typeof URL.revokeObjectURL;
+    const clickSpy = vi.spyOn(HTMLAnchorElement.prototype, "click").mockImplementation(() => {});
+    try {
+      fireEvent.click(screen.getByText("下载示例 .txt"));
+      expect(createObj).toHaveBeenCalledOnce();
+      expect(clickSpy).toHaveBeenCalledOnce();
+      const anchor = clickSpy.mock.instances[0] as HTMLAnchorElement;
+      expect(anchor.download).toBe("拆书格式示例.txt");
+      expect(revokeObj).toHaveBeenCalledWith("blob:mock");
+    } finally {
+      URL.createObjectURL = prevCreate;
+      URL.revokeObjectURL = prevRevoke;
+      clickSpy.mockRestore();
+    }
+    fireEvent.click(screen.getByText("收起格式示例"));
+    expect(screen.queryByText(/第1章 开端/)).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /查看示例/ })).toHaveAttribute("aria-expanded", "false");
   });
 });
