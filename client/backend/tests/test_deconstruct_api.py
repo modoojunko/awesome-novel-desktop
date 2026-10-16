@@ -777,7 +777,7 @@ def test_import_book_condense_unavailable_falls_back(client, monkeypatch):
         return await get_storage().read_yaml(n.root_path, KEY_TO_PATH["world"])
 
     w = _run(_world(r.json()["book_id"]))
-    assert len(w["stage"]) <= 300 and w["stage"].endswith("。")
+    assert len(w["stage"]) <= 800 and w["stage"].endswith("。")
 
 
 def test_import_book_within_contract_no_condense_call(client, monkeypatch):

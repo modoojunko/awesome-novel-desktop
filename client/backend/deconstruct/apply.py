@@ -130,7 +130,7 @@ async def _condense_world(task: DeconstructJob, source_body: dict, warnings: lis
         return None
     try:
         from deconstruct.pipeline import _parse_json_response
-        from settings.world_model import normalize_world
+        from settings.world_model import PARAGRAPH_MAX, normalize_world
 
         raw = await client.chat(
             model=model, system=sys_t,
@@ -138,7 +138,23 @@ async def _condense_world(task: DeconstructJob, source_body: dict, warnings: lis
                        "content": usr_t.format(source_json=json.dumps(source_body, ensure_ascii=False))}],
             max_tokens=3000, json_mode=True, operation="deconstruct_condense",
         )
-        out = normalize_world(_parse_json_response(raw))
+        data = _parse_json_response(raw)
+        # 完整句收口（模板铁律的代码兜底）：AI 半句停笔的字段截到最后一个句号
+        for k in ("stage", "power", "cost"):
+            if isinstance(data.get(k), str):
+                data[k] = _clean_para(data[k], PARAGRAPH_MAX)
+        for set_key in ("history", "constraints", "extra"):
+            entries = data.get(set_key)
+            if isinstance(entries, list):
+                for e in entries:
+                    if isinstance(e, dict) and isinstance(e.get("value"), str):
+                        e["value"] = _clean_para(e["value"], 200)
+        facs = data.get("factions")
+        if isinstance(facs, list):
+            for e in facs:
+                if isinstance(e, dict) and isinstance(e.get("note"), str):
+                    e["note"] = _clean_para(e["note"], 200)
+        out = normalize_world(data)
         if not any(str(out.get(k, "")).strip() for k in ("stage", "power", "cost")) and not any(
             out.get(s) for s in ("history", "factions", "constraints", "extra")
         ):
@@ -155,7 +171,7 @@ def _world_body(data: dict, unclamped: bool = False) -> dict:
     unclamped=True＝只剥证据章标不截字数（AI 精炼的输入源；精炼按契约
     重写形态，机械截断只作不可用时的兜底）。
     """
-    para_limit, value_limit = (10**9, 10**9) if unclamped else (300, 200)
+    para_limit, value_limit = (10**9, 10**9) if unclamped else (800, 200)
     no_power_txt = str(data.get("no_power", ""))
     return {
         # 评审 P1-2 口径：仅当模型输出含「无超凡/原文未明确」才置真，不凭空断言力量体系
