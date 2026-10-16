@@ -78,7 +78,7 @@ export default function KvListEditor({
             className="textarea kv-val"
             rows={1}
             value={row.value}
-            maxLength={500}
+            maxLength={200}
             placeholder={valuePlaceholder}
             onChange={(e) => patchRow(i, { value: e.target.value })}
           />

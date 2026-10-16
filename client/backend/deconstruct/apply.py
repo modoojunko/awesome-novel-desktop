@@ -99,37 +99,92 @@ def _files(task: DeconstructJob) -> list[str]:
     return [obj.get("file", "") for obj in _raw(task).values() if isinstance(obj, dict)]
 
 
-def _world_body(data: dict) -> dict:
-    """产物 world.data → 书内世界设定 body（对齐 v2 产物形状与 world 契约）。"""
+def _world_source_over(data: dict) -> bool:
+    """拆书产物世界设定是否超字段契约（段落>300／条目 value>200／条数超限）——
+    超了才值得花一次 AI 精炼；契约内直接机械灌入零调用。"""
+    for k in ("stage", "power", "cost"):
+        if len(_clean_para(data.get(k), 10**9)) > 300:
+            return True
+    specs = {"history": 8, "factions": 6, "constraints": 8, "extra": 8}
+    for key, cap in specs.items():
+        entries = [i for i in (data.get(key) or []) if isinstance(i, dict)]
+        if len(entries) > cap:
+            return True
+        for i in entries:
+            if len(_clean_para(i.get("value", i.get("rule", i.get("note", ""))), 10**9)) > 200:
+                return True
+    return False
+
+
+async def _condense_world(task: DeconstructJob, source_body: dict, warnings: list[str]) -> dict | None:
+    """AI 精炼：产物分析稿 → 书内字段形态（一次轻量调用）。失败降级返回 None
+    （调用方退机械句界截断）。"""
+    try:
+        from deconstruct.service import resolve_client
+        from prompts import load_layers
+
+        client, model = await resolve_client(task.user_id, task.api_config_id, task.ai_model)
+        sys_t, usr_t = load_layers("deconstruct_condense")
+    except Exception as e:  # noqa: BLE001 — 模型/模板不可用：机械截断兜底
+        warnings.append(f"AI 精炼不可用（{str(e)[:60]}），世界设定按句界截断适配字段")
+        return None
+    try:
+        from deconstruct.pipeline import _parse_json_response
+        from settings.world_model import normalize_world
+
+        raw = await client.chat(
+            model=model, system=sys_t,
+            messages=[{"role": "user",
+                       "content": usr_t.format(source_json=json.dumps(source_body, ensure_ascii=False))}],
+            max_tokens=3000, json_mode=True, operation="deconstruct_condense",
+        )
+        out = normalize_world(_parse_json_response(raw))
+        if not any(str(out.get(k, "")).strip() for k in ("stage", "power", "cost")) and not any(
+            out.get(s) for s in ("history", "factions", "constraints", "extra")
+        ):
+            raise ValueError("精炼结果为空")
+        return out
+    except Exception as e:  # noqa: BLE001 — 精炼失败：机械截断兜底
+        warnings.append(f"AI 精炼失败（{str(e)[:60]}），世界设定按句界截断适配字段")
+        return None
+
+
+def _world_body(data: dict, unclamped: bool = False) -> dict:
+    """产物 world.data → 书内世界设定 body（对齐 v2 产物形状与 world 契约）。
+
+    unclamped=True＝只剥证据章标不截字数（AI 精炼的输入源；精炼按契约
+    重写形态，机械截断只作不可用时的兜底）。
+    """
+    para_limit, value_limit = (10**9, 10**9) if unclamped else (300, 200)
     no_power_txt = str(data.get("no_power", ""))
     return {
         # 评审 P1-2 口径：仅当模型输出含「无超凡/原文未明确」才置真，不凭空断言力量体系
         "no_power": "无超凡" in no_power_txt or "原文未明确" in no_power_txt,
-        "stage": _clean_para(data.get("stage", ""), 2000),
+        "stage": _clean_para(data.get("stage", ""), para_limit),
         # power/cost 契约＝段落 str：条目列表拼「名：规则」段落（v2 产物是列表）
-        "power": _clean_para(_entries_paragraph(data.get("power")), 2000),
-        "cost": _clean_para(_entries_paragraph(data.get("cost")), 2000),
+        "power": _clean_para(_entries_paragraph(data.get("power")), para_limit),
+        "cost": _clean_para(_entries_paragraph(data.get("cost")), para_limit),
         # 历史条目契约＝{key,value[,origin]}：产物是 {name,note[,evidence_ch]}
         "history": [
             {"key": str(i.get("name", ""))[:40],
-             "value": str(i.get("note", ""))[:200],
+             "value": str(i.get("note", ""))[:value_limit],
              "origin": str(i.get("evidence_ch", ""))[:40]}
             for i in (data.get("history") or []) if isinstance(i, dict)
         ],
         # 势力备注在产物的 rule 键（note 是旧形状假设，真机实证全丢成「原文未明确」）
         "factions": [
             {"name": _clean_para(i.get("name", ""), 20),
-             "note": _clean_para(i.get("rule", i.get("note", "")), 500)}
+             "note": _clean_para(i.get("rule", i.get("note", "")), value_limit)}
             for i in (data.get("factions") or []) if isinstance(i, dict)
         ],
         "constraints": [
             {"key": _clean_para(i.get("name", ""), 20),
-             "value": _clean_para(i.get("rule", i.get("note", "")), 500)}
+             "value": _clean_para(i.get("rule", i.get("note", "")), value_limit)}
             for i in (data.get("constraints") or []) if isinstance(i, dict)
         ],
         "extra": [
             {"key": _clean_para(i.get("name", ""), 20),
-             "value": _clean_para(i.get("note", ""), 200)}
+             "value": _clean_para(i.get("note", ""), value_limit)}
             for i in (data.get("extra") or []) if isinstance(i, dict)
         ],
     }
@@ -181,6 +236,11 @@ async def import_book(
         from settings.world_model import normalize_world, put_world_merged
 
         body = _world_body(data)
+        if _world_source_over(data):
+            # 产物超字段契约：一次 AI 精炼按字段形态重写（失败退机械句界截断）
+            condensed = await _condense_world(task, _world_body(data, unclamped=True), warnings)
+            if condensed is not None:
+                body = condensed
         fac_before = len(body["factions"])
         merged = put_world_merged(raw, normalize_world(body))
         if fac_before > 6:
