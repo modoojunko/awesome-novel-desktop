@@ -4,6 +4,7 @@ import asyncio
 import hashlib
 import json
 import threading
+from typing import ClassVar
 
 import pytest
 
@@ -461,7 +462,7 @@ def test_download_worker_stages_verified_package(monkeypatch, tmp_path):
 
     class _Resp:
         status_code = 200
-        headers = {"content-length": str(len(payload))}
+        headers: ClassVar[dict] = {"content-length": str(len(payload))}
         def __enter__(self):
             return self
         def __exit__(self, *a):
@@ -500,7 +501,7 @@ def test_download_worker_quarantines_sha_mismatch(monkeypatch, tmp_path):
 
     class _Resp:
         status_code = 200
-        headers = {"content-length": "8"}
+        headers: ClassVar[dict] = {"content-length": "8"}
         def __enter__(self):
             return self
         def __exit__(self, *a):
@@ -791,12 +792,10 @@ def test_trigger_skips_redownload_while_pending_in_flight(monkeypatch):
         done.set()
 
     monkeypatch.setattr(uc, "_download_worker", fake_worker)
-    (uc._state_path.parent if uc._state_path.parent.exists() else None)
     uc._state_path.write_text(
         json.dumps({"auto": {"state": "staged", "version": "0.33"},
                     "pending": {"version": "0.33"}}),
         encoding="utf-8")
-    import os as _os
     uc._PENDING_PATH.parent.mkdir(parents=True, exist_ok=True)
     uc._PENDING_PATH.write_text("{}", encoding="utf-8")
     uc.maybe_start_auto_download(_manifest(), current="0.11")
