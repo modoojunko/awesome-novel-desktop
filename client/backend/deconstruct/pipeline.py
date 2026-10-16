@@ -47,7 +47,14 @@ SEGMENT_RETRIES = 2
 CONCURRENCY = max(1, int(os.environ.get("DECONSTRUCT_CONCURRENCY", "4") or 4))
 
 # 每 operation 输出 token 预算（评审：卡片加 places/presence 后输出加量，默认 4096 会贴顶截断）
-_OP_MAX_TOKENS = {"deconstruct_card": 6144}
+# L1 归并输出上限：角色卡字段多（persona/档案格扩展后 14 卡可上万字）、世界
+# extra 扩容——4096 会把 JSON 拦腰截断（真机实证：「模型输出 JSON 不完整」），
+# 归并类一律给到 8192；拆卡单章 6144 不变。
+_OP_MAX_TOKENS = {
+    "deconstruct_card": 6144,
+    "deconstruct_characters": 8192,
+    "deconstruct_world": 8192,
+}
 
 
 def _graph_export_on() -> bool:
