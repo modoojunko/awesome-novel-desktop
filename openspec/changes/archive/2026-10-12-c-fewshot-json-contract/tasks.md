@@ -27,7 +27,7 @@
 
 ## 3. 双仓合入与发包（修复落地的必要链，不与 1/2 合并）
 
-- [ ] 3.1 C端 PR：本 change 工件＋2 的测试钉；提示词仓 PR：1 的模板＋守卫；两侧
+- [x] 3.1 C端 PR：本 change 工件＋2 的测试钉；提示词仓 PR：1 的模板＋守卫；两侧
       commit message 互引 `c-fewshot-json-contract`
 - [ ] 3.2 提示词仓 `publish.py` 四步发新包：① build＋上传 v{N}（latest.json 暂不翻）
       ② S端 登记 CEK ③ verify＋真机 smoke（下载→验签→换钥→解密）④ 翻 latest.json；
@@ -36,7 +36,7 @@
 
 ## 4. 收尾
 
-- [ ] 4.1 `openspec validate c-fewshot-json-contract --specs` 绿；归档另起 PR
+- [x] 4.1 `openspec validate c-fewshot-json-contract --specs` 绿；归档另起 PR
       （归档前逐 bullet 双向对拍，防并行回灌）
 
 ## 回归
