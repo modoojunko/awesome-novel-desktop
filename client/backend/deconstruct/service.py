@@ -12,11 +12,13 @@ from __future__ import annotations
 import json
 import os
 import uuid
+from datetime import datetime
 
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from config import DATA_ROOT
+from deconstruct.pipeline import CONCURRENCY
 from models.deconstruct import DIMENSION_KEYS, DIMENSIONS, DeconstructJob
 
 STAGING_ROOT = os.path.join(DATA_ROOT, "deconstruct-staging")
@@ -164,9 +166,16 @@ def _first_error(task: DeconstructJob) -> str:
 
 def _dims_state(task: DeconstructJob) -> dict:
     try:
-        return json.loads(task.dims_json or "{}").get("dims", {})
+        raw = json.loads(task.dims_json or "{}").get("dims", {})
     except ValueError:
         return {}
+    out: dict = {}
+    for k, st in raw.items():
+        if isinstance(st, dict) and st.get("state") == "running":
+            eta = _eta_seconds(st.get("started_at"), int(st.get("seg_done") or 0), int(st.get("seg_total") or 0))
+            st = {**st, "eta_seconds": eta}
+        out[k] = st
+    return out
 
 
 def _graph_view(task: DeconstructJob) -> dict:
@@ -200,6 +209,35 @@ def _cards_state(task: DeconstructJob) -> dict:
         return json.loads(task.dims_json or "{}").get("cards", {})
     except ValueError:
         return {}
+
+
+def _activity(task: DeconstructJob) -> dict | None:
+    """当前动作账（pipeline 每次模型调用前写）：label＋距今秒数。"""
+    try:
+        raw = json.loads(task.dims_json or "{}")
+    except ValueError:
+        return None
+    a = raw.get("activity")
+    if not isinstance(a, dict) or not a.get("label"):
+        return None
+    age: int | None = None
+    try:
+        age = int((datetime.now() - datetime.fromisoformat(str(a["at"]))).total_seconds())
+    except (ValueError, TypeError):
+        pass
+    return {"label": str(a["label"]), "age_seconds": max(0, age) if age is not None else None}
+
+
+def _eta_seconds(started_at, done, total) -> int | None:
+    """阶段 ETA：按已完成的实际速率外推剩余，并发度摊薄；无基准/已完成则 None。"""
+    if not started_at or done <= 0 or total <= done:
+        return None
+    try:
+        elapsed = max(1.0, (datetime.now() - datetime.fromisoformat(str(started_at))).total_seconds())
+    except ValueError:
+        return None
+    conc = max(1, CONCURRENCY)
+    return int(elapsed / done * (total - done) / conc)
 
 
 def _graph_phase(task: DeconstructJob) -> dict | None:
@@ -247,7 +285,11 @@ def task_view(task: DeconstructJob) -> dict:
             "state": str(_cards_state(task).get("state", "queued")),
             "done": int(_cards_state(task).get("done", 0) or 0),
             "total": task.chapter_count,
+            "eta_seconds": _eta_seconds(_cards_state(task).get("started_at"),
+                                        int(_cards_state(task).get("done", 0) or 0),
+                                        task.chapter_count),
         },
+        "activity": _activity(task),
         "graph": _graph_view(task),
         "graph_phase": _graph_phase(task),
         "dims": _dims_state(task),

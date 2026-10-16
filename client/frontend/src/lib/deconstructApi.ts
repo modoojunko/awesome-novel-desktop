@@ -46,13 +46,15 @@ export interface DeconstructTaskDetail {
   ai_model: string;
   api_config_id: string;
   selected_dims: string[];
-  /** v2 逐章拆卡进度（后端 task_view.cards） */
-  cards?: { state: string; done: number; total: number };
+  /** v2 逐章拆卡进度（后端 task_view.cards）；eta_seconds＝按实际速率外推的剩余秒数 */
+  cards?: { state: string; done: number; total: number; eta_seconds?: number | null };
+  /** 当前动作账（每次模型调用前写）：label＋距今秒数；缺席＝空闲/终态 */
+  activity?: { label: string; age_seconds?: number | null } | null;
   /** 图谱视图（10.5 起）：ready/absent/error＋警告计数＋能力戳（老包出不了图） */
   graph?: { state: "ready" | "absent" | "error"; available: boolean; warnings: number; caps: boolean };
   /** 阶段三进度账（在场补写 n/m／地点归并／图谱装配）；缺席＝阶段三未开始或已结束 */
   graph_phase?: { step: "presence" | "place_merge" | "assemble"; done?: number; total?: number } | null;
-  dims: Record<string, { state: string; seg_done: number; seg_total: number; error: string }>;
+  dims: Record<string, { state: string; seg_done: number; seg_total: number; error: string; eta_seconds?: number | null }>;
   products: { filename: string; size: number; dim: string }[];
   error: string;
   book_id: string | null;

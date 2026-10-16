@@ -401,6 +401,7 @@ async def _backfill_presence(task_id, task, chapters, cards, dims, state, client
         card = entries[no]
         async with sem:
             await _check_cancel(task_id)
+            state["activity"] = {"label": f"正在补写在场 第{no}章", "at": _now().isoformat()}
             phase["done"] += 1
             await _patch(task_id, dims_json=_state_json(state, cards=cards, dims=dims))
             known_list = [_clean(pl.get("name")) for pl in _dicts(card.get("places")) if _clean(pl.get("name"))]
@@ -483,6 +484,8 @@ async def run_task(task_id: str) -> None:
             async def _card_one(ch: dict) -> None:
                 async with _sem:
                     await _check_cancel(task_id)
+                    no = str(ch.get("no", 0))
+                    state["activity"] = {"label": f"正在拆解 第{no}章", "at": _now().isoformat()}
                     data = await _call_with_retry(
                         client, model, (sys_c, usr_c),
                         {
@@ -493,7 +496,6 @@ async def run_task(task_id: str) -> None:
                         },
                         "deconstruct_card",
                     )
-                no = str(ch.get("no", 0))
                 cards["entries"][no] = data  # 事件循环单线程：await 间串行改写，无竞争
                 cards["done"] = len(cards["entries"])
                 await _patch(task_id, dims_json=_state_json(state, cards=cards, dims=dims))
@@ -526,7 +528,8 @@ async def run_task(task_id: str) -> None:
                 if (line := _card_frag(no, card, dim))
             ]
             batches = _pack_pairs(pairs, CARD_BATCH_CHARS)
-            dstate.update({"state": "running", "seg_done": 0, "seg_total": len(batches), "error": ""})
+            dstate.update({"state": "running", "seg_done": 0, "seg_total": len(batches), "error": "",
+                           "started_at": _now().isoformat()})
             dims[dim] = dstate
             await _patch(task_id, dims_json=_state_json(state, cards=cards, dims=dims))
 
@@ -534,6 +537,10 @@ async def run_task(task_id: str) -> None:
                 async with _sem:
                     await _check_cancel(task_id)
                     ch_from, ch_to = batch[0][0] if batch else "1", batch[-1][0] if batch else "1"
+                    state["activity"] = {
+                        "label": f"正在归并 {names[dim]}（已完成 {dstate['seg_done']}/{dstate['seg_total']} 批）",
+                        "at": _now().isoformat(),
+                    }
                     data = await _call_with_retry(
                         client, model, (sys_m, usr_m),
                         {
@@ -570,6 +577,7 @@ async def run_task(task_id: str) -> None:
                                 nxt.append(group[0])
                                 continue
                             await _check_cancel(task_id)
+                            state["activity"] = {"label": f"正在收敛 {names[dim]}", "at": _now().isoformat()}
                             async with _sem:
                                 merged = await _call_with_retry(
                                     client, model, (sys_r, usr_r),
@@ -634,6 +642,7 @@ async def run_task(task_id: str) -> None:
                         frag_text = frag_text[:MERGE_INPUT_CAP]
                         truncated = True
                     state["graph_phase"] = {"step": "place_merge"}
+                    state["activity"] = {"label": "正在归并全书中地点", "at": _now().isoformat()}
                     await _patch(task_id, dims_json=_state_json(state, cards=cards, dims=dims))
                     sys_pl, usr_pl = load_layers("deconstruct_place")
                     place_merge = await _call_with_retry(
@@ -668,12 +677,14 @@ async def run_task(task_id: str) -> None:
                     })
                 state["graph"] = graph
                 state.pop("graph_phase", None)  # 终态不残留：轮询端以 phase 缺席＝阶段三已结束
+                state.pop("activity", None)
                 await _patch(task_id, dims_json=_state_json(state, cards=cards, dims=dims))
             except _Cancelled:
                 raise
             except Exception as e:  # noqa: BLE001 — 图谱不拖累任务：错误留痕，导出端 400
                 state["graph_error"] = str(e)[:300]
                 state.pop("graph_phase", None)
+                state.pop("activity", None)
                 await _patch(task_id, dims_json=_state_json(state, cards=cards, dims=dims))
     except _Cancelled:
         await _patch(task_id, finished_at=_now())

@@ -856,12 +856,16 @@ def test_graph_phase_reported_and_cleared(monkeypatch):
     seen: list[dict] = []
     real_patch = pipeline._patch
 
+    acts: list[str] = []
+
     async def spy_patch(task_id, **kw):
         dj = kw.get("dims_json")
-        if dj and '"graph_phase"' in dj:
-            gp = json.loads(dj).get("graph_phase")
-            if gp:
-                seen.append(gp)
+        if dj:
+            st = json.loads(dj)
+            if st.get("graph_phase"):
+                seen.append(st["graph_phase"])
+            if st.get("activity"):
+                acts.append(st["activity"]["label"])
         return await real_patch(task_id, **kw)
 
     monkeypatch.setattr(pipeline, "_patch", spy_patch)
@@ -883,7 +887,10 @@ def test_graph_phase_reported_and_cleared(monkeypatch):
     pres = [p for p in seen if p["step"] == "presence"]
     assert pres and pres[0]["total"] >= 1 and all(0 <= p["done"] <= p["total"] for p in pres)
     assert any(p["done"] >= 1 for p in pres)  # 补写推进至少走一笔（首笔 done:0＝开账）
+    assert any(a.startswith("正在拆解") for a in acts)  # 活动账全程可见（「除了等还是等」治理）
+    assert any("正在归并" in a for a in acts)
     assert "graph_phase" not in json.loads(t.dims_json)  # 终态不残留
+    assert "activity" not in json.loads(t.dims_json)
 
 
 def test_concurrent_cards_overlap_and_complete(monkeypatch):

@@ -118,6 +118,15 @@ export default function TaskDetailPage() {
     // 真"100%"只在任务 completed 时出现（真机实证：100% 停几 分钟像卡死）
     return task.graph_phase ? Math.min(raw, 90) : raw;
   })();
+  const etaSuffix = (s: number | null | undefined) =>
+    s == null ? "" : ` · 约剩 ${Math.max(1, Math.round(s / 60))} 分`;
+  const elapsedLabel = (() => {
+    if (!task.created_at) return "";
+    const ms = Date.now() - new Date(task.created_at).getTime();
+    if (!(ms > 0)) return "";
+    const m = Math.floor(ms / 60000);
+    return m < 1 ? "已运行 1 分内" : `已运行 ${m} 分`;
+  })();
   const phaseLine = (() => {
     const p = task.graph_phase;
     if (!p) return null;
@@ -200,13 +209,18 @@ export default function TaskDetailPage() {
           <div className="task-card animate-fade-up" data-od-id="task-running">
             <div className="task-pct">
               <span className="pct">{overall}%</span>
+              {elapsedLabel && <span style={{ fontSize: 12, color: "var(--muted)" }}>{elapsedLabel}</span>}
             </div>
             <ul className="ex-steps" data-od-id="task-steps">
               {cards.total > 0 && (
                 <li key="__cards" data-od-id="step-cards">
                   <b>逐章拆卡</b>
                   <em className={cards.state === "completed" ? "ok" : cards.state === "running" ? "doing" : ""}>
-                    {cards.state === "completed" ? "完成" : cards.state === "running" ? `进行中 · ${cards.done}/${cards.total} 章` : "排队"}
+                    {cards.state === "completed"
+                      ? "完成"
+                      : cards.state === "running"
+                        ? `进行中 · ${cards.done}/${cards.total} 章${etaSuffix(cards.eta_seconds)}`
+                        : "排队"}
                   </em>
                 </li>
               )}
@@ -219,7 +233,7 @@ export default function TaskDetailPage() {
                       {st.state === "completed"
                         ? "完成"
                         : st.state === "running"
-                          ? `进行中 · 归并 ${st.seg_done}/${st.seg_total}`
+                          ? `进行中 · 归并 ${st.seg_done}/${st.seg_total}${etaSuffix(st.eta_seconds)}`
                           : st.state === "failed"
                             ? /* v8 ignore next — 失败臂由失败详情用例断言 */ "失败"
                             : "排队"}
@@ -227,6 +241,15 @@ export default function TaskDetailPage() {
                   </li>
                 );
               })}
+              {task.activity && (
+                <li data-od-id="step-activity">
+                  <b>当前动作</b>
+                  <em className="doing">
+                    {task.activity.label}
+                    {task.activity.age_seconds != null ? `（已进行 ${task.activity.age_seconds} 秒）` : ""}
+                  </em>
+                </li>
+              )}
               {phaseLine && (
                 <li data-od-id="step-graph-phase">
                   <b>知识图谱</b>
