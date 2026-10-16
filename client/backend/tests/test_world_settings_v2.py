@@ -78,14 +78,14 @@ def pid(client) -> str:
 class TestWorldInContract:
     def test_value_over_limit_400(self, client, pid):
         r = client.put(f"/api/novels/{pid}/settings/world", json={
-            "stage": "长" * 2001,
+            "stage": "长" * 801,
         })
         assert r.status_code == 400
         assert "世界设定校验失败" in r.json()["detail"]
 
     def test_entry_value_over_limit_400(self, client, pid):
         r = client.put(f"/api/novels/{pid}/settings/world", json={
-            "constraints": [{"key": "不可推翻的事", "value": "长" * 501}],
+            "constraints": [{"key": "不可推翻的事", "value": "长" * 201}],
         })
         assert r.status_code == 400
 
