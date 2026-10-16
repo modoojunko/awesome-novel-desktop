@@ -432,6 +432,7 @@ def _cards(task: DeconstructJob) -> list[dict]:
             continue
         aliases = [a.strip() for a in re.split(r"[、/／]", str(c.get("alias", "") or "")) if a.strip()]
         look = str(c.get("look", "")).strip()
+        plot_txt = _clean_para(c.get("plot", ""), 10**9).strip()
 
         def _cell(v) -> str:
             v = _clean_para(v, 300)
@@ -442,7 +443,7 @@ def _cards(task: DeconstructJob) -> list[dict]:
                 "name": str(c.get("name", ""))[:30],
                 "role": str(c.get("role", "配角")),
                 "persona": _cell(c.get("persona", "")),
-                "plot": _cell(f"{c.get('plot', '')}（{c.get('evidence_ch', '原文未明确')}）"),
+                "plot": _cell(f"{plot_txt}（{c.get('evidence_ch', '原文未明确')}）") if plot_txt else "",
                 "background": _cell(c.get("background", "")),
                 "aliases": aliases[:20],
                 # 产物有的格子全带（材料没写的字段产物侧已是「原文未明确」，这里置空不编造）
@@ -452,9 +453,34 @@ def _cards(task: DeconstructJob) -> list[dict]:
                 "gender": _cell(c.get("gender", "")),
                 "age": _cell(c.get("age", "")),
                 "race": _cell(c.get("race", "")),
+                "confidence": str(c.get("confidence", "")),
             }
         )
-    return cards
+    return _dedupe_cards([c for c in cards if str(c.get("role", "")) != "路人"])
+
+
+def _dedupe_cards(cards: list[dict]) -> list[dict]:
+    """同名卡归并：L1 分批各拆各的，核心角色跨批重复（13路实测 135→去重后 ~80）——
+    按主名归组、可信度排序，字段非空者优先合并；路人已在调用侧过滤。"""
+    conf_rank = {"high": 0, "mid": 1, "low": 2}
+    groups: dict[str, list[dict]] = {}
+    order: list[str] = []
+    for c in cards:
+        name = c["name"]
+        if name not in groups:
+            groups[name] = []
+            order.append(name)
+        groups[name].append(c)
+    out: list[dict] = []
+    for name in order:
+        group = sorted(groups[name], key=lambda c: conf_rank.get(c.get("confidence", ""), 1))
+        base: dict = {k: v for k, v in group[0].items() if str(v or "").strip()}
+        for other in group[1:]:
+            for k, v in other.items():
+                if k != "confidence" and not str(base.get(k, "")).strip() and str(v or "").strip():
+                    base[k] = v
+        out.append(base)
+    return out
 
 
 def _hooks_items(task: DeconstructJob) -> list[dict]:

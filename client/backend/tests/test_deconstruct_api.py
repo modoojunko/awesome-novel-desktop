@@ -798,3 +798,36 @@ def test_import_book_within_contract_no_condense_call(client, monkeypatch):
     monkeypatch.setattr(dc_service, "resolve_client", _boom)
     r = client.post("/api/deconstruct/tasks/dec-cd-3/import-book")
     assert r.status_code == 200, r.text
+
+
+def test_import_dedupes_batch_duplicate_characters(client):
+    """L1 分批同名卡归并：字段互补合并（非空优先）、路人过滤——13路实测 135 条重名膨胀。"""
+    chars = [
+        {"name": "李耀", "role": "主角", "plot": "批1剧情", "alias": "小李", "confidence": "mid"},
+        {"name": "李耀", "role": "主角", "persona": "谨慎多疑的夜班司机", "gender": "男",
+         "age": "三十出头", "plot": "", "confidence": "high"},
+        {"name": "甲乙丙", "role": "路人", "plot": "打酱油", "confidence": "low"},
+    ]
+    _mk_completed("dec-dp-1", {
+        "characters": _product("characters", "角色设定.md", {"characters": chars}, "# 角色"),
+        "world": _product("world", "世界设定.md", {"stage": "短舞台。"}, "# 世界"),
+    })
+    r = client.post("/api/deconstruct/tasks/dec-dp-1/import-book", json={"items": ["characters", "world"]})
+    assert r.status_code == 200, r.text
+
+    async def _chars():
+        from sqlalchemy import select
+
+        from models.character import Character
+
+        async with async_session() as s:
+            return (await s.execute(select(Character).where(Character.novel_id == r.json()["book_id"]))).scalars().all()
+
+    rows = _run(_chars())
+    assert len(rows) == 1  # 重名归并成一张＋路人被滤
+    row = rows[0]
+    assert row.name == "李耀"
+    assert row.persona == "谨慎多疑的夜班司机"  # 互补：persona 来自 high 批
+    d = json.loads(row.dossier)
+    assert d.get("gender") == "男" and "批1剧情" in d.get("plot", "")  # 字段互补合并
+    assert "小李" in row.aliases
