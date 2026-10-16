@@ -31,6 +31,7 @@ import httpx
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
+import manifest_crypto
 from build_info import get_build_info
 from config import DATA_ROOT
 from http_client import build_async_client
@@ -181,11 +182,21 @@ async def _fetch_one(url: str) -> dict | None:
             return None  # 格式非法按本次失败处理（载荷校验边界）
         notes = data.get("notes")
         platforms = data.get("platforms")
+        if isinstance(platforms, dict):
+            # v2 清单（含平台包声明）＝自动链的前提，Ed25519 顶层签名 MUST 有效
+            # （tasks 2.3 强制验签；验签不符＝本候选作废，日志高亮留痕）。
+            pubkeys = _update_pubkeys()
+            if pubkeys and not manifest_crypto.verify_manifest(data, pubkeys):
+                logger.warning(
+                    "update-check: SIGNATURE REJECT url=%s kid=%s——自动链本版本硬停",
+                    url, str(data.get("signer_key_id") or ""))
+                return None
         return {
             "latest": latest,
             "notes": notes.strip() if isinstance(notes, str) else "",
             "platforms": platforms if isinstance(platforms, dict) else None,
             "auto_enabled": data.get("auto_enabled", True),
+            "_raw": data,
         }
     except (httpx.HTTPError, ValueError):
         return None
@@ -238,6 +249,23 @@ _dl_lock = threading.Lock()
 _dl_thread: threading.Thread | None = None
 _dl_cancel = threading.Event()
 _dl_epoch = 0
+
+
+def _update_pubkeys() -> dict[str, bytes]:
+    """自动链 manifest 验签信任集合：env CLIENT_UPDATE_PUBKEYS（JSON {kid: base64(32B)}）。
+    烘焙发布经壳层注入；缺钥（本地开发/未配钥）＝空集合 → v2 清单自动链禁用（安全默认）。"""
+    import base64 as _b64
+
+    raw = (os.environ.get("CLIENT_UPDATE_PUBKEYS") or "").strip()
+    if not raw:
+        return {}
+    try:
+        parsed = json.loads(raw)
+        return {str(kid): _b64.b64decode(str(pub))
+                for kid, pub in parsed.items() if isinstance(pub, str)}
+    except (ValueError, TypeError):
+        logger.warning("update-check: CLIENT_UPDATE_PUBKEYS 非法，忽略（%s）", raw[:40])
+        return {}
 
 
 def _staged_path(platform: dict) -> Path:

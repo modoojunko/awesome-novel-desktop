@@ -1,0 +1,69 @@
+name: C端 升级清单重签（auto_enabled 总闸）
+
+# ── c-silent-upgrade tasks 2.5：总闸运维件 ──────────────────────────────────
+# 不重建安装包、只重签生产 latest.json：坏版本发现后一拨即停全网自动升级
+# （auto_enabled=false）；恢复亦走此作业改回 true。⚠️ 重签不改 platforms——
+# 「版本回指旧版」的回滚同样走这里（把 version 改回旧版号并重签，需与 CDN 近
+# 2 版保留策略对齐）。
+on:
+  workflow_dispatch:
+    inputs:
+      auto_enabled:
+        description: '总闸：true=允许自动升级 / false=紧急关闭'
+        type: choice
+        options:
+          - 'true'
+          - 'false'
+        default: 'false'
+      notes:
+        description: '可选：重签时附一句说明（进清单 notes，空=保留原 notes）'
+        type: string
+        default: ''
+
+permissions:
+  contents: read
+
+jobs:
+  resign:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Re-sign production update manifest
+        env:
+          TCB_API_KEY: ${{ secrets.TCB_API_KEY }}
+          TCB_ENV_ID: ${{ vars.TCB_ENV_ID }}
+          UPDATE_SIGNING_PRIVATE_KEY: ${{ secrets.UPDATE_SIGNING_PRIVATE_KEY }}
+          RESIGN_AUTO_ENABLED: ${{ inputs.auto_enabled || 'false' }}
+          RESIGN_NOTES: ${{ inputs.notes }}
+          RELEASE_DOWNLOAD_FALLBACK_BASE: ${{ vars.CLIENT_DOWNLOAD_BASE_FALLBACK || 'https://ai-novel-test-d1ghsr86ra814c12c-1468883265.tcloudbaseapp.com/download' }}
+        run: |
+          PRIVATE="${UPDATE_SIGNING_PRIVATE_KEY}"
+          [ -n "$PRIVATE" ] || { echo "::error::UPDATE_SIGNING_PRIVATE_KEY 未配置"; exit 1; }
+          BASE="${RELEASE_DOWNLOAD_FALLBACK_BASE%/}/download"
+          npm install -g @cloudbase/cli
+          tcb login --cloudbase-api-key "$TCB_API_KEY" -e "$TCB_ENV_ID"
+          curl -sf "$BASE/latest.json" -o /tmp/current.json \
+            || { echo "::error::现网清单拉取失败"; exit 1; }
+          export RESIGN_AUTO_ENABLED RESIGN_NOTES
+          python3 - <<'PY'
+          import json, os
+          from pathlib import Path
+          cur = json.loads(Path("/tmp/current.json").read_text(encoding="utf-8"))
+          cur["auto_enabled"] = os.environ["RESIGN_AUTO_ENABLED"] == "true"
+          if os.environ.get("RESIGN_NOTES"):
+              cur["notes"] = os.environ["RESIGN_NOTES"]
+          cur.pop("signature", None); cur.pop("signer_key_id", None)
+          Path("/tmp/resign.json").write_text(
+              json.dumps(cur, ensure_ascii=False, separators=(",", ":")), encoding="utf-8")
+          print("resign manifest:", json.dumps(cur, ensure_ascii=False))
+          PY
+          python3 client/backend/scripts/release_manifest_sign.py /tmp/resign.json \
+            --key-id update-k1 --private-b64 "$PRIVATE"
+          tcb hosting deploy /tmp/resign.json "download/latest.json" -e "$TCB_ENV_ID"
+          for i in 1 2 3 4 5; do
+            GOT="$(curl -sf "$BASE/latest.json" | python3 -c "import json,sys;print(json.load(sys.stdin).get('auto_enabled'))" 2>/dev/null || true)"
+            [ "$GOT" = "$(echo "$RESIGN_AUTO_ENABLED" | tr -d ' ')" ] && break
+            sleep 5
+          done
+          [ "$GOT" = "True" ] || [ "$GOT" = "False" ] || { echo "::error::总闸翻转校验失败"; exit 1; }
+          echo "总闸已翻转：auto_enabled=$GOT（重签完成）"

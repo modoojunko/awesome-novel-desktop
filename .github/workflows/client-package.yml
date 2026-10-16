@@ -153,6 +153,8 @@ jobs:
           # 缺烘＝打包端无钥可验（AI 永久「未就绪」）——冒烟 release_json_assert 必选键会拦；
           # 轮换钥匙：改 vars.CLIENT_PACK_PUBKEYS（同时换发布私钥签发侧）。
           RELEASE_PACK_PUBKEYS: ${{ vars.CLIENT_PACK_PUBKEYS || '{"pack-k1":"UaJFasM5PBIB3Tg1o03cjG6Opeq5CaKtPv2ooLyNPPM="}' }}
+          # c-silent-upgrade tasks 2.1：自动升级清单验签公钥（vars 可覆盖轮换；私钥在 Secrets UPDATE_SIGNING_PRIVATE_KEY）
+          RELEASE_UPDATE_PUBKEYS: ${{ vars.CLIENT_UPDATE_PUBKEYS || '{"update-k1":"Ktq81Y4Qf9cPapmfbLw2h4SGGo1E72X3HaGUxOBU/EU="}' }}
         run: |
           if [[ "$GITHUB_REF" == refs/tags/* ]]; then
             CLIENT_VERSION="$(printf '%s' "${GITHUB_REF_NAME#v}" | tr -c 'A-Za-z0-9._-' '-')"
@@ -564,8 +566,15 @@ jobs:
           fi
           [ -z "$NOTES_FULL" ] && NOTES_FULL="问题修复与体验优化"
           export NOTES_BASE="$RELEASE_DOWNLOAD_BASE" NOTES_FULL NOTES_VER="$VER" NOTES_FROM_TAG
+          # ── 签名（tasks 2.2/硬闸 4b.1）：私钥在 Secrets 则签 manifest；无钥 →
+          # auto_enabled 强制 false（客户端自动链禁用，手动链照旧）——不带签名的
+          # 自动链是零交互 RCE 面，绝不无钥上线。
+          export UPDATE_SIGNING_PRIVATE_KEY="${{ secrets.UPDATE_SIGNING_PRIVATE_KEY }}"
+          if [ -z "$UPDATE_SIGNING_PRIVATE_KEY" ]; then
+            echo "::warning::UPDATE_SIGNING_PRIVATE_KEY 未配置——auto_enabled 强制 false（4b.1 硬闸）"
+          fi
           python - <<'PY'
-          import html, json, os, textwrap
+          import html, json, os, sys, textwrap
           ver = os.environ["NOTES_VER"]
           base = os.environ["NOTES_BASE"].rstrip("/")
           full = os.environ["NOTES_FULL"].strip()
@@ -575,8 +584,21 @@ jobs:
           latest = {"version": ver}
           if os.environ["NOTES_FROM_TAG"] == "1" and first:
               latest["notes"] = first
+          # 4b.1 硬闸：无私钥（未配钥）→ auto_enabled 强制 false（客户端自动链禁用）
+          latest["auto_enabled"] = bool(os.environ.get("UPDATE_SIGNING_PRIVATE_KEY"))
+          if not latest["auto_enabled"]:
+              print("::warning::auto_enabled=false——签名钥未配置，自动升级保持关闭（4b.1）")
           with open("latest.json", "w", encoding="utf-8") as f:
               json.dump(latest, f, ensure_ascii=False)
+          # 有私钥则顶层 Ed25519 签名（客户端强制验签的前提）；无钥不签＋auto_enabled 已强制 false
+          if os.environ.get("UPDATE_SIGNING_PRIVATE_KEY"):
+              import pathlib as _pl
+              _be = _pl.Path("client/backend")
+              sys.path.insert(0, str(_be.resolve()) if _be.exists() else str(_pl.Path.cwd()))
+              from scripts.release_manifest_sign import main as _sign_main
+              if _sign_main(["latest.json", "--key-id", "update-k1",
+                             "--private-b64", os.environ["UPDATE_SIGNING_PRIVATE_KEY"]]) != 0:
+                  raise SystemExit("签名失败（exit≠0）")
           # notes.html：版本号 + 更新内容（全文，多行保留）+ 双平台版本化直链 + 回首页
           body = html.escape(full).replace("\n", "<br>")
           # notes.html 生成：HTML 整体缩进 + dedent，保证 YAML 块标量缩进完整
@@ -696,6 +718,7 @@ jobs:
     if: github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
     steps:
+      - uses: actions/checkout@v4
       - uses: actions/download-artifact@v4
         with:
           path: artifacts
@@ -715,14 +738,17 @@ jobs:
           tcb hosting deploy "$EXE" "download/lab/$EXE_NAME" -e "$TCB_ENV_ID"
           LAB_BASE="${RELEASE_DOWNLOAD_FALLBACK_BASE%/}/lab"
           export LAB_BASE LAB_EXE="$EXE_NAME" LAB_VERSION="${{ inputs.lab_version || '0.99.0' }}"
+          export UPDATE_SIGNING_PRIVATE_KEY="${{ secrets.UPDATE_SIGNING_PRIVATE_KEY }}"
           python3 - <<'PY'
-          import hashlib, json, os
+          import hashlib, json, os, sys
           from pathlib import Path
           base = os.environ["LAB_BASE"].rstrip("/")
           exe = next(Path("artifacts").glob("**/AwesomeNovel_Setup_*.exe"))
+          # 4b.1 硬闸：无私钥 → auto_enabled 强制 false（与生产同款）
           latest = {
               "version": os.environ.get("LAB_VERSION", "0.99.0"),
               "notes": "lab 预发渠道：仅实验分支构建消费（真实版本号，随 dispatch 递进）",
+              "auto_enabled": bool(os.environ.get("UPDATE_SIGNING_PRIVATE_KEY")),
               "auto_enabled": True,
               "platforms": {
                   "win": {
@@ -734,6 +760,13 @@ jobs:
           }
           Path("latest.json").write_text(
               json.dumps(latest, ensure_ascii=False), encoding="utf-8")
+          # 有私钥则顶层 Ed25519 签名（lab 渠道与生产同款强制验签前提）
+          if os.environ.get("UPDATE_SIGNING_PRIVATE_KEY"):
+              sys.path.insert(0, str(Path("client/backend").resolve()))
+              from scripts.release_manifest_sign import main as _sign_main
+              if _sign_main(["latest.json", "--key-id", "update-k1",
+                             "--private-b64", os.environ["UPDATE_SIGNING_PRIVATE_KEY"]]) != 0:
+                  raise SystemExit("lab 签名失败")
           print("lab latest.json:", json.dumps(latest, ensure_ascii=False))
           PY
           tcb hosting deploy ./latest.json "download/lab/latest.json" -e "$TCB_ENV_ID"

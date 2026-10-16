@@ -79,6 +79,12 @@ def generate(version: str) -> dict:
         # 缺 env 即 KeyError 转红（与地址族同口径）；形态校验与冒烟断言共用单源，
         # 防「白名单有键、烘焙缺行」静默断链。私钥只在发布方，绝不入仓/入产物。
         "pack_pubkeys": validate_pack_pubkeys(os.environ["RELEASE_PACK_PUBKEYS"]),
+        # c-silent-upgrade tasks 2.1：自动升级清单验签公钥（{kid: base64(32B Ed25519)} 的
+        # **JSON 串**，信任集合语义支持轮换）。缺 env 落内置默认公钥（与壳层
+        # PROD_UPDATE_PUBKEYS 常量同值——公钥本就随包分发，私钥只在 CI Secrets）。
+        "update_pubkeys": os.environ.get(
+            "RELEASE_UPDATE_PUBKEYS",
+            '{"update-k1":"Ktq81Y4Qf9cPapmfbLw2h4SGGo1E72X3HaGUxOBU/EU="}'),
         "components": comp,
         **bake_build_info(version),
     }
