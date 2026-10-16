@@ -13,7 +13,6 @@ import {
   detectUtfBom,
   nulRatioOverLimit,
   structureVerdict,
-  type StructureLevel,
   type StructureVerdict,
 } from "../../lib/deconstructStructure";
 
@@ -152,8 +151,16 @@ export default function CreateTaskPage() {
     });
   };
 
+  // 解析未落定（本地解析进行中或失败）不解禁创建：risk 判定随解析结果同批返回，
+  // 提前放行会绕过确认闸把无章标题大部头直接送进队列（评审 P2 竞态口）；解析失败的书后端同样拒收。
   const canSubmit =
-    file !== null && hasModels && probeOk === true && !probing && !submitting && (verdict?.level !== "risk" || riskAck);
+    file !== null &&
+    parsed !== null &&
+    hasModels &&
+    probeOk === true &&
+    !probing &&
+    !submitting &&
+    (verdict?.level !== "risk" || riskAck);
 
   const pickFile = (f: File | null) => {
     setFile(f);

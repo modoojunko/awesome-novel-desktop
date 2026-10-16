@@ -407,4 +407,40 @@ describe("CreateTaskPage", () => {
     fireEvent.change(input);
     await waitFor(() => expect(screen.getByText(/空字节/)).toBeInTheDocument());
   });
+
+  it("本地解析未落定前创建保持禁用（评审 P2 竞态口：提前放行会绕过 risk 确认闸）", async () => {
+    state.fetchOpts.mockResolvedValue([
+      { api_config_id: "c1", config_name: "A", model: "m1", vendor: "v" },
+    ]);
+    state.probe.mockResolvedValue(true);
+    let release!: (b: ArrayBuffer) => void;
+    const gate = new Promise<ArrayBuffer>((res) => {
+      release = res;
+    });
+    const spy = vi.spyOn(Blob.prototype, "arrayBuffer").mockReturnValue(gate);
+    renderPage();
+    await waitFor(() => expect(screen.getByRole("combobox")).toBeInTheDocument());
+    pickFile();
+    // 探针已过但解析未返回：创建必须禁用（此时 risk 判定还无从谈起）
+    await waitFor(() => expect(screen.getByText("可用")).toBeInTheDocument());
+    expect(screen.getByText(/创建任务（进队列排队）/)).toBeDisabled();
+    release(new TextEncoder().encode("第1章 试\n正文。").buffer as ArrayBuffer);
+    await waitFor(() => expect(screen.getByText(/创建任务（进队列排队）/)).not.toBeDisabled());
+    spy.mockRestore();
+  });
+
+  it("本地解析失败（坏编码）创建保持禁用——解析不了的书不送队列", async () => {
+    state.fetchOpts.mockResolvedValue([
+      { api_config_id: "c1", config_name: "A", model: "m1", vendor: "v" },
+    ]);
+    state.probe.mockResolvedValue(true);
+    renderPage();
+    await waitFor(() => expect(screen.getByRole("combobox")).toBeInTheDocument());
+    const input = document.querySelector('input[type="file"]') as HTMLInputElement;
+    const bad = new File([new Uint8Array([0xff, 0xff, 0xfe, 0xff])], "bad.txt", { type: "text/plain" });
+    Object.defineProperty(input, "files", { value: [bad] });
+    fireEvent.change(input);
+    await waitFor(() => expect(screen.getByText(/无法识别文件编码/)).toBeInTheDocument());
+    expect(screen.getByText(/创建任务（进队列排队）/)).toBeDisabled();
+  });
 });

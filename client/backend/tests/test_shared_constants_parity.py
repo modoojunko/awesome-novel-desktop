@@ -430,6 +430,7 @@ class TestDeconstructStructureParity:
     def test_thresholds_match(self):
         from deconstruct.textparse import (
             AVG_CHAPTER_WARN_CHARS,
+            CARD_TEXT_LIMIT,
             NUL_RATIO_LIMIT,
             SINGLE_CHAPTER_RISK_CHARS,
             TINY_CHAPTER_CHARS,
@@ -443,6 +444,7 @@ class TestDeconstructStructureParity:
             "AVG_CHAPTER_WARN_CHARS",
             "TINY_CHAPTER_CHARS",
             "TINY_CHAPTER_MIN_COUNT",
+            "CARD_TEXT_LIMIT",
             "NUL_RATIO_LIMIT",
         ):
             m = re.search(rf"export const {name} = ([\d_.]+);", src)
@@ -453,5 +455,13 @@ class TestDeconstructStructureParity:
             "AVG_CHAPTER_WARN_CHARS": float(AVG_CHAPTER_WARN_CHARS),
             "TINY_CHAPTER_CHARS": float(TINY_CHAPTER_CHARS),
             "TINY_CHAPTER_MIN_COUNT": float(TINY_CHAPTER_MIN_COUNT),
+            "CARD_TEXT_LIMIT": float(CARD_TEXT_LIMIT),
             "NUL_RATIO_LIMIT": float(NUL_RATIO_LIMIT),
         }, "拆书结构判定阈值前后端不一致——以 deconstruct/textparse.py 为准同步 lib/deconstructStructure.ts"
+
+    def test_card_text_limit_matches_pipeline_feed(self):
+        """risk 文案引用的喂料上限必须等于管线实际喂料（否则文案骗人）。"""
+        from deconstruct.pipeline import _CARD_HEAD, _CARD_TAIL
+        from deconstruct.textparse import CARD_TEXT_LIMIT
+
+        assert _CARD_HEAD + _CARD_TAIL == CARD_TEXT_LIMIT

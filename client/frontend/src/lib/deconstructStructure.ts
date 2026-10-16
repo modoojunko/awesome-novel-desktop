@@ -7,7 +7,11 @@ export const AVG_CHAPTER_WARN_CHARS = 20_000;
 export const TINY_CHAPTER_CHARS = 200;
 export const TINY_CHAPTER_MIN_COUNT = 5;
 
-/** 无 BOM 的 UTF-16/32 被当 GBK 解出来会满屏空字节——按解失败处理（与后端 _NUL_RATIO_LIMIT 同值）。 */
+/** 拆卡单章喂料上限（超长章取头 4000＋尾 2000 的合计）＝后端 deconstruct/pipeline 实际喂料，
+ *  单源 textparse.CARD_TEXT_LIMIT，parity 钉对拍——risk 文案里的字数随它走。 */
+export const CARD_TEXT_LIMIT = 6_000;
+
+/** 无 BOM 的 UTF-16/32 被当 GBK 解出来会满屏空字节——按解失败处理（与后端 NUL_RATIO_LIMIT 同值）。 */
 export const NUL_RATIO_LIMIT = 0.002;
 
 export type StructureLevel = "ok" | "warn" | "risk";
@@ -35,7 +39,7 @@ export function structureVerdict(input: StructureInput): StructureVerdict {
   const issues: string[] = [];
   if (risk) {
     issues.push(
-      `未识别到章节标题：全书 ${total} 字将按单章拆解，而拆卡只分析每章开头/结尾约 6000 字——` +
+      `未识别到章节标题：全书 ${total} 字将按单章拆解，而拆卡只分析每章开头/结尾约 ${CARD_TEXT_LIMIT} 字——` +
         "大部头几乎不会被读到，质量会很差。建议规范章节标题（每章一行「第X章 标题」）后重传",
     );
   } else {

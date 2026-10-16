@@ -30,11 +30,12 @@ from deconstruct.graph import (  # noqa: PLC2701 — 域内复用形状防御（
     _dicts,
 )
 from deconstruct.sanitize import sanitize_for_model
+from deconstruct.textparse import CARD_TEXT_LIMIT
 from models.deconstruct import DIMENSION_KEYS, DeconstructJob
 from prompts import PromptPackMissing, load_layers
 
-# 单章喂料：超长章取头 4000＋尾 2000（评审 P2：转场/到达/位置句多落在章尾，纯截头会漏 presence 证据）
-_CARD_TEXT_LIMIT = 6000
+# 单章喂料：超长章取头 4000＋尾 2000（评审 P2：转场/到达/位置句多落在章尾，纯截头会漏 presence 证据）；
+# 合计上限单源 textparse.CARD_TEXT_LIMIT（结构判定文案同源引用，防文案与实际喂料漂移）
 _CARD_HEAD, _CARD_TAIL = 4000, 2000
 # L1 归并单批卡片碎片输入上限（字）
 CARD_BATCH_CHARS = 30000
@@ -115,7 +116,7 @@ def _card_text(chapter: dict) -> str:
     _sanitize_vars（拆卡/补写/归并/reduce 一处全覆盖，单点不会漏）。
     """
     text = chapter.get("text", "") or ""
-    if len(text) <= _CARD_TEXT_LIMIT:
+    if len(text) <= CARD_TEXT_LIMIT:
         return text
     return text[:_CARD_HEAD] + "\n……（中略——仅以首尾为据）……\n" + text[-_CARD_TAIL:]
 

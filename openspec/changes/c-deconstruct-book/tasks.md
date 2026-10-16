@@ -108,3 +108,5 @@
 - [x] 11.4 前端 lib/deconstructStructure 同规则镜像（阈值 parity 钉：test_shared_constants_parity::TestDeconstructStructureParity）＋CreateTaskPage：回填行 ok 标注「结构判定：正常」；warn 黄条；risk 红条＋「我了解质量风险，仍要创建」确认闸（未勾选创建恒禁用，换文件自动复位）；BOM/空字节本地即报错不进创建流程
 - [x] 11.5 测试：textparse＋10 例（BOM×2／空字节×2／verdict 五态）；api create risk＋UTF-16 拒收、retry-upload UTF-16 拒收；parity 钉 1；前端 lib 10 例＋toolsCreate 6 例（risk 闸/warn 不拦/ok 标注/UTF-16/UTF-32/空字节）。门禁：后端 2223 passed＋ruff 零错；前端 1667 passed＋coverage 100×4＋tsc 零错
 - [x] 11.6 spec delta「创建任务（上传与本地解析）」补结构判定四 Scenario＋需求文补判定/拒收句
+
+- 11 评审闭环（2026-10-16，review-agent 三发现全修）：**P1×0／P2×1／P3×2**——P2 竞态口＝解析未落定（parsed null）时创建可点、绕过 risk 确认闸（探针态跨换文件残留），修＝canSubmit 增 `parsed !== null` 闸＋竞态/坏编码两用例（Blob.prototype.arrayBuffer 门控断言）；P3 喂料文案三处脱钩＝`CARD_TEXT_LIMIT` 单源化（textparse 定义→pipeline 引用替代本地 `_CARD_TEXT_LIMIT`→前端镜像文案引用→parity 钉加 `CARD_TEXT_LIMIT`＋「头+尾=上限」自证钉）；P3 删 `StructureLevel` 死导入。行为变更附带＝解析失败（坏编码）文件创建恒禁用（此前放行至后端 400，本地即拦更诚实）

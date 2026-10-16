@@ -34,6 +34,10 @@ AVG_CHAPTER_WARN_CHARS = 20_000
 TINY_CHAPTER_CHARS = 200
 TINY_CHAPTER_MIN_COUNT = 5
 
+# 拆卡单章喂料上限（超长章取头 4000＋尾 2000）：pipeline 喂料与结构判定文案同源引用，
+# 前端镜像 lib/deconstructStructure.CARD_TEXT_LIMIT（parity 钉对拍）。
+CARD_TEXT_LIMIT = 6000
+
 # 章标题行：第X章/回/节（支持汉字/阿拉伯数字），行内 ≤40 字符，行首可有空格。
 _CHAPTER_RE = re.compile(r"^\s*(第[0-9零一二两三四五六七八九十百千]+[章回节][^\n]{0,40})\s*$", re.MULTILINE)
 # 卷标题行：第X卷（组内含卷名后缀）
@@ -143,7 +147,7 @@ def structure_verdict(parse: dict) -> dict:
     issues: list[str] = []
     if risk:
         issues.append(
-            f"未识别到章节标题：全书 {total} 字将按单章拆解，而拆卡只分析每章开头/结尾约 6000 字——"
+            f"未识别到章节标题：全书 {total} 字将按单章拆解，而拆卡只分析每章开头/结尾约 {CARD_TEXT_LIMIT} 字——"
             "大部头几乎不会被读到，质量会很差。建议规范章节标题（每章一行「第X章 标题」）后重传"
         )
     else:
