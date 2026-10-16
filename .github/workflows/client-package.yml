@@ -574,7 +574,7 @@ jobs:
             echo "::warning::UPDATE_SIGNING_PRIVATE_KEY 未配置——auto_enabled 强制 false（4b.1 硬闸）"
           fi
           python - <<'PY'
-          import html, json, os, sys, textwrap
+          import html, json, os, pathlib as _pl, subprocess, sys, textwrap
           ver = os.environ["NOTES_VER"]
           base = os.environ["NOTES_BASE"].rstrip("/")
           full = os.environ["NOTES_FULL"].strip()
@@ -591,11 +591,8 @@ jobs:
           with open("latest.json", "w", encoding="utf-8") as f:
               json.dump(latest, f, ensure_ascii=False)
           # 有私钥则顶层 Ed25519 签名（客户端强制验签的前提）；无钥不签＋auto_enabled 已强制 false
-          if [ -n "$UPDATE_SIGNING_PRIVATE_KEY" ]; then
-            python -m pip install cryptography -q
-          fi
-          python - <<'PY'
-          import html, json, os, sys, textwrap
+          if latest["auto_enabled"]:
+              subprocess.run([sys.executable, "-m", "pip", "install", "cryptography", "-q"], check=True)
               _be = _pl.Path("client/backend")
               sys.path.insert(0, str(_be.resolve()) if _be.exists() else str(_pl.Path.cwd()))
               from scripts.release_manifest_sign import main as _sign_main
