@@ -575,6 +575,7 @@ jobs:
           fi
           python - <<'PY'
           import html, json, os, pathlib as _pl, subprocess, sys, textwrap
+          from pathlib import Path
           ver = os.environ["NOTES_VER"]
           base = os.environ["NOTES_BASE"].rstrip("/")
           full = os.environ["NOTES_FULL"].strip()
