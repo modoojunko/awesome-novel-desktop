@@ -10,6 +10,14 @@ on:
     tags:
       - 'v*'
   workflow_dispatch:
+    inputs:
+      # lab 预发渠道的真实版本号：烘进非 tag 构建（client_version/库名/角标），
+      # 也作为 lab manifest 的 version——两次 dispatch（0.99.0→0.99.1）即一次
+      # 真实发版节奏彩排：旧版客户端检测新版→自动下载→重启更新→角标真变。
+      lab_version:
+        description: 'lab 渠道版本号（0.99.x 形态；tag 正式发版不使用此输入）'
+        required: false
+        default: '0.99.0'
 
 # 同 ref 重复触发时取消旧构建，省 CI 分钟
 concurrency:
@@ -149,7 +157,17 @@ jobs:
           if [[ "$GITHUB_REF" == refs/tags/* ]]; then
             CLIENT_VERSION="$(printf '%s' "${GITHUB_REF_NAME#v}" | tr -c 'A-Za-z0-9._-' '-')"
           else
-            CLIENT_VERSION="dev"
+            CLIENT_VERSION="${{ inputs.lab_version || 'dev' }}"
+            # ── silent-upgrade lab 渠道（仅本实验分支）：非 tag 构建的检测/下载一律指向
+            # download/lab/latest.json（由 lab-publish job 随 dispatch 部署，与生产
+            # latest.json 完全隔离——生产客户端永不读该路径，反之亦然）。主/兜底同址
+            # 会让 update_check 候选去重成单源，属预期：lab 包不需要生产兜底。
+            # ⚠️ 兜底基址已含 /download（…/download），此处只追加 /lab——拼成
+            # /download/download/lab 会被静态托管的 SPA 兜底页接住（200+HTML），
+            # 客户端 JSON 解析失败＝「渠道不可达」（10-14 实锤：v4 包检查更新恒失败）
+            RELEASE_DOWNLOAD_BASE="${RELEASE_DOWNLOAD_FALLBACK_BASE%/}/lab"
+            RELEASE_DOWNLOAD_FALLBACK_BASE="${RELEASE_DOWNLOAD_FALLBACK_BASE%/}/lab"
+            export RELEASE_DOWNLOAD_BASE RELEASE_DOWNLOAD_FALLBACK_BASE
           fi
           python ../../backend/scripts/release_json_generate.py "$CLIENT_VERSION" -o release.json
 
@@ -317,6 +335,26 @@ jobs:
         if: runner.os == 'Windows'
         shell: pwsh
         run: choco install innosetup -y
+
+      # ── 打包卫生闸：iscc 前清除冒烟测试的运行时残留 ────────────────────────
+      # 实锤（10-14 silent-upgrade-lab 真机实验首夜）：Windows onedir 的 --smoke 把
+      # startup.log / logs/ / port.json 与 data\novel-dev.db(+wal) 就地写进
+      # dist/AwesomeNovel/——[Files] 整目录收，等于把构建机的脏 dev 库与日志烧进安装包：
+      # 升级安装会覆盖用户本地的同名哨兵库（dev 名跨版本共用），新用户的「全新首启」也会被
+      # 预置成别人（CI）的数据。macOS 冒烟的运行/数据目录在 Application Support（bundle
+      # 之外），无此形态。本步只做包侧清理——**绝不碰 [InstallDelete]**：用户 data\ 里
+      # 的 novel-dev.db 可能是 ≤0.24 时代的真·旧库，安装器永远不得删数据目录内容。
+      - name: Clean smoke residue before packaging (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $APP = 'client/packaging/build/dist/AwesomeNovel'
+          Remove-Item -Force "$APP\startup.log","$APP\port.json","$APP\error.html","$APP\loading.html","$APP\render-hang.flag","$APP\shell.json","$APP\hang-dump.txt","$APP\.awesome-novel-write-probe" -ErrorAction SilentlyContinue
+          Remove-Item -Recurse -Force "$APP\logs","$APP\data" -ErrorAction SilentlyContinue
+          foreach ($p in @("$APP\logs","$APP\data","$APP\port.json","$APP\startup.log")) {
+            if (Test-Path $p) { throw "冒烟残留未清干净: $p" }
+          }
+          "冒烟残留已清理（dist 内无 logs/data/port.json/startup.log）"
 
       - name: Build Windows installer
         if: runner.os == 'Windows'
@@ -645,3 +683,67 @@ jobs:
             fi
           done <<< "$OLD_TAGS"
           echo "旧版本清理完成（保留最近 $KEEP 个版本）"
+
+  # ── silent-upgrade lab 渠道（仅本实验分支，dispatch 触发才部署）──────────────
+  # 把双平台安装包与 lab latest.json（带 platforms url/sha256/size）部署到静态托管
+  # download/lab/——与生产 latest.json 物理隔离：生产客户端的检测地址永不指向这里，
+  # lab 客户端的检测地址永不指向生产。manifest 版本号 0.33-lab 对 dev 构建恒「更新
+  # 可用」，指向本 run 自己的包＝幂等自升级，专供端到端验证。
+  # 签名欠账（评审 §4.1-2）：update-k1 私钥未配，本 manifest 暂不带 Ed25519 签名，
+  # 客户端本阶段仅 sha256 双验＋可信域出站校验；配钥后同位补签。
+  lab-publish:
+    needs: build
+    if: github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+      - name: Deploy lab update channel (download/lab/，与生产隔离)
+        env:
+          TCB_API_KEY: ${{ secrets.TCB_API_KEY }}
+          TCB_ENV_ID: ${{ vars.TCB_ENV_ID }}
+          RELEASE_DOWNLOAD_FALLBACK_BASE: ${{ vars.CLIENT_DOWNLOAD_BASE_FALLBACK || 'https://ai-novel-test-d1ghsr86ra814c12c-1468883265.tcloudbaseapp.com/download' }}
+        run: |
+          EXE="$(find artifacts -name 'AwesomeNovel_Setup_*.exe' -print -quit)"
+          # mac 包不上 lab 渠道：v1 自动链仅 Windows（用户拍板 2026-10-14），
+          # manifest 不给 mac entry → mac 客户端触发闸不过，不空耗 44MB 下载
+          [ -n "$EXE" ] || { echo "::error::artifacts 缺少 Windows 安装包"; exit 1; }
+          EXE_NAME="$(basename "$EXE")"
+          npm install -g @cloudbase/cli
+          tcb login --cloudbase-api-key "$TCB_API_KEY" -e "$TCB_ENV_ID"
+          tcb hosting deploy "$EXE" "download/lab/$EXE_NAME" -e "$TCB_ENV_ID"
+          LAB_BASE="${RELEASE_DOWNLOAD_FALLBACK_BASE%/}/lab"
+          export LAB_BASE LAB_EXE="$EXE_NAME" LAB_VERSION="${{ inputs.lab_version || '0.99.0' }}"
+          python3 - <<'PY'
+          import hashlib, json, os
+          from pathlib import Path
+          base = os.environ["LAB_BASE"].rstrip("/")
+          exe = next(Path("artifacts").glob("**/AwesomeNovel_Setup_*.exe"))
+          latest = {
+              "version": os.environ.get("LAB_VERSION", "0.99.0"),
+              "notes": "lab 预发渠道：仅实验分支构建消费（真实版本号，随 dispatch 递进）",
+              "auto_enabled": True,
+              "platforms": {
+                  "win": {
+                      "url": f"{base}/{os.environ['LAB_EXE']}",
+                      "size": exe.stat().st_size,
+                      "sha256": hashlib.sha256(exe.read_bytes()).hexdigest(),
+                  },
+              },
+          }
+          Path("latest.json").write_text(
+              json.dumps(latest, ensure_ascii=False), encoding="utf-8")
+          print("lab latest.json:", json.dumps(latest, ensure_ascii=False))
+          PY
+          tcb hosting deploy ./latest.json "download/lab/latest.json" -e "$TCB_ENV_ID"
+          BASE="${RELEASE_DOWNLOAD_FALLBACK_BASE%/}/lab"
+          GOT=""
+          for i in 1 2 3 4 5; do
+            GOT="$(curl -sf "$BASE/latest.json" | python3 -c "import json,sys;print(json.load(sys.stdin)['platforms']['win']['sha256'])" 2>/dev/null || true)"
+            [ -n "$GOT" ] && break
+            sleep 5
+          done
+          WANT="$(python3 -c "import json;print(json.load(open('latest.json',encoding='utf-8'))['platforms']['win']['sha256'])")"
+          [ "$GOT" = "$WANT" ] || { echo "::error::lab latest.json 内容不符"; exit 1; }
+          echo "lab 渠道部署完成：$BASE/latest.json"
