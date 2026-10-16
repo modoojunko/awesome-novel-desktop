@@ -588,6 +588,19 @@ jobs:
           latest["auto_enabled"] = bool(os.environ.get("UPDATE_SIGNING_PRIVATE_KEY"))
           if not latest["auto_enabled"]:
               print("::warning::auto_enabled=false——签名钥未配置，自动升级保持关闭（4b.1）")
+          # platforms：v2 载荷——自动链的前提（url/sha256/size 对应实际部署的包）
+          import hashlib as _hl
+          _exe = next(Path("artifacts").glob("**/AwesomeNovel_Setup_*.exe"))
+          _dmg = next(Path("artifacts").glob("**/AwesomeNovel_mac_*.dmg"))
+          _dl = os.environ.get("RELEASE_DOWNLOAD_BASE", "https://www.awesomenovel.com/download").rstrip("/")
+          latest["platforms"] = {
+              "win": {"url": f"{_dl}/v{ver}/{_exe.name}",
+                      "size": _exe.stat().st_size,
+                      "sha256": _hl.sha256(_exe.read_bytes()).hexdigest()},
+              "mac": {"url": f"{_dl}/v{ver}/{_dmg.name}",
+                      "size": _dmg.stat().st_size,
+                      "sha256": _hl.sha256(_dmg.read_bytes()).hexdigest()},
+          }
           with open("latest.json", "w", encoding="utf-8") as f:
               json.dump(latest, f, ensure_ascii=False)
           # 有私钥则顶层 Ed25519 签名（客户端强制验签的前提）；无钥不签＋auto_enabled 已强制 false
