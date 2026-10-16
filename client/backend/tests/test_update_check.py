@@ -918,3 +918,19 @@ def test_update_pubkeys_env_parsing(monkeypatch):
     assert uc._update_pubkeys() == {}
     monkeypatch.delenv("CLIENT_UPDATE_PUBKEYS")
     assert uc._update_pubkeys() == {}
+
+
+def test_fetch_v2_empty_pubkeys_fail_closed(monkeypatch, caplog):
+    """fail-closed：空钥集合（env 非法/缺失）时 v2 清单一律 REJECT，绝不 fail-open。"""
+    raw = _make_keys_and_signed(monkeypatch, sign=True)  # 有签名的 v2 清单
+    monkeypatch.setenv("CLIENT_UPDATE_PUBKEYS", "corrupted-not-json")  # 钥非法
+    _stub_http_json(monkeypatch, raw)
+    import logging
+    with caplog.at_level(logging.WARNING, logger="update_check"):
+        got = _run(uc._fetch_one(MAIN_URL))
+    assert got is None
+    assert any("SIGNATURE REJECT" in r.message for r in caplog.records)
+
+    monkeypatch.delenv("CLIENT_UPDATE_PUBKEYS")  # 钥缺失
+    got = _run(uc._fetch_one(MAIN_URL))
+    assert got is None

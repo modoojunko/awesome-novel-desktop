@@ -45,10 +45,21 @@ jobs:
           curl -sf "$BASE/latest.json" -o /tmp/current.json \
             || { echo "::error::现网清单拉取失败"; exit 1; }
           export RESIGN_AUTO_ENABLED RESIGN_NOTES
+          # 可信域白名单（与 client_update_url/client_update_url_fallback 两台烘焙域同源）
+          RESIGN_TRUSTED_HOSTS="www.awesomenovel.com|ai-novel-test-d1ghsr86ra814c12c-1468883265.tcloudbaseapp.com"
+          export RESIGN_TRUSTED_HOSTS
           python3 - <<'PY'
-          import json, os
+          import json, os, sys
           from pathlib import Path
+          from urllib.parse import urlparse
           cur = json.loads(Path("/tmp/current.json").read_text(encoding="utf-8"))
+          trusted = set(os.environ.get("RESIGN_TRUSTED_HOSTS", "").split("|")) - {""}
+          plats = cur.get("platforms") or {}
+          for pk, ent in plats.items():
+              host = (urlparse(str(ent.get("url") or "")).hostname or "")
+              if host not in trusted:
+                  print(f"::error::platform {pk} url 域名 {host} 不在可信域——拒绝重签（CDN 可能已被污染）")
+                  sys.exit(1)
           cur["auto_enabled"] = os.environ["RESIGN_AUTO_ENABLED"] == "true"
           if os.environ.get("RESIGN_NOTES"):
               cur["notes"] = os.environ["RESIGN_NOTES"]
@@ -61,9 +72,9 @@ jobs:
             --key-id update-k1 --private-b64 "$PRIVATE"
           tcb hosting deploy /tmp/resign.json "download/latest.json" -e "$TCB_ENV_ID"
           for i in 1 2 3 4 5; do
-            GOT="$(curl -sf "$BASE/latest.json" | python3 -c "import json,sys;print(json.load(sys.stdin).get('auto_enabled'))" 2>/dev/null || true)"
-            [ "$GOT" = "$(echo "$RESIGN_AUTO_ENABLED" | tr -d ' ')" ] && break
+            GOT="$(curl -sf "$BASE/latest.json" | python3 -c "import json,sys;print(str(json.load(sys.stdin).get('auto_enabled')).lower())" 2>/dev/null || true)"
+            [ "$GOT" = "$RESIGN_AUTO_ENABLED" ] && break
             sleep 5
           done
-          [ "$GOT" = "True" ] || [ "$GOT" = "False" ] || { echo "::error::总闸翻转校验失败"; exit 1; }
+          [ "$GOT" = "$RESIGN_AUTO_ENABLED" ] || { echo "::error::总闸翻转校验失败（got=$GOT want=$RESIGN_AUTO_ENABLED）"; exit 1; }
           echo "总闸已翻转：auto_enabled=$GOT（重签完成）"

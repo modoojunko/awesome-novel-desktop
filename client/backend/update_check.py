@@ -186,7 +186,9 @@ async def _fetch_one(url: str) -> dict | None:
             # v2 清单（含平台包声明）＝自动链的前提，Ed25519 顶层签名 MUST 有效
             # （tasks 2.3 强制验签；验签不符＝本候选作废，日志高亮留痕）。
             pubkeys = _update_pubkeys()
-            if pubkeys and not manifest_crypto.verify_manifest(data, pubkeys):
+            if not pubkeys or not manifest_crypto.verify_manifest(data, pubkeys):
+                # fail-closed：空钥集合（env 非法/缺失）与坏签同等拒绝——绝不让
+                # 未验签的 v2 清单进自动链（spec「安全默认」的字面语义）
                 logger.warning(
                     "update-check: SIGNATURE REJECT url=%s kid=%s——自动链本版本硬停",
                     url, str(data.get("signer_key_id") or ""))
