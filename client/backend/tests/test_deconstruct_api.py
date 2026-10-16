@@ -586,7 +586,8 @@ def test_import_world_v2_product_shapes(client):
 def test_import_book_items_structure_relations_techniques(client):
     """勾选导入三项扩展：卷行创建／关系别名解析＋未入库跳过／技法并入文风 rules。"""
     chars = [
-        {"name": "李耀", "role": "主角", "plot": "p", "traits": "", "alias": "小李/我"},
+        {"name": "李耀", "role": "主角", "plot": "p", "traits": "", "alias": "小李/我",
+         "persona": "谨慎多疑的夜班司机，嘴硬心软", "gender": "男", "age": "三十五六", "race": "人类"},
         {"name": "老吴", "role": "配角", "plot": "p", "traits": "", "alias": ""},
         {"name": "队长", "role": "配角", "plot": "p", "traits": "", "alias": ""},
     ]
@@ -631,6 +632,9 @@ def test_import_book_items_structure_relations_techniques(client):
         return vols, rels, c, style
 
     vols, rels, c, style = _run(_check())
+    assert c.persona == "谨慎多疑的夜班司机，嘴硬心软"  # 小传入卡
+    d = json.loads(c.dossier)
+    assert d.get("gender") == "男" and d.get("age") == "三十五六"  # 档案格随建书入库
     assert [v.title for v in sorted(vols, key=lambda v: v.volume_no)] == ["夜班车鬼线", "第2卷"]  # 「原文未明确」→服务端兜底
     assert "水库收束" in vols[1].summary
     assert len(rels) == 2  # 队长（别名命中）＋老吴
