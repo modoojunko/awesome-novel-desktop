@@ -99,3 +99,12 @@
 - 10.8 二轮评审闭环（2026-10-14，Code Reviewer 全量 diff）：**0 P0／2 P1／10 P2／8 P3 全修复**——P1：场景 viewBox 按 `layout.scene_canvas` 动态（超界裁切）/graph_error 回落文档版＋响应注记（md 永不互拖，前端文案同步）；P2：导出读总开关全关径/完成度恒显（html·svg·README 三处）/老卡 presence_missing 留痕/能力戳呈现口径改「任务详情常驻」（spec 同步）/首现继承迭代收敛（顺序无关）/别名补户查别名索引（**测试当场抓出的真 bug**）/edges dict 形状包装/events 成员回落留痕；P3：token 替换顺序防二次污染/归并调用段边界取消/备份同秒防撞/TopN 连带滤边/append 单参兼容/浏览器基线注/章号与伏笔边界校验/文案订正。测试：图单元 14（t 语义落钉等）＋导出两例重写＋取消窗例，后端 2363／前端 1594＋coverage 无缺口＋tsc＋validate 全绿。人工项保留：10.1a 熔断 spike 与 60 万字真书走查（需真书＋真 key）。
 
 - [x] **10.1a 复验达标（2026-10-14，10.9 补写落地后）**：deconstruct_presence 模板（只补名单/where 抄闭集/空串进未知区）＋阶段 3.0 选择性补写（达标章零调用；越权输出丢弃；老契约卡留空降级不重跑）——真书缓存卡复跑：补写 17 次轻量调用后**在场覆盖率 15%→100%、闭环 100%、警告 0 类**，开销约 +5% token（in 77k/out 31k，含全量卡片重跑）。60 万字真书走查条件具备，随发版窗口执行。跑批产物已备份 ~/Desktop/knowledge/。
+
+## 11. 入口结构判定（2026-10-16 用户拍板：拆书入口要有程序判断结构对不对）
+
+- [x] 11.1 后端 textparse 编码守卫升级：UTF-16/32 按 BOM 直判拒收（Windows「Unicode」格式走 GBK 探测链只会静默乱码）；无 BOM 但解出大量空字节（NUL 占比 >0.2%，典型＝无 BOM UTF-16 被当 GBK）同拒并点名引导另存 UTF-8；retry-upload 重传改走 decode_text 单路径与首传同守卫
+- [x] 11.2 后端 structure_verdict 纯函数（textparse）：risk＝未识别到章标题（整本单章回退）且全书 ≥3 万字（拆卡单章只喂头 4000＋尾 2000，大部头几乎读不到；带章标题的单章不算）；warn＝平均章长 >2 万（章标题疑似漏识别）／极短章 ≥max(5, 30%)（目录行误识别嫌疑）；ok＝其余。判定不拦截创建
+- [x] 11.3 router create 接判定：响应增 structure 段（level/issues/chapter_count/avg_chapter_chars）；verdict issues 去重前置进 parse_warnings 落库（任务详情页既有渲染出口直用）
+- [x] 11.4 前端 lib/deconstructStructure 同规则镜像（阈值 parity 钉：test_shared_constants_parity::TestDeconstructStructureParity）＋CreateTaskPage：回填行 ok 标注「结构判定：正常」；warn 黄条；risk 红条＋「我了解质量风险，仍要创建」确认闸（未勾选创建恒禁用，换文件自动复位）；BOM/空字节本地即报错不进创建流程
+- [x] 11.5 测试：textparse＋10 例（BOM×2／空字节×2／verdict 五态）；api create risk＋UTF-16 拒收、retry-upload UTF-16 拒收；parity 钉 1；前端 lib 10 例＋toolsCreate 6 例（risk 闸/warn 不拦/ok 标注/UTF-16/UTF-32/空字节）。门禁：后端 2223 passed＋ruff 零错；前端 1667 passed＋coverage 100×4＋tsc 零错
+- [x] 11.6 spec delta「创建任务（上传与本地解析）」补结构判定四 Scenario＋需求文补判定/拒收句

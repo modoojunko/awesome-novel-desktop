@@ -131,6 +131,30 @@ def test_create_task_rejects_oversize_and_bad_dims(client):
     assert "拆解范围" in r2.json()["detail"]
 
 
+def test_create_structure_verdict_risk_and_utf16_rejected(client):
+    # 无章标题大部头：判定 risk 且问题清单前置进 parse_warnings（不拦截，risk 由前端确认闸放行）
+    big_text = "这是一本没有章节标题的书。" + "内容" * 20000  # 4 万字整本单章
+    r = client.post(
+        "/api/deconstruct/tasks",
+        files={"file": ("无章.txt", big_text.encode("utf-8"), "text/plain")},
+        data={"api_config_id": "cfg-1", "ai_model": "m"},
+    )
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert body["structure"]["level"] == "risk"
+    assert body["structure"]["chapter_count"] == 1
+    assert any("未识别到章节标题" in w for w in body["parse_warnings"])
+
+    # UTF-16（Windows「Unicode」格式）：400 且文案点名 UTF-16，不进创建流程
+    r2 = client.post(
+        "/api/deconstruct/tasks",
+        files={"file": ("u16.txt", "第1章 试\n正文".encode("utf-16"), "text/plain")},
+        data={"api_config_id": "cfg-1", "ai_model": "m"},
+    )
+    assert r2.status_code == 400
+    assert "UTF-16" in r2.json()["detail"]
+
+
 def test_list_tasks_shape(client):
     r = client.get("/api/deconstruct/tasks")
     assert r.status_code == 200
@@ -359,6 +383,26 @@ def test_retry_upload_roundtrip(client):
 
     status, src_exists = _run(_back())
     assert status == "queued" and src_exists
+
+
+def test_retry_upload_rejects_utf16_same_as_create(client):
+    # 重传走同一条探测守卫：UTF-16/空字节等坏编码与首传同口径拒收（c-deconstruct-book 11）
+    _mk_queued("dec-ru-2")
+
+    async def _lose():
+        async with async_session() as s:
+            t = await s.get(DeconstructJob, "dec-ru-2")
+            os.remove(t.source_path)
+            t.status = "need_reupload"
+            await s.commit()
+
+    _run(_lose())
+    r = client.post(
+        "/api/deconstruct/tasks/dec-ru-2/retry-upload",
+        files={"file": ("u16.txt", "第1章 试\n正文".encode("utf-16"), "text/plain")},
+    )
+    assert r.status_code == 400
+    assert "UTF-16" in r.json()["detail"]
 
 
 def test_resume_guard_requires_failed_or_cancelled(client):

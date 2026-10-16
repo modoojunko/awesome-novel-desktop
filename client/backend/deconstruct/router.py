@@ -17,7 +17,12 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from auth_local.middleware import get_current_user
 from db import get_db
 from deconstruct import apply, service
-from deconstruct.textparse import MAX_SOURCE_BYTES, decode_text, parse_novel
+from deconstruct.textparse import (
+    MAX_SOURCE_BYTES,
+    decode_text,
+    parse_novel,
+    structure_verdict,
+)
 from models.deconstruct import DeconstructJob
 
 router = APIRouter(prefix="/api/deconstruct", tags=["deconstruct"])
@@ -72,6 +77,8 @@ async def create_task(
             del raw
 
         parse = await asyncio.to_thread(parse_novel, text)
+        verdict = structure_verdict(parse)  # 入口结构判定：问题清单前置进 parse_warnings（不拦截，risk 由前端确认闸放行）
+        parse["warnings"] = [*verdict["issues"], *(w for w in parse.get("warnings", []) if w not in verdict["issues"])]
         caps = service.graph_caps()  # 能力戳：创建时判卡模板是否含 presence
         try:
             picked = json.loads(selected_dims) if selected_dims else []
@@ -104,6 +111,7 @@ async def create_task(
         "chapter_count": task.chapter_count,
         "volume_count": task.volume_count,
         "parse_warnings": json.loads(task.parse_warnings_json),
+        "structure": verdict,
         "selected_dims": dims,
         "graph_caps": caps,
     }
@@ -223,12 +231,9 @@ async def retry_upload(
         chunks.append(chunk)
     raw = b"".join(chunks)
     try:
-        raw.decode(task.encoding or "utf-8")
-    except (UnicodeDecodeError, LookupError):
-        try:
-            decode_text(raw)
-        except ValueError as e:
-            raise HTTPException(400, str(e)) from e
+        decode_text(raw)  # 重传与首传同守卫：UTF-16/空字节等坏编码同口径拒收（存任务行编码必在探测链内）
+    except ValueError as e:
+        raise HTTPException(400, str(e)) from e
     os.makedirs(os.path.dirname(task.source_path), exist_ok=True)
     with open(task.source_path, "wb") as f:
         f.write(raw)
