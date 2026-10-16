@@ -276,10 +276,12 @@ async def import_book(
                         project.id,
                         name=name,
                         role=role,
+                        persona=str(card.get("persona", ""))[:300] or None,
                         aliases=card.get("aliases") or None,
                         dossier={
                             k: str(card.get(k, ""))[:300]
-                            for k in ("plot", "background", "faction", "look", "speech")
+                            for k in ("plot", "background", "faction", "look", "speech",
+                                      "gender", "age", "race")
                             if str(card.get(k, "")).strip()
                         },
                     )
@@ -439,13 +441,17 @@ def _cards(task: DeconstructJob) -> list[dict]:
             {
                 "name": str(c.get("name", ""))[:30],
                 "role": str(c.get("role", "配角")),
+                "persona": _cell(c.get("persona", "")),
                 "plot": _cell(f"{c.get('plot', '')}（{c.get('evidence_ch', '原文未明确')}）"),
                 "background": _cell(c.get("background", "")),
                 "aliases": aliases[:20],
-                # 产物有的格子全带（白名单八格：性别/年龄/种族产物常缺，缺就空着不编）
+                # 产物有的格子全带（材料没写的字段产物侧已是「原文未明确」，这里置空不编造）
                 "faction": _cell(c.get("faction", "")),
                 "look": _cell(look),
                 "speech": _cell(c.get("speech", "")),
+                "gender": _cell(c.get("gender", "")),
+                "age": _cell(c.get("age", "")),
+                "race": _cell(c.get("race", "")),
             }
         )
     return cards
