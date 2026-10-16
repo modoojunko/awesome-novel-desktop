@@ -278,8 +278,9 @@ async def import_book(
                         role=role,
                         aliases=card.get("aliases") or None,
                         dossier={
-                            "plot": str(card.get("plot", ""))[:300],
-                            "background": str(card.get("background", ""))[:300],
+                            k: str(card.get(k, ""))[:300]
+                            for k in ("plot", "background", "faction", "look", "speech")
+                            if str(card.get(k, "")).strip()
                         },
                     )
                     break
@@ -427,14 +428,24 @@ def _cards(task: DeconstructJob) -> list[dict]:
     for c in _data(task, "characters").get("characters") or []:
         if not isinstance(c, dict):
             continue
-        aliases = [a.strip() for a in str(c.get("alias", "") or "").replace("／", "/").split("/") if a.strip()]
+        aliases = [a.strip() for a in re.split(r"[、/／]", str(c.get("alias", "") or "")) if a.strip()]
+        look = str(c.get("look", "")).strip()
+
+        def _cell(v) -> str:
+            v = _clean_para(v, 300)
+            return "" if v == "原文未明确" else v
+
         cards.append(
             {
                 "name": str(c.get("name", ""))[:30],
                 "role": str(c.get("role", "配角")),
-                "plot": f"{c.get('plot', '')}（{c.get('evidence_ch', '原文未明确')}）",
-                "background": str(c.get("background", ""))[:300],
+                "plot": _cell(f"{c.get('plot', '')}（{c.get('evidence_ch', '原文未明确')}）"),
+                "background": _cell(c.get("background", "")),
                 "aliases": aliases[:20],
+                # 产物有的格子全带（白名单八格：性别/年龄/种族产物常缺，缺就空着不编）
+                "faction": _cell(c.get("faction", "")),
+                "look": _cell(look),
+                "speech": _cell(c.get("speech", "")),
             }
         )
     return cards
