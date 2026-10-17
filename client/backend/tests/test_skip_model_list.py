@@ -10,11 +10,9 @@ import asyncio
 import os
 import sqlite3
 import tempfile
-from pathlib import Path
 from typing import ClassVar
 
 import pytest
-from pydantic import ValidationError
 
 # ── Test environment（须先于 import app 模块设置） ──────────────────────────
 _tmp_db = tempfile.NamedTemporaryFile(suffix="_test_skiplist.db", delete=False)  # noqa: SIM115
