@@ -46,6 +46,12 @@ class ApiConfig(Base):
     thinking_effort: Mapped[str] = mapped_column(
         String(10), nullable=False, default="low", server_default="low"
     )
+    # 跳过模型清单接口（c-skip-model-list）：端点不提供清单路由（如 CloudBase 网关，
+    # GET /models 恒 4xx 而对话接口正常）时，连接测试直探对话、自动获取清单停用。
+    # 旧库经带回链路迁入时由列交集计划以 server_default 兜底（存量行默认关）
+    skip_model_list: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=False, server_default="0"
+    )
     api_key: Mapped[str] = mapped_column(String(512), default="")
     base_url: Mapped[str] = mapped_column(String(500), default="")
     models: Mapped[str | None] = mapped_column(Text, nullable=True)  # JSON

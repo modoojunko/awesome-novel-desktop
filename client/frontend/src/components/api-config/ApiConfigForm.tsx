@@ -44,6 +44,7 @@ export interface ApiConfigFormData {
   api_format: ApiFormat;
   thinking_enabled: boolean;
   thinking_effort: ThinkingEffort;
+  skip_model_list: boolean;
 }
 
 /** 思考强度档位（c-thinking-config 拍板）：文案照 GLM 文档（low 轻度/high 增强/max 深度）。 */
@@ -62,6 +63,8 @@ export function ApiConfigForm({ open, config, onSubmit, onCancel, onTest, onFetc
   // 思考参数（c-thinking-config）：默认关/low＝现状语义；编辑态回读已存值
   const [thinkingEnabled, setThinkingEnabled] = useState(config?.thinking_enabled ?? false);
   const [thinkingEffort, setThinkingEffort] = useState<ThinkingEffort>(config?.thinking_effort ?? "low");
+  // 跳过模型清单接口（c-skip-model-list）：编辑态回读已存值；ollama 不出该控件
+  const [skipModelList, setSkipModelList] = useState(config?.skip_model_list ?? false);
   const [baseUrl, setBaseUrl] = useState(config?.base_url || "");
   // 编辑态模型选择位（修复「编辑页没有模型可选、测试连接却要用模型」）：
   // 初值＝已存 models 首项（＝该配置已选模型/探针优先模型），清单种子＝已存 models
@@ -114,6 +117,7 @@ export function ApiConfigForm({ open, config, onSubmit, onCancel, onTest, onFetc
     setApiFormat(config?.api_format || "openai");
     setThinkingEnabled(config?.thinking_enabled ?? false);
     setThinkingEffort(config?.thinking_effort ?? "low");
+    setSkipModelList(config?.skip_model_list ?? false);
     setBaseUrl(config?.base_url || "");
     setModel(config?.models?.[0] ?? "");
     setApiKey("");
@@ -223,9 +227,12 @@ export function ApiConfigForm({ open, config, onSubmit, onCancel, onTest, onFetc
   });
 
   /** 「获取模型」按钮可用性＝轻探针前置条件（未就绪禁用，不点了才静默跳过）。
-   *  编辑态同口径（Key 未重填时不可拉——raw 轻探针需要明文 Key；已存清单已在选择器里）。 */
+   *  编辑态同口径（Key 未重填时不可拉——raw 轻探针需要明文 Key；已存清单已在选择器里）。
+   *  勾选跳过清单接口（c-skip-model-list）时恒禁用。 */
   const canFetchModels =
-    !!vendorId && !!baseUrl.trim() && (vendorId === "ollama" || !!apiKey.trim());
+    !!vendorId &&
+    !!baseUrl.trim() &&
+    (vendorId === "ollama" || (!!apiKey.trim() && !skipModelList));
 
   /** 显式触发口（2026-10-08 拍板）：点击强拉清单（同参数也重拉）＋展开选择器弹层——
    *  下拉正对「模型名称」框，不依赖失焦自动拉取也能拿到清单。 */
@@ -248,8 +255,9 @@ export function ApiConfigForm({ open, config, onSubmit, onCancel, onTest, onFetc
     setTestResult(null);
     invalidateModelList();
     const out = prefillTo(id, fmt);
-    // Key 已填（或 ollama 免 Key）即按新供应商重拉清单（预填的 base 同步生效）
-    if (apiKey.trim() || id === "ollama") {
+    // Key 已填（或 ollama 免 Key）即按新供应商重拉清单（预填的 base 同步生效）；
+    // 勾选跳过清单接口（c-skip-model-list）时不拉（ollama 无跳过语义）
+    if ((apiKey.trim() || id === "ollama") && !(id !== "ollama" && skipModelList)) {
       void runFetchModels({ vendor_id: id, base_url: out.base_url, api_key: apiKey, api_format: fmt });
     }
   };
@@ -263,7 +271,7 @@ export function ApiConfigForm({ open, config, onSubmit, onCancel, onTest, onFetc
     const out = isEdit
       ? { base_url: baseUrl.trim(), model: modelNameRef.current.trim() }
       : prefillTo(vendorId, fmt);
-    if (apiKey.trim() || vendorId === "ollama") {
+    if ((apiKey.trim() || vendorId === "ollama") && !skipModelList) {
       void runFetchModels({ vendor_id: vendorId, base_url: out.base_url, api_key: apiKey, api_format: fmt });
     }
   };
@@ -293,6 +301,7 @@ export function ApiConfigForm({ open, config, onSubmit, onCancel, onTest, onFetc
         api_format: apiFormat,
         thinking_enabled: thinkingEnabled,
         thinking_effort: thinkingEffort,
+        skip_model_list: skipModelList,
       });
       const noModels = r.ok && (r.models ?? []).length === 0 && !!r.note;
       setTestResult({
@@ -333,6 +342,7 @@ export function ApiConfigForm({ open, config, onSubmit, onCancel, onTest, onFetc
         api_format: apiFormat,
         thinking_enabled: thinkingEnabled,
         thinking_effort: thinkingEffort,
+        skip_model_list: skipModelList,
       });
     } catch (e) {
       setError(e instanceof Error ? e.message : "保存失败");
@@ -593,8 +603,9 @@ export function ApiConfigForm({ open, config, onSubmit, onCancel, onTest, onFetc
             value={apiKey}
             onChange={(e) => setApiKey(e.target.value)}
             onBlur={() => {
-              // Key 失焦且非空＝自动拉清单的主触发点（2026-10-07 拍板：配完 Key 自动弹清单；编辑态重填 Key 同样生效）
-              if (vendorId !== "ollama" && apiKey.trim()) {
+              // Key 失焦且非空＝自动拉清单的主触发点（2026-10-07 拍板：配完 Key 自动弹清单；编辑态重填 Key 同样生效）；
+              // 勾选跳过清单接口（c-skip-model-list）时不拉
+              if (vendorId !== "ollama" && apiKey.trim() && !skipModelList) {
                 void runFetchModels(curFetchParams());
               }
             }}
@@ -667,11 +678,13 @@ export function ApiConfigForm({ open, config, onSubmit, onCancel, onTest, onFetc
                 onClick={handleFetchModelsClick}
                 disabled={!canFetchModels || fetching || saving}
                 title={
-                  canFetchModels
-                    ? "重新拉取模型清单"
-                    : isEdit
-                      ? "重填 API Key 后可重新拉取清单"
-                      : "先选供应商并填 Base URL 与 API Key"
+                  skipModelList && vendorId !== "ollama"
+                    ? "已跳过模型清单接口——手填模型 id 后用「测试连接」验证"
+                    : canFetchModels
+                      ? "重新拉取模型清单"
+                      : isEdit
+                        ? "重填 API Key 后可重新拉取清单"
+                        : "先选供应商并填 Base URL 与 API Key"
                 }
               >
                 {fetching && <Ico d={P.spinner} sw={2.4} className="spin" />}
@@ -787,6 +800,27 @@ export function ApiConfigForm({ open, config, onSubmit, onCancel, onTest, onFetc
                 document.body,
               )}
           </div>
+          {/* 跳过模型清单接口（c-skip-model-list）：端点无清单路由（如 CloudBase 网关）时
+              测试直探对话、自动获取停用；ollama 走自有 tags 端点，不出该控件 */}
+          {vendorId !== "ollama" && (
+            <label className="cf-skip">
+              <input
+                type="checkbox"
+                checked={skipModelList}
+                disabled={saving}
+                onChange={(e) => {
+                  setSkipModelList(e.target.checked);
+                  if (e.target.checked) invalidateModelList(); // 清掉旧端点的失败态/说明
+                }}
+              />
+              <span>该端点不提供模型清单接口（跳过自动获取）</span>
+            </label>
+          )}
+          {vendorId !== "ollama" && skipModelList && (
+            <p className="cf-hint">
+              勾选后测试连接直接用手填模型名验证对话接口，自动获取模型清单停用；可随时取消勾选恢复。
+            </p>
+          )}
         </div>
         {testResult && (
           <div className={"tresult " + (testResult.ok ? "ok" : "bad")}>{testResult.message}</div>

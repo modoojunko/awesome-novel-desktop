@@ -133,6 +133,7 @@ async def create_config(
             models=body.models,
             thinking_enabled=body.thinking_enabled,
             thinking_effort=body.thinking_effort,
+            skip_model_list=body.skip_model_list,
         )
         return result
     except ValueError as e:
@@ -178,6 +179,7 @@ async def test_raw_connection(
         preferred_model=body.model,
         thinking_enabled=body.thinking_enabled,
         thinking_effort=body.thinking_effort,
+        skip_model_list=body.skip_model_list,
     )
 
 
@@ -249,6 +251,8 @@ async def update_config(
         updates["thinking_enabled"] = body.thinking_enabled
     if body.thinking_effort is not None:
         updates["thinking_effort"] = body.thinking_effort
+    if body.skip_model_list is not None:
+        updates["skip_model_list"] = body.skip_model_list
 
     try:
         result = await update_api_config(db, _user_id(user), config_id, updates)

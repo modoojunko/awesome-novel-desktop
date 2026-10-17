@@ -108,6 +108,7 @@ async def create_api_config(
     models: list[str] | None = None,
     thinking_enabled: bool = False,
     thinking_effort: str = "low",
+    skip_model_list: bool = False,
 ) -> dict[str, Any]:
     """Create a new ApiConfig. Returns the created config as a dict."""
     # Check name uniqueness（软删占名自动让位，见 helper）
@@ -138,6 +139,8 @@ async def create_api_config(
         api_format=resolved_format,
         thinking_enabled=thinking_enabled,
         thinking_effort=thinking_effort or "low",
+        # ollama 走自有 tags 清单端点，无跳过语义（表单也不出该控件，防御性归零）
+        skip_model_list=bool(skip_model_list and vendor_id != "ollama"),
         api_key=encrypt_api_key(api_key),
         base_url=base_url,
         status="active",
@@ -219,6 +222,7 @@ async def test_api_config(
             else (getattr(config, "thinking_enabled", False) or False)
         ),
         thinking_effort=thinking_effort or (getattr(config, "thinking_effort", None) or "low"),
+        skip_model_list=bool(getattr(config, "skip_model_list", False)),
     )
 
     # Persist results
@@ -275,7 +279,7 @@ async def update_api_config(
         updates["api_key"] = encrypt_api_key(updates["api_key"])
     for field in (
         "name", "api_key", "vendor_override", "models", "models_updated_at",
-        "api_format", "thinking_enabled", "thinking_effort",
+        "api_format", "thinking_enabled", "thinking_effort", "skip_model_list",
     ):
         if field in updates:
             setattr(config, field, updates[field])
@@ -914,6 +918,7 @@ def _config_to_dict(config: ApiConfig) -> dict[str, Any]:
         "api_format": getattr(config, "api_format", None) or "openai",
         "thinking_enabled": bool(getattr(config, "thinking_enabled", False)),
         "thinking_effort": getattr(config, "thinking_effort", None) or "low",
+        "skip_model_list": bool(getattr(config, "skip_model_list", False)),
         "base_url": config.base_url,
         "api_key": mask_api_key(plain_key),
         "api_key_masked": mask_api_key(plain_key),

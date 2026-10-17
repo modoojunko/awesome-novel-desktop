@@ -1995,3 +1995,10 @@ baseurl 到什么程度，要有个案例。」——中转站/自建网关用�
 - **实现侧同批**：ClientShell 收编 Navbar（壳层骨架＝顶栏 → 提示条 → 内容 → 状态条）；/novel/* 壳层整组让位、NovelWorkspace 在书内应用栏之下补挂；openspec change 同名（client-update「更新提示条交互」补呈现位置口径）。
 - **范围说明**：backup-restore.html 亦含 update-strip，但该文件是「更新通知两形态」修订演示稿（屏 5 演示先备份链路文案变体，非应用布局基线，不在 design:check/parity 矩阵），本批不动。
 - **文案 §13 自查**：本批未新增/未改动任何用户可见文案。
+
+## c-skip-model-list（无清单端点跳过自动获取，2026-10-17）
+
+- **`model-config.html` `#modalConfig` 模型名称字段下新增勾选控件**：`.cf-skip`＝raw checkbox（15px、`accent-color: var(--accent)`，backup-restore `.ck` 同词汇）＋13px 标签「该端点不提供模型清单接口（跳过自动获取）」；说明行 `#cfSkipHint` 复用 `.cf-hint`（「勾选后测试连接直接用手填模型名验证对话接口，自动获取模型清单停用；可随时取消勾选恢复」）。联动：ollama 供应商隐藏控件（自有 tags 端点无跳过语义）；编辑态回读 `edit.skip_model_list`；勾选显说明行（`syncSkipUI`，供应商切换/开弹窗播种两处调用）。
+- **「获取模型」禁用演示不在原型**：本基线表单无「获取模型」按钮（该按钮系 c-api-config-auto-models 实现侧新增、原型未同步的在案漂移）；禁用态由实现侧按既有 disabled＋title 口径落地，不在本批补原型。
+- **parity 影响**：design-parity 矩阵不截配置弹窗（在案），勾选框默认态零像素变化；`design:lint` strictGlobs 含 model-config.html，本批仅用既有类与令牌（`.cf-hint`/`var(--accent)`/`var(--fg)`）。
+- **文案 §13 自查**：「跳过自动获取／测试连接／手填模型名」动词短语；说明带补救出口（可随时取消勾选恢复）；无内部术语（不出现「/models」「降级」）。

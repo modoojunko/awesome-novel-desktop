@@ -2,9 +2,11 @@
 
 探测按接口格式（api_format：openai | anthropic）构造，不再按 vendor 一一分支；
 vendor 只保留 ollama 特例（本地服务、免 Key、自有 tags 端点）。
-models 端点缺失（部分 Anthropic 兼容端点不提供列表）时降级为同款最小生成探针；
-models 端点回 200 网页体（网关对未知路径回首页的可用端点，内测反馈#1 残余）同样降级，
-对话接口探通即放行，探不通才按「不是 API 数据」判失败。
+models 端点凡未带回可用清单——缺失（部分 Anthropic 兼容端点不提供列表）、回 200
+网页体（网关对未知路径回首页的可用端点，内测反馈#1 残余）、或 4xx/5xx（CloudBase
+网关对清单路由恒 403/400，c-skip-model-list）——均降级为同款最小生成探针，
+对话接口探通即放行，探不通按探针的真实死因判失败。配置可声明跳过清单接口
+（skip_model_list）：清单请求不出网，直探对话。
 
 「通」的判据（2026-10-05 拍板）：200 必须是 API JSON——网站首页/SPA 对任意路径
 回 200 HTML 不算通；可达且鉴权通过后向对话接口发**真实最小生成探针**——消息「你好」、
@@ -76,6 +78,30 @@ def no_model_list_note(api_format: str) -> str:
         NO_MODEL_LIST_NOTE_OPENAI
         if api_format == "openai"
         else NO_MODEL_LIST_NOTE_ANTHROPIC
+    )
+
+
+# 声明跳过清单接口（skip_model_list）探通后的说明——与「无清单端点」口径同族，
+# 注明判据来源与恢复出口
+SKIP_MODEL_LIST_NOTE = (
+    "已跳过模型清单接口——连接判据为手填模型的对话探针；"
+    "如需自动获取清单，取消勾选后重新测试"
+)
+
+
+def _no_list_http_note(status_code: int) -> str:
+    """轻探针对清单路由 400/403/405 的说明（c-skip-model-list）。
+
+    403 无法区分「路由权限」与「清单缺失」，而两者对用户的下一步动作相同
+    （手填模型 id 后测试连接），故文案兼容两义，SHALL NOT 标「认证失败」。"""
+    if status_code == 403:
+        return (
+            "该端点拒绝了模型清单请求（HTTP 403）——可能是端点不提供清单或 Key 无此权限；"
+            "可手填模型 id 后用「测试连接」验证"
+        )
+    return (
+        f"该端点未提供模型清单（HTTP {status_code}）——"
+        "可手填模型 id 后用「测试连接」验证"
     )
 
 # 最小生成探针（2026-10-05 拍板）：「你好」＋禁思考＋短输出预算，格式正确回复才算通。
@@ -166,6 +192,7 @@ async def test_connection(
     preferred_model: str | None = None,
     thinking_enabled: bool = False,
     thinking_effort: str = "low",
+    skip_model_list: bool = False,
 ) -> dict[str, Any]:
     """Test connectivity to a vendor's API.
 
@@ -175,6 +202,9 @@ async def test_connection(
                       "timeout", "network_error"
         models      — list of model IDs extracted, or None on failure
         error       — human-readable error string (only on failure)
+
+    skip_model_list（c-skip-model-list）：配置声明端点无清单接口——清单请求
+    不出网，直接发「你好」最小生成探针判定（入口分流，见 _skip_list_probe）。
     """
     # Some vendors (Ollama) don't require an API key
     requires_key = vendor_id != "ollama"
@@ -189,6 +219,32 @@ async def test_connection(
     endpoint, headers, extract_fn, fallback = _build_probe(
         api_format, vendor_id, api_key, base_url
     )
+
+    # ollama 走自有 tags 端点（fallback=None），无跳过语义；非 ollama 恒有 fallback
+    if skip_model_list and vendor_id != "ollama" and fallback is not None:
+        start = time.perf_counter()
+        async with build_async_client(timeout=timeout, follow_redirects=True) as client:
+            outcome = await _degrade_to_chat_probe(
+                client,
+                fallback,
+                api_format,
+                vendor_id,
+                preferred_model,
+                thinking_enabled=thinking_enabled,
+                thinking_effort=thinking_effort,
+                src_status=None,
+                src_detail=None,
+            )
+        if outcome is not None:
+            return outcome
+        return {
+            "ok": True,
+            "status": "ok",
+            "models": [],
+            "error": None,
+            "candidates": model_candidates_for(vendor_id),
+            "note": SKIP_MODEL_LIST_NOTE,
+        }
 
     start = time.perf_counter()
     try:
@@ -207,26 +263,20 @@ async def test_connection(
                 result="endpoint_mismatch" if not_api else None,
                 error=not_api or None,
             )
-            if resp.status_code == 404 and fallback is not None:
-                # models 端点不存在 → 降级为「你好」最小生成探针（2026-10-05 拍板）。
-                # 两格式同享降级（Gemini 官方 OpenAI 兼容层等无清单端点因此可用，
-                # 2026-10-08 拍板）。payload 在此现解：404 时列表恒空，探针 id 链
-                # ＝已选模型 > 候选首个 >（仅 anthropic）占位——存量分歧一并修齐
-                # （原实现在 _build_probe 烤死占位 id，已选模型被无视）。openai 格式
-                # 链尾不垫占位 id：凭空猜 id 对兼容端点是噪音，无 id 不降级、判负提示
-                # 填写模型名。
-                probe_model = _probe_model([], vendor_id, preferred_model)
-                if not probe_model and api_format != "anthropic":
-                    return {
-                        "ok": False,
-                        "status": "unknown",
-                        "models": None,
-                        "error": (
-                            "该地址不提供模型列表（HTTP 404）且未填写模型名称——"
-                            "请填写模型名称后重新测试"
-                        ),
-                    }
-                probe = await _fallback_probe(
+            # ── 清单未带回可用清单 → 统一降级闸（c-skip-model-list）────────────
+            # 404／其它 4xx/5xx／200 网页体一视同仁：有探针 id 即降级发最小生成
+            # 探针，判定以探针为准（2026-10-05 拍板的对话判据；2026-10-16 CloudBase
+            # 案实锤网关对清单路由本身回 403/400 并附误导文案，对话接口完全正常
+            # ——状态码白名单每遇新形态就要再修，改按「未带回清单」全集降级）。
+            # 无 id 不降级：401/403 维持「认证失败」（鉴权语义明确，与清单无关），
+            # 其余按提示填写模型名判负；200 网页体保留体判废原文案。
+            if fallback is not None and (resp.status_code != 200 or not_api):
+                src_detail = (
+                    not_api
+                    if resp.status_code == 200
+                    else _extract_error_detail(resp)
+                )
+                outcome = await _degrade_to_chat_probe(
                     client,
                     fallback,
                     api_format,
@@ -234,9 +284,11 @@ async def test_connection(
                     preferred_model,
                     thinking_enabled=thinking_enabled,
                     thinking_effort=thinking_effort,
+                    src_status=resp.status_code,
+                    src_detail=src_detail,
                 )
-                if probe is not None:
-                    return probe
+                if outcome is not None:
+                    return outcome
                 return {
                     "ok": True,
                     "status": "ok",
@@ -281,36 +333,9 @@ async def test_connection(
                 }
 
             if not_api:
-                # 200 但体判废也可能是可用端点（网关对未知路径回首页，内测反馈#1 残余
-                # ——ccswitch 类中转站对 /models 回 200 网页、对话接口正常）：与 404
-                # 同享降级探对话接口，探通即放行（该端点不提供清单，按无清单端点口径
-                # 返回空清单＋说明）；探针判「对话端点亦不存在/网页体」（404/405/网页）
-                # 才保留判废原文案——其余失败形态（鉴权/限流/网络/模型被拒）只可能
-                # 来自真实对话端点，如实透传，SHALL NOT 让原文案把死因引向 Base URL。
-                # 探针 id 同 404 口径：无 id 的 openai 格式不降级。
-                if fallback is not None:
-                    probe_model = _probe_model([], vendor_id, preferred_model)
-                    if probe_model or api_format == "anthropic":
-                        probe = await _fallback_probe(
-                            client,
-                            fallback,
-                            api_format,
-                            vendor_id,
-                            preferred_model,
-                            thinking_enabled=thinking_enabled,
-                            thinking_effort=thinking_effort,
-                        )
-                        if probe is None:
-                            return {
-                                "ok": True,
-                                "status": "ok",
-                                "models": [],
-                                "error": None,
-                                "candidates": model_candidates_for(vendor_id),
-                                "note": no_model_list_note(api_format),
-                            }
-                        if probe.get("status") != "endpoint_mismatch":
-                            return probe
+                # 200 网页体残留分支：非 ollama 的降级已统一走上方降级闸
+                # （c-skip-model-list），此处只剩 ollama（fallback=None，tags 端点
+                # 回 200 HTML）的判废出口。
                 return {
                     "ok": False,
                     "status": "endpoint_mismatch",
@@ -453,6 +478,18 @@ async def fetch_models(
                     "error": None,
                     "candidates": model_candidates_for(vendor_id),
                     "note": no_model_list_note("anthropic"),
+                }
+            # 清单路由 400/403/405（c-skip-model-list：CloudBase 网关对 /models 恒
+            # 403 并附误导文案）→ 按「端点未提供模型清单」口径返回成功＋空清单＋
+            # 说明（403 兼容权限语义，SHALL NOT 标「认证失败」）；保持零生成调用
+            if resp.status_code in (400, 403, 405):
+                return {
+                    "ok": True,
+                    "status": "ok",
+                    "models": [],
+                    "error": None,
+                    "candidates": model_candidates_for(vendor_id),
+                    "note": _no_list_http_note(resp.status_code),
                 }
             if resp.status_code in (401, 403):
                 detail = _extract_error_detail(resp)
@@ -679,6 +716,87 @@ def _generation_payload(
     if thinking_enabled:
         payload["reasoning_effort"] = thinking_effort or "low"
     return payload
+
+
+async def _degrade_to_chat_probe(
+    client: httpx.AsyncClient,
+    fallback: tuple[str, dict[str, str], Any],
+    api_format: str,
+    vendor_id: str,
+    preferred_model: str | None,
+    *,
+    thinking_enabled: bool = False,
+    thinking_effort: str = "low",
+    src_status: int | None,
+    src_detail: str | None,
+) -> dict[str, Any] | None:
+    """清单未带回可用清单时的降级探针（c-skip-model-list：判定以探针为准）。
+
+    返回 None＝探通；dict＝失败形态。src_status/src_detail＝清单层原始失败形态
+    （skip 路径传 None/None）：有探针 id 即降级发「你好」最小生成探针——真坏
+    Key 在探针上同址同鉴权照样回「认证失败」，判定与文案不失真（CloudBase 型
+    网关对清单路由 403 而对话正常因此转绿）。无 id 不降级（openai）——skip 路
+    径提示填写模型名；401/403 维持「认证失败」（鉴权层语义明确，与清单无关）；
+    其余清单失败按提示填写模型名判负；200 网页体保留体判废原文案。探针判
+    「对话端点亦不存在/网页」时网页体场景保留原文案，其余透传探针文案。"""
+    probe_model = _probe_model([], vendor_id, preferred_model)
+    if not probe_model and api_format != "anthropic":
+        if src_status is None:
+            return {
+                "ok": False,
+                "status": "unknown",
+                "models": None,
+                "error": (
+                    "已跳过模型清单接口且未填写模型名称——请填写模型名称后重新测试"
+                ),
+            }
+        if src_status == 200:
+            return {
+                "ok": False,
+                "status": "endpoint_mismatch",
+                "models": None,
+                "error": src_detail,
+            }
+        if src_status in (401, 403):
+            return {
+                "ok": False,
+                "status": "auth_error",
+                "models": None,
+                "error": f"认证失败 (HTTP {src_status}){src_detail or ''}",
+            }
+        return {
+            "ok": False,
+            "status": "unknown",
+            "models": None,
+            "error": (
+                f"该地址未提供可用模型清单（HTTP {src_status}）且未填写模型名称"
+                "——请填写模型名称后重新测试"
+            ),
+        }
+    outcome = await _fallback_probe(
+        client,
+        fallback,
+        api_format,
+        vendor_id,
+        preferred_model,
+        thinking_enabled=thinking_enabled,
+        thinking_effort=thinking_effort,
+    )
+    if outcome is None:
+        return None
+    if outcome.get("status") != "endpoint_mismatch":
+        # 鉴权失败/限流/网络错误/模型被拒——只可能来自真实对话端点，如实透传
+        return outcome
+    if src_status == 200 and src_detail:
+        # 探针也打不通的网页体场景保留体判废原文案（既有口径：真网页站的
+        # 对话接口也 HTML/不存在，原文案的「核对 Base URL」指引更对症）
+        return {
+            "ok": False,
+            "status": "endpoint_mismatch",
+            "models": None,
+            "error": src_detail,
+        }
+    return outcome
 
 
 async def _fallback_probe(

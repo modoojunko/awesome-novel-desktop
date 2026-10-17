@@ -26,6 +26,8 @@ export interface ApiConfig {
   /** 思考开关（c-thinking-config）：开＝thinking:enabled＋reasoning_effort；关＝disabled（现状语义） */
   thinking_enabled: boolean;
   thinking_effort: ThinkingEffort;
+  /** 跳过模型清单接口（c-skip-model-list）：端点无清单路由时测试直探对话、自动获取停用 */
+  skip_model_list: boolean;
   base_url: string;
   api_key_masked: string;
   status: string;

@@ -41,6 +41,7 @@ export function useApiConfigs() {
     models?: string[];
     thinking_enabled?: boolean;
     thinking_effort?: ThinkingEffort;
+    skip_model_list?: boolean;
   }): Promise<ApiConfig> => {
     let config: ApiConfig;
     try {
@@ -171,6 +172,7 @@ export function useApiConfigs() {
     model?: string | null;
     thinking_enabled?: boolean;
     thinking_effort?: ThinkingEffort;
+    skip_model_list?: boolean;
   }): Promise<{ ok: boolean; status: string; models?: string[]; error?: string }> => {
     return request(`/api-configs/test-connection`, {
       apiBase: V1,

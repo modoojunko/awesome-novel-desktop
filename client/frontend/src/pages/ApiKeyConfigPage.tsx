@@ -267,6 +267,7 @@ export default function ApiKeyConfigPage() {
                 model: data.model || null,
                 thinking_enabled: data.thinking_enabled,
                 thinking_effort: data.thinking_effort,
+                skip_model_list: data.skip_model_list,
               })
         }
         onFetchModels={async (data) => fetchRawModels(data)}
