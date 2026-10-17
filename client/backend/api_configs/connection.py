@@ -204,7 +204,7 @@ async def test_connection(
         error       — human-readable error string (only on failure)
 
     skip_model_list（c-skip-model-list）：配置声明端点无清单接口——清单请求
-    不出网，直接发「你好」最小生成探针判定（入口分流，见 _skip_list_probe）。
+    不出网，直接发「你好」最小生成探针判定（入口分流，见 _degrade_to_chat_probe）。
     """
     # Some vendors (Ollama) don't require an API key
     requires_key = vendor_id != "ollama"

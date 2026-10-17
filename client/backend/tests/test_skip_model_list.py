@@ -460,6 +460,37 @@ class TestSchemaAndPersistence:
         assert [c[0] for c in fake_http.calls] == ["POST"]
         assert out["note"] == conn_mod.SKIP_MODEL_LIST_NOTE
 
+    def test_saved_config_test_skip_override_wins(self, fake_http):
+        """编辑弹窗试连的 skip 覆盖语义（评审 P3）：表单当前值优先于已存值。
+        override=True + 已存 False → 不发清单请求直探；override=False + 已存 True → 恢复清单请求。"""
+        async def _create(user, name, skip):
+            async with async_session() as db:
+                return await create_api_config(
+                    db, user, name, "openai-compat", CLOUDBASE_BASE,
+                    api_key="sk", models=["hy3"], skip_model_list=skip,
+                )
+
+        _run_async(_ensure_user("u-skip-ov"))
+        from api_configs.service import test_api_config
+
+        async def _test(user, config_id, override):
+            async with async_session() as db:
+                return await test_api_config(db, user, config_id, skip_model_list=override)
+
+        # 已存 False，覆盖 True → 直探（只有 POST）
+        cfg = _run_async(_create("u-skip-ov", "ov-on", False))
+        fake_http.script = [("POST", 200, _CHAT_OK)]
+        out = _run_async(_test("u-skip-ov", cfg["id"], True))
+        assert out["ok"] is True
+        assert [c[0] for c in fake_http.calls] == ["POST"]
+        # 已存 True，覆盖 False → 恢复清单请求（GET 403 → 降级探对话 → 绿）
+        cfg2 = _run_async(_create("u-skip-ov", "ov-off", True))
+        fake_http.calls.clear()
+        fake_http.script = [("GET", 403, _CLOUDBASE_403), ("POST", 200, _CHAT_OK)]
+        out = _run_async(_test("u-skip-ov", cfg2["id"], False))
+        assert out["ok"] is True
+        assert [c[0] for c in fake_http.calls] == ["GET", "POST"]
+
     def test_update_toggles_flag(self):
         _run_async(_ensure_user("u-skip-3"))
 
