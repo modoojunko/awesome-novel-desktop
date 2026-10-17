@@ -623,4 +623,63 @@ describe("进度可视二阶（边界臂）", () => {
     await waitFor(() => expect(screen.getByText("取消任务")).toBeInTheDocument());
     expect(screen.queryByText(/已运行/)).not.toBeInTheDocument();
   });
+
+  // ── c-deconstruct-resilience：降级可见 / 告警账 / 错误类别出口 / 调用账 / UTC 时长 ──
+
+  it("降级维度可见：completed + degraded → warn 提示与原因", async () => {
+    state.get.mockResolvedValue(detailOf("completed", {
+      dims: {
+        intro: { state: "completed", seg_done: 1, seg_total: 1, error: "" },
+        world: { state: "completed", seg_done: 2, seg_total: 3, error: "", degraded: "2/3 批内容被模型安全审核拒绝，该范围未纳入" },
+        techniques: { state: "completed", seg_done: 1, seg_total: 1, error: "" },
+      },
+    }));
+    renderPage();
+    await waitFor(() => expect(screen.getByText(/分段稿/)).toBeInTheDocument());
+    expect(screen.getByText(/世界设定：2\/3 批内容被模型安全审核拒绝/)).toBeInTheDocument();
+  });
+
+  it("告警账可见：跳过章节的 warning 在完成态透出", async () => {
+    state.get.mockResolvedValue(detailOf("completed", {
+      warnings: ["1 章拆卡被模型拒绝或输出损坏已跳过（续拆可补）：第2章"],
+    }));
+    renderPage();
+    await waitFor(() => expect(screen.getByText(/有章节未纳入拆解/)).toBeInTheDocument());
+    expect(screen.getByText(/第2章/)).toBeInTheDocument();
+  });
+
+  it("失败按 error_kind 出口：provider_unavailable → 去换模型", async () => {
+    state.get.mockResolvedValue(detailOf("failed", {
+      error: "模型服务连续失败，任务已自动暂停，可稍后续拆或更换模型",
+      error_kind: "provider_unavailable",
+    }));
+    renderPage();
+    await waitFor(() => expect(screen.getByText(/模型服务暂时不可用或长时间无响应/)).toBeInTheDocument());
+    expect(screen.getByText("去换模型")).toBeInTheDocument();
+  });
+
+  it("失败按 error_kind 出口：auth → 去检查模型配置", async () => {
+    state.get.mockResolvedValue(detailOf("failed", {
+      error: "API Key 无效或无权限：401",
+      error_kind: "auth",
+    }));
+    renderPage();
+    await waitFor(() => expect(screen.getByText(/API Key、接口地址或模型名/)).toBeInTheDocument());
+    expect(screen.getByText("去检查模型配置")).toBeInTheDocument();
+  });
+
+  it("调用账：completed 态显示调用统计与重试数", async () => {
+    state.get.mockResolvedValue(detailOf("completed", {
+      stats: { card: { calls: 258, failures: 1, attempts: 260, duration_ms: 1, tokens_in: 0, tokens_out: 0 } },
+    }));
+    renderPage();
+    await waitFor(() => expect(screen.getByText(/拆卡 258 次（重试 2）/)).toBeInTheDocument());
+  });
+
+  it("已运行时长按 UTC 解析：2 分钟前创建显示 2 分而非时区偏移", async () => {
+    const utc = new Date(Date.now() - 2 * 60000).toISOString().replace(/\.\d+Z$/, "");
+    state.get.mockResolvedValue(detailOf("running", { created_at: utc }));
+    renderPage();
+    await waitFor(() => expect(screen.getByText("已运行 2 分")).toBeInTheDocument());
+  });
 });

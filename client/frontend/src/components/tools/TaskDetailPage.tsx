@@ -1,9 +1,12 @@
 // 任务详情页（c-deconstruct-book 5.5）：进行中（十步进度＋取消）/完成（目录树勾选＋出口
 // 二选一：建书摘要动态 N/7、导出 N 份）/失败与已取消（错误面板＋续拆）/需重传（重传引导）。
+// c-deconstruct-resilience：时间走 parseServerTime（UTC 口径，无时区偏移）；
+// 失败面板按 error_kind 给可执行出口；完成态透出降级维度与告警账。
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 import { toast } from "../../lib/toast";
+import { serverTimeMs } from "../../lib/serverTime";
 import { queryKeys } from "../../lib/queryKeys";
 import {
   cancelDeconstructTask,
@@ -122,7 +125,8 @@ export default function TaskDetailPage() {
     s == null ? "" : ` · 约剩 ${Math.max(1, Math.round(s / 60))} 分`;
   const elapsedLabel = (() => {
     if (!task.created_at) return "";
-    const ms = Date.now() - new Date(task.created_at).getTime();
+    // 服务端下发无时区 UTC 串——按本地解析会偏时区（存量 bug 口径，serverTime 单源）
+    const ms = Date.now() - serverTimeMs(task.created_at);
     if (!(ms > 0)) return "";
     const m = Math.floor(ms / 60000);
     return m < 1 ? "已运行 1 分内" : `已运行 ${m} 分`;
@@ -133,6 +137,20 @@ export default function TaskDetailPage() {
     if (p.step === "presence") return `进行中 · 在场补写 ${p.done ?? 0}/${p.total ?? 0} 章`;
     if (p.step === "place_merge") return "进行中 · 地点归并";
     return "进行中 · 图谱装配";
+  })();
+  // 降级维度（c-deconstruct-resilience）：分段稿/部分内容被拒——完成态不再「全绿但实际降级」
+  const degradedDims = DECONSTRUCT_DIMS.filter((d) => {
+    const st = task.dims?.[d.key];
+    return st?.state === "completed" && !!st.degraded;
+  }).map((d) => ({ name: d.name, reason: task.dims?.[d.key]?.degraded ?? "" }));
+  // 失败归因 → 可执行出口（文案不暴露内部术语；补救必带可点击出口）
+  const kindExit = (() => {
+    const k = task.error_kind ?? "";
+    if (k === "auth" || k === "config" || k === "route")
+      return { text: "模型配置可能有问题：API Key、接口地址或模型名不被接受。", cta: "去检查模型配置" };
+    if (k === "provider_unavailable" || k === "stalled" || k === "timeout" || k === "rate_limit")
+      return { text: "模型服务暂时不可用或长时间无响应，已自动暂停。可稍后从断点续拆，或换一个模型。", cta: "去换模型" };
+    return null;
   })();
 
   const act = async (fn: () => Promise<unknown>, after?: (r: unknown) => void) => {
@@ -300,6 +318,24 @@ export default function TaskDetailPage() {
               </span>
             </div>
           ) : null}
+          {degradedDims.length > 0 ? (
+            <div className="notice warn" data-od-id="degraded-dims" style={{ marginBottom: 18 }}>
+              <span className="nt">
+                <b>有 {degradedDims.length} 个维度是分段稿，内容可能不完整</b>
+                <span style={{ display: "block", marginTop: 4 }}>
+                  {degradedDims.map((d) => `${d.name}：${d.reason}`).join("；")}
+                </span>
+              </span>
+            </div>
+          ) : null}
+          {(task.warnings?.length ?? 0) > 0 ? (
+            <div className="notice warn" data-od-id="done-warnings" style={{ marginBottom: 18 }}>
+              <span className="nt">
+                <b>有章节未纳入拆解</b>
+                <span style={{ display: "block", marginTop: 4 }}>{task.warnings?.join("；")}</span>
+              </span>
+            </div>
+          ) : null}
           <div style={{ display: "flex", gap: 8, marginBottom: 18 }}>
             <button className="btn btn-primary" data-od-id="btn-exit" onClick={() => setExitOpen(true)}>
               选择去向
@@ -308,6 +344,23 @@ export default function TaskDetailPage() {
               再拆一本
             </Link>
           </div>
+          {task.stats && Object.keys(task.stats).length > 0 ? (
+            <div className="dim-group" data-od-id="call-stats" style={{ marginBottom: 10 }}>
+              调用统计 ·{" "}
+              {["card", "l1", "reduce", "presence", "place"]
+                .filter((s) => task.stats?.[s])
+                .map((s) => {
+                  const st = task.stats?.[s];
+                  const retry = Math.max(0, (st?.attempts ?? 0) - (st?.calls ?? 0));
+                  const retryTxt = retry > 0 ? `（重试 ${retry}）` : "";
+                  const nameMap: Record<string, string> = {
+                    card: "拆卡", l1: "归并", reduce: "收敛", presence: "在场补写", place: "地点归并",
+                  };
+                  return `${nameMap[s] ?? s} ${st?.calls ?? 0} 次${retryTxt}`;
+                })
+                .join(" · ")}
+            </div>
+          ) : null}
           <div className="dims" data-od-id="done-manifest">
             <div className="dim-group">
               结果目录 ·{" "}
@@ -372,6 +425,24 @@ export default function TaskDetailPage() {
               <Link className="btn btn-secondary btn-sm" to="/config" style={{ marginTop: 8 }}>
                 去换模型
               </Link>
+            </div>
+          ) : null}
+          {kindExit && !task.error.includes("内容安全审核") ? (
+            <div className="notice" data-od-id="kind-exit" style={{ marginTop: 10 }}>
+              <span className="nt">
+                <b>{kindExit.text}</b>
+              </span>
+              <Link className="btn btn-secondary btn-sm" to="/config">
+                {kindExit.cta}
+              </Link>
+            </div>
+          ) : null}
+          {(task.warnings?.length ?? 0) > 0 ? (
+            <div className="notice warn" data-od-id="task-warnings" style={{ marginTop: 10 }}>
+              <span className="nt">
+                <b>部分内容被跳过（可续拆补齐）</b>
+                <span style={{ display: "block", marginTop: 4 }}>{task.warnings?.join("；")}</span>
+              </span>
             </div>
           ) : null}
           <div style={{ display: "flex", gap: 8, margin: "18px 0" }}>

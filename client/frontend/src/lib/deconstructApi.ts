@@ -54,9 +54,34 @@ export interface DeconstructTaskDetail {
   graph?: { state: "ready" | "absent" | "error"; available: boolean; warnings: number; caps: boolean };
   /** 阶段三进度账（在场补写 n/m／地点归并／图谱装配）；缺席＝阶段三未开始或已结束 */
   graph_phase?: { step: "presence" | "place_merge" | "assemble"; done?: number; total?: number } | null;
-  dims: Record<string, { state: string; seg_done: number; seg_total: number; error: string; eta_seconds?: number | null }>;
+  dims: Record<string, {
+    state: string;
+    seg_done: number;
+    seg_total: number;
+    error: string;
+    eta_seconds?: number | null;
+    /** 降级注记（c-deconstruct-resilience）：分段稿/部分内容被拒绝等原因，warn 呈现 */
+    degraded?: string;
+  }>;
   products: { filename: string; size: number; dim: string }[];
   error: string;
+  /** 失败归因（c-deconstruct-resilience）：auth/config/route/provider_unavailable/
+   *  stalled/timeout/content_filter/truncated/invalid_output/rate_limit——失败面板按它给出口 */
+  error_kind?: string;
+  /** 任务级告警账：单元隔离的章级/批级失败留痕（不再「全绿但缺章」） */
+  warnings?: string[];
+  /** 换模型续拆历史：append-only */
+  model_history?: { api_config_id: string; ai_model: string; at: string }[];
+  /** 调用账（按阶段聚合）：calls/attempts/failures/tokens/duration */
+  stats?: Record<string, {
+    calls: number;
+    failures: number;
+    attempts: number;
+    duration_ms: number;
+    tokens_in: number;
+    tokens_out: number;
+    by_kind?: Record<string, number>;
+  }>;
   book_id: string | null;
   created_at: string | null;
   finished_at: string | null;
@@ -91,8 +116,15 @@ export async function deleteDeconstructTask(id: string): Promise<void> {
   await request(`/deconstruct/tasks/${id}`, { method: "DELETE" });
 }
 
-export async function resumeDeconstructTask(id: string): Promise<{ status: string }> {
-  return request(`/deconstruct/tasks/${id}/resume`, { method: "POST" });
+export async function resumeDeconstructTask(
+  id: string,
+  opts?: { apiConfigId?: string; model?: string },
+): Promise<{ status: string }> {
+  const body =
+    opts?.apiConfigId || opts?.model
+      ? { api_config_id: opts.apiConfigId, ai_model: opts.model }
+      : {};
+  return request(`/deconstruct/tasks/${id}/resume`, { method: "POST", body: JSON.stringify(body) });
 }
 
 export async function retryUploadDeconstructTask(id: string, file: File): Promise<{ status: string }> {
