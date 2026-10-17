@@ -14,7 +14,7 @@
 1. **完整副本**：解析构建产物 CSS（含 Tailwind 展开后的全部规则），在内存中逐条声明改写，树结构、规则顺序、选择器、`@media`/`@keyframes`/`!important` 全部原样保留；新增的只有文件末尾的 `--lgc-*` 令牌定义规则。
 2. **表达式去重**：每个不同的颜色表达式分配一个 `--lgc-N`；声明值里只写 `var(--lgc-N)`。同一表达式在多处复用同一个令牌。
 3. **主题展开**：`:root` 令牌表 + `:root[data-theme=…]` 覆盖（当前只有 `--accent`/`--accent-strong` 随主题变）。生成器对每个表达式分别用默认主题与 5 套主题的令牌表求值；只在值确实变化时，才在该主题的 `:root[data-theme="…"]` 里追加覆写。
-4. **内联样式收口**：旧内核兼容表只能覆盖样式表，内联样式里的 `oklch()`/`color-mix()` 无法在构建期替换。把 28 处内联用法收成 `base.css` 令牌（`--accent-2/5/6/8/20/35`、`--fg-4/30/75`、`--ok-15/25/72`、`--warn-72`、`--err-8/15/25/35/72`、`--chart-1..6`）；动态徽标色走 `withAlpha()` 运行时助手算成 rgba。构建前扫描 `src` 下的 `.ts/.tsx`，命中颜色函数即失败。
+4. **内联样式收口**：旧内核兼容表只能覆盖样式表，内联样式里的 `oklch()`/`color-mix()` 无法在构建期替换。把 28 处内联用法收成 `base.css` 令牌（`--accent-2/5/6/8/20/35`、`--fg-4/30/75`、`--ok-15/25/72`、`--warn-72`、`--err-8/15/25/35/72`、`--chart-1..6`）；动态徽标色走 `withAlpha()` 运行时助手算成 rgba。构建前扫描 `src` 下的 `.ts/.tsx`，命中颜色函数即失败。令牌定义落位在 `@cross-end` 之后的 C端本地段——不能写进 `@cross` 共享段，否则与 S端逐字校验漂移。
 5. **条件加载**：`dist/index.html` 原样式表之后注入同步脚本——
    `if (!(CSS.supports('color','oklch(…))' && CSS.supports('color','color-mix(in oklch, red, blue)'))) document.write('<link rel="stylesheet" href="./legacy-colors-<hash>.css">')`。
    `document.write` 在解析期同步插入，样式表按渲染阻塞资源处理，旧内核首帧即有样式，无闪烁。
@@ -39,6 +39,7 @@
 ## 验证证据（2026-10-17 本机）
 
 - Chromium（Playwright 1234）：139 表达式 × 6 主题 + 42 个颜色令牌 × 6 主题 = **1086 项，0 差异**。
+- `design:cross`（S_SERVER_DIR 指向以 origin/main 共享段模拟的 S端）：共享段零差异。
 - 原 CSS 哈希：构建 → 生成器前后一致；`npm run build` 连跑两次 legacy 产物哈希一致。
 - 全量 vitest：135 文件 / 1692 用例全绿；design:lint 无新增违规；内联扫描无命中。
 - 注入分支：模拟 `CSS.supports=false` 时页面出现且仅出现一个 `legacy-colors-<hash>.css` 链接；默认现代内核 0 个。

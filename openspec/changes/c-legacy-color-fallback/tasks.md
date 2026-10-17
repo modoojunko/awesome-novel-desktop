@@ -14,6 +14,7 @@
 
 - [x] 1.6 内联颜色收口：28 处 TSX 内联 `oklch()`/`color-mix()` 改令牌；动态徽标色走 `src/lib/color.ts` 的 `withAlpha()`；验证＝内联扫描零命中 + 全量单测
 - [x] 1.7 新增 `scripts/check-inline-colors.mjs` 扫描闸门并接入 `npm run build`；验证＝命中样例失败、真实 src 通过
+- [x] 1.9 共享段归位：组件色令牌移出 `@cross` 共享段，落在 `@cross-end` 之后；验证＝共享段与 origin/main 逐字一致 + 模拟 S端 `design:cross` 零差异
 - [x] 1.8 解析边界：显式非默认色相插值方法（longer/increasing/decreasing）抛错；`rgb()` 百分比 alpha 按 0–1 解析；验证＝单测
 
 ## 2. 构建接线

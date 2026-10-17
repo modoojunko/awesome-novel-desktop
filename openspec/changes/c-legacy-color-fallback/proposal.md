@@ -13,7 +13,7 @@
 ## What Changes
 
 - **构建期新增兼容表**：`client/frontend` 构建末尾生成 `dist/legacy-colors-<hash>.css`——原样式表的**完整副本**，把每个 `oklch()` / `color-mix()` 替换为构建期算好的具体 `rgb()/rgba()`（表达式去重后以 `--lgc-N` 令牌承载），主题相关的表达式按 `:root[data-theme="<key>"]` 展开为各主题的具体值。
-- **内联样式收口**：把 28 处内联 `oklch()`/`color-mix()`（用量饼图调色板、版本对比、引导卡、导入区、朱雀条等）收成设计令牌；动态徽标色改走 `withAlpha()` 运行时助手输出 rgba。构建新增 TS/TSX 扫描闸门，内联颜色函数直接构建失败。
+- **内联样式收口**：把 28 处内联 `oklch()`/`color-mix()`（用量饼图调色板、版本对比、引导卡、导入区、朱雀条等）收成设计令牌；动态徽标色改走 `withAlpha()` 运行时助手输出 rgba。构建新增 TS/TSX 扫描闸门，内联颜色函数直接构建失败。这批 C端组件专用令牌落位在 `@cross-end` 之后（共享段保持与 S端逐字一致，`design:cross` 校验）。
 - **条件加载**：构建期在 `dist/index.html` 的原样式表之后注入一段同步特性检测脚本；仅当内核不支持 `oklch()` 或 `color-mix()` 时 `document.write` 加载兼容表。现代内核不加载、不应用，渲染路径与今日完全一致。
 - **整份替换而非后置补丁**：兼容表是原表的完整副本（规则顺序、选择器、`@media`、`@keyframes` 全部保留），旧内核上后加载即整表生效——避免「追加覆盖层」在同权重规则上的层叠错位。
 - **生成期三道闸门**（任一失败＝构建红）：① 结构对拍：副本与原表逐节点比对规则/选择器/声明顺序/`!important`；② 残留检查：副本声明值不得再有 `oklch(`/`color-mix(`；③ 可解性：未知变量、未知语法（含 `color-mix` 非 oklch/srgb 空间）直接抛错，不静默产出错色。
@@ -38,5 +38,5 @@
 - `client/frontend/src/lib/color.ts`（新增）：`withAlpha()` 运行时混色助手（hex/rgb → rgba；不支持的形态回落 `--fg-soft`）。
 - `client/frontend/scripts/check-inline-colors.mjs`（新增）：TS/TSX 内联颜色函数扫描闸门，接入 `npm run build`。
 - 构建产物：新增 `dist/legacy-colors-<hash>.css`（≈204KB）与 `index.html` 中一段条件加载脚本；原 CSS 0 字节改动。
-- 验证：Chromium 对拍 139 个表达式 × 6 套主题（默认 + 5 主题色）＋ 42 个颜色令牌 × 6 套主题 ＝ 1086 项，新旧色值 **0 差异**；原 CSS 哈希构建前后一致；全量 vitest 135 文件 / 1692 用例绿。
+- 验证：`design:cross`（模拟 S端＝origin/main 共享段）零差异；Chromium 对拍 139 个表达式 × 6 套主题（默认 + 5 主题色）＋ 42 个颜色令牌 × 6 套主题 ＝ 1086 项，新旧色值 **0 差异**；原 CSS 哈希构建前后一致；全量 vitest 135 文件 / 1692 用例绿。
 - 明确不做：运行时缺失/损坏的 WebView2 修复（另案）；108 不支持的其它 CSS 能力（当前产物无）；固定版运行时随包（已按 ROI 否决，243MB vs 33MB）；S端同名令牌（独立仓，另案）。
