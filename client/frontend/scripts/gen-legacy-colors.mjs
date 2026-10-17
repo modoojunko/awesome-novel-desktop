@@ -206,7 +206,7 @@ function parseRgbColor(text) {
   const r = channel(parts[0]);
   const g = channel(parts[1]);
   const b = channel(parts[2]);
-  const a = parts[3] === undefined ? 1 : parseFloat(parts[3]);
+  const a = parts[3] === undefined ? 1 : parseNumberOrPercent(parts[3]);
   return srgbToOklch(r, g, b, a);
 }
 
@@ -278,10 +278,14 @@ function evalColorMix(text, tokens, stack) {
   const parts = splitTopLevel(inner, ",");
   if (parts.length !== 3) throw new Error(`color-mix 参数数量不对：${text}`);
   const space = parts[0].trim().replace(/\s+/g, " ");
-  const inOklch = /^in oklch(\s|$)/i.test(space);
-  const inSrgb = /^in srgb(\s|$)/i.test(space);
+  // 只接受默认短弧 oklch 或 srgb；显式指定 longer/increasing/decreasing 会算出
+  // 不同颜色，静默按短弧处理等于悄悄错色——宁可构建红。
+  const inOklch = /^in oklch(?:\s+shorter\s+hue)?$/i.test(space);
+  const inSrgb = /^in srgb$/i.test(space);
   if (!inOklch && !inSrgb) {
-    throw new Error(`不支持的颜色空间：${space}（仅支持 in oklch / in srgb）`);
+    throw new Error(
+      `不支持的颜色空间或色相插值方法：${space}（仅支持 in oklch / in oklch shorter hue / in srgb）`,
+    );
   }
   const c1 = parseColorOperand(parts[1], tokens, stack);
   const c2 = parseColorOperand(parts[2], tokens, stack);

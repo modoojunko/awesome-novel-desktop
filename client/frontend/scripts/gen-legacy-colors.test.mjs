@@ -106,6 +106,22 @@ describe("颜色数学", () => {
     expect(value).toBe(formatColor(parseOklch("oklch(0.74 0.055 85)")));
   });
 
+  it("显式非默认色相插值方法直接报错（不静默按短弧算）", () => {
+    expect(() =>
+      buildLegacyStylesheet(
+        ":root{--a:oklch(50% 0.1 100)}.x{color:color-mix(in oklch longer hue, var(--a), oklch(100% 0 0))}",
+      ),
+    ).toThrow(/色相插值方法/);
+  });
+
+  it("rgb() 百分比 alpha 按 0–1 解析", () => {
+    const { value } = compileValue(
+      "color-mix(in srgb, rgb(0 0 0 / 50%) 50%, rgb(255 255 255))",
+      new Map(),
+    );
+    expect(value).toBe("rgba(170, 170, 170, 0.75)");
+  });
+
   it("一个值里的多个颜色函数都替换", () => {
     const tokens = new Map([["--fg", "oklch(20% 0.02 240)"]]);
     const { value, replaced } = compileValue(

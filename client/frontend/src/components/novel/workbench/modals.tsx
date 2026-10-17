@@ -248,7 +248,7 @@ export function ArchiveModal({
         <p
           style={{
             margin: "10px 0 0", padding: "8px 10px", borderRadius: 6,
-            background: "color-mix(in oklch, var(--fg) 4%, transparent)", fontSize: 12.5,
+            background: "var(--fg-4)", fontSize: 12.5,
           }}
           data-testid="archive-rewarn"
         >

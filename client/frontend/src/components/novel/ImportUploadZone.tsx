@@ -111,7 +111,7 @@ export default function ImportUploadZone({
         style={{
           borderColor: dragging ? "var(--accent)" : "var(--border)",
           background: dragging
-            ? "color-mix(in oklch, var(--accent) 5%, transparent)"
+            ? "var(--accent-5)"
             : undefined,
         }}
         onClick={() => inputRef.current?.click()}

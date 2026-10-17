@@ -63,7 +63,7 @@ export default function MemberBlockPrompt() {
         <p
           className="text-sm"
           style={{
-            color: "color-mix(in oklch, var(--fg) 75%, transparent)",
+            color: "var(--fg-75)",
             padding: "6px 0 10px",
           }}
         >

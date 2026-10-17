@@ -24,6 +24,33 @@
   --fg-soft:   color-mix(in oklch, var(--fg) 5%, transparent);
   /* 浅一档的灰：弹窗 portal 在 .wb 外，必须全局定义（c-chapter-plan-ai） */
   --faint: color-mix(in oklch, var(--muted) 68%, transparent);
+  /* 组件内联色收口（c-legacy-color-fallback）：内联样式不得直接写颜色函数，
+     统一走令牌，构建期旧内核兼容表才能整份覆盖。 */
+  --accent-2:  color-mix(in oklch, var(--accent) 2%, transparent);
+  --accent-5:  color-mix(in oklch, var(--accent) 5%, transparent);
+  --accent-6:  color-mix(in oklch, var(--accent) 6%, transparent);
+  --accent-8:  color-mix(in oklch, var(--accent) 8%, transparent);
+  --accent-20: color-mix(in oklch, var(--accent) 20%, transparent);
+  --accent-35: color-mix(in oklch, var(--accent) 35%, transparent);
+  --fg-4:  color-mix(in oklch, var(--fg) 4%, transparent);
+  --fg-30: color-mix(in oklch, var(--fg) 30%, transparent);
+  --fg-75: color-mix(in oklch, var(--fg) 75%, transparent);
+  --ok-15:   color-mix(in oklch, var(--ok) 15%, transparent);
+  --ok-25:   color-mix(in oklch, var(--ok) 25%, transparent);
+  --ok-72:   color-mix(in oklch, var(--ok) 72%, transparent);
+  --warn-72: color-mix(in oklch, var(--warn) 72%, transparent);
+  --err-8:   color-mix(in oklch, var(--err) 8%, transparent);
+  --err-15:  color-mix(in oklch, var(--err) 15%, transparent);
+  --err-25:  color-mix(in oklch, var(--err) 25%, transparent);
+  --err-35:  color-mix(in oklch, var(--err) 35%, transparent);
+  --err-72:  color-mix(in oklch, var(--err) 72%, transparent);
+  /* 用量饼图调色板（内联样式只引用令牌） */
+  --chart-1: oklch(0.55 0.11 165);
+  --chart-2: oklch(0.66 0.11 75);
+  --chart-3: oklch(0.58 0.13 30);
+  --chart-4: oklch(0.55 0.08 255);
+  --chart-5: oklch(0.58 0.1 320);
+  --chart-6: oklch(0.6 0.08 210);
   --on-accent: oklch(100% 0 0);
   --shadow-card: 0 1px 2px color-mix(in oklch, var(--fg) 5%, transparent),
                  0 12px 32px -12px color-mix(in oklch, var(--fg) 14%, transparent);
