@@ -132,6 +132,18 @@ def test_trailing_tag_located():
     assert any(f["rule_id"] == "trailing_tag" and f["para"] == 0 for f in r["findings"])
 
 
+def test_quote_sandwich_needs_speech_verb():
+    """夹层＝「……」某人说，「……」：中段必须是说话标签；「台词＋动作＋台词」不误判。"""
+    true_pos = check_prose("「你来了。」他说，「我等了很久。」")
+    assert any(f["rule_id"] == "quote_sandwich" for f in true_pos["findings"])
+    # 动作节拍夹在两段台词之间：不是夹层（真人高频写法）
+    action_beat = check_prose("「吃。」阿槎把碗往他手边推了推，「查完这趟，天就该亮了。」")
+    assert not any(f["rule_id"] == "quote_sandwich" for f in action_beat["findings"])
+    # 「塞回去」里的「回」不是说话动词
+    action2 = check_prose("「七处。」陆沉把图角抽出来一点，又塞回去，「谁说得准。」")
+    assert not any(f["rule_id"] == "quote_sandwich" for f in action2["findings"])
+
+
 def test_halfwidth_and_nested_quote_are_err():
     r = check_prose("他走,她笑。“外层“内层”外层”。")
     ids = {f["rule_id"] for f in r["findings"]}

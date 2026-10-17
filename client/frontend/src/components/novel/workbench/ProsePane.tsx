@@ -1175,6 +1175,7 @@ const ProsePane = forwardRef<ProseHandle, ProsePaneProps>(function ProsePane(
         chapterRef={chapterRef}
         onClose={() => setRenweiOpen(false)}
         onMarkToBody={markRenweiToBody}
+        onClear={clearRenwei}
       />
       {/* 章际衔接修复向导（c-seam-refill）：入口同在右栏 AI 工具卡（openSeamWizard） */}
       <SeamWizard

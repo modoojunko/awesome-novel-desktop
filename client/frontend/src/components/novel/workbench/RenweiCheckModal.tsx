@@ -18,6 +18,8 @@ interface Props {
   onClose: () => void;
   /** 作家点「标记到正文」：把结果交给正文层上边注（父组件负责关弹窗） */
   onMarkToBody: (report: RenweiReport) => void;
+  /** 清除正文上的人味标注（结果页脚部；作家随时可撤） */
+  onClear: () => void;
 }
 
 const SEV_TEXT = { err: "一票否决", warn: "提示" } as const;
@@ -185,7 +187,7 @@ function Result({ report }: { report: RenweiReport }) {
   );
 }
 
-export default function RenweiCheckModal({ open, projectId, chapterRef, onClose, onMarkToBody }: Props) {
+export default function RenweiCheckModal({ open, projectId, chapterRef, onClose, onMarkToBody, onClear }: Props) {
   const [phase, setPhase] = useState<Phase>("intro");
   const [report, setReport] = useState<RenweiReport | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -246,6 +248,13 @@ export default function RenweiCheckModal({ open, projectId, chapterRef, onClose,
           )}
           {phase === "result" && !error && (
             <>
+              <button
+                className="btn btn-ghost"
+                data-testid="renwei-clear"
+                onClick={() => { onClear(); onClose(); }}
+              >
+                清除标注
+              </button>
               <button className="btn btn-secondary" data-testid="renwei-rerun" onClick={() => void run()}>
                 重新检测
               </button>

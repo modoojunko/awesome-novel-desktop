@@ -55,6 +55,7 @@ describe("RenweiCheckModal（人味检测四拍）", () => {
     chapterRef: "vol-1-ch-1",
     onClose: vi.fn(),
     onMarkToBody: vi.fn(),
+    onClear: vi.fn(),
   };
 
   it("首开是说明页＋流程图，不自动检测", () => {
@@ -103,6 +104,18 @@ describe("RenweiCheckModal（人味检测四拍）", () => {
     await waitFor(() => expect(screen.getByText(/没有发现明显问题/)).toBeTruthy());
     expect(screen.getByText(/不代表朱雀也放行/)).toBeTruthy();
     expect((screen.getByTestId("renwei-mark") as HTMLButtonElement).disabled).toBe(true);
+  });
+
+  it("清除标注：结果页脚部可撤（清空正文标记并关窗）", async () => {
+    const onClear = vi.fn();
+    const onClose = vi.fn();
+    mockCheck.mockResolvedValue(report());
+    render(<RenweiCheckModal {...base} onClear={onClear} onClose={onClose} />);
+    fireEvent.click(screen.getByTestId("renwei-start"));
+    await waitFor(() => expect(screen.getByTestId("renwei-clear")).toBeTruthy());
+    fireEvent.click(screen.getByTestId("renwei-clear"));
+    expect(onClear).toHaveBeenCalledTimes(1);
+    expect(onClose).toHaveBeenCalledTimes(1);
   });
 
   it("标记到正文：把报告交回父层（结果不自动上屏）", async () => {
