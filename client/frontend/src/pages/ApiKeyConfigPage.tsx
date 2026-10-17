@@ -258,7 +258,7 @@ export default function ApiKeyConfigPage() {
                 // 未重敲 Key：用已存密钥测；模型与思考参数按表单当前值覆盖（c-thinking-config）
                 thinking_enabled: data.thinking_enabled,
                 thinking_effort: data.thinking_effort,
-              })
+              }, data.skip_model_list) // 跳过清单接口同按表单当前勾选值覆盖（c-skip-model-list）
             : testRawConfig({
                 vendor_id: data.vendor_id,
                 base_url: data.base_url,
@@ -267,6 +267,7 @@ export default function ApiKeyConfigPage() {
                 model: data.model || null,
                 thinking_enabled: data.thinking_enabled,
                 thinking_effort: data.thinking_effort,
+                skip_model_list: data.skip_model_list,
               })
         }
         onFetchModels={async (data) => fetchRawModels(data)}

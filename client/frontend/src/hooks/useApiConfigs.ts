@@ -41,6 +41,7 @@ export function useApiConfigs() {
     models?: string[];
     thinking_enabled?: boolean;
     thinking_effort?: ThinkingEffort;
+    skip_model_list?: boolean;
   }): Promise<ApiConfig> => {
     let config: ApiConfig;
     try {
@@ -127,15 +128,18 @@ export function useApiConfigs() {
     return request(`/api-configs/${id}/refresh-models`, { apiBase: V1, method: "POST" });
   };
 
-  // model 可选（编辑弹窗改选模型后试连）：探针优先模型覆盖，缺省用已存 models 首项
+  // model 可选（编辑弹窗改选模型后试连）：探针优先模型覆盖，缺省用已存 models 首项；
+  // skipModelList 可选（c-skip-model-list）：跳过清单接口覆盖（表单当前勾选值），undefined 按已存值
   const testConfig = async (
     id: string,
     model?: string,
     thinking?: { thinking_enabled: boolean; thinking_effort: ThinkingEffort },
+    skipModelList?: boolean,
   ): Promise<{ ok: boolean; status: string; models?: string[]; error?: string }> => {
     const overrides = {
       ...(model ? { model } : {}),
       ...(thinking ?? {}),
+      ...(skipModelList !== undefined ? { skip_model_list: skipModelList } : {}),
     };
     const result = await request<
       Partial<ApiConfig> & { ok: boolean; status: string; error?: string }
@@ -171,6 +175,7 @@ export function useApiConfigs() {
     model?: string | null;
     thinking_enabled?: boolean;
     thinking_effort?: ThinkingEffort;
+    skip_model_list?: boolean;
   }): Promise<{ ok: boolean; status: string; models?: string[]; error?: string }> => {
     return request(`/api-configs/test-connection`, {
       apiBase: V1,

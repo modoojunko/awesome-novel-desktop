@@ -130,6 +130,26 @@ describe("ApiKeyConfigPage · 编辑态密钥安全", () => {
   });
 });
 
+describe("ApiKeyConfigPage · 跳过模型清单接口（c-skip-model-list）", () => {
+  it("编辑态未重敲 Key 试连：/test 体携带表单当前 skip_model_list 勾选值（true）", async () => {
+    stubApi();
+    renderPage();
+    await openEditForm();
+    const skip = screen.getByLabelText("该端点不提供模型清单接口（跳过自动获取）") as HTMLInputElement;
+    expect(skip.checked).toBe(false); // 已存无该值 → 默认关
+    fireEvent.click(skip);
+    fireEvent.click(within(document.querySelector(".mcard-foot") as HTMLElement).getByText("测试连接"));
+    await waitFor(() => {
+      expect(calls.some((c) => /\/api-configs\/c1\/test$/.test(c.url))).toBe(true);
+    });
+    const body = calls.find((c) => /\/api-configs\/c1\/test$/.test(c.url))!.body as {
+      skip_model_list?: boolean;
+      thinking_enabled?: boolean;
+    };
+    expect(body.skip_model_list).toBe(true); // 表单当前勾选值覆盖已存值
+  });
+});
+
 describe("ApiKeyConfigPage · 编辑态模型选择位", () => {
   it("改选模型后保存：PUT models 首项＝选中值，保留其余已存项", async () => {
     stubApi();

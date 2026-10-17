@@ -877,6 +877,8 @@ async def _restore_config(db, user_id: str, config_data: dict) -> dict:
             # 旧包无思考参数键 → 关（与旧版运行行为等价，c-thinking-config）
             thinking_enabled=bool(c.get("thinking_enabled", False)),
             thinking_effort=c.get("thinking_effort") or "low",
+            # 旧包无该键 → 关（c-skip-model-list）
+            skip_model_list=bool(c.get("skip_model_list", False)),
             api_key=encrypt_api_key(c.get("api_key") or ""),
             base_url=c.get("base_url") or "",
             models=c.get("models") or None,

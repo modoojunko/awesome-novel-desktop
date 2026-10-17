@@ -67,6 +67,7 @@ describe("ApiConfigForm 新建态", () => {
       api_format: "openai",
       thinking_enabled: false,
       thinking_effort: "low",
+      skip_model_list: false,
     });
   });
 
@@ -133,6 +134,7 @@ describe("ApiConfigForm 新建态", () => {
       api_format: "openai",
       thinking_enabled: false,
       thinking_effort: "low",
+      skip_model_list: false,
     });
   });
 
@@ -984,6 +986,117 @@ describe("ApiConfigForm 模型选择器覆盖补齐（CI 全局 100% 覆盖率�
     expect(await screen.findByText(/探针被拒/)).toBeTruthy();
     expect(await screen.findByText("已拉到 2 个模型")).toBeTruthy(); // 失败信封清单照常刷新
     expect(input().value).toBe("m-bad"); // 不自动改选（手填值保留），用户可从列表改选
+  });
+});
+
+describe("ApiConfigForm 跳过模型清单接口（c-skip-model-list）", () => {
+  const blurKey = () => fireEvent.blur(document.getElementById("cfKey")!);
+  const skipBox = () => screen.getByLabelText("该端点不提供模型清单接口（跳过自动获取）") as HTMLInputElement;
+  const fetchBtn = () => screen.getByText("获取模型").closest("button") as HTMLButtonElement;
+
+  it("勾选控件显隐：非 ollama 显示、ollama 隐藏；勾选显说明行，取消即收", () => {
+    render(<ApiConfigForm open onSubmit={vi.fn(async () => {})} onCancel={vi.fn()} />);
+    expect(skipBox()).toBeTruthy();
+    expect(screen.queryByText(/勾选后测试连接直接用手填模型名/)).toBeNull(); // 未勾选无说明行
+    fireEvent.click(skipBox());
+    expect(skipBox().checked).toBe(true);
+    expect(screen.getByText(/勾选后测试连接直接用手填模型名/)).toBeTruthy();
+    fireEvent.click(skipBox());
+    expect(screen.queryByText(/勾选后测试连接直接用手填模型名/)).toBeNull();
+    // ollama：控件与说明行都不渲染
+    fireEvent.click(screen.getByText("Ollama"));
+    expect(screen.queryByLabelText("该端点不提供模型清单接口（跳过自动获取）")).toBeNull();
+  });
+
+  it("勾选后自动获取全关：Key 失焦不拉、获取模型禁用＋title 出口；取消勾选恢复", async () => {
+    const onFetchModels = vi.fn(async () => ({ ok: true, status: "ok", models: ["m-1"] }));
+    render(
+      <ApiConfigForm open onSubmit={vi.fn(async () => {})} onCancel={vi.fn()} onFetchModels={onFetchModels} />,
+    );
+    fireEvent.click(screen.getByText("Kimi"));
+    setField("cfName", "x");
+    setField("cfKey", "sk-1");
+    fireEvent.click(skipBox()); // 先勾选再失焦：自动拉取关闸
+    blurKey();
+    await Promise.resolve();
+    expect(onFetchModels).not.toHaveBeenCalled();
+    expect(fetchBtn().disabled).toBe(true);
+    expect(fetchBtn().title).toBe("已跳过模型清单接口——手填模型 id 后用「测试连接」验证");
+    // 取消勾选：按钮恢复（Key/Base 已就绪），失焦重拉
+    fireEvent.click(skipBox());
+    expect(fetchBtn().disabled).toBe(false);
+    expect(fetchBtn().title).toBe("重新拉取模型清单");
+    blurKey();
+    await waitFor(() => expect(onFetchModels).toHaveBeenCalledTimes(1));
+  });
+
+  it("勾选后切供应商不触发自动拉取（含预填路径）；手填模型后提交与测试负载带 skip", async () => {
+    const onFetchModels = vi.fn(async () => ({ ok: true, status: "ok", models: ["m-1"] }));
+    const onTest = vi.fn(async () => ({ ok: true, status: "ok", models: [] }));
+    const onSubmit = vi.fn(async (_data: ApiConfigFormData) => {});
+    render(
+      <ApiConfigForm
+        open
+        onSubmit={onSubmit}
+        onCancel={vi.fn()}
+        onFetchModels={onFetchModels}
+        onTest={onTest}
+      />,
+    );
+    fireEvent.click(skipBox());
+    setField("cfName", "x");
+    fireEvent.click(screen.getByText("OpenAI 兼容")); // 无登记预填路径（有登记的走 prefillTo 同一闸）
+    setField("cfBase", "https://cb.example.com/v1");
+    setField("cfKey", "sk-1");
+    blurKey();
+    await Promise.resolve();
+    expect(onFetchModels).not.toHaveBeenCalled(); // 勾选期间全部拉取入口关闸
+    setField("cfModel", "hy3");
+    fireEvent.click(screen.getByText("测试连接"));
+    await waitFor(() => expect(onTest).toHaveBeenCalledTimes(1));
+    expect(onTest).toHaveBeenLastCalledWith(expect.objectContaining({ skip_model_list: true, model: "hy3" }));
+    fireEvent.submit(document.getElementById("api-config-form")!);
+    await waitFor(() => expect(onSubmit).toHaveBeenCalledTimes(1));
+    expect(onSubmit.mock.calls[0][0]).toMatchObject({ skip_model_list: true, model: "hy3" });
+  });
+
+  it("编辑态回读已存 skip 值；取消勾选保存带 false", async () => {
+    const onSubmit = vi.fn(async (_data: ApiConfigFormData) => {});
+    render(
+      <ApiConfigForm
+        open
+        config={editCfg({ vendor: "openai-compat", skip_model_list: true, models: ["hy3"] })}
+        onSubmit={onSubmit}
+        onCancel={vi.fn()}
+      />,
+    );
+    expect(skipBox().checked).toBe(true);
+    expect(screen.getByText(/勾选后测试连接直接用手填模型名/)).toBeTruthy();
+    fireEvent.click(skipBox()); // 取消勾选
+    fireEvent.submit(document.getElementById("api-config-form")!);
+    await waitFor(() => expect(onSubmit).toHaveBeenCalledTimes(1));
+    expect(onSubmit.mock.calls[0][0]).toMatchObject({ skip_model_list: false });
+  });
+
+  it("编辑态表单随编辑目标重置 skip 值（换 config 回读各自已存态）", () => {
+    const { rerender } = render(
+      <ApiConfigForm
+        open
+        config={editCfg({ skip_model_list: true })}
+        onSubmit={vi.fn(async () => {})}
+        onCancel={vi.fn()}
+      />,
+    );
+    expect(skipBox().checked).toBe(true);
+    rerender(
+      <ApiConfigForm
+        open
+        config={editCfg({ id: "c2", skip_model_list: false })}
+        onSubmit={vi.fn(async () => {})}
+        onCancel={vi.fn()}
+      />,
+    );
+    expect(skipBox().checked).toBe(false);
   });
 });
 

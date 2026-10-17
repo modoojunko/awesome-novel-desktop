@@ -54,6 +54,8 @@ class CreateApiConfigBody(BaseModel):
     # 思考参数（c-thinking-config）：开＝thinking:{type:enabled}＋reasoning_effort；关＝disabled
     thinking_enabled: bool = False
     thinking_effort: ThinkingEffort = "low"
+    # 跳过模型清单接口（c-skip-model-list）：端点无清单路由时测试直探对话
+    skip_model_list: bool = False
 
     @field_validator("vendor_id")
     @classmethod
@@ -77,6 +79,8 @@ class UpdateApiConfigBody(BaseModel):
     # 思考参数：None = 未传（不更新）
     thinking_enabled: bool | None = None
     thinking_effort: ThinkingEffort | None = None
+    # 跳过模型清单接口：None = 未传（不更新）
+    skip_model_list: bool | None = None
 
 
 class SetAiModelBody(BaseModel):
@@ -101,6 +105,7 @@ class ApiConfigResponse(BaseModel):
     api_format: str = "openai"
     thinking_enabled: bool = False
     thinking_effort: str = "low"
+    skip_model_list: bool = False
     base_url: str
     api_key_masked: str
     status: str
@@ -134,6 +139,7 @@ class ApiConfigResponse(BaseModel):
             api_format=row.get("api_format", "openai") or "openai",
             thinking_enabled=bool(row.get("thinking_enabled", False)),
             thinking_effort=row.get("thinking_effort", "low") or "low",
+            skip_model_list=bool(row.get("skip_model_list", False)),
             base_url=row.get("base_url", ""),
             api_key_masked=mask_api_key(raw_key),
             status=row.get("status", "active"),
@@ -219,18 +225,22 @@ class TestRawBody(BaseModel):
     # 思考参数（c-thinking-config）：探针按表单当前值发，与保存后的生成行为同判据
     thinking_enabled: bool = False
     thinking_effort: ThinkingEffort = "low"
+    # 跳过模型清单接口（c-skip-model-list）：勾选态（未保存）下测试直探对话
+    skip_model_list: bool = False
 
 
 class TestConfigBody(BaseModel):
     """已存配置连接测试的可选请求体（编辑弹窗改选模型/思考后试连）。
 
     model＝探针优先模型覆盖，缺省/空按已存 models 首项取；
-    thinking_enabled/thinking_effort＝思考参数覆盖（表单当前值），None 按已存值。
+    thinking_enabled/thinking_effort＝思考参数覆盖（表单当前值），None 按已存值；
+    skip_model_list＝跳过清单接口覆盖（表单当前勾选值，c-skip-model-list），None 按已存值。
     """
 
     model: str | None = None
     thinking_enabled: bool | None = None
     thinking_effort: ThinkingEffort | None = None
+    skip_model_list: bool | None = None
 
 
 class FetchModelsBody(BaseModel):

@@ -133,6 +133,7 @@ async def create_config(
             models=body.models,
             thinking_enabled=body.thinking_enabled,
             thinking_effort=body.thinking_effort,
+            skip_model_list=body.skip_model_list,
         )
         return result
     except ValueError as e:
@@ -178,6 +179,7 @@ async def test_raw_connection(
         preferred_model=body.model,
         thinking_enabled=body.thinking_enabled,
         thinking_effort=body.thinking_effort,
+        skip_model_list=body.skip_model_list,
     )
 
 
@@ -249,6 +251,8 @@ async def update_config(
         updates["thinking_enabled"] = body.thinking_enabled
     if body.thinking_effort is not None:
         updates["thinking_effort"] = body.thinking_effort
+    if body.skip_model_list is not None:
+        updates["skip_model_list"] = body.skip_model_list
 
     try:
         result = await update_api_config(db, _user_id(user), config_id, updates)
@@ -305,7 +309,8 @@ async def test_config(
 
     body 可选（编辑弹窗改选模型/思考后试连）：model＝探针优先模型覆盖（缺省/空按
     已存 models 首项取）；thinking_enabled/thinking_effort＝思考参数覆盖（表单当前
-    值，None 按已存值）——测试连接与保存后的生成行为同判据（c-thinking-config）。
+    值，None 按已存值）——测试连接与保存后的生成行为同判据（c-thinking-config）；
+    skip_model_list＝跳过清单接口覆盖（表单当前勾选值，None 按已存值）。
     """
     result = await _test_api_config(
         db,
@@ -314,6 +319,7 @@ async def test_config(
         preferred_model=body.model if body else None,
         thinking_enabled=body.thinking_enabled if body else None,
         thinking_effort=body.thinking_effort if body else None,
+        skip_model_list=body.skip_model_list if body else None,
     )
     if result.get("status") == "not_found":
         raise HTTPException(404, "配置不存在")

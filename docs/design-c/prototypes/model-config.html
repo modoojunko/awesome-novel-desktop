@@ -164,6 +164,9 @@
   .seg.lock { opacity: 0.45; pointer-events: none; }
   /* c-thinking-config：弹窗内提示行（组件同 model-config.css .cf-hint） */
   .cf-hint { margin: 6px 2px 0; font-size: 12px; color: var(--muted); line-height: 1.6; }
+  /* c-skip-model-list：无清单端点跳过自动获取（模型名称字段下的勾选控件，raw checkbox＋既有词汇） */
+  .cf-skip { display: flex; align-items: center; gap: 8px; margin-top: 8px; font-size: 13px; color: var(--fg); cursor: pointer; }
+  .cf-skip input { accent-color: var(--accent); width: 15px; height: 15px; flex: none; cursor: pointer; }
   .cf-hint code { font-family: var(--font-mono); font-size: 11.5px; word-break: break-all; }
 
   /* ─── 配置域页签（c-zhuque-ai-detect 登记：.cfg-tabs/.cfg-tab，激活态沿 seg 口径）─── */
@@ -517,6 +520,12 @@
           <div class="mp-err" id="cfModelErr" hidden><span id="cfModelErrMsg"></span><button type="button" class="mp-retry" id="cfModelRetry">重新拉取</button></div>
           <div class="mp-panel" id="cfModelPanel" hidden></div>
         </div>
+        <!-- c-skip-model-list：无清单端点（如 CloudBase 网关）跳过自动获取；ollama 不显示 -->
+        <label class="cf-skip" id="cfSkipWrap" hidden>
+          <input type="checkbox" id="cfSkip" />
+          <span>该端点不提供模型清单接口（跳过自动获取）</span>
+        </label>
+        <p class="cf-hint" id="cfSkipHint" hidden>勾选后测试连接直接用手填模型名验证对话接口，自动获取模型清单停用；可随时取消勾选恢复。</p>
       </div>
       <div class="tresult" id="cfTest" hidden></div>
     </div>
@@ -932,6 +941,9 @@ function openForm(edit) {
     renderVendors();
   }
   syncVendorUI();
+  // c-skip-model-list：编辑态回读已存值；供应商切换/ollama 显隐随 syncSkipUI
+  $('cfSkip').checked = !!(edit && edit.skip_model_list);
+  syncSkipUI();
   openModal('modalConfig');
   setTimeout(() => $('cfName').focus(), 60);
 }
@@ -947,6 +959,7 @@ document.querySelector('#cfVendors').addEventListener('click', e => {
   document.querySelectorAll('#cfVendors .vbtn').forEach(x => x.classList.toggle('on', x.dataset.v === selVendor));
   $('cfTest').hidden = true;
   syncVendorUI();
+  syncSkipUI();
   prefillTo(selVendor, selFormat);
   // 切供应商：旧端点清单作废（含指纹）；Key 已填或免 Key 即按新供应商重拉
   invalidatePicker();
@@ -965,6 +978,14 @@ document.querySelector('#fmtSeg').addEventListener('click', e => {
   invalidatePicker();
   if ($('cfKey').value.trim() || selVendor === 'ollama') fetchModelList();
 });
+
+// ── c-skip-model-list：跳过清单接口（ollama 隐藏；勾选显说明行；编辑态回读已存值） ──
+function syncSkipUI() {
+  const isOllama = selVendor === 'ollama';
+  $('cfSkipWrap').hidden = isOllama;
+  $('cfSkipHint').hidden = isOllama || !$('cfSkip').checked;
+}
+document.querySelector('#cfSkip').addEventListener('change', syncSkipUI);
 
 // ── c-thinking-config：思考模式＋强度（关闭时强度灰置、值保留；提示行随开关显隐） ──
 let selThinking = false;

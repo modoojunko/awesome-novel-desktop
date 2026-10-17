@@ -363,6 +363,8 @@ async def build_config_package_bytes(db, user_id: str) -> tuple[bytes, str]:
                 # 思考参数（c-thinking-config）：同上兼容契约，旧包无此键导入端兜底
                 "thinking_enabled": bool(getattr(c, "thinking_enabled", False)),
                 "thinking_effort": getattr(c, "thinking_effort", None) or "low",
+                # 跳过模型清单接口（c-skip-model-list）：同上兼容契约
+                "skip_model_list": bool(getattr(c, "skip_model_list", False)),
                 "api_key": decrypt_api_key(c.api_key) if c.api_key else "",
                 "base_url": c.base_url,
                 "models": c.models,
