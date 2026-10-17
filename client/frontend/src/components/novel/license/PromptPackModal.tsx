@@ -355,7 +355,7 @@ export default function PromptPackModal() {
       )}
       {stage === "failed" &&
         (denied ? (
-          <p className="pm-note">该能力随 MAX 提供——升级后解锁剧情推演、去 AI 味与文风蒸馏。</p>
+          <p className="pm-note">该能力随 MAX 提供——升级后解锁剧情推演与文风蒸馏。</p>
         ) : (
           <p className="pm-warn" data-testid="pack-fail-note">
             {failNote

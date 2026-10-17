@@ -95,7 +95,7 @@ export default function PromptPackCard() {
         <div className="lhead">
           <b>该能力随 MAX 提供</b>
         </div>
-        <p>升级 MAX 解锁剧情推演、去 AI 味与文风蒸馏；你的书与稿子不受影响。</p>
+        <p>升级 MAX 解锁剧情推演与文风蒸馏；你的书与稿子不受影响。</p>
         <button
           className="btn btn-primary btn-sm"
           data-od-id="pack-upgrade"

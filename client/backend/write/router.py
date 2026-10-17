@@ -24,8 +24,6 @@ def _advance_phase(project, target: str) -> None:
     不影响后续操作（write/archive 均为幂等入口）。
     """
     advance_phase(project, target)
-from write.ai_flavor_scan import build_problem_segments, quick_verdict, scan_prose
-from write.auxiliary import polish_text
 from write.quality import run_quality_checks
 
 router = APIRouter(
@@ -50,16 +48,17 @@ scan_router = APIRouter(
 )
 
 
-@scan_router.post("/ai-flavor-scan")
-async def ai_flavor_scan(
+@scan_router.post("/renwei-check")
+async def renwei_check(
     project_id: str,
     chapter_ref: str,
     user: dict = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    """AI 味检查（c-deai-wizard ①）：本地确定性规则扫描＋读朱雀存档，合并问题段清单。
+    """人味检测（c-renwei-check）：纯本地确定性体检——19 项指纹＋人味率＋定位 findings。
 
-    0 模型 0 检测额度；无检测存档时 detector.stored=false（规则模式）。
+    0 模型 0 额度 0 外发：只挂登录（无档位门、无 Key 门、无配置态），读盘正文同步计算；
+    不写 TokenLog。短章（<1500 字）score=null＝「打不了分」，findings/不计分项照常。
     """
     project = await get_novel(db, project_id, user["id"])
     if not project:
@@ -70,30 +69,12 @@ async def ai_flavor_scan(
         raise HTTPException(404, "章不存在")
     prose = chapter.get("prose") or ""
     if not prose.strip():
-        raise HTTPException(400, "先写正文，再跑 AI 味检查")
+        raise HTTPException(400, "先写正文，再做体检")
 
-    report = scan_prose(prose)
-    paragraphs = [p.strip() for p in prose.split("\n") if p.strip()]
+    from write.renwei_check import check_prose
 
-    from zhuque.service import get_stored_result
-
-    stored = await get_stored_result(db, project_id=project_id, chapter_ref=chapter_ref)
-    result = stored.get("result") if isinstance(stored.get("result"), dict) else {}
-    summary = result.get("summary") if isinstance(result.get("summary"), dict) else {}
-    stored_segments = result.get("segments") if isinstance(result.get("segments"), list) else None
-    human_ratio = summary.get("human_ratio") if stored.get("stored") else None
-
-    problems = build_problem_segments(paragraphs, report, stored_segments)
-    return {
-        "ok": True,
-        "report": report,
-        "problems": problems,
-        "detector": {
-            "stored": bool(stored.get("stored")),
-            "human_ratio": human_ratio,
-            "stale_hint": None,
-        },
-    }
+    report = check_prose(prose)
+    return {"ok": True, **report}
 
 
 @router.post("/quality-check")
@@ -672,78 +653,3 @@ async def refill_chapter(
 
 
 
-@router.post("/polish")
-@ai_feature("ai-polish")
-async def polish_writing(
-    project_id: str,
-    chapter_ref: str,
-    body: dict,
-    user: dict = Depends(get_current_user),
-    _: bool = Depends(require_ai_access),
-    __: bool = Depends(require_novel_model),
-    db: AsyncSession = Depends(get_db),
-):
-    """Polish selected text (non-streaming)."""
-    project = await get_novel(db, project_id, user["id"])
-    if not project:
-        raise HTTPException(404, "Project not found")
-    _validate_ref(chapter_ref)
-
-    selected_text = body.get("selected_text", "")
-    if not selected_text:
-        raise HTTPException(400, "selected_text is required")
-    context_before = body.get("context_before", "")
-    context_after = body.get("context_after", "")
-    surrounding_context = (context_before + "\n" + context_after).strip()
-
-    usage: dict = {}
-    try:
-        text = await polish_text(
-            project.id, project.root_path, chapter_ref, selected_text, surrounding_context, usage=usage
-        )
-    except AITimeoutError:
-        from api_configs.usage import record_usage
-
-        await record_usage(
-            db, user_id=project.user_id, project_id=project.id,
-            chapter_id=chapter_ref, operation="polish_fail",
-            model=effective_model(project), force=True,
-        )
-        raise HTTPException(502, "AI 服务响应超时，请稍后重试")
-    except Exception as e:  # noqa: BLE001 — 失败也留痕（调用已发生）
-        from api_configs.usage import record_usage
-
-        await record_usage(
-            db, user_id=project.user_id, project_id=project.id,
-            chapter_id=chapter_ref, operation="polish_fail",
-            model=effective_model(project),
-            tokens_in=usage.get("tokens_in", 0), tokens_out=usage.get("tokens_out", 0),
-            force=True,
-        )
-        raise HTTPException(502, f"AI 生成失败，可重试：{e!s}") from e
-    from api_configs.usage import record_usage
-
-    await record_usage(
-        db,
-        user_id=project.user_id,
-        project_id=project.id,
-        chapter_id=chapter_ref,
-        operation="polish",
-        model=effective_model(project),
-        tokens_in=usage.get("tokens_in", 0),
-        tokens_out=usage.get("tokens_out", 0),
-    )
-    # c-deai-wizard：程序化派生（非模型自报）——changed 供向导区分「确诊零合法无操作」，
-    # flags 为改稿快扫（新增红线 blocking／字数带等 advisory）。老客户端忽略附加字段。
-    folded = lambda s: "".join(str(s or "").split())  # noqa: E731
-    from settings.style_model import read_style_migrated
-
-    style = await read_style_migrated(project.root_path)
-    banned_words = [str(w) for w in (style.get("banned_words") or [])]
-    verdict = quick_verdict(selected_text, text, banned_words)
-    return {
-        "polished_text": text,
-        "changed": folded(text) != folded(selected_text),
-        "flags": verdict["flags"],
-        "flags_blocking": verdict["blocking"],
-    }

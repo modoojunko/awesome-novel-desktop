@@ -83,12 +83,6 @@ const MAX_BENEFITS: Benefit[] = [
     desc: "先定走法再逐步推演；走法可收进本章剧情条目。",
   },
   {
-    icon: ICON_BOOK,
-    stroke: true,
-    title: "去AI味",
-    desc: "选中段落去掉机器腔，对照预览后替换。",
-  },
-  {
     icon: ICON_SHIELD,
     stroke: true,
     title: "文风蒸馏",
@@ -101,7 +95,7 @@ const TIER_PITCH: Record<TierKey, { title: string; rows: Benefit[] }> = {
   free: { title: "升级 PRO · 解锁 AI 能力", rows: PRO_BENEFITS },
   standard: { title: "升级标准 · 解锁 AI 能力", rows: STANDARD_BENEFITS },
   pro: { title: "升级 PRO · 解锁 AI 能力", rows: PRO_BENEFITS },
-  max: { title: "升级 MAX · 解锁剧情推演与去 AI 味", rows: MAX_BENEFITS },
+  max: { title: "升级 MAX · 解锁剧情推演与文风蒸馏", rows: MAX_BENEFITS },
 };
 
 export default function UpgradeModal({

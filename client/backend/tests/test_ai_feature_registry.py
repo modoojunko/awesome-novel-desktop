@@ -36,7 +36,6 @@ REQUIRED_CONSUMERS = (
     "ai-generate",
     "prompt-panel",
     "ai-plot",
-    "ai-polish",
     "ai-detect",
 )
 

@@ -62,7 +62,6 @@ export function AiAssistPanel({
   staleDownstream,
   aiState,
   proseRef,
-  onAiSelection,
   onRunReconcile,
   onFillGaps,
   gapsLoading,
@@ -93,13 +92,9 @@ export function AiAssistPanel({
   onUpgrade?: (required?: FeatureKey) => void;
   /** chapter-rewrite：下游「基于旧设定」章计数（无数据时显示「—」） */
   staleDownstream?: number;
-  /** 正文页签的选区动作通道（去AI味） */
+  /** 正文页签的 AI 状态（生成/续写） */
   aiState?: ProseAIState;
   proseRef?: RefObject<ProseHandle | null>;
-  onAiSelection?: (
-    mode: "polish",
-    capture: ReturnType<ProseHandle["captureNow"]>,
-  ) => void;
   /** 按类触发本章收尾（伏笔「登记新伏笔」入口）；产出在「伏笔」页签待确认 */
   onRunReconcile?: (kind: "hooks") => void;
   /** 章纲缺项补全（AI 产物 patch 到章纲表单，由既有保存链落库） */
@@ -131,7 +126,6 @@ export function AiAssistPanel({
   const aiPlan = useFeature("ai-plan");
   const aiGenerate = useFeature("ai-generate");
   const aiPlot = useFeature("ai-plot");
-  const aiPolish = useFeature("ai-polish");
   const styleSuggest = useFeature("style-suggest");
   const { isMember } = useTier();
   const [zqConfigured, setZqConfigured] = useState<boolean | null>(null);
@@ -426,7 +420,7 @@ export function AiAssistPanel({
     ];
     footNote = "章纲动作的结果都回填到中栏章纲表单，检查修改后落库（3 秒静默自动保存兜底）。";
   } else if (tab === "prose") {
-    running = aiState?.polishLoading ? "polish" : zq.state.status === "running" ? "zhuque" : null;
+    running = zq.state.status === "running" ? "zhuque" : null;
     const streaming = !!aiState?.streaming;
     const pct = planWords ? Math.min(100, Math.round((wordCount / planWords) * 100)) : null;
     targetLine = (
@@ -451,20 +445,6 @@ export function AiAssistPanel({
         disabled: streaming || archived,
         hint: archived ? "已归档 · 恢复编辑后可用" : streaming ? "生成中" : undefined,
         testid: "ai-write-btn",
-      }),
-      // c-deai-wizard：修稿向导（整章清单驱动；规则模式不要求检测存档）——
-      // 取代旧「去AI味」选区单发（c-retire-selection-transforms 遗留），入口收敛为一个
-      cap("polish-wizard", "去AI味", "整章按问题清单逐段清AI味——查问题/选段落/改稿/应用，全程你拍板", {
-        onClick: () => proseRef?.current?.openPolishWizard?.(),
-        disabled: streaming || !aiPolish || wordCount === 0 || archived
-          || zq.state.status === "running" || zq.state.stale,
-        hint: !aiPolish ? upgradeHintOf("ai-polish")
-          : wordCount === 0 ? "先写正文"
-          : zq.state.status === "running" ? "检测中"
-          : zq.state.stale ? "正文已修改，先到顶部重检"
-          : archived ? "已归档 · 先恢复编辑再用向导"
-          : undefined,
-        testid: "ai-polish-wizard",
       }),
     ];
     // c-zhuque-ai-detect：朱雀检测行（四态）
@@ -512,6 +492,20 @@ export function AiAssistPanel({
         disabled: (!maxlk && !guide && wordCountEmpty) || !!streaming,
       });
     }
+    // c-renwei-check：人味检测行（本地指纹体检——零额度、不上传、无门控无配置态）
+    rows.push({
+      key: "renwei",
+      name: "人味检测 · 查哪里像 AI",
+      desc: wordCount === 0
+        ? "先写正文，再让本地规则圈出像 AI 的句子——免费、不花朱雀额度"
+        : "朱雀说 AI 味重？用它圈出具体哪里像 AI、怎么改；免费，正文不出本机",
+      badge: <span className="pill pill-accent">本地 · 免费</span>,
+      onClick: () => proseRef?.current?.openRenweiCheck?.(),
+      disabled: streaming || wordCount === 0,
+      hint: streaming ? "生成中" : wordCount === 0 ? "先写正文" : undefined,
+      testid: "rail-renwei-check",
+      odId: "rail-renwei-check",
+    });
     // c-seam-refill：章际衔接修复向导入口（检查→重写方案三选一→对照→应用）
     rows.push({
       key: "seam-check",
@@ -524,7 +518,7 @@ export function AiAssistPanel({
       disabled: wordCount === 0 || !!streaming,
     });
     footNote =
-      "去AI味作用于正文编辑器；朱雀检测整章送检，结果在标题右侧的结果条里，段落标注打在正文行上。检测需在「模型配置 → 朱雀」配好 Key（PRO 会员权益）。";
+      "人味检测与朱雀检测作用于正文：人味检测本地免费、圈出像 AI 的句子并在正文边上给改法；朱雀整章送检看概率，需在「模型配置 → 朱雀」配好 Key（PRO 会员权益）。";
   } else if (tab === "settings") {
     targetLine = loreStats ? (
       <>本章变化 {loreStats.here} 条 · 截至本章条目 {loreStats.until} 条</>

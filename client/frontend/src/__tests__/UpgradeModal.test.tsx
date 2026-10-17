@@ -75,8 +75,8 @@ describe("UpgradeModal · 目标档（tier_required）", () => {
 
     seed(V2_PRO);
     renderModal({}, "pro");
-    expect(screen.getByText("升级 MAX · 解锁剧情推演与去 AI 味")).toBeTruthy();
-    expect(screen.getByText(/去AI味/)).toBeTruthy();
+    expect(screen.getByText("升级 MAX · 解锁剧情推演与文风蒸馏")).toBeTruthy();
+    expect(screen.getAllByText(/文风蒸馏/).length).toBeGreaterThan(0);
     expect(screen.queryByText(/AI 生成正文（流式输出）/)).toBeNull();
   });
 
@@ -84,7 +84,7 @@ describe("UpgradeModal · 目标档（tier_required）", () => {
     seed(V2_PRO, "trial");
     renderModal({ required: "ai-plan" }, "trial");
     // trial 已含 ai-plan（标准件）→ 不出「升级标准」，按下一档＝MAX
-    expect(screen.getByText("升级 MAX · 解锁剧情推演与去 AI 味")).toBeTruthy();
+    expect(screen.getByText("升级 MAX · 解锁剧情推演与文风蒸馏")).toBeTruthy();
     expect(screen.queryByText("升级标准 · 解锁 AI 能力")).toBeNull();
   });
 

@@ -24,7 +24,7 @@ const STANDARD_FEATURES: FeatureKey[] = [
 
 const PRO_FEATURES: FeatureKey[] = ["ai-generate", "prompt-panel", "ai-detect"];
 
-const MAX_FEATURES: FeatureKey[] = ["ai-plot", "ai-polish", "style-quant"];
+const MAX_FEATURES: FeatureKey[] = ["ai-plot", "style-quant"];
 
 describe("档位名与锁文案单源（c-rail-tier-badge）", () => {
   it("tierLabel 是档位名唯一来源；upgradeHintOf 与它同源（徽标不会与行内 hint 说两套）", () => {
@@ -35,7 +35,6 @@ describe("档位名与锁文案单源（c-rail-tier-badge）", () => {
     const pairs: Array<[FeatureKey, TierKey]> = [
       ["ai-plan", "standard"],
       ["ai-detect", "pro"],
-      ["ai-polish", "max"],
     ];
     for (const [key, tier] of pairs) {
       expect(minTierOf(key), key).toBe(tier);

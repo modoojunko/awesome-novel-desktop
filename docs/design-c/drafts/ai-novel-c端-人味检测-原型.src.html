@@ -1,0 +1,1526 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>设计原型 · 人味检测（本地指纹体检）</title>
+<!-- ═════════════════════════════════════════════════════════════
+  设计原型 · 人味检测（本地指纹体检）· 2026-10-17
+  · 背景：与「朱雀 AI 检测」并列的第二路检测——纯本地规则体检（0 额度、毫秒级、
+    正文不上传），指标与真人基线来自《可量化标准总表_2026-10-10》（拆文库 8 本
+    × 320 章）。朱雀回答「整篇多像 AI」（概率），人味检测回答「哪几处不像人、
+    差在哪项标准」（病灶定位）。两者独立并行，互不读写对方数据。
+  · 底座口径（design-c-proto-real-ui-basis v3，2026-10-17 二次更新）：页面骨架为
+    真机抓取——ownbook-captures/dom-write.html（.app-shell outerHTML，独立栈真跑
+    当日系统所得）＋ownbook-captures/real.css（逐路由累积真实样式），build 时整段
+    逐字注入，抓取 DOM 零改动；演示嫁接（章视图＋章右栏＋人味检测全部 UI）以
+    <template> 运行时挂载进真壳，章节标签映射到真书《沉船》：第1章 河底的灯＝
+    问题草稿、第2章 第一位客人＝干净章。演示种子调整均标注「演示种子调整」。
+  · 样式：真实 base.css / book.css 由 build-renwei-proto.py 从 pages/book-write.html
+    <style> 逐字抽取注入（占位符替换，可重放）。新增件只用 rw- 前缀类，颜色/
+    圆角/阴影/字体只用真实 token（color-mix 派生），不重定义 token。
+  · 快照差异复刻：pages/book-write.html 快照（09-25）早于朱雀标注上线（10-08），
+    .zq-* 段落色带/胶囊/章头占比条按现行 client/frontend/src/design/book.css
+    （2059-2085 行）逐字复刻进 graft 块——是「既有功能的演示替身」，非新增设计。
+  · 新功能（本原型主题）：
+    ① 入口：右栏「检测」区，朱雀行之下，「人味检测 · 本地 · 免费」，无配置无门槛。
+    ② 报告弹窗（.mcard.wb-style）：人味距离总分＋档位（像人 ≤0.7 / 存疑 ≤1.2 /
+       偏机器 <1.9 / 机器味重 ≥1.9）＋定位问题清单（段号＋摘录高亮＋依据与真人
+       参考＋改法；红＝一票否决、黄＝提示）＋整章指纹表（16 项 vs 达标线 vs 真人
+       基线）＋脚部「清除标注 / 重新检测 / 去 AI 味修稿」。
+    ③ 正文标注：问题段墨绿批注系（左竖条＋淡底＋段角胶囊），与朱雀黄/红荧光带
+       同屏并存互不覆盖（两套标注各有挂点：朱雀段角右上、人味段角左上）。
+       用墨绿批注系而非另引蓝色，遵守全站单一主色规范；拍板点见设计说明。
+    ④ stale 差异：正文一改，人味标注即自动清除（零成本重测即新，不需要灰态）；
+       朱雀结果置灰（检测花额度，保留「可能过期」语义）——与真机两套机制一致。
+  · 屏④ 干净章对照：第 13 章（已归档）零发现＋「像人」档，示范好稿形态。
+  · 数字诚实：两章演示正文的 16 项指纹、人味距离、字数全部由
+    check-renwei-demo.py 从本文件正文实算并 --assert 对拍；朱雀占比（62/26/12）
+    为外部检测演示种子，不参与实算。演示正文为合成文本，预埋病灶均可定位。
+  · 设计说明与拍板点：同目录《ai-novel-c端-人味检测-设计说明.md》。
+  · 重放：python3 docs/design-c/drafts/build-renwei-proto.py
+    （源模板 本文件 → ai-novel-c端-人味检测-原型.html，幂等）
+═══════════════════════════════════════════════════════════════ -->
+<style>
+/*__INJECT_REAL_CSS__*/
+/* 真机壳缺的嫁接前置 token（real.css 未含 --shadow-pop） */
+:root { --shadow-pop: 0 18px 50px -12px color-mix(in oklch, var(--fg) 26%, transparent); }
+
+/* ══════════ 新增 graft（rw- 前缀；token 取真实值，未重定义任何 token） ══════════ */
+
+/* ── 原型演示条（非基线元素 · 产品 UI 不含） ── */
+.rw-demobar { position: sticky; top: 0; z-index: 90; display: flex; align-items: center; gap: 12px; flex-wrap: wrap;
+  background: var(--surface); border-bottom: 1px solid var(--border); padding: 8px 16px;
+  font-size: 12px; color: var(--muted); box-shadow: var(--shadow-card); }
+.rw-demo-title { font-family: var(--font-display); font-size: 14px; font-weight: 600; color: var(--fg); }
+.rw-demo-title em { font-style: normal; font-family: var(--font-mono); font-size: 10px; letter-spacing: 0.12em;
+  color: var(--accent-strong); border: 1px solid var(--border); border-radius: 999px; padding: 2px 8px; margin-right: 8px; }
+.rw-demo-note { font-size: 11px; color: var(--muted); border: 1px dashed var(--border); border-radius: 999px; padding: 3px 10px; }
+.rw-demo-seg { display: inline-flex; gap: 2px; background: var(--fg-soft); border-radius: 999px; padding: 2px; }
+.rw-demo-seg button { border: 0; background: transparent; color: var(--muted); font-size: 11.5px; padding: 3px 10px; border-radius: 999px; cursor: pointer; }
+.rw-demo-seg button.on { background: var(--surface); color: var(--fg); box-shadow: 0 1px 2px color-mix(in oklch, var(--fg) 8%, transparent); font-weight: 500; }
+
+/* ── 快照差异复刻：朱雀标注（既有功能演示替身；逐字取自现行 book.css 2059-2085，
+   快照未含；.editor 补 --zq-lh 与 p{position:relative} 同源自现行） ── */
+.editor { --zq-lh: 2; }
+.editor p { position: relative; }
+.zq-hd { flex: none; align-self: center; width: 330px; min-width: 0; }
+.zq-hd .hd-bar { display: flex; height: 7px; border-radius: 999px; overflow: hidden; background: var(--fg-soft); }
+.zq-hd .hd-bar i { display: block; height: 100%; }
+.zq-hd .hd-ratio { display: flex; gap: 12px; margin-top: 7px; font-size: 12px; color: var(--muted); flex-wrap: wrap; align-items: center; }
+.zq-hd .hd-ratio .lg { display: inline-flex; align-items: center; gap: 4px; }
+.zq-hd .hd-ratio .lg i { width: 7px; height: 7px; border-radius: 2px; flex: none; }
+.zq-hd .hd-ratio .lg b { color: var(--fg); font-weight: 500; font-family: var(--font-mono); }
+.zq-hd .hd-act { margin-left: auto; display: inline-flex; gap: 2px; }
+.zq-hd .hd-act .btn { font-size: 11px; height: 22px; padding: 0 7px; }
+.zq-hd.stale .hd-bar { opacity: 0.35; }
+.zq-hd.stale .hd-ratio { opacity: 0.55; }
+.editor p.zq-warn, .editor p.zq-err { --zq-gap: 0.15em; background-image: repeating-linear-gradient(to bottom, transparent 0, transparent var(--zq-gap), var(--zq-tint) var(--zq-gap), var(--zq-tint) calc(1em * var(--zq-lh) - var(--zq-gap)), transparent calc(1em * var(--zq-lh) - var(--zq-gap)), transparent calc(1em * var(--zq-lh))); }
+.editor p.zq-warn { --zq-tint: var(--warn-soft); }
+.editor p.zq-err { --zq-tint: var(--err-soft); }
+.editor p.zq-stale { background-image: none; }
+.zq-mark { position: absolute; right: -6px; top: -4px; font-family: var(--font-mono); font-size: 10.5px; line-height: 1; padding: 3px 8px; border-radius: 999px; white-space: nowrap; pointer-events: none; }
+.zq-mark.m-warn { background: var(--warn-soft); color: color-mix(in oklch, var(--warn) 85%, var(--fg)); }
+.zq-mark.m-err { background: var(--err-soft); color: color-mix(in oklch, var(--err) 90%, var(--fg)); font-weight: 600; }
+.zq-mark.stale { background: var(--fg-soft); color: var(--muted); }
+
+/* ── 新功能：人味标注（墨绿批注系——左竖条＋淡底＋段角胶囊；与朱雀荧光带不同形，
+      不共用任何 class/挂点。用全站唯一主色派生，遵守单一主色规范） ── */
+.editor p.rw-mark { background-color: color-mix(in oklch, var(--accent) 7%, transparent);
+  box-shadow: inset 3px 0 0 color-mix(in oklch, var(--accent) 45%, transparent); }
+.rw-p { position: absolute; left: 0; top: -11px; display: inline-flex; align-items: center; gap: 5px;
+  font-family: var(--font-mono); font-size: 10.5px; line-height: 1; padding: 3px 8px; border-radius: 999px;
+  background: var(--surface); border: 1px solid var(--border); color: var(--muted); white-space: nowrap; pointer-events: none; }
+.rw-p i { width: 6px; height: 6px; border-radius: 50%; flex: none; }
+.rw-p.err i { background: var(--err); }
+.rw-p.warn i { background: var(--warn); }
+
+/* ── 新功能：正文窗格（快照无正文页签内容，此为真机 ProsePane 同位演示替身） ── */
+.rw-prosepane { flex: 1; min-height: 0; display: flex; flex-direction: column; background: var(--bg); }
+.rw-prosepane .e-head { flex: none; padding: 10px 18px 8px; border-bottom: 1px solid var(--border); background: var(--surface); }
+.rw-prosepane .e-title { font-family: var(--font-display); font-size: 15px; font-weight: 600; color: var(--fg); }
+.rw-status-note { font-size: 11.5px; color: var(--muted); }
+
+/* ── 新功能：报告弹窗（壳为真实 .mcard.wb-style） ── */
+.mcard.wb-style.rw-modal { width: min(700px, 94vw); }
+.rw-modal .mcard-body { display: flex; flex-direction: column; overflow-y: auto; max-height: min(66vh, 620px); }
+.rw-modal .mcard-foot .btn { flex: none; white-space: nowrap; }
+.rw-modal .mh { display: inline-flex; align-items: center; gap: 7px; }
+.rw-modal .mh svg { width: 16px; height: 16px; color: var(--accent); }
+
+.rw-score { display: flex; align-items: center; gap: 12px; flex-wrap: wrap;
+  padding: 12px 14px; border: 1px solid var(--border); border-radius: var(--radius-lg); background: var(--fg-soft); }
+.rw-score .num { font-family: var(--font-display); font-size: 34px; font-weight: 600; line-height: 1; }
+.rw-score .k { font-size: 12px; color: var(--muted); }
+.rw-band { font-size: 12px; padding: 3px 10px; border-radius: 999px; font-weight: 500; }
+.rw-band.ok { background: var(--ok-soft); color: color-mix(in oklch, var(--ok) 85%, var(--fg)); }
+.rw-band.warn { background: var(--warn-soft); color: color-mix(in oklch, var(--warn) 85%, var(--fg)); }
+.rw-band.err { background: var(--err-soft); color: color-mix(in oklch, var(--err) 90%, var(--fg)); }
+.rw-score .exp { flex-basis: 100%; font-size: 11.5px; color: var(--muted); line-height: 1.7; }
+.rw-score .num .pct { font-size: 16px; color: var(--muted); margin-left: 2px; font-weight: 500; }
+
+.rw-prio { border: 1px solid color-mix(in oklch, var(--accent) 30%, transparent); background: color-mix(in oklch, var(--accent) 5%, transparent); border-radius: var(--radius-lg); padding: 11px 13px; }
+.rw-prio-item { display: flex; gap: 9px; align-items: baseline; padding: 4px 0; font-size: 12.5px; color: var(--fg); line-height: 1.65; }
+.rw-prio-item .pw { flex: none; font-family: var(--font-mono); font-size: 10.5px; color: var(--accent-strong); border: 1px solid var(--border); background: var(--surface); border-radius: 999px; padding: 1px 8px; }
+.rw-prio-item b { font-weight: 600; flex: none; }
+.rw-prio-item span { color: var(--muted); min-width: 0; }
+.rw-prio-note { margin: 7px 0 0; font-size: 11px; color: var(--muted); border-top: 1px dashed var(--border); padding-top: 7px; }
+
+.rw-sec { font-family: var(--font-mono); font-size: 10.5px; letter-spacing: 0.08em; color: var(--muted); margin: 14px 0 8px; }
+.rw-sec b { color: var(--fg); font-weight: 600; }
+
+.rw-filist { display: grid; gap: 8px; max-height: 248px; overflow-y: auto; padding: 2px 4px 2px 2px; }
+.rw-fi { display: flex; gap: 9px; padding: 9px 11px; border: 1px solid var(--border); border-radius: var(--radius); background: var(--surface); }
+.rw-fi .dot { flex: none; width: 8px; height: 8px; border-radius: 50%; margin-top: 5px; }
+.rw-fi.err .dot { background: var(--err); }
+.rw-fi.warn .dot { background: var(--warn); }
+.rw-fi .fx { min-width: 0; display: grid; gap: 3px; }
+.rw-fi .l1 { font-size: 12.5px; color: var(--fg); display: flex; gap: 8px; align-items: baseline; flex-wrap: wrap; }
+.rw-fi .l1 .rl { font-weight: 600; }
+.rw-fi .l1 .pg { font-family: var(--font-mono); font-size: 11px; color: var(--muted); }
+.rw-fi .l1 .sv { font-size: 10.5px; padding: 1px 7px; border-radius: 999px; }
+.rw-fi.err .l1 .sv { background: var(--err-soft); color: color-mix(in oklch, var(--err) 88%, var(--fg)); }
+.rw-fi.warn .l1 .sv { background: var(--warn-soft); color: color-mix(in oklch, var(--warn) 85%, var(--fg)); }
+.rw-fi .l2 { font-size: 12.5px; color: var(--fg); line-height: 1.75; }
+.rw-fi .l2 mark { border-radius: 3px; padding: 0 3px; color: inherit; }
+.rw-fi.err .l2 mark { background: var(--err-soft); box-shadow: inset 0 -1.5px 0 color-mix(in oklch, var(--err) 55%, transparent); }
+.rw-fi.warn .l2 mark { background: var(--warn-soft); box-shadow: inset 0 -1.5px 0 color-mix(in oklch, var(--warn) 55%, transparent); }
+.rw-fi .l3 { font-size: 11.5px; color: var(--muted); line-height: 1.65; }
+.rw-fi .l3 b { color: var(--fg); font-weight: 500; }
+
+.rw-mtable { width: 100%; border-collapse: collapse; font-size: 12.5px; }
+.rw-mtable th { font-family: var(--font-mono); font-size: 10px; letter-spacing: 0.06em; color: var(--muted);
+  font-weight: 400; text-align: left; padding: 4px 8px; border-bottom: 1px solid var(--border); white-space: nowrap; }
+.rw-mtable td { padding: 5.5px 8px; border-bottom: 1px solid color-mix(in oklch, var(--border) 55%, transparent); color: var(--fg); }
+.rw-mtable td.v { font-family: var(--font-mono); font-weight: 600; white-space: nowrap; }
+.rw-mtable td.t, .rw-mtable td.h { color: var(--muted); font-family: var(--font-mono); font-size: 11.5px; white-space: nowrap; }
+.rw-mtable tr.is-warn td.v { color: color-mix(in oklch, var(--warn) 80%, var(--fg)); }
+.rw-mtable tr.is-ref td { color: var(--muted); }
+.rw-mtable td.w { font-family: var(--font-mono); color: var(--muted); white-space: nowrap; }
+.rw-mtable .jd { font-family: var(--font-mono); white-space: nowrap; }
+.rw-mtable .jd svg { width: 13px; height: 13px; display: block; }
+.rw-mtable .jd.ok { color: var(--ok); }
+.rw-mtable .jd.warn { color: var(--warn); }
+.rw-mtable .jd.ref { color: var(--faint); }
+
+.rw-intro { display: grid; gap: 12px; padding: 6px 2px 10px; }
+.rw-intro-k { font-family: var(--font-mono); font-size: 10.5px; letter-spacing: 0.08em; color: var(--muted); }
+.rw-intro p, .rw-intro ol { margin: 4px 0 0; font-size: 12.5px; color: var(--fg); line-height: 1.75; }
+.rw-intro ol { padding-left: 20px; }
+.rw-intro li { margin: 2px 0; }
+.rw-intro li b { font-weight: 600; }
+.rw-flow { display: flex; align-items: stretch; margin: 8px 0 0; }
+.rw-fnode { flex: 1; min-width: 0; border: 1px solid var(--border); border-radius: var(--radius); background: var(--fg-soft); padding: 8px 9px; }
+.rw-fnode.self { border-color: color-mix(in oklch, var(--accent) 45%, transparent); background: var(--accent-soft); }
+.rw-fnode .fn-h { display: flex; align-items: center; gap: 5px; }
+.rw-fnode .fn-n { flex: none; display: inline-grid; place-items: center; width: 15px; height: 15px; border-radius: 50%;
+  background: var(--accent); color: var(--surface); font-family: var(--font-mono); font-size: 9.5px; }
+.rw-fnode .fn-h b { font-size: 12px; }
+.rw-fnode i { display: block; font-style: normal; font-size: 10.5px; color: var(--muted); line-height: 1.55; margin-top: 4px; }
+.rw-farr { flex: none; align-self: center; width: 15px; height: 15px; color: var(--accent); margin: 0 2px; }
+.rw-floop { position: relative; height: 22px; margin: 8px 52px 2px;
+  border: 1.5px dashed color-mix(in oklch, var(--accent) 55%, transparent); border-top: 0; border-radius: 0 0 12px 12px; }
+.rw-floop::before { content: ""; position: absolute; left: -4.5px; top: -5px; width: 7px; height: 7px;
+  border-left: 1.5px solid color-mix(in oklch, var(--accent) 55%, transparent);
+  border-top: 1.5px solid color-mix(in oklch, var(--accent) 55%, transparent); transform: rotate(45deg); }
+.rw-floop span { position: absolute; left: 50%; bottom: -7px; transform: translateX(-50%); background: var(--surface);
+  padding: 0 10px; font-size: 10.5px; color: var(--muted); white-space: nowrap; }
+
+.rw-running { display: grid; place-items: center; gap: 12px; padding: 48px 0 40px; color: var(--muted); font-size: 12.5px; text-align: center; }
+.rw-running svg { width: 26px; height: 26px; color: var(--accent); animation: rw-rot 1s linear infinite; }
+@keyframes rw-rot { to { transform: rotate(360deg); } }
+
+.rw-empty { display: grid; place-items: center; gap: 8px; padding: 24px 0 8px; color: var(--muted); font-size: 13px; text-align: center; }
+.rw-empty svg { width: 22px; height: 22px; color: var(--ok); }
+
+/* ── 新功能：逐条改稿（左右分边注）——左边距留给朱雀批注（胶囊左移），
+      正文左移让出右边距放人味简述，悬停边注看详细改法；段角胶囊退役 ── */
+.rw-margin .editor-wrap { position: relative; overflow-x: hidden; }
+.rw-margin .zq-mark { right: auto; left: -46px; }
+.rw-marginlayer { position: absolute; top: 0; left: 0; right: 0; bottom: 0; pointer-events: none; }
+.rw-marginlayer .rw-mnote { pointer-events: auto; }
+.rw-fixchip { font-family: var(--font-mono); font-size: 10.5px; padding: 3px 10px; border-radius: 999px;
+  border: 1px solid var(--border); background: var(--accent-soft); color: var(--accent-strong); white-space: nowrap; }
+.rw-fixchip.done { background: var(--ok-soft); color: color-mix(in oklch, var(--ok) 80%, var(--fg)); border-color: transparent; }
+.rw-hint { box-shadow: 0 0 0 2px color-mix(in oklch, var(--accent) 45%, transparent); border-radius: 8px; }
+
+.rw-mnote { position: absolute; right: 16px; width: clamp(120px, calc((100% - 680px) / 2 - 28px), 224px); text-align: left; cursor: default; }
+.rw-mnote .nt { display: block; font-family: var(--font-mono); font-size: 10.5px;
+  line-height: 1.5; color: var(--muted); padding: 2px 0; border-top: 1px solid var(--border); overflow-wrap: anywhere; }
+.rw-mnote .nt .dot { display: inline-block; width: 6px; height: 6px; border-radius: 50%; margin-right: 5px; vertical-align: 1px; }
+.rw-mnote .nt .dot.err { background: var(--err); }
+.rw-mnote .nt .dot.warn { background: var(--warn); }
+.rw-mnote.err .nt { color: color-mix(in oklch, var(--err) 75%, var(--fg)); }
+.rw-mnote.done { opacity: 0.45; }
+.rw-mnote.done .nt { text-decoration: line-through; }
+.rw-mnote.skip { opacity: 0.45; }
+.rw-mnote.skip .nt { text-decoration: line-through; }
+.rw-mnote .dtl { display: none; position: absolute; right: 0; top: calc(100% + 4px); width: 264px; z-index: 60;
+  background: var(--surface); border: 1px solid var(--border); border-left: 3px solid var(--accent);
+  border-radius: var(--radius); box-shadow: var(--shadow-pop); padding: 11px 13px; }
+.rw-mnote:hover { z-index: 70; }
+.rw-mnote:hover .dtl { display: block; }
+.rw-mnote .dtl .d-r { font-size: 11.5px; color: var(--muted); line-height: 1.65; padding: 5px 0; }
+.rw-mnote .dtl .d-r + .d-r { border-top: 1px dashed var(--border); }
+.rw-mnote .dtl .d-r b { display: block; color: var(--fg); font-weight: 600; margin-bottom: 2px; }
+.rw-mnote .dtl .d-acts { display: flex; gap: 6px; margin-top: 8px; }
+
+@keyframes rw-pulse { 0% { box-shadow: 0 0 0 0 color-mix(in oklch, var(--accent) 45%, transparent); } 100% { box-shadow: 0 0 0 16px transparent; } }
+.editor p.rw-flash { animation: rw-pulse 0.9s ease 2; border-radius: 4px; }
+
+/* ── toast（真机为泡泡组件，此为原型替身） ── */
+.rw-toast { position: fixed; left: 50%; bottom: 34px; transform: translateX(-50%) translateY(8px); z-index: 120;
+  background: var(--fg); color: var(--surface); border-radius: 999px; padding: 7px 16px; font-size: 12.5px;
+  opacity: 0; pointer-events: none; transition: opacity 0.2s ease, transform 0.2s ease; box-shadow: var(--shadow-card); max-width: 76vw; }
+.rw-toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
+</style>
+</head>
+<body>
+
+<!-- ═══ 原型演示条（非基线元素 · 产品 UI 不含） ═══ -->
+<div class="rw-demobar">
+  <span class="rw-demo-title"><em>PROTOTYPE</em>人味检测 · 本地指纹体检</span>
+  <span class="rw-demo-seg">
+    <button data-rwgo="s1" class="on">屏① 入口</button>
+    <button data-rwgo="s2">屏② 报告弹窗</button>
+    <button data-rwgo="s3">屏③ 逐条改稿</button>
+    <button data-rwgo="s4">屏④ 干净章对照</button>
+  </span>
+  <span class="rw-demo-note">用户故事地图：验（朱雀基线）→ 查（人味检测）→ 改（人工边注）→ 再验……直到你觉得可以 · 本地免费 · 2026-10-17 拍板</span>
+</div>
+
+<!-- ═══ 工作台底座：逐字复制自 pages/book-write.html <body>（2026-09-25 快照，演示种子《星海拾遗》）；
+     仅 6 处演示种子调整（均已标注「演示种子调整」） ═══ -->
+<!--__INJECT_SHELL__-->
+
+<!-- ═══ 演示嫁接：章视图与章右栏（运行时挂载进真机壳；结构参照 09-25 快照＋real.css，章节标签已映射到真书《沉船》：第1章 河底的灯＝问题草稿、第2章 第一位客人＝干净章） ═══ -->
+<template id="tpl-chapterview">
+<div class="col-editor">
+        <div class="ch-tabs" role="tablist" aria-label="章对象">
+          <button class="chtab on" role="tab" aria-selected="true" data-rwtab="og">章纲</button>
+          <button class="chtab" role="tab" aria-selected="false" data-rwtab="prose">正文</button>
+          <button class="chtab" role="tab">提示词</button>
+          <button class="chtab" role="tab">设定</button>
+          <button class="chtab" role="tab">文风</button>
+          <button class="chtab" role="tab">角色关系</button>
+          <button class="chtab" role="tab">伏笔</button>
+          <button class="chtab" role="tab">操作</button>
+        </div>
+        <div class="og-pane" id="rw-ogpane">
+          <div class="panel" style="max-width:76ch">
+            <div class="panel-head"><h2>第 1 章 · 河底的灯</h2><span class="badge ok"><i data-ico="check"></i>章纲已确认</span></div>
+            <div class="fro">
+              <div class="field"><label>出场角色 <span class="opt">· 多选，候选来自本书角色</span></label>
+                <div style="display:flex;gap:6px;flex-wrap:wrap">
+                  <span class="pill pill-accent">陆沉 · 主角</span><span class="pill pill-tag">阿槎</span><span class="pill pill-tag">稽查长</span>
+                </div></div>
+              <div class="field"><label>预期策略</label><input class="input" value="以退为进：先交半张图，换一次夜航窗口。"></div>
+              <div class="field"><label>必须完成的变化</label><textarea class="textarea" rows="2">陆沉从「独扛」转向「借力」——第一次主动把真相告诉船员。</textarea></div>
+              <div class="field"><label>主情绪</label><input class="input" value="紧绷后的一次喘息，灯下短暂的暖。"></div>
+              <div class="field"><label>段落规划</label><textarea class="textarea" rows="3">①夜航准备与船员异议 ②灯下摊牌 ③潮汐变向 ④出港——章尾自然断在灯影消失的一刻。</textarea></div>
+            </div>
+            <p style="display:flex;gap:8px;margin-top:16px">
+              <button class="btn btn-primary">保存章纲</button>
+              <span class="f-hint" style="align-self:center;margin:0">3 秒静默自动保存已开启</span>
+            </p>
+          </div>
+        </div>
+
+        <!-- ═══ 新增原型：正文页签（真机 ProsePane 同位演示替身，rw- graft）；
+             朱雀章头占比条与黄/红标注为既有功能的演示替身（复刻现行 book.css），
+             人味标注与报告弹窗为本原型主题 ═══ -->
+        <div class="rw-prosepane" id="rw-prosepane" hidden>
+          <div class="e-head e-head-row">
+            <div class="e-head-main"><span class="e-title">第 1 章 · 河底的灯</span>
+              <span class="rw-status-note">草稿 · 自动保存已开启</span></div>
+            <span class="rw-fixchip" id="rw-fixchip" hidden>人味改稿 0/10</span>
+            <div class="zq-hd" id="rw-zqhd">
+              <div class="hd-bar"><i style="width:62%;background:var(--ok)"></i><i style="width:26%;background:var(--warn)"></i><i style="width:12%;background:var(--err)"></i></div>
+              <div class="hd-ratio">
+                <span class="lg"><i style="background:var(--ok)"></i>人工 <b>62%</b></span>
+                <span class="lg"><i style="background:var(--warn)"></i>疑似 <b>26%</b></span>
+                <span class="lg"><i style="background:var(--err)"></i>AI <b>12%</b></span>
+                <span class="rw-status-note">概率参考 · 非平台判定 · 10-17 检测</span>
+                <span class="hd-act"><button class="btn btn-ghost" data-rwzq="rerun">重检</button><button class="btn btn-ghost" data-rwzq="clear">清除</button></span>
+              </div>
+            </div>
+          </div>
+          <div class="editor-wrap">
+            <div class="rw-marginlayer" data-margon="ch14"></div>
+            <div class="editor" contenteditable="true" data-rw-demo="ch14" spellcheck="false">
+              <p class="chapter-head">第 1 章 河底的灯</p>
+              <p>入夜，港口的灯一盏一盏灭下去，只剩稽查船的巡灯还在水面上扫。陆沉数着灯灭的节奏，把半张禁航图折小，塞进阿槎的袖口。</p>
+              <p>舱里的空气闷得像要凝住，缆绳影子映在舱壁上。没有一个人先开口说话，油灯的火苗压得很低。图的事像一块石头，沉沉压在每个人的胸口。</p>
+              <p>于是没有人再提图的事。阿槎蹲在舱角磨他那把刀，磨得很慢，一下一下，数得清清楚楚。</p>
+              <p>陆沉按住阿槎的手背——掌心一片凉。「灯灭了三盏，」他盯着舱壁上的影子，「巡灯改线了。」</p>
+              <p>甲板上脚步来回，检查完毕的灯语挂上桅顶。过了半刻，桅顶又把检查完毕四个字重新打了一遍，港里没有人回应。</p>
+              <p>巡灯的光从舱门缝里切进来，在地板上走了一寸又一寸，所有人都在等它走过去，等它走过去了，才有人把憋了半天的气吐出来，把身子从阴影里挪回灯下。</p>
+              <p>这不是勇气的问题，而是信任的问题。陆沉要的不是服从，而是把后背交出去的那份放心。</p>
+              <p>舱里很静。灯芯结了花。阿槎把刀收回鞘。木壳船身在礁石外轻轻擦了一下。没有人说话。</p>
+              <p>「三更了。」陆沉说。</p>
+              <p>没有人接话。</p>
+              <p>潮水拍着船底，一下，又一下。</p>
+              <p>说白了，今夜出港，赌的是巡灯换岗的那一刻钟。谁去掐这个点？</p>
+              <p>摆在所有人面前的，只有三个选择：交图、熄灯、或者在礁石区赌一条新路。</p>
+              <p>阿槎把耳朵贴在舱板上听了半晌。潮声变了，比来时急，浪头一下一下砸在礁石上，震得舱板发麻。</p>
+              <p>陆沉抬手，舱里的油灯随即熄了。黑暗里，只剩下巡灯远远扫过来的光，像一根慢慢抽走的白线。</p>
+              <p>灯，灭了。</p>
+              <p>「换岗还有一刻钟。」阿槎把刀横在膝上，朝着舱门坐了下去。陆沉没有再说话，把图角在袖口又按了按，朝舱门走了过去。</p>
+              <p>巡灯的光又扫过来一次，在地上一寸寸挪，挪过缆绳的影子，挪过去了，舱里重新黑透。</p>
+              <p>甲板上的脚步声近了，又远了。没有人出声。每个人都在数自己的呼吸。</p>
+              <p>阿槎把缆绳又盘了一圈，绳子绕得很整齐，一圈压着一圈，压得很实。</p>
+              <p>于是船舱里安静下来。灯灭了，人的轮廓散进黑暗里。黑暗不说话，它只是等着。</p>
+              <p>黑暗里有东西滴水的声音，从船底上来，一下，一下。</p>
+              <p>风从石缝里钻进来，凉的，贴着脚踝绕了一圈，又退回去。</p>
+              <p>石缝里的水一滴一滴落在船板上，间隔很稳，数得清。</p>
+              <p>巡灯换岗的声音从港里传来，隔着水，闷闷的一下。</p>
+              <p>信号灯又亮了一遍，还是那四个字。这次没有人抬头看它。</p>
+              <p>潮水把船抬起来，又放下。缆绳在桩子上咯吱作响，响一阵，停一阵。</p>
+              <p>有人的胃叫了一声。没有人笑。</p>
+              <p>问题没有解决，只是被推迟了。所有人都知道，出港之后，这笔账还是要算的。</p>
+              <p>这就是夜航。等的时候，比走的时候长。</p>
+              <p>等待比赶路更磨人。不知道要等多久的等，最磨人。</p>
+              <p>阿槎把刀抽出来又还回去，反复了三次。第四次，刀归了鞘。</p>
+              <p>舱里的温度跟水一样。陆沉靠着舱壁，数自己的呼吸，数到第一百下的时候，港那边响了梆子，很闷，隔着水。</p>
+              <p>梆子响过三遍，港里的灯一盏一盏熄了。稽查船回了码头，码头空出来。</p>
+              <p>陆沉睁开眼，把每个人看了一遍。看完了，点头。没有人问为什么。</p>
+              <p>换岗了。</p>
+              <p>巡灯的光调头回去，水面上最后一点亮也收走了。</p>
+              <p>阿槎站起来，活动了一下腿，把刀插回腰后，刀鞘磕在门框上，响了一声。</p>
+              <p>陆沉推门出去，夜风扑了满脸。港里静得能听见桅杆在响。</p>
+              <p>门轴又响了一声，舱里的人都僵了一下。过了一会儿，脚步声一个跟一个出来了。</p>
+              <p>解缆，收跳板，竹篙一点，船身擦着桩子滑出去。</p>
+              <p>没有人说话。船走得极慢，快不得。水道里全是暗礁，图上标了七处，谁也不知道准不准。</p>
+              <p>阿槎在船头打灯语，一下，两下，停。对岸没有回应。</p>
+              <p>灯语打完第三遍，岸上突然亮了一下。很短，一灭。有人握紧了缆绳。</p>
+              <p>水道越来越窄，两岸的黑影压过来，风也小了，只剩水在响。</p>
+              <p>船底下的水声变急了。潮水推着船走。</p>
+              <p>过了暗礁区，水面一下子宽了。所有人都松了口气，可谁都没有说话。</p>
+              <p>风从船尾追上来，帆活了，绳子绷得直响。</p>
+              <p>潮水在船头分开，又在船尾合上，没有一点多余的水声。</p>
+              <p>图上的七处暗礁，过去了六处。每一处，都是阿槎先把灯语打出去，等一会儿，再打一遍。</p>
+              <p>陆沉站在舵位，手心全是汗。他在心里把出港之后的路数了一遍，又数了一遍。</p>
+              <p>风一阵一阵的，帆松了紧，紧了松。</p>
+              <p>谁也没有提灯的事。灯还挂在桅顶，随着船身晃。</p>
+              <p>走出礁区之前，谁都没有去碰那盏灯。它亮着，就当它只是亮着。</p>
+              <p>阿槎回头望了一眼港口。港口的方向什么也看不见，只有水。</p>
+              <p>水道拐了两个弯，把巡灯的方向彻底挡在了礁石后面。</p>
+              <p>岸上有一点灯，很远，一闪一闪，不知道是巡灯还是渔火。</p>
+              <p>没有人去数它闪了多少下。船没有回头。灯影消失的时候，天还早，风把水汽吹了满船。</p>
+            <!-- /rw-editor -->
+            </div>
+          </div>
+          <div class="editor-status"><span class="rw-status-note">人味检测与朱雀检测相互独立，正文修改后人味标注自动清除</span><span class="right"><span id="rw-status-words" style="font-family:var(--font-mono)">1,536 / 6,000 字</span></span></div>
+        </div>
+
+        <!-- 屏④：第 13 章（已归档，干净稿对照） -->
+        <div class="rw-prosepane" id="rw-prosepane13" hidden>
+          <div class="e-head e-head-row">
+            <div class="e-head-main"><span class="e-title">第 2 章 · 第一位客人</span>
+              <span class="rw-status-note">已归档 · 自动保存已开启</span></div>
+          </div>
+          <div class="editor-wrap">
+            <div class="rw-marginlayer" data-margon="ch13"></div>
+            <div class="editor" contenteditable="true" data-rw-demo="ch13" spellcheck="false">
+              <p class="chapter-head">第 2 章 第一位客人</p>
+              <p>巡灯是亥时来的，光贴着水面一寸一寸扫过来的时候，阿槎正把最后半碗咸鱼粥推给陆沉……粥凉了，结了层薄油皮，腥气呛得嗓子发紧。</p>
+              <p>「吃。」阿槎把碗往他手边又推了推，「查完这趟，天就该亮了。」</p>
+              <p>陆沉没接话，几口把粥扒完，把碗扣在膝上，指甲一下一下刮着碗沿……巡灯的光从船头量到船尾，停了停，很快又退回去……船上只剩灯芯偶尔爆的一声轻响，和橹机上偶尔的一声吱呀……</p>
+              <p>「没查我们？还是查了没说！」</p>
+              <p>「查的是灯。」阿槎朝桅顶努了努嘴，那盏旧灯照旧挂着，晃晃悠悠，把两个人的影子投在舱板上，一会儿长，一会儿短，一会儿又叠在一起。</p>
+              <p>「巡灯明晚还来？」</p>
+              <p>「说不准。」阿槎把两只碗摞进桶里，「双日来，单日歇，明晚该歇。」</p>
+              <p>陆沉盯着那点灯火看了半晌，忽然把袖子里的图按了按……还在。他松开手，掌心里一层薄汗……</p>
+              <p>「到了暗礁区，叫醒我。」撂下这句，阿槎把外衣蒙在头上。</p>
+              <p>潮水开始涨了，缆绳绷紧又松开，绷紧又松开，像船在夜里慢慢呼吸，远处暗礁区里浪头碎在石头上，沙沙地响，砸得人心里发慌。慌了一阵，又平了。</p>
+              <p>按港里的规矩，查完灯就该装睡，陆沉把灯芯捻暗了半分，和衣躺下，耳朵却还留在潮声里，跟着潮头走，跟着潮尾回，一趟一趟……</p>
+              <p>灯影在舱壁上晃，把梁的影子拉长又缩短。他盯着那道梁看了很久，直到眼睛发酸，才把眼睛闭上，只用耳朵。</p>
+              <p>夜航的门道他比谁都熟，什么时候换岗，什么时候点灯，什么时候该把图贴身收着，他都记得清清楚楚……只是这一回，图是真是假，都得先活着出这道礁区才算数。</p>
+              <p>他把这几天的潮时在心里排了一遍，明晚是单日，灯可以点得稍晚一些……省下的这半个时辰，够船悄悄走出一段黑路，也算把白日里欠的觉补了回来，天亮前这一段，就交给潮水……</p>
+              <p>想到图，他又把袖口按了一遍。这一夜这动作做了四五回，手都快记住那块布的纹路了……</p>
+              <p>后半夜，风换了方向，从岛那边过来，带着潮水的凉意，把舱里那点浊气换了换，也把困气换散了些……</p>
+              <p>潮声一层压着一层，从远处的礁区滚过来，到了船底，散成细碎的响。阿槎的呼吸落进潮声里，一起一伏……</p>
+              <p>阿槎翻了个身，说了半句梦话，没说完整，只剩两个字的尾音……</p>
+              <p>陆沉应了一声，也不知道阿槎听见没有。舱里又静下来，只剩缆绳的吱呀，比先前慢了，也懒了……</p>
+              <p>睡意是一阵一阵来的。来的时候沉，退的时候，耳朵反而更尖。尖到能听见舱外每一次换岗的脚步，听见它们走远……</p>
+              <p>水声贴着船底走，从缓到急，又从急到缓，一圈一圈，跟着潮的性子……</p>
+              <p>潮头一次比一次高。船身抬起的角度也一次比一次明显，连舱门都跟着吱呀了一声……</p>
+              <p>他把碗摞好，收进桶里，又把桶往舱角推了推，免得船身一晃叮当响，吵醒好不容易来的困意。</p>
+              <p>水位在涨，船身一点点抬高，系缆的绳子绷出新的角度……</p>
+              <p>门缝里透进来的风变凉了，是后半夜的凉，露水气顺着门缝爬进来，把舱板洇出深色的一小片，一片连成一片……</p>
+              <p>他把外衣裹紧了些。凉意从脚底爬上来，爬到膝盖，就停在那儿，不往上走……</p>
+              <p>夜里的时间走得慢，黑不可怕，等才磨人，这是夜航的规矩。</p>
+              <p>「什么时辰了？」</p>
+              <p>「丑时过半。」陆沉看了看水位的记号，「再有一个时辰，进暗礁区。」</p>
+              <p>「潮水几点转？」阿槎的声音从舱门那边过来，含糊，却清醒。</p>
+              <p>「卯时。」陆沉竖起一根手指，「进礁区之前，还有一涨。」</p>
+              <p>「图上标了几处？准吗？」</p>
+              <p>「七处。」陆沉把图角从袖口抽出来一点，又塞回去，「标了七处，是十年前的图。水底下的礁，十年里会长高，也会搬家，谁说得准。」</p>
+              <p>阿槎没再问，呼吸又匀了……</p>
+              <p>陆沉把水位的记号又看了一遍。刻度在水线下面一点点爬，爬得不快，但一直在爬，稳当得叫人心里有底……</p>
+              <p>水涨一寸，船就稳一分。这门水账里的规矩，阿槎比谁都算得清……</p>
+              <p>潮声里偶尔夹一声两声鱼跳，啪的一声，很快归于安静……</p>
+              <p>陆沉把灯芯又捻暗了半分，捻到只剩一粒豆大、风一吹就晃的火。火光把他的影子钉在舱板上，很久没有动一下。后来他干脆吹了灯，黑有黑的好处，眼睛在黑里慢慢就开了，开出一层比一层淡的灰。</p>
+              <p>他数潮。数到一百，乱了，重新数。数潮这件事没有什么用处，可是能让心里有着落。有落处的心，才压得住事。</p>
+              <p>潮声不吵，听着听着，人就沉进去了。</p>
+              <p>水一滴一滴从船板上退回去，退潮的节奏比涨潮慢。天亮之前的这一段，是一整夜里最黑的一段，也是最稳的一段。稳得能听见自己的心跳，一下，一下，跟潮错开半拍……</p>
+              <p>舱里的黑一点一点变淡，先淡出舱门的轮廓，再淡出缆绳的影子，最后淡出阿槎蜷着的背。</p>
+              <p>灯影里，阿槎已经靠着舱门睡着了，手里还攥着那把刀，指节松了一圈。</p>
+            <!-- /rw-editor -->
+            </div>
+          </div>
+          <div class="editor-status"><span class="rw-status-note">人味检测与朱雀检测相互独立，正文修改后人味标注自动清除</span><span class="right"><span id="rw-status-words13" style="font-family:var(--font-mono)">1,509 / 2,000 字</span></span></div>
+        </div>
+      </div>
+</template>
+
+<template id="tpl-chapter-rail">
+<aside class="col-ai-rw" data-rwchapterrail hidden>
+      <p class="progress-head">本章进度</p>
+      <div class="pct num"><span id="rw-pct-num">1,536</span><span class="sub" id="rw-pct-sub">/6,000</span></div><!-- 演示种子调整：字数与演示正文一致（check-renwei-demo.py 实算） -->
+      <div class="pbar"><i style="width:26%"></i></div>
+      <div class="target-row"><span id="rw-target-label">目标 6,000 字</span><button class="edit">改</button></div>
+      <p class="ai-sec">检测</p><!-- 演示种子调整：检测区上移到 AI 工具之前（原型演示需要入口首屏可见；真机 AiAssistPanel 排序另议） -->
+      <div class="ai-tool"><div class="ai-feat-head"><b><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" width="14" height="14" style="flex:none"><path d="M2 12s3.5-6 10-6 10 6 10 6-3.5 6-10 6S2 12 2 12z"/><circle cx="12" cy="12" r="2.5"/></svg> 朱雀 AI 检测</b></div><!-- 演示种子调整：既有功能行，快照未含，此为演示替身 -->
+        <p>在线检测整篇 AI 概率，逐段标注；消耗朱雀额度。</p>
+        <button class="btn btn-secondary btn-sm" id="rw-zq-btn">查看存档</button></div>
+      <div class="ai-tool"><div class="ai-feat-head"><b><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" width="14" height="14" style="flex:none"><path d="M12 4a8 8 0 018 8c0 2.5-.4 4.9-1.2 7.2"/><path d="M12 4a8 8 0 00-8 8c0 3 .8 5.8 2.2 8.2"/><path d="M12 8.5a3.5 3.5 0 013.5 3.5c0 2.6-.5 5.1-1.4 7.4"/><path d="M8.5 12A3.5 3.5 0 0112 8.5"/><path d="M8.6 13.8c-.1 2 .2 4 .9 5.9"/></svg> 人味检测</b><span class="pill pill-tag" style="margin-left:auto">本地 · 免费</span></div><!-- 本原型新增入口 -->
+        <p>朱雀说 AI 味重？用它圈出具体哪里像 AI、怎么改。免费，不花朱雀额度。</p>
+        <button class="btn btn-primary btn-sm" id="rw-rail-btn">开始检测</button></div>
+      <div class="ai-tool"><div class="ai-feat-head"><b>章节体检</b></div><p>逻辑硬伤 / 风格跑偏 / 人物走形 / 节奏失衡。</p><button class="btn btn-secondary btn-sm">体检</button></div>
+      <p class="ai-sec">AI 工具</p>
+      <div class="ai-tool"><div class="ai-feat-head"><b>剧情推演</b></div>
+        <p>从上一章结尾起，一回合一步把本章走一遍；走法定一步推一步，随时收进章纲。</p>
+        <button class="btn btn-secondary btn-sm" data-open-modal="sim" data-od-id="rail-simulate">开始推演</button></div>
+      <div class="ai-feat">
+        <div class="ai-feat-head"><b><i data-ico="spark" data-size="14"></i> 生成正文</b></div>
+        <p>按已确认的章纲与设定写正文，先出提示词预览。</p>
+        <button class="btn btn-secondary btn-sm">生成</button>
+      </div>
+      <div class="ai-tool"><div class="ai-feat-head"><b>继续写</b></div><p>从光标处接着写，保持人称与文风。</p><button class="btn btn-secondary btn-sm">续写</button></div>
+      <div class="ai-tool"><div class="ai-feat-head"><b>选中改写</b></div><p>先在正文选中一段：润色 / 扩写 / 压缩。</p><span style="display:inline-flex;gap:6px"><button class="btn btn-secondary btn-sm">润色</button><button class="btn btn-secondary btn-sm">扩写</button><button class="btn btn-secondary btn-sm">压缩</button></span></div>
+      <div class="mini-stat">
+        <div class="row"><span>本书字数</span><b class="num">86,400</b></div>
+        <div class="row"><span>已归档</span><b class="num">0/42 章</b></div>
+      </div>
+      <div class="arch-card" id="rw-arch"><i data-ico="check"></i>上一章已归档 · 本章可写</div>
+    </aside>
+</template>
+
+<!-- ═══ 新增原型：人味检测报告弹窗（rw- graft；壳为真实 .scrim/.modal/.mcard.wb-style） ═══ -->
+<div class="scrim" id="scrim-renwei" hidden></div>
+<div class="modal" id="modal-renwei" hidden>
+  <div class="mcard wb-style rw-modal">
+    <div class="mcard-head">
+      <span class="mh"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M12 4a8 8 0 018 8c0 2.5-.4 4.9-1.2 7.2"/><path d="M12 4a8 8 0 00-8 8c0 3 .8 5.8 2.2 8.2"/><path d="M12 8.5a3.5 3.5 0 013.5 3.5c0 2.6-.5 5.1-1.4 7.4"/><path d="M8.5 12A3.5 3.5 0 0112 8.5"/><path d="M8.6 13.8c-.1 2 .2 4 .9 5.9"/></svg>人味检测</span>
+      <span class="pill pill-tag" style="margin-left:10px" id="rw-m-pill">第 14 章 · 潮汐里的灯</span>
+      <button class="icon-btn x" data-close-modal="renwei" aria-label="关闭"><i data-ico="close"></i></button>
+    </div>
+    <div class="mcard-body" id="rw-m-body"><!-- JS 按 RW 数据渲染 --></div>
+    <div class="mcard-foot">
+      <span class="note" id="rw-m-note">红＝一票否决 · 黄＝提示；改不改、怎么改，作家定夺</span>
+      <button class="btn btn-primary" id="rw-m-start" hidden>了解了，开始检测</button>
+      <button class="btn btn-ghost" id="rw-m-clear" hidden>清除标注</button>
+      <button class="btn btn-secondary" id="rw-m-rerun" hidden>重新检测</button>
+      <button class="btn btn-primary" id="rw-m-mark" hidden>标记到正文</button>
+    </div>
+  </div>
+</div>
+<div class="rw-toast" id="rw-toast"></div>
+
+
+<!-- ═══ 以下脚本逐字复制自 pages/book-write.html（icons 表＋弹层/视图切换） ═══ -->
+<script>
+
+(function () {
+  var P = {"plus":"<path d=\"M12 5v14M5 12h14\"/>","close":"<path d=\"M6 6l12 12M18 6L6 18\"/>","arrowRight":"<path d=\"M5 12h14M13 6l6 6-6 6\"/>","chevronRight":"<path d=\"M9 6l6 6-6 6\"/>","chevronDown":"<path d=\"M6 9l6 6 6-6\"/>","chevronUp":"<path d=\"M18 15l-6-6-6 6\"/>","check":"<path d=\"M5 13l4 4L19 7\"/>","pencil":"<path d=\"M12 20h9M16.5 3.5a2.1 2.1 0 013 3L7 19l-4 1 1-4L16.5 3.5z\"/>","trash":"<path d=\"M4 7h16M10 11v6M14 11v6M6 7l1 13h10l1-13M9 7V4h6v3\"/>","upload":"<path d=\"M12 15V4M7 8l5-5 5 5M5 20h14\"/>","dots":"<circle cx=\"5\" cy=\"12\" r=\"1.4\" fill=\"currentColor\" stroke=\"none\"/><circle cx=\"12\" cy=\"12\" r=\"1.4\" fill=\"currentColor\" stroke=\"none\"/><circle cx=\"19\" cy=\"12\" r=\"1.4\" fill=\"currentColor\" stroke=\"none\"/>","scifi":"<path d=\"M12 3l9 5-9 5-9-5 9-5z\"/><path d=\"M3 12l9 5 9-5\"/><path d=\"M3 17l9 5 9-5\"/>","mystery":"<path d=\"M9.5 11a2.5 2.5 0 110-5 2.5 2.5 0 010 5z\"/><path d=\"M9.5 11v6M7 7L4.5 3.5M12 7l2.5-3.5M9.5 14H8M9.5 17H8\"/>","city":"<path d=\"M3 21h18M5 21V8l7-5 7 5v13M9 21v-6h4v6\"/><path d=\"M9 10h.01M13 10h.01M11 7h.01\"/>","fantasy":"<path d=\"M12 3l2 6 6 2-6 2-2 6-2-6-6-2 6-2 2-6z\"/>","history":"<path d=\"M12 8a4 4 0 100 8 4 4 0 000-8z\"/><path d=\"M12 2v3M12 19v3M2 12h3M19 12h3\"/>","star":"<path d=\"M12 2l2.4 6.2L21 9l-5 4.4 1.6 6.6L12 16.6 6.4 20 8 13.4 3 9l6.6-.8z\"/>","wuxia":"<path d=\"M4 20c6-2 12-8 15-15M13 7l4 4M6 14l4 4\"/>","other":"<path d=\"M12 3v18M3 12h18\"/>","info":"<circle cx=\"12\" cy=\"12\" r=\"9\"/><path d=\"M12 11v5M12 8h.01\"/>","spinner":"<path d=\"M21 12a9 9 0 11-6.2-8.56\"/>","back":"<path d=\"M15 6l-6 6 6 6\"/>","list":"<path d=\"M4 6h16M4 12h16M4 18h10\"/>","eye":"<path d=\"M2 12s3.5-6 10-6 10 6 10 6-3.5 6-10 6S2 12 2 12z\"/><circle cx=\"12\" cy=\"12\" r=\"2.5\"/>","lock":"<rect x=\"4\" y=\"10\" width=\"16\" height=\"10\" rx=\"2\"/><path d=\"M8 10V7a4 4 0 018 0v3\"/>","search":"<circle cx=\"11\" cy=\"11\" r=\"7\"/><path d=\"M20 20l-3.5-3.5\"/>","dot":"<circle cx=\"12\" cy=\"12\" r=\"4\" fill=\"currentColor\" stroke=\"none\"/>","ready":"<path d=\"M6 4v16M6 5h11l-2 3 2 3H6\"/>","spark":"<path d=\"M9.937 15.5A2 2 0 0 0 8.5 14.063l-6.135-1.582a.5.5 0 0 1 0-.962L8.5 9.936A2 2 0 0 0 9.937 8.5l1.582-6.135a.5.5 0 0 1 .963 0L14.063 8.5A2 2 0 0 0 15.5 9.937l6.135 1.581a.5.5 0 0 1 0 .964L15.5 14.063a2 2 0 0 0-1.437 1.437l-1.582 6.135a.5.5 0 0 1-.963 0z\"/><path d=\"M20 3v4\"/><path d=\"M22 5h-4\"/><path d=\"M4 17v2\"/><path d=\"M5 18H3\"/>","copy":"<rect x=\"9\" y=\"9\" width=\"11\" height=\"11\" rx=\"2\"/><path d=\"M5 15V6a2 2 0 012-2h9\"/>","doc":"<path d=\"M14 3H6a2 2 0 00-2 2v14a2 2 0 002 2h12a2 2 0 002-2V9z\"/><path d=\"M14 3v6h6M9 13h6M9 17h4\"/>","external":"<path d=\"M14 4h6v6M20 4l-9 9M18 14v5H5V6h5\"/>","alert":"<circle cx=\"12\" cy=\"12\" r=\"9\"/><path d=\"M12 7.5v5M12 16.5h.01\"/>","chat":"<path d=\"M4 5h16v11H8l-4 4z\"/>","chart":"<path d=\"M4 20V10M10 20V4M16 20v-7M3 20h18\"/>","person":"<path d=\"M20 21v-2a4 4 0 00-4-4H8a4 4 0 00-4 4v2\"/><circle cx=\"12\" cy=\"7\" r=\"4\"/>","backup":"<path d=\"M12 15V4M7 8l5-5 5 5M5 20h14\"/>","download":"<path d=\"M12 4v11M7 10l5 5 5-5M5 20h14\"/>","tune":"<path d=\"M4 7h13M10 12h10M4 17h7\"/>","book":"<path d=\"M4 19V5a2 2 0 012-2h13v16H6a2 2 0 00-2 2z\"/><path d=\"M4 19a2 2 0 012-2h13\"/>"};
+  function render(el) {
+    var name = el.getAttribute("data-ico");
+    var d = P[name];
+    if (!d) return;
+    var sw = el.getAttribute("data-sw") || "2";
+    var size = el.getAttribute("data-size");
+    var svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+    svg.setAttribute("viewBox", "0 0 24 24");
+    if (size) { svg.setAttribute("width", size); svg.setAttribute("height", size); }
+    svg.setAttribute("fill", "none");
+    svg.setAttribute("stroke", "currentColor");
+    svg.setAttribute("stroke-width", sw);
+    svg.setAttribute("aria-hidden", "true");
+    var cls = el.getAttribute("class");
+    if (cls) svg.setAttribute("class", cls);
+    var st = el.getAttribute("style");
+    if (st) svg.setAttribute("style", st);
+    svg.innerHTML = d;
+    el.replaceWith(svg);
+  }
+  document.querySelectorAll("i[data-ico]").forEach(render);
+})();
+
+(function () {
+  var closeTimers = {};
+  window.openModal = function (key) {
+    if (closeTimers[key]) { clearTimeout(closeTimers[key]); delete closeTimers[key]; }
+    ["scrim-", "modal-"].forEach(function (pre) {
+      var el = document.getElementById(pre + key);
+      if (el) { el.hidden = false; requestAnimationFrame(function(){ el.classList.add("show"); }); }
+    });
+  };
+  window.closeModal = function (key) {
+    ["scrim-", "modal-"].forEach(function (pre) {
+      var el = document.getElementById(pre + key);
+      if (el) { el.classList.remove("show"); }
+    });
+    if (closeTimers[key]) clearTimeout(closeTimers[key]);
+    closeTimers[key] = setTimeout(function () {
+      ["scrim-", "modal-"].forEach(function (pre) {
+        var el = document.getElementById(pre + key);
+        if (el) el.hidden = true;
+      });
+      delete closeTimers[key];
+    }, 200);
+  };
+  document.addEventListener("click", function (e) {
+    var t = e.target.closest("[data-open-modal],[data-close-modal],[data-state-go],[data-seg]");
+    if (!t) return;
+    if (t.hasAttribute("data-open-modal")) { openModal(t.getAttribute("data-open-modal")); e.preventDefault(); }
+    else if (t.hasAttribute("data-close-modal")) { closeModal(t.getAttribute("data-close-modal")); e.preventDefault(); }
+    else if (t.hasAttribute("data-state-go")) {
+      var group = t.getAttribute("data-state-group") || "state";
+      var target = t.getAttribute("data-state-go");
+      document.querySelectorAll('[data-state-group="' + group + '"] [data-state-go]').forEach(function (b) { b.classList.toggle("on", b === t); });
+      document.querySelectorAll("[data-state]").forEach(function (el) {
+        if (el.getAttribute("data-state") === target) el.hidden = false;
+        else if (el.getAttribute("data-state-group") === group || (!el.getAttribute("data-state-group") && el.hasAttribute("data-state"))) el.hidden = true;
+      });
+    } else if (t.hasAttribute("data-seg")) {
+      t.parentElement.querySelectorAll("button").forEach(function (b) { b.classList.toggle("on", b === t); });
+    }
+  });
+})();
+
+</script>
+
+<!-- ═══ 新增原型脚本：演示数据（check-renwei-demo.py 实算回填）＋四屏状态机 ═══ -->
+<script>
+var RW = {
+  "check": "2026-10-17",
+  "zqSeed": {
+    "ch14": [
+      {
+        "para": 6,
+        "label": 1
+      },
+      {
+        "para": 7,
+        "label": 1
+      },
+      {
+        "para": 12,
+        "label": 2
+      },
+      {
+        "para": 15,
+        "label": 2
+      }
+    ]
+  },
+  "chapters": {
+    "ch14": {
+      "label": "第 1 章 · 河底的灯",
+      "chars": 1536,
+      "rail": {
+        "now": "1,536",
+        "pbar": 26
+      },
+      "score": {
+        "rate": 53.9,
+        "band": "偏机器",
+        "cls": "warn"
+      },
+      "priorities": [
+        {
+          "k": "句号 / 千字",
+          "w": 3,
+          "z": 10.6,
+          "fix": "句号→逗号连缀并句；禁为降句号而乱断句"
+        },
+        {
+          "k": "句长趋同连串",
+          "w": 3,
+          "z": 9.4,
+          "fix": "拆一句、并两句或删一个子句——不加字；不要全砍短句"
+        },
+        {
+          "k": "抽象名词 / 千字",
+          "w": 2,
+          "z": 2.8,
+          "fix": "换具体物件：把「意义/价值/状态/过程」换成看得见的东西"
+        }
+      ],
+      "findings": [
+        {
+          "sev": "err",
+          "para": 4,
+          "rule": "破折号",
+          "before": "陆沉按住阿槎的手背",
+          "hit": "——",
+          "after": "掌心一片凉。",
+          "why": "破折号是典型的机器味，真人写作里几乎不出现。",
+          "fix": "改逗号或句号断开。"
+        },
+        {
+          "sev": "err",
+          "para": 7,
+          "rule": "「不是A，而是B」",
+          "before": "这",
+          "hit": "不是勇气的问题，而是信任的问题",
+          "after": "。",
+          "why": "对比框架是高频 AI 句式（含省略式与排比变体），本段出现 2 次。",
+          "fix": "拆掉对比框架，直接写 B。"
+        },
+        {
+          "sev": "err",
+          "para": 9,
+          "rule": "尾随标签",
+          "before": "「三更了。」",
+          "hit": "陆沉说。",
+          "after": "",
+          "why": "台词用「某人说」收尾是强机器指纹。",
+          "fix": "动作前置或裸台词。"
+        },
+        {
+          "sev": "err",
+          "para": 12,
+          "rule": "真人公式句",
+          "before": "",
+          "hit": "说白了，",
+          "after": "今夜出港",
+          "why": "「说白了」这类开场是在装人话，真人不会这么写。",
+          "fix": "删框架语，直接说事。"
+        },
+        {
+          "sev": "err",
+          "para": 13,
+          "rule": "提示式冒号",
+          "before": "摆在所有人面前的，",
+          "hit": "只有三个选择：",
+          "after": "交图、熄灯",
+          "why": "用冒号开清单是汇报腔指纹。",
+          "fix": "让人物用动作或对白接住，别用冒号列清单。"
+        },
+        {
+          "sev": "warn",
+          "para": 2,
+          "rule": "句长趋同连串",
+          "before": "舱里的空气闷得像要凝住，缆绳影子映在舱壁上。没有一个人先开口说话，油灯的火苗压得很低。图的事像一块石头，沉沉压在每个人的胸口。",
+          "hit": "",
+          "after": "",
+          "why": "连续 3 句长度几乎一样（相邻差 ≤3 字）——真人句子忽长忽短，趋同是批量感指纹。",
+          "fix": "并一句、删一短句，或插一个动作打断节奏。"
+        },
+        {
+          "sev": "warn",
+          "para": 2,
+          "rule": "比喻词连用",
+          "before": "舱里的空气闷得",
+          "hit": "像要凝住",
+          "after": "，缆绳影子",
+          "why": "同段两个「像」（像要凝住／像一块石头），比喻连用显得套路。",
+          "fix": "留最狠的一个，另一个换成直写。"
+        },
+        {
+          "sev": "warn",
+          "para": 5,
+          "rule": "三字搭配重复",
+          "before": "甲板上脚步来回，",
+          "hit": "检查完毕",
+          "after": "的灯语挂上桅顶",
+          "why": "同一 3 字搭配出现 2 次（人名与口头禅豁免，叙述用词不豁免）。",
+          "fix": "第二处换成具体动作或换个说法。"
+        },
+        {
+          "sev": "warn",
+          "para": 6,
+          "rule": "单句超长",
+          "before": "巡灯的光从舱门缝里切进来，在地板上走了一寸又一寸，所有人都在等它走过去，等它走过去了，才有人把憋了半天的气吐出来，把身子从阴影里挪回灯下。",
+          "hit": "",
+          "after": "",
+          "why": "单句 63 字（上限 60）：从句套从句是 AI 长句习惯。",
+          "fix": "在「等它走过去」后断句。"
+        },
+        {
+          "sev": "warn",
+          "para": 8,
+          "rule": "段内句号过密",
+          "before": "舱里很静。灯芯结了花。",
+          "hit": "",
+          "after": "",
+          "why": "一段 5 个句号：一口气读完的动作之间应用逗号连缀。",
+          "fix": "前四句用逗号连缀，末句落句号。"
+        }
+      ],
+      "metrics": [
+        {
+          "k": "句号 / 千字",
+          "v": "67.3",
+          "t": "≤ 24",
+          "h": "9.1 ~ 14.7",
+          "w": 3,
+          "ok": false
+        },
+        {
+          "k": "省略号 / 千字",
+          "v": "0.0",
+          "t": "≥ 2",
+          "h": "6.9 ~ 25.9",
+          "w": 2,
+          "ok": false
+        },
+        {
+          "k": "问号 / 千字",
+          "v": "0.7",
+          "t": "3.0 – 6.5",
+          "h": "3.1 ~ 5.6",
+          "w": 1,
+          "ok": false
+        },
+        {
+          "k": "叹号 / 千字",
+          "v": "0.0",
+          "t": "≤ 2",
+          "h": "1.2 ~ 3.7",
+          "w": 1,
+          "ok": true
+        },
+        {
+          "k": "标点间距均值（字）",
+          "v": "6.7",
+          "t": "参考",
+          "h": "8.0 ~ 9.8",
+          "w": 1,
+          "ok": null
+        },
+        {
+          "k": "标点间距偏度",
+          "v": "0.8",
+          "t": "≤ 1.5",
+          "h": "0.4 ~ 0.8",
+          "w": 2,
+          "ok": true
+        },
+        {
+          "k": "极短段占比",
+          "v": "29.3%",
+          "t": "15% – 40%",
+          "h": "18.6% ~ 30.4%",
+          "w": 3,
+          "ok": true
+        },
+        {
+          "k": "对话行占比",
+          "v": "3.4%",
+          "t": "≥ 15%",
+          "h": "19.6% ~ 38.3%",
+          "w": 2,
+          "ok": false
+        },
+        {
+          "k": "平均句长（字）",
+          "v": "14.7",
+          "t": "参考",
+          "h": "23.2 ~ 34.1",
+          "w": 1,
+          "ok": null
+        },
+        {
+          "k": "句长 SD",
+          "v": "8.7",
+          "t": "参考",
+          "h": "23.5 ~ 32.9",
+          "w": 1,
+          "ok": null
+        },
+        {
+          "k": "句长趋同连串",
+          "v": "8 处",
+          "t": "0 处",
+          "h": "0.0 ~ 0.6 处",
+          "w": 3,
+          "ok": false
+        },
+        {
+          "k": "单句 > 60 字",
+          "v": "1 处",
+          "t": "0 处",
+          "h": "—",
+          "w": 0,
+          "ok": false
+        },
+        {
+          "k": "MTLD 词汇丰富度",
+          "v": "—",
+          "t": "≥ 60",
+          "h": "66.8 ~ 80.3",
+          "w": 2,
+          "ok": null
+        },
+        {
+          "k": "Hapax 率（只出现一次的字）",
+          "v": "—",
+          "t": "≥ 42%",
+          "h": "43.4% ~ 47.0%",
+          "w": 0,
+          "ok": null
+        },
+        {
+          "k": "虚词 / 千字",
+          "v": "218.1",
+          "t": "≥ 195",
+          "h": "199 ~ 219",
+          "w": 3,
+          "ok": true
+        },
+        {
+          "k": "抽象名词 / 千字",
+          "v": "5.2",
+          "t": "≤ 4",
+          "h": "1.0 ~ 2.6",
+          "w": 2,
+          "ok": false
+        },
+        {
+          "k": "具体名词 / 千字",
+          "v": "29.9",
+          "t": "≥ 8",
+          "h": "12.9 ~ 21.1",
+          "w": 0,
+          "ok": true
+        },
+        {
+          "k": "转场词 / 千字",
+          "v": "2.0",
+          "t": "≤ 5",
+          "h": "1.8 ~ 4.2",
+          "w": 0,
+          "ok": true
+        },
+        {
+          "k": "感官覆盖类数",
+          "v": "3 类",
+          "t": "≥ 4 类",
+          "h": "4 ~ 5 类",
+          "w": 0,
+          "ok": false
+        }
+      ]
+    },
+    "ch13": {
+      "label": "第 2 章 · 第一位客人",
+      "chars": 1509,
+      "rail": {
+        "now": "1,509",
+        "pbar": 75,
+        "target": "2,000"
+      },
+      "score": {
+        "rate": 81.6,
+        "band": "很像人",
+        "cls": "ok"
+      },
+      "priorities": [
+        {
+          "k": "句号 / 千字",
+          "w": 3,
+          "z": 2.2,
+          "fix": "句号→逗号连缀并句；禁为降句号而乱断句"
+        }
+      ],
+      "findings": [],
+      "metrics": [
+        {
+          "k": "句号 / 千字",
+          "v": "23.8",
+          "t": "≤ 24",
+          "h": "9.1 ~ 14.7",
+          "w": 3,
+          "ok": true
+        },
+        {
+          "k": "省略号 / 千字",
+          "v": "18.8",
+          "t": "≥ 2",
+          "h": "6.9 ~ 25.9",
+          "w": 2,
+          "ok": true
+        },
+        {
+          "k": "问号 / 千字",
+          "v": "4.0",
+          "t": "3.0 – 6.5",
+          "h": "3.1 ~ 5.6",
+          "w": 1,
+          "ok": true
+        },
+        {
+          "k": "叹号 / 千字",
+          "v": "0.7",
+          "t": "≤ 2",
+          "h": "1.2 ~ 3.7",
+          "w": 1,
+          "ok": true
+        },
+        {
+          "k": "标点间距均值（字）",
+          "v": "6.4",
+          "t": "参考",
+          "h": "8.0 ~ 9.8",
+          "w": 1,
+          "ok": null
+        },
+        {
+          "k": "标点间距偏度",
+          "v": "0.1",
+          "t": "≤ 1.5",
+          "h": "0.4 ~ 0.8",
+          "w": 2,
+          "ok": true
+        },
+        {
+          "k": "极短段占比",
+          "v": "16.3%",
+          "t": "15% – 40%",
+          "h": "18.6% ~ 30.4%",
+          "w": 3,
+          "ok": true
+        },
+        {
+          "k": "对话行占比",
+          "v": "27.9%",
+          "t": "≥ 15%",
+          "h": "19.6% ~ 38.3%",
+          "w": 2,
+          "ok": true
+        },
+        {
+          "k": "平均句长（字）",
+          "v": "23.5",
+          "t": "参考",
+          "h": "23.2 ~ 34.1",
+          "w": 1,
+          "ok": null
+        },
+        {
+          "k": "句长 SD",
+          "v": "11.7",
+          "t": "参考",
+          "h": "23.5 ~ 32.9",
+          "w": 1,
+          "ok": null
+        },
+        {
+          "k": "句长趋同连串",
+          "v": "0 处",
+          "t": "0 处",
+          "h": "0.0 ~ 0.6 处",
+          "w": 3,
+          "ok": true
+        },
+        {
+          "k": "单句 > 60 字",
+          "v": "0 处",
+          "t": "0 处",
+          "h": "—",
+          "w": 0,
+          "ok": true
+        },
+        {
+          "k": "MTLD 词汇丰富度",
+          "v": "—",
+          "t": "≥ 60",
+          "h": "66.8 ~ 80.3",
+          "w": 2,
+          "ok": null
+        },
+        {
+          "k": "Hapax 率（只出现一次的字）",
+          "v": "—",
+          "t": "≥ 42%",
+          "h": "43.4% ~ 47.0%",
+          "w": 0,
+          "ok": null
+        },
+        {
+          "k": "虚词 / 千字",
+          "v": "199.5",
+          "t": "≥ 195",
+          "h": "199 ~ 219",
+          "w": 3,
+          "ok": true
+        },
+        {
+          "k": "抽象名词 / 千字",
+          "v": "2.7",
+          "t": "≤ 4",
+          "h": "1.0 ~ 2.6",
+          "w": 2,
+          "ok": true
+        },
+        {
+          "k": "具体名词 / 千字",
+          "v": "24.5",
+          "t": "≥ 8",
+          "h": "12.9 ~ 21.1",
+          "w": 0,
+          "ok": true
+        },
+        {
+          "k": "转场词 / 千字",
+          "v": "2.0",
+          "t": "≤ 5",
+          "h": "1.8 ~ 4.2",
+          "w": 0,
+          "ok": true
+        },
+        {
+          "k": "感官覆盖类数",
+          "v": "5 类",
+          "t": "≥ 4 类",
+          "h": "4 ~ 5 类",
+          "w": 0,
+          "ok": true
+        }
+      ]
+    }
+  }
+};
+</script>
+<script>
+(function () {
+  "use strict";
+  /* ── 演示嫁接挂载：章视图＋章右栏进真机壳；壳的书主页态隐藏（抓取 DOM 零改动） ── */
+  (function mount() {
+    var mid = document.querySelector(".col-middle");
+    var rai = document.querySelector(".col-ai");
+    if (!mid || !rai) return;
+    mid.appendChild(document.getElementById("tpl-chapterview").content.cloneNode(true));
+    rai.appendChild(document.getElementById("tpl-chapter-rail").content.cloneNode(true));
+    var chapRail = rai.querySelector("[data-rwchapterrail]");
+    if (chapRail) chapRail.hidden = false;
+    var homePanel = mid.querySelector(".col-panel");
+    if (homePanel) homePanel.hidden = true;
+    var homeRail = rai.querySelector(".rail-assist");
+    if (homeRail) homeRail.hidden = true;
+  })();
+  var $ = function (id) { return document.getElementById(id); };
+  var qs = function (sel) { return document.querySelector(sel); };
+  var SVG_OK = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M5 13l4 4L19 7"/></svg>';
+  var SVG_WARN = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9"/><path d="M12 7.5v5M12 16.5h.01"/></svg>';
+  var SVG_DOT = '<span style="display:inline-block;width:5px;height:5px;border-radius:50%;background:var(--faint)"></span>';
+
+  var eds = { ch14: $("rw-ed14") || document.querySelector('[data-rw-demo="ch14"]'),
+              ch13: $("rw-ed13") || document.querySelector('[data-rw-demo="ch13"]') };
+  var panes = { ch14: $("rw-prosepane"), ch13: $("rw-prosepane13") };
+  var current = "ch14";
+  function treeSel(name) {
+    document.querySelectorAll(".col-tree .ch").forEach(function (row) {
+      var ct = row.querySelector(".ct");
+      row.classList.toggle("sel", !!(ct && ct.textContent.indexOf(name) >= 0));
+    });
+  }
+
+  function parasOf(key) { return Array.prototype.slice.call(eds[key].querySelectorAll("p:not(.chapter-head)")); }
+
+  /* ── toast ── */
+  var toastTimer = null;
+  function toast(msg) {
+    var el = $("rw-toast");
+    el.textContent = msg;
+    el.classList.add("show");
+    if (toastTimer) clearTimeout(toastTimer);
+    toastTimer = setTimeout(function () { el.classList.remove("show"); }, 2600);
+  }
+
+  /* ── 标注：人味（rw）＋朱雀（zq 演示种子） ── */
+  function clearRw(key) {
+    parasOf(key).forEach(function (p) {
+      p.classList.remove("rw-mark");
+    });
+    var layer = panes[key].querySelector(".rw-marginlayer");
+    if (layer) layer.innerHTML = "";
+    panes[key].classList.remove("rw-margin");
+  }
+  function applyRw(key) {
+    clearRw(key);
+    panes[key].classList.add("rw-margin");
+    var byPara = {};
+    (RW.chapters[key].findings || []).forEach(function (f) {
+      (byPara[f.para] = byPara[f.para] || []).push(f);
+    });
+    var layer = panes[key].querySelector(".rw-marginlayer");
+    Object.keys(byPara).forEach(function (n) {
+      var p = parasOf(key)[n - 1];
+      if (!p) return;
+      p.classList.add("rw-mark");
+      var err = byPara[n].some(function (f) { return f.sev === "err"; });
+      var names = byPara[n].map(function (f) { return f.rule; }).join(" · ");
+      var note = document.createElement("div");
+      note.className = "rw-mnote " + (err ? "err" : "warn");
+      note.setAttribute("contenteditable", "false");
+      note.setAttribute("data-para", n);
+      var h = '<span class="nt"><span class="dot ' + (err ? "err" : "warn") + '"></span>'
+        + (err ? "一票否决" : "提示") + " · " + esc(names) + (byPara[n].length > 1 ? " ×" + byPara[n].length : "") + "</span>";
+      h += '<div class="dtl">';
+      byPara[n].forEach(function (f) {
+        h += '<div class="d-r"><b>' + esc(f.rule) + "</b>" + esc(f.why) + " <b>改法　</b>" + esc(f.fix) + "</div>";
+      });
+      h += '<div class="d-acts">'
+        + '<button class="btn btn-secondary btn-sm" data-fixdone="' + n + '">标为已改（本地重扫）</button>'
+        + '<button class="btn btn-ghost btn-sm" data-fixskip="' + n + '">跳过</button></div></div>';
+      note.innerHTML = h;
+      layer.appendChild(note);
+    });
+    alignMarginNotes(key);
+  }
+  function alignMarginNotes(key) {
+    var layer = panes[key].querySelector(".rw-marginlayer");
+    if (!layer) return;
+    layer.querySelectorAll(".rw-mnote").forEach(function (note) {
+      var p = paraEl(key, Number(note.getAttribute("data-para")));
+      if (p) note.style.top = p.offsetTop + "px";
+    });
+  }
+  window.addEventListener("resize", function () {
+    if (fix.key) alignMarginNotes(fix.key);
+  });
+  var zqApplied = false;
+  function applyZq() {
+    if (zqApplied) return;
+    RW.zqSeed.ch14.forEach(function (m) {
+      var p = parasOf("ch14")[m.para - 1];
+      if (!p) return;
+      p.classList.add(m.label === 1 ? "zq-err" : "zq-warn");
+      var t = document.createElement("span");
+      t.className = "zq-mark " + (m.label === 1 ? "m-err" : "m-warn");
+      t.textContent = m.label === 1 ? "AI" : "疑似";
+      p.appendChild(t);
+    });
+    zqApplied = true;
+  }
+  function clearZq() {
+    parasOf("ch14").forEach(function (p) {
+      p.classList.remove("zq-warn", "zq-err", "zq-stale");
+      var t = p.querySelector(".zq-mark");
+      if (t) t.remove();
+    });
+    $("rw-zqhd").classList.remove("stale");
+    zqApplied = false;
+  }
+
+  /* ── 页签（章纲 / 正文；其余页签不在演示范围） ── */
+  function setTab(name) {
+    document.querySelectorAll('.col-editor [data-rwtab]').forEach(function (b) {
+      var on = b.getAttribute("data-rwtab") === name;
+      b.classList.toggle("on", on);
+      b.setAttribute("aria-selected", on ? "true" : "false");
+    });
+    $("rw-ogpane").hidden = name !== "og";
+    panes.ch14.hidden = !(name === "prose" && current === "ch14");
+    panes.ch13.hidden = !(name === "prose" && current === "ch13");
+  }
+  document.querySelectorAll(".col-editor .chtab").forEach(function (b) {
+    b.addEventListener("click", function () {
+      if (b.getAttribute("data-rwtab")) setTab(b.getAttribute("data-rwtab"));
+      else toast("该页签不在本原型演示范围");
+    });
+  });
+
+  /* ── 报告渲染：intro → running → result 三态（foot 按钮随态切换） ── */
+  var reportKey = null;
+  function esc(s) { return String(s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;"); }
+  function renderResult(key) {
+    var ch = RW.chapters[key];
+    $("rw-m-pill").textContent = ch.label;
+    var nErr = (ch.findings || []).filter(function (f) { return f.sev === "err"; }).length;
+    var nWarn = (ch.findings || []).length - nErr;
+    var h = "";
+    h += '<div class="rw-score">'
+      + '<span class="num">' + ch.score.rate.toFixed(1) + '<span class="pct">%</span></span>'
+      + '<span class="k">人味率<br>越高越像人</span>'
+      + '<span class="rw-band ' + ch.score.cls + '">' + ch.score.band + "</span>"
+      + '<span class="exp">这一章和真人写作的距离——分越高越像人：70 以上就很不错，40 以下就是明显的机器腔。'
+      + "免费自查，改完再让朱雀复核，平时不必花那个额度。本章 " + ch.chars + " 字。</span></div>";
+    if (ch.score.rate < 70 && (ch.priorities || []).length) {
+      h += '<div class="rw-prio"><p class="rw-sec" style="margin:0 0 7px">先改这几处——见效最快</p>';
+      ch.priorities.forEach(function (p) {
+        h += '<div class="rw-prio-item"><span class="pw">' + (p.w === 3 ? "最见效" : "也见效") + '</span><b>' + esc(p.k) + "</b><span>" + esc(p.fix) + "</span></div>";
+      });
+      h += '<p class="rw-prio-note">偷个懒：补对话、换具体物件、拆并句子——一个动作能同时改善好几项</p></div>';
+    }
+    if ((ch.findings || []).length) {
+      h += '<p class="rw-sec">定位到的问题 · <b>' + ch.findings.length + " 处</b>（红 " + nErr + " · 黄 " + nWarn + "）</p>";
+      h += '<div class="rw-filist">';
+      ch.findings.forEach(function (f) {
+        var excerpt = esc(f.before) + "<mark>" + esc(f.hit) + "</mark>" + esc(f.after);
+        h += '<div class="rw-fi ' + f.sev + '" data-jump="' + f.para + '" title="点击定位到正文"><span class="dot"></span><span class="fx">'
+          + '<span class="l1"><span class="rl">' + esc(f.rule) + '</span><span class="pg">段 ' + f.para + "</span>"
+          + '<span class="sv">' + (f.sev === "err" ? "一票否决" : "提示") + "</span></span>"
+          + '<span class="l2">' + excerpt + "</span>"
+          + '<span class="l3">' + esc(f.why) + " <b>改法　</b>" + esc(f.fix) + "</span></span></div>";
+      });
+      h += "</div>";
+    } else {
+      h += '<div class="rw-empty">' + SVG_OK + "<span>没有发现明显问题——句子参差、用词具体、标点习惯都在真人区间内。</span></div>";
+    }
+    h += '<p class="rw-sec">整章对照 · 「真人区间」是几百章真人小说的常见范围，落在里面就正常</p>';
+    h += '<table class="rw-mtable"><thead><tr><th>指标</th><th>本章</th><th>达标线</th><th>真人常见范围</th><th>分量</th><th>判定</th></tr></thead><tbody>';
+    ch.metrics.forEach(function (m) {
+      var cls = m.ok === true ? "is-ok" : (m.ok === false ? "is-warn" : "is-ref");
+      var jd = m.ok === true ? '<span class="jd ok">' + SVG_OK + "</span>"
+        : (m.ok === false ? '<span class="jd warn">' + SVG_WARN + "</span>" : '<span class="jd ref">' + SVG_DOT + "</span>");
+      var wt = m.w === 3 ? "高" : m.w === 2 ? "中" : m.w === 1 ? "低" : "—";
+      h += '<tr class="' + cls + '"><td>' + esc(m.k) + '</td><td class="v">' + esc(m.v) + '</td><td class="t">' + esc(m.t) + '</td><td class="h">' + esc(m.h) + '</td><td class="w">' + wt + "</td><td>" + jd + "</td></tr>";
+    });
+    h += "</tbody></table>";
+    $("rw-m-body").innerHTML = h;
+  }
+
+  /* ── 逐条改稿：改稿清单浮卡＋就地诊断浮层＋跳转＋逐段重扫消卡 ── */
+  var fix = { key: null, items: [] };
+  function paraEl(key, n) { return parasOf(key)[n - 1]; }
+  function clearParaMark(key, n) {
+    var p = paraEl(key, n);
+    if (!p) return;
+    p.classList.remove("rw-mark");
+    var layer = panes[key].querySelector(".rw-marginlayer");
+    if (layer) {
+      var b = layer.querySelector('.rw-mnote[data-para="' + n + '"]');
+      if (b) b.remove();
+    }
+    alignMarginNotes(key);
+  }
+  function checkAllDone() {
+    if (!fix.key || !fix.items.length) return;
+    if (!fix.items.every(function (x) { return x.state !== "pending"; })) return;
+    var skipped = fix.items.filter(function (x) { return x.state === "skip"; }).length;
+    toast(skipped ? "清单处理完毕（跳过 " + skipped + " 条）——本地重扫全绿。点上方朱雀「重检」再验一轮；还没到你要的感觉，就再查再改"
+                  : "全部处理完，本地重扫全绿——预计人味率明显回升。点上方朱雀「重检」再验一轮；还没到你要的感觉，就再查再改");
+    var chip = $("rw-fixchip");
+    if (chip) chip.classList.add("done");
+    var rerun = document.querySelector('[data-rwzq="rerun"]');
+    if (rerun) rerun.classList.add("rw-hint");
+  }
+  function updateFixUI() {
+    var chip = $("rw-fixchip");
+    var total = fix.items.length;
+    var settled = fix.items.filter(function (x) { return x.state !== "pending"; }).length;
+    if (chip) {
+      chip.hidden = !fix.key || !total;
+      if (total) chip.textContent = "人味改稿 " + settled + "/" + total;
+    }
+    if (!fix.key) return;
+    parasOf(fix.key).forEach(function (p, i) {
+      var note = p.querySelector(".rw-mnote");
+      if (!note) return;
+      var its = fix.items.filter(function (x) { return x.f.para === i + 1; });
+      if (!its.length) return;
+      note.classList.toggle("done", its.every(function (x) { return x.state === "done"; }));
+      note.classList.toggle("skip", its.every(function (x) { return x.state === "skip"; }));
+    });
+  }
+    function openFixlist(key) {
+    fix.key = key;
+    fix.items = (RW.chapters[key].findings || []).map(function (f) { return { f: f, state: "pending" }; });
+    updateFixUI();
+  }
+  function closeFixlist() { fix.key = null; fix.items = []; updateFixUI(); }
+  function setItemState(idx, state, silent) {
+    var it = fix.items[idx];
+    if (!it || it.state !== "pending") return;
+    it.state = state;
+    var paraAllSettled = fix.items.filter(function (x) { return x.f.para === it.f.para; })
+      .every(function (x) { return x.state !== "pending"; });
+    if (paraAllSettled) clearParaMark(fix.key, it.f.para);
+    updateFixUI();
+    if (!silent && state === "done") toast("这段过关了——随手重查，不花额度");
+    checkAllDone();
+  }
+  function jumpTo(key, n) {
+    var p = paraEl(key, n);
+    if (!p) return;
+    p.scrollIntoView({ behavior: "smooth", block: "center" });
+    p.classList.remove("rw-flash");
+    void p.offsetWidth;
+    p.classList.add("rw-flash");
+    setTimeout(function () { p.classList.remove("rw-flash"); }, 2200);
+  }
+  Object.keys(eds).forEach(function (key) {
+    eds[key].addEventListener("click", function (e) {
+      var doneBtn = e.target.closest("[data-fixdone]");
+      var skipBtn = e.target.closest("[data-fixskip]");
+      if (!doneBtn && !skipBtn) return;
+      var n = Number((doneBtn || skipBtn).getAttribute(doneBtn ? "data-fixdone" : "data-fixskip"));
+      fix.items.forEach(function (it, i) {
+        if (it.f.para === n && it.state === "pending") setItemState(i, doneBtn ? "done" : "skip", !doneBtn);
+      });
+      if (!doneBtn) toast("已跳过——你的稿子你做主，这里不再提示");
+    });
+  });
+  $("rw-m-body").addEventListener("click", function (e) {
+    var fi = e.target.closest("[data-jump]");
+    if (fi) { var n = Number(fi.getAttribute("data-jump")); closeModal("renwei"); jumpTo(current, n); }
+  });
+
+  /* ── 报告弹窗开关 ── */
+  function openReport(key) {
+    reportKey = key;
+    setPhase(key, "intro");
+    openModal("renwei");
+  }
+  function setPhase(key, phase) {
+    var ch = RW.chapters[key];
+    $("rw-m-pill").textContent = ch.label;
+    $("rw-m-start").hidden = phase !== "intro";
+    $("rw-m-clear").hidden = phase !== "result";
+    $("rw-m-rerun").hidden = phase !== "result";
+    $("rw-m-mark").hidden = phase !== "result";
+    if (phase === "intro") {
+      $("rw-m-note").textContent = "免费 · 正文不出你的电脑 · 只提建议，不动稿子";
+      $("rw-m-body").innerHTML = '<div class="rw-intro">'
+        + '<div class="rw-intro-k">这是做什么的</div>'
+        + "<p>写完一章，让它和几百章真人小说对一对：哪里读起来像机器写的，直接圈出来，并告诉你怎么改。只提建议，动不动笔由你。</p>"
+        + '<div class="rw-intro-k">怎么用——一轮四步，循环到满意</div>'
+        + '<div class="rw-flow">'
+        + '<div class="rw-fnode"><span class="fn-h"><span class="fn-n">1</span><b>验</b></span><i>先让朱雀查一遍，看 AI 占比</i></div>'
+        + '<svg class="rw-farr" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M5 12h13M13 6l6 6-6 6"/></svg>'
+        + '<div class="rw-fnode self"><span class="fn-h"><span class="fn-n">2</span><b>查</b></span><i>这里圈出像 AI 的地方（免费，随便查）</i></div>'
+        + '<svg class="rw-farr" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M5 12h13M13 6l6 6-6 6"/></svg>'
+        + '<div class="rw-fnode"><span class="fn-h"><span class="fn-n">3</span><b>改</b></span><i>照着边注提示自己动手，改一段看一段</i></div>'
+        + '<svg class="rw-farr" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M5 12h13M13 6l6 6-6 6"/></svg>'
+        + '<div class="rw-fnode"><span class="fn-h"><span class="fn-n">4</span><b>再验</b></span><i>回朱雀再查一遍，看占比降了没</i></div>'
+        + '</div>'
+        + '<div class="rw-floop"><span>不满意就再来一轮——改到你觉得可以为止</span></div>'
+        + '<div class="rw-intro-k">放心</div>'
+        + "<p>免费，不花一分钱额度；正文不出你的电脑；太短的章节打不了分；只给建议，改不改你说了算。</p></div>";
+    } else if (phase === "running") {
+      $("rw-m-note").textContent = "正在对照真人基线…";
+      $("rw-m-body").innerHTML = '<div class="rw-running">'
+        + '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 12a9 9 0 11-6.2-8.56"/></svg>'
+        + "<span>正在把这一章和真人小说对照…</span></div>";
+    } else {
+      var ch2 = RW.chapters[key];
+      $("rw-m-note").textContent = (ch2.findings || []).length
+        ? "红＝一票否决 · 黄＝提示；改不改、怎么改，作家定夺"
+        : "这里没发现毛病，不代表朱雀也放行——发布前不妨再让朱雀看一遍";
+      renderResult(key);
+    }
+    requestAnimationFrame(function () { requestAnimationFrame(function () { $("rw-m-body").scrollTop = 0; }); });
+  }
+
+  /* ── 章切换（屏④换 13 章） ── */
+  function setChapter(key) {
+    current = key;
+    var ch = RW.chapters[key];
+    treeSel(key === "ch14" ? "第1章" : "第2章");
+    $("rw-pct-num").textContent = ch.rail.now;
+    qs(".pbar i").style.width = ch.rail.pbar + "%";
+    $("rw-target-label").textContent = key === "ch13" ? "目标 2,000 字" : "目标 6,000 字";
+    qs(".pct .sub").textContent = key === "ch13" ? "/2,000" : "/6,000";
+    $(key === "ch13" ? "rw-status-words13" : "rw-status-words").textContent = ch.rail.now + " / " + (key === "ch13" ? "2,000" : "6,000") + " 字";
+    $("rw-arch").innerHTML = key === "ch14"
+      ? '<i data-ico="check"></i>上一章已归档 · 本章可写'
+      : '<i data-ico="check"></i>本章已归档 · 可随时回改';
+    document.querySelector("#rw-arch svg, #rw-arch i") && renderArchIcon();
+    setTab("prose");
+  }
+  function renderArchIcon() {
+    var el = document.querySelector("#rw-arch i[data-ico]");
+    if (!el) return;
+    var svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+    svg.setAttribute("viewBox", "0 0 24 24");
+    svg.setAttribute("fill", "none");
+    svg.setAttribute("stroke", "currentColor");
+    svg.setAttribute("stroke-width", "2");
+    svg.setAttribute("width", "14");
+    svg.setAttribute("height", "14");
+    svg.innerHTML = '<path d="M5 13l4 4L19 7"/>';
+    el.replaceWith(svg);
+  }
+
+  /* ── 四屏 ── */
+  function go(screen) {
+    document.querySelectorAll("[data-rwgo]").forEach(function (b) { b.classList.toggle("on", b.getAttribute("data-rwgo") === screen); });
+    if (screen === "s1") {
+      current = "ch14";
+      treeSel("第1章");
+      $("rw-pct-num").textContent = RW.chapters.ch14.rail.now;
+      qs(".pbar i").style.width = RW.chapters.ch14.rail.pbar + "%";
+      $("rw-target-label").textContent = "目标 6,000 字";
+      qs(".pct .sub").textContent = "/6,000";
+      $("rw-status-words").textContent = RW.chapters.ch14.rail.now + " / 6,000 字";
+      setTab("og");
+      panes.ch14.hidden = true; panes.ch13.hidden = true;
+      clearRw("ch14"); clearRw("ch13"); clearZq();
+      closeModal("renwei");
+      closeFixlist();
+    } else if (screen === "s2") {
+      setChapter("ch14"); applyZq(); openReport("ch14");
+    } else if (screen === "s3") {
+      setChapter("ch14"); applyZq(); applyRw("ch14"); openFixlist("ch14"); closeModal("renwei");
+    } else if (screen === "s4") {
+      setChapter("ch13"); applyRw("ch13"); closeFixlist(); openReport("ch13");
+    }
+  }
+  document.querySelectorAll("[data-rwgo]").forEach(function (b) {
+    b.addEventListener("click", function () { go(b.getAttribute("data-rwgo")); });
+  });
+  $("rw-rail-btn").addEventListener("click", function () { go("s2"); });
+  $("rw-zq-btn").addEventListener("click", function () {
+    toast("朱雀检测为既有在线检测——本原型演示其检测存档：见正文黄/红标注与章头占比条");
+  });
+  document.querySelectorAll("[data-rwzq]").forEach(function (b) {
+    b.addEventListener("click", function () {
+      if (b.getAttribute("data-rwzq") === "clear") { clearZq(); toast("朱雀标注已清除（真实功能）"); }
+      else { b.classList.remove("rw-hint"); toast("重检会消耗朱雀额度——真实功能，原型不模拟调用"); }
+    });
+  });
+
+  /* ── 弹窗脚部 ── */
+  $("rw-m-start").addEventListener("click", function () {
+    setPhase(reportKey, "running");
+    setTimeout(function () { setPhase(reportKey, "result"); }, 1200);
+  });
+  $("rw-m-rerun").addEventListener("click", function () {
+    setPhase(reportKey, "running");
+    setTimeout(function () { setPhase(reportKey, "result"); }, 1200);
+  });
+  $("rw-m-clear").addEventListener("click", function () {
+    clearRw(current); closeFixlist(); toast("人味标注已清除");
+  });
+  $("rw-m-mark").addEventListener("click", function () {
+    applyRw(reportKey); openFixlist(reportKey); closeModal("renwei");
+    toast("已标记到正文——左右边注就是改稿提示，悬停边注看改法");
+  });
+
+  /* ── stale 演示：改到带标注的段＝逐段重扫精准消卡；改到别的位置＝全部失效＋朱雀置灰 ── */
+  var staleTimer = null;
+  var staleTarget = null;
+  Object.keys(eds).forEach(function (key) {
+    eds[key].addEventListener("input", function (e) {
+      var t = e.target && e.target.closest ? e.target.closest("p") : null;
+      if (!t) {
+        var sel = window.getSelection();
+        if (sel && sel.anchorNode) {
+          var node = sel.anchorNode.nodeType === 3 ? sel.anchorNode.parentElement : sel.anchorNode;
+          if (node) t = node.closest("p");
+        }
+      }
+      staleTarget = t;
+      if (staleTimer) clearTimeout(staleTimer);
+      staleTimer = setTimeout(function () {
+        var marked = staleTarget && staleTarget.classList.contains("rw-mark");
+        if (marked) {
+          var idx = parasOf(key).indexOf(staleTarget) + 1;
+          clearParaMark(key, idx);
+          if (fix.key === key) {
+            fix.items.forEach(function (it) {
+              if (it.f.para === idx && it.state === "pending") it.state = "done";
+            });
+            updateFixUI();
+          }
+          alignMarginNotes(key);
+          if (key === "ch14" && zqApplied) {
+            parasOf("ch14").forEach(function (p) {
+              if (p.classList.contains("zq-warn") || p.classList.contains("zq-err")) {
+                p.classList.remove("zq-warn", "zq-err");
+                p.classList.add("zq-stale");
+                var m = p.querySelector(".zq-mark");
+                if (m) m.classList.add("stale");
+              }
+            });
+            $("rw-zqhd").classList.add("stale");
+          }
+          toast("本段重扫通过，问题消除（本地 0 额度，随手可查）；朱雀结果置灰，可能过期");
+          checkAllDone();
+        } else {
+          clearRw(key);
+          if (key === "ch14" && zqApplied) {
+            parasOf("ch14").forEach(function (p) {
+              if (p.classList.contains("zq-warn") || p.classList.contains("zq-err")) {
+                p.classList.remove("zq-warn", "zq-err");
+                p.classList.add("zq-stale");
+                var t2 = p.querySelector(".zq-mark");
+                if (t2) t2.classList.add("stale");
+              }
+            });
+            $("rw-zqhd").classList.add("stale");
+          }
+          toast("正文已修改：人味标注已清除（零成本，重新检测即刷新）；朱雀结果已置灰，可能过期");
+        }
+      }, 700);
+    });
+  });
+})();
+</script>
+</body>
+</html>

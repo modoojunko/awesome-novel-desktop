@@ -687,12 +687,13 @@ test("右栏 AI 辅助随页签切换：引导语/统计卡/动作清单（动�
     await expect(railCard.getByRole("button", { name: /剧情推演/ })).toContainText("MAX 专属");
     await expect(railCard.getByRole("button", { name: /补全缺失字段/ })).toBeEnabled();
     await expect(railCard.getByText("规划中")).toHaveCount(0);
-    // 正文页签：面板切到正文（统计正文字数）；c-retire-selection-transforms：
-    // 去AI味单卡（扩写/压缩已退役），未选段时置灰不可点
+    // 正文页签：面板切到正文（统计正文字数）；c-renwei-check：去AI味改写链退役，
+    // 检测入口＝人味检测（本地免费、无门控）；旧单卡不得回潮
     await page.getByRole("tab", { name: /^正文/ }).click();
     await expect(page.getByText("AI 助手 · 正文")).toBeVisible();
-    await expect(railCard.getByTestId("ai-polish")).toBeDisabled();
+    await expect(railCard.getByTestId("ai-polish")).toHaveCount(0);
     await expect(railCard.getByTestId("ai-para-group")).toHaveCount(0);
+    await expect(page.getByTestId("rail-renwei-check")).toBeVisible();
     // 提示词页签退役（c-prompt-tab-retire）：组装来源统计随状态收编正文页签作用域行
     await expect(page.getByRole("tab", { name: /^提示词/ })).toHaveCount(0);
   } finally {

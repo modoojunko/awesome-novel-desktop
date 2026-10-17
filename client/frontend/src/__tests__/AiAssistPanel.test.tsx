@@ -113,7 +113,7 @@ describe("AiAssistPanel（随页签，ra-* 统一布局）", () => {
     expect(last.disabled).toBe(true);
   });
 
-  it("正文页签：修稿向导入口在（旧去AI味单卡退役）", async () => {
+  it("正文页签：人味检测入口在（去AI味改写链已退役）", async () => {
     apiState.get.mockImplementation(async (p: string) => {
       if (p.endsWith("/prompt-sources")) return { total_chars: 1234, cast_count: 3 };
       throw new Error("unexpected " + p);
@@ -131,9 +131,10 @@ describe("AiAssistPanel（随页签，ra-* 统一布局）", () => {
       expect(document.querySelector(".ai-target")?.textContent).toContain("组装来源 1,234 字"),
     );
     expect(document.querySelector(".ai-target")?.textContent).toContain("自动组装");
-    // c-deai-wizard：旧「去AI味」选区单发已退役，入口收敛为修稿向导
+    // c-renwei-check：去AI味改写链（向导/选区单发）已退役；检测入口由人味检测承接
     expect(screen.queryByTestId("ai-polish")).toBeNull();
-    expect(screen.getByTestId("ai-polish-wizard")).toBeTruthy();
+    expect(screen.queryByTestId("ai-polish-wizard")).toBeNull();
+    expect(screen.getByTestId("rail-renwei-check")).toBeTruthy();
     expect(screen.getByRole("button", { name: /生成正文/ })).toBeTruthy();
   });
 

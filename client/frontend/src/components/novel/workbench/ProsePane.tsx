@@ -28,13 +28,10 @@ import { TextSelection } from "@tiptap/pm/state";
 import type { Editor, JSONContent } from "@tiptap/core";
 import StarterKit from "@tiptap/starter-kit";
 import { Placeholder } from "@tiptap/extensions";
-import ContrastPreviewModal from "@/components/novel/ContrastPreviewModal";
-import PolishWizard from "./polishWizard/PolishWizard";
 import SeamWizard from "./seamWizard/SeamWizard";
 import { useChapterData } from "@/hooks/useChapterData";
 import { toast } from "@/lib/toast";
 import {
-  polishText,
   streamChapterRefill,
   streamChapterWrite,
   type StreamDoneMeta,
@@ -47,6 +44,10 @@ import {
   setLastWriteSession,
 } from "@/lib/prefs";
 import { docToProse, linesToParagraphs, proseToDoc, normalizeStreamedProse, proseDelta} from "./proseDoc";
+import { RenweiMarks, applyRenweiMarks } from "./renweiMarks";
+import RenweiCheckModal from "./RenweiCheckModal";
+import RenweiMarginNotes from "./RenweiMarginNotes";
+import { renweiCheck, type RenweiReport } from "@/lib/renwei";
 import { ZhuqueMarks, applyZhuqueSegments } from "./zhuqueMarks";
 import { fingerprint } from "@/lib/zhuqueFingerprint";
 import { useZhuqueCheck } from "@/hooks/useZhuqueCheck";
@@ -56,7 +57,6 @@ export interface ProseAIState {
   hasSelection: boolean;
   selectedText: string;
   continueLoading: boolean;
-  polishLoading: boolean;
   streaming: boolean;
 }
 
@@ -64,7 +64,6 @@ export const INITIAL_PROSE_AI_STATE: ProseAIState = {
   hasSelection: false,
   selectedText: "",
   continueLoading: false,
-  polishLoading: false,
   streaming: false,
 };
 
@@ -85,10 +84,8 @@ export interface ProseHandle {
    *  旧正文经「先 flush 后清空」进版本历史；入口层确认见 RegenConfirmModal */
   startWriting(prompt?: string, modelSelection?: ModelSelection): void;
   stopWriting(): void;
-  /** capture：解锁链等场景预先捕获的选区/光标（弹窗焦点会丢现场选区） */
-  polish(capture: SelectionCapture): void;
-  /** 打开「去 AI 味 · 修稿向导」（c-deai-wizard；入口在右栏 AI 工具卡） */
-  openPolishWizard?: () => void;
+  /** 打开「人味检测」报告弹窗（c-renwei-check；入口在右栏检测区） */
+  openRenweiCheck?: () => void;
   /** 打开「章际衔接修复向导」（c-seam-refill；入口同在右栏 AI 工具卡） */
   openSeamWizard?: () => void;
 }
@@ -205,13 +202,6 @@ const ProsePane = forwardRef<ProseHandle, ProsePaneProps>(function ProsePane(
   const [refillRounds, setRefillRounds] = useState(0);
   // 完工检查并入工具行（c-workbench-density）：胶囊点击展开叙事自查明细
   const [qcOpen, setQcOpen] = useState(false);
-  const [preview, setPreview] = useState<{
-    mode: "polish";
-    capture: SelectionCapture;
-    text: string | null;
-    loading: boolean;
-    error: string | null;
-  } | null>(null);
 
   // IME 组合期挂起的外部替换（组合结束补一次同步）
   const pendingProseRef = useRef<string | null>(null);
@@ -242,6 +232,7 @@ const ProsePane = forwardRef<ProseHandle, ProsePaneProps>(function ProsePane(
         Placeholder.configure({ placeholder: "从这一章开始写……" }),
         // c-zhuque-ai-detect：朱雀段落标注（Decorations 覆盖层，不动文档）
         ZhuqueMarks,
+        RenweiMarks,
       ],
       editable: false, // 由 editable effect 统一接管（两态＋锁定＋流式）
       editorProps: {
@@ -333,6 +324,7 @@ const ProsePane = forwardRef<ProseHandle, ProsePaneProps>(function ProsePane(
     };
   }, [editor, zqEvaluateStale]);
 
+
   // 撤销/重做可用态（工具箱按钮置灰；useEditorState 订阅事务）
   const canUndoRedo = useEditorState({
     editor,
@@ -400,7 +392,7 @@ const ProsePane = forwardRef<ProseHandle, ProsePaneProps>(function ProsePane(
     if (streaming) classList.add("generating");
   }, [editor, fs, lh, streaming]);
 
-  // 外部 prose 变化（加载/归档恢复/去AI味替换/AI 完成落盘）→ 整文档替换；
+  // 外部 prose 变化（加载/归档恢复/AI 完成落盘）→ 整文档替换；
   // 本地输入回路（指纹一致）与 IME 组合期跳过（组合结束补同步）。
   useEffect(() => {
     if (!editor || editor.isDestroyed) return;
@@ -450,7 +442,7 @@ const ProsePane = forwardRef<ProseHandle, ProsePaneProps>(function ProsePane(
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [chapterRef]);
 
-  // ── 选区跟踪（去AI味需要选中段落） ─────────────────────────────────
+  // ── 选区跟踪（AI 动作需要选中段落） ─────────────────────────────────
   const captureNow = useCallback((): SelectionCapture | null => {
     if (!editor || editor.isDestroyed) return null;
     // 读 DOM 选区而非 editor.state.selection：PM 消化 selectionchange 有延迟，
@@ -789,45 +781,88 @@ const ProsePane = forwardRef<ProseHandle, ProsePaneProps>(function ProsePane(
     return () => cancelAnimationFrame(raf);
   }, [resumeScroll, chapterRef]);
 
-  // ── 去AI味（选中段落 → 对照预览 → 接受替换） ─────────────────────
-  const runTransform = useCallback(
-    async (mode: "polish", capture: SelectionCapture) => {
-      const ctxBefore = capture.fullText.slice(Math.max(0, capture.start - 200), capture.start);
-      const ctxAfter = capture.fullText.slice(capture.end, capture.end + 200);
-      setPreview({ mode, capture, text: null, loading: true, error: null });
-      onAIStateChange((prev) => ({
-        ...prev,
-        polishLoading: mode === "polish",
-      }));
-      try {
-        const text = await polishText(projectId, chapterRef, capture.text, ctxBefore, ctxAfter);
-        setPreview({ mode, capture, text, loading: false, error: null });
-      } catch (e) {
-        setPreview({
-          mode,
-          capture,
-          text: null,
-          loading: false,
-          error: (e as Error)?.message || "请求出错",
-        });
-      } finally {
-        onAIStateChange((prev) => ({
-          ...prev,
-          polishLoading: false,
-                        }));
-      }
-    },
-    [projectId, chapterRef, onAIStateChange],
-  );
+  // c-renwei-check：人味检测（本地体检）。报告弹窗→「标记到正文」才上边注；
+  // 段落标色走 TipTap decoration，边注走覆盖层（正文锁死，不占布局流）。
+  const [renweiOpen, setRenweiOpen] = useState(false);
+  const [renweiReport, setRenweiReport] = useState<RenweiReport | null>(null);
+  const [renweiSettled, setRenweiSettled] = useState<Record<number, "done" | "skip">>({});
+  const renweiFindings = renweiReport?.findings ?? [];
+  // 需要标色的段落＝有 finding 且未处理的（0-based 非空段序）
+  const renweiParas = Array.from(new Set(
+    renweiFindings.filter((f) => !renweiSettled[f.para]).map((f) => f.para),
+  )).sort((a, b) => a - b);
+  const renweiParaTotal = new Set(renweiFindings.map((f) => f.para)).size;
+  const renweiSettledCount = Object.keys(renweiSettled).length;
 
-  // c-deai-wizard：修稿向导（开闭态＋写回执行器；向导在面板内挂载，
-  // 写回经「逆序单事务＋双写 store」——与既有 accept 链同款，可整批 ⌘Z）
-  const [wizardOpen, setWizardOpen] = useState(false);
+  // 人味标注注入：标记到正文后按「未处理 finding 段」上色；清空＝退场。
+  // 与朱雀各用一套 storage/PluginKey（两路检测互不读写）。
+  useEffect(() => {
+    if (!editor || editor.isDestroyed) return;
+    applyRenweiMarks(editor, renweiParas.length ? renweiParas : null);
+  }, [editor, renweiParas]);
+
+  // 人味逐段重扫（c-renwei-check）：标记在场时，改完一段 → 700ms 后重算整章
+  // （毫秒级、零额度）。通过与上一轮 findings 的 diff 精准消卡：该段变干净＝
+  // 自动记「已改」，其余段沿用新结果；标注已清则不再重扫。
+  const renweiRescanRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  useEffect(() => {
+    if (!editor || editor.isDestroyed) return;
+    const onRenweiEdit = ({ transaction }: { transaction: { docChanged: boolean } }) => {
+      if (!transaction.docChanged || !renweiReport) return;
+      if (renweiRescanRef.current) clearTimeout(renweiRescanRef.current);
+      renweiRescanRef.current = setTimeout(() => {
+        void renweiCheck(projectId, chapterRef)
+          .then((next) => {
+            const prevParas = new Set(renweiReport.findings.map((f) => f.para));
+            const nextParas = new Set(next.findings.map((f) => f.para));
+            const cleared = [...prevParas].filter((p) => !nextParas.has(p));
+            if (cleared.length) {
+              setRenweiSettled((prev) => {
+                const merged = { ...prev };
+                cleared.forEach((p) => { merged[p] = "done"; });
+                return merged;
+              });
+              toast.success("这一段过关了——随手重查，不花额度");
+            }
+            setRenweiReport(next);
+          })
+          .catch(() => {
+            /* 重扫失败不打扰：正文/标注保持，作家可手动重新检测 */
+          });
+      }, 700);
+    };
+    editor.on("transaction", onRenweiEdit);
+    return () => {
+      if (renweiRescanRef.current) clearTimeout(renweiRescanRef.current);
+      editor.off("transaction", onRenweiEdit);
+    };
+  }, [editor, projectId, chapterRef, renweiReport]);
+
   // c-seam-refill：章际衔接修复向导（开闭态＋打开时开场快照＋锚文校验执行器）
   const [seamOpen, setSeamOpen] = useState(false);
   const [seamParaCount, setSeamParaCount] = useState(3);
   const [seamCurrentOpening, setSeamCurrentOpening] = useState("");
   const [seamSnapshotFolded, setSeamSnapshotFolded] = useState("");
+  // 人味检测动作（c-renwei-check）：标记到正文 / 标为已改 / 跳过 / 清除
+  const markRenweiToBody = useCallback((report: RenweiReport) => {
+    setRenweiReport(report);
+    setRenweiSettled({});
+    setRenweiOpen(false);
+    toast.info("已标记到正文——右边就是改稿提示，悬停看改法");
+  }, []);
+  const renweiDone = useCallback((para: number) => {
+    setRenweiSettled((prev) => ({ ...prev, [para]: "done" }));
+    toast.success("这段过关了——随手重查，不花额度");
+  }, []);
+  const renweiSkip = useCallback((para: number) => {
+    setRenweiSettled((prev) => ({ ...prev, [para]: "skip" }));
+    toast.info("已跳过——你的稿子你做主，这里不再提示");
+  }, []);
+  const clearRenwei = useCallback(() => {
+    setRenweiReport(null);
+    setRenweiSettled({});
+  }, []);
+
   const openSeamWizard = useCallback(() => {
     if (!editor || editor.isDestroyed) return;
     const paras: string[] = [];
@@ -872,35 +907,6 @@ const ProsePane = forwardRef<ProseHandle, ProsePaneProps>(function ProsePane(
     },
     [editor, store, seamParaCount, seamSnapshotFolded, setProse],
   );
-  const applyParagraphEdits = useCallback(
-    (items: Array<{ paraIndex: number; from: string; text: string }>): { applied: number; skipped: number } => {
-      if (!editor || editor.isDestroyed || items.length === 0)
-        return { applied: 0, skipped: items.length };
-      const paras: Array<{ start: number; end: number; text: string }> = [];
-      editor.state.doc.forEach((node, pos) => {
-        const t = node.textContent;
-        if (!t.trim()) return;
-        paras.push({ start: pos + 1, end: pos + 1 + node.content.size, text: t });
-      });
-      const chain = editor.chain();
-      let applied = 0;
-      for (const it of [...items].sort((a, b) => b.paraIndex - a.paraIndex)) {
-        const range = paras[it.paraIndex];
-        if (!range) continue;
-        if (range.text.trim() !== it.from.trim()) continue; // 段文本漂移防护
-        chain.insertContentAt({ from: range.start, to: range.end }, linesToParagraphs(it.text));
-        applied += 1;
-      }
-      const skipped = items.length - applied;
-      if (applied === 0) return { applied: 0, skipped };
-      chain.run();
-      const next = docToProse(editor.getJSON());
-      lastSyncedRef.current = next;
-      setProse(next);
-      return { applied, skipped };
-    },
-    [editor, setProse],
-  );
   useImperativeHandle(
     ref,
     () => ({
@@ -913,11 +919,10 @@ const ProsePane = forwardRef<ProseHandle, ProsePaneProps>(function ProsePane(
         abortRef.current?.abort();
         finishStream(streamReceivedRef.current, false);
       },
-      polish: (capture: SelectionCapture) => void runTransform("polish", capture),
-      openPolishWizard: () => setWizardOpen(true),
+      openRenweiCheck: () => setRenweiOpen(true),
       openSeamWizard: () => openSeamWizard(),
     }),
-    [editor, captureNow, startStream, finishStream, runTransform, setWizardOpen, openSeamWizard],
+    [editor, captureNow, startStream, finishStream, openSeamWizard],
   );
 
   const words = prose.replace(/\s/g, "").length;
@@ -1034,6 +1039,14 @@ const ProsePane = forwardRef<ProseHandle, ProsePaneProps>(function ProsePane(
             </button>
           </span>
           <span className="push">
+            {renweiParaTotal > 0 && (
+              <span
+                className={`rw-fixchip${renweiSettledCount >= renweiParaTotal ? " done" : ""}`}
+                data-testid="rw-chip"
+              >
+                人味改稿 {renweiSettledCount}/{renweiParaTotal}
+              </span>
+            )}
             <span className="note">正在编辑正文 · {words.toLocaleString("zh-CN")} 字</span>
             <span className="note">写完自动保存</span>
             <button
@@ -1105,7 +1118,7 @@ const ProsePane = forwardRef<ProseHandle, ProsePaneProps>(function ProsePane(
         </div>
       )}
       <div
-        className={`editor-wrap${editable ? " editing" : ""}`}
+        className={`editor-wrap${editable ? " editing" : ""}${renweiParaTotal > 0 ? " rw-margin" : ""}`}
         hidden={hidden}
         ref={wrapRef}
       >
@@ -1130,17 +1143,25 @@ const ProsePane = forwardRef<ProseHandle, ProsePaneProps>(function ProsePane(
             只读/归档/流式态由 setEditable(false) 落成 contenteditable="false"
             （a11y + e2e 判定口保持） */}
         <EditorContent editor={editor} className="editor-host" />
+        {renweiParaTotal > 0 && (
+          <RenweiMarginNotes
+            editorEl={editor?.view.dom as HTMLElement | undefined ?? null}
+            findings={renweiFindings}
+            settled={renweiSettled}
+            onDone={renweiDone}
+            onSkip={renweiSkip}
+          />
+        )}
       </div>
       </div>
 
-      {/* 去 AI 味修稿向导（c-deai-wizard）：入口在右栏 AI 工具卡（openPolishWizard） */}
-      <PolishWizard
-        open={wizardOpen}
-        onClose={() => setWizardOpen(false)}
+      {/* 人味检测（c-renwei-check）：四拍弹窗——说明/运行/结果/标记到正文 */}
+      <RenweiCheckModal
+        open={renweiOpen}
         projectId={projectId}
         chapterRef={chapterRef}
-        prose={prose}
-        onApply={applyParagraphEdits}
+        onClose={() => setRenweiOpen(false)}
+        onMarkToBody={markRenweiToBody}
       />
       {/* 章际衔接修复向导（c-seam-refill）：入口同在右栏 AI 工具卡（openSeamWizard） */}
       <SeamWizard
@@ -1153,47 +1174,6 @@ const ProsePane = forwardRef<ProseHandle, ProsePaneProps>(function ProsePane(
         snapshotFolded={seamSnapshotFolded}
         onApply={applySeamOpening}
       />
-      {preview && (
-        <ContrastPreviewModal
-          open
-          mode={preview.mode}
-          originalText={preview.capture.text}
-          modifiedText={preview.text}
-          loading={preview.loading}
-          error={preview.error}
-          onClose={() => setPreview(null)}
-          onAccept={() => {
-            const { capture, text } = preview;
-            if (text) {
-              // 采纳替换走范围事务（c-prose-editor-tiptap）：选择区按 PM 位置替换为
-              // 段落集合（可撤销单元）；编辑器失联时回落「拼接 + 整档同步」老路
-              let next = capture.fullText.slice(0, capture.start) +
-                text +
-                capture.fullText.slice(capture.end);
-              if (editor && !editor.isDestroyed) {
-                const from = textOffsetToPmPos(editor.state.doc, capture.start);
-                const to = textOffsetToPmPos(editor.state.doc, capture.end);
-                editor
-                  .chain()
-                  .insertContentAt({ from, to }, linesToParagraphs(text), {
-                    updateSelection: false,
-                  })
-                  .run();
-                next = docToProse(editor.getJSON());
-              }
-              lastSyncedRef.current = next;
-              setProse(next);
-              toast.success("已去AI味");
-            }
-            setPreview(null);
-          }}
-          onReject={() => {
-            setPreview(null);
-            toast.info("已放弃修改");
-          }}
-          onRetry={() => void runTransform(preview.mode, preview.capture)}
-        />
-      )}
     </>
   );
 });

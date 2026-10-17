@@ -7,7 +7,7 @@
  *
  * 口径（2026-10-05 四档拍板）：人工写作能力免费完整可用；AI 能力按档逐层解锁——
  * 标准=AI 管流程（卷规划/拆章/章纲起草/体检/设定域 AI/文风建议），正文自己写；
- * PRO=正文 AI＋朱雀检测（ai-detect 留 PRO，trial 同权）；MAX=剧情推演＋去AI味＋文风蒸馏。
+ * PRO=正文 AI＋朱雀检测（ai-detect 留 PRO，trial 同权）；MAX=剧情推演＋文风蒸馏。
  * 入口一律可见（不做 UI 隐藏）；使用由后端 require_ai_access 统一拦截，
  * 403 member_required（非会员）/ feature_required（会员但档位不够）→ 前端分档引导。
  * 运营判定（免费限 1 本/试用横幅）不进清单，保留直判（建书上限走快照 limits.max_projects）。
@@ -33,8 +33,7 @@ export type FeatureKey =
   | "prompt-panel"
   | "ai-model"
   | "ai-detect"
-  | "ai-plot"
-  | "ai-polish";
+  | "ai-plot";
 
 const TIER_ORDER: Record<TierKey, number> = { free: 0, standard: 1, pro: 2, max: 3 };
 
@@ -62,9 +61,8 @@ export const FEATURES: Record<FeatureKey, { minTier: TierKey }> = {
   // 草案）；快照单源——S端 entitlement 对 pro/max 发放本 key；快照缺失按兜底口径
   // 一律未授权（锁定）。
   "ai-detect": { minTier: "pro" },
-  // MAX：剧情推演＋去AI味加工＋文风蒸馏
+  // MAX：剧情推演＋文风蒸馏（去AI味加工已随 c-renwei-check 退役）
   "ai-plot": { minTier: "max" },
-  "ai-polish": { minTier: "max" },
   "style-quant": { minTier: "max" },
 };
 

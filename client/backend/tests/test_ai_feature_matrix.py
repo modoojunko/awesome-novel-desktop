@@ -151,10 +151,6 @@ def test_standard_style_quant_403_max():
     _expect_403("style-quant", "feature_required", "max")
 
 
-def test_standard_ai_polish_403_max():
-    _expect_403("ai-polish", "feature_required", "max")
-
-
 def test_standard_prompt_panel_403_pro():
     """提示词面板＝PRO 专属：不是 PRO 就不能用（与「已配写作大模型 Key」判据叠加）——
     2026-10-08 口径，端点级钉住（前端 features.ts minTier=pro 同源）。"""
@@ -196,7 +192,7 @@ def test_trial_ai_plot_403_max():
 # ── max：全放 ──
 def test_max_all_pass():
     _seed("max")
-    for key in ("ai-plan", "ai-generate", "ai-detect", "ai-plot", "ai-polish", "style-quant"):
+    for key in ("ai-plan", "ai-generate", "ai-detect", "ai-plot", "style-quant"):
         assert _call(key) is True, key
 
 
