@@ -6,7 +6,7 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "build": "tsc && vite build",
+    "build": "node scripts/check-inline-colors.mjs && tsc && vite build && node scripts/gen-legacy-colors.mjs dist",
     "preview": "vite preview",
     "test": "playwright test",
     "test:ui": "playwright test --ui",
@@ -15,7 +15,9 @@
     "design:check": "npm run design:lint && DESIGN_PARITY=1 playwright test e2e/design-parity.spec.ts e2e/design-parity-preview.spec.ts",
     "coverage": "vitest run --coverage",
     "e2e:sweep": "node scripts/sweep-e2e-residue.mjs --apply",
-    "e2e:sweep:dry": "node scripts/sweep-e2e-residue.mjs"
+    "e2e:sweep:dry": "node scripts/sweep-e2e-residue.mjs",
+    "design:legacy": "node scripts/gen-legacy-colors.mjs dist",
+    "check:inline-colors": "node scripts/check-inline-colors.mjs"
   },
   "dependencies": {
     "@tanstack/react-query": "^5.103.2",

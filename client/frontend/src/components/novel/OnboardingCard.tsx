@@ -49,9 +49,9 @@ export default function OnboardingCard({
     <div
       className="relative animate-fade-up"
       style={{
-        borderBottom: "1px solid color-mix(in oklch, var(--accent) 20%, transparent)",
+        borderBottom: "1px solid var(--accent-20)",
         background:
-          "linear-gradient(to right, color-mix(in oklch, var(--accent) 6%, transparent), color-mix(in oklch, var(--accent) 2%, transparent))",
+          "linear-gradient(to right, var(--accent-6), var(--accent-2))",
       }}
     >
       <div className="px-6 py-5">

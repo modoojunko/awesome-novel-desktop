@@ -1,5 +1,6 @@
 import { useState, useCallback } from "react";
 import { Ico, P } from "@/components/icons";
+import { withAlpha } from "@/lib/color";
 
 export type TreeNodeAction = {
   icon: React.ReactNode;
@@ -194,7 +195,7 @@ function TreeNodeItem({
             className="badge"
             style={{
               backgroundColor: node.badgeColor
-                ? "color-mix(in oklch, " + node.badgeColor + " 14%, transparent)"
+                ? withAlpha(node.badgeColor, 0.14)
                 : "var(--fg-soft)",
               color: node.badgeColor ?? "var(--muted)",
             }}

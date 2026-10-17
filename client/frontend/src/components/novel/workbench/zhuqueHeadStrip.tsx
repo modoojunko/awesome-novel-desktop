@@ -79,21 +79,21 @@ export default function ZhuqueHeadStrip({
       data-testid="zhuque-head-strip"
     >
       <div className="hd-bar">
-        <i style={{ width: `${pct(r.summary.human_ratio)}`, background: "color-mix(in oklch, var(--ok) 72%, transparent)" }} />
-        <i style={{ width: `${pct(r.summary.suspect_ratio)}`, background: "color-mix(in oklch, var(--warn) 72%, transparent)" }} />
-        <i style={{ width: `${pct(r.summary.ai_ratio)}`, background: "color-mix(in oklch, var(--err) 72%, transparent)" }} />
+        <i style={{ width: `${pct(r.summary.human_ratio)}`, background: "var(--ok-72)" }} />
+        <i style={{ width: `${pct(r.summary.suspect_ratio)}`, background: "var(--warn-72)" }} />
+        <i style={{ width: `${pct(r.summary.ai_ratio)}`, background: "var(--err-72)" }} />
       </div>
       <div className="hd-ratio">
         <span className="lg">
-          <i style={{ background: "color-mix(in oklch, var(--ok) 72%, transparent)" }} />
+          <i style={{ background: "var(--ok-72)" }} />
           人工 <b>{pct(r.summary.human_ratio)}</b>
         </span>
         <span className="lg">
-          <i style={{ background: "color-mix(in oklch, var(--warn) 72%, transparent)" }} />
+          <i style={{ background: "var(--warn-72)" }} />
           疑似 AI <b>{pct(r.summary.suspect_ratio)}</b>
         </span>
         <span className="lg">
-          <i style={{ background: "color-mix(in oklch, var(--err) 72%, transparent)" }} />
+          <i style={{ background: "var(--err-72)" }} />
           AI <b>{pct(r.summary.ai_ratio)}</b>
         </span>
         <span style={{ fontSize: 10.5, color: "var(--muted)" }}>

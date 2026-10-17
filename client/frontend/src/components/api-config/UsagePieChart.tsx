@@ -11,7 +11,7 @@
  * - Multiple segments: one <circle> per segment with calculated dash params.
  * - Empty / zero-total / loading states: handled explicitly.
  *
- * 调色板与主题同源（oklch 直书，不引入裸 hex）：
+ * 调色板与主题同源（走 --chart-N 令牌；内联样式不得直写颜色函数）：
  * 墨绿=accent 族、暖金=warn 族、赭红=err 族，再补黛蓝/紫棠/青三个邻近色相。
  */
 
@@ -21,12 +21,12 @@ interface UsagePieChartProps {
 }
 
 const COLORS = [
-  "oklch(0.55 0.11 165)",
-  "oklch(0.66 0.11 75)",
-  "oklch(0.58 0.13 30)",
-  "oklch(0.55 0.08 255)",
-  "oklch(0.58 0.10 320)",
-  "oklch(0.60 0.08 210)",
+  "var(--chart-1)",
+  "var(--chart-2)",
+  "var(--chart-3)",
+  "var(--chart-4)",
+  "var(--chart-5)",
+  "var(--chart-6)",
 ];
 
 export function UsagePieChart({ data, loading }: UsagePieChartProps) {

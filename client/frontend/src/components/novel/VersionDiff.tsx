@@ -147,7 +147,7 @@ function renderWordDiff(
           <span
             key={key}
             className="rounded px-0.5"
-            style={{ backgroundColor: "color-mix(in oklch, var(--ok) 25%, transparent)" }}
+            style={{ backgroundColor: "var(--ok-25)" }}
           >
             {seg}
           </span>,
@@ -158,7 +158,7 @@ function renderWordDiff(
           <span
             key={key}
             className="rounded px-0.5 line-through"
-            style={{ backgroundColor: "color-mix(in oklch, var(--err) 25%, transparent)" }}
+            style={{ backgroundColor: "var(--err-25)" }}
           >
             {seg}
           </span>,
@@ -213,7 +213,7 @@ function DiffViewer({
           <div
             key={i}
             className="px-3 py-0.5 text-xs text-center select-none italic"
-            style={{ color: "color-mix(in oklch, var(--fg) 30%, transparent)" }}
+            style={{ color: "var(--fg-30)" }}
           >
             {line.text}
           </div>
@@ -230,12 +230,12 @@ function DiffViewer({
           style={
             isAdd
               ? {
-                  background: "color-mix(in oklch, var(--ok) 15%, transparent)",
+                  background: "var(--ok-15)",
                   borderLeft: "2px solid var(--ok)",
                 }
               : isDel
                 ? {
-                    background: "color-mix(in oklch, var(--err) 15%, transparent)",
+                    background: "var(--err-15)",
                     borderLeft: "2px solid var(--err)",
                   }
                 : { color: "var(--muted)" }
@@ -428,7 +428,7 @@ export default function VersionDiff({ projectId, chapterRef, versions, initialOl
           ))}
         </select>
 
-        <span className="text-sm" style={{ color: "color-mix(in oklch, var(--fg) 30%, transparent)" }}>&rarr;</span>
+        <span className="text-sm" style={{ color: "var(--fg-30)" }}>&rarr;</span>
 
         {/* New version selector */}
         <select
@@ -480,8 +480,8 @@ export default function VersionDiff({ projectId, chapterRef, versions, initialOl
         <div
           className="rounded-lg p-4"
           style={{
-            border: "1px solid color-mix(in oklch, var(--err) 35%, transparent)",
-            background: "color-mix(in oklch, var(--err) 8%, transparent)",
+            border: "1px solid var(--err-35)",
+            background: "var(--err-8)",
           }}
         >
           <div className="flex items-center gap-2 text-sm" style={{ color: "var(--err)" }}>
@@ -501,8 +501,8 @@ export default function VersionDiff({ projectId, chapterRef, versions, initialOl
           <div
             className="rounded-lg p-4"
             style={{
-              border: "1px solid color-mix(in oklch, var(--accent) 35%, transparent)",
-              background: "color-mix(in oklch, var(--accent) 8%, transparent)",
+              border: "1px solid var(--accent-35)",
+              background: "var(--accent-8)",
             }}
           >
             <div className="flex items-center gap-2 text-sm" style={{ color: "var(--accent-strong)" }}>

@@ -8,7 +8,9 @@ export default defineConfig({
     environment: "jsdom",
     setupFiles: ["./src/test-setup.ts"],
     globals: true,
-    include: ["src/**/*.test.{ts,tsx}"],
+    // scripts/ 下的构建期工具（如旧内核颜色兼容表生成器）与业务单测同批跑：
+    // 它们是发布产物的一部分，错了同样要让 CI 红。
+    include: ["src/**/*.test.{ts,tsx}", "scripts/**/*.test.mjs"],
     exclude: ["node_modules", "e2e"],
     coverage: {
       provider: "v8",

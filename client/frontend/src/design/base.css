@@ -201,6 +201,37 @@ input, textarea, select { font: inherit; }
 .lnk:hover { color: var(--accent-strong); text-decoration: underline; }
 /* @cross-end */
 
+/* C端 组件色令牌（c-legacy-color-fallback；不进 @cross 共享段，避免与 S端逐字校验漂移）：
+   内联样式只引用这些令牌，构建期旧内核兼容表才能整份覆盖。依赖上方核心令牌，
+   自定义属性按使用处惰性求值，主题覆写照常生效。 */
+:root {
+  --accent-2:  color-mix(in oklch, var(--accent) 2%, transparent);
+  --accent-5:  color-mix(in oklch, var(--accent) 5%, transparent);
+  --accent-6:  color-mix(in oklch, var(--accent) 6%, transparent);
+  --accent-8:  color-mix(in oklch, var(--accent) 8%, transparent);
+  --accent-20: color-mix(in oklch, var(--accent) 20%, transparent);
+  --accent-35: color-mix(in oklch, var(--accent) 35%, transparent);
+  --fg-4:  color-mix(in oklch, var(--fg) 4%, transparent);
+  --fg-30: color-mix(in oklch, var(--fg) 30%, transparent);
+  --fg-75: color-mix(in oklch, var(--fg) 75%, transparent);
+  --ok-15:   color-mix(in oklch, var(--ok) 15%, transparent);
+  --ok-25:   color-mix(in oklch, var(--ok) 25%, transparent);
+  --ok-72:   color-mix(in oklch, var(--ok) 72%, transparent);
+  --warn-72: color-mix(in oklch, var(--warn) 72%, transparent);
+  --err-8:   color-mix(in oklch, var(--err) 8%, transparent);
+  --err-15:  color-mix(in oklch, var(--err) 15%, transparent);
+  --err-25:  color-mix(in oklch, var(--err) 25%, transparent);
+  --err-35:  color-mix(in oklch, var(--err) 35%, transparent);
+  --err-72:  color-mix(in oklch, var(--err) 72%, transparent);
+  /* 用量饼图调色板（内联样式只引用令牌） */
+  --chart-1: oklch(0.55 0.11 165);
+  --chart-2: oklch(0.66 0.11 75);
+  --chart-3: oklch(0.58 0.13 30);
+  --chart-4: oklch(0.55 0.08 255);
+  --chart-5: oklch(0.58 0.1 320);
+  --chart-6: oklch(0.6 0.08 210);
+}
+
 /* 书工作台弹窗版式（book.html .wb 作用域的独立类形态）：供 .wb 之外
    （appbar 设置弹窗等）复刻同版式；.wb 内与作用域规则同值叠加，无冲突。
    【C端 本地段】以下为 C端 特有扩展，不入共享段 */
