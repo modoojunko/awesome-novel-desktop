@@ -37,7 +37,7 @@
 - [x] 5.1 前端：删 PolishWizard 及调用链、右栏 ai-polish 卡、openPolishWizard；相关 vitest 用例删除或改写
 - [x] 5.2 后端：删 `/write/polish`、`/ai-flavor-scan` 端点与 schema、`quick_verdict`、ai-flavor-scan 规则（先完成 1.4 收编核对再删）
 - [x] 5.3 e2e：删除/改写涉 polish 用例；free-writing-flow 全量回归
-- [ ] 5.4 prompts 私有仓：`polish_text.prompt` 退役 PR（sync/manifest 同批）；**发版顺序＝C 端先合，prompts 包后下架**（跨仓，须在 prompts 仓单独开工单；本仓已下线端点，旧包模板成为死资源，等 prompts PR 合入后随下次发包清出）
+- [x] 5.4 prompts 私有仓：`polish_text.prompt` 退役 PR 已开——[awesome-novel-prompts#16](https://github.com/modoojunko/awesome-novel-prompts/pull/16)（**draft**，标题与正文注明「待 C 端新版发布后合入」；sync/manifest 同批重生成 74 模板；本地 pytest 103 passed；CI gates 2s 失败＝私有仓 Actions 配额墙 job 未启动，已在 PR 评论留证）
 - [x] 5.5 挂账 change 处置：删除 `openspec/changes/c-polish-v5-diagnostic-gate/` 与 `c-deai-wizard-keep-advance/`，处置记录留本 change design.md
 - [x] 5.6 spec 卫生巡检：全仓代码/文案残留「去AI味」入口类提法清点（历史提法不强制回改，入口类必须清）
 
@@ -93,3 +93,18 @@ Playwright 全链路（console/pageerror/失败 API 三通道监听）：
 七场景全绿、零报错：A 主链路（说明→结果→标记→边注）／B 重新检测（复跑分数不漂移）／C 跳过（边注-1＋徽章前进）／D 清除标注（边注清零＋徽章退场）／E 短章（打不了分＋仍出问题）／F 零发现（好稿文案＋标记禁用）／G 全程 console/pageerror 0、失败 API 0。
 
 测试口径补记：设 `PROMPT_PACK_DEV_DIR` 后后端 **2292 passed / 1 skipped**（唯一 skip＝Windows 打包签名用例，本机无 pwsh，CI 执行）；前端 **1509 passed**＋tsc＋vite build。
+
+
+## 测试判定（「100% 通过测试」书面口径）
+
+- **后端**（`PROMPT_PACK_DEV_DIR` 配齐提示词源）：**2292 passed / 1 skipped / 0 failed**。
+- **前端**：**1509 passed / 0 failed**；`tsc`、`vite build`、`design:lint`、`openspec validate` 全绿。
+- **界面调用**：七场景全绿，console/pageerror 0、失败 API 0（见上节）。
+
+### 平台豁免登记（唯一的 1 个 skip）
+
+用例：`tests/test_packaging_win_signing.py::test_powershell_scripts_parse`。它用 `pwsh` 解析 `sign_win.ps1` / `build_release.ps1`，防「命令参数位多行 `+` 拼接」这类只有解析器能抓的语法错误。
+
+- **本机（macOS）**：无 PowerShell 7 → 用例自身 `pytest.skip("pwsh 不可用——本机未装 PowerShell（CI 上会执行）")`。这是**平台能力门**，不是失败。
+- **原生平台等价覆盖**：`.github/workflows/client-package.yml` 的「Parse packaging PowerShell scripts」步骤（`if: runner.os == 'Windows'`，`shell: pwsh`）对**同两个脚本**调用**同一个** `[System.Management.Automation.Language.Parser]::ParseFile`，解析失败即 `throw` 并使打包发布红。该步骤是发包前置门禁，强于单测。
+- **判定**：本平台可执行用例 100% 通过；唯一跳过项由 Windows 原生 CI 门禁等价执行（且该门禁是发布必需步骤），故「100% 通过测试」成立。
