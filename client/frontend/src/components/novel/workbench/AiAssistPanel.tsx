@@ -500,6 +500,7 @@ export function AiAssistPanel({
         ? "先写正文，再让本地规则圈出像 AI 的句子——免费、不花朱雀额度"
         : "朱雀说 AI 味重？用它圈出具体哪里像 AI、怎么改；免费，正文不出本机",
       badge: <span className="pill pill-accent">本地 · 免费</span>,
+      ungated: true,
       onClick: () => proseRef?.current?.openRenweiCheck?.(),
       disabled: streaming || wordCount === 0,
       hint: streaming ? "生成中" : wordCount === 0 ? "先写正文" : undefined,

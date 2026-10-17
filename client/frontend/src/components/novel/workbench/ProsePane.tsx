@@ -805,15 +805,28 @@ const ProsePane = forwardRef<ProseHandle, ProsePaneProps>(function ProsePane(
   // （毫秒级、零额度）。通过与上一轮 findings 的 diff 精准消卡：该段变干净＝
   // 自动记「已改」，其余段沿用新结果；标注已清则不再重扫。
   const renweiRescanRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // 监听器必须**稳定绑定**：store/report 每次渲染都可能换新对象，若进依赖数组，
+  // 每次按键（触发重渲）都会 cleanup 并清掉 700ms 防抖定时器——实测「改完一段
+  // 永远不重扫」。故只依赖 editor/章节身份，动态值走 ref。
+  const renweiReportRef = useRef<RenweiReport | null>(null);
+  renweiReportRef.current = renweiReport;
+  const renweiStoreRef = useRef(store);
+  renweiStoreRef.current = store;
   useEffect(() => {
     if (!editor || editor.isDestroyed) return;
     const onRenweiEdit = ({ transaction }: { transaction: { docChanged: boolean } }) => {
-      if (!transaction.docChanged || !renweiReport) return;
+      if (!transaction.docChanged || !renweiReportRef.current) return;
       if (renweiRescanRef.current) clearTimeout(renweiRescanRef.current);
       renweiRescanRef.current = setTimeout(() => {
-        void renweiCheck(projectId, chapterRef)
+        const prevReport = renweiReportRef.current;
+        if (!prevReport) return;
+        // 先落盘再重扫：端点读盘正文，自动保存有 1.5s 防抖窗口——不 flush 会
+        // 扫到旧稿（实测：改完一段重扫，结论仍按旧稿给出，卡片不动）。
+        void renweiStoreRef.current
+          .flush?.()
+          .then(() => renweiCheck(projectId, chapterRef))
           .then((next) => {
-            const prevParas = new Set(renweiReport.findings.map((f) => f.para));
+            const prevParas = new Set(prevReport.findings.map((f) => f.para));
             const nextParas = new Set(next.findings.map((f) => f.para));
             const cleared = [...prevParas].filter((p) => !nextParas.has(p));
             if (cleared.length) {
@@ -836,7 +849,7 @@ const ProsePane = forwardRef<ProseHandle, ProsePaneProps>(function ProsePane(
       if (renweiRescanRef.current) clearTimeout(renweiRescanRef.current);
       editor.off("transaction", onRenweiEdit);
     };
-  }, [editor, projectId, chapterRef, renweiReport]);
+  }, [editor, projectId, chapterRef]);
 
   // c-seam-refill：章际衔接修复向导（开闭态＋打开时开场快照＋锚文校验执行器）
   const [seamOpen, setSeamOpen] = useState(false);

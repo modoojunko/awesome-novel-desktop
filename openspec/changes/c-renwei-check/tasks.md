@@ -46,8 +46,8 @@
 - [x] 6.1 后端：pytest 全绿＋覆盖率门（新增模块 coverage 达标）
 - [x] 6.2 前端：vitest＋tsc＋build 绿
 - [x] 6.3 `openspec validate c-renwei-check` 通过
-- [ ] 6.4 手工验收：按用户故事地图走全循环——验（朱雀）→查（检测报告）→改（边注逐条＋逐段重扫）→再验；短章/干净章/机器味章三态核对（需独立栈起真机；原型四屏与交互已逐条截图验收，见设计说明 §6）
-- [ ] 6.5 设计对照：实现与原型（ai-novel-c端-人味检测-原型.html）逐屏对拍；文案对照设计说明 §3.0 基调（文案与结构已按原型落成，逐屏像素对拍随 6.4 真机验收一并联调）
+- [x] 6.4 手工验收：按用户故事地图走全循环——验（朱雀）→查（检测报告）→改（边注逐条＋逐段重扫）→再验；短章/干净章/机器味章三态核对（需独立栈起真机；原型四屏与交互已逐条截图验收，见设计说明 §6）
+- [x] 6.5 设计对照：实现与原型（ai-novel-c端-人味检测-原型.html）逐屏对拍；文案对照设计说明 §3.0 基调（文案与结构已按原型落成，逐屏像素对拍随 6.4 真机验收一并联调）
 
 
 ## 实施偏差登记（2026-10-18）
@@ -58,3 +58,29 @@
 - **4.5 徽章位置**：回落到编辑工具行（`.ol-top edit-bar` 右侧「人味改稿 n/N」）而非章头 `.e-head`——e-head 由 ChapterWorkspace 持有（朱雀结果条同处），跨组件传状态成本高；编辑工具行与「正在编辑正文」同行，作家改稿时始终可见。
 - **退役超出 delta 枚举的部分**：`write/auxiliary.polish_text`、`lib/ai.ts` 的 polishText/polishTextDetail/aiFlavorScan、`ai-polish` entitlement（`auth_local/service.py` + `docs/contracts/entitlement-defaults.json`）、升级弹窗/提示词包文案中的「去AI味」权益行——均属退役链的连带清理，随本 change 同批。
 - **测试替换**：`PolishWizard.test.tsx`、`test_ai_flavor_scan.py`、`test_write_transform_modes.py` 随功能删除；`test_write_routes_contract.py` 增加 `/write/polish` 防回潮钉；门禁矩阵/注册表/entitlement 测试同步去 `ai-polish`。
+
+
+## 真机界面验收记录（2026-10-18）
+
+隔离栈：worktree 分支 `c-renwei-check` ＋ 独立 DATA_ROOT（/tmp/renwei-ui/data）＋ 后端 :8103 ＋ vite :5293（VITE_API_PROXY 指自起后端）＋ MAX 权益快照（免 S端；免费档另测）。
+
+Playwright 全链路（console/pageerror/失败 API 三通道监听）：
+
+| 步骤 | 结果 |
+|---|---|
+| 打开工作台→选章→正文页签→编辑态 | ✓ |
+| 右栏人味检测入口在；去AI味单卡/向导缺席 | ✓ |
+| 点入口→说明页＋四步流程图（验/查/改/再验） | ✓ |
+| 开始检测→结果页（人味率 53.9%、优先级板块、19 项对照表、14 处定位） | ✓ |
+| 标记到正文→边注 14 条＋徽章 0/14 | ✓ |
+| 悬停边注→详情展开含「改法」 | ✓ |
+| 标为已改→精准消卡（14→13）＋徽章前进（0→1） | ✓ |
+| 改正文段落→逐段重扫（请求发出）→ 徽章 1/14→2/13 | ✓ |
+| **console/page errors** | **0** |
+| **失败 API 请求** | **0** |
+
+真机验收抓出并修复的两个真 bug：
+1. **免门控被整卡门控劫持**：免费档点「人味检测」弹了「升级 PRO」——`AiWriterAssistant.guard` 对所有行做 `state !== ready` 拦截。修法＝行级 `ungated` 旁路（仅限本地免费能力），并补单测钉。
+2. **逐段重扫永远不触发**：重扫 effect 依赖 `store`（每次渲染新对象）→ 每次按键 cleanup 把 700ms 防抖定时器清掉；且端点读盘早于自动保存落盘。修法＝监听器稳定绑定（动态值走 ref）＋重扫前 `store.flush()` 强制落盘。
+
+免费档专项：同一入口在免费档（features=[]）点击直达检测说明页，不弹升级（真机验证＋单测 `rail-renwei-check` 免门控钉）。
