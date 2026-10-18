@@ -2095,10 +2095,14 @@ button.dep-row:hover{background:var(--hl)}
 /* 边注模式：正文位置/宽度不变；朱雀判定章左移到左边距；覆盖层在滚动容器内 */
 .editor-wrap.rw-margin { position: relative; overflow-x: hidden; }
 .editor-wrap.rw-margin .zq-mark { right: auto; left: -46px; }
-.rw-marginlayer { position: absolute; inset: 0; pointer-events: none; z-index: 5; }
+.rw-marginlayer { position: absolute; inset: 0; pointer-events: none; z-index: 5;
+  /* 边注列左缘＝正文右缘＋16px（JS 按实测正文栏覆盖，窗口/栏宽变化自动跟随）；
+     默认值按正文 680 居中推算，脚本未跑前也不把边注甩到窗口最右。 */
+  --rw-notes-left: calc(50% + 340px + 16px); }
 .rw-marginlayer .rw-mnote { pointer-events: auto; }
 
-.rw-mnote { position: absolute; right: 12px; width: clamp(150px, calc((100% - 680px) / 2 - 20px), 224px);
+.rw-mnote { position: absolute; left: var(--rw-notes-left); right: auto;
+  width: clamp(120px, calc(100% - var(--rw-notes-left) - 16px), 224px);
   text-align: left; cursor: default; }
 .rw-mnote .nt { display: block; font-family: var(--font-mono); font-size: 10.5px;
   line-height: 1.5; color: var(--muted); padding: 2px 0; border-top: 1px solid var(--border);
@@ -2110,6 +2114,14 @@ button.dep-row:hover{background:var(--hl)}
 .rw-mnote .dtl { display: none; position: absolute; right: 0; top: calc(100% + 4px); width: 264px; z-index: 60;
   background: var(--surface); border: 1px solid var(--border); border-left: 3px solid var(--accent);
   border-radius: var(--radius); box-shadow: var(--shadow-pop); padding: 11px 13px; }
+/* 右侧留白放得下详情卡时朝右展开（不压正文）；窄窗口仍朝左。 */
+.rw-marginlayer.rw-notes-dtl-right .rw-mnote .dtl { left: 0; right: auto; }
+/* 窄栏兜底（设计说明 §8 的最小窗宽/胶囊形态未拍板）：右留白放不下文字列时
+   收成一枚段侧圆点（severity 色），悬停仍展开现有详情卡——不裁字、不压正文。
+   这是「胶囊＋浮层」的最小形态；真机若要更显眼的窄窗形态另拍板。 */
+.rw-marginlayer.rw-notes-narrow .rw-mnote { left: auto; right: 2px; width: 18px; padding: 5px 3px; }
+.rw-marginlayer.rw-notes-narrow .rw-mnote .nt { border-top: none; font-size: 0; line-height: 0; padding: 0; }
+.rw-marginlayer.rw-notes-narrow .rw-mnote .nt .dot { margin: 0; width: 8px; height: 8px; vertical-align: 0; }
 .rw-mnote:hover { z-index: 70; }
 .rw-mnote:hover .dtl { display: block; }
 .rw-mnote .dtl .d-r { font-size: 11.5px; color: var(--muted); line-height: 1.65; padding: 5px 0; }
