@@ -456,7 +456,8 @@ class TestGenerationPhases:
     def test_thinking_timeout_keeps_stored_prose(self, client, monkeypatch):
         """思考太久即失败（c-prose-thinking-timeout）：首字守卫判死后给可读 error、
         无 done、**不走落库**——原稿分毫不动（12:22 空流覆盖存稿事故的守门钉）。"""
-        from ai_client import FIRST_CONTENT_TIMEOUT, AIThinkingTimeoutError
+        from ai_client import AIThinkingTimeoutError
+        from write.router import PROSE_FIRST_CONTENT_TIMEOUT
 
         _set_member()
         pid, ref, _ = _create_project_and_chapter(client)
@@ -486,7 +487,9 @@ class TestGenerationPhases:
         r = client.post(f"/api/novels/{pid}/chapters/{ref}/write", json={})
         assert r.status_code == 200, r.text
         evs = _events(r.text)
-        assert fake.last_kwargs.get("first_content_timeout") == FIRST_CONTENT_TIMEOUT
+        # 正文守卫 2026-10-15 起 90s→600s（c-prose-generation-headroom）：断言取端点实际
+        # 使用的常量，别再对 ai_client 的通用默认值（90s）——该断言在 main 上已红。
+        assert fake.last_kwargs.get("first_content_timeout") == PROSE_FIRST_CONTENT_TIMEOUT
         err = next(e for e in evs if e.get("type") == "error")
         assert "思考太久" in err["error"] and "思考强度" in err["error"]
         assert not any(e.get("type") == "done" for e in evs)
