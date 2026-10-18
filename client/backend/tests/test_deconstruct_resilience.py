@@ -494,7 +494,6 @@ def test_token_estimate_and_oversize():
     # oversize 的 400 在管线里被归为 truncated（拆半自愈），不是 config
     e = _StatusError(400, "This model's maximum context length is 8192 tokens")
     assert policy.classify(e) == policy.KIND_CONFIG  # 原生分类
-    from deconstruct.pipeline import _call_with_retry  # noqa: F401 — 管线内 oversize→truncated 分支存在
 
 
 # ── 单元账：断点续拆＋调用账 ────────────────────────────────────────────────
