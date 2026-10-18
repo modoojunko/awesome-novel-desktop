@@ -481,6 +481,40 @@ def test_op_max_tokens_budget():
         assert _OP_MAX_TOKENS.get(op, _OP_MERGE_TOKENS) == 8192, op
 
 
+def test_structure_merge_batch_override(monkeypatch):
+    """structure 归并批单列小批：逐章契约「每章一行」输出线性不压缩，碎片总量小（258 章约
+    2.3 万字）会被全局 30000 字装箱整本塞进单批——10-18 真机四连败（8192 预算也不够
+    256 条）。按维度单列后 structure 必分多批，其余维度装箱不变。"""
+    from deconstruct import pipeline
+
+    # 真实体量对拍：全局装箱 1 批整本；structure 单列后拆多批
+    rows = [(str(i), "x" * 90) for i in range(1, 259)]  # 258 章 × 90 字 ≈ 2.3 万字
+    assert len(pipeline._pack_pairs(rows, pipeline.CARD_BATCH_CHARS)) == 1
+    assert len(pipeline._pack_pairs(rows, pipeline.CARD_BATCH_CHARS_OVERRIDES["structure"])) >= 3
+
+    # 行为钉：structure 走 override 装箱（world 仍走全局），批次可由 monkeypatch 逼出
+    _stub_layers(monkeypatch)
+
+    def struct_card(kw, n):
+        card = json.loads(_card_handler(kw, n))
+        no = card["summary"].replace("梗概", "")
+        card["structure"] = [{"no": no, "title": f"章{no}", "summary": f"拍点{no}", "tone": "紧张"}]
+        return json.dumps(card)
+
+    client = FakeClient({"deconstruct_card": struct_card,
+                         "deconstruct_structure": _seen_handler("structure"),
+                         "deconstruct_structure_reduce": _reduce_merge})
+    _stub_client(monkeypatch, client)
+    _mk_job("p-struct-batch", selected=["structure"], chapters=4)
+    monkeypatch.setattr(pipeline, "CARD_BATCH_CHARS_OVERRIDES", {"structure": 1})  # 每条碎片独占一批
+
+    _run(pipeline.run_task("p-struct-batch"))
+    t = _load("p-struct-batch")
+    assert t.status == "completed", t.error_json
+    l1_calls = [c for c in client.calls if c == "deconstruct_structure"]
+    assert len(l1_calls) == 4  # 4 章碎片 4 批（若走全局装箱会是 1 批）
+
+
 # ── 阶段三（图谱装配）集成 ─────────────────────────────────────────────
 
 def _graph_card_handler(kw, n):

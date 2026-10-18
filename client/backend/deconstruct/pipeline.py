@@ -39,6 +39,11 @@ from prompts import PromptPackMissing, load_layers
 _CARD_HEAD, _CARD_TAIL = 4000, 2000
 # L1 归并单批卡片碎片输入上限（字）
 CARD_BATCH_CHARS = 30000
+# structure 单列小批：结构拍点契约「每章一行」逐章还原、无 dedup 压缩，而碎片总量小
+# （258 章仅约 2.3 万字）会被 30000 字装箱整本塞进单批——单批 256 条输出任何预算都
+# 吃不下（10-18 真机四连败实锤，8192 也不够）。8000 字/批 ≈ 85 章，输出落 8192 token
+# 预算内；其余维度归并有真去重（伏笔/主线按对象收敛），全局装箱不变。
+CARD_BATCH_CHARS_OVERRIDES = {"structure": 8000}
 # 树收敛每轮合并输入上限（字）
 MERGE_INPUT_CAP = 40000
 # 梗概注入上限（全书骨架，卡片 summary 拼接）
@@ -530,7 +535,7 @@ async def run_task(task_id: str) -> None:
                 for no, card in sorted(cards["entries"].items(), key=lambda kv: int(kv[0] or 0))
                 if (line := _card_frag(no, card, dim))
             ]
-            batches = _pack_pairs(pairs, CARD_BATCH_CHARS)
+            batches = _pack_pairs(pairs, CARD_BATCH_CHARS_OVERRIDES.get(dim, CARD_BATCH_CHARS))
             dstate.update({"state": "running", "seg_done": 0, "seg_total": len(batches), "error": "",
                            "started_at": _now().isoformat()})
             dims[dim] = dstate
