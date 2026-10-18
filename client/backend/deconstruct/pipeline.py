@@ -39,11 +39,12 @@ from prompts import PromptPackMissing, load_layers
 _CARD_HEAD, _CARD_TAIL = 4000, 2000
 # L1 归并单批卡片碎片输入上限（字）
 CARD_BATCH_CHARS = 30000
-# structure 单列小批：结构拍点契约「每章一行」逐章还原、无 dedup 压缩，而碎片总量小
-# （258 章仅约 2.3 万字）会被 30000 字装箱整本塞进单批——单批 256 条输出任何预算都
-# 吃不下（10-18 真机四连败实锤，8192 也不够）。8000 字/批 ≈ 85 章，输出落 8192 token
-# 预算内；其余维度归并有真去重（伏笔/主线按对象收敛），全局装箱不变。
-CARD_BATCH_CHARS_OVERRIDES = {"structure": 8000}
+# structure 单列小批：结构拍点契约「每章一行」逐章还原、无 dedup 压缩，且归并输出
+# 会比碎片更丰满（≈1.5-2 倍字数），而碎片总量小（258 章仅约 2.3 万字）会被 30000 字
+# 装箱整本塞进单批——单批 256 条输出任何预算都吃不下；8000 字/批仍顶预算（真机
+# 复验 4 批只活 1 批，10-18 四连败）。4000 字/批 ≈ 40 章，输出 ≈4-5.5k token，
+# 落 8192 预算内有余量；其余维度归并有真去重（伏笔/主线按对象收敛），装箱不变。
+CARD_BATCH_CHARS_OVERRIDES = {"structure": 4000}
 # 树收敛每轮合并输入上限（字）
 MERGE_INPUT_CAP = 40000
 # 梗概注入上限（全书骨架，卡片 summary 拼接）
@@ -564,8 +565,40 @@ async def run_task(task_id: str) -> None:
                 await _patch(task_id, dims_json=_state_json(state, cards=cards, dims=dims))
                 return json.dumps(data, ensure_ascii=False)
 
-            batch_out = await _run_units([_batch(b) for b in batches])
-            partials: list[str] = batch_out
+            # L1 批降级（REDUCE-DEGRADE 同款口径）：单批三发重试穷尽不再杀死整单——
+            # 保留成功批进入树收敛，失败批章节范围 degraded 留痕；批全灭才上抛终局
+            # （无兜底时 structure 整维度白跑重跑，10-18 mimo/glm 两案同源结构债）。
+            if CONCURRENCY == 1:
+                outcomes: list = []
+                for b in batches:
+                    try:
+                        outcomes.append(await _batch(b))
+                    except _Cancelled:
+                        raise
+                    except Exception as e:  # noqa: BLE001 — 批失败转降级（见下）
+                        outcomes.append(e)
+            else:
+                outcomes = await asyncio.gather(*[_batch(b) for b in batches], return_exceptions=True)
+            partials: list[str] = []
+            l1_failed: list[str] = []
+            first_exc: BaseException | None = None
+            for b, oc in zip(batches, outcomes):
+                if isinstance(oc, _Cancelled):
+                    raise oc
+                if isinstance(oc, BaseException):
+                    l1_failed.append(f"第{b[0][0] if b else '?'}-{b[-1][0] if b else '?'}章")
+                    if first_exc is None:
+                        first_exc = oc
+                    continue
+                partials.append(oc)
+            if not partials:
+                raise first_exc if first_exc else RuntimeError("模型调用失败")
+            if l1_failed:
+                dstate["degraded"] = (
+                    f"L1 归并 {len(l1_failed)}/{len(batches)} 批失败（{'、'.join(l1_failed)}），"
+                    f"保留 {len(partials)} 批归并稿"
+                )
+                _log.warning("L1-DEGRADE %s: %s", dim, dstate["degraded"])
 
             # 树收敛：多批产物反复合并直到单份（无头尾截断＝任意长度零丢失；串行——树形依赖）
             reduce_degraded = ""

@@ -494,14 +494,7 @@ def test_structure_merge_batch_override(monkeypatch):
 
     # 行为钉：structure 走 override 装箱（world 仍走全局），批次可由 monkeypatch 逼出
     _stub_layers(monkeypatch)
-
-    def struct_card(kw, n):
-        card = json.loads(_card_handler(kw, n))
-        no = card["summary"].replace("梗概", "")
-        card["structure"] = [{"no": no, "title": f"章{no}", "summary": f"拍点{no}", "tone": "紧张"}]
-        return json.dumps(card)
-
-    client = FakeClient({"deconstruct_card": struct_card,
+    client = FakeClient({"deconstruct_card": _struct_card,
                          "deconstruct_structure": _seen_handler("structure"),
                          "deconstruct_structure_reduce": _reduce_merge})
     _stub_client(monkeypatch, client)
@@ -513,6 +506,65 @@ def test_structure_merge_batch_override(monkeypatch):
     assert t.status == "completed", t.error_json
     l1_calls = [c for c in client.calls if c == "deconstruct_structure"]
     assert len(l1_calls) == 4  # 4 章碎片 4 批（若走全局装箱会是 1 批）
+
+
+def _struct_card(kw, n):
+    card = json.loads(_card_handler(kw, n))
+    no = card["summary"].replace("梗概", "")
+    card["structure"] = [{"no": no, "title": f"章{no}", "summary": f"拍点{no}", "tone": "紧张"}]
+    return json.dumps(card)
+
+
+def test_l1_batch_degrade_partial(monkeypatch):
+    """L1 单批三发重试穷尽不再杀整单（REDUCE-DEGRADE 同款口径）：保留成功批继续树收敛、
+    失败批章节范围 degraded 留痕；只有全批覆没才终局（10-18 glm 案：structure 4 批只活
+    1 批→整单四连败，两案同源结构债）。"""
+    from deconstruct import pipeline
+
+    _stub_layers(monkeypatch)
+
+    def flaky_l1(kw, n):
+        if "【第3章】" in kw["messages"][0]["content"]:
+            raise RuntimeError("模型输出 JSON 不完整")
+        return _seen_handler("structure")(kw, n)
+
+    client = FakeClient({"deconstruct_card": _struct_card,
+                         "deconstruct_structure": flaky_l1,
+                         "deconstruct_structure_reduce": _reduce_merge})
+    _stub_client(monkeypatch, client)
+    _mk_job("p-l1-degrade", selected=["structure"], chapters=4)
+    monkeypatch.setattr(pipeline, "CARD_BATCH_CHARS_OVERRIDES", {"structure": 1})  # 每章一批
+
+    _run(pipeline.run_task("p-l1-degrade"))
+    t = _load("p-l1-degrade")
+    assert t.status == "completed", t.error_json  # 单批翻车维度不死、任务不 failed
+    final = json.loads(t.products_json)["structure"]["data"]
+    assert sorted(final["seen"]) == [1, 2, 4]  # 成功批零丢失，失败批（第3章）缺席
+    state = json.loads(t.dims_json)
+    assert "1/4 批失败" in state["dims"]["structure"]["degraded"]
+    assert "第3-3章" in state["dims"]["structure"]["degraded"]
+
+
+def test_l1_batch_all_fail_terminal(monkeypatch):
+    """L1 全批覆没仍是终局 failed（降级只兜部分失败，全灭不产空产物）。"""
+    from deconstruct import pipeline
+
+    _stub_layers(monkeypatch)
+
+    def dead_l1(kw, n):
+        raise RuntimeError("模型输出 JSON 不完整")
+
+    client = FakeClient({"deconstruct_card": _struct_card,
+                         "deconstruct_structure": dead_l1})
+    _stub_client(monkeypatch, client)
+    _mk_job("p-l1-dead", selected=["structure"], chapters=2)
+    monkeypatch.setattr(pipeline, "CARD_BATCH_CHARS_OVERRIDES", {"structure": 1})
+
+    _run(pipeline.run_task("p-l1-dead"))
+    t = _load("p-l1-dead")
+    assert t.status == "failed"
+    assert json.loads(t.error_json)["kind"] == "pipeline"
+    assert "JSON 不完整" in json.loads(t.error_json)["message"]
 
 
 # ── 阶段三（图谱装配）集成 ─────────────────────────────────────────────
