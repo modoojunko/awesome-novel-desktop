@@ -48,15 +48,17 @@ SEGMENT_RETRIES = 2
 # （等模型返回），asyncio 并发即可成倍提速、无需子进程；上限同时压住 429 限流风险
 CONCURRENCY = max(1, int(os.environ.get("DECONSTRUCT_CONCURRENCY", "4") or 4))
 
-# 每 operation 输出 token 预算（评审：卡片加 places/presence 后输出加量，默认 4096 会贴顶截断）
-# L1 归并输出上限：角色卡字段多（persona/档案格扩展后 14 卡可上万字）、世界
-# extra 扩容——4096 会把 JSON 拦腰截断（真机实证：「模型输出 JSON 不完整」），
-# 归并类一律给到 8192；拆卡单章 6144 不变。
+# 每 operation 输出 token 预算。归并类（deconstruct_{dim} L1 归并＋deconstruct_{dim}_reduce
+# 树收敛，动态名不进表、吃默认值）一律 8192——默认 4096 会把 JSON 拦腰截断（真机实证
+# 两回：10-09 世界归并、10-18 structure/foreshadow 归并三连败，error_json「模型输出
+# JSON 不完整」；归并输出按条目数线性走不随摘要压缩变小，GLM-5.3 思考还与正文共用
+# 预算）；拆卡单章 6144 不变；presence 补写/place 抽取单卡小输出维持 4096。
 _OP_MAX_TOKENS = {
     "deconstruct_card": 6144,
-    "deconstruct_characters": 8192,
-    "deconstruct_world": 8192,
+    "deconstruct_presence": 4096,
+    "deconstruct_place": 4096,
 }
+_OP_MERGE_TOKENS = 8192
 
 
 def _graph_export_on() -> bool:
@@ -289,7 +291,7 @@ async def _chat_json(client, model: str, system: str, user: str, operation: str)
     # ai_client 的 read=90 是按 4096 tokens 生成上限校准的（ai-client-timeout D1）；
     # 归并类提到 8192 后 90 秒写不完（真机实证：五批连排 180s 超时），长输出
     # 操作改传 read=600——收敛最坏等待仍由单元级重试次数兜住。
-    budget = _OP_MAX_TOKENS.get(operation, 4096)
+    budget = _OP_MAX_TOKENS.get(operation, _OP_MERGE_TOKENS)
     timeout = None
     if budget >= 8192:
         timeout = httpx.Timeout(connect=10.0, read=600.0, write=30.0, pool=10.0)
