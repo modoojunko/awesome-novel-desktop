@@ -388,6 +388,10 @@ def _download_worker(version: str, platform: dict, epoch: int) -> None:
                 _set_auto_state("downloading", version, "sha mismatch")
                 time.sleep(min(30, 2 * attempts))
                 continue
+            # 清旧 applied：跨渠道版本碰撞时（lab 0.99.5 vs 生产 0.35），
+            # 旧 marker 会压住新 staged（is_newer("0.35","0.99.5")=False）→
+            # 就绪按钮消失。清掉即恢复。
+            _APPLIED_PATH.unlink(missing_ok=True)
             _set_auto_state("staged", version)
             return
         _set_auto_state("failed", version, "attempts exhausted")
