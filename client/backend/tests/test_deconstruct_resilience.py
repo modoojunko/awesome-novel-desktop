@@ -537,6 +537,12 @@ def test_l1_unit_resume_skips_done_batches(monkeypatch):
     l1_done = [u for u in _units("der-resume") if u.stage == "l1" and u.status == "done"]
     assert len(l1_done) == 4
     assert any(u.stage == "reduce_state" for u in _units("der-resume"))
+    # 检查点非调用（评审 P3）：调用账不得出现 reduce_state 幽灵桶
+    from deconstruct import service as dec_service
+
+    stats = _run(dec_service.task_stats("der-resume"))
+    assert "reduce_state" not in stats
+    assert stats["reduce"]["calls"] >= 1 and stats["l1"]["calls"] == 4
 
 
 def test_task_stats_aggregation(monkeypatch):

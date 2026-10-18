@@ -361,6 +361,8 @@ async def task_stats(task_id: str) -> dict:
         ).scalars().all()
     out: dict[str, dict] = {}
     for r in rows:
+        if r.stage == "reduce_state":
+            continue  # 轮间检查点非模型调用（评审 P3）：不进调用账，防幽灵 calls
         bucket = out.setdefault(r.stage, {
             "calls": 0, "failures": 0, "attempts": 0,
             "duration_ms": 0, "tokens_in": 0, "tokens_out": 0,
