@@ -556,48 +556,6 @@ test("替换写被截断＝自动失败收尾（半截保留），旧正文经�
   }
 });
 
-test("去AI味采纳＝范围事务替换，一次撤销还原原文", async ({ page, request }) => {
-  test.setTimeout(120_000);
-  // 去AI味=ai-polish（MAX，2026-10-05 拍板）——会话种 max
-  const { restore, token } = await setupSession(page, "max");
-  try {
-    await ensurePromptAccess(request, token);
-    await createNovel(page, `撤销采纳${Date.now() % 100000}`);
-    await setupFirstChapter(page);
-    await page.route("**/api/novels/*/chapters/*/write/polish", (route) =>
-      route.fulfill({
-        status: 200,
-        contentType: "application/json",
-        body: JSON.stringify({ polished_text: "丙段改写。" }),
-      }),
-    );
-    await page.getByRole("tab", { name: /^正文/ }).click();
-    await page.getByTestId("prose-edit").click();
-    const editor = page.locator(".editor");
-    await editor.click();
-    await page.keyboard.type("甲段。乙段。丙段。");
-    await page.waitForTimeout(700); // 拉开与采纳事务的历史分组窗口（newGroupDelay 500ms）
-    // 选中「丙段。」= 末尾 3 字
-    await page.keyboard.down("Shift");
-    for (let i = 0; i < 3; i++) await page.keyboard.press("ArrowLeft");
-    await page.keyboard.up("Shift");
-    // 选区上抛到右栏有一帧延迟（React 状态更新），等按钮解禁
-    // 右栏「去AI味」→ 对照弹窗 → 接受
-    const rail = page.locator(".col-ai");
-    await rail.getByRole("button", { name: /去AI味/ }).click();
-    const dlg = page.getByRole("dialog");
-    await expect(dlg.getByRole("button", { name: "接受" })).toBeEnabled({ timeout: 10000 });
-    await dlg.getByRole("button", { name: "接受" }).click();
-    await expect(editor).toContainText("甲段。乙段。丙段改写。", { timeout: 5000 });
-    // 撤销 → 原文回来
-    await editor.click();
-    await page.keyboard.press("ControlOrMeta+z");
-    await expect(editor).toContainText("甲段。乙段。丙段。", { timeout: 5000 });
-  } finally {
-    await restore();
-  }
-});
-
 test("编辑工具箱：开章不入历史（⌘Z 不清空正文）＋撤销/重做按钮生效", async ({
   page,
   request,

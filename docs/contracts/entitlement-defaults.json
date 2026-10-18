@@ -51,7 +51,6 @@
         "prompt-panel",
         "ai-detect",
         "ai-plot",
-        "ai-polish",
         "style-quant"
       ],
       "limits": { "max_projects": null }

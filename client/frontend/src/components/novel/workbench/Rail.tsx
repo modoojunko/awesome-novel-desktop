@@ -77,7 +77,6 @@ interface RailProps {
   autoCheckSeq: number;
   /** AI 写入工具链入口（归档章先解锁；生成正文再经 AiModal 提示词预览） */
   onAiWrite: () => void;
-  onAiSelection: (mode: "polish", capture: ReturnType<ProseHandle["captureNow"]>) => void;
 }
 
 export default function Rail({
@@ -97,7 +96,6 @@ export default function Rail({
   onSelectVolume,
   autoCheckSeq,
   onAiWrite,
-  onAiSelection,
 }: RailProps) {
   if (mode === "volume") {
     // 卷语境右栏（volume-plan-ai 三态：验证面板 / 规划入口 / 接着往下规划＋卷的验证）
@@ -143,7 +141,6 @@ export default function Rail({
           staleDownstream={d.staleDownstream}
           aiState={aiState}
           proseRef={proseRef}
-          onAiSelection={onAiSelection}
           onFillGaps={d.onFillGaps}
           gapsLoading={d.gapsLoading}
           onAiCheck={d.onAiCheck}

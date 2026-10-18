@@ -24,7 +24,6 @@ import AcctMenu from "@/components/AcctMenu";
 import UpdateNotice from "@/components/UpdateNotice";
 import ExpiryNoticeBar from "@/components/ExpiryNoticeBar";
 import BookPrefsModal from "@/components/novel/BookPrefsModal";
-import type { SelectionCapture } from "@/lib/selection";
 import {
   INITIAL_PROSE_AI_STATE,
   type ProseAIState,
@@ -274,7 +273,7 @@ export default function NovelWorkspace() {
   // （恢复编辑后可用）；requestAi 兜底 toast，原「解除只读」解锁链保持退役。
   type AiAction =
     | { kind: "write" }
-    | { kind: "selection"; mode: "polish"; capture: SelectionCapture | null };
+    ;
 
   const [showAiModal, setShowAiModal] = useState(false);
   // 重新生成确认（c-prose-regen-replace）：已有正文章再生成＝清空重写，
@@ -296,11 +295,6 @@ export default function NovelWorkspace() {
         }
         setShowAiModal(true);
         return;
-      }
-      if (action.capture) {
-        proseRef.current?.polish(action.capture);
-      } else {
-        toast.info("请先在正文中选中一段文字");
       }
     },
     [railData?.wordCount],
@@ -1240,7 +1234,6 @@ export default function NovelWorkspace() {
             onSelectVolume={handleSelectVolume}
             autoCheckSeq={autoCheck.seq}
             onAiWrite={() => requestAi({ kind: "write" })}
-            onAiSelection={(mode, capture) => requestAi({ kind: "selection", mode, capture })}
           />
         </aside>
       </div>

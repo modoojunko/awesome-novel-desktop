@@ -156,7 +156,6 @@ STANDARD_FALLBACK = {
                             "prompt-panel",
                             "ai-detect",
                             "ai-plot",
-                            "ai-polish",
                             "style-quant"],
                  "limits": {"max_projects": None}},
     "trial":    {"features": ["ai-plan",

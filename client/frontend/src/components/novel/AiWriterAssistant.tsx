@@ -39,6 +39,9 @@ export interface AiCapabilityRow {
   variant?: "guide" | "maxlk";
   /** 运行中描述覆盖（缺省「生成中…」；检测行为「检测中…」）。 */
   runningHint?: string;
+  /** 无档位门：本地免费能力（c-renwei-check 人味检测）——整卡 tier 锁定时不走升级出口，
+   *  照常执行 onClick。SHALL NOT 用于任何需要会员/Key 的动作。 */
+  ungated?: boolean;
 }
 
 export interface AiWriterAssistantProps {
@@ -120,9 +123,9 @@ export default function AiWriterAssistant({
   const [runningKeyInternal, setRunningKeyInternal] = useState<string | null>(null);
   const runningKey = runningKeyProp !== undefined ? runningKeyProp : runningKeyInternal;
 
-  const guard = (key: string, fn: () => void | Promise<void>) => async () => {
+  const guard = (key: string, fn: () => void | Promise<void>, ungated = false) => async () => {
     if (busyRef.current) return;
-    if (state !== "ready") {
+    if (state !== "ready" && !ungated) {
       const blockText =
         state === "no_key" && aiStateMessage ? aiStateMessage : BLOCK_TEXT[state] ?? "AI 暂不可用";
       if (onBlocked) onBlocked(state);
@@ -177,7 +180,7 @@ export default function AiWriterAssistant({
             data-testid={r.testid}
             aria-busy={running || undefined}
             disabled={interactive ? r.disabled || runningKey === r.key : r.disabled || runningKey !== null}
-            onClick={() => void guard(r.key, r.onClick)()}
+            onClick={() => void guard(r.key, r.onClick, r.ungated)()}
           >
             <span className="ra-body">
               <b>

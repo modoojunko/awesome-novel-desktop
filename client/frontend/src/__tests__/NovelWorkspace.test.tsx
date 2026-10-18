@@ -610,10 +610,10 @@ describe("PRO 态：徽标 + phase-status + AI 入口", () => {
     expect(within(rail).getByTestId("ai-write-btn")).toBeDefined();
     // 顶栏 bar-here 也有「续写」CTA（行头归一），右栏工具卡断言限定右栏范围
     expect(within(rail).getByTestId("ai-write-btn")).toBeDefined();
-    // c-retire-selection-transforms：去AI味单卡（扩写/压缩退役缺席钉）
-    // c-retire-selection-transforms：去AI味单卡（未选中置灰），扩写/压缩退役
-    const polishCard = within(rail).getByTestId("ai-polish-wizard") as HTMLButtonElement;
-    expect(polishCard).toBeDefined();
+    // c-renwei-check：去AI味改写链退役（向导与选区单发均缺席）；检测入口＝人味检测
+    expect(within(rail).queryByTestId("ai-polish-wizard")).toBeNull();
+    expect(within(rail).queryByTestId("ai-polish")).toBeNull();
+    expect(within(rail).getByTestId("rail-renwei-check")).toBeDefined();
     expect(within(rail).queryByText(/^场景扩写$/)).toBeNull();
   });
 });
