@@ -344,11 +344,14 @@ export default function TaskDetailPage() {
               再拆一本
             </Link>
           </div>
-          {task.stats && Object.keys(task.stats).length > 0 ? (
-            <div className="dim-group" data-od-id="call-stats" style={{ marginBottom: 10 }}>
-              调用统计 · {statsLine(task.stats)}
-            </div>
-          ) : null}
+          {(() => {
+            const line = task.stats ? statsLine(task.stats) : "";
+            return line ? (
+              <div className="dim-group" data-od-id="call-stats" style={{ marginBottom: 10 }}>
+                调用统计 · {line}
+              </div>
+            ) : null;
+          })()}
           <div className="dims" data-od-id="done-manifest">
             <div className="dim-group">
               结果目录 ·{" "}
@@ -636,9 +639,10 @@ export default function TaskDetailPage() {
  * 全分支单测在 toolsDetail（有重试/零重试/空账）。 */
 export function statsLine(stats: NonNullable<DeconstructTaskDetail["stats"]>): string {
   const nameMap: Record<string, string> = {
-    card: "拆卡", l1: "归并", reduce: "收敛", presence: "在场补写", place: "地点归并",
+    card: "拆卡", card_batch: "合批", l1: "归并", reduce: "收敛",
+    presence: "在场补写", place: "地点归并",
   };
-  return ["card", "l1", "reduce", "presence", "place"]
+  return ["card", "card_batch", "l1", "reduce", "presence", "place"]
     .filter((s) => stats[s])
     .map((s) => {
       const st = stats[s];  // filter 已保证在场；字段在类型上必填，无需可选链

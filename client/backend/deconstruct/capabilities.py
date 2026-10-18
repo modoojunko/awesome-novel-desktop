@@ -95,7 +95,7 @@ def input_budget_chars(caps: ModelCaps, prompt_overhead_tokens: int = 4_000) -> 
 # 单次归并/合批调用的输出 token 上限（安全默认；env DECONSTRUCT_MERGE_MAX_TOKENS 覆盖）
 def merge_max_tokens(caps: ModelCaps) -> int:
     env = os.environ.get("DECONSTRUCT_MERGE_MAX_TOKENS", "").strip()
-    if env.isdigit():
+    if env.isdigit() and int(env) >= 1024:  # 下限护栏：误配 "0"/小值会打穿全部归并（评审 P3）
         return int(env)
     return max(8_192, min(usable_output(caps), 16_384))
 

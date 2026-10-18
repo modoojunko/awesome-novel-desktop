@@ -30,7 +30,7 @@ vi.mock("@/lib/deconstructApi", () => ({
   ],
 }));
 
-import TaskDetailPage from "@/components/tools/TaskDetailPage";
+import TaskDetailPage, { statsLine } from "@/components/tools/TaskDetailPage";
 
 function detailOf(status: string, over: Record<string, unknown> = {}) {
   return {
@@ -696,5 +696,17 @@ describe("进度可视二阶（边界臂）", () => {
     state.get.mockResolvedValue(detailOf("running", { created_at: utc }));
     renderPage();
     await waitFor(() => expect(screen.getByText("已运行 2 分")).toBeInTheDocument());
+  });
+
+  it("statsLine：合批阶段入账＋空账空串（评审 P3 修复钉）", () => {
+    const mk = (over: Record<string, unknown>) => ({
+      calls: 1, failures: 0, attempts: 1, duration_ms: 0, tokens_in: 0, tokens_out: 0, ...over,
+    });
+    expect(statsLine({
+      card: mk({ calls: 2 }),
+      card_batch: mk({ calls: 1 }),
+    })).toBe("拆卡 2 次 · 合批 1 次");
+    expect(statsLine({ reduce_state: mk({}) })).toBe(""); // 非展示阶段不渲染
+    expect(statsLine({})).toBe("");
   });
 });

@@ -975,6 +975,11 @@ async def run_task(task_id: str) -> None:
                     raise
                 except _Stopped:
                     raise
+                except policy.UnitError as e:
+                    if e.kind in (policy.KIND_AUTH, policy.KIND_CONFIG, policy.KIND_ROUTE):
+                        raise  # 确定性致命：退回逐章注定同败（评审 P2），立即终局
+                    await _run_units([_card_one(ch) for ch in batch])  # 瞬时/审核/截断：退回逐章
+                    return
                 except Exception:  # noqa: BLE001 — 合批失败整批退回逐章（降级不放大损失面）
                     await _run_units([_card_one(ch) for ch in batch])
                     return

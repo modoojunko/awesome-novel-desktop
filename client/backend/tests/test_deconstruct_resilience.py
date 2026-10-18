@@ -790,3 +790,36 @@ def test_card_batch_off_forces_per_chapter(monkeypatch):
     assert t.status == "completed"
     assert client.counts["deconstruct_card"] == 2
     assert "deconstruct_card_batch" not in client.counts
+
+
+def test_card_batch_fatal_error_no_chapter_fallback(monkeypatch):
+    """合批遇确定性致命（401/400/404）：立即终局，不退回逐章再打注定失败的请求（评审 P2）。"""
+    from deconstruct import pipeline
+
+    monkeypatch.setenv("DECONSTRUCT_CARD_BATCH", "2")
+    client = FakeClient({"deconstruct_card_batch": lambda kw, n: (_ for _ in ()).throw(
+        _StatusError(401, "bad key"))})
+    _stub_with_batch(monkeypatch, client)
+    _mk_job("der-batch-fatal", selected=["world"], chapters=4)
+
+    _run(pipeline.run_task("der-batch-fatal"))
+    t = _load("der-batch-fatal")
+    assert t.status == "failed"
+    assert json.loads(t.error_json)["kind"] == "auth"
+    assert client.counts["deconstruct_card_batch"] == 1
+    assert "deconstruct_card" not in client.counts  # 逐章零调用（不放大无效请求）
+
+
+def test_merge_max_tokens_env_guard(monkeypatch):
+    """DECONSTRUCT_MERGE_MAX_TOKENS 下限护栏：误配 0/小值回安全默认（评审 P3）。"""
+    from deconstruct import capabilities as caps_mod
+
+    caps = caps_mod.DEFAULT_CAPS
+    monkeypatch.delenv("DECONSTRUCT_MERGE_MAX_TOKENS", raising=False)
+    assert caps_mod.merge_max_tokens(caps) == 8192
+    monkeypatch.setenv("DECONSTRUCT_MERGE_MAX_TOKENS", "0")
+    assert caps_mod.merge_max_tokens(caps) == 8192
+    monkeypatch.setenv("DECONSTRUCT_MERGE_MAX_TOKENS", "8")
+    assert caps_mod.merge_max_tokens(caps) == 8192
+    monkeypatch.setenv("DECONSTRUCT_MERGE_MAX_TOKENS", "16384")
+    assert caps_mod.merge_max_tokens(caps) == 16384
