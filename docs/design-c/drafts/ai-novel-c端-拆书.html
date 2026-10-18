@@ -572,6 +572,17 @@ input, textarea, select { font: inherit; }
       <p class="f-hint" style="font-size:11.5px;color:var(--muted);margin:6px 0 0">选项按模型配置分组（组头＝配置名＋供应商），跨供应商可辨；与「生成正文」弹窗的模型选择同口径。</p>
     </div>
 
+    <!-- v7.2：思考档位（拆书是抽取任务，默认关思考：更快、输出预算全给 JSON） -->
+    <div class="field" data-od-id="thinking-field">
+      <label>思考档位 <span style="font-size:11.5px;color:var(--muted)">拆书是抽取任务，关思考更快更稳</span></label>
+      <select class="input" data-od-id="thinking-picker" id="thinking-picker">
+        <option selected>关闭思考（推荐）</option>
+        <option>思考·低</option>
+        <option>跟随模型配置</option>
+      </select>
+      <p class="f-hint" style="font-size:11.5px;color:var(--muted);margin:6px 0 0">强制思考的模型（如 GLM-5.3）不支持关闭，将自动以最低档思考运行。</p>
+    </div>
+
     <!-- v7：创建前模型探针门（对所选模型轻探测；失败禁用创建并引导） -->
     <div class="notice info" data-od-id="probe-gate">
       <span class="nt"><b>模型探针通过</b><span>对所选模型轻量探测（34 token）；通过才解禁「创建任务」，失败则禁用按钮并引导处理</span></span>

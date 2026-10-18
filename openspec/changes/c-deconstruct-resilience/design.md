@@ -243,6 +243,15 @@ single_pass      = fragments_tokens + synopsis + prompt <= input_budget
 - 回滚：关 flag → 恢复固定 30k/40k、逐章拆卡、L1+reduce、无自动续拆；已有单元表
   不影响旧路径（旧路径不读它）。
 
+### D10 思考档位（2026-10-18 用户拍板）
+
+拆书是结构化抽取：思考与输出共用 max_tokens（burn 预算是截断/空响应的放大器，真机
+实证），且思考全在首 token 前是纯串行等待。任务级 `thinking_mode`（off 默认/low/inherit）
+随任务保存、续拆沿用；`resolve_client` 折算成客户端构造覆盖（off＝thinking_enabled=False，
+GLM-5.3 强制端点在请求层自动折算 enabled＋low；inherit＝跟随 ApiConfig，旧行为）。
+创建页模型选择之下出三档下拉（原型 `ai-novel-c端-拆书.html` v7.2＋ADJUSTMENTS 登记）。
+不加运行时开关（简洁优先）：档位是创建期决策，护栏由模板三铁律兜底。
+
 ## Risks / Trade-offs
 
 - **合批质量回退** → 20 章金标质量门；不达标降批大小/关 flag；二分拆批限制单次影响面。

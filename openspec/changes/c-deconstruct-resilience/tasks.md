@@ -102,3 +102,11 @@
 - [ ] 13.11 自动续拆（7.2/7.3）：失败退避重入队＋UI 下次重试时间——涉及 dispatcher 取任务扩展，本批未做。
 - [ ] 13.12 llm.log 带 task_id（4.6）：需要 ai_client 留痕行加 trace 参数，本批未做（调用账已可按任务聚合，日志检索缺口可等 8.x）。
 - [ ] 13.13 运行中「模型无响应」实时提示（3.5）：watchdog 状态上抛 activity 字段＋前端渲染，本批只做了失败后的 kindExit。
+
+## 14. 思考档位（2026-10-18 用户拍板二批）
+
+- [x] 14.1 后端：`DeconstructJob.thinking_mode` 列（off 默认/low/inherit）＋`normalize_thinking_mode`＋create 表单 `thinking` 字段＋`resolve_client(thinking=...)` 折算客户端覆盖＋`run_task` 透传。验证：pytest 新增 4 例（归一/构造覆盖/透传/API 落库回显）全绿。
+- [x] 14.2 前端：创建页模型选择之下三档下拉（默认 关闭思考（推荐））＋`createDeconstructTask` 携带。验证：vitest 2 例（默认 off 随提交、选 low payload 携带）＋全量绿。
+- [x] 14.3 原型与登记：`ai-novel-c端-拆书.html` v7.2 思考档位字段＋ADJUSTMENTS.md `c-deconstruct-resilience` 条目（文案 §13 自查、共享段零触碰）。
+- [x] 14.4 合批失败账补全（评审 P3）：`card_batch` fatal/退回/解析不齐三路径落 failed 行。验证：fatal 行 kind=auth×1、退回成功保留 invalid_output×2 断言。
+- [x] 14.5 调用账剔除 reduce_state 检查点（评审 P3）。验证：有 reduce 任务 stats 无该桶、reduce/l1 桶照常。

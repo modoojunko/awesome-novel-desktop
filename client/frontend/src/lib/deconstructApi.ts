@@ -185,7 +185,15 @@ export interface CreateTaskResult {
 
 export async function createDeconstructTask(
   file: File,
-  opts: { bookName: string; apiConfigId: string; model: string; selectedDims: string[] },
+  opts: {
+    bookName: string;
+    apiConfigId: string;
+    model: string;
+    selectedDims: string[];
+    /** 思考档位（c-deconstruct-resilience D10）：off=关思考（默认，推荐）/
+     *  low=思考·低 / inherit=跟随模型配置 */
+    thinking?: string;
+  },
 ): Promise<CreateTaskResult> {
   const formData = new FormData();
   formData.append("file", file);
@@ -193,6 +201,7 @@ export async function createDeconstructTask(
   formData.append("api_config_id", opts.apiConfigId);
   formData.append("ai_model", opts.model);
   formData.append("selected_dims", JSON.stringify(opts.selectedDims));
+  if (opts.thinking) formData.append("thinking", opts.thinking);
   const res = await fetch("/api/deconstruct/tasks", {
     method: "POST",
     body: formData,

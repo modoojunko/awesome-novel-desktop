@@ -84,6 +84,10 @@ class DeconstructJob(Base):
     exported_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     # 换模型续拆历史（c-deconstruct-resilience）：[{api_config_id, ai_model, at}]，append-only
     model_history_json: Mapped[str] = mapped_column(Text, nullable=False, default="[]")
+    # 思考档位（c-deconstruct-resilience D10）：off=关思考（强制思考端点自动折算 low）、
+    # low=思考·低、inherit=跟随模型配置。拆书是结构化抽取，默认关——思考与输出共用
+    # max_tokens，burn 预算是截断/空响应的放大器（真机实证）
+    thinking_mode: Mapped[str] = mapped_column(String(12), nullable=False, default="off")
     created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
     started_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     finished_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)

@@ -127,6 +127,9 @@ export default function CreateTaskPage() {
   const [bookName, setBookName] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [submitErr, setSubmitErr] = useState("");
+  // 思考档位（c-deconstruct-resilience D10）：拆书是结构化抽取，默认关——
+  // 思考与输出共用 max_tokens，burn 预算只会放大截断与空响应
+  const [thinking, setThinking] = useState<"off" | "low" | "inherit">("off");
   const [parsed, setParsed] = useState<LocalParse | null>(null);
   const [verdict, setVerdict] = useState<StructureVerdict | null>(null);
   const [riskAck, setRiskAck] = useState(false);
@@ -234,6 +237,7 @@ export default function CreateTaskPage() {
         apiConfigId: configId,
         model,
         selectedDims: selected,
+        thinking,
       });
       /* v8 ignore next */
       navigate(`/tools/deconstruct/${result.id}`);
@@ -288,6 +292,24 @@ export default function CreateTaskPage() {
                 ))}
               </optgroup>
             ))}
+          </select>
+        </div>
+      ) : null}
+      {hasModels ? (
+        <div className="field" data-od-id="thinking-field" style={{ maxWidth: 420 }}>
+          <label htmlFor="thinking-select">
+            思考档位 <span style={{ fontSize: 11.5, color: "var(--muted)" }}>拆书是抽取任务，关思考更快更稳</span>
+          </label>
+          <select
+            id="thinking-select"
+            className="input"
+            data-od-id="thinking-picker"
+            value={thinking}
+            onChange={(e) => setThinking(e.target.value as "off" | "low" | "inherit")}
+          >
+            <option value="off">关闭思考（推荐）</option>
+            <option value="low">思考·低</option>
+            <option value="inherit">跟随模型配置</option>
           </select>
         </div>
       ) : optionsLoaded ? (

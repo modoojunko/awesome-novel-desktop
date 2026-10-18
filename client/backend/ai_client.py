@@ -1126,12 +1126,21 @@ async def get_ai_client_for_novel(
         return _client_from_config(cfg, novel.ai_model, plain_key)
 
 
-def _client_from_config(cfg: ApiConfig, model: str, plain_key: str, max_retries: int = 1) -> AIClient:
+def _client_from_config(
+    cfg: ApiConfig,
+    model: str,
+    plain_key: str,
+    max_retries: int = 1,
+    thinking_enabled: bool | None = None,
+    thinking_effort: str | None = None,
+) -> AIClient:
     """按配置 + 模型构造客户端（本书绑定路径与按次覆盖路径同一形状）。
 
     max_retries：拆书链传 0——重试策略单源在 deconstruct/policy（「管线 3 次 ×
     SDK 2 次」的乘法放大是长时间假死的成因之一，c-deconstruct-resilience D1）；
     其余调用方默认 1 不变。
+    thinking_enabled/effort：拆书思考档位覆盖（D10）——None＝跟随 ApiConfig；
+    显式值（off/low）由 resolve_client 折算传入。
     """
     return AIClient(
         api_key=plain_key,
@@ -1139,8 +1148,11 @@ def _client_from_config(cfg: ApiConfig, model: str, plain_key: str, max_retries:
         model=model,
         api_format=getattr(cfg, "api_format", None),
         vendor=getattr(cfg, "vendor", "") or "",
-        thinking_enabled=getattr(cfg, "thinking_enabled", False) or False,
-        thinking_effort=getattr(cfg, "thinking_effort", None) or "low",
+        thinking_enabled=(
+            thinking_enabled if thinking_enabled is not None
+            else getattr(cfg, "thinking_enabled", False) or False
+        ),
+        thinking_effort=thinking_effort or getattr(cfg, "thinking_effort", None) or "low",
         max_retries=max_retries,
     )
 

@@ -46,6 +46,7 @@ async def create_task(
     api_config_id: str = Form(...),
     ai_model: str = Form(...),
     selected_dims: str = Form("[]"),
+    thinking: str = Form("off"),
     user: dict = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
@@ -97,6 +98,7 @@ async def create_task(
             ai_model=ai_model,
             selected_dims=dims,
             graph_caps_flag=caps,
+            thinking_mode=service.normalize_thinking_mode(thinking),
         )
         os.replace(part_path, task.source_path)  # 上传即落盘契约：排队不依赖浏览器 File
     finally:
@@ -114,6 +116,7 @@ async def create_task(
         "structure": verdict,
         "selected_dims": dims,
         "graph_caps": caps,
+        "thinking": task.thinking_mode,
     }
 
 

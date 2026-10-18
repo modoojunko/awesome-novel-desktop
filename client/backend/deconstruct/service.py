@@ -28,6 +28,13 @@ from models.deconstruct import (
 
 STAGING_ROOT = os.path.join(DATA_ROOT, "deconstruct-staging")
 MAX_SOURCE_BYTES = 50 * 1024 * 1024
+# 思考档位（c-deconstruct-resilience D10）：任务级，不随 ApiConfig 走
+THINKING_MODES = ("off", "low", "inherit")
+
+
+def normalize_thinking_mode(raw: object) -> str:
+    """创建表单的思考档位归一：白名单外（含空/非法）一律默认关。"""
+    return raw if raw in THINKING_MODES else "off"
 
 
 def staging_dir(task_id: str) -> str:
@@ -82,6 +89,7 @@ async def create_task(
     ai_model: str,
     selected_dims: list[str],
     graph_caps_flag: bool = True,
+    thinking_mode: str = "off",
 ) -> DeconstructJob:
     task_id = str(uuid.uuid4())
     os.makedirs(staging_dir(task_id), exist_ok=True)
@@ -102,6 +110,7 @@ async def create_task(
         api_config_id=api_config_id,
         ai_model=ai_model[:120],
         selected_dims_json=json.dumps(selected_dims, ensure_ascii=False),
+        thinking_mode=normalize_thinking_mode(thinking_mode),
         dims_json=json.dumps(
             {
                 "caps_graph": graph_caps_flag,  # 能力戳：判点在创建时（导出只认行内戳）
@@ -407,8 +416,12 @@ def dim_names() -> dict[str, str]:
 # ── 模型客户端解析（自备 key；口径与 get_ai_client_for_novel 按次覆盖对同源）────
 
 
-async def resolve_client(user_id: str, api_config_id: str, model: str):
-    """按 (api_config_id, model) 构造 AIClient；谓词与按次覆盖对同源（可读 ValueError）。"""
+async def resolve_client(user_id: str, api_config_id: str, model: str, thinking: str = "inherit"):
+    """按 (api_config_id, model) 构造 AIClient；谓词与按次覆盖对同源（可读 ValueError）。
+
+    thinking：任务级思考档位（c-deconstruct-resilience D10）——off/low 折算成构造
+    参数覆盖 ApiConfig（off＝关思考；GLM-5.3 强制端点在请求层自动折算 enabled＋low），
+    inherit＝跟随 ApiConfig 配置（旧行为）。"""
     from ai_client import _client_from_config  # noqa: PLC2701 — 域内复用同一构造器
     from ai_state import config_key_usable, parse_models
     from api_configs.crypto import decrypt_api_key
@@ -434,7 +447,15 @@ async def resolve_client(user_id: str, api_config_id: str, model: str):
             raise ValueError("所选配置 Key 无法解密，去「模型配置」重存后重试")
         # SDK 重试关到 0：拆书重试策略单源 deconstruct/policy（「管线 3 次 × SDK 2 次」
         # 的乘法放大是长时间假死的成因之一，c-deconstruct-resilience D1）
-        return _client_from_config(cfg, model, plain_key, max_retries=0), model
+        if thinking == "off":
+            thinking_enabled, thinking_effort = False, "low"
+        elif thinking == "low":
+            thinking_enabled, thinking_effort = True, "low"
+        else:
+            thinking_enabled = thinking_effort = None  # inherit：跟随 ApiConfig
+        return _client_from_config(cfg, model, plain_key, max_retries=0,
+                                   thinking_enabled=thinking_enabled,
+                                   thinking_effort=thinking_effort), model
 
 
 async def probe_model(user_id: str, api_config_id: str, model: str) -> dict:

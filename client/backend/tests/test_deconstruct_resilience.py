@@ -139,7 +139,7 @@ def _stub(monkeypatch, client):
 
     monkeypatch.setattr(pipeline, "load_layers", load_layers)
 
-    async def fake_resolve(user_id, api_config_id, model):
+    async def fake_resolve(user_id, api_config_id, model, thinking="inherit"):
         return client, "m-1"
 
     monkeypatch.setattr(service, "resolve_client", fake_resolve)
@@ -300,7 +300,7 @@ def test_breaker_trips_provider_unavailable(monkeypatch):
     monkeypatch.setattr(pl, "CONCURRENCY", 4)
     monkeypatch.setattr(pl, "load_layers", load_layers)
 
-    async def fake_resolve(user_id, api_config_id, model):
+    async def fake_resolve(user_id, api_config_id, model, thinking="inherit"):
         return client, "m-1"
 
     monkeypatch.setattr(svc, "resolve_client", fake_resolve)
@@ -589,7 +589,7 @@ def test_resume_with_model_change_updates_history(monkeypatch):
     app.include_router(router)
     called_with: dict = {}
 
-    async def fake_resolve(user_id, api_config_id, model):
+    async def fake_resolve(user_id, api_config_id, model, thinking="inherit"):
         called_with.update(config=api_config_id, model=model)
         return object(), model
 
@@ -732,7 +732,7 @@ def _stub_with_batch(monkeypatch, client):
 
     monkeypatch.setattr(pipeline, "load_layers", load_layers)
 
-    async def fake_resolve(user_id, api_config_id, model):
+    async def fake_resolve(user_id, api_config_id, model, thinking="inherit"):
         return client, "m-1"
 
     monkeypatch.setattr(service, "resolve_client", fake_resolve)
@@ -790,6 +790,9 @@ def test_card_batch_bad_output_falls_back_per_chapter(monkeypatch):
     assert client.counts["deconstruct_card_batch"] == 2
     assert client.counts["deconstruct_card"] == 4  # 两批全退回逐章
     assert set(json.loads(t.dims_json)["cards"]["entries"]) == {"1", "2", "3", "4"}
+    # 失败账：退回成功也保留批次失败痕迹（评审 P3）
+    fb_rows = [u for u in _units("der-batch-fb") if u.stage == "card_batch" and u.status == "failed"]
+    assert len(fb_rows) == 2 and all(u.error_kind == "invalid_output" for u in fb_rows)
 
 
 def test_card_batch_off_forces_per_chapter(monkeypatch):
@@ -825,6 +828,12 @@ def test_card_batch_fatal_error_no_chapter_fallback(monkeypatch):
     assert json.loads(t.error_json)["kind"] == "auth"
     assert client.counts["deconstruct_card_batch"] == 1
     assert "deconstruct_card" not in client.counts  # 逐章零调用（不放大无效请求）
+    # 失败账：致命批也落 failed 行（评审 P3——账本不缺失败尝试）
+    from deconstruct import policy as dec_policy
+
+    fatal_rows = [u for u in _units("der-batch-fatal") if u.stage == "card_batch"]
+    assert len(fatal_rows) == 1 and fatal_rows[0].status == "failed"
+    assert fatal_rows[0].error_kind == dec_policy.KIND_AUTH
 
 
 def test_merge_max_tokens_env_guard(monkeypatch):
@@ -915,3 +924,68 @@ def _run_cancel_e2e_body(client: FakeClient) -> None:
     assert t.finished_at is not None, "取消后未在有限时间内收尾"
     assert time_mod.monotonic() - started < 10, "取消未在数秒内落地（在途调用未被扼断）"
     assert client.counts["deconstruct_card"] == 1, "取消后仍发起了新调用"
+
+
+# ── 思考档位（D10：拆书默认关思考，用户可选 低/跟随配置）─────────────────────
+
+def test_normalize_thinking_mode():
+    from deconstruct.service import normalize_thinking_mode
+
+    assert normalize_thinking_mode("low") == "low"
+    assert normalize_thinking_mode("inherit") == "inherit"
+    assert normalize_thinking_mode("off") == "off"
+    assert normalize_thinking_mode("") == "off"
+    assert normalize_thinking_mode("max") == "off"  # 白名单外一律默认关
+    assert normalize_thinking_mode(None) == "off"
+
+
+def test_client_from_config_thinking_override():
+    """off/low 覆盖折算成构造参数；inherit（None）跟随 ApiConfig。"""
+    from types import SimpleNamespace
+
+    from ai_client import _client_from_config
+
+    cfg = SimpleNamespace(base_url="", api_format="openai", vendor="",
+                          thinking_enabled=True, thinking_effort="max")
+    off = _client_from_config(cfg, "m", "k", max_retries=0,
+                              thinking_enabled=False, thinking_effort="low")
+    assert off._thinking_enabled is False and off._thinking_effort == "low"
+    low = _client_from_config(cfg, "m", "k", max_retries=0,
+                              thinking_enabled=True, thinking_effort="low")
+    assert low._thinking_enabled is True and low._thinking_effort == "low"
+    inherit = _client_from_config(cfg, "m", "k")
+    assert inherit._thinking_enabled is True and inherit._thinking_effort == "max"
+
+
+def test_run_task_passes_task_thinking_to_resolve(monkeypatch):
+    from deconstruct import pipeline, service
+
+    _mk_job("der-think", selected=["world"], chapters=1)
+
+    async def _seed():
+        async with async_session() as s:
+            t = await s.get(DeconstructJob, "der-think")
+            t.thinking_mode = "low"
+            await s.commit()
+    _run(_seed())
+
+    client = FakeClient({"deconstruct_card": _card_handler,
+                         "deconstruct_world": _seen_handler("world")})
+    captured: dict = {}
+
+    def load_layers(name):
+        if name == "deconstruct_card":
+            return "sys", "u {book_name}|{chapter_no}|{chapter_title}|{chapter_text}"
+        return "sys", "u {book_name}|{genre_or_unknown}|{full_synopsis}|{seg_range}|{excerpts}"
+
+    monkeypatch.setattr(pipeline, "CONCURRENCY", 1)
+    monkeypatch.setattr(pipeline, "load_layers", load_layers)
+
+    async def fake_resolve(user_id, api_config_id, model, thinking="inherit"):
+        captured["thinking"] = thinking
+        return client, "m-1"
+
+    monkeypatch.setattr(service, "resolve_client", fake_resolve)
+    _run(pipeline.run_task("der-think"))
+    assert captured["thinking"] == "low"
+    assert _load("der-think").status == "completed"

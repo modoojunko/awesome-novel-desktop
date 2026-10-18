@@ -112,6 +112,25 @@ def test_create_task_streams_and_parses(client):
     path, exists, enc = _run(_src())
     assert path.startswith(source_path_of(body["id"]).rsplit("/", 1)[0]) and exists
     assert enc.startswith("utf-8")  # 探测链优先 utf-8-sig（无 BOM 亦命中）
+    assert body["thinking"] == "off"  # 思考档位默认关（D10）
+
+
+def test_create_task_thinking_mode_persisted(client):
+    """思考档位：表单可选 低/跟随配置，落任务行并回显；非法值归一为关（D10）。"""
+    r = client.post(
+        "/api/deconstruct/tasks",
+        files={"file": ("雪落无声.txt", _TXT.encode("utf-8"), "text/plain")},
+        data={"book_name": "雪落无声", "api_config_id": "cfg-1", "ai_model": "qwen3-max",
+              "selected_dims": '["intro"]', "thinking": "low"},
+    )
+    assert r.status_code == 200, r.text
+    assert r.json()["thinking"] == "low"
+    r2 = client.post(
+        "/api/deconstruct/tasks",
+        files={"file": ("a.txt", _TXT.encode("utf-8"), "text/plain")},
+        data={"api_config_id": "cfg-1", "ai_model": "m", "thinking": "max"},
+    )
+    assert r2.status_code == 200 and r2.json()["thinking"] == "off"  # 白名单外归一默认关
 
 
 def test_create_task_rejects_oversize_and_bad_dims(client):
@@ -755,7 +774,7 @@ def _mk_condense_stubs(monkeypatch, *, chat, resolve_raises=False):
         async def chat(self, **kw):
             return chat(kw)
 
-    async def fake_resolve(user_id, cfg, model):
+    async def fake_resolve(user_id, cfg, model, thinking="inherit"):
         if resolve_raises:
             raise ValueError("no cfg")
         return _Client(), "m-1"

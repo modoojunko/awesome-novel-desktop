@@ -135,7 +135,7 @@ def _stub_layers(monkeypatch):
 def _stub_client(monkeypatch, client):
     from deconstruct import service
 
-    async def fake_resolve(user_id, api_config_id, model):
+    async def fake_resolve(user_id, api_config_id, model, thinking="inherit"):
         return client, "m-1"
 
     monkeypatch.setattr(service, "resolve_client", fake_resolve)

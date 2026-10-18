@@ -831,7 +831,10 @@ async def run_task(task_id: str) -> None:
     try:
         from deconstruct.service import resolve_client
 
-        client, model = await resolve_client(task.user_id, task.api_config_id, task.ai_model)
+        client, model = await resolve_client(
+            task.user_id, task.api_config_id, task.ai_model,
+            thinking=getattr(task, "thinking_mode", "off") or "off",
+        )
     except ValueError as e:
         await _fail(task_id, error={"message": str(e), "kind": "model"})
         return
@@ -946,12 +949,15 @@ async def run_task(task_id: str) -> None:
 
                 任何单元级失败/解析不齐 → 坏行或缺章**退回逐章**（单章失败沿用既有
                 隔离口径）——合批只降调用数，永不放大单章损失面。
+                失败账：批次尝试比照其他阶段落 failed 行（评审 P3——退回成功也不
+                该抹掉这次失败尝试的 kind/attempts/duration）。
                 """
                 nos = [str(ch.get("no", 0)) for ch in batch]
                 chapters_block = "\n\n".join(
                     f"【第{ch.get('no', 0)}章】{ch.get('title', '')}\n{_card_text(ch)}"
                     for ch in batch
                 )
+                bkey = _input_hash(chapters_block[:2000])
                 started = time.monotonic()
                 usage: dict = {}
                 info: dict = {}
@@ -976,19 +982,35 @@ async def run_task(task_id: str) -> None:
                 except _Stopped:
                     raise
                 except policy.UnitError as e:
+                    await _unit_upsert(task_id, "card_batch", "", bkey, status="failed",
+                                       attempts=int(info.get("attempts", 1)),
+                                       error_kind=e.kind, error_msg=e.message[:300],
+                                       duration_ms=int((time.monotonic() - started) * 1000),
+                                       input_hash=bkey)
                     if e.kind in (policy.KIND_AUTH, policy.KIND_CONFIG, policy.KIND_ROUTE):
                         raise  # 确定性致命：退回逐章注定同败（评审 P2），立即终局
                     await _run_units([_card_one(ch) for ch in batch])  # 瞬时/审核/截断：退回逐章
                     return
-                except Exception:  # noqa: BLE001 — 合批失败整批退回逐章（降级不放大损失面）
+                except Exception as e:  # noqa: BLE001 — 合批失败整批退回逐章（降级不放大损失面）
+                    await _unit_upsert(task_id, "card_batch", "", bkey, status="failed",
+                                       attempts=int(info.get("attempts", 1)),
+                                       error_kind=policy.KIND_UNKNOWN, error_msg=str(e)[:300],
+                                       duration_ms=int((time.monotonic() - started) * 1000),
+                                       input_hash=bkey)
                     await _run_units([_card_one(ch) for ch in batch])
                     return
                 parsed = _parse_batch_cards(raw, set(nos))
                 if parsed is None:
+                    # 解析不齐/坏行＝无效输出：记失败账后退回逐章
+                    await _unit_upsert(task_id, "card_batch", "", bkey, status="failed",
+                                       attempts=int(info.get("attempts", 1)),
+                                       error_kind=policy.KIND_INVALID_OUTPUT,
+                                       error_msg="合批输出无法解析", duration_ms=0,
+                                       input_hash=bkey)
                     await _run_units([_card_one(ch) for ch in batch])
                     return
                 stopper.touch()
-                await _unit_upsert(task_id, "card_batch", "", _input_hash(chapters_block[:2000]),
+                await _unit_upsert(task_id, "card_batch", "", bkey,
                                    status="done", attempts=int(info.get("attempts", 1)),
                                    duration_ms=int((time.monotonic() - started) * 1000),
                                    tokens_in=int(usage.get("tokens_in", 0) or 0),
