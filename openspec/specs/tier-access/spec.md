@@ -193,7 +193,7 @@ TBD - created by archiving change 002-tier-free-bypass. Update Purpose after arc
 - 扫描 SHALL 穿透框架懒路由包装（starlette ≥1.6 的 `_IncludedRouter` 等形态），枚举结果 MUST 非空（现状仓库 ≥40 个挂 key 端点，随功能增长只增不减）；
 - 已挂 key 的端点 SHALL 同时挂载**与其 key 相称**的 AI 门禁——key 标注不得成为无门死标注，也不得错挂门型。两种门分工：`require_ai_access`＝会员＋档位＋已配写作大模型 Key，为 LLM 类 key 的唯一合法门；`require_tier_access`＝会员＋档位（Key 由作者自持），**仅**白名单 key（`ai-detect`／`prompt-panel`）可用——白名单外的 key 若只剩键自持门即判失败（防「生成类端点错挂键自持门」把未配模型的作者放行到业务深处）；
 - 端点声明的 key MUST ∈ 门禁 key 词汇表（含 AI 的档位 key 全集，免费键除外）；
-- 关键档位 key（`chapter-review`、`style-quant`、`ai-plot`、`ai-polish`、`ai-detect`、`ai-generate`、`prompt-panel`、`ai-plan`、`settings-ai-fields`、`style-suggest`）SHALL 各有至少一个真实端点消费点。
+- 关键档位 key（`chapter-review`、`style-quant`、`ai-plot`、`ai-detect`、`ai-generate`、`prompt-panel`、`ai-plan`、`settings-ai-fields`、`style-suggest`）SHALL 各有至少一个真实端点消费点。
 
 #### Scenario: 扫描穿透懒路由包装
 

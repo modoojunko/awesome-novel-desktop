@@ -579,7 +579,7 @@
 - 未选中态 SHALL 分两态：**零卷（空书）**＝「规划第一卷（AI）」入口卡＋「分卷依据 · 来自你的设定」（主线全景／结局三问／题材阶段／主要角色／目标篇幅；缺口标出、不拦）＋免费档脚注；**有卷未选中（书主页）**＝「接着往下规划」（「规划第N卷（AI）」）＋「卷的验证」（已有各卷一行：卷号 · 名字 · 章数目标，点一行＝选中该卷并立刻体检）＋免费档脚注。两态 SHALL NOT 出现卷域统计卡；原「未选中态四格全书统计（当前主线／悬置伏笔／全书章节／基于旧设定）」退役。
 - 已在中栏页签内提供的动作 SHALL NOT 在右栏重复。据此，以下三个动作 SHALL NOT 出现：提示词「重新组装提示词」（＝生成正文弹窗内 刷新组装/存稿，且本次组装每次重算）、关系「本章关系变化检测」（＝「操作」页签收尾提案的关系类）、伏笔「建议本章回收」（＝收尾提案的伏笔收束项）。
 - 章纲页签 SHALL 在动作清单上方展示「还缺」清单（当前必填缺口标签），且与中栏头部 meta 行「归档门槛」徽章同源（同一必填缺口口径）——**必填为两项（必须完成的变化、主情绪），门槛分母 SHALL 由必填项数派生（`N/2`），SHALL NOT 硬编码数字**（c-og-slim-v2 修正「六改四」遗留的 `N/6` 错值；c-og-rail-declutter 起该门槛的展示位在中栏头部 meta 行）。
-- 正文页签动作清单 SHALL 为：生成正文（首项；点击打开 AiModal 提示词预览；归档章 `disabled`＋内联 hint「已归档 · 恢复编辑后可用」——「解除只读」页面级解锁链保持退役（c-archived-readonly：小改走横幅「恢复编辑」、整体重写走「重写这一章」）；`testid=ai-write-btn`）→ **去AI味（单张动作卡，`testid=ai-polish`；未选中段落时置灰并带「先在正文选中一段」hint；无 MAX 权益时 hint「MAX 专属」、进行中「生成中」）** → 朱雀 AI 检测行（见 zhuque-workbench）。原全页签常驻的「AI 生成正文」工具卡与逐张 `.ai-tool` 卡 SHALL 退役（c-prose-write-entry/c-ai-rail-shared）：这些动作 SHALL NOT 以旧卡片形态出现在右栏；「补全负向约束／精简提示词」精修两行 SHALL NOT 出现在动作清单（正文 tab 收编后随功能整体退役）；续写建议行与「段落加工」三卡组（场景扩写、压缩啰嗦段落）SHALL NOT 出现（c-retire-continue-writing／c-retire-selection-transforms：段落加工由去AI味单卡承接）。
+- 正文页签动作清单 SHALL 为：生成正文（首项；点击打开 AiModal 提示词预览；归档章 `disabled`＋内联 hint「已归档 · 恢复编辑后可用」——「解除只读」页面级解锁链保持退役（c-archived-readonly：小改走横幅「恢复编辑」、整体重写走「重写这一章」）；`testid=ai-write-btn`）→ 朱雀 AI 检测行（见 zhuque-workbench）→ **人味检测行（本地指纹体检，本地·免费，无门控无配置态，见 renwei-check）**。原全页签常驻的「AI 生成正文」工具卡与逐张 `.ai-tool` 卡 SHALL 退役（c-prose-write-entry/c-ai-rail-shared）：这些动作 SHALL NOT 以旧卡片形态出现在右栏；「补全负向约束／精简提示词」精修两行 SHALL NOT 出现在动作清单（正文 tab 收编后随功能整体退役）；续写建议行与「段落加工」三卡组（场景扩写、压缩啰嗦段落）SHALL NOT 出现（c-retire-continue-writing／c-retire-selection-transforms；其原承接方去AI味单卡亦随 c-renwei-check 退役——段落级修稿由人味检测的左右边注闭环承接）。
 - 无对应 feature key 的档位 SHALL 以整卡锁定呈现（`.rail-assist.locked`：行降透明、角标转灰）；能力行 SHALL 保持可点，点击经统一门控 `onBlocked` 收口到升级弹窗（`UpgradeModal`），SHALL NOT 各自弹不同提示；「体检这一卷」与规划入口（卷域）归 `ai-plan`（标准档起），对无该 key 的档位随卡锁定。
 - **升级弹窗目标档 SHALL 按被触发能力所需档（`tier_required`）**：能定位到被点那一行的出口（如卷页签拆章行/规划台铺空缺 → `ai-plan`、朱雀检测行 → `ai-detect`）SHALL 把该行 feature key 传进弹窗，弹窗出**该档**口径与权益（标准/PRO/MAX 三套）；全局入口（本书偏好/账号区）不带 key 时 SHALL 回退——**已有 PRO（含试用）者出 MAX，否则出 PRO**（免费也出 PRO：全局入口不指具体件，PRO 是正文 AI 的起点）。SHALL NOT 对已含该能力的档位重复喊同一档。
 - **章纲页签行级出口**：未到 `ai-generate`（免费/标准）SHALL 在能力行下方给一枚「升级套餐」按钮（SHALL NOT 附说明文案——锁定行自带行级 hint）；已含 `ai-generate` 的档位 SHALL NOT 出现该出口（其剩余锁定行属 MAX，由行内 hint 承载）。
@@ -677,7 +677,7 @@
 #### Scenario: 未选段时段落动作折叠为分组行
 
 - **WHEN** 正文页签未选中任何段落时查看动作清单
-- **THEN** 「去AI味」为单张动作卡（`testid=ai-polish`），未选中段落时置灰并带「先在正文选中一段」提示；选中段落后卡片可用，生成正文一行不受影响。扩写与压缩两动作已随 c-retire-selection-transforms 退役，SHALL NOT 出现
+- **THEN** 「去AI味」动作卡 SHALL NOT 出现（随 c-renwei-check 退役）；动作清单为 生成正文 → 朱雀 AI 检测行 → 人味检测行，生成正文一行不受影响。扩写与压缩两动作已随 c-retire-selection-transforms 退役，SHALL NOT 出现
 
 ### Requirement: 右栏纯 AI 助手（本章进度卡退役）
 
@@ -939,7 +939,7 @@
 - 点「编辑正文」进编辑态后 SHALL 聚焦编辑器且光标落文末（继续写作的自然位置）。
 - 写/生成意图 SHALL 自动进入编辑态：右栏「生成正文」确认（含解锁链后的生成）、顶栏「续写」恢复、「重写这一章」确认、章纲「去写正文」。进入编辑态后既有聚焦/滚动恢复行为不变。
 - 归档、排队门禁（frontier）、旧稿支线三套锁定语义 SHALL 优先于编辑态：锁定期 SHALL NOT 出现「编辑正文」入口，编辑器保持不可编辑，既有锁定横幅照旧；归档章「恢复编辑」（unarchive）后 SHALL 落查看态，作者点「编辑正文」进入编辑态。
-- 右栏 AI 动作（去AI味）与「生成正文」为显式动作，SHALL NOT 强制编辑态：两态下产物/流式照常写入编辑器。
+- 右栏 AI 动作（生成正文、人味检测）为显式动作，SHALL NOT 强制编辑态：查看态下人味检测照常可跑（本地零额度），两态下产物/流式照常写入编辑器。
 
 #### Scenario: 默认查看态
 
