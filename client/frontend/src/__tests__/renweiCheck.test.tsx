@@ -12,6 +12,13 @@ vi.mock("@/lib/renwei", () => ({
   renweiCheck: (...args: unknown[]) => mockCheck(...args),
 }));
 
+// 大屏 zoom（large-screen.css）：边注 top 必须按 html 缩放折算回布局 px。
+const mockHtmlZoom = vi.hoisted(() => ({ value: 1 }));
+vi.mock("@/lib/panelAnchor", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/panelAnchor")>();
+  return { ...actual, htmlZoom: () => mockHtmlZoom.value };
+});
+
 import RenweiCheckModal from "@/components/novel/workbench/RenweiCheckModal";
 import RenweiMarginNotes from "@/components/novel/workbench/RenweiMarginNotes";
 import type { RenweiFinding, RenweiReport } from "@/lib/renwei";
@@ -176,6 +183,72 @@ describe("RenweiMarginNotes（左右分边注）", () => {
     expect(onDone).toHaveBeenCalledWith(1);
     fireEvent.click(screen.getAllByText("跳过")[0]);
     expect(onSkip).toHaveBeenCalledWith(1);
+    document.body.removeChild(editor.parentElement as HTMLElement);
+  });
+
+  it("大屏 zoom：边注 top/left 都按实测折算（贴正文右缘，不随段落下移越漂越远）", () => {
+    const editor = makeEditor();
+    const paraTops = [100, 500, 900, 1300];
+    [...editor.querySelectorAll("p")].forEach((p, i) => {
+      (p as HTMLElement).dataset.paraTop = String(paraTops[i]);
+    });
+    editor.dataset.bodyRight = "625"; // 正文栏右缘（视觉 px）
+    const rect = (el: Element) => {
+      const h = el as HTMLElement;
+      const top = Number(h.dataset.paraTop ?? 0);
+      // 边注层给一个 1200 的视觉宽（布局 960），其余元素用正文右缘
+      const isLayer = h.classList.contains("rw-marginlayer");
+      const right = isLayer ? 1200 : Number(h.dataset.bodyRight ?? 0);
+      const width = isLayer ? 1200 : right;
+      return { top, bottom: top, left: 0, right, width, height: 0, x: 0, y: 0 } as DOMRect;
+    };
+    const spy = vi
+      .spyOn(Element.prototype, "getBoundingClientRect")
+      .mockImplementation(function (this: Element) {
+        return rect(this);
+      });
+    mockHtmlZoom.value = 1.25;
+    render(
+      <RenweiMarginNotes editorEl={editor} findings={findings} settled={{}} onDone={vi.fn()} onSkip={vi.fn()} />,
+    );
+    // 视觉 500 → 布局 400；视觉 1300 → 布局 1040（不是原值直接铺上去）
+    expect(screen.getByTestId("rw-note-1").style.top).toBe("400px");
+    expect(screen.getByTestId("rw-note-3").style.top).toBe("1040px");
+    // 横向：正文右缘 625 视觉 → 500 布局 px ＋ 16px 间距（窗口再宽也不飘到最右）
+    const layer = document.querySelector(".rw-marginlayer") as HTMLElement;
+    expect(layer.style.getPropertyValue("--rw-notes-left")).toBe("516px");
+    // 右侧留白 960−516＝444 ≥ 264+8：详情卡朝右展开，不压正文
+    expect(layer.classList.contains("rw-notes-dtl-right")).toBe(true);
+    spy.mockRestore();
+    mockHtmlZoom.value = 1;
+    document.body.removeChild(editor.parentElement as HTMLElement);
+  });
+
+  it("窄栏放不下最小边注列：收成段侧圆点兜底（不裁字/不压正文），详情卡不朝右", () => {
+    const editor = makeEditor();
+    editor.dataset.bodyRight = "625";
+    const rect = (el: Element) => {
+      const h = el as HTMLElement;
+      const isLayer = h.classList.contains("rw-marginlayer");
+      const right = isLayer ? 700 : Number(h.dataset.bodyRight ?? 0);
+      const width = isLayer ? 700 : right;
+      return { top: 0, bottom: 0, left: 0, right, width, height: 0, x: 0, y: 0 } as DOMRect;
+    };
+    const spy = vi
+      .spyOn(Element.prototype, "getBoundingClientRect")
+      .mockImplementation(function (this: Element) {
+        return rect(this);
+      });
+    mockHtmlZoom.value = 1;
+    render(
+      <RenweiMarginNotes editorEl={editor} findings={findings} settled={{}} onDone={vi.fn()} onSkip={vi.fn()} />,
+    );
+    // 右侧只剩 700 − (625＋16)＝59px，小于最小列宽 120＋间距 16
+    const layer = document.querySelector(".rw-marginlayer") as HTMLElement;
+    expect(layer.classList.contains("rw-notes-narrow")).toBe(true);
+    expect(layer.classList.contains("rw-notes-dtl-right")).toBe(false);
+    spy.mockRestore();
+    mockHtmlZoom.value = 1;
     document.body.removeChild(editor.parentElement as HTMLElement);
   });
 
