@@ -602,15 +602,26 @@ def test_resume_with_model_change_updates_history(monkeypatch):
             yield session
 
     app.dependency_overrides[get_db] = _override_db
-    with TestClient(app) as tc:
-        r = tc.post("/api/deconstruct/tasks/der-mc/resume",
-                    json={"api_config_id": "cfg-9", "ai_model": "m-9"})
-        assert r.status_code == 200, r.text
-        assert called_with == {"config": "cfg-9", "model": "m-9"}
-        t = _load("der-mc")
-        assert t.api_config_id == "cfg-9" and t.ai_model == "m-9"
-        history = json.loads(t.model_history_json)
-        assert len(history) == 2 and history[-1]["ai_model"] == "m-9"
+    try:
+        with TestClient(app) as tc:
+            r = tc.post("/api/deconstruct/tasks/der-mc/resume",
+                        json={"api_config_id": "cfg-9", "ai_model": "m-9"})
+            assert r.status_code == 200, r.text
+            assert called_with == {"config": "cfg-9", "model": "m-9"}
+            t = _load("der-mc")
+            assert t.api_config_id == "cfg-9" and t.ai_model == "m-9"
+            history = json.loads(t.model_history_json)
+            assert len(history) == 2 and history[-1]["ai_model"] == "m-9"
+    finally:
+        # 收尾还原终态：resume 把任务置回 queued，若留着不管，同进程后续的
+        # dispatcher 集成测试会先接单这个泄漏任务（实测踩坑：串行 worker 被占死）
+        async def _restore():
+            async with async_session() as s:
+                row = await s.get(DeconstructJob, "der-mc")
+                if row is not None and row.status == "queued":
+                    row.status = "failed"
+                    await s.commit()
+        _run(_restore())
 
 
 # ── 时间口径 ────────────────────────────────────────────────────────────────
@@ -823,3 +834,78 @@ def test_merge_max_tokens_env_guard(monkeypatch):
     assert caps_mod.merge_max_tokens(caps) == 8192
     monkeypatch.setenv("DECONSTRUCT_MERGE_MAX_TOKENS", "16384")
     assert caps_mod.merge_max_tokens(caps) == 16384
+
+
+def test_cancel_via_endpoint_stops_dispatcher_task(monkeypatch):
+    """全链取消（用户报告「任务没有取消、没有停止」的集成级反证钉）：
+    HTTP 取消端点 → dispatcher 线程 → 看门狗轮询 → 在途调用被扼断，
+    取消在数秒内落地、后续章节不再发起。"""
+
+    from deconstruct.dispatcher import start_dispatcher
+
+    _mk_job("der-cancel-e2e", selected=["world"], chapters=2)
+    client = FakeClient({"deconstruct_card": _card_handler,
+                         "deconstruct_world": _seen_handler("world")})
+
+    async def slow_first(kw, n):
+        if n == 0 and kw["operation"] == "deconstruct_card":
+            await asyncio.sleep(30)  # 模拟模型挂起：取消必须扼断它而不是等它跑完
+        return _card_handler(kw, n)
+
+    client.handlers["deconstruct_card"] = slow_first
+    _stub(monkeypatch, client)
+    # 该模块 import 时置了 DISPATCHER_OFF=1；本测试要真 dispatcher 线程
+    monkeypatch.setenv("DECONSTRUCT_DISPATCHER_OFF", "0")
+    start_dispatcher()
+    try:
+        _run_cancel_e2e_body(client)
+    finally:
+        # 收线：不停的话常驻轮询会抢跑同进程后续测试造的 queued 任务
+        from deconstruct import dispatcher as dec_dispatcher
+
+        dec_dispatcher.stop_dispatcher()
+        if dec_dispatcher._thread is not None:
+            dec_dispatcher._thread.join(timeout=5)
+
+
+def _run_cancel_e2e_body(client: FakeClient) -> None:
+    import time as time_mod
+
+    deadline = time_mod.monotonic() + 15
+    while time_mod.monotonic() < deadline:
+        t = _load("der-cancel-e2e")
+        if t.status == "running" and client.counts["deconstruct_card"] >= 1:
+            break
+        time_mod.sleep(0.2)
+    assert t.status == "running", f"dispatcher 未接单：{t.status}"
+
+    from fastapi import FastAPI
+    from fastapi.testclient import TestClient
+
+    from auth_local.middleware import get_current_user
+    from db import get_db
+    from deconstruct.router import router
+
+    app = FastAPI()
+    app.include_router(router)
+    app.dependency_overrides[get_current_user] = lambda: {"id": _UID}
+
+    async def _override_db():
+        async with async_session() as session:
+            yield session
+
+    app.dependency_overrides[get_db] = _override_db
+    with TestClient(app) as tc:
+        r = tc.post("/api/deconstruct/tasks/der-cancel-e2e/cancel")
+        assert r.status_code == 200, r.text
+
+    started = time_mod.monotonic()
+    while time_mod.monotonic() - started < 10:
+        t = _load("der-cancel-e2e")
+        if t.finished_at is not None:
+            break
+        time_mod.sleep(0.2)
+    assert t.status == "cancelled"
+    assert t.finished_at is not None, "取消后未在有限时间内收尾"
+    assert time_mod.monotonic() - started < 10, "取消未在数秒内落地（在途调用未被扼断）"
+    assert client.counts["deconstruct_card"] == 1, "取消后仍发起了新调用"
