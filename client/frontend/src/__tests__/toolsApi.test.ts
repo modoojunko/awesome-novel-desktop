@@ -54,13 +54,13 @@ describe("deconstructApi", () => {
     await createDeconstructTask(new File(["x"], "a.txt"), {
       bookName: "a", apiConfigId: "c1", model: "m1", selectedDims: ["intro"], thinking: "low",
     });
-    const fd2 = state.fetch.mock.calls.at(-1)[1].body as FormData;
+    const fd2 = state.fetch.mock.calls.at(-1)![1].body as FormData;
     expect(fd2.get("thinking")).toBe("low");
     state.fetch.mockResolvedValueOnce(jsonResponse(200, { id: "n3" }));
     await createDeconstructTask(new File(["x"], "a.txt"), {
       bookName: "a", apiConfigId: "c1", model: "m1", selectedDims: ["intro"],
     });
-    expect((state.fetch.mock.calls.at(-1)[1].body as FormData).get("thinking")).toBeNull();
+    expect((state.fetch.mock.calls.at(-1)![1].body as FormData).get("thinking")).toBeNull();
 
     state.fetch.mockResolvedValueOnce(jsonResponse(401, {}));
     await expect(createDeconstructTask(new File(["x"], "a.txt"), { bookName: "a", apiConfigId: "c", model: "m", selectedDims: ["intro"] })).rejects.toThrow("Unauthorized");
