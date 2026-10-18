@@ -139,10 +139,10 @@ export default function TaskDetailPage() {
     return "进行中 · 图谱装配";
   })();
   // 降级维度（c-deconstruct-resilience）：分段稿/部分内容被拒——完成态不再「全绿但实际降级」
-  const degradedDims = DECONSTRUCT_DIMS.filter((d) => {
+  const degradedDims = DECONSTRUCT_DIMS.flatMap((d) => {
     const st = task.dims?.[d.key];
-    return st?.state === "completed" && !!st.degraded;
-  }).map((d) => ({ name: d.name, reason: task.dims?.[d.key]?.degraded ?? "" }));
+    return st?.state === "completed" && st.degraded ? [{ name: d.name, reason: st.degraded }] : [];
+  });
   // 失败归因 → 可执行出口（文案不暴露内部术语；补救必带可点击出口）
   const kindExit = (() => {
     const k = task.error_kind ?? "";
@@ -346,19 +346,7 @@ export default function TaskDetailPage() {
           </div>
           {task.stats && Object.keys(task.stats).length > 0 ? (
             <div className="dim-group" data-od-id="call-stats" style={{ marginBottom: 10 }}>
-              调用统计 ·{" "}
-              {["card", "l1", "reduce", "presence", "place"]
-                .filter((s) => task.stats?.[s])
-                .map((s) => {
-                  const st = task.stats?.[s];
-                  const retry = Math.max(0, (st?.attempts ?? 0) - (st?.calls ?? 0));
-                  const retryTxt = retry > 0 ? `（重试 ${retry}）` : "";
-                  const nameMap: Record<string, string> = {
-                    card: "拆卡", l1: "归并", reduce: "收敛", presence: "在场补写", place: "地点归并",
-                  };
-                  return `${nameMap[s] ?? s} ${st?.calls ?? 0} 次${retryTxt}`;
-                })
-                .join(" · ")}
+              调用统计 · {statsLine(task.stats)}
             </div>
           ) : null}
           <div className="dims" data-od-id="done-manifest">
@@ -643,3 +631,21 @@ export default function TaskDetailPage() {
     </main>
   );
 }
+
+/** 调用账摘要行（c-deconstruct-resilience）：按固定阶段序拼接「N 次（重试 M）」；
+ * 全分支单测在 toolsDetail（有重试/零重试/空账）。 */
+export function statsLine(stats: NonNullable<DeconstructTaskDetail["stats"]>): string {
+  const nameMap: Record<string, string> = {
+    card: "拆卡", l1: "归并", reduce: "收敛", presence: "在场补写", place: "地点归并",
+  };
+  return ["card", "l1", "reduce", "presence", "place"]
+    .filter((s) => stats[s])
+    .map((s) => {
+      const st = stats[s];  // filter 已保证在场；字段在类型上必填，无需可选链
+      const retry = Math.max(0, st.attempts - st.calls);
+      const retryTxt = retry > 0 ? `（重试 ${retry}）` : "";
+      return `${nameMap[s]} ${st.calls} 次${retryTxt}`;
+    })
+    .join(" · ");
+}
+

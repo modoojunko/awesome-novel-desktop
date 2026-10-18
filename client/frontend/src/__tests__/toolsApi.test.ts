@@ -136,6 +136,16 @@ describe("deconstructApi", () => {
     const r = await resumeDeconstructTask("t");
     expect(r.status).toBe("queued");
     expect(String(state.fetch.mock.calls[0][0])).toContain("/resume");
+    expect(state.fetch.mock.calls[0][1].body).toBe("{}");
+  });
+
+  it("resumeDeconstructTask 换模型续拆 → 携 api_config_id/ai_model（c-deconstruct-resilience）", async () => {
+    state.fetch.mockResolvedValueOnce(jsonResponse(200, { status: "queued" }));
+    await resumeDeconstructTask("t", { apiConfigId: "cfg-9", model: "m-9" });
+    expect(JSON.parse(state.fetch.mock.calls[0][1].body)).toEqual({
+      api_config_id: "cfg-9",
+      ai_model: "m-9",
+    });
   });
 
 

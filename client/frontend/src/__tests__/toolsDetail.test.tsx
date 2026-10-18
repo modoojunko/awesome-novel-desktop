@@ -670,10 +670,25 @@ describe("进度可视二阶（边界臂）", () => {
 
   it("调用账：completed 态显示调用统计与重试数", async () => {
     state.get.mockResolvedValue(detailOf("completed", {
-      stats: { card: { calls: 258, failures: 1, attempts: 260, duration_ms: 1, tokens_in: 0, tokens_out: 0 } },
+      stats: {
+        card: { calls: 258, failures: 1, attempts: 260, duration_ms: 1, tokens_in: 0, tokens_out: 0 },
+        l1: { calls: 10, failures: 0, attempts: 10, duration_ms: 1, tokens_in: 0, tokens_out: 0 },
+      },
     }));
     renderPage();
     await waitFor(() => expect(screen.getByText(/拆卡 258 次（重试 2）/)).toBeInTheDocument());
+    expect(screen.getByText(/归并 10 次$/)).toBeInTheDocument(); // 零重试不缀重试括注
+  });
+
+  it("失败态告警账可见：跳过章通知在失败面板透出", async () => {
+    state.get.mockResolvedValue(detailOf("failed", {
+      error: "模型服务连续失败，任务已自动暂停，可稍后续拆或更换模型",
+      error_kind: "provider_unavailable",
+      warnings: ["3 章拆卡被模型拒绝或输出损坏已跳过（续拆可补）：第7、12、13章"],
+    }));
+    renderPage();
+    await waitFor(() => expect(screen.getByText(/部分内容被跳过（可续拆补齐）/)).toBeInTheDocument());
+    expect(screen.getByText(/第7、12、13章/)).toBeInTheDocument();
   });
 
   it("已运行时长按 UTC 解析：2 分钟前创建显示 2 分而非时区偏移", async () => {
