@@ -64,7 +64,6 @@ TBD - created by archiving change 003-two-tier-foundation. Update Purpose after 
 - WHEN 用户 60 秒内首次进入工作台路由
 - THEN 先请求 /auth/check-auth（S端 往返更新本地快照与档位目录缓存），随后 refetch 刷新上下文；60 秒内再次切换不再触发
 
-
 ### Requirement: useTier hook
 
 - The system SHALL provide a `useTier()` hook returning the nearest `LicenseContext` value.
@@ -98,7 +97,6 @@ TBD - created by archiving change 003-two-tier-foundation. Update Purpose after 
   - `style-suggest`（新增）：文风建议（自己写正文时的 AI 修改建议），标准起发放——与 style-quant 拆 key。
   - `style-quant`（新增）：文风蒸馏（贴旧稿蒸馏文风基线），仅 MAX 发放。
   - `ai-plot`（新增）：剧情推演，仅 MAX 发放（卷纲冲突检测不在其内——留 ai-check 族挂 ai-generate 门）。
-  - `ai-polish`（新增）：去AI味加工（热片驱动＋选区兜底的重写），仅 MAX 发放（生成时内嵌的反AI基线不设 key，全档质量底线）。
 - The module SHALL have no DOM dependency (pure TS).
 
 #### Scenario: Free disabled AI features
