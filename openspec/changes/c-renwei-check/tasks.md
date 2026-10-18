@@ -92,14 +92,15 @@ Playwright 全链路（console/pageerror/失败 API 三通道监听）：
 
 七场景全绿、零报错：A 主链路（说明→结果→标记→边注）／B 重新检测（复跑分数不漂移）／C 跳过（边注-1＋徽章前进）／D 清除标注（边注清零＋徽章退场）／E 短章（打不了分＋仍出问题）／F 零发现（好稿文案＋标记禁用）／G 全程 console/pageerror 0、失败 API 0。
 
-测试口径补记：设 `PROMPT_PACK_DEV_DIR` 后后端 **2292 passed / 1 skipped**（唯一 skip＝Windows 打包签名用例，本机无 pwsh，CI 执行）；前端 **1509 passed**＋tsc＋vite build。
+测试口径补记：设 `PROMPT_PACK_DEV_DIR` 后后端 **2513 passed / 1 skipped**（唯一 skip＝Windows 打包签名用例，本机无 pwsh，同契约由 Windows 原生 pwsh 门禁执行）；前端 **1691 passed**＋tsc＋vite build。rebase 时另修一处 main 侧既有红：`test_thinking_timeout_keeps_stored_prose` 仍对 90s 断言（c-prose-generation-headroom 已改 600s），改断端点常量后 16 passed。
 
 
 ## 测试判定（「100% 通过测试」书面口径）
 
-- **后端**（`PROMPT_PACK_DEV_DIR` 配齐提示词源）：**2292 passed / 1 skipped / 0 failed**。
-- **前端**：**1509 passed / 0 failed**；`tsc`、`vite build`、`design:lint`、`openspec validate` 全绿。
+- **后端**（`PROMPT_PACK_DEV_DIR` 配齐提示词源，rebase 到 origin/main 后）：**2513 passed / 1 skipped / 0 failed**（rebase 前基线 2292 passed）。
+- **前端**（rebase 后）：**1691 passed / 0 failed**（rebase 前 1509）；`tsc`、`vite build`、`design:lint`、`openspec validate` 全绿。
 - **界面调用**：七场景全绿，console/pageerror 0、失败 API 0（见上节）。
+- **PR CI**：awesome-novel-desktop#890 双绿——check 1m52s pass、test 5m54s pass（runs 39084901475 / 39084901474）。
 
 ### 平台豁免登记（唯一的 1 个 skip）
 
