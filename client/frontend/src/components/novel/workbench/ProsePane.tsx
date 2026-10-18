@@ -41,6 +41,7 @@ import type { ModelSelection } from "@/types/api-config";
 import {
   type FontSizePref,
   type LineHeightPref,
+  getLastWriteSession,
   setLastWriteSession,
 } from "@/lib/prefs";
 import { docToProse, linesToParagraphs, proseToDoc, normalizeStreamedProse, proseDelta} from "./proseDoc";
@@ -334,8 +335,13 @@ const ProsePane = forwardRef<ProseHandle, ProsePaneProps>(function ProsePane(
     }),
   });
 
-  // ── 上次写作会话（行头归一「续写」）：输入/滚动节流 1s 记「本章+滚动比例」 ──
+  // ── 上次写作会话（行头归一「续写」）：输入写、滚动只在会话已是本章时更新 ──
+  // 防止「只是打开/滚动导入书第 1 章」就把 last_write 记成第 1 章，续写被拽回历史章。
   const lastSaveTimeRef = useRef(0);
+  const lastWriteRef = useRef(getLastWriteSession(projectId));
+  useEffect(() => {
+    lastWriteRef.current = getLastWriteSession(projectId);
+  }, [projectId, chapterRef]);
   const saveProgress = useCallback(() => {
     const wrap = wrapRef.current;
     if (!wrap) return;
@@ -345,6 +351,7 @@ const ProsePane = forwardRef<ProseHandle, ProsePaneProps>(function ProsePane(
     const max = wrap.scrollHeight - wrap.clientHeight;
     const scroll = max > 4 ? Math.min(1, Math.max(0, wrap.scrollTop / max)) : 0;
     setLastWriteSession(projectId, chapterRef, scroll);
+    lastWriteRef.current = { ref: chapterRef, scroll, ts: now };
     onWriteProgress?.({ ref: chapterRef, scroll, ts: now });
   }, [projectId, chapterRef, onWriteProgress]);
   // onUpdate 经 options 同步拿最新闭包；ref 兜底防首帧 TDZ
@@ -485,10 +492,12 @@ const ProsePane = forwardRef<ProseHandle, ProsePaneProps>(function ProsePane(
   useEffect(() => {
     const wrap = wrapRef.current;
     if (!wrap) return;
-    const onScroll = () => saveProgress();
+    const onScroll = () => {
+      if (lastWriteRef.current?.ref === chapterRef) saveProgress();
+    };
     wrap.addEventListener("scroll", onScroll, { passive: true });
     return () => wrap.removeEventListener("scroll", onScroll);
-  }, [saveProgress]);
+  }, [saveProgress, chapterRef]);
 
   // ── AI 流式写入（事务追加，SHALL NOT 整文档重建；不入撤销史） ──────────
   /** 追加一段生成文本到插入点（段内换行 = 拆新段）。 */

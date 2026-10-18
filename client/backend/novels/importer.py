@@ -66,6 +66,16 @@ IMPORT_TEMPLATE_MD = """# 卷一　起点
 # ── Helpers ────────────────────────────────────────────────────────────────────
 
 
+def parse_txt_manifest(raw: bytes, filename: str = "") -> dict:
+    """A 路 txt 入口：统一复用 deconstruct.textparse，输出冻结 manifest。
+
+    旧 markdown/docx 函数保留给历史兼容；新书架导入只走本函数。
+    """
+    from deconstruct.textparse import build_manifest
+
+    return build_manifest(raw, filename)
+
+
 def _count_chars(text: str) -> int:
     """Count visible characters (Chinese-friendly word count)."""
     return len(text.replace(" ", "").replace("\n", "").replace("\r", ""))

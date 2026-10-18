@@ -193,6 +193,29 @@ def cadence_reminder(rows, *, is_final: bool, target: int) -> str:
 # ═══════════════ 素材装配（⓪位置 → ①→⑧ → ⑨节奏提醒；预算见 prompt-draft §5） ═══════════════
 
 
+def _imported_excerpt_block(
+    rows: list, *, total_limit: int = 2000, per_line: int = 80
+) -> str:
+    """导入章原文短摘录（非摘要）：仅无摘要的历史章，最近章优先，总长 ≤2000。
+
+    不把 200 字原文塞进「已经拆过的章」摘要槽；独立块防止模型把摘录当章纲。
+    """
+    picked: list[str] = []
+    budget = 0
+    historical = [r for r in rows if getattr(r, "origin", "authored") == "import"]
+    for c in reversed(historical):
+        content = getattr(c, "content", None)
+        prose = ((getattr(content, "prose", "") if content is not None else "") or "").strip()
+        if not prose:
+            continue
+        line = f"第{c.chapter_no}章 {c.title or ''}：{' '.join(prose.split())[:per_line]}"
+        if budget + len(line) > total_limit:
+            break
+        picked.append(line)
+        budget += len(line)
+    return "\n".join(reversed(picked))
+
+
 async def _chapter_material(db, project, vol, ch_no: int) -> dict:
     # c-plan-material-fullinfo：聚光退役，人物块＝全名单；无卡名单改本卷口径（覆盖 _book_material 的全书块）
     mat = await _book_material(db, project, with_hooks=False)  # 不给伏笔台账（防"提前揭"）
@@ -208,26 +231,34 @@ async def _chapter_material(db, project, vol, ch_no: int) -> dict:
         [c for c in await chapter_repo.list_by_volume(db, vol.id) if not c.ghost_of],
         key=lambda c: c.chapter_no,
     )
+    authored_rows = [c for c in rows if getattr(c, "origin", "authored") != "import"]
     done = [
         # c-ai-material-audit：章纲 summary 列宽 300，旧 [:40] 把"已拆过什么"切没了
-        f"第{c.chapter_no}章 {c.title or ''}｜{(c.summary or '').strip()}｜{c.plot_stage or '（未定阶段）'}"
+        # 历史章没有章纲：明确标「原文无摘要」，不把正文塞进摘要槽。
+        f"第{c.chapter_no}章 {c.title or ''}｜"
+        f"{((c.summary or '').strip() or ('原文无摘要' if getattr(c, 'origin', 'authored') == 'import' else ''))}｜"
+        f"{c.plot_stage or '（未定阶段）'}"
         for c in rows
     ]
     target = vol.chapter_target or 0
-    quota_left = max(0, target - len(rows)) if target else 0
+    quota_left = max(0, target - len(authored_rows)) if target else 0
     is_final = bool(target) and quota_left == 1
     # 已排满（含超出）：目标已设且剩余额度为 0 且不是末章
     quota_overshot = bool(target) and quota_left == 0 and not is_final
     prev_line = ""
     if rows:
         last = rows[-1]
-        prev_line = f"第{last.chapter_no}章：{(last.summary or last.title or '').strip()[:60]}"
+        prev_text = (last.summary or "").strip()
+        if not prev_text and getattr(last, "origin", "authored") == "import":
+            prev_text = ((last.content.prose if last.content else "") or last.title or "").strip()[:200]
+        prev_line = f"第{last.chapter_no}章：{(prev_text or last.title or '').strip()[:200]}"
     global_ch = await _global_chapter_no(db, project.id, vol, ch_no)
     mat.update(
         {
             "entry": entry,
             "vol_outline": volume_outline_text(vol),
             "done_chapters": done,
+            "imported_excerpts": _imported_excerpt_block(rows),
             "quota_left": quota_left,
             "quota_overshot": quota_overshot,
             "is_final": is_final,
@@ -238,7 +269,7 @@ async def _chapter_material(db, project, vol, ch_no: int) -> dict:
             "ch_no": ch_no,
             "vol_total": target or None,
             "position_tags": chapter_position_tags(global_ch, ch_no),
-            "cadence": cadence_reminder(rows, is_final=is_final, target=target),
+            "cadence": cadence_reminder(authored_rows, is_final=is_final, target=target),
             "stage_hit_climax": any((c.plot_stage or "").strip() == "高潮爆发" for c in rows),
         }
     )
@@ -319,6 +350,8 @@ def _blocks_chapter(mat: dict) -> str:
     if mat["done_chapters"]:
         # c-ai-material-audit：全卷给全（旧 [-12:] 让拆第 20 章时看不见前 8 章）
         parts.append("【已经拆过的章】\n" + "\n".join(mat["done_chapters"]))
+    if mat.get("imported_excerpts"):
+        parts.append("【导入章原文摘录（非摘要，仅供接续）】\n" + mat["imported_excerpts"])
     # 配额：末章 / 已排满 / 还剩 N 章 / 未设目标——四态分明（「已排满」不得报成「未设」）
     if mat["is_final"]:
         quota = "本章是本卷末章——三个方向的结尾都必须收在卷纲第四问「预期结局」上。"

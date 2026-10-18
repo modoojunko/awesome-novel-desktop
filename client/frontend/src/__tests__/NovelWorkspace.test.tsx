@@ -1256,3 +1256,40 @@ describe("重新生成确认门禁（c-prose-regen-replace）", () => {
     expect(screen.queryByTestId("regen-confirm")).toBeNull();
   });
 });
+
+describe("导入书续写落点（c-import-direct）", () => {
+  it("42 章原文 → 主页开始写第 43 章、补主线/卷纲清单、树标原文", async () => {
+    const chapters = Array.from({ length: 42 }, (_, i) => ({
+      id: `ch-${i + 1}`,
+      ref: `vol-1-ch-${i + 1}`,
+      volume: 1,
+      chapter: i + 1,
+      global_no: i + 1,
+      title: `第${i + 1}章`,
+      status: "draft",
+      origin: "import",
+      historical: true,
+      word_count: 1000,
+      has_prose: true,
+      outline_status: "unfilled",
+      archived: false,
+    }));
+    apiState.get.mockImplementation((path: string) => {
+      if (path === "/novels/p1/volumes") {
+        return Promise.resolve([{
+          ref: "vol-1", title: "第一卷", summary: "", chapter_count: 42, chapters,
+        }]);
+      }
+      if (path === "/novels/p1/readiness") {
+        return Promise.resolve({ complete: false, missing: [], warning: "" });
+      }
+      return Promise.resolve({});
+    });
+    apiState.fetchStory.mockResolvedValue({ synopsis: "" });
+    renderWorkspace("none");
+    await waitFor(() => expect(screen.getByTestId("home-progress")).toBeTruthy());
+    expect(screen.getByTestId("home-resume").textContent).toContain("开始写第 43 章");
+    expect(screen.getByTestId("import-next-checklist")).toBeTruthy();
+    expect(screen.getAllByText("原文").length).toBeGreaterThan(0);
+  });
+});

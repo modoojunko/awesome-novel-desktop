@@ -2,10 +2,10 @@
 
 规则（storyline.html 原型为准）：
 - 主线顺序 = 卷序 × 章序；
-- frontier = 主线上第一个「未归档」的章（草稿或拟定）；
-- 全部归档时 frontier = 主线末端的「待写」占位章（不落库，写时创建）；
+- frontier = 主线上第一个「未归档且非历史章」的章（草稿或拟定）；
+- 全部归档/全部历史章时 frontier = 主线末端的「待写」占位章（不落库，写时创建）；
 - 可写性：frontier 章（或任何**已有正文**的章＝草稿可继续）可写；
-  frontier 之后的拟定章 SHALL NOT 写正文（排队门禁）。
+  frontier 之后的拟定章 SHALL NOT 写正文（排队门禁）；已归档章只读。
 - 存量兼容：章的状态枚举不扩展——「拟定/草稿」为派生态
   （有正文未归档＝草稿；无正文未归档＝拟定），待写为纯派生占位。
 """
@@ -15,11 +15,12 @@ from __future__ import annotations
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from chapters.lifecycle import is_historical
 from models.chapter import Chapter
 
 
 async def frontier_info(db: AsyncSession, novel_id: str) -> dict:
-    """返回 {ref, chapter_no, state, writable, volume_id}；空书返回 chapters=[] 语义由调用方处理。"""
+    """返回 {ref, chapter_no, global_no, state, writable, volume_id}；空书返回 chapters=[]。"""
     # 主线性单源（chapters/scope.py）：ghost_of IS NULL——旧稿快照不得抢占 frontier
     from chapters.scope import mainline_stmt
 
@@ -32,11 +33,15 @@ async def frontier_info(db: AsyncSession, novel_id: str) -> dict:
                 "volume_no": _vol_no(c.ref),
                 "has_prose": bool(c.has_prose),
                 "archived": c.status == "archived",
+                "origin": c.origin,
+                "historical": is_historical(c),
             }
             for c in rows
         ),
         key=lambda ch: (ch["volume_no"], ch["chapter_no"]),
     )
+    for i, ch in enumerate(chapters, start=1):
+        ch["global_no"] = i
     return {"chapters": chapters, "frontier": _pick_frontier(chapters)}
 
 
@@ -49,18 +54,21 @@ def _vol_no(ref: str) -> int:
 
 def _pick_frontier(chapters: list[dict]) -> dict | None:
     for ch in chapters:
-        if not ch["archived"]:
+        if not ch["archived"] and not ch["historical"]:
             return _decorate(ch, chapters)
-    # 全部归档：待写占位 = 主线末端 + 1
+    # 全部归档/全部历史章：待写占位 = 主线末端 + 1
     if not chapters:
         return None
     last = chapters[-1]
     pending = {
         "ref": _next_ref(last["ref"]),
         "chapter_no": last["chapter_no"] + 1,
+        "global_no": last["global_no"] + 1,
         "volume_no": last["volume_no"],
         "has_prose": False,
         "archived": False,
+        "historical": False,
+        "origin": "authored",
         "pending": True,
     }
     return _decorate(pending, chapters)
@@ -75,10 +83,11 @@ def _decorate(ch: dict, chapters: list[dict]) -> dict:
     else:
         state = "planned"
     # 可写：frontier 自己，或任何已有正文的章（存量草稿可继续）；
-    # frontier 之后的章不可写（排队门禁）
+    # frontier 之后的章不可写（排队门禁）；历史章有正文，不阻挡后续。
     idx = chapters.index(ch) if ch in chapters else len(chapters)
     earlier_unwritten = any(
-        not c["has_prose"] and not c["archived"] for c in chapters[:idx]
+        not c["has_prose"] and not c["archived"] and not c["historical"]
+        for c in chapters[:idx]
     )
     writable = not earlier_unwritten or bool(ch["has_prose"])
     return {**ch, "state": state, "writable": writable}
@@ -109,6 +118,8 @@ async def is_writable(db: AsyncSession, novel_id: str, ref: str) -> tuple[bool, 
     ).first()
     if row is not None and row.ghost_of:
         return False, "旧稿支线只读"
+    if row is not None and row.status == "archived":
+        return False, "本章已归档，恢复编辑后再保存"
     target = next((c for c in info["chapters"] if c["ref"] == ref), None)
     if target is None:
         return True, ""  # 章不存在（将由调用方 404），门禁不拦
@@ -124,7 +135,7 @@ async def is_writable(db: AsyncSession, novel_id: str, ref: str) -> tuple[bool, 
         return True, ""
     return (
         False,
-        f"还不能写这一章：先完成前面的章节（当前主线在第 {front['chapter_no']} 章）",
+        f"还不能写这一章：先完成前面的章节（当前主线在第 {front.get('global_no', front['chapter_no'])} 章）",
     )
 
 

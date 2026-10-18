@@ -149,6 +149,16 @@ async def lifespan(app: FastAPI):
 
         logging.getLogger("uvicorn.error").warning("Failed to create tables: %s", e)
 
+    # ── 旧导入书回填（c-import-direct）：只补 origin/import_kind，不改 status ──
+    try:
+        from novels.import_backfill import backfill_import_origin_v1
+
+        _bf = await backfill_import_origin_v1()
+        if not _bf.get("skipped"):
+            _log.info("import backfill: books=%s chapters=%s", _bf.get("books"), _bf.get("chapters"))
+    except Exception as _e:  # noqa: BLE001 — 回填失败不挡启动（下次启动重试）
+        _log.warning("import backfill failed: %s", _e)
+
     # ── 章档（c-chapter-dossier）：启动 sweep 悬空提取 job ＋ 存量收尾 pending 迁移 ──
     try:
         from archive.dossier import sweep_stuck_jobs

@@ -27,6 +27,9 @@ export interface ShelfNovel {
   name: string;
   total_chapters?: number;
   total_archives?: number;
+  /** 作者章（origin!=import）总数/已归档数；缺省回落 total_*（老接口兼容）。 */
+  authored_total?: number;
+  authored_archived?: number;
   finished_at?: string | null;
   created_at?: string;
   updated_at?: string;
@@ -43,7 +46,12 @@ const RANK: Record<NovelStage, number> = { ready: 0, writing: 1, setting: 2, don
 
 /** 书的阶段派生（与书架四态徽章同一判据：章数 + 已归档数 + 完结时间戳）。 */
 export function stageOfNovel(n: ShelfNovel): NovelStage {
-  return stageFromChapters(n.total_chapters || 0, n.total_archives || 0, n.finished_at ?? null);
+  return stageFromChapters(
+    n.total_chapters || 0,
+    n.authored_total ?? (n.total_chapters || 0),
+    n.authored_archived ?? (n.total_archives || 0),
+    n.finished_at ?? null,
+  );
 }
 
 /** 时间戳容错解析：缺失/非法归 0。 */

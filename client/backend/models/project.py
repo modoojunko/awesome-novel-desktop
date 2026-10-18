@@ -28,6 +28,12 @@ class Novel(Base):
     # 伏笔显示序号计数器（foreshadow-settings-v2）：同上，#H-#### 单调不复用
     hook_seq_high: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     source: Mapped[str] = mapped_column(String(10), default="ai")
+    # 导入身份（c-import-direct）：authored/direct/legacy；deconstruct 由 B 路追加。
+    # source 继续保留历史语义；是否播种由显式参数决定，不再靠 source 猜测。
+    import_kind: Mapped[str] = mapped_column(
+        String(20), nullable=False, default="authored", server_default="authored"
+    )
+    import_token: Mapped[str | None] = mapped_column(String(64), nullable=True, unique=True)
     backfill_status: Mapped[str] = mapped_column(String(20), default="none")
     # 完本状态（works-finish-flow）：完本动作写、撤完本清；阶段仍派生（novelStage），
     # finished_at 是「已完结」的唯一判据，「完结于 X」文案的数据源

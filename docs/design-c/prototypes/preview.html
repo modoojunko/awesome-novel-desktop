@@ -380,9 +380,10 @@ const hasProse = c => !!bodyOf(c).trim();
 const wordCount = c => bodyOf(c).replace(/\s/g, '').length;
 const mainline = () => CHS.filter(c => !c.ghostOf);
 
-/* 成稿状态（已归档优先）：拟定 / 草稿 / 已归档 */
+/* 成稿状态（已归档优先）：拟定 / 草稿 / 原文（导入历史章）/ 已归档 */
 function statusOf(c){
   if (c.archived) return { label:'已归档', cls:'pill' };
+  if (c.historical) return { label:'原文', cls:'pill' };
   if (hasProse(c)) return { label:'草稿', cls:'pill pill-accent' };
   return { label:'拟定', cls:'pill' };
 }
@@ -464,13 +465,18 @@ function sideHTML(){
   const chs = mainline();
   const total = chs.reduce((a,c) => a + wordCount(c), 0);
   const nArch = chs.filter(c => c.archived).length;
-  const nDraft = chs.filter(c => !c.archived && hasProse(c)).length;
-  const nPlan = chs.filter(c => !c.archived && !hasProse(c)).length;
+  const nImpArch = chs.filter(c => c.archived && c.historical).length;
+  const nHist = chs.filter(c => !c.archived && c.historical).length;
+  const nDraft = chs.filter(c => !c.archived && !c.historical && hasProse(c)).length;
+  const nPlan = chs.filter(c => !c.archived && !c.historical && !hasProse(c)).length;
+  const authored = chs.filter(c => !c.historical);
+  const nAuthArch = authored.filter(c => c.archived).length;
   return ''
     + '<div class="pv-card" data-od-id="pv-overview"><h4>全书概览</h4><div class="stat-line">'
     + '<span>章节 <b>'+chs.length+'</b></span>'
     + '<span>字数 <b>'+total+'</b></span>'
-    + '<span>已归档 <b>'+nArch+'</b> · 草稿 '+nDraft+' · 拟定 '+nPlan+'</span>'
+    + '<span>已归档 <b>'+nArch+'</b>'+(nImpArch ? '（其中原文 '+nImpArch+'）' : '')+' · 原文 '+nHist+' · 草稿 '+nDraft+' · 拟定 '+nPlan+'</span>'
+    + '<span>完本进度 <b>'+(authored.length ? nAuthArch+'/'+authored.length : '暂无作者章')+'</b></span>'
     + '</div></div>'
     + '<div class="pv-card" data-od-id="download-open-card"><h4>下载成稿</h4>'
     + '<button type="button" class="btn btn-primary" style="width:100%" data-export-open data-od-id="download-open">下载成稿…</button>'

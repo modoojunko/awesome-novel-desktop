@@ -176,7 +176,7 @@ export default function OutlineTree({
     let n = 0;
     for (const v of outline.volumes) {
       for (const c of v.chapters) {
-        if (c.status === "confirmed" || c.archived) continue;
+        if (c.status === "confirmed" || c.archived || c.historical) continue;
         try {
           await request(`/novels/${projectId}/chapters/${c.ref}/confirm`, {
             method: "POST",
@@ -294,7 +294,9 @@ export default function OutlineTree({
                       className={"ch" + (selectedId === ref ? " sel" : "")}
                       onClick={() => selectChapter(ref)}
                     >
-                      <span className={st === "confirmed" ? "dot-ok" : st === "in_progress" ? "dot-warn" : "dot-empty"} />
+                      {!c.historical && (
+                        <span className={st === "confirmed" ? "dot-ok" : st === "in_progress" ? "dot-warn" : "dot-empty"} />
+                      )}
                       {renaming?.kind === "章" && renaming.id === ref ? (
                         <input
                           ref={renameInputRef}
@@ -310,8 +312,9 @@ export default function OutlineTree({
                           onBlur={() => void commitRename()}
                         />
                       ) : (
-                        <span className="ct">{nodeLabel("章", c.chapter, c.title)}</span>
+                        <span className="ct">{nodeLabel("章", c.global_no ?? c.chapter, c.title)}</span>
                       )}
+                      {c.historical && <span className="arch-tag">原文</span>}
                       {c.archived && <span className="arch-tag">已归档</span>}
                       {c.stale && (
                         <span className="tag-stale" data-testid="ch-stale">
@@ -350,16 +353,18 @@ export default function OutlineTree({
                         >
                           <Ico d={P.pencil} />
                         </button>
-                        <button
-                          className="icon-btn"
-                          title="删除章节"
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            void askDeleteChapter(v, c);
-                          }}
-                        >
-                          <Ico d={P.trash} />
-                        </button>
+                        {!c.historical && (
+                          <button
+                            className="icon-btn"
+                            title="删除章节"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              void askDeleteChapter(v, c);
+                            }}
+                          >
+                            <Ico d={P.trash} />
+                          </button>
+                        )}
                       </span>
                     </div>
                   );

@@ -321,6 +321,82 @@ export interface ImportPreviewData {
   warnings?: Array<{ type: string; message: string; details?: Record<string, unknown> | null }>;
 }
 
+// ── A 路导入（c-import-direct）：冻结 manifest + 连续卷结构 ──────────────
+
+export interface ImportOwnChapter {
+  source_no: number;
+  title: string;
+  title_raw: string;
+  volume_title: string;
+}
+
+export interface ImportOwnVolumeRange {
+  title: string;
+  chapter_from: number;
+  chapter_to: number;
+}
+
+export interface ImportOwnParseResult {
+  import_id: string;
+  title: string;
+  filename: string;
+  encoding: string;
+  char_count: number;
+  chapter_count: number;
+  volumes: ImportOwnVolumeRange[];
+  chapters: ImportOwnChapter[];
+  warnings: string[];
+  risk: {
+    level: "ok" | "warn" | "risk";
+    issues: string[];
+    chapter_count: number;
+    avg_chapter_chars: number;
+  };
+  parser_version: string;
+  source_sha256: string;
+}
+
+export async function importOwnParse(
+  file: File,
+  signal?: AbortSignal,
+): Promise<ImportOwnParseResult> {
+  const formData = new FormData();
+  formData.append("file", file);
+  const token = getToken();
+  const headers: Record<string, string> = {};
+  if (token) headers["Authorization"] = `Bearer ${token}`;
+  const res = await fetch(`${BASE}/novels/import/own/parse`, {
+    method: "POST",
+    body: formData,
+    headers,
+    signal,
+  });
+  if (res.status === 401) {
+    handleAuthExpiry();
+    throw new Error("Unauthorized");
+  }
+  if (res.status === 503) {
+    const e = new Error("云端服务暂时不可用，请稍后重试") as Error & { status?: number };
+    e.status = 503;
+    throw e;
+  }
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ detail: "" }));
+    throw new Error(err.detail || `导入失败（HTTP ${res.status}）`);
+  }
+  return res.json();
+}
+
+export function importOwnPersist(body: {
+  import_id: string;
+  name: string;
+  volumes: ImportOwnVolumeRange[];
+  import_token: string;
+  excluded_source_nos: number[];
+}) {
+  return api.post("/novels/import/own/persist", body) as Promise<{ id: string; name: string }>;
+}
+
 // ---------------------------------------------------------------------------
 // Import API — file upload uses raw fetch (multipart FormData)
 // ---------------------------------------------------------------------------

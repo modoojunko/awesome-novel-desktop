@@ -62,7 +62,7 @@ describe("PreviewView — 三栏阅读器", () => {
     const overview = screen.getByText("全书概览").closest(".pv-card")!;
     expect(overview.textContent).toContain("章节 4");
     expect(overview.textContent).toContain("字数 2000");
-    expect(overview.textContent).toContain("已归档 2 · 草稿 1 · 拟定 1");
+    expect(overview.textContent).toContain("已归档 2 · 原文 0 · 草稿 1 · 拟定 1");
     for (const label of ["字号", "字体", "行距", "主题"]) {
       expect(screen.getByRole("group", { name: label })).toBeTruthy();
     }

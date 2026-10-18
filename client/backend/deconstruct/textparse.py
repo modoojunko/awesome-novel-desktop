@@ -15,9 +15,11 @@
 
 from __future__ import annotations
 
+import hashlib
 import re
 
 MAX_SOURCE_BYTES = 50 * 1024 * 1024
+PARSER_VERSION = "textparse-2026-10"
 
 _ENCChain = ("utf-8-sig", "gb18030", "big5")
 
@@ -83,6 +85,20 @@ def count_chars(text: str) -> int:
     return len(_WS_RE.sub("", text or ""))
 
 
+_CHAPTER_PREFIX_RE = re.compile(r"^\s*第[0-9零一二两三四五六七八九十百千]+[章回节]\s*[·:：\-—]?\s*")
+_VOLUME_PREFIX_RE = re.compile(r"^\s*第[0-9零一二两三四五六七八九十百千]+卷\s*[·:：\-—]?\s*")
+
+
+def normalize_chapter_title(raw: str) -> str:
+    """章标题入库口径：剥掉「第X章/回/节」序号与分隔符；空标题保留空串。"""
+    return _CHAPTER_PREFIX_RE.sub("", (raw or "").strip(), count=1).strip()
+
+
+def normalize_volume_title(raw: str) -> str:
+    """卷名入库口径：剥掉「第X卷」序号与分隔符；空卷名保留空串。"""
+    return _VOLUME_PREFIX_RE.sub("", (raw or "").strip(), count=1).strip()
+
+
 def parse_novel(text: str) -> dict:
     """纯文本分卷分章 → 解析结果。
 
@@ -96,16 +112,32 @@ def parse_novel(text: str) -> dict:
 
     if not chapter_matches:
         warnings.append("未识别到「第X章」标题行，按整本单章处理")
-        chapters = [{"no": 1, "title": "全本", "text": text}]
+        chapters = [{
+            "no": 1, "title": "全本", "text": text,
+            "char_start": 0, "char_end": len(text), "body_ranges": [[0, len(text)]],
+        }]
     else:
         chapters = []
-        # 首章前的前序文（若有）并入第 1 章
-        preface = text[: chapter_matches[0].start()].strip()
+        # 首章前的前序文（若有）并入第 1 章；body_ranges 同时保留标题行之外的原文区间，
+        # 供 A 路 manifest 落库时按区间取正文，避免二次解析。
+        preface_end = chapter_matches[0].start()
+        preface = text[:preface_end].strip()
         for i, m in enumerate(chapter_matches):
-            start = m.end()
-            end = chapter_matches[i + 1].start() if i + 1 < len(chapter_matches) else len(text)
-            body = (preface if i == 0 and preface else "") + text[start:end]
-            chapters.append({"no": i + 1, "title": m.group(1).strip(), "text": body})
+            body_start = m.end()
+            body_end = chapter_matches[i + 1].start() if i + 1 < len(chapter_matches) else len(text)
+            ranges: list[list[int]] = []
+            if i == 0 and preface:
+                ranges.append([0, preface_end])
+            ranges.append([body_start, body_end])
+            body = (preface if i == 0 and preface else "") + text[body_start:body_end]
+            chapters.append({
+                "no": i + 1,
+                "title": m.group(1).strip(),
+                "text": body,
+                "char_start": ranges[0][0],
+                "char_end": ranges[-1][1],
+                "body_ranges": ranges,
+            })
         if len(chapters) < 3:
             warnings.append(f"仅识别到 {len(chapters)} 章，章节标题可能不规范（按现状拆解）")
 
@@ -161,4 +193,53 @@ def structure_verdict(parse: dict) -> dict:
         "issues": issues,
         "chapter_count": n,
         "avg_chapter_chars": avg,
+    }
+
+
+def build_manifest(raw: bytes, filename: str = "") -> dict:
+    """解析一次并冻结 manifest（A 路第 1 步 / B 路建任务共用）。
+
+    manifest 只存事实：编码、sha、字数、逐章标题/正文区间/卷归属、warnings/risk；
+    正文留在源文件里，落库时按 body_ranges 切片，避免把 180 万字塞进 JSON，
+    也避免后续 parser 升级导致章节边界漂移。
+    """
+    text, enc = decode_text(raw)
+    parse = parse_novel(text)
+    volume_title_by_no: dict[int, str] = {}
+    volumes: list[dict] = []
+    for v in parse.get("volumes") or []:
+        title = normalize_volume_title(v["title"])
+        for n in range(int(v["ch_start"]), int(v["ch_end"]) + 1):
+            volume_title_by_no[n] = title
+        volumes.append({
+            "title": title,
+            "title_raw": v["title"],
+            "chapter_from": int(v["ch_start"]),
+            "chapter_to": int(v["ch_end"]),
+        })
+    chapters: list[dict] = []
+    for c in parse.get("chapters") or []:
+        body = c.get("text") or ""
+        chapters.append({
+            "idx": int(c["no"]),
+            "source_no": int(c["no"]),
+            "title": normalize_chapter_title(c["title"]),
+            "title_raw": c["title"],
+            "volume_title": volume_title_by_no.get(int(c["no"]), ""),
+            "char_start": int(c["char_start"]),
+            "char_end": int(c["char_end"]),
+            "body_ranges": c["body_ranges"],
+            "text_sha256": hashlib.sha256(body.encode("utf-8")).hexdigest(),
+        })
+    return {
+        "schema": 1,
+        "parser_version": PARSER_VERSION,
+        "filename": filename,
+        "encoding": enc,
+        "source_sha256": hashlib.sha256(raw).hexdigest(),
+        "char_count": int(parse.get("total_chars") or 0),
+        "chapters": chapters,
+        "volumes": volumes,
+        "warnings": parse.get("warnings") or [],
+        "risk": structure_verdict(parse),
     }

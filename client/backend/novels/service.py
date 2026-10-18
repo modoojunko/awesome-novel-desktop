@@ -161,6 +161,7 @@ def novel_to_dict(p) -> dict:
         "total_chapters": p.total_chapters,
         "total_archives": p.total_archives,
         "source": p.source,
+        "import_kind": p.import_kind,
         "ai_config_id": str(p.ai_config_id) if p.ai_config_id else None,
         "ai_model": p.ai_model,
         "created_at": p.created_at.isoformat() if p.created_at else None,

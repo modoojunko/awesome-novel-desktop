@@ -33,8 +33,33 @@ async def list_volumes(db, project) -> list[dict]:
         by_vol[c.volume_id].append(c)
 
     result = []
+    global_no = 0
     for v in vols:
-        chs = by_vol.get(v.id, [])
+        chs = sorted(by_vol.get(v.id, []), key=lambda x: x.chapter_no)
+        chapter_rows = []
+        for c in chs:
+            global_no += 1
+            chapter_rows.append(
+                {
+                    "id": c.id,  # DB 章 id（foreshadow-settings-v2：伏笔选择器按 id 引用章）
+                    "ref": c.ref,
+                    "volume": v.volume_no,
+                    "chapter": c.chapter_no,
+                    "global_no": global_no,
+                    "title": c.title,
+                    "status": c.status,
+                    "origin": c.origin,
+                    "historical": c.origin == "import" and c.status != "archived",
+                    "word_count": c.word_count,
+                    "has_prose": c.has_prose,
+                    "outline_status": c.outline_status,
+                    "archived": c.status == "archived",
+                    # chapter-rewrite：基于旧设定角标（主线章自身状态列）
+                    "stale": bool(c.stale),
+                    # c-chapter-dossier：章档过期角标（上游重写置位、重归档清除）
+                    "dossier_stale": bool(c.dossier_stale),
+                }
+            )
         result.append(
             {
                 "ref": f"vol-{v.volume_no}",
@@ -44,25 +69,7 @@ async def list_volumes(db, project) -> list[dict]:
                 "chapter_target": v.chapter_target,
                 # 章数以主线实测为准（缓存列在旧稿支线存在时不代表主线章数）
                 "chapter_count": len(chs),
-                "chapters": [
-                    {
-                        "id": c.id,  # DB 章 id（foreshadow-settings-v2：伏笔选择器按 id 引用章）
-                        "ref": c.ref,
-                        "volume": v.volume_no,
-                        "chapter": c.chapter_no,
-                        "title": c.title,
-                        "status": c.status,
-                        "word_count": c.word_count,
-                        "has_prose": c.has_prose,
-                        "outline_status": c.outline_status,
-                        "archived": c.status == "archived",
-                        # chapter-rewrite：基于旧设定角标（主线章自身状态列）
-                        "stale": bool(c.stale),
-                        # c-chapter-dossier：章档过期角标（上游重写置位、重归档清除）
-                        "dossier_stale": bool(c.dossier_stale),
-                    }
-                    for c in sorted(chs, key=lambda x: x.chapter_no)
-                ],
+                "chapters": chapter_rows,
             }
         )
     return result
@@ -321,7 +328,8 @@ async def resolve_prev_ending(
     archived = [
         c
         for c in await chapter_repo.list_by_volume(db, prev.id)
-        if c.status == "archived" and not c.ghost_of
+        if (c.status == "archived" or (getattr(c, "origin", "authored") == "import" and c.status != "archived"))
+        and not c.ghost_of
     ]
     if archived:
         last = max(archived, key=lambda c: c.chapter_no)

@@ -85,6 +85,8 @@ def assemble_chapter(row) -> dict:
         "chapter": row.chapter_no,
         "title": row.title,
         "status": row.status,
+        "origin": row.origin,
+        "historical": row.origin == "import" and row.status != "archived",
         "prose": row.content.prose if row.content is not None else "",
     }
     if row.ghost_of:

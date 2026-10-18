@@ -23,9 +23,15 @@ const LANDING_VIEWS: WorkspaceView[] = ["workbench", "advanced-settings", "archi
 
 export interface WorkbenchChapter {
   chapter: number;
+  /** 全书第 N 章（c-import-direct；层内 chapter 仍是卷内号） */
+  global_no?: number;
+  ref?: string;
   title: string;
   word_count: number;
   status: string;
+  /** 来源：authored/import；历史章由 origin=import && 未归档派生 */
+  origin?: string;
+  historical?: boolean;
   /** DB 章 id（foreshadow-settings-v2：伏笔选择器按 id 引用章；旧响应缺省时不读） */
   id?: string;
   /** 缺省时降级：word_count>0 或本地已载入 prose */
@@ -155,9 +161,13 @@ export function useWorkbench(): UseWorkbenchReturn {
         chapters?: Array<{
           id?: string;
           chapter: number;
+          global_no?: number;
+          ref?: string;
           title: string;
           word_count: number;
           status: string;
+          origin?: string;
+          historical?: boolean;
           has_prose?: boolean;
           archived?: boolean;
           stale?: boolean;
@@ -196,9 +206,13 @@ export function useWorkbench(): UseWorkbenchReturn {
           return {
             id: c.id,
             chapter: c.chapter,
+            global_no: c.global_no ?? c.chapter,
+            ref: c.ref,
             title: c.title,
             word_count: c.word_count || 0,
             status: c.status || "outline",
+            origin: c.origin ?? "authored",
+            historical: c.historical ?? false,
             has_prose: hasProse,
             archived: c.archived ?? c.status === "archived",
             // chapter-rewrite：基于旧设定角标（后端 /volumes 直出）
@@ -287,15 +301,19 @@ export function useWorkbench(): UseWorkbenchReturn {
 
   // 初次进入：书里有章但未选中 → 自动聚焦第一章（book.html 默认 selCh=c1）。
   // 仅首次生效（ref 消费后不再触发），删除章节清空选中不回跳。
-  // 守卫须同时看 selectedId（卷选中）：否则选卷查看时任何树刷新（如卷保存
-  // 触发的 refresh）都会把选中重置回首章。
+  // 自动聚焦首章：跳过导入的历史章（它们不是当前写作位）。只有导入章的书不自动选中，
+  // 让 bar-here/主页卡落到 N+1 待写位，避免一打开就被 last_write 记成第 1 章。
   const didInitSelectRef = useRef(false);
   useEffect(() => {
     if (didInitSelectRef.current || selectedRefRef.current || selectedIdRef.current) return;
-    const first = volumes.find((v) => v.chapters.length > 0);
-    if (!first) return;
+    const all = volumes.flatMap((v) => v.chapters.map((c) => ({ v, c })));
+    const target =
+      all.find((x) => !x.c.archived && !x.c.historical) ??
+      all.find((x) => !x.c.historical) ??
+      null;
+    if (!target) return;
     didInitSelectRef.current = true;
-    focusNode(`${first.name}-ch-${first.chapters[0].chapter}`);
+    focusNode(`${target.v.name}-ch-${target.c.chapter}`);
   }, [volumes, focusNode]);
 
   // -----------------------------------------------------------------------
@@ -317,12 +335,16 @@ export function useWorkbench(): UseWorkbenchReturn {
     }
     if (navigatedRef.current || viewPayloadRef.current) return;
     const total = volumes.reduce((n, v) => n + v.chapters.length, 0);
+    const authored = volumes.reduce(
+      (n, v) => n + v.chapters.filter((c) => !c.historical).length,
+      0,
+    );
     const archived = volumes.reduce(
-      (n, v) => n + v.chapters.filter((c) => c.archived).length,
+      (n, v) => n + v.chapters.filter((c) => !c.historical && c.archived).length,
       0,
     );
     const target = landingViewFor(
-      stageFromChapters(total, archived, project?.finished_at ?? null),
+      stageFromChapters(total, authored, archived, project?.finished_at ?? null),
     );
     if (target !== "workbench") setViewState(target);
   }, [volumes, location.state, location.pathname, navigate, project?.finished_at]);

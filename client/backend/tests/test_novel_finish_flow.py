@@ -153,6 +153,67 @@ class TestFinishFlow:
         r = client.post(f"/api/novels/{created['id']}/finish")
         assert r.status_code == 409, r.text
 
+    def test_imported_only_book_cannot_finish(self, client):
+        from models.chapter import Chapter
+        from models.project import Novel
+        from models.volume import Volume
+
+        async def _seed():
+            async with async_session() as s:
+                slug = f"fin-import-only-{uuid.uuid4().hex[:6]}"
+                book = Novel(
+                    user_id="finuser", name=slug, slug=slug, root_path=f"./data/{slug}",
+                    source="import", import_kind="legacy",
+                )
+                s.add(book)
+                await s.flush()
+                vol = Volume(project_id=book.id, volume_no=1, title="第1卷", summary="", chapter_count=1)
+                s.add(vol)
+                await s.flush()
+                s.add(Chapter(
+                    project_id=book.id, volume_id=vol.id, chapter_no=1,
+                    ref="vol-1-ch-1", title="第1章", status="archived",
+                    origin="import", has_prose=True, word_count=100,
+                ))
+                await s.commit()
+                return book.id
+
+        pid = _run_async(_seed())
+        r = client.post(f"/api/novels/{pid}/finish")
+        assert r.status_code == 409, r.text
+        assert _row(client, pid)["finished_at"] is None
+
+    def test_imported_plus_authored_archived_can_finish(self, client):
+        from models.chapter import Chapter
+        from models.project import Novel
+        from models.volume import Volume
+
+        async def _seed():
+            async with async_session() as s:
+                slug = f"fin-import-mix-{uuid.uuid4().hex[:6]}"
+                book = Novel(
+                    user_id="finuser", name=slug, slug=slug, root_path=f"./data/{slug}",
+                    source="import", import_kind="legacy",
+                )
+                s.add(book)
+                await s.flush()
+                vol = Volume(project_id=book.id, volume_no=1, title="第1卷", summary="", chapter_count=2)
+                s.add(vol)
+                await s.flush()
+                for no, status, origin in ((1, "draft", "import"), (2, "archived", "authored")):
+                    s.add(Chapter(
+                        project_id=book.id, volume_id=vol.id, chapter_no=no,
+                        ref=f"vol-1-ch-{no}", title=f"第{no}章", status=status,
+                        origin=origin, has_prose=True, word_count=100,
+                    ))
+                await s.commit()
+                return book.id
+
+        pid = _run_async(_seed())
+        r = client.post(f"/api/novels/{pid}/finish")
+        assert r.status_code == 200, r.text
+
+
     def test_finish_success_then_repeat_409(self, client):
         created = _create_project(client)
         pid = created["id"]
