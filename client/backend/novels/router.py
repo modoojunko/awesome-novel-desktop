@@ -842,9 +842,9 @@ async def import_own_parse(
     from deconstruct.textparse import MAX_SOURCE_BYTES, build_manifest
     from models.import_session import ImportSession
 
-    raw = await file.read()
     if file.size is not None and file.size > MAX_SOURCE_BYTES:
         raise HTTPException(413, "文件大小超过 50MB 限制")
+    raw = await file.read()
     if len(raw) > MAX_SOURCE_BYTES:
         raise HTTPException(413, "文件大小超过 50MB 限制")
     filename = file.filename or "upload.txt"
