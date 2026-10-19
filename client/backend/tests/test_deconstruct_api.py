@@ -234,6 +234,18 @@ def test_import_book_requires_completed(client):
     assert r.status_code == 409
 
 
+def test_get_product_content_and_unknown_404(client):
+    """产物全文端点（结果目录预览用）：清单内回全文，清单外/穿越名一律 404。"""
+    _mk_completed("dec-prev-1", {"intro": _product("intro", "简介.md", {}, "# 简介\n\n林晚在渡口。")})
+    r = client.get("/api/deconstruct/tasks/dec-prev-1/products/简介.md")
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert body["filename"] == "简介.md"
+    assert body["content"] == "# 简介\n\n林晚在渡口。"
+    assert client.get("/api/deconstruct/tasks/dec-prev-1/products/不存在.md").status_code == 404
+    assert client.get("/api/deconstruct/tasks/dec-prev-1/products/..%2Fsource.txt").status_code == 404
+
+
 def test_import_book_no_power_markers(client):
     """no_power 只认「无超凡/原文未明确」两个标记串（评审 P2：死表达式修复后的双臂）。"""
     _EMPTY_WORLD = {"stage": "", "power": [], "cost": [], "history": [], "factions": [], "constraints": [], "extra": []}

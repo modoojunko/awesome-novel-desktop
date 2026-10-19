@@ -11,6 +11,7 @@ import {
   createDeconstructTask,
   exportTaskProducts,
   fetchModelOptions,
+  getDeconstructProduct,
   getDeconstructTask,
   importBookFromTask,
   listDeconstructTasks,
@@ -39,6 +40,15 @@ describe("deconstructApi", () => {
   it("getDeconstructTask 401 → 统一出口文案", async () => {
     state.fetch.mockResolvedValue(jsonResponse(401, {}));
     await expect(getDeconstructTask("t")).rejects.toThrow(/登录状态已失效/);
+  });
+
+  it("getDeconstructProduct 走 request JSON（文件名 encodeURIComponent，c-deconstruct-product-preview）", async () => {
+    state.fetch.mockResolvedValue(jsonResponse(200, { filename: "简介.md", content: "# 简介" }));
+    const r = await getDeconstructProduct("t2", "简介.md");
+    expect(r.content).toBe("# 简介");
+    expect(String(state.fetch.mock.calls[0][0])).toContain(
+      `/api/deconstruct/tasks/t2/products/${encodeURIComponent("简介.md")}`,
+    );
   });
 
   it("createDeconstructTask 成功/401/400 三分支", async () => {
