@@ -1,6 +1,6 @@
 // 任务详情页（c-deconstruct-book 5.5）：进行中/完成（勾选＋出口）/失败/需重传 全态。
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { MemoryRouter, Routes, Route } from "react-router-dom";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 
@@ -579,6 +579,41 @@ describe("TaskDetailPage", () => {
     fireEvent.click(screen.getByText("100 字符"));
     expect(screen.getByText(/已选 2\/3/)).toBeInTheDocument();
     expect((screen.getByRole("checkbox", { name: "简介.md" }) as HTMLInputElement).checked).toBe(false);
+  });
+
+  it("完成：慢响应次序——迟到旧响应不污染新弹窗（成功/失败守卫两臂）", async () => {
+    state.get.mockResolvedValue(detailOf("completed"));
+    let settleA!: (v: { filename: string; content: string }) => void;
+    let resolveB!: (v: { filename: string; content: string }) => void;
+    let rejectB!: (e: unknown) => void;
+    let resolveC!: (v: { filename: string; content: string }) => void;
+    state.product.mockImplementationOnce(() => new Promise((res) => { settleA = res; }));
+    state.product.mockImplementationOnce(
+      () => new Promise((res, rej) => { resolveB = res; rejectB = rej; }),
+    );
+    renderPage();
+    await waitFor(() => expect(screen.getByText("选择去向")).toBeInTheDocument());
+    // A 在途 → 关 → B 在途 → 关 → 开 C（C 也挂起，最后放行）
+    fireEvent.click(screen.getByRole("button", { name: "简介.md" }));
+    fireEvent.click(document.querySelector(".scrim.show")!);
+    fireEvent.click(screen.getByRole("button", { name: "世界设定.md" }));
+    fireEvent.click(document.querySelector(".scrim.show")!);
+    state.product.mockImplementationOnce(() => new Promise((res) => { resolveC = res; }));
+    fireEvent.click(screen.getByRole("button", { name: "写作技法.md" }));
+    expect(screen.getByText("加载中…")).toBeInTheDocument();
+    // 旧失败（B 拒绝）：不 toast、不关 C 弹窗（相对断言——toast mock 调用史跨用例不清理）
+    const errCallsBefore = toastState.error.mock.calls.length;
+    await act(async () => { rejectB(new Error("旧失败")); });
+    expect(toastState.error.mock.calls.length).toBe(errCallsBefore);
+    expect(document.querySelector('[data-od-id="preview-modal"]')).not.toBeNull();
+    expect(screen.getByText("加载中…")).toBeInTheDocument();
+    // 旧成功（A 迟到）：内容不顶进 C 弹窗
+    await act(async () => { settleA({ filename: "简介.md", content: "旧内容A" }); });
+    expect(screen.queryByText("旧内容A")).toBeNull();
+    expect(screen.getByText("加载中…")).toBeInTheDocument();
+    // C 到达 → 正常显示
+    await act(async () => { resolveC({ filename: "写作技法.md", content: "技法正文C" }); });
+    await waitFor(() => expect(screen.getByText("技法正文C")).toBeInTheDocument());
   });
 
   it("内容审核拒绝：红色提示＋去换模型出口", async () => {

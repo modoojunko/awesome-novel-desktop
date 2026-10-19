@@ -62,6 +62,9 @@ export default function TaskDetailPage() {
   // null＝加载中。文件名来自 products 清单，后端再按清单校验一次。
   const [previewName, setPreviewName] = useState<string | null>(null);
   const [previewText, setPreviewText] = useState<string | null>(null);
+  // 过期响应守卫：关了再开/连点两份时，慢的旧响应不得把旧内容顶进新弹窗、
+  // 也不得用旧失败关掉新弹窗（评审 P2）——序号不符即整体丢弃。
+  const previewSeq = useRef(0);
 
   const { data: task, error: taskErr } = useQuery({
     queryKey: queryKeys.deconstructTask(id),
@@ -180,12 +183,15 @@ export default function TaskDetailPage() {
   };
 
   const openPreview = async (filename: string) => {
+    const seq = ++previewSeq.current;
     setPreviewName(filename);
     setPreviewText(null);
     try {
       const r = await getDeconstructProduct(task.id, filename);
+      if (seq !== previewSeq.current) return; // 期间已有更新的请求，旧成功整体丢弃
       setPreviewText(r.content);
     } catch (e) {
+      if (seq !== previewSeq.current) return; // 旧失败不 toast、不关新弹窗
       toast.error(e instanceof Error ? e.message : "预览加载失败");
       setPreviewName(null);
     }
@@ -538,7 +544,8 @@ export default function TaskDetailPage() {
         </div>
       )}
 
-      {/* 出口弹窗：交互由 exit-modal 交互用例断言；v8 对弹窗 JSX 行归属漂移（c-deconstruct-book） */}
+      {/* 出口弹窗＋只读预览弹窗同占本忽略区间：交互分别由 exit-modal／预览三态（含慢响应次序）
+          用例断言；v8 对弹窗 JSX 行归属漂移（c-deconstruct-book／c-deconstruct-product-preview） */}
       {/* v8 ignore start */}
       {exitOpen && (
         <>
