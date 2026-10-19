@@ -92,6 +92,21 @@ describe("ImportNovelModal（A 路三步向导）", () => {
     expect(await screen.findByText(/长夜灯.txt · utf-8-sig/)).toBeTruthy();
   });
 
+  it("解析中可取消：关闭即 abort 请求并回调 onClose", async () => {
+    let signal: AbortSignal | undefined;
+    vi.mocked(importOwnParse).mockImplementation((_file, sig) => {
+      signal = sig;
+      return new Promise(() => {});
+    });
+    const onClose = vi.fn();
+    render(<ImportNovelModal open onClose={onClose} onImported={() => {}} />);
+    pickFile();
+    await waitFor(() => expect(importOwnParse).toHaveBeenCalledTimes(1));
+    fireEvent.click(screen.getByText("取消"));
+    expect(onClose).toHaveBeenCalledTimes(1);
+    expect(signal?.aborted).toBe(true);
+  });
+
   it("忽略中间章：排除号与重排后的卷范围逐字段正确", async () => {
     vi.mocked(importOwnParse).mockResolvedValue({
       ...parsed,

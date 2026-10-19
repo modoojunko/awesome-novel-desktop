@@ -89,6 +89,18 @@ def test_manifest_rejects_absurd_chapter_density():
         build_manifest(text.encode())
 
 
+def test_manifest_rejects_absurd_volume_density():
+    import pytest
+
+    from deconstruct.textparse import MAX_VOLUMES
+
+    text = "\n".join(
+        f"第{i}卷 卷{i}\n第{i}章 章{i}\n正文" for i in range(1, MAX_VOLUMES + 2)
+    )
+    with pytest.raises(ValueError, match="卷标题超过"):
+        build_manifest(text.encode())
+
+
 def test_manifest_240_chapters():
     text = "第一卷 大书\n" + "\n".join(
         f"第{i}章 第{i}节\n" + "内容" * 50 for i in range(1, 241)

@@ -807,6 +807,33 @@ class TestPlanCard:
         assert anchor["next_no"] == 6
         assert anchor["vol_no"] == 2
 
+    def test_plan_card_global_number_skips_ghost_gaps(self, client):
+        """ghost 支线造成卷内章号空洞时，回改卡仍按主线排序算全书号。"""
+        pid = _seed_multi(client, [
+            (1, [{"no": 1}]),
+            (2, [{"no": n} for n in range(1, 7)]),
+        ])
+
+        async def _ghost():
+            from sqlalchemy import select as _sel
+
+            async with async_session() as s:
+                rows = (
+                    await s.scalars(
+                        _sel(Chapter).where(
+                            Chapter.project_id == pid,
+                            Chapter.ref.in_(["vol-2-ch-3", "vol-2-ch-4", "vol-2-ch-5"]),
+                        )
+                    )
+                ).all()
+                for row in rows:
+                    row.ghost_of = "vol-2-ch-2"
+                await s.commit()
+
+        _run_async(_ghost())
+        card = client.get(f"/api/novels/{pid}/chapters/vol-2-ch-6/plan-card").json()
+        assert card["next_no"] == 4
+
 
 # 模板契约钉子已迁提示词仓（c-prompt-source-flip tests/test_templates_pins.py）；
 # 本文件保留行为用例。

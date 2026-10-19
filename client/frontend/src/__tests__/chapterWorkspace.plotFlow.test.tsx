@@ -103,6 +103,8 @@ function mount(opts: {
   archived?: boolean;
   /** 前置章（排队门禁用例：已验证空导入历史章不锁本章） */
   prior?: PriorChapter[];
+  /** 本章来源（历史章滚动不写 last_write 用例） */
+  origin?: "authored" | "import";
 }) {
   const prior = opts.prior ?? [];
   const outline = makeOutline(opts.server, prior);
@@ -114,7 +116,10 @@ function mount(opts: {
         name: "vol-1",
         chapters: [
           ...prior,
-          { chapter: 2, title: "锚点", archived: opts.archived ?? false },
+          {
+            chapter: 2, title: "锚点", archived: opts.archived ?? false,
+            origin: opts.origin ?? "authored",
+          },
         ],
       },
     ],
@@ -553,5 +558,25 @@ describe("抽卡携带表单字数（c-scene-density 联动）", () => {
     expect(
       await screen.findByText(/还不能写这一章/),
     ).toBeTruthy();
+  });
+
+  it("历史章滚动不写 last_write（打开原文不抢续写落点）", async () => {
+    localStorage.clear();
+    mount({ server: { ...FULL }, origin: "import" });
+    const wrap = document.querySelector(".editor-wrap") as HTMLElement;
+    expect(wrap).toBeTruthy();
+    fireEvent.scroll(wrap);
+    expect(localStorage.getItem("pref.book.p1.last_write")).toBeNull();
+  });
+
+  it("作者章滚动仍记录 last_write（原有语义不变）", async () => {
+    localStorage.clear();
+    mount({ server: { ...FULL }, origin: "authored" });
+    const wrap = document.querySelector(".editor-wrap") as HTMLElement;
+    expect(wrap).toBeTruthy();
+    fireEvent.scroll(wrap);
+    const saved = localStorage.getItem("pref.book.p1.last_write");
+    expect(saved).toBeTruthy();
+    expect(JSON.parse(saved!)).toMatchObject({ ref: REF });
   });
 });

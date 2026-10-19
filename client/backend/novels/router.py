@@ -1031,13 +1031,14 @@ async def import_own_persist(
         pass
 
     # 成功落库后回收临时会话与源文件；文件先删，删不掉就保留会话行给 sweep 重试。
+    source_removed = True
     try:
         os.unlink(snap.source_path)
     except FileNotFoundError:
-        pass
+        pass  # 文件已经不在了 = 清理目标已达成，行也要删
     except OSError:
-        pass  # 会话行仍在，下次启动 sweep 重试；不把孤儿路径变成无主文件
-    else:
+        source_removed = False  # 会话行仍在，下次启动 sweep 重试
+    if source_removed:
         try:
             await db.execute(
                 sa_delete(ImportSession).where(ImportSession.id == body.import_id)

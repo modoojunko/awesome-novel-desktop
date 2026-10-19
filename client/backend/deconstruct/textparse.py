@@ -17,10 +17,12 @@ from __future__ import annotations
 
 import hashlib
 import re
+from bisect import bisect_left, bisect_right
 
 MAX_SOURCE_BYTES = 50 * 1024 * 1024
-# 章数硬上限：50MB 不限制「第X章」行密度，几十万行标题会把 manifest 与内存打爆。
+# 章数/卷数硬上限：50MB 不限制「第X章/第X卷」行密度，几十万行标题会把 manifest 与内存打爆。
 MAX_CHAPTERS = 20_000
+MAX_VOLUMES = 2_000
 PARSER_VERSION = "textparse-2026-10.1"
 
 _ENCChain = ("utf-8-sig", "gb18030", "big5")
@@ -124,18 +126,33 @@ def parse_novel(text: str) -> dict:
             return pos + 1
         return pos
 
+    chapter_starts = [cm.start() for cm in chapter_matches]
+
     def _volume_heading_matches():
         """卷标题行必须紧跟下一章标题（中间只有空白），避免把正文里的短句当卷名删掉。"""
         if not chapter_matches:
-            return list(_VOLUME_RE.finditer(text))
+            matches = []
+            for vm in _VOLUME_RE.finditer(text):
+                matches.append(vm)
+                if len(matches) > MAX_VOLUMES:
+                    raise ValueError(
+                        f"卷标题超过 {MAX_VOLUMES} 个，文件可能不是小说正文，请检查后重试"
+                    )
+            return matches
         out = []
+        # finditer 是惰性的：命中上限就停，避免极端文件把时间和内存耗光。
         for vm in _VOLUME_RE.finditer(text):
-            nxt = next((cm for cm in chapter_matches if cm.start() > vm.end()), None)
-            if nxt is None:
+            i = bisect_right(chapter_starts, vm.end())
+            if i >= len(chapter_starts):
                 continue
-            if text[_line_end(vm.end()):nxt.start()].strip():
+            nxt_start = chapter_starts[i]
+            if text[_line_end(vm.end()):nxt_start].strip():
                 continue
             out.append(vm)
+            if len(out) > MAX_VOLUMES:
+                raise ValueError(
+                    f"卷标题超过 {MAX_VOLUMES} 个，文件可能不是小说正文，请检查后重试"
+                )
         return out
 
     volume_matches = _volume_heading_matches()
@@ -177,9 +194,9 @@ def parse_novel(text: str) -> dict:
     if volume_matches:
         for i, vm in enumerate(volume_matches):
             pos = vm.start()
-            ch_start = sum(1 for cm in chapter_matches if cm.start() < pos) + 1
+            ch_start = bisect_left(chapter_starts, pos) + 1
             next_pos = volume_matches[i + 1].start() if i + 1 < len(volume_matches) else len(text)
-            ch_end = sum(1 for cm in chapter_matches if cm.start() < next_pos)
+            ch_end = bisect_left(chapter_starts, next_pos)
             if ch_end >= ch_start:
                 ranges = [[vm.start(), _line_end(vm.end())]]
                 volumes.append({

@@ -533,7 +533,9 @@ export default function NovelWorkspace() {
   }, [hereTarget, guardedLeave, focusNode, selectedRef, createChapter]);
 
   const pct = hereTarget
-    ? Math.round(Math.min(1, hereTarget.archivedN / hereTarget.total) * 100)
+    ? hereTarget.total > 0
+      ? Math.round(Math.min(1, hereTarget.archivedN / hereTarget.total) * 100)
+      : 0
     : 0;
   /** 「续写」按钮文案说明：顶栏与书主页卡同源（同判据、同 title） */
   const resumeTitle = hereTarget

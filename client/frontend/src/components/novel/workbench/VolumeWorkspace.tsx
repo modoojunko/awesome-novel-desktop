@@ -84,9 +84,12 @@ export default function VolumeWorkspace({
   const [saving, setSaving] = useState(false);
   const [tab, setTab] = useState<VolumeTab>("outline");
   // 主线写作位（首个未归档章，含草稿；与排队门禁同源）
-  const [frontier, setFrontier] = useState<{ vol: number; ch: number } | null>(
-    null,
-  );
+  const [frontier, setFrontier] = useState<{
+    vol: number;
+    ch: number;
+    /** 全书号（未建章时也由 /frontier 给出；卷页待写位用它） */
+    gno?: number;
+  } | null>(null);
 
   // ── 规划台回填（volume-plan-ai）：逐段落下、跳过作者已改字段、期间保存禁用 ──
   const [filling, setFilling] = useState(false);
@@ -133,12 +136,20 @@ export default function VolumeWorkspace({
     (async () => {
       try {
         const d = (await api.get(`/novels/${projectId}/frontier`)) as {
-          frontier: { volume_no: number; chapter_no: number } | null;
+          frontier: {
+            volume_no: number;
+            chapter_no: number;
+            global_no?: number;
+          } | null;
         };
         if (alive) {
           setFrontier(
             d.frontier
-              ? { vol: d.frontier.volume_no, ch: d.frontier.chapter_no }
+              ? {
+                  vol: d.frontier.volume_no,
+                  ch: d.frontier.chapter_no,
+                  gno: d.frontier.global_no,
+                }
               : null,
           );
         }
@@ -399,7 +410,7 @@ function VolumeOutlinePane({
   saving: boolean;
   /** 规划台回填进行中（保存禁用，防半截写库） */
   filling: boolean;
-  frontier: { vol: number; ch: number } | null;
+  frontier: { vol: number; ch: number; gno?: number } | null;
   onPatch: (p: Partial<VolumeFormData>) => void;
   onEdit: () => void;
   onCancel: () => void;
@@ -418,7 +429,7 @@ function VolumeOutlinePane({
   const here = hereCh
     ? `第 ${hereCh.global_no ?? hereCh.chapter} 章`
     : frontier && frontier.vol === detail.volume
-      ? `第 ${frontier.ch} 章`
+      ? `第 ${frontier.gno ?? frontier.ch} 章`
       : "不在本卷";
   const archived = detail.chapters.filter((c) => c.archived).length;
   const imported = detail.chapters.filter(
@@ -741,7 +752,7 @@ function ChapterLedgerPane({
   projectId: string;
   volumeRef: string;
   detail: VolumeDetail;
-  frontier: { vol: number; ch: number } | null;
+  frontier: { vol: number; ch: number; gno?: number } | null;
   wb: UseWorkbenchReturn;
   onGoChapter: (ref: string) => void;
   /** 「拆下一章」手写四段（c-chapter-plan-ai；全档；入口自卷纲页签迁入） */

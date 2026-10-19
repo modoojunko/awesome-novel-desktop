@@ -138,20 +138,25 @@ def chapter_position_tags(global_ch: int, ch_no: int) -> list[str]:
 
 
 async def _global_chapter_no(db, project_id, vol, ch_no: int) -> int:
-    """全书全局章号＝前面各卷已拆章数（滤 ghost）＋本章卷内序号（插卷/回改后随当前状态重算）。"""
-    if vol.volume_no <= 1:
-        return ch_no
+    """全书全局章号＝前卷主线章数＋本卷内排在它之前的主线章数＋1。
+
+    不能直接用「前卷章数 + ch_no」：ghost 支线会让卷内章号出现空洞，
+    第 2 章之后直接是第 6 章时，第 6 章的全书号只应前进到第 3 章。
+    """
     from repositories import chapter_repo, volume_repo
 
-    early = {
-        v.id
-        for v in await volume_repo.list_by_project(db, project_id)
-        if v.volume_no < vol.volume_no
-    }
-    if not early:
-        return ch_no
+    volumes = await volume_repo.list_by_project(db, project_id)
+    early = {v.id for v in volumes if v.volume_no < vol.volume_no}
     rows = [c for c in await chapter_repo.list_by_project(db, project_id) if not c.ghost_of]
-    return sum(1 for c in rows if c.volume_id in early) + ch_no
+    return (
+        sum(1 for c in rows if c.volume_id in early)
+        + sum(
+            1
+            for c in rows
+            if c.volume_id == vol.id and c.chapter_no < ch_no
+        )
+        + 1
+    )
 
 
 async def global_chapter_position(db, project_id: str, vol_no: int, ch_no: int) -> tuple[int, list[str]]:
