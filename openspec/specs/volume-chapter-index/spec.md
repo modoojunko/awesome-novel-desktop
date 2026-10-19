@@ -166,3 +166,40 @@ TBD - created by archiving change 005-index-db-base. Update Purpose after archiv
 - Given a chapter with micro_payoffs rows and `PRAGMA foreign_keys=ON`
 - When the chapter row is deleted
 - Then its micro_payoffs rows are deleted with it
+
+### Requirement: 导入来源与导入会话 schema
+
+- `chapters` 表 SHALL 增加 `origin`（String，NOT NULL，`server_default='authored'`，值域 `authored|import`）与 `imported_at`（DateTime，nullable）；SHALL NOT 新增 `status=imported` 值。
+- `projects`（书）表 SHALL 增加 `import_kind`（String，NOT NULL，`server_default='authored'`，值域 `authored|direct|legacy`；`deconstruct` 由后续 change 追加）与 `import_token`（String，nullable，UNIQUE）。
+- 系统 SHALL 新增 `import_sessions` 表：`id`、`manifest_json`、`source_path`、`source_sha256`、`encoding`、`char_count`、`expires_at`、`created_at`；用于第 1 步到落库/建任务之间复用解析结果，避免重复上传或重新解析。
+- 所有新增 NOT NULL 字符串列 SHALL 带 `server_default`；迁移 SHALL 幂等、可重入；旧库升级后不得出现空字符串冒充 `authored/direct/legacy`。
+
+#### Scenario: 旧库升级后列有默认值
+- **WHEN** 一个旧库启动并执行 schema 升级
+- **THEN** 旧章 origin 为 `authored`，旧书 import_kind 为 `authored`，不出现空字符串
+
+#### Scenario: 导入会话过期
+- **WHEN** 作者在第 1 步解析后超过 TTL 才提交
+- **THEN** 返回可执行错误「请重新解析文件」，不创建半本书
+
+### Requirement: 旧导入书 backfill
+
+- 系统 SHALL 在数据 carry 完成后按 `app_meta.import_backfill_v1` 标记幂等执行旧书回填；启动期 SHALL 对同一保守规则补跑一次（升级用户可能无需 carry），carry 完成强制重扫。
+- 回填规则：`projects` 中 `source='import'` 且 `import_kind` 为空/authored 的书 → `import_kind='legacy'`；只把与书 `created_at` 同窗（≤10 分钟）内创建的章标为 `origin='import'`、`imported_at=created_at`；章 `status` SHALL NOT 被改写。备份恢复书（书创建时间远早于章行）与导入后作者续写的章 SHALL 保持 `authored`，SHALL NOT 整书改写。
+- 回填 SHALL 可重复执行且结果一致；失败 SHALL 不写标记，下次启动重试；没有可证明的旧导入书时 SHALL NOT 落标记。
+
+#### Scenario: 旧导入书迁移
+- **WHEN** 旧库中的导入书被 carry 到新库并执行回填
+- **THEN** 该书 import_kind=legacy，其导入批次内的非归档章 origin=import、status 保持原值，续写落 N+1
+
+#### Scenario: 导入后作者续写不被误标
+- **WHEN** 旧导入书里存在导入完成之后作者新建的章
+- **THEN** 该章保持 origin=authored，仍参与完本计数
+
+#### Scenario: 备份恢复书不整书改写
+- **WHEN** 一本作者书从备份包恢复（书创建时间远早于恢复出的章）
+- **THEN** 所有章保持 origin=authored，回填不改写
+
+#### Scenario: 重跑回填不改结果
+- **WHEN** 回填因中断重跑
+- **THEN** 已标记的书不重复写入，章 origin/status 与第一次结果一致
