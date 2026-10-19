@@ -82,9 +82,34 @@ export interface DeconstructTaskDetail {
     tokens_out: number;
     by_kind?: Record<string, number>;
   }>;
+  /** 运行监控账（c-deconstruct-monitor）：仅排队/运行态有，终态 null */
+  monitor?: DeconstructMonitor | null;
   book_id: string | null;
   created_at: string | null;
   finished_at: string | null;
+}
+
+/** 运行监控账（c-deconstruct-monitor）：单元账只读聚合——归并批进度＋近 5 分钟
+ * 速度窗＋最近调用流水；reduce_state 检查点不计。 */
+export interface DeconstructMonitor {
+  concurrency: number;
+  batches: { done: number; total: number };
+  speed: {
+    window_s: number;
+    done: number;
+    fail: number;
+    avg_ms: number | null;
+    out_tokens: number;
+    total: number;
+  };
+  recent: {
+    at: string;
+    stage: string;
+    duration_ms: number;
+    tokens_out: number;
+    ok: boolean;
+    reason: string;
+  }[];
 }
 
 export const DECONSTRUCT_DIMS: { key: string; name: string; file: string; setting: boolean }[] = [

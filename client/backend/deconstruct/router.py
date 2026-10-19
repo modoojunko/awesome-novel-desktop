@@ -156,7 +156,8 @@ async def get_task(
     task = await service.get_task(db, task_id, _user_id(user))
     _require(task, user)
     stats = await service.task_stats(task_id)  # 调用账（c-deconstruct-resilience）
-    return {**service.task_view(task), "stats": stats}
+    monitor = await service.monitor_view(task)  # 运行监控账（c-deconstruct-monitor，终态 None）
+    return {**service.task_view(task), "stats": stats, "monitor": monitor}
 
 
 @router.get("/tasks/{task_id}/products/{filename}")

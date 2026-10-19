@@ -390,6 +390,78 @@ async def task_stats(task_id: str) -> dict:
     return out
 
 
+_STAGE_LABEL = {"card": "拆卡", "card_batch": "合批", "l1": "归并", "reduce": "收敛",
+                "presence": "在场补写", "place": "地点归并"}
+_MONITOR_WINDOW_S = 300
+_MONITOR_RECENT = 8
+
+
+async def monitor_view(task: DeconstructJob) -> dict | None:
+    """运行监控账（c-deconstruct-monitor）：批次进度＋近 5 分钟速度＋最近调用流水。
+
+    只读单元账的计数列（MUST NOT 读 output_json——reduce partials 大载荷不得进
+    1.5s 轮询）；reduce_state 检查点非模型调用，与 task_stats 同口径排除。
+    queued/running 返回账块，终态返回 None（监控只在运行态呈现）。
+    """
+    if task.status not in ("running", "queued"):
+        return None
+    from db import async_session
+
+    async with async_session() as session:
+        rows = (
+            await session.execute(
+                select(
+                    DeconstructUnit.stage, DeconstructUnit.status,
+                    DeconstructUnit.error_kind, DeconstructUnit.duration_ms,
+                    DeconstructUnit.tokens_out, DeconstructUnit.updated_at,
+                ).where(DeconstructUnit.task_id == task.id)
+            )
+        ).all()
+    calls = [r for r in rows if r.stage != "reduce_state"]
+    now = _now()
+    win = [
+        r for r in calls
+        if r.updated_at is not None
+        and 0 <= (now - r.updated_at).total_seconds() <= _MONITOR_WINDOW_S
+    ]
+    done_win = [r for r in win if r.status == "done"]
+    fail_win = [r for r in win if r.status == "failed"]
+    l1 = [r for r in rows if r.stage == "l1"]
+    recent = sorted(
+        (r for r in calls if r.updated_at is not None),
+        key=lambda r: r.updated_at, reverse=True,
+    )[:_MONITOR_RECENT]
+    avg_ms: int | None = (
+        sum(int(r.duration_ms or 0) for r in done_win) // len(done_win)
+    ) if done_win else None
+    return {
+        "concurrency": CONCURRENCY,
+        "batches": {
+            "done": sum(1 for r in l1 if r.status in ("done", "skipped")),
+            "total": len(l1),
+        },
+        "speed": {
+            "window_s": _MONITOR_WINDOW_S,
+            "done": len(done_win),
+            "fail": len(fail_win),
+            "avg_ms": avg_ms,
+            "out_tokens": sum(int(r.tokens_out or 0) for r in done_win),
+            "total": len(calls),
+        },
+        "recent": [
+            {
+                "at": r.updated_at.isoformat(),
+                "stage": _STAGE_LABEL.get(r.stage, r.stage),
+                "duration_ms": int(r.duration_ms or 0),
+                "tokens_out": int(r.tokens_out or 0),
+                "ok": r.status == "done",
+                "reason": "" if r.status == "done" else str(r.error_kind or ""),
+            }
+            for r in recent
+        ],
+    }
+
+
 def products_raw(task: DeconstructJob) -> dict:
     """{dim: {file, data, md}} 原始结构（apply 建书消费 data）。"""
     try:

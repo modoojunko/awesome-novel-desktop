@@ -21,7 +21,7 @@ from fastapi.testclient import TestClient  # noqa: E402
 from auth_local.middleware import get_current_user  # noqa: E402
 from db import Base, async_session, engine  # noqa: E402
 from main import app  # noqa: E402
-from models.deconstruct import DeconstructJob  # noqa: E402
+from models.deconstruct import DeconstructJob, DeconstructUnit  # noqa: E402
 
 _UID = "dec-api-user"
 _TXT = "第一卷 起\n第1章 初见\n林晚在渡口救人。\n第2章 重逢\n阿蓟归来报恩。\n"
@@ -969,3 +969,88 @@ def test_task_view_activity_absent(client):
     _mk_queued("dec-act-2", with_source=False)
     d = client.get("/api/deconstruct/tasks/dec-act-2").json()
     assert d["activity"] is None
+
+
+def _mk_unit(task_id: str, stage: str, status: str, *, updated_min_ago: float | None = None,
+             duration_ms: int = 0, tokens_out: int = 0, error_kind: str = "") -> None:
+    """直插单元账行（updated_at 可控——监控速度窗按它算）。"""
+    from datetime import datetime, timedelta, UTC
+
+    async def _go():
+        async with async_session() as s:
+            updated = None
+            if updated_min_ago is not None:
+                updated = datetime.now(UTC).replace(tzinfo=None) - timedelta(seconds=updated_min_ago * 60)
+            s.add(DeconstructUnit(
+                task_id=task_id, stage=stage, dim="", unit_key=f"{stage}-{updated_min_ago}-{tokens_out}-{error_kind}-{duration_ms}",
+                status=status, attempts=1, error_kind=error_kind,
+                duration_ms=duration_ms, tokens_out=tokens_out,
+                created_at=updated or datetime.now(UTC).replace(tzinfo=None),
+                updated_at=updated or datetime.now(UTC).replace(tzinfo=None),
+            ))
+            await s.commit()
+
+    _run(_go())
+
+
+def test_monitor_view_running_aggregates(client):
+    """运行态监控账：批次 done/total、近 5 分钟速度窗、最近流水倒序、reduce_state 排除。"""
+    from deconstruct.service import source_path_of
+
+    async def _go():
+        async with async_session() as s:
+            s.add(DeconstructJob(
+                id="dec-mon-1", user_id=_UID, status="running", queue_seq=99,
+                book_name="监控书", source_path=source_path_of("dec-mon-1"),
+                encoding="utf-8", api_config_id="cfg-1", ai_model="m1",
+            ))
+            await s.commit()
+
+    _run(_go())
+    # 单元账：l1 2 done（窗内）＋1 failed（窗内）＋1 done（窗外 10 分钟）；reduce_state 2 行不进账
+    _mk_unit("dec-mon-1", "l1", "done", updated_min_ago=1.0, duration_ms=40000, tokens_out=3000)
+    _mk_unit("dec-mon-1", "l1", "done", updated_min_ago=2.0, duration_ms=60000, tokens_out=5000)
+    _mk_unit("dec-mon-1", "l1", "failed", updated_min_ago=3.0, duration_ms=10000, error_kind="invalid_output")
+    _mk_unit("dec-mon-1", "l1", "done", updated_min_ago=10.0, duration_ms=90000, tokens_out=9000)
+    _mk_unit("dec-mon-1", "reduce_state", "done", updated_min_ago=0.5)
+    _mk_unit("dec-mon-1", "reduce_state", "done", updated_min_ago=0.6)
+    d = client.get("/api/deconstruct/tasks/dec-mon-1").json()
+    m = d["monitor"]
+    assert m is not None
+    assert m["batches"] == {"done": 3, "total": 4}
+    assert m["concurrency"] >= 1
+    sp = m["speed"]
+    assert sp["done"] == 2 and sp["fail"] == 1 and sp["total"] == 4  # reduce_state 与窗外行不计
+    assert sp["avg_ms"] == 50000  # (40000+60000)//2
+    assert sp["out_tokens"] == 8000
+    assert len(m["recent"]) == 4  # reduce_state 不进流水
+    assert [r["tokens_out"] for r in m["recent"]] == [3000, 5000, 0, 9000]  # 按时间倒序（窗外行也进流水）
+    assert m["recent"][2]["ok"] is False and m["recent"][2]["reason"] == "invalid_output"
+    times = [r["at"] for r in m["recent"]]
+    assert times == sorted(times, reverse=True)
+
+
+def test_monitor_view_absent_for_terminal(client):
+    """终态 monitor=None；排队态有账块（空账归零）。"""
+    from deconstruct.service import source_path_of
+
+    async def _go():
+        async with async_session() as s:
+            s.add(DeconstructJob(
+                id="dec-mon-2", user_id=_UID, status="completed", queue_seq=98,
+                book_name="完书", source_path=source_path_of("dec-mon-2"),
+                encoding="utf-8", api_config_id="cfg-1", ai_model="m1",
+                products_json="{}",
+            ))
+            s.add(DeconstructJob(
+                id="dec-mon-3", user_id=_UID, status="queued", queue_seq=97,
+                book_name="排队书", source_path=source_path_of("dec-mon-3"),
+                encoding="utf-8", api_config_id="cfg-1", ai_model="m1",
+            ))
+            await s.commit()
+
+    _run(_go())
+    assert client.get("/api/deconstruct/tasks/dec-mon-2").json()["monitor"] is None
+    m = client.get("/api/deconstruct/tasks/dec-mon-3").json()["monitor"]
+    assert m is not None and m["speed"]["total"] == 0 and m["recent"] == []
+    assert m["speed"]["avg_ms"] is None and m["batches"] == {"done": 0, "total": 0}
