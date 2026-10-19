@@ -30,6 +30,19 @@ from models.deconstruct import SETTING_DIMENSION_KEYS, DeconstructJob
 
 # 角色 role 白名单映射（character_model.ROLES = 主角/配角/反派/路人）
 _ROLE_MAP = {"主角": "主角", "反派": "反派", "核心": "配角", "配角": "配角", "功能": "配角", "路人": "路人"}
+# 越界归一扫描序（真机 13路 258 章实测：模型会写「核心反派」「反派→求助者」这类
+# 复合 role）——主角/反派优先于核心/配角，防「核心反派」错标配角
+_ROLE_SCAN_ORDER = ("主角", "反派", "配角", "核心", "功能", "路人")
+
+
+def _role_normalize(raw: str) -> str:
+    """产物 role → 白名单五档：精确映射优先，越界值按包含词扫描，兜底配角。"""
+    if raw in _ROLE_MAP:
+        return _ROLE_MAP[raw]
+    for key in _ROLE_SCAN_ORDER:
+        if key in raw:
+            return _ROLE_MAP[key]
+    return "配角"
 
 # 建书可勾项＝7 设定项＋三项扩展（章卷结构→卷行；人物关系→关系行；写作技法→文风 rules）
 IMPORT_ITEM_KEYS = (*SETTING_DIMENSION_KEYS, "structure", "relations", "techniques")
@@ -438,11 +451,22 @@ def _cards(task: DeconstructJob) -> list[dict]:
             v = _clean_para(v, 300)
             return "" if v == "原文未明确" else v
 
+        persona = _cell(c.get("persona", ""))
+        if not persona:
+            # persona＝写章必带的全卡摘要（角色页一句话人设，唯一 AI 可覆盖格）：
+            # 产物缺格/模型没产出时（真机 13路 258 章实测 10/10 张全空），从背景或
+            # 关键行动合成一句话速写兜底——开书契约：角色页人设不留空
+            basis = str(c.get("background", "")).strip()
+            if not basis or basis == "原文未明确":
+                basis = plot_txt
+            if basis and basis != "原文未明确":
+                persona = _clean_para(basis, 60).strip()
+
         cards.append(
             {
                 "name": str(c.get("name", ""))[:30],
-                "role": str(c.get("role", "配角")),
-                "persona": _cell(c.get("persona", "")),
+                "role": _role_normalize(str(c.get("role", "配角"))),
+                "persona": persona,
                 "plot": _cell(f"{plot_txt}（{c.get('evidence_ch', '原文未明确')}）") if plot_txt else "",
                 "background": _cell(c.get("background", "")),
                 "aliases": aliases[:20],

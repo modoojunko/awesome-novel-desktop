@@ -2,6 +2,7 @@
 import { useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { useDeconstructTasks } from "../../hooks/useDeconstructTasks";
+import { parseServerTime } from "../../lib/serverTime";
 import { deleteDeconstructTask, type DeconstructTaskSummary } from "../../lib/deconstructApi";
 
 const STATUS_PILL: Record<DeconstructTaskSummary["status"], { label: string; cls: string }> = {
@@ -24,10 +25,11 @@ function statusSummary(t: DeconstructTaskSummary): string {
   /* v8 ignore stop */
 }
 
-/** 创建时间展示：MM-DD HH:mm（ISO 原串太工程师向）；空值留白 */
+/** 创建时间展示：MM-DD HH:mm（ISO 原串太工程师向）；空值留白。
+ *  服务端下发无时区 UTC 串——按本地解析会偏时区（serverTime 单源，c-deconstruct-resilience）。 */
 function fmtTime(iso: string | null): string {
   if (!iso) return "";
-  const d = new Date(iso);
+  const d = parseServerTime(iso);
   return `${d.getMonth() + 1}-${String(d.getDate()).padStart(2, "0")} ${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
 }
 

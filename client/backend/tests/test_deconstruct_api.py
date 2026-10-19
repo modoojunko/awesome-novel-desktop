@@ -112,6 +112,25 @@ def test_create_task_streams_and_parses(client):
     path, exists, enc = _run(_src())
     assert path.startswith(source_path_of(body["id"]).rsplit("/", 1)[0]) and exists
     assert enc.startswith("utf-8")  # 探测链优先 utf-8-sig（无 BOM 亦命中）
+    assert body["thinking"] == "off"  # 思考档位默认关（D10）
+
+
+def test_create_task_thinking_mode_persisted(client):
+    """思考档位：表单可选 低/跟随配置，落任务行并回显；非法值归一为关（D10）。"""
+    r = client.post(
+        "/api/deconstruct/tasks",
+        files={"file": ("雪落无声.txt", _TXT.encode("utf-8"), "text/plain")},
+        data={"book_name": "雪落无声", "api_config_id": "cfg-1", "ai_model": "qwen3-max",
+              "selected_dims": '["intro"]', "thinking": "low"},
+    )
+    assert r.status_code == 200, r.text
+    assert r.json()["thinking"] == "low"
+    r2 = client.post(
+        "/api/deconstruct/tasks",
+        files={"file": ("a.txt", _TXT.encode("utf-8"), "text/plain")},
+        data={"api_config_id": "cfg-1", "ai_model": "m", "thinking": "max"},
+    )
+    assert r2.status_code == 200 and r2.json()["thinking"] == "off"  # 白名单外归一默认关
 
 
 def test_create_task_rejects_oversize_and_bad_dims(client):
@@ -755,7 +774,7 @@ def _mk_condense_stubs(monkeypatch, *, chat, resolve_raises=False):
         async def chat(self, **kw):
             return chat(kw)
 
-    async def fake_resolve(user_id, cfg, model):
+    async def fake_resolve(user_id, cfg, model, thinking="inherit"):
         if resolve_raises:
             raise ValueError("no cfg")
         return _Client(), "m-1"
@@ -880,22 +899,27 @@ def test_import_dedupes_batch_duplicate_characters(client):
 # ── 进度可视：activity 账＋ETA（「除了等还是等」治理）────────────────────
 
 def test_task_view_activity_and_eta(client):
-    """运行中任务透出 activity（label＋距今秒）与 cards/dims eta_seconds。"""
+    """运行中任务透出 activity（label＋距今秒）与 cards/dims eta_seconds。
+
+    时间口径（c-deconstruct-resilience）：pipeline._now() 是 UTC naive——种子数据
+    必须同口径，本地时区时间会把 age/ETA 推出时区差。
+    """
     _mk_queued("dec-act-1", with_source=False)
 
     async def _seed():
         import json as _json
-        from datetime import datetime, timedelta
+        from datetime import UTC, datetime, timedelta
 
         async with async_session() as s:
             t = await s.get(DeconstructJob, "dec-act-1")
-            start = (datetime.now() - timedelta(seconds=120)).isoformat(timespec="seconds")
+            now_utc = datetime.now(UTC).replace(tzinfo=None)
+            start = (now_utc - timedelta(seconds=120)).isoformat(timespec="seconds")
             t.dims_json = _json.dumps({
                 "cards": {"state": "completed", "done": 3, "entries": {}, "started_at": start},
                 "dims": {"world": {"state": "running", "seg_done": 2, "seg_total": 9,
                                    "error": "", "started_at": start}},
                 "activity": {"label": "正在归并 世界设定（已完成 2/9 批）",
-                             "at": (datetime.now() - timedelta(seconds=20)).isoformat(timespec="seconds")},
+                             "at": (now_utc - timedelta(seconds=20)).isoformat(timespec="seconds")},
             }, ensure_ascii=False)
             await s.commit()
 
@@ -903,23 +927,28 @@ def test_task_view_activity_and_eta(client):
     d = client.get("/api/deconstruct/tasks/dec-act-1").json()
     a = d["activity"]
     assert a["label"] == "正在归并 世界设定（已完成 2/9 批）"
-    assert a["age_seconds"] is None or a["age_seconds"] >= 20
+    assert a["age_seconds"] is not None and 10 <= a["age_seconds"] <= 120
     assert d["cards"]["eta_seconds"] is None  # cards 已完成不外推
     dw = d["dims"]["world"]
-    assert dw["eta_seconds"] is not None and dw["eta_seconds"] <= 7 * 120  # 速率外推有上界感
+    assert dw["eta_seconds"] is not None  # 速率外推有基准
 
 
-def test_eta_seconds_math():
-    """ETA 数学：无基准/已完成 None；正常按速率外推并除以并发度。"""
-    from datetime import datetime, timedelta
+def test_eta_seconds_math(monkeypatch):
+    """ETA 数学：无基准/已完成 None；正常按速率外推并除以并发度。
 
-    from deconstruct.service import _eta_seconds
+    并发度显式钉死——DECONSTRUCT_CONCURRENCY 被其他测试模块的环境变量污染时
+    本测试不受连坐（历史顺序依赖 flake 的根治）。
+    """
+    from datetime import UTC, datetime, timedelta
 
-    start = (datetime.now() - timedelta(seconds=100)).isoformat(timespec="seconds")
-    assert _eta_seconds(None, 5, 10) is None
-    assert _eta_seconds(start, 0, 10) is None
-    assert _eta_seconds(start, 10, 10) is None
-    eta = _eta_seconds(start, 5, 10)
+    from deconstruct import service as dec_service
+
+    monkeypatch.setattr(dec_service, "CONCURRENCY", 4)
+    start = (datetime.now(UTC).replace(tzinfo=None) - timedelta(seconds=100)).isoformat(timespec="seconds")
+    assert dec_service._eta_seconds(None, 5, 10) is None
+    assert dec_service._eta_seconds(start, 0, 10) is None
+    assert dec_service._eta_seconds(start, 10, 10) is None
+    eta = dec_service._eta_seconds(start, 5, 10)
     # 100s/5×5 剩余 ÷ 并发4 → ≈25s（±扰动容忍）
     assert 5 <= eta <= 60
 

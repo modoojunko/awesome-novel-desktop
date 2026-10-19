@@ -69,7 +69,7 @@ describe("CreateTaskPage", () => {
     state.create.mockResolvedValue({ id: "new-1", status: "queued" });
     renderPage();
 
-    const select = await screen.findByRole("combobox");
+    const select = await screen.findByLabelText(/拆解模型/);
     expect((select as HTMLSelectElement).options.length).toBe(1);
 
     pickFile();
@@ -119,7 +119,7 @@ describe("CreateTaskPage", () => {
     ]);
     state.probe.mockResolvedValue(true);
     renderPage();
-    await waitFor(() => expect(screen.getByRole("combobox")).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByLabelText(/拆解模型/)).toBeInTheDocument());
     pickFile();
     expect(screen.getByText(/试拆\.txt/)).toBeInTheDocument();
     // 换文件按钮触发 input（模拟重新选择）
@@ -156,6 +156,39 @@ describe("CreateTaskPage", () => {
     expect(screen.queryByText(/模型探针/)).not.toBeInTheDocument();
   });
 
+  it("思考档位：默认 off 随创建提交（D10）", async () => {
+    state.fetchOpts.mockResolvedValue([
+      { api_config_id: "c1", config_name: "A", model: "m1", vendor: "v" },
+    ]);
+    state.probe.mockResolvedValue(true);
+    state.create.mockResolvedValue({ id: "t9", status: "queued" });
+    renderPage();
+    await waitFor(() => expect(screen.getByLabelText(/思考档位/)).toBeInTheDocument());
+    pickFile();
+    await waitFor(() => expect(screen.getByText(/创建任务（进队列排队）/)).not.toBeDisabled());
+    fireEvent.click(screen.getByText(/创建任务（进队列排队）/));
+    await waitFor(() => expect(state.create).toHaveBeenCalled());
+    expect(state.create.mock.calls[0][1].thinking).toBe("off"); // 默认关
+    expect(screen.getByLabelText(/思考档位/)).toHaveValue("off");
+  });
+
+  it("思考档位：选择 思考·低 后 payload 携带 low（D10）", async () => {
+    state.fetchOpts.mockResolvedValue([
+      { api_config_id: "c1", config_name: "A", model: "m1", vendor: "v" },
+    ]);
+    state.probe.mockResolvedValue(true);
+    state.create.mockResolvedValue({ id: "t9", status: "queued" });
+    renderPage();
+    await waitFor(() => expect(screen.getByLabelText(/思考档位/)).toBeInTheDocument());
+    fireEvent.change(screen.getByLabelText(/思考档位/), { target: { value: "low" } });
+    expect(screen.getByLabelText(/思考档位/)).toHaveValue("low");
+    pickFile();
+    await waitFor(() => expect(screen.getByText(/创建任务（进队列排队）/)).not.toBeDisabled());
+    fireEvent.click(screen.getByText(/创建任务（进队列排队）/));
+    await waitFor(() => expect(state.create).toHaveBeenCalled());
+    expect(state.create.mock.calls.at(-1)?.[1].thinking).toBe("low");
+  });
+
   it("submit 非 Error 拒绝 → 兜底文案（e instanceof Error 假臂）", async () => {
     state.fetchOpts.mockResolvedValue([
       { api_config_id: "c1", config_name: "A", model: "m1", vendor: "v" },
@@ -163,7 +196,7 @@ describe("CreateTaskPage", () => {
     state.probe.mockResolvedValue(true);
     state.create.mockRejectedValue("plain-reason");
     renderPage();
-    await waitFor(() => expect(screen.getByRole("combobox")).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByLabelText(/拆解模型/)).toBeInTheDocument());
     pickFile();
     await waitFor(() => expect(screen.getByText(/创建任务（进队列排队）/)).not.toBeDisabled());
     fireEvent.click(screen.getByText(/创建任务（进队列排队）/));
@@ -201,9 +234,9 @@ describe("CreateTaskPage", () => {
     ]);
     state.probe.mockResolvedValueOnce(false).mockResolvedValueOnce(true);
     renderPage();
-    await waitFor(() => expect(screen.getByRole("combobox")).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByLabelText(/拆解模型/)).toBeInTheDocument());
     await waitFor(() => expect(screen.getByText("模型探针失败")).toBeInTheDocument());
-    fireEvent.change(screen.getByRole("combobox"), { target: { value: "c2::m2" } });
+    fireEvent.change(screen.getByLabelText(/拆解模型/), { target: { value: "c2::m2" } });
     await waitFor(() => expect(screen.getByText("可用")).toBeInTheDocument());
   });
 
@@ -214,7 +247,7 @@ describe("CreateTaskPage", () => {
     state.probe.mockResolvedValue(true);
     state.create.mockResolvedValue({ id: "x", status: "queued" });
     renderPage();
-    await waitFor(() => expect(screen.getByRole("combobox")).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByLabelText(/拆解模型/)).toBeInTheDocument());
     state.create.mockClear();
     pickFile("原书名.txt");
     const nameInput = screen.getByLabelText("书名（取自文件名，可改）") as HTMLInputElement;
@@ -234,7 +267,7 @@ describe("CreateTaskPage", () => {
     state.probe.mockResolvedValue(true);
     state.create.mockResolvedValue({ id: "new-nav", status: "queued" });
     renderPage();
-    await waitFor(() => expect(screen.getByRole("combobox")).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByLabelText(/拆解模型/)).toBeInTheDocument());
     state.create.mockClear();
     pickFile();
     await waitFor(() => expect(screen.getByText(/创建任务（进队列排队）/)).not.toBeDisabled());
@@ -311,7 +344,7 @@ describe("CreateTaskPage", () => {
     ]);
     state.probe.mockResolvedValue(true);
     renderPage();
-    await waitFor(() => expect(screen.getByRole("combobox")).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByLabelText(/拆解模型/)).toBeInTheDocument());
     const input = document.querySelector('input[type="file"]') as HTMLInputElement;
     const big = new File(["第1章 试\n" + "字".repeat(610000)], "大部头.txt", { type: "text/plain" });
     Object.defineProperty(input, "files", { value: [big] });
@@ -331,7 +364,7 @@ describe("CreateTaskPage", () => {
     state.probe.mockResolvedValue(true);
     state.create.mockResolvedValue({ id: "new-risk", status: "queued" });
     renderPage();
-    await waitFor(() => expect(screen.getByRole("combobox")).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByLabelText(/拆解模型/)).toBeInTheDocument());
     state.create.mockClear();
     const input = document.querySelector('input[type="file"]') as HTMLInputElement;
     const noTitle = new File(["没有章节标题的长文。" + "内容".repeat(20000)], "无章.txt", { type: "text/plain" });
@@ -357,7 +390,7 @@ describe("CreateTaskPage", () => {
     ]);
     state.probe.mockResolvedValue(true);
     renderPage();
-    await waitFor(() => expect(screen.getByRole("combobox")).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByLabelText(/拆解模型/)).toBeInTheDocument());
     const input = document.querySelector('input[type="file"]') as HTMLInputElement;
     const body = "很长的正文。\n".repeat(4000); // 单章 2.8 万字（行尾换行保证下章标题顶行首）
     const fewTitle = new File(["第1章 甲\n" + body + "第2章 乙\n" + body + "第3章 丙\n" + body], "长章.txt", {
@@ -421,7 +454,7 @@ describe("CreateTaskPage", () => {
     });
     const spy = vi.spyOn(Blob.prototype, "arrayBuffer").mockReturnValue(gate);
     renderPage();
-    await waitFor(() => expect(screen.getByRole("combobox")).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByLabelText(/拆解模型/)).toBeInTheDocument());
     pickFile();
     // 探针已过但解析未返回：创建必须禁用（此时 risk 判定还无从谈起）
     await waitFor(() => expect(screen.getByText("可用")).toBeInTheDocument());
@@ -437,7 +470,7 @@ describe("CreateTaskPage", () => {
     ]);
     state.probe.mockResolvedValue(true);
     renderPage();
-    await waitFor(() => expect(screen.getByRole("combobox")).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByLabelText(/拆解模型/)).toBeInTheDocument());
     const input = document.querySelector('input[type="file"]') as HTMLInputElement;
     const bad = new File([new Uint8Array([0xff, 0xff, 0xfe, 0xff])], "bad.txt", { type: "text/plain" });
     Object.defineProperty(input, "files", { value: [bad] });

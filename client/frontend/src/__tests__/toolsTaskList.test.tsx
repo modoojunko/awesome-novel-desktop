@@ -11,6 +11,7 @@ vi.mock("@/lib/deconstructApi", () => ({
 }));
 
 import TaskListPage from "@/components/tools/TaskListPage";
+import { parseServerTime } from "@/lib/serverTime";
 
 function renderPage() {
   const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
@@ -115,7 +116,14 @@ describe("TaskListPage", () => {
   it("创建时间格式化为 MM-DD HH:mm；空值留白", async () => {
     state.list.mockResolvedValue({ tasks: [RUNNING, DONE, { ...DONE, id: "t9", created_at: null }], heartbeat: { running: 1, queued: 0 }, badge: 2 });
     renderPage();
-    await waitFor(() => expect(screen.getByText("10-13 14:02")).toBeInTheDocument());
-    expect(screen.getAllByText("10-12 22:10").length).toBe(1);
+    // 期望值由同一 parseServerTime 口径推导（时区无关）：后端下发 UTC 串 → 本地渲染
+    const expectTime = (utc: string) => {
+      const d = parseServerTime(utc);
+      const p = (n: number) => String(n).padStart(2, "0");
+      return `${d.getMonth() + 1}-${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}`;
+    };
+    await waitFor(() => expect(screen.getByText(expectTime(RUNNING.created_at as string))).toBeInTheDocument());
+    expect(screen.getAllByText(expectTime(DONE.created_at as string)).length).toBe(1);
+    expect(screen.queryByText("NaN")).not.toBeInTheDocument(); // 空值留白，不出 Invalid Date
   });
 });

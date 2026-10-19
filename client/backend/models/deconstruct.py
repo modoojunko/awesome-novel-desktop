@@ -1,7 +1,16 @@
 import uuid
 from datetime import datetime
 
-from sqlalchemy import DateTime, Index, Integer, String, Text, func
+from sqlalchemy import (
+    DateTime,
+    ForeignKey,
+    Index,
+    Integer,
+    String,
+    Text,
+    UniqueConstraint,
+    func,
+)
 from sqlalchemy.orm import Mapped, mapped_column
 
 from db import Base
@@ -73,6 +82,61 @@ class DeconstructJob(Base):
     # 「已取结果」标记（评审 P3）：任一出口（建书/导出）消费后 badge 不再计数。
     # db-per-version 下发版库全新建表；dev 旧形状库（本列之前建的表）直接 DROP 本表重建。
     exported_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    # 换模型续拆历史（c-deconstruct-resilience）：[{api_config_id, ai_model, at}]，append-only
+    model_history_json: Mapped[str] = mapped_column(Text, nullable=False, default="[]")
+    # 思考档位（c-deconstruct-resilience D10）：off=关思考（强制思考端点自动折算 low）、
+    # low=思考·低、inherit=跟随模型配置。拆书是结构化抽取，默认关——思考与输出共用
+    # max_tokens，burn 预算是截断/空响应的放大器（真机实证）
+    thinking_mode: Mapped[str] = mapped_column(String(12), nullable=False, default="off")
     created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
     started_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     finished_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+
+
+class DeconstructUnit(Base):
+    """拆书单元账（c-deconstruct-resilience D4）——断点续拆与调用账的事实源。
+
+    粒度：card=章；l1=维度内一批碎片；reduce=一次组合并；reduce_state=维度归并
+    树的轮间检查点（partials 全量，unit_key 恒 "partials"——续拆从轮边界继续，
+    轮内重做有界）；presence=章；place=全书一次。
+    unit_key：card=章号，其余=输入内容 sha256 前缀——输入变化（卡片重拆/碎片变化）
+    旧单元自然失效，不存在 stale 复用。
+    调用账由本表聚合（service.task_stats），不另建统计表；不含原文，只有计数与产物。
+    """
+
+    __tablename__ = "deconstruct_units"
+    __table_args__ = (
+        UniqueConstraint("task_id", "stage", "dim", "unit_key", name="uq_dec_unit"),
+        Index("ix_dec_unit_task_stage", "task_id", "stage", "dim"),
+    )
+
+    id: Mapped[str] = mapped_column(
+        String(36), primary_key=True, default=lambda: str(uuid.uuid4())
+    )
+    task_id: Mapped[str] = mapped_column(
+        String(36),
+        ForeignKey("deconstruct_jobs.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    # card | l1 | reduce | reduce_state | presence | place
+    stage: Mapped[str] = mapped_column(String(20), nullable=False)
+    dim: Mapped[str] = mapped_column(String(20), nullable=False, default="")
+    unit_key: Mapped[str] = mapped_column(String(80), nullable=False)
+    # running | done | failed | skipped
+    status: Mapped[str] = mapped_column(String(12), nullable=False, default="done")
+    attempts: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
+    error_kind: Mapped[str] = mapped_column(String(24), nullable=False, default="")
+    error_msg: Mapped[str] = mapped_column(String(300), nullable=False, default="")
+    duration_ms: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    tokens_in: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    tokens_out: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    # 成功产物（卡片 JSON / 批次归并 JSON / reduce 检查点 partials 数组）；
+    # 失败行为空——账本不存错误原文之外的载荷
+    output_json: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    input_hash: Mapped[str] = mapped_column(String(64), nullable=False, default="")
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime, server_default=func.now()
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime, server_default=func.now(), onupdate=func.now()
+    )

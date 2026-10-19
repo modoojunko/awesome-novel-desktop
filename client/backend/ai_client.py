@@ -571,12 +571,16 @@ class AIClient:
         max_tokens: int = 1024,
         usage: dict | None = None,
         operation: str = "",
+        meta: dict | None = None,
         **kwargs: Any,
     ) -> str:
         """Non-streaming. Returns full response text.
 
         usage: 可选 dict，调用成功后填充 {"tokens_in", "tokens_out"}，供 TokenLog 记录。
         operation: 业务动作名（backend-logging D7 留痕行用，与 TokenLog 同名）。
+        meta: 可选 dict，调用成功后填充 {"finish_reason"/"stop_reason"}——拆书截断
+        判定（c-deconstruct-resilience：finish_reason=length 不得原样重试）依赖它；
+        不传则零行为变化。
         """
         model = self.resolve(model)
         start = time.perf_counter()
@@ -633,6 +637,8 @@ class AIClient:
                 usage["tokens_in"] = getattr(u, "prompt_tokens", 0) or 0
                 usage["tokens_out"] = getattr(u, "completion_tokens", 0) or 0
             choices = list(getattr(response, "choices", None) or [])
+            if meta is not None and choices:
+                meta["finish_reason"] = getattr(choices[0], "finish_reason", None)
             if not choices:
                 # choices 空（usage-only 响应等）＝无产物：按失败留痕，不记 ok
                 # （与 anthropic 无 text 块同口径，评审 P3）
@@ -705,6 +711,8 @@ class AIClient:
                     + (getattr(u, "cache_creation_input_tokens", 0) or 0)
                 )
                 usage["tokens_out"] = getattr(u, "output_tokens", 0) or 0
+            if meta is not None:
+                meta["stop_reason"] = getattr(response, "stop_reason", None)
             for block in response.content:
                 if getattr(block, "type", "") == "text" and block.text:
                     self._log_call(
@@ -1118,16 +1126,34 @@ async def get_ai_client_for_novel(
         return _client_from_config(cfg, novel.ai_model, plain_key)
 
 
-def _client_from_config(cfg: ApiConfig, model: str, plain_key: str) -> AIClient:
-    """按配置 + 模型构造客户端（本书绑定路径与按次覆盖路径同一形状）。"""
+def _client_from_config(
+    cfg: ApiConfig,
+    model: str,
+    plain_key: str,
+    max_retries: int = 1,
+    thinking_enabled: bool | None = None,
+    thinking_effort: str | None = None,
+) -> AIClient:
+    """按配置 + 模型构造客户端（本书绑定路径与按次覆盖路径同一形状）。
+
+    max_retries：拆书链传 0——重试策略单源在 deconstruct/policy（「管线 3 次 ×
+    SDK 2 次」的乘法放大是长时间假死的成因之一，c-deconstruct-resilience D1）；
+    其余调用方默认 1 不变。
+    thinking_enabled/effort：拆书思考档位覆盖（D10）——None＝跟随 ApiConfig；
+    显式值（off/low）由 resolve_client 折算传入。
+    """
     return AIClient(
         api_key=plain_key,
         base_url=cfg.base_url,
         model=model,
         api_format=getattr(cfg, "api_format", None),
         vendor=getattr(cfg, "vendor", "") or "",
-        thinking_enabled=getattr(cfg, "thinking_enabled", False) or False,
-        thinking_effort=getattr(cfg, "thinking_effort", None) or "low",
+        thinking_enabled=(
+            thinking_enabled if thinking_enabled is not None
+            else getattr(cfg, "thinking_enabled", False) or False
+        ),
+        thinking_effort=thinking_effort or getattr(cfg, "thinking_effort", None) or "low",
+        max_retries=max_retries,
     )
 
 

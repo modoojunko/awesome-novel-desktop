@@ -46,6 +46,7 @@ async def create_task(
     api_config_id: str = Form(...),
     ai_model: str = Form(...),
     selected_dims: str = Form("[]"),
+    thinking: str = Form("off"),
     user: dict = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
@@ -97,6 +98,7 @@ async def create_task(
             ai_model=ai_model,
             selected_dims=dims,
             graph_caps_flag=caps,
+            thinking_mode=service.normalize_thinking_mode(thinking),
         )
         os.replace(part_path, task.source_path)  # 上传即落盘契约：排队不依赖浏览器 File
     finally:
@@ -114,6 +116,7 @@ async def create_task(
         "structure": verdict,
         "selected_dims": dims,
         "graph_caps": caps,
+        "thinking": task.thinking_mode,
     }
 
 
@@ -152,7 +155,8 @@ async def get_task(
 ):
     task = await service.get_task(db, task_id, _user_id(user))
     _require(task, user)
-    return service.task_view(task)
+    stats = await service.task_stats(task_id)  # 调用账（c-deconstruct-resilience）
+    return {**service.task_view(task), "stats": stats}
 
 
 @router.get("/tasks/{task_id}/products/{filename}")
@@ -190,10 +194,16 @@ async def cancel_task(
 @router.post("/tasks/{task_id}/resume")
 async def resume_task(
     task_id: str,
+    body: dict | None = None,
     user: dict = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    """断点续拆：failed/cancelled → 重新入队（run_task 按维度 state 跳过已完成）。"""
+    """断点续拆：failed/cancelled → 重新入队（run_task 按维度 state 跳过已完成）。
+
+    body.api_config_id/ai_model 可选＝换模型续拆（c-deconstruct-resilience D8）：
+    沿 resolve_client 同源谓词校验新配置可用，成功后更新任务并追加 model_history；
+    已完成单元（卡片/批次）在新模型下照常复用。
+    """
     task = await service.get_task(db, task_id, _user_id(user))
     _require(task, user)
     if task.status not in ("failed", "cancelled"):
@@ -202,6 +212,29 @@ async def resume_task(
         task.status = "need_reupload"
         await db.commit()
         raise HTTPException(409, "源文件缺失，请先重传文件")
+    if isinstance(body, dict) and (body.get("api_config_id") or body.get("ai_model")):
+        new_config = str(body.get("api_config_id") or task.api_config_id)
+        new_model = str(body.get("ai_model") or task.ai_model)
+        from deconstruct.service import resolve_client
+
+        try:
+            await resolve_client(_user_id(user), new_config, new_model)
+        except ValueError as e:
+            raise HTTPException(400, str(e)) from e
+        if new_config != task.api_config_id or new_model != task.ai_model:
+            history = []
+            try:
+                history = json.loads(task.model_history_json or "[]")
+            except ValueError:
+                history = []
+            history.append({
+                "api_config_id": new_config,
+                "ai_model": new_model,
+                "at": datetime.now(UTC).replace(tzinfo=None).isoformat(timespec="seconds"),
+            })
+            task.model_history_json = json.dumps(history, ensure_ascii=False)
+            task.api_config_id = new_config
+            task.ai_model = new_model[:120]
     from deconstruct.dispatcher import start_dispatcher
 
     start_dispatcher()  # 兜底（常驻线程一般已在）：置 queued 后由 dispatcher 接手

@@ -18,11 +18,23 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from config import DATA_ROOT
-from deconstruct.pipeline import CONCURRENCY
-from models.deconstruct import DIMENSION_KEYS, DIMENSIONS, DeconstructJob
+from deconstruct.pipeline import CONCURRENCY, _now  # _now＝UTC naive（时间口径单源）
+from models.deconstruct import (
+    DIMENSION_KEYS,
+    DIMENSIONS,
+    DeconstructJob,
+    DeconstructUnit,
+)
 
 STAGING_ROOT = os.path.join(DATA_ROOT, "deconstruct-staging")
 MAX_SOURCE_BYTES = 50 * 1024 * 1024
+# 思考档位（c-deconstruct-resilience D10）：任务级，不随 ApiConfig 走
+THINKING_MODES = ("off", "low", "inherit")
+
+
+def normalize_thinking_mode(raw: object) -> str:
+    """创建表单的思考档位归一：白名单外（含空/非法）一律默认关。"""
+    return raw if raw in THINKING_MODES else "off"
 
 
 def staging_dir(task_id: str) -> str:
@@ -77,6 +89,7 @@ async def create_task(
     ai_model: str,
     selected_dims: list[str],
     graph_caps_flag: bool = True,
+    thinking_mode: str = "off",
 ) -> DeconstructJob:
     task_id = str(uuid.uuid4())
     os.makedirs(staging_dir(task_id), exist_ok=True)
@@ -97,6 +110,7 @@ async def create_task(
         api_config_id=api_config_id,
         ai_model=ai_model[:120],
         selected_dims_json=json.dumps(selected_dims, ensure_ascii=False),
+        thinking_mode=normalize_thinking_mode(thinking_mode),
         dims_json=json.dumps(
             {
                 "caps_graph": graph_caps_flag,  # 能力戳：判点在创建时（导出只认行内戳）
@@ -164,6 +178,16 @@ def _first_error(task: DeconstructJob) -> str:
     return str(err.get("message", ""))[:200]
 
 
+def _error_kind(task: DeconstructJob) -> str:
+    """失败归因（c-deconstruct-resilience）：provider_unavailable/stalled/auth/config/
+    content_filter/timeout/…——失败面板按它给可执行出口。"""
+    try:
+        err = json.loads(task.error_json or "{}")
+    except ValueError:
+        return ""
+    return str(err.get("kind", ""))
+
+
 def _dims_state(task: DeconstructJob) -> dict:
     try:
         raw = json.loads(task.dims_json or "{}").get("dims", {})
@@ -212,7 +236,11 @@ def _cards_state(task: DeconstructJob) -> dict:
 
 
 def _activity(task: DeconstructJob) -> dict | None:
-    """当前动作账（pipeline 每次模型调用前写）：label＋距今秒数。"""
+    """当前动作账（pipeline 每次模型调用前写）：label＋距今秒数。
+
+    at 是 pipeline._now() 的 UTC naive 串——这里必须同口径取 UTC，否则 UTC+8
+    下「已进行 2 分钟」显示成 8 小时（c-deconstruct-resilience 时间口径修复）。
+    """
     try:
         raw = json.loads(task.dims_json or "{}")
     except ValueError:
@@ -222,18 +250,21 @@ def _activity(task: DeconstructJob) -> dict | None:
         return None
     age: int | None = None
     try:
-        age = int((datetime.now() - datetime.fromisoformat(str(a["at"]))).total_seconds())
+        age = int((_now() - datetime.fromisoformat(str(a["at"]))).total_seconds())
     except (ValueError, TypeError):
         pass
     return {"label": str(a["label"]), "age_seconds": max(0, age) if age is not None else None}
 
 
 def _eta_seconds(started_at, done, total) -> int | None:
-    """阶段 ETA：按已完成的实际速率外推剩余，并发度摊薄；无基准/已完成则 None。"""
+    """阶段 ETA：按已完成的实际速率外推剩余，并发度摊薄；无基准/已完成则 None。
+
+    时间口径与 _activity 同源（UTC naive 比较，pipeline._now()）。
+    """
     if not started_at or done <= 0 or total <= done:
         return None
     try:
-        elapsed = max(1.0, (datetime.now() - datetime.fromisoformat(str(started_at))).total_seconds())
+        elapsed = max(1.0, (_now() - datetime.fromisoformat(str(started_at))).total_seconds())
     except ValueError:
         return None
     conc = max(1, CONCURRENCY)
@@ -295,10 +326,68 @@ def task_view(task: DeconstructJob) -> dict:
         "dims": _dims_state(task),
         "products": product_meta,
         "error": _first_error(task),
+        "error_kind": _error_kind(task),
+        "warnings": _warnings_view(task),
+        "model_history": _model_history(task),
         "book_id": task.book_id,
         "created_at": task.created_at.isoformat() if task.created_at else None,
         "finished_at": task.finished_at.isoformat() if task.finished_at else None,
     }
+
+
+def _warnings_view(task: DeconstructJob) -> list[str]:
+    """任务级告警账（单元隔离的章级/批级失败）：详情页可见，不再「全绿但缺章」。"""
+    try:
+        raw = json.loads(task.dims_json or "{}")
+    except ValueError:
+        return []
+    w = raw.get("warnings")
+    return [str(x) for x in w][:50] if isinstance(w, list) else []
+
+
+def _model_history(task: DeconstructJob) -> list[dict]:
+    """换模型续拆历史：[{api_config_id, ai_model, at}]，append-only。"""
+    try:
+        raw = json.loads(task.model_history_json or "[]")
+    except ValueError:
+        return []
+    return raw if isinstance(raw, list) else []
+
+
+async def task_stats(task_id: str) -> dict:
+    """调用账（c-deconstruct-resilience）：按阶段聚合 deconstruct_units。
+
+    calls=单元行数（done+failed+skipped）、failures=failed 行数、
+    attempts=尝试总和（重试可见）、tokens/duration 累计。不含原文与密钥。
+    """
+    from db import async_session
+
+    async with async_session() as session:
+        rows = (
+            await session.execute(
+                select(DeconstructUnit).where(DeconstructUnit.task_id == task_id)
+            )
+        ).scalars().all()
+    out: dict[str, dict] = {}
+    for r in rows:
+        if r.stage == "reduce_state":
+            continue  # 轮间检查点非模型调用（评审 P3）：不进调用账，防幽灵 calls
+        bucket = out.setdefault(r.stage, {
+            "calls": 0, "failures": 0, "attempts": 0,
+            "duration_ms": 0, "tokens_in": 0, "tokens_out": 0,
+            "by_kind": {},
+        })
+        bucket["calls"] += 1
+        bucket["attempts"] += int(r.attempts or 0)
+        bucket["duration_ms"] += int(r.duration_ms or 0)
+        if r.status == "done":
+            bucket["tokens_in"] += int(r.tokens_in or 0)
+            bucket["tokens_out"] += int(r.tokens_out or 0)
+        elif r.status == "failed":
+            bucket["failures"] += 1
+            k = r.error_kind or "unknown"
+            bucket["by_kind"][k] = bucket["by_kind"].get(k, 0) + 1
+    return out
 
 
 def products_raw(task: DeconstructJob) -> dict:
@@ -327,8 +416,12 @@ def dim_names() -> dict[str, str]:
 # ── 模型客户端解析（自备 key；口径与 get_ai_client_for_novel 按次覆盖对同源）────
 
 
-async def resolve_client(user_id: str, api_config_id: str, model: str):
-    """按 (api_config_id, model) 构造 AIClient；谓词与按次覆盖对同源（可读 ValueError）。"""
+async def resolve_client(user_id: str, api_config_id: str, model: str, thinking: str = "inherit"):
+    """按 (api_config_id, model) 构造 AIClient；谓词与按次覆盖对同源（可读 ValueError）。
+
+    thinking：任务级思考档位（c-deconstruct-resilience D10）——off/low 折算成构造
+    参数覆盖 ApiConfig（off＝关思考；GLM-5.3 强制端点在请求层自动折算 enabled＋low），
+    inherit＝跟随 ApiConfig 配置（旧行为）。"""
     from ai_client import _client_from_config  # noqa: PLC2701 — 域内复用同一构造器
     from ai_state import config_key_usable, parse_models
     from api_configs.crypto import decrypt_api_key
@@ -352,7 +445,17 @@ async def resolve_client(user_id: str, api_config_id: str, model: str):
         plain_key = decrypt_api_key(cfg.api_key)
         if not plain_key:
             raise ValueError("所选配置 Key 无法解密，去「模型配置」重存后重试")
-        return _client_from_config(cfg, model, plain_key), model
+        # SDK 重试关到 0：拆书重试策略单源 deconstruct/policy（「管线 3 次 × SDK 2 次」
+        # 的乘法放大是长时间假死的成因之一，c-deconstruct-resilience D1）
+        if thinking == "off":
+            thinking_enabled, thinking_effort = False, "low"
+        elif thinking == "low":
+            thinking_enabled, thinking_effort = True, "low"
+        else:
+            thinking_enabled = thinking_effort = None  # inherit：跟随 ApiConfig
+        return _client_from_config(cfg, model, plain_key, max_retries=0,
+                                   thinking_enabled=thinking_enabled,
+                                   thinking_effort=thinking_effort), model
 
 
 async def probe_model(user_id: str, api_config_id: str, model: str) -> dict:

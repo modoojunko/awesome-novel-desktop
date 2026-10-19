@@ -22,6 +22,7 @@ _POLL_SECONDS = 2.0
 _started = False
 _lock = threading.Lock()
 _thread: threading.Thread | None = None
+_stop = threading.Event()
 
 
 def start_dispatcher() -> None:
@@ -34,6 +35,13 @@ def start_dispatcher() -> None:
         _started = True
         _thread = threading.Thread(target=_thread_main, name="deconstruct-dispatcher", daemon=True)
         _thread.start()
+
+
+def stop_dispatcher() -> None:
+    """停轮询线程（c-deconstruct-resilience 测试出口）：OFF 开关只挡启动，
+    停不掉已起的线程——集成级取消测试用完必须收线，否则常驻轮询会抢跑
+    后续测试模块在共享库上造的 queued 任务。生产不调用。"""
+    _stop.set()
 
 
 def _thread_main() -> None:
@@ -50,7 +58,7 @@ async def _loop() -> None:
         await startup_sweep()
     except Exception:  # noqa: BLE001 — sweep 失败不阻调度
         log.exception("event=deconstruct_sweep_failed")
-    while True:
+    while not _stop.is_set():
         try:
             task_id = await _pick_next()
         except Exception:  # noqa: BLE001 — DB 抖动等下轮重试

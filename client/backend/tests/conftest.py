@@ -225,6 +225,8 @@ os.environ["AINOVEL_LOG_OFF"] = "1"
 # c-db-per-version：测试库名＝「本机版本」派生（不设 CLIENT_VERSION 时是 dev 哨兵，
 # 会话库会被按 dev 语义对待）——显式钉一个版本，测试库名与断言口径一致
 os.environ.setdefault("CLIENT_VERSION", "0.25")
+# c-deconstruct-resilience：退避等待测试零缩放（退避语义由入参捕获断言，不吃真实等待）
+os.environ.setdefault("DECONSTRUCT_BACKOFF_SCALE", "0")
 from schema_version import active_db_filename as _active_db_filename
 
 os.environ["DATABASE_URL"] = (
