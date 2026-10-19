@@ -52,11 +52,11 @@
 ## 7. 回归与发布
 
 - [x] 7.1 后端：`cd client/backend && python -m pytest tests/ -v`；验证：**2262 passed / 26 skipped / 265 skip，0 failed**（含 lifecycle/numbering/writer/backfill/import API；sibling 模板抽样已改用现役模板）
-- [x] 7.2 前端：`cd client/frontend && npx vitest run` 与 `npx tsc --noEmit`；验证：全绿（136 files / 1700 tests；tsc 0）
+- [x] 7.2 前端：`cd client/frontend && npx vitest run` 与 `npx tsc --noEmit`；验证：全绿（137 files / 1708 tests；tsc 0；coverage 100%）
 - [x] 7.3 E2E：A 路 42 章→第 43 章→第 10 章原文→预览原文；验证：`e2e/import-own-book.spec.ts` 在私有栈 8104/5294 通过（2.5s）；归档新章/完本由既有 finish 测试覆盖
 - [ ] 7.4 设计门禁：`npm run design:lint && npm run design:check`；验证：`design:lint` **0 违规**（30 严格文件，含新原型/向导）；`design:check` 8 个存量 parity 失败（书架/预览 update-strip 文案与版本号漂移，非导入屏；新导入屏不在 parity 矩阵），未纳入本 PR 的验收
 - [x] 7.5 发布说明：仅 txt、md/docx 退役、旧书可读、A 路设定留空；验证：草稿已落 `docs/design-c/drafts/ai-novel-c端-导入自有书-A路-发布说明.md`，待评审定稿
-- [x] 7.6 回填 7.1–7.4 实际通过数/失败数/像素差/耗时：后端 2262/0；前端 1700/0 + tsc 0；e2e 1/1 通过；design:lint 0；design:check 8/8 存量红（列表 books/group/empty-filter/empty/finish/quota/pagination + 预览 reader，2.54%/3.22%/0.308% 等，均为 update-strip/版本号漂移）；耗时：后端 171s、前端 10s、e2e 2.5s
+- [x] 7.6 回填 7.1–7.4 实际通过数/失败数/像素差/耗时：后端 2262/0；前端 1708/0 + tsc 0（coverage 100%）；e2e 1/1 通过；design:lint 0；design:check 8/8 存量红（列表 books/group/empty-filter/empty/finish/quota/pagination + 预览 reader，2.54%/3.22%/0.308% 等，均为 update-strip/版本号漂移）；耗时：后端 171s、前端 10s、e2e 2.5s
 
 ## 回归门禁基线（立项阶段实测）
 

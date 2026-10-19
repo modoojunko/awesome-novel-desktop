@@ -8,7 +8,6 @@ from __future__ import annotations
 
 import hashlib
 import json
-import os
 import re
 import uuid
 from datetime import UTC, datetime
@@ -74,7 +73,8 @@ async def persist_import(
     active = active_chapters(manifest, excluded_source_nos)
     normalized = validate_structure(structure, len(active))
 
-    raw = open(session.source_path, "rb").read()
+    with open(session.source_path, "rb") as f:
+        raw = f.read()
     if hashlib.sha256(raw).hexdigest() != session.source_sha256:
         raise ImportSourceMismatch("源文件已变化，请重新解析后再导入")
     text = raw.decode(session.encoding or manifest["encoding"])

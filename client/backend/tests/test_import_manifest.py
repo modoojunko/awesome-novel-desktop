@@ -30,7 +30,7 @@ def test_manifest_freezes_source_and_ranges():
 
 
 def test_manifest_without_volume_title_keeps_empty_volumes():
-    m = build_manifest("第1章 初见\n林晚在渡口。\n第2章 重逢\n阿蓟归来。\n".encode("utf-8"))
+    m = build_manifest("第1章 初见\n林晚在渡口。\n第2章 重逢\n阿蓟归来。\n".encode())
     assert m["volumes"] == []
     assert [c["title"] for c in m["chapters"]] == ["初见", "重逢"]
     assert m["chapters"][1]["volume_title"] == ""
