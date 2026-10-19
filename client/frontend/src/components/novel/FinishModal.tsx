@@ -123,8 +123,8 @@ export default function FinishModal({ target, onClose, onFinished, onReopened }:
 
   const authored = target.authored_total ?? target.total_chapters;
   const lead = finished
-    ? `作者主线 ${authored} 章 · ${target.total_volumes} 卷 · 约 ${fmt(target.word_count ?? 0)} 字 · 完结于${relDay(target.finished_at)}。`
-    : `作者主线 ${authored} 章 · ${target.total_volumes} 卷 · 约 ${fmt(target.word_count ?? 0)} 字都已归档（导入原文不参与完本计数）。` +
+    ? `作者主线 ${authored} 章 · ${target.total_volumes} 卷 · 全书约 ${fmt(target.word_count ?? 0)} 字 · 完结于${relDay(target.finished_at)}。`
+    : `作者主线 ${authored} 章 · ${target.total_volumes} 卷 · 全书约 ${fmt(target.word_count ?? 0)} 字；作者章都已归档（导入原文不参与完本计数）。` +
       "完本是一个动作，按下后这本书标为已完结；收尾结论都留在这本书的「操作」页等你逐条确认。";
 
   return (

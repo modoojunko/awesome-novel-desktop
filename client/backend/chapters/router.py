@@ -451,6 +451,10 @@ async def delete_chapter(
 
     row = await chapter_repo.get_by_ref(db, project.id, chapter_ref)
     if row is not None:
+        # 导入原文落库后不提供单章删除（c-import-direct）：空正文的标题章也不能删，
+        # UI 隐藏按钮之外必须在 API 再守一道。
+        if getattr(row, "origin", "authored") == "import":
+            raise HTTPException(409, "导入原文不能删除；如需重来请删除本书后重新导入")
         # 守卫（c-chapter-plan-ai D14）：仅「本卷最后一章＋拟定＋无正文」可单删——
         # 中间删章会留永久章号空洞（MAX+1 建章不复用）；有正文/已归档删了会连正文一起没。
         parts = strip_suffix(chapter_ref).split("-")

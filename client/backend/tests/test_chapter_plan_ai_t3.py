@@ -833,6 +833,12 @@ class TestPlanCard:
         _run_async(_ghost())
         card = client.get(f"/api/novels/{pid}/chapters/vol-2-ch-6/plan-card").json()
         assert card["next_no"] == 4
+        # 下一章实际按 MAX+1 建到 ch-7；锚点必须同源，且进场取主线最后一章 ch-6。
+        anchor = client.get(
+            f"/api/novels/{pid}/volumes/vol-2/next-chapter-anchor"
+        ).json()
+        assert anchor["next_no"] == 5
+        assert "第4章" in anchor["source"]
 
 
 # 模板契约钉子已迁提示词仓（c-prompt-source-flip tests/test_templates_pins.py）；

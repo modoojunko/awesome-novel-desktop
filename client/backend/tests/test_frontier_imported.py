@@ -95,3 +95,33 @@ async def test_global_no_across_two_volumes():
     assert info["frontier"]["pending"] is True
     assert info["frontier"]["global_no"] == 43
 
+
+@pytest.mark.asyncio
+async def test_pending_lands_in_last_empty_volume():
+    """空末卷也要成为待写落点：与主页 CTA/create_chapter 的落卷一致。"""
+    async with async_session() as db:
+        slug = f"frontier3-{uuid.uuid4().hex[:8]}"
+        book = Novel(user_id="frontier-test", name="frontier3", slug=slug, root_path=f"./data/{slug}")
+        db.add(book)
+        await db.flush()
+        v1 = Volume(project_id=book.id, volume_no=1, title="第1卷", summary="", chapter_count=2)
+        v2 = Volume(project_id=book.id, volume_no=2, title="第2卷", summary="", chapter_count=0)
+        db.add_all([v1, v2])
+        await db.flush()
+        for no in (1, 2):
+            db.add(Chapter(
+                project_id=book.id, volume_id=v1.id, chapter_no=no,
+                ref=f"vol-1-ch-{no}", title=f"第{no}章", status="archived",
+                origin="import", has_prose=True, word_count=10,
+            ))
+        await db.commit()
+        book_id = book.id
+    async with async_session() as db:
+        info = await frontier_info(db, book_id)
+    front = info["frontier"]
+    assert front["pending"] is True
+    assert front["volume_no"] == 2
+    assert front["chapter_no"] == 1
+    assert front["ref"] == "vol-2-ch-1"
+    assert front["global_no"] == 3
+

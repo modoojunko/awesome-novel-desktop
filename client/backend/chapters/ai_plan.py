@@ -159,6 +159,13 @@ async def _global_chapter_no(db, project_id, vol, ch_no: int) -> int:
     )
 
 
+async def _next_chapter_no(db, project_id, vol) -> int:
+    """本卷下一章的卷内号：与 create_chapter 的 MAX+1 同源（ghost 空洞也不错位）。"""
+    from repositories import chapter_repo
+
+    return await chapter_repo.max_chapter_no(db, project_id, vol.id) + 1
+
+
 async def global_chapter_position(db, project_id: str, vol_no: int, ch_no: int) -> tuple[int, list[str]]:
     """按卷号＋卷内章号算全局章号与位置标签（剧情抽卡／正文组装两路共用单源）。
 
@@ -575,7 +582,7 @@ async def next_chapter_anchor(
     db: AsyncSession = Depends(get_db),
 ):
     """下一章的进场（全档只读）——手写路径不发 AI 请求也要进场。"""
-    from repositories import chapter_repo, volume_repo
+    from repositories import volume_repo
 
     project = await get_novel(db, project_id, user["id"])
     if not project:
@@ -584,11 +591,11 @@ async def next_chapter_anchor(
     vol = await volume_repo.get_by_volume_no(db, project.id, vol_no)
     if vol is None:
         raise HTTPException(404, "Volume not found")
-    rows = [c for c in await chapter_repo.list_by_volume(db, vol.id) if not c.ghost_of]
-    entry = await resolve_prev_chapter_ending(db, project, vol, len(rows) + 1)
+    ch_no = await _next_chapter_no(db, project.id, vol)
+    entry = await resolve_prev_chapter_ending(db, project, vol, ch_no)
     # 章号/卷号单源：卡面标题「拆第N章」、行号 0N、kicker「第X卷」都取这里。
     # next_no 用全书号（多卷书第 2 卷第 1 章显示第 25 章，不显示第 1 章）。
-    next_global = await _global_chapter_no(db, project.id, vol, len(rows) + 1)
+    next_global = await _global_chapter_no(db, project.id, vol, ch_no)
     return {
         "ok": True,
         **entry,
@@ -615,7 +622,7 @@ async def ai_chapter_directions(
     db: AsyncSession = Depends(get_db),
 ):
     """同一章的 3 个互斥剧情方向（不落库）。名次在模型侧、字母在服务端算。"""
-    from repositories import chapter_repo, volume_repo
+    from repositories import volume_repo
 
     project = await get_novel(db, project_id, user["id"])
     if not project:
@@ -632,8 +639,7 @@ async def ai_chapter_directions(
     ]
     if missing:
         raise HTTPException(422, f"卷纲还没填全（{'、'.join(missing)}）——先去卷纲补齐再拆章")
-    rows = [c for c in await chapter_repo.list_by_volume(db, vol.id) if not c.ghost_of]
-    ch_no = len(rows) + 1
+    ch_no = await _next_chapter_no(db, project.id, vol)
     mat = await _chapter_material(db, project, vol, ch_no)
     # 重抽排除（D21）：已出批的轴＋一句话；中性禁令入素材，服务端同轴相似丢卡
     exclude = [(i.axis.strip(), i.line.strip()) for i in body.exclude if i.axis.strip() and i.line.strip()][:9]
@@ -807,8 +813,8 @@ async def ai_chapter_selfcheck(
         [c for c in await chapter_repo.list_by_volume(db, vol.id) if not c.ghost_of],
         key=lambda c: c.chapter_no,
     )
-    # 目标章号：已排上取该章，未排上取本卷末章 +1（进场与配额都按「这一章」算）
-    ch_no = len(rows) + 1
+    # 目标章号：已排上取该章，未排上取本卷 MAX+1（与真实建章同源）
+    ch_no = await _next_chapter_no(db, project.id, vol)
     if body.chapter_ref:
         row = await chapter_repo.get_by_ref(db, project.id, strip_suffix(body.chapter_ref))
         if row is not None:

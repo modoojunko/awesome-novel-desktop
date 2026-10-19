@@ -42,7 +42,30 @@ async def frontier_info(db: AsyncSession, novel_id: str) -> dict:
     )
     for i, ch in enumerate(chapters, start=1):
         ch["global_no"] = i
-    return {"chapters": chapters, "frontier": _pick_frontier(chapters)}
+    # 全归档/全历史章时才需要 pending：落点跟最后一个卷走（卷可能刚建、还没有章），
+    # 章号用该卷 MAX+1，与 create_chapter 的真实建章号同源。
+    last_volume_no = None
+    last_volume_max_no = 0
+    if chapters and not any(
+        not ch["archived"] and not ch["historical"] for ch in chapters
+    ):
+        from repositories import chapter_repo, volume_repo
+
+        vols = await volume_repo.list_by_project(db, novel_id)
+        if vols:
+            last = vols[-1]
+            last_volume_no = last.volume_no
+            last_volume_max_no = await chapter_repo.max_chapter_no(
+                db, novel_id, last.id
+            )
+    return {
+        "chapters": chapters,
+        "frontier": _pick_frontier(
+            chapters,
+            last_volume_no=last_volume_no,
+            last_volume_max_no=last_volume_max_no,
+        ),
+    }
 
 
 def _vol_no(ref: str) -> int:
@@ -52,25 +75,44 @@ def _vol_no(ref: str) -> int:
         return 0
 
 
-def _pick_frontier(chapters: list[dict]) -> dict | None:
+def _pick_frontier(
+    chapters: list[dict],
+    *,
+    last_volume_no: int | None = None,
+    last_volume_max_no: int = 0,
+) -> dict | None:
     for ch in chapters:
         if not ch["archived"] and not ch["historical"]:
             return _decorate(ch, chapters)
-    # 全部归档/全部历史章：待写占位 = 主线末端 + 1
+    # 全部归档/全部历史章：待写占位落最后一个卷；空末卷也在这里出现。
     if not chapters:
         return None
-    last = chapters[-1]
-    pending = {
-        "ref": _next_ref(last["ref"]),
-        "chapter_no": last["chapter_no"] + 1,
-        "global_no": last["global_no"] + 1,
-        "volume_no": last["volume_no"],
-        "has_prose": False,
-        "archived": False,
-        "historical": False,
-        "origin": "authored",
-        "pending": True,
-    }
+    if last_volume_no is not None:
+        chapter_no = last_volume_max_no + 1
+        pending = {
+            "ref": f"vol-{last_volume_no}-ch-{chapter_no}",
+            "chapter_no": chapter_no,
+            "global_no": len(chapters) + 1,
+            "volume_no": last_volume_no,
+            "has_prose": False,
+            "archived": False,
+            "historical": False,
+            "origin": "authored",
+            "pending": True,
+        }
+    else:
+        last = chapters[-1]
+        pending = {
+            "ref": _next_ref(last["ref"]),
+            "chapter_no": last["chapter_no"] + 1,
+            "global_no": last["global_no"] + 1,
+            "volume_no": last["volume_no"],
+            "has_prose": False,
+            "archived": False,
+            "historical": False,
+            "origin": "authored",
+            "pending": True,
+        }
     return _decorate(pending, chapters)
 
 
