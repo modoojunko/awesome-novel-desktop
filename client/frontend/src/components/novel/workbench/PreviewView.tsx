@@ -58,9 +58,15 @@ function hasProseOf(c: { has_prose?: boolean; word_count: number }): boolean {
   return c.has_prose ?? c.word_count > 0;
 }
 
-/** 成稿状态（已归档优先）：拟定 / 草稿 / 已归档。 */
-function statusOf(c: { archived?: boolean; has_prose?: boolean; word_count: number }) {
+/** 成稿状态（已归档优先）：拟定 / 草稿 / 原文（导入历史章）/ 已归档。 */
+function statusOf(c: {
+  archived?: boolean;
+  historical?: boolean;
+  has_prose?: boolean;
+  word_count: number;
+}) {
   if (c.archived) return { label: "已归档", cls: "pill" };
+  if (c.historical) return { label: "原文", cls: "pill" };
   if (hasProseOf(c)) return { label: "草稿", cls: "pill pill-accent" };
   return { label: "拟定", cls: "pill" };
 }
@@ -168,18 +174,36 @@ export default function PreviewView({
     (a, v) => a + v.chapters.filter((c) => c.archived).length,
     0,
   );
+  const nImportedArchived = volumes.reduce(
+    (a, v) => a + v.chapters.filter((c) => c.archived && c.origin === "import").length,
+    0,
+  );
+  const nHistorical = volumes.reduce(
+    (a, v) => a + v.chapters.filter((c) => !c.archived && c.origin === "import").length,
+    0,
+  );
   const nDraft = volumes.reduce(
-    (a, v) => a + v.chapters.filter((c) => !c.archived && hasProseOf(c)).length,
+    (a, v) => a + v.chapters.filter((c) => !c.archived && c.origin !== "import" && hasProseOf(c)).length,
     0,
   );
   const nProse = volumes.reduce(
     (a, v) => a + v.chapters.filter((c) => hasProseOf(c)).length,
     0,
   );
-  const nPlanned = chTotal - nArchived - nDraft;
+  const nPlanned = chTotal - nArchived - nHistorical - nDraft;
+  const authoredTotal = volumes.reduce(
+    (a, v) => a + v.chapters.filter((c) => c.origin !== "import").length,
+    0,
+  );
+  const authoredArchived = volumes.reduce(
+    (a, v) => a + v.chapters.filter((c) => c.origin !== "import" && c.archived).length,
+    0,
+  );
 
   const activeVolLabel = active ? nodeLabel("卷", volNo(active.v.name), active.v.title) : "";
-  const activeChLabel = active ? nodeLabel("章", active.c.chapter, active.c.title) : "";
+  const activeChLabel = active
+    ? nodeLabel("章", active.c.global_no ?? active.c.chapter, active.c.title)
+    : "";
   const activeStatus = active ? statusOf(active.c) : null;
 
   const seg = <K extends keyof ReadingPrefs>(
@@ -259,7 +283,7 @@ export default function PreviewView({
                     data-od-id="pv-ch"
                     onClick={() => setSelRef(ref)}
                   >
-                    <span className="ti">{nodeLabel("章", c.chapter, c.title)}</span>
+                    <span className="ti">{nodeLabel("章", c.global_no ?? c.chapter, c.title)}</span>
                     {hasProse && <span className="wc">{c.word_count}字</span>}
                     <span className={st.cls}>{st.label}</span>
                   </button>
@@ -341,7 +365,11 @@ export default function PreviewView({
                 字数 <b>{totalWords}</b>
               </span>
               <span>
-                已归档 <b>{nArchived}</b> · 草稿 {nDraft} · 拟定 {nPlanned}
+                已归档 <b>{nArchived}</b>
+                {nImportedArchived > 0 ? `（其中原文 ${nImportedArchived}）` : ""} · 原文 {nHistorical} · 草稿 {nDraft} · 拟定 {nPlanned}
+              </span>
+              <span>
+                完本进度 <b>{authoredTotal > 0 ? `${authoredArchived}/${authoredTotal}` : "暂无作者章"}</b>
               </span>
             </div>
           </div>

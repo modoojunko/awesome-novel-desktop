@@ -189,6 +189,8 @@ export default function ChapterWorkspace({
       for (const c of v.chapters) {
         const ref = `${v.ref}-ch-${c.chapter}`;
         if (ref === chapterRef) return false;
+        // 导入历史章不参与排队门禁：空正文的原文章不该把续写的 N+1 锁成不可写。
+        if (c.historical) continue;
         if (!c.archived && !(c.has_prose ?? (c.word_count ?? 0) > 0)) return true;
       }
     }
@@ -203,9 +205,10 @@ export default function ChapterWorkspace({
     const vol = wb.volumes.find((v) => v.name === volName);
     return vol?.chapters.find((c) => c.chapter === chNo) ?? null;
   }, [wb.volumes, chapterRef]);
-  const label = nodeLabel("章", chMeta?.chapter ?? 0, chMeta?.title);
+  const label = nodeLabel("章", chMeta?.global_no ?? chMeta?.chapter ?? 0, chMeta?.title);
   const vol = wb.volumes.find((v) => v.name === `vol-${volNoOf(chapterRef)}`);
   const archived = !!chMeta?.archived;
+  const imported = (chMeta?.origin ?? "authored") === "import";
 
   // 伏笔台账投影（c-og-hooks-projection）：章纲回收/悬念两格空时的投影与勾选候选。
   // 加载失败时 hints 为 undefined，OgPane 回落「（未填）」占位。
@@ -1188,11 +1191,13 @@ const [ogForm, setOgForm] = useState<OgForm>(EMPTY_OG_FORM);
   // ── 页签徽标（状态机：起草→确认→正文→归档；归档＝终态，章纲徽不再报阶段态） ──
   const ogCnt = archived
     ? { cls: "cnt", text: "已归档" }
-    : confirmed
-      ? { cls: "cnt ok", text: "已确认" }
-      : gaps.length
-        ? { cls: "cnt err", text: `缺 ${gaps.length} 项` }
-        : { cls: "cnt warn", text: "草稿" };
+    : imported
+      ? { cls: "cnt", text: "原文" }
+      : confirmed
+        ? { cls: "cnt ok", text: "已确认" }
+        : gaps.length
+          ? { cls: "cnt err", text: `缺 ${gaps.length} 项` }
+          : { cls: "cnt warn", text: "草稿" };
   const proseCnt = {
     cls: "cnt",
     text: wordCount ? `${fmt(wordCount)} 字` : "空章",
@@ -1249,7 +1254,7 @@ const [ogForm, setOgForm] = useState<OgForm>(EMPTY_OG_FORM);
               计划字数/完成度/本书总字数三枚重复徽章退役（唯一承载位＝页签行右端 ch-progress） */}
           <h2 className="e-title">{label}</h2>
           <div className="e-meta">
-            <span className="tag">{archived ? "已归档" : wordCount ? "草稿" : "拟定"}</span>
+            <span className="tag">{archived ? "已归档" : imported ? "原文" : wordCount ? "草稿" : "拟定"}</span>
             <span className="tag">{fmt(wordCount)} 字</span>
             <span className="tag">
               归档门槛 {REQ_FIELDS.length - gaps.length}/{REQ_FIELDS.length}
@@ -1343,6 +1348,7 @@ const [ogForm, setOgForm] = useState<OgForm>(EMPTY_OG_FORM);
         onAIStateChange={onAIStateChange}
         resumeScroll={resumeScrollMemo}
         onWriteProgress={onWriteProgress}
+        historical={imported}
         editing={proseEditing}
         onStartEdit={() => {
           setProseEditing(true);

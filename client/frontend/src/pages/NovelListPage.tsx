@@ -46,6 +46,9 @@ interface Novel {
   total_chapters: number;
   /** 已归档章节数（list 接口以章表聚合覆盖下发，见 novels/router.py）——卡片阶段判据 */
   total_archives?: number;
+  /** 作者章总数/已归档数（导入章不进完本分母；老接口缺省回落 total_*） */
+  authored_total?: number;
+  authored_archived?: number;
   updated_at: string;
   /** 创建时间（排序键「创建时间」；老接口缺省时排序容错归 0，见 lib/shelfSort） */
   created_at?: string;
@@ -87,7 +90,12 @@ const fmt = (n: number) => n.toLocaleString("zh-CN");
 
 /** 卡片阶段派生（四态单源）：列表聚合章数 + finished_at（works-finish-flow）。 */
 function stageOf(p: Novel) {
-  return stageFromChapters(p.total_chapters || 0, p.total_archives || 0, p.finished_at ?? null);
+  return stageFromChapters(
+    p.total_chapters || 0,
+    p.authored_total ?? (p.total_chapters || 0),
+    p.authored_archived ?? (p.total_archives || 0),
+    p.finished_at ?? null,
+  );
 }
 
 const FILTER_CHIPS: { key: "all" | NovelStage; label: string }[] = [
@@ -430,7 +438,9 @@ function NovelList() {
         <div className="foot">
           {stage === "ready" ? (
             <>
-              <span className="updated">全书 {p.total_chapters} 章已归档</span>
+              <span className="updated">
+                作者章 {p.authored_archived ?? p.total_archives} / {p.authored_total ?? p.total_chapters} 已归档
+              </span>
               <span className="foot-acts">
                 <button className="btn btn-secondary btn-sm" onClick={(e) => openPreview(e, p.id)}>
                   回看
@@ -438,7 +448,7 @@ function NovelList() {
                 <button
                   className="btn btn-primary btn-sm"
                   data-od-id={`finish-open-${p.id}`}
-                  title="全书章节都已归档 · 完结这本书"
+                  title="作者章都已归档 · 完结这本书"
                   onClick={(e) => {
                     e.stopPropagation();
                     setFinishTarget(p);
@@ -688,8 +698,8 @@ function NovelList() {
         <div style={{ display: "flex", gap: 8 }}>
           <button
             className="btn btn-secondary"
-            onClick={() => (freeLimitReached ? guideUpgrade() : setShowImport(true))}
-            title="导入已有稿子（.md / .txt / .docx）"
+            onClick={() => setShowImport(true)}
+            title="导入我的书（仅支持 .txt）"
           >
             <Ico d={P.upload} />
             导入
@@ -924,6 +934,7 @@ function NovelList() {
         open={showImport}
         onClose={() => setShowImport(false)}
         onImported={handleCreated}
+        quotaFull={freeLimitReached}
       />
 
       {/* Delete confirmation modal */}

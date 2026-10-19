@@ -17,8 +17,14 @@ export interface VolumeChapterMeta {
   ref: string;
   volume: number;
   chapter: number;
+  /** 全书第 N 章（c-import-direct；卷内章号仍是 chapter） */
+  global_no?: number;
   title: string;
   status: string;
+  /** 来源：authored/import */
+  origin?: string;
+  /** 导入的历史章（未归档） */
+  historical?: boolean;
   word_count: number;
   has_prose: boolean;
   outline_status: string;

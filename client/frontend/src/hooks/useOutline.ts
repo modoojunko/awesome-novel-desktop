@@ -73,9 +73,15 @@ export interface ChapterMetaEntry {
   id?: string;
   volume: number;
   chapter: number;
+  /** 全书第 N 章（c-import-direct；层内 chapter 仍是卷内号） */
+  global_no?: number;
   title: string;
   status: string;
   word_count: number;
+  /** 导入的历史章：可编辑、不参与章纲待确认统计 */
+  historical?: boolean;
+  /** 来源：authored/import（归档后 historical=false，但 origin 仍为 import） */
+  origin?: string;
   /** DB-backed 全量树（change 005）缺省时降级本地推断（N1） */
   has_prose?: boolean;
   archived?: boolean;
@@ -131,6 +137,7 @@ function deriveOutlineStatus(
   // 判据须在 chapterData 判定之前（真归档章 chapterData 带 outline.summary、
   // chapterDetail 甚至无 outline 字段——放后面会回落 in_progress/unfilled）；
   // 只认 meta.status 单一事实源，不读 outline_status（同源派生列、口径不同源）。
+  if (meta.historical) return "confirmed";
   if (meta.status === "confirmed" || meta.status === "archived")
     return "confirmed";
   if (chapterData) {
@@ -368,6 +375,7 @@ export function useOutline(projectId: string): UseOutlineReturn {
 
     for (const vol of volumes) {
       for (const ch of vol.chapters) {
+        if (ch.origin === "import") continue;
         total++;
         const status = chapterStatuses.get(ch.ref) || "unfilled";
         if (status === "in_progress" || status === "confirmed") filled++;

@@ -324,6 +324,30 @@ def test_delete_chapter_db_row_and_counts(client):
     assert r3.json()["ref"] == "vol-1-ch-2", "删尾章后章号应复用"
 
 
+def test_delete_chapter_rejects_imported_even_when_empty_tail(client):
+    pid = _create_project_with_volume(client)
+    # 模拟解析出的空标题章：无正文、拟定、卷内最后一章，但来源是导入。
+    async def _mark_import():
+        async with async_session() as session:
+            row = await chapter_repo.get_by_ref(session, pid, "vol-1-ch-1")
+            row.origin = "import"
+            row.status = "draft"
+            row.has_prose = False
+            row.word_count = 0
+            await session.commit()
+
+    _run_async(_mark_import())
+    r = client.delete(f"/api/novels/{pid}/chapters/vol-1-ch-1")
+    assert r.status_code == 409, r.text
+    assert "导入原文" in r.json()["detail"]
+
+    async def _still_there():
+        async with async_session() as session:
+            assert await chapter_repo.get_by_ref(session, pid, "vol-1-ch-1") is not None
+
+    _run_async(_still_there())
+
+
 # ── service 包装 ──────────────────────────────────────────────────────────
 
 

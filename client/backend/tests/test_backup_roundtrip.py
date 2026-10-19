@@ -19,6 +19,7 @@ import asyncio
 import io
 import uuid
 import zipfile
+from datetime import datetime
 from pathlib import Path
 
 import pytest
@@ -262,17 +263,62 @@ class TestLayer1Metadata:
             async with async_session() as db:
                 src = await db.get(Novel, src_id)
                 dst = await db.get(Novel, dst_id)
-                return (src.name, src.current_phase, src.source), (
-                    dst.name, dst.current_phase, dst.source,
+                return (
+                    src.name, src.current_phase, src.source, src.import_kind,
+                ), (
+                    dst.name, dst.current_phase, dst.source, dst.import_kind,
                 )
 
-        (s_name, s_phase, _s_source), (d_name, d_phase, d_source) = _run(run())
+        (s_name, s_phase, s_source, s_kind), (d_name, d_phase, d_source, d_kind) = _run(run())
         # 语义等值：同名冲突时改名《xx（备份）》（本 fixture 只导一次、无同名 → 名字保持）；
-        # phase/source 逐字
+        # phase/source/import_kind 逐字保留——备份是恢复，不是一次新导入。
         assert d_name == s_name
         assert d_phase == s_phase
-        # source 落库时固定写 'import'（来源标记），不保留原值——既定行为
-        assert d_source == "import"
+        assert d_source == s_source
+        assert d_kind == s_kind
+
+    def test_import_provenance_survives_roundtrip(self, tmp_path):
+        """导入书往返后仍保留 source/import_kind/origin/imported_at（不靠回填猜）。"""
+        from models.chapter import Chapter
+        from models.project import Novel
+
+        imported_at = datetime(2026, 1, 2, 3, 4, 5)
+
+        async def run_all():
+            src_id = await _seed_full_book(str(tmp_path / "src-root"))
+            async with async_session() as db:
+                src = await db.get(Novel, src_id)
+                src.source = "import"
+                src.import_kind = "direct"
+                ch = (
+                    await db.scalars(
+                        select(Chapter).where(Chapter.project_id == src_id)
+                    )
+                ).first()
+                ch.origin = "import"
+                ch.imported_at = imported_at
+                ch.status = "draft"
+                await db.commit()
+
+            blob = await _export_book_zip_bytes(src_id, str(tmp_path / "src-root"))
+            path = tmp_path / "imported.zip"
+            path.write_bytes(blob)
+            async with async_session() as db:
+                dst_id = await _import_single_book(
+                    db, zipfile.ZipFile(str(path)), "", "rt-user"
+                )
+                await db.commit()
+                dst = await db.get(Novel, dst_id)
+                dch = (
+                    await db.scalars(
+                        select(Chapter).where(Chapter.project_id == dst_id)
+                    )
+                ).first()
+                return (
+                    dst.source, dst.import_kind, dch.origin, dch.imported_at,
+                )
+
+        assert _run(run_all()) == ("import", "direct", "import", imported_at)
 
 
 # ── 层 2：设定深比 ────────────────────────────────────────────────────────

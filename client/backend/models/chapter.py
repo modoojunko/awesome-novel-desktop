@@ -46,6 +46,13 @@ class Chapter(Base):
     ref: Mapped[str] = mapped_column(String(64), nullable=False)
     title: Mapped[str] = mapped_column(String(200), nullable=False)
     status: Mapped[str] = mapped_column(String(20), nullable=False, default="outline")
+    # 导入来源（c-import-direct）：不可变 provenance；status 仍用 draft/confirmed/archived。
+    # 历史章由 origin="import" && status!="archived" 派生，归档后 origin 保留，
+    # 完本分母继续排除导入来源。
+    origin: Mapped[str] = mapped_column(
+        String(10), nullable=False, default="authored", server_default="authored"
+    )
+    imported_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     word_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     has_prose: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     outline_status: Mapped[str] = mapped_column(

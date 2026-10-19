@@ -346,6 +346,7 @@ export default function NovelWorkspace() {
     no: number;
     title: string;
     state: "draft" | "planned" | "pending";
+    historical: boolean;
     writable: boolean;
     scroll: number;
     volNo: number;
@@ -398,11 +399,11 @@ export default function NovelWorkspace() {
         fromLastWrite = true;
       }
     }
-    // ② 回落：主线上第一个未归档章（草稿/拟定）
+    // ② 回落：主线上第一个未归档、非历史章（草稿/拟定）
     if (!pick) {
       for (const v of volumes) {
         for (const c of v.chapters) {
-          if (!c.archived) {
+          if (!c.archived && !c.historical) {
             pick = { v, c, pending: false };
             break;
           }
@@ -410,21 +411,23 @@ export default function NovelWorkspace() {
         if (pick) break;
       }
     }
-    // ③ 全归档：主线末端「待写」占位（不落库，续写时创建）
+    // ③ 全归档/全历史章：主线末端「待写」占位（不落库，续写时创建）
     if (!pick && volumes.length) {
+      // 末卷可以是刚建的空卷：待写位仍落在这卷，不能因为有卷无章就整块隐藏 CTA。
       const last = volumes[volumes.length - 1];
-      if (last.chapters.length) {
-        const no = (last.chapters[last.chapters.length - 1].chapter ?? 0) + 1;
-        pick = {
-          v: last,
-          c: { chapter: no, title: "待写", word_count: 0, status: "outline" },
-          pending: true,
-        };
-      }
+      const no = (last.chapters[last.chapters.length - 1]?.chapter ?? 0) + 1;
+      const globalNo = volumes.reduce((n, v) => n + v.chapters.length, 0) + 1;
+      pick = {
+        v: last,
+        c: { chapter: no, global_no: globalNo, title: "待写", word_count: 0, status: "outline" },
+        pending: true,
+      };
     }
     if (!pick) return null;
     const volNo = Number((pick.v.name.match(/^vol-(\d+)$/) ?? [])[1] ?? 1);
-    const no = pick.pending ? (pick.c.chapter as number) : (pick.c.chapter ?? 0);
+    const no = pick.pending
+      ? (pick.c.global_no ?? pick.c.chapter ?? 0)
+      : (pick.c.global_no ?? pick.c.chapter ?? 0);
     const refNow = `${pick.v.name}-ch-${pick.pending ? "" : (pick.c.chapter ?? 0)}`;
     const draft =
       (!pick.pending && !!pick.c.has_prose) ||
@@ -434,6 +437,7 @@ export default function NovelWorkspace() {
       no,
       title: pick.pending ? "待写" : pick.c.title,
       state: pick.pending ? "pending" : draft ? "draft" : "planned",
+      historical: !pick.pending && !!pick.c.historical,
       writable: true, // 端点章恒可写
       // 草稿端点＝上次写作章：续写仍回到上次退出前的滚动位置（#370 口径在端点内保留）
       scroll:
@@ -443,6 +447,51 @@ export default function NovelWorkspace() {
       total: pick.v.chapters.length,
     };
   }, [volumes, lastWrite, selectedRef, railData]);
+
+  const hasHistorical = volumes.some((v) =>
+    v.chapters.some((c) => (c.origin ?? "authored") === "import"),
+  );
+
+  /** 主 CTA 的默认落点：不管 last_write 指向哪，永远取主线（跳过历史章）或 N+1。 */
+  const frontierTarget = useMemo<HereTarget | null>(() => {
+    for (const v of volumes) {
+      for (const c of v.chapters) {
+        if (!c.archived && (c.origin ?? "authored") !== "import") {
+          const volNo = Number((v.name.match(/^vol-(\d+)$/) ?? [])[1] ?? 1);
+          return {
+            ref: `${v.name}-ch-${c.chapter}`,
+            no: c.global_no ?? c.chapter,
+            title: c.title,
+            state: c.has_prose ? "draft" : "planned",
+            historical: false,
+            writable: true,
+            scroll: 0,
+            volNo,
+            archivedN: v.chapters.filter((x) => x.archived).length,
+            total: v.chapters.length,
+          };
+        }
+      }
+    }
+    if (!volumes.length) return null;
+    // 空末卷同样给待写位：章号 = 全书已有章数 + 1，卷号 = 末卷。
+    const last = volumes[volumes.length - 1];
+    const volNo = Number((last.name.match(/^vol-(\d+)$/) ?? [])[1] ?? 1);
+    return {
+      ref: `${last.name}-ch-`,
+      no: volumes.reduce((n, v) => n + v.chapters.length, 0) + 1,
+      title: "待写",
+      state: "pending",
+      historical: false,
+      writable: true,
+      scroll: 0,
+      volNo,
+      archivedN: last.chapters.filter((x) => x.archived).length,
+      total: last.chapters.length,
+    };
+  }, [volumes]);
+  // 顶栏「续写」可回上次编辑的历史章；主页主 CTA 始终回到主线/N+1。
+  const homeTarget = hereTarget?.historical ? frontierTarget : hereTarget;
 
   const handleRevert = useCallback(
     async (ref: string) => {
@@ -459,38 +508,49 @@ export default function NovelWorkspace() {
     [],  // 稳定引用：内部经 ref 取最新
   );
 
-  const onResume = useCallback(async () => {
-    if (!hereTarget) return;
+  const onResume = useCallback(async (target: HereTarget | null = hereTarget) => {
+    if (!target) return;
     if (!guardedLeave()) return;
     // 「待写」占位章：先创建（prototype：新增一章＝拟定，先进章纲），再打开
-    if (hereTarget.state === "pending") {
+    if (target.state === "pending") {
       const created = await createChapter(
-        `第${cnNum(hereTarget.no)}章`,
-        `vol-${hereTarget.volNo}`,
+        `第${cnNum(target.no)}章`,
+        `vol-${target.volNo}`,
       );
       if (created) {
         focusNode(created);
-        toast.info(`第 ${hereTarget.no} 章已创建，先进章纲`);
+        toast.info(`第 ${target.no} 章已创建，先进章纲`);
       }
       return;
     }
     // 已在该章时不再重设选中（省一次整链重渲染），只走恢复信号
-    if (selectedRef !== hereTarget.ref) focusNode(hereTarget.ref);
+    if (selectedRef !== target.ref) focusNode(target.ref);
     setResumeSignal((s) => ({
-      ref: hereTarget.ref,
-      scroll: hereTarget.scroll,
+      ref: target.ref,
+      scroll: target.scroll,
       n: (s?.n ?? 0) + 1,
     }));
   }, [hereTarget, guardedLeave, focusNode, selectedRef, createChapter]);
 
   const pct = hereTarget
-    ? Math.round(Math.min(1, hereTarget.archivedN / hereTarget.total) * 100)
+    ? hereTarget.total > 0
+      ? Math.round(Math.min(1, hereTarget.archivedN / hereTarget.total) * 100)
+      : 0
     : 0;
   /** 「续写」按钮文案说明：顶栏与书主页卡同源（同判据、同 title） */
   const resumeTitle = hereTarget
-    ? hereTarget.state === "draft"
+    ? hereTarget.historical
+      ? "打开这一章"
+      : hereTarget.state === "draft"
+        ? "回到上次退出前的位置"
+        : hereTarget.state === "pending"
+          ? "创建本章并开始写作"
+          : "打开这一章的章纲"
+    : "";
+  const homeResumeTitle = homeTarget
+    ? homeTarget.state === "draft"
       ? "回到上次退出前的位置"
-      : hereTarget.state === "pending"
+      : homeTarget.state === "pending"
         ? "创建本章并开始写作"
         : "打开这一章的章纲"
     : "";
@@ -786,9 +846,18 @@ export default function NovelWorkspace() {
       await addFirstChapter();
       return;
     }
-    const no = (last.chapters[last.chapters.length - 1]?.chapter ?? 0) + 1;
+    const no = volumes.reduce((n, v) => n + v.chapters.length, 0) + 1;
     await createChapter(`第${cnNum(no)}章`, last.name);
   }, [volumes, createChapter, addFirstChapter]);
+
+  const globalFirstIn = useCallback(
+    (volName: string) => {
+      const idx = volumes.findIndex((v) => v.name === volName);
+      const before = idx < 0 ? volumes : volumes.slice(0, idx);
+      return before.reduce((n, v) => n + v.chapters.length, 0) + 1;
+    },
+    [volumes],
+  );
 
   // 落点卡（volume-plan-ai）：最后一卷就绪态——仅「从未排过章」；曾排过章的书
   // 删空后仍回选章引导（规格判据：localStorage 排章标记，e2e 钉死该口径）
@@ -803,12 +872,12 @@ export default function NovelWorkspace() {
   /** 在指定卷排第一章（落点卡主入口） */
   const addFirstChapterIn = useCallback(
     async (volName: string) => {
-      if (await createChapter(`第${cnNum(1)}章`, volName)) {
+      if (await createChapter(`第${cnNum(globalFirstIn(volName))}章`, volName)) {
         track("first_chapter_in_vol", { vol_no: lastVolNo });
         toast.success("第一章已排上，先写章纲");
       }
     },
-    [createChapter, lastVolNo],
+    [createChapter, lastVolNo, globalFirstIn],
   );
 
   const hereBar = hereTarget ? (
@@ -823,10 +892,11 @@ export default function NovelWorkspace() {
           ? null
           : hereTarget.title}
       </p>
-      {hereTarget.state === "draft" && (
+      {hereTarget.historical && <span className="bh-tag">原文</span>}
+      {!hereTarget.historical && hereTarget.state === "draft" && (
         <span className="bh-tag bh-tag-live">草稿</span>
       )}
-      {hereTarget.state === "planned" && <span className="bh-tag">拟定</span>}
+      {!hereTarget.historical && hereTarget.state === "planned" && <span className="bh-tag">拟定</span>}
       {hereTarget.state === "pending" && <span className="bh-tag">待写</span>}
       <div className="bh-prog">
         <span className="bh-vol">
@@ -1162,32 +1232,48 @@ export default function NovelWorkspace() {
                     {volumes.length} 卷 · {totalChapters} 章 · 已归档 {archivedTotal} 章 · 共{" "}
                     {bookWords.toLocaleString("zh-CN")} 字
                   </p>
-                  {hereTarget ? (
+                  {homeTarget ? (
                     <p className="be-k">
-                      接着写第 {hereTarget.no} 章？
+                      {homeTarget.state === "pending" && hasHistorical
+                        ? `开始写第 ${homeTarget.no} 章`
+                        : `接着写第 ${homeTarget.no} 章？`}
                       {/* 「待写」是端点占位不是章名，不拼进问句（顶栏同款口径） */}
-                      {hereTarget.state === "pending" ||
-                      isDefaultTitle("章", hereTarget.no, hereTarget.title)
+                      {homeTarget.state === "pending" ||
+                      isDefaultTitle("章", homeTarget.no, homeTarget.title)
                         ? null
-                        : hereTarget.title}
+                        : homeTarget.title}
                     </p>
                   ) : (
                     <p className="be-k">这本书怎么继续？</p>
+                  )}
+                  {homeTarget?.state === "pending" && hasHistorical && (
+                    <p className="be-t" data-testid="import-next-checklist">
+                      写第 {homeTarget.no} 章前，先补主线与当前卷卷纲；不补也能先写正文。
+                    </p>
                   )}
                   <p className="be-t">
                     在左侧目录里选一章，上面一行页签会展开它的章纲、正文、提示词、设定与关系伏笔，重写与回退收在「操作」页签里。
                   </p>
                   <p className="be-acts">
-                    {hereTarget && (
+                    {homeTarget && (
                       <button
                         className="btn btn-primary"
                         data-testid="home-resume"
-                        title={resumeTitle}
-                        onClick={() => void onResume()}
+                        title={homeResumeTitle}
+                        onClick={() => void onResume(homeTarget)}
                       >
-                        续写
+                        {homeTarget.state === "pending" && hasHistorical
+                          ? `开始写第 ${homeTarget.no} 章`
+                          : "续写"}
                       </button>
                     )}
+                    <button
+                      className="btn btn-secondary"
+                      data-testid="home-settings"
+                      onClick={() => goTab("advanced-settings")}
+                    >
+                      去核对设定
+                    </button>
                     <button
                       className="btn btn-secondary"
                       data-testid="home-add-volume"

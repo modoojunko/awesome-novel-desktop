@@ -33,8 +33,33 @@ async def list_volumes(db, project) -> list[dict]:
         by_vol[c.volume_id].append(c)
 
     result = []
+    global_no = 0
     for v in vols:
-        chs = by_vol.get(v.id, [])
+        chs = sorted(by_vol.get(v.id, []), key=lambda x: x.chapter_no)
+        chapter_rows = []
+        for c in chs:
+            global_no += 1
+            chapter_rows.append(
+                {
+                    "id": c.id,  # DB 章 id（foreshadow-settings-v2：伏笔选择器按 id 引用章）
+                    "ref": c.ref,
+                    "volume": v.volume_no,
+                    "chapter": c.chapter_no,
+                    "global_no": global_no,
+                    "title": c.title,
+                    "status": c.status,
+                    "origin": c.origin,
+                    "historical": c.origin == "import" and c.status != "archived",
+                    "word_count": c.word_count,
+                    "has_prose": c.has_prose,
+                    "outline_status": c.outline_status,
+                    "archived": c.status == "archived",
+                    # chapter-rewrite：基于旧设定角标（主线章自身状态列）
+                    "stale": bool(c.stale),
+                    # c-chapter-dossier：章档过期角标（上游重写置位、重归档清除）
+                    "dossier_stale": bool(c.dossier_stale),
+                }
+            )
         result.append(
             {
                 "ref": f"vol-{v.volume_no}",
@@ -44,25 +69,7 @@ async def list_volumes(db, project) -> list[dict]:
                 "chapter_target": v.chapter_target,
                 # 章数以主线实测为准（缓存列在旧稿支线存在时不代表主线章数）
                 "chapter_count": len(chs),
-                "chapters": [
-                    {
-                        "id": c.id,  # DB 章 id（foreshadow-settings-v2：伏笔选择器按 id 引用章）
-                        "ref": c.ref,
-                        "volume": v.volume_no,
-                        "chapter": c.chapter_no,
-                        "title": c.title,
-                        "status": c.status,
-                        "word_count": c.word_count,
-                        "has_prose": c.has_prose,
-                        "outline_status": c.outline_status,
-                        "archived": c.status == "archived",
-                        # chapter-rewrite：基于旧设定角标（主线章自身状态列）
-                        "stale": bool(c.stale),
-                        # c-chapter-dossier：章档过期角标（上游重写置位、重归档清除）
-                        "dossier_stale": bool(c.dossier_stale),
-                    }
-                    for c in sorted(chs, key=lambda x: x.chapter_no)
-                ],
+                "chapters": chapter_rows,
             }
         )
     return result
@@ -230,6 +237,12 @@ async def get_volume(db, project, ref: str) -> dict | None:
 
     all_chapters = await chapter_repo.list_by_volume(db, vol.id)
     mainline = [c for c in all_chapters if not c.ghost_of]
+    from chapters.numbering import global_number_map
+
+    all_mainline = [
+        c for c in await chapter_repo.list_by_project(db, project.id) if not c.ghost_of
+    ]
+    gmap = global_number_map(all_mainline)
     # 旧稿支线不入台账与计数，仅以 ghost_count 汇总（卷视图提示「旧稿支线 N 章」）
     data["ghost_count"] = len(all_chapters) - len(mainline)
     data["chapters"] = [
@@ -237,8 +250,11 @@ async def get_volume(db, project, ref: str) -> dict | None:
             "ref": c.ref,
             "volume": vol.volume_no,
             "chapter": c.chapter_no,
+            "global_no": gmap.get(c.ref, c.chapter_no),
             "title": c.title,
             "status": c.status,
+            "origin": c.origin,
+            "historical": c.origin == "import" and c.status != "archived",
             "word_count": c.word_count,
             "has_prose": c.has_prose,
             "outline_status": c.outline_status,
@@ -283,6 +299,9 @@ async def delete_volume(db, project, ref: str) -> dict:
 
     deleted_chapters = 0
     if vol is not None:
+        chapters = await chapter_repo.list_by_volume(db, vol.id)
+        if any(getattr(c, "origin", "authored") == "import" for c in chapters):
+            raise HTTPException(409, "卷内含导入原文，不能删卷；请删除本书后重新导入")
         deleted_chapters = await chapter_repo.count_by_volume(db, vol.id)
         await db.delete(vol)  # ORM cascade 删章行 + 卷纲子表（FK CASCADE 双保险）
     project.total_volumes = max(0, (project.total_volumes or 0) - 1)
@@ -321,14 +340,35 @@ async def resolve_prev_ending(
     archived = [
         c
         for c in await chapter_repo.list_by_volume(db, prev.id)
-        if c.status == "archived" and not c.ghost_of
+        if (c.status == "archived" or (getattr(c, "origin", "authored") == "import" and c.status != "archived"))
+        and not c.ghost_of
     ]
     if archived:
+        from chapters.numbering import global_number_map
+
+        all_rows = [
+            c for c in await chapter_repo.list_by_project(db, project.id) if not c.ghost_of
+        ]
+        global_map = global_number_map(all_rows)
         last = max(archived, key=lambda c: c.chapter_no)
-        text = (last.summary or "").strip() or last.title
+        text = (last.summary or "").strip()
+        if not text and getattr(last, "origin", "authored") == "import":
+            # 导入章没有章纲：用正文末段（与章内进场同口径），不要只剩一个标题。
+            from chapters.store import assemble_chapter
+            from write.chapter_writer import clip_tail_to_sentence_boundary
+
+            prose = str(assemble_chapter(last).get("prose") or "").strip()
+            paras = [p.strip() for p in prose.split("\n") if p.strip()]
+            if paras:
+                text = clip_tail_to_sentence_boundary(paras[-1], 200)
+        text = text or last.title
         return {
             "text": text,
-            "source": f"第{vol_no - 1}卷 · 实际收尾（第{last.chapter_no}章）——写到那里之后，这里以实际为准",
+            "source": (
+                f"第{vol_no - 1}卷 · 实际收尾"
+                f"（第{global_map.get(last.ref, last.chapter_no)}章）"
+                "——写到那里之后，这里以实际为准"
+            ),
         }
     return {
         "text": (prev.ending or "").strip() or "（上一卷还没定收尾）",

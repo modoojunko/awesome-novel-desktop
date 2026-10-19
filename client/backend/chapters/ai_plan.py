@@ -73,9 +73,12 @@ _PLACE_SPLIT_RE = re.compile(r"[、，,；;。\n\r\t 　]+")
 # ═══════════════ 进场（章级；has_prose 分流） ═══════════════
 
 
-async def resolve_prev_chapter_ending(db, project, vol, ch_no: int) -> dict:
+async def resolve_prev_chapter_ending(
+    db, project, vol, ch_no: int, *, global_map: dict[str, int] | None = None
+) -> dict:
     """本章进场：上一章有正文 → 正文末段（取自正文结尾）；无正文 → 上一章章末落点（拟定）。
-    卷首章复用既有卷级取法（resolve_prev_ending，事实优先）。返回 {text, source}。"""
+    卷首章复用既有卷级取法（resolve_prev_ending，事实优先）。返回 {text, source}。
+    文案里的章号统一用全书号（多卷书不再出现「第3章」指第27章）。"""
     if ch_no <= 1:
         from volumes.service import resolve_prev_ending
 
@@ -90,6 +93,14 @@ async def resolve_prev_chapter_ending(db, project, vol, ch_no: int) -> dict:
     if not rows:
         return {"text": "（还没有上一章）", "source": "本章是这一卷的第一章"}
     prev = max(rows, key=lambda c: c.chapter_no)
+    if global_map is None:
+        from chapters.numbering import global_number_map
+
+        all_rows = [
+            c for c in await chapter_repo.list_by_project(db, project.id) if not c.ghost_of
+        ]
+        global_map = global_number_map(all_rows)
+    prev_no = global_map.get(prev.ref, prev.chapter_no)
     if prev.has_prose:
         from chapters.store import assemble_chapter
         from write.chapter_writer import clip_tail_to_sentence_boundary
@@ -101,12 +112,12 @@ async def resolve_prev_chapter_ending(db, project, vol, ch_no: int) -> dict:
             # 超长末段不再 [:200] 硬切成残句开头
             return {
                 "text": clip_tail_to_sentence_boundary(paras[-1], 200),
-                "source": f"第{prev.chapter_no}章 · 取自正文结尾（写到那里之后，这里以实际为准）",
+                "source": f"第{prev_no}章 · 取自正文结尾（写到那里之后，这里以实际为准）",
             }
     exit_text = (prev.ladder_exit or "").strip()
     return {
         "text": exit_text or "（上一章还没写结尾）",
-        "source": f"第{prev.chapter_no}章 · 拟定，取自章纲落点",
+        "source": f"第{prev_no}章 · 拟定，取自章纲落点",
     }
 
 
@@ -127,20 +138,32 @@ def chapter_position_tags(global_ch: int, ch_no: int) -> list[str]:
 
 
 async def _global_chapter_no(db, project_id, vol, ch_no: int) -> int:
-    """全书全局章号＝前面各卷已拆章数（滤 ghost）＋本章卷内序号（插卷/回改后随当前状态重算）。"""
-    if vol.volume_no <= 1:
-        return ch_no
+    """全书全局章号＝前卷主线章数＋本卷内排在它之前的主线章数＋1。
+
+    不能直接用「前卷章数 + ch_no」：ghost 支线会让卷内章号出现空洞，
+    第 2 章之后直接是第 6 章时，第 6 章的全书号只应前进到第 3 章。
+    """
     from repositories import chapter_repo, volume_repo
 
-    early = {
-        v.id
-        for v in await volume_repo.list_by_project(db, project_id)
-        if v.volume_no < vol.volume_no
-    }
-    if not early:
-        return ch_no
+    volumes = await volume_repo.list_by_project(db, project_id)
+    early = {v.id for v in volumes if v.volume_no < vol.volume_no}
     rows = [c for c in await chapter_repo.list_by_project(db, project_id) if not c.ghost_of]
-    return sum(1 for c in rows if c.volume_id in early) + ch_no
+    return (
+        sum(1 for c in rows if c.volume_id in early)
+        + sum(
+            1
+            for c in rows
+            if c.volume_id == vol.id and c.chapter_no < ch_no
+        )
+        + 1
+    )
+
+
+async def _next_chapter_no(db, project_id, vol) -> int:
+    """本卷下一章的卷内号：与 create_chapter 的 MAX+1 同源（ghost 空洞也不错位）。"""
+    from repositories import chapter_repo
+
+    return await chapter_repo.max_chapter_no(db, project_id, vol.id) + 1
 
 
 async def global_chapter_position(db, project_id: str, vol_no: int, ch_no: int) -> tuple[int, list[str]]:
@@ -193,6 +216,34 @@ def cadence_reminder(rows, *, is_final: bool, target: int) -> str:
 # ═══════════════ 素材装配（⓪位置 → ①→⑧ → ⑨节奏提醒；预算见 prompt-draft §5） ═══════════════
 
 
+def _imported_excerpt_block(
+    rows: list,
+    *,
+    total_limit: int = 2000,
+    per_line: int = 80,
+    global_map: dict[str, int] | None = None,
+) -> str:
+    """导入章原文短摘录（非摘要）：仅无摘要的历史章，最近章优先，总长 ≤2000。
+
+    不把 200 字原文塞进「已经拆过的章」摘要槽；独立块防止模型把摘录当章纲。
+    """
+    picked: list[str] = []
+    budget = 0
+    historical = [r for r in rows if getattr(r, "origin", "authored") == "import"]
+    for c in reversed(historical):
+        content = getattr(c, "content", None)
+        prose = ((getattr(content, "prose", "") if content is not None else "") or "").strip()
+        if not prose:
+            continue
+        no = (global_map or {}).get(getattr(c, "ref", ""), c.chapter_no)
+        line = f"第{no}章 {c.title or ''}：{' '.join(prose.split())[:per_line]}"
+        if budget + len(line) > total_limit:
+            break
+        picked.append(line)
+        budget += len(line)
+    return "\n".join(reversed(picked))
+
+
 async def _chapter_material(db, project, vol, ch_no: int) -> dict:
     # c-plan-material-fullinfo：聚光退役，人物块＝全名单；无卡名单改本卷口径（覆盖 _book_material 的全书块）
     mat = await _book_material(db, project, with_hooks=False)  # 不给伏笔台账（防"提前揭"）
@@ -201,33 +252,49 @@ async def _chapter_material(db, project, vol, ch_no: int) -> dict:
     )
     mat["cardless_brief"] = _cardless_brief(cardless_rows)
     mat["known_entities"] |= {r["name"] for r in cardless_rows}
-    entry = await resolve_prev_chapter_ending(db, project, vol, ch_no)
     from repositories import chapter_repo
 
     rows = sorted(
         [c for c in await chapter_repo.list_by_volume(db, vol.id) if not c.ghost_of],
         key=lambda c: c.chapter_no,
     )
+    from chapters.numbering import global_number_map
+
+    all_mainline = [
+        c for c in await chapter_repo.list_by_project(db, project.id) if not c.ghost_of
+    ]
+    gmap = global_number_map(all_mainline)
+    entry = await resolve_prev_chapter_ending(
+        db, project, vol, ch_no, global_map=gmap
+    )
+    authored_rows = [c for c in rows if getattr(c, "origin", "authored") != "import"]
     done = [
         # c-ai-material-audit：章纲 summary 列宽 300，旧 [:40] 把"已拆过什么"切没了
-        f"第{c.chapter_no}章 {c.title or ''}｜{(c.summary or '').strip()}｜{c.plot_stage or '（未定阶段）'}"
+        # 历史章没有章纲：明确标「原文无摘要」，不把正文塞进摘要槽。
+        f"第{gmap.get(c.ref, c.chapter_no)}章 {c.title or ''}｜"
+        f"{((c.summary or '').strip() or ('原文无摘要' if getattr(c, 'origin', 'authored') == 'import' else ''))}｜"
+        f"{c.plot_stage or '（未定阶段）'}"
         for c in rows
     ]
     target = vol.chapter_target or 0
-    quota_left = max(0, target - len(rows)) if target else 0
+    quota_left = max(0, target - len(authored_rows)) if target else 0
     is_final = bool(target) and quota_left == 1
     # 已排满（含超出）：目标已设且剩余额度为 0 且不是末章
     quota_overshot = bool(target) and quota_left == 0 and not is_final
     prev_line = ""
     if rows:
         last = rows[-1]
-        prev_line = f"第{last.chapter_no}章：{(last.summary or last.title or '').strip()[:60]}"
+        prev_text = (last.summary or "").strip()
+        if not prev_text and getattr(last, "origin", "authored") == "import":
+            prev_text = ((last.content.prose if last.content else "") or last.title or "").strip()[:200]
+        prev_line = f"第{gmap.get(last.ref, last.chapter_no)}章：{(prev_text or last.title or '').strip()[:200]}"
     global_ch = await _global_chapter_no(db, project.id, vol, ch_no)
     mat.update(
         {
             "entry": entry,
             "vol_outline": volume_outline_text(vol),
             "done_chapters": done,
+            "imported_excerpts": _imported_excerpt_block(rows, global_map=gmap),
             "quota_left": quota_left,
             "quota_overshot": quota_overshot,
             "is_final": is_final,
@@ -238,7 +305,7 @@ async def _chapter_material(db, project, vol, ch_no: int) -> dict:
             "ch_no": ch_no,
             "vol_total": target or None,
             "position_tags": chapter_position_tags(global_ch, ch_no),
-            "cadence": cadence_reminder(rows, is_final=is_final, target=target),
+            "cadence": cadence_reminder(authored_rows, is_final=is_final, target=target),
             "stage_hit_climax": any((c.plot_stage or "").strip() == "高潮爆发" for c in rows),
         }
     )
@@ -319,6 +386,8 @@ def _blocks_chapter(mat: dict) -> str:
     if mat["done_chapters"]:
         # c-ai-material-audit：全卷给全（旧 [-12:] 让拆第 20 章时看不见前 8 章）
         parts.append("【已经拆过的章】\n" + "\n".join(mat["done_chapters"]))
+    if mat.get("imported_excerpts"):
+        parts.append("【导入章原文摘录（非摘要，仅供接续）】\n" + mat["imported_excerpts"])
     # 配额：末章 / 已排满 / 还剩 N 章 / 未设目标——四态分明（「已排满」不得报成「未设」）
     if mat["is_final"]:
         quota = "本章是本卷末章——三个方向的结尾都必须收在卷纲第四问「预期结局」上。"
@@ -513,7 +582,7 @@ async def next_chapter_anchor(
     db: AsyncSession = Depends(get_db),
 ):
     """下一章的进场（全档只读）——手写路径不发 AI 请求也要进场。"""
-    from repositories import chapter_repo, volume_repo
+    from repositories import volume_repo
 
     project = await get_novel(db, project_id, user["id"])
     if not project:
@@ -522,11 +591,17 @@ async def next_chapter_anchor(
     vol = await volume_repo.get_by_volume_no(db, project.id, vol_no)
     if vol is None:
         raise HTTPException(404, "Volume not found")
-    rows = [c for c in await chapter_repo.list_by_volume(db, vol.id) if not c.ghost_of]
-    entry = await resolve_prev_chapter_ending(db, project, vol, len(rows) + 1)
-    # 章号/卷号单源：卡面标题「拆第N章」、行号 0N、kicker「第X卷」都取这里，
-    # 前端不再自造（曾用常量占位 → 每章都写「拆第一章」）
-    return {"ok": True, **entry, "next_no": len(rows) + 1, "vol_no": vol.volume_no}
+    ch_no = await _next_chapter_no(db, project.id, vol)
+    entry = await resolve_prev_chapter_ending(db, project, vol, ch_no)
+    # 章号/卷号单源：卡面标题「拆第N章」、行号 0N、kicker「第X卷」都取这里。
+    # next_no 用全书号（多卷书第 2 卷第 1 章显示第 25 章，不显示第 1 章）。
+    next_global = await _global_chapter_no(db, project.id, vol, ch_no)
+    return {
+        "ok": True,
+        **entry,
+        "next_no": next_global,
+        "vol_no": vol.volume_no,
+    }
 
 
 class DirectionsBody(BaseModel):
@@ -547,7 +622,7 @@ async def ai_chapter_directions(
     db: AsyncSession = Depends(get_db),
 ):
     """同一章的 3 个互斥剧情方向（不落库）。名次在模型侧、字母在服务端算。"""
-    from repositories import chapter_repo, volume_repo
+    from repositories import volume_repo
 
     project = await get_novel(db, project_id, user["id"])
     if not project:
@@ -564,8 +639,7 @@ async def ai_chapter_directions(
     ]
     if missing:
         raise HTTPException(422, f"卷纲还没填全（{'、'.join(missing)}）——先去卷纲补齐再拆章")
-    rows = [c for c in await chapter_repo.list_by_volume(db, vol.id) if not c.ghost_of]
-    ch_no = len(rows) + 1
+    ch_no = await _next_chapter_no(db, project.id, vol)
     mat = await _chapter_material(db, project, vol, ch_no)
     # 重抽排除（D21）：已出批的轴＋一句话；中性禁令入素材，服务端同轴相似丢卡
     exclude = [(i.axis.strip(), i.line.strip()) for i in body.exclude if i.axis.strip() and i.line.strip()][:9]
@@ -689,7 +763,8 @@ async def chapter_plan_card(
         "stage": data.get("plot_stage") or "",
         "entry_text": entry["text"],
         "entry_source": entry["source"],
-        "next_no": row.chapter_no,
+        # 回改卡同样用全书号（卷内 row.chapter_no 只用于存储/排序）。
+        "next_no": await _global_chapter_no(db, project.id, row.volume, row.chapter_no),
     }
 
 
@@ -738,8 +813,8 @@ async def ai_chapter_selfcheck(
         [c for c in await chapter_repo.list_by_volume(db, vol.id) if not c.ghost_of],
         key=lambda c: c.chapter_no,
     )
-    # 目标章号：已排上取该章，未排上取本卷末章 +1（进场与配额都按「这一章」算）
-    ch_no = len(rows) + 1
+    # 目标章号：已排上取该章，未排上取本卷 MAX+1（与真实建章同源）
+    ch_no = await _next_chapter_no(db, project.id, vol)
     if body.chapter_ref:
         row = await chapter_repo.get_by_ref(db, project.id, strip_suffix(body.chapter_ref))
         if row is not None:
@@ -760,7 +835,12 @@ async def ai_chapter_selfcheck(
     siblings = [c for c in rows if c.chapter_no < ch_no]
     if siblings:
         last = siblings[-1]
-        prev_line = f"第{last.chapter_no}章：{(last.summary or last.title or '').strip()[:60]}"
+        # 主线章号连续：目标章的全书号减一即上一章；避免多卷书写成「第3章」。
+        global_no = await _global_chapter_no(db, project.id, vol, ch_no)
+        prev_line = (
+            f"第{global_no - 1}章："
+            f"{(last.summary or last.title or '').strip()[:60]}"
+        )
     _sys_t, _usr_t = load_layers("chapter_selfcheck")
     system = _sys_t
     user_msg = _render(

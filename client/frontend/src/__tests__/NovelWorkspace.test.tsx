@@ -1256,3 +1256,114 @@ describe("重新生成确认门禁（c-prose-regen-replace）", () => {
     expect(screen.queryByTestId("regen-confirm")).toBeNull();
   });
 });
+
+describe("导入书续写落点（c-import-direct）", () => {
+  it("42 章原文 → 主页开始写第 43 章、补主线/卷纲清单、树标原文", async () => {
+    const chapters = Array.from({ length: 42 }, (_, i) => ({
+      id: `ch-${i + 1}`,
+      ref: `vol-1-ch-${i + 1}`,
+      volume: 1,
+      chapter: i + 1,
+      global_no: i + 1,
+      title: `第${i + 1}章`,
+      status: "draft",
+      origin: "import",
+      historical: true,
+      word_count: 1000,
+      has_prose: true,
+      outline_status: "unfilled",
+      archived: false,
+    }));
+    apiState.get.mockImplementation((path: string) => {
+      if (path === "/novels/p1/volumes") {
+        return Promise.resolve([{
+          ref: "vol-1", title: "第一卷", summary: "", chapter_count: 42, chapters,
+        }]);
+      }
+      if (path === "/novels/p1/readiness") {
+        return Promise.resolve({ complete: false, missing: [], warning: "" });
+      }
+      return Promise.resolve({});
+    });
+    apiState.fetchStory.mockResolvedValue({ synopsis: "" });
+    renderWorkspace("none");
+    await waitFor(() => expect(screen.getByTestId("home-progress")).toBeTruthy());
+    expect(screen.getByTestId("home-resume").textContent).toContain("开始写第 43 章");
+    expect(screen.getByTestId("import-next-checklist")).toBeTruthy();
+    expect(screen.getAllByText("原文").length).toBeGreaterThan(0);
+  });
+
+  it("last_write 指向历史章时顶栏回该章、主页主 CTA 仍第 N+1", async () => {
+    const chapters = Array.from({ length: 3 }, (_, i) => ({
+      id: `ch-${i + 1}`,
+      ref: `vol-1-ch-${i + 1}`,
+      volume: 1,
+      chapter: i + 1,
+      global_no: i + 1,
+      title: `第${i + 1}章`,
+      status: "draft",
+      origin: "import",
+      historical: true,
+      word_count: 1000,
+      has_prose: true,
+      outline_status: "unfilled",
+      archived: false,
+    }));
+    localStorage.setItem(
+      "pref.book.p1.last_write",
+      JSON.stringify({ ref: "vol-1-ch-2", scroll: 0.2, ts: 1 }),
+    );
+    apiState.get.mockImplementation((path: string) => {
+      if (path === "/novels/p1/volumes") {
+        return Promise.resolve([{
+          ref: "vol-1", title: "第一卷", summary: "", chapter_count: 3, chapters,
+        }]);
+      }
+      if (path === "/novels/p1/readiness") {
+        return Promise.resolve({ complete: false, missing: [], warning: "" });
+      }
+      return Promise.resolve({});
+    });
+    apiState.fetchStory.mockResolvedValue({ synopsis: "" });
+    renderWorkspace("none");
+    await waitFor(() => expect(screen.getByTestId("home-progress")).toBeTruthy());
+    expect(document.querySelector(".bar-here .bh-t")?.textContent).toContain("第 2 章");
+    expect(screen.getByTestId("home-resume").textContent).toContain("开始写第 4 章");
+    expect(screen.getByTestId("import-next-checklist")).toBeTruthy();
+  });
+
+  it("末卷为空卷时仍给第 N+1 章主 CTA（不隐藏待写位）", async () => {
+    const chapters = Array.from({ length: 3 }, (_, i) => ({
+      id: `ch-${i + 1}`,
+      ref: `vol-1-ch-${i + 1}`,
+      volume: 1,
+      chapter: i + 1,
+      global_no: i + 1,
+      title: `第${i + 1}章`,
+      status: "draft",
+      origin: "import",
+      historical: true,
+      word_count: 1000,
+      has_prose: true,
+      outline_status: "unfilled",
+      archived: false,
+    }));
+    apiState.get.mockImplementation((path: string) => {
+      if (path === "/novels/p1/volumes") {
+        return Promise.resolve([
+          { ref: "vol-1", title: "第一卷", summary: "", chapter_count: 3, chapters },
+          { ref: "vol-2", title: "第二卷", summary: "", chapter_count: 0, chapters: [] },
+        ]);
+      }
+      if (path === "/novels/p1/readiness") {
+        return Promise.resolve({ complete: false, missing: [], warning: "" });
+      }
+      return Promise.resolve({});
+    });
+    apiState.fetchStory.mockResolvedValue({ synopsis: "" });
+    renderWorkspace("none");
+    await waitFor(() => expect(screen.getByTestId("home-progress")).toBeTruthy());
+    expect(screen.getByTestId("home-resume").textContent).toContain("开始写第 4 章");
+    expect(document.querySelector(".bar-here .bh-t")?.textContent).toContain("第 4 章");
+  });
+});

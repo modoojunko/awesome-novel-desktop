@@ -155,7 +155,7 @@ const paginationProtoBooks = () =>
 const MEMBER_VERIFY = { tier: "monthly", is_member: true, expired: false, trial_remaining_days: 0 };
 // quota 场景隔离口径：is_member=false 触发免费额度墙，但 tier 非 none/trial 且未过期，
 // 屏蔽账号 Banner（原型无 Banner），只比额度墙本身
-const FREE_VERIFY = { tier: "monthly", is_member: false, expired: false, trial_remaining_days: 0 };
+const FREE_VERIFY = { tier: "monthly", is_member: false, expired: false, trial_remaining_days: 0, project_limit: 1, entitlement: { v: 2, features: [], limits: { max_projects: 1 } } };
 
 type Case = {
   state: string;
@@ -236,7 +236,7 @@ test.describe("design-parity 书架屏（list.html v2）", () => {
         await appPage.route("**/api/novels/parity-ready/volumes", (r) => r.fulfill({ json: [] }));
       }
       // 原型常显更新提示条（ADJUSTMENTS #15）→ 应用侧同文案打桩，保持像素基线
-      await stubUpdateNotice(appPage, "update");
+      await stubUpdateNotice(appPage, "update", "0.19");
       await appPage
         .route("**/api/auth/verify", (r) => r.fulfill({ json: c.member ? MEMBER_VERIFY : FREE_VERIFY }));
       // portal_url 给真值：appbar「联系客服」按钮与原型同步渲染（空值时按钮隐藏，会造像素差）
@@ -249,6 +249,10 @@ test.describe("design-parity 书架屏（list.html v2）", () => {
       // list.html 不含带回 UI；带回卡的对位原型是 upgrade-carry.html，见 ADJUSTMENTS）
       await appPage.route("**/api/backup/db-migration/candidates", (r) =>
         r.fulfill({ json: { code: 0, data: { candidates: [], quarantined: [], current_version: "0.0" } } }));
+      // 写作能力首装弹窗（c-prompt-pack-onboard-modal）：真栈探测可能弹窗遮住基线，
+      // parity 侧钉成已安装态（原型书架无此弹窗）。
+      await appPage.route("**/api/prompt-pack/probe", (r) =>
+        r.fulfill({ json: { installed_version: "2026.10.10-1", latest_version: "2026.10.10-1", update_available: false, source: "pack" } }));
       await appPage.goto("/#/novels");
       await appPage.waitForLoadState("networkidle");
       await appPage.evaluate(() => document.fonts.ready);

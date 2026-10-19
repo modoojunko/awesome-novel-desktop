@@ -28,15 +28,18 @@ export const STAGE_LABEL: Record<NovelStage, string> = {
   done: "已完结",
 };
 
-/** 由「章节总数 / 已归档章节数 / 完结时间戳」派生阶段。 */
+/** 由「章节总数 / 作者章总数 / 作者章已归档数 / 完结时间戳」派生阶段。
+ *  导入的历史章（origin=import）计入总数，但不进完本分母；只有导入章＝写作中。 */
 export function stageFromChapters(
   totalChapters: number,
-  archivedChapters: number,
+  authoredTotal: number,
+  authoredArchived: number,
   finishedAt?: string | null,
 ): NovelStage {
   if (finishedAt) return "done";
   if (totalChapters <= 0) return "setting";
-  if (archivedChapters >= totalChapters) return "ready";
+  if (authoredTotal <= 0) return "writing";
+  if (authoredArchived >= authoredTotal) return "ready";
   return "writing";
 }
 

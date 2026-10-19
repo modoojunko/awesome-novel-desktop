@@ -50,12 +50,21 @@ const DETAIL = {
   ],
 };
 
-function mockApi(opts?: { frontierVol?: number }) {
+function mockApi(opts?: {
+  frontierVol?: number;
+  frontierCh?: number;
+  frontierGlobal?: number;
+}) {
   apiState.get.mockImplementation((path: string) => {
     if (path === "/novels/p1/volumes/vol-1") return Promise.resolve(DETAIL);
     if (path === "/novels/p1/frontier") {
       const vol = opts?.frontierVol ?? 1;
-      return Promise.resolve({ frontier: { ref: `vol-${vol}-ch-3`, chapter_no: 3, volume_no: vol, state: "draft", writable: true, pending: false } });
+      const ch = opts?.frontierCh ?? 3;
+      return Promise.resolve({ frontier: {
+        ref: `vol-${vol}-ch-${ch}`, chapter_no: ch, volume_no: vol,
+        global_no: opts?.frontierGlobal, state: "draft", writable: true,
+        pending: false,
+      } });
     }
     if (path === "/novels/p1/characters/graph")
       return Promise.resolve({ ok: true, data: { nodes: [], edges: [] } });
@@ -124,6 +133,14 @@ describe("VolumeWorkspace 卷视图", () => {
     renderVol();
     const line = await screen.findByTestId("vol-progress");
     expect(line).toHaveTextContent("不在本卷");
+  });
+
+  it("待写章尚未建行时用 frontier 全书号，不回落到卷内号", async () => {
+    mockApi({ frontierVol: 1, frontierCh: 4, frontierGlobal: 43 });
+    renderVol();
+    const line = await screen.findByTestId("vol-progress");
+    expect(line).toHaveTextContent("第 43 章");
+    expect(line).not.toHaveTextContent("第 4 章");
   });
 
   it("编辑→保存：PUT 终版字段集（antagonist＋chapter_target null 清空通道）", async () => {

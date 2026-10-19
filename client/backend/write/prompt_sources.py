@@ -65,6 +65,11 @@ async def _story_state_gap(
     if prev is None:
         return ""
     if prev.status != "archived":
+        if getattr(prev, "origin", "authored") == "import" and prev.has_prose:
+            text = (prev.summary or "").strip()
+            if not text:
+                text = ((prev.content.prose if prev.content else "") or "").strip()[:200]
+            return text or "上一章原文"
         return "上一章未归档" if prev.has_prose else ""
     pending = 0
     for model in (

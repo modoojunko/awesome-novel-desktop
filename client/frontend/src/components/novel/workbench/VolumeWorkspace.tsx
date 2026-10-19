@@ -84,9 +84,12 @@ export default function VolumeWorkspace({
   const [saving, setSaving] = useState(false);
   const [tab, setTab] = useState<VolumeTab>("outline");
   // 主线写作位（首个未归档章，含草稿；与排队门禁同源）
-  const [frontier, setFrontier] = useState<{ vol: number; ch: number } | null>(
-    null,
-  );
+  const [frontier, setFrontier] = useState<{
+    vol: number;
+    ch: number;
+    /** 全书号（未建章时也由 /frontier 给出；卷页待写位用它） */
+    gno?: number;
+  } | null>(null);
 
   // ── 规划台回填（volume-plan-ai）：逐段落下、跳过作者已改字段、期间保存禁用 ──
   const [filling, setFilling] = useState(false);
@@ -133,12 +136,20 @@ export default function VolumeWorkspace({
     (async () => {
       try {
         const d = (await api.get(`/novels/${projectId}/frontier`)) as {
-          frontier: { volume_no: number; chapter_no: number } | null;
+          frontier: {
+            volume_no: number;
+            chapter_no: number;
+            global_no?: number;
+          } | null;
         };
         if (alive) {
           setFrontier(
             d.frontier
-              ? { vol: d.frontier.volume_no, ch: d.frontier.chapter_no }
+              ? {
+                  vol: d.frontier.volume_no,
+                  ch: d.frontier.chapter_no,
+                  gno: d.frontier.global_no,
+                }
               : null,
           );
         }
@@ -366,9 +377,13 @@ export default function VolumeWorkspace({
         onClose={() => setResplitOpen(false)}
         onConfirm={() => void doResplit()}
         planned={(detail?.chapters ?? [])
-          .filter((c) => !c.has_prose && !c.archived)
-          .map((c) => ({ no: c.chapter, title: c.title }))}
-        kept={(detail?.chapters ?? []).filter((c) => c.has_prose || c.archived).length}
+          .filter((c) => !c.has_prose && !c.archived && c.origin !== "import")
+          .map((c) => ({ no: c.global_no ?? c.chapter, title: c.title }))}
+        kept={
+          (detail?.chapters ?? []).filter(
+            (c) => c.has_prose || c.archived || c.origin === "import"
+          ).length
+        }
       />
     </div>
   );
@@ -395,7 +410,7 @@ function VolumeOutlinePane({
   saving: boolean;
   /** 规划台回填进行中（保存禁用，防半截写库） */
   filling: boolean;
-  frontier: { vol: number; ch: number } | null;
+  frontier: { vol: number; ch: number; gno?: number } | null;
   onPatch: (p: Partial<VolumeFormData>) => void;
   onEdit: () => void;
   onCancel: () => void;
@@ -407,13 +422,25 @@ function VolumeOutlinePane({
   /** 回改这一章（5.6）：派生视图行可点开同一张本章卡 */
   onEditChapter: (ref: string) => void;
 }) {
-  const here =
+  const hereCh =
     frontier && frontier.vol === detail.volume
-      ? `第 ${frontier.ch} 章`
+      ? detail.chapters.find((c) => c.chapter === frontier.ch)
+      : null;
+  const here = hereCh
+    ? `第 ${hereCh.global_no ?? hereCh.chapter} 章`
+    : frontier && frontier.vol === detail.volume
+      ? `第 ${frontier.gno ?? frontier.ch} 章`
       : "不在本卷";
   const archived = detail.chapters.filter((c) => c.archived).length;
-  const draft = detail.chapters.filter((c) => c.has_prose && !c.archived).length;
-  const planned = detail.chapters.filter((c) => !c.has_prose && !c.archived).length;
+  const imported = detail.chapters.filter(
+    (c) => c.origin === "import" && !c.archived
+  ).length;
+  const draft = detail.chapters.filter(
+    (c) => c.has_prose && !c.archived && c.origin !== "import"
+  ).length;
+  const planned = detail.chapters.filter(
+    (c) => !c.has_prose && !c.archived && c.origin !== "import"
+  ).length;
 
   if (form) {
     return (
@@ -666,13 +693,13 @@ function VolumeOutlinePane({
                       if (e.key === "Enter" || e.key === " ") onEditChapter(c.ref);
                     }}
                   >
-                    <span className="num">{i + 1}</span>
+                    <span className="num">{c.global_no ?? i + 1}</span>
                     <div className="cols cn">
                       <span className="qno">{c.plot_stage || "（未定阶段）"}</span>
                       <p className="node-tx">{c.title}</p>
                     </div>
                     <span className="tag">
-                      {c.archived ? "已归档" : c.has_prose ? "草稿" : "已排"}
+                      {c.archived ? "已归档" : c.origin === "import" ? "原文" : c.has_prose ? "草稿" : "已排"}
                     </span>
                   </div>
                 ))}
@@ -688,6 +715,10 @@ function VolumeOutlinePane({
         <span className="pos">
           <em>已归档</em>
           <b>{archived} 章</b>
+        </span>
+        <span className="pos">
+          <em>原文</em>
+          <b>{imported} 章</b>
         </span>
         <span className="pos">
           <em>草稿</em>
@@ -721,7 +752,7 @@ function ChapterLedgerPane({
   projectId: string;
   volumeRef: string;
   detail: VolumeDetail;
-  frontier: { vol: number; ch: number } | null;
+  frontier: { vol: number; ch: number; gno?: number } | null;
   wb: UseWorkbenchReturn;
   onGoChapter: (ref: string) => void;
   /** 「拆下一章」手写四段（c-chapter-plan-ai；全档；入口自卷纲页签迁入） */
@@ -791,11 +822,14 @@ function ChapterLedgerPane({
       ) : (
         <div className="ledger">
           {detail.chapters.map((c) => {
+            const isImport = c.origin === "import";
             const state = c.archived
               ? "已归档"
-              : c.has_prose
-                ? "草稿"
-                : "拟定";
+              : isImport
+                ? "原文"
+                : c.has_prose
+                  ? "草稿"
+                  : "拟定";
             return (
               <button
                 className="lrow chrow vol-chrow"
@@ -803,13 +837,19 @@ function ChapterLedgerPane({
                 onClick={() => onGoChapter(c.ref)}
               >
                 <span className="lname">
-                  第 {c.chapter} 章 · {c.title || "（未命名）"}
+                  第 {c.global_no ?? c.chapter} 章 · {c.title || "（未命名）"}
                   <em>
                     {c.outline_summary ||
-                      (c.has_prose ? "（没有章纲）" : "（待补章纲）")}
+                      (isImport
+                        ? "（原文）"
+                        : c.has_prose
+                          ? "（没有章纲）"
+                          : "（待补章纲）")}
                   </em>
                 </span>
-                <span className={`lstate${!c.archived && c.has_prose ? " open" : ""}`}>
+                <span
+                  className={`lstate${!c.archived && c.has_prose && !isImport ? " open" : ""}`}
+                >
                   {state}
                 </span>
               </button>

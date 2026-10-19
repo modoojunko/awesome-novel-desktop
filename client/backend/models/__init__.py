@@ -21,6 +21,7 @@ from models.deconstruct import DeconstructJob
 from models.event import Event
 from models.genre import Genre
 from models.hook import HookOp, NovelHook
+from models.import_session import ImportSession
 from models.novel_genre import (
     GenreVocab,
     NovelGenre,
@@ -62,6 +63,7 @@ __all__ = [
     "Genre",
     "GenreVocab",
     "HookOp",
+    "ImportSession",
     "Novel",
     "NovelGenre",
     "NovelGenreBattlefield",

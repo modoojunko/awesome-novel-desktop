@@ -164,7 +164,8 @@ class TestCommentStripping:
         if not SIBLING_PROMPTS.is_dir():
             pytest.skip("sibling 提示词仓不在位（非 sibling 布局）")
         monkeypatch.setenv(prompts.DEV_DIR_ENV, str(SIBLING_PROMPTS))
-        for name in ("polish_text", "volume_rules", "write_chapter"):
+        # polish_text 已在提示词仓退役（c-renwei-check）；抽样改为当前现役模板。
+        for name in ("deconstruct_card", "volume_rules", "write_chapter"):
             text = load(name)
             assert text.strip(), name
             assert "★★" not in text and not text.lstrip().startswith("##"), name

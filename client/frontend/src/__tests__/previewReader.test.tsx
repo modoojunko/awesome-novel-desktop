@@ -57,12 +57,11 @@ describe("PreviewView — 三栏阅读器", () => {
 
   it("三栏渲染：目录头主线计数 + 概览统计 + 四组阅读配置", async () => {
     renderView();
-    await waitFor(() => expect(screen.getByTestId("pv-count")).toBeTruthy());
-    expect(screen.getByTestId("pv-count").textContent).toContain("主线 4 章 · 1 卷 · 不含旧稿");
+    await waitFor(() => expect(screen.getByTestId("pv-count")).toBeTruthy());    expect(screen.getByTestId("pv-count").textContent).toContain("主线 4 章 · 1 卷 · 不含旧稿");
     const overview = screen.getByText("全书概览").closest(".pv-card")!;
     expect(overview.textContent).toContain("章节 4");
     expect(overview.textContent).toContain("字数 2000");
-    expect(overview.textContent).toContain("已归档 2 · 草稿 1 · 拟定 1");
+    expect(overview.textContent).toContain("已归档 2 · 原文 0 · 草稿 1 · 拟定 1");
     for (const label of ["字号", "字体", "行距", "主题"]) {
       expect(screen.getByRole("group", { name: label })).toBeTruthy();
     }
@@ -146,5 +145,18 @@ describe("PreviewView — 三栏阅读器", () => {
     expect(localStorage.getItem("pref.book.p1.read.size")).toBe("s");
     // 写作偏好原值不动
     expect(getBookFontSize("p1")).toBe("fs-s");
+  });
+
+  it("归档导入章仍算原文、不算作者章", async () => {
+    const imported = [vol("vol-1", 1, "风起", [
+      ch({ chapter: 1, title: "原一", word_count: 100, has_prose: true, archived: true, origin: "import", historical: false }),
+      ch({ chapter: 2, title: "原二", word_count: 100, has_prose: true, archived: false, origin: "import", historical: true }),
+    ])];
+    renderView({ volumes: imported });
+    const overview = (await waitFor(() => screen.getByText("全书概览"))).closest(".pv-card")!;
+    expect(overview.textContent).toContain("已归档 1（其中原文 1）");
+    expect(overview.textContent).toContain("原文 1");
+    expect(overview.textContent).toContain("暂无作者章");
+    expect(screen.getAllByText("原文").length).toBeGreaterThan(0);
   });
 });

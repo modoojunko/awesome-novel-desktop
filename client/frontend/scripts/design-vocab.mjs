@@ -9,7 +9,7 @@
 // PR 1 收编：书架屏 + 设计系统地基（图标/弹窗/Toast/PrefsModal + 旧弹窗收编）。
 // PR 7 收编：daisyUI/lucide 退役迁移面（结构树/版本对比/导入×3/设定弹窗×3/
 //           会员拦截/引导卡/用量图 + 登录页/营销页轻重皮）。
-export const strictGlobs = ["../../docs/design-c/prototypes/list.html", "../../docs/design-c/prototypes/model-config.html", "../../docs/design-c/prototypes/book.html", "../../docs/design-c/prototypes/index.html", "../../docs/design-c/prototypes/character-settings.html", "../../docs/design-c/prototypes/foreshadow-settings.html", "../../docs/design-c/prototypes/style-settings.html", "../../docs/design-c/prototypes/settings-done-entry.html", "../../docs/design-c/prototypes/preview.html", "../../docs/design-c/prototypes/login.html"];
+export const strictGlobs = ["../../docs/design-c/prototypes/list.html", "../../docs/design-c/prototypes/model-config.html", "../../docs/design-c/prototypes/book.html", "../../docs/design-c/prototypes/index.html", "../../docs/design-c/prototypes/character-settings.html", "../../docs/design-c/prototypes/foreshadow-settings.html", "../../docs/design-c/prototypes/style-settings.html", "../../docs/design-c/prototypes/settings-done-entry.html", "../../docs/design-c/prototypes/preview.html", "../../docs/design-c/prototypes/login.html", "../../docs/design-c/prototypes/import-own-book.src.html"];
 export const strictSrcGlobs = [
   "src/pages/NovelListPage.tsx",
   "src/components/Navbar.tsx",
@@ -27,8 +27,6 @@ export const strictSrcGlobs = [
   "src/components/novel/VersionDiff.tsx",
   "src/components/novel/OnboardingCard.tsx",
   "src/components/novel/ImportNovelModal.tsx",
-  "src/components/novel/ImportPreviewTree.tsx",
-  "src/components/novel/ImportUploadZone.tsx",
   "src/components/novel/settings/AISuggestionModal.tsx",
   "src/components/novel/license/MemberBlockPrompt.tsx",
   "src/components/api-config/UsagePieChart.tsx",

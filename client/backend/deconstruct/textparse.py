@@ -15,9 +15,15 @@
 
 from __future__ import annotations
 
+import hashlib
 import re
+from bisect import bisect_left, bisect_right
 
 MAX_SOURCE_BYTES = 50 * 1024 * 1024
+# 章数/卷数硬上限：50MB 不限制「第X章/第X卷」行密度，几十万行标题会把 manifest 与内存打爆。
+MAX_CHAPTERS = 20_000
+MAX_VOLUMES = 2_000
+PARSER_VERSION = "textparse-2026-10.1"
 
 _ENCChain = ("utf-8-sig", "gb18030", "big5")
 
@@ -83,6 +89,20 @@ def count_chars(text: str) -> int:
     return len(_WS_RE.sub("", text or ""))
 
 
+_CHAPTER_PREFIX_RE = re.compile(r"^\s*第[0-9零一二两三四五六七八九十百千]+[章回节]\s*[·:：\-—]?\s*")
+_VOLUME_PREFIX_RE = re.compile(r"^\s*第[0-9零一二两三四五六七八九十百千]+卷\s*[·:：\-—]?\s*")
+
+
+def normalize_chapter_title(raw: str) -> str:
+    """章标题入库口径：剥掉「第X章/回/节」序号与分隔符；空标题保留空串。"""
+    return _CHAPTER_PREFIX_RE.sub("", (raw or "").strip(), count=1).strip()
+
+
+def normalize_volume_title(raw: str) -> str:
+    """卷名入库口径：剥掉「第X卷」序号与分隔符；空卷名保留空串。"""
+    return _VOLUME_PREFIX_RE.sub("", (raw or "").strip(), count=1).strip()
+
+
 def parse_novel(text: str) -> dict:
     """纯文本分卷分章 → 解析结果。
 
@@ -91,34 +111,101 @@ def parse_novel(text: str) -> dict:
     章前序文（封面/简介）并入第 1 章开头。
     """
     warnings: list[str] = []
-    chapter_matches = list(_CHAPTER_RE.finditer(text))
-    volume_matches = list(_VOLUME_RE.finditer(text))
+    chapter_matches = []
+    for m in _CHAPTER_RE.finditer(text):
+        chapter_matches.append(m)
+        if len(chapter_matches) > MAX_CHAPTERS:
+            raise ValueError(
+                f"章节标题超过 {MAX_CHAPTERS} 个，文件可能不是小说正文，请检查后重试"
+            )
+
+    def _line_end(pos: int) -> int:
+        if text[pos:pos + 2] == "\r\n":
+            return pos + 2
+        if text[pos:pos + 1] in ("\r", "\n"):
+            return pos + 1
+        return pos
+
+    chapter_starts = [cm.start() for cm in chapter_matches]
+
+    def _volume_heading_matches():
+        """卷标题行必须紧跟下一章标题（中间只有空白），避免把正文里的短句当卷名删掉。"""
+        if not chapter_matches:
+            matches = []
+            for vm in _VOLUME_RE.finditer(text):
+                matches.append(vm)
+                if len(matches) > MAX_VOLUMES:
+                    raise ValueError(
+                        f"卷标题超过 {MAX_VOLUMES} 个，文件可能不是小说正文，请检查后重试"
+                    )
+            return matches
+        out = []
+        # finditer 是惰性的：命中上限就停，避免极端文件把时间和内存耗光。
+        for vm in _VOLUME_RE.finditer(text):
+            i = bisect_right(chapter_starts, vm.end())
+            if i >= len(chapter_starts):
+                continue
+            nxt_start = chapter_starts[i]
+            if text[_line_end(vm.end()):nxt_start].strip():
+                continue
+            out.append(vm)
+            if len(out) > MAX_VOLUMES:
+                raise ValueError(
+                    f"卷标题超过 {MAX_VOLUMES} 个，文件可能不是小说正文，请检查后重试"
+                )
+        return out
+
+    volume_matches = _volume_heading_matches()
 
     if not chapter_matches:
         warnings.append("未识别到「第X章」标题行，按整本单章处理")
-        chapters = [{"no": 1, "title": "全本", "text": text}]
+        chapters = [{
+            "no": 1, "title": "全本", "text": text,
+            "char_start": 0, "char_end": len(text), "body_ranges": [[0, len(text)]],
+        }]
     else:
         chapters = []
-        # 首章前的前序文（若有）并入第 1 章
-        preface = text[: chapter_matches[0].start()].strip()
+        # 首章前的前序文（若有）并入第 1 章；body_ranges 同时保留标题行之外的原文区间，
+        # 供 A 路 manifest 落库时按区间取正文，避免二次解析。
+        preface_end = chapter_matches[0].start()
+        preface = text[:preface_end].strip()
         for i, m in enumerate(chapter_matches):
-            start = m.end()
-            end = chapter_matches[i + 1].start() if i + 1 < len(chapter_matches) else len(text)
-            body = (preface if i == 0 and preface else "") + text[start:end]
-            chapters.append({"no": i + 1, "title": m.group(1).strip(), "text": body})
+            body_start = m.end()
+            body_end = chapter_matches[i + 1].start() if i + 1 < len(chapter_matches) else len(text)
+            ranges: list[list[int]] = []
+            if i == 0 and preface:
+                ranges.append([0, preface_end])
+            ranges.append([body_start, body_end])
+            body = (preface if i == 0 and preface else "") + text[body_start:body_end]
+            chapters.append({
+                "no": i + 1,
+                "title": m.group(1).strip(),
+                "text": body,
+                "char_start": ranges[0][0],
+                "char_end": ranges[-1][1],
+                "body_ranges": ranges,
+            })
         if len(chapters) < 3:
             warnings.append(f"仅识别到 {len(chapters)} 章，章节标题可能不规范（按现状拆解）")
 
     # 卷归属：卷标题行落在哪些章之间
     volumes: list[dict] = []
+    volume_heading_ranges: list[list[int]] = []
     if volume_matches:
         for i, vm in enumerate(volume_matches):
             pos = vm.start()
-            ch_start = sum(1 for cm in chapter_matches if cm.start() < pos) + 1
+            ch_start = bisect_left(chapter_starts, pos) + 1
             next_pos = volume_matches[i + 1].start() if i + 1 < len(volume_matches) else len(text)
-            ch_end = sum(1 for cm in chapter_matches if cm.start() < next_pos)
+            ch_end = bisect_left(chapter_starts, next_pos)
             if ch_end >= ch_start:
-                volumes.append({"title": vm.group(1).strip(), "ch_start": ch_start, "ch_end": ch_end})
+                ranges = [[vm.start(), _line_end(vm.end())]]
+                volumes.append({
+                    "title": vm.group(1).strip(),
+                    "ch_start": ch_start,
+                    "ch_end": ch_end,
+                    "heading_ranges": ranges,
+                })
+                volume_heading_ranges.extend(ranges)
         if not volumes:
             warnings.append("识别到卷标题但未能归属章节，已忽略分卷")
 
@@ -126,6 +213,7 @@ def parse_novel(text: str) -> dict:
         "total_chars": count_chars(text),
         "chapters": chapters,
         "volumes": volumes,
+        "volume_heading_ranges": volume_heading_ranges,
         "warnings": warnings,
     }
 
@@ -161,4 +249,55 @@ def structure_verdict(parse: dict) -> dict:
         "issues": issues,
         "chapter_count": n,
         "avg_chapter_chars": avg,
+    }
+
+
+def build_manifest(raw: bytes, filename: str = "") -> dict:
+    """解析一次并冻结 manifest（A 路第 1 步 / B 路建任务共用）。
+
+    manifest 只存事实：编码、sha、字数、逐章标题/正文区间/卷归属、warnings/risk；
+    正文留在源文件里，落库时按 body_ranges 切片，避免把 180 万字塞进 JSON，
+    也避免后续 parser 升级导致章节边界漂移。
+    """
+    text, enc = decode_text(raw)
+    parse = parse_novel(text)
+    volume_title_by_no: dict[int, str] = {}
+    volumes: list[dict] = []
+    for v in parse.get("volumes") or []:
+        title = normalize_volume_title(v["title"])
+        for n in range(int(v["ch_start"]), int(v["ch_end"]) + 1):
+            volume_title_by_no[n] = title
+        volumes.append({
+            "title": title,
+            "title_raw": v["title"],
+            "chapter_from": int(v["ch_start"]),
+            "chapter_to": int(v["ch_end"]),
+        })
+    chapters: list[dict] = []
+    for c in parse.get("chapters") or []:
+        body = c.get("text") or ""
+        chapters.append({
+            "idx": int(c["no"]),
+            "source_no": int(c["no"]),
+            "title": normalize_chapter_title(c["title"]),
+            "title_raw": c["title"],
+            "volume_title": volume_title_by_no.get(int(c["no"]), ""),
+            "char_start": int(c["char_start"]),
+            "char_end": int(c["char_end"]),
+            "body_ranges": c["body_ranges"],
+            "text_sha256": hashlib.sha256(body.encode("utf-8")).hexdigest(),
+        })
+    return {
+        "schema": 1,
+        "parser_version": PARSER_VERSION,
+        "filename": filename,
+        "encoding": enc,
+        "source_sha256": hashlib.sha256(raw).hexdigest(),
+        "char_count": int(parse.get("total_chars") or 0),
+        "chapters": chapters,
+        "volumes": volumes,
+        # 精确的卷标题行区间：落库/简介只剔这些区间，不再按正则在正文里逐行猜。
+        "volume_heading_ranges": parse.get("volume_heading_ranges") or [],
+        "warnings": parse.get("warnings") or [],
+        "risk": structure_verdict(parse),
     }

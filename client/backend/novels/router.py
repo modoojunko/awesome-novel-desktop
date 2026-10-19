@@ -7,8 +7,10 @@ from dataclasses import asdict
 from fastapi import APIRouter, Depends, File, HTTPException, Response, UploadFile
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
+from sqlalchemy import delete as sa_delete
 from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
+from starlette.concurrency import run_in_threadpool
 
 from ai_client import AITimeoutError, get_ai_client
 from auth_local.deps import ai_feature, require_ai_access, require_project_limit
@@ -257,22 +259,30 @@ async def list_all(
                     Chapter.ghost_of.is_(None),
                 )
                 .options(
-                    load_only(Chapter.project_id, Chapter.word_count, Chapter.status)
+                    load_only(Chapter.project_id, Chapter.word_count, Chapter.status, Chapter.origin)
                 )
             )
         ).all()
         counter = Counter()
         counts = Counter()
         archived = Counter()
+        authored = Counter()
+        authored_archived = Counter()
         for ch in ch_rows:
             key = str(ch.project_id)
             counter[key] += ch.word_count or 0
             counts[key] += 1
             if ch.status == "archived":
                 archived[key] += 1
+            if ch.origin != "import":
+                authored[key] += 1
+                if ch.status == "archived":
+                    authored_archived[key] += 1
         words = dict(counter)
         ch_count = dict(counts)
         arch_count = dict(archived)
+        authored_count = dict(authored)
+        authored_arch_count = dict(authored_archived)
 
     kv_genres = await _batch_kv_genre_names(db, projects)
     core_promises = await _batch_core_promises(db, projects)
@@ -286,6 +296,8 @@ async def list_all(
         # 都会自相矛盾（如「卡片已归档 / 落点写作」）；同时自愈历史库里的漂移计数。
         d["total_chapters"] = ch_count.get(str(p.id), 0)
         d["total_archives"] = arch_count.get(str(p.id), 0)
+        d["authored_total"] = authored_count.get(str(p.id), 0)
+        d["authored_archived"] = authored_arch_count.get(str(p.id), 0)
         try:
             story = await storage.read_yaml(p.root_path, "story.yaml") or {}
         except Exception:
@@ -489,17 +501,18 @@ async def finish(
     from models.chapter import Chapter
 
     statuses = (
-        await db.scalars(
-            select(Chapter.status).where(
+        await db.execute(
+            select(Chapter.status, Chapter.origin).where(
                 Chapter.project_id == project.id,
                 Chapter.ghost_of.is_(None),
             )
         )
     ).all()
-    total = len(statuses)
-    archived = sum(1 for s in statuses if s == "archived")
-    if total <= 0 or archived < total:
-        raise HTTPException(409, "还有主线章节未归档，完本前先把主线章节全部归档")
+    authored = [(s, o) for s, o in statuses if o != "import"]
+    authored_total = len(authored)
+    authored_archived = sum(1 for s, _ in authored if s == "archived")
+    if authored_total <= 0 or authored_archived < authored_total:
+        raise HTTPException(409, "还没有写完自己的作者章，完本前先把作者章全部归档")
     finished = await finish_novel(db, project)
     return novel_to_dict(finished)
 
@@ -810,6 +823,233 @@ class ImportPersistBody(BaseModel):
     volumes: list[VolumeItem]
 
 
+IMPORT_SESSION_TTL_HOURS = 24
+
+
+@router.post("/import/own/parse", status_code=200)
+async def import_own_parse(
+    file: UploadFile = File(...),
+    user: dict = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """A 路第 1 步：只收 txt，冻结 manifest，返回卷章预览与 import_id。
+
+    源文件落在 DATA_ROOT/import-sessions/<id>.txt；manifest 存区间不存全文。
+    过期由 /import/own/persist 校验（过期→要求重新解析）。
+    """
+    from datetime import UTC, datetime, timedelta
+
+    from config import DATA_ROOT
+    from deconstruct.textparse import MAX_SOURCE_BYTES, build_manifest
+    from models.import_session import ImportSession
+    from novels.import_backfill import cleanup_expired_import_sessions
+
+    # 长时间运行的应用没有重启 sweep：每次新解析顺手清一遍过期会话与源文件。
+    try:
+        await cleanup_expired_import_sessions()
+    except Exception:  # noqa: BLE001 — 清理失败不挡本次解析
+        pass
+
+    if file.size is not None and file.size > MAX_SOURCE_BYTES:
+        raise HTTPException(413, "文件大小超过 50MB 限制")
+    raw = await file.read()
+    if len(raw) > MAX_SOURCE_BYTES:
+        raise HTTPException(413, "文件大小超过 50MB 限制")
+    filename = file.filename or "upload.txt"
+    if os.path.splitext(filename)[1].lower() != ".txt":
+        raise HTTPException(415, "第一期仅支持 .txt 文件")
+
+    try:
+        # 解析是同步 CPU/正则活，放线程池避免阻塞事件循环（50MB 大文件尤其明显）。
+        manifest = await run_in_threadpool(build_manifest, raw, filename)
+    except ValueError as e:
+        raise HTTPException(400, str(e)) from e
+
+    session_id = uuid.uuid4().hex
+    sessions_dir = os.path.abspath(os.path.join(DATA_ROOT, "import-sessions"))
+    os.makedirs(sessions_dir, exist_ok=True)
+    source_path = os.path.join(sessions_dir, session_id + ".txt")
+    with open(source_path, "wb") as f:
+        f.write(raw)
+    now = datetime.now(UTC).replace(tzinfo=None)
+    row = ImportSession(
+        id=session_id,
+        user_id=user["id"],
+        source_path=source_path,
+        filename=filename,
+        manifest_json=json.dumps(manifest, ensure_ascii=False),
+        source_sha256=manifest["source_sha256"],
+        encoding=manifest["encoding"],
+        char_count=manifest["char_count"],
+        expires_at=now + timedelta(hours=IMPORT_SESSION_TTL_HOURS),
+    )
+    db.add(row)
+    try:
+        await db.commit()
+    except Exception:
+        await db.rollback()
+        try:
+            os.unlink(source_path)
+        except OSError:
+            pass
+        raise
+
+    title = os.path.splitext(os.path.basename(filename))[0].strip() or "未命名作品"
+    return {
+        "import_id": session_id,
+        "title": title,
+        "filename": filename,
+        "encoding": manifest["encoding"],
+        "char_count": manifest["char_count"],
+        "chapter_count": len(manifest["chapters"]),
+        "volumes": manifest["volumes"],
+        "chapters": [
+            {
+                "source_no": c["source_no"],
+                "title": c["title"],
+                "title_raw": c["title_raw"],
+                "volume_title": c["volume_title"],
+            }
+            for c in manifest["chapters"]
+        ],
+        "warnings": manifest["warnings"],
+        "risk": manifest["risk"],
+        "parser_version": manifest["parser_version"],
+        "source_sha256": manifest["source_sha256"],
+    }
+
+
+class ImportVolumeRange(BaseModel):
+    title: str = ""
+    chapter_from: int
+    chapter_to: int
+
+
+class ImportOwnPersistBody(BaseModel):
+    import_id: str
+    name: str
+    volumes: list[ImportVolumeRange]
+    import_token: str
+    excluded_source_nos: list[int] = []
+
+
+@router.post("/import/own/persist", status_code=201)
+async def import_own_persist(
+    body: ImportOwnPersistBody,
+    user: dict = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """A 路落库：按 import_id 的冻结 manifest + 确认结构，单事务建书。"""
+    import json as _json
+    from datetime import UTC, datetime
+    from types import SimpleNamespace
+
+    from auth_local.deps import require_project_limit
+    from models.import_session import ImportSession
+    from models.project import Novel
+    from novels.import_structure import StructureError
+    from novels.import_writer import (
+        ImportSourceMismatch,
+        persist_import,
+        slice_import_prose,
+    )
+
+    existing = await db.scalar(
+        select(Novel).where(Novel.import_token == body.import_token)
+    )
+    if existing is not None:
+        if existing.user_id != user["id"]:
+            raise HTTPException(409, "导入令牌已被使用")
+        return {"id": str(existing.id), "name": existing.name}
+
+    session = await db.get(ImportSession, body.import_id)
+    if session is None or session.user_id != user["id"]:
+        raise HTTPException(404, "导入会话不存在，请重新解析文件")
+    now = datetime.now(UTC).replace(tzinfo=None)
+    if session.expires_at < now:
+        source_path = session.source_path
+        try:
+            os.unlink(source_path)
+        except FileNotFoundError:
+            pass
+        except OSError:
+            # 文件删不掉就保留会话行，交给下一次 sweep 重试（避免永久孤儿文件）。
+            raise HTTPException(410, "导入会话已过期，请重新解析文件") from None
+        await db.delete(session)
+        await db.commit()
+        raise HTTPException(410, "导入会话已过期，请重新解析文件")
+
+    # 幂等命中已返回；余下路径才检查配额，避免重试被 403。
+    # rollback 可能让 ORM 实例过期；先把 writer 需要的字段快照成普通对象。
+    snap = SimpleNamespace(
+        manifest_json=session.manifest_json,
+        source_path=session.source_path,
+        encoding=session.encoding,
+        source_sha256=session.source_sha256,
+    )
+    await db.rollback()
+    await require_project_limit(user=user, db=db)
+    await db.rollback()
+
+    try:
+        book = await persist_import(
+            db,
+            user_id=user["id"],
+            name=body.name,
+            session=snap,
+            structure=body.volumes,
+            import_token=body.import_token,
+            excluded_source_nos=body.excluded_source_nos,
+        )
+    except StructureError as e:
+        raise HTTPException(400, str(e)) from e
+    except ImportSourceMismatch as e:
+        raise HTTPException(409, str(e)) from e
+    except ValueError as e:
+        raise HTTPException(400, str(e)) from e
+
+    # 简介机械识别（本机、不调模型）：第一章前 200 字；失败不影响建书。
+    try:
+        manifest = _json.loads(snap.manifest_json)
+        first = next(
+            c for c in manifest["chapters"]
+            if int(c["source_no"]) not in set(body.excluded_source_nos or [])
+        )
+        with open(snap.source_path, "rb") as f:
+            raw = f.read()
+        text = raw.decode(snap.encoding or manifest["encoding"])
+        synopsis = slice_import_prose(
+            text, first["body_ranges"], manifest.get("volume_heading_ranges") or []
+        )[:200]
+        if synopsis:
+            storage = get_storage()
+            current = await storage.read_yaml(book.root_path, "story.yaml") or {}
+            current["synopsis"] = synopsis
+            current["synopsis_source"] = "import_auto"
+            await storage.write_yaml(book.root_path, "story.yaml", current)
+    except Exception:
+        pass
+
+    # 成功落库后回收临时会话与源文件；文件先删，删不掉就保留会话行给 sweep 重试。
+    source_removed = True
+    try:
+        os.unlink(snap.source_path)
+    except FileNotFoundError:
+        pass  # 文件已经不在了 = 清理目标已达成，行也要删
+    except OSError:
+        source_removed = False  # 会话行仍在，下次启动 sweep 重试
+    if source_removed:
+        try:
+            await db.execute(
+                sa_delete(ImportSession).where(ImportSession.id == body.import_id)
+            )
+            await db.commit()
+        except Exception:  # noqa: BLE001 — 清理失败留给启动 sweep
+            await db.rollback()
+
+    return {"id": str(book.id), "name": book.name}
+
+
 @router.post("/import/parse", status_code=200)
 async def import_parse(
     file: UploadFile = File(...),
@@ -908,6 +1148,19 @@ async def import_persist(
                         "status": "draft", "prose": ch.content,
                     },
                 )
+
+        # 旧导入端点保留兼容，但不再造「无来源的 draft 书」：标记 legacy + origin=import。
+        from datetime import UTC, datetime
+
+        from models.chapter import Chapter
+
+        project.import_kind = "legacy"
+        await db.execute(
+            update(Chapter)
+            .where(Chapter.project_id == project.id)
+            .values(origin="import", imported_at=datetime.now(UTC).replace(tzinfo=None))
+        )
+        await db.commit()
 
         # ── 4. Genre detection & synopsis extraction (free-tier) ─────
         try:

@@ -2025,3 +2025,28 @@ baseurl 到什么程度，要有个案例。」——中转站/自建网关用�
   保留「原型示意」注记（真实内容为按需拉取的产物全文）。
 - **parity 影响**：拆书完成页不在 `design:check` 像素矩阵（drafts 运行资产）；无像素
   基线重录需求。`rd-style` 为 C端 本地新增变体，不触共享段（与 `wb-style` 同段位）。
+
+## c-import-direct（导入自有书 A 路原型，2026-10-18）
+
+- **原型迁入 prototypes**：`docs/design-c/drafts/ai-novel-c端-导入自有书-原型.src.html` → `import-own-book.src.html`；产物 → `import-own-book.html`；构建/自检 → `build-import-own-book.py` / `check-import-own-book.py`；抓取物 → `import-own-book-captures/`。宿主仍是当前系统实抓（real.css＋8 段真实 DOM 逐字注入），未手绘近似。
+- **第 2 步补章节级修正**（`import-own-book.html` 屏 1）：每章行加「不导入」→ 应用内确认弹层（列出第 X 章/书名/影响）→ 左扫描标「已忽略」并划线、右树移除该章、卷边界按活动章序重排；顶部「撤销」恢复。ok/warn/risk 三态：warn 显示具体问题可继续；risk 必须勾选「我了解质量风险，仍要导入」才放行。数据结构由绝对章号改为「活动章序＋卷范围按活动序派生」，避免忽略中间章后留洞。
+- **第 3 步 A 路收敛**：只保留「直接导入（只带正文）」为可选卡；AI 拆书卡置灰「即将开放」不可点。直接导入卡明示 0 token、只在本机处理、不要求 Key、设定留空（简介自动识别）、代价（伏笔/钩子/设定变化不会带过来）。模型已配/未配、书架有空位/已满四态下 A 卡均可选，只有配额满禁用 CTA。
+- **A 路成功落点**：新增成功弹窗「书已建好」→ 主 CTA「开始写第 43 章」、次 CTA「去核对设定」；工作台宿主文案改为「第 43 章待写」、中央「开始写第 43 章」，右栏两卡「本书设定留空」「第 43 章待写」并给「补主线/当前卷卷纲」清单。设定页回执改为 A 路口径（正文已就位、设定留空、简介自动识别），不再显示 B 路「7 项＋基线」。
+- **原文标签**：右栏「第 43 章待写」卡加「原文 42 章」状态 pill；正文措辞用「原文」而非「历史章/导入章」；预览/章树的全量「原文」标签在实现侧按同一 `.pill` 词汇落地。
+- **preview.html 同步**：目录状态加「原文」，概览加「原文 N」与「完本进度 authored」；与实现同批，避免 parity 仍按旧「已归档/草稿/拟定」三桶。
+- **词表替换**：直接导入（只带正文）/ 原文 / 开始写第 43 章 / 去核对设定 / 写第 43 章前先补两件事 / 每章摘要（B 路后续）/ 10 项拆书产物（B 路后续）；界面不出现 `imported/frontier/baseline/pipeline`。
+- **parity 影响**：`import-own-book.html` 是新屏，不在现有 `design:check` 截图矩阵；默认态不影响 list/book/model-config 基线。若后续纳入 parity，需新录基线并登记。
+- **验证截图**：`import-own-book-shots/01-step2-risk.png`、`02-step2-excluded.png`、`03-step2-undo.png`、`04-step2-warn.png`、`05-step2-ok.png`、`10-13-step3-*`、`20-a-success-modal.png`、`21-a-workspace-43.png`、`22-a-start-43.png`、`23-a-settings.png`；file:// 全程零 JS 报错。
+
+
+## parity 基线同步（2026-10-19，c-import-direct 同批）
+
+`design:check` 原有 8 项存量红来自当前应用与旧原型的独立漂移，不是导入屏引入。本批按当前应用同步，使矩阵恢复 8/8：
+
+- `list.html` / `preview.html` update-strip 改为当前静默升级文案「正在自动准备新版本 v0.13…」（去掉旧「发现新版本 / 去下载」按钮组）；`preview.html` footer 版本对齐 v0.19。
+- `list.html` appbar 补「写作工具」下拉触发（当前应用已有，原型此前只有「我的作品 / 模型配置」）；工具栏随之对齐。
+- `list.html` 免费额度条文案去掉「免费版」前缀、账号徽标按 `ainovel.member='0'` 显示「免费版」——与当前应用同口径。
+- `design-parity.spec.ts`：update-check `current` 对齐 0.19；免费态 verify 夹具补 `project_limit: 1` 与 entitlement `max_projects: 1`（旧夹具缺这两项，应用会按不限量渲染，导致额度墙场景假红）。
+- 验证：`npm run design:check` → **8 passed**；`design:lint` → 0 违规。
+- 完本页脚/弹窗改用作者章口径（`作者章 N / N 已归档`；导入原文不参与完本计数），与 c-import-direct 的完本分母一致。
+- parity 应用侧补 `/prompt-pack/probe` 已安装桩：真栈探测到未装包会弹首装引导，遮住整页基线（2026-10-19 复跑实锤 91% 假红）。
