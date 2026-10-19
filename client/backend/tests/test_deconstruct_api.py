@@ -974,7 +974,7 @@ def test_task_view_activity_absent(client):
 def _mk_unit(task_id: str, stage: str, status: str, *, updated_min_ago: float | None = None,
              duration_ms: int = 0, tokens_out: int = 0, error_kind: str = "") -> None:
     """直插单元账行（updated_at 可控——监控速度窗按它算）。"""
-    from datetime import datetime, timedelta, UTC
+    from datetime import UTC, datetime, timedelta
 
     async def _go():
         async with async_session() as s:
