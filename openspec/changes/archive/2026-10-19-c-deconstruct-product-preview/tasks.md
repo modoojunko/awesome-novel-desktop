@@ -29,5 +29,5 @@
       验证：`openspec validate c-deconstruct-product-preview --strict` 通过。
 - [x] 3.2 原型补注：`docs/design-c/drafts/ai-novel-c端-拆书.html` 完成态目录树加文件名可点
       与预览弹层；`docs/design-c/prototypes/ADJUSTMENTS.md` 登记条目。
-- [ ] 3.3 归档联动：`c-deconstruct-book` 先归档（使主 specs 存在 `deconstruct-book`），
+- [x] 3.3 归档联动：`c-deconstruct-book` 先归档（使主 specs 存在 `deconstruct-book`），
       再归档本变更；届时 `c-deconstruct-resilience` 若仍未归档，顺序不冲突（不同 requirement）。
