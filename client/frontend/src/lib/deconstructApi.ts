@@ -108,6 +108,15 @@ export async function getDeconstructTask(id: string): Promise<DeconstructTaskDet
   return request<DeconstructTaskDetail>(`/deconstruct/tasks/${id}`);
 }
 
+/** 产物 md 全文（结果目录「点文件名预览」用，c-deconstruct-product-preview）；
+ * 文件名合法性由后端按产物清单校验（清单外 404）。 */
+export async function getDeconstructProduct(
+  id: string,
+  filename: string,
+): Promise<{ filename: string; content: string }> {
+  return request(`/deconstruct/tasks/${id}/products/${encodeURIComponent(filename)}`);
+}
+
 export async function cancelDeconstructTask(id: string): Promise<void> {
   await request(`/deconstruct/tasks/${id}/cancel`, { method: "POST" });
 }

@@ -166,7 +166,7 @@ async def get_product(
     user: dict = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    """产物 md 全文（仅导出/前端下载用；应用内无预览页）。"""
+    """产物 md 全文（结果目录「点文件名预览」与导出共用，c-deconstruct-product-preview）。"""
     task = await service.get_task(db, task_id, _user_id(user))
     _require(task, user)
     products = service.products_of(task)

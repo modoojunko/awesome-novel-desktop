@@ -6,6 +6,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 
 const state = vi.hoisted(() => ({
   get: vi.fn(),
+  product: vi.fn(),
   cancel: vi.fn(),
   del: vi.fn(),
   resume: vi.fn(),
@@ -17,6 +18,7 @@ const toastState = vi.hoisted(() => ({ info: vi.fn(), success: vi.fn(), error: v
 vi.mock("@/lib/toast", () => ({ toast: toastState }));
 vi.mock("@/lib/deconstructApi", () => ({
   getDeconstructTask: state.get,
+  getDeconstructProduct: state.product,
   cancelDeconstructTask: state.cancel,
   deleteDeconstructTask: state.del,
   resumeDeconstructTask: state.resume,
@@ -525,6 +527,60 @@ describe("TaskDetailPage", () => {
     fireEvent.click(screen.getByText("选择文件夹并导出"));
     await waitFor(() => expect(screen.getByText(/本次为文档版/)).toBeInTheDocument());
   });
+  it("完成：点文件名预览——加载态→全文弹窗，勾选不被动，✕ 关闭", async () => {
+    state.get.mockResolvedValue(detailOf("completed"));
+    let resolveProduct!: (v: { filename: string; content: string }) => void;
+    state.product.mockImplementationOnce(
+      () => new Promise((res) => { resolveProduct = res; }),
+    );
+    renderPage();
+    await waitFor(() => expect(screen.getByText("选择去向")).toBeInTheDocument());
+    const box = screen.getByRole("checkbox", { name: "简介.md" }) as HTMLInputElement;
+    fireEvent.click(screen.getByRole("button", { name: "简介.md" }));
+    expect(document.querySelector('[data-od-id="preview-modal"]')).not.toBeNull();
+    expect(screen.getByText("加载中…")).toBeInTheDocument();
+    expect(box.checked).toBe(true); // 点文件名不波及勾选（stopPropagation）
+    resolveProduct({ filename: "简介.md", content: "# 简介\n\n林晚在渡口。" });
+    await waitFor(() => expect(screen.getByText(/林晚在渡口/)).toBeInTheDocument());
+    fireEvent.click(screen.getByRole("button", { name: "关闭预览" }));
+    expect(document.querySelector('[data-od-id="preview-modal"]')).toBeNull();
+  });
+
+  it("完成：预览失败——toast 报错＋弹窗收起（Error／非 Error 两臂）；脚部关闭与 scrim", async () => {
+    state.get.mockResolvedValue(detailOf("completed"));
+    state.product.mockRejectedValueOnce(new Error("产物不存在"));
+    renderPage();
+    await waitFor(() => expect(screen.getByText("选择去向")).toBeInTheDocument());
+    fireEvent.click(screen.getByRole("button", { name: "简介.md" }));
+    await waitFor(() => expect(toastState.error).toHaveBeenCalledWith("产物不存在"));
+    expect(document.querySelector('[data-od-id="preview-modal"]')).toBeNull();
+    // 非 Error 拒绝臂 → 兜底文案
+    state.product.mockRejectedValueOnce("boom");
+    fireEvent.click(screen.getByRole("button", { name: "世界设定.md" }));
+    await waitFor(() => expect(toastState.error).toHaveBeenLastCalledWith("预览加载失败"));
+    expect(document.querySelector('[data-od-id="preview-modal"]')).toBeNull();
+    // 成功后脚部「关闭」收起，再开一次走 scrim 收起
+    state.product.mockResolvedValueOnce({ filename: "世界设定.md", content: "设定正文" });
+    fireEvent.click(screen.getByRole("button", { name: "世界设定.md" }));
+    await waitFor(() => expect(screen.getByText("设定正文")).toBeInTheDocument());
+    fireEvent.click(screen.getByText("关闭", { exact: true }));
+    expect(document.querySelector('[data-od-id="preview-modal"]')).toBeNull();
+    state.product.mockResolvedValueOnce({ filename: "世界设定.md", content: "设定正文" });
+    fireEvent.click(screen.getByRole("button", { name: "世界设定.md" }));
+    await waitFor(() => expect(screen.getByText("设定正文")).toBeInTheDocument());
+    fireEvent.click(document.querySelector(".scrim.show")!);
+    expect(document.querySelector('[data-od-id="preview-modal"]')).toBeNull();
+  });
+
+  it("完成：点行（非勾选框/非文件名）仍切换勾选——行点击保留", async () => {
+    state.get.mockResolvedValue(detailOf("completed"));
+    renderPage();
+    await waitFor(() => expect(screen.getByText(/已选 3\/3/)).toBeInTheDocument());
+    fireEvent.click(screen.getByText("100 字符"));
+    expect(screen.getByText(/已选 2\/3/)).toBeInTheDocument();
+    expect((screen.getByRole("checkbox", { name: "简介.md" }) as HTMLInputElement).checked).toBe(false);
+  });
+
   it("内容审核拒绝：红色提示＋去换模型出口", async () => {
     state.get.mockResolvedValue(detailOf("failed", { error: "模型的内容安全审核拒绝了该书的题材（恐怖/暴力等敏感内容）。请更换模型（如 DeepSeek）或拆解其他作品。" }));
     renderPage();

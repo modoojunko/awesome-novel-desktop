@@ -151,6 +151,9 @@ body,
 .dim-row .d-tx b { font-size: 13px; font-weight: 600; display: block; }
 .dim-row .d-tx span { font-size: 11.5px; color: var(--muted); }
 .dim-row .d-mt { margin-left: auto; font-family: var(--font-mono); font-size: 11px; color: var(--muted); }
+/* 结果目录文件名按钮（c-deconstruct-product-preview）：文本形态，悬停提示可点预览 */
+.dim-row .fd-name { display: block; background: none; border: 0; padding: 0; font: inherit; font-size: 13px; font-weight: 600; color: inherit; cursor: pointer; text-align: left; }
+.dim-row .fd-name:hover { color: var(--accent-strong); text-decoration: underline; }
 .task-card { border: 1px solid var(--border); border-radius: var(--radius-lg); background: var(--surface); padding: 24px; }
 .task-pct .pct { font-family: var(--font-display); font-size: 46px; font-weight: 600; line-height: 1; }
 .ex-steps { list-style: none; margin: 18px 0 0; padding: 0; }

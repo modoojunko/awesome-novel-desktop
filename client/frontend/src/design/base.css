@@ -245,6 +245,11 @@ input, textarea, select { font: inherit; }
 .mcard.wb-style .input:focus, .mcard.wb-style .textarea:focus { outline: 2px solid var(--accent-soft); border-color: var(--accent); }
 .mcard.wb-style .textarea { min-height: 72px; resize: vertical; line-height: 1.7; }
 
+/* 拆书产物只读预览卡（c-deconstruct-product-preview）：宽版 mcard＋正文自滚动 */
+.mcard.rd-style { width: min(760px, 94vw); display: flex; flex-direction: column; }
+.mcard.rd-style .mcard-body { flex: 1; min-height: 0; overflow-y: auto; }
+.mcard.rd-style .preview-md { margin: 0; white-space: pre-wrap; word-break: break-word; font-size: 13px; line-height: 1.8; }
+
 /* 主线卡基调选择题：整行可点的单选项，选中描边高亮（再点一次取消） */
 .tone-opt { display: flex; align-items: baseline; gap: 8px; width: 100%; padding: 7px 10px; border: 1px solid var(--border); border-radius: 9px; background: var(--surface); cursor: pointer; text-align: left; font-size: 13px; color: var(--fg); }
 .tone-opt:hover { border-color: color-mix(in oklch, var(--accent) 35%, var(--border)); }

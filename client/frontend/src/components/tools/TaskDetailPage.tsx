@@ -2,6 +2,7 @@
 // 二选一：建书摘要动态 N/7、导出 N 份）/失败与已取消（错误面板＋续拆）/需重传（重传引导）。
 // c-deconstruct-resilience：时间走 parseServerTime（UTC 口径，无时区偏移）；
 // 失败面板按 error_kind 给可执行出口；完成态透出降级维度与告警账。
+// c-deconstruct-product-preview：完成态结果目录点文件名只读预览全文（弹窗，不编辑）。
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
@@ -13,6 +14,7 @@ import {
   DECONSTRUCT_DIMS,
   deleteDeconstructTask,
   exportTaskProducts,
+  getDeconstructProduct,
   getDeconstructTask,
   importBookFromTask,
   resumeDeconstructTask,
@@ -56,6 +58,10 @@ export default function TaskDetailPage() {
   const [resuming, setResuming] = useState(false);
   const [reuploadFile, setReuploadFile] = useState<File | null>(null);
   const reuploadRef = useRef<HTMLInputElement>(null);
+  // 只读预览（c-deconstruct-product-preview）：previewName 非空＝弹窗开；previewText
+  // null＝加载中。文件名来自 products 清单，后端再按清单校验一次。
+  const [previewName, setPreviewName] = useState<string | null>(null);
+  const [previewText, setPreviewText] = useState<string | null>(null);
 
   const { data: task, error: taskErr } = useQuery({
     queryKey: queryKeys.deconstructTask(id),
@@ -171,6 +177,18 @@ export default function TaskDetailPage() {
       if (prev.includes(fn)) return prev.length <= 1 ? prev : prev.filter((f) => f !== fn);
       return task.products.map((p) => p.filename).filter((f) => prev.includes(f) || f === fn);
     });
+  };
+
+  const openPreview = async (filename: string) => {
+    setPreviewName(filename);
+    setPreviewText(null);
+    try {
+      const r = await getDeconstructProduct(task.id, filename);
+      setPreviewText(r.content);
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "预览加载失败");
+      setPreviewName(null);
+    }
   };
 
   const doExit = () => {
@@ -358,22 +376,39 @@ export default function TaskDetailPage() {
               <span data-od-id="fd-count">
                 已选 {selectedFiles.length}/{task.products.length}
               </span>{" "}
-              （不勾的不随出口带走）
+              （不勾的不随出口带走；点文件名可预览）
             </div>
             {task.products.map((p) => (
-              <label key={p.filename} className="dim-row" style={{ cursor: "pointer" }}>
+              <div
+                key={p.filename}
+                className="dim-row"
+                style={{ cursor: "pointer" }}
+                onClick={() => toggleFile(p.filename)}
+              >
                 <input
                   type="checkbox"
                   checked={selectedFiles.includes(p.filename)}
                   onChange={() => toggleFile(p.filename)}
+                  onClick={(e) => e.stopPropagation()}
                   data-od-id={`fd-${p.filename}`}
                   aria-label={p.filename}
                 />
                 <span className="d-tx">
-                  <b>{p.filename}</b>
+                  <button
+                    type="button"
+                    className="fd-name"
+                    data-od-id={`fdp-${p.filename}`}
+                    title="预览内容"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      void openPreview(p.filename);
+                    }}
+                  >
+                    {p.filename}
+                  </button>
                 </span>
                 <span className="d-mt">{p.size} 字符</span>
-              </label>
+              </div>
             ))}
             {graph.available && (
               <div className="dim-group" data-od-id="graph-trio" style={{ marginTop: 10 }}>
@@ -393,8 +428,8 @@ export default function TaskDetailPage() {
               ))}
           </div>
           <div className="hint">
-            <b>去哪看内容：</b>结果目录里的 .md 文件，或点「建书」之后到书内设定页查看与编辑。
-            应用内不预览、不编辑拆解产物。
+            <b>看内容：</b>点结果目录里的文件名即可在此预览全文（只读）；「建书」后到书内设定页
+            可查看与编辑。应用内不编辑拆解产物。
           </div>
         </>
       )}
@@ -616,6 +651,39 @@ export default function TaskDetailPage() {
                   onClick={doExit}
                 >
                   {exitOpt === "book" ? "就建这本书" : "选择文件夹并导出"}
+                </button>
+              </div>
+            </div>
+          </div>
+        </>
+      )}
+
+      {/* 只读预览弹窗（c-deconstruct-product-preview）：文件名来自清单，内容按需拉取 */}
+      {previewName && (
+        <>
+          <div className="scrim show" onClick={() => setPreviewName(null)} />
+          <div className="modal show" role="dialog" aria-modal="true" data-od-id="preview-modal">
+            <div className="mcard rd-style">
+              <div className="mcard-head">
+                <span className="mh">{previewName}</span>
+                <button className="icon-btn" aria-label="关闭预览" onClick={() => setPreviewName(null)}>
+                  ✕
+                </button>
+              </div>
+              <div className="mcard-body">
+                {previewText === null ? (
+                  <p className="sub" data-od-id="preview-loading">
+                    加载中…
+                  </p>
+                ) : (
+                  <pre className="preview-md" data-od-id="preview-text">
+                    {previewText}
+                  </pre>
+                )}
+              </div>
+              <div className="mcard-foot">
+                <button className="btn btn-secondary" data-od-id="preview-close" onClick={() => setPreviewName(null)}>
+                  关闭
                 </button>
               </div>
             </div>

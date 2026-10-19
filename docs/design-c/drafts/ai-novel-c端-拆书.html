@@ -178,6 +178,13 @@ input, textarea, select { font: inherit; }
 .mcard-head .x { margin-left: auto; }
 .mcard-body { padding: 14px 24px 6px; }
 .mcard-foot { display: flex; justify-content: flex-end; gap: 8px; padding: 16px 24px 20px; }
+/* 产物只读预览卡（c-deconstruct-product-preview）：宽版 mcard＋pre-wrap 正文 */
+.mcard.rd-style { width: min(760px, 94vw); display: flex; flex-direction: column; }
+.mcard.rd-style .mcard-body { flex: 1; min-height: 0; overflow-y: auto; }
+.mcard.rd-style .preview-md { margin: 0; white-space: pre-wrap; word-break: break-word; font-size: 13px; line-height: 1.8; font-family: inherit; }
+/* 结果目录文件名可点预览 */
+.fdir .fd-row .fd-name { cursor: pointer; }
+.fdir .fd-row .fd-name:hover { color: var(--accent); text-decoration: underline; }
 
 /* ─── appbar / 页头（pages/ 逐字口径）＋ 写作工具下拉 ── */
 .appbar { height: 48px; flex-shrink: 0; display: flex; align-items: center; padding: 0 20px; gap: 12px; background: var(--surface); border-bottom: 1px solid var(--border); }
@@ -747,7 +754,7 @@ input, textarea, select { font: inherit; }
     </div>
 
     <div class="fdir" data-od-id="done-manifest">
-      <div class="fd-group">结果目录 · 元信息（内容不在应用内预览）· <span data-od-id="fd-count">已选 10/10</span>（不勾的不随出口带走）</div>
+      <div class="fd-group">结果目录 · 元信息（点文件名可只读预览）· <span data-od-id="fd-count">已选 10/10</span>（不勾的不随出口带走）</div>
       <div class="fd-row root"><span class="fd-tree"> </span><span class="fd-name">星海远征-拆书/</span><span class="fd-desc">结果目录 · 10 份产物＋README 目录页</span></div>
       <div class="fd-row"><span class="fd-tree">├──</span><span class="fd-name">README.md</span><span class="fd-desc">目录页（导出附带，链到各份产物）</span><span class="fd-mt">1.1 KB</span><span class="pill">附带</span></div>
       <div class="fd-row" data-fn="简介.md"><span class="chk on"><i data-ico="check"></i></span><span class="fd-tree">├──</span><span class="fd-name">简介.md</span><span class="fd-desc">故事核 1 条 · 主角目标/阻碍/结局</span><span class="fd-mt">1.2 KB</span><span class="pill pill-ok"><i data-ico="check"></i>已生成</span></div>
@@ -764,8 +771,8 @@ input, textarea, select { font: inherit; }
     </div>
 
     <div class="hint" data-od-id="done-hint">
-      <b>去哪看内容：</b>结果目录里的 .md 文件，或点「建书」之后到书内设定页查看与编辑。
-      应用内不预览、不编辑拆解产物。每条结论带章节号证据与可信度标注，原文没写的标「原文未明确」。
+      <b>看内容：</b>点结果目录里的文件名即可在此预览全文（只读）；「建书」后到书内设定页可查看与编辑。
+      应用内不编辑拆解产物。每条结论带章节号证据与可信度标注，原文没写的标「原文未明确」。
     </div>
   </div>
 
@@ -861,6 +868,22 @@ input, textarea, select { font: inherit; }
     <div class="mcard-foot">
       <button class="btn btn-secondary" data-close-modal="exit">稍后再说</button>
       <button class="btn btn-primary" data-close-modal="exit" data-od-id="exit-confirm"><i data-ico="check"></i>就建这本书</button>
+    </div>
+  </div>
+</div>
+
+<div class="scrim" id="scrim-preview" hidden></div>
+<div class="modal" id="modal-preview" role="dialog" aria-modal="true" aria-label="产物预览" hidden>
+  <div class="mcard rd-style" data-od-id="preview-modal">
+    <div class="mcard-head">
+      <span class="mh" id="preview-title">简介.md</span>
+      <button class="icon-btn x" data-close-modal="preview" aria-label="关闭预览"><i data-ico="close"></i></button>
+    </div>
+    <div class="mcard-body">
+      <pre class="preview-md" id="preview-text">原型示意：应用内点文件名即拉取该产物全文，只读呈现（pre-wrap，超长滚动）；不提供编辑。</pre>
+    </div>
+    <div class="mcard-foot">
+      <button class="btn btn-secondary" data-close-modal="preview" data-od-id="preview-close">关闭</button>
     </div>
   </div>
 </div>
@@ -1091,6 +1114,18 @@ input, textarea, select { font: inherit; }
     refresh();
     return refresh;
   })();
+
+  /* ── 结果目录点文件名预览（c-deconstruct-product-preview）：只读弹层，不波及勾选 ── */
+  document.querySelectorAll('.fdir .fd-row[data-fn] .fd-name').forEach(function (name) {
+    name.addEventListener("click", function (e) {
+      e.stopPropagation();
+      var t = document.getElementById("preview-title");
+      var b = document.getElementById("preview-text");
+      if (t) t.textContent = name.textContent;
+      if (b) b.textContent = "《" + name.textContent + "》全文（原型示意）——应用内按需拉取产物 Markdown，只读呈现：pre-wrap、超长滚动；加载失败 toast 报错并收起。不提供编辑。";
+      setModal("preview", true);
+    });
+  });
 
   /* ── 文件条拖拽态演示 ── */
   var strip = document.querySelector('[data-od-id="file-strip"]');
