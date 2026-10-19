@@ -8,7 +8,6 @@ from __future__ import annotations
 
 import hashlib
 import json
-import re
 import uuid
 from datetime import UTC, datetime
 
@@ -30,17 +29,47 @@ class ImportSourceMismatch(ValueError):
     pass
 
 
-_VOLUME_LINE_RE = re.compile(
-    r"^\s*第[0-9零一二两三四五六七八九十百千]+卷[^\n]{0,40}\s*$"
-)
+def _subtract(
+    start: int, end: int, cuts: list[list[int]]
+) -> list[tuple[int, int]]:
+    pieces = [(start, end)]
+    for cut_start, cut_end in cuts:
+        rest: list[tuple[int, int]] = []
+        for a, b in pieces:
+            if cut_end <= a or cut_start >= b:
+                rest.append((a, b))
+                continue
+            if a < cut_start:
+                rest.append((a, cut_start))
+            if cut_end < b:
+                rest.append((cut_end, b))
+        pieces = rest
+    return pieces
 
 
-def slice_import_prose(text: str, ranges: list[list[int]]) -> str:
-    """按 manifest 区间取正文；卷标题行是元数据，不写进任何一章的正文。"""
-    raw = "\n".join(text[int(a):int(b)] for a, b in ranges)
-    return "\n".join(
-        line for line in raw.splitlines() if not _VOLUME_LINE_RE.match(line)
-    ).strip()
+def slice_import_prose(
+    text: str,
+    ranges: list[list[int]],
+    heading_ranges: list[list[int]] | None = None,
+) -> str:
+    """按 manifest 区间取正文；只剔除 manifest 精确登记的卷标题行区间。
+
+    以前按「第X卷」正则逐行过滤，会把正文里恰好以「第一卷…」开头的短句静默删掉；
+    现在卷标题由 parser 定位并冻结，正文切片不再二次猜。
+    """
+    cuts = [list(map(int, r)) for r in (heading_ranges or [])]
+    chunks: list[str] = []
+    for a, b in ranges:
+        pieces = [
+            text[start:end]
+            for start, end in _subtract(int(a), int(b), cuts)
+            if end > start
+        ]
+        if pieces:
+            # 同一区间内的片段直接拼接（只删卷标题行，不额外加空行）；
+            # 多个 body_range（章前序文＋正文）之间才补一个换行。
+            chunks.append("".join(pieces))
+    return "\n".join(chunks).strip()
 
 
 async def _unique_slug(db: AsyncSession, user_id: str, name: str) -> str:
@@ -72,6 +101,7 @@ async def persist_import(
     manifest = json.loads(session.manifest_json)
     active = active_chapters(manifest, excluded_source_nos)
     normalized = validate_structure(structure, len(active))
+    volume_headings = manifest.get("volume_heading_ranges") or []
 
     with open(session.source_path, "rb") as f:
         raw = f.read()
@@ -123,7 +153,9 @@ async def persist_import(
                 await db.flush()
                 for ci, active_idx in enumerate(range(start, end + 1), start=1):
                     mch = active[active_idx - 1]
-                    prose = slice_import_prose(text, mch["body_ranges"])
+                    prose = slice_import_prose(
+                        text, mch["body_ranges"], volume_headings
+                    )
                     ch = Chapter(
                         project_id=book.id,
                         volume_id=vol_row.id,

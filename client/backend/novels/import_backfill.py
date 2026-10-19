@@ -7,11 +7,16 @@
 from __future__ import annotations
 
 import os
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 
 from sqlalchemy import delete, select, update
 
 BACKFILL_KEY = "import_backfill_v1"
+
+# 旧导入端点在同一个请求里连写书与章，created_at 落在同一小窗内；
+# 备份恢复的书 createdAt 取自 project.yaml（原书创建时间），章行则是恢复时刻。
+# 只回填与书创建时间同窗的章，避免把「备份恢复的作者书」或导入后作者续写的章误标历史章。
+LEGACY_IMPORT_WINDOW = timedelta(minutes=10)
 
 
 async def backfill_import_origin_v1(*, force: bool = False) -> dict:
@@ -24,36 +29,49 @@ async def backfill_import_origin_v1(*, force: bool = False) -> dict:
         marker = await db.get(AppMeta, BACKFILL_KEY)
         if marker is not None and not force:
             return {"skipped": True, "books": 0, "chapters": 0}
-        ids = list(
-            (
-                await db.scalars(
-                    select(Novel.id).where(
-                        Novel.source == "import",
-                        Novel.import_kind.in_(["authored", ""]),
-                    )
+        candidates = (
+            await db.execute(
+                select(Novel.id, Novel.created_at).where(
+                    Novel.source == "import",
+                    Novel.import_kind.in_(["authored", ""]),
                 )
-            ).all()
-        )
-        if not ids:
+            )
+        ).all()
+        if not candidates:
             # 空库/新库不要提前落 marker：用户之后 carry 进来的旧书还需要回填。
             return {"skipped": False, "books": 0, "chapters": 0}
+        books = 0
         chapters = 0
-        if ids:
-            await db.execute(
-                update(Novel).where(Novel.id.in_(ids)).values(import_kind="legacy")
-            )
+        for book_id, book_created in candidates:
+            # created_at 缺失时无法证明章属于导入窗口，宁可不动。
+            if book_created is None:
+                continue
+            cutoff = book_created + LEGACY_IMPORT_WINDOW
             result = await db.execute(
                 update(Chapter)
-                .where(Chapter.project_id.in_(ids))
+                .where(
+                    Chapter.project_id == book_id,
+                    Chapter.created_at.is_not(None),
+                    Chapter.created_at <= cutoff,
+                )
                 .values(origin="import", imported_at=Chapter.created_at)
             )
-            chapters = result.rowcount or 0
+            marked = result.rowcount or 0
+            if marked:
+                await db.execute(
+                    update(Novel).where(Novel.id == book_id).values(import_kind="legacy")
+                )
+                books += 1
+                chapters += marked
+        if not books:
+            # 没有可证明的旧导入书（例如只有备份恢复书）：不落 marker，等 carry 后再看。
+            return {"skipped": False, "books": 0, "chapters": 0}
         if marker is None:
             db.add(AppMeta(key=BACKFILL_KEY, value="done"))
         else:
             marker.value = "done"
         await db.commit()
-        return {"skipped": False, "books": len(ids), "chapters": chapters}
+        return {"skipped": False, "books": books, "chapters": chapters}
 
 
 async def cleanup_expired_import_sessions() -> int:
@@ -70,13 +88,19 @@ async def cleanup_expired_import_sessions() -> int:
         ).all()
         if not rows:
             return 0
-        ids = [r.id for r in rows]
-        paths = [r.source_path for r in rows]
+        ids: list[str] = []
+        for r in rows:
+            try:
+                os.unlink(r.source_path)
+            except FileNotFoundError:
+                ids.append(r.id)
+            except OSError:
+                # 文件删不掉就保留行，下一次 sweep 再试（避免行没了、文件成永久孤儿）。
+                continue
+            else:
+                ids.append(r.id)
+        if not ids:
+            return 0
         await db.execute(delete(ImportSession).where(ImportSession.id.in_(ids)))
         await db.commit()
-    for path in paths:
-        try:
-            os.unlink(path)
-        except OSError:
-            pass
     return len(ids)

@@ -73,9 +73,12 @@ _PLACE_SPLIT_RE = re.compile(r"[、，,；;。\n\r\t 　]+")
 # ═══════════════ 进场（章级；has_prose 分流） ═══════════════
 
 
-async def resolve_prev_chapter_ending(db, project, vol, ch_no: int) -> dict:
+async def resolve_prev_chapter_ending(
+    db, project, vol, ch_no: int, *, global_map: dict[str, int] | None = None
+) -> dict:
     """本章进场：上一章有正文 → 正文末段（取自正文结尾）；无正文 → 上一章章末落点（拟定）。
-    卷首章复用既有卷级取法（resolve_prev_ending，事实优先）。返回 {text, source}。"""
+    卷首章复用既有卷级取法（resolve_prev_ending，事实优先）。返回 {text, source}。
+    文案里的章号统一用全书号（多卷书不再出现「第3章」指第27章）。"""
     if ch_no <= 1:
         from volumes.service import resolve_prev_ending
 
@@ -90,6 +93,14 @@ async def resolve_prev_chapter_ending(db, project, vol, ch_no: int) -> dict:
     if not rows:
         return {"text": "（还没有上一章）", "source": "本章是这一卷的第一章"}
     prev = max(rows, key=lambda c: c.chapter_no)
+    if global_map is None:
+        from chapters.numbering import global_number_map
+
+        all_rows = [
+            c for c in await chapter_repo.list_by_project(db, project.id) if not c.ghost_of
+        ]
+        global_map = global_number_map(all_rows)
+    prev_no = global_map.get(prev.ref, prev.chapter_no)
     if prev.has_prose:
         from chapters.store import assemble_chapter
         from write.chapter_writer import clip_tail_to_sentence_boundary
@@ -101,12 +112,12 @@ async def resolve_prev_chapter_ending(db, project, vol, ch_no: int) -> dict:
             # 超长末段不再 [:200] 硬切成残句开头
             return {
                 "text": clip_tail_to_sentence_boundary(paras[-1], 200),
-                "source": f"第{prev.chapter_no}章 · 取自正文结尾（写到那里之后，这里以实际为准）",
+                "source": f"第{prev_no}章 · 取自正文结尾（写到那里之后，这里以实际为准）",
             }
     exit_text = (prev.ladder_exit or "").strip()
     return {
         "text": exit_text or "（上一章还没写结尾）",
-        "source": f"第{prev.chapter_no}章 · 拟定，取自章纲落点",
+        "source": f"第{prev_no}章 · 拟定，取自章纲落点",
     }
 
 
@@ -229,7 +240,6 @@ async def _chapter_material(db, project, vol, ch_no: int) -> dict:
     )
     mat["cardless_brief"] = _cardless_brief(cardless_rows)
     mat["known_entities"] |= {r["name"] for r in cardless_rows}
-    entry = await resolve_prev_chapter_ending(db, project, vol, ch_no)
     from repositories import chapter_repo
 
     rows = sorted(
@@ -242,6 +252,9 @@ async def _chapter_material(db, project, vol, ch_no: int) -> dict:
         c for c in await chapter_repo.list_by_project(db, project.id) if not c.ghost_of
     ]
     gmap = global_number_map(all_mainline)
+    entry = await resolve_prev_chapter_ending(
+        db, project, vol, ch_no, global_map=gmap
+    )
     authored_rows = [c for c in rows if getattr(c, "origin", "authored") != "import"]
     done = [
         # c-ai-material-audit：章纲 summary 列宽 300，旧 [:40] 把"已拆过什么"切没了
@@ -568,9 +581,15 @@ async def next_chapter_anchor(
         raise HTTPException(404, "Volume not found")
     rows = [c for c in await chapter_repo.list_by_volume(db, vol.id) if not c.ghost_of]
     entry = await resolve_prev_chapter_ending(db, project, vol, len(rows) + 1)
-    # 章号/卷号单源：卡面标题「拆第N章」、行号 0N、kicker「第X卷」都取这里，
-    # 前端不再自造（曾用常量占位 → 每章都写「拆第一章」）
-    return {"ok": True, **entry, "next_no": len(rows) + 1, "vol_no": vol.volume_no}
+    # 章号/卷号单源：卡面标题「拆第N章」、行号 0N、kicker「第X卷」都取这里。
+    # next_no 用全书号（多卷书第 2 卷第 1 章显示第 25 章，不显示第 1 章）。
+    next_global = await _global_chapter_no(db, project.id, vol, len(rows) + 1)
+    return {
+        "ok": True,
+        **entry,
+        "next_no": next_global,
+        "vol_no": vol.volume_no,
+    }
 
 
 class DirectionsBody(BaseModel):
@@ -733,7 +752,8 @@ async def chapter_plan_card(
         "stage": data.get("plot_stage") or "",
         "entry_text": entry["text"],
         "entry_source": entry["source"],
-        "next_no": row.chapter_no,
+        # 回改卡同样用全书号（卷内 row.chapter_no 只用于存储/排序）。
+        "next_no": await _global_chapter_no(db, project.id, row.volume, row.chapter_no),
     }
 
 
@@ -804,7 +824,12 @@ async def ai_chapter_selfcheck(
     siblings = [c for c in rows if c.chapter_no < ch_no]
     if siblings:
         last = siblings[-1]
-        prev_line = f"第{last.chapter_no}章：{(last.summary or last.title or '').strip()[:60]}"
+        # 主线章号连续：目标章的全书号减一即上一章；避免多卷书写成「第3章」。
+        global_no = await _global_chapter_no(db, project.id, vol, ch_no)
+        prev_line = (
+            f"第{global_no - 1}章："
+            f"{(last.summary or last.title or '').strip()[:60]}"
+        )
     _sys_t, _usr_t = load_layers("chapter_selfcheck")
     system = _sys_t
     user_msg = _render(

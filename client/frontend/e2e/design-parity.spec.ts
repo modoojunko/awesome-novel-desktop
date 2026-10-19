@@ -249,6 +249,10 @@ test.describe("design-parity 书架屏（list.html v2）", () => {
       // list.html 不含带回 UI；带回卡的对位原型是 upgrade-carry.html，见 ADJUSTMENTS）
       await appPage.route("**/api/backup/db-migration/candidates", (r) =>
         r.fulfill({ json: { code: 0, data: { candidates: [], quarantined: [], current_version: "0.0" } } }));
+      // 写作能力首装弹窗（c-prompt-pack-onboard-modal）：真栈探测可能弹窗遮住基线，
+      // parity 侧钉成已安装态（原型书架无此弹窗）。
+      await appPage.route("**/api/prompt-pack/probe", (r) =>
+        r.fulfill({ json: { installed_version: "2026.10.10-1", latest_version: "2026.10.10-1", update_available: false, source: "pack" } }));
       await appPage.goto("/#/novels");
       await appPage.waitForLoadState("networkidle");
       await appPage.evaluate(() => document.fonts.ready);

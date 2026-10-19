@@ -19,7 +19,9 @@ import hashlib
 import re
 
 MAX_SOURCE_BYTES = 50 * 1024 * 1024
-PARSER_VERSION = "textparse-2026-10"
+# 章数硬上限：50MB 不限制「第X章」行密度，几十万行标题会把 manifest 与内存打爆。
+MAX_CHAPTERS = 20_000
+PARSER_VERSION = "textparse-2026-10.1"
 
 _ENCChain = ("utf-8-sig", "gb18030", "big5")
 
@@ -107,8 +109,36 @@ def parse_novel(text: str) -> dict:
     章前序文（封面/简介）并入第 1 章开头。
     """
     warnings: list[str] = []
-    chapter_matches = list(_CHAPTER_RE.finditer(text))
-    volume_matches = list(_VOLUME_RE.finditer(text))
+    chapter_matches = []
+    for m in _CHAPTER_RE.finditer(text):
+        chapter_matches.append(m)
+        if len(chapter_matches) > MAX_CHAPTERS:
+            raise ValueError(
+                f"章节标题超过 {MAX_CHAPTERS} 个，文件可能不是小说正文，请检查后重试"
+            )
+
+    def _line_end(pos: int) -> int:
+        if text[pos:pos + 2] == "\r\n":
+            return pos + 2
+        if text[pos:pos + 1] in ("\r", "\n"):
+            return pos + 1
+        return pos
+
+    def _volume_heading_matches():
+        """卷标题行必须紧跟下一章标题（中间只有空白），避免把正文里的短句当卷名删掉。"""
+        if not chapter_matches:
+            return list(_VOLUME_RE.finditer(text))
+        out = []
+        for vm in _VOLUME_RE.finditer(text):
+            nxt = next((cm for cm in chapter_matches if cm.start() > vm.end()), None)
+            if nxt is None:
+                continue
+            if text[_line_end(vm.end()):nxt.start()].strip():
+                continue
+            out.append(vm)
+        return out
+
+    volume_matches = _volume_heading_matches()
 
     if not chapter_matches:
         warnings.append("未识别到「第X章」标题行，按整本单章处理")
@@ -143,6 +173,7 @@ def parse_novel(text: str) -> dict:
 
     # 卷归属：卷标题行落在哪些章之间
     volumes: list[dict] = []
+    volume_heading_ranges: list[list[int]] = []
     if volume_matches:
         for i, vm in enumerate(volume_matches):
             pos = vm.start()
@@ -150,7 +181,14 @@ def parse_novel(text: str) -> dict:
             next_pos = volume_matches[i + 1].start() if i + 1 < len(volume_matches) else len(text)
             ch_end = sum(1 for cm in chapter_matches if cm.start() < next_pos)
             if ch_end >= ch_start:
-                volumes.append({"title": vm.group(1).strip(), "ch_start": ch_start, "ch_end": ch_end})
+                ranges = [[vm.start(), _line_end(vm.end())]]
+                volumes.append({
+                    "title": vm.group(1).strip(),
+                    "ch_start": ch_start,
+                    "ch_end": ch_end,
+                    "heading_ranges": ranges,
+                })
+                volume_heading_ranges.extend(ranges)
         if not volumes:
             warnings.append("识别到卷标题但未能归属章节，已忽略分卷")
 
@@ -158,6 +196,7 @@ def parse_novel(text: str) -> dict:
         "total_chars": count_chars(text),
         "chapters": chapters,
         "volumes": volumes,
+        "volume_heading_ranges": volume_heading_ranges,
         "warnings": warnings,
     }
 
@@ -240,6 +279,8 @@ def build_manifest(raw: bytes, filename: str = "") -> dict:
         "char_count": int(parse.get("total_chars") or 0),
         "chapters": chapters,
         "volumes": volumes,
+        # 精确的卷标题行区间：落库/简介只剔这些区间，不再按正则在正文里逐行猜。
+        "volume_heading_ranges": parse.get("volume_heading_ranges") or [],
         "warnings": parse.get("warnings") or [],
         "risk": structure_verdict(parse),
     }

@@ -124,7 +124,7 @@ v1 SHALL 只在导入前允许忽略/删除章节；落库后 SHALL NOT 提供�
 
 ### Requirement: 旧导入入口退役与旧书回填
 
-系统 SHALL 以新向导替换旧书架导入；第一期 SHALL NOT 提供 md/docx 导入；旧 `/import/persist` SHALL NOT 作为前端入口。已有 `source=import` 的书 SHALL 被 backfill 为 `origin=import`（status 不变），续写 SHALL 落 N+1，预览 SHALL 标「原文」。
+系统 SHALL 以新向导替换旧书架导入；第一期 SHALL NOT 提供 md/docx 导入；旧 `/import/persist` SHALL NOT 作为前端入口。对 `source=import` 且能证明章与书创建于同一导入批次的旧书，backfill SHALL 只把该批次内的章标为 `origin=import`（status 不变），续写 SHALL 落 N+1，预览 SHALL 标「原文」。SHALL NOT 无差别改写书的全部章：备份恢复（书创建时间远早于恢复出的章）或导入后作者续写的章 SHALL 保持 `authored`。
 
 #### Scenario: md/docx 用户
 - **WHEN** 作者选择 md/docx
@@ -132,7 +132,15 @@ v1 SHALL 只在导入前允许忽略/删除章节；落库后 SHALL NOT 提供�
 
 #### Scenario: 旧导入书
 - **WHEN** 打开一本旧版本导入的书
-- **THEN** 其非归档章 origin=import、续写落 N+1、预览标原文；不是回到第 1 章
+- **THEN** 其导入批次内的非归档章 origin=import、续写落 N+1、预览标原文；不是回到第 1 章
+
+#### Scenario: 导入后作者续写
+- **WHEN** 旧导入书里存在导入完成之后作者新建的章
+- **THEN** 该章保持 origin=authored，不被 backfill 误标为历史章，仍参与完本计数
+
+#### Scenario: 备份恢复的书
+- **WHEN** 一本作者书从备份包恢复（书创建时间远早于恢复出的章）
+- **THEN** 所有章保持 origin=authored；backfill 不把整本书改写成历史章
 
 ### Requirement: 费用与隐私告知
 

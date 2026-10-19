@@ -117,7 +117,8 @@ async with session.begin():
 ### D7. 迁移与旧入口
 
 - 新增列全部 `server_default`：`chapters.origin='authored'`、`projects.import_kind='authored'`；`import_token` 唯一可空；`import_sessions` 新表。
-- carry 完成后按 `app_meta.import_backfill_v1` 幂等回填：`source='import'` 且 import_kind 空 → legacy；其章 origin=import、imported_at=created_at；status 不改。
+- carry 完成后按 `app_meta.import_backfill_v1` 幂等回填：`source='import'` 且 import_kind 空 → legacy；只把创建时间与书创建时间同窗（≤10 分钟）的章标为 `origin=import`、`imported_at=created_at`；status 不改。备份恢复书与导入后作者续写的章保持 authored，避免整书误标。
+- 启动期也执行一次同一保守回填（升级用户可能无需 carry），无足够证据的章一律不动；carry 完成强制重扫。
 - 旧 `/import/persist` 前端不再调用；为兼容历史脚本/测试保留端点，但写入 `origin=import` 与 `import_kind=legacy`，不再造「无来源的 draft 书」；md/docx 前端入口明确暂不支持。
 - 回滚：旧版本+旧库可启动；新库多出的列被旧代码忽略，status 未变，数据不损坏；发布前备份。
 
@@ -134,7 +135,7 @@ async with session.begin():
 
 - **origin 派生需要全站改判断** → `lifecycle.py` 单源 + 静态扫描 `status == "archived"` + 端点矩阵。
 - **单事务大书写锁** → 先压测 240 章；超预算再上隐藏 staging + 原子发布，不改变外部语义。
-- **旧书 backfill 时机** → carry 后按 app_meta 标记执行，不在首启无条件跑；加真实旧库演练。
+- **旧书 backfill 误标** → 旧库没有章级来源，无法 100% 区分导入章与作者后写章；按「书/章创建时间同窗」保守回填，证据不足宁可不标；备份恢复书不得整书改写。加真实旧库与备份恢复演练。
 - **A 路没有主线/卷纲** → 成功页给补主线/卷纲清单，不假装可立即拆章。
 - **旧 md/docx 用户** → 发布说明与弹窗明示「暂不支持、不提供转换」；旧书仍可读。
 

@@ -10,6 +10,7 @@ from pydantic import BaseModel
 from sqlalchemy import delete as sa_delete
 from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
+from starlette.concurrency import run_in_threadpool
 
 from ai_client import AITimeoutError, get_ai_client
 from auth_local.deps import ai_feature, require_ai_access, require_project_limit
@@ -841,6 +842,13 @@ async def import_own_parse(
     from config import DATA_ROOT
     from deconstruct.textparse import MAX_SOURCE_BYTES, build_manifest
     from models.import_session import ImportSession
+    from novels.import_backfill import cleanup_expired_import_sessions
+
+    # 长时间运行的应用没有重启 sweep：每次新解析顺手清一遍过期会话与源文件。
+    try:
+        await cleanup_expired_import_sessions()
+    except Exception:  # noqa: BLE001 — 清理失败不挡本次解析
+        pass
 
     if file.size is not None and file.size > MAX_SOURCE_BYTES:
         raise HTTPException(413, "文件大小超过 50MB 限制")
@@ -852,7 +860,8 @@ async def import_own_parse(
         raise HTTPException(415, "第一期仅支持 .txt 文件")
 
     try:
-        manifest = build_manifest(raw, filename)
+        # 解析是同步 CPU/正则活，放线程池避免阻塞事件循环（50MB 大文件尤其明显）。
+        manifest = await run_in_threadpool(build_manifest, raw, filename)
     except ValueError as e:
         raise HTTPException(400, str(e)) from e
 
@@ -959,12 +968,15 @@ async def import_own_persist(
     now = datetime.now(UTC).replace(tzinfo=None)
     if session.expires_at < now:
         source_path = session.source_path
-        await db.delete(session)
-        await db.commit()
         try:
             os.unlink(source_path)
-        except OSError:
+        except FileNotFoundError:
             pass
+        except OSError:
+            # 文件删不掉就保留会话行，交给下一次 sweep 重试（避免永久孤儿文件）。
+            raise HTTPException(410, "导入会话已过期，请重新解析文件") from None
+        await db.delete(session)
+        await db.commit()
         raise HTTPException(410, "导入会话已过期，请重新解析文件")
 
     # 幂等命中已返回；余下路径才检查配额，避免重试被 403。
@@ -1006,7 +1018,9 @@ async def import_own_persist(
         with open(snap.source_path, "rb") as f:
             raw = f.read()
         text = raw.decode(snap.encoding or manifest["encoding"])
-        synopsis = slice_import_prose(text, first["body_ranges"])[:200]
+        synopsis = slice_import_prose(
+            text, first["body_ranges"], manifest.get("volume_heading_ranges") or []
+        )[:200]
         if synopsis:
             storage = get_storage()
             current = await storage.read_yaml(book.root_path, "story.yaml") or {}
@@ -1016,13 +1030,21 @@ async def import_own_persist(
     except Exception:
         pass
 
-    # 成功落库后回收临时会话与源文件；失败不影响建书结果。
+    # 成功落库后回收临时会话与源文件；文件先删，删不掉就保留会话行给 sweep 重试。
     try:
-        await db.execute(sa_delete(ImportSession).where(ImportSession.id == body.import_id))
-        await db.commit()
         os.unlink(snap.source_path)
-    except Exception:  # noqa: BLE001 — 清理失败留给启动 sweep
-        await db.rollback()
+    except FileNotFoundError:
+        pass
+    except OSError:
+        pass  # 会话行仍在，下次启动 sweep 重试；不把孤儿路径变成无主文件
+    else:
+        try:
+            await db.execute(
+                sa_delete(ImportSession).where(ImportSession.id == body.import_id)
+            )
+            await db.commit()
+        except Exception:  # noqa: BLE001 — 清理失败留给启动 sweep
+            await db.rollback()
 
     return {"id": str(book.id), "name": book.name}
 

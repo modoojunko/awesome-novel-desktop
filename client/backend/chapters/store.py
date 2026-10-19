@@ -89,6 +89,8 @@ def assemble_chapter(row) -> dict:
         "historical": row.origin == "import" and row.status != "archived",
         "prose": row.content.prose if row.content is not None else "",
     }
+    if row.imported_at is not None:
+        data["imported_at"] = row.imported_at.isoformat()
     if row.ghost_of:
         data["ghost_of"] = row.ghost_of
     # chapter-rewrite：基于旧设定角标（主线章；上游重写置位、本章保存清除）

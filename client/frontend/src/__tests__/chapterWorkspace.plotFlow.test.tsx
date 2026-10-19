@@ -46,12 +46,29 @@ const THREE = {
   warnings: [],
 };
 
+type PriorChapter = {
+  chapter: number;
+  title: string;
+  archived?: boolean;
+  has_prose?: boolean;
+  word_count?: number;
+  historical?: boolean;
+  origin?: string;
+};
+
 /** outline/wb 最小桩：saveChapter 写回 chaptersMap（门槛读服务端值的依据） */
-function makeOutline(server: Record<string, unknown>) {
+function makeOutline(server: Record<string, unknown>, prior: PriorChapter[] = []) {
   const map = new Map<string, any>([[REF, server]]);
   return {
     volumes: [
-      { ref: "vol-1", title: "第一卷", chapters: [{ chapter: 2, title: "锚点", archived: false, has_prose: true, word_count: 10 }] },
+      {
+        ref: "vol-1",
+        title: "第一卷",
+        chapters: [
+          ...prior,
+          { chapter: 2, title: "锚点", archived: false, has_prose: true, word_count: 10 },
+        ],
+      },
     ],
     chaptersMap: map,
     loadChapterData: vi.fn(async (ref: string) => map.get(ref)),
@@ -84,15 +101,21 @@ function mount(opts: {
   onOpenAiModal?: () => void;
   /** 树行归档态（c-archived-readonly）：true＝本章已归档 */
   archived?: boolean;
+  /** 前置章（排队门禁用例：已验证空导入历史章不锁本章） */
+  prior?: PriorChapter[];
 }) {
-  const outline = makeOutline(opts.server);
+  const prior = opts.prior ?? [];
+  const outline = makeOutline(opts.server, prior);
   // 每次挂载新建 wb 桩：归档态按用例覆写，不污染模块级 wb
   const wbStub = {
     ...wb,
     volumes: [
       {
         name: "vol-1",
-        chapters: [{ chapter: 2, title: "锚点", archived: opts.archived ?? false }],
+        chapters: [
+          ...prior,
+          { chapter: 2, title: "锚点", archived: opts.archived ?? false },
+        ],
       },
     ],
   };
@@ -502,5 +525,33 @@ describe("抽卡携带表单字数（c-scene-density 联动）", () => {
         { word_target: 9999 },
       ),
     );
+  });
+
+  it("空的导入历史章不参与排队门禁：后续章仍可写", async () => {
+    mount({
+      server: { ...FULL },
+      prior: [{
+        chapter: 1, title: "原文一", archived: false,
+        has_prose: false, word_count: 0, historical: true, origin: "import",
+      }],
+    });
+    fireEvent.click(await screen.findByRole("tab", { name: /^正文/ }));
+    await waitFor(() =>
+      expect(screen.queryByText(/还不能写这一章/)).toBeNull(),
+    );
+  });
+
+  it("作者空章仍按主队列锁定后续章", async () => {
+    mount({
+      server: { ...FULL },
+      prior: [{
+        chapter: 1, title: "待写", archived: false,
+        has_prose: false, word_count: 0, historical: false, origin: "authored",
+      }],
+    });
+    fireEvent.click(await screen.findByRole("tab", { name: /^正文/ }));
+    expect(
+      await screen.findByText(/还不能写这一章/),
+    ).toBeTruthy();
   });
 });

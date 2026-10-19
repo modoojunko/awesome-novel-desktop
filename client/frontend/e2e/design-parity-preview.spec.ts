@@ -200,6 +200,8 @@ test.describe("design-parity 阅读预览屏（preview.html）", () => {
     stubPreviewAPI(appPage);
     await stubUpdateNotice(appPage, "update", "0.19");
     await appPage.route("**/api/auth/config", (r) => r.fulfill({ json: { portal_url: "" } }));
+    await appPage.route("**/api/prompt-pack/probe", (r) =>
+      r.fulfill({ json: { installed_version: "2026.10.10-1", latest_version: "2026.10.10-1", update_available: false, source: "pack" } }));
     await appPage.goto(`/#/novel/${PID}`);
     await appPage.waitForSelector(".chtab", { timeout: 10000 });
     const proseLoaded = appPage.waitForResponse(`**/api/novels/${PID}/chapters/vol-1-ch-1`);

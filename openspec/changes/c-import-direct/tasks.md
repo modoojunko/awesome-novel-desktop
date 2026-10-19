@@ -45,18 +45,19 @@
 
 ## 6. 迁移、回填与旧书
 
-- [x] 6.1 carry 完成后按 `app_meta.import_backfill_v1` 幂等回填旧 import 书：import_kind=legacy、章 origin=import、status 不改；验证：`test_import_backfill` 绿（真实旧库 carry 演练见 7.1 全量）
+- [x] 6.1 carry 完成后按 `app_meta.import_backfill_v1` 幂等回填旧 import 书：import_kind=legacy，只把与书创建时间同窗（≤10 分钟）的章标为 origin=import，status 不改；备份恢复书/作者后写章不误标；验证：`test_import_backfill` 4 例绿（备份恢复、混合来源、幂等、force）＋`test_backup_roundtrip` provenance 往返绿
 - [x] 6.2 旧书没有作者章：阶段写作中、不能完本；作者新增并归档后按 authored 分母完本；验证：`test_novel_finish_flow` 新增 imported-only / imported+authored 两例，7 绿
 - [x] 6.3 回滚演练：旧版本+旧库可启动；新库多列被旧代码忽略、status 未变；验证：DB 级演练记录 `docs/design-c/drafts/ai-novel-c端-导入自有书-A路-回滚演练.md`（SQLite 在线备份/旧列读取/status 未变；旧安装包启动待发布补记）
 
 ## 7. 回归与发布
 
-- [x] 7.1 后端：`cd client/backend && python -m pytest tests/ -v`；验证：**2291 passed / 26 skipped / 265 skip，0 failed**（含 lifecycle/numbering/writer/backfill/import API；sibling 模板抽样已改用现役模板）
-- [x] 7.2 前端：`cd client/frontend && npx vitest run` 与 `npx tsc --noEmit`；验证：全绿（137 files / 1719 tests；tsc 0；coverage 100%）
-- [x] 7.3 E2E：A 路 42 章→第 43 章→第 10 章原文→预览原文；验证：`e2e/import-own-book.spec.ts` 在私有栈 8104/5294 通过（2.3s）；归档新章/完本由既有 finish 测试覆盖
-- [x] 7.4 设计门禁：`npm run design:lint && npm run design:check`；验证：`design:lint` **0 违规**（30 严格文件，含新原型/向导）；`design:check` **8/8 通过**（23.2s，私有栈 5294）——本批同步了书架/预览原型的 update-strip 静默升级文案、写作工具入口、免费额度与版本号基线，并在 parity 夹具补齐免费态 `project_limit`/`max_projects`，存量漂移清零（见 `ADJUSTMENTS.md` parity 基线同步段）
+- [x] 7.1 后端：`cd client/backend && python -m pytest tests/ -v`；验证：**2298 passed / 26 skipped / 265 skip，0 failed**（含 lifecycle/numbering/writer/backfill/import API；sibling 模板抽样已改用现役模板）
+- [x] 7.2 前端：`cd client/frontend && npx vitest run` 与 `npx tsc --noEmit`；验证：全绿（137 files / 1724 tests；tsc 0；coverage 100%）
+- [x] 7.3 E2E：A 路 42 章→第 43 章→第 10 章原文→预览原文；验证：`e2e/import-own-book.spec.ts` 在私有栈 8104/5294 通过（1.9s）；归档新章/完本由既有 finish 测试覆盖
+- [x] 7.4 设计门禁：`npm run design:lint && npm run design:check`；验证：`design:lint` **0 违规**（30 严格文件，含新原型/向导）；`design:check` **8/8 通过**（23.5s，私有栈 5294）——本批同步了书架/预览原型的 update-strip 静默升级文案、写作工具入口、免费额度、完本作者章口径与版本号基线，并在 parity 夹具补齐免费态 `project_limit`/`max_projects` 与 prompt-pack 探测桩，存量漂移清零（见 `ADJUSTMENTS.md` parity 基线同步段）
 - [x] 7.5 发布说明：仅 txt、md/docx 退役、旧书可读、A 路设定留空；验证：草稿已落 `docs/design-c/drafts/ai-novel-c端-导入自有书-A路-发布说明.md`，待评审定稿
-- [x] 7.6 回填 7.1–7.4 实际通过数/失败数/像素差/耗时：后端 2291 passed / 26 skipped / 0 failed；前端 137 files / 1719 tests 全绿 + tsc 0（coverage 100%）；e2e 1/1 通过；design:lint 0；design:check 8/8 通过（全部低于 0.2% 阈值，无失败态）；耗时：后端 177s、前端约 10s、e2e 2.3s、design:check 23.2s
+- [x] 7.6 回填 7.1–7.4 实际通过数/失败数/像素差/耗时：后端 2298 passed / 26 skipped / 0 failed；前端 137 files / 1724 tests 全绿 + tsc 0（coverage 100%）；e2e 1/1 通过；design:lint 0；design:check 8/8 通过（全部低于 0.2% 阈值，无失败态）；耗时：后端 174s、前端约 10s、e2e 1.9s、design:check 23.5s
+- [x] 7.7 最终评审整改：修复备份往返 provenance、旧书回填误标、空导入章锁后续章、卷标题行误删正文、多卷章号残留、跨卷导入收尾丢正文、50MB 高密度章标题资源上限、会话清理孤儿、同文件重试/解析取消、空末卷 CTA、完本文案与卷页原文统计；验证：新增/更新 13 个前后端用例，7.1–7.4 全绿
 
 ## 回归门禁基线（立项阶段实测）
 

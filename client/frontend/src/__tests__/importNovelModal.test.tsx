@@ -26,7 +26,7 @@ const parsed = {
   ],
   warnings: [],
   risk: { level: "ok" as const, issues: [], chapter_count: 2, avg_chapter_chars: 600 },
-  parser_version: "textparse-2026-10",
+  parser_version: "textparse-2026-10.1",
   source_sha256: "x",
 };
 
@@ -73,6 +73,53 @@ describe("ImportNovelModal（A 路三步向导）", () => {
     expect(body.volumes).toEqual([{ title: "风起", chapter_from: 1, chapter_to: 2 }]);
     expect(body.excluded_source_nos).toEqual([]);
     expect(onImported).toHaveBeenCalledWith("book-1");
+  });
+
+  it("解析失败后同一文件可再次选择并重试", async () => {
+    vi.mocked(importOwnParse)
+      .mockRejectedValueOnce(new Error("云端服务暂时不可用，请稍后重试"))
+      .mockResolvedValueOnce(parsed);
+    render(<ImportNovelModal open onClose={() => {}} onImported={() => {}} />);
+
+    const file = new File(["第1章 开端\n张三。\n"], "长夜灯.txt", { type: "text/plain" });
+    const input = document.querySelector('input[type="file"]') as HTMLInputElement;
+    fireEvent.change(input, { target: { files: [file] } });
+    expect(await screen.findByText(/云端服务暂时不可用/)).toBeTruthy();
+
+    // 处理器清空 input.value，同一 File 重选仍会触发 change。
+    fireEvent.change(input, { target: { files: [file] } });
+    await waitFor(() => expect(importOwnParse).toHaveBeenCalledTimes(2));
+    expect(await screen.findByText(/长夜灯.txt · utf-8-sig/)).toBeTruthy();
+  });
+
+  it("忽略中间章：排除号与重排后的卷范围逐字段正确", async () => {
+    vi.mocked(importOwnParse).mockResolvedValue({
+      ...parsed,
+      chapter_count: 3,
+      volumes: [{ title: "风起", chapter_from: 1, chapter_to: 3 }],
+      chapters: [
+        { source_no: 1, title: "开端", title_raw: "第1章 开端", volume_title: "风起" },
+        { source_no: 2, title: "遇敌", title_raw: "第2章 遇敌", volume_title: "风起" },
+        { source_no: 3, title: "收束", title_raw: "第3章 收束", volume_title: "风起" },
+      ],
+      risk: { level: "ok", issues: [], chapter_count: 3, avg_chapter_chars: 600 },
+    });
+    vi.mocked(importOwnPersist).mockResolvedValue({ id: "book-1", name: "长夜灯" });
+    render(<ImportNovelModal open onClose={() => {}} onImported={() => {}} />);
+
+    pickFile();
+    await waitFor(() => expect(importOwnParse).toHaveBeenCalledTimes(1));
+    fireEvent.click(screen.getByText("下一步：确认卷章"));
+    await screen.findByText("书目录 · 按章切分");
+    fireEvent.click(screen.getAllByText("不导入")[1]);
+    await screen.findByText(/已不导入第 2 章/);
+
+    fireEvent.click(screen.getByText("下一步：导入方式"));
+    fireEvent.click(await screen.findByText("创建并开始写作"));
+    await waitFor(() => expect(importOwnPersist).toHaveBeenCalledTimes(1));
+    const body = vi.mocked(importOwnPersist).mock.calls[0][0];
+    expect(body.excluded_source_nos).toEqual([2]);
+    expect(body.volumes).toEqual([{ title: "风起", chapter_from: 1, chapter_to: 2 }]);
   });
 
   it("首个卷标题晚于前几章：自动补前置正文卷，结构可继续", async () => {

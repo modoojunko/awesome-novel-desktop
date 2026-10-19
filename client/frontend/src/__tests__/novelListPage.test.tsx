@@ -181,7 +181,7 @@ describe("列表状态与卡片", () => {
     const cardOf = (n: string) =>
       screen.getByText(`《${n}》`).closest(".book-card") as HTMLElement;
     expect(within(cardOf("全归档")).getByText("待完本")).toBeTruthy();
-    expect(screen.getByText("全书 3 章已归档")).toBeTruthy();
+    expect(screen.getByText("作者章 3 / 3 已归档")).toBeTruthy();
     // 回看（待完本）与回看（已完结，v2 新增）同名——收窄到各自卡内
     expect(within(cardOf("全归档")).getByText("回看")).toBeTruthy();
     expect(within(cardOf("完本书")).getByText("回看")).toBeTruthy();

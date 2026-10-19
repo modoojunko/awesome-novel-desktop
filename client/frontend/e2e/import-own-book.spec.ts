@@ -43,9 +43,14 @@ test.describe("导入自有书 A 路", () => {
   test("txt 42 章 → 第 43 章待写 → 预览原文", async ({ page }) => {
     await page.goto(`${ORIGIN}/#/novels`);
     // 版本切换后的旧数据迁移提醒可能挡住书架（私有栈复用数据目录时）；关掉再继续。
+    // 对话框在书架挂载后才探测出候选，不能只做一次瞬时可见判断。
     const migration = page.getByRole("dialog", { name: /迁移上一版/ });
+    await migration
+      .waitFor({ state: "visible", timeout: 3000 })
+      .catch(() => {});
     if (await migration.isVisible().catch(() => false)) {
       await migration.getByRole("button", { name: "关闭" }).click();
+      await migration.waitFor({ state: "hidden" }).catch(() => {});
     }
     await expect(page.getByRole("heading", { name: "我的作品" })).toBeVisible();
     await page.locator('button[title*="导入我的书"]').click();

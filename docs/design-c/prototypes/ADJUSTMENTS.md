@@ -2048,3 +2048,5 @@ baseurl 到什么程度，要有个案例。」——中转站/自建网关用�
 - `list.html` 免费额度条文案去掉「免费版」前缀、账号徽标按 `ainovel.member='0'` 显示「免费版」——与当前应用同口径。
 - `design-parity.spec.ts`：update-check `current` 对齐 0.19；免费态 verify 夹具补 `project_limit: 1` 与 entitlement `max_projects: 1`（旧夹具缺这两项，应用会按不限量渲染，导致额度墙场景假红）。
 - 验证：`npm run design:check` → **8 passed**；`design:lint` → 0 违规。
+- 完本页脚/弹窗改用作者章口径（`作者章 N / N 已归档`；导入原文不参与完本计数），与 c-import-direct 的完本分母一致。
+- parity 应用侧补 `/prompt-pack/probe` 已安装桩：真栈探测到未装包会弹首装引导，遮住整页基线（2026-10-19 复跑实锤 91% 假红）。

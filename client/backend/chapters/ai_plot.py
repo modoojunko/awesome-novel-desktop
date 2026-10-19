@@ -238,7 +238,7 @@ async def ai_plot_draw(
     material_user = _render(
         _usr_t, material_blocks=_plot_blocks(mat, row, entry, position, word_target)
     )
-    user_msg = material_user + f"\n\n请给出第 {row.chapter_no} 章剧情清单的 3 版（只输出 JSON）。"
+    user_msg = material_user + f"\n\n请给出第 {global_ch} 章剧情清单的 3 版（只输出 JSON）。"
 
     # 生成预算（c-scene-density 抬参）：每版 4–12 条×≤200 字、三版满产 ~7200 字
     # （entry/exit 共用只出一次）≈6.5-9k token——8192 在 12 条档截断 JSON，端点自抬

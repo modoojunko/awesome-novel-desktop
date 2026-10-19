@@ -344,11 +344,31 @@ async def resolve_prev_ending(
         and not c.ghost_of
     ]
     if archived:
+        from chapters.numbering import global_number_map
+
+        all_rows = [
+            c for c in await chapter_repo.list_by_project(db, project.id) if not c.ghost_of
+        ]
+        global_map = global_number_map(all_rows)
         last = max(archived, key=lambda c: c.chapter_no)
-        text = (last.summary or "").strip() or last.title
+        text = (last.summary or "").strip()
+        if not text and getattr(last, "origin", "authored") == "import":
+            # 导入章没有章纲：用正文末段（与章内进场同口径），不要只剩一个标题。
+            from chapters.store import assemble_chapter
+            from write.chapter_writer import clip_tail_to_sentence_boundary
+
+            prose = str(assemble_chapter(last).get("prose") or "").strip()
+            paras = [p.strip() for p in prose.split("\n") if p.strip()]
+            if paras:
+                text = clip_tail_to_sentence_boundary(paras[-1], 200)
+        text = text or last.title
         return {
             "text": text,
-            "source": f"第{vol_no - 1}卷 · 实际收尾（第{last.chapter_no}章）——写到那里之后，这里以实际为准",
+            "source": (
+                f"第{vol_no - 1}卷 · 实际收尾"
+                f"（第{global_map.get(last.ref, last.chapter_no)}章）"
+                "——写到那里之后，这里以实际为准"
+            ),
         }
     return {
         "text": (prev.ending or "").strip() or "（上一卷还没定收尾）",

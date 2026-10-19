@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Modal from "@/components/design/Modal";
 import {
   importOwnParse,
@@ -75,8 +75,13 @@ export default function ImportNovelModal({
   const importTokenRef = useRef<string>(crypto.randomUUID());
   const lastShaRef = useRef<string>("");
   const splitRef = useRef<HTMLInputElement>(null);
+  const parseAbortRef = useRef<AbortController | null>(null);
+
+  useEffect(() => () => parseAbortRef.current?.abort(), []);
 
   const reset = useCallback(() => {
+    parseAbortRef.current?.abort();
+    parseAbortRef.current = null;
     setStep(1);
     setParsing(false);
     setSaving(false);
@@ -92,10 +97,10 @@ export default function ImportNovelModal({
   }, []);
 
   const handleClose = useCallback(() => {
-    if (parsing || saving) return;
+    if (saving) return;
     reset();
     onClose();
-  }, [parsing, saving, reset, onClose]);
+  }, [saving, reset, onClose]);
 
   const activeChapters = useMemo(
     () => (parsed ? parsed.chapters.filter((c) => !excluded.has(c.source_no)) : []),
@@ -143,9 +148,13 @@ export default function ImportNovelModal({
       setError("文件大小超过 50MB 限制");
       return;
     }
+    parseAbortRef.current?.abort();
+    const controller = new AbortController();
+    parseAbortRef.current = controller;
     setParsing(true);
     try {
-      const data = await importOwnParse(file);
+      const data = await importOwnParse(file, controller.signal);
+      if (controller.signal.aborted) return;
       // 同一文件重试沿用 token（响应丢失可幂等）；换了文件必须换 token，避免命中上一本。
       if (lastShaRef.current && lastShaRef.current !== data.source_sha256) {
         importTokenRef.current = crypto.randomUUID();
@@ -161,9 +170,13 @@ export default function ImportNovelModal({
         setError("");
       }
     } catch (e) {
+      if (controller.signal.aborted) return;
       setError(e instanceof Error ? e.message : "解析失败，请检查文件格式");
     } finally {
-      setParsing(false);
+      if (parseAbortRef.current === controller) {
+        parseAbortRef.current = null;
+        setParsing(false);
+      }
     }
   }, []);
 
@@ -324,7 +337,7 @@ export default function ImportNovelModal({
     <Modal
       open={open}
       onClose={handleClose}
-      locked={parsing || saving}
+      locked={saving}
       title="导入我的书"
       width={960}
       footer={
@@ -382,6 +395,8 @@ export default function ImportNovelModal({
               style={{ display: "none" }}
               onChange={(e) => {
                 const f = e.target.files?.[0];
+                // 清空 value：同一文件解析失败后重选才会再次触发 change。
+                e.target.value = "";
                 if (f) void handleFile(f);
               }}
             />

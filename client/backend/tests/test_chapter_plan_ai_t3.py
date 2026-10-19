@@ -792,6 +792,21 @@ class TestPlanCard:
         r = client.get(f"/api/novels/{pid}/chapters/vol-1-ch-9/plan-card")
         assert r.status_code == 404
 
+    def test_multi_volume_numbers_are_global(self, client):
+        """第 2 卷第 2 章／下一章锚点都用全书号，不显示卷内第 2 章。"""
+        pid = _seed_multi(client, [
+            (1, [{"no": 1}, {"no": 2}, {"no": 3}]),
+            (2, [{"no": 1, "prose": "第二卷第一章结尾。"}, {"no": 2}]),
+        ])
+        card = client.get(f"/api/novels/{pid}/chapters/vol-2-ch-2/plan-card").json()
+        assert card["next_no"] == 5
+        assert "第4章" in card["entry_source"]
+        anchor = client.get(
+            f"/api/novels/{pid}/volumes/vol-2/next-chapter-anchor"
+        ).json()
+        assert anchor["next_no"] == 6
+        assert anchor["vol_no"] == 2
+
 
 # 模板契约钉子已迁提示词仓（c-prompt-source-flip tests/test_templates_pins.py）；
 # 本文件保留行为用例。

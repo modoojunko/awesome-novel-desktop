@@ -438,7 +438,9 @@ function NovelList() {
         <div className="foot">
           {stage === "ready" ? (
             <>
-              <span className="updated">全书 {p.total_chapters} 章已归档</span>
+              <span className="updated">
+                作者章 {p.authored_archived ?? p.total_archives} / {p.authored_total ?? p.total_chapters} 已归档
+              </span>
               <span className="foot-acts">
                 <button className="btn btn-secondary btn-sm" onClick={(e) => openPreview(e, p.id)}>
                   回看
@@ -446,7 +448,7 @@ function NovelList() {
                 <button
                   className="btn btn-primary btn-sm"
                   data-od-id={`finish-open-${p.id}`}
-                  title="全书章节都已归档 · 完结这本书"
+                  title="作者章都已归档 · 完结这本书"
                   onClick={(e) => {
                     e.stopPropagation();
                     setFinishTarget(p);

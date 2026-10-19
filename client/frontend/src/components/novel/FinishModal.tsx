@@ -21,6 +21,9 @@ export interface FinishTarget {
   name: string;
   total_volumes: number;
   total_chapters: number;
+  /** 作者章口径（导入原文不计入完本分母） */
+  authored_total?: number;
+  authored_archived?: number;
   word_count?: number;
   finished_at?: string | null;
   updated_at: string;
@@ -118,9 +121,10 @@ export default function FinishModal({ target, onClose, onFinished, onReopened }:
 
   if (!target) return null;
 
+  const authored = target.authored_total ?? target.total_chapters;
   const lead = finished
-    ? `主线 ${target.total_chapters} 章 · ${target.total_volumes} 卷 · 约 ${fmt(target.word_count ?? 0)} 字 · 完结于${relDay(target.finished_at)}。`
-    : `主线 ${target.total_chapters} 章 · ${target.total_volumes} 卷 · 约 ${fmt(target.word_count ?? 0)} 字都已归档。` +
+    ? `作者主线 ${authored} 章 · ${target.total_volumes} 卷 · 约 ${fmt(target.word_count ?? 0)} 字 · 完结于${relDay(target.finished_at)}。`
+    : `作者主线 ${authored} 章 · ${target.total_volumes} 卷 · 约 ${fmt(target.word_count ?? 0)} 字都已归档（导入原文不参与完本计数）。` +
       "完本是一个动作，按下后这本书标为已完结；收尾结论都留在这本书的「操作」页等你逐条确认。";
 
   return (

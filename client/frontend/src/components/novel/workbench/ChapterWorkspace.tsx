@@ -189,6 +189,8 @@ export default function ChapterWorkspace({
       for (const c of v.chapters) {
         const ref = `${v.ref}-ch-${c.chapter}`;
         if (ref === chapterRef) return false;
+        // 导入历史章不参与排队门禁：空正文的原文章不该把续写的 N+1 锁成不可写。
+        if (c.historical) continue;
         if (!c.archived && !(c.has_prose ?? (c.word_count ?? 0) > 0)) return true;
       }
     }
@@ -1346,6 +1348,7 @@ const [ogForm, setOgForm] = useState<OgForm>(EMPTY_OG_FORM);
         onAIStateChange={onAIStateChange}
         resumeScroll={resumeScrollMemo}
         onWriteProgress={onWriteProgress}
+        historical={imported}
         editing={proseEditing}
         onStartEdit={() => {
           setProseEditing(true);

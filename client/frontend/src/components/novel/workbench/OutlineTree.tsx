@@ -124,7 +124,7 @@ export default function OutlineTree({
     setDelTarget({
       kind: "chapter",
       ref,
-      title: nodeLabel("章", c.chapter, c.title),
+      title: nodeLabel("章", c.global_no ?? c.chapter, c.title),
       chips,
       chapterCount: 0,
       totalWords: 0,

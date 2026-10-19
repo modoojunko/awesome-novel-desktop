@@ -413,16 +413,15 @@ export default function NovelWorkspace() {
     }
     // ③ 全归档/全历史章：主线末端「待写」占位（不落库，续写时创建）
     if (!pick && volumes.length) {
+      // 末卷可以是刚建的空卷：待写位仍落在这卷，不能因为有卷无章就整块隐藏 CTA。
       const last = volumes[volumes.length - 1];
-      if (last.chapters.length) {
-        const no = (last.chapters[last.chapters.length - 1].chapter ?? 0) + 1;
-        const globalNo = volumes.reduce((n, v) => n + v.chapters.length, 0) + 1;
-        pick = {
-          v: last,
-          c: { chapter: no, global_no: globalNo, title: "待写", word_count: 0, status: "outline" },
-          pending: true,
-        };
-      }
+      const no = (last.chapters[last.chapters.length - 1]?.chapter ?? 0) + 1;
+      const globalNo = volumes.reduce((n, v) => n + v.chapters.length, 0) + 1;
+      pick = {
+        v: last,
+        c: { chapter: no, global_no: globalNo, title: "待写", word_count: 0, status: "outline" },
+        pending: true,
+      };
     }
     if (!pick) return null;
     const volNo = Number((pick.v.name.match(/^vol-(\d+)$/) ?? [])[1] ?? 1);
@@ -475,8 +474,8 @@ export default function NovelWorkspace() {
       }
     }
     if (!volumes.length) return null;
+    // 空末卷同样给待写位：章号 = 全书已有章数 + 1，卷号 = 末卷。
     const last = volumes[volumes.length - 1];
-    if (!last.chapters.length) return null;
     const volNo = Number((last.name.match(/^vol-(\d+)$/) ?? [])[1] ?? 1);
     return {
       ref: `${last.name}-ch-`,

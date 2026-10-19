@@ -366,9 +366,13 @@ export default function VolumeWorkspace({
         onClose={() => setResplitOpen(false)}
         onConfirm={() => void doResplit()}
         planned={(detail?.chapters ?? [])
-          .filter((c) => !c.has_prose && !c.archived)
-          .map((c) => ({ no: c.chapter, title: c.title }))}
-        kept={(detail?.chapters ?? []).filter((c) => c.has_prose || c.archived).length}
+          .filter((c) => !c.has_prose && !c.archived && c.origin !== "import")
+          .map((c) => ({ no: c.global_no ?? c.chapter, title: c.title }))}
+        kept={
+          (detail?.chapters ?? []).filter(
+            (c) => c.has_prose || c.archived || c.origin === "import"
+          ).length
+        }
       />
     </div>
   );
@@ -407,13 +411,25 @@ function VolumeOutlinePane({
   /** 回改这一章（5.6）：派生视图行可点开同一张本章卡 */
   onEditChapter: (ref: string) => void;
 }) {
-  const here =
+  const hereCh =
     frontier && frontier.vol === detail.volume
+      ? detail.chapters.find((c) => c.chapter === frontier.ch)
+      : null;
+  const here = hereCh
+    ? `第 ${hereCh.global_no ?? hereCh.chapter} 章`
+    : frontier && frontier.vol === detail.volume
       ? `第 ${frontier.ch} 章`
       : "不在本卷";
   const archived = detail.chapters.filter((c) => c.archived).length;
-  const draft = detail.chapters.filter((c) => c.has_prose && !c.archived).length;
-  const planned = detail.chapters.filter((c) => !c.has_prose && !c.archived).length;
+  const imported = detail.chapters.filter(
+    (c) => c.origin === "import" && !c.archived
+  ).length;
+  const draft = detail.chapters.filter(
+    (c) => c.has_prose && !c.archived && c.origin !== "import"
+  ).length;
+  const planned = detail.chapters.filter(
+    (c) => !c.has_prose && !c.archived && c.origin !== "import"
+  ).length;
 
   if (form) {
     return (
@@ -690,6 +706,10 @@ function VolumeOutlinePane({
           <b>{archived} 章</b>
         </span>
         <span className="pos">
+          <em>原文</em>
+          <b>{imported} 章</b>
+        </span>
+        <span className="pos">
           <em>草稿</em>
           <b>{draft} 章</b>
         </span>
@@ -791,11 +811,14 @@ function ChapterLedgerPane({
       ) : (
         <div className="ledger">
           {detail.chapters.map((c) => {
+            const isImport = c.origin === "import";
             const state = c.archived
               ? "已归档"
-              : c.has_prose
-                ? "草稿"
-                : "拟定";
+              : isImport
+                ? "原文"
+                : c.has_prose
+                  ? "草稿"
+                  : "拟定";
             return (
               <button
                 className="lrow chrow vol-chrow"
@@ -803,13 +826,19 @@ function ChapterLedgerPane({
                 onClick={() => onGoChapter(c.ref)}
               >
                 <span className="lname">
-                  第 {c.chapter} 章 · {c.title || "（未命名）"}
+                  第 {c.global_no ?? c.chapter} 章 · {c.title || "（未命名）"}
                   <em>
                     {c.outline_summary ||
-                      (c.has_prose ? "（没有章纲）" : "（待补章纲）")}
+                      (isImport
+                        ? "（原文）"
+                        : c.has_prose
+                          ? "（没有章纲）"
+                          : "（待补章纲）")}
                   </em>
                 </span>
-                <span className={`lstate${!c.archived && c.has_prose ? " open" : ""}`}>
+                <span
+                  className={`lstate${!c.archived && c.has_prose && !isImport ? " open" : ""}`}
+                >
                   {state}
                 </span>
               </button>

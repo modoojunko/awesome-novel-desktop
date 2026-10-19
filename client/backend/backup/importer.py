@@ -18,6 +18,15 @@ from backup.format import FORMAT_VERSION, belongs_to_ref
 from config import book_root
 
 
+def _parse_dt(value) -> datetime | None:
+    if not value:
+        return None
+    try:
+        return datetime.fromisoformat(str(value))
+    except (TypeError, ValueError):
+        return None
+
+
 def detect_kind(zf: zipfile.ZipFile) -> str:
     names = set(zf.namelist())
     if "backup.yaml" in names:
@@ -595,10 +604,13 @@ async def _import_single_book(
 
     novel = Novel(
         user_id=user_id, name=name,
-        slug=slug, root_path=root_path, source="import",
+        slug=slug, root_path=root_path,
+        # 备份是恢复而非“新导入”：保留来源与导入身份，否则回填/完本会把作者书当旧导入书。
+        source=proj_data.get("source") or "import",
+        import_kind=proj_data.get("import_kind") or "authored",
         current_phase=proj_data.get("current_phase", "write"),
         ai_model=proj_data.get("ai_model", ""),
-        created_at=datetime.fromisoformat(proj_data["created_at"]) if proj_data.get("created_at") else None,
+        created_at=_parse_dt(proj_data.get("created_at")),
     )
     db.add(novel)
     await db.flush()
@@ -688,6 +700,8 @@ async def _import_single_book(
             id=ch_id, project_id=novel.id, volume_id=vol_id,
             ref=ref, title=ch_data.get("title", ""), chapter_no=ref.count("ch-") and int(ref.rsplit("ch-", 1)[-1].split("-")[0].split(".")[0] or 1),
             status=status, word_count=len(prose), has_prose=bool(prose.strip()),
+            origin=ch_data.get("origin") or "authored",
+            imported_at=_parse_dt(ch_data.get("imported_at")),
             ghost_of=ch_data.get("ghost_of"),
         )
 

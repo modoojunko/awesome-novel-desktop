@@ -106,6 +106,8 @@ interface ProsePaneProps {
   locked?: { reason: string };
   /** 写作进度上抛（顶栏 bar-here 跟随显示上次写到的章） */
   onWriteProgress?: (session: { ref: string; scroll: number; ts: number }) => void;
+  /** 导入历史章：滚动不主动写 last_write（输入仍写），避免打开原文就把续写拽回历史章 */
+  historical?: boolean;
   /** 查看/编辑两态（c-prose-edit-gate，对齐卷纲口径）：false＝只读阅读（默认），
    *  true＋非锁定＝可写。归档/排队/旧稿锁定 SHALL 优先于编辑态。 */
   editing?: boolean;
@@ -159,7 +161,7 @@ function replaceDocNoHistory(editor: Editor, doc: JSONContent) {
 }
 
 const ProsePane = forwardRef<ProseHandle, ProsePaneProps>(function ProsePane(
-  { projectId, chapterRef, fs, lh, hidden, onAIStateChange, resumeScroll, onWriteProgress, locked, editing, onStartEdit, onEndEdit },
+  { projectId, chapterRef, fs, lh, hidden, onAIStateChange, resumeScroll, onWriteProgress, historical, locked, editing, onStartEdit, onEndEdit },
   ref,
 ) {
   const wrapRef = useRef<HTMLDivElement>(null);
@@ -493,11 +495,12 @@ const ProsePane = forwardRef<ProseHandle, ProsePaneProps>(function ProsePane(
     const wrap = wrapRef.current;
     if (!wrap) return;
     const onScroll = () => {
-      if (lastWriteRef.current?.ref === chapterRef) saveProgress();
+      // 历史章只在会话已经是本章时才更新；作者书保持原有「滚动也记 last_write」。
+      if (!historical || lastWriteRef.current?.ref === chapterRef) saveProgress();
     };
     wrap.addEventListener("scroll", onScroll, { passive: true });
     return () => wrap.removeEventListener("scroll", onScroll);
-  }, [saveProgress, chapterRef]);
+  }, [saveProgress, chapterRef, historical]);
 
   // ── AI 流式写入（事务追加，SHALL NOT 整文档重建；不入撤销史） ──────────
   /** 追加一段生成文本到插入点（段内换行 = 拆新段）。 */
