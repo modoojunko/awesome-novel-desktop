@@ -89,10 +89,11 @@ export interface DeconstructTaskDetail {
   finished_at: string | null;
 }
 
-/** 运行监控账（c-deconstruct-monitor）：单元账只读聚合——归并批进度＋近 5 分钟
- * 速度窗＋最近调用流水；reduce_state 检查点不计。 */
+/** 运行监控账（c-deconstruct-monitor）：单元账只读聚合——在途＋归并批进度＋近 5 分钟
+ * 速度窗＋最近调用流水（派发即现，running 行 ok=false＋running=true）；reduce_state 检查点不计。 */
 export interface DeconstructMonitor {
   concurrency: number;
+  in_flight: number;
   batches: { done: number; total: number };
   speed: {
     window_s: number;
@@ -104,7 +105,8 @@ export interface DeconstructMonitor {
   };
   recent: {
     at: string;
-    stage: string;
+    label: string;
+    running: boolean;
     duration_ms: number;
     tokens_out: number;
     ok: boolean;

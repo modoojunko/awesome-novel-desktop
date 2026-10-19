@@ -259,7 +259,7 @@ export default function TaskDetailPage() {
             {mon && (
               <>
                 <div className="mon-sum" data-od-id="mon-sum">
-                  批次 {mon.batches.done}/{mon.batches.total} · 卡片 {cards.done}/{cards.total} · 并发 {mon.concurrency}
+                  批次 {mon.batches.done}/{mon.batches.total} · 卡片 {cards.done}/{cards.total} · 在途 {mon.in_flight} · 并发 {mon.concurrency}
                 </div>
                 <div className="pbar" data-od-id="mon-pbar"><i style={{ width: `${overall}%` }} /></div>
               </>
@@ -333,12 +333,22 @@ export default function TaskDetailPage() {
                 {mon!.recent.map((r, i) => (
                   <li key={`${r.at}-${i}`}>
                     <span className="t">{fmtClock(r.at)}</span>
-                    <span className="stg">{r.stage}</span>
-                    <span>{Math.round(r.duration_ms / 1000)}s</span>
-                    <span>{(r.tokens_out / 1000).toFixed(1)}k tok</span>
-                    {r.ok
-                      ? <span className="ok">✓</span>
-                      : <span className="bad">{r.reason || "失败"}</span>}
+                    <span className="stg">{r.label}</span>
+                    {r.running ? (
+                      <>
+                        <span>—</span>
+                        <span>—</span>
+                        <span className="run">● 进行中</span>
+                      </>
+                    ) : (
+                      <>
+                        <span>{Math.round(r.duration_ms / 1000)}s</span>
+                        <span>{(r.tokens_out / 1000).toFixed(1)}k tok</span>
+                        {r.ok
+                          ? <span className="ok">✓</span>
+                          : <span className="bad">{r.reason || "失败"}</span>}
+                      </>
+                    )}
                   </li>
                 ))}
               </ul>

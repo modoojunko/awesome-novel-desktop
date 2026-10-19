@@ -628,21 +628,26 @@ describe("TaskDetailPage", () => {
       },
       monitor: {
         concurrency: 4,
+        in_flight: 2,
         batches: { done: 49, total: 63 },
         speed: { window_s: 300, done: 5, fail: 2, avg_ms: 41000, out_tokens: 76000, total: 70 },
         recent: [
-          { at: "2026-10-19T05:00:01", stage: "收敛", duration_ms: 141000, tokens_out: 76100, ok: false, reason: "invalid_output" },
-          { at: "2026-10-19T15:45:12", stage: "归并", duration_ms: 130000, tokens_out: 68100, ok: true, reason: "" },
-          { at: "2026-10-19T15:40:02", stage: "合批", duration_ms: 90000, tokens_out: 0, ok: false, reason: "" },
+          { at: "2026-10-19T05:02:00", label: "伏笔·归并", running: true, duration_ms: 0, tokens_out: 0, ok: false, reason: "" },
+          { at: "2026-10-19T05:00:01", label: "主线剧情·归并", running: false, duration_ms: 141000, tokens_out: 76100, ok: false, reason: "invalid_output" },
+          { at: "2026-10-19T15:45:12", label: "简介·收敛", running: false, duration_ms: 130000, tokens_out: 68100, ok: true, reason: "" },
+          { at: "2026-10-19T15:40:02", label: "第137章", running: false, duration_ms: 90000, tokens_out: 0, ok: false, reason: "" },
         ],
       },
     }));
     state.probe.mockResolvedValue(true);
     renderPage();
-    await waitFor(() => expect(screen.getByText(/批次 49\/63 · 卡片 542\/542 · 并发 4/)).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByText(/批次 49\/63 · 卡片 542\/542 · 在途 2 · 并发 4/)).toBeInTheDocument());
     expect(document.querySelector('[data-od-id="mon-pbar"]')).not.toBeNull();
     expect(screen.getByText(/速度（近 5 分钟）· 成功 5\/7 次 · 平均 41s · 吞吐 253 tok\/秒 · 累计 70 次/)).toBeInTheDocument();
-    // 最近流水：失败行红显原因，产出 k tok；时钟为本地 HH:MM:SS 形态
+    // 最近流水：派发即现（running 置顶「● 进行中」，耗时/产出画 —），失败行红显原因，调度对象具体到章/维度
+    expect(screen.getByText("● 进行中")).toBeInTheDocument();
+    expect(screen.getByText("伏笔·归并")).toBeInTheDocument();
+    expect(screen.getByText("第137章")).toBeInTheDocument();
     expect(screen.getByText("invalid_output")).toBeInTheDocument();
     expect(screen.getByText("76.1k tok")).toBeInTheDocument();
     expect(screen.getByText("141s")).toBeInTheDocument();
@@ -661,6 +666,7 @@ describe("TaskDetailPage", () => {
     state.get.mockResolvedValue(detailOf("queued", {
       monitor: {
         concurrency: 4,
+        in_flight: 0,
         batches: { done: 0, total: 0 },
         speed: { window_s: 0, done: 0, fail: 0, avg_ms: null, out_tokens: 0, total: 0 },
         recent: [],
@@ -669,7 +675,7 @@ describe("TaskDetailPage", () => {
     state.probe.mockResolvedValue(false);
     renderPage();
     await waitFor(() => expect(screen.getByText("取消任务")).toBeInTheDocument());
-    expect(screen.getByText(/批次 0\/0 · 卡片 0\/0 · 并发 4/)).toBeInTheDocument();
+    expect(screen.getByText(/批次 0\/0 · 卡片 0\/0 · 在途 0 · 并发 4/)).toBeInTheDocument();
     expect(screen.getByText(/速度（近 5 分钟）· 成功 0\/0 次 · 平均 -s · 吞吐 0 tok\/秒 · 累计 0 次/)).toBeInTheDocument();
     expect(screen.queryByTestId("mon-recent")).not.toBeInTheDocument();
     // 无 monitor 臂：旧夹具（monitor 缺席）不出账行（重挂前清场）

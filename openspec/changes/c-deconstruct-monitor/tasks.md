@@ -7,6 +7,10 @@
       duration_ms/tokens_out/ok/reason=error_kind）、并发度；`reduce_state` 排除；
       只取计数列不读 `output_json`；终态返回 None。验证：pytest 聚合/窗口/排除/终态用例。
 - [x] 1.2 `router.get_task` 挂 `monitor`。验证：详情响应含 monitor；既有用例不回归。
+- [x] 1.3 **调度即现（boss 2026-10-19 反馈）**：管线 6 类站点派发即写 running 行
+      （`_unit_running`）；run_task 终局 `_sweep_running` 清残留（failed/cancelled）；
+      monitor 增 `in_flight` 真实在途＋流水行 `label`（第N章/维度·阶段）＋running 态。
+      验证：pytest 在途/清扫/倒序用例；ruff。
 
 ## 2. 前端
 

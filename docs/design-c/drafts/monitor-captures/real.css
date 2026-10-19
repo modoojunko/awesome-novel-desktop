@@ -994,6 +994,7 @@ body,
 .mon-recent .t, .mon-recent .stg { color: var(--muted); }
 .mon-recent .ok { margin-left: auto; color: var(--ok); }
 .mon-recent .bad { margin-left: auto; color: var(--err); word-break: break-all; text-align: right; }
+.mon-recent .run { margin-left: auto; color: var(--accent-strong); }
 .ex-done { display: flex; gap: 12px; align-items: flex-start; border: 1px solid color-mix(in oklch, var(--ok) 38%, var(--border)); background: color-mix(in oklch, var(--ok) 7%, var(--surface)); border-radius: var(--radius); padding: 13px 14px; }
 .ex-done b { font-size: 13.5px; display: block; }
 .ex-done span { font-size: 12px; color: var(--muted); }

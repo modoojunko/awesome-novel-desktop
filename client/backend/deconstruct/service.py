@@ -390,18 +390,34 @@ async def task_stats(task_id: str) -> dict:
     return out
 
 
-_STAGE_LABEL = {"card": "拆卡", "card_batch": "合批", "l1": "归并", "reduce": "收敛",
-                "presence": "在场补写", "place": "地点归并"}
 _MONITOR_WINDOW_S = 300
 _MONITOR_RECENT = 8
 
 
-async def monitor_view(task: DeconstructJob) -> dict | None:
-    """运行监控账（c-deconstruct-monitor）：批次进度＋近 5 分钟速度＋最近调用流水。
+def _unit_label(stage: str, dim: str, unit_key: str) -> str:
+    """最近流水的调度对象（c-deconstruct-monitor）：具体到章号/维度，不再只报阶段。"""
+    if stage == "card":
+        return f"第{unit_key}章"
+    if stage == "presence":
+        return f"第{unit_key}章·在场"
+    if stage == "card_batch":
+        return "拆卡合批"
+    if stage == "place":
+        return "地点归并"
+    name = dim_names().get(dim, dim)
+    if stage == "l1":
+        return f"{name}·归并" if name else "归并"
+    if stage == "reduce":
+        return f"{name}·收敛" if name else "收敛"
+    return stage or "调用"
 
-    只读单元账的计数列（MUST NOT 读 output_json——reduce partials 大载荷不得进
-    1.5s 轮询）；reduce_state 检查点非模型调用，与 task_stats 同口径排除。
-    queued/running 返回账块，终态返回 None（监控只在运行态呈现）。
+
+async def monitor_view(task: DeconstructJob) -> dict | None:
+    """运行监控账（c-deconstruct-monitor）：在途＋批次进度＋近 5 分钟速度＋最近调用流水。
+
+    单元账派发即写 running 行（调度即现），完成时覆盖为终态；只读计数列（MUST NOT 读
+    output_json——reduce partials 大载荷不得进 1.5s 轮询）；reduce_state 检查点非模型
+    调用，与 task_stats 同口径排除。queued/running 返回账块，终态返回 None。
     """
     if task.status not in ("running", "queued"):
         return None
@@ -411,7 +427,8 @@ async def monitor_view(task: DeconstructJob) -> dict | None:
         rows = (
             await session.execute(
                 select(
-                    DeconstructUnit.stage, DeconstructUnit.status,
+                    DeconstructUnit.stage, DeconstructUnit.dim, DeconstructUnit.unit_key,
+                    DeconstructUnit.status,
                     DeconstructUnit.error_kind, DeconstructUnit.duration_ms,
                     DeconstructUnit.tokens_out, DeconstructUnit.updated_at,
                 ).where(DeconstructUnit.task_id == task.id)
@@ -436,6 +453,7 @@ async def monitor_view(task: DeconstructJob) -> dict | None:
     ) if done_win else None
     return {
         "concurrency": CONCURRENCY,
+        "in_flight": sum(1 for r in calls if r.status == "running"),
         "batches": {
             "done": sum(1 for r in l1 if r.status in ("done", "skipped")),
             "total": len(l1),
@@ -451,11 +469,12 @@ async def monitor_view(task: DeconstructJob) -> dict | None:
         "recent": [
             {
                 "at": r.updated_at.isoformat(),
-                "stage": _STAGE_LABEL.get(r.stage, r.stage),
+                "label": _unit_label(r.stage, r.dim, r.unit_key),
+                "running": r.status == "running",
                 "duration_ms": int(r.duration_ms or 0),
                 "tokens_out": int(r.tokens_out or 0),
                 "ok": r.status == "done",
-                "reason": "" if r.status == "done" else str(r.error_kind or ""),
+                "reason": "" if r.status != "failed" else str(r.error_kind or ""),
             }
             for r in recent
         ],
