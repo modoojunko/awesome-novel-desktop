@@ -198,7 +198,7 @@ test.describe("design-parity 阅读预览屏（preview.html）", () => {
     });
     const appPage = await appCtx.newPage();
     stubPreviewAPI(appPage);
-    await stubUpdateNotice(appPage, "update");
+    await stubUpdateNotice(appPage, "update", "0.19");
     await appPage.route("**/api/auth/config", (r) => r.fulfill({ json: { portal_url: "" } }));
     await appPage.goto(`/#/novel/${PID}`);
     await appPage.waitForSelector(".chtab", { timeout: 10000 });

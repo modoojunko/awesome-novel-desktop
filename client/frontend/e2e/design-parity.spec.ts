@@ -155,7 +155,7 @@ const paginationProtoBooks = () =>
 const MEMBER_VERIFY = { tier: "monthly", is_member: true, expired: false, trial_remaining_days: 0 };
 // quota 场景隔离口径：is_member=false 触发免费额度墙，但 tier 非 none/trial 且未过期，
 // 屏蔽账号 Banner（原型无 Banner），只比额度墙本身
-const FREE_VERIFY = { tier: "monthly", is_member: false, expired: false, trial_remaining_days: 0 };
+const FREE_VERIFY = { tier: "monthly", is_member: false, expired: false, trial_remaining_days: 0, project_limit: 1, entitlement: { v: 2, features: [], limits: { max_projects: 1 } } };
 
 type Case = {
   state: string;
@@ -236,7 +236,7 @@ test.describe("design-parity 书架屏（list.html v2）", () => {
         await appPage.route("**/api/novels/parity-ready/volumes", (r) => r.fulfill({ json: [] }));
       }
       // 原型常显更新提示条（ADJUSTMENTS #15）→ 应用侧同文案打桩，保持像素基线
-      await stubUpdateNotice(appPage, "update");
+      await stubUpdateNotice(appPage, "update", "0.19");
       await appPage
         .route("**/api/auth/verify", (r) => r.fulfill({ json: c.member ? MEMBER_VERIFY : FREE_VERIFY }));
       // portal_url 给真值：appbar「联系客服」按钮与原型同步渲染（空值时按钮隐藏，会造像素差）

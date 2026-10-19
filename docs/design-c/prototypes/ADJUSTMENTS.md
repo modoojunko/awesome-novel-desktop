@@ -2037,3 +2037,14 @@ baseurl 到什么程度，要有个案例。」——中转站/自建网关用�
 - **词表替换**：直接导入（只带正文）/ 原文 / 开始写第 43 章 / 去核对设定 / 写第 43 章前先补两件事 / 每章摘要（B 路后续）/ 10 项拆书产物（B 路后续）；界面不出现 `imported/frontier/baseline/pipeline`。
 - **parity 影响**：`import-own-book.html` 是新屏，不在现有 `design:check` 截图矩阵；默认态不影响 list/book/model-config 基线。若后续纳入 parity，需新录基线并登记。
 - **验证截图**：`import-own-book-shots/01-step2-risk.png`、`02-step2-excluded.png`、`03-step2-undo.png`、`04-step2-warn.png`、`05-step2-ok.png`、`10-13-step3-*`、`20-a-success-modal.png`、`21-a-workspace-43.png`、`22-a-start-43.png`、`23-a-settings.png`；file:// 全程零 JS 报错。
+
+
+## parity 基线同步（2026-10-19，c-import-direct 同批）
+
+`design:check` 原有 8 项存量红来自当前应用与旧原型的独立漂移，不是导入屏引入。本批按当前应用同步，使矩阵恢复 8/8：
+
+- `list.html` / `preview.html` update-strip 改为当前静默升级文案「正在自动准备新版本 v0.13…」（去掉旧「发现新版本 / 去下载」按钮组）；`preview.html` footer 版本对齐 v0.19。
+- `list.html` appbar 补「写作工具」下拉触发（当前应用已有，原型此前只有「我的作品 / 模型配置」）；工具栏随之对齐。
+- `list.html` 免费额度条文案去掉「免费版」前缀、账号徽标按 `ainovel.member='0'` 显示「免费版」——与当前应用同口径。
+- `design-parity.spec.ts`：update-check `current` 对齐 0.19；免费态 verify 夹具补 `project_limit: 1` 与 entitlement `max_projects: 1`（旧夹具缺这两项，应用会按不限量渲染，导致额度墙场景假红）。
+- 验证：`npm run design:check` → **8 passed**；`design:lint` → 0 违规。

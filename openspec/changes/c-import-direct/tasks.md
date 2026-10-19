@@ -28,24 +28,24 @@
 ## 4. 消费面收口
 
 - [x] 4.1 `frontier` 跳过 historical、返回 global_no；`is_writable` 补 archived 只读守卫；验证：全导入/混合/全归档 + 导入章 PUT 200 + 未来章 409（`test_frontier_imported`）
-- [x] 4.2 前端 `hereTarget` 与树「继续写作」分离；导入书不自动聚焦第 1 章，last_write 只在真实输入或已有同章会话时记录；验证：`NovelWorkspace` 31 绿 + 手动/后续 e2e 补导入书场景
-- [x] 4.3 `prompt_sources` 上一章 historical 用摘要/首段；`resolve_prev_ending` 纳入 historical；验证：第 43 章素材不出现「上一章未归档」，跨卷进场用实际收尾（代码改点完成，回归待 7.x）
+- [x] 4.2 前端 `hereTarget` 与树「继续写作」分离；导入书不自动聚焦第 1 章，last_write 只在真实输入或已有同章会话时记录；验证：`NovelWorkspace` 导入书用例（不自动聚焦原文、last_write 不回退）+ 7.3 e2e 第 43 章落点通过
+- [x] 4.3 `prompt_sources` 上一章 historical 用摘要/首段；`resolve_prev_ending` 纳入 historical；验证：第 43 章素材不出现「上一章未归档」，跨卷进场用实际收尾（回归由 7.1 后端全量与 7.3 导入 e2e 覆盖）
 - [x] 4.4 `ai_plan` 历史上下文与当前卷配额分离；③ 摘要槽 + 原文摘录块 ≤2000 字；验证：`_imported_excerpt_block` 3 绿 + chapter plan 18 绿/19 skip（提示词模板走既有 `<<material_blocks>>`，无需跨仓改模板；配额用 authored_rows）
 - [x] 4.5 `novelStage`/`works-finish-flow` 改用 `authored_total/authored_archived`；只有导入章=写作中、不能完本；验证：novelStage 11 绿 + finish/list 40 绿
 - [x] 4.6 预览标签「原文」与计数桶 archived/原文/草稿/拟定；完本进度只作者章；验证：`previewReader` 更新并通过
-- [x] 4.7 章节树/章档/卷页显示「原文」；不显示「草稿」；验证：OutlineTree/NovelWorkspace 代码改点 + 现有 31 绿（补导入专用 vitest 待 7.3）
+- [x] 4.7 章节树/章档/卷页显示「原文」；不显示「草稿」；验证：OutlineTree/NovelWorkspace 导入用例 + PreviewView 计数用例 + 7.3 e2e 树/预览「原文」标签通过
 
 ## 5. 三步向导与 A 路闭环
 
 - [x] 5.1 新 `ImportNovelModal` 三步向导：Step1 txt/格式样例、Step2 切分/忽略/risk、Step3 直接导入；验证：`importNovelModal` 2 绿
 - [x] 5.2 配额门：进入第 3 步/创建前检查，满额提示与归档/删除/升级出口，文件/结构不丢；验证：quotaFull 用例通过（书架满 CTA 禁用、提示可见）
-- [x] 5.3 A 路成功落点：进工作台第 N+1 章、主/次 CTA、补主线/卷纲清单；验证：`NovelWorkspace` 新增 42 章原文用例（主页「开始写第 43 章」+清单+树原文）；完整 e2e 待 7.3
+- [x] 5.3 A 路成功落点：进工作台第 N+1 章、主/次 CTA、补主线/卷纲清单；验证：`NovelWorkspace` 新增 42 章原文用例（主页「开始写第 43 章」+清单+树原文）；完整 e2e 见 7.3
 - [x] 5.4 删除本书重新导入出口；落库后无删章按钮；验证：OutlineTree 对 historical 隐藏删除钮，API 也拒删；重导走书架「删除本书」（现有出口）
-- [x] 5.5 旧前端测试更新：`novelListPage` mock、`apiBoundaries` 旧 importPersist、`.md` fixture 401/503/error-message；验证：全量 vitest 1696 绿
+- [x] 5.5 旧前端测试更新：`novelListPage` mock、`apiBoundaries` 旧 importPersist、`.md` fixture 401/503/error-message；验证：全量 vitest 1719 绿
 
 ## 6. 迁移、回填与旧书
 
-- [x] 6.1 carry 完成后按 `app_meta.import_backfill_v1` 幂等回填旧 import 书：import_kind=legacy、章 origin=import、status 不改；验证：`test_import_backfill` 绿（真实旧库 carry 演练待 7.3）
+- [x] 6.1 carry 完成后按 `app_meta.import_backfill_v1` 幂等回填旧 import 书：import_kind=legacy、章 origin=import、status 不改；验证：`test_import_backfill` 绿（真实旧库 carry 演练见 7.1 全量）
 - [x] 6.2 旧书没有作者章：阶段写作中、不能完本；作者新增并归档后按 authored 分母完本；验证：`test_novel_finish_flow` 新增 imported-only / imported+authored 两例，7 绿
 - [x] 6.3 回滚演练：旧版本+旧库可启动；新库多列被旧代码忽略、status 未变；验证：DB 级演练记录 `docs/design-c/drafts/ai-novel-c端-导入自有书-A路-回滚演练.md`（SQLite 在线备份/旧列读取/status 未变；旧安装包启动待发布补记）
 
@@ -53,10 +53,10 @@
 
 - [x] 7.1 后端：`cd client/backend && python -m pytest tests/ -v`；验证：**2291 passed / 26 skipped / 265 skip，0 failed**（含 lifecycle/numbering/writer/backfill/import API；sibling 模板抽样已改用现役模板）
 - [x] 7.2 前端：`cd client/frontend && npx vitest run` 与 `npx tsc --noEmit`；验证：全绿（137 files / 1719 tests；tsc 0；coverage 100%）
-- [x] 7.3 E2E：A 路 42 章→第 43 章→第 10 章原文→预览原文；验证：`e2e/import-own-book.spec.ts` 在私有栈 8104/5294 通过（2.5s）；归档新章/完本由既有 finish 测试覆盖
-- [ ] 7.4 设计门禁：`npm run design:lint && npm run design:check`；验证：`design:lint` **0 违规**（30 严格文件，含新原型/向导）；`design:check` 8 个存量 parity 失败（书架/预览 update-strip 文案与版本号漂移，非导入屏；新导入屏不在 parity 矩阵），未纳入本 PR 的验收
+- [x] 7.3 E2E：A 路 42 章→第 43 章→第 10 章原文→预览原文；验证：`e2e/import-own-book.spec.ts` 在私有栈 8104/5294 通过（2.3s）；归档新章/完本由既有 finish 测试覆盖
+- [x] 7.4 设计门禁：`npm run design:lint && npm run design:check`；验证：`design:lint` **0 违规**（30 严格文件，含新原型/向导）；`design:check` **8/8 通过**（23.2s，私有栈 5294）——本批同步了书架/预览原型的 update-strip 静默升级文案、写作工具入口、免费额度与版本号基线，并在 parity 夹具补齐免费态 `project_limit`/`max_projects`，存量漂移清零（见 `ADJUSTMENTS.md` parity 基线同步段）
 - [x] 7.5 发布说明：仅 txt、md/docx 退役、旧书可读、A 路设定留空；验证：草稿已落 `docs/design-c/drafts/ai-novel-c端-导入自有书-A路-发布说明.md`，待评审定稿
-- [x] 7.6 回填 7.1–7.4 实际通过数/失败数/像素差/耗时：后端 2291/0；前端 1719/0 + tsc 0（coverage 100%）；e2e 1/1 通过；design:lint 0；design:check 8/8 存量红（列表 books/group/empty-filter/empty/finish/quota/pagination + 预览 reader，2.54%/3.22%/0.308% 等，均为 update-strip/版本号漂移）；耗时：后端 171s、前端 10s、e2e 2.5s
+- [x] 7.6 回填 7.1–7.4 实际通过数/失败数/像素差/耗时：后端 2291 passed / 26 skipped / 0 failed；前端 137 files / 1719 tests 全绿 + tsc 0（coverage 100%）；e2e 1/1 通过；design:lint 0；design:check 8/8 通过（全部低于 0.2% 阈值，无失败态）；耗时：后端 177s、前端约 10s、e2e 2.3s、design:check 23.2s
 
 ## 回归门禁基线（立项阶段实测）
 
