@@ -1,0 +1,45 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>设计原型 · 拆书运行监控面板</title>
+<!-- ═══════════════════════════════════════════════════════════════
+  设计原型 · 拆书运行监控（c-deconstruct-monitor）· 2026-10-19 v1（真界面基线）
+  · 基线口径：**当前真实系统实抓重建**（用户 2026-10-19 附外部拆书监控截图立项）。
+    独立栈＝worktree@分支 c-deconstruct-monitor（vite:5291 → uvicorn:8101，
+    DATA_ROOT 私有＋dispatcher off），Playwright 真渲染抓取，
+    产物入库 monitor-captures/（real.css 全量真实样式＋运行态详情页真实 .app-shell
+    ＋整页截图 shot-detail.png；种子数据＝deconstruct_jobs＋deconstruct_units 真形状
+    直插，13路末班车 82万字/258章 镜像）。
+  · 样式：real.css **整体逐字注入**（build-decmonitor-proto.py，一字未改；无外部
+    url 引用，自包含）。宿主 DOM：运行态详情页 .app-shell 逐字注入（一字未改），
+    监控面板（mon-sum／mon-pbar／mon-dims／mon-speed／mon-recent／测试模型按钮）
+    为分支已实现组件的真实渲染——本原型即实现的可视验收件。
+  · 打开方式：直接双击本地打开；原型为静态快照（时间/进度为抓取时刻值）。
+-->
+<style>
+/*__INJECT_STYLE_REAL__*/
+</style>
+</head>
+<body>
+<!--__HOST_DETAIL__-->
+
+<nav class="pgset-nav" aria-label="页面集导航">
+  <a href="../pages/index.html">首页</a>
+  <a href="../pages/works.html">书架</a>
+  <a href="ai-novel-c端-拆书.html">拆书任务</a>
+  <a href="#" class="on">拆书运行监控</a>
+  <a href="../pages/config.html">模型配置</a>
+</nav>
+<div class="pgset-note">写作工具 · 拆书运行态监控面板 · 真系统实抓（种子数据 13路末班车）· c-deconstruct-monitor · 2026-10-19</div>
+
+<style>
+/* ── 页面集导航（drafts 通用底座，非应用样式）── */
+.pgset-nav { display: flex; justify-content: center; gap: 4px; padding: 12px 0 4px; flex-wrap: wrap; }
+.pgset-nav a { font-size: 12.5px; color: var(--muted); padding: 5px 12px; border-radius: 8px; }
+.pgset-nav a.on { color: var(--fg); background: var(--fg-soft); font-weight: 500; }
+.pgset-note { text-align: center; font-size: 11px; color: var(--muted); padding: 0 0 24px; }
+</style>
+</body>
+</html>

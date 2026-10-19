@@ -2065,3 +2065,11 @@ baseurl 到什么程度，要有个案例。」——中转站/自建网关用�
 - **parity 影响**：拆书运行页不在 `design:check` 像素矩阵（drafts 运行资产）；无像素
   基线重录需求。`.mon-*` 落 index.css tools 段（仅令牌），`.pbar` 复用 book.css 既有类，
   共享段零触碰。
+
+- **追加（同日）**：按「原型必须搭在真界面上」v3 配方产出**真界面基线原型**
+  `ai-novel-c端-拆书监控-原型.html`——独立栈真跑本分支（vite:5291→uvicorn:8101，
+  种子数据按 service 序列化形状直插 jobs＋units，82 万字/258 章镜像参考截图），
+  真系统渲染后 Playwright 逐字抓取（real.css 276KB 无外部 url＋.app-shell），
+  build 整段逐字注入、file:// 自检零报错；抓取产物入库 `monitor-captures/`
+  可重放。手改的 `ai-novel-c端-拆书.html` 运行态注记保留（drafts 对齐稿），
+  评审以真界面基线原型为准。

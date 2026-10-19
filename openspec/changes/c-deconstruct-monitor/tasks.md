@@ -25,4 +25,10 @@
 - [x] 3.1 本变更 proposal／tasks／spec delta（ADDED「运行监控面板」）。
       验证：`openspec validate c-deconstruct-monitor --strict`。
 - [x] 3.2 原型 `ai-novel-c端-拆书.html` 运行态补监控面板注记＋`ADJUSTMENTS.md` 登记。
+- [x] 3.2.1 **真界面基线原型（v3 配方，boss 2026-10-19 指示「先把原型搞出来」）**：
+      `ai-novel-c端-拆书监控-原型.html`（src＋build-decmonitor-proto.py＋monitor-captures/
+      可重放资产）——独立栈真跑本分支（uvicorn:8101＋vite:5291，私有 DATA_ROOT＋
+      dispatcher off，免 OAuth），按 service 序列化形状种 jobs＋units 真数据
+      （13路末班车 82万字/258 章镜像），真系统渲染后 Playwright 逐字抓取
+      real.css＋.app-shell；file:// 自检零报错、面板五件套齐全。
 - [ ] 3.3 归档：实现合入后按惯例归档（无需等 resilience——delta 为独立 ADDED）。
