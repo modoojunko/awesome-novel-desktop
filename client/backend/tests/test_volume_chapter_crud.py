@@ -204,6 +204,26 @@ def test_volume_line_list_validation():
     assert ok.antagonist_type == "自我"
 
 
+def test_delete_volume_rejects_imported_chapters():
+    from fastapi import HTTPException
+
+    async def _run():
+        project = await _new_project("dv-import")
+        async with async_session() as session:
+            proj = await session.get(Novel, project.id)
+            await _create_volume(session, proj, title="导入卷")
+            await _create_chapter(session, proj, "vol-1", title="第一章")
+            row = await chapter_repo.get_by_ref(session, proj.id, "vol-1-ch-1")
+            row.origin = "import"
+            await session.commit()
+            with pytest.raises(HTTPException) as ei:
+                await _delete_volume(session, proj, "vol-1")
+            assert ei.value.status_code == 409
+            assert await chapter_repo.count_by_project(session, proj.id) == 1
+
+    _run_async(_run())
+
+
 def test_delete_volume_cascades_chapters_and_files():
     async def _run():
         project = await _new_project("dv1")

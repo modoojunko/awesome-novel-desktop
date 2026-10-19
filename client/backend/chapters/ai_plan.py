@@ -194,7 +194,11 @@ def cadence_reminder(rows, *, is_final: bool, target: int) -> str:
 
 
 def _imported_excerpt_block(
-    rows: list, *, total_limit: int = 2000, per_line: int = 80
+    rows: list,
+    *,
+    total_limit: int = 2000,
+    per_line: int = 80,
+    global_map: dict[str, int] | None = None,
 ) -> str:
     """导入章原文短摘录（非摘要）：仅无摘要的历史章，最近章优先，总长 ≤2000。
 
@@ -208,7 +212,8 @@ def _imported_excerpt_block(
         prose = ((getattr(content, "prose", "") if content is not None else "") or "").strip()
         if not prose:
             continue
-        line = f"第{c.chapter_no}章 {c.title or ''}：{' '.join(prose.split())[:per_line]}"
+        no = (global_map or {}).get(getattr(c, "ref", ""), c.chapter_no)
+        line = f"第{no}章 {c.title or ''}：{' '.join(prose.split())[:per_line]}"
         if budget + len(line) > total_limit:
             break
         picked.append(line)
@@ -231,11 +236,17 @@ async def _chapter_material(db, project, vol, ch_no: int) -> dict:
         [c for c in await chapter_repo.list_by_volume(db, vol.id) if not c.ghost_of],
         key=lambda c: c.chapter_no,
     )
+    from chapters.numbering import global_number_map
+
+    all_mainline = [
+        c for c in await chapter_repo.list_by_project(db, project.id) if not c.ghost_of
+    ]
+    gmap = global_number_map(all_mainline)
     authored_rows = [c for c in rows if getattr(c, "origin", "authored") != "import"]
     done = [
         # c-ai-material-audit：章纲 summary 列宽 300，旧 [:40] 把"已拆过什么"切没了
         # 历史章没有章纲：明确标「原文无摘要」，不把正文塞进摘要槽。
-        f"第{c.chapter_no}章 {c.title or ''}｜"
+        f"第{gmap.get(c.ref, c.chapter_no)}章 {c.title or ''}｜"
         f"{((c.summary or '').strip() or ('原文无摘要' if getattr(c, 'origin', 'authored') == 'import' else ''))}｜"
         f"{c.plot_stage or '（未定阶段）'}"
         for c in rows
@@ -251,14 +262,14 @@ async def _chapter_material(db, project, vol, ch_no: int) -> dict:
         prev_text = (last.summary or "").strip()
         if not prev_text and getattr(last, "origin", "authored") == "import":
             prev_text = ((last.content.prose if last.content else "") or last.title or "").strip()[:200]
-        prev_line = f"第{last.chapter_no}章：{(prev_text or last.title or '').strip()[:200]}"
+        prev_line = f"第{gmap.get(last.ref, last.chapter_no)}章：{(prev_text or last.title or '').strip()[:200]}"
     global_ch = await _global_chapter_no(db, project.id, vol, ch_no)
     mat.update(
         {
             "entry": entry,
             "vol_outline": volume_outline_text(vol),
             "done_chapters": done,
-            "imported_excerpts": _imported_excerpt_block(rows),
+            "imported_excerpts": _imported_excerpt_block(rows, global_map=gmap),
             "quota_left": quota_left,
             "quota_overshot": quota_overshot,
             "is_final": is_final,

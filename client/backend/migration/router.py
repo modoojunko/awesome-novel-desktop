@@ -562,3 +562,13 @@ async def _record_completion(source_filename: str, report: dict) -> None:
         "fk_violations": len(fk) if isinstance(fk, list) else fk,
     })
     await _set_app_meta(HISTORY_KEY, json.dumps(history[-HISTORY_LIMIT:], ensure_ascii=False))
+    # carry 完成后才回填旧导入书：启动期空库不落 marker，不能等下一次重启。
+    try:
+        from novels.import_backfill import backfill_import_origin_v1
+
+        bf = await backfill_import_origin_v1(force=True)
+        if not bf.get("skipped"):
+            logger.info("event=import_backfill_after_carry books=%s chapters=%s",
+                        bf.get("books"), bf.get("chapters"))
+    except Exception as e:  # noqa: BLE001 — 回填失败不阻断迁移完成记录
+        logger.warning("event=import_backfill_failed error=%s", e)

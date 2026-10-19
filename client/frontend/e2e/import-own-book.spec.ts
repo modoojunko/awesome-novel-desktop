@@ -8,7 +8,12 @@ import { stubUpdateNotice } from "./helpers";
  *
  * 会话隔离：私有栈（8104/5294）+ 临时 DATA_ROOT/config.json；不连共享 demo/S端。
  */
-const ORIGIN = process.env.E2E_BASE_URL || "http://127.0.0.1:5294";
+const ORIGIN = process.env.E2E_BASE_URL || "http://localhost:5174";
+const TOKEN = process.env.E2E_IMPORT_TOKEN;
+
+// 需要私有栈预置的 config token（本地 E2E_IMPORT_TOKEN=... 运行）；CI 无此 env 时跳过，
+// 避免把私有栈端口/token 假设带进 nightly。
+test.skip(!TOKEN, "需要私有栈 E2E_IMPORT_TOKEN");
 
 function sampleText(chapters = 42): string {
   const lines = ["第一卷 风起"];
@@ -21,10 +26,10 @@ function sampleText(chapters = 42): string {
 
 test.describe("导入自有书 A 路", () => {
   test.beforeEach(async ({ page }) => {
-    await page.addInitScript(() => {
-      localStorage.setItem("auth_token", "e2e-import-token");
+    await page.addInitScript((token) => {
+      localStorage.setItem("auth_token", token);
       localStorage.setItem("auth_username", "import-e2e");
-    });
+    }, TOKEN!);
     await page.route("**/api/auth/verify", (r) =>
       r.fulfill({ json: { tier: "pro", is_member: true, expired: false, trial_remaining_days: 0 } }),
     );

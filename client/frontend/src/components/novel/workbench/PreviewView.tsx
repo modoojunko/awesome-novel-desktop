@@ -175,15 +175,15 @@ export default function PreviewView({
     0,
   );
   const nImportedArchived = volumes.reduce(
-    (a, v) => a + v.chapters.filter((c) => c.archived && c.historical).length,
+    (a, v) => a + v.chapters.filter((c) => c.archived && c.origin === "import").length,
     0,
   );
   const nHistorical = volumes.reduce(
-    (a, v) => a + v.chapters.filter((c) => !c.archived && c.historical).length,
+    (a, v) => a + v.chapters.filter((c) => !c.archived && c.origin === "import").length,
     0,
   );
   const nDraft = volumes.reduce(
-    (a, v) => a + v.chapters.filter((c) => !c.archived && !c.historical && hasProseOf(c)).length,
+    (a, v) => a + v.chapters.filter((c) => !c.archived && c.origin !== "import" && hasProseOf(c)).length,
     0,
   );
   const nProse = volumes.reduce(
@@ -192,11 +192,11 @@ export default function PreviewView({
   );
   const nPlanned = chTotal - nArchived - nHistorical - nDraft;
   const authoredTotal = volumes.reduce(
-    (a, v) => a + v.chapters.filter((c) => !c.historical).length,
+    (a, v) => a + v.chapters.filter((c) => c.origin !== "import").length,
     0,
   );
   const authoredArchived = volumes.reduce(
-    (a, v) => a + v.chapters.filter((c) => !c.historical && c.archived).length,
+    (a, v) => a + v.chapters.filter((c) => c.origin !== "import" && c.archived).length,
     0,
   );
 

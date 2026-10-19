@@ -34,6 +34,22 @@ function copyVolumes(vols: ImportOwnVolumeRange[]): ImportOwnVolumeRange[] {
   return vols.map((v) => ({ ...v }));
 }
 
+/** 补前置/缺口「正文」卷：parser 若在若干章后才出现第一个卷标题，仍能通过连续覆盖校验。 */
+function seedVolumes(vols: ImportOwnVolumeRange[], total: number): ImportOwnVolumeRange[] {
+  if (!vols.length) return [];
+  const out: ImportOwnVolumeRange[] = [];
+  let expected = 1;
+  for (const v of vols) {
+    if (v.chapter_from > expected) {
+      out.push({ title: "正文", chapter_from: expected, chapter_to: v.chapter_from - 1 });
+    }
+    out.push({ ...v });
+    expected = Math.max(expected, v.chapter_to + 1);
+  }
+  if (expected <= total) out.push({ title: "正文", chapter_from: expected, chapter_to: total });
+  return out;
+}
+
 /** A 路导入：①选文件 ②确认卷章（连续切分/不导入）③直接导入。 */
 export default function ImportNovelModal({
   open,
@@ -57,6 +73,7 @@ export default function ImportNovelModal({
   } | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
   const importTokenRef = useRef<string>(crypto.randomUUID());
+  const lastShaRef = useRef<string>("");
   const splitRef = useRef<HTMLInputElement>(null);
 
   const reset = useCallback(() => {
@@ -70,6 +87,7 @@ export default function ImportNovelModal({
     setRiskAck(false);
     setError("");
     setLastExcluded(null);
+    lastShaRef.current = "";
     importTokenRef.current = crypto.randomUUID();
   }, []);
 
@@ -110,15 +128,31 @@ export default function ImportNovelModal({
 
   const handleFile = useCallback(async (file: File) => {
     setError("");
+    // 换文件先清旧 manifest，失败时也不让旧数据被下一步带走。
+    setParsed(null);
+    setVolumes([]);
+    setExcluded(new Set());
+    setName("");
+    setRiskAck(false);
+    setLastExcluded(null);
     if (!file.name.toLowerCase().endsWith(".txt")) {
       setError("第一期只支持 .txt 文件");
+      return;
+    }
+    if (file.size > 50 * 1024 * 1024) {
+      setError("文件大小超过 50MB 限制");
       return;
     }
     setParsing(true);
     try {
       const data = await importOwnParse(file);
+      // 同一文件重试沿用 token（响应丢失可幂等）；换了文件必须换 token，避免命中上一本。
+      if (lastShaRef.current && lastShaRef.current !== data.source_sha256) {
+        importTokenRef.current = crypto.randomUUID();
+      }
+      lastShaRef.current = data.source_sha256;
       setParsed(data);
-      setVolumes(copyVolumes(data.volumes));
+      setVolumes(seedVolumes(data.volumes, data.chapter_count));
       setName(data.title || file.name.replace(/\.txt$/i, "") || "未命名作品");
       setRiskAck(false);
       setExcluded(new Set());
@@ -514,7 +548,8 @@ export default function ImportNovelModal({
             <div className="notice warn" style={{ marginBottom: 12 }}>
               <span className="nt">
                 <b>书架已满</b>
-                <span>开书前需要先归档或删除一本，或升级套餐。文件与结构还在，腾出空位后可以回来继续。</span>
+                <span>开书前需要先归档或删除一本，或升级套餐。关闭后会丢失本次解析；腾出空位后可重新导入。</span>
+                <button className="btn btn-secondary btn-sm" onClick={onClose}>去书架腾位置</button>
               </span>
             </div>
           )}

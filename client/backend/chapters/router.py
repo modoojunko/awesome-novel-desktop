@@ -238,10 +238,13 @@ async def get_frontier(
         "frontier": {
             "ref": front["ref"],
             "chapter_no": front["chapter_no"],
+            "global_no": front.get("global_no", front["chapter_no"]),
             "volume_no": front["volume_no"],
             "state": front["state"],
             "writable": front["writable"],
             "pending": front.get("pending", False),
+            "origin": front.get("origin", "authored"),
+            "historical": front.get("historical", False),
         },
         "chapters": info["chapters"],
     }

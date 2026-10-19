@@ -154,7 +154,12 @@ export default function OutlineTree({
     inlineDoneRef.current = true;
     setInlineAddVol(null);
     const vol = volumes.find((v) => v.name === volName);
-    const next = (vol?.chapters.length ?? 0) + 1;
+    const idx = volumes.findIndex((v) => v.name === volName);
+    const before = idx < 0 ? volumes : volumes.slice(0, idx);
+    const next =
+      before.reduce((n, v) => n + v.chapters.length, 0) +
+      (vol?.chapters.length ?? 0) +
+      1;
     // 默认标题用纯序号形态（isDefaultTitle 命中 → 树上只显示序号，改名预填空）
     const title = raw.trim() || `第${cnNum(next)}章`;
     const ref = await wb.createChapter(title, volName);
@@ -272,16 +277,18 @@ export default function OutlineTree({
                   >
                     <Ico d={P.plus} />
                   </button>
-                  <button
-                    className="icon-btn"
-                    title="删除卷"
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      askDeleteVolume(v);
-                    }}
-                  >
-                    <Ico d={P.trash} />
-                  </button>
+                  {!v.chapters.some((c) => c.origin === "import") && (
+                    <button
+                      className="icon-btn"
+                      title="删除卷"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        askDeleteVolume(v);
+                      }}
+                    >
+                      <Ico d={P.trash} />
+                    </button>
+                  )}
                 </span>
               </div>
               <div className="ch-list" style={{ display: open ? "" : "none" }}>
@@ -353,7 +360,7 @@ export default function OutlineTree({
                         >
                           <Ico d={P.pencil} />
                         </button>
-                        {!c.historical && (
+                        {(c.origin ?? "authored") !== "import" && (
                           <button
                             className="icon-btn"
                             title="删除章节"

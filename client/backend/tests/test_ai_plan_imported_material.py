@@ -5,11 +5,12 @@ from types import SimpleNamespace
 from chapters.ai_plan import _imported_excerpt_block
 
 
-def _row(no: int, title: str, text: str, origin: str = "import"):
+def _row(no: int, title: str, text: str, origin: str = "import", ref: str = ""):
     return SimpleNamespace(
         chapter_no=no,
         title=title,
         origin=origin,
+        ref=ref,
         content=SimpleNamespace(prose=text),
     )
 
@@ -42,3 +43,9 @@ def test_excerpt_block_skips_empty_prose():
     out = _imported_excerpt_block(rows)
     assert "空章" not in out
     assert "第2章 有字" in out
+
+
+def test_excerpt_block_uses_global_number():
+    rows = [_row(19, "归乡", "雪落。", ref="vol-2-ch-19")]
+    out = _imported_excerpt_block(rows, global_map={"vol-2-ch-19": 43})
+    assert "第43章 归乡" in out

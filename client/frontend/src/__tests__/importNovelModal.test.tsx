@@ -75,6 +75,26 @@ describe("ImportNovelModal（A 路三步向导）", () => {
     expect(onImported).toHaveBeenCalledWith("book-1");
   });
 
+  it("首个卷标题晚于前几章：自动补前置正文卷，结构可继续", async () => {
+    vi.mocked(importOwnParse).mockResolvedValue({
+      ...parsed,
+      chapter_count: 3,
+      volumes: [{ title: "风起", chapter_from: 3, chapter_to: 3 }],
+      chapters: [
+        { source_no: 1, title: "一", title_raw: "第1章 一", volume_title: "" },
+        { source_no: 2, title: "二", title_raw: "第2章 二", volume_title: "" },
+        { source_no: 3, title: "三", title_raw: "第3章 三", volume_title: "风起" },
+      ],
+      risk: { level: "ok", issues: [], chapter_count: 3, avg_chapter_chars: 10 },
+    });
+    render(<ImportNovelModal open onClose={() => {}} onImported={() => {}} />);
+    pickFile();
+    await waitFor(() => expect(importOwnParse).toHaveBeenCalledTimes(1));
+    fireEvent.click(screen.getByText("下一步：确认卷章"));
+    expect(await screen.findByDisplayValue("正文")).toBeTruthy();
+    expect(screen.getByRole("button", { name: "下一步：导入方式" })).toBeEnabled();
+  });
+
   it("risk 必须勾选才能继续；quotaFull 禁用创建", async () => {
     vi.mocked(importOwnParse).mockResolvedValue({
       ...parsed,

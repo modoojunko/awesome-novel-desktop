@@ -7,7 +7,7 @@ from dataclasses import asdict
 from fastapi import APIRouter, Depends, File, HTTPException, Response, UploadFile
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
-from sqlalchemy import select, update
+from sqlalchemy import delete as sa_delete, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ai_client import AITimeoutError, get_ai_client
@@ -842,6 +842,8 @@ async def import_own_parse(
     from models.import_session import ImportSession
 
     raw = await file.read()
+    if file.size is not None and file.size > MAX_SOURCE_BYTES:
+        raise HTTPException(413, "文件大小超过 50MB 限制")
     if len(raw) > MAX_SOURCE_BYTES:
         raise HTTPException(413, "文件大小超过 50MB 限制")
     filename = file.filename or "upload.txt"
@@ -936,7 +938,11 @@ async def import_own_persist(
     from models.import_session import ImportSession
     from models.project import Novel
     from novels.import_structure import StructureError
-    from novels.import_writer import ImportSourceMismatch, persist_import
+    from novels.import_writer import (
+        ImportSourceMismatch,
+        persist_import,
+        slice_import_prose,
+    )
 
     existing = await db.scalar(
         select(Novel).where(Novel.import_token == body.import_token)
@@ -996,17 +1002,26 @@ async def import_own_persist(
             c for c in manifest["chapters"]
             if int(c["source_no"]) not in set(body.excluded_source_nos or [])
         )
-        raw = open(snap.source_path, "rb").read()
+        with open(snap.source_path, "rb") as f:
+            raw = f.read()
         text = raw.decode(snap.encoding or manifest["encoding"])
-        prose = "\n".join(text[int(a):int(b)] for a, b in first["body_ranges"]).strip()
-        synopsis = prose[:200]
+        synopsis = slice_import_prose(text, first["body_ranges"])[:200]
         if synopsis:
             storage = get_storage()
             current = await storage.read_yaml(book.root_path, "story.yaml") or {}
             current["synopsis"] = synopsis
+            current["synopsis_source"] = "import_auto"
             await storage.write_yaml(book.root_path, "story.yaml", current)
     except Exception:
         pass
+
+    # 成功落库后回收临时会话与源文件；失败不影响建书结果。
+    try:
+        await db.execute(sa_delete(ImportSession).where(ImportSession.id == body.import_id))
+        await db.commit()
+        os.unlink(snap.source_path)
+    except Exception:  # noqa: BLE001 — 清理失败留给启动 sweep
+        await db.rollback()
 
     return {"id": str(book.id), "name": book.name}
 

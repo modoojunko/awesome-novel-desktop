@@ -80,6 +80,8 @@ export interface ChapterMetaEntry {
   word_count: number;
   /** 导入的历史章：可编辑、不参与章纲待确认统计 */
   historical?: boolean;
+  /** 来源：authored/import（归档后 historical=false，但 origin 仍为 import） */
+  origin?: string;
   /** DB-backed 全量树（change 005）缺省时降级本地推断（N1） */
   has_prose?: boolean;
   archived?: boolean;
@@ -373,7 +375,7 @@ export function useOutline(projectId: string): UseOutlineReturn {
 
     for (const vol of volumes) {
       for (const ch of vol.chapters) {
-        if (ch.historical) continue;
+        if (ch.origin === "import") continue;
         total++;
         const status = chapterStatuses.get(ch.ref) || "unfilled";
         if (status === "in_progress" || status === "confirmed") filled++;

@@ -1292,4 +1292,43 @@ describe("导入书续写落点（c-import-direct）", () => {
     expect(screen.getByTestId("import-next-checklist")).toBeTruthy();
     expect(screen.getAllByText("原文").length).toBeGreaterThan(0);
   });
+
+  it("last_write 指向历史章时顶栏回该章、主页主 CTA 仍第 N+1", async () => {
+    const chapters = Array.from({ length: 3 }, (_, i) => ({
+      id: `ch-${i + 1}`,
+      ref: `vol-1-ch-${i + 1}`,
+      volume: 1,
+      chapter: i + 1,
+      global_no: i + 1,
+      title: `第${i + 1}章`,
+      status: "draft",
+      origin: "import",
+      historical: true,
+      word_count: 1000,
+      has_prose: true,
+      outline_status: "unfilled",
+      archived: false,
+    }));
+    localStorage.setItem(
+      "pref.book.p1.last_write",
+      JSON.stringify({ ref: "vol-1-ch-2", scroll: 0.2, ts: 1 }),
+    );
+    apiState.get.mockImplementation((path: string) => {
+      if (path === "/novels/p1/volumes") {
+        return Promise.resolve([{
+          ref: "vol-1", title: "第一卷", summary: "", chapter_count: 3, chapters,
+        }]);
+      }
+      if (path === "/novels/p1/readiness") {
+        return Promise.resolve({ complete: false, missing: [], warning: "" });
+      }
+      return Promise.resolve({});
+    });
+    apiState.fetchStory.mockResolvedValue({ synopsis: "" });
+    renderWorkspace("none");
+    await waitFor(() => expect(screen.getByTestId("home-progress")).toBeTruthy());
+    expect(document.querySelector(".bar-here .bh-t")?.textContent).toContain("第 2 章");
+    expect(screen.getByTestId("home-resume").textContent).toContain("开始写第 4 章");
+    expect(screen.getByTestId("import-next-checklist")).toBeTruthy();
+  });
 });

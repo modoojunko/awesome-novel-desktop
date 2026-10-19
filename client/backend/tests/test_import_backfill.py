@@ -48,3 +48,29 @@ async def test_backfill_legacy_import_books_is_idempotent():
 
     second = await backfill_import_origin_v1()
     assert second["skipped"] is True
+
+    # carry 后再带进来的旧书：force 回填，不被启动 marker 挡住。
+    async with async_session() as db:
+        slug2 = f"legacy2-{uuid.uuid4().hex[:8]}"
+        book2 = Novel(
+            user_id="backfill-test", name="later", slug=slug2,
+            root_path=f"./data/{slug2}", source="import", import_kind="authored",
+        )
+        db.add(book2)
+        await db.flush()
+        vol2 = Volume(project_id=book2.id, volume_no=1, title="第1卷", summary="", chapter_count=1)
+        db.add(vol2)
+        await db.flush()
+        db.add(Chapter(
+            project_id=book2.id, volume_id=vol2.id, chapter_no=1,
+            ref="vol-1-ch-1", title="第1章", status="draft",
+            origin="authored", has_prose=True, word_count=10,
+        ))
+        await db.commit()
+        book2_id = book2.id
+    third = await backfill_import_origin_v1(force=True)
+    assert third["skipped"] is False
+    async with async_session() as db:
+        assert (await db.get(Novel, book2_id)).import_kind == "legacy"
+        ch = (await db.scalars(select(Chapter).where(Chapter.project_id == book2_id))).first()
+        assert ch is not None and ch.origin == "import"

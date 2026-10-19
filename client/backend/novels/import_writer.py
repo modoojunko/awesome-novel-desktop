@@ -36,7 +36,7 @@ _VOLUME_LINE_RE = re.compile(
 )
 
 
-def _slice(text: str, ranges: list[list[int]]) -> str:
+def slice_import_prose(text: str, ranges: list[list[int]]) -> str:
     """按 manifest 区间取正文；卷标题行是元数据，不写进任何一章的正文。"""
     raw = "\n".join(text[int(a):int(b)] for a, b in ranges)
     return "\n".join(
@@ -123,7 +123,7 @@ async def persist_import(
                 await db.flush()
                 for ci, active_idx in enumerate(range(start, end + 1), start=1):
                     mch = active[active_idx - 1]
-                    prose = _slice(text, mch["body_ranges"])
+                    prose = slice_import_prose(text, mch["body_ranges"])
                     ch = Chapter(
                         project_id=book.id,
                         volume_id=vol_row.id,

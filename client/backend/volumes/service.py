@@ -237,6 +237,12 @@ async def get_volume(db, project, ref: str) -> dict | None:
 
     all_chapters = await chapter_repo.list_by_volume(db, vol.id)
     mainline = [c for c in all_chapters if not c.ghost_of]
+    from chapters.numbering import global_number_map
+
+    all_mainline = [
+        c for c in await chapter_repo.list_by_project(db, project.id) if not c.ghost_of
+    ]
+    gmap = global_number_map(all_mainline)
     # 旧稿支线不入台账与计数，仅以 ghost_count 汇总（卷视图提示「旧稿支线 N 章」）
     data["ghost_count"] = len(all_chapters) - len(mainline)
     data["chapters"] = [
@@ -244,8 +250,11 @@ async def get_volume(db, project, ref: str) -> dict | None:
             "ref": c.ref,
             "volume": vol.volume_no,
             "chapter": c.chapter_no,
+            "global_no": gmap.get(c.ref, c.chapter_no),
             "title": c.title,
             "status": c.status,
+            "origin": c.origin,
+            "historical": c.origin == "import" and c.status != "archived",
             "word_count": c.word_count,
             "has_prose": c.has_prose,
             "outline_status": c.outline_status,
@@ -290,6 +299,9 @@ async def delete_volume(db, project, ref: str) -> dict:
 
     deleted_chapters = 0
     if vol is not None:
+        chapters = await chapter_repo.list_by_volume(db, vol.id)
+        if any(getattr(c, "origin", "authored") == "import" for c in chapters):
+            raise HTTPException(409, "卷内含导入原文，不能删卷；请删除本书后重新导入")
         deleted_chapters = await chapter_repo.count_by_volume(db, vol.id)
         await db.delete(vol)  # ORM cascade 删章行 + 卷纲子表（FK CASCADE 双保险）
     project.total_volumes = max(0, (project.total_volumes or 0) - 1)

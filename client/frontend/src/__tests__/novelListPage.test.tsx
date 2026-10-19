@@ -568,7 +568,7 @@ describe("覆盖补齐（边界臂）", () => {
     await waitFor(() => expect(screen.queryByTestId("import-modal")).toBeNull());
   });
 
-  it("满额且无 portal_url：升级引导仍走常量门户", async () => {
+  it("满额时导入仍打开向导（配额提示在向导内），新建作品走常量门户", async () => {
     Object.assign(tierState, { tier: "none", isMember: false, expired: false, trialRemainingDays: 0, projectLimit: 1 });
     const openSpy = vi.fn();
     vi.stubGlobal("open", openSpy);
@@ -582,8 +582,8 @@ describe("覆盖补齐（边界臂）", () => {
     fireEvent.click(screen.getByText("新建作品"));
     expect(openSpy).toHaveBeenCalledWith("https://portal.default", "_blank", "noopener,noreferrer");
     fireEvent.click(within(document.querySelector(".page-head") as HTMLElement).getByText("导入"));
-    expect(openSpy).toHaveBeenCalledTimes(2);
-    expect(screen.queryByTestId("import-modal")).toBeNull(); // 满额时不开导入
+    expect(openSpy).toHaveBeenCalledTimes(1);
+    expect(screen.getByTestId("import-modal")).toBeTruthy();
   });
 
   it("verify 无 entitlement 字段 / 明确 false：都不出异常提示", async () => {

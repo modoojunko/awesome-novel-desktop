@@ -696,7 +696,7 @@ function NovelList() {
         <div style={{ display: "flex", gap: 8 }}>
           <button
             className="btn btn-secondary"
-            onClick={() => (freeLimitReached ? guideUpgrade() : setShowImport(true))}
+            onClick={() => setShowImport(true)}
             title="导入我的书（仅支持 .txt）"
           >
             <Ico d={P.upload} />

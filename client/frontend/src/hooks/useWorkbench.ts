@@ -308,8 +308,8 @@ export function useWorkbench(): UseWorkbenchReturn {
     if (didInitSelectRef.current || selectedRefRef.current || selectedIdRef.current) return;
     const all = volumes.flatMap((v) => v.chapters.map((c) => ({ v, c })));
     const target =
-      all.find((x) => !x.c.archived && !x.c.historical) ??
-      all.find((x) => !x.c.historical) ??
+      all.find((x) => !x.c.archived && x.c.origin !== "import") ??
+      all.find((x) => x.c.origin !== "import") ??
       null;
     if (!target) return;
     didInitSelectRef.current = true;
@@ -336,11 +336,11 @@ export function useWorkbench(): UseWorkbenchReturn {
     if (navigatedRef.current || viewPayloadRef.current) return;
     const total = volumes.reduce((n, v) => n + v.chapters.length, 0);
     const authored = volumes.reduce(
-      (n, v) => n + v.chapters.filter((c) => !c.historical).length,
+      (n, v) => n + v.chapters.filter((c) => (c.origin ?? "authored") !== "import").length,
       0,
     );
     const archived = volumes.reduce(
-      (n, v) => n + v.chapters.filter((c) => !c.historical && c.archived).length,
+      (n, v) => n + v.chapters.filter((c) => (c.origin ?? "authored") !== "import" && c.archived).length,
       0,
     );
     const target = landingViewFor(

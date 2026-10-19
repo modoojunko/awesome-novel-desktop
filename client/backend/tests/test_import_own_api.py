@@ -1,6 +1,7 @@
 """A 路 parse/persist API：txt-only、manifest、TTL、幂等、配额门。"""
 
 import io
+import os
 import uuid
 from datetime import UTC, datetime, timedelta
 
@@ -82,6 +83,11 @@ async def test_persist_creates_book_and_is_idempotent(monkeypatch):
     async with async_session() as db:
         first = await import_own_persist(body, user={"id": user_id}, db=db)
     async with async_session() as db:
+        assert (await db.get(ImportSession, out["import_id"])) is None
+    assert not os.path.exists(
+        os.path.join(os.environ["DATA_ROOT"], "import-sessions", out["import_id"] + ".txt")
+    )
+    async with async_session() as db:
         second = await import_own_persist(body, user={"id": user_id}, db=db)
     assert second["id"] == first["id"]
     async with async_session() as db:
@@ -142,3 +148,23 @@ async def test_persist_quota_gate_blocks_new_book(monkeypatch):
     assert ei.value.status_code == 403
     async with async_session() as db:
         assert (await db.scalar(select(Novel).where(Novel.name == "配额满"))) is None
+
+
+@pytest.mark.asyncio
+async def test_cleanup_expired_sessions_removes_row_and_file(tmp_path):
+    from novels.import_backfill import cleanup_expired_import_sessions
+
+    path = tmp_path / "expired.txt"
+    path.write_text("x", encoding="utf-8")
+    sid = uuid.uuid4().hex
+    async with async_session() as db:
+        db.add(ImportSession(
+            id=sid, user_id="cleanup", source_path=str(path), filename="x.txt",
+            manifest_json="{}", source_sha256="x", encoding="utf-8", char_count=1,
+            expires_at=datetime.now(UTC).replace(tzinfo=None) - timedelta(minutes=1),
+        ))
+        await db.commit()
+    assert await cleanup_expired_import_sessions() >= 1
+    async with async_session() as db:
+        assert (await db.get(ImportSession, sid)) is None
+    assert not path.exists()

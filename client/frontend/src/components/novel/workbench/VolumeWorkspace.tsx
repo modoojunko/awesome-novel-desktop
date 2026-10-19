@@ -666,13 +666,13 @@ function VolumeOutlinePane({
                       if (e.key === "Enter" || e.key === " ") onEditChapter(c.ref);
                     }}
                   >
-                    <span className="num">{i + 1}</span>
+                    <span className="num">{c.global_no ?? i + 1}</span>
                     <div className="cols cn">
                       <span className="qno">{c.plot_stage || "（未定阶段）"}</span>
                       <p className="node-tx">{c.title}</p>
                     </div>
                     <span className="tag">
-                      {c.archived ? "已归档" : c.has_prose ? "草稿" : "已排"}
+                      {c.archived ? "已归档" : c.origin === "import" ? "原文" : c.has_prose ? "草稿" : "已排"}
                     </span>
                   </div>
                 ))}
