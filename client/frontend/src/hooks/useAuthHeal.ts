@@ -40,16 +40,18 @@ export function useAuthHeal() {
             return;
           }
           if (res.code === 1) {
-            // 会话失效（account-deletion：账号已注销/服务端会话作废）：
+            // 会话失效（account-deletion：账号已注销/服务端会话作废）＋配对失效
+            // （c-pack-auth-selfheal D8：pair/exchange 终局失败，后端已清凭据）：
             // 清本地凭据回登录入口，登录页展示失效提示（作品仅存本地，不受影响）
-            if (res.data?.session_invalid) {
+            if (res.data?.session_invalid || res.data?.pairing_broken) {
               localStorage.removeItem("auth_token");
               localStorage.removeItem("auth_username");
               if (res.data.message) sessionStorage.setItem("auth_notice", res.data.message);
               // 回**登录页**而不是营销落地页：失效提示的消费方是 LoginPage
               // （读后即焚，落 / 的话提示永远没人展示）。同时广播一次：若
               // LoginPage 已被 401 拦截器先送到 /login，它挂载时提示还没写入，
-              // 不补读这条消息就丢了。
+              // 不补读这条消息就丢了。本场景清凭据后本地无令牌，登录页静默
+              // 自动登录不满足触发条件（换不出令牌或直接判败），无弹回问题。
               window.location.hash = "#/login";
               window.dispatchEvent(new Event("auth-notice-updated"));
             }

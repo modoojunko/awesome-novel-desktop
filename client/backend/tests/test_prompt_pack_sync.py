@@ -190,6 +190,29 @@ def test_sync_bad_signature_rejected(env, cdn, monkeypatch):
     assert st["phase"] == "failed" and st["reason"] == "signature"
 
 
+def test_exchange_401_terminal_auth_no_downgrade(env, cdn, monkeypatch):
+    """c-pack-auth-selfheal：换钥 401（登录态失效）→ failed/auth 即刻返回；
+    多档在册也 MUST NOT 降档重试（认证失败与档位无关）。"""
+    _base, cdn_root = cdn
+    sk, pub = _keypair()
+    cek = os.urandom(32)
+    _publish(cdn_root, "5",
+             {"max": ("k-max-5", cek), "pro": ("k-pro-5", cek), "free": ("k-free-5", cek)},
+             TPL, sk, "test-kid")
+    _pp, sync_mod = _wire(env, monkeypatch, sk, pub, lambda kid, ver: (None, 401))
+    calls: list = []
+    orig = sync_mod._exchange_cek
+
+    def spy(kid, ver):
+        calls.append(kid)
+        return orig(kid, ver)
+
+    monkeypatch.setattr(sync_mod, "_exchange_cek", spy)
+    st = sync_mod.sync_once(local_tier="max")
+    assert st["phase"] == "failed" and st["reason"] == "auth"
+    assert calls == ["k-max-5"], "401 必须终态，不降档重试"
+
+
 def test_sync_highwatermark_blocks_replay(env, cdn, monkeypatch):
     _base, cdn_root = cdn
     sk, pub = _keypair()

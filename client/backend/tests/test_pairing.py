@@ -8,6 +8,7 @@
 用法：cd client/backend && python -m pytest tests/test_pairing.py -v
 """
 import asyncio
+import base64
 import json
 import os
 import tempfile
@@ -95,16 +96,28 @@ class TestSilentPairing:
         assert body == {"pc_hash": "ph1", "device_secret": "s3cret"}
 
     def test_poll_without_token_keeps_local_token_when_present(self, monkeypatch):
-        """本地已有令牌：轮询仅刷套餐数据，不得覆盖/清空本地令牌。"""
-        _write_cfg(pc_hash="ph2", device_secret="s3cret", token="local-tok", username="u")
+        """本地已有有效令牌：轮询仅刷套餐数据，不得覆盖/清空本地令牌。
+
+        c-pack-auth-selfheal：沿用收紧为「有效才沿用」——本用例的令牌须为未过期且
+        距到期超出 7 天临期余量的 JWT（旧串非 JWT 形态，现按过期处理走 exchange；
+        余量口径见拍板 10-20：取包凭据周期＜登录过期）。
+        """
+        import time as _time
+
+        head = base64.urlsafe_b64encode(b'{"alg":"HS256"}').rstrip(b"=").decode()
+        payload = base64.urlsafe_b64encode(
+            json.dumps({"sub": "u", "exp": _time.time() + 30 * 86400}).encode()
+        ).rstrip(b"=").decode()
+        tok = f"{head}.{payload}.sig"
+        _write_cfg(pc_hash="ph2", device_secret="s3cret", token=tok, username="u")
         _patch_call(monkeypatch, {
             "check-auth": {"code": 0, "data": dict(_REFRESH)},
             "pair/exchange": {"code": 1, "msg": "配对失败"},  # 不应被调用
         })
         result = _run(_service.browser_auth(silent=True))
-        assert result["code"] == 0 and result["data"]["token"] == "local-tok"
+        assert result["code"] == 0 and result["data"]["token"] == tok
         cfg = json.loads(Path(_service.CONFIG_FILE).read_text(encoding="utf-8"))
-        assert cfg["token"] == "local-tok"
+        assert cfg["token"] == tok
         assert cfg["tier"] == "pro"  # 套餐数据照常刷新
 
     def test_exchange_rejection_keeps_credentials(self, monkeypatch):

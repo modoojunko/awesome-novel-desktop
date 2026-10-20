@@ -310,3 +310,109 @@ describe("PromptPackModal 关闭记忆（c-pack-modal-dismiss）", () => {
     expect(readPackDismissal()).toEqual({});
   });
 });
+
+describe("PromptPackModal 认证失败出口（c-pack-auth-selfheal）", () => {
+  beforeEach(() => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    tierState.pack = null;
+    tierState.refetch.mockClear();
+    apiGet.mockReset();
+    apiPost.mockReset();
+    apiPost.mockResolvedValue({ started: true });
+    apiGet.mockResolvedValue({ phase: "syncing", step: "" });
+    toastState.info.mockClear();
+    vi.spyOn(window, "open").mockImplementation(() => null);
+  });
+
+  it("auth 失败：完整独立文案（无「随时可以重试」后缀），出口换重新登录", async () => {
+    apiGet.mockResolvedValue({ phase: "failed", reason: "auth", step: "" });
+    render(<PromptPackModal />);
+    openPack({ mode: "install" });
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(1100);
+    });
+    const note = screen.getByTestId("pack-fail-note").textContent ?? "";
+    expect(note).toContain("登录状态需要刷新");
+    expect(note).not.toContain("随时可以重试");
+    expect(screen.getByTestId("pack-go-login")).toBeTruthy();
+    expect(screen.queryByTestId("pack-retry")).toBeNull();
+    expect(screen.getByRole("button", { name: "复制诊断信息" })).toBeTruthy();
+  });
+
+  it("重新登录直驱授权页：发起 browser-auth 开系统浏览器、不路由跳转；授权后原地恢复进度流", async () => {
+    apiGet.mockResolvedValue({ phase: "failed", reason: "auth", step: "" });
+    render(<PromptPackModal />);
+    openPack({ mode: "install" });
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(1100);
+    });
+    const hashBefore = window.location.hash;
+    apiPost.mockResolvedValueOnce({ code: 1, data: { auth_url: "https://s.example.com/auth?x=1" } });
+    apiGet.mockImplementation(((path: string) =>
+      path === "/auth/check-auth"
+        ? Promise.resolve({ code: 1 })
+        : Promise.resolve({ phase: "syncing", step: "" })) as never);
+    fireEvent.click(screen.getByTestId("pack-go-login"));
+    await waitFor(() =>
+      expect(apiPost).toHaveBeenCalledWith("/auth/browser-auth", undefined, { quiet: true }),
+    );
+    expect(screen.getByTestId("pack-awaiting-note")).toBeTruthy();
+    expect(window.location.hash).toBe(hashBefore); // 不导航登录页（评审 P1）
+
+    apiGet.mockImplementation(((path: string) =>
+      path === "/auth/check-auth"
+        ? Promise.resolve({ code: 0 })
+        : Promise.resolve({ phase: "syncing", step: "" })) as never);
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(2100);
+    });
+    await waitFor(() =>
+      expect(apiPost).toHaveBeenCalledWith("/prompt-pack/check", undefined, { quiet: true }),
+    );
+    expect(screen.getByText("正在准备写作能力")).toBeTruthy();
+  });
+
+  it("等待授权超时：回失败态并出现「重新检查」手动复查出口；复查到授权即恢复", async () => {
+    apiGet.mockResolvedValue({ phase: "failed", reason: "auth", step: "" });
+    render(<PromptPackModal />);
+    openPack({ mode: "install" });
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(1100);
+    });
+    apiPost.mockResolvedValueOnce({ code: 1, data: {} }); // 无授权地址也进等待轮询
+    apiGet.mockImplementation(((path: string) =>
+      path === "/auth/check-auth"
+        ? Promise.resolve({ code: 1 })
+        : Promise.resolve({ phase: "failed", reason: "auth", step: "" })) as never);
+    fireEvent.click(screen.getByTestId("pack-go-login"));
+    await waitFor(() => expect(screen.getByTestId("pack-awaiting-note")).toBeTruthy());
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(300_000 + 3_000);
+    });
+    await waitFor(() => expect(screen.getByTestId("pack-recheck")).toBeTruthy());
+    expect(screen.getByTestId("pack-go-login")).toBeTruthy(); // 重新登录仍在
+
+    apiGet.mockImplementation(((path: string) =>
+      path === "/auth/check-auth"
+        ? Promise.resolve({ code: 0 })
+        : Promise.resolve({ phase: "syncing", step: "" })) as never);
+    fireEvent.click(screen.getByTestId("pack-recheck"));
+    await waitFor(() =>
+      expect(apiPost).toHaveBeenCalledWith("/prompt-pack/check", undefined, { quiet: true }),
+    );
+  });
+
+  it("非 auth 失败维持既有出口（重新获取），文案保留重试后缀——回归钉", async () => {
+    apiGet.mockResolvedValue({ phase: "failed", reason: "download", step: "" });
+    render(<PromptPackModal />);
+    openPack({ mode: "install" });
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(1100);
+    });
+    const note = screen.getByTestId("pack-fail-note").textContent ?? "";
+    expect(note).toContain("下载没有完成");
+    expect(note).toContain("随时可以重试");
+    expect(screen.getByTestId("pack-retry")).toBeTruthy();
+    expect(screen.queryByTestId("pack-go-login")).toBeNull();
+  });
+});
