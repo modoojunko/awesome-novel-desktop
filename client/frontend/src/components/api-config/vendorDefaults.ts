@@ -33,6 +33,13 @@ export const VENDOR_DEFAULTS: Partial<Record<VendorId, Partial<Record<ApiFormat,
   kimi: { openai: { base_url: "https://api.moonshot.cn/v1", model: "" } },
   qwen: { openai: { base_url: "https://dashscope.aliyuncs.com/compatible-mode/v1", model: "" } },
   ollama: { openai: { base_url: "http://localhost:11434/v1", model: "" } },
+  // c-modelconfig-gemini-go（2026-10-20 官方文档核对）：Gemini 官方兼容层（自带版本段，
+  // 段锚钉 test_api_format.py）＋OpenCode Go 订阅两口——anthropic 口径不带 /v1 由 SDK 拼
+  // /v1/messages（与 Anthropic 官方登记同口径）。模型留空走清单/候选，候选在后端
+  // VENDOR_MODEL_CANDIDATES 对齐登记。
+  gemini: { openai: { base_url: "https://generativelanguage.googleapis.com/v1beta/openai/", model: "" } },
+  "opencode-go-chat": { openai: { base_url: "https://opencode.ai/zen/go/v1", model: "" } },
+  "opencode-go-claude": { anthropic: { base_url: "https://opencode.ai/zen/go", model: "" } },
 };
 
 const EMPTY_DEFAULT: VendorDefault = { base_url: "", model: "" };

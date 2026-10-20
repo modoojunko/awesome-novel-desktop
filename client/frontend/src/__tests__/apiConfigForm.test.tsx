@@ -91,9 +91,11 @@ describe("ApiConfigForm 新建态", () => {
     render(<ApiConfigForm open onSubmit={vi.fn(async () => {})} onCancel={vi.fn()} />);
     const base = () => document.getElementById("cfBase") as HTMLInputElement;
     const model = () => document.getElementById("cfModel") as HTMLInputElement;
+    fireEvent.click(screen.getByText("中转 · 订阅制"));
     fireEvent.click(screen.getByText("OpenAI 兼容"));
     expect(base().value).toBe("");
     expect(model().value).toBe("");
+    fireEvent.click(screen.getByText("官方厂商"));
     fireEvent.click(screen.getByText("GLM"));
     expect(base().value).toBe("https://open.bigmodel.cn/api/paas/v4");
     expect(model().value).toBe(""); // 模型 id 无据留空
@@ -114,13 +116,15 @@ describe("ApiConfigForm 新建态", () => {
     submit();
     expect(await screen.findByText("请选择供应商")).toBeTruthy();
     // 无登记值供应商（OpenAI 兼容）不预填 → Base URL 仍必填
+    fireEvent.click(screen.getByText("中转 · 订阅制"));
     fireEvent.click(screen.getByText("OpenAI 兼容"));
     submit();
     expect(await screen.findByText("请输入 Base URL")).toBeTruthy();
     setField("cfBase", "https://api.deepseek.com");
     submit();
     expect(await screen.findByText("请输入 API Key")).toBeTruthy();
-    // Ollama 免 Key（预填的 localhost 不覆盖手填 URL）
+    // Ollama 免 Key（预填的 localhost 不覆盖手填 URL）：切回官方页
+    fireEvent.click(screen.getByText("官方厂商"));
     fireEvent.click(screen.getByText("Ollama"));
     submit();
     await waitFor(() => expect(onSubmit).toHaveBeenCalledTimes(1));
@@ -552,13 +556,14 @@ describe("ApiConfigForm 模型清单自动拉取（c-api-config-auto-models）",
     expect(document.querySelector(".mp-panel")).toBeNull();
   });
 
-  it("OpenAI 兼容：显示兼容模版引导文案（Gemini 兼容地址/手填模型 id/反代说明），他商不显示", () => {
+  it("OpenAI 兼容：显示收窄后兼容引导（手填模型 id/反代说明，无 Gemini 地址——由专属方块承接），他商不显示", () => {
     render(<ApiConfigForm open onSubmit={vi.fn(async () => {})} onCancel={vi.fn()} />);
     // 默认 OpenAI：无引导
     expect(screen.queryByText(/generativelanguage\.googleapis\.com/)).toBeNull();
+    fireEvent.click(screen.getByText("中转 · 订阅制"));
     fireEvent.click(screen.getByText("OpenAI 兼容"));
-    const hint = screen.getByText(/未列厂商（如 Google Gemini）走 OpenAI 兼容模版/);
-    expect(hint.textContent).toContain("https://generativelanguage.googleapis.com/v1beta/openai/");
+    const hint = screen.getByText(/该类地址可能拉不到模型清单/);
+    expect(hint.textContent).not.toContain("generativelanguage.googleapis.com");
     expect(hint.textContent).toContain("手填模型 id");
     expect(hint.textContent).toContain("反代/转发");
   });
@@ -705,6 +710,7 @@ describe("ApiConfigForm 获取模型按钮（2026-10-08 拍板：显式触发口
     fireEvent.click(fetchBtn());
     expect(onFetchModels).not.toHaveBeenCalled();
     // OpenAI 兼容（无登记 Base）：Key 已填也禁用（缺 Base）
+    fireEvent.click(screen.getByText("中转 · 订阅制"));
     fireEvent.click(screen.getByText("OpenAI 兼容"));
     setField("cfKey", "sk-1");
     expect(fetchBtn().disabled).toBe(true);
@@ -714,6 +720,7 @@ describe("ApiConfigForm 获取模型按钮（2026-10-08 拍板：显式触发口
     expect(fetchBtn().title).toBe("重新拉取模型清单");
     // Ollama 免 Key：仅 Base 即就绪（选供应商即拉本地清单，拉取完成后按钮恢复可点）
     setField("cfKey", "");
+    fireEvent.click(screen.getByText("官方厂商"));
     fireEvent.click(screen.getByText("Ollama"));
     await waitFor(() => expect(fetchBtn().disabled).toBe(false));
   });
@@ -1030,5 +1037,70 @@ describe("ApiConfigForm 思考参数（c-thinking-config）", () => {
     );
     expect(screen.getByText("开启").className).toContain("on");
     expect(screen.getByText("高 high").className).toContain("on");
+  });
+});
+
+describe("ApiConfigForm 供应商分组页签（c-modelconfig-gemini-go）", () => {
+  it("默认官方厂商页：现有 8 家＋Gemini 可见，中转方块不可见；切中转页见 Go 两方块＋OpenAI 兼容", () => {
+    render(<ApiConfigForm open onSubmit={vi.fn(async () => {})} onCancel={vi.fn()} />);
+    expect(screen.getByText("Gemini")).toBeTruthy();
+    expect(screen.queryByText("通用")).toBeNull();
+    expect(screen.queryByText("OpenAI 兼容")).toBeNull();
+    fireEvent.click(screen.getByText("中转 · 订阅制"));
+    expect(screen.getByText("OpenAI 兼容")).toBeTruthy();
+    expect(screen.getByText("通用")).toBeTruthy();
+    expect(screen.getByText("Claude 系")).toBeTruthy();
+    expect(screen.queryByText("DeepSeek")).toBeNull();
+  });
+
+  it("切页不清已选：官方页选 Gemini 后切中转再切回，选中与预填保持", () => {
+    render(<ApiConfigForm open onSubmit={vi.fn(async () => {})} onCancel={vi.fn()} />);
+    fireEvent.click(screen.getByText("Gemini"));
+    const base = () => document.getElementById("cfBase") as HTMLInputElement;
+    expect(base().value).toBe("https://generativelanguage.googleapis.com/v1beta/openai/");
+    fireEvent.click(screen.getByText("中转 · 订阅制"));
+    fireEvent.click(screen.getByText("官方厂商"));
+    expect((screen.getByText("Gemini").closest("button") as HTMLElement).className).toContain("on");
+    expect(base().value).toBe("https://generativelanguage.googleapis.com/v1beta/openai/");
+  });
+
+  it("新厂商锁定矩阵：Gemini/Go·通用 锁 OpenAI 格式，Go·Claude 系锁 Anthropic 格式", () => {
+    render(<ApiConfigForm open onSubmit={vi.fn(async () => {})} onCancel={vi.fn()} />);
+    fireEvent.click(screen.getByText("Gemini"));
+    expect(screen.getByText("OpenAI 格式").className).toContain("on");
+    expect((screen.getByText("Anthropic 格式") as HTMLButtonElement).disabled).toBe(true);
+    fireEvent.click(screen.getByText("中转 · 订阅制"));
+    fireEvent.click(screen.getByText("通用"));
+    expect(screen.getByText("OpenAI 格式").className).toContain("on");
+    expect((screen.getByText("Anthropic 格式") as HTMLButtonElement).disabled).toBe(true);
+    fireEvent.click(screen.getByText("Claude 系"));
+    expect(screen.getByText("Anthropic 格式").className).toContain("on");
+    expect((screen.getByText("OpenAI 格式") as HTMLButtonElement).disabled).toBe(true);
+  });
+
+  it("新厂商预填：Gemini 填兼容层地址、Go·Claude 系填 zen/go（不带 /v1）", () => {
+    render(<ApiConfigForm open onSubmit={vi.fn(async () => {})} onCancel={vi.fn()} />);
+    fireEvent.click(screen.getByText("Gemini"));
+    const base = () => document.getElementById("cfBase") as HTMLInputElement;
+    expect(base().value).toBe("https://generativelanguage.googleapis.com/v1beta/openai/");
+    fireEvent.click(screen.getByText("中转 · 订阅制"));
+    fireEvent.click(screen.getByText("Claude 系"));
+    expect(base().value).toBe("https://opencode.ai/zen/go");
+  });
+
+  it("Gemini 选中时出现厂商级思考提示（不受思考开关影响）", () => {
+    render(<ApiConfigForm open onSubmit={vi.fn(async () => {})} onCancel={vi.fn()} />);
+    expect(screen.queryByText(/Pro 系/)).toBeNull();
+    fireEvent.click(screen.getByText("Gemini"));
+    expect(screen.getByText(/Pro 系/)).toBeTruthy();
+  });
+
+  it("OpenAI 兼容引导收窄：不再含 Gemini 兼容层地址，保留手填 id 与反代指引", () => {
+    render(<ApiConfigForm open onSubmit={vi.fn(async () => {})} onCancel={vi.fn()} />);
+    fireEvent.click(screen.getByText("中转 · 订阅制"));
+    fireEvent.click(screen.getByText("OpenAI 兼容"));
+    expect(screen.queryByText(/generativelanguage\.googleapis\.com/)).toBeNull();
+    expect(screen.getByText(/反代\/转发服务地址/)).toBeTruthy();
+    expect(screen.getByText(/手填模型 id/)).toBeTruthy();
   });
 });

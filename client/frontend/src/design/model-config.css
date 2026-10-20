@@ -75,6 +75,11 @@
 .vbtn span { font-size: 11px; line-height: 1; white-space: nowrap; }
 .vbtn:hover { border-color: var(--fg); color: var(--fg); }
 .vbtn.on { border-color: var(--accent); background: var(--accent-soft); color: var(--accent-strong); }
+/* c-modelconfig-gemini-go：供应商分组页签＋新方块角标/副标（复用 seg/vbtn 词汇） */
+.vt-seg { margin-bottom: 10px; }
+.vbtn { position: relative; }
+.vbtn .vsub { font-size: 11px; opacity: 0.72; margin-top: -3px; }
+.vbadge { position: absolute; top: -7px; right: -4px; font-style: normal; font-size: 11px; line-height: 1; padding: 2px 6px; border-radius: 999px; background: var(--accent-soft); color: var(--accent-strong); border: 1px solid var(--accent); }
 .vfix { display: flex; align-items: center; gap: 9px; padding: 9px 12px; background: var(--fg-soft); border-radius: 9px; font-size: 13px; }
 .vfix svg { width: 18px; height: 18px; }
 .tresult { font-size: 13px; padding: 9px 12px; border-radius: 9px; margin-top: 4px; }

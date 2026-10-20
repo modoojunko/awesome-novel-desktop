@@ -313,6 +313,7 @@ describe("ApiKeyConfigPage 覆盖补齐", () => {
     // OpenAI 兼容无预填 → models 空数组
     fireEvent.click(screen.getByText("添加 API Key"));
     fireEvent.change(document.getElementById("cfName")!, { target: { value: "自建" } });
+    fireEvent.click(screen.getByText("中转 · 订阅制"));
     fireEvent.click(screen.getByText("OpenAI 兼容"));
     fireEvent.change(document.getElementById("cfBase")!, { target: { value: "https://llm.example.com/v1" } });
     fireEvent.change(document.getElementById("cfKey")!, { target: { value: "sk-y" } });

@@ -72,6 +72,9 @@ export const VENDOR_ICON: Record<string, string> = {
   qwen: '<path d="M12 5a7 7 0 110 14 7 7 0 010-14zM12 9a3 3 0 110 6 3 3 0 010-6z"/>',
   ollama: '<path d="M6 6h12v12H6zM10 6V4M14 6V4M10 20v-2M14 20v-2"/>',
   "openai-compat": '<path d="M9 15l6-6M11 7l1.6-1.6a3 3 0 014.2 4.2L15 11M13 17l-1.6 1.6a3 3 0 01-4.2-4.2L9 13"/>',
+  gemini: '<path d="M12 3c.7 4.9 4.1 8.3 9 9-4.9.7-8.3 4.1-9 9-.7-4.9-4.1-8.3-9-9 4.9-.7 8.3-4.1 9-9z"/>',
+  "opencode-go-chat": '<path d="M12 3l7.8 4.5v9L12 21l-7.8-4.5v-9zM12 8.5v7M8.5 12h7"/>',
+  "opencode-go-claude": '<path d="M12 3l7.8 4.5v9L12 21l-7.8-4.5v-9zM12 8.5v7M8.5 12h7"/>',
 };
 
 /** 题材名 → 图标：含 8 题材库全名（悬疑刑侦/都市言情…）到原型 7 图标的归类 */
