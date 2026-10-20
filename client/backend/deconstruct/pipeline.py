@@ -497,6 +497,9 @@ def _render_md(dim: str, data: dict, book_name: str, covered: str) -> str:
     for key, value in data.items():
         if key == "confidence":
             continue  # 单值可信度已在抬头行
+        # 无正文不出节：空列表/空对象/空标量只给标题的空节对作家是噪音（评审 P3）
+        if not value or (isinstance(value, (dict, list, str)) and not str(value).strip()):
+            continue
         lines.append(f"## {_MD_LABELS.get(key, key)}")
         lines.append("")
         if isinstance(value, list):

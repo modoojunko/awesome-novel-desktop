@@ -115,3 +115,19 @@ def test_render_md_scalar_sections_bare_value(_dev_dir):
 
     md = _render_md("世界设定", {"stage": "银河系边缘"}, "书名", "第1-40章")
     assert "\n## 地理与舞台\n\n银河系边缘\n" in md
+
+
+def test_render_md_legacy_ending_string_and_empty_sections(_dev_dir):
+    """旧产物（ending 字符串）照常渲染；空列表/空对象/空标量不给空节（无正文不出节）。"""
+    from deconstruct.pipeline import _render_md
+
+    md = _render_md(
+        "主线剧情",
+        {"arcs": [], "ending": "抵达新星系。", "fullstory": "", "extra": []},
+        "旧任务书",
+        "第1-40章",
+    )
+    assert "\n## 结局\n\n抵达新星系。\n" in md
+    assert "\n## 剧情弧\n" not in md, "空列表不出空节"
+    assert "\n## 主线全景\n" not in md, "空标量不出空节"
+    assert "\n## 其他设定\n" not in md

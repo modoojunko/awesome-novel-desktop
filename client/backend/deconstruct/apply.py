@@ -317,6 +317,10 @@ async def import_book(
                 for a in (data.get("arcs") or []) if isinstance(a, dict)
             ]
             fullstory = "；".join(arcs)
+        if not fullstory:
+            # 旧产物（#906 前）ending 是字符串：arcs 也空时结局文案就是唯一主线线索，
+            # 兜底链保住它（评审 P3：#907 曾把这一档收窄成恒「原文未明确」）。
+            fullstory = str(data.get("ending", "") or "").strip()
         arc["fullstory"] = (fullstory or "原文未明确")[:2000]
         # 结局三格（场景/主角结局/收束基调）——设定页契约字段，此前从未回填。
         # 「原文未明确」置空（与角色格同口径：原文没写的不硬填）。

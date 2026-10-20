@@ -831,6 +831,29 @@ def test_import_book_unfinished_ending_cells_cleared(client):
     assert all(v == "" for v in ending.values()), "三格「原文未明确」应置空"
 
 
+def test_import_book_legacy_ending_string_fallback(client):
+    """旧产物（arcs 空＋ending 字符串）：fullstory 兜底链保住结局文案，不落「原文未明确」。"""
+    _mk_completed("dec-align-3", {
+        "mainplot": _product("mainplot", "主线剧情.md", {
+            "arcs": [], "ending": "抵达新星系。",
+        }, "# 主线"),
+    }, book_name="旧任务书")
+    r = client.post("/api/deconstruct/tasks/dec-align-3/import-book", json={"items": ["mainplot"]})
+    assert r.status_code == 200, r.text
+
+    async def _check():
+        from filesystem.paths import KEY_TO_PATH
+        from filesystem.storage import get_storage
+        from models.project import Novel
+
+        async with async_session() as s:
+            n = await s.get(Novel, r.json()["book_id"])
+        return await get_storage().read_yaml(n.root_path, KEY_TO_PATH["story"])
+
+    story = _run(_check())
+    assert story["story_arc"]["fullstory"] == "抵达新星系。"
+
+
 def test_import_book_default_items_legacy(client):
     """缺省 items＝旧口径：任务维度里的设定项——structure/relations/techniques 不灌。"""
     _mk_completed("dec-items-2", {
