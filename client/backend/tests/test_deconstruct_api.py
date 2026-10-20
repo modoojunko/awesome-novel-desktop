@@ -717,6 +717,94 @@ def test_import_book_items_structure_relations_techniques(client):
     assert "短句急促：惊悚段落用短句" in (style.get("rules") or [])
 
 
+def test_import_book_settings_field_alignment(client):
+    """设定页字段对齐（2026-10-20 拍板）：拆书新契约逐字段回填——
+    fullstory 全景叙述／ending 三格／style 三区（role/rules/craft）／aliases／
+    关系 stance／伏笔 type+priority+resolved。"""
+    chars = [
+        {"name": "李耀", "aliases": ["小李", "我"], "role": "主角",
+         "persona": "谨慎多疑的夜班司机", "gender": "男", "age": "三十五六",
+         "race": "人类", "faction": "公交公司", "look": "风衣", "speech": "嘴硬",
+         "background": "退伍兵转业", "plot": "接夜班→查旧案→揭真相", "confidence": "high"},
+        {"name": "老唐", "aliases": [], "role": "反派",
+         "persona": "十年前死去的司机", "gender": "男", "age": "原文未明确",
+         "race": "人类", "faction": "原文未明确", "look": "原文未明确", "speech": "原文未明确",
+         "background": "死于水库", "plot": "旧案核心", "confidence": "mid"},
+    ]
+    _mk_completed("dec-align-1", {
+        "mainplot": _product("mainplot", "主线剧情.md", {
+            "fullstory": "李耀被强派夜班十三路末班车，卷入十年前水库旧案，一路查到真相。",
+            "arcs": [{"title": "接班车", "ch_start": 1, "ch_end": 40, "summary": "上船", "confidence": "high"}],
+            "ending": {"scene": "末班车驶向黎明", "hero": "李耀活着查明真相", "tone": "释然"},
+        }, "# 主线"),
+        "style": _product("style", "写作文风.md", {
+            "role": "第三人称限知，紧贴李耀",
+            "rules": [{"name": "短对话", "how": "对峙用短句"}, {"name": "张弛", "how": "查案间插日常"}],
+            "craft": [{"name": "铜钟意象", "how": "以钟声串章节"}],
+            "examples": [{"example": "灯还亮着。", "evidence_ch": "第1章"}],
+        }, "# 文风"),
+        "characters": _product("characters", "角色设定.md", {"characters": chars}, "# 角色"),
+        "relations": _product("relations", "人物关系与势力.md", {"edges": [
+            {"from": "李耀", "to": "老唐", "rel_type": "敌对", "stance": "查他又不肯撒手",
+             "note": "旧案对头", "evidence_ch": "第9章"},
+        ]}, "# 关系"),
+        "foreshadow": _product("foreshadow", "伏笔.md", {"hooks": [
+            {"desc": "虎纹铜钱", "type": "clue", "priority": "high",
+             "plant_ch": 5, "payoff_ch": 240, "status": "paid", "note": "以钱认主", "confidence": "high"},
+            {"desc": "道癫的身世", "type": "mystery", "priority": "mid",
+             "plant_ch": 12, "payoff_ch": None, "status": "active", "note": "", "confidence": "mid"},
+        ]}, "# 伏笔"),
+    })
+    r = client.post("/api/deconstruct/tasks/dec-align-1/import-book", json={"items": [
+        "mainplot", "style", "characters", "relations", "foreshadow",
+    ]})
+    assert r.status_code == 200, r.text
+    bid = r.json()["book_id"]
+
+    async def _check():
+        from sqlalchemy import select
+
+        from filesystem.paths import KEY_TO_PATH
+        from filesystem.storage import get_storage
+        from models.character import Character, CharacterRelation
+        from models.hook import NovelHook
+        from models.project import Novel
+
+        async with async_session() as s:
+            n = await s.get(Novel, bid)
+            ch = (await s.execute(
+                select(Character).where(Character.novel_id == bid, Character.name == "李耀")
+            )).scalars().first()
+            rel = (await s.execute(
+                select(CharacterRelation).where(CharacterRelation.novel_id == bid)
+            )).scalars().first()
+            hooks = (await s.execute(
+                select(NovelHook).where(NovelHook.novel_id == bid).order_by(NovelHook.seq)
+            )).scalars().all()
+        storage = get_storage()
+        story = await storage.read_yaml(n.root_path, KEY_TO_PATH["story"])
+        style = await storage.read_yaml(n.root_path, KEY_TO_PATH["style"])
+        return story, style, ch, rel, hooks
+
+    story, style, ch, rel, hooks = _run(_check())
+    arc = story.get("story_arc") or {}
+    assert "李耀被强派夜班" in arc.get("fullstory", "")  # 全景叙述直灌（不是弧条目串）
+    assert arc.get("ending", {}).get("scene") == "末班车驶向黎明"
+    assert arc.get("ending", {}).get("hero") == "李耀活着查明真相"
+    assert arc.get("ending", {}).get("tone") == "释然"
+    assert style.get("role") == "第三人称限知，紧贴李耀"
+    assert "短对话：对峙用短句" in (style.get("rules") or [])
+    assert "铜钟意象：以钟声串章节" in (style.get("craft") or [])
+    assert json.loads(ch.aliases) == ["小李", "我"]
+    assert rel.stance == "查他又不肯撒手"
+    by_desc = {h.description: h for h in hooks}
+    resolved = next(h for d, h in by_desc.items() if "虎纹铜钱" in d)
+    active = next(h for d, h in by_desc.items() if "道癫的身世" in d)
+    assert resolved.status == "resolved" and resolved.type == "clue" and resolved.priority == 1
+    assert "收于第240章" in resolved.description
+    assert active.status == "active" and active.priority == 2 and active.type == "mystery"
+
+
 def test_import_book_default_items_legacy(client):
     """缺省 items＝旧口径：任务维度里的设定项——structure/relations/techniques 不灌。"""
     _mk_completed("dec-items-2", {

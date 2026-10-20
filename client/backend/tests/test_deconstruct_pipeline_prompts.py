@@ -50,6 +50,7 @@ def test_all_prompts_load_and_format(_dev_dir):
     base = {
         "book_name": "书", "genre_or_unknown": "unknown", "full_synopsis": "梗概",
         "seg_range": "第1-40章", "excerpts": "【第1章】卡片碎片",
+        "genre_vocab": "玄幻\n都市异能",
     }
     for key, _, _ in DIMENSIONS:
         _, user_tpl = load_layers(f"deconstruct_{key}")
@@ -59,18 +60,24 @@ def test_all_prompts_load_and_format(_dev_dir):
     _, user_tpl = load_layers("deconstruct_card")
     user_tpl.format(book_name="书", chapter_no=1, chapter_title="第1章", chapter_text="正文")
     _, user_tpl = load_layers("deconstruct_reduce")
-    user_tpl.format(dim_name="world", partials="【覆盖第1-40章】{}")
+    user_tpl.format(dim_name="世界设定", dim_key="world", partials="【覆盖第1-40章】{}")
 
 
 def test_render_md_fixed_h2_structure(_dev_dir):
-    """渲染 md 的固定 H2 键序（展示用；建书消费模型 JSON 不做 md 反解——评审 P0-1）。"""
+    """渲染 md：键名翻中文标签、可信度翻高/中/低并进抬头、页脚为作家视角说明。"""
     from deconstruct.pipeline import _render_md
 
     md = _render_md(
         "世界设定",
-        {"no_power": "无超凡", "factions": [{"name": "甲", "note": "证据 3章"}]},
+        {"no_power": "无超凡", "confidence": "high",
+         "factions": [{"name": "甲", "note": "证据 3章", "confidence": "mid"}]},
         "书名",
         "第1-40章",
     )
-    assert "\n## no_power\n" in md and "\n## factions\n" in md
+    assert "\n## 舞台类型\n" in md and "\n## 势力\n" in md
     assert "无超凡" in md and "甲" in md
+    assert "可信度：高" in md and "可信度：中" in md
+    assert "\n## 可信度\n" not in md, "单值可信度并入抬头，不单独成节"
+    assert "· 可信度：高" in md
+    assert "三铁律" not in md
+    assert "高＝有直接依据" in md
