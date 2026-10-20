@@ -62,12 +62,20 @@ def device_challenge(device_secret: str) -> str:
     return hashlib.sha256((device_secret or "").encode("utf-8")).hexdigest()
 
 
-def token_expired(token: str, *, now: float | None = None) -> bool:
-    """本地令牌是否已过期：仅解 JWT payload 读 exp，不做签名校验（安全判定始终在 S 端）。
+# 临期预刷新余量（用户拍板 2026-10-20）：写作能力取包凭据周期必须短于 30 天登录
+# 有效期——静默自愈在余量内即换新，保证任何取包时刻令牌恒新鲜（7 天 ≪ 30 天）
+TOKEN_REFRESH_MARGIN_SECONDS = 7 * 24 * 3600
+
+
+def token_expired(token: str, *, now: float | None = None, margin: float = 0.0) -> bool:
+    """本地令牌是否已过期（或距到期不足 margin 余量）：仅解 JWT payload 读 exp，
+    不做签名校验（安全判定始终在 S 端）。
 
     c-pack-auth-selfheal：静默刷新曾无条件沿用本地令牌，死令牌由此长存（2026-10-20
     真机实锤——用户完成浏览器重授权后仍无法自愈）。三段式/缺 exp/不可解析一律视同
     过期（宁换勿沿用：pair/exchange 幂等且廉价）。
+    margin>0＝临期预刷新（用户拍板 10-20：写作能力取包凭据周期必须短于 30 天登录
+    有效期——余量内即换，保证取包时令牌恒新鲜）。
     """
     if not token or token.count(".") != 2:
         return True
@@ -79,7 +87,7 @@ def token_expired(token: str, *, now: float | None = None) -> bool:
         return True
     if isinstance(exp, bool) or not isinstance(exp, (int, float)):
         return True
-    return exp <= (time.time() if now is None else now)
+    return exp <= (time.time() if now is None else now) + margin
 
 
 def _build_auth_url(
@@ -586,7 +594,7 @@ async def browser_auth(silent: bool = False) -> dict:
             # c-pack-auth-selfheal：沿用收紧为「有效才沿用」——过期/不可解析的令牌
             # 落 pair/exchange 换新（死令牌长存死锁的根治点）。
             if not data.get("token"):
-                if cfg.get("token") and not token_expired(cfg["token"]):
+                if cfg.get("token") and not token_expired(cfg["token"], margin=TOKEN_REFRESH_MARGIN_SECONDS):
                     data["token"] = cfg["token"]  # 保留本地有效令牌，仅刷新套餐数据
                 else:
                     x = await call_server_api(

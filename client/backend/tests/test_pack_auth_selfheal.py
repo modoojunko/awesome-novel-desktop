@@ -46,7 +46,8 @@ def _jwt(payload: dict) -> str:
 
 
 def _valid_token() -> str:
-    return _jwt({"sub": "u", "username": "u", "exp": time.time() + 3600})
+    # 距到期 30 天：远超 7 天临期余量，属「有效可沿用」（拍板 10-20 取包周期＜登录过期）
+    return _jwt({"sub": "u", "username": "u", "exp": time.time() + 30 * 86400})
 
 
 def _expired_token() -> str:
@@ -97,6 +98,14 @@ class TestTokenExpired:
         assert _service.token_expired(tok, now=1000.0) is True
         assert _service.token_expired(tok, now=999.0) is False
 
+    def test_margin_counts_near_expiry_as_expired(self):
+        """临期余量（拍板 10-20：取包凭据周期＜登录过期）：余量内即视为需刷新。"""
+        tok = _jwt({"sub": "u", "exp": 10_000 * 86400})
+        assert _service.token_expired(tok, now=10_000 * 86400 - 6 * 86400,
+                                      margin=7 * 86400) is True  # 距到期 6 天＜7 天余量
+        assert _service.token_expired(tok, now=10_000 * 86400 - 8 * 86400,
+                                      margin=7 * 86400) is False  # 距到期 8 天＞余量
+
     def test_missing_exp_is_expired(self):
         assert _service.token_expired(_jwt({"sub": "u"})) is True
 
@@ -129,7 +138,7 @@ class TestSilentSelfheal:
         assert fired, "自愈成功必须触发包同步钩子"
 
     def test_valid_token_skips_exchange(self, monkeypatch):
-        """有效令牌不发起 pair/exchange（避免无谓轮换）。"""
+        """距到期超出临期余量的令牌不发起 pair/exchange（避免无谓轮换）。"""
         tok = _valid_token()
         _write_cfg(token=tok, username="u")
         calls: list = []
@@ -140,6 +149,21 @@ class TestSilentSelfheal:
         r = _run(_service.browser_auth(silent=True))
         assert r["code"] == 0 and r["data"]["token"] == tok
         assert all(e != "pair/exchange" for e, _, _ in calls)
+
+    def test_near_expiry_token_refreshes(self, monkeypatch):
+        """临期（距到期 6 天＜7 天余量）→ 主动换新（拍板 10-20：取包凭据周期＜登录过期）。"""
+        near = _jwt({"sub": "u", "username": "u", "exp": time.time() + 6 * 86400})
+        _write_cfg(token=near, username="u", tier="max")
+        calls: list = []
+        monkeypatch.setattr("prompt_pack.sync.maybe_after_auth", lambda: None)
+        _patch_call(monkeypatch, {
+            "check-auth": {"code": 0, "data": dict(_REFRESH)},
+            "pair/exchange": {"code": 0, "data": {"token": "fresh-tok", "username": "u", **_REFRESH}},
+        }, calls)
+        r = _run(_service.browser_auth(silent=True))
+        assert r["code"] == 0 and r["data"]["token"] == "fresh-tok"
+        assert any(e == "pair/exchange" for e, _, _ in calls)
+        assert _read_cfg()["token"] == "fresh-tok"
 
     def test_exchange_unreachable_keeps_stale_token(self, monkeypatch):
         """过期令牌 + S 端不可达 → 现态原样保留（可重试态，不清凭据）。"""

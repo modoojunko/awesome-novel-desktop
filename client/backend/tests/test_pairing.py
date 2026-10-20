@@ -98,14 +98,15 @@ class TestSilentPairing:
     def test_poll_without_token_keeps_local_token_when_present(self, monkeypatch):
         """本地已有有效令牌：轮询仅刷套餐数据，不得覆盖/清空本地令牌。
 
-        c-pack-auth-selfheal：沿用收紧为「有效才沿用」——本用例的令牌须为未过期
-        JWT（旧串非 JWT 形态，现按过期处理走 exchange）。
+        c-pack-auth-selfheal：沿用收紧为「有效才沿用」——本用例的令牌须为未过期且
+        距到期超出 7 天临期余量的 JWT（旧串非 JWT 形态，现按过期处理走 exchange；
+        余量口径见拍板 10-20：取包凭据周期＜登录过期）。
         """
         import time as _time
 
         head = base64.urlsafe_b64encode(b'{"alg":"HS256"}').rstrip(b"=").decode()
         payload = base64.urlsafe_b64encode(
-            json.dumps({"sub": "u", "exp": _time.time() + 3600}).encode()
+            json.dumps({"sub": "u", "exp": _time.time() + 30 * 86400}).encode()
         ).rstrip(b"=").decode()
         tok = f"{head}.{payload}.sig"
         _write_cfg(pc_hash="ph2", device_secret="s3cret", token=tok, username="u")
