@@ -38,9 +38,13 @@ class ModelCaps:
 DEFAULT_CAPS = ModelCaps(32_768, 8_192)
 
 # vendor 保守下限表（公开文档口径；实际型号普遍高于此值，宁小勿大——
-# 偏大靠 400/截断的拆半自愈兜底，偏小只是少省几次调用）
+# 偏大靠 400/截断的拆半自愈兜底，偏小只是少省几次调用）。
+# 【例外教训】deepseek 旧值 (131_072, 8_192) 把非思考默认 8K 当成了模型上限——
+# reduce 顶层合并 ≈9-14k tokens 必截，10-20 《13路末班车》characters/relations/
+# foreshadow 三维降级分段稿实证。数据以官方文档为准（2026-10 查证
+# api-docs.deepseek.com：上下文 1M、最大输出 384K=393,216 tokens）。
 _VENDOR_KNOWN = {
-    "deepseek": ModelCaps(131_072, 8_192, source="known"),
+    "deepseek": ModelCaps(1_000_000, 393_216, source="known"),
     "glm": ModelCaps(131_072, 8_192, source="known"),
 }
 
@@ -92,12 +96,14 @@ def input_budget_chars(caps: ModelCaps, prompt_overhead_tokens: int = 4_000) -> 
     return max(2_000, tokens_to_chars(max(budget_tokens, 2_000)))
 
 
-# 单次归并/合批调用的输出 token 上限（安全默认；env DECONSTRUCT_MERGE_MAX_TOKENS 覆盖）
+# 单次归并/合批调用的输出 token 上限（安全默认；env DECONSTRUCT_MERGE_MAX_TOKENS 覆盖）。
+# 封顶 32_768：文档口径输出 ≥384K 的型号（deepseek 393K）reduce 顶层合并 ≈9-25k tokens
+# 的真实体量在 16_384 仍必截（10-20 实证）；glm/保守型号 usable_output 低、走 floor 不受影响。
 def merge_max_tokens(caps: ModelCaps) -> int:
     env = os.environ.get("DECONSTRUCT_MERGE_MAX_TOKENS", "").strip()
     if env.isdigit() and int(env) >= 1024:  # 下限护栏：误配 "0"/小值会打穿全部归并（评审 P3）
         return int(env)
-    return max(8_192, min(usable_output(caps), 16_384))
+    return max(8_192, min(usable_output(caps), 32_768))
 
 
 def oversize_reject(e: Exception) -> bool:
