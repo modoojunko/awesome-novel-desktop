@@ -89,6 +89,22 @@ describe("useAuthHeal 冷启动重试", () => {
     expect(requestMock).toHaveBeenCalledTimes(2);
   });
 
+  it("pairing_broken（c-pack-auth-selfheal D8）：清凭据＋持久化提示＋回登录页", async () => {
+    localStorage.setItem("auth_token", "stale-token");
+    localStorage.setItem("auth_username", "writer");
+    requestMock.mockResolvedValue({
+      code: 1,
+      data: { pairing_broken: true, message: "登录状态已过期，请重新登录；本地作品不受影响" },
+    });
+    await mountHeal();
+    await vi.waitFor(() =>
+      expect(sessionStorage.getItem("auth_notice")).toContain("重新登录"),
+    );
+    expect(localStorage.getItem("auth_token")).toBeNull();
+    expect(localStorage.getItem("auth_username")).toBeNull();
+    expect(window.location.hash).toBe("#/login");
+  });
+
   it("code 1（明确未登录）不重试", async () => {
     requestMock.mockResolvedValue({ code: 1, data: { message: "未登录" } });
     await mountHeal();

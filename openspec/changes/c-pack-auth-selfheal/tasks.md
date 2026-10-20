@@ -20,6 +20,8 @@
 
 - [x] 4.1 `FAIL_NOTES` 增 `auth` 映射（完整独立句，如「登录状态需要刷新，请重新授权后再试。」）；failed 态且失败原因为 auth 时 footer 换「复制诊断信息」＋「重新登录」（primary，带 `data-testid="pack-go-login"`）；**auth 变体 SHALL NOT 拼接「手写不受影响，随时可以重试。」后缀**（评审 P2：401 重试不会好，与被换掉的重试出口自相矛盾）。「重新登录」直驱重授权流（评审 P1）：`POST /auth/browser-auth`（非静默）取 `auth_url` 经壳层桥开系统浏览器（`LoginPage.handleBrowserAuth` 同款），**SHALL NOT 仅导航 `#/login`**（登录页静默自动登录会把失效令牌 cohort 自动弹回作品页，授权面不可达）；点击后弹窗转等待授权态：短轮询 `/auth/check-auth`（有轮询上限，超时给手动复查出口），code 0 即原地重跑 probe/startRun 回既有进度流。文案不含 401/令牌/换钥等内部术语。验证：vitest 新用例——auth 失败呈现独立文案与双出口且无「随时可以重试」后缀；非 auth 失败维持「重新获取」既有出口；点击重新登录发起 browser-auth 开授权页而非路由跳转；等待授权轮询 code 0 后回到进度流；超时出现手动复查出口
 
+- [x] 4.2 `useAuthHeal` 消费 `pairing_broken`（评审 P1 补漏：D8 对称分支实现缺位）——code 1 且 `data.pairing_broken` 与 `session_invalid` 同语义消费（清 localStorage 凭据＋`auth_notice`＋回 `#/login`）；vitest 钉清凭据/提示/导航三断言。验证：vitest 绿
+
 ## 5. S 端联动协调（跨仓，不在本仓实施）
 
 - [ ] 5.1 S 端私有仓另立 `s-` 前缀 change：pair/exchange 凭 challenge 验明设备后**现签**新 JWT（`sign_jwt(username, uid, ver=user.token_version)`）并回写 grant.token，响应形状不变；上线顺序建议 S 端先行（纯后向兼容）。验证：S 端仓 change 目录在位（可晚于本变更合入；未上线前本变更按 D4 过渡期行为运行）

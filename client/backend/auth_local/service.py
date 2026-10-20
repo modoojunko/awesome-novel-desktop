@@ -583,9 +583,11 @@ async def browser_auth(silent: bool = False) -> dict:
     # 静默模式：只查一次，不打开浏览器
     if silent:
         result = await call_server_api("check-auth", params={"pc_hash": pc_hash})
-        if result.get("code") == -1:
+        if result.get("code") in (-1, 401):
             # S端 不可达（云托管缩容冷启动 503 / 网络断）：区别于「未登录」，
-            # 前端 useAuthHeal 据此识别为可重试而非直接放弃
+            # 前端 useAuthHeal 据此识别为可重试而非直接放弃。401（WAF/网关形态，
+            # call_server_api 自 HTTP status 透传）同为可重试态——check-auth 免鉴权，
+            # 业务侧不该 401，按不可达口径静默降级而非落未知码兜底
             return {"code": -1, "msg": result.get("msg", "S端 不可达")}
         if result.get("code") == 0:
             data = result["data"]

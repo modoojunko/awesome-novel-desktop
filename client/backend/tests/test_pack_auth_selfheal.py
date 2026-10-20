@@ -213,6 +213,16 @@ class TestSilentSelfheal:
         # 非登录字段不动：设备标识与配对密语保留
         assert cfg["device_secret"] == "s3cret" and cfg["pc_hash"] == "selfheal-hash"
 
+    def test_check_auth_gateway_401_is_retryable(self, monkeypatch):
+        """check-auth 免鉴权不该 401；网关/WAF 形态 401 按不可达口径可重试，
+        不落未知码兜底（评审 P3：未知码会走到返回授权页分支）。"""
+        _write_cfg(token=_valid_token(), username="u")
+        _patch_call(monkeypatch, {
+            "check-auth": {"code": 401, "msg": "登录状态已失效"},
+        })
+        r = _run(_service.browser_auth(silent=True))
+        assert r["code"] == -1
+
     def test_rate_limited_with_dead_token_keeps_credentials(self, monkeypatch):
         """限流（code 2）是可重试态不是终局失败：死令牌也 MUST NOT 清凭据。"""
         stale = _expired_token()
