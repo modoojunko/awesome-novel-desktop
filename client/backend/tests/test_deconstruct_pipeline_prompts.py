@@ -81,3 +81,37 @@ def test_render_md_fixed_h2_structure(_dev_dir):
     assert "· 可信度：高" in md
     assert "三铁律" not in md
     assert "高＝有直接依据" in md
+
+
+def test_render_md_mainplot_shape(_dev_dir):
+    """主线形状渲染：ending 对象逐字段展开（dict repr 修复）、标量节裸值不带
+    自身标签、arcs 的 summary 翻「梗概」。"""
+    from deconstruct.pipeline import _render_md
+
+    md = _render_md(
+        "主线剧情",
+        {
+            "fullstory": "李耀被强派夜班十三路末班车，卷入十年前水库旧案。",
+            "arcs": [{"title": "接班车", "ch_start": 1, "ch_end": 40,
+                      "summary": "上船，旧案浮出（第3章）", "confidence": "high"}],
+            "ending": {"scene": "末班车驶向黎明", "hero": "李耀活着查明真相", "tone": "释然"},
+        },
+        "13路末班车",
+        "第1-258章",
+    )
+    assert "{'scene'" not in md and "{'" not in md, "结局对象不给 dict repr"
+    assert "结尾场景：末班车驶向黎明" in md
+    assert "主角结局：李耀活着查明真相" in md
+    assert "收束基调：释然" in md
+    assert "梗概：上船，旧案浮出" in md
+    # 标量节正文＝裸值，不重复节标题自身的标签
+    assert "\n主线全景：李耀" not in md
+    assert "李耀被强派夜班十三路末班车" in md
+
+
+def test_render_md_scalar_sections_bare_value(_dev_dir):
+    """标量节正文不带自身标签前缀（舞台类型标题下不再出现「舞台类型：」两连）。"""
+    from deconstruct.pipeline import _render_md
+
+    md = _render_md("世界设定", {"stage": "银河系边缘"}, "书名", "第1-40章")
+    assert "\n## 地理与舞台\n\n银河系边缘\n" in md

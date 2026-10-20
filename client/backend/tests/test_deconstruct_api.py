@@ -805,6 +805,32 @@ def test_import_book_settings_field_alignment(client):
     assert active.status == "active" and active.priority == 2 and active.type == "mystery"
 
 
+def test_import_book_unfinished_ending_cells_cleared(client):
+    """未完结书：ending 三格「原文未明确」置空（与角色格同口径，不硬填）。"""
+    _mk_completed("dec-align-2", {
+        "mainplot": _product("mainplot", "主线剧情.md", {
+            "fullstory": "故事仍在连载。",
+            "arcs": [],
+            "ending": {"scene": "原文未明确", "hero": "原文未明确", "tone": "原文未明确"},
+        }, "# 主线"),
+    }, book_name="连载书")
+    r = client.post("/api/deconstruct/tasks/dec-align-2/import-book", json={"items": ["mainplot"]})
+    assert r.status_code == 200, r.text
+
+    async def _check():
+        from filesystem.paths import KEY_TO_PATH
+        from filesystem.storage import get_storage
+        from models.project import Novel
+
+        async with async_session() as s:
+            n = await s.get(Novel, r.json()["book_id"])
+        return await get_storage().read_yaml(n.root_path, KEY_TO_PATH["story"])
+
+    story = _run(_check())
+    ending = (story.get("story_arc") or {}).get("ending") or {}
+    assert all(v == "" for v in ending.values()), "三格「原文未明确」应置空"
+
+
 def test_import_book_default_items_legacy(client):
     """缺省 items＝旧口径：任务维度里的设定项——structure/relations/techniques 不灌。"""
     _mk_completed("dec-items-2", {

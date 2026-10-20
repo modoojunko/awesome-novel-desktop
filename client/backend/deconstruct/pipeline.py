@@ -450,6 +450,7 @@ _MD_LABELS: dict[str, str] = {
     "edges": "关系边", "from": "一方", "to": "另一方", "rel_type": "关系类型",
     "stance": "立场", "note": "说明", "quote": "原文佐证", "raw": "原文措辞",
     "members": "成员", "arcs": "剧情弧", "fullstory": "主线全景",
+    "summary": "梗概",
     "ending": "结局", "scene": "结尾场景", "hero": "主角结局", "tone": "收束基调",
     "ch_start": "起", "ch_end": "止", "volumes": "分卷", "title": "题",
     "conflict": "冲突", "chapters": "章", "ch_range": "章范围",
@@ -512,8 +513,16 @@ def _render_md(dim: str, data: dict, book_name: str, covered: str) -> str:
                     lines.append(f"- {('**' + head + '**　') if head else ''}{body}")
                 else:
                     lines.append(f"- {item}")
+        elif isinstance(value, dict):
+            # 对象值（如 mainplot.ending 三格）：逐字段展开成中文标签行，
+            # 不给 Python dict repr（评审 P1：作家看到 {'scene': …} 原文）
+            for k, v in value.items():
+                cell = _md_cell(k, v)
+                if cell:
+                    lines.append(f"- {cell}")
         else:
-            lines.append(_md_cell(key, value) or str(value))
+            # 标量节正文＝裸值（标签已在节标题；再带前缀会「标题×2」）
+            lines.append(str(value or "").strip())
         lines.append("")
     lines.append("---")
     lines.append("")

@@ -317,13 +317,16 @@ async def import_book(
                 for a in (data.get("arcs") or []) if isinstance(a, dict)
             ]
             fullstory = "；".join(arcs)
-        arc["fullstory"] = (fullstory or str(data.get("ending", "")) or "原文未明确")[:2000]
-        # 结局三格（场景/主角结局/收束基调）——设定页契约字段，此前从未回填
+        arc["fullstory"] = (fullstory or "原文未明确")[:2000]
+        # 结局三格（场景/主角结局/收束基调）——设定页契约字段，此前从未回填。
+        # 「原文未明确」置空（与角色格同口径：原文没写的不硬填）。
         ending = data.get("ending") if isinstance(data.get("ending"), dict) else {}
-        arc["ending"] = {
-            f: str(ending.get(f, "") or "").strip()[:150]
-            for f in ("scene", "hero", "tone")
-        }
+
+        def _ending_cell(v) -> str:
+            t = str(v or "").strip()
+            return "" if t == "原文未明确" else t[:150]
+
+        arc["ending"] = {f: _ending_cell(ending.get(f, "")) for f in ("scene", "hero", "tone")}
         story["story_arc"] = arc
         await storage.write_yaml(root, KEY_TO_PATH["story"], story)
 
@@ -353,7 +356,15 @@ async def import_book(
                         out.append(str(r).strip()[:200])
             return out
 
-        rules = _entries(data.get("rules"), [f"对话：{data.get('dialogue', '')}", f"节奏：{data.get('rhythm', '')}"])
+        # 旧形状回退：只给有内容的字段拼前缀（评审 P3——半空时不出裸「对话：」条目）
+        legacy_fallback = [
+            f"对话：{data.get('dialogue', '')}"
+            for _ in [1] if str(data.get("dialogue", "")).strip()
+        ] + [
+            f"节奏：{data.get('rhythm', '')}"
+            for _ in [1] if str(data.get("rhythm", "")).strip()
+        ]
+        rules = _entries(data.get("rules"), legacy_fallback)
         craft = _entries(data.get("craft"))
         body = {"role": role, "rules": rules, "craft": craft}
         await storage.write_yaml(root, KEY_TO_PATH["style"], put_style(raw, body))
