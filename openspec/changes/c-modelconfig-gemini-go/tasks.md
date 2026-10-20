@@ -34,6 +34,9 @@
 >   路由存在但回 **402 Insufficient account funds**（换 contributor id 400 unavailable、x-goog-api-key 头同 402、zen/go/v1beta 前缀 404）
 >   ——即 Go 月卡权益未映射到 google 口计费。结论：维持出圈；待 OpenCode 平台把 Go 权益接入 google 口（或开 chat 协议）后，
 >   「Go · Gemini」方块按原排期另立 change 实现 google 原生适配。
+> - **参考客户端（opencode CLI）同测（2026-10-20）**：选 `opencode/gemini-4-argon` → `Unexpected server error`（内部错误）；
+>   对照组 glm-5.3-flash 走 CLI 默认按量口 → `Insufficient account funds`（CLI 未配 Go base 时按量计费，直连 /zen/go/v1 则通）——
+>   即 gemini 连 OpenCode 自家 CLI 当前也调不通，坐实平台侧状态（Contributor 限时新品未对 API 侧开放）。
 
 
 - [ ] 5.1 Gemini 官方块真连：AI Studio Key 走通探针→保存→生成→拆书 JSON 契约（判据＝产出合法 JSON，验证 json_object 是否被兼容层等效映射；不支持则登记 anthropic 式 prompt 兜底为既有口径并在结果卡注明）
@@ -89,6 +92,9 @@
 >   路由存在但回 **402 Insufficient account funds**（换 contributor id 400 unavailable、x-goog-api-key 头同 402、zen/go/v1beta 前缀 404）
 >   ——即 Go 月卡权益未映射到 google 口计费。结论：维持出圈；待 OpenCode 平台把 Go 权益接入 google 口（或开 chat 协议）后，
 >   「Go · Gemini」方块按原排期另立 change 实现 google 原生适配。
+> - **参考客户端（opencode CLI）同测（2026-10-20）**：选 `opencode/gemini-4-argon` → `Unexpected server error`（内部错误）；
+>   对照组 glm-5.3-flash 走 CLI 默认按量口 → `Insufficient account funds`（CLI 未配 Go base 时按量计费，直连 /zen/go/v1 则通）——
+>   即 gemini 连 OpenCode 自家 CLI 当前也调不通，坐实平台侧状态（Contributor 限时新品未对 API 侧开放）。
 
 
 - [ ] 5.1 Gemini 官方块真连：AI Studio Key 走通探针→保存→生成→拆书 JSON 契约（判据＝产出合法 JSON，验证 json_object 是否被兼容层等效映射；不支持则登记 anthropic 式 prompt 兜底为既有口径并在结果卡注明）
