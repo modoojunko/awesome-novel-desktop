@@ -157,6 +157,7 @@ def test_probe_payload_claude_adaptive_shapes():
     )
     assert on["thinking"] == {"type": "adaptive"}
     assert "reasoning_effort" not in on
+    assert on["max_tokens"] == 3072  # 评审 P3 硬化：adaptive 耗量自决，探针预算放大防判空
     off = connection._generation_payload(
         "claude-haiku-5-5", thinking_enabled=False, vendor_id="opencode-go-claude"
     )

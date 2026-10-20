@@ -689,11 +689,12 @@ def _generation_payload(
     推理会吃 max_tokens，32 可能只见思考不见正文。"""
     if vendor_id == "opencode-go-claude":
         # zen claude 上游（真机实证）：开＝adaptive 裸形态（reasoning_effort/budget
-        # 均为多余输入）；关＝disabled 形态实测可用
+        # 均为多余输入）；关＝disabled 形态实测可用。adaptive 耗量模型自决，评审
+        # P3 硬化：探针预算提到 3072（1024 对极小 prompt 实测够，防思考链挤占判空）
         return {
             "model": model,
             "messages": [{"role": "user", "content": _PROBE_PROMPT}],
-            "max_tokens": _PROBE_MAX_TOKENS_THINKING if thinking_enabled else _PROBE_MAX_TOKENS,
+            "max_tokens": 3072 if thinking_enabled else _PROBE_MAX_TOKENS,
             "thinking": {"type": "adaptive"} if thinking_enabled else dict(_THINKING_DISABLED),
         }
     if vendor_id == "gemini":
