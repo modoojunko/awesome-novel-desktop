@@ -32,6 +32,7 @@ import SeamWizard from "./seamWizard/SeamWizard";
 import { useChapterData } from "@/hooks/useChapterData";
 import { toast } from "@/lib/toast";
 import {
+  fetchEffectiveModel,
   streamChapterRefill,
   streamChapterWrite,
   type StreamDoneMeta,
@@ -179,12 +180,49 @@ const ProsePane = forwardRef<ProseHandle, ProsePaneProps>(function ProsePane(
   // 秒表随等待呈现同行——静默等 90s 判死与正常等待都有数；随 genStage 退场停表
   const [genSecs, setGenSecs] = useState(0);
   const genAwaiting = genStage !== null;
+  // 等待秒数的 ref 镜像（c-thinking-display）：思考转场账目行要在回调里取
+  // 「此刻已等秒数」——state 闭包值滞后一拍，ref 恒准
+  const genSecsRef = useRef(0);
   useEffect(() => {
     if (!genAwaiting) return;
-    const t = window.setInterval(() => setGenSecs((s) => s + 1), 1000);
+    const t = window.setInterval(() => {
+      genSecsRef.current += 1;
+      setGenSecs(genSecsRef.current);
+    }, 1000);
     return () => window.clearInterval(t);
   }, [genAwaiting]);
   const sawFirstChunkRef = useRef(false);
+  // 思考呈现四态（c-thinking-display）：思考面板（占位行让位）→收起条→回看→超时卡。
+  // 思考内容全量留在 thinkBufRef（回看依赖全量），渲染按 ~100ms 节流合批；
+  // 非文档口径与阶段呈现同款：不进正文、不计数、不保存、不送检
+  const [thinkPanel, setThinkPanel] = useState(false);
+  const [thinkText, setThinkText] = useState("");
+  const thinkBufRef = useRef("");
+  const thinkFlushRef = useRef<number | null>(null);
+  const thinkBodyRef = useRef<HTMLDivElement | null>(null);
+  const [thinkKept, setThinkKept] = useState<null | {
+    text: string;
+    thinkSecs: number;
+    genSecs: number | null;
+    proseChars: number | null;
+  }>(null);
+  const [thinkOpen, setThinkOpen] = useState(false);
+  const [timeoutCard, setTimeoutCard] = useState(false);
+  const [timeoutMsg, setTimeoutMsg] = useState("");
+  const [thinkModel, setThinkModel] = useState("");
+  const lastPromptRef = useRef<string | undefined>(undefined);
+  const lastModelSelRef = useRef<ModelSelection | undefined>(undefined);
+  const clearThinkTimer = () => {
+    if (thinkFlushRef.current != null) {
+      window.clearTimeout(thinkFlushRef.current);
+      thinkFlushRef.current = null;
+    }
+  };
+  // 面板滚动锚定尾部：新增量到达即贴底（原型同款）
+  useEffect(() => {
+    const el = thinkBodyRef.current;
+    if (el && thinkPanel) el.scrollTop = el.scrollHeight;
+  }, [thinkText, thinkPanel]);
 
   // 本地输入回路标记：store.prose 变化若来自本地输入则跳过重渲（保光标）
   const lastSyncedRef = useRef<string | null>(null);
@@ -441,6 +479,16 @@ const ProsePane = forwardRef<ProseHandle, ProsePaneProps>(function ProsePane(
   useEffect(() => {
     setQcReport(null);
     setRefillRounds(0);
+    // 思考呈现是「本章的现场」：切章即清（c-thinking-display——回看保留以
+    // 编辑会话为界，跨章不串场）
+    thinkBufRef.current = "";
+    clearThinkTimer();
+    setThinkText("");
+    setThinkPanel(false);
+    setThinkKept(null);
+    setThinkOpen(false);
+    setTimeoutCard(false);
+    setThinkModel("");
     return () => {
       abortRef.current?.abort();
       if (streamingRef.current) {
@@ -548,6 +596,8 @@ const ProsePane = forwardRef<ProseHandle, ProsePaneProps>(function ProsePane(
       streamingRef.current = false;
       setStreaming(false);
       setGenStage(null); // 等待呈现随流式态一并复位
+      setThinkPanel(false); // 思考面板退场（首字后由收起条接棒）
+      clearThinkTimer();
       onAIStateChange((prev) => ({ ...prev, streaming: false }));
       // c-prose-regen-replace：生成＝替换语义，正文终态＝本次生成物
       // （开始前旧正文已清空；停止/中断保留已收到的半截）
@@ -563,6 +613,12 @@ const ProsePane = forwardRef<ProseHandle, ProsePaneProps>(function ProsePane(
           ? normalizeStreamedProse(fullText) // 服务端合并整章（旧文仅去尾换行）
           : lastSyncedRef.current + (tail ? "\n" + tail.replace(/\n+$/, "") : "")
         : generated;
+      // 正常完成：收起条账目行补生成用时与正文字数（c-thinking-display ③）
+      if (ok && !opts?.refill) {
+        setThinkKept((k) =>
+          k ? { ...k, genSecs: genSecsRef.current, proseChars: generated.length } : k,
+        );
+      }
       // 两步收尾（c-prose-editor-tiptap）：①删流式区间（不入史）②整段写回（入史）
       // ——一次撤销回到本次生成的写入起点（替换写＝清空后的空稿）
       if (editor && !editor.isDestroyed) {
@@ -611,6 +667,17 @@ const ProsePane = forwardRef<ProseHandle, ProsePaneProps>(function ProsePane(
       streamInsertedLenRef.current = 0;
       streamingRef.current = true;
       sawFirstChunkRef.current = false;
+      // 思考呈现复位（c-thinking-display）：新一轮生成从空白开始
+      thinkBufRef.current = "";
+      clearThinkTimer();
+      setThinkText("");
+      setThinkPanel(false);
+      setThinkKept(null);
+      setThinkOpen(false);
+      setTimeoutCard(false);
+      setThinkModel("");
+      lastPromptRef.current = promptOverride;
+      lastModelSelRef.current = modelSelection;
       setStreaming(true);
       // 请求在飞＝后端确在准备（服务端 phase 事件随后逐段推进等待呈现）
       setGenStage("assemble");
@@ -647,12 +714,38 @@ const ProsePane = forwardRef<ProseHandle, ProsePaneProps>(function ProsePane(
           if (!sawFirstChunkRef.current) {
             sawFirstChunkRef.current = true;
             setGenStage(null); // 首字到达：等待呈现退场、呼吸灯亮起
+            // 思考面板收起为收起条（c-thinking-display ②）：转场保留可回看
+            clearThinkTimer();
+            setThinkPanel(false);
+            if (thinkBufRef.current) {
+              setThinkKept({
+                text: thinkBufRef.current,
+                thinkSecs: genSecsRef.current,
+                genSecs: null,
+                proseChars: null,
+              });
+            }
           }
           streamReceivedRef.current += t;
           appendChunk(t);
         },
         onDone: (full: string, meta?: StreamDoneMeta) => finishStream(full, true, meta),
-        onError: (e: string) => {
+        onError: (e: string, kind?: string) => {
+          if (kind === "thinking_timeout") {
+            // 超时终局（c-thinking-display ④）：超时卡替代 toast——正文保持
+            // 原样、已到达思考保留可回看；顶条生成指示随 streaming 复位退场
+            clearThinkTimer();
+            setThinkPanel(false);
+            setThinkKept(
+              thinkBufRef.current
+                ? { text: thinkBufRef.current, thinkSecs: genSecsRef.current, genSecs: null, proseChars: null }
+                : null,
+            );
+            setTimeoutMsg(e);
+            setTimeoutCard(true);
+            finishStream(streamReceivedRef.current, false);
+            return;
+          }
           toast.error(e);
           finishStream(streamReceivedRef.current, false);
         },
@@ -660,6 +753,20 @@ const ProsePane = forwardRef<ProseHandle, ProsePaneProps>(function ProsePane(
         onPhase: (phase: string) => {
           if (sawFirstChunkRef.current) return; // 首字后不再呈现阶段
           if (GEN_STAGE_LABELS[phase]) setGenStage(phase);
+        },
+        // 思考增量（c-thinking-display ①）：首字前到达即让位占位行；
+        // ~100ms 节流合批渲染，全量留在 thinkBufRef（回看依赖全量）
+        onThinking: (t: string) => {
+          if (sawFirstChunkRef.current) return; // 首字后的思考增量不再呈现
+          thinkBufRef.current += t;
+          setThinkPanel(true);
+          if (!thinkModel) void fetchEffectiveModel(projectId).then((m) => m && setThinkModel(m));
+          if (thinkFlushRef.current == null) {
+            thinkFlushRef.current = window.setTimeout(() => {
+              thinkFlushRef.current = null;
+              setThinkText(thinkBufRef.current);
+            }, 100);
+          }
         },
       };
       abortRef.current = streamChapterWrite(
@@ -1149,7 +1256,7 @@ const ProsePane = forwardRef<ProseHandle, ProsePaneProps>(function ProsePane(
       >
         {/* 生成等待呈现（c-prose-gen-phases）：首字前无框行内——与正文同字体同首行缩进，
             不进文档、不参与撤销/保存/字数；首字到达即退场（呼吸灯此刻在编辑体上亮起） */}
-        {genStage && !hidden && (
+        {genStage && !thinkPanel && !hidden && (
           <div className="gen-line" data-testid="gen-line">
             <p className="gl-main">
               <span className="gl-text" key={genStage}>
@@ -1162,6 +1269,101 @@ const ProsePane = forwardRef<ProseHandle, ProsePaneProps>(function ProsePane(
               <i className="gl-caret" aria-hidden="true" />
             </p>
             <p className="gl-note">通常要半分钟到一分钟；期间可点「停止」。</p>
+          </div>
+        )}
+        {/* 思考面板（c-thinking-display ①）：占位行让位后的唯一等待面——
+            模型名＋已思考秒数＋弱化全文（限高滚动锚尾、全量保留）＋非文档说明；
+            宽度相对正文列、与思考文字量无关 */}
+        {thinkPanel && !hidden && (
+          <div className="tk-live" data-testid="think-panel" role="log" aria-live="polite">
+            <div className="tk-live-head">
+              <span className="tk-dot" aria-hidden="true" />
+              <span className="tk-live-title">{thinkModel ? `${thinkModel} · 思考过程` : "思考过程"}</span>
+              <span className="tk-live-meta">已思考 <b data-testid="think-secs">{genSecs}</b> 秒</span>
+            </div>
+            <div className="tk-live-body" ref={thinkBodyRef}>
+              <p>{thinkText}</p>
+            </div>
+            <div className="tk-live-foot">思考内容由模型生成，帮助它打磨本章；只在这里可见，不会写进正文。</div>
+          </div>
+        )}
+        {/* 思考收起条＋回看抽屉（c-thinking-display ②③）：首字后转场保留，
+            账目行随完成补齐；编辑会话内常驻，阅读视图同样保留 */}
+        {thinkKept && !thinkPanel && !timeoutCard && !hidden && (
+          <div className="tk-anchor">
+            <button
+              type="button"
+              className="tk-bar"
+              data-testid="think-bar"
+              aria-expanded={thinkOpen}
+              onClick={() => setThinkOpen((v) => !v)}
+            >
+              <span className="tk-bar-check" aria-hidden="true">✓</span>
+              <span>
+                {thinkKept.proseChars != null
+                  ? `已思考 ${thinkKept.thinkSecs} 秒 · 本章生成完毕`
+                  : `思考完成 · ${thinkKept.thinkSecs} 秒，正文正在写入`}
+              </span>
+              <span className="tk-bar-more">{thinkOpen ? "收起" : "展开回看"}</span>
+            </button>
+            {thinkOpen && (
+              <div className="tk-drawer" data-testid="think-drawer">
+                <div className="tk-drawer-head">
+                  思考回看
+                  <span className="tk-drawer-meta">
+                    思考 {thinkKept.thinkSecs} 秒
+                    {thinkKept.genSecs != null ? ` · 生成 ${thinkKept.genSecs} 秒` : ""}
+                    {thinkKept.proseChars != null ? ` · 正文 ${thinkKept.proseChars} 字` : ""}
+                  </span>
+                  <button type="button" className="tk-x" onClick={() => setThinkOpen(false)}>收起</button>
+                </div>
+                <div className="tk-drawer-body"><p>{thinkKept.text}</p></div>
+                <div className="tk-drawer-foot">思考内容由模型生成，仅供写作参考，不会写进正文。</div>
+              </div>
+            )}
+          </div>
+        )}
+        {/* 超时卡（c-thinking-display ④）：守卫判死的终局——正文保持原样、
+            已到达思考保留可回看；服务端文案带实测秒数 */}
+        {timeoutCard && !hidden && (
+          <div className="tk-timeout" data-testid="think-timeout">
+            <div className="tk-timeout-head">本次生成已停止</div>
+            <p>{timeoutMsg}</p>
+            {thinkKept?.text ? (
+              <div className="tk-timeout-see">
+                <span>已保留它的思考内容</span>
+                <button type="button" data-testid="think-see" onClick={() => setThinkOpen((v) => !v)}>
+                  {thinkOpen ? "收起" : "展开回看"}
+                </button>
+              </div>
+            ) : null}
+            {thinkOpen && thinkKept?.text ? (
+              <div className="tk-drawer" data-testid="think-drawer">
+                <div className="tk-drawer-body"><p>{thinkKept.text}</p></div>
+              </div>
+            ) : null}
+            <div className="tk-timeout-actions">
+              <button
+                type="button"
+                className="tk-btn-main"
+                data-testid="think-regen"
+                onClick={() => {
+                  setTimeoutCard(false);
+                  setThinkOpen(false);
+                  startStream(lastPromptRef.current, lastModelSelRef.current);
+                }}
+              >
+                重新生成
+              </button>
+              <button
+                type="button"
+                className="tk-btn-ghost"
+                data-testid="think-dismiss"
+                onClick={() => setTimeoutCard(false)}
+              >
+                知道了
+              </button>
+            </div>
           </div>
         )}
         {/* TipTap 渲染 contenteditable 宿主：.editor 类经 editorProps.attributes 挂载，

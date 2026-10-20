@@ -166,6 +166,12 @@ def _to_sdk_timeout(provider: str, t: Any) -> Any:
 @dataclass
 class StreamEvent:
     text: str = ""
+    # 思考增量通道（c-thinking-display）：与正文分流的独立类别——同一结构新字段
+    # 而非子类，未升级的调用方按 falsy 天然忽略（正文流/完成事件零行为变化）。
+    # 三来源统一走此字段：openai 内联 <think>（剥离状态机边剥边透出）、
+    # openai reasoning_content 增量、anthropic thinking_delta。
+    # 思考事件不构成首字、不撤首字守卫；交付正文零思考的口径不变。
+    thinking: str = ""
     is_done: bool = False
     # 输出侧 tokens（c-ai-usage-correctness：语义收窄，OpenAI 流不再误记 total）
     tokens: int = 0
@@ -180,8 +186,10 @@ class StreamEvent:
 
 # ── 内联思考剥离（c-inline-think-strip）─────────────────────────────────
 # MiniMax M2/M3 系（OpenAI 协议原生格式）把思考以 `<think>…</think>` 内联在
-# content 交付（官方文档明示需手动解析）；这是 openai 路径交付前的卫生层：
-# 仅当响应以 `<think>` 开头才判定为内联思考形态，非该形态逐字放行。
+# content 交付（官方文档明示需手动解析）；这是 openai 路径交付前的卫生层。
+# c-thinking-display 起：剥离段不再即攒即弃，滑窗外增量经 `thinking` 列表
+# 透出为思考事件；PASSING 态亦扫描中段再开标签（M2 系交错思考官方口径，
+# think→正文→think 不把第二段思考漏进交付文本）。
 _THINK_OPEN = "<think>"
 _THINK_CLOSE = "</think>"
 
@@ -192,43 +200,78 @@ class _InlineThinkStripper:
     HOLDING：以「缓冲是否为 `<think>` 的前缀」判定——凑齐完整开标签转
     STRIPPING；仍可能是前缀（如 "<th"）继续攒；一旦偏离（首个字符 ≠ "<"
     即命中）缓冲整体放行转 PASSING，普通模型首 chunk 零延迟直通；
-    STRIPPING：思考段即攒即弃，仅保留尾部 ≤len(闭标签)-1 字符滑窗防
-    `</think>` 裂在 chunk 边界，内存有界；PASSING：直通。
+    STRIPPING：思考段滑窗外增量透出进 `thinking` 列表（调用方逐 chunk
+    排空），仅保留尾部 ≤len(闭标签)-1 字符滑窗防 `</think>` 裂在 chunk
+    边界，内存有界；PASSING：直通，但以 ≤len(开标签)-1 字符尾部扣留扫描
+    中段再开标签（M2 系交错思考：正文后再开 `<think>` 转回 STRIPPING，
+    第二段思考不漏进交付文本——尾部扣留仅发生在疑似标签前缀时，普通
+    正文仍零延迟直通）。
     流结束仍 HOLDING＝余量按非思考形态交付（未凑齐完整开标签即永不命中
     剥离形态，如 "<th" 截断流）；仍 STRIPPING＝整段按思考处理不交付
-    （未闭合兜底，空产物由既有重试/报错路径接管）。内部异常按原始文本
-    兜底——净化尽力而为，不得毁掉正常生成。流式逐 chunk feed、非流式
-    strip_inline_think 一次喂入，共用同一核心防双实现漂移。
+    （未闭合兜底，空产物由既有重试/报错路径接管）；PASSING 尾部扣留
+    余量按正文交付。内部异常按原始文本兜底——净化尽力而为，不得毁掉
+    正常生成。流式逐 chunk feed、非流式 strip_inline_think 一次喂入，
+    共用同一核心防双实现漂移。
     """
 
     def __init__(self) -> None:
         self._mode = "holding"
         self._buf = ""
+        self._tail = ""  # PASSING 态的疑似标签前缀扣留（≤len(开标签)-1）
         self._broken = False
+        # 思考增量透出（c-thinking-display）：滑窗外增量逐段追加，调用方
+        # 每 chunk 后排空；与正文放行共用边界处理，防双实现漂移
+        self.thinking: list[str] = []
 
     def _flush_close(self) -> str:
-        """在当前缓冲上找闭标签：未闭合→保留尾部滑窗（防标签裂边界）；
-        闭合→丢弃思考段、余量转 PASSING 放行。"""
+        """在当前缓冲上找闭标签：未闭合→滑窗外增量透出、保留尾部滑窗（防
+        标签裂边界）；闭合→闭标签前思考段透出、余量转 PASSING 放行。"""
         end = self._buf.find(_THINK_CLOSE)
         if end < 0:
             keep = len(_THINK_CLOSE) - 1
             if len(self._buf) > keep:
+                self.thinking.append(self._buf[:-keep])
                 self._buf = self._buf[-keep:]
             return ""
         self._mode = "passing"
+        if end:
+            self.thinking.append(self._buf[:end])
         out = self._buf[end + len(_THINK_CLOSE):]
         self._buf = ""
         return out
 
+    def _pass_scan(self, chunk: str) -> str:
+        """PASSING 态直通＋中段开标签扫描：疑似 `<think>` 前缀的尾部扣留，
+        凑齐完整开标签转 STRIPPING（余量进剥离段）。"""
+        self._tail += chunk
+        out = ""
+        while True:
+            i = self._tail.find(_THINK_OPEN)
+            if i < 0:
+                keep = 0
+                for k in range(min(len(_THINK_OPEN) - 1, len(self._tail)), 0, -1):
+                    if _THINK_OPEN.startswith(self._tail[-k:]):
+                        keep = k
+                        break
+                cut = len(self._tail) - keep
+                out += self._tail[:cut]
+                self._tail = self._tail[cut:]
+                return out
+            out += self._tail[:i]
+            self._buf = self._tail[i + len(_THINK_OPEN):]
+            self._tail = ""
+            self._mode = "stripping"
+            return out + self._flush_close()
+
     def feed(self, chunk: str) -> str:
-        """喂入一个增量，返回本次可放行的正文（思考段零产出）。"""
+        """喂入一个增量，返回本次可放行的正文（思考段走 `thinking` 列表）。"""
         if self._broken:
             return chunk
         if not chunk:
             return ""
         try:
             if self._mode == "passing":
-                return chunk
+                return self._pass_scan(chunk)
             if self._mode == "holding":
                 self._buf += chunk
                 if self._buf.startswith(_THINK_OPEN):
@@ -243,14 +286,16 @@ class _InlineThinkStripper:
                     return ""  # 仍可能是开标签前缀（如 "<th"），继续攒
                 # 判明非思考形态：全部放行——首个字符 ≠ "<" 时零延迟直通
                 self._mode = "passing"
+                self._tail = ""
                 out, self._buf = self._buf, ""
-                return out
+                return self._pass_scan(out)
             # stripping：先累积本 chunk 再找闭标签
             self._buf += chunk
             return self._flush_close()
         except Exception:  # noqa: BLE001 — 异常按原始交付兜底（spec 行为钉）
             self._broken = True
             self._buf = ""
+            self._tail = ""
             return chunk
 
     def finish(self) -> str:
@@ -261,9 +306,10 @@ class _InlineThinkStripper:
             out, self._buf = self._buf, ""
             self._mode = "passing"
             return out
+        out, self._tail = self._tail, ""  # PASSING 尾部扣留余量按正文交付
         self._mode = "passing"
         self._buf = ""
-        return ""
+        return out
 
 
 def strip_inline_think(text: str) -> str:
@@ -391,12 +437,18 @@ class AIClient:
         tokens_out: int | None = None,
         error: Exception | None = None,
         attempt: int = 1,
+        thinking_ms: float | None = None,
+        first_char_ms: float | None = None,
+        thinking_chars: int | None = None,
     ) -> None:
         """一次 provider 调用出口的留痕行（D7）：成功 INFO / 失败 WARNING。
 
         operation 由调用方传入（与 TokenLog 同名）；不落 API Key 与正文——
         请求侧只计字符数由调用方掌握，本行只含结果与计数。error 截 200 字符
         （httpx 异常文本含上游 URL，无 Key——header 鉴权）。
+        思考元数据（c-thinking-display 2.5）仅成功行携带：thinking_ms＝流内
+        思考期时长（无思考＝0）、first_char_ms＝调用起点至首个正文片段
+        （含拒参重开）、thinking_chars＝思考增量字符数；思考全文不落日志。
         """
         duration_ms = (time.perf_counter() - start) * 1000
         op = operation or "-"
@@ -404,10 +456,18 @@ class AIClient:
         vendor = getattr(self, "_vendor", "") or "-"  # c-llm-call-log 身份字段
         host = _host_of(self._base_url)
         if error is None:
+            meta = ""
+            if thinking_ms is not None:
+                meta = (
+                    f" thinking_ms={thinking_ms:.0f}"
+                    f" first_char_ms={first_char_ms or 0.0:.0f}"
+                    f" thinking_chars={thinking_chars or 0}"
+                )
             logger.info(
                 "event=ai_call op=%s model=%s vendor=%s host=%s attempt=%s duration_ms=%.0f"
-                " tokens_in=%d tokens_out=%d result=ok",
-                op, mdl, vendor, host, attempt, duration_ms, tokens_in or 0, tokens_out or 0,
+                " tokens_in=%d tokens_out=%d result=ok%s",
+                op, mdl, vendor, host, attempt, duration_ms,
+                tokens_in or 0, tokens_out or 0, meta,
             )
         else:
             logger.warning(
@@ -828,6 +888,12 @@ class AIClient:
                     )
                 done_out, done_in = 0, 0
                 done_fr = ""  # 终止原因（c-shortfall-refill 遥测）
+                # 思考呈现可观测（c-thinking-display 2.5）：思考时长/首字时刻/
+                # 思考字符数——只进 ai_call 行元数据，思考全文不落日志
+                stream_t0 = time.perf_counter()
+                first_text_at: float | None = None
+                thinking_chars = 0
+                saw_thinking = False
                 # 首字守卫：思考期 reasoning delta 不带正文、只会让 read 超时
                 # （相邻事件间隔口径）一直顺延——核对首字前总时长，超限即判死
                 # （零 chunk 静默仍由 read 超时兜底）；秒数记实测值非配置值
@@ -838,7 +904,9 @@ class AIClient:
                     else None
                 )
                 # 内联思考剥离（c-inline-think-strip）：思考段零产出且不撤守卫
-                # ——守卫口径＝首个「交付正文」片段，内联思考不算首字
+                # ——守卫口径＝首个「交付正文」片段，内联思考不算首字。
+                # c-thinking-display：滑窗外增量经 stripper.thinking 透出为
+                # 思考事件（排空后复用列表对象，零额外分配）
                 stripper = _InlineThinkStripper()
                 async for chunk in stream:
                     if first_deadline is not None and time.monotonic() >= first_deadline:
@@ -855,18 +923,46 @@ class AIClient:
                     if fr:
                         done_fr = fr  # 终止原因以流内最后一条为准（c-shortfall-refill）
                     delta = chunk.choices[0].delta
+                    # 独立 reasoning_content 字段（DeepSeek/Qwen/Kimi 形态）转
+                    # 思考事件；与 content 并行时两通道天然无重复（来源不同字段）
+                    rc = getattr(delta, "reasoning_content", None) if delta else None
+                    if rc:
+                        saw_thinking = True
+                        thinking_chars += len(rc)
+                        yield StreamEvent(thinking=rc)
                     if delta and delta.content:
                         prose = stripper.feed(delta.content)
+                        # 内联 <think> 剥离段滑窗外增量 → 思考事件（含中段
+                        # 再开标签的交错思考，M2 系官方口径）
+                        if stripper.thinking:
+                            saw_thinking = True
+                            for tp in stripper.thinking:
+                                thinking_chars += len(tp)
+                                yield StreamEvent(thinking=tp)
+                            stripper.thinking.clear()
                         if prose:
+                            if first_text_at is None:
+                                first_text_at = time.perf_counter()
                             first_deadline = None  # 首个正文片段已到，守卫即撤
                             yield StreamEvent(text=prose)
                 # 流结束收尾：HOLDING 短文本残余按正文交付（未闭合思考不产出）
                 tail = stripper.finish()
                 if tail:
+                    if first_text_at is None:
+                        first_text_at = time.perf_counter()
                     first_deadline = None
                     yield StreamEvent(text=tail)
                 self._log_call(
-                    operation, model, start, tokens_in=done_in, tokens_out=done_out
+                    operation, model, start, tokens_in=done_in, tokens_out=done_out,
+                    thinking_ms=(
+                        (first_text_at - stream_t0) * 1000
+                        if (first_text_at and saw_thinking)
+                        else 0.0
+                    ),
+                    first_char_ms=(
+                        (first_text_at - start) * 1000 if first_text_at else 0.0
+                    ),
+                    thinking_chars=thinking_chars,
                 )
                 yield StreamEvent(
                     is_done=True, tokens=done_out, tokens_in=done_in,
@@ -902,6 +998,16 @@ class AIClient:
                         ) as stream:
                             tokens_in = 0
                             tokens_fr = ""  # 终止原因（c-shortfall-refill 遥测）
+                            # 思考呈现可观测（c-thinking-display 2.5）＋用量补漏
+                            # （2.6）：tokens_out 以 message_delta.usage 为准——
+                            # MiniMax anthropic 端点只在 message_delta 带回
+                            # output_tokens，message_stop 无 usage（实测恒 0）；
+                            # 官方 anthropic 流同字段累计值，末条即全量
+                            stream_t0 = time.perf_counter()
+                            first_text_at: float | None = None
+                            thinking_chars = 0
+                            saw_thinking = False
+                            tokens_out_seen = 0
                             # 内联思考剥离（c-prose-generation-headroom，与 openai
                             # 分支同构）：MiniMax anthropic 端点思考关断时把
                             # `<think>` 内联进 text_delta；思考段零产出且不撤守卫
@@ -919,9 +1025,25 @@ class AIClient:
                                     tokens_in = getattr(usage, "input_tokens", 0) or 0
                                 elif event.type == "content_block_delta":
                                     delta_type = getattr(event.delta, "type", "")
-                                    if delta_type == "text_delta":
+                                    if delta_type == "thinking_delta":
+                                        # 思考事件通道（c-thinking-display）：
+                                        # thinking_delta 原样透出，不构成首字
+                                        t = getattr(event.delta, "thinking", "") or ""
+                                        if t:
+                                            saw_thinking = True
+                                            thinking_chars += len(t)
+                                            yield StreamEvent(thinking=t)
+                                    elif delta_type == "text_delta":
                                         prose = stripper.feed(event.delta.text)
+                                        if stripper.thinking:
+                                            saw_thinking = True
+                                            for tp in stripper.thinking:
+                                                thinking_chars += len(tp)
+                                                yield StreamEvent(thinking=tp)
+                                            stripper.thinking.clear()
                                         if prose:
+                                            if first_text_at is None:
+                                                first_text_at = time.perf_counter()
                                             first_deadline = None  # 首个正文片段已到
                                             yield StreamEvent(text=prose)
                                 elif event.type == "message_delta":
@@ -931,17 +1053,33 @@ class AIClient:
                                     )
                                     if sr:
                                         tokens_fr = sr
+                                    u = getattr(event, "usage", None)
+                                    if u and getattr(u, "output_tokens", 0):
+                                        tokens_out_seen = u.output_tokens
                                 elif event.type == "message_stop":
                                     tail = stripper.finish()
                                     if tail:
+                                        if first_text_at is None:
+                                            first_text_at = time.perf_counter()
                                         first_deadline = None
                                         yield StreamEvent(text=tail)
-                                    tokens = 0
+                                    tokens = tokens_out_seen
                                     if hasattr(event, "usage") and event.usage:
-                                        tokens = event.usage.output_tokens
+                                        tokens = tokens or event.usage.output_tokens
                                     self._log_call(
                                         operation, model, start,
                                         tokens_in=tokens_in, tokens_out=tokens,
+                                        thinking_ms=(
+                                            (first_text_at - stream_t0) * 1000
+                                            if (first_text_at and saw_thinking)
+                                            else 0.0
+                                        ),
+                                        first_char_ms=(
+                                            (first_text_at - start) * 1000
+                                            if first_text_at
+                                            else 0.0
+                                        ),
+                                        thinking_chars=thinking_chars,
                                     )
                                     yield StreamEvent(
                                         is_done=True, tokens=tokens, tokens_in=tokens_in,

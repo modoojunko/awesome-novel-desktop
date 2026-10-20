@@ -211,6 +211,9 @@ async def _stream_chapter(
     # ③ 调用模型（首字前停留最久的一段；等待呈现以此阶段为当前步）
     yield _phase("model")
 
+    # 思考事件转发标记（c-thinking-display 3.1）：错误事件携带「已收到思考」
+    # 标记，前端超时卡据此保留已到达的思考内容（思考全文缓存在前端，无需回传）
+    saw_thinking = False
     try:
         async for event in client.chat_stream(
             model=model,
@@ -225,6 +228,9 @@ async def _stream_chapter(
             if event.text:
                 full_text += event.text
                 yield f"data: {json.dumps({'type': 'chunk', 'text': event.text}, ensure_ascii=False)}\n\n"
+            elif event.thinking:
+                saw_thinking = True
+                yield f"data: {json.dumps({'type': 'thinking', 'text': event.thinking}, ensure_ascii=False)}\n\n"
             elif event.is_done:
                 # 分段归一（段间空行→单换行）：字数校验/自查/落库/done 全用同一份
                 full_text = normalize_generated_prose(full_text)
@@ -281,10 +287,12 @@ async def _stream_chapter(
                 done["self_check"] = run_narrative_self_check(full_text)
                 yield f"data: {json.dumps(done, ensure_ascii=False)}\n\n"
             elif event.error:
-                yield f"data: {json.dumps({'type': 'error', 'error': event.error}, ensure_ascii=False)}\n\n"
+                yield f"data: {json.dumps({'type': 'error', 'error': event.error, 'thinking': saw_thinking}, ensure_ascii=False)}\n\n"
     except AIThinkingTimeoutError as e:
         # 思考太久即失败（c-prose-thinking-timeout）：首字守卫在 is_done 前把流掐断，
-        # 走不到落库——已存稿保持原样，用户拿到可读文案而非 3 分钟静默后空收场
+        # 走不到落库——已存稿保持原样，用户拿到可读文案而非 3 分钟静默后空收场。
+        # kind=thinking_timeout（c-thinking-display 3.1）：前端据此转超时卡，
+        # 保留已到达的思考内容供回看；思考全文缓存在前端，无需服务端回传
         from api_configs.usage import record_usage
 
         await record_usage(
@@ -297,7 +305,7 @@ async def _stream_chapter(
             model=used_model,
             force=True,
         )
-        yield f"data: {json.dumps({'type': 'error', 'error': f'模型思考太久（{int(e.seconds)} 秒未产出正文），已停止——可直接重试；反复出现时把思考强度调低'}, ensure_ascii=False)}\n\n"
+        yield f"data: {json.dumps({'type': 'error', 'error': f'模型思考太久（{int(e.seconds)} 秒未产出正文），已停止——可直接重试；反复出现时把思考强度调低', 'kind': 'thinking_timeout', 'thinking': saw_thinking}, ensure_ascii=False)}\n\n"
     except AITimeoutError:
         from api_configs.usage import record_usage
 
@@ -515,6 +523,7 @@ async def _stream_refill(db, project, root_path: str, chapter_ref: str, existing
 
     yield _phase("model")
     full_text = ""
+    saw_thinking_refill = False  # c-thinking-display：标记口径与 /write 对齐
     try:
         async for event in client.chat_stream(
             model="haiku",
@@ -527,6 +536,9 @@ async def _stream_refill(db, project, root_path: str, chapter_ref: str, existing
             if event.text:
                 full_text += event.text
                 yield f"data: {json.dumps({'type': 'chunk', 'text': event.text}, ensure_ascii=False)}\n\n"
+            elif event.thinking:
+                saw_thinking_refill = True
+                yield f"data: {json.dumps({'type': 'thinking', 'text': event.thinking}, ensure_ascii=False)}\n\n"
             elif event.is_done:
                 # 评审 P2：归一只作用于 AI 产物（尾段）——normalize 的 docstring
                 # 「不碰作者手写稿」对补足同样成立，已写正文仅去尾换行原样拼接
@@ -581,7 +593,7 @@ async def _stream_refill(db, project, root_path: str, chapter_ref: str, existing
                 done["self_check"] = run_narrative_self_check(merged)
                 yield f"data: {json.dumps(done, ensure_ascii=False)}\n\n"
             elif event.error:
-                yield f"data: {json.dumps({'type': 'error', 'error': event.error}, ensure_ascii=False)}\n\n"
+                yield f"data: {json.dumps({'type': 'error', 'error': event.error, 'thinking': saw_thinking_refill}, ensure_ascii=False)}\n\n"
     except AIThinkingTimeoutError as e:
         from api_configs.usage import record_usage
 
@@ -595,7 +607,7 @@ async def _stream_refill(db, project, root_path: str, chapter_ref: str, existing
             model=used_model,
             force=True,
         )
-        yield f"data: {json.dumps({'type': 'error', 'error': f'模型思考太久（{int(e.seconds)} 秒未产出正文），已停止——可直接重试；反复出现时把思考强度调低'}, ensure_ascii=False)}\n\n"
+        yield f"data: {json.dumps({'type': 'error', 'error': f'模型思考太久（{int(e.seconds)} 秒未产出正文），已停止——可直接重试；反复出现时把思考强度调低', 'kind': 'thinking_timeout', 'thinking': saw_thinking_refill}, ensure_ascii=False)}\n\n"
     except Exception as e:  # noqa: BLE001 — 流中断也留痕（调用已发生；已写正文未动）
         from api_configs.usage import record_usage
 

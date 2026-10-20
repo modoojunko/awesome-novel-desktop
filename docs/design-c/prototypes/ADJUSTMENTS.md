@@ -2117,3 +2117,10 @@ baseurl 到什么程度，要有个案例。」——中转站/自建网关用�
 - **parity 影响**：model-config.html 不在 design:check 像素矩阵（矩阵仅 list.html），走
   design-vocab 词表 lint；新增样式全 token（accent-soft/accent-strong/border），字号仅用已登记的
   11px；共享段零触碰、免 design-cross。
+
+## 2026-10-20 · 思考呈现（c-thinking-display）实现落位
+
+- 认可稿原型（drafts/ai-novel-c端-思考呈现-原型.html，tk- 前缀 graft）落地为正式实现：组件类沿用 tk- 前缀，样式落 src/design/book.css（gen-line 块之后），视觉与原型一致（版心同列 680 相对列宽、accent 左缘、限高滚动锚尾）。
+- 占位行让位：思考面板在场即隐藏 .gen-line（首个思考增量到达触发）；无思考增量维持既有阶段行。
+- 收起条/回看抽屉/超时卡按认可稿文案与形态；超时卡由服务端错误 kind=thinking_timeout 触发。
+- 与原型差异：无新增偏差（账目行同在回看抽屉头）。真机抽检清单见 change tasks 4.2（MiniMax M3.1 / DeepSeek / GLM 三形态各一章）。
