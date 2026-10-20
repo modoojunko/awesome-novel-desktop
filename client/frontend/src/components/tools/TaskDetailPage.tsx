@@ -17,6 +17,7 @@ import {
   getDeconstructProduct,
   getDeconstructTask,
   importBookFromTask,
+  probeModel,
   resumeDeconstructTask,
   retryUploadDeconstructTask,
   type DeconstructTaskDetail,
@@ -117,6 +118,7 @@ export default function TaskDetailPage() {
   const dims = DECONSTRUCT_DIMS.filter((d) => task.selected_dims.includes(d.key));
   const dimState = (key: string) => task.dims[key] ?? { state: "queued", seg_done: 0, seg_total: 0, error: "" };
   const cards = task.cards ?? { state: "queued", done: 0, total: 0 };
+  const mon = task.monitor ?? null;
   const graph = task.graph ?? { state: "absent" as const, available: false, warnings: 0, caps: true };
   const overall = (() => {
     const total = dims.length;
@@ -253,6 +255,15 @@ export default function TaskDetailPage() {
               <span className="pct">{overall}%</span>
               {elapsedLabel && <span style={{ fontSize: 12, color: "var(--muted)" }}>{elapsedLabel}</span>}
             </div>
+            {/* 运行监控（c-deconstruct-monitor）：批次/卡片账＋总进度条＋速度窗＋最近流水 */}
+            {mon && (
+              <>
+                <div className="mon-sum" data-od-id="mon-sum">
+                  批次 {mon.batches.done}/{mon.batches.total} · 卡片 {cards.done}/{cards.total} · 在途 {mon.in_flight} · 并发 {mon.concurrency}
+                </div>
+                <div className="pbar" data-od-id="mon-pbar"><i style={{ width: `${overall}%` }} /></div>
+              </>
+            )}
             <ul className="ex-steps" data-od-id="task-steps">
               {cards.total > 0 && (
                 <li key="__cards" data-od-id="step-cards">
@@ -266,23 +277,6 @@ export default function TaskDetailPage() {
                   </em>
                 </li>
               )}
-              {dims.map((d) => {
-                const st = dimState(d.key);
-                return (
-                  <li key={d.key}>
-                    <b>{d.name}</b>
-                    <em className={st.state === "completed" ? "ok" : st.state === "running" ? "doing" : ""}>
-                      {st.state === "completed"
-                        ? "完成"
-                        : st.state === "running"
-                          ? `进行中 · 归并 ${st.seg_done}/${st.seg_total}${etaSuffix(st.eta_seconds)}`
-                          : st.state === "failed"
-                            ? /* v8 ignore next — 失败臂由失败详情用例断言 */ "失败"
-                            : "排队"}
-                    </em>
-                  </li>
-                );
-              })}
               {task.activity && (
                 <li data-od-id="step-activity">
                   <b>当前动作</b>
@@ -299,6 +293,66 @@ export default function TaskDetailPage() {
                 </li>
               )}
             </ul>
+            {/* 各维度进度条（c-deconstruct-monitor）：em 文案与既有口径同串，容器换条 */}
+            <ul className="mon-dims" data-od-id="mon-dims">
+              {dims.map((d) => {
+                const st = dimState(d.key);
+                const segTotal = st.seg_total || 0;
+                const pctv = st.state === "completed"
+                  ? 100
+                  : segTotal
+                    ? Math.min(100, Math.round((st.seg_done / segTotal) * 100))
+                    : 0;
+                return (
+                  <li key={d.key} className={st.state === "completed" ? "ok" : st.state === "running" ? "on" : ""}>
+                    <b>{d.name}</b>
+                    <span className="mon-bar"><i style={{ width: `${pctv}%` }} /></span>
+                    <em>
+                      {st.state === "completed"
+                        ? "完成"
+                        : st.state === "running"
+                          ? `进行中 · 归并 ${st.seg_done}/${st.seg_total}${etaSuffix(st.eta_seconds)}`
+                          : st.state === "failed"
+                            ? /* v8 ignore next — 失败臂由失败详情用例断言 */ "失败"
+                            : "排队"}
+                    </em>
+                  </li>
+                );
+              })}
+            </ul>
+            {mon?.speed && (
+              <div className="mon-speed" data-od-id="mon-speed">
+                {`速度（近 5 分钟）· 成功 ${mon.speed.done}/${mon.speed.done + mon.speed.fail} 次 · ` +
+                  `平均 ${mon.speed.avg_ms != null ? Math.round(mon.speed.avg_ms / 1000) : "-"}s · ` +
+                  `吞吐 ${Math.round(mon.speed.out_tokens / (mon.speed.window_s || 300))} tok/秒 · ` +
+                  `累计 ${mon.speed.total} 次`}
+              </div>
+            )}
+            {(mon?.recent?.length ?? 0) > 0 && (
+              <ul className="mon-recent" data-od-id="mon-recent">
+                {mon!.recent.map((r, i) => (
+                  <li key={`${r.at}-${i}`}>
+                    <span className="t">{fmtClock(r.at)}</span>
+                    <span className="stg">{r.label}</span>
+                    {r.running ? (
+                      <>
+                        <span>—</span>
+                        <span>—</span>
+                        <span className="run">● 进行中</span>
+                      </>
+                    ) : (
+                      <>
+                        <span>{Math.round(r.duration_ms / 1000)}s</span>
+                        <span>{(r.tokens_out / 1000).toFixed(1)}k tok</span>
+                        {r.ok
+                          ? <span className="ok">✓</span>
+                          : <span className="bad">{r.reason || "失败"}</span>}
+                      </>
+                    )}
+                  </li>
+                ))}
+              </ul>
+            )}
             <div style={{ display: "flex", gap: 8, marginTop: 20 }}>
               <button
                 className="btn btn-ghost"
@@ -307,6 +361,21 @@ export default function TaskDetailPage() {
                 onClick={() => void act(() => cancelDeconstructTask(task.id))}
               >
                 取消任务
+              </button>
+              <button
+                className="btn btn-ghost"
+                data-od-id="btn-test-model"
+                disabled={busy}
+                onClick={() =>
+                  void act(() => probeModel(task.api_config_id, task.ai_model), (ok) => {
+                    /* v8 ignore start — 探针两臂由监控用例断言（v8 对 async 回调行归属漂移） */
+                    if (ok) toast.success("模型连通正常");
+                    else toast.error("模型探针失败：请检查 Key／接口地址");
+                    /* v8 ignore stop */
+                  })
+                }
+              >
+                测试模型
               </button>
             </div>
           </div>
@@ -726,5 +795,13 @@ export function statsLine(stats: NonNullable<DeconstructTaskDetail["stats"]>): s
       return `${nameMap[s]} ${st.calls} 次${retryTxt}`;
     })
     .join(" · ");
+}
+
+/** 监控流水行时钟（c-deconstruct-monitor）：服务端 UTC-naive → serverTimeMs 单源 →
+ * 本地 HH:MM:SS。两臂（零补零/需补零）由监控用例断言。 */
+export function fmtClock(iso: string): string {
+  const d = new Date(serverTimeMs(iso));
+  const p = (n: number) => String(n).padStart(2, "0");
+  return `${p(d.getHours())}:${p(d.getMinutes())}:${p(d.getSeconds())}`;
 }
 

@@ -231,6 +231,32 @@ async def _unit_upsert(task_id: str, stage: str, dim: str, unit_key: str, **fiel
         await session.commit()
 
 
+async def _unit_running(task_id: str, stage: str, dim: str, unit_key: str) -> None:
+    """调度落账（c-deconstruct-monitor）：单元派发即写 running 行——监控「在途」与
+    「最近」明细当场可见（boss 2026-10-19：具体的调度任务要在明细里刷新出来）；
+    完成时 _unit_upsert 按唯一键覆盖同行为终态。取消/熔断/看门狗中断的余波
+    （running 残留）由任务终局 _sweep_running 统一收敛。"""
+    await _unit_upsert(task_id, stage, dim, unit_key, status="running")
+
+
+async def _sweep_running(task_id: str) -> None:
+    """任务终局清扫：残留 running 行（停止余波）一律置 failed(cancelled)，
+    防止在途账永久虚高。每次 run_task 的 finally 调用（成功路径无残留，幂等）。"""
+    async with async_session() as session:
+        rows = (
+            await session.scalars(
+                select(DeconstructUnit).where(
+                    DeconstructUnit.task_id == task_id,
+                    DeconstructUnit.status == "running",
+                )
+            )
+        ).all()
+        for r in rows:
+            r.status = "failed"
+            r.error_kind = "cancelled"
+        await session.commit()
+
+
 async def _units_done(task_id: str, stage: str, dim: str) -> dict[str, str]:
     """已完成单元映射（unit_key → output_json）——续拆只补未完成单元的读取口。"""
     async with async_session() as session:
@@ -671,6 +697,7 @@ async def _backfill_presence(task_id, task, chapters, cards, dims, state, client
             usage: dict = {}
             info: dict = {}
             ukey = _input_hash("presence", no, *sorted(missing))
+            await _unit_running(task_id, "presence", "", ukey)
             try:
                 data = await _call_with_retry(
                     client, model, (sys_b, usr_b),
@@ -889,6 +916,7 @@ async def run_task(task_id: str) -> None:
                         raise _Stopped(stopper.reason)
                     no = str(ch.get("no", 0))
                     state["activity"] = {"label": f"正在拆解 第{no}章", "at": _now().isoformat()}
+                    await _unit_running(task_id, "card", "", no)
                     started = time.monotonic()
                     usage: dict = {}
                     info: dict = {}
@@ -970,6 +998,7 @@ async def run_task(task_id: str) -> None:
                             "label": f"正在拆解 第{nos[0]}-{nos[-1]}章（合批 {len(batch)} 章）",
                             "at": _now().isoformat(),
                         }
+                        await _unit_running(task_id, "card_batch", "", bkey)
                         raw = await _call_with_retry(
                             client, model, batch_tpl,
                             {"book_name": task.book_name, "chapters_block": chapters_block},
@@ -1106,6 +1135,7 @@ async def run_task(task_id: str) -> None:
                             "label": f"正在归并 {names[dim]}（已完成 {dstate['seg_done']}/{dstate['seg_total']} 批）",
                             "at": _now().isoformat(),
                         }
+                        await _unit_running(task_id, "l1", dim, bkey)
                         data = await _call_with_retry(
                             client, model, (sys_m, usr_m),
                             {
@@ -1179,6 +1209,7 @@ async def run_task(task_id: str) -> None:
                             if stopper.event.is_set():
                                 raise _Stopped(stopper.reason)
                             state["activity"] = {"label": f"正在收敛 {names[dim]}", "at": _now().isoformat()}
+                            await _unit_running(task_id, "reduce", dim, gkey)
                             merged = await _call_with_retry(
                                 client, model, (sys_r, usr_r),
                                 {"dim_name": names[dim], "partials": "\n\n".join(group)},
@@ -1296,6 +1327,7 @@ async def run_task(task_id: str) -> None:
                         started = time.monotonic()
                         usage: dict = {}
                         info: dict = {}
+                        await _unit_running(task_id, "place", "", "book")
                         place_merge = await _call_with_retry(
                             client, model, (sys_pl, usr_pl),
                             {"book_name": task.book_name, "genre_or_unknown": "unknown",
@@ -1389,6 +1421,7 @@ async def run_task(task_id: str) -> None:
         await _fail(task_id, error={"message": err_str[:500], "kind": "pipeline"})
         return
     finally:
+        await _sweep_running(task_id)  # 调度落账收尾（c-deconstruct-monitor）：running 残留置 failed，幂等
         await watch.stop()
 
     await _patch(task_id, status="completed", finished_at=_now())

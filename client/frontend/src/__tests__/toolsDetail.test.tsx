@@ -7,6 +7,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 const state = vi.hoisted(() => ({
   get: vi.fn(),
   product: vi.fn(),
+  probe: vi.fn(),
   cancel: vi.fn(),
   del: vi.fn(),
   resume: vi.fn(),
@@ -19,6 +20,7 @@ vi.mock("@/lib/toast", () => ({ toast: toastState }));
 vi.mock("@/lib/deconstructApi", () => ({
   getDeconstructTask: state.get,
   getDeconstructProduct: state.product,
+  probeModel: state.probe,
   cancelDeconstructTask: state.cancel,
   deleteDeconstructTask: state.del,
   resumeDeconstructTask: state.resume,
@@ -614,6 +616,76 @@ describe("TaskDetailPage", () => {
     // C 到达 → 正常显示
     await act(async () => { resolveC({ filename: "写作技法.md", content: "技法正文C" }); });
     await waitFor(() => expect(screen.getByText("技法正文C")).toBeInTheDocument());
+  });
+
+  it("运行监控：批次/卡片账＋维度条＋速度＋最近流水＋测试模型成功臂", async () => {
+    state.get.mockResolvedValue(detailOf("running", {
+      cards: { state: "completed", done: 542, total: 542 },
+      dims: {
+        intro: { state: "running", seg_done: 1, seg_total: 3, error: "" },
+        world: { state: "completed", seg_done: 2, seg_total: 2, error: "" },
+        techniques: { state: "queued", seg_done: 0, seg_total: 0, error: "" },
+      },
+      monitor: {
+        concurrency: 4,
+        in_flight: 2,
+        batches: { done: 49, total: 63 },
+        speed: { window_s: 300, done: 5, fail: 2, avg_ms: 41000, out_tokens: 76000, total: 70 },
+        recent: [
+          { at: "2026-10-19T05:02:00", label: "伏笔·归并", running: true, duration_ms: 0, tokens_out: 0, ok: false, reason: "" },
+          { at: "2026-10-19T05:00:01", label: "主线剧情·归并", running: false, duration_ms: 141000, tokens_out: 76100, ok: false, reason: "invalid_output" },
+          { at: "2026-10-19T15:45:12", label: "简介·收敛", running: false, duration_ms: 130000, tokens_out: 68100, ok: true, reason: "" },
+          { at: "2026-10-19T15:40:02", label: "第137章", running: false, duration_ms: 90000, tokens_out: 0, ok: false, reason: "" },
+        ],
+      },
+    }));
+    state.probe.mockResolvedValue(true);
+    renderPage();
+    await waitFor(() => expect(screen.getByText(/批次 49\/63 · 卡片 542\/542 · 在途 2 · 并发 4/)).toBeInTheDocument());
+    expect(document.querySelector('[data-od-id="mon-pbar"]')).not.toBeNull();
+    expect(screen.getByText(/速度（近 5 分钟）· 成功 5\/7 次 · 平均 41s · 吞吐 253 tok\/秒 · 累计 70 次/)).toBeInTheDocument();
+    // 最近流水：派发即现（running 置顶「● 进行中」，耗时/产出画 —），失败行红显原因，调度对象具体到章/维度
+    expect(screen.getByText("● 进行中")).toBeInTheDocument();
+    expect(screen.getByText("伏笔·归并")).toBeInTheDocument();
+    expect(screen.getByText("第137章")).toBeInTheDocument();
+    expect(screen.getByText("invalid_output")).toBeInTheDocument();
+    expect(screen.getByText("76.1k tok")).toBeInTheDocument();
+    expect(screen.getByText("141s")).toBeInTheDocument();
+    expect(screen.getByText("失败", { selector: ".mon-recent .bad" })).toBeInTheDocument(); // 空原因回落文案
+    expect(document.querySelector('[data-od-id="mon-recent"] .t')!.textContent).toMatch(/^\d{1,2}:\d{2}:\d{2}$/);
+    // 维度条：三种状态齐全（running 百分比条／completed 满条／queued 零条），文案原串
+    expect(screen.getByText("进行中 · 归并 1/3")).toBeInTheDocument();
+    const bars = document.querySelectorAll('[data-od-id="mon-dims"] li');
+    expect(bars.length).toBe(3);
+    expect(document.querySelectorAll('[data-od-id="mon-dims"] li.ok').length).toBe(1);
+    fireEvent.click(screen.getByText("测试模型"));
+    await waitFor(() => expect(toastState.success).toHaveBeenCalledWith("模型连通正常"));
+  });
+
+  it("运行监控：空账归零（window_s 回退/平均-）＋无 monitor 不出账行；测试模型失败臂", async () => {
+    state.get.mockResolvedValue(detailOf("queued", {
+      monitor: {
+        concurrency: 4,
+        in_flight: 0,
+        batches: { done: 0, total: 0 },
+        speed: { window_s: 0, done: 0, fail: 0, avg_ms: null, out_tokens: 0, total: 0 },
+        recent: [],
+      },
+    }));
+    state.probe.mockResolvedValue(false);
+    renderPage();
+    await waitFor(() => expect(screen.getByText("取消任务")).toBeInTheDocument());
+    expect(screen.getByText(/批次 0\/0 · 卡片 0\/0 · 在途 0 · 并发 4/)).toBeInTheDocument();
+    expect(screen.getByText(/速度（近 5 分钟）· 成功 0\/0 次 · 平均 -s · 吞吐 0 tok\/秒 · 累计 0 次/)).toBeInTheDocument();
+    expect(screen.queryByTestId("mon-recent")).not.toBeInTheDocument();
+    // 无 monitor 臂：旧夹具（monitor 缺席）不出账行（重挂前清场）
+    cleanup();
+    state.get.mockResolvedValue(detailOf("running"));
+    renderPage();
+    await waitFor(() => expect(screen.getByText("取消任务")).toBeInTheDocument());
+    expect(screen.queryByText(/批次 /)).not.toBeInTheDocument();
+    fireEvent.click(screen.getByText("测试模型"));
+    await waitFor(() => expect(toastState.error).toHaveBeenCalledWith("模型探针失败：请检查 Key／接口地址"));
   });
 
   it("内容审核拒绝：红色提示＋去换模型出口", async () => {
