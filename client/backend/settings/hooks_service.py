@@ -192,10 +192,22 @@ async def batch_create_hooks(
             })
             continue
         novel.hook_seq_high += 1
+        item_type = str((item or {}).get("type") or "").strip()
+        item_priority = (item or {}).get("priority")
+        try:
+            priority_n = int(item_priority)  # type: ignore[arg-type]
+        except (TypeError, ValueError):
+            priority_n = 2
+        item_status = str((item or {}).get("status") or "").strip()
         h = NovelHook(
             novel_id=novel_id,
             seq=novel.hook_seq_high,
             description=desc[:300],
+            # 拆书回填扩展（设定对齐）：type 闭集外回落默认 mystery；priority 限 1..3；
+            # status 只收 active/resolved（abandoned 是作者主动废弃动作，导入不代置）
+            type=item_type if item_type in HOOK_TYPE_KEYS else "mystery",
+            priority=priority_n if 1 <= priority_n <= 3 else 2,
+            status=item_status if item_status in ("active", "resolved") else "active",
             planned_volume_no=_vol_no((item or {}).get("planned_volume_no")),
         )
         session.add(h)

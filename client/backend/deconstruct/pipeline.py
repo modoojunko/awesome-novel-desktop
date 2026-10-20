@@ -344,6 +344,25 @@ def _sanitize_vars(user_vars: dict) -> dict:
     return out
 
 
+async def _genre_vocab_names() -> str:
+    """题材库词表（每行一个展示名）——genre 维度 L1 注入 {genre_vocab}，让题材
+    从词表逐字选词（对齐书架题材胶囊），词表外模型自行降 low。查询失败给空串
+    （模板分支回退自由词，不阻塞拆书）。"""
+    try:
+        from sqlalchemy import select
+
+        from db import async_session
+        from models.genre import Genre
+
+        async with async_session() as db:
+            names = (
+                await db.scalars(select(Genre.name).order_by(Genre.name))
+            ).all()
+        return "\n".join(str(n).strip() for n in names if str(n).strip())
+    except Exception:  # noqa: BLE001 — 词表拿不到不挡拆书
+        return ""
+
+
 def _merge_final(partials: list[str]) -> dict:
     """终稿归一：单份直取；多份（reduce 降级残留）＝同键列表拼接的保底合并。
 
@@ -418,30 +437,87 @@ async def _chat_json(client, model: str, system: str, user: str, operation: str)
     return _parse_json_response(raw)
 
 
+# 产物 JSON 键 → 作家中文标签（渲染层单源；未登记的键回退原键展示）
+_MD_LABELS: dict[str, str] = {
+    "intro": "简介", "confidence": "可信度", "genre": "题材", "tags": "题材标签",
+    "promise": "题材承诺", "no_power": "舞台类型", "stage": "地理与舞台",
+    "power": "力量体系", "cost": "代价", "history": "大事记", "factions": "势力",
+    "constraints": "禁忌铁律", "extra": "其他设定", "key": "名", "value": "内容",
+    "characters": "人物卡", "name": "名", "aliases": "别名", "role": "定位",
+    "persona": "人物速写", "gender": "性别", "age": "年龄", "race": "种族",
+    "faction": "势力·身份", "look": "外貌", "speech": "语言特征",
+    "background": "背景", "plot": "关键行动", "evidence_ch": "证据章节",
+    "edges": "关系边", "from": "一方", "to": "另一方", "rel_type": "关系类型",
+    "stance": "立场", "note": "说明", "quote": "原文佐证", "raw": "原文措辞",
+    "members": "成员", "arcs": "剧情弧", "fullstory": "主线全景",
+    "ending": "结局", "scene": "结尾场景", "hero": "主角结局", "tone": "收束基调",
+    "ch_start": "起", "ch_end": "止", "volumes": "分卷", "title": "题",
+    "conflict": "冲突", "chapters": "章", "ch_range": "章范围",
+    "rules": "写作规则", "craft": "表现手法", "examples": "原文短例",
+    "example": "例", "how": "怎么用", "taboo": "避免的写法",
+    "hooks": "伏笔", "type": "类型", "priority": "重要度", "desc": "内容",
+    "plant_ch": "埋设章", "payoff_ch": "回收章", "status": "状态",
+    "result": "结果",
+}
+_CONF_CN = {"high": "高", "mid": "中", "low": "低"}
+_MD_FOOTNOTE = (
+    "说明：条目里标注的章号是原文出处；可信度（高/中/低）表示该条结论有多少原文"
+    "依据——高＝有直接依据，中＝含推断，低＝证据较弱或原文说法有分歧。"
+)
+
+
+def _md_cell(key: str, value) -> str:
+    """单个字段 → 「中文标签：值」；confidence 值翻成高/中/低；空值不给。"""
+    text = str(value or "").strip()
+    if not text:
+        return ""
+    if key == "confidence":
+        text = _CONF_CN.get(text, text)
+    label = _MD_LABELS.get(key, key)
+    return f"{label}：{text}"
+
+
 def _render_md(dim: str, data: dict, book_name: str, covered: str) -> str:
-    """JSON → Markdown（代码渲染：模型不直出 md）。产物仅静态呈现，应用内不预览不编辑。"""
-    lines = [f"# {dim}｜{book_name}", "", f"> 覆盖范围：{covered} · 由拆书任务生成，证据章号见各条目", ""]
+    """JSON → Markdown（代码渲染：模型不直出 md）。产物仅静态呈现，应用内不预览不编辑。
+
+    渲染对齐作家视角：键名翻中文标签、可信度翻高/中/低；顶部单值 confidence 并入
+    抬头行不单独成节（2026-10-20 拍板：拆书产物按设定字段契约归纳、呈现说人话）。
+    """
     if not isinstance(data, dict):
         data = {"result": data}
+    conf_top = _CONF_CN.get(str(data.get("confidence", "")).strip(), "")
+    conf_note = f" · 可信度：{conf_top}" if conf_top else ""
+    lines = [
+        f"# {dim}｜{book_name}",
+        "",
+        f"> 覆盖范围：{covered} · 由拆书任务生成{conf_note}",
+        "",
+    ]
     for key, value in data.items():
-        lines.append(f"## {key}")
+        if key == "confidence":
+            continue  # 单值可信度已在抬头行
+        lines.append(f"## {_MD_LABELS.get(key, key)}")
         lines.append("")
         if isinstance(value, list):
             for item in value:
                 if isinstance(item, dict):
-                    head = str(item.get("name") or item.get("title") or item.get("desc") or "").strip()
+                    head_key = next((k for k in ("name", "title", "desc") if str(item.get(k, "")).strip()), "")
+                    head = str(item.get(head_key, "")).strip() if head_key else ""
                     body = "；".join(
-                        f"{k}：{v}" for k, v in item.items() if k not in ("name", "title") and v
+                        cell for cell in (
+                            _md_cell(k, v) for k, v in item.items()
+                            if k not in ("name", "title") and v
+                        ) if cell
                     )
                     lines.append(f"- {('**' + head + '**　') if head else ''}{body}")
                 else:
                     lines.append(f"- {item}")
         else:
-            lines.append(str(value))
+            lines.append(_md_cell(key, value) or str(value))
         lines.append("")
     lines.append("---")
     lines.append("")
-    lines.append("三铁律：硬事实回指章节号；结论标可信度（high/mid/low）；原文没写的标「原文未明确」。")
+    lines.append(_MD_FOOTNOTE)
     lines.append("")
     return "\n".join(lines)
 
@@ -1076,6 +1152,8 @@ async def run_task(task_id: str) -> None:
 
         stopper.phase = "merge"
         full_synopsis = _synopses(cards)
+        # 题材库词表（genre 维度注入 {genre_vocab}；其他维度模板无此占位符不受影响）
+        genre_vocab = await _genre_vocab_names()
 
         # ── 阶段二：分维度归并（勾选集；completed 跳过＝断点续拆）──
         products: dict[str, dict] = {}
@@ -1140,6 +1218,7 @@ async def run_task(task_id: str) -> None:
                             client, model, (sys_m, usr_m),
                             {
                                 "book_name": task.book_name, "genre_or_unknown": "unknown",
+                                "genre_vocab": genre_vocab,
                                 "full_synopsis": full_synopsis[:_SYNOPSIS_CAP],
                                 "seg_range": f"第{ch_from}-{ch_to}章",
                                 "excerpts": "\n".join(line for _, line in batch),
@@ -1212,7 +1291,8 @@ async def run_task(task_id: str) -> None:
                             await _unit_running(task_id, "reduce", dim, gkey)
                             merged = await _call_with_retry(
                                 client, model, (sys_r, usr_r),
-                                {"dim_name": names[dim], "partials": "\n\n".join(group)},
+                                {"dim_name": names[dim], "dim_key": dim,
+                                 "partials": "\n\n".join(group)},
                                 f"deconstruct_{dim}_reduce",
                                 max_tokens=merge_out_tokens, stopper=stopper, breaker=breaker,
                                 usage=usage, info=info,

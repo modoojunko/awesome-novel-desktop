@@ -309,11 +309,21 @@ async def import_book(
         data = _data(task, "mainplot")
         story = await storage.read_yaml(root, KEY_TO_PATH["story"]) or {}
         arc = story.get("story_arc") if isinstance(story.get("story_arc"), dict) else {}
-        arcs = [
-            f"{a.get('title', '')}（第{a.get('ch_start', '?')}-{a.get('ch_end', '?')}章）：{a.get('summary', '')}"
-            for a in (data.get("arcs") or []) if isinstance(a, dict)
-        ]
-        arc["fullstory"] = ("；".join(arcs) or str(data.get("ending", "")) or "原文未明确")[:2000]
+        # fullstory＝全书主线全景叙述（契约直读）；产物缺格回退弧条目串（旧产物兼容）
+        fullstory = str(data.get("fullstory", "") or "").strip()
+        if not fullstory:
+            arcs = [
+                f"{a.get('title', '')}：{a.get('summary', '')}"
+                for a in (data.get("arcs") or []) if isinstance(a, dict)
+            ]
+            fullstory = "；".join(arcs)
+        arc["fullstory"] = (fullstory or str(data.get("ending", "")) or "原文未明确")[:2000]
+        # 结局三格（场景/主角结局/收束基调）——设定页契约字段，此前从未回填
+        ending = data.get("ending") if isinstance(data.get("ending"), dict) else {}
+        arc["ending"] = {
+            f: str(ending.get(f, "") or "").strip()[:150]
+            for f in ("scene", "hero", "tone")
+        }
         story["story_arc"] = arc
         await storage.write_yaml(root, KEY_TO_PATH["story"], story)
 
@@ -322,13 +332,30 @@ async def import_book(
 
         data = _data(task, "style")
         raw = await storage.read_yaml(root, KEY_TO_PATH["style"]) or {}
-        body = {
-            "role": str(data.get("narration", ""))[:500],
-            "rules": [
-                str(r)[:200]
-                for r in ([data.get("dialogue", ""), data.get("rhythm", "")] if data.get("dialogue") or data.get("rhythm") else [])
-            ],
-        }
+        # 三区契约：role＝叙事身份一句话；rules/craft＝「名：怎么用」条目。
+        # 旧形状（narration/dialogue/rhythm 描述段）降级回退，不浪费旧产物。
+        role = str(data.get("role", "") or "").strip()[:100]
+        if not role:
+            role = str(data.get("narration", "") or "").strip()[:100]
+
+        def _entries(values, fallback_prefix: str = "") -> list[str]:
+            out: list[str] = []
+            for r in values or []:
+                if isinstance(r, dict):
+                    name = str(r.get("name", "")).strip()
+                    how = str(r.get("how", "")).strip()
+                    out.append(f"{name}：{how}" if name and how else (name or how))
+                elif str(r or "").strip():
+                    out.append(str(r).strip())
+            if not out and fallback_prefix:
+                for r in fallback_prefix:
+                    if str(r or "").strip():
+                        out.append(str(r).strip()[:200])
+            return out
+
+        rules = _entries(data.get("rules"), [f"对话：{data.get('dialogue', '')}", f"节奏：{data.get('rhythm', '')}"])
+        craft = _entries(data.get("craft"))
+        body = {"role": role, "rules": rules, "craft": craft}
         await storage.write_yaml(root, KEY_TO_PATH["style"], put_style(raw, body))
 
     if "foreshadow" in selected:
@@ -404,7 +431,7 @@ async def import_book(
                 continue
             db.add(CharacterRelation(
                 novel_id=project.id, owner_id=owner.id, other_id=other.id,
-                rel_type=str(e.get("rel_type", ""))[:20], stance="",
+                rel_type=str(e.get("rel_type", ""))[:20], stance=_clean_para(e.get("stance", ""), 100),
                 note=_clean_para(e.get("note", ""), 300), ch_ref=str(e.get("evidence_ch", ""))[:40],
             ))
         await db.commit()
@@ -443,7 +470,12 @@ def _cards(task: DeconstructJob) -> list[dict]:
     for c in _data(task, "characters").get("characters") or []:
         if not isinstance(c, dict):
             continue
-        aliases = [a.strip() for a in re.split(r"[、/／]", str(c.get("alias", "") or "")) if a.strip()]
+        # 别名：新契约＝aliases 数组；旧产物＝alias 字符串（顿号/斜杠分隔）双认
+        raw_aliases = c.get("aliases")
+        if isinstance(raw_aliases, list):
+            aliases = [str(a).strip() for a in raw_aliases if str(a or "").strip()]
+        else:
+            aliases = [a.strip() for a in re.split(r"[、/／]", str(c.get("alias", "") or "")) if a.strip()]
         look = str(c.get("look", "")).strip()
         plot_txt = _clean_para(c.get("plot", ""), 10**9).strip()
 
@@ -508,6 +540,9 @@ def _dedupe_cards(cards: list[dict]) -> list[dict]:
 
 
 def _hooks_items(task: DeconstructJob) -> list[dict]:
+    """产物 hooks → 台账条目（对齐 NovelHook 字段）：type 九值闭集、priority
+    high/mid/low→3/2/1、有回收（payoff_ch/status=paid）→ status=resolved 且
+    回收章并入描述；新书无章，章号只能并进文本。"""
     items: list[dict] = []
     for h in _data(task, "foreshadow").get("hooks") or []:
         if not isinstance(h, dict):
@@ -516,7 +551,19 @@ def _hooks_items(task: DeconstructJob) -> list[dict]:
         plant = h.get("plant_ch")
         if plant not in (None, "原文未明确"):
             desc = f"{desc}（埋设于第{plant}章）"
-        items.append({"description": desc, "planned_volume_no": None})
+        payoff = h.get("payoff_ch")
+        resolved = str(h.get("status", "")) == "paid" or payoff not in (None, "原文未明确")
+        if resolved and payoff not in (None, "原文未明确"):
+            desc = f"{desc}（收于第{payoff}章）"
+        hook_type = str(h.get("type", "")).strip()
+        priority = {"high": 1, "mid": 2, "low": 3}.get(str(h.get("priority", "")).strip(), 2)
+        items.append({
+            "description": desc[:300],
+            "planned_volume_no": None,
+            "type": hook_type,
+            "priority": priority,
+            "status": "resolved" if resolved else "active",
+        })
     return items
 
 

@@ -393,7 +393,8 @@ class TestVolumeOptions:
         assert r.status_code == 200, r.text
         prev = self._prev_block(_layered_prompt(fake.last_kwargs))
         assert "信标当众暴露" in prev
-        assert "第1卷 · 实际收尾（第12章）" in prev
+        # 全书号口径（c-import-direct）：源文案章号＝主线排序位（此夹具单章 ch-12 → 全书第 1 章）
+        assert "第1卷 · 实际收尾（第1章）" in prev
         assert "来自主线全景" not in prev  # 不再是首卷口径
 
     def test_default_vol_no_falls_back_to_next(self, client, monkeypatch):
