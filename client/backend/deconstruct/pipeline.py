@@ -62,15 +62,39 @@ SEGMENT_RETRIES = policy.RETRY_MAX_ATTEMPTS - 1
 # （等模型返回），asyncio 并发即可成倍提速、无需子进程；上限同时压住 429 限流风险
 CONCURRENCY = max(1, int(os.environ.get("DECONSTRUCT_CONCURRENCY", "4") or 4))
 
-# 每 operation 输出 token 预算（评审：卡片加 places/presence 后输出加量，默认 4096 会贴顶截断）
-# L1 归并输出上限：角色卡字段多（persona/档案格扩展后 14 卡可上万字）、世界
-# extra 扩容——4096 会把 JSON 拦腰截断（真机实证：「模型输出 JSON 不完整」），
-# 归并类一律给到 8192；拆卡单章 6144 不变。
+# 每 operation 输出 token 预算。归并类（deconstruct_{dim} L1 归并＋deconstruct_{dim}_reduce
+# 树收敛）的 operation 名是动态的、不进本表——落 _MERGE_DEFAULT_TOKENS＝8192（默认 4096
+# 会把 JSON 拦腰截断，真机实证三回：10-09 世界归并、10-18 structure/foreshadow 三连败、
+# 10-20 《13路末班车》l1×6＋reduce×6 截断致 4 维降级分段稿）；拆卡单章 6144 不变；
+# presence 补写/place 抽取单卡小输出钉 4096（c-deconstruct-merge-budget，接续 #896）。
 _OP_MAX_TOKENS = {
     "deconstruct_card": 6144,
     "deconstruct_characters": 8192,
     "deconstruct_world": 8192,
+    "deconstruct_presence": 4096,
+    "deconstruct_place": 4096,
 }
+_MERGE_DEFAULT_TOKENS = 8192
+
+# structure 单列小批：结构拍点契约「每章一行」逐章还原、无 dedup 压缩，且归并输出
+# 会比碎片更丰满（≈1.5-2 倍字数），而碎片总量小（258 章仅约 2.3 万字）会被输入装箱
+# 整本塞进单批——单批 256 行输出任何预算都吃不下；8000 字/批仍顶预算（真机复验
+# 4 批只活 1 批，10-18 四连败）。4000 字/批 ≈ 40 章，输出 ≈4-5.5k token，
+# 落 8192 预算内有余量；其余维度归并有真去重（伏笔/主线按对象收敛），装箱不变。
+CARD_BATCH_CHARS_OVERRIDES = {"structure": 4000}
+
+
+def _op_budget(operation: str, max_tokens: int | None) -> int:
+    """单发调用的输出 token 预算：显式 max_tokens（能力感知预算）优先；动态归并 op
+    落 8192 默认；表内 op 按表。"""
+    if max_tokens is not None:
+        return max_tokens
+    return _OP_MAX_TOKENS.get(operation, _MERGE_DEFAULT_TOKENS)
+
+
+def _dim_in_cap(dim: str, merge_in_cap: int) -> int:
+    """维度 L1 归并的输入装箱上限：structure 走单列小批 override，其余按能力预算。"""
+    return min(CARD_BATCH_CHARS_OVERRIDES.get(dim, merge_in_cap), merge_in_cap)
 
 
 def _graph_export_on() -> bool:
@@ -588,7 +612,7 @@ async def _chat_raw(client, model: str, system: str, user: str, operation: str, 
     归并类提到 8192 后 90 秒写不完（真机实证：五批连排 180s 超时），长输出
     操作改传 read=600——收敛最坏等待仍由单元级重试次数兜住。
     """
-    budget = max_tokens if max_tokens is not None else _OP_MAX_TOKENS.get(operation, 4096)
+    budget = _op_budget(operation, max_tokens)
     timeout = None
     if budget >= 8192:
         timeout = httpx.Timeout(connect=10.0, read=600.0, write=30.0, pool=10.0)
@@ -1190,7 +1214,7 @@ async def run_task(task_id: str) -> None:
                 for no, card in sorted(cards["entries"].items(), key=lambda kv: int(kv[0] or 0))
                 if (line := _card_frag(no, card, dim))
             ]
-            batches = _pack_pairs(pairs, merge_in_cap)
+            batches = _pack_pairs(pairs, _dim_in_cap(dim, merge_in_cap))
             dstate.update({"state": "running", "seg_done": 0, "seg_total": len(batches), "error": "",
                            "started_at": _now().isoformat()})
             dims[dim] = dstate
