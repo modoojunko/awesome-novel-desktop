@@ -430,7 +430,8 @@ async def monitor_view(task: DeconstructJob) -> dict | None:
                     DeconstructUnit.stage, DeconstructUnit.dim, DeconstructUnit.unit_key,
                     DeconstructUnit.status,
                     DeconstructUnit.error_kind, DeconstructUnit.duration_ms,
-                    DeconstructUnit.tokens_out, DeconstructUnit.updated_at,
+                    DeconstructUnit.tokens_in, DeconstructUnit.tokens_out,
+                    DeconstructUnit.updated_at,
                 ).where(DeconstructUnit.task_id == task.id)
             )
         ).all()
@@ -451,12 +452,20 @@ async def monitor_view(task: DeconstructJob) -> dict | None:
     avg_ms: int | None = (
         sum(int(r.duration_ms or 0) for r in done_win) // len(done_win)
     ) if done_win else None
+    done_rows = [r for r in calls if r.status == "done"]  # token 记账口径：完成时入账
+    tok_in = sum(int(r.tokens_in or 0) for r in done_rows)
+    tok_out = sum(int(r.tokens_out or 0) for r in done_rows)
     return {
         "concurrency": CONCURRENCY,
         "in_flight": sum(1 for r in calls if r.status == "running"),
         "batches": {
             "done": sum(1 for r in l1 if r.status in ("done", "skipped")),
             "total": len(l1),
+        },
+        "tokens": {
+            "in": tok_in,
+            "out": tok_out,
+            "total": tok_in + tok_out,
         },
         "speed": {
             "window_s": _MONITOR_WINDOW_S,

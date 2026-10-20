@@ -95,6 +95,8 @@ export interface DeconstructMonitor {
   concurrency: number;
   in_flight: number;
   batches: { done: number; total: number };
+  /** 本次任务 Token 消耗（完成时入账；随轮询刷新） */
+  tokens: { in: number; out: number; total: number };
   speed: {
     window_s: number;
     done: number;
