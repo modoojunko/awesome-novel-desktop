@@ -254,11 +254,11 @@ export default function TaskDetailPage() {
             <div className="task-pct mon-pct-row">
               <span className="pct">{overall}%</span>
               {elapsedLabel && <span style={{ fontSize: 12, color: "var(--muted)" }}>{elapsedLabel}</span>}
-              {/* Token 合计 hero（c-deconstruct-monitor 2.5）：boss 指定右上位置，标签上／大数字下 */}
+              {/* Token 合计 hero（c-deconstruct-monitor 2.5）：与总进度同款格式——大数字＋行内小注，同基线 */}
               {mon?.tokens && (
                 <div className="mon-tok-hero" data-od-id="mon-tok-hero">
-                  <span className="th-cap">Token 合计</span>
                   <span className="th-num">{fmtK(mon.tokens.total)}</span>
+                  <span className="th-note">Token 合计</span>
                 </div>
               )}
             </div>

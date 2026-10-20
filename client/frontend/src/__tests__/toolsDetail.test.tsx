@@ -644,9 +644,9 @@ describe("TaskDetailPage", () => {
     renderPage();
     await waitFor(() => expect(screen.getByText(/批次 49\/63 · 卡片 542\/542 · 在途 2 · 并发 4/)).toBeInTheDocument());
     expect(document.querySelector('[data-od-id="mon-pbar"]')).not.toBeNull();
-    // Token 合计 hero（总进度同排右上 stat 块）：标签在上、合计大数字在下
+    // Token 合计 hero（与总进度同款格式）：大数字同字号＋行内小注，同基线
     expect(document.querySelector('[data-od-id="mon-tok-hero"] .th-num')!.textContent).toBe("13.1k");
-    expect(screen.getByText("Token 合计", { selector: ".mon-tok-hero .th-cap" })).toBeInTheDocument();
+    expect(screen.getByText("Token 合计", { selector: ".mon-tok-hero .th-note" })).toBeInTheDocument();
     expect(screen.getByText(/速度（近 5 分钟）· 成功 5\/7 次 · 平均 41s · 吞吐 253 tok\/秒 · 累计 70 次/)).toBeInTheDocument();
     // Token 消耗行（随进展刷新；<1000 原样／≥1000 一位小数 k 两臂）
     expect(screen.getByText(/Token 消耗 · 输入 12\.3k · 输出 760 · 合计 13\.1k（完成时入账，随进展刷新）/)).toBeInTheDocument();
