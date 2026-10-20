@@ -25,7 +25,11 @@
 
 ## 5. 真机/真网关验证（编码完成后、合入前）
 
-> 状态：待外部 Key（AI Studio／OpenCode 订阅均需作家提供）。5.3 的 zen 清单探测可匿名先行，其余两项等 Key 到位后补验——合入前完成。
+> 状态（2026-10-20 假 Key 探针实测后更新）：
+> - **5.1 Gemini 官方**：作家网络不通 Google——待具备连通性的环境补验（产品面向能连通的最终用户，非缺陷）。
+> - **5.3 部分实证**：`GET /zen/go/v1/models` 需鉴权（401 Invalid credential，探测流程本就带 Key ✓）；Gemini 兼容层清单受同网络限制，与 5.1 同批。
+> - **5.2 前置实证（假 Key 探针，四疑点全落定）**：① chat 端点 `/zen/go/v1/chat/completions` 存在（400 MissingSessionID 先于鉴权）；② **anthropic 拼接口径实证**——`/zen/go/v1/messages` 路由存在、`/zen/go/v1/v1/messages` 404，即我们注册 base=`/zen/go`（SDK 拼 /v1/messages）正确，ZCode 三类型同 base 的做法对官方 anthropic SDK 不适用；③ **会话头为硬性前置**——无 `x-opencode-session` 直接 400（先于鉴权），我们实现已附（带该头后进到 401 鉴权态，格式被接受）；④ 旧口径 `/zen/go/chat/completions`（无 /v1）404 HTML，/v1 必带。
+> - **待 Key**：作家提供 OpenCode API Key（opencode.ai/auth）后跑 5.2 全链（探针→保存→生成双口）。
 
 - [ ] 5.1 Gemini 官方块真连：AI Studio Key 走通探针→保存→生成→拆书 JSON 契约（判据＝产出合法 JSON，验证 json_object 是否被兼容层等效映射；不支持则登记 anthropic 式 prompt 兜底为既有口径并在结果卡注明）
 - [ ] 5.2 OpenCode Go 真连（**外部依赖：作家订阅 Key，验证前先行取得；未到位时可先完成 5.1/6.x**）：Go · 通用（GLM/Kimi 任一）与 Go · Claude 系（Claude Haiku 任一）各走通探针→保存→生成；抓包/日志确认 `POST https://opencode.ai/zen/go/v1/messages` 拼接形态与会话头/UA 在位（design §Risks 第二条的验钉）
@@ -67,7 +71,11 @@
 
 ## 5. 真机/真网关验证（编码完成后、合入前）
 
-> 状态：待外部 Key（AI Studio／OpenCode 订阅均需作家提供）。5.3 的 zen 清单探测可匿名先行，其余两项等 Key 到位后补验——合入前完成。
+> 状态（2026-10-20 假 Key 探针实测后更新）：
+> - **5.1 Gemini 官方**：作家网络不通 Google——待具备连通性的环境补验（产品面向能连通的最终用户，非缺陷）。
+> - **5.3 部分实证**：`GET /zen/go/v1/models` 需鉴权（401 Invalid credential，探测流程本就带 Key ✓）；Gemini 兼容层清单受同网络限制，与 5.1 同批。
+> - **5.2 前置实证（假 Key 探针，四疑点全落定）**：① chat 端点 `/zen/go/v1/chat/completions` 存在（400 MissingSessionID 先于鉴权）；② **anthropic 拼接口径实证**——`/zen/go/v1/messages` 路由存在、`/zen/go/v1/v1/messages` 404，即我们注册 base=`/zen/go`（SDK 拼 /v1/messages）正确，ZCode 三类型同 base 的做法对官方 anthropic SDK 不适用；③ **会话头为硬性前置**——无 `x-opencode-session` 直接 400（先于鉴权），我们实现已附（带该头后进到 401 鉴权态，格式被接受）；④ 旧口径 `/zen/go/chat/completions`（无 /v1）404 HTML，/v1 必带。
+> - **待 Key**：作家提供 OpenCode API Key（opencode.ai/auth）后跑 5.2 全链（探针→保存→生成双口）。
 
 - [ ] 5.1 Gemini 官方块真连：AI Studio Key 走通探针→保存→生成→拆书 JSON 契约（判据＝产出合法 JSON，验证 json_object 是否被兼容层等效映射；不支持则登记 anthropic 式 prompt 兜底为既有口径并在结果卡注明）
 - [ ] 5.2 OpenCode Go 真连（**外部依赖：作家订阅 Key，验证前先行取得；未到位时可先完成 5.1/6.x**）：Go · 通用（GLM/Kimi 任一）与 Go · Claude 系（Claude Haiku 任一）各走通探针→保存→生成；抓包/日志确认 `POST https://opencode.ai/zen/go/v1/messages` 拼接形态与会话头/UA 在位（design §Risks 第二条的验钉）
