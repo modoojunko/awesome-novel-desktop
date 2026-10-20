@@ -328,6 +328,12 @@ export default function TaskDetailPage() {
                   `累计 ${mon.speed.total} 次`}
               </div>
             )}
+            {mon?.tokens && (
+              <div className="mon-speed" data-od-id="mon-tokens">
+                {`Token 消耗 · 输入 ${fmtK(mon.tokens.in)} · 输出 ${fmtK(mon.tokens.out)} · ` +
+                  `合计 ${fmtK(mon.tokens.total)}（完成时入账，随进展刷新）`}
+              </div>
+            )}
             {(mon?.recent?.length ?? 0) > 0 && (
               <ul className="mon-recent" data-od-id="mon-recent">
                 {mon!.recent.map((r, i) => (
@@ -439,9 +445,21 @@ export default function TaskDetailPage() {
           </div>
           {(() => {
             const line = task.stats ? statsLine(task.stats) : "";
-            return line ? (
+            // 运行态取 monitor.tokens（随轮询刷新）；完成态 monitor 为 null，从 stats 聚合
+            const tok = task.monitor?.tokens ?? (task.stats
+              ? {
+                  in: Object.values(task.stats).reduce((a, x) => a + x.tokens_in, 0),
+                  out: Object.values(task.stats).reduce((a, x) => a + x.tokens_out, 0),
+                }
+              : null);
+            const tokTotal = tok ? tok.in + tok.out : 0;
+            const tokLine = tokTotal > 0
+              ? ` · Token 合计 ${fmtK(tokTotal)}（入 ${fmtK(tok!.in)} / 出 ${fmtK(tok!.out)}）`
+              : "";
+            return line || tokLine ? (
               <div className="dim-group" data-od-id="call-stats" style={{ marginBottom: 10 }}>
                 调用统计 · {line}
+                {tokLine}
               </div>
             ) : null;
           })()}
@@ -803,5 +821,13 @@ export function fmtClock(iso: string): string {
   const d = new Date(serverTimeMs(iso));
   const p = (n: number) => String(n).padStart(2, "0");
   return `${p(d.getHours())}:${p(d.getMinutes())}:${p(d.getSeconds())}`;
+}
+
+/** Token 数作家视图（c-deconstruct-monitor tokens）：≥1M 一位小数 M，≥1k 一位小数 k，
+ * <1000 原样。三臂由监控用例与完成态聚合用例覆盖。 */
+export function fmtK(n: number): string {
+  if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`;
+  if (n >= 1000) return `${(n / 1000).toFixed(1)}k`;
+  return String(n);
 }
 

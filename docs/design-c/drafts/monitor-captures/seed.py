@@ -74,14 +74,14 @@ async def _go():
         # 单元账：l1 49/63（含 2 failed）＋近期流水若干（速度窗内/外混布）
         rows = []
         n = 0
-        def u(stage, status, mins_ago, dur_ms, tok, kind="", dim="foreshadow", ukey=None):
+        def u(stage, status, mins_ago, dur_ms, tok, kind="", dim="foreshadow", ukey=None, tok_in=0):
             nonlocal n
             n += 1
             rows.append(DeconstructUnit(
                 task_id=TID, stage=stage, dim=dim,
                 unit_key=ukey or f"{stage}-{n:03d}",
                 status=status, attempts=1, error_kind=kind,
-                duration_ms=dur_ms, tokens_out=tok,
+                duration_ms=dur_ms, tokens_out=tok, tokens_in=tok_in,
                 created_at=ago(mins_ago * 60), updated_at=ago(mins_ago * 60),
             ))
         # 在途（派发未完）：调度即现——「在途 2」＋流水置顶「● 进行中」
@@ -91,7 +91,7 @@ async def _go():
         for i in range(12):
             u("l1", "failed" if i % 6 == 5 else "done", 1.2 + i * 2.3,
               130000 + i * 4300, 62000 + i * 2400,
-              kind="invalid_output" if i % 6 == 5 else "")
+              kind="invalid_output" if i % 6 == 5 else "", tok_in=41000 + i * 1300)
         for i in range(6):
             u("l1", "done", 25 + i * 4, 140000 + i * 2100, 55000 + i * 1800)
         for i in range(31):

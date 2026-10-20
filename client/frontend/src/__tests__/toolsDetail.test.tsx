@@ -630,6 +630,7 @@ describe("TaskDetailPage", () => {
         concurrency: 4,
         in_flight: 2,
         batches: { done: 49, total: 63 },
+        tokens: { in: 12300, out: 760, total: 13060 },
         speed: { window_s: 300, done: 5, fail: 2, avg_ms: 41000, out_tokens: 76000, total: 70 },
         recent: [
           { at: "2026-10-19T05:02:00", label: "伏笔·归并", running: true, duration_ms: 0, tokens_out: 0, ok: false, reason: "" },
@@ -644,6 +645,8 @@ describe("TaskDetailPage", () => {
     await waitFor(() => expect(screen.getByText(/批次 49\/63 · 卡片 542\/542 · 在途 2 · 并发 4/)).toBeInTheDocument());
     expect(document.querySelector('[data-od-id="mon-pbar"]')).not.toBeNull();
     expect(screen.getByText(/速度（近 5 分钟）· 成功 5\/7 次 · 平均 41s · 吞吐 253 tok\/秒 · 累计 70 次/)).toBeInTheDocument();
+    // Token 消耗行（随进展刷新；<1000 原样／≥1000 一位小数 k 两臂）
+    expect(screen.getByText(/Token 消耗 · 输入 12\.3k · 输出 760 · 合计 13\.1k（完成时入账，随进展刷新）/)).toBeInTheDocument();
     // 最近流水：派发即现（running 置顶「● 进行中」，耗时/产出画 —），失败行红显原因，调度对象具体到章/维度
     expect(screen.getByText("● 进行中")).toBeInTheDocument();
     expect(screen.getByText("伏笔·归并")).toBeInTheDocument();
@@ -668,6 +671,7 @@ describe("TaskDetailPage", () => {
         concurrency: 4,
         in_flight: 0,
         batches: { done: 0, total: 0 },
+        tokens: { in: 0, out: 0, total: 0 },
         speed: { window_s: 0, done: 0, fail: 0, avg_ms: null, out_tokens: 0, total: 0 },
         recent: [],
       },
@@ -676,6 +680,7 @@ describe("TaskDetailPage", () => {
     renderPage();
     await waitFor(() => expect(screen.getByText("取消任务")).toBeInTheDocument());
     expect(screen.getByText(/批次 0\/0 · 卡片 0\/0 · 在途 0 · 并发 4/)).toBeInTheDocument();
+    expect(screen.getByText(/Token 消耗 · 输入 0 · 输出 0 · 合计 0（完成时入账，随进展刷新）/)).toBeInTheDocument();
     expect(screen.getByText(/速度（近 5 分钟）· 成功 0\/0 次 · 平均 -s · 吞吐 0 tok\/秒 · 累计 0 次/)).toBeInTheDocument();
     expect(screen.queryByTestId("mon-recent")).not.toBeInTheDocument();
     // 无 monitor 臂：旧夹具（monitor 缺席）不出账行（重挂前清场）
@@ -831,16 +836,18 @@ describe("进度可视二阶（边界臂）", () => {
     expect(screen.getByText("去检查模型配置")).toBeInTheDocument();
   });
 
-  it("调用账：completed 态显示调用统计与重试数", async () => {
+  it("调用账：completed 态显示调用统计与重试数，Token 合计从 stats 聚合（monitor 终态为 null）", async () => {
     state.get.mockResolvedValue(detailOf("completed", {
       stats: {
-        card: { calls: 258, failures: 1, attempts: 260, duration_ms: 1, tokens_in: 0, tokens_out: 0 },
-        l1: { calls: 10, failures: 0, attempts: 10, duration_ms: 1, tokens_in: 0, tokens_out: 0 },
+        card: { calls: 258, failures: 1, attempts: 260, duration_ms: 1, tokens_in: 1234500, tokens_out: 8000 },
+        l1: { calls: 10, failures: 0, attempts: 10, duration_ms: 1, tokens_in: 3200, tokens_out: 5000 },
       },
     }));
     renderPage();
     await waitFor(() => expect(screen.getByText(/拆卡 258 次（重试 2）/)).toBeInTheDocument());
-    expect(screen.getByText(/归并 10 次$/)).toBeInTheDocument(); // 零重试不缀重试括注
+    expect(screen.getByText(/归并 10 次 · Token/)).toBeInTheDocument(); // 零重试不缀重试括注（Token 尾巴随后）
+    // Token 合计：完成态从 stats 聚合（1.2377M in / 13k out → 1.3M；M/k 两臂）
+    expect(screen.getByText(/Token 合计 1\.3M（入 1\.2M \/ 出 13\.0k）/)).toBeInTheDocument();
   });
 
   it("失败态告警账可见：跳过章通知在失败面板透出", async () => {

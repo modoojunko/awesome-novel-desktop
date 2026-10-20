@@ -21,6 +21,11 @@
       （本地时钟 HH:MM:SS，UTC-naive 走 serverTimeMs 单源）。验证：toolsDetail 用例。
 - [x] 2.3 「测试模型」按钮：复用探针 `/api-configs/{id}/test`，成功/失败 toast 两臂。
       验证：vitest 两臂。
+- [x] 2.5 **Token 消耗展示（boss 2026-10-20「这个页面要有本次任务的 token 消耗数量，
+      根据任务进展更新」）**：monitor 增 `tokens{in,out,total}`（完成时入账）；
+      运行态「Token 消耗 · 输入/输出/合计」行随轮询刷新；完成态调用统计尾缀
+      「Token 合计」（从 stats 聚合，monitor 终态 null）。验证：pytest tokens 块＋
+      vitest 两态断言。
 - [x] 2.4 `.mon-*` 样式（index.css tools 段，仅令牌；`.pbar` 复用 book.css）。
       验证：`check:inline-colors`＋`design:lint`。
 

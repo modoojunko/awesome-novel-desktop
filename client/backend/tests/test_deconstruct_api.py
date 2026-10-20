@@ -1109,7 +1109,7 @@ def test_task_view_activity_absent(client):
 
 
 def _mk_unit(task_id: str, stage: str, status: str, *, updated_min_ago: float | None = None,
-             duration_ms: int = 0, tokens_out: int = 0, error_kind: str = "",
+             duration_ms: int = 0, tokens_out: int = 0, tokens_in: int = 0, error_kind: str = "",
              dim: str = "", unit_key: str | None = None) -> None:
     """直插单元账行（updated_at 可控——监控速度窗按它算）。"""
     from datetime import UTC, datetime, timedelta
@@ -1123,7 +1123,7 @@ def _mk_unit(task_id: str, stage: str, status: str, *, updated_min_ago: float | 
                 task_id=task_id, stage=stage, dim=dim,
                 unit_key=unit_key or f"{stage}-{updated_min_ago}-{tokens_out}-{error_kind}-{duration_ms}",
                 status=status, attempts=1, error_kind=error_kind,
-                duration_ms=duration_ms, tokens_out=tokens_out,
+                duration_ms=duration_ms, tokens_out=tokens_out, tokens_in=tokens_in,
                 created_at=updated or datetime.now(UTC).replace(tzinfo=None),
                 updated_at=updated or datetime.now(UTC).replace(tzinfo=None),
             ))
@@ -1148,8 +1148,10 @@ def test_monitor_view_running_aggregates(client):
     _run(_go())
     # 单元账：l1 3 done（窗内 2＋窗外 1）＋1 failed（窗内）＋2 running（派发未完）；
     # card done 一行验调度对象；reduce_state 2 行不进账
-    _mk_unit("dec-mon-1", "l1", "done", updated_min_ago=1.0, duration_ms=40000, tokens_out=3000, dim="foreshadow")
-    _mk_unit("dec-mon-1", "l1", "done", updated_min_ago=2.0, duration_ms=60000, tokens_out=5000, dim="foreshadow")
+    _mk_unit("dec-mon-1", "l1", "done", updated_min_ago=1.0, duration_ms=40000, tokens_out=3000,
+             tokens_in=2100, dim="foreshadow")
+    _mk_unit("dec-mon-1", "l1", "done", updated_min_ago=2.0, duration_ms=60000, tokens_out=5000,
+             tokens_in=3200, dim="foreshadow")
     _mk_unit("dec-mon-1", "l1", "failed", updated_min_ago=3.0, duration_ms=10000, error_kind="invalid_output", dim="foreshadow")
     _mk_unit("dec-mon-1", "l1", "done", updated_min_ago=10.0, duration_ms=90000, tokens_out=9000, dim="foreshadow")
     _mk_unit("dec-mon-1", "l1", "running", updated_min_ago=0.2, dim="foreshadow")
@@ -1163,6 +1165,7 @@ def test_monitor_view_running_aggregates(client):
     assert m["in_flight"] == 2  # 派发未完成＝真实在途
     assert m["batches"] == {"done": 3, "total": 6}  # running 行计入 total、不计 done
     assert m["concurrency"] >= 1
+    assert m["tokens"] == {"in": 5300, "out": 19100, "total": 24400}  # 任务总消耗＝全部完成行（窗内外都算；running/failed 不计）
     sp = m["speed"]
     assert sp["done"] == 2 and sp["fail"] == 1 and sp["total"] == 7  # reduce_state 排除；running 只进调度总数
     assert sp["avg_ms"] == 50000  # (40000+60000)//2
