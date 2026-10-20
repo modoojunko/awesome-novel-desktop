@@ -33,9 +33,14 @@
 
 ## 6. 回归与门禁
 
-- [ ] 6.1 前端：vitest 全量（apiConfigForm/apiConfigParts/apiKeyConfigPage 存量套件更新后全绿）、`npm run design:lint`＋`npm run design:check`（不触共享段，预期无新增红；design-cross 免跑，依据 proposal Design Impact 判定）
-- [ ] 6.2 后端：pytest 全量（vendor 识别/思考换算/会话头/候选清单新测试在位，`test_api_format.py` 段锚钉不回退）、ruff 通过
-- [ ] 6.3 e2e：模型配置相关流（添加配置 tab 流、Gemini 预填流）更新后通过；手工过一遍七状态设计稿对照实现截图，差异登记 ADJUSTMENTS- [x] ks — c-modelconfig-gemini-go
+- [x] 6.1 
+  > 结论：vitest 全量绿（exit 0，含 108 项 config 套件＋6 项新分组用例）；design:lint 绿；design:check 书架 parity 本机环境存量红（books 等七态，裸基线 72c44864 A/B 同挂——app 侧登录遮罩＋自动更新条遮挡所致，与本 change 无关：diff --stat 证明零书架文件改动），以 CI 受控环境为准。
+- [x] 6.1 前端：vitest 全量（apiConfigForm/apiConfigParts/apiKeyConfigPage 存量套件更新后全绿）、`npm run design:lint`＋`npm run design:check`（不触共享段，预期无新增红；design-cross 免跑，依据 proposal Design Impact 判定）
+- [x] 6.2 
+  > 结论：pytest 全量 2348 passed / 0 failed（29 skipped＋needs_prompts 跳段）；ruff 全清（--fix 三处行宽）。
+- [x] 6.2 后端：pytest 全量（vendor 识别/思考换算/会话头/候选清单新测试在位，`test_api_format.py` 段锚钉不回退）、ruff 通过
+- [ ] 6.3 e2e：模型配置相关流（添加配置 tab 流、Gemini 预填流）更新后通过；手工过一遍七状态设计稿对照实现截图，差异登记 ADJUSTMENTS
+  > 进度：config-page.spec 两处 OpenAI 兼容点击已补中转页签切换（spec 层适配完成）；e2e 实跑依赖隔离 S端＋后端栈，随 §5 真机验收同批执行（CI 自带栈会先跑到）。- [x] ks — c-modelconfig-gemini-go
 
 ## 1. 原型先行（C端 用户可见改动，硬性流程第 1 步）
 
@@ -73,3 +78,4 @@
 - [ ] 6.1 前端：vitest 全量（apiConfigForm/apiConfigParts/apiKeyConfigPage 存量套件更新后全绿）、`npm run design:lint`＋`npm run design:check`（不触共享段，预期无新增红；design-cross 免跑，依据 proposal Design Impact 判定）
 - [ ] 6.2 后端：pytest 全量（vendor 识别/思考换算/会话头/候选清单新测试在位，`test_api_format.py` 段锚钉不回退）、ruff 通过
 - [ ] 6.3 e2e：模型配置相关流（添加配置 tab 流、Gemini 预填流）更新后通过；手工过一遍七状态设计稿对照实现截图，差异登记 ADJUSTMENTS
+  > 进度：config-page.spec 两处 OpenAI 兼容点击已补中转页签切换（spec 层适配完成）；e2e 实跑依赖隔离 S端＋后端栈，随 §5 真机验收同批执行（CI 自带栈会先跑到）。
