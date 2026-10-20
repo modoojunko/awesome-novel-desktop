@@ -174,6 +174,9 @@ def test_normal_path_argv_and_attempts_bookkeeping(shell, tmp_path, monkeypatch)
     # 等尸段：父 pid 进脚本、死透才动手（测试进程 pid 即 os.getpid() 的真值）
     assert f"$parent = {os.getpid()}" in script
     assert "Wait-Process -Id $parent -Timeout 60" in script
+    # 等待段结果必须落盘（评审 P3：弹回旧版类事故判读的第一分辨点）
+    assert "$waitMs" in script and "$parentAlive" in script
+    assert "parent_alive_after_wait=" in script
     for flag in ("/VERYSILENT", "/CURRENTUSER", "/AUTOLAUNCH=1", "/MERGETASKS=!desktopicon"):
         assert flag in script, flag
     assert f"/DIR={module.__test_install_dir}" in script

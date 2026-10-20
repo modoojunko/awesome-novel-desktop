@@ -1493,11 +1493,13 @@ def _ps_single_quoted(text: str) -> str:
 
 
 def _install_runner_script(parent_pid: int, installer_argv: list[str], runner_log: Path) -> str:
-    """runner 脚本文本：等旧进程死透→同步跑安装器→退出码留痕。
+    """runner 脚本文本：等旧进程死透（等待段留痕）→同步跑安装器→退出码留痕。
 
     整段文本经 -EncodedCommand（UTF-16LE base64）下发，不经过任何 shell 解析器，
     路径里的空格/中文/撇号零转义面。等待有界 60s：父 pid 复用属理论路径，超时放行
-    不卡链（Inno 自带 4 次重试兜住残余锁窗口）。
+    不卡链（Inno 自带 4 次重试兜住残余锁窗口）。等待段结果（时长＋超时后父进程是否
+    仍活着）随 installer-runner.log 落盘——「弹回旧版」类时序事故事后判读的第一
+    分辨点：秒回＝锁源在父进程之外；超时仍活＝安装器跑在活进程身上。
     """
     flags = " ".join(_ps_single_quoted(a) for a in installer_argv[1:])
     return "\n".join([
@@ -1505,7 +1507,10 @@ def _install_runner_script(parent_pid: int, installer_argv: list[str], runner_lo
         f"$parent = {int(parent_pid)}",
         f"$installer = {_ps_single_quoted(installer_argv[0])}",
         f"$log = {_ps_single_quoted(str(runner_log))}",
+        "$w0 = Get-Date",
         "Wait-Process -Id $parent -Timeout 60 -ErrorAction SilentlyContinue",
+        "$waitMs = [int]((Get-Date) - $w0).TotalMilliseconds",
+        "$parentAlive = [bool](Get-Process -Id $parent -ErrorAction SilentlyContinue)",
         "$t0 = Get-Date",
         "$code = 1",
         "try {",
@@ -1515,8 +1520,9 @@ def _install_runner_script(parent_pid: int, installer_argv: list[str], runner_lo
         "  $code = 1",
         "}",
         "$secs = [int]((Get-Date) - $t0).TotalSeconds",
-        ("Add-Content -Path $log -Value (\"{0} runner: installer_exit={1} "
-         "install_seconds={2}\" -f (Get-Date -Format 'yyyy-MM-dd HH:mm:ss'), $code, $secs)"
+        ("Add-Content -Path $log -Value (\"{0} runner: wait_ms={1} "
+         "parent_alive_after_wait={2} installer_exit={3} install_seconds={4}\" "
+         "-f (Get-Date -Format 'yyyy-MM-dd HH:mm:ss'), $waitMs, $parentAlive, $code, $secs)"
          " -ErrorAction SilentlyContinue"),
         "exit $code",
     ])
