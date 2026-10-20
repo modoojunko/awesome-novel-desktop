@@ -15,7 +15,12 @@ deconstruct_units 真形状直插，Playwright 真渲染）产物在 monitor-cap
   /*__INJECT_STYLE_REAL__*/  ← real.css 整体逐字
   <!--__HOST_DETAIL__-->     ← dom-detail.html 整体逐字
 
-刷新抓取：起同款独立栈后重跑 /tmp/decmon-data/seed.py ＋ /tmp/decmon-data/capture.cjs。
+刷新抓取（脚本已入库同目录 monitor-captures/）：
+  1. 起独立栈：uvicorn:8101（env 见 seed.py 头注释）boot 一次 →
+  2. `python3 monitor-captures/seed.py`（后端 boot 后再种——DB 世代守卫）→
+  3. 起 vite:5291（VITE_API_PROXY=http://127.0.0.1:8101）→
+  4. `node monitor-captures/capture-detail.cjs` →
+  5. 重跑本脚本。
 
 用法：python3 docs/design-c/drafts/build-decmonitor-proto.py
 """
