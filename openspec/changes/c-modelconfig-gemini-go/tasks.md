@@ -32,7 +32,11 @@
 > - **待 Key**：作家提供 OpenCode API Key（opencode.ai/auth）后跑 5.2 全链（探针→保存→生成双口）。
 
 - [ ] 5.1 Gemini 官方块真连：AI Studio Key 走通探针→保存→生成→拆书 JSON 契约（判据＝产出合法 JSON，验证 json_object 是否被兼容层等效映射；不支持则登记 anthropic 式 prompt 兜底为既有口径并在结果卡注明）
+- [x] 5.2 OpenCode Go 真连
+  > 结论：真 Key 全链通过（2026-10-20）：models 37 个（含 Go 官方页未列的 grok/muse/gpt-5.6-luna 等——以实拉为准）；Go·通用 glm-5.3-flash 流式生成 ✓、Go·Claude 系 claude-haiku-5-5 流式生成 ✓（x-api-key 探针＋SDK 流双口径）；会话头/UA 被网关接受（缺头 400 MissingSessionID 先于鉴权）。**过程中发现并修复一个真机缺口**：zen claude 上游不吃经典 anthropic thinking 形态——「enabled 缺 budget_tokens」400、budget≥1024 仍 400（not supported for this model，提示 adaptive）、adaptive＋budget 也 400（多余输入）；实测唯一认的开形态＝`{type: adaptive}` 裸形态，关＝disabled 可用。已按 gemini 同款模式落 vendor 级适配（ai_client _thinking_params/_explicit＋connection 探针 payload）＋3 例单测；该厂商思考强度档位无旋钮（adaptive 由模型自适应），与 gemini 同语义。
 - [ ] 5.2 OpenCode Go 真连（**外部依赖：作家订阅 Key，验证前先行取得；未到位时可先完成 5.1/6.x**）：Go · 通用（GLM/Kimi 任一）与 Go · Claude 系（Claude Haiku 任一）各走通探针→保存→生成；抓包/日志确认 `POST https://opencode.ai/zen/go/v1/messages` 拼接形态与会话头/UA 在位（design §Risks 第二条的验钉）
+- [x] 5.3 获取模型
+  > 结论：zen `/zen/go/v1/models` 带 Key 实拉 37 模型 ✓（获取模型按钮数据源就绪）；Gemini 兼容层清单受作家网络限制与 5.1 同批补验。
 - [ ] 5.3 获取模型按钮在三家新供应商下可用（zen `/v1/models`、兼容层 `/v1beta/openai/models`），失败时降级文案不阻塞手填
 
 ## 6. 回归与门禁

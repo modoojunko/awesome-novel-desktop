@@ -687,6 +687,15 @@ def _generation_payload(
     开（c-thinking-config）＝thinking:{type:enabled}＋reasoning_effort（GLM-5.3 契约
     顶层参数，low/high/max）；关（默认）＝现状 disabled。思考开启时预算放大——
     推理会吃 max_tokens，32 可能只见思考不见正文。"""
+    if vendor_id == "opencode-go-claude":
+        # zen claude 上游（真机实证）：开＝adaptive 裸形态（reasoning_effort/budget
+        # 均为多余输入）；关＝disabled 形态实测可用
+        return {
+            "model": model,
+            "messages": [{"role": "user", "content": _PROBE_PROMPT}],
+            "max_tokens": _PROBE_MAX_TOKENS_THINKING if thinking_enabled else _PROBE_MAX_TOKENS,
+            "thinking": {"type": "adaptive"} if thinking_enabled else dict(_THINKING_DISABLED),
+        }
     if vendor_id == "gemini":
         # Gemini 兼容层契约（c-modelconfig-gemini-go）：无 thinking 顶层参数；
         # 关＝reasoning_effort none（部分型号关不掉，表单提示已告知）；档位 max→high

@@ -148,6 +148,37 @@ def test_ai_client_thinking_params_gemini_contract():
     assert c._explicit_thinking_params({"type": "disabled"}) == {"reasoning_effort": "none"}
 
 
+def test_probe_payload_claude_adaptive_shapes():
+    # zen claude 上游真机实证：开＝adaptive 裸形态（budget/reasoning_effort 均多余输入）；
+    # 关＝disabled 形态可用
+    on = connection._generation_payload(
+        "claude-haiku-5-5", thinking_enabled=True, thinking_effort="high",
+        vendor_id="opencode-go-claude",
+    )
+    assert on["thinking"] == {"type": "adaptive"}
+    assert "reasoning_effort" not in on
+    off = connection._generation_payload(
+        "claude-haiku-5-5", thinking_enabled=False, vendor_id="opencode-go-claude"
+    )
+    assert off["thinking"] == {"type": "disabled"}
+
+
+def test_ai_client_thinking_params_claude_adaptive():
+    from ai_client import AIClient
+
+    c = AIClient.__new__(AIClient)
+    c._vendor = "opencode-go-claude"
+    c._base_url = "https://opencode.ai/zen/go"
+    c._thinking_enabled = True
+    c._thinking_effort = "max"
+    assert c._thinking_params() == {"thinking": {"type": "adaptive"}}
+    c._thinking_enabled = False
+    assert c._thinking_params() == {"thinking": {"type": "disabled"}}
+    # 显式 disabled / enabled 形态同口径
+    assert c._explicit_thinking_params({"type": "disabled"}) == {"thinking": {"type": "disabled"}}
+    assert c._explicit_thinking_params({"type": "enabled"}) == {"thinking": {"type": "adaptive"}}
+
+
 def test_ai_client_thinking_params_non_gemini_untouched():
     from ai_client import AIClient
 

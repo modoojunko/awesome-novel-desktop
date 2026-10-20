@@ -445,6 +445,13 @@ class AIClient:
             if getattr(self, "_thinking_enabled", False):
                 return {"reasoning_effort": gemini_effort(getattr(self, "_thinking_effort", "low"))}
             return {"reasoning_effort": "none"}
+        if getattr(self, "_vendor", "") == "opencode-go-claude":
+            # zen claude 上游（c-modelconfig-gemini-go 真机实证）：enabled 必须用
+            # adaptive 裸形态（budget_tokens 是多余输入会被拒；经典 enabled/budget
+            # 形态「not supported for this model」）；关＝disabled 形态实测可用
+            if getattr(self, "_thinking_enabled", False):
+                return {"thinking": {"type": "adaptive"}}
+            return {"thinking": dict(_THINKING_DISABLED)}
         base = self._base_url or ""
         if base in _THINKING_UNSUPPORTED_BASES:
             return {}
@@ -472,6 +479,10 @@ class AIClient:
             if self._is_disabled_shaped(explicit):
                 return {"reasoning_effort": "none"}
             return {"reasoning_effort": gemini_effort(getattr(self, "_thinking_effort", "low"))}
+        if getattr(self, "_vendor", "") == "opencode-go-claude":
+            if self._is_disabled_shaped(explicit):
+                return {"thinking": dict(_THINKING_DISABLED)}
+            return {"thinking": {"type": "adaptive"}}
         if not self._is_disabled_shaped(explicit):
             return {"thinking": explicit}
         base = self._base_url or ""
