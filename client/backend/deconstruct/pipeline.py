@@ -901,10 +901,11 @@ def _card_batch_size(caps) -> int:
         return max(1, min(30, int(raw)))
     if caps.source not in ("env", "known"):
         return 1
-    # 预算同源（c-deconstruct-merge-budget）：card_batch 调用传的正是 merge_out_tokens
-    # ——批大小若按 usable_output 估，vendor 数据放大（如 deepseek 393K）后批会超出
-    # 实际传参预算必截退回，白烧整批调用。
-    return max(1, min(30, caps_mod.merge_max_tokens(caps) // _CARD_OUT_TOKEN_ESTIMATE))
+    # 预算同源＋同余量（c-deconstruct-merge-budget）：card_batch 调用传的正是
+    # merge_out_tokens，批大小按「预算×0.75」折算——与 usable_output 的安全余量系数
+    # 一致（评审 P2：直接除预算只剩 4% 余量，高方差批必截退回白烧整轮）。
+    # vendor 数据放大（如 deepseek 393K）后批不再超出实传预算。
+    return max(1, min(30, int(caps_mod.merge_max_tokens(caps) * 0.75) // _CARD_OUT_TOKEN_ESTIMATE))
 
 
 def _parse_batch_cards(raw: str, allowed: set[str]) -> dict[str, dict] | None:

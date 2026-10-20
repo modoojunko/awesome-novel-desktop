@@ -1006,10 +1006,11 @@ def test_vendor_caps_deepseek_documented_values():
     assert caps_mod.merge_max_tokens(caps) == 32_768
     # 单遍归并解锁：输入预算随 1M 上下文放大（远超 30K 保守装箱）
     assert caps_mod.input_budget_chars(caps) > 300_000
-    # 合批同源：批大小按 merge 预算折算（21 章 ≈ 31.5k tok ≤ 32_768），不再按 usable 估超预算批
+    # 合批同源＋同余量：批大小按「merge 预算×0.75」折算（16 章 ≈ 24k tok，对 32_768
+    # 预算留 25% 余量；glm 8192×0.75//1500＝4 与旧口径逐字一致，既有 vendor 零漂移）
     from deconstruct.pipeline import _card_batch_size
 
-    assert _card_batch_size(caps) == 21
+    assert _card_batch_size(caps) == 16
     # glm 未动：数据无证据不改，预算仍走 8192 floor
     glm = caps_mod.caps_for(vendor="glm", model="glm-5.3-flash")
     assert glm.max_output_tokens == 8_192
