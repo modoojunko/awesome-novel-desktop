@@ -134,7 +134,8 @@ test("模型配置：空态 + 表单顺序校验（名称→供应商→Base URL
     await page.getByRole("button", { name: "保存并测试连接" }).click();
     await expect(page.getByText("请选择供应商")).toBeVisible();
 
-    // 选供应商 → Base URL（openai-compat 无默认 URL，需手填）
+    // 选供应商 → Base URL（openai-compat 无默认 URL，需手填）；已移中转页签
+    await page.getByRole("button", { name: "中转 · 订阅制" }).click();
     await page.getByRole("button", { name: "OpenAI 兼容" }).click();
     await page.getByRole("button", { name: "保存并测试连接" }).click();
     await expect(page.getByText("请输入 Base URL")).toBeVisible();
@@ -167,6 +168,7 @@ test("模型配置：添加（网络错误）→ 删除 → Undo toast 展示", 
     // 添加：填写完整 → 保存并测试连接
     await page.getByRole("button", { name: "添加 API Key" }).first().click();
     await page.getByPlaceholder("例如：主线 · OpenAI").fill("e2e测试配置");
+    await page.getByRole("button", { name: "中转 · 订阅制" }).click();
     await page.getByRole("button", { name: "OpenAI 兼容" }).click();
     await page.getByPlaceholder("https://api.openai.com/v1").fill("http://127.0.0.1:1");
     await page.getByPlaceholder("sk-...").fill("sk-e2e-invalid");

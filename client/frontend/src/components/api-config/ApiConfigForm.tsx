@@ -3,7 +3,7 @@ import { createPortal } from "react-dom";
 import type { ApiConfig, ApiFormat, ThinkingEffort } from "../../types/api-config";
 import Modal from "../design/Modal";
 import { Ico, P } from "../icons";
-import { FORMAT_PLACEHOLDER, VENDOR_FORMAT_LOCK, VENDORS, VENDOR_LABELS, VendorGlyph } from "./ProviderIcon";
+import { FORMAT_PLACEHOLDER, VENDOR_FORMAT_LOCK, VENDOR_TABS, VENDORS, VENDOR_LABELS, VendorGlyph, type VendorTab } from "./ProviderIcon";
 import { applyPreset, defaultsFor, type PrefillFields } from "./vendorDefaults";
 import { placePanel, type PanelPlacement } from "../../lib/panelAnchor";
 
@@ -59,6 +59,8 @@ export function ApiConfigForm({ open, config, onSubmit, onCancel, onTest, onFetc
   const [name, setName] = useState(config?.name || "");
   const [vendorId, setVendorId] = useState(config?.vendor || "");
   const [apiFormat, setApiFormat] = useState<ApiFormat>(config?.api_format || "openai");
+  // 供应商分组页签（c-modelconfig-gemini-go）：切页仅改可见方块集，不清已选/已填（spec「切页不清已选」）
+  const [vendorTab, setVendorTab] = useState<VendorTab>("official");
   // 思考参数（c-thinking-config）：默认关/low＝现状语义；编辑态回读已存值
   const [thinkingEnabled, setThinkingEnabled] = useState(config?.thinking_enabled ?? false);
   const [thinkingEffort, setThinkingEffort] = useState<ThinkingEffort>(config?.thinking_effort ?? "low");
@@ -112,6 +114,7 @@ export function ApiConfigForm({ open, config, onSubmit, onCancel, onTest, onFetc
     setName(config?.name || "");
     setVendorId(config?.vendor || "");
     setApiFormat(config?.api_format || "openai");
+    setVendorTab("official");
     setThinkingEnabled(config?.thinking_enabled ?? false);
     setThinkingEffort(config?.thinking_effort ?? "low");
     setBaseUrl(config?.base_url || "");
@@ -491,20 +494,37 @@ export function ApiConfigForm({ open, config, onSubmit, onCancel, onTest, onFetc
         <div className="field">
           <label>供应商</label>
           {!isEdit ? (
-            <div className="vgrid">
-              {VENDORS.map((v) => (
-                <button
-                  key={v.id}
-                  type="button"
-                  className={"vbtn" + (vendorId === v.id ? " on" : "")}
-                  aria-pressed={vendorId === v.id}
-                  onClick={() => handleVendorSelect(v.id)}
-                >
-                  <VendorGlyph vendor={v.id} />
-                  <span>{v.label}</span>
-                </button>
-              ))}
-            </div>
+            <>
+              <div className="seg vt-seg" role="group" aria-label="供应商分组">
+                {VENDOR_TABS.map((t) => (
+                  <button
+                    key={t.id}
+                    type="button"
+                    className={vendorTab === t.id ? "on" : ""}
+                    aria-pressed={vendorTab === t.id}
+                    onClick={() => setVendorTab(t.id)}
+                  >
+                    {t.label}
+                  </button>
+                ))}
+              </div>
+              <div className="vgrid">
+                {VENDORS.filter((v) => v.tab === vendorTab).map((v) => (
+                  <button
+                    key={v.id}
+                    type="button"
+                    className={"vbtn" + (vendorId === v.id ? " on" : "")}
+                    aria-pressed={vendorId === v.id}
+                    onClick={() => handleVendorSelect(v.id)}
+                  >
+                    <VendorGlyph vendor={v.id} />
+                    <span>{v.label}</span>
+                    {v.sub && <span className="vsub">{v.sub}</span>}
+                    {v.badge && <i className="vbadge">{v.badge}</i>}
+                  </button>
+                ))}
+              </div>
+            </>
           ) : (
             <div className="vfix">
               <VendorGlyph vendor={config!.vendor} />
@@ -575,11 +595,8 @@ export function ApiConfigForm({ open, config, onSubmit, onCancel, onTest, onFetc
           )}
           {vendorId === "openai-compat" && (
             <p className="cf-hint">
-              未列厂商（如 Google Gemini）走 OpenAI 兼容模版：Gemini 官方兼容地址{" "}
-              <code>https://generativelanguage.googleapis.com/v1beta/openai/</code>
-              （配 Gemini API Key）。该类地址可能拉不到模型清单，手填模型 id（如
-              gemini-2.5-pro）即可；国外厂商也可把 Base URL 填成反代/转发服务地址
-              （OpenAI、Anthropic 等按钮同样支持改地址指向反代）。
+              该类地址可能拉不到模型清单，手填模型 id 即可；国外厂商也可把 Base URL
+              填成反代/转发服务地址（OpenAI、Anthropic 等按钮同样支持改地址指向反代）。
             </p>
           )}
         </div>
@@ -648,6 +665,9 @@ export function ApiConfigForm({ open, config, onSubmit, onCancel, onTest, onFetc
               ))}
             </div>
           </div>
+          {vendorId === "gemini" && (
+            <p className="cf-hint">部分型号（Pro 系）始终会思考，「关闭」只对 Flash 系生效。</p>
+          )}
           {thinkingEnabled && (
             <p className="cf-hint">
               开启后模型先思考再作答，更慢、更耗 token；GLM-5.3 系列为强制思考模型，关闭会被端点拒绝。

@@ -36,6 +36,11 @@ from urllib.parse import urlparse
 
 import httpx
 
+from api_configs.vendor import (
+    gemini_effort,
+    is_opencode_base,
+    opencode_identity_headers,
+)
 from http_client import build_async_client
 
 # llm.log 专项档挂载点（logging_setup._LLM_LOGGERS 同名登记）
@@ -55,6 +60,10 @@ _ANTHROPIC_PROBE_MODEL = "claude-sonnet-4-20250514"
 # 现返回 deepseek-flash 与 deepseek-v4-pro；deepseek-v4-flash 已不存在，vision 实验版无据撤下）。
 VENDOR_MODEL_CANDIDATES: dict[str, list[str]] = {
     "deepseek": ["deepseek-flash", "deepseek-v4-pro"],
+    # c-modelconfig-gemini-go：与前端 vendorDefaults 登记候选同源对齐（官方清单）
+    "gemini": ["gemini-2.5-pro", "gemini-2.5-flash", "gemini-2.5-flash-lite", "gemini-3-flash"],
+    "opencode-go-chat": ["glm-5.3-flash", "glm-5.3", "kimi-k3", "kimi-k2.7-code", "deepseek-v4.1-flash"],
+    "opencode-go-claude": ["claude-haiku-5-5", "minimax-m3", "qwen3.7-plus"],
 }
 
 # 端点不提供模型列表时的统一说明（连接成功但列表为空的原因），按接口格式分文案：
@@ -341,6 +350,7 @@ async def test_connection(
                         probe_model,
                         thinking_enabled=thinking_enabled,
                         thinking_effort=thinking_effort,
+                        vendor_id=vendor_id,
                     ),
                     _openai_reply_text,
                     vendor=vendor_id,
@@ -360,6 +370,7 @@ async def test_connection(
                         probe_model or _ANTHROPIC_PROBE_MODEL,
                         thinking_enabled=thinking_enabled,
                         thinking_effort=thinking_effort,
+                        vendor_id=vendor_id,
                     ),
                     f_reply,
                     vendor=vendor_id,
@@ -592,19 +603,24 @@ def _build_probe(
         # 用户粘贴以 /v1 结尾的 base 时先剥防双拼
         base = base.removesuffix("/v1")
         headers = {"x-api-key": api_key, "anthropic-version": "2023-06-01"}
+        if is_opencode_base(base_url):
+            headers.update(opencode_identity_headers(api_key, base_url))
         fallback = (f"{base}/v1/messages", dict(headers), _anthropic_reply_text)
         return f"{base}/v1/models", headers, _extract_openai_models, fallback
 
     # openai 格式（OpenAI 官方 / DeepSeek / GLM / Kimi / Qwen / 兼容端点）：
     # 404 同享降级（Gemini 官方 OpenAI 兼容层 /v1beta/openai 等无清单端点）
+    headers = {"Authorization": f"Bearer {api_key}"}
+    if is_opencode_base(base_url):
+        headers.update(opencode_identity_headers(api_key, base_url))
     return (
         _openai_models_url(base),
-        {"Authorization": f"Bearer {api_key}"},
+        dict(headers),
         _extract_openai_models,
         (
             # 降级地址同走版本段归一（与 models 探测/主链对话探针/生成调用同源）
             f"{normalize_openai_base(base)}/chat/completions",
-            {"Authorization": f"Bearer {api_key}"},
+            dict(headers),
             _openai_reply_text,
         ),
     )
@@ -664,12 +680,32 @@ def _generation_payload(
     model: str,
     thinking_enabled: bool = False,
     thinking_effort: str = "low",
+    vendor_id: str = "",
 ) -> dict[str, Any]:
     """「你好」最小生成探针请求体（双格式同形）：思考参数按配置＋短输出预算。
 
     开（c-thinking-config）＝thinking:{type:enabled}＋reasoning_effort（GLM-5.3 契约
     顶层参数，low/high/max）；关（默认）＝现状 disabled。思考开启时预算放大——
     推理会吃 max_tokens，32 可能只见思考不见正文。"""
+    if vendor_id == "opencode-go-claude":
+        # zen claude 上游（真机实证）：开＝adaptive 裸形态（reasoning_effort/budget
+        # 均为多余输入）；关＝disabled 形态实测可用。adaptive 耗量模型自决，评审
+        # P3 硬化：探针预算提到 3072（1024 对极小 prompt 实测够，防思考链挤占判空）
+        return {
+            "model": model,
+            "messages": [{"role": "user", "content": _PROBE_PROMPT}],
+            "max_tokens": 3072 if thinking_enabled else _PROBE_MAX_TOKENS,
+            "thinking": {"type": "adaptive"} if thinking_enabled else dict(_THINKING_DISABLED),
+        }
+    if vendor_id == "gemini":
+        # Gemini 兼容层契约（c-modelconfig-gemini-go）：无 thinking 顶层参数；
+        # 关＝reasoning_effort none（部分型号关不掉，表单提示已告知）；档位 max→high
+        return {
+            "model": model,
+            "messages": [{"role": "user", "content": _PROBE_PROMPT}],
+            "max_tokens": _PROBE_MAX_TOKENS_THINKING if thinking_enabled else _PROBE_MAX_TOKENS,
+            "reasoning_effort": gemini_effort(thinking_effort) if thinking_enabled else "none",
+        }
     payload: dict[str, Any] = {
         "model": model,
         "messages": [{"role": "user", "content": _PROBE_PROMPT}],
@@ -706,6 +742,7 @@ async def _fallback_probe(
             probe_model or _ANTHROPIC_PROBE_MODEL,
             thinking_enabled=thinking_enabled,
             thinking_effort=thinking_effort,
+            vendor_id=vendor_id,
         ),
         f_reply,
         vendor=vendor_id,

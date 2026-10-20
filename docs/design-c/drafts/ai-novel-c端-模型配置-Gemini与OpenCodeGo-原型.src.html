@@ -1,0 +1,350 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>设计原型 · 模型配置 · Gemini 与 OpenCode Go 接入</title>
+<!-- ═══════════════════════════════════════════════════════════════
+  设计原型 · 模型配置 · Gemini 与 OpenCode Go · 2026-10-20（真界面基线）
+  · 基线口径：当前真实系统页面（v3 配方）。独立栈＝worktree@main 8bbf9459（#904）
+    vite:5291 → uvicorn:8101（DATA_ROOT=/tmp/proto-mc-data 私有），Playwright 真渲染
+    抓取，产物入库 modelconfig-captures/（real.css 276KB＋列表态 .app-shell＋弹窗
+    body 级宿主三态；弹窗为 portal，宿主＝document.body innerHTML）。
+  · 样式：real.css 整体逐字注入（build-modelconfig-proto.py，一字未改，自包含）。
+    宿主 DOM 逐字注入；新增件全部运行时注入（本文件 <script>：把 graft 节点挂进
+    真实弹窗，重置＝还原 pristine innerHTML，抓取 HTML 本身零改动）。
+  · graft 新增件：.gl-vhead 组头／.gl-badge 角标／.gl-chips 内置模型胶囊，样式只用
+    真实 token（--accent/--accent-soft/--accent-strong/--warn/--warn-soft/--border/
+    --surface/--muted）；产品提示复用真实类 .cf-hint（real.css 已定义）。
+  · 设计口径（2026-10-20 调研对拍，来源见会话）：
+    ① 供应商区加 tab（用户 2026-10-20 拍板，替代分组平铺——分组要滚着找）：
+      「官方厂商｜中转 · 订阅制」两页。官方页保持现有表单形态，仅新增 Gemini；
+      中转页＝存量「OpenAI 兼容」＋OpenCode Go 四张新方块。tab 复用真实 .seg
+      样式（与「接口格式」段同族，零新样式）。
+    ② Gemini 官方块：Base URL 预填官方兼容地址 generativelanguage.googleapis.com/
+      v1beta/openai/、接口格式锁 OpenAI 格式（normalize 段锚已有钉 test_api_format.py）；
+      Pro 系始终思考、「关闭」仅 Flash 系生效——思考行加提示。
+    ③ OpenCode Go 四方块同源官方 docs/go＋ZCode 内置注册表对拍（zen/go/v1 一把 Key）：
+      · 通用（Chat 接口：GLM/Kimi/DeepSeek/MiMo/Hy）／· Claude 系（Anthropic 接口：
+        Claude Haiku、MiniMax、Qwen；Base URL 不带 /v1，与真表单 anthropic 提示文案
+        同源）／· Gemini（gemini-4-argon，需新增 Google 原生接口适配）／· GPT 系
+        （Responses 接口，需新增适配）。后两张角标「待排期」，接口格式段出现
+        禁用新档位表达实现缺口。
+    ④ 内置模型胶囊＝订阅内置常用项，以「获取模型」实拉为准（GET /models 匿名可探）。
+  · demo-bar 与状态切换为非基线演示控件，产品 UI 不含；注记面向评审。
+  · 重放：python3 docs/design-c/drafts/build-modelconfig-proto.py
+    （源模板 → 本文件，幂等；自检 check-modelconfig-proto.py）
+═════════════════════════════════════════════════════════════════ -->
+<style>
+/*__INJECT_STYLE_REAL__*/
+</style>
+<style>
+/* ═══ 新增 graft 样式（gl- 前缀；颜色/圆角只用真实 token） ═══ */
+.gl-vtabs { margin-bottom: 10px; }
+.vbtn:has(.gl-badge) { position: relative; }
+.gl-badge { position: absolute; top: -7px; right: -4px; font-style: normal; font-size: 10px; line-height: 1; padding: 3px 6px; border-radius: 999px; background: var(--accent-soft); color: var(--accent-strong); border: 1px solid var(--accent); }
+.gl-badge.gl-badge-warn { background: var(--warn-soft); color: var(--warn); border-color: var(--warn); }
+.gl-chips { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin-top: 8px; }
+.gl-chips-label { font-size: 12px; color: var(--muted); }
+.gl-chip { font-family: var(--mono, ui-monospace, monospace); font-size: 12px; line-height: 1; padding: 4px 10px; border: 1px solid var(--border); border-radius: 999px; background: var(--surface); color: var(--muted); }
+.gl-vsub { font-size: 11px; opacity: 0.72; margin-top: -3px; }
+/* 演示让位：弹窗上移避开底部演示条（非产品样式） */
+.modal { padding-bottom: 128px; }
+.modal .mcard { max-height: calc(100vh - 168px); }
+.proto-bar { position: fixed; left: 0; right: 0; bottom: 0; z-index: 99999; background: #0e1f19; color: #e8f1ee; padding: 8px 14px 10px; box-shadow: 0 -4px 16px rgba(0,0,0,0.18); }
+.proto-bar-title { font-size: 12px; color: #9db8ae; margin-bottom: 6px; }
+.proto-chips { display: flex; flex-wrap: wrap; gap: 6px; }
+.proto-chips button { font: inherit; font-size: 12px; padding: 4px 12px; border-radius: 999px; border: 1px solid #2c4a40; background: transparent; color: #cfe0da; cursor: pointer; }
+.proto-chips button.on { background: #1f6f54; border-color: #1f6f54; color: #fff; }
+.proto-note { font-size: 12px; color: #cfe0da; margin-top: 6px; min-height: 16px; }
+body { padding-bottom: 96px; }
+</style>
+</head>
+<body>
+<div class="proto-bar">
+  <div class="proto-bar-title">设计原型 · 模型配置 · Gemini 与 OpenCode Go 接入（2026-10-20 · 真界面基线 HEAD@8bbf9459 实抓 · 演示控件非产品 UI）</div>
+  <div class="proto-chips" id="protoChips">
+    <button data-state="current" class="on">现状</button>
+    <button data-state="gemini">Gemini（官方 tab）</button>
+    <button data-state="relay">中转 tab</button>
+    <button data-state="go-chat">Go · 通用</button>
+    <button data-state="go-claude">Go · Claude 系</button>
+    <button data-state="go-gemini">Go · Gemini</button>
+    <button data-state="go-gpt">Go · GPT 系</button>
+  </div>
+  <div class="proto-note" id="protoNote">基线：当前线上「添加 API Key」表单原样（弹窗为真实 portal 渲染）。</div>
+</div>
+
+<div id="proto-stage"><!--__HOST_EMPTY__--></div>
+
+<script>
+(function () {
+  "use strict";
+  var stage = document.getElementById("proto-stage");
+  var note = document.getElementById("protoNote");
+  var pristine = stage.innerHTML;
+
+  /* ── 工具 ── */
+  function q(sel) { return stage.querySelector(sel); }
+  function reset() { stage.innerHTML = pristine; }
+  function fieldByLabel(text) {
+    var fields = stage.querySelectorAll(".field");
+    for (var i = 0; i < fields.length; i++) {
+      var labels = fields[i].querySelectorAll("label");
+      for (var j = 0; j < labels.length; j++) {
+        var t = labels[j].textContent.trim().replace(/\s*\*\s*$/, "");
+        if (t === text) return fields[i];
+      }
+    }
+    return null;
+  }
+  function setBaseValue(val) {
+    var el = q("#cfBase");
+    if (!el) return;
+    el.value = val;
+    el.setAttribute("value", val);
+  }
+  function setPlaceholder(id, val) {
+    var el = q(id);
+    if (el) el.setAttribute("placeholder", val);
+  }
+  /* 接口格式段：选中 fmt（openai|anthropic|google|responses），锁死并可选附加禁用新档 */
+  function setFormat(fmt, extraSegLabel) {
+    var seg = q('.seg[aria-label="接口格式"]');
+    if (!seg) return;
+    var btns = seg.querySelectorAll("button");
+    var openaiBtn = btns[0], anthroBtn = btns[1];
+    seg.classList.add("lock");
+    openaiBtn.disabled = fmt !== "openai";
+    anthroBtn.disabled = fmt !== "anthropic";
+    openaiBtn.classList.toggle("on", fmt === "openai");
+    openaiBtn.setAttribute("aria-pressed", fmt === "openai");
+    anthroBtn.classList.toggle("on", fmt === "anthropic");
+    anthroBtn.setAttribute("aria-pressed", fmt === "anthropic");
+    if (extraSegLabel) {
+      var b = document.createElement("button");
+      b.type = "button";
+      b.className = "on";
+      b.disabled = true;
+      b.setAttribute("aria-pressed", "true");
+      b.textContent = extraSegLabel;
+      seg.appendChild(b);
+    }
+  }
+  function setHint(html) {
+    var f = fieldByLabel("Base URL");
+    var hint = f && f.querySelector(".cf-hint");
+    if (hint) hint.innerHTML = html;
+  }
+  function addProductHint(afterFieldLabel, html) {
+    var f = fieldByLabel(afterFieldLabel);
+    if (!f) return;
+    var p = document.createElement("p");
+    p.className = "cf-hint";
+    p.innerHTML = html;
+    f.appendChild(p);
+  }
+  function addChips(modelFieldLabel, items, chipsLabel) {
+    var f = fieldByLabel(modelFieldLabel);
+    if (!f) return;
+    var box = document.createElement("div");
+    box.className = "gl-chips";
+    var lab = document.createElement("span");
+    lab.className = "gl-chips-label";
+    lab.textContent = chipsLabel || "常用模型：";
+    box.appendChild(lab);
+    items.forEach(function (m) {
+      var c = document.createElement("span");
+      c.className = "gl-chip";
+      c.textContent = m;
+      box.appendChild(c);
+    });
+    var tail = document.createElement("span");
+    tail.className = "gl-chips-label";
+    tail.textContent = "…以「获取模型」实拉清单为准";
+    box.appendChild(tail);
+    f.appendChild(box);
+  }
+
+  /* ── 供应商 tab（官方｜中转）＋新方块 ── */
+  var SVG_OPEN = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">';
+  var GEMINI_PATH = '<path d="M12 3c.7 4.9 4.1 8.3 9 9-4.9.7-8.3 4.1-9 9-.7-4.9-4.1-8.3-9-9 4.9-.7 8.3-4.1 9-9z"></path>';
+  var GO_PATH = '<path d="M12 3l7.8 4.5v9L12 21l-7.8-4.5v-9z"></path><path d="M12 8.5v7M8.5 12h7"></path>';
+  function vbtnHTML(path, main, sub, badge, badgeWarn) {
+    var vendor = sub ? main + " · " + sub : main;
+    return '<button type="button" class="vbtn" data-gl-vendor="' + vendor + '" aria-pressed="false">' + SVG_OPEN + path + "</svg><span>" + main + "</span>" +
+      (sub ? '<span class="gl-vsub">' + sub + "</span>" : "") +
+      (badge ? '<i class="gl-badge' + (badgeWarn ? " gl-badge-warn" : "") + '">' + badge + "</i>" : "") + "</button>";
+  }
+  var realTiles = null;
+  function captureTiles() {
+    if (realTiles) return;
+    realTiles = {};
+    q(".vgrid").querySelectorAll(":scope > button").forEach(function (b) {
+      realTiles[b.querySelector("span").textContent] = b;
+    });
+  }
+  function tile(k) { return realTiles[k].cloneNode(true); }
+  function renderTab(tab) {
+    var grid = q(".vgrid");
+    grid.innerHTML = "";
+    if (tab === "official") {
+      ["OpenAI", "Anthropic", "DeepSeek", "GLM", "Kimi", "Qwen", "Ollama"].forEach(function (k) { grid.appendChild(tile(k)); });
+      grid.insertAdjacentHTML("beforeend", vbtnHTML(GEMINI_PATH, "Gemini", null, "新"));
+    } else {
+      grid.appendChild(tile("OpenAI 兼容"));
+      grid.insertAdjacentHTML("beforeend", vbtnHTML(GO_PATH, "OpenCode Go", "通用", "新"));
+      grid.insertAdjacentHTML("beforeend", vbtnHTML(GO_PATH, "OpenCode Go", "Claude 系", "新"));
+      grid.insertAdjacentHTML("beforeend", vbtnHTML(GO_PATH, "OpenCode Go", "Gemini", "待排期", true));
+      grid.insertAdjacentHTML("beforeend", vbtnHTML(GO_PATH, "OpenCode Go", "GPT 系", "待排期", true));
+    }
+    q(".gl-vtabs").querySelectorAll("button").forEach(function (b) {
+      var on = b.getAttribute("data-vtab") === tab;
+      b.classList.toggle("on", on);
+      b.setAttribute("aria-pressed", on);
+    });
+    grid.setAttribute("data-tab", tab);
+  }
+  function makeTabs() {
+    var grid = q(".vgrid");
+    if (!grid || grid.getAttribute("data-tabbed")) return;
+    captureTiles();
+    var bar = document.createElement("div");
+    bar.className = "seg gl-vtabs";
+    bar.setAttribute("role", "group");
+    bar.setAttribute("aria-label", "供应商分组");
+    bar.innerHTML = '<button type="button" class="on" data-vtab="official" aria-pressed="true">官方厂商</button>' +
+      '<button type="button" data-vtab="relay" aria-pressed="false">中转 · 订阅制</button>';
+    grid.parentNode.insertBefore(bar, grid);
+    grid.setAttribute("data-tabbed", "1");
+    renderTab("official");
+  }
+  function showTab(tab) {
+    makeTabs();
+    if (q(".vgrid").getAttribute("data-tab") !== tab) renderTab(tab);
+  }
+  function selectVendor(label) {
+    var btns = stage.querySelectorAll(".vgrid > button");
+    btns.forEach(function (b) {
+      var vendor = b.getAttribute("data-gl-vendor") ||
+        (b.querySelector("span") ? b.querySelector("span").textContent : "");
+      var on = vendor === label;
+      b.classList.toggle("on", on);
+      b.setAttribute("aria-pressed", on);
+    });
+  }
+
+  /* ── 状态定义 ── */
+  var STATES = {
+    current: {
+      note: "基线：当前线上「添加 API Key」表单原样（弹窗为真实 portal 渲染）。",
+      apply: function () { reset(); }
+    },
+    relay: {
+      note: "中转 tab：存量「OpenAI 兼容」＋OpenCode Go 四张方块；点方块即按对应接口预填表单，官方 tab 不受影响。",
+      apply: function () {
+        reset();
+        showTab("relay");
+      }
+    },
+    gemini: {
+      note: "官方 tab 保持现有形态，仅新增 Gemini：选中后 Base URL 预填官方地址、接口格式锁定；Pro 系型号始终思考（「关闭」仅 Flash 系生效）。",
+      apply: function () {
+        reset();
+        showTab("official");
+        selectVendor("Gemini");
+        setPlaceholder("#cfName", "例如：主线 · Gemini");
+        setBaseValue("https://generativelanguage.googleapis.com/v1beta/openai/");
+        setFormat("openai");
+        setHint("Google 官方入口，已预填官方地址；配 <code>Gemini API Key</code>（aistudio.google.com 免费申请）。填好 Key 点「获取模型」拉清单，也可直接填模型 id。");
+        setPlaceholder("#cfKey", "Gemini API Key（AI Studio 申请）");
+        addProductHint("思考模式", "部分型号（Pro 系）始终会思考，「关闭」只对 Flash 系生效。");
+        addChips("模型名称", ["gemini-2.5-pro", "gemini-2.5-flash", "gemini-2.5-flash-lite", "gemini-3-flash"], "常用模型：");
+      }
+    },
+    "go-chat": {
+      note: "OpenCode Go 订阅 · 通用（中转 tab）：GLM／Kimi／DeepSeek／MiMo／Hy 等模型走此入口，一把订阅 Key；身份标识由系统自动处理，作家无感。",
+      apply: function () {
+        reset();
+        showTab("relay");
+        selectVendor("OpenCode Go · 通用");
+        setPlaceholder("#cfName", "例如：Go 订阅 · 通用");
+        setBaseValue("https://opencode.ai/zen/go/v1");
+        setFormat("openai");
+        setHint("OpenCode Go 订阅入口，已预填订阅地址；配 <code>OpenCode API Key</code>（opencode.ai/auth 获取）。填好 Key 点「获取模型」拉清单，也可直接填模型 id。");
+        setPlaceholder("#cfKey", "OpenCode API Key（opencode.ai/auth 获取）");
+        addChips("模型名称", ["glm-5.3-flash", "glm-5.3", "glm-5.2", "kimi-k3", "kimi-k2.7-code", "deepseek-v4.1-flash", "deepseek-v4-pro", "mimo-v2.5", "hy3"]);
+      }
+    },
+    "go-claude": {
+      note: "同一把 OpenCode Key（中转 tab）：Claude Haiku／MiniMax／Qwen 走此入口；注意 Base URL 与「Go · 通用」不同（不带 /v1，系统自动补全，与 Anthropic 格式同规矩）。",
+      apply: function () {
+        reset();
+        showTab("relay");
+        selectVendor("OpenCode Go · Claude 系");
+        setPlaceholder("#cfName", "例如：Go 订阅 · Claude 系");
+        setBaseValue("https://opencode.ai/zen/go");
+        setFormat("anthropic");
+        setHint("填到域名即可（系统自动补 <code>/v1</code>，误带也会自动剥掉）：已预填 OpenCode Go 订阅地址；配同一把 <code>OpenCode API Key</code>。");
+        setPlaceholder("#cfKey", "OpenCode API Key（opencode.ai/auth 获取）");
+        addChips("模型名称", ["claude-haiku-5-5", "minimax-m3", "qwen3.8-max", "qwen3.7-plus", "qwen3.8-flash"]);
+      }
+    },
+    "go-gemini": {
+      note: "Go 订阅内的 Gemini 4 Argon（限时 2 倍用量）：需先排期新增 Google 原生接口适配，接口格式段将出现第三档「Google 格式」。",
+      apply: function () {
+        reset();
+        showTab("relay");
+        selectVendor("OpenCode Go · Gemini");
+        setPlaceholder("#cfName", "例如：Go 订阅 · Gemini");
+        setBaseValue("https://opencode.ai/zen/go/v1/models");
+        setFormat("google", "Google 格式");
+        setHint("Go 订阅内的 Gemini 专用入口（当前为 <code>gemini-4-argon</code> 一档）。需新增 Google 原生接口适配，排期拍板后开放。");
+        setPlaceholder("#cfKey", "OpenCode API Key（opencode.ai/auth 获取）");
+        addChips("模型名称", ["gemini-4-argon"]);
+      }
+    },
+    "go-gpt": {
+      note: "Go 订阅内的 GPT-5.6 Luna／Grok 4.6：需先排期新增 Responses 接口适配，接口格式段将出现第四档「Responses 格式」。",
+      apply: function () {
+        reset();
+        showTab("relay");
+        selectVendor("OpenCode Go · GPT 系");
+        setPlaceholder("#cfName", "例如：Go 订阅 · GPT 系");
+        setBaseValue("https://opencode.ai/zen/go/v1");
+        setFormat("responses", "Responses 格式");
+        setHint("Go 订阅内的 GPT／Grok 专用入口。需新增 Responses 接口适配，排期拍板后开放。");
+        setPlaceholder("#cfKey", "OpenCode API Key（opencode.ai/auth 获取）");
+        addChips("模型名称", ["gpt-5.6-luna", "grok-4.6"]);
+      }
+    }
+  };
+
+  /* ── 弹窗内 tab／方块直接可点（评审即操作真实形态） ── */
+  stage.addEventListener("click", function (e) {
+    var tab = e.target.closest("[data-vtab]");
+    if (tab) { renderTab(tab.getAttribute("data-vtab")); return; }
+    var vb = e.target.closest(".vgrid > button");
+    if (vb) {
+      selectVendor(vb.getAttribute("data-gl-vendor") ||
+        (vb.querySelector("span") ? vb.querySelector("span").textContent : ""));
+    }
+  });
+
+  /* ── demo-bar 接线 ── */
+  var chips = document.getElementById("protoChips");
+  chips.addEventListener("click", function (e) {
+    var btn = e.target.closest("button[data-state]");
+    if (!btn) return;
+    chips.querySelectorAll("button").forEach(function (b) { b.classList.remove("on"); });
+    btn.classList.add("on");
+    var st = STATES[btn.getAttribute("data-state")];
+    st.apply();
+    note.textContent = st.note;
+  });
+
+  STATES.current.apply();
+})();
+</script>
+</body>
+</html>

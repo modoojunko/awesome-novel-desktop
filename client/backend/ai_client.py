@@ -28,6 +28,11 @@ from sqlalchemy import select
 
 from api_configs.connection import normalize_openai_base
 from api_configs.crypto import decrypt_api_key
+from api_configs.vendor import (
+    gemini_effort,
+    is_opencode_base,
+    opencode_identity_headers,
+)
 from db import async_session
 from models.api_config import ApiConfig
 from models.project import Novel
@@ -329,6 +334,10 @@ class AIClient:
             "timeout": _to_sdk_timeout(provider, timeout or _CHAT_TIMEOUT),
             "max_retries": max_retries,
         }
+        # c-modelconfig-gemini-go：OpenCode 订阅网关身份头（会话标识＋产品 UA）——
+        # 生成与探针（connection.py）同口径；非该网关 SHALL NOT 附带
+        if is_opencode_base(base_url):
+            common["default_headers"] = opencode_identity_headers(api_key, base_url)
         if provider == "anthropic":
             self._provider = "anthropic"
             kwargs = {"api_key": api_key, **common}
@@ -429,6 +438,20 @@ class AIClient:
         参数字段都不认）→ 什么都不发；FORCED（disabled 被**值级**打回，GLM-5.3
         实锤）→「关」以 enabled＋low 替代（GLM 迁移指引口径），替代再被拒则升级
         为 UNSPORTED。"""
+        # Gemini 兼容层契约（c-modelconfig-gemini-go）：无 thinking 顶层参数——
+        # 开＝reasoning_effort（档位换算 low/high 原样、深 max→high）；
+        # 关＝reasoning_effort none（部分型号关不掉，表单提示已告知）
+        if getattr(self, "_vendor", "") == "gemini":
+            if getattr(self, "_thinking_enabled", False):
+                return {"reasoning_effort": gemini_effort(getattr(self, "_thinking_effort", "low"))}
+            return {"reasoning_effort": "none"}
+        if getattr(self, "_vendor", "") == "opencode-go-claude":
+            # zen claude 上游（c-modelconfig-gemini-go 真机实证）：enabled 必须用
+            # adaptive 裸形态（budget_tokens 是多余输入会被拒；经典 enabled/budget
+            # 形态「not supported for this model」）；关＝disabled 形态实测可用
+            if getattr(self, "_thinking_enabled", False):
+                return {"thinking": {"type": "adaptive"}}
+            return {"thinking": dict(_THINKING_DISABLED)}
         base = self._base_url or ""
         if base in _THINKING_UNSUPPORTED_BASES:
             return {}
@@ -452,6 +475,14 @@ class AIClient:
         """调用方显式传的 thinking 的完整参数组：非 disabled 形态原样；disabled 按
         端点记忆折算——FORCED＝enabled＋low（判定类保「短平快出文本」），
         UNSPORTED＝None（发了也必被拒）。"""
+        if getattr(self, "_vendor", "") == "gemini":
+            if self._is_disabled_shaped(explicit):
+                return {"reasoning_effort": "none"}
+            return {"reasoning_effort": gemini_effort(getattr(self, "_thinking_effort", "low"))}
+        if getattr(self, "_vendor", "") == "opencode-go-claude":
+            if self._is_disabled_shaped(explicit):
+                return {"thinking": dict(_THINKING_DISABLED)}
+            return {"thinking": {"type": "adaptive"}}
         if not self._is_disabled_shaped(explicit):
             return {"thinking": explicit}
         base = self._base_url or ""

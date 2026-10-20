@@ -41,6 +41,28 @@ describe("vendorDefaults 登记表", () => {
     expect(defaultsFor("openai", "openai").base_url).toBe("https://api.openai.com/v1");
     expect(defaultsFor("ollama", "openai").base_url).toBe("http://localhost:11434/v1");
   });
+
+  // c-modelconfig-gemini-go：Gemini 官方兼容层＋OpenCode Go 订阅两口
+  it("Gemini×openai 登记官方兼容层地址（自带版本段），模型留空", () => {
+    expect(defaultsFor("gemini", "openai")).toEqual({
+      base_url: "https://generativelanguage.googleapis.com/v1beta/openai/",
+      model: "",
+    });
+    expect(defaultsFor("gemini", "anthropic")).toEqual({ base_url: "", model: "" });
+  });
+
+  it("OpenCode Go 两口：chat 走 zen/go/v1（openai），claude 系走 zen/go（anthropic，SDK 拼 /v1/messages）", () => {
+    expect(defaultsFor("opencode-go-chat", "openai")).toEqual({
+      base_url: "https://opencode.ai/zen/go/v1",
+      model: "",
+    });
+    expect(defaultsFor("opencode-go-claude", "anthropic")).toEqual({
+      base_url: "https://opencode.ai/zen/go",
+      model: "",
+    });
+    expect(defaultsFor("opencode-go-chat", "anthropic")).toEqual({ base_url: "", model: "" });
+    expect(defaultsFor("opencode-go-claude", "openai")).toEqual({ base_url: "", model: "" });
+  });
 });
 
 describe("applyPreset 覆盖规则", () => {
