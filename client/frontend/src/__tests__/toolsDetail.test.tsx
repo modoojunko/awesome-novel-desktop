@@ -644,6 +644,9 @@ describe("TaskDetailPage", () => {
     renderPage();
     await waitFor(() => expect(screen.getByText(/批次 49\/63 · 卡片 542\/542 · 在途 2 · 并发 4/)).toBeInTheDocument());
     expect(document.querySelector('[data-od-id="mon-pbar"]')).not.toBeNull();
+    // Token 合计 hero（总进度同排右上）：合计大数字＋入/出小注
+    expect(document.querySelector('[data-od-id="mon-tok-hero"] .th-num')!.textContent).toBe("13.1k");
+    expect(screen.getByText(/Token 合计 · 输入 12\.3k · 输出 760/)).toBeInTheDocument();
     expect(screen.getByText(/速度（近 5 分钟）· 成功 5\/7 次 · 平均 41s · 吞吐 253 tok\/秒 · 累计 70 次/)).toBeInTheDocument();
     // Token 消耗行（随进展刷新；<1000 原样／≥1000 一位小数 k 两臂）
     expect(screen.getByText(/Token 消耗 · 输入 12\.3k · 输出 760 · 合计 13\.1k（完成时入账，随进展刷新）/)).toBeInTheDocument();
@@ -681,6 +684,7 @@ describe("TaskDetailPage", () => {
     await waitFor(() => expect(screen.getByText("取消任务")).toBeInTheDocument());
     expect(screen.getByText(/批次 0\/0 · 卡片 0\/0 · 在途 0 · 并发 4/)).toBeInTheDocument();
     expect(screen.getByText(/Token 消耗 · 输入 0 · 输出 0 · 合计 0（完成时入账，随进展刷新）/)).toBeInTheDocument();
+    expect(document.querySelector('[data-od-id="mon-tok-hero"] .th-num')!.textContent).toBe("0");
     expect(screen.getByText(/速度（近 5 分钟）· 成功 0\/0 次 · 平均 -s · 吞吐 0 tok\/秒 · 累计 0 次/)).toBeInTheDocument();
     expect(screen.queryByTestId("mon-recent")).not.toBeInTheDocument();
     // 无 monitor 臂：旧夹具（monitor 缺席）不出账行（重挂前清场）
