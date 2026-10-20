@@ -608,6 +608,11 @@ def sync_once(
                 continue
             key_id = str(entry.get("key_id") or "")
             value, code = _exchange_cek(key_id, version)
+            if code == 401:
+                # 换钥认证失效（c-pack-auth-selfheal D6）：登录态问题与档位无关，
+                # 降档重试只会放大失败——终态 auth，弹窗据此出重新授权出口
+                _set_state("failed", reason="auth")
+                return get_status()
             if code == 403:
                 last_reason = "tier"
                 continue

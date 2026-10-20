@@ -31,19 +31,25 @@ import { finishDialog } from "@/lib/dialogQueue";
  * 不锁）。文案沿用「写作能力」统一口径，
  * 提示词包/manifest/验签等内部词不进文案（design-language §13）。
  */
-type PackStage = "idle" | "confirm" | "running" | "done" | "failed";
+type PackStage = "idle" | "confirm" | "running" | "done" | "failed" | "awaiting";
 
 const POLL_INTERVAL_MS = 1000;
 const POLL_MAX_MS = 180_000;
+// 等待授权轮询（c-pack-auth-selfheal D7）：2s 一拍、上限 5 分钟——超时回失败态并给
+// 「重新检查」手动出口，不让弹窗无限挂在等待态
+const AUTH_POLL_INTERVAL_MS = 2_000;
+const AUTH_POLL_MAX_MS = 300_000;
 
 const STEP_LABELS = ["检查版本", "下载能力包", "校验安装"] as const;
 
-/** 失败原因→人话（评审 P2-4：spec 点名失败态呈现失败原因；未映射 reason 走默认文案） */
+/** 失败原因→人话（评审 P2-4：spec 点名失败态呈现失败原因；未映射 reason 走默认文案）。
+ * auth 为完整独立句：认证类失败重试不会好，失败态对其不拼「随时可以重试」后缀。 */
 const FAIL_NOTES: Record<string, string> = {
   cdn_unreachable: "网络暂时连不上，稍后可以重试。",
   download: "下载没有完成（网络或服务暂时不可用）。",
   key_retired: "服务端已发布新版，重试会自动获取。",
   install: "安装没有完成，可以重试。",
+  auth: "登录状态需要刷新，请重新授权后再试。",
 };
 const STEP_INDEX: Record<string, number> = { probe: 0, download: 1, install: 2 };
 
@@ -60,14 +66,21 @@ export default function PromptPackModal() {
   const [doneVersion, setDoneVersion] = useState("");
   // 轮询拿到的终态相位与失败原因（评审 P2-4/P3-3：denied 不再等 refetch 落地才翻）
   const [finalPhase, setFinalPhase] = useState("");
+  const [finalReason, setFinalReason] = useState("");
   const [failNote, setFailNote] = useState("");
+  // 等待授权超时后回失败态：出现「重新检查」手动出口（D7）
+  const [awaitingTimedOut, setAwaitingTimedOut] = useState(false);
   const pollStopRef = useRef<number | null>(null);
+  // 等待授权轮询链（c-pack-auth-selfheal D7）：与同步状态轮询分链分号
+  const authPollStopRef = useRef<number | null>(null);
+  const authSeqRef = useRef(0);
   // run-token（评审 P1-3）：每轮轮询持序号，恢复时序号不符即自杀——根治
   // 「旧 tick 在途恢复后覆盖 pollStopRef 杀不掉」的双链竞态
   const runSeqRef = useRef(0);
-  // running 守卫镜像：onOpen 闭包读它（读 state 会拿到订阅时的旧值）
+  // running 守卫镜像：onOpen 闭包读它（读 state 会拿到订阅时的旧值）。
+  // awaiting 同样不得被新开启事件打断（重授权等待期与进度期同性质）
   const runningRef = useRef(false);
-  runningRef.current = stage === "running";
+  runningRef.current = stage === "running" || stage === "awaiting";
 
   const stopPoll = useCallback(() => {
     if (pollStopRef.current !== null) {
@@ -76,13 +89,23 @@ export default function PromptPackModal() {
     }
   }, []);
 
+  const stopAuthPoll = useCallback(() => {
+    if (authPollStopRef.current !== null) {
+      window.clearTimeout(authPollStopRef.current);
+      authPollStopRef.current = null;
+    }
+  }, []);
+
   const startRun = useCallback(async () => {
     stopPoll();
+    stopAuthPoll();
     runSeqRef.current += 1;
     const seq = runSeqRef.current;
     setLiveStep("");
     setFinalPhase("");
+    setFinalReason("");
     setFailNote("");
+    setAwaitingTimedOut(false);
     setStage("running");
     try {
       await api.post("/prompt-pack/check", undefined, { quiet: true });
@@ -105,6 +128,7 @@ export default function PromptPackModal() {
           stopPoll();
           setStage(st.phase === "ready" ? "done" : "failed");
           setFinalPhase(st.phase);
+          setFinalReason(st.reason ?? "");
           setDoneVersion(st.version ?? "");
           setFailNote(st.reason ? (FAIL_NOTES[st.reason] ?? "") : "");
           if (st.phase === "ready") {
@@ -134,6 +158,7 @@ export default function PromptPackModal() {
     const onOpen = (e: Event) => {
       // running 重入守卫（评审 P1-3）：进度期收到新开启事件（如进度中回作品页再探测）
       // 一律忽略——锁定态不得被降级成可关的确认弹窗，也不得重开第二条轮询链
+      // （awaiting 等待授权期同性质，runningRef 镜像一并覆盖）
       if (runningRef.current) return;
       const d = ((e as CustomEvent).detail ?? {}) as {
         mode?: PackModalMode;
@@ -159,12 +184,90 @@ export default function PromptPackModal() {
       window.removeEventListener("pack-modal:open", onOpen as EventListener);
     };
   }, [startRun]);
-  // 卸载专用清理（stopPoll 恒稳，不随渲染重跑）——轮询链绝不能被重渲染打断
-  useEffect(() => stopPoll, [stopPoll]);
+  // 卸载专用清理（stopPoll/stopAuthPoll 恒稳，不随渲染重跑）——轮询链绝不能被重渲染打断
+  useEffect(
+    () => () => {
+      stopPoll();
+      stopAuthPoll();
+    },
+    [stopPoll, stopAuthPoll],
+  );
+
+  // 认证类失败出口（c-pack-auth-selfheal D7）：直驱重授权流，不走登录页——
+  // 登录页静默自动登录会把失效令牌用户自动弹回作品页（评审 P1）。经既有非静默
+  // 授权入口取授权页地址开系统浏览器（LoginPage.handleBrowserAuth 同款壳层桥
+  // 形态），随后弹窗转等待授权态轮询 check-auth；code 0 即原地恢复既有进度流。
+  const goRelogin = useCallback(async () => {
+    stopAuthPoll();
+    const seq = (authSeqRef.current += 1);
+    setAwaitingTimedOut(false);
+    try {
+      const res = (await api.post("/auth/browser-auth", undefined, { quiet: true })) as {
+        code?: number;
+        data?: { auth_url?: string };
+      };
+      const url = res?.data?.auth_url;
+      if (url) {
+        const bridge = (
+          window as unknown as {
+            pywebview?: { api?: { open_external?: (u: string) => Promise<void> } };
+          }
+        ).pywebview?.api;
+        // pywebview cocoa 只对「真实锚点点击」转系统浏览器，编程式 window.open 落空
+        // ——桥可用走 open_external，失败回退 window.open（LoginPage 同款判例）
+        if (typeof bridge?.open_external === "function") {
+          Promise.resolve(bridge.open_external(url)).catch(() => window.open(url, "_blank"));
+        } else {
+          window.open(url, "_blank");
+        }
+      }
+    } catch {
+      /* 授权地址取不到也进等待轮询：用户可能已在别的窗口完成登录 */
+    }
+    setStage("awaiting");
+    const deadline = Date.now() + AUTH_POLL_MAX_MS;
+    const tick = async () => {
+      if (authSeqRef.current !== seq) return; // 旧链自杀
+      if (Date.now() > deadline) {
+        stopAuthPoll();
+        setStage("failed");
+        setAwaitingTimedOut(true);
+        return;
+      }
+      try {
+        const res = (await api.get("/auth/check-auth", { quiet: true })) as { code?: number };
+        if (authSeqRef.current !== seq) return;
+        if (res?.code === 0) {
+          stopAuthPoll();
+          void startRun(); // 登录态就绪 → 原地恢复既有进度流
+          return;
+        }
+      } catch {
+        /* 本地接口瞬时失败：继续轮询 */
+      }
+      authPollStopRef.current = window.setTimeout(() => void tick(), AUTH_POLL_INTERVAL_MS);
+    };
+    authPollStopRef.current = window.setTimeout(() => void tick(), AUTH_POLL_INTERVAL_MS);
+  }, [startRun, stopAuthPoll]);
+
+  // 等待授权超时后的手动复查出口：只查登录态不重开授权页
+  const recheckAuth = useCallback(async () => {
+    try {
+      const res = (await api.get("/auth/check-auth", { quiet: true })) as { code?: number };
+      if (res?.code === 0) {
+        void startRun();
+        return;
+      }
+    } catch {
+      /* 落 toast 提示 */
+    }
+    toast.info("还未检测到授权，请在浏览器完成登录后再试");
+  }, [startRun]);
 
   const close = useCallback(() => {
     // 中途关窗＝纯视觉退出：后台同步继续（不 abort），四态卡兜底
     stopPoll();
+    stopAuthPoll();
     // 关闭记忆（c-pack-modal-dismiss）：装上了清首装标记自愈；更新确认态关＝
     // 暂不更新记版本锚（同版不重弹）；其余未装上就关（首装失败/中途退出、
     // tier_denied 去升级）＝记首装关闭不再自动弹。manual 空闲态不记——用户
@@ -179,7 +282,7 @@ export default function PromptPackModal() {
     setOpen(false);
     // c-lossless-upgrade：出队（放行壳层队列的后续条目）
     finishDialog("pack");
-  }, [stopPoll, stage, toVersion, tier]);
+  }, [stopPoll, stopAuthPoll, stage, toVersion, tier]);
 
   const runProbe = useCallback(async () => {
     if (checking) return;
@@ -232,6 +335,9 @@ export default function PromptPackModal() {
   }, [tier]);
 
   const denied = (finalPhase || tier?.pack?.phase) === "tier_denied";
+  // 认证类失败（换钥 401 / 过渡期换得死令牌）：出口换「重新登录」直驱授权页，
+  // 文案为完整独立句（不拼「随时可以重试」——重试不会好）
+  const authFail = !denied && (stage === "failed" || stage === "awaiting") && finalReason === "auth";
   const curStep = liveStep ? (STEP_INDEX[liveStep] ?? 0) : 0;
 
   const title =
@@ -239,16 +345,28 @@ export default function PromptPackModal() {
       ? runKind === "update"
         ? "正在更新写作能力"
         : "正在准备写作能力"
-      : stage === "confirm"
-        ? "写作能力有更新"
-        : stage === "done"
-          ? "写作能力已就绪"
-          : stage === "failed"
-            ? "写作能力没有就绪"
-            : "写作能力";
+      : stage === "awaiting"
+        ? "等待重新授权"
+        : stage === "confirm"
+          ? "写作能力有更新"
+          : stage === "done"
+            ? "写作能力已就绪"
+            : stage === "failed"
+              ? "写作能力没有就绪"
+              : "写作能力";
 
   const footer =
-    stage === "running" ? null : stage === "confirm" ? (
+    stage === "running" ? null : stage === "awaiting" ? (
+      <button
+        className="btn btn-ghost btn-sm"
+        onClick={() => {
+          stopAuthPoll();
+          setStage("failed");
+        }}
+      >
+        取消
+      </button>
+    ) : stage === "confirm" ? (
       <>
         <button className="btn btn-ghost btn-sm" onClick={close}>
           暂不更新
@@ -280,6 +398,20 @@ export default function PromptPackModal() {
         >
           去升级
         </button>
+      ) : authFail ? (
+        <>
+          <button className="btn btn-ghost btn-sm" onClick={() => void copyDiag()}>
+            复制诊断信息
+          </button>
+          {awaitingTimedOut && (
+            <button className="btn btn-ghost btn-sm" data-testid="pack-recheck" onClick={() => void recheckAuth()}>
+              重新检查
+            </button>
+          )}
+          <button className="btn btn-primary btn-sm" data-testid="pack-go-login" onClick={() => void goRelogin()}>
+            重新登录
+          </button>
+        </>
       ) : (
         <>
           <button className="btn btn-ghost btn-sm" onClick={() => void copyDiag()}>
@@ -358,11 +490,18 @@ export default function PromptPackModal() {
           <p className="pm-note">该能力随 MAX 提供——升级后解锁剧情推演与文风蒸馏。</p>
         ) : (
           <p className="pm-warn" data-testid="pack-fail-note">
-            {failNote
-              ? `${failNote} 手写不受影响，随时可以重试。`
-              : "获取没有完成（网络或服务暂时不可用）。手写不受影响，随时可以重试。"}
+            {authFail
+              ? failNote || "登录状态需要刷新，请重新授权后再试。"
+              : failNote
+                ? `${failNote} 手写不受影响，随时可以重试。`
+                : "获取没有完成（网络或服务暂时不可用）。手写不受影响，随时可以重试。"}
           </p>
         ))}
+      {stage === "awaiting" && (
+        <p className="pm-note" data-testid="pack-awaiting-note">
+          已在浏览器打开授权页，请完成登录；完成后此窗口会自动继续获取。若长时间未继续，可回失败态后点「重新检查」。
+        </p>
+      )}
       {stage === "idle" && (
         <p className="pm-note" data-testid="pack-manual-note">
           {isLoggedIn()

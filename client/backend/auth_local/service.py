@@ -62,6 +62,26 @@ def device_challenge(device_secret: str) -> str:
     return hashlib.sha256((device_secret or "").encode("utf-8")).hexdigest()
 
 
+def token_expired(token: str, *, now: float | None = None) -> bool:
+    """本地令牌是否已过期：仅解 JWT payload 读 exp，不做签名校验（安全判定始终在 S 端）。
+
+    c-pack-auth-selfheal：静默刷新曾无条件沿用本地令牌，死令牌由此长存（2026-10-20
+    真机实锤——用户完成浏览器重授权后仍无法自愈）。三段式/缺 exp/不可解析一律视同
+    过期（宁换勿沿用：pair/exchange 幂等且廉价）。
+    """
+    if not token or token.count(".") != 2:
+        return True
+    try:
+        seg = token.split(".")[1]
+        payload = json.loads(base64.urlsafe_b64decode(seg + "=" * (-len(seg) % 4)))
+        exp = payload.get("exp")
+    except (ValueError, TypeError, IndexError):
+        return True
+    if isinstance(exp, bool) or not isinstance(exp, (int, float)):
+        return True
+    return exp <= (time.time() if now is None else now)
+
+
 def _build_auth_url(
     public_api: str, pc_hash: str, pc_name: str, device_profile: str, challenge: str = "",
 ) -> str:
@@ -522,10 +542,19 @@ async def call_server_api(
                 else:
                     resp = await client.post(url, json=json_body, headers=headers)
                 try:
-                    return resp.json()
+                    out = resp.json()
                 except ValueError:
-                    # 云托管网关冷启动/重启期间可能返回空体或 HTML 错误页
-                    return {"code": -1, "msg": f"S端响应异常（HTTP {resp.status_code}）"}
+                    out = None
+                if resp.status_code == 401:
+                    # HTTP 401 与「不可达」分离（c-pack-auth-selfheal D5）：换钥消费方
+                    # 据此终态 auth，不再与网关冷启动/断网共用 code -1；
+                    # envelope 内的 code（如 -1「无效的令牌」）以 HTTP status 为准
+                    msg = out.get("msg") if isinstance(out, dict) else None
+                    return {"code": 401, "msg": msg or "登录状态已失效"}
+                if out is not None:
+                    return out
+                # 云托管网关冷启动/重启期间可能返回空体或 HTML 错误页
+                return {"code": -1, "msg": f"S端响应异常（HTTP {resp.status_code}）"}
         except httpx.TimeoutException:
             last_err_msg = "网络超时"
             logger.warning("event=s_api_call_timeout base=%s endpoint=%s", base, endpoint)
@@ -554,9 +583,10 @@ async def browser_auth(silent: bool = False) -> dict:
             data = result["data"]
             # s-security-hardening：S端 轮询不再携带令牌（硬切）——
             # 本地无令牌（首装/掉登录）时以本机配对密钥走 pair/exchange 换取；
-            # 换取失败（密钥不符/未升级/限流）保留现状，MUST NOT 清凭据。
+            # c-pack-auth-selfheal：沿用收紧为「有效才沿用」——过期/不可解析的令牌
+            # 落 pair/exchange 换新（死令牌长存死锁的根治点）。
             if not data.get("token"):
-                if cfg.get("token"):
+                if cfg.get("token") and not token_expired(cfg["token"]):
                     data["token"] = cfg["token"]  # 保留本地有效令牌，仅刷新套餐数据
                 else:
                     x = await call_server_api(
@@ -564,12 +594,34 @@ async def browser_auth(silent: bool = False) -> dict:
                         method="POST",
                         json_body={"pc_hash": pc_hash, "device_secret": cfg.get("device_secret", "")},
                     )
-                    if x.get("code") == 0 and x.get("data", {}).get("token"):
+                    xcode = x.get("code")
+                    if xcode == 0 and x.get("data", {}).get("token"):
                         data = {**data, **x["data"]}
-                    elif x.get("code") == -1:
+                    elif xcode in (-1, 401):
+                        # 不可达/网关拒（401 由 call_server_api 自 HTTP status 透传）：
+                        # 可重试态，保留现态静默降级
                         return {"code": -1, "msg": x.get("msg", "S端 不可达")}
+                    elif xcode == 1 and cfg.get("token"):
+                        # 配对终局失败且本地令牌已死（走到这说明无有效令牌）：
+                        # 按既有失效清理全集清凭据，携独立标志引导重登（D3/D8）——
+                        # 清凭据后前端不再被静默自动登录弹回，可真实到达授权入口
+                        stale_user = cfg.get("username", "")
+                        for k in ("token", "username", "expires_at", "last_login_at",
+                                  "entitlement_fetched_at"):
+                            cfg[k] = ""
+                        cfg["tier"] = "none"
+                        cfg["entitlement"] = None
+                        cfg["tier_catalog"] = None
+                        cfg["deletion_pending"] = False
+                        save_local_config(cfg)
+                        logger.info("event=session.pairing_broken user=%s", stale_user)
+                        return {"code": 1, "data": {
+                            "pairing_broken": True,
+                            "message": "登录状态已过期，请重新登录；本地作品不受影响",
+                        }}
                     else:
-                        # 配对失败：引导重新授权（老安装包/密钥轮换后），不清本地数据
+                        # 配对失败（本地无令牌：老安装包/密钥轮换后）或限流等可重试态：
+                        # 不清本地数据，引导重新授权
                         return {"code": 1, "data": {"message": "请在桌面端重新登录以完成设备授权"}}
             cfg["token"] = data["token"]
             cfg["username"] = data.get("username", "")

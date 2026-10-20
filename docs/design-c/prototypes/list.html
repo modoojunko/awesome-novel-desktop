@@ -464,6 +464,37 @@
     </div>
   </div>
 </div>
+<div class="modal" id="packAuthFail" hidden data-od-id="pack-modal-auth-fail" role="dialog" aria-modal="true" aria-labelledby="pack-auth-fail-title">
+  <div class="mcard">
+    <div class="mcard-head">
+      <span class="mh serif" id="pack-auth-fail-title">写作能力没有就绪</span>
+      <button class="icon-btn x" data-close="packAuthFail" aria-label="关闭"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M6 6l12 12M18 6L6 18"/></svg></button>
+    </div>
+    <div class="mcard-body">
+      <!-- 认证类失败（c-pack-auth-selfheal）：完整独立句，无「随时可以重试」后缀（重试不会好） -->
+      <p class="pm-warn">登录状态需要刷新，请重新授权后再试。手写不受影响。</p>
+    </div>
+    <div class="mcard-foot">
+      <button class="btn btn-ghost btn-sm" data-close="packAuthFail">复制诊断信息</button>
+      <button class="btn btn-primary btn-sm" data-close="packAuthFail">重新登录</button>
+    </div>
+  </div>
+</div>
+<div class="modal" id="packAuthWait" hidden data-od-id="pack-modal-auth-wait" role="dialog" aria-modal="true" aria-labelledby="pack-auth-wait-title">
+  <div class="mcard">
+    <div class="mcard-head">
+      <span class="mh serif" id="pack-auth-wait-title">等待重新授权</span>
+      <button class="icon-btn x" data-close="packAuthWait" aria-label="关闭"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M6 6l12 12M18 6L6 18"/></svg></button>
+    </div>
+    <div class="mcard-body">
+      <p class="pm-note">已在浏览器打开授权页，请完成登录；完成后此窗口会自动继续获取。若长时间未继续，可回失败态后点「重新检查」。</p>
+    </div>
+    <div class="mcard-foot">
+      <button class="btn btn-ghost btn-sm" data-close="packAuthWait">取消</button>
+      <button class="btn btn-ghost btn-sm" data-close="packAuthWait">重新检查</button>
+    </div>
+  </div>
+</div>
 
 <!-- ═══ 控制中心面板（c-account-control-center） ═══ -->
 <div class="acct-menu" id="acctMenu" hidden data-od-id="acct-menu" role="menu" aria-label="账号与设置">
@@ -488,12 +519,14 @@
 <div class="toast-wrap" id="toastWrap" role="status" aria-live="polite"></div>
 <!-- 演示控制条（非基线；收编前删除）：写作能力弹窗变体切换 -->
 <div class="demo-bar" role="tablist" aria-label="写作能力弹窗状态切换">
-  <span class="demo-h">写作能力弹窗 · 5 态</span>
+  <span class="demo-h">写作能力弹窗 · 7 态</span>
   <button class="chip-btn" data-pack-modal="packInstall">首装进行中</button>
   <button class="chip-btn" data-pack-modal="packUpdate">更新确认</button>
   <button class="chip-btn" data-pack-modal="packUpdateRun">更新进行中</button>
   <button class="chip-btn" data-pack-modal="packDone">已完成</button>
   <button class="chip-btn" data-pack-modal="packFail">失败</button>
+  <button class="chip-btn" data-pack-modal="packAuthFail">认证失败</button>
+  <button class="chip-btn" data-pack-modal="packAuthWait">等待授权</button>
   <span class="demo-h">toast · 3 秒自消＋×</span>
   <button class="chip-btn" data-toast-demo>弹一个</button>
   <span class="demo-note">产品实现为单实例弹窗（mode×stage 状态机），此处并列四变体供评审</span>

@@ -18,6 +18,8 @@ from auth_local import service as svc
 
 
 class _FakeResp:
+    status_code = 200  # c-pack-auth-selfheal：call_server_api 读 HTTP status 分流 401
+
     def __init__(self, payload: dict):
         self._payload = payload
 
