@@ -1,0 +1,939 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>设计原型 · 角色列表：批量添加 / 拖拽排序 / 搜索查找</title>
+<!-- ═══════════════════════════════════════════════════════════════
+  设计原型 · 角色设定列表三件套（批量添加 / 拖拽排序 / 搜索查找）· 2026-10-09
+  · 重建口径：**真实 pages/ 页面壳 + 真实组件标记 + graft 新增件**。
+    页面骨架（.wb 壳、appbar、modnav、.settings-v 三栏、settings-nav）逐字复制自
+    docs/design-c/pages/book-settings.html；角色列表/角色卡标记按
+    client/frontend/src/components/novel/settings/CharacterManager.tsx 的真实类名
+    与结构重建（.char-list/.char-search/.char-groups/.char-row-btn/.char-head/
+    .char-persona/.char-dossier-row/.char-cog/.cog-layer…），内容为演示种子。
+    认知六层与基础档案字段名逐字取自 client/frontend/src/lib/characterModel.ts。
+  · 样式：base.css / list.css / book.css 全文由 build-chars-proto.py 从
+    client/frontend/src/design/*.css 逐字注入（占位符替换，可重放）。
+    新增件只用 gl- 前缀类（注释标注「新增 graft」），颜色/圆角/字体只用真实 token。
+  · 产品文案逐字取自同目录《ai-novel-c端-批量添加角色-头脑风暴.md》《ai-novel-c端-角色列表拖拽排序与搜索-头脑风暴.md》
+    （解析格式说明、重名提示、空态句、开关口径）；书名/人名/人设为演示种子，非产品文案。
+  · 顶部 demo-bar（切场景）与 gl-note 为非基线元素，产品 UI 不含。
+  · 交互为真：拖拽排序（指针拖动，组内/扁平两态）、搜索（名字＋别名，命中自动展开分组）、
+    批量添加弹窗（实时解析预览、重名跳过、每书一位主角校验、建卡计数）。
+  · 重放：python3 docs/design-c/drafts/build-chars-proto.py
+    （源模板 ai-novel-c端-角色批量添加与拖拽排序-原型.src.html → 本文件，幂等）
+═══════════════════════════════════════════════════════════════ -->
+<style>
+/* ══════════ 真实样式逐字注入（build-chars-proto.py 从 client/frontend/src/design/*.css 抽取） ══════════ */
+/*__INJECT_STYLE_BASE__*/
+/*__INJECT_STYLE_LIST__*/
+/*__INJECT_STYLE_BOOK__*/
+
+/* ══════════ 新增 graft（gl- 前缀；token 取真实值，未重定义任何 token） ══════════ */
+/* ── 原型工具条（非基线元素 · 产品 UI 不含） ── */
+.gl-demobar { position: sticky; top: 0; z-index: 90; display: flex; align-items: center; gap: 12px; flex-wrap: wrap;
+  background: var(--surface); border-bottom: 1px solid var(--border); padding: 8px 16px;
+  font-size: 12px; color: var(--muted); box-shadow: var(--shadow-card); }
+.gl-demo-title { font-family: var(--font-display); font-size: 14px; font-weight: 600; color: var(--fg); }
+.gl-demo-title em { font-style: normal; font-family: var(--font-mono); font-size: 10px; letter-spacing: 0.12em;
+  color: var(--accent-strong); border: 1px solid var(--border); border-radius: 999px; padding: 2px 8px; margin-right: 8px; }
+.gl-demo-note { font-size: 11px; color: var(--muted); border: 1px dashed var(--border); border-radius: 999px; padding: 3px 10px; }
+.gl-demobar .btn { height: 26px; padding: 0 11px; font-size: 12px; border-radius: 7px; }
+.gl-note { margin: 12px clamp(12px, 3vw, 28px) 0; padding: 10px 14px; border: 1px dashed var(--border); border-radius: 10px;
+  background: var(--fg-soft); color: var(--muted); font-size: 12px; line-height: 1.8; }
+.gl-note b { color: var(--fg); font-weight: 500; }
+
+/* ── 左栏新增件：批量添加入口 / 搜索清空 / 分组开关 ── */
+.gl-add-row { display: grid; grid-template-columns: 1fr auto; gap: 6px; margin-bottom: 8px; flex: none; }
+.gl-add-row .char-add { margin-bottom: 0; }
+.gl-add-row .btn { height: 32px; padding: 0 12px; font-size: 12.5px; border-style: dashed; color: var(--accent); }
+.gl-add-row .btn:hover { border-color: var(--accent); background: color-mix(in oklch, var(--accent) 12%, transparent); }
+.gl-search-wrap { position: relative; flex: none; }
+.gl-search-wrap .char-search { margin-bottom: 8px; padding-right: 28px; }
+.gl-search-x { position: absolute; right: 6px; top: 4px; width: 20px; height: 20px; border: none; border-radius: 999px;
+  background: transparent; color: var(--muted); cursor: pointer; font-size: 13px; line-height: 1; }
+.gl-search-x:hover { background: var(--fg-soft); color: var(--fg); }
+.gl-list-tools { display: flex; align-items: center; gap: 8px; margin: -2px 0 8px; flex: none; min-height: 22px; }
+.gl-switch { display: inline-flex; align-items: center; gap: 6px; font-size: 11.5px; color: var(--muted); cursor: pointer; }
+.gl-switch input { accent-color: var(--accent); margin: 0; }
+.gl-tool-hint { font-size: 10.5px; color: var(--warn); margin-left: auto; text-align: right; }
+.gl-empty { padding: 14px 8px; font-size: 12px; color: var(--muted); line-height: 1.9; }
+.gl-empty button { border: none; background: transparent; color: var(--accent); cursor: pointer; font: inherit; padding: 0; }
+
+/* ── 拖拽排序（把手 + 拖影 + 落位线） ── */
+.gl-handle { display: grid; place-items: center; width: 16px; height: 22px; flex: none; color: var(--faint);
+  cursor: grab; border-radius: 5px; }
+.gl-handle:hover { background: var(--fg-soft); color: var(--muted); }
+.gl-handle.off { opacity: 0.35; cursor: not-allowed; }
+.gl-drag-src { opacity: 0.35; }
+.gl-drag-ghost { position: fixed; z-index: 120; pointer-events: none; background: var(--surface);
+  border: 1px solid var(--accent); border-radius: 7px; box-shadow: var(--shadow-card);
+  padding: 5px 8px; cursor: grabbing; }
+.gl-drop-before { box-shadow: inset 0 2px 0 var(--accent); }
+.gl-drop-after { box-shadow: inset 0 -2px 0 var(--accent); }
+html.gl-dragging { cursor: grabbing; user-select: none; }
+.gl-role-tag { font-size: 10px; color: var(--muted); border: 1px solid var(--border); border-radius: 999px;
+  padding: 1px 7px; flex: none; }
+.gl-role-tag.gl-role-主角 { color: var(--accent); border-color: color-mix(in oklch, var(--accent) 35%, var(--border)); }
+.gl-role-tag.gl-role-反派 { color: var(--err); border-color: color-mix(in oklch, var(--err) 35%, var(--border)); }
+
+/* ── 批量添加弹窗（壳为真实 .scrim/.modal/.mcard.wb-style） ── */
+.gl-batch.mcard.wb-style { width: min(880px, 94vw); }
+.gl-batch-hint { font-size: 12px; color: var(--muted); line-height: 1.8; margin: 0 0 10px; }
+.gl-batch-hint code { font-family: var(--font-mono); font-size: 11px; background: var(--fg-soft);
+  border-radius: 5px; padding: 1px 6px; color: var(--fg); }
+.gl-file-row { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-bottom: 10px; }
+.gl-file-name { font-size: 11.5px; color: var(--muted); min-width: 0; }
+.gl-guide { margin: 2px 0 4px; border: 1px dashed var(--border); border-radius: 9px; background: var(--surface); }
+.gl-guide summary { cursor: pointer; padding: 8px 12px; font-size: 12px; color: var(--accent); list-style: none; }
+.gl-guide summary::before { content: "▸ "; }
+.gl-guide[open] summary::before { content: "▾ "; }
+.gl-guide-scroll { max-height: 230px; overflow-y: auto; padding: 0 12px 10px; }
+.gl-guide-t { width: 100%; border-collapse: collapse; font-size: 11.5px; }
+.gl-guide-t th, .gl-guide-t td { text-align: left; padding: 5px 8px; border-bottom: 1px dashed var(--border); vertical-align: top; line-height: 1.65; }
+.gl-guide-t th { color: var(--muted); font-weight: 500; position: sticky; top: 0; background: var(--surface); }
+.gl-guide-t td:first-child { white-space: nowrap; color: var(--fg); font-weight: 500; }
+.gl-guide-t td:nth-child(2) { color: var(--muted); }
+.gl-guide-t td:last-child { color: var(--fg); font-family: var(--font-mono); font-size: 11px; }
+.gl-guide-note { margin: 8px 0 0; font-size: 11.5px; color: var(--warn); line-height: 1.7; }
+.gl-pv { border: 1px solid var(--border); border-radius: 9px; min-height: 190px; max-height: 300px; overflow-y: auto;
+  background: var(--surface); margin-bottom: 4px; }
+.gl-pv-head { display: flex; align-items: center; gap: 8px; padding: 7px 12px; border-bottom: 1px solid var(--border);
+  font-size: 11px; color: var(--muted); position: sticky; top: 0; background: var(--surface); z-index: 1; }
+.gl-pv-row { display: flex; align-items: center; gap: 8px; padding: 6px 12px; border-bottom: 1px dashed var(--border); }
+.gl-pv-row:last-child { border-bottom: none; }
+.gl-pv-row.bad { background: color-mix(in oklch, var(--err) 6%, transparent); }
+.gl-pv-row.warn { background: color-mix(in oklch, var(--warn) 8%, transparent); }
+.gl-pv-no { flex: none; width: 20px; font-family: var(--font-mono); font-size: 10.5px; color: var(--faint); }
+.gl-pv-name { flex: 0 0 128px; }
+.gl-pv-role { flex: none; }
+.gl-pv-persona { flex: 1; min-width: 0; }
+.gl-pv-row input, .gl-pv-row select { height: 27px; padding: 0 8px; border: 1px solid var(--border); border-radius: 7px;
+  background: var(--surface); color: var(--fg); font-size: 12px; font-family: inherit; width: 100%; }
+.gl-pv-row select { width: auto; }
+.gl-pv-row input:focus, .gl-pv-row select:focus { outline: 2px solid color-mix(in oklch, var(--accent) 12%, transparent); border-color: var(--accent); }
+.gl-pv-x { flex: none; width: 20px; height: 20px; border: none; border-radius: 999px; background: transparent;
+  color: var(--faint); cursor: pointer; }
+.gl-pv-x:hover { background: var(--fg-soft); color: var(--fg); }
+.gl-pv-empty { padding: 22px 14px; font-size: 12px; color: var(--muted); text-align: center; line-height: 1.9; }
+.gl-pv-err { padding: 14px; font-size: 12px; color: var(--err); background: color-mix(in oklch, var(--err) 8%, transparent); line-height: 1.8; }
+.gl-batch-bar { display: flex; align-items: center; gap: 10px; margin-top: 12px; flex-wrap: wrap; }
+.gl-batch-bar .lbl { font-size: 12px; color: var(--muted); }
+.gl-batch-bar select { height: 28px; padding: 0 9px; border: 1px solid var(--border); border-radius: 7px;
+  background: var(--surface); color: var(--fg); font-size: 12px; font-family: inherit; }
+.gl-batch-cnt { margin-left: auto; font-size: 12px; color: var(--muted); }
+.gl-batch-cnt b { color: var(--fg); font-family: var(--font-mono); font-weight: 600; }
+.gl-batch-cnt .skip { color: var(--warn); }
+
+/* ── toast ── */
+.gl-toast { position: fixed; left: 50%; bottom: 34px; transform: translate(-50%, 8px); z-index: 140;
+  background: var(--fg); color: var(--surface); font-size: 12.5px; border-radius: 999px; padding: 8px 18px;
+  box-shadow: var(--shadow-card); opacity: 0; pointer-events: none; transition: opacity 0.18s ease, transform 0.18s ease; }
+.gl-toast.show { opacity: 1; transform: translate(-50%, 0); }
+
+/* ── 详情区小补丁（真实类为主，仅补 demo 态） ── */
+.gl-kbd { font-family: var(--font-mono); font-size: 10px; border: 1px solid var(--border); border-bottom-width: 2px;
+  border-radius: 5px; padding: 1px 5px; color: var(--muted); background: var(--surface); }
+.gl-ops-note { font-size: 11px; color: var(--faint); margin-left: 6px; }
+</style>
+</head>
+<body>
+
+<!-- 非基线：原型工具条 -->
+<div class="gl-demobar">
+  <span class="gl-demo-title"><em>原型</em>角色设定 · 批量添加 / 拖拽排序 / 搜索查找</span>
+  <button class="btn btn-secondary" data-act="batch">① 批量添加弹窗</button>
+  <button class="btn btn-secondary" data-act="flat">② 拖拽排序（关分组）</button>
+  <button class="btn btn-secondary" data-act="search">③ 搜索（别名命中·自动展开）</button>
+  <button class="btn btn-ghost" data-act="reset">复位</button>
+  <span class="gl-demo-note">拖拽：按住行拖动，或 <span class="gl-kbd">Alt</span>+<span class="gl-kbd">↑</span><span class="gl-kbd">↓</span> · demo-bar 非产品 UI</span>
+</div>
+<div class="gl-note">
+  <b>本原型三件新增：</b>①「批量添加」<b>下载模版 → Excel 里填好 → 上传导入</b>（示例行自动跳过、重名跳过）；
+  ② 列表行按住<b>拖拽排序</b>——「按角色类型分组」开关开＝组内排，关＝整条自由排；
+  ③ 搜索（名字＋别名）<b>命中自动展开分组</b>＋空态一键清空。其余均为真实页面件。
+</div>
+
+<div class="wb">
+<header class="appbar appbar-wb">
+  <a class="logo" href="works.html" title="返回我的小说" data-od-id="appbar-logo"><span class="logo-mark">爱</span>爱小说</a>
+  <span class="sep"></span>
+  <span class="novel-title serif" title="双击重命名">星海拾遗</span>
+  <span class="genre-tag" title="科幻 · 星际探索">科幻 · 星际探索</span>
+  <span class="sep"></span>
+  <div class="bar-here" data-od-id="current-position">
+    <p class="bh-k">当前主线</p>
+    <span class="bh-rule" aria-hidden="true"></span>
+    <p class="bh-t"><span class="n">第 14 章</span>潮汐里的灯</p>
+    <span class="bh-tag bh-tag-live">草稿</span>
+    <div class="bh-prog">
+      <span class="bh-vol">第二卷 · 8/14</span>
+      <span class="prog-bar"><span style="width:57%"></span></span>
+    </div>
+    <button class="btn btn-primary btn-sm" data-od-id="resume-cta" title="回到上次退出前的位置">续写</button>
+  </div>
+  <span class="spacer" style="flex:1"></span>
+  <span class="badge badge-accent">PRO</span>
+</header>
+<nav class="modnav">
+    <a class="mtab on" href="book-settings.html" aria-current="page">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" width="15" height="15"><path d="M12 20h9M16.5 3.5a2.1 2.1 0 013 3L7 19l-4 1 1-4L16.5 3.5z"/></svg>
+      设定 <span class="cnt">5/7</span>
+    </a>
+    <a class="mtab" href="book-write.html">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" width="15" height="15"><path d="M4 6h16M4 12h16M4 18h10"/></svg>
+      写作 <span class="cnt">9/14 章纲</span>
+    </a>
+    <a class="mtab" href="book-preview.html">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" width="15" height="15"><path d="M2 12s3.5-6 10-6 10 6 10 6-3.5 6-10 6S2 12 2 12z"/><circle cx="12" cy="12" r="2.5"/></svg>
+      预览
+    </a>
+  <span class="spacer"></span>
+  <span class="side">设定 · 若干项，确认即作为 AI 上下文（可选）</span>
+</nav>
+
+  <div class="view on three-col settings-v">
+    <aside class="col-tree" style="padding-top:6px">
+      <div class="settings-nav-wrap">
+        <div class="s-item" data-panel="aiModel">
+          <span class="nm">模型设定</span><span class="defer-tag">工具</span><span class="spacer"></span>
+          <span class="badge empty">不参与进度</span>
+        </div>
+        <div class="s-item" data-panel="intro">
+          <span class="nm">简介</span><span class="spacer"></span><span class="badge ok">已确认</span>
+        </div>
+        <div class="s-item" data-panel="genre">
+          <span class="nm">题材</span><span class="spacer"></span><span class="badge ok">已确认</span>
+        </div>
+        <div class="s-item" data-panel="world">
+          <span class="nm">世界</span><span class="defer-tag">可后补</span><span class="spacer"></span><span class="badge ok">已确认</span>
+        </div>
+        <div class="s-item on" data-panel="chars">
+          <span class="nm">角色</span><span class="defer-tag">可后补</span><span class="spacer"></span><span class="badge warn">已填</span>
+        </div>
+        <div class="s-item" data-panel="arc">
+          <span class="nm">主线</span><span class="defer-tag">可后补</span><span class="spacer"></span><span class="badge warn">已填</span>
+        </div>
+        <div class="s-item" data-panel="style">
+          <span class="nm">文风</span><span class="spacer"></span><span class="badge empty">未填</span>
+        </div>
+        <div class="s-item" data-panel="foreshadow">
+          <span class="nm">伏笔</span><span class="defer-tag">可后补</span><span class="spacer"></span><span class="badge empty">未填</span>
+        </div>
+      </div>
+      <div class="tree-foot"><span style="font-size:12px;color:var(--muted);line-height:1.7">已确认 3/7 · 确认过即作为 AI 写章的上下文；「可后补」不拦写作</span></div>
+    </aside>
+
+    <main class="col-middle">
+      <div class="col-panel">
+        <div class="panel sub-fill" data-pid="chars">
+          <!-- 角色面板：标记结构按 CharacterManager.tsx 真实类名重建 -->
+          <div class="sub-wrap char-sub">
+            <nav class="sub-list char-list" aria-label="角色列表">
+              <div class="sub-list-head">角色列表<span style="margin-left:auto;font-size:10.5px;color:var(--muted)" id="glCount">14</span></div>
+              <div class="gl-add-row">
+                <button type="button" class="char-add" id="glAddOne">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="13" height="13"><path d="M12 5v14M5 12h14"/></svg>
+                  添加角色
+                </button>
+                <button type="button" class="btn btn-secondary" id="glBatchOpen">批量添加</button>
+              </div>
+              <div class="gl-search-wrap">
+                <input class="char-search" type="search" placeholder="搜名字 / 别名" aria-label="搜索角色" id="glSearch" autocomplete="off">
+                <button type="button" class="gl-search-x" id="glSearchX" title="清空搜索" hidden>×</button>
+              </div>
+              <div class="gl-list-tools">
+                <label class="gl-switch"><input type="checkbox" id="glFlat" checked> 按角色类型分组</label>
+                <span class="gl-tool-hint" id="glToolHint"></span>
+              </div>
+              <div class="char-groups" id="glGroups"></div>
+            </nav>
+
+            <div class="sub-form char-main">
+              <header class="char-head">
+                <span class="char-seal" id="dSeal">陆</span>
+                <div class="char-idblock">
+                  <div class="char-name-row">
+                    <input class="char-name-input" value="" placeholder="姓名 / 称号" aria-label="角色名称" id="dName">
+                    <span role="group" aria-label="角色类型" style="display:inline-flex;flex-wrap:wrap;gap:6px" id="dRoleChips">
+                      <button type="button" class="chip" data-role="主角">主角</button>
+                      <button type="button" class="chip" data-role="配角">配角</button>
+                      <button type="button" class="chip" data-role="反派">反派</button>
+                      <button type="button" class="chip" data-role="路人">路人</button>
+                    </span>
+                  </div>
+                  <input class="char-alias-input" value="" placeholder="别名 / 称号（可选）" aria-label="别名" id="dAlias">
+                  <div class="char-meta num" id="dMeta">#C-0001 · 首次出场第 01 章</div>
+                </div>
+                <div class="char-side">
+                  <span class="char-save-state saved">这张卡已自动保存</span>
+                  <span class="badge ok" id="dBadge">已立主角</span>
+                  <div class="char-ops">
+                    <button type="button">合并…</button>
+                    <button type="button">删除</button>
+                  </div>
+                </div>
+              </header>
+
+              <div class="char-persona">
+                <span class="char-persona-label">一句话人设 · 每章都会带上这张卡的这句</span>
+                <textarea rows="2" placeholder="此人是谁、凭什么是他" aria-label="一句话人设" id="dPersona"></textarea>
+              </div>
+
+              <section class="sec">
+                <header class="sec-h">
+                  <h3>基础档案</h3>
+                  <span class="sec-sub">写每一章都用得上的硬信息——点一下就能改。</span>
+                </header>
+                <div>
+                  <div class="char-dossier-row">
+                    <span class="char-dossier-k">性别 · 年龄 · 种族</span>
+                    <span class="char-dossier-v char-tri">
+                      <input placeholder="性别" aria-label="性别" data-d="gender"><input placeholder="年龄" aria-label="年龄" data-d="age"><input placeholder="种族" aria-label="种族" data-d="race">
+                    </span>
+                  </div>
+                  <div class="char-dossier-row">
+                    <span class="char-dossier-k">势力 · 身份</span>
+                    <span class="char-dossier-v"><input placeholder="例：青梧宗外门 · 杂役弟子" aria-label="势力·身份" data-d="faction"></span>
+                  </div>
+                  <div class="char-dossier-row">
+                    <span class="char-dossier-k">外貌标签</span>
+                    <span class="char-dossier-v"><input placeholder="例：瘦长个 · 旧道袍" aria-label="外貌标签" data-d="look"></span>
+                  </div>
+                  <div class="char-dossier-row">
+                    <span class="char-dossier-k">语言特征</span>
+                    <span class="char-dossier-v"><input placeholder="例：说话慢半拍 · 口头禅" aria-label="语言特征" data-d="speech"></span>
+                  </div>
+                  <div class="char-dossier-row">
+                    <span class="char-dossier-k">背景</span>
+                    <span class="char-dossier-v"><textarea rows="1" placeholder="出身与来路" aria-label="背景" data-d="background"></textarea></span>
+                  </div>
+                  <div class="char-dossier-row">
+                    <span class="char-dossier-k">剧情定位 <i class="req">必填</i></span>
+                    <span class="char-dossier-v"><input placeholder="在故事里干什么——主角必填" aria-label="剧情定位" data-d="plot"></span>
+                  </div>
+                </div>
+              </section>
+
+              <section class="sec">
+                <header class="sec-h">
+                  <h3>认知内核</h3>
+                  <span class="sec-sub">六层是一条链：世界观 → 自我观 → 价值观 → 能力 → 行为 → 环境。</span>
+                </header>
+                <div class="char-cog" id="dCog"></div>
+              </section>
+
+              <section class="sec">
+                <header class="sec-h">
+                  <h3>人物关系</h3>
+                  <span class="sec-sub">只记这个角色怎么看别人——同一对方一条。</span>
+                  <button type="button" class="text-btn">＋记一段关系</button>
+                </header>
+                <div id="dRels"></div>
+              </section>
+            </div>
+          </div>
+        </div>
+      </div>
+    </main>
+  </div>
+</div>
+
+<!-- 批量添加弹窗（壳为真实 .scrim/.modal/.mcard.wb-style，portal 到 body） -->
+<div class="scrim show" id="glScrim" hidden></div>
+<div class="modal show" id="glBatchModal" hidden role="dialog" aria-modal="true" aria-label="批量添加角色">
+  <div class="mcard wb-style gl-batch">
+    <div class="mcard-head"><span class="mh">批量添加角色</span><button class="x btn btn-ghost btn-sm" id="glBatchX" aria-label="关闭">✕</button></div>
+    <div class="mcard-body">
+      <p class="gl-batch-hint">
+        下载模版，在 Excel / WPS 里一行一个角色填好再导入。<b>只填名字也行</b>；类型四选一（主角/配角/反派/路人），
+        不填默认配角；别名用 <code>·</code> 分隔；模版里的「示例-」行导入时会自动跳过。
+        填不动可以让 AI 照列头帮你填，粘回表格再导入。中英文列头都认。
+      </p>
+      <div class="gl-file-row">
+        <button type="button" class="btn btn-secondary btn-sm" id="glTplDl">下载模版(.csv)</button>
+        <button type="button" class="btn btn-primary btn-sm" id="glFilePick">选择文件…</button>
+        <input type="file" id="glFileInput" accept=".csv" hidden>
+        <span class="gl-file-name" id="glFileName">未选择文件——真实现支持 .xlsx（SheetJS），原型以 CSV 演示同一套交互</span>
+      </div>
+      <div class="gl-pv" id="glPv"></div>
+      <details class="gl-guide">
+        <summary>字段怎么填？点开看说明和示例</summary>
+        <div class="gl-guide-scroll">
+          <table class="gl-guide-t">
+            <thead><tr><th>字段</th><th>填什么</th><th>示例</th></tr></thead>
+            <tbody>
+              <tr><td>名字*</td><td>必填，书内唯一（重名会跳过）。只写称呼本身，称号昵称放「别名」</td><td>苏晚</td></tr>
+              <tr><td>类型</td><td>四选一：主角/配角/反派/路人。不填默认配角；主角全书只能一位</td><td>配角</td></tr>
+              <tr><td>一句话人设</td><td>此人是谁、凭什么是他——一句 60 字内最好（上限 300）。每章都会带进 AI 上下文，写「身份＋特质＋关系钩子」</td><td>北岭号二副，灯语专家，陆沉的旧识</td></tr>
+              <tr><td>别名（用·分隔）</td><td>称呼变体：昵称、称号、职衔，用 · 隔开。AI 靠它认出「二副」「窈姐」都是同一人</td><td>老柳·二副</td></tr>
+              <tr><td>性别 / 年龄 / 种族</td><td>照实填，可留空；年龄概数也行</td><td>女 / 31 / 人类</td></tr>
+              <tr><td>势力·身份</td><td>所属组织＋职位，用 · 分隔；无组织就写身份</td><td>北岭号 · 二副</td></tr>
+              <tr><td>外貌标签</td><td>2~4 个短语，标签化，别写成散文</td><td>瘦长个 · 旧道袍</td></tr>
+              <tr><td>语言特征</td><td>说话习惯、口吻、口头禅</td><td>话少 · 命令句式</td></tr>
+              <tr><td>背景</td><td>出身与来路，一两句（上限 300）</td><td>在货运航线跑了六年，上个月才转到拾荒船。</td></tr>
+              <tr><td>剧情定位</td><td>这个人在故事里干什么、承担什么功能（主角必填）</td><td>守着锅炉，也守着一个关于沉船的秘密</td></tr>
+            </tbody>
+          </table>
+          <p class="gl-guide-note">只有名字是必填，其余都可以留空、建完在角色设定里补；一格一句别换行；类型不填默认配角。</p>
+        </div>
+      </details>
+      <div class="gl-batch-bar">
+        <span class="gl-batch-cnt" id="glBatchCnt" style="margin-left:0"></span>
+      </div>
+    </div>
+    <div class="mcard-foot">
+      <span class="note" id="glBatchFootNote">重名的角色会跳过，不覆盖已有卡。</span>
+      <button class="btn btn-secondary" id="glBatchCancel">取消</button>
+      <button class="btn btn-primary" id="glBatchOk">建 0 张卡</button>
+    </div>
+  </div>
+</div>
+
+<div class="gl-toast" id="glToast"></div>
+
+<script>
+(function () {
+  "use strict";
+  var $ = function (s, r) { return (r || document).querySelector(s); };
+  var $$ = function (s, r) { return Array.prototype.slice.call((r || document).querySelectorAll(s)); };
+  var ROLES = ["主角", "配角", "反派", "路人"];
+
+  // 认知六层：字段名逐字取自 client/frontend/src/lib/characterModel.ts（COG_LAYERS）
+  var COG_LAYERS = [
+    { id: "worldview", no: "01", name: "世界观", tag: "认知层", primary: "w1", fields: [
+      ["w1", "世界规则认知度"], ["w2", "局势主观判定"], ["w3", "世界运行规则信仰"], ["w4", "人性通用认知"], ["w5", "核心认知盲区", 1]] },
+    { id: "self", no: "02", name: "自我观", tag: "认知层", primary: "s1", fields: [
+      ["s1", "自我身份定位"], ["s2", "自我价值判定"], ["s3", "深层软肋"], ["s4", "优势与缺陷认知"], ["s5", "宿命认知观"]] },
+    { id: "values", no: "03", name: "价值观", tag: "认知层", primary: "v1", fields: [
+      ["v1", "核心追求"], ["v2", "三观底线"], ["v3", "核心价值优先级"], ["v4", "个人善恶判定标准"]] },
+    { id: "power", no: "04", name: "能力", tag: "执行层", primary: "p2", fields: [
+      ["p1", "先天天赋"], ["p2", "后天综合能力（金手指）"], ["p6", "技能 · 习得与来源"], ["p3", "能力上限阈值", 1], ["p4", "能力代价 · 短板", 1], ["p5", "隐藏底牌后手"]] },
+    { id: "behavior", no: "05", name: "行为", tag: "执行层", primary: "b1", fields: [
+      ["b1", "性格 · 待人态度"], ["b2", "行为习惯 · 小动作 · 喜忌"], ["b3", "危机本能行为"], ["b4", "决策思维习惯"], ["b5", "社交表现形态"]] },
+    { id: "env", no: "06", name: "环境", tag: "结果层", primary: "e3", fields: [
+      ["e1", "地域与阶级环境"], ["e2", "资源与权限条件"], ["e3", "人际生态环境"], ["e4", "时代局势背景"], ["e5", "关键塑人事件"]] }
+  ];
+
+  // 演示种子（星海拾遗 · 科幻）——非产品文案
+  function mk(id, name, aliases, role, persona, first, dossier, cog, rels) {
+    return { id: id, name: name, aliases: aliases || [], role: role, persona: persona, first: first,
+      code: "", dossier: dossier || {}, cog: cog || {}, rels: rels || [] };
+  }
+  var chars = [
+    mk("c1", "陆沉", ["船长"], "主角", "拾荒船「北岭号」船长，背负母亲沉船的旧事", 1,
+      { gender: "男", age: "34", race: "人类", faction: "北岭号 · 船长", look: "短发 · 左手旧烧伤", speech: "话少 · 命令句式", background: "母亲的船二十年前沉于灯塔带，他一直在找那盏灯。", plot: "重启搁浅的远航，找到母亲沉船前点亮的最后一盏灯" },
+      { w1: "灯是消耗品，也是信用", w5: "不信记忆可以复原", s1: "讨债的人", p2: "深空打捞与旧舰操控", p3: "连续作业 36 小时", p4: "灯语几乎不懂", b1: "克制、护短", e3: "船员信任 / 公会盯梢" },
+      [{ type: "旧识", other: "苏晚", stance: "信任", note: "换命的交情", ch: "第 03 章" }, { type: "宿敌", other: "沈砚", stance: "戒备", note: "知道对方在找同一盏灯", ch: "第 07 章" }]),
+    mk("c2", "老轨", [], "配角", "轮机长，信奉机械有灵", 2, { faction: "北岭号 · 轮机长" }),
+    mk("c3", "苏晚", ["二副"], "配角", "北岭号二副，灯语专家，陆沉的旧识", 3,
+      { gender: "女", age: "31", faction: "北岭号 · 二副", speech: "术语多 · 紧张时唱歌" }),
+    mk("c4", "罗七", [], "配角", "船员，嘴碎心细", 4),
+    mk("c5", "赵岐", [], "配角", "港务司稽查，按章办事", 5, { faction: "港务司 · 稽查" }),
+    mk("c6", "阿萦", ["阿萦姐"], "配角", "记忆黑市掮客，笑面藏刀", 6, { faction: "记忆黑市 · 掮客" }),
+    mk("c7", "韩赭", ["老韩"], "路人", "拾荒船「灰隼」船长，陆沉旧友", 6),
+    mk("c8", "沈砚", ["沈先生"], "反派", "记忆黑市幕后买家，温和有礼的掠夺者", 7,
+      { gender: "男", age: "40", faction: "记忆黑市 · 幕后", look: "灰西装 · 无纹饰", plot: "抢先拿到灯，垄断记忆修复" }),
+    mk("c9", "何雁", [], "配角", "拾荒者公会调度，消息灵通", 8),
+    mk("c10", "灯官", [], "路人", "航标站值守，寡言", 9),
+    mk("c11", "小满", [], "路人", "港务司档案室学徒", 10),
+    mk("c12", "崔凛", [], "反派", "公会稽核，伪善面具下的清道夫", 11),
+    mk("c13", "温窈", [], "配角", "记忆修复师，收费昂贵", 12),
+    mk("c14", "老周", [], "路人", "渡口杂工", 2)
+  ];
+  chars.forEach(function (c, i) { c.code = "C-" + String(i + 1).padStart(4, "0"); });
+  function renumber() { chars.forEach(function (c, i) { c.code = "C-" + String(i + 1).padStart(4, "0"); }); }
+
+  var state = {
+    flat: false,
+    query: "",
+    sel: "c1",
+    open: { "主角": true, "配角": true, "反派": false, "路人": false },
+    preOpen: null,
+    cogOpen: { worldview: true }
+  };
+
+  function byId(id) { for (var i = 0; i < chars.length; i++) if (chars[i].id === id) return chars[i]; return null; }
+  function esc(s) { return String(s == null ? "" : s).replace(/[&<>"]/g, function (m) { return ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[m]; }); }
+  function firstTxt(c) { return c.first != null ? "第 " + String(c.first).padStart(2, "0") + " 章" : "未出场"; }
+
+  /* ── toast ── */
+  var toastTimer = null;
+  function toast(msg) {
+    var t = $("#glToast"); t.textContent = msg; t.classList.add("show");
+    clearTimeout(toastTimer); toastTimer = setTimeout(function () { t.classList.remove("show"); }, 2600);
+  }
+
+  /* ── 列表渲染 ── */
+  function matches(c) {
+    var q = state.query.trim();
+    if (!q) return true;
+    return c.name.indexOf(q) >= 0 || c.aliases.some(function (a) { return a.indexOf(q) >= 0; });
+  }
+  function rowHtml(c) {
+    var q = state.query.trim();
+    var pending = (c.role === "主角" && (!c.name || !c.persona)) ? '<span class="pill pill-warn">待立</span>' : "";
+    return '<button type="button" class="char-row-btn' + (state.sel === c.id ? " on" : "") + '" data-id="' + c.id + '">' +
+      '<i class="gl-handle' + (q ? " off" : "") + '" title="按住拖动排序"><svg viewBox="0 0 24 24" fill="currentColor" width="11" height="11"><circle cx="9" cy="6" r="1.6"/><circle cx="15" cy="6" r="1.6"/><circle cx="9" cy="12" r="1.6"/><circle cx="15" cy="12" r="1.6"/><circle cx="9" cy="18" r="1.6"/><circle cx="15" cy="18" r="1.6"/></svg></i>' +
+      '<i class="char-ava">' + esc((c.name || "？").charAt(0)) + "</i>" +
+      '<span class="char-row-main"><span class="nm">' + esc(c.name || "未命名") + '</span><span class="sub num">' + firstTxt(c) + "</span></span>" +
+      (state.flat ? '<span class="gl-role-tag gl-role-' + c.role + '">' + c.role + "</span>" : "") +
+      pending + "</button>";
+  }
+  function emptyHtml() {
+    var q = state.query.trim();
+    if (q) return '<div class="gl-empty">没找到「' + esc(q) + '」，换个词试试。<br><button type="button" data-act="clear">清空搜索</button></div>';
+    return '<span class="opt">空</span>';
+  }
+  function renderList() {
+    var q = state.query.trim();
+    var html = "";
+    var hit = 0;
+    if (state.flat) {
+      var items = chars.filter(matches);
+      hit = items.length;
+      html = '<div class="char-group open"><div class="char-rows">' + (items.map(rowHtml).join("") || emptyHtml()) + "</div></div>";
+    } else {
+      ROLES.forEach(function (role) {
+        var items = chars.filter(function (c) { return c.role === role && matches(c); });
+        if (q && !items.length) return;
+        hit += items.length;
+        var open = q ? true : state.open[role];
+        html += '<div class="char-group' + (open ? " open" : "") + '" data-role="' + role + '">' +
+          '<button type="button" class="char-group-head" data-role="' + role + '">' +
+          '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="12" height="12"><path d="M9 6l6 6-6 6"/></svg>' +
+          '<span class="nm">' + role + '</span><span class="cnt">' + items.length + "</span></button>" +
+          (open ? '<div class="char-rows">' + (items.map(rowHtml).join("") || emptyHtml()) + "</div>" : "") +
+          "</div>";
+      });
+    }
+    if (q && !hit) html = '<div class="gl-empty">没找到「' + esc(q) + '」，换个词试试。<br><button type="button" data-act="clear">清空搜索</button></div>';
+    $("#glGroups").innerHTML = html;
+    $("#glCount").textContent = chars.length;
+    $("#glSearchX").hidden = !q;
+    $("#glToolHint").textContent = q ? "搜索中不可排序" : "";
+  }
+
+  /* ── 详情渲染（右栏真实标记，值来自选中卡） ── */
+  function renderDetail() {
+    var c = byId(state.sel);
+    if (!c) return;
+    $("#dSeal").textContent = (c.name || "？").charAt(0);
+    $("#dName").value = c.name;
+    $("#dAlias").value = c.aliases.join(" · ");
+    $("#dMeta").textContent = "#" + c.code + " · 首次出场" + firstTxt(c);
+    $$("#dRoleChips .chip").forEach(function (b) { b.classList.toggle("on", b.dataset.role === c.role); });
+    var badge = $("#dBadge");
+    badge.className = "badge " + (c.role === "主角" ? (c.name && c.persona ? "ok" : "warn") : "empty");
+    badge.textContent = c.role === "主角" ? (c.name && c.persona ? "已立主角" : "主角待立") : c.role;
+    $("#dPersona").value = c.persona || "";
+    $$("[data-d]").forEach(function (el) {
+      var k = el.dataset.d;
+      el.value = (c.dossier && c.dossier[k]) || "";
+    });
+    // 认知六层
+    $("#dCog").innerHTML = COG_LAYERS.map(function (L) {
+      var filled = L.fields.filter(function (f) { return (c.cog || {})[f[0]]; }).length;
+      var missing = L.fields.some(function (f) { return f[2] && !(c.cog || {})[f[0]]; });
+      var open = !!state.cogOpen[L.id];
+      var prev = (c.cog || {})[L.primary] || "";
+      return '<article class="cog-layer' + (open ? " open" : "") + (missing ? " missing" : filled ? " filled" : "") + '" data-lid="' + L.id + '">' +
+        '<button type="button" class="cog-layer-head">' +
+        '<span class="cog-layer-no">' + L.no + '</span><span class="cog-layer-name">' + L.name + '</span>' +
+        '<span class="cog-layer-tag">' + L.tag + '</span>' +
+        '<span class="cog-layer-prev' + (prev ? " has" : "") + '">' + esc(prev || "还没写——展开补这一层的核心一句") + "</span>" +
+        (missing ? '<span class="cog-layer-miss">还差必填</span>' : '<span class="cog-layer-state">' + filled + "/" + L.fields.length + "</span>") +
+        "</button>" +
+        (open ? '<div class="cog-layer-grid">' + L.fields.map(function (f) {
+          return '<div class="cog-field' + (f[0] === L.primary ? " full" : "") + '"><div class="f-label"><b>' + f[1] +
+            (f[2] ? '<i class="req">必填</i>' : "") + "</b></div>" +
+            '<input value="' + esc((c.cog || {})[f[0]] || "") + '" aria-label="' + f[1] + '"></div>';
+        }).join("") + "</div>" : "") +
+        "</article>";
+    }).join("");
+    // 关系
+    $("#dRels").innerHTML = (c.rels || []).map(function (r) {
+      return '<div class="rel-row-item"><div class="rel-line">' +
+        '<span class="rel-who"><span class="pill pill-status">' + esc(r.type) + '</span><span class="rel-other-name">' + esc(r.other) + "</span></span>" +
+        '<span class="rel-note">' + esc(r.stance + (r.note ? "——" + r.note : "")) + "</span>" +
+        '<span class="rel-meta">记于 ' + esc(r.ch) + "</span>" +
+        '<span class="rel-acts"><button type="button">改</button><button type="button">删</button></span>' +
+        "</div></div>";
+    }).join("") || '<p class="opt">还没有记关系。</p>';
+  }
+
+  function select(id) {
+    state.sel = id;
+    renderList();
+    renderDetail();
+  }
+
+  /* ── 搜索 ── */
+  function setQuery(v) {
+    var old = state.query;
+    state.query = v;
+    if (v && !old) state.preOpen = Object.assign({}, state.open);
+    if (!v && old && state.preOpen) { state.open = state.preOpen; state.preOpen = null; }
+    renderList();
+  }
+  $("#glSearch").addEventListener("input", function (e) { setQuery(e.target.value); });
+  $("#glSearchX").addEventListener("click", function () { $("#glSearch").value = ""; setQuery(""); });
+
+  /* ── 分组开关 ── */
+  $("#glFlat").addEventListener("change", function (e) {
+    state.flat = !e.target.checked; // 勾选「按角色类型分组」＝分组
+    renderList();
+    toast(state.flat ? "已关分组——整条列表自由拖拽排序" : "已按角色类型分组——拖拽为组内排序");
+  });
+
+  /* ── 列表点击（分组折叠 / 选卡 / 空态清空） ── */
+  $("#glGroups").addEventListener("click", function (e) {
+    var clear = e.target.closest('[data-act="clear"]');
+    if (clear) { $("#glSearch").value = ""; setQuery(""); return; }
+    var head = e.target.closest(".char-group-head");
+    if (head) {
+      var role = head.dataset.role;
+      state.open[role] = !state.open[role];
+      renderList();
+      return;
+    }
+    var row = e.target.closest(".char-row-btn");
+    if (row && !row.classList.contains("gl-drag-src")) select(row.dataset.id);
+  });
+
+  /* ── 拖拽排序（指针：按住行拖动，6px 阈值；搜索中禁用） ── */
+  var drag = null;
+  function clearDropMarks() {
+    $$(".gl-drop-before,.gl-drop-after").forEach(function (r) { r.classList.remove("gl-drop-before", "gl-drop-after"); });
+  }
+  $("#glGroups").addEventListener("pointerdown", function (e) {
+    if (state.query) return;
+    if (e.button !== 0) return;
+    var row = e.target.closest(".char-row-btn");
+    if (!row) return;
+    drag = { id: row.dataset.id, row: row, y0: e.clientY, x0: e.clientX, active: false, target: null, before: true, pid: e.pointerId };
+    window.addEventListener("pointermove", onDragMove);
+    window.addEventListener("pointerup", onDragUp, { once: true });
+  });
+  function onDragMove(e) {
+    if (!drag) return;
+    var dy = e.clientY - drag.y0, dx = e.clientX - drag.x0;
+    if (!drag.active) {
+      if (Math.abs(dy) < 6 && Math.abs(dx) < 6) return;
+      drag.active = true;
+      drag.row.classList.add("gl-drag-src");
+      var ghost = drag.row.cloneNode(true);
+      ghost.className = "char-row-btn gl-drag-ghost";
+      ghost.style.width = drag.row.offsetWidth + "px";
+      ghost.style.left = drag.row.getBoundingClientRect().left + "px";
+      document.body.appendChild(ghost);
+      drag.ghost = ghost;
+      document.documentElement.classList.add("gl-dragging");
+    }
+    drag.ghost.style.top = (e.clientY - 16) + "px";
+    var best = Infinity, target = null, before = true;
+    $$(".char-row-btn:not(.gl-drag-src)").forEach(function (r) {
+      var b = r.getBoundingClientRect();
+      var mid = b.top + b.height / 2;
+      var d = Math.abs(e.clientY - mid);
+      if (e.clientY >= b.top - 6 && e.clientY <= b.bottom + 6 && d < best) { best = d; target = r; before = e.clientY < mid; }
+    });
+    clearDropMarks();
+    drag.target = null;
+    if (target) {
+      var dc = byId(drag.id), tc = byId(target.dataset.id);
+      if (!state.flat && dc.role !== tc.role) return; // 分组态只在同组内落位
+      drag.target = target;
+      drag.before = before;
+      target.classList.add(before ? "gl-drop-before" : "gl-drop-after");
+    }
+  }
+  function onDragUp() {
+    window.removeEventListener("pointermove", onDragMove);
+    clearDropMarks();
+    if (!drag) return;
+    var d = drag; drag = null;
+    document.documentElement.classList.remove("gl-dragging");
+    if (d.ghost) d.ghost.remove();
+    d.row.classList.remove("gl-drag-src");
+    if (!d.active) { select(d.id); return; }
+    if (!d.target) { toast("松手位置无效——只能在" + (state.flat ? "列表内" : "同角色类型组内") + "排序"); return; }
+    moveChar(d.id, d.target.dataset.id, d.before);
+  }
+  function moveChar(id, targetId, before) {
+    var from = chars.findIndex(function (c) { return c.id === id; });
+    if (from < 0) return;
+    var item = chars.splice(from, 1)[0];
+    var to = chars.findIndex(function (c) { return c.id === targetId; });
+    if (!before) to += 1;
+    chars.splice(to, 0, item);
+    renderList();
+    toast("顺序已保存");
+  }
+  // 键盘可达性：Alt+↑/↓ 移动选中行
+  $("#glGroups").addEventListener("keydown", function (e) {
+    if (!e.altKey || (e.key !== "ArrowUp" && e.key !== "ArrowDown")) return;
+    if (state.query) return;
+    e.preventDefault();
+    var c = byId(state.sel); if (!c) return;
+    var pool = state.flat ? chars : chars.filter(function (x) { return x.role === c.role; });
+    var i = pool.indexOf(c), j = e.key === "ArrowUp" ? i - 1 : i + 1;
+    if (j < 0 || j >= pool.length) return;
+    var t = pool[j];
+    var from = chars.indexOf(c), to = chars.indexOf(t);
+    chars[from] = t; chars[to] = c;
+    renderList();
+    var el = $('.char-row-btn[data-id="' + c.id + '"]'); if (el) el.focus();
+    toast("顺序已保存");
+  });
+
+  /* ── 批量添加弹窗 ── */
+  var batch = { rows: [], error: "", fmt: "" };
+  var DEFAULT_ROLE = "配角";
+  var DOSSIER_KEYS = ["gender", "age", "race", "faction", "look", "speech", "background", "plot"];
+  function normItem(o) {
+    var d = (o && typeof o.dossier === "object" && o.dossier) || {};
+    var dossier = {};
+    DOSSIER_KEYS.forEach(function (k) {
+      if (d[k] !== undefined && d[k] !== null && d[k] !== "") dossier[k] = String(d[k]).slice(0, 300);
+    });
+    var al = o && o.aliases;
+    var aliases = Array.isArray(al) ? al.map(String) : (al ? [String(al)] : []);
+    return {
+      name: String((o && o.name) || "").trim(),
+      role: String((o && o.role) || "").trim(),
+      persona: String((o && o.persona) || "").trim().slice(0, 300),
+      aliases: aliases.map(function (s) { return s.trim(); }).filter(Boolean),
+      dossier: dossier
+    };
+  }
+  function effRole(r) { return ROLES.indexOf(r.role) >= 0 ? r.role : DEFAULT_ROLE; }
+  function batchStatus(row, idx) {
+    if (/^示例/.test(row.name || "")) return { cls: "warn", txt: "示例行，不导入", row: "warn", ok: false };
+    if (!row.name) return { cls: "err", txt: "没写名字", row: "bad", ok: false };
+    if (row.name.length > 50) return { cls: "err", txt: "名字超 50 字", row: "bad", ok: false };
+    var dupExisting = chars.some(function (c) { return c.name === row.name; });
+    var dupBatch = batch.rows.some(function (r, j) { return j < idx && r.name === row.name; });
+    if (dupExisting || dupBatch) return { cls: "warn", txt: dupExisting ? "已有同名，跳过" : "批内重名，跳过", row: "warn", ok: false };
+    var mains = batch.rows.filter(function (r) { return effRole(r) === "主角"; }).length + (chars.some(function (c) { return c.role === "主角"; }) ? 1 : 0);
+    if (effRole(row) === "主角" && mains > 1) return { cls: "err", txt: "每书一位主角", row: "bad", ok: false };
+    var extras = [];
+    if (row.aliases && row.aliases.length) extras.push("别名×" + row.aliases.length);
+    if (row.dossier && Object.keys(row.dossier).length) extras.push("含档案");
+    return { cls: "ok", txt: "将新建" + (extras.length ? " · " + extras.join(" · ") : ""), row: "", ok: true };
+  }
+  function renderPreview() {
+    var rows = batch.rows;
+    var html = '<div class="gl-pv-head"><span class="gl-pv-no">#</span><span class="gl-pv-name">名字</span><span class="gl-pv-role">类型</span><span class="gl-pv-persona">一句话人设（可补）</span><span class="pill">状态</span></div>';
+    if (batch.error) {
+      html += '<div class="gl-pv-err">' + esc(batch.error) + "</div>";
+    } else if (!rows.length) {
+      html += '<div class="gl-pv-empty">点「下载模版」，在 Excel / WPS 里填好角色再导入——这里实时解析预览。<br>识别不了的会标红，可以就地改。</div>';
+    }
+    rows.forEach(function (r, i) {
+      var st = batchStatus(r, i);
+      var role = effRole(r);
+      html += '<div class="gl-pv-row ' + st.row + '" data-i="' + i + '">' +
+        '<span class="gl-pv-no">' + (i + 1) + "</span>" +
+        '<span class="gl-pv-name"><input value="' + esc(r.name) + '" placeholder="名字" data-f="name"></span>' +
+        '<span class="gl-pv-role"><select data-f="role">' + ROLES.map(function (roleOpt) {
+          return '<option' + (roleOpt === role ? " selected" : "") + ">" + roleOpt + "</option>";
+        }).join("") + "</select></span>" +
+        '<span class="gl-pv-persona"><input value="' + esc(r.persona) + '" placeholder="一句话人设" data-f="persona"></span>' +
+        '<span class="pill pill-' + st.cls + '">' + st.txt + "</span>" +
+        '<button type="button" class="gl-pv-x" title="去掉这行">×</button>' +
+        "</div>";
+    });
+    $("#glPv").innerHTML = html;
+    var okN = rows.filter(function (r, i) { return batchStatus(r, i).ok; }).length;
+    var skip = rows.length - okN;
+    $("#glBatchCnt").innerHTML = (batch.fmt ? esc(batch.fmt) + " · " : "") + "建 <b>" + okN + "</b> 张" + (skip ? ' · <span class="skip">跳过 ' + skip + "</span>" : "");
+    var okBtn = $("#glBatchOk");
+    okBtn.textContent = "建 " + okN + " 张卡";
+    okBtn.disabled = okN === 0;
+    okBtn.style.opacity = okN === 0 ? 0.5 : 1;
+  }
+  function openBatch() {
+    renderPreview();
+    $("#glScrim").hidden = false;
+    $("#glBatchModal").hidden = false;
+  }
+  /* ── 模版下载（原型＝CSV＋BOM 免依赖；真实现＝SheetJS 生成 xlsx，含「填写说明」sheet） ── */
+  var TPL_HEADERS = ["名字*", "类型", "一句话人设", "别名(用·分隔)", "性别", "年龄", "种族", "势力·身份", "外貌标签", "语言特征", "背景", "剧情定位"];
+  var TPL_SAMPLE = [
+    ["示例-韩十三", "配角", "北岭号新来的锅炉工", "老韩头·十三", "男", "28", "人类", "北岭号 · 锅炉工", "壮实 · 满手油灰", "嗓门大 · 爱哼船歌", "在货运航线跑了六年。", "守着锅炉，也守着一个关于沉船的秘密"],
+    ["示例-灯嫂", "配角", "航标站看守，认得每一盏灯", "", "", "", "", "", "", "", "", ""],
+    ["示例-唐九", "", "", "", "", "", "", "", "", "", "", ""]
+  ];
+  function csvCell(v) {
+    v = String(v == null ? "" : v);
+    return /[",\r\n]/.test(v) ? '"' + v.replace(/"/g, '""') + '"' : v;
+  }
+  $("#glTplDl").addEventListener("click", function () {
+    var lines = [TPL_HEADERS.map(csvCell).join(",")].concat(
+      TPL_SAMPLE.map(function (r) { return r.map(csvCell).join(","); })
+    );
+    var blob = new Blob(["\ufeff" + lines.join("\r\n") + "\r\n"], { type: "text/csv;charset=utf-8" });
+    var a = document.createElement("a");
+    a.href = URL.createObjectURL(blob);
+    a.download = "角色批量导入模版.csv";
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    toast("模版已下载——填好角色后点「选择文件」导入");
+  });
+  /* ── 模版文件解析（CSV 含引号转义；真实现同管道换 SheetJS 读 xlsx） ── */
+  function parseCsv(text) {
+    var rows = [[]], cur = "", inQ = false;
+    for (var i = 0; i < text.length; i++) {
+      var ch = text.charAt(i);
+      if (inQ) {
+        if (ch === '"') {
+          if (text.charAt(i + 1) === '"') { cur += '"'; i++; }
+          else inQ = false;
+        } else cur += ch;
+      } else {
+        if (ch === '"') inQ = true;
+        else if (ch === ",") { rows[rows.length - 1].push(cur); cur = ""; }
+        else if (ch === "\n") { rows[rows.length - 1].push(cur); rows.push([]); cur = ""; }
+        else if (ch !== "\r") cur += ch;
+      }
+    }
+    rows[rows.length - 1].push(cur);
+    return rows.filter(function (r) { return r.some(function (c) { return String(c).trim() !== ""; }); });
+  }
+  var COL_MAP = {
+    "名字": "name", "名称": "name", "name": "name",
+    "类型": "role", "角色类型": "role", "role": "role",
+    "一句话人设": "persona", "人设": "persona", "persona": "persona",
+    "别名": "aliases", "别名(用·分隔)": "aliases", "别名（用·分隔）": "aliases", "aliases": "aliases",
+    "性别": "gender", "gender": "gender", "年龄": "age", "age": "age",
+    "种族": "race", "race": "race",
+    "势力·身份": "faction", "势力身份": "faction", "faction": "faction",
+    "外貌标签": "look", "外貌": "look", "look": "look",
+    "语言特征": "speech", "speech": "speech",
+    "背景": "background", "background": "background",
+    "剧情定位": "plot", "plot": "plot"
+  };
+  function importRows(text, fname) {
+    batch.error = ""; batch.fmt = "";
+    var grid = parseCsv(text);
+    if (!grid.length) { batch.error = "文件是空的"; batch.rows = []; return; }
+    var cols = grid[0].map(function (h) {
+      var key = String(h).trim().replace(/\*$/, "").replace(/\s+/g, "");
+      if (COL_MAP[key]) return COL_MAP[key];
+      if (key.indexOf("别名") === 0) return "aliases"; // 「别名(用·分隔)」等变体列头
+      return null;
+    });
+    if (cols.indexOf("name") < 0) {
+      batch.error = "模版列头不对——没有「名字」列。请用「下载模版」的格式，或把列头改成与模版一致";
+      batch.rows = [];
+      return;
+    }
+    var rows = [];
+    for (var r = 1; r < grid.length; r++) {
+      var o = { dossier: {} };
+      for (var c = 0; c < cols.length; c++) {
+        var k = cols[c];
+        if (!k) continue;
+        var v = String(grid[r][c] == null ? "" : grid[r][c]).trim();
+        if (!v) continue;
+        if (k === "aliases") o.aliases = v.split(/[·・、,，]/);
+        else if (DOSSIER_KEYS.indexOf(k) >= 0) o.dossier[k] = v;
+        else o[k] = v;
+      }
+      rows.push(normItem(o));
+    }
+    batch.fmt = fname + " · " + rows.length + " 行";
+    batch.rows = rows;
+  }
+  $("#glFilePick").addEventListener("click", function () { $("#glFileInput").click(); });
+  $("#glFileInput").addEventListener("change", function (e) {
+    var f = e.target.files[0];
+    e.target.value = "";
+    if (!f) return;
+    $("#glFileName").textContent = f.name;
+    var reader = new FileReader();
+    reader.onload = function () {
+      importRows(String(reader.result), f.name);
+      renderPreview();
+    };
+    reader.readAsText(f, "utf-8");
+  });
+  function closeBatch() {
+    $("#glScrim").hidden = true;
+    $("#glBatchModal").hidden = true;
+  }
+  $("#glBatchOpen").addEventListener("click", function () { openBatch(); });
+  $("#glBatchX").addEventListener("click", closeBatch);
+  $("#glBatchCancel").addEventListener("click", closeBatch);
+  $("#glScrim").addEventListener("click", closeBatch);
+  $("#glPv").addEventListener("input", function (e) {
+    var row = e.target.closest(".gl-pv-row"); if (!row) return;
+    var i = +row.dataset.i, f = e.target.dataset.f;
+    if (f) { batch.rows[i][f] = e.target.value; renderPreview(); }
+  });
+  $("#glPv").addEventListener("change", function (e) {
+    var row = e.target.closest(".gl-pv-row"); if (!row) return;
+    if (e.target.dataset.f === "role") { batch.rows[+row.dataset.i].role = e.target.value; renderPreview(); }
+  });
+  $("#glPv").addEventListener("click", function (e) {
+    var x = e.target.closest(".gl-pv-x"); if (!x) return;
+    var row = e.target.closest(".gl-pv-row");
+    batch.rows.splice(+row.dataset.i, 1);
+    renderPreview();
+  });
+  $("#glBatchOk").addEventListener("click", function () {
+    var created = 0, skipped = 0, firstNew = null;
+    batch.rows.forEach(function (r, i) {
+      if (!batchStatus(r, i).ok) { skipped++; return; }
+      var id = "n" + (Date.now() + i);
+      chars.push(mk(id, r.name, r.aliases || [], effRole(r), r.persona, null, r.dossier || {}));
+      if (!firstNew) firstNew = id;
+      created++;
+    });
+    renumber();
+    closeBatch();
+    renderList();
+    if (firstNew) select(firstNew);
+    toast("已建 " + created + " 张卡" + (skipped ? "，跳过 " + skipped + " 个重名" : "") + "——新卡在列表末尾");
+  });
+
+  /* ── 其它入口（原型演示用：单个添加走既有行为＝建空卡就地编辑） ── */
+  $("#glAddOne").addEventListener("click", function () {
+    var id = "n" + Date.now();
+    chars.push(mk(id, "", [], chars.some(function (c) { return c.role === "主角"; }) ? "配角" : "主角", "", null));
+    renumber();
+    renderList();
+    select(id);
+    toast("已添加一张空卡——名字一写就出现在左边列表");
+  });
+
+  /* ── demo-bar ── */
+  $(".gl-demobar").addEventListener("click", function (e) {
+    var b = e.target.closest("[data-act]"); if (!b) return;
+    var act = b.dataset.act;
+    if (act === "batch") { openBatch(); }
+    if (act === "flat") {
+      $("#glFlat").checked = false;
+      state.flat = true;
+      renderList();
+      $("#glGroups").scrollIntoView({ block: "nearest", behavior: "smooth" });
+      toast("已关分组——按住任意一行拖动试试");
+    }
+    if (act === "search") {
+      $("#glSearch").value = "沈先生";
+      setQuery("沈先生");
+      toast("搜别名「沈先生」命中沈砚——反派组自动展开");
+    }
+    if (act === "reset") { location.reload(); }
+  });
+
+  /* ── init ── */
+  renderList();
+  renderDetail();
+})();
+</script>
+</body>
+</html>

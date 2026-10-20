@@ -1,0 +1,529 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>设计原型 · 归档「待确认」页签泡泡</title>
+<style>
+  /* ── 设计 token：逐字取自 client/frontend/src/design/base.css ── */
+  :root {
+    --bg:    oklch(98% 0.004 240);
+    --surface: oklch(100% 0 0);
+    --fg:    oklch(20% 0.02 240);
+    --muted: oklch(50% 0.018 240);
+    --border: oklch(90% 0.006 240);
+    --accent: oklch(48% 0.11 170);
+    --accent-soft: color-mix(in oklch, var(--accent) 12%, transparent);
+    --ok:    oklch(52% 0.11 155);
+    --ok-soft: color-mix(in oklch, var(--ok) 14%, transparent);
+    --warn:  oklch(50% 0.13 75);
+    --warn-soft: color-mix(in oklch, var(--warn) 16%, transparent);
+    --err:   oklch(50% 0.17 25);
+    --err-soft: color-mix(in oklch, var(--err) 12%, transparent);
+    --fg-soft: color-mix(in oklch, var(--fg) 5%, transparent);
+    --font-display: 'Noto Serif SC', 'Songti SC', 'STSong', 'Iowan Old Style', Georgia, serif;
+    --font-body: -apple-system, 'PingFang SC', 'Segoe UI', 'Microsoft YaHei', sans-serif;
+    --font-mono: ui-monospace, 'SF Mono', Menlo, 'JetBrains Mono', monospace;
+    --radius: 10px; --radius-lg: 16px;
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { background: var(--bg); color: var(--fg); font-family: var(--font-body); font-size: 13.5px; line-height: 1.6; padding-bottom: 80px; }
+  button { font-family: inherit; cursor: pointer; border: none; background: none; }
+
+  /* ══ 原型工具条（非产品 UI） ══════════════════════════════ */
+  .demo-bar { position: sticky; top: 0; z-index: 50; display: flex; align-items: center; gap: 12px; flex-wrap: wrap;
+    padding: 10px 20px; background: color-mix(in oklch, var(--surface) 88%, transparent); backdrop-filter: blur(8px);
+    border-bottom: 1px solid var(--border); }
+  .demo-bar .demo-title { font-family: var(--font-display); font-weight: 600; font-size: 14.5px; }
+  .demo-bar .demo-title em { font-style: normal; font-family: var(--font-mono); font-size: 10px; letter-spacing: .12em; color: var(--accent); margin-right: 8px; }
+  .demo-bar .spacer { flex: 1; }
+  .dbtn { height: 30px; padding: 0 13px; border-radius: 8px; font-size: 12.5px; border: 1px solid var(--border); background: var(--surface); color: var(--fg); transition: all .15s ease; }
+  .dbtn:hover { border-color: var(--muted); }
+  .dbtn:disabled { opacity: .45; cursor: default; }
+  .dbtn.primary { background: var(--accent); border-color: var(--accent); color: #fff; font-weight: 500; }
+  .dbtn.primary:hover { filter: brightness(1.06); }
+  .seg { display: inline-flex; border: 1px solid var(--border); border-radius: 8px; overflow: hidden; }
+  .seg button { height: 28px; padding: 0 11px; font-size: 12px; color: var(--muted); background: var(--surface); }
+  .seg button.on { background: var(--accent-soft); color: var(--accent); font-weight: 500; }
+  .demo-hint { font-size: 11.5px; color: var(--muted); }
+
+  /* ══ 工作台Mock ═════════════════════════════════════════ */
+  .wb-mock { max-width: 1040px; margin: 20px auto 0; background: var(--surface); border: 1px solid var(--border);
+    border-radius: var(--radius-lg); overflow: hidden; box-shadow: 0 1px 3px oklch(20% 0.02 240 / .04), 0 8px 28px oklch(20% 0.02 240 / .05); }
+
+  /* 章头 */
+  .ch-head { display: flex; align-items: center; gap: 10px; padding: 12px 18px 10px; }
+  .ch-head .back { width: 26px; height: 26px; border-radius: 7px; display: inline-flex; align-items: center; justify-content: center; color: var(--muted); }
+  .ch-head .back:hover { background: var(--fg-soft); }
+  .ch-head .bh-k { font-family: var(--font-mono); font-size: 10px; letter-spacing: .14em; color: var(--accent); }
+  .ch-head .bh-t { font-family: var(--font-display); font-size: 15.5px; font-weight: 600; letter-spacing: -.01em; }
+  .ch-head .bh-t .n { font-family: var(--font-mono); font-size: 12px; font-weight: 500; color: var(--muted); margin-right: 7px; }
+  .ch-head .bh-tag { font-family: var(--font-mono); font-size: 10px; letter-spacing: .05em; color: var(--muted); border: 1px solid var(--border); border-radius: 999px; padding: 2px 8px; }
+  .ch-head .bh-tag.archived { color: var(--fg); border-color: color-mix(in oklch, var(--fg) 38%, transparent); }
+  .ch-head .save-state { margin-left: auto; font-size: 11.5px; color: var(--muted); display: inline-flex; align-items: center; gap: 5px; }
+  .ch-head .save-state i { width: 5px; height: 5px; border-radius: 50%; background: var(--ok); }
+
+  /* 归档卡三段条（实机位于「操作」页签，原型常驻便于观察） */
+  .arch-wrap { padding: 0 18px 10px; display: none; }
+  .arch-wrap.show { display: flex; align-items: center; gap: 10px; }
+  .arch-stages { display: inline-flex; align-items: center; gap: 16px; padding: 7px 13px; border: 1px solid var(--border); border-radius: 9px; background: var(--bg); }
+  .arch-stages .as-node { display: inline-flex; align-items: center; gap: 5px; }
+  .arch-stages .as-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--border); }
+  .arch-stages .as-label { font-size: 12px; color: var(--muted); white-space: nowrap; }
+  .arch-stages .as-detail { font-style: normal; color: var(--muted); }
+  .arch-stages .is-active .as-dot { background: var(--accent); animation: pulse 1s ease-in-out infinite; }
+  .arch-stages .is-active .as-label, .arch-stages .is-active .as-detail { color: var(--fg); }
+  .arch-stages .is-done .as-dot { background: var(--ok); }
+  .arch-stages .is-done .as-label, .arch-stages .is-done .as-detail { color: var(--fg); }
+  .arch-note { font-size: 11px; color: var(--muted); }
+
+  /* ── 页签行（样式逐字对齐 book.css:319-326） ── */
+  .ch-tabs { display: flex; align-items: center; gap: 2px; height: 40px; padding: 0 16px; background: var(--surface); border-bottom: 1px solid var(--border); }
+  .chtab { display: inline-flex; align-items: center; gap: 6px; height: 28px; padding: 0 12px; border-radius: 8px; font-size: 13px; color: var(--muted); transition: background .15s ease, color .15s ease; }
+  .chtab:hover { color: var(--fg); background: var(--fg-soft); }
+  .chtab.on { color: var(--accent); background: var(--accent-soft); font-weight: 500; }
+  .chtab .cnt { font-family: var(--font-mono); font-size: 11px; color: var(--muted); }
+  .chtab .cnt.ok { color: var(--ok); }
+  .chtab .cnt.warn { color: var(--warn); }
+  .chtab .cnt.err { color: var(--err); }
+
+  /* ══ 本原型主角：待确认泡泡 ══════════════════════════════
+     微信款（.cnt.pill）：红底白字圆 pill，出现 pop、减数 bump、清零缩隐 */
+  .chtab .cnt.pill { font-family: var(--font-mono); font-size: 10.5px; font-weight: 600; letter-spacing: 0;
+    color: #fff; background: var(--err); border-radius: 999px; min-width: 17px; height: 16px; padding: 0 5px;
+    display: inline-flex; align-items: center; justify-content: center; }
+  .chtab .cnt[hidden] { display: none; }  /* pill 的 display 会顶掉 hidden 属性，清零退场靠这条 */
+  .chtab .cnt.pill.warn { background: var(--warn); padding: 0 7px; }
+  .chtab .cnt.pill.pop { animation: pop .38s cubic-bezier(.2, 1.4, .4, 1) both; }
+  .chtab .cnt.pill.bump { animation: bump .28s ease; }
+  .chtab .cnt.pill.is-gone { opacity: 0; transform: scale(.3); transition: opacity .22s ease, transform .22s ease; }
+  /* 红字款（现役 .cnt.err 口径扩一格）：无底色，N 待确认 */
+  .mode-text .chtab .cnt.pill { background: transparent; color: var(--err); min-width: 0; height: auto; padding: 0; font-size: 11px; font-weight: 500; border-radius: 0; }
+  .mode-text .chtab .cnt.pill.warn { color: var(--warn); }
+  @keyframes pop { 0% { transform: scale(.3); opacity: 0; } 60% { transform: scale(1.18); opacity: 1; } 100% { transform: scale(1); } }
+  @keyframes bump { 0% { transform: scale(1); } 40% { transform: scale(1.3); } 100% { transform: scale(1); } }
+  @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: .35; } }
+
+  .ch-tabs .ch-progress { margin-left: auto; font-size: 11.5px; color: var(--muted); white-space: nowrap; margin-right: 10px; font-family: var(--font-body); }
+  .ch-tabs .ch-history { height: 26px; padding: 0 10px; border-radius: 7px; font-size: 12px; color: var(--muted); border: 1px solid var(--border); background: var(--surface); }
+  .ch-tabs .ch-history:hover { color: var(--fg); }
+
+  /* ── 页签体 ── */
+  .tab-body { min-height: 380px; background: var(--bg); }
+  .tab-pane { display: none; padding: 18px 22px 26px; }
+  .tab-pane.on { display: block; }
+
+  /* 本章变化区块（对齐 SettingChangesSection 的 ds-* 词汇） */
+  .ds-head { display: flex; align-items: baseline; gap: 12px; flex-wrap: wrap; margin-bottom: 4px; }
+  .ds-head h3 { font-family: var(--font-display); font-size: 16px; font-weight: 600; }
+  .ds-head .ds-sub { font-size: 12px; color: var(--muted); }
+  .ds-batch { margin-left: auto; display: inline-flex; gap: 8px; }
+  .ds-batch .bbtn { height: 30px; padding: 0 13px; border-radius: 8px; font-size: 12.5px; font-weight: 500; transition: all .15s ease; }
+  .bbtn.main { background: var(--accent); color: #fff; }
+  .bbtn.main:hover { filter: brightness(1.06); }
+  .bbtn.main:disabled { opacity: .4; cursor: default; filter: none; }
+  .bbtn.ghost { border: 1px solid var(--border); background: var(--surface); color: var(--muted); }
+  .bbtn.ghost:hover { color: var(--fg); }
+  .bbtn.ghost:disabled { opacity: .4; cursor: default; }
+
+  .ds-domain { margin-top: 14px; }
+  .ds-domain .ds-area { font-family: var(--font-mono); font-size: 10.5px; letter-spacing: .1em; color: var(--muted); margin-bottom: 7px; }
+  .ds-row { display: flex; align-items: center; gap: 12px; padding: 11px 14px; background: var(--surface);
+    border: 1px solid var(--border); border-radius: var(--radius); margin-bottom: 7px; transition: opacity .3s ease, border-color .3s ease; }
+  .ds-row .ds-txt { flex: 1; min-width: 0; }
+  .ds-row .ds-txt b { font-weight: 600; }
+  .ds-row .ds-ev { font-family: var(--font-mono); font-size: 10.5px; color: var(--muted); margin-left: 8px; }
+  .ds-row .rbtn { height: 26px; padding: 0 11px; border-radius: 7px; font-size: 12px; border: 1px solid var(--border); background: var(--surface); color: var(--fg); flex: none; }
+  .ds-row .rbtn:hover { border-color: var(--muted); }
+  .ds-row .rbtn.acc { background: var(--accent); border-color: var(--accent); color: #fff; }
+  .ds-row .rbtn.acc:hover { filter: brightness(1.06); }
+  .ds-row.settled { opacity: .55; }
+  .ds-row.settled .ds-txt { text-decoration: line-through; text-decoration-color: color-mix(in oklch, var(--muted) 55%, transparent); text-decoration-thickness: 1px; }
+  .ds-row.settled .rbtn { display: none; }
+  .ds-row.settled .r-tag { font-family: var(--font-mono); font-size: 10.5px; flex: none; }
+  .ds-row.settled .r-tag.ok { color: var(--ok); }
+  .ds-row.settled .r-tag.no { color: var(--muted); }
+  .ds-row.flash { animation: rowin .4s ease both; }
+  @keyframes rowin { 0% { opacity: 0; transform: translateY(5px); } 100% { opacity: 1; transform: none; } }
+
+  .ds-empty { border: 1px dashed var(--border); border-radius: var(--radius-lg); padding: 40px 24px; text-align: center; color: var(--muted); font-size: 13px; margin-top: 14px; }
+  .ds-extracting { display: inline-flex; align-items: center; gap: 8px; margin-top: 14px; padding: 10px 15px; border: 1px solid var(--border); border-radius: var(--radius); background: var(--surface); color: var(--muted); font-size: 12.5px; }
+  .ds-extracting i { width: 7px; height: 7px; border-radius: 50%; background: var(--accent); animation: pulse 1s ease-in-out infinite; }
+
+  /* 关系行 */
+  .rel-pair b { font-weight: 600; }
+  .rel-arrow { font-family: var(--font-mono); color: var(--muted); padding: 0 3px; }
+
+  /* 伏笔行 */
+  .hp-due { font-style: normal; font-family: var(--font-mono); font-size: 10.5px; color: var(--warn); background: var(--warn-soft); border-radius: 999px; padding: 2px 9px; flex: none; }
+  .hp-src { font-family: var(--font-mono); font-size: 10.5px; color: var(--muted); }
+
+  /* 占位页签 */
+  .pane-placeholder { border: 1px dashed var(--border); border-radius: var(--radius-lg); padding: 46px 24px; text-align: center; color: var(--muted); font-size: 13px; }
+
+  /* ── Toast（c-toast-dismiss 口径：底部居中＋× ＋自动消失） ── */
+  .toast { position: fixed; left: 50%; bottom: 36px; z-index: 99; display: inline-flex; align-items: center; gap: 12px;
+    max-width: 620px; padding: 11px 16px; border-radius: 10px; background: oklch(23% 0.02 240); color: oklch(97% 0.003 240);
+    font-size: 13px; box-shadow: 0 6px 24px oklch(20% 0.02 240 / .28);
+    opacity: 0; transform: translateX(-50%) translateY(10px); pointer-events: none; transition: opacity .25s ease, transform .25s ease; }
+  .toast.show { opacity: 1; transform: translateX(-50%) translateY(0); pointer-events: auto; }
+  .toast .t-x { color: oklch(75% 0.01 240); font-size: 15px; line-height: 1; padding: 2px; }
+  .toast .t-x:hover { color: #fff; }
+
+  /* ══ 设计说明 ═══════════════════════════════════════════ */
+  .notes { max-width: 1040px; margin: 26px auto 0; display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+  .note-card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-lg); padding: 18px 20px; }
+  .note-card h4 { font-family: var(--font-display); font-size: 14px; font-weight: 600; margin-bottom: 9px; }
+  .note-card h4 em { font-style: normal; font-family: var(--font-mono); font-size: 10px; letter-spacing: .12em; color: var(--accent); margin-right: 7px; }
+  .note-card ul { list-style: none; }
+  .note-card li { position: relative; padding-left: 15px; font-size: 12.5px; color: var(--fg); margin-bottom: 6px; }
+  .note-card li::before { content: ""; position: absolute; left: 2px; top: .62em; width: 5px; height: 5px; border-radius: 50%; background: var(--border); }
+  .note-card code { font-family: var(--font-mono); font-size: 11px; background: var(--fg-soft); border-radius: 4px; padding: 1px 5px; color: var(--muted); }
+  .note-card .q { margin-top: 10px; padding: 9px 12px; border-radius: 9px; background: var(--warn-soft); font-size: 12.5px; }
+  .note-card .q b { color: var(--warn); }
+  @media (max-width: 860px) { .notes { grid-template-columns: 1fr; } .ch-head .save-state { display: none; } }
+</style>
+</head>
+<body>
+
+<!-- ══ 原型工具条 ══ -->
+<div class="demo-bar">
+  <span class="demo-title"><em>PROTOTYPE</em>归档「待确认」页签泡泡</span>
+  <span class="demo-hint">可交互：归档 → 提取中 → 完成弹泡 → 逐条确认递减 → 清零自消</span>
+  <span class="spacer"></span>
+  <button class="dbtn primary" id="btnArchive">① 归档并提取（模拟）</button>
+  <button class="dbtn" id="btnFast">跳到完成态</button>
+  <button class="dbtn" id="btnReset">重置</button>
+  <span class="seg" id="styleSeg">
+    <button data-mode="pill" class="on">微信红 pill</button>
+    <button data-mode="text">现有红字款</button>
+  </span>
+</div>
+
+<!-- ══ 工作台Mock ══ -->
+<div class="wb-mock">
+
+  <div class="ch-head">
+    <span class="back">←</span>
+    <span class="bh-k">CHAPTER</span>
+    <span class="bh-t"><span class="n">12</span>夜探祠堂</span>
+    <span class="bh-tag" id="headTag">内测</span>
+    <span class="bh-tag archived" id="headArch" style="display:none">已归档</span>
+    <span class="save-state"><i></i>已自动保存</span>
+  </div>
+
+  <div class="arch-wrap" id="archWrap">
+    <div class="arch-stages" id="archStages"></div>
+    <span class="arch-note">※ 实机位于「操作」页签内，原型常驻便于观察</span>
+  </div>
+
+  <div class="ch-tabs" id="tabs" role="tablist" aria-label="章节对象">
+    <button class="chtab" data-tab="og" role="tab">章纲 <span class="cnt ok" id="cntOg">已确认</span></button>
+    <button class="chtab" data-tab="prose" role="tab">正文 <span class="cnt" id="cntProse">3,214 字</span></button>
+    <button class="chtab" data-tab="settings" role="tab">设定 <span class="cnt" id="bubSettings" hidden></span></button>
+    <button class="chtab" data-tab="style" role="tab">文风 <span class="cnt"></span></button>
+    <button class="chtab" data-tab="relations" role="tab">角色关系 <span class="cnt" id="bubRelations" hidden></span></button>
+    <button class="chtab" data-tab="hooks" role="tab">伏笔 <span class="cnt" id="bubHooks" hidden></span></button>
+    <button class="chtab" data-tab="actions" role="tab">操作 <span class="cnt"></span></button>
+    <span class="ch-progress">完成度 62% · 总字数 128,440</span>
+    <button class="ch-history">版本历史</button>
+  </div>
+
+  <div class="tab-body">
+
+    <section class="tab-pane" id="pane-og">
+      <div class="pane-placeholder">章纲一页纸（查看态）——原型从略</div>
+    </section>
+
+    <section class="tab-pane" id="pane-prose">
+      <div style="max-width:620px; margin:0 auto; font-family:var(--font-display); font-size:15px; line-height:2;">
+        <p style="text-indent:2em; margin-bottom:14px;">祠堂的门在陈守拙推开第三寸时发出一声干哑的呻吟，像老人清了清嗓子。青铜灯盏里没有火，灯身却温的。</p>
+        <p style="text-indent:2em; margin-bottom:14px;">「别碰灯。」沈青梧的声音从背后压过来，极低，「守夜人换了香。」</p>
+        <p style="text-indent:2em;">陈守拙收回手。梁上阴影里，有什么东西轻轻动了一下——那道刻字就悬在他头顶，藏在经年香烟熏出的黑垢之下。</p>
+      </div>
+    </section>
+
+    <section class="tab-pane on" id="pane-settings">
+      <div class="ds-head">
+        <h3>本章变化</h3>
+        <span class="ds-sub">确认后喂给下一章提示词；不改你的初始设定</span>
+        <span class="ds-batch">
+          <button class="bbtn main" id="accAllSettings" disabled>全部采纳（0）</button>
+          <button class="bbtn ghost" id="rejAllSettings" disabled>全部驳回</button>
+        </span>
+      </div>
+      <div id="settingsBody"></div>
+    </section>
+
+    <section class="tab-pane" id="pane-style">
+      <div class="pane-placeholder">文风影子（查看态）——原型从略</div>
+    </section>
+
+    <section class="tab-pane" id="pane-relations">
+      <div class="ds-head">
+        <h3>本章变化 · 人物关系</h3>
+        <span class="ds-sub">确认后写入关系图，随下一章提示词生效</span>
+        <span class="ds-batch">
+          <button class="bbtn main" id="accAllRelations" disabled>全部采纳（0）</button>
+          <button class="bbtn ghost" id="rejAllRelations" disabled>全部驳回</button>
+        </span>
+      </div>
+      <div id="relationsBody"></div>
+    </section>
+
+    <section class="tab-pane" id="pane-hooks">
+      <div class="ds-head">
+        <h3>伏笔台账</h3>
+        <span class="ds-sub">归档已推进 mentioned；「该收了」＝ planned ≤ 基准章号</span>
+      </div>
+      <div id="hooksBody"></div>
+    </section>
+
+    <section class="tab-pane" id="pane-actions">
+      <div class="pane-placeholder">操作页签：归档卡 / 重新归档 / 回退——原型从略（进度条见上方常驻演示）</div>
+    </section>
+
+  </div>
+</div>
+
+<!-- ══ Toast ══ -->
+<div class="toast" id="toast">
+  <span id="toastMsg"></span>
+  <button class="t-x" id="toastX">✕</button>
+</div>
+
+<!-- ══ 设计说明 ══ -->
+<div class="notes">
+  <div class="note-card">
+    <h4><em>数据</em>泡泡数字从哪来</h4>
+    <ul>
+      <li><code>dossierApi.get().rows</code> 每行自带 <code>domain</code>＋<code>status</code>——设定泡＝settings＋物品＋认知三域 pending 数；关系泡＝relations 域 pending 数。零后端改动。</li>
+      <li>口径与页签内「全部采纳（N）」完全一致（<code>ChangesSections.tsx:229</code> 同款算法），泡和正文数字永不打架。</li>
+      <li>伏笔泡＝台账「该收了」计数（planned ≤ 基准章号），归档落 mentioned 后该数真实变化；<b>不是</b>「待确认」——归档提取四域里没有伏笔。</li>
+    </ul>
+    <div class="q"><b>拍板①</b>　泡泡样式：微信红 pill（默认演示）还是现役红字款「N 待确认」？右上角可切换对比。</div>
+    <div class="q"><b>拍板②</b>　伏笔要不要挂「该收 N」琥珀泡？不要则伏笔页签保持无泡。</div>
+  </div>
+  <div class="note-card">
+    <h4><em>实时感</em>刷新链路（全部现成）</h4>
+    <ul>
+      <li>提取完成：<code>archiveJob extracting→done</code> 已有终态 effect（<code>ChapterWorkspace.tsx:959</code>，现发 toast＋刷树），顺势刷新计数——本页演示的「跑完弹泡」即此链。</li>
+      <li>逐条确认/驳回：已有 <code>DOSSIER_CHANGED_EVENT</code> 广播（<code>dossierApi.ts:4</code>），工作台监听同一事件即时减数——试试点某行的「采纳」。</li>
+      <li>清零自消：泡缩隐退场；未归档章无泡（无提取行）；切章回落重取（现有 effect 已按 chapterRef 重跑）。</li>
+      <li>落点：页签 <code>cnt</code> 槽位已预留（<code>ChapterWorkspace.tsx:1160-1164</code> 现传空串），加 CSS 一格 <code>.cnt.pill</code> 即可。</li>
+    </ul>
+  </div>
+</div>
+
+<script>
+/* ═══════════════ 演示状态机 ═══════════════ */
+const S = {
+  phase: "before",            // before | extracting | done
+  secs: 0, timer: null,
+  tab: "settings",
+  mode: "pill",               // pill | text
+  toastTimer: null,
+  hooksDue: 2,
+  data: {
+    settings: { pending: 5, rows: [
+      { id: "s1", group: "设定 · 势力", html: "<b>豢养派</b>在云州设立分坛，主事人「乌先生」首次点名", ev: "第 3 段", status: "pending" },
+      { id: "s2", group: "设定 · 势力", html: "祠堂守夜人属<b>守宫一脉</b>，与县衙捕头私通", ev: "第 7 段", status: "pending" },
+      { id: "s3", group: "物品", html: "<b>青铜灯盏</b>易主：由沈青梧转交陈守拙", ev: "第 2 段", status: "pending" },
+      { id: "s4", group: "角色认知", html: "陈守拙得知：父亲失踪前最后出现在<b>祠堂</b>", ev: "第 9 段", status: "pending" },
+      { id: "s5", group: "角色认知", html: "沈青梧识破乌先生的<b>哑谜暗号</b>", ev: "第 11 段", status: "pending" },
+    ]},
+    relations: { pending: 3, rows: [
+      { id: "r1", group: "人物关系", html: "<span class='rel-pair'><b>陈守拙</b><span class='rel-arrow'>↔</span><b>沈青梧</b></span>：同行<span class='rel-arrow'>→</span>同盟（共守青铜灯盏）", ev: "第 4 段", status: "pending" },
+      { id: "r2", group: "人物关系", html: "<span class='rel-pair'><b>陈守拙</b><span class='rel-arrow'>↔</span><b>乌先生</b></span>：陌生<span class='rel-arrow'>→</span>敌对（祠堂对峙）", ev: "第 12 段", status: "pending" },
+      { id: "r3", group: "人物关系", html: "<span class='rel-pair'><b>守夜人</b><span class='rel-arrow'>↔</span><b>县衙捕头</b></span>：暗中勾结（新关系）", ev: "第 7 段", status: "pending" },
+    ]},
+  },
+};
+
+const $ = (sel) => document.querySelector(sel);
+const TABS = ["og", "prose", "settings", "style", "relations", "hooks", "actions"];
+
+/* ── 页签切换 ── */
+$("#tabs").addEventListener("click", (e) => {
+  const btn = e.target.closest(".chtab");
+  if (!btn) return;
+  S.tab = btn.dataset.tab;
+  document.querySelectorAll(".chtab").forEach((b) => b.classList.toggle("on", b === btn));
+  TABS.forEach((t) => $("#pane-" + t).classList.toggle("on", t === S.tab));
+});
+
+/* ── 泡泡渲染 ── */
+function bubbleSpec() {
+  const d = S.data;
+  return [
+    { el: $("#bubSettings"), n: d.settings.pending, kind: "err", title: "设定页签待确认条数" },
+    { el: $("#bubRelations"), n: d.relations.pending, kind: "err", title: "角色关系页签待确认条数" },
+    { el: $("#bubHooks"), n: S.phase === "done" ? S.hooksDue : 0, kind: "warn", title: "伏笔台账「该收了」条数", hooks: true },
+  ];
+}
+function renderBubbles(opts = {}) {
+  for (const b of bubbleSpec()) {
+    const el = b.el, show = b.n > 0;
+    if (!show) {
+      if (!el.hidden) {           // 清零：缩隐后退场
+        el.classList.add("is-gone");
+        setTimeout(() => { el.hidden = true; el.classList.remove("is-gone"); }, 240);
+      }
+      continue;
+    }
+    const label = b.hooks ? "该收 " + b.n : (S.mode === "pill" ? String(b.n) : b.n + " 待确认");
+    if (el.hidden) {              // 首现：pop，可带错峰延迟
+      el.hidden = false;
+      el.className = "cnt pill " + (b.kind === "warn" ? "warn " : "") + "pop";
+      if (opts.stagger) el.style.animationDelay = opts.stagger + "ms";
+      el.addEventListener("animationend", () => { el.classList.remove("pop"); el.style.animationDelay = ""; }, { once: true });
+    } else if (el.textContent !== label) {
+      el.classList.add("bump");
+      el.addEventListener("animationend", () => el.classList.remove("bump"), { once: true });
+    }
+    el.textContent = label;
+    el.title = b.title;
+  }
+}
+
+/* ── 归档卡三段条 ── */
+function renderStages() {
+  const wrap = $("#archWrap");
+  if (S.phase === "before") { wrap.classList.remove("show"); return; }
+  wrap.classList.add("show");
+  const extracting = S.phase === "extracting";
+  const pending = S.data.settings.pending + S.data.relations.pending;
+  const node = (st, label, detail) =>
+    `<span class="as-node is-${st}"><i class="as-dot"></i><span class="as-label">${label}${detail ? ` <em class="as-detail">${detail}</em>` : ""}</span></span>`;
+  $("#archStages").innerHTML = extracting
+    ? node("active", "提取", S.secs + "s") + node("todo", "确认") + node("todo", "完成")
+    : node("done", "提取", S.secs + "s") + (pending > 0 ? node("active", "确认", `待确认 ${pending} 条`) : node("done", "确认", "已处理")) + node(pending > 0 ? "todo" : "done", "完成");
+}
+
+/* ── 变化行渲染 ── */
+function renderRows() {
+  for (const key of ["settings", "relations"]) {
+    const box = $("#" + key + "Body"), d = S.data[key];
+    if (S.phase !== "done") {
+      box.innerHTML = S.phase === "extracting"
+        ? `<span class="ds-extracting"><i></i>AI 正在提取本章变化，落库后在此确认…</span>`
+        : `<div class="ds-empty">归档后，AI 提取的本章变化会落在这里逐条确认</div>`;
+      $("#accAll" + cap(key)).disabled = true;
+      $("#rejAll" + cap(key)).disabled = true;
+      continue;
+    }
+    const groups = new Map();
+    d.rows.forEach((r) => groups.set(r.group, [...(groups.get(r.group) ?? []), r]));
+    box.innerHTML = [...groups.entries()].map(([g, rows]) => `
+      <div class="ds-domain">
+        <div class="ds-area">${g.toUpperCase()}</div>
+        ${rows.map((r) => r.status === "pending" ? `
+          <div class="ds-row flash" data-id="${r.id}">
+            <span class="ds-txt">${r.html}<span class="ds-ev">${r.ev}</span></span>
+            <button class="rbtn acc" data-act="accept">采纳</button>
+            <button class="rbtn" data-act="reject">驳回</button>
+          </div>` : `
+          <div class="ds-row settled" data-id="${r.id}">
+            <span class="ds-txt">${r.html}</span>
+            <span class="r-tag ${r.status === "accepted" ? "ok" : "no"}">${r.status === "accepted" ? "✓ 已采纳" : "已驳回"}</span>
+          </div>`).join("")}
+      </div>`).join("");
+    const canBatch = d.pending > 0;
+    $("#accAll" + cap(key)).textContent = `全部采纳（${d.pending}）`;
+    $("#accAll" + cap(key)).disabled = !canBatch;
+    $("#rejAll" + cap(key)).disabled = !canBatch;
+  }
+  renderStages();
+}
+const cap = (s) => s[0].toUpperCase() + s.slice(1);
+
+/* ── 行动作：确认/驳回 → 泡泡即时减数（对应 DOSSIER_CHANGED_EVENT） ── */
+document.addEventListener("click", (e) => {
+  const btn = e.target.closest(".rbtn[data-act]");
+  if (!btn) return;
+  const row = btn.closest(".ds-row"), key = btn.closest(".tab-pane").id === "pane-relations" ? "relations" : "settings";
+  settle(key, row.dataset.id, btn.dataset.act);
+});
+function settle(key, id, act) {
+  const r = S.data[key].rows.find((x) => x.id === id);
+  if (!r || r.status !== "pending") return;
+  r.status = act === "accept" ? "accepted" : "rejected";
+  S.data[key].pending--;
+  renderRows();
+  renderBubbles();
+}
+
+/* ── 批量：错峰逐条落定（实时感的编排演示） ── */
+function batch(key, act) {
+  const pend = S.data[key].rows.filter((r) => r.status === "pending");
+  pend.forEach((r, i) => setTimeout(() => settle(key, r.id, act), i * 140));
+}
+$("#accAllSettings").onclick = () => batch("settings", "accept");
+$("#rejAllSettings").onclick = () => batch("settings", "reject");
+$("#accAllRelations").onclick = () => batch("relations", "accept");
+$("#rejAllRelations").onclick = () => batch("relations", "reject");
+
+/* ── 归档流程：受理 → 提取走秒 → 完成弹泡（对应 extracting→done 终态链） ── */
+$("#btnArchive").onclick = () => {
+  if (S.phase !== "before") return;
+  S.phase = "extracting"; S.secs = 0;
+  $("#btnArchive").disabled = true; $("#btnFast").disabled = false;
+  toast("已受理 · AI 提取中（本章已锁定；产出在设定/角色关系页签，进度见归档卡）");
+  renderRows(); renderStages();
+  S.timer = setInterval(() => {
+    S.secs++;
+    if (S.secs >= 4) return finishExtract();
+    renderStages();
+    const hint = $(".ds-extracting");
+    if (hint) hint.lastChild.textContent = ` AI 正在提取本章变化，落库后在此确认（${S.secs}s）…`;
+  }, 1000);
+};
+function finishExtract() {
+  clearInterval(S.timer);
+  S.phase = "done";
+  $("#btnFast").disabled = true;
+  $("#headArch").style.display = "";
+  $("#cntOg").textContent = "已归档"; $("#cntOg").className = "cnt";
+  renderRows();
+  renderBubbles({ stagger: 90 });   // 三枚泡泡错峰 pop
+  toast("《第 12 章 · 夜探祠堂》提取完成 · 已归档，变化待确认（设定/角色关系页签）");
+}
+$("#btnFast").onclick = () => {
+  if (S.phase === "extracting") { clearInterval(S.timer); finishExtract(); }
+  else if (S.phase === "before") { S.secs = 4; finishExtract(); }
+};
+$("#btnReset").onclick = () => location.reload();
+
+/* ── Toast（3s 自消＋× 关闭，c-toast-dismiss 口径） ── */
+function toast(msg) {
+  $("#toastMsg").textContent = msg;
+  $("#toast").classList.add("show");
+  clearTimeout(S.toastTimer);
+  S.toastTimer = setTimeout(() => $("#toast").classList.remove("show"), 3200);
+}
+$("#toastX").onclick = () => $("#toast").classList.remove("show");
+
+/* ── 泡泡样式切换（拍板①对比） ── */
+$("#styleSeg").addEventListener("click", (e) => {
+  const btn = e.target.closest("button[data-mode]");
+  if (!btn) return;
+  S.mode = btn.dataset.mode;
+  document.querySelectorAll("#styleSeg button").forEach((b) => b.classList.toggle("on", b === btn));
+  document.body.classList.toggle("mode-text", S.mode === "text");
+  renderBubbles();
+});
+
+/* ── 伏笔台账（静态展示「该收了」信号） ── */
+$("#hooksBody").innerHTML = `
+  <div class="ds-domain">
+    <div class="ds-area">本章应回收</div>
+    <div class="ds-row"><span class="ds-txt"><b>父亲留下的半块玉佩</b>——陈守拙在祠堂梁上发现另一半<span class="hp-src">　第 3 章埋 · planned 12</span></span><em class="hp-due">该收了</em></div>
+    <div class="ds-row"><span class="ds-txt"><b>祠堂梁上的刻字</b>——守夜人跪拜的暗号被沈青梧认出<span class="hp-src">　第 9 章埋 · planned 12</span></span><em class="hp-due">该收了</em></div>
+  </div>`;
+
+/* 初始渲染 */
+document.querySelector('.chtab[data-tab="settings"]').classList.add("on");
+renderRows();
+</script>
+</body>
+</html>

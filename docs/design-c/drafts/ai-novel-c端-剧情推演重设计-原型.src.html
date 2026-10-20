@@ -1,0 +1,1176 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>设计原型 · 剧情推演重设计（真回合制）</title>
+<!-- ═══════════════════════════════════════════════════════════════
+  设计原型 · 剧情推演重设计（真回合制）· 2026-10-14
+  · 背景：现行推演「一发式生成＋顺/拗二选一＋收进章纲落固定话术」，用户反馈用得不爽
+    （诊断与提案见 2026-10-11 讨论记录；现状摸底见同目录《ai-novel-c端-剧情推演-当前UI设计整理.md》）。
+    本原型演示改造提案：真回合制——每回合一次 AI 调用（只生成下一回合局势＋2-3 条候选走法），
+    三个参与口＝选候选 / 自己写一条 / 直接改落点；逐回合可单独收进章纲（收实际内容句）。
+  · 底座口径（design-c-proto-real-ui-basis）：页面骨架（.wb 工作台壳、章视图三栏、
+    右栏 AI 工具、icons/modal 脚本）逐字复制自 docs/design-c/pages/book-write.html
+    （2026-09-25 快照，演示种子《星海拾遗》），每段有来源注释；仅做 4 处演示种子调整
+    （默认落在章视图＋右栏挂剧情推演入口），均已标注。
+  · 样式：真实 base.css / book.css 由 build-plot-sim-proto.py 从 pages/book-write.html
+    <style> 逐字抽取注入（占位符替换，可重放）。新增件只用 ps- 前缀类，颜色/圆角/阴影/字体
+    只用真实 token，不重定义 token。
+  · 弹窗壳为真实 .scrim/.modal/.mcard.wb-style（base.css），内容为 ps- graft。
+  · 演示交互：对话与旁白由演示脚本假拟（每位响应 1.1s）；真机口径＝每位角色一次短输出调用、
+    来源 ai/fallback，可模拟 AI 不可用（兜底态）。变体 A/B 已按 2026-10-15 拍板移除，
+    本原型仅保留 C（角色对话流）。
+  · 变体 C（角色对话流，2026-10-15 两轮拍板终版）：**导演只触发开始**（可选写一句定调，
+    不写即按章纲与角色设定自动开场）；每回合在场角色**挨个响应**（说话、动作、旁白），
+    **每位角色一次模型调用**——提示词携带**该角色的设定（角色卡人设）**＋此前全部对话
+    （多轮对话），只生成这一位；**全场响应完＝一回合**，回合末出可编辑落点卡（收进章纲
+    收落点句）。导演全程可插话，走完可带令加场。场景条挂在场角色的人设徽标（悬停看设定）。
+    演示每位响应 1.1s；真机每位一次短输出调用，回合延迟＝在场人数×单次延迟。
+  · 导演反馈即注入（2026-10-15 补）：推演中导演一发送反馈，对应回合**就地按反馈重推**——
+    反馈以导演气泡留在对话流（渲染在响应之前），本回合清空重扫、角色按反馈重新挨个响应；
+    扫场进行中插话同样打断重扫；「重演」保留既有导演反馈一并注入。
+  · 修正粒度（2026-10-15 补）：回合未定稿前，每条气泡/旁白可「✎ 改」（就地改词，改定带
+    「已改」标，收必写标注「作者改定」）；每位角色的响应块可「↻ 重说」＝只重调这一位
+    （备选演法对应响应替换，其余角色与前文不动）；回合级「重演」与定稿后「重定」不变。
+  · 场景边界（2026-10-15 补）：对话流里每个场景「开场分隔条（场景N＋地点时间）＋收束线
+    （场景N · 收——场景小结）」卡死起讫；本章走完后「总结推演剧情 · 收进章纲」＝把各场景
+    各回合落点总结成剧情条目（拟稿可改），确认写入中栏章纲（原型直接更新底座 OgPane）。
+  · 必写对白（2026-10-15 补）：聊天气泡与旁白可一键「收为必写」（原地切换不重渲），
+    统计条实时计数；总结卡带「必写对白与旁白」拟稿（可改），确认后与剧情条目一并写入
+    章纲——真机＝章纲新增「必写对白」留存字段，正文生成素材组装与 prompts 仓同批消费。
+  · 设计说明与拍板点：同目录《ai-novel-c端-剧情推演重设计-设计说明.md》。
+  · 重放：python3 docs/design-c/drafts/build-plot-sim-proto.py
+    （源模板 本文件 → ai-novel-c端-剧情推演重设计-原型.html，幂等）
+═══════════════════════════════════════════════════════════════ -->
+<style>
+/*__INJECT_STYLE_BASE__*/
+/*__INJECT_STYLE_BOOK__*/
+
+/* ══════════ 新增 graft（ps- 前缀；token 取真实值，未重定义任何 token） ══════════ */
+
+/* ── 原型演示条（非基线元素 · 产品 UI 不含；几何对齐 pages/ 非基线 .pgset-nav/.gl-demobar 口径） ── */
+.ps-demobar { position: sticky; top: 0; z-index: 90; display: flex; align-items: center; gap: 12px; flex-wrap: wrap;
+  background: var(--surface); border-bottom: 1px solid var(--border); padding: 8px 16px;
+  font-size: 12px; color: var(--muted); box-shadow: var(--shadow-card); }
+.ps-demo-title { font-family: var(--font-display); font-size: 14px; font-weight: 600; color: var(--fg); }
+.ps-demo-title em { font-style: normal; font-family: var(--font-mono); font-size: 10px; letter-spacing: 0.12em;
+  color: var(--accent-strong); border: 1px solid var(--border); border-radius: 999px; padding: 2px 8px; margin-right: 8px; }
+.ps-demo-note { font-size: 11px; color: var(--muted); border: 1px dashed var(--border); border-radius: 999px; padding: 3px 10px; }
+
+/* ── 推演弹窗骨架（壳为真实 .mcard.wb-style；须抬到同级特异性，否则被 base.css 440px 默认宽盖掉） ── */
+.mcard.wb-style.ps-modal { width: min(920px, 94vw); }
+.ps-modal .mcard-body { display: flex; flex-direction: column; overflow: hidden; }
+.ps-modal .mcard-foot .btn { flex: none; white-space: nowrap; }
+.ps-stats { display: flex; flex-wrap: wrap; gap: 6px; margin: 2px 0 10px; }
+.ps-frame { display: flex; flex-direction: column; gap: 8px; padding: 12px 14px; margin-bottom: 12px; }
+.ps-row { display: flex; gap: 10px; font-size: 12.5px; line-height: 1.7; }
+.ps-row .ps-k { flex: none; width: 3.5em; color: var(--muted); }
+.ps-row .ps-v { color: var(--fg); min-width: 0; }
+.ps-detail { margin-top: 2px; font-size: 12px; color: var(--muted); }
+.ps-detail summary { cursor: pointer; }
+.ps-detail ul { margin: 6px 0 0; padding-left: 18px; display: grid; gap: 3px; }
+
+/* ── 已定回合收条（对话流内的回合定格条） ── */
+.ps-tlc-n { font-family: var(--font-mono); font-size: 10.5px; color: var(--accent-strong);
+  border: 1px solid var(--border); border-radius: 999px; padding: 0 7px; }
+.ps-acts { display: flex; flex-wrap: wrap; gap: 2px; align-items: center; }
+
+/* ── 变体 C · 角色对话流（微信式气泡＋场景条＋导演输入；壳仍为 .mcard.wb-style） ── */
+#ps-chatwrap { flex: 1; min-height: 0; flex-direction: column; }
+.ps-scenebar { flex: none; display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+  padding: 2px 2px 10px; border-bottom: 1px solid var(--border); font-size: 12px; color: var(--muted); }
+.ps-chat { flex: 1; min-height: 0; overflow-y: auto; display: flex; flex-direction: column;
+  gap: 10px; padding: 12px 2px 8px; }
+.ps-mrow { display: flex; gap: 8px; align-items: flex-start; max-width: 86%; }
+.ps-ava { flex: none; width: 26px; height: 26px; border-radius: 50%; background: var(--accent-soft);
+  color: var(--accent-strong); display: grid; place-items: center; font-size: 12px;
+  font-family: var(--font-display); margin-top: 14px; }
+.ps-mcol { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
+.ps-mname { font-size: 11px; color: var(--muted); padding-left: 2px; }
+.ps-mbub { background: var(--fg-soft); border-radius: 4px 12px 12px 12px; padding: 7px 11px;
+  font-size: 13px; line-height: 1.7; color: var(--fg); }
+.ps-markbtn { border: 0; background: transparent; color: var(--faint); font-size: 11px;
+  cursor: pointer; padding: 1px 4px; align-self: flex-start; }
+.ps-markbtn:hover { color: var(--accent-strong); }
+.ps-markbtn.on { color: var(--ok); font-weight: 500; }
+p.ps-mnar .ps-markbtn { vertical-align: middle; margin-left: 6px; }
+.ps-actrow { display: flex; gap: 2px; align-items: center; }
+.ps-rr { align-self: flex-start; margin: -2px 0 0 34px; }
+.ps-editline { min-height: 0; background: var(--surface); }
+.ps-mnar { align-self: center; max-width: 90%; text-align: center; font-size: 12px;
+  color: var(--muted); line-height: 1.8; margin: 0; }
+.ps-mnar b { color: var(--fg); font-weight: 500; }
+.ps-mdir { align-self: flex-end; max-width: 86%; display: flex; flex-direction: column; gap: 3px; align-items: flex-end; }
+.ps-mdir .ps-mbub { background: var(--accent); color: var(--on-accent); border-radius: 12px 12px 4px 12px; }
+.ps-typing { display: inline-flex; gap: 4px; padding: 10px 12px; background: var(--fg-soft);
+  border-radius: 4px 12px 12px 12px; }
+.ps-typing i { width: 5px; height: 5px; border-radius: 50%; background: var(--muted); animation: ps-dot 1.1s infinite; }
+.ps-typing i:nth-child(2) { animation-delay: 0.18s; }
+.ps-typing i:nth-child(3) { animation-delay: 0.36s; }
+@keyframes ps-dot { 0%, 60%, 100% { opacity: 0.3; } 30% { opacity: 1; } }
+.ps-scenediv { display: flex; align-items: center; gap: 10px; margin: 2px 0; }
+.ps-scenediv::before, .ps-scenediv::after { content: ""; flex: 1; height: 1px; background: var(--border); }
+.ps-scenediv .ps-sd-out { font-size: 11.5px; color: var(--muted); text-align: center; line-height: 1.6; }
+.ps-cland { border: 1px solid var(--border); border-left: 3px solid var(--accent); border-radius: var(--radius);
+  background: var(--surface); padding: 10px 12px; display: flex; flex-direction: column; gap: 7px; margin-top: 2px; }
+.ps-cland .ps-lk { margin: 0; font-size: 12px; color: var(--muted); display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.ps-cstrip { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; background: var(--fg-soft);
+  border-radius: var(--radius); padding: 8px 12px; font-size: 12.5px; }
+.ps-endchat { align-self: center; max-width: 90%; text-align: center; border: 1px dashed var(--border);
+  border-radius: var(--radius); background: var(--fg-soft); color: var(--muted); font-size: 12px;
+  line-height: 1.8; padding: 10px 14px; }
+.ps-endchat b { color: var(--fg); font-weight: 500; }
+.ps-inbar { flex: none; display: flex; gap: 8px; align-items: flex-end; border-top: 1px solid var(--border);
+  padding-top: 10px; margin-top: 8px; }
+.ps-inbar .textarea, .mcard.wb-style .ps-inbar .textarea { flex: 1; min-height: 0; max-height: 72px; height: auto; }
+
+/* ── toast（几何/配色走真实 token；真机为泡泡组件，此为原型替身） ── */
+.ps-toast { position: fixed; left: 50%; bottom: 34px; transform: translateX(-50%) translateY(8px); z-index: 120;
+  background: var(--fg); color: var(--surface); border-radius: 999px; padding: 7px 16px; font-size: 12.5px;
+  opacity: 0; pointer-events: none; transition: opacity 0.2s ease, transform 0.2s ease; box-shadow: var(--shadow-card); }
+.ps-toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
+</style>
+</head>
+<body>
+
+<!-- ═══ 原型演示条（非基线元素 · 产品 UI 不含） ═══ -->
+<div class="ps-demobar">
+  <span class="ps-demo-title"><em>PROTOTYPE</em>剧情推演重设计 · 角色对话流</span>
+  <button class="btn btn-ghost btn-sm" data-ps="restart">重演</button>
+  <button class="btn btn-ghost btn-sm" id="ps-fail" data-ps="fail">模拟 AI 不可用（下回合走兜底）</button>
+  <span class="ps-demo-note">演示种子《星海拾遗》第 14 章 · 导演只触发开始，角色按设定挨个互动，场景起讫卡边界，走完总结收进章纲</span>
+</div>
+
+<!-- ═══ 工作台底座：逐字复制自 pages/book-write.html <body>（2026-09-25 快照，演示种子《星海拾遗》）；
+     仅 4 处演示种子调整（均已标注「演示种子调整」）：默认落在章视图＋右栏挂剧情推演入口 ═══ -->
+<div class="wb">
+
+<header class="appbar appbar-wb">
+  <a class="logo" href="works.html" title="返回我的小说" data-od-id="appbar-logo"><span class="logo-mark">爱</span>爱小说</a>
+  <span class="sep"></span>
+  <span class="novel-title serif" title="双击重命名">星海拾遗</span>
+  <span class="genre-tag" title="科幻 · 星际探索">科幻 · 星际探索</span>
+  <span class="sep"></span>
+  <div class="bar-here" data-od-id="current-position">
+    <p class="bh-k">当前主线</p>
+    <span class="bh-rule" aria-hidden="true"></span>
+    <p class="bh-t"><span class="n">第 14 章</span>潮汐里的灯</p>
+    <span class="bh-tag bh-tag-live">草稿</span>
+    <div class="bh-prog">
+      <span class="bh-vol">第二卷 · 8/14</span>
+      <span class="prog-bar"><span style="width:57%"></span></span>
+    </div>
+    <button class="btn btn-primary btn-sm" data-od-id="resume-cta" title="回到上次退出前的位置">续写</button>
+  </div>
+  <span class="spacer" style="flex:1"></span>
+  <span class="badge badge-accent">PRO</span>
+</header>
+<nav class="modnav">
+  <a class="mtab" href="book-settings.html">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" width="15" height="15"><path d="M12 20h9M16.5 3.5a2.1 2.1 0 013 3L7 19l-4 1 1-4L16.5 3.5z"/></svg>
+    设定 <span class="cnt">5/7</span>
+  </a>
+  <a class="mtab on" href="book-write.html" aria-current="page">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" width="15" height="15"><path d="M4 6h16M4 12h16M4 18h10"/></svg>
+    写作 <span class="cnt">9/14 章纲</span>
+  </a>
+  <a class="mtab" href="book-preview.html">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" width="15" height="15"><path d="M2 12s3.5-6 10-6 10 6 10 6-3.5 6-10 6S2 12 2 12z"/><circle cx="12" cy="12" r="2.5"/></svg>
+    预览
+  </a>
+  <span class="spacer"></span>
+  <span class="side">写作 · 卷有卷纲；点章即可配章纲、提示词并写正文</span>
+</nav>
+
+  <div class="state-sw" data-state-group="state" data-od-id="state-switcher">
+    <span class="sw-k">VIEW</span>
+    <button data-state-go="home">书主页</button>
+    <button data-state-go="volume">卷视图</button>
+    <button data-state-go="chapter" class="on">章视图</button><!-- 演示种子调整：默认落在章视图 -->
+  </div>
+
+  <div class="view on three-col">
+
+<aside class="col-tree">
+  <div class="tree-head">
+    <span class="t">目录 · <b>2 卷 14 章</b></span>
+    <button class="icon-btn" title="新增一卷" data-open-modal="fourq"><i data-ico="plus"></i></button>
+  </div>
+  <div class="tree">
+    <div class="vol">
+      <div class="vol-head" style="display:flex">
+        <i data-ico="chevronRight" class="chev open" data-sw="2"></i>
+        <span class="vt">第一卷 · 北岭风雪</span>
+        <span class="acts"><button class="icon-btn" title="本卷拆章" data-open-modal="chplan"><i data-ico="list"></i></button></span>
+      </div>
+      <div style="padding-left:14px">
+        <div class="ch" style="display:flex;align-items:center;gap:8px;padding:5px 8px 5px 10px;border-radius:8px;cursor:pointer">
+          <span class="dot-ok"></span><span class="ct">第1章 废船</span><span class="arch-tag">已归档</span>
+        </div>
+        <div class="ch" style="display:flex;align-items:center;gap:8px;padding:5px 8px 5px 10px;border-radius:8px;cursor:pointer">
+          <span class="dot-ok"></span><span class="ct">第2章 会说话的记忆</span><span class="arch-tag">已归档</span>
+        </div>
+        <div class="ch" style="display:flex;align-items:center;gap:8px;padding:5px 8px 5px 10px;border-radius:8px;cursor:pointer">
+          <span class="dot-ok"></span><span class="ct">第3章 北岭站</span><span class="arch-tag">已归档</span>
+        </div>
+        <div class="ch" style="display:flex;align-items:center;gap:8px;padding:5px 8px 5px 10px;border-radius:8px;cursor:pointer">
+          <span class="dot-ok"></span><span class="ct">第4章 老航道</span><span class="arch-tag">已归档</span>
+        </div>
+        <div class="ch" style="display:flex;align-items:center;gap:8px;padding:5px 8px 5px 10px;border-radius:8px;cursor:pointer">
+          <span class="dot-ok"></span><span class="ct">第5章 冰下信号</span><span class="arch-tag">已归档</span>
+        </div>
+        <div class="ch" style="display:flex;align-items:center;gap:8px;padding:5px 8px 5px 10px;border-radius:8px;cursor:pointer">
+          <span class="dot-ok"></span><span class="ct">第6章 守灯人</span><span class="arch-tag">已归档</span>
+        </div>
+        <div class="ch" style="display:flex;align-items:center;gap:8px;padding:5px 8px 5px 10px;border-radius:8px;cursor:pointer">
+          <span class="dot-ok"></span><span class="ct">第7章 第一次远航</span><span class="arch-tag">已归档</span>
+        </div>
+        <div class="ch" style="display:flex;align-items:center;gap:8px;padding:5px 8px 5px 10px;border-radius:8px;cursor:pointer">
+          <span class="dot-ok"></span><span class="ct">第8章 卷末·雪停了</span><span class="arch-tag">已归档</span>
+        </div>
+      </div>
+    </div>
+    <div class="vol">
+      <div class="vol-head sel" style="display:flex">
+        <i data-ico="chevronRight" class="chev open" data-sw="2"></i>
+        <span class="vt">第二卷 · 南渡星槎</span>
+        <span class="acts"><button class="icon-btn" title="本卷拆章" data-open-modal="chplan"><i data-ico="list"></i></button></span>
+      </div>
+      <div style="padding-left:14px">
+        <div class="ch" style="display:flex;align-items:center;gap:8px;padding:5px 8px 5px 10px;border-radius:8px;cursor:pointer">
+          <span class="dot-ok"></span><span class="ct">第9章 南渡</span><span class="arch-tag">已归档</span>
+        </div>
+        <div class="ch" style="display:flex;align-items:center;gap:8px;padding:5px 8px 5px 10px;border-radius:8px;cursor:pointer">
+          <span class="dot-ok"></span><span class="ct">第10章 星槎港</span><span class="arch-tag">已归档</span>
+        </div>
+        <div class="ch" style="display:flex;align-items:center;gap:8px;padding:5px 8px 5px 10px;border-radius:8px;cursor:pointer">
+          <span class="dot-ok"></span><span class="ct">第11章 黑市</span><span class="arch-tag">已归档</span>
+        </div>
+        <div class="ch" style="display:flex;align-items:center;gap:8px;padding:5px 8px 5px 10px;border-radius:8px;cursor:pointer">
+          <span class="dot-ok"></span><span class="ct">第12章 旧王旗</span><span class="arch-tag">已归档</span>
+        </div>
+        <div class="ch" style="display:flex;align-items:center;gap:8px;padding:5px 8px 5px 10px;border-radius:8px;cursor:pointer">
+          <span class="dot-ok"></span><span class="ct">第13章 暗礁</span><span class="arch-tag">已归档</span>
+        </div>
+        <div class="ch sel" style="display:flex;align-items:center;gap:8px;padding:5px 8px 5px 10px;border-radius:8px;cursor:pointer">
+          <span class="dot-warn"></span><span class="ct">第14章 潮汐里的灯</span>
+        </div>
+      </div>
+    </div>
+  </div>
+  <div class="tree-foot"><span class="batch">已归档 13/14 章</span></div>
+</aside>
+
+    <main class="col-middle">
+      <!-- ① 书主页卡（演示种子调整：默认隐藏，落章视图） -->
+      <div class="col-panel" data-state="home" hidden>
+        <div class="e-empty" data-testid="write-home">
+          <p class="be-mark">2 卷 · 14 章 · 已归档 13 章 · 共 86,400 字</p>
+          <p class="be-k">接着写第 14 章？潮汐里的灯</p>
+          <p class="be-t">在左侧目录里选一章，上面一行页签会展开它的章纲、正文、提示词、设定与关系伏笔，重写与回退收在「操作」页签里。</p>
+          <p class="be-acts">
+            <button class="btn btn-primary" data-state-go="chapter" data-state-group="state">续写</button>
+            <button class="btn btn-secondary" data-open-modal="fourq">＋ 新增一卷</button>
+            <button class="btn btn-secondary">＋ 新增一章</button>
+          </p>
+        </div>
+      </div>
+
+      <!-- ② 卷视图（演示种子调整：默认隐藏） -->
+      <div class="col-panel vol-shell" data-state="volume" hidden>
+        <div class="ch-tabs" role="tablist" aria-label="分卷计划">
+          <button class="chtab on" role="tab" aria-selected="true">卷纲</button>
+          <button class="chtab" role="tab" aria-selected="false">本卷章节</button>
+          <button class="chtab" role="tab" aria-selected="false">角色关系</button>
+          <button class="chtab" role="tab" aria-selected="false">伏笔</button>
+          <span class="spacer" style="flex:1"></span>
+          <span class="f-hint" style="padding-right:4px">第二卷 · 南渡星槎 · 6/6 章</span>
+        </div>
+        <div class="e-pad" style="padding:18px 22px 24px">
+          <div class="fro" style="max-width:76ch">
+            <div class="field"><label>VOL SUMMARY <span class="opt">· 一句话说清这一卷</span></label>
+              <textarea class="textarea" rows="2">北岭号南渡星槎港，船长用会说话的记忆换到一条禁航图，也把二十年前搁浅远航的真相拖出水面。</textarea></div>
+            <div class="field"><label>CORE CONFLICT</label>
+              <textarea class="textarea" rows="2">记忆的原主要北岭号交出记忆，港务司要北岭号交出禁航图——两头都不能给。</textarea></div>
+            <div class="field"><label>ANTAGONIST <span class="opt">· 对抗物</span></label>
+              <input class="input" value="体制阻力 · 港务司稽查长（新面孔，最小入册）"></div>
+            <div class="field"><label>ENDING <span class="opt">· 卷末落点</span></label>
+              <input class="input" value="灯点起来了，但照出的是另一条更黑的航道——主角接受代价，驶入。"></div>
+            <div class="field"><label>CHAPTER TARGET <span class="opt">· 章数目标</span></label>
+              <input class="input num" style="width:120px" value="12"></div>
+            <p style="display:flex;gap:8px;margin-top:18px">
+              <button class="btn btn-primary">保存卷纲</button>
+              <button class="btn btn-secondary" data-open-modal="chplan">拆下一章</button>
+              <span class="f-hint" style="align-self:center;margin:0 0 0 6px">改动未保存时切走会先确认</span>
+            </p>
+          </div>
+        </div>
+      </div>
+
+      <!-- ③ 章视图（演示种子调整：默认显示；章纲表单即真机 OgPane 同位） -->
+      <div class="col-editor" data-state="chapter">
+        <div class="ch-tabs" role="tablist" aria-label="章对象">
+          <button class="chtab on" role="tab" aria-selected="true">章纲</button>
+          <button class="chtab" role="tab">正文</button>
+          <button class="chtab" role="tab">提示词</button>
+          <button class="chtab" role="tab">设定</button>
+          <button class="chtab" role="tab">文风</button>
+          <button class="chtab" role="tab">角色关系</button>
+          <button class="chtab" role="tab">伏笔</button>
+          <button class="chtab" role="tab">操作</button>
+        </div>
+        <div class="og-pane">
+          <div class="panel" style="max-width:76ch">
+            <div class="panel-head"><h2>第 14 章 · 潮汐里的灯</h2><span class="badge ok"><i data-ico="check"></i>章纲已确认</span></div>
+            <div class="fro">
+              <div class="field"><label>出场角色 <span class="opt">· 多选，候选来自本书角色</span></label>
+                <div style="display:flex;gap:6px;flex-wrap:wrap">
+                  <span class="pill pill-accent">陆沉 · 主角</span><span class="pill pill-tag">阿槎</span><span class="pill pill-tag">稽查长</span>
+                </div></div>
+              <div class="field"><label>剧情条目 <span class="opt">· 章纲主干，推演按条目顺序走</span></label>
+                <textarea class="textarea" rows="4" id="og-plot-items">① 夜航准备，船员对交出半张图有异议
+② 灯下摊牌：陆沉把记忆的真相告诉船员
+③ 潮汐变向，航道偏离
+④ 出港，章尾断在灯影消失的一刻</textarea></div>
+              <div class="field"><label>必写对白 <span class="opt">· 推演收进，正文必须写出这些话</span></label>
+                <textarea class="textarea" rows="2" id="og-key-dialogue" placeholder="推演中把好台词、关键旁白收为必写，确认后落在这里"></textarea></div>
+              <div class="field"><label>必须完成的变化</label><textarea class="textarea" rows="2">陆沉从「独扛」转向「借力」——第一次主动把真相告诉船员。</textarea></div>
+              <div class="field"><label>主情绪</label><input class="input" value="紧绷后的一次喘息，灯下短暂的暖。"></div>
+            </div>
+            <p style="display:flex;gap:8px;margin-top:16px">
+              <button class="btn btn-primary">保存章纲</button>
+              <span class="f-hint" style="align-self:center;margin:0">3 秒静默自动保存已开启</span>
+            </p>
+          </div>
+        </div>
+      </div>
+    </main>
+
+    <!-- 右栏：章视图（演示种子调整：默认显示；剧情推演入口为新增 graft，真机挂在右栏 AI 助手 · 章纲页签动作列表，2026-09-20 收口右栏） -->
+    <aside class="col-ai" data-state="chapter">
+      <p class="progress-head">本章进度</p>
+      <div class="pct num">2,410<span class="sub">/6,000</span></div>
+      <div class="pbar"><i style="width:40%"></i></div>
+      <div class="target-row"><span>目标 6,000 字</span><button class="edit">改</button></div>
+      <p class="ai-sec">AI 工具</p>
+      <div class="ai-tool"><div class="ai-feat-head"><b>剧情推演</b></div>
+        <p>从上一章结尾起，一回合一步把本章走一遍；走法定一步推一步，随时收进章纲。</p>
+        <button class="btn btn-secondary btn-sm" data-open-modal="sim" data-od-id="rail-simulate">开始推演</button></div>
+      <div class="ai-feat">
+        <div class="ai-feat-head"><b><i data-ico="spark" data-size="14"></i> 生成正文</b></div>
+        <p>按已确认的章纲与设定写正文，先出提示词预览。</p>
+        <button class="btn btn-secondary btn-sm">生成</button>
+      </div>
+      <div class="ai-tool"><div class="ai-feat-head"><b>继续写</b></div><p>从光标处接着写，保持人称与文风。</p><button class="btn btn-secondary btn-sm">续写</button></div>
+      <div class="ai-tool"><div class="ai-feat-head"><b>选中改写</b></div><p>先在正文选中一段：润色 / 扩写 / 压缩。</p><span style="display:inline-flex;gap:6px"><button class="btn btn-secondary btn-sm">润色</button><button class="btn btn-secondary btn-sm">扩写</button><button class="btn btn-secondary btn-sm">压缩</button></span></div>
+      <p class="ai-sec">检测</p>
+      <div class="ai-tool"><div class="ai-feat-head"><b>章节体检</b></div><p>逻辑硬伤 / 风格跑偏 / 人物走形 / 节奏失衡。</p><button class="btn btn-secondary btn-sm">体检</button></div>
+      <div class="mini-stat">
+        <div class="row"><span>本书字数</span><b class="num">86,400</b></div>
+        <div class="row"><span>已归档</span><b class="num">13/14 章</b></div>
+      </div>
+      <div class="arch-card"><i data-ico="check"></i>上一章已归档 · 本章可写</div>
+    </aside>
+    <aside class="col-ai" data-state="home" hidden>
+      <p class="progress-head">这一卷的验证</p>
+      <div class="rail-card"><b>第一卷 · 北岭风雪</b><span class="f-hint">章数目标 8 · 已排 8</span></div>
+      <div class="rail-card"><b>第二卷 · 南渡星槎</b><span class="f-hint">章数目标 12 · 已排 6</span></div>
+      <div style="display:grid;gap:8px;margin-top:14px">
+        <button class="btn btn-primary" data-open-modal="pick" data-od-id="rail-plan-volume"><i data-ico="spark"></i>规划第 3 卷（AI）</button>
+        <button class="btn btn-secondary" data-open-modal="chplan" data-od-id="rail-split-ai">拆下一章（AI 三方向）</button>
+        <p class="f-hint" style="margin:0">抽卡只在右栏；左上「＋」一律进手写四问页。</p>
+      </div>
+    </aside>
+    <aside class="col-ai" data-state="volume" hidden>
+      <p class="progress-head">本卷语境</p>
+      <div class="rail-card"><b>卷纲完整度</b><span class="f-hint">五项已填 · 章数目标 12</span></div>
+      <div class="rail-card"><b>本卷进度</b><span class="f-hint">已归档 5/6 章 · 41,300 字</span></div>
+      <div class="rail-card"><b>伏笔挂钩</b><span class="f-hint">埋 3 · 收 1</span></div>
+      <div style="display:grid;gap:8px;margin-top:14px">
+        <button class="btn btn-secondary" data-open-modal="chplan">拆下一章</button>
+      </div>
+    </aside>
+  </div>
+</div>
+
+<!-- ═══ 新增原型：剧情推演重设计弹窗（ps- graft；壳为真实 .scrim/.modal/.mcard.wb-style） ═══ -->
+<div class="scrim" id="scrim-sim" hidden></div>
+<div class="modal" id="modal-sim" hidden>
+  <div class="mcard wb-style ps-modal" id="ps-modal">
+    <div class="mcard-head">
+      <span class="mh">剧情推演 · 一步步走</span>
+      <span class="pill pill-tag" style="margin-left:10px">第 14 章 · 潮汐里的灯</span>
+      <button class="icon-btn x" data-close-modal="sim" aria-label="关闭"><i data-ico="close"></i></button>
+    </div>
+    <div class="mcard-body">
+      <div class="ps-stats" id="ps-stats"></div>
+      <div class="rail-card ps-frame">
+        <div class="ps-row"><span class="ps-k">承接</span><span class="ps-v">第 13 章结尾 · 稽查长的巡灯扫过船头，陆沉把禁航图按进阿槎手里：「记路线，别看我。」</span></div>
+        <div class="ps-row"><span class="ps-k">收束</span><span class="ps-v">陆沉从「独扛」转向「借力」——第一次主动把真相告诉船员。</span></div>
+        <details class="ps-detail">
+          <summary>章纲素材 · 剧情条目 4 条 · 计划 6,000 字 · 出场 3 人</summary>
+          <ul>
+            <li>夜航准备，船员对交出半张图有异议</li>
+            <li>灯下摊牌：陆沉把记忆的真相告诉船员</li>
+            <li>潮汐变向，航道偏离</li>
+            <li>出港，章尾断在灯影消失的一刻</li>
+          </ul>
+        </details>
+      </div>
+      <!-- 对话流主体：场景条＋聊天流＋导演输入 -->
+      <div id="ps-chatwrap">
+        <div class="ps-scenebar" id="ps-scenebar"></div>
+        <div class="ps-chat" id="ps-chat"></div>
+        <div class="ps-inbar">
+          <textarea class="textarea" id="ps-dirin" rows="1" placeholder="（可不写）想先给开场定调就写一句；不写直接点「开始推演」——走的过程中随时插话"></textarea>
+          <button class="btn btn-primary btn-sm" data-ps="csend" style="flex:none">发送</button>
+        </div>
+      </div>
+    </div>
+    <div class="mcard-foot">
+      <span class="note" id="ps-note">每回合一次 AI 调用；走法定一步，才推一步</span>
+      <button class="btn btn-secondary" data-close-modal="sim">关闭</button>
+      <button class="btn btn-primary" id="ps-main" data-ps="start">开始推演</button>
+    </div>
+  </div>
+</div>
+<div class="ps-toast" id="ps-toast"></div>
+
+<!-- ═══ 以下脚本逐字复制自 pages/book-write.html（icons 表＋弹层/视图切换） ═══ -->
+<script>
+
+(function () {
+  var P = {"plus":"<path d=\"M12 5v14M5 12h14\"/>","close":"<path d=\"M6 6l12 12M18 6L6 18\"/>","arrowRight":"<path d=\"M5 12h14M13 6l6 6-6 6\"/>","chevronRight":"<path d=\"M9 6l6 6-6 6\"/>","chevronDown":"<path d=\"M6 9l6 6 6-6\"/>","chevronUp":"<path d=\"M18 15l-6-6-6 6\"/>","check":"<path d=\"M5 13l4 4L19 7\"/>","pencil":"<path d=\"M12 20h9M16.5 3.5a2.1 2.1 0 013 3L7 19l-4 1 1-4L16.5 3.5z\"/>","trash":"<path d=\"M4 7h16M10 11v6M14 11v6M6 7l1 13h10l1-13M9 7V4h6v3\"/>","upload":"<path d=\"M12 15V4M7 8l5-5 5 5M5 20h14\"/>","dots":"<circle cx=\"5\" cy=\"12\" r=\"1.4\" fill=\"currentColor\" stroke=\"none\"/><circle cx=\"12\" cy=\"12\" r=\"1.4\" fill=\"currentColor\" stroke=\"none\"/><circle cx=\"19\" cy=\"12\" r=\"1.4\" fill=\"currentColor\" stroke=\"none\"/>","scifi":"<path d=\"M12 3l9 5-9 5-9-5 9-5z\"/><path d=\"M3 12l9 5 9-5\"/><path d=\"M3 17l9 5 9-5\"/>","mystery":"<path d=\"M9.5 11a2.5 2.5 0 110-5 2.5 2.5 0 010 5z\"/><path d=\"M9.5 11v6M7 7L4.5 3.5M12 7l2.5-3.5M9.5 14H8M9.5 17H8\"/>","city":"<path d=\"M3 21h18M5 21V8l7-5 7 5v13M9 21v-6h4v6\"/><path d=\"M9 10h.01M13 10h.01M11 7h.01\"/>","fantasy":"<path d=\"M12 3l2 6 6 2-6 2-2 6-2-6-6-2 6-2 2-6z\"/>","history":"<path d=\"M12 8a4 4 0 100 8 4 4 0 000-8z\"/><path d=\"M12 2v3M12 19v3M2 12h3M19 12h3\"/>","star":"<path d=\"M12 2l2.4 6.2L21 9l-5 4.4 1.6 6.6L12 16.6 6.4 20 8 13.4 3 9l6.6-.8z\"/>","wuxia":"<path d=\"M4 20c6-2 12-8 15-15M13 7l4 4M6 14l4 4\"/>","other":"<path d=\"M12 3v18M3 12h18\"/>","info":"<circle cx=\"12\" cy=\"12\" r=\"9\"/><path d=\"M12 11v5M12 8h.01\"/>","spinner":"<path d=\"M21 12a9 9 0 11-6.2-8.56\"/>","back":"<path d=\"M15 6l-6 6 6 6\"/>","list":"<path d=\"M4 6h16M4 12h16M4 18h10\"/>","eye":"<path d=\"M2 12s3.5-6 10-6 10 6 10 6-3.5 6-10 6S2 12 2 12z\"/><circle cx=\"12\" cy=\"12\" r=\"2.5\"/>","lock":"<rect x=\"4\" y=\"10\" width=\"16\" height=\"10\" rx=\"2\"/><path d=\"M8 10V7a4 4 0 018 0v3\"/>","search":"<circle cx=\"11\" cy=\"11\" r=\"7\"/><path d=\"M20 20l-3.5-3.5\"/>","dot":"<circle cx=\"12\" cy=\"12\" r=\"4\" fill=\"currentColor\" stroke=\"none\"/>","ready":"<path d=\"M6 4v16M6 5h11l-2 3 2 3H6\"/>","spark":"<path d=\"M9.937 15.5A2 2 0 0 0 8.5 14.063l-6.135-1.582a.5.5 0 0 1 0-.962L8.5 9.936A2 2 0 0 0 9.937 8.5l1.582-6.135a.5.5 0 0 1 .963 0L14.063 8.5A2 2 0 0 0 15.5 9.937l6.135 1.581a.5.5 0 0 1 0 .964L15.5 14.063a2 2 0 0 0-1.437 1.437l-1.582 6.135a.5.5 0 0 1-.963 0z\"/><path d=\"M20 3v4\"/><path d=\"M22 5h-4\"/><path d=\"M4 17v2\"/><path d=\"M5 18H3\"/>","copy":"<rect x=\"9\" y=\"9\" width=\"11\" height=\"11\" rx=\"2\"/><path d=\"M5 15V6a2 2 0 012-2h9\"/>","doc":"<path d=\"M14 3H6a2 2 0 00-2 2v14a2 2 0 002 2h12a2 2 0 002-2V9z\"/><path d=\"M14 3v6h6M9 13h6M9 17h4\"/>","external":"<path d=\"M14 4h6v6M20 4l-9 9M18 14v5H5V6h5\"/>","alert":"<circle cx=\"12\" cy=\"12\" r=\"9\"/><path d=\"M12 7.5v5M12 16.5h.01\"/>","chat":"<path d=\"M4 5h16v11H8l-4 4z\"/>","chart":"<path d=\"M4 20V10M10 20V4M16 20v-7M3 20h18\"/>","person":"<path d=\"M20 21v-2a4 4 0 00-4-4H8a4 4 0 00-4 4v2\"/><circle cx=\"12\" cy=\"7\" r=\"4\"/>","backup":"<path d=\"M12 15V4M7 8l5-5 5 5M5 20h14\"/>","download":"<path d=\"M12 4v11M7 10l5 5 5-5M5 20h14\"/>","tune":"<path d=\"M4 7h13M10 12h10M4 17h7\"/>","book":"<path d=\"M4 19V5a2 2 0 012-2h13v16H6a2 2 0 00-2 2z\"/><path d=\"M4 19a2 2 0 012-2h13\"/>"};
+  function render(el) {
+    var name = el.getAttribute("data-ico");
+    var d = P[name];
+    if (!d) return;
+    var sw = el.getAttribute("data-sw") || "2";
+    var size = el.getAttribute("data-size");
+    var svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+    svg.setAttribute("viewBox", "0 0 24 24");
+    if (size) { svg.setAttribute("width", size); svg.setAttribute("height", size); }
+    svg.setAttribute("fill", "none");
+    svg.setAttribute("stroke", "currentColor");
+    svg.setAttribute("stroke-width", sw);
+    svg.setAttribute("aria-hidden", "true");
+    var cls = el.getAttribute("class");
+    if (cls) svg.setAttribute("class", cls);
+    var st = el.getAttribute("style");
+    if (st) svg.setAttribute("style", st);
+    svg.innerHTML = d;
+    el.replaceWith(svg);
+  }
+  document.querySelectorAll("i[data-ico]").forEach(render);
+})();
+
+(function () {
+  var closeTimers = {};
+  window.openModal = function (key) {
+    if (closeTimers[key]) { clearTimeout(closeTimers[key]); delete closeTimers[key]; }
+    ["scrim-", "modal-"].forEach(function (pre) {
+      var el = document.getElementById(pre + key);
+      if (el) { el.hidden = false; requestAnimationFrame(function(){ el.classList.add("show"); }); }
+    });
+  };
+  window.closeModal = function (key) {
+    ["scrim-", "modal-"].forEach(function (pre) {
+      var el = document.getElementById(pre + key);
+      if (el) { el.classList.remove("show"); }
+    });
+    if (closeTimers[key]) clearTimeout(closeTimers[key]);
+    closeTimers[key] = setTimeout(function () {
+      ["scrim-", "modal-"].forEach(function (pre) {
+        var el = document.getElementById(pre + key);
+        if (el) el.hidden = true;
+      });
+      delete closeTimers[key];
+    }, 200);
+  };
+  document.addEventListener("click", function (e) {
+    var t = e.target.closest("[data-open-modal],[data-close-modal],[data-state-go],[data-seg]");
+    if (!t) return;
+    if (t.hasAttribute("data-open-modal")) { openModal(t.getAttribute("data-open-modal")); e.preventDefault(); }
+    else if (t.hasAttribute("data-close-modal")) { closeModal(t.getAttribute("data-close-modal")); e.preventDefault(); }
+    else if (t.hasAttribute("data-state-go")) {
+      var group = t.getAttribute("data-state-group") || "state";
+      var target = t.getAttribute("data-state-go");
+      document.querySelectorAll('[data-state-group="' + group + '"] [data-state-go]').forEach(function (b) { b.classList.toggle("on", b === t); });
+      document.querySelectorAll("[data-state]").forEach(function (el) {
+        if (el.getAttribute("data-state") === target) el.hidden = false;
+        else if (el.getAttribute("data-state-group") === group || (!el.getAttribute("data-state-group") && el.hasAttribute("data-state"))) el.hidden = true;
+      });
+    } else if (t.hasAttribute("data-seg")) {
+      t.parentElement.querySelectorAll("button").forEach(function (b) { b.classList.toggle("on", b === t); });
+    }
+  });
+})();
+
+</script>
+
+<!-- ═══ 新增原型脚本：真回合制状态机（演示假数据＋假延迟；真机由 plot-sim step 端点供数） ═══ -->
+<script>
+(function () {
+  "use strict";
+
+  /* ── 演示种子：与背景《星海拾遗》第 14 章章纲同源；真机由 AI 按本章素材逐回合生成 ── */
+  var ROUNDS = [
+    {
+      at: "承上：稽查长的巡灯扫过船头——现在轮到「交半张图」兑现的时候。",
+      beat: "夜航准备，船员围在灯下，对「交半张图」吵了起来。",
+      who: "陆沉 · 阿槎 · 船舱灯下 · 入夜",
+      shift: "交不交图摆上台面，船员头一回跟陆沉对着干。",
+      cands: [
+        { label: "铁腕压场", out: "陆沉不辩，把半张图当着众人铺在灯下，油灯一压：「信我，出港再算账。」阿槎头一个伸手按住了图。" },
+        { label: "交底换心", out: "陆沉先认下「图可能有用假」，把稽查长巡灯的路线说给船员听——异议声小了，有人转身去盘缆。" },
+        { label: "借众人之口", out: "陆沉把决定权丢给船员，自己退半步——结果是阿槎替他把「交」字说出了口。" }
+      ],
+      branch: ["半张图压在灯下，异议咽了回去——", "巡灯的路线说破，舱里静了半拍——", "「交」字是船员自己说出口的——"]
+    },
+    {
+      at: "接上回：{branch}",
+      beat: "灯下摊牌：陆沉把「会说话的记忆」的真相告诉船员。",
+      who: "陆沉 · 阿槎 · 舱外甲板 · 换更的梆子响过",
+      shift: "「独扛」破了一道口子，船员知道了灯的来历。",
+      cands: [
+        { label: "和盘托出", out: "记忆的原主、二十年前搁浅的远航，一件件摆到灯下——舱里静得只剩缆绳吱呀，没有人走。" },
+        { label: "留一手", out: "陆沉只说「灯会指路」，隐下记忆原主的死讯——阿槎盯着他看了半晌，没拆穿。" },
+        { label: "借阿槎开口", out: "陆沉把话头让给阿槎——记忆是阿槎会「说话」的来历，亲历者一开口，船员信了七分。" }
+      ]
+    },
+    {
+      at: "推向本章结尾：潮汐变向，航道偏了半分。",
+      beat: "潮汐变向，陆沉借船员之手抢在变向前出港。",
+      who: "陆沉 · 阿槎 · 舵位 · 后半夜",
+      shift: "船出了港；灯影消失的一刻，本章收束。",
+      last: true,
+      cands: [
+        { label: "擦着边出港", out: "稽查长的巡灯贴着船尾扫过，阿槎按图打了半舵，船身擦着暗礁区边沿滑出港——灯影在船尾消失了。" },
+        { label: "拿代价换", out: "船出港了，半张图却落在了码头稽查长手里——陆沉望着灯影消失，头一回觉得「借力」的账不便宜。" },
+        { label: "灯下收暖", out: "出港后风平，船员默默把灯往桅顶又升了一节——灯下短暂的暖，章尾自然断在灯影消失的一刻。" }
+      ]
+    }
+  ];
+  var EXTRA = {
+    at: "接上回：船已出港，本章却不急着收——",
+    beat: "（加场）港外巡船的信号灯追了上来。",
+    who: "陆沉 · 阿槎 · 后甲板 · 天将亮",
+    shift: "多出一格悬念，再收束。",
+    last: true,
+    cands: [
+      { label: "甩开它", out: "阿槎认出是港务司的巡船，打了灯语「例行问询」——对方晃了一晃，掉头去了。" },
+      { label: "迎上去", out: "陆沉让船员收帆减速，主动让对方靠帮——巡船上的老面孔只说了一句：「灯，别点太亮。」" }
+    ]
+  };
+  var DEMO_MS = 1400;
+
+  /* ── 变体 C 数据：场景（含在场响应顺序）＋每回合两套「演法」；每套演法＝
+     在场角色挨个响应（resp 数组序即调用序，每位一次调用、携带此前全部对话），
+     全场响应完＝一回合 ── */
+  var SCENES = [
+    { tag: "场景一", detail: "船舱灯下 · 入夜 · 在场：陆沉、阿槎", cast: ["陆沉", "阿槎"],
+      out: "船员各自归位，图的事摆上了灯下——出港前先过了人心这一关。" },
+    { tag: "场景二", detail: "舱外甲板 · 换更梆子响过 · 在场：陆沉、阿槎", cast: ["陆沉", "阿槎"],
+      out: "真相落地，没有人离舱——「独扛」破了一道口子。" },
+    { tag: "场景三", detail: "舵位 · 后半夜 · 在场：陆沉、阿槎（稽查长巡灯在远处）", cast: ["阿槎", "陆沉"],
+      out: "船擦着暗礁区滑出港口，灯影消失——本章收束。" },
+    { tag: "加场", detail: "港外 · 天将亮 · 在场：陆沉、阿槎", cast: ["阿槎", "陆沉"],
+      out: "巡船掉头，悬念落一格再收束。" }
+  ];
+  var SUMMARY = "① 夜航准备，船员对交出半张禁航图起了异议——陆沉不辩，当众把半张图压在灯下，阿槎头一个按住图，船员各自归位。\n② 灯下摊牌，陆沉把记忆原主与搁浅远航的真相告诉船员——没有人离舱，「独扛」第一次破了一道口子。\n③ 后半夜潮汐变向，阿槎按图打舵，众人在变向前收缆，抢出航道。\n④ 船擦着暗礁区边沿滑出港口，巡灯扫过船尾，灯影消失——章尾收在灯影消失的一刻。";
+  var PLAYS = [
+    [
+      { landing: "陆沉不辩，把半张图当众铺在灯下压住争议——阿槎头一个按住图，船员各自归位。", resp: [
+        { who: "陆沉", parts: [
+          { t: "n", text: "入夜，船舱灯下。半张禁航图换夜航窗口的事，已经吵了半炷香。" },
+          { t: "c", text: "「吵完了？」" },
+          { t: "n", text: "他把半张图当着众人铺到灯下，油灯一压。" },
+          { t: "c", text: "「信我，出港再算账。」" }
+        ] },
+        { who: "阿槎", parts: [
+          { t: "c", text: "「……」（盯了半晌，伸手按住图角）「行。出港再算账。」" },
+          { t: "n", text: "异议声矮了下去，有人转身去盘缆。" }
+        ] }
+      ] },
+      { landing: "陆沉把巡灯路线说破，用「躲不过」换信任——异议声小了，船员转身盘缆。", resp: [
+        { who: "陆沉", parts: [
+          { t: "n", text: "入夜，船舱灯下。半张禁航图换夜航窗口的事，已经吵了半炷香。" },
+          { t: "c", text: "「都怕图有假——那我把话说明白。」" },
+          { t: "c", text: "「巡灯每夜亥时过船头，卯时折返。图若有假，我们连折返都躲不过。」" },
+          { t: "c", text: "「别问算没算到——算不到。所以得靠你们。」" }
+        ] },
+        { who: "阿槎", parts: [
+          { t: "c", text: "「……行。那就照你说的走。」" },
+          { t: "n", text: "舱里静了半拍，异议声小了，有人转身去盘缆。" }
+        ] }
+      ] }
+    ],
+    [
+      { landing: "陆沉把记忆原主与搁浅远航的真相全盘托出——没有人离舱，「独扛」破了一道口子。", resp: [
+        { who: "陆沉", parts: [
+          { t: "n", text: "换更的梆子响过，众人聚到舱外甲板，灯提到桅下。" },
+          { t: "c", text: "「这盏灯为什么指路，你们该知道了。」" },
+          { t: "n", text: "他把记忆珠放在灯座旁。" },
+          { t: "c", text: "「它的原主，二十年前就沉在暗礁区。」" }
+        ] },
+        { who: "阿槎", parts: [
+          { t: "c", text: "（声音低）「所以它夜里总朝那个方向亮。」" },
+          { t: "n", text: "静得只剩缆绳吱呀。没有人走。" }
+        ] }
+      ] },
+      { landing: "陆沉只说「灯会指路」，隐下记忆原主的死讯——阿槎盯着他半晌，没拆穿。", resp: [
+        { who: "陆沉", parts: [
+          { t: "n", text: "换更的梆子响过，众人聚到舱外甲板，灯提到桅下。" },
+          { t: "c", text: "「灯会指路，因为里头封着一段旧航路。别的不用问，照它指的走。」" }
+        ] },
+        { who: "阿槎", parts: [
+          { t: "c", text: "「就这些？」" },
+          { t: "n", text: "陆沉没再接话。" },
+          { t: "n", text: "阿槎盯着他看了半晌，没拆穿——梆子声在岸边又响了一下。" }
+        ] }
+      ] }
+    ],
+    [
+      { landing: "潮汐变向，阿槎按图打舵抢在变向前出港——巡灯扫过船尾，灯影消失，本章收束。", resp: [
+        { who: "阿槎", parts: [
+          { t: "n", text: "后半夜，潮头忽然变向，缆绳绷得笔直。" },
+          { t: "c", text: "「船长——按图打舵，来得及！」" }
+        ] },
+        { who: "陆沉", parts: [
+          { t: "c", text: "「变潮了——所有人收缆，听阿槎舵令！」" },
+          { t: "n", text: "巡灯贴着船尾扫过，船身擦着暗礁区边沿滑出港口。灯影在船尾消失了。" }
+        ] }
+      ] },
+      { landing: "船抢在变潮前出港，半张图落在稽查长手里——「借力」的账，陆沉头一回觉得不便宜。", resp: [
+        { who: "阿槎", parts: [
+          { t: "n", text: "后半夜，潮头忽然变向，码头上人影晃动。" },
+          { t: "c", text: "「船长——稽查长的人上码头了！」" }
+        ] },
+        { who: "陆沉", parts: [
+          { t: "c", text: "「潮不等人。砍缆，走。」" },
+          { t: "n", text: "缆绳砍断，船离岸。半张图还押在码头的案上。他望着灯影消失，没回头。" }
+        ] }
+      ] }
+    ],
+    [
+      { landing: "阿槎以「例行问询」灯语应对巡船——对方掉头，悬念落一格再收束。", resp: [
+        { who: "阿槎", parts: [
+          { t: "n", text: "天将亮，港外巡船的信号灯追了上来。" },
+          { t: "c", text: "「港务司的巡船。打什么旗？」" }
+        ] },
+        { who: "陆沉", parts: [
+          { t: "c", text: "「例行问询。」" },
+          { t: "n", text: "灯语晃了一晃，对方掉头去了。" }
+        ] }
+      ] },
+      { landing: "巡船老面孔留下一句「灯，别点太亮」——多出一格悬念再收束。", resp: [
+        { who: "陆沉", parts: [
+          { t: "n", text: "天将亮，巡船靠帮上来一个老面孔。" },
+          { t: "c", text: "「这么早。」" }
+        ] },
+        { who: "阿槎", parts: [
+          { t: "n", text: "对方只看了一眼桅顶的灯，说：「灯，别点太亮。」" }
+        ] }
+      ] }
+    ]
+  ];
+  var PERSONAS = {
+    "陆沉": "主角 · 船长：独扛惯了，事往自己身上压；对船员嘴硬心软",
+    "阿槎": "舵手 · 会说话的记忆载体：寡言，认图不认人，关键时刻下手稳"
+  };
+  var FBPLAY = {
+    landing: "事件按章纲落地，主情绪不变，不多加波折——「禁航图还在船上」被压得更紧，收束前再拉回主线。",
+    resp: [
+      { who: "陆沉", parts: [
+        { t: "n", text: "（AI 不可用，模板兜底——真机此处标注来源，可重试）事件按章纲落地，主情绪停在「紧绷后的一次喘息，灯下短暂的暖」，不多加波折。" }
+      ] },
+      { who: "阿槎", parts: [
+        { t: "n", text: "「禁航图还在船上」被压得更紧，收束前再拉回主线。" }
+      ] }
+    ]
+  };
+
+  /* ── 状态：S.rounds 末位至多一个未定回合（当前回合）；variant A/B/C 共用一引擎 ── */
+  var S = { started: false, gen: false, rounds: [], failNext: false,
+            kickoff: "", pendingDir: null, summary: null, timer: null };
+  window.__PS = S; /* 原型调试句柄（非基线） */
+
+  function el(id) { return document.getElementById(id); }
+  function esc(s) { return String(s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;"); }
+  function cur() {
+    for (var i = S.rounds.length - 1; i >= 0; i--) if (!S.rounds[i].decided) return S.rounds[i];
+    return null;
+  }
+  function decidedAll() { return S.rounds.filter(function (r) { return r.decided; }); }
+  function isDone() {
+    var n = S.rounds.length;
+    return S.started && !S.gen && n > 0 && !!S.rounds[n - 1].decided && !!S.rounds[n - 1].last;
+  }
+  function toast(msg) {
+    var t = el("ps-toast");
+    t.textContent = msg;
+    t.classList.add("show");
+    clearTimeout(t._h);
+    t._h = setTimeout(function () { t.classList.remove("show"); }, 2200);
+  }
+
+  function makeRound(src, branchTxt, fallback) {
+    var who = String(src.who).split(" · ")[0];
+    var cands = fallback
+      ? [
+          { label: "顺 · " + who + "顺着当前节奏动手", out: "事件按章纲落地，主情绪停在「紧绷后的一次喘息，灯下短暂的暖」，不多加波折。" },
+          { label: "拗 · " + who + "先被外力打断一下", out: "多出一次波折，「禁航图还在船上」被压得更紧，收束前再拉回主线。" }
+        ]
+      : src.cands;
+    return {
+      at: String(src.at).replace("{branch}", branchTxt || ""),
+      beat: src.beat, who: src.who, shift: src.shift,
+      cands: cands, fallback: !!fallback, last: !!src.last, branch: src.branch || null,
+      picked: -1, customMode: false, landing: "", decided: null, adopted: false
+    };
+  }
+
+  function applyPlay(r) {
+    /* 只备 landing/takes（A/B 用 cands，C 用 resp）——resp 由 sweepStep 逐位填，
+       不得在此预灌整套演法（否则 C 每条响应出现两次） */
+    if (r.fallback) { r.landing = FBPLAY.landing; r.resp = []; return; }
+    var takes = PLAYS[r.idx] || [];
+    var take = takes[r.play % takes.length] || { resp: [], landing: "" };
+    r.takes = takes.length || 1;
+    r.resp = [];
+    r.landing = take.landing;
+  }
+
+  /* 开新回合：A/B＝一次调用出整回合（演示 1.4s）；C＝在场角色挨个响应，
+     每位一次「调用」（演示 1.1s/人，对话多轮携带此前全部气泡），全场响应完＝一回合 */
+  function beginRound() {
+    S.gen = true;
+    var prev = null;
+    for (var i = S.rounds.length - 1; i >= 0; i--) if (S.rounds[i].decided) { prev = S.rounds[i]; break; }
+    var branchTxt = prev && prev.branch ? prev.branch[prev.picked] || "" : "";
+    var src = prev && prev.nextSrc ? prev.nextSrc : ROUNDS[S.rounds.filter(function (r) { return r.decided; }).length];
+    if (!src) src = EXTRA;
+    var r = makeRound(src, branchTxt, S.failNext);
+    r.idx = S.rounds.length;
+    r.sceneIdx = Math.min(r.idx, SCENES.length - 1);
+    r.play = 0;
+    r.takes = (PLAYS[r.idx] || []).length || 1;
+    r.cast = (SCENES[r.idx] && SCENES[r.idx].cast) || [];
+    r.resp = [];
+    r.respI = 0;
+    r.respWho = null;
+    r.director = S.pendingDir ? [S.pendingDir] : [];
+    S.pendingDir = null;
+    applyPlay(r);
+    S.rounds.push(r);
+    sweepStep(r);
+  }
+  function sweepStep(r) {
+    r.respWho = r.cast[r.respI] || null;
+    render();
+    S.timer = setTimeout(function () {
+      var take = r.fallback ? FBPLAY : (PLAYS[r.idx] || [])[r.play % (r.takes || 1)];
+      var who = r.cast[r.respI];
+      var srcResp = take && take.resp && take.resp[r.respI] ? take.resp[r.respI] : { parts: [] };
+      r.resp.push({ who: who, parts: (srcResp.parts || []).map(function (p) { return { t: p.t, text: p.text }; }) });
+      r.respI++;
+      if (r.respI < r.cast.length) sweepStep(r);
+      else { r.respWho = null; S.gen = false; render(); }
+    }, DEMO_MS - 300);
+  }
+
+  /* ── 渲染 ── */
+  function markCount() {
+    var n = 0;
+    S.rounds.forEach(function (r) {
+      (r.resp || []).forEach(function (resp) {
+        (resp.parts || []).forEach(function (p) { if (p.mark) n++; });
+      });
+    });
+    return n;
+  }
+  function statsHtml() {
+    var done = decidedAll();
+    var adoptedN = done.filter(function (r) { return r.adopted; }).length;
+    return '<span class="pill pill-tag">起点 · 第 13 章结尾</span>' +
+      '<span class="pill pill-tag">终点 · 本章结尾</span>' +
+      '<span class="pill pill-count">回合 · 已定 ' + done.length + (S.gen || cur() ? " · 当前第 " + (done.length + 1) + " 回合" : "") + '</span>' +
+      '<span class="pill pill-tag">章纲条目 · 已收 ' + adoptedN + '</span>' +
+      '<span class="pill pill-ok' + (markCount() ? "" : " pill-tag") + '">必写对白 · ' + markCount() + '</span>';
+  }
+  function render() {
+    el("ps-stats").innerHTML = statsHtml();
+    /* 页脚：待启动＝触发开场；开演后动作全在落点卡与输入框 */
+    var main = el("ps-main"), note = el("ps-note");
+    main.style.display = S.started ? "none" : "";
+    main.disabled = false;
+    if (!S.started) {
+      main.textContent = "开始推演";
+      main.setAttribute("data-ps", "start");
+      note.textContent = "点「开始推演」即开场——角色按各自设定互动；想先定调就写一句再发送";
+    } else if (S.gen) {
+      note.textContent = "每位角色一次短输出调用；关掉弹窗不丢进度";
+    } else if (cur()) {
+      note.textContent = "落点可直接改；收进章纲收的就是改后这句";
+    } else if (isDone()) {
+      note.textContent = "整条走法＝总结成章纲剧情条目＋必写对白";
+    }
+    renderChat();
+  }
+
+  /* ── 变体 C · 对话流渲染 ── */
+  function msgHtml(m, who, path, canAct) {
+    if (m.editing) {
+      return '<div class="ps-mrow"><span class="ps-ava">' + esc(String(who || "旁").slice(0, 1)) + '</span>' +
+        '<div class="ps-mcol"><span class="ps-mname">' + esc(who || "旁白") + ' · 改词（改定后收必写带「已改」标）</span>' +
+        '<textarea class="textarea ps-editline" rows="2" data-path="' + path + '">' + esc(m.text) + '</textarea>' +
+        '<div class="ps-acts"><button class="btn btn-primary btn-sm" data-ps="editok" data-path="' + path + '">✓ 定稿</button>' +
+        '<button class="btn btn-ghost btn-sm" data-ps="editcancel" data-path="' + path + '">取消</button></div></div></div>';
+    }
+    var acts = "";
+    if (canAct) {
+      acts = '<button class="ps-markbtn' + (m.mark ? " on" : "") + '" data-ps="mark" data-path="' + path + '">' + (m.mark ? "✓ 必写" : "✑ 必写") + '</button>' +
+        '<button class="ps-markbtn" data-ps="editstart" data-path="' + path + '">✎ 改</button>' +
+        (m.edited ? '<span class="pill pill-ok" style="font-size:10px;padding:0 6px">已改</span>' : "");
+    } else if (m.mark || m.edited) {
+      acts = (m.mark ? '<span class="pill pill-ok" style="font-size:10px;padding:0 6px">必写</span>' : "") +
+        (m.edited ? '<span class="pill pill-ok" style="font-size:10px;padding:0 6px">已改</span>' : "");
+    }
+    if (m.t === "n") return '<p class="ps-mnar">' + esc(m.text) + (acts ? '　' + acts : '') + '</p>';
+    if (m.t === "d") return dirHtml(m.text);
+    return '<div class="ps-mrow"><span class="ps-ava">' + esc(String(who).slice(0, 1)) + '</span>' +
+      '<div class="ps-mcol"><span class="ps-mname">' + esc(who) + '</span>' +
+      '<div class="ps-mbub">' + esc(m.text) + '</div>' + (acts ? '<div class="ps-actrow">' + acts + '</div>' : "") + '</div></div>';
+  }
+  function dirHtml(text) {
+    return '<div class="ps-mdir"><span class="ps-mname">导演（你）</span>' +
+      '<div class="ps-mbub">' + esc(text) + '</div></div>';
+  }
+  function landingCardHtml(c, idx) {
+    return '<div class="ps-cland"><p class="ps-lk">回合 ' + (idx + 1) + ' 落点（可改）· 收进章纲收的就是这句' +
+      (c.fallback ? '<span class="pill pill-warn">模板推演 · AI 不可用兜底</span>' : '') + '</p>' +
+      '<textarea class="textarea" rows="2" id="ps-cland">' + esc(c.landing || "") + '</textarea>' +
+      '<div class="ps-acts">' +
+      '<button class="btn btn-primary btn-sm" data-ps="ccommit">✓ 符合 · ' + (c.last ? "收束本章" : "推下一回合") + '</button>' +
+      '<button class="btn btn-secondary btn-sm" data-ps="creplay">↻ 重演（换个演法）</button>' +
+      (c.fallback ? '<button class="btn btn-ghost btn-sm" data-ps="retry">重试一次</button>' : '') +
+      '</div></div>';
+  }
+  function sceneStartHtml(si) {
+    var sc = SCENES[si] || SCENES[0];
+    return '<div class="ps-scenediv"><span class="pill pill-accent">' + esc(sc.tag) + '</span>' +
+      '<span class="ps-sd-out">' + esc(sc.detail) + '</span></div>';
+  }
+  function sceneOutHtml(si) {
+    var sc = SCENES[si] || SCENES[0];
+    return '<div class="ps-scenediv"><span class="ps-sd-out">' + esc(sc.tag + ' · 收——' + sc.out) + '</span></div>';
+  }
+  function collectMarks() {
+    var lines = [];
+    S.rounds.forEach(function (r) {
+      (r.resp || []).forEach(function (resp) {
+        (resp.parts || []).forEach(function (p) {
+          if (p.mark) lines.push((resp.who || "旁白") + "：" + p.text + (p.edited ? "（作者改定）" : ""));
+        });
+      });
+    });
+    return lines.join("\n");
+  }
+  function renderChat(keepScroll) {
+    var chat = el("ps-chat"), bar = el("ps-scenebar");
+    var prevTop = chat.scrollTop;
+    var html = "";
+    if (!S.started) {
+      bar.innerHTML = '<span class="pill pill-tag">场景待启</span><span>起点 · 第 13 章结尾</span>';
+      html = '<p class="ps-mnar">章纲与角色设定已就位。<b>点「开始推演」即可开场</b>——在场角色按各自的设定挨个互动' +
+        '（说话、动作、旁白，每位一次生成），全部说完算一个回合；想先定调也可以在下面写一句再发送，走的过程中随时插话。</p>';
+    } else {
+      var done = decidedAll();
+      var c = cur();
+      var si = S.gen ? Math.min(done.length, SCENES.length - 1)
+        : c ? Math.min(c.idx, SCENES.length - 1)
+        : Math.min(S.rounds.length - 1, SCENES.length - 1);
+      var sc = SCENES[si] || SCENES[0];
+      var personaPills = (sc.cast || []).map(function (who) {
+        return '<span class="pill pill-tag" title="设定：' + esc(PERSONAS[who] || "") + '">' + esc(who) + '</span>';
+      }).join("");
+      bar.innerHTML = '<span class="pill pill-accent">' + esc(sc.tag) + '</span><span>' + esc(sc.detail) + '</span>' +
+        '<span class="f-hint">按设定响应</span>' + personaPills +
+        (S.gen ? '<span class="f-hint">推演中…</span>' : "");
+      if (S.kickoff) html += dirHtml(S.kickoff);
+      var lastScene = null;
+      S.rounds.forEach(function (r, i) {
+        if (r.sceneIdx !== lastScene) {
+          if (lastScene !== null) html += sceneOutHtml(lastScene);
+          html += sceneStartHtml(r.sceneIdx);
+          lastScene = r.sceneIdx;
+        }
+        var canAct = !S.gen && !r.decided;
+        (r.director || []).forEach(function (d) { html += dirHtml(d); });
+        (r.resp || []).forEach(function (resp, ri) {
+          resp.parts.forEach(function (p, pi) { html += msgHtml(p, resp.who, i + ":" + ri + ":" + pi, canAct); });
+          if (canAct && !r.fallback) {
+            html += '<div class="ps-rr"><button class="ps-markbtn" data-ps="reroll" data-i="' + i + '" data-ri="' + ri + '">↻ 重说（只重调这一位）</button></div>';
+          }
+        });
+        if (r.decided) {
+          html += '<div class="ps-cstrip"><span class="ps-tlc-n">回合 ' + (i + 1) + '</span><b>' + esc(r.decided.label) + '</b>' +
+            (r.adopted
+              ? '<span class="pill pill-ok">已收进章纲</span>'
+              : '<button class="btn btn-ghost btn-sm" data-ps="adopt" data-i="' + i + '">收进章纲</button>') +
+            '<button class="btn btn-ghost btn-sm" data-ps="redo" data-i="' + i + '">重定</button></div>' +
+            '<p class="ps-mnar">' + esc(r.decided.out) + '</p>';
+        }
+      });
+      if (S.gen) {
+        var whoNow = c && c.respWho ? c.respWho : "…";
+        html += '<div class="ps-mrow"><span class="ps-ava">' + esc(String(whoNow).slice(0, 1)) + '</span>' +
+          '<div class="ps-mcol"><span class="ps-mname">' + esc(whoNow) + ' 按设定响应…（人设＋此前全部对话，只生成这一位）</span>' +
+          '<div class="ps-typing"><i></i><i></i><i></i></div></div></div>';
+      } else if (c && (c.respI || 0) >= (c.cast || []).length) {
+        html += landingCardHtml(c, done.length);
+      } else if (isDone()) {
+        if (lastScene !== null) html += sceneOutHtml(lastScene);
+        if (!S.summary) {
+          html += '<div class="ps-endchat"><b>本章走完：' + done.length + ' 个回合。</b>' +
+            '推演剧情可以总结成章纲条目（也可逐回合收进）。</div>' +
+            '<div class="ps-acts" style="justify-content:center;margin-top:6px">' +
+            '<button class="btn btn-primary btn-sm" data-ps="summarize">✎ 总结推演剧情 · 收进章纲</button>' +
+            '<button class="btn btn-secondary btn-sm" data-ps="more">还没到章尾？再加一回合</button></div>';
+        } else if (S.summary.gen) {
+          html += '<div class="ps-mrow"><span class="ps-ava">策</span><div class="ps-mcol">' +
+            '<span class="ps-mname">正在把推演剧情总结成章纲条目…（按场景归并各回合落点）</span>' +
+            '<div class="ps-typing"><i></i><i></i><i></i></div></div></div>';
+        } else if (!S.summary.adopted) {
+          var marksText = collectMarks();
+          html += '<div class="ps-cland"><p class="ps-lk">推演总结 · 本章剧情条目（拟稿可改）· 确认后写入章纲</p>' +
+            '<textarea class="textarea" rows="6" id="ps-sumtext">' + esc(SUMMARY) + '</textarea>' +
+            (marksText
+              ? '<p class="ps-lk">必写对白与旁白（拟稿可改）· 正文必须写出这些话</p>' +
+                '<textarea class="textarea" rows="4" id="ps-summarks">' + esc(marksText) + '</textarea>'
+              : "") +
+            '<div class="ps-acts">' +
+            '<button class="btn btn-primary btn-sm" data-ps="sumadopt">✓ 按这条收进章纲</button>' +
+            '<button class="btn btn-secondary btn-sm" data-ps="sumdrop">不要，保持原条目</button></div></div>' +
+            '<div class="ps-acts" style="justify-content:center">' +
+            '<button class="btn btn-secondary btn-sm" data-ps="more">还没到章尾？再加一回合</button></div>';
+        } else {
+          html += '<div class="ps-endchat"><b>推演剧情已总结收进章纲</b>——中栏章纲的剧情条目已更新（可再改）。</div>' +
+            '<div class="ps-acts" style="justify-content:center">' +
+            '<button class="btn btn-secondary btn-sm" data-ps="more">还没到章尾？再加一回合</button></div>';
+        }
+      }
+    }
+    chat.innerHTML = html;
+    chat.scrollTop = keepScroll ? prevTop : chat.scrollHeight;
+  }
+
+  /* ── 动作 ── */
+  function act(node) {
+    var a = node.getAttribute("data-ps"), r = cur();
+    if (a === "start") { S.started = true; beginRound(); }
+    else if (a === "retry") { if (!r) return; S.failNext = false; S.rounds.pop(); beginRound(); }
+    else if (a === "adopt") {
+      var i = parseInt(node.getAttribute("data-i"), 10);
+      S.rounds[i].adopted = true;
+      toast("已收进章纲 · 第 14 章剧情条目 +1");
+      render();
+    }
+    else if (a === "adoptall") {
+      var n = 0;
+      S.rounds.forEach(function (x) { if (x.decided && !x.adopted) { x.adopted = true; n++; } });
+      toast(n > 0 ? "已收进章纲 · " + n + " 条剧情条目" : "全部已收进章纲");
+      render();
+    }
+    else if (a === "redo") {
+      var j = parseInt(node.getAttribute("data-i"), 10);
+      S.rounds = S.rounds.slice(0, j + 1);
+      var rr = S.rounds[j];
+      rr.decided = null; rr.adopted = false; rr.picked = -1; rr.customMode = false; rr.landing = "";
+      toast("回到回合 " + (j + 1) + " 重定（真机＝其后回合作废重推）");
+      render();
+    }
+    else if (a === "more") {
+      var last = S.rounds[S.rounds.length - 1];
+      last.last = false; last.nextSrc = EXTRA;
+      beginRound();
+    }
+    else if (a === "fail") {
+      S.failNext = !S.failNext;
+      node.textContent = S.failNext ? "● AI 不可用已开启（下回合走兜底）" : "模拟 AI 不可用（下回合走兜底）";
+      node.style.color = S.failNext ? "var(--err)" : "";
+    }
+    else if (a === "ccommit") {
+      if (!r || S.gen) return;
+      var ta = el("ps-cland");
+      if (ta) r.landing = ta.value;
+      if (!r.landing || !r.landing.trim()) { toast("先看看这回合的落点，或改一句再定"); return; }
+      r.picked = r.play;
+      r.decided = { label: (r.cands[r.play % r.cands.length] || {}).label || "对话推演", out: r.landing.trim() };
+      if (!r.last) beginRound(); else render();
+    }
+    else if (a === "creplay") {
+      if (!r || S.gen) return;
+      r.play = (r.play + 1) % (r.takes || 1);
+      r.resp = []; r.respI = 0; r.respWho = null;
+      applyPlay(r);
+      toast("换个演法重演本回合（导演反馈保留，角色带反馈重新响应）");
+      S.gen = true;
+      sweepStep(r);
+    }
+    else if (a === "csend") {
+      var inp = el("ps-dirin");
+      var txt = (inp.value || "").trim();
+      if (!txt) {
+        if (!S.started) toast("先写下这一章怎么开头，再发送开演");
+        return;
+      }
+      if (S.gen) { toast("推演中，等这一回合出来再说"); return; }
+      inp.value = "";
+      if (!S.started) { S.kickoff = txt; S.started = true; beginRound(); return; }
+      var cc = cur();
+      if (cc) {
+        /* 导演反馈即注入：反馈气泡留在对话流，本回合清空重扫（演示＝换下一套演法），
+           角色按反馈重新挨个响应 */
+        (cc.director = cc.director || []).push(txt);
+        clearTimeout(S.timer);
+        cc.resp = []; cc.respI = 0; cc.respWho = null;
+        cc.play = (cc.play + 1) % (cc.takes || 1);
+        applyPlay(cc);
+        S.gen = true;
+        toast("导演反馈已注入，本回合按反馈重推");
+        sweepStep(cc);
+      } else if (isDone()) {
+        S.pendingDir = txt;
+        var last = S.rounds[S.rounds.length - 1];
+        last.last = false; last.nextSrc = EXTRA;
+        beginRound();
+      }
+    }
+    else if (a === "mark") {
+      /* 原地切换，不整树重渲（保滚动位置）；统计条单独刷 */
+      var path = (node.getAttribute("data-path") || "").split(":");
+      var rr = S.rounds[+path[0]];
+      var part = rr && rr.resp[+path[1]] && rr.resp[+path[1]].parts[+path[2]];
+      if (!part) return;
+      part.mark = !part.mark;
+      node.className = "ps-markbtn" + (part.mark ? " on" : "");
+      node.textContent = part.mark ? "✓ 必写" : "✑ 必写";
+      el("ps-stats").innerHTML = statsHtml();
+    }
+    else if (a === "reroll") {
+      /* 单角色重掷：只重调这一位（备选演法里的对应响应），其余角色与前文不动 */
+      if (S.gen) return;
+      var ri2 = +node.getAttribute("data-ri");
+      var rr2 = S.rounds[+node.getAttribute("data-i")];
+      if (!rr2 || rr2.decided) return;
+      if (rr2.fallback) { toast("兜底回合先「重试一次」"); return; }
+      var takes = PLAYS[rr2.idx] || [];
+      if (takes.length < 2) { toast("这一回合没有备选演法"); return; }
+      var alt = takes[(rr2.play + 1) % takes.length];
+      if (!alt.resp || !alt.resp[ri2]) return;
+      rr2.resp[ri2] = { who: rr2.cast[ri2], parts: alt.resp[ri2].parts.map(function (p) { return { t: p.t, text: p.text }; }) };
+      toast("已让 " + rr2.cast[ri2] + " 重说（真机＝带人设与前文单点重调，其余角色不动）");
+      renderChat(true);
+    }
+    else if (a === "editstart") {
+      var ep = (node.getAttribute("data-path") || "").split(":");
+      var er = S.rounds[+ep[0]];
+      var epart = er && er.resp[+ep[1]] && er.resp[+ep[1]].parts[+ep[2]];
+      if (!epart || S.gen) return;
+      epart._orig = epart.text;
+      epart.editing = true;
+      renderChat(true);
+    }
+    else if (a === "editcancel") {
+      var cp = (node.getAttribute("data-path") || "").split(":");
+      var cr = S.rounds[+cp[0]];
+      var cpart = cr && cr.resp[+cp[1]] && cr.resp[+cp[1]].parts[+cp[2]];
+      if (!cpart) return;
+      cpart.text = cpart._orig;
+      cpart.editing = false;
+      renderChat(true);
+    }
+    else if (a === "editok") {
+      var op = (node.getAttribute("data-path") || "").split(":");
+      var or2 = S.rounds[+op[0]];
+      var opart = or2 && or2.resp[+op[1]] && or2.resp[+op[1]].parts[+op[2]];
+      if (!opart) return;
+      var ta2 = document.querySelector('.ps-editline[data-path="' + node.getAttribute("data-path") + '"]');
+      var v2 = ta2 ? ta2.value.trim() : "";
+      if (!v2) { toast("改完得有内容"); return; }
+      opart.text = v2;
+      opart.edited = true;
+      opart.editing = false;
+      toast("台词已改定（收进总结带「已改」标）");
+      renderChat(true);
+    }
+    else if (a === "summarize") {
+      if (!isDone() || S.summary) return;
+      S.summary = { gen: true, adopted: false };
+      render();
+      S.timer = setTimeout(function () { S.summary.gen = false; render(); }, DEMO_MS);
+    }
+    else if (a === "sumadopt") {
+      if (!S.summary || S.summary.adopted) return;
+      var ta = el("ps-sumtext");
+      var txt = ta ? ta.value.trim() : "";
+      if (!txt) { toast("总结稿是空的，写点内容再收"); return; }
+      S.summary.adopted = true;
+      S.rounds.forEach(function (x) { if (x.decided) x.adopted = true; });
+      var og = document.getElementById("og-plot-items");
+      if (og) og.value = txt;
+      var marksText = collectMarks();
+      var sm = el("ps-summarks");
+      if (sm && sm.value.trim()) marksText = sm.value.trim();
+      var ogK = document.getElementById("og-key-dialogue");
+      if (ogK && marksText) ogK.value = marksText;
+      toast("已收进章纲：剧情条目已更新" + (marksText ? "，必写对白 " + marksText.split("\n").length + " 条" : "") + "（原型直接改演示底座）");
+      render();
+    }
+    else if (a === "sumdrop") {
+      S.summary = null;
+      render();
+    }
+    else if (a === "restart") {
+      clearTimeout(S.timer);
+      S.started = false; S.gen = false; S.rounds = [];
+      S.kickoff = ""; S.pendingDir = null; S.summary = null;
+      render();
+      toast("已重演（真机＝重新打开弹窗）");
+    }
+  }
+
+  document.addEventListener("click", function (e) {
+    var t = e.target.closest("[data-ps]");
+    if (!t || t.disabled) return;
+    if (t.id === "ps-main") {
+      /* 主按钮只剩一个用途：触发开场 */
+      if (t.getAttribute("data-ps") === "start") act(t);
+      return;
+    }
+    act(t);
+  });
+
+  document.addEventListener("input", function (e) {
+    if (e.target.id === "ps-cland") {
+      var rc = cur();
+      if (rc) rc.landing = e.target.value;
+    }
+  });
+
+  document.addEventListener("keydown", function (e) {
+    if (e.target.id !== "ps-dirin") return;
+    if (e.key === "Enter" && !e.shiftKey) {
+      e.preventDefault();
+      var btn = document.querySelector('[data-ps="csend"]');
+      if (btn) btn.click();
+    }
+  });
+
+  render();
+})();
+</script>
+</body>
+</html>
