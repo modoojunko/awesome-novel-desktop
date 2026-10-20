@@ -2098,3 +2098,22 @@ baseurl 到什么程度，要有个案例。」——中转站/自建网关用�
 - **出口与 tier_denied→去升级同构**：按失败原因分派主出口，文案过 §13（动词按钮、无内部术语、补救
   带可点击出口）；不新增第四种胶囊形态，err 语气沿用既有 pm-warn。
 - **非基线变体**：与既有五态同为 demo-bar 演示变体（收编前删除）。
+
+## c-modelconfig-gemini-go 登记（供应商分组页签＋Gemini/OpenCode Go 方块，2026-10-20）
+
+- **供应商区加两页页签**「官方厂商｜中转 · 订阅制」（复用接口格式段同款 .seg 形态，零新组件词汇）：
+  官方页＝现有 8 家＋Gemini（「新」角标）；中转页＝存量「OpenAI 兼容」＋OpenCode Go 两张方块
+  （通用／Claude 系，带副标与「新」角标）。设计稿（drafts）中的「待排期」方块（Go · Gemini／
+  Go · GPT 系）**不实现不上页**（spec SHALL NOT），仅存在于设计稿表达后续意图。
+- **页签切换不清已选**：切页仅改可见方块集，已选供应商与已填内容保持。过审设计稿在空表单上演示、
+  未定义此细节，实现按 spec「切页不清已选」补全——属原型未定义行为的延伸，非偏差。
+- **「OpenAI 兼容」引导文案收窄**：Gemini 官方兼容层地址句移除（Gemini 由专属方块承接），保留
+  「手填模型 id」与「反代/转发地址」两句。
+- **Gemini 思考提示句**：选中 Gemini 时思考行提示切换为「部分型号（Pro 系）始终会思考，『关闭』
+  只对 Flash 系生效。」（厂商级提示，不受思考开关灰置影响）；思考档位「深 max」对 Gemini 按契约
+  换算为 high 下发（调用层行为，UI 不增删档位）。
+- **顺手修基线既有缺陷**：model-config.html 的 iconSvg 此前把裸 path 数据直接塞进 `<svg>`（缺
+  `<path d>` 包裹），供应商图标一直渲染为空——本批修复，非本 change 引入的行为变更。
+- **parity 影响**：model-config.html 不在 design:check 像素矩阵（矩阵仅 list.html），走
+  design-vocab 词表 lint；新增样式全 token（accent-soft/accent-strong/border），字号仅用已登记的
+  11px；共享段零触碰、免 design-cross。
