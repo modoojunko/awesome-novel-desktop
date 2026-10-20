@@ -389,10 +389,11 @@
                 <div class="gl-tree" id="right-tree" data-od-id="right-tree"></div>
                 <div class="gl-split-at">
                   <span class="gl-muted">在第</span>
-                  <input class="input gl-range-in" id="split-at" type="number" min="1" max="42" placeholder="章">
+                  <input class="input gl-range-in" id="split-at" type="number" min="1" max="42" placeholder="如：34">
                   <span class="gl-muted">章后分卷</span>
                   <button type="button" class="btn btn-secondary btn-sm" id="btn-split-at" data-od-id="btn-split-at">分卷</button>
                 </div>
+                <p class="gl-muted" id="split-at-case" style="margin:6px 0 0">案例：输入 34 点「分卷」→ 第 1–34 章留在本卷，第 35 章起归入新的一卷。分卷永远按你输入的章号切，不会自动拆。</p>
               </div>
             </div>
           </div>
@@ -587,11 +588,11 @@
       <div class="gl-timeline">
         <div class="gl-tl-row gl-done">
           <span class="gl-tl-no">1</span>
-          <span class="gl-tl-tx"><b>选文件：格式告知＋本地检查</b>（秒级 · 零额度）<span>仅 .txt、≤50MB/≤60 万字；编码自动识别＋章标题识别；解析出卷/章（有卷预填，无卷全部待归卷）。</span></span>
+          <span class="gl-tl-tx"><b>选文件：格式告知＋本地检查</b>（秒级 · 零额度）<span>仅 .txt、≤50MB/≤60 万字；编码自动识别＋章标题识别；解析出卷/章（有卷预填切线，无卷从空开始手工分卷）。</span></span>
         </div>
         <div class="gl-tl-row gl-done">
           <span class="gl-tl-no">2</span>
-          <span class="gl-tl-tx"><b>确认卷章：左解析结果／右书目录树</b>（必做）<span>新增卷、选章加入、移出重归；无卷一键「全部放入一卷『正文』」；每卷≥1章且全部归卷才放行。此步没有 AI 建议（拆书尚未运行）。</span></span>
+          <span class="gl-tl-tx"><b>确认卷章：左解析结果／右书目录树</b>（必做）<span>「+ 新增卷」只在无卷时一键建全量「正文」卷；分卷走「在第N章后分卷」（案例：输入 34 → 第 35 章起归新卷），另有少一章/多一章挪边界、合并、改名、不导入误识别章；每卷≥1章且覆盖全部章才放行。此步没有 AI 建议（拆书尚未运行）。</span></span>
         </div>
         <div class="gl-tl-row gl-done">
           <span class="gl-tl-no">3</span>
@@ -1208,15 +1209,10 @@ document.addEventListener("click", function (e) {
       render();
       return;
     }
-    var bi = 0, best = -1;
-    vols.forEach(function (v, i) { var len = v.end - v.start + 1; if (len > best) { best = len; bi = i; } });
-    if (best < 2) return;
-    var v0 = vols[bi];
-    var mid = v0.start + Math.floor(best / 2);
-    vols.splice(bi, 1,
-      { name: v0.name, start: v0.start, end: mid, collapsed: false },
-      { name: "", start: mid + 1, end: v0.end, collapsed: false });
-    render();
+    // 已有卷时不再自动对半劈最大卷（用户 2026-10-20 拍板）：分卷只走「在第N章后分卷」，
+    // 点「+ 新增卷」聚焦分卷输入框，切哪里由作者指定。
+    var input = document.getElementById("split-at");
+    if (input) input.focus();
   }
 
   function splitAt(n) {

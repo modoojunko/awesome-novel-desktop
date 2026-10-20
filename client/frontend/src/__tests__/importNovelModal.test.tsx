@@ -157,6 +157,57 @@ describe("ImportNovelModal（A 路三步向导）", () => {
     expect(screen.getByRole("button", { name: "下一步：导入方式" })).toBeEnabled();
   });
 
+  it("无卷书：+新增卷建全量正文卷；再点不再对半拆，分卷只按输入章号切", async () => {
+    const chapters = Array.from({ length: 6 }, (_, i) => ({
+      source_no: i + 1, title: `第${i + 1}章`, title_raw: `第${i + 1}章`, volume_title: "",
+    }));
+    vi.mocked(importOwnParse).mockResolvedValue({
+      ...parsed,
+      chapter_count: 6,
+      volumes: [],
+      chapters,
+      risk: { level: "ok", issues: [], chapter_count: 6, avg_chapter_chars: 100 },
+    });
+    vi.mocked(importOwnPersist).mockResolvedValue({ id: "book-1", name: "无卷书" });
+    render(<ImportNovelModal open onClose={() => {}} onImported={() => {}} />);
+    pickFile();
+    await waitFor(() => expect(importOwnParse).toHaveBeenCalledTimes(1));
+    fireEvent.click(screen.getByText("下一步：确认卷章"));
+    await screen.findByText("书目录 · 按章切分");
+
+    // 空树：+新增卷 → 一卷「正文」覆盖全部 6 章
+    fireEvent.click(screen.getByText("+ 新增卷"));
+    expect(await screen.findByDisplayValue("正文")).toBeTruthy();
+
+    // 已有卷：+新增卷只聚焦分卷输入，不再对半劈（卷数不变、范围不变）
+    fireEvent.click(screen.getByText("+ 新增卷"));
+    expect(screen.getByDisplayValue("正文")).toBeTruthy();
+    expect(screen.queryByText(/第 1–3 章/)).toBeNull();
+    expect(document.activeElement).toBe(
+      document.querySelector('input[placeholder="如：34"]'),
+    );
+
+    // 分卷按钮无效输入禁用；输入 34 → 按实际章号切出 1–34 / 35–N
+    const splitInput = document.querySelector('input[placeholder="如：34"]') as HTMLInputElement;
+    const splitBtn = screen.getByRole("button", { name: "分卷" }) as HTMLButtonElement;
+    expect(splitBtn.disabled).toBe(true);
+    fireEvent.change(splitInput, { target: { value: "4" } });
+    expect(splitBtn.disabled).toBe(false);
+    fireEvent.click(splitBtn);
+    expect(screen.getByText(/第 1–4 章/)).toBeTruthy();
+    expect(screen.getByText(/第 5–6 章/)).toBeTruthy();
+    expect(screen.getByText(/案例：输入 34/)).toBeTruthy();
+
+    fireEvent.click(screen.getByText("下一步：导入方式"));
+    fireEvent.click(await screen.findByText("创建并开始写作"));
+    await waitFor(() => expect(importOwnPersist).toHaveBeenCalledTimes(1));
+    const body = vi.mocked(importOwnPersist).mock.calls[0][0];
+    expect(body.volumes).toEqual([
+      { title: "正文", chapter_from: 1, chapter_to: 4 },
+      { title: "", chapter_from: 5, chapter_to: 6 },
+    ]);
+  });
+
   it("risk 必须勾选才能继续；quotaFull 禁用创建", async () => {
     vi.mocked(importOwnParse).mockResolvedValue({
       ...parsed,

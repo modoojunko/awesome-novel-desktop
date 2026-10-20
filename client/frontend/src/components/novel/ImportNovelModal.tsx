@@ -75,6 +75,7 @@ export default function ImportNovelModal({
   const importTokenRef = useRef<string>(crypto.randomUUID());
   const lastShaRef = useRef<string>("");
   const splitRef = useRef<HTMLInputElement>(null);
+  const [splitNo, setSplitNo] = useState("");
   const parseAbortRef = useRef<AbortController | null>(null);
 
   useEffect(() => () => parseAbortRef.current?.abort(), []);
@@ -92,6 +93,7 @@ export default function ImportNovelModal({
     setRiskAck(false);
     setError("");
     setLastExcluded(null);
+    setSplitNo("");
     lastShaRef.current = "";
     importTokenRef.current = crypto.randomUUID();
   }, []);
@@ -131,6 +133,12 @@ export default function ImportNovelModal({
 
   const riskReady = parsed?.risk.level !== "risk" || riskAck;
 
+  const splitNoValid = useMemo(() => {
+    const n = parseInt(splitNo, 10);
+    return Number.isFinite(n) && n >= 1 && n < activeCount &&
+      volumes.some((v) => n >= v.chapter_from && n < v.chapter_to);
+  }, [splitNo, activeCount, volumes]);
+
   const handleFile = useCallback(async (file: File) => {
     setError("");
     // 换文件先清旧 manifest，失败时也不让旧数据被下一步带走。
@@ -140,6 +148,7 @@ export default function ImportNovelModal({
     setName("");
     setRiskAck(false);
     setLastExcluded(null);
+    setSplitNo("");
     if (!file.name.toLowerCase().endsWith(".txt")) {
       setError("第一期只支持 .txt 文件");
       return;
@@ -225,25 +234,13 @@ export default function ImportNovelModal({
       setVolumes([{ title: "正文", chapter_from: 1, chapter_to: m }]);
       return;
     }
-    let bi = 0;
-    let best = -1;
-    volumes.forEach((v, i) => {
-      const len = v.chapter_to - v.chapter_from + 1;
-      if (len > best) { best = len; bi = i; }
-    });
-    if (best < 2) return;
-    const v0 = volumes[bi];
-    const mid = v0.chapter_from + Math.floor(best / 2);
-    const next = copyVolumes(volumes);
-    next.splice(bi, 1,
-      { title: v0.title, chapter_from: v0.chapter_from, chapter_to: mid },
-      { title: "", chapter_from: mid + 1, chapter_to: v0.chapter_to },
-    );
-    setVolumes(next);
+    // 已有卷时不再自动对半劈最大卷（ADJUSTMENTS 2026-10-20）：分卷只走
+    // 「在第N章后分卷」，点「+ 新增卷」聚焦分卷输入框，切哪里由作者指定。
+    splitRef.current?.focus();
   }, [activeCount, volumes]);
 
   const splitAt = useCallback(() => {
-    const n = parseInt(splitRef.current?.value ?? "", 10);
+    const n = parseInt(splitNo, 10);
     if (!n || n < 1 || n >= activeCount) return;
     const i = volumes.findIndex((v) => n >= v.chapter_from && n < v.chapter_to);
     if (i < 0) return;
@@ -254,7 +251,8 @@ export default function ImportNovelModal({
       { title: "", chapter_from: n + 1, chapter_to: v.chapter_to },
     );
     setVolumes(next);
-  }, [activeCount, volumes]);
+    setSplitNo("");
+  }, [activeCount, volumes, splitNo]);
 
   const shift = useCallback((i: number, delta: -1 | 1) => {
     const next = copyVolumes(volumes);
@@ -541,11 +539,35 @@ export default function ImportNovelModal({
                   </div>
                 ))}
                 {volumes.length > 0 && (
-                  <div style={{ display: "flex", gap: 6, alignItems: "center", marginTop: 4 }}>
-                    <span style={{ fontSize: 11.5, color: "var(--muted)" }}>在第</span>
-                    <input ref={splitRef} className="input" type="number" min={1} max={activeCount} style={{ width: 64, height: 26, fontSize: 12 }} />
-                    <span style={{ fontSize: 11.5, color: "var(--muted)" }}>章后分卷</span>
-                    <button className="btn btn-secondary btn-sm" onClick={splitAt}>分卷</button>
+                  <div style={{ marginTop: 4 }}>
+                    <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
+                      <span style={{ fontSize: 11.5, color: "var(--muted)" }}>在第</span>
+                      <input
+                        ref={splitRef}
+                        className="input"
+                        type="number"
+                        min={1}
+                        max={activeCount}
+                        placeholder="如：34"
+                        value={splitNo}
+                        onChange={(e) => setSplitNo(e.target.value)}
+                        onKeyDown={(e) => {
+                          if (e.key === "Enter" && splitNoValid) splitAt();
+                        }}
+                        style={{ width: 64, height: 26, fontSize: 12 }}
+                      />
+                      <span style={{ fontSize: 11.5, color: "var(--muted)" }}>章后分卷</span>
+                      <button
+                        className="btn btn-secondary btn-sm"
+                        onClick={splitAt}
+                        disabled={!splitNoValid}
+                      >
+                        分卷
+                      </button>
+                    </div>
+                    <p style={{ margin: "6px 0 0", fontSize: 11.5, color: "var(--muted)" }}>
+                      案例：输入 34 点「分卷」→ 第 1–34 章留在本卷，第 35 章起归入新的一卷。分卷永远按你输入的章号切，不会自动拆。
+                    </p>
                   </div>
                 )}
               </div>
