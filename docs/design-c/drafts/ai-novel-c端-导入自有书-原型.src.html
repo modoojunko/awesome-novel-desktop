@@ -1,0 +1,1195 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>设计原型 · 导入自有书（拆完开书：定书名＋设定＋章节）</title>
+<!-- ═══════════════════════════════════════════════════════════════
+  设计原型 · 导入自有书 · 2026-10-17 v3（真界面基线：当前系统实抓重建）
+  · 基线口径：**当前真实系统页面**（用户 2026-10-17 拍板：原型必须基于当前系统页面，
+    弃 2026-09-25 pages/ 快照近似物）。独立栈＝worktree@origin/main 1e53d6eb
+    （vite:5291 → uvicorn:8101，DATA_ROOT 私有），Playwright 真渲染抓取，
+    产物入库 ownbook-captures/（real.css 全量真实样式＋五页真实 .app-shell DOM
+    ＋真实导入弹窗壳）。
+  · 样式：real.css **整体逐字注入**（build-ownbook-proto.py，一字未改；无外部 url
+    引用，自包含）。宿主 DOM：五页 .app-shell 逐字注入（一字未改）；新增件全部
+    运行时注入——<template> 存 graft 节点，脚本挂到真实宿主的挂载点
+    （.main/.modnav 后/.col-ai 内），抓取 HTML 本身零改动。
+  · graft 新增件只用 gl- 前缀类（样式见下「新增 graft」块）＋真实词汇类
+    （.tk-*/.ex-*/.fcard/.file-strip/.pill/.badge/.field/.dim-row 等均已在
+    real.css 有定义，自检脚本逐个溯源）；颜色/圆角/阴影/字体只用真实 token。
+  · 产品文案口径：结构判定三态文案同源 deconstructStructure.ts；格式示例块逐字
+    取自 CreateTaskPage FormatExample；十维名称逐字取自 deconstructApi.ts
+    DECONSTRUCT_DIMS；流程语义见同目录《ai-novel-c端-导入自有书-流程整理.md》v2
+    （拍板 2026-10-17 三条：进度单点在工具清单；导入≠建书、拆完开书定书名；
+    弹窗聚焦格式检查＋格式告知＋导入方式二选一）。
+    书名/正文等演示种子（《长夜灯》陈屿线）仅用于示例，非产品文案。
+  · 顶部 demo-bar 与「未选文件/已选」切换为非基线演示控件，产品 UI 不含。
+  · 重放：python3 docs/design-c/drafts/build-ownbook-proto.py
+    （源模板 → 本文件，幂等；自检 check-ownbook-proto.py）
+═══════════════════════════════════════════════════════════════ -->
+<style>
+/* ══════════ 真实样式逐字注入（build-ownbook-proto.py 抽取） ══════════ */
+/*__INJECT_STYLE_REAL__*/
+
+/* ══════════ 新增 graft（gl- 前缀；token 取真实值，未重定义任何 token） ══════════ */
+/* ── 原型工具条（非基线元素 · 产品 UI 不含） ── */
+.gl-demobar { position: sticky; top: 0; z-index: 290; display: flex; align-items: center; gap: 12px; flex-wrap: wrap;
+  background: var(--surface); border-bottom: 1px solid var(--border); padding: 8px 16px;
+  font-size: 12px; color: var(--muted); box-shadow: var(--shadow-card); }
+.gl-demo-title { font-family: var(--font-display); font-size: 14px; font-weight: 600; color: var(--fg); }
+.gl-demo-title em { font-style: normal; font-family: var(--font-mono); font-size: 10px; letter-spacing: 0.12em;
+  color: var(--accent-strong); border: 1px solid var(--border); border-radius: 999px; padding: 2px 8px; margin-right: 8px; }
+.gl-demo-note { font-size: 11px; color: var(--muted); border: 1px dashed var(--border); border-radius: 999px; padding: 3px 10px; }
+.gl-stage { padding: 14px clamp(12px, 3vw, 28px) 56px; }
+.gl-note { margin: 14px 0 0; padding: 10px 14px; border: 1px dashed var(--border); border-radius: var(--radius);
+  background: var(--fg-soft); color: var(--muted); font-size: 12px; line-height: 1.8; }
+.gl-note b { color: var(--fg); font-weight: 500; }
+.gl-note code { font-family: var(--font-mono); font-size: 11.5px; }
+
+/* ── 屏 1 新增 graft：格式检查条（文案同源 deconstructStructure.ts，三态共用壳） ── */
+.gl-verdict { display: flex; align-items: flex-start; gap: 10px; border: 1px solid
+  color-mix(in oklch, var(--ok) 38%, var(--border)); background: color-mix(in oklch, var(--ok) 7%, var(--surface));
+  border-radius: var(--radius); padding: 11px 14px; margin: 0 0 14px; }
+.gl-verdict.gl-v-warn { border-color: color-mix(in oklch, var(--warn) 40%, var(--border));
+  background: color-mix(in oklch, var(--warn) 8%, var(--surface)); }
+.gl-verdict .gl-vb { flex: none; display: inline-flex; align-items: center; justify-content: center;
+  width: 20px; height: 20px; border-radius: 50%; background: var(--ok); color: var(--surface); margin-top: 1px; }
+.gl-verdict.gl-v-warn .gl-vb { background: var(--warn); }
+.gl-verdict .gl-vt { font-size: 12.5px; line-height: 1.7; color: var(--fg); min-width: 0; }
+.gl-verdict .gl-vt b { font-weight: 600; }
+.gl-verdict .gl-vt span { display: block; color: var(--muted); font-size: 11.5px; }
+
+/* ── 屏 1 新增 graft：导入方式两卡（真实 .field/.pill/.btn 之上） ── */
+.gl-path-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; }
+.gl-path-card { display: flex; flex-direction: column; gap: 12px; min-width: 0;
+  border: 1px solid var(--border); border-radius: var(--radius-lg); background: var(--surface);
+  padding: 16px 16px 14px; cursor: pointer; text-align: left;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease, transform 0.15s ease; }
+.gl-path-card:hover { border-color: var(--accent); box-shadow: var(--shadow-card); transform: translateY(-2px); }
+.gl-path-card:focus-visible { outline: 2px solid var(--accent-soft); border-color: var(--accent); }
+.gl-path-card.sel { border-color: color-mix(in oklch, var(--accent) 52%, var(--border));
+  box-shadow: var(--shadow-card); }
+.gl-path-title { font-family: var(--font-display); font-size: 15px; font-weight: 600; color: var(--fg); margin: 0; }
+.gl-flow { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; min-height: 26px; }
+.gl-flow .gl-flow-arrow { color: var(--faint); display: inline-flex; flex: none; }
+.gl-flow .gl-flow-end { margin-left: auto; }
+.gl-meta { display: grid; gap: 6px; padding-top: 10px; border-top: 1px solid var(--border); }
+.gl-meta-row { display: flex; gap: 10px; font-size: 12.5px; line-height: 1.7; }
+.gl-meta-k { flex: none; width: 34px; color: var(--muted); }
+.gl-meta-v { color: var(--fg); min-width: 0; }
+.gl-meta-v b { font-weight: 600; }
+.gl-meta-sm { display: block; color: var(--muted); font-size: 11.5px; }
+
+/* ── 弹窗紧凑态（graft：演示弹窗内容超高时压缩真实 .dim-row 行距与区块间距；
+      产品弹窗同内容为滚动态，不受此影响） ── */
+.gl-fit .dim-row { padding: 7px 16px; }
+.gl-fit .dim-row .d-tx b { display: inline; }
+.gl-fit .dim-row .d-tx span { display: inline; margin-left: 6px; }
+.gl-fit .field { margin-top: 10px; }
+.gl-fit .ex-sum { margin: 10px 0 0; padding-top: 10px; }
+.gl-fit .gl-verdict { margin-bottom: 10px; }
+
+/* ── 屏 1 新增 graft：格式要求小标题＋列表点（真实全局 reset 掉了 ul 标记，要求行会读成段落；
+      仅作用于 gl- 包裹，不改真实 .fmt-example 规则） ── */
+.gl-fmt-title { margin: 0 0 8px; font-size: 12.5px; font-weight: 600; color: var(--fg); }
+.gl-fmt-list { margin: 8px 0 0; padding-left: 18px; list-style: disc; color: var(--muted); font-size: 12px; line-height: 1.85; }
+.gl-fmt-list li { margin: 3px 0; }
+.gl-fmt-list b { color: var(--fg); font-weight: 500; }
+
+/* ── 屏 3 新增 graft：模型门 ── */
+.gl-model { display: flex; align-items: center; gap: 8px; padding: 8px 10px; border-radius: 8px;
+  background: var(--fg-soft); font-size: 12px; }
+.gl-model b { font-size: 12px; }
+.gl-model-off { background: color-mix(in oklch, var(--warn) 10%, var(--surface));
+  border: 1px solid color-mix(in oklch, var(--warn) 35%, var(--border)); }
+.gl-path-card.off { opacity: 0.55; }
+.gl-path-card.off .gl-flow, .gl-path-card.off .gl-meta { opacity: 0.85; }
+
+/* ── 屏 2 新增 graft：任务类型筛选 ── */
+.gl-filter { display: flex; align-items: center; gap: 8px; margin: 0 0 12px; }
+
+/* ── 屏 1 新增 graft：三步向导＋卷章确认双栏（右栏树样式对齐写作页目录树） ── */
+.gl-steps { display: flex; align-items: center; gap: 8px; margin: 0 0 14px; }
+.gl-step { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; color: var(--muted); white-space: nowrap; }
+.gl-step b { width: 20px; height: 20px; border-radius: 50%; border: 1.5px solid var(--border);
+  display: inline-flex; align-items: center; justify-content: center; font-family: var(--font-mono); font-size: 11px; }
+.gl-step.on { color: var(--accent); font-weight: 500; }
+.gl-step.on b { border-color: var(--accent); color: var(--accent); }
+.gl-step.done b { background: var(--ok); border-color: var(--ok); color: var(--surface); }
+.gl-step-line { flex: 1; height: 1px; background: var(--border); min-width: 12px; }
+.gl-struct-toolbar { display: flex; align-items: center; gap: 10px; margin-bottom: 10px; flex-wrap: wrap; }
+.gl-muted { font-size: 11.5px; color: var(--muted); }
+.gl-struct { display: grid; grid-template-columns: minmax(0,1fr) minmax(0,1.1fr); gap: 14px; }
+.gl-struct-pane { border: 1px solid var(--border); border-radius: var(--radius); background: var(--surface);
+  padding: 10px 12px; display: flex; flex-direction: column; min-height: 0; }
+.gl-pane-k { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin: 0 0 8px;
+  font-size: 12px; color: var(--muted); }
+.gl-pick-list { max-height: 320px; overflow: auto; }
+.gl-readonly { cursor: default; }
+.gl-split-at { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; margin-top: 8px; }
+.gl-vol-card .gl-vol-foot { margin: 6px 0 2px 26px; flex-wrap: wrap; }
+.gl-vol-card .gl-split-range { white-space: nowrap; }
+.gl-scan-vol { display: flex; align-items: center; justify-content: space-between; gap: 8px;
+  padding: 8px 2px 4px; margin-top: 4px; font-size: 11.5px; color: var(--muted); border-top: 1px solid var(--border); }
+.gl-scan-vol:first-child { border-top: 0; margin-top: 0; }
+.gl-opbar { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; padding: 10px 12px;
+  margin-bottom: 10px; border: 1px solid var(--border); border-radius: var(--radius); background: var(--fg-soft); }
+.gl-sep { width: 1px; height: 18px; background: var(--border); flex: none; }
+.gl-range-in { width: 54px; height: 30px; text-align: center; padding: 0 4px; }
+.gl-sel-count { font-size: 12px; color: var(--muted); white-space: nowrap; }
+.gl-sel-count b { color: var(--accent-strong); font-family: var(--font-mono); }
+.gl-target { flex: none; width: 180px; min-width: 160px; height: 30px; }
+.gl-quick-inline { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.gl-pick-row { display: flex; align-items: center; gap: 8px; padding: 4px 2px; font-size: 12px; cursor: pointer; }
+.gl-pick-n { flex: none; width: 22px; font-family: var(--font-mono); font-size: 10.5px; color: var(--muted); }
+.gl-pick-t { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.gl-tree { max-height: 320px; overflow: auto; }
+.gl-tvol { border-top: 1px solid var(--border); padding: 4px 0 6px; }
+.gl-tvol:first-child { border-top: 0; }
+.gl-tvol-head { display: flex; align-items: center; gap: 7px; padding: 5px 6px; border-radius: 8px; cursor: pointer; }
+.gl-tvol-head.on { background: var(--accent-soft); }
+.gl-tvol-toggle { flex: none; width: 18px; height: 18px; padding: 0; border: 0; background: none;
+  display: inline-flex; align-items: center; justify-content: center; color: var(--muted); cursor: pointer; }
+.gl-tvol-toggle i { display: inline-flex; transition: transform 0.15s ease; }
+.gl-tvol-head.open .gl-tvol-toggle i { transform: rotate(90deg); }
+.gl-tvol-no { flex: none; font-family: var(--font-mono); font-size: 11px; color: var(--muted); }
+.gl-vol-name { flex: 1; min-width: 0; height: 28px; font-size: 12px; }
+.gl-tvol-t { font-size: 12.5px; font-weight: 600; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.gl-tvol-r { margin-left: auto; flex: none; font-family: var(--font-mono); font-size: 10.5px; color: var(--muted); }
+.gl-tch { display: flex; align-items: center; gap: 8px; padding: 3px 6px 3px 24px; font-size: 12px; }
+.gl-tch-n { flex: none; width: 22px; font-family: var(--font-mono); font-size: 10.5px; color: var(--muted); }
+.gl-tch-x { margin-left: auto; flex: none; }
+.gl-tch > span:nth-child(2) { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+/* ── 屏 3 新增 graft：分卷编辑器（真实 .field/.input/.btn 之上） ── */
+.gl-split-row { display: flex; align-items: center; gap: 10px; }
+.gl-split-sum { flex: 1; min-width: 0; font-size: 12.5px; color: var(--fg); }
+.gl-vol-list { display: grid; gap: 10px; }
+.gl-vol-card { border: 1px solid var(--border); border-radius: var(--radius); background: var(--surface); padding: 12px 14px; }
+.gl-vol-head { display: flex; align-items: center; gap: 10px; }
+.gl-vol-no { flex: none; font-family: var(--font-mono); font-size: 11px; color: var(--muted); width: 44px; }
+.gl-vol-sum { margin: 6px 0 0 54px; font-size: 11.5px; color: var(--muted); line-height: 1.6; }
+.gl-vol-foot { display: flex; align-items: center; gap: 8px; margin: 8px 0 0 54px; }
+.gl-split-range { flex: 1; font-family: var(--font-mono); font-size: 11.5px; color: var(--muted); }
+.gl-split-recos { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin-top: 14px; }
+.gl-reco-k { font-size: 11.5px; color: var(--muted); margin-right: 2px; }
+.gl-split-actions { display: flex; gap: 8px; margin-top: 12px; }
+
+/* ── 屏 2/3 新增 graft：任务行「进入书内」链接（已开书 book_id 已落才出现） ── */
+.gl-book-link { display: inline-flex; align-items: center; gap: 4px; flex: none;
+  border: 1px solid var(--border); border-radius: 999px; padding: 3px 10px;
+  font-size: 11.5px; color: var(--accent-strong); background: var(--surface); }
+
+/* ── 屏 3 新增 graft：拆书产物清单（可展开）＋开书进度 ── */
+.gl-details { margin-top: 10px; border-top: 1px solid var(--border); padding-top: 8px; }
+.gl-details summary { cursor: pointer; font-size: 12.5px; color: var(--accent-strong); list-style: none; }
+.gl-details summary::-webkit-details-marker { display: none; }
+.gl-details summary::before { content: "▸ "; }
+.gl-details[open] summary::before { content: "▾ "; }
+.gl-create { display: grid; gap: 10px; }
+.gl-create-head { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; }
+.gl-create-head b { font-size: 13px; }
+.gl-create-head span { font-family: var(--font-mono); font-size: 11px; color: var(--muted); }
+.gl-create-pct { font-family: var(--font-mono); font-size: 24px; color: var(--fg); margin: 2px 0 0; }
+.gl-cp-track { height: 6px; border-radius: 3px; background: var(--fg-soft); overflow: hidden; }
+.gl-cp-fill { display: block; height: 100%; background: var(--accent); transition: width 0.15s ease; }
+
+/* ── 屏 4/5 新增 graft：灌入回执行／设定就绪卡行（容器复用真实 .rail-card） ── */
+.gl-grow { display: grid; gap: 6px; margin-top: 8px; }
+.gl-grow-row { display: flex; gap: 8px; font-size: 12px; line-height: 1.7; color: var(--muted); }
+.gl-grow-row .gl-plus { flex: none; font-family: var(--font-mono); font-size: 11px; color: var(--ok); }
+.gl-grow-row .gl-dot { flex: none; color: var(--faint); }
+
+/* ── 屏 6 新增 graft：流程总览图（非产品 UI，token 样式） ── */
+.gl-model { border: 1px solid var(--border); border-radius: var(--radius-lg); background: var(--surface);
+  padding: 26px clamp(18px, 4vw, 40px) 24px; }
+.gl-model-k { font-family: var(--font-mono); font-size: 10.5px; letter-spacing: 0.14em; color: var(--muted); }
+.gl-model-t { font-family: var(--font-display); font-size: 18px; font-weight: 600; color: var(--fg); margin: 8px 0 20px; }
+.gl-entries { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; margin: 0 0 14px; }
+.gl-entry { border: 1px solid var(--border); border-radius: var(--radius); padding: 14px 16px; background: var(--fg-soft); }
+.gl-entry b { display: block; font-size: 13.5px; font-weight: 600; color: var(--fg); }
+.gl-entry span { display: block; margin-top: 4px; font-size: 12px; line-height: 1.7; color: var(--muted); }
+.gl-timeline { display: grid; gap: 0; margin-top: 6px; }
+.gl-tl-row { display: flex; gap: 12px; align-items: flex-start; padding: 10px 0; border-top: 1px dashed var(--border); }
+.gl-tl-row:first-child { border-top: 0; }
+.gl-tl-no { flex: none; display: inline-flex; align-items: center; justify-content: center;
+  width: 22px; height: 22px; border-radius: 50%; border: 1.5px solid var(--border);
+  font-family: var(--font-mono); font-size: 11px; color: var(--muted); margin-top: 2px; }
+.gl-tl-row.gl-done .gl-tl-no { background: var(--ok); border-color: var(--ok); color: var(--surface); }
+.gl-tl-row.gl-async .gl-tl-no { border-color: var(--accent); color: var(--accent); }
+.gl-tl-tx { font-size: 12.5px; line-height: 1.8; color: var(--fg); min-width: 0; }
+.gl-tl-tx b { font-weight: 600; }
+.gl-tl-tx span { display: block; color: var(--muted); font-size: 11.5px; }
+.gl-lane-tag { display: inline-flex; border-radius: 7px; padding: 2px 8px; font-size: 11px; font-weight: 500;
+  background: var(--accent-soft); color: var(--accent-strong); margin-right: 8px; }
+.gl-formula { margin-top: 18px; padding: 14px 16px; border: 1px dashed var(--border); border-radius: var(--radius);
+  background: var(--fg-soft); font-family: var(--font-mono); font-size: 13px; color: var(--accent-strong); line-height: 1.9; }
+
+@media (max-width: 860px) {
+  .gl-path-grid, .gl-entries { grid-template-columns: minmax(0, 1fr); }
+}
+</style>
+</head>
+<body>
+
+<!-- ══ 原型工具条（非基线元素 · 产品 UI 不含） ══ -->
+<div class="gl-demobar">
+  <span class="gl-demo-title"><em>PROTOTYPE</em>导入自有书 · 三步向导（选文件 → 确认卷章 → 导入方式）</span>
+  <span class="spacer"></span>
+  <span class="seg" id="screenSeg">
+    <button class="on" data-s="s1">1 · 导入弹窗</button>
+    <button data-s="s2">2 · 拆书进行中</button>
+    <button data-s="s3">3 · 拆完开书</button>
+    <button data-s="s4">4 · 待确认</button>
+    <button data-s="s5">5 · 续写就绪</button>
+    <button data-s="s6">6 · 流程总览</button>
+  </span>
+  <span class="seg" id="src-seg" data-od-id="src-seg">
+    <button class="on" data-src="vol">原文已分卷</button>
+    <button data-src="none">原文未分卷</button>
+  </span>
+  <span class="seg" id="model-seg" data-od-id="model-seg">
+    <button class="on" data-model="ready">模型已配</button>
+    <button data-model="none">模型未配</button>
+  </span>
+  <span class="seg" id="quota-seg" data-od-id="quota-seg">
+    <button class="on" data-quota="ok">书架有空位</button>
+    <button data-quota="full">书架已满</button>
+  </span>
+  <span class="gl-demo-note">模拟原文/模型/书架 · 非产品控件</span>
+  <span class="gl-demo-note">宿主＝当前系统实抓页面（ownbook-captures）</span>
+</div>
+
+<!-- ══════════ 屏 1 · 书架 · 导入我的书弹窗（宿主：实抓书架页 .app-shell） ══════════ -->
+<section id="s1">
+  <div class="gl-stage">
+<!--__HOST_S1__-->
+
+    <!-- 导入弹窗＝三步向导（用户 2026-10-17 定稿）：①选文件 ②确认卷章（左解析结果／右书目录树，
+         样式同写作页目录树）③选导入方式。路 A/B 共用第 2 步确认的结构。
+         壳＝真实导入弹窗壳（serif 标题＋真实关闭钮）；格式要求/检查沿用真实 .fmt-*/.gl-verdict。 -->
+    <div class="scrim show" id="scrim-imp"></div>
+    <div class="modal show" id="modal-imp">
+      <div class="mcard gl-fit" style="width:min(960px,94vw)">
+        <div class="mcard-head"><span class="mh serif">导入我的书</span><button class="icon-btn x" data-close-modal="imp" aria-label="关闭"><i data-ico="close" data-size="16"></i></button></div>
+        <div class="mcard-body">
+
+          <div class="gl-steps" id="imp-steps">
+            <span class="gl-step on" data-step-dot="1"><b>1</b>选文件</span>
+            <span class="gl-step-line"></span>
+            <span class="gl-step" data-step-dot="2"><b>2</b>确认卷章</span>
+            <span class="gl-step-line"></span>
+            <span class="gl-step" data-step-dot="3"><b>3</b>导入方式</span>
+          </div>
+
+          <!-- ① 选文件：格式告知＋检查 -->
+          <div id="imp-step1">
+            <div style="margin-bottom:10px"><span class="seg" id="imp-state-seg" data-od-id="imp-state-seg">
+              <button data-imp-state="empty">未选文件</button>
+              <button class="on" data-imp-state="parsed">已选 · 格式检查通过</button>
+            </span></div>
+
+            <div id="imp-empty" hidden data-od-id="imp-empty">
+              <div class="up-zone" data-od-id="up-zone" tabindex="0" role="button" aria-label="选择或拖入文件">
+                <span class="up-ic"><i data-ico="upload" data-size="26"></i></span>
+                <p class="up-main">选择或拖入你的书稿</p>
+                <p class="up-sub">上传后本地检查格式（秒级、不耗模型额度）：编码自动识别 · 章节标题识别</p>
+                <div class="fmt-row">
+                  <span class="fmt-chip on">.txt</span>
+                  <span class="fmt-chip off">.md（暂不支持）</span>
+                  <span class="fmt-chip off">.docx（暂不支持）</span>
+                  <span class="fmt-chip off">.epub（暂不支持）</span>
+                </div>
+              </div>
+              <p class="hint" style="margin-top:12px" data-od-id="fmt-scope"><b>第一期只支持 .txt</b>：一册一个文件，单文件 ≤50MB；<b>不限字数</b>——超过约 60 万字拆书会自动分段，费用/时间按段累加；UTF-8 / GBK / Big5 编码自动识别。.md / .docx / .epub 暂不支持。</p>
+              <div class="fmt-example" data-od-id="fmt-example">
+                <p class="gl-fmt-title">文档格式要求</p>
+                <ul class="gl-fmt-list">
+                  <li><b>章标题独占一行</b>：第X章／第X回／第X节（汉字或数字均可），行内不跟正文；卷标题同理（可不分卷）</li>
+                  <li><b>纯文本 .txt</b>：用记事本或写作软件「另存为 .txt」即可；不要带 Word 的自动编号</li>
+                  <li><b>可以不分卷</b>：下一步会把所有章读出来，你可以自己加卷归章；要分卷就写「第一卷 …」</li>
+                  <li><b>建议删除目录页</b>再上传——目录行会被误认为章标题</li>
+                </ul>
+                <pre>第一卷 风起
+第1章 开端
+张三出门买药，顺路打听城里的消息。暮色四合，他加快了脚步。
+
+第2章 遇敌
+李四拦在巷口，一言不合便动了手。刀光一闪，张三侧身避过。</pre>
+                <button type="button" class="btn btn-ghost btn-sm" data-od-id="fmt-example-download" onclick="downloadFmtExample()">下载示例 .txt</button>
+              </div>
+            </div>
+
+            <div id="imp-parsed" data-od-id="imp-parsed">
+              <div class="file-strip" data-od-id="file-strip">
+                <span class="fs-ic">📄</span>
+                <div class="fs-tx">
+                  <b>长夜灯.txt</b>
+                  <span>612 KB · UTF-8 · 本地解析完成（不耗模型额度）</span>
+                </div>
+                <button class="btn btn-ghost btn-sm" data-imp-state="empty" data-od-id="btn-repick">更换文件</button>
+              </div>
+              <div class="gl-verdict" data-od-id="structure-verdict">
+                <span class="gl-vb"><i data-ico="check" data-size="12"></i></span>
+                <span class="gl-vt"><b>格式检查通过</b>
+                  <span>编码 UTF-8（自动识别）· 章节标题识别正常 · 识别到 2 卷 42 章。下一步可确认或调整卷章。</span>
+                </span>
+              </div>
+              <div class="fmt-example fmt-example-compact" data-od-id="fmt-example-parsed">
+                <p class="gl-fmt-title">文档格式要求</p>
+                <ul class="gl-fmt-list">
+                  <li><b>仅 .txt</b>，单文件 ≤50MB；不限字数（超约 60 万字拆书自动分段）</li>
+                  <li><b>章标题独占一行</b>：第X章／第X回／第X节，行内不跟正文；卷标题同理（可不分卷）</li>
+                  <li><b>请删除目录页</b>——目录行会被误认为章标题；一册一个文件</li>
+                </ul>
+                <pre>第一卷 风起
+第1章 开端
+张三出门买药，顺路打听城里的消息。暮色四合，他加快了脚步。
+
+第2章 遇敌
+李四拦在巷口，一言不合便动了手。刀光一闪，张三侧身避过。</pre>
+              </div>
+            </div>
+          </div>
+
+          <!-- ② 确认卷章：左解析结果／右书目录树（同写作页目录树） -->
+          <div id="imp-step2" hidden>
+            <div class="gl-struct">
+              <div class="gl-struct-pane">
+                <p class="gl-pane-k"><span>扫描结果 · <b id="left-count">2 卷 42 章</b></span></p>
+                <div class="gl-pick-list" id="left-list" data-od-id="left-list"></div>
+              </div>
+              <div class="gl-struct-pane">
+                <p class="gl-pane-k"><span>书目录 · 按章切分</span><button type="button" class="btn btn-ghost btn-sm" id="btn-add-vol" data-od-id="btn-add-vol">+ 新增卷</button></p>
+                <div class="gl-tree" id="right-tree" data-od-id="right-tree"></div>
+                <div class="gl-split-at">
+                  <span class="gl-muted">在第</span>
+                  <input class="input gl-range-in" id="split-at" type="number" min="1" max="42" placeholder="章">
+                  <span class="gl-muted">章后分卷</span>
+                  <button type="button" class="btn btn-secondary btn-sm" id="btn-split-at" data-od-id="btn-split-at">分卷</button>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div id="imp-step3" hidden>
+            <p class="hint" id="struct-summary" style="margin-top:0"></p>
+            <div class="notice warn" id="quota-warn" hidden data-od-id="quota-warn">
+              <span class="nt"><b>书架已满（1/1）</b><span>开书前需要先归档或删除一本，或升级套餐。</span></span>
+            </div>
+            <div class="gl-path-grid">
+              <div class="gl-path-card sel" role="button" tabindex="0" data-mode="ai" data-od-id="mode-ai">
+                <p class="gl-path-title">AI 拆书补充设定（推荐）</p>
+                <div class="gl-model" id="model-line" data-od-id="model-line"></div>
+                <div class="gl-flow">
+                  <span class="pill pill-tag">建任务 · 应用内拆 10 维</span>
+                  <i class="gl-flow-arrow" data-ico="arrowRight" data-size="13"></i>
+                  <span class="pill pill-accent gl-flow-end">拆完开书（定书名）</span>
+                </div>
+                <div class="gl-meta">
+                  <div class="gl-meta-row"><span class="gl-meta-k">耗时</span><span class="gl-meta-v"><b>约 30–45 分钟（42 章；不含排队）</b><span class="gl-meta-sm">≈ 0.5–0.8 分钟/章＋8–10 分钟收尾；期间未建书、不能写，关应用会暂停</span></span></div>
+                  <div class="gl-meta-row"><span class="gl-meta-k">消耗</span><span class="gl-meta-v"><b>≈ 50–80 万 token</b><span class="gl-meta-sm">全书字数 × 1.5–2.5；由你的模型服务商按 Key 计费</span></span></div>
+                  <div class="gl-meta-row"><span class="gl-meta-k">产出</span><span class="gl-meta-v">7 项书级设定＋<b>当前卷卷纲＋每章基线</b>（设定/关系/伏笔/角色；物品/认知标未提取），与正文一起写入新书</span></div>
+                </div>
+              </div>
+              <div class="gl-path-card" role="button" tabindex="0" data-mode="direct" data-od-id="mode-direct">
+                <p class="gl-path-title">直接导入，开始写作</p>
+                <div class="gl-flow">
+                  <span class="pill pill-tag">立即建书</span>
+                  <i class="gl-flow-arrow" data-ico="arrowRight" data-size="13"></i>
+                  <span class="pill pill-accent gl-flow-end">正文就位 → 从 0 规划下章</span>
+                </div>
+                <div class="gl-meta">
+                  <div class="gl-meta-row"><span class="gl-meta-k">耗时</span><span class="gl-meta-v"><b>秒级，即开即写</b><span class="gl-meta-sm">简介/题材按首章自动识别，可改；其余设定留空</span></span></div>
+                  <div class="gl-meta-row"><span class="gl-meta-k">消耗</span><span class="gl-meta-v"><b>0 token</b><span class="gl-meta-sm">只在本机入库，不调用模型</span></span></div>
+                  <div class="gl-meta-row"><span class="gl-meta-k">产出</span><span class="gl-meta-v">卷／章／正文立即就位；设定留空，之后只能手动补（<b>不支持补拆</b>）；第 N+1 章章纲从 0 规划</span></div>
+                  <div class="gl-meta-row"><span class="gl-meta-k">代价</span><span class="gl-meta-v"><b>之前章节埋的伏笔、钩子、设定变化不会带过来</b></span></div>
+                </div>
+                <div class="field" id="direct-name-field" style="margin-top:8px" hidden>
+                  <label>书名 <span class="opt">· 默认取解析书名，可改</span></label>
+                  <input class="input" id="direct-book-name" value="长夜灯" data-od-id="direct-book-name">
+                </div>
+              </div>
+            </div>
+            <p class="gl-meta-sm" style="margin-top:10px" data-od-id="cost-formula">估算口径：中文字符≈1 token；token ≈ 全书字数 × 1.5–2.5；时间 ≈ 0.5–0.8 分钟/章＋8–10 分钟收尾。大书按段累加（每段约 60 万字，段数 × 单段估算）。实际随模型分词、章长与重试次数浮动（约 ±30%）。</p>
+          </div>
+        </div>
+        <div class="mcard-foot">
+          <button class="btn btn-secondary" id="imp-back" data-od-id="imp-back" hidden>上一步</button>
+          <button class="btn btn-secondary" data-close-modal="imp">取消</button>
+          <button class="btn btn-primary" id="imp-next" data-od-id="imp-next" disabled>下一步</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="notice info" id="onlybody-done" hidden style="margin:12px 0 0">
+      <span class="nt"><b>已建书</b><span>2 卷 42 章正文已就位；设定留空，之后可在设定页补充。</span></span>
+    </div>
+
+    <p class="gl-note"><b>屏 1</b>　三步向导（用户 2026-10-17 定稿）：<b>①选文件</b>（格式告知＋检查）→ <b>②确认卷章</b>（左侧永远是扫描结果（只读）；右侧按章切分：有卷预填切线可直接下一步，无卷先建一卷再切；只能切/挪边界/合并/改名，不允许单章跨卷；卷名可选可改、卷节点可折叠；确认后才放行）→ <b>③导入方式</b>（AI 拆书补充当前卷卷纲/每章设定，或直接导入开始写作）。路 A/B 共用第 2 步确认的结构；分卷不再在开书弹窗里做。原文已分卷/未分卷的切换放在顶部 demo-bar（非产品控件）；弹窗内只保留作家可见的界面。</p>
+  </div>
+</section>
+
+<!-- ══════════ 屏 2 · 写作工具 · 任务清单＋详情·进行中（宿主：实抓任务清单页；graft 运行时注入） ══════════ -->
+<section id="s2" hidden>
+  <div class="gl-stage">
+<!--__HOST_S2__-->
+
+    <!-- graft 挂载内容：导入触发的任务行＋十步进度详情（真实 .tk-*/.fcard/.ex-steps 词汇；
+         运行时移除真实 .tk-empty 空态后插入 .main） -->
+    <!-- graft 挂载内容＝**实抓进行中详情**（ownbook-captures/main-task-running.html：
+         真实 task-pct 80%＋真实十步文案「进行中 · 归并 1/3／排队」＋真实取消任务钮），运行时插入 .main -->
+    <template id="tpl-s2"><!--__HOST_S2_DETAIL__--></template>
+
+    <p class="gl-note"><b>屏 2</b>　路 B（第 3 步选拆书）：导入确认＝建任务、未建书，所以进度只在这里查；路 A（直接导入）不产生任务、不会经过这一屏。任务按来源分两类：<b>导入</b>（来自书架导入）/ <b>拆书</b>（手动拆别人的书）；清单顶部可按类型筛选。任务行三态：拆解中／已完成·待开书（主按钮「开书」）／已开书（「进入书内」）。宿主＝实抓真实清单页（三条真实任务行：真实状态 pill／真实 meta 文案／真实删除·详情钮／顶栏「写作工具 ②」角标）＋实抓进行中详情（真实 80% task-pct＋真实十步文案＋真实取消任务钮）——**进度 UI 零新建**。graft 仅行级演示语义替换：行 1「来自导入」类型标＋「尚未建书」提示、行 3「来自导入」＋「进入书内」链接（book_id 已落才出现；进行中行没有）；行 2 雾都＝手动任务现状，出口分型见屏 3。</p>
+  </div>
+</section>
+
+<!-- ══════════ 屏 3 · 写作工具 · 任务完成 → 开书弹窗（宿主：实抓任务清单页；graft 运行时注入） ══════════ -->
+<section id="s3" hidden>
+  <div class="gl-stage">
+<!--__HOST_S3__-->
+
+    <!-- graft 挂载内容：完成态任务卡（真实 .fcard/.file-strip/.ex-done/.ex-steps 词汇，运行时插入 .main） -->
+
+
+    <!-- 出口弹窗＝**实抓真实出口弹窗**（ownbook-captures/dom-exit-modal.html：真实《书名》拆完了标题、
+         建书/存本地文件夹 .ex-fmt 双卡、真实十维勾选行、真实 ex-sum 与按钮）。
+         graft（运行时，演示语义替换）：①隐「存本地文件夹」卡（导入触发无导出）②插「书名」输入③
+         「原文章节」勾选行④标题/摘要换《长夜灯》。手动拆书任务的此弹窗维持现状双卡不动。 -->
+<!--__HOST_S3_EXIT__-->
+
+    <p class="gl-note"><b>屏 3</b>　拆书完成（流程整理 §3 步骤⑤）：宿主＝实抓完成态详情页（真实「拆解完成 · 10 份 Markdown＋图谱三件套」横幅＋「选择去向 / 再拆一本」＋真实结果目录清单）＋实抓真实出口弹窗（真实《书名》拆完了标题、十维勾选行、真实按钮）。graft（演示语义替换）：隐「存本地文件夹」卡（<b>导入触发只有「开书」出口</b>，拍板 2026-10-17）、插「书名」输入（<b>作家定书名</b>，默认解析书名）、「原文章节」勾选行（默认勾，源文件留存免重传）、只读结构摘要（第 2 步已确认，开书不再调分卷）、标题/摘要换《长夜灯》。手动拆书任务此弹窗维持双卡现状不动（真实形态即本弹窗 graft 前）。</p>
+  </div>
+</section>
+
+<!-- ══════════ 屏 4 · 书内设定页 · 开书后待确认（宿主：实抓设定页；graft 运行时注入） ══════════ -->
+<section id="s4" hidden>
+  <div class="gl-stage">
+<div class="notice info" data-od-id="demo-gap-s4" style="margin:0 0 12px">
+      <span class="nt"><b>演示说明（非产品 UI）</b><span>宿主是真实系统的<b>开书前空设定页</b>（0/7、未填）；回执与「待确认」是目标态。真实开书接口落地后，此处应显示 7 项导入内容与「新导入/已填」徽标，届时用真实数据重抓。</span></span>
+    </div>
+<!--__HOST_S4__-->
+
+    <!-- graft 挂载内容：一次性灌入回执（真实 .ex-done 词汇，运行时插在 nav.modnav 之后；
+         「未填→待确认」徽标为演示语义替换：宿主真实「未填」徽标由脚本改标） -->
+    <template id="tpl-s4">
+      <div class="ex-done" data-od-id="done-notice" style="margin:12px 16px 0">
+        <i data-ico="check" data-size="16" style="color:var(--ok);margin-top:2px"></i>
+        <span style="flex:1">
+          <b>开书成功 · 7 项设定＋42 章逐章基线已就位</b>
+          <span>逐章基线来自拆书阶段已产出的拆书卡（零额外调用）：设定/关系/伏笔/角色/在场逐章落档；物品/认知两个域卡片没有，如实标「未提取」，可对单章点「补算本章」（1 次/章）或后台全量补算。当前卷卷纲已就位。逐项核对后点「确认完成」，第 43 章章纲再从 0 规划。</span>
+        </span>
+      </div>
+    </template>
+
+    <p class="gl-note"><b>屏 4</b>　路 B 开书即按拆书卡落逐章基线（流程整理 §3.2）：42 章各有章档（设定/关系/伏笔/角色），物品/认知标「未提取」并可单章补算；7 项书级设定＋当前卷卷纲另写入。逐项核对确认后，第 N+1 章从 0 规划章纲。顶部回执为一次性静态回执（列明未勾选项与未写入项）。<b>演示缺口</b>：宿主是真实系统的开书前空设定页（0/7、未填），回执与「待确认」为目标态；真实开书接口落地后用真实数据重抓。</p>
+  </div>
+</section>
+
+<!-- ══════════ 屏 5 · 写作页 · 续写就绪（宿主：实抓写作页；graft 运行时注入） ══════════ -->
+<section id="s5" hidden>
+  <div class="gl-stage">
+<div class="notice info" data-od-id="demo-gap-s5" style="margin:0 0 12px">
+      <span class="nt"><b>演示说明（非产品 UI）</b><span>宿主是真实导入的《长夜灯》种子书，章节仍为 draft——中央「接着写第 1 章」正是评审 P0-2；落地 imported 状态后应指向第 43 章。顶栏 0/7 也是宿主真实值；右栏两卡为目标态。</span></span>
+    </div>
+<!--__HOST_S5__-->
+
+    <!-- graft 挂载内容：右栏两张卡（真实 .rail-card 容器，运行时插到 .col-ai 首块之后） -->
+    <template id="tpl-s5">
+      <div class="rail-card" data-od-id="ready-card">
+        <b><i data-ico="check" data-size="13" style="color:var(--ok)"></i> 本书设定已就绪 <span class="pill pill-count">6/7 已确认</span></b>
+        <div class="gl-grow">
+          <div class="gl-grow-row"><span class="gl-dot">·</span><span>简介/题材/世界/角色/主线/文风 —— AI 拆自原书 42 章，你已逐项确认</span></div>
+          <div class="gl-grow-row"><span class="gl-dot">·</span><span>42 章逐章基线已就位（设定/关系/伏笔/角色，来自拆书卡）</span></div>
+          <div class="gl-grow-row"><span class="gl-dot">·</span><span>当前卷卷纲已就位，可直接「拆章」</span></div>
+        </div>
+        <button class="btn btn-secondary btn-sm" data-goto="s4">去设定核对</button>
+      </div>
+      <div class="rail-card" data-od-id="carry-card">
+        <b>第 43 章从 0 规划</b>
+        <div class="gl-grow">
+          <div class="gl-grow-row"><span class="gl-dot">·</span><span>章纲不预生成：点「拆章」按当前卷卷纲从 0 规划，或自己写</span></div>
+          <div class="gl-grow-row"><span class="gl-dot">·</span><span>生成正文带上：设定、42 章逐章基线、第 42 章结尾原文</span></div>
+          <div class="gl-grow-row"><span class="gl-dot">·</span><span>第 43 章折叠 1–42 章逐章基线；物品/认知标「未提取」，可补算</span></div>
+        </div>
+      </div>
+    </template>
+
+    <p class="gl-note"><b>屏 5</b>　闭环终点（流程整理 §3.2）：确认设定后第 43 章<b>从 0 规划章纲</b>（不预生成），story_state 折叠 1–42 章逐章基线；生成正文只带设定/历史基线/上章结尾。宿主＝实抓写作页（真实目录/编辑器/右栏）；中央「接着写第 1 章」是当前系统真实行为（导入章 draft），正是评审 P0-2——落地 imported 状态后应指向第 43 章；右栏两卡为目标态（设定 6/7、42 章逐章基线、第 43 章从 0 规划）。</p>
+  </div>
+</section>
+
+<!-- ══════════ 屏 6 · 流程总览图（非产品 UI · 设计口径示意） ══════════ -->
+<section id="s6" hidden>
+  <div class="gl-stage">
+    <div class="gl-model">
+      <p class="gl-model-k">DESIGN NOTES · 非产品 UI</p>
+      <p class="gl-model-t">导入自有书：三步向导 → 两条路（同一终点）</p>
+
+      <div class="gl-entries">
+        <div class="gl-entry">
+          <b><span class="gl-lane-tag">向导</span>选文件 → 确认卷章 → 导入方式</b>
+          <span>第 2 步是两路共用的结构确认：左解析结果、右书目录树；有卷预填，无卷可「全部放入一卷『正文』」。全部归卷且每卷≥1章才放行。</span>
+        </div>
+        <div class="gl-entry">
+          <b><span class="gl-lane-tag">分叉</span>直接导入 / AI 拆书，终点都是第 N+1 章从 0 规划</b>
+          <span>直接导入＝秒级建书、设定留空；拆书＝30–45 分钟、拆完开书带设定＋当前卷卷纲＋每章基线。两条路都不预生成章纲。</span>
+        </div>
+      </div>
+
+      <div class="gl-timeline">
+        <div class="gl-tl-row gl-done">
+          <span class="gl-tl-no">1</span>
+          <span class="gl-tl-tx"><b>选文件：格式告知＋本地检查</b>（秒级 · 零额度）<span>仅 .txt、≤50MB/≤60 万字；编码自动识别＋章标题识别；解析出卷/章（有卷预填，无卷全部待归卷）。</span></span>
+        </div>
+        <div class="gl-tl-row gl-done">
+          <span class="gl-tl-no">2</span>
+          <span class="gl-tl-tx"><b>确认卷章：左解析结果／右书目录树</b>（必做）<span>新增卷、选章加入、移出重归；无卷一键「全部放入一卷『正文』」；每卷≥1章且全部归卷才放行。此步没有 AI 建议（拆书尚未运行）。</span></span>
+        </div>
+        <div class="gl-tl-row gl-done">
+          <span class="gl-tl-no">3</span>
+          <span class="gl-tl-tx"><b>选导入方式</b><span>路 A 直接导入：立即建书，卷/章/正文就位，设定留空。路 B AI 拆书：建任务（不建书），任务携带第 2 步确认的结构。</span></span>
+        </div>
+        <div class="gl-tl-row gl-async">
+          <span class="gl-tl-no">4</span>
+          <span class="gl-tl-tx"><b>路 B：拆完 → 开书定书名</b>（30–45 分钟 · 关应用暂停）<span>7 项书级设定＋当前卷卷纲＋每章基线（来自拆书卡）与正文一次写入；开书弹窗只读展示已确认结构，不再调分卷。路 A 已在第 3 步建书。</span></span>
+        </div>
+        <div class="gl-tl-row gl-done">
+          <span class="gl-tl-no">5</span>
+          <span class="gl-tl-tx"><b>第 N+1 章从 0 规划章纲</b><span>不预生成章纲；生成正文带设定/历史基线/上章结尾。导入章按基线归档（路 A 无基线），阶段判定排除 imported，不因 42/42 变「待完本」。</span></span>
+        </div>
+      </div>
+
+      <p class="gl-formula">选文件 → 确认卷章 → 二选一（直接导入 / 拆书）→ 第 N+1 章从 0 规划章纲</p>
+      <p class="gl-note" style="margin-top:14px"><b>失败面</b>：路 A 立即建书，没有等待面；路 B 拆书失败/取消＝还没有书——任务行「续拆/重传」＋「跳过设定直接开书」（只灌章节）。删除「另建空书」话术（会造第二本书）。</p>
+    </div>
+  </div>
+</section>
+
+<script>
+/*__INJECT_SCRIPT_ICONS__*/
+
+/* ── graft 挂载：把 <template> 里的演示节点放进实抓宿主（抓取 DOM 零改动，全部运行时注入） ── */
+(function () {
+  function place(sec, tplSel, fn) {
+    var root = document.querySelector(sec);
+    var tpl = document.querySelector(tplSel);
+    if (!root || !tpl) return;
+    fn(root, tpl.innerHTML);
+  }
+  // 屏 2：真实清单（三行实抓）＋行级演示语义替换＋插入实抓进行中详情
+  place("#s2", "#tpl-s2", function (root, html) {
+    var main = root.querySelector("main.main");
+    if (!main) return;
+    main.insertAdjacentHTML("afterbegin",
+      '<div class="notice info" id="import-handoff" hidden data-od-id="import-handoff"><span class="nt"><b>导入任务已创建 · 《长夜灯》</b><span>拆书在应用内继续，可以离开这个页面；请不要关闭应用（关闭会中断，下次打开可从断点续拆）。完成后在顶栏「写作工具」里显示「待开书」。</span></span><button type="button" class="btn btn-secondary btn-sm" onclick="document.getElementById(\'import-handoff\').hidden=true">知道了</button></div>');
+    var rows = main.querySelectorAll(".tk-row");
+    if (rows.length >= 3) {
+      // 行 1（长夜灯 · running）：类型标＋准确的状态说明
+      rows[0].querySelector(".tk-type").textContent = "导入";
+      rows[0].setAttribute("data-task-kind", "import");
+      rows[0].querySelector(".tk-meta").textContent =
+        "32 万字 · 42 章 · 拆解在应用内进行，可以离开页面；关闭应用会中断 · 此任务尚未建书，拆完弹「开书」定书名";
+      // 行 3（星海拾遗 · completed＋book_id 已落）：类型标＋「进入书内」链接
+      rows[2].querySelector(".tk-type").textContent = "导入";
+      rows[2].setAttribute("data-task-kind", "import");
+      var foot = rows[2].querySelector(".tk-foot");
+      if (foot) foot.insertAdjacentHTML("afterbegin",
+        '<span class="gl-book-link" data-od-id="link-book" role="button" tabindex="0" data-goto="s5"><i data-ico="book" data-size="12"></i>进入书内</span>');
+      rows[1].setAttribute("data-task-kind", "manual");
+      rows[2].querySelector(".tk-meta").textContent = "9 万字 · 14 章 · 已开书 · 任务产物保留";
+      var sum2 = rows[2].querySelector(".tk-sum"); if (sum2) sum2.textContent = "已完成 · 已开书";
+    }
+    var head = main.querySelector(".page-head");
+    if (head) head.insertAdjacentHTML("afterend",
+      '<div class="gl-filter" data-od-id="task-filter"><span class="seg" id="task-kind-seg">' +
+      '<button class="on" data-kind="all">全部</button><button data-kind="import">导入</button><button data-kind="manual">拆书</button>' +
+      '</span></div>');
+    root.addEventListener("click", function (e) {
+      var b = e.target.closest("#task-kind-seg [data-kind]");
+      if (!b) return;
+      document.querySelectorAll("#task-kind-seg [data-kind]").forEach(function (x) { x.classList.toggle("on", x === b); });
+      var kind = b.getAttribute("data-kind");
+      root.querySelectorAll(".tk-row").forEach(function (r) {
+        r.hidden = kind !== "all" && r.getAttribute("data-task-kind") !== kind;
+      });
+    });
+    var list = main.querySelector(".tk-list");
+    if (list) list.insertAdjacentHTML("beforeend",
+      '<div class="tk-row" data-od-id="task-row-done-import" data-task-kind="import">' +
+      '<button class="tk-open-row" data-goto="s3"><span class="tk-type">导入</span><span class="tk-title">雨林边城</span><span class="pill pill-ok">已完成</span><span class="tk-time">今天 12:40</span>' +
+      '<div class="tk-meta">24 万字 · 32 章 · 10 份产物 · 待开书</div></button>' +
+      '<div class="tk-foot"><span class="tk-sum">设定与章节基线已就绪</span><button class="btn btn-primary btn-sm" data-goto="s3" data-od-id="btn-open-book-row">开书</button><button class="btn btn-secondary btn-sm" data-goto="s3">详情</button></div>' +
+      '</div>');
+    var trigger = main.querySelector('[data-od-id="tools-trigger"], .tools-trigger');
+    if (trigger) {
+      trigger.title = "写作工具：1 个进行中，1 个待开书";
+      var badge = trigger.querySelector(".tools-badge");
+      if (badge) badge.textContent = "2";
+    }
+    main.insertAdjacentHTML("beforeend", html);
+    var subs = main.querySelectorAll(".page-head .sub");
+    if (subs.length) subs[subs.length - 1].textContent = "导入 · 32 万字 · 42 章 · 模型 GLM-5.3";
+    var hints = main.querySelectorAll(".hint");
+    if (hints.length) {
+      hints[hints.length - 1].innerHTML = "<b>不在这里看内容：</b>拆出来的设定与基线，开书后到书内设定页看。关闭应用＝中断（重启后可从断点续拆）。";
+    }
+    window.__renderIcons(main);
+  });
+  // 屏 3：实抓完成详情宿主＋开书确认/进度/回执（导入触发语义）
+  (function () {
+    var root = document.querySelector("#s3");
+    if (!root) return;
+    var h1 = root.querySelector(".page-head h1");
+    if (h1) h1.textContent = "长夜灯";
+    var sub = root.querySelector(".page-head .sub");
+    if (sub) sub.textContent = "导入 · 32 万字 · 42 章 · 已完成";
+    var done = root.querySelector(".ex-done");
+    if (done) {
+      var db = done.querySelector("b"); if (db) db.textContent = "拆解完成 · 设定与章节基线已就绪";
+      var ds = done.querySelector("span"); if (ds) ds.textContent = "开书即可写作；产物仍保留在任务资料。";
+    }
+    var pageExit = root.querySelector('[data-od-id="btn-exit"]');
+    if (pageExit) pageExit.textContent = "开书";
+    root.querySelectorAll("a").forEach(function (a) { if (a.textContent.trim() === "再拆一本") a.textContent = "再导入一本"; });
+    var dims = root.querySelector(".dims");
+    if (dims) dims.remove();
+    var pageHint = root.querySelector(".hint");
+    if (pageHint) pageHint.remove();
+
+    var modal = root.querySelector(".modal.show") || root.querySelector(".modal");
+    if (!modal) return;
+    modal.id = "modal-exit";
+    var scrim = root.querySelector(".scrim.show") || root.querySelector(".scrim");
+    if (scrim) scrim.id = "scrim-exit";
+    var mcard = modal.querySelector(".mcard");
+    if (mcard) mcard.classList.add("gl-fit");
+    var mh = modal.querySelector(".mh");
+    if (mh) mh.textContent = "《长夜灯》拆完了 · 开书";
+    var fmts = modal.querySelector(".ex-fmts");
+    if (fmts) fmts.remove();
+
+    var items = modal.querySelector('[data-od-id="book-items"]');
+    if (items) {
+      items.innerHTML = '<label>将写入</label>' +
+        '<div class="gl-grow">' +
+        '<div class="gl-grow-row"><span class="gl-dot">·</span><span>7 项书级设定：简介/题材/世界/角色/主线/文风/伏笔</span></div>' +
+        '<div class="gl-grow-row"><span class="gl-dot">·</span><span>当前卷卷纲＋每章基线（设定/关系/伏笔/角色）</span></div>' +
+        '<div class="gl-grow-row"><span class="gl-dot">·</span><span>原书 2 卷 42 章正文</span></div>' +
+        '</div>' +
+        '<p class="gl-meta-sm" style="margin:8px 0 0">每章基线基于该章首尾约 6000 字；中段可能未覆盖，物品/认知未提取，可单章补算。</p>' +
+        '<details class="gl-details" data-od-id="deconstruct-products"><summary>查看拆书产物（10 项）</summary>' +
+        '<div class="dims" style="margin-top:8px">' +
+        [["简介","写入"],["题材","写入"],["世界设定","写入"],["角色设定","写入"],["人物关系与势力","写入 · 每章基线"],["主线剧情","写入"],["章卷结构","不写入 · 以导入结构为准"],["写作文风","写入"],["写作技法","写入 · 文风规则"],["伏笔","写入"]]
+          .map(function (r) { return '<div class="dim-row"><span class="d-tx"><b>' + r[0] + '</b></span><span class="d-mt">' + r[1] + '</span></div>'; }).join("") +
+        '<div class="dim-row"><span class="d-tx"><b>物品 / 认知</b></span><span class="d-mt">未提取 · 可补算</span></div>' +
+        '</div></details>';
+      items.insertAdjacentHTML("beforebegin",
+        '<div class="field" style="margin-top:0" data-od-id="book-name"><label>书名</label><input class="input" id="open-book-name" value="长夜灯" data-od-id="input-book-name"></div>' +
+        '<div class="field" style="margin-top:10px" data-od-id="volume-split"><label>分卷</label><div class="gl-split-row"><span class="gl-split-sum">2 卷 42 章 · 31.6 万字</span><button type="button" class="btn btn-ghost btn-sm" id="btn-adjust-structure" data-od-id="btn-adjust-structure">调整结构</button></div></div>');
+    }
+
+    modal.addEventListener("click", function (e) {
+      if (!e.target.closest("#btn-adjust-structure")) return;
+      window.closeModal("exit");
+      if (window.__showScreen) window.__showScreen("s1");
+      if (window.openModal) window.openModal("imp");
+      if (window.__impGoStep) window.__impGoStep(2);
+    });
+    var sum = modal.querySelector('[data-od-id="exit-sum"]');
+    if (sum) sum.textContent = "开书不消耗 token；设定进书后可逐项确认。";
+
+    var cta = modal.querySelector('[data-od-id="exit-confirm"]');
+    var closeBtn = modal.querySelector('.icon-btn.x, [aria-label="关闭"]');
+    if (closeBtn) closeBtn.setAttribute("data-close-modal", "exit");
+    var later = null;
+    modal.querySelectorAll("button").forEach(function (b) { if (b.textContent.trim() === "稍后再说") later = b; });
+    if (later) later.setAttribute("data-close-modal", "exit");
+
+    // 确认 → 进度（继承拆书 10/10）→ 回执
+    if (cta) {
+      cta.textContent = "创建并打开";
+      cta.removeAttribute("data-goto");
+      cta.addEventListener("click", function (e) {
+        e.preventDefault();
+        e.stopPropagation();
+        var body = modal.querySelector(".mcard-body");
+        var foot = modal.querySelector(".mcard-foot");
+        if (!body || !foot) return;
+        if (closeBtn) closeBtn.style.display = "none";
+        foot.querySelectorAll("button").forEach(function (b) { b.style.display = "none"; });
+        if (mh) mh.textContent = "正在开书 · 《长夜灯》";
+        body.innerHTML =
+          '<div class="gl-create">' +
+          '<div class="gl-create-head"><b>拆书已完成</b><span>10/10</span></div>' +
+          '<div class="gl-cp-track"><span class="gl-cp-fill" id="gl-cp-bar" style="width:0%"></span></div>' +
+          '<p class="gl-create-pct" id="gl-cp-pct">0%</p>' +
+          '<ul class="ex-steps" id="gl-cp-steps">' +
+          '<li><b>创建书</b><em>排队</em></li>' +
+          '<li><b>写入书级设定</b><em>排队</em></li>' +
+          '<li><b>卷纲与逐章基线</b><em>排队</em></li>' +
+          '<li><b>写入原书章节</b><em>排队</em></li>' +
+          '</ul>' +
+          '<p class="gl-meta-sm">不要关闭应用；中断后可重试，已写入的部分不会重复。</p>' +
+          '</div>';
+        var bar = document.getElementById("gl-cp-bar");
+        var pct = document.getElementById("gl-cp-pct");
+        var lis = body.querySelectorAll("#gl-cp-steps li");
+        function step(i, cls, text) { var em = lis[i].querySelector("em"); em.className = cls; em.textContent = text; }
+        function setPct(v) { if (bar) bar.style.width = v + "%"; if (pct) pct.textContent = v + "%"; }
+        step(0, "doing", "进行中");
+        setTimeout(function () {
+          step(0, "ok", "完成"); setPct(10); step(1, "doing", "进行中 · 0/7");
+          var i = 0, t1 = setInterval(function () {
+            i++; step(1, "doing", "进行中 · " + i + "/7"); setPct(Math.round(10 + i / 7 * 30));
+            if (i >= 7) {
+              clearInterval(t1); step(1, "ok", "完成 · 7/7");
+              step(2, "doing", "进行中 · 0/42");
+              var j = 0, t2 = setInterval(function () {
+                j++; step(2, "doing", "进行中 · " + j + "/42"); setPct(Math.round(40 + j / 42 * 30));
+                if (j >= 42) {
+                  clearInterval(t2); step(2, "ok", "完成 · 42/42");
+                  step(3, "doing", "进行中 · 0/42");
+                  var k = 0, t3 = setInterval(function () {
+                    k++; step(3, "doing", "进行中 · " + k + "/42"); setPct(Math.round(70 + k / 42 * 30));
+                    if (k >= 42) {
+                      clearInterval(t3); step(3, "ok", "完成 · 42/42"); setPct(100);
+                      setTimeout(function () {
+                        if (mh) mh.textContent = "开书完成 · 《长夜灯》";
+                        body.innerHTML =
+                          '<div class="ex-done"><div><b>书已创建 · 7 项设定＋42 章基线＋42 章正文已就位</b><span>未写入：章卷结构（以第 2 步结构为准）；未提取：物品/认知（可单章补算）。</span></div></div>' +
+                          '<div class="dims" style="margin-top:12px">' +
+                          '<div class="dim-row"><span class="d-tx"><b>书级设定</b></span><span class="d-mt">7 项 · 完成</span></div>' +
+                          '<div class="dim-row"><span class="d-tx"><b>当前卷卷纲</b></span><span class="d-mt">完成</span></div>' +
+                          '<div class="dim-row"><span class="d-tx"><b>逐章基线</b></span><span class="d-mt">42 章 · 完成</span></div>' +
+                          '<div class="dim-row"><span class="d-tx"><b>原书正文</b></span><span class="d-mt">2 卷 42 章 · 完成</span></div>' +
+                          '</div>';
+                        var go = document.createElement("button");
+                        go.className = "btn btn-primary";
+                        go.textContent = "进入书内";
+                        go.addEventListener("click", function () {
+                          window.closeModal("exit");
+                          if (window.__showScreen) window.__showScreen("s4");
+                        });
+                        foot.appendChild(go);
+                      }, 350);
+                    }
+                  }, 18);
+                }
+              }, 18);
+            }
+          }, 120);
+        }, 400);
+      });
+    }
+    window.__renderIcons(modal);
+  })();
+  // 屏 4：设定页——页顶灌入回执（modnav 之后）＋「未填」→「待确认」（演示语义替换）
+  place("#s4", "#tpl-s4", function (root, html) {
+    var modnav = root.querySelector("nav.modnav");
+    if (modnav) modnav.insertAdjacentHTML("afterend", html);
+    root.querySelectorAll(".s-item .badge, .panel-head .badge").forEach(function (b) {
+      if (b.textContent.indexOf("未填") >= 0) b.textContent = "待确认";
+    });
+    window.__renderIcons(root);
+  });
+  // 屏 5：写作页——右栏两张卡（.col-ai 首块之后）
+  place("#s5", "#tpl-s5", function (root, html) {
+    var col = root.querySelector(".col-ai");
+    if (!col) return;
+    var first = col.children[0];
+    if (first) first.insertAdjacentHTML("afterend", html);
+    else col.insertAdjacentHTML("beforeend", html);
+    window.__renderIcons(col);
+  });
+})();
+
+/* ── 弹窗开合（交互约定同 pages/works.html：openModal/closeModal + data-open-modal 委托） ── */
+(function () {
+  var closeTimers = {};
+  window.openModal = function (key) {
+    if (closeTimers[key]) { clearTimeout(closeTimers[key]); delete closeTimers[key]; }
+    ["scrim-", "modal-"].forEach(function (pre) {
+      var el = document.getElementById(pre + key);
+      if (el) { el.hidden = false; requestAnimationFrame(function(){ el.classList.add("show"); }); }
+    });
+  };
+  window.closeModal = function (key) {
+    ["scrim-", "modal-"].forEach(function (pre) {
+      var el = document.getElementById(pre + key);
+      if (el) { el.classList.remove("show"); }
+    });
+    if (closeTimers[key]) clearTimeout(closeTimers[key]);
+    closeTimers[key] = setTimeout(function () {
+      ["scrim-", "modal-"].forEach(function (pre) {
+        var el = document.getElementById(pre + key);
+        if (el) el.hidden = true;
+      });
+      delete closeTimers[key];
+    }, 200);
+  };
+  document.addEventListener("click", function (e) {
+    var t = e.target.closest("[data-open-modal],[data-close-modal],[data-seg]");
+    if (!t) return;
+    if (t.hasAttribute("data-open-modal")) { window.openModal(t.getAttribute("data-open-modal")); e.preventDefault(); }
+    else if (t.hasAttribute("data-close-modal")) { window.closeModal(t.getAttribute("data-close-modal")); e.preventDefault(); }
+    else if (t.hasAttribute("data-seg")) {
+      t.parentElement.querySelectorAll("button").forEach(function (b) { b.classList.toggle("on", b === t); });
+    }
+  });
+})();
+
+/* ── 切屏（原型 demo-bar，非基线元素；vanilla JS） ── */
+(function () {
+  var SCREENS = ["s1", "s2", "s3", "s4", "s5", "s6"];
+  function show(id) {
+    SCREENS.forEach(function (s) {
+      var el = document.getElementById(s);
+      if (el) el.hidden = (s !== id);
+    });
+    document.querySelectorAll("#screenSeg button[data-s]").forEach(function (b) {
+      b.classList.toggle("on", b.getAttribute("data-s") === id);
+    });
+    window.scrollTo(0, 0);
+  }
+  window.__showScreen = show;
+  document.addEventListener("click", function (e) {
+    var b = e.target.closest("#screenSeg button[data-s]");
+    if (b) { show(b.getAttribute("data-s")); return; }
+    var g = e.target.closest("[data-goto]");
+    if (g) { show(g.getAttribute("data-goto")); e.preventDefault(); }
+  });
+  document.addEventListener("keydown", function (e) {
+    if (e.key !== "Enter" && e.key !== " ") return;
+    var g = e.target.closest("[data-goto]");
+    if (g) { show(g.getAttribute("data-goto")); e.preventDefault(); }
+  });
+})();
+
+/* ── 书架入口按钮悬停提示同步（graft：真实宿主 title 原为 .md/.txt/.docx，一期只收 .txt） ── */
+(function () {
+  var btn = document.querySelector('#s1 button[title*="导入已有稿子"]');
+  if (btn) btn.title = "导入我的书（第一期仅支持 .txt）";
+})();
+
+/* ── 导入弹窗：双子态切换＋下载示例（graft；仅演示） ── */
+function syncImpState(st) {
+  document.getElementById("imp-empty").hidden = st !== "empty";
+  document.getElementById("imp-parsed").hidden = st !== "parsed";
+  document.querySelectorAll("#imp-state-seg [data-imp-state]").forEach(function (b) {
+    b.classList.toggle("on", b.getAttribute("data-imp-state") === st);
+  });
+  if (window.__impUpdateNext) window.__impUpdateNext();
+}
+document.addEventListener("click", function (e) {
+  var t = e.target.closest("[data-imp-state]");
+  if (!t) return;
+  syncImpState(t.getAttribute("data-imp-state"));
+});
+syncImpState("parsed");
+function downloadFmtExample() {
+  var txt = "第一卷 风起\n第1章 开端\n张三出门买药，顺路打听城里的消息。暮色四合，他加快了脚步。\n\n第2章 遇敌\n李四拦在巷口，一言不合便动了手。刀光一闪，张三侧身避过。";
+  var blob = new Blob([txt], { type: "text/plain;charset=utf-8" });
+  var url = URL.createObjectURL(blob);
+  var a = document.createElement("a");
+  a.href = url; a.download = "导入格式示例.txt"; a.click();
+  URL.revokeObjectURL(url);
+}
+
+/* ── 设定处理两卡选中态（graft；单选语义） ── */
+document.addEventListener("click", function (e) {
+  var card = e.target.closest(".gl-path-card");
+  if (!card) return;
+  card.parentElement.querySelectorAll(".gl-path-card").forEach(function (c) { c.classList.toggle("sel", c === card); });
+});
+
+/* ── 导入三步向导（graft；仅演示）：①选文件 ②确认卷章（按章切分）③导入方式 ── */
+(function () {
+  var TITLES = ["河底的灯","第一位客人","灯芯上的名字","夜明铺的规矩","雨夜的脚步声","旧账本","雾津码头","沉船的传说","不说话的客人","灯油与盐","第七盏灯","旧钟表铺","河神祭","失踪的船工","灯影里的女人","当铺的暗格","涨水","上游来的信","守灯人","双灯","退婚的人","灯芯灰","最后一班渡船","灯灭","归还","旧照片","第二位守灯人","雨蘅的秘密","警察登门","档案室","亡者的名单","河堤夜话","灯市","修复师","诱惑","故人归来","对峙","真相的裂缝","暴雨夜","灯芯燃尽之前","抉择","灯下"];
+  var TOTAL = TITLES.length;
+  var SRC = [{ title: "第一卷 · 沉船", start: 1, end: 24 }, { title: "第二卷 · 灯下", start: 25, end: TOTAL }];
+  var scan = [], vols = [], step = 1, mode = "ai";
+  var modelReady = true, quotaOk = true;
+
+  function titleOf(n) { return TITLES[n - 1]; }
+  function sub(t) { return (t || "").replace(/^第[0-9一二三四五六七八九十百]+卷\s*·?\s*/, "") || ""; }
+  function rangeText(v) { return "第 " + v.start + "–" + v.end + " 章 · " + (v.end - v.start + 1) + " 章"; }
+  function valid() {
+    if (!vols.length || vols[0].start !== 1) return false;
+    if (vols[vols.length - 1].end !== TOTAL) return false;
+    for (var i = 0; i < vols.length; i++) {
+      if (vols[i].end < vols[i].start) return false;
+      if (i > 0 && vols[i].start !== vols[i - 1].end + 1) return false;
+    }
+    return true;
+  }
+  function init(fromSource) {
+    scan = fromSource ? SRC.map(function (v) { return { title: v.title, start: v.start, end: v.end }; }) : [];
+    vols = fromSource
+      ? scan.map(function (v) { return { name: sub(v.title), start: v.start, end: v.end, collapsed: false }; })
+      : [];
+    render();
+  }
+  function renderLeft() {
+    var box = document.getElementById("left-list");
+    var groups = scan.length ? scan : [{ title: "未识别到卷", start: 1, end: TOTAL }];
+    document.getElementById("left-count").textContent = (scan.length ? scan.length + " 卷 " : "") + TOTAL + " 章";
+    box.innerHTML = groups.map(function (g) {
+      var rows = "";
+      for (var n = g.start; n <= g.end; n++) {
+        rows += '<div class="gl-pick-row gl-readonly"><span class="gl-pick-n">' + String(n).padStart(2, "0") + '</span><span class="gl-pick-t">第' + n + '章 ' + titleOf(n) + '</span></div>';
+      }
+      return '<div class="gl-scan-vol"><span>' + g.title + '</span><span>' + (g.end - g.start + 1) + ' 章</span></div>' + rows;
+    }).join("");
+  }
+  function renderTree() {
+    var box = document.getElementById("right-tree");
+    if (!vols.length) {
+      box.innerHTML = "";
+      var sb0 = document.getElementById("split-at");
+      if (sb0) sb0.disabled = true;
+      return;
+    }
+    box.innerHTML = vols.map(function (v, i) {
+      var last = i === vols.length - 1;
+      var chapters = "";
+      if (!v.collapsed) {
+        for (var n = v.start; n <= v.end; n++) {
+          chapters += '<div class="gl-tch"><span class="gl-tch-n">' + String(n).padStart(2, "0") + '</span><span>第' + n + '章 ' + titleOf(n) + '</span></div>';
+        }
+      }
+      var acts = '<div class="gl-vol-foot"><span class="gl-split-range">' + rangeText(v) + '</span>' +
+        (!last && v.end - v.start + 1 > 1 ? '<button type="button" class="btn btn-ghost btn-sm" data-shrink="' + i + '">◀ 少一章</button>' : '') +
+        (!last && vols[i + 1].end - vols[i + 1].start + 1 > 1 ? '<button type="button" class="btn btn-ghost btn-sm" data-grow="' + i + '">多一章 ▶</button>' : '') +
+        (!last ? '<button type="button" class="btn btn-ghost btn-sm" data-merge="' + i + '">合并到下一卷</button>' : '') +
+        '</div>';
+      return '<div class="gl-vol-card"><div class="gl-vol-head' + (v.collapsed ? "" : " open") + '" data-vol="' + i + '">' +
+        '<button type="button" class="gl-tvol-toggle" data-toggle="' + i + '" aria-label="' + (v.collapsed ? "展开" : "收起") + '"><i data-ico="chevronRight" data-size="12"></i></button>' +
+        '<span class="gl-tvol-no">第' + (i + 1) + '卷</span>' +
+        '<input class="input gl-vol-name" data-vol-name="' + i + '" value="' + (v.name || "") + '" placeholder="卷名（可选）" aria-label="第' + (i + 1) + '卷卷名">' +
+        '</div>' + acts + chapters + '</div>';
+    }).join("");
+    if (window.__renderIcons) window.__renderIcons(box);
+    var sb = document.getElementById("split-at");
+    if (sb) sb.disabled = false;
+  }
+  function render() { renderLeft(); renderTree(); updateNext(); }
+  function updateNext() {
+    var next = document.getElementById("imp-next");
+    if (!next || step !== 2) return;
+    next.disabled = !valid();
+    next.title = valid() ? "" : (vols.length ? "分卷需要覆盖全部章、每卷至少 1 章" : "先新增一卷");
+  }
+  function addVolume() {
+    if (!vols.length) {
+      vols = [{ name: "正文", start: 1, end: TOTAL, collapsed: false }];
+      render();
+      return;
+    }
+    var bi = 0, best = -1;
+    vols.forEach(function (v, i) { var len = v.end - v.start + 1; if (len > best) { best = len; bi = i; } });
+    if (best < 2) return;
+    var v0 = vols[bi];
+    var mid = v0.start + Math.floor(best / 2);
+    vols.splice(bi, 1,
+      { name: v0.name, start: v0.start, end: mid, collapsed: false },
+      { name: "", start: mid + 1, end: v0.end, collapsed: false });
+    render();
+  }
+  function splitAt(n) {
+    if (!vols.length || isNaN(n) || n < 1 || n >= TOTAL) return;
+    for (var i = 0; i < vols.length; i++) {
+      var v = vols[i];
+      if (n >= v.start && n < v.end) {
+        vols.splice(i, 1,
+          { name: v.name, start: v.start, end: n, collapsed: false },
+          { name: "", start: n + 1, end: v.end, collapsed: false });
+        render();
+        return;
+      }
+    }
+  }
+  function selectMode(kind) {
+    if (kind === "ai" && !modelReady) return;
+    mode = kind;
+    document.querySelectorAll("[data-mode]").forEach(function (c) {
+      c.classList.toggle("sel", c.getAttribute("data-mode") === kind);
+    });
+    var directField = document.getElementById("direct-name-field");
+    if (directField) directField.hidden = kind !== "direct";
+    updateCta();
+  }
+  function renderModelLine() {
+    var line = document.getElementById("model-line");
+    var ai = document.querySelector('[data-mode="ai"]');
+    if (!line || !ai) return;
+    var title = ai.querySelector(".gl-path-title");
+    if (modelReady) {
+      line.className = "gl-model";
+      line.innerHTML = '<span class="gl-muted">模型</span><b>GLM-5.3</b><span class="gl-muted">· 已配置</span>';
+      ai.classList.remove("off");
+      if (title) title.textContent = "AI 拆书补充设定（推荐）";
+    } else {
+      line.className = "gl-model gl-model-off";
+      line.innerHTML = '<b>未配置模型，拆书不可用</b><button type="button" class="btn btn-secondary btn-sm" id="btn-go-config" data-od-id="btn-go-config">去配置</button>';
+      ai.classList.add("off");
+      if (title) title.textContent = "AI 拆书补充设定";
+      if (mode === "ai") selectMode("direct");
+    }
+  }
+  function updateQuota() {
+    var warn = document.getElementById("quota-warn");
+    if (warn) warn.hidden = quotaOk;
+  }
+  function updateCta() {
+    var next = document.getElementById("imp-next");
+    if (!next || step !== 3) return;
+    if (!quotaOk) {
+      next.disabled = true;
+      next.title = "书架已满，先腾出一本或升级";
+      return;
+    }
+    next.disabled = false;
+    next.title = "";
+    next.textContent = mode === "ai" ? "创建任务并查看进度" : "创建并开始写作";
+  }
+  function setStep(n) {
+    step = n;
+    document.getElementById("imp-step1").hidden = n !== 1;
+    document.getElementById("imp-step2").hidden = n !== 2;
+    document.getElementById("imp-step3").hidden = n !== 3;
+    document.querySelectorAll("#imp-steps [data-step-dot]").forEach(function (el) {
+      var k = +el.getAttribute("data-step-dot");
+      el.classList.toggle("on", k === n);
+      el.classList.toggle("done", k < n);
+    });
+    document.getElementById("imp-back").hidden = n === 1;
+    var next = document.getElementById("imp-next");
+    next.textContent = n === 1 ? "下一步：确认卷章" : n === 2 ? "下一步：选导入方式"
+      : (mode === "ai" ? "创建任务并查看进度" : "创建并开始写作");
+    next.disabled = n === 1
+      ? document.getElementById("imp-parsed").hidden
+      : n === 2 ? !valid() : false;
+    if (n === 2) render();
+    if (n === 3) {
+      var sum = document.getElementById("struct-summary");
+      if (sum) sum.textContent = "已确认结构：" + vols.length + " 卷 " + TOTAL + " 章 · 31.6 万字";
+      renderModelLine();
+      updateQuota();
+      updateCta();
+    }
+  }
+  window.__impUpdateNext = function () { setStep(step); };
+  window.__impGoStep = setStep;
+
+  document.addEventListener("input", function (e) {
+    var vn = e.target.closest("[data-vol-name]");
+    if (!vn) return;
+    var vi = +vn.getAttribute("data-vol-name");
+    if (vols[vi]) vols[vi].name = vn.value;
+  });
+  document.addEventListener("click", function (e) {
+    var tg = e.target.closest("[data-toggle]");
+    if (tg) {
+      var ti = +tg.getAttribute("data-toggle");
+      if (vols[ti]) { vols[ti].collapsed = !vols[ti].collapsed; renderTree(); }
+      return;
+    }
+    var sh = e.target.closest("[data-shrink]");
+    if (sh) {
+      var si = +sh.getAttribute("data-shrink");
+      if (vols[si] && vols[si + 1] && vols[si].end - vols[si].start + 1 > 1) {
+        vols[si].end--; vols[si + 1].start--; render();
+      }
+      return;
+    }
+    var gr = e.target.closest("[data-grow]");
+    if (gr) {
+      var gi = +gr.getAttribute("data-grow");
+      if (vols[gi] && vols[gi + 1] && vols[gi + 1].end - vols[gi + 1].start + 1 > 1) {
+        vols[gi].end++; vols[gi + 1].start++; render();
+      }
+      return;
+    }
+    var mg = e.target.closest("[data-merge]");
+    if (mg) {
+      var mi = +mg.getAttribute("data-merge");
+      if (vols[mi] && vols[mi + 1]) {
+        vols[mi].end = vols[mi + 1].end;
+        vols.splice(mi + 1, 1);
+        render();
+      }
+      return;
+    }
+    if (e.target.closest("#btn-add-vol")) { addVolume(); return; }
+    if (e.target.closest("#btn-split-at")) {
+      var el = document.getElementById("split-at");
+      splitAt(el ? parseInt(el.value, 10) : NaN);
+      return;
+    }
+    if (e.target.closest("#btn-go-config")) {
+      modelReady = true;
+      document.querySelectorAll("#model-seg [data-model]").forEach(function (b) {
+        b.classList.toggle("on", b.getAttribute("data-model") === "ready");
+      });
+      renderModelLine();
+      selectMode("ai");
+      return;
+    }
+    var md = e.target.closest("[data-model]");
+    if (md) {
+      modelReady = md.getAttribute("data-model") === "ready";
+      document.querySelectorAll("#model-seg [data-model]").forEach(function (b) { b.classList.toggle("on", b === md); });
+      renderModelLine();
+      selectMode(modelReady ? "ai" : "direct");
+      return;
+    }
+    var qd = e.target.closest("[data-quota]");
+    if (qd) {
+      quotaOk = qd.getAttribute("data-quota") === "ok";
+      document.querySelectorAll("#quota-seg [data-quota]").forEach(function (b) { b.classList.toggle("on", b === qd); });
+      updateQuota();
+      updateCta();
+      return;
+    }
+    var src = e.target.closest("[data-src]");
+    if (src) {
+      document.querySelectorAll("#src-seg [data-src]").forEach(function (b) { b.classList.toggle("on", b === src); });
+      init(src.getAttribute("data-src") === "vol");
+      return;
+    }
+    var mc = e.target.closest("[data-mode]");
+    if (mc) {
+      var kind = mc.getAttribute("data-mode");
+      if (kind === "ai" && !modelReady) return;
+      selectMode(kind);
+      return;
+    }
+    if (e.target.closest("#imp-back")) { setStep(Math.max(1, step - 1)); return; }
+    if (e.target.closest("#imp-next")) {
+      if (step < 3) { setStep(step + 1); return; }
+      window.closeModal("imp");
+      if (mode === "ai") {
+        var handoff = document.getElementById("import-handoff");
+        if (handoff) handoff.hidden = false;
+        if (window.__showScreen) window.__showScreen("s2");
+      } else {
+        var done = document.getElementById("onlybody-done");
+        if (done) {
+          var nm = (document.getElementById("direct-book-name").value || "长夜灯").trim() || "长夜灯";
+          done.innerHTML = '<span class="nt"><b>已建书《' + nm + '》</b><span>' + vols.length + " 卷 " + TOTAL + " 章正文已就位；设定留空，之后可在设定页补充。</span></span>";
+          done.hidden = false;
+        }
+      }
+    }
+  });
+
+  init(true);
+  setStep(1);
+})();
+
+</script>
+</body>
+</html>

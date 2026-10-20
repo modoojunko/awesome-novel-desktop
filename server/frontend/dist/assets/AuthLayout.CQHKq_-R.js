@@ -1,0 +1,1 @@
+import{S as t}from"./SiteBeianBar.DhQxJxYq.js";import{d as a,a as s,c as r,b as c,e,r as n}from"./index.Bo9bP5HN.js";import"./_plugin-vue_export-helper.DlAUqK2U.js";const _={class:"page-col"},i={class:"auth-wrap"},h=a({__name:"AuthLayout",setup(p){return(m,d)=>{const o=n("router-view");return s(),r("div",_,[c("div",i,[e(o)]),e(t)])}}});export{h as default};

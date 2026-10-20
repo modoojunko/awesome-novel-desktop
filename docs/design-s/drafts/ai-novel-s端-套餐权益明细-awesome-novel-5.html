@@ -1,0 +1,381 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>套餐权益明细 · 爱小说 Awesome Novel 5.0</title>
+<!-- ═══════════════════════════════════════════════════════════════
+  爱小说 S端 套餐权益明细页 · 设计草稿 · 2026-10-02
+  · 承接官网首页草稿（ai-novel-s端-官网首页-awesome-novel-5.html）同一设计语言；
+    入口＝官网套餐区「查看完整权益对比 →」＋收银台「完整对比」链接。
+  · 内容＝四档权益矩阵终版（2026-10-05 对话定稿；设定域下标准、剧情推演归 MAX、
+    月价 29.9/59.9/89.9）：
+    免费=写作全流程(人工)+AI归档 ｜ 标准=AI管流程 ｜ PRO=设定AI+正文生成+朱雀
+    ｜ MAX=去AI味+蒸馏+拆书+内测+人工客服；客服轴=文档/视频/AI/人工。
+  · 两处按建议落位（源码内标 TODO，拍板翻转只改一格）：
+    剧情推演+卷纲冲突检测→MAX、文风建议→标准。
+  · 价格为设计演示种子，以收银台实时目录为准；BYOK 双 Key 口径入脚注：
+    创作模型 Key（全档可配）与朱雀 Key（检测专用、独立页签、走腾讯额度）分开表述。
+  · 自包含单文件，双击可开。
+═══════════════════════════════════════════════════════════════ -->
+<style>
+:root {
+  --bg:      oklch(98% 0.004 240);
+  --surface: oklch(100% 0 0);
+  --fg:      oklch(20% 0.02 240);
+  --muted:   oklch(50% 0.018 240);
+  --border:  oklch(90% 0.006 240);
+  --accent: oklch(48% 0.11 170);
+  --accent-strong: oklch(41% 0.10 170);
+  --accent-soft:   color-mix(in oklch, var(--accent) 12%, transparent);
+  --ok:    oklch(52% 0.11 155);  --ok-soft:   color-mix(in oklch, var(--ok) 14%, transparent);
+  --warn:  oklch(50% 0.13 75);   --warn-soft: color-mix(in oklch, var(--warn) 16%, transparent);
+  --fg-soft:   color-mix(in oklch, var(--fg) 5%, transparent);
+  --faint: color-mix(in oklch, var(--muted) 68%, transparent);
+  --on-accent: oklch(100% 0 0);
+  --shadow-card: 0 1px 2px color-mix(in oklch, var(--fg) 5%, transparent),
+                 0 12px 32px -12px color-mix(in oklch, var(--fg) 14%, transparent);
+  --font-display: 'Noto Serif SC', 'Songti SC', 'STSong', 'Iowan Old Style', Georgia, serif;
+  --font-body: 'Noto Sans SC', -apple-system, BlinkMacSystemFont, 'PingFang SC', 'Hiragino Sans GB', 'Microsoft YaHei', system-ui, sans-serif;
+  --font-mono: ui-monospace, 'SF Mono', Menlo, 'JetBrains Mono', monospace;
+  --radius: 10px; --radius-lg: 16px;
+}
+*, *::before, *::after { box-sizing: border-box; }
+body { margin: 0; background: var(--bg); color: var(--fg); font-family: var(--font-body); font-size: 14px; line-height: 1.55; -webkit-font-smoothing: antialiased; }
+a { color: inherit; text-decoration: none; }
+button { font: inherit; cursor: pointer; border: 0; background: none; color: inherit; padding: 0; }
+svg { display: block; }
+.ic { width: 16px; height: 16px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; flex: none; }
+.num { font-family: var(--font-mono); font-variant-numeric: tabular-nums; }
+:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; border-radius: 4px; }
+
+/* 导航 */
+.mkt-nav { position: sticky; top: 0; z-index: 50; backdrop-filter: blur(12px); background: color-mix(in srgb, var(--surface) 82%, transparent); border-bottom: 1px solid var(--border); }
+.mkt-nav-in { max-width: 1152px; margin-inline: auto; padding: 0 24px; display: flex; align-items: center; justify-content: space-between; height: 60px; }
+.mkt-logo { display: inline-flex; align-items: center; gap: 9px; font-family: var(--font-display); font-size: 18px; letter-spacing: 0.02em; }
+.mkt-logo .mark { width: 24px; height: 24px; border-radius: 7px; background: var(--accent); color: var(--on-accent); display: grid; place-items: center; font-size: 13px; }
+.mkt-logo .en { font-family: var(--font-body); font-size: 10.5px; font-weight: 600; letter-spacing: 0.14em; color: var(--muted); }
+.gen-badge { display: inline-flex; font-family: var(--font-mono); font-size: 10.5px; font-weight: 700; color: var(--accent-strong); background: var(--accent-soft); border: 1px solid color-mix(in oklch, var(--accent) 25%, transparent); padding: 1px 7px; border-radius: 999px; }
+.btn { display: inline-flex; align-items: center; gap: 7px; height: 36px; padding: 0 16px; border-radius: var(--radius); border: 1px solid transparent; font-size: 13.5px; font-weight: 500; transition: background .15s ease, border-color .15s ease; }
+.btn-primary { background: var(--accent); color: var(--on-accent); }
+.btn-primary:hover { background: var(--accent-strong); }
+.btn-secondary { background: var(--surface); color: var(--fg); border-color: var(--border); }
+.btn-secondary:hover { border-color: var(--fg); }
+
+.wrap { max-width: 1152px; margin-inline: auto; padding: 0 24px; }
+
+/* 页头 */
+.page-head { padding: 44px 0 8px; }
+.mkt-eyebrow { font-size: 12px; letter-spacing: 0.25em; color: var(--accent-strong); font-weight: 500; }
+h1 { font-family: var(--font-display); font-size: 32px; font-weight: 600; margin: 10px 0 10px; }
+.lead { font-size: 14.5px; color: var(--muted); line-height: 1.7; max-width: 640px; }
+
+/* 档位卡 */
+.tier-cards { display: grid; grid-template-columns: repeat(4, 1fr); gap: 14px; margin: 26px 0 30px; }
+@media (max-width: 960px) { .tier-cards { grid-template-columns: repeat(2, 1fr); } }
+.tier-card { border: 1px solid var(--border); border-radius: 14px; background: var(--surface); padding: 18px 18px 16px; position: relative; }
+.tier-card.pro { background: color-mix(in oklch, var(--accent) 4%, var(--surface)); border-color: color-mix(in oklch, var(--accent) 30%, transparent); box-shadow: var(--shadow-card); }
+.tier-card.max { border-style: dashed; }
+.tier-card .pop { position: absolute; top: -10px; left: 14px; font-size: 10.5px; padding: 2px 10px; border-radius: 999px; background: var(--accent); color: var(--surface); letter-spacing: .04em; }
+.tier-card h3 { font-family: var(--font-display); font-size: 17px; font-weight: 600; margin: 0; display: flex; align-items: center; gap: 8px; }
+.tier-card .pos { font-size: 12px; color: var(--accent-strong); margin-top: 3px; }
+.tier-card .price { font-family: var(--font-display); font-size: 24px; font-weight: 600; margin-top: 10px; }
+.tier-card .price .per { font-family: var(--font-body); font-size: 11.5px; font-weight: 400; color: var(--muted); }
+.tier-card .btn { margin-top: 12px; width: 100%; height: 34px; justify-content: center; }
+
+/* 分组锚 */
+.group-nav { position: sticky; top: 60px; z-index: 40; display: flex; gap: 8px; flex-wrap: wrap; padding: 10px 0; background: color-mix(in srgb, var(--bg) 92%, transparent); backdrop-filter: blur(8px); border-bottom: 1px solid var(--border); }
+.group-nav a { font-size: 12.5px; color: var(--muted); border: 1px solid var(--border); background: var(--surface); border-radius: 999px; padding: 4px 13px; }
+.group-nav a:hover { color: var(--fg); border-color: var(--fg); }
+.diff-toggle { margin-left: auto; display: inline-flex; align-items: center; gap: 6px; font-size: 12.5px; color: var(--muted); cursor: pointer; user-select: none; }
+.diff-toggle input { accent-color: var(--accent); }
+
+/* 对比表 */
+.table-wrap { overflow-x: auto; margin: 22px 0 10px; border: 1px solid var(--border); border-radius: 14px; background: var(--surface); }
+table { border-collapse: collapse; width: 100%; min-width: 760px; }
+thead th { position: sticky; top: 0; background: var(--fg-soft); z-index: 5; font-size: 13px; font-weight: 600; text-align: center; padding: 12px 10px; border-bottom: 1px solid var(--border); }
+thead th:first-child { text-align: left; padding-left: 18px; width: 34%; }
+thead th .tp { display: block; font-size: 10.5px; font-weight: 400; color: var(--muted); margin-top: 2px; }
+tbody td { padding: 11px 10px; border-bottom: 1px solid var(--border); font-size: 13px; text-align: center; vertical-align: top; }
+tbody td:first-child { text-align: left; padding-left: 18px; color: var(--fg); }
+tbody td:first-child .fn { font-weight: 500; }
+tbody td:first-child .fd { display: block; font-size: 11.5px; color: var(--muted); margin-top: 2px; line-height: 1.55; }
+tbody tr:hover td { background: color-mix(in oklch, var(--accent) 3%, transparent); }
+td .yes { color: var(--ok); }
+td .no { color: var(--faint); }
+td .txt { font-size: 12px; color: var(--muted); }
+td .soon { display: inline-block; font-size: 10px; color: var(--warn); background: var(--warn-soft); border-radius: 999px; padding: 1px 7px; margin-top: 3px; }
+tr.group-row td { background: var(--fg-soft); font-family: var(--font-display); font-size: 13.5px; font-weight: 600; text-align: left; padding: 9px 18px; color: var(--accent-strong); letter-spacing: .04em; }
+tr[data-diff="0"].diff-hide { display: none; }
+
+/* 脚注 */
+.foot-notes { max-width: 860px; margin: 18px 0 0; display: flex; flex-direction: column; gap: 6px; }
+.foot-notes p { font-size: 12px; color: var(--faint); line-height: 1.7; margin: 0; }
+.foot-notes b { color: var(--muted); font-weight: 600; }
+
+/* 页脚 */
+.mkt-footer { border-top: 1px solid var(--border); background: var(--surface); margin-top: 48px; }
+.mkt-footer-in { max-width: 1152px; margin-inline: auto; padding: 30px 24px 40px; display: flex; align-items: center; justify-content: space-between; gap: 14px; flex-wrap: wrap; }
+.mkt-footer .slogan { font-family: var(--font-display); font-size: 16px; font-weight: 600; }
+.mkt-footer .meta { font-size: 12px; color: var(--faint); line-height: 1.8; }
+</style>
+</head>
+<body>
+
+<nav class="mkt-nav">
+  <div class="mkt-nav-in">
+    <a class="mkt-logo" href="#">
+      <span class="mark">爱</span><span>爱小说</span><span class="en">AWESOME NOVEL</span><span class="gen-badge num">5.0</span>
+    </a>
+    <div style="display:flex;gap:8px;">
+      <a class="btn btn-secondary" href="#">返回官网</a>
+      <a class="btn btn-primary" href="#">免费下载</a>
+    </div>
+  </div>
+</nav>
+
+<div class="wrap">
+  <header class="page-head">
+    <span class="mkt-eyebrow">套餐权益明细</span>
+    <h1>四档套餐，AI 每深一层升一档</h1>
+    <p class="lead">免费走通全部写作流程，AI 从记账开始；往上一档，AI 替你多干一件事。人工能做的，永远免费。</p>
+  </header>
+
+  <!-- 档位卡 -->
+  <div class="tier-cards">
+    <div class="tier-card">
+      <h3>免费 <span class="gen-badge num">体验</span></h3>
+      <div class="pos">全流程亲手写，AI 替你记账</div>
+      <div class="price num">¥0</div>
+      <a class="btn btn-secondary" href="#">免费下载</a>
+    </div>
+    <div class="tier-card">
+      <h3>标准</h3>
+      <div class="pos">AI 当军师，正文自己写</div>
+      <div class="price num">¥29.9<span class="per"> /月起</span></div>
+      <a class="btn btn-secondary" href="#">选标准</a>
+    </div>
+    <div class="tier-card pro">
+      <span class="pop">最受欢迎</span>
+      <h3>PRO</h3>
+      <div class="pos">AI 当枪手，写完即查</div>
+      <div class="price num">¥59.9<span class="per"> /月起</span></div>
+      <a class="btn btn-primary" href="#">选 PRO</a>
+    </div>
+    <div class="tier-card max">
+      <h3>MAX</h3>
+      <div class="pos">AI 替你打磨，人工兜底</div>
+      <div class="price num">¥89.9<span class="per"> /月起</span></div>
+      <a class="btn btn-secondary" href="#">选 MAX</a>
+    </div>
+  </div>
+
+  <!-- 分组锚 + 只看差异 -->
+  <div class="group-nav">
+    <a href="#g-flow">写作全流程</a>
+    <a href="#g-plan">AI 规划</a>
+    <a href="#g-write">AI 执笔</a>
+    <a href="#g-polish">精修进阶</a>
+    <a href="#g-service">内容与服务</a>
+    <a href="#g-spec">规格</a>
+    <label class="diff-toggle"><input type="checkbox" id="diffOnly">只看档间差异</label>
+  </div>
+
+  <!-- 权益对比表 -->
+  <div class="table-wrap">
+    <table>
+      <thead>
+        <tr>
+          <th>权益明细</th>
+          <th>免费<span class="tp">¥0 · 永久</span></th>
+          <th>标准<span class="tp">¥29.9 /月起</span></th>
+          <th>PRO<span class="tp">¥59.9 /月起</span></th>
+          <th>MAX<span class="tp">¥89.9 /月起</span></th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr class="group-row" id="g-flow"><td colspan="5">写作全流程（人工）—— 永久免费</td></tr>
+        <tr data-diff="0">
+          <td><span class="fn">建书与书架</span><span class="fd">含旧稿导入、无缝续写</span></td>
+          <td><span class="yes">✓</span></td><td><span class="yes">✓</span></td><td><span class="yes">✓</span></td><td><span class="yes">✓</span></td>
+        </tr>
+        <tr data-diff="0">
+          <td><span class="fn">设定手填</span><span class="fd">题材/主线/世界观/角色/伏笔/文风 全表单</span></td>
+          <td><span class="yes">✓</span></td><td><span class="yes">✓</span></td><td><span class="yes">✓</span></td><td><span class="yes">✓</span></td>
+        </tr>
+        <tr data-diff="0">
+          <td><span class="fn">卷纲与章纲手写</span><span class="fd">卷纲四问页＋章纲 13 格表单＋章内剧情条目</span></td>
+          <td><span class="yes">✓</span></td><td><span class="yes">✓</span></td><td><span class="yes">✓</span></td><td><span class="yes">✓</span></td>
+        </tr>
+        <tr data-diff="0">
+          <td><span class="fn">正文写作</span><span class="fd">编辑器＋版本历史＋随时回稿</span></td>
+          <td><span class="yes">✓</span></td><td><span class="yes">✓</span></td><td><span class="yes">✓</span></td><td><span class="yes">✓</span></td>
+        </tr>
+        <tr data-diff="0">
+          <td><span class="fn">导出与阅读器</span><span class="fd">Markdown / Word / 纯文本，排版预览</span></td>
+          <td><span class="yes">✓</span></td><td><span class="yes">✓</span></td><td><span class="yes">✓</span></td><td><span class="yes">✓</span></td>
+        </tr>
+        <tr data-diff="0">
+          <td><span class="fn">备份恢复与完本</span></td>
+          <td><span class="yes">✓</span></td><td><span class="yes">✓</span></td><td><span class="yes">✓</span></td><td><span class="yes">✓</span></td>
+        </tr>
+        <tr data-diff="0">
+          <td><span class="fn">归档记账 <b style="color:var(--accent-strong);">＋AI 提取</b></span><span class="fd">前情/人物状态/伏笔自动入册——免费档唯一 AI，自配模型 Key</span></td>
+          <td><span class="yes">✓</span></td><td><span class="yes">✓</span></td><td><span class="yes">✓</span></td><td><span class="yes">✓</span></td>
+        </tr>
+
+        <tr class="group-row" id="g-plan"><td colspan="5">AI 规划 —— 标准起，AI 替你想</td></tr>
+        <tr data-diff="1">
+          <td><span class="fn">卷规划 AI</span><span class="fd">三套走法抽卡、铺空缺卷纲</span></td>
+          <td><span class="no">—</span></td><td><span class="yes">✓</span></td><td><span class="yes">✓</span></td><td><span class="yes">✓</span></td>
+        </tr>
+        <tr data-diff="1">
+          <td><span class="fn">拆章 AI</span><span class="fd">三方向抽卡，一章一卡</span></td>
+          <td><span class="no">—</span></td><td><span class="yes">✓</span></td><td><span class="yes">✓</span></td><td><span class="yes">✓</span></td>
+        </tr>
+        <tr data-diff="1">
+          <td><span class="fn">章纲 AI</span><span class="fd">起草/三选一/补缺＋高级字段</span></td>
+          <td><span class="no">—</span></td><td><span class="yes">✓</span></td><td><span class="yes">✓</span></td><td><span class="yes">✓</span></td>
+        </tr>
+        <tr data-diff="1">
+          <td><span class="fn">卷体检</span><span class="fd">已写内容与卷纲的出入评估</span></td>
+          <td><span class="no">—</span></td><td><span class="yes">✓</span></td><td><span class="yes">✓</span></td><td><span class="yes">✓</span></td>
+        </tr>
+        <tr data-diff="1">
+          <td><span class="fn">单章评估</span><span class="fd">章自检 AI 短评</span></td>
+          <td><span class="no">—</span></td><td><span class="yes">✓</span></td><td><span class="yes">✓</span></td><td><span class="yes">✓</span></td>
+        </tr>
+        <tr data-diff="1">
+          <td><span class="fn">文风建议</span><span class="fd">自己写正文时的 AI 修改建议</span></td>
+          <td><span class="no">—</span></td><td><span class="yes">✓</span></td><td><span class="yes">✓</span></td><td><span class="yes">✓</span></td>
+        </tr>
+        <tr data-diff="1">
+          <td><span class="fn">设定域 AI 全家</span><span class="fd">世界/势力/角色/主线/题材/伏笔 AI 填格</span></td>
+          <td><span class="no">—</span></td><td><span class="yes">✓</span></td><td><span class="yes">✓</span></td><td><span class="yes">✓</span></td>
+        </tr>
+        <tr data-diff="1">
+          <td><span class="fn">人物盘点＋抽卡选人</span></td>
+          <td><span class="no">—</span></td><td><span class="yes">✓</span></td><td><span class="yes">✓</span></td><td><span class="yes">✓</span></td>
+        </tr>
+        <tr data-diff="1">
+          <td><span class="fn">角色关系图谱</span><span class="fd">关系一图看清，AI 动笔前对齐本卷最新关系</span></td>
+          <td><span class="yes">✓</span></td><td><span class="yes">✓</span></td><td><span class="yes">✓</span></td><td><span class="yes">✓</span></td>
+        </tr>
+
+        <tr class="group-row" id="g-write"><td colspan="5">AI 执笔与质检 —— PRO 起，AI 替你写</td></tr>
+        <tr data-diff="1">
+          <td><span class="fn">正文 AI 全家</span><span class="fd">整章生成/续写/扩写/压缩，随时喊停</span></td>
+          <td><span class="no">—</span></td><td><span class="no">—</span></td><td><span class="yes">✓</span></td><td><span class="yes">✓</span></td>
+        </tr>
+        <tr data-diff="1">
+          <td><span class="fn">提示词页签</span><span class="fd">写作提示词自定义</span></td>
+          <td><span class="no">—</span></td><td><span class="no">—</span></td><td><span class="yes">✓</span></td><td><span class="yes">✓</span></td>
+        </tr>
+        <tr data-diff="1">
+          <td><span class="fn">卷纲冲突检测</span><span class="fd">拿章纲对卷纲报冲突：偏离卷目标/事件矛盾/设定互斥</span></td>
+          <td><span class="no">—</span></td><td><span class="no">—</span></td><td><span class="yes">✓</span></td><td><span class="yes">✓</span></td>
+        </tr>
+        <tr data-diff="1">
+          <td><span class="fn">朱雀 AI 味检测</span><span class="fd">腾讯朱雀送检，段落级标注；单独配置朱雀 Key，送检走你的腾讯额度</span></td>
+          <td><span class="no">—</span></td><td><span class="no">—</span></td><td><span class="yes">✓</span></td><td><span class="yes">✓</span></td>
+        </tr>
+
+        <tr class="group-row" id="g-polish"><td colspan="5">精修与进阶 —— MAX 专属：剧情推演、打磨与旁路服务</td></tr>
+        <tr data-diff="1">
+          <td><span class="fn">去 AI 味加工</span><span class="fd">热片驱动＋选区兜底的重写</span></td>
+          <td><span class="no">—</span></td><td><span class="no">—</span></td><td><span class="no">—</span></td><td><span class="yes">✓</span></td>
+        </tr>
+        <tr data-diff="1">
+          <td><span class="fn">文风蒸馏</span><span class="fd">贴一段旧稿，AI 学你的文风</span></td>
+          <td><span class="no">—</span></td><td><span class="no">—</span></td><td><span class="no">—</span></td><td><span class="yes">✓</span></td>
+        </tr>
+        <tr data-diff="1">
+          <td><span class="fn">剧情推演</span><span class="fd">卡文时把角色放进场景演一回合，看走向</span></td>
+          <td><span class="no">—</span></td><td><span class="no">—</span></td><td><span class="no">—</span></td><td><span class="yes">✓</span></td>
+        </tr>
+        <tr data-diff="1">
+          <td><span class="fn">拆书成设定</span><span class="fd">完本小说拆成世界观/人物/大纲</span></td>
+          <td><span class="no">—</span></td><td><span class="no">—</span></td><td><span class="no">—</span></td><td><span class="yes">✓</span><span class="soon">即将上线</span></td>
+        </tr>
+
+        <tr class="group-row" id="g-service"><td colspan="5">内容与服务</td></tr>
+        <tr data-diff="0">
+          <td><span class="fn">文档教程</span><span class="fd">六阶段教程＋激活/下载/FAQ</span></td>
+          <td><span class="yes">✓</span></td><td><span class="yes">✓</span></td><td><span class="yes">✓</span></td><td><span class="yes">✓</span></td>
+        </tr>
+        <tr data-diff="1">
+          <td><span class="fn">视频教程</span><span class="fd">分阶段视频课</span></td>
+          <td><span class="no">—</span></td><td><span class="yes">✓</span></td><td><span class="yes">✓</span></td><td><span class="yes">✓</span></td>
+        </tr>
+        <tr data-diff="1">
+          <td><span class="fn">AI 客服</span><span class="fd">账号/订单/激活问题，只读上下文</span></td>
+          <td><span class="no">—</span></td><td><span class="no">—</span></td><td><span class="yes">✓</span></td><td><span class="yes">✓</span></td>
+        </tr>
+        <tr data-diff="1">
+          <td><span class="fn">人工客服</span><span class="fd">优先通道响应</span></td>
+          <td><span class="no">—</span></td><td><span class="no">—</span></td><td><span class="no">—</span></td><td><span class="yes">✓</span></td>
+        </tr>
+        <tr data-diff="1">
+          <td><span class="fn">新版本内测资格</span><span class="fd">抢先体验新能力</span></td>
+          <td><span class="no">—</span></td><td><span class="no">—</span></td><td><span class="no">—</span></td><td><span class="yes">✓</span></td>
+        </tr>
+
+        <tr class="group-row" id="g-spec"><td colspan="5">规格</td></tr>
+        <tr data-diff="1">
+          <td><span class="fn">建书数</span></td>
+          <td><span class="txt num">1 本</span></td><td><span class="txt num">3 本</span></td><td><span class="txt num">不限</span></td><td><span class="txt num">不限</span></td>
+        </tr>
+        <tr data-diff="1">
+          <td><span class="fn">设备数</span></td>
+          <td><span class="txt num">1 台</span></td><td><span class="txt num">1 台</span></td><td><span class="txt num">3 台</span></td><td><span class="txt num">10 台</span></td>
+        </tr>
+        <tr data-diff="0">
+          <td><span class="fn">创作模型 Key 自配（BYOK）</span><span class="fd">接 DeepSeek/Kimi/通义等写作大模型，token 费直接付给模型供应商——与朱雀 Key 相互独立</span></td>
+          <td><span class="yes">✓</span></td><td><span class="yes">✓</span></td><td><span class="yes">✓</span></td><td><span class="yes">✓</span></td>
+        </tr>
+        <tr data-diff="1">
+          <td><span class="fn">朱雀 Key 自配</span><span class="fd">朱雀检测专用，模型配置页独立页签单独配置；送检消耗你自己的腾讯额度（每月免费额度以腾讯云为准）</span></td>
+          <td><span class="no">—</span></td><td><span class="no">—</span></td><td><span class="yes">✓</span></td><td><span class="yes">✓</span></td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+
+  <div class="foot-notes">
+    <p><b>①</b> 平台涉及两种自配 Key，相互独立：<b>创作模型 Key</b>（全档可配，DeepSeek、Kimi、通义等，token 费直接付给模型供应商）与<b>朱雀 Key</b>（朱雀检测专用，模型配置页独立页签单独配置，送检走你自己的腾讯额度，每月免费额度以腾讯云为准）。会员费买的是功能解锁资格，不是算力。</p>
+    <p><b>②</b> 注册即送 7 天全功能试用，权益与 PRO 相同。</p>
+    <p><b>③</b> 带「即将上线」标记的能力在上线前不计入对应档位承诺；已上线能力以本表为准。</p>
+    <p><b>④</b> 月付价格 2026-10 拍板：免费 0／标准 29.9／PRO 59.9／MAX 89.9；季/年与折扣以收银台实时目录为准；一次性买断时长，无自动续费。</p>
+  </div>
+</div>
+
+<footer class="mkt-footer">
+  <div class="mkt-footer-in">
+    <div>
+      <div class="slogan">你的小说永远属于你</div>
+      <div class="meta">© 2026 星纬（海口）投资有限公司 · 爱小说 Awesome Novel <span class="gen-badge num">5.0</span></div>
+    </div>
+    <div class="meta">源自开源项目 awesome-novel-agent · 第 5 代<br>字体 Noto Serif SC / Noto Sans SC · SIL OFL 1.1</div>
+  </div>
+</footer>
+
+<script>
+// 只看档间差异：隐藏四档全同的行（data-diff=0＝全同）
+const diffOnly = document.getElementById('diffOnly');
+diffOnly.addEventListener('change', () => {
+  document.querySelectorAll('tr[data-diff]').forEach(tr => {
+    if (diffOnly.checked && tr.dataset.diff === '0') tr.classList.add('diff-hide');
+    else tr.classList.remove('diff-hide');
+  });
+});
+// 分组锚平滑滚动（留出双重 sticky 高度）
+document.querySelectorAll('.group-nav a').forEach(a => {
+  a.addEventListener('click', e => {
+    e.preventDefault();
+    const el = document.querySelector(a.getAttribute('href'));
+    if (el) window.scrollTo({ top: el.getBoundingClientRect().top + window.scrollY - 118, behavior: 'smooth' });
+  });
+});
+</script>
+</body>
+</html>

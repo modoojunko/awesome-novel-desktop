@@ -1,0 +1,1 @@
+import{D as s}from"./index.Bo9bP5HN.js";function u(t,a,e,r,o,n){return s.post("/authorize",{username:t,password:a,pc_hash:e,pc_name:r,device_profile:o,challenge:n}).then(i=>i.data)}function d(t,a,e){return s.post("/reset_password",{username:t,security_answer:a,new_password:e}).then(r=>r.data)}export{d as a,u as b};

@@ -1,0 +1,175 @@
+# Python
+__pycache__/
+.coverage
+coverage.json
+.pytest_cache/
+*.pyc
+*.pyo
+venv/
+.venv/
+*.egg-info/
+
+# Database
+*.db
+*.sqlite3
+
+# Environment
+.env
+.env.local
+.env.example
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Node
+node_modules/
+
+# IDE
+.vscode/
+.idea/
+
+# Claude Code / AI agent config
+.claude/
+.agents/
+.codex/
+skills-lock.json
+frontend/node_modules/
+frontend/out/
+client/frontend/node_modules/
+client/frontend/dist/
+
+# Data
+backend/data/
+client/backend/data/
+# 原生 dev 数据归档（dev 统一走 docker compose，数据在 .docker-data/）
+server/data.legacy/
+client/backend/data.legacy/
+ai_config.yaml
+config.json
+
+# Logs
+*.log
+server.log
+client/backend/server.log
+
+# Build output
+client/packaging/build/dist/
+client/packaging/build/build/
+client/packaging/build/build_py/
+client/packaging/build/.icns_tmp/
+client/packaging/build/.dmg_stage/
+client/packaging/dist/
+client/frontend/dist/
+
+# C端 parity 运行资产分层管理（2026-08-28 起）：
+#   prototypes/（视觉真值 + ADJUSTMENTS 登记簿，~300KB）入库——fresh clone 也能跑 design:check；
+#   baselines/（proto/app/diff 比对 PNG，5MB+，跑一次 design:check 即可再生）保持本地。
+# e2e 无 DESIGN_PARITY=1 时照旧跳过，CI 行为不变（见 client/frontend/e2e/design-parity*.spec.ts）。
+docs/design-c/baselines/
+docs/design-c/prototypes/assets/
+
+# Docker compose bind-mount data (D 盘)
+.docker-data/
+
+# Temp files
+tmp_find.txt
+
+test-results
+server/logs
+server/.pytest_cache
+server/license.db-shm
+server/license.db-wal
+server/data/*.db-shm
+server/data/*.db-wal
+server/frontend/.vite/
+
+# 意外生成的包管理器产物（项目用 npm）
+server/frontend/pnpm-lock.yaml
+server/frontend/pnpm-workspace.yaml
+
+# PM 验收走查脚本与截图（一次性验收产物）
+client/frontend/pm-walkthrough.mjs
+client/frontend/pm-shots/
+
+# CDP 调试 Chrome profile 与检查脚本
+.chrome-cdp-profile/
+.tmp-chrome-profile/
+.tmp-chrome-profile2/
+client/frontend/.tmp_*.cjs
+check-live.cjs
+client/frontend/check-live.cjs
+client/frontend/monitor-cdp.cjs
+client/frontend/live-*.png
+client/frontend/shot-*.png
+shot-*.png
+live-*.png
+.tmp_check_apikey.py
+
+# Local dev tooling
+.reasonix/
+reasonix.toml
+.mimosa/
+
+# Playwright test reports
+playwright-report/
+# Local tooling artifacts
+.mimosa/
+agent/
+.zcode/
+
+# 本地运行时与跨会话交接文档（勿提交；仅根目录这份，docs/ux/handoff.md 是设计治理线正式文档要入库）
+.dev-runtime/
+/handoff.md
+
+# 发布期注入产物（CI 生成）
+client/packaging/build/release.json
+# Windows 版本资源（build.spec 在 Windows 构建时生成，勿提交）
+client/packaging/build/version_info.txt
+
+# 品牌评审稿（色向/概念决策过程稿，不入库；定稿资产在 brand/ 根）
+brand/drafts/
+server/.venv
+
+# 临时部署/诊断工作目录（用完即删的 staging 与探针）
+.wxpay-deploy-staging/
+.sweb-deploy/
+.curl-debug/
+.pgprobe/
+.worktrees/
+
+# 微信支付密钥本地副本（MCP/CLI 部署包需要，绝不入库；CI 由 secrets 现场 printf 生成）
+server/secrets/*.pem
+# 本地隔离栈运行时数据（qa-night 变体含 Fernet key/JWT_SECRET，一律不入库；
+# 磁盘上的证据文件保留，仅退 git 跟踪）
+.docker-data-*/
+
+# 会话私有隔离栈残留防护（#485 误提交修复）：
+docker-compose.override.yml
+.env.chb
+
+# ===== ↑ 以上同步自 .gitignore（「从 .gitignore 同步」只重写以上部分）=====
+.git/
+.hg/
+.svn/
+bower_components/
+jspm_packages/
+site-packages/
+coverage/
+htmlcov/
+lcov-report/
+cmakefiles/
+cmake-build-*/
+bazel-*/
+pods/
+deriveddata/
+storybook-static/
+allure-results/
+allure-report/
+cdk.out/
+*.dist-info/
+eggs/
+pip-wheel-metadata/
+wheels/
+# ----- ↑ 以上为 ZCode 默认排除规则（自定义规则请写在本行下方，不会被同步/恢复改动）-----
+# 自定义规则写在下方（本行提示可删除）

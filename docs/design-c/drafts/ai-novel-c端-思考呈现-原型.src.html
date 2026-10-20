@@ -1,0 +1,389 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>设计原型 · 思考呈现 · 正文工作台（真界面基线）</title>
+<style>
+/*__INJECT_STYLE_REAL__*/
+</style>
+<style>
+/* ═══════════════════════════════════════════════════════════════════════
+   graft：思考呈现（tk- 前缀）—— 新增件样式，真实样式一字不改。
+   形态四件：实时思考面板 / 收起条 / 回看抽屉 / 超时卡。
+   ═══════════════════════════════════════════════════════════════════════ */
+.tk-live {
+  width: 100%; max-width: 680px;  /* 相对列宽：跟正文版心走；宽度与思考文字量无关，流式全程不变 */
+  margin: 30px auto 0;
+  flex-shrink: 0;
+  border: 1px solid var(--line, oklch(90% 0.01 240));
+  border-left: 2px solid var(--accent, oklch(48% 0.11 170));
+  border-radius: 10px;
+  background: oklch(98.2% 0.004 240);
+  overflow: hidden;
+}
+.tk-live-head {
+  display: flex; align-items: center; gap: 8px;
+  padding: 9px 14px 8px;
+  font-size: 12.5px; color: var(--muted, oklch(50% 0.018 240));
+}
+.tk-dot {
+  width: 7px; height: 7px; border-radius: 50%;
+  background: var(--accent, oklch(48% 0.11 170));
+  animation: tk-pulse 1.4s ease-in-out infinite;
+}
+@keyframes tk-pulse { 0%,100% { opacity: 1; } 50% { opacity: 0.25; } }
+.tk-live-title { font-weight: 600; color: oklch(34% 0.02 240); }
+.tk-live-meta { margin-left: auto; font-variant-numeric: tabular-nums; }
+.tk-live-meta b { color: oklch(34% 0.02 240); font-weight: 600; }
+.tk-live-body {
+  max-height: 216px; overflow-y: auto;
+  padding: 2px 16px 10px;
+  font-size: 13px; line-height: 1.78;
+  color: oklch(42% 0.015 240);
+  scrollbar-width: thin;
+}
+.tk-live-body p { margin: 0 0 8px; }
+.tk-live-body p:last-child { margin-bottom: 0; }
+.tk-caret {
+  display: inline-block; width: 1px; height: 0.95em;
+  background: var(--accent, oklch(48% 0.11 170));
+  vertical-align: -0.12em; margin-left: 1px;
+  animation: tk-blink 0.9s steps(1) infinite;
+}
+@keyframes tk-blink { 50% { opacity: 0; } }
+.tk-live-foot {
+  padding: 6px 14px 8px; font-size: 11.5px;
+  color: oklch(58% 0.015 240);
+  border-top: 1px dashed oklch(91% 0.008 240);
+}
+
+/* ── 收起条（写作中 / 完成 / 阅读态共用水龙头） ── */
+.tk-bar {
+  flex-shrink: 0;
+  display: flex; align-items: center; gap: 8px;
+  width: 100%; max-width: 680px; text-align: left;
+  margin: 0 auto 14px; padding: 7px 12px;
+  font: inherit; font-size: 12.5px;
+  color: var(--muted, oklch(50% 0.018 240));
+  background: oklch(98.2% 0.004 240);
+  border: 1px solid oklch(91% 0.008 240);
+  border-left: 2px solid oklch(78% 0.06 170);
+  border-radius: 8px; cursor: pointer;
+  transition: border-color 0.15s, color 0.15s;
+}
+.tk-bar:hover { border-left-color: var(--accent, oklch(48% 0.11 170)); color: oklch(34% 0.02 240); }
+.tk-bar-check { color: var(--accent, oklch(48% 0.11 170)); font-weight: 700; }
+.tk-bar-model { opacity: 0.75; }
+.tk-bar-more { margin-left: auto; font-size: 12px; color: var(--accent, oklch(48% 0.11 170)); }
+.tk-bar[aria-expanded="true"] .tk-bar-more { color: var(--muted, oklch(50% 0.018 240)); }
+
+/* ── 回看抽屉 ── */
+.tk-drawer {
+  flex-shrink: 0;
+  width: 100%; max-width: 680px;
+  margin: -6px auto 16px;
+  border: 1px solid oklch(91% 0.008 240);
+  border-left: 2px solid oklch(78% 0.06 170);
+  border-radius: 10px;
+  background: oklch(98.6% 0.003 240);
+  overflow: hidden;
+}
+.tk-drawer-head {
+  display: flex; align-items: baseline; gap: 10px;
+  padding: 10px 14px 8px; font-size: 12.5px;
+  color: oklch(34% 0.02 240); font-weight: 600;
+}
+.tk-drawer-head .tk-drawer-meta { font-weight: 400; color: var(--muted, oklch(50% 0.018 240)); font-variant-numeric: tabular-nums; }
+.tk-x {
+  margin-left: auto; font: inherit; font-size: 12px;
+  border: none; background: none; cursor: pointer;
+  color: var(--accent, oklch(48% 0.11 170)); padding: 0;
+}
+.tk-drawer-body {
+  max-height: 264px; overflow-y: auto;
+  padding: 2px 16px 12px;
+  font-size: 13px; line-height: 1.78;
+  color: oklch(42% 0.015 240);
+  scrollbar-width: thin;
+}
+.tk-drawer-body p { margin: 0 0 8px; }
+.tk-drawer-foot { padding: 6px 14px 9px; font-size: 11.5px; color: oklch(58% 0.015 240); border-top: 1px dashed oklch(91% 0.008 240); }
+
+/* ── 占位行让位：思考面板在场即整体退场（秒表/活着/停止都已在面板与顶条上）
+   不思考的模型（DeepSeek 等）无面板，占位行照旧 ── */
+.tk-has-panel .gen-line { display: none; }
+.tk-has-timeout .gen-line { display: none; }
+.tk-timeout {
+  flex-shrink: 0;
+  width: 100%; max-width: 680px; margin: 8px auto 0;
+  border: 1px solid oklch(88% 0.05 75);
+  border-radius: 12px;
+  background: oklch(98.8% 0.012 85);
+  padding: 16px 18px 14px;
+}
+.tk-timeout-head { font-size: 14px; font-weight: 700; color: oklch(40% 0.09 70); margin-bottom: 6px; }
+.tk-timeout > p { margin: 0 0 10px; font-size: 13.5px; line-height: 1.7; color: oklch(38% 0.02 240); }
+.tk-timeout-see {
+  display: flex; align-items: center; gap: 10px;
+  font-size: 12.5px; color: var(--muted, oklch(50% 0.018 240));
+  margin-bottom: 12px;
+}
+.tk-timeout-see button {
+  font: inherit; font-size: 12px; border: none; background: none;
+  color: var(--accent, oklch(48% 0.11 170)); cursor: pointer; padding: 0;
+}
+.tk-timeout-actions { display: flex; gap: 10px; }
+.tk-btn-main {
+  font: inherit; font-size: 13px; padding: 7px 18px;
+  border-radius: 8px; border: none; cursor: pointer;
+  background: var(--accent, oklch(48% 0.11 170)); color: #fff; font-weight: 600;
+}
+.tk-btn-ghost {
+  font: inherit; font-size: 13px; padding: 7px 16px;
+  border-radius: 8px; border: 1px solid oklch(88% 0.01 240);
+  background: #fff; color: oklch(38% 0.02 240); cursor: pointer;
+}
+.tk-timeout .tk-drawer { margin: 12px 0 2px; background: #fff; }
+
+/* ═══ 演示条（非产品 UI） ═══ */
+.proto-bar { position: fixed; left: 0; right: 0; bottom: 0; z-index: 99999; background: #0e1f19; color: #e8f1ee; padding: 8px 14px 10px; box-shadow: 0 -4px 16px rgba(0,0,0,0.18); }
+.proto-bar-title { font-size: 12px; color: #9db8ae; margin-bottom: 6px; }
+.proto-chips { display: flex; flex-wrap: wrap; gap: 6px; }
+.proto-chips button { font: inherit; font-size: 12px; padding: 4px 12px; border-radius: 999px; border: 1px solid #2c4a40; background: transparent; color: #cfe0da; cursor: pointer; }
+.proto-chips button.on { background: #1f6f54; border-color: #1f6f54; color: #fff; }
+.proto-note { font-size: 12px; color: #cfe0da; margin-top: 6px; min-height: 16px; }
+body { padding-bottom: 96px; }
+</style>
+</head>
+<body>
+<div class="proto-bar">
+  <div class="proto-bar-title">设计原型 · 正文工作台「思考呈现」——思考型模型（MiniMax M3.1 等）生成期间把思考过程实时给作家看（2026-10-20 · 真界面基线 HEAD@933cd 实抓 · 演示控件非产品 UI）</div>
+  <div class="proto-chips" id="protoChips">
+    <button data-state="editing" class="on">现状 · 编辑态</button>
+    <button data-state="thinking">① 生成中 · 思考期</button>
+    <button data-state="writing">② 生成中 · 写作期</button>
+    <button data-state="done">③ 完成 · 回看</button>
+    <button data-state="timeout">④ 思考超时</button>
+    <button data-state="reading">⑤ 阅读态 · 回看</button>
+  </div>
+  <div class="proto-note" id="protoNote">现状：编辑态正文原样（本章有正文；点右栏「生成正文」走提示词确认后进入生成）。</div>
+</div>
+
+<div id="proto-stage">
+  <div class="proto-host" data-host="editing" hidden><!--__HOST_EDITING__--></div>
+  <div class="proto-host" data-host="thinking" hidden><!--__HOST_THINKING__--></div>
+  <div class="proto-host" data-host="writing" hidden><!--__HOST_WRITING__--></div>
+  <div class="proto-host" data-host="done" hidden><!--__HOST_DONE__--></div>
+  <div class="proto-host" data-host="reading" hidden><!--__HOST_READING__--></div>
+</div>
+
+<script>
+(function () {
+  "use strict";
+
+  /* ── 演示数据：模型思考内容（拟真示例） ── */
+  var THINKING = [
+    "这一章的落点：沈砚第一次起意探禁阁。开篇不能直接写残纸，先给抄书坊的夜——雨、瓦、他多抄的四页经注，用忙碌压住心虚。",
+    "残纸的出现方式要「被动」：随风飘来，不是他去捡。坊规「捡到即焚」与「他本该焚的」之间留一拍，这一拍就是本章的戏。",
+    "巡夜灯笼的逼近是外部压力，按「子时—梆子—灯笼浮上来」的顺序推进；结尾落在他吹灯装睡、残页贴心口，凉与烫并置，钩子留给下一章。",
+    "节奏核对：环境两拍、物件一拍、规矩一拍、抉择两拍、压力两拍、收束一拍——总字数控制在两千八到三千二，不超。",
+    "措辞提醒：禁阁不写全貌，只写「方向」；残页不解释来历，只写「不属于任何名录」。悬念靠省略，不靠人物议论。",
+    "开头一句备选：「夜雨落在抄书坊的青瓦上，像无数细小的指节在敲门。」——以声起，不用天色，避免与第二章的开头重复。",
+  ];
+  var MODEL = "MiniMax-M3.1-Flash";
+  var THINK_SEC = 28, WRITE_SEC = 6, PROSE_CHARS = 620;
+
+  /* ── 骨架 ── */
+  var stage = document.getElementById("proto-stage");
+  var note = document.getElementById("protoNote");
+  var chips = document.getElementById("protoChips");
+  var hosts = {};
+  var pristine = {};
+  stage.querySelectorAll(".proto-host").forEach(function (h) {
+    hosts[h.getAttribute("data-host")] = h;
+    pristine[h.getAttribute("data-host")] = h.innerHTML;
+  });
+  var timers = [];
+
+  function clearAll() { timers.forEach(clearInterval); timers = []; }
+  function every(fn, ms) { timers.push(setInterval(fn, ms)); }
+  function show(name) {
+    Object.keys(hosts).forEach(function (k) {
+      hosts[k].hidden = k !== name;
+      hosts[k].innerHTML = pristine[k];  // 每次从 pristine 重放，graft 可重入
+    });
+    return hosts[name];
+  }
+  function wrap(host) { return host.querySelector(".editor-wrap"); }
+  function esc(s) { var d = document.createElement("div"); d.textContent = s; return d.innerHTML; }
+
+  /* ── 组件：实时思考面板（思考期） ── */
+  function panelHTML() {
+    return '<div class="tk-live">' +
+      '<div class="tk-live-head"><span class="tk-dot"></span>' +
+      '<span class="tk-live-title">' + MODEL + ' · 思考过程</span>' +
+      '<span class="tk-live-meta">已思考 <b class="tk-sec">9</b> 秒</span></div>' +
+      '<div class="tk-live-body" role="log" aria-live="polite"></div>' +
+      '<div class="tk-live-foot">思考内容由模型生成，帮助它打磨本章；只在这里可见，不会写进正文。</div>' +
+      "</div>";
+  }
+  function startStreaming(host) {
+    var wrapEl = wrap(host);
+    var body = wrapEl.querySelector(".tk-live-body");
+    var secEl = wrapEl.querySelector(".tk-sec");
+    var sec = 9, pi = 0, ci = 0;
+    var caret = document.createElement("i"); caret.className = "tk-caret";
+    var cur = null;
+    every(function () {
+      sec += 1;
+      if (secEl) secEl.textContent = String(sec);
+    }, 1000);
+    every(function () {
+      if (pi >= THINKING.length) {  // 循环重放，保持演示常活
+        pi = 0; ci = 0; body.innerHTML = ""; cur = null;
+      }
+      if (cur === null) {
+        cur = document.createElement("p");
+        cur.appendChild(caret);
+        body.appendChild(cur);
+      }
+      var para = THINKING[pi];
+      var step = 2 + Math.floor(Math.random() * 4);
+      ci = Math.min(para.length, ci + step);
+      cur.textContent = para.slice(0, ci);
+      cur.appendChild(caret);
+      body.scrollTop = body.scrollHeight;
+      if (ci >= para.length) { pi += 1; ci = 0; cur = null; }
+    }, 90);
+  }
+  function graftThinking(host) {
+    var wrapEl = wrap(host);
+    wrapEl.classList.add("tk-has-panel");  // 占位行让位：面板即等待呈现
+    var gen = wrapEl.querySelector("[data-testid='gen-line']");
+    gen.insertAdjacentHTML("afterend", panelHTML());
+    startStreaming(host);
+  }
+
+  /* ── 组件：收起条＋回看抽屉（写作期/完成/阅读态/超时共用） ── */
+  function drawerHTML() {
+    var paras = THINKING.map(function (t) { return "<p>" + esc(t) + "</p>"; }).join("");
+    return '<div class="tk-drawer">' +
+      '<div class="tk-drawer-head">思考回看 <span class="tk-drawer-meta">' + MODEL +
+      ' · 思考 ' + THINK_SEC + ' 秒 · 生成 ' + WRITE_SEC + ' 秒 · 正文 ' + PROSE_CHARS + ' 字</span>' +
+      '<button class="tk-x" type="button">收起</button></div>' +
+      '<div class="tk-drawer-body">' + paras + "</div>" +
+      '<div class="tk-drawer-foot">思考内容由模型生成，仅供写作参考，不会写进正文。</div>' +
+      "</div>";
+  }
+  function barHTML(label, openLabel) {
+    return '<button class="tk-bar" type="button" aria-expanded="false">' +
+      '<span class="tk-bar-check">✓</span><span>' + label + "</span>" +
+      '<span class="tk-bar-model">' + MODEL + "</span>" +
+      '<span class="tk-bar-more">' + (openLabel || "展开回看") + "</span></button>";
+  }
+  function wireBar(host, bar, defaultOpen) {
+    var wrapEl = wrap(host);
+    var open = !!defaultOpen;
+    function render() {
+      var old = wrapEl.querySelector(".tk-drawer");
+      if (old) old.remove();
+      bar.setAttribute("aria-expanded", String(open));
+      bar.querySelector(".tk-bar-more").textContent = open ? "收起" : "展开回看";
+      if (open) bar.insertAdjacentHTML("afterend", drawerHTML());
+      var x = wrapEl.querySelector(".tk-x");
+      if (x) x.addEventListener("click", function () { open = false; render(); });
+    }
+    bar.addEventListener("click", function (e) {
+      if (e.target.closest(".tk-x")) return;
+      open = !open; render();
+    });
+    if (open) render();
+  }
+  function graftWriting(host) {
+    var wrapEl = wrap(host);
+    wrapEl.insertAdjacentHTML("afterbegin", barHTML("思考完成 · 28 秒，正文正在写入"));
+    wireBar(host, wrapEl.querySelector(".tk-bar"), false);
+  }
+  function graftDone(host) {
+    var wrapEl = wrap(host);
+    wrapEl.insertAdjacentHTML("afterbegin", barHTML("已思考 28 秒 · 本章生成完毕"));
+    wireBar(host, wrapEl.querySelector(".tk-bar"), true);  // 评审先看展开形态
+  }
+  function graftReading(host) {
+    var wrapEl = wrap(host);
+    wrapEl.insertAdjacentHTML("afterbegin", barHTML("本章由 AI 生成 · 已思考 28 秒"));
+    wireBar(host, wrapEl.querySelector(".tk-bar"), false);
+  }
+
+  /* ── 组件：超时卡（思考超时） ── */
+  function graftTimeout(host) {
+    var wrapEl = wrap(host);
+    wrapEl.classList.add("tk-has-timeout");
+    var badge = host.querySelector("[data-testid=\"ai-streaming-badge\"]");  // 生成已终局，顶条生成指示退场
+    if (badge) badge.style.display = "none";
+    wrapEl.insertAdjacentHTML("afterbegin",
+      '<div class="tk-timeout">' +
+      '<div class="tk-timeout-head">本次生成已停止</div>' +
+      "<p>模型思考超过 10 分钟仍未写出第一个字，为避免空等已自动停止；本章正文保持原样，未做改动。</p>" +
+      '<div class="tk-timeout-see"><span>已保留它的思考内容（1,036 字）</span>' +
+      '<button type="button" class="tk-see">展开回看</button></div>' +
+      '<div class="tk-timeout-actions"><button class="tk-btn-main" type="button">重新生成</button>' +
+      '<button class="tk-btn-ghost" type="button">知道了</button></div>' +
+      "</div>");
+    var see = wrapEl.querySelector(".tk-see");
+    see.addEventListener("click", function () {
+      if (wrapEl.querySelector(".tk-drawer")) return;
+      var card = wrapEl.querySelector(".tk-timeout");
+      card.insertAdjacentHTML("beforeend", drawerHTML());
+      var x = card.querySelector(".tk-x");
+      if (x) x.addEventListener("click", function () {
+        var d = card.querySelector(".tk-drawer"); if (d) d.remove();
+      });
+    });
+  }
+
+  /* ── 状态表 ── */
+  var STATES = {
+    editing: {
+      note: "现状 · 编辑态：本章有正文（297 字），右栏「生成正文」→ 提示词确认 → 生成。以下各态从点下「生成正文」之后接续。",
+      apply: function () { show("editing"); }
+    },
+    thinking: {
+      note: "① 思考期：思考面板一出现，原「模型思考中，等待首字」占位行整体让位——秒表、活着、停止（顶条）都在面板与顶条上，不再重复；不思考的模型占位行照旧。",
+      apply: function () { graftThinking(show("thinking")); }
+    },
+    writing: {
+      note: "② 写作期：首字落下后思考收进一条细条，正文继续流式写入；细条可随时展开回看思考，不打断写作。",
+      apply: function () { graftWriting(show("writing")); }
+    },
+    done: {
+      note: "③ 完成：收起条留在正文上方（展示思考用时与正文账目），默认展开回看供评审；实际产品默认收起，点条即开。",
+      apply: function () { graftDone(show("done")); }
+    },
+    timeout: {
+      note: "④ 思考超时：超过 10 分钟没动笔即停止，正文保持原样；已产出的思考内容保留可回看——等不到正文，至少等得到「它想了什么」。",
+      apply: function () { graftTimeout(show("thinking")); }
+    },
+    reading: {
+      note: "⑤ 阅读态：收起条跟随本章存在（阅读视图同样可回看），说明「这章 AI 想过什么」是章的属性，不随编辑态消失。",
+      apply: function () { graftReading(show("reading")); }
+    }
+  };
+
+  chips.addEventListener("click", function (e) {
+    var btn = e.target.closest("button[data-state]");
+    if (!btn) return;
+    clearAll();
+    chips.querySelectorAll("button").forEach(function (b) { b.classList.remove("on"); });
+    btn.classList.add("on");
+    var st = STATES[btn.getAttribute("data-state")];
+    st.apply();
+    note.textContent = st.note;
+  });
+
+  STATES.editing.apply();
+})();
+</script>
+</body>
+</html>

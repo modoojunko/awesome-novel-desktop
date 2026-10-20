@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 96 96">
+  <!-- 爱小说 · 品牌印标「爱 · 印」玄墨定稿
+       accent = oklch(37% 0.01 250) ≈ #3c4045
+       爱字字体栈与产品 --font-display 一致：Noto Serif SC → Songti SC -->
+  <rect fill="#3c4045" x="4" y="4" width="88" height="88" rx="24"/>
+  <rect fill="none" stroke="rgba(255,255,255,.4)" stroke-width="1.5" x="11.5" y="11.5" width="73" height="73" rx="19"/>
+  <text x="48" y="50" text-anchor="middle" dominant-baseline="central" style="font:600 46px 'Noto Serif SC','Songti SC','STSong',serif" fill="#fff">爱</text>
+</svg>
