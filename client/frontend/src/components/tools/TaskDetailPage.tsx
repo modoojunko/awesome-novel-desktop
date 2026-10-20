@@ -251,14 +251,14 @@ export default function TaskDetailPage() {
       {task.status === "running" || task.status === "queued" ? (
         <>
           <div className="task-card animate-fade-up" data-od-id="task-running">
-            <div className="task-pct">
+            <div className="task-pct mon-pct-row">
               <span className="pct">{overall}%</span>
               {elapsedLabel && <span style={{ fontSize: 12, color: "var(--muted)" }}>{elapsedLabel}</span>}
-              {/* Token 合计 hero（c-deconstruct-monitor 2.5）：boss 指定右上位置，与总进度同排 */}
+              {/* Token 合计 hero（c-deconstruct-monitor 2.5）：boss 指定右上位置，标签上／大数字下 */}
               {mon?.tokens && (
                 <div className="mon-tok-hero" data-od-id="mon-tok-hero">
+                  <span className="th-cap">Token 合计</span>
                   <span className="th-num">{fmtK(mon.tokens.total)}</span>
-                  <span className="th-cap">Token 合计 · 输入 {fmtK(mon.tokens.in)} · 输出 {fmtK(mon.tokens.out)}</span>
                 </div>
               )}
             </div>
