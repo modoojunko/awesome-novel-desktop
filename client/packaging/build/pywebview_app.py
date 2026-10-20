@@ -1430,8 +1430,14 @@ def main():
 
 # ── silent-upgrade P1 第二片：退出链尾部消费「重启更新」pending ────────────────
 # 契约（评审 §4.3）：后端 /apply 落 pending.json（version/file/sha256/relaunch/issued_at），
-# 唯一属主＝后端写、壳层只读；本函数在 uvicorn 线程收尾之后、os._exit 之前执行——
-# 文件锁随 _force_exit 释放，安装器 Popen（detached）存活得过本进程死亡。
+# 唯一属主＝后端写、壳层只读；本函数在 uvicorn 线程收尾之后、os._exit 之前执行。
+# 安装执行走 detached PowerShell runner（等本进程死透→同步跑安装器→退出码留痕）：
+# lab 真机 V-1 验收形态本来就是「应用完全退出后」跑安装器，生产链此前把「等退出」
+# 交给竞态（Popen 后立刻 os._exit，赌 Inno 初始化更慢）——v0.35→0.36 真机翻车
+# （2026-10-20）：安装器尚未把 exe 换掉就有旧形态窗口把用户接回 0.35，「点了重启
+# 还是旧版」。runner 把「先死透再装」变成结构保证：Inno 的 [Run] 自动拉起只在
+# 安装成功后发生，任何被拉起的窗口必然是新 exe；装失败＝不拉起，回 pending 重试
+# ＋手动链，绝不弹回旧版当没事。
 # 闸：TTL 10 分钟（「点了重启却拖着不关」不构成偷装后门）＋sha256 复验＋Windows 才动手。
 _PENDING_TTL_SECONDS = 600.0
 _PENDING_MAX_ATTEMPTS = 2
@@ -1481,12 +1487,73 @@ def _reconcile_pending(runtime_dir: Path) -> None:
                               "kept for retry at next exit")
 
 
+def _ps_single_quoted(text: str) -> str:
+    """PowerShell 单引号字面量转义（内部单引号翻倍）——用户名带撇号路径不掉链。"""
+    return "'" + str(text).replace("'", "''") + "'"
+
+
+def _install_runner_script(parent_pid: int, installer_argv: list[str], runner_log: Path) -> str:
+    """runner 脚本文本：等旧进程死透→同步跑安装器→退出码留痕。
+
+    整段文本经 -EncodedCommand（UTF-16LE base64）下发，不经过任何 shell 解析器，
+    路径里的空格/中文/撇号零转义面。等待有界 60s：父 pid 复用属理论路径，超时放行
+    不卡链（Inno 自带 4 次重试兜住残余锁窗口）。
+    """
+    flags = " ".join(_ps_single_quoted(a) for a in installer_argv[1:])
+    return "\n".join([
+        "$ErrorActionPreference = 'Stop'",
+        f"$parent = {int(parent_pid)}",
+        f"$installer = {_ps_single_quoted(installer_argv[0])}",
+        f"$log = {_ps_single_quoted(str(runner_log))}",
+        "Wait-Process -Id $parent -Timeout 60 -ErrorAction SilentlyContinue",
+        "$t0 = Get-Date",
+        "$code = 1",
+        "try {",
+        f"  & $installer {flags}",
+        "  $code = $LASTEXITCODE",
+        "} catch {",
+        "  $code = 1",
+        "}",
+        "$secs = [int]((Get-Date) - $t0).TotalSeconds",
+        ("Add-Content -Path $log -Value (\"{0} runner: installer_exit={1} "
+         "install_seconds={2}\" -f (Get-Date -Format 'yyyy-MM-dd HH:mm:ss'), $code, $secs)"
+         " -ErrorAction SilentlyContinue"),
+        "exit $code",
+    ])
+
+
+def _spawn_install_runner(parent_pid: int, installer_argv: list[str], runner_log: Path) -> None:
+    """detached PowerShell runner：接管「先退出再安装」的时序（见文件尾段注释）。
+
+    runner 必须是 {app} 之外的程序（安装器要覆写 {app} 里的每个文件，runner 自己
+    住在安装器里面就自锁了）——Windows PowerShell 5.1 系统自带，优先取全路径防
+    PATH 劫持。spawn 失败原样上抛（main 兜底留日志）：attempts 不递增，pending
+    留给下次退出链重试。
+    """
+    import base64
+    import subprocess
+
+    script = _install_runner_script(parent_pid, installer_argv, runner_log)
+    encoded = base64.b64encode(script.encode("utf-16-le")).decode("ascii")
+    ps_exe = (Path(os.environ.get("WINDIR", r"C:\Windows"))
+              / "System32" / "WindowsPowerShell" / "v1.0" / "powershell.exe")
+    flags = getattr(subprocess, "DETACHED_PROCESS", 0) | getattr(
+        subprocess, "CREATE_NEW_PROCESS_GROUP", 0)
+    subprocess.Popen(
+        [str(ps_exe) if ps_exe.exists() else "powershell.exe",
+         "-NoProfile", "-NonInteractive", "-WindowStyle", "Hidden",
+         "-EncodedCommand", encoded],
+        close_fds=True, creationflags=flags,
+    )
+
+
 def apply_pending_update(runtime_dir: Path) -> None:
-    """消费 pending：复验→写 applied 痕→detached 拉起静默安装器（装完自动回新版）。
+    """消费 pending：复验→detached runner 等尸后同步跑静默安装器（装完自动回新版）。
 
     判据逐条（评审 §4.3/§4.7）：TTL 内、文件在、sha 对上、Windows 平台；任一不过
     只留日志不动手（横幅自动回手动链）。/DIR 钉当前安装目录（数据跟目录走铁律）；
     /AUTOLAUNCH=1 由安装器以原始用户令牌拉起新版（V-3 真机判例：必须带值）。
+    时序由 runner 背书（见文件尾段注释）：安装成功严格先于自动拉起。
     """
     data_root = get_install_dir() / "data"
     pending_path = data_root / "updates" / "pending.json"
@@ -1531,18 +1598,15 @@ def apply_pending_update(runtime_dir: Path) -> None:
         return
     install_dir = Path(sys.executable).parent
     updates_dir = installer.parent
-    import subprocess
-
-    flags = getattr(subprocess, "DETACHED_PROCESS", 0) | getattr(
-        subprocess, "CREATE_NEW_PROCESS_GROUP", 0)
-    subprocess.Popen(
+    _spawn_install_runner(
+        os.getpid(),
         [str(installer),
          "/VERYSILENT", "/SUPPRESSMSGBOXES", "/NORESTART", "/CURRENTUSER",
          "/MERGETASKS=!desktopicon",
          f"/DIR={install_dir}",
          f"/LOG={updates_dir / 'installer.log'}",
          "/AUTOLAUNCH=1"],
-        close_fds=True, creationflags=flags,
+        updates_dir / "installer-runner.log",
     )
     # pending 存活＋attempts 递增＝自愈起点：安装中断（断电/强杀）后下次启动
     # 由 _reconcile_pending 版本对拍收尾（成功→记账；未升级→下次退出链重跑，至多

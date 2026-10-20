@@ -661,8 +661,9 @@ async def auto_skip_update(payload: SkipIn):
     if _UPDATES_DIR.is_dir():
         for p in _UPDATES_DIR.iterdir():
             try:
-                # 保留 applied 记账与安装器日志（诊断面）；其余（暂存包/部分件/标记）清
-                if p.is_file() and p.name not in ("applied.json", "installer.log"):
+                # 保留 applied 记账与安装器/runner 日志（诊断面）；其余（暂存包/部分件/标记）清
+                if p.is_file() and p.name not in ("applied.json", "installer.log",
+                                                  "installer-runner.log"):
                     p.unlink(missing_ok=True)
             except OSError:
                 pass
