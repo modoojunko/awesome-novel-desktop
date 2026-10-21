@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 import shutil
 import sqlite3
 import tempfile
@@ -424,6 +425,14 @@ async def start(body: StartBody):
         from job_runner import run_thread
 
         def _run_worker() -> dict:
+            # 测试开关（MIGRATION_WORKER_INPROCESS=1，仅 conftest 设置）：测试套件共享
+            # 单一 sqlite 库，跨进程并发写会制造 I/O error 假红——测试走进程内；
+            # 子进程路径由 worker 专项单测（独立临时库）覆盖。生产恒子进程。
+            if os.environ.get("MIGRATION_WORKER_INPROCESS") == "1":
+                from migration.engine import run_migration
+
+                return run_migration(
+                    Path(DATA_ROOT), body.source_filename, _active_db_path())
             out_dir = Path(tempfile.mkdtemp(prefix="mig-report-"))
             out = out_dir / "report.json"
             cmd = [sys.executable, "-m", "migration.worker",
