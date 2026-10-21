@@ -1011,7 +1011,11 @@ def test_vendor_caps_deepseek_documented_values():
     from deconstruct.pipeline import _card_batch_size
 
     assert _card_batch_size(caps) == 16
-    # glm 未动：数据无证据不改，预算仍走 8192 floor
+    # glm 同法纠正（2026-10 查证 docs.bigmodel.cn：GLM-5.3 1M/128K、GLM-5 家族 200K/128K，
+    # 取家族地板）：merge 预算封顶 32K，卡批 16 章（同余量口径）
     glm = caps_mod.caps_for(vendor="glm", model="glm-5.3-flash")
-    assert glm.max_output_tokens == 8_192
-    assert caps_mod.merge_max_tokens(glm) == 8_192
+    assert glm.context_window == 200_000
+    assert glm.max_output_tokens == 131_072
+    assert caps_mod.merge_max_tokens(glm) == 32_768
+    from deconstruct.pipeline import _card_batch_size as _cbs
+    assert _cbs(glm) == 16
