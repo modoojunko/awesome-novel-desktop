@@ -1243,3 +1243,89 @@ def test_monitor_view_absent_for_terminal(client):
     m = client.get("/api/deconstruct/tasks/dec-mon-3").json()["monitor"]
     assert m is not None and m["speed"]["total"] == 0 and m["recent"] == []
     assert m["speed"]["avg_ms"] is None and m["batches"] == {"done": 0, "total": 0}
+
+
+def _import_style(client, task_id: str, data: dict, book_name: str = "文风书") -> dict:
+    _mk_completed(task_id, {
+        "style": _product("style", "写作文风.md", data, "# 写作文风"),
+    }, book_name=book_name)
+    r = client.post(f"/api/deconstruct/tasks/{task_id}/import-book", json={"items": ["style"]})
+    assert r.status_code == 200, r.text
+    return r.json()
+
+
+def _read_style(book_id: str) -> dict:
+    async def _go():
+        from filesystem.paths import KEY_TO_PATH
+        from filesystem.storage import get_storage
+        from models.project import Novel
+        from settings.style_model import read_style
+
+        async with async_session() as s:
+            n = await s.get(Novel, book_id)
+        raw = await get_storage().read_yaml(n.root_path, KEY_TO_PATH["style"])
+        return read_style(raw)
+
+    return _run(_go())
+
+
+def test_import_style_legacy_features_and_evidence(client):
+    """旧提示词包产物（narration/dialogue/rhythm＋features）双认：
+    features→craft 不丢；role 只取第一句；证据章标不进文风设定（会注入写作提示词）。"""
+    body = _import_style(client, "dec-style-legacy", {
+        "narration": "全书采用第一人称限知视角，紧贴司机李耀，恐惧靠生理细节外化（第76章）。第二句不该进身份。",
+        "dialogue": "对话是信息推进主力（第12章）。东北方言腔浓重，人物声口区分度高（第3、9章）。",
+        "rhythm": "日常烟火气与灵异惊悚双线交替【第20章】。章末必留钩子（第1-258章）。",
+        "features": [
+            {"name": "第一人称限知口述体", "example": "以『我』的所见所感叙述（第2章）",
+             "evidence_ch": "第1-258章", "confidence": "high"},
+            {"name": "章末惊悚钩子", "example": "结尾短句急转留悬念",
+             "evidence_ch": "第19章", "confidence": "high"},
+        ],
+    }, book_name="旧文风书")
+    style = _read_style(body["book_id"])
+    assert style["role"] == "全书采用第一人称限知视角，紧贴司机李耀，恐惧靠生理细节外化。"
+    assert "第二句不该进身份" not in style["role"]
+    assert "对话：对话是信息推进主力。东北方言腔浓重，人物声口区分度高。" in style["rules"]
+    assert "节奏：日常烟火气与灵异惊悚双线交替。章末必留钩子。" in style["rules"]
+    assert "第一人称限知口述体：以『我』的所见所感叙述" in style["craft"]
+    assert "章末惊悚钩子：结尾短句急转留悬念" in style["craft"]
+    joined = "".join([style["role"], *style["rules"], *style["craft"]])
+    for mark in ("第76章", "第12章", "第3、9章", "第2章", "第1-258章"):
+        assert mark not in joined
+
+
+def test_import_style_accepts_string_and_single_object(client):
+    """模型把数组写成字符串/单对象时按一条处理——逐字符迭代会产出一串单字条目。"""
+    body = _import_style(client, "dec-style-shape", {
+        "role": "第一人称限知。另有第二句。",
+        "rules": "短句为主，少用长句（第4章）",
+        "craft": {"name": "雨意象", "how": "以雨串场（第7章）"},
+    }, book_name="形状容错书")
+    style = _read_style(body["book_id"])
+    assert style["role"] == "第一人称限知。"
+    assert style["rules"] == ["短句为主，少用长句"]
+    assert style["craft"] == ["雨意象：以雨串场"]
+
+
+def test_import_style_empty_product_keeps_seeded_defaults(client):
+    """产物为空不写空数组：新书种子的默认硬约束/手法保留，文风页不被清空。"""
+    body = _import_style(client, "dec-style-empty", {}, book_name="空文风书")
+    assert any("写作文风产物为空" in w for w in body["warnings"])
+    style = _read_style(body["book_id"])
+    assert style["role"].strip()
+    assert style["rules"] and style["craft"]
+
+
+def test_render_md_style_role_label():
+    """文风产物的 role 是「叙事身份」，不能沿用角色卡的「定位」标签。"""
+    from deconstruct.pipeline import _render_md
+
+    md = _render_md(
+        "写作文风",
+        {"role": "第三人称限知，紧贴李耀", "rules": [{"name": "短对话", "how": "对峙用短句"}]},
+        "书名",
+        "第1-258章",
+    )
+    assert "\n## 叙事身份\n" in md
+    assert "\n## 定位\n" not in md

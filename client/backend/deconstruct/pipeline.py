@@ -485,6 +485,11 @@ _MD_LABELS: dict[str, str] = {
     "result": "结果",
 }
 _CONF_CN = {"high": "高", "mid": "中", "low": "低"}
+# 同键不同维度的标签：role 在角色卡是「定位」，在文风是「叙事身份」
+_DIM_LABEL_OVERRIDES: dict[str, dict[str, str]] = {
+    "写作文风": {"role": "叙事身份"},
+    "style": {"role": "叙事身份"},
+}
 _MD_FOOTNOTE = (
     "说明：条目里标注的章号是原文出处；可信度（高/中/低）表示该条结论有多少原文"
     "依据——高＝有直接依据，中＝含推断，低＝证据较弱或原文说法有分歧。"
@@ -524,7 +529,7 @@ def _render_md(dim: str, data: dict, book_name: str, covered: str) -> str:
         # 无正文不出节：空列表/空对象/空标量只给标题的空节对作家是噪音（评审 P3）
         if not value or (isinstance(value, (dict, list, str)) and not str(value).strip()):
             continue
-        lines.append(f"## {_MD_LABELS.get(key, key)}")
+        lines.append(f"## {_DIM_LABEL_OVERRIDES.get(dim, {}).get(key) or _MD_LABELS.get(key, key)}")
         lines.append("")
         if isinstance(value, list):
             for item in value:
