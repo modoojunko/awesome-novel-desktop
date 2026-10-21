@@ -51,6 +51,8 @@ codesign --force --deep --sign - "$APP"
 rm -rf "$STAGE"
 mkdir -p "$STAGE"
 cp -R "$APP" "$STAGE/"
+# 首次打开被 Gatekeeper 拦截的放行指引随 DMG 根（未公证期过渡；CI 同款见 client-package.yml）
+cp "$HERE/macos-install-note.txt" "$STAGE/安装说明.txt"
 ln -s /Applications "$STAGE/Applications"
 DMG="$DIST_DIR/AwesomeNovel_mac_$APP_VERSION.dmg"
 rm -f "$DMG"
