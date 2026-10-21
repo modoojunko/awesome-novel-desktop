@@ -1189,3 +1189,32 @@ class TestReviewFixes:
         finally:
             con.close()
         assert n == 0, "合法值不得以降级形态落库"
+
+
+class TestDiagnosticsBundle:
+    """诊断包端点（c-migration-hardening）：失败现场可一键带回，不依赖用户描述。"""
+
+    @pytest.fixture()
+    def client(self, sandbox, monkeypatch):
+        from main import app
+
+        monkeypatch.setattr("migration.router.DATA_ROOT", sandbox[0])
+        with TestClient(app) as c:
+            yield c
+
+    def test_diagnostics_bundle_contains_report_and_logs(self, client, sandbox):
+        import io
+        import zipfile
+
+        root, _active = sandbox
+        (root / "logs").mkdir(exist_ok=True)
+        (root / "logs" / "upgrade.log").write_text("event=migration_error demo\n", encoding="utf-8")
+        r = client.get("/api/backup/db-migration/diagnostics")
+        assert r.status_code == 200
+        assert r.headers["content-type"] == "application/zip"
+        assert "migration-diagnostics-" in r.headers["content-disposition"]
+        with zipfile.ZipFile(io.BytesIO(r.content)) as z:
+            names = set(z.namelist())
+            assert {"migration-status.json", "upgrade.log.tail", "app.log.tail"} <= names
+            assert "migration_error demo" in z.read("upgrade.log.tail").decode("utf-8")
+            assert "state" in json.loads(z.read("migration-status.json"))

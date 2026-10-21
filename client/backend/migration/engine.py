@@ -455,14 +455,31 @@ def run_migration(data_root: Path, source_filename: str, active_db_path: Path,
                     source_filename, tables_total, len(plan["tables_skipped"]))
 
         # 4 搬运：ATTACH ro 副本 → 目标（FK OFF 逐表 OR IGNORE）
-        tgt = _sqlite_rw(active_db_path)
-        src_con = _sqlite_ro(work)
+        # ATTACH 有界重试（c-migration-hardening）：VirtioFS 等共享挂载对刚拷贝文件的
+        # ATTACH 有随机 disk I/O error（demo 10-21 实证高失败率、容器重建即愈）；
+        # 重拷 work 再试至多 3 次——搬运全 OR IGNORE 幂等，重试安全；仍失败上抛走诊断留现场。
+        # ATTACH 传普通路径：file: URI 仅在连接以 uri=True 打开时才被解析
+        # 字面量转义（c-backend-infra-hygiene）：sqlite3 不支持 ATTACH 参数绑定，
+        # 白名单形状已排除引号，转义为纵深防御
+        staged_sql = str(work).replace("'", "''")
+        tgt: sqlite3.Connection | None = None
+        src_con: sqlite3.Connection | None = None
+        for attempt in (1, 2, 3):
+            tgt = _sqlite_rw(active_db_path)
+            src_con = _sqlite_ro(work)
+            try:
+                tgt.execute(f"ATTACH DATABASE '{staged_sql}' AS mig_src")
+                break
+            except sqlite3.OperationalError as e:
+                tgt.close()
+                src_con.close()
+                tgt = src_con = None
+                if attempt == 3:
+                    raise
+                logger.warning("event=migration_attach_retry attempt=%d source=%s err=%s",
+                               attempt, source_filename, e)
+                shutil.copy2(staged, work)  # 重拷 work：失败的副本可能被摸脏
         try:
-            # ATTACH 传普通路径：file: URI 仅在连接以 uri=True 打开时才被解析
-            # 字面量转义（c-backend-infra-hygiene）：sqlite3 不支持 ATTACH 参数绑定，
-            # 白名单形状已排除引号，转义为纵深防御
-            staged_sql = str(work).replace("'", "''")
-            tgt.execute(f"ATTACH DATABASE '{staged_sql}' AS mig_src")
             for entry in plan["tables"]:
                 t = entry["table"]
                 cols = list(entry["columns"])

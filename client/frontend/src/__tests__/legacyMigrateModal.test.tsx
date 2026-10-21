@@ -1,5 +1,5 @@
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import LegacyMigrateModal from "@/components/LegacyMigrateModal";
 import type { LegacyCandidate, QuarantinedLibrary } from "@/hooks/useLegacyDb";
@@ -101,6 +101,7 @@ describe("带回向导：清理清单与只读隔离件", () => {
     getMock.mockReset();
     postMock.mockReset();
   });
+  afterEach(() => vi.unstubAllGlobals());
 
   it("单候选打开即预演（一次确认路径）", async () => {
     routeApi();
@@ -161,6 +162,34 @@ describe("带回向导：清理清单与只读隔离件", () => {
       book_count_target_after: 2, fk_violations: [],
     });
     expect(screen.queryByRole("button", { name: /清理旧文件/ })).toBeNull();
+  });
+
+  it("迁移失败：给「导出诊断包」与稍后再迁说明；点击走诊断包端点", async () => {
+    routeApi({ code: 0, data: { state: "done", report: { status: "error", reason: "迁移未完成" } } });
+    const fetchMock = vi.fn().mockResolvedValue({ ok: true, blob: async () => new Blob(["z"]) });
+    vi.stubGlobal("fetch", fetchMock);
+    Object.assign(URL, {
+      createObjectURL: vi.fn(() => "blob:x"),
+      revokeObjectURL: vi.fn(),
+    });
+    render(<LegacyMigrateModal open candidates={[cand()]} onClose={vi.fn()} onDone={vi.fn()} />);
+    fireEvent.click(await screen.findByRole("button", { name: "立即迁移" }));
+    await screen.findByText("迁移没有完成", {}, { timeout: 5000 });
+    const btn = await screen.findByTestId("migrate-diagnostics", {}, { timeout: 5000 });
+    expect(screen.getByText(/数据安全保留在旧文件/)).toBeTruthy();
+    fireEvent.click(btn);
+    await waitFor(() =>
+      expect(String(fetchMock.mock.calls[0][0])).toContain("/db-migration/diagnostics"),
+    );
+  });
+
+  it("未全部迁入：结果页给出稍后再迁说明与诊断包出口", async () => {
+    await renderToResult({
+      status: "ok", complete: false, book_count_source: 5, book_count_migrated: 2,
+      book_count_target_after: 2, fk_violations: [],
+    });
+    expect(screen.getByText(/本次未全部迁入/)).toBeTruthy();
+    expect(screen.getByTestId("migrate-diagnostics-result")).toBeTruthy();
   });
 
   it("有 FK 违规（部分失败）：结果页不出现清理入口", async () => {

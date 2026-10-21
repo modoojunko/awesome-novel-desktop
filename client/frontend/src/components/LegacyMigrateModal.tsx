@@ -8,6 +8,23 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react';
 import Modal from '@/components/design/Modal';
+import { getToken } from '@/lib/auth';
+
+/** 迁移诊断包下载（c-migration-hardening）：报告＋日志尾，用户侧一键带回现场。 */
+async function downloadMigrationDiagnostics(): Promise<void> {
+  const token = getToken();
+  const res = await fetch("/api/backup/db-migration/diagnostics", {
+    headers: token ? { Authorization: `Bearer ${token}` } : {},
+  });
+  if (!res.ok) throw new Error(String(res.status));
+  const blob = await res.blob();
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = "migration-diagnostics.zip";
+  a.click();
+  URL.revokeObjectURL(url);
+}
 import { api } from '@/lib/api';
 import { toast } from '@/lib/toast';
 import type { LegacyCandidate, QuarantinedLibrary } from '@/hooks/useLegacyDb';
@@ -362,9 +379,21 @@ export default function LegacyMigrateModal({
           <p style={{ fontSize: 18, fontFamily: 'var(--font-display)', fontWeight: 600, margin: '0 0 8px', textAlign: 'center' }}>
             已迁移 {result.book_count_present ?? result.book_count_migrated ?? '?'} 本书
           </p>
-          <p style={{ fontSize: 12.5, color: 'var(--muted)', margin: '0 0 16px', textAlign: 'center' }}>
+          <p style={{ fontSize: 12.5, color: 'var(--muted)', margin: '0 0 8px', textAlign: 'center' }}>
             原来的旧文件没有改动，保留在原处。
           </p>
+          {result.complete === false && (
+            <p style={{ fontSize: 12, color: 'var(--warn)', margin: '0 0 10px', textAlign: 'center' }}>
+              本次未全部迁入——数据安全保留在旧文件，可稍后再迁；也可导出诊断包反馈问题。
+              <button
+                className="text-btn"
+                data-testid="migrate-diagnostics-result"
+                onClick={() => void downloadMigrationDiagnostics().catch(() => {})}
+              >
+                导出诊断包
+              </button>
+            </p>
+          )}
           <div style={{ display: 'flex', justifyContent: 'center' }}>
             <button className="btn btn-primary" onClick={() => { onDone(); onClose(); }}>去书架看看</button>
           </div>
@@ -416,7 +445,18 @@ export default function LegacyMigrateModal({
       {step === 'error' && (
         <div>
           <p style={{ fontSize: 14, fontWeight: 500, color: 'var(--err)', margin: '0 0 8px' }}>迁移没有完成</p>
-          <p style={{ fontSize: 12.5, color: 'var(--muted)', margin: '0 0 16px' }}>{errorMsg || '请稍后重试。'}</p>
+          <p style={{ fontSize: 12.5, color: 'var(--muted)', margin: '0 0 8px' }}>{errorMsg || '请稍后重试。'}</p>
+          <p style={{ fontSize: 12, color: 'var(--muted)', margin: '0 0 10px' }}>
+            数据安全保留在旧文件，可先关闭稍后再迁；新版本修复后会自动再次提供迁移。
+          </p>
+          <button
+            className="btn btn-ghost btn-sm"
+            data-testid="migrate-diagnostics"
+            style={{ marginBottom: 14 }}
+            onClick={() => void downloadMigrationDiagnostics().catch(() => {})}
+          >
+            导出诊断包
+          </button>
           <div style={{ display: 'flex', justifyContent: 'space-between' }}>
             <button className="btn" onClick={onClose}>关闭</button>
             <button className="btn btn-primary" onClick={() => { setErrorMsg(''); setStep('detect'); }}>重新开始</button>
