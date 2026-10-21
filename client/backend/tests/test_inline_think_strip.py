@@ -2,7 +2,8 @@
 
 - MiniMax M2/M3 系把思考以 `<think>…</think>` 内联在 content 交付（官方文档
   明示需手动解析）；交付文本必须零思考段，流式/非流式同构
-- 判定从窄：仅「响应以 `<think>` 开头」才剥离；中段字面与普通响应逐字不动
+- 判定从窄：起始判定不变；中段再开完整 `<think>`（M2 交错口径）转思考
+  通道（c-thinking-display），非完整标签相似字面仍逐字不动
 - 首字守卫口径对齐：内联思考不算首字，思考期守卫持续在计
 """
 
@@ -50,9 +51,20 @@ def test_nested_open_tag_inside_think_ignored():
     assert _feed_all(["<think>a<think>b", "</think>", "正文"]) == "正文"
 
 
-def test_midstream_think_literal_not_stripped():
-    # 非前缀形态逐字放行（判定口径从窄，防误伤正文）
+def test_midstream_think_interleave_routed_to_thinking_channel():
+    # c-thinking-display 修订（M2 系交错思考官方口径）：闭标签后中段再开
+    # `<think>` 转回剥离，思考段走 thinking 列表、不进交付文本
     text = "前文<think>字面</think>尾"
+    s = _InlineThinkStripper()
+    out = "".join(s.feed(p) for p in [text[:3], text[3:9], text[9:]])
+    out += s.finish()
+    assert out == "前文尾"
+    assert "".join(s.thinking) == "字面"
+
+
+def test_midstream_near_miss_literal_not_stripped():
+    # 判定口径仍从窄：非完整标签的相似字面（如 "<thin"）逐字放行
+    text = "前文<thin 字面尾"
     assert _feed_all([text[:3], text[3:9], text[9:]]) == text
 
 

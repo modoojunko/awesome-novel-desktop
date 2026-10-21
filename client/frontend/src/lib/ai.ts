@@ -19,10 +19,14 @@ export interface StreamCallbacks {
   onChunk: (text: string) => void;
   /** meta：done 事件附带的完工检查（ai-prompt-crafting 三工序③） */
   onDone: (fullText: string, meta?: StreamDoneMeta) => void;
-  onError: (error: string) => void;
+  /** kind：错误类别（c-thinking-display）——thinking_timeout＝首字守卫判死，
+   *  前端据此转超时卡保留已到达的思考内容；其余失败不携带。 */
+  onError: (error: string, kind?: string) => void;
   /** 生成阶段（c-prose-gen-phases）：首字前的真实阶段（assemble|prompt|model）。
    *  旧后端不下发＝不触发（等待呈现停在首步、至首字到达）。 */
   onPhase?: (phase: string) => void;
+  /** 思考增量（c-thinking-display）：与正文分流的独立通道；旧后端不下发＝不触发。 */
+  onThinking?: (text: string) => void;
 }
 
 /** 字数校验（目标 ±10% 口径；below_limit = 低于目标 90%） */
@@ -69,6 +73,21 @@ export function streamChapterWrite(
     Object.keys(body).length ? body : undefined,
     callbacks,
   );
+}
+
+/** 本书生效模型名（c-thinking-display：思考面板呈现用）。
+ *  失败返回空串——面板降级为不显模型名，不阻塞思考流。 */
+export async function fetchEffectiveModel(projectId: string): Promise<string> {
+  try {
+    const r = await fetch(`${API_BASE}/v1/novels/${projectId}/ai-model`, {
+      headers: { Authorization: `Bearer ${getToken()}` },
+    });
+    if (!r.ok) return "";
+    const j = await r.json();
+    return typeof j?.effective_model === "string" ? j.effective_model : "";
+  } catch {
+    return "";
+  }
 }
 
 /** 字数不足一键续写（c-shortfall-refill）：POST /write/refill，无参数体。
@@ -151,6 +170,8 @@ function doStreamFetch(
             const data = JSON.parse(line.slice(6));
             if (data.type === "chunk") {
               callbacks.onChunk(data.text);
+            } else if (data.type === "thinking") {
+              callbacks.onThinking?.(String(data.text ?? ""));
             } else if (data.type === "done") {
               sawTerminal = true;
               callbacks.onDone(data.full_text, {
@@ -159,7 +180,7 @@ function doStreamFetch(
               });
             } else if (data.type === "error") {
               sawTerminal = true;
-              callbacks.onError(data.error);
+              callbacks.onError(data.error, typeof data.kind === "string" ? data.kind : undefined);
             } else if (data.type === "phase") {
               callbacks.onPhase?.(String(data.phase ?? ""));
             }
