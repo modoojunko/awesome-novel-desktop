@@ -792,6 +792,42 @@ def test_card_batching_jsonl_calls_and_ledger(monkeypatch):
     assert stats["card_batch"]["calls"] == 2
 
 
+def test_card_batch_partial_output_missing_chapter_falls_back(monkeypatch):
+    """合批只回一部分章：已出章落产物行，缺章逐章补真实调用行——两类行不混账。"""
+    import re
+
+    from deconstruct import pipeline
+
+    monkeypatch.setenv("DECONSTRUCT_CARD_BATCH", "2")
+    client = FakeClient({"deconstruct_card": _card_handler,
+                         "deconstruct_world": _seen_handler("world")})
+
+    def partial_batch(kw, n):
+        content = kw["messages"][0]["content"]
+        kw["usage"]["tokens_in"] = 1500
+        kw["usage"]["tokens_out"] = 800
+        no = re.findall(r"【第(\d+)章】", content)[0]  # 只回第一张，第二张缺
+        card = json.loads(_card_handler({"messages": [{"content": f"x|{no}|t|x"}]}, 0))
+        card["no"] = int(no)
+        return json.dumps(card, ensure_ascii=False)
+
+    client.handlers["deconstruct_card_batch"] = partial_batch
+    _stub_with_batch(monkeypatch, client)
+    _mk_job("der-batch-partial", selected=["world"], chapters=2)
+
+    _run(pipeline.run_task("der-batch-partial"))
+    t = _load("der-batch-partial")
+    assert t.status == "completed", t.error_json
+    assert set(json.loads(t.dims_json)["cards"]["entries"]) == {"1", "2"}
+    units = _units("der-batch-partial")
+    assert len([u for u in units if u.stage == "card_product"]) == 1  # 批内已出章
+    calls = [u for u in units if u.stage == "card" and u.status == "done"]
+    assert len(calls) == 1  # 缺章逐章补（真实调用行）
+    batch_rows = [u for u in units if u.stage == "card_batch"]
+    assert len(batch_rows) == 1 and batch_rows[0].status == "done"
+    assert batch_rows[0].tokens_in == 1500 and batch_rows[0].tokens_out == 800
+
+
 def test_card_batch_bad_output_falls_back_per_chapter(monkeypatch):
     """合批坏输出 → 整批退回逐章（既有隔离口径），任务仍完成。"""
     from deconstruct import pipeline
