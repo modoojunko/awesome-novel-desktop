@@ -469,13 +469,39 @@ def test_state_roundtrip_preserves_unknown_keys(monkeypatch):
 
 
 def test_op_max_tokens_budget():
-    """卡片/角色/世界输出预算上调（角色档案格＋世界 extra 扩容后 4096 截断 JSON）；其余默认 4096。"""
+    """卡片/角色/世界输出预算上调（角色档案格＋世界 extra 扩容后 4096 截断 JSON）；presence/place 钉 4096。"""
     from deconstruct.pipeline import _OP_MAX_TOKENS
 
     assert _OP_MAX_TOKENS.get("deconstruct_card", 4096) == 6144
     assert _OP_MAX_TOKENS.get("deconstruct_world", 4096) == 8192
     assert _OP_MAX_TOKENS.get("deconstruct_characters", 4096) == 8192
     assert _OP_MAX_TOKENS.get("deconstruct_place", 4096) == 4096
+    assert _OP_MAX_TOKENS.get("deconstruct_presence", 4096) == 4096
+
+
+def test_op_budget_dynamic_merge_default_8192():
+    """动态归并 op（deconstruct_{dim}/_reduce）不进表——预算落 8192 默认（4096 拦腰截断，
+    10-20 《13路末班车》l1×6＋reduce×6 实证）；显式 max_tokens（能力感知预算）优先。"""
+    from deconstruct.pipeline import _op_budget
+
+    assert _op_budget("deconstruct_foreshadow", None) == 8192
+    assert _op_budget("deconstruct_structure_reduce", None) == 8192
+    assert _op_budget("deconstruct_characters", None) == 8192
+    assert _op_budget("deconstruct_presence", None) == 4096
+    assert _op_budget("deconstruct_place", None) == 4096
+    assert _op_budget("deconstruct_card", None) == 6144
+    assert _op_budget("deconstruct_foreshadow", 4096) == 4096  # 能力表给的预算优先于默认
+    assert _op_budget("deconstruct_world", 16384) == 16384
+
+
+def test_dim_in_cap_structure_small_batch():
+    """structure 单列小批 4000 字装箱（258 章整本单批 256 行输出必截断）；其余维度按能力预算。"""
+    from deconstruct.pipeline import _dim_in_cap
+
+    assert _dim_in_cap("structure", 30000) == 4000
+    assert _dim_in_cap("structure", 100000) == 4000  # 1M 能力放大也不放大 structure
+    assert _dim_in_cap("foreshadow", 30000) == 30000
+    assert _dim_in_cap("world", 60000) == 60000
 
 
 # ── 阶段三（图谱装配）集成 ─────────────────────────────────────────────

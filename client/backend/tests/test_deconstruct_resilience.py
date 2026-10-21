@@ -452,7 +452,7 @@ def test_caps_env_unlocks_merge_budget(monkeypatch):
     _run(pipeline.run_task("der-caps"))
     t = _load("der-caps")
     assert t.status == "completed", t.error_json
-    assert client.max_tokens_by_op["deconstruct_world"] == 16384  # min(65536*0.75, 16384)
+    assert client.max_tokens_by_op["deconstruct_world"] == 32768  # min(65536*0.75, 32768 封顶)
     state = json.loads(t.dims_json)
     assert state["caps_note"]["context_window"] == 1000000
     assert state["caps_note"]["source"] == "env"
@@ -989,3 +989,29 @@ def test_run_task_passes_task_thinking_to_resolve(monkeypatch):
     _run(pipeline.run_task("der-think"))
     assert captured["thinking"] == "low"
     assert _load("der-think").status == "completed"
+
+
+def test_vendor_caps_deepseek_documented_values():
+    """deepseek 厂商数据以官方文档为准（10-20 查证：上下文 1M、最大输出 384K）。
+
+    旧值 (131_072, 8_192) 把非思考默认 8K 当上限——reduce 顶层合并 ≈9-14k tokens
+    必截，《13路末班车》characters/relations/foreshadow 三维降级实证。"""
+    from deconstruct import capabilities as caps_mod
+
+    caps = caps_mod.caps_for(vendor="deepseek", model="deepseek-flash")
+    assert caps.source == "known"
+    assert caps.context_window == 1_000_000
+    assert caps.max_output_tokens == 393_216
+    # 归并预算：usable(0.75×393K) 超 32K 封顶 → 32_768（旧值 8192 时顶层合并必截）
+    assert caps_mod.merge_max_tokens(caps) == 32_768
+    # 单遍归并解锁：输入预算随 1M 上下文放大（远超 30K 保守装箱）
+    assert caps_mod.input_budget_chars(caps) > 300_000
+    # 合批同源＋同余量：批大小按「merge 预算×0.75」折算（16 章 ≈ 24k tok，对 32_768
+    # 预算留 25% 余量；glm 8192×0.75//1500＝4 与旧口径逐字一致，既有 vendor 零漂移）
+    from deconstruct.pipeline import _card_batch_size
+
+    assert _card_batch_size(caps) == 16
+    # glm 未动：数据无证据不改，预算仍走 8192 floor
+    glm = caps_mod.caps_for(vendor="glm", model="glm-5.3-flash")
+    assert glm.max_output_tokens == 8_192
+    assert caps_mod.merge_max_tokens(glm) == 8_192
