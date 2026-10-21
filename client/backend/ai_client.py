@@ -470,11 +470,18 @@ class AIClient:
                 tokens_in or 0, tokens_out or 0, meta,
             )
         else:
+            # 判死失败行带思考元数据（c-thinking-display 评审 P3a）：思考时长/字数
+            # 是判死场景最需要的观测面；其余失败不携带（无思考语境）
+            meta = (
+                f" thinking_ms={thinking_ms:.0f} thinking_chars={thinking_chars or 0}"
+                if thinking_ms is not None
+                else ""
+            )
             logger.warning(
                 "event=ai_call op=%s model=%s vendor=%s host=%s attempt=%s duration_ms=%.0f"
-                " result=%s error=%s",
+                " result=%s error=%s%s",
                 op, mdl, vendor, host, attempt, duration_ms,
-                _classify_error(error), str(error)[:200],
+                _classify_error(error), str(error)[:200], meta,
             )
 
     def _supports_temperature(self) -> bool:
@@ -851,6 +858,10 @@ class AIClient:
         model = self.resolve(model)
         start = time.perf_counter()
         if self._provider == "openai":
+            # 思考元数据累积（c-thinking-display 评审 P3a）：上提到外层 try 之前，
+            # 守卫判死失败行也要带走 thinking_chars
+            thinking_chars = 0
+            saw_thinking = False
             kwargs.pop("json_mode", None)  # 流式不落 response_format
             openai_messages: list[dict[str, Any]] = []
             if system:
@@ -892,8 +903,6 @@ class AIClient:
                 # 思考字符数——只进 ai_call 行元数据，思考全文不落日志
                 stream_t0 = time.perf_counter()
                 first_text_at: float | None = None
-                thinking_chars = 0
-                saw_thinking = False
                 # 首字守卫：思考期 reasoning delta 不带正文、只会让 read 超时
                 # （相邻事件间隔口径）一直顺延——核对首字前总时长，超限即判死
                 # （零 chunk 静默仍由 read 超时兜底）；秒数记实测值非配置值
@@ -969,7 +978,12 @@ class AIClient:
                     finish_reason=done_fr,
                 )
             except Exception as e:  # noqa: BLE001 — 归一目标外的异常原样重抛（_raise_normalized 尾行 raise）
-                self._log_call(operation, model, start, error=e)
+                if isinstance(e, AIThinkingTimeoutError):
+                    # 判死失败行也带思考元数据（评审 P3a）：观测面最需要的场景
+                    self._log_call(operation, model, start, error=e,
+                                   thinking_ms=e.seconds * 1000, thinking_chars=thinking_chars)
+                else:
+                    self._log_call(operation, model, start, error=e)
                 self._raise_normalized(e)
         else:
             kwargs = self._anthropic_kwargs(kwargs)
@@ -982,6 +996,9 @@ class AIClient:
             first_deadline = (
                 first_started + first_content_timeout if first_content_timeout else None
             )
+            # 思考元数据累积上提（评审 P3a，与 openai 分支同构）
+            thinking_chars = 0
+            saw_thinking = False
             try:
                 # 思考参数被拒只会发生在开流（请求体校验），流中途不会冒这类错——
                 # 去参重开一次流不会重复产出（c-thinking-config；此前此路径无重试，
@@ -1005,8 +1022,6 @@ class AIClient:
                             # 官方 anthropic 流同字段累计值，末条即全量
                             stream_t0 = time.perf_counter()
                             first_text_at: float | None = None
-                            thinking_chars = 0
-                            saw_thinking = False
                             tokens_out_seen = 0
                             # 内联思考剥离（c-prose-generation-headroom，与 openai
                             # 分支同构）：MiniMax anthropic 端点思考关断时把
@@ -1105,7 +1120,12 @@ class AIClient:
                             continue
                         raise
             except Exception as e:  # noqa: BLE001 — 归一目标外的异常原样重抛（_raise_normalized 尾行 raise）
-                self._log_call(operation, model, start, error=e)
+                if isinstance(e, AIThinkingTimeoutError):
+                    # 判死失败行也带思考元数据（评审 P3a）
+                    self._log_call(operation, model, start, error=e,
+                                   thinking_ms=e.seconds * 1000, thinking_chars=thinking_chars)
+                else:
+                    self._log_call(operation, model, start, error=e)
                 self._raise_normalized(e)
 
 

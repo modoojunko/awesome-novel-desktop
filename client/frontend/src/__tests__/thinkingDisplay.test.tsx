@@ -205,9 +205,11 @@ describe("c-thinking-display 四态（真组件＋可控 SSE）", () => {
   });
 
   it("④ 守卫判死转超时卡：正文保持原样、已到达思考保留可回看", async () => {
+    // 有正文的章（评审 P1）：清空重写后判死，旧稿必须回填——「正文保持原样」
+    const WITH_PROSE = { ...FULL, prose: "旧稿正文若干，还没换季。" };
     mockApi.get.mockImplementation(async (url: string) => {
       if (url.includes("/characters")) return [];
-      return { ...FULL };
+      return { ...WITH_PROSE };
     });
     const sse = stubSseFetch();
     const proseRef = createRef<any>();
@@ -222,8 +224,8 @@ describe("c-thinking-display 四态（真组件＋可控 SSE）", () => {
                 { chapter: 2, title: "锚点", archived: false, has_prose: false, word_count: 0 },
               ] },
             ],
-            chaptersMap: new Map([[REF, { ...FULL }]]),
-            loadChapterData: vi.fn(async () => ({ ...FULL })),
+            chaptersMap: new Map([[REF, { ...WITH_PROSE }]]),
+            loadChapterData: vi.fn(async () => ({ ...WITH_PROSE })),
             saveChapter: vi.fn(async () => ({})),
             confirmChapter: vi.fn(async () => {}),
             unconfirmChapter: vi.fn(async () => {}),
@@ -247,6 +249,10 @@ describe("c-thinking-display 四态（真组件＋可控 SSE）", () => {
     );
 
     await switchToProse();
+    // 等编辑器载入存量正文再开流（判死恢复的前置）
+    await waitFor(() =>
+      expect(document.querySelector(".editor")?.textContent).toContain("旧稿正文若干"),
+    );
     actStart(proseRef);
     sse.ev({ type: "phase", phase: "model" });
     sse.ev({ type: "thinking", text: "想了很久" });
@@ -271,6 +277,10 @@ describe("c-thinking-display 四态（真组件＋可控 SSE）", () => {
     fireEvent.click(screen.getByTestId("think-dismiss"));
     await waitFor(() => expect(screen.queryByTestId("think-timeout")).toBeNull());
     expect(screen.getByTestId("think-bar")).toBeTruthy();
+    // 正文保持原样（评审 P1）：旧稿回填编辑器，不被清空重写吞掉
+    await waitFor(() =>
+      expect(document.querySelector(".editor")?.textContent).toContain("旧稿正文若干"),
+    );
   });
 
   it("无思考增量维持既有阶段行，不出现空白思考区", async () => {

@@ -212,6 +212,11 @@ const ProsePane = forwardRef<ProseHandle, ProsePaneProps>(function ProsePane(
   const [thinkModel, setThinkModel] = useState("");
   const lastPromptRef = useRef<string | undefined>(undefined);
   const lastModelSelRef = useRef<ModelSelection | undefined>(undefined);
+  // 模型名懒取守卫（评审 P2b）：闭包里的 thinkModel 恒为 startStream 时刻值，
+  // 不加守卫＝每个思考增量都打一次 /ai-model
+  const thinkModelFetchedRef = useRef(false);
+  // 清空重写前旧稿（评审 P1）：判死/失败零产物时回填，正文保持原样
+  const preStreamProseRef = useRef("");
   const clearThinkTimer = () => {
     if (thinkFlushRef.current != null) {
       window.clearTimeout(thinkFlushRef.current);
@@ -608,11 +613,15 @@ const ProsePane = forwardRef<ProseHandle, ProsePaneProps>(function ProsePane(
       const generated = isRefill
         ? tail
         : normalizeStreamedProse(fullText || streamReceivedRef.current);
+      // 早失败零产物（评审 P1）：守卫判死/开流即败——旧稿回填，正文保持原样
+      // （有半截仍按半截，替换写语义不变）
+      const restored =
+        !isRefill && !ok && !streamReceivedRef.current ? preStreamProseRef.current : null;
       const next = isRefill
         ? ok
           ? normalizeStreamedProse(fullText) // 服务端合并整章（旧文仅去尾换行）
           : lastSyncedRef.current + (tail ? "\n" + tail.replace(/\n+$/, "") : "")
-        : generated;
+        : restored ?? generated;
       // 正常完成：收起条账目行补生成用时与正文字数（c-thinking-display ③）
       if (ok && !opts?.refill) {
         setThinkKept((k) =>
@@ -629,10 +638,11 @@ const ProsePane = forwardRef<ProseHandle, ProsePaneProps>(function ProsePane(
           tr.setMeta("addToHistory", false);
           editor.view.dispatch(tr);
         }
-        if (generated.trim()) {
+        const writeBack = restored ?? generated;
+        if (writeBack.trim()) {
           editor
             .chain()
-            .insertContentAt(start, linesToParagraphs(generated), {
+            .insertContentAt(start, linesToParagraphs(writeBack), {
               updateSelection: false,
             })
             .run();
@@ -676,12 +686,18 @@ const ProsePane = forwardRef<ProseHandle, ProsePaneProps>(function ProsePane(
       setThinkOpen(false);
       setTimeoutCard(false);
       setThinkModel("");
+      thinkModelFetchedRef.current = false;
       lastPromptRef.current = promptOverride;
       lastModelSelRef.current = modelSelection;
+      // 判死/失败零产物时回填旧稿的底稿（评审 P1：清空重写下「正文保持原样」
+      // 的兑现面——否则空稿会被自动保存覆盖）
+      preStreamProseRef.current = lastSyncedRef.current ?? "";
+      genSecsRef.current = 0; // 秒表 ref 与 state 同步归零（评审 P2a）
       setStreaming(true);
       // 请求在飞＝后端确在准备（服务端 phase 事件随后逐段推进等待呈现）
       setGenStage("assemble");
-      setGenSecs(0); // 等首字计时从本次生成起点起算（阶段推进不重置）
+      setGenSecs(0);
+      genSecsRef.current = 0; // 等首字计时从本次生成起点起算（阶段推进不重置）
       onAIStateChange((prev) => ({ ...prev, streaming: true }));
       const { view } = editor;
       if (editor.state.doc.content.size > 0) {
@@ -760,7 +776,10 @@ const ProsePane = forwardRef<ProseHandle, ProsePaneProps>(function ProsePane(
           if (sawFirstChunkRef.current) return; // 首字后的思考增量不再呈现
           thinkBufRef.current += t;
           setThinkPanel(true);
-          if (!thinkModel) void fetchEffectiveModel(projectId).then((m) => m && setThinkModel(m));
+          if (!thinkModel && !thinkModelFetchedRef.current) {
+            thinkModelFetchedRef.current = true;
+            void fetchEffectiveModel(projectId).then((m) => m && setThinkModel(m));
+          }
           if (thinkFlushRef.current == null) {
             thinkFlushRef.current = window.setTimeout(() => {
               thinkFlushRef.current = null;
@@ -829,7 +848,8 @@ const ProsePane = forwardRef<ProseHandle, ProsePaneProps>(function ProsePane(
     streamInsertedLenRef.current = 0;
     sawFirstChunkRef.current = false;
     setGenStage("assemble");
-    setGenSecs(0);
+    genSecsRef.current = 0;
+      setGenSecs(0);
     const size = editor.state.doc.content.size;
     streamStartRef.current = size - 1; // 末段内起流；不删任何旧内容
     streamPosRef.current = size - 1;

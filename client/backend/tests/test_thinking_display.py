@@ -171,9 +171,10 @@ class TestReasoningContentChannel:
                for e in out if e.thinking or e.text]
         assert [k for k, _ in seq] == ["t", "p", "t", "p"]
 
-    def test_thinking_events_do_not_withdraw_guard(self):
+    def test_thinking_events_do_not_withdraw_guard(self, caplog):
         # 思考事件不算首字、不撤守卫：思考持续产出而正文未到，超限判死
         import asyncio as _aio
+        import logging
 
         class _Slow:
             def __init__(self, text=None, reasoning=None):
@@ -193,11 +194,18 @@ class TestReasoningContentChannel:
         client._client = types.SimpleNamespace(
             chat=types.SimpleNamespace(completions=types.SimpleNamespace(create=create)))
         out, err = [], None
-        try:
-            out = _run(client, first_content_timeout=0.05)
-        except AIThinkingTimeoutError as e:
-            err = e
+
+
+
+        with caplog.at_level(logging.WARNING, logger="ai_client"):
+            try:
+                out = _run(client, first_content_timeout=0.05)
+            except AIThinkingTimeoutError as e:
+                err = e
         assert err is not None, "思考事件不撤守卫：应判死"
+        # 评审 P3a：判死失败行带思考元数据（时长/字数），不再只活在文案里
+        line = [r.message for r in caplog.records if "event=ai_call" in r.message][-1]
+        assert "thinking_ms=" in line and "thinking_chars=" in line, line
         assert not [e for e in out if e.text]
 
 
