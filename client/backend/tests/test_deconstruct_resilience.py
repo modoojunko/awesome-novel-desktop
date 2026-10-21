@@ -739,7 +739,12 @@ def _stub_with_batch(monkeypatch, client):
 
 
 def test_card_batching_jsonl_calls_and_ledger(monkeypatch):
-    """合批路径：2 章/批 → 4 章只发 2 次合批调用；逐章零调用；单元账按章落 done。"""
+    """合批路径：2 章/批 → 4 章只发 2 次合批调用；逐章零调用；按章落产物行。
+
+    账本口径（2026-10-21 修）：真实调用（耗时/token）只记 card_batch 行；逐章产物
+    落 card_product（非调用行）——调用账不得把一批 N 章当 N 次调用，流水也不得
+    被成片 0s/0.0k 产物行刷屏。
+    """
     import re
 
     from deconstruct import pipeline
@@ -749,6 +754,8 @@ def test_card_batching_jsonl_calls_and_ledger(monkeypatch):
 
     def batch_cards2(kw, n):
         content = kw["messages"][0]["content"]
+        kw["usage"]["tokens_in"] = 2000
+        kw["usage"]["tokens_out"] = 1000
         nos = re.findall(r"【第(\d+)章】", content)
         lines = []
         for no in nos:
@@ -768,9 +775,21 @@ def test_card_batching_jsonl_calls_and_ledger(monkeypatch):
     assert "deconstruct_card" not in client.counts  # 逐章零调用
     cards = json.loads(t.dims_json)["cards"]
     assert set(cards["entries"]) == {"1", "2", "3", "4"}
-    done_cards = [u for u in _units("der-batch") if u.stage == "card" and u.status == "done"]
-    assert len(done_cards) == 4
-    assert any(u.stage == "card_batch" for u in _units("der-batch"))
+    units = _units("der-batch")
+    products = [u for u in units if u.stage == "card_product" and u.status == "done"]
+    assert len(products) == 4
+    assert not [u for u in units if u.stage == "card"]  # 逐章无真实调用行
+    batch_rows = [u for u in units if u.stage == "card_batch"]
+    assert len(batch_rows) == 2 and all(u.status == "done" for u in batch_rows)
+    # 批次行带真实数值＋章号区间（流水 label 具体到调度对象）
+    assert all(u.tokens_in == 2000 and u.tokens_out == 1000 for u in batch_rows)
+    assert {u.unit_key.split(":", 1)[1] for u in batch_rows} == {"1-2", "3-4"}
+    # 调用账同口径：产物行不进账，真实调用只在 card_batch 桶
+    from deconstruct import service as dec_service
+
+    stats = _run(dec_service.task_stats("der-batch"))
+    assert "card" not in stats and "card_product" not in stats
+    assert stats["card_batch"]["calls"] == 2
 
 
 def test_card_batch_bad_output_falls_back_per_chapter(monkeypatch):
