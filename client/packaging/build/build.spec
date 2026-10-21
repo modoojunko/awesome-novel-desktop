@@ -124,9 +124,18 @@ else:
     )
     # macOS: 把 COLLECT 包成 .app（仅 darwin 且 onedir；Windows CI 走不到这里）
     if sys.platform == "darwin":
+        # bundle 版本元数据（c-mac-autoupdate）：与 Windows 版本资源同一版本单源——
+        # 不传 info_plist 时 PyInstaller 落默认 CFBundleShortVersionString=0.0.0
+        # （0.36 真机 Finder「显示简介」实锤），Finder/系统读取面全瞎。
+        _mac_ver = _wvi.detect_version(root_dir)
+        print(f"[build.spec] BUNDLE info_plist version = {_mac_ver}")
         app = BUNDLE(
             coll,
             name='AwesomeNovel.app',
             icon=APP_ICON_ICNS,
             bundle_identifier='com.ainovel.desktop',
+            info_plist={
+                'CFBundleShortVersionString': _mac_ver,
+                'CFBundleVersion': _mac_ver,
+            },
         )

@@ -251,6 +251,23 @@ jobs:
         shell: bash
         run: python client/packaging/build/compile_native.py --scan client/packaging/build/dist
 
+      # macOS bundle 版本元数据断言（c-mac-autoupdate）：plist 必须带真实版本——
+      # 注入链断裂回落 PyInstaller 默认 0.0.0 时这里红（坏包不上真机；v030 判例
+      # 「断言进打包链」）。仅 tag 构建（非 tag 的版本语义是分支名，无可对拍基线）。
+      - name: Assert app bundle version (macOS)
+        if: runner.os == 'macOS' && startsWith(github.ref, 'refs/tags/')
+        shell: bash
+        run: |
+          PLIST="client/packaging/build/dist/AwesomeNovel.app/Contents/Info.plist"
+          EXPECT="$(printf '%s' "${GITHUB_REF_NAME#v}" | tr -c 'A-Za-z0-9._-' '-')"
+          GOT="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$PLIST")"
+          GOT2="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleVersion' "$PLIST")"
+          echo "plist version: short=$GOT bundle=$GOT2 expect=$EXPECT"
+          if [ "$GOT" != "$EXPECT" ] || [ "$GOT2" != "$EXPECT" ]; then
+            echo "::error::Info.plist 版本与发布版本不一致（got=$GOT/$GOT2 expect=$EXPECT）——build.spec info_plist 注入链断裂"
+            exit 1
+          fi
+
       # 法律文件随包断言（c-relicense-agpl）：许可全文与第三方声明必须烘进产物
       - name: Assert LICENSE & THIRD-PARTY-NOTICES baked into bundle
         shell: bash

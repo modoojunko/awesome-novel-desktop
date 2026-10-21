@@ -9,7 +9,8 @@ version_info.txt——生成逻辑两份手抄必然漂移（bundle_manifest 同
   缺键/非串/空白串一律显式失败，不静默出「未知发布者」的包。
 - 版本：环境变量 APP_VERSION > git describe > 0.0.0（CI 在 Build app 步骤注入
   github.ref_name；本地 build.bat 已 set 同名变量）。
-- 仅 Windows 生成并使用；macOS 返回 None 不生成文件（mac 侧主体元数据另行立项）。
+- 仅 Windows 生成版本资源文件；macOS 侧 build.spec 用 detect_version 喂 BUNDLE
+  info_plist（c-mac-autoupdate），主体署名类字段仍以 Windows 为界。
 """
 
 from __future__ import annotations
@@ -33,7 +34,12 @@ def _brand_field(brand: dict, key: str) -> str:
     return v.strip()
 
 
-def _detect_version(root_dir: Path) -> str:
+def detect_version(root_dir: Path) -> str:
+    """版本单源（c-mac-autoupdate 起双平台共用）：APP_VERSION env > git describe > 0.0.0。
+
+    消费方：Windows 版本资源（collect）与 macOS BUNDLE info_plist（build.spec）——
+    两平台 bundle 元数据必须同一取值逻辑，分叉即漂移。
+    """
     v = os.environ.get("APP_VERSION", "").strip()
     if not v:
         try:
@@ -63,7 +69,7 @@ def collect(root_dir: Path) -> dict | None:
     brand_name = _brand_field(brand, "name")
     brand_name_en = _brand_field(brand, "nameEn")
 
-    ver = _detect_version(root_dir)
+    ver = detect_version(root_dir)
     # 数字版本位只取首个点分数字前缀（四段各为 16 位 WORD）：
     # describe 尾巴（提交哈希/PR 号等）不进数字位，超段 clamp 0–65535
     prefix = re.match(r"\d+(?:\.\d+)*", ver)

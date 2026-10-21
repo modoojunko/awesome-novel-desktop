@@ -1438,7 +1438,9 @@ def main():
 # 还是旧版」。runner 把「先死透再装」变成结构保证：Inno 的 [Run] 自动拉起只在
 # 安装成功后发生，任何被拉起的窗口必然是新 exe；装失败＝不拉起，回 pending 重试
 # ＋手动链，绝不弹回旧版当没事。
-# 闸：TTL 10 分钟（「点了重启却拖着不关」不构成偷装后门）＋sha256 复验＋Windows 才动手。
+# 闸：TTL 10 分钟（「点了重启却拖着不关」不构成偷装后门）＋sha256 复验＋平台分派
+# （Windows＝Inno＋PS runner；macOS＝DMG 挂载＋bundle 原子换装＋bash runner，
+# c-mac-autoupdate；其余平台留 pending 不动手回手动链）。
 _PENDING_TTL_SECONDS = 600.0
 _PENDING_MAX_ATTEMPTS = 2
 
@@ -1553,12 +1555,128 @@ def _spawn_install_runner(parent_pid: int, installer_argv: list[str], runner_log
     )
 
 
-def apply_pending_update(runtime_dir: Path) -> None:
-    """消费 pending：复验→detached runner 等尸后同步跑静默安装器（装完自动回新版）。
+def _mac_app_bundle() -> Path | None:
+    """当前 .app bundle 路径（PyInstaller onedir 形态 X.app/Contents/MacOS/X 上溯三级）。
 
-    判据逐条（评审 §4.3/§4.7）：TTL 内、文件在、sha 对上、Windows 平台；任一不过
-    只留日志不动手（横幅自动回手动链）。/DIR 钉当前安装目录（数据跟目录走铁律）；
-    /AUTOLAUNCH=1 由安装器以原始用户令牌拉起新版（V-3 真机判例：必须带值）。
+    dev 态（裸 python 运行）解析不出 bundle 结构 → None＝调用方静默跳过。"""
+    exe = Path(sys.executable).resolve()
+    if exe.parent.name == "MacOS" and exe.parent.parent.name == "Contents":
+        return exe.parent.parent.parent
+    return None
+
+
+def _install_runner_script_macos() -> str:
+    """macOS runner 脚本文本：等父进程死透（有界 60s）→ 挂载 DMG → ditto 复制 →
+    codesign 完整性硬闸 → 同卷原子换装（失败回滚）→ 卸载 → 安装成功才 open 拉起。
+
+    可变数据（pid/dmg/bundle/日志路径/拉起旗标）全部走 env（UPD_*）不拼进脚本文本
+    ——与 Windows EncodedCommand 同一「零转义面」思路：路径里的空格/引号/中文不经过
+    任何二次解析。等待段结果＋安装结果＋耗时照 Windows 口径留痕 runner 日志。
+    换装序列：旧 bundle 先挪 .old-$$ 备份名再换入（同目录 rename 原子），换入失败
+    立刻挪回；任何一步失败都不碰既有 bundle、绝不拉起窗口（本机保持旧版）。
+    """
+    return r'''
+set -u
+log() { printf '%s runner: %s\n' "$(date '+%Y-%m-%d %H:%M:%S')" "$*" >> "$UPD_RUNNER_LOG" 2>/dev/null || true; }
+w0=$(date +%s)
+n=0
+while kill -0 "$UPD_PARENT" 2>/dev/null; do
+  n=$((n+1))
+  [ "$n" -ge 240 ] && break
+  sleep 0.25
+done
+wait_s=$(( $(date +%s) - w0 ))
+if kill -0 "$UPD_PARENT" 2>/dev/null; then parent_alive=1; else parent_alive=0; fi
+t0=$(date +%s)
+ok=0
+detail=""
+mp="$(mktemp -d "${TMPDIR:-/tmp}/ainovel-upd.XXXXXX" 2>/dev/null)" || mp=""
+if [ -z "$mp" ]; then
+  detail="mktemp failed"
+elif ! hdiutil attach -nobrowse -readonly -noautoopen -mountpoint "$mp" "$UPD_DMG" >/dev/null 2>&1; then
+  detail="hdiutil attach failed"
+  rmdir "$mp" 2>/dev/null || true
+else
+  src="$(find "$mp" -maxdepth 1 -name '*.app' -print -quit)"
+  if [ -z "$src" ]; then
+    detail="no .app in dmg"
+  else
+    stage="${UPD_BUNDLE}.update"
+    rm -rf "$stage"
+    if ! ditto "$src" "$stage"; then
+      detail="ditto copy failed"
+      rm -rf "$stage"
+    else
+      # 隔离标记兜底（mac-gatekeeper-quarantine-diagnosis）：自更新下载源无
+      # quarantine（httpx 下载不沾标）、ditto 也不继承——万一将来经过带标的
+      # 通道，这里显式清掉，绝不把「换完启动被 Gatekeeper 拦」留给用户。
+      xattr -cr "$stage" 2>/dev/null || true
+      if ! codesign --verify --strict "$stage" 2>/dev/null; then
+        detail="codesign verify failed"
+        rm -rf "$stage"
+      else
+        old="${UPD_BUNDLE}.old-$$"
+        swapped=0
+        if mv "$UPD_BUNDLE" "$old" 2>/dev/null; then
+          if mv "$stage" "$UPD_BUNDLE" 2>/dev/null; then
+            swapped=1
+          else
+            mv "$old" "$UPD_BUNDLE" 2>/dev/null
+          fi
+        fi
+        if [ "$swapped" -eq 1 ]; then
+          rm -rf "$old"
+          ok=1
+          detail="install ok"
+        else
+          rm -rf "$stage"
+          detail="swap failed (rolled back)"
+        fi
+      fi
+    fi
+  fi
+  hdiutil detach "$mp" -force >/dev/null 2>&1 || true
+  rmdir "$mp" 2>/dev/null || true
+fi
+install_s=$(( $(date +%s) - t0 ))
+relaunched=0
+if [ "$ok" -eq 1 ] && [ "${UPD_RELAUNCH:-0}" = "1" ]; then
+  if open "$UPD_BUNDLE" 2>/dev/null; then relaunched=1; fi
+fi
+log "wait_s=$wait_s parent_alive_after_wait=$parent_alive install_ok=$ok detail=$detail install_seconds=$install_s relaunched=$relaunched"
+[ "$ok" -eq 1 ] && exit 0
+exit 1
+'''.strip()
+
+
+def _spawn_install_runner_macos(parent_pid: int, dmg: Path, bundle: Path,
+                                runner_log: Path, relaunch: bool) -> None:
+    """detached bash runner：参数走 env 零转义面（见脚本注释）；start_new_session
+    脱离本进程会话——父进程 os._exit 后 runner 独立存活接管安装时序。spawn 失败
+    原样上抛（main 兜底留日志）：attempts 不递增，pending 留给下次退出链重试。"""
+    import subprocess
+
+    subprocess.Popen(
+        ["/bin/bash", "-c", _install_runner_script_macos()],
+        env={**os.environ,
+             "UPD_PARENT": str(int(parent_pid)),
+             "UPD_DMG": str(dmg),
+             "UPD_BUNDLE": str(bundle),
+             "UPD_RUNNER_LOG": str(runner_log),
+             "UPD_RELAUNCH": "1" if relaunch else "0"},
+        close_fds=True, start_new_session=True,
+    )
+
+
+def apply_pending_update(runtime_dir: Path) -> None:
+    """消费 pending：复验→detached runner 等尸后同步执行静默安装（装完自动回新版）。
+
+    判据逐条（评审 §4.3/§4.7）：TTL 内、文件在、sha 对上、平台在册；任一不过
+    只留日志不动手（横幅自动回手动链）。平台分派（c-mac-autoupdate）：
+    Windows＝Inno /VERYSILENT（/DIR 钉当前安装目录——数据跟目录走铁律；
+    /AUTOLAUNCH=1 由安装器以原始用户令牌拉起新版，V-3 真机判例：必须带值）；
+    macOS＝DMG 挂载＋bundle 原子换装（安装位钉死当前 .app 所在位置；安装目录
+    不可写＝预检即跳过回手动链；relaunch 旗标由 runner 在安装成功后执行 open）。
     时序由 runner 背书（见文件尾段注释）：安装成功严格先于自动拉起。
     """
     data_root = get_install_dir() / "data"
@@ -1598,22 +1716,44 @@ def apply_pending_update(runtime_dir: Path) -> None:
     if got != want:
         log_line(runtime_dir, f"auto-update: sha mismatch on apply (v{version}), skipped")
         return
-    if sys.platform != "win32":
-        # v1 只 Windows 自动链（用户拍板 2026-10-14）：其他平台留 pending 不动手
-        log_line(runtime_dir, f"auto-update: non-windows platform, pending v{version} ignored")
-        return
-    install_dir = Path(sys.executable).parent
     updates_dir = installer.parent
-    _spawn_install_runner(
-        os.getpid(),
-        [str(installer),
-         "/VERYSILENT", "/SUPPRESSMSGBOXES", "/NORESTART", "/CURRENTUSER",
-         "/MERGETASKS=!desktopicon",
-         f"/DIR={install_dir}",
-         f"/LOG={updates_dir / 'installer.log'}",
-         "/AUTOLAUNCH=1"],
-        updates_dir / "installer-runner.log",
-    )
+    runner_log = updates_dir / "installer-runner.log"
+    if sys.platform == "win32":
+        install_dir = Path(sys.executable).parent
+        _spawn_install_runner(
+            os.getpid(),
+            [str(installer),
+             "/VERYSILENT", "/SUPPRESSMSGBOXES", "/NORESTART", "/CURRENTUSER",
+             "/MERGETASKS=!desktopicon",
+             f"/DIR={install_dir}",
+             f"/LOG={updates_dir / 'installer.log'}",
+             "/AUTOLAUNCH=1"],
+            runner_log,
+        )
+    elif sys.platform == "darwin":
+        bundle = _mac_app_bundle()
+        if bundle is None:
+            # bundle 结构解析不出＝dev 态等非打包形态：无安装位可钉，留日志不动手
+            log_line(runtime_dir,
+                     f"auto-update: .app bundle not detected, pending v{version} ignored")
+            return
+        if not _install_dir_writable(bundle.parent):
+            # 探针实测不可写（典型：非 admin 装于 /Applications）：预检即跳过，
+            # 不 spawn 执行体不留半次换装——横幅回落手动链（官网下载覆盖装）
+            log_line(runtime_dir,
+                     f"auto-update: install dir not writable ({bundle.parent}), "
+                     f"pending v{version} kept for manual chain")
+            return
+        _spawn_install_runner_macos(
+            os.getpid(), installer, bundle, runner_log,
+            bool(pending.get("relaunch", True)),
+        )
+    else:
+        # 自动链未覆盖的平台：留 pending 不动手（回手动链）
+        log_line(runtime_dir,
+                 f"auto-update: platform {sys.platform} not supported by auto chain, "
+                 f"pending v{version} ignored")
+        return
     # pending 存活＋attempts 递增＝自愈起点：安装中断（断电/强杀）后下次启动
     # 由 _reconcile_pending 版本对拍收尾（成功→记账；未升级→下次退出链重跑，至多
     # _PENDING_MAX_ATTEMPTS 次后清标记升手动）。
