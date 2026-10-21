@@ -9,7 +9,7 @@
 // 2026-09-27 查看/编辑两态（对齐卷纲 c-volume-view-storyline 口径）：
 //   默认查看态＝一页纸只读（.fro 行，未填占位可见）＋「编辑章纲」进表单；
 //   缺项 chip 查看态点击＝进编辑态并滚动聚焦对应格子；取消＝回退最近一次落库值。
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { toast } from "@/lib/toast";
 import Modal from "@/components/design/Modal";
 import { CHAPTER_WORD_TARGET_DEFAULT, CHAPTER_WORD_TARGET_MAX, CHAPTER_WORD_TARGET_MIN, plotCountHint } from "@/lib/chapterTarget";
@@ -127,7 +127,30 @@ export default function OgPane({
 }: OgPaneProps) {
   const moodVal = form.mood || "";
   const moodCustom = moodVal && !MOODS.includes(moodVal) ? moodVal : "";
-  const moodSel = moodCustom ? "__custom" : moodVal;
+  // 「自定义…」刚选中、尚未输入时 mood 为空，与「请选择主情绪」同值——原型靠 input 的
+  // hidden 属性记住这一拍，受控移植若只按值反推，选自定义会立即回落 placeholder，
+  // 输入框永不出现（2026-10-21 用户反馈）。待输入态因此单独记。
+  // 输入框文本另存本地草稿：值恰好等于预设词的那一拍不能把用户正在敲的字回抹掉。
+  const [moodDraft, setMoodDraft] = useState<string | null>(null);
+  const moodSel = moodDraft !== null || moodCustom ? "__custom" : moodVal;
+  const moodInputVal = moodDraft !== null ? moodDraft : moodCustom;
+  // 本组件最近一次写入的值：区分逐字输入与外部改写（载入/取消回滚/AI 缺项补全）
+  const moodPushedRef = useRef(moodVal);
+  const patchMood = (v: string) => {
+    moodPushedRef.current = v;
+    onPatch({ mood: v });
+  };
+  // 外部改写时收敛待输入态：否则界面停在「自定义」空框，表单里却已有值
+  useEffect(() => {
+    if ((form.mood || "") !== moodPushedRef.current) {
+      moodPushedRef.current = form.mood || "";
+      setMoodDraft(null);
+    }
+  }, [form.mood]);
+  // 退出编辑态（含切章回落查看态）清掉待输入态：下次进入按落库值重新判定
+  useEffect(() => {
+    if (!editing) setMoodDraft(null);
+  }, [editing]);
   const payoffFilled = form.payoffs.some((p) => p.d.trim());
   // 缺读者获得的确认提醒：一次会话提醒一次，不阻断确认（存量章不回溯）
   const [payoffReminded, setPayoffReminded] = useState(false);
@@ -806,7 +829,13 @@ export default function OgPane({
                   value={moodSel}
                   onChange={(e) => {
                     const v = e.target.value;
-                    onPatch({ mood: v === "__custom" ? "" : v });
+                    if (v === "__custom") {
+                      setMoodDraft("");
+                      patchMood("");
+                    } else {
+                      setMoodDraft(null);
+                      patchMood(v);
+                    }
                   }}
                 >
                   <option value="">请选择主情绪</option>
@@ -822,8 +851,11 @@ export default function OgPane({
                     className="input"
                     placeholder="输入自定义情绪（≤50 字）"
                     maxLength={50}
-                    value={moodCustom}
-                    onChange={(e) => onPatch({ mood: e.target.value })}
+                    value={moodInputVal}
+                    onChange={(e) => {
+                      setMoodDraft(e.target.value);
+                      patchMood(e.target.value);
+                    }}
                   />
                 )}
               </div>
