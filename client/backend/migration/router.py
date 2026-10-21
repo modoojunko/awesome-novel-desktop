@@ -424,11 +424,21 @@ async def start(body: StartBody):
 
         from job_runner import run_thread
 
+        def _frozen_app() -> bool:
+            """PyInstaller（sys.frozen）与 Nuitka standalone（__compiled__）判定。
+
+            冻结产物的 bootloader 不认 `-m`：`sys.executable -m migration.worker`
+            会重启 GUI 实例而非跑 worker（评审 P1——打包态迁移会直接断）。冻结态
+            走进程内；用户桌面无 Docker/VirtioFS，事故根因（ATTACH 抖动）不复现，
+            失败诊断插桩仍在。源码/测试态恒子进程。
+            """
+            return getattr(sys, "frozen", False) or "__compiled__" in globals()
+
         def _run_worker() -> dict:
-            # 测试开关（MIGRATION_WORKER_INPROCESS=1，仅 conftest 设置）：测试套件共享
-            # 单一 sqlite 库，跨进程并发写会制造 I/O error 假红——测试走进程内；
-            # 子进程路径由 worker 专项单测（独立临时库）覆盖。生产恒子进程。
-            if os.environ.get("MIGRATION_WORKER_INPROCESS") == "1":
+            # 进程内分支：①测试开关（MIGRATION_WORKER_INPROCESS=1，仅 conftest 设置：
+            # 测试套件共享单库，跨进程并发写制造 I/O error 假红）；②冻结应用（见上）。
+            # 子进程路径由 worker 专项单测（独立临时库）覆盖。
+            if os.environ.get("MIGRATION_WORKER_INPROCESS") == "1" or _frozen_app():
                 from migration.engine import run_migration
 
                 return run_migration(

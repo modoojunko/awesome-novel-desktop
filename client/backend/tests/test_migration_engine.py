@@ -1218,3 +1218,38 @@ class TestDiagnosticsBundle:
             assert {"migration-status.json", "upgrade.log.tail", "app.log.tail"} <= names
             assert "migration_error demo" in z.read("upgrade.log.tail").decode("utf-8")
             assert "state" in json.loads(z.read("migration-status.json"))
+
+
+class TestFrozenFallback:
+    """冻结应用回退（评审 P1）：bootloader 不认 -m，冻结态必须走进程内。"""
+
+    @pytest.fixture()
+    def client(self, sandbox, monkeypatch):
+        from main import app
+
+        monkeypatch.setattr("migration.router.DATA_ROOT", sandbox[0])
+        with TestClient(app) as c:
+            yield c
+
+    def test_frozen_never_spawns_subprocess(self, client, sandbox, monkeypatch):
+        import subprocess as sp
+        import sys as _sys
+        import time
+
+        # 覆盖 conftest 的进程内开关，走「冻结判定」逐位——且冻结态禁止 spawn
+        monkeypatch.setenv("MIGRATION_WORKER_INPROCESS", "0")
+        monkeypatch.setattr(_sys, "frozen", True, raising=False)
+        monkeypatch.setattr(sp, "run", lambda *a, **k: (_ for _ in ()).throw(
+            AssertionError("frozen 态不应调用 subprocess")))
+
+        root, _active = sandbox
+        _old_gen0(root, books=1)
+        r = client.post("/api/backup/db-migration/start", json={"source_filename": "novel.db"})
+        assert r.json()["code"] == 0
+        for _ in range(200):
+            st = client.get("/api/backup/db-migration/status").json()["data"]
+            if st.get("state") in ("done", "error"):
+                break
+            time.sleep(0.2)
+        assert st["state"] == "done", st
+        assert st["report"]["status"] == "ok"
