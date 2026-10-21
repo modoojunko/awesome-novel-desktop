@@ -9,7 +9,7 @@
 // 2026-09-27 查看/编辑两态（对齐卷纲 c-volume-view-storyline 口径）：
 //   默认查看态＝一页纸只读（.fro 行，未填占位可见）＋「编辑章纲」进表单；
 //   缺项 chip 查看态点击＝进编辑态并滚动聚焦对应格子；取消＝回退最近一次落库值。
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { toast } from "@/lib/toast";
 import Modal from "@/components/design/Modal";
 import { CHAPTER_WORD_TARGET_DEFAULT, CHAPTER_WORD_TARGET_MAX, CHAPTER_WORD_TARGET_MIN, plotCountHint } from "@/lib/chapterTarget";
@@ -127,7 +127,15 @@ export default function OgPane({
 }: OgPaneProps) {
   const moodVal = form.mood || "";
   const moodCustom = moodVal && !MOODS.includes(moodVal) ? moodVal : "";
-  const moodSel = moodCustom ? "__custom" : moodVal;
+  // 「自定义…」刚选中、尚未输入时 mood 为空，与「请选择主情绪」同值——原型靠 input 的
+  // hidden 属性记住这一拍，受控移植若只按值反推，选自定义会立即回落 placeholder，
+  // 输入框永不出现（2026-10-21 用户反馈）。待输入态因此单独记。
+  const [moodCustomOpen, setMoodCustomOpen] = useState(false);
+  const moodSel = moodCustomOpen || moodCustom ? "__custom" : moodVal;
+  // 退出编辑态（含切章回落查看态）清掉待输入态：下次进入按落库值重新判定
+  useEffect(() => {
+    if (!editing) setMoodCustomOpen(false);
+  }, [editing]);
   const payoffFilled = form.payoffs.some((p) => p.d.trim());
   // 缺读者获得的确认提醒：一次会话提醒一次，不阻断确认（存量章不回溯）
   const [payoffReminded, setPayoffReminded] = useState(false);
@@ -806,6 +814,7 @@ export default function OgPane({
                   value={moodSel}
                   onChange={(e) => {
                     const v = e.target.value;
+                    setMoodCustomOpen(v === "__custom");
                     onPatch({ mood: v === "__custom" ? "" : v });
                   }}
                 >
