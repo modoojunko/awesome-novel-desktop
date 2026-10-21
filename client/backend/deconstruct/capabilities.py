@@ -45,7 +45,9 @@ DEFAULT_CAPS = ModelCaps(32_768, 8_192)
 # api-docs.deepseek.com：上下文 1M、最大输出 384K=393,216 tokens）。
 _VENDOR_KNOWN = {
     "deepseek": ModelCaps(1_000_000, 393_216, source="known"),
-    "glm": ModelCaps(131_072, 8_192, source="known"),
+    # glm 同上教训（2026-10 查证 docs.bigmodel.cn：GLM-5.3 上下文 1M／输出 128K；
+    # GLM-5 家族 200K/128K）。取家族地板 200K/128K，flash 变体差异由超限拆半自愈兜底。
+    "glm": ModelCaps(200_000, 131_072, source="known"),
 }
 
 

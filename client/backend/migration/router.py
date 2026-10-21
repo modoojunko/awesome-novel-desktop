@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 import shutil
 import sqlite3
 import tempfile
@@ -41,6 +42,9 @@ from schema_version import app_version, candidate_stamp, candidate_stamp_legacy
 
 # c-upgrade-log：无损升级全链具名 logger——upgrade.log 专项档＋双写 app.log。
 logger = logging.getLogger("migration")
+
+# 子进程墙钟上限（c-migration-hardening）：迁移是一次性低频作业，墙钟兜底防挂死
+_MIGRATION_TIMEOUT_S = 60 * 60
 
 router = APIRouter(prefix="/api/backup/db-migration", tags=["db-migration"])
 
@@ -403,29 +407,67 @@ async def start(body: StartBody):
         raise HTTPException(422, {"message": _precheck_msg(pc["reason"])})
 
     def _run(payload: dict, user_id: str) -> None:
-        """线程体：engine 跑完→写 report→记完成→run_thread 兜 state=done。
+        """线程体：子进程跑完→读 report→记完成→run_thread 兜 state=done。
 
-        进度回调→set_job（遵守 job_runner「只经 set() 整值替换」纪律）；
-        report_progress 收 dict 事件 {stage, tables_total, tables_done, table, rows_inserted}。
+        c-migration-hardening：搬运经**一次性子进程**执行（migration.worker）——
+        隔离服务进程长龄态与已打开连接（demo 10-21：同代码新进程稳定成功、服务进程
+        高概率 disk I/O error）；报告由 JSON 文件回传，粒度进度不再逐表上报（子进程
+        边界），state 仍由 run_thread 收口。
         必须 run_thread 包装（与 backup/export._run_backup_thread 同款）——否则
         state 永远停在 running，单飞槽卡死到重启。
         """
         import asyncio
+        import json
+        import subprocess
+        import sys
+        import tempfile
 
         from job_runner import run_thread
-        from migration.engine import run_migration
 
-        def _on_progress(event: dict) -> None:
-            job_runner.set_job(progress=event)
+        def _frozen_app() -> bool:
+            """PyInstaller（sys.frozen）与 Nuitka standalone（__compiled__）判定。
+
+            冻结产物的 bootloader 不认 `-m`：`sys.executable -m migration.worker`
+            会重启 GUI 实例而非跑 worker（评审 P1——打包态迁移会直接断）。冻结态
+            走进程内；用户桌面无 Docker/VirtioFS，事故根因（ATTACH 抖动）不复现，
+            失败诊断插桩仍在。源码/测试态恒子进程。
+            """
+            return getattr(sys, "frozen", False) or "__compiled__" in globals()
+
+        def _run_worker() -> dict:
+            # 进程内分支：①测试开关（MIGRATION_WORKER_INPROCESS=1，仅 conftest 设置：
+            # 测试套件共享单库，跨进程并发写制造 I/O error 假红）；②冻结应用（见上）。
+            # 子进程路径由 worker 专项单测（独立临时库）覆盖。
+            if os.environ.get("MIGRATION_WORKER_INPROCESS") == "1" or _frozen_app():
+                from migration.engine import run_migration
+
+                return run_migration(
+                    Path(DATA_ROOT), body.source_filename, _active_db_path())
+            out_dir = Path(tempfile.mkdtemp(prefix="mig-report-"))
+            out = out_dir / "report.json"
+            cmd = [sys.executable, "-m", "migration.worker",
+                   str(Path(DATA_ROOT)), body.source_filename,
+                   str(_active_db_path()), str(out)]
+            try:
+                proc = subprocess.run(  # noqa: S603 —— 固定参数表，无用户输入拼接
+                    cmd,
+                    cwd=str(Path(__file__).resolve().parents[1]),
+                    capture_output=True, text=True, timeout=_MIGRATION_TIMEOUT_S, check=False,
+                )
+            except subprocess.TimeoutExpired as e:
+                raise RuntimeError(
+                    f"迁移子进程超时（{_MIGRATION_TIMEOUT_S}s）：{body.source_filename}") from e
+            if not out.exists():
+                tail = (proc.stderr or proc.stdout or "")[-800:]
+                raise RuntimeError(
+                    f"迁移子进程未产出报告（exit={proc.returncode}）：{tail}")
+            return json.loads(out.read_text(encoding="utf-8"))
 
         def _body() -> None:
             # c-upgrade-log：run_thread 兜底只把 str(e) 吞进 state=error、零落日志
             # ——堆栈必须在重抛前经 migration logger 落双档，否则无法定位。
             try:
-                report = run_migration(
-                    Path(DATA_ROOT), body.source_filename, _active_db_path(),
-                    report_progress=_on_progress,
-                )
+                report = _run_worker()
                 job_runner.set_job(report=report)
                 if report.get("status") == "ok":
                     asyncio.run(_record_completion(body.source_filename, report))
@@ -451,6 +493,44 @@ async def status():
     import job_runner
 
     return {"code": 0, "data": job_runner.status()}
+
+
+@router.get("/diagnostics")
+async def diagnostics():
+    """迁移诊断包（c-migration-hardening）：迁移状态/报告＋日志尾部打包下载。
+
+    用户机器上没有外援——失败时一键带回现场（报告 JSON＋upgrade/app 日志尾），
+    替代「请描述问题」；失败卡上的「导出诊断包」即调此口。
+    """
+    import io
+    import zipfile
+
+    from fastapi.responses import Response
+
+    def _tail(path: Path, limit: int = 200_000) -> str:
+        try:
+            return path.read_bytes()[-limit:].decode("utf-8", "replace")
+        except OSError:
+            return ""
+
+    logs = Path(DATA_ROOT) / "logs"
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as z:
+        import job_runner
+
+        z.writestr("migration-status.json",
+                   json.dumps(job_runner.status(), ensure_ascii=False, default=str))
+        last = _app_meta_value("migration.last")
+        if last:
+            z.writestr("migration-last.json", str(last))
+        z.writestr("upgrade.log.tail", _tail(logs / "upgrade.log"))
+        z.writestr("app.log.tail", _tail(logs / "app.log"))
+    ts = datetime.now(UTC).strftime("%Y%m%d-%H%M%S")
+    return Response(
+        content=buf.getvalue(),
+        media_type="application/zip",
+        headers={"Content-Disposition": f'attachment; filename="migration-diagnostics-{ts}.zip"'},
+    )
 
 
 @router.post("/dismiss")

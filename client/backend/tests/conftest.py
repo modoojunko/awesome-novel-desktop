@@ -222,6 +222,9 @@ os.environ["DATA_ROOT"] = _TMP_DATA_ROOT
 # 调用会随任意测试导入 main 触发）——否则 pytest 向 DATA_ROOT/logs 刷文件。
 # 需要真实文件日志的用例用 daily_file_log fixture 临时开启并完整还原。
 os.environ["AINOVEL_LOG_OFF"] = "1"
+# c-migration-hardening：迁移搬运在测试里走进程内（套件共享单库，跨进程并发写
+# 会制造 sqlite I/O error 假红）；子进程路径由 test_migration_worker 独立临时库覆盖
+os.environ["MIGRATION_WORKER_INPROCESS"] = "1"
 # c-db-per-version：测试库名＝「本机版本」派生（不设 CLIENT_VERSION 时是 dev 哨兵，
 # 会话库会被按 dev 语义对待）——显式钉一个版本，测试库名与断言口径一致
 os.environ.setdefault("CLIENT_VERSION", "0.25")

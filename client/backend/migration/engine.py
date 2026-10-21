@@ -118,6 +118,18 @@ def _sqlite_ro(path: Path) -> sqlite3.Connection:
     return sqlite3.connect(f"file:{path}?mode=ro", uri=True, timeout=10)
 
 
+def _diag_journal(path: Path) -> str:
+    """诊断插桩：只读探测一个库文件的 journal 模式（失败返回错误串，不抛）。"""
+    try:
+        con = sqlite3.connect(f"file:{path}?mode=ro", uri=True, timeout=3)
+        try:
+            return str(con.execute("PRAGMA journal_mode").fetchone()[0])
+        finally:
+            con.close()
+    except Exception as e:  # noqa: BLE001 —— 诊断探针：任何失败都折成字符串呈现
+        return f"<{type(e).__name__}: {e}>"
+
+
 def _sqlite_rw(path: Path) -> sqlite3.Connection:
     con = sqlite3.connect(str(path), timeout=10)
     con.execute("PRAGMA foreign_keys=OFF")  # 迁移纪律：FK OFF，违规行事后报告
@@ -443,14 +455,31 @@ def run_migration(data_root: Path, source_filename: str, active_db_path: Path,
                     source_filename, tables_total, len(plan["tables_skipped"]))
 
         # 4 搬运：ATTACH ro 副本 → 目标（FK OFF 逐表 OR IGNORE）
-        tgt = _sqlite_rw(active_db_path)
-        src_con = _sqlite_ro(work)
+        # ATTACH 有界重试（c-migration-hardening）：VirtioFS 等共享挂载对刚拷贝文件的
+        # ATTACH 有随机 disk I/O error（demo 10-21 实证高失败率、容器重建即愈）；
+        # 重拷 work 再试至多 3 次——搬运全 OR IGNORE 幂等，重试安全；仍失败上抛走诊断留现场。
+        # ATTACH 传普通路径：file: URI 仅在连接以 uri=True 打开时才被解析
+        # 字面量转义（c-backend-infra-hygiene）：sqlite3 不支持 ATTACH 参数绑定，
+        # 白名单形状已排除引号，转义为纵深防御
+        staged_sql = str(work).replace("'", "''")
+        tgt: sqlite3.Connection | None = None
+        src_con: sqlite3.Connection | None = None
+        for attempt in (1, 2, 3):
+            tgt = _sqlite_rw(active_db_path)
+            src_con = _sqlite_ro(work)
+            try:
+                tgt.execute(f"ATTACH DATABASE '{staged_sql}' AS mig_src")
+                break
+            except sqlite3.OperationalError as e:
+                tgt.close()
+                src_con.close()
+                tgt = src_con = None
+                if attempt == 3:
+                    raise
+                logger.warning("event=migration_attach_retry attempt=%d source=%s err=%s",
+                               attempt, source_filename, e)
+                shutil.copy2(staged, work)  # 重拷 work：失败的副本可能被摸脏
         try:
-            # ATTACH 传普通路径：file: URI 仅在连接以 uri=True 打开时才被解析
-            # 字面量转义（c-backend-infra-hygiene）：sqlite3 不支持 ATTACH 参数绑定，
-            # 白名单形状已排除引号，转义为纵深防御
-            staged_sql = str(work).replace("'", "''")
-            tgt.execute(f"ATTACH DATABASE '{staged_sql}' AS mig_src")
             for entry in plan["tables"]:
                 t = entry["table"]
                 cols = list(entry["columns"])
@@ -623,6 +652,24 @@ def run_migration(data_root: Path, source_filename: str, active_db_path: Path,
     except Exception:
         logger.exception("event=migration_error source=%s", source_filename)
         report["status"] = "error"
+        # 【诊断插桩（demo 迁移 disk I/O error 排查，修复后移除）】失败现场快照：
+        # sqlite 错误码／tgt 与 work 的 journal mode／work 目录保留不删供事后尸检。
+        try:
+            raise
+        except Exception as _e:  # noqa: BLE001 —— 诊断插桩：跟随外层盲捕
+            code = (getattr(_e, "sqlite_errorcode", None), getattr(_e, "sqlite_errorname", None))
+            wd = locals().get("work_dir")
+            sg = locals().get("staged")
+            logger.error(
+                "event=migration_diag source=%s code=%s tmpdir=%s "
+                "work_dir=%s staged=%s staged_journal=%s tgt_journal=%s work_ls=%s keep=%s",
+                source_filename, code, tempfile.gettempdir(),
+                str(wd), str(sg),
+                _diag_journal(sg) if sg is not None and Path(sg).exists() else None,
+                _diag_journal(active_db_path),
+                sorted(p.name for p in wd.glob("*")) if wd is not None and wd.exists() else None,
+                wd is not None,  # True＝保留失败现场不清理
+            )
     finally:
         # 终局单行＝整份 report JSON（specs：终局行整份单行落迁移报告 JSON）——
         # 与 app_meta.migration.last 存的 payload 同源，失败现场一份行即可复盘。
@@ -630,7 +677,9 @@ def run_migration(data_root: Path, source_filename: str, active_db_path: Path,
         logger.info("event=migration_report %s",
                     json.dumps(report, ensure_ascii=False, default=str))
         shutil.rmtree(staging, ignore_errors=True)
-        if work_dir is not None:
+        if work_dir is not None and report["status"] == "error":
+            logger.error("event=migration_keep_work dir=%s", work_dir)  # 诊断期：失败保留现场
+        elif work_dir is not None:
             shutil.rmtree(work_dir, ignore_errors=True)
     return report
 

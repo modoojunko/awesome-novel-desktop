@@ -195,7 +195,7 @@ class TestRouter:
         # 轮询 status 到 done（前端同款 1s 轮询；测试用短间隔）
         import time
 
-        for _ in range(30):
+        for _ in range(200):  # 子进程迁移启动开销（c-migration-hardening）
             c4 = client.get("/api/backup/db-migration/status").json()["data"]
             if c4.get("state") in ("done", "error"):
                 break
@@ -237,7 +237,7 @@ class TestRouter:
         c3 = client.post("/api/backup/db-migration/start",
                          json={"source_filename": "novel-dev.db"}).json()
         assert c3["code"] == 0, c3
-        for _ in range(30):
+        for _ in range(200):  # 子进程迁移启动开销（c-migration-hardening）
             c4 = client.get("/api/backup/db-migration/status").json()["data"]
             if c4.get("state") in ("done", "error"):
                 break
@@ -896,7 +896,7 @@ class TestCarryModalReshow:
             assert client.post("/api/backup/db-migration/start",
                                json={"source_filename": "novel.db"}).json()["code"] == 0
             job: dict = {}
-            for _ in range(30):
+            for _ in range(200):  # 子进程迁移启动开销（c-migration-hardening）
                 job = client.get("/api/backup/db-migration/status").json()["data"]
                 if job.get("state") in ("done", "error"):
                     break
@@ -1189,3 +1189,67 @@ class TestReviewFixes:
         finally:
             con.close()
         assert n == 0, "合法值不得以降级形态落库"
+
+
+class TestDiagnosticsBundle:
+    """诊断包端点（c-migration-hardening）：失败现场可一键带回，不依赖用户描述。"""
+
+    @pytest.fixture()
+    def client(self, sandbox, monkeypatch):
+        from main import app
+
+        monkeypatch.setattr("migration.router.DATA_ROOT", sandbox[0])
+        with TestClient(app) as c:
+            yield c
+
+    def test_diagnostics_bundle_contains_report_and_logs(self, client, sandbox):
+        import io
+        import zipfile
+
+        root, _active = sandbox
+        (root / "logs").mkdir(exist_ok=True)
+        (root / "logs" / "upgrade.log").write_text("event=migration_error demo\n", encoding="utf-8")
+        r = client.get("/api/backup/db-migration/diagnostics")
+        assert r.status_code == 200
+        assert r.headers["content-type"] == "application/zip"
+        assert "migration-diagnostics-" in r.headers["content-disposition"]
+        with zipfile.ZipFile(io.BytesIO(r.content)) as z:
+            names = set(z.namelist())
+            assert {"migration-status.json", "upgrade.log.tail", "app.log.tail"} <= names
+            assert "migration_error demo" in z.read("upgrade.log.tail").decode("utf-8")
+            assert "state" in json.loads(z.read("migration-status.json"))
+
+
+class TestFrozenFallback:
+    """冻结应用回退（评审 P1）：bootloader 不认 -m，冻结态必须走进程内。"""
+
+    @pytest.fixture()
+    def client(self, sandbox, monkeypatch):
+        from main import app
+
+        monkeypatch.setattr("migration.router.DATA_ROOT", sandbox[0])
+        with TestClient(app) as c:
+            yield c
+
+    def test_frozen_never_spawns_subprocess(self, client, sandbox, monkeypatch):
+        import subprocess as sp
+        import sys as _sys
+        import time
+
+        # 覆盖 conftest 的进程内开关，走「冻结判定」逐位——且冻结态禁止 spawn
+        monkeypatch.setenv("MIGRATION_WORKER_INPROCESS", "0")
+        monkeypatch.setattr(_sys, "frozen", True, raising=False)
+        monkeypatch.setattr(sp, "run", lambda *a, **k: (_ for _ in ()).throw(
+            AssertionError("frozen 态不应调用 subprocess")))
+
+        root, _active = sandbox
+        _old_gen0(root, books=1)
+        r = client.post("/api/backup/db-migration/start", json={"source_filename": "novel.db"})
+        assert r.json()["code"] == 0
+        for _ in range(200):
+            st = client.get("/api/backup/db-migration/status").json()["data"]
+            if st.get("state") in ("done", "error"):
+                break
+            time.sleep(0.2)
+        assert st["state"] == "done", st
+        assert st["report"]["status"] == "ok"
