@@ -144,16 +144,141 @@ def test_sha_mismatch_skip(shell, tmp_path, monkeypatch):
 
 
 def test_non_windows_leaves_pending(shell, tmp_path, monkeypatch):
+    """自动链未覆盖的平台（如 linux）：指纹闸在平台闸之前（假 sha 会提前返回），到闸后
+    留 pending 不动手回手动链。"""
     module = shell
-    # sha 必须真对上：指纹闸在平台闸之前，假 sha 会让本测试在前面提前返回（存量暗病）
     pkg, _ = _write_pending(module, tmp_path,
                             sha=hashlib.sha256(b"PKG-PAYLOAD").hexdigest())
-    monkeypatch.setattr(module.sys, "platform", "darwin")
+    monkeypatch.setattr(module.sys, "platform", "linux")
     calls = _popens(monkeypatch)
     module.apply_pending_update(tmp_path)
     assert calls == []
     assert pkg.exists()
-    assert "non-windows platform" in _log_text_of(module, tmp_path)
+    assert "platform linux not supported by auto chain" in _log_text_of(module, tmp_path)
+
+
+# ── macOS 分派（c-mac-autoupdate）：DMG 挂载＋bundle 原子换装＋bash runner ──────
+
+def _mac_setup(module, monkeypatch):
+    """darwin 态＋假 .app 布局；返回 (bundle, fake_exe)。"""
+    monkeypatch.setattr(module.sys, "platform", "darwin")
+    bundle = module.__test_install_dir / "Applications" / "AwesomeNovel.app"
+    exe = bundle / "Contents" / "MacOS" / "AwesomeNovel"
+    exe.parent.mkdir(parents=True, exist_ok=True)
+    exe.write_bytes(b"")
+    monkeypatch.setattr(module.sys, "executable", str(exe))
+    return bundle, exe
+
+
+def _popens_cap(monkeypatch):
+    """记录 (argv, kwargs) 的 Popen 桩（mac runner 的 env 形状对拍用）。"""
+    calls = []
+    import subprocess as _subprocess
+
+    class _FakePopen:
+        def __init__(self, argv, **kwargs):
+            calls.append((argv, kwargs))
+
+    monkeypatch.setattr(_subprocess, "Popen", _FakePopen)
+    return calls
+
+
+def test_macos_normal_path_runner_script_env_and_attempts(shell, tmp_path, monkeypatch):
+    """macOS 正常路径：/bin/bash runner＋env 形状钉（等尸段/DMG 链/换装段/拉起段全量
+    可对拍）＋attempts 递增＋pending 存活。"""
+    module = shell
+    bundle, _exe = _mac_setup(module, monkeypatch)
+    payload = b"PKG-PAYLOAD"
+    pkg, _ = _write_pending(module, tmp_path,
+                            sha=hashlib.sha256(payload).hexdigest())
+    calls = _popens_cap(monkeypatch)
+    module.apply_pending_update(tmp_path)
+
+    assert len(calls) == 1, f"runner spawn 应恰一次，实得 {len(calls)}"
+    argv, kwargs = calls[0]
+    assert argv[:2] == ["/bin/bash", "-c"]
+    script = argv[2]
+    # 等尸段：有界 60s（0.25s×240）＋结果变量（弹回类事故判读的第一分辨点）
+    assert 'kill -0 "$UPD_PARENT"' in script
+    assert "-ge 240" in script and "sleep 0.25" in script
+    assert "parent_alive_after_wait=" in script and "wait_s=" in script
+    # DMG 链：只读挂载→找 .app→ditto 复制→签名完整性硬闸
+    assert "hdiutil attach -nobrowse -readonly -noautoopen -mountpoint" in script
+    assert "ditto" in script
+    # 隔离标记兜底（mac-gatekeeper-quarantine-diagnosis）：复制后清 quarantine，
+    # 再验签——「换完启动被 Gatekeeper 拦」绝不留给用户
+    assert 'xattr -cr "$stage"' in script
+    assert "codesign --verify --strict" in script
+    # 原子换装＋失败回滚＋卸载
+    assert 'mv "$UPD_BUNDLE" "$old"' in script
+    assert 'mv "$stage" "$UPD_BUNDLE"' in script
+    assert 'mv "$old" "$UPD_BUNDLE"' in script  # 回滚臂
+    assert "hdiutil detach" in script
+    # 安装成功才拉起＋退出码语义
+    assert 'open "$UPD_BUNDLE"' in script
+    assert '[ "$ok" -eq 1 ] && exit 0' in script
+    # 零转义面：可变数据（含 runner 日志路径）全走 env，不拼进脚本文本
+    assert "installer-runner.log" not in script
+    env = kwargs["env"]
+    assert env["UPD_PARENT"] == str(os.getpid())
+    assert Path(env["UPD_DMG"]) == pkg
+    assert Path(env["UPD_BUNDLE"]) == bundle.resolve()
+    assert env["UPD_RUNNER_LOG"].endswith("installer-runner.log")
+    assert env["UPD_RELAUNCH"] == "1"
+    assert kwargs.get("start_new_session") is True
+
+    body = _pending_body(module)
+    assert body["attempts"] == 1
+    assert (module.__test_install_dir / "data" / "updates" / "applied.json").exists() is False
+
+
+def test_macos_relaunch_flag_passthrough(shell, tmp_path, monkeypatch):
+    """pending.relaunch=false → UPD_RELAUNCH=0（runner 装完不拉起）。"""
+    module = shell
+    _mac_setup(module, monkeypatch)
+    _pkg, body = _write_pending(module, tmp_path,
+                                sha=hashlib.sha256(b"PKG-PAYLOAD").hexdigest())
+    body["relaunch"] = False
+    (module.__test_install_dir / "data" / "updates" / "pending.json").write_text(
+        json.dumps(body), encoding="utf-8")
+    calls = _popens_cap(monkeypatch)
+    module.apply_pending_update(tmp_path)
+    assert len(calls) == 1
+    assert calls[0][1]["env"]["UPD_RELAUNCH"] == "0"
+
+
+def test_macos_bundle_not_detected_skips(shell, tmp_path, monkeypatch):
+    """非 .app 形态（dev 态裸 python）：无安装位可钉 → 静默跳过留日志、pending 保留。"""
+    module = shell
+    monkeypatch.setattr(module.sys, "platform", "darwin")
+    monkeypatch.setattr(module.sys, "executable", str(tmp_path / "venv" / "bin" / "python"))
+    pkg, _ = _write_pending(module, tmp_path,
+                            sha=hashlib.sha256(b"PKG-PAYLOAD").hexdigest())
+    calls = _popens(monkeypatch)
+    module.apply_pending_update(tmp_path)
+    assert calls == []
+    assert pkg.exists()
+    assert ".app bundle not detected" in _log_text_of(module, tmp_path)
+    assert _pending_body(module)["attempts"] == 0
+
+
+def test_macos_install_dir_not_writable_skips(shell, tmp_path, monkeypatch):
+    """安装目录探针不可写（典型：非 admin 装于 /Applications）：spawn 前跳过回手动链，
+    不 spawn 执行体、pending 保留。"""
+    module = shell
+    bundle, _exe = _mac_setup(module, monkeypatch)
+    bundle.parent.chmod(0o555)
+    try:
+        pkg, _ = _write_pending(module, tmp_path,
+                                sha=hashlib.sha256(b"PKG-PAYLOAD").hexdigest())
+        calls = _popens(monkeypatch)
+        module.apply_pending_update(tmp_path)
+        assert calls == []
+        assert pkg.exists()
+        assert "install dir not writable" in _log_text_of(module, tmp_path)
+        assert _pending_body(module)["attempts"] == 0
+    finally:
+        bundle.parent.chmod(0o755)
 
 
 def test_normal_path_argv_and_attempts_bookkeeping(shell, tmp_path, monkeypatch):

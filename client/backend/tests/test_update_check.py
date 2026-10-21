@@ -449,6 +449,38 @@ def test_trigger_gates(monkeypatch):
     assert version == "0.33" and platform["url"].endswith("pkg.exe")
 
 
+def test_platform_keys_cover_windows_and_macos():
+    """平台映射（c-mac-autoupdate）：darwin → "mac"（与发布清单 platforms.* 键名一致）；
+    其余平台不在表内＝自动链关闭、手动链照旧。"""
+    assert uc._PLATFORM_KEYS == {"win32": "win", "darwin": "mac"}
+    assert "linux" not in uc._PLATFORM_KEYS
+
+
+def test_trigger_gates_macos(monkeypatch):
+    """macOS 键驱动同一触发闸：platforms.mac 在册即下载（包取 mac 键）。"""
+    monkeypatch.setattr(uc, "_PLATFORM_KEY", "mac")
+    started = []
+    done = threading.Event()
+
+    def fake_worker(version, platform, epoch):
+        started.append((version, platform, epoch))
+        done.set()
+
+    monkeypatch.setattr(uc, "_download_worker", fake_worker)
+    manifest = _manifest(platforms={"mac": {"url": MAIN_URL.replace(
+        "latest.json", "AwesomeNovel_mac_v0.33.dmg"), "sha256": "", "size": 0}})
+    uc.maybe_start_auto_download(manifest, current="0.11")
+    assert done.wait(timeout=5)
+    _version, platform, _epoch = started[0]
+    assert platform["url"].endswith("AwesomeNovel_mac_v0.33.dmg")
+
+    # mac 键不在册＝不触发（零线程）
+    started.clear()
+    uc.maybe_start_auto_download(_manifest(platforms={"win": {"url": "https://x/pkg.exe"}}),
+                                 current="0.11")
+    assert started == []
+
+
 def test_download_worker_stages_verified_package(monkeypatch, tmp_path):
     """成功路径：.part→原子改名→sha 对上→staged；内容逐字节等于喂进来的流。"""
     payload = b"PKG-BYTES"

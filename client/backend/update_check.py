@@ -242,7 +242,10 @@ def _derived_urls(source_url: str, latest: str) -> tuple[str, str]:
 _UPDATES_DIR = Path(DATA_ROOT) / "updates"
 _PENDING_PATH = _UPDATES_DIR / "pending.json"
 _APPLIED_PATH = _UPDATES_DIR / "applied.json"
-_PLATFORM_KEY = {"win32": "win"}.get(sys.platform)  # v1 自动链仅 Windows（用户拍板）
+# 自动链平台键（键名＝发布清单 latest.json 的 platforms.*，c-mac-autoupdate 起
+# Windows＋macOS 双平台；其余平台查表得 None＝自动链关闭、手动链照旧）
+_PLATFORM_KEYS = {"win32": "win", "darwin": "mac"}
+_PLATFORM_KEY = _PLATFORM_KEYS.get(sys.platform)
 _DOWNLOAD_TIMEOUT = 60.0
 _MAX_ATTEMPTS = 5
 _DISK_FACTOR = 2.5

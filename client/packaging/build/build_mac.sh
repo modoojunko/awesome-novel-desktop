@@ -24,6 +24,9 @@ if [[ -z "$APP_VERSION" ]]; then
 fi
 # 清洗为 DMG 文件名合法字符（分支名可能含 / 等）
 APP_VERSION="$(printf '%s' "$APP_VERSION" | tr -c 'A-Za-z0-9._-' '-')"
+# 版本单源（c-mac-autoupdate）：export 给 build.spec → BUNDLE info_plist
+# （CFBundleShortVersionString/CFBundleVersion），与 CI Build app 步同名变量同源
+export APP_VERSION
 
 echo "===== Awesome Novel Build v$APP_VERSION ====="
 
