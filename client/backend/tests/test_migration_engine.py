@@ -195,7 +195,7 @@ class TestRouter:
         # 轮询 status 到 done（前端同款 1s 轮询；测试用短间隔）
         import time
 
-        for _ in range(30):
+        for _ in range(200):  # 子进程迁移启动开销（c-migration-hardening）
             c4 = client.get("/api/backup/db-migration/status").json()["data"]
             if c4.get("state") in ("done", "error"):
                 break
@@ -237,7 +237,7 @@ class TestRouter:
         c3 = client.post("/api/backup/db-migration/start",
                          json={"source_filename": "novel-dev.db"}).json()
         assert c3["code"] == 0, c3
-        for _ in range(30):
+        for _ in range(200):  # 子进程迁移启动开销（c-migration-hardening）
             c4 = client.get("/api/backup/db-migration/status").json()["data"]
             if c4.get("state") in ("done", "error"):
                 break
@@ -896,7 +896,7 @@ class TestCarryModalReshow:
             assert client.post("/api/backup/db-migration/start",
                                json={"source_filename": "novel.db"}).json()["code"] == 0
             job: dict = {}
-            for _ in range(30):
+            for _ in range(200):  # 子进程迁移启动开销（c-migration-hardening）
                 job = client.get("/api/backup/db-migration/status").json()["data"]
                 if job.get("state") in ("done", "error"):
                     break
