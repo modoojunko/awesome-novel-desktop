@@ -77,6 +77,11 @@ def _selected(task: DeconstructJob) -> list[str]:
 
 
 _EVIDENCE_RE = re.compile(r"【[^】]{0,50}章】")
+# 括注证据：旧/新文风产物都会把「（第76章）」「（第1-258章…）」写进描述段——
+# 这是分析工件，不能随文风设定注入写作提示词。
+_EVIDENCE_PAREN_RE = re.compile(
+    r"[（(]\s*第\s*[0-9０-９][0-9０-９,，、\-—~～至\s]*章[^）)]*[）)]"
+)
 _SENT_END = "。！？；!?\n"
 
 
@@ -90,6 +95,27 @@ def _clean_para(text, limit: int) -> str:
     cut = text[:limit]
     last = max(cut.rfind(ch) for ch in _SENT_END)
     return cut[: last + 1] if last >= limit // 2 else cut
+
+
+def _style_text(value, limit: int) -> str:
+    """文风文本清洗：剥证据章标（含括注形态）＋压成单行＋句界截断。
+
+    旧产物（narration/dialogue/rhythm）是整段分析稿；文风三区要直接注入写作
+    提示词——半句截断和「（第N章）」都会污染后续生成。
+    """
+    text = _EVIDENCE_RE.sub("", str(value or ""))
+    text = _EVIDENCE_PAREN_RE.sub("", text)
+    text = re.sub(r"\s*\n+\s*", " ", text).strip()
+    return _clean_para(text, limit)
+
+
+def _style_role(value) -> str:
+    """叙事身份只取第一句（旧 narration 是整段分析稿，不能整段灌进 role）。"""
+    text = _style_text(value, 10**9)
+    stop = re.search(r"[。！？；!?]", text)
+    if stop:
+        text = text[: stop.end()]
+    return _style_text(text, 100)
 
 
 def _entries_paragraph(entries) -> str:
@@ -339,39 +365,59 @@ async def import_book(
 
         data = _data(task, "style")
         raw = await storage.read_yaml(root, KEY_TO_PATH["style"]) or {}
-        # 三区契约：role＝叙事身份一句话；rules/craft＝「名：怎么用」条目。
-        # 旧形状（narration/dialogue/rhythm 描述段）降级回退，不浪费旧产物。
-        role = str(data.get("role", "") or "").strip()[:100]
-        if not role:
-            role = str(data.get("narration", "") or "").strip()[:100]
 
-        def _entries(values, fallback_prefix: str = "") -> list[str]:
+        def _entries(values) -> list[str]:
+            """规则/手法条目 → 「名：怎么用」单行。
+
+            模型偶尔把数组写成字符串/单对象（按单条处理——逐字符迭代会产出一串
+            单字条目）；字典映射形态按「键：值」展开。
+            """
+            if isinstance(values, dict):
+                if any(k in values for k in ("name", "how", "example", "description")):
+                    items = [values]
+                else:
+                    items = [f"{k}：{v}" for k, v in values.items() if str(v or "").strip()]
+            elif isinstance(values, list):
+                items = values
+            else:
+                items = [values] if values else []
             out: list[str] = []
-            for r in values or []:
+            for r in items:
                 if isinstance(r, dict):
-                    name = str(r.get("name", "")).strip()
-                    how = str(r.get("how", "")).strip()
-                    out.append(f"{name}：{how}" if name and how else (name or how))
-                elif str(r or "").strip():
-                    out.append(str(r).strip())
-            if not out and fallback_prefix:
-                for r in fallback_prefix:
-                    if str(r or "").strip():
-                        out.append(str(r).strip()[:200])
+                    name = _style_text(r.get("name", ""), 60)
+                    how = _style_text(r.get("how", r.get("example", r.get("description", ""))), 500)
+                    line = f"{name}：{how}" if name and how else (name or how)
+                else:
+                    line = _style_text(r, 500)
+                if line and line not in out:
+                    out.append(line)
             return out
 
-        # 旧形状回退：只给有内容的字段拼前缀（评审 P3——半空时不出裸「对话：」条目）
-        legacy_fallback = [
-            f"对话：{data.get('dialogue', '')}"
-            for _ in [1] if str(data.get("dialogue", "")).strip()
-        ] + [
-            f"节奏：{data.get('rhythm', '')}"
-            for _ in [1] if str(data.get("rhythm", "")).strip()
-        ]
-        rules = _entries(data.get("rules"), legacy_fallback)
-        craft = _entries(data.get("craft"))
-        body = {"role": role, "rules": rules, "craft": craft}
-        await storage.write_yaml(root, KEY_TO_PATH["style"], put_style(raw, body))
+        # 三区契约：role＝叙事身份一句话；rules/craft＝「名：怎么用」条目。
+        # 旧形状降级双认：narration/dialogue/rhythm 描述段＋features 特征表——
+        # features 是旧提示词包产物里唯一的技法账，只认描述段会把最有价值的条目整段丢掉。
+        role = _style_role(data.get("role")) or _style_role(data.get("narration"))
+        rules = _entries(data.get("rules"))
+        if not rules:
+            for label, key in (("对话", "dialogue"), ("节奏", "rhythm")):
+                text = _style_text(data.get(key), 500)
+                if text:
+                    rules.append(f"{label}：{text}")
+        craft = _entries(data.get("craft")) or _entries(data.get("features"))
+
+        # 空格不写：put_style 收到空数组会覆盖新书种子里的默认硬约束/手法；
+        # 旧产物缺格时保留现有设定，不把文风页清空。
+        body: dict = {}
+        if role:
+            body["role"] = role
+        if rules:
+            body["rules"] = rules
+        if craft:
+            body["craft"] = craft
+        if body:
+            await storage.write_yaml(root, KEY_TO_PATH["style"], put_style(raw, body))
+        else:
+            warnings.append("写作文风产物为空，已保留新书原有文风设定")
 
     if "foreshadow" in selected:
         from settings.hooks_service import batch_create_hooks
