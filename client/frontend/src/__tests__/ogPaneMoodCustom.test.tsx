@@ -112,10 +112,22 @@ describe("章纲·主情绪自定义", () => {
     render(<Host />);
     fireEvent.change(moodSelect(), { target: { value: "__custom" } });
     fireEvent.change(moodInput()!, { target: { value: "紧" } });
-    // 「紧张」是预设词：草稿不能因此回空，否则后续字符从空串重拼
+    // 「紧张」是预设词：草稿不能因此回空。这里必须在中途断言——只查最终值的话，
+    // 受控 input 被清空后下一次 change 仍会重新写入，旧实现也能蒙混通过。
     fireEvent.change(moodInput()!, { target: { value: "紧张" } });
+    expect((moodInput() as HTMLInputElement).value).toBe("紧张");
     fireEvent.change(moodInput()!, { target: { value: "紧张感" } });
     expect((moodInput() as HTMLInputElement).value).toBe("紧张感");
+    expect(moodSelect().value).toBe("__custom");
+  });
+
+  it("外部改写为自定义文本：草稿让位，输入框回显外部值", () => {
+    render(<HostWithFill mood="荒诞" />);
+    fireEvent.change(moodSelect(), { target: { value: "__custom" } });
+    fireEvent.change(moodInput()!, { target: { value: "游离" } });
+
+    fireEvent.click(screen.getByRole("button", { name: "补全" }));
+    expect((moodInput() as HTMLInputElement).value).toBe("荒诞");
     expect(moodSelect().value).toBe("__custom");
   });
 
