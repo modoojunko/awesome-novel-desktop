@@ -481,6 +481,9 @@ jobs:
           # 许可全文与第三方声明随包：DMG 根与 .app 内 _internal/ 双份（c-relicense-agpl）。
           # 源在仓库根——相对本目录 ../../.. 与 installer.iss 的 ..\..\..\ 同款（CWD 无此二文件，2026-10-01 彩排实锤）
           cp ../../../LICENSE ../../../THIRD-PARTY-NOTICES.txt "$STAGE/"
+          # macOS 首开 Gatekeeper 放行指引随 DMG 根（未公证期过渡；本地 build_mac.sh 同款）
+          cp macos-install-note.txt "$STAGE/安装说明.txt"
+          test -s "$STAGE/安装说明.txt"
           ln -s /Applications "$STAGE/Applications"
           # 输出名带 v 前缀，与 exe（installer.iss 模板内置 v）统一——
           # 落地页版本化直链按此文件名拼接（src/constants/client-release.ts）
@@ -523,7 +526,7 @@ jobs:
           ---
 
           双平台桌面客户端安装包：Windows（exe）与 macOS（DMG）。
-          macOS 首次打开若提示"无法验证开发者"：先点"完成"关掉提示（勿点"移到废纸篓"），再到 系统设置 → 隐私与安全性 点"仍要打开"。
+          macOS 首次打开若提示"无法验证开发者"（未公证构建，属预期）：先点"完成"（勿点"移到废纸篓"），再到 系统设置 → 隐私与安全性 点"仍要打开"；或在终端执行 xattr -cr /Applications/AwesomeNovel.app。详见 DMG 内《安装说明.txt》。
           Windows 若出现 SmartScreen 提示（自签构建会有；正式证书签名后一般不再出现）：点「更多信息」→「仍要运行」。
           首次登录后会自动获取「写作能力」（提示词包）；换电脑或重装系统后需联网重新获取一次（本地钥匙与机器绑定，属预期）。
           BOILERPLATE
