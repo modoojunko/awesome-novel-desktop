@@ -18,7 +18,11 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from config import DATA_ROOT
-from deconstruct.pipeline import CONCURRENCY, _now  # _now＝UTC naive（时间口径单源）
+from deconstruct.pipeline import (  # _now＝UTC naive（时间口径单源）
+    CONCURRENCY,
+    NON_CALL_STAGES,
+    _now,
+)
 from models.deconstruct import (
     DIMENSION_KEYS,
     DIMENSIONS,
@@ -359,6 +363,8 @@ async def task_stats(task_id: str) -> dict:
 
     calls=单元行数（done+failed+skipped）、failures=failed 行数、
     attempts=尝试总和（重试可见）、tokens/duration 累计。不含原文与密钥。
+    非模型调用行（NON_CALL_STAGES：轮间检查点/合批逐章产物）不进账——
+    否则一批 N 章会虚增 N 次调用且拉低平均耗时。
     """
     from db import async_session
 
@@ -370,8 +376,8 @@ async def task_stats(task_id: str) -> dict:
         ).scalars().all()
     out: dict[str, dict] = {}
     for r in rows:
-        if r.stage == "reduce_state":
-            continue  # 轮间检查点非模型调用（评审 P3）：不进调用账，防幽灵 calls
+        if r.stage in NON_CALL_STAGES:
+            continue  # 非调用行：不进调用账，防幽灵 calls
         bucket = out.setdefault(r.stage, {
             "calls": 0, "failures": 0, "attempts": 0,
             "duration_ms": 0, "tokens_in": 0, "tokens_out": 0,
@@ -401,7 +407,12 @@ def _unit_label(stage: str, dim: str, unit_key: str) -> str:
     if stage == "presence":
         return f"第{unit_key}章·在场"
     if stage == "card_batch":
-        return "拆卡合批"
+        # 合批行的单元键＝输入指纹:章号区间（旧账行无区间后缀，按原样只报阶段）
+        span = unit_key.split(":", 1)[1] if ":" in unit_key else ""
+        first, _, last = span.partition("-")
+        if not span:
+            return "拆卡合批"
+        return f"拆卡合批·第{first}章" if first == last or not last else f"拆卡合批·第{first}-{last}章"
     if stage == "place":
         return "地点归并"
     name = dim_names().get(dim, dim)
@@ -416,8 +427,10 @@ async def monitor_view(task: DeconstructJob) -> dict | None:
     """运行监控账（c-deconstruct-monitor）：在途＋批次进度＋近 5 分钟速度＋最近调用流水。
 
     单元账派发即写 running 行（调度即现），完成时覆盖为终态；只读计数列（MUST NOT 读
-    output_json——reduce partials 大载荷不得进 1.5s 轮询）；reduce_state 检查点非模型
-    调用，与 task_stats 同口径排除。queued/running 返回账块，终态返回 None。
+    output_json——reduce partials 大载荷不得进 1.5s 轮询）；非模型调用行（NON_CALL_STAGES：
+    reduce_state 检查点、card_product 合批逐章产物）与 task_stats 同口径排除——合批的
+    耗时/token 在 card_batch 行上，产物行若入流水会成片 0s/0.0k 并挤掉真实调用。
+    queued/running 返回账块，终态返回 None。
     """
     if task.status not in ("running", "queued"):
         return None
@@ -435,7 +448,7 @@ async def monitor_view(task: DeconstructJob) -> dict | None:
                 ).where(DeconstructUnit.task_id == task.id)
             )
         ).all()
-    calls = [r for r in rows if r.stage != "reduce_state"]
+    calls = [r for r in rows if r.stage not in NON_CALL_STAGES]
     now = _now()
     win = [
         r for r in calls

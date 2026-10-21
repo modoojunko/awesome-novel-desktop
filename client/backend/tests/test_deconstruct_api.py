@@ -1183,6 +1183,49 @@ def test_monitor_view_running_aggregates(client):
     assert times == sorted(times, reverse=True)
 
 
+def test_monitor_batch_products_are_not_calls(client):
+    """合批产物行不冒充调用（2026-10-21 真机：整屏流水全是 0s/0.0k）。
+
+    card_product 是一批 N 章成功后逐章落的产物行（无耗时/token）；流水/速度/Token
+    只认真实调用行——合批调用的耗时与产出在 card_batch 行上，label 带章号区间。
+    """
+    from deconstruct.service import source_path_of
+
+    async def _go():
+        async with async_session() as s:
+            s.add(DeconstructJob(
+                id="dec-mon-batch", user_id=_UID, status="running", queue_seq=95,
+                book_name="合批书", source_path=source_path_of("dec-mon-batch"),
+                encoding="utf-8", api_config_id="cfg-1", ai_model="m1",
+            ))
+            await s.commit()
+
+    _run(_go())
+    _mk_unit("dec-mon-batch", "card_batch", "done", updated_min_ago=0.2,
+             duration_ms=48000, tokens_in=6000, tokens_out=3000, unit_key="abc123:17-32")
+    for no in ("17", "18", "19", "20"):
+        _mk_unit("dec-mon-batch", "card_product", "done", updated_min_ago=0.1,
+                 unit_key=f"p-{no}")
+    m = client.get("/api/deconstruct/tasks/dec-mon-batch").json()["monitor"]
+    assert m["in_flight"] == 0
+    assert [r["label"] for r in m["recent"]] == ["拆卡合批·第17-32章"]
+    assert m["recent"][0]["duration_ms"] == 48000 and m["recent"][0]["tokens_out"] == 3000
+    # 速度/Token 不被 4 条 0 值产物行冲淡：成功 1 次、平均 48s、合计只算真实调用
+    assert m["speed"] == {"window_s": 300, "done": 1, "fail": 0, "avg_ms": 48000,
+                          "out_tokens": 3000, "total": 1}
+    assert m["tokens"] == {"in": 6000, "out": 3000, "total": 9000}
+
+
+def test_unit_label_card_batch_span():
+    """合批流水 label：带章号区间；单章批同号合并；旧账行（无区间后缀）回落阶段名。"""
+    from deconstruct.service import _unit_label
+
+    assert _unit_label("card_batch", "", "abc123:17-32") == "拆卡合批·第17-32章"
+    assert _unit_label("card_batch", "", "abc123:5-5") == "拆卡合批·第5章"
+    assert _unit_label("card_batch", "", "deadbeef") == "拆卡合批"
+    assert _unit_label("card", "", "137") == "第137章"
+
+
 def test_monitor_sweep_running_on_finish(client):
     """终局清扫：running 残留（取消/熔断余波）→ failed(cancelled)，防在途账虚高。"""
     from deconstruct.pipeline import _sweep_running

@@ -11,7 +11,8 @@
   截断（finish_reason=length / JSON 不完整）拆组重试，MUST NOT 原样重发。
 - 韧性三件套：熔断（连续单元失败→provider_unavailable 收场让出队列）、看门狗
   （无进展/墙钟→stalled 收场，DB 取消轮询 2s 贯穿在途调用）、单元账 `deconstruct_units`
-  （card/l1/reduce 逐单元落库＝断点续拆＋调用账）。
+  （card/card_batch/l1/reduce 逐单元落库＝断点续拆＋调用账；合批逐章产物行 card_product
+  非调用，调用账与监控流水排除）。
 - 能力感知预算（c-deconstruct-resilience D5/D6）：DECONSTRUCT_CAPS（或 vendor 表）给出
   上下文/输出上限 → 归并输入上限放大、输出预算放宽、**单遍归并**（碎片+梗概+开销 ≤ 输入预算
   且预计输出 ≤ 输出预算时跳过 L1/reduce，一次调用出终稿）；未知能力保守默认不阻塞。
@@ -61,6 +62,12 @@ SEGMENT_RETRIES = policy.RETRY_MAX_ATTEMPTS - 1
 # 并发调用上限（DECONSTRUCT_CONCURRENCY，默认 4；=1 即原串行）——拆书是 I/O 密集
 # （等模型返回），asyncio 并发即可成倍提速、无需子进程；上限同时压住 429 限流风险
 CONCURRENCY = max(1, int(os.environ.get("DECONSTRUCT_CONCURRENCY", "4") or 4))
+
+# 非模型调用的账行（调用账/监控流水同口径排除，单源）：reduce_state＝归并轮间检查点；
+# card_product＝合批成功后的逐章产物行——真实调用（耗时/token）记在 card_batch 行上，
+# 产物行只证明「该章有卡」。不排除的话，一批 16 章会在流水里落 16 条 0s/0.0k 行，
+# 还会把真实调用行挤出最近窗口（2026-10-21 真机：整屏小任务全是 0）。
+NON_CALL_STAGES = frozenset({"reduce_state", "card_product"})
 
 # 每 operation 输出 token 预算。归并类（deconstruct_{dim} L1 归并＋deconstruct_{dim}_reduce
 # 树收敛）的 operation 名是动态的、不进本表——落 _MERGE_DEFAULT_TOKENS＝8192（默认 4096
@@ -1095,6 +1102,8 @@ async def run_task(task_id: str) -> None:
                 隔离口径）——合批只降调用数，永不放大单章损失面。
                 失败账：批次尝试比照其他阶段落 failed 行（评审 P3——退回成功也不
                 该抹掉这次失败尝试的 kind/attempts/duration）。
+                成功账：真实调用（耗时/token/重试）只记 card_batch 行；逐章产物另记
+                card_product（非调用行，进不了调用账与监控流水）。
                 """
                 nos = [str(ch.get("no", 0)) for ch in batch]
                 chapters_block = "\n\n".join(
@@ -1102,6 +1111,9 @@ async def run_task(task_id: str) -> None:
                     for ch in batch
                 )
                 bkey = _input_hash(chapters_block[:2000])
+                # 流水 label 具体到调度对象（c-deconstruct-monitor 拍板）：章号区间附在
+                # 输入指纹后当单元键——input_hash 仍只存指纹本身。
+                ukey = f"{bkey}:{nos[0]}-{nos[-1]}"
                 started = time.monotonic()
                 usage: dict = {}
                 info: dict = {}
@@ -1114,7 +1126,7 @@ async def run_task(task_id: str) -> None:
                             "label": f"正在拆解 第{nos[0]}-{nos[-1]}章（合批 {len(batch)} 章）",
                             "at": _now().isoformat(),
                         }
-                        await _unit_running(task_id, "card_batch", "", bkey)
+                        await _unit_running(task_id, "card_batch", "", ukey)
                         raw = await _call_with_retry(
                             client, model, batch_tpl,
                             {"book_name": task.book_name, "chapters_block": chapters_block},
@@ -1127,7 +1139,7 @@ async def run_task(task_id: str) -> None:
                 except _Stopped:
                     raise
                 except policy.UnitError as e:
-                    await _unit_upsert(task_id, "card_batch", "", bkey, status="failed",
+                    await _unit_upsert(task_id, "card_batch", "", ukey, status="failed",
                                        attempts=int(info.get("attempts", 1)),
                                        error_kind=e.kind, error_msg=e.message[:300],
                                        duration_ms=int((time.monotonic() - started) * 1000),
@@ -1137,7 +1149,7 @@ async def run_task(task_id: str) -> None:
                     await _run_units([_card_one(ch) for ch in batch])  # 瞬时/审核/截断：退回逐章
                     return
                 except Exception as e:  # noqa: BLE001 — 合批失败整批退回逐章（降级不放大损失面）
-                    await _unit_upsert(task_id, "card_batch", "", bkey, status="failed",
+                    await _unit_upsert(task_id, "card_batch", "", ukey, status="failed",
                                        attempts=int(info.get("attempts", 1)),
                                        error_kind=policy.KIND_UNKNOWN, error_msg=str(e)[:300],
                                        duration_ms=int((time.monotonic() - started) * 1000),
@@ -1146,16 +1158,17 @@ async def run_task(task_id: str) -> None:
                     return
                 parsed = _parse_batch_cards(raw, set(nos))
                 if parsed is None:
-                    # 解析不齐/坏行＝无效输出：记失败账后退回逐章
-                    await _unit_upsert(task_id, "card_batch", "", bkey, status="failed",
+                    # 解析不齐/坏行＝无效输出：记失败账后退回逐章（耗时按实测，不写 0）
+                    await _unit_upsert(task_id, "card_batch", "", ukey, status="failed",
                                        attempts=int(info.get("attempts", 1)),
                                        error_kind=policy.KIND_INVALID_OUTPUT,
-                                       error_msg="合批输出无法解析", duration_ms=0,
+                                       error_msg="合批输出无法解析",
+                                       duration_ms=int((time.monotonic() - started) * 1000),
                                        input_hash=bkey)
                     await _run_units([_card_one(ch) for ch in batch])
                     return
                 stopper.touch()
-                await _unit_upsert(task_id, "card_batch", "", bkey,
+                await _unit_upsert(task_id, "card_batch", "", ukey,
                                    status="done", attempts=int(info.get("attempts", 1)),
                                    duration_ms=int((time.monotonic() - started) * 1000),
                                    tokens_in=int(usage.get("tokens_in", 0) or 0),
@@ -1169,7 +1182,9 @@ async def run_task(task_id: str) -> None:
                         continue
                     cards["entries"][no] = data
                     cards["done"] = len(cards["entries"])
-                    await _unit_upsert(task_id, "card", "", no, status="done",
+                    # 产物行（非模型调用）：耗时/token 全在 card_batch 行上，这里只证明
+                    # 「该章有卡」——调用账与流水按 NON_CALL_STAGES 排除，防空值行刷屏。
+                    await _unit_upsert(task_id, "card_product", "", no, status="done",
                                        attempts=int(info.get("attempts", 1)),
                                        output_json=json.dumps(data, ensure_ascii=False),
                                        input_hash=_input_hash(str(ch.get("text", ""))[:4000]))

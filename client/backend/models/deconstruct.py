@@ -96,11 +96,14 @@ class DeconstructJob(Base):
 class DeconstructUnit(Base):
     """拆书单元账（c-deconstruct-resilience D4）——断点续拆与调用账的事实源。
 
-    粒度：card=章；l1=维度内一批碎片；reduce=一次组合并；reduce_state=维度归并
-    树的轮间检查点（partials 全量，unit_key 恒 "partials"——续拆从轮边界继续，
-    轮内重做有界）；presence=章；place=全书一次。
-    unit_key：card=章号，其余=输入内容 sha256 前缀——输入变化（卡片重拆/碎片变化）
-    旧单元自然失效，不存在 stale 复用。
+    粒度：card=章；card_batch=合批拆卡一次调用（耗时/token 记这行）；card_product=
+    合批成功后的逐章产物行（非模型调用，调用账/流水按 NON_CALL_STAGES 排除）；
+    l1=维度内一批碎片；reduce=一次组合并；reduce_state=维度归并树的轮间检查点
+    （partials 全量，unit_key 恒 "partials"——续拆从轮边界继续，轮内重做有界）；
+    presence=章；place=全书一次。
+    unit_key：card=章号；card_batch=输入指纹:章号区间（流水 label 要具体到章）；
+    其余=输入内容 sha256 前缀——输入变化（卡片重拆/碎片变化）旧单元自然失效，
+    不存在 stale 复用。
     调用账由本表聚合（service.task_stats），不另建统计表；不含原文，只有计数与产物。
     """
 
@@ -118,7 +121,7 @@ class DeconstructUnit(Base):
         ForeignKey("deconstruct_jobs.id", ondelete="CASCADE"),
         nullable=False,
     )
-    # card | l1 | reduce | reduce_state | presence | place
+    # card | card_batch | card_product | l1 | reduce | reduce_state | presence | place
     stage: Mapped[str] = mapped_column(String(20), nullable=False)
     dim: Mapped[str] = mapped_column(String(20), nullable=False, default="")
     unit_key: Mapped[str] = mapped_column(String(80), nullable=False)
