@@ -32,6 +32,33 @@ function Host({ initial, editing = true }: { initial?: OgForm; editing?: boolean
 const moodSelect = () => document.querySelector("#wf-mood select") as HTMLSelectElement;
 const moodInput = () => screen.queryByPlaceholderText("输入自定义情绪（≤50 字）");
 
+/** 外部改写宿主：模拟右栏「缺项补全」绕过输入框直接把 mood 写进表单 */
+function HostWithFill({ mood }: { mood: string }) {
+  const [form, setForm] = useState<OgForm>({ ...EMPTY_OG_FORM });
+  return (
+    <>
+      <button type="button" onClick={() => setForm((f) => ({ ...f, mood }))}>
+        补全
+      </button>
+      <OgPane
+        form={form}
+        label="第1章 · 锚点"
+        editing
+        onPatch={(patch) => setForm((f) => ({ ...f, ...patch }))}
+        gaps={[]}
+        confirmed={false}
+        saving={false}
+        onStartEdit={() => {}}
+        onCancelEdit={() => {}}
+        onGapClick={() => {}}
+        onSaveDraft={() => {}}
+        onConfirm={() => {}}
+        onGoWrite={() => {}}
+      />
+    </>
+  );
+}
+
 describe("章纲·主情绪自定义", () => {
   it("选中「自定义…」立即出现输入框，选中项不回落 placeholder", () => {
     render(<Host />);
@@ -79,5 +106,26 @@ describe("章纲·主情绪自定义", () => {
     rerender(<Host initial={initial} editing />);
     expect(moodInput()).toBeNull();
     expect(moodSelect().value).toBe("");
+  });
+
+  it("输入到与预设词同名的文本不回抹（前缀路径也不断字）", () => {
+    render(<Host />);
+    fireEvent.change(moodSelect(), { target: { value: "__custom" } });
+    fireEvent.change(moodInput()!, { target: { value: "紧" } });
+    // 「紧张」是预设词：草稿不能因此回空，否则后续字符从空串重拼
+    fireEvent.change(moodInput()!, { target: { value: "紧张" } });
+    fireEvent.change(moodInput()!, { target: { value: "紧张感" } });
+    expect((moodInput() as HTMLInputElement).value).toBe("紧张感");
+    expect(moodSelect().value).toBe("__custom");
+  });
+
+  it("外部改写为预设词（AI 缺项补全）：自定义空框收敛，下拉回预设", () => {
+    render(<HostWithFill mood="悬疑" />);
+    fireEvent.change(moodSelect(), { target: { value: "__custom" } });
+    expect(moodInput()).not.toBeNull();
+
+    fireEvent.click(screen.getByRole("button", { name: "补全" }));
+    expect(moodInput()).toBeNull();
+    expect(moodSelect().value).toBe("悬疑");
   });
 });
