@@ -26,6 +26,7 @@ vi.mock("@/lib/toast", () => ({
 import { api } from "@/lib/api";
 import ChapterWorkspace from "@/components/novel/workbench/ChapterWorkspace";
 import { INITIAL_PROSE_AI_STATE } from "@/components/novel/workbench/ProsePane";
+import type { ModelSelection } from "@/types/api-config";
 
 const mockApi = api as unknown as { get: ReturnType<typeof vi.fn> };
 
@@ -43,7 +44,7 @@ const FULL = {
 };
 
 /** 可控 SSE：事件逐段投放（面板态能在流中途断言） */
-function stubSseFetch() {
+function stubSseFetch(effectiveModel = "MiniMax-M3.1-Flash") {
   let send!: (s: string) => void;
   let close!: () => void;
   const stream = new ReadableStream<Uint8Array>({
@@ -56,7 +57,7 @@ function stubSseFetch() {
   const ev = (obj: unknown) => send(`data: ${JSON.stringify(obj)}\n\n`);
   const fetchMock = vi.fn(async (url: string) => {
     if (String(url).includes("/ai-model")) {
-      return new Response(JSON.stringify({ effective_model: "MiniMax-M3.1-Flash" }), {
+      return new Response(JSON.stringify({ effective_model: effectiveModel }), {
         status: 200,
         headers: { "Content-Type": "application/json" },
       });
@@ -67,7 +68,7 @@ function stubSseFetch() {
     });
   });
   vi.stubGlobal("fetch", fetchMock);
-  return { ev, close };
+  return { ev, close, fetchMock };
 }
 
 function mountWorkspace() {
@@ -202,6 +203,63 @@ describe("c-thinking-display 四态（真组件＋可控 SSE）", () => {
     const drawerAfter = screen.getByTestId("think-drawer");
     await waitFor(() => expect(drawerAfter.textContent).toMatch(/生成 \d+ 秒 · 正文 8 字/));
     expect(screen.queryByTestId("think-panel")).toBeNull();
+  });
+
+  it("按次模型：面板显示本次选择的模型，而不是本书模型", async () => {
+    mockApi.get.mockImplementation(async (url: string) => {
+      if (url.includes("/characters")) return [];
+      return { ...FULL };
+    });
+    // 本书模型＝deepseek-flash；本次弹窗换选 MiniMax（c-prose-model-select 按次对）
+    const sse = stubSseFetch("deepseek-flash");
+    const proseRef = createRef<any>();
+    render(
+      <MemoryRouter>
+        <ChapterWorkspace
+          projectId="p1"
+          chapterRef={REF}
+          outline={{
+            volumes: [
+              { ref: "vol-1", title: "第一卷", chapters: [
+                { chapter: 2, title: "锚点", archived: false, has_prose: false, word_count: 0 },
+              ] },
+            ],
+            chaptersMap: new Map([[REF, { ...FULL }]]),
+            loadChapterData: vi.fn(async () => ({ ...FULL })),
+            saveChapter: vi.fn(async () => ({})),
+            confirmChapter: vi.fn(async () => {}),
+            unconfirmChapter: vi.fn(async () => {}),
+            refetchTree: vi.fn(async () => {}),
+          } as never}
+          wb={{
+            volumes: [{ name: "vol-1", chapters: [{ chapter: 2, title: "锚点", archived: false }] }],
+            refresh: vi.fn(async () => {}),
+          } as never}
+          isPro
+          proseRef={proseRef}
+          aiState={INITIAL_PROSE_AI_STATE}
+          onAIStateChange={() => {}}
+          bookWords={10}
+          onRailData={() => {}}
+          aiWriteSignal={0}
+          onRevert={() => {}}
+          onTreeRefresh={async () => {}}
+        />
+      </MemoryRouter>,
+    );
+
+    await switchToProse();
+    actStart(proseRef, { api_config_id: "cfg-2", model: "MiniMax-M3.1-Flash" });
+    sse.ev({ type: "phase", phase: "model" });
+    sse.ev({ type: "thinking", text: "先谋篇" });
+    const panel = await screen.findByTestId("think-panel");
+    await waitFor(() => expect(panel.textContent).toContain("MiniMax-M3.1-Flash"));
+    expect(panel.textContent).not.toContain("deepseek-flash");
+    // 按次模型已在手：不得再打本书模型端点（打了会把名字覆盖回错的）
+    expect(
+      sse.fetchMock.mock.calls.some(([u]) => String(u).includes("/ai-model")),
+    ).toBe(false);
+    sse.close();
   });
 
   it("④ 守卫判死转超时卡：正文保持原样、已到达思考保留可回看", async () => {
@@ -348,10 +406,13 @@ async function switchToProse() {
   fireEvent.click(await screen.findByRole("tab", { name: /^正文/ }));
 }
 
-/** 开流（绕过弹窗链：组件级钉走 startWriting 指令口） */
-function actStart(proseRef: { current: { startWriting: (p?: string) => void } | null }) {
+/** 开流（绕过弹窗链：组件级钉走 startWriting 指令口；selection＝按次模型对） */
+function actStart(
+  proseRef: { current: { startWriting: (p?: string, sel?: ModelSelection) => void } | null },
+  selection?: ModelSelection,
+) {
   // 等挂载稳定后触发；ProsePane.startStream 自带 streaming 守卫
   setTimeout(() => {
-    proseRef.current?.startWriting("测试提示词");
+    proseRef.current?.startWriting("测试提示词", selection);
   }, 0);
 }
