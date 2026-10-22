@@ -175,9 +175,20 @@ const ProsePane = forwardRef<ProseHandle, ProsePaneProps>(function ProsePane(
   useLayoutEffect(() => {
     const paper = paperRef.current;
     if (!paper) return;
+    let raf = 0;
+    let tries = 0;
     const sync = () => {
       const ed = paper.querySelector<HTMLElement>(".editor");
-      if (!ed) return;
+      if (!ed) {
+        // TipTap 的 .editor 可能晚一帧进 DOM（纸宽与它无关，ResizeObserver 不会因此重触发）：
+        // 没有补测的话 --paper-gutter 会一直缺席、data-gutter-tight 也打不上，
+        // 窄屏下朱雀标小旗就退回默认 46px 压到正文。补测有界，拿不到也不空转。
+        if (tries < 30 && typeof requestAnimationFrame !== "undefined") {
+          tries += 1;
+          raf = requestAnimationFrame(sync);
+        }
+        return;
+      }
       const gutter = Math.max(0, Math.round((paper.clientWidth - ed.clientWidth) / 2));
       paper.style.setProperty("--paper-gutter", `${gutter}px`);
       // 标小旗宽约 46px（-46px 偏移刚好停在版心左缘）：余量不够就整旗隐藏，
@@ -185,10 +196,12 @@ const ProsePane = forwardRef<ProseHandle, ProsePaneProps>(function ProsePane(
       paper.toggleAttribute("data-gutter-tight", gutter < 46);
     };
     sync();
-    if (typeof ResizeObserver === "undefined") return;
+    if (typeof ResizeObserver === "undefined") {
+      return () => { if (typeof cancelAnimationFrame !== "undefined") cancelAnimationFrame(raf); };
+    }
     const ro = new ResizeObserver(sync);
     ro.observe(paper);
-    return () => ro.disconnect();
+    return () => { cancelAnimationFrame(raf); ro.disconnect(); };
   }, [hidden, editing]);
 
   const store = useChapterData(projectId, chapterRef);
