@@ -36,8 +36,11 @@ _EVIDENCE_PAREN_RE = re.compile(
     r"[（(][^）)]{0,60}?第\s*[0-9０-９][0-9０-９,，、\-—~～至\s]*章[^）)]*[）)]"
 )
 # 裸证据：可带「如/见/详见/参见」引导词；只认数字章号（「每3章」不匹配）。
+# 连续引用（第1章和第2章／第1章至第258章）整段剥——只剥单个会留「和。」「至」残渣。
+_CHAPTER_REF = r"第\s*[0-9０-９][0-9０-９,，、\-—~～至\s]*章"
 _EVIDENCE_BARE_RE = re.compile(
-    r"(?:如|见|详见|参见|参看)?\s*第\s*[0-9０-９][0-9０-９,，、\-—~～至\s]*章"
+    rf"(?:如|见|详见|参见|参看)?\s*{_CHAPTER_REF}"
+    rf"(?:\s*[和与及、,，\-—~～至到\s]\s*{_CHAPTER_REF})*"
 )
 # 分析元数据尾巴：confidence: high，note: … / evidence_ch: 第3章
 _ANALYSIS_TAIL_RE = re.compile(
@@ -50,6 +53,7 @@ _EMPTY_PAREN_RE = re.compile(r"[（(]\s*[）)]")
 _DANGLING_PUNCT_RE = re.compile(r"[，,；;、]\s*([。！？；!?]|$)")
 _LEADING_PUNCT_RE = re.compile(r"^[，,；;、\s]+")
 _SPACES_RE = re.compile(r"\s{2,}")
+_TEXT_CHAR_RE = re.compile(r"[0-9A-Za-z\u4e00-\u9fff]")
 
 
 def clip_sentences(text: str, limit: int | None) -> str:
@@ -77,7 +81,7 @@ def clean_settings_text(value, limit: int | None = None) -> str:
     text = _LEADING_PUNCT_RE.sub("", text)
     text = _SPACES_RE.sub(" ", text).strip()
     text = text.strip("，,；;、 ")
-    if not text:
+    if not text or not _TEXT_CHAR_RE.search(text):
         return ""
     return clip_sentences(text, limit)
 

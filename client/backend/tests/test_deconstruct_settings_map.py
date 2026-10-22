@@ -33,6 +33,16 @@ def test_clean_settings_text_strips_evidence_and_analysis():
 
     assert sm.clean_settings_text("原文未明确") == ""
     assert sm.clean_settings_text("未采用全知视角，原文未明确反例") == "未采用全知视角"
+    # 连续章号引用整段剥，不留「和」「至」残渣；纯标点残渣归空
+    for raw in (
+        "见第1章和第2章。",
+        "如第1章、第2章。",
+        "第1章至第258章",
+        "第1章到第258章",
+        "第1章—第258章",
+        "。",
+    ):
+        assert sm.clean_settings_text(raw) == "", raw
 
 
 def test_clean_settings_text_sentence_clip():
