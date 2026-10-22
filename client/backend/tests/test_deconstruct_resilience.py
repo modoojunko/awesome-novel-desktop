@@ -1077,11 +1077,12 @@ def test_vendor_caps_deepseek_documented_values():
 
 
 def test_vendor_caps_minimax_m31_flash():
-    """MiniMax M3.1-Flash 进能力表（2026-10-22 查证：官方 1M 上下文）。
+    """MiniMax M3 族进能力表（2026-10-22 查证：官方 1M 上下文）。
 
     官方未公布单次输出上限，能力表取保守地板 32K——归并/合批据此放大到封顶，
-    不再落保守默认的 8192（否则 reduce 顶层合并必截）。模型 id 两种写法
-    （OpenCode Go 小写 / MiniMax 官方驼峰）都按模型名族命中。
+    不再落保守默认的 8192（否则 reduce 顶层合并必截）。键收窄到 `minimax-m3`：
+    三种 M3 写法（OpenCode Go 小写 / MiniMax 官方驼峰 / 裸 m3）都命中，M2 系
+    （M2/M2.5/M2.7，上下文小于 1M）继续落保守默认，不跟着放大。
     """
     from deconstruct import capabilities as caps_mod
 
@@ -1100,4 +1101,11 @@ def test_vendor_caps_minimax_m31_flash():
 
     from deconstruct.pipeline import _card_batch_size
 
-    assert _card_batch_size(caps_mod.caps_for(vendor="minimax", model="m-1")) == 12
+    m31 = caps_mod.caps_for(vendor="opencode-go-chat", model="minimax-m3.1-flash-free")
+    assert _card_batch_size(m31) == 12
+    # M2 系不命中 M3 族键：保守默认不变（1M 上下文只属于 M3/M3.1）
+    for model in ("MiniMax-M2", "MiniMax-M2.5-highspeed", "MiniMax-M2.7"):
+        m2 = caps_mod.caps_for(vendor="openai-compat", model=model)
+        assert m2.source == "conservative", model
+        assert m2 == caps_mod.DEFAULT_CAPS
+        assert _card_batch_size(m2) == 1

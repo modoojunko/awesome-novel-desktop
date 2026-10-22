@@ -20,15 +20,18 @@ MiniMax 家族此前不在表内，两个后果：
 
 ## What Changes
 
-- **能力表登记 MiniMax 家族**：`minimax: ModelCaps(1_000_000, 32_768)`。上下文取官方
-  公布的 1M（platform.minimax.cn，2026-10-22 查证：M3.1-Flash／M3 均为 1M）；官方
-  **未公布单次输出上限**，故取保守地板 32K——宁小勿大，真上限更低时由既有 400/
-  截断拆半自愈兜底（能力表纪律同 deepseek/glm）。
+- **能力表登记 MiniMax M3 族**：`minimax-m3: ModelCaps(1_000_000, 32_768)`。键收窄到
+  **M3 族**（命中 `minimax-m3`／`minimax-m3.1-flash-free`／`MiniMax-M3.1-Flash`）；
+  M2 系（M2/M2.5/M2.7，上下文远小于 1M、含自托管接入）SHALL NOT 跟着放大，继续落
+  保守默认。上下文取官方公布的 1M（platform.minimax.cn，2026-10-22 查证：M3.1-Flash／
+  M3 均为 1M）；官方**未公布单次输出上限**，故取保守地板 32K——宁小勿大，真上限更低时
+  由既有 400/截断拆半自愈兜底（能力表纪律同 deepseek/glm）。
 - **OpenCode Go 候选清单补官方 id**：`opencode-go-chat` 增 `minimax-m3.1-flash-free`
   （官方 id 带 `-free` 后缀，走**通用/OpenAI 格式**口）；`opencode-go-claude` 保持
   `minimax-m3`（anthropic 口）——两口各留各的，不混投（混投探针必失败）。
-- **效果**：归并输出预算 8,192 → 24,576；拆卡合批逐章 → 12 章/批；1M 上下文解锁
-  单遍归并路径（碎片与输出预算均满足时一次出终稿，不生成 reduce 树）。
+- **效果**：归并输出预算 8,192 → 24,576；拆卡可合批 12 章/批（前提＝已安装提示词包含
+  `deconstruct_card_batch`，包版本窗内照旧回退逐章）；1M 上下文解锁单遍归并路径
+  （碎片与输出预算均满足时一次出终稿，不生成 reduce 树）。
 - **不改**：拆书任务模型选择交互（仍按用户已配置清单列出）、提示词模板、拆书→设定页
   契约、OpenCode Go 思考参数适配（adaptive 裸形态）等既有口径。
 
@@ -42,7 +45,7 @@ MiniMax 家族此前不在表内，两个后果：
 
 （无——本 change 是**能力表数据项**补充：既有「模型能力与调用预算」要求（由
 c-deconstruct-resilience ADDED、尚未归档）已规定「能力未知 SHALL 回退保守批次」，
-本 change 只是把 MiniMax 家族从「能力未知」补进「能力已知」，不改该要求的行为语义；
+本 change 只是把 MiniMax M3 族从「能力未知」补进「能力已知」，不改该要求的行为语义；
 `.openspec.yaml` 声明 `skip_specs: true`，先例 c-book-parity-rebaseline。归档时随
 c-deconstruct-resilience 一并 sync 进主 spec。）
 
@@ -63,6 +66,7 @@ c-deconstruct-resilience 一并 sync 进主 spec。）
 - **拆书没有模型 id 白名单**，「支持某模型」＝能力表命中；新增模型族只改
   `_VENDOR_KNOWN` ＋（走中转时）候选清单两处。
 - 能力表键按**模型名族子串**匹配（大小写不敏感），故 `minimax-m3.1-flash-free`、
-  `MiniMax-M3.1-Flash`、`minimax-m3` 三种写法都能命中同一条登记。
+  `MiniMax-M3.1-Flash`、`minimax-m3` 三种写法都能命中同一条登记；键必须带上代际号
+  （`minimax-m3` 而非 `minimax`），否则会把上下文更小的 M2 系一并放大。
 - 官方未公布输出上限时取保守地板，而非猜一个上限——猜大了必截（deepseek 旧值教训：
   把非思考默认 8K 当成上限），猜小了只是少省几次调用。
