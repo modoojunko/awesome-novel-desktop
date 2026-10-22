@@ -1074,3 +1074,30 @@ def test_vendor_caps_deepseek_documented_values():
     assert caps_mod.merge_max_tokens(glm) == 32_768
     from deconstruct.pipeline import _card_batch_size as _cbs
     assert _cbs(glm) == 16
+
+
+def test_vendor_caps_minimax_m31_flash():
+    """MiniMax M3.1-Flash 进能力表（2026-10-22 查证：官方 1M 上下文）。
+
+    官方未公布单次输出上限，能力表取保守地板 32K——归并/合批据此放大到封顶，
+    不再落保守默认的 8192（否则 reduce 顶层合并必截）。模型 id 两种写法
+    （OpenCode Go 小写 / MiniMax 官方驼峰）都按模型名族命中。
+    """
+    from deconstruct import capabilities as caps_mod
+
+    for vendor, model in (
+        ("opencode-go-chat", "minimax-m3.1-flash-free"),
+        ("openai-compat", "MiniMax-M3.1-Flash"),
+        ("opencode-go-claude", "minimax-m3"),
+    ):
+        caps = caps_mod.caps_for(vendor=vendor, model=model)
+        assert caps.source == "known", (vendor, model)
+        assert caps.context_window == 1_000_000
+        assert caps.max_output_tokens == 32_768
+        # 归并输出＝usable(0.75×32K)；合批按「merge 预算×0.75」折算＝12 章
+        assert caps_mod.merge_max_tokens(caps) == 24_576
+        assert caps_mod.input_budget_chars(caps) > 300_000
+
+    from deconstruct.pipeline import _card_batch_size
+
+    assert _card_batch_size(caps_mod.caps_for(vendor="minimax", model="m-1")) == 12

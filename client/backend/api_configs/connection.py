@@ -62,7 +62,9 @@ VENDOR_MODEL_CANDIDATES: dict[str, list[str]] = {
     "deepseek": ["deepseek-flash", "deepseek-v4-pro"],
     # c-modelconfig-gemini-go：与前端 vendorDefaults 登记候选同源对齐（官方清单）
     "gemini": ["gemini-2.5-pro", "gemini-2.5-flash", "gemini-2.5-flash-lite", "gemini-3-flash"],
-    "opencode-go-chat": ["glm-5.3-flash", "glm-5.3", "kimi-k3", "kimi-k2.7-code", "deepseek-v4.1-flash"],
+    # 2026-10-22 按 OpenCode Go 官方清单刷新：M3.1 Flash 走通用（OpenAI 格式）口，
+    # 官方 id 带 -free 后缀（限免期）；Go·Claude 系仍登记 anthropic 口的 minimax-m3。
+    "opencode-go-chat": ["glm-5.3-flash", "glm-5.3", "kimi-k3", "kimi-k2.7-code", "deepseek-v4.1-flash", "minimax-m3.1-flash-free"],
     "opencode-go-claude": ["claude-haiku-5-5", "minimax-m3", "qwen3.7-plus"],
 }
 

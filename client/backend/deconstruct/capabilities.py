@@ -48,6 +48,11 @@ _VENDOR_KNOWN = {
     # glm 同上教训（2026-10 查证 docs.bigmodel.cn：GLM-5.3 上下文 1M／输出 128K；
     # GLM-5 家族 200K/128K）。取家族地板 200K/128K，flash 变体差异由超限拆半自愈兜底。
     "glm": ModelCaps(200_000, 131_072, source="known"),
+    # minimax（2026-10-22 查证 platform.minimax.cn：M3.1-Flash／M3 均为 1M 上下文；
+    # 官方未公布单次输出上限，取保守地板 32K——拆书归并与卡批封顶同值，宁小勿大，
+    # 真实上限更低时由 400/截断拆半自愈兜底）。键按模型名族匹配：OpenCode Go 两口
+    # 与 OpenAI 兼容入口下的小写 id（minimax-m3.1-flash）都能命中。
+    "minimax": ModelCaps(1_000_000, 32_768, source="known"),
 }
 
 
