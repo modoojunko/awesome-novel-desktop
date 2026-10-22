@@ -19,6 +19,7 @@ import {
   useCallback,
   useEffect,
   useImperativeHandle,
+  useLayoutEffect,
   useRef,
   useState,
   useSyncExternalStore,
@@ -166,6 +167,43 @@ const ProsePane = forwardRef<ProseHandle, ProsePaneProps>(function ProsePane(
   ref,
 ) {
   const wrapRef = useRef<HTMLDivElement>(null);
+  const paperRef = useRef<HTMLDivElement>(null);
+  /* 纸边距实测（c-prose-paper）：边注/标小旗住在版心左侧的纸边距里，可用余量＝
+     纸左侧内边距＝(纸宽−版心宽)/2。纸边距是 clamp 算出来的，CSS 里拿不到数值
+     （同一个百分号在 padding 与 inset 上基准不同），这里实测一次写成变量，
+     窄列塌到没有边距时打 data-gutter-tight，让边注整旗隐藏（段落底色仍在）。 */
+  useLayoutEffect(() => {
+    const paper = paperRef.current;
+    if (!paper) return;
+    let raf = 0;
+    let tries = 0;
+    const sync = () => {
+      const ed = paper.querySelector<HTMLElement>(".editor");
+      if (!ed) {
+        // TipTap 的 .editor 可能晚一帧进 DOM（纸宽与它无关，ResizeObserver 不会因此重触发）：
+        // 没有补测的话 --paper-gutter 会一直缺席、data-gutter-tight 也打不上，
+        // 窄屏下朱雀标小旗就退回默认 46px 压到正文。补测有界，拿不到也不空转。
+        if (tries < 30 && typeof requestAnimationFrame !== "undefined") {
+          tries += 1;
+          raf = requestAnimationFrame(sync);
+        }
+        return;
+      }
+      const gutter = Math.max(0, Math.round((paper.clientWidth - ed.clientWidth) / 2));
+      paper.style.setProperty("--paper-gutter", `${gutter}px`);
+      // 标小旗宽约 46px（-46px 偏移刚好停在版心左缘）：余量不够就整旗隐藏，
+      // 别让小旗压到正文；段落底色（zq-warn/err、rw-mark）仍在，信息不丢
+      paper.toggleAttribute("data-gutter-tight", gutter < 46);
+    };
+    sync();
+    if (typeof ResizeObserver === "undefined") {
+      return () => { if (typeof cancelAnimationFrame !== "undefined") cancelAnimationFrame(raf); };
+    }
+    const ro = new ResizeObserver(sync);
+    ro.observe(paper);
+    return () => { cancelAnimationFrame(raf); ro.disconnect(); };
+  }, [hidden, editing]);
+
   const store = useChapterData(projectId, chapterRef);
   const { prose, status, setProse } = store;
   const archived = status === "archived";
@@ -1278,6 +1316,14 @@ const ProsePane = forwardRef<ProseHandle, ProsePaneProps>(function ProsePane(
         hidden={hidden}
         ref={wrapRef}
       >
+        {/* 纸（c-prose-paper）：正文列分三层——桌面（.editor-wrap 底色）／纸（本层）／
+            写字范围（版心＋编辑态虚线框）。滚动容器仍是 .editor-wrap（wrapRef 不动），
+            纸随内容长；生成等待行、思考面板族与正文一起进纸，人味边注留在纸外层
+            （它按 .editor-wrap 做测量与定位，落在纸右侧边距上，不改既有锚定口径）。 */}
+        <div className="prose-paper" ref={paperRef}>
+          {/* 写字范围框（c-prose-paper）：仅编辑态可见的装饰层，四边由 inset 给出；
+              pointer-events:none 不参与交互，阅读态整框 display:none */}
+          <span className="prose-frame" aria-hidden="true" />
         {/* 生成等待呈现（c-prose-gen-phases）：首字前无框行内——与正文同字体同首行缩进，
             不进文档、不参与撤销/保存/字数；首字到达即退场（呼吸灯此刻在编辑体上亮起） */}
         {genStage && !thinkPanel && !hidden && (
@@ -1394,6 +1440,7 @@ const ProsePane = forwardRef<ProseHandle, ProsePaneProps>(function ProsePane(
             只读/归档/流式态由 setEditable(false) 落成 contenteditable="false"
             （a11y + e2e 判定口保持） */}
         <EditorContent editor={editor} className="editor-host" />
+        </div>
         {renweiParaTotal > 0 && (
           <RenweiMarginNotes
             editorEl={editor?.view.dom as HTMLElement | undefined ?? null}
