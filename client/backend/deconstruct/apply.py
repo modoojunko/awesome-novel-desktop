@@ -448,13 +448,16 @@ async def import_book(
             )
             if dup.scalars().first() is not None:
                 continue
+            rel_type, merged_note = sm.merge_relation_labels(
+                row["types"], _join_unique(row["notes"], "；", 300)
+            )
             try:
                 async with db.begin_nested():
                     db.add(CharacterRelation(
                         novel_id=book_id, owner_id=owner_id, other_id=other_id,
-                        rel_type=_join_unique(row["types"], "、", 20) or "关系",
+                        rel_type=rel_type,
                         stance=_join_unique(row["stances"], "；", 100),
-                        note=_join_unique(row["notes"], "；", 300),
+                        note=merged_note,
                         ch_ref=_join_refs(row["refs"]),
                     ))
                     await db.flush()

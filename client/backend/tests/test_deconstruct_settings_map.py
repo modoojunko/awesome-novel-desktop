@@ -43,6 +43,20 @@ def test_clean_settings_text_strips_evidence_and_analysis():
         "。",
     ):
         assert sm.clean_settings_text(raw) == "", raw
+    # 证据后的指代尾巴随引用一起剥
+    assert sm.clean_settings_text("如第3章所述，短句为主。") == "短句为主。"
+    assert sm.clean_settings_text("见第3章所示。") == ""
+    assert sm.clean_settings_text("第3章里的短句为主。") == "短句为主。"
+
+
+def test_merge_relation_labels_overflow():
+    rel, note = sm.merge_relation_labels(
+        ["同僚", "恩义", "生死相托的旧日同僚", "势不两立的债主"], "强派开车"
+    )
+    assert rel == "同僚、恩义、生死相托的旧日同僚"
+    assert len(rel) <= 20
+    assert note == "强派开车；另含关系：势不两立的债主"
+    assert sm.merge_relation_labels([], "") == ("关系", "")
 
 
 def test_clean_settings_text_sentence_clip():

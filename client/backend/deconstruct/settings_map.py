@@ -22,8 +22,9 @@
 - foreshadow：desc/note/type/priority/plant_ch/payoff_ch/status → 台账；confidence 只留任务资料
 - characters：name/role/persona/aliases/dossier 八格 → 角色卡；plot 末尾保留一条 evidence_ch
   供角色页回查，其余格不进证据；confidence 只留任务资料
-- relations：edges → 关系行（按解析后的 owner/other 归并，同对多关系取并集）；
-  ch_ref 保留 evidence_ch；factions/quote/raw/confidence 只留任务资料
+- relations：edges → 关系行（按解析后的 owner/other 归并，同对多关系取并集；
+  rel_type 放不下的类型并入 note「另含关系…」）；ch_ref 保留 evidence_ch；
+  factions/quote/raw/confidence 只留任务资料
 """
 
 from __future__ import annotations
@@ -38,9 +39,11 @@ _EVIDENCE_PAREN_RE = re.compile(
 # 裸证据：可带「如/见/详见/参见」引导词；只认数字章号（「每3章」不匹配）。
 # 连续引用（第1章和第2章／第1章至第258章）整段剥——只剥单个会留「和。」「至」残渣。
 _CHAPTER_REF = r"第\s*[0-9０-９][0-9０-９,，、\-—~～至\s]*章"
+# 证据后的指代尾巴（「如第3章所述」「见第3章所示」「第3章里的」）随引用一起剥
+_REF_SUFFIX = r"(?:中所|所述|所示|所载|所记|里的|中的|内的|记载|提到|中(?![段后前]))?(?:的)?"
 _EVIDENCE_BARE_RE = re.compile(
     rf"(?:如|见|详见|参见|参看)?\s*{_CHAPTER_REF}"
-    rf"(?:\s*[和与及、,，\-—~～至到\s]\s*{_CHAPTER_REF})*"
+    rf"(?:\s*[和与及、,，\-—~～至到\s]\s*{_CHAPTER_REF})*{_REF_SUFFIX}"
 )
 # 分析元数据尾巴：confidence: high，note: … / evidence_ch: 第3章
 _ANALYSIS_TAIL_RE = re.compile(
@@ -179,6 +182,34 @@ def style_body(data: dict) -> dict:
     if examples:
         body["few_shot_examples"] = examples[:3]
     return body
+
+
+def merge_relation_labels(types, note, rel_limit: int = 20, note_limit: int = 300) -> tuple[str, str]:
+    """同对多关系 → (rel_type, note)。
+
+    DB 的 rel_type 只有 20 字：能放下的类型进 rel_type，放不下的整条并入 note
+    （「另含关系：…」），不静默丢类型。
+    """
+    cleaned: list[str] = []
+    for t in _items(types):
+        t = clean_settings_text(t, 40)
+        if t and t not in cleaned:
+            cleaned.append(t)
+    kept: list[str] = []
+    overflow: list[str] = []
+    used = 0
+    for t in cleaned:
+        add = len(t) + (1 if kept else 0)
+        if used + add <= rel_limit:
+            kept.append(t)
+            used += add
+        else:
+            overflow.append(t)
+    note = clean_settings_text(note, note_limit)
+    if overflow:
+        extra = "另含关系：" + "、".join(overflow)
+        note = f"{note}；{extra}" if note else extra
+    return "、".join(kept) or "关系", note[:note_limit]
 
 
 def _paragraph(entries_value, value_limit: int | None) -> str:
