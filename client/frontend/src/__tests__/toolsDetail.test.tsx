@@ -471,13 +471,16 @@ describe("TaskDetailPage", () => {
     await waitFor(() => expect(screen.getByText(/带 3 处警告/)).toBeInTheDocument());
   });
 
-  it("完成：图谱装配失败提示（导出阻断说明）", async () => {
+  it("完成：图谱装配失败提示（导出阻断说明＋失败原因）", async () => {
     state.get.mockResolvedValue(
-      detailOf("completed", { graph: { state: "error", available: false, warnings: 0, caps: true } }),
+      detailOf("completed", {
+        graph: { state: "error", available: false, warnings: 0, caps: true, error: "'虎腰山村'" },
+      }),
     );
     renderPage();
     await waitFor(() => expect(screen.getByText("图谱装配失败")).toBeInTheDocument());
     expect(screen.getByText(/按文档版进行/)).toBeInTheDocument();
+    expect(screen.getByText(/原因：'虎腰山村'/)).toBeInTheDocument();
   });
 
   it("完成：老包能力戳 false 提示（文档版不受影响）", async () => {

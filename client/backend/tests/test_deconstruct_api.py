@@ -582,6 +582,7 @@ def test_task_view_graph_states(client):
     _mk_completed("dec-gv-1", products)
     body = client.get("/api/deconstruct/tasks/dec-gv-1").json()
     assert body["graph"]["state"] == "absent" and body["graph"]["available"] is False
+    assert body["graph"]["error"] == ""
     _seed_graph("dec-gv-1", graph=_mini_graph())
     body = client.get("/api/deconstruct/tasks/dec-gv-1").json()
     assert body["graph"]["state"] == "ready" and body["graph"]["available"] is True
@@ -589,6 +590,7 @@ def test_task_view_graph_states(client):
     _seed_graph("dec-gv-1", graph_error="boom")
     body = client.get("/api/deconstruct/tasks/dec-gv-1").json()
     assert body["graph"]["state"] == "error" and body["graph"]["available"] is False
+    assert body["graph"]["error"] == "boom"  # 失败原因随详情下发（不只导出响应）
 
 
 # ── 阶段三进度账透出（graph_phase：补写/地点归并/装配）──────────────────

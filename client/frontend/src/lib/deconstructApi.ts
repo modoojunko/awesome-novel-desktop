@@ -50,8 +50,15 @@ export interface DeconstructTaskDetail {
   cards?: { state: string; done: number; total: number; eta_seconds?: number | null };
   /** 当前动作账（每次模型调用前写）：label＋距今秒数；缺席＝空闲/终态 */
   activity?: { label: string; age_seconds?: number | null } | null;
-  /** 图谱视图（10.5 起）：ready/absent/error＋警告计数＋能力戳（老包出不了图） */
-  graph?: { state: "ready" | "absent" | "error"; available: boolean; warnings: number; caps: boolean };
+  /** 图谱视图（10.5 起）：ready/absent/error＋警告计数＋能力戳（老包出不了图）；
+   *  error＝装配失败原因（state=error 时非空，供详情页直接呈现） */
+  graph?: {
+    state: "ready" | "absent" | "error";
+    available: boolean;
+    warnings: number;
+    caps: boolean;
+    error?: string;
+  };
   /** 阶段三进度账（在场补写 n/m／地点归并／图谱装配）；缺席＝阶段三未开始或已结束 */
   graph_phase?: { step: "presence" | "place_merge" | "assemble"; done?: number; total?: number } | null;
   dims: Record<string, {
