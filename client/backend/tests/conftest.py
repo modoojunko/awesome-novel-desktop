@@ -96,7 +96,9 @@ def pytest_runtest_makereport(item, call):
         or "Prompt pack missing template" in detail
         or _PROMPT_MISS["miss"]
     ):
-        rep.outcome = "skip"
+        # pytest 合法 outcome 只有 "skipped"；写成 "skip" 会落未知 stats 键——
+        # 进度条打 F、汇总显示「N skip」，缺源轮次看起来像失败（2026-10-21 修）
+        rep.outcome = "skipped"
         rep.longrepr = (
             item.nodeid,
             0,
