@@ -229,6 +229,8 @@ def _graph_view(task: DeconstructJob) -> dict:
         "available": state == "ready",
         "warnings": n_warn,
         "caps": bool(raw.get("caps_graph", True)),
+        # 装配失败原因（真机判例：'虎腰山村' 一类 KeyError 只留后端，用户看不到无法反馈）
+        "error": str(raw.get("graph_error") or "")[:300] if state == "error" else "",
     }
 
 

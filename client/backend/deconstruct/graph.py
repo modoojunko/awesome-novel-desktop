@@ -240,6 +240,12 @@ def assemble(
         pname = entry["parent"]
         if pname and pname not in place_entries and pname not in idx1:
             place_entries[pname] = {"aliases": [], "parent": "", "note": "（由 parent 引用立户）"}
+    # parent 归一：模型常把别名当上级（真机 13路末班车：parent="虎腰山村"，主名="虎腰山"）。
+    # 不归一＝place_parent 静默丢归属、首现继承失配，布局取 id 直接 KeyError 拖垮整张图谱。
+    for entry in place_entries.values():
+        pname = entry["parent"]
+        if pname:
+            entry["parent"] = idx1.get(pname, pname)
 
     alias_to_name = _alias_index()
 
@@ -572,7 +578,7 @@ def assemble(
     for _ in range(len(place_entries) + 1):  # 自底向上迭代至收敛（纯确定性）
         changed = False
         for nm, entry in place_entries.items():
-            p_id = place_id[entry["parent"]] if entry["parent"] else None
+            p_id = place_id.get(entry["parent"]) if entry["parent"] else None
             if not p_id:
                 continue
             kids = [pid for pid in children.get(entry["parent"], []) if pid in scene]

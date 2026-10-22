@@ -413,7 +413,10 @@ export default function TaskDetailPage() {
             <div className="notice" data-od-id="graph-error" style={{ marginBottom: 18 }}>
               <span className="nt">
                 <b>图谱装配失败</b>
-                <span>本次导出将按文档版进行（不含图谱三件套）；可重跑任务或反馈。</span>
+                <span>本次导出将按文档版进行（不含图谱三件套）；可重新拆解或反馈此问题。</span>
+                {graph.error ? (
+                  <span style={{ display: "block", marginTop: 4 }}>原因：{graph.error}</span>
+                ) : null}
               </span>
             </div>
           ) : graph.caps === false ? (

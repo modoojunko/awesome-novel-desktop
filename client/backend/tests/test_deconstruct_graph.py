@@ -214,6 +214,28 @@ def test_aliases_string_coerced():
         p for p in g["places"] if p["label"] == "竹湾渡口")["id"]
 
 
+def test_parent_alias_resolved_to_canonical():
+    """parent 写别名须归一到主名（真机 13路末班车：虎腰山村→虎腰山）。
+
+    未归一：归属边静默置空＋首现继承失配，布局取 id 直接 KeyError → graph_error，
+    整张图谱装配失败（md 照出但三件套全无）。
+    """
+    pm = {"places": [
+        {"name": "虎腰山", "aliases": ["虎腰山村"], "parent": "", "note": ""},
+        {"name": "村头古井", "aliases": [], "parent": "虎腰山村", "note": ""},
+    ], "links": []}
+    cards = {"1": _card("开场", places=[{"name": "村头古井", "parent": "虎腰山村", "note": ""}],
+                        presence=[{"who": "林晚", "where": "村头古井"}])}
+    g = _g(cards=cards, place_merge=pm, chapter_count=1)
+    wid = _lbl_wid(g)
+    parent = next(p for p in g["places"] if p["label"] == "虎腰山")
+    child = next(p for p in g["places"] if p["label"] == "村头古井")
+    assert child["parent"] == parent["id"], "别名 parent 须落主名 id"
+    assert parent["ch"] == 1, "父户无直接引用时经别名 parent 从子代继承首现章"
+    assert not _kinds(g, "place_autocreated"), "别名已并户，不得另立一户"
+    assert set(g["layout"]["scene"]) == set(wid.values())
+
+
 def test_relations_edges_dict_wrapped():
     products = _products()
     products["relations"]["data"]["edges"] = {
