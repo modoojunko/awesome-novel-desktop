@@ -1,0 +1,73 @@
+{
+  "read": {
+    "colEditor": {
+      "x": 280,
+      "y": 92,
+      "w": 860,
+      "h": 782
+    },
+    "editorWrap": {
+      "x": 280,
+      "y": 300,
+      "w": 860,
+      "h": 542
+    },
+    "editor": {
+      "x": 370,
+      "y": 336,
+      "w": 680,
+      "h": 3271
+    },
+    "wrapBg": "rgba(0, 0, 0, 0)",
+    "wrapPadding": "36px 72px 120px",
+    "wrapOverflow": "auto",
+    "colBg": "oklch(0.98 0.004 240)",
+    "editorMaxW": "680px",
+    "editorFont": "\"Noto Serif SC\", \"Songti SC\", STSong, \"Iowan Old Style\", Georgia, serif",
+    "editorSize": "17px",
+    "editorLH": "34px",
+    "editorColor": "oklch(0.2 0.02 240)",
+    "bodyBg": "oklch(0.98 0.004 240)",
+    "scrollH": 3442,
+    "clientH": 542,
+    "viewport": {
+      "w": 1440,
+      "h": 900
+    }
+  },
+  "edit": {
+    "proseBody": {
+      "x": 280,
+      "y": 233,
+      "w": 860,
+      "h": 609
+    },
+    "editBar": {
+      "x": 280,
+      "y": 233,
+      "w": 860,
+      "h": 41
+    },
+    "editorWrap": {
+      "x": 280,
+      "y": 274,
+      "w": 860,
+      "h": 568
+    },
+    "editor": {
+      "x": 370,
+      "y": -2429,
+      "w": 680,
+      "h": 3286
+    },
+    "wrapBg": "oklch(1 0 0)",
+    "wrapBorder": "",
+    "wrapRadius": "10px",
+    "barBg": "oklch(1 0 0)",
+    "barBorder": "1px solid oklch(0.9 0.006 240)",
+    "wrapPadding": "36px 72px",
+    "scrollH": 3358,
+    "clientH": 567,
+    "editorScrollH": 3286
+  }
+}

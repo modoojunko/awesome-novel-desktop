@@ -1,0 +1,230 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>设计原型 · 正文纸张与写字范围 · 2026-10-22</title>
+<!-- ═══════════════════════════════════════════════════════════════
+  设计原型 · 正文纸张（Word 式纸面）· 2026-10-22（真界面基线 v3）
+  · 基线口径：当前真实系统页面。独立栈＝main d4bf73fa + vite:5293 → uvicorn:8103
+    （DATA_ROOT=/tmp/prose-paper-data 私有，端口全冷门），Playwright 真渲染抓取，
+    产物入库 prose-paper-captures/：
+      real.css   全部真实样式（282KB，一字未改）
+      dom-read.html  正文页签·阅读态真实 .app-shell（真顶栏/大纲树/页签/AI 助手/状态条）
+      dom-edit.html  正文页签·编辑态真实 .app-shell（真编辑工具行＋contenteditable 正文）
+      shot-*.png     抓取时截图（评审参照）
+      metrics.json   实测几何（版心 680 / 列 860 / 边距 72+18 / 行高 34）
+    种子书《长夜将尽》第一章，981 字真实正文（真实 API 建书→建卷→建章→写正文）。
+  · 样式：real.css 整体逐字注入（build-prose-paper-proto.py，一字未改）。宿主 DOM
+    逐字注入 <template>；新增件全部运行时 graft（pp- 前缀样式＋节点）。
+  · 本原型只改「正文这一列」的呈现：不动顶栏/大纲树/AI 助手/页签。
+  · 产品口径（本原型主张，待拍板项见设计说明）：
+    ① 三层：桌面（.editor-wrap 底色）→ 纸（.pp-paper 白纸＋纸边距）→ 写字范围
+       （680 版心一圈极淡虚线框，**只在编辑态出现**）；
+    ② **2026-10-22 拍板：纸型＝A 连续纸**——纸随内容长、滚动容器仍是 .editor-wrap
+       （wrapRef/resumeScroll/贴底自动滚都不动）。B 固定纸、C 只标范围两种备选
+       只在设计说明 §4.2 留档，不进原型；
+    ③ 纸边距 ≥ 56px 是硬约束：人味边注（.zq-mark left:-46px）与朱雀色带都住在
+       纸边距里，再窄边注就出纸了；
+    ④ 编辑工具行与正文解耦：不再与正文连体成「一个控件」，工具留在列头、纸是内容；
+    ⑤ **纸色＝白纸（拍板）**，桌面恒中性灰——纸色属于作者偏好，桌面属于界面。
+  · 顶部 pp-bar 为非基线演示控件，产品 UI 不含。
+  · 重放：python3 docs/design-c/drafts/build-prose-paper-proto.py
+    （源模板 → 本文件，幂等；自检 check-prose-paper-proto.py）
+═════════════════════════════════════════════════════════════════ -->
+<style>
+/* ══════════ 真实样式逐字注入（prose-paper-captures/real.css） ══════════ */
+/*__INJECT_STYLE_REAL__*/
+</style>
+<style>
+/* ══════════ 新增 graft 样式（pp- 前缀；颜色只用 oklch / color-mix / 真实 token） ══════════ */
+
+/* ── 原型演示条（非基线元素 · 产品 UI 不含） ── */
+:root { --pp-barh: 44px; }
+.pp-bar { position: sticky; top: 0; z-index: 300; display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
+  height: var(--pp-barh); box-sizing: border-box; padding: 0 16px;
+  background: var(--surface); border-bottom: 1px solid var(--border);
+  font-size: 12px; color: var(--muted); box-shadow: var(--shadow-card); }
+.pp-bar-title { font-family: var(--font-display); font-size: 13.5px; font-weight: 600; color: var(--fg); margin-right: 4px; white-space: nowrap; }
+.pp-bar-title em { font-style: normal; font-family: var(--font-mono); font-size: 10px; letter-spacing: .1em; color: var(--accent-strong); margin-right: 6px; }
+.pp-bar-group { display: flex; align-items: center; gap: 4px; }
+.pp-bar-group .k { font-family: var(--font-mono); font-size: 10px; letter-spacing: .08em; color: var(--faint); margin-right: 1px; }
+.pp-bar-group button { font: inherit; font-size: 12px; height: 26px; padding: 0 11px; border-radius: 999px;
+  border: 1px solid var(--border); background: var(--surface); color: var(--muted); cursor: pointer; white-space: nowrap; }
+.pp-bar-group button:hover { border-color: var(--accent); color: var(--accent-strong); }
+.pp-bar-group button.on { background: var(--accent); border-color: var(--accent); color: var(--on-accent); }
+.pp-bar-note { margin-left: auto; font-size: 11px; line-height: 1.5; text-align: right; max-width: 36vw; }
+
+/* ── 舞台：让出一条 44px 给演示条（.wb 原为 100vh-26px，状态条 fixed 26px） ── */
+.pp-stage {
+  /* 桌面（非纸） */
+  --pp-desk: oklch(94.2% 0.006 240);
+  /* 纸 */
+  --pp-paper: oklch(100% 0 0);
+  --pp-edge: color-mix(in oklch, var(--fg) 10%, transparent);
+  --pp-lift: 0 1px 2px color-mix(in oklch, var(--fg) 7%, transparent),
+             0 18px 44px -14px color-mix(in oklch, var(--fg) 22%, transparent);
+  /* 写字范围：虚线框，只有编辑态画——不仔细看几乎看不见 */
+  --pp-guide: color-mix(in oklch, var(--muted) 18%, transparent);
+  /* 几何：版心 680（真值）+ 纸边距。左右 64 / 上 56 / 下 72 */
+  --pp-measure: 680px;
+  --pp-pm: 64px;
+  --pp-desk-x: 12px;   /* 纸两侧最小桌面缝：窄屏也看得出「纸在桌上」 */
+  --pp-pt: 56px;
+  --pp-pb: 72px;
+}
+.pp-stage .wb { height: calc(100vh - 26px - var(--pp-barh)); }
+.pp-stage .app-shell { min-height: 0; }
+
+/* ── ① 桌面：正文列底色 ── */
+.pp-stage .editor-wrap { padding: 0; background: var(--pp-desk); }
+/* 编辑态原本与工具行连体成「一个控件」（surface 底＋下方圆角＋下边无边框）——
+   上纸之后这层连体语义撤掉：工具行留在列头，纸是内容 */
+.pp-stage .editor-wrap.editing { background: var(--pp-desk); border: none; border-radius: 0; }
+
+/* ── ② 纸 ── */
+.pp-paper { position: relative; box-sizing: border-box;
+  /* 纸宽 = 版心 + 两侧纸边距，但不超过列宽；列窄时先挤纸边距、不挤版心。
+     两条同文本的 inset：--pp-pad-x 的 100% 按「包含块（列）宽」解析，
+     --pp-guide-x 的 100% 按「纸宽」解析 —— 纸满列时两者相等，纸窄于列时各归其位 */
+  /* 800 宽的纸永远留 12px 桌面（纸不进满整列）；列不够时先挤纸边距、再挤版心 */
+  --pp-pad-x: clamp(0px, calc((100% - var(--pp-measure) - 2 * var(--pp-desk-x)) / 2), var(--pp-pm));
+  --pp-guide-x: clamp(0px, calc((100% - var(--pp-measure)) / 2), var(--pp-pm));
+  width: min(calc(var(--pp-measure) + 2 * var(--pp-pm)), calc(100% - 2 * var(--pp-desk-x)));
+  margin: 36px auto 56px;
+  padding: var(--pp-pt) var(--pp-pad-x) var(--pp-pb);
+  background: var(--pp-paper);
+  /* 纸边用 inset 阴影而不是 border：border 会吃掉 2px 内容宽，版心就从 680 变成 678 */
+  box-shadow: inset 0 0 0 1px var(--pp-edge), var(--pp-lift);
+}
+/* 编辑态填屏链照旧传下去：wrap(flex) → 纸 → 编辑宿主 → 正文 */
+.pp-stage .editor-wrap.editing .pp-paper { flex: 1 0 auto; display: flex; flex-direction: column; }
+/* 生成等待行（.gen-line）原本 absolute 挂 .editor-wrap、top:36px 硬编码 wrap 内边距；
+   现在跟着纸的版心首行走 */
+.pp-stage .gen-line { top: var(--pp-pt); width: min(var(--pp-measure), calc(100% - 2 * var(--pp-guide-x))); }
+
+/* ── ③ 写字范围：一个虚线框（左右＋上下四条边，Word「文字边界」的意思）──
+   只在编辑态画；阅读态整框不出现——范围是给「写」的人看的 */
+.pp-frame { position: absolute; pointer-events: none;
+  border: 1px dashed var(--pp-guide); border-radius: 1px; }
+/* 框住纸的写字区，随纸一起滚（纸动框动） */
+.pp-stage .pp-paper > .pp-frame { inset: var(--pp-pt) var(--pp-guide-x) var(--pp-pb); }
+/* 阅读态：整框消失（编辑态才看得见） */
+.pp-stage .editor-wrap:not(.editing) .pp-frame { display: none; }
+
+/* ── 编辑工具行／阅读信息行：留在列头，纸外面 ── */
+.pp-stage .ol-top.edit-bar { background: transparent; border: none; border-bottom: 1px solid var(--border);
+  border-radius: 0; padding: 8px 20px; margin: 0; }
+/* 字数/保存状态条：桌面级的账，不挂在纸上 */
+.pp-stage .editor-status { background: var(--pp-desk); border-top: 1px solid color-mix(in oklch, var(--fg) 7%, transparent); }
+
+/* ── 窄屏：纸边距收窄（真人机 1024 以下三栏会退两栏） ── */
+@media (max-width: 1100px) { .pp-bar-note { display: none; } }
+@media (max-width: 1180px) { .pp-stage { --pp-pm: 48px; } }
+@media (max-width: 980px) { .pp-stage { --pp-pm: 28px; --pp-pt: 40px; --pp-pb: 56px; }
+  .pp-bar-note { display: none; } }
+</style>
+</head>
+<body>
+
+<div class="pp-bar">
+  <span class="pp-bar-title"><em>PROTO</em>正文纸张 · 2026-10-22</span>
+  <span class="pp-bar-group" id="ppMode">
+    <span class="k">状态</span>
+    <button data-mode="read" class="on">阅读态</button>
+    <button data-mode="edit">编辑态</button>
+  </span>
+  <span class="pp-bar-group" id="ppView">
+    <span class="k">视野</span>
+    <button data-focus="0" class="on">标准</button>
+    <button data-focus="1">专注</button>
+  </span>
+  <span class="pp-bar-note" id="ppNote">真界面基线 · main d4bf73fa 实抓。纸/桌面是 graft 层，抓取 DOM 未改动。</span>
+</div>
+
+<div class="pp-stage" id="ppStage"></div>
+
+<template id="host-read"><!--__HOST_READ__--></template>
+<template id="host-edit"><!--__HOST_EDIT__--></template>
+
+<script>
+(function () {
+  var stage = document.getElementById("ppStage");
+  var state = { mode: "read" };
+
+  var NOTES = {
+    read: "A 连续纸 · 白纸：纸随内容长，桌面在两侧与上下纸边距之外；写字范围框只在编辑态出现。",
+    edit: "A 连续纸 · 白纸：编辑态可见写字范围框（1px 虚线，淡到不仔细看看不见）。"
+  };
+
+  /* 写字范围的虚线框：挂在纸上，随纸一起滚（纸动框动） */
+  function placeFrame() {
+    var paper = stage.querySelector(".pp-paper");
+    if (!paper) return;
+    var frame = stage.querySelector(".pp-frame");
+    if (!frame) {
+      frame = document.createElement("span");
+      frame.className = "pp-frame";
+      frame.setAttribute("aria-hidden", "true");
+    }
+    paper.appendChild(frame);
+  }
+
+  /* 把真 DOM 的正文内容收进纸里；抓取的 HTML 本身一个字不改 */
+  function decorate() {
+    var wrap = stage.querySelector(".editor-wrap");
+    if (!wrap) return;
+    if (!wrap.querySelector(".pp-paper")) {
+      var paper = document.createElement("div");
+      paper.className = "pp-paper";
+      while (wrap.firstChild) paper.appendChild(wrap.firstChild);
+      wrap.appendChild(paper);
+    }
+    placeFrame();
+    /* 界面里真实的「专注模式」按钮照原样可点（body.focus 是既有机制） */
+    var fb = stage.querySelector('[title="专注模式"]');
+    if (fb) fb.addEventListener("click", function () { setFocus(!document.body.classList.contains("focus")); });
+  }
+
+  function setFocus(on) {
+    document.body.classList.toggle("focus", on);
+    var box = document.getElementById("ppView");
+    box.querySelectorAll("button").forEach(function (x) {
+      x.classList.toggle("on", (x.getAttribute("data-focus") === "1") === on);
+    });
+  }
+
+  function mount() {
+    var tpl = document.getElementById("host-" + state.mode);
+    stage.replaceChildren(tpl.content.cloneNode(true));
+    decorate();
+  }
+
+  function apply() {
+    placeFrame();
+    document.getElementById("ppNote").textContent = NOTES[state.mode];
+  }
+
+  function group(id, key, attr, after) {
+    var box = document.getElementById(id);
+    box.addEventListener("click", function (e) {
+      var b = e.target.closest("button"); if (!b) return;
+      state[key] = b.getAttribute(attr);
+      box.querySelectorAll("button").forEach(function (x) { x.classList.toggle("on", x === b); });
+      if (key === "mode") mount();
+      apply();
+      if (after) after();
+    });
+  }
+  group("ppMode", "mode", "data-mode");
+  document.getElementById("ppView").addEventListener("click", function (e) {
+    var b = e.target.closest("button"); if (!b) return;
+    setFocus(b.getAttribute("data-focus") === "1");
+  });
+
+  mount();
+  apply();
+})();
+</script>
+</body>
+</html>

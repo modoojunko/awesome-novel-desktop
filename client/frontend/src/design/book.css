@@ -241,20 +241,39 @@
 .readonly-banner { flex: none; display: flex; align-items: center; gap: 9px; padding: 8px 20px; background: var(--fg-soft); color: var(--muted); font-size: 12.5px; border-bottom: 1px solid var(--border); }
 .readonly-banner svg { width: 14px; height: 14px; }
 .readonly-banner b { color: var(--fg); font-weight: 500; }
-.editor-wrap { flex: 1; min-height: 0; overflow-y: auto; padding: 36px clamp(24px, 6vw, 72px) 120px; }
-/* 编辑框（c-prose-edit-affordance / c-prose-edit-toolbar）：顶条与正文区连体成一个控件。
-   顶条=上圆角条（无下边），正文区=下圆角内容区（无上边）；同为 panel 底色（可编辑容器语义）。 */
+.col-editor {
+  /* ── 正文纸面（c-prose-paper）：正文列分三层——桌面（.editor-wrap 底色）／纸（.prose-paper）／
+     写字范围（680 版心＋编辑态虚线框）。令牌挂在列作用域：桌面与底部状态条是兄弟节点，
+     两者都吃这一套。── */
+  --paper-desk: oklch(94.2% 0.006 240);
+  --paper-bg: oklch(100% 0 0);
+  --paper-edge: color-mix(in oklch, var(--fg) 10%, transparent);
+  --paper-lift: 0 1px 2px color-mix(in oklch, var(--fg) 7%, transparent),
+                0 18px 44px -14px color-mix(in oklch, var(--fg) 22%, transparent);
+  /* 写字范围框：1px 虚线、极淡——只在编辑态画（阅读态整框 display:none） */
+  --paper-guide: color-mix(in oklch, var(--muted) 18%, transparent);
+  --paper-measure: 680px;   /* 版心（设计常量，不随纸边距变） */
+  --paper-pm: 64px;         /* 纸边距上限（左右；宽屏值） */
+  --paper-pm-min: 20px;     /* 纸边距下限：低于它正文就贴纸边了，宁可让版心让路 */
+  --paper-desk-x: 12px;     /* 纸两侧最小桌面缝：窄列也看得出「纸在桌上」 */
+  --paper-pt: 56px;         /* 纸边距（上） */
+  --paper-pb: 72px;         /* 纸边距（下） */
+}
+.editor-wrap { flex: 1; min-height: 0; overflow-y: auto; padding: 0; background: var(--paper-desk); }
+/* 编辑态（c-prose-paper 起）：工具行与正文**不再连体**——工具行贴中栏列头，
+   纸是内容；纸自己的白面与纸边投影承担「可编辑书写面」的语义（查看态无工具行、
+   无写字范围框，两态仍一眼可辨）。 */
 .editor-wrap.editing {
-  background: var(--surface);
-  border: 1px solid var(--border);
-  border-top: none;
-  border-radius: 0 0 10px 10px;
+  background: var(--paper-desk);
+  border: none;
+  border-radius: 0;
 }
 /* 编辑态填屏（10-08 用户反馈）：编辑列原本随内容高，呼吸框下面大片留白。
    编辑态把编辑列撑满滚动区剩余高度（wrap→host→editor 逐级 flex 传下去），
    内容超出时 flex-basis=auto 照常滚动；底部留白收到与顶对称。
    查看态不加（阅读面随文走）；[hidden] 有 base.css !important 守卫。 */
 .editor-wrap.editing { display: flex; flex-direction: column; padding-bottom: 36px; }
+.editor-wrap.editing > .prose-paper { flex: 1 0 auto; display: flex; flex-direction: column; }
 .editor-wrap.editing .editor-host { flex: 1 0 auto; display: flex; flex-direction: column; }
 /* width:100% 钉版心宽（10-09 用户反馈）：.editor 的 margin-inline:auto 在 flex
    交叉轴上会让 align-items:stretch 失效、宽度退化成 fit-content——空章生成时
@@ -263,14 +282,36 @@
 .editor-wrap.editing .editor-host .editor { flex: 1 0 auto; width: 100%; }
 .ol-top.edit-bar {
   margin: 0;
-  padding: 6px 10px;
-  background: var(--surface);
-  border: 1px solid var(--border);
-  border-bottom: none;
-  border-radius: 10px 10px 0 0;
+  padding: 8px 20px;
+  background: transparent;
+  border: none;
+  border-bottom: 1px solid var(--border);
+  border-radius: 0;
 }
 .ol-top.edit-bar .tool-seg { display: inline-flex; align-items: center; gap: 2px; }
 .ol-top.edit-bar .icon-btn { width: 28px; height: 28px; }
+/* ═══ 纸（c-prose-paper）═══════════════════════════════════════════════════
+   纸宽＝版心＋两侧纸边距，但不超过「列宽 − 2×最小桌面缝」；列窄时先挤纸边距、
+   挤到下限（20px，再挤正文就贴纸边了）之后才让版心让路。
+   ⚠ 两条同文本的 clamp 基准不同：--paper-pad-x 的 100% 按包含块（列）宽解析
+   （用在 padding 上），--paper-guide-x 的 100% 按纸自身盒宽解析（用在 inset/
+   背景位置上）——纸满列时两者相等，纸窄于列时各归其位。改一条必须两条一起改。 */
+.prose-paper {
+  position: relative; box-sizing: border-box;
+  --paper-pad-x: clamp(var(--paper-pm-min), calc((100% - var(--paper-measure) - 2 * var(--paper-desk-x)) / 2), var(--paper-pm));
+  --paper-guide-x: clamp(var(--paper-pm-min), calc((100% - var(--paper-measure)) / 2), var(--paper-pm));
+  width: min(calc(var(--paper-measure) + 2 * var(--paper-pm)), calc(100% - 2 * var(--paper-desk-x)));
+  margin: 36px auto 56px;
+  padding: var(--paper-pt) var(--paper-pad-x) var(--paper-pb);
+  background: var(--paper-bg);
+  /* 纸边用 inset 阴影而不是 border：border 会吃掉 2px 内容宽，版心从 680 变 678 */
+  box-shadow: inset 0 0 0 1px var(--paper-edge), var(--paper-lift);
+}
+/* 写字范围框（c-prose-paper）：装饰层，不参与交互；四边由 inset 给出 */
+.prose-frame { position: absolute; inset: var(--paper-pt) var(--paper-guide-x) var(--paper-pb);
+  border: 1px dashed var(--paper-guide); border-radius: 1px; pointer-events: none; }
+.editor-wrap:not(.editing) .prose-frame { display: none; }
+
 .editor { max-width: 680px; margin-inline: auto; outline: none; font-family: var(--font-display); font-size: 17px; line-height: 2.0; color: var(--fg); --zq-lh: 2; } /* --zq-lh＝朱雀带周期系数，与行高同源声明（unitless 继承到段上按本段字号 calc） */
 .editor.fs-s { font-size: 15px; } .editor.fs-m { font-size: 17px; } .editor.fs-l { font-size: 19px; }
 .editor.lh-tight { line-height: 1.8; --zq-lh: 1.8; } .editor.lh-comfy { line-height: 2.0; --zq-lh: 2; } .editor.lh-loose { line-height: 2.2; --zq-lh: 2.2; }
@@ -288,7 +329,9 @@
    纯 box-shadow 不位移布局——流式写作仍在 680 版心，位置不变 */
 .editor.generating { cursor: progress; }
 .prose-body { display: flex; flex-direction: column; flex: 1 1 auto; min-height: 0; }
-.prose-body.generating { animation: stream-breath 2s ease-in-out infinite; border-radius: 10px; }
+/* 呼吸灯环**纸**（c-prose-paper）：上纸后若仍环 .prose-body，环会落在桌面上
+   （纸两侧与上沿），看起来像界面在闪而不是正文在写。 */
+.prose-body.generating .prose-paper { animation: stream-breath 2s ease-in-out infinite; border-radius: 3px; }
 @keyframes stream-breath {
   0%, 100% { box-shadow: 0 0 0 1px color-mix(in oklch, var(--accent) 18%, transparent), 0 0 14px color-mix(in oklch, var(--accent) 6%, transparent); }
   50% { box-shadow: 0 0 0 1px color-mix(in oklch, var(--accent) 55%, transparent), 0 0 28px color-mix(in oklch, var(--accent) 20%, transparent); }
@@ -297,7 +340,9 @@
    落在正文版心首行位置（与正文同字体同缩进），不进文档；行内文案＋accent 闪烁光标＋浅字尾注。
    .editor-wrap 作定位基准：行内呈现随内容区（版心首行）对齐，不受工具行高度影响 */
 .editor-wrap { position: relative; }
-.gen-line { position: absolute; top: 36px; left: 50%; transform: translateX(-50%); width: min(680px, calc(100% - 48px)); pointer-events: none; z-index: 6; }
+/* 生成等待行（c-prose-gen-phases）：随内容一起进纸——定位基准由 .editor-wrap 变成纸，
+   `top` 就是纸的上内边距（原 36px 魔数是 wrap 的内边距，已随上纸退役）。 */
+.gen-line { position: absolute; top: var(--paper-pt); left: 50%; transform: translateX(-50%); width: min(var(--paper-measure), calc(100% - 2 * var(--paper-guide-x))); pointer-events: none; z-index: 6; }
 .gen-line .gl-main { margin: 0; font-family: var(--font-display); font-size: 17px; line-height: 2; color: var(--muted); text-indent: 2em; }
 .gen-line .gl-text { animation: gl-fade 0.22s ease; }
 /* 等首字秒表（c-prose-thinking-timeout 顺带）：弱化＋等宽数字，秒跳不抖行 */
@@ -351,7 +396,7 @@
 .col-tree.ai-lock .tree, .col-tree.ai-lock .tree-head, .col-tree.ai-lock .tree-foot, .col-tree.ai-lock .tree-add { opacity: 0.55; }
 .col-tree.ai-lock .vol-head, .col-tree.ai-lock .ch { cursor: not-allowed; }
 .col-tree.ai-lock .vol-head:hover, .col-tree.ai-lock .ch:hover { background: transparent; }
-.editor-status { flex: none; display: flex; align-items: center; gap: 14px; height: 32px; padding: 0 18px; border-top: 1px solid var(--border); background: var(--surface); font-size: 12px; color: var(--muted); }
+.editor-status { flex: none; display: flex; align-items: center; gap: 14px; height: 32px; padding: 0 18px; border-top: 1px solid color-mix(in oklch, var(--fg) 7%, transparent); background: var(--paper-desk); font-size: 12px; color: var(--muted); }
 .editor-status .right { margin-left: auto; display: inline-flex; align-items: center; gap: 14px; }
 .save-state { display: inline-flex; align-items: center; gap: 6px; }
 .save-state svg { width: 13px; height: 13px; }
@@ -2129,7 +2174,9 @@ button.dep-row:hover{background:var(--hl)}
 
 /* 边注模式：正文位置/宽度不变；朱雀判定章左移到左边距；覆盖层在滚动容器内 */
 .editor-wrap.rw-margin { position: relative; overflow-x: hidden; }
-.editor-wrap.rw-margin .zq-mark { right: auto; left: -46px; }
+.editor-wrap.rw-margin .zq-mark { right: auto; left: calc(-1 * min(46px, var(--paper-gutter, 46px))); }
+/* 纸边距塌到没有（窄列）时边注无处可放：整旗隐藏，段落底色（rw-mark）仍在 */
+.editor-wrap.rw-margin .prose-paper[data-gutter-tight] .zq-mark { display: none; }
 .rw-marginlayer { position: absolute; inset: 0; pointer-events: none; z-index: 5;
   /* 边注列左缘＝正文右缘＋16px（JS 按实测正文栏覆盖，窗口/栏宽变化自动跟随）；
      默认值按正文 680 居中推算，脚本未跑前也不把边注甩到窗口最右。 */

@@ -130,7 +130,14 @@
   }
   @media (max-width: 640px) { .view.on.two-col { grid-template-columns: 1fr; grid-template-rows: 240px 1fr; } .view.on.two-col .col-tree { border-right: 0; border-bottom: 1px solid var(--border); } }
   .col-tree { min-height: 0; overflow-y: auto; border-right: 1px solid var(--border); background: var(--bg); padding-bottom: 24px; }
-  .col-editor { min-height: 0; display: flex; flex-direction: column; background: var(--bg); }
+  .col-editor { min-height: 0; display: flex; flex-direction: column; background: var(--bg);
+    /* 正文纸面（c-prose-paper）：桌面／纸／写字范围三层；与 book.css 同值 */
+    --paper-desk: oklch(94.2% 0.006 240); --paper-bg: oklch(100% 0 0);
+    --paper-edge: color-mix(in oklch, var(--fg) 10%, transparent);
+    --paper-lift: 0 1px 2px color-mix(in oklch, var(--fg) 7%, transparent), 0 18px 44px -14px color-mix(in oklch, var(--fg) 22%, transparent);
+    --paper-guide: color-mix(in oklch, var(--muted) 18%, transparent);
+    --paper-measure: 680px; --paper-pm: 64px; --paper-pm-min: 20px; --paper-desk-x: 12px;
+    --paper-pt: 56px; --paper-pb: 72px; }
   /* 大纲视图中间列：卷选中显示卷纲面板，章选中显示章对象工作台（二者其一） */
   .col-middle { min-height: 0; display: flex; flex-direction: column; background: var(--bg); }
   .col-middle > .col-panel, .col-middle > .col-editor { flex: 1; min-height: 0; }
@@ -195,7 +202,17 @@
   .readonly-banner { flex: none; display: flex; align-items: center; gap: 9px; padding: 8px 20px; background: var(--fg-soft); color: var(--muted); font-size: 12.5px; border-bottom: 1px solid var(--border); }
   .readonly-banner svg { width: 14px; height: 14px; }
   .readonly-banner b { color: var(--fg); font-weight: 500; }
-  .editor-wrap { flex: 1; min-height: 0; overflow-y: auto; padding: 36px clamp(24px, 6vw, 72px) 120px; }
+  .editor-wrap { flex: 1; min-height: 0; overflow-y: auto; padding: 0; background: var(--paper-desk); }
+  .prose-paper { position: relative; box-sizing: border-box;
+    --paper-pad-x: clamp(var(--paper-pm-min), calc((100% - var(--paper-measure) - 2 * var(--paper-desk-x)) / 2), var(--paper-pm));
+    --paper-guide-x: clamp(var(--paper-pm-min), calc((100% - var(--paper-measure)) / 2), var(--paper-pm));
+    width: min(calc(var(--paper-measure) + 2 * var(--paper-pm)), calc(100% - 2 * var(--paper-desk-x)));
+    margin: 36px auto 56px; padding: var(--paper-pt) var(--paper-pad-x) var(--paper-pb);
+    background: var(--paper-bg);
+    box-shadow: inset 0 0 0 1px var(--paper-edge), var(--paper-lift); }
+  .prose-frame { position: absolute; inset: var(--paper-pt) var(--paper-guide-x) var(--paper-pb);
+    border: 1px dashed var(--paper-guide); border-radius: 1px; pointer-events: none; display: none; }
+  .editor-wrap.editing .prose-frame { display: block; }
   .editor { max-width: 680px; margin-inline: auto; outline: none; font-family: var(--font-display); font-size: 17px; line-height: 2.0; color: var(--fg); --zq-lh: 2; } /* --zq-lh＝朱雀带周期系数，与行高同源声明（unitless 继承到段上按本段字号 calc） */
   .editor.fs-s { font-size: 15px; } .editor.fs-m { font-size: 17px; } .editor.fs-l { font-size: 19px; }
   .editor.lh-tight { line-height: 1.8; --zq-lh: 1.8; } .editor.lh-comfy { line-height: 2.0; --zq-lh: 2; } .editor.lh-loose { line-height: 2.2; --zq-lh: 2.2; }
@@ -214,18 +231,18 @@
   .editor-wrap.awaiting .editor:empty::before,
   .editor-wrap.awaiting .editor.generating:empty::before,
   .editor-wrap.generating .editor:empty::before { content: none; }   /* 等待/生成期占位退场 */
-  .editor-wrap.generating { animation: stream-breath 2s ease-in-out infinite; border-radius: 10px; }
+  .editor-wrap.generating .prose-paper { animation: stream-breath 2s ease-in-out infinite; border-radius: 3px; }
   @keyframes stream-breath {
     0%, 100% { box-shadow: 0 0 0 1px color-mix(in oklch, var(--accent) 18%, transparent), 0 0 14px color-mix(in oklch, var(--accent) 6%, transparent); }
     50% { box-shadow: 0 0 0 1px color-mix(in oklch, var(--accent) 55%, transparent), 0 0 28px color-mix(in oklch, var(--accent) 20%, transparent); }
   }
-  .gen-line { position: absolute; top: 36px; left: 50%; transform: translateX(-50%); width: min(680px, calc(100% - 48px)); pointer-events: none; z-index: 6; }
+  .gen-line { position: absolute; top: var(--paper-pt); left: 50%; transform: translateX(-50%); width: min(var(--paper-measure), calc(100% - 2 * var(--paper-guide-x))); pointer-events: none; z-index: 6; }
   .gen-line .gl-main { margin: 0; font-family: var(--font-display); font-size: 17px; line-height: 2; color: var(--muted); text-indent: 2em; transition: opacity .16s ease; }
   .gen-line .gl-main.swap { opacity: 0; }
   .gen-line .gl-caret { display: inline-block; width: 2px; height: 1em; margin-left: 3px; vertical-align: -0.14em; background: var(--accent); animation: gl-blink 1.06s steps(1, end) infinite; }
   @keyframes gl-blink { 0%, 55% { opacity: 1; } 55.01%, 100% { opacity: 0; } }
   .gen-line .gl-note { margin: 4px 0 0; font-size: 12px; line-height: 1.7; color: var(--muted); opacity: .72; text-indent: 2em; }
-  .editor-status { flex: none; display: flex; align-items: center; gap: 14px; height: 32px; padding: 0 18px; border-top: 1px solid var(--border); background: var(--surface); font-size: 12px; color: var(--muted); }
+  .editor-status { flex: none; display: flex; align-items: center; gap: 14px; height: 32px; padding: 0 18px; border-top: 1px solid color-mix(in oklch, var(--fg) 7%, transparent); background: var(--paper-desk); font-size: 12px; color: var(--muted); }
   .editor-status .right { margin-left: auto; display: inline-flex; align-items: center; gap: 14px; }
   .save-state { display: inline-flex; align-items: center; gap: 6px; }
   .save-state svg { width: 13px; height: 13px; }
@@ -1078,12 +1095,15 @@
         <button class="btn btn-ghost btn-sm" id="unarchiveBtn">恢复编辑</button>
       </div>
       <div class="editor-wrap" id="editorWrap">
+        <div class="prose-paper">
+        <span class="prose-frame" aria-hidden="true"></span>
         <!-- 生成等待呈现（首字前，无框行内；阶段推进由服务端事件驱动，演示按节拍模拟） -->
         <div class="gen-line" id="genLine" hidden>
           <p class="gl-main"><span class="gl-text">正在准备本章素材</span><i class="gl-caret"></i></p>
           <p class="gl-note">通常要半分钟到一分钟；期间可点「停止」。</p>
         </div>
         <div class="editor fs-m lh-comfy" id="editor" contenteditable="true" data-placeholder="从这一章开始写……"></div>
+        </div>
       </div>
       <div class="og-pane" id="ogPane" hidden></div>
       <div class="prompt-pane" id="promptPane" hidden></div>
