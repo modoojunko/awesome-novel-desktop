@@ -778,7 +778,11 @@ const ProsePane = forwardRef<ProseHandle, ProsePaneProps>(function ProsePane(
           setThinkPanel(true);
           if (!thinkModel && !thinkModelFetchedRef.current) {
             thinkModelFetchedRef.current = true;
-            void fetchEffectiveModel(projectId).then((m) => m && setThinkModel(m));
+            // 按次模型（c-prose-model-select）：弹窗换过模型时，面板必须显示本次
+            // 实际调用的模型——/ai-model 只是本书模型，此时取它必错
+            const picked = lastModelSelRef.current?.model;
+            if (picked) setThinkModel(picked);
+            else void fetchEffectiveModel(projectId).then((m) => m && setThinkModel(m));
           }
           if (thinkFlushRef.current == null) {
             thinkFlushRef.current = window.setTimeout(() => {
