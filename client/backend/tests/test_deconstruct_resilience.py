@@ -1074,3 +1074,38 @@ def test_vendor_caps_deepseek_documented_values():
     assert caps_mod.merge_max_tokens(glm) == 32_768
     from deconstruct.pipeline import _card_batch_size as _cbs
     assert _cbs(glm) == 16
+
+
+def test_vendor_caps_minimax_m31_flash():
+    """MiniMax M3 族进能力表（2026-10-22 查证：官方 1M 上下文）。
+
+    官方未公布单次输出上限，能力表取保守地板 32K——归并/合批据此放大到封顶，
+    不再落保守默认的 8192（否则 reduce 顶层合并必截）。键收窄到 `minimax-m3`：
+    三种 M3 写法（OpenCode Go 小写 / MiniMax 官方驼峰 / 裸 m3）都命中，M2 系
+    （M2/M2.5/M2.7，上下文小于 1M）继续落保守默认，不跟着放大。
+    """
+    from deconstruct import capabilities as caps_mod
+
+    for vendor, model in (
+        ("opencode-go-chat", "minimax-m3.1-flash-free"),
+        ("openai-compat", "MiniMax-M3.1-Flash"),
+        ("opencode-go-claude", "minimax-m3"),
+    ):
+        caps = caps_mod.caps_for(vendor=vendor, model=model)
+        assert caps.source == "known", (vendor, model)
+        assert caps.context_window == 1_000_000
+        assert caps.max_output_tokens == 32_768
+        # 归并输出＝usable(0.75×32K)；合批按「merge 预算×0.75」折算＝12 章
+        assert caps_mod.merge_max_tokens(caps) == 24_576
+        assert caps_mod.input_budget_chars(caps) > 300_000
+
+    from deconstruct.pipeline import _card_batch_size
+
+    m31 = caps_mod.caps_for(vendor="opencode-go-chat", model="minimax-m3.1-flash-free")
+    assert _card_batch_size(m31) == 12
+    # M2 系不命中 M3 族键：保守默认不变（1M 上下文只属于 M3/M3.1）
+    for model in ("MiniMax-M2", "MiniMax-M2.5-highspeed", "MiniMax-M2.7"):
+        m2 = caps_mod.caps_for(vendor="openai-compat", model=model)
+        assert m2.source == "conservative", model
+        assert m2 == caps_mod.DEFAULT_CAPS
+        assert _card_batch_size(m2) == 1

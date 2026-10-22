@@ -29,6 +29,19 @@ def test_new_vendor_ids_in_whitelist():
         assert v in KNOWN_VENDORS
 
 
+def test_opencode_go_candidates_cover_minimax_m31_flash():
+    """拆书可直接选用的 MiniMax 模型 id 必须在候选清单里（官方清单 2026-10-22）。
+
+    M3.1 Flash 走 Go·通用（OpenAI 格式）口，官方 id 带 -free 后缀；Go·Claude 系
+    走 anthropic 口，登记的是 minimax-m3——两口各留各的，不混投（混投会探针失败）。
+    """
+    from api_configs.connection import VENDOR_MODEL_CANDIDATES as C
+
+    assert "minimax-m3.1-flash-free" in C["opencode-go-chat"]
+    assert "minimax-m3" in C["opencode-go-claude"]
+    assert "minimax-m3.1-flash-free" not in C["opencode-go-claude"]
+
+
 def test_detect_gemini_official_compat_base():
     vp = detect_vendor("https://generativelanguage.googleapis.com/v1beta/openai/")
     assert vp is not None and vp.vendor_id == "gemini"

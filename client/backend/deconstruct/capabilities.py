@@ -48,6 +48,12 @@ _VENDOR_KNOWN = {
     # glm 同上教训（2026-10 查证 docs.bigmodel.cn：GLM-5.3 上下文 1M／输出 128K；
     # GLM-5 家族 200K/128K）。取家族地板 200K/128K，flash 变体差异由超限拆半自愈兜底。
     "glm": ModelCaps(200_000, 131_072, source="known"),
+    # minimax M3 族（2026-10-22 查证 platform.minimax.cn：M3.1-Flash／M3 均为 1M 上下文；
+    # 官方未公布单次输出上限，取保守地板 32K——拆书归并与卡批封顶同值，宁小勿大，
+    # 真实上限更低时由 400/截断拆半自愈兜底）。键收窄到 `minimax-m3`：命中
+    # `minimax-m3`／`minimax-m3.1-flash-free`／`MiniMax-M3.1-Flash`，而 M2 系
+    # （M2/M2.5/M2.7，上下文远小于 1M，含自托管接入）继续落保守默认。
+    "minimax-m3": ModelCaps(1_000_000, 32_768, source="known"),
 }
 
 
