@@ -69,6 +69,7 @@
   /* 几何：版心 680（真值）+ 纸边距。左右 64 / 上 56 / 下 72 */
   --pp-measure: 680px;
   --pp-pm: 64px;
+  --pp-pm-min: 20px;   /* 纸边距下限：低于它正文就贴纸边了，宁可让版心让路 */
   --pp-desk-x: 12px;   /* 纸两侧最小桌面缝：窄屏也看得出「纸在桌上」 */
   --pp-pt: 56px;
   --pp-pb: 72px;
@@ -88,8 +89,8 @@
      两条同文本的 inset：--pp-pad-x 的 100% 按「包含块（列）宽」解析，
      --pp-guide-x 的 100% 按「纸宽」解析 —— 纸满列时两者相等，纸窄于列时各归其位 */
   /* 800 宽的纸永远留 12px 桌面（纸不进满整列）；列不够时先挤纸边距、再挤版心 */
-  --pp-pad-x: clamp(0px, calc((100% - var(--pp-measure) - 2 * var(--pp-desk-x)) / 2), var(--pp-pm));
-  --pp-guide-x: clamp(0px, calc((100% - var(--pp-measure)) / 2), var(--pp-pm));
+  --pp-pad-x: clamp(var(--pp-pm-min), calc((100% - var(--pp-measure) - 2 * var(--pp-desk-x)) / 2), var(--pp-pm));
+  --pp-guide-x: clamp(var(--pp-pm-min), calc((100% - var(--pp-measure)) / 2), var(--pp-pm));
   width: min(calc(var(--pp-measure) + 2 * var(--pp-pm)), calc(100% - 2 * var(--pp-desk-x)));
   margin: 36px auto 56px;
   padding: var(--pp-pt) var(--pp-pad-x) var(--pp-pb);
