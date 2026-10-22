@@ -6,6 +6,7 @@
 import asyncio
 import json
 import os
+import re
 import tempfile
 
 import pytest
@@ -215,6 +216,7 @@ def test_import_book_idempotent_and_clamps(client):
     r2 = client.post("/api/deconstruct/tasks/dec-imp-1/import-book")
     assert r2.status_code == 200
     assert r2.json()["book_id"] == body["book_id"]  # 幂等：同一本书
+    assert any("幂等返回" in w for w in r2.json()["warnings"])
 
     # 建书内容抽查：书存在、世界 factions 已 clamp、伏笔章号入文本、主线 fullstory 非空
     async def _check():
@@ -1374,3 +1376,175 @@ def test_render_md_style_role_label():
     )
     assert "\n## 叙事身份\n" in md
     assert "\n## 定位\n" not in md
+
+
+def test_import_all_dimensions_contract_safe(client, monkeypatch):
+    """全维度建书契约：多主角/同对多关系不中断；证据不进设定；丢字段有映射或留痕。"""
+    from deconstruct import apply as apply_mod
+
+    async def _no_condense(task, body, warnings):
+        warnings.append("verify: skip condense")
+
+    monkeypatch.setattr(apply_mod, "_condense_world", _no_condense)
+
+    products = {
+        "intro": _product("intro", "简介.md", {
+            "intro": "公交司机李耀被强派夜班（第1章—第258章）。",
+        }, "# 简介"),
+        "genre": _product("genre", "题材.md", {
+            "genre": "灵异志怪",
+            "tags": ["灵异"],
+            "promise": "带读者进入鬼怪世界（第1、10章）。",
+        }, "# 题材"),
+        "world": _product("world", "世界设定.md", {
+            "no_power": "有超凡设定",
+            "stage": "北方某市（第1章）",
+            "power": [{"name": "鬼魂", "rule": "人死后成鬼（第45章）"}],
+            "cost": [{"name": "绑定", "rule": "离开即死（第20章）"}],
+            "history": [{"name": "旧案", "note": "三任司机出事（第1章），confidence: low，note: 分歧"}],
+            "factions": [{"name": "公交公司", "note": "队长强派（第1章）"}],
+            "constraints": [{"name": "必须开车", "note": "不能辞职（第20章）"}],
+            "extra": [{"key": "13路", "value": "夜班郊区线（第4章）"}],
+        }, "# 世界设定"),
+        "mainplot": _product("mainplot", "主线剧情.md", {
+            "fullstory": "李耀被强派夜班（第1-3章），一路查到真相（第258章）。",
+            "ending": {"scene": "末班车驶向黎明（第258章）", "hero": "原文未明确", "tone": "开放"},
+        }, "# 主线"),
+        "style": _product("style", "写作文风.md", {
+            "role": "第一人称限知叙述（第1章）",
+            "rules": [{"name": "短句急收", "how": "惊悚段用短句加速，如第10、71章"}],
+            "craft": [{"name": "反差写法", "how": "轻松段与惊悚段对照，如第3章"}],
+            "examples": [
+                {"example": "我心里一紧。", "evidence_ch": "第2章"},
+                {"example": "他脚下没有影子。", "evidence_ch": "第75章"},
+            ],
+            "taboo": [{"name": "全知视角", "how": "始终锁在第一人称限知，原文未明确反例"}],
+        }, "# 文风"),
+        "characters": _product("characters", "角色设定.md", {"characters": [
+            {"name": "李耀", "aliases": ["小李"], "role": "主角", "persona": "夜班司机",
+             "background": "原文未明确", "plot": "被强派开末班车（第1章）", "evidence_ch": "第1章"},
+            {"name": "老吴", "aliases": ["吴队"], "role": "主角", "persona": "队长",
+             "background": "公交公司队长", "plot": "强派李耀开车（第1章）", "evidence_ch": "第1章"},
+            {"name": "白帆", "aliases": [], "role": "核心", "persona": "HR",
+             "background": "六叔孙女", "plot": "与李耀相识（第3章）", "evidence_ch": "第3章"},
+        ]}, "# 角色"),
+        "relations": _product("relations", "人物关系.md", {"edges": [
+            {"from": "李耀", "to": "老吴", "rel_type": "同僚", "stance": "服从但怀疑",
+             "note": "强派开车（第1章）", "evidence_ch": "第1章"},
+            {"from": "小李", "to": "吴队", "rel_type": "恩义", "stance": "求助后信任破裂",
+             "note": "多次指路（第2章）", "evidence_ch": "第2章"},
+        ]}, "# 关系"),
+        "structure": _product("structure", "章卷结构.md", {"volumes": [
+            {"title": "原文未明确（材料仅见第1-258章未分卷）", "ch_range": "第1-258章"},
+        ]}, "# 章卷"),
+        "foreshadow": _product("foreshadow", "伏笔.md", {"hooks": [
+            {"desc": "三任司机冲水库（第1章）", "note": "取档案见日期都是十五（第10章）",
+             "type": "mystery", "priority": "high", "plant_ch": 1, "payoff_ch": 10,
+             "status": "paid", "confidence": "high"},
+        ]}, "# 伏笔"),
+        "techniques": _product("techniques", "写作技法.md", {
+            "techniques": [{
+                "name": "身份悬念翻转",
+                "repro_steps": ["让读者以为某角色是活人（第3章）", "用第三方证词翻转（第6章）"],
+                "emotion_chain": ["怀疑", "惊悚", "反转快感"],
+            }],
+            "borrowable": [{"item": "开篇用门卫惊恐定格收章（第1章）"}],
+            "avoid": [{"item": "靠第三方转告交付关键信息（第164章）"}],
+            "reader_needs": [{"need": "身份悬念", "how": "层层翻转"}],
+        }, "# 技法"),
+    }
+    _mk_completed("dec-contract-all", products, book_name="契约书")
+    r = client.post(
+        "/api/deconstruct/tasks/dec-contract-all/import-book",
+        json={"items": list(apply_mod.IMPORT_ITEM_KEYS)},
+    )
+    assert r.status_code == 200, r.text
+    body = r.json()
+    bid = body["book_id"]
+    warnings = body["warnings"]
+    assert any("2 个主角" in w for w in warnings)
+    assert any("关系边按角色对合并" in w for w in warnings)
+
+    async def _check():
+        from sqlalchemy import select
+
+        from filesystem.paths import KEY_TO_PATH
+        from filesystem.storage import get_storage
+        from models.character import Character, CharacterRelation
+        from models.hook import NovelHook
+        from models.novel_genre import NovelGenre
+        from models.project import Novel
+        from models.volume import Volume
+        from settings.style_model import read_style
+
+        async with async_session() as s:
+            n = await s.get(Novel, bid)
+            chars = (await s.execute(select(Character).where(Character.novel_id == bid))).scalars().all()
+            rels = (await s.execute(select(CharacterRelation).where(CharacterRelation.novel_id == bid))).scalars().all()
+            vols = (await s.execute(select(Volume).where(Volume.project_id == bid))).scalars().all()
+            hooks = (await s.execute(select(NovelHook).where(NovelHook.novel_id == bid))).scalars().all()
+            ng = await s.get(NovelGenre, bid)
+        storage = get_storage()
+        story = await storage.read_yaml(n.root_path, KEY_TO_PATH["story"])
+        world = await storage.read_yaml(n.root_path, KEY_TO_PATH["world"])
+        style = read_style(await storage.read_yaml(n.root_path, KEY_TO_PATH["style"]))
+        return story, world, style, chars, rels, vols, hooks, ng
+
+    story, world, style, chars, rels, vols, hooks, ng = _run(_check())
+
+    # 题材/简介
+    assert story["genre"] == "灵异志怪"
+    assert story["synopsis"] == "公交司机李耀被强派夜班。"
+    assert ng is not None and ng.promise_note == "带读者进入鬼怪世界。"
+
+    # 世界：extra 形状修好；自由文本无证据/confidence
+    assert world["extra"] == [{"key": "13路", "value": "夜班郊区线"}]
+    assert world["power"] == "鬼魂：人死后成鬼"
+    assert world["history"][0]["value"] == "三任司机出事"
+    assert "confidence" not in world["history"][0]["value"]
+
+    # 主线
+    assert story["story_arc"]["fullstory"] == "李耀被强派夜班，一路查到真相。"
+    assert story["story_arc"]["ending"] == {"scene": "末班车驶向黎明", "hero": "", "tone": "开放"}
+
+    # 角色：多主角降级；plot 保留一条 evidence，其余格不留原文未明确
+    roles = {c.name: c.role for c in chars}
+    assert roles["李耀"] == "主角" and roles["老吴"] == "配角" and roles["白帆"] == "配角"
+    dossier = json.loads(chars[0].dossier)
+    assert dossier.get("background", "") == ""
+    assert dossier["plot"].endswith("（第1章）")
+    assert "（第1章）" not in dossier["plot"].removesuffix("（第1章）")
+
+    # 关系：同对多关系合并成一条，ch_ref 保留证据
+    assert len(rels) == 1
+    assert rels[0].rel_type == "同僚、恩义"
+    assert rels[0].ch_ref == "第1章、第2章"
+    assert "强派开车" in rels[0].note and "多次指路" in rels[0].note
+
+    # 文风：三区/例句/taboo；自由文本无证据
+    assert style["role"] == "第一人称限知叙述"
+    assert "短句急收：惊悚段用短句加速" in style["rules"]
+    assert "避免全知视角：始终锁在第一人称限知" in style["rules"]
+    assert "反差写法：轻松段与惊悚段对照" in style["craft"]
+    assert style["few_shot_examples"] == ["我心里一紧。", "他脚下没有影子。"]
+    artifact = re.compile(
+        r"(?:【[^】]{0,50}章】|[（(][^）)]*第\s*[0-9][0-9,，、\-—~～至\s]*章[^）)]*[）)]"
+        r"|第\s*[0-9][0-9,，、\-—~～至\s]*章|原文未明确|confidence|evidence_ch)",
+        re.IGNORECASE,
+    )
+    for text in [style["role"], *style["rules"], *style["craft"], *style["few_shot_examples"]]:
+        assert artifact.search(text) is None, text
+
+    # 技法：repro_steps 组成 how；borrowable→craft；avoid→rules
+    assert any(r.startswith("身份悬念翻转：让读者以为某角色是活人") for r in style["rules"])
+    assert any("情绪链：怀疑→惊悚→反转快感" in r for r in style["rules"])
+    assert "开篇用门卫惊恐定格收章" in style["craft"]
+    assert any(r.startswith("避免：靠第三方转告") for r in style["rules"])
+
+    # 章卷：原文未明确的标题交给服务端兜底
+    assert len(vols) == 1 and vols[0].title == "第1卷" and vols[0].summary == "第1-258章"
+
+    # 伏笔：note 并入描述，埋设/回收章保留
+    assert len(hooks) == 1
+    assert "取档案见日期都是十五" in hooks[0].description
+    assert "埋设于第1章" in hooks[0].description and "收于第10章" in hooks[0].description

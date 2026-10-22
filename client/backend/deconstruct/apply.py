@@ -1,20 +1,23 @@
 """拆书出口编排（c-deconstruct-book 3.x）——建书灌设定与本地导出。
 
-建书幂等键 = task.book_id（**项目创建成功即先落 book_id**，后续任一写入失败重试
-不再重复建书，评审 P1-7）；写入一律经既有域服务，清洗越界降级并入提示清单（不中断）：
+产物 JSON/md 是**分析稿**（证据章号、confidence、原文未明确保留）；建书是
+**操作稿**：所有文本经 `deconstruct.settings_map` 投影，证据/分析尾巴不进设定。
 
-- 简介/题材 → `novels/service.create_project(synopsis=…, genre=…)` 创建参数直入；
-- 世界设定 → `settings.world_model.normalize_world/put_world_merged`（factions clamp≤6，
-  截断进降级清单）；no_power 仅在文本含「无超凡/原文未明确」时置真（评审 P1-2）；
-- 角色 → `settings.character_service.create_character`（role 白名单映射：核心→配角；
-  同名 409 → 自动改名「名（拆书N）」重试，降级清单记录）；
-- 主线 → story.yaml 的 story_arc.fullstory＝各弧拼接（评审 P0-1：直读模型 JSON）；
-- 文风 → `settings.style_model.put_style` 白名单键（role=叙事身份；rules=对话/节奏条目）；
-- 伏笔 → `settings.hooks_service.batch_create_hooks`（新书无章：章号并入描述文本）。
+建书幂等键 = task.book_id（项目创建成功即先落 book_id，后续任一写入失败重试
+不再重复建书，评审 P1-7）；单条写入失败不拖垮整本（角色/关系逐条降级留痕）：
+
+- 简介/题材 → create_project 参数＋novel_genre.promise_note（tags 只留任务资料）；
+- 世界设定 → world_model.normalize_world/put_world_merged（extra 契约 {key,value}；
+  超上限逐项进降级清单）；
+- 角色 → character_service.create_character（每书只保留首位主角，其余降配角留痕）；
+- 主线 → story_arc.fullstory/ending 三格（证据章标剥除，旧 ending 字符串兜底）；
+- 文风 → style_model.put_style 三区＋few_shot_examples＋taboo 并入硬约束；
+- 伏笔 → hooks_service.batch_create_hooks（新书无章：埋设/回收章并入描述，note 并入）；
+- 章卷结构 → volumes.service.create_volume（「原文未明确」标题交服务端兜底）；
+- 人物关系 → 按解析后的 (owner, other) 归并（同对多关系取并集，DB 唯一键即这一对）。
 
 产物消费 **模型 JSON**（products_json[dim].data）——md 只是渲染展示，不做反解
-（评审 P0-1：渲染键来自模型契约，反解会静默丢维度）。人物关系/章卷结构/写作技法
-不建书内表：任务详情即查看处（spec v1 明示）。
+（评审 P0-1：渲染键来自模型契约，反解会静默丢维度）。
 """
 
 from __future__ import annotations
@@ -25,6 +28,7 @@ import re
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from deconstruct import settings_map as sm
 from filesystem.paths import KEY_TO_PATH
 from models.deconstruct import SETTING_DIMENSION_KEYS, DeconstructJob
 
@@ -77,11 +81,6 @@ def _selected(task: DeconstructJob) -> list[str]:
 
 
 _EVIDENCE_RE = re.compile(r"【[^】]{0,50}章】")
-# 括注证据：旧/新文风产物都会把「（第76章）」「（第1-258章…）」写进描述段——
-# 这是分析工件，不能随文风设定注入写作提示词。
-_EVIDENCE_PAREN_RE = re.compile(
-    r"[（(]\s*第\s*[0-9０-９][0-9０-９,，、\-—~～至\s]*章[^）)]*[）)]"
-)
 _SENT_END = "。！？；!?\n"
 
 
@@ -97,43 +96,6 @@ def _clean_para(text, limit: int) -> str:
     return cut[: last + 1] if last >= limit // 2 else cut
 
 
-def _style_text(value, limit: int) -> str:
-    """文风文本清洗：剥证据章标（含括注形态）＋压成单行＋句界截断。
-
-    旧产物（narration/dialogue/rhythm）是整段分析稿；文风三区要直接注入写作
-    提示词——半句截断和「（第N章）」都会污染后续生成。
-    """
-    text = _EVIDENCE_RE.sub("", str(value or ""))
-    text = _EVIDENCE_PAREN_RE.sub("", text)
-    text = re.sub(r"\s*\n+\s*", " ", text).strip()
-    return _clean_para(text, limit)
-
-
-def _style_role(value) -> str:
-    """叙事身份只取第一句（旧 narration 是整段分析稿，不能整段灌进 role）。"""
-    text = _style_text(value, 10**9)
-    stop = re.search(r"[。！？；!?]", text)
-    if stop:
-        text = text[: stop.end()]
-    return _style_text(text, 100)
-
-
-def _entries_paragraph(entries) -> str:
-    """条目列表 → 段落文本。world.power/cost 的书内契约是 str 段落（非列表）——
-    直接灌列表会被 normalize_world str() 成 repr 乱码（真机实证）。"""
-    if not isinstance(entries, list):
-        return str(entries or "").strip()
-    parts: list[str] = []
-    for i in entries:
-        if isinstance(i, dict):
-            name = str(i.get("name", "")).strip()
-            rule = str(i.get("rule", i.get("note", ""))).strip()
-            parts.append(f"{name}：{rule}" if name and rule else (name or rule))
-        elif str(i or "").strip():
-            parts.append(str(i).strip())
-    return "\n".join(parts)
-
-
 def _files(task: DeconstructJob) -> list[str]:
     return [obj.get("file", "") for obj in _raw(task).values() if isinstance(obj, dict)]
 
@@ -141,10 +103,22 @@ def _files(task: DeconstructJob) -> list[str]:
 def _world_source_over(data: dict) -> bool:
     """拆书产物世界设定是否超字段契约（段落>300／条目 value>200／条数超限）——
     超了才值得花一次 AI 精炼；契约内直接机械灌入零调用。"""
+    from settings.world_model import (
+        CONSTRAINTS_MAX,
+        EXTRA_MAX,
+        FACTIONS_MAX,
+        HISTORY_MAX,
+    )
+
     for k in ("stage", "power", "cost"):
         if len(_clean_para(data.get(k), 10**9)) > 300:
             return True
-    specs = {"history": 8, "factions": 6, "constraints": 8, "extra": 8}
+    specs = {
+        "history": HISTORY_MAX,
+        "factions": FACTIONS_MAX,
+        "constraints": CONSTRAINTS_MAX,
+        "extra": EXTRA_MAX,
+    }
     for key, cap in specs.items():
         entries = [i for i in (data.get(key) or []) if isinstance(i, dict)]
         if len(entries) > cap:
@@ -181,18 +155,18 @@ async def _condense_world(task: DeconstructJob, source_body: dict, warnings: lis
         # 完整句收口（模板铁律的代码兜底）：AI 半句停笔的字段截到最后一个句号
         for k in ("stage", "power", "cost"):
             if isinstance(data.get(k), str):
-                data[k] = _clean_para(data[k], PARAGRAPH_MAX)
+                data[k] = sm.clean_settings_text(data[k], PARAGRAPH_MAX)
         for set_key in ("history", "constraints", "extra"):
             entries = data.get(set_key)
             if isinstance(entries, list):
                 for e in entries:
                     if isinstance(e, dict) and isinstance(e.get("value"), str):
-                        e["value"] = _clean_para(e["value"], 200)
+                        e["value"] = sm.clean_settings_text(e["value"], 200)
         facs = data.get("factions")
         if isinstance(facs, list):
             for e in facs:
                 if isinstance(e, dict) and isinstance(e.get("note"), str):
-                    e["note"] = _clean_para(e["note"], 200)
+                    e["note"] = sm.clean_settings_text(e["note"], 200)
         out = normalize_world(data)
         if not any(str(out.get(k, "")).strip() for k in ("stage", "power", "cost")) and not any(
             out.get(s) for s in ("history", "factions", "constraints", "extra")
@@ -202,47 +176,6 @@ async def _condense_world(task: DeconstructJob, source_body: dict, warnings: lis
     except Exception as e:  # noqa: BLE001 — 精炼失败：机械截断兜底
         warnings.append(f"AI 精炼失败（{str(e)[:60]}），世界设定按句界截断适配字段")
         return None
-
-
-def _world_body(data: dict, unclamped: bool = False) -> dict:
-    """产物 world.data → 书内世界设定 body（对齐 v2 产物形状与 world 契约）。
-
-    unclamped=True＝只剥证据章标不截字数（AI 精炼的输入源；精炼按契约
-    重写形态，机械截断只作不可用时的兜底）。
-    """
-    para_limit, value_limit = (10**9, 10**9) if unclamped else (800, 200)
-    no_power_txt = str(data.get("no_power", ""))
-    return {
-        # 评审 P1-2 口径：仅当模型输出含「无超凡/原文未明确」才置真，不凭空断言力量体系
-        "no_power": "无超凡" in no_power_txt or "原文未明确" in no_power_txt,
-        "stage": _clean_para(data.get("stage", ""), para_limit),
-        # power/cost 契约＝段落 str：条目列表拼「名：规则」段落（v2 产物是列表）
-        "power": _clean_para(_entries_paragraph(data.get("power")), para_limit),
-        "cost": _clean_para(_entries_paragraph(data.get("cost")), para_limit),
-        # 历史条目契约＝{key,value[,origin]}：产物是 {name,note[,evidence_ch]}
-        "history": [
-            {"key": str(i.get("name", ""))[:40],
-             "value": str(i.get("note", ""))[:value_limit],
-             "origin": str(i.get("evidence_ch", ""))[:40]}
-            for i in (data.get("history") or []) if isinstance(i, dict)
-        ],
-        # 势力备注在产物的 rule 键（note 是旧形状假设，真机实证全丢成「原文未明确」）
-        "factions": [
-            {"name": _clean_para(i.get("name", ""), 20),
-             "note": _clean_para(i.get("rule", i.get("note", "")), value_limit)}
-            for i in (data.get("factions") or []) if isinstance(i, dict)
-        ],
-        "constraints": [
-            {"key": _clean_para(i.get("name", ""), 20),
-             "value": _clean_para(i.get("rule", i.get("note", "")), value_limit)}
-            for i in (data.get("constraints") or []) if isinstance(i, dict)
-        ],
-        "extra": [
-            {"key": _clean_para(i.get("name", ""), 20),
-             "value": _clean_para(i.get("note", ""), value_limit)}
-            for i in (data.get("extra") or []) if isinstance(i, dict)
-        ],
-    }
 
 
 async def import_book(
@@ -256,7 +189,10 @@ async def import_book(
     from novels.service import create_project
 
     if task.book_id:
-        return {"book_id": task.book_id, "name": task.book_name, "skipped": []}, []
+        return (
+            {"book_id": task.book_id, "name": task.book_name, "skipped": []},
+            ["任务已建过书（幂等返回），本次未重复写入；需要补灌请新建任务或删书重导"],
+        )
 
     if items is None:
         selected = _selected(task)
@@ -265,8 +201,13 @@ async def import_book(
         selected = [k for k in IMPORT_ITEM_KEYS if k in picked]
 
     warnings: list[str] = []
-    synopsis = str(_data(task, "intro").get("intro", ""))[:600] if "intro" in selected else ""
-    genre = str(_data(task, "genre").get("genre", ""))[:40] if "genre" in selected else ""
+    # 简介/题材走同一投影：证据章号、分析尾巴不进设定；promise 落 novel_genre
+    meta = sm.intro_genre_body(
+        _data(task, "intro") if "intro" in selected else {},
+        _data(task, "genre") if "genre" in selected else {},
+    )
+    synopsis = meta["synopsis"]
+    genre = meta["genre"]
 
     project = await create_project(
         db,
@@ -279,6 +220,15 @@ async def import_book(
     # 幂等键先落（评审 P1-7）：后续任一写入失败，重试不再重复建书
     task.book_id = project.id
     await db.commit()
+    book_id = project.id
+
+    if meta["promise_note"] and "genre" in selected:
+        try:
+            from genres.novel_genre_service import put_novel_genre
+
+            await put_novel_genre(db, book_id, {"promise_note": meta["promise_note"]})
+        except Exception as e:  # noqa: BLE001 — 题材补充字段失败不拖垮建书
+            warnings.append(f"题材承诺未写入（{str(e)[:60]}），题材目录已写")
 
     root = project.root_path
     from filesystem.storage import get_storage
@@ -288,31 +238,57 @@ async def import_book(
     if "world" in selected:
         data = _data(task, "world")
         raw = await storage.read_yaml(root, KEY_TO_PATH["world"]) or {}
-        from settings.world_model import normalize_world, put_world_merged
+        from settings.world_model import (
+            CONSTRAINTS_MAX,
+            EXTRA_MAX,
+            FACTIONS_MAX,
+            HISTORY_MAX,
+            normalize_world,
+            put_world_merged,
+        )
 
-        body = _world_body(data)
+        body = sm.world_body(data)
         if _world_source_over(data):
             # 产物超字段契约：一次 AI 精炼按字段形态重写（失败退机械句界截断）
-            condensed = await _condense_world(task, _world_body(data, unclamped=True), warnings)
+            condensed = await _condense_world(task, sm.world_body(data, unclamped=True), warnings)
             if condensed is not None:
                 body = condensed
-        fac_before = len(body["factions"])
+        # 机械兜底会按 world 契约截断条目；把截断说清楚，不静默丢
+        for key, cap, label in (
+            ("history", HISTORY_MAX, "大事记"),
+            ("factions", FACTIONS_MAX, "势力"),
+            ("constraints", CONSTRAINTS_MAX, "禁忌铁律"),
+            ("extra", EXTRA_MAX, "其他设定"),
+        ):
+            n = len([x for x in (body.get(key) or []) if isinstance(x, dict)])
+            if n > cap:
+                warnings.append(f"世界设定{label} {n} 条超出上限 {cap}，已截断保留前 {cap} 条")
         merged = put_world_merged(raw, normalize_world(body))
-        if fac_before > 6:
-            warnings.append(f"世界设定势力 {fac_before} 方超出上限 6，已截断保留前 6 方")
         await storage.write_yaml(root, KEY_TO_PATH["world"], merged)
 
     if "characters" in selected:
+        from sqlalchemy.exc import IntegrityError
+
         from settings.character_service import Conflict, create_character
 
-        for i, card in enumerate(_cards(task), start=1):
+        # 每书至多一位主角（DB 部分唯一索引）：第一个保留，其余降配角并留痕。
+        cards = _cards(task)
+        protagonist_seen = False
+        downgraded = 0
+        for i, card in enumerate(cards, start=1):
             name = str(card.get("name") or "").strip() or f"未命名{i}"
             role = _ROLE_MAP.get(str(card.get("role", "")), "配角")
+            if role == "主角":
+                if protagonist_seen:
+                    role = "配角"
+                    downgraded += 1
+                else:
+                    protagonist_seen = True
             for attempt in range(1, 6):
                 try:
                     await create_character(
                         db,
-                        project.id,
+                        book_id,
                         name=name,
                         role=role,
                         persona=str(card.get("persona", ""))[:300] or None,
@@ -330,33 +306,26 @@ async def import_book(
                         warnings.append(f"角色「{name}」多次同名冲突，已跳过")
                         break
                     name = f"{name}（拆书{attempt}）"
+                except IntegrityError as e:
+                    # 单卡约束冲突不拖垮整本书：回滚本笔，后续维度继续
+                    await db.rollback()
+                    from models.project import Novel
+
+                    project = await db.get(Novel, book_id) or project
+                    warnings.append(f"角色「{name}」未导入（数据库约束冲突：{str(e)[:60]}）")
+                    break
+        if downgraded:
+            warnings.append(
+                f"拆书产物有 {downgraded + 1} 个主角，按每书一位保留首位，其余 {downgraded} 位降为配角"
+            )
 
     if "mainplot" in selected:
         data = _data(task, "mainplot")
         story = await storage.read_yaml(root, KEY_TO_PATH["story"]) or {}
         arc = story.get("story_arc") if isinstance(story.get("story_arc"), dict) else {}
-        # fullstory＝全书主线全景叙述（契约直读）；产物缺格回退弧条目串（旧产物兼容）
-        fullstory = str(data.get("fullstory", "") or "").strip()
-        if not fullstory:
-            arcs = [
-                f"{a.get('title', '')}：{a.get('summary', '')}"
-                for a in (data.get("arcs") or []) if isinstance(a, dict)
-            ]
-            fullstory = "；".join(arcs)
-        if not fullstory:
-            # 旧产物（#906 前）ending 是字符串：arcs 也空时结局文案就是唯一主线线索，
-            # 兜底链保住它（评审 P3：#907 曾把这一档收窄成恒「原文未明确」）。
-            fullstory = str(data.get("ending", "") or "").strip()
-        arc["fullstory"] = (fullstory or "原文未明确")[:2000]
-        # 结局三格（场景/主角结局/收束基调）——设定页契约字段，此前从未回填。
-        # 「原文未明确」置空（与角色格同口径：原文没写的不硬填）。
-        ending = data.get("ending") if isinstance(data.get("ending"), dict) else {}
-
-        def _ending_cell(v) -> str:
-            t = str(v or "").strip()
-            return "" if t == "原文未明确" else t[:150]
-
-        arc["ending"] = {f: _ending_cell(ending.get(f, "")) for f in ("scene", "hero", "tone")}
+        mapped = sm.mainplot_body(data)
+        arc["fullstory"] = mapped["fullstory"]
+        arc["ending"] = mapped["ending"]
         story["story_arc"] = arc
         await storage.write_yaml(root, KEY_TO_PATH["story"], story)
 
@@ -365,55 +334,9 @@ async def import_book(
 
         data = _data(task, "style")
         raw = await storage.read_yaml(root, KEY_TO_PATH["style"]) or {}
-
-        def _entries(values) -> list[str]:
-            """规则/手法条目 → 「名：怎么用」单行。
-
-            模型偶尔把数组写成字符串/单对象（按单条处理——逐字符迭代会产出一串
-            单字条目）；字典映射形态按「键：值」展开。
-            """
-            if isinstance(values, dict):
-                if any(k in values for k in ("name", "how", "example", "description")):
-                    items = [values]
-                else:
-                    items = [f"{k}：{v}" for k, v in values.items() if str(v or "").strip()]
-            elif isinstance(values, list):
-                items = values
-            else:
-                items = [values] if values else []
-            out: list[str] = []
-            for r in items:
-                if isinstance(r, dict):
-                    name = _style_text(r.get("name", ""), 60)
-                    how = _style_text(r.get("how", r.get("example", r.get("description", ""))), 500)
-                    line = f"{name}：{how}" if name and how else (name or how)
-                else:
-                    line = _style_text(r, 500)
-                if line and line not in out:
-                    out.append(line)
-            return out
-
-        # 三区契约：role＝叙事身份一句话；rules/craft＝「名：怎么用」条目。
-        # 旧形状降级双认：narration/dialogue/rhythm 描述段＋features 特征表——
-        # features 是旧提示词包产物里唯一的技法账，只认描述段会把最有价值的条目整段丢掉。
-        role = _style_role(data.get("role")) or _style_role(data.get("narration"))
-        rules = _entries(data.get("rules"))
-        if not rules:
-            for label, key in (("对话", "dialogue"), ("节奏", "rhythm")):
-                text = _style_text(data.get(key), 500)
-                if text:
-                    rules.append(f"{label}：{text}")
-        craft = _entries(data.get("craft")) or _entries(data.get("features"))
-
-        # 空格不写：put_style 收到空数组会覆盖新书种子里的默认硬约束/手法；
-        # 旧产物缺格时保留现有设定，不把文风页清空。
-        body: dict = {}
-        if role:
-            body["role"] = role
-        if rules:
-            body["rules"] = rules
-        if craft:
-            body["craft"] = craft
+        # 三区＋例句＋taboo 全部走同一投影：旧形状 narration/dialogue/rhythm/features
+        # 降级双认；证据/confidence 不进设定。
+        body = sm.style_body(data)
         if body:
             await storage.write_yaml(root, KEY_TO_PATH["style"], put_style(raw, body))
         else:
@@ -422,10 +345,12 @@ async def import_book(
     if "foreshadow" in selected:
         from settings.hooks_service import batch_create_hooks
 
-        items = _hooks_items(task)
-        result = await batch_create_hooks(db, project.id, items)
+        items = sm.hook_items(_data(task, "foreshadow"))
+        result = await batch_create_hooks(db, book_id, items)
         if result.get("truncated"):
-            warnings.append(f"伏笔超出单次上限，已收 {result['truncated']} 条")
+            warnings.append(
+                f"伏笔产物超过单次上限，仅取前 {result['truncated']} 条（重复/空条目另计）"
+            )
 
     if "structure" in selected:
         # 章卷结构 → 卷行（title 产物常写「原文未明确」→ 落「第N卷」由服务端兜底）
@@ -435,11 +360,8 @@ async def import_book(
         for v in data_v.get("volumes") or []:
             if not isinstance(v, dict):
                 continue
-            title = str(v.get("title", "")).strip()
-            title = "" if title == "原文未明确" else title
-            note = str(v.get("note", "")).strip()
-            rng = str(v.get("ch_range", "")).strip()
-            summary = "；".join(x for x in (rng, note) if x)[:300]
+            mapped = sm.structure_volume(v)
+            title, summary = mapped["title"], mapped["summary"]
             try:
                 await create_volume(db, project, title=title, summary=summary)
             except Exception as e:  # noqa: BLE001 — 套餐卷数上限等：降级提示不中断（详情在任务资料）
@@ -447,12 +369,14 @@ async def import_book(
                 break
 
     if "relations" in selected:
-        # 人物关系 → 关系行：边端点名解析到已导入角色（名/别名/去括注变体），未入库/自环跳过留痕
+        # 人物关系 → 关系行：先按解析后的 (owner, other) 归并——DB 唯一键是这一对，
+        # 不是 (owner, other, rel_type)；同对多关系合并，绝不因第二种 rel_type 撞库中断。
         from sqlalchemy import select
+        from sqlalchemy.exc import IntegrityError
 
         from models.character import Character, CharacterRelation
 
-        chars = (await db.execute(select(Character).where(Character.novel_id == project.id))).scalars().all()
+        chars = (await db.execute(select(Character).where(Character.novel_id == book_id))).scalars().all()
         by_name: dict = {}
         for c in chars:
             variants = _name_variants(c.name)
@@ -470,9 +394,27 @@ async def import_book(
                     return by_name[v]
             return None
 
+        def _join_unique(values: list[str], sep: str, limit: int) -> str:
+            seen: list[str] = []
+            for v in values:
+                v = sm.clean_settings_text(v, limit)
+                if v and v not in seen:
+                    seen.append(v)
+            return sep.join(seen)[:limit]
+
+        def _join_refs(values: list[str]) -> str:
+            """ch_ref 是关系行的证据字段（设定模型明确保留），只去重不洗章号。"""
+            seen: list[str] = []
+            for v in values:
+                v = str(v or "").strip()
+                if v and v != "原文未明确" and v not in seen:
+                    seen.append(v)
+            return "、".join(seen)[:40]
+
+        buckets: dict[tuple[str, str], dict] = {}
         skipped = 0
-        data_r = _data(task, "relations")
-        for e in data_r.get("edges") or []:
+        merged = 0
+        for e in _data(task, "relations").get("edges") or []:
             if not isinstance(e, dict):
                 continue
             owner = _resolve(str(e.get("from", "")))
@@ -480,41 +422,68 @@ async def import_book(
             if not owner or not other or owner.id == other.id:
                 skipped += 1
                 continue
+            key = (owner.id, other.id)
+            row = buckets.get(key)
+            if row is None:
+                buckets[key] = {
+                    "types": [str(e.get("rel_type", ""))],
+                    "stances": [str(e.get("stance", ""))],
+                    "notes": [str(e.get("note", ""))],
+                    "refs": [str(e.get("evidence_ch", ""))],
+                }
+            else:
+                merged += 1
+                row["types"].append(str(e.get("rel_type", "")))
+                row["stances"].append(str(e.get("stance", "")))
+                row["notes"].append(str(e.get("note", "")))
+                row["refs"].append(str(e.get("evidence_ch", "")))
+
+        for (owner_id, other_id), row in buckets.items():
             dup = await db.execute(
                 select(CharacterRelation).where(
-                    CharacterRelation.novel_id == project.id,
-                    CharacterRelation.owner_id == owner.id,
-                    CharacterRelation.other_id == other.id,
-                    CharacterRelation.rel_type == str(e.get("rel_type", ""))[:20],
+                    CharacterRelation.novel_id == book_id,
+                    CharacterRelation.owner_id == owner_id,
+                    CharacterRelation.other_id == other_id,
                 )
             )
             if dup.scalars().first() is not None:
                 continue
-            db.add(CharacterRelation(
-                novel_id=project.id, owner_id=owner.id, other_id=other.id,
-                rel_type=str(e.get("rel_type", ""))[:20], stance=_clean_para(e.get("stance", ""), 100),
-                note=_clean_para(e.get("note", ""), 300), ch_ref=str(e.get("evidence_ch", ""))[:40],
-            ))
+            try:
+                async with db.begin_nested():
+                    db.add(CharacterRelation(
+                        novel_id=book_id, owner_id=owner_id, other_id=other_id,
+                        rel_type=_join_unique(row["types"], "、", 20) or "关系",
+                        stance=_join_unique(row["stances"], "；", 100),
+                        note=_join_unique(row["notes"], "；", 300),
+                        ch_ref=_join_refs(row["refs"]),
+                    ))
+                    await db.flush()
+            except IntegrityError as e:
+                warnings.append(f"1 条人物关系未导入（数据库约束冲突：{str(e)[:60]}）")
         await db.commit()
         if skipped:
             warnings.append(f"{skipped} 条人物关系因角色未入库（未勾角色设定或名单外）被跳过")
+        if merged:
+            warnings.append(f"{merged + len(buckets)} 条关系边按角色对合并为 {len(buckets)} 条（同对多关系取并集）")
 
     if "techniques" in selected:
-        # 写作技法 → 文风 rules 追加（「名：怎么用」；已存在的不重复）
-        from settings.style_model import put_style
+        # 写作技法 → 文风 rules/craft：新契约的 how 在 repro_steps/emotion_chain 里，
+        # borrowable→craft、avoid→硬约束（避免…）；reader_needs 只留任务资料。
+        from settings.style_model import put_style, read_style
 
         data_t = _data(task, "techniques")
         raw = await storage.read_yaml(root, KEY_TO_PATH["style"]) or {}
-        cur = [str(x) for x in (raw.get("rules") or [])] if isinstance(raw, dict) else []
-        for t in data_t.get("techniques") or []:
-            if not isinstance(t, dict):
-                continue
-            name = str(t.get("name", "")).strip()
-            how = str(t.get("how", "")).strip()
-            line = f"{name}：{how}" if name and how else (name or how)
-            if line and line not in cur:
-                cur.append(line[:200])
-        await storage.write_yaml(root, KEY_TO_PATH["style"], put_style(raw, {"rules": cur}))
+        cur = read_style(raw)
+        add_rules, add_craft = sm.technique_lines(data_t)
+        new_rules = [x for x in add_rules if x not in (cur.get("rules") or [])]
+        new_craft = [x for x in add_craft if x not in (cur.get("craft") or [])]
+        body: dict = {}
+        if new_rules:
+            body["rules"] = [*(cur.get("rules") or []), *new_rules]
+        if new_craft:
+            body["craft"] = [*(cur.get("craft") or []), *new_craft]
+        if body:
+            await storage.write_yaml(root, KEY_TO_PATH["style"], put_style(raw, body))
 
     return (
         {
@@ -538,29 +507,35 @@ def _cards(task: DeconstructJob) -> list[dict]:
         else:
             aliases = [a.strip() for a in re.split(r"[、/／]", str(c.get("alias", "") or "")) if a.strip()]
         look = str(c.get("look", "")).strip()
-        plot_txt = _clean_para(c.get("plot", ""), 10**9).strip()
+        # plot 是角色页「关键行动」：正文里的证据先洗净，末尾保留一条 evidence_ch
+        # 供回查（#906 拍板）；其余格一律不进证据/分析尾巴。
+        plot_txt = sm.clean_settings_text(c.get("plot"), None).strip()
 
         def _cell(v) -> str:
-            v = _clean_para(v, 300)
-            return "" if v == "原文未明确" else v
+            return sm.clean_settings_text(v, 300)
 
         persona = _cell(c.get("persona", ""))
         if not persona:
             # persona＝写章必带的全卡摘要（角色页一句话人设，唯一 AI 可覆盖格）：
             # 产物缺格/模型没产出时（真机 13路 258 章实测 10/10 张全空），从背景或
             # 关键行动合成一句话速写兜底——开书契约：角色页人设不留空
-            basis = str(c.get("background", "")).strip()
-            if not basis or basis == "原文未明确":
+            basis = sm.clean_settings_text(c.get("background"), None).strip()
+            if not basis:
                 basis = plot_txt
-            if basis and basis != "原文未明确":
-                persona = _clean_para(basis, 60).strip()
+            if basis:
+                persona = sm.clean_settings_text(basis, 60)
+
+        evidence = str(c.get("evidence_ch", "")).strip()
+        plot = plot_txt
+        if plot_txt and evidence and evidence != "原文未明确":
+            plot = _clean_para(f"{plot_txt}（{evidence}）", 300)
 
         cards.append(
             {
                 "name": str(c.get("name", ""))[:30],
                 "role": _role_normalize(str(c.get("role", "配角"))),
                 "persona": persona,
-                "plot": _cell(f"{plot_txt}（{c.get('evidence_ch', '原文未明确')}）") if plot_txt else "",
+                "plot": plot,
                 "background": _cell(c.get("background", "")),
                 "aliases": aliases[:20],
                 # 产物有的格子全带（材料没写的字段产物侧已是「原文未明确」，这里置空不编造）
@@ -598,34 +573,6 @@ def _dedupe_cards(cards: list[dict]) -> list[dict]:
                     base[k] = v
         out.append(base)
     return out
-
-
-def _hooks_items(task: DeconstructJob) -> list[dict]:
-    """产物 hooks → 台账条目（对齐 NovelHook 字段）：type 九值闭集、priority
-    high/mid/low→3/2/1、有回收（payoff_ch/status=paid）→ status=resolved 且
-    回收章并入描述；新书无章，章号只能并进文本。"""
-    items: list[dict] = []
-    for h in _data(task, "foreshadow").get("hooks") or []:
-        if not isinstance(h, dict):
-            continue
-        desc = str(h.get("desc", ""))[:300]
-        plant = h.get("plant_ch")
-        if plant not in (None, "原文未明确"):
-            desc = f"{desc}（埋设于第{plant}章）"
-        payoff = h.get("payoff_ch")
-        resolved = str(h.get("status", "")) == "paid" or payoff not in (None, "原文未明确")
-        if resolved and payoff not in (None, "原文未明确"):
-            desc = f"{desc}（收于第{payoff}章）"
-        hook_type = str(h.get("type", "")).strip()
-        priority = {"high": 1, "mid": 2, "low": 3}.get(str(h.get("priority", "")).strip(), 2)
-        items.append({
-            "description": desc[:300],
-            "planned_volume_no": None,
-            "type": hook_type,
-            "priority": priority,
-            "status": "resolved" if resolved else "active",
-        })
-    return items
 
 
 def _name_variants(name: str) -> list[str]:
