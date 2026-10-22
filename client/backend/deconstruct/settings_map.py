@@ -73,13 +73,14 @@ def clean_settings_text(value, limit: int | None = None) -> str:
     text = str(value or "")
     if not text.strip():
         return ""
+    # 先压成单行：confidence/note 尾巴在独立行时，`.` 不跨行会漏剥
+    text = re.sub(r"\s*\n+\s*", " ", text)
     text = _EVIDENCE_TAG_RE.sub("", text)
     text = _EVIDENCE_PAREN_RE.sub("", text)
     text = _EVIDENCE_BARE_RE.sub("", text)
     text = _ANALYSIS_TAIL_RE.sub("", text)
     text = _UNCLEAR_CLAUSE_RE.sub("", text)
     text = _EMPTY_PAREN_RE.sub("", text)
-    text = re.sub(r"\s*\n+\s*", " ", text)
     text = _DANGLING_PUNCT_RE.sub(r"\1", text)
     text = _LEADING_PUNCT_RE.sub("", text)
     text = _SPACES_RE.sub(" ", text).strip()
@@ -207,8 +208,14 @@ def merge_relation_labels(types, note, rel_limit: int = 20, note_limit: int = 30
             overflow.append(t)
     note = clean_settings_text(note, note_limit)
     if overflow:
-        extra = "另含关系：" + "、".join(overflow)
-        note = f"{note}；{extra}" if note else extra
+        extra_full = "另含关系：" + "、".join(overflow)
+        extra = extra_full[:note_limit]
+        if len(extra_full) > note_limit:
+            extra = extra_full[: note_limit - 1] + "…"
+        # 先给 overflow 预留空间：原 note 让位，否则满 300 字时新类型会被整段截掉
+        room = note_limit - len(extra) - 1
+        base = note[:max(0, room)].rstrip("，,；;、 ")
+        note = f"{base}；{extra}" if base else extra
     return "、".join(kept) or "关系", note[:note_limit]
 
 

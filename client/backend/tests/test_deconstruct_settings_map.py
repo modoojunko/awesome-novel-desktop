@@ -47,6 +47,9 @@ def test_clean_settings_text_strips_evidence_and_analysis():
     assert sm.clean_settings_text("如第3章所述，短句为主。") == "短句为主。"
     assert sm.clean_settings_text("见第3章所示。") == ""
     assert sm.clean_settings_text("第3章里的短句为主。") == "短句为主。"
+    # 多行文本先折叠再剥：独立行的 confidence/note 尾巴也不能漏
+    assert sm.clean_settings_text("正文。\nconfidence: low\nnote: 分歧") == "正文。"
+    assert sm.clean_settings_text("正文。\nnote: 分歧") == "正文。"
 
 
 def test_merge_relation_labels_overflow():
@@ -57,6 +60,14 @@ def test_merge_relation_labels_overflow():
     assert len(rel) <= 20
     assert note == "强派开车；另含关系：势不两立的债主"
     assert sm.merge_relation_labels([], "") == ("关系", "")
+
+    # note 已满 300 字：新类型优先保留，不能被 [:300] 截掉
+    rel2, note2 = sm.merge_relation_labels(
+        ["同僚", "生死相托的旧日同僚", "势不两立的世仇债主"], "甲" * 300
+    )
+    assert rel2 == "同僚、生死相托的旧日同僚"
+    assert "另含关系：势不两立的世仇债主" in note2
+    assert len(note2) <= 300
 
 
 def test_clean_settings_text_sentence_clip():
