@@ -15,11 +15,13 @@
 
 from __future__ import annotations
 
+import asyncio
 import base64
 import binascii
 import ipaddress
 import logging
 import os
+import socket
 import time
 from dataclasses import dataclass
 from typing import Any
@@ -235,16 +237,58 @@ def _validate_download_url(url: str) -> None:
         raise ImageProviderError("invalid", "供应商图片链接带凭据，已拒绝")
     try:
         ip = ipaddress.ip_address(parsed.hostname)
-        if ip.is_private or ip.is_loopback or ip.is_link_local or ip.is_reserved:
+        if not ip.is_global:
             raise ImageProviderError("invalid", "供应商图片链接指向内网地址，已拒绝")
     except ValueError:
-        pass  # 域名留给 DNS/供应商侧；禁重定向已消掉最常见的内网跳转面
+        pass  # 域名交给 _assert_public_download_host 解析后再判
     if parsed.hostname in ("localhost", "localhost.localdomain"):
         raise ImageProviderError("invalid", "供应商图片链接指向本机，已拒绝")
 
 
+async def _resolve_host(host: str, port: int) -> list[str]:
+    """异步 DNS 解析（独立函数便于测试桩）；返回所有 A/AAAA 地址。"""
+    infos = await asyncio.get_running_loop().getaddrinfo(
+        host, port, type=socket.SOCK_STREAM,
+    )
+    return [str(info[4][0]) for info in infos]
+
+
+async def _assert_public_download_host(url: str) -> None:
+    """域名解析后再判内网：只查 IP 字面量会被 ``foo.localhost``/``nip.io`` 绕过。
+
+    解析失败不在此拒绝（交给 HTTP 层按 network 归因）；任一解析结果非 global
+    （私网/回环/链路本地/保留/多播/CGNAT）即拒绝。DNS rebinding 的 TOCTOU 残余
+    面由「禁重定向 + 单次解析」收敛，真机如需更严可换 pinning 客户端。
+    """
+    parsed = urlsplit(url)
+    host = parsed.hostname or ""
+    if not host:
+        raise ImageProviderError("invalid", "供应商返回非法图片链接")
+    try:
+        ipaddress.ip_address(host)
+        return  # 字面量已由 _validate_download_url 校验
+    except ValueError:
+        pass
+    try:
+        port = parsed.port or (443 if parsed.scheme == "https" else 80)
+    except ValueError as e:
+        raise ImageProviderError("invalid", "供应商返回非法图片链接") from e
+    try:
+        addresses = await _resolve_host(host, port)
+    except (socket.gaierror, OSError):
+        return
+    for raw in addresses:
+        try:
+            ip = ipaddress.ip_address(raw.split("%", 1)[0])
+        except ValueError:
+            continue
+        if not ip.is_global:
+            raise ImageProviderError("invalid", "供应商图片链接指向内网地址，已拒绝")
+
+
 async def _download(client: httpx.AsyncClient, url: str, width: int | None, height: int | None) -> GeneratedImage:
     _validate_download_url(url)
+    await _assert_public_download_host(url)
     resp = await client.get(url, follow_redirects=False)
     if resp.status_code != 200:
         raise _classify_payload(resp.status_code, resp.text[:500])

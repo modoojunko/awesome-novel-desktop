@@ -12,7 +12,7 @@ import json
 import time
 from datetime import UTC, datetime
 
-from sqlalchemy import select, update
+from sqlalchemy import func, select, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -42,6 +42,7 @@ from image_assets.service import (
 from models.character import Character
 from models.image_asset import (
     BookImageSettings,
+    ImageAsset,
     ImageBatchItem,
     ImageConfig,
     ImageJob,
@@ -130,6 +131,43 @@ async def _preview(
     return await build_avatar_prompt(db, novel, character)
 
 
+async def _requeue_job(db: AsyncSession, job: ImageJob) -> None:
+    """failed/cancelled → queued：只重置未完成 item，已完成产出保留续算。"""
+    job.status = "queued"
+    job.cancel_requested = False
+    job.error_kind = None
+    job.error_message = None
+    job.started_at = None
+    job.finished_at = None
+    await db.execute(
+        update(ImageBatchItem)
+        .where(
+            ImageBatchItem.job_id == job.id,
+            ImageBatchItem.status.in_(("running", "failed", "cancelled")),
+        )
+        .values(
+            status="pending", error_kind=None, error_message=None,
+            started_at=None, finished_at=None,
+        )
+    )
+
+
+async def _produced_count(db: AsyncSession, job_id: str) -> int:
+    return int((await db.scalar(
+        select(func.count()).select_from(ImageAsset).where(ImageAsset.job_id == job_id)
+    )) or 0)
+
+
+async def _billed_total(db: AsyncSession, job: ImageJob) -> int:
+    """账目以库内累计为准：重试不把已完成产出重新归零。"""
+    if job.purpose == "batch":
+        return int((await db.scalar(
+            select(func.coalesce(func.sum(ImageBatchItem.billed_n), 0))
+            .where(ImageBatchItem.job_id == job.id)
+        )) or 0)
+    return await _produced_count(db, job.id)
+
+
 async def create_job(
     db: AsyncSession, *, user_id: str, novel_id: str, kind: str,
     character_id: str | None = None, purpose: str = "generate",
@@ -145,13 +183,34 @@ async def create_job(
     if not 1 <= int(n) <= MAX_CANDIDATES:
         raise Unprocessable(f"候选数必须在 1..{MAX_CANDIDATES}", "invalid_n")
     character = None
-    if kind == "avatar" and purpose != "batch":
-        if not character_id:
-            raise Unprocessable("头像必须指定角色", "character_required")
-        character = await _owned_character(db, user_id, novel_id, character_id)
-    if purpose == "batch" and character_ids:
-        # 批量任务的配置/画风快照以第一个角色为代表；逐项 prompt 在执行时按角色重建。
-        character = await _owned_character(db, user_id, novel_id, character_ids[0])
+    rows: list[Character] = []
+    if purpose == "batch":
+        if kind != "avatar":
+            raise Unprocessable("批量任务只支持头像", "invalid_kind")
+        ids = list(dict.fromkeys(character_ids or []))
+        if not ids:
+            raise Unprocessable("批量头像至少选择一个角色", "characters_required")
+        # 归属校验 + 顺序稳定（按角色 seq）；代表角色取排序后的第一个，
+        # 幂等键因此与提交顺序无关。
+        rows = list((await db.scalars(
+            select(Character).where(
+                Character.novel_id == novel_id, Character.id.in_(ids)
+            ).order_by(Character.seq)
+        )).all())
+        found = {row.id for row in rows}
+        if len(found) != len(ids):
+            raise Unprocessable("批量头像包含无效角色", "character_not_found")
+        character = rows[0]
+        target_type, target_id = "batch", novel_id
+        requested_n = len(rows)
+    else:
+        if kind == "avatar":
+            if not character_id:
+                raise Unprocessable("头像必须指定角色", "character_required")
+            character = await _owned_character(db, user_id, novel_id, character_id)
+        target_type = "character" if kind == "avatar" else "book"
+        target_id = character_id if kind == "avatar" else novel_id
+        requested_n = int(n)
 
     preview = await _preview(db, novel, kind, character)
     if preview.get("model_unbound"):
@@ -168,38 +227,28 @@ async def create_job(
             declared = _safe_json(cfg.declared_capabilities, {})
     caps = capabilities_for(str(preview.get("provider") or ""), declared)
 
-    if purpose == "batch":
-        if kind != "avatar":
-            raise Unprocessable("批量任务只支持头像", "invalid_kind")
-        ids = list(dict.fromkeys(character_ids or []))
-        if not ids:
-            raise Unprocessable("批量头像至少选择一个角色", "characters_required")
-        # 归属校验 + 顺序稳定（按角色 seq）
-        rows = (await db.scalars(
-            select(Character).where(
-                Character.novel_id == novel_id, Character.id.in_(ids)
-            ).order_by(Character.seq)
-        )).all()
-        found = {row.id for row in rows}
-        if len(found) != len(ids):
-            raise Unprocessable("批量头像包含无效角色", "character_not_found")
-        target_type, target_id = "batch", novel_id
-        requested_n = len(rows)
-    else:
-        target_type = "character" if kind == "avatar" else "book"
-        target_id = character_id if kind == "avatar" else novel_id
-        rows = []
-        requested_n = int(n)
-
+    # 幂等材料必须覆盖实际请求内容：批量任务缺角色集合时，不同角色集只要
+    # 人数相同、代表角色相同就会撞键，静默返回上一个任务。
     idempotency = hashlib.sha256(":".join([
         user_id, purpose, kind, target_id,
         str(preview.get("prompt_hash") or ""), str(requested_n),
+        "|".join(row.id for row in rows),
     ]).encode()).hexdigest()
     existing = (await db.execute(select(ImageJob).where(
         ImageJob.user_id == user_id, ImageJob.idempotency_key == idempotency,
     ))).scalar_one_or_none()
     if existing:
-        await db.commit()
+        if existing.status in {"failed", "cancelled"}:
+            # 终态任务不永久占键：同一请求再提交＝就地重跑（run_job 按库内
+            # 候选/item 续算），否则取消或失败后无法用相同设置重新发起。
+            await _requeue_job(db, existing)
+            try:
+                await db.commit()
+            except IntegrityError as e:
+                await db.rollback()
+                raise Conflict("该目标已有生成任务在排队或执行", "job_active_exists") from e
+        else:
+            await db.commit()
         return job_to_dict(existing, await _load_items(db, existing.id))
 
     job = ImageJob(
@@ -310,18 +359,12 @@ async def retry_job(db: AsyncSession, *, user_id: str, job_id: str) -> dict:
         raise Unprocessable("任务不存在", "job_not_found")
     if job.status not in {"failed", "cancelled"}:
         raise Conflict("只有失败/取消的任务可以重试", "job_not_retryable")
-    job.status = "queued"
-    job.cancel_requested = False
-    job.error_kind = None
-    job.error_message = None
-    job.started_at = None
-    job.finished_at = None
-    await db.execute(
-        update(ImageBatchItem)
-        .where(ImageBatchItem.job_id == job.id, ImageBatchItem.status.in_(("failed", "cancelled")))
-        .values(status="pending", error_kind=None, error_message=None, started_at=None, finished_at=None)
-    )
-    await db.commit()
+    await _requeue_job(db, job)
+    try:
+        await db.commit()
+    except IntegrityError as e:
+        await db.rollback()
+        raise Conflict("该目标已有生成任务在排队或执行", "job_active_exists") from e
     return job_to_dict(job, await _load_items(db, job.id))
 
 
@@ -335,6 +378,20 @@ async def startup_sweep() -> int:
             job.error_kind = "interrupted"
             job.error_message = "应用重启导致任务中断，可重试"
             job.finished_at = now_utc()
+        if running:
+            # 逐项账同步收敛：否则中断后 item 永远停在 running，前端一直「生成中」。
+            await db.execute(
+                update(ImageBatchItem)
+                .where(
+                    ImageBatchItem.job_id.in_([job.id for job in running]),
+                    ImageBatchItem.status == "running",
+                )
+                .values(
+                    status="failed", error_kind="interrupted",
+                    error_message="应用重启导致任务中断，可重试",
+                    finished_at=now_utc(),
+                )
+            )
         await db.commit()
         return len(running)
 
@@ -448,9 +505,10 @@ async def run_job(job_id: str) -> dict:
             return job_to_dict(job) if job else {}
         await ensure_signing_key(db)
         await sweep_expired_assets(db, user_id=job.user_id)
-        produced = 0
-        billed = 0
+        # 账目从库内累计起算：重试只补未完成部分，已完成产出不因本次重跑归零。
+        produced = await _produced_count(db, job.id)
         error: ImageProviderError | None = None
+        attempted = False
         try:
             if job.purpose == "batch":
                 items = await _load_items(db, job.id)
@@ -479,6 +537,7 @@ async def run_job(job_id: str) -> dict:
                     item.seed = seed if caps.get("seed_supported", True) else None
                     item.prompt_hash = effective_prompt_hash(preview, 0, capabilities=caps)
                     item_started = time.monotonic()
+                    attempted = True
                     try:
                         count = await _generate_one(
                             db, job,
@@ -491,7 +550,7 @@ async def run_job(job_id: str) -> dict:
                         item.billed_n = count
                         item.duration_ms = int((time.monotonic() - item_started) * 1000)
                         produced += count
-                        billed += count
+                        job.produced_count = produced
                     except ImageProviderError as e:
                         item.status = "failed"
                         item.error_kind = e.kind
@@ -502,6 +561,14 @@ async def run_job(job_id: str) -> dict:
                 candidate_seeds = [_seed_at(job.base_seed, i) for i in range(max(1, job.requested_n))]
                 caps = _request_caps(job)
                 source = "test" if job.purpose == "test" else "generation"
+                # 重试时跳过本任务已产出的候选（同索引的 prompt_hash 确定），
+                # 避免取消/中断后重跑同一张、重复计费与重复候选。
+                existing_hashes = set((await db.scalars(
+                    select(ImageAsset.prompt_hash).where(
+                        ImageAsset.job_id == job.id,
+                        ImageAsset.prompt_hash.is_not(None),
+                    )
+                )).all())
                 for index in range(max(1, job.requested_n)):
                     await db.refresh(job)
                     if job.cancel_requested:
@@ -517,14 +584,16 @@ async def run_job(job_id: str) -> dict:
                         capabilities=caps,
                         prompt_override=prompt,
                     )
+                    if prompt_hash in existing_hashes:
+                        continue
+                    attempted = True
                     count = await _generate_one(
                         db, job, prompt=prompt, seed=seed, prompt_hash=prompt_hash,
                         character_id=job.character_id, source=source,
                     )
+                    existing_hashes.add(prompt_hash)
                     produced += count
-                    billed += count
                     job.produced_count = produced
-                    job.billed_n = billed
                     await db.commit()
         except ImageProviderError as e:
             error = e
@@ -532,8 +601,9 @@ async def run_job(job_id: str) -> dict:
             error = ImageProviderError("invalid", f"生成任务异常中断：{e}")
 
         await db.refresh(job)
-        job.produced_count = produced
-        job.billed_n = billed
+        produced_total = await _produced_count(db, job.id)
+        job.produced_count = produced_total
+        job.billed_n = await _billed_total(db, job)
         job.duration_ms = int((time.monotonic() - started) * 1000)
         if job.cancel_requested:
             await _cancel_remaining_items(db, job)
@@ -542,11 +612,12 @@ async def run_job(job_id: str) -> dict:
             job.status = "failed"
             job.error_kind = error.kind
             job.error_message = error.message[:500]
-        elif produced == 0:
+        elif produced_total == 0 and attempted:
             job.status = "failed"
             job.error_kind = "empty"
             job.error_message = "供应商未返回任何图片"
         else:
+            # 重试时无待办 item（中断在收尾前）也按已完成收口，不再误报空产出。
             job.status = "completed"
         job.finished_at = now_utc()
         await db.commit()

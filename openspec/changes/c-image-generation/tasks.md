@@ -3,7 +3,7 @@
 ## 1. 权益
 
 - [x] 1.1 `image-generate` feature key：C端 specs 词汇表、entitlement-defaults、STANDARD_FALLBACK、features.ts、e2e 种子、路由声明/门禁/对拍测试；S端 `ENTITLEMENT_DEFAULTS`＋契约副本＋seed SQL 已在 `s-image-generate` 分支同批改（生产 tiers 行发放与 S PR 合并仍待运维）
-- [x] 1.2 `require_tier_access`；standard 拒绝/trial 放行矩阵已落测试；旧快照缺 key 时未过期 trial/pro/max 前端隐式放行
+- [x] 1.2 `require_tier_access`；standard 拒绝/trial 放行矩阵已落测试；旧快照缺 key 时未过期 trial/pro/max 前后端同口径隐式放行（后端 MUST 真放行，已有四臂测试）
 - [x] 1.3 免费用户上传永远可用；生成/试画/批量后端 `image-generate` 真拦
 
 ## 2. 适配器
@@ -15,14 +15,14 @@
 
 ## 3. 任务
 
-- [x] 3.1 `image_jobs`/`image_batches` schema + partial unique（同一 target 同时最多一个 queued/running）＋ idempotency key
-- [x] 3.2 独立 dispatcher：条件 UPDATE claim、取消、重试、批量 item；不占写作 `job_runner` 单飞槽；关闭弹窗不取消
+- [x] 3.1 `image_jobs`/`image_batches` schema + partial unique（同一 target 同时最多一个 queued/running）＋ idempotency key（批量键含角色集合；failed/cancelled 同键重提就地重排）
+- [x] 3.2 独立 dispatcher：条件 UPDATE claim、取消、重试、批量 item；不占写作 `job_runner` 单飞槽；关闭弹窗不取消；重试按库内累计账目、跳过已产候选
 - [x] 3.3 启动 sweep running→failed(interrupted)；`cancelled_billed` 状态保留给供应商返回/取消竞态（当前先落候选再检查，正常路径不产生）
 - [x] 3.4 生成/试画/批量端点；逐候选独立 seed + prompt_hash 落库；失败保留已产生候选
 
 ## 4. 验证
 
-- [x] 4.1 单测：三套 wire/能力降级/错误分类/URL 下载安全、逐候选 seed+hash、active 唯一、失败保候选、批量逐项账、取消/重试/启动 sweep、日志脱敏、standard/trial HTTP 门（`test_image_generation.py` 14 passed）
+- [x] 4.1 单测：三套 wire/能力降级/错误分类/URL 下载安全（含域名解析到内网拒绝）、逐候选 seed+hash、active 唯一、失败保候选、批量逐项账、取消/重试/启动 sweep、重试账目与去重、批量幂等角色集、旧快照隐式放行、日志脱敏、standard/trial HTTP 门（`test_image_generation.py` 20 passed）
 - [ ] 4.2 真机：封面/头像/批量/失败/取消/换供应商（供应商真实响应形状未实测）
 - [x] 4.3 发布门禁：生成失败不丢已产生候选（测试钉）；`image_gen` 日志不含 Key/prompt/图片字节（caplog 钉）
 

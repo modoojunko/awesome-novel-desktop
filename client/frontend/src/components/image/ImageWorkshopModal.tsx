@@ -427,7 +427,7 @@ export default function ImageWorkshopModal({
                 >
                   试画 1 张
                 </button>
-                {job?.status === "failed" && (
+                {job && ["failed", "cancelled"].includes(job.status) && (
                   <button className="btn btn-ghost btn-sm" onClick={() => void retryGeneration()}>
                     重试
                   </button>

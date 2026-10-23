@@ -39,7 +39,8 @@ function legacyImplicitAllowed(
   isMember?: boolean, isPro?: boolean, isMax?: boolean,
 ): boolean {
   if (!LEGACY_IMPLICIT_FEATURES.has(key) || expired) return false;
-  if (tier === "trial" || isPro || isMax) return true;
+  // 不依赖调用方是否传 isPro/isMax：兜底路径只有 verify 快照原文（无 ctx 派生值）。
+  if (["trial", "pro", "max"].includes(tier || "") || isPro || isMax) return true;
   // legacy 月/季/年=PRO、终身=MAX（与后端 _TIER_ALIAS 同口径）
   return !!isMember && ["monthly", "quarterly", "yearly", "lifetime"].includes(tier || "");
 }

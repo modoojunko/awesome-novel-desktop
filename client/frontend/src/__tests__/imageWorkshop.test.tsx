@@ -120,4 +120,27 @@ describe("ImageWorkshopModal（上传型工坊）", () => {
     await waitFor(() => expect(screen.getByText("已完成 2 张")).toBeTruthy());
     await waitFor(() => expect(onChanged).toHaveBeenCalled());
   });
+
+  it("取消后可重试同一任务（不再卡在已取消）", async () => {
+    featureAllowed.value = true;
+    const running = {
+      id: "job-1", status: "running", purpose: "generate",
+      kind: "cover", produced_count: 0, requested_n: 2,
+      error_message: null, cancel_requested: false, items: [],
+    } as unknown as Awaited<ReturnType<typeof api.getImageJob>>;
+    api.getImageJob.mockImplementation(async () => running);
+    render(
+      <ImageWorkshopModal open novelId="n1" kind="cover" onClose={() => {}} onChanged={() => {}} />,
+    );
+    await waitFor(() => expect(
+      (screen.getByRole("button", { name: "生成 2 张候选" }) as HTMLButtonElement).disabled,
+    ).toBeFalsy());
+    fireEvent.click(screen.getByRole("button", { name: "生成 2 张候选" }));
+    await waitFor(() => expect(screen.getByRole("button", { name: "取消生成" })).toBeTruthy());
+    fireEvent.click(screen.getByRole("button", { name: "取消生成" }));
+    await waitFor(() => expect(api.cancelImageJob).toHaveBeenCalledWith("job-1"));
+
+    fireEvent.click(await screen.findByRole("button", { name: "重试" }));
+    await waitFor(() => expect(api.retryImageJob).toHaveBeenCalledWith("job-1"));
+  });
 });

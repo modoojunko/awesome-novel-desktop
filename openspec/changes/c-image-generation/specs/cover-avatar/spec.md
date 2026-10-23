@@ -14,6 +14,11 @@
 - **WHEN** standard 用户调用生成端点且快照不含 `image-generate`
 - **THEN** 后端 MUST 返回 403 `feature_required`，不产生供应商调用
 
+#### Scenario: 旧快照隐式放行（前后端同口径）
+
+- **WHEN** 未过期 trial/pro/max 用户的完整快照缺少 `image-generate`
+- **THEN** 后端 MUST 放行生成端点（standard/free/过期仍拒），前端 MUST 显示可生成
+
 #### Scenario: 不支持 seed 的供应商
 
 - **WHEN** 使用 `gpt-image-1` 生成头像且候选 2 张
@@ -41,7 +46,12 @@
 #### Scenario: 同一目标重复提交幂等
 
 - **WHEN** 同一目标已有 queued/running 任务时再次提交
-- **THEN** 系统 MUST 返回 409 `job_active_exists`；相同 idempotency key 的重复提交 SHALL 返回原任务
+- **THEN** 系统 MUST 返回 409 `job_active_exists`；相同 idempotency key 的重复提交 SHALL 返回原任务。批量任务的 idempotency key MUST 含角色集合（不得因人数/代表角色相同而错配）；原任务为 failed/cancelled 时 SHALL 就地重置为 queued 续跑，MUST NOT 永久返回终态任务
+
+#### Scenario: 重试不重复计费
+
+- **WHEN** 任务部分成功后失败/取消并重试
+- **THEN** 已产出的候选 MUST 保留且 MUST NOT 重复生成（单角色按候选 prompt_hash 跳过）；`produced_count/billed_n` MUST 以库内累计为准，不得回落到本次重试数量
 
 #### Scenario: 应用重启恢复
 
@@ -50,7 +60,7 @@
 
 ### Requirement: 供应商适配与错误分类
 
-系统 SHALL 通过统一适配层调用图像供应商：OpenAI images 形态（火山/智谱/OpenAI/兼容）、DashScope multimodal-generation、MiniMax image_generation。供应商返回的 b64/URL SHALL 收敛为图片字节；URL MUST 仅允许 http(s)、禁止重定向/内网/本机/带凭据链接且 ≤10MB。调用失败 SHALL 归类为 auth/quota/rate_limit/moderation/timeout/network/invalid/empty。日志 MUST NOT 记录 API Key、prompt 正文或图片字节。
+系统 SHALL 通过统一适配层调用图像供应商：OpenAI images 形态（火山/智谱/OpenAI/兼容）、DashScope multimodal-generation、MiniMax image_generation。供应商返回的 b64/URL SHALL 收敛为图片字节；URL MUST 仅允许 http(s)、禁止重定向/内网/本机/带凭据链接且 ≤10MB；域名 MUST 解析后再判内网（私网/回环/链路本地/保留/多播均拒绝）。调用失败 SHALL 归类为 auth/quota/rate_limit/moderation/timeout/network/invalid/empty。日志 MUST NOT 记录 API Key、prompt 正文或图片字节。
 
 #### Scenario: 配置 Key 无效
 

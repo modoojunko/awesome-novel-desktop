@@ -347,6 +347,8 @@ async def _image_validation_handler(request, exc):
         or "/image-settings" in path
         or "/image-assets" in path
         or "/image-prompt" in path
+        or "/image-jobs" in path
+        or "/avatar-batches" in path
     ):
         return JSONResponse(
             status_code=422,

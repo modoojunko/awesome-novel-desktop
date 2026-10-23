@@ -105,6 +105,18 @@ export default function BatchAvatarModal({
     }
   };
 
+  // 取消/失败后原地重排同一任务（已完成 item 保留，只补未完成的部分）。
+  const retry = async () => {
+    if (!job) return;
+    try {
+      setJob(await imageApi.retryImageJob(job.id));
+      setError(null);
+      toast.success("已重新排队");
+    } catch (e) {
+      toast.error((e as Error).message || "重试失败");
+    }
+  };
+
   return (
     <Modal
       open={open}
@@ -160,6 +172,11 @@ export default function BatchAvatarModal({
               任务状态：{STATE_LABEL[job.status] || job.status} · 已生成 {job.produced_count} 张
             </span>
             <span className={`img-job-status ${job.status}`}>{job.status}</span>
+            {["failed", "cancelled"].includes(job.status) && (
+              <button className="btn btn-ghost btn-sm" onClick={() => void retry()}>
+                重试
+              </button>
+            )}
           </div>
         )}
       </div>
