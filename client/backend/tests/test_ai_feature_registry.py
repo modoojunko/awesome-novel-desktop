@@ -38,6 +38,8 @@ REQUIRED_CONSUMERS = (
     "ai-plot",
     "ai-detect",
     "image-generate",
+    "deconstruct",
+    "deconstruct-import",
 )
 
 

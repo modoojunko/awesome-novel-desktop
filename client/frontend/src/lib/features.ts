@@ -34,7 +34,9 @@ export type FeatureKey =
   | "ai-model"
   | "ai-detect"
   | "ai-plot"
-  | "image-generate";
+  | "image-generate"
+  | "deconstruct"
+  | "deconstruct-import";
 
 const TIER_ORDER: Record<TierKey, number> = { free: 0, standard: 1, pro: 2, max: 3 };
 
@@ -67,6 +69,10 @@ export const FEATURES: Record<FeatureKey, { minTier: TierKey }> = {
   // MAX：剧情推演＋文风蒸馏（去AI味加工已随 c-renwei-check 退役）
   "ai-plot": { minTier: "max" },
   "style-quant": { minTier: "max" },
+  // 拆书/导入（c-deconstruct-tier，2026-10-23 拍板）：正文导入免费；
+  // AI 拆书＋产物查看＋导出 markdown 归 PRO（trial 同权）；拆书产物一键建书归 MAX（trial 不含）
+  "deconstruct": { minTier: "pro" },
+  "deconstruct-import": { minTier: "max" },
 };
 
 /** 档位序（供 minTier 比较；free=0 起步） */

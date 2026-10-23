@@ -1,5 +1,5 @@
 import { useContext } from "react";
-import { FEATURES, tierRank, type FeatureKey } from "@/lib/features";
+import { FEATURES, tierRank, type FeatureKey, type TierKey } from "@/lib/features";
 import { getVerifyCache } from "@/lib/licenseCache";
 import { tierShort, type TierShort } from "@/lib/tier";
 import { TierContext, type TierState } from "@/components/novel/license/LicenseProvider";
@@ -28,21 +28,35 @@ export function useTier(): TierState {
   return useContext(TierContext) ?? SAFE_FREE;
 }
 
-/** 旧快照缺失新 key 时的隐式放行（c-image-generation）：
- *  image-generate 上线早于快照版本刷新——旧 trial/pro/max 快照不含该 key，
- *  按“trial 同权、PRO 起发放”隐式放行；standard/free/过期仍锁。S端 快照刷新后
- *  该表可清空。 */
-const LEGACY_IMPLICIT_FEATURES = new Set<FeatureKey>(["image-generate"]);
+/** 旧快照缺失新 key 时的隐式放行（c-image-generation / c-deconstruct-tier）：
+ *  新 key 上线早于快照版本刷新——旧快照不含该 key，按 key 的最低档隐式放行
+ *  （standard/free/过期仍锁；MAX 键不给 trial/pro 放行）。S端 快照刷新后该表可清空。 */
+const LEGACY_IMPLICIT_FEATURES: Partial<Record<FeatureKey, "pro" | "max">> = {
+  "image-generate": "pro",
+  "deconstruct": "pro",
+  "deconstruct-import": "max",
+};
+
+/** legacy 档名归一（与后端 _TIER_RANK 同口径）：月/季/年=PRO、终身=MAX */
+function legacyTierRank(tier?: string): number {
+  if (tier === "max" || tier === "lifetime") return tierRank("max");
+  if (["pro", "trial", "monthly", "quarterly", "yearly"].includes(tier || "")) {
+    return tierRank("pro");
+  }
+  return tierRank((tier ?? "free") as TierKey);
+}
 
 function legacyImplicitAllowed(
   key: FeatureKey, tier?: string, expired?: boolean,
   isMember?: boolean, isPro?: boolean, isMax?: boolean,
 ): boolean {
-  if (!LEGACY_IMPLICIT_FEATURES.has(key) || expired) return false;
+  const min = LEGACY_IMPLICIT_FEATURES[key];
+  if (!min || expired) return false;
   // 不依赖调用方是否传 isPro/isMax：兜底路径只有 verify 快照原文（无 ctx 派生值）。
-  if (["trial", "pro", "max"].includes(tier || "") || isPro || isMax) return true;
-  // legacy 月/季/年=PRO、终身=MAX（与后端 _TIER_ALIAS 同口径）
-  return !!isMember && ["monthly", "quarterly", "yearly", "lifetime"].includes(tier || "");
+  if (legacyTierRank(tier) < tierRank(min)) return false;
+  // trial/pro/max 直判；legacy 月/季/年/终身须是有效会员
+  if (["trial", "pro", "max"].includes(tier || "") || !!isPro || !!isMax) return true;
+  return !!isMember;
 }
 
 /** 快照缺失时的兜底判定（tier-plan-four-tiers 3.1）：目录缓存行 features 含 key

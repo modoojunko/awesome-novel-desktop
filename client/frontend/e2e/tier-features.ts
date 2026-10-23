@@ -17,9 +17,16 @@ const V2_STANDARD = [
   "ai-model",
 ] as const;
 
-const V2_PRO = [...V2_STANDARD, "ai-generate", "prompt-panel", "ai-detect", "image-generate"] as const;
+const V2_PRO = [
+  ...V2_STANDARD,
+  "ai-generate",
+  "prompt-panel",
+  "ai-detect",
+  "deconstruct",
+  "image-generate",
+] as const;
 
-const V2_MAX = [...V2_PRO, "ai-plot", "style-quant"] as const;
+const V2_MAX = [...V2_PRO, "deconstruct-import", "ai-plot", "style-quant"] as const;
 
 export const TIER_FEATURES: Record<string, string[]> = {
   free: [],

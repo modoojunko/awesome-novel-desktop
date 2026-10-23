@@ -19,6 +19,7 @@ os.environ["DECONSTRUCT_DISPATCHER_OFF"] = "1"
 
 from fastapi.testclient import TestClient  # noqa: E402
 
+from auth_local import deps as _auth_deps  # noqa: E402
 from auth_local.middleware import get_current_user  # noqa: E402
 from db import Base, async_session, engine  # noqa: E402
 from main import app  # noqa: E402
@@ -26,6 +27,31 @@ from models.deconstruct import DeconstructJob, DeconstructUnit  # noqa: E402
 
 _UID = "dec-api-user"
 _TXT = "第一卷 起\n第1章 初见\n林晚在渡口救人。\n第2章 重逢\n阿蓟归来报恩。\n"
+
+
+@pytest.fixture(autouse=True)
+def _tier_allow_deconstruct(monkeypatch):
+    """本文件专注业务行为：统一给 MAX 档权益（deconstruct＋deconstruct-import），
+    门禁矩阵另见 test_deconstruct_tier.py。"""
+    async def _ensure():
+        return None
+
+    async def _no_model(user, db):
+        return None
+
+    monkeypatch.setattr(_auth_deps, "ensure_entitlement_snapshot", _ensure)
+    monkeypatch.setattr(_auth_deps, "_check_writing_model_configured", _no_model)
+    monkeypatch.setattr(
+        _auth_deps, "check_permission",
+        lambda: {
+            "tier": "max", "is_member": True, "expired": False,
+            "entitlement": {
+                "v": 2,
+                "features": ["ai-model", "ai-generate", "ai-plan", "deconstruct", "deconstruct-import"],
+                "limits": {"max_projects": None},
+            },
+        },
+    )
 
 
 def _run(coro):

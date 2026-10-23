@@ -6,6 +6,9 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
+import UpgradeModal from "@/components/novel/UpgradeModal";
+import { useFeature } from "@/hooks/useTier";
+import type { FeatureKey } from "@/lib/features";
 import { toast } from "../../lib/toast";
 import { serverTimeMs } from "../../lib/serverTime";
 import { queryKeys } from "../../lib/queryKeys";
@@ -43,6 +46,11 @@ const STATUS_PILL: Record<string, string> = {
 export default function TaskDetailPage() {
   const { id = "" } = useParams();
   const navigate = useNavigate();
+  // 档位门（c-deconstruct-tier）：导出 markdown＝deconstruct（PRO 起）；产物建书＝
+  // deconstruct-import（MAX）。产物查看/取消不设门；升级出口按所需 key 弹对应档。
+  const hasDeconstruct = useFeature("deconstruct");
+  const hasDeconstructImport = useFeature("deconstruct-import");
+  const [tierNeed, setTierNeed] = useState<FeatureKey | null>(null);
   // 建书勾选：7 设定项默认勾（二创轻量），章卷/关系/技法默认不勾（自书续写再勾）
   const [bookItems, setBookItems] = useState<string[]>(
     DECONSTRUCT_DIMS.filter((d) => d.setting).map((d) => d.key),
@@ -200,6 +208,16 @@ export default function TaskDetailPage() {
   };
 
   const doExit = () => {
+    if (exitOpt === "book" && !hasDeconstructImport) {
+      setTierNeed("deconstruct-import");
+      return;
+    }
+    /* v8 ignore start — locked 时 files 选项点击已在选项处拦截，exitOpt 不会切到 files：防御臂不可达 */
+    if (exitOpt === "files" && !hasDeconstruct) {
+      setTierNeed("deconstruct");
+      return;
+    }
+    /* v8 ignore stop */
     if (exitOpt === "book") {
       void act(
         () => importBookFromTask(task.id, bookItems),
@@ -660,20 +678,32 @@ export default function TaskDetailPage() {
                   <button
                     className={"ex-fmt" + (exitOpt === "book" ? " on" : "")}
                     data-exit-opt="book"
-                    onClick={() => setExitOpt("book")}
+                    onClick={() => {
+                      if (!hasDeconstructImport) {
+                        setTierNeed("deconstruct-import");
+                        return;
+                      }
+                      setExitOpt("book");
+                    }}
                   >
                     <span className="ex-txt">
-                      <b>建书</b>
+                      <b>建书{hasDeconstructImport ? "" : "（MAX）"}</b>
                       <span>生成新书并写入勾中的设定项；确认后直达新书设定页（标「待确认」）；人物关系/章卷/技法随任务资料。</span>
                     </span>
                   </button>
                   <button
                     className={"ex-fmt" + (exitOpt === "files" ? " on" : "")}
                     data-exit-opt="files"
-                    onClick={() => setExitOpt("files")}
+                    onClick={() => {
+                      if (!hasDeconstruct) {
+                        setTierNeed("deconstruct");
+                        return;
+                      }
+                      setExitOpt("files");
+                    }}
                   >
                     <span className="ex-txt">
-                      <b>存本地文件夹</b>
+                      <b>存本地文件夹{hasDeconstruct ? "" : "（PRO）"}</b>
                       <span>导出勾中的 {selectedFiles.length} 份产物（＋README）到选择的文件夹；产物仍保留，之后也可回来建书。</span>
                     </span>
                   </button>
@@ -802,6 +832,11 @@ export default function TaskDetailPage() {
           </span>
         </div>
       )}
+      <UpgradeModal
+        open={tierNeed !== null}
+        onClose={() => setTierNeed(null)}
+        required={tierNeed ?? "deconstruct"}
+      />
       {/* v8 ignore stop */}
     </main>
   );

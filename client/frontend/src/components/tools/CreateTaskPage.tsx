@@ -2,6 +2,8 @@
 // 解析在选文件时本地完成（秒级、不耗额度）；模型选择仅本任务生效；探针门过才解禁创建。
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
+import UpgradeModal from "@/components/novel/UpgradeModal";
+import { useFeature } from "@/hooks/useTier";
 import {
   createDeconstructTask,
   DECONSTRUCT_DIMS,
@@ -117,6 +119,10 @@ async function localParse(file: File): Promise<LocalParse> {
 
 export default function CreateTaskPage() {
   const navigate = useNavigate();
+  // 档位门（c-deconstruct-tier）：AI 拆书＝deconstruct（PRO 起、trial 同权）；
+  // 免费正文导入不在此页——本页整页都是 AI 拆书
+  const canDeconstruct = useFeature("deconstruct");
+  const [tierModalOpen, setTierModalOpen] = useState(false);
   const [file, setFile] = useState<File | null>(null);
   const [options, setOptions] = useState<ModelOption[]>([]);
   const [optionsLoaded, setOptionsLoaded] = useState(false);
@@ -228,6 +234,10 @@ export default function CreateTaskPage() {
     /* v8 ignore start — 防御臂：按钮禁用态不可达（未选文件时禁用） */
     if (!file) return;
     /* v8 ignore stop */
+    if (!canDeconstruct) {
+      setTierModalOpen(true);
+      return;
+    }
     const [configId, model] = modelKey.split("::");
     setSubmitting(true);
     setSubmitErr("");
@@ -519,6 +529,13 @@ export default function CreateTaskPage() {
             </div>
           )}
 
+          {!canDeconstruct && (
+            <div className="hint" data-od-id="create-tier-lock">
+              <b>AI 拆书是 PRO 功能。</b>免费可先用「正文导入」把书带进来写作；升级 PRO 后
+              可拆完本小说并导出 Markdown（MAX 还能把拆书产物一键生成新书）。
+            </div>
+          )}
+
           <div style={{ display: "flex", gap: 8, marginTop: 18 }}>
             <button
               className="btn btn-primary"
@@ -526,7 +543,11 @@ export default function CreateTaskPage() {
               disabled={!canSubmit}
               onClick={() => void submit()}
             >
-              {submitting ? "创建中…" : "创建任务（进队列排队）"}
+              {submitting
+                ? "创建中…"
+                : canDeconstruct
+                  ? "创建任务（进队列排队）"
+                  : "创建任务（PRO）"}
             </button>
             <Link className="btn btn-secondary" to="/tools">
               取消
@@ -534,6 +555,11 @@ export default function CreateTaskPage() {
           </div>
         </div>
       )}
+      <UpgradeModal
+        open={tierModalOpen}
+        onClose={() => setTierModalOpen(false)}
+        required="deconstruct"
+      />
     </main>
   );
 }

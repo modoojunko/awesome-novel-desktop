@@ -1,8 +1,9 @@
 // 创建任务页（c-deconstruct-book 5.4）：未配置引导、模型下拉、探针门、双子态、勾选下限、提交。
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { resetLicenseCache, setVerifyCache } from "@/lib/licenseCache";
 
 const state = vi.hoisted(() => ({
   fetchOpts: vi.fn(),
@@ -41,12 +42,52 @@ function pickFile(name = "试拆.txt") {
   return file;
 }
 
+/** PRO 档快照（含 deconstruct）：默认放行创建；locked 用例自行 resetLicenseCache */
+function seedPro() {
+  setVerifyCache({
+    tier: "pro",
+    is_member: true,
+    expired: false,
+    entitlement: {
+      v: 2,
+      features: ["ai-model", "ai-generate", "ai-plan", "deconstruct"],
+      limits: { max_projects: null },
+    },
+  });
+}
+
+beforeEach(() => {
+  seedPro();
+});
+
 afterEach(() => {
   cleanup();
   vi.restoreAllMocks();
+  resetLicenseCache();
 });
 
 describe("CreateTaskPage", () => {
+  it("档位门：未升级 PRO 时按钮呈「创建任务（PRO）」，点击弹升级（不提交）", async () => {
+    resetLicenseCache();
+    state.fetchOpts.mockResolvedValue([
+      { api_config_id: "c1", config_name: "主力配置", model: "deepseek-v4-pro", vendor: "DeepSeek" },
+    ]);
+    state.probe.mockResolvedValue(true);
+    renderPage();
+    pickFile();
+    await waitFor(() => expect(screen.getByText("创建任务（PRO）")).toBeInTheDocument());
+    await waitFor(() =>
+      expect((screen.getByText("创建任务（PRO）") as HTMLButtonElement).disabled).toBe(false),
+    );
+    fireEvent.click(screen.getByText("创建任务（PRO）"));
+    await waitFor(() => expect(screen.getByText("升级 PRO · 解锁 AI 能力")).toBeInTheDocument());
+    expect(state.create).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByText("暂不"));
+    await waitFor(() =>
+      expect(screen.queryByText("升级 PRO · 解锁 AI 能力")).not.toBeInTheDocument(),
+    );
+  });
+
   it("未配置模型：引导去配置、创建禁用", async () => {
     state.fetchOpts.mockResolvedValue([]);
     renderPage();

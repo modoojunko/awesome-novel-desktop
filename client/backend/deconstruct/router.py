@@ -14,6 +14,7 @@ from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from auth_local.deps import ai_feature, require_ai_access
 from auth_local.middleware import get_current_user
 from db import get_db
 from deconstruct import apply, service
@@ -40,6 +41,7 @@ def _require(task, user: dict):
 
 
 @router.post("/tasks")
+@ai_feature("deconstruct")
 async def create_task(
     file: UploadFile = File(...),
     book_name: str = Form(""),
@@ -48,6 +50,7 @@ async def create_task(
     selected_dims: str = Form("[]"),
     thinking: str = Form("off"),
     user: dict = Depends(get_current_user),
+    _gate: bool = Depends(require_ai_access),
     db: AsyncSession = Depends(get_db),
 ):
     """创建拆书任务：流式落盘（Content-Length 不可信，块累计双检）→ 探测/解析 → 入队。"""
@@ -193,10 +196,12 @@ async def cancel_task(
 
 
 @router.post("/tasks/{task_id}/resume")
+@ai_feature("deconstruct")
 async def resume_task(
     task_id: str,
     body: dict | None = None,
     user: dict = Depends(get_current_user),
+    _gate: bool = Depends(require_ai_access),
     db: AsyncSession = Depends(get_db),
 ):
     """断点续拆：failed/cancelled → 重新入队（run_task 按维度 state 跳过已完成）。
@@ -245,10 +250,12 @@ async def resume_task(
 
 
 @router.post("/tasks/{task_id}/retry-upload")
+@ai_feature("deconstruct")
 async def retry_upload(
     task_id: str,
     file: UploadFile = File(...),
     user: dict = Depends(get_current_user),
+    _gate: bool = Depends(require_ai_access),
     db: AsyncSession = Depends(get_db),
 ):
     """需重传恢复：源文件重新落盘，回原排队位次。"""
@@ -277,10 +284,12 @@ async def retry_upload(
 
 
 @router.post("/tasks/{task_id}/import-book")
+@ai_feature("deconstruct-import")
 async def import_book(
     task_id: str,
     body: dict | None = None,
     user: dict = Depends(get_current_user),
+    _gate: bool = Depends(require_ai_access),
     db: AsyncSession = Depends(get_db),
 ):
     """建书出口：勾选维度经域服务灌入新书（幂等）。
@@ -302,10 +311,12 @@ async def import_book(
 
 
 @router.post("/tasks/{task_id}/export")
+@ai_feature("deconstruct")
 async def export_task(
     task_id: str,
     body: dict,
     user: dict = Depends(get_current_user),
+    _gate: bool = Depends(require_ai_access),
     db: AsyncSession = Depends(get_db),
 ):
     """存本地文件夹出口：勾中产物＋README 物化到所选目录。"""

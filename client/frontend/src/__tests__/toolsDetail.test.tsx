@@ -3,6 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { MemoryRouter, Routes, Route } from "react-router-dom";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { resetLicenseCache, setVerifyCache } from "@/lib/licenseCache";
 
 const state = vi.hoisted(() => ({
   get: vi.fn(),
@@ -83,9 +84,47 @@ function renderPage() {
 afterEach(() => {
   cleanup();
   vi.restoreAllMocks();
+  resetLicenseCache();
+});
+
+/** MAX 档快照（含 deconstruct/deconstruct-import）：默认放行建书与导出；locked 用例自行 reset */
+function seedMax() {
+  setVerifyCache({
+    tier: "max",
+    is_member: true,
+    expired: false,
+    entitlement: {
+      v: 2,
+      features: ["ai-model", "ai-generate", "ai-plan", "deconstruct", "deconstruct-import"],
+      limits: { max_projects: null },
+    },
+  });
+}
+
+beforeEach(() => {
+  seedMax();
 });
 
 describe("TaskDetailPage", () => {
+
+  it("档位门：未升级时建书/导出走对应档升级弹窗（不提交）", async () => {
+    resetLicenseCache();
+    state.get.mockResolvedValue(detailOf("completed"));
+    renderPage();
+    await waitFor(() => expect(screen.getByText("选择去向")).toBeInTheDocument());
+    fireEvent.click(screen.getByText("选择去向"));
+    await waitFor(() => expect(screen.getByText("就建这本书")).toBeInTheDocument());
+    // 默认选中建书：未升级 MAX → 确认弹 MAX 升级，不调建书
+    fireEvent.click(screen.getByText("就建这本书"));
+    await waitFor(() =>
+      expect(screen.getByText("升级 MAX · 解锁剧情推演与文风蒸馏")).toBeInTheDocument(),
+    );
+    expect(state.importBook).not.toHaveBeenCalled();
+    // 切到导出选项：未升级 PRO → 弹 PRO 升级
+    fireEvent.click(screen.getByText(/存本地文件夹/));
+    await waitFor(() => expect(screen.getByText("升级 PRO · 解锁 AI 能力")).toBeInTheDocument());
+    expect(state.export).not.toHaveBeenCalled();
+  });
 
   it("详情加载失败 → 错误提示＋返回清单（不再停在加载中）", async () => {
     state.get.mockRejectedValue(new Error("任务不存在"));
