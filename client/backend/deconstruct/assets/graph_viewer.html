@@ -777,6 +777,7 @@ body { margin: 0; background: var(--bg); color: var(--fg); font: 14px/1.65 var(-
       console.warn("关系网初始化失败，回落文本关系清单", e);
       try { if (CY) CY.destroy(); } catch (e2) {}
       CY = null;
+      window.__net = null;  // 降级后调试口不得指向已销毁实例（评审 P3）
       netFallback();
     }
   }
