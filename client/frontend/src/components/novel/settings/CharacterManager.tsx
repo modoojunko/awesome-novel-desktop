@@ -21,6 +21,7 @@ import {
 import { Ico } from "@/components/icons";
 import ImageThumb from "@/components/image/ImageThumb";
 import ImageWorkshopModal from "@/components/image/ImageWorkshopModal";
+import BatchAvatarModal from "@/components/image/BatchAvatarModal";
 import AiCardModal from "./AiCardModal";
 import BatchAddModal from "./BatchAddModal";
 import type { BatchRow } from "@/lib/characterImport";
@@ -163,6 +164,7 @@ const CharacterManager = forwardRef<CharacterSaveHandle, Props>(function Charact
   const [batchOpen, setBatchOpen] = useState(false);
   const [batchCreatedIds, setBatchCreatedIds] = useState<string[]>([]);
   const [avatarTarget, setAvatarTarget] = useState<CharacterCard | null>(null);
+  const [avatarBatchOpen, setAvatarBatchOpen] = useState(false);
 
   const queueRef = useRef<{ path: string; value: unknown }[]>([]);
   const runningRef = useRef(false);
@@ -747,6 +749,13 @@ const CharacterManager = forwardRef<CharacterSaveHandle, Props>(function Charact
   /** 批量导入的重名判定集（库内显示名；空名占位卡不参与匹配） */
   const existingNames = useMemo(() => new Set(list.map((c) => displayName(c.name))), [list]);
   const hasProtagonist = useMemo(() => list.some((c) => c.role === "主角"), [list]);
+  /** 批量头像的目标行：默认勾选还没有头像的角色（有头像的也可手动勾选重生成） */
+  const avatarBatchCharacters = useMemo(
+    () => list.map((c) => ({
+      id: c.id, name: displayName(c.name) || "未命名", hasAvatar: !!c.avatar,
+    })),
+    [list],
+  );
 
   /** 出稿逐格行（弹窗卡体内渲染；内嵌预览块词汇已退役） */
   const draftRows = (data: { cells: { path: string; value: string }[]; skipped?: { key: string; why: string }[] }) => (
@@ -781,6 +790,14 @@ const CharacterManager = forwardRef<CharacterSaveHandle, Props>(function Charact
             onClick={() => setBatchOpen(true)}
           >
             批量添加
+          </button>
+          <button
+            type="button"
+            className="char-add char-add-more"
+            data-testid="avatar-batch-open"
+            onClick={() => setAvatarBatchOpen(true)}
+          >
+            批量头像
           </button>
         </div>
         <input
@@ -1458,6 +1475,18 @@ const CharacterManager = forwardRef<CharacterSaveHandle, Props>(function Charact
           }}
         />
       )}
+      <BatchAvatarModal
+        open={avatarBatchOpen}
+        novelId={projectId}
+        characters={avatarBatchCharacters}
+        onClose={() => setAvatarBatchOpen(false)}
+        onChanged={async () => {
+          const items = await reloadList();
+          if (!card) return;
+          const next = items.find((i) => i.id === card.id);
+          if (next) setCard({ ...card, avatar: next.avatar });
+        }}
+      />
     </div>
   );
 });

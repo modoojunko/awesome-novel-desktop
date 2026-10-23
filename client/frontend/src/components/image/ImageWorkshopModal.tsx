@@ -3,12 +3,12 @@ import Modal from "@/components/design/Modal";
 import { Ico, P } from "@/components/icons";
 import { toast } from "@/lib/toast";
 import { parseServerTime } from "@/lib/serverTime";
-import { useTier } from "@/hooks/useTier";
+import { useTier, useFeature } from "@/hooks/useTier";
 import ImageThumb from "./ImageThumb";
 import {
   imageApi,
   type BookImageSettings, type CharacterImageSettings,
-  type ImageAsset, type ImageKind, type PromptPreview,
+  type ImageAsset, type ImageJob, type ImageKind, type PromptPreview,
 } from "@/lib/imageApi";
 
 const STYLES = [
@@ -47,8 +47,8 @@ function remainingMs(iso?: string | null): number {
 export default function ImageWorkshopModal({
   open, novelId, kind, characterId, characterName, onClose, onChanged, initialUndo,
 }: Props) {
-  const { isPro, tier, isFree } = useTier();
-  const canGenerate = isPro || tier === "trial";
+  const { isFree } = useTier();
+  const canGenerate = useFeature("image-generate");
   const fileRef = useRef<HTMLInputElement>(null);
   const [assets, setAssets] = useState<ImageAsset[]>([]);
   const [loading, setLoading] = useState(false);
@@ -67,6 +67,8 @@ export default function ImageWorkshopModal({
   const [preview, setPreview] = useState<PromptPreview | null>(null);
   const [previewErr, setPreviewErr] = useState<string | null>(null);
   const [savingSettings, setSavingSettings] = useState(false);
+  const [job, setJob] = useState<ImageJob | null>(null);
+  const [genErr, setGenErr] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -111,9 +113,33 @@ export default function ImageWorkshopModal({
     if (!open) return;
     setUndo(null);
     setPreview(null);
+    setJob(null);
+    setGenErr(null);
     void load();
     void loadPreview();
   }, [open, load, loadPreview]);
+
+  // 生成任务轮询：queued/running 每 1.5s 拉一次；终态即停并刷新候选。
+  useEffect(() => {
+    if (!job || !["queued", "running"].includes(job.status)) return;
+    let alive = true;
+    const timer = window.setInterval(() => {
+      void imageApi.getImageJob(job.id).then((next) => {
+        if (!alive) return;
+        setJob(next);
+        if (next.status === "completed") {
+          void load();
+          void onChanged();
+        }
+      }).catch(() => {
+        // 轮询失败不打断：下个 tick 重试；连续失败由接口层全局提示
+      });
+    }, 1500);
+    return () => {
+      alive = false;
+      window.clearInterval(timer);
+    };
+  }, [job, load, onChanged]);
 
   useEffect(() => {
     if (!undo) return;
@@ -211,6 +237,46 @@ export default function ImageWorkshopModal({
       toast.error((e as Error).message || "丢弃失败");
     } finally {
       setBusy(false);
+    }
+  };
+
+  const startGeneration = async (purpose: "generate" | "test") => {
+    if (!canGenerate) {
+      toast.info("AI 生成是 PRO 功能；上传封面/头像免费可用");
+      return;
+    }
+    setGenErr(null);
+    try {
+      const createdJob = await imageApi.createImageJob(novelId, {
+        kind,
+        character_id: characterId,
+        n: purpose === "test" ? 1 : 2,
+        purpose,
+      });
+      setJob(createdJob);
+      toast.success(purpose === "test" ? "试画已提交" : "已开始生成 2 张候选");
+    } catch (e) {
+      setGenErr((e as Error).message || "生成任务提交失败");
+    }
+  };
+
+  const cancelGeneration = async () => {
+    if (!job) return;
+    try {
+      setJob(await imageApi.cancelImageJob(job.id));
+      toast.success("已请求取消；已生成的候选会保留");
+    } catch (e) {
+      toast.error((e as Error).message || "取消失败");
+    }
+  };
+
+  const retryGeneration = async () => {
+    if (!job) return;
+    try {
+      setJob(await imageApi.retryImageJob(job.id));
+      setGenErr(null);
+    } catch (e) {
+      toast.error((e as Error).message || "重试失败");
     }
   };
 
@@ -324,8 +390,53 @@ export default function ImageWorkshopModal({
           )}
 
           <div className="img-gen-note">
-            <b>AI 生成{canGenerate ? "" : "（PRO 以上）"}</b>
-            <span>一次生成 2 张候选、试画、批量头像将在后续版本开放；现在先用上传。</span>
+            <div className="img-gen-head">
+              <b>AI 生成{canGenerate ? "" : "（PRO 以上）"}</b>
+              {job && (
+                <span className={`img-job-status ${job.status}`}>
+                  {job.status === "queued" ? "排队中" :
+                   job.status === "running" ? "生成中" :
+                   job.status === "completed" ? `已完成 ${job.produced_count} 张` :
+                   job.status === "cancelled" ? "已取消" : "失败"}
+                </span>
+              )}
+            </div>
+            {genErr && <p className="img-gen-error">{genErr}</p>}
+            {job?.error_message && <p className="img-gen-error">{job.error_message}</p>}
+            {job && ["queued", "running"].includes(job.status) ? (
+              <div className="img-gen-running">
+                <span>关闭窗口不会取消任务；可随时回来查看候选。</span>
+                <button className="btn btn-secondary btn-sm" onClick={() => void cancelGeneration()}>
+                  取消生成
+                </button>
+              </div>
+            ) : (
+              <div className="img-gen-acts">
+                <button
+                  className="btn btn-primary btn-sm"
+                  disabled={!canGenerate || !!job}
+                  title={canGenerate ? "按当前设置生成 2 张候选" : "PRO 以上可用；上传免费"}
+                  onClick={() => void startGeneration("generate")}
+                >
+                  生成 2 张候选
+                </button>
+                <button
+                  className="btn btn-secondary btn-sm"
+                  disabled={!canGenerate}
+                  onClick={() => void startGeneration("test")}
+                >
+                  试画 1 张
+                </button>
+                {job?.status === "failed" && (
+                  <button className="btn btn-ghost btn-sm" onClick={() => void retryGeneration()}>
+                    重试
+                  </button>
+                )}
+              </div>
+            )}
+            {!canGenerate && (
+              <span className="img-hint">免费版可上传图片；开通 PRO 后可用 AI 生成/试画/批量头像。</span>
+            )}
           </div>
         </section>
 

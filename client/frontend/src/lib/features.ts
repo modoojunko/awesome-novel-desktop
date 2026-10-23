@@ -33,7 +33,8 @@ export type FeatureKey =
   | "prompt-panel"
   | "ai-model"
   | "ai-detect"
-  | "ai-plot";
+  | "ai-plot"
+  | "image-generate";
 
 const TIER_ORDER: Record<TierKey, number> = { free: 0, standard: 1, pro: 2, max: 3 };
 
@@ -61,6 +62,8 @@ export const FEATURES: Record<FeatureKey, { minTier: TierKey }> = {
   // 草案）；快照单源——S端 entitlement 对 pro/max 发放本 key；快照缺失按兜底口径
   // 一律未授权（锁定）。
   "ai-detect": { minTier: "pro" },
+  // 图像生成/试画/批量头像：图像 Key 作者自持，不查写作大模型；trial 同权
+  "image-generate": { minTier: "pro" },
   // MAX：剧情推演＋文风蒸馏（去AI味加工已随 c-renwei-check 退役）
   "ai-plot": { minTier: "max" },
   "style-quant": { minTier: "max" },

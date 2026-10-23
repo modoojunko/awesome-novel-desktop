@@ -33,14 +33,34 @@ const api = vi.hoisted(() => ({
   deleteAsset: vi.fn(async () => ({ deleted_asset_id: "a-candidate" })),
   patchBookSettings: vi.fn(async () => ({})),
   patchCharacterSettings: vi.fn(async () => ({})),
+  createImageJob: vi.fn(async () => ({
+    id: "job-1", status: "running" as const, purpose: "generate" as const,
+    kind: "cover" as const, produced_count: 0, requested_n: 2,
+    error_message: null, cancel_requested: false, items: [],
+  })),
+  getImageJob: vi.fn(async () => ({
+    id: "job-1", status: "completed" as const, purpose: "generate" as const,
+    kind: "cover" as const, produced_count: 2, requested_n: 2,
+    error_message: null, cancel_requested: false, items: [],
+  })),
+  cancelImageJob: vi.fn(async () => ({ id: "job-1", status: "cancelled" as const })),
+  retryImageJob: vi.fn(async () => ({ id: "job-1", status: "queued" as const })),
 }));
 
+const featureAllowed = vi.hoisted(() => ({ value: false }));
+
 vi.mock("@/lib/imageApi", () => ({ imageApi: api, IMAGE_PROVIDERS: [] }));
-vi.mock("@/hooks/useTier", () => ({ useTier: () => ({ isPro: false, tier: "free", isFree: true }) }));
+vi.mock("@/hooks/useTier", () => ({
+  useTier: () => ({ isPro: featureAllowed.value, tier: featureAllowed.value ? "pro" : "free", isFree: !featureAllowed.value }),
+  useFeature: () => featureAllowed.value,
+}));
 vi.mock("@/lib/toast", () => ({ toast: { success: vi.fn(), error: vi.fn() } }));
 
 describe("ImageWorkshopModal（上传型工坊）", () => {
-  beforeEach(() => vi.clearAllMocks());
+  beforeEach(() => {
+    vi.clearAllMocks();
+    featureAllowed.value = false;
+  });
 
   it("上传候选图并采用后给出撤销入口", async () => {
     const onChanged = vi.fn();
@@ -72,5 +92,32 @@ describe("ImageWorkshopModal（上传型工坊）", () => {
     await waitFor(() => expect(api.uploadAsset).toHaveBeenCalledWith(
       "n1", file, "cover", undefined, expect.any(Function),
     ));
+  });
+
+  it("免费用户生成按钮置灰；PRO 提交任务并轮询到完成", async () => {
+    const onChanged = vi.fn();
+    const free = render(
+      <ImageWorkshopModal open novelId="n1" kind="cover" onClose={() => {}} onChanged={onChanged} />,
+    );
+    await waitFor(() => expect(screen.getByText("AI 生成（PRO 以上）")).toBeTruthy());
+    const generate = screen.getByRole("button", { name: "生成 2 张候选" }) as HTMLButtonElement;
+    expect(generate.disabled).toBeTruthy();
+    free.unmount();
+
+    featureAllowed.value = true;
+    render(
+      <ImageWorkshopModal open novelId="n1" kind="cover" onClose={() => {}} onChanged={onChanged} />,
+    );
+    await waitFor(() => expect(
+      (screen.getByRole("button", { name: "生成 2 张候选" }) as HTMLButtonElement).disabled,
+    ).toBeFalsy());
+    fireEvent.click(screen.getByRole("button", { name: "生成 2 张候选" }));
+    await waitFor(() => expect(api.createImageJob).toHaveBeenCalledWith(
+      "n1", { kind: "cover", character_id: undefined, n: 2, purpose: "generate" },
+    ));
+    await waitFor(() => expect(screen.getByText("生成中")).toBeTruthy());
+    await waitFor(() => expect(api.getImageJob).toHaveBeenCalledWith("job-1"), { timeout: 3000 });
+    await waitFor(() => expect(screen.getByText("已完成 2 张")).toBeTruthy());
+    await waitFor(() => expect(onChanged).toHaveBeenCalled());
   });
 });

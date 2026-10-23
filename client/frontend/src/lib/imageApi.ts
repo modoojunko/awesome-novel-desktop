@@ -82,6 +82,52 @@ export interface CharacterImageSettings {
   seed: number | null;
 }
 
+export type ImageJobStatus = "queued" | "running" | "completed" | "failed" | "cancelled";
+
+export interface ImageBatchItemState {
+  id: string;
+  character_id: string;
+  item_index: number;
+  status: "pending" | "running" | "completed" | "failed" | "cancelled" | "cancelled_billed";
+  seed: number | null;
+  prompt_hash: string | null;
+  produced_count: number;
+  billed_n: number;
+  duration_ms: number;
+  error_kind: string | null;
+  error_message: string | null;
+}
+
+export interface ImageJob {
+  id: string;
+  user_id: string;
+  novel_id: string;
+  character_id: string | null;
+  target_type: "book" | "character" | "batch";
+  target_id: string;
+  purpose: "generate" | "test" | "batch";
+  kind: ImageKind;
+  status: ImageJobStatus;
+  image_config_id: string | null;
+  provider: string;
+  model: string;
+  style_key: string | null;
+  prompt_hash: string | null;
+  base_seed: number | null;
+  requested_n: number;
+  produced_count: number;
+  billed_n: number;
+  cancelled_billed_count: number;
+  duration_ms: number;
+  error_kind: string | null;
+  error_message: string | null;
+  cancel_requested: boolean;
+  created_at: string | null;
+  started_at: string | null;
+  finished_at: string | null;
+  items?: ImageBatchItemState[];
+}
+
 export interface PromptPreview {
   kind: ImageKind;
   prompt: string;
@@ -275,4 +321,31 @@ export const imageApi = {
     unwrap<PromptPreview>(
       api.get(`/novels/${novelId}/characters/${characterId}/image-prompt`),
     ),
+
+  createImageJob: (
+    novelId: string,
+    body: { kind: ImageKind; character_id?: string; n?: number; purpose?: "generate" | "test" },
+  ) => unwrap<ImageJob>(api.post(`/novels/${novelId}/image-jobs`, body)),
+
+  createAvatarBatch: (novelId: string, characterIds: string[]) =>
+    unwrap<ImageJob>(api.post(`/novels/${novelId}/avatar-batches`, { character_ids: characterIds })),
+
+  listImageJobs: (
+    novelId: string,
+    params: { kind?: ImageKind; status?: ImageJobStatus; limit?: number } = {},
+  ) => {
+    const q = new URLSearchParams();
+    if (params.kind) q.set("kind", params.kind);
+    if (params.status) q.set("status", params.status);
+    q.set("limit", String(params.limit ?? 20));
+    return unwrap<ImageJob[]>(api.get(`/novels/${novelId}/image-jobs?${q}`));
+  },
+
+  getImageJob: (jobId: string) => unwrap<ImageJob>(api.get(`/image-jobs/${jobId}`)),
+
+  cancelImageJob: (jobId: string) =>
+    unwrap<ImageJob>(api.post(`/image-jobs/${jobId}/cancel`)),
+
+  retryImageJob: (jobId: string) =>
+    unwrap<ImageJob>(api.post(`/image-jobs/${jobId}/retry`)),
 };
