@@ -212,10 +212,12 @@ export default function TaskDetailPage() {
       setTierNeed("deconstruct-import");
       return;
     }
+    /* v8 ignore start — locked 时 files 选项点击已在选项处拦截，exitOpt 不会切到 files：防御臂不可达 */
     if (exitOpt === "files" && !hasDeconstruct) {
       setTierNeed("deconstruct");
       return;
     }
+    /* v8 ignore stop */
     if (exitOpt === "book") {
       void act(
         () => importBookFromTask(task.id, bookItems),

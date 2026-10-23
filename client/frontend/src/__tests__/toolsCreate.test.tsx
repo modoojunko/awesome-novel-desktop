@@ -82,6 +82,10 @@ describe("CreateTaskPage", () => {
     fireEvent.click(screen.getByText("创建任务（PRO）"));
     await waitFor(() => expect(screen.getByText("升级 PRO · 解锁 AI 能力")).toBeInTheDocument());
     expect(state.create).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByText("暂不"));
+    await waitFor(() =>
+      expect(screen.queryByText("升级 PRO · 解锁 AI 能力")).not.toBeInTheDocument(),
+    );
   });
 
   it("未配置模型：引导去配置、创建禁用", async () => {
