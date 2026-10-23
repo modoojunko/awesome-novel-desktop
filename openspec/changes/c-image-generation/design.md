@@ -24,13 +24,14 @@
 ## Decisions
 
 - **键自持门**：生成/试画/批量端点挂 `ai_feature("image-generate") + require_tier_access`，与朱雀同属 `KEYLESS_GATE_KEYS`；不要求配置写作大模型。
-- **旧快照兼容**：C端 前端在快照不含 `image-generate` 时，对未过期 trial/pro/max（含 monthly/quarterly/yearly/lifetime 别名）隐式放行，避免 S端 快照刷新前老会员被误锁；standard/free/过期仍锁。
-- **任务表**：`ImageJob.target_type/target_id` 表达目标（book/character/batch），partial unique index 限制同一目标同时只有一个 queued/running；`idempotency_key=(user,target,purpose,prompt_hash,n)` 让重复提交返回同一 job。
+- **旧快照兼容**：C端 前端与后端在快照不含 `image-generate` 时，对未过期 trial/pro/max（含 monthly/quarterly/yearly/lifetime 别名）隐式放行，避免 S端 快照刷新前老会员被误锁；standard/free/过期仍锁。
+- **任务表**：`ImageJob.target_type/target_id` 表达目标（book/character/batch），partial unique index 限制同一目标同时只有一个 queued/running；`idempotency_key=(user,target,purpose,prompt_hash,n,image_config_id,批量角色集合)`——config id 参与是因为 `prompt_hash` 不含 base_url/Key/配置绑定（换配置＝换请求，建新 job），批量角色集合按 `seq` 排序。同键提交：queued/running/completed 返回原 job；failed/cancelled 就地重跑为 queued，不永久占键。
 - **独立 dispatcher**：复制拆书 dispatcher 形态（daemon 线程 + event loop + 条件 UPDATE claim + 2s 轮询），但完全独立；测试用 `IMAGE_DISPATCHER_OFF=1`，`stop_dispatcher()` 只作测试收线。
 - **逐候选调用**：即使供应商支持 `n>1` 也一张一请求，保证每个候选独立 seed/变体与 hash；供应商 billed 张数记 `billed_n`。
 - **effective hash**：`prompt_builder.effective_prompt_hash()` 按能力矩阵剔除 seed/negative/watermark；预览 hash 即候选 0 hash，候选 1+ 因 seed 或 prompt 变体而不同。
 - **取消语义**：queued 直接 cancelled 并把 pending item 收敛 cancelled；running 只置 `cancel_requested`，worker 在候选/角色间检查；已落库候选不删除。`cancelled_billed` 状态保留给“供应商已返回但取消先到”的竞态，当前实现总是先落候选再检查，因此正常路径不产生该状态。
-- **适配层**：`image_assets/adapters.py` 统一 `ImageGenerationSpec/GeneratedImage/ImageProviderError`；OpenAI-ish（火山/智谱/OpenAI/兼容）、DashScope、MiniMax 三套 payload；错误归为 auth/quota/rate_limit/moderation/timeout/network/invalid/empty。供应商 URL 只允许 http(s)、禁重定向、禁内网/本机/带凭据链接、≤10MB。
+- **账目与重试**：`produced_count` 按 `ImageAsset.job_id` 计数、batch `billed_n` 按 item 求和（以库内累计为准，重试不归零）；单角色重试按候选 `prompt_hash` 跳过已产出，避免重复调用/重复计费；启动 sweep 除 job 外也把 running item 收敛 failed(`interrupted`)。
+- **适配层**：`image_assets/adapters.py` 统一 `ImageGenerationSpec/GeneratedImage/ImageProviderError`；OpenAI-ish（火山/智谱/OpenAI/兼容）、DashScope、MiniMax 三套 payload；错误归为 auth/quota/rate_limit/moderation/timeout/network/invalid/empty。供应商 URL 只允许 http(s)、禁重定向、禁内网/本机/带凭据链接、≤10MB；域名先 DNS 解析再按 `is_global` 判内网（拦 `foo.localhost`/`nip.io`）。
 - **日志**：`image_gen` 进 llm.log 专项档；只记 provider/model/host/path/status/duration/result/张数，Key、prompt、图片字节不落。
 - **前端**：工坊内生成态独立于上传 busy，轮询 1.5s；批量头像单独 `BatchAvatarModal`，默认勾选无头像角色。
 

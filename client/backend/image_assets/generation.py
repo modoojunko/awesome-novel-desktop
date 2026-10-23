@@ -27,6 +27,7 @@ from image_assets.adapters import (
 from image_assets.prompt_builder import (
     MAX_SEED,
     PROMPT_TEMPLATE_VERSION,
+    _effective_config,
     build_avatar_prompt,
     build_cover_prompt,
     effective_prompt_hash,
@@ -215,24 +216,24 @@ async def create_job(
     preview = await _preview(db, novel, kind, character)
     if preview.get("model_unbound"):
         raise Conflict("本书图像模型未绑定，请先在封面工坊选择模型", "model_unbound")
-    config_id = None
-    declared = {}
     settings_row = (await db.execute(
         select(BookImageSettings).where(BookImageSettings.novel_id == novel_id)
     )).scalar_one_or_none()
-    if settings_row and settings_row.image_config_id:
-        config_id = settings_row.image_config_id
-        cfg = await db.get(ImageConfig, config_id)
-        if cfg:
-            declared = _safe_json(cfg.declared_capabilities, {})
+    # 与预览同一解析口径：书未显式绑定时落到用户默认图像配置。只认
+    # settings_row.image_config_id 会让「默认配置」路径的任务带 None 执行失败。
+    effective_config, _model, declared = await _effective_config(db, novel, settings_row)
+    if effective_config is None:
+        raise Conflict("本书图像模型未绑定，请先在封面工坊选择模型", "model_unbound")
+    config_id = effective_config.id
     caps = capabilities_for(str(preview.get("provider") or ""), declared)
 
     # 幂等材料必须覆盖实际请求内容：批量任务缺角色集合时，不同角色集只要
-    # 人数相同、代表角色相同就会撞键，静默返回上一个任务。
+    # 人数相同、代表角色相同就会撞键；config id 也不在 prompt_hash 里
+    # （base_url/Key/绑定），换配置后不能复用旧任务。
     idempotency = hashlib.sha256(":".join([
         user_id, purpose, kind, target_id,
         str(preview.get("prompt_hash") or ""), str(requested_n),
-        "|".join(row.id for row in rows),
+        str(config_id or ""), "|".join(row.id for row in rows),
     ]).encode()).hexdigest()
     existing = (await db.execute(select(ImageJob).where(
         ImageJob.user_id == user_id, ImageJob.idempotency_key == idempotency,

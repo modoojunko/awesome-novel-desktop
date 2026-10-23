@@ -240,7 +240,7 @@ async def test_download_url_rejects_hostname_resolving_to_private_ip(monkeypatch
 # ── 任务状态机／候选账 ────────────────────────────────────────────────────
 
 
-async def _seed(provider="volcengine", characters=1):
+async def _seed(provider="volcengine", characters=1, *, bind_config=True):
     suffix = uuid.uuid4().hex[:8]
     async with async_session() as db:
         if await db.get(User, USER_ID) is None:
@@ -264,13 +264,14 @@ async def _seed(provider="volcengine", characters=1):
             id=f"cfg-{suffix}", user_id=USER_ID, name=f"生成配置-{suffix}",
             provider=provider, base_url="https://provider.test",
             api_key=encrypt_api_key("sk-image"), default_model="model-x",
-            models='["model-x"]', is_default=False,
+            models='["model-x"]', is_default=not bind_config,
         )
         db.add(cfg)
         await db.flush()
         db.add(BookImageSettings(
             novel_id=novel.id, style_key="ink", cover_prompt="一盏灯",
-            cover_seed=77, image_config_id=cfg.id, image_model="model-x",
+            cover_seed=77, image_config_id=cfg.id if bind_config else None,
+            image_model="model-x",
         ))
         await db.commit()
         return novel.id, char_ids, cfg.id
@@ -324,6 +325,47 @@ async def test_cover_job_two_candidates_have_distinct_seed_and_hash(fake_images)
     assert rows[0].prompt_hash != rows[1].prompt_hash
     assert rows[0].source == "generation" and rows[0].provider == "volcengine"
     assert fake_images[0].seed == 77 and fake_images[1].seed == 78
+
+
+@pytest.mark.asyncio
+async def test_job_uses_effective_config_when_book_unbound(fake_images):
+    """书未显式绑定时任务必须落到默认/生效配置，不能带 image_config_id=None。"""
+    novel_id, _, cfg_id = await _seed(bind_config=False)
+    job = await _create(novel_id, n=1)
+    assert job["image_config_id"] == cfg_id
+    assert await gen.claim_job(job["id"])
+    result = await gen.run_job(job["id"])
+    assert result["status"] == "completed", result
+    assert result["produced_count"] == 1
+
+
+@pytest.mark.asyncio
+async def test_config_switch_creates_new_job():
+    """换配置=换请求：config id 参与幂等键，不得复用旧任务（prompt_hash 不含它）。"""
+    novel_id, _, _old_cfg = await _seed()
+    job = await _create(novel_id, n=1)
+    suffix = uuid.uuid4().hex[:8]
+    async with async_session() as db:
+        row = await db.get(ImageJob, job["id"])
+        row.status = "failed"
+        row.error_kind = "auth"
+        await db.commit()
+        new_cfg = ImageConfig(
+            id=f"cfg-new-{suffix}", user_id=USER_ID, name=f"新配置-{suffix}",
+            provider="volcengine", base_url="https://provider2.test",
+            api_key=encrypt_api_key("sk-new"), default_model="model-x",
+            models='["model-x"]', is_default=False,
+        )
+        db.add(new_cfg)
+        await db.flush()
+        settings = await db.get(BookImageSettings, novel_id)
+        settings.image_config_id = new_cfg.id
+        await db.commit()
+        new_cfg_id = new_cfg.id
+
+    again = await _create(novel_id, n=1)
+    assert again["id"] != job["id"]
+    assert again["image_config_id"] == new_cfg_id
 
 
 async def _create(novel_id, **kw):
