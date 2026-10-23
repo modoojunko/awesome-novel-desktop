@@ -641,7 +641,8 @@ async def delete(
     user: dict = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    project = await get_novel(db, project_id, user["id"])
+    # 删除保持幂等（重复删除仍 200）；其余业务读取一律看不到软删书
+    project = await get_novel(db, project_id, user["id"], include_deleted=True)
     if not project:
         raise HTTPException(404, "Novel not found")
     await delete_project(db, project)

@@ -66,7 +66,7 @@ async def _chapter_by_ref(
     if ch is None:
         raise HTTPException(404, "Chapter not found")
     novel = await db.get(Novel, project_id)
-    if novel is None or novel.user_id != user["id"]:
+    if novel is None or novel.user_id != user["id"] or novel.status == "deleted":
         raise HTTPException(404, "Chapter not found")
     return ch
 
@@ -76,7 +76,7 @@ async def _load_owned_row(db: AsyncSession, row_id: str, user_id: str) -> Chapte
     if row is None:
         raise HTTPException(404, "提案不存在")
     novel = await db.get(Novel, row.novel_id)
-    if novel is None or novel.user_id != user_id:
+    if novel is None or novel.user_id != user_id or novel.status == "deleted":
         raise HTTPException(404, "提案不存在")
     return row
 

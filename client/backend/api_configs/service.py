@@ -428,7 +428,11 @@ async def set_project_model(
 ) -> dict[str, Any] | None:
     """Set a project's AI model. Returns updated project or None if not found."""
     result = await db.execute(
-        select(Novel).where(Novel.id == project_id, Novel.user_id == user_id)
+        select(Novel).where(
+            Novel.id == project_id,
+            Novel.user_id == user_id,
+            Novel.status != "deleted",
+        )
     )
     project = result.scalar_one_or_none()
     if not project:
@@ -505,7 +509,11 @@ async def get_project_ai_model(
 ) -> dict[str, Any] | None:
     """Get project's current AI model config."""
     result = await db.execute(
-        select(Novel).where(Novel.id == project_id, Novel.user_id == user_id)
+        select(Novel).where(
+            Novel.id == project_id,
+            Novel.user_id == user_id,
+            Novel.status != "deleted",
+        )
     )
     project = result.scalar_one_or_none()
     if not project:
@@ -598,7 +606,11 @@ async def get_model_history(
     """Get model change history for a project."""
     # Verify project ownership
     proj_result = await db.execute(
-        select(Novel).where(Novel.id == project_id, Novel.user_id == user_id)
+        select(Novel).where(
+            Novel.id == project_id,
+            Novel.user_id == user_id,
+            Novel.status != "deleted",
+        )
     )
     if not proj_result.scalar_one_or_none():
         return []
@@ -652,7 +664,11 @@ async def restore_model_history(
     """Restore a project's model from a history entry."""
     # Verify project ownership
     proj_result = await db.execute(
-        select(Novel).where(Novel.id == project_id, Novel.user_id == user_id)
+        select(Novel).where(
+            Novel.id == project_id,
+            Novel.user_id == user_id,
+            Novel.status != "deleted",
+        )
     )
     project = proj_result.scalar_one_or_none()
     if not project:
@@ -785,9 +801,21 @@ async def get_config_usage(
 
 async def get_project_usage(
     db: AsyncSession, user_id: str, project_id: str
-) -> dict[str, Any]:
-    """Get usage for a specific project."""
+) -> dict[str, Any] | None:
+    """Get usage for a specific project（软删书按不存在处理：调用方 404）。"""
     from sqlalchemy import func as sa_func
+
+    project = (
+        await db.execute(
+            select(Novel).where(
+                Novel.id == project_id,
+                Novel.user_id == user_id,
+                Novel.status != "deleted",
+            )
+        )
+    ).scalar_one_or_none()
+    if project is None:
+        return None
 
     # By model
     result = await db.execute(
@@ -868,7 +896,9 @@ async def migrate_user_configs(db: AsyncSession) -> None:
         # Apply model to existing projects
         if user.api_model:
             proj_result = await db.execute(
-                select(Novel).where(Novel.user_id == user.id)
+                select(Novel).where(
+                    Novel.user_id == user.id, Novel.status != "deleted"
+                )
             )
             for project in proj_result.scalars().all():
                 project.ai_config_id = config.id

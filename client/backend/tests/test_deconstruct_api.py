@@ -230,6 +230,67 @@ def test_import_book_idempotent_and_clamps(client):
     assert n is not None and n.name == "星海远征"
 
 
+def test_import_book_after_book_deleted_creates_new(client):
+    """删书后从同一任务再建书：按勾选新建一本，不得把软删的旧书原样返回。
+
+    真机反馈：删掉拆书建出的作品后回来再点「建书」，旧书被原封不动打开——
+    根因是 task.book_id 幂等键失效后仍直接返回软删行。
+    """
+    _mk_completed(
+        "dec-imp-del",
+        {"intro": _product("intro", "简介.md", {"intro": "一部星际远征的故事。"}, "# 简介")},
+        book_name="删后重建",
+    )
+
+    r1 = client.post("/api/deconstruct/tasks/dec-imp-del/import-book")
+    assert r1.status_code == 200, r1.text
+    first = r1.json()["book_id"]
+    assert client.delete(f"/api/novels/{first}").status_code == 200
+
+    r2 = client.post("/api/deconstruct/tasks/dec-imp-del/import-book")
+    assert r2.status_code == 200, r2.text
+    second = r2.json()["book_id"]
+    assert second != first
+    assert any("删除" in w for w in r2.json()["warnings"])
+
+    async def _check():
+        from models.project import Novel
+
+        async with async_session() as s:
+            return (
+                await s.get(Novel, first),
+                await s.get(Novel, second),
+                await s.get(DeconstructJob, "dec-imp-del"),
+            )
+
+    old, new, job = _run(_check())
+    assert old is not None and old.status == "deleted"  # 旧书保持软删，不复活
+    assert new is not None and new.status == "active" and new.name == "删后重建"
+    assert job.book_id == second  # 幂等键改指新书
+    ids = [p["id"] for p in client.get("/api/novels").json()]
+    assert first not in ids and second in ids
+
+
+def test_import_book_stale_book_id_creates_new(client):
+    """幂等键指向不存在/他人书：同样重开新书，不 404、不 500。"""
+    _mk_completed(
+        "dec-imp-stale",
+        {"intro": _product("intro", "简介.md", {"intro": "简介。"}, "# 简介")},
+        book_name="悬空幂等键",
+    )
+
+    async def _point_nowhere():
+        async with async_session() as s:
+            job = await s.get(DeconstructJob, "dec-imp-stale")
+            job.book_id = "no-such-book"
+            await s.commit()
+
+    _run(_point_nowhere())
+    r = client.post("/api/deconstruct/tasks/dec-imp-stale/import-book")
+    assert r.status_code == 200, r.text
+    assert r.json()["book_id"] != "no-such-book"
+
+
 def test_import_book_requires_completed(client):
     _mk_queued("dec-imp-2")
     r = client.post("/api/deconstruct/tasks/dec-imp-2/import-book")

@@ -93,9 +93,19 @@ async def list_projects(db: AsyncSession, user_id: str) -> list[Novel]:
 
 
 async def get_novel(
-    db: AsyncSession, project_id: str, user_id: str
+    db: AsyncSession,
+    project_id: str,
+    user_id: str,
+    *,
+    include_deleted: bool = False,
 ) -> Novel | None:
+    """按 id 取书：默认只看未删（软删＝不可再打开，故所有读/写入口统一 404）。
+
+    include_deleted 仅供删除端点自身保持幂等（重复删除返回成功），不得用于业务读取。
+    """
     stmt = select(Novel).where(Novel.id == project_id, Novel.user_id == user_id)
+    if not include_deleted:
+        stmt = stmt.where(Novel.status != "deleted")
     result = await db.execute(stmt)
     return result.scalar_one_or_none()
 

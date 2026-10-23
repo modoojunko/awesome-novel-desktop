@@ -205,7 +205,11 @@ async def ensure_novel_model_ready(
     )
 
     result = await db.execute(
-        select(Novel).where(Novel.id == project_id, Novel.user_id == user_id)
+        select(Novel).where(
+            Novel.id == project_id,
+            Novel.user_id == user_id,
+            Novel.status != "deleted",
+        )
     )
     novel = result.scalar_one_or_none()
     if novel is None:

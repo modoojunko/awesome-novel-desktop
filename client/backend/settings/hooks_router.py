@@ -5,14 +5,44 @@
 """
 
 from fastapi import APIRouter, Depends, HTTPException
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from auth_local.deps import get_current_user
 from db import get_db
+from models.project import Novel
 from novels.events import log_event_async
 from settings import hooks_service as svc
 
-router = APIRouter(prefix="/api/novels/{project_id}/hooks", tags=["hooks"])
+
+async def _require_owned_project(
+    project_id: str,
+    db: AsyncSession = Depends(get_db),
+    user: dict = Depends(get_current_user),
+) -> Novel:
+    """书级闸（照 characters_router 先例）：软删书与越权书一律 404。"""
+    row = (
+        await db.execute(
+            select(Novel).where(
+                Novel.id == project_id,
+                Novel.user_id == user["id"],
+                Novel.status != "deleted",
+            )
+        )
+    ).scalar_one_or_none()
+    if row is None:
+        raise HTTPException(
+            status_code=404,
+            detail={"code": "novel_not_found", "message": "书不存在"},
+        )
+    return row
+
+
+router = APIRouter(
+    prefix="/api/novels/{project_id}/hooks",
+    tags=["hooks"],
+    dependencies=[Depends(_require_owned_project)],
+)
 
 
 def _svc_error(e: svc.Unprocessable | svc.Conflict):
