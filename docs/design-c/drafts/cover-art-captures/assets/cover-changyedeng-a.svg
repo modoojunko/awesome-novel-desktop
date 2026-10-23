@@ -1,0 +1,42 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="600" height="800" viewBox="0 0 600 800">
+<defs>
+  <filter id="grain" x="0" y="0" width="100%" height="100%">
+    <feTurbulence type="fractalNoise" baseFrequency="0.9" numOctaves="3" seed="7" result="n"/>
+    <feColorMatrix in="n" type="saturate" values="0" result="m"/>
+    <feComponentTransfer in="m" result="t"><feFuncA type="linear" slope="0.10"/></feComponentTransfer>
+    <feBlend in="SourceGraphic" in2="t" mode="multiply"/>
+  </filter>
+  <filter id="soft" x="-30%" y="-30%" width="160%" height="160%"><feGaussianBlur stdDeviation="18"/></filter>
+  <filter id="soft2" x="-40%" y="-40%" width="180%" height="180%"><feGaussianBlur stdDeviation="34"/></filter>
+  <filter id="ink"><feTurbulence type="fractalNoise" baseFrequency="0.012" numOctaves="4" seed="3" result="n"/><feDisplacementMap in="SourceGraphic" in2="n" scale="14" xChannelSelector="R" yChannelSelector="G"/></filter>
+  <linearGradient id="bg" x1="0" y1="0" x2="0.4" y2="1">
+    <stop offset="0" stop-color="#0d1c1b"/><stop offset="1" stop-color="#16302c"/>
+  </linearGradient>
+  <radialGradient id="vig" cx="0.5" cy="0.45" r="0.78">
+    <stop offset="0.55" stop-color="#000" stop-opacity="0"/><stop offset="1" stop-color="#000" stop-opacity="0.38"/>
+  </radialGradient>
+</defs>
+<rect width="600" height="800" fill="url(#bg)"/>
+<ellipse cx="432" cy="176" rx="180" ry="160" fill="#d99344" opacity="0.16" filter="url(#soft2)"/>
+<path d="M0 592 L60 560 L108 584 L180 528 L264 576 L336 536 L420 584 L504 552 L600 592 L600 800 L0 800 Z" fill="#060e0e" opacity="0.92" filter="url(#ink)"/>
+<g opacity="0.95"><ellipse cx="216" cy="528" rx="31" ry="30" fill="#060e0e"/><path d="M168 688 Q180 568 216 564 Q258 568 270 688 Z" fill="#060e0e"/></g>
+<circle cx="330" cy="496" r="78" fill="#d99344" opacity="0.30" filter="url(#soft2)"/>
+<line x1="330" y1="400" x2="330" y2="436" stroke="#060e0e" stroke-width="4" opacity="0.8"/>
+<rect x="309" y="436" width="42" height="60" rx="8" fill="#d99344" opacity="0.95"/>
+<rect x="309" y="436" width="42" height="60" rx="8" fill="none" stroke="#f1e7d2" stroke-width="2" opacity="0.5"/>
+<line x1="330" y1="496" x2="330" y2="508" stroke="#060e0e" stroke-width="3" opacity="0.7"/>
+<ellipse cx="120" cy="560" rx="252" ry="28" fill="#f1e7d2" opacity="0.1" filter="url(#soft)"/>
+<ellipse cx="300" cy="624" rx="252" ry="28" fill="#f1e7d2" opacity="0.13" filter="url(#soft)"/>
+<ellipse cx="480" cy="688" rx="252" ry="28" fill="#f1e7d2" opacity="0.16" filter="url(#soft)"/>
+<rect width="600" height="800" fill="url(#vig)"/>
+<rect width="600" height="800" filter="url(#grain)" opacity="0.55" fill="none"/>
+<g font-family="Noto Serif SC, Songti SC, STSong, Iowan Old Style, Georgia, serif" fill="#f1e7d2">
+<text x="60" y="92" font-size="18" letter-spacing="4" opacity="0.72">悬疑 · 民俗</text>
+<text x="63" y="152" font-size="51" font-weight="600">长</text>
+<text x="63" y="203" font-size="51" font-weight="600">夜</text>
+<text x="63" y="254" font-size="51" font-weight="600">灯</text>
+</g>
+<rect x="516" y="700" width="45" height="58" rx="3" fill="#d99344" opacity="0.92"/>
+<text x="538" y="723" text-anchor="middle" font-family="Noto Serif SC, Songti SC, STSong, Iowan Old Style, Georgia, serif" font-size="19" fill="#f1e7d2">长</text>
+<text x="538" y="744" text-anchor="middle" font-family="Noto Serif SC, Songti SC, STSong, Iowan Old Style, Georgia, serif" font-size="19" fill="#f1e7d2">夜</text>
+</svg>

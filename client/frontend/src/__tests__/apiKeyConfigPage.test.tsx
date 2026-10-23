@@ -37,6 +37,7 @@ function stubApi(over: { putStatus?: number } = {}) {
     if (u.includes("/api-configs/usage-summary")) {
       return { ok: true, json: async () => ({ total_all_time: 0, total_this_month: 0, total_today: 0, by_config: [] }) };
     }
+    if (u.includes("/image-configs")) return { ok: true, json: async () => ({ ok: true, data: [] }) };
     if (u.includes("/api-configs/status")) return { ok: true, json: async () => [] };
     if (u.includes("/api-configs/fetch-models")) return { ok: true, json: async () => ({ ok: true, status: "ok", models: ["gpt-4o", "gpt-4o-mini"] }) };
     if (u.includes("/api-configs/test-connection")) return { ok: true, json: async () => ({ ok: true, status: "ok", models: ["gpt-4o"] }) };
@@ -53,9 +54,9 @@ function stubApi(over: { putStatus?: number } = {}) {
   return fetchMock;
 }
 
-const renderPage = () =>
+const renderPage = (path = "/config") =>
   render(
-    <MemoryRouter initialEntries={["/config"]}>
+    <MemoryRouter initialEntries={[path]}>
       <ApiKeyConfigPage />
     </MemoryRouter>,
   );
@@ -223,6 +224,7 @@ function stubFull(over: { listError?: string; empty?: boolean; createOk?: boolea
         }),
       };
     }
+    if (u.includes("/image-configs")) return { ok: true, json: async () => ({ ok: true, data: [] }) };
     if (u.includes("/api-configs/status")) return { ok: true, json: async () => [] };
     if (u.includes("/api-configs/fetch-models")) return { ok: true, json: async () => ({ ok: true, status: "ok", models: ["deepseek-flash", "deepseek-v4-pro"] }) };
     if (method === "POST" && u.endsWith("/api-configs")) return { ok: true, json: async () => CONFIG2 };
@@ -440,7 +442,8 @@ describe("ApiKeyConfigPage 覆盖补齐", () => {
         });
       }
       if (u.includes("/user/profile")) return { ok: true, json: async () => ({ migration_completed: true }) };
-      if (u.includes("/api-configs/status")) return { ok: true, json: async () => [] }; // 状态轮询要数组
+      if (u.includes("/image-configs")) return { ok: true, json: async () => ({ ok: true, data: [] }) };
+    if (u.includes("/api-configs/status")) return { ok: true, json: async () => [] }; // 状态轮询要数组
       if (u.includes("/usage-summary")) {
         return { ok: true, json: async () => ({ total_all_time: 0, total_this_month: 0, total_today: 0, by_config: [] }) };
       }
@@ -480,5 +483,21 @@ describe("ApiKeyConfigPage 覆盖补齐", () => {
     await waitFor(() => expect(screen.getByText(/最近更新：/)).toBeTruthy());
     const note = document.querySelector(".panel-h .note")!.textContent!;
     expect(note).toContain(relTime(at));
+  });
+});
+
+
+describe("ApiKeyConfigPage · 图像模型页签", () => {
+  it("切到图像模型页签并加载面板", async () => {
+    stubApi();
+    renderPage();
+    fireEvent.click(screen.getByRole("tab", { name: "图像模型" }));
+    await waitFor(() => expect(screen.getByText("还没有图像模型配置")).toBeTruthy());
+  });
+
+  it("?tab=image 深链直达图像页签", async () => {
+    stubApi();
+    renderPage("/config?tab=image");
+    await waitFor(() => expect(screen.getByText("还没有图像模型配置")).toBeTruthy());
   });
 });

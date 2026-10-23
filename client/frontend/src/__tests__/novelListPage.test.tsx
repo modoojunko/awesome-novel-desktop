@@ -53,6 +53,16 @@ vi.mock("@/lib/support", () => ({ supportUrl: vi.fn(async () => "https://support
 
 const tierState = { tier: "pro", isMember: true, expired: false, trialRemainingDays: 0, projectLimit: null };
 vi.mock("@/hooks/useTier", () => ({ useTier: () => tierState }));
+vi.mock("@/components/image/ImageWorkshopModal", () => ({
+  default: ({ open, onClose, onChanged }: { open: boolean; onClose: () => void; onChanged: () => void }) =>
+    open ? (
+      <div data-testid="image-workshop">
+        <button onClick={() => onChanged()}>changed</button>
+        <button onClick={onClose}>close</button>
+      </div>
+    ) : null,
+}));
+
 
 vi.mock("@/components/novel/CreateProjectModal", () => ({
   default: ({ open, onClose, onCreated }: { open: boolean; onClose: () => void; onCreated: (id: string) => void }) =>
@@ -73,11 +83,12 @@ vi.mock("@/components/novel/ImportNovelModal", () => ({
     ) : null,
 }));
 vi.mock("@/components/novel/DeleteConfirmModal", () => ({
-  default: ({ title, confirmText, onConfirm, onCancel }: { title: string; confirmText: string; onConfirm: () => void; onCancel: () => void }) => (
+  default: ({ title, confirmText, description, onConfirm, onCancel }: { title: string; confirmText: string; description?: string; onConfirm: () => void; onCancel: () => void }) => (
     <div data-testid="delete-modal">
       <span>
         删除{title}《{confirmText}》
       </span>
+      {description && <p>{description}</p>}
       <button onClick={onConfirm}>确认删除</button>
       <button onClick={onCancel}>取消删除</button>
     </div>
@@ -1364,5 +1375,47 @@ describe("带回常驻行与四步收尾（c-lossless-upgrade 覆盖补齐）", 
     expect(result.textContent).toContain("迁移完成");
     fireEvent.click(screen.getByTestId("carry-confirm"));
     await waitFor(() => expect(screen.queryByTestId("carry-result")).toBeNull());
+  });
+});
+
+
+describe("封面入口", () => {
+  it("无封面书卡点＋打开工坊，changed/close 回调可用", async () => {
+    renderPage();
+    await waitFor(() => expect(screen.getByText("《星海拾遗》")).toBeTruthy());
+    fireEvent.click(screen.getByLabelText("添加封面"));
+    await waitFor(() => expect(screen.getByTestId("image-workshop")).toBeTruthy());
+    fireEvent.click(screen.getByText("changed"));
+    fireEvent.click(screen.getByText("close"));
+    await waitFor(() => expect(screen.queryByTestId("image-workshop")).toBeNull());
+  });
+
+  it("有封面书卡渲染缩略图", async () => {
+    getMock.mockResolvedValue([novel({
+      cover: {
+        asset_id: "cover-1", url: "/api/image-assets/cover-1?variant=full",
+        thumb_url: "/api/image-assets/cover-1?variant=thumb",
+        width: 768, height: 1024, version: 1, source: "upload",
+      },
+    })]);
+    renderPage();
+    await waitFor(() => expect(document.querySelector(".book-cover-img")).toBeTruthy());
+  });
+});
+
+describe("封面删除提示", () => {
+  it("有封面书卡删除确认会说明封面一并删除", async () => {
+    getMock.mockResolvedValue([novel({
+      cover: {
+        asset_id: "cover-del", url: "/full", thumb_url: "/thumb",
+        width: 768, height: 1024, version: 1, source: "upload",
+      },
+    })]);
+    renderPage();
+    await waitFor(() => expect(document.querySelector(".book-cover-img")).toBeTruthy());
+    fireEvent.click(screen.getByLabelText("更多操作"));
+    fireEvent.click(screen.getByText("删除"));
+    expect(screen.getByTestId("delete-modal")).toBeTruthy();
+    await waitFor(() => expect(screen.getByText(/当前封面也会一并删除/)).toBeTruthy());
   });
 });

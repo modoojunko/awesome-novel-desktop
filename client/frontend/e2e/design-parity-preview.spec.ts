@@ -202,6 +202,9 @@ test.describe("design-parity 阅读预览屏（preview.html）", () => {
     await appPage.route("**/api/auth/config", (r) => r.fulfill({ json: { portal_url: "" } }));
     await appPage.route("**/api/prompt-pack/probe", (r) =>
       r.fulfill({ json: { installed_version: "2026.10.10-1", latest_version: "2026.10.10-1", update_available: false, source: "pack" } }));
+    // 壳层拆书角标；真栈 401 会触发全局踢出，把 parity 场景弹到登录页
+    await appPage.route("**/api/deconstruct/tasks", (r) =>
+      r.fulfill({ json: { tasks: [], heartbeat: { running: 0, queued: 0 }, badge: 0 } }));
     await appPage.goto(`/#/novel/${PID}`);
     await appPage.waitForSelector(".chtab", { timeout: 10000 });
     const proseLoaded = appPage.waitForResponse(`**/api/novels/${PID}/chapters/vol-1-ch-1`);

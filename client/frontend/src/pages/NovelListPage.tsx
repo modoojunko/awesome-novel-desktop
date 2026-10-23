@@ -14,6 +14,9 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { queryKeys } from "@/lib/queryKeys";
 import { Link, useNavigate } from "react-router-dom";
 import { api } from "@/lib/api";
+import ImageThumb from "@/components/image/ImageThumb";
+import ImageWorkshopModal, { type ImageUndoState } from "@/components/image/ImageWorkshopModal";
+import type { ImageRef } from "@/lib/imageApi";
 import { toast } from "@/lib/toast";
 import AuthGuard from "@/components/auth/AuthGuard";
 import DeleteConfirmModal from "@/components/novel/DeleteConfirmModal";
@@ -58,6 +61,8 @@ interface Novel {
   word_count?: number;
   synopsis?: string;
   genre?: string | null;
+  /** 当前封面（GET /novels 内联下发；null/缺省＝无封面） */
+  cover?: ImageRef | null;
 }
 
 // 阶段标签 + 派生规则单源在 @/lib/novelStage（与「打开书的默认落点」同一模型）：
@@ -152,6 +157,9 @@ function NovelList() {
   const [showKeyHint, setShowKeyHint] = useState(false);
   const [menuFor, setMenuFor] = useState<string | null>(null);
   const [finishTarget, setFinishTarget] = useState<Novel | null>(null);
+  const [coverTarget, setCoverTarget] = useState<Novel | null>(null);
+  /** 封面采用后的 8s 撤销状态：跨「关弹窗→重开」存续（书架层保存） */
+  const [coverUndo, setCoverUndo] = useState<ImageUndoState | null>(null);
   /** 检索与组织状态（c-works-toolbar）：单对象，任何变更原子重置分页（原型口径） */
   const [filters, setFilters] = useState<ShelfFilters>(defaultFilters);
   const [entDegraded, setEntDegraded] = useState(false);
@@ -395,7 +403,25 @@ function NovelList() {
         }}
       >
         <div className="top">
-          <span className="mono">{(p.name || "书")[0]}</span>
+          <div className="cover-wrap">
+            {p.cover ? (
+              <ImageThumb asset={p.cover} className="book-cover-img" alt="" />
+            ) : (
+              <span className="mono">{(p.name || "书")[0]}</span>
+            )}
+            <button
+              type="button"
+              className="cover-edit"
+              aria-label={p.cover ? "更换封面" : "添加封面"}
+              title={p.cover ? "更换封面" : "添加封面"}
+              onClick={(e) => {
+                e.stopPropagation();
+                setCoverTarget(p);
+              }}
+            >
+              {p.cover ? "换" : "＋"}
+            </button>
+          </div>
           {/* 题材胶囊：取值来自题材（后端单源下发 `genre`：大类 · 子类）；
               未完成题材设定时用「待定题材」占位——胶囊位恒在，不因题材缺失而空缺。
               title 供挤压时补齐被省略的全称 */}
@@ -942,6 +968,11 @@ function NovelList() {
         <DeleteConfirmModal
           title="小说"
           confirmText={deleteTarget.name}
+          description={
+            deleteTarget.cover
+              ? "此操作不可撤销。所有卷、章节和设定将被永久删除；当前封面也会一并删除。"
+              : undefined
+          }
           onConfirm={handleDelete}
           onCancel={() => setDeleteTarget(null)}
         />
@@ -963,6 +994,20 @@ function NovelList() {
           onClose={() => setFinishTarget(null)}
           onFinished={handleFinished}
           onReopened={handleReopened}
+        />
+      )}
+      {coverTarget && (
+        <ImageWorkshopModal
+          open
+          novelId={coverTarget.id}
+          kind="cover"
+          characterName={coverTarget.name}
+          onClose={() => setCoverTarget(null)}
+          initialUndo={coverUndo}
+          onChanged={(undo) => {
+            setCoverUndo(undo ?? null);
+            void fetchNovels();
+          }}
         />
       )}
           {/* c-lossless-upgrade：带回四步卡（壳层队列条目；稍后带＝收卡不出队——

@@ -16,15 +16,19 @@ import { request } from "../lib/api";
 import { relTime } from "../lib/reltime";
 import { toast } from "../lib/toast";
 import ZhuquePanel from "../components/api-config/ZhuquePanel";
+import ImageConfigPanel from "../components/image/ImageConfigPanel";
 
 /** 模型配置屏（model-config.html parity：notice + 用量面板 + cfg-cards + 弹窗群） */
 export default function ApiKeyConfigPage() {
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
-  // c-zhuque-ai-detect：双页签；?tab=zhuque 深链；?add 组合强制大模型页签（添加弹窗只属于大模型域）
-  const [cfgTab, setCfgTab] = useState<"llm" | "zhuque">(() =>
-    searchParams.get("tab") === "zhuque" && !searchParams.has("add") ? "zhuque" : "llm",
-  );
+  // 页签：写作大模型 / 朱雀 / 图像模型；?tab=zhuque|image 深链；?add 强制大模型
+  const [cfgTab, setCfgTab] = useState<"llm" | "zhuque" | "image">(() => {
+    const tab = searchParams.get("tab");
+    if (tab === "zhuque" && !searchParams.has("add")) return "zhuque";
+    if (tab === "image") return "image";
+    return "llm";
+  });
 
   useEffect(() => {
     if (!isLoggedIn()) {
@@ -174,6 +178,15 @@ export default function ApiKeyConfigPage() {
         >
           朱雀 AI 检测
         </button>
+        <button
+          className={`cfg-tab${cfgTab === "image" ? " on" : ""}`}
+          role="tab"
+          aria-selected={cfgTab === "image"}
+          data-od-id="cfg-tab-image"
+          onClick={() => setCfgTab("image")}
+        >
+          图像模型
+        </button>
       </div>
 
       <div hidden={cfgTab !== "llm"}>
@@ -287,6 +300,10 @@ export default function ApiKeyConfigPage() {
       <div hidden={cfgTab !== "zhuque"}>
         <ZhuquePanel />
       </div>{/* /pane-zhuque */}
+
+      <div hidden={cfgTab !== "image"}>
+        {cfgTab === "image" && <ImageConfigPanel />}
+      </div>{/* /pane-image */}
 
       {/* 撤销 toast（8 秒窗口） */}
       {undoToast && (

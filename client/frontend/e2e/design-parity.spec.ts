@@ -253,6 +253,10 @@ test.describe("design-parity 书架屏（list.html v2）", () => {
       // parity 侧钉成已安装态（原型书架无此弹窗）。
       await appPage.route("**/api/prompt-pack/probe", (r) =>
         r.fulfill({ json: { installed_version: "2026.10.10-1", latest_version: "2026.10.10-1", update_available: false, source: "pack" } }));
+      // 书架壳层会拉拆书角标；不打桩会打到 vite 代理的真栈，401 触发全局踢出，
+      // 把 parity 场景弹到登录页（实测 list.books 全屏差 2.9%）
+      await appPage.route("**/api/deconstruct/tasks", (r) =>
+        r.fulfill({ json: { tasks: [], heartbeat: { running: 0, queued: 0 }, badge: 0 } }));
       await appPage.goto("/#/novels");
       await appPage.waitForLoadState("networkidle");
       await appPage.evaluate(() => document.fonts.ready);
