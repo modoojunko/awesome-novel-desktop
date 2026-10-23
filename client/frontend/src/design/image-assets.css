@@ -49,8 +49,25 @@
 .img-candidate-frame.square { aspect-ratio: 1 / 1; }
 .img-candidate-img { width: 100%; height: 100%; object-fit: cover; display: block; }
 .img-candidate-acts { display: flex; gap: 6px; margin-top: 8px; }
-.img-gen-note { display: flex; flex-direction: column; gap: 3px; margin-top: 16px; padding: 10px 12px; border: 1px dashed var(--border); border-radius: var(--radius); font-size: 12px; color: var(--muted); line-height: 1.6; }
+.img-gen-note { display: flex; flex-direction: column; gap: 7px; margin-top: 16px; padding: 11px 12px; border: 1px dashed var(--border); border-radius: var(--radius); font-size: 12px; color: var(--muted); line-height: 1.6; }
 .img-gen-note b { color: var(--fg); font-weight: 500; }
+.img-gen-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.img-job-status { font-family: var(--font-mono); font-size: 10.5px; padding: 2px 8px; border-radius: 999px; background: var(--fg-soft); color: var(--muted); white-space: nowrap; }
+.img-job-status.running { background: var(--accent-soft); color: var(--accent-strong); }
+.img-job-status.completed { background: var(--ok-soft); color: var(--ok); }
+.img-job-status.failed { background: var(--err-soft); color: var(--err); }
+.img-job-status.cancelled { background: var(--fg-soft); color: var(--muted); }
+.img-gen-acts { display: flex; align-items: center; gap: 7px; flex-wrap: wrap; }
+.img-gen-running { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+.img-gen-error { margin: 0; color: var(--err); font-size: 11.5px; overflow-wrap: anywhere; }
+.img-batch-list { display: flex; flex-direction: column; gap: 7px; max-height: 300px; overflow: auto; margin: 10px 0; }
+.img-batch-row { display: flex; align-items: center; gap: 8px; padding: 7px 8px; border: 1px solid var(--border); border-radius: var(--radius); font-size: 12.5px; }
+.img-batch-row .nm { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.img-batch-state { flex: none; font-family: var(--font-mono); font-size: 10.5px; padding: 2px 8px; border-radius: 999px; background: var(--fg-soft); color: var(--muted); }
+.img-batch-state.completed { background: var(--ok-soft); color: var(--ok); }
+.img-batch-state.failed { background: var(--err-soft); color: var(--err); }
+.img-batch-state.running { background: var(--accent-soft); color: var(--accent-strong); }
+.img-batch-state.cancelled, .img-batch-state.cancelled_billed { background: var(--fg-soft); color: var(--muted); }
 .img-field { display: flex; flex-direction: column; gap: 4px; font-size: 12px; color: var(--muted); }
 .img-field small { color: var(--faint); margin-left: 4px; }
 .img-model-line { font-size: 11.5px; color: var(--muted); line-height: 1.6; overflow-wrap: anywhere; }

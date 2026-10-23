@@ -172,7 +172,8 @@ STANDARD_FALLBACK = {
                             "ai-model",
                             "ai-generate",
                             "prompt-panel",
-                            "ai-detect"],
+                            "ai-detect",
+                            "image-generate"],
                  "limits": {"max_projects": None}},
     "max":      {"features": ["ai-plan",
                             "chapter-review",
@@ -183,6 +184,7 @@ STANDARD_FALLBACK = {
                             "ai-generate",
                             "prompt-panel",
                             "ai-detect",
+                            "image-generate",
                             "ai-plot",
                             "style-quant"],
                  "limits": {"max_projects": None}},
@@ -194,7 +196,8 @@ STANDARD_FALLBACK = {
                             "ai-model",
                             "ai-generate",
                             "prompt-panel",
-                            "ai-detect"],
+                            "ai-detect",
+                            "image-generate"],
                  "limits": {"max_projects": None}},
 }
 

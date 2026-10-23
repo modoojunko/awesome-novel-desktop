@@ -18,15 +18,18 @@ from fastapi import (
 )
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from auth_local.deps import get_current_user
+from auth_local.deps import ai_feature, get_current_user, require_tier_access
 from db import get_db
+from image_assets import generation as jobs
 from image_assets import service as svc
 from image_assets.schemas import (
     AdoptBody,
+    AvatarBatchCreate,
     BookImageSettingsBody,
     CharacterImageSettingsBody,
     ImageConfigCreate,
     ImageConfigUpdate,
+    ImageJobCreate,
 )
 
 router = APIRouter(prefix="/api", tags=["image-assets"])
@@ -242,6 +245,104 @@ async def avatar_prompt_preview(
     except svc.Unprocessable as e:
         raise _svc_error(e) from e
     return {"ok": True, "data": data}
+
+
+# ── 生成任务（PRO 起；图像 Key 作者自持，不查写作大模型）───────────────────
+
+
+@router.post("/novels/{novel_id}/image-jobs", status_code=201)
+@ai_feature("image-generate")
+async def create_image_job(
+    novel_id: str,
+    body: ImageJobCreate,
+    db: AsyncSession = Depends(get_db),
+    user: dict = Depends(get_current_user),
+    _access: bool = Depends(require_tier_access),
+):
+    try:
+        data = await jobs.create_job(
+            db, user_id=user["id"], novel_id=novel_id, kind=body.kind,
+            character_id=body.character_id, purpose=body.purpose, n=body.n,
+        )
+    except SVC_ERRORS as e:
+        raise _svc_error(e) from e
+    return {"ok": True, "data": data}
+
+
+@router.post("/novels/{novel_id}/avatar-batches", status_code=201)
+@ai_feature("image-generate")
+async def create_avatar_batch(
+    novel_id: str,
+    body: AvatarBatchCreate,
+    db: AsyncSession = Depends(get_db),
+    user: dict = Depends(get_current_user),
+    _access: bool = Depends(require_tier_access),
+):
+    try:
+        data = await jobs.create_job(
+            db, user_id=user["id"], novel_id=novel_id, kind="avatar",
+            purpose="batch", character_ids=body.character_ids,
+        )
+    except SVC_ERRORS as e:
+        raise _svc_error(e) from e
+    return {"ok": True, "data": data}
+
+
+@router.get("/novels/{novel_id}/image-jobs")
+async def list_image_jobs(
+    novel_id: str,
+    kind: str | None = Query(None),
+    status: str | None = Query(None),
+    limit: int = Query(20, ge=1, le=100),
+    db: AsyncSession = Depends(get_db),
+    user: dict = Depends(get_current_user),
+):
+    try:
+        data = await jobs.list_jobs(
+            db, user_id=user["id"], novel_id=novel_id,
+            kind=kind, status=status, limit=limit,
+        )
+    except SVC_ERRORS as e:
+        raise _svc_error(e) from e
+    return {"ok": True, "data": data}
+
+
+@router.get("/image-jobs/{job_id}")
+async def get_image_job(
+    job_id: str,
+    db: AsyncSession = Depends(get_db),
+    user: dict = Depends(get_current_user),
+):
+    try:
+        return {"ok": True, "data": await jobs.get_job(db, user_id=user["id"], job_id=job_id)}
+    except SVC_ERRORS as e:
+        raise _svc_error(e) from e
+
+
+@router.post("/image-jobs/{job_id}/cancel")
+async def cancel_image_job(
+    job_id: str,
+    db: AsyncSession = Depends(get_db),
+    user: dict = Depends(get_current_user),
+):
+    try:
+        return {"ok": True, "data": await jobs.cancel_job(db, user_id=user["id"], job_id=job_id)}
+    except SVC_ERRORS as e:
+        raise _svc_error(e) from e
+
+
+@router.post("/image-jobs/{job_id}/retry")
+@ai_feature("image-generate")
+async def retry_image_job(
+    job_id: str,
+    db: AsyncSession = Depends(get_db),
+    user: dict = Depends(get_current_user),
+    _access: bool = Depends(require_tier_access),
+):
+    try:
+        return {"ok": True, "data": await jobs.retry_job(db, user_id=user["id"], job_id=job_id)}
+    except SVC_ERRORS as e:
+        raise _svc_error(e) from e
 
 
 # ── 资产上传 / 列出 / 采用 / 撤销 / 签名读取 ───────────────────────────────

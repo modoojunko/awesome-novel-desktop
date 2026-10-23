@@ -22,7 +22,7 @@ const STANDARD_FEATURES: FeatureKey[] = [
   "style-suggest",
 ];
 
-const PRO_FEATURES: FeatureKey[] = ["ai-generate", "prompt-panel", "ai-detect"];
+const PRO_FEATURES: FeatureKey[] = ["ai-generate", "prompt-panel", "ai-detect", "image-generate"];
 
 const MAX_FEATURES: FeatureKey[] = ["ai-plot", "style-quant"];
 

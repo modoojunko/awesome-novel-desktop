@@ -28,19 +28,40 @@ export function useTier(): TierState {
   return useContext(TierContext) ?? SAFE_FREE;
 }
 
+/** 旧快照缺失新 key 时的隐式放行（c-image-generation）：
+ *  image-generate 上线早于快照版本刷新——旧 trial/pro/max 快照不含该 key，
+ *  按“trial 同权、PRO 起发放”隐式放行；standard/free/过期仍锁。S端 快照刷新后
+ *  该表可清空。 */
+const LEGACY_IMPLICIT_FEATURES = new Set<FeatureKey>(["image-generate"]);
+
+function legacyImplicitAllowed(
+  key: FeatureKey, tier?: string, expired?: boolean,
+  isMember?: boolean, isPro?: boolean, isMax?: boolean,
+): boolean {
+  if (!LEGACY_IMPLICIT_FEATURES.has(key) || expired) return false;
+  // 不依赖调用方是否传 isPro/isMax：兜底路径只有 verify 快照原文（无 ctx 派生值）。
+  if (["trial", "pro", "max"].includes(tier || "") || isPro || isMax) return true;
+  // legacy 月/季/年=PRO、终身=MAX（与后端 _TIER_ALIAS 同口径）
+  return !!isMember && ["monthly", "quarterly", "yearly", "lifetime"].includes(tier || "");
+}
+
 /** 快照缺失时的兜底判定（tier-plan-four-tiers 3.1）：目录缓存行 features 含 key
  * → true；目录行缺 key → false；目录与快照皆无 → 静态注册表（免费键 true）。 */
 function fallbackAllowed(key: FeatureKey): boolean {
   // 快照在场：快照单源（即便不在 Provider 上下文——快照是权威判定依据）
   const v = getVerifyCache();
   if (v?.entitlement && Array.isArray(v.entitlement.features)) {
-    return v.entitlement.features.includes(key);
+    return v.entitlement.features.includes(key)
+      || legacyImplicitAllowed(key, v.tier, v.expired, v.is_member);
   }
   // 快照缺失：目录缓存行兜底（tier-catalog 新 S端 下发）
   const rows = v?.tier_catalog?.tiers;
   if (Array.isArray(rows) && rows.length > 0) {
     const row = rows.find((r) => r.key === (v?.tier ?? "none"));
-    if (row && Array.isArray(row.features)) return row.features.includes(key);
+    if (row && Array.isArray(row.features)) {
+      return row.features.includes(key)
+        || legacyImplicitAllowed(key, v?.tier, v?.expired, v?.is_member);
+    }
   }
   // 皆无：静态注册表 minTier（免费键 true）
   return tierRank(FEATURES[key].minTier) === 0;
@@ -52,7 +73,10 @@ export function useFeature(key: FeatureKey): boolean {
   const ctx = useContext(TierContext);
   if (!ctx) return fallbackAllowed(key);
   if (ctx.entitlement && Array.isArray(ctx.entitlement.features)) {
-    return ctx.entitlement.features.includes(key);
+    return ctx.entitlement.features.includes(key)
+      || legacyImplicitAllowed(
+        key, ctx.tier, ctx.expired, ctx.isMember, ctx.isPro, ctx.isMax,
+      );
   }
   return fallbackAllowed(key);
 }

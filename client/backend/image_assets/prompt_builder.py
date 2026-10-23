@@ -160,6 +160,40 @@ def _hash_request(canonical: dict) -> str:
     return hashlib.sha256(raw.encode("utf-8")).hexdigest()
 
 
+def _effective_canonical(canonical: dict, capabilities: dict, prompt_override: str | None = None) -> dict:
+    """按供应商能力裁剪 canonical：不支持的字段不参与 effective hash。"""
+    out = json.loads(json.dumps(canonical, ensure_ascii=False))
+    if not capabilities.get("seed_supported", True):
+        out["seed"] = None
+    if not capabilities.get("negative_supported", True):
+        out["negative_prompt"] = ""
+    if not capabilities.get("watermark_supported", False):
+        out.pop("watermark", None)
+    if prompt_override is not None:
+        out["prompt"] = prompt_override
+    return out
+
+
+def effective_prompt_hash(
+    preview: dict, index: int = 0, *,
+    capabilities: dict | None = None, prompt_override: str | None = None,
+) -> str:
+    """候选级 effective hash：candidate 0 与预览 hash 对齐，后续候选独立。"""
+    caps = capabilities or dict(preview.get("capabilities") or {})
+    size = preview.get("size") or {}
+    canonical = _canonical_request(
+        kind=preview["kind"], style_key=preview["style_key"],
+        prompt=preview["prompt"], negative_prompt=preview["negative_prompt"],
+        size=(int(size.get("width", 0)), int(size.get("height", 0))),
+        seed=preview.get("seed"), model=preview.get("model"),
+        provider=preview.get("provider") or "", capabilities=caps,
+    )
+    seeds = preview.get("candidate_seeds") or []
+    if caps.get("seed_supported", True) and 0 <= index < len(seeds):
+        canonical["seed"] = seeds[index]
+    return _hash_request(_effective_canonical(canonical, caps, prompt_override))
+
+
 async def _name_map(db: AsyncSession, novel: Novel) -> dict[str, str]:
     """本书书名/角色名/别名 → 泛称；只替换长度 >=2 的名字，避免误伤常用字。"""
     mapping: dict[str, str] = {}
@@ -279,7 +313,7 @@ async def build_cover_prompt(db: AsyncSession, novel: Novel) -> dict:
         "kind": "cover",
         "prompt": prompt,
         "negative_prompt": NEGATIVE_COVER,
-        "prompt_hash": _hash_request(canonical),
+        "prompt_hash": _hash_request(_effective_canonical(canonical, src["capabilities"])),
         "prompt_template_version": PROMPT_TEMPLATE_VERSION,
         "style_key": style,
         "size": {"width": COVER_SIZE[0], "height": COVER_SIZE[1]},
@@ -380,7 +414,7 @@ async def build_avatar_prompt(db: AsyncSession, novel: Novel, ch: Character) -> 
         "kind": "avatar",
         "prompt": prompt,
         "negative_prompt": NEGATIVE_AVATAR,
-        "prompt_hash": _hash_request(canonical),
+        "prompt_hash": _hash_request(_effective_canonical(canonical, capabilities)),
         "prompt_template_version": PROMPT_TEMPLATE_VERSION,
         "style_key": style,
         "size": {"width": AVATAR_SIZE[0], "height": AVATAR_SIZE[1]},

@@ -458,6 +458,25 @@ async def create_asset(
     # 写路径在落库前确认签名能力；密钥不可用时不制造“已上传但拿不到 URL”的孤儿。
     await ensure_signing_key(db)
     await sweep_expired_assets(db, user_id=user_id)
+    asset = await create_generated_asset(
+        db, user_id=user_id, novel_id=novel_id, kind=kind, data=data,
+        character_id=character_id, source="upload",
+    )
+    await db.commit()
+    await db.refresh(asset)
+    return asset
+
+
+async def create_generated_asset(
+    db: AsyncSession, *, user_id: str, novel_id: str, kind: str, data: bytes,
+    character_id: str | None = None, source: str = "generation",
+    provider: str | None = None, model: str | None = None,
+    style_key: str | None = None, prompt_hash: str | None = None,
+    prompt_text: str | None = None, negative_prompt: str | None = None,
+    prompt_template_version: int | None = None, seed: int | None = None,
+    job_id: str | None = None,
+) -> ImageAsset:
+    """落一张候选资产；调用方控制事务（生成任务可一次提交多个候选）。"""
     processed = normalize_image(data, kind)
     asset = ImageAsset(
         user_id=user_id,
@@ -470,15 +489,23 @@ async def create_asset(
         width=processed["width"],
         height=processed["height"],
         bytes=processed["bytes"],
-        source="upload",
+        source=source,
+        provider=provider,
+        model=model,
+        style_key=style_key,
+        prompt_hash=prompt_hash,
+        prompt_text=prompt_text,
+        negative_prompt=negative_prompt,
+        prompt_template_version=prompt_template_version,
+        seed=seed,
+        job_id=job_id,
         expires_at=now_utc() + CANDIDATE_TTL,
     )
     db.add(asset)
     await db.flush()
     db.add(ImageAssetBlob(asset_id=asset.id, variant="full", data=processed["full"]))
     db.add(ImageAssetBlob(asset_id=asset.id, variant="thumb", data=processed["thumb"]))
-    await db.commit()
-    await db.refresh(asset)
+    await db.flush()
     return asset
 
 

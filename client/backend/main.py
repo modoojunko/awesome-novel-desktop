@@ -242,6 +242,14 @@ async def lifespan(app: FastAPI):
     except Exception as _e:  # noqa: BLE001 — 图像功能失败不挡写作主链启动
         _log.error("image assets init failed: %s", _e)
 
+    # ── 图像生成 dispatcher（c-image-generation）：独立于写作 job_runner 单飞槽 ──
+    try:
+        from image_assets.dispatcher import start_dispatcher
+
+        start_dispatcher()
+    except Exception as _e:  # noqa: BLE001 — 调度启动失败不挡启动，下次重启 sweep 收敛
+        _log.warning("image dispatcher start failed: %s", _e)
+
     # ── Migrate config.json → User table ────────────────────────────
     # 身份识别统一用 S端 用户标识：users.username 是 S端 主键，C端 User.id /
     # projects.user_id 等均取该标识（即 user_id = S端 用户名），不引入第二套
@@ -339,6 +347,8 @@ async def _image_validation_handler(request, exc):
         or "/image-settings" in path
         or "/image-assets" in path
         or "/image-prompt" in path
+        or "/image-jobs" in path
+        or "/avatar-batches" in path
     ):
         return JSONResponse(
             status_code=422,

@@ -44,3 +44,14 @@ class AdoptBody(BaseModel):
     variant: str = "full"
     token: str = ""
     undo_token: str = ""
+
+
+class ImageJobCreate(BaseModel):
+    kind: str = Field(pattern="^(cover|avatar)$")
+    character_id: str | None = None
+    n: int = Field(default=2, ge=1, le=4)
+    purpose: str = Field(default="generate", pattern="^(generate|test)$")
+
+
+class AvatarBatchCreate(BaseModel):
+    character_ids: list[str] = Field(min_length=1, max_length=100)

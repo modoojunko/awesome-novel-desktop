@@ -43,7 +43,7 @@ _NOISY_LOGGERS = ("httpx", "httpcore", "openai", "sqlalchemy")
 
 # llm.log 专项档挂载点（c-llm-call-log）：大模型出网调用的三类具名 logger
 # （生成调用 / 连接探针 / 朱雀检测）。不设 propagate=False——app.log 双写保留。
-_LLM_LOGGERS = ("ai_client", "llm_probe", "zhuque.client")
+_LLM_LOGGERS = ("ai_client", "llm_probe", "zhuque.client", "image_gen")
 
 # upgrade.log 专项档挂载点（c-upgrade-log）：无损升级（旧库迁入）全链具名 logger。
 # 同 llm.log 口径不设 propagate=False——app.log 双写保留。
