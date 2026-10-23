@@ -147,7 +147,7 @@ async def _load_owned_dossier_row(db: AsyncSession, row_id: str, user: dict):
                     .where(Chapter.id == row.chapter_id)
                 )
             ).first()
-            if novel is None or novel.user_id != user["id"]:
+            if novel is None or novel.user_id != user["id"] or novel.status == "deleted":
                 raise HTTPException(404, "章档行不存在")
             return row, domain
     raise HTTPException(409, "章档已重新提取，请重新确认")

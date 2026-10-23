@@ -801,9 +801,21 @@ async def get_config_usage(
 
 async def get_project_usage(
     db: AsyncSession, user_id: str, project_id: str
-) -> dict[str, Any]:
-    """Get usage for a specific project."""
+) -> dict[str, Any] | None:
+    """Get usage for a specific project（软删书按不存在处理：调用方 404）。"""
     from sqlalchemy import func as sa_func
+
+    project = (
+        await db.execute(
+            select(Novel).where(
+                Novel.id == project_id,
+                Novel.user_id == user_id,
+                Novel.status != "deleted",
+            )
+        )
+    ).scalar_one_or_none()
+    if project is None:
+        return None
 
     # By model
     result = await db.execute(
