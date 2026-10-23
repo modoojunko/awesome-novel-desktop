@@ -2,6 +2,9 @@
 
 - html：加载 assets/graph_viewer.html 生产模板，注入 JSON 岛（`<`→`\\u003c` 防 </script> 逃逸）
   与标题（html.escape）；模板内 JS 对一切模型文本走 esc()——查看器在用户浏览器打开，是注入面。
+  关系网渲染库（cytoscape/fcose 及其依赖）以固定版本 vendor 文件内联（c-graph-net-cytoscape）：
+  注入前断言 vendor 文本不含任何模板 token（防占位符计数误判），并对 `</script` 转义（防 HTML 提前
+  闭合）；四库许可全文以注释岛注入——单文件被单独拷走仍满足 MIT 署名。
 - svg：关系全网（layout.net）＋地点账（归属缩进名册），文本 xml 转义；同输入同字节（禁 wall-clock）。
 - 两渲染器共读 layout 块（坐标单一来源，防同书不同脸）。
 """
@@ -12,19 +15,51 @@ import html
 import json
 import os
 
-_TEMPLATE = os.path.join(os.path.dirname(__file__), "assets", "graph_viewer.html")
+_ASSETS = os.path.join(os.path.dirname(__file__), "assets")
+_TEMPLATE = os.path.join(_ASSETS, "graph_viewer.html")
+_VENDOR = os.path.join(_ASSETS, "vendor")
 
 _JSON_TOKEN = "__GRAPH_JSON__"
 _TITLE_TOKEN = "__BOOK_TITLE__"
+_VENDOR_LICENSES_TOKEN = "__VENDOR_LICENSES__"
+# 注入顺序＝加载顺序：layout-base → cose-base → cytoscape → fcose（fcose 依赖前两者全局）
+_VENDOR_TOKENS: tuple[tuple[str, str], ...] = (
+    ("__VENDOR_LAYOUT_BASE__", "layout-base.js"),
+    ("__VENDOR_COSE_BASE__", "cose-base.js"),
+    ("__VENDOR_CYTOSCAPE__", "cytoscape.min.js"),
+    ("__VENDOR_FCOSE__", "cytoscape-fcose.js"),
+)
+_LICENSE_FILES = (
+    "LICENSE-cytoscape",
+    "LICENSE-layout-base",
+    "LICENSE-cose-base",
+    "LICENSE-cytoscape-fcose",
+)
+_ALL_TOKENS = (_JSON_TOKEN, _TITLE_TOKEN, _VENDOR_LICENSES_TOKEN) + tuple(
+    token for token, _ in _VENDOR_TOKENS
+)
 
 _SVG_W = 960
+
+
+def _read(rel: str) -> str:
+    with open(os.path.join(_VENDOR, rel), encoding="utf-8") as f:
+        return f.read()
+
+
+def _inline_js(text: str) -> str:
+    """vendor 脚本内联安全化：不得携带模板 token；`</script` 会提前闭合脚本标签，须转义。"""
+    for token in _ALL_TOKENS:
+        if token in text:
+            raise RuntimeError(f"vendor 文件包含模板占位符 {token}，拒绝注入")
+    return text.replace("</script", "<\\/script")
 
 
 def render_html(graph: dict) -> str:
     """graph/6 → 自包含查看器 HTML（模板 token 注入；校验 token 在位）。"""
     with open(_TEMPLATE, encoding="utf-8") as f:
         tpl = f.read()
-    for token in (_JSON_TOKEN, _TITLE_TOKEN):
+    for token in _ALL_TOKENS:
         if tpl.count(token) != 1:
             raise RuntimeError(f"视图模板缺唯一占位符 {token}")
     payload = (
@@ -34,10 +69,20 @@ def render_html(graph: dict) -> str:
         .replace("\u2029", "\\u2029")
     )
     # 顺序纪律（评审 P3）：标题先替——若岛先替，数据内含 __BOOK_TITLE__ 会被二次替换污染
-    tpl = tpl.replace(_TITLE_TOKEN, html.escape(str(graph.get("book") or ""), quote=True))
+    tpl = tpl.replace(
+        _TITLE_TOKEN, html.escape(str(graph.get("book") or ""), quote=True)
+    )
     if tpl.count(_JSON_TOKEN) != 1:
         raise RuntimeError(f"视图模板缺唯一占位符 {_JSON_TOKEN}")
-    return tpl.replace(_JSON_TOKEN, payload)
+    tpl = tpl.replace(_JSON_TOKEN, payload)
+    for token, rel in _VENDOR_TOKENS:
+        tpl = tpl.replace(token, _inline_js(_read(rel)))
+    # 许可注释岛：-- 提前终结注释的风险一并剥除（MIT 文本不含，属防御）
+    licenses = "\n\n".join(
+        f"----- {name} -----\n{_read(name)}".replace("-->", "-- >")
+        for name in _LICENSE_FILES
+    )
+    return tpl.replace(_VENDOR_LICENSES_TOKEN, licenses)
 
 
 def _esc(s: object) -> str:
@@ -90,27 +135,35 @@ def render_svg(graph: dict) -> str:
         f'viewBox="0 0 {_SVG_W} {height}" font-family="PingFang SC, Hiragino Sans GB, Microsoft YaHei, Noto Sans CJK SC, sans-serif">'
     )
     out.append(f'<rect x="0" y="0" width="{_SVG_W}" height="{height}" fill="#fdfdfd"/>')
-    out.append(f'<text x="20" y="30" font-size="19" font-weight="600">《{_esc(graph.get("book"))}》拆书知识图谱</text>')
+    out.append(
+        f'<text x="20" y="30" font-size="19" font-weight="600">《{_esc(graph.get("book"))}》拆书知识图谱</text>'
+    )
     st = graph.get("stats") or {}
     out.append(
         f'<text x="20" y="52" font-size="12" fill="#666">共 {_esc(st.get("chapters"))} 章 · '
-        f'{_esc(st.get("words"))} 字 · 人 {sum(1 for n in nodes if n.get("type") == "person")} · '
-        f'势力 {sum(1 for n in nodes if n.get("type") == "faction")} · 物 {sum(1 for n in nodes if n.get("type") == "item")} · '
-        f'关系 {len(edges)} 条 · 地点 {len(places)} 处</text>'
+        f"{_esc(st.get('words'))} 字 · 人 {sum(1 for n in nodes if n.get('type') == 'person')} · "
+        f"势力 {sum(1 for n in nodes if n.get('type') == 'faction')} · 物 {sum(1 for n in nodes if n.get('type') == 'item')} · "
+        f"关系 {len(edges)} 条 · 地点 {len(places)} 处</text>"
     )
     # 完成度恒显（评审 P2-3：非空警告才显示会把零警告书也藏起来）
     warn_color = "#a76b00" if n_warn_total else "#8a929b"
     warn_txt = f"警告 {n_warn_total} 处" if n_warn_total else "无警告"
     out.append(
         f'<text x="{_SVG_W - 20}" y="30" font-size="12" fill="{warn_color}" text-anchor="end">'
-        f'完成度 {_esc(comp.get("presence_placed"))}/{_esc(comp.get("presence_total"))} · {warn_txt}（详见 图谱.html）</text>'
+        f"完成度 {_esc(comp.get('presence_placed'))}/{_esc(comp.get('presence_total'))} · {warn_txt}（详见 图谱.html）</text>"
     )
     # 图例
-    out.append('<text x="20" y="80" font-size="11.5" fill="#666">实心圆＝主角 · 空心圆＝配角 · 红＝反派 · 方＝势力 · 菱＝物品 · 线粗＝戏份 · 红＝敌对 · 黄＝从属</text>')
+    out.append(
+        '<text x="20" y="80" font-size="11.5" fill="#666">实心圆＝主角 · 空心圆＝配角 · 红＝反派 · 方＝势力 · 菱＝物品 · 线粗＝戏份 · 红＝敌对 · 黄＝从属</text>'
+    )
 
     def pos(nid: str) -> tuple[float, float] | None:
         p = net.get(nid)
-        return (float(p[0]), float(p[1])) if isinstance(p, (list, tuple)) and len(p) >= 2 else None
+        return (
+            (float(p[0]), float(p[1]))
+            if isinstance(p, (list, tuple)) and len(p) >= 2
+            else None
+        )
 
     label_by_id = {str(n.get("id")): str(n.get("label") or "") for n in nodes}
 
@@ -144,7 +197,9 @@ def render_svg(graph: dict) -> str:
         x, y = a
         t = n.get("type")
         if t == "faction":
-            out.append(f'<rect x="{x - 30:.0f}" y="{y - 13:.0f}" width="60" height="26" rx="8" fill="#fdf3dd" stroke="#c99b3f" stroke-width="1.6"/>')
+            out.append(
+                f'<rect x="{x - 30:.0f}" y="{y - 13:.0f}" width="60" height="26" rx="8" fill="#fdf3dd" stroke="#c99b3f" stroke-width="1.6"/>'
+            )
             ly = y + 30
         elif t == "item":
             out.append(
@@ -160,25 +215,35 @@ def render_svg(graph: dict) -> str:
                 fill, stroke, r = "#c25555", "#a33f3f", 14
             else:
                 fill, stroke, r = "#ffffff", "#3f9f8b", 14
-            out.append(f'<circle cx="{x:.0f}" cy="{y:.0f}" r="{r}" fill="{fill}" stroke="{stroke}" stroke-width="1.6"/>')
+            out.append(
+                f'<circle cx="{x:.0f}" cy="{y:.0f}" r="{r}" fill="{fill}" stroke="{stroke}" stroke-width="1.6"/>'
+            )
             ly = y + r + 15
-        out.append(f'<text x="{x:.0f}" y="{ly:.0f}" font-size="12" text-anchor="middle">{_esc(n.get("label"))}</text>')
+        out.append(
+            f'<text x="{x:.0f}" y="{ly:.0f}" font-size="12" text-anchor="middle">{_esc(n.get("label"))}</text>'
+        )
 
     # 地点账
     base = net_h
-    out.append(f'<line x1="20" y1="{base - 8}" x2="{_SVG_W - 20}" y2="{base - 8}" stroke="#e5e7ea"/>')
-    out.append(f'<text x="20" y="{base + 16}" font-size="13" font-weight="600">地点账（归属缩进 · 首现章）</text>')
+    out.append(
+        f'<line x1="20" y1="{base - 8}" x2="{_SVG_W - 20}" y2="{base - 8}" stroke="#e5e7ea"/>'
+    )
+    out.append(
+        f'<text x="20" y="{base + 16}" font-size="13" font-weight="600">地点账（归属缩进 · 首现章）</text>'
+    )
     for i, (p, depth) in enumerate(ledger):
         y = base + 38 + i * 22
         note = str(p.get("note") or "")
         line = f"{p.get('label')}（第{p.get('ch')}章）" + (f" · {note}" if note else "")
-        out.append(f'<text x="{28 + depth * 18}" y="{y}" font-size="12">{_esc(line)}</text>')
+        out.append(
+            f'<text x="{28 + depth * 18}" y="{y}" font-size="12">{_esc(line)}</text>'
+        )
 
     # 页脚
     out.append(
         f'<text x="20" y="{height - 12}" font-size="11" fill="#8a929b">'
-        f'由 AwesomeNovel 拆书导出（契约 deconstruct-graph/6）· 图谱.json 为唯一机器正身，本图与 图谱.html 同源'
-        f'</text>'
+        f"由 AwesomeNovel 拆书导出（契约 deconstruct-graph/6）· 图谱.json 为唯一机器正身，本图与 图谱.html 同源"
+        f"</text>"
     )
     out.append("</svg>")
     return "\n".join(out)

@@ -6,10 +6,16 @@
 <title>拆书知识图谱 · __BOOK_TITLE__</title>
 <!--
    AwesomeNovel 拆书导出件 · 图谱查看器（生产模板：deconstruct/assets/graph_viewer.html）
-  · 单文件离线零依赖（禁 CDN）；后台渲染器注入图谱 JSON 岛（< 已转义为 \u003c）与标题占位符。
+  · 单文件离线（禁 CDN）；后台渲染器注入图谱 JSON 岛（< 已转义为 \u003c）与标题占位符，
+    以及内联渲染库（cytoscape/fcose 及其依赖）与下方许可岛。
   · 注入纪律：一切来自模型/原文的文本经 esc() 后才进入 DOM；JSON 岛内 < 以 \u003c 转义。
   · 数据契约：deconstruct-graph/6（见 docs/design-c/contracts/ 正身 schema）。
   · 视图分工：关系网不表达地点；「人在哪」只在场景图与地点树面板。
+-->
+<!--
+   内联渲染库许可（随本文件分发；与应用包 THIRD-PARTY-NOTICES.txt 第五节同源，
+   升级须两处同批更新）：
+__VENDOR_LICENSES__
 -->
 <style>
 :root {
@@ -66,14 +72,23 @@ body { margin: 0; background: var(--bg); color: var(--fg); font: 14px/1.65 var(-
 .cbeat { display: block; font-size: 12px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .canvas-wrap { position: relative; display: flex; flex-direction: column; }
 #netwrap, #scenewrap { flex: 1; display: flex; flex-direction: column; min-height: 430px; }
-#graph, #scene { flex: 1; display: block; width: 100%; }
+#netwrap { position: relative; }
+#cy, #scene { flex: 1; display: block; width: 100%; }
 #scene { touch-action: none; }
+#netfallback { flex: 1; overflow: auto; padding: 10px 16px 14px; font-size: 13px; display: none; }
+#netfallback p { color: var(--muted); font-size: 12px; }
+#nettip { position: absolute; z-index: 5; pointer-events: none; max-width: 300px; background: var(--fg);
+  color: var(--surface); border-radius: 8px; padding: 6px 10px; font-size: 11.5px; line-height: 1.5;
+  opacity: 0; transition: opacity .1s; }
+#nettip.show { opacity: 1; }
 .chapnav { display: flex; align-items: center; gap: 8px; padding: 8px 12px; border-top: 1px solid var(--border); background: var(--bg); font-size: 12.5px; }
 .chapnav button { width: 26px; height: 26px; border-radius: 7px; border: 1px solid var(--border); background: var(--surface); cursor: pointer; }
 .chapnav button:hover { border-color: var(--accent); color: var(--accent-strong); }
 .chapnav .now { font-weight: 600; } .chapnav .beat { color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .filters { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; color: var(--muted); margin-left: auto; }
 .filters select { font-size: 12px; padding: 2px 8px; border-radius: 7px; border: 1px solid var(--border); background: var(--surface); color: var(--fg); }
+.filters button { font: 600 11.5px var(--font-body); padding: 3px 10px; border-radius: 999px; border: 1px solid var(--border); background: var(--surface); color: var(--muted); cursor: pointer; }
+.filters button.on { background: var(--accent); border-color: var(--accent); color: var(--on-accent); }
 .edge { stroke: color-mix(in oklch, var(--muted) 55%, transparent); stroke-linecap: round; }
 .edge.hot { stroke: var(--accent-strong); }
 .edge-fp { stroke: color-mix(in oklch, var(--err) 58%, transparent); }
@@ -148,7 +163,7 @@ body { margin: 0; background: var(--bg); color: var(--fg); font: 14px/1.65 var(-
       <span><i class="l-fac" style="background:var(--warn-soft);border:1.5px solid var(--warn)"></i>势力</span>
       <span><i class="l-item" style="background:var(--ok-soft);border:1.5px solid var(--ok)"></i>物品</span>
       <span>框＝地点（虚线大框＝上级）</span>
-      <span>—线粗＝戏份·红＝敌对·黄＝从属—</span>
+      <span>点大小＝关系数 · 线粗＝共场 · 红＝敌对 · 黄＝从属</span>
     </div>
   </div>
 </header>
@@ -173,12 +188,14 @@ body { margin: 0; background: var(--bg); color: var(--fg); font: 14px/1.65 var(-
         <button id="tabNet">关系网 · 人与人的关系</button>
       </span>
       <span class="filters" id="netfilters" style="display:none">
-        戏份 Top
+        关系数 Top
         <select id="topn">
           <option value="0">全部</option>
-          <option value="10">10</option>
           <option value="20">20</option>
+          <option value="40">40</option>
+          <option value="80">80</option>
         </select>
+        <button id="labelsAll" type="button" title="常驻显示全部名字（密集时会叠字）">全显名字</button>
       </span>
       <span class="hint" id="canvasHint">地点为框 · 图钉＝本章在场 · 线＝本章关系</span>
     </h2>
@@ -192,7 +209,9 @@ body { margin: 0; background: var(--bg); color: var(--fg); font: 14px/1.65 var(-
       </div>
     </div>
     <div id="netwrap" style="display:none">
-      <svg id="graph" viewBox="0 0 860 460" aria-label="人物关系网"></svg>
+      <div id="cy" aria-label="人物关系网"></div>
+      <div id="netfallback"></div>
+      <div id="nettip"></div>
     </div>
   </section>
 
@@ -209,6 +228,12 @@ body { margin: 0; background: var(--bg); color: var(--fg); font: 14px/1.65 var(-
 <p class="foot">本文件为拆书导出件，由 AwesomeNovel 生成（契约 deconstruct-graph/6）；图谱.json 为唯一机器正身，本页与 图谱.svg 皆其视图；手改本文件不回流应用。建议使用现代浏览器打开（Chrome/Edge 111+ 或 Safari 16.4+）。</p>
 
 <script id="graphdata" type="application/json">__GRAPH_JSON__</script>
+
+<!-- 关系网渲染库（固定版本 vendor 内联，加载顺序＝依赖顺序；缺任一库时关系网回落文本清单） -->
+<script>__VENDOR_LAYOUT_BASE__</script>
+<script>__VENDOR_COSE_BASE__</script>
+<script>__VENDOR_CYTOSCAPE__</script>
+<script>__VENDOR_FCOSE__</script>
 
 <script>
 (function () {
@@ -259,7 +284,7 @@ body { margin: 0; background: var(--bg); color: var(--fg); font: 14px/1.65 var(-
   (DATA.events || []).forEach(function (e) { eventById[e.id] = e; });
   (DATA.chapters || []).forEach(function (c) { chapByNo[c.no] = c; });
   var LAY = DATA.layout || {};
-  var NET = LAY.net || {}, SCENE = LAY.scene || {};
+  var SCENE = LAY.scene || {};  // layout.net 仅供 图谱.svg 确定性渲染，关系网页签由库端布局
 
   var childrenOf = {};
   (DATA.places || []).forEach(function (p) {
@@ -356,7 +381,13 @@ body { margin: 0; background: var(--bg); color: var(--fg); font: 14px/1.65 var(-
   tabScene.addEventListener("click", function () { setTab("scene"); });
   tabNet.addEventListener("click", function () { setTab("net"); });
   document.getElementById("topn").addEventListener("change", function (e) {
-    state.topN = parseInt(e.target.value, 10) || 0; drawNet();
+    state.topN = parseInt(e.target.value, 10) || 0;
+    if (CY) { applyNetScope(); } else { drawNet(); }
+  });
+  document.getElementById("labelsAll").addEventListener("click", function () {
+    netLabelsAll = !netLabelsAll;
+    this.classList.toggle("on", netLabelsAll);
+    if (CY) applyNetScope();
   });
 
   // ── 场景图（地点为框·人在框中） ──
@@ -451,50 +482,304 @@ body { margin: 0; background: var(--bg); color: var(--fg); font: 14px/1.65 var(-
     renderChapterPanel(c);
   }
 
-  // ── 关系网（社会轴；不表达地点） ──
-  function degreeOf(id) {
-    var d = 0;
-    (DATA.edges || []).forEach(function (e) { if (e.from === id || e.to === id) d += (e.w || 1); });
-    return d;
+  // ── 关系网（社会轴；不表达地点）——内联 Cytoscape 渲染（c-graph-net-cytoscape）──
+  // 口径：默认上屏全部「有关系」的节点（无关系实体不进关系网，提示行报数）；节点大小＝关系条数；
+  // 布局＝关系数同心圆初值＋fcose 松弛（关系多者更靠中心/彼此更近，fcose 缺失退回层级布局）；
+  // 标签：可见>20 只常驻枢纽 Top12（「全显名字」可全开），其余悬停/聚焦出名字，四向锚点避让；
+  // 图库缺失或初始化失败 → 文本关系清单兜底（其余视图照常）。
+  var CY = null, netAll = { nodes: [], edges: [] }, netLabelsAll = false, netFocus = null, tipEl = null;
+  var HIER_KINDS = ["师徒", "主从", "同门", "同僚"];
+  function cssVar(name) {
+    var v = getComputedStyle(document.documentElement).getPropertyValue(name);
+    return (v || "").trim() || "#888";
+  }
+  var PAL = null;
+  function palette() {
+    if (!PAL) PAL = {
+      accent: cssVar("--accent"), accentStrong: cssVar("--accent-strong"), surface: cssVar("--surface"),
+      fg: cssVar("--fg"), err: cssVar("--err"), warn: cssVar("--warn"), ok: cssVar("--ok"),
+      muted: cssVar("--muted")
+    };
+    return PAL;
+  }
+  function netBuild() {
+    var rel = {}, maxRel = 0;
+    (DATA.edges || []).forEach(function (e) {
+      rel[e.from] = (rel[e.from] || 0) + 1;
+      rel[e.to] = (rel[e.to] || 0) + 1;
+    });
+    Object.keys(rel).forEach(function (k) { if (rel[k] > maxRel) maxRel = rel[k]; });
+    var nodes = (DATA.nodes || []).filter(function (n) { return (rel[n.id] || 0) > 0; }).map(function (n) {
+      var d = rel[n.id];
+      return { data: { id: n.id, label: n.label, type: n.type || "person", role: n.role || "",
+                       rel: d, size: Math.round(20 + 26 * Math.sqrt(maxRel ? d / maxRel : 0)) } };
+    });
+    var edges = (DATA.edges || []).map(function (e, i) {
+      return { data: { id: "e" + i, source: e.from, target: e.to, kind: e.kind || "",
+                       group: e.kind === "敌对" ? "fp" : (HIER_KINDS.indexOf(e.kind) >= 0 ? "hier" : "plain"),
+                       w: Math.max(1, e.w || 1), quote: e.quote || "", ch: e.ch || 0 } };
+    });
+    return { nodes: nodes, edges: edges };
+  }
+  function cyStyle() {
+    var p = palette();
+    return [
+      { selector: "node", style: {
+        "label": "data(label)", "text-opacity": 0, "font-size": 11,
+        "text-valign": "bottom", "text-halign": "center", "text-margin-y": 5,
+        "text-wrap": "wrap", "text-max-width": 96, "color": p.fg,
+        "text-background-color": p.surface, "text-background-opacity": 0.85,
+        "text-background-padding": "2px",
+        "width": "data(size)", "height": "data(size)",
+        "border-width": 1.6, "border-color": p.accent, "background-color": p.surface,
+        "transition-property": "opacity, text-opacity", "transition-duration": "120ms"
+      } },
+      { selector: "node.labeled", style: { "text-opacity": 1 } },
+      { selector: "node.peak", style: { "text-opacity": 1 } },
+      { selector: "node[lh = 'left']", style: { "text-halign": "left", "text-margin-x": -7 } },
+      { selector: "node[lh = 'right']", style: { "text-halign": "right", "text-margin-x": 7 } },
+      { selector: "node[lv = 'top']", style: { "text-valign": "top", "text-margin-y": -4 } },
+      { selector: "node[lv = 'bottom']", style: { "text-valign": "bottom", "text-margin-y": 5 } },
+      { selector: "node[type = 'person'][role = '主角']", style: { "background-color": p.accent, "border-color": p.accentStrong, "border-width": 2.4 } },
+      { selector: "node[type = 'person'][role = '反派']", style: { "background-color": p.err, "border-color": p.err, "border-width": 2 } },
+      { selector: "node[type = 'faction']", style: { "shape": "round-rectangle", "background-color": p.warn, "background-opacity": 0.16, "border-color": p.warn, "border-width": 1.8 } },
+      { selector: "node[type = 'item']", style: { "shape": "diamond", "background-color": p.ok, "background-opacity": 0.18, "border-color": p.ok, "border-width": 1.8 } },
+      { selector: "edge", style: {
+        "width": "mapData(w, 1, 8, 1.2, 5.5)", "line-color": p.muted, "line-opacity": 0.55,
+        "target-arrow-color": p.muted, "target-arrow-shape": "triangle",
+        "arrow-scale": 0.8, "curve-style": "bezier", "opacity": 1,
+        "transition-property": "opacity", "transition-duration": "120ms"
+      } },
+      { selector: "edge[group = 'fp']", style: { "line-color": p.err, "line-opacity": 0.65, "target-arrow-color": p.err } },
+      { selector: "edge[group = 'hier']", style: { "line-color": p.warn, "line-opacity": 0.68, "target-arrow-color": p.warn } },
+      { selector: ".hidden", style: { "display": "none" } },
+      { selector: ".faded", style: { "opacity": 0.06, "text-opacity": 0 } },
+      { selector: "edge.peak", style: { "line-opacity": 1, "width": 4 } },
+      { selector: "node:selected", style: { "border-width": 3.4, "border-color": p.accentStrong } }
+    ];
+  }
+  function ensureCy() {
+    if (CY) return CY;
+    if (!window.cytoscape) return null;
+    if (window.cytoscapeFcose) {
+      try { window.cytoscape.use(window.cytoscapeFcose); }
+      catch (e1) { console.warn("fcose 注册失败，关系网将退回层级布局", e1); }
+    }
+    CY = window.cytoscape({
+      container: document.getElementById("cy"),
+      elements: [], style: cyStyle(),
+      wheelSensitivity: 0.18, minZoom: 0.03, maxZoom: 3, boxSelectionEnabled: false
+    });
+    bindNetEvents();
+    // 冒烟/调试口（无副作用）：__net.cy 取实例、__net.focus(id)/clear() 驱动聚焦
+    window.__net = { cy: CY, focus: function (id) { focusNet(CY.getElementById(id)); }, clear: clearNetFocus };
+    return CY;
+  }
+  function netTip(x, y, html) {
+    if (!tipEl) tipEl = document.getElementById("nettip");
+    tipEl.innerHTML = html;
+    tipEl.style.left = Math.round(x + 14) + "px";
+    tipEl.style.top = Math.round(y + 10) + "px";
+    tipEl.classList.add("show");
+  }
+  function netTipHide() { if (tipEl) tipEl.classList.remove("show"); }
+  function bindNetEvents() {
+    CY.on("tap", "node", function (ev) { focusNet(ev.target); });
+    CY.on("tap", function (ev) { if (ev.target === CY) clearNetFocus(); });
+    CY.on("mouseover", "node", function (ev) {
+      var n = ev.target;
+      var hood = n.closedNeighborhood();
+      hood.nodes().addClass("peak");
+      n.connectedEdges().addClass("peak");
+      var meta = nodeById[n.id()] || {};
+      netTip(ev.renderedPosition.x, ev.renderedPosition.y,
+        "<b>" + esc(n.data("label")) + "</b> · " + esc(roleLabel(meta)) +
+        "<br>" + n.data("rel") + " 条关系");
+    });
+    CY.on("mouseout", "node", function (ev) {
+      ev.target.closedNeighborhood().nodes().removeClass("peak");
+      ev.target.connectedEdges().removeClass("peak");
+      if (netFocus) paintNetFocus();
+      netTipHide();
+    });
+    CY.on("mouseover", "edge", function (ev) {
+      var e = ev.target;
+      e.addClass("peak");
+      var p1 = e.source().renderedPosition(), p2 = e.target().renderedPosition();
+      netTip((p1.x + p2.x) / 2, (p1.y + p2.y) / 2,
+        esc(e.source().data("label")) + " —" + esc(e.data("kind")) + "→ " + esc(e.target().data("label")) +
+        " · 第" + esc(e.data("ch")) + "章" +
+        (e.data("quote") ? "<br>「" + esc(e.data("quote")) + "」" : ""));
+    });
+    CY.on("mouseout", "edge", function (ev) { ev.target.removeClass("peak"); netTipHide(); });
+    CY.on("tap", "edge", function (ev) {
+      var e = ev.target;
+      side.innerHTML =
+        "<h3>" + esc(e.source().data("label")) + " —" + esc(e.data("kind")) + "→ " + esc(e.target().data("label")) + "</h3>" +
+        '<div class="chips"><span class="chip">第' + esc(e.data("ch")) + "章</span>" +
+        '<span class="chip">共场 ' + esc(e.data("w")) + "</span></div>" +
+        (e.data("quote") ? '<p class="q">「' + esc(e.data("quote")) + "」</p>" : "");
+      navBind(side);
+    });
+  }
+  function paintNetFocus() {
+    if (!CY || !netFocus) return;
+    var n = CY.getElementById(netFocus);
+    if (!n || n.length === 0) { netFocus = null; return; }
+    document.getElementById("netwrap").setAttribute("data-focus", netFocus);
+    var hood = n.closedNeighborhood();
+    CY.elements().removeClass("peak").addClass("faded");
+    hood.removeClass("faded");
+    hood.nodes().addClass("peak");
+    hood.addClass("peak");
+    CY.nodes().unselect();
+    n.select();
+  }
+  function focusNet(n) {
+    netFocus = n.id();
+    selectWho(netFocus); // 侧栏与既有选择语义（关系网不涉地点：足迹只在场景页签展示）
+    paintNetFocus();
+    CY.animate({ fit: { eles: n.closedNeighborhood(), padding: 60 }, duration: 240 });
+  }
+  function clearNetFocus() {
+    if (!CY || !netFocus) return;
+    netFocus = null;
+    CY.elements().removeClass("faded peak");
+    CY.nodes().unselect();
+    document.getElementById("netwrap").setAttribute("data-focus", "");
+    try { CY.fit(CY.elements().not(".hidden"), 36); } catch (e) {}
+  }
+  function applyNetScope() {
+    var ranked = CY.nodes().toArray().sort(function (a, b) { return b.data("rel") - a.data("rel"); });
+    var keepSet = null;
+    if (state.topN > 0) {
+      keepSet = {};
+      ranked.slice(0, state.topN).forEach(function (n) { keepSet[n.id()] = true; });
+    }
+    CY.nodes().forEach(function (n) { n.toggleClass("hidden", !!keepSet && !keepSet[n.id()]); });
+    CY.edges().forEach(function (e) {
+      e.toggleClass("hidden", e.source().hasClass("hidden") || e.target().hasClass("hidden"));
+    });
+    var vis = CY.elements().not(".hidden");
+    var visN = vis.nodes().length, visE = vis.edges().length;
+    CY.nodes().removeClass("labeled");
+    var hub = netLabelsAll
+      ? vis.nodes()
+      : vis.nodes().sort(function (a, b) { return b.data("rel") - a.data("rel"); }).slice(0, visN > 20 ? 12 : visN);
+    hub.addClass("labeled");
+    runNetLayout(vis);
+    paintNetFocus();
+    document.getElementById("canvasHint").textContent =
+      "可见 " + visN + "/" + (DATA.nodes || []).length + " 实体（有关系的 " + netAll.nodes.length +
+      "）· " + visE + " 条关系 · 点大小＝关系数 · 点人聚焦关系圈";
+    var wrap = document.getElementById("netwrap");
+    wrap.setAttribute("data-vis-nodes", visN);
+    wrap.setAttribute("data-vis-edges", visE);
+    wrap.setAttribute("data-labeled", hub.length);
+    wrap.setAttribute("data-connected", netAll.nodes.length);
+    wrap.removeAttribute("data-fallback");
+    wrap.setAttribute("data-focus", netFocus || "");
+  }
+  function runNetLayout(vis) {
+    // 初始位按关系数排同心圆（不依赖随机初始化）；fcose 沿该势能松弛，枢纽更靠中心/彼此更近
+    vis.layout({ name: "concentric", animate: false, fit: false,
+      concentric: function (n) { return n.data("rel"); }, levelWidth: function () { return 3; },
+      minNodeSpacing: 22 }).run();
+    try {
+      vis.layout({ name: "fcose", animate: false, randomize: false, fit: false,
+        nodeRepulsion: function (n) { var d = n.data("rel") || 0; return Math.max(5200, 16000 - 420 * d); },
+        idealEdgeLength: function (e) {
+          var a = e.source().data("rel") || 0, b = e.target().data("rel") || 0;
+          return Math.max(70, 130 - 1.6 * (a + b));
+        },
+        edgeElasticity: 0.45, gravity: 0.32, numIter: 2800, tile: true, padding: 30 }).run();
+    } catch (e) { console.warn("fcose 布局不可用，退回层级布局", e); }
+    try { CY.fit(vis, 30); } catch (e2) {}
+    netLabelAnchors();
+  }
+  // 标签四向锚点贪心避让：按关系数降序，依次试 右/左/下/上，取首个不与已放标签盒相交的位置
+  function netLabelAnchors() {
+    var vis = CY.nodes().not(".hidden");
+    var lab = vis.filter(".labeled");
+    if (!lab.length) return;
+    var bb = vis.boundingBox({ includeLabels: false, includeOverlays: false });
+    var cx = (bb.x1 + bb.x2) / 2, cy0 = (bb.y1 + bb.y2) / 2;
+    var hw = Math.max(1, (bb.x2 - bb.x1) / 2), hh = Math.max(1, (bb.y2 - bb.y1) / 2);
+    var placed = [];
+    lab.toArray().sort(function (a, b) { return b.data("rel") - a.data("rel"); }).forEach(function (n) {
+      var p = n.position();
+      var r = Math.max(n.width(), n.height()) / 2 + 3;
+      var label = String(n.data("label") || "");
+      var textW = 0;
+      for (var i = 0; i < label.length; i++) textW += /[\x00-\x7F]/.test(label.charAt(i)) ? 6.2 : 11;
+      var bw = Math.min(textW, 96), bh = textW > 96 ? 28 : 15;
+      var dx = (p.x - cx) / hw, dy = (p.y - cy0) / hh;
+      var prefs = Math.abs(dx) >= Math.abs(dy)
+        ? (dx >= 0 ? ["right", "left", "bottom", "top"] : ["left", "right", "bottom", "top"])
+        : (dy >= 0 ? ["bottom", "top", "left", "right"] : ["top", "bottom", "left", "right"]);
+      var pick = null;
+      for (var k = 0; k < prefs.length && !pick; k++) {
+        var lh = "center", lv = "center", box;
+        if (prefs[k] === "right") { lh = "right"; box = { x1: p.x + r, y1: p.y - bh / 2, x2: p.x + r + bw, y2: p.y + bh / 2 }; }
+        else if (prefs[k] === "left") { lh = "left"; box = { x1: p.x - r - bw, y1: p.y - bh / 2, x2: p.x - r, y2: p.y + bh / 2 }; }
+        else if (prefs[k] === "bottom") { lv = "bottom"; box = { x1: p.x - bw / 2, y1: p.y + r, x2: p.x + bw / 2, y2: p.y + r + bh }; }
+        else { lv = "top"; box = { x1: p.x - bw / 2, y1: p.y - r - bh, x2: p.x + bw / 2, y2: p.y - r }; }
+        var clash = false;
+        for (var j = 0; j < placed.length; j++) {
+          var b2 = placed[j];
+          if (box.x1 < b2.x2 + 2 && box.x2 > b2.x1 - 2 && box.y1 < b2.y2 + 2 && box.y2 > b2.y1 - 2) { clash = true; break; }
+        }
+        if (!clash) pick = { lh: lh, lv: lv, box: box };
+      }
+      if (!pick) pick = { lh: "center", lv: "bottom", box: { x1: p.x - bw / 2, y1: p.y + r, x2: p.x + bw / 2, y2: p.y + r + bh } };
+      placed.push(pick.box);
+      n.data("lh", pick.lh);
+      n.data("lv", pick.lv);
+    });
+  }
+  function netFallback() {
+    document.getElementById("cy").style.display = "none";
+    var box = document.getElementById("netfallback");
+    box.style.display = "";
+    var rows = (DATA.edges || []).map(function (e) {
+      var a = nodeById[e.from], b = nodeById[e.to];
+      if (!a || !b) return "";
+      return '<div class="erow"><span class="k">' + esc(e.kind) + "</span><span><b>" + esc(a.label) +
+        "</b>—<b>" + esc(b.label) + "</b>" +
+        (e.quote ? ' <span class="q">「' + esc(e.quote) + '」</span>' : "") +
+        '<span class="ev"> 第' + esc(e.ch) + "章</span></span></div>";
+    }).join("");
+    box.innerHTML = "<p>关系网画布不可用（渲染库未加载或初始化失败），以下为全部关系的文本清单；其余视图不受影响。</p>" +
+      (rows || "<p>本书没有可展示的关系。</p>");
+    document.getElementById("netwrap").setAttribute("data-fallback", "1");
   }
   function drawNet() {
-    var svg = document.getElementById("graph");
-    while (svg.firstChild) svg.removeChild(svg.firstChild);
-    var topSet = null;
-    if (state.topN > 0) {
-      var ranked = (DATA.nodes || []).slice().sort(function (a, b) { return degreeOf(b.id) - degreeOf(a.id); });
-      topSet = {};
-      ranked.slice(0, state.topN).forEach(function (n) { topSet[n.id] = true; });
-    }
-    var gEdges = el("g", "", svg), gNodes = el("g", "", svg);
-    (DATA.edges || []).forEach(function (e) {
-      var a = NET[e.from], b = NET[e.to];
-      if (!a || !b) return;
-      var ln = el("line", "edge" + (e.kind === "敌对" ? " edge-fp" : ["师徒", "主从", "同门", "同僚"].indexOf(e.kind) >= 0 ? " edge-hier" : ""), gEdges);
-      ln.setAttribute("x1", a[0]); ln.setAttribute("y1", a[1]); ln.setAttribute("x2", b[0]); ln.setAttribute("y2", b[1]);
-      ln.setAttribute("stroke-width", 1.2 + (e.w || 1) * 1.3);
-      if (topSet && (!topSet[e.from] || !topSet[e.to])) ln.classList.add("dim");
-      var ti3 = el("title", "", ln); ti3.textContent = nodeById[e.from].label + " —" + e.kind + "→ " + nodeById[e.to].label + " · 第" + e.ch + "章" + (e.quote ? "「" + e.quote + "」" : "");
-    });
-    (DATA.nodes || []).forEach(function (n) {
-      var pos = NET[n.id]; if (!pos) return;
-      var g = el("g", "node", gNodes);
-      if (n.type === "faction") {
-        var r = el("rect", clsOf(n), g);
-        r.setAttribute("x", pos[0] - 30); r.setAttribute("y", pos[1] - 13);
-        r.setAttribute("width", 60); r.setAttribute("height", 26); r.setAttribute("rx", 8);
-      } else if (n.type === "item") {
-        var pth = el("path", clsOf(n), g);
-        pth.setAttribute("d", "M " + pos[0] + " " + (pos[1] - 14) + " L " + (pos[0] + 14) + " " + pos[1] + " L " + pos[0] + " " + (pos[1] + 14) + " L " + (pos[0] - 14) + " " + pos[1] + " Z");
-      } else {
-        var cc = el("circle", clsOf(n), g);
-        cc.setAttribute("cx", pos[0]); cc.setAttribute("cy", pos[1]);
-        cc.setAttribute("r", n.role === "主角" ? 19 : 14);
+    netAll = netBuild();
+    document.getElementById("netfallback").style.display = "none";
+    document.getElementById("cy").style.display = "";
+    if (!CY) {
+      try {
+        if (!ensureCy()) throw new Error("cytoscape 未加载");
+      } catch (e) {
+        console.warn("关系网渲染库不可用，回落文本关系清单", e);
+        CY = null;
+        netFallback();
+        return;
       }
-      tx(g, "", pos[0], pos[1] + (n.type === "person" ? (n.role === "主角" ? 36 : 30) : 28), n.label, "middle");
-      if (topSet && !topSet[n.id]) g.classList.add("dim");
-      g.addEventListener("click", function () { selectWho(n.id); });
-    });
+    }
+    try {
+      CY.elements().remove();
+      CY.add(netAll.nodes);
+      CY.add(netAll.edges);
+      netFocus = null;
+      applyNetScope();
+    } catch (e) {
+      console.warn("关系网初始化失败，回落文本关系清单", e);
+      try { if (CY) CY.destroy(); } catch (e2) {}
+      CY = null;
+      window.__net = null;  // 降级后调试口不得指向已销毁实例（评审 P3）
+      netFallback();
+    }
   }
 
   // ── 选择与侧栏 ──
@@ -657,7 +942,7 @@ body { margin: 0; background: var(--bg); color: var(--fg); font: 14px/1.65 var(-
     selectChapter(Math.min((DATA.stats || {}).chapters || 1, state.chap + 1));
   });
   window.addEventListener("keydown", function (e) {
-    if (e.key === "Escape") renderHome();
+    if (e.key === "Escape") { clearNetFocus(); renderHome(); }
   });
 
   renderHome();
