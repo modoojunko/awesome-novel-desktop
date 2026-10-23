@@ -63,16 +63,21 @@ def _tier_required_for(feature: str) -> str | None:
 _TIER_RANK = {"none": 0, "free": 1, "standard": 2, "pro": 3, "trial": 3, "max": 4,
               "monthly": 3, "quarterly": 3, "yearly": 3, "lifetime": 4}  # trial=pro 同权（含朱雀）
 
-# 新 key 上线早于快照刷新的隐式放行（c-image-generation）：完整旧快照不含
-# image-generate 时，未过期 trial/pro/max（含 legacy 别名）仍放行——与前端
-# useTier 同口径；standard/free/过期不适用。
-_LEGACY_IMPLICIT_FEATURES = frozenset({"image-generate"})
+# 新 key 上线早于快照刷新的隐式放行（c-image-generation / c-deconstruct-tier）：
+# 完整旧快照不含新 key 时，按 key 的最低档放行（未过期）——与前端 useTier 同口径；
+# standard/free/过期不适用。max key 不给 trial/pro 放行。
+_LEGACY_IMPLICIT_FEATURES: dict[str, int] = {
+    "image-generate": _TIER_RANK["pro"],
+    "deconstruct": _TIER_RANK["pro"],
+    "deconstruct-import": _TIER_RANK["max"],
+}
 
 
 def _legacy_implicit_allowed(feature: str, perm: dict) -> bool:
-    if feature not in _LEGACY_IMPLICIT_FEATURES or perm.get("expired"):
+    min_rank = _LEGACY_IMPLICIT_FEATURES.get(feature)
+    if min_rank is None or perm.get("expired"):
         return False
-    return _TIER_RANK.get(perm.get("tier", "none"), 0) >= _TIER_RANK["pro"]
+    return _TIER_RANK.get(perm.get("tier", "none"), 0) >= min_rank
 
 
 async def _require_member_and_tier(user: dict, request: Request | None) -> None:

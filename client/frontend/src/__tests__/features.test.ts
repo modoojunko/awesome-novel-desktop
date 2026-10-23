@@ -13,7 +13,7 @@ const FREE_FEATURES: FeatureKey[] = [
   "ai-model",
 ];
 
-// 四档 AI 矩阵（2026-10-05 拍板）：标准=管流程；PRO=正文＋朱雀；MAX=推演/去AI味/蒸馏
+// 四档 AI 矩阵（2026-10-05 拍板）：标准=管流程；PRO=正文＋朱雀＋AI 拆书；MAX=推演/蒸馏/拆书建书
 const STANDARD_FEATURES: FeatureKey[] = [
   "settings-ai-fields",
   "outline-advanced-fields",
@@ -22,9 +22,15 @@ const STANDARD_FEATURES: FeatureKey[] = [
   "style-suggest",
 ];
 
-const PRO_FEATURES: FeatureKey[] = ["ai-generate", "prompt-panel", "ai-detect", "image-generate"];
+const PRO_FEATURES: FeatureKey[] = [
+  "ai-generate",
+  "prompt-panel",
+  "ai-detect",
+  "image-generate",
+  "deconstruct",
+];
 
-const MAX_FEATURES: FeatureKey[] = ["ai-plot", "style-quant"];
+const MAX_FEATURES: FeatureKey[] = ["ai-plot", "style-quant", "deconstruct-import"];
 
 describe("档位名与锁文案单源（c-rail-tier-badge）", () => {
   it("tierLabel 是档位名唯一来源；upgradeHintOf 与它同源（徽标不会与行内 hint 说两套）", () => {
