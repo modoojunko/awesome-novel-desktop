@@ -26,7 +26,9 @@ from models.image_asset import (
     CharacterImageSettings,
     ImageAsset,
     ImageAssetBlob,
+    ImageBatchItem,
     ImageConfig,
+    ImageJob,
 )
 from models.import_session import ImportSession
 from models.novel_genre import (
@@ -74,7 +76,9 @@ __all__ = [
     "HookOp",
     "ImageAsset",
     "ImageAssetBlob",
+    "ImageBatchItem",
     "ImageConfig",
+    "ImageJob",
     "ImportSession",
     "Novel",
     "NovelGenre",

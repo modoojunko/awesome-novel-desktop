@@ -133,7 +133,9 @@ class ImageAsset(Base):
     seed: Mapped[int | None] = mapped_column(Integer, nullable=True)
     undo_token: Mapped[str | None] = mapped_column(String(64), nullable=True)
     undo_expires_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
-    job_id: Mapped[str | None] = mapped_column(String(36), nullable=True)
+    job_id: Mapped[str | None] = mapped_column(
+        String(36), ForeignKey("image_jobs.id", ondelete="SET NULL"), nullable=True
+    )
     created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
     adopted_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     # candidate=24h 后清；previous=8s 撤销窗口后清；current 恒为 NULL
@@ -185,3 +187,103 @@ class CharacterImageSettings(Base):
     updated_at: Mapped[datetime] = mapped_column(
         DateTime, server_default=func.now(), onupdate=func.now()
     )
+
+
+class ImageJob(Base):
+    """图像生成任务 — 独立于写作 job_runner 单飞槽，状态落在库里可恢复。
+
+    target_type/target_id 是幂等键的“同一目标”口径：book 封面、character 头像、
+    batch 批量头像。部分唯一索引保证同一目标同时最多一个 queued/running。
+    """
+
+    __tablename__ = "image_jobs"
+    __table_args__ = (
+        UniqueConstraint("user_id", "idempotency_key", name="uq_image_job_idempotency"),
+        Index("ix_image_jobs_status_created", "status", "created_at"),
+        Index("ix_image_jobs_novel", "novel_id", "created_at"),
+        Index(
+            "uq_image_job_active_target",
+            "target_type",
+            "target_id",
+            unique=True,
+            sqlite_where=text("status IN ('queued', 'running')"),
+        ),
+    )
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid)
+    user_id: Mapped[str] = mapped_column(
+        String(36), ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    novel_id: Mapped[str] = mapped_column(
+        String(36), ForeignKey("novels.id", ondelete="CASCADE"), nullable=False
+    )
+    character_id: Mapped[str | None] = mapped_column(
+        String(36), ForeignKey("characters.id", ondelete="CASCADE"), nullable=True
+    )
+    target_type: Mapped[str] = mapped_column(String(20), nullable=False)  # book|character|batch
+    target_id: Mapped[str] = mapped_column(String(36), nullable=False)
+    purpose: Mapped[str] = mapped_column(
+        String(20), nullable=False, default="generate"
+    )  # generate|test|batch
+    kind: Mapped[str] = mapped_column(String(10), nullable=False)  # cover|avatar
+    status: Mapped[str] = mapped_column(
+        String(20), nullable=False, default="queued", server_default="queued"
+    )  # queued|running|completed|failed|cancelled
+    image_config_id: Mapped[str | None] = mapped_column(
+        String(36), ForeignKey("image_configs.id", ondelete="SET NULL"), nullable=True
+    )
+    provider: Mapped[str] = mapped_column(String(50), nullable=False, default="")
+    model: Mapped[str] = mapped_column(String(200), nullable=False, default="")
+    style_key: Mapped[str | None] = mapped_column(String(40), nullable=True)
+    prompt_text: Mapped[str | None] = mapped_column(Text, nullable=True)
+    negative_prompt: Mapped[str | None] = mapped_column(Text, nullable=True)
+    prompt_template_version: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    prompt_hash: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    request_json: Mapped[str | None] = mapped_column(Text, nullable=True)
+    base_seed: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    requested_n: Mapped[int] = mapped_column(Integer, nullable=False, default=2)
+    produced_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    billed_n: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    cancelled_billed_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    duration_ms: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    error_kind: Mapped[str | None] = mapped_column(String(30), nullable=True)
+    error_message: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    idempotency_key: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    cancel_requested: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=False, server_default="0"
+    )
+    created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now(), index=True)
+    started_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    finished_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+
+
+class ImageBatchItem(Base):
+    """批量头像逐项账 — 每角色一行；取消时已完成候选保留，未完成收敛终态。"""
+
+    __tablename__ = "image_batches"
+    __table_args__ = (
+        UniqueConstraint("job_id", "item_index", name="uq_image_batch_item_index"),
+        Index("ix_image_batches_job_status", "job_id", "status"),
+    )
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid)
+    job_id: Mapped[str] = mapped_column(
+        String(36), ForeignKey("image_jobs.id", ondelete="CASCADE"), nullable=False
+    )
+    character_id: Mapped[str] = mapped_column(
+        String(36), ForeignKey("characters.id", ondelete="CASCADE"), nullable=False
+    )
+    item_index: Mapped[int] = mapped_column(Integer, nullable=False)
+    status: Mapped[str] = mapped_column(
+        String(20), nullable=False, default="pending", server_default="pending"
+    )  # pending|running|completed|failed|cancelled|cancelled_billed
+    seed: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    prompt_hash: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    produced_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    billed_n: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    duration_ms: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    error_kind: Mapped[str | None] = mapped_column(String(30), nullable=True)
+    error_message: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
+    started_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    finished_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)

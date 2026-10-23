@@ -94,6 +94,7 @@ TBD - created by archiving change 003-two-tier-foundation. Update Purpose after 
   - `prompt-panel`（PRO 起）：提示词页签；
   - `ai-plot`（**新**，MAX）：剧情推演＋story 推演会话（六类冲突检测不在其内）；
   - `ai-detect`（**留 PRO**，2026-10-05 拍板撤销「上收 MAX」草案）：朱雀 AI 检测，PRO 起发放、trial 同权。
+  - `image-generate`（PRO 起）：封面/角色头像 AI 生成、试画与批量头像；图像 Key 作者自持、独立于写作大模型，standard 不发放、trial 同权。
   - `style-suggest`（新增）：文风建议（自己写正文时的 AI 修改建议），标准起发放——与 style-quant 拆 key。
   - `style-quant`（新增）：文风蒸馏（贴旧稿蒸馏文风基线），仅 MAX 发放。
   - `ai-plot`（新增）：剧情推演，仅 MAX 发放（卷纲冲突检测不在其内——留 ai-check 族挂 ai-generate 门）。

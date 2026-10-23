@@ -38,8 +38,9 @@ HIDDEN_IMPORTS: tuple[str, ...] = (
     "backup", "backup.router", "backup.export", "backup.format", "backup.importer",
     "job_runner",
     "manuscript", "manuscript.router", "manuscript.service", "manuscript.content", "manuscript.render",
-    # 图像资产（c-cover-avatar 阶段 1）：上传/裁剪/WebP/签名读取
+    # 图像资产/生成（c-cover-avatar + c-image-generation）：上传裁剪与生成调度
     "image_assets", "image_assets.router", "image_assets.service",
+    "image_assets.adapters", "image_assets.generation", "image_assets.dispatcher",
     "PIL.Image", "PIL.ImageOps", "PIL.WebPImagePlugin",
     "PIL.JpegImagePlugin", "PIL.PngImagePlugin",
 )

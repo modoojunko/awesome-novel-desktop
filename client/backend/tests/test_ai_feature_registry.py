@@ -37,6 +37,7 @@ REQUIRED_CONSUMERS = (
     "prompt-panel",
     "ai-plot",
     "ai-detect",
+    "image-generate",
 )
 
 
@@ -54,9 +55,10 @@ def _iter_api_routes(routes):
 
 
 # 允许挂「键自持门」的 key 白名单：端点用的是作者自持的第三方 Key，不需要写作大模型
-# （`ai-detect`＝朱雀检测；`prompt-panel`＝提示词取数与编辑，2026-10-08 拍板）。
+# （`ai-detect`＝朱雀检测；`prompt-panel`＝提示词取数与编辑，2026-10-08 拍板；
+#  `image-generate`＝封面/头像生成，图像 Key 独立于写作大模型，c-image-generation）。
 # 其余 key 一律要求 require_ai_access——防「LLM 端点错挂键自持门」凭空放行未配模型的作者。
-KEYLESS_GATE_KEYS = ("ai-detect", "prompt-panel")
+KEYLESS_GATE_KEYS = ("ai-detect", "prompt-panel", "image-generate")
 
 
 def _has_gate_named(dep, name: str) -> bool:
