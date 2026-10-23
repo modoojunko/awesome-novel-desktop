@@ -176,11 +176,11 @@ def test_mainplot_intro_genre_structure():
         {"intro": "一个夜班司机的故事（第1章—第258章）。"},
         {"genre": "灵异志怪", "promise": "带读者进入鬼怪世界（第1、10章）。", "tags": ["灵异"]},
     )
-    assert meta == {
-        "synopsis": "一个夜班司机的故事。",
-        "genre": "灵异志怪",
-        "promise_note": "带读者进入鬼怪世界。",
-    }
+    assert meta["synopsis"] == "一个夜班司机的故事。"
+    assert meta["genre"] == "灵异志怪"
+    assert meta["promise_note"] == "带读者进入鬼怪世界。"
+    assert meta["core_promise"] and meta["forbidden"] and meta["battlefield"]
+    assert 1 <= meta["cost_ratio"] <= 10
 
     vol = sm.structure_volume({"title": "原文未明确（材料仅见第1-258章未分卷）", "ch_range": "第1-258章"})
     assert vol == {"title": "", "summary": "第1-258章"}
@@ -221,3 +221,46 @@ def test_hook_items_keep_plant_payoff_and_note():
         "三任司机冲水库（取档案见日期都是十五）（埋设于第1章）（收于第10章）"
     )
     assert (item["type"], item["priority"], item["status"]) == ("mystery", 1, "resolved")
+
+
+def test_genre_extras_fills_legacy_product():
+    """旧 genre 产物只有 genre/tags/promise：02–05 也要给非空起点。"""
+    meta = sm.intro_genre_body(
+        {"intro": "一个夜班司机的故事（第1-258章）。"},
+        {
+            "genre": "灵异志怪",
+            "tags": ["灵异", "悬疑", "解谜"],
+            "promise": "跟随主角追查旧案，在惊悚解谜中获得反转快感（第1、10章）。",
+        },
+        {"fullstory": "李耀一路查真相，直面大患（第258章）。"},
+        {"cost": "开此车者被命运绑定，离开即死（第20章）。"},
+    )
+    assert meta["synopsis"] == "一个夜班司机的故事。"
+    assert meta["promise_note"] == "跟随主角追查旧案，在惊悚解谜中获得反转快感。"
+    assert meta["core_promise"] == "层层反转的智力快感"
+    assert meta["forbidden"] == ["禁天降外援", "禁反派降智"]
+    assert meta["cost_ratio"] == 8
+    assert meta["battlefield"] == ["查真相", "抗外敌"]
+    assert set(meta["inferred"]) == {"core_promise", "forbidden", "cost_ratio", "battlefield"}
+
+
+def test_genre_extras_prefers_product_fields():
+    """产物已给新字段时原样采用，不被启发式覆盖。"""
+    meta = sm.intro_genre_body(
+        {},
+        {
+            "genre": "权谋",
+            "promise": "朝堂博弈（第1章）。",
+            "core_promise": "算无遗策的掌控感",
+            "forbidden": ["禁预知破局"],
+            "cost_ratio": 5,
+            "battlefield": ["爬地位"],
+        },
+        {},
+        {},
+    )
+    assert meta["core_promise"] == "算无遗策的掌控感"
+    assert meta["forbidden"] == ["禁预知破局"]
+    assert meta["cost_ratio"] == 5
+    assert meta["battlefield"] == ["爬地位"]
+    assert meta["inferred"] == []

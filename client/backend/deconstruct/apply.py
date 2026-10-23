@@ -201,10 +201,12 @@ async def import_book(
         selected = [k for k in IMPORT_ITEM_KEYS if k in picked]
 
     warnings: list[str] = []
-    # 简介/题材走同一投影：证据章号、分析尾巴不进设定；promise 落 novel_genre
+    # 简介/题材走同一投影：证据章号、分析尾巴不进设定；题材五字段一次落齐
     meta = sm.intro_genre_body(
         _data(task, "intro") if "intro" in selected else {},
         _data(task, "genre") if "genre" in selected else {},
+        _data(task, "mainplot"),
+        _data(task, "world"),
     )
     synopsis = meta["synopsis"]
     genre = meta["genre"]
@@ -222,13 +224,33 @@ async def import_book(
     await db.commit()
     book_id = project.id
 
-    if meta["promise_note"] and "genre" in selected:
+    if "genre" in selected:
         try:
             from genres.novel_genre_service import put_novel_genre
 
-            await put_novel_genre(db, book_id, {"promise_note": meta["promise_note"]})
+            forbidden_payload = []
+            for label in meta["forbidden"]:
+                vid = sm.genre_vocab_id(label, "forbidden")
+                forbidden_payload.append({"tagId": vid} if vid else {"text": label})
+            battlefield_payload = [
+                sm.genre_vocab_id(label, "battlefield") or label
+                for label in meta["battlefield"]
+            ]
+            await put_novel_genre(db, book_id, {
+                "core_promise": meta["core_promise"],
+                "promise_note": meta["promise_note"],
+                "forbidden_list": forbidden_payload,
+                "cost_ratio": meta["cost_ratio"],
+                "battlefield": battlefield_payload,
+            })
+            if meta.get("inferred"):
+                warnings.append(
+                    "题材 "
+                    + "、".join(meta["inferred"])
+                    + " 拆书产物未覆盖，已按题材/主线/世界代价给起点（请在设定页确认）"
+                )
         except Exception as e:  # noqa: BLE001 — 题材补充字段失败不拖垮建书
-            warnings.append(f"题材承诺未写入（{str(e)[:60]}），题材目录已写")
+            warnings.append(f"题材字段未写入（{str(e)[:60]}），题材目录已写")
 
     root = project.root_path
     from filesystem.storage import get_storage

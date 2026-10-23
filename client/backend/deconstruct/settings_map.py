@@ -31,6 +31,8 @@ from __future__ import annotations
 
 import re
 
+from genres.vocab_presets import VOCAB_PRESETS
+
 _EVIDENCE_TAG_RE = re.compile(r"【[^】]{0,50}章】")
 # 括注证据：以「第」开头或括注内含「见/详见/参见 第N章」都算分析工件。
 _EVIDENCE_PAREN_RE = re.compile(
@@ -307,15 +309,153 @@ def mainplot_body(data: dict) -> dict:
     }
 
 
-def intro_genre_body(data_intro: dict, data_genre: dict) -> dict:
-    """简介/题材 → create_project 参数＋novel_genre.promise_note。"""
+def _candidate_labels(kind: str) -> list[str]:
+    return [str(e.get("label", "")) for e in VOCAB_PRESETS if e.get("kind") == kind]
+
+
+def genre_vocab_id(label: str, kind: str) -> str | None:
+    """候选标签 → 稳定 vocab id；找不到返回 None（调用方按自定义文本落）。"""
+    for e in VOCAB_PRESETS:
+        if e.get("kind") == kind and e.get("label") == label:
+            return str(e.get("id"))
+    return None
+
+
+def _labels(value) -> list[str]:
+    out: list[str] = []
+    for item in _items(value):
+        if isinstance(item, dict):
+            item = item.get("name") or item.get("label") or item.get("text") or ""
+        label = clean_settings_text(item, 60)
+        if label and label not in out:
+            out.append(label)
+    return out
+
+
+def _pick_label(text: str, rules: list[tuple[tuple[str, ...], str]], default: str) -> str:
+    for needles, label in rules:
+        if any(n in text for n in needles):
+            return label
+    return default
+
+
+def _infer_forbidden(text: str) -> list[str]:
+    rules = [
+        (("悬疑", "推理", "查案", "解谜", "灵异", "恐怖", "惊悚"),
+         ["禁天降外援", "禁反派降智"]),
+        (("言情", "甜", "恋", "感情"), ["禁第三者搅局", "禁无端虐主"]),
+        (("玄幻", "仙侠", "升级", "修真"), ["禁白捡神器", "禁反派降智"]),
+        (("权谋", "历史", "朝堂", "宫斗"), ["禁反派降智", "禁预知破局"]),
+    ]
+    for needles, labels in rules:
+        if any(n in text for n in needles):
+            return labels
+    return ["禁反派降智", "禁无端虐主"]
+
+
+def _infer_battlefield(text: str) -> list[str]:
+    rules = [
+        (("查", "真相", "调查", "旧案", "谜", "线索", "档案", "悬案"), "查真相"),
+        (("鬼", "邪", "妖", "大患", "敌", "对抗", "战斗", "追杀"), "抗外敌"),
+        (("感情", "爱", "婚", "恋", "表白"), "争感情"),
+        (("资源", "铜钱", "宝物", "财富", "利益"), "抢资源"),
+        (("地位", "权力", "队长", "职位", "升职"), "爬地位"),
+        (("村", "建设", "重建", "基建", "经营"), "搞基建"),
+    ]
+    out: list[str] = []
+    for needles, label in rules:
+        if any(n in text for n in needles) and label not in out:
+            out.append(label)
+        if len(out) >= 2:
+            break
+    return out or ["查真相"]
+
+
+def _infer_cost(cost_text: str) -> int:
+    if any(k in cost_text for k in ("死", "命", "牺牲", "献祭", "绑定", "寿", "重伤")):
+        return 8
+    if any(k in cost_text for k in ("伤", "失去", "别离", "背叛")):
+        return 6
+    return 4
+
+
+def genre_extras(data_genre: dict, data_mainplot: dict | None = None,
+                 data_world: dict | None = None) -> dict:
+    """题材 02–05 的补全（空字段就是拆书漏了）。
+
+    优先取产物新字段（core_promise/forbidden/cost_ratio/battlefield）；旧产物没有
+    这些字段时，按题材承诺、主线与世界观代价给可编辑起点，保证 03/04/05 不空。
+    """
+    dg = data_genre if isinstance(data_genre, dict) else {}
+    mp = data_mainplot if isinstance(data_mainplot, dict) else {}
+    wd = data_world if isinstance(data_world, dict) else {}
+    tags = _labels(dg.get("tags"))
+    promise = clean_settings_text(dg.get("promise"), 200)
+    genre_name = clean_settings_text(dg.get("genre"), 40)
+    fullstory = clean_settings_text(mp.get("fullstory"), 2000)
+    arcs = "；".join(
+        f"{a.get('title', '')}：{a.get('summary', '')}"
+        for a in (mp.get("arcs") or []) if isinstance(a, dict)
+    )
+    ending = mp.get("ending") if isinstance(mp.get("ending"), dict) else {}
+    ending_txt = " ".join(clean_settings_text(v, 80) for v in ending.values() if v)
+    cost_text = clean_settings_text(wd.get("cost"), 800)
+    power_text = clean_settings_text(wd.get("power"), 800)
+    text = " ".join([genre_name, promise, *tags, fullstory, arcs, ending_txt, cost_text, power_text])
+    inferred: list[str] = []
+
+    core = clean_settings_text(dg.get("core_promise"), 60)
+    if not core:
+        core = _pick_label(text, (
+            (("解谜", "真相", "反转", "推理", "悬疑", "谜"), "层层反转的智力快感"),
+            (("求生", "绝境", "生存", "逃"), "绝处逢生的紧张"),
+            (("甜", "恋", "感情", "爱"), "甜到齁的情感满足"),
+            (("权谋", "算计", "布局", "朝堂"), "算无遗策的掌控感"),
+            (("逆袭", "打脸", "弱", "成长"), "以弱破强的痛快"),
+        ), "绝处逢生的紧张")
+        inferred.append("core_promise")
+
+    forbidden = _labels(dg.get("forbidden") or dg.get("forbidden_list"))
+    if not forbidden:
+        forbidden = _infer_forbidden(text)
+        inferred.append("forbidden")
+
+    cost_raw = dg.get("cost_ratio")
+    try:
+        cost = int(cost_raw) if cost_raw not in (None, "") else 0
+    except (TypeError, ValueError):
+        cost = 0
+    if not 1 <= cost <= 10:
+        cost = _infer_cost(cost_text)
+        inferred.append("cost_ratio")
+
+    battlefield = _labels(dg.get("battlefield"))
+    if not battlefield:
+        battlefield = _infer_battlefield(text)
+        inferred.append("battlefield")
+
+    return {
+        "core_promise": core,
+        "forbidden": forbidden[:6],
+        "cost_ratio": cost,
+        "battlefield": battlefield[:2],
+        "inferred": inferred,
+    }
+
+
+def intro_genre_body(data_intro: dict, data_genre: dict,
+                     data_mainplot: dict | None = None,
+                     data_world: dict | None = None) -> dict:
+    """简介/题材 → create_project 参数＋novel_genre 五字段。"""
     intro = data_intro if isinstance(data_intro, dict) else {}
     genre = data_genre if isinstance(data_genre, dict) else {}
+    extras = genre_extras(genre, data_mainplot, data_world)
     return {
         "synopsis": clean_settings_text(intro.get("intro"), 600),
         "genre": clean_settings_text(genre.get("genre"), 40),
         # tags 是题材标签（不是「读者预期」短句），只留任务资料；promise 是真正的承诺句
         "promise_note": clean_settings_text(genre.get("promise"), 200),
+        **extras,
     }
 
 

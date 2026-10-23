@@ -1472,7 +1472,11 @@ def test_import_all_dimensions_contract_safe(client, monkeypatch):
         from filesystem.storage import get_storage
         from models.character import Character, CharacterRelation
         from models.hook import NovelHook
-        from models.novel_genre import NovelGenre
+        from models.novel_genre import (
+            NovelGenre,
+            NovelGenreBattlefield,
+            NovelGenreForbidden,
+        )
         from models.project import Novel
         from models.volume import Volume
         from settings.style_model import read_style
@@ -1484,18 +1488,33 @@ def test_import_all_dimensions_contract_safe(client, monkeypatch):
             vols = (await s.execute(select(Volume).where(Volume.project_id == bid))).scalars().all()
             hooks = (await s.execute(select(NovelHook).where(NovelHook.novel_id == bid))).scalars().all()
             ng = await s.get(NovelGenre, bid)
+            forbids = (await s.execute(
+                select(NovelGenreForbidden).where(NovelGenreForbidden.novel_id == bid)
+                .order_by(NovelGenreForbidden.sort)
+            )).scalars().all()
+            fields = (await s.execute(
+                select(NovelGenreBattlefield).where(NovelGenreBattlefield.novel_id == bid)
+                .order_by(NovelGenreBattlefield.sort)
+            )).scalars().all()
         storage = get_storage()
         story = await storage.read_yaml(n.root_path, KEY_TO_PATH["story"])
         world = await storage.read_yaml(n.root_path, KEY_TO_PATH["world"])
         style = read_style(await storage.read_yaml(n.root_path, KEY_TO_PATH["style"]))
-        return story, world, style, chars, rels, vols, hooks, ng
+        return story, world, style, chars, rels, vols, hooks, ng, forbids, fields
 
-    story, world, style, chars, rels, vols, hooks, ng = _run(_check())
+    story, world, style, chars, rels, vols, hooks, ng, forbids, fields = _run(_check())
 
-    # 题材/简介
+    # 题材/简介：02–05 全字段都要有值
     assert story["genre"] == "灵异志怪"
     assert story["synopsis"] == "公交司机李耀被强派夜班。"
     assert ng is not None and ng.promise_note == "带读者进入鬼怪世界。"
+    assert ng.core_promise and ng.cost_ratio == 8
+    assert [f.vocab_id for f in forbids] == [
+        "forbidden:no-deus-ex-machina", "forbidden:no-villain-idiot",
+    ]
+    assert [f.vocab_id for f in fields] == [
+        "battlefield:truth", "battlefield:external-enemy",
+    ]
 
     # 世界：extra 形状修好；自由文本无证据/confidence
     assert world["extra"] == [{"key": "13路", "value": "夜班郊区线"}]
