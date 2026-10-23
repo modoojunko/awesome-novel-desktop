@@ -21,6 +21,13 @@ from models.deconstruct import DeconstructJob
 from models.event import Event
 from models.genre import Genre
 from models.hook import HookOp, NovelHook
+from models.image_asset import (
+    BookImageSettings,
+    CharacterImageSettings,
+    ImageAsset,
+    ImageAssetBlob,
+    ImageConfig,
+)
 from models.import_session import ImportSession
 from models.novel_genre import (
     GenreVocab,
@@ -40,6 +47,7 @@ __all__ = [
     "ApiConfig",
     "AppMeta",
     "Archive",
+    "BookImageSettings",
     "Chapter",
     "ChapterCharacter",
     "ChapterContent",
@@ -56,6 +64,7 @@ __all__ = [
     "ChapterVersion",
     "Character",
     "CharacterGate",
+    "CharacterImageSettings",
     "CharacterOp",
     "CharacterRelation",
     "DeconstructJob",
@@ -63,6 +72,9 @@ __all__ = [
     "Genre",
     "GenreVocab",
     "HookOp",
+    "ImageAsset",
+    "ImageAssetBlob",
+    "ImageConfig",
     "ImportSession",
     "Novel",
     "NovelGenre",

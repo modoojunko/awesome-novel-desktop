@@ -311,6 +311,10 @@ async def list_all(
             or kv_genres.get(str(p.id))
         )
         out.append(d)
+    from image_assets.service import current_cover_refs
+    covers = await current_cover_refs(db, user["id"], [str(p.id) for p in projects])
+    for d in out:
+        d["cover"] = covers.get(d["id"])
     return out
 
 
@@ -394,7 +398,10 @@ async def get_one_by_slug(
     project = await get_project_by_slug(db, user["id"], slug)
     if not project:
         raise HTTPException(404, "Novel not found")
-    return novel_to_dict(project)
+    data = novel_to_dict(project)
+    from image_assets.service import current_cover_refs
+    data["cover"] = (await current_cover_refs(db, user["id"], [project.id])).get(project.id)
+    return data
 
 
 @router.get("/{project_id}")
@@ -458,6 +465,8 @@ async def get_one(
         or data["genre_label"]
         or data["genre_name"]
     )
+    from image_assets.service import current_cover_refs
+    data["cover"] = (await current_cover_refs(db, user["id"], [project.id])).get(project.id)
     return data
 
 
@@ -645,6 +654,8 @@ async def delete(
     project = await get_novel(db, project_id, user["id"], include_deleted=True)
     if not project:
         raise HTTPException(404, "Novel not found")
+    from image_assets.service import delete_assets_for_novel
+    await delete_assets_for_novel(db, user["id"], project.id)
     await delete_project(db, project)
     return {"ok": True}
 

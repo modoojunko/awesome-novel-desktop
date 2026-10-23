@@ -1,0 +1,43 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="600" height="800" viewBox="0 0 600 800">
+<defs>
+  <filter id="grain" x="0" y="0" width="100%" height="100%">
+    <feTurbulence type="fractalNoise" baseFrequency="0.9" numOctaves="3" seed="7" result="n"/>
+    <feColorMatrix in="n" type="saturate" values="0" result="m"/>
+    <feComponentTransfer in="m" result="t"><feFuncA type="linear" slope="0.10"/></feComponentTransfer>
+    <feBlend in="SourceGraphic" in2="t" mode="multiply"/>
+  </filter>
+  <filter id="soft" x="-30%" y="-30%" width="160%" height="160%"><feGaussianBlur stdDeviation="18"/></filter>
+  <filter id="soft2" x="-40%" y="-40%" width="180%" height="180%"><feGaussianBlur stdDeviation="34"/></filter>
+  <filter id="ink"><feTurbulence type="fractalNoise" baseFrequency="0.012" numOctaves="4" seed="3" result="n"/><feDisplacementMap in="SourceGraphic" in2="n" scale="14" xChannelSelector="R" yChannelSelector="G"/></filter>
+  <linearGradient id="bg" x1="0" y1="0" x2="0.4" y2="1">
+    <stop offset="0" stop-color="#16202e"/><stop offset="1" stop-color="#2a3a4a"/>
+  </linearGradient>
+  <radialGradient id="vig" cx="0.5" cy="0.45" r="0.78">
+    <stop offset="0.55" stop-color="#000" stop-opacity="0"/><stop offset="1" stop-color="#000" stop-opacity="0.38"/>
+  </radialGradient>
+</defs>
+<rect width="600" height="800" fill="url(#bg)"/>
+<ellipse cx="432" cy="176" rx="180" ry="160" fill="#b64a3f" opacity="0.16" filter="url(#soft2)"/>
+<path d="M0 528 L96 416 L192 496 L300 360 L420 480 L516 384 L600 480 L600 800 L0 800 Z" fill="#080d14" opacity="0.9" filter="url(#ink)"/>
+<circle cx="408" cy="224" r="54" fill="#b64a3f" opacity="0.9"/>
+<g fill="#080d14" transform="translate(216,496)" opacity="0.92">
+<ellipse cx="0" cy="0" rx="66" ry="28"/>
+<path d="M-60 0 l-18 72 M48 0 l12 72 M-30 0 l-12 72 M24 0 l18 72" stroke="#080d14" stroke-width="9" stroke-linecap="round"/>
+<circle cx="6" cy="-80" r="17"/><path d="M-3 -68 q24 -16 30 16 l-6 40 l-24 0 Z"/>
+<path d="M27 -60 l96 -8" stroke="#080d14" stroke-width="5" stroke-linecap="round"/>
+</g>
+<ellipse cx="300" cy="576" rx="360" ry="20" fill="#e8e4d8" opacity="0.12" filter="url(#soft)"/>
+<ellipse cx="300" cy="640" rx="360" ry="20" fill="#e8e4d8" opacity="0.12" filter="url(#soft)"/>
+<rect width="600" height="800" fill="url(#vig)"/>
+<rect width="600" height="800" filter="url(#grain)" opacity="0.55" fill="none"/>
+<g font-family="Noto Serif SC, Songti SC, STSong, Iowan Old Style, Georgia, serif" fill="#e8e4d8">
+<text x="60" y="92" font-size="18" letter-spacing="4" opacity="0.72">历史 · 战争</text>
+<text x="63" y="152" font-size="51" font-weight="600">铁</text>
+<text x="63" y="203" font-size="51" font-weight="600">马</text>
+<text x="63" y="254" font-size="51" font-weight="600">冰</text>
+<text x="63" y="305" font-size="51" font-weight="600">河</text>
+</g>
+<rect x="516" y="700" width="45" height="58" rx="3" fill="#b64a3f" opacity="0.92"/>
+<text x="538" y="723" text-anchor="middle" font-family="Noto Serif SC, Songti SC, STSong, Iowan Old Style, Georgia, serif" font-size="19" fill="#e8e4d8">铁</text>
+<text x="538" y="744" text-anchor="middle" font-family="Noto Serif SC, Songti SC, STSong, Iowan Old Style, Georgia, serif" font-size="19" fill="#e8e4d8">马</text>
+</svg>

@@ -112,6 +112,9 @@ async def dump_book_into(zf, db, project, prefix: str = "") -> None:
     # 角色段（character-settings-v2）：真表 → characters/ 新布局；不再写旧角色目录树
     await _dump_characters(zf, db, project, prefix)
 
+    # 图像段（c-cover-avatar v7）：current 封面/头像 + full/thumb BLOB + 设置
+    await _dump_images(zf, db, project, prefix)
+
     # 伏笔段（foreshadow-settings-v2）：真表 → hooks/hooks.yaml；settings 树不再含 hooks
     await _dump_hooks(zf, db, project, prefix)
 
@@ -273,6 +276,103 @@ async def _dump_characters(zf, db, project, prefix: str = "") -> None:
 
 
 
+async def _dump_images(zf, db, project, prefix: str = "") -> None:
+    """v7 图像段：current 封面/头像 + full/thumb + 书/角色图像设置。
+
+    候选/previous 是运行期临时资产，不随包；恢复后 current 直接成为当前图。
+    """
+    from models.character import Character
+    from models.image_asset import (
+        BookImageSettings,
+        CharacterImageSettings,
+        ImageAsset,
+        ImageAssetBlob,
+        ImageConfig,
+    )
+
+    settings = await db.get(BookImageSettings, project.id)
+    char_ids = select(Character.id).where(Character.novel_id == project.id)
+    char_settings = (
+        await db.scalars(
+            select(CharacterImageSettings).where(
+                CharacterImageSettings.character_id.in_(char_ids)
+            )
+        )
+    ).all()
+    assets = (
+        await db.scalars(
+            select(ImageAsset)
+            .where(ImageAsset.novel_id == project.id, ImageAsset.status == "current")
+            .order_by(ImageAsset.kind, ImageAsset.created_at)
+        )
+    ).all()
+    if not settings and not char_settings and not assets:
+        return
+
+    config_name = ""
+    if settings and settings.image_config_id:
+        cfg = await db.get(ImageConfig, settings.image_config_id)
+        config_name = cfg.name if cfg else ""
+
+    manifest = {
+        "version": 1,
+        "book": {
+            "style_key": settings.style_key if settings else "ink",
+            "cover_prompt": settings.cover_prompt if settings else "",
+            "cover_seed": settings.cover_seed if settings else None,
+            "image_model": settings.image_model if settings else "",
+            "image_config_name": config_name,
+        },
+        "characters": [
+            {
+                "character_id": row.character_id,
+                "avatar_prompt": row.avatar_prompt,
+                "seed": row.seed,
+            }
+            for row in char_settings
+        ],
+        "assets": [
+            {
+                "asset_id": a.id,
+                "kind": a.kind,
+                "character_id": a.character_id,
+                "version": a.version,
+                "sha256": a.sha256,
+                "mime": a.mime,
+                "width": a.width,
+                "height": a.height,
+                "bytes": a.bytes,
+                "source": a.source,
+                "provider": a.provider,
+                "model": a.model,
+                "style_key": a.style_key,
+                "prompt_hash": a.prompt_hash,
+                "prompt_text": a.prompt_text,
+                "negative_prompt": a.negative_prompt,
+                "prompt_template_version": a.prompt_template_version,
+                "seed": a.seed,
+                "adopted_at": a.adopted_at.isoformat() if a.adopted_at else None,
+            }
+            for a in assets
+        ],
+    }
+    for asset in assets:
+        blobs = (
+            await db.execute(
+                select(ImageAssetBlob.variant, ImageAssetBlob.data).where(
+                    ImageAssetBlob.asset_id == asset.id
+                )
+            )
+        ).all()
+        for variant, data in blobs:
+            if variant in ("full", "thumb"):
+                zf.writestr(f"{prefix}images/{asset.id}-{variant}.webp", data)
+    zf.writestr(
+        prefix + "images/manifest.yaml",
+        yaml.safe_dump(manifest, allow_unicode=True, sort_keys=False),
+    )
+
+
 async def _dump_hooks(zf, db, project, prefix: str = "") -> None:
     """伏笔段 v3（foreshadow-settings-v2 tasks 3.1）：hooks/hooks.yaml。
 
@@ -336,11 +436,16 @@ async def build_config_package_bytes(db, user_id: str) -> tuple[bytes, str]:
         raise ExportJobError("user_not_found", "用户不存在")
     from api_configs.crypto import decrypt_api_key
     from models.api_config import ApiConfig
+    from models.image_asset import ImageConfig
 
     rows = (
         await db.scalars(select(ApiConfig).where(ApiConfig.user_id == user.id))
     ).all()
     configs = sorted(rows, key=lambda c: c.created_at or datetime.min)
+    image_rows = (
+        await db.scalars(select(ImageConfig).where(ImageConfig.user_id == user.id))
+    ).all()
+    image_configs = sorted(image_rows, key=lambda c: c.created_at or datetime.min)
 
     payload = {
         "format_version": FORMAT_VERSION,
@@ -372,6 +477,21 @@ async def build_config_package_bytes(db, user_id: str) -> tuple[bytes, str]:
                 "created_at": c.created_at.isoformat() if c.created_at else None,
             }
             for c in configs
+        ],
+        "image_configs": [
+            {
+                "name": c.name,
+                "provider": c.provider,
+                "base_url": c.base_url,
+                "api_key": decrypt_api_key(c.api_key) if c.api_key else "",
+                "default_model": c.default_model,
+                "models": c.models,
+                "declared_capabilities": c.declared_capabilities,
+                "is_default": bool(c.is_default),
+                "status": c.status,
+                "created_at": c.created_at.isoformat() if c.created_at else None,
+            }
+            for c in image_configs
         ],
     }
     raw = _yaml_str(payload)

@@ -1,0 +1,56 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="600" height="800" viewBox="0 0 600 800">
+<defs>
+  <filter id="grain" x="0" y="0" width="100%" height="100%">
+    <feTurbulence type="fractalNoise" baseFrequency="0.9" numOctaves="3" seed="7" result="n"/>
+    <feColorMatrix in="n" type="saturate" values="0" result="m"/>
+    <feComponentTransfer in="m" result="t"><feFuncA type="linear" slope="0.10"/></feComponentTransfer>
+    <feBlend in="SourceGraphic" in2="t" mode="multiply"/>
+  </filter>
+  <filter id="soft" x="-30%" y="-30%" width="160%" height="160%"><feGaussianBlur stdDeviation="18"/></filter>
+  <filter id="soft2" x="-40%" y="-40%" width="180%" height="180%"><feGaussianBlur stdDeviation="34"/></filter>
+  <filter id="ink"><feTurbulence type="fractalNoise" baseFrequency="0.012" numOctaves="4" seed="3" result="n"/><feDisplacementMap in="SourceGraphic" in2="n" scale="14" xChannelSelector="R" yChannelSelector="G"/></filter>
+  <linearGradient id="bg" x1="0" y1="0" x2="0.4" y2="1">
+    <stop offset="0" stop-color="#e9cfbf"/><stop offset="1" stop-color="#c98e7a"/>
+  </linearGradient>
+  <radialGradient id="vig" cx="0.5" cy="0.45" r="0.78">
+    <stop offset="0.55" stop-color="#000" stop-opacity="0"/><stop offset="1" stop-color="#000" stop-opacity="0.38"/>
+  </radialGradient>
+</defs>
+<rect width="600" height="800" fill="url(#bg)"/>
+<ellipse cx="432" cy="176" rx="180" ry="160" fill="#8c4a3c" opacity="0.16" filter="url(#soft2)"/>
+<rect x="0" y="0" width="600" height="800" fill="url(#bg)"/>
+<rect x="48" y="80" width="504" height="464" rx="6" fill="none" stroke="#33221f" stroke-width="10" opacity="0.55"/>
+<line x1="300" y1="80" x2="300" y2="544" stroke="#33221f" stroke-width="8" opacity="0.5"/>
+<line x1="48" y1="304" x2="552" y2="304" stroke="#33221f" stroke-width="6" opacity="0.4"/>
+<rect x="72" y="400" width="45" height="144" fill="#33221f" opacity="0.28"/>
+<circle cx="93" cy="458" r="2.4" fill="#8c4a3c" opacity="0.8"/>
+<rect x="132" y="320" width="45" height="224" fill="#33221f" opacity="0.28"/>
+<circle cx="153" cy="410" r="2.4" fill="#8c4a3c" opacity="0.8"/>
+<rect x="192" y="448" width="45" height="96" fill="#33221f" opacity="0.28"/>
+<circle cx="213" cy="486" r="2.4" fill="#8c4a3c" opacity="0.8"/>
+<rect x="348" y="368" width="45" height="176" fill="#33221f" opacity="0.28"/>
+<circle cx="369" cy="438" r="2.4" fill="#8c4a3c" opacity="0.8"/>
+<rect x="414" y="424" width="45" height="120" fill="#33221f" opacity="0.28"/>
+<circle cx="435" cy="472" r="2.4" fill="#8c4a3c" opacity="0.8"/>
+<rect x="480" y="344" width="45" height="200" fill="#33221f" opacity="0.28"/>
+<circle cx="501" cy="424" r="2.4" fill="#8c4a3c" opacity="0.8"/>
+<rect x="0" y="624" width="600" height="176" fill="#33221f" opacity="0.16"/>
+<ellipse cx="216" cy="640" rx="60" ry="14" fill="#fff6ec" opacity="0.55"/>
+<path d="M180 576 h42 v48 h-42 Z" fill="#fff6ec" opacity="0.85"/>
+<path d="M270 584 h36 v40 h-36 Z" fill="#fff6ec" opacity="0.7"/>
+<path d="M420 528 q36 -112 72 -16" stroke="#33221f" stroke-width="6" fill="none" opacity="0.55"/>
+<ellipse cx="504" cy="496" rx="36" ry="72" fill="#33221f" opacity="0.28" transform="rotate(24 504 496)"/>
+<ellipse cx="450" cy="456" rx="30" ry="64" fill="#33221f" opacity="0.22" transform="rotate(-18 450 456)"/>
+<rect width="600" height="800" fill="url(#vig)"/>
+<rect width="600" height="800" filter="url(#grain)" opacity="0.55" fill="none"/>
+<g font-family="Noto Serif SC, Songti SC, STSong, Iowan Old Style, Georgia, serif" fill="#fff6ec">
+<text x="60" y="92" font-size="18" letter-spacing="4" opacity="0.72">都市 · 情感</text>
+<text x="63" y="152" font-size="51" font-weight="600">春</text>
+<text x="63" y="203" font-size="51" font-weight="600">日</text>
+<text x="63" y="254" font-size="51" font-weight="600">迟</text>
+<text x="63" y="305" font-size="51" font-weight="600">迟</text>
+</g>
+<rect x="516" y="700" width="45" height="58" rx="3" fill="#8c4a3c" opacity="0.92"/>
+<text x="538" y="723" text-anchor="middle" font-family="Noto Serif SC, Songti SC, STSong, Iowan Old Style, Georgia, serif" font-size="19" fill="#fff6ec">春</text>
+<text x="538" y="744" text-anchor="middle" font-family="Noto Serif SC, Songti SC, STSong, Iowan Old Style, Georgia, serif" font-size="19" fill="#fff6ec">日</text>
+</svg>

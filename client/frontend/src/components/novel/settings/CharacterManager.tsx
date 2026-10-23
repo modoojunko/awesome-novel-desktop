@@ -19,6 +19,8 @@ import {
   type CharAiCtx,
 } from "@/lib/characterModel";
 import { Ico } from "@/components/icons";
+import ImageThumb from "@/components/image/ImageThumb";
+import ImageWorkshopModal from "@/components/image/ImageWorkshopModal";
 import AiCardModal from "./AiCardModal";
 import BatchAddModal from "./BatchAddModal";
 import type { BatchRow } from "@/lib/characterImport";
@@ -160,6 +162,7 @@ const CharacterManager = forwardRef<CharacterSaveHandle, Props>(function Charact
   /** 批量导入（c-char-batch-import）：弹层开关＋本批已建卡 id（「撤销本次全部」的靶子） */
   const [batchOpen, setBatchOpen] = useState(false);
   const [batchCreatedIds, setBatchCreatedIds] = useState<string[]>([]);
+  const [avatarTarget, setAvatarTarget] = useState<CharacterCard | null>(null);
 
   const queueRef = useRef<{ path: string; value: unknown }[]>([]);
   const runningRef = useRef(false);
@@ -809,7 +812,13 @@ const CharacterManager = forwardRef<CharacterSaveHandle, Props>(function Charact
                         className={`char-row-btn${selectedId === c.id ? " on" : ""}`}
                         onClick={() => void pick(c.id)}
                       >
-                        <i className="char-ava">{displayName(c.name)?.[0] ?? "？"}</i>
+                        <i className="char-ava">
+                          {c.avatar ? (
+                            <ImageThumb asset={c.avatar} alt="" />
+                          ) : (
+                            displayName(c.name)?.[0] ?? "？"
+                          )}
+                        </i>
                         <span className="char-row-main">
                           <span className="nm">{displayName(c.name) || "未命名"}</span>
                           <span className="sub num">
@@ -867,7 +876,15 @@ const CharacterManager = forwardRef<CharacterSaveHandle, Props>(function Charact
         ) : (
           <>
             <header className="char-head">
-              <span className="char-seal">{sealChar}</span>
+              <button
+                type="button"
+                className="char-seal char-seal-btn"
+                title={card.avatar ? "更换头像" : "添加头像"}
+                aria-label={card.avatar ? "更换头像" : "添加头像"}
+                onClick={() => setAvatarTarget(card)}
+              >
+                {card.avatar ? <ImageThumb asset={card.avatar} alt="" /> : sealChar}
+              </button>
               <div className="char-idblock">
                 <div className="char-name-row">
                   <input
@@ -938,6 +955,7 @@ const CharacterManager = forwardRef<CharacterSaveHandle, Props>(function Charact
                 <span className="op-t">
                   删除《{displayName(card.name) || "未命名"}》？相关关系会一并移除。
                   {card.role === "主角" && " 主角位会空出来。"}
+                  {card.avatar && " 当前头像会一并删除；撤销只恢复角色卡，不恢复头像。"}
                   删错了可撤销——撤销保留到你继续编辑或刷新之前。
                 </span>
                 <input
@@ -1423,6 +1441,23 @@ const CharacterManager = forwardRef<CharacterSaveHandle, Props>(function Charact
         onClose={() => setCardOpen(false)}
         data-testid="char-ai-card"
       />
+
+      {avatarTarget && (
+        <ImageWorkshopModal
+          open
+          novelId={projectId}
+          kind="avatar"
+          characterId={avatarTarget.id}
+          characterName={displayName(avatarTarget.name) || "未命名"}
+          onClose={() => setAvatarTarget(null)}
+          onChanged={async () => {
+            const items = await reloadList();
+            if (!card) return;
+            const next = items.find((i) => i.id === card.id);
+            if (next) setCard({ ...card, avatar: next.avatar });
+          }}
+        />
+      )}
     </div>
   );
 });

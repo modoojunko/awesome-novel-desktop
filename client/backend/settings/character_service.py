@@ -512,9 +512,14 @@ async def _snapshot_card(session: AsyncSession, ch: Character) -> dict:
 
 
 async def delete_character(
-    session: AsyncSession, novel_id: str, character_id: str
+    session: AsyncSession, novel_id: str, character_id: str, user_id: str | None = None,
 ) -> dict:
     ch = await _load_card(session, novel_id, character_id)
+    # 先验卡再删头像：卡不存在时不能留下“图已删、卡还在”的半截状态。
+    # 删除卡与删头像在同一事务提交；撤销只恢复卡，不恢复头像（已拍板假设）。
+    from image_assets.service import delete_assets_for_character
+
+    await delete_assets_for_character(session, novel_id, character_id, user_id)
     before = await _snapshot_card(session, ch)
     token = uuid.uuid4().hex
     await session.execute(
@@ -540,7 +545,8 @@ async def delete_character(
 
 
 async def merge_character(
-    session: AsyncSession, novel_id: str, source_id: str, target_id: str
+    session: AsyncSession, novel_id: str, source_id: str, target_id: str,
+    user_id: str | None = None,
 ) -> dict:
     if source_id == target_id:
         raise Unprocessable("same_card", "不能把一张卡并进它自己")
@@ -663,7 +669,9 @@ async def merge_character(
         seen[key_pair] = rel
     tgt.rev += 1
 
-    # 主角身份随内容走
+    # 主角身份随内容走；合并=源卡消失，头像随卡一起清理
+    from image_assets.service import delete_assets_for_character
+    await delete_assets_for_character(session, novel_id, source_id, user_id)
     was_protagonist = src.role == "主角"
     await session.delete(src)
     await session.execute(

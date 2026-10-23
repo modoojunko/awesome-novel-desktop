@@ -10,6 +10,7 @@ import "./design/base.css";
 import "./design/list.css";
 import "./design/model-config.css";
 import "./design/book.css";
+import "./design/image-assets.css";
 import "./design/landing.css";
 // 大屏等比缩放：必须最后引入（同选择器覆盖，压过上面各屏的原值）
 import "./design/large-screen.css";

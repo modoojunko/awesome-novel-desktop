@@ -1,0 +1,28 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="400" height="400" viewBox="26 14 348 348">
+<defs>
+  <filter id="grain" x="0" y="0" width="100%" height="100%">
+    <feTurbulence type="fractalNoise" baseFrequency="0.9" numOctaves="3" seed="7" result="n"/>
+    <feColorMatrix in="n" type="saturate" values="0" result="m"/>
+    <feComponentTransfer in="m" result="t"><feFuncA type="linear" slope="0.10"/></feComponentTransfer>
+    <feBlend in="SourceGraphic" in2="t" mode="multiply"/>
+  </filter>
+  <filter id="soft" x="-30%" y="-30%" width="160%" height="160%"><feGaussianBlur stdDeviation="18"/></filter>
+  <filter id="soft2" x="-40%" y="-40%" width="180%" height="180%"><feGaussianBlur stdDeviation="34"/></filter>
+  <filter id="ink"><feTurbulence type="fractalNoise" baseFrequency="0.012" numOctaves="4" seed="3" result="n"/><feDisplacementMap in="SourceGraphic" in2="n" scale="14" xChannelSelector="R" yChannelSelector="G"/></filter>
+  <linearGradient id="bg" x1="0" y1="0" x2="0.7" y2="1"><stop offset="0" stop-color="#1a2b2b"/><stop offset="1" stop-color="#2f4441"/></linearGradient>
+  <radialGradient id="vig" cx="0.5" cy="0.45" r="0.75"><stop offset="0.55" stop-color="#000" stop-opacity="0"/><stop offset="1" stop-color="#000" stop-opacity="0.34"/></radialGradient>
+</defs>
+<rect width="400" height="400" fill="url(#bg)"/>
+<circle cx="200" cy="184" r="160" fill="#d99344" opacity="0.10" filter="url(#soft2)"/>
+<path d="M32 400 Q48 272 136 252 L264 252 Q352 272 368 400 Z" fill="#2b3a38"/>
+<path d="M168 220 h64 v52 h-64 Z" fill="#d8b191" opacity="0.92"/>
+<ellipse cx="200" cy="156" rx="58" ry="70" fill="#d8b191"/>
+<path d="M142 144 Q140 76 200 74 Q260 76 258 144 Q244 108 200 110 Q156 108 142 144 Z" fill="#111a1a"/>
+<path d="M174 154 q11 -6 21 0 M206 154 q11 -6 21 0" stroke="#111a1a" stroke-width="4" fill="none" stroke-linecap="round" opacity="0.85"/>
+<path d="M200 162 l-3 18 l6 0" stroke="#111a1a" stroke-width="2" fill="none" opacity="0.35"/>
+<path d="M186 198 q14 6 28 0" stroke="#111a1a" stroke-width="3" fill="none" stroke-linecap="round" opacity="0.55"/>
+<path d="M136 252 L200 312 L264 252" fill="none" stroke="#111a1a" stroke-width="3" opacity="0.25"/>
+<rect x="280" y="208" width="32" height="44" rx="5" fill="#e0a054" opacity="0.7"/>
+<rect width="400" height="400" fill="url(#vig)"/>
+<rect width="400" height="400" filter="url(#grain)" opacity="0.55" fill="none"/>
+</svg>

@@ -8,6 +8,7 @@
  */
 
 import { api } from "./api";
+import type { ImageRef } from "./imageApi";
 
 export interface CharacterCard {
   id: string;
@@ -29,6 +30,8 @@ export interface CharacterCard {
   relations?: CharacterRelation[];
   /** 仅列表携带：门禁缺口 */
   gaps?: string[];
+  /** 当前头像（角色列表/详情内联下发；null/缺省＝无头像） */
+  avatar?: ImageRef | null;
 }
 
 export interface CharacterRelation {

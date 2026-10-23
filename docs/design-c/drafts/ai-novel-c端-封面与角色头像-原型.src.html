@@ -1,0 +1,2010 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>设计原型 · 封面与角色头像（图像模型）</title>
+<!-- ═══════════════════════════════════════════════════════════════
+  设计原型 · 封面与角色头像 · 2026-10-22（真界面基线 v3）
+  · 基线口径：当前真实系统页面。独立栈＝main d4bf73fa + vite:5291 → uvicorn:8101
+    （DATA_ROOT=/tmp/cover-proto-data 私有），Playwright 真渲染抓取，产物入库
+    cover-art-captures/：
+      real-all.css            全部真实样式（305KB，一字未改）
+      dom-novels.html         书架真实 .app-shell（真实顶栏/书卡/状态栏）
+      dom-settings-chars.html 书内设定 → 角色真实 .app-shell（真实三栏＋角色列表＋陈屿详情）
+      dom-config-list.html    模型配置真实 .app-shell（2026-10-20 modelconfig-captures 沿用，仅新增页签）
+      proto-shots/*.jpg       评审截图（非构建资产）
+      assets/*.svg            演示画面（见下）
+  · 样式：real-all.css 整体逐字注入（build-cover-art-proto.py，一字未改）。宿主 DOM
+    逐字注入；新增件全部运行时 graft（gl- 前缀样式＋节点），抓取 HTML 本身零改动。
+  · 新增件只用真实 token 与真实词汇类（.book-card/.chip/.mcard/.field/.input/
+    .cfg-card/.cfg-tab/.panel/.pill 等），不重定义任何 token。
+  · 产品口径（本原型主张，待拍板项见设计说明）：
+    ① 图像模型独立于「写作大模型」——模型配置页第三页签「图像生成」；首批火山引擎 Seedream、阿里云百炼 Qwen-Image、智谱 CogView、OpenAI、MiniMax（可选）、OpenAI 兼容，默认火山引擎，不再绑定 MiniMax；
+    ② 画风按书统一（封面与角色头像共用），角色头像按本书画风 + 固定种子生成，不读取旧头像；
+    ③ 生成永不自动、按次确认；封面 2 张、头像 2 张候选；批量只补没头像的，可停止、可撤销本次；
+    ④ 不配置图像模型时，封面/头像入口仍在，但只给「去配置」；
+    ⑤ 角色多时提供「批量头像」，先报数量与预计耗时，再开跑。
+    ⑥ 图像模型沿用写作大模型（api-config）的同一套做法：列表卡（测试连接/编辑/删除）＋添加编辑共用一个弹窗（模型名称带「获取模型」清单）＋删除独立确认弹窗；只在弹窗里多一段「能画这两种图（小说封面 768×1024 / 角色头像 512×512）」。编辑态默认显示当前供应商 +「更换」：换供应商先确认，清 Key/模型/测试结果、不改配置名。
+    ⑦ 已拍板口径：AI 生成只对 PRO 及以上开放（免费只能上传；配置管理不花钱，免费可查看/新增/编辑/删除）；图片存 SQLite BLOB；图像配置独立表；每本书单独绑定；封面 2 张 / 头像 2 张候选；批量只补没头像的；保存不测试、测试免费探活、试画单独计费；能力只读；只留上一张 + 8 秒撤销。
+  · 演示素材：cover-art-captures/assets/*.svg 由 gen-cover-art-assets.py 参数化生成，
+    **是原型示意画面，不是图像模型真实输出**；只用于评审版式、状态与交互。
+  · 书架三张书卡与角色数据为演示种子（长夜灯为真机种书；春日迟迟/铁马冰河为演示补位）。
+  · 顶部 demo-bar 为非基线演示控件，产品 UI 不含。
+  · 重放：python3 docs/design-c/drafts/build-cover-art-proto.py
+    （源模板 → 本文件，幂等；自检 check-cover-art-proto.py）
+═════════════════════════════════════════════════════════════════ -->
+<style>
+/* ══════════ 真实样式逐字注入（cover-art-captures/real-all.css） ══════════ */
+/*__INJECT_STYLE_REAL__*/
+</style>
+<style>
+/* ══════════ 新增 graft 样式（gl- 前缀；颜色/圆角/阴影/字体只用真实 token） ══════════ */
+
+/* ── 原型工具条（非基线元素 · 产品 UI 不含） ── */
+.gl-demobar { position: sticky; top: 0; z-index: 300; display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
+  background: var(--surface); border-bottom: 1px solid var(--border); padding: 8px 16px; font-size: 12px; color: var(--muted);
+  box-shadow: var(--shadow-card); }
+.gl-demo-title { font-family: var(--font-display); font-size: 13.5px; font-weight: 600; color: var(--fg); margin-right: 4px; }
+.gl-demo-title em { font-style: normal; font-family: var(--font-mono); font-size: 10px; letter-spacing: .1em; color: var(--accent-strong);
+  border: 1px solid var(--border); border-radius: 999px; padding: 2px 7px; margin-right: 8px; }
+.gl-demo-chips { display: flex; gap: 4px; flex-wrap: wrap; }
+.gl-demo-chips button { font: inherit; font-size: 12px; height: 26px; padding: 0 11px; border-radius: 999px;
+  border: 1px solid var(--border); background: var(--surface); color: var(--muted); cursor: pointer; }
+.gl-demo-chips button:hover { border-color: var(--accent); color: var(--accent-strong); }
+.gl-demo-chips button.on { background: var(--accent); border-color: var(--accent); color: var(--on-accent); }
+.gl-demo-note { margin-left: auto; font-size: 11px; color: var(--muted); max-width: 44vw; text-align: right; line-height: 1.5; }
+.gl-host { display: none; }
+.gl-host.on { display: block; }
+
+/* ── 屏① 书架：带封面的书卡（真实 .book-card 基础 + 封面列） ── */
+.gl-cards { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+@media (max-width: 1080px) { .gl-cards { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+@media (max-width: 720px) { .gl-cards { grid-template-columns: minmax(0, 1fr); } }
+.gl-book-card { display: grid; grid-template-columns: 104px minmax(0, 1fr); gap: 16px; padding: 16px; align-items: start; }
+.gl-book-cover { position: relative; width: 104px; aspect-ratio: 3 / 4; border-radius: 8px; overflow: hidden;
+  background: var(--fg-soft); border: 1px solid var(--border); box-shadow: 0 8px 20px -12px color-mix(in oklch, var(--fg) 55%, transparent); }
+.gl-book-cover > img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.gl-cover-empty { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 5px;
+  width: 100%; padding: 8px; border: 0; cursor: pointer; text-align: center; color: var(--muted); font: inherit;
+  font-size: 10.5px; line-height: 1.4; background: linear-gradient(150deg, color-mix(in oklch, var(--accent) 9%, var(--surface)), var(--bg));
+  transition: background .15s ease, color .15s ease; }
+.gl-cover-empty:hover { color: var(--fg); background: linear-gradient(150deg, color-mix(in oklch, var(--accent) 16%, var(--surface)), var(--bg)); }
+.gl-cover-empty:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+.gl-cover-empty:hover .gl-ce-cta { text-decoration: underline; text-underline-offset: 2px; }
+.gl-cover-empty.is-later { cursor: default; }
+.gl-cover-empty.is-later:hover { color: var(--muted); background: linear-gradient(150deg, color-mix(in oklch, var(--accent) 9%, var(--surface)), var(--bg)); }
+.gl-cover-empty.is-later:hover .gl-ce-cta { text-decoration: none; }
+.gl-cover-empty .gl-ce-seal { width: 40px; height: 40px; border-radius: 9px; display: grid; place-items: center;
+  font-family: var(--font-display); font-size: 21px; color: var(--accent-strong); background: var(--accent-soft); border: 1px solid color-mix(in oklch, var(--accent) 28%, var(--border)); }
+.gl-cover-empty .gl-ce-cta { color: var(--accent-strong); font-weight: 500; }
+.gl-cover-act { position: absolute; left: 6px; right: 6px; bottom: 6px; height: 27px; border: 0; border-radius: 6px;
+  background: color-mix(in oklch, var(--fg) 72%, transparent); color: var(--on-accent); font: inherit; font-size: 11.5px;
+  cursor: pointer; opacity: 0; transform: translateY(4px); transition: opacity .15s ease, transform .15s ease; backdrop-filter: blur(3px); }
+.gl-book-card:hover .gl-cover-act, .gl-book-cover:focus-within .gl-cover-act { opacity: 1; transform: none; }
+.gl-book-cover.is-empty .gl-cover-act { display: none; }
+.gl-book-main { display: flex; flex-direction: column; min-width: 0; align-self: stretch; }
+.gl-book-main .top { gap: 6px; flex-wrap: wrap; }
+.gl-book-main .top .b { margin-left: 0; }
+.gl-book-main .card-menu-btn { opacity: 1; top: 0; right: 0; }
+.gl-book-main h3 { font-size: 19px; margin: 10px 0 0; line-height: 1.35; }
+.gl-book-main .summary { margin-top: 6px; font-size: 12px; -webkit-line-clamp: 2; }
+.gl-book-main .stats { gap: 13px; margin-top: 10px; padding-top: 9px; font-size: 11px; }
+.gl-book-main .stats b { font-size: 12.5px; }
+.gl-book-main .foot { padding-top: 10px; }
+.gl-book-main .updated { font-size: 11px; }
+.gl-book-main .go { font-size: 12px; }
+.gl-cover-meta { display: inline-flex; align-items: center; gap: 4px; font-size: 10px; color: var(--muted); margin-top: 5px; }
+.gl-cover-meta svg { width: 11px; height: 11px; }
+.card-menu { z-index: 20; }
+.card-menu .gl-mi { display: flex; align-items: center; gap: 8px; }
+.card-menu .gl-mi svg { width: 13px; height: 13px; color: var(--muted); }
+
+/* ── 通用字段/提示（覆盖层内） ── */
+.gl-sub { margin: 3px 0 0; font-size: 12px; color: var(--muted); line-height: 1.6; }
+.gl-label { display: flex; align-items: baseline; gap: 8px; font-size: 12.5px; color: var(--muted); margin-bottom: 7px; }
+.gl-label b { font-weight: 500; color: var(--fg); }
+.gl-label .gl-opt { margin-left: auto; font-size: 11px; color: var(--muted); font-weight: 400; }
+.gl-field { margin-bottom: 18px; }
+.gl-field:last-child { margin-bottom: 0; }
+.gl-field textarea.input { min-height: 92px; resize: vertical; line-height: 1.7; font-family: var(--font-body); }
+.gl-hint { margin: 6px 0 0; font-size: 11.5px; color: var(--muted); line-height: 1.6; }
+.gl-styles { display: flex; flex-wrap: wrap; gap: 7px; }
+.gl-style { display: inline-flex; align-items: center; gap: 6px; padding: 5px 11px; border: 1px solid var(--border);
+  border-radius: 999px; font-size: 12px; color: var(--muted); background: var(--surface); cursor: pointer; }
+.gl-style:hover { border-color: var(--fg); color: var(--fg); }
+.gl-style.on { background: var(--accent-soft); border-color: color-mix(in oklch, var(--accent) 40%, transparent); color: var(--accent-strong); font-weight: 500; }
+.gl-style i { width: 9px; height: 9px; border-radius: 999px; background: currentColor; opacity: .5; font-style: normal; }
+.gl-style.on i { opacity: 1; }
+.gl-chips-line { display: flex; flex-wrap: wrap; gap: 6px; }
+.gl-srcchip { display: inline-flex; align-items: center; gap: 5px; padding: 4px 9px; border-radius: 7px; background: var(--fg-soft);
+  color: var(--muted); font-size: 11.5px; }
+.gl-srcchip b { color: var(--fg); font-weight: 500; }
+
+/* ── 屏② 封面工坊 ── */
+.modal .mcard.gl-cover-mcard { width: min(880px, 95vw); max-height: calc(100vh - 40px); display: flex; flex-direction: column; }
+.gl-cover-mcard .mcard-body { flex: 1; min-height: 0; overflow-y: auto; }
+.gl-cover-body { display: grid; grid-template-columns: minmax(0, 1.02fr) minmax(0, .98fr); gap: 30px; padding: 16px 26px 20px; }
+.gl-preview-wrap { min-width: 0; }
+.gl-preview { position: relative; width: 100%; max-width: 380px; margin-inline: auto; aspect-ratio: 3 / 4; border-radius: 12px; overflow: hidden;
+  background: var(--fg-soft); border: 1px solid var(--border); box-shadow: var(--shadow-card); }
+.gl-preview > img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.gl-preview-empty { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center;
+  gap: 8px; padding: 26px; text-align: center; color: var(--muted);
+  background: linear-gradient(150deg, color-mix(in oklch, var(--accent) 10%, var(--surface)), var(--bg)); }
+.gl-pe-mark { width: 62px; height: 62px; border-radius: 14px; display: grid; place-items: center;
+  font-family: var(--font-display); font-size: 30px; color: var(--accent-strong);
+  background: var(--accent-soft); border: 1px solid color-mix(in oklch, var(--accent) 26%, var(--border)); }
+.gl-pe-t { font-family: var(--font-display); font-size: 16px; color: var(--fg); font-weight: 600; }
+.gl-pe-s { font-size: 11.5px; line-height: 1.6; max-width: 220px; }
+.gl-preview .gl-genmask { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center;
+  gap: 14px; padding: 24px; text-align: center; background: color-mix(in oklch, var(--surface) 82%, transparent); backdrop-filter: blur(3px); }
+.gl-spinner { width: 34px; height: 34px; border-radius: 50%; border: 2px solid var(--accent-soft); border-top-color: var(--accent); animation: gl-spin .9s linear infinite; }
+@keyframes gl-spin { to { transform: rotate(360deg); } }
+.gl-genmask .gl-gt { font-size: 13px; color: var(--fg); font-weight: 500; }
+.gl-genmask .gl-gs { font-size: 11.5px; color: var(--muted); min-height: 17px; }
+.gl-steps { display: flex; flex-direction: column; gap: 5px; align-items: flex-start; margin-top: 2px; }
+.gl-step { display: flex; align-items: center; gap: 7px; font-size: 11.5px; color: var(--muted); }
+.gl-step .dot { width: 6px; height: 6px; border-radius: 999px; background: var(--border); }
+.gl-step.done { color: var(--fg); }
+.gl-step.done .dot { background: var(--accent); }
+.gl-step.doing .dot { background: var(--accent); animation: gl-breath 1.2s ease-in-out infinite; }
+@keyframes gl-breath { 0%, 100% { opacity: .35; } 50% { opacity: 1; } }
+.gl-cands { display: grid; grid-template-columns: repeat(2, 110px); justify-content: center; gap: 10px; margin-top: 12px; }
+.gl-cand { position: relative; width: 110px; aspect-ratio: 3 / 4; border: 2px solid transparent; border-radius: 8px; padding: 0; overflow: hidden;
+  background: var(--fg-soft); cursor: pointer; }
+.gl-cand img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.gl-cand:hover { border-color: color-mix(in oklch, var(--accent) 45%, var(--border)); }
+.gl-cand.on { border-color: var(--accent); box-shadow: 0 0 0 2px var(--accent-soft); }
+.gl-cand .gl-cand-tag { position: absolute; left: 5px; bottom: 5px; padding: 2px 6px; border-radius: 5px; font-size: 10px;
+  background: color-mix(in oklch, var(--fg) 68%, transparent); color: var(--on-accent); }
+.gl-side { min-width: 0; }
+.gl-genbar { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.gl-cost { font-size: 11.5px; color: var(--muted); }
+.gl-upload { margin-top: 12px; font-size: 12px; color: var(--muted); }
+.gl-upload .lnk { font-size: 12px; }
+.gl-model-line { display: inline-flex; align-items: center; gap: 6px; font-size: 11.5px; color: var(--muted); }
+.gl-model-line svg { width: 13px; height: 13px; }
+.gl-model-line b { color: var(--fg); font-weight: 500; }
+.gl-model-line .lnk { font-size: 11.5px; }
+.gl-cover-note { display: flex; align-items: flex-start; gap: 8px; padding: 9px 11px; border-radius: 9px; background: var(--warn-soft);
+  color: var(--fg); font-size: 11.5px; line-height: 1.65; margin-top: 12px; }
+.gl-cover-note svg { width: 14px; height: 14px; color: var(--warn); flex: none; margin-top: 1px; }
+.gl-cover-note b { font-weight: 600; }
+.gl-mcard-foot { align-items: center; }
+.gl-foot-spacer { flex: 1; }
+
+/* ── 屏③ 角色设定：头像落位 ── */
+.char-row-btn .char-ava.has-ava { background-size: cover; background-position: center; color: transparent; box-shadow: inset 0 0 0 1px color-mix(in oklch, var(--fg) 10%, transparent); }
+.char-seal.has-ava { position: relative; background-size: cover; background-position: center; color: transparent; box-shadow: inset 0 0 0 1px color-mix(in oklch, var(--fg) 10%, transparent); }
+.gl-ava-edit { position: absolute; right: -6px; bottom: -6px; width: 22px; height: 22px; border-radius: 50%; border: 1px solid var(--border);
+  background: var(--surface); color: var(--muted); display: grid; place-items: center; cursor: pointer; box-shadow: var(--shadow-card); }
+.gl-ava-edit svg { width: 12px; height: 12px; }
+.gl-ava-edit:hover { color: var(--accent); border-color: var(--accent); }
+.gl-char-tools { display: flex; align-items: center; gap: 6px; }
+.gl-batch-btn { height: 26px; padding: 0 9px; border: 1px dashed var(--border); border-radius: 7px; background: transparent;
+  color: var(--muted); font: inherit; font-size: 11.5px; cursor: pointer; display: inline-flex; align-items: center; gap: 5px; }
+.gl-batch-btn:hover { border-color: var(--accent); color: var(--accent-strong); }
+.gl-batch-btn svg { width: 12px; height: 12px; }
+.gl-char-hint { font-size: 11px; color: var(--muted); padding: 4px 0 0; }
+
+/* ── 屏④ 头像工坊 ── */
+.modal .mcard.gl-ava-mcard { width: min(780px, 95vw); max-height: calc(100vh - 40px); display: flex; flex-direction: column; }
+.gl-ava-mcard .mcard-body { flex: 1; min-height: 0; overflow-y: auto; }
+.gl-ava-body { display: grid; grid-template-columns: 300px minmax(0, 1fr); gap: 28px; padding: 16px 26px 20px; }
+.gl-ava-left { min-width: 0; }
+.gl-ava-preview { position: relative; width: 100%; aspect-ratio: 1 / 1; border-radius: 18px; overflow: hidden;
+  border: 1px solid var(--border); box-shadow: var(--shadow-card); background: var(--fg-soft); }
+.gl-ava-preview > img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.gl-ava-empty { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center;
+  background: linear-gradient(150deg, color-mix(in oklch, var(--accent) 10%, var(--surface)), var(--bg)); }
+.gl-ava-empty span { width: 84px; height: 84px; border-radius: 22px; display: grid; place-items: center;
+  font-family: var(--font-display); font-size: 40px; color: var(--accent-strong);
+  background: var(--accent-soft); border: 1px solid color-mix(in oklch, var(--accent) 26%, var(--border)); }
+.gl-ava-preview .gl-genmask { position: absolute; inset: 0; }
+.gl-ava-cap { display: flex; align-items: center; justify-content: space-between; margin-top: 8px; font-size: 11.5px; color: var(--muted); }
+.gl-ava-cands { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; margin-top: 12px; }
+.char-row-btn .char-ava { width: 30px; height: 30px; font-size: 13px; }
+.gl-ce-cta.muted { color: var(--muted); font-weight: 400; }
+.gl-pro-gate { display: flex; flex-direction: column; gap: 4px; padding: 10px 12px; margin: 0 0 12px;
+  border: 1px solid color-mix(in oklch, var(--accent) 28%, var(--border)); border-radius: 9px;
+  background: var(--accent-soft); font-size: 12px; line-height: 1.6; color: var(--fg); }
+.gl-pro-gate b { color: var(--accent-strong); font-weight: 600; }
+.gl-pro-gate span { color: var(--muted); }
+.gl-pro-gate .lnk { align-self: center; font-size: 12px; }
+.gl-gate-acts { display: flex; align-items: center; gap: 10px; margin-top: 4px; flex-wrap: wrap; }
+.gl-toast-act { border: 0; background: transparent; color: var(--on-accent); font: inherit; font-size: 12px;
+  text-decoration: underline; cursor: pointer; padding: 0 0 0 4px; }
+body.gl-free .gl-batch-btn { opacity: .5; }
+.gl-add-tile:disabled { opacity: .5; cursor: not-allowed; }
+.gl-batch-btn:disabled { opacity: .5; cursor: not-allowed; }
+.gl-ava-cand { position: relative; aspect-ratio: 1 / 1; border: 2px solid transparent; border-radius: 10px; padding: 0; overflow: hidden;
+  background: var(--fg-soft); cursor: pointer; }
+.gl-ava-cand img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.gl-ava-cand.on { border-color: var(--accent); box-shadow: 0 0 0 2px var(--accent-soft); }
+.gl-ava-cand:hover { border-color: color-mix(in oklch, var(--accent) 45%, var(--border)); }
+.gl-follow-row { display: flex; align-items: center; gap: 8px; padding: 9px 11px; border-radius: 9px; background: var(--fg-soft); font-size: 12px; color: var(--fg); }
+.gl-follow-row svg { width: 14px; height: 14px; color: var(--accent); flex: none; }
+.gl-follow-row .gl-opt { margin-left: auto; font-size: 11.5px; color: var(--muted); }
+.gl-switch-row { display: flex; align-items: flex-start; gap: 10px; padding: 11px 12px; border: 1px solid var(--border); border-radius: 10px; }
+.gl-switch-row .gl-sw-tx { flex: 1; min-width: 0; }
+.gl-switch-row .gl-sw-t { font-size: 12.5px; color: var(--fg); font-weight: 500; }
+.gl-switch-row .gl-sw-s { margin-top: 2px; font-size: 11.5px; color: var(--muted); line-height: 1.55; }
+.gl-switch { position: relative; width: 34px; height: 20px; flex: none; }
+.gl-switch input { position: absolute; opacity: 0; inset: 0; margin: 0; cursor: pointer; }
+.gl-switch i { position: absolute; inset: 0; border-radius: 999px; background: var(--border); transition: background .15s ease; }
+.gl-switch i::after { content: ""; position: absolute; top: 2px; left: 2px; width: 16px; height: 16px; border-radius: 50%;
+  background: var(--surface); box-shadow: 0 1px 2px color-mix(in oklch, var(--fg) 25%, transparent); transition: transform .15s ease; }
+.gl-switch input:checked + i { background: var(--accent); }
+.gl-switch input:checked + i::after { transform: translateX(14px); }
+.gl-switch input:disabled + i { opacity: .45; }
+
+/* ── 屏⑤ 图像模型配置 ── */
+.gl-img-pane { display: none; }
+.gl-img-pane.on { display: block; }
+.gl-img-head { display: flex; align-items: center; gap: 10px; margin-bottom: 12px; flex-wrap: wrap; }
+.gl-img-head .gl-opt { font-size: 11.5px; color: var(--muted); }
+.gl-img-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); align-items: stretch; }
+@media (max-width: 820px) { .gl-img-grid { grid-template-columns: minmax(0, 1fr); } }
+.gl-img-card { max-width: none; }
+.gl-img-card .cfg-acts { white-space: nowrap; flex: none; }
+.gl-img-card .cfg-acts .btn { padding-inline: 8px; }
+.gl-add-tile { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 9px;
+  min-height: 190px; border: 1px dashed var(--border); border-radius: var(--radius-lg); background: var(--bg);
+  color: var(--muted); font: inherit; font-size: 12.5px; cursor: pointer; transition: border-color .15s ease, color .15s ease, background .15s ease; }
+.gl-add-tile:hover { border-color: var(--accent); color: var(--accent-strong); background: var(--accent-soft); }
+.gl-add-tile svg { width: 22px; height: 22px; }
+.gl-img-actions { display: flex; align-items: center; gap: 4px; }
+.gl-img-foot { display: flex; align-items: center; gap: 10px; }
+.gl-img-foot .res { font-size: 11.5px; color: var(--muted); white-space: nowrap; }
+.gl-add-model { margin-top: 14px; display: inline-flex; align-items: center; gap: 7px; border-style: dashed; color: var(--accent); }
+.gl-add-model:hover { border-color: var(--accent); background: var(--accent-soft); }
+.gl-support { margin-top: 10px; font-size: 11.5px; color: var(--muted); line-height: 1.7; }
+.gl-empty-model { padding: 22px; border: 1px dashed var(--border); border-radius: 12px; text-align: center; background: var(--bg); }
+.gl-empty-model .gl-em-t { font-family: var(--font-display); font-size: 15px; color: var(--fg); }
+.gl-empty-model p { margin: 6px 0 12px; font-size: 12px; color: var(--muted); }
+
+/* ── 图像模型：沿用写作大模型的同一套做法（列表卡＋弹窗＋卡上测试连接） ── */
+.gl-img-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); align-items: stretch; }
+@media (max-width: 820px) { .gl-img-grid { grid-template-columns: minmax(0, 1fr); } }
+.gl-img-card { max-width: none; }
+.gl-img-card .cfg-acts { white-space: nowrap; flex: none; }
+.gl-img-card .cfg-acts .btn { padding-inline: 8px; }
+.gl-img-card .res { font-size: 12px; min-width: 0; white-space: normal; overflow-wrap: anywhere; }
+.gl-img-card .cfg-foot { flex-wrap: wrap; row-gap: 6px; }
+.gl-book-model-select { flex: 1; min-width: 0; height: 30px; padding: 0 8px; border: 1px solid var(--border);
+  border-radius: 7px; background: var(--surface); color: var(--fg); font: inherit; font-size: 12px; }
+.gl-book-model-select:focus { outline: 2px solid var(--accent-soft); border-color: var(--accent); }
+.gl-img-card .res.ok { color: var(--ok); }
+.gl-img-card .res.bad { color: var(--err); }
+.gl-add-tile { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 9px;
+  min-height: 190px; border: 1px dashed var(--border); border-radius: var(--radius-lg); background: var(--bg);
+  color: var(--muted); font: inherit; font-size: 12.5px; cursor: pointer; transition: border-color .15s ease, color .15s ease, background .15s ease; }
+.gl-add-tile:hover { border-color: var(--accent); color: var(--accent-strong); background: var(--accent-soft); }
+.gl-add-tile svg { width: 22px; height: 22px; }
+/* 图像模型能力（比例/参考图）挂在真实 .field 上，用真实 .chip/.seg 词汇 */
+.gl-cap-row { display: flex; align-items: center; flex-wrap: wrap; gap: 7px; }
+.gl-cap-row .chip { font-size: 12.5px; }
+.gl-sizechip { gap: 7px; }
+.gl-sizechip b { font-family: var(--font-mono); font-size: 11px; font-weight: 500; color: var(--muted); letter-spacing: .01em; }
+.gl-sizechip.on b { color: var(--accent-strong); }
+.gl-img-providers { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+.gl-img-providers .vbtn { height: 66px; gap: 3px; }
+.gl-img-providers .vbtn .vsub { margin-top: -2px; }
+.gl-provider-help { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; margin-top: 9px; font-size: 12px; }
+.gl-provider-help .lnk { font-size: 12px; }
+.gl-provider-where { margin: 5px 2px 0; font-size: 11.5px; color: var(--muted); line-height: 1.65; }
+.gl-provider-where code { font-family: var(--font-mono); font-size: 11px; color: var(--fg); }
+
+.gl-no-link { color: var(--muted); }
+.gl-vfix-change { margin-left: auto; font-size: 12px; }
+.gl-vendor-warn { margin: 7px 2px 0; font-size: 11.5px; color: var(--warn); line-height: 1.65; }
+.gl-vendor-cancel { margin: 6px 2px 0; font-size: 11.5px; }
+.gl-vendor-confirm { margin-top: 9px; padding: 11px 12px; border: 1px solid color-mix(in oklch, var(--warn) 32%, var(--border));
+  border-radius: 9px; background: var(--warn-soft); font-size: 11.5px; line-height: 1.65; color: var(--fg); }
+.gl-vendor-confirm b { display: block; color: var(--warn); font-size: 12.5px; margin-bottom: 2px; }
+.gl-vendor-confirm span { color: var(--muted); }
+.gl-vc-act { display: flex; gap: 8px; margin-top: 9px; }
+.gl-draw-row { display: flex; align-items: baseline; gap: 9px; flex-wrap: wrap; margin-top: 4px; }
+.gl-draw-row .lnk { font-size: 12px; }
+.gl-draw-row .gl-hint { margin: 0; flex: 1; min-width: 200px; }
+/* 弹窗内容比对话模型多一段，固定头尾、身体滚动，保证底部按钮始终可见 */
+.modal .mcard.gl-img-cfg-mcard { max-height: calc(100vh - 40px); display: flex; flex-direction: column; overflow: hidden; }
+.gl-img-cfg-mcard .mcard-head, .gl-img-cfg-mcard .mcard-foot { flex: none; }
+.gl-img-cfg-mcard .mcard-body { flex: 1; min-height: 0; overflow-y: auto; padding-bottom: 18px; }
+.gl-cap-note { font-size: 11.5px; color: var(--muted); margin: 6px 2px 0; line-height: 1.6; }
+.gl-img-note { margin: 0 0 14px; font-size: 12.5px; color: var(--muted); line-height: 1.7; }
+.gl-draw-result { display: flex; align-items: center; gap: 12px; margin-top: 12px; }
+.gl-draw-thumb { width: 84px; height: 84px; border-radius: 9px; overflow: hidden; border: 1px solid var(--border); flex: none; }
+.gl-draw-thumb img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.gl-draw-meta { font-size: 11.5px; color: var(--muted); line-height: 1.7; min-width: 0; }
+.gl-draw-meta b { color: var(--fg); font-weight: 500; }
+
+/* ── Toast（复用真实 .toast-wrap/.toast） ── */
+.gl-toast-wrap { z-index: 900; }
+
+/* ── 画面演示注记（非产品 UI） ── */
+.gl-demo-tag { position: absolute; right: 6px; top: 6px; padding: 2px 6px; border-radius: 5px; font-size: 9.5px;
+  background: color-mix(in oklch, var(--fg) 55%, transparent); color: var(--on-accent); letter-spacing: .04em; }
+@media (max-width: 820px) {
+  .gl-cover-body, .gl-ava-body { grid-template-columns: minmax(0, 1fr); }
+  .gl-ava-preview { max-width: 320px; margin-inline: auto; }
+  .gl-book-card { grid-template-columns: 88px minmax(0, 1fr); }
+  .gl-book-cover { width: 88px; }
+  .gl-demo-note { display: none; }
+}
+</style>
+</head>
+<body>
+
+<div class="gl-demobar">
+  <span class="gl-demo-title"><em>PROTO</em>封面与角色头像 · 2026-10-22</span>
+  <div class="gl-demo-chips" id="demoChips">
+    <button data-screen="shelf" class="on">① 书架</button>
+    <button data-screen="cover">② 封面工坊</button>
+    <button data-screen="chars">③ 角色设定</button>
+    <button data-screen="avatar">④ 头像工坊</button>
+    <button data-screen="config">⑤ 图像模型</button>
+  </div>
+  <button class="gl-demo-extra" id="demoTier" title="切换免费 / PRO 视角">视角：PRO</button>
+  <div class="gl-demo-note" id="demoNote">真界面基线 · 当前 main 实抓。封面/头像画面为示意素材。</div>
+</div>
+
+<div class="gl-host on" id="host-shelf"><!--__HOST_SHELF__--></div>
+<div class="gl-host" id="host-chars"><!--__HOST_CHARS__--></div>
+<div class="gl-host" id="host-config"><!--__HOST_CONFIG__--></div>
+
+<!-- ══════════ 封面工坊 ══════════ -->
+<div class="scrim" id="coverScrim" hidden></div>
+<div class="modal" id="coverModal" role="dialog" aria-modal="true" hidden>
+  <div class="mcard wb-style gl-cover-mcard">
+    <header class="mcard-head">
+      <div>
+        <div class="mh">封面 · 《<span id="coverBook">长夜灯</span>》</div>
+        <p class="gl-sub">给书一个一眼能认出的样子。角色头像会跟着这本书的画风走。</p>
+      </div>
+      <button class="icon-btn x" id="coverClose" aria-label="关闭"><svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 6l12 12M18 6L6 18"/></svg></button>
+    </header>
+    <div class="mcard-body gl-cover-body">
+      <div class="gl-preview-wrap">
+        <div class="gl-preview" id="coverPreview">
+          <img id="coverPreviewImg" alt="封面预览">
+          <div class="gl-preview-empty" id="coverPreviewEmpty">
+            <span class="gl-pe-mark" id="coverPreviewMark">长</span>
+            <span class="gl-pe-t">还没有封面</span>
+            <span class="gl-pe-s">写一句画面描述，点「生成封面」出 2 张候选</span>
+          </div>
+          <span class="gl-demo-tag">示意画面</span>
+          <div class="gl-genmask" id="coverGenmask" hidden>
+            <span class="gl-spinner" aria-hidden="true"></span>
+            <span class="gl-gt">正在画封面</span>
+            <span class="gl-gs" id="coverGenStep">理解书名与题材…</span>
+            <div class="gl-steps" id="coverGenSteps">
+              <span class="gl-step doing"><i class="dot"></i>理解书名与题材</span>
+              <span class="gl-step"><i class="dot"></i>构图与光线</span>
+              <span class="gl-step"><i class="dot"></i>落色与细节</span>
+            </div>
+          </div>
+        </div>
+        <div class="gl-cands" id="coverCands" hidden></div>
+        <p class="gl-hint">真实产品生成无字画面；书名、作者、印章由程序叠加（示意素材已预合）。</p>
+      </div>
+
+      <div class="gl-side">
+        <div class="gl-field">
+          <div class="gl-label"><b>画风</b><span class="gl-opt">封面与头像共用这套画风</span></div>
+          <div class="gl-styles" id="coverStyles">
+            <button class="gl-style on" data-style="水墨"><i></i>水墨</button>
+            <button class="gl-style" data-style="电影写实"><i></i>电影写实</button>
+            <button class="gl-style" data-style="国漫"><i></i>国漫</button>
+            <button class="gl-style" data-style="版画"><i></i>版画</button>
+            <button class="gl-style" data-style="极简"><i></i>极简</button>
+          </div>
+        </div>
+
+        <div class="gl-field">
+          <div class="gl-label"><b>画面描述</b><span class="gl-opt">按书名、题材与简介拟好，可改</span></div>
+          <textarea class="input" id="coverPrompt" rows="5"></textarea>
+          <p class="gl-hint" id="coverPromptHint">只用到简介，不读正文，避免封面剧透。</p>
+        </div>
+
+        <div class="gl-field">
+          <div class="gl-label"><b>尺寸</b><span class="gl-opt">书架与详情统一用这张</span></div>
+          <div class="gl-chips-line">
+            <span class="gl-srcchip"><b>小说封面</b> 768 × 1024</span>
+          </div>
+        </div>
+
+        <div class="gl-field">
+          <div class="gl-label"><b>本书图像模型</b><span class="gl-opt">只影响这本书</span></div>
+          <div class="gl-follow-row">
+            <select class="gl-book-model-select" id="bookModelSelect" aria-label="本书图像模型">
+              <option value="volc">火山引擎 · doubao-seedream-4-0-250828</option>
+              <option value="ali">阿里云百炼 · qwen-image-2.0-pro</option>
+            </select>
+            <button class="lnk gl-opt" id="bookModelLink">管理配置…</button>
+          </div>
+        </div>
+
+        <div class="gl-pro-gate" id="coverProGate" hidden>
+          <b>AI 生成是 PRO 权益</b>
+          <span>免费用户可以先上传自己的封面；升级后可生成 2 张候选。</span>
+          <div class="gl-gate-acts"><button class="btn btn-primary btn-sm" data-upload="cover">上传自己的封面</button><button class="lnk" data-upgrade="1">升级</button></div>
+        </div>
+        <div class="gl-genbar">
+          <button class="btn btn-primary" id="coverGenerate">生成封面</button>
+          <span class="gl-cost">一次 2 张 · 约 20 秒</span>
+        </div>
+        <p class="gl-upload">已经有图了？<button class="lnk" id="coverUpload">上传自己的封面</button></p>
+
+        <div class="gl-cover-note" id="coverModelNote">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="12" cy="12" r="9"/><path d="M12 8v5M12 16h.01"/></svg>
+          <span>生成会消耗图像模型额度，点了才会画。<b>不会自动重画</b>，也不会在后台偷偷替换。</span>
+        </div>
+      </div>
+    </div>
+    <footer class="mcard-foot gl-mcard-foot">
+      <span class="gl-model-line">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><rect x="3" y="5" width="18" height="14" rx="2"/><circle cx="9" cy="10" r="1.6"/><path d="M21 15l-5-4-4 4-2-2-4 4"/></svg>
+        本书图像模型 · <b id="coverModelName">火山引擎 · doubao-seedream-4-0-250828</b>
+        <button class="lnk" id="coverModelLink">配置</button>
+      </span>
+      <span class="gl-foot-spacer"></span>
+      <button class="btn btn-secondary" id="coverCancel">取消</button>
+      <button class="btn btn-primary" id="coverUse" disabled>使用这张</button>
+    </footer>
+  </div>
+</div>
+
+<!-- ══════════ 头像工坊 ══════════ -->
+<div class="scrim" id="avaScrim" hidden></div>
+<div class="modal" id="avaModal" role="dialog" aria-modal="true" hidden>
+  <div class="mcard wb-style gl-ava-mcard">
+    <header class="mcard-head">
+      <div>
+        <div class="mh">头像 · <span id="avaName">陈屿</span> <span class="gl-sub" id="avaCode">#C-0001</span></div>
+        <p class="gl-sub">只用角色卡里的设定，不会把正文情节画进脸里。</p>
+      </div>
+      <button class="icon-btn x" id="avaClose" aria-label="关闭"><svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 6l12 12M18 6L6 18"/></svg></button>
+    </header>
+    <div class="mcard-body gl-ava-body">
+      <div class="gl-ava-left">
+        <div class="gl-ava-preview" id="avaPreview">
+          <img id="avaPreviewImg" alt="头像预览">
+          <div class="gl-ava-empty" id="avaPreviewEmpty" hidden><span id="avaPreviewMark">陈</span></div>
+          <span class="gl-demo-tag">示意画面</span>
+          <div class="gl-genmask" id="avaGenmask" hidden>
+            <span class="gl-spinner" aria-hidden="true"></span>
+            <span class="gl-gt">正在画头像</span>
+            <span class="gl-gs" id="avaGenStep">读角色卡设定…</span>
+          </div>
+        </div>
+        <div class="gl-ava-cap">
+          <span id="avaCapText">当前头像</span>
+          <span id="avaRev">第 2 版</span>
+        </div>
+        <div class="gl-ava-cands" id="avaCands" hidden></div>
+        <p class="gl-upload">已经有图了？<button class="lnk" id="avaUpload">上传自己的头像</button></p>
+      </div>
+
+      <div class="gl-side">
+        <div class="gl-field">
+          <div class="gl-label"><b>画风</b><span class="gl-opt">跟随本书</span></div>
+          <div class="gl-follow-row">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M4 6h16M4 12h10M4 18h7"/></svg>
+            <span>本书画风 · <b id="avaStyleName">水墨</b></span>
+            <button class="lnk gl-opt" id="avaStyleLink">改全书画风…</button>
+          </div>
+          <p class="gl-hint">改画风会同时影响封面和所有角色的头像；已生成的头像不会自动重画。</p>
+        </div>
+
+        <div class="gl-field">
+          <div class="gl-label"><b>尺寸</b><span class="gl-opt">全书统一</span></div>
+          <div class="gl-chips-line">
+            <span class="gl-srcchip"><b>角色头像</b> 512 × 512（1:1）</span>
+          </div>
+        </div>
+
+        <div class="gl-field">
+          <div class="gl-label"><b>设定依据</b><span class="gl-opt">来自这张角色卡</span></div>
+          <div class="gl-chips-line" id="avaSources">
+            <span class="gl-srcchip">性别 · 年龄 <b>男 · 27</b></span>
+            <span class="gl-srcchip">外貌 <b>瘦高，指节有灯油烫痕</b></span>
+            <span class="gl-srcchip">身份 <b>夜明铺 · 现任掌柜</b></span>
+          </div>
+        </div>
+
+        <div class="gl-field">
+          <div class="gl-label"><b>画面描述</b><span class="gl-opt">可改</span></div>
+          <textarea class="input" id="avaPrompt" rows="4"></textarea>
+        </div>
+
+        <div class="gl-field">
+          <div class="gl-follow-row">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M12 3l1.8 5.2L19 10l-5.2 1.8L12 17l-1.8-5.2L5 10l5.2-1.8z"/></svg>
+            <span>首版按本书画风 + 固定种子生成；不读取旧头像作参考。</span>
+          </div>
+        </div>
+
+        <div class="gl-pro-gate" id="avaProGate" hidden>
+          <b>AI 生成是 PRO 权益</b>
+          <span>免费用户可以先上传自己的头像；升级后可生成 2 张候选。</span>
+          <div class="gl-gate-acts"><button class="btn btn-primary btn-sm" data-upload="avatar">上传自己的头像</button><button class="lnk" data-upgrade="1">升级</button></div>
+        </div>
+        <div class="gl-genbar">
+          <button class="btn btn-primary" id="avaGenerate">生成头像</button>
+          <span class="gl-cost">一次 2 张 · 约 20 秒</span>
+        </div>
+      </div>
+    </div>
+    <footer class="mcard-foot gl-mcard-foot">
+      <span class="gl-model-line">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><rect x="3" y="5" width="18" height="14" rx="2"/><circle cx="9" cy="10" r="1.6"/><path d="M21 15l-5-4-4 4-2-2-4 4"/></svg>
+        本书图像模型 · <b id="avaModelName">火山引擎 · doubao-seedream-4-0-250828</b>
+      </span>
+      <span class="gl-foot-spacer"></span>
+      <button class="btn btn-secondary" id="avaCancel">取消</button>
+      <button class="btn btn-primary" id="avaUse" disabled>使用这张</button>
+    </footer>
+  </div>
+</div>
+
+<!-- ══════════ 批量头像 ══════════ -->
+<div class="scrim" id="batchScrim" hidden></div>
+<div class="modal" id="batchModal" role="dialog" aria-modal="true" hidden>
+  <div class="mcard wb-style" style="width:min(520px,94vw);max-height:calc(100vh - 40px);">
+    <header class="mcard-head">
+      <div class="mh">补齐没有头像的角色</div>
+      <button class="icon-btn x" id="batchClose" aria-label="关闭"><svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 6l12 12M18 6L6 18"/></svg></button>
+    </header>
+    <div class="mcard-body" style="overflow-y:auto;">
+      <p class="gl-sub" style="margin:0 0 12px;">只给还没有头像的角色各画一张；已有头像的会自动跳过。首版按本书画风 + 固定种子生成，不读取旧头像。</p>
+      <div id="batchRows"></div>
+      <div class="gl-cover-note" style="margin-top:12px;">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="12" cy="12" r="9"/><path d="M12 8v5M12 16h.01"/></svg>
+        <span><b id="batchSummary">0 位角色 × 1 张</b>，预计时长按人数计算。开始后会逐位生成，失败的那位可单独重试，不影响其他角色。</span>
+      </div>
+    </div>
+    <footer class="mcard-foot gl-mcard-foot">
+      <span class="gl-cost" id="batchCost">合计 0 张</span>
+      <span class="gl-foot-spacer"></span>
+      <button class="btn btn-secondary" id="batchStop" hidden>停止</button>
+      <button class="btn btn-secondary" id="batchCancel">取消</button>
+      <button class="btn btn-primary" id="batchStart">开始生成</button>
+    </footer>
+  </div>
+</div>
+
+<!-- ══════════ 图像模型：添加/编辑弹窗（沿用写作大模型的同一弹窗） ══════════ -->
+<div class="scrim" id="imgCfgScrim" hidden></div>
+<div class="modal" id="imgCfgModal" role="dialog" aria-modal="true" hidden></div>
+
+<!-- ══════════ 图像模型：删除确认弹窗 ══════════ -->
+<div class="scrim" id="imgDelScrim" hidden></div>
+<div class="modal" id="imgDelModal" role="dialog" aria-modal="true" hidden></div>
+
+<div class="toast-wrap gl-toast-wrap" id="toastWrap" aria-live="polite"></div>
+
+<script>
+"use strict";
+/* ══════════ 演示素材（build 时注入 data URI；仅为原型示意画面） ══════════ */
+const ASSETS = /*__ASSETS_JSON__*/;
+
+/* ══════════ 演示种子 ══════════ */
+const BOOKS = {
+  changyedeng: {
+    title: "长夜灯", genre: "悬疑 · 民俗", stage: "写作中", stageKey: "writing",
+    summary: "旧货街的夜明铺传了三代。陈屿接手的那年冬天，一个自称来还灯的女人，带来了他父亲失踪那晚的最后一盏灯。",
+    stats: [["2 卷", "结构"], ["42 章", "章节"], ["7,812", "总字数"]],
+    chapters: 42, coverSource: "ai", updated: "更新于 17 分钟前", cta: "继续创作",
+    style: "水墨", cover: "cover-changyedeng-a", hasCover: true,
+    candidates: ["cover-changyedeng-a", "cover-changyedeng-b"],
+    prompt: "深夜的旧货街，一间挂着「夜明」木牌的小铺。年轻人背对画面，手里提着一盏暖黄的旧风灯；远处屋脊层叠，薄雾漫过青石板。画面安静、克制，留出书名位置。",
+    look: "瘦高，指节有灯油烫痕，常年一件洗旧的青灰棉袄",
+    persona: "守着夜明铺的年轻人，替人还灯，也替人藏事。",
+    faction: "夜明铺 · 现任掌柜", genderAge: "男 · 27"
+  },
+  chunri: {
+    title: "春日迟迟", genre: "都市 · 情感", stage: "待完本", stageKey: "ready",
+    summary: "两个人合租的第三年，窗台上的绿萝爬满了整面玻璃。她决定搬走的那天，城市的春天才刚刚开始。",
+    stats: [["1 卷", "结构"], ["28 章", "章节"], ["6,430", "总字数"]],
+    chapters: 28, coverSource: "ai", updated: "作者章 28 / 28 已归档", cta: "回看",
+    style: "电影写实", cover: "cover-chunri-a", hasCover: true,
+    candidates: ["cover-chunri-a", "cover-chunri-b"],
+    prompt: "傍晚的旧公寓窗边，两杯还冒着热气的茶，窗外是刚亮起的城市楼群。暖橘色的光落在桌面上，绿植的影子拉得很长。画面温柔、留白，像一段没有说完的告别。",
+    look: "短发，米色针织衫，袖口总沾着一点颜料",
+    persona: "在广告公司写文案的女生，擅长把难过说成玩笑。",
+    faction: "广告公司 · 文案", genderAge: "女 · 29"
+  },
+  tiema: {
+    title: "铁马冰河", genre: "历史 · 战争", stage: "设定中", stageKey: "setting",
+    summary: "北境失守的第七年，一名旧军斥候带着半张残缺的河防图回到故地。他要找的人，已经在雪里等了太久。",
+    stats: [["0 卷", "结构"], ["0 章", "章节"], ["0", "总字数"]],
+    chapters: 0, coverSource: null, updated: "更新于 3 天前", cta: "继续创作",
+    style: "版画", cover: null, hasCover: false,
+    candidates: ["cover-tiema-a", "cover-tiema-b"],
+    prompt: "暮色里的北境山口，一名披甲骑手停在雪原边缘，远处是起伏的铁灰色山脊。天边一轮低垂的红日，风把雪吹成斜线。画面冷峻、辽阔，留出书名位置。",
+    look: "高个，左颊有冻伤旧痕，甲胄外罩一件褪色披风",
+    persona: "从北境活着回来的斥候，话少，记路比记仇清楚。",
+    faction: "北境旧军 · 斥候", genderAge: "男 · 34"
+  }
+};
+
+const CHARS = {
+  chenyu: {
+    name: "陈屿", code: "#C-0001", role: "主角", avatars: ["ava-chenyu-a", "ava-chenyu-b", "ava-chenyu-c", "ava-chenyu-d"], current: "ava-chenyu-a", rev: 2,
+    style: "水墨", genderAge: "男 · 27", look: "瘦高，指节有灯油烫痕", faction: "夜明铺 · 现任掌柜",
+    prompt: "年轻男人，瘦高，短黑发，指节有灯油烫痕，穿洗旧的青灰棉袄，高领。半身像，侧前方暖黄灯光，神情安静克制，背景是夜明铺的暗色木格与雾气。"
+  },
+  zhou: {
+    name: "周雨蘅", code: "#C-0002", role: "配角", avatars: ["ava-zhou-a", "ava-zhou-b"], current: "ava-zhou-a", rev: 1,
+    style: "水墨", genderAge: "女 · 31", look: "高个，短发齐耳，耳后旧疤", faction: "雾津渡 · 船主",
+    prompt: "三十一岁的女人，高个，短发齐耳，耳后有一道浅旧疤，穿靛蓝短打，立领。半身像，江面冷光，眼神直，嘴角有一点不服气。"
+  },
+  laoqin: {
+    name: "老秦", code: "#C-0003", role: "配角", avatars: ["ava-laoqin-a", "ava-laoqin-b"], current: null, rev: 0,
+    style: "水墨", genderAge: "男 · 55", look: "矮胖，圆框眼镜，转核桃", faction: "旧货街 · 万宝阁",
+    prompt: "五十五岁的男人，矮胖，圆脸，圆框眼镜，戴一顶旧呢帽，穿深褐长衫，手里转着一对核桃。半身像，旧货铺暖光，笑面但不亲切。"
+  },
+  chenfu: {
+    name: "陈父", code: "#C-0004", role: "路人", avatars: ["ava-chenfu-a", "ava-chenfu-b"], current: null, rev: 0,
+    style: "水墨", genderAge: "男 · 59", look: "清瘦，灰白鬓角，提旧风灯", faction: "夜明铺 · 前任掌柜",
+    prompt: "五十九岁的男人，清瘦，灰白鬓角，眼角有细纹，穿深灰旧棉袍，手提一盏旧风灯。半身像，灯光从下方照上来，神情温和而疲惫。"
+  }
+};
+
+const BOOK_IMAGE_MODELS = {
+  volc: { label: "火山引擎", model: "doubao-seedream-4-0-250828" },
+  ali: { label: "阿里云百炼", model: "qwen-image-2.0-pro" },
+};
+function bookModelFor(binding) {
+  if (binding === "volc" && imgSaved.vendor === "volcengine") return { label: "火山引擎", model: imgSaved.model };
+  if (binding === "ali" && imgSaved.vendor === "aliyun") return { label: "阿里云百炼", model: imgSaved.model };
+  return BOOK_IMAGE_MODELS[binding] || BOOK_IMAGE_MODELS.volc;
+}
+
+const STYLE_PROMPT = {
+  "水墨": "水墨画风格，宣纸质感，墨色浓淡相宜，少量暖色点染，留白",
+  "电影写实": "电影剧照风格，自然光，浅景深，真实的材质与皮肤质感，低饱和",
+  "国漫": "国漫插画风格，干净线条，平涂加柔和渐变，人物造型鲜明",
+  "版画": "木刻版画风格，粗粝的刀痕与高对比色块，边缘硬朗，颗粒感",
+  "极简": "极简海报风格，大面积留白，少量几何形状与单一强调色，克制"
+};
+
+/* ══════════ 小工具 ══════════ */
+const $ = (s, r = document) => r.querySelector(s);
+const $$ = (s, r = document) => Array.from(r.querySelectorAll(s));
+function esc(s) { return String(s).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c])); }
+function img(key) { return ASSETS[key] || ""; }
+function toast(msg, kind, action) {
+  const w = $("#toastWrap");
+  const el = document.createElement("div");
+  el.className = "toast" + (kind ? " " + kind : "");
+  el.textContent = msg;
+  if (action) {
+    const b = document.createElement("button");
+    b.className = "gl-toast-act";
+    b.textContent = action.label;
+    b.addEventListener("click", () => { el.remove(); action.onClick(); });
+    el.appendChild(b);
+  }
+  w.appendChild(el);
+  setTimeout(() => el.remove(), action ? 8000 : 2600);
+}
+const _closeTimers = {};
+function openModal(modalId, scrimId) {
+  const m = $("#" + modalId), s = $("#" + scrimId);
+  clearTimeout(_closeTimers[modalId]);
+  s.hidden = false; m.hidden = false;
+  requestAnimationFrame(() => { s.classList.add("show"); m.classList.add("show"); });
+}
+function closeModal(modalId, scrimId) {
+  const m = $("#" + modalId), s = $("#" + scrimId);
+  clearTimeout(_closeTimers[modalId]);
+  s.classList.remove("show"); m.classList.remove("show");
+  _closeTimers[modalId] = setTimeout(() => { m.hidden = true; s.hidden = true; }, 200);
+}
+/** 关掉全部弹窗并**立刻**收起（不留 200ms 过渡遮罩挡住下面的页） */
+function closeAllModals() {
+  ["coverModal:coverScrim", "avaModal:avaScrim", "batchModal:batchScrim",
+   "imgCfgModal:imgCfgScrim", "imgDelModal:imgDelScrim"].forEach((pair) => {
+    const [mid, sid] = pair.split(":");
+    clearTimeout(_closeTimers[mid]);
+    const m = $("#" + mid), s = $("#" + sid);
+    if (m) { m.classList.remove("show"); m.hidden = true; }
+    if (s) { s.classList.remove("show"); s.hidden = true; }
+  });
+}
+
+/* ══════════ 屏切换（演示控件） ══════════ */
+let isPro = true;
+function applyTier() {
+  const free = !isPro;
+  document.body.classList.toggle("gl-free", free);
+  const tierBtn = $("#demoTier");
+  if (tierBtn) tierBtn.textContent = free ? "视角：免费" : "视角：PRO";
+  const gen = $("#coverGenerate");
+  if (gen) {
+    gen.disabled = free;
+    gen.textContent = free ? "PRO 以上可用" : "生成封面";
+  }
+  const agen = $("#avaGenerate");
+  if (agen) {
+    agen.disabled = free;
+    agen.textContent = free ? "PRO 以上可用" : "生成头像";
+  }
+  const cg = $("#coverProGate"); if (cg) cg.hidden = !free;
+  const ag = $("#avaProGate"); if (ag) ag.hidden = !free;
+  const batch = $("#batchOpen");
+  if (batch) {
+    batch.disabled = free;
+    batch.title = free ? "图像生成是 PRO 权益" : "";
+  }
+  // 配置管理对所有用户开放（查看/新增/编辑/删除都不花钱）；只锁生成与测试。
+  const cardTest = $("#imgTestDraw");
+  if (cardTest) {
+    cardTest.disabled = free;
+    cardTest.title = free ? "图像生成是 PRO 权益" : "";
+  }
+  const pane = $(".gl-img-pane", $("#host-config"));
+  if (pane) {
+    let note = $("#freeTierNotice", pane);
+    if (free && !note) {
+      note = document.createElement("div");
+      note.id = "freeTierNotice";
+      note.className = "notice warn";
+      note.innerHTML = '<span class="nt"><b>图像生成是 PRO 权益</b><span>免费用户只能上传自己的封面/头像；配置可以查看/编辑，但测试与生成需要升级。</span></span><button class="btn btn-secondary btn-sm" data-upgrade="1">升级</button>';
+      pane.prepend(note);
+    }
+    if (!free && note) note.remove();
+  }
+}
+$("#demoTier").addEventListener("click", () => { isPro = !isPro; applyTier(); });
+document.addEventListener("click", (e) => {
+  if (e.target.closest("[data-upgrade]")) toast("原型：这里会打开升级页", "ok");
+  const up = e.target.closest("[data-upload]");
+  if (up) toast(up.dataset.upload === "avatar" ? "原型不接文件选择；产品里支持上传 JPG / PNG（建议 512 × 512 方图）" : "原型不接文件选择；产品里支持上传 JPG / PNG（建议 768 × 1024 竖版）");
+});
+
+const NOTES = {
+  shelf: "书架：封面作为书的第一眼；无封面时给可生成的字标占位，不空白。",
+  cover: "封面工坊：画风、描述、2 张候选；生成中/结果/使用是同一张弹窗。",
+  chars: "角色设定：头像落在列表与详情章印位；详情头像可点开头像工坊。",
+  avatar: "头像工坊：头像按本书画风 + 固定种子生成，不读取旧头像；2 张候选。",
+  config: "图像模型：沿用写作大模型的同一套做法——列表＋弹窗＋卡上测试连接。"
+};
+function showScreen(name, opts = {}) {
+  $$(".gl-host").forEach((h) => h.classList.remove("on"));
+  if (name === "shelf" || name === "cover") $("#host-shelf").classList.add("on");
+  if (name === "chars" || name === "avatar") $("#host-chars").classList.add("on");
+  if (name === "config") { $("#host-config").classList.add("on"); switchConfigTab("image"); }
+  $$("#demoChips button").forEach((b) => b.classList.toggle("on", b.dataset.screen === name));
+  $("#demoNote").textContent = NOTES[name] || NOTES.shelf;
+  window.scrollTo(0, 0);
+  if (!opts.keepModal) closeAllModals();
+}
+$$("#demoChips button").forEach((b) => b.addEventListener("click", () => {
+  const s = b.dataset.screen;
+  showScreen(s);
+  if (s === "cover") openCover("changyedeng");
+  if (s === "avatar") openAvatar("chenyu");
+}));
+
+/* 真壳里的链接不导航（原型是静态快照） */
+document.addEventListener("click", (e) => {
+  const a = e.target.closest("a[href^='#']");
+  if (a) e.preventDefault();
+});
+document.addEventListener("click", (e) => {
+  if (e.target.closest(".gl-host") && !e.target.closest("button")) {
+    const card = e.target.closest(".book-card");
+    if (card) toast("原型：这里会打开书内工作台（本原型不演示）");
+  }
+}, true);
+
+/* ══════════ 屏① 书架：书卡（真实卡结构 + 封面列） ══════════ */
+const ICON = {
+  dots: '<circle cx="5" cy="12" r="1.4" fill="currentColor" stroke="none"/><circle cx="12" cy="12" r="1.4" fill="currentColor" stroke="none"/><circle cx="19" cy="12" r="1.4" fill="currentColor" stroke="none"/>',
+  arrow: '<path d="M5 12h14M13 6l6 6-6 6"/>',
+  img: '<rect x="3" y="5" width="18" height="14" rx="2"/><circle cx="9" cy="10" r="1.6"/><path d="M21 15l-5-4-4 4-2-2-4 4"/>',
+  pen: '<path d="M4 20h4L19 9l-4-4L4 16v4z"/><path d="M14 6l4 4"/>',
+  spark: '<path d="M12 3l1.8 5.2L19 10l-5.2 1.8L12 17l-1.8-5.2L5 10l5.2-1.8z"/>',
+  upload: '<path d="M12 15V4M7 8l5-5 5 5M5 20h14"/>'
+};
+function icon(d, sw = 2) { return `<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="${sw}" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${d}</svg>`; }
+
+function bookCard(key) {
+  const b = BOOKS[key];
+  const cover = b.hasCover
+    ? `<img src="${img(b.cover)}" alt="《${esc(b.title)}》封面">`
+    : b.chapters === 0
+      ? `<div class="gl-cover-empty is-later">
+          <span class="gl-ce-seal">${esc(b.title[0])}</span>
+          <span>还没有封面</span>
+          <span class="gl-ce-cta muted">可稍后添加</span>
+        </div>`
+      : `<button type="button" class="gl-cover-empty" data-cover="${key}" aria-label="为《${esc(b.title)}》生成封面">
+          <span class="gl-ce-seal">${esc(b.title[0])}</span>
+          <span>还没有封面</span>
+          <span class="gl-ce-cta">生成封面</span>
+        </button>`;
+  const stats = b.stats.map(([v, k]) => `<span><b class="num">${v}</b>${k}</span>`).join("");
+  return `<div class="book-card gl-book-card" role="link" tabindex="0" data-book="${key}" aria-label="打开《${esc(b.title)}》">
+    <div class="gl-book-cover${b.hasCover ? "" : " is-empty"}">
+      ${cover}
+      <button class="gl-cover-act" data-cover="${key}">换封面</button>
+    </div>
+    <div class="gl-book-main">
+      <div class="top">
+        <span class="genre" title="${esc(b.genre)}">${icon('<path d="M12 3v18M3 12h18"/>', 2)}${esc(b.genre)}</span>
+        <span class="b ${b.stageKey}">${icon('<circle cx="12" cy="12" r="4" fill="currentColor" stroke="none"/>', 2.4)}${esc(b.stage)}</span>
+        <button class="icon-btn card-menu-btn" aria-label="更多操作" data-menu="${key}">${icon(ICON.dots)}</button>
+      </div>
+      <h3>《${esc(b.title)}》</h3>
+      <p class="summary">${esc(b.summary)}</p>
+      <div class="stats">${stats}</div>
+      <div class="foot">
+        <span class="updated">${esc(b.updated)}</span>
+        <span class="go">${esc(b.cta)}${icon(ICON.arrow)}</span>
+      </div>
+      <span class="gl-cover-meta">${b.hasCover ? icon(ICON.spark, 1.8) + (b.coverSource === "upload" ? "本地上传" : "AI 封面 · " + esc(b.style)) : icon(ICON.img, 1.8) + "封面位留给作者"}</span>
+    </div>
+    <div class="card-menu" data-menu-for="${key}" hidden>
+      <button data-cover="${key}">${icon(ICON.pen)}<span class="gl-mi">封面…</span></button>
+      <button data-noop="1">${icon('<path d="M4 4h16v16H4z"/>')}<span class="gl-mi">重命名</span></button>
+      <button data-noop="1" style="color:var(--err)">${icon('<path d="M4 7h16M9 7V4h6v3M6 7l1 14h10l1-14"/>')}<span class="gl-mi">删除</span></button>
+    </div>
+  </div>`;
+}
+
+function renderShelf() {
+  const host = $("#host-shelf");
+  // 真壳里的两条全局提示与本次评审无关：隐藏以聚焦（抓取 DOM 未改，运行时隐藏）
+  $$(".notice", host).forEach((n) => { n.style.display = "none"; });
+  const cards = $(".cards", host);
+  if (!cards) return;
+  cards.classList.add("gl-cards");
+  cards.innerHTML = ["changyedeng", "chunri", "tiema"].map(bookCard).join("");
+}
+
+document.addEventListener("click", (e) => {
+  const cov = e.target.closest("[data-cover]");
+  if (cov) { e.stopPropagation(); openCover(cov.dataset.cover); hideMenus(); return; }
+  const menuBtn = e.target.closest("[data-menu]");
+  if (menuBtn) {
+    e.stopPropagation();
+    const key = menuBtn.dataset.menu;
+    const menu = $(`[data-menu-for="${key}"]`);
+    const open = !menu.hidden;
+    hideMenus();
+    menu.hidden = open;
+    return;
+  }
+  if (e.target.closest("[data-noop]")) { e.stopPropagation(); hideMenus(); toast("原型只演示封面入口"); return; }
+  if (!e.target.closest(".card-menu")) hideMenus();
+});
+function hideMenus() { $$(".card-menu").forEach((m) => { m.hidden = true; }); }
+
+/* ══════════ 屏② 封面工坊 ══════════ */
+let coverState = { key: "changyedeng", selected: 0, generating: false, results: [] };
+
+function openCover(key) {
+  coverState._timers?.forEach(clearTimeout);
+  coverState._timers = null;
+  coverState.generating = false;
+  coverState.key = key;
+  coverState.selected = 0;
+  coverState.results = [];
+  coverState.generating = false;
+  const b = BOOKS[key];
+  $("#coverBook").textContent = b.title;
+  $("#coverPrompt").value = b.prompt;
+  $("#coverPromptHint").textContent = "画面描述只用到书名、题材与简介，不读正文，避免封面剧透。";
+  $$("#coverStyles .gl-style").forEach((el) => el.classList.toggle("on", el.dataset.style === b.style));
+  $("#coverCands").hidden = true;
+  $("#coverCands").innerHTML = "";
+  $("#coverUse").disabled = true;
+  $("#coverGenmask").hidden = true;
+  const pi = $("#coverPreviewImg");
+  pi.style.visibility = b.hasCover ? "visible" : "hidden";
+  pi.src = b.hasCover ? img(b.cover) : "";
+  $("#coverPreviewMark").textContent = b.title[0] || "书";
+  $("#coverPreviewEmpty").hidden = b.hasCover;
+  $("#coverPreview").style.background = b.hasCover ? "var(--fg-soft)" : "transparent";
+  const binding = BOOKS[key].imageBinding || "volc";
+  const bmModel = bookModelFor(binding);
+  imgCurrent = { ...bmModel };
+  $("#coverModelName").textContent = `${imgCurrent.label} · ${imgCurrent.model}`;
+  const sel = $("#bookModelSelect");
+  if (sel) sel.value = binding;
+  openModal("coverModal", "coverScrim");
+  showScreen("cover", { keepModal: true });
+  setTimeout(() => $("#coverPrompt").focus({ preventScroll: true }), 220);
+}
+
+function setCoverStyle(style) {
+  BOOKS[coverState.key].style = style;
+  $$("#coverStyles .gl-style").forEach((el) => el.classList.toggle("on", el.dataset.style === style));
+}
+$$("#coverStyles .gl-style").forEach((el) => el.addEventListener("click", () => setCoverStyle(el.dataset.style)));
+
+function startCoverGenerate() {
+  if (imgDeleted) { toast("先去图像模型里配置一个模型", "warn"); return; }
+  if (coverState.generating) return;
+  coverState.generating = true;
+  coverState.results = [];
+  coverState.selected = 0;
+  $("#coverCands").hidden = true;
+  $("#coverCands").innerHTML = "";
+  $("#coverUse").disabled = true;
+  $("#coverGenmask").hidden = false;
+  $("#coverPreviewEmpty").hidden = true;
+  const pi = $("#coverPreviewImg");
+  pi.style.visibility = "hidden";
+  const steps = $$("#coverGenSteps .gl-step");
+  steps.forEach((s, i) => s.className = "gl-step" + (i === 0 ? " doing" : ""));
+  $("#coverGenStep").textContent = "理解书名与题材…";
+  const t1 = setTimeout(() => {
+    steps[0].className = "gl-step done"; steps[1].className = "gl-step doing";
+    $("#coverGenStep").textContent = "构图与光线…";
+  }, 800);
+  const t2 = setTimeout(() => {
+    steps[1].className = "gl-step done"; steps[2].className = "gl-step doing";
+    $("#coverGenStep").textContent = "落色与细节…";
+  }, 1550);
+  const t3 = setTimeout(() => {
+    steps[2].className = "gl-step done";
+    finishCoverGenerate();
+  }, 2450);
+  coverState._timers = [t1, t2, t3];
+}
+
+function finishCoverGenerate() {
+  const b = BOOKS[coverState.key];
+  coverState.generating = false;
+  coverState.results = b.candidates.slice();
+  coverState.selected = 0;
+  $("#coverGenmask").hidden = true;
+  $("#coverPreviewEmpty").hidden = true;
+  const pi = $("#coverPreviewImg");
+  pi.style.visibility = "visible";
+  pi.src = img(b.candidates[0]);
+  $("#coverPreview").style.background = "var(--fg-soft)";
+  const wrap = $("#coverCands");
+  wrap.hidden = false;
+  wrap.innerHTML = b.candidates.map((key, i) =>
+    `<button class="gl-cand${i === 0 ? " on" : ""}" data-cand="${i}" aria-label="候选 ${i + 1}">
+      <img src="${img(key)}" alt="封面候选 ${i + 1}">
+      <span class="gl-cand-tag">候选 ${i + 1}</span>
+    </button>`).join("");
+  $("#coverUse").disabled = false;
+  toast("画好了，挑一张用", "ok");
+}
+
+$("#coverCands").addEventListener("click", (e) => {
+  const c = e.target.closest("[data-cand]");
+  if (!c) return;
+  const i = Number(c.dataset.cand);
+  coverState.selected = i;
+  $$("#coverCands .gl-cand").forEach((el, j) => el.classList.toggle("on", j === i));
+  $("#coverPreviewImg").src = img(coverState.results[i]);
+});
+$("#coverGenerate").addEventListener("click", startCoverGenerate);
+$("#coverUse").addEventListener("click", () => {
+  if (coverState.generating || !coverState.results.length) return;
+  const b = BOOKS[coverState.key];
+  const prev = { cover: b.cover, hasCover: b.hasCover };
+  b.hasCover = true;
+  b.cover = coverState.results[coverState.selected];
+  coverState.results = [];
+  renderShelf();
+  closeCover();
+  showScreen("shelf");
+  toast("封面已更新", "ok", {
+    label: "撤销",
+    onClick: () => { b.cover = prev.cover; b.hasCover = prev.hasCover; renderShelf(); toast("已恢复上一张封面", "ok"); },
+  });
+});
+$("#coverCancel").addEventListener("click", () => { if (closeCover()) showScreen("shelf"); });
+$("#coverClose").addEventListener("click", () => { if (closeCover()) showScreen("shelf"); });
+$("#coverScrim").addEventListener("click", () => { if (closeCover()) showScreen("shelf"); });
+function closeCover() {
+  if (coverState.generating && !window.confirm("封面还在生成，关闭会取消这次生成。确定关闭？")) return false;
+  if (coverState.results.length && !window.confirm("已生成候选还没有采用，关闭后需要重新生成。确定关闭？")) return false;
+  coverState._timers?.forEach(clearTimeout);
+  coverState._timers = null;
+  coverState.generating = false;
+  coverState.results = [];
+  closeModal("coverModal", "coverScrim");
+  return true;
+}
+$("#coverUpload").addEventListener("click", () => toast("原型不接文件选择；产品里支持上传 JPG / PNG（建议 768 × 1024 竖版）"));
+$("#avaUpload").addEventListener("click", () => toast("原型不接文件选择；产品里支持上传 JPG / PNG（建议 512 × 512 方图）"));
+function setBookBinding(binding) {
+  const m = BOOK_IMAGE_MODELS[binding];
+  if (!m) return;
+  BOOKS.changyedeng.imageBinding = binding;
+  imgCurrent = { ...m };
+  const sel = $("#bookModelSelect");
+  if (sel) sel.value = binding;
+  const cm = $("#coverModelName");
+  if (cm) cm.textContent = `${m.label} · ${m.model}`;
+  const am = $("#avaModelName");
+  if (am) am.textContent = `${m.label} · ${m.model}`;
+  toast(`本书改用 ${m.label}`, "ok");
+}
+$("#bookModelSelect").addEventListener("change", (e) => setBookBinding(e.target.value));
+document.addEventListener("click", (e) => {
+  if (e.target.closest("[data-alt-set]")) setBookBinding("ali");
+});
+$("#coverModelLink").addEventListener("click", () => { if (closeCover()) showScreen("config"); });
+$("#bookModelLink").addEventListener("click", () => { if (closeCover()) showScreen("config"); });
+
+/* ══════════ 屏③ 角色设定：头像落位 ══════════ */
+function injectAvatars() {
+  const host = $("#host-chars");
+  $$(".char-row-btn", host).forEach((row) => {
+    const nm = row.querySelector(".nm")?.textContent?.trim();
+    const key = Object.keys(CHARS).find((k) => CHARS[k].name === nm);
+    if (!key) return;
+    const ava = row.querySelector(".char-ava");
+    if (ava) {
+      const cur = CHARS[key].current;
+      if (cur) {
+        ava.classList.add("has-ava");
+        ava.style.backgroundImage = `url("${img(cur)}")`;
+        ava.textContent = "";
+      } else {
+        ava.classList.remove("has-ava");
+        ava.style.backgroundImage = "";
+        ava.textContent = CHARS[key].name[0] || "？";
+      }
+    }
+  });
+  const seal = $(".char-seal", host);
+  if (seal) {
+    const cur = CHARS.chenyu.current;
+    if (cur) {
+      seal.classList.add("has-ava");
+      seal.style.backgroundImage = `url("${img(cur)}")`;
+      seal.textContent = "";
+    } else {
+      seal.classList.remove("has-ava");
+      seal.style.backgroundImage = "";
+      seal.textContent = CHARS.chenyu.name[0] || "？";
+    }
+    if (!$("#avaEditBtn")) {
+      const btn = document.createElement("button");
+      btn.id = "avaEditBtn";
+      btn.className = "gl-ava-edit";
+      btn.title = "换头像";
+      btn.setAttribute("aria-label", "换头像");
+      btn.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 20h4L19 9l-4-4L4 16v4z"/><path d="M14 6l4 4"/></svg>';
+      btn.addEventListener("click", (e) => { e.stopPropagation(); openAvatar("chenyu"); });
+      seal.appendChild(btn);
+    }
+  }
+  // 角色列表头：批量头像入口（graft）
+  const listHead = $(".char-list .sub-list-head", host);
+  if (listHead && !$(".gl-batch-btn", listHead)) {
+    const tools = document.createElement("span");
+    tools.className = "gl-char-tools";
+    tools.style.marginLeft = "auto";
+    tools.innerHTML = `<button class="gl-batch-btn" id="batchOpen">${icon(ICON.img, 1.8)}批量头像</button>`;
+    listHead.appendChild(tools);
+    $("#batchOpen").addEventListener("click", (e) => { e.stopPropagation(); openBatch(); });
+  }
+  // 详情页脚提示（真实页脚之外的 graft）：解释头像入口
+  const head = $(".char-head", host);
+  if (head && !$("#charAvaHint")) {
+    const hint = document.createElement("p");
+    hint.id = "charAvaHint";
+    hint.className = "gl-char-hint";
+    hint.textContent = "点角色名旁的章印可以换头像；画风跟本书一致。";
+    head.insertAdjacentElement("afterend", hint);
+  }
+}
+
+/* ══════════ 屏④ 头像工坊 ══════════ */
+let avaState = { key: "chenyu", selected: 0, generating: false, results: [] };
+
+function openAvatar(key) {
+  avaState._timers?.forEach(clearTimeout);
+  avaState._timers = null;
+  avaState.generating = false;
+  avaState.key = key;
+  avaState.selected = 0;
+  avaState.results = [];
+  avaState.generating = false;
+  const c = CHARS[key];
+  $("#avaName").textContent = c.name;
+  $("#avaCode").textContent = c.code;
+  $("#avaPrompt").value = c.prompt;
+  $("#avaStyleName").textContent = BOOKS.changyedeng.style;
+  const binding = BOOKS.changyedeng.imageBinding || "volc";
+  imgCurrent = { ...bookModelFor(binding) };
+  const am = $("#avaModelName");
+  if (am) am.textContent = `${imgCurrent.label} · ${imgCurrent.model}`;
+  $("#avaRev").textContent = c.current ? "第 " + c.rev + " 版" : "首次生成";
+  $("#avaCapText").textContent = c.current ? "当前头像" : "还没有头像";
+  $("#avaSources").innerHTML = `
+    <span class="gl-srcchip">性别 · 年龄 <b>${esc(c.genderAge)}</b></span>
+    <span class="gl-srcchip">外貌 <b>${esc(c.look)}</b></span>
+    <span class="gl-srcchip">身份 <b>${esc(c.faction)}</b></span>`;
+  $("#avaCands").hidden = true;
+  $("#avaCands").innerHTML = "";
+  $("#avaUse").disabled = true;
+  $("#avaGenmask").hidden = true;
+  $("#avaPreviewEmpty").hidden = !!c.current;
+  $("#avaPreviewMark").textContent = c.name[0] || "？";
+  const pi = $("#avaPreviewImg");
+  pi.src = c.current ? img(c.current) : "";
+  pi.style.visibility = c.current ? "visible" : "hidden";
+  openModal("avaModal", "avaScrim");
+  showScreen("avatar", { keepModal: true });
+}
+
+function startAvaGenerate() {
+  if (imgDeleted) { toast("先去图像模型里配置一个模型", "warn"); return; }
+  if (avaState.generating) return;
+  avaState.generating = true;
+  avaState.results = [];
+  avaState.selected = 0;
+  $("#avaCands").hidden = true;
+  $("#avaCands").innerHTML = "";
+  $("#avaUse").disabled = true;
+  $("#avaGenmask").hidden = false;
+  $("#avaPreviewEmpty").hidden = true;
+  $("#avaPreviewImg").style.visibility = "hidden";
+  $("#avaGenStep").textContent = "按本书画风生成…";
+  const t1 = setTimeout(() => { $("#avaGenStep").textContent = "读角色卡设定…"; }, 650);
+  const t2 = setTimeout(() => { $("#avaGenStep").textContent = "落色与细节…"; }, 1300);
+  const t3 = setTimeout(() => finishAvaGenerate(), 2100);
+  avaState._timers = [t1, t2, t3];
+}
+
+function finishAvaGenerate() {
+  const c = CHARS[avaState.key];
+  avaState.generating = false;
+  avaState.results = c.avatars.slice(0, 2);
+  avaState.selected = 0;
+  $("#avaGenmask").hidden = true;
+  $("#avaPreviewEmpty").hidden = true;
+  $("#avaPreviewImg").style.visibility = "visible";
+  $("#avaPreviewImg").src = img(avaState.results[0]);
+  $("#avaCapText").textContent = "新头像候选";
+  const wrap = $("#avaCands");
+  wrap.hidden = false;
+  wrap.innerHTML = avaState.results.map((key, i) =>
+    `<button class="gl-ava-cand${i === 0 ? " on" : ""}" data-avacand="${i}" aria-label="候选 ${i + 1}"><img src="${img(key)}" alt="头像候选 ${i + 1}"></button>`).join("");
+  $("#avaUse").disabled = false;
+  toast("画好了，挑一张用", "ok");
+}
+
+$("#avaCands").addEventListener("click", (e) => {
+  const c = e.target.closest("[data-avacand]");
+  if (!c) return;
+  const i = Number(c.dataset.avacand);
+  avaState.selected = i;
+  $$("#avaCands .gl-ava-cand").forEach((el, j) => el.classList.toggle("on", j === i));
+  $("#avaPreviewImg").src = img(avaState.results[i]);
+});
+$("#avaGenerate").addEventListener("click", startAvaGenerate);
+$("#avaUse").addEventListener("click", () => {
+  if (avaState.generating || !avaState.results.length) return;
+  const c = CHARS[avaState.key];
+  const prev = { current: c.current, rev: c.rev };
+  c.current = avaState.results[avaState.selected];
+  c.rev += 1;
+  avaState.results = [];
+  injectAvatars();
+  closeAva();
+  showScreen("chars");
+  toast("头像已更新", "ok", {
+    label: "撤销",
+    onClick: () => { c.current = prev.current; c.rev = prev.rev; injectAvatars(); toast("已恢复上一张头像", "ok"); },
+  });
+});
+$("#avaCancel").addEventListener("click", () => { if (closeAva()) showScreen("chars"); });
+$("#avaClose").addEventListener("click", () => { if (closeAva()) showScreen("chars"); });
+$("#avaScrim").addEventListener("click", () => { if (closeAva()) showScreen("chars"); });
+function closeAva() {
+  if (avaState.generating && !window.confirm("头像还在生成，关闭会取消这次生成。确定关闭？")) return false;
+  if (avaState.results.length && !window.confirm("已生成候选还没有采用，关闭后需要重新生成。确定关闭？")) return false;
+  avaState._timers?.forEach(clearTimeout);
+  avaState._timers = null;
+  avaState.generating = false;
+  avaState.results = [];
+  closeModal("avaModal", "avaScrim");
+  return true;
+}
+$("#avaStyleLink").addEventListener("click", () => { if (closeAva()) openCover("changyedeng"); });
+
+/* ══════════ 批量头像 ══════════ */
+function openBatch() {
+  if (!isPro) { toast("图像生成是 PRO 权益", "warn"); return; }
+  if (imgDeleted) { toast("先去图像模型里配置一个模型", "warn"); return; }
+  const missing = Object.keys(CHARS).filter((k) => !CHARS[k].current);
+  $("#batchRows").innerHTML = missing.length
+    ? missing.map((k) => {
+        const c = CHARS[k];
+        return `<div class="gl-batch-row" data-row="${k}" style="display:flex;align-items:center;gap:10px;padding:9px 0;border-bottom:1px solid var(--border)">
+          <span class="char-ava" style="width:30px;height:30px;color:var(--muted);font-weight:600;display:grid;place-items:center">${esc(c.name[0] || "？")}</span>
+          <span style="min-width:0;flex:1"><b style="display:block;font-size:13px;font-weight:500">${esc(c.name)}</b><span style="font-size:11px;color:var(--muted)">${esc(c.role)} · ${esc(c.code)}</span></span>
+          <span class="gl-batch-state" style="font-size:11.5px;color:var(--muted)">待生成</span>
+        </div>`;
+      }).join("")
+    : `<p class="opt" style="padding:12px 0">所有角色都有头像，没有需要补的。</p>`;
+  const skipped = Object.keys(CHARS).length - missing.length;
+  $("#batchSummary").textContent = `${missing.length} 位角色 × 1 张` + (skipped ? `（已有头像的 ${skipped} 位已跳过）` : "");
+  $("#batchCost").textContent = `合计 ${missing.length} 张`;
+  $("#batchStart").disabled = missing.length === 0;
+  $("#batchStart").textContent = "开始生成";
+  $("#batchStop").hidden = true;
+  batchSeq += 1;
+  batchRun = { id: batchSeq, timers: [], keys: [], stopped: false };
+  openModal("batchModal", "batchScrim");
+}
+let batchSeq = 0;
+let batchRun = { id: 0, timers: [], keys: [], stopped: false };
+function stopBatch() {
+  if (!batchRun.timers.length) return;
+  batchRun.stopped = true;
+  batchRun.timers.forEach(clearTimeout);
+  batchRun.timers = [];
+  batchRun.keys.forEach((k) => {
+    const row = $(`[data-row="${k}"] .gl-batch-state`);
+    if (row && row.textContent !== "已生成") {
+      row.textContent = "已停止";
+      row.style.color = "var(--muted)";
+    }
+  });
+  $("#batchStart").disabled = false;
+  $("#batchStart").textContent = "继续生成";
+  $("#batchStop").hidden = true;
+}
+$("#batchStart").addEventListener("click", () => {
+  const keys = Object.keys(CHARS).filter((k) => !CHARS[k].current);
+  if (!keys.length) return;
+  const runId = ++batchSeq;
+  batchRun = { id: runId, timers: [], keys, stopped: false };
+  $("#batchStart").disabled = true;
+  $("#batchStart").textContent = "生成中…";
+  $("#batchStop").hidden = false;
+  let done = 0;
+  keys.forEach((k, i) => {
+    const row = $(`[data-row="${k}"] .gl-batch-state`);
+    batchRun.timers.push(setTimeout(() => {
+      if (batchRun.id !== runId || batchRun.stopped) return;
+      row.textContent = "生成中…";
+      row.style.color = "var(--accent)";
+    }, 300 + i * 450));
+    batchRun.timers.push(setTimeout(() => {
+      if (batchRun.id !== runId || batchRun.stopped) return;
+      row.textContent = "已生成";
+      row.style.color = "var(--ok)";
+      CHARS[k].current = CHARS[k].avatars[0];
+      CHARS[k].rev += 1;
+      done += 1;
+      if (done === keys.length) {
+        batchRun.timers = [];
+        injectAvatars();
+        $("#batchStart").textContent = "完成";
+        $("#batchStop").hidden = true;
+        $("#batchCost").textContent = `${keys.length} 张已生成`;
+        toast(`${keys.length} 位角色的头像已补齐`, "ok", {
+          label: "撤销本次",
+          onClick: () => {
+            keys.forEach((key) => { CHARS[key].current = null; CHARS[key].rev = 0; });
+            injectAvatars();
+            toast("已撤销本次批量头像", "ok");
+          },
+        });
+      }
+    }, 1400 + i * 450));
+  });
+});
+$("#batchStop").addEventListener("click", stopBatch);
+function batchCanClose() {
+  if (batchRun.timers.length) { toast("批量还在生成，请先点停止或等完成", "warn"); return false; }
+  return true;
+}
+$("#batchClose").addEventListener("click", () => { if (batchCanClose()) closeModal("batchModal", "batchScrim"); });
+$("#batchCancel").addEventListener("click", () => { if (batchCanClose()) closeModal("batchModal", "batchScrim"); });
+$("#batchScrim").addEventListener("click", () => { if (batchCanClose()) closeModal("batchModal", "batchScrim"); });
+
+/* ══════════ 屏⑤ 图像模型配置 ══════════ */
+const CONFIG_HOST = "#host-config";
+let currentConfigTab = "image";
+function initConfig() {
+  const tabs = $(".cfg-tabs", $(CONFIG_HOST));
+  if (!tabs || $(".gl-img-tab", $(CONFIG_HOST))) return;
+  // 演示口径统一：配置页宿主抓取自 10-20，状态栏版本/账号首字与本原型其余屏对齐
+  const ver = $('[data-od-id="status-version"]', $(CONFIG_HOST));
+  if (ver) ver.textContent = "main@d4bf7";
+  const acct = $(".acct-trigger .avatar", $(CONFIG_HOST));
+  if (acct) acct.textContent = "m";
+  const tab = document.createElement("button");
+  tab.className = "cfg-tab gl-img-tab";
+  tab.setAttribute("role", "tab");
+  tab.setAttribute("aria-selected", "false");
+  tab.textContent = "图像生成";
+  tabs.appendChild(tab);
+  const llmPane = tabs.nextElementSibling;
+  const zqPane = llmPane.nextElementSibling;
+  const pane = document.createElement("div");
+  pane.className = "gl-img-pane";
+  pane.innerHTML = `
+    <div class="notice info"><span class="nt"><b>封面和角色头像用这里的图像模型</b><span>与「写作大模型」分开配置，按张计费；写作大模型不会自动拿来画图。</span></span></div>
+    <div class="panel">
+      <div class="panel-h"><h2>图像模型</h2><span class="note">用于封面与角色头像 · 当前 2 个</span></div>
+      <div class="cards gl-img-grid">
+        <div class="cfg-card gl-img-card">
+          <div class="cfg-top">
+            <span class="pv-icon" title="火山引擎 · 豆包 Seedream"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M3 19l5.5-10 4 6.5L16 8l5 11z"/><path d="M9 19l3-5 3 5"/></svg></span>
+            <div class="id"><div class="nm">主线 · 火山引擎</div><div class="url">https://ark.cn-beijing.volces.com/api/v3</div></div>
+            <span class="b muted">未测试</span>
+          </div>
+          <div class="keyline">sk-••••••••••4f2a</div>
+          <div class="models"><span class="m-chip">doubao-seedream-4-0-250828</span><span class="m-chip">小说封面 768 × 1024</span><span class="m-chip">角色头像 512 × 512</span></div>
+          <div class="cfg-foot gl-img-foot"><span class="res"></span><div class="cfg-acts gl-img-actions"><button class="btn btn-ghost btn-sm" data-card-test="1" id="imgTestDraw">测试连接</button><button class="btn btn-ghost btn-sm" id="imgEdit">编辑</button><button class="btn btn-ghost btn-sm" style="color:var(--err)" id="imgDelete">删除</button></div></div>
+        </div>
+        <div class="cfg-card gl-img-card-alt">
+          <div class="cfg-top">
+            <span class="pv-icon" title="阿里云百炼"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M7 18h10a4 4 0 000-8 5 5 0 00-9.6-1.4A4.5 4.5 0 007 18z"/></svg></span>
+            <div class="id"><div class="nm">备用 · 阿里云百炼</div><div class="url">https://dashscope.aliyuncs.com/api/v1</div></div>
+            <span class="b muted">未测试</span>
+          </div>
+          <div class="keyline">sk-••••••••9c1d</div>
+          <div class="models"><span class="m-chip">qwen-image-2.0-pro</span><span class="m-chip">小说封面 768 × 1024</span><span class="m-chip">角色头像 512 × 512</span></div>
+          <div class="cfg-foot"><span class="res">第二套配置（演示）</span><span class="gl-foot-spacer"></span><div class="cfg-acts"><button class="btn btn-ghost btn-sm" data-alt-set="1">设为本书</button></div></div>
+        </div>
+        <button class="gl-add-tile" id="imgAdd" type="button">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg>
+          <span>添加图像模型</span>
+        </button>
+      </div>
+      <p class="gl-support">支持火山引擎 Seedream、阿里云百炼 Qwen-Image、智谱 CogView、OpenAI gpt-image-1、MiniMax image-01，以及 OpenAI 兼容图像接口。图像模型的 Key 与写作大模型的 Key 分开保存，互不顶替。<br>画风按书设置，在每本书的封面工坊里改；封面和角色头像共用同一套画风。</p>
+    </div>`;
+  const zqClass = "zhuque";
+  llmPane.classList.add("gl-pane-llm");
+  zqPane.classList.add("gl-pane-zq");
+  tabs.parentElement.insertBefore(pane, zqPane.nextElementSibling);
+  tab.addEventListener("click", () => switchConfigTab("image"));
+  $$(".cfg-tab:not(.gl-img-tab)", tabs).forEach((b, i) => b.addEventListener("click", () => {
+    switchConfigTab(i === 0 ? "llm" : "zq");
+  }));
+  // 页头主按钮随页签改名：图像页＝「添加图像模型」，不再让用户以为要加对话 Key
+  const headBtn = $(".page-head .btn-primary", $(CONFIG_HOST));
+  if (headBtn) headBtn.addEventListener("click", () => { if (currentConfigTab === "image") openImgCfgModal("create"); });
+  $("#imgAdd").addEventListener("click", () => openImgCfgModal("create"));
+  $("#imgEdit").addEventListener("click", () => openImgCfgModal("edit"));
+  $("#imgTestDraw").addEventListener("click", runImgCardTest);
+  $("#imgDelete").addEventListener("click", openImgDelModal);
+}
+
+function switchConfigTab(kind) {
+  currentConfigTab = kind;
+  const headBtn = $(".page-head .btn-primary", $(CONFIG_HOST));
+  if (headBtn) {
+    headBtn.innerHTML = '<svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg>' +
+      (kind === "image" ? "添加图像模型" : "添加 API Key");
+  }
+  const tabs = $(".cfg-tabs", $(CONFIG_HOST));
+  $$(".cfg-tab", tabs).forEach((b) => {
+    const isImage = b.classList.contains("gl-img-tab");
+    const on = (kind === "image" && isImage) || (kind === "llm" && b.textContent === "写作大模型") || (kind === "zq" && b.textContent.includes("朱雀"));
+    b.classList.toggle("on", on);
+    b.setAttribute("aria-selected", String(on));
+  });
+  const llm = $(".gl-pane-llm", $(CONFIG_HOST));
+  const zq = $(".gl-pane-zq", $(CONFIG_HOST));
+  if (llm) llm.hidden = kind !== "llm";
+  if (zq) zq.hidden = kind !== "zq";
+  $(".gl-img-pane", $(CONFIG_HOST)).classList.toggle("on", kind === "image");
+}
+
+/* ══════════ 图像模型：列表卡 + 添加/编辑弹窗 + 卡上测试连接 ══════════
+   沿用写作大模型（api-config）的既有习惯：
+   ① 卡上三个动作：测试连接 / 编辑 / 删除；测试结果写在卡片的 .cfg-foot .res 行；
+   ② 添加与编辑共用同一个弹窗（标题「添加 API Key」/「编辑配置」）；
+   ③ 删除走独立确认弹窗（影响盘点 + 可撤销口径）；
+   ④ 字段顺序：配置名称 → 供应商 → Base URL → API Key → 能力 → 模型名称；
+   ⑤ 底部：测试连接（免费探活）/ 取消 / 保存；试画一张（会计费）单独放表单内。 */
+const IMG_VENDORS = [
+  {
+    id: "volcengine", label: "火山引擎", sub: "豆包 Seedream",
+    glyph: '<path d="M3 19l5.5-10 4 6.5L16 8l5 11z"/><path d="M9 19l3-5 3 5"/>',
+    base: "https://ark.cn-beijing.volces.com/api/v3", model: "doubao-seedream-4-0-250828",
+    hint: "火山方舟的图片接口：填到 /api/v3，系统自动拼 /images/generations。原生输出 768 × 1024，正合书封。",
+    keyUrl: "https://ark.volcengine.com/region:cn-beijing/apiKey",
+    docUrl: "https://docs.volcengine.com/docs/ark/base-url-and-authentication?lang=zh",
+    where: "火山方舟控制台 → API Key 管理 → 创建 API Key；Base URL 固定为 <code>https://ark.cn-beijing.volces.com/api/v3</code>，可在「Base URL 及鉴权」文档核对。",
+  },
+  {
+    id: "aliyun", label: "阿里云百炼", sub: "通义千问",
+    glyph: '<path d="M7 18h10a4 4 0 000-8 5 5 0 00-9.6-1.4A4.5 4.5 0 007 18z"/>',
+    base: "https://dashscope.aliyuncs.com/api/v1", model: "qwen-image-2.0-pro",
+    hint: "阿里云百炼：填到 /api/v1，系统自动拼 /services/aigc/multimodal-generation/generation。原生 1728 × 2368，保存前缩到 768 × 1024。",
+    keyUrl: "https://bailian.console.aliyun.com/cn-beijing/model/settings/api-key",
+    docUrl: "https://help.aliyun.com/zh/model-studio/base-url",
+    where: "百炼控制台 → 模型服务 → API-KEY；Base URL 固定为 <code>https://dashscope.aliyuncs.com/api/v1</code>。北京/新加坡的 Key 与域名不能混用，可在「Base URL 总览」核对。",
+  },
+  {
+    id: "zhipu", label: "智谱", sub: "CogView",
+    glyph: '<path d="M12 3l7 4v10l-7 4-7-4V7z"/>',
+    base: "https://open.bigmodel.cn/api/paas/v4", model: "cogview-4",
+    hint: "智谱开放平台：填到 /api/paas/v4，图像接口为 /images/generations。768 × 1024 由 864 × 1152 裁切。",
+    keyUrl: "https://bigmodel.cn/usercenter/proj-mgmt/apikeys",
+    docUrl: "https://docs.bigmodel.cn/cn/guide/start/quick-start",
+    where: "智谱开放平台 → 个人中心 → API Keys → 创建 API Key；Base URL 固定为 <code>https://open.bigmodel.cn/api/paas/v4</code>。",
+  },
+  {
+    id: "openai", label: "OpenAI", sub: "gpt-image",
+    glyph: '<path d="M12 4.5l2.1 5.4 5.4 2.1-5.4 2.1-2.1 5.4-2.1-5.4-5.4-2.1 5.4-2.1z"/>',
+    base: "https://api.openai.com/v1", model: "gpt-image-1",
+    hint: "OpenAI 官方地址；图像生成走 /images/generations。官方尺寸没有 768 × 1024 原生值，会做居中裁切。",
+    keyUrl: "https://platform.openai.com/api-keys",
+    docUrl: "https://platform.openai.com/docs/api-reference/images",
+    where: "platform.openai.com → API keys → Create new secret key；Base URL 固定为 <code>https://api.openai.com/v1</code>。",
+  },
+  {
+    id: "minimax", label: "MiniMax", sub: "image-01",
+    glyph: '<path d="M5 20V10M12 20V5M19 20v-6"/>',
+    base: "https://api.minimax.chat/v1", model: "image-01",
+    hint: "MiniMax 的图像接口与对话接口不是同一个地址：这里填图像接口的 Base URL。",
+    keyUrl: "https://platform.minimaxi.com/user-center/basic-information/interface-key",
+    docUrl: "https://platform.minimaxi.com/document/image_generation",
+    where: "MiniMax 开放平台 → 用户中心 → 接口密钥；图像 Base URL 为 <code>https://api.minimax.chat/v1</code>。",
+  },
+  {
+    id: "compat", label: "OpenAI 兼容", sub: "自建 / 中转",
+    glyph: '<path d="M9 15l6-6M11 7l1.6-1.6a3 3 0 014.2 4.2L15 11M13 17l-1.6 1.6a3 3 0 01-4.2-4.2L9 13"/>',
+    base: "", model: "", hint: "填兼容 OpenAI 图像接口的地址；不同中转的路径可能不同。",
+    keyUrl: "", docUrl: "",
+    where: "由你的中转或自建服务提供；Key 与 Base URL 都在服务商控制台查看，Base URL 通常以 <code>/v1</code> 结尾。",
+  },
+];
+const IMG_MODELS = {
+  volcengine: ["doubao-seedream-4-0-250828", "doubao-seedream-4-5-251128", "doubao-seedream-5-0-260128"],
+  aliyun: ["qwen-image-2.0-pro", "qwen-image-2.0"],
+  zhipu: ["cogview-4", "cogview-3-flash"],
+  openai: ["gpt-image-1"],
+  minimax: ["image-01"],
+  compat: [],
+};
+/* 产品要的两张图（用途＋具体尺寸；接口只认比例，这里换算成作者看得懂的尺寸） */
+const IMG_SIZES = [
+  { id: "cover", use: "小说封面", size: "768 × 1024", ratio: "3:4" },
+  { id: "avatar", use: "角色头像", size: "512 × 512", ratio: "1:1" },
+];
+/* 当前已保存的图像配置（编辑回填 / 工坊页脚 / 卡片的单一来源） */
+let imgSaved = {
+  vendor: "volcengine",
+  name: "主线 · 火山引擎",
+  base: IMG_VENDORS[0].base,
+  model: IMG_VENDORS[0].model,
+  caps: ["cover", "avatar"],
+  models: IMG_MODELS.volcengine.slice(),
+  tested: true,
+  testLevel: "none",
+};
+let imgCurrent = { label: "火山引擎", model: imgSaved.model };
+let imgDeleted = false;
+let deleteUndoSeq = 0;
+
+let imgCfg = {
+  mode: "create", vendor: "minimax", name: "", base: "", key: "", model: "",
+  caps: ["cover", "avatar"], testing: false, tested: false, testLevel: "none", pendingVendor: null, result: null, error: "",
+  /* 模型清单（沿用 api-config 的组合框行为）：fetching＝在途；models＝已拉清单；
+     pickerOpen＝下拉展开；fetchMeta/fetchTone＝label-row 右侧状态；fetchErr＝失败重试行 */
+  models: [], fetching: false, pickerOpen: false, fetchMeta: "", fetchTone: "", fetchErr: "", modelNote: "",
+};
+let imgFetchSeq = 0;
+let imgTestSeq = 0;
+let imgCfgTest = null;   // 测试结果留在弹窗里（与写作模型弹窗一致）
+let imgCardTest = null;  // 卡片「测试连接」的结果
+
+function imgVendorGlyph(v) {
+  const item = IMG_VENDORS.find((x) => x.id === v) || IMG_VENDORS[0];
+  return `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${item.glyph}</svg>`;
+}
+
+function openImgCfgModal(mode) {
+  const edit = mode === "edit";
+  imgCfg = {
+    mode,
+    vendor: edit ? imgSaved.vendor : "volcengine",
+    name: edit ? imgSaved.name : "",
+    base: edit ? imgSaved.base : IMG_VENDORS[0].base,
+    key: "",
+    model: edit ? imgSaved.model : IMG_VENDORS[0].model,
+    caps: edit ? imgSaved.caps.slice() : ["cover", "avatar"],
+    tested: edit ? imgSaved.tested : false,
+    testLevel: edit ? imgSaved.testLevel : "none",
+    pendingVendor: null,
+    vendorPicker: false,
+    vendorChanged: false,
+    testing: false,
+    result: null,
+    error: "",
+    models: edit ? imgSaved.models.slice() : [],
+    fetching: false,
+    pickerOpen: false,
+    fetchMeta: edit && imgSaved.models.length ? `已存 ${imgSaved.models.length} 个模型` : "",
+    fetchTone: edit && imgSaved.models.length ? "ok" : "",
+    fetchErr: "",
+    modelNote: "",
+  };
+  imgCfgTest = null;
+  imgTestSeq += 1;
+  renderImgCfgModal();
+  openModal("imgCfgModal", "imgCfgScrim");
+}
+
+function renderImgCfgModal() {
+  const m = $("#imgCfgModal");
+  if (!m) return;
+  const isEdit = imgCfg.mode === "edit";
+  const v = IMG_VENDORS.find((x) => x.id === imgCfg.vendor) || IMG_VENDORS[0];
+  m.innerHTML = `
+  <div class="mcard gl-img-cfg-mcard" style="width: min(520px, 92vw);">
+    <div class="mcard-head"><span class="mh serif">${isEdit ? "编辑配置" : "添加 API Key"}</span>
+      <button class="icon-btn x" aria-label="关闭" data-cfg="close"><svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 6l12 12M18 6L6 18"/></svg></button>
+    </div>
+    <div class="mcard-body">
+      <form id="img-cfg-form" onsubmit="return false">
+        ${imgCfg.error ? `<div class="ferr">${imgCfg.error}</div>` : ""}
+        <div class="field">
+          <label for="icName">配置名称 <span class="req">*</span></label>
+          <input class="input" id="icName" maxlength="30" placeholder="例如：主线 · 火山引擎" value="${esc(imgCfg.name)}">
+        </div>
+        <div class="field">
+          <label>供应商</label>
+          ${isEdit && !imgCfg.vendorPicker
+            ? `<div class="vfix">${imgVendorGlyph(imgCfg.vendor)}<span>${v.label}${v.sub ? " · " + v.sub : ""}</span><button type="button" class="lnk gl-vfix-change" data-cfg="change-vendor">更换</button></div>`
+            : `<div class="vgrid gl-img-providers" id="icVendors">${IMG_VENDORS.map((x) => `
+                <button type="button" class="vbtn${x.id === imgCfg.vendor ? " on" : ""}" aria-pressed="${x.id === imgCfg.vendor}" data-v="${x.id}">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${x.glyph}</svg>
+                  <span>${x.label}</span>
+                  ${x.sub ? `<span class="vsub">${x.sub}</span>` : ""}
+                </button>`).join("")}</div>`}
+          ${imgCfg.pendingVendor ? (() => {
+            const pv = IMG_VENDORS.find((x) => x.id === imgCfg.pendingVendor) || v;
+            return `<div class="gl-vendor-confirm">
+              <b>更换到「${pv.label}」？</b>
+              <span>会清空当前 Key、模型和测试结果；配置名不变。</span>
+              <div class="gl-vc-act"><button type="button" class="btn btn-primary btn-sm" data-cfg="confirm-vendor">确认更换</button><button type="button" class="btn btn-secondary btn-sm" data-cfg="cancel-pending">取消</button></div>
+            </div>`;
+          })() : ""}
+          ${isEdit && imgCfg.vendorChanged ? `<p class="gl-vendor-warn">已从「${(IMG_VENDORS.find((x) => x.id === imgSaved.vendor) || {}).label || ""}」换到「${v.label}」：Base URL 与模型已更新，请重新填写这个供应商的 Key 并测试连接。</p>` : ""}
+          ${isEdit && imgCfg.vendorPicker ? `<p class="gl-vendor-cancel"><button type="button" class="lnk" data-cfg="cancel-vendor">取消更换，用回原供应商</button></p>` : ""}
+          <div class="gl-provider-help">
+            ${v.keyUrl
+              ? `<a class="lnk" href="${v.keyUrl}" target="_blank" rel="noreferrer">申请 API Key ↗</a>`
+              : `<span class="gl-no-link">无需单独申请 Key</span>`}
+            ${v.docUrl
+              ? `<a class="lnk" href="${v.docUrl}" target="_blank" rel="noreferrer">Base URL 从哪看 ↗</a>`
+              : ""}
+          </div>
+          <p class="gl-provider-where">${v.where}</p>
+        </div>
+        <div class="field">
+          <label for="icBase">Base URL <span class="req">*</span></label>
+          <input class="input mono" id="icBase" placeholder="${v.base || "https://你的中转域名/v1"}" value="${esc(imgCfg.base)}">
+          <p class="cf-hint" id="icBaseHint">${v.hint}</p>
+        </div>
+        <div class="field">
+          <label for="icKey">API Key</label>
+          <input class="input mono" id="icKey" autocomplete="off" type="password" placeholder="sk-..." value="${esc(imgCfg.key)}">
+          ${isEdit && !imgCfg.vendorChanged ? `<span class="alt">当前密钥：sk-••••••••4f2a</span>` : ""}
+          ${isEdit && imgCfg.vendorChanged ? `<span class="alt" style="color:var(--warn)">已更换供应商：请重新填写这个供应商的 API Key</span>` : ""}
+        </div>
+        <div class="field">
+          <div class="label-row"><label>能画这两种图</label></div>
+          <div class="gl-cap-row" id="icCaps">
+            ${IMG_SIZES.map((z) => `<span class="chip gl-sizechip on">${z.use}<b>${z.size}</b></span>`).join("")}
+          </div>
+          <p class="gl-cap-note">由所选供应商 / 模型自动判断，不支持时生成会给出原因。首版按本书画风 + 固定种子生成，不读取旧头像作参考。</p>
+        </div>
+        <div class="field">
+          <div class="label-row">
+            <label for="icModel">模型名称</label>
+            <div class="mp-fetchrow">
+              ${imgCfg.fetchMeta ? `<span class="mp-meta${imgCfg.fetchTone ? " " + imgCfg.fetchTone : ""}">${esc(imgCfg.fetchMeta)}</span>` : ""}
+              <button type="button" class="btn btn-secondary btn-sm" data-cfg="fetch" ${imgCfg.fetching || !canFetchImgModels() ? "disabled" : ""} title="${canFetchImgModels() ? "重新拉取模型清单" : "先填 Base URL 与 API Key（编辑态可留空沿用已存 Key）"}">${imgCfg.fetching ? "获取中…" : "获取模型"}</button>
+            </div>
+          </div>
+          <div class="mp-wrap gl-img-model-wrap">
+            <input class="input mono" id="icModel" role="combobox" aria-expanded="${imgCfg.pickerOpen}" aria-controls="ic-model-list" aria-autocomplete="list" autocomplete="off" spellcheck="false" placeholder="${imgCfg.mode === "edit" ? "留空则保留当前模型；可从已存清单改选或手动输入" : "填 Key 后自动获取清单；也可直接输入模型 id"}" value="${esc(imgCfg.model)}">
+          </div>
+          ${imgCfg.fetchErr ? `<div class="mp-err" role="alert"><span>${esc(imgCfg.fetchErr)}</span><button type="button" class="mp-retry" data-cfg="fetch">重新拉取</button></div>` : ""}
+          ${imgCfg.pickerOpen ? `<div class="mp-panel gl-img-model-panel" id="ic-model-list" role="listbox" aria-label="模型清单">
+            ${imgCfg.fetching ? `<div class="mp-empty">正在获取模型清单…</div>` : ""}
+            ${!imgCfg.fetching && imgCfg.models.length === 0 ? `<div class="mp-empty">${imgCfg.fetchErr ? "清单拉取失败——可手填模型 id，或点「重新拉取」" : imgCfg.modelNote ? "暂无模型清单——可手动填模型 id" : "暂无模型清单——填好 Key 后点「获取模型」"}</div>` : ""}
+            ${!imgCfg.fetching && imgCfg.models.length > 0 ? `<ul class="mp-list">${imgCfg.models.map((m) => `<li><button type="button" role="option" aria-selected="${m === imgCfg.model}" class="mp-item${m === imgCfg.model ? " on" : ""}" data-model="${esc(m)}">${esc(m)}${m === imgCfg.model ? '<span class="mp-flag">当前</span>' : ""}</button></li>`).join("")}</ul>` : ""}
+          </div>` : ""}
+        </div>
+        ${!isPro ? `<p class="gl-cap-note" style="color:var(--warn)">测试与试画是 PRO 权益；免费用户可以保存配置，升级后再测试。</p>` : ""}
+        <div class="gl-draw-row">
+          <button type="button" class="lnk" data-cfg="draw" ${imgCfg.testing || !isPro ? "disabled" : ""} title="${isPro ? "" : "图像生成是 PRO 权益"}">试画一张（会计费）</button>
+          <span class="gl-hint">会真实画 1 张 512 × 512，用于确认能出图；只在点了才发生。</span>
+        </div>
+        ${imgCfgTest ? `<div class="tresult ${imgCfgTest.ok ? "ok" : "bad"}">${esc(imgCfgTest.message)}</div>` : ""}
+      </form>
+    </div>
+    <div class="mcard-foot">
+      <button class="btn btn-secondary" type="button" data-cfg="test" ${imgCfg.testing || !isPro ? "disabled" : ""} title="${isPro ? "" : "图像生成是 PRO 权益"}">${imgCfg.testing ? "测试中…" : "测试连接"}</button>
+      <button class="btn btn-secondary" type="button" data-cfg="cancel">取消</button>
+      <button class="btn btn-primary" type="button" data-cfg="save">保存</button>
+    </div>
+  </div>`;
+
+  m.querySelectorAll("[data-cfg]").forEach((el) => el.addEventListener("click", () => {
+    const act = el.dataset.cfg;
+    if (act === "close" || act === "cancel") { imgTestSeq += 1; closeModal("imgCfgModal", "imgCfgScrim"); }
+    if (act === "test") runImgCfgTest();
+    if (act === "save") saveImgCfg();
+    if (act === "draw") drawImgCfg();
+    if (act === "fetch") fetchImgModels();
+    if (act === "change-vendor") { imgCfg.vendorPicker = true; renderImgCfgModal(); }
+    if (act === "confirm-vendor" && imgCfg.pendingVendor) { applyImgVendor(imgCfg.pendingVendor); }
+    if (act === "cancel-pending") { imgCfg.pendingVendor = null; renderImgCfgModal(); }
+    if (act === "cancel-vendor") {
+      imgCfg.pendingVendor = null;
+      imgCfg.vendor = imgSaved.vendor;
+      imgCfg.base = imgSaved.base;
+      imgCfg.model = imgSaved.model;
+      imgCfg.models = imgSaved.models.slice();
+      imgCfg.vendorChanged = false;
+      imgCfg.vendorPicker = false;
+      imgCfg.tested = imgSaved.tested;
+      imgCfg.testLevel = imgSaved.testLevel;
+      imgCfgTest = null;
+      imgCfg.key = "";
+      imgCfg.fetching = false;
+      imgCfg.pickerOpen = false;
+      imgCfg.fetchMeta = imgSaved.models.length ? `已存 ${imgSaved.models.length} 个模型` : "";
+      imgCfg.fetchTone = imgSaved.models.length ? "ok" : "";
+      imgCfg.fetchErr = "";
+      imgCfg.modelNote = "";
+      imgCfgTest = null;
+      renderImgCfgModal();
+    }
+  }));
+  m.querySelectorAll("[data-model]").forEach((el) => el.addEventListener("click", () => {
+    readImgCfg();
+    imgCfg.model = el.dataset.model;
+    imgCfg.tested = false;
+    imgCfg.testLevel = "none";
+    imgCfg.pickerOpen = false;
+    renderImgCfgModal();
+  }));
+  m.querySelectorAll("#icVendors .vbtn").forEach((b) => b.addEventListener("click", () => {
+    const next = b.dataset.v;
+    if (next === imgCfg.vendor) return;
+    if (imgCfg.mode === "edit" && next !== imgSaved.vendor) {
+      imgCfg.pendingVendor = next;
+      renderImgCfgModal();
+      return;
+    }
+    applyImgVendor(next);
+  }));
+  const nameEl = m.querySelector("#icName");
+  const baseEl = m.querySelector("#icBase");
+  const keyEl = m.querySelector("#icKey");
+  const modelEl = m.querySelector("#icModel");
+  if (imgCfg.pickerOpen || imgCfgTest) {
+    requestAnimationFrame(() => {
+      const body = m.querySelector(".mcard-body");
+      if (body) body.scrollTop = body.scrollHeight;
+    });
+  }
+  nameEl.addEventListener("input", () => { imgCfg.name = nameEl.value; });
+  baseEl.addEventListener("input", () => { imgCfg.base = baseEl.value; imgCfg.tested = false; imgCfg.testLevel = "none"; imgCfgTest = null; imgTestSeq += 1; syncFetchBtn(); });
+  keyEl.addEventListener("input", () => { imgCfg.key = keyEl.value; imgCfg.tested = false; imgCfg.testLevel = "none"; imgCfgTest = null; imgTestSeq += 1; syncFetchBtn(); });
+  const syncFetchBtn = () => {
+    const b = m.querySelector('[data-cfg="fetch"]');
+    if (!b) return;
+    b.disabled = imgCfg.fetching || !canFetchImgModels();
+    b.title = canFetchImgModels() ? "重新拉取模型清单" : "先填 Base URL 与 API Key（编辑态可留空沿用已存 Key）";
+  };
+  modelEl.addEventListener("input", () => {
+    imgCfg.model = modelEl.value;
+    imgCfg.tested = false;
+    imgCfg.testLevel = "none";
+    imgCfgTest = null;
+    imgTestSeq += 1;
+    if (!imgCfg.pickerOpen) {
+      imgCfg.pickerOpen = true;
+      renderImgCfgModal();
+      const again = $("#imgCfgModal #icModel");
+      if (again) { again.focus(); again.setSelectionRange(again.value.length, again.value.length); }
+    }
+  });
+  modelEl.addEventListener("focus", () => {
+    if (!imgCfg.pickerOpen) {
+      imgCfg.pickerOpen = true;
+      renderImgCfgModal();
+      const again = $("#imgCfgModal #icModel");
+      if (again) { again.focus(); again.setSelectionRange(again.value.length, again.value.length); }
+    }
+  });
+}
+
+function applyImgVendor(vendorId) {
+  const item = IMG_VENDORS.find((x) => x.id === vendorId) || IMG_VENDORS[0];
+  imgCfg.vendor = vendorId;
+  imgCfg.base = item.base;
+  imgCfg.model = item.model;
+  imgCfg.vendorChanged = imgCfg.mode === "edit" && vendorId !== imgSaved.vendor;
+  imgCfg.key = "";
+  imgCfg.models = vendorId === imgSaved.vendor
+    ? imgSaved.models.slice()
+    : (IMG_MODELS[vendorId] || []).slice();
+  imgCfg.fetching = false;
+  imgCfg.fetchMeta = vendorId === imgSaved.vendor && imgSaved.models.length ? `已存 ${imgSaved.models.length} 个模型` : "";
+  imgCfg.fetchTone = imgCfg.fetchMeta ? "ok" : "";
+  imgCfg.fetchErr = "";
+  imgCfg.modelNote = "";
+  imgCfg.pickerOpen = false;
+  imgCfg.pendingVendor = null;
+  imgCfg.vendorPicker = false;
+  imgCfg.tested = false;
+  imgCfg.testLevel = "none";
+  imgTestSeq += 1;
+  imgFetchSeq += 1;
+  imgCfgTest = null;
+  renderImgCfgModal();
+}
+
+function canFetchImgModels() {
+  // 以 state 为准（render 时 DOM 还是上一版，读 DOM 会把按钮算成禁用；输入时 syncFetchBtn 同步 state）
+  // 编辑态允许留空 Key（沿用已存 Key 拉清单，与 api-config 编辑态一致）
+  const needKey = imgCfg.mode === "create" || imgCfg.vendorChanged;
+  return !!imgCfg.base.trim() && (!needKey || !!imgCfg.key.trim());
+}
+
+function fetchImgModels() {
+  const m = $("#imgCfgModal");
+  if (!m) return;
+  readImgCfg();
+  if (!canFetchImgModels()) {
+    imgCfg.fetchErr = "先填 Base URL 与 API Key";
+    imgCfg.pickerOpen = true;
+    renderImgCfgModal();
+    return;
+  }
+  imgCfg.fetching = true;
+  imgCfg.fetchErr = "";
+  imgCfg.fetchMeta = "正在获取模型清单…";
+  imgCfg.fetchTone = "";
+  imgCfg.pickerOpen = true;
+  renderImgCfgModal();
+  const seq = ++imgFetchSeq;
+  setTimeout(() => {
+    if (seq !== imgFetchSeq) return;
+    imgCfg.fetching = false;
+    const list = (IMG_MODELS[imgCfg.vendor] || []).slice();
+    if (list.length) {
+      imgCfg.models = list;
+      imgCfg.fetchMeta = `已拉到 ${list.length} 个模型`;
+      imgCfg.fetchTone = "ok";
+      if (!imgCfg.model.trim()) imgCfg.model = list[0];
+    } else {
+      imgCfg.models = [];
+      imgCfg.fetchMeta = "";
+      imgCfg.fetchErr = "该接口未返回模型清单——可手动填模型 id";
+    }
+    imgCfg.pickerOpen = true;
+    renderImgCfgModal();
+  }, 900);
+}
+
+function readImgCfg() {
+  const m = $("#imgCfgModal");
+  imgCfg.name = m.querySelector("#icName").value.trim();
+  imgCfg.base = m.querySelector("#icBase").value.trim();
+  imgCfg.key = m.querySelector("#icKey").value.trim();
+  imgCfg.model = m.querySelector("#icModel").value.trim();
+}
+
+function imgCfgValidate() {
+  if (imgCfg.mode === "edit" && !imgCfg.model.trim() && !imgCfg.vendorChanged) imgCfg.model = imgSaved.model;
+  if (!imgCfg.name.trim()) return "请输入配置名称";
+  if (!imgCfg.base.trim()) return "请输入 Base URL";
+  if (imgCfg.mode === "create" && !imgCfg.key.trim()) return "请输入 API Key";
+  if (imgCfg.mode === "edit" && imgCfg.vendorChanged && !imgCfg.key.trim()) return "更换供应商后，请重新填写这个供应商的 API Key";
+  if (!imgCfg.model.trim()) return imgCfg.vendorChanged ? "更换供应商后，请选择或填写模型" : "请选择或填写模型";
+  return null;
+}
+
+function runImgCfgTest() {
+  if (!isPro) { toast("图像生成是 PRO 权益", "warn"); return; }
+  readImgCfg();
+  const err = imgCfgValidate();
+  if (err) {
+    imgCfg.error = err;
+    imgCfgTest = null;
+    renderImgCfgModal();
+    return;
+  }
+  imgCfg.error = "";
+  imgCfg.testing = true;
+  imgCfg.pickerOpen = false;
+  const seq = ++imgTestSeq;
+  renderImgCfgModal();
+  setTimeout(() => {
+    if (seq !== imgTestSeq || !$("#imgCfgModal")) return;
+    imgCfg.testing = false;
+    imgCfg.tested = true;
+    imgCfg.testLevel = "reachable";
+    imgCfgTest = { ok: true, message: "地址与 Key 可用（免费探活，未出图、未计费）" };
+    renderImgCfgModal();
+  }, 1100);
+}
+
+function drawImgCfg() {
+  if (!isPro) { toast("图像生成是 PRO 权益", "warn"); return; }
+  readImgCfg();
+  const err = imgCfgValidate();
+  if (err) {
+    imgCfg.error = err;
+    imgCfgTest = null;
+    renderImgCfgModal();
+    return;
+  }
+  imgCfg.error = "";
+  imgCfg.testing = true;
+  imgCfg.pickerOpen = false;
+  imgCfgTest = null;
+  const seq = ++imgTestSeq;
+  renderImgCfgModal();
+  setTimeout(() => {
+    if (seq !== imgTestSeq || !$("#imgCfgModal")) return;
+    imgCfg.testing = false;
+    imgCfg.tested = true;
+    imgCfg.testLevel = "draw_ok";
+    imgCfgTest = { ok: true, message: "试画成功：1 张 512 × 512，14.2 秒（会计费）" };
+    renderImgCfgModal();
+  }, 1300);
+}
+
+function saveImgCfg() {
+  readImgCfg();
+  if (imgCfg.mode === "edit" && !imgCfg.model.trim() && !imgCfg.vendorChanged) imgCfg.model = imgSaved.model;
+  const err = imgCfgValidate();
+  if (err) {
+    imgCfg.error = err;
+    imgCfgTest = null;
+    renderImgCfgModal();
+    return;
+  }
+  const v = IMG_VENDORS.find((x) => x.id === imgCfg.vendor) || IMG_VENDORS[0];
+  imgSaved = {
+    vendor: imgCfg.vendor,
+    name: imgCfg.name,
+    base: imgCfg.base,
+    model: imgCfg.model,
+    caps: imgCfg.caps.slice(),
+    models: imgCfg.models.slice(),
+    tested: imgCfg.tested,
+    testLevel: imgCfg.testLevel,
+  };
+  imgCurrent = { label: v.label, model: imgCfg.model || v.model };
+  const card = $(".gl-img-card", $("#host-config"));
+  if (card) {
+    if (imgDeleted) { card.style.display = ""; imgDeleted = false; }
+    deleteUndoSeq += 1;
+    const icon = card.querySelector(".cfg-top .pv-icon");
+    if (icon) {
+      icon.title = v.sub ? `${v.label} · ${v.sub}` : v.label;
+      icon.innerHTML = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${v.glyph}</svg>`;
+    }
+    const nm = card.querySelector(".cfg-top .nm");
+    if (nm) nm.textContent = imgSaved.name;
+    const url = card.querySelector(".cfg-top .url");
+    if (url) url.textContent = imgSaved.base;
+    const models = card.querySelector(".models");
+    if (models) {
+      models.innerHTML = `<span class="m-chip">${esc(imgSaved.model)}</span>` +
+        imgSaved.caps.map((c) => {
+          const z = IMG_SIZES.find((x) => x.id === c);
+          return z ? `<span class="m-chip">${z.use} ${z.size}</span>` : "";
+        }).join("");
+    }
+    const res = card.querySelector(".cfg-foot .res");
+    if (res) res.textContent = "";
+    const badge = card.querySelector(".cfg-top .b");
+    if (badge) {
+      badge.className = "b " + (imgCfg.testLevel === "none" ? "muted" : "ok");
+      badge.textContent = imgCfg.testLevel === "draw_ok" ? "已试画" : (imgCfg.testLevel === "reachable" ? "地址可用" : "未测试");
+    }
+  }
+  closeModal("imgCfgModal", "imgCfgScrim");
+  toast("配置已保存", "ok");
+}
+
+/* 卡片「测试连接」：结果写在卡片 .cfg-foot .res 行（与写作大模型一致） */
+function runImgCardTest() {
+  if (!isPro) { toast("图像生成是 PRO 权益", "warn"); return; }
+  const card = $(".gl-img-card", $("#host-config"));
+  if (!card) return;
+  const res = card.querySelector(".cfg-foot .res");
+  const btn = card.querySelector('[data-card-test]');
+  if (btn) { btn.disabled = true; btn.textContent = "测试中…"; }
+  if (res) { res.className = "res"; res.textContent = "测试中…"; }
+  setTimeout(() => {
+    if (!document.body.contains(card)) return;
+    if (btn) { btn.disabled = false; btn.textContent = "测试连接"; }
+    if (res) { res.className = "res ok"; res.textContent = "地址与 Key 可用（免费探活，未出图）"; }
+    imgSaved.tested = true;
+    imgSaved.testLevel = "reachable";
+    const badge = card.querySelector(".cfg-top .b");
+    if (badge) { badge.className = "b ok"; badge.textContent = "地址可用"; }
+  }, 1200);
+}
+
+/* 删除：独立确认弹窗（影响盘点 + 可撤销口径，与写作大模型一致） */
+function openImgDelModal() {
+  $("#imgDelModal").innerHTML = `
+  <div class="mcard" style="width: min(460px, 92vw);">
+    <div class="mcard-head"><span class="mh serif">删除配置</span>
+      <button class="icon-btn x" aria-label="关闭" data-del="cancel"><svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 6l12 12M18 6L6 18"/></svg></button>
+    </div>
+    <div class="mcard-body">
+      <p style="margin:0;font-size:13.5px;line-height:1.7">确定删除配置 <b>「${esc(imgSaved.name)}」</b>？</p>
+      <div class="del-inventory">
+        <span class="inv-title">删除影响</span>
+        <span class="inv-chip">关联书籍 1 本</span>
+        <span class="inv-chip">封面 768 × 1024</span>
+        <span class="inv-chip">头像 512 × 512</span>
+      </div>
+      <p style="margin:8px 0 0;font-size:12.5px;color:var(--muted)">删除后这本书将无法再生成新图；已生成的封面/头像继续显示。此操作可撤销。</p>
+    </div>
+    <div class="mcard-foot">
+      <button class="btn btn-secondary" data-del="cancel">取消</button>
+      <button class="btn btn-danger" data-del="confirm">确认删除</button>
+    </div>
+  </div>`;
+  $("#imgDelModal").querySelectorAll("[data-del]").forEach((el) => el.addEventListener("click", () => {
+    if (el.dataset.del === "confirm") {
+      const card = $(".gl-img-card", $("#host-config"));
+      const prevDisplay = card ? card.style.display : "";
+      const prevCurrent = { ...imgCurrent };
+      if (card) card.style.display = "none";
+      imgDeleted = true;
+      const seq = ++deleteUndoSeq;
+      imgCurrent = { label: "未配置", model: "去图像模型里添加" };
+      closeModal("imgDelModal", "imgDelScrim");
+      toast("配置已删除", "ok", {
+        label: "撤销",
+        onClick: () => {
+          if (seq !== deleteUndoSeq || !imgDeleted) return;
+          if (card) card.style.display = prevDisplay;
+          imgDeleted = false;
+          imgCurrent = prevCurrent;
+          toast("配置已恢复", "ok");
+        },
+      });
+    } else {
+      closeModal("imgDelModal", "imgDelScrim");
+    }
+  }));
+  openModal("imgDelModal", "imgDelScrim");
+}
+
+/* ══════════ 初始化 ══════════ */
+try {
+  renderShelf();
+  injectAvatars();
+  initConfig();
+  showScreen("shelf");
+  applyTier();
+  console.log("[proto] ready — books:", Object.keys(BOOKS).length, "chars:", Object.keys(CHARS).length);
+} catch (e) {
+  console.error("[proto] init failed", e);
+}
+</script>
+</body>
+</html>

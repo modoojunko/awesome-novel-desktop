@@ -20,6 +20,7 @@ from importlib import metadata
 
 WHITELIST = {
     "MIT",
+    "MIT-CMU",  # Pillow（PIL）
     "MIT-0",
     "ISC",
     "Apache-2.0",

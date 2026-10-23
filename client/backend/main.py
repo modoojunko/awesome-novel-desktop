@@ -16,6 +16,9 @@ from logging_setup import setup_logging
 setup_logging()
 
 from fastapi import FastAPI
+from fastapi.encoders import jsonable_encoder
+from fastapi.exception_handlers import request_validation_exception_handler
+from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
@@ -43,6 +46,7 @@ from chapters.versions import router as chapters_versions_router
 from db import Base, async_session, engine
 from deconstruct.router import router as deconstruct_router  # c-deconstruct-book
 from genres.router import router as genres_router
+from image_assets.router import router as image_assets_router
 from manuscript.router import router as manuscript_router
 from models.user import User
 from novels.events_router import router as events_router
@@ -228,6 +232,16 @@ async def lifespan(app: FastAPI):
     async with async_session() as _crypto_session:
         await init_crypto(_crypto_session)
 
+    # ── 图像资产签名密钥 + 过期候选/撤销残留清扫（c-cover-avatar）────────
+    # 必须在服务任何请求之前完成：签名 URL 的 GET 读取路径不允许懒建密钥。
+    try:
+        from image_assets.service import initialize_image_assets
+
+        async with async_session() as _img_session:
+            await initialize_image_assets(_img_session)
+    except Exception as _e:  # noqa: BLE001 — 图像功能失败不挡写作主链启动
+        _log.error("image assets init failed: %s", _e)
+
     # ── Migrate config.json → User table ────────────────────────────
     # 身份识别统一用 S端 用户标识：users.username 是 S端 主键，C端 User.id /
     # projects.user_id 等均取该标识（即 user_id = S端 用户名），不引入第二套
@@ -314,6 +328,27 @@ async def lifespan(app: FastAPI):
 # 承接，不再存在任何对既有库执行 DDL 的路径（ADDITIVE_COLUMNS 一并删除）。
 
 app = FastAPI(title=f"{brand.BRAND_NAME} (Local)", version="0.2.0", lifespan=lifespan)
+
+
+@app.exception_handler(RequestValidationError)
+async def _image_validation_handler(request, exc):
+    """图像端点 422 也走 {code,message} 契约；其他端点保持 FastAPI 默认形状。"""
+    path = request.url.path
+    if (
+        path.startswith("/api/image-")
+        or "/image-settings" in path
+        or "/image-assets" in path
+        or "/image-prompt" in path
+    ):
+        return JSONResponse(
+            status_code=422,
+            content={"detail": {
+                "code": "validation_error",
+                "message": "请求参数不合法",
+                "fields": jsonable_encoder(exc.errors()),
+            }},
+        )
+    return await request_validation_exception_handler(request, exc)
 
 
 @app.exception_handler(PromptPackMissing)
@@ -472,6 +507,7 @@ app.include_router(workflow_backfill_router)
 
 # API Key Config management (v1)
 app.include_router(api_configs_router)
+app.include_router(image_assets_router)
 app.include_router(zhuque_config_router)
 app.include_router(zhuque_check_router)
 app.include_router(zhuque_result_router)
