@@ -1253,3 +1253,36 @@ class TestFrozenFallback:
             time.sleep(0.2)
         assert st["state"] == "done", st
         assert st["report"]["status"] == "ok"
+
+
+def test_image_configs_key_reencrypted(tmp_path):
+    """image_configs 与 api_configs 共用钥匙：目标钥匙解不开时按源钥转接。"""
+    from cryptography.fernet import Fernet
+
+    from api_configs.crypto import decrypt_api_key
+    from migration.engine import _reencrypt_dead_image_ciphertexts
+
+    old_key = Fernet.generate_key()
+    src = sqlite3.connect(":memory:")
+    src.execute("CREATE TABLE app_meta (key TEXT PRIMARY KEY, value TEXT)")
+    src.execute("INSERT INTO app_meta VALUES ('fernet_key', ?)", (old_key.decode(),))
+    tgt = sqlite3.connect(":memory:")
+    tgt.execute("CREATE TABLE image_configs (id TEXT PRIMARY KEY, api_key TEXT)")
+    old_token = "enc:" + Fernet(old_key).encrypt(b"sk-image-live").decode()
+    tgt.execute("INSERT INTO image_configs VALUES ('img1', ?)", (old_token,))
+
+    dead = _reencrypt_dead_image_ciphertexts(tgt, src, tmp_path)
+    assert dead == 0
+    stored = tgt.execute("SELECT api_key FROM image_configs WHERE id='img1'").fetchone()[0]
+    assert stored != old_token
+    assert decrypt_api_key(stored) == "sk-image-live"
+
+    # 源钥也不可得：保持原样并计入 dead_image_keys 口径
+    tgt2 = sqlite3.connect(":memory:")
+    tgt2.execute("CREATE TABLE image_configs (id TEXT PRIMARY KEY, api_key TEXT)")
+    tgt2.execute("INSERT INTO image_configs VALUES ('img2', ?)", (
+        "enc:" + Fernet(Fernet.generate_key()).encrypt(b"sk-dead").decode(),
+    ))
+    src2 = sqlite3.connect(":memory:")
+    src2.execute("CREATE TABLE app_meta (key TEXT PRIMARY KEY, value TEXT)")
+    assert _reencrypt_dead_image_ciphertexts(tgt2, src2, tmp_path) == 1

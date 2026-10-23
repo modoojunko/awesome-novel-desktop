@@ -205,6 +205,7 @@ async def _import_characters(
                 id_remap[old_id] = str(uuid.uuid4())
         for raw in cards:
             seq += 1
+            original_id = str(raw.get("id") or "")
             raw_id = raw.get("id")
             if raw_id and raw_id in id_remap:
                 raw_id = id_remap[raw_id]
@@ -221,6 +222,8 @@ async def _import_characters(
                 legacy=json.dumps(raw.get("legacy") or {}, ensure_ascii=False),
             )
             db.add(ch)
+            if original_id:
+                id_remap[original_id] = ch.id
         rels = yaml.safe_load(zf.read(v2_rel_name)) if v2_rel_name in set(names) else []
         from models.character import CharacterRelation as _CR
         all_existing_rels = set(
@@ -251,7 +254,7 @@ async def _import_characters(
         if cards:
             novel.character_seq_high = max(novel.character_seq_high, max(
                 int(c.get("seq") or 0) for c in cards))
-        return origin_pending
+        return origin_pending, id_remap
 
     # v1：settings/character-setting/*.yaml → 映射进新形状
     v1_names = sorted(
@@ -283,7 +286,7 @@ async def _import_characters(
         await db.flush()
         novel.character_seq_high = max(novel.character_seq_high, seq)
 
-    return origin_pending
+    return origin_pending, {}
 
 async def _resolve_character_ids(db, novel_id: str) -> dict[str, str]:
     """本书的名字/别名 → 角色 id（导入路径的 id 绑定用）。"""
@@ -568,6 +571,143 @@ async def _import_hooks(
     await db.flush()
 
 
+async def _import_images(
+    db, zf: zipfile.ZipFile, names: set[str], book_dir: str, novel,
+    user_id: str, id_remap: dict[str, str], warnings: list[str],
+) -> None:
+    """v7 图像段：manifest + full/thumb BLOB → current 资产与书/角色设置。"""
+    import hashlib
+
+    from image_assets.prompt_builder import STYLE_KEYS
+    from models.character import Character
+    from models.image_asset import (
+        BookImageSettings,
+        CharacterImageSettings,
+        ImageAsset,
+        ImageAssetBlob,
+        ImageConfig,
+    )
+
+    manifest_name = f"{book_dir}images/manifest.yaml"
+    if manifest_name not in names:
+        return
+    try:
+        manifest = yaml.safe_load(zf.read(manifest_name)) or {}
+    except (yaml.YAMLError, UnicodeDecodeError) as e:
+        warnings.append(f"图像 manifest 解析失败，已跳过：{e}")
+        return
+    if not isinstance(manifest, dict):
+        warnings.append("图像 manifest 形状非法，已跳过")
+        return
+
+    book = manifest.get("book") if isinstance(manifest.get("book"), dict) else {}
+    config_id = None
+    config_name = str(book.get("image_config_name") or "").strip()
+    if config_name:
+        cfg = (await db.execute(select(ImageConfig).where(
+            ImageConfig.user_id == user_id,
+            ImageConfig.name == config_name,
+            ImageConfig.status == "active",
+        ))).scalar_one_or_none()
+        if cfg:
+            config_id = cfg.id
+        else:
+            warnings.append(f"图像配置「{config_name}」不存在，书绑定已置空")
+    style_key = str(book.get("style_key") or "ink")
+    if style_key not in STYLE_KEYS:
+        warnings.append(f"未知画风「{style_key}」，已回落 ink")
+        style_key = "ink"
+    db.add(BookImageSettings(
+        novel_id=novel.id,
+        style_key=style_key,
+        cover_prompt=str(book.get("cover_prompt") or ""),
+        cover_seed=_int_or_none(book.get("cover_seed")),
+        image_config_id=config_id,
+        image_model=str(book.get("image_model") or ""),
+    ))
+
+    for row in manifest.get("characters") or []:
+        if not isinstance(row, dict):
+            continue
+        old_id = str(row.get("character_id") or "")
+        new_id = id_remap.get(old_id, old_id)
+        if not new_id or await db.get(Character, new_id) is None:
+            warnings.append(f"角色图像设置找不到角色 {old_id}，已跳过")
+            continue
+        db.add(CharacterImageSettings(
+            character_id=new_id,
+            avatar_prompt=str(row.get("avatar_prompt") or ""),
+            seed=_int_or_none(row.get("seed")),
+        ))
+
+    existing_asset_ids = set(await db.scalars(select(ImageAsset.id)))
+    seen_targets: set[tuple[str, str]] = set()
+    for raw in manifest.get("assets") or []:
+        if not isinstance(raw, dict):
+            continue
+        kind = str(raw.get("kind") or "")
+        if kind not in {"cover", "avatar"}:
+            warnings.append(f"未知图像类型 {kind!r}，已跳过")
+            continue
+        old_asset_id = str(raw.get("asset_id") or "")
+        if not old_asset_id:
+            warnings.append("图像 manifest 缺 asset_id，已跳过")
+            continue
+        old_char_id = str(raw.get("character_id") or "")
+        new_char_id = id_remap.get(old_char_id, old_char_id) if old_char_id else None
+        if kind == "avatar":
+            if not new_char_id or await db.get(Character, new_char_id) is None:
+                warnings.append(f"头像找不到角色 {old_char_id}，已跳过")
+                continue
+        elif new_char_id:
+            new_char_id = None
+        target = (kind, new_char_id or novel.id)
+        if target in seen_targets:
+            warnings.append(f"{kind} 出现多张 current，已保留第一张")
+            continue
+        seen_targets.add(target)
+        full_name = f"{book_dir}images/{old_asset_id}-full.webp"
+        thumb_name = f"{book_dir}images/{old_asset_id}-thumb.webp"
+        if full_name not in names or thumb_name not in names:
+            warnings.append(f"图像 {old_asset_id} 缺 full/thumb，已跳过")
+            continue
+        full = zf.read(full_name)
+        thumb = zf.read(thumb_name)
+        sha = hashlib.sha256(full).hexdigest()
+        if raw.get("sha256") and raw["sha256"] != sha:
+            warnings.append(f"图像 {old_asset_id} 哈希不符，已跳过")
+            continue
+        new_asset_id = old_asset_id if old_asset_id not in existing_asset_ids else str(uuid.uuid4())
+        existing_asset_ids.add(new_asset_id)
+        db.add(ImageAsset(
+            id=new_asset_id, user_id=user_id, novel_id=novel.id,
+            character_id=new_char_id, kind=kind, status="current",
+            version=int(raw.get("version") or 1), sha256=sha,
+            mime=str(raw.get("mime") or "image/webp"),
+            width=int(raw.get("width") or 0), height=int(raw.get("height") or 0),
+            bytes=len(full), source=str(raw.get("source") or "upload"),
+            provider=raw.get("provider"), model=raw.get("model"),
+            style_key=raw.get("style_key"),
+            prompt_hash=raw.get("prompt_hash"), prompt_text=raw.get("prompt_text"),
+            negative_prompt=raw.get("negative_prompt"),
+            prompt_template_version=_int_or_none(raw.get("prompt_template_version")),
+            seed=_int_or_none(raw.get("seed")),
+            adopted_at=_parse_dt(raw.get("adopted_at")),
+        ))
+        db.add(ImageAssetBlob(asset_id=new_asset_id, variant="full", data=full))
+        db.add(ImageAssetBlob(asset_id=new_asset_id, variant="thumb", data=thumb))
+    await db.flush()
+
+
+def _int_or_none(value):
+    if value is None or value == "":
+        return None
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return None
+
+
 async def _import_single_book(
     db, zf: zipfile.ZipFile, book_dir: str, user_id: str, warnings: list[str] | None = None
 ) -> str:
@@ -619,7 +759,11 @@ async def _import_single_book(
     # v2 布局 = characters/*.yaml（直读）；v1 布局 = settings/character-setting/*.yaml（映射）。
     # 设定循环不碰角色文件（route_relative_path 对 character: 前缀会返回 KV 键——
     # 真表上线后那是无人读的死数据；防御性 continue 在下方 settings 分支里）。
-    origin_pending = await _import_characters(db, zf, names, book_dir, novel)
+    origin_pending, id_remap = await _import_characters(db, zf, names, book_dir, novel)
+    await _import_images(
+        db, zf, names, book_dir, novel, user_id, id_remap,
+        warnings if warnings is not None else [],
+    )
 
     # story.yaml / threads.yaml 恢复（与导出侧 dump_book_into 对称；
     # 往返测试发现缺口：此前这两个文件只导出不导入，恢复后简介/线索静默丢失）
@@ -843,6 +987,7 @@ async def _restore_config(db, user_id: str, config_data: dict) -> dict:
     """
     from api_configs.crypto import encrypt_api_key
     from models.api_config import ApiConfig
+    from models.image_asset import ImageConfig
     from models.user import User
 
     created = skipped = 0
@@ -898,7 +1043,56 @@ async def _restore_config(db, user_id: str, config_data: dict) -> dict:
         ))
         created += 1
     await db.flush()
-    return {"created": created, "skipped": skipped, "user_filled": user_filled}
+
+    image_created = image_skipped = 0
+    if "image_configs" in config_data:
+        existing_image = {
+            c.name
+            for c in (
+                await db.scalars(
+                    select(ImageConfig).where(ImageConfig.user_id == user_id)
+                )
+            ).all()
+        }
+        has_default = any(
+            c.is_default for c in (
+                await db.scalars(
+                    select(ImageConfig).where(
+                        ImageConfig.user_id == user_id,
+                        ImageConfig.status == "active",
+                    )
+                )
+            ).all()
+        )
+        for c in config_data.get("image_configs") or []:
+            name = str(c.get("name") or "")
+            if not name or name in existing_image:
+                image_skipped += 1
+                continue
+            status = str(c.get("status") or "active")
+            is_default = bool(c.get("is_default")) and status == "active" and not has_default
+            if is_default:
+                has_default = True
+            db.add(ImageConfig(
+                user_id=user_id,
+                name=name,
+                provider=str(c.get("provider") or ""),
+                base_url=str(c.get("base_url") or ""),
+                api_key=encrypt_api_key(str(c.get("api_key") or "")),
+                default_model=str(c.get("default_model") or ""),
+                models=str(c.get("models") or "[]"),
+                declared_capabilities=str(c.get("declared_capabilities") or "{}"),
+                is_default=is_default,
+                status=status,
+            ))
+            existing_image.add(name)
+            image_created += 1
+        await db.flush()
+
+    summary = {"created": created, "skipped": skipped, "user_filled": user_filled}
+    if "image_configs" in config_data:
+        summary.update(image_created=image_created, image_skipped=image_skipped)
+    return summary
 
 
 async def _name_taken(db, user_id: str, name: str) -> bool:

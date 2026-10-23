@@ -139,31 +139,16 @@ def _sqlite_rw(path: Path) -> sqlite3.Connection:
 # ── 第 0 步：预检 ──────────────────────────────────────────────────────────
 
 
-def _reencrypt_dead_ciphertexts(tgt: sqlite3.Connection,
-                                src_con: sqlite3.Connection,
-                                data_root: Path) -> int:
-    """密钥转接（c-lossless-upgrade D3）：修「目标钥匙解不开」的 api_configs 行。
+def _source_fernets(src_con: sqlite3.Connection, data_root: Path) -> list:
+    from cryptography.fernet import Fernet
 
-    候选源钥依次为：①源库 app_meta.fernet_key 行（src_con＝只读 work 副本，
-    app_meta 表在副本内完整——EXCLUDED_TABLES 只影响 INSERT 计划）；②数据目录
-    旧 `.fernet_key` 文件（按本次搬运的 data_root 解析，不依赖 import 期常量）。
-    源钥内容非法按「不可得」降级（构造失败即跳过，不使搬运失败）。
-    只碰目标钥匙解不开的行（幂等；可解行永不触碰，目标原生密文不受影响）；
-    目标钥匙经 api_configs.crypto 取（init_crypto 已在 lifespan 先行；Fernet
-    无共享可变态，本后台线程使用安全）。返回搬后目标库不可解 enc: 行数
-    （含目标库既有死文——只报事实不断言成因）。
-    """
-    from cryptography.fernet import Fernet, InvalidToken
-
-    from api_configs import crypto as _crypto
-
-    def _load(raw) -> Fernet | None:
+    def _load(raw):
         try:
             return Fernet(raw)
         except Exception:  # noqa: BLE001 —— 非法钥＝不可得，降级
             return None
 
-    source_keys: list[Fernet] = []
+    source_keys = []
     try:
         row = src_con.execute(
             "SELECT value FROM app_meta WHERE key = 'fernet_key'"
@@ -182,15 +167,25 @@ def _reencrypt_dead_ciphertexts(tgt: sqlite3.Connection,
                 source_keys.append(fk)
     except OSError:
         pass
+    return source_keys
 
-    def _decrypt(f: Fernet, token: str) -> str | None:
+
+def _reencrypt_table(tgt: sqlite3.Connection, table: str, source_keys: list) -> int:
+    """把目标库里「当前钥匙解不开、源钥可解」的 enc: 行按目标钥匙重加密。"""
+    from cryptography.fernet import InvalidToken
+
+    from api_configs import crypto as _crypto
+
+    def _decrypt(f, token: str) -> str | None:
         try:
             return f.decrypt(token.encode("utf-8")).decode("utf-8")
         except (InvalidToken, ValueError):
             return None
 
+    if not _has_table(tgt, f"main.{table}"):
+        return 0
     rows = tgt.execute(
-        "SELECT rowid, api_key FROM main.api_configs WHERE api_key LIKE 'enc:%'"
+        f"SELECT rowid, api_key FROM main.{table} WHERE api_key LIKE 'enc:%'"
     ).fetchall()
     dead = 0
     for rowid, stored in rows:
@@ -206,10 +201,24 @@ def _reencrypt_dead_ciphertexts(tgt: sqlite3.Connection,
             continue
         new_stored = _crypto.encrypt_api_key(plaintext)
         tgt.execute(
-            "UPDATE main.api_configs SET api_key = ? WHERE rowid = ?",
+            f"UPDATE main.{table} SET api_key = ? WHERE rowid = ?",
             (new_stored, rowid),
         )
     return dead
+
+
+def _reencrypt_dead_ciphertexts(tgt: sqlite3.Connection,
+                                src_con: sqlite3.Connection,
+                                data_root: Path) -> int:
+    """密钥转接（c-lossless-upgrade D3）：修 api_configs 里目标钥匙解不开的行。"""
+    return _reencrypt_table(tgt, "api_configs", _source_fernets(src_con, data_root))
+
+
+def _reencrypt_dead_image_ciphertexts(tgt: sqlite3.Connection,
+                                      src_con: sqlite3.Connection,
+                                      data_root: Path) -> int:
+    """同一把钥匙的 image_configs 转接；图像 Key 不能因只搬写作配置而漏掉。"""
+    return _reencrypt_table(tgt, "image_configs", _source_fernets(src_con, data_root))
 
 
 def precheck(data_root: Path, source_filename: str, active_db_path: Path) -> dict:
@@ -355,7 +364,8 @@ def build_plan(staged: Path) -> dict:
                         "columns": src_schema[tname]})
     # dead_keys/complete 是搬后结果——preview 恒 None（同构＝字段集合一致，不造数）
     return {"v": 1, "tables": plan, "tables_skipped": skipped, "backfills": backfills,
-            "dead_keys": None, "complete": None, "planned_at": _now_iso()}
+            "dead_keys": None, "dead_api_keys": None, "dead_image_keys": None,
+            "complete": None, "planned_at": _now_iso()}
 
 
 # ── 执行（六步） ──────────────────────────────────────────────────────────
@@ -376,7 +386,8 @@ def run_migration(data_root: Path, source_filename: str, active_db_path: Path,
     work_dir: Path | None = None  # 早退路径（precheck/拷贝失败）时 finally 不误清
     report = {"v": 1, "source": source_filename, "at": _now_iso(),
               "tables": [], "tables_skipped": [], "fk_violations": [],
-              "dead_keys": 0, "complete": None,
+              "dead_keys": 0, "dead_api_keys": 0, "dead_image_keys": 0,
+              "complete": None,
               # source＝源库书数；migrated＝**本次真正带回**的书数（目标已有书时不得虚高）；
               # present＝源书在目标库的在场数（幂等于重带——完整判定与「已带回」
               # 展示的单源，c-carry-retry-complete）；target_after＝合并后目标库总数
@@ -532,21 +543,25 @@ def run_migration(data_root: Path, source_filename: str, active_db_path: Path,
                     f'WHERE id IN (SELECT id FROM mig_src."{seed_table}")'
                 )
 
-            # 4.6 密钥转接（c-lossless-upgrade D3）：只修「目标钥匙解不开」的行——
-            # 依次用源库钥匙行（staged 副本 app_meta 可读：EXCLUDED_TABLES 只影响
-            # INSERT 计划，不影响 ATTACH 读取）与数据目录旧钥匙文件（按本次搬运的
-            # data_root 解析，不依赖 import 期常量）解密，成功者按目标钥匙重加密
-            # 原地改写；两把皆解不开则保持原样，dead_keys 只报事实不断言成因。
-            # 仅本次 api_configs 有迁入行时执行（幂等：可解行永不触碰）。
-            if any(e["table"] == "api_configs" and e.get("rows_inserted")
-                   for e in report["tables"]):
+            # 4.6 密钥转接：api_configs 与 image_configs 共用同一 Fernet 钥匙；
+            # 图像配置不能因“只搬写作配置”而漏转接。
+            moved_tables = {
+                e["table"] for e in report["tables"] if e.get("rows_inserted")
+            }
+            if moved_tables & {"api_configs", "image_configs"}:
                 try:
-                    report["dead_keys"] = _reencrypt_dead_ciphertexts(
-                        tgt, src_con, data_root)
+                    api_dead = _reencrypt_dead_ciphertexts(tgt, src_con, data_root)
+                    image_dead = _reencrypt_dead_image_ciphertexts(tgt, src_con, data_root)
+                    report["dead_api_keys"] = api_dead
+                    report["dead_image_keys"] = image_dead
+                    report["dead_keys"] = api_dead + image_dead
                 except Exception:  # noqa: BLE001 —— 转接失败不阻断迁入（沿用死文统计的容错口径）
                     logger.warning("migration: 密钥转接失败（按不转接处理）", exc_info=True)
                 else:
-                    logger.info("event=migration_dead_keys dead=%d", report["dead_keys"])
+                    logger.info(
+                        "event=migration_dead_keys api=%d image=%d",
+                        report["dead_api_keys"], report["dead_image_keys"],
+                    )
 
             # 5 核对：FK 违规只报不删 + 存在性核对 + 书计数
             _emit("verify", tables_total=tables_total, tables_done=tables_done)
@@ -633,9 +648,11 @@ def run_migration(data_root: Path, source_filename: str, active_db_path: Path,
             # （含目标库既有死文）——文案只报事实；运行期由「密文无法解密」的
             # 503 no_key 引导承接。转接未执行（api_configs 无迁入行）时保持初值 0。
             if report.get("dead_keys"):
+                api_n = report.get("dead_api_keys", 0)
+                image_n = report.get("dead_image_keys", 0)
                 report["notes"].append(
-                    f"{report['dead_keys']} 条配置的 API Key 按当前加密钥匙不可解"
-                    "——请在「模型配置」重新粘贴保存"
+                    f"有 {api_n} 条写作配置、{image_n} 条图像配置的 API Key "
+                    "按当前加密钥匙不可解——请在「模型配置」重新粘贴保存"
                 )
             tgt.commit()
         finally:
