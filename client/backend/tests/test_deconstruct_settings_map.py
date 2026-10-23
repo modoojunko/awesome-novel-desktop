@@ -264,3 +264,18 @@ def test_genre_extras_prefers_product_fields():
     assert meta["cost_ratio"] == 5
     assert meta["battlefield"] == ["爬地位"]
     assert meta["inferred"] == []
+
+
+def test_genre_extras_ignores_broad_single_char_keywords():
+    """普通都市文本里的「查看/命令/村庄」不能误判成查真相/高代价/搞基建。"""
+    meta = sm.intro_genre_body(
+        {},
+        {
+            "genre": "都市",
+            "promise": "她查看手机，有人下达命令，有些感慨，住在村庄，爱情刚起步。",
+        },
+        None,
+        None,
+    )
+    assert meta["battlefield"] == ["争感情"]
+    assert meta["cost_ratio"] == 4
