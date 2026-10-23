@@ -48,6 +48,10 @@ HIDDEN_IMPORTS: tuple[str, ...] = (
 DATAS: tuple[tuple[str, str], ...] = (
     ("client/frontend/dist", "frontend"),
     ("client/backend/reference", "reference"),
+    # 拆书图谱查看器模板＋vendor（c-graph-net-cytoscape）：render.py 运行时按 __file__/assets
+    # 定位读取。v0.38 及之前缺此条目——安装包内无 graph_viewer.html，带图谱导出会 400（既有缺口，
+    # 本次补上并加打包冒烟断言）。
+    ("client/backend/deconstruct/assets", "deconstruct/assets"),
     ("brand/brand.json", "."),  # 品牌单源：backend/brand.py 运行时探测读取
     ("LICENSE", "."),  # 许可全文与声明随包（c-relicense-agpl）：PyInstaller≥6 落 _internal/（macOS 唯一通道；
     ("THIRD-PARTY-NOTICES.txt", "."),  # Windows 另由 installer.iss 显式落 {app} 根，双份冗余属预期）
