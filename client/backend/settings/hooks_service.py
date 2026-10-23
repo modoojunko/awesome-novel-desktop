@@ -99,7 +99,7 @@ async def list_hooks(session: AsyncSession, novel_id: str) -> dict:
 
 async def _load_novel(session: AsyncSession, novel_id: str) -> Novel:
     novel = await session.get(Novel, novel_id)
-    if novel is None:
+    if novel is None or novel.status == "deleted":
         raise Unprocessable("not_found", "书不存在")
     return novel
 

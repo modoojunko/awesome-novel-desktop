@@ -295,7 +295,8 @@ class TestHooksCrud:
     def test_post_unknown_novel_rejected(self, client):
         c, _nid = client
         r = c.post("/api/novels/no-such-novel/hooks", json={"description": "x"})
-        assert r.status_code == 400
+        # 书级闸统一 404（照 characters_router；软删书同口径，见 test_novel_soft_delete）
+        assert r.status_code == 404
 
 
 # ── 级联（tasks 1.2 / 2.2）────────────────────────────────────────────────

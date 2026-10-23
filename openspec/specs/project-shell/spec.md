@@ -1,7 +1,9 @@
 # project-shell Specification
 
 ## Purpose
-TBD - created by archiving change 003-two-tier-foundation. Update Purpose after archive.
+
+书工作台路由壳：`/novel/:id` 进入后按 id 拉一次作品详情，经 Context 下发给工作台与书栏；
+加载中给骨架、失败不崩、作品已删除或不存在时回书架并说明，保证工作台只消费有效作品的上下文。
 
 ## Requirements
 
@@ -29,6 +31,7 @@ TBD - created by archiving change 003-two-tier-foundation. Update Purpose after 
 - The `ProjectShell` SHALL call `GET /novels/{id}` once on route id change and expose `{ project, loading, error }` via context.
 - While fetching, `loading` SHALL be true (consumers — e.g. NovelPage — render the existing skeleton).
 - On failure, `project` SHALL be null and `error` set (no crash).
+- On `404` (作品已删除或不存在), the shell SHALL toast「作品不存在或已删除」and replace-navigate to the shelf `/`; other failures SHALL keep the current route with `error` set (no redirect).
 - The hook SHALL return safe defaults `{ project: null, loading: false, error: null }` when called outside the `ProjectShell` provider.
 
 #### Scenario: Descendant reads project
@@ -45,3 +48,9 @@ TBD - created by archiving change 003-two-tier-foundation. Update Purpose after 
 - Given `GET /novels/{id}` rejects
 - When the shell finishes loading
 - Then `project` is null, `error` is set, and no exception escapes
+
+#### Scenario: Deleted or missing novel returns to shelf
+- Given `GET /novels/{id}` rejects with status 404 (作品已删除或不存在)
+- When the shell handles the failure
+- Then it toasts「作品不存在或已删除」and replace-navigates to `/`; the workbench SHALL NOT render that novel's content
+

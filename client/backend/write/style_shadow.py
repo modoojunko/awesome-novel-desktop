@@ -49,7 +49,7 @@ def _baseline_lines(doc: dict) -> list[dict]:
 
 async def _load_project_chapter(db: AsyncSession, project_id: str, chapter_ref: str):
     project = await db.get(Novel, project_id)
-    if project is None:
+    if project is None or project.status == "deleted":
         raise HTTPException(404, "Project not found")
     ch = (
         await db.scalars(

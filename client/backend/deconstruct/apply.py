@@ -186,13 +186,23 @@ async def import_book(
     items＝作家在弹窗勾选的灌入项（7 设定项＋章卷结构/人物关系/写作技法）；
     None＝旧口径（任务勾选维度里的设定项）——二创默认轻量，自书续写勾三项。
     """
-    from novels.service import create_project
+    from models.project import Novel
+    from novels.service import create_project, get_novel
 
+    rebuilt_from_deleted = False
     if task.book_id:
-        return (
-            {"book_id": task.book_id, "name": task.book_name, "skipped": []},
-            ["任务已建过书（幂等返回），本次未重复写入；需要补灌请新建任务或删书重导"],
-        )
+        # 同一本书＝仍在且未软删；get_novel 的默认口径已排除 deleted（novel-delete 主 spec）
+        existing = await get_novel(db, task.book_id, user_id)
+        if existing is not None:
+            return (
+                {"book_id": task.book_id, "name": task.book_name, "skipped": []},
+                ["任务已建过书（幂等返回），本次未重复写入；需要补灌请新建任务或删书重导"],
+            )
+        # 幂等键指向软删/不存在/他人的书：键已失效，解绑后按本次勾选重新建书。
+        # 不复活旧行——用户删掉的作品不能在「再建一次」时原样回来（真机反馈）。
+        task.book_id = None
+        await db.commit()
+        rebuilt_from_deleted = True
 
     if items is None:
         selected = _selected(task)
@@ -201,6 +211,8 @@ async def import_book(
         selected = [k for k in IMPORT_ITEM_KEYS if k in picked]
 
     warnings: list[str] = []
+    if rebuilt_from_deleted:
+        warnings.append("原建书已被删除或不存在，已按本次勾选重新建书")
     # 简介/题材走同一投影：证据章号、分析尾巴不进设定；题材五字段一次落齐
     meta = sm.intro_genre_body(
         _data(task, "intro") if "intro" in selected else {},
@@ -331,8 +343,6 @@ async def import_book(
                 except IntegrityError as e:
                     # 单卡约束冲突不拖垮整本书：回滚本笔，后续维度继续
                     await db.rollback()
-                    from models.project import Novel
-
                     project = await db.get(Novel, book_id) or project
                     warnings.append(f"角色「{name}」未导入（数据库约束冲突：{str(e)[:60]}）")
                     break

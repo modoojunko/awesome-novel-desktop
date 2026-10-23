@@ -54,7 +54,7 @@ async def _chapter_by_ref(db: AsyncSession, project_id: str, chapter_ref: str, u
     if ch is None:
         raise HTTPException(404, "Chapter not found")
     novel = await db.get(Novel, project_id)
-    if novel is None or novel.user_id != user["id"]:
+    if novel is None or novel.user_id != user["id"] or novel.status == "deleted":
         raise HTTPException(404, "Chapter not found")
     return ch, novel
 
@@ -299,7 +299,7 @@ async def preview(
 ):
     """「截至本章」累计预览：与写章消费同一折叠单源（story_state_upto）。"""
     novel = await db.get(Novel, project_id)
-    if novel is None or novel.user_id != user["id"]:
+    if novel is None or novel.user_id != user["id"] or novel.status == "deleted":
         raise HTTPException(404, "Project not found")
     from write.story_state import story_state_upto
 
