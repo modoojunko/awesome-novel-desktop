@@ -1159,4 +1159,3 @@ async def put_character_settings(
         db, user_id, novel_id, character_id,
         {"avatar_prompt": prompt, "seed": seed}, partial=False,
     )
-
