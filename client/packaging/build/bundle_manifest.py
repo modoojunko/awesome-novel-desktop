@@ -38,6 +38,10 @@ HIDDEN_IMPORTS: tuple[str, ...] = (
     "backup", "backup.router", "backup.export", "backup.format", "backup.importer",
     "job_runner",
     "manuscript", "manuscript.router", "manuscript.service", "manuscript.content", "manuscript.render",
+    # 图像资产（c-cover-avatar 阶段 1）：上传/裁剪/WebP/签名读取
+    "image_assets", "image_assets.router", "image_assets.service",
+    "PIL.Image", "PIL.ImageOps", "PIL.WebPImagePlugin",
+    "PIL.JpegImagePlugin", "PIL.PngImagePlugin",
 )
 
 # ── datas ────────────────────────────────────────────────────────
@@ -65,5 +69,5 @@ CONDITIONAL_DATAS: tuple[tuple[str, str], ...] = (
 
 # 引擎无关的排除名单（PyInstaller excludes / Nuitka --nofollow-import-to 同源映射）
 EXCLUDED_IMPORTS: tuple[str, ...] = (
-    "tkinter", "matplotlib", "PIL", "pandas", "numpy", "notebook", "test", "unittest",
+    "tkinter", "matplotlib", "pandas", "numpy", "notebook", "test", "unittest",
 )

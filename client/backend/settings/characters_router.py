@@ -47,8 +47,6 @@ router = APIRouter(
 
 
 def _svc_error(e: svc.Unprocessable | svc.Conflict):
-    from fastapi import HTTPException
-
     status = 409 if isinstance(e, svc.Conflict) else 400
     return HTTPException(status_code=status, detail=e.detail)
 
@@ -57,9 +55,13 @@ def _svc_error(e: svc.Unprocessable | svc.Conflict):
 async def list_characters(
     project_id: str,
     db: AsyncSession = Depends(get_db),
-    _user: dict = Depends(get_current_user),
+    user: dict = Depends(get_current_user),
 ):
     data = await svc.list_characters(db, project_id)
+    from image_assets.service import current_avatar_refs
+    avatars = await current_avatar_refs(db, user["id"], [c["id"] for c in data["items"]])
+    for c in data["items"]:
+        c["avatar"] = avatars.get(c["id"])
     return {"ok": True, "data": data}
 
 
@@ -115,13 +117,16 @@ async def get_character(
     project_id: str,
     character_id: str,
     db: AsyncSession = Depends(get_db),
-    _user: dict = Depends(get_current_user),
+    user: dict = Depends(get_current_user),
 ):
     try:
         ch = await svc._load_card(db, project_id, character_id)
     except svc.Unprocessable as e:
         raise _svc_error(e) from e
-    return {"ok": True, "data": await svc._card_view(db, ch)}
+    view = await svc._card_view(db, ch)
+    from image_assets.service import current_avatar_refs
+    view["avatar"] = (await current_avatar_refs(db, user["id"], [ch.id])).get(ch.id)
+    return {"ok": True, "data": view}
 
 
 @router.patch("/{character_id}")
@@ -148,10 +153,10 @@ async def delete_character(
     project_id: str,
     character_id: str,
     db: AsyncSession = Depends(get_db),
-    _user: dict = Depends(get_current_user),
+    user: dict = Depends(get_current_user),
 ):
     try:
-        result = await svc.delete_character(db, project_id, character_id)
+        result = await svc.delete_character(db, project_id, character_id, user["id"])
     except (svc.Unprocessable, svc.Conflict) as e:
         raise _svc_error(e) from e
     return {"ok": True, "data": result}
@@ -163,11 +168,11 @@ async def merge_character(
     character_id: str,
     body: dict,
     db: AsyncSession = Depends(get_db),
-    _user: dict = Depends(get_current_user),
+    user: dict = Depends(get_current_user),
 ):
     try:
         result = await svc.merge_character(
-            db, project_id, character_id, str(body.get("target_id") or "")
+            db, project_id, character_id, str(body.get("target_id") or ""), user["id"]
         )
     except (svc.Unprocessable, svc.Conflict) as e:
         raise _svc_error(e) from e

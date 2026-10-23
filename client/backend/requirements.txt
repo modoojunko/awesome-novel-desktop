@@ -14,3 +14,5 @@ openai>=1.80.0,<4
 pyyaml>=6.0.2
 python-multipart>=0.0.12
 python-docx>=1.1.0
+# 图像资产：上传/裁切/WebP/缩略图（c-cover-avatar 阶段 1）
+pillow>=11.0.0
