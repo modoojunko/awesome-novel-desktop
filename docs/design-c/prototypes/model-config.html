@@ -1362,7 +1362,7 @@ window.addEventListener('resize', () => { if (!acctMenu.hidden) positionAcctMenu
 
 /* ═══════════ 图像模型页签（c-image-config-ux-fix 演示）═══════════ */
 const IMG_PROVIDERS = [
-  { id: 'volcengine', label: '火山引擎 Seedream', base_url: 'https://ark.cn-beijing.volces.com/api/v3', models: ['doubao-seedream-5-0-260128', 'doubao-seedream-4-5-251128', 'doubao-seedream-4-0-250828'], apply_url: 'https://console.volcengine.com/ark' },
+  { id: 'volcengine', label: '火山引擎 Seedream', base_url: 'https://ark.cn-beijing.volces.com/api/v3', models: ['doubao-seedream-5-0-flash-260915', 'doubao-seedream-5-0-260128', 'doubao-seedream-4-5-251128', 'doubao-seedream-4-0-250828'], apply_url: 'https://console.volcengine.com/ark' },
   { id: 'aliyun', label: '阿里云百炼 Qwen-Image', base_url: 'https://dashscope.aliyuncs.com/api/v1', models: ['qwen-image-2.0-pro', 'qwen-image-2.0'], apply_url: 'https://bailian.console.aliyun.com/' },
   { id: 'zhipu', label: '智谱 CogView', base_url: 'https://open.bigmodel.cn/api/paas/v4', models: ['cogview-4', 'cogview-3-flash'], apply_url: 'https://bigmodel.cn/console/' },
   { id: 'openai', label: 'OpenAI gpt-image-1', base_url: 'https://api.openai.com/v1', models: ['gpt-image-1'], apply_url: 'https://platform.openai.com/api-keys' },
@@ -1371,7 +1371,7 @@ const IMG_PROVIDERS = [
 ];
 /* 演示数据：test = null 未测试 / { ok:true, at } 通过 / { ok:false, err } 失败 */
 let imgConfigs = [
-  { id: 'img1', name: '火山 Seedream', provider: 'volcengine', base_url: 'https://ark.cn-beijing.volces.com/api/v3', key: 'ark-64c2****afbd', model: 'doubao-seedream-5-0-260128', is_default: true, status: 'active', test: { ok: true, at: '2 分钟前' } },
+  { id: 'img1', name: '火山 Seedream', provider: 'volcengine', base_url: 'https://ark.cn-beijing.volces.com/api/v3', key: 'ark-64c2****afbd', model: 'doubao-seedream-5-0-flash-260915', is_default: true, status: 'active', test: { ok: true, at: '2 分钟前' } },
   { id: 'img2', name: 'OpenAI 封面备用', provider: 'openai', base_url: 'https://api.openai.com/v1', key: 'sk-proj-****7c2a', model: 'gpt-image-1', is_default: false, status: 'active', test: null },
 ];
 let imgEditing = null;

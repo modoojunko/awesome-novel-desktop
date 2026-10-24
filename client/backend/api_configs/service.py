@@ -36,13 +36,19 @@ def _first_model(models_json: str | None) -> str | None:
     return None
 
 
-def _normalize_models(raw: list[str], *, truncate: bool = False) -> list[str]:
-    """models 写入归一化：去空白/去重保序/上限 100。
+# models 清单上限（c-model-list-cap-300）：手动/自动两路同源。300＝护栏（防无界
+# 落库＋手动 PUT 超限确定性）与全量可见的平衡点——火山方舟 /models 现返回 137 条
+# 且最老在前（2026-10-24 实测），上限 100 会把在役新模型整段截掉。
+MODELS_MAX = 300
 
-    超限行为分两条路（c-api-config-auto-models 拍板）：手动路径（create/update
-    请求体）超限报错——那是用户显式行为；自动路径（连接测试拉回的清单落库）
-    truncate=True 截断保留前 100——供应商清单长度不受用户控制（百炼逾百条），
-    原样超限落库会让之后任何手动 PUT 都 422。
+
+def _normalize_models(raw: list[str], *, truncate: bool = False) -> list[str]:
+    """models 写入归一化：去空白/去重保序/上限 MODELS_MAX。
+
+    超限行为分两条路（c-api-config-auto-models 拍板，c-model-list-cap-300 抬窗）：
+    手动路径（create/update 请求体）超限报错——那是用户显式行为；自动路径（连接
+    测试拉回的清单落库）truncate=True 截断保留前 MODELS_MAX——供应商清单长度不受
+    用户控制，原样超限落库会让之后任何手动 PUT 都 422。
     """
     seen: set[str] = set()
     cleaned: list[str] = []
@@ -51,10 +57,10 @@ def _normalize_models(raw: list[str], *, truncate: bool = False) -> list[str]:
         if name and name not in seen:
             seen.add(name)
             cleaned.append(name)
-    if len(cleaned) > 100:
+    if len(cleaned) > MODELS_MAX:
         if not truncate:
-            raise ValueError("模型数量过多（上限 100）")
-        cleaned = cleaned[:100]
+            raise ValueError(f"模型数量过多（上限 {MODELS_MAX}）")
+        cleaned = cleaned[:MODELS_MAX]
     return cleaned
 
 

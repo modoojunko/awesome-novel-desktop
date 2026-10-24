@@ -414,7 +414,7 @@ class TestApiKeyCRUD:
                 "vendor_id": "openai",
                 "base_url": "https://api.openai.com",
                 "api_key": _test_api_key("over"),
-                "models": [f"m-{i}" for i in range(101)],
+                "models": [f"m-{i}" for i in range(301)],
             },
         )
         assert resp.status_code == 422
@@ -579,9 +579,10 @@ class TestApiKeyCRUD:
         assert "preferred_model" not in captured
 
     def test_test_config_persist_normalizes_and_truncates(self, client, monkeypatch):
-        """自动落库走归一化（去空白/去重）且超限截断——百炼逾百条清单不再堵死手动 PUT；
-        响应体与落库同一份清单（评审 P1：两口径分叉会让前端态与 DB 不一致）。"""
-        big = [f"m-{i:03d}" for i in range(150)] + ["m-000", " m-001 "]  # 152 条含重复与空白
+        """自动落库走归一化（去空白/去重）且超限截断（c-model-list-cap-300 上限 300）——
+        供应商长清单不再堵死手动 PUT；响应体与落库同一份清单（评审 P1：两口径分叉
+        会让前端态与 DB 不一致）。"""
+        big = [f"m-{i:03d}" for i in range(350)] + ["m-000", " m-001 "]  # 352 条含重复与空白
 
         async def fake_test(**kwargs):
             return {"ok": True, "status": "ok", "models": big, "error": None}
@@ -599,22 +600,80 @@ class TestApiKeyCRUD:
         cid = resp.json()["id"]
         test_resp = client.post(f"/api/v1/api-configs/{cid}/test")
         assert test_resp.status_code == 200
-        assert test_resp.json()["models"] == [f"m-{i:03d}" for i in range(100)]  # 响应体＝落库口径
+        assert test_resp.json()["models"] == [f"m-{i:03d}" for i in range(300)]  # 响应体＝落库口径
         got = client.get(f"/api/v1/api-configs/{cid}").json()["models"]
-        assert len(got) == 100  # 截断而非超限落库
+        assert len(got) == 300  # 截断而非超限落库
         assert got[:2] == ["m-000", "m-001"]  # 去重保序、空白已剥
-        # 归一化后的存量不再挡手动 PUT（修前：>100 原样落库 → 后续 PUT 422）
+        # 归一化后的存量不再挡手动 PUT（修前：超限原样落库 → 后续 PUT 422）
         put = client.put(
             f"/api/v1/api-configs/{cid}", json={"models": got + ["m-extra"]}
         )
-        assert put.status_code == 422  # 手动路径超限仍报错（拍板口径：显式行为才拦）
+        assert put.status_code == 422  # 手动路径超限（301>300）仍报错（拍板口径：显式行为才拦）
         put2 = client.put(f"/api/v1/api-configs/{cid}", json={"models": ["m-000"]})
         assert put2.status_code == 200
 
+    def test_test_config_volcano_137_full_no_truncation(self, client, monkeypatch):
+        """火山形状（c-model-list-cap-300 立项案）：/models 返回 137 条、最老在前、
+        在役新模型全在尾部——旧上限 100 会整段截掉；300 窗内 SHALL 全量落库。"""
+        oldest_first = [f"doubao-old-{i:03d}" for i in range(133)] + [
+            "doubao-seed-2-1-pro-260915", "doubao-seed-evolving",
+            "doubao-seedream-5-0-flash-260915", "doubao-seed-2-1-lite-260915",
+        ]
+        assert len(oldest_first) == 137
+
+        async def fake_test(**kwargs):
+            return {"ok": True, "status": "ok", "models": oldest_first, "error": None}
+
+        monkeypatch.setattr("api_configs.service._test_connection", fake_test)
+        resp = client.post(
+            "/api/v1/api-configs",
+            json={
+                "name": "火山全量",
+                "vendor_id": "doubao",
+                "base_url": "https://ark.cn-beijing.volces.com/api/v3",
+                "api_key": _test_api_key("ark"),
+            },
+        )
+        cid = resp.json()["id"]
+        assert client.post(f"/api/v1/api-configs/{cid}/test").status_code == 200
+        got = client.get(f"/api/v1/api-configs/{cid}").json()["models"]
+        assert len(got) == 137  # 300 窗内全量，不截
+        # 尾部在役新模型全部可见（旧上限 100 时这段整段缺席）
+        for m in ("doubao-seed-2-1-pro-260915", "doubao-seed-evolving",
+                  "doubao-seedream-5-0-flash-260915"):
+            assert m in got
+
+    def test_test_config_boundary_300_manual_ok(self, client, monkeypatch):
+        """边界：恰 300 条手动 PUT 通过；301 条报 422——两路同源阈值。"""
+        big = [f"b-{i:03d}" for i in range(300)]
+
+        async def fake_test(**kwargs):
+            return {"ok": True, "status": "ok", "models": big, "error": None}
+
+        monkeypatch.setattr("api_configs.service._test_connection", fake_test)
+        resp = client.post(
+            "/api/v1/api-configs",
+            json={
+                "name": "边界三百",
+                "vendor_id": "qwen",
+                "base_url": "https://dashscope.aliyuncs.com/compatible-mode/v1",
+                "api_key": _test_api_key("edge"),
+            },
+        )
+        cid = resp.json()["id"]
+        assert client.post(f"/api/v1/api-configs/{cid}/test").status_code == 200
+        assert len(client.get(f"/api/v1/api-configs/{cid}").json()["models"]) == 300
+        put = client.put(f"/api/v1/api-configs/{cid}", json={"models": big})
+        assert put.status_code == 200  # 恰 300：手动路径不报错
+        put_over = client.put(
+            f"/api/v1/api-configs/{cid}", json={"models": big + ["b-x"]}
+        )
+        assert put_over.status_code == 422
+
     def test_test_config_truncate_keeps_preferred_head(self, client, monkeypatch):
         """截断保头（评审 P1-2）：配置默认模型（models 首项＝用户手选值）在清单尾部也不被截掉。"""
-        models = [f"v-{i:03d}" for i in range(150)]
-        models[120] = "my-pick"  # 用户手选值排在供应商清单第 121 位
+        models = [f"v-{i:03d}" for i in range(350)]
+        models[320] = "my-pick"  # 用户手选值排在供应商清单第 321 位
 
         async def fake_test(**kwargs):
             return {"ok": True, "status": "ok", "models": models, "error": None}
@@ -633,7 +692,7 @@ class TestApiKeyCRUD:
         cid = resp.json()["id"]
         assert client.post(f"/api/v1/api-configs/{cid}/test").status_code == 200
         got = client.get(f"/api/v1/api-configs/{cid}").json()["models"]
-        assert len(got) == 100
+        assert len(got) == 300
         assert got[0] == "my-pick"  # 保头：不随供应商顺序被静默截掉
         # 保头后绑定校验可救：书内重绑「my-pick」不再被「不属于该配置模型列表」拒
         put = client.put(f"/api/v1/api-configs/{cid}", json={"models": ["my-pick"]})
