@@ -123,7 +123,7 @@ def test_receipt_ack_persists_end_to_end(tmp_path, monkeypatch):
     from fastapi.testclient import TestClient
 
     from config import DATABASE_URL
-    from schema_version import candidate_stamp
+    from schema_version import candidate_stamp, candidate_stamp_hash
     from tests.test_version_upgrade_acceptance import _app_meta, _make_lib
 
     root = tmp_path / "data"
@@ -155,8 +155,9 @@ def test_receipt_ack_persists_end_to_end(tmp_path, monkeypatch):
             ack = client.post("/api/backup/db-migration/receipt-ack",
                               json={"filename": src.name})
             assert ack.json() == {"code": 0}
-            # 落库证据：当前库 app_meta 真值（不经前端状态）
-            assert _app_meta(active).get(router.RECEIPT_ACK_KEY) == stamp
+            # 落库证据：当前库 app_meta 真值（不经前端状态）。回执自 2026-10-24 起
+            # 记内容哈希形态（mtime 分量在不可靠 FS 上漂，demo 栈实锤）。
+            assert _app_meta(active).get(router.RECEIPT_ACK_KEY) == candidate_stamp_hash(src.name, src)
 
             again = client.get("/api/backup/db-migration/candidates"
                                ).json()["data"]["candidates"]
