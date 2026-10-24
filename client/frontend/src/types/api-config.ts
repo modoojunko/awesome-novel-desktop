@@ -1,6 +1,6 @@
 // c-modelconfig-gemini-go：gemini（官方兼容层）＋OpenCode Go 两方块（订阅中转）；
 // 三键与后端 KNOWN_VENDORS 逐字相等（落库走检测链，编辑回显按存储值）。
-export type VendorId = 'openai' | 'anthropic' | 'deepseek' | 'glm' | 'kimi' | 'qwen' | 'ollama' | 'gemini' | 'opencode-go-chat' | 'opencode-go-claude' | 'openai-compat';
+export type VendorId = 'openai' | 'anthropic' | 'deepseek' | 'glm' | 'kimi' | 'qwen' | 'ollama' | 'gemini' | 'doubao' | 'opencode-go-chat' | 'opencode-go-claude' | 'openai-compat';
 export type ApiFormat = 'openai' | 'anthropic';
 export type ConnectionStatus = 'ok' | 'auth_error' | 'endpoint_mismatch' | 'timeout' | 'network_error' | 'rate_limited' | 'unknown' | 'untested';
 export type ModelStatus = 'no_key' | 'no_model' | 'configured' | 'invalid';

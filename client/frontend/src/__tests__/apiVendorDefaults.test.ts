@@ -51,6 +51,15 @@ describe("vendorDefaults 登记表", () => {
     expect(defaultsFor("gemini", "anthropic")).toEqual({ base_url: "", model: "" });
   });
 
+  // c-modelconfig-volc-doubao：方舟 OpenAI 兼容口（自带版本段 /api/v3），模型为完整版本 id
+  it("豆包×openai 登记方舟地址＋lite 版本 id；anthropic 不登记（方舟无该口）", () => {
+    expect(defaultsFor("doubao", "openai")).toEqual({
+      base_url: "https://ark.cn-beijing.volces.com/api/v3",
+      model: "doubao-seed-2-1-lite-260915",
+    });
+    expect(defaultsFor("doubao", "anthropic")).toEqual({ base_url: "", model: "" });
+  });
+
   it("OpenCode Go 两口：chat 走 zen/go/v1（openai），claude 系走 zen/go（anthropic，SDK 拼 /v1/messages）", () => {
     expect(defaultsFor("opencode-go-chat", "openai")).toEqual({
       base_url: "https://opencode.ai/zen/go/v1",

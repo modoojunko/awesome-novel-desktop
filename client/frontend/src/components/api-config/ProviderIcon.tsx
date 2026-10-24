@@ -13,7 +13,7 @@ export interface VendorEntry {
   id: VendorId;
   label: string;
   tab: VendorTab;
-  /** 中转方块的第二行（如「通用」「Claude 系」）；官方厂商无副标 */
+  /** 方块第二行（OpenCode Go「通用」/「Claude 系」；豆包为平台名「火山方舟」） */
   sub?: string;
   /** 「新」角标（本期新增方块） */
   badge?: string;
@@ -28,6 +28,7 @@ export const VENDORS: VendorEntry[] = [
   { id: "qwen", label: "Qwen", tab: "official" },
   { id: "ollama", label: "Ollama", tab: "official" },
   { id: "gemini", label: "Gemini", tab: "official", badge: "新" },
+  { id: "doubao", label: "豆包", tab: "official", sub: "火山方舟", badge: "新" },
   { id: "opencode-go-chat", label: "OpenCode Go", tab: "relay", sub: "通用", badge: "新" },
   { id: "opencode-go-claude", label: "OpenCode Go", tab: "relay", sub: "Claude 系", badge: "新" },
   { id: "openai-compat", label: "OpenAI 兼容", tab: "relay" },
@@ -41,6 +42,7 @@ export const VENDOR_FORMAT_LOCK: Partial<Record<VendorId, ApiFormat>> = {
   anthropic: "anthropic",
   ollama: "openai",
   gemini: "openai",
+  doubao: "openai",
   "opencode-go-chat": "openai",
   "opencode-go-claude": "anthropic",
 };
@@ -59,6 +61,7 @@ export const VENDOR_LABELS: Record<VendorId, string> = {
   qwen: "Qwen",
   ollama: "Ollama",
   gemini: "Gemini",
+  doubao: "豆包（火山方舟）",
   "opencode-go-chat": "OpenCode Go · 通用",
   "opencode-go-claude": "OpenCode Go · Claude 系",
   "openai-compat": "OpenAI 兼容",
