@@ -14,7 +14,23 @@ import os
 import sqlite3
 
 from migration import router
-from schema_version import candidate_stamp
+from schema_version import candidate_stamp, candidate_stamp_legacy
+
+
+def test_candidate_stamp_legacy_formula_includes_shm(tmp_path):
+    """legacy 公式逐字保真（main+wal+shm 三件套 mtime＋合计 size）——
+    c-carry-modal-reshow 兼容对拍的根基。本 PR 曾无意把 three_file_mtime 的
+    `-shm` 分量删掉（review P2），此钉防回潮。"""
+    p = tmp_path / "novel-v0.24.db"
+    p.write_bytes(b"12345")                                     # 5 字节
+    (tmp_path / "novel-v0.24.db-wal").write_bytes(b"")           # 0
+    shm = tmp_path / "novel-v0.24.db-shm"
+    shm.write_bytes(b"x")                                       # 1 字节
+    os.utime(p, (100, 100))
+    os.utime(tmp_path / "novel-v0.24.db-wal", (300, 300))
+    os.utime(shm, (200, 200))
+    # legacy 公式 = 名字:max(三件套 mtime):(三件套 size 合计) = :300:6
+    assert candidate_stamp_legacy(p.name, p) == f"{p.name}:300:6"
 
 
 def _make_lib(path, books=2, schema_id="s-0.24"):

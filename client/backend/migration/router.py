@@ -86,13 +86,21 @@ def _active_db_path() -> Path:
     return Path(DATABASE_URL.split("///")[-1])
 
 
+def _ro_uri(db) -> str:
+    """库路径 → 只读 URI。路径必须百分号编码——`?`/`#`/空格落在目录名里时，
+    裸 f-string 会在该字符处截断 URI（读到错误文件/报错）。"""
+    from urllib.parse import quote
+
+    return "file:" + quote(str(db)) + "?mode=ro"
+
+
 def _app_meta_value(key: str) -> str | None:
     import sqlite3
 
     db = _active_db_path()
     if not db.exists():
         return None
-    con = sqlite3.connect(f"file:{db}?mode=ro", uri=True)
+    con = sqlite3.connect(_ro_uri(db), uri=True)
     try:
         row = con.execute("SELECT value FROM app_meta WHERE key=?", (key,)).fetchone()
         return row[0] if row else None
@@ -123,7 +131,7 @@ def _set_app_meta_sync(key: str, value: str) -> None:
         con.commit()
     finally:
         con.close()
-    con = sqlite3.connect(f"file:{db}?mode=ro", uri=True)
+    con = sqlite3.connect(_ro_uri(db), uri=True)
     try:
         row = con.execute("SELECT value FROM app_meta WHERE key=?", (key,)).fetchone()
         if row is None or row[0] != value:
