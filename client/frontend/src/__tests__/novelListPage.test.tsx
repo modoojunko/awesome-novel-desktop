@@ -1420,6 +1420,19 @@ describe("封面入口（c-book-card-cover-column：占位块/悬浮换封面/�
     await waitFor(() => expect(screen.getByTestId("image-workshop")).toBeTruthy());
   });
 
+  it("悬浮「换封面」覆盖钮点击打开工坊（不误触开书）", async () => {
+    getMock.mockResolvedValue([novel({
+      cover: {
+        asset_id: "cover-h", url: "/full", thumb_url: "/thumb",
+        width: 768, height: 1024, version: 1, source: "upload",
+      },
+    })]);
+    renderPage();
+    await waitFor(() => expect(document.querySelector(".book-cover-img")).toBeTruthy());
+    fireEvent.click(screen.getByLabelText("更换封面"));
+    await waitFor(() => expect(screen.getByTestId("image-workshop")).toBeTruthy());
+  });
+
   it("来源说明行三态：上传/生成（含画风名）/无封面", async () => {
     getMock.mockResolvedValue([
       novel({
@@ -1436,6 +1449,30 @@ describe("封面入口（c-book-card-cover-column：占位块/悬浮换封面/�
     await waitFor(() => expect(screen.getByText("本地上传")).toBeTruthy());
     expect(screen.getByText("AI 封面 · 水墨")).toBeTruthy();
     expect(screen.getByText("封面位留给作者")).toBeTruthy();
+  });
+
+  it("生成封面画风未知时降级为「AI 封面 · 未指定画风」", async () => {
+    getMock.mockResolvedValue([novel({
+      cover: {
+        asset_id: "c3", url: "/full", thumb_url: "/thumb",
+        width: 768, height: 1024, version: 3, source: "generate", style_key: "nope",
+      },
+    })]);
+    renderPage();
+    await waitFor(() => expect(screen.getByText("AI 封面 · 未指定画风")).toBeTruthy());
+  });
+
+  it("兜底臂：章节数缺失按 0 章（可稍后添加）＋空书名占位钮取「书」首字", async () => {
+    getMock.mockResolvedValue([
+      novel({ id: "nx", name: "无章节数的书", total_chapters: undefined }),
+      novel({ id: "nn", name: "" }),
+    ]);
+    renderPage();
+    await waitFor(() => expect(screen.getByText("《》")).toBeTruthy());
+    expect(screen.getByText("可稍后添加")).toBeTruthy(); // total_chapters ?? 0 → 0 章弱化
+    expect(screen.getByLabelText("为《》生成封面")).toBeTruthy(); // 空名有章 → 占位按钮臂
+    const btnSeal = document.querySelector("button.cover-empty .ce-seal")?.textContent; // name || "书"
+    expect(btnSeal).toBe("书");
   });
 });
 
