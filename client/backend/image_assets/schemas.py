@@ -30,14 +30,12 @@ class ImageConfigUpdate(BaseModel):
 class BookImageSettingsBody(BaseModel):
     style_key: str = "ink"
     cover_prompt: str = ""
-    cover_seed: int | None = Field(default=None, ge=0, le=2**31 - 1)
     image_config_id: str | None = None
     image_model: str = ""
 
 
 class CharacterImageSettingsBody(BaseModel):
     avatar_prompt: str | None = None
-    seed: int | None = Field(default=None, ge=0, le=2**31 - 1)
 
 
 class AdoptBody(BaseModel):

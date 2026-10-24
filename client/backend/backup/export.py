@@ -319,7 +319,6 @@ async def _dump_images(zf, db, project, prefix: str = "") -> None:
         "book": {
             "style_key": settings.style_key if settings else "ink",
             "cover_prompt": settings.cover_prompt if settings else "",
-            "cover_seed": settings.cover_seed if settings else None,
             "image_model": settings.image_model if settings else "",
             "image_config_name": config_name,
         },
@@ -327,7 +326,6 @@ async def _dump_images(zf, db, project, prefix: str = "") -> None:
             {
                 "character_id": row.character_id,
                 "avatar_prompt": row.avatar_prompt,
-                "seed": row.seed,
             }
             for row in char_settings
         ],

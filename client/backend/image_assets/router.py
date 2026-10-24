@@ -18,8 +18,14 @@ from fastapi import (
 )
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from auth_local.deps import ai_feature, get_current_user, require_tier_access
+from auth_local.deps import (
+    ai_feature,
+    ensure_novel_model_ready,
+    get_current_user,
+    require_tier_access,
+)
 from db import get_db
+from image_assets import cover_extract
 from image_assets import generation as jobs
 from image_assets import service as svc
 from image_assets.schemas import (
@@ -140,12 +146,8 @@ async def put_book_image_settings(
     db: AsyncSession = Depends(get_db),
     user: dict = Depends(get_current_user),
 ):
-    payload = body.model_dump()
-    # 未显式提交 cover_seed 时保留库里的值，不能被 Pydantic 默认 None 清掉。
-    if "cover_seed" not in body.model_fields_set:
-        payload.pop("cover_seed", None)
     try:
-        data = await svc.put_book_settings(db, user["id"], novel_id, payload)
+        data = await svc.put_book_settings(db, user["id"], novel_id, body.model_dump())
     except SVC_ERRORS as e:
         raise _svc_error(e) from e
     return {"ok": True, "data": data}
@@ -192,7 +194,7 @@ async def put_character_image_settings(
     try:
         data = await svc.put_character_settings(
             db, user["id"], novel_id, character_id,
-            str(body.avatar_prompt or ""), body.seed,
+            str(body.avatar_prompt or ""),
         )
     except SVC_ERRORS as e:
         raise _svc_error(e) from e
@@ -245,6 +247,21 @@ async def avatar_prompt_preview(
     except svc.Unprocessable as e:
         raise _svc_error(e) from e
     return {"ok": True, "data": data}
+
+
+@router.post("/novels/{novel_id}/image-prompt/cover-extract")
+@ai_feature("image-generate")
+async def extract_cover_scene(
+    novel_id: str,
+    db: AsyncSession = Depends(get_db),
+    user: dict = Depends(get_current_user),
+    _access: bool = Depends(require_tier_access),
+):
+    # 路径参数是 novel_id（非 project_id），模型门控在端点内直调判定核心；
+    # 兼做属主校验（未就绪 503，reason 与前端 ai_state 同枚举）。
+    await ensure_novel_model_ready(db, user["id"], novel_id)
+    scene = await cover_extract.extract_cover_scene(db, novel_id, user["id"])
+    return {"ok": True, "data": {"scene": scene}}
 
 
 # ── 生成任务（PRO 起；图像 Key 作者自持，不查写作大模型）───────────────────

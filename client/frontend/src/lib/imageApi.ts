@@ -68,7 +68,6 @@ export interface BookImageSettings {
   novel_id: string;
   style_key: string;
   cover_prompt: string;
-  cover_seed: number | null;
   image_config_id: string | null;
   image_model: string;
   effective_image_config_id: string | null;
@@ -79,7 +78,6 @@ export interface BookImageSettings {
 export interface CharacterImageSettings {
   character_id: string;
   avatar_prompt: string;
-  seed: number | null;
 }
 
 export type ImageJobStatus = "queued" | "running" | "completed" | "failed" | "cancelled";
@@ -321,6 +319,9 @@ export const imageApi = {
     unwrap<PromptPreview>(
       api.get(`/novels/${novelId}/characters/${characterId}/image-prompt`),
     ),
+
+  extractCoverScene: (novelId: string) =>
+    unwrap<{ scene: string }>(api.post(`/novels/${novelId}/image-prompt/cover-extract`)),
 
   createImageJob: (
     novelId: string,

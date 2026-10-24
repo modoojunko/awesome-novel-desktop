@@ -748,18 +748,6 @@ async def delete_candidate_asset(db: AsyncSession, user_id: str, asset_id: str) 
 
 
 
-def _as_seed(value) -> int | None:
-    if value is None or value == "":
-        return None
-    try:
-        seed = int(value)
-    except (TypeError, ValueError) as e:
-        raise Unprocessable("seed 必须是整数", "invalid_seed") from e
-    if seed < 0 or seed > 2**31 - 1:
-        raise Unprocessable("seed 必须在 0..2147483647 之间", "invalid_seed")
-    return seed
-
-
 async def get_book_settings(db: AsyncSession, user_id: str, novel_id: str) -> dict:
     await _owned_novel(db, user_id, novel_id)
     row = (await db.execute(select(BookImageSettings).where(
@@ -771,7 +759,6 @@ async def get_book_settings(db: AsyncSession, user_id: str, novel_id: str) -> di
         "novel_id": novel_id,
         "style_key": row.style_key if row else "ink",
         "cover_prompt": row.cover_prompt if row else "",
-        "cover_seed": row.cover_seed if row else None,
         "image_config_id": row.image_config_id if row else None,
         "image_model": row.image_model if row else "",
         # 生成端/前端都读这三个字段，不再各自推导“没绑定就用默认”的规则。
@@ -810,8 +797,6 @@ def _apply_book_settings(row: BookImageSettings, body: dict, *, partial: bool) -
         row.style_key = style_key
     if not partial or "cover_prompt" in body:
         row.cover_prompt = str(body.get("cover_prompt") or "")
-    if "cover_seed" in body:
-        row.cover_seed = _as_seed(body.get("cover_seed"))
     if not partial or "image_config_id" in body:
         row.image_config_id = body.get("image_config_id") or None
     if not partial or "image_model" in body:
@@ -865,7 +850,6 @@ async def get_character_settings(
     return {
         "character_id": character_id,
         "avatar_prompt": row.avatar_prompt if row else "",
-        "seed": row.seed if row else None,
     }
 
 
@@ -882,8 +866,6 @@ async def _save_character_settings(
         db.add(row)
     if not partial or "avatar_prompt" in body:
         row.avatar_prompt = str(body.get("avatar_prompt") or "")
-    if "seed" in body:
-        row.seed = _as_seed(body.get("seed"))
     try:
         await db.commit()
     except IntegrityError:
@@ -892,8 +874,6 @@ async def _save_character_settings(
             CharacterImageSettings.character_id == character_id))).scalar_one()
         if not partial or "avatar_prompt" in body:
             row.avatar_prompt = str(body.get("avatar_prompt") or "")
-        if "seed" in body:
-            row.seed = _as_seed(body.get("seed"))
         await db.commit()
     return await get_character_settings(db, user_id, novel_id, character_id)
 
@@ -1180,9 +1160,9 @@ async def asset_to_dict(db: AsyncSession, asset: ImageAsset) -> dict:
 
 async def put_character_settings(
     db: AsyncSession, user_id: str, novel_id: str, character_id: str,
-    prompt: str, seed: int | None,
+    prompt: str,
 ) -> dict:
     return await _save_character_settings(
         db, user_id, novel_id, character_id,
-        {"avatar_prompt": prompt, "seed": seed}, partial=False,
+        {"avatar_prompt": prompt}, partial=False,
     )

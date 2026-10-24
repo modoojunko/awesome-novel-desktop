@@ -265,11 +265,11 @@ def test_delete_book_and_character_cascade_assets(client):
 def test_prompt_uses_book_and_character_whitelists(client):
     c = _config(client)
     assert client.put("/api/novels/novel-img/image-settings", json={
-        "style_key": "ink", "cover_prompt": "陈屿在夜里提一盏旧风灯", "cover_seed": 123,
+        "style_key": "ink", "cover_prompt": "陈屿在夜里提一盏旧风灯",
         "image_config_id": c["id"], "image_model": "doubao-seedream-4-0-250828",
     }).status_code == 200
     assert client.put("/api/novels/novel-img/characters/char-img/image-settings", json={
-        "avatar_prompt": "瘦高的陈屿，站在灯下", "seed": 7,
+        "avatar_prompt": "瘦高的陈屿，站在灯下",
     }).status_code == 200
 
     async def _seed():
@@ -306,20 +306,21 @@ def test_prompt_uses_book_and_character_whitelists(client):
     assert cover["negative_prompt"] and "水印" in cover["negative_prompt"]
     assert cover["prompt_template_version"] == 3
     assert cover["size"] == {"width": 768, "height": 1024}
-    assert cover["seed"] == 123 and cover["seed_source"] == "settings"
-    assert cover["candidate_seeds"] == [123, 124]
+    assert cover["seed_source"] == "derived"  # 种子不再由用户提供，恒按书 id 派生
+    assert cover["candidate_seeds"] == [cover["seed"], (cover["seed"] + 1) % 2**31]
     assert cover["model"] == "doubao-seedream-4-0-250828"
     assert cover["capabilities"]["negative_supported"] is True
     assert len(cover["prompt_hash"]) == 64
     assert client.get("/api/novels/novel-img/image-prompt").json()["data"]["prompt_hash"] == cover["prompt_hash"]
 
-    # canonical hash 必须对 seed 敏感
+    # canonical hash 必须对 prompt 敏感（seed 恒派生，hash 变化只随画面/画风/模型）
     client.put("/api/novels/novel-img/image-settings", json={
-        "style_key": "ink", "cover_prompt": "陈屿在夜里提一盏旧风灯", "cover_seed": 124,
+        "style_key": "ink", "cover_prompt": "陈屿在夜里提一盏旧风灯，灯芯将尽",
         "image_config_id": c["id"], "image_model": "doubao-seedream-4-0-250828",
     })
     cover2 = client.get("/api/novels/novel-img/image-prompt").json()["data"]
     assert cover2["prompt_hash"] != cover["prompt_hash"]
+    assert cover2["seed"] == cover["seed"]  # seed 不随设置漂移
 
     avatar = client.get("/api/novels/novel-img/characters/char-img/image-prompt").json()["data"]
     assert "瘦高" in avatar["prompt"] and "夜明铺" in avatar["prompt"]
@@ -328,7 +329,7 @@ def test_prompt_uses_book_and_character_whitelists(client):
     assert "近景头肩像" in avatar["prompt"] and "只到肩部" in avatar["prompt"]
     assert "没有任何文字" in avatar["prompt"]
     assert "。。" not in avatar["prompt"]
-    assert avatar["seed"] == 7 and avatar["style_key"] == "ink"
+    assert avatar["seed_source"] == "derived" and avatar["style_key"] == "ink"
     assert avatar["negative_prompt"] and avatar["prompt_template_version"] == 3
     assert "旧货街" not in avatar["prompt"]
 
@@ -337,48 +338,38 @@ def test_prompt_uses_book_and_character_whitelists(client):
 def test_book_and_character_image_settings(client):
     c = _config(client)
     r = client.put("/api/novels/novel-img/image-settings", json={
-        "style_key": "ink", "cover_prompt": "夜里的灯", "cover_seed": 99,
+        "style_key": "ink", "cover_prompt": "夜里的灯",
         "image_config_id": c["id"], "image_model": "doubao-seedream-4-0-250828",
     })
     assert r.status_code == 200, r.text
     data = client.get("/api/novels/novel-img/image-settings").json()["data"]
     assert data["image_config_id"] == c["id"]
     assert data["cover_prompt"] == "夜里的灯"
-    assert data["cover_seed"] == 99
     assert data["effective_image_config_id"] == c["id"]
     assert data["effective_image_model"] == "doubao-seedream-4-0-250828"
     assert data["effective_source"] == "explicit"
-    # PATCH 只改模型，不得清掉画风/描述/seed
+    # PATCH 只改模型，不得清掉画风/描述
     assert client.patch("/api/novels/novel-img/image-settings", json={
         "image_model": "doubao-seedream-4-5-251128",
     }).status_code == 200
     patched = client.get("/api/novels/novel-img/image-settings").json()["data"]
     assert patched["style_key"] == "ink"
     assert patched["cover_prompt"] == "夜里的灯"
-    assert patched["cover_seed"] == 99
     assert patched["image_model"] == "doubao-seedream-4-5-251128"
-    # 不显式提交 cover_seed 时不能被默认 None 清掉
-    assert client.put("/api/novels/novel-img/image-settings", json={
-        "style_key": "ink", "cover_prompt": "夜里的灯",
-        "image_config_id": c["id"], "image_model": "doubao-seedream-4-0-250828",
-    }).status_code == 200
-    assert client.get(
-        "/api/novels/novel-img/image-settings"
-    ).json()["data"]["cover_seed"] == 99
     r = client.put("/api/novels/novel-img/characters/char-img/image-settings", json={
-        "avatar_prompt": "瘦高的年轻人", "seed": 42,
+        "avatar_prompt": "瘦高的年轻人",
     })
     assert r.status_code == 200, r.text
-    assert r.json()["data"]["seed"] == 42
-    # PATCH 只改 seed，不得清掉 avatar_prompt
+    assert r.json()["data"]["avatar_prompt"] == "瘦高的年轻人"
+    # PATCH 只改描述，返回形状完好（种子字段已退役）
     assert client.patch(
         "/api/novels/novel-img/characters/char-img/image-settings",
-        json={"seed": 43},
+        json={"avatar_prompt": "瘦高的中年人"},
     ).status_code == 200
     got = client.get(
         "/api/novels/novel-img/characters/char-img/image-settings"
     ).json()["data"]
-    assert got["avatar_prompt"] == "瘦高的年轻人" and got["seed"] == 43
+    assert got["avatar_prompt"] == "瘦高的中年人" and "seed" not in got
     assert client.put("/api/novels/novel-img/image-settings", json={
         "style_key": "not-a-style", "cover_prompt": "",
     }).status_code == 400
@@ -672,13 +663,136 @@ def test_sweep_does_not_delete_current(client):
 
 
 def test_image_validation_and_non_ascii_signature(client):
+    # 种子字段已退役：老客户端残留的 cover_seed 被静默忽略（不再 422 也不再落库）
     r = client.put("/api/novels/novel-img/image-settings", json={
         "style_key": "ink", "cover_prompt": "", "cover_seed": -1,
     })
-    assert r.status_code == 422
-    assert r.json()["detail"]["code"] == "validation_error"
+    assert r.status_code == 200
+    assert "cover_seed" not in client.get(
+        "/api/novels/novel-img/image-settings"
+    ).json()["data"]
 
     asset = _upload(client, "cover")
     bad = client.get(asset["links"]["full"] + "汉字")
     assert bad.status_code == 403
     assert bad.json()["detail"]["code"] == "signature_invalid"
+
+
+# ── 封面画面 AI 提取（c-cover-scene-extract）────────────────────────────────
+
+
+def test_cover_scene_material_and_parse(client):
+    """collect_material 只取书级白名单素材并截断；parse_scene 严进严出。"""
+    from image_assets import cover_extract as cx
+
+    async def _material():
+        async with async_session() as session:
+            storage = get_storage()
+            await storage.write_yaml("./data/novel-img", "story.yaml", {
+                "genre": "悬疑", "sub_genre": "都市怪谈",
+                "synopsis": "末班公交总多停一站。",
+                "story_arc": {"fullstory": "司机老周追查多停的一站，发现乘客都带着同一天的记忆。"},
+            })
+            await storage.write_yaml("./data/novel-img", "settings/world-setting.yaml", {
+                "stage": "近现代都市，深夜公交网里藏着一条通往旧日的线路", "no_power": True,
+            })
+            novel = await session.get(Novel, "novel-img")
+            return await cx.collect_material(session, novel)
+
+    material = _run(_material())
+    assert material["theme"] == "悬疑（都市怪谈）"
+    assert "同一天的记忆" in material["fullstory"]
+    assert "通往旧日的线路" in material["world_stage"]
+
+    scene = cx.parse_scene(json.dumps({"scene": "x" * 500}, ensure_ascii=False))
+    assert len(scene) == cx.SCENE_MAX  # 超长场景截断
+    for bad in ("不是json", "[]", json.dumps({"scene": "  "})):
+        try:
+            cx.parse_scene(bad)
+            raise AssertionError("应拒收")
+        except Exception as e:
+            assert getattr(e, "status_code", None) == 502
+
+
+@pytest.mark.needs_prompts
+def test_cover_scene_extract_happy_path(client, monkeypatch):
+    from auth_local.deps import require_tier_access
+    from image_assets import cover_extract as cx
+    from image_assets import router as img_router
+
+    app.dependency_overrides[require_tier_access] = lambda: True
+
+    async def _gate(db, user_id, project_id):
+        return True
+
+    monkeypatch.setattr(img_router, "ensure_novel_model_ready", _gate)
+    captured: list = []
+
+    class _Fake:
+        async def chat(self, **kwargs):
+            captured.append(kwargs)
+            return json.dumps({
+                "scene": "深夜站台，末班公交的剪影驶近，车灯在湿漉漉的路面拖出两道黄光。",
+            }, ensure_ascii=False)
+
+    async def _fake(novel_id):
+        return _Fake()
+
+    monkeypatch.setattr(cx, "get_ai_client_for_novel", _fake)
+
+    r = client.post("/api/novels/novel-img/image-prompt/cover-extract")
+    assert r.status_code == 200, r.text
+    assert "末班公交" in r.json()["data"]["scene"]
+    assert captured[0]["json_mode"] is True
+    prompt = captured[0]["messages"][0]["content"]
+    assert "悬疑（都市怪谈）" in prompt  # 选题进素材
+    assert "同一天的记忆" in prompt  # 主线进素材
+    app.dependency_overrides.pop(require_tier_access, None)
+
+
+@pytest.mark.needs_prompts
+def test_cover_scene_extract_bad_json_502(client, monkeypatch):
+    from auth_local.deps import require_tier_access
+    from image_assets import cover_extract as cx
+    from image_assets import router as img_router
+
+    app.dependency_overrides[require_tier_access] = lambda: True
+
+    async def _gate(db, user_id, project_id):
+        return True
+
+    monkeypatch.setattr(img_router, "ensure_novel_model_ready", _gate)
+
+    class _Fake:
+        async def chat(self, **kwargs):
+            return "我觉得这张封面应该画一个站台（自然语言，不是 JSON）"
+
+    async def _fake(novel_id):
+        return _Fake()
+
+    monkeypatch.setattr(cx, "get_ai_client_for_novel", _fake)
+
+    r = client.post("/api/novels/novel-img/image-prompt/cover-extract")
+    assert r.status_code == 502
+    assert "可重试" in r.json()["detail"]
+    app.dependency_overrides.pop(require_tier_access, None)
+
+
+def test_cover_scene_extract_model_gate_503(client):
+    """书未配写作模型：门控在端点内直调 ensure_novel_model_ready，503 引导。"""
+    from auth_local.deps import require_tier_access
+
+    app.dependency_overrides[require_tier_access] = lambda: True
+    r = client.post("/api/novels/novel-img/image-prompt/cover-extract")
+    assert r.status_code == 503
+    assert "reason" in r.json()["detail"]
+    app.dependency_overrides.pop(require_tier_access, None)
+
+
+def test_cover_scene_extract_other_users_novel_404(client):
+    from auth_local.deps import require_tier_access
+
+    app.dependency_overrides[require_tier_access] = lambda: True
+    r = client.post("/api/novels/novel-other/image-prompt/cover-extract")
+    assert r.status_code == 404
+    app.dependency_overrides.pop(require_tier_access, None)

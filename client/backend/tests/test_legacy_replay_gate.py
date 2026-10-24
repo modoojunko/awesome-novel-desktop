@@ -74,3 +74,44 @@ def test_gate_replays_all_registered_samples(tmp_path):
 
         # 源只读面：重放不得改样本任一字节（含边车）
         assert _sig(src) == before, f"[{sample.key}] 重放污染了源三件套"
+
+
+def test_gate_v039_image_seed_columns_survive_carry(tmp_path):
+    """v0.39 图像种子列退役（c-cover-scene-extract）：设置行零损失、值随列弃。
+
+    源多列（cover_seed/seed）不拦路——交集搬行后 cover_prompt/avatar_prompt 原样
+    保留，新 schema 里种子列不复存在（seed 一律按书/角色 id 派生）。
+    """
+    import sqlite3
+
+    from sqlalchemy import text
+
+    sample = next(s for s in LEGACY_SAMPLES if s.key == "v039-image-seed-columns")
+    root = tmp_path / sample.key
+    root.mkdir()
+    src = sample.build(root)
+    target = _make_target(root)
+    rep = run_migration(root, sample.filename, target)
+    assert rep["status"] == "ok", rep
+    assert is_complete_report(rep) and rep["complete"] is True
+
+    se = create_engine(f"sqlite:///{target}")
+    with se.connect() as conn:
+        book = conn.execute(text(
+            "SELECT style_key, cover_prompt, image_model FROM book_image_settings"
+        )).one()
+        avatar = conn.execute(text(
+            "SELECT avatar_prompt FROM character_image_settings"
+        )).one()
+        book_cols = {r[1] for r in conn.execute(text("PRAGMA table_info(book_image_settings)"))}
+        char_cols = {
+            r[1] for r in conn.execute(text("PRAGMA table_info(character_image_settings)"))
+        }
+    se.dispose()
+    assert book == ("ink", "一盏旧风灯", "doubao-seedream-4-0-250828")
+    assert avatar == ("瘦高的守灯人",)
+    assert "cover_seed" not in book_cols and "seed" not in char_cols
+    with sqlite3.connect(src) as check:
+        # 源零接触：种子值仍在源库原样（只是不再被带走）
+        assert check.execute(
+            "SELECT cover_seed FROM book_image_settings").fetchone()[0] == 321

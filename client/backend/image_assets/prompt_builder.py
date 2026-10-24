@@ -8,7 +8,8 @@
 - 自由文本统一做“内容级脱敏”：书名、角色名/别名即使写在世界舞台、人设、势力、
   cover_prompt、avatar_prompt 里，也会替换成泛称，避免模型画招牌/题字/剧透。
 - prompt_hash 对 canonical request（模板版本/画风/正向/负向/尺寸/seed/模型/provider/
-  能力）做 SHA-256；每候选独立 seed，预览给 candidate_seeds[0]。
+  能力）做 SHA-256；每候选独立 seed，预览给 candidate_seeds[0]。seed 不再由用户
+  提供，一律按书/角色 id 确定性派生（_derive_seed），同书恒定、换图靠改画面描述。
 """
 
 from __future__ import annotations
@@ -271,7 +272,6 @@ async def _read_book_sources(db: AsyncSession, novel: Novel) -> dict:
         "world_stage": redact(_first_sentence(world_v2.get("stage"), 80), 60),
         "style_key": _canonical_style(row.style_key if row else DEFAULT_STYLE),
         "cover_prompt": redact(row.cover_prompt if row else "", 180),
-        "cover_seed": row.cover_seed if row else None,
         "model": model,
         "provider": config.provider if config else "",
         "capabilities": _capabilities(config.provider if config else "", declared),
@@ -283,8 +283,8 @@ async def build_cover_prompt(db: AsyncSession, novel: Novel) -> dict:
     style = src["style_key"]
     theme = " · ".join(x for x in (src["theme"], src["sub_genre"]) if x)
     scene = src["cover_prompt"]
-    seed = src["cover_seed"] if src["cover_seed"] is not None else _derive_seed("cover", novel.id)
-    seed_source = "settings" if src["cover_seed"] is not None else "derived"
+    seed = _derive_seed("cover", novel.id)
+    seed_source = "derived"
 
     parts = [
         STYLE_PREFIX[style],
@@ -384,8 +384,8 @@ async def build_avatar_prompt(db: AsyncSession, novel: Novel, ch: Character) -> 
     faction = redact(dossier.get("faction"), 60)
     persona = redact(ch.persona, 60)
     subject = redact(csettings.avatar_prompt if csettings else "", 140)
-    seed = csettings.seed if csettings and csettings.seed is not None else _derive_seed("avatar", ch.id)
-    seed_source = "settings" if csettings and csettings.seed is not None else "derived"
+    seed = _derive_seed("avatar", ch.id)
+    seed_source = "derived"
     provider = config.provider if config else ""
     capabilities = _capabilities(provider, declared)
 

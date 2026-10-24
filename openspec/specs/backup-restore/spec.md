@@ -260,14 +260,14 @@ C端 备份导出与恢复导入：把用户的全部小说资产打包为与数
 - **WHEN** 单书交付导出执行
 - **THEN** 角色段仍位于包根 `characters/characters.yaml`（prefix 为空），与既有单书包逐字节同构
 
-### Requirement:### Requirement: 图像资产与图像配置随包（v7）
+### Requirement: 图像资产与图像配置随包（v7）
 
-备份格式 SHALL 从 v6 升至 v7，资产包每书 SHALL 包含 `images/manifest.yaml` 与 current 封面/头像的 full/thumb WebP；manifest SHALL 记录书级 `style_key/cover_prompt/cover_seed/image_model/image_config_name`、角色级 `avatar_prompt/seed` 与资产业务元数据。配置包 SHALL 新增 `image_configs` 段（导出明文 Key，导入按目标库钥匙重加密）。旧 v6 包无图像段时导入 SHALL 正常跳过，MUST NOT 报错。
+备份格式 SHALL 从 v6 升至 v7，资产包每书 SHALL 包含 `images/manifest.yaml` 与 current 封面/头像的 full/thumb WebP；manifest SHALL 记录书级 `style_key/cover_prompt/image_model/image_config_name`、角色级 `avatar_prompt` 与资产业务元数据。配置包 SHALL 新增 `image_configs` 段（导出明文 Key，导入按目标库钥匙重加密）。旧 v6 包无图像段时导入 SHALL 正常跳过，MUST NOT 报错；v7 包多出已退役的 `cover_seed`/`seed` 键时导入 SHALL 静默忽略，MUST NOT 报错。
 
 #### Scenario: 封面头像跨机恢复
 
 - **WHEN** 用户导出含 current 封面和头像的 v7 资产包，并在新库导入
-- **THEN** 两本书的 current 资产、full/thumb BLOB、书级画风/描述/seed 与角色头像描述/seed MUST 原样恢复
+- **THEN** 两本书的 current 资产、full/thumb BLOB、书级画风/描述与角色头像描述 MUST 原样恢复；seed 不随包迁移（新库按书/角色 id 派生）
 
 #### Scenario: 图像配置 Key 重加密
 
@@ -278,6 +278,11 @@ C端 备份导出与恢复导入：把用户的全部小说资产打包为与数
 
 - **WHEN** 导入 v6 或更早包
 - **THEN** 图像段缺失 MUST 被跳过，书/角色恢复不受影响
+
+#### Scenario: 旧版 v7 包含种子键
+
+- **WHEN** 导入早期 v7 包（manifest 带已退役的 `cover_seed`/`seed` 键）
+- **THEN** 导入 SHALL 成功且忽略这两键，MUST NOT 报错或告警
 
 #### Scenario: 迁移图像 Key
 

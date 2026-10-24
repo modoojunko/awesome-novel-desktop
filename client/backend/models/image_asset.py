@@ -164,7 +164,6 @@ class BookImageSettings(Base):
     )
     style_key: Mapped[str] = mapped_column(String(40), nullable=False, default="ink")
     cover_prompt: Mapped[str] = mapped_column(Text, nullable=False, default="")
-    cover_seed: Mapped[int | None] = mapped_column(Integer, nullable=True)
     image_config_id: Mapped[str | None] = mapped_column(
         String(36), ForeignKey("image_configs.id", ondelete="SET NULL"), nullable=True
     )
@@ -175,7 +174,7 @@ class BookImageSettings(Base):
 
 
 class CharacterImageSettings(Base):
-    """角色级图像设置 — 头像描述与种子；画风/封面描述仍在书级。"""
+    """角色级图像设置 — 头像描述；画风/封面描述仍在书级。"""
 
     __tablename__ = "character_image_settings"
 
@@ -183,7 +182,6 @@ class CharacterImageSettings(Base):
         String(36), ForeignKey("characters.id", ondelete="CASCADE"), primary_key=True
     )
     avatar_prompt: Mapped[str] = mapped_column(Text, nullable=False, default="")
-    seed: Mapped[int | None] = mapped_column(Integer, nullable=True)
     updated_at: Mapped[datetime] = mapped_column(
         DateTime, server_default=func.now(), onupdate=func.now()
     )

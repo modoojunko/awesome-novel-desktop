@@ -115,6 +115,40 @@ def _build_semver_wal_sidecars(root: Path) -> Path:
     return p
 
 
+def _build_v039_image_seed(root: Path) -> Path:
+    """novel-v0.39.db：图像设置带「种子」列的已发布形态（c-cover-avatar～c-image-generation 期）。
+
+    v0.39 里封面/头像种子是用户可填列（book_image_settings.cover_seed /
+    character_image_settings.seed）；c-cover-scene-extract 起种子退役改派生，列从
+    schema 消失——本样本钉住「源多列不拦路」的交集搬行面（设置行零损失、值随列弃）。
+    """
+    p = root / "novel-v0.39.db"
+    conn = sqlite3.connect(p)
+    _base_tables(conn, with_plan_line=True)
+    _seed_book(conn, 5, "带图像种子的书", with_plan_line=True)
+    conn.execute(
+        "CREATE TABLE characters (id TEXT PRIMARY KEY, novel_id TEXT, seq INTEGER, "
+        "name TEXT, role TEXT)")
+    conn.execute("INSERT INTO characters VALUES ('s5c1', 's5', 1, '守灯人', '主角')")
+    conn.execute(
+        "CREATE TABLE book_image_settings (novel_id TEXT PRIMARY KEY, "
+        "style_key VARCHAR(40) NOT NULL, cover_prompt TEXT NOT NULL, cover_seed INTEGER, "
+        "image_config_id TEXT, image_model VARCHAR(200) NOT NULL, updated_at TIMESTAMP)")
+    conn.execute(
+        "CREATE TABLE character_image_settings (character_id TEXT PRIMARY KEY, "
+        "avatar_prompt TEXT NOT NULL, seed INTEGER, updated_at TIMESTAMP)")
+    conn.execute(
+        "INSERT INTO book_image_settings VALUES "
+        "('s5', 'ink', '一盏旧风灯', 321, NULL, 'doubao-seedream-4-0-250828', "
+        "'2026-10-23 00:00:00')")
+    conn.execute(
+        "INSERT INTO character_image_settings VALUES "
+        "('s5c1', '瘦高的守灯人', 654, '2026-10-23 00:00:00')")
+    conn.commit()
+    conn.close()
+    return p
+
+
 LEGACY_SAMPLES: list[LegacySample] = [
     LegacySample(
         key="gen0-novel-db",
@@ -140,6 +174,12 @@ LEGACY_SAMPLES: list[LegacySample] = [
         origin="强杀形态：-wal/-shm 边车遗留（c-carry-modal-reshow 同族现场）",
         build=_build_semver_wal_sidecars,
     ),
+    LegacySample(
+        key="v039-image-seed-columns",
+        filename="novel-v0.39.db",
+        origin="源多列形态：图像设置带 cover_seed/seed 用户种子列（c-cover-scene-extract 退役改派生）",
+        build=_build_v039_image_seed,
+    ),
 ]
 
 # 只增不减的基线键集（2026-10-10 首批四份）。删样本/改键 = 红灯执法；
@@ -149,4 +189,5 @@ BASELINE_SAMPLE_KEYS: frozenset[str] = frozenset({
     "legacy-numbered-gen",
     "semver-missing-column",
     "semver-wal-sidecars",
+    "v039-image-seed-columns",
 })
