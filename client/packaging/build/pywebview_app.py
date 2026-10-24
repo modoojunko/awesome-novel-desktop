@@ -1455,13 +1455,73 @@ def _sha256_of_file(path: Path) -> str:
     return h.hexdigest()
 
 
+def _read_last_attempt(runner_log: Path, attempts: int) -> dict:
+    """执行日志回读（最近一次尝试；append 语义取末段）。
+
+    每个真正运行了脚本的尝试恰写一条 `runner: started`，结束行（Windows
+    `installer_exit=`／macOS `install_ok=`）闭合该尝试 ⇒ started 计数 ≥ 派发次数
+    （attempts，自 pending 带出）即「最近一次尝试已运行」；退出码只在最近一次尝试
+    留下结束行时给出（started 计数与结束行数都追平派发数——日志按尝试追加，首次
+    匹配会把上一次尝试的行张冠李戴到最近一次）。attempts==0＝从未派发。
+    """
+    import re
+
+    try:
+        text = runner_log.read_text(encoding="utf-8", errors="replace")
+    except OSError:
+        text = ""
+    started_count = text.count("runner: started")
+    ran = attempts >= 1 and started_count >= attempts
+    exit_code = None
+    if ran:
+        win_exits = re.findall(r"installer_exit=(-?\d+)", text)
+        mac_oks = re.findall(r"install_ok=(\d)", text)
+        if len(win_exits) + len(mac_oks) >= attempts:
+            if len(win_exits) >= attempts:
+                exit_code = int(win_exits[-1])
+            elif len(mac_oks) >= attempts:
+                exit_code = 0 if mac_oks[-1] == "1" else 1
+    return {"runner_started": ran, "installer_exit": exit_code}
+
+
+def _record_last_attempt(data_root: Path, runtime_dir: Path, pending: dict) -> None:
+    """失败可见（最小面）：回读三态落 startup.log＋last-install-attempt.json。
+
+    纯诊断记录：任何失败都不阻断主链；tmp+rename 原子写（后端随时读）。「暂不」
+    清扫会把它随版本一起扫掉——记录随该版本放弃，语义可接受。
+    """
+    try:
+        attempts = int(pending.get("attempts") or 0)
+        readback = _read_last_attempt(
+            data_root / "updates" / "installer-runner.log", attempts)
+        record = {"version": str(pending.get("version") or ""),
+                  "attempts": attempts,
+                  "recorded_at": time.time(),
+                  **readback}
+        path = data_root / "updates" / "last-install-attempt.json"
+        tmp = path.with_name("last-install-attempt.json.tmp")
+        tmp.write_text(json.dumps(record, ensure_ascii=False), encoding="utf-8")
+        os.replace(tmp, path)
+        log_line(runtime_dir,
+                 "auto-update: last install attempt for v{v}: attempts={a} "
+                 "started={s} exit={e}".format(v=record["version"], a=attempts,
+                                               s=readback["runner_started"],
+                                               e=readback["installer_exit"]))
+    except Exception:
+        log_line(runtime_dir, "auto-update: last attempt record FAILED:\n"
+                 + traceback.format_exc())
+
+
 def _reconcile_pending(runtime_dir: Path) -> None:
     """启动期对拍（静默安装的收尾裁判，10-15 评审 P2-6/P1-1）：
 
     - pending.version == 本机烘焙版本 → 安装已成功：写 applied 记账＋清 pending
-      （「已自动更新」一次笛与 marker 语义由此获得事实依据，先斩后奏消除）；
+      ＋清 last-install-attempt.json（过期失败记录不得常驻诊断面误报；
+      「已自动更新」一次笛与 marker 语义由此获得事实依据，先斩后奏消除）；
     - pending.version != 本机版本 → 安装未完成：保留标记，日志声明
-      「下次退出链重跑」（重试上限见 apply 段），用户看到的仍是旧版＋旧数据。
+      「下次退出链重跑」（重试上限见 apply 段），用户看到的仍是旧版＋旧数据；
+      同时回读执行日志三态落 startup.log＋last-install-attempt.json——
+      「点了重启后安装未发生/未成功」对排障方可观察（c-update-detached-ps-fix）。
     """
     data_root = get_install_dir() / "data"
     pending_path = data_root / "updates" / "pending.json"
@@ -1480,6 +1540,7 @@ def _reconcile_pending(runtime_dir: Path) -> None:
                 json.dumps({"version": current, "applied_at": time.time()},
                            ensure_ascii=False), encoding="utf-8")
             pending_path.unlink(missing_ok=True)
+            (data_root / "updates" / "last-install-attempt.json").unlink(missing_ok=True)
             log_line(runtime_dir, f"auto-update: applied v{current} confirmed (reconcile)")
         except OSError:
             log_line(runtime_dir, "auto-update: reconcile marker write failed")
@@ -1487,6 +1548,7 @@ def _reconcile_pending(runtime_dir: Path) -> None:
         log_line(runtime_dir, f"auto-update: install not confirmed "
                               f"(pending v{pending['version']} vs local {current}), "
                               "kept for retry at next exit")
+        _record_last_attempt(data_root, runtime_dir, pending)
 
 
 def _ps_single_quoted(text: str) -> str:
@@ -1509,6 +1571,11 @@ def _install_runner_script(parent_pid: int, installer_argv: list[str], runner_lo
         f"$parent = {int(parent_pid)}",
         f"$installer = {_ps_single_quoted(installer_argv[0])}",
         f"$log = {_ps_single_quoted(str(runner_log))}",
+        # 启动痕（第一判据：脚本是否真的运行过）——必须晚于 $log/$parent 赋值、
+        # 早于任何等待；插早了求得空串，Add-Content 在 SilentlyContinue 下静默失败
+        ("Add-Content -Path $log -Value (\"{0} runner: started (runner_pid={1} "
+         "parent={2})\" -f (Get-Date -Format 'yyyy-MM-dd HH:mm:ss'), $PID, $parent) "
+         "-ErrorAction SilentlyContinue"),
         "$w0 = Get-Date",
         "Wait-Process -Id $parent -Timeout 60 -ErrorAction SilentlyContinue",
         "$waitMs = [int]((Get-Date) - $w0).TotalMilliseconds",
@@ -1530,13 +1597,20 @@ def _install_runner_script(parent_pid: int, installer_argv: list[str], runner_lo
     ])
 
 
-def _spawn_install_runner(parent_pid: int, installer_argv: list[str], runner_log: Path) -> None:
+def _spawn_install_runner(parent_pid: int, installer_argv: list[str],
+                          runner_log: Path, runtime_dir: Path) -> None:
     """detached PowerShell runner：接管「先退出再安装」的时序（见文件尾段注释）。
 
     runner 必须是 {app} 之外的程序（安装器要覆写 {app} 里的每个文件，runner 自己
     住在安装器里面就自锁了）——Windows PowerShell 5.1 系统自带，优先取全路径防
-    PATH 劫持。spawn 失败原样上抛（main 兜底留日志）：attempts 不递增，pending
-    留给下次退出链重试。
+    PATH 劫持。
+    创建形态＝CREATE_NO_WINDOW（无窗口但有控制台）：powershell.exe 属控制台子系统，
+    DETACHED_PROCESS（无控制台可攀又禁新建）会让引擎初始化完成后静默死、脚本零执行
+    （2026-10-24 生产 0.37→0.38、0.38→0.39 两跳同签名事故，WMI CreateFlags 对照
+    实验定罪）；-WindowStyle Hidden 留在 argv 不变（对隐藏控制台无害，已实证）。
+    spawn 失败（进程未建出）＝回退直接 detached 拉起安装器——有代价的降级（失去
+    等尸保证，时序由安装器 [Run] 背书），仅限执行体无法创建时启用；回退再失败才
+    上抛（main 兜底留日志，attempts 不递增，pending 留给下次退出链重试）。
     """
     import base64
     import subprocess
@@ -1545,14 +1619,25 @@ def _spawn_install_runner(parent_pid: int, installer_argv: list[str], runner_log
     encoded = base64.b64encode(script.encode("utf-16-le")).decode("ascii")
     ps_exe = (Path(os.environ.get("WINDIR", r"C:\Windows"))
               / "System32" / "WindowsPowerShell" / "v1.0" / "powershell.exe")
-    flags = getattr(subprocess, "DETACHED_PROCESS", 0) | getattr(
-        subprocess, "CREATE_NEW_PROCESS_GROUP", 0)
-    subprocess.Popen(
-        [str(ps_exe) if ps_exe.exists() else "powershell.exe",
-         "-NoProfile", "-NonInteractive", "-WindowStyle", "Hidden",
-         "-EncodedCommand", encoded],
-        close_fds=True, creationflags=flags,
-    )
+    new_group = getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0x200)
+    no_window = getattr(subprocess, "CREATE_NO_WINDOW", 0x08000000)
+    try:
+        subprocess.Popen(
+            [str(ps_exe) if ps_exe.exists() else "powershell.exe",
+             "-NoProfile", "-NonInteractive", "-WindowStyle", "Hidden",
+             "-EncodedCommand", encoded],
+            close_fds=True, creationflags=no_window | new_group,
+        )
+    except OSError as exc:
+        log_line(runtime_dir,
+                 f"auto-update: runner spawn failed ({exc}), "
+                 "fallback to direct installer")
+        subprocess.Popen(
+            installer_argv, close_fds=True,
+            # DETACHED_PROCESS=0x8：GUI 子系统安装器对无控制台免疫（getattr 仅为
+            # POSIX 导入安全，兜底用字面 Win32 常量——值不随平台漂移，测试可对拍）
+            creationflags=getattr(subprocess, "DETACHED_PROCESS", 0x8) | new_group,
+        )
 
 
 def _mac_app_bundle() -> Path | None:
@@ -1578,6 +1663,8 @@ def _install_runner_script_macos() -> str:
     return r'''
 set -u
 log() { printf '%s runner: %s\n' "$(date '+%Y-%m-%d %H:%M:%S')" "$*" >> "$UPD_RUNNER_LOG" 2>/dev/null || true; }
+# 启动痕（与 Windows 同串 runner: started）：「执行体是否真的运行过」的第一判据
+log "started (runner_pid=$$ parent=$UPD_PARENT)"
 w0=$(date +%s)
 n=0
 while kill -0 "$UPD_PARENT" 2>/dev/null; do
@@ -1729,6 +1816,7 @@ def apply_pending_update(runtime_dir: Path) -> None:
              f"/LOG={updates_dir / 'installer.log'}",
              "/AUTOLAUNCH=1"],
             runner_log,
+            runtime_dir,
         )
     elif sys.platform == "darwin":
         bundle = _mac_app_bundle()

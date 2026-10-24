@@ -989,3 +989,34 @@ def test_stale_staged_cleared_when_no_update(monkeypatch):
     assert got["auto"]["state"] == "idle"
     st = json.loads(uc._state_path.read_text(encoding="utf-8"))
     assert st["auto"]["state"] == "idle"
+
+
+# ── c-update-detached-ps-fix：last_install_attempt 诊断字段 ──────────────────
+
+
+def _bake_version_and_fetch(monkeypatch):
+    monkeypatch.setenv("CLIENT_VERSION", "0.39")
+    monkeypatch.setattr(uc, "_fetch_latest",
+                        _async_returns({"latest": "0.39", "notes": ""}))
+
+
+def test_state_merges_last_install_attempt(monkeypatch, tmp_path):
+    """执行记录在场 → 状态并入 last_install_attempt 只读字段（形状原样透传）。"""
+    _bake_version_and_fetch(monkeypatch)
+    updates = tmp_path / "updates"
+    updates.mkdir()
+    (updates / "last-install-attempt.json").write_text(json.dumps(
+        {"version": "0.39", "attempts": 1, "runner_started": False,
+         "installer_exit": None, "recorded_at": 1.0}), encoding="utf-8")
+    monkeypatch.setattr(uc, "_UPDATES_DIR", updates)
+    st = _run(uc.get_update_state())
+    assert st["last_install_attempt"]["runner_started"] is False
+    assert st["last_install_attempt"]["attempts"] == 1
+
+
+def test_state_omits_last_install_attempt_when_absent(monkeypatch, tmp_path):
+    """文件缺失＝键不出现（非 null 占位）——存量状态形状全等断言依赖。"""
+    _bake_version_and_fetch(monkeypatch)
+    monkeypatch.setattr(uc, "_UPDATES_DIR", tmp_path / "updates")
+    st = _run(uc.get_update_state())
+    assert "last_install_attempt" not in st
