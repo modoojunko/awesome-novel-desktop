@@ -23,6 +23,7 @@ from auth_local.middleware import get_current_user
 from db import async_session, get_db
 from image_assets import adapters as image_adapters
 from image_assets import generation as gen
+from image_assets import service as img_svc
 from image_assets.adapters import (
     ImageGenerationSpec,
     ImageProviderError,
@@ -783,6 +784,314 @@ def test_generation_legacy_snapshot_implicit_allow_and_denies(monkeypatch):
             r = c.post(f"/api/novels/{novel_id}/image-jobs", json={"kind": "cover", "n": 2})
         assert r.status_code == 403, r.text
         assert r.json()["detail"]["reason"] == "member_required"
+    finally:
+        app.dependency_overrides.pop(get_db, None)
+        app.dependency_overrides.pop(get_current_user, None)
+
+
+# ── 配置 models 派生＋连接测试（c-image-config-ux-fix）────────────────────
+
+
+@pytest.fixture()
+def _img_test_throttle():
+    from image_assets import service as img_svc
+
+    img_svc.reset_image_test_throttle()
+    yield
+    img_svc.reset_image_test_throttle()
+
+
+def _cfg_row(db, name="派生配置"):
+    suffix = uuid.uuid4().hex[:8]
+    return ImageConfig(
+        id=f"cfg-derive-{suffix}", user_id=USER_ID, name=f"{name}-{suffix}",
+        provider="volcengine", base_url="https://provider.test",
+        api_key=encrypt_api_key("sk-image"), default_model="model-a",
+    )
+
+
+@pytest.mark.asyncio
+async def test_create_config_without_models_derives_from_default_model():
+    from image_assets import service as img_svc
+
+    async with async_session() as db:
+        if await db.get(User, USER_ID) is None:
+            db.add(User(id=USER_ID, email=f"{USER_ID}@t.local", password_hash="*", display_name=USER_ID))
+            await db.flush()
+        c = await img_svc.create_config(db, USER_ID, {
+            "name": f"派生-{uuid.uuid4().hex[:6]}", "provider": "volcengine",
+            "base_url": "https://p.test", "default_model": "model-a", "api_key": "sk-1",
+        })
+    assert c["models"] == ["model-a"] and c["default_model"] == "model-a"
+
+
+@pytest.mark.asyncio
+async def test_create_config_explicit_models_respected_and_empty_derives():
+    from image_assets import service as img_svc
+
+    async with async_session() as db:
+        if await db.get(User, USER_ID) is None:
+            db.add(User(id=USER_ID, email=f"{USER_ID}@t.local", password_hash="*", display_name=USER_ID))
+            await db.flush()
+        kept = await img_svc.create_config(db, USER_ID, {
+            "name": f"显式-{uuid.uuid4().hex[:6]}", "provider": "volcengine",
+            "default_model": "model-a", "models": ["m-1", "m-2"],
+        })
+        derived = await img_svc.create_config(db, USER_ID, {
+            "name": f"空单-{uuid.uuid4().hex[:6]}", "provider": "volcengine",
+            "default_model": "model-b", "models": [],
+        })
+        blank = await img_svc.create_config(db, USER_ID, {
+            "name": f"空模型-{uuid.uuid4().hex[:6]}", "provider": "openai-compat",
+            "default_model": "",
+        })
+    assert kept["models"] == ["m-1", "m-2"]
+    assert derived["models"] == ["model-b"]
+    assert blank["models"] == []
+
+
+@pytest.mark.asyncio
+async def test_update_config_models_follow_default_model_only_when_absent():
+    from image_assets import service as img_svc
+
+    async with async_session() as db:
+        if await db.get(User, USER_ID) is None:
+            db.add(User(id=USER_ID, email=f"{USER_ID}@t.local", password_hash="*", display_name=USER_ID))
+            await db.flush()
+        row = _cfg_row(db)
+        db.add(row)
+        await db.commit()
+        cid = row.id
+        await img_svc.update_config(db, USER_ID, cid, {"default_model": "model-b"})
+        async with async_session() as s2:
+            after = (await s2.get(ImageConfig, cid)).models
+        await img_svc.update_config(db, USER_ID, cid, {"name": "只改名"})
+        async with async_session() as s3:
+            unchanged = (await s3.get(ImageConfig, cid)).models
+        await img_svc.update_config(db, USER_ID, cid, {"models": ["kept-1"]})
+        async with async_session() as s4:
+            explicit = (await s4.get(ImageConfig, cid)).models
+    import json as _json
+    assert _json.loads(after) == ["model-b"]
+    assert _json.loads(unchanged) == ["model-b"]
+    assert _json.loads(explicit) == ["kept-1"]
+
+
+@pytest.mark.asyncio
+async def test_update_provider_change_clears_test_state():
+    from image_assets import service as img_svc
+
+    async with async_session() as db:
+        if await db.get(User, USER_ID) is None:
+            db.add(User(id=USER_ID, email=f"{USER_ID}@t.local", password_hash="*", display_name=USER_ID))
+            await db.flush()
+        row = _cfg_row(db)
+        row.last_test_status = "ok"
+        row.last_test_error = None
+        row.last_tested_at = row.created_at
+        db.add(row)
+        await db.commit()
+        cid = row.id
+        await img_svc.update_config(db, USER_ID, cid, {"provider": "openai"})
+    async with async_session() as db:
+        cleared = await db.get(ImageConfig, cid)
+    assert cleared.provider == "openai"
+    assert cleared.last_test_status is None and cleared.last_tested_at is None
+
+
+def _fake_svc_generate(monkeypatch, *, images=1, exc=None, delay=0.0):
+    calls: list[ImageGenerationSpec] = []
+
+    async def _fake(*, base_url, api_key, spec):
+        calls.append(spec)
+        if delay:
+            await asyncio.sleep(delay)
+        if exc is not None:
+            raise exc
+        return [image_adapters.GeneratedImage(_png(), 1024, 1024) for _ in range(images)]
+
+    monkeypatch.setattr(img_svc, "generate_images", _fake)
+    return calls
+
+
+def test_config_test_endpoint_success_persists_state(client, monkeypatch, _img_test_throttle):
+    _, _, cfg_id = _run(_seed())
+
+    async def _fake(*, base_url, api_key, spec):
+        assert spec.kind == "avatar" and spec.n == 1 and spec.model == "model-x"
+        assert api_key == "sk-image"
+        return [image_adapters.GeneratedImage(_png(), 1024, 1024)]
+
+    monkeypatch.setattr(img_svc, "generate_images", _fake)
+    r = client.post("/api/image-configs/test", json={"config_id": cfg_id})
+    assert r.status_code == 200, r.text
+    data = r.json()["data"]
+    assert data["ok"] is True and data["config_id"] == cfg_id
+
+    async def _check():
+        async with async_session() as db:
+            row = await db.get(ImageConfig, cfg_id)
+            return row.last_test_status, row.last_test_error
+
+    status, error = _run(_check())
+    assert status == "ok" and error is None
+
+
+def test_config_test_endpoint_failure_records_readable_error(client, monkeypatch, _img_test_throttle):
+    _, _, cfg_id = _run(_seed())
+    monkeypatch.setattr(
+        img_svc, "generate_images",
+        _fake_raises(ImageProviderError("auth", "API Key 无效或无权限")),
+    )
+    r = client.post("/api/image-configs/test", json={"config_id": cfg_id})
+    assert r.status_code == 200, r.text
+    data = r.json()["data"]
+    assert data["ok"] is False and data["error"]["kind"] == "auth"
+    assert "Key" in data["error"]["message"]
+
+    async def _check():
+        async with async_session() as db:
+            row = await db.get(ImageConfig, cfg_id)
+            return row.last_test_status, row.last_test_error
+
+    status, error = _run(_check())
+    assert status == "failed" and "Key" in error
+
+
+def _fake_raises(err):
+    async def _fake(*, base_url, api_key, spec):
+        raise err
+    return _fake
+
+
+def test_config_test_endpoint_timeout_counts_as_failure(client, monkeypatch, _img_test_throttle):
+    _, _, cfg_id = _run(_seed())
+    monkeypatch.setattr(img_svc, "IMAGE_TEST_DEADLINE_SECONDS", 0.05)
+    _fake_svc_generate(monkeypatch, delay=0.3)
+    r = client.post("/api/image-configs/test", json={"config_id": cfg_id})
+    assert r.status_code == 200, r.text
+    data = r.json()["data"]
+    assert data["ok"] is False and data["error"]["kind"] == "timeout"
+
+
+def test_config_test_endpoint_without_config_id_does_not_persist(client, monkeypatch, _img_test_throttle):
+    _fake_svc_generate(monkeypatch)
+    before = _run(_seed())
+    r = client.post("/api/image-configs/test", json={
+        "provider": "volcengine", "base_url": "https://p.test",
+        "default_model": "model-x", "api_key": "sk-fresh",
+    })
+    assert r.status_code == 200, r.text
+    assert r.json()["data"]["config_id"] is None
+
+    async def _check():
+        async with async_session() as db:
+            row = await db.get(ImageConfig, before[2])
+            return row.last_test_status
+
+    assert _run(_check()) is None
+
+
+def test_config_test_endpoint_unexpected_exception_is_failure_not_500(client, monkeypatch, _img_test_throttle):
+    """适配器分类链外的逃逸者（实测 httpx.InvalidURL 对畸形 Base URL）兜底转
+    可读失败并落 last_test_*——端点契约「测试失败不抛 5xx」。"""
+    _, _, cfg_id = _run(_seed())
+    monkeypatch.setattr(
+        img_svc, "generate_images",
+        _fake_raises(RuntimeError("Invalid port: ':1'")),
+    )
+    r = client.post("/api/image-configs/test", json={"config_id": cfg_id})
+    assert r.status_code == 200, r.text
+    data = r.json()["data"]
+    assert data["ok"] is False and data["error"]["kind"] == "invalid"
+    assert "测试异常" in data["error"]["message"]
+
+    async def _check():
+        async with async_session() as db:
+            row = await db.get(ImageConfig, cfg_id)
+            return row.last_test_status, row.last_test_error
+
+    status, error = _run(_check())
+    assert status == "failed" and "测试异常" in error
+
+
+def test_config_test_endpoint_throttled_429(client, monkeypatch, _img_test_throttle):
+    _fake_svc_generate(monkeypatch)
+    _, _, cfg_id = _run(_seed())
+    first = client.post("/api/image-configs/test", json={"config_id": cfg_id})
+    assert first.status_code == 200
+    second = client.post("/api/image-configs/test", json={"config_id": cfg_id})
+    assert second.status_code == 429, second.text
+    assert second.json()["detail"]["code"] == "test_rate_limited"
+
+
+def test_config_test_endpoint_validations(client, monkeypatch, _img_test_throttle):
+    r = client.post("/api/image-configs/test", json={"config_id": "cfg-nope"})
+    assert r.status_code == 400 and r.json()["detail"]["code"] == "config_not_found"
+    r = client.post("/api/image-configs/test", json={"provider": "volcengine", "default_model": " "})
+    assert r.status_code == 400 and r.json()["detail"]["code"] == "model_required"
+    r = client.post("/api/image-configs/test", json={"provider": "nope", "default_model": "m"})
+    assert r.status_code == 400 and r.json()["detail"]["code"] == "invalid_provider"
+    # 本地校验失败退还节流额度（记账在入口、失败即退）：三连 400 后合法调用不得 429
+    _fake_svc_generate(monkeypatch)
+    r = client.post("/api/image-configs/test", json={
+        "provider": "volcengine", "base_url": "https://p.test",
+        "default_model": "model-x", "api_key": "sk-ok",
+    })
+    assert r.status_code == 200, r.text
+    assert r.json()["data"]["ok"] is True
+
+
+def test_config_test_endpoint_tier_matrix(monkeypatch, _img_test_throttle):
+    """免费档 403 feature_required；trial 放行；旧快照隐式放行继承生成端点语义。"""
+    from image_assets import service as img_svc
+
+    _fake_svc_generate(monkeypatch)
+    _run(_seed())
+
+    async def _ensure():
+        return None
+
+    monkeypatch.setattr(auth_deps, "ensure_entitlement_snapshot", _ensure)
+    app.dependency_overrides[get_db] = _override_db
+    app.dependency_overrides[get_current_user] = lambda: {"id": USER_ID}
+
+    def _permission(tier, features, *, is_member=True, expired=False):
+        return lambda: {
+            "is_member": is_member, "expired": expired, "tier": tier,
+            "entitlement": {"v": 2, "features": features},
+        }
+
+    try:
+        monkeypatch.setattr(auth_deps, "check_permission",
+                            _permission("standard", ["ai-plan"]))
+        with TestClient(app) as c:
+            r = c.post("/api/image-configs/test", json={"default_model": "m", "provider": "volcengine"})
+        assert r.status_code == 403, r.text
+        assert r.json()["detail"]["reason"] == "feature_required"
+        assert r.json()["detail"]["tier_required"] == "pro"
+
+        monkeypatch.setattr(auth_deps, "check_permission",
+                            _permission("trial", ["image-generate"]))
+        img_svc.reset_image_test_throttle()
+        with TestClient(app) as c:
+            r = c.post("/api/image-configs/test", json={"default_model": "m", "provider": "volcengine"})
+        assert r.status_code == 200, r.text
+
+        # 旧快照无 image-generate：未过期 pro 隐式放行；过期拒绝
+        monkeypatch.setattr(auth_deps, "check_permission",
+                            _permission("pro", ["ai-model"]))
+        img_svc.reset_image_test_throttle()
+        with TestClient(app) as c:
+            r = c.post("/api/image-configs/test", json={"default_model": "m", "provider": "volcengine"})
+        assert r.status_code == 200, r.text
+
+        monkeypatch.setattr(auth_deps, "check_permission",
+                            _permission("pro", ["ai-model"], expired=True))
+        img_svc.reset_image_test_throttle()
+        with TestClient(app) as c:
+            r = c.post("/api/image-configs/test", json={"default_model": "m", "provider": "volcengine"})
+        assert r.status_code == 403, r.text
     finally:
         app.dependency_overrides.pop(get_db, None)
         app.dependency_overrides.pop(get_current_user, None)

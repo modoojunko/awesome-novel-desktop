@@ -28,6 +28,7 @@ from image_assets.schemas import (
     BookImageSettingsBody,
     CharacterImageSettingsBody,
     ImageConfigCreate,
+    ImageConfigTestBody,
     ImageConfigUpdate,
     ImageJobCreate,
 )
@@ -112,6 +113,30 @@ async def restore_image_config(
 ):
     try:
         data = await svc.restore_config(db, user["id"], config_id)
+    except SVC_ERRORS as e:
+        raise _svc_error(e) from e
+    return {"ok": True, "data": data}
+
+
+@router.post("/image-configs/test")
+@ai_feature("image-generate")
+async def test_image_config(
+    body: ImageConfigTestBody,
+    db: AsyncSession = Depends(get_db),
+    user: dict = Depends(get_current_user),
+    _tier: bool = Depends(require_tier_access),
+):
+    """连接测试＝真实最小试画（消耗供应商额度）：挂 image-generate 门（与生成
+    同语义，旧快照隐式放行按 __ai_feature__ 自动继承）。测试失败不抛 5xx——
+    失败原因在 data.error 里，HTTP 层只对参数/节流/门禁报 4xx。"""
+    try:
+        data = await svc.test_config(db, user["id"], body.model_dump())
+    except svc.ImageTestRateLimited as e:
+        raise HTTPException(
+            status_code=429,
+            detail={"code": "test_rate_limited",
+                    "message": f"测试过于频繁，请 {int(e.retry_after) + 1} 秒后再试"},
+        ) from e
     except SVC_ERRORS as e:
         raise _svc_error(e) from e
     return {"ok": True, "data": data}

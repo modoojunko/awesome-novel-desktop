@@ -2148,3 +2148,16 @@ baseurl 到什么程度，要有个案例。」——中转站/自建网关用�
 - **与实现的一处既有偏差**（非本 change 引入）：`.tk-live` 顶距实现为 0、原型无该面板，不涉及。
 - **parity 影响**：`book.html` 正文页签与实现同批改，`design:check` 的 book 屏应回到阈值内；
   宽屏 1440 版心 680 不变、1280 档纸边距收到下限 20px 后版心约 636px（先保纸边距、再让版心让路）。
+
+## 2026-10-24 · 图像模型页签进基线＋配置弹窗单模型收敛（c-image-config-ux-fix）
+
+- **背景补档**：图像模型配置 UI 此前只画在 drafts（ai-novel-c端-封面与角色头像-原型.html），#932 落实现时未进本目录基线（model-config.html 无图像段）。本条随 c-image-config-ux-fix 把图像页签按**新设计**一并补进基线， drafts 原型不再维护配置弹窗形态。
+- **model-config.html 新增**：
+  1. 页签组第三项「图像模型」（`.cfg-tab`，复用朱雀页签词汇；`setCfgTab` 三态切换，页面级「添加 API Key」按钮在图像页签隐藏，图像域用工具行内自己的「添加图像模型」）；
+  2. `#pane-image`：notice（Key 只用于封面/头像；免费可上传；测试连接会真实生成一张小图）＋工具行（启用计数/显示已删除/添加按钮）＋配置卡片列表；
+  3. `#modalImage`：供应商两列 `.vgrid.img-vgrid`（vbtn 仅文字档，高 44）＋申请 Key 链接行＋名称/Base URL/Key＋**单一「模型」格**（取代原「默认模型＋模型清单」双格——清单字段无功能消费方，纯误导；预填同实现口径：切供应商时 Base/模型为空或仍是上一家预设才替换，模型取预设首个）＋设为默认勾选＋`.tresult` 测试结果行＋foot「测试连接 / 取消 / 保存」；
+  4. 卡片改版：`models` chips 区改为 `.img-model-line`「模型：{id}」单行（mono），卡头加测试状态胶囊（`.badge ok`=测试通过·时间 / `.badge empty`=未测试 / **`.badge err`=测试失败**——err 语气为词表内既有语气，非新胶囊形态）；
+  5. 新增 CSS 仅 `.badge.err`/`.img-model-line`/`.img-toolbar`/`.img-vgrid` 四条，其余全复用既有词汇。
+- **设计要点登记**：测试连接＝后端真实最小试画（不落资产）；编辑保存后旧测试结果重置为未测试（供应商/Base/模型都可能有变，旧「通过」不再可信）；新建态测试通过后**保存会重置为未测试**（create 重置测试三列，已知取舍、文案如实）。
+- **交互演示口径**：测试按钮 1.4s 后出结果（真实实现为后端试画、约 75s deadline）；Key 以 `sk-bad` 开头演示失败分支。
+- **实现侧落点**：`client/frontend/src/components/image/ImageConfigPanel.tsx`（表单＋卡片）与后端 `image_assets/`（test 端点＋models 派生）随实现 PR 同批对拍；`design:check` 的 model-config 屏图像段为新增基线，实现与原型需逐类名对齐。

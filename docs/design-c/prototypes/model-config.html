@@ -218,6 +218,14 @@
   .tresult.bad { background: var(--err-soft); color: var(--err); }
   .ferr { font-size: 13px; padding: 9px 12px; border-radius: 9px; background: var(--err-soft); color: var(--err); margin-bottom: 4px; }
 
+  /* ─── 图像模型页签（c-image-config-ux-fix：.img-model-line/.badge.err；其余复用 cfg-card/vbtn 词汇）─── */
+  .badge.err { background: var(--err-soft); color: var(--err); }
+  .img-model-line { font-family: var(--font-mono); font-size: 12px; color: var(--fg); margin: 10px 0 2px; }
+  .img-toolbar { display: flex; align-items: center; gap: 12px; margin-bottom: 10px; }
+  .img-toolbar .chk { display: inline-flex; align-items: center; gap: 6px; font-size: 12.5px; color: var(--muted); }
+  .img-vgrid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .img-vgrid .vbtn { height: 44px; flex-direction: row; }
+
   /* 模型选择器（c-api-config-auto-models：组合框＋弹层；与实现 model-config.css 同形态） */
   .mp-wrap { position: relative; }
   .mp-meta { font-size: 11.5px; color: var(--muted); }
@@ -337,6 +345,7 @@
   <div class="cfg-tabs" role="tablist" aria-label="配置分类" data-od-id="cfg-tabs">
     <button class="cfg-tab on" role="tab" data-tab="llm" data-od-id="cfg-tab-llm">写作大模型</button>
     <button class="cfg-tab" role="tab" data-tab="zhuque" data-od-id="cfg-tab-zhuque">朱雀 AI 检测</button>
+    <button class="cfg-tab" role="tab" data-tab="image" data-od-id="cfg-tab-image">图像模型</button>
   </div>
 
   <div id="pane-llm">
@@ -416,6 +425,25 @@
       <span><b>隐私提示</b>：检测会把<b>整章正文发送到腾讯朱雀服务</b>做判定，本机不参与打分。介意送稿的章节请不要使用。检测结果为概率参考，非任何平台的判定标准。</span>
     </div>
   </div><!-- /pane-zhuque -->
+
+  <!-- ═══ 图像模型页签（c-image-config-ux-fix：单模型格＋测试连接；AI 生成见 c-image-generation）═══ -->
+  <div id="pane-image" hidden data-od-id="pane-image">
+    <div class="notice" data-od-id="image-notice">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="12" cy="12" r="9"/><path d="M12 11v5M12 8h.01"/></svg>
+      <span>图像模型与写作模型分开管理；Key <b>只用于封面与角色头像</b>。<b>免费用户可上传</b>本地图片，AI 生成需 PRO 以上。「测试连接」会<b>真实生成一张小图</b>来验证 Key、地址与模型 id。</span>
+    </div>
+
+    <div class="img-toolbar" data-od-id="image-toolbar">
+      <span class="note" id="imgCount">1 个启用配置</span>
+      <label class="chk"><input type="checkbox" id="imgIncludeDeleted" /> 显示已删除</label>
+      <span style="flex:1"></span>
+      <button class="btn btn-primary btn-sm" id="btnAddImage" data-od-id="btn-add-image">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="13" height="13"><path d="M12 5v14M5 12h14"/></svg>
+        添加图像模型
+      </button>
+    </div>
+    <div class="cards" id="imgCards" data-od-id="image-cards"></div>
+  </div><!-- /pane-image -->
 
   <!-- 朱雀未配置态（演示切换：#pane-zhuque.hidden ↔ 本块） -->
   <div id="pane-zq-empty" hidden data-od-id="pane-zhuque-empty">
@@ -538,6 +566,51 @@
   </div>
 </div>
 
+<!-- ═══ 添加 / 编辑图像模型（c-image-config-ux-fix：单一「模型」格＋测试连接）═══ -->
+<div class="modal" id="modalImage" hidden data-od-id="modal-image" role="dialog" aria-modal="true" aria-labelledby="imgCfgTitle">
+  <div class="mcard">
+    <div class="mcard-head">
+      <span class="mh serif" id="imgCfgTitle">添加图像模型</span>
+      <button class="icon-btn x" data-close="modalImage" aria-label="关闭"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M6 6l12 12M18 6L6 18"/></svg></button>
+    </div>
+    <div class="mcard-body">
+      <div class="ferr" id="imgCfgError" hidden></div>
+      <div class="field">
+        <label>供应商</label>
+        <div class="vgrid img-vgrid" id="imgVendors" role="group" aria-label="图像供应商"></div>
+        <p class="cf-hint" id="imgApplyHint" hidden>申请 Key / 查看 Base URL：<a href="#" target="_blank" rel="noreferrer" id="imgApplyLink"></a></p>
+      </div>
+      <div class="field">
+        <label for="imgCfgName">配置名称 <span class="req">*</span></label>
+        <input class="input" id="imgCfgName" placeholder="例如：封面主力 · 火山" maxlength="30" />
+      </div>
+      <div class="field">
+        <label for="imgCfgBase">Base URL</label>
+        <input class="input mono" id="imgCfgBase" placeholder="https://…" />
+      </div>
+      <div class="field">
+        <label for="imgCfgKey">API Key</label>
+        <input class="input mono" id="imgCfgKey" type="password" placeholder="粘贴 API Key" autocomplete="off" />
+        <span class="alt" id="imgCfgKeyAlt" hidden></span>
+      </div>
+      <div class="field">
+        <label for="imgCfgModel">模型</label>
+        <input class="input mono" id="imgCfgModel" placeholder="模型 id" />
+        <p class="cf-hint">不确定就先填供应商预设，再用「测试连接」验证；填错的模型要到生成时才会失败。</p>
+      </div>
+      <div class="field">
+        <label class="chk" style="font-size:13px; color:var(--fg);"><input type="checkbox" id="imgCfgDefault" /> 设为默认图像配置（新书未单独绑定时使用）</label>
+      </div>
+      <div class="tresult" id="imgTestResult" hidden></div>
+    </div>
+    <div class="mcard-foot">
+      <button class="btn btn-secondary" id="imgTestBtn" type="button">测试连接</button>
+      <button class="btn btn-secondary" data-close="modalImage">取消</button>
+      <button class="btn btn-primary" id="imgSave">保存</button>
+    </div>
+  </div>
+</div>
+
 <!-- ═══ 删除确认 ═══ -->
 <div class="modal" id="modalDelete" hidden data-od-id="modal-delete" role="dialog" aria-modal="true" aria-labelledby="delTitle">
   <div class="mcard">
@@ -562,17 +635,20 @@
 const paneLlm = document.getElementById('pane-llm');
 const paneZq = document.getElementById('pane-zhuque');
 const paneZqEmpty = document.getElementById('pane-zq-empty');
+const paneImg = document.getElementById('pane-image');
 const btnAdd = document.getElementById('btnAdd');
 let zqConfigured = true; /* 演示切换：true=已配置态 / false=未配置态 */
 
 function setCfgTab(which) {
   document.querySelectorAll('.cfg-tab').forEach(t => t.classList.toggle('on', t.dataset.tab === which));
   const zq = which === 'zhuque';
-  paneLlm.hidden = zq;
+  const img = which === 'image';
+  paneLlm.hidden = zq || img;
   paneZq.hidden = !zq || !zqConfigured;
   paneZqEmpty.hidden = !zq || zqConfigured;
-  /* 页面级动作随页签切换：「添加 API Key」只属于大模型域 */
-  btnAdd.hidden = zq;
+  paneImg.hidden = !img;
+  /* 页面级动作随页签切换：「添加 API Key」只属于大模型域；图像域有工具行内自己的添加按钮 */
+  btnAdd.hidden = zq || img;
 }
 document.querySelectorAll('.cfg-tab').forEach(t => t.addEventListener('click', () => setCfgTab(t.dataset.tab)));
 document.getElementById('zqToggle').addEventListener('click', function () {
@@ -1280,9 +1356,158 @@ document.addEventListener('keydown', (e) => {
 });
 window.addEventListener('resize', () => { if (!acctMenu.hidden) positionAcctMenu(); });
 
+/* ═══════════ 图像模型页签（c-image-config-ux-fix 演示）═══════════ */
+const IMG_PROVIDERS = [
+  { id: 'volcengine', label: '火山引擎 Seedream', base_url: 'https://ark.cn-beijing.volces.com/api/v3', models: ['doubao-seedream-5-0-260128', 'doubao-seedream-4-5-251128', 'doubao-seedream-4-0-250828'], apply_url: 'https://console.volcengine.com/ark' },
+  { id: 'aliyun', label: '阿里云百炼 Qwen-Image', base_url: 'https://dashscope.aliyuncs.com/api/v1', models: ['qwen-image-2.0-pro', 'qwen-image-2.0'], apply_url: 'https://bailian.console.aliyun.com/' },
+  { id: 'zhipu', label: '智谱 CogView', base_url: 'https://open.bigmodel.cn/api/paas/v4', models: ['cogview-4', 'cogview-3-flash'], apply_url: 'https://bigmodel.cn/console/' },
+  { id: 'openai', label: 'OpenAI gpt-image-1', base_url: 'https://api.openai.com/v1', models: ['gpt-image-1'], apply_url: 'https://platform.openai.com/api-keys' },
+  { id: 'minimax', label: 'MiniMax image-01', base_url: 'https://api.minimax.chat/v1', models: ['image-01'], apply_url: 'https://platform.minimaxi.com/' },
+  { id: 'openai-compat', label: 'OpenAI 兼容', base_url: '', models: [], apply_url: '' },
+];
+/* 演示数据：test = null 未测试 / { ok:true, at } 通过 / { ok:false, err } 失败 */
+let imgConfigs = [
+  { id: 'img1', name: '火山 Seedream', provider: 'volcengine', base_url: 'https://ark.cn-beijing.volces.com/api/v3', key: 'ark-64c2****afbd', model: 'doubao-seedream-5-0-260128', is_default: true, status: 'active', test: { ok: true, at: '2 分钟前' } },
+  { id: 'img2', name: 'OpenAI 封面备用', provider: 'openai', base_url: 'https://api.openai.com/v1', key: 'sk-proj-****7c2a', model: 'gpt-image-1', is_default: false, status: 'active', test: null },
+];
+let imgEditing = null;
+let imgProvider = 'volcengine';
+let imgTestTimer = null;
+
+const imgMeta = (id) => IMG_PROVIDERS.find(p => p.id === id) || IMG_PROVIDERS[0];
+
+function imgTestBadge(c) {
+  if (c.status === 'deleted') return '<span class="badge empty">已删除</span>';
+  if (!c.test) return '<span class="badge empty">未测试</span>';
+  return c.test.ok
+    ? `<span class="badge ok">测试通过 · ${esc(c.test.at)}</span>`
+    : '<span class="badge err">测试失败</span>';
+}
+
+function renderImgCards() {
+  const el = $('imgCards');
+  el.innerHTML = '';
+  $('imgCount').textContent = `${imgConfigs.filter(c => c.status === 'active').length} 个启用配置`;
+  imgConfigs.forEach(c => {
+    const card = document.createElement('div');
+    card.className = 'cfg-card' + (c.status === 'deleted' ? ' ' : '');
+    card.dataset.odId = `img-cfg-${c.id}`;
+    card.innerHTML = `
+      <div class="cfg-top">
+        <span class="pv-icon">${esc(c.provider.slice(0, 1).toUpperCase())}</span>
+        <div class="id">
+          <div class="nm">${esc(c.name)}</div>
+          <div class="url">${esc(c.base_url || '（未填 Base URL）')}</div>
+        </div>
+        ${c.is_default ? '<span class="badge ok">默认</span>' : ''}
+        ${imgTestBadge(c)}
+      </div>
+      <div class="keyline">${esc(c.key)}</div>
+      <div class="img-model-line">模型：${esc(c.model || '（未填）')}</div>
+      <div class="cfg-foot">
+        <span class="res">${esc(imgMeta(c.provider).label)}</span>
+        <div class="cfg-acts">
+          ${c.status === 'deleted'
+            ? '<button class="btn btn-ghost btn-sm" data-act="restore">恢复</button>'
+            : `<button class="btn btn-ghost btn-sm" data-act="edit">编辑</button>
+               <button class="btn btn-ghost btn-sm" data-act="del" style="color:var(--err)">删除</button>`}
+        </div>
+      </div>`;
+    card.querySelectorAll('[data-act]').forEach(b => b.addEventListener('click', () => {
+      const act = b.dataset.act;
+      if (act === 'edit') openImgModal(c);
+      else if (act === 'del') { c.status = 'deleted'; c.is_default = false; renderImgCards(); toast('已删除「' + c.name + '」，可撤销'); }
+      else if (act === 'restore') { c.status = 'active'; renderImgCards(); toast('已恢复「' + c.name + '」'); }
+    }));
+    el.appendChild(card);
+  });
+}
+
+function renderImgVendors() {
+  const el = $('imgVendors');
+  el.innerHTML = IMG_PROVIDERS.map(p =>
+    `<button type="button" class="vbtn${p.id === imgProvider ? ' on' : ''}" data-pid="${p.id}"><span>${esc(p.label)}</span></button>`).join('');
+  el.querySelectorAll('[data-pid]').forEach(b => b.addEventListener('click', () => pickImgProvider(b.dataset.pid)));
+}
+
+function pickImgProvider(pid) {
+  const prev = imgMeta(imgProvider);
+  imgProvider = pid;
+  const meta = imgMeta(pid);
+  renderImgVendors();
+  /* 预填口径同实现：Base/模型为空或仍是上一家预设值时，替换为本家预设（模型取首个） */
+  const base = $('imgCfgBase'), model = $('imgCfgModel');
+  if (!base.value.trim() || base.value === prev.base_url) base.value = meta.base_url;
+  if (!model.value.trim() || model.value === prev.models[0]) model.value = meta.models[0] || '';
+  const hint = $('imgApplyHint');
+  if (meta.apply_url) { hint.hidden = false; $('imgApplyLink').textContent = meta.apply_url; $('imgApplyLink').href = meta.apply_url; }
+  else hint.hidden = true;
+}
+
+function openImgModal(c) {
+  imgEditing = c || null;
+  imgProvider = c ? c.provider : 'volcengine';
+  $('imgCfgTitle').textContent = c ? '编辑图像模型' : '添加图像模型';
+  $('imgCfgError').hidden = true;
+  $('imgCfgName').value = c ? c.name : '';
+  $('imgCfgKey').value = '';
+  $('imgCfgKeyAlt').hidden = !c;
+  if (c) { $('imgCfgKeyAlt').textContent = '留空保留当前 Key'; $('imgCfgKey').placeholder = '留空保留当前 Key'; }
+  else { $('imgCfgKey').placeholder = '粘贴 API Key'; }
+  $('imgCfgDefault').checked = !!(c && c.is_default);
+  $('imgTestResult').hidden = true;
+  $('imgCfgBase').value = ''; $('imgCfgModel').value = '';
+  renderImgVendors();
+  pickImgProvider(imgProvider);
+  if (c) { $('imgCfgBase').value = c.base_url; $('imgCfgModel').value = c.model; }
+  openModal('modalImage');
+}
+
+function setImgTest(el, ok, text) {
+  el.hidden = false;
+  el.className = 'tresult ' + (ok ? 'ok' : 'bad');
+  el.textContent = text;
+}
+
+$('btnAddImage').addEventListener('click', () => openImgModal(null));
+
+$('imgTestBtn').addEventListener('click', () => {
+  const res = $('imgTestResult');
+  const model = $('imgCfgModel').value.trim();
+  if (!model) { setImgTest(res, false, '请先填模型 id 再测试'); return; }
+  $('imgTestBtn').disabled = true;
+  $('imgTestBtn').textContent = '测试中…';
+  /* 演示：1.4s 后按 Key 形状给结果（真实实现=后端最小试画，约 75s deadline） */
+  imgTestTimer = setTimeout(() => {
+    $('imgTestBtn').disabled = false;
+    $('imgTestBtn').textContent = '测试连接';
+    const bad = $('imgCfgKey').value.trim().startsWith('sk-bad');
+    if (bad) setImgTest(res, false, '测试失败：模型不存在或无权限（错误摘要来自供应商响应）');
+    else setImgTest(res, true, `测试通过：已生成 1 张试画（${(1.2 + Math.random() * 0.6).toFixed(1)}s）· 试画图不保存`);
+  }, 1400);
+});
+
+$('imgSave').addEventListener('click', () => {
+  const name = $('imgCfgName').value.trim();
+  if (!name) { const e = $('imgCfgError'); e.hidden = false; e.textContent = '配置名称不能为空'; return; }
+  const base = { name, provider: imgProvider, base_url: $('imgCfgBase').value.trim(), key: $('imgCfgKey').value.trim(), model: $('imgCfgModel').value.trim(), is_default: $('imgCfgDefault').checked };
+  if (imgEditing) {
+    /* 编辑保存后旧测试结果不再可信（供应商/Base/模型都可能有变），重置为未测试 */
+    Object.assign(imgEditing, base, { key: base.key || imgEditing.key, test: null });
+  } else {
+    imgConfigs.push({ id: 'img' + (imgConfigs.length + 1), status: 'active', test: null, ...base, key: base.key || '（未填 Key）' });
+  }
+  if (base.is_default) imgConfigs.forEach(c => { if (c !== imgEditing) c.is_default = false; });
+  closeModal('modalImage');
+  renderImgCards();
+  toast(imgEditing ? '已保存「' + name + '」' : '已添加「' + name + '」');
+  imgEditing = null;
+});
+
 renderUsage();
 renderCards();
 renderVendors();
+renderImgCards();
 </script>
 </body>
 </html>

@@ -26,6 +26,8 @@
 .img-vgrid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 .img-vgrid .vbtn { height: 42px; }
 .img-vgrid .vbtn span { font-size: 12px; }
+/* c-image-config-ux-fix：卡片模型行（取代 m-chip 清单；测试胶囊复用 .b ok/err/muted） */
+.img-model-line { font-family: var(--font-mono); font-size: 12px; color: var(--fg); overflow-wrap: anywhere; }
 
 .img-workshop { display: grid; grid-template-columns: minmax(0, 1fr) 268px; gap: 18px; align-items: start; }
 .img-workshop-main { min-width: 0; }

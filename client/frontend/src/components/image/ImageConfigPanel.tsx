@@ -21,10 +21,11 @@ function ConfigForm({
   const [baseUrl, setBaseUrl] = useState("");
   const [apiKey, setApiKey] = useState("");
   const [defaultModel, setDefaultModel] = useState("");
-  const [modelsText, setModelsText] = useState("");
   const [isDefault, setIsDefault] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [testing, setTesting] = useState(false);
+  const [testResult, setTestResult] = useState<{ ok: boolean; text: string } | null>(null);
 
   useEffect(() => {
     if (!open) return;
@@ -33,9 +34,9 @@ function ConfigForm({
     setBaseUrl(config?.base_url ?? "");
     setApiKey("");
     setDefaultModel(config?.default_model ?? "");
-    setModelsText((config?.models ?? []).join("\n"));
     setIsDefault(!!config?.is_default);
     setError(null);
+    setTestResult(null);
   }, [open, config]);
 
   const providerMeta = IMAGE_PROVIDERS.find((p) => p.id === provider);
@@ -45,24 +46,45 @@ function ConfigForm({
     setProvider(next);
     const meta = IMAGE_PROVIDERS.find((p) => p.id === next);
     if (!baseUrl.trim() || baseUrl === prev?.base_url) setBaseUrl(meta?.base_url ?? "");
-    if (!modelsText.trim()) setModelsText((meta?.models ?? []).join("\n"));
     if (!defaultModel.trim() || defaultModel === prev?.models?.[0]) {
       setDefaultModel(meta?.models?.[0] ?? "");
+    }
+    setTestResult(null);
+  };
+
+  // 连接测试＝后端真实最小试画（c-image-config-ux-fix）。编辑态带 config_id 且
+  // Key 留空 → 后端取存量 Key；新建态全按表单值。429/403 也走 catch 的可读文案。
+  const runTest = async () => {
+    const model = defaultModel.trim();
+    if (!model) { setTestResult({ ok: false, text: "请先填写模型 id 再测试" }); return; }
+    setTesting(true);
+    setTestResult(null);
+    try {
+      const body: Parameters<typeof imageApi.testConfig>[0] = {
+        provider, base_url: baseUrl.trim(), default_model: model,
+      };
+      if (apiKey.trim()) body.api_key = apiKey.trim();
+      if (isEdit && config) body.config_id = config.id;
+      const r = await imageApi.testConfig(body);
+      setTestResult(r.ok
+        ? { ok: true, text: `测试通过：已生成 1 张试画（${(r.elapsed_ms / 1000).toFixed(1)}s）· 试画图不保存` }
+        : { ok: false, text: `测试失败：${r.error?.message || "未知错误"}` });
+    } catch (e) {
+      setTestResult({ ok: false, text: (e as Error).message || "测试失败" });
+    } finally {
+      setTesting(false);
     }
   };
 
   const submit = async () => {
     const trimmed = name.trim();
     if (!trimmed) { setError("配置名称不能为空"); return; }
-    const models = [...new Set(
-      modelsText.split(/[\n,，]+/).map((s) => s.trim()).filter(Boolean),
-    )];
+    // 单一「模型」格：清单不再提交，后端派生 models=[default_model]（c-image-config-ux-fix）
     const body: Record<string, unknown> = {
       name: trimmed,
       provider,
       base_url: baseUrl.trim(),
       default_model: defaultModel.trim(),
-      models,
       is_default: isDefault,
     };
     // 编辑态留空 Key = 保留旧 Key（后端同语义；绝不发空串）
@@ -95,9 +117,12 @@ function ConfigForm({
       onClose={onClose}
       title={isEdit ? "编辑图像模型" : "添加图像模型"}
       width={560}
-      locked={saving}
+      locked={saving || testing}
       footer={(
         <>
+          <button className="btn btn-secondary" onClick={() => void runTest()} disabled={saving || testing}>
+            {testing ? "测试中…" : "测试连接"}
+          </button>
           <button className="btn btn-secondary" onClick={onClose} disabled={saving}>取消</button>
           <button className="btn btn-primary" onClick={() => void submit()} disabled={saving}>
             {saving ? "保存中…" : "保存"}
@@ -140,19 +165,21 @@ function ConfigForm({
           <input className="input mono" type="password" value={apiKey} onChange={(e) => setApiKey(e.target.value)} placeholder={isEdit ? "留空保留当前 Key" : "粘贴 API Key"} autoComplete="off" />
         </div>
         <div className="field">
-          <label>默认模型</label>
-          <input className="input mono" value={defaultModel} onChange={(e) => setDefaultModel(e.target.value)} placeholder="模型 id" />
+          <label>模型</label>
+          <input className="input mono" value={defaultModel} onChange={(e) => { setDefaultModel(e.target.value); setTestResult(null); }} placeholder="模型 id" />
+          <p className="cf-hint">
+            不确定就先填供应商预设，再用「测试连接」验证；填错的模型要到生成时才会失败。
+          </p>
         </div>
-        <div className="field">
-          <label>模型清单 <span className="alt">一行一个，也可逗号分隔</span></label>
-          <textarea className="input" rows={3} value={modelsText} onChange={(e) => setModelsText(e.target.value)} />
-        </div>
+        {testResult && (
+          <div className={`tresult ${testResult.ok ? "ok" : "bad"}`}>{testResult.text}</div>
+        )}
         <label className="img-check">
           <input type="checkbox" checked={isDefault} onChange={(e) => setIsDefault(e.target.checked)} />
           设为默认图像配置（新书未单独绑定时使用）
         </label>
         <p className="cf-hint">
-          连接测试 / 试画 / 拉取模型清单在后续版本开放；当前保存即可用于上传工坊。
+          「测试连接」会用当前参数真实生成一张小图（试画图不保存）；测试失败不影响保存。
         </p>
       </div>
     </Modal>
@@ -220,7 +247,7 @@ export default function ImageConfigPanel() {
         <Ico d={P.info} sw={1.8} />
         <span>
           图像模型与写作模型分开管理；Key 只用于封面/头像。<b>免费用户可上传</b>，
-          AI 生成将在后续版本开放。
+          AI 生成需 PRO 以上。「测试连接」会真实生成一张小图来验证 Key、地址与模型 id。
         </span>
       </div>
 
@@ -252,7 +279,7 @@ export default function ImageConfigPanel() {
       ) : configs.length === 0 ? (
         <div className="empty">
           <div className="serif">还没有图像模型配置</div>
-          <p>添加一个后，封面/头像上传仍可用；生成能力将在后续版本接入。</p>
+          <p>添加一个后，封面/头像上传与 AI 生成即可使用；可先「测试连接」验证。</p>
         </div>
       ) : (
         <div className="cards">
@@ -265,13 +292,16 @@ export default function ImageConfigPanel() {
                   <div className="url">{c.base_url || "（未填 Base URL）"}</div>
                 </div>
                 {c.is_default && <span className="b ok">默认</span>}
-                {c.status === "deleted" && <span className="b muted">已删除</span>}
+                {c.status === "deleted"
+                  ? <span className="b muted">已删除</span>
+                  : c.last_test_status === "ok"
+                    ? <span className="b ok">测试通过</span>
+                    : c.last_test_status === "failed"
+                      ? <span className="b err" title={c.last_test_error || undefined}>测试失败</span>
+                      : <span className="b muted">未测试</span>}
               </div>
               <div className="keyline">{c.api_key_masked || "（未填 Key）"}</div>
-              <div className="models">
-                {c.models.slice(0, 5).map((m) => <span key={m} className="m-chip">{m}</span>)}
-                {c.models.length > 5 && <span className="m-chip more">+{c.models.length - 5}</span>}
-              </div>
+              <div className="img-model-line">模型：{c.default_model || "（未填）"}</div>
               <div className="cfg-foot">
                 <span className="res">{IMAGE_PROVIDERS.find((p) => p.id === c.provider)?.label || c.provider}</span>
                 <div className="cfg-acts">
