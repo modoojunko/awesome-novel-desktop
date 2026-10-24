@@ -23,4 +23,5 @@
   - 证据：tsc 零错；vitest 1795/1795（143 文件）；build 含 check-inline-colors 通过（legacy-colors 227.5KB 再生）；design:lint 绿（原型 data-URI 封面改 SVG 命名色过严格范围）
 - [x] 4.2 隔离栈真机走查：有封面/无封面有章节/0 章/待完本/已完结五态书卡＋窄屏（≤820px）缩放各截一张，对拍 drafts 原型；验证＝截图对拍无版式漂移
   - 证据：隔离栈（vite 5174＋独立容器后端 18000＋/tmp 数据目录）实拍 `walkthrough/wt-1..4.png`——有封面（本地上传来源行）／有章节占位（生成封面 CTA）／0 章弱化（可稍后添加）＋悬浮「换封面」＋窄屏 88px 收缩；待完本/已完结页脚行未改动、由 parity group/finish/已完结场景像素钉住
-- [ ] 4.3 归档 sync 同 PR 清理：主 spec `cover-avatar` 内历史遗留的双前缀头（`### Requirement:### Requirement: …`）统一清为单前缀（纯标题改动，scenario 不动）；验证＝`openspec validate` 无 INFO、sync 后主 spec 头格式统一
+- [x] 4.3 归档 sync 同 PR 清理：主 spec `cover-avatar` 内历史遗留的双前缀头（`### Requirement:### Requirement: …`）统一清为单前缀（纯标题改动，scenario 不动）；验证＝`openspec validate` 无 INFO、sync 后主 spec 头格式统一
+  - 证据：sync 落主 spec（MODIFIED 工坊入口措辞＋ADDED 书卡封面版式 7 scenario）；清 9 个双前缀头；`openspec validate --specs` 68 passed / 0 failed
