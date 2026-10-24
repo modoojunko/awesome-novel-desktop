@@ -259,7 +259,12 @@
   --paper-pt: 56px;         /* 纸边距（上） */
   --paper-pb: 72px;         /* 纸边距（下） */
 }
-.editor-wrap { flex: 1; min-height: 0; overflow-y: auto; padding: 0; background: var(--paper-desk); }
+/* 两态通用纵向 flex（c-paper-empty-fill）：纸是这张桌面上的一张纸——空章/短章时
+   也至少撑满可视桌面，不再塌成只剩纸边距的一条；内容超一屏时 flex-basis=auto
+   照常滚动（阅读面随文走仍成立，桌面只在纸四周可见）。人味边注层是 absolute
+   不受影响；[hidden] 有 base.css !important 守卫。 */
+.editor-wrap { flex: 1; min-height: 0; overflow-y: auto; padding: 0; background: var(--paper-desk); display: flex; flex-direction: column; }
+.editor-wrap > .prose-paper { flex: 1 0 auto; }
 /* 编辑态（c-prose-paper 起）：工具行与正文**不再连体**——工具行贴中栏列头，
    纸是内容；纸自己的白面与纸边投影承担「可编辑书写面」的语义（查看态无工具行、
    无写字范围框，两态仍一眼可辨）。 */
@@ -268,15 +273,12 @@
   border: none;
   border-radius: 0;
 }
-/* 编辑态填屏（10-08 用户反馈）：编辑列原本随内容高，呼吸框下面大片留白。
-   编辑态把编辑列撑满滚动区剩余高度（wrap→host→editor 逐级 flex 传下去），
-   内容超出时 flex-basis=auto 照常滚动；底部留白收到与顶对称。
-   查看态不加（阅读面随文走）；[hidden] 有 base.css !important 守卫。 */
-/* 底部留白由上纸后的纸边距承担（.prose-paper 的 margin-bottom 56px）：
-   原 36px padding 是为「与旧 wrap 顶部 36px 内边距对称」留的，上纸后变成纯叠加
-   （纸下 92px、原型 56px），退役。 */
-.editor-wrap.editing { display: flex; flex-direction: column; }
-.editor-wrap.editing > .prose-paper { flex: 1 0 auto; display: flex; flex-direction: column; }
+/* 填屏（10-08 用户反馈）：编辑列原本随内容高，呼吸框下面大片留白——编辑态把
+   编辑列撑满滚动区剩余高度（wrap→host→editor 逐级 flex 传下去），底部留白收到
+   与顶对称。wrap/纸两级的撑满已上移 base（c-paper-empty-fill，10-24 用户反馈：
+   空章查看态纸只剩一条）；这里只剩编辑态专属的两级——纸作 flex 容器＋editor 撑满，
+   让纸内空白整片可点击聚焦书写。 */
+.editor-wrap.editing > .prose-paper { display: flex; flex-direction: column; }
 .editor-wrap.editing .editor-host { flex: 1 0 auto; display: flex; flex-direction: column; }
 /* width:100% 钉版心宽（10-09 用户反馈）：.editor 的 margin-inline:auto 在 flex
    交叉轴上会让 align-items:stretch 失效、宽度退化成 fit-content——空章生成时
