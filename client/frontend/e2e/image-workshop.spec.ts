@@ -92,11 +92,14 @@ test.describe("封面/头像上传型工坊", () => {
     await page.goto(`${ORIGIN}/#/novels`);
     const card = page.locator(".book-card", { hasText: bookName });
     await expect(card).toBeVisible({ timeout: 15000 });
+    // 0 章书占位弱化不可点（c-book-card-cover-column）：「可稍后添加」，入口走 ⋯ 菜单「封面…」
+    await expect(card.getByText("可稍后添加")).toBeVisible();
 
-    // 无图态：打开封面工坊
-    await card.getByRole("button", { name: "添加封面" }).click();
+    // 无图态：⋯ 菜单「封面…」打开封面工坊
+    await card.getByRole("button", { name: "更多操作" }).click();
+    await card.getByRole("button", { name: "封面…" }).click();
     await expect(page.getByRole("heading", { name: new RegExp(`^封面 · ${bookName}$`) })).toBeVisible();
-    await expect(page.getByText("还没有封面")).toBeVisible();
+    await expect(page.locator(".img-empty")).toBeVisible();
 
     // 上传 → 候选出现
     await page.setInputFiles('input[type="file"]', {
@@ -116,11 +119,11 @@ test.describe("封面/头像上传型工坊", () => {
     await candidateCard.getByRole("button", { name: "使用" }).click();
     await expect(page.locator(".img-undo")).toBeVisible({ timeout: 15000 });
     await expect(page.locator(".img-current-img")).toBeVisible({ timeout: 15000 });
-    await expect(page.getByText("还没有封面")).toHaveCount(0);
+    await expect(page.locator(".img-empty")).toHaveCount(0);
 
     // 同一会话内撤销（8s 窗口；首次采用撤销＝无 previous 可回）→ 空态回归
     await page.locator(".img-undo").getByRole("button", { name: "撤销" }).click();
-    await expect(page.getByText("还没有封面")).toBeVisible({ timeout: 15000 });
+    await expect(page.locator(".img-empty")).toBeVisible({ timeout: 15000 });
 
     // 撤销后书架无封面缩略图
     await page.keyboard.press("Escape");
@@ -132,7 +135,11 @@ test.describe("封面/头像上传型工坊", () => {
     // 重开工坊再采用 → 书架刷新可见封面缩略图（采用已外化到书卡）
     await page
       .locator(".book-card", { hasText: bookName })
-      .getByRole("button", { name: "添加封面" })
+      .getByRole("button", { name: "更多操作" })
+      .click();
+    await page
+      .locator(".book-card", { hasText: bookName })
+      .getByRole("button", { name: "封面…" })
       .click();
     await expect(page.getByRole("heading", { name: new RegExp(`^封面 · ${bookName}$`) })).toBeVisible();
     await page.setInputFiles('input[type="file"]', {

@@ -2184,3 +2184,16 @@ baseurl 到什么程度，要有个案例。」——中转站/自建网关用�
 
 - **预设头**：`IMG_PROVIDERS` 火山 models 首项 `doubao-seedream-5-0-260128` → `doubao-seedream-5-0-flash-260915`（`/models` 实测 260128 已 Retiring、flash-260915 在役且为用户实际使用档）；原 5-0/4-5/4-0 依次后移兜底，弹窗预填与 demo 卡片模型值同批。无版面改动。
 - **清单容量**（写作模型侧，非本屏资产）：模型清单归一化上限 100→300——方舟 `/models` 实测 137 条且最老在前，上限 100 把在役新模型整段截掉（「作家拿不到新模型」2026-10-24 实锤）。模型选择器随之可显示全量清单；选择器组件与版面不变。
+## c-book-card-cover-column 登记（书卡两列版式·拍板 C，2026-10-24）
+
+- **拍板出处**：`docs/design-c/drafts/ai-novel-c端-封面与角色头像-设计说明.md` §4.3「书卡改版：封面作为第一眼（已拍板 C）」——左侧 104×139 竖版封面＋右侧信息。阶段 2（c-cover-avatar-ui）实现时只落了「44px 方块＋换/＋角标」的封面入口嫁接进旧单列卡（当时同步进本基线的即该形态），未落书卡改版本体；本条把基线反转为拍板 C 形态，**像素基准＝drafts 封面与角色头像原型屏①**（`05-shelf-applied.jpg`）。
+- **list.html 书卡改版**（`.book-card` flex 单列 → grid 两列 `104px + 1fr`，padding 22→16、gap 16、align-items:start）：
+  1. 左列 `.book-cover`：104px、3:4、圆角 8、克制投影；有封面＝`<img>` object-fit 裁切＋悬浮 `.cover-act`「换封面」（hover/focus-within 浮现，替代常驻 18px「换/＋」角标）；
+  2. 无封面占位 `.cover-empty`：字标 seal（`.mono` 复用＋`.ce-seal` 换 accent 语气）＋「还没有封面」；**占位块本身是按钮**（有章节 CTA「生成封面」，点击进封面工坊），0 章加 `.is-later` 不可点、CTA 弱化「可稍后添加」（入口改走 ⋯ 菜单「封面…」）；
+  3. 右列 `.book-main`：顶行只放题材/状态胶囊＋⋯ 菜单按钮（封面不再挤顶行）；h3 21→19px、summary 12.5→12px、stats 间距 18/18/14/12→13/10/9/11、foot padding-top 18→10、updated/go 各收 0.5–1px——尺寸全部照 drafts 原型 `.gl-book-main` 值；
+  4. 卡底新增 `.cover-meta` 来源说明行：「AI 封面 · {画风}」（生成）/「本地上传」（上传）/「封面位留给作者」（无封面）；
+  5. ⋯ 菜单 `.card-menu` 首次进本基线（实现 #845 起已有，原型此前未同步）：「封面…」打头（第二入口）＋重命名＋（已完结加「完本信息 · 撤完本」）＋删除（danger=warn 语气，与实现一致）；
+  6. 响应式：≤820px 封面列收 88px（拍板 C 决策表）。
+- **演示种子**：星海拾遗 加 data-URI SVG 封面（演示 AI 封面来源行）；新增 0 章书「雪落无声」（演示 is-later 占位）。parity 注入（od.works.v1/FIXED_NOVELS）不变——四本书全无封面，长夜灯 0 章覆盖 is-later 态，占位块/按钮两侧逐像素对齐。
+- **实现侧落点**：`NovelListPage.tsx` 书卡结构重排、`list.css` 容器两列、`image-assets.css` 封面列新词（.book-cover/.cover-empty/.cover-act/.cover-meta，44px 旧词 .cover-wrap/.cover-edit/.book-cover-img 退役）、画风词表 `IMAGE_STYLES` 自工坊导出共享；`novelListPage.test.tsx`/`e2e/image-workshop.spec.ts` 入口选择器同批改钉。
+- **parity 影响**：书架 7 场景基线随两列版式同批重录对拍；共享段零触碰、免 design-cross。

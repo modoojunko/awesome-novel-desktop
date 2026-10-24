@@ -53,7 +53,9 @@ vi.mock("@/lib/support", () => ({ supportUrl: vi.fn(async () => "https://support
 
 const tierState = { tier: "pro", isMember: true, expired: false, trialRemainingDays: 0, projectLimit: null };
 vi.mock("@/hooks/useTier", () => ({ useTier: () => tierState }));
-vi.mock("@/components/image/ImageWorkshopModal", () => ({
+vi.mock("@/components/image/ImageWorkshopModal", async (importOriginal) => ({
+  // 书卡来源行消费真实画风词表（IMAGE_STYLES），弹窗本体照旧打桩
+  ...await importOriginal<typeof import("@/components/image/ImageWorkshopModal")>(),
   default: ({ open, onClose, onChanged }: { open: boolean; onClose: () => void; onChanged: () => void }) =>
     open ? (
       <div data-testid="image-workshop">
@@ -1379,18 +1381,29 @@ describe("带回常驻行与四步收尾（c-lossless-upgrade 覆盖补齐）", 
 });
 
 
-describe("封面入口", () => {
-  it("无封面书卡点＋打开工坊，changed/close 回调可用", async () => {
+describe("封面入口（c-book-card-cover-column：占位块/悬浮换封面/菜单「封面…」）", () => {
+  it("无封面有章节：占位块即按钮「生成封面」，点击打开工坊，changed/close 回调可用", async () => {
     renderPage();
     await waitFor(() => expect(screen.getByText("《星海拾遗》")).toBeTruthy());
-    fireEvent.click(screen.getByLabelText("添加封面"));
+    fireEvent.click(screen.getByLabelText("为《星海拾遗》生成封面"));
     await waitFor(() => expect(screen.getByTestId("image-workshop")).toBeTruthy());
     fireEvent.click(screen.getByText("changed"));
     fireEvent.click(screen.getByText("close"));
     await waitFor(() => expect(screen.queryByTestId("image-workshop")).toBeNull());
   });
 
-  it("有封面书卡渲染缩略图", async () => {
+  it("0 章书：占位弱化不可点（「可稍后添加」），封面入口走 ⋯ 菜单「封面…」", async () => {
+    getMock.mockResolvedValue([novel({ id: "n0", name: "雪落无声", total_chapters: 0 })]);
+    renderPage();
+    await waitFor(() => expect(screen.getByText("《雪落无声》")).toBeTruthy());
+    expect(screen.getByText("可稍后添加")).toBeTruthy();
+    expect(screen.queryByLabelText(/生成封面/)).toBeNull();
+    fireEvent.click(screen.getByLabelText("更多操作"));
+    fireEvent.click(screen.getByText("封面…"));
+    await waitFor(() => expect(screen.getByTestId("image-workshop")).toBeTruthy());
+  });
+
+  it("有封面书卡渲染缩略图，⋯ 菜单第一项是「封面…」", async () => {
     getMock.mockResolvedValue([novel({
       cover: {
         asset_id: "cover-1", url: "/api/image-assets/cover-1?variant=full",
@@ -1400,6 +1413,29 @@ describe("封面入口", () => {
     })]);
     renderPage();
     await waitFor(() => expect(document.querySelector(".book-cover-img")).toBeTruthy());
+    fireEvent.click(screen.getByLabelText("更多操作"));
+    const menuItems = screen.getAllByRole("button").map((b) => b.textContent);
+    expect(menuItems.indexOf("封面…")).toBeGreaterThanOrEqual(0);
+    fireEvent.click(screen.getByText("封面…"));
+    await waitFor(() => expect(screen.getByTestId("image-workshop")).toBeTruthy());
+  });
+
+  it("来源说明行三态：上传/生成（含画风名）/无封面", async () => {
+    getMock.mockResolvedValue([
+      novel({
+        id: "n-up", name: "上传的书",
+        cover: { asset_id: "c1", url: "/full", thumb_url: "/thumb", width: 768, height: 1024, version: 1, source: "upload" },
+      }),
+      novel({
+        id: "n-gen", name: "生成的书",
+        cover: { asset_id: "c2", url: "/full", thumb_url: "/thumb", width: 768, height: 1024, version: 2, source: "generate", style_key: "ink" },
+      }),
+      novel({ id: "n-plain", name: "无封面的书" }),
+    ]);
+    renderPage();
+    await waitFor(() => expect(screen.getByText("本地上传")).toBeTruthy());
+    expect(screen.getByText("AI 封面 · 水墨")).toBeTruthy();
+    expect(screen.getByText("封面位留给作者")).toBeTruthy();
   });
 });
 

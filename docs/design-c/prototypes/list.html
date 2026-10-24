@@ -161,18 +161,33 @@
   .cards{display:grid;grid-template-columns:repeat(3,1fr);gap:20px}
   @media (max-width:900px){.cards{grid-template-columns:1fr 1fr}}
   @media (max-width:600px){.cards{grid-template-columns:1fr}}
-  .book-card{display:flex;flex-direction:column;background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-lg);padding:22px;cursor:pointer;
+  /* 封面列窄屏缩放（拍板 C：≤820px 收 88px） */
+  @media (max-width:820px){.book-card{grid-template-columns:88px minmax(0,1fr)}.book-cover{width:88px}}
+  /* 书卡两列版式（c-book-card-cover-column，拍板 C：左竖版封面列＋右信息列；像素基准＝drafts 封面与角色头像原型屏①） */
+  .book-card{display:grid;grid-template-columns:104px minmax(0,1fr);gap:16px;align-items:start;position:relative;background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-lg);padding:16px;cursor:pointer;
     transition:border-color .15s ease,box-shadow .15s ease,transform .15s ease}
   .book-card:hover{border-color:color-mix(in oklch,var(--accent) 45%,var(--border));box-shadow:var(--shadow-card);transform:translateY(-2px)}
   .book-card:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+  .book-main{display:flex;flex-direction:column;min-width:0;align-self:stretch}
   .book-card .top{display:flex;align-items:center;gap:8px}
   .mono{flex:none;width:40px;height:40px;border-radius:10px;background:var(--fg-soft);border:1px solid var(--border);display:grid;place-items:center;font-family:var(--font-display);font-size:19px;color:var(--fg)}
-  /* 封面/头像工坊（c-cover-avatar-ui）：书卡封面入口 */
-  .cover-wrap{position:relative;flex:none;width:44px;height:44px}
-  .cover-wrap .mono{width:44px;height:44px}
-  .book-cover-img{width:44px;height:44px;object-fit:cover;border-radius:9px;border:1px solid var(--border);display:block}
-  .cover-edit{position:absolute;right:-5px;bottom:-5px;width:18px;height:18px;border-radius:999px;border:1px solid var(--border);background:var(--surface);color:var(--fg);font:inherit;font-size:10px;line-height:1;display:grid;place-items:center;padding:0;cursor:pointer;box-shadow:var(--shadow-card)}
-  .cover-edit:hover{background:var(--accent-soft);color:var(--accent-strong);border-color:var(--accent)}
+  /* 封面列（c-book-card-cover-column）：104px 3:4 竖版；无封面占位块即入口；悬浮换封面 */
+  .book-cover{position:relative;width:104px;aspect-ratio:3/4;border-radius:8px;overflow:hidden;background:var(--fg-soft);border:1px solid var(--border);box-shadow:0 8px 20px -12px color-mix(in oklch,var(--fg) 55%,transparent)}
+  .book-cover>img{width:100%;height:100%;object-fit:cover;display:block}
+  .cover-empty{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:5px;width:100%;padding:8px;border:0;cursor:pointer;text-align:center;color:var(--muted);font:inherit;font-size:10.5px;line-height:1.4;background:linear-gradient(150deg,color-mix(in oklch,var(--accent) 9%,var(--surface)),var(--bg));transition:background .15s ease,color .15s ease}
+  .cover-empty:hover{color:var(--fg);background:linear-gradient(150deg,color-mix(in oklch,var(--accent) 16%,var(--surface)),var(--bg))}
+  .cover-empty:focus-visible{outline:2px solid var(--accent);outline-offset:-2px}
+  .cover-empty .ce-seal{border-radius:9px;font-size:21px;color:var(--accent-strong);background:var(--accent-soft);border-color:color-mix(in oklch,var(--accent) 28%,var(--border))}
+  .cover-empty .ce-cta{color:var(--accent-strong);font-weight:500}
+  .cover-empty:hover .ce-cta{text-decoration:underline;text-underline-offset:2px}
+  .cover-empty.is-later{cursor:default}
+  .cover-empty.is-later:hover{color:var(--muted);background:linear-gradient(150deg,color-mix(in oklch,var(--accent) 9%,var(--surface)),var(--bg))}
+  .cover-empty.is-later:hover .ce-cta{text-decoration:none}
+  .cover-empty.is-later .ce-cta{color:var(--muted);font-weight:400}
+  .cover-act{position:absolute;left:6px;right:6px;bottom:6px;height:27px;border:0;border-radius:6px;background:color-mix(in oklch,var(--fg) 72%,transparent);color:var(--on-accent);font:inherit;font-size:11.5px;cursor:pointer;opacity:0;transform:translateY(4px);transition:opacity .15s ease,transform .15s ease;backdrop-filter:blur(3px)}
+  .book-card:hover .cover-act,.book-cover:focus-within .cover-act{opacity:1;transform:none}
+  .cover-meta{display:inline-flex;align-items:center;gap:4px;font-size:10px;color:var(--muted);margin-top:5px}
+  .cover-meta svg{width:11px;height:11px}
   .genre{display:inline-flex;align-items:center;gap:5px;padding:2px 9px;border:1px solid var(--border);border-radius:var(--radius-pill);font-size:11.5px;color:var(--muted);background:var(--bg);white-space:nowrap}
   .genre svg{width:12px;height:12px}
   .top .b{margin-left:auto}
@@ -182,16 +197,26 @@
   .b.ready{background:var(--accent-soft);color:var(--accent-strong)}
   .b.done{background:var(--ok-soft);color:var(--ok)}
   .b svg{width:11px;height:11px}
-  .book-card h3{font-family:var(--font-display);font-size:21px;font-weight:600;margin:14px 0 0;letter-spacing:.01em}
-  .book-card .summary{font-size:12.5px;color:var(--muted);margin:8px 0 0;line-height:1.6;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
-  .book-card .stats{display:flex;gap:18px;margin-top:18px;padding-top:14px;border-top:1px solid var(--border);font-size:12px;color:var(--muted)}
-  .book-card .stats b{display:block;color:var(--fg);font-weight:500;margin-bottom:1px}
-  .book-card .foot{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-top:auto;padding-top:18px}
-  .book-card .updated{font-size:11.5px;color:var(--muted)}
-  .book-card .go{display:inline-flex;align-items:center;gap:6px;font-size:13px;font-weight:500;color:var(--fg)}
+  .book-card h3{font-family:var(--font-display);font-size:19px;font-weight:600;margin:10px 0 0;letter-spacing:.01em}
+  .book-card .summary{font-size:12px;color:var(--muted);margin:6px 0 0;line-height:1.6;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
+  .book-card .stats{display:flex;gap:13px;margin-top:10px;padding-top:9px;border-top:1px solid var(--border);font-size:11px;color:var(--muted)}
+  .book-card .stats b{display:block;color:var(--fg);font-weight:500;margin-bottom:1px;font-size:12.5px}
+  .book-card .foot{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-top:auto;padding-top:10px}
+  .book-card .updated{font-size:11px;color:var(--muted)}
+  .book-card .go{display:inline-flex;align-items:center;gap:6px;font-size:12px;font-weight:500;color:var(--fg)}
   .book-card:hover .go{color:var(--accent)}
   .book-card .go svg{width:14px;height:14px}
   .foot-acts{display:inline-flex;gap:8px;flex:none}
+  /* 书卡 ⋯ 菜单（对齐实现；「封面…」为第一项，c-book-card-cover-column） */
+  .book-card .card-menu-btn{position:absolute;top:8px;right:8px;flex:none;opacity:0;transition:opacity .15s ease;display:grid;place-items:center;padding:0;border:0;background:none;color:var(--fg);cursor:pointer}
+  .book-card .card-menu-btn svg{width:14px;height:14px}
+  .book-card:hover .card-menu-btn,.book-card:focus-within .card-menu-btn{opacity:1}
+  .card-menu{position:absolute;top:42px;right:8px;z-index:10;min-width:132px;background:var(--surface);border:1px solid var(--border);border-radius:10px;box-shadow:var(--shadow-card);padding:4px}
+  .card-menu button{display:flex;align-items:center;gap:8px;width:100%;padding:7px 10px;border:0;border-radius:7px;background:none;color:var(--fg);font:inherit;font-size:13px;cursor:pointer;text-align:left}
+  .card-menu button:hover{background:var(--fg-soft)}
+  .card-menu button.danger{color:var(--warn)}
+  .card-menu button.danger:hover{background:var(--warn-soft)}
+  .card-menu svg{width:14px;height:14px;color:var(--muted)}
 
   /* ── 弹窗 ── */
   .scrim{position:fixed;inset:0;background:color-mix(in oklch,var(--fg) 28%,transparent);z-index:40;opacity:0;transition:opacity .2s ease}
@@ -567,11 +592,23 @@ const GENRE_ICON = {
 const ARROW = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14M13 6l6 6-6 6"/></svg>';
 const CHECK = '<svg viewBox="0 0 16 16" width="11" height="11" aria-hidden="true"><path d="M3.5 8.6l3 3 6-7" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg>';
 
-/* 星海拾遗 主线已全部归档 → 待完本；雾中法庭 演示已完结态 */
+/* 星海拾遗 主线已全部归档 → 待完本（演示「AI 封面」来源行）；雾中法庭 演示已完结态；
+   雪落无声 0 章 → 占位弱化「可稍后添加」（c-book-card-cover-column 三态） */
 const DAY = 86400000;
 const T = Date.now();
+const COVER_STAR = 'data:image/svg+xml;utf8,' + encodeURIComponent(
+  // 演示种子封面：SVG 内用命名色（裸 hex/rgb 会被 design:lint 严格范围拦截）
+  "<svg xmlns='http://www.w3.org/2000/svg' width='208' height='277'>"
+  + "<defs><linearGradient id='g' x1='0' y1='0' x2='1' y2='1'><stop offset='0' stop-color='midnightblue'/><stop offset='1' stop-color='black'/></linearGradient></defs>"
+  + "<rect width='208' height='277' fill='url(#g)'/>"
+  + "<circle cx='52' cy='60' r='2.2' fill='white' opacity='.9'/><circle cx='150' cy='90' r='1.6' fill='white' opacity='.7'/>"
+  + "<circle cx='104' cy='150' r='1.8' fill='white' opacity='.8'/><circle cx='168' cy='200' r='1.4' fill='white' opacity='.6'/>"
+  + "<circle cx='70' cy='230' r='1.5' fill='white' opacity='.7'/>"
+  + "<text x='104' y='125' font-family='serif' font-size='30' fill='white' text-anchor='middle' opacity='.92'>星海拾遗</text>"
+  + "</svg>");
 const SEED = [
   { title:'星海拾遗', genre:'科幻', state:'ready', vols:3, chs:17, words:48210, updated:'2 小时前', createdAt:T-90*DAY, updatedAt:T-2*3600e3, parked:{},
+    cover:COVER_STAR, coverSource:'generate', coverStyle:'水墨',
     summary:'废弃星港上，导航员沉舟捡到一枚不属于人类纪元的导航信标，决定修好旧船去追一段回声。',
     hooks:[{name:'回声信号的源头', from:2},{name:'旧航图缺口上的摩挲痕迹', from:6}] },
   { title:'雾中法庭', genre:'都市', state:'done', vols:3, chs:9, words:12842, updated:'3 天前', finishedAt:'3 天前', createdAt:T-200*DAY, updatedAt:T-3.5*DAY,
@@ -583,7 +620,9 @@ const SEED = [
   { title:'潮汐图书馆', genre:'科幻', state:'writing', vols:1, chs:4, words:8600, updated:'3 天前', createdAt:T-30*DAY, updatedAt:T-3*DAY,
     summary:'图书馆每天涨潮一次，还回来的书里夹着上一位借阅者没写完的信。' },
   { title:'归墟纪年', genre:'玄幻', state:'setting', vols:2, chs:3, words:4200, updated:'上周', createdAt:T-20*DAY, updatedAt:T-9*DAY,
-    summary:'归墟之下埋着上一轮文明的墓碑，考古队挖开的第一铲，挖出了自己的名字。' }
+    summary:'归墟之下埋着上一轮文明的墓碑，考古队挖开的第一铲，挖出了自己的名字。' },
+  { title:'雪落无声', genre:'悬疑', state:'setting', vols:0, chs:0, words:0, updated:'上周', createdAt:T-2*DAY, updatedAt:T-9*DAY, parked:{},
+    summary:'一场大雪封了山，也封了一段没人愿意提起的旧事。' }
 ];
 
 let books = [];
@@ -804,23 +843,52 @@ function bookCard(it){
       +   '<span class="go">' + (b.state === 'done' ? '查看' : '继续创作') + ARROW + '</span>'
       + '</span>';
   }
+  /* 封面列（拍板 C）：有封面＝竖版图＋悬浮「换封面」；无封面有章节＝占位块即按钮「生成封面」；0 章＝不可点「可稍后添加」 */
+  const cover = b.cover
+    ? '<img src="' + b.cover + '" alt="《' + esc(b.title) + '》封面">'
+      + '<button type="button" class="cover-act" data-cover="' + it.idx + '" data-od-id="cover-open-' + it.idx + '" aria-label="更换封面">换封面</button>'
+    : (b.chs === 0
+      ? '<div class="cover-empty is-later">'
+        + '<span class="mono ce-seal">' + esc((b.title || '书')[0]) + '</span>'
+        + '<span>还没有封面</span>'
+        + '<span class="ce-cta">可稍后添加</span>'
+        + '</div>'
+      : '<button type="button" class="cover-empty" data-cover="' + it.idx + '" data-od-id="cover-open-' + it.idx + '" aria-label="为《' + esc(b.title) + '》生成封面">'
+        + '<span class="mono ce-seal">' + esc((b.title || '书')[0]) + '</span>'
+        + '<span>还没有封面</span>'
+        + '<span class="ce-cta">生成封面</span>'
+        + '</button>');
+  const metaIc = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">';
+  const coverMeta = b.cover
+    ? (b.coverSource === 'upload'
+      ? metaIc + '<rect x="3" y="5" width="18" height="14" rx="2"/><circle cx="9" cy="10" r="1.6"/><path d="M21 15l-5-4-4 4-2-2-4 4"/></svg>本地上传'
+      : metaIc + '<path d="M12 3l1.8 5.2L19 10l-5.2 1.8L12 17l-1.8-5.2L5 10l5.2-1.8z"/></svg>AI 封面 · ' + esc(b.coverStyle || ''))
+    : metaIc + '<rect x="3" y="5" width="18" height="14" rx="2"/><circle cx="9" cy="10" r="1.6"/><path d="M21 15l-5-4-4 4-2-2-4 4"/></svg>封面位留给作者';
+  const mIco = d => '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' + d + '</svg>';
   return '<div class="book-card" role="link" tabindex="0" data-open-book="' + it.idx + '" data-od-id="book-card-' + it.idx + '" aria-label="打开《' + esc(b.title) + '》">'
-    + '<div class="top">'
-    +   '<div class="cover-wrap">'
-    +     '<span class="mono">' + esc((b.title || '书')[0]) + '</span>'
-    +     '<button class="cover-edit" data-cover="' + it.idx + '" data-od-id="cover-open-' + it.idx + '" title="' + (b.cover ? '更换封面' : '添加封面') + '" aria-label="' + (b.cover ? '更换封面' : '添加封面') + '">' + (b.cover ? '换' : '＋') + '</button>'
+    + '<div class="book-cover">' + cover + '</div>'
+    + '<div class="book-main">'
+    +   '<div class="top">'
+    +     '<span class="genre"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">' + ic + '</svg>' + esc(b.genre) + '</span>'
+    +     '<span class="b ' + meta.cls + '"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round">' + STAGE_ICON[b.state] + '</svg>' + meta.label + '</span>'
+    +     '<button type="button" class="card-menu-btn" data-menu="' + it.idx + '" data-od-id="card-menu-' + it.idx + '" aria-label="更多操作">' + mIco('<circle cx="5" cy="12" r="1.4" fill="currentColor" stroke="none"/><circle cx="12" cy="12" r="1.4" fill="currentColor" stroke="none"/><circle cx="19" cy="12" r="1.4" fill="currentColor" stroke="none"/>') + '</button>'
     +   '</div>'
-    +   '<span class="genre"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">' + ic + '</svg>' + esc(b.genre) + '</span>'
-    +   '<span class="b ' + meta.cls + '"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round">' + STAGE_ICON[b.state] + '</svg>' + meta.label + '</span>'
+    +   '<h3>《' + esc(b.title) + '》</h3>'
+    +   '<p class="summary">' + esc(b.summary) + '</p>'
+    +   '<div class="stats">'
+    +     '<span><b class="num">' + b.vols + ' 卷</b>结构</span>'
+    +     '<span><b class="num">' + b.chs + ' 章</b>章节</span>'
+    +     '<span><b class="num">' + fmt(b.words) + '</b>总字数</span>'
+    +   '</div>'
+    +   '<div class="foot">' + foot + '</div>'
+    +   '<span class="cover-meta">' + coverMeta + '</span>'
     + '</div>'
-    + '<h3>《' + esc(b.title) + '》</h3>'
-    + '<p class="summary">' + esc(b.summary) + '</p>'
-    + '<div class="stats">'
-    +   '<span><b class="num">' + b.vols + ' 卷</b>结构</span>'
-    +   '<span><b class="num">' + b.chs + ' 章</b>章节</span>'
-    +   '<span><b class="num">' + fmt(b.words) + '</b>总字数</span>'
+    + '<div class="card-menu" data-menu-for="' + it.idx + '" hidden>'
+    +   '<button type="button" data-cover="' + it.idx + '" data-od-id="cover-menu-' + it.idx + '">' + mIco('<path d="M4 20h4L19 9l-4-4L4 16v4z"/><path d="M14 6l4 4"/>') + '封面…</button>'
+    +   '<button type="button" data-out="重命名">' + mIco('<path d="M4 20h4L19 9l-4-4L4 16v4z"/><path d="M14 6l4 4"/>') + '重命名</button>'
+    +   (b.state === 'done' ? '<button type="button" data-out="完本信息 · 撤完本">' + mIco('<circle cx="12" cy="12" r="9"/><path d="M8.5 12.5l2.5 2.5 4.5-5"/>') + '完本信息 · 撤完本</button>' : '')
+    +   '<button type="button" class="danger" data-out="删除">' + mIco('<path d="M4 7h16M9 7V4h6v3M6 7l1 14h10l1-14"/>') + '删除</button>'
     + '</div>'
-    + '<div class="foot">' + foot + '</div>'
     + '</div>';
 }
 
@@ -947,6 +1015,27 @@ document.addEventListener('keydown', e => {
 
 /* ═══════════ 交互委派 ═══════════ */
 document.addEventListener('click', e => {
+  /* 封面入口与书卡菜单（c-book-card-cover-column）：先于开书分流 */
+  const cov = e.target.closest('[data-cover]');
+  if (cov) {
+    e.preventDefault(); e.stopPropagation();
+    document.querySelectorAll('.card-menu').forEach(m => { m.hidden = true; });
+    toast('演示稿：封面工坊不在本原型范围');
+    return;
+  }
+  const mbtn = e.target.closest('[data-menu]');
+  if (mbtn) {
+    e.preventDefault(); e.stopPropagation();
+    const idx = mbtn.getAttribute('data-menu');
+    const m = document.querySelector('.card-menu[data-menu-for="' + idx + '"]');
+    if (m) {
+      const open = m.hidden;
+      document.querySelectorAll('.card-menu').forEach(x => { x.hidden = true; });
+      m.hidden = !open;
+    }
+    return;
+  }
+  if (!e.target.closest('.card-menu')) document.querySelectorAll('.card-menu').forEach(m => { m.hidden = true; });
   const t = e.target.closest('[data-open-book],[data-preview],[data-finish],[data-fin-hook],[data-fin-confirm],[data-reopen],[data-kind],[data-load-more],[data-clear-filters],[data-dismiss-strip],[data-close],[data-out]');
   if (!t) return;
   if (t.hasAttribute('data-open-book')) { e.preventDefault(); location.href = 'storyline.html'; return; }

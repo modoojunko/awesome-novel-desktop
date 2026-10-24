@@ -18,6 +18,8 @@ export const P = {
   trash: '<path d="M4 7h16M10 11v6M14 11v6M6 7l1 13h10l1-13M9 7V4h6v3"/>',
   upload: '<path d="M12 15V4M7 8l5-5 5 5M5 20h14"/>',
   dots: '<circle cx="5" cy="12" r="1.4" fill="currentColor" stroke="none"/><circle cx="12" cy="12" r="1.4" fill="currentColor" stroke="none"/><circle cx="19" cy="12" r="1.4" fill="currentColor" stroke="none"/>',
+  // 书卡封面来源行/「封面…」菜单项（c-book-card-cover-column；list.html cover-meta 原样）
+  image: '<rect x="3" y="5" width="18" height="14" rx="2"/><circle cx="9" cy="10" r="1.6"/><path d="M21 15l-5-4-4 4-2-2-4 4"/>',
   // 题材（list.html GENRE_ICON 原样）
   scifi: '<path d="M12 3l9 5-9 5-9-5 9-5z"/><path d="M3 12l9 5 9-5"/><path d="M3 17l9 5 9-5"/>',
   mystery: '<path d="M9.5 11a2.5 2.5 0 110-5 2.5 2.5 0 010 5z"/><path d="M9.5 11v6M7 7L4.5 3.5M12 7l2.5-3.5M9.5 14H8M9.5 17H8"/>',
