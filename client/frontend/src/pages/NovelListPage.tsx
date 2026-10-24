@@ -25,6 +25,7 @@ import ImportNovelModal from "@/components/novel/ImportNovelModal";
 import RenameModal from "@/components/novel/RenameModal";
 import FinishModal, { type FinishTarget } from "@/components/novel/FinishModal";
 import { Ico, P, genreIconPath } from "@/components/icons";
+import { IMAGE_STYLES } from "@/components/image/ImageWorkshopModal";
 import { PORTAL_URL } from "@/lib/portal";
 import { supportUrl } from "@/lib/support";
 import { useTier } from "@/hooks/useTier";
@@ -386,9 +387,69 @@ function NovelList() {
     navigate(`/novel/${id}`, { state: { landingView: "archives" } });
   };
 
+  /** 打开封面工坊（占位块/悬浮换封面/菜单「封面…」三入口共用） */
+  const openCoverWorkshop = (e: React.MouseEvent, p: Novel) => {
+    e.stopPropagation();
+    setCoverTarget(p);
+  };
+
   const renderCard = (p: Novel) => {
     const stage = stageOf(p);
     const words = p.word_count ?? 0;
+    const chapters = p.total_chapters ?? 0;
+    /* 封面列（拍板 C）：有封面＝竖版图＋悬浮「换封面」；
+       无封面有章节＝占位块即按钮「生成封面」；0 章＝不可点占位「可稍后添加」（入口走 ⋯ 菜单） */
+    const coverCol = p.cover ? (
+      <>
+        <ImageThumb asset={p.cover} className="book-cover-img" alt="" />
+        <button
+          type="button"
+          className="cover-act"
+          data-od-id={`cover-open-${p.id}`}
+          aria-label="更换封面"
+          onClick={(e) => openCoverWorkshop(e, p)}
+        >
+          换封面
+        </button>
+      </>
+    ) : chapters === 0 ? (
+      <div className="cover-empty is-later">
+        <span className="mono ce-seal">{(p.name || "书")[0]}</span>
+        <span>还没有封面</span>
+        <span className="ce-cta">可稍后添加</span>
+      </div>
+    ) : (
+      <button
+        type="button"
+        className="cover-empty"
+        data-od-id={`cover-open-${p.id}`}
+        aria-label={`为《${p.name}》生成封面`}
+        onClick={(e) => openCoverWorkshop(e, p)}
+      >
+        <span className="mono ce-seal">{(p.name || "书")[0]}</span>
+        <span>还没有封面</span>
+        <span className="ce-cta">生成封面</span>
+      </button>
+    );
+    /* 来源说明行：生成封面「AI 封面 · 画风」/ 本地上传 / 无封面「封面位留给作者」 */
+    const coverMeta = p.cover ? (
+      p.cover.source === "upload" ? (
+        <>
+          <Ico d={P.image} />
+          本地上传
+        </>
+      ) : (
+        <>
+          <Ico d={P.spark} />
+          {`AI 封面 · ${IMAGE_STYLES.find((s) => s.key === p.cover?.style_key)?.label ?? "未指定画风"}`}
+        </>
+      )
+    ) : (
+      <>
+        <Ico d={P.image} />
+        封面位留给作者
+      </>
+    );
     return (
       <div
         key={p.id}
@@ -399,124 +460,121 @@ function NovelList() {
         data-od-id={`book-card-${p.id}`}
         onClick={() => navigate(`/novel/${p.id}`)}
         onKeyDown={(e) => {
-          if (e.key === "Enter") navigate(`/novel/${p.id}`);
+          /* 只在卡片自身响应 Enter——内部按钮（封面/回看/完本/⋯菜单）的 Enter
+             各走各的 click 语义，不冒泡触发开书（否则导航卸载书架、目标动作被吞） */
+          if (e.key === "Enter" && e.target === e.currentTarget) navigate(`/novel/${p.id}`);
         }}
       >
-        <div className="top">
-          <div className="cover-wrap">
-            {p.cover ? (
-              <ImageThumb asset={p.cover} className="book-cover-img" alt="" />
-            ) : (
-              <span className="mono">{(p.name || "书")[0]}</span>
-            )}
+        <div className="book-cover">{coverCol}</div>
+        <div className="book-main">
+          <div className="top">
+            {/* 题材胶囊：取值来自题材（后端单源下发 `genre`：大类 · 子类）；
+                未完成题材设定时用「待定题材」占位——胶囊位恒在，不因题材缺失而空缺。
+                title 供挤压时补齐被省略的全称 */}
+            <span
+              className={`genre${p.genre ? "" : " pending"}`}
+              title={p.genre || GENRE_PENDING_LABEL}
+            >
+              <Ico d={genreIconPath(p.genre)} />
+              {p.genre || GENRE_PENDING_LABEL}
+            </span>
+            <span className={`b ${stage}`}>
+              <Ico d={STAGE_DOT[stage]} sw={2.4} />
+              {STAGE_LABEL[stage]}
+            </span>
             <button
-              type="button"
-              className="cover-edit"
-              aria-label={p.cover ? "更换封面" : "添加封面"}
-              title={p.cover ? "更换封面" : "添加封面"}
+              className="icon-btn card-menu-btn"
+              aria-label="更多操作"
               onClick={(e) => {
                 e.stopPropagation();
-                setCoverTarget(p);
+                setMenuFor(menuFor === p.id ? null : p.id);
               }}
             >
-              {p.cover ? "换" : "＋"}
+              <Ico d={P.dots} />
             </button>
           </div>
-          {/* 题材胶囊：取值来自题材（后端单源下发 `genre`：大类 · 子类）；
-              未完成题材设定时用「待定题材」占位——胶囊位恒在，不因题材缺失而空缺。
-              title 供挤压时补齐被省略的全称 */}
-          <span
-            className={`genre${p.genre ? "" : " pending"}`}
-            title={p.genre || GENRE_PENDING_LABEL}
-          >
-            <Ico d={genreIconPath(p.genre)} />
-            {p.genre || GENRE_PENDING_LABEL}
-          </span>
-          <span className={`b ${stage}`}>
-            <Ico d={STAGE_DOT[stage]} sw={2.4} />
-            {STAGE_LABEL[stage]}
-          </span>
-          <button
-            className="icon-btn card-menu-btn"
-            aria-label="更多操作"
-            onClick={(e) => {
-              e.stopPropagation();
-              setMenuFor(menuFor === p.id ? null : p.id);
-            }}
-          >
-            <Ico d={P.dots} />
-          </button>
-        </div>
-        <h3>《{p.name}》</h3>
-        <p className="summary">{p.synopsis}</p>
-        <div className="stats">
-          <span>
-            <b className="num">{p.total_volumes || 0} 卷</b>结构
-          </span>
-          <span>
-            <b className="num">{p.total_chapters || 0} 章</b>章节
-          </span>
-          <span>
-            <b className="num">{fmt(words)}</b>总字数
-          </span>
-        </div>
-        {/* 分状态页脚（works.html v2）：待完本＝回看＋完本；已完结＝完结于＋回看＋查看 */}
-        <div className="foot">
-          {stage === "ready" ? (
-            <>
-              <span className="updated">
-                作者章 {p.authored_archived ?? p.total_archives} / {p.authored_total ?? p.total_chapters} 已归档
-              </span>
-              <span className="foot-acts">
-                <button className="btn btn-secondary btn-sm" onClick={(e) => openPreview(e, p.id)}>
-                  回看
-                </button>
-                <button
-                  className="btn btn-primary btn-sm"
-                  data-od-id={`finish-open-${p.id}`}
-                  title="作者章都已归档 · 完结这本书"
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    setFinishTarget(p);
-                  }}
-                >
-                  完本
-                </button>
-              </span>
-            </>
-          ) : stage === "done" ? (
-            <>
-              <span className="updated">
-                完结于
-                {/* v8 ignore start -- 已完结态由 finished_at 非空派生（stageFromChapters），
-                    走到这里的卡片恒有非空 finished_at，`|| updated_at` 右臂不可达 */}
-                {relTime(p.finished_at || p.updated_at)}
-                {/* v8 ignore stop */}
-              </span>
-              <span className="foot-acts">
-                <button className="btn btn-secondary btn-sm" onClick={(e) => openPreview(e, p.id)}>
-                  回看
-                </button>
-                <span className="go">
-                  查看
-                  <Ico d={P.arrowRight} />
+          <h3>《{p.name}》</h3>
+          <p className="summary">{p.synopsis}</p>
+          <div className="stats">
+            <span>
+              <b className="num">{p.total_volumes || 0} 卷</b>结构
+            </span>
+            <span>
+              <b className="num">{p.total_chapters || 0} 章</b>章节
+            </span>
+            <span>
+              <b className="num">{fmt(words)}</b>总字数
+            </span>
+          </div>
+          {/* 分状态页脚（works.html v2）：待完本＝回看＋完本；已完结＝完结于＋回看＋查看 */}
+          <div className="foot">
+            {stage === "ready" ? (
+              <>
+                <span className="updated">
+                  作者章 {p.authored_archived ?? p.total_archives} / {p.authored_total ?? p.total_chapters} 已归档
                 </span>
-              </span>
-            </>
-          ) : (
-            <>
-              <span className="updated">更新于 {relTime(p.updated_at)}</span>
-              <span className="foot-acts">
-                <span className="go">
-                  继续创作
-                  <Ico d={P.arrowRight} />
+                <span className="foot-acts">
+                  <button className="btn btn-secondary btn-sm" onClick={(e) => openPreview(e, p.id)}>
+                    回看
+                  </button>
+                  <button
+                    className="btn btn-primary btn-sm"
+                    data-od-id={`finish-open-${p.id}`}
+                    title="作者章都已归档 · 完结这本书"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setFinishTarget(p);
+                    }}
+                  >
+                    完本
+                  </button>
                 </span>
-              </span>
-            </>
-          )}
+              </>
+            ) : stage === "done" ? (
+              <>
+                <span className="updated">
+                  完结于
+                  {/* v8 ignore start -- 已完结态由 finished_at 非空派生（stageFromChapters），
+                      走到这里的卡片恒有非空 finished_at，`|| updated_at` 右臂不可达 */}
+                  {relTime(p.finished_at || p.updated_at)}
+                  {/* v8 ignore stop */}
+                </span>
+                <span className="foot-acts">
+                  <button className="btn btn-secondary btn-sm" onClick={(e) => openPreview(e, p.id)}>
+                    回看
+                  </button>
+                  <span className="go">
+                    查看
+                    <Ico d={P.arrowRight} />
+                  </span>
+                </span>
+              </>
+            ) : (
+              <>
+                <span className="updated">更新于 {relTime(p.updated_at)}</span>
+                <span className="foot-acts">
+                  <span className="go">
+                    继续创作
+                    <Ico d={P.arrowRight} />
+                  </span>
+                </span>
+              </>
+            )}
+          </div>
+          <span className="cover-meta">{coverMeta}</span>
         </div>
         {menuFor === p.id && (
           <div ref={menuRef} className="card-menu" onClick={(e) => e.stopPropagation()}>
+            <button
+              data-od-id={`cover-menu-${p.id}`}
+              onClick={() => {
+                setMenuFor(null);
+                setCoverTarget(p);
+              }}
+            >
+              <Ico d={P.image} />
+              封面…
+            </button>
             <button
               onClick={() => {
                 setMenuFor(null);

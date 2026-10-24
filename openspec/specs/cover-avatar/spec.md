@@ -5,7 +5,7 @@
 
 ## Requirements
 
-### Requirement:### Requirement: 图像配置与写作配置隔离
+### Requirement: 图像配置与写作配置隔离
 
 系统 SHALL 将图像模型配置存于独立 `image_configs`，MUST NOT 让图像配置出现在写作模型列表、写作就绪判定或写作 AI 兜底选择中。Key SHALL 复用本地加密存储；列表响应 MUST 只回掩码 Key。第一条 active 配置 SHALL 自动成为默认；删除或恢复配置后系统 SHALL 保持“有 active 配置就有且只有一个默认”的不变量。
 
@@ -34,7 +34,7 @@
 - **WHEN** 用户删除一本书正在绑定的图像配置
 - **THEN** 该书 `image_config_id` MUST 被清空，后续读取设置 MUST NOT 指向已删除配置
 
-### Requirement:### Requirement: 授权与所有权
+### Requirement: 授权与所有权
 
 系统 SHALL 在角色、图像资产、图像设置与 prompt 预览端点上校验书属于当前用户。MUST NOT 仅凭 `project_id`/`character_id`/`asset_id` 返回或修改其他用户的数据；越权读取 MUST 返回 404 或 400，越权写入 MUST 不产生任何落库。
 
@@ -53,7 +53,7 @@
 - **WHEN** 用户 A 对用户 B 的 `asset_id` 发 adopt
 - **THEN** 系统 MUST 视为资产不存在并返回 400，不改变原资产状态
 
-### Requirement:### Requirement: 资产上传与规范化
+### Requirement: 资产上传与规范化
 
 系统 SHALL 接收 JPG/PNG/WebP 上传，按封面 768×1024、头像 512×512 做等比缩放＋居中 cover-crop，重编码 WebP，并生成缩略图。单张 MUST ≤10MB、≤30MP、边长 ≤4096；解码失败/超限/格式不支持 MUST 返回带 `code` 的可读 4xx。
 
@@ -72,7 +72,7 @@
 - **WHEN** 用户上传 GIF/BMP/TIFF
 - **THEN** 系统 MUST 返回 400 `unsupported_format`，不落资产
 
-### Requirement:### Requirement: 资产状态机、TTL 与清理
+### Requirement: 资产状态机、TTL 与清理
 
 系统 SHALL 把新上传资产置为 `candidate`，`expires_at=24h`；只有 `candidate` 可被 adopt。采用时 SHALL 把旧 `current` 置 `previous`（`expires_at=adopted_at+8s`）、删除更早 `previous`、给新 current 写 `undo_token` 与 `undo_expires_at=adopted_at+8s`。撤销 MUST 在 8 秒内且 token 匹配时恢复 previous；首次采用撤销 SHALL 删除 current 回无图状态。启动期 SHALL 全库 sweep 过期 candidate/previous；上传与采用前 SHALL 按用户 sweep。并发状态冲突 MUST 返回 409 `asset_state_conflict`，MUST NOT 500。
 
@@ -101,7 +101,7 @@
 - **WHEN** 应用启动时库里存在过期 candidate 或超过撤销窗口的 previous
 - **THEN** 系统 SHALL 删除其元数据与 full/thumb BLOB
 
-### Requirement:### Requirement: 采用、撤销与签名读取
+### Requirement: 采用、撤销与签名读取
 
 系统 SHALL 用签名 URL 提供图片读取，签名覆盖 asset、variant、exp；过期/坏签名 MUST 返回 403。响应 SHALL 带 `X-Content-Type-Options: nosniff`，缓存 MUST 短于签名有效期，MUST NOT 使用 `immutable`。
 
@@ -115,7 +115,7 @@
 - **WHEN** 浏览器缓存了一张签名图片
 - **THEN** `Cache-Control` 的最大缓存时间 MUST 小于签名 TTL，使前端能在过期前重新取链接
 
-### Requirement:### Requirement: 资产列表与候选查询
+### Requirement: 资产列表与候选查询
 
 系统 SHALL 提供按书列出资产的端点，支持 `kind`、`character_id`、`status`、`limit` 过滤。列表 MUST 只返回当前用户、当前书的资产，MUST NOT 返回已过期 candidate/previous；`status` 非法 MUST 返回 400 `invalid_status`。系统 SHALL 提供 `GET /api/image-assets/{id}/links` 刷新签名链接，以及 `DELETE /api/image-assets/{id}` 丢弃 candidate/previous；current MUST NOT 被直接删除。
 
@@ -172,7 +172,7 @@
 - **WHEN** 用户保存角色 `avatar_prompt` 后重新 GET 角色设置
 - **THEN** 响应 SHALL 原样返回该字段
 
-### Requirement:### Requirement: 书/角色接口就地携带图片，删除级联
+### Requirement: 书/角色接口就地携带图片，删除级联
 
 系统 SHALL 在 `GET /api/novels`、`GET /api/novels/{id}`、`GET /api/novels/by-slug/{slug}` 返回 `cover`，在角色列表/详情返回 `avatar`；MUST NOT 要求前端先取 asset_id 再走统一元数据接口。删除书 SHALL 删除该书全部资产与 BLOB；删除或合并角色 SHALL 在同一事务内删除该角色的头像资产与 BLOB。
 
@@ -191,7 +191,7 @@
 - **WHEN** 用户删除一个不存在的角色卡
 - **THEN** 系统 MUST 返回 400，且该卡 id 下不得发生头像资产删除
 
-### Requirement:### Requirement: 错误码
+### Requirement: 错误码
 
 图像端点 SHALL 在 4xx 响应的 `detail` 中返回 `{code, message}`；状态冲突 MUST 用 409，参数/格式/归属失败 MUST 用 400 或 404，文件超限 MUST 用 413。前端 MUST 能只依赖 `code` 做分支，不解析中文文案。
 
@@ -200,13 +200,13 @@
 - **WHEN** 上传 GIF 返回 400
 - **THEN** `detail.code` SHALL 为 `unsupported_format`，`detail.message` 为可读中文
 
-### Requirement:### Requirement: 上传型封面/头像工坊
+### Requirement: 上传型封面/头像工坊
 
 前端 SHALL 提供上传型封面/头像工坊，使用阶段 1 的 `POST /api/novels/{id}/image-assets`、`GET .../image-assets`、`POST /api/image-assets/{id}/adopt`、`POST .../undo`、`DELETE /api/image-assets/{id}` 与 `GET .../links`。工坊 SHALL 显示候选、当前图、8 秒撤销倒计时；关闭未采用候选 SHALL 确认或明确“候选保留 24 小时”。采用/撤销后 SHALL 重新拉取书/角色 DTO，不把图片 URL 缓存超过 `url_expires_at`。
 
 #### Scenario: 上传并采用封面
 
-- **WHEN** 用户在书卡点“添加封面”，选择 PNG 上传
+- **WHEN** 用户在书卡通过任一封面入口（无封面有章节的点占位块、有封面的悬浮「换封面」、⋯ 菜单「封面…」）发起添加/更换封面并选择 PNG 上传
 - **THEN** 工坊 SHALL 显示候选缩略图，点“使用”后书卡 SHALL 显示新封面，并出现 8 秒撤销入口
 
 #### Scenario: 撤销采用
@@ -223,6 +223,45 @@
 
 - **WHEN** 免费用户打开工坊
 - **THEN** 上传入口 SHALL 可用；生成/测试/批量入口 SHALL 显示 PRO 提示且不可点
+
+### Requirement: 书卡封面版式（两列·拍板 C）
+
+书架「我的作品」书卡 SHALL 呈两列网格：左列为 3:4 竖版封面列（常规宽 104px，圆角、克制投影，高度贯穿卡片主体），右列为信息列，自上而下依次为题材/状态行、标题、简介、统计、分状态页脚与封面来源说明行。封面 MUST NOT 挤入右列顶行的胶囊行；「首字方块＋文字」的旧单列书卡版式退役。
+
+#### Scenario: 有封面书卡的两列呈现
+
+- **WHEN** 书架渲染一张有封面的书卡
+- **THEN** 左列 SHALL 显示竖版封面图（object-fit 裁切、不变形），右列 SHALL 完整呈现题材/状态胶囊行、标题、简介、统计与分状态页脚；顶行胶囊行内 MUST NOT 出现封面缩略图
+
+#### Scenario: 无封面有章节的占位即入口
+
+- **WHEN** 书卡无封面且该书有章节
+- **THEN** 左列 SHALL 显示带书名字标的竖版占位块，占位块本身 SHALL 是按钮，点击直接打开封面工坊，CTA 文案为「生成封面」
+
+#### Scenario: 0 章书占位弱化
+
+- **WHEN** 书卡无封面且该书 0 章
+- **THEN** 左列占位块 SHALL 不可点击，文案弱化为「还没有封面／可稍后添加」，封面入口 SHALL 保留在 ⋯ 菜单「封面…」
+
+#### Scenario: 悬浮换封面
+
+- **WHEN** 书卡有封面且用户悬浮或键盘聚焦封面列
+- **THEN** 封面上 SHALL 浮现「换封面」覆盖按钮，点击打开封面工坊；44×44 小方块与常驻「换/＋」角标形态 MUST NOT 再出现
+
+#### Scenario: 菜单第二入口
+
+- **WHEN** 用户打开任一书卡的 ⋯ 菜单
+- **THEN** 菜单第一项 SHALL 是「封面…」，点击打开封面工坊；该项对全部书可见（含 0 章书与免费用户，工坊内权益门照常生效）
+
+#### Scenario: 封面来源说明行
+
+- **WHEN** 渲染任一书卡
+- **THEN** 卡片底部 SHALL 显示封面来源说明：生成封面显示「AI 封面 · {画风名}」，本地上传显示「本地上传」，无封面显示「封面位留给作者」
+
+#### Scenario: 窄屏封面列缩放
+
+- **WHEN** 视口宽度 ≤820px
+- **THEN** 封面列 SHALL 缩到 88px 宽，右列信息自适应换行，卡片 MUST NOT 出现横向溢出
 
 ### Requirement: 设置部分更新
 

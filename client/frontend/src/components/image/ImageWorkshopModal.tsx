@@ -11,13 +11,14 @@ import {
   type ImageAsset, type ImageJob, type ImageKind,
 } from "@/lib/imageApi";
 
-const STYLES = [
+/** 画风词表（c-book-card-cover-column 起共享单源：书卡来源行与工坊下拉同一张表） */
+export const IMAGE_STYLES = [
   { key: "ink", label: "水墨" },
   { key: "cinematic", label: "电影写实" },
   { key: "guoman", label: "国漫" },
   { key: "print", label: "木刻版画" },
   { key: "minimal", label: "极简" },
-];
+] as const;
 
 export interface ImageUndoState {
   assetId: string;
@@ -452,7 +453,7 @@ export default function ImageWorkshopModal({
               <label className="img-field">
                 <span>画风</span>
                 <select className="input" value={styleKey} onChange={(e) => setStyleKey(e.target.value)}>
-                  {STYLES.map((s) => <option key={s.key} value={s.key}>{s.label}</option>)}
+                  {IMAGE_STYLES.map((s) => <option key={s.key} value={s.key}>{s.label}</option>)}
                 </select>
               </label>
               <div className="img-field">

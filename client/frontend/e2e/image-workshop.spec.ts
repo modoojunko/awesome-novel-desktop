@@ -92,11 +92,14 @@ test.describe("封面/头像上传型工坊", () => {
     await page.goto(`${ORIGIN}/#/novels`);
     const card = page.locator(".book-card", { hasText: bookName });
     await expect(card).toBeVisible({ timeout: 15000 });
+    // 0 章书占位弱化不可点（c-book-card-cover-column）：「可稍后添加」，入口走 ⋯ 菜单「封面…」
+    await expect(card.getByText("可稍后添加")).toBeVisible();
 
-    // 无图态：打开封面工坊
-    await card.getByRole("button", { name: "添加封面" }).click();
+    // 无图态：⋯ 菜单「封面…」打开封面工坊
+    await card.getByRole("button", { name: "更多操作" }).click();
+    await card.getByRole("button", { name: "封面…" }).click();
     await expect(page.getByRole("heading", { name: new RegExp(`^封面 · ${bookName}$`) })).toBeVisible();
-    await expect(page.getByText("还没有封面")).toBeVisible();
+    await expect(page.locator(".img-empty")).toBeVisible();
 
     // 上传 → 候选出现
     await page.setInputFiles('input[type="file"]', {
@@ -116,11 +119,11 @@ test.describe("封面/头像上传型工坊", () => {
     await candidateCard.getByRole("button", { name: "使用" }).click();
     await expect(page.locator(".img-undo")).toBeVisible({ timeout: 15000 });
     await expect(page.locator(".img-current-img")).toBeVisible({ timeout: 15000 });
-    await expect(page.getByText("还没有封面")).toHaveCount(0);
+    await expect(page.locator(".img-empty")).toHaveCount(0);
 
     // 同一会话内撤销（8s 窗口；首次采用撤销＝无 previous 可回）→ 空态回归
     await page.locator(".img-undo").getByRole("button", { name: "撤销" }).click();
-    await expect(page.getByText("还没有封面")).toBeVisible({ timeout: 15000 });
+    await expect(page.locator(".img-empty")).toBeVisible({ timeout: 15000 });
 
     // 撤销后书架无封面缩略图
     await page.keyboard.press("Escape");
@@ -132,7 +135,11 @@ test.describe("封面/头像上传型工坊", () => {
     // 重开工坊再采用 → 书架刷新可见封面缩略图（采用已外化到书卡）
     await page
       .locator(".book-card", { hasText: bookName })
-      .getByRole("button", { name: "添加封面" })
+      .getByRole("button", { name: "更多操作" })
+      .click();
+    await page
+      .locator(".book-card", { hasText: bookName })
+      .getByRole("button", { name: "封面…" })
       .click();
     await expect(page.getByRole("heading", { name: new RegExp(`^封面 · ${bookName}$`) })).toBeVisible();
     await page.setInputFiles('input[type="file"]', {
@@ -208,5 +215,44 @@ test.describe("封面/头像上传型工坊", () => {
     await expect(bad).toBeVisible({ timeout: 10000 });
     await expect(bad).toContainText("测试失败");
     await expect(bad).toContainText("API Key 无效或无权限");
+  });
+
+  // c-book-card-cover-column review P2-1 回归钉：≤820px 封面列收 88px。
+  // 修前 list.css 只收轨道、宽度收窄缺位（image-assets.css 后加载恒胜）——
+  // 104px 封面挤 88px 轨道、与右列 gap 归零。这里用真实浏览器级联断言几何。
+  test("窄屏书卡：封面列 88px 且与右列有间距", async ({ page }) => {
+    await writeBackendSession();
+    await stubShell(page);
+    await stubUpdateNotice(page, "none");
+
+    const bookName = `e2e窄屏${Date.now().toString(36)}`;
+    const created = await fetch(`${API}/api/novels`, {
+      method: "POST",
+      headers: { Authorization: `Bearer ${TOKEN}`, "Content-Type": "application/json" },
+      body: JSON.stringify({ name: bookName, source: "manual" }),
+    });
+    expect(created.ok).toBeTruthy();
+    const book = (await created.json()) as { id: string };
+
+    await page.setViewportSize({ width: 780, height: 900 });
+    await page.goto(`${ORIGIN}/#/novels`);
+    const card = page.locator(".book-card", { hasText: bookName });
+    await expect(card).toBeVisible({ timeout: 15000 });
+    // 壳层 page-enter 入场动画（scale 0.98→1）期间 rect 带中间态缩放——等收敛再断言
+    await expect
+      .poll(async () => card.evaluate((el) => el.querySelector(".book-cover")!.getBoundingClientRect().width), { timeout: 5000 })
+      .toBe(88);
+    const geo = await card.evaluate((el) => {
+      const cov = el.querySelector(".book-cover")!.getBoundingClientRect();
+      const main = el.querySelector(".book-main")!.getBoundingClientRect();
+      return { covW: cov.width, gap: main.left - cov.right };
+    });
+    expect(geo.covW).toBe(88);
+    expect(geo.gap).toBe(16);
+
+    await fetch(`${API}/api/novels/${book.id}`, {
+      method: "DELETE",
+      headers: { Authorization: `Bearer ${TOKEN}` },
+    });
   });
 });
