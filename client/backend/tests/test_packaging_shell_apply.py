@@ -367,3 +367,231 @@ def test_reconcile_keeps_pending_on_mismatch(shell, tmp_path, monkeypatch):
     module._reconcile_pending(module.__test_install_dir)
     assert (module.__test_install_dir / "data" / "updates" / "pending.json").exists()
     assert not (module.__test_install_dir / "data" / "updates" / "applied.json").exists()
+
+
+# ── c-update-detached-ps-fix：创建形态／启动痕／回退直连／安装结果回读 ──────────
+
+
+def _popens_kw(monkeypatch):
+    """记录 (argv, kwargs) 的 Popen 桩（creationflags 形状对拍用；_popens 只记 argv）。"""
+    calls = []
+    import subprocess as _subprocess
+
+    class _FakePopen:
+        def __init__(self, argv, **kwargs):
+            calls.append((argv, kwargs))
+
+    monkeypatch.setattr(_subprocess, "Popen", _FakePopen)
+    return calls
+
+
+def test_win_runner_flags_create_no_window(shell, tmp_path, monkeypatch):
+    """创建形态钉（2026-10-24 三次事故根因）：CREATE_NO_WINDOW 位在场、
+    DETACHED_PROCESS 位不在场——DETACHED 下 powershell.exe 引擎初始化后静默死、
+    脚本零执行；argv（含 -WindowStyle Hidden）不变。"""
+    module = shell
+    monkeypatch.setattr(module.sys, "executable",
+                        str(module.__test_install_dir / "AwesomeNovel.exe"))
+    _write_pending(module, tmp_path, sha=hashlib.sha256(b"PKG-PAYLOAD").hexdigest())
+    calls = _popens_kw(monkeypatch)
+    module.apply_pending_update(tmp_path)
+
+    argv, kwargs = calls[0]
+    assert "powershell" in argv[0]
+    flags = kwargs["creationflags"]
+    import subprocess as _subprocess
+    no_window = getattr(_subprocess, "CREATE_NO_WINDOW", 0x08000000)
+    # DETACHED_PROCESS=0x8（POSIX 上 subprocess 无该常量，getattr 兜底 0 会把断言
+    # 变空转——按字面位断言才有牙）
+    assert flags & no_window
+    assert not (flags & 0x8)
+    assert argv[1:5] == ["-NoProfile", "-NonInteractive", "-WindowStyle", "Hidden"]
+
+
+def test_win_runner_started_line_before_wait(shell, tmp_path, monkeypatch):
+    """启动痕形状：started 行引用 $log/$parent、位于 Wait-Process 之前——
+    「执行体是否真的运行过」的第一判据（插早了静默失败恒缺）。"""
+    module = shell
+    monkeypatch.setattr(module.sys, "executable",
+                        str(module.__test_install_dir / "AwesomeNovel.exe"))
+    _write_pending(module, tmp_path, sha=hashlib.sha256(b"PKG-PAYLOAD").hexdigest())
+    calls = _popens(monkeypatch)
+    module.apply_pending_update(tmp_path)
+
+    script = _runner_script_of(calls)
+    assert script.index("$log =") < script.index("runner: started")
+    assert script.index("runner: started") < script.index("Wait-Process -Id $parent")
+
+
+def test_mac_runner_started_line_before_wait(shell, tmp_path, monkeypatch):
+    """macOS runner 同串启动痕：log() 定义后、等待循环前（spec 启动痕平台中立）。"""
+    module = shell
+    _mac_setup(module, monkeypatch)
+    _write_pending(module, tmp_path, sha=hashlib.sha256(b"PKG-PAYLOAD").hexdigest())
+    calls = _popens_cap(monkeypatch)
+    module.apply_pending_update(tmp_path)
+
+    script = calls[0][0][2]
+    assert 'log "started (runner_pid=$$ parent=$UPD_PARENT)"' in script
+    assert script.index('log "started') < script.index('kill -0 "$UPD_PARENT"')
+
+
+def test_runner_spawn_failure_falls_back_to_direct_installer(shell, tmp_path, monkeypatch):
+    """执行体创建失败 → 回退直接 detached 拉起安装器（有代价的降级，仅此一路）；
+    回退派发成功＝attempts 照递增；回退动作留痕。"""
+    module = shell
+    monkeypatch.setattr(module.sys, "executable",
+                        str(module.__test_install_dir / "AwesomeNovel.exe"))
+    payload = b"PKG-PAYLOAD"
+    pkg, _ = _write_pending(module, tmp_path,
+                            sha=hashlib.sha256(payload).hexdigest())
+    import subprocess as _subprocess
+    calls = []
+    state = {"runner_alive": True}
+
+    class _FakePopen:
+        def __init__(self, argv, **kwargs):
+            if state["runner_alive"] and "powershell" in str(argv[0]):
+                raise OSError("spawn blocked")
+            calls.append((argv, kwargs))
+
+    monkeypatch.setattr(_subprocess, "Popen", _FakePopen)
+    module.apply_pending_update(tmp_path)
+
+    assert len(calls) == 1
+    argv, kwargs = calls[0]
+    assert argv[0] == str(pkg)
+    # DETACHED_PROCESS=0x8（非 Windows 测试环境 subprocess 无该常量，按字面位断言）
+    assert kwargs["creationflags"] & 0x8
+    # 回退留痕走 runtime_dir（apply_pending_update 的入参），不是安装目录
+    startup = (tmp_path / "logs" / "startup.log").read_text("utf-8")
+    assert "fallback to direct installer" in startup
+    assert _pending_body(module)["attempts"] == 1
+
+
+def test_runner_spawn_double_failure_keeps_pending(shell, tmp_path, monkeypatch):
+    """双失败（runner 与直连都建不出）→ 异常上抛（main 兜底留日志），attempts 不
+    递增——环境性故障不烧重试预算，pending 留给下次退出链重试。"""
+    module = shell
+    monkeypatch.setattr(module.sys, "executable",
+                        str(module.__test_install_dir / "AwesomeNovel.exe"))
+    _write_pending(module, tmp_path, sha=hashlib.sha256(b"PKG-PAYLOAD").hexdigest())
+    import subprocess as _subprocess
+
+    class _AlwaysFail:
+        def __init__(self, argv, **kwargs):
+            raise OSError("no exec")
+
+    monkeypatch.setattr(_subprocess, "Popen", _AlwaysFail)
+    with pytest.raises(OSError):
+        module.apply_pending_update(tmp_path)
+    assert _pending_body(module)["attempts"] == 0
+
+
+def _reconcile_mismatch(shell, monkeypatch, *, attempts, log_text=None):
+    """构造「标记在场且版本未达」场景并跑对拍，返回落盘的尝试记录。"""
+    module = shell
+    monkeypatch.setattr(module, "_load_release_json",
+                        lambda _root: {"client_version": "0.99.4"})
+    (module.__test_install_dir / "data" / "updates" / "pending.json").write_text(
+        json.dumps({"version": "0.99.5", "attempts": attempts}), encoding="utf-8")
+    runner_log = (module.__test_install_dir / "data" / "updates"
+                  / "installer-runner.log")
+    if log_text is None:
+        runner_log.unlink(missing_ok=True)  # None＝模拟日志不在场
+    else:
+        runner_log.write_text(log_text, encoding="utf-8")
+    module._reconcile_pending(module.__test_install_dir)
+    return json.loads(
+        (module.__test_install_dir / "data" / "updates"
+         / "last-install-attempt.json").read_text(encoding="utf-8"))
+
+
+_WIN_ATTEMPT = ("2026-10-24 16:14:38 runner: dispatched (version=0.99.5 attempt=1)\n"
+                "2026-10-24 16:14:38 runner: started (runner_pid=9 parent=1)\n"
+                "2026-10-24 16:15:40 runner: wait_ms=0 parent_alive_after_wait=False "
+                "installer_exit=0 install_seconds=62\n")
+
+
+def test_readback_three_states(shell, monkeypatch):
+    """回读三态（按派发标记取末段）：跑了且装完（exit 可见）／跑了没跑完（exit 缺）／
+    派发未运行；startup.log 同步一行（失败可见的最小面）。"""
+    module = shell
+
+    rec = _reconcile_mismatch(shell, monkeypatch, attempts=1, log_text=_WIN_ATTEMPT)
+    assert rec["runner_started"] is True and rec["installer_exit"] == 0
+    assert rec["attempts"] == 1 and rec["version"] == "0.99.5"
+    assert "recorded_at" in rec
+
+    # 无标记的历史日志退化为全文件口径：仅 started 行＝跑了没跑完
+    rec = _reconcile_mismatch(shell, monkeypatch, attempts=1,
+                              log_text=_WIN_ATTEMPT.splitlines()[1] + "\n")
+    assert rec["runner_started"] is True and rec["installer_exit"] is None
+
+    rec = _reconcile_mismatch(shell, monkeypatch, attempts=1, log_text=None)
+    assert rec["runner_started"] is False and rec["installer_exit"] is None
+    startup = (module.__test_install_dir / "logs" / "startup.log").read_text("utf-8")
+    assert "last install attempt for v0.99.5" in startup
+
+
+def test_readback_mac_install_ok_and_append_last_segment(shell, monkeypatch):
+    """macOS 行文 install_ok 映射退出码；按派发标记取末段——attempt 2 死在 started
+    之前时，不得把 attempt 1 的 started/exit 张冠李戴到最近一次。"""
+    attempt1 = ("2026-10-24 16:20:00 runner: dispatched (version=0.99.5 attempt=1)\n"
+                "runner: started (runner_pid=11 parent=1)\n"
+                "runner: wait_s=0 parent_alive_after_wait=0 install_ok=0 "
+                "detail=hdiutil attach failed install_seconds=1 relaunched=0\n")
+
+    rec = _reconcile_mismatch(shell, monkeypatch, attempts=1, log_text=attempt1)
+    assert rec["runner_started"] is True and rec["installer_exit"] == 1
+
+    # attempt 2：派发标记已落、runner 又静默死（日志零新增）→ 不吃 attempt 1 的痕
+    attempt2_dispatched = attempt1 + ("2026-10-24 16:30:00 runner: dispatched "
+                                      "(version=0.99.5 attempt=2)\n")
+    rec = _reconcile_mismatch(shell, monkeypatch, attempts=2,
+                              log_text=attempt2_dispatched)
+    assert rec["runner_started"] is False and rec["installer_exit"] is None
+
+    # attempt 2 完整跑完且成功 → 以末段为准
+    attempt2 = attempt2_dispatched + ("runner: started (runner_pid=12 parent=1)\n"
+                                      "runner: wait_s=0 parent_alive_after_wait=0 "
+                                      "install_ok=1 detail= install_seconds=9 "
+                                      "relaunched=1\n")
+    rec = _reconcile_mismatch(shell, monkeypatch, attempts=2, log_text=attempt2)
+    assert rec["runner_started"] is True and rec["installer_exit"] == 0
+
+
+def test_readback_cross_update_accumulation_not_misattributed(shell, monkeypatch):
+    """跨版本累积回归（评审 P2 定罪案）：installer-runner.log 永久追加而 attempts
+    每版重置——上一版本的 started/exit 不得越过分发标记污染本次的「派发未执行」。"""
+    history = ("2026-10-20 19:24:00 runner: started (runner_pid=77 parent=1)\n"
+               "2026-10-20 19:25:00 runner: wait_ms=0 parent_alive_after_wait=False "
+               "installer_exit=1 install_seconds=60\n")
+    dispatched = history + ("2026-10-24 16:14:38 runner: dispatched "
+                            "(version=0.99.5 attempt=1)\n")
+    rec = _reconcile_mismatch(shell, monkeypatch, attempts=1, log_text=dispatched)
+    assert rec["runner_started"] is False and rec["installer_exit"] is None
+
+
+def test_readback_legacy_runner_without_started_line(shell, monkeypatch):
+    """过渡臂：0.39 及以前的旧格式 runner 无启动痕、只有结束行（且无派发标记＝
+    全文件口径）——已运行＋exit 照读，不得误标「派发未执行」。"""
+    legacy = ("2026-10-24 16:15:40 runner: wait_ms=0 parent_alive_after_wait=False "
+              "installer_exit=1 install_seconds=60\n")
+    rec = _reconcile_mismatch(shell, monkeypatch, attempts=1, log_text=legacy)
+    assert rec["runner_started"] is True and rec["installer_exit"] == 1
+
+
+def test_reconcile_success_clears_stale_attempt_record(shell, monkeypatch):
+    """升级成功的对拍（版本一致）→ applied＋清 pending，并清过期失败记录——
+    不得常驻诊断面误报。"""
+    module = shell
+    updates = module.__test_install_dir / "data" / "updates"
+    (updates / "pending.json").write_text(
+        json.dumps({"version": "0.99.5", "attempts": 1}), encoding="utf-8")
+    (updates / "last-install-attempt.json").write_text(
+        json.dumps({"version": "0.99.5", "runner_started": False}), encoding="utf-8")
+    module._reconcile_pending(module.__test_install_dir)
+    assert (updates / "applied.json").exists()
+    assert not (updates / "pending.json").exists()
+    assert not (updates / "last-install-attempt.json").exists()

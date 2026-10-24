@@ -498,6 +498,29 @@ def auto_public_state() -> dict:
     return out
 
 
+def _last_install_attempt() -> dict | None:
+    """壳层对拍落盘的最近一次安装尝试（c-update-detached-ps-fix 诊断只读面）。
+
+    文件缺失/坏 JSON＝None ⇒ 状态键不出现（非 null 占位——存量状态形状全等断言
+    `assert st == {…}` 依赖键缺席）；形状由壳层写入方定义（version/attempts/
+    runner_started/installer_exit/recorded_at），此处不校验不裁剪。
+    """
+    try:
+        data = json.loads(
+            (_UPDATES_DIR / "last-install-attempt.json").read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return None
+    return data if isinstance(data, dict) else None
+
+
+def _with_last_install_attempt(out: dict) -> dict:
+    """装配诊断字段：文件在场才并键，形状恒定（dev/无缓存路径不加空键）。"""
+    attempt = _last_install_attempt()
+    if attempt is not None:
+        out["last_install_attempt"] = attempt
+    return out
+
+
 async def get_update_state() -> dict:
     """检测入口：dev 跳过；节流内吃缓存；真实外呼每小时至多一次。"""
     current = get_client_version()
@@ -542,7 +565,7 @@ async def get_update_state() -> dict:
             await asyncio.to_thread(maybe_start_auto_download, fetched, current)
 
     if not cached or not cached.get("latest"):
-        return _payload(current=current, latest=None)
+        return _with_last_install_attempt(_payload(current=current, latest=None))
 
     latest = cached["latest"]
     dismissed = state.get("dismissed_version")
@@ -553,7 +576,7 @@ async def get_update_state() -> dict:
     # 旧状态文件（无 source_url）回退主地址；正常路径取实际成功的地址
     source = str(cached.get("source_url") or "").strip() or _candidate_urls()[0]
     notes_url, download_url = _derived_urls(source, latest)
-    return {
+    return _with_last_install_attempt({
         "current": current,
         "latest": latest,
         "has_update": has_update,
@@ -564,7 +587,7 @@ async def get_update_state() -> dict:
         # c-version-build-info：与 _payload 同批装配，两条返回路径 shape 一致
         # （tag 构建 get_build_info 自回 None——dev 总闸）
         "build": get_build_info(current),
-    }
+    })
 
 
 def _payload(*, current: str, latest: str | None) -> dict:
