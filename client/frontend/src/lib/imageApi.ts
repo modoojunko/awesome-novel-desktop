@@ -28,8 +28,19 @@ export interface ImageConfig {
   is_default: boolean;
   status: "active" | "deleted";
   last_test_status?: string | null;
+  last_test_error?: string | null;
+  last_tested_at?: string | null;
   created_at?: string | null;
   updated_at?: string | null;
+}
+
+export interface ImageConfigTestResult {
+  ok: boolean;
+  model: string;
+  elapsed_ms: number;
+  config_id?: string | null;
+  last_tested_at?: string | null;
+  error?: { kind: string; message: string } | null;
 }
 
 export interface ImageRef {
@@ -157,7 +168,7 @@ export const IMAGE_PROVIDERS: Array<{
   {
     id: "volcengine", label: "火山引擎 Seedream",
     base_url: "https://ark.cn-beijing.volces.com/api/v3",
-    models: ["doubao-seedream-4-0-250828"],
+    models: ["doubao-seedream-5-0-260128", "doubao-seedream-4-5-251128", "doubao-seedream-4-0-250828"],
     apply_url: "https://console.volcengine.com/ark",
   },
   {
@@ -222,11 +233,16 @@ export const imageApi = {
 
   createConfig: (body: {
     name: string; provider: ImageProvider; base_url: string; api_key: string;
-    default_model: string; models: string[]; is_default?: boolean;
+    default_model: string; models?: string[]; is_default?: boolean;
   }) => unwrap<ImageConfig>(api.post("/image-configs", body)),
 
   updateConfig: (id: string, body: Record<string, unknown>) =>
     unwrap<ImageConfig>(api.put(`/image-configs/${id}`, body)),
+
+  testConfig: (body: {
+    config_id?: string; provider?: ImageProvider; base_url?: string;
+    api_key?: string; default_model?: string;
+  }) => unwrap<ImageConfigTestResult>(api.post("/image-configs/test", body)),
 
   deleteConfig: (id: string) =>
     unwrap<{

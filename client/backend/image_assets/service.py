@@ -6,13 +6,16 @@
 
 from __future__ import annotations
 
+import asyncio
 import base64
 import hashlib
 import hmac
 import io
 import json
 import logging
+import os
 import secrets
+import time
 from datetime import UTC, datetime, timedelta
 
 from PIL import Image, ImageOps, UnidentifiedImageError
@@ -23,6 +26,11 @@ from sqlalchemy.orm.exc import StaleDataError
 
 from api_configs.crypto import decrypt_api_key, encrypt_api_key
 from api_configs.schemas import mask_api_key
+from image_assets.adapters import (
+    ImageGenerationSpec,
+    ImageProviderError,
+    generate_images,
+)
 from image_assets.prompt_builder import (
     STYLE_KEYS,
     build_avatar_prompt,
@@ -195,7 +203,14 @@ async def create_config(db: AsyncSession, user_id: str, data: dict) -> dict:
     c.base_url = str(data.get("base_url") or "")
     c.api_key = encrypt_api_key(str(data.get("api_key") or ""))
     c.default_model = str(data.get("default_model") or "")
-    c.models = json.dumps(data.get("models") or [], ensure_ascii=False)
+    # 模型清单派生（c-image-config-ux-fix）：表单只收单一「模型」格。请求未带
+    # 清单或显式空数组（create 路由 model_dump 会把字段默认 [] 带进来）→ 落
+    # [default_model]；显式非空清单（备份/旧客户端）原样尊重。
+    models_list = list(data.get("models") or [])
+    if not models_list:
+        default_model = str(data.get("default_model") or "").strip()
+        models_list = [default_model] if default_model else []
+    c.models = json.dumps(models_list, ensure_ascii=False)
     c.declared_capabilities = json.dumps(data.get("declared_capabilities") or {}, ensure_ascii=False)
     c.is_default = is_default
     c.status = "active"
@@ -272,6 +287,11 @@ async def update_config(db: AsyncSession, user_id: str, config_id: str, data: di
         c.api_key = encrypt_api_key(str(data["api_key"] or ""))
     if "models" in data and data["models"] is not None:
         c.models = json.dumps(data["models"], ensure_ascii=False)
+    elif "default_model" in data and data["default_model"] is not None:
+        # 只改模型没带清单（update 路由 exclude_unset，键缺席=没提交）→ 清单跟着
+        # 收敛为 [新模型]；两者都没提交则不动。default_model 清空时清单落 []。
+        dm = str(data["default_model"]).strip()
+        c.models = json.dumps([dm] if dm else [], ensure_ascii=False)
     if "declared_capabilities" in data and data["declared_capabilities"] is not None:
         c.declared_capabilities = json.dumps(data["declared_capabilities"], ensure_ascii=False)
     if "is_default" in data and data["is_default"] is not None:
@@ -351,6 +371,108 @@ async def restore_config(db: AsyncSession, user_id: str, config_id: str) -> dict
     await _commit_config(db, "配置并发恢复冲突，请刷新后重试", "config_conflict")
     await db.refresh(c)
     return config_to_dict(c)
+
+
+# ── 连接测试（c-image-config-ux-fix：真实最小试画）─────────────────────────
+
+# 试画是真实生成、消耗供应商额度：同用户 30s 一发。部署已核实单进程
+# （Dockerfile 无 --workers、打包 uvicorn 单进程），module-global 即够；
+# 先例 auth_local._LAST_ENT_RESYNC。测试用 reset_image_test_throttle() 清态。
+IMAGE_TEST_THROTTLE_SECONDS = 30.0
+# 测试自有 deadline：适配器读超时是 300s（IMAGE_GENERATION_TIMEOUT），端点不能
+# 跟着挂 5 分钟——弹窗按钮会转到天荒地老。
+IMAGE_TEST_DEADLINE_SECONDS = float(os.environ.get("IMAGE_TEST_TIMEOUT", "75"))
+# 极简试画 prompt：只为验证 Key/Base/模型 id 通不通，产物即弃（不落资产）。
+IMAGE_TEST_PROMPT = "米白纯色底，中央一个深灰色圆点"
+IMAGE_TEST_KIND = "avatar"
+
+_image_test_last: dict[str, float] = {}
+
+
+class ImageTestRateLimited(Exception):
+    """同用户试画节流；retry_after 为距可再次测试的秒数。"""
+
+    def __init__(self, retry_after: float):
+        super().__init__("test_rate_limited")
+        self.retry_after = retry_after
+
+
+def reset_image_test_throttle() -> None:
+    _image_test_last.clear()
+
+
+async def test_config(db: AsyncSession, user_id: str, data: dict) -> dict:
+    """以给定（或存量）参数真实生成一张最小试画；带 config_id 时落 last_test_* 三列。"""
+    started = time.monotonic()
+    now = time.monotonic()
+    last = _image_test_last.get(user_id)
+    if last is not None and now - last < IMAGE_TEST_THROTTLE_SECONDS:
+        raise ImageTestRateLimited(IMAGE_TEST_THROTTLE_SECONDS - (now - last))
+
+    config_id = str(data.get("config_id") or "").strip()
+    row = None
+    if config_id:
+        row = (await db.execute(
+            select(ImageConfig).where(
+                ImageConfig.id == config_id, ImageConfig.user_id == user_id,
+                ImageConfig.status == "active",
+            )
+        )).scalar_one_or_none()
+        if not row:
+            raise Unprocessable("图像配置不存在", "config_not_found")
+
+    provider = str(data.get("provider") or "").strip() or (row.provider if row else "")
+    if provider not in PROVIDERS:
+        raise Unprocessable("provider 不在支持列表", "invalid_provider")
+    # 缺省字段用存量值兜底；body 显式携带（含非空 Key）一律优先。
+    base_url = str(data.get("base_url") or "").strip() or (row.base_url if row else "")
+    model = str(data.get("default_model") or "").strip() or (row.default_model if row else "")
+    api_key = str(data.get("api_key") or "")
+    if not api_key and row and row.api_key:
+        api_key = decrypt_api_key(row.api_key)
+    if not model:
+        raise Unprocessable("请先填写模型 id 再测试", "model_required")
+
+    spec = ImageGenerationSpec(
+        provider=provider, model=model, prompt=IMAGE_TEST_PROMPT,
+        negative_prompt="", kind=IMAGE_TEST_KIND, n=1, seed=None,
+    )
+    # 记账在真正打供应商之前：本地校验失败（没到供应商）不消耗节流额度。
+    _image_test_last[user_id] = time.monotonic()
+    error_kind: str | None = None
+    error_message: str | None = None
+    try:
+        images = await asyncio.wait_for(
+            generate_images(base_url=base_url, api_key=api_key, spec=spec),
+            timeout=IMAGE_TEST_DEADLINE_SECONDS,
+        )
+        ok = len(images) >= 1
+        if not ok:
+            error_kind, error_message = "empty", "供应商未返回任何图片"
+    except TimeoutError:
+        ok = False
+        error_kind = "timeout"
+        error_message = f"测试超时（超过 {int(IMAGE_TEST_DEADLINE_SECONDS)} 秒），请检查网络或稍后再试"
+    except ImageProviderError as e:
+        ok = False
+        error_kind = e.kind
+        error_message = e.message
+
+    elapsed_ms = int((time.monotonic() - started) * 1000)
+    if row is not None:
+        row.last_test_status = "ok" if ok else "failed"
+        row.last_test_error = None if ok else (error_message or "")[:500]
+        row.last_tested_at = now_utc()
+        await db.commit()
+        await db.refresh(row)
+    return {
+        "ok": ok,
+        "model": model,
+        "elapsed_ms": elapsed_ms,
+        "config_id": row.id if row is not None else None,
+        "last_tested_at": row.last_tested_at.isoformat() if row is not None and row.last_tested_at else None,
+        "error": None if ok else {"kind": error_kind, "message": error_message},
+    }
 
 
 

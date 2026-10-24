@@ -156,4 +156,57 @@ test.describe("封面/头像上传型工坊", () => {
       headers: { Authorization: `Bearer ${TOKEN}` },
     });
   });
+
+  // c-image-config-ux-fix：配置面板「测试连接」失败呈现供应商摘要（全桩，不依赖
+  // 真实供应商/权益——测试端点的真拦面由后端 pytest 与档位矩阵覆盖）。
+  test("图像配置：测试连接失败呈现摘要", async ({ page }) => {
+    await writeBackendSession();
+    await stubShell(page);
+    await stubUpdateNotice(page, "none");
+    await page.route("**/api/image-configs**", async (r) => {
+      const url = r.request().url();
+      if (url.includes("/image-configs/test")) {
+        return r.fulfill({
+          json: {
+            ok: true,
+            data: {
+              ok: false, model: "doubao-seedream-5-0-260128", elapsed_ms: 320,
+              error: { kind: "auth", message: "API Key 无效或无权限" },
+            },
+          },
+        });
+      }
+      return r.fulfill({
+        json: {
+          ok: true,
+          data: [{
+            id: "cfg-e2e", name: "封面主力", provider: "volcengine",
+            base_url: "https://ark.cn-beijing.volces.com/api/v3",
+            api_key_masked: "ark-****e2e", default_model: "doubao-seedream-5-0-260128",
+            models: ["doubao-seedream-5-0-260128"], declared_capabilities: {},
+            is_default: true, status: "active", last_test_status: null,
+          }],
+        },
+      });
+    });
+    // 大模型页签与用量的噪声（页签隐藏但挂载即拉）：桩成空，免真实后端依赖
+    await page.route("**/api/api-configs*", (r) =>
+      r.fulfill({ json: { ok: true, data: [] } }));
+    await page.route("**/api/usage*", (r) =>
+      r.fulfill({ json: { ok: true, data: { all: 0, month: 0, today: 0, by_config: [] } } }));
+
+    await page.goto(`${ORIGIN}/#/config?tab=image`);
+    await expect(page.getByText("封面主力")).toBeVisible({ timeout: 15000 });
+    // 单模型格改版：卡片以「模型：{id}」呈现，不再有清单 chips
+    await expect(page.getByText("模型：doubao-seedream-5-0-260128")).toBeVisible();
+    await expect(page.locator(".m-chip")).toHaveCount(0);
+
+    await page.getByRole("button", { name: "添加图像模型" }).click();
+    await page.getByPlaceholder("模型 id").fill("doubao-seedream-5-0-260128");
+    await page.locator(".mcard-foot").getByRole("button", { name: "测试连接" }).click();
+    const bad = page.locator(".tresult.bad");
+    await expect(bad).toBeVisible({ timeout: 10000 });
+    await expect(bad).toContainText("测试失败");
+    await expect(bad).toContainText("API Key 无效或无权限");
+  });
 });

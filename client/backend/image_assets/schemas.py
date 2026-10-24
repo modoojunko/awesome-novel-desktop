@@ -27,6 +27,16 @@ class ImageConfigUpdate(BaseModel):
     is_default: bool | None = None
 
 
+class ImageConfigTestBody(BaseModel):
+    """连接测试（c-image-config-ux-fix）：全部可省，带 config_id 时缺省用存量值。"""
+
+    config_id: str | None = None
+    provider: str | None = None
+    base_url: str | None = None
+    api_key: str | None = None
+    default_model: str | None = None
+
+
 class BookImageSettingsBody(BaseModel):
     style_key: str = "ink"
     cover_prompt: str = ""
