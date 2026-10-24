@@ -25,7 +25,9 @@ from settings.world_model import normalize_world
 SYNOPSIS_MAX = 240
 FULLSTORY_MAX = 1200
 STAGE_MAX = 300
-SCENE_MAX = 200
+# 与 prompt_builder 组装时的 cover_prompt 截断（180）对齐：守卫放更宽的话，
+# 超限场景存库后会在「画面呈现{…}」句里被切尾，预览与实际下发不一致。
+SCENE_MAX = 180
 
 TEMPLATE_NAME = "image_cover_scene"
 

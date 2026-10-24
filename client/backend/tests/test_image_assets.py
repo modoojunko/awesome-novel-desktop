@@ -706,6 +706,11 @@ def test_cover_scene_material_and_parse(client):
 
     scene = cx.parse_scene(json.dumps({"scene": "x" * 500}, ensure_ascii=False))
     assert len(scene) == cx.SCENE_MAX  # 超长场景截断
+    # 与 prompt_builder 的 cover_prompt 截断（180）对齐：守卫更宽会在组装时切尾
+    assert cx.SCENE_MAX == 180
+    from image_assets.prompt_builder import _clamp as _pb_clamp
+
+    assert _pb_clamp(scene, 180) == scene  # 满长场景过组装截断零损失
     for bad in ("不是json", "[]", json.dumps({"scene": "  "})):
         try:
             cx.parse_scene(bad)
