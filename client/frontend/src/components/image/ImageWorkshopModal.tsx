@@ -278,6 +278,24 @@ export default function ImageWorkshopModal({
     }
   };
 
+  const draftAvatarLook = async () => {
+    if (!canGenerate) {
+      toast.info("AI 起草是 PRO 功能；也可以直接手写头像描述");
+      return;
+    }
+    if (!characterId) return;
+    setExtracting(true);
+    try {
+      const { look } = await imageApi.extractAvatarLook(novelId, characterId);
+      setAvatarPrompt(look);
+      toast.success("头像描述草稿已填入，可修改后保存");
+    } catch (e) {
+      toast.error((e as Error).message || "AI 起草失败");
+    } finally {
+      setExtracting(false);
+    }
+  };
+
   const saveSettings = async () => {
     setSavingSettings(true);
     try {
@@ -457,10 +475,24 @@ export default function ImageWorkshopModal({
               </div>
             </>
           ) : (
-            <label className="img-field">
-              <span>头像描述 <small>只写外貌/服饰，不写剧情</small></span>
-              <textarea className="input" rows={4} value={avatarPrompt} onChange={(e) => setAvatarPrompt(e.target.value)} />
-            </label>
+            <div className="img-field">
+              <span className="img-field-head">
+                头像描述 <small>只写外貌/服饰，不写剧情</small>
+                <button
+                  type="button"
+                  className="btn btn-ghost btn-sm"
+                  disabled={!canGenerate || extracting || busy}
+                  title={canGenerate ? "根据角色卡外貌/身份起草头像描述草稿" : "PRO 以上可用；也可直接手写"}
+                  onClick={() => void draftAvatarLook()}
+                >
+                  {extracting ? "起草中…" : "AI 起草"}
+                </button>
+              </span>
+              <textarea
+                className="input" rows={4} aria-label="头像描述"
+                value={avatarPrompt} onChange={(e) => setAvatarPrompt(e.target.value)}
+              />
+            </div>
           )}
           <div className="img-model-line">
             本书模型：{bookSettings?.effective_image_model || "未配置"}
@@ -469,7 +501,11 @@ export default function ImageWorkshopModal({
           <button className="btn btn-secondary btn-sm" disabled={savingSettings || busy} onClick={() => void saveSettings()}>
             {savingSettings ? "保存中…" : "保存设置"}
           </button>
-          <p className="img-hint">画面描述保存后随下一张候选生效；画风、脱敏与种子由系统在生成时处理。</p>
+          <p className="img-hint">
+            {kind === "cover"
+              ? "画面描述保存后随下一张候选生效；画风、脱敏与种子由系统在生成时处理。"
+              : "头像描述保存后随下一张候选生效；脱敏与种子由系统在生成时处理。"}
+          </p>
           {isFree && <p className="img-hint">免费用户可使用上传；AI 生成需 PRO 以上。</p>}
         </aside>
       </div>

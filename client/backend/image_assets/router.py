@@ -289,6 +289,26 @@ async def extract_cover_scene(
     return {"ok": True, "data": {"scene": scene}}
 
 
+@router.post("/novels/{novel_id}/characters/{character_id}/image-prompt/look-extract")
+@ai_feature("image-generate")
+async def extract_avatar_look(
+    novel_id: str,
+    character_id: str,
+    db: AsyncSession = Depends(get_db),
+    user: dict = Depends(get_current_user),
+    _access: bool = Depends(require_tier_access),
+):
+    await ensure_novel_model_ready(db, user["id"], novel_id)
+    try:
+        await svc._owned_character(db, user["id"], novel_id, character_id)
+    except svc.Unprocessable as e:
+        raise _svc_error(e) from e
+    look = await cover_extract.extract_avatar_look(
+        db, novel_id, character_id, user["id"],
+    )
+    return {"ok": True, "data": {"look": look}}
+
+
 # ── 生成任务（PRO 起；图像 Key 作者自持，不查写作大模型）───────────────────
 
 

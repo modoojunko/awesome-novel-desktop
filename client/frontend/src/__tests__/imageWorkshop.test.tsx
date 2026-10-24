@@ -19,9 +19,14 @@ const api = vi.hoisted(() => ({
     image_config_id: null, image_model: "", effective_image_config_id: null,
     effective_image_model: "seedream", effective_source: "default" as const,
   })),
-  getCharacterSettings: vi.fn(),
+  getCharacterSettings: vi.fn(async () => ({
+    character_id: "c1", avatar_prompt: "",
+  })),
   extractCoverScene: vi.fn(async () => ({
     scene: "深夜站台，末班公交的剪影驶近，车灯昏黄。",
+  })),
+  extractAvatarLook: vi.fn(async () => ({
+    look: "瘦高身形，旧斗篷领口磨亮，眼下一道浅疤。",
   })),
   uploadAsset: vi.fn(async () => candidate),
   adoptAsset: vi.fn(async () => ({ ...candidate, status: "current", undo_token: "tok", undo_expires_at: new Date(Date.now() + 8000).toISOString() })),
@@ -166,5 +171,25 @@ describe("ImageWorkshopModal（上传型工坊）", () => {
     expect(screen.queryByText("封面种子")).toBeNull();
     expect(screen.queryByText("头像种子")).toBeNull();
     expect(screen.queryByText("提示词预览")).toBeNull();
+  });
+
+  it("头像 AI 起草：免费置灰；PRO 调起草并把草稿填进头像描述", async () => {
+    featureAllowed.value = false;
+    const free = render(
+      <ImageWorkshopModal open novelId="n1" kind="avatar" characterId="c1" characterName="林野" onClose={() => {}} onChanged={() => {}} />,
+    );
+    await waitFor(() => expect(screen.getByText("头像描述")).toBeTruthy());
+    const extract = screen.getByRole("button", { name: "AI 起草" }) as HTMLButtonElement;
+    expect(extract.disabled).toBeTruthy();
+    free.unmount();
+
+    featureAllowed.value = true;
+    render(
+      <ImageWorkshopModal open novelId="n1" kind="avatar" characterId="c1" characterName="林野" onClose={() => {}} onChanged={() => {}} />,
+    );
+    fireEvent.click(await screen.findByRole("button", { name: "AI 起草" }));
+    await waitFor(() => expect(api.extractAvatarLook).toHaveBeenCalledWith("n1", "c1"));
+    const textarea = document.querySelector(".img-field textarea") as HTMLTextAreaElement;
+    await waitFor(() => expect(textarea.value).toContain("旧斗篷"));
   });
 });
