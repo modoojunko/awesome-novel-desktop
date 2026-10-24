@@ -8,7 +8,7 @@ import ImageThumb from "./ImageThumb";
 import {
   imageApi,
   type BookImageSettings, type CharacterImageSettings,
-  type ImageAsset, type ImageJob, type ImageKind, type PromptPreview,
+  type ImageAsset, type ImageJob, type ImageKind,
 } from "@/lib/imageApi";
 
 const STYLES = [
@@ -61,11 +61,8 @@ export default function ImageWorkshopModal({
   const [charSettings, setCharSettings] = useState<CharacterImageSettings | null>(null);
   const [styleKey, setStyleKey] = useState("ink");
   const [coverPrompt, setCoverPrompt] = useState("");
-  const [coverSeed, setCoverSeed] = useState("");
   const [avatarPrompt, setAvatarPrompt] = useState("");
-  const [avatarSeed, setAvatarSeed] = useState("");
-  const [preview, setPreview] = useState<PromptPreview | null>(null);
-  const [previewErr, setPreviewErr] = useState<string | null>(null);
+  const [extracting, setExtracting] = useState(false);
   const [savingSettings, setSavingSettings] = useState(false);
   const [job, setJob] = useState<ImageJob | null>(null);
   const [genErr, setGenErr] = useState<string | null>(null);
@@ -82,12 +79,10 @@ export default function ImageWorkshopModal({
       setBookSettings(bs);
       setStyleKey(bs.style_key || "ink");
       setCoverPrompt(bs.cover_prompt || "");
-      setCoverSeed(bs.cover_seed == null ? "" : String(bs.cover_seed));
       if (kind === "avatar" && characterId) {
         const cs = await imageApi.getCharacterSettings(novelId, characterId);
         setCharSettings(cs);
         setAvatarPrompt(cs.avatar_prompt || "");
-        setAvatarSeed(cs.seed == null ? "" : String(cs.seed));
       }
     } catch (e) {
       setError((e as Error).message || "图像加载失败");
@@ -97,27 +92,13 @@ export default function ImageWorkshopModal({
     }
   }, [novelId, kind, characterId]);
 
-  const loadPreview = useCallback(async () => {
-    setPreviewErr(null);
-    try {
-      const p = kind === "avatar" && characterId
-        ? await imageApi.avatarPrompt(novelId, characterId)
-        : await imageApi.coverPrompt(novelId);
-      setPreview(p);
-    } catch (e) {
-      setPreviewErr((e as Error).message || "提示词预览失败");
-    }
-  }, [novelId, kind, characterId]);
-
   useEffect(() => {
     if (!open) return;
     setUndo(null);
-    setPreview(null);
     setJob(null);
     setGenErr(null);
     void load();
-    void loadPreview();
-  }, [open, load, loadPreview]);
+  }, [open, load]);
 
   // 生成任务轮询：queued/running 每 1.5s 拉一次；终态即停并刷新候选。
   useEffect(() => {
@@ -280,32 +261,38 @@ export default function ImageWorkshopModal({
     }
   };
 
+  const extractScene = async () => {
+    if (!canGenerate) {
+      toast.info("AI 提取是 PRO 功能；也可以直接手写画面描述");
+      return;
+    }
+    setExtracting(true);
+    try {
+      const { scene } = await imageApi.extractCoverScene(novelId);
+      setCoverPrompt(scene);
+      toast.success("画面描述草稿已填入，可修改后保存");
+    } catch (e) {
+      toast.error((e as Error).message || "AI 提取失败");
+    } finally {
+      setExtracting(false);
+    }
+  };
+
   const saveSettings = async () => {
     setSavingSettings(true);
     try {
       if (kind === "cover") {
-        const seed = coverSeed.trim() === "" ? null : Number(coverSeed);
-        if (seed !== null && (!Number.isInteger(seed) || seed < 0)) {
-          toast.error("封面种子必须是非负整数");
-          return;
-        }
         const next = await imageApi.patchBookSettings(novelId, {
-          style_key: styleKey, cover_prompt: coverPrompt, cover_seed: seed,
+          style_key: styleKey, cover_prompt: coverPrompt,
         });
         setBookSettings(next);
       } else if (characterId) {
-        const seed = avatarSeed.trim() === "" ? null : Number(avatarSeed);
-        if (seed !== null && (!Number.isInteger(seed) || seed < 0)) {
-          toast.error("头像种子必须是非负整数");
-          return;
-        }
         const next = await imageApi.patchCharacterSettings(novelId, characterId, {
-          avatar_prompt: avatarPrompt, seed,
+          avatar_prompt: avatarPrompt,
         });
         setCharSettings(next);
       }
       toast.success("图像设置已保存");
-      await loadPreview();
     } catch (e) {
       toast.error((e as Error).message || "保存失败");
     } finally {
@@ -450,26 +437,30 @@ export default function ImageWorkshopModal({
                   {STYLES.map((s) => <option key={s.key} value={s.key}>{s.label}</option>)}
                 </select>
               </label>
-              <label className="img-field">
-                <span>画面描述 <small>留空则用题材/世界观做象征场景</small></span>
-                <textarea className="input" rows={4} value={coverPrompt} onChange={(e) => setCoverPrompt(e.target.value)} />
-              </label>
-              <label className="img-field">
-                <span>封面种子</span>
-                <input className="input mono" inputMode="numeric" value={coverSeed} onChange={(e) => setCoverSeed(e.target.value)} placeholder="留空自动派生" />
-              </label>
+              <div className="img-field">
+                <span className="img-field-head">
+                  画面描述 <small>留空则用题材/世界观做象征场景</small>
+                  <button
+                    type="button"
+                    className="btn btn-ghost btn-sm"
+                    disabled={!canGenerate || extracting || busy}
+                    title={canGenerate ? "根据本书选题/主线/世界观提取画面描述草稿" : "PRO 以上可用；也可直接手写"}
+                    onClick={() => void extractScene()}
+                  >
+                    {extracting ? "提取中…" : "AI 提取"}
+                  </button>
+                </span>
+                <textarea
+                  className="input" rows={4} aria-label="画面描述"
+                  value={coverPrompt} onChange={(e) => setCoverPrompt(e.target.value)}
+                />
+              </div>
             </>
           ) : (
-            <>
-              <label className="img-field">
-                <span>头像描述 <small>只写外貌/服饰，不写剧情</small></span>
-                <textarea className="input" rows={4} value={avatarPrompt} onChange={(e) => setAvatarPrompt(e.target.value)} />
-              </label>
-              <label className="img-field">
-                <span>头像种子</span>
-                <input className="input mono" inputMode="numeric" value={avatarSeed} onChange={(e) => setAvatarSeed(e.target.value)} placeholder="留空自动派生" />
-              </label>
-            </>
+            <label className="img-field">
+              <span>头像描述 <small>只写外貌/服饰，不写剧情</small></span>
+              <textarea className="input" rows={4} value={avatarPrompt} onChange={(e) => setAvatarPrompt(e.target.value)} />
+            </label>
           )}
           <div className="img-model-line">
             本书模型：{bookSettings?.effective_image_model || "未配置"}
@@ -478,25 +469,7 @@ export default function ImageWorkshopModal({
           <button className="btn btn-secondary btn-sm" disabled={savingSettings || busy} onClick={() => void saveSettings()}>
             {savingSettings ? "保存中…" : "保存设置"}
           </button>
-          <div className="img-prompt">
-            <div className="img-prompt-head">
-              <span>提示词预览</span>
-              <button className="btn btn-ghost btn-sm" onClick={() => void loadPreview()}>刷新</button>
-            </div>
-            {previewErr ? (
-              <p className="img-hint">{previewErr}</p>
-            ) : preview ? (
-              <details>
-                <summary>查看 prompt / negative / hash</summary>
-                <pre>{preview.prompt}</pre>
-                <p className="img-hint">negative：{preview.negative_prompt}</p>
-                <p className="img-hint">模板 v{preview.prompt_template_version} · seed {preview.seed} · {preview.model || "模型未绑定"}</p>
-                <p className="img-hint">hash：{preview.prompt_hash}</p>
-              </details>
-            ) : (
-              <p className="img-hint">加载中…</p>
-            )}
-          </div>
+          <p className="img-hint">画面描述保存后随下一张候选生效；画风、脱敏与种子由系统在生成时处理。</p>
           {isFree && <p className="img-hint">免费用户可使用上传；AI 生成需 PRO 以上。</p>}
         </aside>
       </div>

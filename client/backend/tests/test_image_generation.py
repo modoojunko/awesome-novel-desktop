@@ -360,7 +360,7 @@ async def _seed(provider="volcengine", characters=1, *, bind_config=True):
         await db.flush()
         db.add(BookImageSettings(
             novel_id=novel.id, style_key="ink", cover_prompt="一盏灯",
-            cover_seed=77, image_config_id=cfg.id if bind_config else None,
+            image_config_id=cfg.id if bind_config else None,
             image_model="model-x",
         ))
         await db.commit()
@@ -410,11 +410,14 @@ async def test_cover_job_two_candidates_have_distinct_seed_and_hash(fake_images)
             ImageAsset.job_id == job["id"]
         ).order_by(ImageAsset.seed))).all()
     assert len(rows) == 2
-    assert rows[0].seed == 77 and rows[1].seed == 78
+    from image_assets.prompt_builder import _derive_seed
+
+    expected = _derive_seed("cover", novel_id)
+    assert rows[0].seed == expected and rows[1].seed == (expected + 1) % 2**31
     assert rows[0].seed != rows[1].seed
     assert rows[0].prompt_hash != rows[1].prompt_hash
     assert rows[0].source == "generation" and rows[0].provider == "volcengine"
-    assert fake_images[0].seed == 77 and fake_images[1].seed == 78
+    assert fake_images[0].seed == expected and fake_images[1].seed == (expected + 1) % 2**31
 
 
 @pytest.mark.asyncio

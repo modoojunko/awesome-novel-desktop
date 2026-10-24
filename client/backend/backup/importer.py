@@ -621,7 +621,6 @@ async def _import_images(
         novel_id=novel.id,
         style_key=style_key,
         cover_prompt=str(book.get("cover_prompt") or ""),
-        cover_seed=_int_or_none(book.get("cover_seed")),
         image_config_id=config_id,
         image_model=str(book.get("image_model") or ""),
     ))
@@ -637,7 +636,6 @@ async def _import_images(
         db.add(CharacterImageSettings(
             character_id=new_id,
             avatar_prompt=str(row.get("avatar_prompt") or ""),
-            seed=_int_or_none(row.get("seed")),
         ))
 
     existing_asset_ids = set(await db.scalars(select(ImageAsset.id)))

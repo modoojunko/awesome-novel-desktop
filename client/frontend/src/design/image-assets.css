@@ -72,13 +72,11 @@
 .img-batch-state.cancelled, .img-batch-state.cancelled_billed { background: var(--fg-soft); color: var(--muted); }
 .img-field { display: flex; flex-direction: column; gap: 4px; font-size: 12px; color: var(--muted); }
 .img-field small { color: var(--faint); margin-left: 4px; }
+.img-field-head { display: flex; align-items: center; gap: 4px; }
+.img-field-head small { margin-left: 0; }
+.img-field-head .btn { margin-left: auto; flex-shrink: 0; padding-block: 2px; font-size: 11px; }
 .img-model-line { font-size: 11.5px; color: var(--muted); line-height: 1.6; overflow-wrap: anywhere; }
 .img-model-line .alt { color: var(--faint); }
-.img-prompt { border-top: 1px solid var(--border); padding-top: 10px; display: flex; flex-direction: column; gap: 6px; }
-.img-prompt-head { display: flex; align-items: center; justify-content: space-between; font-size: 12px; color: var(--muted); }
-.img-prompt details { font-size: 11.5px; color: var(--muted); }
-.img-prompt summary { cursor: pointer; }
-.img-prompt pre { white-space: pre-wrap; overflow-wrap: anywhere; max-height: 180px; overflow: auto; margin: 7px 0; padding: 8px; border-radius: 7px; background: var(--fg-soft); color: var(--fg); font-family: var(--font-mono); font-size: 10.5px; line-height: 1.55; }
 
 @media (max-width: 760px) {
   .img-workshop { grid-template-columns: minmax(0, 1fr); }

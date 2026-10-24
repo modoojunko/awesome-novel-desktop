@@ -15,18 +15,14 @@ const api = vi.hoisted(() => ({
   refreshLinks: vi.fn(async () => ({ links: { full: "/f", thumb: "/t" }, url_expires_at: "" })),
   listAssets: vi.fn(async () => [candidate]),
   getBookSettings: vi.fn(async () => ({
-    novel_id: "n1", style_key: "ink", cover_prompt: "", cover_seed: null,
+    novel_id: "n1", style_key: "ink", cover_prompt: "",
     image_config_id: null, image_model: "", effective_image_config_id: null,
     effective_image_model: "seedream", effective_source: "default" as const,
   })),
   getCharacterSettings: vi.fn(),
-  coverPrompt: vi.fn(async () => ({
-    kind: "cover", prompt: "prompt", negative_prompt: "negative", prompt_hash: "h",
-    prompt_template_version: 3, style_key: "ink", size: { width: 768, height: 1024 },
-    seed: 1, candidate_seeds: [1, 2], model: "seedream", model_unbound: false,
-    provider: "volcengine", capabilities: {}, sources: {},
+  extractCoverScene: vi.fn(async () => ({
+    scene: "深夜站台，末班公交的剪影驶近，车灯昏黄。",
   })),
-  avatarPrompt: vi.fn(),
   uploadAsset: vi.fn(async () => candidate),
   adoptAsset: vi.fn(async () => ({ ...candidate, status: "current", undo_token: "tok", undo_expires_at: new Date(Date.now() + 8000).toISOString() })),
   undoAsset: vi.fn(async () => ({ restored_asset_id: null, removed_asset_id: "a-candidate" })),
@@ -94,8 +90,7 @@ describe("ImageWorkshopModal（上传型工坊）", () => {
     ));
   });
 
-  it("免费用户生成按钮置灰；PRO 提交任务并轮询到完成", async () => {
-    const onChanged = vi.fn();
+  it("免费用户生成按钮置灰；PRO 提交任务并轮询到完成", async () => {    const onChanged = vi.fn();
     const free = render(
       <ImageWorkshopModal open novelId="n1" kind="cover" onClose={() => {}} onChanged={onChanged} />,
     );
@@ -142,5 +137,34 @@ describe("ImageWorkshopModal（上传型工坊）", () => {
 
     fireEvent.click(await screen.findByRole("button", { name: "重试" }));
     await waitFor(() => expect(api.retryImageJob).toHaveBeenCalledWith("job-1"));
+  });
+
+  it("AI 提取：免费置灰；PRO 调提取并把草稿填进画面描述", async () => {
+    const free = render(
+      <ImageWorkshopModal open novelId="n1" kind="cover" onClose={() => {}} onChanged={() => {}} />,
+    );
+    await waitFor(() => expect(screen.getByText("画面描述")).toBeTruthy());
+    const extract = screen.getByRole("button", { name: "AI 提取" }) as HTMLButtonElement;
+    expect(extract.disabled).toBeTruthy();
+    free.unmount();
+
+    featureAllowed.value = true;
+    render(
+      <ImageWorkshopModal open novelId="n1" kind="cover" onClose={() => {}} onChanged={() => {}} />,
+    );
+    fireEvent.click(await screen.findByRole("button", { name: "AI 提取" }));
+    await waitFor(() => expect(api.extractCoverScene).toHaveBeenCalledWith("n1"));
+    const textarea = document.querySelector(".img-field textarea") as HTMLTextAreaElement;
+    await waitFor(() => expect(textarea.value).toContain("末班公交"));
+  });
+
+  it("封面种子输入框与提示词预览已退役（不再出现）", async () => {
+    render(
+      <ImageWorkshopModal open novelId="n1" kind="cover" onClose={() => {}} onChanged={() => {}} />,
+    );
+    await waitFor(() => expect(screen.getByText("画面描述")).toBeTruthy());
+    expect(screen.queryByText("封面种子")).toBeNull();
+    expect(screen.queryByText("头像种子")).toBeNull();
+    expect(screen.queryByText("提示词预览")).toBeNull();
   });
 });

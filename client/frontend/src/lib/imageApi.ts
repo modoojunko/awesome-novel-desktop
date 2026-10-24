@@ -79,7 +79,6 @@ export interface BookImageSettings {
   novel_id: string;
   style_key: string;
   cover_prompt: string;
-  cover_seed: number | null;
   image_config_id: string | null;
   image_model: string;
   effective_image_config_id: string | null;
@@ -90,7 +89,6 @@ export interface BookImageSettings {
 export interface CharacterImageSettings {
   character_id: string;
   avatar_prompt: string;
-  seed: number | null;
 }
 
 export type ImageJobStatus = "queued" | "running" | "completed" | "failed" | "cancelled";
@@ -137,25 +135,6 @@ export interface ImageJob {
   started_at: string | null;
   finished_at: string | null;
   items?: ImageBatchItemState[];
-}
-
-export interface PromptPreview {
-  kind: ImageKind;
-  prompt: string;
-  negative_prompt: string;
-  prompt_hash: string;
-  prompt_template_version: number;
-  style_key: string;
-  size: { width: number; height: number };
-  seed: number;
-  candidate_seeds: number[];
-  model: string | null;
-  model_unbound: boolean;
-  provider: string | null;
-  capabilities: Record<string, boolean>;
-  needs_scene?: boolean;
-  uses_default_subject?: boolean;
-  sources: Record<string, unknown>;
 }
 
 export const IMAGE_PROVIDERS: Array<{
@@ -330,13 +309,8 @@ export const imageApi = {
       api.patch(`/novels/${novelId}/characters/${characterId}/image-settings`, body),
     ),
 
-  coverPrompt: (novelId: string) =>
-    unwrap<PromptPreview>(api.get(`/novels/${novelId}/image-prompt`)),
-
-  avatarPrompt: (novelId: string, characterId: string) =>
-    unwrap<PromptPreview>(
-      api.get(`/novels/${novelId}/characters/${characterId}/image-prompt`),
-    ),
+  extractCoverScene: (novelId: string) =>
+    unwrap<{ scene: string }>(api.post(`/novels/${novelId}/image-prompt/cover-extract`)),
 
   createImageJob: (
     novelId: string,

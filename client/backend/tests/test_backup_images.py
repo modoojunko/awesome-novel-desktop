@@ -68,11 +68,11 @@ def test_image_backup_roundtrip(tmp_path):
             await db.flush()
             db.add(BookImageSettings(
                 novel_id=novel.id, style_key="ink", cover_prompt="一盏旧灯",
-                cover_seed=321, image_config_id=cfg.id,
+                image_config_id=cfg.id,
                 image_model="doubao-seedream-4-0-250828",
             ))
             db.add(CharacterImageSettings(
-                character_id=ch.id, avatar_prompt="瘦高的守灯人", seed=654,
+                character_id=ch.id, avatar_prompt="瘦高的守灯人",
             ))
             full = _webp((20, 50, 80))
             thumb = _webp((30, 60, 90))
@@ -111,7 +111,8 @@ def test_image_backup_roundtrip(tmp_path):
     with zipfile.ZipFile(io.BytesIO(zip_bytes)) as zf:
         names = zf.namelist()
         manifest = yaml.safe_load(zf.read("images/manifest.yaml"))
-        assert manifest["book"]["cover_seed"] == 321
+        assert "cover_seed" not in manifest["book"]  # 种子退役，不再进 v7 备份清单
+        assert "seed" not in manifest["characters"][0]
         assert manifest["book"]["image_config_name"] == f"图配置-{suffix}"
         assert len(manifest["assets"]) == 2
         assert all(a["asset_id"] in " ".join(names) for a in manifest["assets"])
@@ -158,9 +159,9 @@ def test_image_backup_roundtrip(tmp_path):
 
     bs, cs, assets, blobs, restored_cfg, warnings = _run(_import())
     assert warnings == []
-    assert bs.style_key == "ink" and bs.cover_seed == 321
+    assert bs.style_key == "ink"
     assert bs.cover_prompt == "一盏旧灯"
-    assert cs.avatar_prompt == "瘦高的守灯人" and cs.seed == 654
+    assert cs.avatar_prompt == "瘦高的守灯人"
     assert {a.kind for a in assets} == {"cover", "avatar"}
     assert all(a.status == "current" for a in assets)
     assert len(blobs) == 4
@@ -192,7 +193,7 @@ def test_image_backup_roundtrip(tmp_path):
             return bs3, assets3, blobs3, cfg3
 
     bs3, assets3, blobs3, cfg3 = _run(_full_import())
-    assert bs3.cover_seed == 321 and bs3.cover_prompt == "一盏旧灯"
+    assert bs3.cover_prompt == "一盏旧灯"
     assert bs3.image_config_id == cfg3.id
     assert {a.kind for a in assets3} == {"cover", "avatar"}
     assert len(blobs3) == 4
