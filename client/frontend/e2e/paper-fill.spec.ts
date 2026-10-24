@@ -6,7 +6,6 @@ import {
   addFirstChapterViaTree,
   cleanupSessionNovels,
   stableClick,
-  writeFirstChapter,
 } from "./helpers";
 
 // =========================================================================
