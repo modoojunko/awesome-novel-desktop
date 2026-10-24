@@ -676,11 +676,12 @@ class TestManualModels:
         )
         assert r2.status_code == 200, r2.text
 
-    def test_models_over_100_rejected(self, client):
+    def test_models_over_limit_rejected(self, client):
+        # c-model-list-cap-300：手动路径超限阈值随上限抬至 300
         cid = _run_async(_make_config(None))
         r = client.put(
             f"/api/v1/api-configs/{cid}",
-            json={"models": [f"m{i}" for i in range(101)]},
+            json={"models": [f"m{i}" for i in range(301)]},
         )
         assert r.status_code == 422, r.text
 

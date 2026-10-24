@@ -2179,3 +2179,8 @@ baseurl 到什么程度，要有个案例。」——中转站/自建网关用�
 - **parity 影响**：model-config.html 自 c-image-config-ux-fix 起进 design:check 像素矩阵
   （图像段新增基线）——本 change 方块集改动与实现同批落，rebase 后 model-config 屏复跑全绿为准；
   走 design-vocab 词表 lint；共享段零触碰、免 design-cross。
+
+## 2026-10-24 · 火山预设换在役款＋清单容量 300（c-model-list-cap-300）
+
+- **预设头**：`IMG_PROVIDERS` 火山 models 首项 `doubao-seedream-5-0-260128` → `doubao-seedream-5-0-flash-260915`（`/models` 实测 260128 已 Retiring、flash-260915 在役且为用户实际使用档）；原 5-0/4-5/4-0 依次后移兜底，弹窗预填与 demo 卡片模型值同批。无版面改动。
+- **清单容量**（写作模型侧，非本屏资产）：模型清单归一化上限 100→300——方舟 `/models` 实测 137 条且最老在前，上限 100 把在役新模型整段截掉（「作家拿不到新模型」2026-10-24 实锤）。模型选择器随之可显示全量清单；选择器组件与版面不变。

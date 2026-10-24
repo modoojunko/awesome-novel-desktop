@@ -147,7 +147,7 @@ export const IMAGE_PROVIDERS: Array<{
   {
     id: "volcengine", label: "火山引擎 Seedream",
     base_url: "https://ark.cn-beijing.volces.com/api/v3",
-    models: ["doubao-seedream-5-0-260128", "doubao-seedream-4-5-251128", "doubao-seedream-4-0-250828"],
+    models: ["doubao-seedream-5-0-flash-260915", "doubao-seedream-5-0-260128", "doubao-seedream-4-5-251128", "doubao-seedream-4-0-250828"],
     apply_url: "https://console.volcengine.com/ark",
   },
   {
