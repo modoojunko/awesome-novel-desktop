@@ -15,4 +15,5 @@
 
 - [ ] 3.1 后端全量 pytest 绿＋`ruff check` 显式跑绿——验证：命令实际输出结论
 - [ ] 3.2 demo 栈换包真机冒烟：对「13路末班车」点封面「重试」（或新发 2 张候选），候选图 ≥1；`app.log` 出现 `event=image_call ... status=200` 且无 `image_call_error`——验证：日志行＋候选图截图
-- [ ] 3.3 实现按仓库规矩 `openspec-archive-in-implementation-pr`：合入前 sync 本 delta＋移档 archive，随实现 PR 同批——验证：PR 内含归档移动，`openspec validate` 绿
+  - 2026-10-24 部分完成：出站 payload 实抓 `size: 960x1280`（其余参数不变）、`image_call_error` 留痕落行、真端点 200 出图由重放取证证实；**真机 200 出图待用户重录 Ark key 后点「重试」收官**（旧配置随 stale-WAL 重建丢失，配置骨架已重建）
+- [x] 3.3 实现按仓库规矩 `openspec-archive-in-implementation-pr`：合入前 sync 本 delta＋移档 archive，随实现 PR 同批——验证：PR 内含归档移动，`openspec validate` 绿
