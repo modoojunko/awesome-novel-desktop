@@ -18,5 +18,6 @@
 ## 4. 交割
 
 - [x] 4.1 后端全量 pytest＋ruff；前端 tsc＋vitest 全量；openspec validate——验证：命令实际输出结论
-- [ ] 4.2 真机抽检：头像工坊「AI 起草」出稿可改可存、生成链冒烟——验证：真机截图/录屏
+- [x] 4.2 真机抽检：头像工坊「AI 起草」出稿可改可存、生成链冒烟——验证：真机截图/录屏
+  - 2026-10-24 demo 栈（c6a7a/0.40）真机全过：API 层 look-extract 200（1.9s，草稿与角色卡逐项对拍——21 岁/夜巡短斗篷/猎血短刃全出自卡，无专名无字声明；usage 落 image_avatar_look|deepseek-flash 397/120）＋cover-extract 200（1.9s）＋未绑模型书 503 missing_model 正确引导；UI 层 Playwright 真走工作台→设定→角色→林野→印章开头像工坊，「AI 起草」按钮可见、点后草稿填入 textarea、两 toast（草稿已填入＋图像设置已保存）先后弹出（/tmp/p6-1-workshop.png、/tmp/p6-2-saved.png）
 - [x] 4.3 实现按仓库规矩 `openspec-archive-in-implementation-pr`：合入前 sync delta＋移档 archive，随实现 PR 同批——验证：PR 内含归档移动，`openspec validate` 绿
