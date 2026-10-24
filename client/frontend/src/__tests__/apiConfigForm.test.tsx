@@ -1127,7 +1127,7 @@ describe("ApiConfigForm 豆包方块（c-modelconfig-volc-doubao）", () => {
     expect((screen.getByText("Anthropic 格式") as HTMLButtonElement).disabled).toBe(true);
   });
 
-  it("编辑态回显「豆包（火山方舟）」且不施加预填", () => {
+  it("编辑态回显「豆包 · 火山方舟」且不施加预填", () => {
     render(
       <ApiConfigForm
         open
@@ -1136,7 +1136,7 @@ describe("ApiConfigForm 豆包方块（c-modelconfig-volc-doubao）", () => {
         onCancel={vi.fn()}
       />,
     );
-    expect(document.querySelector(".vfix")!.textContent).toContain("豆包（火山方舟）");
+    expect(document.querySelector(".vfix")!.textContent).toContain("豆包 · 火山方舟");
     expect((document.getElementById("cfBase") as HTMLInputElement).value).toBe(
       "https://ark.cn-beijing.volces.com/api/v3",
     );

@@ -61,7 +61,7 @@ export const VENDOR_LABELS: Record<VendorId, string> = {
   qwen: "Qwen",
   ollama: "Ollama",
   gemini: "Gemini",
-  doubao: "豆包（火山方舟）",
+  doubao: "豆包 · 火山方舟",
   "opencode-go-chat": "OpenCode Go · 通用",
   "opencode-go-claude": "OpenCode Go · Claude 系",
   "openai-compat": "OpenAI 兼容",

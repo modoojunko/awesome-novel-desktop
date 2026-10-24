@@ -68,12 +68,12 @@ VENDOR_PATTERNS: list[VendorPattern] = [
     # 反代指向方舟不在识别范围（归 openai-compat，行为不受影响）。
     VendorPattern(
         "doubao",
-        "豆包（火山方舟）",
+        "豆包 · 火山方舟",
         re.compile(r"^https://ark\.cn-beijing\.volces\.com", re.IGNORECASE),
     ),
     VendorPattern(
         "doubao",
-        "豆包（火山方舟）",
+        "豆包 · 火山方舟",
         re.compile(r"^https://ark\.[a-z0-9-]+\.volces\.com", re.IGNORECASE),
     ),
 ]
