@@ -801,3 +801,121 @@ def test_cover_scene_extract_other_users_novel_404(client):
     r = client.post("/api/novels/novel-other/image-prompt/cover-extract")
     assert r.status_code == 404
     app.dependency_overrides.pop(require_tier_access, None)
+
+
+# ── 头像外貌 AI 起草（c-avatar-look-draft）────────────────────────────────
+
+
+def test_avatar_look_parse_guard(client):
+    """parse_look 严进严出；守卫与 prompt_builder avatar_prompt 截断（140）对齐。"""
+    from image_assets import cover_extract as cx
+    from image_assets.prompt_builder import _clamp as _pb_clamp
+
+    look = cx.parse_look(json.dumps({"look": "x" * 500}, ensure_ascii=False))
+    assert len(look) == cx.LOOK_MAX and cx.LOOK_MAX == 140
+    assert _pb_clamp(look, 140) == look  # 满长草稿过组装截断零损失
+    for bad in ("不是json", "[]", json.dumps({"look": "  "})):
+        try:
+            cx.parse_look(bad)
+            raise AssertionError("应拒收")
+        except Exception as e:
+            assert getattr(e, "status_code", None) == 502
+
+
+@pytest.mark.needs_prompts
+def test_avatar_look_extract_happy_path(client, monkeypatch):
+    """角色卡白名单素材进 prompt；草稿只回前端不落库。"""
+    from auth_local.deps import require_tier_access
+    from image_assets import cover_extract as cx
+    from image_assets import router as img_router
+
+    app.dependency_overrides[require_tier_access] = lambda: True
+
+    async def _gate(db, user_id, project_id):
+        return True
+
+    monkeypatch.setattr(img_router, "ensure_novel_model_ready", _gate)
+    captured: list = []
+
+    class _Fake:
+        async def chat(self, **kwargs):
+            captured.append(kwargs)
+            return json.dumps({
+                "look": "瘦高身形，短寸头，眉骨一道旧疤，深灰旧夹克领口磨亮。",
+            }, ensure_ascii=False)
+
+    async def _fake(novel_id):
+        return _Fake()
+
+    monkeypatch.setattr(cx, "get_ai_client_for_novel", _fake)
+
+    async def _card():
+        async with async_session() as session:
+            ch = await session.get(Character, "char-img")
+            ch.dossier = json.dumps({
+                "gender": "男", "age": "27", "race": "汉",
+                "look": "瘦高，指节有灯油烫痕", "faction": "夜明铺",
+            })
+            ch.persona = "陈屿守着夜明铺的年轻人，替人还灯。"
+            await session.commit()
+
+    _run(_card())
+    r = client.post("/api/novels/novel-img/characters/char-img/image-prompt/look-extract")
+    assert r.status_code == 200, r.text
+    assert "旧疤" in r.json()["data"]["look"]
+    assert captured[0]["json_mode"] is True
+    prompt = captured[0]["messages"][0]["content"]
+    assert "27，男，汉" in prompt  # 性别/年龄/种族进素材
+    assert "灯油烫痕" in prompt  # 外貌档案进素材
+    assert "夜明铺" in prompt  # 势力/身份进素材
+    # 草稿不落库：角色设置里的 avatar_prompt 不被端点改动
+    async def _check():
+        async with async_session() as session:
+            ch = await session.get(Character, "char-img")
+            return ch
+    ch = _run(_check())
+    assert (ch.dossier or "") != ""  # 只动了草稿返回，卡片原样
+    app.dependency_overrides.pop(require_tier_access, None)
+
+
+@pytest.mark.needs_prompts
+def test_avatar_look_extract_bad_json_502(client, monkeypatch):
+    from auth_local.deps import require_tier_access
+    from image_assets import cover_extract as cx
+    from image_assets import router as img_router
+
+    app.dependency_overrides[require_tier_access] = lambda: True
+
+    async def _gate(db, user_id, project_id):
+        return True
+
+    monkeypatch.setattr(img_router, "ensure_novel_model_ready", _gate)
+
+    class _Fake:
+        async def chat(self, **kwargs):
+            return "这个角色应该画成瘦高的年轻人（自然语言，不是 JSON）"
+
+    async def _fake(novel_id):
+        return _Fake()
+
+    monkeypatch.setattr(cx, "get_ai_client_for_novel", _fake)
+
+    r = client.post("/api/novels/novel-img/characters/char-img/image-prompt/look-extract")
+    assert r.status_code == 502
+    assert "可重试" in r.json()["detail"]
+    app.dependency_overrides.pop(require_tier_access, None)
+
+
+def test_avatar_look_extract_other_users_character_400(client, monkeypatch):
+    from auth_local.deps import require_tier_access
+    from image_assets import router as img_router
+
+    app.dependency_overrides[require_tier_access] = lambda: True
+
+    async def _gate(db, user_id, project_id):
+        return True
+
+    monkeypatch.setattr(img_router, "ensure_novel_model_ready", _gate)
+    r = client.post("/api/novels/novel-img/characters/char-other/image-prompt/look-extract")
+    assert r.status_code == 400
+    app.dependency_overrides.pop(require_tier_access, None)

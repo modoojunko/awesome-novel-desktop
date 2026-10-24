@@ -312,6 +312,11 @@ export const imageApi = {
   extractCoverScene: (novelId: string) =>
     unwrap<{ scene: string }>(api.post(`/novels/${novelId}/image-prompt/cover-extract`)),
 
+  extractAvatarLook: (novelId: string, characterId: string) =>
+    unwrap<{ look: string }>(
+      api.post(`/novels/${novelId}/characters/${characterId}/image-prompt/look-extract`),
+    ),
+
   createImageJob: (
     novelId: string,
     body: { kind: ImageKind; character_id?: string; n?: number; purpose?: "generate" | "test" },
