@@ -8,7 +8,7 @@ import ImageThumb from "./ImageThumb";
 import {
   imageApi,
   type BookImageSettings, type CharacterImageSettings,
-  type ImageAsset, type ImageJob, type ImageKind, type PromptPreview,
+  type ImageAsset, type ImageJob, type ImageKind,
 } from "@/lib/imageApi";
 
 const STYLES = [
@@ -63,8 +63,6 @@ export default function ImageWorkshopModal({
   const [coverPrompt, setCoverPrompt] = useState("");
   const [avatarPrompt, setAvatarPrompt] = useState("");
   const [extracting, setExtracting] = useState(false);
-  const [preview, setPreview] = useState<PromptPreview | null>(null);
-  const [previewErr, setPreviewErr] = useState<string | null>(null);
   const [savingSettings, setSavingSettings] = useState(false);
   const [job, setJob] = useState<ImageJob | null>(null);
   const [genErr, setGenErr] = useState<string | null>(null);
@@ -94,27 +92,13 @@ export default function ImageWorkshopModal({
     }
   }, [novelId, kind, characterId]);
 
-  const loadPreview = useCallback(async () => {
-    setPreviewErr(null);
-    try {
-      const p = kind === "avatar" && characterId
-        ? await imageApi.avatarPrompt(novelId, characterId)
-        : await imageApi.coverPrompt(novelId);
-      setPreview(p);
-    } catch (e) {
-      setPreviewErr((e as Error).message || "提示词预览失败");
-    }
-  }, [novelId, kind, characterId]);
-
   useEffect(() => {
     if (!open) return;
     setUndo(null);
-    setPreview(null);
     setJob(null);
     setGenErr(null);
     void load();
-    void loadPreview();
-  }, [open, load, loadPreview]);
+  }, [open, load]);
 
   // 生成任务轮询：queued/running 每 1.5s 拉一次；终态即停并刷新候选。
   useEffect(() => {
@@ -309,7 +293,6 @@ export default function ImageWorkshopModal({
         setCharSettings(next);
       }
       toast.success("图像设置已保存");
-      await loadPreview();
     } catch (e) {
       toast.error((e as Error).message || "保存失败");
     } finally {
@@ -486,25 +469,7 @@ export default function ImageWorkshopModal({
           <button className="btn btn-secondary btn-sm" disabled={savingSettings || busy} onClick={() => void saveSettings()}>
             {savingSettings ? "保存中…" : "保存设置"}
           </button>
-          <div className="img-prompt">
-            <div className="img-prompt-head">
-              <span>提示词预览</span>
-              <button className="btn btn-ghost btn-sm" onClick={() => void loadPreview()}>刷新</button>
-            </div>
-            {previewErr ? (
-              <p className="img-hint">{previewErr}</p>
-            ) : preview ? (
-              <details>
-                <summary>查看 prompt / negative / hash</summary>
-                <pre>{preview.prompt}</pre>
-                <p className="img-hint">negative：{preview.negative_prompt}</p>
-                <p className="img-hint">模板 v{preview.prompt_template_version} · seed {preview.seed} · {preview.model || "模型未绑定"}</p>
-                <p className="img-hint">hash：{preview.prompt_hash}</p>
-              </details>
-            ) : (
-              <p className="img-hint">加载中…</p>
-            )}
-          </div>
+          <p className="img-hint">画面描述保存后随下一张候选生效；画风、脱敏与种子由系统在生成时处理。</p>
           {isFree && <p className="img-hint">免费用户可使用上传；AI 生成需 PRO 以上。</p>}
         </aside>
       </div>

@@ -126,25 +126,6 @@ export interface ImageJob {
   items?: ImageBatchItemState[];
 }
 
-export interface PromptPreview {
-  kind: ImageKind;
-  prompt: string;
-  negative_prompt: string;
-  prompt_hash: string;
-  prompt_template_version: number;
-  style_key: string;
-  size: { width: number; height: number };
-  seed: number;
-  candidate_seeds: number[];
-  model: string | null;
-  model_unbound: boolean;
-  provider: string | null;
-  capabilities: Record<string, boolean>;
-  needs_scene?: boolean;
-  uses_default_subject?: boolean;
-  sources: Record<string, unknown>;
-}
-
 export const IMAGE_PROVIDERS: Array<{
   id: ImageProvider;
   label: string;
@@ -310,14 +291,6 @@ export const imageApi = {
   patchCharacterSettings: (novelId: string, characterId: string, body: Record<string, unknown>) =>
     unwrap<CharacterImageSettings>(
       api.patch(`/novels/${novelId}/characters/${characterId}/image-settings`, body),
-    ),
-
-  coverPrompt: (novelId: string) =>
-    unwrap<PromptPreview>(api.get(`/novels/${novelId}/image-prompt`)),
-
-  avatarPrompt: (novelId: string, characterId: string) =>
-    unwrap<PromptPreview>(
-      api.get(`/novels/${novelId}/characters/${characterId}/image-prompt`),
     ),
 
   extractCoverScene: (novelId: string) =>
