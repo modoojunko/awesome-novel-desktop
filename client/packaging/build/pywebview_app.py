@@ -1455,14 +1455,31 @@ def _sha256_of_file(path: Path) -> str:
     return h.hexdigest()
 
 
-def _read_last_attempt(runner_log: Path, attempts: int) -> dict:
-    """执行日志回读（最近一次尝试；append 语义取末段）。
+def _mark_dispatch(runner_log: Path, version: str, attempt: int) -> None:
+    """派发标记：回读分段的锚点（界定「最近一次尝试」尾段的起点）。
 
-    每个真正运行了脚本的尝试恰写一条 `runner: started`，结束行（Windows
-    `installer_exit=`／macOS `install_ok=`）闭合该尝试 ⇒ started 计数 ≥ 派发次数
-    （attempts，自 pending 带出）即「最近一次尝试已运行」；退出码只在最近一次尝试
-    留下结束行时给出（started 计数与结束行数都追平派发数——日志按尝试追加，首次
-    匹配会把上一次尝试的行张冠李戴到最近一次）。attempts==0＝从未派发。
+    installer-runner.log 跨版本永久追加（清扫白名单保留、成功路径也不删）而
+    pending.attempts 每版重置——没有锚点，计数推断会把上一版本的 started/exit
+    张冠李戴到本次。写入失败不阻断派发（标记缺失时回读退化为全文件口径）。
+    """
+    try:
+        with open(runner_log, "a", encoding="utf-8") as f:
+            f.write(f"{time.strftime('%Y-%m-%d %H:%M:%S')} runner: dispatched "
+                    f"(version={version} attempt={attempt})\n")
+    except OSError:
+        pass
+
+
+def _read_last_attempt(runner_log: Path, attempts: int) -> dict:
+    """执行日志回读（最近一次尝试＝最后一个派发标记之后的尾段）。
+
+    installer-runner.log 跨版本永久追加而 attempts 每版重置——计数推断会把上一版
+    本的行张冠李戴到本次，故按派发标记（`runner: dispatched`，退出链 spawn 前追加）
+    分段取末段：尾段有 `runner: started`＝本格式执行体已运行；尾段仅有结束行＝旧格
+    式 runner 已运行（0.39 及以前无启动痕，过渡臂）；尾段两无＝派发未执行（含执行
+    体又静默死的复发与 spawn 双失败）。退出码取尾段最后一个结束行（Windows
+    `installer_exit=`；macOS `install_ok=` 1/0 → 0/1）。标记缺失（历史日志/写标记
+    失败）＝退化为全文件口径。attempts==0＝从未派发。
     """
     import re
 
@@ -1470,17 +1487,19 @@ def _read_last_attempt(runner_log: Path, attempts: int) -> dict:
         text = runner_log.read_text(encoding="utf-8", errors="replace")
     except OSError:
         text = ""
-    started_count = text.count("runner: started")
-    ran = attempts >= 1 and started_count >= attempts
+    marker = text.rfind("runner: dispatched")
+    if marker != -1:
+        text = text[marker:]
+    started = "runner: started" in text
+    win_exits = re.findall(r"installer_exit=(-?\d+)", text)
+    mac_oks = re.findall(r"install_ok=(\d)", text)
+    ran = attempts >= 1 and (started or bool(win_exits or mac_oks))
     exit_code = None
     if ran:
-        win_exits = re.findall(r"installer_exit=(-?\d+)", text)
-        mac_oks = re.findall(r"install_ok=(\d)", text)
-        if len(win_exits) + len(mac_oks) >= attempts:
-            if len(win_exits) >= attempts:
-                exit_code = int(win_exits[-1])
-            elif len(mac_oks) >= attempts:
-                exit_code = 0 if mac_oks[-1] == "1" else 1
+        if win_exits:
+            exit_code = int(win_exits[-1])
+        elif mac_oks:
+            exit_code = 0 if mac_oks[-1] == "1" else 1
     return {"runner_started": ran, "installer_exit": exit_code}
 
 
@@ -1805,6 +1824,7 @@ def apply_pending_update(runtime_dir: Path) -> None:
         return
     updates_dir = installer.parent
     runner_log = updates_dir / "installer-runner.log"
+    _mark_dispatch(runner_log, version, attempts + 1)
     if sys.platform == "win32":
         install_dir = Path(sys.executable).parent
         _spawn_install_runner(

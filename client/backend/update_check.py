@@ -242,29 +242,6 @@ def _derived_urls(source_url: str, latest: str) -> tuple[str, str]:
 _UPDATES_DIR = Path(DATA_ROOT) / "updates"
 _PENDING_PATH = _UPDATES_DIR / "pending.json"
 _APPLIED_PATH = _UPDATES_DIR / "applied.json"
-
-
-def _last_install_attempt() -> dict | None:
-    """壳层对拍落盘的最近一次安装尝试（c-update-detached-ps-fix 诊断只读面）。
-
-    文件缺失/坏 JSON＝None ⇒ 状态键不出现（非 null 占位——存量状态形状全等断言
-    `assert st == {…}` 依赖键缺席）；形状由壳层写入方定义（version/attempts/
-    runner_started/installer_exit/recorded_at），此处不校验不裁剪。
-    """
-    try:
-        data = json.loads(
-            (_UPDATES_DIR / "last-install-attempt.json").read_text(encoding="utf-8"))
-    except (OSError, ValueError):
-        return None
-    return data if isinstance(data, dict) else None
-
-
-def _with_last_install_attempt(out: dict) -> dict:
-    """装配诊断字段：文件在场才并键，形状恒定（dev/无缓存路径不加空键）。"""
-    attempt = _last_install_attempt()
-    if attempt is not None:
-        out["last_install_attempt"] = attempt
-    return out
 # 自动链平台键（键名＝发布清单 latest.json 的 platforms.*，c-mac-autoupdate 起
 # Windows＋macOS 双平台；其余平台查表得 None＝自动链关闭、手动链照旧）
 _PLATFORM_KEYS = {"win32": "win", "darwin": "mac"}
@@ -518,6 +495,29 @@ def auto_public_state() -> dict:
             pass  # staged 严格新于已记账版本 → staged 优先（就绪按钮可见）
         else:
             out = {"state": "applied", "version": marker_version}
+    return out
+
+
+def _last_install_attempt() -> dict | None:
+    """壳层对拍落盘的最近一次安装尝试（c-update-detached-ps-fix 诊断只读面）。
+
+    文件缺失/坏 JSON＝None ⇒ 状态键不出现（非 null 占位——存量状态形状全等断言
+    `assert st == {…}` 依赖键缺席）；形状由壳层写入方定义（version/attempts/
+    runner_started/installer_exit/recorded_at），此处不校验不裁剪。
+    """
+    try:
+        data = json.loads(
+            (_UPDATES_DIR / "last-install-attempt.json").read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return None
+    return data if isinstance(data, dict) else None
+
+
+def _with_last_install_attempt(out: dict) -> dict:
+    """装配诊断字段：文件在场才并键，形状恒定（dev/无缓存路径不加空键）。"""
+    attempt = _last_install_attempt()
+    if attempt is not None:
+        out["last_install_attempt"] = attempt
     return out
 
 

@@ -401,9 +401,10 @@ def test_win_runner_flags_create_no_window(shell, tmp_path, monkeypatch):
     flags = kwargs["creationflags"]
     import subprocess as _subprocess
     no_window = getattr(_subprocess, "CREATE_NO_WINDOW", 0x08000000)
-    detached = getattr(_subprocess, "DETACHED_PROCESS", 0)
+    # DETACHED_PROCESS=0x8（POSIX 上 subprocess 无该常量，getattr 兜底 0 会把断言
+    # 变空转——按字面位断言才有牙）
     assert flags & no_window
-    assert not (flags & detached)
+    assert not (flags & 0x8)
     assert argv[1:5] == ["-NoProfile", "-NonInteractive", "-WindowStyle", "Hidden"]
 
 
@@ -506,14 +507,15 @@ def _reconcile_mismatch(shell, monkeypatch, *, attempts, log_text=None):
          / "last-install-attempt.json").read_text(encoding="utf-8"))
 
 
-_WIN_ATTEMPT = ("2026-10-24 16:14:38 runner: started (runner_pid=9 parent=1)\n"
+_WIN_ATTEMPT = ("2026-10-24 16:14:38 runner: dispatched (version=0.99.5 attempt=1)\n"
+                "2026-10-24 16:14:38 runner: started (runner_pid=9 parent=1)\n"
                 "2026-10-24 16:15:40 runner: wait_ms=0 parent_alive_after_wait=False "
                 "installer_exit=0 install_seconds=62\n")
 
 
 def test_readback_three_states(shell, monkeypatch):
-    """回读三态：跑了且装完（exit 可见）／跑了没跑完（exit 缺）／从未运行；
-    startup.log 同步一行（失败可见的最小面）。"""
+    """回读三态（按派发标记取末段）：跑了且装完（exit 可见）／跑了没跑完（exit 缺）／
+    派发未运行；startup.log 同步一行（失败可见的最小面）。"""
     module = shell
 
     rec = _reconcile_mismatch(shell, monkeypatch, attempts=1, log_text=_WIN_ATTEMPT)
@@ -521,8 +523,9 @@ def test_readback_three_states(shell, monkeypatch):
     assert rec["attempts"] == 1 and rec["version"] == "0.99.5"
     assert "recorded_at" in rec
 
+    # 无标记的历史日志退化为全文件口径：仅 started 行＝跑了没跑完
     rec = _reconcile_mismatch(shell, monkeypatch, attempts=1,
-                              log_text=_WIN_ATTEMPT.splitlines()[0] + "\n")
+                              log_text=_WIN_ATTEMPT.splitlines()[1] + "\n")
     assert rec["runner_started"] is True and rec["installer_exit"] is None
 
     rec = _reconcile_mismatch(shell, monkeypatch, attempts=1, log_text=None)
@@ -532,25 +535,51 @@ def test_readback_three_states(shell, monkeypatch):
 
 
 def test_readback_mac_install_ok_and_append_last_segment(shell, monkeypatch):
-    """macOS 行文 install_ok 映射退出码；append 两次尝试取末段——attempt 2 死在
-    started 之前时，不得把 attempt 1 的 started/exit 张冠李戴到最近一次。"""
-    attempt1 = ("runner: started (runner_pid=11 parent=1)\n"
+    """macOS 行文 install_ok 映射退出码；按派发标记取末段——attempt 2 死在 started
+    之前时，不得把 attempt 1 的 started/exit 张冠李戴到最近一次。"""
+    attempt1 = ("2026-10-24 16:20:00 runner: dispatched (version=0.99.5 attempt=1)\n"
+                "runner: started (runner_pid=11 parent=1)\n"
                 "runner: wait_s=0 parent_alive_after_wait=0 install_ok=0 "
                 "detail=hdiutil attach failed install_seconds=1 relaunched=0\n")
 
     rec = _reconcile_mismatch(shell, monkeypatch, attempts=1, log_text=attempt1)
     assert rec["runner_started"] is True and rec["installer_exit"] == 1
 
-    # attempt 2：runner 创建成功但脚本零执行（日志零新增）→ 不吃 attempt 1 的痕
-    rec = _reconcile_mismatch(shell, monkeypatch, attempts=2, log_text=attempt1)
+    # attempt 2：派发标记已落、runner 又静默死（日志零新增）→ 不吃 attempt 1 的痕
+    attempt2_dispatched = attempt1 + ("2026-10-24 16:30:00 runner: dispatched "
+                                      "(version=0.99.5 attempt=2)\n")
+    rec = _reconcile_mismatch(shell, monkeypatch, attempts=2,
+                              log_text=attempt2_dispatched)
     assert rec["runner_started"] is False and rec["installer_exit"] is None
 
     # attempt 2 完整跑完且成功 → 以末段为准
-    attempt2 = attempt1 + ("runner: started (runner_pid=12 parent=1)\n"
-                           "runner: wait_s=0 parent_alive_after_wait=0 install_ok=1 "
-                           "detail= install_seconds=9 relaunched=1\n")
+    attempt2 = attempt2_dispatched + ("runner: started (runner_pid=12 parent=1)\n"
+                                      "runner: wait_s=0 parent_alive_after_wait=0 "
+                                      "install_ok=1 detail= install_seconds=9 "
+                                      "relaunched=1\n")
     rec = _reconcile_mismatch(shell, monkeypatch, attempts=2, log_text=attempt2)
     assert rec["runner_started"] is True and rec["installer_exit"] == 0
+
+
+def test_readback_cross_update_accumulation_not_misattributed(shell, monkeypatch):
+    """跨版本累积回归（评审 P2 定罪案）：installer-runner.log 永久追加而 attempts
+    每版重置——上一版本的 started/exit 不得越过分发标记污染本次的「派发未执行」。"""
+    history = ("2026-10-20 19:24:00 runner: started (runner_pid=77 parent=1)\n"
+               "2026-10-20 19:25:00 runner: wait_ms=0 parent_alive_after_wait=False "
+               "installer_exit=1 install_seconds=60\n")
+    dispatched = history + ("2026-10-24 16:14:38 runner: dispatched "
+                            "(version=0.99.5 attempt=1)\n")
+    rec = _reconcile_mismatch(shell, monkeypatch, attempts=1, log_text=dispatched)
+    assert rec["runner_started"] is False and rec["installer_exit"] is None
+
+
+def test_readback_legacy_runner_without_started_line(shell, monkeypatch):
+    """过渡臂：0.39 及以前的旧格式 runner 无启动痕、只有结束行（且无派发标记＝
+    全文件口径）——已运行＋exit 照读，不得误标「派发未执行」。"""
+    legacy = ("2026-10-24 16:15:40 runner: wait_ms=0 parent_alive_after_wait=False "
+              "installer_exit=1 install_seconds=60\n")
+    rec = _reconcile_mismatch(shell, monkeypatch, attempts=1, log_text=legacy)
+    assert rec["runner_started"] is True and rec["installer_exit"] == 1
 
 
 def test_reconcile_success_clears_stale_attempt_record(shell, monkeypatch):
