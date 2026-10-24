@@ -177,6 +177,95 @@ async def test_volcengine_dashscope_minimax_wires(monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_volcengine_size_contract_pixel_form(monkeypatch):
+    """火山 size 必须是像素写法且满足面积下限：封面 960x1280、头像 1024x1024。"""
+    b64 = __import__("base64").b64encode(b"png").decode()
+    _fake_http(monkeypatch, post=_Resp(json_data={"data": [{"b64_json": b64}]}))
+    out = await generate_images(base_url="https://ark.test/api/v3", api_key="sk", spec=_spec())
+    _, _, payload = _Client.calls[-1]
+    assert payload["size"] == "960x1280"
+    assert out[0].native_width == 960 and out[0].native_height == 1280
+
+    _fake_http(monkeypatch, post=_Resp(json_data={"data": [{"b64_json": b64}]}))
+    await generate_images(base_url="https://ark.test/api/v3", api_key="sk", spec=_spec(kind="avatar"))
+    _, _, payload = _Client.calls[-1]
+    assert payload["size"] == "1024x1024"
+
+
+@pytest.mark.asyncio
+async def test_other_providers_size_unchanged(monkeypatch):
+    """其他供应商尺寸口径与修复前逐字一致（c-image-volc-size-contract 只动火山）。"""
+    b64 = __import__("base64").b64encode(b"png").decode()
+    _fake_http(
+        monkeypatch,
+        post=_Resp(json_data={"output": {"results": [{"url": "https://cdn.test/a.png"}]}}),
+        get=_Resp(content=b"urlpng"),
+    )
+    await generate_images(
+        base_url="https://dashscope.test/api/v1", api_key="sk", spec=_spec(provider="aliyun"),
+    )
+    assert _Client.calls[0][2]["parameters"]["size"] == "1728*2368"
+
+    _fake_http(monkeypatch, post=_Resp(json_data={"data": [{"b64_json": b64}]}))
+    await generate_images(base_url="https://zhipu.test", api_key="sk", spec=_spec(provider="zhipu"))
+    assert _Client.calls[-1][2]["size"] == "864x1152"
+
+    _fake_http(monkeypatch, post=_Resp(json_data={"data": [{"b64_json": b64}]}))
+    await generate_images(base_url="https://api.openai.com/v1", api_key="sk", spec=_spec(provider="openai"))
+    assert _Client.calls[-1][2]["size"] == "1024x1536"
+
+    _fake_http(monkeypatch, post=_Resp(json_data={"data": [{"image_base64": b64}]}))
+    await generate_images(base_url="https://minimax.test/v1", api_key="sk", spec=_spec(provider="minimax"))
+    assert _Client.calls[-1][2]["aspect_ratio"] == "3:4"
+
+
+@pytest.mark.asyncio
+async def test_provider_error_body_logged_without_secrets(monkeypatch, caplog):
+    """供应商 4xx 报文落 image_call_error 留痕；不含 Key/prompt，超长截断 ≤500。"""
+    _fake_http(monkeypatch, post=_Resp(status=400, json_data={
+        "error": {
+            "code": "InvalidParameter",
+            "message": "The parameter `size` specified in the request are not valid",
+            "param": "size",
+        },
+    }))
+    with (
+        caplog.at_level(logging.WARNING, logger="image_gen"),
+        pytest.raises(ImageProviderError),
+    ):
+        await generate_images(
+            base_url="https://ark.test/api/v3", api_key="sk-secret-image-key", spec=_spec(),
+        )
+    logged = "\n".join(record.getMessage() for record in caplog.records)
+    assert "event=image_call_error" in logged
+    assert "InvalidParameter" in logged and "not valid" in logged
+    assert "sk-secret-image-key" not in logged
+    assert "画面" not in logged
+
+    # 非 JSON 错误体退化为原文截断
+    raw = _Resp(status=400)
+    raw.text = "<html>Bad Request</html>"
+    _fake_http(monkeypatch, post=raw)
+    with (
+        caplog.at_level(logging.WARNING, logger="image_gen"),
+        pytest.raises(ImageProviderError),
+    ):
+        await generate_images(base_url="https://ark.test/api/v3", api_key="sk", spec=_spec())
+    assert "Bad Request" in "\n".join(r.getMessage() for r in caplog.records)
+
+    # 超长报文截断到 500 字符
+    _fake_http(monkeypatch, post=_Resp(status=400, json_data={
+        "error": {"code": "InvalidParameter", "message": "x" * 600},
+    }))
+    with (
+        caplog.at_level(logging.WARNING, logger="image_gen"),
+        pytest.raises(ImageProviderError),
+    ):
+        await generate_images(base_url="https://ark.test/api/v3", api_key="sk", spec=_spec())
+    assert ("x" * 501) not in "\n".join(r.getMessage() for r in caplog.records)
+
+
+@pytest.mark.asyncio
 @pytest.mark.parametrize(
     ("status", "body", "kind"),
     [
