@@ -7,7 +7,8 @@
 
 纪律：
 - 全部出网走 ``http_client.build_async_client``（晚绑定 + kwargs 透传）。
-- 日志只写 host/path/model/status/duration/result，绝不写 Key、prompt、图片字节。
+- 日志只写 host/path/model/status/duration/result；失败时另记供应商错误体的
+  code/message/param 字段子集（c-image-volc-size-contract）。绝不写 Key、prompt、图片字节。
 - 供应商 URL 只允许 http(s)、不跟重定向、≤10MB；b64 与 URL 两种回包都收敛成字节。
 - 错误统一 ``ImageProviderError(kind)``：auth/quota/rate_limit/moderation/timeout/
   network/invalid/empty。上游 5xx 归 network（本地图像是同步调用，重试策略由任务层管）。
@@ -121,6 +122,20 @@ def _text_of(payload: Any) -> str:
         return str(payload)[:1000]
 
 
+def _error_detail(body: Any) -> str:
+    """供应商错误体里可留痕的字段子集（code/message/param），绝不回显请求内容。"""
+    if isinstance(body, dict):
+        err = body.get("error")
+        if isinstance(err, dict):
+            parts = [str(err[k]) for k in ("code", "message", "param") if err.get(k)]
+            if parts:
+                return " ".join(parts)
+        for key in ("error", "message"):
+            if isinstance(body.get(key), str):
+                return body[key]
+    return ""
+
+
 def _classify_payload(status: int, text: str) -> ImageProviderError:
     low = text.lower()
     if status in (401, 403):
@@ -142,7 +157,9 @@ def _classify_payload(status: int, text: str) -> ImageProviderError:
 
 def _native_size(provider: str, kind: str) -> tuple[str, int | None, int | None]:
     if provider == "volcengine":
-        return ("3:4", 768, 1024) if kind != "avatar" else ("1:1", 1024, 1024)
+        # Ark 只收 WIDTHxHEIGHT 像素写法且面积 ≥921600 px²（比例字符串/768x1024 均 400
+        # InvalidParameter，2026-10-24 实测）；960x1280 为实测 200 的最小合规 3:4。
+        return ("960x1280", 960, 1280) if kind != "avatar" else ("1024x1024", 1024, 1024)
     if provider == "zhipu":
         return ("864x1152", 864, 1152) if kind != "avatar" else ("1024x1024", 1024, 1024)
     if provider == "openai":
@@ -374,7 +391,13 @@ async def generate_images(
                     body = resp.json()
                     text = _text_of(body)
                 except Exception:  # noqa: BLE001 — 非 JSON 错误体也要归因
+                    body = None
                     text = resp.text[:500]
+                logger.warning(
+                    "event=image_call_error provider=%s model=%s target=%s status=%s detail=%.500s",
+                    spec.provider, spec.model, _host_path(url), status,
+                    _error_detail(body) or text,
+                )
                 raise _classify_payload(status, text)
             try:
                 body = resp.json()
