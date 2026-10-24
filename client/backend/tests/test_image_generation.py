@@ -992,6 +992,29 @@ def test_config_test_endpoint_without_config_id_does_not_persist(client, monkeyp
     assert _run(_check()) is None
 
 
+def test_config_test_endpoint_unexpected_exception_is_failure_not_500(client, monkeypatch, _img_test_throttle):
+    """适配器分类链外的逃逸者（实测 httpx.InvalidURL 对畸形 Base URL）兜底转
+    可读失败并落 last_test_*——端点契约「测试失败不抛 5xx」。"""
+    _, _, cfg_id = _run(_seed())
+    monkeypatch.setattr(
+        img_svc, "generate_images",
+        _fake_raises(RuntimeError("Invalid port: ':1'")),
+    )
+    r = client.post("/api/image-configs/test", json={"config_id": cfg_id})
+    assert r.status_code == 200, r.text
+    data = r.json()["data"]
+    assert data["ok"] is False and data["error"]["kind"] == "invalid"
+    assert "测试异常" in data["error"]["message"]
+
+    async def _check():
+        async with async_session() as db:
+            row = await db.get(ImageConfig, cfg_id)
+            return row.last_test_status, row.last_test_error
+
+    status, error = _run(_check())
+    assert status == "failed" and "测试异常" in error
+
+
 def test_config_test_endpoint_throttled_429(client, monkeypatch, _img_test_throttle):
     _fake_svc_generate(monkeypatch)
     _, _, cfg_id = _run(_seed())
@@ -1002,13 +1025,21 @@ def test_config_test_endpoint_throttled_429(client, monkeypatch, _img_test_throt
     assert second.json()["detail"]["code"] == "test_rate_limited"
 
 
-def test_config_test_endpoint_validations(client, _img_test_throttle):
+def test_config_test_endpoint_validations(client, monkeypatch, _img_test_throttle):
     r = client.post("/api/image-configs/test", json={"config_id": "cfg-nope"})
     assert r.status_code == 400 and r.json()["detail"]["code"] == "config_not_found"
     r = client.post("/api/image-configs/test", json={"provider": "volcengine", "default_model": " "})
     assert r.status_code == 400 and r.json()["detail"]["code"] == "model_required"
     r = client.post("/api/image-configs/test", json={"provider": "nope", "default_model": "m"})
     assert r.status_code == 400 and r.json()["detail"]["code"] == "invalid_provider"
+    # 本地校验失败退还节流额度（记账在入口、失败即退）：三连 400 后合法调用不得 429
+    _fake_svc_generate(monkeypatch)
+    r = client.post("/api/image-configs/test", json={
+        "provider": "volcengine", "base_url": "https://p.test",
+        "default_model": "model-x", "api_key": "sk-ok",
+    })
+    assert r.status_code == 200, r.text
+    assert r.json()["data"]["ok"] is True
 
 
 def test_config_test_endpoint_tier_matrix(monkeypatch, _img_test_throttle):

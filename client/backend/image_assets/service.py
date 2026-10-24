@@ -408,6 +408,13 @@ async def test_config(db: AsyncSession, user_id: str, data: dict) -> dict:
     last = _image_test_last.get(user_id)
     if last is not None and now - last < IMAGE_TEST_THROTTLE_SECONDS:
         raise ImageTestRateLimited(IMAGE_TEST_THROTTLE_SECONDS - (now - last))
+    # 记账紧跟检查（中间无 await）：并发双发不能都过闸。本地校验失败会退还——
+    # 没打供应商的失败不消耗额度。
+    _image_test_last[user_id] = now
+
+    def _reject(message: str, code: str) -> None:
+        _image_test_last.pop(user_id, None)
+        raise Unprocessable(message, code)
 
     config_id = str(data.get("config_id") or "").strip()
     row = None
@@ -419,11 +426,11 @@ async def test_config(db: AsyncSession, user_id: str, data: dict) -> dict:
             )
         )).scalar_one_or_none()
         if not row:
-            raise Unprocessable("图像配置不存在", "config_not_found")
+            _reject("图像配置不存在", "config_not_found")
 
     provider = str(data.get("provider") or "").strip() or (row.provider if row else "")
     if provider not in PROVIDERS:
-        raise Unprocessable("provider 不在支持列表", "invalid_provider")
+        _reject("provider 不在支持列表", "invalid_provider")
     # 缺省字段用存量值兜底；body 显式携带（含非空 Key）一律优先。
     base_url = str(data.get("base_url") or "").strip() or (row.base_url if row else "")
     model = str(data.get("default_model") or "").strip() or (row.default_model if row else "")
@@ -431,14 +438,12 @@ async def test_config(db: AsyncSession, user_id: str, data: dict) -> dict:
     if not api_key and row and row.api_key:
         api_key = decrypt_api_key(row.api_key)
     if not model:
-        raise Unprocessable("请先填写模型 id 再测试", "model_required")
+        _reject("请先填写模型 id 再测试", "model_required")
 
     spec = ImageGenerationSpec(
         provider=provider, model=model, prompt=IMAGE_TEST_PROMPT,
         negative_prompt="", kind=IMAGE_TEST_KIND, n=1, seed=None,
     )
-    # 记账在真正打供应商之前：本地校验失败（没到供应商）不消耗节流额度。
-    _image_test_last[user_id] = time.monotonic()
     error_kind: str | None = None
     error_message: str | None = None
     try:
@@ -457,6 +462,12 @@ async def test_config(db: AsyncSession, user_id: str, data: dict) -> dict:
         ok = False
         error_kind = e.kind
         error_message = e.message
+    except Exception as e:  # noqa: BLE001 — 端点契约「测试失败不抛 5xx」：适配器
+        # 分类链之外仍有逃逸者（实测 httpx.InvalidURL 对畸形 Base URL），兜底转
+        # 可读失败并落 last_test_*，形态同 generation 任务层兜底。
+        ok = False
+        error_kind = "invalid"
+        error_message = f"测试异常：{e}"[:500]
 
     elapsed_ms = int((time.monotonic() - started) * 1000)
     if row is not None:
