@@ -25,3 +25,8 @@
   - 证据：隔离栈（vite 5174＋独立容器后端 18000＋/tmp 数据目录）实拍 `walkthrough/wt-1..4.png`——有封面（本地上传来源行）／有章节占位（生成封面 CTA）／0 章弱化（可稍后添加）＋悬浮「换封面」＋窄屏 88px 收缩；待完本/已完结页脚行未改动、由 parity group/finish/已完结场景像素钉住
 - [x] 4.3 归档 sync 同 PR 清理：主 spec `cover-avatar` 内历史遗留的双前缀头（`### Requirement:### Requirement: …`）统一清为单前缀（纯标题改动，scenario 不动）；验证＝`openspec validate` 无 INFO、sync 后主 spec 头格式统一
   - 证据：sync 落主 spec（MODIFIED 工坊入口措辞＋ADDED 书卡封面版式 7 scenario）；清 9 个双前缀头；`openspec validate --specs` 68 passed / 0 failed
+
+## 5. Review 整改（2026-10-24，PR #943 review 两 P2）
+
+- [x] 5.1 窄屏 88px 失效修复：媒体查询宽度收窄落 image-assets.css 基础规则后（main.tsx 加载序 list.css 先行，轨道/宽度必须分文件同位对齐）；原型同病同修（820 规则挪到 .book-cover 基础规则之后）；验证＝级联实测 780px 轨道 88/宽 88/gap 16 双侧一致＋e2e 窄屏几何钉（expect.poll 等壳层 page-enter 0.4s 入场动画收敛后断言，量早了会吃到 scale 0.98 中间态）
+- [x] 5.2 书卡 Enter 冒泡修复：卡片 onKeyDown 加 `e.target === e.currentTarget` 守卫（内部按钮 Enter 各走各的 click 语义，不再冒泡触发开书吞掉目标动作）；验证＝两键盘回归钉（占位钮/换封面 Enter 不导航＋click 开工坊；卡片自身 Enter 仍导航）＋vitest 1800 全绿

@@ -460,7 +460,9 @@ function NovelList() {
         data-od-id={`book-card-${p.id}`}
         onClick={() => navigate(`/novel/${p.id}`)}
         onKeyDown={(e) => {
-          if (e.key === "Enter") navigate(`/novel/${p.id}`);
+          /* 只在卡片自身响应 Enter——内部按钮（封面/回看/完本/⋯菜单）的 Enter
+             各走各的 click 语义，不冒泡触发开书（否则导航卸载书架、目标动作被吞） */
+          if (e.key === "Enter" && e.target === e.currentTarget) navigate(`/novel/${p.id}`);
         }}
       >
         <div className="book-cover">{coverCol}</div>

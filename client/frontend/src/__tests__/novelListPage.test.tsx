@@ -1474,6 +1474,39 @@ describe("封面入口（c-book-card-cover-column：占位块/悬浮换封面/�
     const btnSeal = document.querySelector("button.cover-empty .ce-seal")?.textContent; // name || "书"
     expect(btnSeal).toBe("书");
   });
+
+  it("键盘 Enter 不冒泡开书：内部按钮 Enter 不触发导航，卡片自身 Enter 才导航（review P2-2 回归钉）", async () => {
+    getMock.mockResolvedValue([novel({
+      cover: {
+        asset_id: "cover-k", url: "/full", thumb_url: "/thumb",
+        width: 768, height: 1024, version: 1, source: "upload",
+      },
+    })]);
+    renderPage();
+    await waitFor(() => expect(document.querySelector(".book-cover-img")).toBeTruthy());
+    // 真实浏览器时序＝Enter 先 keydown（冒泡到卡片）再对按钮合成 click：
+    // 修前 keydown 冒泡即导航、书架卸载吞掉 click；修后 keydown 不导航
+    fireEvent.keyDown(screen.getByLabelText("更换封面"), { key: "Enter" });
+    expect(screen.queryByTestId("workspace")).toBeNull();
+    fireEvent.click(screen.getByLabelText("更换封面")); // 浏览器合成的 click 臂
+    await waitFor(() => expect(screen.getByTestId("image-workshop")).toBeTruthy());
+    fireEvent.click(screen.getByText("close"));
+    await waitFor(() => expect(screen.queryByTestId("image-workshop")).toBeNull());
+    expect(screen.queryByTestId("workspace")).toBeNull();
+    // 卡片自身 Enter（target===currentTarget）：导航进工作台
+    fireEvent.keyDown(document.querySelector(".book-card") as HTMLElement, { key: "Enter" });
+    await waitFor(() => expect(screen.getByTestId("workspace")).toBeTruthy());
+  });
+
+  it("无封面有章节占位钮 Enter 不导航，click 开工坊（review P2-2 回归钉）", async () => {
+    renderPage();
+    await waitFor(() => expect(screen.getByText("《星海拾遗》")).toBeTruthy());
+    fireEvent.keyDown(screen.getByLabelText("为《星海拾遗》生成封面"), { key: "Enter" });
+    expect(screen.queryByTestId("workspace")).toBeNull();
+    fireEvent.click(screen.getByLabelText("为《星海拾遗》生成封面"));
+    await waitFor(() => expect(screen.getByTestId("image-workshop")).toBeTruthy());
+    expect(screen.queryByTestId("workspace")).toBeNull();
+  });
 });
 
 describe("封面删除提示", () => {

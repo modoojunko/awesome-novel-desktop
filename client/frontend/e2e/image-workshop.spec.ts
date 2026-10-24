@@ -216,4 +216,43 @@ test.describe("封面/头像上传型工坊", () => {
     await expect(bad).toContainText("测试失败");
     await expect(bad).toContainText("API Key 无效或无权限");
   });
+
+  // c-book-card-cover-column review P2-1 回归钉：≤820px 封面列收 88px。
+  // 修前 list.css 只收轨道、宽度收窄缺位（image-assets.css 后加载恒胜）——
+  // 104px 封面挤 88px 轨道、与右列 gap 归零。这里用真实浏览器级联断言几何。
+  test("窄屏书卡：封面列 88px 且与右列有间距", async ({ page }) => {
+    await writeBackendSession();
+    await stubShell(page);
+    await stubUpdateNotice(page, "none");
+
+    const bookName = `e2e窄屏${Date.now().toString(36)}`;
+    const created = await fetch(`${API}/api/novels`, {
+      method: "POST",
+      headers: { Authorization: `Bearer ${TOKEN}`, "Content-Type": "application/json" },
+      body: JSON.stringify({ name: bookName, source: "manual" }),
+    });
+    expect(created.ok).toBeTruthy();
+    const book = (await created.json()) as { id: string };
+
+    await page.setViewportSize({ width: 780, height: 900 });
+    await page.goto(`${ORIGIN}/#/novels`);
+    const card = page.locator(".book-card", { hasText: bookName });
+    await expect(card).toBeVisible({ timeout: 15000 });
+    // 壳层 page-enter 入场动画（scale 0.98→1）期间 rect 带中间态缩放——等收敛再断言
+    await expect
+      .poll(async () => card.evaluate((el) => el.querySelector(".book-cover")!.getBoundingClientRect().width), { timeout: 5000 })
+      .toBe(88);
+    const geo = await card.evaluate((el) => {
+      const cov = el.querySelector(".book-cover")!.getBoundingClientRect();
+      const main = el.querySelector(".book-main")!.getBoundingClientRect();
+      return { covW: cov.width, gap: main.left - cov.right };
+    });
+    expect(geo.covW).toBe(88);
+    expect(geo.gap).toBe(16);
+
+    await fetch(`${API}/api/novels/${book.id}`, {
+      method: "DELETE",
+      headers: { Authorization: `Bearer ${TOKEN}` },
+    });
+  });
 });
