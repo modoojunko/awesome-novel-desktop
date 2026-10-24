@@ -32,6 +32,7 @@ from schema_version import (
     app_version,
     candidate_rank,
     candidate_stamp,
+    candidate_stamp_hash,
     candidate_stamp_legacy,
     data_file_mtime,
     data_file_size,
@@ -480,9 +481,13 @@ def scan_migration_candidates(data_root: Path, current_version: str | None = Non
             "unreadable": bool(info.get("unreadable")),
             "recommended": False,
             # stamp＝现行指纹（数据件）；stamp_legacy＝旧三件套形态，供完成/抑制
-            # 存量记录兼容对拍（c-carry-modal-reshow——升级前写入的记录可能是旧形）
+            # 存量记录兼容对拍（c-carry-modal-reshow——升级前写入的记录可能是旧形）；
+            # stamp_hash＝内容指纹（c-carry-completion-robust）：mtime 分量在不可靠
+            # 文件系统（Docker Desktop virtiofs）上随触碰漂移，完成/抑制对拍需
+            # 内容哈希形态兜底，否则「已迁移」状态失效、告知卡每次首页复弹。
             "stamp": candidate_stamp(f.name, f),
             "stamp_legacy": candidate_stamp_legacy(f.name, f),
+            "stamp_hash": candidate_stamp_hash(f.name, f),
         })
     items.sort(
         key=lambda it: (candidate_rank(parse_db_filename(it["filename"])), it["mtime"],
@@ -565,8 +570,11 @@ def deletable_candidates(data_root: Path, migrated_stamps: str | set[str] | None
     if not migrated_stamps:
         return []
     stamps = {migrated_stamps} if isinstance(migrated_stamps, str) else set(migrated_stamps)
+    # 对拍含内容哈希形态（c-carry-completion-robust）：完成记录自 2026-10-24 起记
+    # 内容指纹——mtime 指纹在不可靠 FS（virtiofs）上随触碰漂移，仅对 mtime 会让
+    # 已带回的源永远进不了待删清单。
     items = [it for it in scan_migration_candidates(data_root, None, active_db_path)
-             if it["stamp"] in stamps]
+             if it["stamp"] in stamps or it.get("stamp_hash") in stamps]
     items.sort(key=lambda it: it["mtime"], reverse=True)
     return items[keep:] if len(items) > keep else []
 

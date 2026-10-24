@@ -197,9 +197,9 @@ def three_file_mtime(db_path: Path) -> int:
     """三件套 `max(mtime)`（含 `-shm`）。**仅旧指纹兼容用**——现行身份一律
     data_file_mtime；本函数只被 candidate_stamp_legacy 消费。"""
     stamps = [db_path.stat().st_mtime]
-    for side in sidecar_paths(db_path):
-        if side.exists():
-            stamps.append(side.stat().st_mtime)
+    wal = Path(f"{db_path}-wal")
+    if wal.exists():
+        stamps.append(wal.stat().st_mtime)
     return int(max(stamps))
 
 
@@ -210,6 +210,42 @@ def three_file_size(db_path: Path) -> int:
         if side.exists():
             total += side.stat().st_size
     return total
+
+
+def candidate_stamp_hash(filename: str, db_path: Path) -> str:
+    """候选身份**内容指纹**：main＋`-wal` 字节的 sha256（前 32 hex），按 stat 键缓存。
+
+    mtime/size 指纹（candidate_stamp）在健康本地盘稳定，但在不可靠文件系统上随
+    触碰漂移——Docker Desktop virtiofs 实锤（2026-10-24 demo 栈）：完成记录按迁移
+    时刻 mtime 落笔，之后 `-wal` 的 mtime 被读侧推走，指纹对不上＝「已迁移」状态
+    失效、告知卡每次首页复弹。内容哈希只随数据字节变化；stat 键缓存避免每次
+    扫描全量哈希（mtime/size 变了但字节没变 → 重算同值）。"""
+    main = db_path.stat()
+    wal = Path(f"{db_path}-wal")
+    wal_stat = wal.stat() if wal.exists() else None
+    cache_key = (str(db_path), main.st_mtime_ns, main.st_size,
+                 wal_stat.st_mtime_ns if wal_stat else 0,
+                 wal_stat.st_size if wal_stat else 0)
+    hit = _stamp_hash_cache.get(cache_key)
+    if hit:
+        return hit
+    digest = _hash_data_files(db_path, wal)
+    stamp = f"{filename}:h{digest}"
+    _stamp_hash_cache[cache_key] = stamp
+    return stamp
+
+
+def _hash_data_files(db_path: Path, wal: Path) -> str:
+    import hashlib
+
+    h = hashlib.sha256()
+    h.update(db_path.read_bytes())
+    if wal.exists():
+        h.update(wal.read_bytes())
+    return h.hexdigest()[:32]
+
+
+_stamp_hash_cache: dict[tuple, str] = {}
 
 
 def candidate_stamp(filename: str, db_path: Path) -> str:

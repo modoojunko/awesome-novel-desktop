@@ -38,7 +38,12 @@ from db_lifecycle import (
     scan_migration_candidates,
 )
 from migration.engine import completeness_from_history, is_complete_report
-from schema_version import app_version, candidate_stamp, candidate_stamp_legacy
+from schema_version import (
+    app_version,
+    candidate_stamp,
+    candidate_stamp_hash,
+    candidate_stamp_legacy,
+)
 
 # c-upgrade-log：无损升级全链具名 logger——upgrade.log 专项档＋双写 app.log。
 logger = logging.getLogger("migration")
@@ -97,6 +102,38 @@ def _app_meta_value(key: str) -> str | None:
         con.close()
 
 
+def _set_app_meta_sync(key: str, value: str) -> None:
+    """app_meta **直连**写入＋mode=ro 回读校验（c-carry-completion-robust）。
+
+    不走 async_session 连接池：迁移引擎子进程退出会删 `-wal/-shm`——在不可靠
+    文件系统（Docker Desktop virtiofs）上跨进程锁不传播，子进程误判自己是最后
+    连接，池连接随后持有的就是**被删的孤儿 inode**，经它落笔的写会静默进孤儿
+    文件（demo 栈实锤 2026-10-24：migration.last 三写三丢，日志恒报完成）。
+    直连写＋回读不符即大声抛错，宁失败不可静默。"""
+    import sqlite3
+
+    db = _active_db_path()
+    con = sqlite3.connect(db)
+    try:
+        con.execute(
+            "INSERT INTO app_meta (key, value) VALUES (?, ?) "
+            "ON CONFLICT(key) DO UPDATE SET value=excluded.value",
+            (key, value),
+        )
+        con.commit()
+    finally:
+        con.close()
+    con = sqlite3.connect(f"file:{db}?mode=ro", uri=True)
+    try:
+        row = con.execute("SELECT value FROM app_meta WHERE key=?", (key,)).fetchone()
+        if row is None or row[0] != value:
+            raise RuntimeError(
+                f"app_meta 写入回读不符（key={key}）——迁移完成记录未能落盘，"
+                "请重试迁移；数据已在目标库，本失败只影响「已迁移」标记")
+    finally:
+        con.close()
+
+
 def _migrated_stamps() -> set[str]:
     """可删白名单：仅「本次成功带回且搬运完整」的源（c-db-version-hardening）。
 
@@ -137,9 +174,16 @@ def _migrated_stamps() -> set[str]:
     if fname:
         src = Path(DATA_ROOT) / fname
         if src.exists():
-            current = {candidate_stamp(fname, src), candidate_stamp_legacy(fname, src)}
+            # 三形态对拍（c-carry-completion-robust）：现行 mtime 指纹/旧三件套/
+            # 内容哈希任一命中（＝数据件未变）即换算成扫描项的全形态集合，让
+            # 白名单与现行扫描（stamp/stamp_hash 两字段）都能对上。
+            current = {
+                candidate_stamp(fname, src),
+                candidate_stamp_legacy(fname, src),
+                candidate_stamp_hash(fname, src),
+            }
             if stamp in current:
-                return {candidate_stamp(fname, src)}
+                return {candidate_stamp(fname, src), candidate_stamp_hash(fname, src)}
     return {stamp}
 
 
@@ -201,10 +245,13 @@ async def candidates():
     # 不完整（不自动重弹整卡）；suppressed＝被「本版不再提醒」抑制（snoozed 绑
     # stamp；不完整 last 永不抑制）；receipt_acked＝完成回执被用户收起过（× 持久化，
     # 刷新/重开不再复现；数据件变化＝新一次迁移，对拍不命中即重开）。
-    # 对拍按双形态：现行指纹（数据件）或旧三件套指纹（c-carry-modal-reshow——升级前
-    # 写入的记录可能编着 -shm 分量）任一命中即同一源；数据件变了两者都不命中。
+    # 对拍按三形态：现行 mtime 指纹（数据件）或旧三件套指纹（c-carry-modal-reshow——
+    # 升级前写入的记录可能编着 -shm 分量）或内容哈希（c-carry-completion-robust——
+    # 不可靠 FS 上 -wal mtime 会漂，demo 栈实锤告知卡复弹）任一命中即同一源；
+    # 数据件字节变了三者都不命中。
     for it in items:
-        stamps = {it["stamp"], it.get("stamp_legacy") or it["stamp"]}
+        stamps = {it["stamp"], it.get("stamp_legacy") or it["stamp"],
+                  it.get("stamp_hash") or it["stamp"]}
         it["carried"] = done_complete and done_stamp in stamps
         it["carried_partial"] = (not it["carried"]) and done_partial \
             and done_stamp in stamps
@@ -547,7 +594,7 @@ async def dismiss(body: DismissBody):
                                     allow_sentinel=True)
     if p is None or not p.exists():
         return {"code": 1, "msg": "文件不存在"}
-    await _set_app_meta(SNOOZE_KEY, candidate_stamp(body.filename, p))
+    await _set_app_meta(SNOOZE_KEY, candidate_stamp_hash(body.filename, p))
     return {"code": 0}
 
 
@@ -566,7 +613,7 @@ async def receipt_ack(body: DismissBody):
                                     allow_sentinel=True)
     if p is None or not p.exists():
         return {"code": 1, "msg": "文件不存在"}
-    await _set_app_meta(RECEIPT_ACK_KEY, candidate_stamp(body.filename, p))
+    await _set_app_meta(RECEIPT_ACK_KEY, candidate_stamp_hash(body.filename, p))
     return {"code": 0}
 
 
@@ -588,23 +635,21 @@ def _precheck_msg(reason: str) -> str:
 
 
 async def _set_app_meta(key: str, value: str) -> None:
-    from sqlalchemy import text
+    """写侧统一入口：直连写＋回读校验（见 _set_app_meta_sync——不走连接池）。"""
+    import asyncio
 
-    from db import async_session
-
-    async with async_session() as session:
-        await session.execute(
-            text("INSERT INTO app_meta (key, value) VALUES (:k, :v) "
-                 "ON CONFLICT(key) DO UPDATE SET value=:v"),
-            {"k": key, "v": value},
-        )
-        await session.commit()
+    await asyncio.to_thread(_set_app_meta_sync, key, value)
 
 
 async def _record_completion(source_filename: str, report: dict) -> None:
-    """完成记录：`migration.last`（幂等/重开判定）＋`migration.history`（cleanup 白名单）。"""
+    """完成记录：`migration.last`（幂等/重开判定）＋`migration.history`（cleanup 白名单）。
+
+    source_stamp 记**内容哈希**形态（c-carry-completion-robust）：mtime/size 指纹在
+    不可靠文件系统（Docker Desktop virtiofs）上随触碰漂移——demo 栈实锤：迁移时刻
+    的 mtime 指纹事后对不上，「已迁移」状态失效、告知卡每次首页复弹。哈希只随
+    数据字节变化；旧 mtime 形态记录仍经 stamp/stamp_legacy 兼容对拍。"""
     src = Path(DATA_ROOT) / source_filename
-    stamp = candidate_stamp(source_filename, src)
+    stamp = candidate_stamp_hash(source_filename, src)
     payload = {"source_filename": source_filename, "source_stamp": stamp,
                "source_version": report.get("source_version"),
                "legacy_generation": report.get("legacy_generation"),
