@@ -73,6 +73,7 @@ export const VENDOR_ICON: Record<string, string> = {
   ollama: '<path d="M6 6h12v12H6zM10 6V4M14 6V4M10 20v-2M14 20v-2"/>',
   "openai-compat": '<path d="M9 15l6-6M11 7l1.6-1.6a3 3 0 014.2 4.2L15 11M13 17l-1.6 1.6a3 3 0 01-4.2-4.2L9 13"/>',
   gemini: '<path d="M12 3c.7 4.9 4.1 8.3 9 9-4.9.7-8.3 4.1-9 9-.7-4.9-4.1-8.3-9-9 4.9-.7 8.3-4.1 9-9z"/>',
+  doubao: '<path d="M4 20h16M7 20l4.2-10h1.6L17 20M12 10V6.5M12 4v.5"/>',
   "opencode-go-chat": '<path d="M12 3l7.8 4.5v9L12 21l-7.8-4.5v-9zM12 8.5v7M8.5 12h7"/>',
   "opencode-go-claude": '<path d="M12 3l7.8 4.5v9L12 21l-7.8-4.5v-9zM12 8.5v7M8.5 12h7"/>',
 };

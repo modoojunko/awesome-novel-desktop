@@ -40,6 +40,10 @@ export const VENDOR_DEFAULTS: Partial<Record<VendorId, Partial<Record<ApiFormat,
   gemini: { openai: { base_url: "https://generativelanguage.googleapis.com/v1beta/openai/", model: "" } },
   "opencode-go-chat": { openai: { base_url: "https://opencode.ai/zen/go/v1", model: "" } },
   "opencode-go-claude": { anthropic: { base_url: "https://opencode.ai/zen/go", model: "" } },
+  // c-modelconfig-volc-doubao（2026-10-24 方舟目录元数据＋真 Key 探针核对）：火山方舟 OpenAI
+  // 兼容口自带版本段 /api/v3；数据面裸名 404（实测），模型一律完整版本 id；候选在后端
+  // VENDOR_MODEL_CANDIDATES 对齐登记（Seed 2.1 家族，广场元数据 name+primary_version 拼法）。
+  doubao: { openai: { base_url: "https://ark.cn-beijing.volces.com/api/v3", model: "doubao-seed-2-1-lite-260915" } },
 };
 
 const EMPTY_DEFAULT: VendorDefault = { base_url: "", model: "" };

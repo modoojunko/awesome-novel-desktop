@@ -300,18 +300,19 @@ test("模型配置：供应商默认值预填——选 DeepSeek 只填 Key 保�
     const urlInput = page.locator("#cfBase");
     const modelInput = page.locator("#cfModel");
 
-    // OpenAI 兼容：无登记值不预填＋兼容模版引导文案可见（c-api-config-foreign-vendors）
+    // OpenAI 兼容：无登记值不预填＋兼容模版引导文案可见（c-api-config-foreign-vendors；
+    // gemini-go 文案收窄后＝手填模型 id＋反代/转发指引两句，无 Gemini 地址——
+    // 断言与页签导航均系存量腐化（OpenAI 兼容住中转页），随 c-modelconfig-volc-doubao 对齐）
+    await page.getByRole("button", { name: "中转 · 订阅制" }).click();
     await page.getByRole("button", { name: "OpenAI 兼容" }).click();
     await expect(urlInput).toHaveValue("");
     await expect(modelInput).toHaveValue("");
-    await expect(
-      page.getByText(/未列厂商（如 Google Gemini）走 OpenAI 兼容模版/),
-    ).toBeVisible();
-    await expect(
-      page.getByText(/generativelanguage\.googleapis\.com\/v1beta\/openai/),
-    ).toBeVisible();
+    await expect(page.getByText(/手填模型 id 即可/)).toBeVisible();
+    await expect(page.getByText(/反代\/转发服务地址/)).toBeVisible();
+    await expect(page.getByText(/generativelanguage\.googleapis\.com/)).toHaveCount(0);
 
     // 选 DeepSeek → Base URL 与模型名称自动填好（用户只需填 Key）
+    await page.getByRole("button", { name: "官方厂商" }).click();
     await page.getByRole("button", { name: "DeepSeek" }).click();
     await expect(urlInput).toHaveValue("https://api.deepseek.com");
     await expect(modelInput).toHaveValue("deepseek-v4-pro");
@@ -320,9 +321,11 @@ test("模型配置：供应商默认值预填——选 DeepSeek 只填 Key 保�
 
     // 手改 Base URL（避开真实上游）→ 切供应商不被预填覆盖；模型名未手改随供应商更新
     await urlInput.fill("http://127.0.0.1:1");
+    await page.getByRole("button", { name: "中转 · 订阅制" }).click();
     await page.getByRole("button", { name: "OpenAI 兼容" }).click();
     await expect(urlInput).toHaveValue("http://127.0.0.1:1");
     await expect(modelInput).toHaveValue("");
+    await page.getByRole("button", { name: "官方厂商" }).click();
     await page.getByRole("button", { name: "DeepSeek" }).click();
     await expect(urlInput).toHaveValue("http://127.0.0.1:1");
     await expect(modelInput).toHaveValue("deepseek-v4-pro");
@@ -405,6 +408,74 @@ test("模型配置：Key 失焦自动拉清单——默认选中登记模型，�
     const card = page.locator(".cfg-card", { hasText: "e2e自动拉清单" });
     await expect(card).toBeVisible({ timeout: 10000 });
     await expect(card.getByText("deepseek-v4-pro")).toBeVisible();
+  } finally {
+    restore();
+  }
+});
+
+// -------------------------------------------------------------------------
+// ⑥ 豆包方块（c-modelconfig-volc-doubao）：官方页默认可见（副标火山方舟）；选豆包
+//    预填方舟地址＋lite 版本 id、接口格式锁 OpenAI；桩 fetch-models 清单默认选中；
+//    保存 POST models 首项跟随
+// -------------------------------------------------------------------------
+
+test("模型配置：豆包方块——预填方舟地址＋版本 id、锁 OpenAI 格式、保存 models 跟随清单", async ({
+  page,
+}, testInfo) => {
+  const { restore } = await setupSession(page);
+  // 桩轻探针端点（不打出网请求；真实 vendor /models 行为由后端 pytest 钉）
+  await page.route("**/api/v1/api-configs/fetch-models", (r) =>
+    r.fulfill({
+      json: {
+        ok: true,
+        status: "ok",
+        models: ["doubao-seed-2-1-lite-260915", "doubao-seed-2-1-pro-260915"],
+      },
+    }),
+  );
+  try {
+    await page.goto(`${ORIGIN}/#/config`);
+    await expect(page.getByText("还没有模型配置")).toBeVisible({ timeout: 10000 });
+
+    await page.getByRole("button", { name: "添加 API Key" }).first().click();
+    await page.getByPlaceholder("例如：主线 · OpenAI").fill("e2e豆包");
+
+    // 官方页默认可见豆包（副标火山方舟）；中转页不可见，切回官方页仍在
+    const doubaoBtn = page.getByRole("button", { name: "豆包" });
+    await expect(doubaoBtn).toBeVisible();
+    await page.getByRole("button", { name: "中转 · 订阅制" }).click();
+    await expect(doubaoBtn).toHaveCount(0);
+    await page.getByRole("button", { name: "官方厂商" }).click();
+
+    // 选豆包：Base URL/模型预填登记值；接口格式锁定 OpenAI
+    await doubaoBtn.click();
+    const urlInput = page.locator("#cfBase");
+    const modelInput = page.locator("#cfModel");
+    await expect(urlInput).toHaveValue("https://ark.cn-beijing.volces.com/api/v3");
+    await expect(modelInput).toHaveValue("doubao-seed-2-1-lite-260915");
+    await expect(page.getByText("OpenAI 格式")).toHaveClass(/on/);
+    await expect(page.getByText("Anthropic 格式")).toBeDisabled();
+
+    // 填 Key 失焦 → 桩清单到位，默认选中清单首项（版本 id）
+    await page.getByPlaceholder("sk-...").fill("sk-e2e-ark");
+    await page.locator("#cfKey").blur();
+    await expect(page.getByText("已拉到 2 个模型")).toBeVisible({ timeout: 10000 });
+    await expect(modelInput).toHaveValue("doubao-seed-2-1-lite-260915");
+    await page.screenshot({ path: testInfo.outputPath("prefill-doubao.png") });
+
+    // 保存：POST body models 首项＝清单选中值；卡片可见
+    const created = page.waitForResponse(
+      (r) =>
+        r.request().method() === "POST" &&
+        r.url().includes("/api/v1/api-configs") &&
+        r.url().endsWith("/api-configs"),
+    );
+    await page.getByRole("button", { name: "保存并测试连接" }).click();
+    const resp = await created;
+    expect(resp.request().postDataJSON().models).toEqual(["doubao-seed-2-1-lite-260915"]);
+    const card = page.locator(".cfg-card", { hasText: "e2e豆包" });
+    await expect(card).toBeVisible({ timeout: 10000 });
+    await expect(card.getByText("doubao-seed-2-1-lite-260915")).toBeVisible();
   } finally {
     restore();
   }

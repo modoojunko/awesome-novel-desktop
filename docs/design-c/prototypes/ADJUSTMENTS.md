@@ -2161,3 +2161,21 @@ baseurl 到什么程度，要有个案例。」——中转站/自建网关用�
 - **设计要点登记**：测试连接＝后端真实最小试画（不落资产）；编辑保存后旧测试结果重置为未测试（供应商/Base/模型都可能有变，旧「通过」不再可信）；新建态测试通过后**保存会重置为未测试**（create 重置测试三列，已知取舍、文案如实）。
 - **交互演示口径**：测试按钮 1.4s 后出结果（真实实现为后端试画、约 75s deadline）；Key 以 `sk-bad` 开头演示失败分支。
 - **实现侧落点**：`client/frontend/src/components/image/ImageConfigPanel.tsx`（表单＋卡片）与后端 `image_assets/`（test 端点＋models 派生）随实现 PR 同批对拍；`design:check` 的 model-config 屏图像段为新增基线，实现与原型需逐类名对齐。
+
+## c-modelconfig-volc-doubao 登记（官方页新增豆包方块，2026-10-24）
+
+- **官方厂商页方块集新增「豆包」**（`{ id: 'doubao', label: '豆包', sub: '火山方舟', badge: '新' }`）：
+  厂商预设扩展，零新组件词汇——方块复用 .vbtn 词汇，「新」静态角标与副标沿用 Gemini／OpenCode Go
+  同款非状态语言徽标；字形新增线性 SVG（山形＋喷发点，24 栅格 stroke 同族）。
+- **接口格式锁定**：豆包锁定 OpenAI 格式（FORMAT_LOCK 增 `doubao: 'openai'`，火山方舟无 Anthropic
+  兼容口），.seg.lock 锁定语义既有，无新样式。
+- **登记表与候选种子同步**：VENDOR_DEFAULTS 增豆包条目（base `https://ark.cn-beijing.volces.com/api/v3`
+  ＋默认模型 `doubao-seed-2-1-lite-260915`）、MODEL_SEEDS 增 Seed 2.1 家族三个版本 id——与
+  实现侧 vendorDefaults.ts／VENDOR_MODEL_CANDIDATES 同值（登记纪律：均有 2026-10-24 方舟目录
+  元数据或真 Key 探针依据）。
+- **豆包无厂商级思考提示句**（与 Gemini 的差异）：方舟实测接受 app 现有思考三形态
+  （enabled+low／disabled／enabled+max 各 200），无档位换算、无「关闭仅部分型号生效」类边界，
+  思考行提示维持通用文案。
+- **parity 影响**：model-config.html 自 c-image-config-ux-fix 起进 design:check 像素矩阵
+  （图像段新增基线）——本 change 方块集改动与实现同批落，rebase 后 model-config 屏复跑全绿为准；
+  走 design-vocab 词表 lint；共享段零触碰、免 design-cross。

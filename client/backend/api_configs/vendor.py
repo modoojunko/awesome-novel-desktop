@@ -63,6 +63,19 @@ VENDOR_PATTERNS: list[VendorPattern] = [
         "OpenCode Go · Claude 系",
         re.compile(r"^https://opencode\.ai/zen/go", re.IGNORECASE),
     ),
+    # c-modelconfig-volc-doubao：火山方舟 OpenAI 兼容口。登记 region（cn-beijing）精确
+    # 模式在前、其余 region 同族兜底在后（均归 doubao，无同主机多键遮蔽问题）；自建
+    # 反代指向方舟不在识别范围（归 openai-compat，行为不受影响）。
+    VendorPattern(
+        "doubao",
+        "豆包 · 火山方舟",
+        re.compile(r"^https://ark\.cn-beijing\.volces\.com", re.IGNORECASE),
+    ),
+    VendorPattern(
+        "doubao",
+        "豆包 · 火山方舟",
+        re.compile(r"^https://ark\.[a-z0-9-]+\.volces\.com", re.IGNORECASE),
+    ),
 ]
 
 OPENCODE_SESSION_HEADER = "x-opencode-session"

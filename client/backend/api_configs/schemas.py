@@ -27,6 +27,7 @@ KNOWN_VENDORS = {
     "qwen",
     "ollama",
     "gemini",
+    "doubao",
     "opencode-go-chat",
     "opencode-go-claude",
     "openai-compat",

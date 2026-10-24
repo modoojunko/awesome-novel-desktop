@@ -1104,3 +1104,41 @@ describe("ApiConfigForm 供应商分组页签（c-modelconfig-gemini-go）", () 
     expect(screen.getByText(/手填模型 id/)).toBeTruthy();
   });
 });
+
+describe("ApiConfigForm 豆包方块（c-modelconfig-volc-doubao）", () => {
+  it("官方页默认可见豆包（副标火山方舟）；中转页不可见", () => {
+    render(<ApiConfigForm open onSubmit={vi.fn(async () => {})} onCancel={vi.fn()} />);
+    expect(screen.getByText("豆包")).toBeTruthy();
+    expect(screen.getByText("火山方舟")).toBeTruthy();
+    fireEvent.click(screen.getByText("中转 · 订阅制"));
+    expect(screen.queryByText("豆包")).toBeNull();
+  });
+
+  it("选中豆包：Base URL/模型预填登记值（方舟地址＋lite 版本 id），接口格式锁 OpenAI", () => {
+    render(<ApiConfigForm open onSubmit={vi.fn(async () => {})} onCancel={vi.fn()} />);
+    fireEvent.click(screen.getByText("豆包"));
+    expect((document.getElementById("cfBase") as HTMLInputElement).value).toBe(
+      "https://ark.cn-beijing.volces.com/api/v3",
+    );
+    expect((document.getElementById("cfModel") as HTMLInputElement).value).toBe(
+      "doubao-seed-2-1-lite-260915",
+    );
+    expect(screen.getByText("OpenAI 格式").className).toContain("on");
+    expect((screen.getByText("Anthropic 格式") as HTMLButtonElement).disabled).toBe(true);
+  });
+
+  it("编辑态回显「豆包 · 火山方舟」且不施加预填", () => {
+    render(
+      <ApiConfigForm
+        open
+        config={editCfg({ vendor: "doubao", base_url: "https://ark.cn-beijing.volces.com/api/v3" })}
+        onSubmit={vi.fn(async () => {})}
+        onCancel={vi.fn()}
+      />,
+    );
+    expect(document.querySelector(".vfix")!.textContent).toContain("豆包 · 火山方舟");
+    expect((document.getElementById("cfBase") as HTMLInputElement).value).toBe(
+      "https://ark.cn-beijing.volces.com/api/v3",
+    );
+  });
+});

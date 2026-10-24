@@ -66,6 +66,10 @@ VENDOR_MODEL_CANDIDATES: dict[str, list[str]] = {
     # 官方 id 带 -free 后缀（限免期）；Go·Claude 系仍登记 anthropic 口的 minimax-m3。
     "opencode-go-chat": ["glm-5.3-flash", "glm-5.3", "kimi-k3", "kimi-k2.7-code", "deepseek-v4.1-flash", "minimax-m3.1-flash-free"],
     "opencode-go-claude": ["claude-haiku-5-5", "minimax-m3", "qwen3.7-plus"],
+    # c-modelconfig-volc-doubao：火山方舟豆包文本家族（2026-10-24 方舟广场元数据
+    # name+primary_version 拼法；lite 已真弹 200 实证，pro/turbo 实现期真机抽验）。
+    # 数据面裸名 404（实测），一律完整版本 id。
+    "doubao": ["doubao-seed-2-1-lite-260915", "doubao-seed-2-1-pro-260915", "doubao-seed-2-1-turbo-260628"],
 }
 
 # 端点不提供模型列表时的统一说明（连接成功但列表为空的原因），按接口格式分文案：

@@ -666,6 +666,7 @@ const VENDORS = [
   { id: 'qwen', label: 'Qwen', icon: 'M12 5a7 7 0 110 14 7 7 0 010-14zM12 9a3 3 0 110 6 3 3 0 010-6z' },
   { id: 'ollama', label: 'Ollama', icon: 'M6 6h12v12H6zM10 6V4M14 6V4M10 20v-2M14 20v-2' },
   { id: 'gemini', label: 'Gemini', tab: 'official', badge: '新', icon: 'M12 3c.7 4.9 4.1 8.3 9 9-4.9.7-8.3 4.1-9 9-.7-4.9-4.1-8.3-9-9 4.9-.7 8.3-4.1 9-9z' },
+  { id: 'doubao', label: '豆包', sub: '火山方舟', tab: 'official', badge: '新', icon: 'M4 20h16M7 20l4.2-10h1.6L17 20M12 10V6.5M12 4v.5' },
   { id: 'opencode-go-chat', label: 'OpenCode Go', sub: '通用', tab: 'relay', badge: '新', icon: 'M12 3l7.8 4.5v9L12 21l-7.8-4.5v-9zM12 8.5v7M8.5 12h7' },
   { id: 'opencode-go-claude', label: 'OpenCode Go', sub: 'Claude 系', tab: 'relay', badge: '新', icon: 'M12 3l7.8 4.5v9L12 21l-7.8-4.5v-9zM12 8.5v7M8.5 12h7' },
   { id: 'openai-compat', label: 'OpenAI 兼容', tab: 'relay', icon: 'M9 15l6-6M11 7l1.6-1.6a3 3 0 014.2 4.2L15 11M13 17l-1.6 1.6a3 3 0 01-4.2-4.2L9 13' },
@@ -783,7 +784,7 @@ let editTarget = null;
 let selVendor = '';
 let selFormat = 'openai';
 // 接口格式锁定矩阵（拍板）：单格式厂商锁定，双格式可切换
-const FORMAT_LOCK = { openai: 'openai', anthropic: 'anthropic', ollama: 'openai', gemini: 'openai', 'opencode-go-chat': 'openai', 'opencode-go-claude': 'anthropic' };
+const FORMAT_LOCK = { openai: 'openai', anthropic: 'anthropic', ollama: 'openai', gemini: 'openai', doubao: 'openai', 'opencode-go-chat': 'openai', 'opencode-go-claude': 'anthropic' };
 // 供应商默认值登记表（2026-10-05 拍板：选已知供应商预填 Base URL＋模型名称，只填 Key；
 // 取代 2026-09-06「URL 不预填」）。有据才登记、无据留空；openai-compat 无登记值不预填。
 const VENDOR_DEFAULTS = {
@@ -791,6 +792,8 @@ const VENDOR_DEFAULTS = {
   anthropic:   { anthropic: { base_url: 'https://api.anthropic.com', model: '' } },
   // c-modelconfig-gemini-go：Gemini 官方兼容层＋OpenCode Go 订阅两口（2026-10-20 官方文档核对；模型留空走清单/候选）
   gemini:            { openai:    { base_url: 'https://generativelanguage.googleapis.com/v1beta/openai/', model: '' } },
+  // c-modelconfig-volc-doubao：火山方舟 OpenAI 兼容口（2026-10-24 目录元数据＋真 Key 探针；数据面裸名 404，一律完整版本 id）
+  doubao:            { openai:    { base_url: 'https://ark.cn-beijing.volces.com/api/v3', model: 'doubao-seed-2-1-lite-260915' } },
   'opencode-go-chat':   { openai:    { base_url: 'https://opencode.ai/zen/go/v1', model: '' } },
   'opencode-go-claude': { anthropic: { base_url: 'https://opencode.ai/zen/go', model: '' } },
   deepseek:    { openai: { base_url: 'https://api.deepseek.com', model: 'deepseek-v4-pro' } },
@@ -830,6 +833,7 @@ const MODEL_SEEDS = {
   openai: ['gpt-5.2', 'gpt-5.2-mini', 'gpt-5.1'],
   anthropic: ['claude-sonnet-5', 'claude-haiku-5'],
   gemini: ['gemini-2.5-pro', 'gemini-2.5-flash', 'gemini-2.5-flash-lite', 'gemini-3-flash'],
+  doubao: ['doubao-seed-2-1-lite-260915', 'doubao-seed-2-1-pro-260915', 'doubao-seed-2-1-turbo-260628'],
   'opencode-go-chat': ['glm-5.3-flash', 'glm-5.3', 'kimi-k3', 'kimi-k2.7-code', 'deepseek-v4.1-flash'],
   'opencode-go-claude': ['claude-haiku-5-5', 'minimax-m3', 'qwen3.7-plus'],
   deepseek: ['deepseek-flash', 'deepseek-v4-pro'],
