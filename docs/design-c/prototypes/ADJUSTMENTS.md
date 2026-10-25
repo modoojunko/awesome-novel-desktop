@@ -2198,3 +2198,21 @@ baseurl 到什么程度，要有个案例。」——中转站/自建网关用�
 - **演示种子**：星海拾遗 加 data-URI SVG 封面（演示 AI 封面来源行）；新增 0 章书「雪落无声」（演示 is-later 占位）。parity 注入（od.works.v1/FIXED_NOVELS）不变——四本书全无封面，长夜灯 0 章覆盖 is-later 态，占位块/按钮两侧逐像素对齐。
 - **实现侧落点**：`NovelListPage.tsx` 书卡结构重排、`list.css` 容器两列、`image-assets.css` 封面列新词（.book-cover/.cover-empty/.cover-act/.cover-meta，44px 旧词 .cover-wrap/.cover-edit/.book-cover-img 退役）、画风词表 `IMAGE_STYLES` 自工坊导出共享；`novelListPage.test.tsx`/`e2e/image-workshop.spec.ts` 入口选择器同批改钉。
 - **parity 影响**：书架 7 场景基线随两列版式同批重录对拍；共享段零触碰、免 design-cross。
+
+## c-prose-model-search（生成模型弹层顶搜索，2026-10-25）
+
+用户口径（2026-10-25）：「正文生成弹窗页面选择模型的组件要能支持快速搜索」。动因＝
+c-model-list-cap-300 后模型清单上限 300 条（方舟单家实测 137 条），滚动翻找体验不可接受。
+
+1. **`#modalAi` 生成模型弹层（`.mp-panel`）顶部加搜索框**：打开弹层即聚焦（进来就能打字），
+   输入即过滤——模型 id 或配置名命中（大小写不敏感），命中配置名＝该组全模型保留，
+   无一命中组整组隐藏；无匹配给空态文案「没有匹配的模型，换个词试试」。
+2. **键盘口径**（沿 ApiConfigForm 组合框先例）：方向键在过滤结果里移光标、Enter 选中
+   光标项（cursor 钳位防过滤后越界）、Esc 只收弹层不关弹窗（吞冒泡）、IME 组合期
+   方向键/Enter 归输入法选词；触发位方向键/Enter 开弹层的既有现场不变。
+3. **重开清零**：每次打开弹层搜索词重置——上一次的过滤词不替用户做决定（按次选择语义的同款克制）。
+4. **词汇入册一词**：`.mp-search`（sticky 顶常驻——清单滚动不带走搜索框；无边框 mono 输入，
+   前挂 14px search 图标）。仍只用既有 token 与字号档（12.5px），无新语气档。
+5. **不进 parity 截图的依据**：同 c-prose-model-select 第 4 条——`#modalAi` 不在
+   `design-parity-book.spec.ts` 场景清单内，本次无基线像素变更，`design:check` 预期零差异；
+   原型 `book.html` `#modalAi` 保持静态演示不随批改（产品化差异登记于此）。

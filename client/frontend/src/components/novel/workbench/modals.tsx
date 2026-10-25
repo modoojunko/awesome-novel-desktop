@@ -435,6 +435,8 @@ export function HistoryModal({
 // 生成模型选择位（c-prose-model-select）：跨配置/供应商按次选模型，仅本次生成生效。
 // 控件＝.mp-* 组合框＋弹层（先例 ApiConfigForm：portal 到 body + fixed 定位——弹窗
 // 滚动区不裁剪浮层；Esc 只收弹层）；选项只在「≠ 本书模型」时随请求下发。
+// 弹层顶搜索（c-prose-model-search）：清单上限 300，输入即过滤模型/配置名，
+// 焦点自动进搜索框、方向键/Enter 在过滤结果里导航、Esc 只收弹层。
 // ---------------------------------------------------------------------------
 
 function ModelPicker({
@@ -451,15 +453,20 @@ function ModelPicker({
   onPick: (key: string) => void;
 }) {
   const [open, setOpen] = useState(false);
+  const [query, setQuery] = useState("");
   const [cursor, setCursor] = useState(0);
   const [pos, setPos] = useState<PanelPlacement | null>(null);
   const wrapRef = useRef<HTMLDivElement | null>(null);
   const panelRef = useRef<HTMLDivElement | null>(null);
+  const searchRef = useRef<HTMLInputElement | null>(null);
 
-  // 分组：以配置为组（组头＝配置名 + 供应商）——跨供应商可辨（沿 ModelSettingForm 分组语义）
+  // 分组：以配置为组（组头＝配置名 + 供应商）——跨供应商可辨（沿 ModelSettingForm 分组语义）。
+  // 搜索过滤（c-prose-model-search）：模型 id 或配置名命中，大小写不敏感；空组整组隐藏
+  const q = query.trim().toLowerCase();
   const groups = useMemo(() => {
     const byConfig = new Map<string, FlatModelOption[]>();
     for (const o of options) {
+      if (q && !`${o.model} ${o.config_name}`.toLowerCase().includes(q)) continue;
       const list = byConfig.get(o.api_config_id) ?? [];
       list.push(o);
       byConfig.set(o.api_config_id, list);
@@ -470,7 +477,7 @@ function ModelPicker({
       vendor: opts[0].vendor,
       opts,
     }));
-  }, [options]);
+  }, [options, q]);
   const flat = useMemo(
     () =>
       groups.flatMap((g) =>
@@ -478,7 +485,11 @@ function ModelPicker({
       ),
     [groups],
   );
-  const current = flat.find((o) => o.key === value) ?? flat[0];
+  // 触发位文案从全量取：当前项被滤掉时显示不得跟着搜索词变
+  const current = useMemo(() => {
+    const hit = options.find((o) => `${o.api_config_id}::${o.model}` === value);
+    return hit ?? options[0];
+  }, [options, value]);
 
   // 弹层定位：portal 出 .mcard 滚动容器后用 fixed 锚触发位矩形，随滚动/resize 重锚；
   // 换算（zoom 折算＋放不下翻转/限高）统一走 placePanel——见 lib/panelAnchor.ts
@@ -519,8 +530,35 @@ function ModelPicker({
 
   const openAt = () => {
     const i = flat.findIndex((o) => o.key === value);
+    setQuery(""); // 每次打开重置搜索：上一次的过滤词不该替用户做决定
     setCursor(i >= 0 ? i : 0);
     setOpen(true);
+  };
+
+  // 弹层开着即焦点进搜索框：进来就能打字（触发位方向键开弹层的现场也顺接）
+  useEffect(() => {
+    if (open) searchRef.current?.focus();
+  }, [open]);
+
+  const onSearchKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (e.nativeEvent.isComposing) return; // IME 组合期方向键/Enter 归输入法选词（同 ApiConfigForm 评审 P2）
+    if (e.key === "ArrowDown" || e.key === "ArrowUp") {
+      e.preventDefault();
+      setCursor((c) =>
+        Math.min(Math.max(c + (e.key === "ArrowDown" ? 1 : -1), 0), flat.length - 1),
+      );
+    } else if (e.key === "Enter") {
+      e.preventDefault();
+      const pick = flat[Math.min(cursor, flat.length - 1)]; // cursor 钳位（过滤后区间变小防越界）
+      if (pick) {
+        onPick(pick.key);
+        setOpen(false);
+      }
+    } else if (e.key === "Escape") {
+      // 只收弹层：吞掉冒泡（Modal 在 window 上听 Esc——同触发位先例）
+      e.stopPropagation();
+      setOpen(false);
+    }
   };
 
   const onKeyDown = (e: React.KeyboardEvent<HTMLButtonElement>) => {
@@ -592,45 +630,72 @@ function ModelPicker({
             }}
             onMouseDown={(e) => e.preventDefault()} // 点选不抢焦点：键盘现场留在触发位（同先例）
           >
-            {groups.map((g) => (
-              <div key={g.cid}>
-                <div className="mp-group">
-                  {g.name} <span className="mg-vendor">{g.vendor}</span>
+            <div
+              className="mp-search"
+              onMouseDown={(e) => e.stopPropagation()} // 搜索框要能点进去取焦点（弹层整体不抢焦点的例外）
+            >
+              <Ico d={P.search} />
+              <input
+                ref={searchRef}
+                type="text"
+                aria-label="搜索模型"
+                aria-controls="ai-model-panel"
+                aria-activedescendant={flat[cursor] ? `ai-model-opt-${cursor}` : undefined}
+                placeholder="搜索模型或配置名"
+                autoComplete="off"
+                spellCheck={false}
+                value={query}
+                onChange={(e) => {
+                  setQuery(e.target.value);
+                  setCursor(0); // 过滤区间变了，光标回顶（同 ApiConfigForm onChange 口径）
+                }}
+                onKeyDown={onSearchKeyDown}
+                data-testid="ai-model-search"
+              />
+            </div>
+            {flat.length === 0 ? (
+              <div className="mp-empty">没有匹配的模型，换个词试试</div>
+            ) : (
+              groups.map((g) => (
+                <div key={g.cid}>
+                  <div className="mp-group">
+                    {g.name} <span className="mg-vendor">{g.vendor}</span>
+                  </div>
+                  <ul className="mp-list">
+                    {g.opts.map((o) => {
+                      const key = `${o.api_config_id}::${o.model}`;
+                      const i = flat.findIndex((f) => f.key === key);
+                      const on = key === value;
+                      return (
+                        <li key={key}>
+                          <button
+                            type="button"
+                            role="option"
+                            id={`ai-model-opt-${i}`}
+                            aria-selected={on}
+                            tabIndex={-1}
+                            className={
+                              "mp-item" + (i === cursor ? " cur" : "") + (on ? " on" : "")
+                            }
+                            data-model={key}
+                            onMouseEnter={() => setCursor(i)}
+                            onClick={() => {
+                              onPick(key);
+                              setOpen(false);
+                            }}
+                          >
+                            {o.model}
+                            {key === bookValue ? (
+                              <span className="mp-flag">本书模型</span>
+                            ) : null}
+                          </button>
+                        </li>
+                      );
+                    })}
+                  </ul>
                 </div>
-                <ul className="mp-list">
-                  {g.opts.map((o) => {
-                    const key = `${o.api_config_id}::${o.model}`;
-                    const i = flat.findIndex((f) => f.key === key);
-                    const on = key === value;
-                    return (
-                      <li key={key}>
-                        <button
-                          type="button"
-                          role="option"
-                          id={`ai-model-opt-${i}`}
-                          aria-selected={on}
-                          tabIndex={-1}
-                          className={
-                            "mp-item" + (i === cursor ? " cur" : "") + (on ? " on" : "")
-                          }
-                          data-model={key}
-                          onMouseEnter={() => setCursor(i)}
-                          onClick={() => {
-                            onPick(key);
-                            setOpen(false);
-                          }}
-                        >
-                          {o.model}
-                          {key === bookValue ? (
-                            <span className="mp-flag">本书模型</span>
-                          ) : null}
-                        </button>
-                      </li>
-                    );
-                  })}
-                </ul>
-              </div>
-            ))}
+              ))
+            )}
           </div>,
           document.body,
         )}
