@@ -453,3 +453,101 @@ describe("AiModal · 生成模型选择位", () => {
     expect(trigger.getAttribute("aria-activedescendant")).toBeNull();
   });
 });
+
+// ── c-prose-model-search：弹层顶搜索（清单上限 300，输入即过滤）───────────────
+describe("AiModal · 生成模型搜索", () => {
+  async function openPicker() {
+    renderModal();
+    await screen.findByTestId("ai-prompt");
+    fireEvent.click(await screen.findByTestId("ai-model-select"));
+    return await screen.findByTestId("ai-model-panel");
+  }
+
+  it("输入即过滤：模型 id 命中（大小写不敏感），无关组整组隐藏", async () => {
+    const panel = await openPicker();
+    fireEvent.change(screen.getByTestId("ai-model-search"), { target: { value: "QWEN" } });
+    expect(panel.querySelector('[data-model="c2::qwen2.5:14b"]')).toBeTruthy();
+    expect(panel.querySelector('[data-model="c1::deepseek-v4-pro"]')).toBeNull();
+    expect(panel.textContent).toContain("本地 · Ollama");
+    expect(panel.textContent).not.toContain("深度求索");
+  });
+
+  it("配置名也能命中：命中组的全部模型保留", async () => {
+    const panel = await openPicker();
+    fireEvent.change(screen.getByTestId("ai-model-search"), { target: { value: "深度" } });
+    expect(panel.querySelector('[data-model="c1::deepseek-v4-pro"]')).toBeTruthy();
+    expect(panel.querySelector('[data-model="c1::deepseek-v4-flash"]')).toBeTruthy();
+    expect(panel.querySelector('[data-model="c2::qwen2.5:14b"]')).toBeNull();
+  });
+
+  it("无匹配：给空态提示；Enter 不误选不关层、IME 组合期按键早退", async () => {
+    const panel = await openPicker();
+    const input = screen.getByTestId("ai-model-search");
+    // IME 组合期 Enter：早退不动作（同 ApiConfigForm 评审 P2 口径）
+    fireEvent.keyDown(input, { key: "Enter", isComposing: true });
+    expect(screen.getByTestId("ai-model-panel")).toBeTruthy();
+    fireEvent.change(input, { target: { value: "不存在的模型" } });
+    expect(panel.textContent).toContain("没有匹配的模型");
+    // 无匹配 Enter：光标项不存在——不选不关，触发位仍是本书模型
+    fireEvent.keyDown(input, { key: "Enter" });
+    expect(screen.getByTestId("ai-model-panel")).toBeTruthy();
+    expect(screen.getByTestId("ai-model-name").textContent).toBe("深度求索 · deepseek-v4-pro");
+  });
+
+  it("Enter 选中过滤结果光标项：确认携带按次模型对", async () => {
+    const { onConfirm } = renderModal();
+    await screen.findByTestId("ai-prompt");
+    fireEvent.click(await screen.findByTestId("ai-model-select"));
+    await screen.findByTestId("ai-model-panel");
+    const input = screen.getByTestId("ai-model-search");
+    fireEvent.change(input, { target: { value: "qwen" } });
+    fireEvent.keyDown(input, { key: "Enter" });
+    await waitFor(() => expect(screen.queryByTestId("ai-model-panel")).toBeNull());
+    expect(screen.getByTestId("ai-model-name").textContent).toBe("本地 · Ollama · qwen2.5:14b");
+    fireEvent.click(screen.getByTestId("ai-confirm"));
+    expect(onConfirm).toHaveBeenCalledWith(expect.any(String), {
+      api_config_id: "c2",
+      model: "qwen2.5:14b",
+    });
+  });
+
+  it("搜索框 Esc 只收弹层：弹窗不关；重开清零且光标钉回当前项", async () => {
+    const panel = await openPicker();
+    // 先换到 flash（value≠首项，重开下标才有判别力）
+    fireEvent.click(panel.querySelector('[data-model="c1::deepseek-v4-flash"]')!);
+    fireEvent.click(await screen.findByTestId("ai-model-select"));
+    const input = screen.getByTestId("ai-model-search");
+    fireEvent.change(input, { target: { value: "flash" } });
+    fireEvent.keyDown(input, { key: "Escape" });
+    await waitFor(() => expect(screen.queryByTestId("ai-model-panel")).toBeNull());
+    expect(screen.getByTestId("ai-prompt")).toBeTruthy(); // 弹窗本体还在
+    fireEvent.click(screen.getByTestId("ai-model-select"));
+    const reopened = await screen.findByTestId("ai-model-panel");
+    expect((screen.getByTestId("ai-model-search") as HTMLInputElement).value).toBe("");
+    expect(reopened.querySelector('[data-model="c1::deepseek-v4-pro"]')).toBeTruthy();
+    // 光标钉在当前选中项的**全量**下标（flash＝1）——按旧过滤表取下标会错钉到首项
+    const trigger = screen.getByTestId("ai-model-select");
+    expect(trigger.getAttribute("aria-activedescendant")).toBe("ai-model-opt-1");
+    expect(document.getElementById("ai-model-opt-1")?.textContent).toContain("deepseek-v4-flash");
+  });
+
+  it("选完或收层焦点回到触发位：弹层卸载不把焦点丢进 body", async () => {
+    renderModal();
+    await screen.findByTestId("ai-prompt");
+    fireEvent.click(await screen.findByTestId("ai-model-select"));
+    await screen.findByTestId("ai-model-panel");
+    const input = screen.getByTestId("ai-model-search");
+    const trigger = screen.getByTestId("ai-model-select");
+    expect(document.activeElement).toBe(input); // 打开即聚焦搜索框
+    fireEvent.change(input, { target: { value: "qwen" } });
+    fireEvent.keyDown(input, { key: "Enter" });
+    await waitFor(() => expect(screen.queryByTestId("ai-model-panel")).toBeNull());
+    expect(document.activeElement).toBe(trigger);
+    // Esc 收层同样回触发位
+    fireEvent.click(trigger);
+    await screen.findByTestId("ai-model-panel");
+    fireEvent.keyDown(screen.getByTestId("ai-model-search"), { key: "Escape" });
+    await waitFor(() => expect(screen.queryByTestId("ai-model-panel")).toBeNull());
+    expect(document.activeElement).toBe(trigger);
+  });
+});
