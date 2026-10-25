@@ -511,10 +511,13 @@ describe("AiModal · 生成模型搜索", () => {
     });
   });
 
-  it("搜索框 Esc 只收弹层：弹窗不关；重开弹层搜索词清零", async () => {
+  it("搜索框 Esc 只收弹层：弹窗不关；重开清零且光标钉回当前项", async () => {
     const panel = await openPicker();
+    // 先换到 flash（value≠首项，重开下标才有判别力）
+    fireEvent.click(panel.querySelector('[data-model="c1::deepseek-v4-flash"]')!);
+    fireEvent.click(await screen.findByTestId("ai-model-select"));
     const input = screen.getByTestId("ai-model-search");
-    fireEvent.change(input, { target: { value: "qwen" } });
+    fireEvent.change(input, { target: { value: "flash" } });
     fireEvent.keyDown(input, { key: "Escape" });
     await waitFor(() => expect(screen.queryByTestId("ai-model-panel")).toBeNull());
     expect(screen.getByTestId("ai-prompt")).toBeTruthy(); // 弹窗本体还在
@@ -522,5 +525,29 @@ describe("AiModal · 生成模型搜索", () => {
     const reopened = await screen.findByTestId("ai-model-panel");
     expect((screen.getByTestId("ai-model-search") as HTMLInputElement).value).toBe("");
     expect(reopened.querySelector('[data-model="c1::deepseek-v4-pro"]')).toBeTruthy();
+    // 光标钉在当前选中项的**全量**下标（flash＝1）——按旧过滤表取下标会错钉到首项
+    const trigger = screen.getByTestId("ai-model-select");
+    expect(trigger.getAttribute("aria-activedescendant")).toBe("ai-model-opt-1");
+    expect(document.getElementById("ai-model-opt-1")?.textContent).toContain("deepseek-v4-flash");
+  });
+
+  it("选完或收层焦点回到触发位：弹层卸载不把焦点丢进 body", async () => {
+    renderModal();
+    await screen.findByTestId("ai-prompt");
+    fireEvent.click(await screen.findByTestId("ai-model-select"));
+    await screen.findByTestId("ai-model-panel");
+    const input = screen.getByTestId("ai-model-search");
+    const trigger = screen.getByTestId("ai-model-select");
+    expect(document.activeElement).toBe(input); // 打开即聚焦搜索框
+    fireEvent.change(input, { target: { value: "qwen" } });
+    fireEvent.keyDown(input, { key: "Enter" });
+    await waitFor(() => expect(screen.queryByTestId("ai-model-panel")).toBeNull());
+    expect(document.activeElement).toBe(trigger);
+    // Esc 收层同样回触发位
+    fireEvent.click(trigger);
+    await screen.findByTestId("ai-model-panel");
+    fireEvent.keyDown(screen.getByTestId("ai-model-search"), { key: "Escape" });
+    await waitFor(() => expect(screen.queryByTestId("ai-model-panel")).toBeNull());
+    expect(document.activeElement).toBe(trigger);
   });
 });

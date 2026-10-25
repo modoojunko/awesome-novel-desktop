@@ -459,6 +459,7 @@ function ModelPicker({
   const wrapRef = useRef<HTMLDivElement | null>(null);
   const panelRef = useRef<HTMLDivElement | null>(null);
   const searchRef = useRef<HTMLInputElement | null>(null);
+  const triggerRef = useRef<HTMLButtonElement | null>(null);
 
   // 分组：以配置为组（组头＝配置名 + 供应商）——跨供应商可辨（沿 ModelSettingForm 分组语义）。
   // 搜索过滤（c-prose-model-search）：模型 id 或配置名命中，大小写不敏感；空组整组隐藏
@@ -529,16 +530,27 @@ function ModelPicker({
   }, [open]);
 
   const openAt = () => {
-    const i = flat.findIndex((o) => o.key === value);
+    // 光标按全量清单取下标：flat 此刻还是上一次过滤后的旧表（setQuery 同批才生效），
+    // 按它取会把重开后的高亮钉在错误行
+    const i = options.findIndex((o) => `${o.api_config_id}::${o.model}` === value);
     setQuery(""); // 每次打开重置搜索：上一次的过滤词不该替用户做决定
     setCursor(i >= 0 ? i : 0);
     setOpen(true);
   };
 
-  // 弹层开着即焦点进搜索框：进来就能打字（触发位方向键开弹层的现场也顺接）
+  // 弹层真正挂载后（pos 就绪）焦点进搜索框：进来就能打字。deps 须是「开且已定位」——
+  // 定位 effect 与本 effect 同批先跑，若只盯 open，此刻 searchRef 还是 null，聚焦静默落空
+  const panelShown = open && pos != null;
   useEffect(() => {
-    if (open) searchRef.current?.focus();
-  }, [open]);
+    if (panelShown) searchRef.current?.focus();
+  }, [panelShown]);
+
+  // 弹层内的收层（选中/Esc）把焦点还给触发位：搜索框随弹层卸载，不还＝焦点掉 body，
+  // 弹窗里 Tab 得从文档头重来（外点关闭不在此列——不能抢用户刚点的地方）
+  const closePanel = () => {
+    setOpen(false);
+    triggerRef.current?.focus();
+  };
 
   const onSearchKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
     if (e.nativeEvent.isComposing) return; // IME 组合期方向键/Enter 归输入法选词（同 ApiConfigForm 评审 P2）
@@ -552,12 +564,12 @@ function ModelPicker({
       const pick = flat[Math.min(cursor, flat.length - 1)]; // cursor 钳位（过滤后区间变小防越界）
       if (pick) {
         onPick(pick.key);
-        setOpen(false);
+        closePanel();
       }
     } else if (e.key === "Escape") {
       // 只收弹层：吞掉冒泡（Modal 在 window 上听 Esc——同触发位先例）
       e.stopPropagation();
-      setOpen(false);
+      closePanel();
     }
   };
 
@@ -593,6 +605,7 @@ function ModelPicker({
     <div className="mp-wrap" ref={wrapRef} data-testid="ai-model-picker">
       <button
         type="button"
+        ref={triggerRef}
         className="input mp-trigger"
         role="combobox"
         aria-haspopup="listbox"
@@ -681,7 +694,7 @@ function ModelPicker({
                             onMouseEnter={() => setCursor(i)}
                             onClick={() => {
                               onPick(key);
-                              setOpen(false);
+                              closePanel();
                             }}
                           >
                             {o.model}
