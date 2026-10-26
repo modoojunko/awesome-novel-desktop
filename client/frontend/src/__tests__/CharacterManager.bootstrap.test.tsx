@@ -85,7 +85,7 @@ describe("CharacterManager 首进引导", () => {
 
   it("空态 + 简介未填：不给 AI 入口，指引先补简介，手动兜底", async () => {
     render(<CharacterManager projectId="p1" introReady={false} />);
-    expect(await screen.findByText(/先去 01 简介写几句/)).toBeTruthy();
+    expect(await screen.findByText(/先去 02 简介写几句/)).toBeTruthy();
     expect(screen.queryByRole("button", { name: "从简介立主角" })).toBeNull();
     expect(screen.getByRole("button", { name: "手动建主角" })).toBeTruthy();
   });

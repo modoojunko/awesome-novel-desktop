@@ -35,7 +35,7 @@ interface Props {
   onDirtyChange?: (dirty: boolean) => void;
   /** 选中卡变化时上报（右栏四行提示与缺口计数的数据源） */
   onCtxChange?: (ctx: CharAiCtx | null) => void;
-  /** 01 简介是否已填（readiness settingsStatus.synopsis）——空态引导卡的分路判据 */
+  /** 02 简介是否已填（readiness settingsStatus.synopsis）——空态引导卡的分路判据 */
   introReady?: boolean;
   /** 本书 AI 就绪态（D13）：空态引导按钮与右栏行同一门控；不 ready 时点击走 onBlocked */
   aiState?: AiState;
@@ -865,7 +865,7 @@ const CharacterManager = forwardRef<CharacterSaveHandle, Props>(function Charact
               <p className="guide-t">
                 {introReady
                   ? "简介里已经有主角的线索了"
-                  : "先去 01 简介写几句，主角就有了眉目"}
+                  : "先去 02 简介写几句，主角就有了眉目"}
               </p>
               <p className="opt">
                 「从简介立主角」先给你起草用的提示词——可以直接改、加要求，点「生成」出稿；在弹窗里看过再采纳，也可以直接手动建一张主角卡。

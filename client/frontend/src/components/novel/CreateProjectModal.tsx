@@ -30,6 +30,8 @@ interface CreateProjectModalProps {
 // Reducer — 极简单字段：书名。
 // 2026-09-10 用户裁定：建书只问书名（「类型」不再问——类型改由「设定 · 题材」
 // 的六格承载，建书时问一次等于让作者在还没想清故事时先做分类）。
+// 2026-10-26 用户拍板（c-genre-first-order）：进书后先定题材、再写简介——
+// 写小说第一步是定题材；建书弹窗仍只问书名，引导语随新序走。
 // ---------------------------------------------------------------------------
 
 const INITIAL: ModalState = {
@@ -113,7 +115,7 @@ export default function CreateProjectModal({
             取消
           </button>
           <button className="btn btn-primary" onClick={() => void handleCreate()} disabled={!canCreate}>
-            {submitting ? "创建中…" : "创建，去写简介"}
+            {submitting ? "创建中…" : "创建，去定题材"}
           </button>
         </>
       }
@@ -133,8 +135,8 @@ export default function CreateProjectModal({
         />
       </div>
       <p className="hint">
-        创建后<b>直接进入这本书</b>。书名先随手起一个，之后随时能改；建好后先写简介、
-        再定题材——两步都能跳过，以后随时回来补。
+        创建后<b>直接进入这本书</b>。书名先随手起一个，之后随时能改；建好后先定题材、
+        再写简介——两步都能跳过，以后随时回来补。
       </p>
       {freeLimitReached && (
         <p className="hint" style={{ marginTop: 10, background: "var(--warn-soft)" }}>

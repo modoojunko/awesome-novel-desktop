@@ -178,6 +178,10 @@ class TestReadiness:
         assert labels == {"故事简介", "主线规划", "题材类型", "世界设定", "伏笔管理", "角色管理"}
         for m in data["missing"]:
             assert m["jump"] in {"synopsis", "story-arc", "genre", "world", "hooks", "characters"}
+        # missing 列表与设定左栏菜单同序（c-genre-first-order：题材第一、简介第二）
+        order = [m["key"] for m in data["missing"]]
+        assert order.index("genre") < order.index("synopsis")
+        assert order[-1] == "hooks"
 
     def test_all_filled_complete(self, client):
         pid = _create_project(client)

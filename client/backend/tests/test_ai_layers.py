@@ -490,6 +490,19 @@ class TestGenreFieldAi:
         assert fake.last_kwargs["temperature"] <= 0.3
         assert fake.last_kwargs["max_tokens"] >= 2048
 
+    def test_empty_synopsis_still_generates(self, client, monkeypatch):
+        """c-genre-first-order：题材升第一格后新书简介恒空——不再 400，
+        空简介声明进提示词，AI 仅凭题材+书名出候选。"""
+        cid = _run_async(_make_config(["gpt-4o"]))
+        nid = _run_async(_make_novel(cid, "gpt-4o"))  # 不 seed story.yaml → 简介为空
+        fake = self._patch_client(monkeypatch, '{"value": "以弱破强的痛快", "note": "n"}')
+        r = client.post(
+            f"/api/novels/{nid}/settings/ai/genre/core_promise", json={"title": "书"}
+        )
+        assert r.status_code == 200, r.text
+        prompt = fake.last_kwargs["messages"][0]["content"] + (fake.last_kwargs.get("system") or "")
+        assert "作者还没写简介" in prompt
+
 
 # ── 简介 AI ────────────────────────────────────────────────────────────────
 

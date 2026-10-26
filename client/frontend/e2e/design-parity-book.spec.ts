@@ -351,10 +351,10 @@ test.describe("design-parity 书工作台屏（book.html）", () => {
         await appPage.waitForSelector(".col-middle .panel-head h2");
       } else if (c.screen === "settings") {
         // 等待须先于点击注册：挂载即发请求，响应可能先于 await 返回。
-        // tasks 2.1 起设定视图默认落「简介」（SETTINGS_ITEMS[0]）→ 等 story
-        const storyLoaded = appPage.waitForResponse(`**/api/novels/${PID}/story`);
+        // c-genre-first-order 起设定视图默认落「题材」（SETTINGS_ITEMS[0]）→ 等 genre
+        const genreLoaded = appPage.waitForResponse(`**/api/novels/${PID}/settings/genre`);
         await appPage.locator(".modnav button", { hasText: "设定" }).click();
-        await storyLoaded;
+        await genreLoaded;
         await appPage.waitForSelector(".settings-v main h2");
       } else if (c.screen === "modal-delete") {
         // 首章（vol-1-ch-1 锚点，confirmed + 793 字）hover → 删除 → 删除确认弹窗

@@ -49,13 +49,14 @@ import {
 import { introAi, aiBlockReason, type IntroAiAction } from "@/lib/ai";
 
 // ── 面板注册表（顺序/命名与原型 navItems 一致；settingsKey 对后端口径）──
-// 顺序＝用户 2026-09-10 拍板：00 模型设定（工具项，见下方树内单列）→ 01 简介 →
-// 02 题材 → 03 世界 → 04 角色 → 05 主线 → 06 文风 → 07 伏笔。
+// 顺序＝用户 2026-10-26 拍板「作家写小说，先定题材，才想如何写简介」：00 模型设定
+// （工具项，见下方树内单列）→ 01 题材 → 02 简介 → 03 世界 → 04 角色 → 05 主线 →
+// 06 文风 → 07 伏笔（翻转 2026-09-10 的简介在前；c-genre-first-order）。
 // 这一序同时决定「确认即前进」的推进顺序（nextPanel 按本数组取下一项）；
 // banned-words-into-style：08 禁用词句退役——禁用词/句式规则并入文风硬约束区。
 const SETTINGS_ITEMS = [
-  { k: "intro", name: "简介", settingsKey: "synopsis", canDefer: false },
   { k: "genre", name: "题材", settingsKey: "genre", canDefer: false },
+  { k: "intro", name: "简介", settingsKey: "synopsis", canDefer: false },
   { k: "world", name: "世界", settingsKey: "world", canDefer: true },
   { k: "chars", name: "角色", settingsKey: "characters", canDefer: true },
   { k: "arc", name: "主线", settingsKey: "story-arc", canDefer: true },
@@ -93,7 +94,7 @@ function BadgeIcon({ ok }: { ok?: boolean }) {
 export interface SettingsViewProps {
   projectId: string;
   initialPanel?: string;
-  /** 页签回默认主页：值变化＝把面板拨回默认项（第一项「简介」）；脏表单由外壳先确认 */
+  /** 页签回默认主页：值变化＝把面板拨回默认项（第一项「题材」）；脏表单由外壳先确认 */
   homeSeq?: number;
   settingsStatus: Record<string, boolean> | null;
   /** 角色项"内容有变"（character-settings-v2）：确认存档与当前内容指纹不一致 */
@@ -110,14 +111,14 @@ export interface SettingsViewProps {
   novelName?: string;
 }
 
-/** 旧面板键 → 新面板键（外部 jump 载荷兼容） */
+/** 旧面板键 → 新面板键（外部 jump 载荷兼容）；默认＝设定首项「题材」（c-genre-first-order） */
 function normalizePanel(v: string | undefined): string {
   const map: Record<string, string> = {
     genre: "genre", synopsis: "intro", intro: "intro", "story-arc": "arc", arc: "arc",
     world: "world", style: "style", "anti-ai": "style",
     hooks: "foreshadow", characters: "chars", "ai-model": "aiModel",
   };
-  return (v && map[v]) || "intro";
+  return (v && map[v]) || "genre";
 }
 
 export default function SettingsView({
@@ -990,7 +991,7 @@ export default function SettingsView({
         {panel === "intro" ? (
           <AiWriterAssistant
             rows={introAiRows}
-            footNote="输入：书名 + 简介本文（题材可后补）。结果在弹窗里过目，确认才写回；重开同一行先看上次结果，「换一个」才重新生成。"
+            footNote="输入：书名 + 简介本文（不用题材）。结果在弹窗里过目，确认才写回；重开同一行先看上次结果，「换一个」才重新生成。"
             aiState={aiState}
             aiStateMessage={aiMessage}
             onBlocked={handleAiBlocked}
@@ -999,7 +1000,7 @@ export default function SettingsView({
         ) : panel === "genre" ? (
           <AiWriterAssistant
             rows={genreAiRows}
-            footNote="点某行，AI 建议在弹窗里过目，确认才写回对应格；关闭即弃，可换一个重生成。"
+            footNote="点某行，AI 建议在弹窗里过目，确认才写回对应格；关闭即弃，可换一个重生成。简介还没写时 AI 只凭题材与书名出候选，写两句简介建议更准。"
             aiState={aiState}
             aiStateMessage={aiMessage}
             onBlocked={handleAiBlocked}

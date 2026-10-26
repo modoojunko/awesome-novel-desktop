@@ -40,7 +40,7 @@ test("思考呈现全链：面板让位→收起条回看→正文零思考", as
   await page.goto(`${ORIGIN}/#/novels`);
   await page.getByRole("button", { name: "新建作品" }).first().click();
   await page.locator("input#bkTitle").fill("思考呈现e2e");
-  await page.getByRole("button", { name: "创建，去写简介" }).click();
+  await page.getByRole("button", { name: "创建，去定题材" }).click();
   await page.waitForURL(/#\/novel\/[0-9a-fA-F-]+/);
   const pid = page.url().match(/#\/novel\/([0-9a-fA-F-]+)/)![1];
   await page.locator(".mtab", { hasText: "写作" }).click();
