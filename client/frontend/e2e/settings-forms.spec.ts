@@ -1011,7 +1011,7 @@ test("角色：首进引导卡 → 手动建主角 → 引导卡退场", async (
   const auth = { Authorization: `Bearer ${token}`, "Content-Type": "application/json" };
   try {
     const pid = await createNovel(page, `引导${Date.now() % 100000}`);
-    // 先把 01 简介填上（readiness synopsis 就绪 → 角色页空态给 AI 出口）
+    // 先把 02 简介填上（readiness synopsis 就绪 → 角色页空态给 AI 出口）
     const putStory = await request.put(`${ORIGIN}/api/novels/${pid}/story`, {
       headers: auth,
       data: { synopsis: "杂役弟子林晚靠一双能看见修为漏洞的眼翻盘。" },
