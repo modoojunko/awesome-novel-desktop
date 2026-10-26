@@ -74,6 +74,10 @@ jobs:
               staging = json.loads(Path("/tmp/staging.json").read_text(encoding="utf-8"))
           except ValueError:
               fail("灰度清单不是合法 JSON（SPA 兜底页混入？）——拒绝晋升")
+          # 合法 JSON ≠ 键值形态（数组/标量同样过 json.load）——.get 前先判型，
+          # 与后端 update_channel.read_override 对非 dict 的 fail-soft 同口径
+          if not isinstance(staging, dict):
+              fail(f"灰度清单不是键值形态（{type(staging).__name__}）——拒绝晋升")
           ver = str(staging.get("version") or "")
           if not is_valid_version(ver):
               fail(f"灰度清单 version 缺失或非法（{ver!r}）——拒绝晋升")
