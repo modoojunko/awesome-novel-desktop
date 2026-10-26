@@ -3,6 +3,8 @@
 // c-deconstruct-resilience：时间走 parseServerTime（UTC 口径，无时区偏移）；
 // 失败面板按 error_kind 给可执行出口；完成态透出降级维度与告警账。
 // c-deconstruct-product-preview：完成态结果目录点文件名只读预览全文（弹窗，不编辑）。
+// c-deconstruct-evidence-report：证据报告弹窗——证据章节/可信度等拆解依据按维度呈现，
+// 作家 md 不再承载（后端由任务资料 JSON 现渲染，存量任务同样可看）。
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
@@ -17,12 +19,14 @@ import {
   DECONSTRUCT_DIMS,
   deleteDeconstructTask,
   exportTaskProducts,
+  getDeconstructEvidence,
   getDeconstructProduct,
   getDeconstructTask,
   importBookFromTask,
   probeModel,
   resumeDeconstructTask,
   retryUploadDeconstructTask,
+  type DeconstructEvidence,
   type DeconstructTaskDetail,
 } from "../../lib/deconstructApi";
 
@@ -74,6 +78,10 @@ export default function TaskDetailPage() {
   // 过期响应守卫：关了再开/连点两份时，慢的旧响应不得把旧内容顶进新弹窗、
   // 也不得用旧失败关掉新弹窗（评审 P2）——序号不符即整体丢弃。
   const previewSeq = useRef(0);
+  // 证据报告（c-deconstruct-evidence-report）：evidenceOpen＝弹窗开；data null＝加载中。
+  const [evidenceOpen, setEvidenceOpen] = useState(false);
+  const [evidenceData, setEvidenceData] = useState<DeconstructEvidence | null>(null);
+  const evidenceSeq = useRef(0);
 
   const { data: task, error: taskErr } = useQuery({
     queryKey: queryKeys.deconstructTask(id),
@@ -204,6 +212,21 @@ export default function TaskDetailPage() {
       if (seq !== previewSeq.current) return; // 旧失败不 toast、不关新弹窗
       toast.error(e instanceof Error ? e.message : "预览加载失败");
       setPreviewName(null);
+    }
+  };
+
+  const openEvidence = async () => {
+    const seq = ++evidenceSeq.current;
+    setEvidenceOpen(true);
+    setEvidenceData(null);
+    try {
+      const r = await getDeconstructEvidence(task.id);
+      if (seq !== evidenceSeq.current) return; // 过期成功整体丢弃（同预览守卫口径）
+      setEvidenceData(r);
+    } catch (e) {
+      if (seq !== evidenceSeq.current) return;
+      toast.error(e instanceof Error ? e.message : "证据报告加载失败");
+      setEvidenceOpen(false);
     }
   };
 
@@ -470,6 +493,9 @@ export default function TaskDetailPage() {
             <Link className="btn btn-secondary" to="/tools/deconstruct/new">
               再拆一本
             </Link>
+            <button className="btn btn-secondary" data-od-id="btn-evidence" onClick={() => void openEvidence()}>
+              证据报告
+            </button>
           </div>
           {(() => {
             const line = task.stats ? statsLine(task.stats) : "";
@@ -497,7 +523,7 @@ export default function TaskDetailPage() {
               <span data-od-id="fd-count">
                 已选 {selectedFiles.length}/{task.products.length}
               </span>{" "}
-              （不勾的不随出口带走；点文件名可预览）
+              （不勾的不随出口带走；点文件名可预览；证据章节等拆解依据在「证据报告」）
             </div>
             {task.products.map((p) => (
               <div
@@ -550,7 +576,7 @@ export default function TaskDetailPage() {
           </div>
           <div className="hint">
             <b>看内容：</b>点结果目录里的文件名即可在此预览全文（只读）；「建书」后到书内设定页
-            可查看与编辑。应用内不编辑拆解产物。
+            可查看与编辑。应用内不编辑拆解产物。证据章节、可信度等拆解依据在「证据报告」查看。
           </div>
         </>
       )}
@@ -817,6 +843,62 @@ export default function TaskDetailPage() {
               </div>
               <div className="mcard-foot">
                 <button className="btn btn-secondary" data-od-id="preview-close" onClick={() => setPreviewName(null)}>
+                  关闭
+                </button>
+              </div>
+            </div>
+          </div>
+        </>
+      )}
+
+      {/* 证据报告弹窗（c-deconstruct-evidence-report）：维度分组证据账，由任务资料
+          JSON 现渲染；加载/失败/过期响应守卫同预览弹窗口径 */}
+      {evidenceOpen && (
+        <>
+          <div className="scrim show" onClick={() => setEvidenceOpen(false)} />
+          <div className="modal show" role="dialog" aria-modal="true" data-od-id="evidence-modal">
+            <div className="mcard rd-style">
+              <div className="mcard-head">
+                <span className="mh">证据报告 · 《{task.book_name}》</span>
+                <button className="icon-btn" aria-label="关闭证据报告" onClick={() => setEvidenceOpen(false)}>
+                  ✕
+                </button>
+              </div>
+              <div className="mcard-body">
+                {evidenceData === null ? (
+                  <p className="sub" data-od-id="evidence-loading">
+                    加载中…
+                  </p>
+                ) : evidenceData.dims.length === 0 ? (
+                  <p className="sub" data-od-id="evidence-empty">
+                    本任务产物没有证据类信息
+                  </p>
+                ) : (
+                  evidenceData.dims.map((d) => (
+                    <div key={d.dim} className="ev-dim" data-od-id={`ev-dim-${d.dim}`}>
+                      <div className="ev-dim-head">
+                        {d.name}
+                        {d.confidence ? <span className="ev-conf">可信度：{d.confidence}</span> : null}
+                      </div>
+                      {d.sections.map((s) => (
+                        <div key={s.title}>
+                          <div className="ev-sec">{s.title}</div>
+                          {s.items.map((it, i) => (
+                            <div key={i} className="ev-item">
+                              {it.head ? <b>{it.head}</b> : null}
+                              <span className="ev-cells">
+                                {it.cells.map((c) => `${c.label}：${c.value}`).join(" · ")}
+                              </span>
+                            </div>
+                          ))}
+                        </div>
+                      ))}
+                    </div>
+                  ))
+                )}
+              </div>
+              <div className="mcard-foot">
+                <button className="btn btn-secondary" data-od-id="evidence-close" onClick={() => setEvidenceOpen(false)}>
                   关闭
                 </button>
               </div>

@@ -335,6 +335,37 @@ def test_get_product_content_and_unknown_404(client):
     assert client.get("/api/deconstruct/tasks/dec-prev-1/products/..%2Fsource.txt").status_code == 404
 
 
+def test_evidence_report_endpoint_and_clean_preview(client):
+    """证据报告端点（c-deconstruct-evidence-report）：由 data 现渲染的证据账；
+    存量任务（存储 md 内嵌证据）预览同口径去证据；非完成态空 dims、未知任务 404。"""
+    products = {
+        "style": {"file": "写作文风.md",
+                  "data": {"role": "第三人称限知",
+                           "rules": [{"name": "短句对话", "how": "对峙用短句",
+                                      "confidence": "high", "evidence_ch": "第17章", "note": ""}]},
+                  "md": "# 写作文风｜旧任务\n\n- 证据章节：第17章；可信度：高"},
+    }
+    _mk_completed("dec-evd-1", products)
+    r = client.get("/api/deconstruct/tasks/dec-evd-1/evidence")
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert body["task_id"] == "dec-evd-1"
+    assert [d["dim"] for d in body["dims"]] == ["style"]
+    dim = body["dims"][0]
+    # style 契约无顶层 confidence（只在条目上），维度级留空
+    assert dim["name"] == "写作文风" and dim["file"] == "写作文风.md" and dim["confidence"] == ""
+    item = dim["sections"][0]["items"][0]
+    assert item["head"] == "短句对话"
+    assert {c["label"]: c["value"] for c in item["cells"]} == {"证据章节": "第17章", "可信度": "高"}
+    # 作家 md 预览由 data 现渲染：存储 md 的证据不再出现
+    p = client.get("/api/deconstruct/tasks/dec-evd-1/products/写作文风.md").json()
+    assert "证据章节" not in p["content"] and "短句对话" in p["content"]
+    # 非完成态（无产物）→ 空 dims；不存在/他人 → 404
+    _mk_queued("dec-evd-2")
+    assert client.get("/api/deconstruct/tasks/dec-evd-2/evidence").json()["dims"] == []
+    assert client.get("/api/deconstruct/tasks/dec-nope/evidence").status_code == 404
+
+
 def test_import_book_no_power_markers(client):
     """no_power 只认「无超凡/原文未明确」两个标记串（评审 P2：死表达式修复后的双臂）。"""
     _EMPTY_WORLD = {"stage": "", "power": [], "cost": [], "history": [], "factions": [], "constraints": [], "extra": []}
@@ -1453,9 +1484,9 @@ def test_import_style_empty_product_keeps_seeded_defaults(client):
 
 def test_render_md_style_role_label():
     """文风产物的 role 是「叙事身份」，不能沿用角色卡的「定位」标签。"""
-    from deconstruct.pipeline import _render_md
+    from deconstruct.mdrender import render_md
 
-    md = _render_md(
+    md = render_md(
         "写作文风",
         {"role": "第三人称限知，紧贴李耀", "rules": [{"name": "短对话", "how": "对峙用短句"}]},
         "书名",

@@ -8,6 +8,7 @@ import { resetLicenseCache, setVerifyCache } from "@/lib/licenseCache";
 const state = vi.hoisted(() => ({
   get: vi.fn(),
   product: vi.fn(),
+  evidence: vi.fn(),
   probe: vi.fn(),
   cancel: vi.fn(),
   del: vi.fn(),
@@ -21,6 +22,7 @@ vi.mock("@/lib/toast", () => ({ toast: toastState }));
 vi.mock("@/lib/deconstructApi", () => ({
   getDeconstructTask: state.get,
   getDeconstructProduct: state.product,
+  getDeconstructEvidence: state.evidence,
   probeModel: state.probe,
   cancelDeconstructTask: state.cancel,
   deleteDeconstructTask: state.del,
@@ -658,6 +660,101 @@ describe("TaskDetailPage", () => {
     // C 到达 → 正常显示
     await act(async () => { resolveC({ filename: "写作技法.md", content: "技法正文C" }); });
     await waitFor(() => expect(screen.getByText("技法正文C")).toBeInTheDocument());
+  });
+
+  it("完成：证据报告——按钮入口→加载态→维度分组弹窗（head＋证据单元格＋维度级可信度）", async () => {
+    state.get.mockResolvedValue(detailOf("completed"));
+    let resolveEv!: (v: unknown) => void;
+    state.evidence.mockImplementationOnce(
+      () => new Promise((res) => { resolveEv = res; }),
+    );
+    renderPage();
+    await waitFor(() => expect(screen.getByText("选择去向")).toBeInTheDocument());
+    fireEvent.click(screen.getByRole("button", { name: "证据报告" }));
+    expect(document.querySelector('[data-od-id="evidence-modal"]')).not.toBeNull();
+    expect(screen.getByText("加载中…")).toBeInTheDocument();
+    resolveEv({
+      task_id: "t2",
+      dims: [
+        {
+          dim: "techniques", name: "写作技法", confidence: "高", file: "写作技法.md",
+          sections: [{
+            title: "可复现模块卡",
+            items: [{
+              head: "章末炸点收束",
+              cells: [
+                { label: "证据章节", value: "第3、8、118章" },
+                { label: "可信度", value: "高" },
+              ],
+            }],
+          }],
+        },
+        { dim: "style", name: "写作文风", confidence: "", file: "写作文风.md", sections: [] },
+      ],
+    });
+    await waitFor(() => expect(screen.getByText("章末炸点收束")).toBeInTheDocument());
+    expect(screen.getByText("写作技法")).toBeInTheDocument();
+    expect(screen.getByText(/证据章节：第3、8、118章 · 可信度：高/)).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "关闭证据报告" }));
+    expect(document.querySelector('[data-od-id="evidence-modal"]')).toBeNull();
+  });
+
+  it("完成：证据报告空态＋失败臂（toast 报错并收起）", async () => {
+    state.get.mockResolvedValue(detailOf("completed"));
+    state.evidence.mockResolvedValueOnce({ task_id: "t2", dims: [] });
+    renderPage();
+    await waitFor(() => expect(screen.getByText("选择去向")).toBeInTheDocument());
+    fireEvent.click(screen.getByRole("button", { name: "证据报告" }));
+    await waitFor(() => expect(screen.getByText("本任务产物没有证据类信息")).toBeInTheDocument());
+    fireEvent.click(screen.getByRole("button", { name: "关闭证据报告" }));
+    expect(document.querySelector('[data-od-id="evidence-modal"]')).toBeNull();
+    // 失败臂：toast 报错＋弹窗收起
+    state.evidence.mockRejectedValueOnce(new Error("任务不存在"));
+    fireEvent.click(screen.getByRole("button", { name: "证据报告" }));
+    await waitFor(() => expect(toastState.error).toHaveBeenCalledWith("任务不存在"));
+    expect(document.querySelector('[data-od-id="evidence-modal"]')).toBeNull();
+    // 非 Error 拒绝臂 → 兜底文案（同预览口径）
+    state.evidence.mockRejectedValueOnce("boom");
+    fireEvent.click(screen.getByRole("button", { name: "证据报告" }));
+    await waitFor(() => expect(toastState.error).toHaveBeenLastCalledWith("证据报告加载失败"));
+    expect(document.querySelector('[data-od-id="evidence-modal"]')).toBeNull();
+  });
+
+  it("完成：证据报告慢响应次序——迟到旧响应不污染新弹窗（成功/失败守卫两臂）", async () => {
+    state.get.mockResolvedValue(detailOf("completed"));
+    let settleA!: (v: unknown) => void;
+    let rejectB!: (e: unknown) => void;
+    let resolveC!: (v: unknown) => void;
+    state.evidence.mockImplementationOnce(() => new Promise((res) => { settleA = res; }));
+    state.evidence.mockImplementationOnce(
+      () => new Promise((_res, rej) => { rejectB = rej; }),
+    );
+    renderPage();
+    await waitFor(() => expect(screen.getByText("选择去向")).toBeInTheDocument());
+    // A 在途 → 关 → B 在途 → C（序号顶掉 A/B）
+    fireEvent.click(screen.getByRole("button", { name: "证据报告" }));
+    fireEvent.click(document.querySelector(".scrim.show")!);
+    fireEvent.click(screen.getByRole("button", { name: "证据报告" }));
+    state.evidence.mockImplementationOnce(() => new Promise((res) => { resolveC = res; }));
+    fireEvent.click(screen.getByRole("button", { name: "关闭证据报告" }));
+    fireEvent.click(screen.getByRole("button", { name: "证据报告" }));
+    expect(screen.getByText("加载中…")).toBeInTheDocument();
+    // 旧失败（B）：不 toast、不关 C 弹窗
+    const errCallsBefore = toastState.error.mock.calls.length;
+    await act(async () => { rejectB(new Error("旧失败")); });
+    expect(toastState.error.mock.calls.length).toBe(errCallsBefore);
+    expect(document.querySelector('[data-od-id="evidence-modal"]')).not.toBeNull();
+    // 旧成功（A 迟到）：内容不顶进 C 弹窗
+    await act(async () => { settleA({ task_id: "t2", dims: [] }); });
+    expect(screen.queryByText("本任务产物没有证据类信息")).toBeNull();
+    // C 到达 → 正常呈现
+    await act(async () => {
+      resolveC({
+        task_id: "t2",
+        dims: [{ dim: "techniques", name: "写作技法", confidence: "高", file: "写作技法.md", sections: [] }],
+      });
+    });
+    await waitFor(() => expect(screen.getByText("写作技法")).toBeInTheDocument());
   });
 
   it("运行监控：批次/卡片账＋维度条＋速度＋最近流水＋测试模型成功臂", async () => {

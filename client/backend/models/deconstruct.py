@@ -44,8 +44,9 @@ class DeconstructJob(Base):
     专属队列 FIFO（queue_seq），全局同一时刻最多一个 running（串行 worker）。
     dims_json：{"cards": {"state", "done", "entries": {章号: 十维拆卡 JSON}},
                 "dims": {key: {state, seg_done, seg_total, error}}}（v2 逐章拆卡＋分级归并）.
-    products_json：{dim: {"file": 文件名, "data": 模型JSON终稿, "md": 代码渲染全文}}
-    （建书消费 data、导出消费 md，不反解；应用内不预览不编辑）。
+    products_json：{dim: {"file": 文件名, "data": 模型JSON终稿}}
+    （建书消费 data；md 不落库，读取侧由 data 现渲染——作家 md 去证据＋存量任务
+    同口径，c-deconstruct-evidence-report；应用内不编辑）。
     """
 
     __tablename__ = "deconstruct_jobs"

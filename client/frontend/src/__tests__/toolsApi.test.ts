@@ -11,6 +11,7 @@ import {
   createDeconstructTask,
   exportTaskProducts,
   fetchModelOptions,
+  getDeconstructEvidence,
   getDeconstructProduct,
   getDeconstructTask,
   importBookFromTask,
@@ -49,6 +50,13 @@ describe("deconstructApi", () => {
     expect(String(state.fetch.mock.calls[0][0])).toContain(
       `/api/deconstruct/tasks/t2/products/${encodeURIComponent("简介.md")}`,
     );
+  });
+
+  it("getDeconstructEvidence 走 request JSON（证据报告，c-deconstruct-evidence-report）", async () => {
+    state.fetch.mockResolvedValue(jsonResponse(200, { task_id: "t2", dims: [] }));
+    const r = await getDeconstructEvidence("t2");
+    expect(r.dims).toEqual([]);
+    expect(String(state.fetch.mock.calls[0][0])).toContain("/api/deconstruct/tasks/t2/evidence");
   });
 
   it("createDeconstructTask 成功/401/400 三分支", async () => {

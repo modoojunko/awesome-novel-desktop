@@ -250,6 +250,16 @@ input, textarea, select { font: inherit; }
 .mcard.rd-style .mcard-body { flex: 1; min-height: 0; overflow-y: auto; }
 .mcard.rd-style .preview-md { margin: 0; white-space: pre-wrap; word-break: break-word; font-size: 13px; line-height: 1.8; }
 
+/* 证据报告弹窗（c-deconstruct-evidence-report）：维度分组＋条目结论＋证据单元格 */
+.ev-dim { margin-bottom: 16px; }
+.ev-dim:last-child { margin-bottom: 0; }
+.ev-dim-head { font-family: var(--font-display); font-size: 14px; font-weight: 600; margin-bottom: 4px; }
+.ev-dim-head .ev-conf { margin-left: 8px; font-family: var(--font-body); font-size: 12px; font-weight: 400; color: var(--muted); }
+.ev-sec { font-size: 12px; color: var(--muted); margin: 8px 0 2px; }
+.ev-item { padding: 7px 0; border-top: 1px solid var(--border); font-size: 13px; line-height: 1.7; }
+.ev-item b { display: block; margin-bottom: 2px; }
+.ev-item .ev-cells { color: var(--muted); word-break: break-word; }
+
 /* 主线卡基调选择题：整行可点的单选项，选中描边高亮（再点一次取消） */
 .tone-opt { display: flex; align-items: baseline; gap: 8px; width: 100%; padding: 7px 10px; border: 1px solid var(--border); border-radius: 9px; background: var(--surface); cursor: pointer; text-align: left; font-size: 13px; color: var(--fg); }
 .tone-opt:hover { border-color: color-mix(in oklch, var(--accent) 35%, var(--border)); }
