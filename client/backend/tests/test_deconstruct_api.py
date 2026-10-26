@@ -85,7 +85,11 @@ def client():
 
 
 def _mk_completed(task_id: str, products: dict, *, book_name: str = "星海远征") -> None:
-    """直插一个已完成任务（products 新形状：{dim: {file, data, md}}）。"""
+    """直插一个已完成任务。
+
+    夹具带 `md` 键＝**旧形状**（现行新形状为 {dim: {file, data}}，md 读取侧现渲染），
+    刻意钉「data 缺失回退存量 md」兜底臂（c-deconstruct-evidence-report）。
+    """
     import json
 
     async def _go():
