@@ -11,7 +11,7 @@
   超上限逐项进降级清单）；
 - 角色 → character_service.create_character（每书只保留首位主角，其余降配角留痕）；
 - 主线 → story_arc.fullstory/ending 三格（证据章标剥除，旧 ending 字符串兜底）；
-- 文风 → style_model.put_style 三区＋few_shot_examples＋taboo 并入硬约束；
+- 文风 → style_model.put_style 三区＋style_samples 示范段＋taboo 并入硬约束；
 - 伏笔 → hooks_service.batch_create_hooks（新书无章：埋设/回收章并入描述，note 并入）；
 - 章卷结构 → volumes.service.create_volume（「原文未明确」标题交服务端兜底）；
 - 人物关系 → 按解析后的 (owner, other) 归并（同对多关系取并集，DB 唯一键即这一对）。

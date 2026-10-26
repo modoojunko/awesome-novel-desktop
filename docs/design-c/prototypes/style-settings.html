@@ -531,6 +531,22 @@
             </div>
           </div>
 
+          <!-- 折叠组：文风示范段（c-deconstruct-style-transfer；拆书导入才出现，只读＋可删） -->
+          <div class="cfg" id="cfgSamples" data-od-id="group-style-samples" hidden>
+            <button class="cfg-head" type="button" id="cfgSamplesHead">
+              <b>文风示范段</b><span class="tag">拆书导入 · 2 条</span>
+              <span class="sum">拆书带出的原书成段原文，AI 写章时的最高笔法依据</span>
+              <span class="chev"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" width="13" height="13"><path d="m6 9 6 6 6-6"/></svg></span>
+            </button>
+            <div class="cfg-body" id="cfgSamplesBody">
+              <div class="ss-list" data-od-id="list-style-samples">
+                <div class="ss-row"><p class="ss-txt">夜里落了雪。他把炉门推开一条缝，火光照在他半边脸上，另半边留在黑暗里。</p><button class="btn btn-ghost btn-sm" type="button">删除</button></div>
+                <div class="ss-row"><p class="ss-txt">他把账本合上，往桌上一拍，屋里人都静了。没人问他亏了多少，问也是白问。</p><button class="btn btn-ghost btn-sm" type="button">删除</button></div>
+              </div>
+              <p class="opt" style="margin-top:6px;">来自拆书原文摘录，只可删除不可改写；写正文时句式、节奏、对话密度以它为准。</p>
+            </div>
+          </div>
+
           </div><!-- /tabText -->
 
           <div id="tabQuant" hidden>
@@ -897,12 +913,22 @@
     });
   }
   bindCfg('#cfgShotsHead', '#cfgShotsBody', '#cfgShots');
+  bindCfg('#cfgSamplesHead', '#cfgSamplesBody', '#cfgSamples');
+  // 示范段（c-deconstruct-style-transfer）：拆书导入后出现——原型给「显示示例」演示态
+  $('#cfgSamples').hidden = false;
 
   /* ═══ 锚定链直达 ═══ */
   $$('.ac-node').forEach(n => n.addEventListener('click', () => {
     const el = document.getElementById(n.dataset.goto);
     if (el) { el.focus(); try { el.scrollIntoView({ behavior: 'smooth', block: 'center' }); } catch (e) { /* jsdom 无实现 */ } }
   }));
+
+  /* ═══ 文风示范段（拆书导入，只读＋可删） ═══ */
+  .ss-list { display: flex; flex-direction: column; }
+  .ss-row { display: flex; align-items: flex-start; gap: 10px; padding: 8px 0; border-bottom: 1px dashed var(--border); }
+  .ss-row:last-child { border-bottom: none; }
+  .ss-row .ss-txt { flex: 1; min-width: 0; margin: 0; font-size: 12.5px; line-height: 1.8; white-space: pre-wrap; color: var(--fg); }
+  .ss-row .btn { flex: none; }
 
   /* ═══ 文风例句（1–3 条） ═══ */
   let shots = ['雨点砸在铁皮棚上，他没有抬头。', '等声音停下来，他的左臂已经不自然地垂在身侧。', ''];

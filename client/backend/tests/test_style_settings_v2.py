@@ -249,6 +249,20 @@ class TestStyleEndpoints:
         assert data["rules"] == ["钩子"]
         assert "_legacy_style" not in data
 
+    def test_style_samples_roundtrip_and_cap(self, client, pid):
+        """示范段（c-deconstruct-style-transfer）：七键白名单读写＋≤6 条×500 字截断。"""
+        payload = {
+            "role": "冷静",
+            "style_samples": [f"示范段{i}。" for i in range(1, 9)] + ["   "],
+        }
+        assert client.put(f"/api/novels/{pid}/settings/style", json=payload).status_code == 200
+        data = client.get(f"/api/novels/{pid}/settings/style").json()
+        assert data["style_samples"] == [f"示范段{i}。" for i in range(1, 7)]
+        long_seg = "段" * 600
+        assert client.put(f"/api/novels/{pid}/settings/style", json={"style_samples": [long_seg]}).status_code == 200
+        data = client.get(f"/api/novels/{pid}/settings/style").json()
+        assert data["style_samples"] == ["段" * 500]
+
     def test_legacy_book_normalized_on_get(self, client, pid):
         # 直接经路由写入旧形状再读（PUT 走归一），验证旧内容不丢
         r = client.put(f"/api/novels/{pid}/settings/style", json=dict(OLD_STYLE))

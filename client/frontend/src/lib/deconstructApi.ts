@@ -123,7 +123,14 @@ export interface DeconstructMonitor {
   }[];
 }
 
-export const DECONSTRUCT_DIMS: { key: string; name: string; file: string; setting: boolean }[] = [
+export const DECONSTRUCT_DIMS: {
+  key: string;
+  name: string;
+  file: string;
+  setting: boolean;
+  /** 建书弹窗默认勾选（c-deconstruct-style-transfer）：技法并入文风注入正文，默认带上 */
+  book?: boolean;
+}[] = [
   { key: "intro", name: "简介", file: "简介.md", setting: true },
   { key: "genre", name: "题材", file: "题材.md", setting: true },
   { key: "world", name: "世界设定", file: "世界设定.md", setting: true },
@@ -132,7 +139,7 @@ export const DECONSTRUCT_DIMS: { key: string; name: string; file: string; settin
   { key: "mainplot", name: "主线剧情", file: "主线剧情.md", setting: true },
   { key: "structure", name: "章卷结构", file: "章卷结构.md", setting: false },
   { key: "style", name: "写作文风", file: "写作文风.md", setting: true },
-  { key: "techniques", name: "写作技法", file: "写作技法.md", setting: false },
+  { key: "techniques", name: "写作技法", file: "写作技法.md", setting: false, book: true },
   { key: "foreshadow", name: "伏笔", file: "伏笔.md", setting: true },
 ];
 

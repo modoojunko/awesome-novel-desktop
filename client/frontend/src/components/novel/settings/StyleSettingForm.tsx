@@ -174,6 +174,8 @@ const StyleSettingForm = forwardRef<StylePanelHandle, Props>(function StyleSetti
   const [rules, setRules] = useState<string[]>([""]);
   const [craft, setCraft] = useState<string[]>([""]);
   const [fewShots, setFewShots] = useState<string[]>([""]);
+  // 示范段（c-deconstruct-style-transfer）：拆书导入的成段原文，只读＋可删，无添加入口
+  const [styleSamples, setStyleSamples] = useState<string[]>([]);
   // 禁用词收编（banned-words-into-style）：词表 ≤100／句式规则 ≤20，无占位空行
   const [banned, setBanned] = useState<string[]>([]);
   const [tics, setTics] = useState<TicPattern[]>([]);
@@ -228,6 +230,9 @@ const StyleSettingForm = forwardRef<StylePanelHandle, Props>(function StyleSetti
         const fewN: string[] = Array.isArray(style?.few_shot_examples)
           ? style.few_shot_examples.map(String)
           : [];
+        const samplesN: string[] = Array.isArray(style?.style_samples)
+          ? style.style_samples.map(String).filter(Boolean)
+          : [];
         const bannedN: string[] = Array.isArray(style?.banned_words)
           ? style.banned_words.map(String).filter(Boolean)
           : [];
@@ -236,6 +241,7 @@ const StyleSettingForm = forwardRef<StylePanelHandle, Props>(function StyleSetti
         setRules(rulesN.length ? rulesN : [""]);
         setCraft(craftN.length ? craftN : [""]);
         setFewShots(fewN.slice(0, 3).length ? fewN.slice(0, 3) : [""]);
+        setStyleSamples(samplesN.slice(0, 6));
         setBanned(bannedN);
         setTics(ticsN);
         presetRef.current = { role: roleN, rules: rulesN, craft: craftN };
@@ -271,12 +277,16 @@ const StyleSettingForm = forwardRef<StylePanelHandle, Props>(function StyleSetti
   async function handleSave(): Promise<boolean> {
     setError("");
     try {
-      // 白名单 payload（撤并键零写回）：六键之外不带；禁用词/句式随卡保存
+      // 白名单 payload（撤并键零写回）：键外不带；禁用词/句式随卡保存；
+      // 示范段仅非空携带（存量保存流程 payload 键集不变，c-deconstruct-style-transfer）
       await api.put(`/novels/${projectId}/settings/style`, {
         role: role.trim(),
         rules: rules.map((r) => r.trim()).filter(Boolean),
         craft: craft.map((c) => c.trim()).filter(Boolean).slice(0, 8),
         few_shot_examples: fewShots.map((s) => s.trim()).filter(Boolean).slice(0, 3),
+        ...(styleSamples.length
+          ? { style_samples: styleSamples.map((s) => s.trim()).filter(Boolean).slice(0, 6) }
+          : {}),
         banned_words: banned.map((w) => w.trim()).filter(Boolean).slice(0, 100),
         tic_patterns: tics
           .filter((t) => t.pattern.trim() !== "")
@@ -775,6 +785,34 @@ const StyleSettingForm = forwardRef<StylePanelHandle, Props>(function StyleSetti
               将作为案例段透传进整章写作提示词；没有也可以——蒸馏会替你从正文里挑。
             </p>
           </Cfg>
+
+          {styleSamples.length > 0 && (
+            <Cfg
+              title="文风示范段"
+              tag={`拆书导入 · ${styleSamples.length} 条`}
+              sum="拆书带出的原书成段原文，AI 写章时的最高笔法依据"
+            >
+              <div data-od-id="list-style-samples" className="ss-list">
+                {styleSamples.map((s, i) => (
+                  <div key={`${i}-${s.slice(0, 12)}`} className="ss-row">
+                    <p className="ss-txt">{s}</p>
+                    <button
+                      type="button"
+                      className="btn btn-ghost btn-sm"
+                      data-od-id={`sample-del-${i}`}
+                      aria-label={`删除示范段${i + 1}`}
+                      onClick={() => setStyleSamples((prev) => prev.filter((_, j) => j !== i))}
+                    >
+                      删除
+                    </button>
+                  </div>
+                ))}
+              </div>
+              <p className="opt" style={{ marginTop: 6 }}>
+                来自拆书原文摘录，只可删除不可改写；写正文时句式、节奏、对话密度以它为准。
+              </p>
+            </Cfg>
+          )}
 
           {/* 锚定体检改走弹窗报告卡（c-settings-ai-confirm-modal） */}
         </div>

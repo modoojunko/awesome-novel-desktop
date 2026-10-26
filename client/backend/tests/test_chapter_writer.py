@@ -235,6 +235,25 @@ class TestSystemPrompt:
         ctx.style_setting = {"few_shot_examples": ["他把刀放回鞘里，像掩埋一句话。"]}
         assert "他把刀放回鞘里" in ctx.build_system_prompt()
 
+    def test_style_samples_in_system_and_skip_when_empty(self):
+        """示范段（c-deconstruct-style-transfer）：进恒定层、编号呈现；未配置不出空节。"""
+        ctx = ChapterContext()
+        ctx.style_setting = {"style_samples": ["夜里落了雪。他把炉门推开一条缝，火光照在他半边脸上。"]}
+        system = ctx.build_system_prompt()
+        assert "文风示范段（本书原文摘录" in system
+        assert "最高依据，照着写" in system
+        assert "〔1〕夜里落了雪" in system
+        empty = ChapterContext().build_system_prompt()
+        assert "文风示范段" not in empty
+
+    def test_style_samples_cap_three(self):
+        """注入只取前 3 条：恒定层体积可控、逐章一致。"""
+        ctx = ChapterContext()
+        ctx.style_setting = {"style_samples": [f"样本{i}" for i in range(1, 6)]}
+        system = ctx.build_system_prompt()
+        assert "〔3〕样本3" in system
+        assert "样本4" not in system
+
     def test_world_full_injection_no_omission_note(self):
         """势力全量：无预算截断、无「另有 N 条从略」（设计决策 1/归属表）。"""
         ctx = ChapterContext()

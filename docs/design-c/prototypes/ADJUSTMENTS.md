@@ -2218,3 +2218,20 @@ c-model-list-cap-300 后模型清单上限 300 条（方舟单家实测 137 条�
 5. **不进 parity 截图的依据**：同 c-prose-model-select 第 4 条——`#modalAi` 不在
    `design-parity-book.spec.ts` 场景清单内，本次无基线像素变更，`design:check` 预期零差异；
    原型 `book.html` `#modalAi` 保持静态演示不随批改（产品化差异登记于此）。
+
+## c-deconstruct-style-transfer（拆书文风迁移：示范段＋技法默认并入文风，2026-10-26）
+
+用户反馈「拆书后按拆书文风写正文，成稿没有原书文风与技法」。四道衰减定位后，本批补
+消费链三处；原型增量两处，均无 parity 基线影响。
+
+1. **`style-settings.html` 文字文风签新增「文风示范段」折叠组**（例句组之后）：
+   tag「拆书导入 · N 条」、sum「拆书带出的原书成段原文，AI 写章时的最高笔法依据」；
+   行＝成段原文（pre-wrap，只读）＋「删除」btn-ghost btn-sm，无添加/行内编辑入口
+   （来源仅拆书导入）。词汇入册：`.ss-list/.ss-row/.ss-txt`（样式与实现 book.css 同源）。
+   原型默认隐藏、演示态展开（`hidden=false`）——真实产品里仅当本书有示范段才渲染。
+2. **拆书任务详情「建书」弹窗**（该屏无原型，历史如此）：勾选默认 7 设定项＋写作技法
+   （8/10）；技法行标注「（并入文风）」替代原「（默认不勾）」，说明文案同步
+   「写作技法并入文风，人物关系/章卷随任务资料」。纯文案与勾选态增量，无新组件形态。
+3. **不进 parity 截图的依据**：`style-settings.html` 与拆书任务详情均不在
+   design-parity*.spec.ts 四屏（list/book/config/preview）场景内，本次无基线像素变更，
+   `design:check` 预期零差异；仅 book.css 业务段新增类（无令牌/共享段改动）。

@@ -34,6 +34,7 @@ STYLE_WRITE_KEYS = (
     "rules",
     "craft",
     "few_shot_examples",
+    "style_samples",
     "banned_words",
     "tic_patterns",
 )
@@ -41,6 +42,7 @@ STYLE_WRITE_KEYS = (
 _MAX_RULES = 100  # 模板全量归一（core_principles+possible_mistakes+pacing_rules≈58 条）不截断
 _MAX_CRAFT = 50
 _MAX_FEWSHOT = 3
+_MAX_SAMPLES = 6  # 成段示范段上限（拆书例句扩容 c-deconstruct-style-transfer；注入取前 3）
 _MAX_BANNED = 100  # 禁用词上限（模板 37 词＋蒸馏 ≤50＋手填余量）
 _MAX_TICS = 20  # 句式规则上限（模板 8 条）
 _VALUE_MAX = 500
@@ -167,6 +169,7 @@ def normalize_style(raw: dict) -> dict:
     rules = _as_str_list(raw.get("rules"))
     craft = _as_str_list(raw.get("craft"))
     few = _as_str_list(raw.get("few_shot_examples"))[:_MAX_FEWSHOT]
+    samples = _as_str_list(raw.get("style_samples"))[:_MAX_SAMPLES]
     # 禁用词：显式键＋幽灵键同批归一去重
     banned = _normalize_banned(raw.get("banned_words")) + _normalize_banned(raw.get("fatigue_words"))
     banned_seen: set[str] = set()
@@ -200,6 +203,7 @@ def normalize_style(raw: dict) -> dict:
         "rules": _dedupe(rules)[:_MAX_RULES],
         "craft": _dedupe(craft)[:_MAX_CRAFT],
         "few_shot_examples": [x for x in few if x],
+        "style_samples": [x[:_VALUE_MAX] for x in samples if x],
         "banned_words": banned_out[:_MAX_BANNED],
         "tic_patterns": tics[:_MAX_TICS],
         **{
@@ -211,6 +215,7 @@ def normalize_style(raw: dict) -> dict:
                 "rules",
                 "craft",
                 "few_shot_examples",
+                "style_samples",
                 "banned_words",
                 "tic_patterns",
                 "fatigue_words",
@@ -251,6 +256,7 @@ def put_style(raw: dict, body: dict) -> dict:
         ("rules", _MAX_RULES),
         ("craft", _MAX_CRAFT),
         ("few_shot_examples", _MAX_FEWSHOT),
+        ("style_samples", _MAX_SAMPLES),
     ):
         incoming = payload.get(key)
         items = _dedupe(_as_str_list(incoming)) if incoming is not None else merged.get(key, [])

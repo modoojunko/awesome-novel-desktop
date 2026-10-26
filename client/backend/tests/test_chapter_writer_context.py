@@ -281,6 +281,7 @@ def _rich_context() -> ChapterContext:
     ctx.style_setting = {
         "role": "冷峻的叙事者",
         "few_shot_examples": ["雨点砸在铁皮棚上，他没抬头。"],
+        "style_samples": ["他把账本合上，往桌上一拍，屋里人都静了。"],
     }
     ctx.hooks = [{"description": f"伏笔{i}"} for i in range(12)]
     ctx.characters = [{"name": f"角色{i}", "state": "在场"} for i in range(8)]
@@ -378,8 +379,11 @@ def test_prompt_consumes_surviving_fields():
     assert "- 她翻墙进了库房" in prompt  # 剧情条目块
     assert "爽点设计（读者获得）：线索·半块玉佩" in prompt
     assert "章末落点：拿到地图，出门，更不安" in prompt
-    # 文风例句随恒定层上收 system（c-write-prompt-layering 归属表）
+    # 文风例句随恒定层上收 system（c-write-prompt-layering 归属表）；
+    # 示范段同层（c-deconstruct-style-transfer）
     assert "雨点砸在铁皮棚上，他没抬头。" in ctx.build_system_prompt()
+    assert "文风示范段（本书原文摘录" in ctx.build_system_prompt()
+    assert "〔1〕他把账本合上" in ctx.build_system_prompt()
     # 退役面：场景原材料/权重/关键情节点一律不进提示词
     assert "场景原材料" not in prompt
     assert "权重：" not in prompt
@@ -404,6 +408,7 @@ def test_material_markdown_skeleton():
         "【活跃伏笔】",
         "【约束红线（最高优先级，任何压缩不得删改）】",
         "【文风例句（案例段原料）】",
+        "【文风示范段（本书原文摘录）】",
     ):
         assert label in md
     # 场景原材料块随场景卡退役（c-og-slim-v2）
