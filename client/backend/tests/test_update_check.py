@@ -30,6 +30,11 @@ def _isolated_env(monkeypatch, tmp_path):
     monkeypatch.delenv("CLIENT_BUILD_BRANCH", raising=False)
     monkeypatch.delenv("CLIENT_BUILD_COMMIT", raising=False)
     monkeypatch.setattr(uc, "_state_path", tmp_path / "update-check.json")
+    # 渠道覆盖文件同批隔离（c-update-staging-channel）：dev 态数据目录就在
+    # client/backend/data，开发者真建 update-channel.yaml 后不隔离会污染
+    # 全形状断言（channel 恒 prod）——与 _state_path 同类问题同批防
+    monkeypatch.setattr(uc.update_channel, "_CHANNEL_PATH",
+                        tmp_path / "update-channel.yaml")
     monkeypatch.setattr(bi, "_git_build", None)
     yield
 
