@@ -39,6 +39,15 @@ interface UpdateRefresh {
   has_update: boolean;
   checked: boolean;
   auto?: { state: "idle" | "downloading" | "staged" | "applied"; version: string | null };
+  /** 灰度渠道标签（c-update-staging-channel）：prod/staging/custom，缺省按 prod */
+  channel?: string;
+}
+
+/** 非 prod 渠道在检查结果里亮明身份——「开关没生效」要能当场看出来（缺省无后缀） */
+function channelTag(channel?: string): string {
+  if (channel === "staging") return "〔灰度渠道〕";
+  if (channel === "custom") return "〔自定义渠道〕";
+  return "";
 }
 
 export default function AcctMenu({
@@ -448,10 +457,11 @@ export default function AcctMenu({
                   const autoOn = r.auto?.state === "downloading" || r.auto?.state === "staged";
                   toast.info(
                     `发现新版本 v${r.latest}（当前 ${formatVersion(r.current)}）` +
-                    (autoOn ? "——正在后台自动下载，就绪后一键重启更新" : ""),
+                    (autoOn ? "——正在后台自动下载，就绪后一键重启更新" : "") +
+                    channelTag(r.channel),
                   );
                 } else {
-                  toast.success(`已是最新版本 v${r.latest}`);
+                  toast.success(`已是最新版本 v${r.latest}${channelTag(r.channel)}`);
                 }
               } catch {
                 toast.error("检查更新失败，请稍后再试");

@@ -30,6 +30,11 @@ def _isolated_env(monkeypatch, tmp_path):
     monkeypatch.delenv("CLIENT_BUILD_BRANCH", raising=False)
     monkeypatch.delenv("CLIENT_BUILD_COMMIT", raising=False)
     monkeypatch.setattr(uc, "_state_path", tmp_path / "update-check.json")
+    # 渠道覆盖文件同批隔离（c-update-staging-channel）：dev 态数据目录就在
+    # client/backend/data，开发者真建 update-channel.yaml 后不隔离会污染
+    # 全形状断言（channel 恒 prod）——与 _state_path 同类问题同批防
+    monkeypatch.setattr(uc.update_channel, "_CHANNEL_PATH",
+                        tmp_path / "update-channel.yaml")
     monkeypatch.setattr(bi, "_git_build", None)
     yield
 
@@ -53,7 +58,8 @@ def test_dev_env_reports_dev_and_skips(monkeypatch):
     st = _run(uc.get_update_state())
     assert st == {"current": "dev", "latest": None, "has_update": False,
                   "notes": "", "notes_url": "", "download_url": "",
-                  "auto": {"state": "idle", "version": None}, "build": None}
+                  "auto": {"state": "idle", "version": None}, "build": None,
+                  "channel": "prod"}
     assert calls == []  # dev 跳过，零外呼
 
 
@@ -1020,3 +1026,71 @@ def test_state_omits_last_install_attempt_when_absent(monkeypatch, tmp_path):
     monkeypatch.setattr(uc, "_UPDATES_DIR", tmp_path / "updates")
     st = _run(uc.get_update_state())
     assert "last_install_attempt" not in st
+
+
+# ── 灰度渠道覆盖（c-update-staging-channel）──────────────────────────────
+
+
+def _set_channel_file(monkeypatch, tmp_path, text="channel: staging\n"):
+    path = tmp_path / "update-channel.yaml"
+    if text is not None:
+        path.write_text(text, encoding="utf-8")
+    monkeypatch.setattr(uc.update_channel, "_CHANNEL_PATH", path)
+    return path
+
+
+def test_candidate_urls_override_file_beats_env(monkeypatch, tmp_path):
+    """优先级：覆盖文件 > env > 烘焙（env 在场也被覆盖文件压过）。"""
+    monkeypatch.setenv("CLIENT_UPDATE_URL", "https://env.example.com/latest.json")
+    _set_channel_file(monkeypatch, tmp_path)
+    assert uc._candidate_urls() == [
+        "https://www.awesomenovel.com/download/staging/latest.json",
+        "https://ai-novel-test-d1ghsr86ra814c12c-1468883265.tcloudbaseapp.com/download/staging/latest.json",
+    ]
+
+
+def test_candidate_urls_env_still_works_without_file(monkeypatch, tmp_path):
+    _set_channel_file(monkeypatch, tmp_path, text=None)  # 不建文件
+    monkeypatch.setenv("CLIENT_UPDATE_URL", "https://env.example.com/latest.json")
+    monkeypatch.delenv("CLIENT_UPDATE_URL_FALLBACK", raising=False)
+    # env 只设主址 → 兜底回落烘焙默认（env 链语义不变）
+    assert uc._candidate_urls() == [
+        "https://env.example.com/latest.json",
+        "https://ai-novel-test-d1ghsr86ra814c12c-1468883265.tcloudbaseapp.com/download/latest.json",
+    ]
+
+
+def test_staging_trust_hosts_follow_candidates(monkeypatch, tmp_path):
+    """信任域集合随生效候选推导：staging 域入列，生产主域仍在（烘焙兜底在列）。"""
+    _set_channel_file(monkeypatch, tmp_path)
+    hosts = uc._trusted_hosts()
+    assert "www.awesomenovel.com" in hosts
+    assert "ai-novel-test-d1ghsr86ra814c12c-1468883265.tcloudbaseapp.com" in hosts
+
+
+def test_bad_override_file_falls_back_to_env(monkeypatch, tmp_path):
+    """坏文件 fail-soft：回 env/烘焙链＋渠道标签 prod，绝不 raise。"""
+    monkeypatch.setenv("CLIENT_UPDATE_URL", "https://env.example.com/latest.json")
+    _set_channel_file(monkeypatch, tmp_path, text="channel: [broken\n")
+    assert uc._candidate_urls() == [
+        "https://env.example.com/latest.json",
+        "https://ai-novel-test-d1ghsr86ra814c12c-1468883265.tcloudbaseapp.com/download/latest.json",
+    ]
+    assert uc.update_channel.channel_name() == "prod"
+
+
+def test_channel_field_reports_staging_in_payload(monkeypatch, tmp_path):
+    _bake_version_and_fetch(monkeypatch)
+    _set_channel_file(monkeypatch, tmp_path)
+    st = _run(uc.get_update_state())
+    assert st["channel"] == "staging"
+
+
+def test_refresh_response_carries_channel(monkeypatch, tmp_path):
+    monkeypatch.setenv("CLIENT_VERSION", "0.40")
+    monkeypatch.setattr(uc, "_fetch_latest",
+                        _async_returns({"latest": "0.41", "notes": ""}))
+    _set_channel_file(monkeypatch, tmp_path)
+    r = _run(uc.refresh_update_check())
+    assert r["channel"] == "staging"
+    assert r["has_update"] is True

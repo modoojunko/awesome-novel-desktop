@@ -944,3 +944,46 @@ describe("AcctMenu 检查更新·自动链接手文案（评审覆盖缺口）",
     );
   });
 });
+
+describe("AcctMenu 检查更新·渠道后缀（c-update-staging-channel）", () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  async function clickCheckWith(payload: Record<string, unknown>) {
+    vi.stubGlobal("fetch", vi.fn().mockImplementation(async (url: string) => {
+      if (String(url).includes("/update-check/refresh")) {
+        return { ok: true, status: 200, json: async () => payload };
+      }
+      return { ok: true, status: 200, json: async () => ({}) };
+    }));
+    const { default: AcctMenu } = await import("@/components/AcctMenu");
+    const { useTier } = await import("@/hooks/useTier");
+    vi.mocked(useTier).mockReturnValue(tierState());
+    mount(<AcctMenu />);
+    fireEvent.click(document.querySelector('[data-od-id="acct-trigger"]') as HTMLElement);
+    await act(async () => {});
+    fireEvent.click(document.querySelector('[data-od-id="acct-menu-check-update"]') as HTMLElement);
+    await act(async () => {});
+  }
+
+  it("staging 渠道：已是最新与发现新版 toast 都带〔灰度渠道〕", async () => {
+    await clickCheckWith({ current: "0.40", latest: "0.40", has_update: false, checked: true, channel: "staging" });
+    expect(toastState.success).toHaveBeenCalledWith(expect.stringContaining("已是最新版本 v0.40〔灰度渠道〕"));
+    await clickCheckWith({ current: "0.40", latest: "0.41", has_update: true, checked: true, channel: "staging" });
+    expect(toastState.info).toHaveBeenCalledWith(expect.stringContaining("发现新版本 v0.41"));
+    expect(toastState.info).toHaveBeenCalledWith(expect.stringContaining("〔灰度渠道〕"));
+  });
+
+  it("custom 渠道：toast 带〔自定义渠道〕", async () => {
+    await clickCheckWith({ current: "0.40", latest: "0.40", has_update: false, checked: true, channel: "custom" });
+    expect(toastState.success).toHaveBeenCalledWith(expect.stringContaining("〔自定义渠道〕"));
+  });
+
+  it("prod/缺 channel：toast 无任何渠道后缀（普通用户零感知）", async () => {
+    await clickCheckWith({ current: "0.40", latest: "0.40", has_update: false, checked: true, channel: "prod" });
+    expect(toastState.success).toHaveBeenCalledWith("已是最新版本 v0.40");
+    await clickCheckWith({ current: "0.40", latest: "0.40", has_update: false, checked: true });
+    expect(toastState.success).toHaveBeenLastCalledWith("已是最新版本 v0.40");
+  });
+});
