@@ -1299,6 +1299,27 @@ class NativeBridge:
 bridge = NativeBridge()
 
 
+def _activate_to_front() -> str:
+    """macOS 窗口呈现后自激活到前台，返回 "skipped"｜"front"｜"FAILED: <exc>"。
+
+    后台来源（更新 runner 的 `open`、脚本、登录项恢复）拉起的新实例不抢焦点：
+    pywebview 6.2.1 只 makeKeyAndOrderFront，macOS 14+ 后台启动的应用不会自行到前，
+    窗口落在前台应用之后（或另一桌面空间）——用户体感＝「重启更新没拉起来」
+    （2026-10-26 真机定案，换装拉起全绿却无人看见）。手动启动时系统本已授予前台，
+    调用幂等无害，故无条件执行。非 darwin 一律跳过；AppKit 缺失/激活异常吞掉返回
+    FAILED 串（结果由调用方落 startup.log，绝不阻断启动链）。
+    """
+    if sys.platform != "darwin":
+        return "skipped"
+    try:
+        from AppKit import NSApplication
+
+        NSApplication.sharedApplication().activateIgnoringOtherApps_(True)
+    except Exception as exc:  # 任何激活失败都只留痕不炸启动（调用方落 startup.log）
+        return f"FAILED: {exc}"
+    return "front"
+
+
 def main():
     """主入口"""
     runtime_dir = get_runtime_dir()
@@ -1395,6 +1416,11 @@ def main():
     # 之后卡住都发生在导航/装载段；没这行＝GUI 初始化段就没起来）
     def _on_window_shown(*_args, **_kwargs):
         log_line(runtime_dir, "window shown")
+        _act = _activate_to_front()
+        if _act == "front":
+            log_line(runtime_dir, "window activated (front)")
+        elif _act != "skipped":
+            log_line(runtime_dir, "window activate " + _act)
 
     try:
         window.events.shown += _on_window_shown
