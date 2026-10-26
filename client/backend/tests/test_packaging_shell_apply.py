@@ -595,3 +595,70 @@ def test_reconcile_success_clears_stale_attempt_record(shell, monkeypatch):
     assert (updates / "applied.json").exists()
     assert not (updates / "pending.json").exists()
     assert not (updates / "last-install-attempt.json").exists()
+
+
+# ── c-mac-relaunch-frontmost：窗口呈现后自激活到前台 ──────────────────────────
+# 后台来源（更新 runner 的 `open` 等）拉起的新实例不抢焦点（pywebview 6.2.1 只
+# makeKeyAndOrderFront，macOS 14+ 后台启动不自行到前）——用户体感「重启更新没拉起来」
+# （2026-10-26 真机定案）。壳层无条件自激活，非 darwin/AppKit 异常一律 no-op 不阻断。
+
+
+def _install_fake_appkit(monkeypatch, record: dict, exc: Exception | None = None):
+    appkit = types.ModuleType("AppKit")
+
+    class _FakeNSApp:
+        @staticmethod
+        def activateIgnoringOtherApps_(flag):
+            record["flag"] = flag
+            if exc is not None:
+                raise exc
+
+    class _FakeNSApplication:
+        @staticmethod
+        def sharedApplication():
+            return _FakeNSApp
+
+    appkit.NSApplication = _FakeNSApplication
+    monkeypatch.setitem(sys.modules, "AppKit", appkit)
+
+
+def test_activate_to_front_darwin_calls_appkit(shell, monkeypatch):
+    """darwin 臂：激活 API 以 True 被调用（ignoreOtherApps＝后台拉起强制到前）。"""
+    record: dict = {}
+    _install_fake_appkit(monkeypatch, record)
+    monkeypatch.setattr(shell.sys, "platform", "darwin")
+    assert shell._activate_to_front() == "front"
+    assert record["flag"] is True
+
+
+def test_activate_to_front_non_darwin_skips_without_import(shell, monkeypatch):
+    """非 darwin 臂：直接跳过——AppKit 不被导入，Windows 链路零行为变化。"""
+    record: dict = {}
+
+    class _Spy:
+        @staticmethod
+        def sharedApplication():  # pragma: no cover——被调用即失败
+            record["called"] = True
+
+    appkit = types.ModuleType("AppKit")
+    appkit.NSApplication = _Spy
+    monkeypatch.setitem(sys.modules, "AppKit", appkit)
+    monkeypatch.setattr(shell.sys, "platform", "win32")
+    assert shell._activate_to_front() == "skipped"
+    assert record == {}
+
+
+def test_activate_to_front_appkit_failure_swallowed(shell, monkeypatch):
+    """异常臂：AppKit 缺失/激活抛错吞掉返回 FAILED 串——绝不阻断启动链。"""
+    _install_fake_appkit(monkeypatch, {}, exc=RuntimeError("no window server"))
+    monkeypatch.setattr(shell.sys, "platform", "darwin")
+    out = shell._activate_to_front()
+    assert out.startswith("FAILED:") and "no window server" in out
+
+
+def test_window_shown_callback_wires_activation(shell):
+    """回调接线形状：shown 回调内含激活调用＋前台/失败两行启动日志。"""
+    src = SHELL_PATH.read_text(encoding="utf-8")
+    assert "_activate_to_front()" in src
+    assert "window activated (front)" in src
+    assert '"window activate " + _act' in src
