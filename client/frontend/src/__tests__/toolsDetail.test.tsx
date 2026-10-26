@@ -31,7 +31,7 @@ vi.mock("@/lib/deconstructApi", () => ({
   DECONSTRUCT_DIMS: [
     { key: "intro", name: "简介", file: "简介.md", setting: true },
     { key: "world", name: "世界设定", file: "世界设定.md", setting: true },
-    { key: "techniques", name: "写作技法", file: "写作技法.md", setting: false },
+    { key: "techniques", name: "写作技法", file: "写作技法.md", setting: false, book: true },
   ],
 }));
 
@@ -757,16 +757,16 @@ describe("TaskDetailPage", () => {
 
 
 describe("建书勾选导入", () => {
-  it("默认 7/10：设定项勾、三项扩展不勾；勾选真实传 items", async () => {
+  it("默认 8/10：设定项＋写作技法勾（并入文风）、关系/章卷不勾；勾选真实传 items", async () => {
     state.get.mockResolvedValue(detailOf("completed"));
     state.importBook.mockClear();
     renderPage();
     await waitFor(() => expect(screen.getByText("选择去向")).toBeInTheDocument());
     fireEvent.click(screen.getByText("选择去向"));
     await waitFor(() => expect(screen.getByText("灌入新书的内容")).toBeInTheDocument());
-    expect(screen.getByText(/写入勾选的 2\/3 项/)).toBeInTheDocument();  // mock 口径：intro/world 勾、techniques 不勾
-    // 勾「写作技法」、取消「简介」
-    fireEvent.click(document.querySelector('[data-od-id="bi-techniques"]') as HTMLInputElement);
+    expect(screen.getByText(/写入勾选的 3\/3 项/)).toBeInTheDocument(); // mock 口径：intro/world/techniques 全默认勾
+    expect(screen.getAllByText(/并入文风/).length).toBeGreaterThan(0); // 技法行标注＋说明文案，不再显示「默认不勾」
+    // 取消「简介」
     fireEvent.click(document.querySelector('[data-od-id="bi-intro"]') as HTMLInputElement);
     expect(screen.getByText(/写入勾选的 2\/3 项/)).toBeInTheDocument();
     fireEvent.click(screen.getByText("就建这本书"));

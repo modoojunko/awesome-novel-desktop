@@ -215,6 +215,45 @@ describe("撤并键零写回（评审 P0）", () => {  it("GET 带旧键（possi
   });
 });
 
+describe("文风示范段（c-deconstruct-style-transfer）", () => {
+  it("无示范段：不出现折叠组，保存 payload 不带 style_samples 键", async () => {
+    const ref = renderForm();
+    await waitFor(() => expect(screen.getByTestId("input-style-role")).toBeTruthy());
+    expect(screen.queryByTestId("list-style-samples")).toBeNull();
+    expect(await ref.current!.save()).toBe(true);
+    const body = apiState.put.mock.calls[0][1] as Record<string, unknown>;
+    expect("style_samples" in body).toBe(false);
+  });
+
+  it("有示范段：只读段落展示；删除一条后保存 payload 携带余条（保序）", async () => {
+    mockGet({
+      role: "r",
+      style_samples: ["夜里落了雪。他把炉门推开一条缝。", "他把账本合上，往桌上一拍。", "第三段。"],
+    });
+    const ref = renderForm();
+    await waitFor(() => expect(screen.getByTestId("list-style-samples")).toBeTruthy());
+    expect(screen.getByText("夜里落了雪。他把炉门推开一条缝。")).toBeTruthy();
+    // 无添加/行内编辑入口：块内只有「删除」按钮
+    const list = screen.getByTestId("list-style-samples");
+    const btns = Array.from(list.querySelectorAll("button")).map((b) => b.textContent);
+    expect(btns).toEqual(["删除", "删除", "删除"]);
+
+    fireEvent.click(screen.getByTestId("sample-del-1"));
+    expect(await ref.current!.save()).toBe(true);
+    const body = apiState.put.mock.calls[0][1] as Record<string, unknown>;
+    expect(body.style_samples).toEqual(["夜里落了雪。他把炉门推开一条缝。", "第三段。"]);
+    expect(Object.keys(body).sort()).toEqual([
+      "banned_words",
+      "craft",
+      "few_shot_examples",
+      "role",
+      "rules",
+      "style_samples",
+      "tic_patterns",
+    ]);
+  });
+});
+
 describe("两页签与确认门槛", () => {
   it("页签徽标：题材默认 → 改身份后「已自定义 · 1 处」", async () => {
     mockGet({ role: "冷静叙事者", rules: ["钩子"] });

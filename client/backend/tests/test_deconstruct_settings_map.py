@@ -85,8 +85,8 @@ def test_style_body_new_contract():
         ],
         "craft": [{"name": "反差写法", "how": "轻松段与惊悚段对照，如第3章"}],
         "examples": [
-            {"example": "我心里一紧。", "evidence_ch": "第2章"},
-            {"example": "他脚下没有影子。", "evidence_ch": "第75章"},
+            {"example": "我心里一紧。他没说话，把信折好塞回信封。", "evidence_ch": "第2章"},
+            {"example": "他脚下没有影子，路灯把人拉得老长。", "evidence_ch": "第75章"},
         ],
         "taboo": [{"name": "全知视角", "how": "始终锁在第一人称限知，原文未明确反例"}],
     }
@@ -97,9 +97,30 @@ def test_style_body_new_contract():
         "避免全知视角：始终锁在第一人称限知",
     ]
     assert body["craft"] == ["反差写法：轻松段与惊悚段对照"]
-    assert body["few_shot_examples"] == ["我心里一紧。", "他脚下没有影子。"]
-    for text in [body["role"], *body["rules"], *body["craft"], *body["few_shot_examples"]]:
+    # c-deconstruct-style-transfer：例句全部落示范段键，例句提炼专属键不再写
+    assert body["style_samples"] == [
+        "我心里一紧。他没说话，把信折好塞回信封。",
+        "他脚下没有影子，路灯把人拉得老长。",
+    ]
+    assert "few_shot_examples" not in body
+    for text in [body["role"], *body["rules"], *body["craft"], *body["style_samples"]]:
         _clean(text)
+
+
+def test_style_body_samples_cap_and_length():
+    """示范段收口：取前 6 条、单条截 400 字（截到句界）。"""
+    data = {
+        "role": "第三人称。",
+        "examples": [
+            {"example": "夜风很硬。" * 100, "evidence_ch": "第1章"} if i == 0 else {"example": f"样本{i}。", "evidence_ch": f"第{i}章"}
+            for i in range(8)
+        ],
+    }
+    body = sm.style_body(data)
+    assert len(body["style_samples"]) == 6
+    assert all(len(s) <= 400 for s in body["style_samples"])
+    assert body["style_samples"][0].endswith("。")  # clean_settings_text 按句界收口
+    assert len(body["style_samples"][0]) < 500
 
 
 def test_style_body_legacy_shape_and_shapes():
@@ -114,6 +135,9 @@ def test_style_body_legacy_shape_and_shapes():
     assert body["rules"] == ["对话：对话是信息推进主力。", "节奏：日常与惊悚双线交替。"]
     assert body["craft"] == ["章末钩子：结尾短句急转留悬念"]
     assert "few_shot_examples" not in body
+    assert "style_samples" not in body
+
+    # 无 examples 时两个例句键都不落地（style_body 只在有货时带键）
 
     # 数组写成字符串/单对象时按一条处理，不逐字符拆
     body = sm.style_body({

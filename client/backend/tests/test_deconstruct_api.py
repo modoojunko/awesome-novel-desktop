@@ -1627,18 +1627,19 @@ def test_import_all_dimensions_contract_safe(client, monkeypatch):
     assert rels[0].ch_ref == "第1章、第2章"
     assert "强派开车" in rels[0].note and "多次指路" in rels[0].note
 
-    # 文风：三区/例句/taboo；自由文本无证据
+    # 文风：三区/示范段/taboo；自由文本无证据（例句改投 style_samples，c-deconstruct-style-transfer）
     assert style["role"] == "第一人称限知叙述"
     assert "短句急收：惊悚段用短句加速" in style["rules"]
     assert "避免全知视角：始终锁在第一人称限知" in style["rules"]
     assert "反差写法：轻松段与惊悚段对照" in style["craft"]
-    assert style["few_shot_examples"] == ["我心里一紧。", "他脚下没有影子。"]
+    assert style["style_samples"] == ["我心里一紧。", "他脚下没有影子。"]
+    assert not style.get("few_shot_examples")  # 例句提炼专属键不再被拆书写入
     artifact = re.compile(
         r"(?:【[^】]{0,50}章】|[（(][^）)]*第\s*[0-9][0-9,，、\-—~～至\s]*章[^）)]*[）)]"
         r"|第\s*[0-9][0-9,，、\-—~～至\s]*章|原文未明确|confidence|evidence_ch)",
         re.IGNORECASE,
     )
-    for text in [style["role"], *style["rules"], *style["craft"], *style["few_shot_examples"]]:
+    for text in [style["role"], *style["rules"], *style["craft"], *style["style_samples"]]:
         assert artifact.search(text) is None, text
 
     # 技法：repro_steps 组成 how；borrowable→craft；avoid→rules

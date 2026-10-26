@@ -145,7 +145,7 @@ async def update_settings(
             merged = put_world_merged(raw, payload)
         await get_storage().write_yaml(project.root_path, KEY_TO_PATH[type], merged)
     elif type == "style":
-        # style 契约 v2（style-settings-v2）：白名单写（role/rules/craft/few_shot_examples）
+        # style 契约 v2（style-settings-v2）：白名单写（role/rules/craft/few_shot_examples/style_samples）
         # ＋旧键归一落底（`_legacy_style` 留底；撤并键零写回由白名单保证——评审 P0）
         # banned-words-into-style：先迁移再读 raw（先迁移、再读、再合并写的顺序约定，防迁移写覆盖并发 PUT）
         from settings.style_model import migrate_anti_ai_into_style, put_style

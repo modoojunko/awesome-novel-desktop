@@ -51,9 +51,10 @@ export default function TaskDetailPage() {
   const hasDeconstruct = useFeature("deconstruct");
   const hasDeconstructImport = useFeature("deconstruct-import");
   const [tierNeed, setTierNeed] = useState<FeatureKey | null>(null);
-  // 建书勾选：7 设定项默认勾（二创轻量），章卷/关系/技法默认不勾（自书续写再勾）
+  // 建书勾选：7 设定项＋写作技法默认勾（技法并入文风注入正文，c-deconstruct-style-transfer）；
+  // 章卷/关系默认不勾（自书续写再勾）
   const [bookItems, setBookItems] = useState<string[]>(
-    DECONSTRUCT_DIMS.filter((d) => d.setting).map((d) => d.key),
+    DECONSTRUCT_DIMS.filter((d) => d.setting || d.book).map((d) => d.key),
   );
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [exitOpen, setExitOpen] = useState(false);
@@ -688,7 +689,7 @@ export default function TaskDetailPage() {
                   >
                     <span className="ex-txt">
                       <b>建书{hasDeconstructImport ? "" : "（MAX）"}</b>
-                      <span>生成新书并写入勾中的设定项；确认后直达新书设定页（标「待确认」）；人物关系/章卷/技法随任务资料。</span>
+                      <span>生成新书并写入勾中的设定项；确认后直达新书设定页（标「待确认」）；写作技法并入文风，人物关系/章卷随任务资料。</span>
                     </span>
                   </button>
                   <button
@@ -757,7 +758,8 @@ export default function TaskDetailPage() {
                         />
                         <span className="d-tx">
                           <b>{d.name}</b>
-                          {!d.setting && <span style={{ color: "var(--muted)" }}>（默认不勾）</span>}
+                          {!d.setting && !d.book && <span style={{ color: "var(--muted)" }}>（默认不勾）</span>}
+                          {d.book && <span style={{ color: "var(--muted)" }}>（并入文风）</span>}
                         </span>
                       </label>
                     ))}

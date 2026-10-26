@@ -146,7 +146,11 @@ def _items(value) -> list:
 
 
 def style_body(data: dict) -> dict:
-    """style 产物 → put_style body（三区＋例句；taboo 并入硬约束）。"""
+    """style 产物 → put_style body（三区＋示范段；taboo 并入硬约束）。
+
+    产物例句（提示词包契约＝成段原文摘录；旧任务可能是短句）全部落 style_samples
+    供正文恒定层作笔法示范，不再写 few_shot_examples（例句提炼专属短句键）。
+    """
     if not isinstance(data, dict):
         return {}
     role = first_sentence(data.get("role")) or first_sentence(data.get("narration"))
@@ -171,7 +175,7 @@ def style_body(data: dict) -> dict:
     examples: list[str] = []
     for e in _items(data.get("examples")):
         text = e.get("example") if isinstance(e, dict) else e
-        text = clean_settings_text(text, 300)
+        text = clean_settings_text(text, 400)
         if text and text not in examples:
             examples.append(text)
 
@@ -183,7 +187,7 @@ def style_body(data: dict) -> dict:
     if craft:
         body["craft"] = craft
     if examples:
-        body["few_shot_examples"] = examples[:3]
+        body["style_samples"] = examples[:6]
     return body
 
 

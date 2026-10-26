@@ -2316,3 +2316,10 @@ button.dep-row:hover{background:var(--hl)}
 .rw-empty { display: grid; place-items: center; gap: 8px; padding: 24px 0 8px; color: var(--muted); font-size: 13px; text-align: center; }
 .rw-empty svg { width: 22px; height: 22px; color: var(--ok); }
 .rw-cta-note { margin: 12px 0 0; font-size: 11px; color: var(--muted); border-top: 1px dashed var(--border); padding-top: 8px; }
+
+/* 文风示范段（c-deconstruct-style-transfer）：拆书导入的成段原文，只读＋可删 */
+.settings-v .ss-list { display: flex; flex-direction: column; }
+.settings-v .ss-row { display: flex; align-items: flex-start; gap: 10px; padding: 8px 0; border-bottom: 1px dashed var(--border); }
+.settings-v .ss-row:last-child { border-bottom: none; }
+.settings-v .ss-row .ss-txt { flex: 1; min-width: 0; margin: 0; font-size: 12.5px; line-height: 1.8; white-space: pre-wrap; color: var(--fg); }
+.settings-v .ss-row .btn { flex: none; }

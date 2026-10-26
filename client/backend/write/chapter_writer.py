@@ -590,6 +590,12 @@ class ChapterContext:
         few_shot = self._few_shot_examples()
         if few_shot:
             blocks.append("【文风例句（案例段原料）】\n" + "\n".join(f"- {s}" for s in few_shot))
+        samples = self._style_samples()
+        if samples:
+            blocks.append(
+                "【文风示范段（本书原文摘录）】\n"
+                + "\n".join(f"〔{i + 1}〕{s}" for i, s in enumerate(samples))
+            )
 
         task_lines = [
             (
@@ -693,6 +699,16 @@ class ChapterContext:
             return []
         return [str(s).strip() for s in raw if str(s).strip()][:3]
 
+    def _style_samples(self) -> list[str]:
+        # 成段示范段（c-deconstruct-style-transfer）：拆书原文摘录，正文笔法最高依据；
+        # 取前 3 条保 system 恒定层逐章一致（缓存生命线），不轮换。
+        raw = self.style_setting.get("style_samples")
+        if isinstance(raw, str):
+            raw = [raw]
+        if not isinstance(raw, list):
+            return []
+        return [str(s).strip() for s in raw if str(s).strip()][:3]
+
     def _world_block(self) -> str:
         # 预算由领域渲染器内部按「整条为单元 + 显式从略」控制（world-setting-v2 D5），
         # 不再从中间硬切——被切半截的红线比没有更糟；铁律走 _red_lines 红线区。
@@ -761,6 +777,12 @@ class ChapterContext:
         if few_shot:
             style_rows.append(
                 "文风例句（参考语感）：\n" + "\n".join(f"- {s}" for s in few_shot)
+            )
+        samples = self._style_samples()
+        if samples:
+            style_rows.append(
+                "文风示范段（本书原文摘录——句式、节奏、对话密度的最高依据，照着写）：\n"
+                + "\n".join(f"〔{i + 1}〕{s}" for i, s in enumerate(samples))
             )
         banned = [str(w) for w in (self.style_setting.get("banned_words") or [])]
         tic_patterns = [
