@@ -26,3 +26,4 @@
 
 - [x] 6.1 门禁：后端 pytest（test_update_channel＋test_update_check）＋ruff check；前端 vitest＋`tsc`；`openspec validate c-update-staging-channel`。验证：命令 0 红。
 - [x] 6.2 PR；合入后真机验收＝下一版 tag 落灰度→本机（env 法或 yaml 文件）跑完整更新链升上该版→改用 yaml 文件复验→晋升 dry_run→真晋升→生产 latest.json 指该版。验证：用户侧验收记录。
+- [x] 6.3 评审整改（PR #947 self-review）：晋升作业灰度清单形状闸前置（SPA 兜底页 200+HTML 防裸堆栈误诊，判例 10-14）＋自定义 `update_url` 平台包同源约束入 spec 与 runbook。验证：workflow YAML 解析过＋`openspec validate` 绿。

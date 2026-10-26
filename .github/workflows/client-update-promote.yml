@@ -39,15 +39,18 @@ jobs:
           FALLBACK_BASE: ${{ vars.CLIENT_DOWNLOAD_BASE_FALLBACK || 'https://ai-novel-test-d1ghsr86ra814c12c-1468883265.tcloudbaseapp.com/download' }}
         run: |
           # ── 1. 拉灰度清单原始字节（主域 → 兜底域；绝不重序列化，签名随字节走）──
+          # 形状闸前置：静态托管对缺失路径回 SPA 兜底页（HTTP 200 的 HTML，判例
+          # 10-14）——curl -sf 挡不住 200+HTML，必须解析通过才算「拉到」
           STAGING_OK=0
           for U in "$PROD_BASE/staging/latest.json" "$FALLBACK_BASE/staging/latest.json"; do
-            if curl -sf "$U" -o /tmp/staging.json; then
+            curl -sf "$U" -o /tmp/staging.json || continue
+            if python3 -c "import json;json.load(open('/tmp/staging.json',encoding='utf-8'))" 2>/dev/null; then
               STAGING_OK=1
               echo "灰度清单来源：$U"
               break
             fi
           done
-          [ "$STAGING_OK" = "1" ] || { echo "::error::灰度清单拉取失败（两域均不可达）——先确认发版已落灰度"; exit 1; }
+          [ "$STAGING_OK" = "1" ] || { echo "::error::灰度清单不存在或非 JSON（大概率发版尚未落灰度，或被 SPA 兜底页接住）——先跑 tag 发版再晋升"; exit 1; }
 
           # ── 2. 拉生产现网清单（可能缺失/SPA 兜底 200+HTML → 守护里按无现网处理）──
           curl -sf "$PROD_BASE/latest.json" -o /tmp/prod.json || printf '' > /tmp/prod.json
@@ -66,7 +69,11 @@ jobs:
               print(f"::error::{msg}")
               sys.exit(1)
 
-          staging = json.loads(Path("/tmp/staging.json").read_text(encoding="utf-8"))
+          # 形状闸兜底（bash 侧已闸一次；双保险防兜底页 HTML 混入）
+          try:
+              staging = json.loads(Path("/tmp/staging.json").read_text(encoding="utf-8"))
+          except ValueError:
+              fail("灰度清单不是合法 JSON（SPA 兜底页混入？）——拒绝晋升")
           ver = str(staging.get("version") or "")
           if not is_valid_version(ver):
               fail(f"灰度清单 version 缺失或非法（{ver!r}）——拒绝晋升")

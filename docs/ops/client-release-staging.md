@@ -30,6 +30,7 @@ GitHub Release ＋ 双包/notes.html 落 `download/v0.41/` ＋ **灰度 latest.j
 # 灰度渠道开关：删掉本文件或改成 prod 即回生产渠道
 # staging = 从灰度目录检测更新 ｜ 也可直接写任意清单地址：
 # update_url: https://example.com/some/latest.json
+#   ⚠ 自定义地址的平台包 URL 须与该域同源（见文末判例）
 channel: staging
 ```
 
@@ -90,4 +91,7 @@ channel: staging
 - 落地页/S端 读的是生产指针：晋升前落地页仍显示旧版，属预期。
 - `/download/download/…` 双拼会被静态托管 SPA 兜底页接住（200+HTML 冒充 JSON）——
   排查「渠道不可达」时先核对 URL 拼写（历史实锤 10-14）。
+- 自定义 `update_url` 的**同源约束**：信任域集合只从候选地址推导——清单指到镜像域后，
+  清单里 `platforms.*.url` 也必须指向该域；若镜像只放 latest.json 而包仍指 www，会
+  「发现新版」但自动下载被出站闸静默拒绝（仅留日志）。要镜像就整站镜像。
 - 0.40 及更早客户端没有文件开关，过渡期一律用环境变量法。

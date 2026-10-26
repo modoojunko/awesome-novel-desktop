@@ -2,7 +2,7 @@
 
 ### Requirement: 灰度渠道本地覆盖
 
-C端 SHALL 支持数据目录下的可选渠道覆盖文件 `update-channel.yaml`（路径＝`DATA_ROOT/update-channel.yaml`；客户端对它**只读不写**；文件缺失时 MUST 完全保持生产行为，普通用户零感知）。文件形态：`channel: staging`（检测地址切灰度清单主/兜底两址）、`channel: prod`（显式回生产，等价删文件）、`update_url: <完整清单地址>`（自定义单候选，高级用法）；`channel` 与 `update_url` 同时存在时 `channel` MUST 优先。解析 MUST 容错：`utf-8-sig` 读取（BOM 不致命）、剥标量值两侧空白与全角/智能引号；解析失败、空文件、未知取值 MUST 一律回退生产候选链并留 warning 日志，MUST NOT 使更新检查失败或抛错。覆盖文件的优先级 MUST 高于环境变量与烘焙地址；信任域集合、更新说明页派生地址 MUST 随生效候选自动跟随；https＋公网解析出站闸 MUST 保持不变。检测载荷（GET /update-check）与手动检查响应（POST /update-check/refresh）SHALL 带 `channel` 字段（`prod`/`staging`/`custom`，仅反映覆盖文件，env 覆盖不改标签）；前端手动「检查更新」的结果提示在非生产渠道 MUST 附渠道后缀（〔灰度渠道〕/〔自定义渠道〕），使「开关未生效」可被当场识别。
+C端 SHALL 支持数据目录下的可选渠道覆盖文件 `update-channel.yaml`（路径＝`DATA_ROOT/update-channel.yaml`；客户端对它**只读不写**；文件缺失时 MUST 完全保持生产行为，普通用户零感知）。文件形态：`channel: staging`（检测地址切灰度清单主/兜底两址）、`channel: prod`（显式回生产，等价删文件）、`update_url: <完整清单地址>`（自定义单候选，高级用法）；自定义清单内各平台包 URL MUST 与该候选域同源——信任域集合仅从候选地址推导，跨源平台包会在自动下载出站闸被拒绝（自动下载不启动，手动链照旧）。`channel` 与 `update_url` 同时存在时 `channel` MUST 优先。解析 MUST 容错：`utf-8-sig` 读取（BOM 不致命）、剥标量值两侧空白与全角/智能引号；解析失败、空文件、未知取值 MUST 一律回退生产候选链并留 warning 日志，MUST NOT 使更新检查失败或抛错。覆盖文件的优先级 MUST 高于环境变量与烘焙地址；信任域集合、更新说明页派生地址 MUST 随生效候选自动跟随；https＋公网解析出站闸 MUST 保持不变。检测载荷（GET /update-check）与手动检查响应（POST /update-check/refresh）SHALL 带 `channel` 字段（`prod`/`staging`/`custom`，仅反映覆盖文件，env 覆盖不改标签）；前端手动「检查更新」的结果提示在非生产渠道 MUST 附渠道后缀（〔灰度渠道〕/〔自定义渠道〕），使「开关未生效」可被当场识别。
 
 #### Scenario: 无文件保持生产行为
 
