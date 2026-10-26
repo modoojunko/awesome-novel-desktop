@@ -11,6 +11,8 @@
   主域失败自动切兜底；全部失败静默降级，绝不向用户呈现错误。
 - 节流：data/update-check.json 记 last_check_at / cached / dismissed_version，
   真实外呼最多每小时一次（启动检测与会话内复查共用同一把尺）。
+- 灰度渠道覆盖（c-update-staging-channel）：数据目录可选 update-channel.yaml
+  优先于 env/烘焙（见 update_channel.py，fail-soft 回生产链）。
 """
 
 import asyncio
@@ -32,6 +34,7 @@ from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
 import manifest_crypto
+import update_channel
 from build_info import get_build_info
 from config import DATA_ROOT
 from http_client import build_async_client
@@ -65,6 +68,13 @@ def get_client_version() -> str:
 
 
 def _candidate_urls() -> list[str]:
+    """检测候选地址：覆盖文件（灰度/自定义）> env > 烘焙默认。
+
+    信任域集合与派生地址（notes.html 等）都从本单源推导，覆盖生效即自动跟随。
+    """
+    overridden = update_channel.override_candidates()
+    if overridden:
+        return overridden
     urls = []
     for name, default in (
         ("CLIENT_UPDATE_URL", _DEFAULT_UPDATE_URL),
@@ -587,6 +597,8 @@ async def get_update_state() -> dict:
         # c-version-build-info：与 _payload 同批装配，两条返回路径 shape 一致
         # （tag 构建 get_build_info 自回 None——dev 总闸）
         "build": get_build_info(current),
+        # 灰度渠道标签（c-update-staging-channel）：仅反映本地覆盖文件
+        "channel": update_channel.channel_name(),
     })
 
 
@@ -600,6 +612,7 @@ def _payload(*, current: str, latest: str | None) -> dict:
         "download_url": "",
         "auto": auto_public_state(),
         "build": get_build_info(current),
+        "channel": update_channel.channel_name(),
     }
 
 
@@ -636,7 +649,8 @@ async def refresh_update_check():
     fetched = await _fetch_latest()
     if fetched is None:
         return {"current": current, "latest": None, "has_update": False,
-                "notes": "", "checked": False, "build": get_build_info(current)}
+                "notes": "", "checked": False, "build": get_build_info(current),
+                "channel": update_channel.channel_name()}
 
     def _record(st: dict) -> None:
         st["last_check_at"] = time.time()
@@ -649,7 +663,8 @@ async def refresh_update_check():
             "has_update": _has_newer(latest, current),
             "notes": fetched.get("notes") or "", "checked": True,
             "auto": auto_public_state(),
-            "build": get_build_info(current)}
+            "build": get_build_info(current),
+            "channel": update_channel.channel_name()}
 
 
 class SkipIn(BaseModel):

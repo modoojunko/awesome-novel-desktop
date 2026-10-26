@@ -555,11 +555,13 @@ jobs:
         with:
           files: artifacts/**/*
           body_path: release_body.md
-      # ── 国内分发：转存安装包到静态托管 + 更新 latest.json + 生成版本更新说明页 ──
+      # ── 国内分发：转存安装包到静态托管 + 灰度 latest.json + 生成版本更新说明页 ──
       # www 根路径路由指向静态托管（/api 才是云托管），上传后 www/download/… 即可直接下载。
-      # 版本化路径只增不改，CDN 长缓存安全；latest.json 是落地页下载弹窗与 C端 更新检测
-      # 共同的唯一版本事实源；notes.html 是该版本的更新说明页（C端 提示条「查看更新内容」直达）。
-      # 任一校验失败即流水线标红，不静默。
+      # 版本化路径只增不改，CDN 长缓存安全；latest.json 落**灰度**路径（c-update-staging-
+      # channel）：发版只改灰度指针，生产 download/latest.json 保持不动、由灰度晋升作业
+      # （client-update-promote.yml，验收通过后人工触发）字节原样推进——生产指针仍是落地页
+      # 下载弹窗与 C端 更新检测共同的唯一版本事实源；notes.html 是该版本的更新说明页
+      # （C端 提示条「查看更新内容」直达）。任一校验失败即流水线标红，不静默。
       - name: Publish to static hosting (CN CDN)
         env:
           TCB_API_KEY: ${{ secrets.TCB_API_KEY }}
@@ -684,8 +686,9 @@ jobs:
           print("latest.json:", json.dumps(latest, ensure_ascii=False))
           PY
           tcb hosting deploy ./notes.html "download/v$VER/notes.html" -e "$TCB_ENV_ID"
-          tcb hosting deploy ./latest.json "download/latest.json" -e "$TCB_ENV_ID"
-          # 校验：www 直链 HEAD 200 且 content-length 与本地一致；latest.json 内容断言
+          # 灰度先行（c-update-staging-channel）：清单只落灰度路径，生产 latest.json 不动
+          tcb hosting deploy ./latest.json "download/staging/latest.json" -e "$TCB_ENV_ID"
+          # 校验：www 直链 HEAD 200 且 content-length 与本地一致；灰度 latest.json 内容断言
           check() {
             for i in 1 2 3 4 5 6; do
               LEN="$(curl -sfIL "$1" | tr -d '\r' | awk 'tolower($1)=="content-length:"{print $2}' | tail -1)"
@@ -699,20 +702,22 @@ jobs:
           check "https://www.awesomenovel.com/download/v$VER/notes.html" "$(stat -c%s notes.html)" || exit 1
           EXPECTED="$(python -c "import json;print(json.dumps(json.load(open('latest.json',encoding='utf-8')),ensure_ascii=False,separators=(',',':')))")"
           for i in 1 2 3 4 5 6; do
-            GOT="$(curl -sf https://www.awesomenovel.com/download/latest.json | python -c "import json,sys;print(json.dumps(json.load(sys.stdin),ensure_ascii=False,separators=(',',':')))" 2>/dev/null || true)"
+            GOT="$(curl -sf https://www.awesomenovel.com/download/staging/latest.json | python -c "import json,sys;print(json.dumps(json.load(sys.stdin),ensure_ascii=False,separators=(',',':')))" 2>/dev/null || true)"
             [ "$GOT" = "$EXPECTED" ] && break
             sleep 5
           done
-          [ "$GOT" = "$EXPECTED" ] || { echo "::error::latest.json 内容不符（期望 $EXPECTED，实得 ${GOT:-空}）"; exit 1; }
-          echo "CN CDN 发布完成：download/v$VER/（安装包 + notes.html）+ latest.json"
+          [ "$GOT" = "$EXPECTED" ] || { echo "::error::灰度 latest.json 内容不符（期望 $EXPECTED，实得 ${GOT:-空}）"; exit 1; }
+          echo "CN CDN 灰度发布完成：download/v$VER/（安装包 + notes.html）+ download/staging/latest.json"
+          echo "灰度验收入口：https://www.awesomenovel.com/download/staging/latest.json"
+          echo "生产指针未动（用户无感）；验收通过后跑「C端 更新灰度晋升（staging → 生产）」作业推进生产"
 
       # ── 托管旧版本清理：发布校验全绿后，按版本语义序只保留最近 2 个版本目录 ──
       # 每版净增约 70MB 且托管无生命周期机制；旧版本无任何引用入口（latest.json / 落地页直链 /
       # notes.html 都只指当前版），历史版本获取由官网版本化 notes.html 直链承接（仓库已私有，
-      # 无 GitHub Release）。latest.json 永不在删除
-      # 路径；dry-run 预览先行；从未上过托管的 tag（如本地遗留 tag）报错降级为 warning；清理
-      # 失败不阻塞发版（发布已成功，下个版本自动重试）。本步骤不设 if: always()——发布或校验
-      # 失败时旧版本目录是当时唯一可下载来源，绝不能先删后建。
+      # 无 GitHub Release）。latest.json（生产 download/latest.json 与灰度 download/staging/
+      # latest.json）永不在删除路径；dry-run 预览先行；从未上过托管的 tag（如本地遗留 tag）
+      # 报错降级为 warning；清理失败不阻塞发版（发布已成功，下个版本自动重试）。本步骤不设
+      # if: always()——发布或校验失败时旧版本目录是当时唯一可下载来源，绝不能先删后建。
       - name: Prune old hosting versions (keep last 2)
         env:
           TCB_API_KEY: ${{ secrets.TCB_API_KEY }}

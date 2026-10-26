@@ -1,0 +1,128 @@
+name: C端 更新灰度晋升（staging → 生产）
+
+# ── c-update-staging-channel：灰度 → 生产 的人工晋升闸 ───────────────────────
+# tag 发版只落灰度（download/staging/latest.json）；本作业把灰度清单**字节原样**
+# 推进为生产 download/latest.json——不重序列化、不重签（Ed25519 签名覆盖清单
+# 内容，字节一致即验签有效），安装包实物两渠道共用同一份版本化目录。
+# 守护闸：灰度清单必须合法、双平台域名可信、auto_enabled=true 必带顶层签名，
+# 且灰度版本严格新于生产现网版本（防旧版倒挂覆盖新版）。
+# ⚠️ 紧急停发/版本回指旧版不走这里——用「C端 升级清单重签（auto_enabled 总闸）」。
+# 凭证只在 CI secrets，本地不持有可改生产的钥匙；每次晋升在本 Actions 留痕。
+on:
+  workflow_dispatch:
+    inputs:
+      expected_version:
+        description: '可选：期望晋升的版本号（如 0.41），与灰度清单不符即拒绝'
+        type: string
+        default: ''
+      dry_run:
+        description: '只校验不落生产（预览「生产 vX → vY」）'
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+jobs:
+  promote:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Promote staging manifest to production
+        env:
+          TCB_API_KEY: ${{ secrets.TCB_API_KEY }}
+          TCB_ENV_ID: ${{ vars.TCB_ENV_ID }}
+          PROMOTE_EXPECTED: ${{ inputs.expected_version }}
+          PROMOTE_DRY_RUN: ${{ inputs.dry_run && '1' || '0' }}
+          # 与客户端烘焙主/兜底同源；staging 清单两域同物，主域失败自动切兜底
+          PROD_BASE: ${{ vars.CLIENT_DOWNLOAD_BASE || 'https://www.awesomenovel.com/download' }}
+          FALLBACK_BASE: ${{ vars.CLIENT_DOWNLOAD_BASE_FALLBACK || 'https://ai-novel-test-d1ghsr86ra814c12c-1468883265.tcloudbaseapp.com/download' }}
+        run: |
+          # ── 1. 拉灰度清单原始字节（主域 → 兜底域；绝不重序列化，签名随字节走）──
+          STAGING_OK=0
+          for U in "$PROD_BASE/staging/latest.json" "$FALLBACK_BASE/staging/latest.json"; do
+            if curl -sf "$U" -o /tmp/staging.json; then
+              STAGING_OK=1
+              echo "灰度清单来源：$U"
+              break
+            fi
+          done
+          [ "$STAGING_OK" = "1" ] || { echo "::error::灰度清单拉取失败（两域均不可达）——先确认发版已落灰度"; exit 1; }
+
+          # ── 2. 拉生产现网清单（可能缺失/SPA 兜底 200+HTML → 守护里按无现网处理）──
+          curl -sf "$PROD_BASE/latest.json" -o /tmp/prod.json || printf '' > /tmp/prod.json
+
+          # ── 3. 守护闸（版本比较复用后端单源 schema_version，与客户端同口径）──
+          TRUSTED_HOSTS="www.awesomenovel.com|ai-novel-test-d1ghsr86ra814c12c-1468883265.tcloudbaseapp.com"
+          export TRUSTED_HOSTS PROMOTE_EXPECTED PROMOTE_DRY_RUN
+          export PYTHONPATH="$PWD/client/backend"
+          python3 - <<'PY'
+          import json, os, sys
+          from pathlib import Path
+          from urllib.parse import urlparse
+          from schema_version import is_newer, is_valid_version
+
+          def fail(msg: str) -> None:
+              print(f"::error::{msg}")
+              sys.exit(1)
+
+          staging = json.loads(Path("/tmp/staging.json").read_text(encoding="utf-8"))
+          ver = str(staging.get("version") or "")
+          if not is_valid_version(ver):
+              fail(f"灰度清单 version 缺失或非法（{ver!r}）——拒绝晋升")
+          plats = staging.get("platforms") or {}
+          trusted = set(os.environ["TRUSTED_HOSTS"].split("|")) - {""}
+          for pk in ("win", "mac"):
+              ent = plats.get(pk)
+              if not isinstance(ent, dict) or not str(ent.get("url") or "").strip():
+                  fail(f"platforms.{pk} 缺失或无 url——拒绝晋升")
+              host = (urlparse(str(ent["url"])).hostname or "").lower()
+              if host not in trusted:
+                  fail(f"platforms.{pk} url 域名 {host or '空'} 不在可信白名单——拒绝晋升（CDN 可能被污染）")
+          if staging.get("auto_enabled") and (
+                  not staging.get("signature") or not staging.get("signer_key_id")):
+              fail("auto_enabled=true 但缺少顶层签名/signer_key_id——拒绝晋升（无签名的自动链是零交互 RCE 面）")
+          expected = os.environ.get("PROMOTE_EXPECTED", "").strip()
+          if expected and expected != ver:
+              fail(f"expected_version={expected} 与灰度清单 version={ver} 不一致——对拍拒绝")
+          # 生产现网版本：缺失/SPA 兜底 HTML/坏 JSON 一律按「无现网」放行（首次/灾后晋升）
+          prod_ver = ""
+          try:
+              prod = json.loads(Path("/tmp/prod.json").read_text(encoding="utf-8"))
+              pv = str(prod.get("version") or "")
+              if is_valid_version(pv):
+                  prod_ver = pv
+          except (OSError, ValueError):
+              pass
+          if prod_ver and not is_newer(ver, prod_ver):
+              fail(f"灰度版本 {ver} 不严格新于生产现网 {prod_ver}——拒绝倒挂晋升"
+                   f"（如需覆盖/回指旧版走 client-update-resign 总闸）")
+          Path("/tmp/promote_old").write_text(prod_ver, encoding="utf-8")
+          print(f"守护通过：生产 {prod_ver or '（无现网清单）'} → 目标 {ver}")
+          PY
+          OLD_VER="$(cat /tmp/promote_old)"
+          NEW_VER="$(python3 -c "import json;print(json.load(open('/tmp/staging.json',encoding='utf-8'))['version'])")"
+
+          if [ "$PROMOTE_DRY_RUN" = "1" ]; then
+            echo "dry-run 完成：校验全过，未落生产。预演：生产 v${OLD_VER:-（无）} → v$NEW_VER"
+            echo "灰度清单内容："
+            python3 -m json.tool /tmp/staging.json
+            exit 0
+          fi
+
+          # ── 4. 字节原样部署到生产 ──
+          npm install -g @cloudbase/cli
+          tcb login --cloudbase-api-key "$TCB_API_KEY" -e "$TCB_ENV_ID"
+          tcb hosting deploy /tmp/staging.json "download/latest.json" -e "$TCB_ENV_ID"
+
+          # ── 5. 回读校验：生产清单内容必须与灰度一致（6×5s 轮询，超时判红）──
+          EXPECTED="$(python3 -c "import json;print(json.dumps(json.load(open('/tmp/staging.json',encoding='utf-8')),ensure_ascii=False,separators=(',',':')))")"
+          GOT=""
+          for i in 1 2 3 4 5 6; do
+            GOT="$(curl -sf "$PROD_BASE/latest.json" | python3 -c "import json,sys;print(json.dumps(json.load(sys.stdin),ensure_ascii=False,separators=(',',':')))" 2>/dev/null || true)"
+            [ "$GOT" = "$EXPECTED" ] && break
+            sleep 5
+          done
+          [ "$GOT" = "$EXPECTED" ] || { echo "::error::晋升校验失败：生产清单与灰度内容不一致（回读=${GOT:-空}）"; exit 1; }
+          echo "生产清单已推进：v${OLD_VER:-（无）} → v$NEW_VER"
+          echo "落地页下载弹窗即刻指新版；已装客户端最迟 1 小时内自动触达（手动「检查更新」立即生效）"
