@@ -365,11 +365,70 @@ def test_main_clears_stale_port_json_and_logs(shell, tmp_path, monkeypatch):
     assert contained == ["（建窗后）"], "建窗后必须把 WebView2 子树收进 job（第一拍）"
     assert exited == [0], "窗口关闭后必须强制下线（不留残留进程）"
     text = _log_text(appdata)
-    assert "shell main() entered" in text
+    assert "shell main() entered: version=" in text
     assert "server thread started" in text
     # 顺序：先 GUI 退出 → 再有界收尾 → 再强退
     assert text.index("GUI loop exited") < text.index("backend shutdown")
     assert "backend shutdown: graceful=True" in text
+
+
+def _run_main_collect_log(shell, tmp_path, monkeypatch, res_root, real_get_resource_root):
+    """以与 test_main_clears_stale_port_json_and_logs 相同的桩组跑一次 main()，回传启动日志。"""
+    appdata = tmp_path / f"appdata-{time.time_ns()}"
+    appdata.mkdir()
+
+    class _StubWebview:
+        screens: ClassVar[list] = []
+
+        @staticmethod
+        def create_window(**kwargs):
+            return _FakeWindow()
+
+        @staticmethod
+        def start(debug=False):
+            pass
+
+    monkeypatch.setattr(shell, "webview", _StubWebview)
+    monkeypatch.setattr(shell, "get_appdata", lambda: appdata)
+    monkeypatch.setattr(shell, "get_install_dir", lambda: tmp_path / "install")
+    monkeypatch.setattr(shell, "ensure_loading_page", lambda ad: (ad / "loading.html").as_uri())
+    monkeypatch.setattr(shell, "start_server", lambda: None)
+    monkeypatch.setattr(shell, "check_backend_and_navigate", lambda window, ad, cfg=None: None)
+    monkeypatch.setattr(shell, "arm_hang_dump", lambda ad, period=60.0: None)
+    monkeypatch.setattr(shell, "contain_webview_children", lambda ad, note="": 0)
+    monkeypatch.setattr(shell, "_force_exit", lambda code=0: None)
+    monkeypatch.setattr(shell, "stop_server_gracefully", lambda timeout=3.0: True)
+    monkeypatch.setattr(shell, "get_resource_root",
+                        lambda: res_root if res_root is not None else real_get_resource_root())
+    monkeypatch.delenv("CLIENT_VERSION", raising=False)
+
+    shell.main()
+    return _log_text(appdata)
+
+
+def test_main_logs_resolved_client_version(shell, tmp_path, monkeypatch):
+    """启动日志必须带解析后的本机版本（env > release.json 烘焙 > AI_NOVEL_* > dev）。
+
+    真函数必须在任何打桩前捕获一次传入——否则第二轮捕获到的「真函数」是第一轮的桩，
+    烘焙值跨场景泄漏（本测试首轮实测踩中）。
+    """
+    original_get_resource_root = shell.get_resource_root
+    # release.json 烘焙在场：即便 AI_NOVEL_* 兜底 env 同时在，烘焙优先（与注入链同序）
+    res_root = tmp_path / "res"
+    res_root.mkdir()
+    (res_root / "release.json").write_text('{"client_version": "0.41"}', encoding="utf-8")
+    monkeypatch.setenv("AI_NOVEL_CLIENT_VERSION", "0.99")
+    text = _run_main_collect_log(shell, tmp_path, monkeypatch, res_root, original_get_resource_root)
+    assert "shell main() entered: version=0.41 " in text
+
+    # 无烘焙：AI_NOVEL_CLIENT_VERSION 兜底生效
+    text = _run_main_collect_log(shell, tmp_path, monkeypatch, None, original_get_resource_root)
+    assert "shell main() entered: version=0.99 " in text
+
+    # 全缺：dev 哨兵
+    monkeypatch.delenv("AI_NOVEL_CLIENT_VERSION", raising=False)
+    text = _run_main_collect_log(shell, tmp_path, monkeypatch, None, original_get_resource_root)
+    assert "shell main() entered: version=dev " in text
 
 
 # ── 7. 运行目录换名（AI Novel → AwesomeNovel）＋无痛迁移 ───────────────────

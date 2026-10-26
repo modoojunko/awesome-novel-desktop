@@ -1313,8 +1313,17 @@ def main():
         start_server()
         return
 
-    log_line(runtime_dir, "shell main() entered: exe=%s frozen=%s data_dir=%s runtime_dir=%s"
-             % (sys.executable, getattr(sys, "frozen", False), get_install_dir(), runtime_dir))
+    # 本机版本进启动日志（2026-10-26 灰度验收现场：装完 0.41 后「拉起的是哪个版
+    # 本」只能靠肉眼对角标，startup.log 只有 webview2 版本没有自家版本，悬案无法
+    # 回放）。此时 env 注入尚未发生，直读 release.json 与 start_server 的注入链
+    # 同序（env CLIENT_VERSION > 烘焙 > AI_NOVEL_CLIENT_VERSION > dev）。
+    release_at_boot = _load_release_json(get_resource_root())
+    client_version_at_boot = (os.environ.get("CLIENT_VERSION")
+                              or release_at_boot.get("client_version")
+                              or os.environ.get("AI_NOVEL_CLIENT_VERSION") or "dev")
+    log_line(runtime_dir, "shell main() entered: version=%s exe=%s frozen=%s data_dir=%s runtime_dir=%s"
+             % (client_version_at_boot, sys.executable, getattr(sys, "frozen", False),
+                get_install_dir(), runtime_dir))
 
     # 调参文件与安全模式（shell-render-resilience）：必须在 create_window 之前——
     # WebView2 环境每次进程只建一次，事后再设参数无效。
