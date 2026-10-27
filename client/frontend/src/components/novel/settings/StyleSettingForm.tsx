@@ -586,7 +586,7 @@ const StyleSettingForm = forwardRef<StylePanelHandle, Props>(function StyleSetti
     // 文字层未采纳就落卡＝草稿静默丢失（唯一恢复＝完整重蒸馏），显式确认才放行
     if (draft?.step4 && !learnAdopted) {
       const ok = window.confirm(
-        "文字层草稿还没采纳——落卡后会连同草稿一起丢弃，要找回只能用同一样本完整重蒸馏。仍要落卡吗？",
+        "文风草稿还没写进设定，落卡后就没了，想再学只能重新蒸馏一遍。还要落卡吗？",
       );
       if (!ok) return;
     }
@@ -696,11 +696,11 @@ const StyleSettingForm = forwardRef<StylePanelHandle, Props>(function StyleSetti
       if (snap) snapshotLoaded({ ...snap, role: nextRole, rules: nextRules, craft: nextCraft, banned: mergedBanned, tics: mergedTics });
       setLearnAdopted(true); // 本卡文字层已落 KV：落卡守卫放行
       const parts = [
-        adoptRules ? "三区草稿" : null,
+        adoptRules ? "身份和规矩" : null,
         adoptSamples ? `示范段 ${nextSamples.length} 条` : null,
       ].filter(Boolean);
       publishReceipt({
-        text: `已采纳文字层：${parts.join("＋")}——句式、节奏、对话密度以示范段为准`,
+        text: `文风草稿已写进设定（${parts.join("＋")}）——写正文时 AI 照示范段的腔调写`,
         undo: () => {
           setRole(prev.role);
           setRules(prev.rules.length ? prev.rules : [""]);
@@ -756,7 +756,7 @@ const StyleSettingForm = forwardRef<StylePanelHandle, Props>(function StyleSetti
     [1, "读样本，逐段标注写法", "哪段在叙述、哪段在对话、情绪藏在动作里还是说出口"],
     [2, "统计写法习惯", "句长、对话占比、爱用的词、情绪怎么外化——拿数字说话"],
     [3, "归纳成六行基线和画像", "数字归基线（写章按「约 X（±容差）」执行），人话归画像（等你确认）"],
-    [4, "提取文字层草稿", "身份、规则、手法和能照着写的原文段——确认后落进「文字文风」"],
+    [4, "学出文风草稿", "这本书怎么叙事、守什么规矩、用什么手法，外加几段能照着写的原文——确认后写进文字文风"],
   ];
 
   return (
@@ -946,7 +946,7 @@ const StyleSettingForm = forwardRef<StylePanelHandle, Props>(function StyleSetti
             <Cfg
               title="文风示范段"
               tag={`拆书导入 · ${styleSamples.length} 条`}
-              sum="拆书带出的原书成段原文，AI 写章时的最高笔法依据"
+              sum="拆书带出来的原书段落，AI 写正文时照着这个腔调写"
             >
               <div data-od-id="list-style-samples" className="ss-list">
                 {styleSamples.map((s, i) => (
@@ -1231,9 +1231,9 @@ const StyleSettingForm = forwardRef<StylePanelHandle, Props>(function StyleSetti
                   )}
                   {draft?.step4 && learn ? (
                     <div style={{ marginTop: 12 }} data-od-id="learn-text-layer">
-                      <div className="pz-head">文字层草稿</div>
+                      <div className="pz-head">文风草稿</div>
                       <p className="pz-note" style={{ marginBottom: 8 }}>
-                        从样本提取的「文字文风」草稿——可直接改；只写勾选采纳的段，未勾的不动。
+                        从样本里学来的文风，可以直接改；勾了哪块才写进哪块，没勾的不动。
                       </p>
                       <label className="opt" style={{ display: "flex", alignItems: "center", gap: 6 }}>
                         <input
@@ -1242,7 +1242,7 @@ const StyleSettingForm = forwardRef<StylePanelHandle, Props>(function StyleSetti
                           onChange={(e) => setAdoptRules(e.target.checked)}
                           data-od-id="learn-adopt-rules"
                         />
-                        采纳三区草稿（替换现有身份／硬约束／手法）
+                        把身份、硬约束和手法换成草稿里的
                       </label>
                       <div style={{ margin: "6px 0 0 24px" }}>
                         <input
@@ -1257,7 +1257,7 @@ const StyleSettingForm = forwardRef<StylePanelHandle, Props>(function StyleSetti
                             items={learn.rules}
                             onChange={(items) => setLearn({ ...learn, rules: items })}
                             maxItems={16}
-                            placeholder="规则：怎么写（≤60 字）"
+                            placeholder="规矩写具体点，读了就能照着做"
                           />
                         </div>
                         <div style={{ marginTop: 6 }} data-od-id="learn-craft">
@@ -1265,7 +1265,7 @@ const StyleSettingForm = forwardRef<StylePanelHandle, Props>(function StyleSetti
                             items={learn.craft}
                             onChange={(items) => setLearn({ ...learn, craft: items })}
                             maxItems={8}
-                            placeholder="手法：怎么用（≤60 字）"
+                            placeholder="手法写清楚怎么用"
                           />
                         </div>
                       </div>
@@ -1276,7 +1276,7 @@ const StyleSettingForm = forwardRef<StylePanelHandle, Props>(function StyleSetti
                           onChange={(e) => setAdoptSamples(e.target.checked)}
                           data-od-id="learn-adopt-samples"
                         />
-                        采纳示范段（替换现有示范段；写正文时的最高笔法依据）
+                        带上示范段（替换现有的）——写正文时 AI 照着这个腔调写
                       </label>
                       <div className="ss-list" style={{ margin: "6px 0 0 24px" }} data-od-id="learn-samples">
                         {learn.samples.map((s, i) => (
@@ -1301,14 +1301,14 @@ const StyleSettingForm = forwardRef<StylePanelHandle, Props>(function StyleSetti
                           disabled={distillBusy || (!adoptRules && !adoptSamples)}
                           onClick={() => void adoptLearn()}
                         >
-                          采纳到文风设定
+                          写进文风设定
                         </button>
                         <button
                           className="btn btn-ghost"
                           type="button"
                           data-od-id="btn-learn-reextract"
                           disabled={distillBusy || pasteRouteDraft}
-                          title={pasteRouteDraft ? "粘贴样本不保留原文，重新粘贴蒸馏后可重提取" : undefined}
+                          title={pasteRouteDraft ? "粘贴的样本不会保存，重新粘贴蒸馏一次后才能重学" : undefined}
                           onClick={() => void runSteps(1, true, { startStep: 3 })}
                         >
                           重新提取
@@ -1320,8 +1320,8 @@ const StyleSettingForm = forwardRef<StylePanelHandle, Props>(function StyleSetti
                       <div style={{ marginTop: 12 }} data-od-id="learn-unavailable">
                         <p className="opt">
                           {pasteRouteDraft
-                            ? "粘贴样本不保留原文，无法补提文字层——重新粘贴蒸馏一次即可。"
-                            : "文字层草稿提取失败或未运行——点「重试文字层」再来一次。"}
+                            ? "粘贴的样本不会保存，这一步补不了——重新粘贴蒸馏一次就行。"
+                            : "文风草稿还没学出来，点下面按钮再试一遍。"}
                         </p>
                         {!pasteRouteDraft && (
                           <button
@@ -1331,7 +1331,7 @@ const StyleSettingForm = forwardRef<StylePanelHandle, Props>(function StyleSetti
                             disabled={distillBusy}
                             onClick={() => void runSteps(1, false, { startStep: 3 })}
                           >
-                            重试文字层
+                            再试一次
                           </button>
                         )}
                       </div>

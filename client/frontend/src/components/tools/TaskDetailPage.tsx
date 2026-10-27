@@ -824,7 +824,7 @@ export default function TaskDetailPage() {
                   >
                     <span className="ex-txt">
                       <b>建书{hasDeconstructImport ? "" : "（MAX）"}</b>
-                      <span>生成新书并写入勾中的设定项；确认后直达新书设定页（标「待确认」）；写作技法并入文风，人物关系/章卷随任务资料。</span>
+                      <span>按勾选的内容生成一本新书，确认后直接进新书的设定页（会标「待确认」）；写作技法会并入文风设定，人物关系和章卷留在任务资料里。</span>
                     </span>
                   </button>
                   <button
