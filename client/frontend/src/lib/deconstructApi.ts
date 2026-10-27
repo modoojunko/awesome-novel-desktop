@@ -160,6 +160,36 @@ export async function getDeconstructProduct(
   return request(`/deconstruct/tasks/${id}/products/${encodeURIComponent(filename)}`);
 }
 
+/** 证据报告（c-deconstruct-evidence-report）：作家 md 去证据后，证据章节/可信度/
+ * 说明/原文佐证按维度分组在弹窗呈现；后端由任务资料 JSON 现渲染，存量任务同样可看。 */
+export interface DeconstructEvidenceCell {
+  label: string;
+  value: string;
+}
+export interface DeconstructEvidenceItem {
+  head: string;
+  cells: DeconstructEvidenceCell[];
+}
+export interface DeconstructEvidenceSection {
+  title: string;
+  items: DeconstructEvidenceItem[];
+}
+export interface DeconstructEvidenceDim {
+  dim: string;
+  name: string;
+  file?: string;
+  confidence: string;
+  sections: DeconstructEvidenceSection[];
+}
+export interface DeconstructEvidence {
+  task_id: string;
+  dims: DeconstructEvidenceDim[];
+}
+
+export async function getDeconstructEvidence(id: string): Promise<DeconstructEvidence> {
+  return request<DeconstructEvidence>(`/deconstruct/tasks/${id}/evidence`);
+}
+
 export async function cancelDeconstructTask(id: string): Promise<void> {
   await request(`/deconstruct/tasks/${id}/cancel`, { method: "POST" });
 }

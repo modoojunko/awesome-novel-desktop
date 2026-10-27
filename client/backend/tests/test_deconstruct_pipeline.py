@@ -201,7 +201,8 @@ def test_happy_cards_then_merge(monkeypatch):
     prods = json.loads(t.products_json)
     assert set(prods) == {"world", "characters"}
     assert prods["world"]["data"]["seen"] == [1, 2]
-    assert prods["world"]["file"] == "世界设定.md" and "## seen" in prods["world"]["md"]
+    # 产物只存模型 JSON 终稿；md 由读取侧按 data 现渲染（c-deconstruct-evidence-report）
+    assert prods["world"]["file"] == "世界设定.md" and "md" not in prods["world"]
     state = json.loads(t.dims_json)
     assert state["cards"]["state"] == "completed" and state["cards"]["done"] == 2
 

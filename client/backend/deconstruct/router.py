@@ -18,6 +18,7 @@ from auth_local.deps import ai_feature, require_ai_access
 from auth_local.middleware import get_current_user
 from db import get_db
 from deconstruct import apply, service
+from deconstruct.mdrender import evidence_report
 from deconstruct.textparse import (
     MAX_SOURCE_BYTES,
     decode_text,
@@ -170,13 +171,32 @@ async def get_product(
     user: dict = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    """产物 md 全文（结果目录「点文件名预览」与导出共用，c-deconstruct-product-preview）。"""
+    """产物 md 全文（结果目录「点文件名预览」与导出共用，c-deconstruct-product-preview）。
+
+    内容由 data 现渲染（c-deconstruct-evidence-report）：作家 md 不含证据类字段。
+    """
     task = await service.get_task(db, task_id, _user_id(user))
     _require(task, user)
     products = service.products_of(task)
     if filename not in products:
         raise HTTPException(404, "产物不存在")
     return {"filename": filename, "content": products[filename]}
+
+
+@router.get("/tasks/{task_id}/evidence")
+async def get_evidence(
+    task_id: str,
+    user: dict = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """证据报告（c-deconstruct-evidence-report）：任务资料 JSON 现渲染的证据账。
+
+    作家 md 已去证据；证据章节/可信度/说明/原文佐证搬家到这里按维度呈现。
+    鉴权与归属同预览端点（产物查看不设档位门）；非完成态/无产物给空 dims。
+    """
+    task = await service.get_task(db, task_id, _user_id(user))
+    _require(task, user)
+    return {"task_id": task_id, "dims": evidence_report(service.products_raw(task))}
 
 
 @router.post("/tasks/{task_id}/cancel")

@@ -64,10 +64,11 @@ def test_all_prompts_load_and_format(_dev_dir):
 
 
 def test_render_md_fixed_h2_structure(_dev_dir):
-    """渲染 md：键名翻中文标签、可信度翻高/中/低并进抬头、页脚为作家视角说明。"""
-    from deconstruct.pipeline import _render_md
+    """渲染 md：键名翻中文标签；证据类字段（confidence/note/evidence_ch/quote/raw）
+    不入作家 md——含抬头行与页脚，证据搬家到证据报告（c-deconstruct-evidence-report）。"""
+    from deconstruct.mdrender import render_md
 
-    md = _render_md(
+    md = render_md(
         "世界设定",
         {"no_power": "无超凡", "confidence": "high",
          "factions": [{"name": "甲", "note": "证据 3章", "confidence": "mid"}]},
@@ -76,19 +77,19 @@ def test_render_md_fixed_h2_structure(_dev_dir):
     )
     assert "\n## 舞台类型\n" in md and "\n## 势力\n" in md
     assert "无超凡" in md and "甲" in md
-    assert "可信度：高" in md and "可信度：中" in md
-    assert "\n## 可信度\n" not in md, "单值可信度并入抬头，不单独成节"
-    assert "· 可信度：高" in md
+    assert "可信度" not in md, "单值可信度并入证据报告，不入作家 md"
+    assert "证据 3章" not in md, "note 不入作家 md"
+    assert "\n## 可信度\n" not in md
     assert "三铁律" not in md
-    assert "高＝有直接依据" in md
+    assert "高＝有直接依据" not in md, "页脚口径说明随证据退役"
 
 
 def test_render_md_mainplot_shape(_dev_dir):
     """主线形状渲染：ending 对象逐字段展开（dict repr 修复）、标量节裸值不带
     自身标签、arcs 的 summary 翻「梗概」。"""
-    from deconstruct.pipeline import _render_md
+    from deconstruct.mdrender import render_md
 
-    md = _render_md(
+    md = render_md(
         "主线剧情",
         {
             "fullstory": "李耀被强派夜班十三路末班车，卷入十年前水库旧案。",
@@ -111,17 +112,17 @@ def test_render_md_mainplot_shape(_dev_dir):
 
 def test_render_md_scalar_sections_bare_value(_dev_dir):
     """标量节正文不带自身标签前缀（舞台类型标题下不再出现「舞台类型：」两连）。"""
-    from deconstruct.pipeline import _render_md
+    from deconstruct.mdrender import render_md
 
-    md = _render_md("世界设定", {"stage": "银河系边缘"}, "书名", "第1-40章")
+    md = render_md("世界设定", {"stage": "银河系边缘"}, "书名", "第1-40章")
     assert "\n## 地理与舞台\n\n银河系边缘\n" in md
 
 
 def test_render_md_legacy_ending_string_and_empty_sections(_dev_dir):
     """旧产物（ending 字符串）照常渲染；空列表/空对象/空标量不给空节（无正文不出节）。"""
-    from deconstruct.pipeline import _render_md
+    from deconstruct.mdrender import render_md
 
-    md = _render_md(
+    md = render_md(
         "主线剧情",
         {"arcs": [], "ending": "抵达新星系。", "fullstory": "", "extra": []},
         "旧任务书",

@@ -29,6 +29,7 @@ import re
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from deconstruct import settings_map as sm
+from deconstruct.mdrender import md_map_from_products
 from filesystem.paths import KEY_TO_PATH
 from models.deconstruct import SETTING_DIMENSION_KEYS, DeconstructJob
 
@@ -65,11 +66,9 @@ def _data(task: DeconstructJob, dim: str) -> dict:
 
 
 def _md_map(task: DeconstructJob) -> dict[str, str]:
-    out: dict[str, str] = {}
-    for obj in _raw(task).values():
-        if isinstance(obj, dict) and obj.get("file"):
-            out[obj["file"]] = obj.get("md", "")
-    return out
+    """{filename: md}——由 data 现渲染（c-deconstruct-evidence-report），与预览同口径。"""
+    covered = f"第1-{task.chapter_count}章" if task.chapter_count else "全本"
+    return md_map_from_products(_raw(task), task.book_name, covered)
 
 
 def _selected(task: DeconstructJob) -> list[str]:

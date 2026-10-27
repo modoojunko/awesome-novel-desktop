@@ -18,6 +18,9 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from config import DATA_ROOT
+from deconstruct.mdrender import (
+    md_map_from_products,  # 产物 md 现渲染单源（c-deconstruct-evidence-report）
+)
 from deconstruct.pipeline import (  # _now＝UTC naive（时间口径单源）
     CONCURRENCY,
     NON_CALL_STAGES,
@@ -295,8 +298,9 @@ def _graph_phase(task: DeconstructJob) -> dict | None:
 
 def task_view(task: DeconstructJob) -> dict:
     """详情视图：全量（含 dims/products 元信息，不含产物正文）。"""
+    mds = products_of(task)  # 字符数按现渲染口径（c-deconstruct-evidence-report）
     product_meta = [
-        {"filename": p["file"], "size": len(p.get("md", "")), "dim": dim}
+        {"filename": p["file"], "size": len(mds.get(p["file"], "")), "dim": dim}
         for dim, p in products_raw(task).items()
         if isinstance(p, dict)
     ]
@@ -506,7 +510,7 @@ async def monitor_view(task: DeconstructJob) -> dict | None:
 
 
 def products_raw(task: DeconstructJob) -> dict:
-    """{dim: {file, data, md}} 原始结构（apply 建书消费 data）。"""
+    """{dim: {file, data}} 原始结构（apply 建书消费 data；md 读取侧现渲染）。"""
     try:
         return json.loads(task.products_json or "{}")
     except ValueError:
@@ -514,14 +518,11 @@ def products_raw(task: DeconstructJob) -> dict:
 
 
 def products_of(task: DeconstructJob) -> dict[str, str]:
-    """{filename: md} 扁平视图（导出/下载用）。"""
-    out: dict[str, str] = {}
-    for dim, obj in products_raw(task).items():
-        if isinstance(obj, dict) and obj.get("file"):
-            out[obj["file"]] = obj.get("md", "")
-        elif isinstance(obj, str):  # 兼容旧形状
-            out[dim] = obj
-    return out
+    """{filename: md} 扁平视图——一律由 data 现渲染（c-deconstruct-evidence-report）：
+    存量任务存储 md 内嵌证据，不再被读取；data 缺失回退存量 md 兜底。
+    """
+    covered = f"第1-{task.chapter_count}章" if task.chapter_count else "全本"
+    return md_map_from_products(products_raw(task), task.book_name, covered)
 
 
 def dim_names() -> dict[str, str]:
