@@ -96,7 +96,7 @@ function renderDialog(over: Partial<Parameters<typeof CarryDialog>[0]> = {}) {
   const utils = render(makeEl());
   // job 桩更新不会自动触发重渲染——rere 强制按当前 storeState.job 重画
   const rere = () => act(() => { utils.rerender(makeEl()); });
-  return { ...utils, onLater, onConfirmed, rere };
+  return { ...utils, onLater, onConfirmed, rere, qc };
 }
 
 beforeEach(() => {
@@ -158,6 +158,57 @@ describe("CarryDialog 四步", () => {
       fireEvent.click(screen.getByTestId("carry-confirm"));
     });
     expect(queueState.finish).toHaveBeenCalledWith("carry"); // 队列放行条件＝完成确认
+  });
+
+  it("完成确认即已阅（c-carry-confirm-settle）：写回执已阅＋重查 Key 配置", async () => {
+    const { rere, qc } = renderDialog();
+    const inv = vi.spyOn(qc, "invalidateQueries");
+    await act(async () => {
+      fireEvent.click(screen.getByTestId("carry-start"));
+    });
+    storeState.job = {
+      state: "done",
+      report: { status: "ok", complete: true, dead_keys: 0, book_count_migrated: 3, tables_skipped: [] },
+    };
+    rere();
+    await screen.findByTestId("carry-result");
+    await act(async () => {
+      fireEvent.click(screen.getByTestId("carry-confirm"));
+    });
+    // 确认即已阅：就地持久化（文件名随请求走）
+    await waitFor(() =>
+      expect(apiState.post.mock.calls.some(
+        (c) => String(c[0]).includes("/receipt-ack")
+          && (c[1] as { filename?: string })?.filename === "novel-v0.28.2.db",
+      )).toBe(true));
+    // Key 随迁到位要重查——缺 Key 提示不再沿用迁移前的一次性检查
+    expect(inv.mock.calls.some(
+      (c) => Array.isArray((c[0] as { queryKey?: unknown[] })?.queryKey)
+        && (c[0] as { queryKey: unknown[] }).queryKey.join("/") === "auth/config",
+    )).toBe(true);
+  });
+
+  it("不完整/失败确认不算已阅：不写回执、不重查 Key（c-carry-confirm-settle）", async () => {
+    const { rere, qc } = renderDialog();
+    const inv = vi.spyOn(qc, "invalidateQueries");
+    await act(async () => {
+      fireEvent.click(screen.getByTestId("carry-start"));
+    });
+    storeState.job = {
+      state: "done",
+      report: { status: "ok", complete: false, dead_keys: 0, book_count_migrated: 2, tables_skipped: [{ table: "x" }] },
+    };
+    rere();
+    await screen.findByTestId("carry-result");
+    await act(async () => {
+      fireEvent.click(screen.getByTestId("carry-confirm-partial"));
+    });
+    await act(async () => {});
+    expect(apiState.post.mock.calls.some((c) => String(c[0]).includes("/receipt-ack"))).toBe(false);
+    expect(inv.mock.calls.some(
+      (c) => Array.isArray((c[0] as { queryKey?: unknown[] })?.queryKey)
+        && (c[0] as { queryKey: unknown[] }).queryKey.join("/") === "auth/config",
+    )).toBe(false);
   });
 
   it("不完整结果卡：警示块＋「先这样/重新带一次」，无「不再提醒」", async () => {

@@ -150,12 +150,18 @@ function NovelList() {
       (prev) => updater(prev ?? []),
       /* v8 ignore stop */
     );
-  const [portalUrl, setPortalUrl] = useState<string>('');
+  // 认证/配置快照（c-carry-confirm-settle）：升查询缓存——迁移确认后失效重查，
+  // Key 随迁到位则「还没配置 API Key」提示当场消失，不再沿用迁移前的一次性检查
+  const { data: authCfg } = useQuery<{ has_api_key?: boolean; portal_url?: string }>({
+    queryKey: queryKeys.authConfig,
+    queryFn: async () => api.get("/auth/config"),
+  });
+  const showKeyHint = !!authCfg && !authCfg.has_api_key;
+  const portalUrl = authCfg?.portal_url ?? '';
   const [showCreate, setShowCreate] = useState(false);
   const [showImport, setShowImport] = useState(false);
   const [deleteTarget, setDeleteTarget] = useState<Novel | null>(null);
   const [renameTarget, setRenameTarget] = useState<Novel | null>(null);
-  const [showKeyHint, setShowKeyHint] = useState(false);
   const [menuFor, setMenuFor] = useState<string | null>(null);
   const [finishTarget, setFinishTarget] = useState<Novel | null>(null);
   const [coverTarget, setCoverTarget] = useState<Novel | null>(null);
@@ -222,8 +228,8 @@ function NovelList() {
   }
 
   useEffect(() => {
+    // 权益快照异常（c-s-entitlement-sync）：后端已按档位标准兜底，提示用户可求助
     api.post("/auth/verify").then((r: any) => {
-      // 权益快照异常（c-s-entitlement-sync）：后端已按档位标准兜底，提示用户可求助
       if (r.entitlement_degraded !== undefined) setEntDegraded(r.entitlement_degraded);
       if (r.entitlement_degraded) {
         setEntDetail(JSON.stringify({
@@ -233,11 +239,7 @@ function NovelList() {
         }));
       }
     }).catch(() => {});
-    // 检查 API Key 配置状态 + 取 S端 门户地址（续费/开通引导用）
-    api.get("/auth/config").then((cfg: any) => {
-      if (!cfg.has_api_key) setShowKeyHint(true);
-      if (cfg.portal_url) setPortalUrl(cfg.portal_url);
-    }).catch(() => {});
+    // S端 门户地址走 authConfig 查询缓存（升级/续费引导用）；support 链接仍独立取
     supportUrl().then(setSupportLink).catch(() => {});
   }, [fetchNovels]);
 
@@ -1084,7 +1086,12 @@ function NovelList() {
             // c-carry-degrade-remigrate（review 整改）：部分迁移确认后提醒行须
             // 立即接管（spec「确认后保留持续提醒行」）——不置 carryConfirmed；
             // 自动弹卡的仲裁已由 carried_partial 承担，这里置位只会藏掉提醒行
-            if (!carryRec.carried_partial) setCarryConfirmed(true);
+            if (!carryRec.carried_partial) {
+              setCarryConfirmed(true);
+              // c-carry-confirm-settle：确认即已阅——乐观收条免闪（已阅态由
+              // CarryDialog 的 ackCarryReceipt 持久化），确认即已阅不再留回执行
+              setStripClosed(true);
+            }
           }}
         />
       )}

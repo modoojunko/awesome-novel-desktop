@@ -16,7 +16,8 @@ import Modal from '@/components/design/Modal';
 import { api } from '@/lib/api';
 import { toast } from '@/lib/toast';
 import { finishDialog } from '@/lib/dialogQueue';
-import { attachCarryJob, resetCarryJob, useCarryStore, watchCarryJob, type CarryReport } from '@/lib/carryStore';
+import { queryKeys } from '@/lib/queryKeys';
+import { ackCarryReceipt, attachCarryJob, resetCarryJob, useCarryStore, watchCarryJob, type CarryReport } from '@/lib/carryStore';
 import type { LegacyCandidate } from '@/hooks/useLegacyDb';
 
 type Step = 'card' | 'progress' | 'result';
@@ -157,10 +158,17 @@ export default function CarryDialog({
     }
   };
 
-  const confirmDone = () => {
+  /** 完成确认收尾。complete＝结果卡走的是完整变体按钮（不完整变体＝false）：
+   *  c-carry-confirm-settle——完整确认即已阅（书架不留回执行）＋重查 Key 配置；
+   *  不完整确认不算已阅：持续提醒行按既有义务承接，带外完成的回执仍走 ×。 */
+  const confirmDone = (complete: boolean) => {
     finishDialog('carry'); // 放行队列（能力包弹窗此刻才可入场）
     onConfirmed();
     void queryClient.invalidateQueries({ queryKey: ['novels'] });
+    if (complete) {
+      void ackCarryReceipt(candidate.filename);
+      void queryClient.invalidateQueries({ queryKey: queryKeys.authConfig });
+    }
   };
 
   if (!open) return null;
@@ -345,13 +353,13 @@ export default function CarryDialog({
                 <button className="btn" onClick={() => window.dispatchEvent(new CustomEvent('legacy-migrate:open'))}>
                   查看旧文件
                 </button>
-                <button className="btn btn-primary" data-testid="carry-confirm" onClick={confirmDone}>
+                <button className="btn btn-primary" data-testid="carry-confirm" onClick={() => confirmDone(true)}>
                   好，开始写作
                 </button>
               </>
             ) : (
               <>
-                <button className="btn" data-testid="carry-confirm-partial" onClick={confirmDone}>
+                <button className="btn" data-testid="carry-confirm-partial" onClick={() => confirmDone(false)}>
                   先这样，开始写作
                 </button>
                 <button className="btn btn-primary" onClick={() => void start()}>

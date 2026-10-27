@@ -1378,6 +1378,48 @@ describe("带回常驻行与四步收尾（c-lossless-upgrade 覆盖补齐）", 
     fireEvent.click(screen.getByTestId("carry-confirm"));
     await waitFor(() => expect(screen.queryByTestId("carry-result")).toBeNull());
   });
+
+  it("完成确认即已阅：回执行收口＋Key 提示重查消失（c-carry-confirm-settle）", async () => {
+    withRec();
+    let statusPayload: { state: string; kind?: string; report?: unknown } = {
+      state: "running", kind: "migration",
+    };
+    let hasKey = false;
+    let configFetches = 0;
+    postMock.mockResolvedValue({ code: 0 }); // start 立返＋receipt-ack 均成功
+    getMock.mockImplementation(async (path: unknown) => {
+      const u = String(path);
+      if (u.includes("db-migration/status")) return { code: 0, data: statusPayload };
+      if (u.includes("db-migration/candidates"))
+        return { code: 0, data: { candidates: [], quarantined: [], current_version: "0.25" } };
+      if (u === "/auth/config") { configFetches += 1; return { has_api_key: hasKey }; }
+      return [novel()];
+    });
+    renderPage();
+    expect(await screen.findByText(/还没配置 API Key/)).toBeTruthy(); // 迁移前：无 Key 提示在
+    await screen.findByTestId("carry-card");
+    fireEvent.click(screen.getByTestId("carry-start"));
+    await screen.findByTestId("carry-progress");
+    // job done 同拍：候选翻转已带回（回执行条件成立）、Key 已随迁到位
+    withRec({ carried: true, suppressed: true });
+    hasKey = true;
+    statusPayload = {
+      state: "done", kind: "migration",
+      report: { status: "ok", complete: true, dead_keys: 0, book_count_migrated: 3 },
+    };
+    await screen.findByTestId("carry-result", {}, { timeout: 4000 });
+    // 候选翻转后回执行已在模态背后渲染——确认前它是在场（现状基线）
+    expect(await screen.findByTestId("carry-strip-done")).toBeTruthy();
+    fireEvent.click(screen.getByTestId("carry-confirm"));
+    await waitFor(() => expect(screen.queryByTestId("carry-result")).toBeNull());
+    // 确认即已阅：乐观收起，回执行不再留给人点
+    expect(screen.queryByTestId("carry-strip-done")).toBeNull();
+    await waitFor(() =>
+      expect(postMock.mock.calls.some((c) => String(c[0]).includes("/receipt-ack"))).toBe(true));
+    // authConfig 失效重查：Key 到位 → 绿框当场消失，不再沿用迁移前的检查
+    await waitFor(() => expect(configFetches).toBeGreaterThanOrEqual(2));
+    await waitFor(() => expect(screen.queryByText(/还没配置 API Key/)).toBeNull());
+  });
 });
 
 

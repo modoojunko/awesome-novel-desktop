@@ -27,6 +27,7 @@ async function downloadMigrationDiagnostics(): Promise<void> {
 }
 import { api } from '@/lib/api';
 import { toast } from '@/lib/toast';
+import { ackCarryReceipt } from '@/lib/carryStore';
 import type { LegacyCandidate, QuarantinedLibrary } from '@/hooks/useLegacyDb';
 
 interface ProgressEvent {
@@ -395,7 +396,17 @@ export default function LegacyMigrateModal({
             </p>
           )}
           <div style={{ display: 'flex', justifyContent: 'center' }}>
-            <button className="btn btn-primary" onClick={() => { onDone(); onClose(); }}>去书架看看</button>
+            {/* c-carry-confirm-settle：完整结果确认即已阅——书架不再留完成回执行；
+                不完整结果不算已阅（持续提醒行按既有义务承接）。result 步只在
+                status==ok 进入（error 另有出口），这里只需区分完整/不完整 */}
+            <button
+              className="btn btn-primary"
+              onClick={() => {
+                if (result.complete !== false) {
+                  void ackCarryReceipt(picked);
+                }
+                onDone(); onClose();
+              }}>去书架看看</button>
           </div>
           {cleanupEligible(result) && (
             <div style={{ marginTop: 16, borderTop: '1px solid var(--line, #2a2a2a)', paddingTop: 12 }}>

@@ -203,6 +203,9 @@ export default function AcctMenu({
       onDone={() => {
         navigate("/novels");
         queryClient.invalidateQueries({ queryKey: queryKeys.novels });
+        // c-carry-confirm-settle：确认即已阅由向导本体写；这里重查 Key 配置，
+        // 模型配置随迁到位则书架「还没配置 API Key」提示不再沿用旧结果
+        queryClient.invalidateQueries({ queryKey: queryKeys.authConfig });
       }}
     />
   );
@@ -239,6 +242,11 @@ export default function AcctMenu({
             });
           }
           queryClient.invalidateQueries({ queryKey: queryKeys.novels });
+          // c-carry-confirm-settle：带外完成不写已阅（回执行仍是唯一持久告知面），
+          // 但 Key 随迁到位要重查——否则书架绿框沿用迁移前的旧检查结果
+          if (rep?.status === "ok") {
+            queryClient.invalidateQueries({ queryKey: queryKeys.authConfig });
+          }
           void legacyDb.refresh();
         } else if (d?.state === "error" || d?.state === "idle") {
           clearInterval(bgWatchRef.current!);
