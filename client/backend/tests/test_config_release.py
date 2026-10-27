@@ -1,5 +1,6 @@
 """release.json 发布期注入的读取逻辑（config.load_release_overrides）。"""
 import json
+import sys
 
 from config import load_release_overrides
 
@@ -80,7 +81,9 @@ def test_pywebview_injects_pack_pubkeys_env(tmp_path, monkeypatch):
 
     def _run_with(release_json: str) -> str:
         d = _write(tmp_path, release_json)
-        globs = {"os": os, "release": load_release_overrides(d),
+        # sys 必供给：注入段的冻结判别式（c-relaunch-version-selfreport）真源码
+        # 依赖 sys.frozen——exec 环境如实供给生产依赖的名字。
+        globs = {"os": os, "sys": sys, "release": load_release_overrides(d),
                  "PROD_PACK_PUBKEYS": ast.literal_eval(const.group(1))}
         monkeypatch.delenv("CLIENT_PACK_PUBKEYS", raising=False)
         # 注入段实跑＝对 pywebview_app.py 真·源码行执行（S102 有意为之）
@@ -115,7 +118,8 @@ def test_pywebview_injects_build_info_env(tmp_path, monkeypatch):
 
     for env in ("CLIENT_BUILD_BRANCH", "CLIENT_BUILD_COMMIT"):
         monkeypatch.delenv(env, raising=False)
-    globs = {"os": os, "release": loaded}
+    # sys 必供给：注入段冻结判别式真源码依赖 sys.frozen（同 pack_pubkeys 判例）。
+    globs = {"os": os, "sys": sys, "release": loaded}
     # 注入段实跑＝对 pywebview_app.py 真·源码行执行（S102 有意为之）
     exec(compile(textwrap.dedent(m.group(1)), "<injection-smoke>", "exec"), globs)  # noqa: S102
     for line in (injected[0].group(0).strip(), injected[1].group(0).strip()):

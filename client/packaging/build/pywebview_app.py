@@ -806,6 +806,14 @@ def start_server():
         release = _load_release_json(res_root)
 
         def _env_with_release(name: str, key: str, fallback: str):
+            # 冻结态＝烘焙恒为准：更新链会把上一版实例的 CLIENT_VERSION 等键经
+            # 执行体环境链传染给新实例（v0.43 灰度跳实证——0.43 二进制自报 0.42，
+            # c-relaunch-version-selfreport），继承 env 在打包产物上必须废弃。
+            # 冻结判别式内联不引 helper：本函数源码行被 test_config_release 抽出
+            # 到受限 globs 实跑（打包链防断链哨兵），呼患外部名字即 NameError。
+            if getattr(sys, "frozen", False) or "__compiled__" in globals():
+                os.environ[name] = release.get(key) or fallback
+                return
             if not os.environ.get(name) and release.get(key):
                 os.environ[name] = release[key]
             if not os.environ.get(name):
@@ -1335,6 +1343,26 @@ def _window_origin(screen) -> tuple:
         return 0, 0
 
 
+def _is_frozen() -> bool:
+    """打包产物判别（与 get_install_dir 同式）：PyInstaller frozen 或 Nuitka compiled。"""
+    return getattr(sys, "frozen", False) or "__compiled__" in globals()
+
+
+_BAKED_ENV_KEYS = frozenset({
+    "CLIENT_VERSION", "CLIENT_UPDATE_URL", "CLIENT_UPDATE_URL_FALLBACK",
+    "SERVER_API_BASE", "SERVER_API_FALLBACK", "PUBLIC_SERVER_API", "PORTAL_URL",
+})
+
+
+def _without_baked_env(env: dict) -> dict:
+    """剥掉烘焙派生键后的环境副本：执行体链不得把上一版实例的版本值传给新实例。
+
+    v0.43 灰度跳实证——CLIENT_VERSION 经 mac runner/`open` 传染，新 0.43 实例
+    自报 0.42。其余键（PATH、SystemRoot 等系统键）原样保留；入参不被修改。
+    """
+    return {k: v for k, v in env.items() if k not in _BAKED_ENV_KEYS}
+
+
 def main():
     """主入口"""
     runtime_dir = get_runtime_dir()
@@ -1354,9 +1382,13 @@ def main():
     # 回放）。此时 env 注入尚未发生，直读 release.json 与 start_server 的注入链
     # 同序（env CLIENT_VERSION > 烘焙 > AI_NOVEL_CLIENT_VERSION > dev）。
     release_at_boot = _load_release_json(get_resource_root())
-    client_version_at_boot = (os.environ.get("CLIENT_VERSION")
-                              or release_at_boot.get("client_version")
-                              or os.environ.get("AI_NOVEL_CLIENT_VERSION") or "dev")
+    if _is_frozen():
+        # 冻结态＝烘焙恒为准（env 传染判例同上）：继承的 CLIENT_VERSION 不可信。
+        client_version_at_boot = release_at_boot.get("client_version") or "dev"
+    else:
+        client_version_at_boot = (os.environ.get("CLIENT_VERSION")
+                                  or release_at_boot.get("client_version")
+                                  or os.environ.get("AI_NOVEL_CLIENT_VERSION") or "dev")
     log_line(runtime_dir, "shell main() entered: version=%s exe=%s frozen=%s data_dir=%s runtime_dir=%s"
              % (client_version_at_boot, sys.executable, getattr(sys, "frozen", False),
                 get_install_dir(), runtime_dir))
@@ -1700,6 +1732,7 @@ def _spawn_install_runner(parent_pid: int, installer_argv: list[str],
              "-NoProfile", "-NonInteractive", "-WindowStyle", "Hidden",
              "-EncodedCommand", encoded],
             close_fds=True, creationflags=no_window | new_group,
+            env=_without_baked_env(os.environ),
         )
     except OSError as exc:
         log_line(runtime_dir,
@@ -1818,7 +1851,7 @@ def _spawn_install_runner_macos(parent_pid: int, dmg: Path, bundle: Path,
 
     subprocess.Popen(
         ["/bin/bash", "-c", _install_runner_script_macos()],
-        env={**os.environ,
+        env={**_without_baked_env(os.environ),
              "UPD_PARENT": str(int(parent_pid)),
              "UPD_DMG": str(dmg),
              "UPD_BUNDLE": str(bundle),
