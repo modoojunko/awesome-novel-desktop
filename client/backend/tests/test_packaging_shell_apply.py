@@ -699,3 +699,38 @@ def test_create_window_wires_origin(shell):
     assert "_window_origin(" in src
     assert "x=win_x," in src
     assert "y=win_y," in src
+
+
+# ── c-relaunch-version-selfreport：更新拉起新实例版本自报 ─────────────────────
+# CLIENT_VERSION 经执行体环境链传染（旧实例 env → runner → open/Inno → 新实例），
+# v0.43 灰度跳实证 0.43 二进制自报 0.42。修＝冻结态烘焙恒优先＋执行体环境剥 baked 键。
+
+
+def test_without_baked_env_strips_baked_keys(shell):
+    env = {"PATH": "/usr/bin", "SystemRoot": "C:\\Windows",
+           "CLIENT_VERSION": "0.42", "CLIENT_UPDATE_URL": "u",
+           "CLIENT_UPDATE_URL_FALLBACK": "uf", "SERVER_API_BASE": "a",
+           "SERVER_API_FALLBACK": "af", "PUBLIC_SERVER_API": "p",
+           "PORTAL_URL": "portal"}
+    assert shell._without_baked_env(env) == {"PATH": "/usr/bin",
+                                             "SystemRoot": "C:\\Windows"}
+
+
+def test_without_baked_env_empty_dict_safe(shell):
+    assert shell._without_baked_env({}) == {}
+
+
+def test_without_baked_env_does_not_mutate_input(shell):
+    env = {"CLIENT_VERSION": "0.42", "PATH": "/x"}
+    shell._without_baked_env(env)
+    assert env == {"CLIENT_VERSION": "0.42", "PATH": "/x"}
+
+
+def test_version_selfreport_wiring(shell):
+    """接线形状：冻结态烘焙覆盖＋boot 行冻结不读 env＋双平台 spawn 剥 baked 键。"""
+    src = SHELL_PATH.read_text(encoding="utf-8")
+    assert "os.environ[name] = release.get(key) or fallback" in src
+    assert ('client_version_at_boot = release_at_boot.get("client_version")'
+            ' or "dev"') in src
+    assert "_without_baked_env(os.environ)" in src
+    assert "env=_without_baked_env(" in src
