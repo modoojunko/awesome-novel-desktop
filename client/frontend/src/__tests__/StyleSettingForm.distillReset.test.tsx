@@ -95,20 +95,20 @@ describe("粘贴重启的进度复位", () => {
     expect(box.querySelectorAll(".ds-ok")).toHaveLength(2);
 
     await startPaste(PASTE_TEXT);
-    // 复位：本轮三步全未开始（无任何「完成」标）
+    // 复位：本轮四步全未开始（无任何「完成」标）
     await waitFor(() => {
       const steps = screen.getByTestId("distill-steps");
       expect(steps.querySelectorAll(".ds-ok")).toHaveLength(0);
-      expect(steps.querySelectorAll(".dist-step.pending")).toHaveLength(3);
+      expect(steps.querySelectorAll(".dist-step.pending")).toHaveLength(4);
     });
     expect(screen.getByTestId("btn-run-distill")).toHaveTextContent("蒸馏中…");
     // 在飞期按钮按既有口径随 distillBusy 禁用（防重入）——复位不改变这一点
     expect(screen.getByTestId("btn-run-distill")).toBeDisabled();
 
-    // 放行 step1：本轮从 0 起跑走满三步（而不是挂着旧 draft 的两步当已完成）
+    // 放行 step1：本轮从 0 起跑走满四步（而不是挂着旧 draft 的两步当已完成）
     step1.resolve({ ok: true, step: 1 });
     await waitFor(() => {
-      expect(screen.getByTestId("distill-steps").querySelectorAll(".ds-ok")).toHaveLength(3);
+      expect(screen.getByTestId("distill-steps").querySelectorAll(".ds-ok")).toHaveLength(4);
     });
   });
 

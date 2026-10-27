@@ -31,7 +31,7 @@ import { Cfg, ListEditor, type SettingSaveHandle } from "./FormField";
 import { Ico, P } from "@/components/icons";
 import type { ChangeReceiptState } from "./ChangeReceipt";
 import { styleAiApi, styleQuantApi, BASELINE_ROWS, countSampleChars } from "@/lib/styleApi";
-import type { StyleQuant } from "@/lib/styleApi";
+import type { StyleQuant, StyleQuantDraft } from "@/lib/styleApi";
 import StylePasteModal from "./StylePasteModal";
 import AiCardModal from "./AiCardModal";
 import { toast } from "@/lib/toast";
@@ -189,13 +189,18 @@ const StyleSettingForm = forwardRef<StylePanelHandle, Props>(function StyleSetti
   const [selFiles, setSelFiles] = useState<Set<string>>(new Set());
   const [selChapters, setSelChapters] = useState<Set<string>>(new Set());
   const [distillView, setDistillView] = useState<DistillView>("closed");
-  const [distillStep, setDistillStep] = useState<0 | 1 | 2 | 3>(0);
+  const [distillStep, setDistillStep] = useState<0 | 1 | 2 | 3 | 4>(0);
   const [distillBusy, setDistillBusy] = useState(false);
   // 粘贴样本（c-style-paste-distill）：弹窗开合 + 本次粘贴链的活动文本。
   // 存组件态是为重试——step1 失败后点重试必须继续携带同一粘贴文本，
   // 否则按空文件/章节路装配会报「样本合计 0 字」（粘贴直开路径 samples 为 null 无从补救）。
   const [pasteOpen, setPasteOpen] = useState(false);
   const [pasteText, setPasteText] = useState<string | null>(null);
+  // 文字层草稿（c-style-distill-full）：step4 产物的可编辑副本＋两段采纳勾选。
+  // 以确认卡打开/补跑完成时的 draft 为准（syncLearnFromDraft 重灌）。
+  const [learn, setLearn] = useState<{ role: string; rules: string[]; craft: string[]; samples: string[] } | null>(null);
+  const [adoptRules, setAdoptRules] = useState(true);
+  const [adoptSamples, setAdoptSamples] = useState(true);
   const [checkSink, setCheckSink] = useState<{
     checks: Array<{ name: string; res: string; note: string }>;
     verdict: string;
@@ -444,6 +449,26 @@ const StyleSettingForm = forwardRef<StylePanelHandle, Props>(function StyleSetti
     setQuant(await styleQuantApi.get(projectId));
   }
 
+  /** step4 草稿 → 可编辑副本重灌（确认卡打开/补跑完成时调用）。 */
+  function syncLearnFromDraft(d: StyleQuantDraft | null | undefined) {
+    const s4 = d?.step4;
+    setLearn(
+      s4
+        ? {
+            role: String(s4.role ?? ""),
+            rules: (s4.rules ?? []).map(String),
+            craft: (s4.craft ?? []).map(String),
+            samples: (s4.samples ?? []).map(String),
+          }
+        : null,
+    );
+    setAdoptRules(!!s4);
+    setAdoptSamples(!!s4);
+  }
+
+  /** 粘贴路样本不保留原文——重开时无法重供，补跑/重提取只对文件/章节路开放。 */
+  const pasteRouteDraft = (draft?.samples_used as string[] | undefined)?.[0] === "粘贴文本";
+
   async function openDistill() {
     try {
       const s = await styleQuantApi.samples(projectId);
@@ -452,10 +477,19 @@ const StyleSettingForm = forwardRef<StylePanelHandle, Props>(function StyleSetti
       setSelChapters(new Set(s.chapters.map((c) => c.id)));
       // 续跑：draft 已到 step3 → 画像确认；其余从样本起
       if (draft?.step3?.portrait) {
-        setDistillStep(3);
+        setDistillStep(draft?.step4 ? 4 : 3);
         setDistillView("portrait");
+        syncLearnFromDraft(draft);
+        // 存量 draft 补跑 step4（c-style-distill-full）：仅文件/章节路能确定性重装样本。
+        // 样本上下文显式随 opts 传——此刻 setSelFiles 还没落到 state，闭包里是旧集合
+        if (!draft.step4 && !pasteRouteDraft)
+          void runSteps(1, false, {
+            startStep: 3,
+            files: s.files.map((f) => f.name),
+            chapterIds: s.chapters.map((c) => c.id),
+          });
       } else {
-        setDistillStep(draftStep as 0 | 1 | 2 | 3);
+        setDistillStep(draftStep as 0 | 1 | 2 | 3 | 4);
         setDistillView("samples");
       }
     } catch (e: unknown) {
@@ -470,28 +504,42 @@ const StyleSettingForm = forwardRef<StylePanelHandle, Props>(function StyleSetti
   }
 
   /**
-   * 蒸馏三步串联。opts.startStep 显式起跑（粘贴重启必须传 0——state distillStep 的
-   * 闭包旧值会跳过 step1 拿旧产物跑 step3）；opts.text 为粘贴样本，step1 持续携带
-   * 直至成功或取消（后端 text 非空＝显式重启，幂等）。
+   * 蒸馏四步串联（c-style-distill-full：3 步量化＋step4 文字层）。opts.startStep 显式起跑
+   * （粘贴重启必须传 0——state distillStep 的闭包旧值会跳过 step1 拿旧产物跑 step3）；
+   * opts.text 为粘贴样本，step1/step4 持续携带直至成功或取消（step1 的 text 非空＝显式
+   * 重启；step4 的 text 只作样本供给，同名参数语义相异——评审钉）。
    */
-  async function runSteps(from: 1 | 3, force = false, opts?: { startStep?: 0 | 1 | 2 | 3; text?: string | null }) {
+  async function runSteps(
+    from: 1 | 3,
+    force = false,
+    opts?: { startStep?: 0 | 1 | 2 | 3; text?: string | null; files?: string[]; chapterIds?: string[] },
+  ) {
     if (distillBusy) return;
     setDistillBusy(true);
     setError("");
     const activePaste = opts?.text ?? null;
     try {
-      let step: 0 | 1 | 2 | 3 = opts?.startStep ?? distillStep;
+      let step: 0 | 1 | 2 | 3 | 4 = opts?.startStep ?? distillStep;
       // 显式重启（粘贴链带 text 从 0 起跑）：进度 UI 同步归零（内测反馈#13）——
       // 上一轮/旧 draft 的步数不得冒充本轮进度（否则进度条恒「已完成」、按钮恒「继续蒸馏」）
       if (opts?.startStep === 0) setDistillStep(0);
       if (from === 1) {
-        while (step < 3) {
-          const next = (step + 1) as 1 | 2 | 3;
+        while (step < 4) {
+          const next = (step + 1) as 1 | 2 | 3 | 4;
+          // step1 与 step4 都吃样本上下文（draft 不存原文，step4 靠请求重供）
           const body =
-            next === 1
-              ? { files: [...selFiles], chapter_ids: [...selChapters], ...(activePaste ? { text: activePaste } : {}) }
+            next === 1 || next === 4
+              ? {
+                  files: opts?.files ?? [...selFiles],
+                  chapter_ids: opts?.chapterIds ?? [...selChapters],
+                  ...(activePaste ? { text: activePaste } : {}),
+                }
               : {};
-          await styleQuantApi.distillStep(projectId, next, body);
+          await styleQuantApi.distillStep(
+            projectId,
+            next,
+            next === 4 && force ? { ...body, force: true } : body,
+          );
           step = next;
           setDistillStep(step);
         }
@@ -503,6 +551,7 @@ const StyleSettingForm = forwardRef<StylePanelHandle, Props>(function StyleSetti
       const q = await styleQuantApi.get(projectId);
       setQuant(q);
       if (q.draft?.step3?.portrait) {
+        syncLearnFromDraft(q.draft);
         setDistillView("portrait");
         if (activePaste) setPasteText(null); // 粘贴链成功：活动样本使命完成
       }
@@ -577,6 +626,99 @@ const StyleSettingForm = forwardRef<StylePanelHandle, Props>(function StyleSetti
     }
   }
 
+  /** 采纳文字层（c-style-distill-full）：三区草稿替换＋示范段替换，逐段勾选、未勾零写回。
+   *  写前回读服务端文风 KV 做禁用词/句式并集合并（D4：不吞未保存编辑）；采纳即 PUT，
+   *  回执撤销恢复采纳前三区/示范段并回写。 */
+  async function adoptLearn() {
+    if (distillBusy || !learn) return;
+    if (!adoptRules && !adoptSamples) return;
+    setDistillBusy(true);
+    setError("");
+    try {
+      const fresh = await api.get(`/novels/${projectId}/settings/style`);
+      const serverBanned: string[] = Array.isArray(fresh?.banned_words)
+        ? fresh.banned_words.map(String).filter(Boolean)
+        : [];
+      const serverTics = toTics(fresh?.tic_patterns);
+      const wordKey = (w: string) => w.normalize("NFKC").trim().toLowerCase();
+      const mergedBanned = [...banned];
+      for (const w of serverBanned) {
+        if (!mergedBanned.some((x) => wordKey(x) === wordKey(w))) mergedBanned.push(w);
+      }
+      const mergedTics = [...tics];
+      for (const t of serverTics) {
+        if (!mergedTics.some((x) => x.pattern.trim() === t.pattern)) mergedTics.push(t);
+      }
+      const prev = {
+        role: role,
+        rules: rules.map((r) => r.trim()).filter(Boolean),
+        craft: craft.map((c) => c.trim()).filter(Boolean),
+        samples: [...styleSamples],
+      };
+      const nextRole = (adoptRules ? learn.role : prev.role).trim();
+      const nextRules = (adoptRules ? learn.rules : prev.rules).map((r) => r.trim()).filter(Boolean);
+      const nextCraft = (adoptRules ? learn.craft : prev.craft).map((c) => c.trim()).filter(Boolean).slice(0, 8);
+      const nextSamples = (adoptSamples ? learn.samples : prev.samples).map((s) => s.trim()).filter(Boolean).slice(0, 6);
+      await api.put(`/novels/${projectId}/settings/style`, {
+        role: nextRole,
+        rules: nextRules,
+        craft: nextCraft,
+        few_shot_examples: fewShots.map((s) => s.trim()).filter(Boolean).slice(0, 3),
+        ...(nextSamples.length ? { style_samples: nextSamples } : {}),
+        banned_words: mergedBanned.map((w) => w.trim()).filter(Boolean).slice(0, 100),
+        tic_patterns: mergedTics
+          .filter((t) => t.pattern.trim() !== "")
+          .map((t) => ({ ...t, name: t.name.trim(), description: t.description.trim() }))
+          .slice(0, 20),
+      });
+      // 表单态同步＋脏快照重基线：采纳值即新基线，后续保存不回踩、不误报脏
+      if (adoptRules) {
+        setRole(nextRole);
+        setRules(nextRules.length ? nextRules : [""]);
+        setCraft(nextCraft.length ? nextCraft : [""]);
+      }
+      if (adoptSamples) setStyleSamples(nextSamples);
+      setBanned(mergedBanned);
+      setTics(mergedTics);
+      const snap = getSnapshot() as Record<string, unknown> | null;
+      if (snap) snapshotLoaded({ ...snap, role: nextRole, rules: nextRules, craft: nextCraft, banned: mergedBanned, tics: mergedTics });
+      const parts = [
+        adoptRules ? "三区草稿" : null,
+        adoptSamples ? `示范段 ${nextSamples.length} 条` : null,
+      ].filter(Boolean);
+      publishReceipt({
+        text: `已采纳文字层：${parts.join("＋")}——句式、节奏、对话密度以示范段为准`,
+        undo: () => {
+          setRole(prev.role);
+          setRules(prev.rules.length ? prev.rules : [""]);
+          setCraft(prev.craft.length ? prev.craft : [""]);
+          setStyleSamples(prev.samples);
+          void (async () => {
+            await api.put(`/novels/${projectId}/settings/style`, {
+              role: prev.role,
+              rules: prev.rules,
+              craft: prev.craft,
+              few_shot_examples: fewShots.map((s) => s.trim()).filter(Boolean).slice(0, 3),
+              ...(prev.samples.length ? { style_samples: prev.samples } : {}),
+              banned_words: mergedBanned.map((w) => w.trim()).filter(Boolean).slice(0, 100),
+              tic_patterns: mergedTics
+                .filter((t) => t.pattern.trim() !== "")
+                .map((t) => ({ ...t, name: t.name.trim(), description: t.description.trim() }))
+                .slice(0, 20),
+            });
+            if (snap)
+              snapshotLoaded({ ...snap, role: prev.role, rules: prev.rules, craft: prev.craft, banned: mergedBanned, tics: mergedTics });
+          })();
+          toast.success("已撤销，恢复采纳前内容");
+        },
+      });
+    } catch (e: unknown) {
+      setError((e as Error).message || "采纳失败，可重试");
+    } finally {
+      setDistillBusy(false);
+    }
+  }
+
   // ── 渲染 ─────────────────────────────────────────────────────────
   if (loading) return <p className="opt">加载中…</p>;
 
@@ -601,6 +743,7 @@ const StyleSettingForm = forwardRef<StylePanelHandle, Props>(function StyleSetti
     [1, "读样本，逐段标注写法", "哪段在叙述、哪段在对话、情绪藏在动作里还是说出口"],
     [2, "统计写法习惯", "句长、对话占比、爱用的词、情绪怎么外化——拿数字说话"],
     [3, "归纳成六行基线和画像", "数字归基线（写章按「约 X（±容差）」执行），人话归画像（等你确认）"],
+    [4, "提取文字层草稿", "身份、规则、手法和能照着写的原文段——确认后落进「文字文风」"],
   ];
 
   return (
@@ -1072,6 +1215,114 @@ const StyleSettingForm = forwardRef<StylePanelHandle, Props>(function StyleSetti
                         );
                       })}
                     </div>
+                  )}
+                  {draft?.step4 && learn ? (
+                    <div style={{ marginTop: 12 }} data-od-id="learn-text-layer">
+                      <div className="pz-head">文字层草稿</div>
+                      <p className="pz-note" style={{ marginBottom: 8 }}>
+                        从样本提取的「文字文风」草稿——可直接改；只写勾选采纳的段，未勾的不动。
+                      </p>
+                      <label className="opt" style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                        <input
+                          type="checkbox"
+                          checked={adoptRules}
+                          onChange={(e) => setAdoptRules(e.target.checked)}
+                          data-od-id="learn-adopt-rules"
+                        />
+                        采纳三区草稿（替换现有身份／硬约束／手法）
+                      </label>
+                      <div style={{ margin: "6px 0 0 24px" }}>
+                        <input
+                          className="input"
+                          value={learn.role}
+                          placeholder="叙事身份（一句话）"
+                          onChange={(e) => setLearn({ ...learn, role: e.target.value })}
+                          data-od-id="learn-role"
+                        />
+                        <div style={{ marginTop: 6 }} data-od-id="learn-rules">
+                          <ListEditor
+                            items={learn.rules}
+                            onChange={(items) => setLearn({ ...learn, rules: items })}
+                            maxItems={16}
+                            placeholder="规则：怎么写（≤60 字）"
+                          />
+                        </div>
+                        <div style={{ marginTop: 6 }} data-od-id="learn-craft">
+                          <ListEditor
+                            items={learn.craft}
+                            onChange={(items) => setLearn({ ...learn, craft: items })}
+                            maxItems={8}
+                            placeholder="手法：怎么用（≤60 字）"
+                          />
+                        </div>
+                      </div>
+                      <label className="opt" style={{ display: "flex", alignItems: "center", gap: 6, marginTop: 8 }}>
+                        <input
+                          type="checkbox"
+                          checked={adoptSamples}
+                          onChange={(e) => setAdoptSamples(e.target.checked)}
+                          data-od-id="learn-adopt-samples"
+                        />
+                        采纳示范段（替换现有示范段；写正文时的最高笔法依据）
+                      </label>
+                      <div className="ss-list" style={{ margin: "6px 0 0 24px" }} data-od-id="learn-samples">
+                        {learn.samples.map((s, i) => (
+                          <div className="ss-row" key={`${i}-${s.slice(0, 10)}`}>
+                            <p className="ss-txt">{s}</p>
+                            <button
+                              type="button"
+                              className="btn btn-ghost btn-sm"
+                              aria-label={`删除示范段${i + 1}`}
+                              onClick={() => setLearn({ ...learn, samples: learn.samples.filter((_, j) => j !== i) })}
+                            >
+                              删除
+                            </button>
+                          </div>
+                        ))}
+                      </div>
+                      <div className="pz-act" style={{ marginTop: 10 }}>
+                        <button
+                          className="btn btn-primary"
+                          type="button"
+                          data-od-id="btn-learn-adopt"
+                          disabled={distillBusy || (!adoptRules && !adoptSamples)}
+                          onClick={() => void adoptLearn()}
+                        >
+                          采纳到文风设定
+                        </button>
+                        <button
+                          className="btn btn-ghost"
+                          type="button"
+                          data-od-id="btn-learn-reextract"
+                          disabled={distillBusy || pasteRouteDraft}
+                          title={pasteRouteDraft ? "粘贴样本不保留原文，重新粘贴蒸馏后可重提取" : undefined}
+                          onClick={() => void runSteps(1, true, { startStep: 3 })}
+                        >
+                          重新提取
+                        </button>
+                      </div>
+                    </div>
+                  ) : (
+                    draft?.step3?.portrait && (
+                      <div style={{ marginTop: 12 }} data-od-id="learn-unavailable">
+                        <p className="opt">
+                          {pasteRouteDraft
+                            ? "粘贴样本不保留原文，无法补提文字层——重新粘贴蒸馏一次即可。"
+                            : "文字层草稿提取失败或未运行——点「重试文字层」再来一次。"}
+                        </p>
+                        {!pasteRouteDraft && (
+                          <button
+                            className="btn btn-ghost"
+                            type="button"
+                            data-od-id="btn-learn-retry"
+                            disabled={distillBusy}
+                            onClick={() => void runSteps(1, false, { startStep: 3 })}
+                          >
+                            重试文字层
+                          </button>
+                        )}
+                      </div>
+                    )
                   )}
                   <div className="pz-act">
                     <button

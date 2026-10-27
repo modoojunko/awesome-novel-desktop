@@ -27,8 +27,8 @@ from filesystem.storage import get_storage
 from genres.novel_genre_service import get_novel_genre
 from novels.service import get_novel
 from prompt.context import cast_profile_block
+from prompts import PromptPackMissing, load_layers
 from prompts import load as load_prompt
-from prompts import load_layers
 from settings.hooks_model import (
     DESCRIPTION_MAX,
     HOOK_TYPE_KEYS,
@@ -1743,7 +1743,46 @@ async def run_hooks_ai(
 # ── 文风蒸馏与三区 AI（style-settings-v2）──────────────────────────
 # 注意：本路由族必须注册在 /ai/{stype}/{field} 之前，否则被通配遮蔽（hooks 同款注释）。
 
-_STYLE_DISTILL_ACTIONS = {"step1", "step2", "step3", "commit"}
+_STYLE_DISTILL_ACTIONS = {"step1", "step2", "step3", "step4", "commit"}
+
+
+def _normalize_learn_extract(data) -> dict | None:
+    """step4 文字层产物归一：taboo→「避免…」行并入 rules，全部收敛为字符串行＋上限截断。
+
+    落库形状＝确认卡/采纳 payload 的直接形态（作者看到的就是落卡形态，不见第二语义）：
+    {"role": str, "rules": [str], "craft": [str], "samples": [str ≤200 字]}。
+    """
+    if not isinstance(data, dict):
+        return None
+
+    def _lines(items, prefix: str, limit: int) -> list[str]:
+        out: list[str] = []
+        for it in items if isinstance(items, list) else []:
+            if not isinstance(it, dict):
+                continue
+            name = _clamp_str(it.get("name"), 20)
+            how = _clamp_str(it.get("how"), 80)
+            line = f"{prefix}{name}：{how}" if name else (f"{prefix}{how}" if how else "")
+            if line and line not in out:
+                out.append(line)
+        return out[:limit]
+
+    rules = _lines(data.get("rules"), "", 10)
+    rules += _lines(data.get("taboo"), "避免", 6)
+    craft = _lines(data.get("craft"), "", 8)
+    role = _clamp_str(data.get("role"), 100)
+    samples: list[str] = []
+    for it in data.get("examples") if isinstance(data.get("examples"), list) else []:
+        if isinstance(it, dict):
+            it = it.get("example") or it.get("text") or ""
+        s = _clamp_str(it, 200)
+        if s and s not in samples:
+            samples.append(s)
+        if len(samples) >= 6:
+            break
+    if not (role or rules or craft or samples):
+        return None
+    return {"role": role, "rules": rules, "craft": craft, "samples": samples}
 
 
 async def _load_quant_doc(root_path: str) -> dict:
@@ -1948,6 +1987,45 @@ async def style_distill_ai(
         doc["draft"] = draft
         await _save_quant_doc(project.root_path, doc)
         return {"ok": True, "step": 2}
+
+    # step4：文字层提取（c-style-distill-full）——必须置于 step3 落尾之前（step3 是隐式 else）。
+    # 样本由请求重供：draft 不存原文，前端每次随请求携带与 step1 同一 body；
+    # 本步的 text 只作样本供给，MUST NOT 触发 step1 的「text 非空＝清空重启」语义。
+    if action == "step4":
+        if not body.get("force") and draft.get("step4"):
+            return {"ok": True, "resumed": True, "step": draft.get("step", 0)}
+        if not draft.get("step1"):
+            raise HTTPException(400, "先完成第一步（样本标注）")
+        raw_text = body.get("text")
+        if raw_text is not None and not isinstance(raw_text, str):
+            raise HTTPException(400, "粘贴样本格式不对——请重新粘贴文本内容")
+        paste = raw_text.strip() if isinstance(raw_text, str) else ""
+        if paste:
+            from settings.style_quant_model import SAMPLE_MAX, SAMPLE_MIN
+
+            chars = len("".join(paste.split()))
+            if chars < SAMPLE_MIN:
+                raise HTTPException(400, f"样本合计 {chars} 字，少于 {SAMPLE_MIN} 字统计噪声大——再补一些你认可的文章")
+            if chars > SAMPLE_MAX:
+                raise HTTPException(400, f"样本合计 {chars} 字，超过 {SAMPLE_MAX} 字——挑最有代表性的几章")
+            text = paste
+        else:
+            text, _chars, _used, _matched = await _assemble_distill_samples(project, body, db)
+        try:
+            tpl = load_prompt("style_learn_extract")
+        except PromptPackMissing:
+            # 包版本斜坡（客户端新于已装包）：结构化降级，非 500；三步基线路径不受牵连
+            raise HTTPException(503, "本机提示词包过旧，缺文字层提取模板——联网更新提示词包后再学文字层")
+        prompt = tpl.format(sample=text)
+        data = await _distill_llm(project, user, db, system="你是文风提取师。只输出 JSON，不要任何其他文字。", prompt=prompt)
+        learn = _normalize_learn_extract(data)
+        if learn is None:
+            raise HTTPException(502, "文字层提取返回结构不对，可重试")
+        draft["step"] = 4
+        draft["step4"] = learn
+        doc["draft"] = draft
+        await _save_quant_doc(project.root_path, doc)
+        return {"ok": True, "step": 4, **learn}
 
     # step3：归纳九维＋画像＋禁用词候选；force=「不像，再学一次」（只重跑本步）
     if action == "step3" and not body.get("force") and draft.get("step3"):

@@ -650,6 +650,28 @@
                 <div class="bx-vals">约 对话 18 字/轮 · 动词力度 strong（±10%）</div>
               </div>
             </div>
+            <!-- 文字层草稿（c-style-distill-full）：step4 提取，分段采纳、未勾零写回 -->
+            <div data-od-id="learn-text-layer" style="margin-top:14px;">
+              <h4>文字层草稿 <span class="opt" style="font-weight:400;">（从样本提取的「文字文风」——可直接改；只写勾选采纳的段）</span></h4>
+              <label class="opt" style="display:flex;align-items:center;gap:6px;"><input type="checkbox" checked data-od-id="learn-adopt-rules" /> 采纳三区草稿（替换现有身份／硬约束／手法）</label>
+              <div style="margin:6px 0 0 24px;">
+                <input class="input" value="第三人称限知，紧贴林拾；冷静克制，不替读者下判断。" readonly />
+                <ul style="margin:6px 0 0;">
+                  <li>对峙段用短句收拍，节奏先紧后松</li>
+                  <li><span style="color:var(--muted)">避免</span>全知点评——不替人物下判断</li>
+                  <li>情绪靠动作外化，不写「他很紧张」</li>
+                </ul>
+              </div>
+              <label class="opt" style="display:flex;align-items:center;gap:6px;margin-top:8px;"><input type="checkbox" checked data-od-id="learn-adopt-samples" /> 采纳示范段（替换现有示范段；写正文时的最高笔法依据）</label>
+              <div class="ss-list" style="margin:6px 0 0 24px;" data-od-id="learn-samples">
+                <div class="ss-row"><p class="ss-txt">他把账本合上，往桌上一拍，屋里人都静了。没人问他亏了多少，问也是白问。</p><button class="btn btn-ghost btn-sm" type="button">删除</button></div>
+                <div class="ss-row"><p class="ss-txt">夜里落了雪。他把炉门推开一条缝，火光照在他半边脸上，另半边留在黑暗里。</p><button class="btn btn-ghost btn-sm" type="button">删除</button></div>
+              </div>
+              <div class="pz-act" style="margin-top:10px;">
+                <button class="btn btn-primary" type="button" data-od-id="btn-learn-adopt">采纳到文风设定</button>
+                <button class="btn btn-ghost" type="button" data-od-id="btn-learn-reextract">重新提取</button>
+              </div>
+            </div>
             <div class="pz-act">
               <button class="btn btn-primary" id="btnPortraitKeep" type="button" data-od-id="btn-portrait-keep">就是这样，落卡</button>
               <button class="btn btn-ghost" id="btnPortraitRetry" type="button" data-od-id="btn-portrait-retry">不像，再学一次</button>

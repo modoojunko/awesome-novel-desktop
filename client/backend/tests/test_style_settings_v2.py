@@ -496,6 +496,93 @@ class TestDistillEndpoints:
         assert q2["confidence"] == 53
         assert q2["draft"] == {}
 
+    # ── step4 文字层提取（c-style-distill-full）─────────────────────────
+
+    _LEARN = (
+        '{"role": "冷峻的第三人称限知", "rules": [{"name": "短句急收", "how": "对峙段用短句收拍"}, '
+        '{"name": "动作外化", "how": "情绪靠动作不带旁白"}], '
+        '"craft": [{"name": "物件回指", "how": "用账本串场"}], '
+        '"taboo": [{"name": "全知点评", "how": "不替人物下判断"}], '
+        '"examples": ["他把账本合上，往桌上一拍，屋里人都静了。", "夜里落了雪，炉光照亮他半边脸。"]}'
+    )
+
+    def _run_to_step3(self, client, pid, monkeypatch, learn_payload="{}"):
+        payloads = [
+            '{"sections": [{"label": "合账", "layer": "动作"}]}',
+            '{"metrics": {"平均句长": "14.6 字"}}',
+            '{"baseline": {"narrative": "第三人称限知"}, "portrait": "冷静的讲述者。", "banned": []}',
+            learn_payload,
+        ]
+        _install_fake_distill(monkeypatch, payloads)
+        assert client.post(f"/api/novels/{pid}/settings/ai/style-distill/step1", json={"text": self._PASTE}).status_code == 200
+        assert client.post(f"/api/novels/{pid}/settings/ai/style-distill/step2", json={}).status_code == 200
+        assert client.post(f"/api/novels/{pid}/settings/ai/style-distill/step3", json={}).status_code == 200
+
+    def test_step4_extracts_and_merges_taboo(self, client, pid, monkeypatch):
+        self._run_to_step3(client, pid, monkeypatch, learn_payload=self._LEARN)
+        r = client.post(f"/api/novels/{pid}/settings/ai/style-distill/step4", json={"text": self._PASTE})
+        assert r.status_code == 200, r.text
+        q = client.get(f"/api/novels/{pid}/settings/style-quant").json()
+        s4 = q["draft"]["step4"]
+        assert s4["role"] == "冷峻的第三人称限知"
+        # taboo 服务端转「避免…」行并入 rules（确认卡所见＝落卡形态）
+        assert "短句急收：对峙段用短句收拍" in s4["rules"]
+        assert "避免全知点评：不替人物下判断" in s4["rules"]
+        assert s4["craft"] == ["物件回指：用账本串场"]
+        assert len(s4["samples"]) == 2
+        # step4 续跑短路：不重复调用；force 重提只重摇文字层
+        r = client.post(f"/api/novels/{pid}/settings/ai/style-distill/step4", json={"text": self._PASTE})
+        assert r.json().get("resumed") is True
+        r = client.post(f"/api/novels/{pid}/settings/ai/style-distill/step4", json={"text": self._PASTE, "force": True})
+        assert r.status_code == 200
+        q = client.get(f"/api/novels/{pid}/settings/style-quant").json()
+        assert q["draft"]["step4"]["role"] == "冷峻的第三人称限知"
+        assert q["draft"]["step3"]  # force 不动 step1-3 产物
+
+    def test_step4_text_does_not_clear_draft(self, client, pid, monkeypatch):
+        """同名参数语义相异钉：step4 的 text 只作样本供给，MUST NOT 触发清空重启。"""
+        self._run_to_step3(client, pid, monkeypatch, learn_payload=self._LEARN)
+        r = client.post(f"/api/novels/{pid}/settings/ai/style-distill/step4", json={"text": self._PASTE})
+        assert r.status_code == 200
+        q = client.get(f"/api/novels/{pid}/settings/style-quant").json()
+        assert q["draft"]["step1"] and q["draft"]["step2"] and q["draft"]["step3"]
+        assert q["draft"]["step4"]
+
+    def test_step4_requires_step1(self, client, pid, monkeypatch):
+        _install_fake_distill(monkeypatch, ['{"role": "x", "rules": [], "craft": [], "examples": []}'])
+        r = client.post(f"/api/novels/{pid}/settings/ai/style-distill/step4", json={})
+        assert r.status_code == 400
+        assert "第一步" in r.json()["detail"]
+
+    def test_step4_bad_shape_502(self, client, pid, monkeypatch):
+        self._run_to_step3(client, pid, monkeypatch, learn_payload='{"sections": []}')
+        r = client.post(f"/api/novels/{pid}/settings/ai/style-distill/step4", json={"text": self._PASTE})
+        assert r.status_code == 502
+        assert "结构不对" in r.json()["detail"]
+
+    def test_step4_missing_template_degrades(self, client, pid, monkeypatch):
+        """包版本斜坡：缺模板→结构化 503（非 500），三步基线不受影响。"""
+        import settings.ai_router as ar
+        from prompts import PromptPackMissing
+
+        self._run_to_step3(client, pid, monkeypatch)
+        real_load = ar.load_prompt
+
+        def _missing(name):
+            if name == "style_learn_extract":
+                raise PromptPackMissing(f"Prompt pack missing template: {name}")
+            return real_load(name)
+
+        monkeypatch.setattr(ar, "load_prompt", _missing)
+        r = client.post(f"/api/novels/{pid}/settings/ai/style-distill/step4", json={"text": self._PASTE})
+        assert r.status_code == 503
+        assert "提示词包" in r.json()["detail"]
+        q = client.get(f"/api/novels/{pid}/settings/style-quant").json()
+        assert not q["draft"].get("step4")
+        assert q["draft"]["step3"]  # 基线路径产物原样
+        r = client.post(f"/api/novels/{pid}/settings/ai/style-distill/commit", json={})
+        assert r.status_code == 200  # 落卡照常可用
+
 
 # ── 提示词组装 ───────────────────────────────────────────────────────────
 

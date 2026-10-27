@@ -34,6 +34,13 @@ export interface StyleQuantDraft {
     /** 落卡行单源（c-style-paste-distill）：确认卡预览与 commit 共用同一构建产物（服务端 build_baseline）。 */
     rows?: Record<string, { value: string; tolerance: number }>;
   };
+  /** step4 文字层草稿（c-style-distill-full）：服务端已归一为字符串行＋taboo 转「避免…」。 */
+  step4?: {
+    role?: string;
+    rules?: string[];
+    craft?: string[];
+    samples?: string[];
+  };
   [k: string]: unknown;
 }
 
@@ -96,7 +103,7 @@ export const styleQuantApi = {
   },
   async distillStep(
     projectId: string,
-    step: 1 | 2 | 3,
+    step: 1 | 2 | 3 | 4,
     body: Record<string, unknown> = {},
   ): Promise<{ ok: boolean; resumed?: boolean; step?: number; portrait?: string }> {
     return api.post(`/novels/${projectId}/settings/ai/style-distill/step${step}`, body);
