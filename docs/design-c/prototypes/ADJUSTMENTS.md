@@ -2266,3 +2266,11 @@ c-model-list-cap-300 后模型清单上限 300 条（方舟单家实测 137 条�
    book.css 仅业务段小增量（沿用 #949 的 ss-list 家族），无令牌/共享段改动，
    design:check 预期零差异。
 >>>>>>> e9521dbc (feat(style): 蒸馏学全套——step4 文字层提取＋确认卡分段落卡（c-style-distill-full）)
+
+## c-style-distill-full-drop-guard（落卡守卫，2026-10-27 复审 P2 整改）
+
+复审发现：基线落卡连 draft.step4 一起清，确认卡上文字层未采纳就点「就是这样，落卡」＝
+草稿静默丢失（恢复＝同一样本完整重蒸馏）。修法＝落卡前显式丢弃确认（window.confirm，
+沿 NovelWorkspace 未保存拦截同款惯例），本卡采纳过或无文字层时不出现。瞬态确认态、
+无新组件形态，不进原型静态稿（原型无法演示二态按钮）；style-settings 不在 parity
+四屏内，design:check 预期零差异。
