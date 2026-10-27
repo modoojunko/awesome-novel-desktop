@@ -5,15 +5,16 @@
 
 ## 2. C端后端
 
-- [ ] 2.1 `settings/ai_router.py`：step4 端点（样本装配复用 `_assemble_distill_samples`／draft 读写续跑同款／member 门控＋模型就绪依赖同三步）；调用 `style_learn_extract` 模板解析 JSON，产物写 `style-quant.draft.step4`（role/rules/craft/taboo→rules 行/examples）
+- [ ] 2.1 `settings/ai_router.py`：step4 端点（member 门控＋模型就绪依赖同三步）；样本由请求重供（body.text 或文件/章节，复用 `_assemble_distill_samples`；**text 在 step4 只作供给、MUST NOT 触发清空重启**；无 step1 产物→400）；调用 `style_learn_extract` 模板解析 JSON，产物写 `style-quant.draft.step4`（role/rules/craft/taboo→rules 行/examples）
+- [ ] 2.1b `PromptPackMissing` 降级：包缺模板→结构化错误（非 500）＋更新提示词包文案；step4 force 重提（保留 step1–3）
 - [ ] 2.2 draft 兼容：存量 draft 无 step4 产物→续跑补跑；粘贴重启清空含 step4；「不像，再学一次」只重跑 step3 不动 step4 产物
-- [ ] 2.3 后端测试：step4 契约钉（member 403/模型未就绪/502 可重试/解析坏 JSON 502）、draft 续跑四态（存量补跑/粘贴清空/重学不清 step4/独立重试）、样例形状收敛（超限截断）
+- [ ] 2.3 后端测试：step4 契约钉（member 403/模型未就绪/502 可重试/解析坏 JSON 502/**text 不清空 draft**/无 step1 400/**旧包缺模板降级**/force 重提）、draft 续跑四态（存量补跑/粘贴清空/重学不清 step4/独立重试）、样例形状收敛（超限截断）
 
 ## 3. C端前端
 
-- [ ] 3.1 蒸馏流 UI：进度步数三→四（复位/续跑/在飞语义沿既有钉子）；确认卡新增文字层两段——三区草稿编辑器（身份一句＋规则 ListEditor＋手法 ListEditor，taboo 已转「避免…」行）＋示范段只读列表（可删条目）
-- [ ] 3.2 分段落卡交互：基线「落卡」照旧；文字层「采纳到文风设定」（三区/示范段各自勾选采纳或弃采）→ 采纳前回读文风 KV 合并（D4 同款）→ put_style 白名单 PUT（三区替换＋style_samples ≤6 替换）→ ChangeReceipt 回执撤销；未采纳段零写回
-- [ ] 3.3 前端测试：进度四步钉（存量补跑/粘贴复位）、分段采纳三态（全采纳/只采纳示范段/全弃零写回）、回执撤销恢复、防丢词（未保存禁用词＋采纳合并）、无来源标记差异（style-samples 组呈现同形态）
+- [ ] 3.1 蒸馏流 UI：进度步数三→四（复位/续跑/在飞语义沿既有钉子；distillStep union 扩位）；确认卡新增文字层两段——三区草稿编辑器（身份一句＋规则 ListEditor＋手法 ListEditor，taboo 已转「避免…」行）＋示范段只读列表（可删条目）＋「重新提取」入口＋旧包降级文案
+- [ ] 3.2 分段落卡交互：基线「落卡」照旧；文字层「采纳到文风设定」（三区/示范段各自勾选采纳或弃采）→ 采纳前回读文风 KV 合并（D4 同款）→ put_style 白名单 PUT（三区替换＋style_samples ≤6 替换）→ ChangeReceipt 回执撤销；未采纳段零写回；**采纳后表单态同步＋脏快照重基线**（防后续保存回踩/误报脏）
+- [ ] 3.3 前端测试：进度四步钉（存量补跑/粘贴复位）、分段采纳三态（全采纳/只采纳示范段/全弃零写回）、回执撤销恢复、防丢词（未保存禁用词＋采纳合并）、**采纳后脏基线重置（后续保存不回踩）**、无来源标记差异（style-samples 组呈现同形态）
 - [ ] 3.4 原型 style-settings.html 确认卡补文字层两段演示＋ADJUSTMENTS 登记；design:lint 过（不触共享段）
 
 ## 4. 验证与交付
