@@ -201,6 +201,9 @@ const StyleSettingForm = forwardRef<StylePanelHandle, Props>(function StyleSetti
   const [learn, setLearn] = useState<{ role: string; rules: string[]; craft: string[]; samples: string[] } | null>(null);
   const [adoptRules, setAdoptRules] = useState(true);
   const [adoptSamples, setAdoptSamples] = useState(true);
+  // 本卡文字层是否已采纳：落卡守卫用（c-style-distill-full 复审 P2）——
+  // commit 会连 draft.step4 一起清掉，未采纳就落卡＝草稿静默丢失（唯一恢复＝完整重蒸馏）
+  const [learnAdopted, setLearnAdopted] = useState(false);
   const [checkSink, setCheckSink] = useState<{
     checks: Array<{ name: string; res: string; note: string }>;
     verdict: string;
@@ -464,6 +467,7 @@ const StyleSettingForm = forwardRef<StylePanelHandle, Props>(function StyleSetti
     );
     setAdoptRules(!!s4);
     setAdoptSamples(!!s4);
+    setLearnAdopted(false);
   }
 
   /** 粘贴路样本不保留原文——重开时无法重供，补跑/重提取只对文件/章节路开放。 */
@@ -578,6 +582,14 @@ const StyleSettingForm = forwardRef<StylePanelHandle, Props>(function StyleSetti
 
   async function commitPortrait() {
     if (distillBusy) return;
+    // 落卡守卫（c-style-distill-full 复审 P2）：commit 连 draft.step4 一起清——
+    // 文字层未采纳就落卡＝草稿静默丢失（唯一恢复＝完整重蒸馏），显式确认才放行
+    if (draft?.step4 && !learnAdopted) {
+      const ok = window.confirm(
+        "文字层草稿还没采纳——落卡后会连同草稿一起丢弃，要找回只能用同一样本完整重蒸馏。仍要落卡吗？",
+      );
+      if (!ok) return;
+    }
     setDistillBusy(true);
     setError("");
     try {
@@ -682,6 +694,7 @@ const StyleSettingForm = forwardRef<StylePanelHandle, Props>(function StyleSetti
       setTics(mergedTics);
       const snap = getSnapshot() as Record<string, unknown> | null;
       if (snap) snapshotLoaded({ ...snap, role: nextRole, rules: nextRules, craft: nextCraft, banned: mergedBanned, tics: mergedTics });
+      setLearnAdopted(true); // 本卡文字层已落 KV：落卡守卫放行
       const parts = [
         adoptRules ? "三区草稿" : null,
         adoptSamples ? `示范段 ${nextSamples.length} 条` : null,

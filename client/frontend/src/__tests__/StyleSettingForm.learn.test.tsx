@@ -207,4 +207,70 @@ describe("文字层蒸馏（c-style-distill-full）", () => {
     expect(undoBody.role).toBe("旧身份");
     expect(undoBody.style_samples).toBeUndefined();
   });
+
+  // 落卡守卫（c-style-distill-full 复审 P2）：commit 连 draft.step4 一起清——
+  // 未采纳就落卡＝草稿静默丢失，显式确认才放行；已采纳或无文字层不出确认。
+  describe("落卡守卫", () => {
+    function mockLearnOn() {
+      apiState.get.mockImplementation((url: string) => {
+        if (url.endsWith("/settings/style")) return Promise.resolve({ role: "旧身份" });
+        if (url.endsWith("/settings/style-quant"))
+          return Promise.resolve(quantWith(draftAt({ step4: STEP4 })));
+        if (url.endsWith("/settings/style-samples")) return Promise.resolve(SAMPLES_OK);
+        return Promise.reject(new Error(`unexpected GET ${url}`));
+      });
+    }
+
+    it("未采纳先落卡：确认弹窗拦截，取消留在卡内；确认丢弃方落卡", async () => {
+      const confirmSpy = vi.spyOn(window, "confirm").mockReturnValueOnce(false);
+      mockLearnOn();
+      renderWithReceipt();
+      await openQuant();
+      fireEvent.click(await screen.findByTestId("btn-redistill"));
+      await screen.findByTestId("learn-text-layer");
+      fireEvent.click(screen.getByTestId("btn-portrait-keep"));
+      expect(confirmSpy).toHaveBeenCalledOnce();
+      expect(apiState.post.mock.calls.some(([u]) => String(u).endsWith("/commit"))).toBe(false);
+      expect(screen.getByTestId("learn-text-layer")).toBeTruthy(); // 取消＝留在卡内
+
+      confirmSpy.mockReturnValueOnce(true);
+      fireEvent.click(screen.getByTestId("btn-portrait-keep"));
+      await waitFor(() => expect(apiState.post.mock.calls.some(([u]) => String(u).endsWith("/commit"))).toBe(true));
+      confirmSpy.mockRestore();
+    });
+
+    it("本卡已采纳：落卡不再出确认", async () => {
+      const confirmSpy = vi.spyOn(window, "confirm");
+      mockLearnOn();
+      renderWithReceipt();
+      await openQuant();
+      fireEvent.click(await screen.findByTestId("btn-redistill"));
+      await screen.findByTestId("learn-text-layer");
+      fireEvent.click(await screen.findByTestId("btn-learn-adopt"));
+      await waitFor(() => expect(apiState.put).toHaveBeenCalled());
+      fireEvent.click(screen.getByTestId("btn-portrait-keep"));
+      await waitFor(() => expect(apiState.post.mock.calls.some(([u]) => String(u).endsWith("/commit"))).toBe(true));
+      expect(confirmSpy).not.toHaveBeenCalled();
+      confirmSpy.mockRestore();
+    });
+
+    it("无文字层草稿（旧三步 draft）：落卡不出确认（既有行为不变）", async () => {
+      const confirmSpy = vi.spyOn(window, "confirm");
+      apiState.get.mockImplementation((url: string) => {
+        if (url.endsWith("/settings/style")) return Promise.resolve({ role: "旧身份" });
+        if (url.endsWith("/settings/style-quant"))
+          return Promise.resolve(quantWith({ step: 3, samples_used: ["a.md"], step3: { portrait: "像你的写法", rows: {} } }));
+        if (url.endsWith("/settings/style-samples")) return Promise.resolve(SAMPLES_OK);
+        return Promise.reject(new Error(`unexpected GET ${url}`));
+      });
+      renderWithReceipt();
+      await openQuant();
+      fireEvent.click(await screen.findByTestId("btn-redistill"));
+      await screen.findByTestId("author-portrait");
+      fireEvent.click(screen.getByTestId("btn-portrait-keep"));
+      await waitFor(() => expect(apiState.post.mock.calls.some(([u]) => String(u).endsWith("/commit"))).toBe(true));
+      expect(confirmSpy).not.toHaveBeenCalled();
+      confirmSpy.mockRestore();
+    });
+  });
 });
