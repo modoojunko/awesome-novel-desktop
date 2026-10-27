@@ -1320,6 +1320,21 @@ def _activate_to_front() -> str:
     return "front"
 
 
+def _window_origin(screen) -> tuple:
+    """窗口初始位置＝主屏左上角（屏幕原点），返回 (x, y)，任何缺失/异常回退 (0, 0)。
+
+    不传 x/y 时 Windows 走 CW_USEDEFAULT 级联——每次拉起错开一格，越弹越靠右下
+    （用户采证：更新拉起的新窗落右下角）。pywebview 6.x Screen 有 x/y；5.x 只有
+    resolution 元组（无位置信息）→ 按主屏原点 (0, 0)。恒不外抛（位置缺失不得
+    阻断窗口创建）。底置任务栏下窗口高 height-60 天然不压（v1 不精算 workarea，
+    侧/顶置任务栏属边缘态）；macOS 菜单栏遮挡由真机验收盯，必要时调用方加偏移。
+    """
+    try:
+        return int(screen.x), int(screen.y)
+    except Exception:  # 5.x 仅 resolution 元组／无屏信息——回退主屏原点 (0, 0)
+        return 0, 0
+
+
 def main():
     """主入口"""
     runtime_dir = get_runtime_dir()
@@ -1384,6 +1399,7 @@ def main():
     # 自适应屏幕分辨率（跨平台：webview.screens 而非 ctypes.windll.user32）
     try:
         screen = webview.screens[0]
+        win_x, win_y = _window_origin(screen)
         if hasattr(screen, "width"):  # pywebview 6.x
             win_w = screen.width - 80
             win_h = screen.height - 60
@@ -1392,11 +1408,14 @@ def main():
             win_h = screen.resolution[1] - 60
     except Exception:
         win_w, win_h = 1400, 900
+        win_x, win_y = 0, 0
 
     try:
         window = webview.create_window(
             title=window_title(),
             url=loading_url,
+            x=win_x,
+            y=win_y,
             width=win_w,
             height=win_h,
             min_size=(1024, 680),

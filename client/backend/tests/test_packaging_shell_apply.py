@@ -662,3 +662,40 @@ def test_window_shown_callback_wires_activation(shell):
     assert "_activate_to_front()" in src
     assert "window activated (front)" in src
     assert '"window activate " + _act' in src
+
+
+# ── c-window-origin-topleft：窗口初始位置锚定主屏左上角 ───────────────────────
+# create_window 此前只传 width/height，Windows 走 CW_USEDEFAULT 级联——每次拉起
+# 错开一格越弹越靠右下（用户采证：更新拉起的新窗落右下角）。主屏原点直锚，
+# 位置信息缺失/异常一律回退 (0, 0)，绝不阻断窗口创建。
+
+
+def test_window_origin_reads_primary_screen_xy(shell):
+    """6.x 臂：Screen 有 x/y——直取主屏原点（负坐标布局下 screen.x 原样透传）。"""
+    screen = types.SimpleNamespace(x=120, y=80, width=2560, height=1440)
+    assert shell._window_origin(screen) == (120, 80)
+
+
+def test_window_origin_5x_resolution_tuple_falls_back(shell):
+    """5.x 臂：仅 resolution 元组、无位置信息——回退主屏原点 (0, 0)。"""
+    screen = types.SimpleNamespace(resolution=(2560, 1440))
+    assert shell._window_origin(screen) == (0, 0)
+
+
+def test_window_origin_broken_screen_swallowed(shell):
+    """异常臂：属性访问即抛（无头环境等）——回退 (0, 0) 且不外抛。"""
+
+    class _Boom:
+        @property
+        def x(self):  # pragma: no cover——被访问即抛
+            raise RuntimeError("no display")
+
+    assert shell._window_origin(_Boom()) == (0, 0)
+
+
+def test_create_window_wires_origin(shell):
+    """接线形状：create_window 恒传 x=/y=，位置由 _window_origin 供给。"""
+    src = SHELL_PATH.read_text(encoding="utf-8")
+    assert "_window_origin(" in src
+    assert "x=win_x," in src
+    assert "y=win_y," in src
