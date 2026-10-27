@@ -499,8 +499,8 @@ async def bootstrap_protagonist(
     synopsis = str(story.get("synopsis") or "").strip()
     if not synopsis:
         if generic_card:
-            raise HTTPException(400, "简介还没写——先去 01 简介写几句，再来立卡")
-        raise HTTPException(400, "简介还没写——先去 01 简介写几句，再来立主角")
+            raise HTTPException(400, "简介还没写——先去 02 简介写几句，再来立卡")
+        raise HTTPException(400, "简介还没写——先去 02 简介写几句，再来立主角")
 
     theme_label, _theme_desc = _theme_of(story)
     world = await _world_summary(project.root_path)

@@ -83,7 +83,7 @@ async function createNovel(page: Page, name: string): Promise<string> {
   await page.goto(`${ORIGIN}/#/novels`);
   await stableClick(page.getByRole("button", { name: "新建作品" }).first()); // 稳定点击保险（风暴由守卫用例钉死）
   await page.locator("input#bkTitle").fill(name);
-  await page.getByRole("button", { name: "创建，去写简介" }).click();
+  await page.getByRole("button", { name: "创建，去定题材" }).click();
   await page.waitForURL(/#\/novel\/[0-9a-fA-F-]+/);
   const m = page.url().match(/\/novel\/([0-9a-fA-F-]+)/);
   if (!m) throw new Error(`无法解析 novel id: ${page.url()}`);
@@ -142,6 +142,8 @@ test.describe("界面规格 parity（尺寸/字号）", () => {
       await stubAiState(page, pid);
       await fontsReady(page);
       await page.getByRole("button", { name: /^设定/ }).click();
+      // c-genre-first-order：默认落「题材」——本用例测简介框，显式切到简介
+      await page.locator(".settings-v .col-tree .s-item", { hasText: "简介" }).click();
       await expect(page.locator(".settings-v main h2", { hasText: "简介" })).toBeVisible({
         timeout: 10000,
       });
@@ -411,6 +413,8 @@ test("简介体检：六段在弹窗卡体网格排布（内嵌宽屏两列规�
     );
 
     await page.getByRole("button", { name: /^设定/ }).click();
+    // c-genre-first-order：默认落「题材」——简介用例显式切到简介
+    await page.locator('.settings-v .col-tree .s-item', { hasText: "简介" }).click();
     await page.getByPlaceholder(/用几句话/).fill("外门杂徒林拾，在宗门扫了十年落叶。");
     await page.locator('[data-aiact="check"]').click();
     await expect(page.getByTestId("intro-ai-card")).toBeVisible({ timeout: 15000 });

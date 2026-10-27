@@ -2100,9 +2100,12 @@ async def generate_field(
         raise HTTPException(404, "Project not found")
 
     story = await get_storage().read_yaml(project.root_path, "story.yaml") or {}
-    premise = story.get("synopsis", "")
+    premise = str(story.get("synopsis") or "").strip()
     if not premise:
-        raise HTTPException(400, "No story premise found.")
+        # c-genre-first-order：题材升设定第一格后，新书落题材面板时简介恒空——
+        # 硬门会让右栏四行 AI 全死。空简介注入声明，四问仅凭题材目录+书名出候选
+        # （提示词模板不动，不随本改版发提示词包）。
+        premise = "（作者还没写简介——请仅凭题材、书名与候选池，给出该题材最典型的候选）"
 
     # prompt 命名：仅 genre 特判 field 级，其余仍走 settings_{stype}
     if stype == "genre":

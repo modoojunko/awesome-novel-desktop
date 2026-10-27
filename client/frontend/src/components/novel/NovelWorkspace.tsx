@@ -165,7 +165,7 @@ export default function NovelWorkspace() {
   const [aiState, setAIState] = useState<ProseAIState>(INITIAL_PROSE_AI_STATE);
 
   // ── 页签回默认主页（c-write-home-rail-anchor）：三个 modnav 页签都是「回该页默认落点」──
-  //   写作＝书主页（清选中）；设定＝默认面板（第一项「简介」）；预览＝全书首章。
+  //   写作＝书主页（清选中）；设定＝默认面板（第一项「题材」）；预览＝全书首章。
   //   重复点当前页签也回默认（不是无操作）；任一路径先过守卫，取消则留在原位。
   const [settingsHomeSeq, setSettingsHomeSeq] = useState(0);
   const [previewHomeSeq, setPreviewHomeSeq] = useState(0);

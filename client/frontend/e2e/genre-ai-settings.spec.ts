@@ -94,7 +94,7 @@ async function createNovel(page: Page, name: string): Promise<string> {
   await page.goto(`${ORIGIN}/#/novels`);
   await stableClick(page.getByRole("button", { name: "新建作品" }).first()); // 稳定点击保险（风暴由守卫用例钉死）
   await page.locator("input#bkTitle").fill(name);
-  await page.getByRole("button", { name: "创建，去写简介" }).click();
+  await page.getByRole("button", { name: "创建，去定题材" }).click();
   await page.waitForURL(/#\/novel\/[0-9a-fA-F-]+/);
   const m = page.url().match(/\/novel\/([0-9a-fA-F-]+)/);
   if (!m) throw new Error(`无法解析 novel id: ${page.url()}`);
@@ -162,6 +162,8 @@ test.describe("题材/简介 AI 链路", () => {
       });
 
       await page.getByRole("button", { name: /^设定/ }).click();
+      // c-genre-first-order：默认落「题材」——简介用例显式切到简介
+      await openSetting(page, "简介");
       await page.getByPlaceholder(/用几句话/).fill("外门杂徒林拾在宗门扫落叶。");
       await page.locator('[data-aiact="check"]').click();
 
@@ -246,6 +248,8 @@ test.describe("题材/简介 AI 链路", () => {
       });
 
       await page.getByRole("button", { name: /^设定/ }).click();
+      // c-genre-first-order：默认落「题材」（右栏 od-id=ai-assist-genre）；本用例测简介卡
+      await openSetting(page, "简介");
       // 卡片可见 + 锁定；名称/描述仍在
       const card = page.locator('.col-ai [data-od-id="ai-assist"]');
       await expect(card).toBeVisible({ timeout: 10000 });
@@ -277,6 +281,8 @@ test.describe("题材/简介 AI 链路", () => {
       });
 
       await page.getByRole("button", { name: /^设定/ }).click();
+      // c-genre-first-order：默认落「题材」；check 行与 ai-assist 卡都是简介面板语义
+      await openSetting(page, "简介");
       await expect(page.locator('.col-ai [data-od-id="ai-assist"]')).toContainText("先在本书选择模型", {
         timeout: 10000,
       });
@@ -299,6 +305,8 @@ test.describe("题材/简介 AI 链路", () => {
       // 前端副标题优先后端 message——stub 须按真实契约文案，否则与本地兜底映射对不上
       await stubAiState(page, pid, "no_key", "暂无可用 API Key — 先去「模型配置」添加");
       await page.getByRole("button", { name: /^设定/ }).click();
+      // c-genre-first-order：默认落「题材」；本用例测简介卡
+      await openSetting(page, "简介");
       const card = page.locator('.col-ai [data-od-id="ai-assist"]');
       await expect(card).toContainText("先去「模型配置」添加", { timeout: 10000 });
 
@@ -417,6 +425,8 @@ test("AI 行连点：只发 1 个请求，且有「生成中」可见反馈（9.
     });
 
     await page.getByRole("button", { name: /^设定/ }).click();
+    // c-genre-first-order：默认落「题材」——简介用例显式切到简介
+    await openSetting(page, "简介");
     await page.getByPlaceholder(/用几句话/).fill("外门杂徒林拾，在宗门扫了十年落叶。");
     const row = page.locator('[data-aiact="check"]');
     await expect(row).toBeVisible({ timeout: 10000 });
@@ -462,6 +472,8 @@ test("简介 AI：换一个重生成版数递增；采纳＝整段替换 + 回�
     );
 
     await page.getByRole("button", { name: /^设定/ }).click();
+    // c-genre-first-order：默认落「题材」——简介用例显式切到简介
+    await openSetting(page, "简介");
     const ta = page.getByPlaceholder(/用几句话/);
     await ta.fill("我手写的开头");
     // fill 依赖先体检（introspected 门控）：先出体检卡再关闭

@@ -128,7 +128,7 @@ async function createNovel(page: Page, name: string): Promise<string> {
   await page.goto(`${ORIGIN}/#/novels`);
   await stableClick(page.getByRole("button", { name: "新建作品" }).first()); // 稳定点击保险（风暴由守卫用例钉死）
   await page.locator("input#bkTitle").fill(name);
-  await page.getByRole("button", { name: "创建，去写简介" }).click();
+  await page.getByRole("button", { name: "创建，去定题材" }).click();
   await page.waitForURL(/#\/novel\/[0-9a-fA-F-]+/);
   const m = page.url().match(/\/novel\/([0-9a-fA-F-]+)/);
   if (!m) throw new Error(`无法解析 novel id: ${page.url()}`);
@@ -182,6 +182,10 @@ async function confirmPanel(page: Page) {
     .locator(".panel-foot")
     .getByRole("button", { name: "确认完成" });
   await expect(btn).toBeVisible({ timeout: 5000 });
+  // 点击前先 blur 活动元素：mousedown 会 blur 输入框 → 失焦提示条/计数渲染让页脚下移
+  // （实测 23px）→ mouseup 落在 .panel-foot 本体 → click 目标变 DIV，onClick 不触发
+  await page.evaluate(() => (document.activeElement as HTMLElement | null)?.blur());
+  await page.waitForTimeout(150);
   const before = await page.locator(".settings-v main h2").textContent();
   const statusPut = page.waitForResponse(
     (r) => r.request().method() === "PUT" && r.url().includes("/settings/status/"),
@@ -213,7 +217,7 @@ test("创建小说：仅书名即可创建并进入小说页", async ({ page }) 
 
     await stableClick(page.getByRole("button", { name: "新建作品" }).first()); // 稳定点击保险（风暴由守卫用例钉死）
     // AC-1.4：空书名创建按钮不可用
-    await expect(page.getByRole("button", { name: "创建，去写简介" })).toBeDisabled();
+    await expect(page.getByRole("button", { name: "创建，去定题材" })).toBeDisabled();
 
     // 规格 creation-flow：The modal SHALL have no … no synopsis/genre collection
     // 回归背景：此处曾有一个「类型（选填）」下拉，与既有规格相悖（2026-09-10 修）
@@ -221,14 +225,14 @@ test("创建小说：仅书名即可创建并进入小说页", async ({ page }) 
     await expect(dlg.locator(".field")).toHaveCount(1);
     await expect(dlg.locator("select")).toHaveCount(0);
     await expect(dlg).not.toContainText("类型");
-    // 文案：先随手起一个、之后能改；建好后先写简介再定题材（用户 2026-09-10 起草）
+    // 文案：先随手起一个、之后能改；建好后先定题材再写简介（c-genre-first-order）
     await expect(dlg.locator(".hint").first()).toContainText("之后随时能改");
-    await expect(dlg.locator(".hint").first()).toContainText("先写简介");
-    await expect(dlg.locator(".hint").first()).toContainText("再定题材");
+    await expect(dlg.locator(".hint").first()).toContainText("先定题材");
+    await expect(dlg.locator(".hint").first()).toContainText("再写简介");
 
     const bookName = `穿越测试${Date.now() % 10000}`;
     await page.locator("input#bkTitle").fill(bookName);
-    await page.getByRole("button", { name: "创建，去写简介" }).click();
+    await page.getByRole("button", { name: "创建，去定题材" }).click();
 
     // AC-1.6：创建成功直接进入小说页
     await page.waitForURL(/#\/novel\/[0-9a-fA-F-]+/, { timeout: 10000 });
@@ -443,7 +447,8 @@ test("设定 8 项全确认（settings-status 全绿＋完成卡）", async ({ p
       promise_note: "读者要看到弱者被逼到绝境后，用脑子一步步翻盘",
       cost_ratio: 8,
     });
-    // 题材面板在「简介确认即前进」时已挂载（早于本次注入）→ 切走再切回强制重挂载取数
+    // 简介确认即前进落到「世界」（c-genre-first-order：简介的下一项）；题材面板要
+    // 重挂载取数 → 切走再切回强制重挂载
     await openSetting(page, "世界");
     await openSetting(page, "题材");
     // 面板加载完成信号＝五格渲染出（首格题材选择器可见）

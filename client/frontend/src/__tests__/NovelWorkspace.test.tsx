@@ -511,12 +511,12 @@ describe("页签回默认主页（c-write-home-rail-anchor）", () => {
     expect(screen.queryByRole("tab", { name: /^章纲/ })).toBeNull();
   });
 
-  it("重复点「设定」把面板拨回默认项（简介）", async () => {
+  it("重复点「设定」把面板拨回默认项（题材）", async () => {
     mockEmptyTree();
     renderWorkspace("none");
     fireEvent.click(screen.getByRole("button", { name: /^设定/ }));
     await waitFor(() =>
-      expect(document.querySelector(".s-item.on .nm")?.textContent).toBe("简介"),
+      expect(document.querySelector(".s-item.on .nm")?.textContent).toBe("题材"),
     );
     // 切到「世界」面板
     fireEvent.click(screen.getByText("世界"));
@@ -526,7 +526,7 @@ describe("页签回默认主页（c-write-home-rail-anchor）", () => {
     // 重复点「设定」→ 拨回默认面板
     fireEvent.click(screen.getByRole("button", { name: /^设定/ }));
     await waitFor(() =>
-      expect(document.querySelector(".s-item.on .nm")?.textContent).toBe("简介"),
+      expect(document.querySelector(".s-item.on .nm")?.textContent).toBe("题材"),
     );
   });
 
@@ -535,7 +535,7 @@ describe("页签回默认主页（c-write-home-rail-anchor）", () => {
     renderWorkspace("none");
     fireEvent.click(screen.getByRole("button", { name: /^设定/ }));
     await waitFor(() =>
-      expect(document.querySelector(".s-item.on .nm")?.textContent).toBe("简介"),
+      expect(document.querySelector(".s-item.on .nm")?.textContent).toBe("题材"),
     );
     fireEvent.click(screen.getByText("世界"));
     await waitFor(() =>
@@ -562,7 +562,7 @@ describe("页签回默认主页（c-write-home-rail-anchor）", () => {
     confirmSpy.mockReturnValue(true);
     fireEvent.click(screen.getByRole("button", { name: /^设定/ }));
     await waitFor(() =>
-      expect(document.querySelector(".s-item.on .nm")?.textContent).toBe("简介"),
+      expect(document.querySelector(".s-item.on .nm")?.textContent).toBe("题材"),
     );
     confirmSpy.mockRestore();
   });

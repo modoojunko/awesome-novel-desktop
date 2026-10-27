@@ -86,7 +86,7 @@ async function createNovel(page: Page, name: string): Promise<string> {
     }
   }
   await page.locator("input#bkTitle").fill(name);
-  await page.getByRole("button", { name: "创建，去写简介" }).click();
+  await page.getByRole("button", { name: "创建，去定题材" }).click();
   await page.waitForURL(/#\/novel\/[0-9a-fA-F-]+/);
   const m = page.url().match(/\/novel\/([0-9a-fA-F-]+)/);
   if (!m) throw new Error(`无法解析 novel id: ${page.url()}`);

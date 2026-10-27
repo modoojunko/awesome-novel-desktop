@@ -219,7 +219,7 @@ async function seedAndBindModel(
   await page.goto(`${ORIGIN}/#/novels`);
   await stableClick(page.getByRole("button", { name: "新建作品" }).first());
   await page.locator("input#bkTitle").fill(name);
-  await page.getByRole("button", { name: "创建，去写简介" }).click();
+  await page.getByRole("button", { name: "创建，去定题材" }).click();
   await page.waitForURL(/#\/novel\/[0-9a-fA-F-]+/);
   const pid = page.url().match(/#\/novel\/([0-9a-fA-F-]+)/)![1];
 
@@ -339,7 +339,7 @@ test("免费档：归档后收尾区渲染（归档 AI 全家免费——tier-pl
     await page.goto(`${ORIGIN}/#/novels`);
     await stableClick(page.getByRole("button", { name: "新建作品" }).first());
     await page.locator("input#bkTitle").fill(`e2e-rc-free-${Date.now()}`);
-    await page.getByRole("button", { name: "创建，去写简介" }).click();
+    await page.getByRole("button", { name: "创建，去定题材" }).click();
     await page.waitForURL(/#\/novel\/[0-9a-fA-F-]+/);
     const pid = page.url().match(/#\/novel\/([0-9a-fA-F-]+)/)![1];
     const base = `${ORIGIN}/api/novels/${pid}`;

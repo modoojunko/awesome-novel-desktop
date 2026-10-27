@@ -31,7 +31,7 @@ TBD - created by archiving change 004-free-workspace. Update Purpose after archi
 #### Scenario: 空书默认落设定（建书后先写简介与题材）
 - Given 一本刚创建、尚无任何章节的书
 - When 从书架点开这本书
-- Then 默认落在「设定」视图（简介面板）
+- Then 默认落在「设定」视图（题材面板——设定首项，见 intro-genre-settings）
 - And SHALL NOT 叠加「开始设定」引导卡（卡片唯一作用是把人送到设定，此时已在设定）
 
 #### Scenario: 有章节未全归档默认落写作

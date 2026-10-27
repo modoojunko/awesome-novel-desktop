@@ -121,7 +121,7 @@ async function createNovel(page: Page, name: string): Promise<string> {
   await page.goto(`${ORIGIN}/#/novels`);
   await stableClick(page.getByRole("button", { name: "新建作品" }).first()); // 稳定点击保险（风暴由守卫用例钉死）
   await page.locator("input#bkTitle").fill(name);
-  await page.getByRole("button", { name: "创建，去写简介" }).click();
+  await page.getByRole("button", { name: "创建，去定题材" }).click();
   await page.waitForURL(/#\/novel\/[0-9a-fA-F-]+/);
   const m = page.url().match(/\/novel\/([0-9a-fA-F-]+)/);
   if (!m) throw new Error(`无法解析 novel id: ${page.url()}`);
@@ -165,22 +165,6 @@ async function apiPostJSON(
 /** 在设定左栏点一个导航项（col-tree 内精确匹配短名：题材/简介/世界/风格/…）。 */
 async function openSetting(page: Page, label: string) {
   await page.locator(".settings-v .col-tree").getByText(label, { exact: true }).click();
-}
-
-/**
- * 填一个表单 Field：label 文本 → 所在 .field 内的 textarea（v2 Field 基元：
- * div.field > label + textarea）。hasText 子串命中——注意与其他 label/hint 的
- * 子串碰撞（角色表单「环境」hint 含「背景」→ 传 /^背景$/ 锚定正则消歧）。
- */
-async function fillSettingField(
-  page: Page,
-  label: string | RegExp,
-  value: string,
-) {
-  const field = page
-    .locator("label", { hasText: label })
-    .locator("xpath=ancestor::div[1]");
-  await field.locator("textarea").fill(value);
 }
 
 /** 表单 Field 的 textarea 定位器（P2 守卫用例反复取值用）。 */
@@ -242,14 +226,10 @@ test("题材：五格面板（口味起点 → 自定义禁区 → 吃苦指数 
   try {
     const pid = await createNovel(page, `题材${Date.now() % 100000}`);
     await page.getByRole("button", { name: /^设定/ }).click();
-    // tasks 2.1 顺序对调后默认落「简介」（SETTINGS_ITEMS[0]）；本用例切到题材面板
-    await expect(
-      page.locator(".settings-v main h2", { hasText: "简介" }),
-    ).toBeVisible({ timeout: 10000 });
-    await openSetting(page, "题材");
+    // c-genre-first-order：默认落「题材」（SETTINGS_ITEMS[0]）
     await expect(
       page.locator(".settings-v main h2", { hasText: "题材" }),
-    ).toBeVisible({ timeout: 5000 });
+    ).toBeVisible({ timeout: 10000 });
 
     // 五格齐全（编号 01-05 + 名称；06 剧情轨道已退役——归主线规划）
     await expect(page.locator(".settings-v .mod")).toHaveCount(5);
@@ -323,16 +303,16 @@ test("题材：五格面板（口味起点 → 自定义禁区 → 吃苦指数 
     await page.locator('[data-od-id="cost-slider"]').fill("6");
     await expect(page.locator('[data-od-id="cost-sentence"]')).toContainText("6 分");
 
-    // 确认完成 → 先 save（PUT /settings/genre）再 confirm，并「确认即前进」切到下一项（新顺序：题材→世界）
+    // 确认完成 → 先 save（PUT /settings/genre）再 confirm，并「确认即前进」切到下一项（c-genre-first-order：题材→简介）
     const genreSave = page.waitForResponse(
       (r) => r.request().method() === "PUT" && r.url().includes("/settings/genre"),
     );
     await page.locator(".panel-foot").getByRole("button", { name: "确认完成" }).click();
     await genreSave;
     await expect(
-      page.locator(".settings-v main h2", { hasText: "世界" }),
+      page.locator(".settings-v main h2", { hasText: "简介" }),
     ).toBeVisible({ timeout: 5000 });
-    // 确认即前进＝换面板：上一条回执的撤销闭包属于题材表单，留在世界面板就是
+    // 确认即前进＝换面板：上一条回执的撤销闭包属于题材表单，留在简介面板就是
     // 「点了没反应」的死撤销（值还已落库）→ 必须清掉（换面板四条路径统一兜）
     await expect(page.locator('[data-od-id="panel-receipt"]')).toHaveCount(0);
 
@@ -974,9 +954,9 @@ test("P2-1d 脏表单确认完成：自动保存再确认（内容落库 + 按�
 });
 
 // -------------------------------------------------------------------------
-// tasks 2.2：前两步顺序（简介→题材）+ 确认即前进
+// c-genre-first-order：前两步顺序（题材→简介）+ 确认即前进
 // -------------------------------------------------------------------------
-test("前两步顺序 + 确认即前进：简介确认后自动切到题材（tasks 2.2）", async ({
+test("前两步顺序 + 确认即前进：题材确认后自动切到简介（c-genre-first-order）", async ({
   page,
 }) => {
   const { restore } = await setupSession(page);
@@ -984,33 +964,38 @@ test("前两步顺序 + 确认即前进：简介确认后自动切到题材（ta
     await createNovel(page, `前进${Date.now() % 100000}`);
     await page.getByRole("button", { name: /^设定/ }).click();
 
-    // ① 默认落「简介」
+    // ① 默认落「题材」；等五格渲染完（面板加载完成的既有惯用信号，其余题材用例同款）
     await expect(
-      page.locator(".settings-v main h2", { hasText: "简介" }),
+      page.locator(".settings-v main h2", { hasText: "题材" }),
     ).toBeVisible({ timeout: 10000 });
+    await expect(page.locator(".settings-v .mod")).toHaveCount(5);
 
-    // ② 填简介 → 确认完成
-    await fillSettingField(page, "故事简介", "外门杂徒林拾，在宗门扫了十年落叶。");
-    const introSave = page.waitForResponse(
-      (r) => r.request().method() === "PUT" && /\/novels\/[^/]+\/story$/.test(r.url()),
+    // ② 填题材（02 那句话）→ 确认完成
+    await page.locator('[data-od-id="m1-input"]').fill("读者要看到弱者用脑子翻盘");
+    // 先主动失焦：mousedown 会 blur 02 输入框 → onBlur 弹「恢复到原文」提示条 →
+    // 页脚整体下移 → mouseup 落空、click 目标变成 .panel-foot，onClick 不触发（实测 23px）
+    await page.locator('[data-od-id="m1-input"]').blur();
+    await expect(page.locator('[data-od-id="field-restore"]')).toBeVisible();
+    const genreSave = page.waitForResponse(
+      (r) => r.request().method() === "PUT" && r.url().includes("/settings/genre"),
     );
     const btn = page.locator(".panel-foot").getByRole("button", { name: "确认完成" });
     await expect(btn).toBeVisible({ timeout: 5000 });
     await btn.click();
-    await introSave;
+    await genreSave;
 
-    // ③ 确认即前进 → 自动切到「题材」
-    await expect(
-      page.locator(".settings-v main h2", { hasText: "题材" }),
-    ).toBeVisible({ timeout: 5000 });
-
-    // ④ 回点「简介」：内容保留、不锁题材
-    await openSetting(page, "简介");
+    // ③ 确认即前进 → 自动切到「简介」
     await expect(
       page.locator(".settings-v main h2", { hasText: "简介" }),
     ).toBeVisible({ timeout: 5000 });
-    await expect(page.locator(".textarea").first()).toHaveValue(
-      "外门杂徒林拾，在宗门扫了十年落叶。",
+
+    // ④ 回点「题材」：内容保留、不锁简介
+    await openSetting(page, "题材");
+    await expect(
+      page.locator(".settings-v main h2", { hasText: "题材" }),
+    ).toBeVisible({ timeout: 5000 });
+    await expect(page.locator('[data-od-id="m1-input"]')).toHaveValue(
+      "读者要看到弱者用脑子翻盘",
     );
   } finally {
     await restore();
@@ -1026,7 +1011,7 @@ test("角色：首进引导卡 → 手动建主角 → 引导卡退场", async (
   const auth = { Authorization: `Bearer ${token}`, "Content-Type": "application/json" };
   try {
     const pid = await createNovel(page, `引导${Date.now() % 100000}`);
-    // 先把 01 简介填上（readiness synopsis 就绪 → 角色页空态给 AI 出口）
+    // 先把 02 简介填上（readiness synopsis 就绪 → 角色页空态给 AI 出口）
     const putStory = await request.put(`${ORIGIN}/api/novels/${pid}/story`, {
       headers: auth,
       data: { synopsis: "杂役弟子林晚靠一双能看见修为漏洞的眼翻盘。" },
