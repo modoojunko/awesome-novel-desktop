@@ -76,7 +76,11 @@ async def list_volumes(db, project) -> list[dict]:
 
 
 async def list_ghosts(db, project) -> list[dict]:
-    """旧稿支线章（revert-ghost / chapter-rewrite）：脱离主线的章，只读保留。"""
+    """旧稿支线章（revert-ghost）：脱离主线的章，只读保留。
+
+    重写旧稿（chapter-rewrite 的 `-r{8hex}` 内容寻址章）已退役（c-rewrite-ghost-retire）：
+    端点不再产出，存量行不列——旧稿由版本历史承接，行本身只读无害、随备份走。
+    """
     import re as _re
 
     ghosts = await chapter_repo.list_by_project(db, project.id)
@@ -89,14 +93,14 @@ async def list_ghosts(db, project) -> list[dict]:
             "title": c.title,
             "word_count": c.word_count,
             "ghost_of": c.ghost_of,
-            # origin：重写旧稿＝内容寻址后缀（-r{8hex}），其余为回退转入
-            "origin": "rewrite"
-            if _re.match(r"^.*-r[0-9a-f]{8}$", c.ref or "")
-            else "revert",
             "created_at": c.created_at.isoformat() if c.created_at else None,
         }
         for c in sorted(
-            (g for g in ghosts if g.ghost_of),
+            (
+                g
+                for g in ghosts
+                if g.ghost_of and not _re.search(r"-r[0-9a-f]{8}$", g.ref or "")
+            ),
             key=lambda x: (x.ghost_of or "", x.chapter_no),
         )
     ]
@@ -244,7 +248,14 @@ async def get_volume(db, project, ref: str) -> dict | None:
     ]
     gmap = global_number_map(all_mainline)
     # 旧稿支线不入台账与计数，仅以 ghost_count 汇总（卷视图提示「旧稿支线 N 章」）
-    data["ghost_count"] = len(all_chapters) - len(mainline)
+    # 口径与 list_ghosts 一致：重写旧稿存量（-r{8hex}）不数——列表不列，这里也不显
+    import re as _re
+
+    data["ghost_count"] = sum(
+        1
+        for c in all_chapters
+        if c.ghost_of and not _re.search(r"-r[0-9a-f]{8}$", c.ref or "")
+    )
     data["chapters"] = [
         {
             "ref": c.ref,

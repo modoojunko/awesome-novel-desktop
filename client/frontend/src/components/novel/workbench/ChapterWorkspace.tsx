@@ -1078,28 +1078,28 @@ const [ogForm, setOgForm] = useState<OgForm>(EMPTY_OG_FORM);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [store.saveState, chMeta?.stale]);
 
-  // ── 重写这一章（chapter-rewrite）：flush → 合成端点（快照+解锁+下游置位）
-  //    → 正文页签聚焦改写；树刷新承接旧稿分组与「基于旧设定」角标 ──────────
+  // ── 重写这一章（chapter-rewrite）：flush → 合成端点（解锁+下游置位）
+  //    → 正文页签聚焦改写；树刷新承接「基于旧设定」角标（旧稿在版本历史） ──────────
   const [showRewrite, setShowRewrite] = useState(false);
   const [rewriting, setRewriting] = useState(false);
   const handleRewriteConfirm = useCallback(async () => {
     setRewriting(true);
     try {
-      await store.flush(); // 旧稿快照必须先于存盘（防 1.5s 防抖窗口丢最后一段）
+      await store.flush(); // 重写前正文必须已落库＋版本快照（防 1.5s 防抖窗口丢最后一段）
       const d = (await api.post(
         `/novels/${projectId}/chapters/${chapterRef}/rewrite`,
         {},
-      )) as { ghost_ref: string; unarchived: boolean; stale_marked: number };
+      )) as { unarchived: boolean; stale_marked: number };
       setShowRewrite(false);
       await store.reload(); // 源章解锁后的状态（归档→可写）
-      await onTreeRefresh(); // 左树（useWorkbench）：旧稿分组 + 下游角标
+      await onTreeRefresh(); // 左树（useWorkbench）：下游角标
       await outline.refetchTree(); // chMeta/落点树（useOutline）
       setChTab("prose");
       setProseEditing(true); // 重写＝就地改写意图，直接进编辑态
       toast.success(
         d.unarchived
-          ? "旧稿已留存 · 本章已解锁：改完归档即写回主线"
-          : "旧稿已留存：改完归档即写回主线",
+          ? "本章已解锁 · 旧稿在版本历史：改完归档即写回主线"
+          : "旧稿在版本历史：改完归档即写回主线",
       );
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "重写失败，请重试");
@@ -1126,7 +1126,7 @@ const [ogForm, setOgForm] = useState<OgForm>(EMPTY_OG_FORM);
         <path d="M8 10V7a4 4 0 018 0v3" />
       </svg>
       <span>
-        本章已归档 · <b>只读</b>。小改可恢复编辑；整体重写走「操作」页签「重写本章」（旧稿自动转存支线）。
+        本章已归档 · <b>只读</b>。小改可恢复编辑；整体重写走「操作」页签「重写本章」（旧稿留存于版本历史）。
       </span>
       <button
         className="btn btn-ghost btn-sm"
@@ -1526,7 +1526,7 @@ const [ogForm, setOgForm] = useState<OgForm>(EMPTY_OG_FORM);
             <div className="revert-card" data-od-id="rewrite-card">
               <p className="rc-title">重写这一章</p>
               <p className="rc-desc">
-                打开写作窗口就地替换本章。旧稿转入旧稿支线（只读留存，可随时点开查看）；其后章节挂「基于旧设定」角标。
+                打开写作窗口就地替换本章。旧稿自动存入版本历史（可随时找回）；其后章节挂「基于旧设定」角标。
               </p>
               <button
                 className="btn btn-secondary btn-sm"

@@ -1,13 +1,12 @@
 """重写这一章（chapter-rewrite）后端行为测试。
 
-覆盖：frontier 不被旧稿抢占（P0 前置）／rewrite 合成端点（快照内容寻址 ref、
-归档章解锁、下游 stale 置位、幂等、409 族）／stale 单写入口清除／
-契约字段（卷章树 stale、ghosts origin+created_at）。
+覆盖：rewrite 合成端点（归档章解锁、下游 stale 置位、409 族）／
+stale 单写入口清除／旧稿不再转存支线（重写后 /ghosts 不出新条目；
+存量重写旧稿行不列、回退支线照列且只读）／frontier 不被抢占（P0 前置）。
 """
 
 import asyncio
 import os
-import re
 import tempfile
 
 from fastapi.testclient import TestClient
@@ -20,8 +19,6 @@ from models.chapter import Chapter, ChapterContent
 from models.project import Novel
 from models.user import User
 from models.volume import Volume
-
-GHOST_RE = re.compile(r"^vol-1-ch-2-r[0-9a-f]{8}$")
 
 
 async def _seed() -> tuple[str, str]:
@@ -59,6 +56,25 @@ async def _seed() -> tuple[str, str]:
             ch.word_count = len(prose)
         await session.commit()
         return root, proj.id
+
+
+async def _seed_ghost(nid: str, *, ref: str, ghost_of: str, chapter_no: int,
+                      prose: str = "旧稿正文。"):
+    """直接落库一支线章（模拟存量）：ref 带 -r{8hex}＝重写旧稿旧形态，否则回退转入。"""
+    async with async_session() as session:
+        vol = (await session.scalars(
+            select(Volume).where(Volume.project_id == nid)
+        )).first()
+        ch = Chapter(
+            project_id=nid, volume_id=vol.id, chapter_no=chapter_no,
+            ref=ref, title=f"第{chapter_no}章", status="archived",
+            word_count=len(prose), has_prose=True,
+        )
+        session.add(ch)
+        await session.flush()
+        session.add(ChapterContent(chapter_id=ch.id, prose=prose))
+        ch.ghost_of = ghost_of
+        await session.commit()
 
 
 def _client(uid_nid: tuple[str, str]):
@@ -102,23 +118,17 @@ def _cleanup():
 
 
 class TestRewrite:
-    def test_rewrite_full_chain(self):
+    def test_rewrite_unlocks_and_marks_stale_without_ghost(self):
         _root, nid = asyncio.run(_seed())
         try:
             r = _post(nid, "/chapters/vol-1-ch-2/rewrite")
             assert r.status_code == 200, r.text
             d = r.json()
-            assert GHOST_RE.match(d["ghost_ref"]), d["ghost_ref"]
-            assert d["ghost_created"] is True
+            # 契约收紧：不再产出旧稿字段（旧稿由版本历史承接）
+            assert "ghost_ref" not in d, d
+            assert "ghost_created" not in d, d
             assert d["unarchived"] is True
             assert d["stale_marked"] == 1  # 仅第 3 章（有正文的下游）
-
-            # 快照：旧稿章只读、正文原文、ghost_of 指向源章
-            g = _get(nid, f"/chapters/{d['ghost_ref']}")
-            assert g.status_code == 200, g.text
-            gd = g.json()
-            assert gd["prose"] == "第2章的正文内容。"
-            assert gd["ghost_of"] == "vol-1-ch-2"
 
             # 源章解锁回可写
             src = _get(nid, "/chapters/vol-1-ch-2").json()
@@ -132,48 +142,28 @@ class TestRewrite:
             assert entries["vol-1-ch-3"]["stale"] is True
             assert entries["vol-1-ch-2"]["stale"] is False
 
-            # ghosts 契约：origin=rewrite + created_at
-            ghosts = _get(nid, "/ghosts").json()
-            hit = next(x for x in ghosts if x["ref"] == d["ghost_ref"])
-            assert hit["origin"] == "rewrite"
-            assert hit["created_at"]
+            # 重写不产支线：/ghosts 保持空
+            assert _get(nid, "/ghosts").json() == []
         finally:
             _cleanup()
 
-    def test_rewrite_idempotent(self):
+    def test_rewrite_twice_stays_safe(self):
+        """连看重写不炸不重复：二次重写幂等（已解锁不重复解锁、stale 不重复计）。"""
         _root, nid = asyncio.run(_seed())
         try:
             r1 = _post(nid, "/chapters/vol-1-ch-2/rewrite").json()
-            r2 = _post(nid, "/chapters/vol-1-ch-2/rewrite")
-            assert r2.status_code == 200, r2.text
-            d2 = r2.json()
-            assert d2["ghost_ref"] == r1["ghost_ref"]
-            assert d2["ghost_created"] is False
-            # 旧稿不重复
-            ghosts = _get(nid, "/ghosts").json()
-            assert sum(1 for x in ghosts if x["ref"].endswith(r1["ghost_ref"][-9:])) == 1
-        finally:
-            _cleanup()
-
-    def test_second_rewrite_with_new_content_creates_second_ghost(self):
-        """不同内容重写两次 → 两个旧稿快照（内容寻址 ref 不同，互不覆盖）。"""
-        _root, nid = asyncio.run(_seed())
-        try:
-            g1 = _post(nid, "/chapters/vol-1-ch-2/rewrite").json()["ghost_ref"]
-            # 源章改写为新内容（单写入口清自身 stale 也无妨）
+            assert r1["unarchived"] is True
+            # 源章改写为新内容后再重写
             r = _put(nid, "/chapters/vol-1-ch-2/prose",
                      {"prose": "第2章重写后的新正文。"})
             assert r.status_code == 200, r.text
-            g2 = _post(nid, "/chapters/vol-1-ch-2/rewrite").json()["ghost_ref"]
-            assert g1 != g2
-            ghosts = _get(nid, "/ghosts").json()
-            mine = [x for x in ghosts if x["ghost_of"] == "vol-1-ch-2"]
-            assert {x["ref"] for x in mine} == {g1, g2}
-            # 两份快照正文各自保留
-            p1 = _get(nid, f"/chapters/{g1}").json()["prose"]
-            p2 = _get(nid, f"/chapters/{g2}").json()["prose"]
-            assert p1 == "第2章的正文内容。"
-            assert p2 == "第2章重写后的新正文。"
+            r2 = _post(nid, "/chapters/vol-1-ch-2/rewrite")
+            assert r2.status_code == 200, r2.text
+            d2 = r2.json()
+            assert d2["unarchived"] is False  # 已处于可写态
+            assert d2["stale_marked"] == 0  # 下游已置过，不重复计
+            # 依旧不产支线
+            assert _get(nid, "/ghosts").json() == []
         finally:
             _cleanup()
 
@@ -201,11 +191,41 @@ class TestRewrite:
             r = _post(nid, "/chapters/vol-1-ch-9/rewrite")
             assert r.status_code == 409
 
-            # ghost 源 409
-            g = _post(nid, "/chapters/vol-1-ch-2/rewrite").json()["ghost_ref"]
-            r2 = _post(nid, f"/chapters/{g}/rewrite")
+            # ghost 源 409（回退支线章不可重写）
+            asyncio.run(_seed_ghost(
+                nid, ref="vol-1-ch-4", ghost_of="vol-1-ch-1", chapter_no=4,
+            ))
+            r2 = _post(nid, "/chapters/vol-1-ch-4/rewrite")
             assert r2.status_code == 409
             assert "旧稿" in r2.json()["detail"]
+        finally:
+            _cleanup()
+
+    def test_legacy_rewrite_ghost_filtered_revert_ghost_listed(self):
+        """存量重写旧稿行（-r{8hex}）不列；回退支线照列；两者都只读。"""
+        _root, nid = asyncio.run(_seed())
+        try:
+            asyncio.run(_seed_ghost(
+                nid, ref="vol-1-ch-2-rdeadbeef", ghost_of="vol-1-ch-2",
+                chapter_no=2, prose="重写前的旧稿。",
+            ))
+            asyncio.run(_seed_ghost(
+                nid, ref="vol-1-ch-4", ghost_of="vol-1-ch-1", chapter_no=4,
+            ))
+
+            ghosts = _get(nid, "/ghosts").json()
+            assert [x["ref"] for x in ghosts] == ["vol-1-ch-4"]
+            # 契约收紧：origin 派生字段随重写支线退役
+            assert "origin" not in ghosts[0], ghosts[0]
+            assert ghosts[0]["ghost_of"] == "vol-1-ch-1"
+            assert ghosts[0]["created_at"]
+
+            # 存量重写旧稿行依旧只读（只是不再列出让用户看见）
+            r = _put(nid, "/chapters/vol-1-ch-2-rdeadbeef/prose", {"prose": "x"})
+            assert r.status_code == 409
+            assert "只读" in r.json()["detail"]
+            r2 = _put(nid, "/chapters/vol-1-ch-4/prose", {"prose": "x"})
+            assert r2.status_code == 409
         finally:
             _cleanup()
 
@@ -223,19 +243,23 @@ class TestRewrite:
 
 
 class TestFrontierNotHijacked:
-    def test_ghost_snapshot_does_not_take_frontier(self):
-        """P0 回归：重写已归档章后，旧稿快照不得抢占 frontier（否则真端点章 409）。"""
+    def test_rewrite_moves_frontier_without_ghost(self):
+        """P0 回归：重写已归档章后，frontier 移回源章；无旧稿快照可抢占。"""
         _root, nid = asyncio.run(_seed())
         try:
             # 第 1、2 章已归档 → frontier 应为第 3 章
             f0 = _get(nid, "/frontier").json()["frontier"]
             assert f0["ref"] == "vol-1-ch-3"
-            # 重写第 2 章（产生未归档 ghost，同章号）
+            # 重写第 2 章（解锁成可写端点）
             _post(nid, "/chapters/vol-1-ch-2/rewrite")
             f1 = _get(nid, "/frontier").json()["frontier"]
-            assert f1["ref"] == "vol-1-ch-2"  # 源章解锁成可写端点
+            assert f1["ref"] == "vol-1-ch-2"
             assert "-r" not in f1["ref"]
-            # ghost 仍只读
+            # 重写不产支线；存量回退支线仍只读
+            assert _get(nid, "/ghosts").json() == []
+            asyncio.run(_seed_ghost(
+                nid, ref="vol-1-ch-4", ghost_of="vol-1-ch-1", chapter_no=4,
+            ))
             g = _get(nid, "/ghosts").json()[0]["ref"]
             r = _put(nid, f"/chapters/{g}/prose", {"prose": "x"})
             assert r.status_code == 409
