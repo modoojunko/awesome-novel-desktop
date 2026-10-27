@@ -5,10 +5,14 @@
 // c-deconstruct-product-preview：完成态结果目录点文件名只读预览全文（弹窗，不编辑）。
 // c-deconstruct-evidence-report：证据报告弹窗——证据章节/可信度等拆解依据按维度呈现，
 // 作家 md 不再承载（后端由任务资料 JSON 现渲染，存量任务同样可看）。
+// c-deconstruct-inline-model-switch：失败面板「去换模型」不再跳模型配置页——页内弹
+// 现有模型选择泡泡（复用 workbench ModelPicker），选定暂存、续拆携带新模型；
+// 可选模型 <2 或鉴权/配置类失败回落 /config 链接（单模型用户零变化）。
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 import UpgradeModal from "@/components/novel/UpgradeModal";
+import { ModelPicker } from "@/components/novel/workbench/modals";
 import { useFeature } from "@/hooks/useTier";
 import type { FeatureKey } from "@/lib/features";
 import { toast } from "../../lib/toast";
@@ -19,6 +23,7 @@ import {
   DECONSTRUCT_DIMS,
   deleteDeconstructTask,
   exportTaskProducts,
+  fetchModelOptions,
   getDeconstructEvidence,
   getDeconstructProduct,
   getDeconstructTask,
@@ -28,6 +33,7 @@ import {
   retryUploadDeconstructTask,
   type DeconstructEvidence,
   type DeconstructTaskDetail,
+  type ModelOption,
 } from "../../lib/deconstructApi";
 
 const STATUS_LABEL: Record<string, string> = {
@@ -46,6 +52,50 @@ const STATUS_PILL: Record<string, string> = {
   cancelled: "pill",
   need_reupload: "pill pill-warn",
 };
+/** 可原地换模型的失败归因：瞬时故障＋内容审核（病根在模型本身，换一个就好）；
+ *  auth/config/route 病根在配置（Key/地址/模型名），出口仍指模型配置页。 */
+const SWITCHABLE_KINDS = ["provider_unavailable", "stalled", "timeout", "rate_limit", "content_filter"];
+
+/** 原地换模型出口（c-deconstruct-inline-model-switch）：可选模型 ≥2 才出泡泡触发位
+ *  （选定经 onPick 暂存到页内，续拆时携带），否则回落去模型配置链接。 */
+function SwitchModelCta({
+  options,
+  staged,
+  originKey,
+  linkLabel,
+  onPick,
+}: {
+  options: ModelOption[] | null;
+  staged: ModelOption | null;
+  /** 任务当前模型键（原模型旗标＋未暂存时的高亮基准） */
+  originKey: string;
+  linkLabel: string;
+  onPick: (o: ModelOption) => void;
+}) {
+  if ((options?.length ?? 0) < 2) {
+    return (
+      <Link className="btn btn-secondary btn-sm" to="/config">
+        {linkLabel}
+      </Link>
+    );
+  }
+  return (
+    <ModelPicker
+      options={options!}
+      value={staged ? `${staged.api_config_id}::${staged.model}` : originKey}
+      bookValue={originKey}
+      label="换模型"
+      triggerLabel="去换模型"
+      triggerClass="btn btn-secondary btn-sm"
+      flagLabel="原模型"
+      panelWidth={300}
+      onPick={(key) => {
+        // key 恒来自弹层渲染行（同一份 options），find 不会落空
+        onPick(options!.find((m) => `${m.api_config_id}::${m.model}` === key)!);
+      }}
+    />
+  );
+}
 
 export default function TaskDetailPage() {
   const { id = "" } = useParams();
@@ -83,6 +133,10 @@ export default function TaskDetailPage() {
   const [evidenceOpen, setEvidenceOpen] = useState(false);
   const [evidenceData, setEvidenceData] = useState<DeconstructEvidence | null>(null);
   const evidenceSeq = useRef(0);
+  // 原地换模型（c-deconstruct-inline-model-switch）：modelOptions null＝未加载（进失败态
+  // 才取一次，失败/空回落 /config 链接）；stagedModel＝泡泡里选定待续拆携带的新模型对。
+  const [modelOptions, setModelOptions] = useState<ModelOption[] | null>(null);
+  const [stagedModel, setStagedModel] = useState<ModelOption | null>(null);
 
   const { data: task, error: taskErr } = useQuery({
     queryKey: queryKeys.deconstructTask(id),
@@ -97,6 +151,25 @@ export default function TaskDetailPage() {
   useEffect(() => {
     if (task && task.status !== "failed" && task.status !== "cancelled") setResuming(false);
   }, [task?.status]);
+
+  // 失败面板可原地换模型才取模型清单（懒加载一次；取失败＝空表回落 /config 链接）
+  const switchable =
+    (task?.status === "failed" || task?.status === "cancelled") &&
+    (SWITCHABLE_KINDS.includes(task.error_kind ?? "") || task.error.includes("内容安全审核"));
+  useEffect(() => {
+    if (!switchable || modelOptions !== null) return;
+    let alive = true;
+    fetchModelOptions()
+      .then((opts) => {
+        if (alive) setModelOptions(opts);
+      })
+      .catch(() => {
+        if (alive) setModelOptions([]);
+      });
+    return () => {
+      alive = false;
+    };
+  }, [switchable, modelOptions]);
 
   useEffect(() => {
     /* v8 ignore start — 选中保持臂（仅 refetch 后 prev 非空时触发，jsdom 单次加载不可达） */
@@ -595,20 +668,46 @@ export default function TaskDetailPage() {
               <div>
                 <b style={{ color: "var(--err)" }}>模型拒绝了该书的题材</b>
                 <span style={{ display: "block", marginTop: 4 }}>{task.error}</span>
+                {stagedModel && (
+                  <span style={{ display: "block", marginTop: 4 }}>
+                    已选新模型 {stagedModel.model}；点「从断点续拆」以新模型继续。
+                  </span>
+                )}
               </div>
-              <Link className="btn btn-secondary btn-sm" to="/config" style={{ marginTop: 8 }}>
-                去换模型
-              </Link>
+              <SwitchModelCta
+                options={modelOptions}
+                staged={stagedModel}
+                originKey={`${task.api_config_id}::${task.ai_model}`}
+                linkLabel="去换模型"
+                onPick={(o) =>
+                  setStagedModel(
+                    o.api_config_id === task.api_config_id && o.model === task.ai_model ? null : o,
+                  )
+                }
+              />
             </div>
           ) : null}
           {kindExit && !task.error.includes("内容安全审核") ? (
             <div className="notice" data-od-id="kind-exit" style={{ marginTop: 10 }}>
               <span className="nt">
                 <b>{kindExit.text}</b>
+                {stagedModel && (
+                  <span style={{ display: "block", marginTop: 4 }}>
+                    已选新模型 {stagedModel.model}；点「从断点续拆」以新模型继续。
+                  </span>
+                )}
               </span>
-              <Link className="btn btn-secondary btn-sm" to="/config">
-                {kindExit.cta}
-              </Link>
+              <SwitchModelCta
+                options={modelOptions}
+                staged={stagedModel}
+                originKey={`${task.api_config_id}::${task.ai_model}`}
+                linkLabel={kindExit.cta}
+                onPick={(o) =>
+                  setStagedModel(
+                    o.api_config_id === task.api_config_id && o.model === task.ai_model ? null : o,
+                  )
+                }
+              />
             </div>
           ) : null}
           {(task.warnings?.length ?? 0) > 0 ? (
@@ -628,8 +727,18 @@ export default function TaskDetailPage() {
                 setResuming(true);
                 void (async () => {
                   try {
-                    await resumeDeconstructTask(task.id);
-                    toast.info("已从断点恢复，正在继续拆书");
+                    // 暂存了新模型＝换模型续拆（后端校验配置可用并记 model_history）
+                    await resumeDeconstructTask(
+                      task.id,
+                      stagedModel
+                        ? { apiConfigId: stagedModel.api_config_id, model: stagedModel.model }
+                        : undefined,
+                    );
+                    toast.info(
+                      stagedModel
+                        ? `已换用 ${stagedModel.model}，从断点恢复拆书`
+                        : "已从断点恢复，正在继续拆书",
+                    );
                   } catch (e) {
                     toast.error(e instanceof Error ? e.message : "恢复失败");
                     setResuming(false);

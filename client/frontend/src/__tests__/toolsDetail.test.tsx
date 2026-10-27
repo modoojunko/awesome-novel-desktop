@@ -16,6 +16,7 @@ const state = vi.hoisted(() => ({
   retry: vi.fn(),
   importBook: vi.fn(),
   export: vi.fn(),
+  modelOpts: vi.fn(),
 }));
 const toastState = vi.hoisted(() => ({ info: vi.fn(), success: vi.fn(), error: vi.fn() }));
 vi.mock("@/lib/toast", () => ({ toast: toastState }));
@@ -30,6 +31,7 @@ vi.mock("@/lib/deconstructApi", () => ({
   retryUploadDeconstructTask: state.retry,
   importBookFromTask: state.importBook,
   exportTaskProducts: state.export,
+  fetchModelOptions: state.modelOpts,
   DECONSTRUCT_DIMS: [
     { key: "intro", name: "简介", file: "简介.md", setting: true },
     { key: "world", name: "世界设定", file: "世界设定.md", setting: true },
@@ -38,6 +40,13 @@ vi.mock("@/lib/deconstructApi", () => ({
 }));
 
 import TaskDetailPage, { statsLine } from "@/components/tools/TaskDetailPage";
+
+/** 泡泡两模型清单（c-deconstruct-inline-model-switch）：c1 对＝任务原模型对
+ *  （detailOf 夹具 ai_model/api_config_id），供「原模型」旗标与选回清空臂用。 */
+const SWITCH_MODELS = [
+  { api_config_id: "c1", config_name: "主配置", model: "qwen3-max", vendor: "deepseek" },
+  { api_config_id: "c2", config_name: "智谱", model: "glm-4.7", vendor: "glm" },
+];
 
 function detailOf(status: string, over: Record<string, unknown> = {}) {
   return {
@@ -105,6 +114,8 @@ function seedMax() {
 
 beforeEach(() => {
   seedMax();
+  // 原地换模型清单默认空表：失败面板回落 /config 链接（单模型用户零变化的存量口径）
+  state.modelOpts.mockResolvedValue([]);
 });
 
 describe("TaskDetailPage", () => {
@@ -977,6 +988,127 @@ describe("进度可视二阶（边界臂）", () => {
     renderPage();
     await waitFor(() => expect(screen.getByText(/API Key、接口地址或模型名/)).toBeInTheDocument());
     expect(screen.getByText("去检查模型配置")).toBeInTheDocument();
+  });
+
+  // ── c-deconstruct-inline-model-switch：失败面板原地换模型（泡泡）──
+
+  it("原地换模型：瞬时故障出口开泡泡，选定暂存并以新模型续拆", async () => {
+    state.get.mockResolvedValue(detailOf("failed", {
+      error: "模型服务连续失败，任务已自动暂停，可稍后续拆或更换模型",
+      error_kind: "provider_unavailable",
+    }));
+    state.modelOpts.mockResolvedValue(SWITCH_MODELS);
+    state.resume.mockClear();
+    toastState.info.mockClear();
+    renderPage();
+    await waitFor(() => expect(screen.getByText(/模型服务暂时不可用或长时间无响应/)).toBeInTheDocument());
+    // 不再跳配置页：出口是页内泡泡触发位（不再是 <a> 链接）
+    expect(screen.queryByRole("link", { name: "去换模型" })).toBeNull();
+    fireEvent.click(await screen.findByTestId("ai-model-select"));
+    const panel = await screen.findByTestId("ai-model-panel");
+    expect(panel.textContent).toContain("原模型"); // 任务原模型对标旗（别再选回坏的）
+    fireEvent.click(panel.querySelector('[data-model="c2::glm-4.7"]')!);
+    expect(await screen.findByText(/已选新模型 glm-4\.7/)).toBeInTheDocument();
+    // 暂存后从断点续拆＝换模型续拆（resume 带新模型对，toast 带模型名）
+    fireEvent.click(screen.getByText("从断点续拆"));
+    await waitFor(() => expect(state.resume).toHaveBeenCalledOnce());
+    expect(state.resume).toHaveBeenCalledWith("t2", { apiConfigId: "c2", model: "glm-4.7" });
+    await waitFor(() => expect(toastState.info).toHaveBeenCalledWith(expect.stringContaining("已换用 glm-4.7")));
+  });
+
+  it("原地换模型：选回原模型对清空暂存，续拆不带模型参（原路续拆）", async () => {
+    state.get.mockResolvedValue(detailOf("failed", { error: "x", error_kind: "stalled" }));
+    state.modelOpts.mockResolvedValue(SWITCH_MODELS);
+    state.resume.mockClear();
+    toastState.info.mockClear();
+    renderPage();
+    await screen.findByTestId("ai-model-select");
+    fireEvent.click(screen.getByTestId("ai-model-select"));
+    fireEvent.click(screen.getByTestId("ai-model-panel").querySelector('[data-model="c2::glm-4.7"]')!);
+    await screen.findByText(/已选新模型 glm-4\.7/);
+    // 再开泡泡选回原模型对 → 暂存清空
+    fireEvent.click(screen.getByTestId("ai-model-select"));
+    fireEvent.click(screen.getByTestId("ai-model-panel").querySelector('[data-model="c1::qwen3-max"]')!);
+    await waitFor(() => expect(screen.queryByText(/已选新模型/)).not.toBeInTheDocument());
+    fireEvent.click(screen.getByText("从断点续拆"));
+    await waitFor(() => expect(state.resume).toHaveBeenCalledOnce());
+    expect(state.resume).toHaveBeenCalledWith("t2", undefined);
+    await waitFor(() => expect(toastState.info).toHaveBeenCalledWith(expect.stringContaining("从断点恢复")));
+  });
+
+  it("原地换模型回落：可选模型不足 2 → 仍是去配置链接（不出泡泡）", async () => {
+    state.get.mockResolvedValue(detailOf("failed", { error: "x", error_kind: "timeout" }));
+    state.modelOpts.mockResolvedValue([SWITCH_MODELS[0]]);
+    renderPage();
+    await waitFor(() => expect(screen.getByText(/模型服务暂时不可用/)).toBeInTheDocument());
+    await waitFor(() =>
+      expect(screen.getByRole("link", { name: "去换模型" })).toHaveAttribute("href", "/config"),
+    );
+    expect(screen.queryByTestId("ai-model-select")).toBeNull();
+  });
+
+  it("原地换模型回落：模型清单加载失败 → 回落链接（fail-soft 不白屏）", async () => {
+    state.get.mockResolvedValue(detailOf("failed", { error: "x", error_kind: "rate_limit" }));
+    state.modelOpts.mockRejectedValue(new Error("net"));
+    renderPage();
+    await waitFor(() =>
+      expect(screen.getByRole("link", { name: "去换模型" })).toHaveAttribute("href", "/config"),
+    );
+    expect(screen.queryByTestId("ai-model-select")).toBeNull();
+  });
+
+  it("原地换模型：在途清单响应遇上卸载——alive 守卫不写已卸载组件", async () => {
+    state.get.mockResolvedValue(detailOf("failed", { error: "x", error_kind: "timeout" }));
+    let settle!: (v: typeof SWITCH_MODELS) => void;
+    state.modelOpts.mockImplementationOnce(() => new Promise((res) => { settle = res; }));
+    const { unmount } = renderPage();
+    await screen.findByText(/模型服务暂时不可用/);
+    unmount();
+    await act(async () => { settle(SWITCH_MODELS); });
+    expect(screen.queryByTestId("ai-model-select")).toBeNull(); // 已卸载，无残留无报警
+  });
+
+  it("原地换模型：在途清单失败遇上卸载——catch 臂同样不写已卸载组件", async () => {
+    state.get.mockResolvedValue(detailOf("failed", { error: "x", error_kind: "timeout" }));
+    let bust!: (e: unknown) => void;
+    state.modelOpts.mockImplementationOnce(() => new Promise((_res, rej) => { bust = rej; }));
+    const { unmount } = renderPage();
+    await screen.findByText(/模型服务暂时不可用/);
+    unmount();
+    await act(async () => { bust(new Error("late net")); });
+    expect(state.modelOpts).toHaveBeenCalled(); // 在途失败已发生，卸载后不落状态
+  });
+
+  it("原地换模型：auth 类失败不取清单、出口保持配置页链接（病根在配置不在模型）", async () => {
+    state.get.mockResolvedValue(detailOf("failed", {
+      error: "API Key 无效或无权限：401",
+      error_kind: "auth",
+    }));
+    state.modelOpts.mockResolvedValue(SWITCH_MODELS);
+    state.modelOpts.mockClear(); // 清掉先前用例的调用史，本用例断言「没取清单」
+    renderPage();
+    await waitFor(() => expect(screen.getByRole("link", { name: "去检查模型配置" })).toBeInTheDocument());
+    expect(state.modelOpts).not.toHaveBeenCalled();
+    expect(screen.queryByTestId("ai-model-select")).toBeNull();
+  });
+
+  it("内容审核拒绝：面板出口同为页内泡泡（可选模型足够时）并暂存新模型", async () => {
+    state.get.mockResolvedValue(detailOf("failed", {
+      error: "模型的内容安全审核拒绝了该书的题材（恐怖/暴力等敏感内容）。请更换模型（如 DeepSeek）或拆解其他作品。",
+    }));
+    state.modelOpts.mockResolvedValue(SWITCH_MODELS);
+    state.resume.mockClear();
+    renderPage();
+    await waitFor(() => expect(screen.getByText("模型拒绝了该书的题材")).toBeInTheDocument());
+    fireEvent.click(await screen.findByTestId("ai-model-select"));
+    fireEvent.click(screen.getByTestId("ai-model-panel").querySelector('[data-model="c2::glm-4.7"]')!);
+    expect(await screen.findByText(/已选新模型 glm-4\.7/)).toBeInTheDocument();
+    fireEvent.click(screen.getByText("从断点续拆"));
+    await waitFor(() => expect(state.resume).toHaveBeenCalledWith("t2", { apiConfigId: "c2", model: "glm-4.7" }));
+    // 选回原模型对 → 暂存清空（内容面板与瞬时故障面板同款口径）
+    fireEvent.click(screen.getByTestId("ai-model-select"));
+    fireEvent.click(screen.getByTestId("ai-model-panel").querySelector('[data-model="c1::qwen3-max"]')!);
+    await waitFor(() => expect(screen.queryByText(/已选新模型/)).not.toBeInTheDocument());
   });
 
   it("调用账：completed 态显示调用统计与重试数，Token 合计从 stats 聚合（monitor 终态为 null）", async () => {
