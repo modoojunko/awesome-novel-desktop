@@ -1138,7 +1138,7 @@ export function RewriteModal({
       <ul className="rw-list">
         <li>
           <b>旧稿</b>
-          <span>本章当前正文将转入旧稿支线，可随时点开查看。</span>
+          <span>重写前正文会自动存入版本历史，可随时找回。</span>
         </li>
         <li>
           <b>后续</b>

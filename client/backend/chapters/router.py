@@ -257,8 +257,8 @@ async def rewrite_chapter_endpoint(
     user: dict = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    """重写这一章（chapter-rewrite）：旧稿快照转旧稿支线（内容寻址 ref，幂等）＋
-    归档章解锁＋下游「基于旧设定」置位——一次事务；详见 chapters/rewrite.py。"""
+    """重写这一章（chapter-rewrite）：归档章解锁＋下游「基于旧设定」置位——
+    一次事务；旧稿由版本历史承接（不再转存支线）；详见 chapters/rewrite.py。"""
     project = await get_novel(db, project_id, user["id"])
     if not project:
         raise HTTPException(404, "Project not found")

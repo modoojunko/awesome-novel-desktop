@@ -662,7 +662,7 @@ describe("重写入口门槛（chapter-rewrite）", () => {
     fireEvent.click(btn);
     // 影响面确认弹窗三行（限定在弹窗列表内，避开卡片同款文案）
     const rwList = document.querySelector('[role="dialog"] .rw-list');
-    expect(rwList?.textContent).toContain("转入旧稿支线");
+    expect(rwList?.textContent).toContain("存入版本历史");
     expect(rwList?.textContent).toContain("基于旧设定");
     expect(screen.getByTestId("rewrite-confirm")).toBeTruthy();
   });

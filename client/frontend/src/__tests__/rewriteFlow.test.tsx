@@ -29,7 +29,7 @@ describe("RewriteModal（影响面确认）", () => {
       />,
     );
     expect(screen.getByText(/第 2 章 · 风起渡口/)).toBeTruthy();
-    expect(screen.getByText(/转入旧稿支线/)).toBeTruthy();
+    expect(screen.getByText(/存入版本历史/)).toBeTruthy();
     expect(screen.getByText(/基于旧设定/)).toBeTruthy();
     expect(screen.getByText(/开书设定永不改写/)).toBeTruthy();
     fireEvent.click(screen.getByTestId("rewrite-confirm"));

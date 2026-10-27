@@ -7,10 +7,9 @@ import { entitlementFor } from "./tier-features";
 
 // =========================================================================
 // 重写这一章 E2E（chapter-rewrite，全链真后端）：
-//   ① 已归档章「重写这一章」→ 影响面确认 → 旧稿入支线（-r{hash} ref）＋本章解锁
-//   ② 下游章挂「基于旧设定」角标（树行）
+//   ① 已归档章「重写这一章」→ 影响面确认（旧稿存入版本历史）＋本章解锁
+//   ② 不再产生旧稿支线分组（c-rewrite-ghost-retire）＋下游章挂「基于旧设定」角标
 //   ③ 下游章自身改写（自动保存）→ 角标消失
-//   ④ 旧稿支线可点开只读查看
 // 手法与 plot-sim.spec.ts 一致：S端 真注册登录 + config.json 注入。
 // =========================================================================
 
@@ -134,7 +133,7 @@ async function seedTwoArchivedChapters(
   return pid;
 }
 
-test("重写已归档章：旧稿入支线＋下游角标＋改写后角标消失", async ({
+test("重写已归档章：解锁＋无支线分组＋下游角标＋改写后角标消失", async ({
   page,
   request,
 }) => {
@@ -159,16 +158,16 @@ test("重写已归档章：旧稿入支线＋下游角标＋改写后角标消�
     await expect(rewriteBtn).toBeVisible({ timeout: 10000 });
     await rewriteBtn.click();
     const rwList = page.locator(".rw-list");
-    await expect(rwList.getByText(/转入旧稿支线/)).toBeVisible();
+    await expect(rwList.getByText(/存入版本历史/)).toBeVisible();
     await page.getByTestId("rewrite-confirm").click();
-    await expect(page.getByText(/旧稿已留存/)).toBeVisible({ timeout: 10000 });
+    await expect(page.getByText(/旧稿在版本历史/)).toBeVisible({ timeout: 10000 });
 
     // 本章解锁：落在正文页签且可编辑
     await expect(page.locator(".editor")).toBeVisible({ timeout: 10000 });
     await expect(page.locator(".editor")).toHaveAttribute("contenteditable", "true");
 
-    // ② 旧稿支线出现（ghost 分组）＋第 2 章挂「基于旧设定」角标
-    await expect(page.locator(".ghost-group").first()).toBeVisible({ timeout: 10000 });
+    // ② 无旧稿支线分组（重写不再转存支线）＋第 2 章挂「基于旧设定」角标
+    await expect(page.locator(".ghost-group")).toHaveCount(0, { timeout: 10000 });
     const stale2 = chRows.nth(1).locator('[data-testid="ch-stale"]');
     await expect(stale2).toHaveCount(1, { timeout: 10000 });
 
@@ -193,16 +192,6 @@ test("重写已归档章：旧稿入支线＋下游角标＋改写后角标消�
       page.off("dialog", onDlg);
     }
 
-    // ④ 旧稿可点开只读查看（点旧稿→切正文；重挂竞态用重试吸收）
-    await page.locator(".ghost-group .ghost-row").first().click();
-    await expect(async () => {
-      await page.getByRole("tab", { name: /^正文/ }).click();
-      await expect(page.locator(".editor")).toBeVisible({ timeout: 1500 });
-    }).toPass({ timeout: 20000 });
-    await expect(page.locator(".editor")).toHaveAttribute("contenteditable", "false", {
-      timeout: 10000,
-    });
-
     // ③ 回第 2 章改写 → 角标消失（点章回落章纲页签，重试式切正文）
     await chRows.nth(1).click();
     await expect(async () => {
@@ -215,10 +204,10 @@ test("重写已归档章：旧稿入支线＋下游角标＋改写后角标消�
     await expect(page.getByText("已自动保存").first()).toBeVisible({ timeout: 8000 });
     await expect(stale2).toHaveCount(0, { timeout: 10000 });
 
-    // 刷新后仍无角标、旧稿仍在（全书归档 → 落预览，先切回写作视图）
+    // 刷新后仍无角标、仍无支线分组（全书归档 → 落预览，先切回写作视图）
     await page.reload();
     await page.locator(".mtab", { hasText: "写作" }).click();
-    await expect(page.locator(".ghost-group").first()).toBeVisible({ timeout: 10000 });
+    await expect(page.locator(".ghost-group")).toHaveCount(0, { timeout: 10000 });
     await expect(chRows.nth(1).locator('[data-testid="ch-stale"]')).toHaveCount(0);
   } finally {
     await restore();
