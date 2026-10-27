@@ -123,7 +123,7 @@ describe("文字层蒸馏（c-style-distill-full）", () => {
     fireEvent.click(await screen.findByTestId("btn-redistill"));
     await screen.findByTestId("author-portrait");
     await waitFor(() => expect(screen.getByTestId("learn-unavailable")).toBeTruthy());
-    expect(screen.getByTestId("learn-unavailable").textContent).toContain("粘贴样本不保留原文");
+    expect(screen.getByTestId("learn-unavailable").textContent).toContain("粘贴的样本不会保存");
     expect(apiState.post.mock.calls.some(([u]) => String(u).endsWith("/step4"))).toBe(false);
   });
 

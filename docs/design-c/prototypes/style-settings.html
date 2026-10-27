@@ -535,7 +535,7 @@
           <div class="cfg" id="cfgSamples" data-od-id="group-style-samples" hidden>
             <button class="cfg-head" type="button" id="cfgSamplesHead">
               <b>文风示范段</b><span class="tag">拆书导入 · 2 条</span>
-              <span class="sum">拆书带出的原书成段原文，AI 写章时的最高笔法依据</span>
+              <span class="sum">拆书带出来的原书段落，AI 写正文时照着这个腔调写</span>
               <span class="chev"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" width="13" height="13"><path d="m6 9 6 6 6-6"/></svg></span>
             </button>
             <div class="cfg-body" id="cfgSamplesBody">
@@ -543,7 +543,7 @@
                 <div class="ss-row"><p class="ss-txt">夜里落了雪。他把炉门推开一条缝，火光照在他半边脸上，另半边留在黑暗里。</p><button class="btn btn-ghost btn-sm" type="button">删除</button></div>
                 <div class="ss-row"><p class="ss-txt">他把账本合上，往桌上一拍，屋里人都静了。没人问他亏了多少，问也是白问。</p><button class="btn btn-ghost btn-sm" type="button">删除</button></div>
               </div>
-              <p class="opt" style="margin-top:6px;">来自拆书原文摘录，只可删除不可改写；写正文时句式、节奏、对话密度以它为准。</p>
+              <p class="opt" style="margin-top:6px;">从拆书原文里摘的，只能删不能改。</p>
             </div>
           </div>
 
@@ -650,10 +650,10 @@
                 <div class="bx-vals">约 对话 18 字/轮 · 动词力度 strong（±10%）</div>
               </div>
             </div>
-            <!-- 文字层草稿（c-style-distill-full）：step4 提取，分段采纳、未勾零写回 -->
+            <!-- 文风草稿（c-style-distill-full）：step4 提取，分段采纳、未勾零写回 -->
             <div data-od-id="learn-text-layer" style="margin-top:14px;">
-              <h4>文字层草稿 <span class="opt" style="font-weight:400;">（从样本提取的「文字文风」——可直接改；只写勾选采纳的段）</span></h4>
-              <label class="opt" style="display:flex;align-items:center;gap:6px;"><input type="checkbox" checked data-od-id="learn-adopt-rules" /> 采纳三区草稿（替换现有身份／硬约束／手法）</label>
+              <h4>文风草稿 <span class="opt" style="font-weight:400;">（从样本里学来的文风——可直接改；只写勾选采纳的段）</span></h4>
+              <label class="opt" style="display:flex;align-items:center;gap:6px;"><input type="checkbox" checked data-od-id="learn-adopt-rules" /> 把身份、硬约束和手法换成草稿里的</label>
               <div style="margin:6px 0 0 24px;">
                 <input class="input" value="第三人称限知，紧贴林拾；冷静克制，不替读者下判断。" readonly />
                 <ul style="margin:6px 0 0;">
@@ -662,13 +662,13 @@
                   <li>情绪靠动作外化，不写「他很紧张」</li>
                 </ul>
               </div>
-              <label class="opt" style="display:flex;align-items:center;gap:6px;margin-top:8px;"><input type="checkbox" checked data-od-id="learn-adopt-samples" /> 采纳示范段（替换现有示范段；写正文时的最高笔法依据）</label>
+              <label class="opt" style="display:flex;align-items:center;gap:6px;margin-top:8px;"><input type="checkbox" checked data-od-id="learn-adopt-samples" /> 带上示范段（替换现有的）——写正文时 AI 照着这个腔调写</label>
               <div class="ss-list" style="margin:6px 0 0 24px;" data-od-id="learn-samples">
                 <div class="ss-row"><p class="ss-txt">他把账本合上，往桌上一拍，屋里人都静了。没人问他亏了多少，问也是白问。</p><button class="btn btn-ghost btn-sm" type="button">删除</button></div>
                 <div class="ss-row"><p class="ss-txt">夜里落了雪。他把炉门推开一条缝，火光照在他半边脸上，另半边留在黑暗里。</p><button class="btn btn-ghost btn-sm" type="button">删除</button></div>
               </div>
               <div class="pz-act" style="margin-top:10px;">
-                <button class="btn btn-primary" type="button" data-od-id="btn-learn-adopt">采纳到文风设定</button>
+                <button class="btn btn-primary" type="button" data-od-id="btn-learn-adopt">写进文风设定</button>
                 <button class="btn btn-ghost" type="button" data-od-id="btn-learn-reextract">重新提取</button>
               </div>
             </div>
