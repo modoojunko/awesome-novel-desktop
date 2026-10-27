@@ -2235,3 +2235,18 @@ c-model-list-cap-300 后模型清单上限 300 条（方舟单家实测 137 条�
 3. **不进 parity 截图的依据**：`style-settings.html` 与拆书任务详情均不在
    design-parity*.spec.ts 四屏（list/book/config/preview）场景内，本次无基线像素变更，
    `design:check` 预期零差异；仅 book.css 业务段新增类（无令牌/共享段改动）。
+
+## c-deconstruct-inline-model-switch（拆书失败详情原地换模型泡泡，2026-10-27）
+
+真机反馈：失败详情「去换模型」一点就跳模型配置页，脱离任务上下文。拍板口径：详情页留在原地，
+上面沿用现有泡泡（生成模型选择弹层）表达问题并就地换模型，下面续拆/删除出口原样保留。
+
+1. **失败面板换模型出口改页内泡泡**（该屏无独立原型，历史如此）：瞬时故障与内容审核
+   两处「去换模型」从 `/config` 链接改为页内模型选择泡泡触发位（btn-secondary btn-sm）；
+   弹层复用 workbench `ModelPicker`（按配置分组＋顶搜索），语境化差异＝无障碍名「换模型」、
+   旗标「原模型」、弹层定宽 300 右缘对齐触发位。选定即页内暂存（「已选新模型 ×××」行），
+   「从断点续拆」携带新模型（后端 resume 契约 c-deconstruct-resilience D8 原样）。
+2. **回落口径**：可选模型 <2（含清单加载失败/为空）或 auth/config/route 类失败（病根在配置）
+   仍出 `/config` 链接——单模型用户零变化；鉴权类出口文案「去检查模型配置」不变。
+3. **不进 parity 截图的依据**：拆书任务详情不在 design-parity*.spec.ts 四屏场景内，
+   本次无基线像素变更，`design:check` 预期零差异；无新 CSS 类/令牌（复用 .mp-*＋.btn）。

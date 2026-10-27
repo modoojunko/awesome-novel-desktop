@@ -16,8 +16,8 @@ import { api, request } from "@/lib/api";
 import { cnNum } from "@/lib/nodeTitle";
 import { toast } from "@/lib/toast";
 import { useModelStatus } from "@/hooks/useModelStatus";
-import { placePanel, type PanelPlacement } from "@/lib/panelAnchor";
-import type { FlatModelOption, ModelSelection } from "@/types/api-config";
+import { htmlZoom, placePanel, type PanelPlacement } from "@/lib/panelAnchor";
+import type { ModelSelection } from "@/types/api-config";
 
 const fmt = (n: number) => n.toLocaleString("zh-CN");
 
@@ -437,20 +437,40 @@ export function HistoryModal({
 // 滚动区不裁剪浮层；Esc 只收弹层）；选项只在「≠ 本书模型」时随请求下发。
 // 弹层顶搜索（c-prose-model-search）：清单上限 300，输入即过滤模型/配置名，
 // 焦点自动进搜索框、方向键/Enter 在过滤结果里导航、Esc 只收弹层。
+// 跨页复用（c-deconstruct-inline-model-switch）：拆书失败详情「去换模型」用同一弹层。
+// 可选 props 只做语境化（无障碍名/触发位文案与类/旗标文案/弹层定宽右缘对齐），
+// 缺省值＝工作台现行为；options 放宽为结构最小类型（vendor 串即可，调用方各自取数）。
 // ---------------------------------------------------------------------------
 
-function ModelPicker({
+/** 泡泡选项最小结构：FlatModelOption 的去严格化版（vendor 不要求 VendorId 联合型）。 */
+type PickerOption = { api_config_id: string; config_name: string; model: string; vendor: string };
+
+export function ModelPicker({
   options,
   value,
   bookValue,
   onPick,
+  label = "生成模型",
+  triggerLabel,
+  triggerClass = "input mp-trigger",
+  flagLabel = "本书模型",
+  panelWidth,
 }: {
-  options: FlatModelOption[];
+  options: PickerOption[];
   /** 当前选择键 `${api_config_id}::${model}` */
   value: string;
   /** 本书模型键（弹层内标「本书模型」；标记恒随绑定，不随选择移动） */
   bookValue: string;
   onPick: (key: string) => void;
+  /** 无障碍名＋弹层标签（复用场景按语境改，如「换模型」） */
+  label?: string;
+  /** 有则触发位显示该固定文案（CTA 型触发位）；缺省显示「配置 · 模型」当前项 */
+  triggerLabel?: string;
+  triggerClass?: string;
+  /** 选项旗标文案（复用场景按语境改，如「原模型」） */
+  flagLabel?: string;
+  /** 弹层定宽（布局 px；触发位过窄的复用场景），右缘对齐触发位；缺省＝触发位宽 */
+  panelWidth?: number;
 }) {
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState("");
@@ -465,7 +485,7 @@ function ModelPicker({
   // 搜索过滤（c-prose-model-search）：模型 id 或配置名命中，大小写不敏感；空组整组隐藏
   const q = query.trim().toLowerCase();
   const groups = useMemo(() => {
-    const byConfig = new Map<string, FlatModelOption[]>();
+    const byConfig = new Map<string, PickerOption[]>();
     for (const o of options) {
       if (q && !`${o.model} ${o.config_name}`.toLowerCase().includes(q)) continue;
       const list = byConfig.get(o.api_config_id) ?? [];
@@ -500,9 +520,12 @@ function ModelPicker({
       const el = wrapRef.current?.querySelector("button");
       if (!el) return;
       const r = el.getBoundingClientRect();
+      // 定宽复用（触发位过窄的场景）：布局 px 折成视觉 px 再右缘对齐触发位，zoom 折算仍由 placePanel 统一做
+      const w = panelWidth ? panelWidth * htmlZoom() : r.width;
+      const left = panelWidth ? Math.max(0, r.right - w) : r.left;
       setPos(
         placePanel(
-          { top: r.top, bottom: r.bottom, left: r.left, width: r.width },
+          { top: r.top, bottom: r.bottom, left, width: w },
           window.innerHeight,
         ),
       );
@@ -514,7 +537,7 @@ function ModelPicker({
       window.removeEventListener("scroll", anchor, true);
       window.removeEventListener("resize", anchor);
     };
-  }, [open]);
+  }, [open, panelWidth]);
 
   // 外点关闭：pointerdown 落在触发位与弹层之外即收起（同先例）
   useEffect(() => {
@@ -606,19 +629,19 @@ function ModelPicker({
       <button
         type="button"
         ref={triggerRef}
-        className="input mp-trigger"
+        className={triggerClass}
         role="combobox"
         aria-haspopup="listbox"
         aria-expanded={open}
         aria-controls="ai-model-panel"
         aria-activedescendant={open && flat[cursor] ? `ai-model-opt-${cursor}` : undefined}
-        aria-label="生成模型"
+        aria-label={label}
         data-testid="ai-model-select"
         onClick={() => (open ? setOpen(false) : openAt())}
         onKeyDown={onKeyDown}
       >
         <span className="mt-name" data-testid="ai-model-name">
-          {current ? `${current.config_name} · ${current.model}` : ""}
+          {triggerLabel ?? (current ? `${current.config_name} · ${current.model}` : "")}
         </span>
         <Ico d={P.chevronDown} />
       </button>
@@ -629,7 +652,7 @@ function ModelPicker({
             className="mp-panel"
             id="ai-model-panel"
             role="listbox"
-            aria-label="生成模型"
+            aria-label={label}
             data-testid="ai-model-panel"
             ref={panelRef}
             style={{
@@ -699,7 +722,7 @@ function ModelPicker({
                           >
                             {o.model}
                             {key === bookValue ? (
-                              <span className="mp-flag">本书模型</span>
+                              <span className="mp-flag">{flagLabel}</span>
                             ) : null}
                           </button>
                         </li>
