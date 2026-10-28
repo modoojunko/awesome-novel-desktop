@@ -514,6 +514,18 @@ function VolumeVerifyPanel({
         {VOL_TAB_LEAD[tab] ??
           "这一卷的验证：对不对得上全书设定、接不接得上主线、跟已经写出来的部分有没有出入。只给判断，不代笔。"}
       </p>
+      {tab === "pacing" && !aiPlan && (
+        <p className="none" data-testid="pacing-locked">
+          AI 三动作{upgradeHintOf("ai-plan")}——节奏配置本身免费：直接在「节奏」页签手写{" "}
+          <button
+            className="btn btn-primary btn-sm"
+            data-testid="pacing-locked-upgrade"
+            onClick={() => onUpgrade("ai-plan")}
+          >
+            了解升级
+          </button>
+        </p>
+      )}
       {tab === "chapters" && !aiPlan && (
         <p className="none" data-testid="volume-split-ai-locked">
           AI 三方向{upgradeHintOf("ai-plan")}——手写拆章免费：用中栏「拆下一章」{" "}

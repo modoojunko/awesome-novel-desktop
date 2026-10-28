@@ -52,6 +52,18 @@ const apiState = vi.hoisted(() => ({
 }));
 vi.mock("@/lib/api", () => ({ api: apiState }));
 
+// c-volume-pacing：右栏节奏三行的 API mock（面板 run/adopt 消费）
+const pacingState = vi.hoisted(() => ({
+  getVolume: vi.fn(),
+  saveVolume: vi.fn(),
+  plan: vi.fn(),
+  tailor: vi.fn(),
+  polish: vi.fn(),
+}));
+vi.mock("@/lib/volumePacingApi", () => ({
+  volumePacingApi: pacingState,
+}));
+
 const THREE_PLANS = {
   ok: true,
   plans: [
@@ -1392,5 +1404,108 @@ describe("volumePlanApi 契约", () => {
     });
     await volumePlanApi.check("p1", "vol-3");
     expect(apiState.post).toHaveBeenCalledWith("/novels/p1/volumes/vol-3/ai/check", {});
+  });
+});
+
+
+// ── 右栏节奏三行（c-volume-pacing）：页签语境显隐＋门控出口＋采纳 ────────────
+
+
+describe("右栏节奏三行（c-volume-pacing）", () => {
+  beforeEach(() => {
+    pacingState.getVolume.mockReset().mockResolvedValue({
+      config: { preset: "upgrade", steps: [{ n: "遇麻烦", t: "x" }], steps_len: 3,
+                ch1_extra_on: false, ch1_extra: "", planned: true },
+      prefill: null, source: "volume", book_default: null,
+      plan: { target: 40, steps_len: 3, n: 13, rem: 1, last_from: 37, last_to: 40 },
+      presets: [], theme: "仙侠/修真", sub_genre: "凡人流",
+    });
+    pacingState.saveVolume.mockReset().mockResolvedValue({ config: {} });
+    pacingState.plan
+      .mockReset()
+      .mockResolvedValue({ ok: true, degraded: false, notes: [{ seg: 1, text: "坎压上来" }], text: "" });
+    pacingState.tailor.mockReset().mockResolvedValue({
+      ok: true, degraded: false,
+      config: { preset: "case", steps: [], steps_len: 12, ch1_extra_on: false, ch1_extra: "" },
+      note: "",
+    });
+    pacingState.polish.mockReset().mockResolvedValue({
+      ok: true, degraded: false, steps: [{ n: "遇麻烦", t: "顺过的说明。" }], note: "",
+    });
+  });
+
+  it("节奏页签：三行呈现，卷纲两行（体检/重新规划）让位", async () => {
+    renderPanel({ data: {
+      volume: 1, volumeRef: "vol-1", title: "血酬", tab: "pacing",
+      detail: { chapters: [] } as unknown as VolumeDetail, frontierVol: null,
+    } });
+    expect(await screen.findByTestId("pacing-plan-btn")).toBeInTheDocument();
+    expect(screen.getByTestId("pacing-tailor-btn")).toBeInTheDocument();
+    expect(screen.getByTestId("pacing-polish-btn")).toBeInTheDocument();
+    expect(screen.queryByTestId("volume-check-btn")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("volume-replan")).not.toBeInTheDocument();
+  });
+
+  it("免费档：三行带升级出口（点击 onUpgrade，不调 AI）", async () => {
+    const { onUpgrade } = renderPanel(
+      { data: {
+          volume: 1, volumeRef: "vol-1", title: "血酬", tab: "pacing",
+          detail: { chapters: [] } as unknown as VolumeDetail, frontierVol: null,
+      }, onPacingChanged: vi.fn() },
+      { free: true },
+    );
+    const btn = await screen.findByTestId("pacing-plan-btn");
+    expect(btn).toBeDisabled();
+    expect(screen.getByTestId("pacing-locked")).toBeInTheDocument();
+    fireEvent.click(screen.getByTestId("pacing-locked-upgrade"));
+    expect(onUpgrade).toHaveBeenCalledWith("ai-plan");
+  });
+
+  it("排段采纳＝saveVolume(planned:true)＋onPacingChanged", async () => {
+    const onPacingChanged = vi.fn();
+    renderPanel({ data: {
+      volume: 1, volumeRef: "vol-1", title: "血酬", tab: "pacing",
+      detail: { chapters: [] } as unknown as VolumeDetail, frontierVol: null,
+    }, onPacingChanged });
+    const planBtn = await screen.findByTestId("pacing-plan-btn");
+    // eslint-disable-next-line no-console
+    console.log("DEBUG before:", {
+      disabled: (planBtn as HTMLButtonElement).disabled,
+      text: planBtn.textContent,
+    });
+    fireEvent.click(planBtn);
+    await waitFor(
+      () => {
+        // eslint-disable-next-line no-console
+        console.log("DEBUG after click:", {
+          btnText: planBtn.textContent,
+          planCalled: pacingState.plan.mock.calls.length,
+          getVolCalled: pacingState.getVolume.mock.calls.length,
+          hint: !!screen.queryByText(/先在「节奏」页签保存/),
+          err: screen.queryByText(/排段失败/)?.textContent,
+        });
+        expect(pacingState.plan).toHaveBeenCalled();
+      },
+      { timeout: 3000 },
+    );
+    await waitFor(
+      () => {
+        const el = screen.queryByTestId("pacing-plan-adopt");
+        // eslint-disable-next-line no-console
+        if (!el) console.log("DEBUG body markers:", {
+          planBtn: !!screen.queryByTestId("pacing-plan-btn"),
+          preview: !!screen.queryByTestId("pacing-preview"),
+          panels: document.querySelectorAll(".rail-cfg").length,
+          bodyHasAdopt: document.body.innerHTML.includes("pacing-plan-adopt"),
+        });
+        expect(el).not.toBeNull();
+      },
+      { timeout: 3000 },
+    );
+    fireEvent.click(screen.getByTestId("pacing-plan-adopt"));
+    await waitFor(() => expect(pacingState.saveVolume).toHaveBeenCalled());
+    const body = pacingState.saveVolume.mock.calls[0]?.[2];
+    expect(body?.planned).toBe(true);
+    expect(onPacingChanged).toHaveBeenCalled();
   });
 });
