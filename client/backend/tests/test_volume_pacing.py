@@ -205,6 +205,40 @@ class TestBookDefault:
         assert pc.prefill_chain(None, None, "未知题材", None)["preset"] == "upgrade"
 
 
+# ── 定题材即定默认节奏（零触达） ──────────────────────────────────────────
+
+
+class TestGenreAutoInit:
+    def test_genre_selection_writes_book_default(self):
+        root, novel_id = _run_async(_seed_book(theme=None))
+        c = _client()
+        r = c.put(
+            f"/api/novels/{novel_id}/settings/genre",
+            json={"theme": "悬疑", "sub_genre": "", "core_promise": "真相只有一个"},
+        )
+        assert r.status_code == 200
+        r = c.get(f"/api/novels/{novel_id}/pacing/presets")
+        body = r.json()
+        assert body["book_default"] is not None
+        assert body["book_default"]["preset"] == "case"  # 悬疑→破案套路
+        assert body["suggested_key"] == "case"
+
+    def test_existing_book_default_not_overwritten(self):
+        # 已有书默认（作家改过）时，换题材不覆盖
+        root, novel_id = _run_async(_seed_book(theme="仙侠/修真"))
+        c = _client()
+        c.put(
+            f"/api/novels/{novel_id}/pacing/book-default",
+            json={"preset": "romance", "steps_len": 5},
+        )
+        c.put(
+            f"/api/novels/{novel_id}/settings/genre",
+            json={"theme": "悬疑", "sub_genre": "", "core_promise": "x"},
+        )
+        r = c.get(f"/api/novels/{novel_id}/pacing/presets")
+        assert (r.json()["book_default"] or {}).get("preset") == "romance"
+
+
 # ── 端点 ───────────────────────────────────────────────────────────────────
 
 

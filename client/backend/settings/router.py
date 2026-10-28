@@ -194,6 +194,20 @@ async def update_settings(
             else:
                 story.pop("sub_genre", None)
             await storage.write_yaml(project.root_path, "story.yaml", story)
+            # 定题材即定节奏（c-volume-pacing）：书级默认未设时按映射写入——
+            # 作家零触达也有全书默认节奏；卷级可改，以卷为准。
+            if theme:
+                from filesystem.paths import BOOK_PREFS_PATH
+                from volumes.pacing import preset_for_genre
+
+                prefs = await storage.read_yaml(project.root_path, BOOK_PREFS_PATH) or {}
+                if not prefs.get("pacing_preset"):
+                    from volumes.pacing import PACING_PRESETS, preset_for_genre
+
+                    key = preset_for_genre(theme, sub)
+                    prefs["pacing_preset"] = key
+                    prefs["pacing_steps_len"] = PACING_PRESETS[key]["steps_len"]
+                    await storage.write_yaml(project.root_path, BOOK_PREFS_PATH, prefs)
     else:
         await get_storage().write_yaml(project.root_path, KEY_TO_PATH[type], body)
 
