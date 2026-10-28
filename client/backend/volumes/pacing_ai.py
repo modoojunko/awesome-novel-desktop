@@ -10,7 +10,6 @@
 from __future__ import annotations
 
 import json
-import logging
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
@@ -30,8 +29,6 @@ from novels.service import get_novel
 from prompts import load_layers
 from volumes import pacing as pc
 from volumes.ai_plan import _generate, _parse_json, resolve_prev_ending
-
-logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/novels/{project_id}", tags=["volume-pacing"])
 

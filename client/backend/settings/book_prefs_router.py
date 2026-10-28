@@ -67,33 +67,7 @@ async def put_book_prefs(
         else:
             doc[bm.CHAPTER_WORD_TARGET_FIELD] = target
         await get_storage().write_yaml(project.root_path, BOOK_PREFS_PATH, doc)
-    # 全书默认节奏（c-volume-pacing）：套路键＋每段几章成对受理——只给段长不给
-    # 套路＝无操作（孤值无意义，读侧同样不认）；非法套路键 400。
-    if bm.PACING_PRESET_FIELD in body or bm.PACING_STEPS_LEN_FIELD in body:
-        from volumes.pacing import LEN_MAX, LEN_MIN, PACING_PRESETS
-
-        dirty = False
-        if bm.PACING_PRESET_FIELD in body:
-            preset = str(body.get(bm.PACING_PRESET_FIELD) or "")
-            if preset not in PACING_PRESETS:
-                raise HTTPException(400, "未知的剧情套路")
-            doc[bm.PACING_PRESET_FIELD] = preset
-            dirty = True
-        if bm.PACING_STEPS_LEN_FIELD in body and bm.PACING_PRESET_FIELD in doc:
-            length = body.get(bm.PACING_STEPS_LEN_FIELD)
-            if length is None or length == "":
-                doc.pop(bm.PACING_STEPS_LEN_FIELD, None)
-            else:
-                try:
-                    n = int(length)
-                except (TypeError, ValueError) as exc:
-                    raise HTTPException(400, "一段剧情讲几章需为整数") from exc
-                if not LEN_MIN <= n <= LEN_MAX:
-                    raise HTTPException(
-                        400, f"一段剧情讲几章需在 {LEN_MIN}-{LEN_MAX} 之间"
-                    )
-                doc[bm.PACING_STEPS_LEN_FIELD] = n
-            dirty = True
-        if dirty:
-            await get_storage().write_yaml(project.root_path, BOOK_PREFS_PATH, doc)
+    # 全书默认节奏（c-volume-pacing）不经此端点——唯一写口＝
+    # PUT /volumes/pacing/book-default（volumes/pacing_router），避免同一 KV
+    # 两条写路径的语义分叉；读侧仍随 GET 返回 pacing 字段（只读展示）。
     return doc
