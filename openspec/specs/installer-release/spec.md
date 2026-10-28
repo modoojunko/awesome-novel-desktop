@@ -63,19 +63,23 @@ S端 落地页 SHALL 提供可达的客户端下载入口：未登录态 Hero �
 
 ### Requirement: 安装包国内分发
 
-系统 SHALL 在 `v*` 标签发版时把双平台安装包转存到静态托管（CloudBase Hosting）的 `/download/v<VER>/` 目录，文件名与 GitHub Release 资产 1:1（`AwesomeNovel_Setup_v<VER>.exe` / `AwesomeNovel_mac_v<VER>.dmg`；品牌更名 2026-10-05 用户拍板直接改名，不留旧名过渡产物——线上消费方须同步切到新名，且 SHALL 与本次发版同一发布窗口内完成，顺序 MUST 为「C端 出包并把 latest.json 指到本版」在前、「落地页按新名部署」在后；切名后的落地页 MUST NOT 早于本版发布上线）。转存完成后系统 SHALL 更新 `download/latest.json`，该文件 MUST 是落地页下载弹窗与 C端 更新检测共同的唯一线上事实源；更新它 MUST NOT 依赖任何前端重新发版。latest.json 载荷契约：`version` MUST 必写；`notes`（一句话更新摘要，取 tag 附注首行自动写入，无附注时可省略）与 `min_version`（强更门槛，本期仅预留字段、客户端不实现强更逻辑）为可选键，缺省 MUST 可省略。所有 latest.json 消费方（落地页下载弹窗、C端 更新检测）MUST 同时兼容"仅 version"的最小载荷与含可选键的完整载荷。转存或 latest.json 更新失败 MUST 使发版流水线失败，不得静默。已发布的版本目录 MUST 只增不改（版本化路径永不覆盖，使长缓存安全）。
+系统 SHALL 在 `v*` 标签发版时把双平台安装包转存到静态托管（CloudBase Hosting）的 `/download/v<VER>/` 目录，文件名与 GitHub Release 资产 1:1（`AwesomeNovel_Setup_v<VER>.exe` / `AwesomeNovel_mac_v<VER>.dmg`；品牌更名 2026-10-05 用户拍板直接改名，不留旧名过渡产物——线上消费方须同步切到新名，且 SHALL 与本次发版同一发布窗口内完成，顺序 MUST 为「C端 出包并使灰度清单指到本版」在前、「落地页按新名部署」在后，落地页部署窗口以生产指针推进（灰度晋升）为起点；切名后的落地页 MUST NOT 早于生产指针推进上线）。转存完成后系统 SHALL 生成（需要时签名）latest.json 并转存到**灰度路径** `download/staging/latest.json`——发版 MUST NOT 改写生产 `download/latest.json`（它只由灰度晋升作业推进，见「灰度晋升（staging → 生产）」要求）；生产 `download/latest.json` MUST 仍是落地页下载弹窗与 C端 更新检测共同的唯一线上事实源，灰度清单与生产清单 MUST 互为独立指针且指向同一份版本化实物。latest.json 载荷契约：`version` MUST 必写；`notes`（一句话更新摘要，取 tag 附注首行自动写入，无附注时可省略）与 `min_version`（强更门槛，本期仅预留字段、客户端不实现强更逻辑）为可选键，缺省 MUST 可省略。所有 latest.json 消费方（落地页下载弹窗、C端 更新检测）MUST 同时兼容"仅 version"的最小载荷与含可选键的完整载荷。转存或灰度 latest.json 写入/校验失败 MUST 使发版流水线失败，不得静默。已发布的版本目录 MUST 只增不改（版本化路径永不覆盖，使长缓存安全）。
 
 #### Scenario: 打包产物改名时的发布顺序
 
-- **WHEN** 某版本变更了安装包文件名（如品牌更名），且落地页按 `latest.json` 的版本号拼文件名
-- **THEN** 发布顺序为「C端 流水线先把新名产物转存进 `download/v<VER>/` 并更新 `latest.json` 指到该版 → 同一窗口内部署 S端 落地页」；切名后的落地页若提前上线，`latest.json` 仍指向的上一版目录里没有新名实物，下载直链会命中静态托管兜底页（HTTP 200 的 HTML，非安装包）
+- **WHEN** 某版本变更了安装包文件名（如品牌更名），且落地页按生产 `latest.json` 的版本号拼文件名
+- **THEN** 发布顺序为「C端 流水线先把新名产物转存进 `download/v<VER>/` 并把灰度清单指到该版 → 灰度验收通过后由晋升作业把生产 `latest.json` 推进到该版 → 同一窗口内部署 S端 落地页」；生产指针已推进而落地页未跟上时，落地页拼出的新名直链会命中静态托管兜底页（HTTP 200 的 HTML，非安装包），故落地页 MUST 跟进部署
 
 #### Scenario: 发版后国内直链可下载
 - **WHEN** 任意 `v*` 标签发版流水线成功结束
 - **THEN** `https://www.awesomenovel.com/download/v<VER>/AwesomeNovel_Setup_v<VER>.exe` 返回 200，且字节数与 GitHub Release 同名资产一致（dmg 同理）
 
+#### Scenario: 发版只落灰度不动生产
+- **WHEN** `v*` 标签发版流水线成功结束（灰度晋升尚未执行）
+- **THEN** `download/staging/latest.json` 指向该新版本，生产 `download/latest.json` 保持原版本不变——普通用户客户端检测到的仍是旧版，零感知
+
 #### Scenario: latest.json 即时生效
-- **WHEN** `download/latest.json` 的版本号被更新（CI 自动或人工）
+- **WHEN** 生产 `download/latest.json` 被推进（灰度晋升作业或总闸重签作业）
 - **THEN** 落地页下载弹窗与已安装 C端 的下一次检测解析到的版本随之变化，无需任何前端重新发版
 
 #### Scenario: 最小载荷向后兼容
@@ -84,9 +88,8 @@ S端 落地页 SHALL 提供可达的客户端下载入口：未登录态 Hero �
 - **THEN** 落地页下载弹窗与 C端 更新检测均正常工作，不因缺失可选键报错
 
 #### Scenario: 转存失败不静默
-- **WHEN** 转存上传或 latest.json 写入的校验未通过
+- **WHEN** 转存上传或灰度 latest.json 写入/校验未通过
 - **THEN** 发版流水线以失败结束并给出明确错误，GitHub Release 可能已建但流水线状态不得为绿
-
 ### Requirement: release.json 烘焙版本与检测地址
 
 打包工作流在生成 release.json 时 SHALL 额外烘入八个键：既有四键 `client_version`（`v*` 标签构建写去前缀的真实版本号；PR/手动构建写 `dev`）、`client_update_url`（主检测地址，取仓库 Variable `CLIENT_DOWNLOAD_BASE` 拼接 `latest.json`，未配置时默认 `https://www.awesomenovel.com/download/latest.json`）、`client_update_url_fallback`（兜底检测地址，取仓库 Variable `CLIENT_DOWNLOAD_BASE_FALLBACK` 拼接 `latest.json`，未配置时默认云托管静态托管直连域 `https://ai-novel-test-d1ghsr86ra814c12c-1468883265.tcloudbaseapp.com/download/latest.json`）与 `components`（组件清单对象，至少含 `db_filename`＝该版本运行时会打开的库文件名、`backup_format_version`＝备份包格式契约版本；两者 MUST 由构建期从后端单源读取——如 `client/backend/backup/format.py` 的 `FORMAT_VERSION` 与库文件名单源派生——SHALL NOT 在流水线脚本内手抄取值），以及 S端 公开地址族四键 `server_api_base`（C端 后端连 S端 API 的基址，默认自定义域名 `https://www.awesomenovel.com/api`，取仓库 Variable `CLIENT_SERVER_API_BASE` 可覆盖）、`server_api_fallback`（S端 兜底基址——自定义域名解析抖动时运行时自动切换的直连通道，默认云托管直连域 `https://novel-s-server-297265-7-1468883265.sh.run.tcloudbase.com/api`，取仓库 Variable `CLIENT_SERVER_API_FALLBACK` 可覆盖，SHALL 与主基址归一化后不同址）、`public_server_api`（宿主浏览器可访问的 S端 地址——授权页 URL 与前端公开跳转的取值源，MUST 指向同时承载 S端 web 授权页与 `/api` 反代的源，默认 `https://www.awesomenovel.com/api`，取仓库 Variable `CLIENT_PUBLIC_SERVER_API` 可覆盖）与 `portal_url`（会员页/客服页等公开跳转的门户源，默认 `https://www.awesomenovel.com`，取仓库 Variable `CLIENT_PORTAL_URL` 可覆盖）。S端 公开地址族四键的取值 MUST 由构建期 env 注入，SHALL NOT 在流水线脚本内手抄；各键随既有 datas 通道分发，打包冒烟断言 MUST 覆盖全部键真实烘进产物、`components` 与后端单源逐字一致、地址族四键为 `https://` 形态、`server_api_base` 与 `server_api_fallback` **归一化后不同址**——主/兜底同址＝运行时 `call_server_api` 去重后无兜底，MUST 在生成期（`release_json_generate`）与产物冒烟（`release_json_assert`）双闸判红（归一化＝尾斜杠 rstrip＋裸域名补 `/api`、自定义子路径不动，与运行时去重口径同语义，生成/产物/测试共用同一零依赖单源）。换任一域名 MUST 只改仓库 Variable（或对应构建 env），不需要改任何代码；新增地址族键 MUST NOT 改变既有键的语义与消费方契约。打包端运行时 SHALL 以 release.json 烘入值为准把用户 `config.json` 的 `server_api` 与 `portal_url` 对齐落盘（env 显式设置即对齐，治旧版本包写入的存量残值）；本地开发与容器 demo 无 release.json，MUST 保持既有行为不变。
@@ -288,3 +291,26 @@ macOS .app 产物的 bundle 元数据 SHALL 携带真实版本：`Info.plist` �
 - **WHEN** 打包产物 plist 版本字段与本次发布版本不一致（如注入链断裂回落默认值）
 - **THEN** 流水线断言步骤失败，DMG 不进入发布段
 
+### Requirement: 灰度晋升（staging → 生产）
+
+系统 SHALL 提供 workflow_dispatch 形态的灰度晋升作业（`client-update-promote.yml`），把灰度清单 `download/staging/latest.json` 的**原始字节**推进为生产 `download/latest.json`：MUST NOT 重新序列化或重签——Ed25519 签名覆盖清单内容，字节一致即验签有效。晋升作业 MUST 先过守护闸，任一不过 MUST 拒绝晋升且 MUST NOT 触碰生产清单：灰度清单 JSON 合法且 `version` 形如版本串；`platforms` 含 win/mac 且各 url 域名命中可信白名单（与客户端烘焙主/兜底域同源）；`auto_enabled` 为 true 时必带顶层签名与 signer_key_id；灰度版本 MUST **严格新于**生产现网版本（生产清单缺失或不可解析视为无现网版本，允许首次/灾后晋升），防旧版倒挂覆盖新版；输入 `expected_version` 非空时 MUST 与灰度版本逐字一致。输入 `dry_run` 下作业 SHALL 完成全部校验并打印「生产 vX → vY」预览而 MUST NOT 部署。真晋升 MUST 在部署后轮询回读生产清单并比对内容一致，不一致 MUST 判红；成功输出 MUST 含「生产 vX → vY」。晋升凭证 MUST 只存在于 CI secrets（本地不持有可改生产的钥匙），每次晋升 MUST 在 Actions 留痕。紧急停发与版本回指旧版 MUST NOT 走晋升作业（走既有总闸重签作业）。
+
+#### Scenario: 守护拒绝旧版倒挂
+- **WHEN** 灰度清单版本不严格新于生产现网版本（含相同版本）
+- **THEN** 晋升作业失败并说明原因，生产 `download/latest.json` 保持不变
+
+#### Scenario: expected_version 对拍不符拒绝
+- **WHEN** 输入 `expected_version` 与灰度清单 `version` 不一致
+- **THEN** 晋升作业在守护闸拒绝，不部署、不触碰生产
+
+#### Scenario: dry_run 只预演不落生产
+- **WHEN** 以 `dry_run=true` 运行晋升作业且守护全过
+- **THEN** 日志输出「生产 vX → vY」预览，生产清单保持不变
+
+#### Scenario: 字节原样晋升签名有效
+- **WHEN** 真晋升成功
+- **THEN** 生产清单与灰度清单字节一致（未重序列化未重签），已装客户端对其验签通过并按 `auto_enabled` 语义正常进入自动链
+
+#### Scenario: 部署后回读校验
+- **WHEN** 晋升部署完成
+- **THEN** 作业轮询回读生产清单并与灰度内容比对，一致才判绿；超时仍不一致 MUST 判红
