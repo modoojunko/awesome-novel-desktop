@@ -311,7 +311,8 @@ def prefill_chain(
     """
     prev = normalize_pacing_config(prev_pacing)
     if prev:
-        return prev
+        # 展示预填不继承「已排」：planned 只属于卷列已保存的配置
+        return {**prev, "planned": False}
     if book_default:
         preset = preset_or_default(book_default["preset"])
         return build_config(book_default["preset"], book_default["steps_len"], ch1_extra_on=True)

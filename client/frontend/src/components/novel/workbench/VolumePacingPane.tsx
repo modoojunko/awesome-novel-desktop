@@ -111,7 +111,24 @@ export default function VolumePacingPane({
         <div className="ol-top">
           <span className="note">节奏 · 这卷怎么翻</span>
           <span className="push">
-            <button className="btn btn-secondary btn-sm" onClick={() => setMode("edit")}>
+            <button
+              className="btn btn-secondary btn-sm"
+              onClick={() => {
+                setDraft(
+                  shown
+                    ? {
+                        preset: shown.preset,
+                        steps: shown.steps.map((s) => ({ ...s })),
+                        steps_len: shown.steps_len,
+                        ch1_extra_on: shown.ch1_extra_on,
+                        ch1_extra: shown.ch1_extra,
+                        planned: false,
+                      }
+                    : null,
+                );
+                setMode("edit");
+              }}
+            >
               编辑节奏
             </button>
           </span>

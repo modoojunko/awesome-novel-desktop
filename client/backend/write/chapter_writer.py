@@ -861,8 +861,8 @@ class ChapterContext:
         # 开篇期位置标注（首章/开篇期）：驱动 system「## 开篇期节奏」的分档
         if self.chapter_position:
             lines.append(f"本章位置：{self.chapter_position}")
-            if self.pacing:
-                lines.append(f"本循环第 {self.pacing['step_idx']} 步（{self.pacing['step_name']}）")
+        if self.pacing:
+            lines.append(f"本循环第 {self.pacing['step_idx']} 步（{self.pacing['step_name']}）")
         # c-plot-split：剧情条目块（与 material_markdown 同源同字）
         plot = _plot_block(self.plot_items)
         if plot:
