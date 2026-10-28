@@ -324,35 +324,77 @@ def prefill_chain(
 # ── 注入助手（各生成点共用；注入只认「已配置＋已排」的卷） ────────────────
 
 
-async def beat_context(db: Any, project_id: str, volume_no: int, chapter_no: int) -> dict[str, Any] | None:
-    """章 → 拍位上下文；未配置/未排段/越界 → None（下游按无拍位口径照常）。
+async def resolve_config(db: Any, project, volume_no: int) -> dict[str, Any] | None:
+    """注入用配置解析：卷列节奏 → 书级默认（book-prefs）→ None。
 
-    返回 {seg, step_idx, step_name, task, preset_label, steps_len}；task 组好
-    「本循环第 K 步 · 步名——任务句」直接可进素材。"""
+    题材映射只驱动页签展示预填，SHALL NOT 进注入链；旧书（书默认未设且卷列空）
+    返回 None＝行为同升级前（零变化承诺）。"""
+    from models.volume import Volume
+
+    row = (
+        await db.execute(
+            select(Volume).where(
+                Volume.project_id == project.id, Volume.volume_no == int(volume_no)
+            )
+        )
+    ).scalar_one_or_none()
+    if row is not None and row.pacing_json:
+        try:
+            config = normalize_pacing_config(json.loads(row.pacing_json))
+        except (ValueError, TypeError):
+            config = None
+        if config:
+            return config
+    if not getattr(project, "root_path", None):
+        return None
+    from filesystem.paths import BOOK_PREFS_PATH
+    from filesystem.storage import get_storage
+
+    try:
+        prefs = await get_storage().read_yaml(project.root_path, BOOK_PREFS_PATH) or {}
+    except Exception:  # noqa: BLE001 — 读不到书默认按未设（拍位不注入）
+        return None
+    default = book_pacing_default(prefs)
+    if not default:
+        return None
+    # 书默认驱动的拍位：第 1 卷带上黄金开篇默认交代
+    return build_config(
+        default["preset"], default["steps_len"], ch1_extra_on=(int(volume_no) == 1)
+    )
+
+
+async def beat_context(db: Any, project_id: str, volume_no: int, chapter_no: int) -> dict[str, Any] | None:
+    """章 → 拍位上下文；无卷列节奏且无书级默认 / 越界 → None（下游按无拍位口径照常）。
+
+    返回 {seg, step_idx, step_name, task, preset_label, steps_len[, ch1_extra]}；
+    task 组好「本循环第 K 步 · 步名——任务句」直接可进素材。"""
+    from models.project import Novel as NovelModel
     from models.volume import Volume
 
     if chapter_no is None or int(chapter_no) < 1:
         return None
+    project = await db.get(NovelModel, str(project_id))
+    if project is None:
+        return None
+    config = await resolve_config(db, project, int(volume_no))
+    if config is None:
+        return None
+    target = 0
     row = (
         await db.execute(
             select(Volume).where(
-                Volume.project_id == project_id, Volume.volume_no == int(volume_no)
+                Volume.project_id == project.id, Volume.volume_no == int(volume_no)
             )
         )
     ).scalar_one_or_none()
-    if row is None or not row.pacing_json or not row.chapter_target:
+    target = int(row.chapter_target or 0) if row is not None else 0
+    if target <= 0:
         return None
-    try:
-        config = normalize_pacing_config(json.loads(row.pacing_json))
-    except (ValueError, TypeError):
-        return None
-    if not config or not config.get("planned"):
-        return None
-    beat = beat_of(int(chapter_no), config, int(row.chapter_target))
+    beat = beat_of(int(chapter_no), config, target)
     if beat is None:
         return None
     preset = preset_or_default(config["preset"])
-    return {
+    out: dict[str, Any] = {
         "seg": beat["seg"],
         "step_idx": beat["step_idx"],
         "step_name": beat["step_name"],
@@ -361,3 +403,6 @@ async def beat_context(db: Any, project_id: str, volume_no: int, chapter_no: int
         "preset_label": preset["label"],
         "steps_len": config["steps_len"],
     }
+    if int(volume_no) == 1 and int(chapter_no) == 1 and config.get("ch1_extra_on"):
+        out["ch1_extra"] = config.get("ch1_extra") or preset.get("ch1_extra") or ""
+    return out
