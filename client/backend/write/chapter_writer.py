@@ -563,6 +563,9 @@ class ChapterContext:
         # c-chapter-dossier：故事状态（截至上章）——章档已采纳行的折叠态
         # （story_state_upto 产出）；空 dict 时素材包/提示词两路均不出块。
         self.story_state: dict = {}
+        # 卷节奏拍位（c-volume-pacing）：已排卷的拍位上下文；None＝未配置/未排
+        # （素材与行为同升级前）。形状见 volumes/pacing.py::beat_context。
+        self.pacing: dict | None = None
 
     # ── 素材包（提示词原料）─────────────────────────────────────────
 
@@ -858,6 +861,8 @@ class ChapterContext:
         # 开篇期位置标注（首章/开篇期）：驱动 system「## 开篇期节奏」的分档
         if self.chapter_position:
             lines.append(f"本章位置：{self.chapter_position}")
+            if self.pacing:
+                lines.append(f"本循环第 {self.pacing['step_idx']} 步（{self.pacing['step_name']}）")
         # c-plot-split：剧情条目块（与 material_markdown 同源同字）
         plot = _plot_block(self.plot_items)
         if plot:
@@ -965,9 +970,18 @@ class ChapterContext:
                 "动作有回应、局面有推进，这场没写完不进下一场，"
                 "不得一场两三句带过。"
             )
-        lines.append(
-            "- 不足就用对话、感官细节、心理活动扩写既有场景补足，不得新增冲突事件。"
-        )
+        if self.pacing:
+            lines.append(
+                f"- 这一章必须写到：{self.pacing['task']}（走既有最高优先级口径）。"
+            )
+            lines.append(
+                "- 不足就先把这一章必须写到的内容写实——补的对话、细节、心理都要服务它；"
+                "不得新增冲突事件。"
+            )
+        else:
+            lines.append(
+                "- 不足就用对话、感官细节、心理活动扩写既有场景补足，不得新增冲突事件。"
+            )
 
         return "\n".join(lines)
 
@@ -1173,6 +1187,13 @@ async def build_chapter_context(
                     session, novel_id, vol_no, ch_num
                 )
                 ctx.chapter_position = position_label(global_ch, tags)
+                # 卷节奏拍位（c-volume-pacing）：已排卷才注入；未配置/未排＝None
+                if novel_id:
+                    from volumes.pacing import beat_context
+
+                    ctx.pacing = await beat_context(
+                        session, novel_id, vol_no, ch_num
+                    )
 
         # 前情上下文升级：上章章纲留存字段优先（语义化前情，管事实连续）；
         # 上章结尾原文另路注入（previous_tail，管文本级衔接，见下方素材组装）。

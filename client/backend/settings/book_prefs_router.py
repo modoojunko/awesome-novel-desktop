@@ -46,8 +46,9 @@ async def put_book_prefs(
     user: dict = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    """唯一前端写路径：章节默认字数。字段缺省＝无操作成功（沿用 style-quant 口径）；
-    null/空＝清除设置（回落缺省），越界/非整数 400。"""
+    """唯一前端写路径：章节默认字数＋全书默认节奏（c-volume-pacing）。字段缺省＝
+    无操作成功（沿用 style-quant 口径）；null/空＝清除设置（回落缺省），
+    越界/非整数 400。"""
     project = await get_novel(db, project_id, user["id"])
     if not project:
         raise HTTPException(404, "Project not found")
@@ -66,4 +67,33 @@ async def put_book_prefs(
         else:
             doc[bm.CHAPTER_WORD_TARGET_FIELD] = target
         await get_storage().write_yaml(project.root_path, BOOK_PREFS_PATH, doc)
+    # 全书默认节奏（c-volume-pacing）：套路键＋每段几章成对受理——只给段长不给
+    # 套路＝无操作（孤值无意义，读侧同样不认）；非法套路键 400。
+    if bm.PACING_PRESET_FIELD in body or bm.PACING_STEPS_LEN_FIELD in body:
+        from volumes.pacing import LEN_MAX, LEN_MIN, PACING_PRESETS
+
+        dirty = False
+        if bm.PACING_PRESET_FIELD in body:
+            preset = str(body.get(bm.PACING_PRESET_FIELD) or "")
+            if preset not in PACING_PRESETS:
+                raise HTTPException(400, "未知的剧情套路")
+            doc[bm.PACING_PRESET_FIELD] = preset
+            dirty = True
+        if bm.PACING_STEPS_LEN_FIELD in body and bm.PACING_PRESET_FIELD in doc:
+            length = body.get(bm.PACING_STEPS_LEN_FIELD)
+            if length is None or length == "":
+                doc.pop(bm.PACING_STEPS_LEN_FIELD, None)
+            else:
+                try:
+                    n = int(length)
+                except (TypeError, ValueError) as exc:
+                    raise HTTPException(400, "一段剧情讲几章需为整数") from exc
+                if not LEN_MIN <= n <= LEN_MAX:
+                    raise HTTPException(
+                        400, f"一段剧情讲几章需在 {LEN_MIN}-{LEN_MAX} 之间"
+                    )
+                doc[bm.PACING_STEPS_LEN_FIELD] = n
+            dirty = True
+        if dirty:
+            await get_storage().write_yaml(project.root_path, BOOK_PREFS_PATH, doc)
     return doc

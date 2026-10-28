@@ -309,6 +309,12 @@ async def _chapter_material(db, project, vol, ch_no: int) -> dict:
             "stage_hit_climax": any((c.plot_stage or "").strip() == "高潮爆发" for c in rows),
         }
     )
+    # 卷节奏拍位（c-volume-pacing）：已排卷把「本拍任务」带进素材；未配置/未排＝无此键
+    from volumes.pacing import beat_context
+
+    beat = await beat_context(db, project.id, vol.volume_no, ch_no)
+    if beat:
+        mat["pacing_task"] = beat["task"]
     return mat
 
 
@@ -377,6 +383,8 @@ def _blocks_chapter(mat: dict) -> str:
     pos_line = f"【本章位置】全书第 {mat['global_ch']} 章｜本卷第 {mat['ch_no']} 章"
     if mat.get("vol_total"):
         pos_line += f"（本卷共 {mat['vol_total']} 章）"
+    if mat.get("pacing_task"):
+        pos_line += f"｜{mat['pacing_task']}"
     parts = [
         pos_line,
         f"【进场（本章从哪接）】\n{mat['entry']['text']}（{mat['entry']['source']}）",
@@ -388,6 +396,12 @@ def _blocks_chapter(mat: dict) -> str:
         parts.append("【已经拆过的章】\n" + "\n".join(mat["done_chapters"]))
     if mat.get("imported_excerpts"):
         parts.append("【导入章原文摘录（非摘要，仅供接续）】\n" + mat["imported_excerpts"])
+    if mat.get("pacing_task"):
+        parts.append(
+            "【拍位硬规则】三个方向都必须把本拍写到——"
+            + mat["pacing_task"]
+            + "；下一拍的动向最多以征兆出现，SHALL NOT 提前演完。"
+        )
     # 配额：末章 / 已排满 / 还剩 N 章 / 未设目标——四态分明（「已排满」不得报成「未设」）
     if mat["is_final"]:
         quota = "本章是本卷末章——三个方向的结尾都必须收在卷纲第四问「预期结局」上。"

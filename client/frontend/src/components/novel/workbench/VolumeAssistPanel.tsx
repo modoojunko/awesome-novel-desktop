@@ -11,6 +11,13 @@ import { useFeature } from "@/hooks/useTier";
 import { upgradeHintOf, type FeatureKey } from "@/lib/features";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { volumePlanApi, type VolumeCheckResult } from "@/lib/volumePlanApi";
+import {
+  volumePacingApi,
+  type PacingConfig,
+  type PacingPlanDraft,
+  type PacingTailorResult,
+  type PacingPolishResult,
+} from "@/lib/volumePacingApi";
 import { nextVolNo as nextVolumeNo } from "@/lib/chapterRef";
 import type { VolumeRailData } from "./VolumeWorkspace";
 import type { WorkbenchVolume } from "@/hooks/useWorkbench";
@@ -105,11 +112,14 @@ async function apiGetCharacters(projectId: string): Promise<number> {
 /** 卷页签 → 右栏语境（c-write-home-rail-anchor）：同一条「卷的验证」，随页签换视角与组序 */
 const VOL_TAB_NAME: Record<string, string> = {
   outline: "卷纲",
-  chapters: "本卷章节",
+  pacing: "节奏",
+  chapters: "章节",
   rels: "角色关系",
   hooks: "伏笔",
 };
 const VOL_TAB_LEAD: Record<string, string> = {
+  pacing:
+    "这一卷的小循环：排段之后，看每段剧情讲没讲完、拍位兑现没兑现。只给判断，不代笔。",
   outline:
     "这一卷的走向与结构：进场接不接得上上一卷、卷末收不收得住、核心矛盾是不是主线在这一阶段的子集。只给判断，不代笔。",
   chapters:
@@ -119,6 +129,7 @@ const VOL_TAB_LEAD: Record<string, string> = {
 };
 /** 报告组序：按页签把相关一组前置（组名与后端 `volume_check` 的分组同名同义；「对节奏」随卷纲页签与对主线并列前置） */
 const VOL_TAB_ORDER: Record<string, string[]> = {
+  pacing: ["对节奏", "对主线", "对设定", "对已写内容"],
   outline: ["对主线", "对节奏", "对设定", "对已写内容"],
   chapters: ["对已写内容", "对主线", "对节奏", "对设定"],
   rels: ["对设定", "对主线", "对节奏", "对已写内容"],
@@ -132,6 +143,12 @@ const normGroupKey = (name: string): string => {
   return GROUP_KEYS.find((k) => t.startsWith(k)) ?? t;
 };
 
+/** 节奏动作预览（c-volume-pacing）：plan=段表说明 / tailor=套路建议 / polish=润后步表 */
+type PacingPreview =
+  | { kind: "plan"; notes: Array<{ seg: number; text: string }> }
+  | { kind: "tailor"; config: PacingConfig; note: string }
+  | { kind: "polish"; steps: Array<{ n: string; t: string }> };
+
 /** 选中卷＝验证面板（体检动作＋三组报告；免费、只读、不代笔。随卷页签重排） */
 function VolumeVerifyPanel({
   projectId,
@@ -140,6 +157,7 @@ function VolumeVerifyPanel({
   onPlanVolume,
   onSplitAi,
   onGoOutline,
+  onPacingChanged,
   isPro,
   onUpgrade,
 }: {
@@ -152,6 +170,8 @@ function VolumeVerifyPanel({
   onSplitAi: () => void;
   /** 「去补卷纲」出口：中栏切回卷纲页签（信号经壳层 seq 递增） */
   onGoOutline: () => void;
+  /** 节奏页签三动作采纳（c-volume-pacing）：卷视图重取拍位/徽章 */
+  onPacingChanged?: () => void;
   isPro: boolean;
   onUpgrade: (required?: FeatureKey) => void;
 }) {
@@ -187,6 +207,126 @@ function VolumeVerifyPanel({
   // tier-plan-four-tiers 5.3：卷体检/拆章归 ai-plan（标准起）——免费行锁「需开通」
   const aiPlan = useFeature("ai-plan");
 
+  // 节奏三动作（c-volume-pacing）：预览在本面板内，采纳才落库（PUT 卷配置）
+  const [pacingBusy, setPacingBusy] = useState<"" | "plan" | "tailor" | "polish">("");
+  const [pacingPreview, setPacingPreview] = useState<PacingPreview | null>(null);
+  const [pacingHint, setPacingHint] = useState("");
+
+  const pacingAdopt = useCallback(
+    async (config: PacingConfig) => {
+      await volumePacingApi.saveVolume(projectId, volRef, config);
+      setPacingPreview(null);
+      onPacingChanged?.();
+    },
+    [projectId, volRef, onPacingChanged],
+  );
+
+  const runPacePlan = useCallback(async () => {
+    setPacingBusy("plan");
+    setPacingHint("");
+    try {
+      const d = await volumePacingApi.plan(projectId, volRef);
+      if (d.degraded || !d.notes.length) {
+        setPacingHint(d.text || "排段没出可用结果，请重试");
+        setPacingPreview(null);
+      } else {
+        setPacingPreview({ kind: "plan", notes: d.notes });
+      }
+    } catch (e: unknown) {
+      setPacingHint((e as { message?: string })?.message || "排段失败，请重试");
+    } finally {
+      setPacingBusy("");
+    }
+  }, [projectId, volRef]);
+
+  const runPaceTailor = useCallback(async () => {
+    setPacingBusy("tailor");
+    setPacingHint("");
+    try {
+      const d = await volumePacingApi.tailor(projectId, volRef);
+      if (d.degraded || !d.config) {
+        setPacingHint(d.note || "没给出可用的套路建议，请重试");
+        setPacingPreview(null);
+      } else {
+        setPacingPreview({ kind: "tailor", config: d.config, note: d.note });
+      }
+    } catch (e: unknown) {
+      setPacingHint((e as { message?: string })?.message || "调套路失败，请重试");
+    } finally {
+      setPacingBusy("");
+    }
+  }, [projectId, volRef]);
+
+  const runPacePolish = useCallback(async () => {
+    setPacingBusy("polish");
+    setPacingHint("");
+    try {
+      const cur = await volumePacingApi.getVolume(projectId, volRef);
+      if (!cur.config) {
+        setPacingHint("先在节奏页签保存节奏配置，再润说明");
+        return;
+      }
+      const d = await volumePacingApi.polish(projectId, volRef, cur.config.steps);
+      setPacingPreview({ kind: "polish", steps: d.steps });
+    } catch (e: unknown) {
+      setPacingHint((e as { message?: string })?.message || "润说明失败，请重试");
+    } finally {
+      setPacingBusy("");
+    }
+  }, [projectId, volRef]);
+
+  const pacingAdoptPlan = useCallback(async () => {
+    setPacingBusy("plan");
+    try {
+      const cur = await volumePacingApi.getVolume(projectId, volRef);
+      const config = cur.config ?? cur.prefill;
+      if (!config) {
+        setPacingHint("先在节奏页签保存节奏配置");
+        return;
+      }
+      await volumePacingApi.saveVolume(projectId, volRef, { ...config, planned: true });
+      setPacingPreview(null);
+      onPacingChanged?.();
+    } finally {
+      setPacingBusy("");
+    }
+  }, [projectId, volRef, onPacingChanged]);
+
+  const pacingAdoptTailor = useCallback(async () => {
+    if (!pacingPreview || pacingPreview.kind !== "tailor") return;
+    setPacingBusy("tailor");
+    try {
+      await volumePacingApi.saveVolume(projectId, volRef, {
+        ...pacingPreview.config,
+        planned: false,
+      });
+      setPacingPreview(null);
+      onPacingChanged?.();
+    } finally {
+      setPacingBusy("");
+    }
+  }, [pacingPreview, projectId, volRef, onPacingChanged]);
+
+  const pacingAdoptPolish = useCallback(async () => {
+    if (!pacingPreview || pacingPreview.kind !== "polish") return;
+    setPacingBusy("polish");
+    try {
+      const cur = await volumePacingApi.getVolume(projectId, volRef);
+      if (!cur.config) {
+        setPacingHint("先在节奏页签保存节奏配置");
+        return;
+      }
+      await volumePacingApi.saveVolume(projectId, volRef, {
+        ...cur.config,
+        steps: pacingPreview.steps,
+      });
+      setPacingPreview(null);
+      onPacingChanged?.();
+    } finally {
+      setPacingBusy("");
+    }
+  }, [pacingPreview, projectId, volRef, onPacingChanged]);
+
   const runCheck = useCallback(async () => {
     setChecking(true);
     setError("");
@@ -217,14 +357,46 @@ function VolumeVerifyPanel({
       aiState="ready"
       targetLine={<>当前页签 · <span data-testid="volume-rail-tab">{VOL_TAB_NAME[tab] ?? "卷纲"}</span></>}
       rows={[
-        {
-          key: "check",
-          name: checking ? "体检中…" : "体检这一卷",
-          desc: "对照主线/节奏/设定/已写内容四组，只给判断不代笔",
-          onClick: () => void runCheck(),
-          disabled: checking || !aiPlan,
-          testid: "volume-check-btn",
-        },
+        ...(tab === "pacing"
+          ? []
+          : [
+              {
+                key: "check",
+                name: checking ? "体检中…" : "体检这一卷",
+                desc: "对照主线/节奏/设定/已写内容四组，只给判断不代笔",
+                onClick: () => void runCheck(),
+                disabled: checking || !aiPlan,
+                testid: "volume-check-btn",
+              },
+            ]),
+        ...(tab === "pacing"
+          ? [
+              {
+                key: "pace-plan",
+                name: pacingBusy === "plan" ? "排段中…" : "按套路分段，排这一卷（AI）",
+                desc: "照卷纲把节奏切成段；先出预览，采纳才落库",
+                onClick: () => void runPacePlan(),
+                disabled: !!pacingBusy || !aiPlan,
+                testid: "pacing-plan-btn",
+              },
+              {
+                key: "pace-tailor",
+                name: pacingBusy === "tailor" ? "调套路中…" : "按这本书调一版套路（AI）",
+                desc: "读题材、简介和主线，把套路和每步说明调到合身；不采纳不改任何内容",
+                onClick: () => void runPaceTailor(),
+                disabled: !!pacingBusy || !aiPlan,
+                testid: "pacing-tailor-btn",
+              },
+              {
+                key: "pace-polish",
+                name: pacingBusy === "polish" ? "润说明中…" : "润一遍步骤说明（AI）",
+                desc: "只顺措辞；步数、步序、每段几章都不动",
+                onClick: () => void runPacePolish(),
+                disabled: !!pacingBusy || !aiPlan,
+                testid: "pacing-polish-btn",
+              },
+            ]
+          : []),
         ...(tab === "outline"
           ? [{
               key: "replan",
@@ -266,6 +438,66 @@ function VolumeVerifyPanel({
       data-od-id="volume-verify-panel"
       data-testid="volume-verify-panel"
     >
+      {tab === "pacing" && (pacingHint || pacingPreview) ? (
+        <div className="cfgset rail-cfg" data-testid="pacing-preview">
+          <summary>节奏 · AI 结果（采纳才落库）</summary>
+          {pacingHint ? <p className="none">{pacingHint}</p> : null}
+          {pacingPreview?.kind === "plan" ? (
+            <div>
+              {pacingPreview.notes.map((n) => (
+                <p className="none" key={n.seg}>
+                  第 {n.seg} 段 · {n.text}
+                </p>
+              ))}
+              <button
+                className="btn btn-primary btn-sm"
+                style={{ marginTop: 8 }}
+                disabled={pacingBusy !== ""}
+                data-testid="pacing-plan-adopt"
+                onClick={() => void pacingAdoptPlan()}
+              >
+                采纳 · 置「已排」
+              </button>
+            </div>
+          ) : null}
+          {pacingPreview?.kind === "tailor" ? (
+            <div>
+              <p className="none">{pacingPreview.note}</p>
+              <p className="none">
+                {pacingPreview.config.steps.map((s) => s.n).join(" → ")}｜一段{" "}
+                {pacingPreview.config.steps_len} 章
+              </p>
+              <button
+                className="btn btn-primary btn-sm"
+                style={{ marginTop: 8 }}
+                disabled={pacingBusy !== ""}
+                data-testid="pacing-tailor-adopt"
+                onClick={() => void pacingAdoptTailor()}
+              >
+                采纳 · 写入本卷节奏
+              </button>
+            </div>
+          ) : null}
+          {pacingPreview?.kind === "polish" ? (
+            <div>
+              {pacingPreview.steps.map((s, i) => (
+                <p className="none" key={i}>
+                  {i + 1}. {s.n}：{s.t}
+                </p>
+              ))}
+              <button
+                className="btn btn-primary btn-sm"
+                style={{ marginTop: 8 }}
+                disabled={pacingBusy !== ""}
+                data-testid="pacing-polish-adopt"
+                onClick={() => void pacingAdoptPolish()}
+              >
+                采纳 · 写回步骤说明
+              </button>
+            </div>
+          ) : null}
+        </div>
+      ) : null}
       <p className="ai-lead" data-testid="volume-rail-lead">
         {VOL_TAB_LEAD[tab] ??
           "这一卷的验证：对不对得上全书设定、接不接得上主线、跟已经写出来的部分有没有出入。只给判断，不代笔。"}
@@ -348,6 +580,7 @@ export function VolumeAssistPanel({
   autoCheckSeq,
   onSplitAi,
   onGoOutline,
+  onPacingChanged,
   isPro,
   onUpgrade,
 }: {
@@ -359,6 +592,8 @@ export function VolumeAssistPanel({
   onSplitAi: () => void;
   /** 「去补卷纲」出口：中栏切回卷纲页签（c-split-to-chapters-tab） */
   onGoOutline: () => void;
+  /** 节奏动作采纳（c-volume-pacing）：卷视图重取拍位/徽章 */
+  onPacingChanged?: () => void;
   isPro: boolean;
   onUpgrade: (required?: FeatureKey) => void;
   /** 打开规划台（空书＝1；写作默认页＝最大卷号+1） */
@@ -379,6 +614,7 @@ export function VolumeAssistPanel({
         onPlanVolume={onPlanVolume}
         onSplitAi={onSplitAi}
         onGoOutline={onGoOutline}
+        onPacingChanged={onPacingChanged}
         isPro={isPro}
         onUpgrade={onUpgrade}
       />

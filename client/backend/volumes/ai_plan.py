@@ -885,8 +885,32 @@ async def ai_volume_check(
         if (vol.antagonist_type or vol.antagonist_line) else "（未填——判据输出 warn，不编造）"
     )
     boss_hint = _boss_step_hint(mat.get("genre_theme", ""))
+    # 卷节奏本拍完成度（c-volume-pacing）：已排卷追加判据与每章拍位对表；未配/未排＝零变化
+    from volumes import pacing as pc
+
+    _pacing_cfg = (
+        pc.normalize_pacing_config(json.loads(vol.pacing_json or ""))
+        if vol.pacing_json else None
+    )
+    _check_criteria = _rules_sections()[1]
+    _written_extra = ""
+    if _pacing_cfg and _pacing_cfg.get("planned") and vol.chapter_target:
+        _preset = pc.preset_or_default(_pacing_cfg["preset"])
+        _plan = pc.segment_plan(vol.chapter_target, _pacing_cfg["steps_len"])
+        _check_criteria += (
+            "\n【本拍完成度】（已排节奏的卷追加判据）已写各章按拍位对表："
+            f"套路「{_preset['label']}」每段 {_pacing_cfg['steps_len']} 章共 {_plan['n']} 段——"
+            "逐章看拍位任务兑现了没有、每段剧情讲完一遍没有；漏拍/越拍给 warn 并点名章号。"
+        )
+        _rows = []
+        for _c in chapters:
+            _b = pc.beat_of(int(_c["chapter_no"]), _pacing_cfg, vol.chapter_target)
+            if _b:
+                _rows.append(f"第{_c['chapter_no']}章＝段{_b['seg']}·{_b['step_name']}")
+        if _rows:
+            _written_extra = "\n各章拍位（照此对表）：\n" + "；".join(_rows)
     _sys_t, _usr_t = load_layers("volume_check")
-    system = _render(_sys_t, criteria=_rules_sections()[1])
+    system = _render(_sys_t, criteria=_check_criteria)
     _user = _render(
         _usr_t,
         vol_outline=outline_text + "\n上一卷与本卷的坎：" + ant_pair
@@ -899,7 +923,7 @@ async def ai_volume_check(
         rules=mat["world_rules"] or "（世界设定未登记铁律）",
         cast=mat["cast_brief"],
         hooks=mat["hooks_block"] or "（还没有登记伏笔）",
-        written=written_brief,
+        written=written_brief + _written_extra,
         prev_ending=prev["text"] + "（" + prev["source"] + "）",
     )
     raw, _u0 = await _generate(

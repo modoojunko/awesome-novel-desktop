@@ -143,6 +143,10 @@ export default function NovelWorkspace() {
   // 右栏「去补卷纲」→ 中栏切回卷纲页签（c-split-to-chapters-tab；autoCheckSeq 同款信号）
   const [goOutlineSeq, setGoOutlineSeq] = useState(0);
 
+  // 右栏节奏动作采纳 → 卷视图重取拍位（c-volume-pacing；goOutlineSeq 同款信号）
+  const [pacingRefreshSeq, setPacingRefreshSeq] = useState(0);
+  const handlePacingChanged = useCallback(() => setPacingRefreshSeq((n) => n + 1), []);
+
   // ── novelbar：书名双击改名（#164 口径：名称即标题且必填） ─────────────
   const [nameDraft, setNameDraft] = useState<string | null>(null);
   const commitRename = useCallback(async () => {
@@ -1317,6 +1321,7 @@ export default function NovelWorkspace() {
             onPlanVolume={openPlanVolume}
             onSplitAi={() => openChapterPlan("ai")}
             onGoOutline={() => setGoOutlineSeq((n) => n + 1)}
+            onPacingChanged={handlePacingChanged}
             onSelectVolume={handleSelectVolume}
             autoCheckSeq={autoCheck.seq}
             onAiWrite={() => requestAi({ kind: "write" })}

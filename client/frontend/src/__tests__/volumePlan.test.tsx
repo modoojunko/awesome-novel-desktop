@@ -575,7 +575,7 @@ describe("卷页签右栏（c-write-home-rail-anchor）", () => {
 
   const CASES: Array<[string, string, string[]]> = [
     ["outline", "卷纲", ["对主线", "对节奏", "对设定", "对已写内容"]],
-    ["chapters", "本卷章节", ["对已写内容", "对主线", "对节奏", "对设定"]],
+    ["chapters", "章节", ["对已写内容", "对主线", "对节奏", "对设定"]],
     ["rels", "角色关系", ["对设定", "对主线", "对节奏", "对已写内容"]],
     ["hooks", "伏笔", ["对设定", "对主线", "对节奏", "对已写内容"]],
   ];
@@ -669,7 +669,7 @@ describe("卷页签右栏（c-write-home-rail-anchor）", () => {
 
   it("未体检时只给引导语与动作，不预置空报告", () => {
     renderPanel({ data: railData("chapters") });
-    expect(screen.getByTestId("volume-rail-tab").textContent).toBe("本卷章节");
+    expect(screen.getByTestId("volume-rail-tab").textContent).toBe("章节");
     expect(screen.getByTestId("volume-rail-lead").textContent).toContain("已写内容与卷纲的出入");
     expect(screen.queryByTestId("volume-check-report")).toBeNull();
     expect(screen.getByTestId("volume-check-btn")).toBeDefined();

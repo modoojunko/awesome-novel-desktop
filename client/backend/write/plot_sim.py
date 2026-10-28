@@ -147,7 +147,9 @@ def _fallback_rounds(
     return rounds
 
 
-def _material(chapter: dict, prev: dict | None, entry: str) -> str:
+def _material(
+    chapter: dict, prev: dict | None, entry: str, beat: dict | None = None
+) -> str:
     outline = chapter.get("outline") if isinstance(chapter.get("outline"), dict) else {}
     memo = chapter.get("memo") if isinstance(chapter.get("memo"), dict) else {}
     emotional = (
@@ -192,6 +194,13 @@ def _material(chapter: dict, prev: dict | None, entry: str) -> str:
         if prose:
             prev_lines.append("上一章正文结尾摘录：" + prose[-120:])
     blocks.append("【上一章结尾】\n" + "\n".join(prev_lines))
+    if beat:
+        blocks.append(
+            "【本拍任务】\n"
+            + beat["task"]
+            + "——推演的起讫与回合走法都服务这一拍：本拍该「遇麻烦」就 SHALL NOT 把"
+            "「解决/变强」也演完；下一拍的动向最多以预兆出现，SHALL NOT 展开。"
+        )
     return "\n\n".join(blocks)
 
 
@@ -254,7 +263,12 @@ async def plot_simulate(
     except Exception:  # noqa: BLE001 — 模型未就绪：调用未发生，不记账
         client = None
     if client is not None:
-        material = _material(chapter, prev, entry)
+        beat = None
+        if vol_no and ch_no:
+            from volumes.pacing import beat_context
+
+            beat = await beat_context(db, project.id, vol_no, ch_no)
+        material = _material(chapter, prev, entry, beat=beat)
         _sys_t, _usr_t = load_layers("plot_sim")
         system = _sys_t
         _user = _usr_t.format(material=material)

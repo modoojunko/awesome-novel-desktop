@@ -99,7 +99,7 @@ describe("VolumeWorkspace 卷视图", () => {
     renderVol();
     expect(await screen.findByText("卷 · 分卷计划")).toBeInTheDocument();
     expect(screen.getByRole("tab", { name: "卷纲" })).toBeInTheDocument();
-    expect(screen.getByRole("tab", { name: "本卷章节" })).toBeInTheDocument();
+    expect(screen.getByRole("tab", { name: "章节" })).toBeInTheDocument();
     expect(screen.getByRole("tab", { name: "角色关系" })).toBeInTheDocument();
     expect(screen.getByRole("tab", { name: "伏笔" })).toBeInTheDocument();
     // c-volume-antagonist 查看态：四问一页纸
@@ -185,7 +185,7 @@ describe("VolumeWorkspace 卷视图", () => {
   it("本卷章节页签：台账＋旧稿支线汇总＋frontier 在本卷出现新增入口", async () => {
     const onGo = vi.fn();
     renderVol();
-    fireEvent.click(await screen.findByRole("tab", { name: "本卷章节" }));
+    fireEvent.click(await screen.findByRole("tab", { name: "章节" }));
     expect(await screen.findByText("第 1 章 · 雨夜")).toBeInTheDocument();
     expect(screen.getByText(/接头遇袭/)).toBeInTheDocument();
     expect(screen.getByText(/旧稿支线 1 章 · 已脱离主线，不计入本书设定/)).toBeInTheDocument();
@@ -197,7 +197,7 @@ describe("VolumeWorkspace 卷视图", () => {
   it("写作位在另一卷 → 不出现新增入口，显示说明", async () => {
     mockApi({ frontierVol: 2 });
     renderVol();
-    fireEvent.click(await screen.findByRole("tab", { name: "本卷章节" }));
+    fireEvent.click(await screen.findByRole("tab", { name: "章节" }));
     expect(await screen.findByText(/新增章节排在主线末端/)).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /在本卷新增一章/ })).toBeNull();
   });
@@ -257,7 +257,7 @@ describe("拆章入口迁本卷章节页签（c-split-to-chapters-tab）", () =>
         onEditChapter={() => {}}
       />,
     );
-    fireEvent.click(await screen.findByRole("tab", { name: "本卷章节" }));
+    fireEvent.click(await screen.findByRole("tab", { name: "章节" }));
     const split = await screen.findByTestId("volume-split-manual");
     expect(split).toBeEnabled();
     fireEvent.click(split);
@@ -268,7 +268,7 @@ describe("拆章入口迁本卷章节页签（c-split-to-chapters-tab）", () =>
   it("末端门禁：写作位在后面的卷 → 拆章置灰＋提示段随迁", async () => {
     mockApi({ frontierVol: 2 });
     renderVol();
-    fireEvent.click(await screen.findByRole("tab", { name: "本卷章节" }));
+    fireEvent.click(await screen.findByRole("tab", { name: "章节" }));
     const split = (await screen.findByTestId("volume-split-manual")) as HTMLButtonElement;
     expect(split.disabled).toBe(true);
     expect(split.title).toContain("还没轮到");
