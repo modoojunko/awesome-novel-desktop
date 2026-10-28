@@ -23,5 +23,6 @@
 ## Impact
 
 - 前端：`client/frontend/src/components/novel/workbench/OutlineTree.tsx`（删按钮＋处理函数）、`client/frontend/src/design/book.css`（删孤儿样式两处成员）。
-- 测试：零覆盖（无单测/e2e 点击该按钮；e2e 仅一行注释提及），无需改钉；vitest 定向＋tsc 回归。
+- 测试：该按钮原先零覆盖（无单测/e2e 点击；e2e 仅一行注释提及）——评审补一枚退役钉
+  （`NovelWorkspace.test.tsx`：非空书不出现该按钮与 `.tree-foot`）；vitest 定向＋tsc 回归。
 - 后端：零改动——`POST /chapters/{ref}/confirm` 端点仍由章纲页签「确认章纲」消费。

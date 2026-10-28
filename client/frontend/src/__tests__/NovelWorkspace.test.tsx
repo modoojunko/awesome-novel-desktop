@@ -414,6 +414,16 @@ describe("免费态：选中章 → 章对象工作台", () => {
   });
 });
 
+describe("树底批量确认退役（c-tree-batch-confirm-retire）", () => {
+  it("非空书左栏不出现「确认全部已填章节」与树底按钮条", async () => {
+    mockOneChapterTree();
+    renderWorkspace("none");
+    await selectFirstChapter();
+    expect(screen.queryByText("确认全部已填章节")).toBeNull();
+    expect(document.querySelector(".col-tree .tree-foot")).toBeNull();
+  });
+});
+
 describe("bar-here 续写（上次写作会话）", () => {
   it("last_write 章优先为主线端点＋续写按钮在", async () => {
     mockOneChapterTree();
