@@ -859,7 +859,9 @@ async def ai_chapter_selfcheck(
     from volumes.pacing import beat_context
 
     beat = await beat_context(db, project.id, vol.volume_no, ch_no)
-    beat_line = f"- 本拍任务：{beat['task']}（短评须对照它判「写到没有」）" if beat else ""
+    beat_block = (
+        f"- 本拍任务：{beat['task']}（短评须对照它判「写到没有」）" if beat else ""
+    )
 
     _sys_t, _usr_t = load_layers("chapter_selfcheck")
     system = _sys_t
@@ -871,6 +873,7 @@ async def ai_chapter_selfcheck(
         obstacle=_fit(body.challenge, "obstacle"),
         ending=_fit(body.ending, "ending"),
         stage=body.stage if body.stage in STAGE_SET else "（未定）",
+        beat=beat_block,
     )
     if beat_line:
         user_msg += "\n【本拍任务】\n" + beat_line
