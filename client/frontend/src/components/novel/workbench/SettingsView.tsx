@@ -258,11 +258,18 @@ export default function SettingsView({
     }
     toast.info("这是会员功能——开通后可用；免费版写作能力完整");
   }, []);
-  // 简介右栏 AI 三能力（并列，非先后流程）——onClick 经 introRef 调面板内 runAi
+  // 简介右栏 AI 四能力（并列，非先后流程）——onClick 经 introRef 调面板内 runAi
   // 前置守卫（D14/O-3）：补缺失未体检 → 置灰 + 「先体检」
+  // 起草（c-intro-ai-draft）是唯一从零起的能力：题材已定的空简介落地就靠它出第一版
   const [introspected, setIntrospected] = useState(false);
   const introAiRows = useMemo<AiCapabilityRow[]>(
     () => [
+      {
+        key: "draft",
+        name: "AI 起草",
+        desc: "凭题材＋书名从零出一版底稿，采纳才写入；不满意「换一个」重掷",
+        onClick: () => runIntroAi("draft", "draft"),
+      },
       {
         key: "check",
         name: "体检",
@@ -1308,6 +1315,52 @@ const IntroPanel = forwardRef<
                   : undefined,
               },
             }));
+          } else if (action === "draft") {
+            const draft = r.draft ?? "";
+            setCards((prev) => ({
+              ...prev,
+              [action]: {
+                label: "AI 起草稿 · 采纳才写入",
+                kind: "text",
+                adoptText: "采纳 · 替换简介",
+                cached: false,
+                node: (
+                  <div>
+                    {r.original ? (
+                      <p style={{ margin: "4px 0", color: "var(--muted)" }}>原稿：{r.original}</p>
+                    ) : null}
+                    <p style={{ margin: "4px 0" }}>
+                      <b>草稿</b>：{draft}
+                    </p>
+                    <p style={{ margin: "8px 0 0", fontSize: 11.5, color: "var(--muted)" }}>
+                      凭题材与书名起草、按六段骨架组织；采纳后可继续改，不满意「换一个」重掷
+                    </p>
+                  </div>
+                ),
+                adopt: draft
+                  ? () => {
+                      const prevValue = synopsisRef.current;
+                      const prevBase = baseRef.current;
+                      const next = draft.slice(0, INTRO_MAX_LEN);
+                      editedRef.current = true;
+                      recordChange(
+                        `已采纳「AI 起草」，简介 ${synopsisRef.current.length} 字 → ${next.length} 字`,
+                        () => {
+                          /* 值在下面落地 */
+                        },
+                        () => {
+                          setSynopsis(prevValue);
+                          baseRef.current = prevBase;
+                          setTextHint(false);
+                        },
+                      );
+                      setSynopsis(next);
+                      closeCard();
+                      toast.success("已写入草稿，可继续改或「换一个」重掷");
+                    }
+                  : undefined,
+              },
+            }));
           } else {
             const polished = r.polished ?? "";
             setCards((prev) => ({
@@ -1488,7 +1541,7 @@ const IntroPanel = forwardRef<
           )}
         </div>
 
-        {/* AI 出卡确认弹窗：三能力共用（关闭即弃；缓存重开免请求） */}
+        {/* AI 出卡确认弹窗：四能力共用（关闭即弃；缓存重开免请求） */}
         <AiCardModal
           open={cardOpen && cardAction !== null}
           card={cardAction ? cards[cardAction] ?? null : null}

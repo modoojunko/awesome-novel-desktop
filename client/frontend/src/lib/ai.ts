@@ -271,12 +271,12 @@ export async function genreAi(
 }
 
 // ---------------------------------------------------------------------------
-// 简介 AI 三能力（genre-signup-redesign tasks 3.5 / D7）
+// 简介 AI 四能力（体检/补缺失/润色沿 genre-signup-redesign；起草 c-intro-ai-draft）
 // ---------------------------------------------------------------------------
 
-export type IntroAiAction = "introspect" | "fill" | "polish";
+export type IntroAiAction = "introspect" | "fill" | "polish" | "draft";
 
-/** 简介 AI 返回（体检为 six_segments/taboo/verdict；补缺失 missing/act；润色 original/polished/act）。 */
+/** 简介 AI 返回（体检为 six_segments/taboo/verdict；补缺失 missing/act；润色 original/polished/act；起草 original/draft/act）。 */
 export interface IntroAiResult {
   six_segments?: Array<{ name: string; status: "ok" | "missing"; excerpt?: string; note?: string }>;
   taboo?: { hits: Array<{ rule: string; excerpts: string[] }> };
@@ -290,6 +290,8 @@ export interface IntroAiResult {
   missing?: Array<{ name: string; candidate: string }>;
   original?: string;
   polished?: string;
+  /** 起草稿（c-intro-ai-draft）：凭题材＋书名从零起的第一版，采纳才写入。 */
+  draft?: string;
   act?: "insert" | "replace";
   [k: string]: unknown;
 }
@@ -309,6 +311,7 @@ export function aiBlockReason(e: unknown): AiBlockReason | null {
 /**
  * 简介 AI：POST /novels/{id}/settings/ai/intro/{action}
  * - 入参 content ＝ 当前编辑框的 synopsis 草稿（不读存储旧文）、title ＝ 书名
+ * - 例外：draft（起草）从零起稿，content 传空串合法
  * - 失败抛错，调用方按 aiBlockReason(e) 分派文案与跳转
  */
 export async function introAi(

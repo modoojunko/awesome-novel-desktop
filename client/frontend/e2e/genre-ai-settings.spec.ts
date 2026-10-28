@@ -189,6 +189,49 @@ test.describe("题材/简介 AI 链路", () => {
     }
   });
 
+  test("起草（c-intro-ai-draft）：空简介可点 → 出卡草稿 → 采纳写入＋回执撤销", async ({
+    page,
+  }) => {
+    const { restore } = await setupSession(page);
+    try {
+      const pid = await createNovel(page, `AI起草${Date.now() % 100000}`);
+      await stubAiState(page, pid, "ready");
+      await page.route(`**/api/novels/${pid}/settings/ai/intro/draft`, (r) =>
+        r.fulfill({
+          json: {
+            original: "",
+            draft: "拆迁通知贴在卷帘门上那天，老周正给一辆旧摩托换链条。",
+            act: "replace",
+          },
+        }),
+      );
+
+      await page.getByRole("button", { name: /^设定/ }).click();
+      // c-genre-first-order：默认落「题材」——简介用例显式切到简介
+      await openSetting(page, "简介");
+
+      // 空简介直接点起草（唯一无内容前置的能力行）
+      await page.locator('[data-aiact="draft"]').click();
+      const dialog = page.getByRole("dialog");
+      await expect(dialog).toBeVisible({ timeout: 10000 });
+      await expect(dialog).toContainText("AI 起草稿 · 采纳才写入");
+      await expect(page.getByTestId("intro-ai-card")).toContainText("拆迁通知贴在卷帘门上那天");
+
+      // 采纳＝整段写入；回执撤销＝一键回空
+      await page.getByTestId("ai-card-adopt").click();
+      await expect(page.getByRole("dialog")).toHaveCount(0);
+      const ta = page.getByPlaceholder(/用几句话/);
+      await expect(ta).toHaveValue(/拆迁通知贴在卷帘门上那天/);
+      const receipt = page.locator('[data-od-id="panel-receipt"]');
+      await expect(receipt).toContainText("已采纳「AI 起草」");
+      await page.locator('[data-od-id="panel-undo"]').click();
+      await expect(ta).toHaveValue("");
+      await expect(receipt).toHaveCount(0);
+    } finally {
+      await restore();
+    }
+  });
+
   test("题材五行 AI：弹窗出卡 → 采纳写回该控件；重开走缓存、换一个版数递增（9.4.6）", async ({
     page,
   }) => {

@@ -7,7 +7,7 @@
 - 绑定校验 `set_project_model`：不成对 400、model 不在列表 400、显式 clear 放行
 - `GET /novels/{id}/ai-model` 下发 ai_state/effective_model
 - 题材字段 AI：归一化（候选 slug 映射 / 自定义文本 / 数值 clamp / 非法 JSON 502 / 非法字段 400）
-- 简介 AI：体检归一化兜底、补缺失、润色、非法 action 400
+- 简介 AI：体检归一化兜底、补缺失、润色、起草（c-intro-ai-draft：空简介放行＋题材注入）、非法 action 400
 - 计量：operation 细分 + model 记实际本书模型
 """
 
@@ -603,6 +603,124 @@ class TestIntroAi:
         assert r.json() == {"original": "原文", "polished": "改后", "act": "replace"}
         # 长文生成类：temperature 0.7（与 JSON 判定类区分）
         assert fake.last_kwargs["temperature"] == 0.7
+
+
+class TestIntroDraft:
+    """c-intro-ai-draft：起草＝从零起稿——空简介放行、注入题材五格、不吃已有文本。"""
+
+    def _patch_client(self, monkeypatch, text: str):
+        fake = _FakeClient(text)
+
+        async def _get(novel_id):
+            return fake
+
+        monkeypatch.setattr(ai_router, "get_ai_client_for_novel", _get)
+        return fake
+
+    def _seed_genre(self, novel_id: str) -> None:
+        """story.yaml 题材目录＋五格全填（preset id 与自定义文本混合）。"""
+        from filesystem.storage import get_storage
+        from genres.novel_genre_service import ensure_seed_genre_vocab, put_novel_genre
+
+        async def _write():
+            await ensure_seed_genre_vocab()
+            novel = await _get_novel(novel_id)
+            await get_storage().write_yaml(
+                novel.root_path,
+                "story.yaml",
+                {"genre": "现实题材", "sub_genre": "市井生存"},
+            )
+            async with async_session() as session:
+                await put_novel_genre(
+                    session,
+                    novel_id,
+                    {
+                        "core_promise": "小人物一分一分把钱挣回来",
+                        "cost_ratio": 7,
+                        "forbidden_list": [
+                            {"tagId": "forbidden:no-free-powerup"},
+                            {"text": "禁穿越"},
+                        ],
+                        "battlefield": ["battlefield:resources", "街口那条巷子"],
+                    },
+                )
+
+        _run_async(_write())
+
+    def _prompt_of(self, fake: _FakeClient) -> str:
+        return (fake.last_kwargs.get("system") or "") + fake.last_kwargs["messages"][0]["content"]
+
+    def test_draft_empty_content_allowed(self, client, monkeypatch):
+        cid = _run_async(_make_config(["gpt-4o"]))
+        nid = _run_async(_make_novel(cid, "gpt-4o"))  # 无 story.yaml、无五格
+        fake = self._patch_client(monkeypatch, '{"synopsis": "草稿"}')
+        r = client.post(
+            f"/api/novels/{nid}/settings/ai/intro/draft",
+            json={"title": "书", "content": ""},
+        )
+        assert r.status_code == 200, r.text
+        assert r.json() == {"original": "", "draft": "草稿", "act": "replace"}
+        # 题材＋五格全未填：占位声明进提示词（题材目录解读走另一兜底文案）
+        assert self._prompt_of(fake).count("（作者还没填）") >= 5
+        # 生成类比润色（0.7）再放开一档
+        assert fake.last_kwargs["temperature"] == 0.8
+
+    def test_draft_injects_genre_and_ignores_content(self, client, monkeypatch):
+        cid = _run_async(_make_config(["gpt-4o"]))
+        nid = _run_async(_make_novel(cid, "gpt-4o"))
+        self._seed_genre(nid)
+        fake = self._patch_client(monkeypatch, '{"synopsis": "草稿"}')
+        r = client.post(
+            f"/api/novels/{nid}/settings/ai/intro/draft",
+            json={"title": "长夜灯", "content": "这是不该被喂给模型的旧简介"},
+        )
+        assert r.status_code == 200, r.text
+        assert r.json()["original"] == "这是不该被喂给模型的旧简介"
+        prompt = self._prompt_of(fake)
+        assert "现实题材（市井生存）" in prompt  # 题材目录标签
+        assert "小人物一分一分把钱挣回来" in prompt  # 核心承诺原文
+        assert "禁白捡神器" in prompt and "禁穿越" in prompt  # preset id 译回标签＋自定义文本
+        assert "越大越虐）：7" in prompt  # 吃苦指数
+        assert "抢资源" in prompt and "街口那条巷子" in prompt  # 战场同上
+        assert "旧简介" not in prompt  # 起草不吃已有文本
+
+    def test_draft_clamped_to_500(self, client, monkeypatch):
+        cid = _run_async(_make_config(["gpt-4o"]))
+        nid = _run_async(_make_novel(cid, "gpt-4o"))
+        self._patch_client(monkeypatch, json.dumps({"synopsis": "长" * 600}, ensure_ascii=False))
+        r = client.post(
+            f"/api/novels/{nid}/settings/ai/intro/draft",
+            json={"title": "书", "content": ""},
+        )
+        assert r.status_code == 200, r.text
+        assert len(r.json()["draft"]) == 500
+
+    def test_draft_invalid_json_502(self, client, monkeypatch):
+        cid = _run_async(_make_config(["gpt-4o"]))
+        nid = _run_async(_make_novel(cid, "gpt-4o"))
+        self._patch_client(monkeypatch, "不是 JSON")
+        r = client.post(
+            f"/api/novels/{nid}/settings/ai/intro/draft",
+            json={"title": "书", "content": ""},
+        )
+        assert r.status_code == 502, r.text
+
+    def test_draft_usage_records_operation(self, client, monkeypatch):
+        cid = _run_async(_make_config(["gpt-4o"]))
+        nid = _run_async(_make_novel(cid, "gpt-4o"))
+        self._patch_client(monkeypatch, '{"synopsis": "草稿"}')
+        client.post(
+            f"/api/novels/{nid}/settings/ai/intro/draft", json={"title": "书", "content": ""}
+        )
+
+        async def _rows():
+            async with async_session() as session:
+                res = await session.execute(select(TokenLog).where(TokenLog.project_id == nid))
+                return res.scalars().all()
+
+        rows = _run_async(_rows())
+        assert rows and rows[-1].operation == "settings_intro_draft"
+        assert rows[-1].model == "gpt-4o"
 
 
 # ── 幂等（9.2.13）──────────────────────────────────────────────────────────
