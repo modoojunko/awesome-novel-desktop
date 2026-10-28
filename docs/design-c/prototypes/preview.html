@@ -148,15 +148,37 @@
   .pill { display: inline-flex; align-items: center; border: 1px solid var(--border); border-radius: 999px; padding: 1px 8px; font-size: 11px; line-height: 1.6; font-weight: 500; background: var(--surface); color: var(--muted); white-space: nowrap; flex: none; }
   .pill-accent { background: var(--accent-soft); border-color: transparent; color: var(--accent-strong); }
 
+  /* ── 纸面令牌（c-preview-paper）：与写作页 c-prose-paper 同源同值（实现侧
+     book.css 声明于 .col-editor, .preview-v 两处；本页只有预览视图，故只挂 .preview-v）。── */
+  .preview-v { --paper-desk: oklch(94.2% 0.006 240); --paper-bg: oklch(100% 0 0);
+    --paper-edge: color-mix(in oklch, var(--fg) 10%, transparent);
+    --paper-lift: 0 1px 2px color-mix(in oklch, var(--fg) 7%, transparent),
+                  0 18px 44px -14px color-mix(in oklch, var(--fg) 22%, transparent);
+    --paper-measure: 680px; --paper-pm: 64px; --paper-pm-min: 20px; --paper-desk-x: 12px;
+    --paper-pt: 56px; --paper-pb: 72px; }
+
   .pv-read { min-width: 0; min-height: 0; display: flex; flex-direction: column; background: var(--bg); overflow: hidden; }
   .pv-read-top { flex: none; display: flex; align-items: center; gap: 10px; padding: 10px 20px; border-bottom: 1px solid var(--border); background: var(--surface); }
   .pv-read-top .pos { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-family: var(--font-mono); font-size: 11px; color: var(--muted); }
   .pv-turn { border: 1px solid var(--border); background: var(--surface); color: var(--fg); font: inherit; font-size: 12px; padding: 5px 12px; border-radius: 9px; flex: none; }
   .pv-turn:hover:not([aria-disabled="true"]) { background: var(--fg-soft); }
   .pv-turn[aria-disabled="true"] { opacity: 0.35; cursor: default; }
-  .pv-prose-wrap { flex: 1 1 auto; min-height: 0; overflow-y: auto; padding: 36px 48px 96px; background: var(--pv-bg); color: var(--pv-fg); }
+  /* 阅读区纸面（c-preview-paper）：默认「白纸」主题分两层——桌面（wrap 底色）／纸（.pv-paper）。
+     滚动容器仍是 .pv-prose-wrap；纸宽与纸边距沿用写作页同款 clamp 与 min 公式（先挤纸边距、
+     到 20px 下限再让内容列让路，恒留桌面缝），内容列仍由阅读配置 66ch 决定（design.md D4）。 */
+  .pv-prose-wrap { flex: 1 1 auto; min-height: 0; display: flex; flex-direction: column; overflow-y: auto; background: var(--paper-desk); color: var(--pv-fg); }
+  .pv-paper { position: relative; box-sizing: border-box; flex: 1 0 auto;
+    --paper-pad-x: clamp(var(--paper-pm-min), calc((100% - var(--paper-measure) - 2 * var(--paper-desk-x)) / 2), var(--paper-pm));
+    width: min(calc(var(--paper-measure) + 2 * var(--paper-pm)), calc(100% - 2 * var(--paper-desk-x)));
+    margin: 36px auto 56px; padding: var(--paper-pt) var(--paper-pad-x) var(--paper-pb);
+    background: var(--paper-bg);
+    box-shadow: inset 0 0 0 1px var(--paper-edge), var(--paper-lift); }
   .pv-theme-sepia { --pv-bg: oklch(0.955 0.014 80); --pv-fg: oklch(0.335 0.022 70); --pv-muted: oklch(0.55 0.02 70); }
   .pv-theme-night { --pv-bg: oklch(0.19 0.012 245); --pv-fg: oklch(0.875 0.012 245); --pv-muted: oklch(0.6 0.012 245); }
+  /* 护眼/夜间不上纸：整面填色＋块流恢复原状，纸面退化为透传（无底/无影/无纸边距）。
+     ⚠ 新增阅读主题档必须在此同步回退，否则默认档的桌面/纸面样式会外溢。 */
+  .pv-theme-sepia .pv-prose-wrap, .pv-theme-night .pv-prose-wrap { display: block; background: var(--pv-bg); padding: 36px 48px 96px; }
+  .pv-theme-sepia .pv-paper, .pv-theme-night .pv-paper { background: none; box-shadow: none; width: auto; margin: 0; padding: 0; }
   .pv-chapter { max-width: 66ch; margin: 0 auto; padding-bottom: 20px; margin-bottom: 28px; border-bottom: 1px solid var(--border); }
   .pv-voltag { margin: 0 0 4px; font-family: var(--font-mono); font-size: 10.5px; letter-spacing: 0.06em; color: var(--pv-muted); }
   .pv-chapter h2 { margin: 0 0 6px; font-size: 22px; font-weight: 600; color: var(--pv-fg); font-family: var(--font-display); }
@@ -440,6 +462,7 @@ function readHTML(){
     + turn('next', '下一章', next)
     + '</div>'
     + '<div class="pv-prose-wrap" data-od-id="pv-prose-wrap">'
+    + '<div class="pv-paper" data-od-id="pv-paper">'
     + (c
         ? '<div class="pv-chapter" data-od-id="pv-chapter">'
           + (vol ? '<p class="pv-voltag">第'+cnNum(vol.no)+'卷 · '+esc(vol.title)+'</p>' : '')
@@ -448,6 +471,7 @@ function readHTML(){
         + '</div>'
         : '<p class="vempty">这本书还没有可预览的章节。</p>')
     + '<div class="pv-prose" data-od-id="pv-prose">'+body+'</div>'
+    + '</div>'
     + '</div>';
 }
 
