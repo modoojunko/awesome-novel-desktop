@@ -237,13 +237,11 @@
 .inline-add { display: flex; align-items: center; gap: 6px; margin: 4px 0 4px 4px; padding-left: 10px; }
 .inline-add input { flex: 1; height: 28px; border: 1px solid var(--accent); border-radius: 8px; padding: 0 10px; font-size: 13px; background: var(--surface); }
 .tree-foot { padding: 0 14px 4px; }
-.tree-foot .batch { color: var(--muted); }
-.tree-foot .batch:hover { color: var(--fg); }
 /* 空目录提示（c-0vol0ch-empty-state）：口径＝原型 .toc-empty（12.5px / 14px 6px），
    与 .tree 的 8px 侧衬垫叠成 14px 列缘内缩 */
 .empty-tree { padding: 14px 6px; color: var(--muted); font-size: 12.5px; line-height: 1.7; }
-/* 空书态左栏底部入口（原型 .tree-add/.add-btn）：虚线按钮在列底常驻
-   —— 空书时替代「确认全部已填章节」（无章可确认），列内改 flex 纵排令其贴底 */
+/* 空书态左栏底部入口（原型 .tree-add/.add-btn）：虚线按钮在列底常驻，
+   列内改 flex 纵排令其贴底 */
 .tree-add { flex: none; display: flex; flex-wrap: wrap; gap: 8px; padding: 11px 8px 12px; border-top: 1px solid var(--border); background: var(--surface); }
 .tree-add .add-btn { flex: 1 1 auto; display: inline-flex; align-items: center; justify-content: center; gap: 6px; background: none; border: 1px dashed var(--border); border-radius: var(--radius); padding: 8px 10px; font-size: 12px; color: var(--muted); }
 .tree-add .add-btn:hover { border-color: var(--accent); color: var(--accent); border-style: solid; }
@@ -421,7 +419,7 @@
 .prose-body.generating .editor:empty::before { content: none; }
 /* 流式期间左栏树锁定（c-prose-stream-guard）：整树置灰＋禁用手感，
    点击拦截在 NovelWorkspace 壳层捕获（onClickCapture），出口＝页签行「停止」 */
-.col-tree.ai-lock .tree, .col-tree.ai-lock .tree-head, .col-tree.ai-lock .tree-foot, .col-tree.ai-lock .tree-add { opacity: 0.55; }
+.col-tree.ai-lock .tree, .col-tree.ai-lock .tree-head, .col-tree.ai-lock .tree-add { opacity: 0.55; }
 .col-tree.ai-lock .vol-head, .col-tree.ai-lock .ch { cursor: not-allowed; }
 .col-tree.ai-lock .vol-head:hover, .col-tree.ai-lock .ch:hover { background: transparent; }
 .editor-status { flex: none; display: flex; align-items: center; gap: 14px; height: 32px; padding: 0 18px; border-top: 1px solid color-mix(in oklch, var(--fg) 7%, transparent); background: var(--paper-desk); font-size: 12px; color: var(--muted); }

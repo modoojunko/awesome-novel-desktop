@@ -1,10 +1,10 @@
 // 大纲树（book.html 树列复刻）：树头统计 + 加卷弹窗 + 三态 dot + hover 操作
-// + 行内加章 + 批量确认 + 默认全展开（ADJUSTMENTS #4）。
+// + 行内加章 + 默认全展开（ADJUSTMENTS #4）。
 // 应用侧扩展（ADJUSTMENTS #6）：hover 操作补「铅笔」行内重命名（#164 名称即标题口径）。
 // PR 5：删除走分级确认弹窗（空章无盘点；有内容 chips 盘点；卷带章数字数）。
 // c-0vol0ch-empty-state：空书态（零卷零章）底部改为「＋ 新增一章 / ＋ 新增一卷」
-// 两入口（原型 .tree-add；「确认全部已填章节」在空书里无对象故让位），加卷弹窗
-// 随之上交壳层（NovelWorkspace 持有，顶栏/中栏/左栏三处共用）。
+// 两入口（原型 .tree-add），加卷弹窗随之上交壳层（NovelWorkspace 持有，顶栏/中栏/左栏三处共用）。
+// c-tree-batch-confirm-retire：树底「确认全部已填章节」退役——章纲确认只走章纲页签「确认章纲」。
 import { useEffect, useRef, useState } from "react";
 import { Ico, P } from "@/components/icons";
 import { DeleteConfirmModal } from "./modals";
@@ -175,28 +175,6 @@ export default function OutlineTree({
     const current = findCurrentTitle(wb, kind, id);
     if (next === current) return;
     await wb.renameNode(id, next);
-  };
-
-  const handleBatchConfirm = async () => {
-    let n = 0;
-    for (const v of outline.volumes) {
-      for (const c of v.chapters) {
-        if (c.status === "confirmed" || c.archived || c.historical) continue;
-        try {
-          await request(`/novels/${projectId}/chapters/${c.ref}/confirm`, {
-            method: "POST",
-            quiet: true,
-          });
-          n++;
-        } catch {
-          // 必填字段未完成（400）→ 跳过
-        }
-      }
-    }
-    await Promise.allSettled([outline.refetchTree(), wb.refresh()]);
-    toast.success(
-      n ? `已确认 ${n} 章章纲` : "没有可确认的章节（必填字段未完成的章节已跳过）",
-    );
   };
 
   return (
@@ -418,8 +396,9 @@ export default function OutlineTree({
   )}
 
 
-      {volumes.length === 0 ? (
-        /* 空书态底部入口（原型 .tree-add）：无章可确认，「确认全部已填章节」让位 */
+      {/* 树底批量确认「确认全部已填章节」已退役（c-tree-batch-confirm-retire）：
+          章纲确认只走章纲页签「确认章纲」；空书态两入口照常 */}
+      {volumes.length === 0 && (
         <div className="tree-add" data-od-id="tree-create">
           <button
             className="add-btn"
@@ -437,12 +416,6 @@ export default function OutlineTree({
             onClick={onAddVolume}
           >
             ＋ 新增一卷
-          </button>
-        </div>
-      ) : (
-        <div className="tree-foot">
-          <button className="btn btn-ghost btn-sm batch" onClick={() => void handleBatchConfirm()}>
-            确认全部已填章节
           </button>
         </div>
       )}
