@@ -5,6 +5,8 @@
 //   选中章与阅读配置均为预览本地态（ADJUSTMENTS #12/#13）：切章不回写写作视图；
 //   阅读配置走 pref.book.{pid}.read.*（独立于写作偏好 fs/lh，互不污染）。
 //   语义沿 ADJUSTMENTS #12：全书只读通读（草稿与归档章皆可读）；旧稿支线不进目录与概览。
+//   阅读区默认「白纸」主题上纸（c-preview-paper）：桌面／纸两层与写作页同源令牌，
+//   护眼/夜间整面填色不上纸；滚动容器仍是 .pv-prose-wrap。
 import { Fragment, useEffect, useMemo, useRef, useState } from "react";
 import { api } from "@/lib/api";
 import { nodeLabel } from "@/lib/nodeTitle";
@@ -323,25 +325,29 @@ export default function PreviewView({
             下一章
           </button>
         </div>
+        {/* 纸（c-preview-paper）：默认「白纸」主题下章头与正文进纸；护眼/夜间该层退化为透传。
+            滚动容器仍是 .pv-prose-wrap（章级导航口径不变）。 */}
         <div className="pv-prose-wrap" data-testid="preview-prose-wrap">
-          {active ? (
-            <div className="pv-chapter" data-testid="pv-chapter">
-              <p className="pv-voltag">{activeVolLabel}</p>
-              <h2>{activeChLabel}</h2>
-              <p className="pv-meta" data-testid="pv-meta">
-                {activeStatus?.label}
-                {hasProseOf(active.c) && ` · ${active.c.word_count} 字`}
-                {active.c.stale ? " · 基于旧设定" : ""}
-              </p>
-            </div>
-          ) : (
-            <p className="vempty">这本书还没有可预览的章节。</p>
-          )}
-          <div
-            className="pv-prose"
-            data-testid="preview-prose"
-            dangerouslySetInnerHTML={{ __html: proseHtml }}
-          />
+          <div className="pv-paper" data-testid="preview-paper">
+            {active ? (
+              <div className="pv-chapter" data-testid="pv-chapter">
+                <p className="pv-voltag">{activeVolLabel}</p>
+                <h2>{activeChLabel}</h2>
+                <p className="pv-meta" data-testid="pv-meta">
+                  {activeStatus?.label}
+                  {hasProseOf(active.c) && ` · ${active.c.word_count} 字`}
+                  {active.c.stale ? " · 基于旧设定" : ""}
+                </p>
+              </div>
+            ) : (
+              <p className="vempty">这本书还没有可预览的章节。</p>
+            )}
+            <div
+              className="pv-prose"
+              data-testid="preview-prose"
+              dangerouslySetInnerHTML={{ __html: proseHtml }}
+            />
+          </div>
         </div>
       </section>
 

@@ -111,9 +111,24 @@
 .pv-turn[aria-disabled="true"] { opacity: 0.35; cursor: default; }
 /* 阅读主题：--pv-* 只作用阅读区（不用 data-theme 机制，不碰 --accent 系；护眼/夜间
    oklch 字面量 = ADJUSTMENTS「preview.html」#5 登记的 token 化例外） */
-.pv-prose-wrap { flex: 1 1 auto; min-height: 0; overflow-y: auto; padding: 36px 48px 96px; background: var(--pv-bg, var(--bg)); color: var(--pv-fg, var(--fg)); }
+/* 阅读区纸面（c-preview-paper）：默认「白纸」主题下阅读区分两层——桌面（.pv-prose-wrap
+   底色）／纸（.pv-paper）。滚动容器不变；纸宽与纸边距沿用写作页同款 clamp 与 min 公式
+   （先挤纸边距、到 20px 下限再让内容列让路，恒留桌面缝），内容列仍由阅读配置 66ch 决定。 */
+.pv-prose-wrap { flex: 1 1 auto; min-height: 0; display: flex; flex-direction: column; overflow-y: auto; background: var(--paper-desk); color: var(--pv-fg, var(--fg)); }
+.pv-paper { position: relative; box-sizing: border-box; flex: 1 0 auto;
+  --paper-pad-x: clamp(var(--paper-pm-min), calc((100% - var(--paper-measure) - 2 * var(--paper-desk-x)) / 2), var(--paper-pm));
+  width: min(calc(var(--paper-measure) + 2 * var(--paper-pm)), calc(100% - 2 * var(--paper-desk-x)));
+  margin: 36px auto 56px;
+  padding: var(--paper-pt) var(--paper-pad-x) var(--paper-pb);
+  background: var(--paper-bg);
+  box-shadow: inset 0 0 0 1px var(--paper-edge), var(--paper-lift); }
 .view.on.preview-v.pv-theme-sepia { --pv-bg: oklch(0.955 0.014 80); --pv-fg: oklch(0.335 0.022 70); --pv-muted: oklch(0.55 0.02 70); }
 .view.on.preview-v.pv-theme-night { --pv-bg: oklch(0.19 0.012 245); --pv-fg: oklch(0.875 0.012 245); --pv-muted: oklch(0.6 0.012 245); }
+/* 护眼/夜间不上纸（c-preview-paper）：整面填色＋块流恢复原状，纸面退化为透传
+   （无底/无影/无纸边距）。⚠ 新增阅读主题档必须在此同步回退，否则默认档的
+   桌面/纸面样式会外溢。 */
+.view.on.preview-v.pv-theme-sepia .pv-prose-wrap, .view.on.preview-v.pv-theme-night .pv-prose-wrap { display: block; background: var(--pv-bg, var(--bg)); padding: 36px 48px 96px; }
+.view.on.preview-v.pv-theme-sepia .pv-paper, .view.on.preview-v.pv-theme-night .pv-paper { background: none; box-shadow: none; width: auto; margin: 0; padding: 0; }
 .pv-chapter { max-width: 66ch; margin: 0 auto; padding-bottom: 20px; margin-bottom: 28px; border-bottom: 1px solid var(--border); }
 .pv-voltag { margin: 0 0 4px; font-family: var(--font-mono); font-size: 10.5px; letter-spacing: 0.06em; color: var(--pv-muted, var(--muted)); }
 .pv-chapter h2 { margin: 0 0 6px; font-size: 22px; font-weight: 600; color: var(--pv-fg, var(--fg)); font-family: var(--font-display); }
@@ -241,10 +256,12 @@
 .readonly-banner { flex: none; display: flex; align-items: center; gap: 9px; padding: 8px 20px; background: var(--fg-soft); color: var(--muted); font-size: 12.5px; border-bottom: 1px solid var(--border); }
 .readonly-banner svg { width: 14px; height: 14px; }
 .readonly-banner b { color: var(--fg); font-weight: 500; }
-.col-editor {
+.col-editor,
+.preview-v {
   /* ── 正文纸面（c-prose-paper）：正文列分三层——桌面（.editor-wrap 底色）／纸（.prose-paper）／
      写字范围（680 版心＋编辑态虚线框）。令牌挂在列作用域：桌面与底部状态条是兄弟节点，
-     两者都吃这一套。── */
+     两者都吃这一套。c-preview-paper 起预览阅读区（.preview-v）同源消费同一组值——
+     预览只有「桌面／纸」两层、无写字范围框，改值两页一起变。── */
   --paper-desk: oklch(94.2% 0.006 240);
   --paper-bg: oklch(100% 0 0);
   --paper-edge: color-mix(in oklch, var(--fg) 10%, transparent);
