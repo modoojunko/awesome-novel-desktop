@@ -96,6 +96,10 @@
 /* ⋯ 悬浮钮：绝对定位不占 flex 流——否则 .b 的 margin-left:auto 推不到最右 */
 .book-card .card-menu-btn { position: absolute; top: 8px; right: 8px; flex: none; opacity: 0; transition: opacity 0.15s ease; }
 .book-card:hover .card-menu-btn, .book-card:focus-within .card-menu-btn { opacity: 1; }
+/* 状态章让位：⋯ 钮（30px 宽、right 8px）左缘越入 .top 行尾 22px，浮现时状态章同步左移
+   30px（22px 越入量＋8px 行距），显隐同条件同节奏——静止版式一像素不动（parity 非悬浮态）。 */
+.book-card .top .b { transition: margin-right 0.15s ease; }
+.book-card:hover .top .b, .book-card:focus-within .top .b { margin-right: 30px; }
 .card-menu { position: absolute; top: 42px; right: 8px; z-index: 10; min-width: 132px; background: var(--surface); border: 1px solid var(--border); border-radius: 10px; box-shadow: var(--shadow-card); padding: 4px; }
 .card-menu button { display: flex; align-items: center; gap: 8px; width: 100%; padding: 7px 10px; border-radius: 7px; font-size: 13px; color: var(--fg); }
 .card-menu button:hover { background: var(--fg-soft); }
