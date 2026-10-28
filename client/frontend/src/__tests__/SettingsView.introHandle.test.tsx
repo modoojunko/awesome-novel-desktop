@@ -462,6 +462,92 @@ describe("简介 AI · 弹窗出卡确认（c-settings-ai-confirm-modal）", () 
   });
 });
 
+describe("简介 AI · 起草（c-intro-ai-draft）", () => {
+  beforeEach(() => {
+    apiState.get.mockReset();
+    apiState.updateStory.mockReset();
+    apiState.fetchStory.mockReset();
+    aiState.introAi.mockReset();
+    apiState.get.mockResolvedValue({});
+    apiState.fetchStory.mockResolvedValue({ synopsis: "" });
+    apiState.updateStory.mockResolvedValue({ ok: true, synopsis: "" });
+  });
+
+  const renderIntro = () =>
+    render(
+      <SettingsView projectId="p1" initialPanel="intro" settingsStatus={{}} confirmedStatus={{}}
+        confirmSetting={vi.fn().mockResolvedValue(true)} novelName="测试小说" />,
+    );
+
+  it("起草行列首位（draft → check → fill → polish）", async () => {
+    const { container } = renderIntro();
+    const keys = await waitFor(() =>
+      Array.from(container.querySelectorAll("[data-aiact]")).map((el) =>
+        el.getAttribute("data-aiact"),
+      ),
+    );
+    expect(keys).toEqual(["draft", "check", "fill", "polish"]);
+  });
+
+  it("空简介可点：introAi 收到 draft＋空 content，采纳整段写入", async () => {
+    const { container } = renderIntro();
+    const ta = (await waitFor(() => container.querySelector("textarea"))) as HTMLTextAreaElement;
+    expect(ta.value).toBe(""); // 空简介落地，无前置守卫
+    aiState.introAi.mockResolvedValueOnce({ original: "", draft: "拆迁通知贴在卷帘门上那天。", act: "replace" });
+    fireEvent.click(await waitFor(() => container.querySelector('[data-aiact="draft"]')!));
+    await waitFor(() =>
+      expect(aiState.introAi).toHaveBeenCalledWith(
+        "draft",
+        { title: "测试小说", content: "" },
+        "p1",
+      ),
+    );
+    await waitFor(() => expect(screen.getByText(/拆迁通知贴在卷帘门上那天/)).toBeTruthy());
+
+    fireEvent.click(screen.getByTestId("ai-card-adopt"));
+    await waitFor(() => expect(ta.value).toBe("拆迁通知贴在卷帘门上那天。"));
+    await waitFor(() => expect(screen.queryByTestId("intro-ai-card")).toBeNull());
+  });
+
+  it("有旧稿时起草：出卡附原稿对照行，采纳整段替换", async () => {
+    const { container } = renderIntro();
+    const ta = (await waitFor(() => container.querySelector("textarea"))) as HTMLTextAreaElement;
+    fireEvent.change(ta, { target: { value: "半截旧稿" } });
+    aiState.introAi.mockResolvedValueOnce({
+      original: "半截旧稿",
+      draft: "全新起草的一版。",
+      act: "replace",
+    });
+    fireEvent.click(await waitFor(() => container.querySelector('[data-aiact="draft"]')!));
+    await waitFor(() => expect(screen.getByText(/半截旧稿/)).toBeTruthy());
+    await waitFor(() => expect(screen.getByText(/全新起草的一版/)).toBeTruthy());
+
+    fireEvent.click(screen.getByTestId("ai-card-adopt"));
+    await waitFor(() => expect(ta.value).toBe("全新起草的一版。"));
+    expect(ta.value).not.toContain("半截旧稿"); // 整段替换，不拼接
+  });
+
+  it("采纳后回执撤销：一步回到采纳前", async () => {
+    const { container } = renderIntro();
+    const ta = (await waitFor(() => container.querySelector("textarea"))) as HTMLTextAreaElement;
+    aiState.introAi.mockResolvedValueOnce({ original: "", draft: "起草的一版。", act: "replace" });
+    fireEvent.click(await waitFor(() => container.querySelector('[data-aiact="draft"]')!));
+    await waitFor(() => expect(screen.getByText(/起草的一版/)).toBeTruthy());
+    fireEvent.click(screen.getByTestId("ai-card-adopt"));
+    await waitFor(() => expect(ta.value).toBe("起草的一版。"));
+
+    // 回执撤销（脚部回执条的「撤销」键，data-od-id=panel-undo）
+    fireEvent.click(
+      await waitFor(() => {
+        const el = document.querySelector('[data-od-id="panel-undo"]');
+        expect(el).toBeTruthy();
+        return el as HTMLElement;
+      }),
+    );
+    await waitFor(() => expect(ta.value).toBe(""));
+  });
+});
+
 describe("简介体检 · 标题对照（D21，只提示不代改）", () => {
   beforeEach(() => {
     apiState.get.mockReset();

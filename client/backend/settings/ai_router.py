@@ -49,13 +49,14 @@ FIELD_GENERATABLE = {"genre"}  # style 已升级三区 AI（/ai/style/{polish,ch
 # 题材五行字段（01 口味胶囊不走 AI；promise_note 不单独成行，随 core_promise 出参）
 GENRE_FIELDS = ("core_promise", "forbidden_list", "cost_ratio", "battlefield")
 
-INTRO_ACTIONS = ("introspect", "fill", "polish")
+INTRO_ACTIONS = ("introspect", "fill", "polish", "draft")
 
 # prompt 名＝字面映射（键为已校验的枚举值）——避免把请求参数拼进文件路径
 _INTRO_PROMPTS = {
     "introspect": "settings_intro_introspect",
     "fill": "settings_intro_fill",
     "polish": "settings_intro_polish",
+    "draft": "settings_intro_draft",
 }
 _GENRE_PROMPTS = {
     "core_promise": "settings_genre_core_promise",
@@ -429,9 +430,12 @@ async def intro_ai(
     __: bool = Depends(require_novel_model),
     db: AsyncSession = Depends(get_db),
 ):
-    """简介三能力：introspect（体检）/ fill（补缺失）/ polish（润色）。
+    """简介四能力：introspect（体检）/ fill（补缺失）/ polish（润色）/ draft（起草）。
 
-    输入一律用 `body.content`（前端当前编辑草稿）+ `body.title`，**不读 story.yaml 旧文**。
+    体检/补缺失/润色的输入一律用 `body.content`（前端当前编辑草稿）+ `body.title`，
+    **不读 story.yaml 旧文**；draft（起草）相反——从零起稿、不吃已有简介，
+    注入题材上下文（题材目录＋五格已填项）：题材定于起草之前，正向不回环
+    （旧「三件套不注入题材」的防成环拍板不约束起草——题材判定已不吃简介输入）。
     """
     if action not in INTRO_ACTIONS:
         raise HTTPException(400, f"不支持的简介 AI 动作：{action}")
@@ -442,12 +446,45 @@ async def intro_ai(
 
     title = _clamp_str(body.get("title"), 100)
     content = str(body.get("content") or "")
-    if not content.strip():
-        raise HTTPException(400, "简介为空，先写两句再让 AI 处理")
+
+    if action == "draft":
+        story = await get_storage().read_yaml(project.root_path, "story.yaml") or {}
+        g = await get_novel_genre(db, project.id)
+        theme_name = (story.get("genre") or "").strip()
+        theme_sub = (story.get("sub_genre") or "").strip()
+        theme_label = f"{theme_name}（{theme_sub}）" if theme_sub else theme_name
+        theme_desc, theme_example = _theme_anchor(theme_name, theme_sub)
+        # 候选 id → 人类可读标签（起草只要模型读懂语义，不需要它回 id）
+        from genres.vocab_presets import VOCAB_PRESETS
+
+        preset_labels = {e["id"]: e["label"] for e in VOCAB_PRESETS}
+        forbidden = [
+            preset_labels.get(str(x.get("tagId") or ""), str(x.get("text") or ""))
+            for x in g["forbidden_list"]
+        ]
+        battlefield = [preset_labels.get(str(x), str(x)) for x in g["battlefield"]]
+
+        def _filled(v) -> str:
+            v = str(v or "").strip()
+            return v or "（作者还没填）"
+
+        _intro_vals = {
+            "title": title,
+            "theme": _filled(theme_label),
+            "theme_desc": theme_desc or "（题材目录暂无该题材解读）",
+            "theme_example": theme_example or "（无）",
+            "core_promise": _filled(g["core_promise"]),
+            "forbidden_list": "、".join(x for x in forbidden if x) or "（作者还没填）",
+            "cost_ratio": _filled(g["cost_ratio"]),
+            "battlefield": "、".join(x for x in battlefield if x) or "（作者还没填）",
+        }
+    else:
+        if not content.strip():
+            raise HTTPException(400, "简介为空，先写两句再让 AI 处理")
+        _intro_vals = {"title": title, "content": content}
 
     # 分层协议：模板自带 system/user 两段（未分层文件返回 ("", 全文)，行为不变）
     system_tpl, user_tpl = load_layers(_INTRO_PROMPTS[action])
-    _intro_vals = {"title": title, "content": content}
     if action == "fill":
         missing = [
             str(x).strip() for x in (body.get("missing_segments") or []) if str(x).strip()
@@ -457,8 +494,8 @@ async def intro_ai(
     system = system_tpl.format(**_intro_vals) or "你是小说简介编辑。只输出 JSON，不要任何其他文字。"
 
     client = await get_ai_client_for_novel(project_id)
-    # 页面级参数（D12）：体检/补缺失＝JSON 判定类；润色＝长文生成类
-    temperature = 0.7 if action == "polish" else 0.3
+    # 页面级参数（D12）：体检/补缺失＝JSON 判定类；润色/起草＝长文生成类
+    temperature = 0.8 if action == "draft" else 0.7 if action == "polish" else 0.3
 
     usage: dict = {}
     try:
@@ -519,6 +556,14 @@ async def intro_ai(
             if name and candidate:
                 missing_out.append({"name": name, "candidate": candidate})
         return {"missing": missing_out, "act": "insert"}
+
+    if action == "draft":
+        if not isinstance(data, dict):
+            raise HTTPException(502, "起草返回结构不对，可重试")
+        draft = _clamp_str(data.get("synopsis") or data.get("draft"), 500)
+        if not draft:
+            raise HTTPException(502, "起草没给出结果，可重试")
+        return {"original": content[:500], "draft": draft, "act": "replace"}
 
     if not isinstance(data, dict):
         raise HTTPException(502, "润色返回结构不对，可重试")

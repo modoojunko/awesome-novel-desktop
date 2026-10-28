@@ -298,3 +298,12 @@ class TestSettingsAIGated:
         )
         assert r.status_code == 403
         assert "到期" in r.text or "试用" in r.text
+
+    def test_intro_draft_gated_without_ai_access(self, client):
+        # c-intro-ai-draft：起草与三件套同 key（settings-ai-fields）——免费无 Key 同样 403
+        _set_tier("none", _past_iso(), api_key="")
+        pid = _create_sparse_project(client)
+        r = client.post(
+            f"/api/novels/{pid}/settings/ai/intro/draft", json={"title": "书", "content": ""}
+        )
+        assert r.status_code == 403

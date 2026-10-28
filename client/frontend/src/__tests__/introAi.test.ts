@@ -65,6 +65,20 @@ describe("introAi 请求形态", () => {
     const body = JSON.parse(String(spy.mock.calls[0][1]?.body));
     expect(body.missing_segments).toEqual(["本来的生活"]);
   });
+
+  it("draft 进 URL，空 content 合法（起草从零起，不吃旧文）", async () => {
+    const spy = vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      new Response(JSON.stringify({ original: "", draft: "草稿", act: "replace" }), {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      }),
+    );
+    const r = await introAi("draft", { title: "书", content: "" }, "pid-3");
+    expect(String(spy.mock.calls[0][0])).toContain("/novels/pid-3/settings/ai/intro/draft");
+    const body = JSON.parse(String(spy.mock.calls[0][1]?.body));
+    expect(body).toEqual({ title: "书", content: "" });
+    expect(r.draft).toBe("草稿");
+  });
 });
 
 // tasks 9.1.7：题材字段 AI 的 URL/入参形态
