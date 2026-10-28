@@ -394,6 +394,7 @@ export default function VolumeWorkspace({
                 volumeRef={volumeRef}
                 volumeNo={detail.volume}
                 chapterTarget={detail.chapter_target ?? null}
+                refreshSeq={pacingSeq + (pacingRefreshSeq ?? 0)}
                 onChanged={() => {
                   setPacingSeq((n) => n + 1);
                 }}

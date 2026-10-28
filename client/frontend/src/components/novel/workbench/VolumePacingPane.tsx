@@ -18,6 +18,8 @@ interface Props {
   /** 配置保存后回调（父级刷新卷纲页签派生徽章等） */
   onChanged: () => void;
   onDirtyChange: (dirty: boolean) => void;
+  /** 外部采纳信号（右栏排段/调套路后递增）：面板重取数据 */
+  refreshSeq?: number;
 }
 
 const wan = (target: number) => {
@@ -32,6 +34,7 @@ export default function VolumePacingPane({
   chapterTarget,
   onChanged,
   onDirtyChange,
+  refreshSeq = 0,
 }: Props) {
   const [data, setData] = useState<VolumePacingResult | null>(null);
   const [loading, setLoading] = useState(true);
@@ -56,7 +59,7 @@ export default function VolumePacingPane({
 
   useEffect(() => {
     void load();
-  }, [load]);
+  }, [load, refreshSeq]);
 
   const shown = useMemo(() => data?.config ?? data?.prefill ?? null, [data]);
   const preset = useMemo(
