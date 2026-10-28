@@ -375,24 +375,36 @@ function VolumeVerifyPanel({
                 key: "pace-plan",
                 name: pacingBusy === "plan" ? "排段中…" : "按套路分段，排这一卷（AI）",
                 desc: "照卷纲把节奏切成段；先出预览，采纳才落库",
-                onClick: () => void runPacePlan(),
+                onClick: () => {
+                  if (!aiPlan) onUpgrade("ai-plan");
+                  else void runPacePlan();
+                },
                 disabled: !!pacingBusy || !aiPlan,
+                hint: !aiPlan ? upgradeHintOf("ai-plan") : undefined,
                 testid: "pacing-plan-btn",
               },
               {
                 key: "pace-tailor",
                 name: pacingBusy === "tailor" ? "调套路中…" : "按这本书调一版套路（AI）",
                 desc: "读题材、简介和主线，把套路和每步说明调到合身；不采纳不改任何内容",
-                onClick: () => void runPaceTailor(),
+                onClick: () => {
+                  if (!aiPlan) onUpgrade("ai-plan");
+                  else void runPaceTailor();
+                },
                 disabled: !!pacingBusy || !aiPlan,
+                hint: !aiPlan ? upgradeHintOf("ai-plan") : undefined,
                 testid: "pacing-tailor-btn",
               },
               {
                 key: "pace-polish",
                 name: pacingBusy === "polish" ? "润说明中…" : "润一遍步骤说明（AI）",
                 desc: "只顺措辞；步数、步序、每段几章都不动",
-                onClick: () => void runPacePolish(),
+                onClick: () => {
+                  if (!aiPlan) onUpgrade("ai-plan");
+                  else void runPacePolish();
+                },
                 disabled: !!pacingBusy || !aiPlan,
+                hint: !aiPlan ? upgradeHintOf("ai-plan") : undefined,
                 testid: "pacing-polish-btn",
               },
             ]

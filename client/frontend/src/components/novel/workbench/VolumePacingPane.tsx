@@ -71,12 +71,16 @@ export default function VolumePacingPane({
 
   // 编辑基线＝卷列有值用卷列，未配置用展示预填（保存即固化到卷列）
   const baseline = useMemo(() => data?.config ?? data?.prefill ?? null, [data]);
-  const dirty = useMemo(
-    () => !!draft && !!baseline && JSON.stringify(draft) !== JSON.stringify(baseline),
-    [draft, baseline],
-  );
+  // dirty 剥离 planned：零改动进出编辑不应打掉「已排」（规格＝配置变更才失效）
+  const dirty = useMemo(() => {
+    if (!draft || !baseline) return false;
+    const strip = (c: PacingConfig) => JSON.stringify({ ...c, planned: false });
+    return strip(draft) !== strip(baseline);
+  }, [draft, baseline]);
   useEffect(() => {
     onDirtyChange(dirty && mode === "edit");
+    // 卸载（切页签/换卷）＝放弃编辑：清脏标，防残留 true 卡住切卷确认
+    return () => onDirtyChange(false);
   }, [dirty, mode, onDirtyChange]);
 
   const overlong = !!(preset && (draft ?? shown)?.steps_len !== undefined &&
@@ -86,8 +90,12 @@ export default function VolumePacingPane({
     if (!draft) return;
     setSaving(true);
     try {
-      // 配置变更即失效「已排」：保存恒落 planned=false（重排由右栏 AI 再次采纳）
-      await volumePacingApi.saveVolume(projectId, volumeRef, { ...draft, planned: false });
+      // 有实际变更＝失效「已排」；零改动保存保留原排段状态
+      const changed = dirty;
+      await volumePacingApi.saveVolume(projectId, volumeRef, {
+        ...draft,
+        planned: changed ? false : (baseline?.planned ?? false),
+      });
       setMode("view");
       await load();
       onChanged();
@@ -122,7 +130,7 @@ export default function VolumePacingPane({
                         steps_len: shown.steps_len,
                         ch1_extra_on: shown.ch1_extra_on,
                         ch1_extra: shown.ch1_extra,
-                        planned: false,
+                        planned: shown.planned,
                       }
                     : null,
                 );

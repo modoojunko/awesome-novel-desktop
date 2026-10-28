@@ -129,7 +129,7 @@ describe("VolumePacingPane · 编辑态", () => {
     expect(screen.getByDisplayValue("变强收尾")).toBeInTheDocument();
   });
 
-  it("保存＝PUT 卷配置（planned 失效置 false）并触发 onChanged（P2 回归钉）", async () => {
+  it("保存＝PUT 卷配置（真实变更→planned 失效置 false）并触发 onChanged（P2 回归钉）", async () => {
     const onChanged = vi.fn();
     getVolume.mockResolvedValue({
       config: { ...PREFILL, planned: true },
@@ -143,11 +143,52 @@ describe("VolumePacingPane · 编辑态", () => {
     });
     render(<VolumePacingPane {...props({ onChanged })} />);
     fireEvent.click(await screen.findByRole("button", { name: "编辑节奏" }));
-    fireEvent.click(await screen.findByRole("button", { name: "保存" }));
+    // 真实变更（段长 3→5）后才允许保存，且 planned 失效
+    fireEvent.change(await screen.findByLabelText("一段剧情讲几章"), {
+      target: { value: "5" },
+    });
+    const saveBtn = await screen.findByRole("button", { name: "保存" });
+    await waitFor(() => expect(saveBtn).not.toBeDisabled());
+    fireEvent.click(saveBtn);
     await waitFor(() => expect(saveVolume).toHaveBeenCalled());
     const body = saveVolume.mock.calls[0]?.[2];
     expect(body?.planned).toBe(false);
     await waitFor(() => expect(onChanged).toHaveBeenCalled());
+  });
+
+  it("零改动保存保留已排（保存键禁用，planned 不被打掉）", async () => {
+    getVolume.mockResolvedValue({
+      config: { ...PREFILL, planned: true },
+      prefill: { ...PREFILL, planned: true },
+      source: "volume",
+      book_default: null,
+      plan: { target: 40, steps_len: 3, n: 13, rem: 1, last_from: 37, last_to: 40 },
+      presets: PRESETS,
+      theme: "仙侠/修真",
+      sub_genre: "凡人流",
+    });
+    render(<VolumePacingPane {...props()} />);
+    fireEvent.click(await screen.findByRole("button", { name: "编辑节奏" }));
+    const saveBtn = await screen.findByRole("button", { name: "保存" });
+    expect(saveBtn).toBeDisabled(); // 零改动＝不可保存，「已排」天然保留
+    fireEvent.click(saveBtn);
+    expect(saveVolume).not.toHaveBeenCalled();
+  });
+
+  it("一段剧情超拖线出黄牌", async () => {
+    getVolume.mockResolvedValue({
+      config: null,
+      prefill: { ...PREFILL, steps_len: 7 },
+      source: "genre",
+      book_default: null,
+      plan: { target: 40, steps_len: 7, n: 5, rem: 5, last_from: 36, last_to: 40 },
+      presets: PRESETS,
+      theme: "仙侠/修真",
+      sub_genre: "凡人流",
+    });
+    render(<VolumePacingPane {...props()} />);
+    fireEvent.click(await screen.findByRole("button", { name: "编辑节奏" }));
+    expect(screen.getAllByText(/读者会等疲/).length).toBeGreaterThan(0);
   });
 
   it("切换套路重置步表与每段几章", async () => {
