@@ -195,6 +195,9 @@ con.close()
     await expect(page.getByTestId("carry-card")).toBeVisible({ timeout: 15_000 });
     await page.getByTestId("carry-start").click();
     await expect(page.getByTestId("carry-result")).toBeVisible({ timeout: 60_000 });
+    // 成功变体守门：栈病（virtiofs 完成记录写库 disk I/O error）时结果卡是失败
+    // 变体、migration.last 未落——在这里报「迁移没有完成」，别让下面找回执行找不到
+    await expect(page.getByTestId("carry-result")).toContainText("已迁移 2 本书");
     await page.reload();
 
     // 重启后发现已完成：回执行是唯一持久告知面（c-carry-receipt-ack 保留路径）
