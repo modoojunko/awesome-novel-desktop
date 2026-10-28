@@ -875,8 +875,6 @@ async def ai_chapter_selfcheck(
         stage=body.stage if body.stage in STAGE_SET else "（未定）",
         beat=beat_block,
     )
-    if beat_line:
-        user_msg += "\n【本拍任务】\n" + beat_line
     out: dict = {
         "ok": True,
         "link": {"ok": link_ok, "text": "本章进场已自动接上上一章结尾" if link_ok else "上一章结尾已变化"},
