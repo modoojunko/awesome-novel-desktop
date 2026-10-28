@@ -199,4 +199,47 @@ describe("带回向导：清理清单与只读隔离件", () => {
     });
     expect(screen.queryByRole("button", { name: /清理旧文件/ })).toBeNull();
   });
+
+  it("去书架看看（完整结果）＝确认即已阅：写回执已阅（c-carry-confirm-settle）", async () => {
+    const onDone = await renderToResult({
+      status: "ok", complete: true, book_count_source: 2, book_count_migrated: 2,
+      book_count_target_after: 2, fk_violations: [],
+    });
+    expect(postMock.mock.calls.some((c) => String(c[0]).includes("/receipt-ack"))).toBe(false);
+    fireEvent.click(screen.getByRole("button", { name: "去书架看看" }));
+    await waitFor(() => expect(onDone).toHaveBeenCalled());
+    await waitFor(() =>
+      expect(postMock.mock.calls.some(
+        (c) => String(c[0]).includes("/receipt-ack")
+          && (c[1] as { filename?: string })?.filename === "novel-v1.db",
+      )).toBe(true),
+    );
+  });
+
+  it("不完整结果的「去书架看看」不算已阅：不写回执（c-carry-confirm-settle）", async () => {
+    const onDone = await renderToResult({
+      status: "ok", complete: false, book_count_source: 5, book_count_migrated: 2,
+      book_count_target_after: 2, fk_violations: [],
+    });
+    fireEvent.click(screen.getByRole("button", { name: "去书架看看" }));
+    await waitFor(() => expect(onDone).toHaveBeenCalled());
+    expect(postMock.mock.calls.some((c) => String(c[0]).includes("/receipt-ack"))).toBe(false);
+  });
+
+  it("清理区「备份一份」同口径：完整结果写回执已阅（c-carry-confirm-settle）", async () => {
+    const onDone = await renderToResult({
+      status: "ok", complete: true, book_count_source: 2, book_count_migrated: 2,
+      book_count_target_after: 2, fk_violations: [],
+    });
+    fireEvent.click(await screen.findByRole("button", { name: /清理旧文件/ }));
+    await screen.findByText(/删除不可撤销，已迁移的内容不受影响/); // 待删清单已展开
+    fireEvent.click(screen.getByRole("button", { name: "备份一份" }));
+    await waitFor(() => expect(onDone).toHaveBeenCalled());
+    await waitFor(() =>
+      expect(postMock.mock.calls.some(
+        (c) => String(c[0]).includes("/receipt-ack")
+          && (c[1] as { filename?: string })?.filename === "novel-v1.db",
+      )).toBe(true),
+    );
+  });
 });

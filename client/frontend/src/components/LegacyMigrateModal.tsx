@@ -27,6 +27,7 @@ async function downloadMigrationDiagnostics(): Promise<void> {
 }
 import { api } from '@/lib/api';
 import { toast } from '@/lib/toast';
+import { ackCarryReceipt } from '@/lib/carryStore';
 import type { LegacyCandidate, QuarantinedLibrary } from '@/hooks/useLegacyDb';
 
 interface ProgressEvent {
@@ -220,6 +221,16 @@ export default function LegacyMigrateModal({
     && (rep.book_count_source ?? 0)
       === (rep.book_count_present ?? rep.book_count_migrated ?? -1);
 
+  /** 回书架收尾（c-carry-confirm-settle）：完整结果确认即已阅——书架不再留完成
+   *  回执行；不完整结果不算已阅（持续提醒行按既有义务承接）。「去书架看看」与
+   *  清理区「备份一份」两个出口同口径。result 步只在 status==ok 进入（error 另
+   *  有出口），这里只需区分完整/不完整。 */
+  const finishToShelf = (rep: MigrationReport) => {
+    if (rep.complete !== false) void ackCarryReceipt(picked);
+    onDone();
+    onClose();
+  };
+
   const loadRetention = async () => {
     setBusy(true);
     try {
@@ -395,7 +406,7 @@ export default function LegacyMigrateModal({
             </p>
           )}
           <div style={{ display: 'flex', justifyContent: 'center' }}>
-            <button className="btn btn-primary" onClick={() => { onDone(); onClose(); }}>去书架看看</button>
+            <button className="btn btn-primary" onClick={() => finishToShelf(result)}>去书架看看</button>
           </div>
           {cleanupEligible(result) && (
             <div style={{ marginTop: 16, borderTop: '1px solid var(--line, #2a2a2a)', paddingTop: 12 }}>
@@ -411,7 +422,7 @@ export default function LegacyMigrateModal({
                 <div>
                   <p style={{ fontSize: 12.5, color: 'var(--muted)', margin: '0 0 8px' }}>
                     将清理下列旧文件——删除不可撤销，已迁移的内容不受影响。建议先
-                    <button className="text-btn" onClick={() => { onClose(); onDone(); }}>备份一份</button>。
+                    <button className="text-btn" onClick={() => finishToShelf(result)}>备份一份</button>。
                   </p>
                   <ul style={{ margin: '0 0 10px', padding: 0, listStyle: 'none' }}>
                     {(retention ?? []).map((r) => (

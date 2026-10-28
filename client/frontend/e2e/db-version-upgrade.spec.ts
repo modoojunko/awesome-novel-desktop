@@ -70,6 +70,18 @@ function seedLegacyLibrary(): string {
   return p;
 }
 
+/** 宿主侧直读当前版本库的回执已阅标记（确认即已阅／× 收起两条路径共用）。 */
+function readReceiptAck(): string {
+  return execFileSync(process.env.PYTHON || "python3", ["-c", `
+import sqlite3, sys
+con = sqlite3.connect(f"file:{sys.argv[1]}?mode=ro", uri=True)
+row = con.execute("SELECT value FROM app_meta"
+                  " WHERE key='migration.receipt_acked'").fetchone()
+print(row[0] if row else "")
+con.close()
+`, join(DATA_DIR, `${ACTIVE_BASE}.db`)], { encoding: "utf8" }).trim();
+}
+
 async function stubSession(page: Page, username = "up11"): Promise<void> {
   await page.addInitScript((u) => {
     localStorage.setItem("auth_token", "up11-stub");
@@ -131,12 +143,16 @@ test.describe("UP-11 版本升级：空态双出口与带回全链", () => {
     await expect(page.getByTestId("carry-progress")).toBeVisible({ timeout: 15_000 });
     await expect(page.getByTestId("carry-progress").locator("button")).toHaveCount(0);
 
-    // ③ 完成确认：结果卡 → 点「好，开始写作」收尾
+    // ③ 完成确认：结果卡 → 点「好，开始写作」收尾——确认即已阅（c-carry-confirm-settle）：
+    // receipt-ack 随确认发出，书架不再渲染完成回执行（不给人留要点的框，无整页刷新）
     await expect(page.getByTestId("carry-result")).toBeVisible({ timeout: 60_000 });
     await expect(page.getByTestId("carry-result")).toContainText("已迁移 2 本书");
+    // 先挂响应监听再点：不等 receipt-ack 回包就探库会让落库断言假红（同 ⑥ 注）
+    const ackDone = page.waitForResponse((r) => r.url().includes("/receipt-ack"));
     await page.getByTestId("carry-confirm").click();
-    // 完成常驻行
-    await expect(page.getByTestId("carry-strip-done")).toBeVisible();
+    await ackDone;
+    // 旧口径「确认后顶部留完成回执行」已翻案：确认即已阅，回执行 SHALL NOT 出现
+    await expect(page.getByTestId("carry-strip-done")).toHaveCount(0);
 
     // ④ 落库核对：直接读**宿主侧的当前版本库文件**（最强证据——不经前端状态，
     //    证明书真的写进了本版本的库；`page.request` 无页面鉴权会话，故不走它）
@@ -158,24 +174,43 @@ con.close()
     expect(after.size).toBe(before.size);
     expect(after.mtimeMs).toBe(before.mtimeMs);
 
-    // ⑥ 完成回执收起（c-carry-receipt-ack）：点 × → 刷新不复现，已阅态落当前库 app_meta
-    // 先挂响应监听再点：导航会中止在途 fetch，不等 receipt-ack 回包就 reload 会让落库探针假红
+    // ⑥ 确认即已阅持久化：刷新不复现（× 收起的带外完成路径由下一个用例承接）
+    await page.reload();
+    await expect(page.getByRole("heading", { name: "我的作品" })).toBeVisible({ timeout: 15_000 });
+    await expect(page.getByTestId("carry-strip-done")).toHaveCount(0); // 刷新不复现
+    expect(readReceiptAck().length).toBeGreaterThan(0); // 确认＝写库（非前端内存态）
+  });
+
+  test("带外完成：完成回执行仍在 → × 收起即已阅，刷新不复现", async ({ page }) => {
+    clearLibraries();
+    seedLegacyLibrary();
+    await stubSession(page);
+    // 带外路径不释放四步卡队列——桩掉写作能力探测，防弹窗盖住回执行的 ×
+    await page.route("**/api/prompt-pack/probe", (r) =>
+      r.fulfill({ json: { installed_version: "5", latest_version: "5",
+                          update_available: false, source: "dev" } }));
+
+    await page.goto("/#/novels");
+    // 走到结果卡但**不点确认**即刷新＝模拟应用在此关闭重启：迁移已成功、回执未已阅
+    await expect(page.getByTestId("carry-card")).toBeVisible({ timeout: 15_000 });
+    await page.getByTestId("carry-start").click();
+    await expect(page.getByTestId("carry-result")).toBeVisible({ timeout: 60_000 });
+    // 成功变体守门：栈病（virtiofs 完成记录写库 disk I/O error）时结果卡是失败
+    // 变体、migration.last 未落——在这里报「迁移没有完成」，别让下面找回执行找不到
+    await expect(page.getByTestId("carry-result")).toContainText("已迁移 2 本书");
+    await page.reload();
+
+    // 重启后发现已完成：回执行是唯一持久告知面（c-carry-receipt-ack 保留路径）
+    const strip = page.getByTestId("carry-strip-done");
+    await expect(strip).toBeVisible({ timeout: 15_000 });
     const ackDone = page.waitForResponse((r) => r.url().includes("/receipt-ack"));
-    await page.getByTestId("carry-strip-done").getByRole("button", { name: "关闭" }).click();
+    await strip.getByRole("button", { name: "关闭" }).click();
     await ackDone;
     await expect(page.getByTestId("carry-strip-done")).toHaveCount(0);
     await page.reload();
     await expect(page.getByRole("heading", { name: "我的作品" })).toBeVisible({ timeout: 15_000 });
     await expect(page.getByTestId("carry-strip-done")).toHaveCount(0); // 刷新不复现（报修口径）
-    const ackProbe = execFileSync(process.env.PYTHON || "python3", ["-c", `
-import sqlite3, sys
-con = sqlite3.connect(f"file:{sys.argv[1]}?mode=ro", uri=True)
-row = con.execute("SELECT value FROM app_meta"
-                  " WHERE key='migration.receipt_acked'").fetchone()
-print(row[0] if row else "")
-con.close()
-`, join(DATA_DIR, `${ACTIVE_BASE}.db`)], { encoding: "utf8" }).trim();
-    expect(ackProbe.length).toBeGreaterThan(0); // 收起＝写库（非前端内存态）
+    expect(readReceiptAck().length).toBeGreaterThan(0); // 收起＝写库（非前端内存态）
   });
 });
 

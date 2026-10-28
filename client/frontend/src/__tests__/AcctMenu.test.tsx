@@ -654,6 +654,8 @@ describe("AcctMenu 带回旧版（接线 + 后台守望）", () => {
       expect(document.querySelector('[data-od-id="probe-novels"]')).toBeTruthy();
       expect(document.querySelector('[data-od-id="probe-config"]')).toBeNull();
       expect(invalidate).toHaveBeenCalledWith({ queryKey: queryKeys.novels });
+      // c-carry-confirm-settle：确认即已阅由向导本体写；这里重查 Key 配置
+      expect(invalidate).toHaveBeenCalledWith({ queryKey: queryKeys.authConfig });
     } finally {
       invalidate.mockRestore();
     }
@@ -674,9 +676,17 @@ describe("AcctMenu 带回旧版（接线 + 后台守望）", () => {
     expect(toastState.success).not.toHaveBeenCalled(); // running 拍：不 toast，继续守
 
     statusPayload = { state: "done", kind: "migration", report: { status: "ok", book_count_migrated: 3 } };
-    await tickWatch();
-    expect(toastState.success).toHaveBeenCalledWith("迁移完成：已迁移 3 本书");
-    expect(legacyState.refresh).toHaveBeenCalledTimes(3); // close×2 刷候选 + 完成拍再刷
+    const invalidate = vi.spyOn(queryClient, "invalidateQueries");
+    try {
+      await tickWatch();
+      expect(toastState.success).toHaveBeenCalledWith("迁移完成：已迁移 3 本书");
+      expect(legacyState.refresh).toHaveBeenCalledTimes(3); // close×2 刷候选 + 完成拍再刷
+      // c-carry-confirm-settle：带外完成不写已阅（回执行仍是唯一持久告知面），但 Key 要重查
+      expect(invalidate).toHaveBeenCalledWith({ queryKey: queryKeys.novels });
+      expect(invalidate).toHaveBeenCalledWith({ queryKey: queryKeys.authConfig });
+    } finally {
+      invalidate.mockRestore();
+    }
     const after = fetchMock.mock.calls.length;
     await tickWatch(3000);
     expect(fetchMock.mock.calls.length).toBe(after); // 完成即停轮询

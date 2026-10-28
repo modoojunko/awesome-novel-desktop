@@ -4,6 +4,8 @@
 export const queryKeys = {
   /** 书架列表（GET /novels 全量树） */
   novels: ["novels"] as const,
+  /** 认证/配置快照（GET /auth/config：has_api_key、portal_url）——迁移带回 Key 后失效重查（c-carry-confirm-settle） */
+  authConfig: ["auth", "config"] as const,
   /** 拆书任务清单/详情（c-deconstruct-book）：列表轮询与写后失效同源 */
   deconstructTasks: ["deconstruct", "tasks"] as const,
   deconstructTask: (id: string) => ["deconstruct", "task", id] as const,
