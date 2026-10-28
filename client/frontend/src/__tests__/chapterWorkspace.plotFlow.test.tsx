@@ -580,3 +580,58 @@ describe("抽卡携带表单字数（c-scene-density 联动）", () => {
     expect(JSON.parse(saved!)).toMatchObject({ ref: REF });
   });
 });
+
+describe("章纲缺项补全出卡（ai-modal-confirm-rule）", () => {
+  it("AI 补全产物出卡过目：采纳才写表单（进编辑态）；关闭即弃", async () => {
+    mockApi.post.mockImplementation(async (url: string) => {
+      if (url.endsWith("/outline/fill-gaps")) {
+        return { fills: { mood: "压抑", changes: ["三日内找到船票"] } };
+      }
+      return {};
+    });
+    // FULL 无 memo/emotional_design → changes/mood 两格为空，右栏有「补全缺失字段」
+    const { railData } = mount({ server: { ...FULL } });
+    await waitFor(() => expect(railData()).not.toBeNull());
+    await act(async () => {
+      await railData().onFillGaps();
+    });
+    await waitFor(() =>
+      expect(mockApi.post).toHaveBeenCalledWith(
+        `/novels/p1/chapters/${REF}/outline/fill-gaps`,
+        { missing: ["changes", "mood"] },
+      ),
+    );
+    // 出卡过目：两格草稿在卡里；表单未进编辑态、值未落
+    await waitFor(() => expect(screen.getByTestId("gaps-draft-adopt")).toBeTruthy());
+    expect(screen.getByText("压抑")).toBeTruthy();
+    expect(screen.getByText("三日内找到船票")).toBeTruthy();
+    expect(screen.queryByDisplayValue("压抑")).toBeNull();
+
+    // 采纳 → 写入表单并进编辑态（可继续改，落库走既有保存链）
+    fireEvent.click(screen.getByTestId("gaps-draft-adopt"));
+    await waitFor(() => expect(screen.getByDisplayValue("压抑")).toBeTruthy());
+    await waitFor(() =>
+      expect(mockToast.success).toHaveBeenCalledWith(expect.stringContaining("已采纳")),
+    );
+    // Modal 200ms 退场动画后才卸载
+    await waitFor(() => expect(screen.queryByTestId("gaps-draft-adopt")).toBeNull());
+  });
+
+  it("出卡后关闭即弃：不写表单、不发保存", async () => {
+    mockApi.post.mockImplementation(async (url: string) => {
+      if (url.endsWith("/outline/fill-gaps")) return { fills: { mood: "明亮" } };
+      return {};
+    });
+    const { railData } = mount({ server: { ...FULL } });
+    await waitFor(() => expect(railData()).not.toBeNull());
+    await act(async () => {
+      await railData().onFillGaps();
+    });
+    await waitFor(() => expect(screen.getByTestId("gaps-draft-adopt")).toBeTruthy());
+    const closes = screen.getAllByRole("button", { name: "关闭" });
+    fireEvent.click(closes[closes.length - 1]);
+    await waitFor(() => expect(screen.queryByTestId("gaps-draft-adopt")).toBeNull());
+    expect(screen.queryByDisplayValue("明亮")).toBeNull();
+    expect(mockToast.success).not.toHaveBeenCalledWith(expect.stringContaining("已采纳"));
+  });
+});

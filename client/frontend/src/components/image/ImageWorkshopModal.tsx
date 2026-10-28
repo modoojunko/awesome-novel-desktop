@@ -64,6 +64,8 @@ export default function ImageWorkshopModal({
   const [coverPrompt, setCoverPrompt] = useState("");
   const [avatarPrompt, setAvatarPrompt] = useState("");
   const [extracting, setExtracting] = useState(false);
+  /** AI 起草稿出卡（ai-modal-confirm-rule）：提取结果不直填输入框，弹窗过目、采纳才写入 */
+  const [extractDraft, setExtractDraft] = useState<{ kind: "cover" | "avatar"; text: string } | null>(null);
   const [savingSettings, setSavingSettings] = useState(false);
   const [job, setJob] = useState<ImageJob | null>(null);
   const [genErr, setGenErr] = useState<string | null>(null);
@@ -270,8 +272,7 @@ export default function ImageWorkshopModal({
     setExtracting(true);
     try {
       const { scene } = await imageApi.extractCoverScene(novelId);
-      setCoverPrompt(scene);
-      toast.success("画面描述草稿已填入，可修改后保存");
+      setExtractDraft({ kind: "cover", text: scene });
     } catch (e) {
       toast.error((e as Error).message || "AI 提取失败");
     } finally {
@@ -288,8 +289,38 @@ export default function ImageWorkshopModal({
     setExtracting(true);
     try {
       const { look } = await imageApi.extractAvatarLook(novelId, characterId);
-      setAvatarPrompt(look);
+      setExtractDraft({ kind: "avatar", text: look });
+    } catch (e) {
+      toast.error((e as Error).message || "AI 起草失败");
+    } finally {
+      setExtracting(false);
+    }
+  };
+
+  /** 出卡采纳（ai-modal-confirm-rule）：过目后才写入描述框；关闭即弃，「换一个」重掷 */
+  const adoptExtractDraft = () => {
+    if (!extractDraft) return;
+    if (extractDraft.kind === "cover") {
+      setCoverPrompt(extractDraft.text);
+      toast.success("画面描述草稿已填入，可修改后保存");
+    } else {
+      setAvatarPrompt(extractDraft.text);
       toast.success("头像描述草稿已填入，可修改后保存");
+    }
+    setExtractDraft(null);
+  };
+
+  const regenExtractDraft = async () => {
+    if (!extractDraft || extracting) return;
+    setExtracting(true);
+    try {
+      if (extractDraft.kind === "cover") {
+        const { scene } = await imageApi.extractCoverScene(novelId);
+        setExtractDraft({ kind: "cover", text: scene });
+      } else if (characterId) {
+        const { look } = await imageApi.extractAvatarLook(novelId, characterId);
+        setExtractDraft({ kind: "avatar", text: look });
+      }
     } catch (e) {
       toast.error((e as Error).message || "AI 起草失败");
     } finally {
@@ -324,7 +355,8 @@ export default function ImageWorkshopModal({
     : `角色头像${characterName ? ` · ${characterName}` : ""}`;
 
   return (
-    <Modal open={open} onClose={onClose} title={title} width={760} locked={busy}>
+    <>
+      <Modal open={open} onClose={onClose} title={title} width={760} locked={busy}>
       <div className="img-workshop">
         <section className="img-workshop-main">
           {error && <div className="ferr">{error}</div>}
@@ -510,6 +542,42 @@ export default function ImageWorkshopModal({
           {isFree && <p className="img-hint">免费用户可使用上传；AI 生成需 PRO 以上。</p>}
         </aside>
       </div>
-    </Modal>
+      </Modal>
+      <Modal
+        open={!!extractDraft}
+        onClose={() => setExtractDraft(null)}
+        title={extractDraft?.kind === "avatar" ? "头像描述 · AI 起草稿" : "画面描述 · AI 起草稿"}
+        width={520}
+        footer={
+          <>
+            <button className="btn btn-ghost" onClick={() => setExtractDraft(null)}>关闭</button>
+            <button className="btn btn-secondary" disabled={extracting} onClick={() => void regenExtractDraft()}>
+              {extracting ? "生成中…" : "换一个"}
+            </button>
+            <button className="btn btn-primary" data-testid="extract-draft-adopt" onClick={adoptExtractDraft}>
+              采纳 · 填入描述
+            </button>
+          </>
+        }
+      >
+        {extractDraft && (
+          <div>
+            <p className="img-hint" style={{ margin: "0 0 10px" }}>
+              AI 凭当前资料起草，采纳才写入描述框（写入后仍可修改）；关闭即弃，「换一个」重新生成。
+            </p>
+            <div
+              data-testid="extract-draft-text"
+              style={{
+                whiteSpace: "pre-wrap", background: "var(--surface-2, rgba(0,0,0,.03))",
+                borderRadius: 10, padding: "12px 14px", fontSize: 13.5, lineHeight: 1.75,
+                maxHeight: 320, overflowY: "auto",
+              }}
+            >
+              {extractDraft.text}
+            </div>
+          </div>
+        )}
+      </Modal>
+    </>
   );
 }

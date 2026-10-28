@@ -144,7 +144,7 @@ describe("ImageWorkshopModal（上传型工坊）", () => {
     await waitFor(() => expect(api.retryImageJob).toHaveBeenCalledWith("job-1"));
   });
 
-  it("AI 提取：免费置灰；PRO 调提取并把草稿填进画面描述", async () => {
+  it("AI 提取：免费置灰；PRO 调提取出卡，采纳才填进画面描述（ai-modal-confirm-rule）", async () => {
     const free = render(
       <ImageWorkshopModal open novelId="n1" kind="cover" onClose={() => {}} onChanged={() => {}} />,
     );
@@ -159,6 +159,20 @@ describe("ImageWorkshopModal（上传型工坊）", () => {
     );
     fireEvent.click(await screen.findByRole("button", { name: "AI 提取" }));
     await waitFor(() => expect(api.extractCoverScene).toHaveBeenCalledWith("n1"));
+    // 出卡过目：草稿在卡里，输入框还没被写
+    await waitFor(() => expect(screen.getByTestId("extract-draft-text").textContent).toContain("末班公交"));
+    const before = document.querySelector(".img-field textarea") as HTMLTextAreaElement;
+    expect(before.value).not.toContain("末班公交");
+    // 关闭即弃（工坊 X 与出卡脚键同名「关闭」，取 DOM 序最后一个＝出卡脚键）
+    const closes = screen.getAllByRole("button", { name: "关闭" });
+    fireEvent.click(closes[closes.length - 1]);
+    await waitFor(() => expect(screen.queryByTestId("extract-draft-adopt")).toBeNull());
+    expect((document.querySelector(".img-field textarea") as HTMLTextAreaElement).value).not.toContain("末班公交");
+
+    // 再来一次，采纳才写入
+    fireEvent.click(await screen.findByRole("button", { name: "AI 提取" }));
+    await waitFor(() => expect(screen.getByTestId("extract-draft-text").textContent).toContain("末班公交"));
+    fireEvent.click(screen.getByTestId("extract-draft-adopt"));
     const textarea = document.querySelector(".img-field textarea") as HTMLTextAreaElement;
     await waitFor(() => expect(textarea.value).toContain("末班公交"));
   });
@@ -173,7 +187,7 @@ describe("ImageWorkshopModal（上传型工坊）", () => {
     expect(screen.queryByText("提示词预览")).toBeNull();
   });
 
-  it("头像 AI 起草：免费置灰；PRO 调起草并把草稿填进头像描述", async () => {
+  it("头像 AI 起草：免费置灰；PRO 调起草出卡，采纳才填进头像描述（ai-modal-confirm-rule）", async () => {
     featureAllowed.value = false;
     const free = render(
       <ImageWorkshopModal open novelId="n1" kind="avatar" characterId="c1" characterName="林野" onClose={() => {}} onChanged={() => {}} />,
@@ -189,6 +203,8 @@ describe("ImageWorkshopModal（上传型工坊）", () => {
     );
     fireEvent.click(await screen.findByRole("button", { name: "AI 起草" }));
     await waitFor(() => expect(api.extractAvatarLook).toHaveBeenCalledWith("n1", "c1"));
+    await waitFor(() => expect(screen.getByTestId("extract-draft-text").textContent).toContain("旧斗篷"));
+    fireEvent.click(screen.getByTestId("extract-draft-adopt"));
     const textarea = document.querySelector(".img-field textarea") as HTMLTextAreaElement;
     await waitFor(() => expect(textarea.value).toContain("旧斗篷"));
   });

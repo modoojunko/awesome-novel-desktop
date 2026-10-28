@@ -216,26 +216,66 @@ export function VolumePlanModal({
 
         {genDone && (
           <div className="genbox" data-testid="desk-done">
-            <p className="gen-k">第{cn}卷的卷纲已备好</p>
+            <p className="gen-k">第{cn}卷的卷纲已备好——过目后再采纳</p>
             <p className="gen-t">
               {state.draft!.name || "（卷名待定）"} · 建议{" "}
               {state.draft!.chapter_target > 0 ? state.draft!.chapter_target : "—"} 章 · 自查{" "}
-              {state.draft!.checks.length} 处要留意。点「回填」，它会一条条写进中栏的卷纲表单——你改完再保存。
+              {state.draft!.checks.length} 处要留意。
             </p>
+            {/* AI 产物全文（ai-modal-confirm-rule）：过目才允许回填，不做黑箱写入 */}
+            <div
+              data-testid="desk-draft"
+              style={{
+                margin: "8px 0 4px", padding: "10px 12px", borderRadius: 10,
+                background: "var(--surface-2, rgba(0,0,0,.03))", maxHeight: 280, overflowY: "auto",
+                fontSize: 13, lineHeight: 1.7,
+              }}
+            >
+              {([
+                ["卷名", state.draft!.name],
+                ["卷纲概要", state.draft!.summary],
+                ["核心冲突", state.draft!.conflict],
+                ["反派类型", state.draft!.antagonist_type],
+                ["反派主线", state.draft!.antagonist_line],
+                ["卷末去向", state.draft!.ending],
+                ["建议章数", state.draft!.chapter_target > 0 ? `${state.draft!.chapter_target} 章` : ""],
+              ] as Array<[string, string]>)
+                .filter(([, v]) => v && v.trim())
+                .map(([k, v]) => (
+                  <p key={k} style={{ margin: "6px 0" }}>
+                    <b>{k}</b>：{v}
+                  </p>
+                ))}
+              {state.draft!.plants.length > 0 && (
+                <p style={{ margin: "6px 0" }}>
+                  <b>埋下的伏笔</b>：{state.draft!.plants.join("；")}
+                </p>
+              )}
+              {state.draft!.reveals.length > 0 && (
+                <p style={{ margin: "6px 0" }}>
+                  <b>揭开的伏笔</b>：{state.draft!.reveals.join("；")}
+                </p>
+              )}
+              {state.draft!.checks.length > 0 && (
+                <p style={{ margin: "6px 0", color: "var(--muted)" }}>
+                  <b>自查提醒</b>：{state.draft!.checks.join("；")}
+                </p>
+              )}
+            </div>
           </div>
         )}
 
         <div className="plan-foot">
           {genDone ? (
             <>
-              <span className="note">点「回填」，卷纲会在中栏一条条落下来</span>
+              <span className="note">过目后点「采纳」；直接关掉＝不采纳，什么都不会写</span>
               <button className="btn btn-sm btn-primary" data-testid="desk-backfill" onClick={onBackfill}>
-                回填 →
+                采纳 · 回填卷纲 →
               </button>
             </>
           ) : genBusy ? (
             <>
-              <span className="note">生成在后台跑，关掉它也不影响</span>
+              <span className="note">生成在后台跑；关掉后完成后会提醒你来过目，不会自己写进书里</span>
               <button className="btn btn-sm btn-secondary" onClick={onClose}>
                 关掉
               </button>

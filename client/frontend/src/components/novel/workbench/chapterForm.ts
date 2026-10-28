@@ -76,6 +76,15 @@ export const GAP_TO_FILL_KEY: Record<string, string> = {
   mood: "mood",
 };
 
+/** 补全键 → 展示标签（出卡审阅用，ai-modal-confirm-rule）。 */
+export const FILL_FIELD_LABELS: Record<string, string> = {
+  summary: "章纲概要",
+  chars: "出场人物",
+  changes: "必须完成的变化",
+  ban: "禁忌",
+  mood: "主情绪",
+};
+
 /** 后端 fills（白名单键）→ OgForm 补丁：未识别的键丢弃；行列表按行拼接。
  *  产物只回填表单，落库仍走既有保存链（自动保存/手动保存）。 */
 export function ogPatchFromFills(fills: Record<string, unknown>): Partial<OgForm> {

@@ -47,6 +47,7 @@ import { ArchiveModal, HistoryModal, RewriteModal } from "./modals";
 import type { RailChapterData } from "./Rail";
 import {
   EMPTY_OG_FORM,
+  FILL_FIELD_LABELS,
   GAP_TO_FILL_KEY,
   PLOT_MAX_ITEMS,
   REQ_FIELDS,
@@ -60,6 +61,7 @@ import {
 import PlotDrawModal from "./PlotDrawModal";
 import AiCheckModal from "./AiCheckModal";
 import CastReviewModal from "./CastReviewModal";
+import Modal from "@/components/design/Modal";
 import { useChapterData } from "@/hooks/useChapterData";
 import {
   registerZhuqueFlush,
@@ -640,8 +642,11 @@ const [ogForm, setOgForm] = useState<OgForm>(EMPTY_OG_FORM);
   const [aiCheckKind, setAiCheckKind] = useState<AiCheckKind | null>(null);
   const [gapsLoading, setGapsLoading] = useState(false);
 
-  /** 章纲缺项补全：缺口清单 → AI 产物回填表单；落库走 3s 自动保存/手动保存。 */
-  const handleFillGaps = useCallback(async () => {
+  /** 章纲缺项补全：缺口清单 → AI 产物出卡过目（ai-modal-confirm-rule），采纳才回填表单；
+   *  落库走 3s 自动保存/手动保存。 */
+  const [gapsDraft, setGapsDraft] = useState<Partial<OgForm> | null>(null);
+
+  const runFillGaps = useCallback(async () => {
     const missing = ogGaps(ogForm)
       .map((g) => GAP_TO_FILL_KEY[g.key])
       .filter(Boolean);
@@ -655,9 +660,7 @@ const [ogForm, setOgForm] = useState<OgForm>(EMPTY_OG_FORM);
         toast.info("没补出可用的字段，可重试");
         return;
       }
-      setOgForm((f) => ({ ...f, ...patch }));
-      setOgEditing(true); // 补全产物要在表单里过目——直接落到编辑态
-      toast.success(`已补 ${n} 项，检查后保存`);
+      setGapsDraft(patch);
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "补全失败，请重试");
     } finally {
@@ -665,6 +668,19 @@ const [ogForm, setOgForm] = useState<OgForm>(EMPTY_OG_FORM);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [projectId, chapterRef, ogForm]);
+
+  const handleFillGaps = useCallback(() => {
+    void runFillGaps();
+  }, [runFillGaps]);
+
+  const adoptGapsDraft = useCallback(() => {
+    if (!gapsDraft) return;
+    const n = Object.keys(gapsDraft).length;
+    setOgForm((f) => ({ ...f, ...gapsDraft }));
+    setOgEditing(true); // 采纳后落编辑态，可继续改；落库走既有保存链
+    setGapsDraft(null);
+    toast.success(`已采纳 ${n} 项补全，检查后保存`);
+  }, [gapsDraft]);
 
   // ── 章内剧情（c-plot-split）：门槛拦截 → 三版抽卡 → 采纳/撤销 → 提示词软提示 ──
   const plotDraw = usePlotDraw(projectId, chapterRef);
@@ -1676,6 +1692,46 @@ const [ogForm, setOgForm] = useState<OgForm>(EMPTY_OG_FORM);
         chapterLabel={label}
         kind={aiCheckKind}
       />
+
+      {/* 章纲缺项补全 · AI 补全稿出卡（ai-modal-confirm-rule）：过目采纳才回填表单 */}
+      <Modal
+        open={gapsDraft !== null}
+        onClose={() => setGapsDraft(null)}
+        title="章纲缺项 · AI 补全稿"
+        width={520}
+        footer={
+          <>
+            <button className="btn btn-ghost" onClick={() => setGapsDraft(null)}>关闭</button>
+            <button className="btn btn-secondary" disabled={gapsLoading} onClick={() => void runFillGaps()}>
+              {gapsLoading ? "生成中…" : "换一个"}
+            </button>
+            <button className="btn btn-primary" data-testid="gaps-draft-adopt" onClick={adoptGapsDraft}>
+              采纳 · 填入章纲
+            </button>
+          </>
+        }
+      >
+        {gapsDraft && (
+          <div>
+            <p style={{ margin: "0 0 10px", fontSize: 12.5, color: "var(--muted)" }}>
+              只补空缺字段；采纳才写入章纲表单（写入后仍可改），关闭即弃，「换一个」重新生成。
+            </p>
+            {Object.entries(gapsDraft).map(([k, v]) => (
+              <div key={k} style={{ marginBottom: 12 }}>
+                <div style={{ fontSize: 12.5, fontWeight: 600, marginBottom: 4 }}>{FILL_FIELD_LABELS[k] ?? k}</div>
+                <div
+                  style={{
+                    whiteSpace: "pre-wrap", background: "var(--surface-2, rgba(0,0,0,.03))",
+                    borderRadius: 10, padding: "10px 12px", fontSize: 13.5, lineHeight: 1.7,
+                  }}
+                >
+                  {String(v)}
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </Modal>
 
       <div className="editor-status" hidden={chTab !== "prose"}>
         <span className="num">{fmt(wordCount)} 字</span>

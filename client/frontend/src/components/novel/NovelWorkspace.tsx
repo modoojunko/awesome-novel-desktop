@@ -813,11 +813,12 @@ export default function NovelWorkspace() {
     plan.closeDesk();
     if (payload) startBackfill(payload.draft);
   }, [plan, startBackfill]);
+  // ai-modal-confirm-rule：生成中关掉规划台，完成后**只提醒不自动回填**——
+  // 重开规划台过目全文后点「采纳 · 回填卷纲」才写入（autoBackfill 载荷未被取走＝还没过目）
   useEffect(() => {
-    if (plan.state.deskOpen || plan.state.deskPhase !== "done") return;
-    const payload = plan.takeAutoBackfill();
-    if (payload) startBackfill(payload.draft);
-  }, [plan.state.deskOpen, plan.state.deskPhase, plan, startBackfill]);
+    if (plan.state.deskOpen || plan.state.deskPhase !== "done" || !plan.state.autoBackfill) return;
+    toast.info(`第${plan.state.volNo}卷的卷纲已备好——打开规划台过目后采纳回填`);
+  }, [plan.state.deskOpen, plan.state.deskPhase, plan.state.autoBackfill, plan.state.volNo]);
   const handleVolumeSaved = useCallback(() => {
     if (landAfterSaveRef.current) {
       landAfterSaveRef.current = false;
