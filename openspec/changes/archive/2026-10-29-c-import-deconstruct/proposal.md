@@ -1,5 +1,12 @@
 # 导入自有书 · AI 拆书（c-import-deconstruct）
 
+> **退役移档（2026-10-29，archive-sweep-20261029）**：本 change **未按原样实施**，系被事件超越后归档留档，**delta 未应用**（禁止 sync——会把未实现的需求 falsify 进主 spec）。
+>
+> - **落地核查（10-29 实勘）**：`chapter_import_baseline` / `chapter_dossier_coverage` / `book_reservations` / `open_state` / `open_import_book` / `fill_missing` / 「只导入正文」降级在 main **零命中**；`deconstruct_jobs.source` 列来自 #842（v2 拆书），与本 change 无关。44 任务 0 勾。
+> - **替代形态**：「导入后就有设定」由**独立拆书流**承接——手动上传整本 → AI 拆书（`deconstruct`，PRO）→ 产物预览 → 一键建书（`deconstruct-import`，MAX），契约已落 `deconstruct-book` 主 spec（含三档权益门，#934 sync）；导入向导内不做拆书，现文案（`ImportNovelModal.tsx`）：「当前版本先支持直接导入；拆书补设定会在后续版本开放」。
+> - **复活口径**：若产品重启「向导内拆书补设定」，以本目录 design/tasks 为设计底稿**另立新 change**（delta 需按届时主 spec 重算——原 delta 与 A 路 `import-own-book`（#900 已归档）的「费用与隐私告知」ADDED 撞车，validate 已拒绝）。
+> - #963（10-28 扫尾）原判「需单独一次补档作业」系按「实现已合」假设；本次实勘推翻该假设，故按 c-polish-v5-diagnostic-gate 先例（#939）退役移档。
+
 ## Why
 
 A 路（`c-import-direct`）只能把正文搬进来，设定、逐章状态、伏笔都不带。作者想「导入后就有设定可续写」，需要复用拆书管线为每章生成基线，并在拆完后开书。B 路依赖 A 路已经落地的 manifest、连续结构、`origin=import` 历史章与原子 writer；它不重复造章节/书，只补拆书任务、基线、开书。
