@@ -462,7 +462,7 @@ describe("简介 AI · 弹窗出卡确认（c-settings-ai-confirm-modal）", () 
   });
 });
 
-describe("简介 AI · 起草（c-intro-ai-draft）", () => {
+describe("简介 AI · 起草（c-intro-draft-interview：三问 → 三候选 → 选填）", () => {
   beforeEach(() => {
     apiState.get.mockReset();
     apiState.updateStory.mockReset();
@@ -479,6 +479,15 @@ describe("简介 AI · 起草（c-intro-ai-draft）", () => {
         confirmSetting={vi.fn().mockResolvedValue(true)} novelName="测试小说" />,
     );
 
+  const threeCandidates = {
+    candidates: [
+      { label: "核1", synopsis: "候选一的完整简介。" },
+      { label: "核2", synopsis: "候选二的完整简介。" },
+      { label: "核3", synopsis: "候选三的完整简介。" },
+    ],
+    act: "replace",
+  };
+
   it("起草行列首位（draft → check → fill → polish）", async () => {
     const { container } = renderIntro();
     const keys = await waitFor(() =>
@@ -489,52 +498,81 @@ describe("简介 AI · 起草（c-intro-ai-draft）", () => {
     expect(keys).toEqual(["draft", "check", "fill", "polish"]);
   });
 
-  it("空简介可点：introAi 收到 draft＋空 content，采纳整段写入", async () => {
+  it("点起草先出三问表单、不发请求；答完提交才请求（answers 随请求带出）", async () => {
     const { container } = renderIntro();
-    const ta = (await waitFor(() => container.querySelector("textarea"))) as HTMLTextAreaElement;
-    expect(ta.value).toBe(""); // 空简介落地，无前置守卫
-    aiState.introAi.mockResolvedValueOnce({ original: "", draft: "拆迁通知贴在卷帘门上那天。", act: "replace" });
-    fireEvent.click(await waitFor(() => container.querySelector('[data-aiact="draft"]')!));
+    await waitFor(() => container.querySelector('[data-aiact="draft"]'));
+    fireEvent.click(container.querySelector('[data-aiact="draft"]')!);
+
+    // 第一步：表单先出现，请求未发
+    await waitFor(() => expect(screen.getByTestId("draft-q-protagonist")).toBeTruthy());
+    expect(aiState.introAi).not.toHaveBeenCalled();
+
+    fireEvent.change(screen.getByTestId("draft-q-protagonist"), {
+      target: { value: "守卫队新兵" },
+    });
+    fireEvent.change(screen.getByTestId("draft-q-taste"), {
+      target: { value: "替全城挡夜里的东西" },
+    });
+    aiState.introAi.mockResolvedValueOnce(threeCandidates);
+    fireEvent.click(screen.getByTestId("draft-form-submit"));
+
     await waitFor(() =>
       expect(aiState.introAi).toHaveBeenCalledWith(
         "draft",
-        { title: "测试小说", content: "" },
+        {
+          title: "测试小说",
+          content: "",
+          answers: { protagonist: "守卫队新兵", taste: "替全城挡夜里的东西", musts: "" },
+        },
         "p1",
       ),
     );
-    await waitFor(() => expect(screen.getByText(/拆迁通知贴在卷帘门上那天/)).toBeTruthy());
+    // 第二步：三张候选卡
+    await waitFor(() => expect(screen.getByTestId("draft-card-0")).toBeTruthy());
+    expect(screen.getByTestId("draft-card-2")).toBeTruthy();
+  });
 
+  it("选第二张填入：整段替换（默认选第一条，点选后采纳走所选）", async () => {
+    const { container } = renderIntro();
+    const ta = (await waitFor(() => container.querySelector("textarea"))) as HTMLTextAreaElement;
+    fireEvent.click(await waitFor(() => container.querySelector('[data-aiact="draft"]')!));
+    aiState.introAi.mockResolvedValueOnce(threeCandidates);
+    fireEvent.click(await waitFor(() => screen.getByTestId("draft-form-submit")));
+    await waitFor(() => expect(screen.getByTestId("draft-card-1")).toBeTruthy());
+
+    fireEvent.click(screen.getByTestId("draft-card-1"));
     fireEvent.click(screen.getByTestId("ai-card-adopt"));
-    await waitFor(() => expect(ta.value).toBe("拆迁通知贴在卷帘门上那天。"));
+    await waitFor(() => expect(ta.value).toBe("候选二的完整简介。"));
     await waitFor(() => expect(screen.queryByTestId("intro-ai-card")).toBeNull());
   });
 
-  it("有旧稿时起草：出卡附原稿对照行，采纳整段替换", async () => {
+  it("三问全跳过也能生成（answers 为空串，由后端占位）", async () => {
+    const { container } = renderIntro();
+    fireEvent.click(await waitFor(() => container.querySelector('[data-aiact="draft"]')!));
+    aiState.introAi.mockResolvedValueOnce(threeCandidates);
+    fireEvent.click(await waitFor(() => screen.getByTestId("draft-form-submit")));
+    await waitFor(() =>
+      expect(aiState.introAi).toHaveBeenCalledWith(
+        "draft",
+        { title: "测试小说", content: "", answers: { protagonist: "", taste: "", musts: "" } },
+        "p1",
+      ),
+    );
+  });
+
+  it("有旧稿时：三卡选一条整段替换旧稿；撤销一步回到旧稿", async () => {
     const { container } = renderIntro();
     const ta = (await waitFor(() => container.querySelector("textarea"))) as HTMLTextAreaElement;
     fireEvent.change(ta, { target: { value: "半截旧稿" } });
-    aiState.introAi.mockResolvedValueOnce({
-      original: "半截旧稿",
-      draft: "全新起草的一版。",
-      act: "replace",
-    });
     fireEvent.click(await waitFor(() => container.querySelector('[data-aiact="draft"]')!));
-    await waitFor(() => expect(screen.getByText(/半截旧稿/)).toBeTruthy());
-    await waitFor(() => expect(screen.getByText(/全新起草的一版/)).toBeTruthy());
+    aiState.introAi.mockResolvedValueOnce(threeCandidates);
+    fireEvent.click(await waitFor(() => screen.getByTestId("draft-form-submit")));
+    await waitFor(() => expect(screen.getByTestId("draft-card-0")).toBeTruthy());
 
+    fireEvent.click(screen.getByTestId("draft-card-0"));
     fireEvent.click(screen.getByTestId("ai-card-adopt"));
-    await waitFor(() => expect(ta.value).toBe("全新起草的一版。"));
+    await waitFor(() => expect(ta.value).toBe("候选一的完整简介。"));
     expect(ta.value).not.toContain("半截旧稿"); // 整段替换，不拼接
-  });
-
-  it("采纳后回执撤销：一步回到采纳前", async () => {
-    const { container } = renderIntro();
-    const ta = (await waitFor(() => container.querySelector("textarea"))) as HTMLTextAreaElement;
-    aiState.introAi.mockResolvedValueOnce({ original: "", draft: "起草的一版。", act: "replace" });
-    fireEvent.click(await waitFor(() => container.querySelector('[data-aiact="draft"]')!));
-    await waitFor(() => expect(screen.getByText(/起草的一版/)).toBeTruthy());
-    fireEvent.click(screen.getByTestId("ai-card-adopt"));
-    await waitFor(() => expect(ta.value).toBe("起草的一版。"));
 
     // 回执撤销（脚部回执条的「撤销」键，data-od-id=panel-undo）
     fireEvent.click(
@@ -544,7 +582,24 @@ describe("简介 AI · 起草（c-intro-ai-draft）", () => {
         return el as HTMLElement;
       }),
     );
-    await waitFor(() => expect(ta.value).toBe(""));
+    await waitFor(() => expect(ta.value).toBe("半截旧稿"));
+  });
+
+  it("候选卡「改一下问题」：回表单且保留已填答案", async () => {
+    const { container } = renderIntro();
+    fireEvent.click(await waitFor(() => container.querySelector('[data-aiact="draft"]')!));
+    fireEvent.change(await waitFor(() => screen.getByTestId("draft-q-protagonist")), {
+      target: { value: "守卫队新兵" },
+    });
+    aiState.introAi.mockResolvedValueOnce(threeCandidates);
+    fireEvent.click(screen.getByTestId("draft-form-submit"));
+    await waitFor(() => expect(screen.getByTestId("draft-card-0")).toBeTruthy());
+
+    fireEvent.click(screen.getByText("改一下问题"));
+    await waitFor(() => expect(screen.getByTestId("draft-q-protagonist")).toBeTruthy());
+    expect((screen.getByTestId("draft-q-protagonist") as HTMLTextAreaElement).value).toBe(
+      "守卫队新兵",
+    );
   });
 });
 

@@ -189,7 +189,7 @@ test.describe("题材/简介 AI 链路", () => {
     }
   });
 
-  test("起草（c-intro-ai-draft）：空简介可点 → 出卡草稿 → 采纳写入＋回执撤销", async ({
+  test("起草（c-intro-draft-interview）：三问（可跳过）→ 三候选 → 选一条填入＋回执撤销", async ({
     page,
   }) => {
     const { restore } = await setupSession(page);
@@ -199,8 +199,11 @@ test.describe("题材/简介 AI 链路", () => {
       await page.route(`**/api/novels/${pid}/settings/ai/intro/draft`, (r) =>
         r.fulfill({
           json: {
-            original: "",
-            draft: "拆迁通知贴在卷帘门上那天，老周正给一辆旧摩托换链条。",
+            candidates: [
+              { label: "核一", synopsis: "候选一的完整简介。" },
+              { label: "核二", synopsis: "候选二的完整简介。" },
+              { label: "核三", synopsis: "候选三的完整简介。" },
+            ],
             act: "replace",
           },
         }),
@@ -210,20 +213,27 @@ test.describe("题材/简介 AI 链路", () => {
       // c-genre-first-order：默认落「题材」——简介用例显式切到简介
       await openSetting(page, "简介");
 
-      // 空简介直接点起草（唯一无内容前置的能力行）
+      // 第一步：三问表单（都可跳过），答一问或不答都能提交
       await page.locator('[data-aiact="draft"]').click();
+      await expect(page.getByTestId("draft-q-protagonist")).toBeVisible({ timeout: 10000 });
+      await page.getByTestId("draft-q-protagonist").fill("守卫队新兵");
+      await page.getByTestId("draft-form-submit").click();
+
+      // 第二步：三张候选卡并列
       const dialog = page.getByRole("dialog");
       await expect(dialog).toBeVisible({ timeout: 10000 });
-      await expect(dialog).toContainText("AI 起草稿 · 采纳才写入");
-      await expect(page.getByTestId("intro-ai-card")).toContainText("拆迁通知贴在卷帘门上那天");
+      await expect(page.getByTestId("intro-ai-card")).toContainText("AI 起草 · 挑一条填入");
+      await expect(page.getByTestId("draft-card-0")).toContainText("候选一的完整简介");
+      await expect(page.getByTestId("draft-card-2")).toContainText("候选三的完整简介");
 
-      // 采纳＝整段写入；回执撤销＝一键回空
+      // 第三步：选第二条 → 填入
+      await page.getByTestId("draft-card-1").click();
       await page.getByTestId("ai-card-adopt").click();
       await expect(page.getByRole("dialog")).toHaveCount(0);
       const ta = page.getByPlaceholder(/用几句话/);
-      await expect(ta).toHaveValue(/拆迁通知贴在卷帘门上那天/);
+      await expect(ta).toHaveValue("候选二的完整简介。");
       const receipt = page.locator('[data-od-id="panel-receipt"]');
-      await expect(receipt).toContainText("已采纳「AI 起草」");
+      await expect(receipt).toContainText("已采纳「AI 起草 · 核二」");
       await page.locator('[data-od-id="panel-undo"]').click();
       await expect(ta).toHaveValue("");
       await expect(receipt).toHaveCount(0);

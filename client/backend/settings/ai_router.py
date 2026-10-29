@@ -433,9 +433,10 @@ async def intro_ai(
     """简介四能力：introspect（体检）/ fill（补缺失）/ polish（润色）/ draft（起草）。
 
     体检/补缺失/润色的输入一律用 `body.content`（前端当前编辑草稿）+ `body.title`，
-    **不读 story.yaml 旧文**；draft（起草）相反——从零起稿、不吃已有简介，
-    注入题材上下文（题材目录＋五格已填项）：题材定于起草之前，正向不回环
-    （旧「三件套不注入题材」的防成环拍板不约束起草——题材判定已不吃简介输入）。
+    **不读 story.yaml 旧文**；draft（起草）相反——从零起稿、不吃已有简介，注入题材
+    上下文（题材目录＋五格已填项）＋作者回答的三问（body.answers，都可跳过），
+    返回 **3 条差异化候选**供作者挑一条填入（2026-10-29 拍板；旧版模板只回单稿时
+    自动包成 1 条，平滑降级）。
     """
     if action not in INTRO_ACTIONS:
         raise HTTPException(400, f"不支持的简介 AI 动作：{action}")
@@ -485,6 +486,13 @@ async def intro_ai(
         # 起草就丢了「看点决定卖点怎么吆喝」的方向锁。
         promise = str(g["promise_note"] or "").strip() or str(g["core_promise"] or "").strip()
 
+        # 起草前向作者要的三问（2026-10-29 拍板：只凭题材起稿信息量不足）——
+        # 都可跳过；填了的优先于题材典型盘（模板里明确优先级）。
+        answers = body.get("answers") if isinstance(body.get("answers"), dict) else {}
+
+        def _answer(key: str) -> str:
+            return _clamp_str(answers.get(key), 200) or "（作者跳过了，按题材典型盘）"
+
         _intro_vals = {
             "title": title,
             "theme": _filled(theme_label),
@@ -494,6 +502,9 @@ async def intro_ai(
             "forbidden_list": "、".join(x for x in forbidden if x) or "（作者还没填）",
             "cost_ratio": _filled(g["cost_ratio"]),
             "battlefield": "、".join(x for x in battlefield if x) or "（作者还没填）",
+            "protagonist_hint": _answer("protagonist"),
+            "taste_hint": _answer("taste"),
+            "musts_hint": _answer("musts"),
         }
     else:
         if not content.strip():
@@ -511,8 +522,9 @@ async def intro_ai(
     system = system_tpl.format(**_intro_vals) or "你是小说简介编辑。只输出 JSON，不要任何其他文字。"
 
     client = await get_ai_client_for_novel(project_id)
-    # 页面级参数（D12）：体检/补缺失＝JSON 判定类；润色/起草＝长文生成类
-    temperature = 0.8 if action == "draft" else 0.7 if action == "polish" else 0.3
+    # 页面级参数（D12）：体检/补缺失＝JSON 判定类；润色＝长文生成类；
+    # 起草＝三条差异化长文（0.9 拉开差异）
+    temperature = 0.9 if action == "draft" else 0.7 if action == "polish" else 0.3
 
     usage: dict = {}
     try:
@@ -577,10 +589,23 @@ async def intro_ai(
     if action == "draft":
         if not isinstance(data, dict):
             raise HTTPException(502, "起草返回结构不对，可重试")
-        draft = _clamp_str(data.get("synopsis") or data.get("draft"), 500)
-        if not draft:
+        # 3 条候选（v4 契约）；旧版模板只回 {"synopsis"} 时包成 1 条（平滑降级）
+        raw_items = data.get("candidates")
+        items = raw_items if isinstance(raw_items, list) else [data]
+        candidates: list[dict] = []
+        for item in items:
+            if not isinstance(item, dict):
+                continue
+            synopsis = _clamp_str(item.get("synopsis") or item.get("draft"), 500)
+            if not synopsis:
+                continue
+            label = _clamp_str(item.get("label"), 12) or f"候选 {len(candidates) + 1}"
+            candidates.append({"label": label, "synopsis": synopsis})
+            if len(candidates) >= 3:
+                break
+        if not candidates:
             raise HTTPException(502, "起草没给出结果，可重试")
-        return {"original": content[:500], "draft": draft, "act": "replace"}
+        return {"candidates": candidates, "act": "replace"}
 
     if not isinstance(data, dict):
         raise HTTPException(502, "润色返回结构不对，可重试")

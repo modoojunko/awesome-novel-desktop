@@ -66,18 +66,33 @@ describe("introAi 请求形态", () => {
     expect(body.missing_segments).toEqual(["本来的生活"]);
   });
 
-  it("draft 进 URL，空 content 合法（起草从零起，不吃旧文）", async () => {
+  it("draft 进 URL，空 content 合法；三问 answers 随请求带出", async () => {
     const spy = vi.spyOn(globalThis, "fetch").mockResolvedValue(
-      new Response(JSON.stringify({ original: "", draft: "草稿", act: "replace" }), {
-        status: 200,
-        headers: { "Content-Type": "application/json" },
-      }),
+      new Response(
+        JSON.stringify({
+          candidates: [{ label: "核1", synopsis: "草稿1" }],
+          act: "replace",
+        }),
+        { status: 200, headers: { "Content-Type": "application/json" } },
+      ),
     );
-    const r = await introAi("draft", { title: "书", content: "" }, "pid-3");
+    const r = await introAi(
+      "draft",
+      {
+        title: "书",
+        content: "",
+        answers: { protagonist: "守卫队新兵", taste: "替全城挡夜里的东西", musts: "保留钟楼" },
+      },
+      "pid-3",
+    );
     expect(String(spy.mock.calls[0][0])).toContain("/novels/pid-3/settings/ai/intro/draft");
     const body = JSON.parse(String(spy.mock.calls[0][1]?.body));
-    expect(body).toEqual({ title: "书", content: "" });
-    expect(r.draft).toBe("草稿");
+    expect(body.answers).toEqual({
+      protagonist: "守卫队新兵",
+      taste: "替全城挡夜里的东西",
+      musts: "保留钟楼",
+    });
+    expect(r.candidates?.[0]).toEqual({ label: "核1", synopsis: "草稿1" });
   });
 });
 

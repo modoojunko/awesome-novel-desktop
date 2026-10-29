@@ -292,6 +292,8 @@ export interface IntroAiResult {
   polished?: string;
   /** 起草稿（c-intro-ai-draft）：凭题材＋书名从零起的第一版，采纳才写入。 */
   draft?: string;
+  /** 起草三候选（c-intro-draft-interview）：label＝≤10 字故事核标签，挑一条填入。 */
+  candidates?: Array<{ label: string; synopsis: string }>;
   act?: "insert" | "replace";
   [k: string]: unknown;
 }
@@ -314,14 +316,26 @@ export function aiBlockReason(e: unknown): AiBlockReason | null {
  * - 例外：draft（起草）从零起稿，content 传空串合法
  * - 失败抛错，调用方按 aiBlockReason(e) 分派文案与跳转
  */
+export interface DraftAnswers {
+  /** 主角是谁、什么处境（三问可全部跳过）。 */
+  protagonist?: string;
+  /** 想要的味道 / 困境。 */
+  taste?: string;
+  /** 必须保留 / 必须避开。 */
+  musts?: string;
+}
+
 export async function introAi(
   action: IntroAiAction,
-  payload: { title: string; content: string; missingSegments?: string[] },
+  payload: { title: string; content: string; missingSegments?: string[]; answers?: DraftAnswers },
   projectId: string,
 ): Promise<IntroAiResult> {
   const body: Record<string, unknown> = { title: payload.title, content: payload.content };
   if (action === "fill" && payload.missingSegments?.length) {
     body.missing_segments = payload.missingSegments;
+  }
+  if (action === "draft" && payload.answers) {
+    body.answers = payload.answers;
   }
   return doJsonPost(`${API_BASE}/novels/${projectId}/settings/ai/intro/${action}`, body);
 }
