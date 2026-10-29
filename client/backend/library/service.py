@@ -261,8 +261,7 @@ async def _copy_book_avatar(
     db: AsyncSession, user_id: str, character_id: str, card: CharacterLibrary
 ) -> bool:
     """收录时从书内当前头像资产复制字节（已是 512/96 档，不再转码）。"""
-    from models.image_asset import ImageAsset
-    from models.image_asset import ImageAssetBlob
+    from models.image_asset import ImageAsset, ImageAssetBlob
 
     asset = (
         await db.execute(
@@ -565,18 +564,9 @@ async def apply_to_book(
 
 # ── AI 随机改名换龄（本地词库兜底恒可用） ────────────────────────────────
 
-_SURNAMES = (
-    "王 李 张 刘 陈 杨 赵 黄 周 吴 徐 孙 胡 朱 高 林 何 郭 马 罗 "
-    "梁 宋 郑 谢 韩 唐 冯 于 董 萧 程 曹 袁 邓 许 傅 沈 曾 彭 吕"
-).split()
-_MALE_GIVEN = (
-    "青山 远舟 长风 惊鸿 铁衣 无咎 云鹤 砚秋 少游 承影 听澜 枕星 "
-    "行简 沉舟 拾遗 观澜 破晓 执戈 逐月 归尘"
-).split()
-_FEMALE_GIVEN = (
-    "绾绾 阮阮 惊蝉 九歌 望舒 菱歌 青梧 疏影 听雨 扶苏 卿卿 含章 "
-    "拾雪 临溪 望津 知微 枕月 流萤 照水 弄晴"
-).split()
+_SURNAMES = ["王", "李", "张", "刘", "陈", "杨", "赵", "黄", "周", "吴", "徐", "孙", "胡", "朱", "高", "林", "何", "郭", "马", "罗", "梁", "宋", "郑", "谢", "韩", "唐", "冯", "于", "董", "萧", "程", "曹", "袁", "邓", "许", "傅", "沈", "曾", "彭", "吕"]
+_MALE_GIVEN = ["青山", "远舟", "长风", "惊鸿", "铁衣", "无咎", "云鹤", "砚秋", "少游", "承影", "听澜", "枕星", "行简", "沉舟", "拾遗", "观澜", "破晓", "执戈", "逐月", "归尘"]
+_FEMALE_GIVEN = ["绾绾", "阮阮", "惊蝉", "九歌", "望舒", "菱歌", "青梧", "疏影", "听雨", "扶苏", "卿卿", "含章", "拾雪", "临溪", "望津", "知微", "枕月", "流萤", "照水", "弄晴"]
 
 
 def random_name_local(gender: str) -> dict:

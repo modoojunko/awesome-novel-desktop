@@ -47,6 +47,7 @@ from db import Base, async_session, engine
 from deconstruct.router import router as deconstruct_router  # c-deconstruct-book
 from genres.router import router as genres_router
 from image_assets.router import router as image_assets_router
+from library.router import router as character_library_router
 from manuscript.router import router as manuscript_router
 from models.user import User
 from novels.events_router import router as events_router
@@ -60,7 +61,6 @@ from settings.ai_router import router as settings_ai_router
 from settings.book_prefs_router import router as book_prefs_router
 from settings.characters_ai import router as characters_ai_router
 from settings.characters_router import router as characters_router
-from library.router import router as character_library_router
 from settings.hooks_router import router as hooks_router
 from settings.router import router as settings_router
 from settings.status import router as settings_status_router

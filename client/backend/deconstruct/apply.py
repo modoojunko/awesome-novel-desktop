@@ -30,11 +30,11 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from deconstruct import settings_map as sm
 from deconstruct.cards import (
-    ROLE_MAP as _ROLE_MAP,
     card_to_book_payload,
     cards_from_products,
+)
+from deconstruct.cards import (
     clean_para as _clean_para,
-    role_normalize as _role_normalize,
 )
 from deconstruct.mdrender import md_map_from_products
 from filesystem.paths import KEY_TO_PATH

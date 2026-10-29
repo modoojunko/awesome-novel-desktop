@@ -68,6 +68,8 @@ __all__ = [
     "Character",
     "CharacterGate",
     "CharacterImageSettings",
+    "CharacterLibrary",
+    "CharacterLibraryBlob",
     "CharacterOp",
     "CharacterRelation",
     "DeconstructJob",
@@ -92,6 +94,4 @@ __all__ = [
     "User",
     "Volume",
     "ZhuqueResultArchive",
-    "CharacterLibrary",
-    "CharacterLibraryBlob",
 ]

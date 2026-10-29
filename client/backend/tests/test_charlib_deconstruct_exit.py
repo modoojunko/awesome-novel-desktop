@@ -9,12 +9,11 @@ from fastapi.testclient import TestClient
 
 from auth_local.middleware import get_current_user
 from db import async_session
+from deconstruct.cards import card_to_book_payload, cards_from_products
+from library import service as lib_service
 from main import app
 from models.deconstruct import DeconstructJob
 from models.user import User
-
-from library import service as lib_service
-from deconstruct.cards import card_to_book_payload, cards_from_products
 
 
 def _run(coro):
