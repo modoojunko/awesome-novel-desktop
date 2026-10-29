@@ -53,6 +53,7 @@ export default function ApiKeyConfigPage() {
   useEffect(() => {
     if (searchParams.get("add") === "" || window.location.hash === "#add") {
       setCfgTab("llm");
+      formVendorRef.current = ""; // 新一次添加会话：清残留供应商定位（评审 P3）
       setShowForm(true);
     }
   }, [searchParams]);
@@ -131,9 +132,13 @@ export default function ApiKeyConfigPage() {
   }, [undoToast, restoreConfig]);
 
   const closeForm = useCallback(() => {
+    // 指南开着时忽略表单侧关闭（评审 P2：Esc 会同时到达叠层两个 Modal，实测
+    // 底层表单先被关掉——指南开着时表单被其遮罩盖住、取消钮不可点，此处拦的
+    // 只有 Esc 漏电，只让顶层指南响应）
+    if (guideOpen) return;
     setShowForm(false);
     setEditConfig(null);
-  }, []);
+  }, [guideOpen]);
 
   // Refresh status when configs change
   useEffect(() => {
@@ -162,7 +167,7 @@ export default function ApiKeyConfigPage() {
             </button>
             <button
               className="btn btn-primary"
-              onClick={() => { setShowForm(true); setEditConfig(null); }}
+              onClick={() => { formVendorRef.current = ""; setShowForm(true); setEditConfig(null); }}
             >
               <Ico d={P.plus} />
               添加 API Key

@@ -167,10 +167,11 @@
 @media (max-width: 900px) { .zg-flow { grid-template-columns: minmax(0, 1fr); } }
 
 /* ─── 配置步骤指南（c-modelconfig-help-guide：.guide-* 新词入册；壳复用 .modal/.mcard） ─── */
-/* 固定尺寸 880×760（拍板 10-29：不做自适应——不随视口缩、不随页签跳）；内容超高走
-   mcard-body 内部滚动。Modal 无 className 挂点，用 :has() 作用域命中（WebView2 108 起
-   即支持，legacy 构建闸只编译颜色不涉选择器）；宽度 880 同时经 Modal width 传内联兜底 */
-.modal:has(.guide-body) .mcard { width: 880px; height: 760px; max-height: none; overflow: hidden; display: flex; flex-direction: column; }
+/* 固定尺寸（拍板 10-29：不做自适应——正常窗口恒 880×760、不随页签跳）；高度钳到视口是
+   桌面最小窗（1024×680）的兜底——更矮只缩高度走 body 内部滚动，头部/关闭钮不再被裁出
+   屏（评审 P3）。Modal 无 className 挂点，用 :has() 作用域命中（WebView2 108 起即支持，
+   legacy 构建闸只编译颜色不涉选择器）；宽度 880 同时经 Modal width 传内联兜底 */
+.modal:has(.guide-body) .mcard { width: 880px; height: min(760px, calc(100vh - 48px)); overflow: hidden; display: flex; flex-direction: column; }
 .modal:has(.guide-body) .mcard-body { flex: 1; min-height: 0; overflow-y: auto; padding-bottom: 24px; }
 .guide-actions { display: flex; align-items: center; gap: 10px; }
 .guide-body { font-size: 13.5px; color: var(--fg); }
