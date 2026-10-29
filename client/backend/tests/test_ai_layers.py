@@ -684,6 +684,31 @@ class TestIntroDraft:
         assert "抢资源" in prompt and "街口那条巷子" in prompt  # 战场同上
         assert "旧简介" not in prompt  # 起草不吃已有文本
 
+    def test_draft_injects_parent_theme_world_anchor(self, client, monkeypatch):
+        """世界体系锚：大类解读（世界定义）＋子类基调都要进提示词——只给基调会让模型
+        拿书名/示例凑世界观（西式奇幻起草出中式乡土意象的实锤病灶）。"""
+        cid = _run_async(_make_config(["gpt-4o"]))
+        nid = _run_async(_make_novel(cid, "gpt-4o"))
+
+        async def _seed():
+            from filesystem.storage import get_storage
+
+            novel = await _get_novel(nid)
+            await get_storage().write_yaml(
+                novel.root_path, "story.yaml", {"genre": "西式奇幻", "sub_genre": "黑暗奇幻"}
+            )
+
+        _run_async(_seed())
+        fake = self._patch_client(monkeypatch, '{"synopsis": "草稿"}')
+        r = client.post(
+            f"/api/novels/{nid}/settings/ai/intro/draft",
+            json={"title": "我在夜晚打吸血鬼", "content": ""},
+        )
+        assert r.status_code == 200, r.text
+        prompt = self._prompt_of(fake)
+        assert "剑与魔法、种族与神系的西方幻想世界" in prompt  # 大类 desc（世界名词来源）
+        assert "（基调：世界本就残酷" in prompt  # 子类基调拼在同一行
+
     def test_draft_prefers_promise_note_over_short_tag(self, client, monkeypatch):
         """02 主输入＝作者写的那句 promise_note（core_promise 只是短标签、不单独设输入框）：
         原句优先注入，不得误报「作者还没填」。"""

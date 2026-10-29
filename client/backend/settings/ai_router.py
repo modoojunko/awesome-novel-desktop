@@ -454,6 +454,18 @@ async def intro_ai(
         theme_sub = (story.get("sub_genre") or "").strip()
         theme_label = f"{theme_name}（{theme_sub}）" if theme_sub else theme_name
         theme_desc, theme_example = _theme_anchor(theme_name, theme_sub)
+        # 世界体系锚：_theme_anchor 子类优先只回基调（如「世界本就残酷」），大类解读
+        # （如「剑与魔法、种族与神系的西方幻想世界」）才是世界名词的来源——两者都注入，
+        # 否则模型只拿到基调、世界定义缺席，会拿书名或示例的世界观凑（西式奇幻起草出
+        # 中式乡土意象的实锤病灶）。
+        if theme_name:
+            from genres.theme_catalog import theme_entry
+
+            entry = theme_entry(theme_name)
+            if entry and entry.get("desc") and entry["desc"] not in theme_desc:
+                theme_desc = (
+                    f"{entry['desc']}（基调：{theme_desc}）" if theme_desc else entry["desc"]
+                )
         # 候选 id → 人类可读标签（起草只要模型读懂语义，不需要它回 id）
         from genres.vocab_presets import VOCAB_PRESETS
 
