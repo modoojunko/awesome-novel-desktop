@@ -9,4 +9,6 @@ export const queryKeys = {
   /** 拆书任务清单/详情（c-deconstruct-book）：列表轮询与写后失效同源 */
   deconstructTasks: ["deconstruct", "tasks"] as const,
   deconstructTask: (id: string) => ["deconstruct", "task", id] as const,
+  /** 角色库（c-character-library）：库页列表与书内收录态同源 */
+  characterLibrary: ["character", "library"] as const,
 };

@@ -374,6 +374,85 @@ async def export_task(
     return result
 
 
+@router.get("/tasks/{task_id}/library-candidates")
+async def library_candidates(
+    task_id: str,
+    user: dict = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """角色库收录候选（c-charlib-deconstruct-exit）：投影角色＋已收录集合＋可用性。"""
+    from deconstruct.cards import cards_from_products
+    from library import service as library_service
+
+    task = await service.get_task(db, task_id, _user_id(user))
+    _require(task, user)
+    if task.status != "completed":
+        return {"can_import": False, "reason": "任务还没拆完", "items": []}
+    try:
+        products = json.loads(task.products_json or "{}")
+    except ValueError:
+        products = {}
+    product = products.get("characters") if isinstance(products, dict) else None
+    data = product.get("data") if isinstance(product, dict) else None
+    cards = cards_from_products(data or {})
+    if not cards:
+        return {"can_import": False, "reason": "这批产物里没有角色设定", "items": []}
+    collected = await library_service.collected_source_keys(db, _user_id(user), task.id)
+    items = []
+    for idx, card in enumerate(cards, start=1):
+        key = library_service.deconstruct_source_key(card, idx)
+        items.append(
+            {
+                "key": key,
+                "name": key,
+                "role": card.get("role", "配角"),
+                "persona": card.get("persona", ""),
+                "gender": card.get("gender", ""),
+                "age": card.get("age", ""),
+                "collected": key in collected,
+            }
+        )
+    return {"can_import": True, "reason": "", "items": items}
+
+
+@router.post("/tasks/{task_id}/to-library")
+async def to_library(
+    task_id: str,
+    body: dict,
+    user: dict = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """收进角色库（第三出口）：只写库、不动书；幂等由库侧 provenance 兜底。"""
+    from library import service as library_service
+
+    task = await service.get_task(db, task_id, _user_id(user))
+    _require(task, user)
+    if task.status != "completed":
+        raise HTTPException(409, "任务未完成，无法收录")
+    try:
+        products = json.loads(task.products_json or "{}")
+    except ValueError:
+        products = {}
+    product = products.get("characters") if isinstance(products, dict) else None
+    data = product.get("data") if isinstance(product, dict) else None
+    if not data:
+        raise HTTPException(422, "这批产物里没有角色设定，无法收录")
+    picks = [str(p).strip() for p in (body.get("picks") or []) if str(p or "").strip()]
+    if not picks:
+        raise HTTPException(400, "至少勾选 1 个角色")
+
+    result = await library_service.import_from_deconstruct(
+        db,
+        _user_id(user),
+        task,
+        picks=picks,
+        rename=bool(body.get("rename")),
+    )
+    task.exported_at = datetime.now(UTC).replace(tzinfo=None)  # 已取标记：badge 不再计数
+    await db.commit()
+    return result
+
+
 @router.delete("/tasks/{task_id}")
 async def delete_task(
     task_id: str,

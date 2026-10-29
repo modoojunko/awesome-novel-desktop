@@ -17,6 +17,7 @@ from models.chapter import (
     ChapterVersion,
 )
 from models.character import Character, CharacterGate, CharacterOp, CharacterRelation
+from models.character_library import CharacterLibrary, CharacterLibraryBlob
 from models.deconstruct import DeconstructJob
 from models.event import Event
 from models.genre import Genre
@@ -91,4 +92,6 @@ __all__ = [
     "User",
     "Volume",
     "ZhuqueResultArchive",
+    "CharacterLibrary",
+    "CharacterLibraryBlob",
 ]

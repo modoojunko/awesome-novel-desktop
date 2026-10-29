@@ -37,6 +37,7 @@ export interface LegacyCandidate {
     books_total: number;
     configs: Array<{ name: string }>;
     configs_total: number;
+    library_total?: number;
   } | null;
 }
 

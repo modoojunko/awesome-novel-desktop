@@ -9,6 +9,7 @@ import NovelWorkspace from "@/components/novel/NovelWorkspace";
 import TaskListPage from "@/components/tools/TaskListPage";
 import CreateTaskPage from "@/components/tools/CreateTaskPage";
 import TaskDetailPage from "@/components/tools/TaskDetailPage";
+import CharacterLibraryPage from "@/components/library/CharacterLibraryPage";
 import MemberBlockPrompt from "@/components/novel/license/MemberBlockPrompt";
 import PromptPackModal from "@/components/novel/license/PromptPackModal";
 import AuthGuard from "@/components/auth/AuthGuard";
@@ -77,6 +78,14 @@ export default function App() {
             element={
               <Authed>
                 <TaskDetailPage />
+              </Authed>
+            }
+          />
+          <Route
+            path="/tools/characters"
+            element={
+              <Authed>
+                <CharacterLibraryPage />
               </Authed>
             }
           />

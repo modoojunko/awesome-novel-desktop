@@ -10,12 +10,17 @@
 // 可选模型 <2 或鉴权/配置类失败回落 /config 链接（单模型用户零变化）。
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import UpgradeModal from "@/components/novel/UpgradeModal";
 import { ModelPicker } from "@/components/novel/workbench/modals";
 import { useFeature } from "@/hooks/useTier";
 import type { FeatureKey } from "@/lib/features";
 import { toast } from "../../lib/toast";
+import {
+  getLibraryCandidates,
+  toLibrary,
+  type LibraryCandidateItem,
+} from "../../lib/deconstructApi";
 import { serverTimeMs } from "../../lib/serverTime";
 import { queryKeys } from "../../lib/queryKeys";
 import {
@@ -98,6 +103,7 @@ function SwitchModelCta({
 }
 
 export default function TaskDetailPage() {
+  const queryClient = useQueryClient();
   const { id = "" } = useParams();
   const navigate = useNavigate();
   // 档位门（c-deconstruct-tier）：导出 markdown＝deconstruct（PRO 起）；产物建书＝
@@ -112,7 +118,14 @@ export default function TaskDetailPage() {
   );
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [exitOpen, setExitOpen] = useState(false);
-  const [exitOpt, setExitOpt] = useState<"book" | "files">("book");
+  const [exitOpt, setExitOpt] = useState<"book" | "files" | "library">("book");
+  // 收进角色库（c-charlib-deconstruct-exit）：清单＝候选端点唯一数据源；默认全选未收录
+  const [libCandidates, setLibCandidates] = useState<LibraryCandidateItem[] | null>(null);
+  const [libCanImport, setLibCanImport] = useState(true);
+  const [libReason, setLibReason] = useState("");
+  const [libPicks, setLibPicks] = useState<Set<string>>(new Set());
+  const [libRename, setLibRename] = useState(true);
+  const [libBusy, setLibBusy] = useState(false);
   const [selectedFiles, setSelectedFiles] = useState<string[]>([]);
   const [destDir, setDestDir] = useState("");
   const [exitMsg, setExitMsg] = useState("");
@@ -315,6 +328,29 @@ export default function TaskDetailPage() {
       return;
     }
     /* v8 ignore stop */
+    if (exitOpt === "library") {
+      // 提交钮在 0 勾选时 disabled——这里必有至少一个勾选
+      const picks = [...libPicks];
+      setLibBusy(true);
+      void (async () => {
+        try {
+          const r = await toLibrary(task.id, picks, libRename);
+          toast.success(
+            `已把 ${r.created} 个角色收进角色库` +
+              (r.skipped > 0 ? `（${r.skipped} 个已在库里，跳过）` : ""),
+          );
+          setExitOpen(false);
+          void queryClient.invalidateQueries({ queryKey: queryKeys.characterLibrary });
+          void queryClient.invalidateQueries({ queryKey: queryKeys.deconstructTasks });
+          void queryClient.invalidateQueries({ queryKey: queryKeys.deconstructTask(task.id) });
+        } catch (e) {
+          toast.error(e instanceof Error ? e.message : "收进角色库失败");
+        } finally {
+          setLibBusy(false);
+        }
+      })();
+      return;
+    }
     if (exitOpt === "book") {
       void act(
         () => importBookFromTask(task.id, bookItems),
@@ -843,6 +879,34 @@ export default function TaskDetailPage() {
                       <span>导出勾中的 {selectedFiles.length} 份产物（＋README）到选择的文件夹；产物仍保留，之后也可回来建书。</span>
                     </span>
                   </button>
+                  <button
+                    className={"ex-fmt" + (exitOpt === "library" ? " on" : "")}
+                    data-exit-opt="library"
+                    data-testid="exit-opt-library"
+                    onClick={() => {
+                      setExitOpt("library");
+                      if (libCandidates === null) {
+                        void (async () => {
+                          try {
+                            const r = await getLibraryCandidates(task.id);
+                            setLibCandidates(r.items);
+                            setLibCanImport(r.can_import);
+                            setLibReason(r.reason);
+                            setLibPicks(new Set(r.items.filter((i) => !i.collected).map((i) => i.key)));
+                          } catch (e) {
+                            toast.error(e instanceof Error ? e.message : "候选角色加载失败");
+                            setLibCanImport(false);
+                            setLibReason("候选角色加载失败，稍后重试");
+                          }
+                        })();
+                      }
+                    }}
+                  >
+                    <span className="ex-txt">
+                      <b>收进角色库</b>
+                      <span>把拆出来的角色收进角色库——不动这本书；之后开任何新书都能取用。</span>
+                    </span>
+                  </button>
                 </div>
                 {exitOpt === "files" && (
                   <div className="field" style={{ marginTop: 12 }}>
@@ -874,6 +938,103 @@ export default function TaskDetailPage() {
                         选择文件夹
                       </button>
                     </div>
+                  </div>
+                )}
+                {exitOpt === "library" && (
+                  <div style={{ marginTop: 12 }} data-testid="library-panel">
+                    {!libCanImport ? (
+                      <div className="alt" data-testid="library-reason">
+                        {libReason || "这批产物里没有角色设定"}
+                      </div>
+                    ) : libCandidates === null ? (
+                      <div className="alt">正在读取拆出来的角色…</div>
+                    ) : (
+                      <>
+                        <div className="alt" style={{ marginTop: 0 }}>
+                          勾选收进角色库——性格和说话方式原样带走；这本书本身不受影响。
+                        </div>
+                        <div
+                          style={{
+                            border: "1px solid var(--border)",
+                            borderRadius: 10,
+                            marginTop: 8,
+                            maxHeight: 240,
+                            overflowY: "auto",
+                          }}
+                          data-testid="library-rows"
+                        >
+                          {libCandidates.map((item) => (
+                            <label
+                              key={item.key}
+                              data-testid="library-row"
+                              style={{
+                                display: "flex",
+                                gap: 10,
+                                alignItems: "flex-start",
+                                padding: "9px 12px",
+                                borderBottom: "1px solid var(--border)",
+                                opacity: item.collected ? 0.55 : 1,
+                                cursor: item.collected ? "default" : "pointer",
+                              }}
+                            >
+                              <input
+                                type="checkbox"
+                                disabled={item.collected}
+                                checked={libPicks.has(item.key)}
+                                onChange={(e) => {
+                                  setLibPicks((prev) => {
+                                    const next = new Set(prev);
+                                    if (e.target.checked) next.add(item.key);
+                                    else next.delete(item.key);
+                                    return next;
+                                  });
+                                }}
+                              />
+                              <span style={{ minWidth: 0, flex: 1 }}>
+                                <b style={{ fontFamily: "var(--font-display)", fontSize: 13.5 }}>
+                                  {item.name}
+                                </b>{" "}
+                                <span style={{ fontSize: 11, color: "var(--muted)" }}>
+                                  {item.role}
+                                  {item.collected ? " · 已在库里" : ""}
+                                </span>
+                                <span
+                                  style={{ display: "block", fontSize: 12, color: "var(--muted)", marginTop: 2 }}
+                                >
+                                  {item.persona || "（没有人设摘要）"}
+                                  {item.gender || item.age
+                                    ? ` · ${item.gender}${item.age ? ` · ${item.age} 岁` : ""}`
+                                    : ""}
+                                </span>
+                              </span>
+                            </label>
+                          ))}
+                        </div>
+                        <label style={{ display: "flex", gap: 8, marginTop: 10, fontSize: 13 }}>
+                          <input
+                            type="checkbox"
+                            checked={libRename}
+                            onChange={(e) => setLibRename(e.target.checked)}
+                            data-testid="library-rename"
+                          />
+                          <span>
+                            收进来时换个新名字和年龄
+                            <span className="alt" style={{ display: "block", marginTop: 2 }}>
+                              想留原名也行；进了库随时能改，用到新书时还能再换一次
+                            </span>
+                          </span>
+                        </label>
+                        <button
+                          className="btn btn-primary"
+                          style={{ marginTop: 12 }}
+                          disabled={libBusy || libPicks.size === 0}
+                          onClick={doExit}
+                          data-testid="library-submit"
+                        >
+                          {libBusy ? "正在收进角色库…" : `收进角色库（${libPicks.size}）`}
+                        </button>
+                      </>
+                    )}
                   </div>
                 )}
                 {exitOpt === "book" && (

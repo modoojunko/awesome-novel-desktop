@@ -43,7 +43,7 @@ interface PreviewReport {
   tables: Array<{ table: string; rows_source: number | null; rows_inserted: number | null }>;
   tables_skipped: Array<{ table: string; reason: string }>;
   book_count_source: number | null;
-  manifest?: { configs_total: number } | null;
+  manifest?: { configs_total: number; library_total?: number } | null;
 }
 
 export interface RetentionItem {
@@ -345,6 +345,11 @@ export default function LegacyMigrateModal({
           {(preview.manifest?.configs_total ?? 0) > 0 && (
             <p style={{ fontSize: 12.5, color: 'var(--muted)', margin: '0 0 8px' }}>
               模型配置 <span className="num">{preview.manifest!.configs_total}</span> 条（含 API Key）一并迁移
+            </p>
+          )}
+          {(preview.manifest?.library_total ?? 0) > 0 && (
+            <p style={{ fontSize: 12.5, color: 'var(--muted)', margin: '0 0 8px' }}>
+              角色卡 <span className="num">{preview.manifest!.library_total}</span> 张一并迁移
             </p>
           )}
           {(preview.tables_skipped || []).length > 0 && (

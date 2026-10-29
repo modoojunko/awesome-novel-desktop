@@ -2303,3 +2303,18 @@ boss 口径：「文案太 AI 了，要用大白话」。清一遍 #949/#955/#95
   change 引入）。
 - **parity 影响**：`preview.html` 与实现同批改，`design:check` 的 preview 屏应回到阈值内；
   白纸档观感＝写作页同款桌面/纸两层，护眼/夜间与改前一致。
+
+## 2026-10-28 · 角色库（c-character-library）——新增页，不设 parity 基线
+
+- **新增**：角色库页（`/tools/characters`）此前不存在，无既有像素基线可比。设计基线＝
+  `docs/design-c/drafts/ai-novel-c端-角色库-原型.html`（五场景，v3 真界面实抓）＋设计说明同目录。
+- **design:check 豁免**：`design:check` 当前只覆盖 list + preview 两屏（`package.json` scripts 为准），
+  新页不在其 parity 用例内——本页的视觉与交互由原型人工评审 + e2e（`e2e/character-library.spec.ts`）
+  覆盖；若后续把新页纳入 parity，需先补 seed 注入与截图用例，届时在本文件升级登记。
+- **共享段**：零改动（`base.css` 令牌/基础类未触碰）；本页自有样式只住 `src/design/library.css`。
+
+## 2026-10-28 · 拆书第三出口「收进角色库」（c-charlib-deconstruct-exit）
+
+- **受影响屏**：拆书完成详情「选择去向」弹层（`TaskDetailPage`）——第三张去向卡＋内联收录面板。
+- **与原型关系**：角色库原型场景④即为本弹层的实抓基线（真弹窗＋运行时挂第三卡）；实现按同版式。
+- **偏差登记**：第三卡与两卡同形（`.ex-fmt`）；收录面板为弹层内联面板（不叠第二层 Modal，勾选/灰态/换名开关/提交计数）；已收录行灰态不可勾。无共享段改动。

@@ -28,6 +28,7 @@ interface GapList {
   books_total: number;
   configs: string[];
   configs_total: number;
+  library_total?: number;
 }
 
 const fmtWords = (n: number): string => (n >= 10000 ? `${(n / 10000).toFixed(1)} 万` : `${n}`);
@@ -219,6 +220,11 @@ export default function CarryDialog({
             <section>
               {secTitle('模型配置', <><span className="num">{m.configs_total}</span> 条 · 含 API Key 与用量统计</>)}
               <ul style={listStyle}>{configRows}</ul>
+            </section>
+          )}
+          {m && ((m.library_total ?? 0) > 0) && (
+            <section>
+              {secTitle('角色库', <><span className="num">{m.library_total}</span> 张角色卡 · 含头像</>)}
             </section>
           )}
           {!m && candidate.book_count != null && candidate.book_count > 0 && (

@@ -68,6 +68,55 @@ def _contract_header() -> dict:
     }
 
 
+def _library_section(rows, blobs: dict[str, dict[str, bytes]]) -> list[dict]:
+    """账号级角色库段（config 包 v8）：文本字段 + 头像哈希/字节数描述。
+
+    头像字节走独立二进制条目（character_library/avatars/{id}-{variant}.webp）。
+    """
+    import hashlib
+    import json as _json
+
+    def _parsed(text: str, fallback):
+        try:
+            value = _json.loads(text or "")
+        except (TypeError, ValueError):
+            return fallback
+        return value if isinstance(value, type(fallback)) else fallback
+
+    out: list[dict] = []
+    for c in rows:
+        variants = blobs.get(c.id) or {}
+        avatar = {}
+        for variant in ("full", "thumb"):
+            data = variants.get(variant)
+            if data:
+                avatar[variant] = {
+                    "sha256": hashlib.sha256(data).hexdigest(),
+                    "bytes": len(data),
+                }
+        out.append(
+            {
+                "id": c.id,
+                "name": c.name,
+                "aliases": _parsed(c.aliases, []),
+                "role": c.role,
+                "genre": c.genre,
+                "kind": c.kind,
+                "persona": c.persona,
+                "dossier": _parsed(c.dossier, {}),
+                "cog": _parsed(c.cog, {}),
+                "src_kind": c.src_kind,
+                "src_ref": c.src_ref,
+                "src_character_id": c.src_character_id,
+                "src_novel_name": c.src_novel_name,
+                "rev": c.rev,
+                "created_at": c.created_at.isoformat() if c.created_at else None,
+                "avatar": avatar,
+            }
+        )
+    return out
+
+
 def _yaml_str(data: dict) -> str:
     return yaml.safe_dump(data, allow_unicode=True, sort_keys=False)
 
@@ -445,6 +494,24 @@ async def build_config_package_bytes(db, user_id: str) -> tuple[bytes, str]:
     ).all()
     image_configs = sorted(image_rows, key=lambda c: c.created_at or datetime.min)
 
+    from models.character_library import CharacterLibrary, CharacterLibraryBlob
+
+    library_rows = (
+        await db.scalars(select(CharacterLibrary).where(CharacterLibrary.user_id == user.id))
+    ).all()
+    library_rows = sorted(library_rows, key=lambda c: c.created_at or datetime.min)
+    library_blobs: dict[str, dict[str, bytes]] = {}
+    if library_rows:
+        blob_rows = (
+            await db.scalars(
+                select(CharacterLibraryBlob).where(
+                    CharacterLibraryBlob.library_id.in_([c.id for c in library_rows])
+                )
+            )
+        ).all()
+        for b in blob_rows:
+            library_blobs.setdefault(b.library_id, {})[b.variant] = b.data
+
     payload = {
         "format_version": FORMAT_VERSION,
         "exported_at": datetime.now(UTC).replace(tzinfo=None).isoformat(timespec="seconds"),
@@ -491,11 +558,16 @@ async def build_config_package_bytes(db, user_id: str) -> tuple[bytes, str]:
             }
             for c in image_configs
         ],
+        "character_library": _library_section(library_rows, library_blobs),
     }
     raw = _yaml_str(payload)
     buf = io.BytesIO()
     with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
         zf.writestr("config.yaml", raw)
+        # 头像照图像资产先例走独立二进制条目（不塞 base64）
+        for cid, variants in library_blobs.items():
+            for variant, data in variants.items():
+                zf.writestr(f"character_library/avatars/{cid}-{variant}.webp", data)
     return buf.getvalue(), config_zip_name()
 
 
