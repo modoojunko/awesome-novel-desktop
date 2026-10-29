@@ -439,7 +439,10 @@ async def sync_from_book(db: AsyncSession, user_id: str, card_id: str) -> dict:
     card.cog = source.cog or "{}"
     card.src_novel_name = novel.name
     card.rev += 1
-    await _copy_book_avatar(db, user_id, source.id, card)
+    if not await _copy_book_avatar(db, user_id, source.id, card):
+        await db.execute(
+            delete(CharacterLibraryBlob).where(CharacterLibraryBlob.library_id == card.id)
+        )
     await db.commit()
     await db.refresh(card)
     present = await _avatar_presence(db, user_id)
@@ -714,9 +717,9 @@ async def import_from_deconstruct(
         )
         db.add(record)
         try:
-            await db.flush()
+            # 逐卡提交：并发/双击的唯一索引冲突只回滚当前这张，不吞本批已建的卡
+            await db.commit()
         except IntegrityError:
-            # 双击/并发：唯一索引兜底，回查已有卡
             await db.rollback()
             existing = await _existing_source_card(db, user_id, task.id, key)
             if existing is not None:

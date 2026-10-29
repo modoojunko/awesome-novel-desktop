@@ -340,6 +340,7 @@ export default function TaskDetailPage() {
               (r.skipped > 0 ? `（${r.skipped} 个已在库里，跳过）` : ""),
           );
           setExitOpen(false);
+          setLibCandidates(null); // 下次打开重取候选（已收录灰态即时正确）
           void queryClient.invalidateQueries({ queryKey: queryKeys.characterLibrary });
           void queryClient.invalidateQueries({ queryKey: queryKeys.deconstructTasks });
           void queryClient.invalidateQueries({ queryKey: queryKeys.deconstructTask(task.id) });

@@ -991,6 +991,14 @@ async def _import_single_book(
     return str(novel.id)
 
 
+def _safe_int(value, fallback: int) -> int:
+    """备份行里手改坏的数值（字符串/空）不炸恢复，落兜底值。"""
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return fallback
+
+
 async def _restore_config(db, user_id: str, config_data: dict) -> dict:
     """配置包恢复（backup-restore spec 裁决）：user 子集只补空、api_configs 同名跳过不覆盖。
 
@@ -1136,7 +1144,7 @@ async def _restore_config(db, user_id: str, config_data: dict) -> dict:
                 src_ref=str(entry.get("src_ref") or "")[:36],
                 src_character_id=str(entry.get("src_character_id") or "")[:36],
                 src_novel_name=str(entry.get("src_novel_name") or "")[:200],
-                rev=int(entry.get("rev") or 1),
+                rev=_safe_int(entry.get("rev"), 1),
             ))
             await db.flush()
             for variant in ("full", "thumb"):

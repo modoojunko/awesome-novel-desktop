@@ -7,6 +7,7 @@ import Modal from "@/components/design/Modal";
 import LibraryAvatar from "@/components/library/LibraryAvatar";
 import { COG_LAYERS, DOSSIER_FIELDS, ROLES } from "@/lib/characterModel";
 import {
+  clearLibraryAvatarCache,
   createLibraryCard,
   deleteLibraryCard,
   randomLibraryName,
@@ -66,8 +67,9 @@ export default function CardEditorModal({ open, card, onClose }: Props) {
   const [saving, setSaving] = useState(false);
   const [confirmDel, setConfirmDel] = useState(false);
   
-  // 打开时按卡初始化（同一张卡重开不重置未保存的编辑）
+  // 打开时按卡初始化；关闭即清播种标记——取消后再开同一张卡回到卡上原值
   const seedKey = open ? card?.id ?? "__new__" : "";
+  if (!open && seededFor) setSeededFor("");
   if (open && seedKey !== seededFor) {
     setSeededFor(seedKey);
     setForm(card ? fromCard(card) : blank());
@@ -143,6 +145,7 @@ export default function CardEditorModal({ open, card, onClose }: Props) {
     setSaving(true);
     try {
       const fresh = await syncCardFromBook(card!.id);
+      clearLibraryAvatarCache(fresh.id); // 头像字节可能已换：清该卡缓存图
       setForm(fromCard(fresh));
       await qc.invalidateQueries({ queryKey: queryKeys.characterLibrary });
       toast.success(`已把《${fresh.src.novel_name}》里的最新设定同步进库卡`);

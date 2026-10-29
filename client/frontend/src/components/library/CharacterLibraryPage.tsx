@@ -6,7 +6,7 @@ import { useNavigate } from "react-router-dom";
 import { useQueryClient } from "@tanstack/react-query";
 import { toast } from "@/lib/toast";
 import { useCharacterLibrary } from "@/hooks/useCharacterLibrary";
-import { clearLibraryAvatarCache, type LibraryCard } from "@/lib/libraryApi";
+import type { LibraryCard } from "@/lib/libraryApi";
 import { queryKeys } from "@/lib/queryKeys";
 import LibraryAvatar from "@/components/library/LibraryAvatar";
 import CardEditorModal from "@/components/library/CardEditorModal";
@@ -203,7 +203,6 @@ export default function CharacterLibraryPage() {
   );
 
   const refresh = async () => {
-    clearLibraryAvatarCache();
     await qc.invalidateQueries({ queryKey: queryKeys.characterLibrary });
   };
 
