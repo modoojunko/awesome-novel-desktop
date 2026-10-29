@@ -315,6 +315,8 @@ async def _chapter_material(db, project, vol, ch_no: int) -> dict:
     beat = await beat_context(db, project.id, vol.volume_no, ch_no)
     if beat:
         mat["pacing_task"] = beat["task"]
+        if beat.get("ch1_extra"):
+            mat["ch1_extra"] = beat["ch1_extra"]
     return mat
 
 
@@ -401,6 +403,12 @@ def _blocks_chapter(mat: dict) -> str:
             "【拍位硬规则】三个方向都必须把本拍写到——"
             + mat["pacing_task"]
             + "；下一拍的动向最多以征兆出现，SHALL NOT 提前演完。"
+        )
+    if mat.get("ch1_extra"):
+        parts.append(
+            "【第 1 章额外交代】"
+            + mat["ch1_extra"]
+            + "——这是全书开篇的额外任务，三个方向都要把它写进本章。"
         )
     # 配额：末章 / 已排满 / 还剩 N 章 / 未设目标——四态分明（「已排满」不得报成「未设」）
     if mat["is_final"]:

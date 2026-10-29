@@ -863,6 +863,8 @@ class ChapterContext:
             lines.append(f"本章位置：{self.chapter_position}")
         if self.pacing:
             lines.append(f"本循环第 {self.pacing['step_idx']} 步（{self.pacing['step_name']}）")
+            if self.pacing.get("ch1_extra"):
+                lines.append(f"第 1 章额外交代：{self.pacing['ch1_extra']}")
         # c-plot-split：剧情条目块（与 material_markdown 同源同字）
         plot = _plot_block(self.plot_items)
         if plot:

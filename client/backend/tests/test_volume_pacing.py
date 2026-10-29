@@ -205,12 +205,46 @@ class TestBookDefault:
         assert pc.prefill_chain(None, None, "未知题材", None)["preset"] == "upgrade"
 
 
+# ── 第 1 章额外交代（ch1_extra：卷列/书默认 → 拍位上下文） ────────────────
+
+
+class TestCh1Extra:
+    def _probe(self, novel_id: str, vol_no: int, ch_no: int):
+        async def go():
+            async with async_session() as session:
+                return await pc.beat_context(session, novel_id, vol_no, ch_no)
+        return _run_async(go())
+
+    def test_ch1_extra_only_for_book_chapter_one(self):
+        _, novel_id = _run_async(_seed_book(theme="仙侠/修真"))
+        config = pc.build_config(
+            "upgrade", 3, ch1_extra_on=True,
+            ch1_extra="开场即危机，金手指当场觉醒。", planned=True,
+        )
+        _run_async(_seed_volume(novel_id, 1, pacing=config))
+        _run_async(_seed_volume(novel_id, 2))
+        b = self._probe(novel_id, 1, 1)
+        assert b is not None and "ch1_extra" in b
+        assert "金手指" in b["ch1_extra"]
+        # 第 1 卷第 2 章 / 第 2 卷第 1 章：不带
+        b2 = self._probe(novel_id, 1, 2)
+        assert b2 is not None and "ch1_extra" not in b2
+        b3 = self._probe(novel_id, 2, 1) or {}
+        assert "ch1_extra" not in b3
+
+    def test_ch1_extra_off_not_emitted(self):
+        _, novel_id = _run_async(_seed_book(theme="仙侠/修真"))
+        config = pc.build_config("upgrade", 3, ch1_extra_on=False, planned=True)
+        _run_async(_seed_volume(novel_id, 1, pacing=config))
+        b = self._probe(novel_id, 1, 1) or {}
+        assert "ch1_extra" not in b
+
 # ── 定题材即定默认节奏（零触达） ──────────────────────────────────────────
 
 
 class TestGenreAutoInit:
     def test_genre_selection_writes_book_default(self):
-        root, novel_id = _run_async(_seed_book(theme=None))
+        _root, novel_id = _run_async(_seed_book(theme=None))
         c = _client()
         r = c.put(
             f"/api/novels/{novel_id}/settings/genre",
@@ -225,7 +259,7 @@ class TestGenreAutoInit:
 
     def test_existing_book_default_not_overwritten(self):
         # 已有书默认（作家改过）时，换题材不覆盖
-        root, novel_id = _run_async(_seed_book(theme="仙侠/修真"))
+        _root, novel_id = _run_async(_seed_book(theme="仙侠/修真"))
         c = _client()
         c.put(
             f"/api/novels/{novel_id}/pacing/book-default",
