@@ -27,6 +27,9 @@ export interface AiCardState {
   canAdopt?: boolean;
   /** 展示的是缓存结果（重开未重新生成）→ 卡顶给来源提示条。 */
   cached?: boolean;
+  /** 纯交互卡（如起草三问表单）：无生成结果——不出缓存横幅/版本角标/「换一个」，
+   *  避免把表单当成"上次生成结果"来展示。 */
+  uiOnly?: boolean;
   /** 本次下发提示词的**用户段**（c-char-prompt-view）：传了就在卡尾出「查看提示词」
    *  折叠区，出稿跑偏时用户可展开复制，报错有据；系统段＝提示词资产不进前端。
    *  不传＝不出（旧后端/未接线的域）。 */
@@ -107,7 +110,7 @@ export default function AiCardModal({
       width={520}
       wbStyle
       afterTitle={
-        version && version > 0 && kind !== "report" ? (
+        version && version > 0 && kind !== "report" && !card?.uiOnly ? (
           <span className="ac-ver" data-testid="ai-card-version" data-od-id="ai-card-version">
             第 {version} 版
           </span>
@@ -123,7 +126,7 @@ export default function AiCardModal({
             <button className="btn btn-secondary btn-sm" onClick={() => close()}>
               关闭
             </button>
-            {onRegenerate && (
+            {onRegenerate && !card?.uiOnly && (
               <button
                 className="btn btn-ghost btn-sm"
                 disabled={running}
@@ -169,7 +172,7 @@ export default function AiCardModal({
                 {error}
               </p>
             )}
-            {card?.cached && !running && (
+            {card?.cached && !card?.uiOnly && !running && (
               <p className="ac-cache" data-testid="ai-card-cache" data-od-id="ai-card-cache">
                 {kind === "report"
                   ? "上次体检结果 · 点「重新检查」刷新"

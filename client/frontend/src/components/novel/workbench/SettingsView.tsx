@@ -1161,17 +1161,21 @@ function DraftInterviewForm({
   );
 }
 
-/** 起草第二步：三条候选并列，选一条（默认第一条）后由 footer「填入所选简介」落框。 */
+/** 起草第二步：三条候选并列，选一条后由 footer「填入所选简介」落框。
+ *  选中态在本组件内（视觉），同时经 onPick 同步到面板 ref（写回源）；
+ *  重开/重出由调用方重建本组件并换 key 强制重挂，initialPick 让高亮与写回同源。 */
 function DraftCandidatePicker({
   candidates,
+  initialPick,
   onPick,
   onEditQuestions,
 }: {
   candidates: Array<{ label: string; synopsis: string }>;
+  initialPick: number;
   onPick: (i: number) => void;
   onEditQuestions: () => void;
 }) {
-  const [picked, setPicked] = useState(0);
+  const [picked, setPicked] = useState(initialPick);
   return (
     <div>
       {candidates.map((c, i) => (
@@ -1339,14 +1343,21 @@ const IntroPanel = forwardRef<
       setCardOpen(true);
     }, []);
 
-    /** 起草三问答案（关弹窗不丢）与三卡选中下标（每批复位到第一条）。 */
+    /** 起草三问答案（关弹窗不丢）与三卡选中下标（每批复位到第一条、重开保持上次选中）。
+     *  选中下标只存 ref（adopt 闭包读最新），视觉由候选卡内的本地 state 跟随 initialPick；
+     *  候选数据/批次号/当前卡形态也存 ref——「重开走缓存」要按最新状态重建卡，不能复用旧
+     *  元素快照（否则高亮与写回失配的 P2 会从另一条路径回来）。 */
     const draftAnswersRef = useRef<DraftAnswerState>({ protagonist: "", taste: "", musts: "" });
     const draftPickRef = useRef(0);
+    const draftCandsRef = useRef<Array<{ label: string; synopsis: string }>>([]);
+    const draftBatchRef = useRef(0);
+    const draftCardIsFormRef = useRef(false);
     /** runDraft 晚于 openDraftForm 定义（互相引用），经 ref 取最新实现。 */
     const runDraftRef = useRef<() => void>(() => {});
 
     /** 起草第一步：开弹窗出三问表单（不发请求；2026-10-29 拍板：只凭题材信息量不足）。 */
     const openDraftForm = useCallback(() => {
+      draftCardIsFormRef.current = true;
       setCardError("");
       setCardAction("draft");
       setCardOpen(true);
@@ -1356,6 +1367,7 @@ const IntroPanel = forwardRef<
           label: "AI 起草 · 先回答三个小问题",
           kind: "text",
           cached: false,
+          uiOnly: true,
           node: (
             <DraftInterviewForm
               initial={draftAnswersRef.current}
@@ -1368,6 +1380,58 @@ const IntroPanel = forwardRef<
         },
       }));
     }, []);
+
+    /** 三候选卡（按 ref 最新数据重建；initialPick 让高亮与写回同源，批次 key 强制重挂）。 */
+    const showDraftResults = useCallback((cached: boolean, initialPick: number) => {
+      draftCardIsFormRef.current = false;
+      const cands = draftCandsRef.current;
+      setCardError("");
+      setCardAction("draft");
+      setCardOpen(true);
+      setCards((prev) => ({
+        ...prev,
+        draft: {
+          label: "AI 起草 · 挑一条填入",
+          kind: "text",
+          adoptText: "填入所选简介",
+          cached,
+          node: (
+            <DraftCandidatePicker
+              key={`draft-batch-${draftBatchRef.current}`}
+              candidates={cands}
+              initialPick={initialPick}
+              onPick={(i) => {
+                draftPickRef.current = i;
+              }}
+              onEditQuestions={openDraftForm}
+            />
+          ),
+          adopt: cands.length
+            ? () => {
+                const picked = cands[Math.min(draftPickRef.current, cands.length - 1)] ?? cands[0];
+                const prevValue = synopsisRef.current;
+                const prevBase = baseRef.current;
+                const next = picked.synopsis.slice(0, INTRO_MAX_LEN);
+                editedRef.current = true;
+                recordChange(
+                  `已采纳「AI 起草 · ${picked.label}」，简介 ${synopsisRef.current.length} 字 → ${next.length} 字`,
+                  () => {
+                    /* 值在下面落地 */
+                  },
+                  () => {
+                    setSynopsis(prevValue);
+                    baseRef.current = prevBase;
+                    setTextHint(false);
+                  },
+                );
+                setSynopsis(next);
+                closeCard();
+                toast.success("已填入所选简介，可直接改；不满意「换一个」重出 3 条");
+              }
+            : undefined,
+        },
+      }));
+    }, [openDraftForm, recordChange, closeCard]);
 
     const runRequest = useCallback(
       async (action: IntroAiAction, content: string, answers?: DraftAnswers) => {
@@ -1495,49 +1559,11 @@ const IntroPanel = forwardRef<
             }));
           } else if (action === "draft") {
             const cands = r.candidates ?? [];
-            draftPickRef.current = 0; // 每批复位：默认选中第一条
-            setCards((prev) => ({
-              ...prev,
-              [action]: {
-                label: "AI 起草 · 挑一条填入",
-                kind: "text",
-                adoptText: "填入所选简介",
-                cached: false,
-                node: (
-                  <DraftCandidatePicker
-                    candidates={cands}
-                    onPick={(i) => {
-                      draftPickRef.current = i;
-                    }}
-                    onEditQuestions={openDraftForm}
-                  />
-                ),
-                adopt: cands.length
-                  ? () => {
-                      const picked =
-                        cands[Math.min(draftPickRef.current, cands.length - 1)] ?? cands[0];
-                      const prevValue = synopsisRef.current;
-                      const prevBase = baseRef.current;
-                      const next = picked.synopsis.slice(0, INTRO_MAX_LEN);
-                      editedRef.current = true;
-                      recordChange(
-                        `已采纳「AI 起草 · ${picked.label}」，简介 ${synopsisRef.current.length} 字 → ${next.length} 字`,
-                        () => {
-                          /* 值在下面落地 */
-                        },
-                        () => {
-                          setSynopsis(prevValue);
-                          baseRef.current = prevBase;
-                          setTextHint(false);
-                        },
-                      );
-                      setSynopsis(next);
-                      closeCard();
-                      toast.success("已填入所选简介，可直接改；不满意「换一个」重出 3 条");
-                    }
-                  : undefined,
-              },
-            }));
+            // 每批复位：选中第一条；数据与批次号更新后按最新状态重建卡
+            draftCandsRef.current = cands;
+            draftBatchRef.current += 1;
+            draftPickRef.current = 0;
+            showDraftResults(false, 0);
           } else {
             const polished = r.polished ?? "";
             setCards((prev) => ({
@@ -1604,7 +1630,7 @@ const IntroPanel = forwardRef<
           setAiRunning(null);
         }
       },
-      [novelName, projectId, recordChange, closeCard, cards, openDraftForm],
+      [novelName, projectId, recordChange, closeCard, cards, showDraftResults],
     );
 
     /** 起草请求：三问答案随请求走（runRequest 的 draft 分支渲染三候选卡）。 */
@@ -1627,17 +1653,23 @@ const IntroPanel = forwardRef<
           toast.info("先点「体检」，AI 才知道缺哪段");
           return;
         }
+        if (action === "draft") {
+          // 起草两段式：表单卡重开＝回表单；结果卡重开＝按最新选中态重建候选卡（D9）
+          if (cards.draft) {
+            if (draftCardIsFormRef.current) openDraftForm();
+            else showDraftResults(true, draftPickRef.current);
+          } else {
+            openDraftForm();
+          }
+          return;
+        }
         if (cards[action]) {
           openCached(action); // 重开＝展示缓存，不重复生成（D9）
           return;
         }
-        if (action === "draft") {
-          openDraftForm(); // 起草先走三问（2026-10-29 拍板），不发请求
-          return;
-        }
         await runRequest(action, content);
       },
-      [synopsis, cards, openCached, runRequest, openDraftForm],
+      [synopsis, cards, openCached, runRequest, openDraftForm, showDraftResults],
     );
 
     useImperativeHandle(
