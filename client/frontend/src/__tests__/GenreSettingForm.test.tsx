@@ -140,6 +140,26 @@ describe("GenreSettingForm · 六格", () => {
     expect(container.querySelector('[data-od-id="bf-note"]')).toBeTruthy();
   });
 
+  it("05 回车自定义战场 → 可移除的自定义胶囊；与预设同名落预设勾选", async () => {
+    const { container } = renderPanel();
+    await waitFor(() => expect(container.querySelectorAll(".mod")).toHaveLength(5));
+
+    const input = container.querySelector('[data-od-id="bf-input"]') as HTMLInputElement;
+    fireEvent.change(input, { target: { value: "抢天道机缘" } });
+    fireEvent.keyDown(input, { key: "Enter" });
+    expect(screen.getByText("抢天道机缘 ×")).toBeTruthy();
+
+    // 与预设同名 → 只勾预设胶囊，不重复出自定义项
+    fireEvent.change(input, { target: { value: "查真相" } });
+    fireEvent.keyDown(input, { key: "Enter" });
+    expect(container.querySelector('[data-bf="battlefield:truth"]')?.className).toContain("on");
+    expect(screen.queryByText("查真相 ×")).toBeNull();
+
+    // 点 × 移除自定义项
+    fireEvent.click(screen.getByText("抢天道机缘 ×"));
+    expect(screen.queryByText("抢天道机缘 ×")).toBeNull();
+  });
+
   it("save 落五字段契约（含自定义项与空值形态）", async () => {
     const { ref, container } = renderPanel();
     await waitFor(() => expect(container.querySelectorAll(".mod")).toHaveLength(5));

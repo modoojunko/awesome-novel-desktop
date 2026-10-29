@@ -263,6 +263,7 @@ const GenreSettingForm = forwardRef<GenreHandle, GenreSettingFormProps>(function
   /** 02 起点胶囊的高亮＝纯 UI 标记（起点来自哪颗），不落库、不计入判据；再点取消。 */
   const [flavorKey, setFlavorKey] = useState<string | null>(null);
   const [customForbidden, setCustomForbidden] = useState("");
+  const [customBattlefield, setCustomBattlefield] = useState("");
   const loadedRef = useRef(false);
   const { snapshotLoaded, markSaved, markDirty } = useDirtyState(data, onDirtyChange);
   const cand = useCandidates();
@@ -637,7 +638,7 @@ const GenreSettingForm = forwardRef<GenreHandle, GenreSettingFormProps>(function
     setCustomForbidden("");
   }, [customForbidden, data.forbidden_list.length]);
 
-  // ── 05 本小说斗什么：勾选 / 移除（自定义项由 AI 采纳写入，可 × 移除）────
+  // ── 05 本小说斗什么：勾选 / 移除 / 回车自定义（AI 采纳与手填同通道，均可 × 移除）────
   const toggleBattlefield = useCallback(
     (val: string) => {
       const has = data.battlefield.includes(val);
@@ -668,6 +669,25 @@ const GenreSettingForm = forwardRef<GenreHandle, GenreSettingFormProps>(function
     },
     [data.battlefield, recordChange],
   );
+
+  // 手填自定义战场：与候选同名的落预设勾选（不造重复胶囊）；上限与勾选共用 battlefieldMax。
+  // 不走 recordChange（同 03 的自定义禁区：添加动作本身不出回执）。
+  const addCustomBattlefield = useCallback(() => {
+    const text = customBattlefield.trim();
+    if (!text) return;
+    const hit = cand.battlefield.find((c) => c.label === text || c.id === text);
+    const val = hit ? hit.id : text;
+    if (data.battlefield.includes(val)) {
+      toast.info(hit ? `「${text}」已勾选` : "已有同名战场");
+      return;
+    }
+    if (data.battlefield.length >= GENRE_LIMITS.battlefieldMax) {
+      toast.info(`最多 ${GENRE_LIMITS.battlefieldMax} 个战场`);
+      return;
+    }
+    setData((prev) => ({ ...prev, battlefield: [...prev.battlefield, val] }));
+    setCustomBattlefield("");
+  }, [customBattlefield, data.battlefield, cand.battlefield]);
 
   // ── AI 出卡确认弹窗（c-settings-ai-confirm-modal）：每格缓存最近一版结果，
   //    重开同一行直接展示缓存不再发请求，「换一个」才重新生成（D9）；采纳＝确认后覆盖该格。────
@@ -1437,6 +1457,21 @@ const GenreSettingForm = forwardRef<GenreHandle, GenreSettingFormProps>(function
               {labelFor(b, cand.battlefield)} ×
             </button>
           ))}
+        </div>
+        <div className="cap-add">
+          <input
+            data-od-id="bf-input"
+            placeholder="写你自己的战场，回车添加"
+            value={customBattlefield}
+            maxLength={GENRE_LIMITS.battlefieldTextMax}
+            onChange={(e) => setCustomBattlefield(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") {
+                e.preventDefault();
+                addCustomBattlefield();
+              }
+            }}
+          />
         </div>
         {data.battlefield.length >= 3 && (
           <p className="soft-note" data-od-id="bf-note">
