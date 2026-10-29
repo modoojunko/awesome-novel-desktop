@@ -7,7 +7,7 @@
 - 绑定校验 `set_project_model`：不成对 400、model 不在列表 400、显式 clear 放行
 - `GET /novels/{id}/ai-model` 下发 ai_state/effective_model
 - 题材字段 AI：归一化（候选 slug 映射 / 自定义文本 / 数值 clamp / 非法 JSON 502 / 非法字段 400）
-- 简介 AI：体检归一化兜底、补缺失、润色、起草（c-intro-ai-draft：空简介放行＋题材注入）、非法 action 400
+- 简介 AI：体检归一化兜底、补缺失、润色、起草（c-intro-draft-interview：三问＋三候选/旧单稿包裹/世界锚）、非法 action 400
 - 计量：operation 细分 + model 记实际本书模型
 """
 
@@ -606,7 +606,8 @@ class TestIntroAi:
 
 
 class TestIntroDraft:
-    """c-intro-ai-draft：起草＝从零起稿——空简介放行、注入题材五格、不吃已有文本。"""
+    """c-intro-draft-interview：起草＝三问＋三候选——空简介放行、注入题材五格与作者补充、
+    不吃已有文本、旧单稿契约平滑包裹。"""
 
     def _patch_client(self, monkeypatch, text: str):
         fake = _FakeClient(text)
@@ -650,32 +651,52 @@ class TestIntroDraft:
     def _prompt_of(self, fake: _FakeClient) -> str:
         return (fake.last_kwargs.get("system") or "") + fake.last_kwargs["messages"][0]["content"]
 
+    @staticmethod
+    def _three(payload: str = "草稿") -> str:
+        return json.dumps(
+            {
+                "candidates": [
+                    {"label": f"核{i + 1}", "synopsis": f"{payload}{i + 1}"}
+                    for i in range(3)
+                ]
+            },
+            ensure_ascii=False,
+        )
+
     def test_draft_empty_content_allowed(self, client, monkeypatch):
         cid = _run_async(_make_config(["gpt-4o"]))
         nid = _run_async(_make_novel(cid, "gpt-4o"))  # 无 story.yaml、无五格
-        fake = self._patch_client(monkeypatch, '{"synopsis": "草稿"}')
+        fake = self._patch_client(monkeypatch, self._three())
         r = client.post(
             f"/api/novels/{nid}/settings/ai/intro/draft",
             json={"title": "书", "content": ""},
         )
         assert r.status_code == 200, r.text
-        assert r.json() == {"original": "", "draft": "草稿", "act": "replace"}
+        body = r.json()
+        assert body["act"] == "replace"
+        assert [(c["label"], c["synopsis"]) for c in body["candidates"]] == [
+            ("核1", "草稿1"),
+            ("核2", "草稿2"),
+            ("核3", "草稿3"),
+        ]
+        prompt = self._prompt_of(fake)
         # 题材＋五格全未填：占位声明进提示词（题材目录解读走另一兜底文案）
-        assert self._prompt_of(fake).count("（作者还没填）") >= 5
-        # 生成类比润色（0.7）再放开一档
-        assert fake.last_kwargs["temperature"] == 0.8
+        assert prompt.count("（作者还没填）") >= 5
+        # 三问跳过时不误报作者补充（走「跳过了」占位）
+        assert prompt.count("（作者跳过了，按题材典型盘）") == 3
+        # 三候选要拉开差异：temperature 0.9
+        assert fake.last_kwargs["temperature"] == 0.9
 
     def test_draft_injects_genre_and_ignores_content(self, client, monkeypatch):
         cid = _run_async(_make_config(["gpt-4o"]))
         nid = _run_async(_make_novel(cid, "gpt-4o"))
         self._seed_genre(nid)
-        fake = self._patch_client(monkeypatch, '{"synopsis": "草稿"}')
+        fake = self._patch_client(monkeypatch, self._three())
         r = client.post(
             f"/api/novels/{nid}/settings/ai/intro/draft",
             json={"title": "长夜灯", "content": "这是不该被喂给模型的旧简介"},
         )
         assert r.status_code == 200, r.text
-        assert r.json()["original"] == "这是不该被喂给模型的旧简介"
         prompt = self._prompt_of(fake)
         assert "现实题材（市井生存）" in prompt  # 题材目录标签
         assert "小人物一分一分把钱挣回来" in prompt  # 核心承诺原文
@@ -683,6 +704,30 @@ class TestIntroDraft:
         assert "越大越虐）：7" in prompt  # 吃苦指数
         assert "抢资源" in prompt and "街口那条巷子" in prompt  # 战场同上
         assert "旧简介" not in prompt  # 起草不吃已有文本
+
+    def test_draft_passes_answers_into_prompt(self, client, monkeypatch):
+        """三问答案（c-intro-draft-interview）：填了就进提示词，且为空时走占位。"""
+        cid = _run_async(_make_config(["gpt-4o"]))
+        nid = _run_async(_make_novel(cid, "gpt-4o"))
+        fake = self._patch_client(monkeypatch, self._three())
+        r = client.post(
+            f"/api/novels/{nid}/settings/ai/intro/draft",
+            json={
+                "title": "书",
+                "content": "",
+                "answers": {
+                    "protagonist": "守卫队新兵，只想在兵营混口饭吃",
+                    "taste": "每一步都在替全城人挡夜里的东西",
+                    "musts": "必须保留钟楼；不写神器",
+                },
+            },
+        )
+        assert r.status_code == 200, r.text
+        prompt = self._prompt_of(fake)
+        assert "守卫队新兵，只想在兵营混口饭吃" in prompt
+        assert "每一步都在替全城人挡夜里的东西" in prompt
+        assert "必须保留钟楼；不写神器" in prompt
+        assert "（作者跳过了，按题材典型盘）" not in prompt
 
     def test_draft_injects_parent_theme_world_anchor(self, client, monkeypatch):
         """世界体系锚：大类解读（世界定义）＋子类基调都要进提示词——只给基调会让模型
@@ -699,7 +744,7 @@ class TestIntroDraft:
             )
 
         _run_async(_seed())
-        fake = self._patch_client(monkeypatch, '{"synopsis": "草稿"}')
+        fake = self._patch_client(monkeypatch, self._three())
         r = client.post(
             f"/api/novels/{nid}/settings/ai/intro/draft",
             json={"title": "我在夜晚打吸血鬼", "content": ""},
@@ -727,7 +772,7 @@ class TestIntroDraft:
                 )
 
         _run_async(_seed())
-        fake = self._patch_client(monkeypatch, '{"synopsis": "草稿"}')
+        fake = self._patch_client(monkeypatch, self._three())
         r = client.post(
             f"/api/novels/{nid}/settings/ai/intro/draft",
             json={"title": "书", "content": ""},
@@ -740,13 +785,35 @@ class TestIntroDraft:
     def test_draft_clamped_to_500(self, client, monkeypatch):
         cid = _run_async(_make_config(["gpt-4o"]))
         nid = _run_async(_make_novel(cid, "gpt-4o"))
-        self._patch_client(monkeypatch, json.dumps({"synopsis": "长" * 600}, ensure_ascii=False))
+        self._patch_client(monkeypatch, self._three("长" * 600))
         r = client.post(
             f"/api/novels/{nid}/settings/ai/intro/draft",
             json={"title": "书", "content": ""},
         )
         assert r.status_code == 200, r.text
-        assert len(r.json()["draft"]) == 500
+        assert [len(c["synopsis"]) for c in r.json()["candidates"]] == [500, 500, 500]
+
+    def test_draft_legacy_single_shape_wrapped(self, client, monkeypatch):
+        """旧版模板只回 {"synopsis"}（当前线上包可能还是 v3）→ 包成 1 条候选，平滑降级。"""
+        cid = _run_async(_make_config(["gpt-4o"]))
+        nid = _run_async(_make_novel(cid, "gpt-4o"))
+        self._patch_client(monkeypatch, json.dumps({"synopsis": "单稿"}, ensure_ascii=False))
+        r = client.post(
+            f"/api/novels/{nid}/settings/ai/intro/draft",
+            json={"title": "书", "content": ""},
+        )
+        assert r.status_code == 200, r.text
+        assert r.json()["candidates"] == [{"label": "候选 1", "synopsis": "单稿"}]
+
+    def test_draft_empty_candidates_502(self, client, monkeypatch):
+        cid = _run_async(_make_config(["gpt-4o"]))
+        nid = _run_async(_make_novel(cid, "gpt-4o"))
+        self._patch_client(monkeypatch, '{"candidates": []}')
+        r = client.post(
+            f"/api/novels/{nid}/settings/ai/intro/draft",
+            json={"title": "书", "content": ""},
+        )
+        assert r.status_code == 502, r.text
 
     def test_draft_invalid_json_502(self, client, monkeypatch):
         cid = _run_async(_make_config(["gpt-4o"]))
@@ -761,7 +828,7 @@ class TestIntroDraft:
     def test_draft_usage_records_operation(self, client, monkeypatch):
         cid = _run_async(_make_config(["gpt-4o"]))
         nid = _run_async(_make_novel(cid, "gpt-4o"))
-        self._patch_client(monkeypatch, '{"synopsis": "草稿"}')
+        self._patch_client(monkeypatch, self._three())
         client.post(
             f"/api/novels/{nid}/settings/ai/intro/draft", json={"title": "书", "content": ""}
         )

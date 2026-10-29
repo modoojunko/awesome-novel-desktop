@@ -46,7 +46,7 @@ import {
   useChangeReceipt,
   type ChangeReceiptState,
 } from "@/components/novel/settings/ChangeReceipt";
-import { introAi, aiBlockReason, type IntroAiAction } from "@/lib/ai";
+import { introAi, aiBlockReason, type IntroAiAction, type DraftAnswers } from "@/lib/ai";
 
 // ── 面板注册表（顺序/命名与原型 navItems 一致；settingsKey 对后端口径）──
 // 顺序＝用户 2026-10-26 拍板「作家写小说，先定题材，才想如何写简介」：00 模型设定
@@ -267,7 +267,7 @@ export default function SettingsView({
       {
         key: "draft",
         name: "AI 起草",
-        desc: "凭题材＋书名从零出一版底稿，采纳才写入；不满意「换一个」重掷",
+        desc: "先答三个小问题（可跳过），出 3 条候选挑一条填入；不满意「换一个」重出",
         onClick: () => runIntroAi("draft", "draft"),
       },
       {
@@ -1080,6 +1080,154 @@ export default function SettingsView({
 }
 
 // ── 简介面板（SynopsisCard 收编为第 2 项：x/500 计数为 spec#3 顺手修）──────
+/** 起草三问的答案（全部可跳过）——关弹窗不丢，换一批沿用。 */
+type DraftAnswerState = Required<DraftAnswers>;
+
+const DRAFT_QUESTION_FIELDS: Array<{
+  key: keyof DraftAnswerState;
+  label: string;
+  placeholder: string;
+}> = [
+  {
+    key: "protagonist",
+    label: "主角是谁、什么处境",
+    placeholder: "例：外门杂役，被赶出宗门，只剩一身旧伤",
+  },
+  {
+    key: "taste",
+    label: "想写什么样的味道 / 困境",
+    placeholder: "例：每一步都在还债，越挣扎欠得越多",
+  },
+  {
+    key: "musts",
+    label: "必须保留 / 必须避开（可空）",
+    placeholder: "例：必须保留宗门考试；不要系统金手指",
+  },
+];
+
+/** 起草第一步：先问三个小问题（都可跳过），答案由父层 ref 持久化。 */
+function DraftInterviewForm({
+  initial,
+  onChange,
+  onSubmit,
+}: {
+  initial: DraftAnswerState;
+  onChange: (v: DraftAnswerState) => void;
+  onSubmit: () => void;
+}) {
+  const [v, setV] = useState<DraftAnswerState>(initial);
+  const set = (key: keyof DraftAnswerState) => (e: React.ChangeEvent<HTMLTextAreaElement>) => {
+    const next = { ...v, [key]: e.target.value };
+    setV(next);
+    onChange(next);
+  };
+  return (
+    <form
+      onSubmit={(e) => {
+        e.preventDefault();
+        onSubmit();
+      }}
+    >
+      <p style={{ margin: "0 0 10px", fontSize: 12.5, color: "var(--muted)" }}>
+        三个问题都可以跳过；答得越具体，候选越接近你心里那本书。
+      </p>
+      {DRAFT_QUESTION_FIELDS.map((f) => (
+        <label key={f.key} style={{ display: "block", margin: "0 0 10px" }}>
+          <span style={{ display: "block", fontSize: 12.5, marginBottom: 4 }}>{f.label}</span>
+          <textarea
+            value={v[f.key]}
+            onChange={set(f.key)}
+            placeholder={f.placeholder}
+            rows={2}
+            maxLength={200}
+            data-testid={`draft-q-${f.key}`}
+            style={{
+              width: "100%",
+              resize: "vertical",
+              border: "1px solid var(--border)",
+              borderRadius: 8,
+              padding: "6px 8px",
+              font: "inherit",
+              background: "var(--surface)",
+              color: "var(--fg)",
+            }}
+          />
+        </label>
+      ))}
+      <button type="submit" className="btn btn-primary btn-sm" data-testid="draft-form-submit">
+        生成 3 个候选
+      </button>
+    </form>
+  );
+}
+
+/** 起草第二步：三条候选并列，选一条（默认第一条）后由 footer「填入所选简介」落框。 */
+function DraftCandidatePicker({
+  candidates,
+  onPick,
+  onEditQuestions,
+}: {
+  candidates: Array<{ label: string; synopsis: string }>;
+  onPick: (i: number) => void;
+  onEditQuestions: () => void;
+}) {
+  const [picked, setPicked] = useState(0);
+  return (
+    <div>
+      {candidates.map((c, i) => (
+        <button
+          key={i}
+          type="button"
+          data-testid={`draft-card-${i}`}
+          aria-pressed={picked === i}
+          onClick={() => {
+            setPicked(i);
+            onPick(i);
+          }}
+          style={{
+            display: "block",
+            width: "100%",
+            textAlign: "left",
+            margin: "0 0 8px",
+            padding: "8px 10px",
+            borderRadius: 8,
+            border: picked === i ? "1.5px solid var(--accent)" : "1px solid var(--border)",
+            background: picked === i ? "var(--accent-soft)" : "transparent",
+            cursor: "pointer",
+            color: "inherit",
+            font: "inherit",
+          }}
+        >
+          <span
+            style={{
+              display: "block",
+              fontSize: 12,
+              fontWeight: 600,
+              color: picked === i ? "var(--accent)" : "var(--muted)",
+              marginBottom: 4,
+            }}
+          >
+            {i + 1} · {c.label}
+          </span>
+          <span style={{ display: "block", fontSize: 13, lineHeight: 1.7 }}>{c.synopsis}</span>
+        </button>
+      ))}
+      <p style={{ margin: "2px 0 0", fontSize: 11.5, color: "var(--muted)" }}>
+        选中后点「填入所选简介」；不满意「换一个」重出 3 条，或
+        <a
+          href="#"
+          onClick={(e) => {
+            e.preventDefault();
+            onEditQuestions();
+          }}
+        >
+          改一下问题
+        </a>
+      </p>
+    </div>
+  );
+}
+
 export interface IntroHandle extends SettingSaveHandle {
   isEmpty: () => boolean;
   focus: () => void;
@@ -1191,15 +1339,45 @@ const IntroPanel = forwardRef<
       setCardOpen(true);
     }, []);
 
+    /** 起草三问答案（关弹窗不丢）与三卡选中下标（每批复位到第一条）。 */
+    const draftAnswersRef = useRef<DraftAnswerState>({ protagonist: "", taste: "", musts: "" });
+    const draftPickRef = useRef(0);
+    /** runDraft 晚于 openDraftForm 定义（互相引用），经 ref 取最新实现。 */
+    const runDraftRef = useRef<() => void>(() => {});
+
+    /** 起草第一步：开弹窗出三问表单（不发请求；2026-10-29 拍板：只凭题材信息量不足）。 */
+    const openDraftForm = useCallback(() => {
+      setCardError("");
+      setCardAction("draft");
+      setCardOpen(true);
+      setCards((prev) => ({
+        ...prev,
+        draft: {
+          label: "AI 起草 · 先回答三个小问题",
+          kind: "text",
+          cached: false,
+          node: (
+            <DraftInterviewForm
+              initial={draftAnswersRef.current}
+              onChange={(v) => {
+                draftAnswersRef.current = v;
+              }}
+              onSubmit={() => runDraftRef.current()}
+            />
+          ),
+        },
+      }));
+    }, []);
+
     const runRequest = useCallback(
-      async (action: IntroAiAction, content: string) => {
+      async (action: IntroAiAction, content: string, answers?: DraftAnswers) => {
         aiBusyRef.current = true;
         setAiRunning(action);
         setCardError("");
         setCardAction(action);
         setCardOpen(true);
         try {
-          const r = await introAi(action, { title: novelName ?? "", content }, projectId);
+          const r = await introAi(action, { title: novelName ?? "", content, answers }, projectId);
           if (action === "introspect") {
             introspectedRef.current = true;
             const segs = r.six_segments ?? [];
@@ -1316,35 +1494,34 @@ const IntroPanel = forwardRef<
               },
             }));
           } else if (action === "draft") {
-            const draft = r.draft ?? "";
+            const cands = r.candidates ?? [];
+            draftPickRef.current = 0; // 每批复位：默认选中第一条
             setCards((prev) => ({
               ...prev,
               [action]: {
-                label: "AI 起草稿 · 采纳才写入",
+                label: "AI 起草 · 挑一条填入",
                 kind: "text",
-                adoptText: "采纳 · 替换简介",
+                adoptText: "填入所选简介",
                 cached: false,
                 node: (
-                  <div>
-                    {r.original ? (
-                      <p style={{ margin: "4px 0", color: "var(--muted)" }}>原稿：{r.original}</p>
-                    ) : null}
-                    <p style={{ margin: "4px 0" }}>
-                      <b>草稿</b>：{draft}
-                    </p>
-                    <p style={{ margin: "8px 0 0", fontSize: 11.5, color: "var(--muted)" }}>
-                      凭题材与书名起草、按六段骨架组织；采纳后可继续改，不满意「换一个」重掷
-                    </p>
-                  </div>
+                  <DraftCandidatePicker
+                    candidates={cands}
+                    onPick={(i) => {
+                      draftPickRef.current = i;
+                    }}
+                    onEditQuestions={openDraftForm}
+                  />
                 ),
-                adopt: draft
+                adopt: cands.length
                   ? () => {
+                      const picked =
+                        cands[Math.min(draftPickRef.current, cands.length - 1)] ?? cands[0];
                       const prevValue = synopsisRef.current;
                       const prevBase = baseRef.current;
-                      const next = draft.slice(0, INTRO_MAX_LEN);
+                      const next = picked.synopsis.slice(0, INTRO_MAX_LEN);
                       editedRef.current = true;
                       recordChange(
-                        `已采纳「AI 起草」，简介 ${synopsisRef.current.length} 字 → ${next.length} 字`,
+                        `已采纳「AI 起草 · ${picked.label}」，简介 ${synopsisRef.current.length} 字 → ${next.length} 字`,
                         () => {
                           /* 值在下面落地 */
                         },
@@ -1356,7 +1533,7 @@ const IntroPanel = forwardRef<
                       );
                       setSynopsis(next);
                       closeCard();
-                      toast.success("已写入草稿，可继续改或「换一个」重掷");
+                      toast.success("已填入所选简介，可直接改；不满意「换一个」重出 3 条");
                     }
                   : undefined,
               },
@@ -1427,8 +1604,16 @@ const IntroPanel = forwardRef<
           setAiRunning(null);
         }
       },
-      [novelName, projectId, recordChange, closeCard, cards],
+      [novelName, projectId, recordChange, closeCard, cards, openDraftForm],
     );
+
+    /** 起草请求：三问答案随请求走（runRequest 的 draft 分支渲染三候选卡）。 */
+    const runDraft = useCallback(() => {
+      void runRequest("draft", synopsisRef.current, draftAnswersRef.current);
+    }, [runRequest]);
+    useEffect(() => {
+      runDraftRef.current = runDraft;
+    }, [runDraft]);
 
     const runAi = useCallback(
       async (action: IntroAiAction) => {
@@ -1446,9 +1631,13 @@ const IntroPanel = forwardRef<
           openCached(action); // 重开＝展示缓存，不重复生成（D9）
           return;
         }
+        if (action === "draft") {
+          openDraftForm(); // 起草先走三问（2026-10-29 拍板），不发请求
+          return;
+        }
         await runRequest(action, content);
       },
-      [synopsis, cards, openCached, runRequest],
+      [synopsis, cards, openCached, runRequest, openDraftForm],
     );
 
     useImperativeHandle(
@@ -1557,7 +1746,11 @@ const IntroPanel = forwardRef<
                     toast.info("先写两句简介，体检才有东西可查");
                     return;
                   }
-                  void runRequest(cardAction, content);
+                  void runRequest(
+                    cardAction,
+                    content,
+                    cardAction === "draft" ? draftAnswersRef.current : undefined,
+                  );
                 }
               : undefined
           }
