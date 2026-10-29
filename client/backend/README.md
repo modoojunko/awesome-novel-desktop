@@ -83,7 +83,8 @@ client/backend/
     遗留的**路由键名、永不落盘**——判定「某设定存在哪」看 paths.py 映射，勿信调用点字面量。
   - 卷章/正文/版本快照为真表（`volumes` / `chapters` / `chapter_contents` / `chapter_versions`）；
     题材五格（`novel_genre` 系）、伏笔（`novel_hooks`）、卷纲（`volumes`）亦为真表。
-  - 盘上只余：数据库文件与日志、每本书的 `novel-samples/`（文风蒸馏样本原件），以及用户主动产物
-    （`manuscript/` 成稿导出、`backup/` 备份包——写用户所选目录，禁止落 DATA_ROOT）。
+  - 盘上只余：数据库文件与日志、`config.json`（C端 OAuth 会话）、每本书目录（建书即建空壳，
+    内容仅 `novel-samples/` 文风蒸馏样本原件）、版本升级期的 `migration-staging/` 整库副本，
+    以及用户主动产物（`manuscript/` 成稿导出、`backup/` 备份包——写用户所选目录，禁止落 DATA_ROOT）。
 - **SSE 流式传输**：写作阶段每段一个 SSE 连接，支持并行流
 - **Token 计费**：每次 AI 调用记录到 token_log，按模型单价扣除

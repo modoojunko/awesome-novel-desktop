@@ -684,6 +684,34 @@ class TestIntroDraft:
         assert "抢资源" in prompt and "街口那条巷子" in prompt  # 战场同上
         assert "旧简介" not in prompt  # 起草不吃已有文本
 
+    def test_draft_prefers_promise_note_over_short_tag(self, client, monkeypatch):
+        """02 主输入＝作者写的那句 promise_note（core_promise 只是短标签、不单独设输入框）：
+        原句优先注入，不得误报「作者还没填」。"""
+        cid = _run_async(_make_config(["gpt-4o"]))
+        nid = _run_async(_make_novel(cid, "gpt-4o"))
+
+        async def _seed():
+            from filesystem.storage import get_storage
+            from genres.novel_genre_service import put_novel_genre
+
+            novel = await _get_novel(nid)
+            await get_storage().write_yaml(novel.root_path, "story.yaml", {"genre": "现实题材"})
+            async with async_session() as session:
+                await put_novel_genre(
+                    session, nid, {"promise_note": "小人物一分一分把钱挣回来"}
+                )
+
+        _run_async(_seed())
+        fake = self._patch_client(monkeypatch, '{"synopsis": "草稿"}')
+        r = client.post(
+            f"/api/novels/{nid}/settings/ai/intro/draft",
+            json={"title": "书", "content": ""},
+        )
+        assert r.status_code == 200, r.text
+        prompt = self._prompt_of(fake)
+        assert "小人物一分一分把钱挣回来" in prompt  # 作者原句进了看点行
+        assert "核心承诺（主要看点）：（作者还没填）" not in prompt  # 不得误报未填
+
     def test_draft_clamped_to_500(self, client, monkeypatch):
         cid = _run_async(_make_config(["gpt-4o"]))
         nid = _run_async(_make_novel(cid, "gpt-4o"))
