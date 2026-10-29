@@ -247,7 +247,9 @@ async def ai_plot_draw(
         _usr_t,
         material_blocks=_plot_blocks(
             mat, row, entry, position, word_target,
-            beat=await beat_context(db, project.id, row.volume, row.chapter_no),
+            beat=await beat_context(
+                db, project.id, row.volume.volume_no, row.chapter_no
+            ),
         ),
     )
     user_msg = material_user + f"\n\n请给出第 {global_ch} 章剧情清单的 3 版（只输出 JSON）。"
