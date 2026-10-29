@@ -212,15 +212,6 @@ function VolumeVerifyPanel({
   const [pacingPreview, setPacingPreview] = useState<PacingPreview | null>(null);
   const [pacingHint, setPacingHint] = useState("");
 
-  const pacingAdopt = useCallback(
-    async (config: PacingConfig) => {
-      await volumePacingApi.saveVolume(projectId, volRef, config);
-      setPacingPreview(null);
-      onPacingChanged?.();
-    },
-    [projectId, volRef, onPacingChanged],
-  );
-
   const runPacePlan = useCallback(async () => {
     setPacingBusy("plan");
     setPacingHint("");
@@ -293,7 +284,9 @@ function VolumeVerifyPanel({
   }, [projectId, volRef, onPacingChanged]);
 
   const pacingAdoptTailor = useCallback(async () => {
+    /* v8 ignore start -- 防御分支：按钮只在 tailor 预览块里渲染，kind 必匹配 */
     if (!pacingPreview || pacingPreview.kind !== "tailor") return;
+    /* v8 ignore stop */
     setPacingBusy("tailor");
     try {
       await volumePacingApi.saveVolume(projectId, volRef, {
@@ -308,7 +301,9 @@ function VolumeVerifyPanel({
   }, [pacingPreview, projectId, volRef, onPacingChanged]);
 
   const pacingAdoptPolish = useCallback(async () => {
+    /* v8 ignore start -- 防御分支：按钮只在 polish 预览块里渲染，kind 必匹配 */
     if (!pacingPreview || pacingPreview.kind !== "polish") return;
+    /* v8 ignore stop */
     setPacingBusy("polish");
     try {
       const cur = await volumePacingApi.getVolume(projectId, volRef);
@@ -376,6 +371,8 @@ function VolumeVerifyPanel({
                   key: "pace-editing",
                   name: "正在编辑节奏",
                   desc: "先保存或取消编辑，再用右栏 AI——避免覆盖未保存的改动",
+                  // 恒 disabled 行（编辑态让位）——空 handler 点击不可达，覆盖口径见 vitest.config
+                  /* v8 ignore next */
                   onClick: () => {},
                   disabled: true,
                   testid: "pacing-editing-hint",
@@ -387,7 +384,10 @@ function VolumeVerifyPanel({
                 name: pacingBusy === "plan" ? "排段中…" : "按套路分段，排这一卷（AI）",
                 desc: "照卷纲把节奏切成段；先出预览，采纳才落库",
                 onClick: () => {
+                  /* v8 ignore start -- 防御分支：!aiPlan 时该行必 disabled（按钮吞 click），
+                     免费档出口走下方 pacing-locked 块 */
                   if (!aiPlan) onUpgrade("ai-plan");
+                  /* v8 ignore stop */
                   else void runPacePlan();
                 },
                 disabled: !!pacingBusy || !aiPlan,
@@ -399,7 +399,10 @@ function VolumeVerifyPanel({
                 name: pacingBusy === "tailor" ? "调套路中…" : "按这本书调一版套路（AI）",
                 desc: "读题材、简介和主线，把套路和每步说明调到合身；不采纳不改任何内容",
                 onClick: () => {
+                  /* v8 ignore start -- 防御分支：!aiPlan 时该行必 disabled（按钮吞 click），
+                     免费档出口走下方 pacing-locked 块 */
                   if (!aiPlan) onUpgrade("ai-plan");
+                  /* v8 ignore stop */
                   else void runPaceTailor();
                 },
                 disabled: !!pacingBusy || !aiPlan,
@@ -411,7 +414,10 @@ function VolumeVerifyPanel({
                 name: pacingBusy === "polish" ? "润说明中…" : "润一遍步骤说明（AI）",
                 desc: "只顺措辞；步数、步序、每段几章都不动",
                 onClick: () => {
+                  /* v8 ignore start -- 防御分支：!aiPlan 时该行必 disabled（按钮吞 click），
+                     免费档出口走下方 pacing-locked 块 */
                   if (!aiPlan) onUpgrade("ai-plan");
+                  /* v8 ignore stop */
                   else void runPacePolish();
                 },
                 disabled: !!pacingBusy || !aiPlan,

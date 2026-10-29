@@ -1480,38 +1480,10 @@ describe("右栏节奏三行（c-volume-pacing）", () => {
       detail: { chapters: [] } as unknown as VolumeDetail, frontierVol: null,
     }, onPacingChanged });
     const planBtn = await screen.findByTestId("pacing-plan-btn");
-    // eslint-disable-next-line no-console
-    console.log("DEBUG before:", {
-      disabled: (planBtn as HTMLButtonElement).disabled,
-      text: planBtn.textContent,
-    });
     fireEvent.click(planBtn);
+    await waitFor(() => expect(pacingState.plan).toHaveBeenCalled(), { timeout: 3000 });
     await waitFor(
-      () => {
-        // eslint-disable-next-line no-console
-        console.log("DEBUG after click:", {
-          btnText: planBtn.textContent,
-          planCalled: pacingState.plan.mock.calls.length,
-          getVolCalled: pacingState.getVolume.mock.calls.length,
-          hint: !!screen.queryByText(/先在「节奏」页签保存/),
-          err: screen.queryByText(/排段失败/)?.textContent,
-        });
-        expect(pacingState.plan).toHaveBeenCalled();
-      },
-      { timeout: 3000 },
-    );
-    await waitFor(
-      () => {
-        const el = screen.queryByTestId("pacing-plan-adopt");
-        // eslint-disable-next-line no-console
-        if (!el) console.log("DEBUG body markers:", {
-          planBtn: !!screen.queryByTestId("pacing-plan-btn"),
-          preview: !!screen.queryByTestId("pacing-preview"),
-          panels: document.querySelectorAll(".rail-cfg").length,
-          bodyHasAdopt: document.body.innerHTML.includes("pacing-plan-adopt"),
-        });
-        expect(el).not.toBeNull();
-      },
+      () => expect(screen.queryByTestId("pacing-plan-adopt")).not.toBeNull(),
       { timeout: 3000 },
     );
     fireEvent.click(screen.getByTestId("pacing-plan-adopt"));
@@ -1519,5 +1491,192 @@ describe("右栏节奏三行（c-volume-pacing）", () => {
     const body = pacingState.saveVolume.mock.calls[0]?.[2];
     expect(body?.planned).toBe(true);
     expect(onPacingChanged).toHaveBeenCalled();
+  });
+
+  it("排段降级：后端 text 当提示，不出预览", async () => {
+    pacingState.plan.mockResolvedValue({ ok: true, degraded: true, notes: [], text: "模型没给出分段" });
+    renderPanel({ data: {
+      volume: 1, volumeRef: "vol-1", title: "血酬", tab: "pacing",
+      detail: { chapters: [] } as unknown as VolumeDetail, frontierVol: null,
+    } });
+    fireEvent.click(await screen.findByTestId("pacing-plan-btn"));
+    expect(await screen.findByText("模型没给出分段")).toBeInTheDocument();
+    expect(screen.queryByTestId("pacing-plan-adopt")).toBeNull();
+  });
+
+  it("排段零条（未降级）：走默认提示文案", async () => {
+    pacingState.plan.mockResolvedValue({ ok: true, degraded: false, notes: [], text: "" });
+    renderPanel({ data: {
+      volume: 1, volumeRef: "vol-1", title: "血酬", tab: "pacing",
+      detail: { chapters: [] } as unknown as VolumeDetail, frontierVol: null,
+    } });
+    fireEvent.click(await screen.findByTestId("pacing-plan-btn"));
+    expect(await screen.findByText("排段没出可用结果，请重试")).toBeInTheDocument();
+  });
+
+  it("排段请求失败：错误信息当提示", async () => {
+    pacingState.plan.mockRejectedValue(new Error("排段服务 502"));
+    renderPanel({ data: {
+      volume: 1, volumeRef: "vol-1", title: "血酬", tab: "pacing",
+      detail: { chapters: [] } as unknown as VolumeDetail, frontierVol: null,
+    } });
+    fireEvent.click(await screen.findByTestId("pacing-plan-btn"));
+    expect(await screen.findByText("排段服务 502")).toBeInTheDocument();
+  });
+
+  it("调套路全链：预览步名/段长 → 采纳写卷（planned:false）", async () => {
+    const onPacingChanged = vi.fn();
+    pacingState.tailor.mockResolvedValue({
+      ok: true, degraded: false, note: "按悬疑调的",
+      config: { preset: "case", steps: [{ n: "案发", t: "x" }, { n: "查案", t: "y" }],
+                steps_len: 12, ch1_extra_on: false, ch1_extra: "" },
+    });
+    renderPanel({ data: {
+      volume: 1, volumeRef: "vol-1", title: "血酬", tab: "pacing",
+      detail: { chapters: [] } as unknown as VolumeDetail, frontierVol: null,
+    }, onPacingChanged });
+    fireEvent.click(await screen.findByTestId("pacing-tailor-btn"));
+    expect(await screen.findByText("按悬疑调的")).toBeInTheDocument();
+    expect(screen.getByText("案发 → 查案｜一段 12 章")).toBeInTheDocument();
+    fireEvent.click(screen.getByTestId("pacing-tailor-adopt"));
+    await waitFor(() => expect(pacingState.saveVolume).toHaveBeenCalled());
+    expect(pacingState.saveVolume.mock.calls[0]?.[2]?.planned).toBe(false);
+    expect(pacingState.saveVolume.mock.calls[0]?.[2]?.preset).toBe("case");
+    expect(onPacingChanged).toHaveBeenCalled();
+  });
+
+  it("调套路降级与空配置：两次都只出提示", async () => {
+    pacingState.tailor.mockResolvedValueOnce({ ok: true, degraded: true, config: null, note: "套路没调出来" });
+    renderPanel({ data: {
+      volume: 1, volumeRef: "vol-1", title: "血酬", tab: "pacing",
+      detail: { chapters: [] } as unknown as VolumeDetail, frontierVol: null,
+    } });
+    fireEvent.click(await screen.findByTestId("pacing-tailor-btn"));
+    expect(await screen.findByText("套路没调出来")).toBeInTheDocument();
+    pacingState.tailor.mockResolvedValueOnce({ ok: true, degraded: false, config: null, note: "" });
+    fireEvent.click(screen.getByTestId("pacing-tailor-btn"));
+    expect(await screen.findByText("没给出可用的套路建议，请重试")).toBeInTheDocument();
+    expect(screen.queryByTestId("pacing-tailor-adopt")).toBeNull();
+  });
+
+  it("调套路请求失败：错误信息当提示", async () => {
+    pacingState.tailor.mockRejectedValue(new Error("调套路 502"));
+    renderPanel({ data: {
+      volume: 1, volumeRef: "vol-1", title: "血酬", tab: "pacing",
+      detail: { chapters: [] } as unknown as VolumeDetail, frontierVol: null,
+    } });
+    fireEvent.click(await screen.findByTestId("pacing-tailor-btn"));
+    expect(await screen.findByText("调套路 502")).toBeInTheDocument();
+  });
+
+  it("润说明：没有已存配置先提示，不发请求", async () => {
+    pacingState.getVolume.mockResolvedValue({ config: null, prefill: null, source: "none",
+      book_default: null, plan: null, presets: [], theme: "", sub_genre: "" });
+    renderPanel({ data: {
+      volume: 1, volumeRef: "vol-1", title: "血酬", tab: "pacing",
+      detail: { chapters: [] } as unknown as VolumeDetail, frontierVol: null,
+    } });
+    fireEvent.click(await screen.findByTestId("pacing-polish-btn"));
+    expect(await screen.findByText("先在节奏页签保存节奏配置，再润说明")).toBeInTheDocument();
+    expect(pacingState.polish).not.toHaveBeenCalled();
+  });
+
+  it("润说明全链：预览逐条 → 采纳写回步骤说明", async () => {
+    const onPacingChanged = vi.fn();
+    renderPanel({ data: {
+      volume: 1, volumeRef: "vol-1", title: "血酬", tab: "pacing",
+      detail: { chapters: [] } as unknown as VolumeDetail, frontierVol: null,
+    }, onPacingChanged });
+    fireEvent.click(await screen.findByTestId("pacing-polish-btn"));
+    expect(await screen.findByText("1. 遇麻烦：顺过的说明。")).toBeInTheDocument();
+    fireEvent.click(screen.getByTestId("pacing-polish-adopt"));
+    await waitFor(() => expect(pacingState.saveVolume).toHaveBeenCalled());
+    expect(pacingState.saveVolume.mock.calls[0]?.[2]?.steps).toEqual([{ n: "遇麻烦", t: "顺过的说明。" }]);
+    expect(onPacingChanged).toHaveBeenCalled();
+  });
+
+  it("润说明请求失败：错误信息当提示", async () => {
+    pacingState.polish.mockRejectedValue(new Error("润说明 502"));
+    renderPanel({ data: {
+      volume: 1, volumeRef: "vol-1", title: "血酬", tab: "pacing",
+      detail: { chapters: [] } as unknown as VolumeDetail, frontierVol: null,
+    } });
+    fireEvent.click(await screen.findByTestId("pacing-polish-btn"));
+    expect(await screen.findByText("润说明 502")).toBeInTheDocument();
+  });
+
+  it("采纳排段：无卷配置时用预填配置置「已排」", async () => {
+    renderPanel({ data: {
+      volume: 1, volumeRef: "vol-1", title: "血酬", tab: "pacing",
+      detail: { chapters: [] } as unknown as VolumeDetail, frontierVol: null,
+    } });
+    fireEvent.click(await screen.findByTestId("pacing-plan-btn"));
+    await screen.findByTestId("pacing-plan-adopt");
+    pacingState.getVolume.mockResolvedValue({ config: null,
+      prefill: { preset: "upgrade", steps: [{ n: "遇麻烦", t: "x" }], steps_len: 3,
+                  ch1_extra_on: false, ch1_extra: "" },
+      source: "book", book_default: null, plan: null, presets: [], theme: "", sub_genre: "" });
+    fireEvent.click(screen.getByTestId("pacing-plan-adopt"));
+    await waitFor(() => expect(pacingState.saveVolume).toHaveBeenCalled());
+    expect(pacingState.saveVolume.mock.calls[0]?.[2]?.planned).toBe(true);
+    expect(pacingState.saveVolume.mock.calls[0]?.[2]?.preset).toBe("upgrade");
+  });
+
+  it("采纳排段：卷配置与预填都没有 → 提示，不落库", async () => {
+    renderPanel({ data: {
+      volume: 1, volumeRef: "vol-1", title: "血酬", tab: "pacing",
+      detail: { chapters: [] } as unknown as VolumeDetail, frontierVol: null,
+    } });
+    fireEvent.click(await screen.findByTestId("pacing-plan-btn"));
+    await screen.findByTestId("pacing-plan-adopt");
+    pacingState.getVolume.mockResolvedValue({ config: null, prefill: null, source: "none",
+      book_default: null, plan: null, presets: [], theme: "", sub_genre: "" });
+    fireEvent.click(screen.getByTestId("pacing-plan-adopt"));
+    expect(await screen.findByText("先在节奏页签保存节奏配置")).toBeInTheDocument();
+    expect(pacingState.saveVolume).not.toHaveBeenCalled();
+  });
+
+  it("采纳润说明：配置已消失 → 提示，不落库", async () => {
+    renderPanel({ data: {
+      volume: 1, volumeRef: "vol-1", title: "血酬", tab: "pacing",
+      detail: { chapters: [] } as unknown as VolumeDetail, frontierVol: null,
+    } });
+    fireEvent.click(await screen.findByTestId("pacing-polish-btn"));
+    await screen.findByTestId("pacing-polish-adopt");
+    pacingState.getVolume.mockResolvedValue({ config: null, prefill: null, source: "none",
+      book_default: null, plan: null, presets: [], theme: "", sub_genre: "" });
+    fireEvent.click(screen.getByTestId("pacing-polish-adopt"));
+    expect(await screen.findByText("先在节奏页签保存节奏配置")).toBeInTheDocument();
+    expect(pacingState.saveVolume).not.toHaveBeenCalled();
+  });
+
+  it("排段失败无 message：走默认提示", async () => {
+    pacingState.plan.mockRejectedValue({});
+    renderPanel({ data: {
+      volume: 1, volumeRef: "vol-1", title: "血酬", tab: "pacing",
+      detail: { chapters: [] } as unknown as VolumeDetail, frontierVol: null,
+    } });
+    fireEvent.click(await screen.findByTestId("pacing-plan-btn"));
+    expect(await screen.findByText("排段失败，请重试")).toBeInTheDocument();
+  });
+
+  it("调套路失败无 message：走默认提示", async () => {
+    pacingState.tailor.mockRejectedValue({});
+    renderPanel({ data: {
+      volume: 1, volumeRef: "vol-1", title: "血酬", tab: "pacing",
+      detail: { chapters: [] } as unknown as VolumeDetail, frontierVol: null,
+    } });
+    fireEvent.click(await screen.findByTestId("pacing-tailor-btn"));
+    expect(await screen.findByText("调套路失败，请重试")).toBeInTheDocument();
+  });
+
+  it("润说明失败无 message：走默认提示", async () => {
+    pacingState.polish.mockRejectedValue({});
+    renderPanel({ data: {
+      volume: 1, volumeRef: "vol-1", title: "血酬", tab: "pacing",
+      detail: { chapters: [] } as unknown as VolumeDetail, frontierVol: null,
+    } });
+    fireEvent.click(await screen.findByTestId("pacing-polish-btn"));
+    expect(await screen.findByText("润说明失败，请重试")).toBeInTheDocument();
   });
 });
