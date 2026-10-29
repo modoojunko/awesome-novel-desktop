@@ -111,7 +111,7 @@ async function createNovelWithVolume(page: Page, name: string): Promise<string> 
 
 /** 卷纲页签 → 本卷章节页签（c-split-to-chapters-tab 起拆章入口住本页签） */
 async function goChaptersTab(page: Page) {
-  await page.getByRole("tab", { name: "本卷章节" }).click();
+  await page.getByRole("tab", { name: "章节", exact: true }).click();
 }
 
 const DIRECTIONS = {

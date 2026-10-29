@@ -85,6 +85,30 @@ beforeEach(() => {
   mockApi.put.mockResolvedValue({ ok: true });
 });
 
+describe("拆章卡面 · 步位角标（c-volume-pacing）", () => {
+  it("已配节奏：每张卡出「本循环第 K 步 · 步名」只读行（三卡都带）", async () => {
+    mockApi.post.mockResolvedValue({
+      ...DIRS,
+      pacing: { step_idx: 2, step_name: "用金手指解决" },
+    });
+    render(<Host />);
+    fireEvent.click(screen.getByTestId("open-ai"));
+    await waitFor(() => expect(screen.getByTestId("pick-pacing-1")).toBeInTheDocument());
+    for (const n of [1, 2, 3]) {
+      expect(screen.getByTestId(`pick-pacing-${n}`)).toHaveTextContent(
+        "第 2 步 · 用金手指解决",
+      );
+    }
+  });
+
+  it("未配节奏：不出角标行", async () => {
+    render(<Host />);
+    fireEvent.click(screen.getByTestId("open-ai"));
+    await waitFor(() => expect(screen.getByTestId("pick-corner-1")).toBeInTheDocument());
+    expect(screen.queryByTestId("pick-pacing-1")).toBeNull();
+  });
+});
+
 describe("拆章界面 · 手写四段（中栏入口，全档）", () => {
   it("打开即空白四段＋进场只读（含来源小字）", async () => {
     render(<Host />);

@@ -46,8 +46,9 @@ async def put_book_prefs(
     user: dict = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    """唯一前端写路径：章节默认字数。字段缺省＝无操作成功（沿用 style-quant 口径）；
-    null/空＝清除设置（回落缺省），越界/非整数 400。"""
+    """唯一前端写路径：章节默认字数＋全书默认节奏（c-volume-pacing）。字段缺省＝
+    无操作成功（沿用 style-quant 口径）；null/空＝清除设置（回落缺省），
+    越界/非整数 400。"""
     project = await get_novel(db, project_id, user["id"])
     if not project:
         raise HTTPException(404, "Project not found")
@@ -66,4 +67,7 @@ async def put_book_prefs(
         else:
             doc[bm.CHAPTER_WORD_TARGET_FIELD] = target
         await get_storage().write_yaml(project.root_path, BOOK_PREFS_PATH, doc)
+    # 全书默认节奏（c-volume-pacing）不经此端点——唯一写口＝
+    # PUT /volumes/pacing/book-default（volumes/pacing_router），避免同一 KV
+    # 两条写路径的语义分叉；读侧仍随 GET 返回 pacing 字段（只读展示）。
     return doc

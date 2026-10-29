@@ -353,6 +353,40 @@ describe("GenreSettingForm · 六格", () => {
 
 // ── 五行 AI（tasks 4.2 / c-settings-ai-confirm-modal）：结果统一进弹窗出卡，
 //    采纳才写回；关闭即弃；缓存重开免请求（D9）；「换一个」version+1 ──────────
+describe("GenreSettingForm · 全书默认节奏块（c-volume-pacing）", () => {
+  const PRESETS = [
+    { key: "upgrade", label: "升级套路", sub: "遇麻烦 → 解决 → 变强", steps_len: 3,
+      warn_len: 6, hint: "", steps: [], ch1_extra: "" },
+    { key: "case", label: "破案套路", sub: "案发 → 查案 → 反转", steps_len: 12,
+      warn_len: 16, hint: "", steps: [], ch1_extra: "" },
+  ];
+
+  it("无书默认时默认段长取所建议套路的真实值（悬疑→破案 12 章，非恒 3）", async () => {
+    // 内联渲染（renderPanel 会重设 get 的实现，保住 /pacing/presets 路由桩）
+    apiState.get.mockImplementation((path: string) => {
+      if (path === "/genres/candidates") return Promise.resolve({});
+      if (path.endsWith("/pacing/presets")) {
+        return Promise.resolve({
+          presets: PRESETS, default_key: "upgrade", book_default: null,
+          suggested_key: "case", theme: "悬疑", sub_genre: "",
+        });
+      }
+      return Promise.resolve({
+        theme: "悬疑", sub_genre: "", promise_note: "", core_promise: "",
+        forbidden_list: [], battlefield: [],
+      });
+    });
+    render(
+      <GenreSettingForm ref={createRef<GenreHandle>()} projectId="p1" settingKey="genre" />,
+    );
+    await waitFor(() => {
+      const input = screen.getByLabelText("一段剧情讲几章") as HTMLInputElement;
+      expect(input.value).toBe("12");
+    });
+    expect((screen.getByLabelText("剧情套路") as HTMLSelectElement).value).toBe("case");
+  });
+});
+
 describe("GenreSettingForm · 五行 AI", () => {
   beforeEach(() => {
     apiState.get.mockReset();

@@ -32,6 +32,8 @@ import {
   type VocabKind,
 } from "@/lib/genreVocab";
 import { THEMES, subThemeEntry, themeEntry, type SubTheme } from "@/lib/themeCatalog";
+import { volumePacingApi, type PacingPresetsResult } from "@/lib/volumePacingApi";
+import { PACING_PRESET_DEFAULT_KEY } from "@/lib/volumePacingMeta";
 
 // ── Props / Handle ───────────────────────────────────────────────────────
 
@@ -884,6 +886,28 @@ const GenreSettingForm = forwardRef<GenreHandle, GenreSettingFormProps>(function
     [cards, openCached, runRequest],
   );
 
+  // 题材保存后重取节奏建议：后端 suggested_key 按已保存 story.yaml 题材算，
+  // 换题材前 mount 的那次建议已过期（c-volume-pacing 复审 P3）
+  const reloadPacing = useCallback(async () => {
+    try {
+      const r = await volumePacingApi.presets(projectId);
+      if (!r || !Array.isArray(r.presets) || !r.presets.length) return;
+      setPacingPresets(r);
+      const suggested =
+        (r.book_default?.preset ?? "") ||
+        r.suggested_key ||
+        PACING_PRESET_DEFAULT_KEY;
+      setPacingDefault(
+        r.book_default ?? {
+          preset: suggested,
+          steps_len: r.presets.find((x) => x.key === suggested)?.steps_len ?? 3,
+        },
+      );
+    } catch {
+      /* 静默：块保持旧值可继续用 */
+    }
+  }, [projectId]);
+
   // ── 保存 ──────────────────────────────────────────────────────────
   const save = useCallback(async (): Promise<boolean> => {
     if (saving) return false;
@@ -896,6 +920,8 @@ const GenreSettingForm = forwardRef<GenreHandle, GenreSettingFormProps>(function
       // 刚存进去的内容改回打开时那一版（用户以为只是撤销打字）
       noteBaseRef.current = data.promise_note;
       setNoteHint(false);
+      // 题材落库后端会按映射补书默认（未设时）——同步刷新本块的显示
+      if (settingKey === "genre") void reloadPacing();
       return true;
     } catch (e) {
       setError((e as Error).message || "保存失败");
@@ -903,7 +929,7 @@ const GenreSettingForm = forwardRef<GenreHandle, GenreSettingFormProps>(function
     } finally {
       setSaving(false);
     }
-  }, [projectId, settingKey, data, saving, markSaved]);
+  }, [projectId, settingKey, data, saving, markSaved, reloadPacing]);
 
   useImperativeHandle(
     ref,
@@ -921,6 +947,46 @@ const GenreSettingForm = forwardRef<GenreHandle, GenreSettingFormProps>(function
     }),
     [save, runAi, markDirty],
   );
+
+  // 全书默认节奏（c-volume-pacing）：题材选中后出现；套路六选一＋每段几章，存书级偏好
+  const [pacingPresets, setPacingPresets] = useState<PacingPresetsResult | null>(null);
+  const [pacingDefault, setPacingDefault] = useState<{ preset: string; steps_len: number } | null>(null);
+  const [pacingSaving, setPacingSaving] = useState(false);
+  useEffect(() => {
+    let alive = true;
+    volumePacingApi
+      .presets(projectId)
+      .then((r) => {
+        if (!alive || !r || !Array.isArray(r.presets) || !r.presets.length) return;
+        setPacingPresets(r);
+        const suggested =
+          (r.book_default?.preset ?? "") ||
+          r.suggested_key ||
+          PACING_PRESET_DEFAULT_KEY;
+        setPacingDefault(
+          r.book_default ?? {
+            preset: suggested,
+            // 段长取该套路的真实默认（升级 3／破案 12…），不是恒 3
+            steps_len:
+              r.presets.find((x) => x.key === suggested)?.steps_len ?? 3,
+          },
+        );
+      })
+      .catch(() => {});
+    return () => {
+      alive = false;
+    };
+  }, [projectId]);
+
+  const savePacingDefault = useCallback(async (next: { preset: string; steps_len: number }) => {
+    setPacingSaving(true);
+    try {
+      await volumePacingApi.saveBookDefault(projectId, next);
+      setPacingDefault(next);
+    } finally {
+      setPacingSaving(false);
+    }
+  }, [projectId]);
 
   if (loading) return <p className="opt">加载中…</p>;
 
@@ -1123,6 +1189,57 @@ const GenreSettingForm = forwardRef<GenreHandle, GenreSettingFormProps>(function
               </span>
             )}
           </p>
+        )}
+
+        {/* 全书默认节奏（c-volume-pacing）：定题材即定节奏的作家心智——在题材处给
+            全书默认（套路＋每段几章，存书级偏好）；各卷可单独调整，以卷为准。 */}
+        {data.theme && pacingPresets?.presets?.length && pacingDefault && (
+          <div className="cap-note" data-od-id="pacing-default">
+            <b>全书默认节奏</b>
+            {"："}
+            <select
+              className="input"
+              aria-label="剧情套路"
+              value={pacingDefault.preset}
+              onChange={(e) => {
+                const key = e.target.value;
+                const preset = pacingPresets.presets.find((x) => x.key === key);
+                const next = {
+                  preset: key,
+                  steps_len: preset?.steps_len ?? pacingDefault.steps_len,
+                };
+                setPacingDefault(next);
+                void savePacingDefault(next);
+              }}
+            >
+              {pacingPresets.presets.map((x) => (
+                <option key={x.key} value={x.key}>
+                  {x.label}
+                </option>
+              ))}
+            </select>
+            {"　一段剧情讲几章　"}
+            <input
+              className="input"
+              type="number"
+              min={1}
+              max={30}
+              style={{ width: 64 }}
+              aria-label="一段剧情讲几章"
+              value={pacingDefault.steps_len}
+              onChange={(e) => {
+                const n = Math.min(30, Math.max(1, parseInt(e.target.value, 10) || 1));
+                const next = { preset: pacingDefault.preset, steps_len: n };
+                setPacingDefault(next);
+              }}
+              onBlur={() => void savePacingDefault(pacingDefault)}
+            />
+            {pacingSaving ? <span className="eg">保存中…</span> : null}
+            {"　"}
+            <span className="eg">
+              {pacingPresets.presets.find((x) => x.key === pacingDefault.preset)?.sub}；各卷可单独调整，以卷为准
+            </span>
+          </div>
         )}
       </Mod>
 

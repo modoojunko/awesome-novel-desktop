@@ -309,6 +309,14 @@ async def _chapter_material(db, project, vol, ch_no: int) -> dict:
             "stage_hit_climax": any((c.plot_stage or "").strip() == "高潮爆发" for c in rows),
         }
     )
+    # 卷节奏拍位（c-volume-pacing）：已排卷把「本拍任务」带进素材；未配置/未排＝无此键
+    from volumes.pacing import beat_context
+
+    beat = await beat_context(db, project.id, vol.volume_no, ch_no)
+    if beat:
+        mat["pacing_task"] = beat["task"]
+        if beat.get("ch1_extra"):
+            mat["ch1_extra"] = beat["ch1_extra"]
     return mat
 
 
@@ -377,6 +385,8 @@ def _blocks_chapter(mat: dict) -> str:
     pos_line = f"【本章位置】全书第 {mat['global_ch']} 章｜本卷第 {mat['ch_no']} 章"
     if mat.get("vol_total"):
         pos_line += f"（本卷共 {mat['vol_total']} 章）"
+    if mat.get("pacing_task"):
+        pos_line += f"｜{mat['pacing_task']}"
     parts = [
         pos_line,
         f"【进场（本章从哪接）】\n{mat['entry']['text']}（{mat['entry']['source']}）",
@@ -388,6 +398,18 @@ def _blocks_chapter(mat: dict) -> str:
         parts.append("【已经拆过的章】\n" + "\n".join(mat["done_chapters"]))
     if mat.get("imported_excerpts"):
         parts.append("【导入章原文摘录（非摘要，仅供接续）】\n" + mat["imported_excerpts"])
+    if mat.get("pacing_task"):
+        parts.append(
+            "【拍位硬规则】三个方向都必须把本拍写到——"
+            + mat["pacing_task"]
+            + "；下一拍的动向最多以征兆出现，SHALL NOT 提前演完。"
+        )
+    if mat.get("ch1_extra"):
+        parts.append(
+            "【第 1 章额外交代】"
+            + mat["ch1_extra"]
+            + "——这是全书开篇的额外任务，三个方向都要把它写进本章。"
+        )
     # 配额：末章 / 已排满 / 还剩 N 章 / 未设目标——四态分明（「已排满」不得报成「未设」）
     if mat["is_final"]:
         quota = "本章是本卷末章——三个方向的结尾都必须收在卷纲第四问「预期结局」上。"
@@ -714,11 +736,20 @@ async def ai_chapter_directions(
     # 排满提示（软信号，可忽略）：排满且从未触达「高潮爆发」——不阻断、不自动重拆（作者可写刻意的过渡卷）
     if mat["quota_overshot"] and not mat["stage_hit_climax"]:
         warn.append("这一卷已排满但还没到高潮——回卷纲核对节奏")
+    # 卡面步位角标（c-volume-pacing）：已配节奏的卷带本拍位信息（只读展示用）
+    _pacing_badge = None
+    if mat.get("pacing_task"):
+        from volumes.pacing import beat_context
+
+        _beat = await beat_context(db, project.id, vol.volume_no, ch_no)
+        if _beat:
+            _pacing_badge = {"step_idx": _beat["step_idx"], "step_name": _beat["step_name"]}
     return {
         "ok": True,
         "entry": mat["entry"],
         "is_final": mat["is_final"],
         "quota_left": mat["quota_left"],
+        "pacing": _pacing_badge,
         "diff": _as_dict(parsed, "diff"),
         "directions": cards,
         "grades": grades,
@@ -841,6 +872,14 @@ async def ai_chapter_selfcheck(
             f"第{global_no - 1}章："
             f"{(last.summary or last.title or '').strip()[:60]}"
         )
+    # 卷节奏拍位（c-volume-pacing）：已排卷把「本拍任务」带给 AI 短评——判这一拍写到没
+    from volumes.pacing import beat_context
+
+    beat = await beat_context(db, project.id, vol.volume_no, ch_no)
+    beat_block = (
+        f"- 本拍任务：{beat['task']}（短评须对照它判「写到没有」）" if beat else ""
+    )
+
     _sys_t, _usr_t = load_layers("chapter_selfcheck")
     system = _sys_t
     user_msg = _render(
@@ -851,6 +890,7 @@ async def ai_chapter_selfcheck(
         obstacle=_fit(body.challenge, "obstacle"),
         ending=_fit(body.ending, "ending"),
         stage=body.stage if body.stage in STAGE_SET else "（未定）",
+        beat=beat_block,
     )
     out: dict = {
         "ok": True,

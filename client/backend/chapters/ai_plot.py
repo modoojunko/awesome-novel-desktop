@@ -42,6 +42,7 @@ from novels.service import get_novel
 from prompts import load_layers
 from settings.book_prefs_model import clamp_word_target, effective_chapter_word_target
 from volumes.ai_plan import _blocks, _book_material, _generate, _parse_json, _render
+from volumes.pacing import beat_context
 from workflow.engine import _validate_ref, strip_suffix
 
 router = APIRouter(prefix="/api/novels/{project_id}/chapters/{chapter_ref}/plot", tags=["chapter-plot"])
@@ -158,16 +159,23 @@ def _grades(parsed: dict | None, n: int) -> list[str]:
 
 
 def _plot_blocks(
-    mat: dict, row, entry: dict, position: str = "", word_target: int | None = None
+    mat: dict, row, entry: dict, position: str = "", word_target: int | None = None,
+    beat: dict | None = None,
 ) -> str:
     """素材块：⓪进场（单源取数）→ ⓪'本章位置（首章/开篇期才带，驱动 system 开篇期规则）
     → ⓪''本章字数（c-scene-density，恒带：条数按它给足）→ ①本章三要素
-    → ②主线与设定口径（不带伏笔台账，防提前揭）。"""
+    → ②主线与设定口径（不带伏笔台账，防提前揭）。beat＝卷节奏拍位（c-volume-pacing，
+    已排卷才带：实戏落本拍＋不越拍）。"""
     parts = [
         f"【进场（本章从哪接）】\n{entry['text']}（{entry['source']}）",
     ]
     if position:
         parts.append(f"【本章位置】\n{position}")
+    if beat:
+        parts.append(
+            f"【本拍任务】\n{beat['task']}——各版中段至少一条实戏把它写到，"
+            "SHALL NOT 提前把后面的拍演完。"
+        )
     if word_target:
         parts.append(
             f"【本章字数】\n这一章正文要写满 {word_target} 字，"
@@ -236,7 +244,13 @@ async def ai_plot_draw(
     _sys_t, _usr_t = load_layers("chapter_plot_draw")
     system = _sys_t
     material_user = _render(
-        _usr_t, material_blocks=_plot_blocks(mat, row, entry, position, word_target)
+        _usr_t,
+        material_blocks=_plot_blocks(
+            mat, row, entry, position, word_target,
+            beat=await beat_context(
+                db, project.id, row.volume.volume_no, row.chapter_no
+            ),
+        ),
     )
     user_msg = material_user + f"\n\n请给出第 {global_ch} 章剧情清单的 3 版（只输出 JSON）。"
 

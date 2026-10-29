@@ -24,6 +24,11 @@ CHAPTER_WORD_TARGET_DEFAULT = 2500
 # 作品偏好 KV 里的字段名（前端 JSON 契约同名字段）
 CHAPTER_WORD_TARGET_FIELD = "chapter_word_target"
 
+# 全书默认节奏（c-volume-pacing）：套路键＋每段几章。预设与 clamp 单源在
+# volumes/pacing.py（纯常量模块，导入无环）；本模块只做 KV 读写形状。
+PACING_PRESET_FIELD = "pacing_preset"
+PACING_STEPS_LEN_FIELD = "pacing_steps_len"
+
 
 def normalize_chapter_word_target(value: Any) -> int | None:
     """写入口守卫：None/空串＝清除设置（回落缺省）；合法 int 原样；其余抛错。
@@ -42,11 +47,11 @@ def normalize_chapter_word_target(value: Any) -> int | None:
     return value
 
 
-def read_book_prefs(doc: Any) -> dict[str, int]:
+def read_book_prefs(doc: Any) -> dict[str, Any]:
     """KV 原文 → 归一响应（只出显式设置过的字段；缺省由消费方按常量回落）。"""
     if not isinstance(doc, dict):
         return {}
-    out: dict[str, int] = {}
+    out: dict[str, Any] = {}
     target = doc.get(CHAPTER_WORD_TARGET_FIELD)
     if (
         isinstance(target, int)
@@ -54,6 +59,20 @@ def read_book_prefs(doc: Any) -> dict[str, int]:
         and CHAPTER_WORD_TARGET_MIN <= target <= CHAPTER_WORD_TARGET_MAX
     ):
         out[CHAPTER_WORD_TARGET_FIELD] = target
+    # 全书默认节奏（c-volume-pacing）：套路键合法才出；段长只在套路在场时出
+    # （孤值无意义——前端选择器换套路即重置段长，存储不背半套配置）。
+    from volumes.pacing import LEN_MAX, LEN_MIN, PACING_PRESETS
+
+    preset = str(doc.get(PACING_PRESET_FIELD) or "")
+    if preset in PACING_PRESETS:
+        out[PACING_PRESET_FIELD] = preset
+        length = doc.get(PACING_STEPS_LEN_FIELD)
+        if (
+            isinstance(length, int)
+            and not isinstance(length, bool)
+            and LEN_MIN <= length <= LEN_MAX
+        ):
+            out[PACING_STEPS_LEN_FIELD] = length
     return out
 
 

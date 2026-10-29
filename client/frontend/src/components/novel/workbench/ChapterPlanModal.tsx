@@ -152,6 +152,14 @@ export function ChapterPlanModal({
                   <div className="pk-row"><b>碰到的挑战</b><span>{d.obstacle}</span></div>
                   <div className="pk-row"><b>本章结尾</b><span>{d.ending}</span></div>
                   <div className="pk-row"><b>阶段</b><span>{d.stage}</span></div>
+                  {state.pacing && (
+                    <div className="pk-row" data-testid={`pick-pacing-${i + 1}`}>
+                      <b>本循环</b>
+                      <span>
+                        第 {state.pacing.step_idx} 步 · {state.pacing.step_name}
+                      </span>
+                    </div>
+                  )}
                   <div className="pk-read" data-testid={`pick-read-${i + 1}`}>
                     <p><b>剧情吸引力</b>{d.why}</p>
                     {d.gap && <p><b>差在哪</b>{d.gap}</p>}

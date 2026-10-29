@@ -50,6 +50,8 @@ export interface ChapterPlanState {
   landed: { ref: string; title: string; brought: number; items: string[] } | null;
   entry: ChapterEntry;
   directions: ChapterDirection[];
+  /** 卡面步位角标（c-volume-pacing）：本批卡对应的循环拍位；null＝未配节奏 */
+  pacing: { step_idx: number; step_name: string } | null;
   grades: string[];
   checks: string[];
   note: string;
@@ -86,7 +88,7 @@ export interface ChapterPlanState {
 
 const INITIAL = (): ChapterPlanState => ({
   entrySource: "manual", open: false, phase: "idle", error: "", submitting: false,
-  landed: null, entry: { text: "", source: "" }, directions: [], grades: [], checks: [],
+  landed: null, entry: { text: "", source: "" }, directions: [], pacing: null, grades: [], checks: [],
   note: "", warnings: [], degradedText: "", pick: null, draft: { ...EMPTY_DRAFT },
   nextNo: 1, editing: null, cardLoaded: false, selfchecked: false, selfchecking: false, selfcheck: null,
   exclude: [], oneLiners: [], drawnNo: null,
@@ -259,7 +261,7 @@ export function useChapterPlan(
         checks: d.checks ?? [], note: d.note ?? "", exclude: excludeRef.current });
       setState((s) => ({ ...s, phase: "idle", entry: d.entry, directions: d.directions,
         grades: d.grades ?? [], oneLiners, checks: d.checks ?? [], note: d.note ?? "",
-        warnings: d.warnings ?? [], drawnNo }));
+        pacing: d.pacing ?? null, warnings: d.warnings ?? [], drawnNo }));
     } catch (e) {
       if (token !== tokenRef.current) return;
       const msg = (e as { message?: string })?.message || "";

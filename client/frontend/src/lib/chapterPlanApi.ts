@@ -31,6 +31,8 @@ export interface ChapterDirection {
 export interface ChapterDirectionsResult {
   ok: boolean;
   entry: ChapterEntry;
+  /** 卡面步位角标（c-volume-pacing）：已配节奏的卷带本拍位；未配为 null */
+  pacing?: { step_idx: number; step_name: string } | null;
   is_final?: boolean;
   quota_left?: number;
   diff?: { axes?: string[]; one_liner?: string[] };

@@ -72,6 +72,7 @@ interface RailProps {
   onSplitAi: () => void;
   /** 右栏「去补卷纲」出口：中栏切回卷纲页签（c-split-to-chapters-tab） */
   onGoOutline: () => void;
+  onPacingChanged: () => void;
   onSelectVolume: (ref: string) => void;
   /** 选中卷自动体检信号（点行选中时递增） */
   autoCheckSeq: number;
@@ -93,6 +94,7 @@ export default function Rail({
   onPlanVolume,
   onSplitAi,
   onGoOutline,
+    onPacingChanged,
   onSelectVolume,
   autoCheckSeq,
   onAiWrite,
@@ -110,6 +112,7 @@ export default function Rail({
         autoCheckSeq={autoCheckSeq}
         onSplitAi={onSplitAi}
         onGoOutline={onGoOutline}
+        onPacingChanged={onPacingChanged}
         isPro={isPro}
         onUpgrade={onUpgrade}
       />

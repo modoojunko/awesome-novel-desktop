@@ -64,6 +64,10 @@ class Volume(Base):
     # 本卷的坎（c-volume-antagonist）：类型闭集（人物/难题/环境/自我/势力）＋一句话
     antagonist_type: Mapped[str | None] = mapped_column(String(20))
     antagonist_line: Mapped[str | None] = mapped_column(String(150))
+    # 卷节奏配置（c-volume-pacing）：JSON 文本 {preset, steps, steps_len,
+    # ch1_extra_on, ch1_extra, planned}；空＝未配置（拍位注入全关，行为同升级前）。
+    # 段边界不落库——拍位由「章号÷每段几章」实时推导（volumes/pacing.py 单源）。
+    pacing_json: Mapped[str | None] = mapped_column(Text)
 
     # Relationships
     project = relationship("Novel", back_populates="volumes")

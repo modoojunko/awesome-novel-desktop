@@ -8,6 +8,8 @@ import { toast } from "@/lib/toast";
 import { nodeLabel } from "@/lib/nodeTitle";
 import type { UseWorkbenchReturn } from "@/hooks/useWorkbench";
 import type { VolumeExpandDraft } from "@/lib/volumePlanApi";
+import { beatOf } from "@/lib/volumePacing";
+import { volumePacingApi } from "@/lib/volumePacingApi";
 import {
   toVolumeFormData,
   volumeFormToPayload,
@@ -20,17 +22,21 @@ import {
 import { ResplitConfirmModal } from "./modals";
 import { RelationsGraphPane } from "./RelationsGraphPane";
 import { HooksPane } from "./HooksPane";
+import VolumePacingPane from "./VolumePacingPane";
 
-export type VolumeTab = "outline" | "chapters" | "rels" | "hooks";
+export type VolumeTab = "outline" | "pacing" | "chapters" | "rels" | "hooks";
 
 /** 上抛右栏的卷语境（Rail mode="volume" 消费；与 RailChapterData 平级） */
 export interface VolumeRailData {
   volume: number;
+  volumeRef: string;
   title: string;
   tab: VolumeTab;
   detail: VolumeDetail;
   /** 主线写作位所在卷号（c-chapter-plan-ai 末端门禁；null＝全书无章） */
   frontierVol: number | null;
+  /** 节奏页签是否在编辑态（c-volume-pacing：右栏三行让位，防采纳覆盖草稿） */
+  pacingEditing?: boolean;
 }
 
 interface VolumeWorkspaceProps {
@@ -52,13 +58,16 @@ interface VolumeWorkspaceProps {
   onSplitManual: () => void;
   /** 右栏「去补卷纲」出口信号（seq 递增＝切回卷纲页签；autoCheckSeq 同款信号模式） */
   outlineSeq?: number;
+  /** 右栏节奏动作采纳（seq 递增＝重取卷节奏配置；c-volume-pacing） */
+  pacingRefreshSeq?: number;
   /** 回改这一章（5.6）：派生视图行／左树共用同一张本章卡 */
   onEditChapter: (ref: string) => void;
 }
 
 const TABS: Array<[VolumeTab, string]> = [
   ["outline", "卷纲"],
-  ["chapters", "本卷章节"],
+  ["pacing", "节奏"],
+  ["chapters", "章节"],
   ["rels", "角色关系"],
   ["hooks", "伏笔"],
 ];
@@ -76,6 +85,7 @@ export default function VolumeWorkspace({
   onSaved,
   onSplitManual,
   outlineSeq,
+  pacingRefreshSeq,
 }: VolumeWorkspaceProps) {
   const [detail, setDetail] = useState<VolumeDetail | null>(null);
   const [form, setForm] = useState<VolumeFormData | null>(null);
@@ -83,6 +93,26 @@ export default function VolumeWorkspace({
   const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [tab, setTab] = useState<VolumeTab>("outline");
+  // 卷节奏配置（c-volume-pacing）：卷纲查看态步位徽章 / 节奏页签数据源
+  const [pacingCfg, setPacingCfg] = useState<{
+    planned: boolean;
+    steps_len: number;
+    steps: Array<{ n: string; t: string }>;
+  } | null>(null);
+  const [pacingDirty, setPacingDirty] = useState(false);
+  const [pacingEditing, setPacingEditing] = useState(false);
+  const [pacingSeq, setPacingSeq] = useState(0);
+  const loadPacing = useCallback(async () => {
+    try {
+      const r = await volumePacingApi.getVolume(projectId, volumeRef);
+      setPacingCfg(r.config);
+    } catch {
+      setPacingCfg(null);
+    }
+  }, [projectId, volumeRef]);
+  useEffect(() => {
+    void loadPacing();
+  }, [loadPacing, pacingSeq, pacingRefreshSeq]);
   // 主线写作位（首个未归档章，含草稿；与排队门禁同源）
   const [frontier, setFrontier] = useState<{
     vol: number;
@@ -164,10 +194,11 @@ export default function VolumeWorkspace({
 
   const dirty = useMemo(
     () =>
-      form !== null &&
-      detail !== null &&
-      JSON.stringify(form) !== JSON.stringify(toVolumeFormData(detail)),
-    [form, detail],
+      (form !== null &&
+        detail !== null &&
+        JSON.stringify(form) !== JSON.stringify(toVolumeFormData(detail))) ||
+      pacingDirty,
+    [form, detail, pacingDirty],
   );
   useEffect(() => {
     onDirtyChange(dirty);
@@ -196,16 +227,18 @@ export default function VolumeWorkspace({
     if (detail) {
       onRailData({
         volume: detail.volume,
+        volumeRef,
         title: nodeLabel("卷", detail.volume, detail.title),
         tab,
         detail,
         frontierVol: frontier ? frontier.vol : null,
+        pacingEditing,
       });
     } else {
       onRailData(null);
     }
     return () => onRailData(null);
-  }, [detail, tab, frontier, onRailData]);
+  }, [detail, tab, frontier, pacingEditing, onRailData]);
 
   // 回填执行：进场/展开依据只读（不占表单步骤），其余按段序 160ms/段
   useEffect(() => {
@@ -342,6 +375,14 @@ export default function VolumeWorkspace({
                 saving={saving}
                 filling={filling}
                 frontier={frontier}
+                beatBadge={
+                  pacingCfg?.planned
+                    ? (chapterNo: number) => {
+                        const b = beatOf(chapterNo, pacingCfg, detail.chapter_target ?? null);
+                        return b ? `段${b.seg} · ${b.step_name}` : null;
+                      }
+                    : null
+                }
                 onPatch={patch}
                 onEdit={startEdit}
                 onCancel={cancelEdit}
@@ -349,6 +390,20 @@ export default function VolumeWorkspace({
                 onGoChapters={() => setTab("chapters")}
                 onResplit={() => setResplitOpen(true)}
                 onEditChapter={onEditChapter}
+              />
+            )}
+            {tab === "pacing" && (
+              <VolumePacingPane
+                projectId={projectId}
+                volumeRef={volumeRef}
+                volumeNo={detail.volume}
+                chapterTarget={detail.chapter_target ?? null}
+                refreshSeq={pacingSeq + (pacingRefreshSeq ?? 0)}
+                onChanged={() => {
+                  setPacingSeq((n) => n + 1);
+                }}
+                onDirtyChange={setPacingDirty}
+                onEditingChange={setPacingEditing}
               />
             )}
             {tab === "chapters" && (
@@ -403,6 +458,7 @@ function VolumeOutlinePane({
   onSave,
   onGoChapters,
   onResplit,
+  beatBadge,
   onEditChapter,
 }: {
   detail: VolumeDetail;
@@ -419,6 +475,8 @@ function VolumeOutlinePane({
   onGoChapters: () => void;
   /** 「重拆本卷」盘点确认（c-chapter-plan-ai D14）：清掉拟定章重排 */
   onResplit: () => void;
+  /** 已排节奏的步位徽章（段N · 步名）；null＝不显示（未排/未配，c-volume-pacing） */
+  beatBadge?: ((chapterNo: number) => string | null) | null;
   /** 回改这一章（5.6）：派生视图行可点开同一张本章卡 */
   onEditChapter: (ref: string) => void;
 }) {
@@ -673,7 +731,7 @@ function VolumeOutlinePane({
                 data-testid="vol-empty-go-chapters"
                 onClick={onGoChapters}
               >
-                本卷章节
+                章节
               </button>{" "}
               拆下一章，这里会按章列出推进。
             </p>
@@ -696,7 +754,15 @@ function VolumeOutlinePane({
                     <span className="num">{c.global_no ?? i + 1}</span>
                     <div className="cols cn">
                       <span className="qno">{c.plot_stage || "（未定阶段）"}</span>
-                      <p className="node-tx">{c.title}</p>
+                      <p className="node-tx">
+                        {c.title}
+                        {beatBadge
+                          ? (() => {
+                              const b = beatBadge(c.chapter);
+                              return b ? <span className="vol-plot-badge">{b}</span> : null;
+                            })()
+                          : null}
+                      </p>
                     </div>
                     <span className="tag">
                       {c.archived ? "已归档" : c.origin === "import" ? "原文" : c.has_prose ? "草稿" : "已排"}
@@ -795,7 +861,7 @@ function ChapterLedgerPane({
   return (
     <>
       <p className="seg-h push-row">
-        本卷章节 <span className="note">主线章按章序排列 · 点行进入该章</span>
+        章节 <span className="note">主线章按章序排列 · 点行进入该章</span>
         <span className="push">
           <button
             className="btn btn-secondary btn-sm"
