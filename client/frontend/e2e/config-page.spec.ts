@@ -480,3 +480,43 @@ test("模型配置：豆包方块——预填方舟地址＋版本 id、锁 Open
     restore();
   }
 });
+
+// -------------------------------------------------------------------------
+// ⑥ 配置指南（c-modelconfig-help-guide）：两处入口 + 叠层 Esc 回归钉
+//    （vitest 测不出真浏览器 Esc 分派——叠层 Modal 同听 window keydown，
+//     曾实测 Esc 把底层表单一起关掉，此用例钉「Esc 只关顶层指南」）
+// -------------------------------------------------------------------------
+
+test("模型配置：配置指南两处入口，叠层 Esc 只关指南不关表单", async ({ page }) => {
+  const { restore } = await setupSession(page);
+  try {
+    await page.goto(`${ORIGIN}/#/config`);
+    await expect(
+      page.getByRole("heading", { name: "模型配置", exact: true }),
+    ).toBeVisible({ timeout: 10000 });
+
+    // 页头入口：指南打开（默认 OpenAI 格式页签）→ Esc 关闭
+    await page.getByRole("button", { name: "配置指南" }).click();
+    await expect(page.getByRole("heading", { name: "配置指南" })).toBeVisible();
+    await expect(
+      page.getByText("大多数国内外服务商都用这一格式"),
+    ).toBeVisible();
+    await page.keyboard.press("Escape");
+    await expect(page.getByRole("heading", { name: "配置指南" })).toBeHidden();
+
+    // 表单内入口：引导行打开指南 → Esc 只关指南，表单保持打开
+    await page.getByRole("button", { name: "添加 API Key" }).first().click();
+    await expect(
+      page.getByRole("heading", { name: "添加 API Key" }),
+    ).toBeVisible();
+    await page.getByRole("button", { name: "看三步配置指南" }).click();
+    await expect(page.getByRole("heading", { name: "配置指南" })).toBeVisible();
+    await page.keyboard.press("Escape");
+    await expect(page.getByRole("heading", { name: "配置指南" })).toBeHidden();
+    await expect(
+      page.getByRole("heading", { name: "添加 API Key" }),
+    ).toBeVisible();
+  } finally {
+    restore();
+  }
+});

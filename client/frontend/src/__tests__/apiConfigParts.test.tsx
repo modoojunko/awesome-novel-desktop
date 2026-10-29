@@ -12,6 +12,7 @@ import { UndoToast } from "@/components/api-config/UndoToast";
 import { DeleteConfirmDialog } from "@/components/api-config/DeleteConfirmDialog";
 import { MigrationBanner } from "@/components/api-config/MigrationBanner";
 import { ApiConfigCard } from "@/components/api-config/ApiConfigCard";
+import { ApiConfigForm } from "@/components/api-config/ApiConfigForm";
 import type { ApiConfig } from "@/types/api-config";
 
 const cfg = (over: Partial<ApiConfig> = {}): ApiConfig =>
@@ -361,5 +362,38 @@ describe("ApiConfigCard", () => {
     fireEvent.click(screen.getByText("删除"));
     expect(onEdit).toHaveBeenCalledWith(expect.objectContaining({ id: "c1" }));
     expect(onDelete).toHaveBeenCalledWith(expect.objectContaining({ id: "c1" }));
+  });
+});
+
+describe("ApiConfigForm 配置指南引导行（c-modelconfig-help-guide）", () => {
+  const formProps = (over: Record<string, unknown> = {}) => ({
+    open: true,
+    onSubmit: vi.fn(async () => {}),
+    onCancel: vi.fn(),
+    ...over,
+  });
+
+  it("传 onOpenGuide：vgrid 下渲染引导行，点击回调", () => {
+    const onOpenGuide = vi.fn();
+    const { unmount } = render(<ApiConfigForm {...formProps({ onOpenGuide })} />);
+    const row = document.querySelector(".vgrid + .cf-hint");
+    expect(row?.textContent).toContain("看三步配置指南");
+    fireEvent.click(row!.querySelector(".guide-link") as HTMLElement);
+    expect(onOpenGuide).toHaveBeenCalledTimes(1);
+    unmount();
+  });
+
+  it("未传 onOpenGuide：不渲染引导行（编辑态入口隐）", () => {
+    const { unmount } = render(<ApiConfigForm {...formProps()} />);
+    expect(document.querySelector(".vgrid + .cf-hint")).toBeNull();
+    unmount();
+  });
+
+  it("选供应商上报 onVendorChange（指南页签定位依据）", () => {
+    const onVendorChange = vi.fn();
+    const { unmount } = render(<ApiConfigForm {...formProps({ onVendorChange })} />);
+    fireEvent.click(screen.getByText("DeepSeek"));
+    expect(onVendorChange).toHaveBeenCalledWith("deepseek");
+    unmount();
   });
 });

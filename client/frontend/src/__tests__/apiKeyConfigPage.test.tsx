@@ -501,3 +501,34 @@ describe("ApiKeyConfigPage · 图像模型页签", () => {
     await waitFor(() => expect(screen.getByText("还没有图像模型配置")).toBeTruthy());
   });
 });
+
+describe("ApiKeyConfigPage · 配置指南（c-modelconfig-help-guide）", () => {
+  it("页头入口开指南；表单内入口按供应商定位；叠层 Esc 只关指南（closeForm 守卫）", async () => {
+    stubApi();
+    renderPage();
+    await waitFor(() => expect(screen.getByText("主线 · OpenAI")).toBeTruthy());
+
+    // 页头入口：指南打开（默认 OpenAI 格式页签），× 关闭
+    fireEvent.click(screen.getByRole("button", { name: "配置指南" }));
+    expect(screen.getByText("大多数国内外服务商都用这一格式，不确定就先按它配。")).toBeTruthy();
+    fireEvent.click(document.querySelector(".modal .icon-btn.x")!);
+    await waitFor(() =>
+      expect(screen.queryByText(/大多数国内外服务商都用这一格式/)).toBeNull(),
+    );
+
+    // 表单内入口：开添加表单 → 选 Gemini（onVendorChange）→ 引导行 → 定位「Google 系」
+    fireEvent.click(screen.getByRole("button", { name: "添加 API Key" }));
+    await waitFor(() => expect(document.getElementById("cfName")).toBeTruthy());
+    fireEvent.click(screen.getByRole("button", { name: /Gemini/ })); // vbtn 可访问名含「新」角标
+    fireEvent.click(screen.getByRole("button", { name: "看三步配置指南" }));
+    expect(screen.getByText(/Google 的 Gemini 模型/)).toBeTruthy();
+
+    // 叠层 Esc：两个 Modal 同收 window keydown——closeForm 守卫让底层表单保持打开
+    fireEvent(window, new KeyboardEvent("keydown", { key: "Escape" }));
+    await waitFor(
+      () => expect(screen.queryByText(/Google 的 Gemini 模型/)).toBeNull(),
+      { timeout: 1500 },
+    );
+    expect(document.getElementById("cfName")).toBeTruthy();
+  });
+});

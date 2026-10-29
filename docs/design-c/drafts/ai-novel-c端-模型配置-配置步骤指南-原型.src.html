@@ -1,0 +1,329 @@
+<!DOCTYPE html>
+<!-- ai-novel-c端-模型配置-配置步骤指南-原型.src.html
+     宿主＝真界面抓取（docs/design-c/drafts/ai-novel-c端-模型配置-配置帮助-captures/，
+     私有栈：main 检出 vite + 副本库后端 8101），build-modelhelp-proto.py 注入 __CSS__/__HOST_*__。
+     graft 全部 <template>＋运行时挂载，抓取 DOM 零改动。 -->
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>模型配置 · 配置步骤指南 · 原型</title>
+<style>
+__CSS__
+</style>
+<style>
+/* ═══ graft 样式（gl- 前缀；仅原型与指南新件，宿主零改动）═══ */
+.gl-bar { position: fixed; left: 0; right: 0; bottom: 0; z-index: 200; display: flex; gap: 8px; align-items: center;
+  padding: 8px 14px; background: oklch(24% 0.02 240); color: oklch(98% 0.004 240); font-size: 12.5px; }
+.gl-bar .gl-bar-label { opacity: .72; margin-right: 4px; }
+.gl-bar button { border: 1px solid oklch(100% 0 0 / .28); background: transparent; color: inherit; border-radius: 999px;
+  padding: 4px 12px; font-size: 12.5px; cursor: pointer; }
+.gl-bar button.on { background: oklch(98% 0.004 240); color: oklch(24% 0.02 240); border-color: transparent; }
+.app-shell { min-height: calc(100vh - 42px); }
+
+/* 页头入口副钮与添加钮成组排布 */
+.gl-head-actions { display: flex; align-items: center; gap: 10px; }
+.page-head .gl-guide-entry { margin-right: 0; }
+
+/* 添加弹窗内：供应商区下的指南链接行（cf-hint 为真类） */
+.gl-vhint { margin-top: -2px; }
+.gl-link { border: 0; background: none; padding: 0; color: var(--accent-strong, oklch(48% 0.11 170)); cursor: pointer;
+  font: inherit; text-decoration: underline; text-underline-offset: 3px; }
+
+/* 指南弹窗：固定尺寸（拍板 10-29：不做自适应——不随视口缩、不随页签跳） */
+.gl-guide { z-index: 90; padding-bottom: 56px; }
+.gl-guide .mcard { width: 880px; height: 760px; display: flex; flex-direction: column; }
+.gl-guide .mcard-body { flex: 1; overflow-y: auto; padding-bottom: 24px; }
+.gl-lead { margin: 2px 0 14px; color: var(--fg); font-size: 14px; line-height: 1.7; }
+.gl-lead b { font-weight: 650; }
+.gl-tabs { width: 100%; margin-bottom: 16px; }
+.gl-tabs button { flex: 1; }
+.gl-pane[hidden] { display: none; }
+.gl-fit { margin: 0 0 14px; font-size: 12.8px; color: var(--muted); line-height: 2; }
+.gl-chip { display: inline-block; border: 1px solid var(--border); border-radius: 999px; padding: 1px 10px;
+  margin: 0 6px 6px 0; font-size: 12px; color: var(--fg); background: var(--paper-bg); }
+.gl-steps { display: flex; flex-direction: column; gap: 12px; margin: 0 0 6px; }
+.gl-step { display: flex; gap: 12px; }
+.gl-step > i { flex: 0 0 auto; width: 22px; height: 22px; border-radius: 50%; background: var(--accent, oklch(48% 0.11 170));
+  color: var(--on-accent, oklch(100% 0 0)); font-style: normal; font-size: 12.5px; display: flex; align-items: center;
+  justify-content: center; margin-top: 1px; }
+.gl-step b { display: block; font-size: 14px; margin-bottom: 3px; }
+.gl-step p { margin: 0; font-size: 13.2px; line-height: 1.75; color: var(--fg); }
+.gl-kv { margin-top: 8px; border: 1px solid var(--border); border-radius: 10px; overflow: hidden;
+  display: grid; grid-template-columns: 1fr 1fr; }
+.gl-kv-row { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; padding: 7px 12px;
+  font-size: 12.6px; min-width: 0; }
+.gl-kv-row:nth-child(n+3) { border-top: 1px solid var(--border); }
+.gl-kv-row:nth-child(even) { border-left: 1px solid var(--border); }
+.gl-kv-row b { font-weight: 550; color: var(--fg); white-space: nowrap; }
+.gl-kv-row code { font-family: var(--mono, ui-monospace, monospace); font-size: 12px; color: var(--muted);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.gl-faq { margin-top: 16px; border: 1px solid var(--border); border-radius: 10px; background: var(--paper-bg); }
+.gl-faq summary { cursor: pointer; padding: 9px 12px; font-size: 13px; font-weight: 550; color: var(--fg); list-style: none; }
+.gl-faq summary::before { content: "›"; display: inline-block; margin-right: 8px; color: var(--muted); transition: transform .15s; }
+.gl-faq[open] summary::before { transform: rotate(90deg); }
+.gl-faq .gl-qa { padding: 2px 14px 12px; }
+.gl-qa b { display: block; font-size: 12.8px; margin: 10px 0 2px; color: var(--fg); }
+.gl-qa p { margin: 0; font-size: 12.8px; line-height: 1.7; color: var(--muted); }
+.gl-faq code, .gl-step code { background: oklch(96% 0.005 240); border-radius: 5px; padding: 0 5px;
+  font-family: var(--mono, ui-monospace, monospace); font-size: 12px; }
+</style>
+</head>
+<body>
+
+<!-- ═══ 宿主 A：配置列表页（真抓取，逐字） ═══ -->
+<template id="tpl-host-list">__HOST_LIST__</template>
+
+<!-- ═══ 宿主 B：添加弹窗·选 DeepSeek 预填态（真抓取，逐字） ═══ -->
+<template id="tpl-host-modal">__HOST_MODAL__</template>
+
+<!-- ═══ graft：指南弹窗（结构复用 .modal/.mcard 真类） ═══ -->
+<template id="tpl-guide">
+  <div class="modal show gl-guide" role="dialog" aria-modal="true" aria-labelledby="glGuideTitle">
+    <div class="mcard" style="width: 880px; height: 760px;">
+      <div class="mcard-head">
+        <span class="mh serif" id="glGuideTitle" role="heading" aria-level="2">配置指南</span>
+        <button class="icon-btn x" aria-label="关闭" data-gclose>
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"></path></svg>
+        </button>
+      </div>
+      <div class="mcard-body">
+        <p class="gl-lead">三步把一个 AI 服务接进爱小说：<b>领 Key</b> → <b>选方块贴 Key</b> → <b>测试连接</b>。按服务商使用的接口格式分三类，选一类照着做：</p>
+        <div class="seg gl-tabs" role="group" aria-label="接口格式分类">
+          <button type="button" class="on" data-gtab="openai">OpenAI 格式</button>
+          <button type="button" data-gtab="anthropic">Anthropic 格式</button>
+          <button type="button" data-gtab="google">Google 系</button>
+        </div>
+
+        <div class="gl-pane" data-gpane="openai">
+          <p class="gl-fit">这一类包括：
+            <span class="gl-chip">OpenAI</span><span class="gl-chip">DeepSeek</span><span class="gl-chip">GLM</span><span class="gl-chip">Kimi</span><span class="gl-chip">Qwen</span><span class="gl-chip">豆包 · 火山方舟</span><span class="gl-chip">Ollama（本地）</span><span class="gl-chip">OpenCode Go · 通用</span><span class="gl-chip">OpenAI 兼容</span>
+            <br>大多数国内外服务商都用这一格式，不确定就先按它配。</p>
+          <div class="gl-steps">
+            <div class="gl-step"><i>1</i><div>
+              <b>领 API Key</b>
+              <p>到服务商的开放平台注册并创建一个 API Key（部分平台要先充值或领额度再能用）：</p>
+              <div class="gl-kv">
+                <div class="gl-kv-row"><b>OpenAI</b><code>platform.openai.com</code></div>
+                <div class="gl-kv-row"><b>DeepSeek</b><code>platform.deepseek.com</code></div>
+                <div class="gl-kv-row"><b>GLM</b><code>open.bigmodel.cn</code></div>
+                <div class="gl-kv-row"><b>Kimi</b><code>platform.moonshot.cn</code></div>
+                <div class="gl-kv-row"><b>Qwen</b><code>阿里云百炼 · bailian.console.aliyun.com</code></div>
+                <div class="gl-kv-row"><b>豆包</b><code>火山方舟 · console.volcengine.com/ark</code></div>
+                <div class="gl-kv-row"><b>Ollama</b><code>本机运行，无需 Key</code></div>
+                <div class="gl-kv-row"><b>OpenCode Go</b><code>opencode.ai（订阅制，一把 Key 全家用）</code></div>
+              </div>
+            </div></div>
+            <div class="gl-step"><i>2</i><div>
+              <b>选方块、贴 Key</b>
+              <p>点「添加 API Key」，在方块区点对应服务商：地址已经帮你填好，起个名字、贴上 Key 即可。中转站选「OpenAI 兼容」方块，地址照抄服务商给的。</p>
+            </div></div>
+            <div class="gl-step"><i>3</i><div>
+              <b>选模型</b>
+              <p>贴上 Key 后模型清单会自动到位，选一个就行；没拉到清单就照服务商文档手填模型 id（如 <code>deepseek-v4-pro</code>）。</p>
+            </div></div>
+            <div class="gl-step"><i>4</i><div>
+              <b>测试连接</b>
+              <p>点「测试连接」，看到「连接正常」就能保存使用。</p>
+            </div></div>
+          </div>
+          <details class="gl-faq">
+            <summary>常见问题</summary>
+            <div class="gl-qa">
+              <b>提示鉴权失败或 401</b>
+              <p>Key 抄错、带了空格，或账户没充值、没开额度——回服务商后台核对。</p>
+              <b>地址报 404</b>
+              <p>官方服务商别改预填地址；中转站严格照抄它文档里「接口地址」一截，一般到 <code>/v1</code> 为止。</p>
+              <b>拉不到模型清单</b>
+              <p>不影响使用，手填模型 id 即可——部分服务商不提供清单。</p>
+            </div>
+          </details>
+        </div>
+
+        <div class="gl-pane" data-gpane="anthropic" hidden>
+          <p class="gl-fit">这一类包括：
+            <span class="gl-chip">Anthropic</span><span class="gl-chip">OpenCode Go · Claude 系</span><span class="gl-chip">Claude 兼容中转</span>
+            <br>Anthropic 的 Claude 系模型，以及提供「Claude 兼容」地址的中转站。</p>
+          <div class="gl-steps">
+            <div class="gl-step"><i>1</i><div>
+              <b>领 API Key</b>
+              <p>Anthropic 在 <code>console.anthropic.com</code> 创建（需要国际网络并绑定支付）；中转站的 Key 由服务商直接发给你。</p>
+            </div></div>
+            <div class="gl-step"><i>2</i><div>
+              <b>选方块、贴 Key</b>
+              <p>官方选「Anthropic」方块（地址已预填）；Claude 兼容中转选「OpenAI 兼容」方块，把接口格式切到「Anthropic 格式」，地址照抄服务商给的。</p>
+            </div></div>
+            <div class="gl-step"><i>3</i><div>
+              <b>填模型 id</b>
+              <p>这类服务常不提供模型清单，直接手填（如 <code>claude-sonnet-5</code>），应用也会给出常用候选。</p>
+            </div></div>
+            <div class="gl-step"><i>4</i><div>
+              <b>测试连接</b>
+              <p>看到「连接正常」就能保存使用。</p>
+            </div></div>
+          </div>
+          <details class="gl-faq">
+            <summary>常见问题</summary>
+            <div class="gl-qa">
+              <b>地址填到哪一截</b>
+              <p>填到域名即可，版本段由系统自动补；误带了也会自动剥掉。</p>
+              <b>开了「思考模式」就报错</b>
+              <p>部分 Claude 兼容服务不支持思考参数，先关掉思考模式再测。</p>
+              <b>鉴权失败或 401</b>
+              <p>回服务商后台核对 Key 与余额。</p>
+            </div>
+          </details>
+        </div>
+
+        <div class="gl-pane" data-gpane="google" hidden>
+          <p class="gl-fit">这一类包括：
+            <span class="gl-chip">Gemini（官方）</span><span class="gl-chip">带 Gemini 的中转</span>
+            <br>Google 的 Gemini 模型。官方提供了「OpenAI 兼容」入口，在应用里按 OpenAI 格式配置即可。</p>
+          <div class="gl-steps">
+            <div class="gl-step"><i>1</i><div>
+              <b>领 API Key</b>
+              <p>到 Google AI Studio（<code>aistudio.google.com/apikey</code>）创建，有免费额度；需要能访问 Google 的网络。</p>
+            </div></div>
+            <div class="gl-step"><i>2</i><div>
+              <b>选方块、贴 Key</b>
+              <p>选「Gemini」方块：Google 官方兼容地址已预填，接口格式保持「OpenAI 格式」，贴上 Key 即可。</p>
+            </div></div>
+            <div class="gl-step"><i>3</i><div>
+              <b>选模型</b>
+              <p>清单拉得到就选；拉不到就照 AI Studio 的模型列表手填模型 id。</p>
+            </div></div>
+            <div class="gl-step"><i>4</i><div>
+              <b>测试连接</b>
+              <p>看到「连接正常」就能保存使用。</p>
+            </div></div>
+          </div>
+          <details class="gl-faq">
+            <summary>常见问题</summary>
+            <div class="gl-qa">
+              <b>一直超时、连不上</b>
+              <p>你的网络到 Google 不通——换有国际网络的线路，或改用带 Gemini 的中转服务（按「OpenAI 格式」页签的方式配置）。</p>
+              <b>思考模式关不掉</b>
+              <p>部分 Gemini 型号始终会思考，「关闭」只对 Flash 系生效（表单里也有同样提示）。</p>
+              <b>模型 id 报「不存在」</b>
+              <p>以 AI Studio 的模型列表为准，逐字复制。</p>
+            </div>
+          </details>
+        </div>
+      </div>
+    </div>
+  </div>
+</template>
+
+<!-- ═══ graft：页头「配置指南」副钮 ═══ -->
+<template id="tpl-head-entry">
+  <button class="btn btn-secondary gl-guide-entry" type="button" data-open-guide>配置指南</button>
+</template>
+
+<!-- ═══ graft：添加弹窗内供应商区下的指南行 ═══ -->
+<template id="tpl-vendor-hint">
+  <p class="cf-hint gl-vhint">不知道怎么填？<button type="button" class="gl-link" data-open-guide>看三步配置指南</button>——领 Key → 贴 Key → 测试连接。</p>
+</template>
+
+<div id="stage"></div>
+
+<div class="gl-bar">
+  <span class="gl-bar-label">演示状态</span>
+  <button type="button" data-state="entry" class="on">1 · 列表页＋入口</button>
+  <button type="button" data-state="g-openai">2 · 指南·OpenAI 格式</button>
+  <button type="button" data-state="g-anthropic">3 · 指南·Anthropic</button>
+  <button type="button" data-state="g-google">4 · 指南·Google 系</button>
+  <button type="button" data-state="form">5 · 弹窗内入口</button>
+  <button type="button" data-state="form-guide">6 · 指南叠弹窗</button>
+</div>
+
+<script>
+(function () {
+  var stage = document.getElementById("stage");
+  var tplList = document.getElementById("tpl-host-list");
+  var tplModal = document.getElementById("tpl-host-modal");
+  var tplGuide = document.getElementById("tpl-guide");
+  var tplHead = document.getElementById("tpl-head-entry");
+  var tplVHint = document.getElementById("tpl-vendor-hint");
+  var guideEl = null;
+
+  function mount(which, withHeadEntry, withVendorHint) {
+    stage.innerHTML = "";
+    var tpl = which === "modal" ? tplModal : tplList;
+    stage.appendChild(tpl.content.cloneNode(true));
+    if (withHeadEntry) {
+      var head = stage.querySelector(".page-head");
+      var add = head && head.querySelector(".btn-primary");
+      if (head && add) {
+        // page-head 是 space-between：把指南副钮与添加钮包成一组（运行时挂载，静态宿主不动）
+        var group = document.createElement("div");
+        group.className = "gl-head-actions";
+        head.insertBefore(group, add);
+        group.appendChild(tplHead.content.cloneNode(true));
+        group.appendChild(add);
+      }
+    }
+    if (withVendorHint) {
+      var vgrid = stage.querySelector(".vgrid");
+      if (vgrid && vgrid.parentElement) vgrid.parentElement.appendChild(tplVHint.content.cloneNode(true));
+    }
+    bindGuideOpeners();
+  }
+
+  function openGuide(tab) {
+    closeGuide();
+    guideEl = tplGuide.content.cloneNode(true);
+    document.body.appendChild(guideEl.firstElementChild ? guideEl : guideEl);
+    guideEl = document.querySelector(".gl-guide");
+    if (tab) showGTab(tab);
+    var x = guideEl.querySelector("[data-gclose]");
+    if (x) x.addEventListener("click", closeGuide);
+    guideEl.addEventListener("click", function (e) {
+      if (e.target === guideEl) closeGuide(); // 点背景关（与真 Modal 同习惯）
+    });
+    var tabs = guideEl.querySelectorAll("[data-gtab]");
+    for (var i = 0; i < tabs.length; i++) {
+      tabs[i].addEventListener("click", function () { showGTab(this.getAttribute("data-gtab")); });
+    }
+  }
+  function closeGuide() {
+    if (guideEl && guideEl.parentElement) guideEl.parentElement.removeChild(guideEl);
+    guideEl = null;
+  }
+  function showGTab(name) {
+    if (!guideEl) return;
+    var tabs = guideEl.querySelectorAll("[data-gtab]");
+    var panes = guideEl.querySelectorAll("[data-gpane]");
+    for (var i = 0; i < tabs.length; i++) tabs[i].className = tabs[i].getAttribute("data-gtab") === name ? "on" : "";
+    for (var j = 0; j < panes.length; j++) panes[j].hidden = panes[j].getAttribute("data-gpane") !== name;
+  }
+  function bindGuideOpeners() {
+    var btns = stage.querySelectorAll("[data-open-guide]");
+    for (var i = 0; i < btns.length; i++) {
+      btns[i].addEventListener("click", function () { openGuide(this.getAttribute("data-gtab") || "openai"); });
+    }
+  }
+
+  var STATES = {
+    "entry":       function () { mount("list", true, false); },
+    "g-openai":    function () { mount("list", true, false); openGuide("openai"); },
+    "g-anthropic": function () { mount("list", true, false); openGuide("anthropic"); },
+    "g-google":    function () { mount("list", true, false); openGuide("google"); },
+    "form":        function () { mount("modal", false, true); },
+    "form-guide":  function () { mount("modal", false, true); openGuide("openai"); },
+  };
+  function setState(name) {
+    closeGuide(); // 切态先收覆盖层（从指南态切走时残留会盖住新态）
+    (STATES[name] || STATES["entry"])();
+    var chips = document.querySelectorAll(".gl-bar [data-state]");
+    for (var i = 0; i < chips.length; i++) chips[i].className = chips[i].getAttribute("data-state") === name ? "on" : "";
+  }
+  var bar = document.querySelector(".gl-bar");
+  bar.addEventListener("click", function (e) {
+    var b = e.target.closest("[data-state]");
+    if (b) setState(b.getAttribute("data-state"));
+  });
+  setState("entry");
+})();
+</script>
+</body>
+</html>

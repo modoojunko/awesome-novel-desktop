@@ -33,6 +33,11 @@ interface ApiConfigFormProps {
     note?: string;
     error?: string;
   }>;
+  /** 打开配置指南（c-modelconfig-help-guide）：vgrid 下引导行点击时回调；
+   *  未传不渲染引导行（编辑态由页面侧不传即隐）。 */
+  onOpenGuide?: () => void;
+  /** 供应商选中上报（c-modelconfig-help-guide）：页面侧据此定位指南页签。 */
+  onVendorChange?: (vendorId: string) => void;
 }
 
 export interface ApiConfigFormData {
@@ -54,7 +59,7 @@ const THINKING_EFFORTS: Array<{ value: ThinkingEffort; label: string }> = [
 ];
 
 /** 添加/编辑配置弹窗（model-config.html modalConfig 原样：520px（ADJUSTMENTS 登记加宽）、vgrid 供应商格、编辑态 vfix） */
-export function ApiConfigForm({ open, config, onSubmit, onCancel, onTest, onFetchModels }: ApiConfigFormProps) {
+export function ApiConfigForm({ open, config, onSubmit, onCancel, onTest, onFetchModels, onOpenGuide, onVendorChange }: ApiConfigFormProps) {
   const isEdit = !!config;
   const [name, setName] = useState(config?.name || "");
   const [vendorId, setVendorId] = useState(config?.vendor || "");
@@ -245,6 +250,7 @@ export function ApiConfigForm({ open, config, onSubmit, onCancel, onTest, onFetc
     if (isEdit) return;
     /* v8 ignore stop */
     setVendorId(id);
+    onVendorChange?.(id); // 指南页签定位（c-modelconfig-help-guide）
     const lock = VENDOR_FORMAT_LOCK[id as keyof typeof VENDOR_FORMAT_LOCK];
     const fmt = lock ?? apiFormat;
     if (lock) setApiFormat(lock);
@@ -524,6 +530,12 @@ export function ApiConfigForm({ open, config, onSubmit, onCancel, onTest, onFetc
                   </button>
                 ))}
               </div>
+              {onOpenGuide && (
+                <p className="cf-hint">
+                  不知道怎么填？<button type="button" className="guide-link" onClick={onOpenGuide}>看三步配置指南</button>
+                  ——领 Key → 贴 Key → 测试连接。
+                </p>
+              )}
             </>
           ) : (
             <div className="vfix">
