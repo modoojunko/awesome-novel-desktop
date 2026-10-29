@@ -468,12 +468,17 @@ async def intro_ai(
             v = str(v or "").strip()
             return v or "（作者还没填）"
 
+        # 02 格的主输入是作者那句 promise_note（core_promise 只是短标签，不单独设输入框）：
+        # 原句优先、标签兜底——只喂标签会把作者手写的看点误报成「作者还没填」，
+        # 起草就丢了「看点决定卖点怎么吆喝」的方向锁。
+        promise = str(g["promise_note"] or "").strip() or str(g["core_promise"] or "").strip()
+
         _intro_vals = {
             "title": title,
             "theme": _filled(theme_label),
             "theme_desc": theme_desc or "（题材目录暂无该题材解读）",
             "theme_example": theme_example or "（无）",
-            "core_promise": _filled(g["core_promise"]),
+            "core_promise": _filled(promise),
             "forbidden_list": "、".join(x for x in forbidden if x) or "（作者还没填）",
             "cost_ratio": _filled(g["cost_ratio"]),
             "battlefield": "、".join(x for x in battlefield if x) or "（作者还没填）",
