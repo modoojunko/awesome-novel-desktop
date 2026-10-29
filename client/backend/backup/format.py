@@ -13,7 +13,7 @@ c-cover-avatar：新增 images/ 段（current 封面/头像 full/thumb + 书/角
 与配置包 image_configs 段 → v7；v6 旧包无图像段时正常跳过。
 """
 
-FORMAT_VERSION = 7
+FORMAT_VERSION = 8
 
 
 # ── 产物归属单源（chapter-rewrite）─────────────────────────────────────────

@@ -18,6 +18,8 @@ import {
   listDeconstructTasks,
   probeModel,
   retryUploadDeconstructTask,
+  getLibraryCandidates,
+  toLibrary,
 } from "@/lib/deconstructApi";
 
 function jsonResponse(status: number, body: unknown) {
@@ -207,5 +209,26 @@ describe("deconstructApi", () => {
     await retryUploadDeconstructTask("t", new File(["x"], "a.txt"));
     const urls = state.fetch.mock.calls.map(([u]) => String(u));
     expect(urls.filter((u) => u.includes("/api/deconstruct/tasks/t")).length).toBe(4);
+  });
+});
+
+describe("角色库第三出口（c-charlib-deconstruct-exit）", () => {
+  it("候选清单走裸形状", async () => {
+    state.fetch.mockResolvedValue(jsonResponse(200, {
+      can_import: true, reason: "",
+      items: [{ key: "沈青崖", name: "沈青崖", role: "主角", persona: "", gender: "男", age: "16", collected: false }],
+    }));
+    const r = await getLibraryCandidates("t1");
+    expect(r.can_import).toBe(true);
+    expect(String(state.fetch.mock.calls[0][0])).toContain("/api/deconstruct/tasks/t1/library-candidates");
+  });
+
+  it("收录提交带 picks 与 rename", async () => {
+    state.fetch.mockResolvedValue(jsonResponse(200, { created: 1, skipped: 0, library_ids: ["x"] }));
+    const r = await toLibrary("t1", ["沈青崖"], true);
+    expect(r.created).toBe(1);
+    const [url, init] = state.fetch.mock.calls[0];
+    expect(String(url)).toContain("/to-library");
+    expect(JSON.parse(init.body)).toEqual({ picks: ["沈青崖"], rename: true });
   });
 });

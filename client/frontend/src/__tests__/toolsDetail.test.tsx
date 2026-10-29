@@ -17,6 +17,8 @@ const state = vi.hoisted(() => ({
   importBook: vi.fn(),
   export: vi.fn(),
   modelOpts: vi.fn(),
+  candidates: vi.fn(),
+  toLibrary: vi.fn(),
 }));
 const toastState = vi.hoisted(() => ({ info: vi.fn(), success: vi.fn(), error: vi.fn() }));
 vi.mock("@/lib/toast", () => ({ toast: toastState }));
@@ -32,6 +34,8 @@ vi.mock("@/lib/deconstructApi", () => ({
   importBookFromTask: state.importBook,
   exportTaskProducts: state.export,
   fetchModelOptions: state.modelOpts,
+  getLibraryCandidates: state.candidates,
+  toLibrary: state.toLibrary,
   DECONSTRUCT_DIMS: [
     { key: "intro", name: "简介", file: "简介.md", setting: true },
     { key: "world", name: "世界设定", file: "世界设定.md", setting: true },
@@ -1153,5 +1157,92 @@ describe("进度可视二阶（边界臂）", () => {
     })).toBe("拆卡 2 次 · 合批 1 次");
     expect(statsLine({ reduce_state: mk({}) })).toBe(""); // 非展示阶段不渲染
     expect(statsLine({})).toBe("");
+  });
+});
+
+describe("角色库第三出口（c-charlib-deconstruct-exit）", () => {
+  beforeEach(() => {
+    toastState.error.mockClear();
+    toastState.success.mockClear();
+  });
+  const items = [
+    { key: "沈青崖", name: "沈青崖", role: "主角", persona: "看山人独子", gender: "男", age: "16", collected: false },
+    { key: "秦重霄", name: "秦重霄", role: "反派", persona: "暴躁", gender: "男", age: "42", collected: true },
+  ];
+
+  async function openExit() {
+    state.get.mockResolvedValue(detailOf("completed"));
+    renderPage();
+    await waitFor(() => expect(screen.getByText("选择去向")).toBeInTheDocument());
+    fireEvent.click(screen.getByText("选择去向"));
+    fireEvent.click(screen.getByTestId("exit-opt-library"));
+  }
+
+  it("候选清单：已收录灰态不可勾、默认勾未收录、开关换名、提交成功", async () => {
+    state.candidates.mockResolvedValue({ can_import: true, reason: "", items });
+    state.toLibrary.mockResolvedValue({ created: 1, skipped: 0, library_ids: ["x"] });
+    await openExit();
+    await waitFor(() => expect(screen.getAllByTestId("library-row")).toHaveLength(2));
+    // 已收录行禁用 + 标注
+    const rows = screen.getAllByTestId("library-row");
+    const collectedBox = rows[1].querySelector("input") as HTMLInputElement;
+    expect(collectedBox.disabled).toBe(true);
+    expect(rows[1].textContent).toContain("已在库里");
+    // 默认只勾未收录
+    expect(screen.getByTestId("library-submit").textContent).toContain("（1）");
+    // 关换名后提交
+    fireEvent.click(screen.getByTestId("library-rename"));
+    fireEvent.click(screen.getByTestId("library-submit"));
+    await waitFor(() =>
+      expect(state.toLibrary).toHaveBeenCalledWith("t2", ["沈青崖"], false),
+    );
+    expect(toastState.success).toHaveBeenCalled();
+  });
+
+  it("取消最后勾选后按钮禁用；勾上第二个未收录计数变化", async () => {
+    state.candidates.mockResolvedValue({ can_import: true, reason: "", items });
+    await openExit();
+    await waitFor(() => expect(screen.getAllByTestId("library-row")).toHaveLength(2));
+    const first = screen.getAllByTestId("library-row")[0].querySelector("input") as HTMLInputElement;
+    fireEvent.click(first); // 取消唯一勾选
+    expect((screen.getByTestId("library-submit") as HTMLButtonElement).disabled).toBe(true);
+    fireEvent.click(first);
+    expect(screen.getByTestId("library-submit").textContent).toContain("（1）");
+  });
+
+  it("无角色产物：显示原因，不出清单", async () => {
+    state.candidates.mockResolvedValue({ can_import: false, reason: "这批产物里没有角色设定", items: [] });
+    await openExit();
+    await waitFor(() => expect(screen.getByTestId("library-reason")).toBeInTheDocument());
+    expect(screen.queryByTestId("library-rows")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("library-submit")).not.toBeInTheDocument();
+  });
+
+  it("候选加载失败：提示原因并可重开", async () => {
+    state.candidates.mockRejectedValue(new Error("网络炸了"));
+    await openExit();
+    await waitFor(() => expect(toastState.error).toHaveBeenCalled());
+    await waitFor(() => expect(screen.getByTestId("library-reason").textContent).toContain("加载失败"));
+  });
+
+  it("提交失败给提示；成功后关闭去向弹层", async () => {
+    state.candidates.mockResolvedValue({ can_import: true, reason: "", items });
+    state.toLibrary.mockRejectedValue(new Error("库写不进去"));
+    await openExit();
+    await waitFor(() => expect(screen.getByTestId("library-submit")).toBeInTheDocument());
+    fireEvent.click(screen.getByTestId("library-submit"));
+    await waitFor(() => expect(toastState.error).toHaveBeenCalled());
+    cleanup();
+    // 非 Error 拒绝（字符串）走兜底文案
+    state.toLibrary.mockRejectedValue("炸");
+    await openExit();
+    await waitFor(() => expect(screen.getByTestId("library-submit")).toBeInTheDocument());
+    fireEvent.click(screen.getByTestId("library-submit"));
+    await waitFor(() => expect(toastState.error).toHaveBeenCalledTimes(2));
+    state.toLibrary.mockResolvedValue({ created: 1, skipped: 1, library_ids: [] });
+    await openExit();
+    await waitFor(() => expect(screen.getByTestId("library-submit")).toBeInTheDocument());
+    fireEvent.click(screen.getByTestId("library-submit"));
+    await waitFor(() => expect(screen.queryByTestId("library-panel")).not.toBeInTheDocument());
   });
 });

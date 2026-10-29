@@ -83,6 +83,20 @@ def parse_package(paths: list[str]) -> dict:
             books.append({"name": proj_data.get("name", ""), "path": "", "source_zip": ps})
         elif kind == "config":
             config_data = yaml.safe_load(zf.read("config.yaml"))
+            # 角色库段（v8）：头像字节从 zip 独立条目读入（旧包无该段＝无键）。
+            if isinstance(config_data, dict) and isinstance(
+                config_data.get("character_library"), list
+            ):
+                for entry in config_data["character_library"]:
+                    if not isinstance(entry, dict) or not entry.get("id"):
+                        continue
+                    avatar_data = {}
+                    for variant in ("full", "thumb"):
+                        name = f"character_library/avatars/{entry['id']}-{variant}.webp"
+                        if name in names:
+                            avatar_data[variant] = zf.read(name)
+                    if avatar_data:
+                        entry["avatar_data"] = avatar_data
 
     # 格式契约演进规则（backup-restore spec）：高于本应用支持的格式版本一律拒绝，
     # 防止新格式包被旧应用静默半恢复。v0（无版本号）按兼容模式全量回吃。
@@ -977,6 +991,14 @@ async def _import_single_book(
     return str(novel.id)
 
 
+def _safe_int(value, fallback: int) -> int:
+    """备份行里手改坏的数值（字符串/空）不炸恢复，落兜底值。"""
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return fallback
+
+
 async def _restore_config(db, user_id: str, config_data: dict) -> dict:
     """配置包恢复（backup-restore spec 裁决）：user 子集只补空、api_configs 同名跳过不覆盖。
 
@@ -1090,6 +1112,59 @@ async def _restore_config(db, user_id: str, config_data: dict) -> dict:
     summary = {"created": created, "skipped": skipped, "user_filled": user_filled}
     if "image_configs" in config_data:
         summary.update(image_created=image_created, image_skipped=image_skipped)
+
+    # ── 角色库段（v8；复制语义：按卡 id 冲突即忽略；头像缺文件/哈希不符降级 warning） ──
+    entries = config_data.get("character_library") or []
+    if isinstance(entries, list) and entries:
+        import hashlib
+        import json as _json
+
+        from models.character_library import CharacterLibrary, CharacterLibraryBlob
+
+        lib_created = lib_skipped = lib_avatar_warnings = 0
+        for entry in entries:
+            if not isinstance(entry, dict) or not entry.get("id"):
+                continue
+            cid = str(entry["id"])
+            if await db.get(CharacterLibrary, cid) is not None:
+                lib_skipped += 1
+                continue
+            db.add(CharacterLibrary(
+                id=cid,
+                user_id=user_id,
+                name=str(entry.get("name") or "")[:50],
+                aliases=_json.dumps(entry.get("aliases") or [], ensure_ascii=False),
+                role=str(entry.get("role") or "配角")[:10],
+                genre=str(entry.get("genre") or "")[:40],
+                kind=str(entry.get("kind") or "")[:20],
+                persona=str(entry.get("persona") or "")[:300],
+                dossier=_json.dumps(entry.get("dossier") or {}, ensure_ascii=False),
+                cog=_json.dumps(entry.get("cog") or {}, ensure_ascii=False),
+                src_kind=str(entry.get("src_kind") or "manual")[:20],
+                src_ref=str(entry.get("src_ref") or "")[:36],
+                src_character_id=str(entry.get("src_character_id") or "")[:36],
+                src_novel_name=str(entry.get("src_novel_name") or "")[:200],
+                rev=_safe_int(entry.get("rev"), 1),
+            ))
+            await db.flush()
+            for variant in ("full", "thumb"):
+                data = (entry.get("avatar_data") or {}).get(variant)
+                expect = ((entry.get("avatar") or {}).get(variant) or {}).get("sha256")
+                if not data:
+                    if expect:
+                        lib_avatar_warnings += 1
+                    continue
+                if expect and hashlib.sha256(data).hexdigest() != expect:
+                    lib_avatar_warnings += 1
+                    continue
+                db.add(CharacterLibraryBlob(library_id=cid, variant=variant, data=data))
+            lib_created += 1
+        await db.flush()
+        summary["library"] = {
+            "created": lib_created,
+            "skipped": lib_skipped,
+            "avatar_warnings": lib_avatar_warnings,
+        }
     return summary
 
 

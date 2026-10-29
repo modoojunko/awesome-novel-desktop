@@ -233,6 +233,7 @@ async def create_character(
     session: AsyncSession, novel_id: str, name: str, role: str = "配角",
     persona: str = "", prefill: dict | None = None,
     aliases: list | None = None, dossier: dict | None = None,
+    cog: dict | None = None,
 ) -> Character:
     """建卡（c-character-intro 决策 6 向后兼容扩参）：可选 persona（clamp 300）＋
     prefill（白名单硬校验只收 dossier.plot/background——非法键 400，不静默丢）。
@@ -271,6 +272,9 @@ async def create_character(
         "persona": persona,
         "dossier": _json_dumps(dossier),
     }
+    clean_cog = _import_cog(cog)
+    if clean_cog:
+        ch_kwargs["cog"] = _json_dumps(clean_cog)
     if clean_aliases:
         ch_kwargs["aliases"] = _json_dumps(clean_aliases)
     ch = Character(**ch_kwargs)
@@ -281,6 +285,28 @@ async def create_character(
     await session.commit()
     await session.refresh(ch)
     return ch
+
+
+def _import_cog(cog: dict | None) -> dict:
+    """认知格白名单（c-character-library：库卡整卡导入用；只收 COG_KEYS、逐格 clamp 300）。
+
+    与 _import_dossier 同纪律：非法键/非字符串一律 400 点名，不静默丢。
+    """
+    if cog is None:
+        return {}
+    if not isinstance(cog, dict):
+        raise Unprocessable("invalid_cog", "认知格只能是对象")
+    bad = [k for k in cog if k not in COG_KEYS]
+    if bad:
+        raise Unprocessable(
+            "invalid_cog", f"认知格里有不认识的格：{'、'.join(sorted(bad))}"
+        )
+    out: dict = {}
+    for k, v in cog.items():
+        text = str(v or "").strip()[:DOSSIER_CELL_MAX]
+        if text:
+            out[k] = text
+    return out
 
 
 def _prefill_dossier(prefill) -> dict:

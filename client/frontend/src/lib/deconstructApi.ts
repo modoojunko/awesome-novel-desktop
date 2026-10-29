@@ -353,3 +353,44 @@ export async function probeModel(apiConfigId: string, model: string): Promise<bo
     return false;
   }
 }
+
+// ── 角色库收录（c-charlib-deconstruct-exit） ──────────────────────────────
+
+export interface LibraryCandidateItem {
+  key: string;
+  name: string;
+  role: string;
+  persona: string;
+  gender: string;
+  age: string;
+  collected: boolean;
+}
+
+export interface LibraryCandidates {
+  can_import: boolean;
+  reason: string;
+  items: LibraryCandidateItem[];
+}
+
+export interface ToLibraryResult {
+  created: number;
+  skipped: number;
+  library_ids: string[];
+}
+
+/** 收录候选（投影角色＋已收录标记；committed：清单/灰态唯一数据源） */
+export async function getLibraryCandidates(taskId: string): Promise<LibraryCandidates> {
+  return request<LibraryCandidates>(`/deconstruct/tasks/${taskId}/library-candidates`);
+}
+
+/** 收进角色库（第三出口）：只写库不动书；成功后任务记为「已取结果」。 */
+export async function toLibrary(
+  taskId: string,
+  picks: string[],
+  rename: boolean,
+): Promise<ToLibraryResult> {
+  return request<ToLibraryResult>(`/deconstruct/tasks/${taskId}/to-library`, {
+    method: "POST",
+    body: JSON.stringify({ picks, rename }),
+  });
+}

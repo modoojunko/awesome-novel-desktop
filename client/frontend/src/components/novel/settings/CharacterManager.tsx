@@ -24,6 +24,8 @@ import ImageWorkshopModal from "@/components/image/ImageWorkshopModal";
 import BatchAvatarModal from "@/components/image/BatchAvatarModal";
 import AiCardModal from "./AiCardModal";
 import BatchAddModal from "./BatchAddModal";
+import ImportFromLibraryModal from "@/components/library/ImportFromLibraryModal";
+import CollectToLibrary from "@/components/library/CollectToLibrary";
 import type { BatchRow } from "@/lib/characterImport";
 import { effectiveRole } from "@/lib/characterImport";
 import { isNameTaken } from "@/lib/charactersApi";
@@ -162,6 +164,7 @@ const CharacterManager = forwardRef<CharacterSaveHandle, Props>(function Charact
   const [undoOp, setUndoOp] = useState<{ opId: string } | null>(null);
   /** 批量导入（c-char-batch-import）：弹层开关＋本批已建卡 id（「撤销本次全部」的靶子） */
   const [batchOpen, setBatchOpen] = useState(false);
+  const [fromLibraryOpen, setFromLibraryOpen] = useState(false);
   const [batchCreatedIds, setBatchCreatedIds] = useState<string[]>([]);
   const [avatarTarget, setAvatarTarget] = useState<CharacterCard | null>(null);
   const [avatarBatchOpen, setAvatarBatchOpen] = useState(false);
@@ -799,6 +802,14 @@ const CharacterManager = forwardRef<CharacterSaveHandle, Props>(function Charact
           >
             批量头像
           </button>
+          <button
+            type="button"
+            className="char-add char-add-more"
+            data-testid="char-from-library"
+            onClick={() => setFromLibraryOpen(true)}
+          >
+            从角色库导入
+          </button>
         </div>
         <input
           className="char-search"
@@ -955,6 +966,7 @@ const CharacterManager = forwardRef<CharacterSaveHandle, Props>(function Charact
                   {card.role === "主角" ? (card.name && card.persona ? "已立主角" : "主角待立") : card.role}
                 </span>
                 <div className="char-ops">
+                  <CollectToLibrary novelId={projectId} characterId={card.id} characterName={displayName(card.name)} />
                   <button type="button" onClick={() => { setOpsPanel(opsPanel === "merge" ? "" : "merge"); setOpsName(""); }}>合并…</button>
                   <button type="button" onClick={() => { setOpsPanel(opsPanel === "del" ? "" : "del"); setOpsName(""); }}>删除</button>
                 </div>
@@ -1281,6 +1293,14 @@ const CharacterManager = forwardRef<CharacterSaveHandle, Props>(function Charact
         onClose={() => setBatchOpen(false)}
         onToast={showToast}
         onSubmit={handleBatchSubmit}
+      />
+      <ImportFromLibraryModal
+        open={fromLibraryOpen}
+        novelId={projectId}
+        onClose={() => setFromLibraryOpen(false)}
+        onDone={() => {
+          void reloadList();
+        }}
       />
 
       {/* AI 出卡确认弹窗：出稿（bootstrap/persona/dossier/cog）＋体检统一进卡，

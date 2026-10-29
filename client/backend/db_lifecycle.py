@@ -429,12 +429,19 @@ def _manifest_rows(con: sqlite3.Connection, book_cap: int) -> dict | None:
         ).fetchall()
     except sqlite3.Error:
         cfg_rows = []  # 老库无 api_configs 表：配置清单为空而非整体失败
+    try:
+        library_total = int(
+            con.execute("SELECT COUNT(*) FROM character_library").fetchone()[0] or 0
+        )
+    except sqlite3.Error:
+        library_total = 0  # 老库无角色库表：计数为 0（告知卡第三块不渲染）
     return {
         "books": [{"name": str(b), "words": int(w or 0)}
                   for b, w in book_rows[:book_cap]],
         "books_total": len(book_rows),
         "configs": [{"name": str(c)} for (c,) in cfg_rows],
         "configs_total": len(cfg_rows),
+        "library_total": library_total,
     }
 
 

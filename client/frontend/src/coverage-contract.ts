@@ -16,6 +16,15 @@ export const COVERAGE_CONTRACT_FILES = [
   "src/components/novel/workbench/VolumePlanModal.tsx",
   "src/components/novel/workbench/VolumeAssistPanel.tsx",
   "src/lib/metrics.ts",
+  // c-character-library（角色库：库页/编辑弹窗/选书/书内导入/收录/API/hook/样式）
+  "src/lib/libraryApi.ts",
+  "src/hooks/useCharacterLibrary.ts",
+  "src/components/library/CharacterLibraryPage.tsx",
+  "src/components/library/CardEditorModal.tsx",
+  "src/components/library/UseInNovelModal.tsx",
+  "src/components/library/ImportFromLibraryModal.tsx",
+  "src/components/library/CollectToLibrary.tsx",
+  "src/components/library/LibraryAvatar.tsx",
   // c-deconstruct-book（拆书：写作工具入口/任务清单/创建/详情/API/轮询）
   "src/lib/deconstructApi.ts",
   "src/hooks/useDeconstructTasks.ts",

@@ -95,7 +95,7 @@ def test_image_backup_roundtrip(tmp_path):
             return novel.id, ch.id, cfg.id
 
     novel_id, char_id, _cfg_id = _run(_seed())
-    assert FORMAT_VERSION == 7
+    assert FORMAT_VERSION == 8
 
     async def _export():
         async with async_session() as db:

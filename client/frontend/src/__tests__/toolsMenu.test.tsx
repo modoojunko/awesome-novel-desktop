@@ -1,4 +1,4 @@
-// ToolsMenu（c-deconstruct-book 5.1）：徽标口径、两项菜单＋扩展位、Esc/点外收起。
+// ToolsMenu（c-deconstruct-book 5.1）：徽标口径、三项菜单（任务清单/拆书/角色库）＋扩展位、Esc/点外收起。
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
@@ -26,13 +26,16 @@ afterEach(() => {
 });
 
 describe("ToolsMenu", () => {
-  it("无任务：无徽标；展开显两项＋扩展位；Esc 收起；点外收起", async () => {
+  it("无任务：无徽标；展开显三项＋扩展位；Esc 收起；点外收起", async () => {
     state.list.mockResolvedValue({ tasks: [], heartbeat: { running: 0, queued: 0 }, badge: 0 });
     renderMenu();
     expect(screen.queryByText("任务清单")).not.toBeInTheDocument();
     fireEvent.click(screen.getByText("写作工具"));
     expect(screen.getByText("任务清单")).toBeInTheDocument();
     expect(screen.getByText("拆书")).toBeInTheDocument();
+    // 第三项：角色库（c-character-library）
+    expect(screen.getByText("角色库")).toBeInTheDocument();
+    expect(screen.getByText("书里的角色收进来，换本小说改个名字接着用")).toBeInTheDocument();
     expect(screen.getByText("更多写作工具陆续上线")).toBeInTheDocument();
     fireEvent.keyDown(document, { key: "Enter" }); // 非 Esc 键不关（假臂）
     expect(screen.getByText("任务清单")).toBeInTheDocument();
@@ -47,6 +50,10 @@ describe("ToolsMenu", () => {
     // 拆书菜单项点击 → 导航创建页（go 分支）
     fireEvent.click(screen.getByText("写作工具"));
     fireEvent.click(screen.getByText("拆书"));
+    expect(screen.queryByText("任务清单")).not.toBeInTheDocument();
+    // 角色库菜单项点击 → 导航 /tools/characters（go 分支；c-character-library）
+    fireEvent.click(screen.getByText("写作工具"));
+    fireEvent.click(screen.getByText("角色库"));
     expect(screen.queryByText("任务清单")).not.toBeInTheDocument();
   });
 

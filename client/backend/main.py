@@ -47,6 +47,7 @@ from db import Base, async_session, engine
 from deconstruct.router import router as deconstruct_router  # c-deconstruct-book
 from genres.router import router as genres_router
 from image_assets.router import router as image_assets_router
+from library.router import router as character_library_router
 from manuscript.router import router as manuscript_router
 from models.user import User
 from novels.events_router import router as events_router
@@ -485,7 +486,8 @@ app.include_router(novels_router)
 app.include_router(deconstruct_router)  # c-deconstruct-book
 app.include_router(events_router)  # 度量落点（PRD §7）：前端意图事件白名单收口
 app.include_router(settings_status_router)  # 先注册：GET /settings/status 不能被 /{type} 抢先匹配
-app.include_router(characters_router)  # 角色端点同理：不能被 GET /settings/{type} 兜底吃掉
+app.include_router(characters_router)
+app.include_router(character_library_router)  # 角色端点同理：不能被 GET /settings/{type} 兜底吃掉
 app.include_router(hooks_router)  # 伏笔端点同理：不能被 GET /settings/{type} 兜底吃掉
 app.include_router(style_quant_router)  # style-quant 同理：专用端点不能被 /{type} 兜底吃掉
 app.include_router(book_prefs_router)  # book-prefs 同理：专用端点不能被 /{type} 兜底吃掉

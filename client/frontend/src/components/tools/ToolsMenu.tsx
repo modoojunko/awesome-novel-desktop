@@ -96,6 +96,10 @@ export default function ToolsMenu() {
               <b>拆书</b>
               <span className="tm-desc">把一本小说拆成设定、剧情、文风与技法</span>
             </button>
+            <button className="tm-item" role="menuitem" data-od-id="menu-charlib" onClick={() => go("/tools/characters")}>
+              <b>角色库</b>
+              <span className="tm-desc">书里的角色收进来，换本小说改个名字接着用</span>
+            </button>
             <div className="tm-note">更多写作工具陆续上线</div>
           </div>,
           document.body,
