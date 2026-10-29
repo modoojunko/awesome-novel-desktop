@@ -8,6 +8,7 @@
 
 - [x] 2.1 `GenreSettingForm.tsx`：`customBattlefield` state＋`addCustomBattlefield`（同名落预设勾选／重复提示／上限共用 battlefieldMax）＋05 格 `cap-add` 输入框（maxLength=battlefieldTextMax）。验证：tsc 0 错。
 - [x] 2.2 `GenreSettingForm.test.tsx`：补「回车自定义 → 可移除胶囊；同名落预设勾选不重复」用例。验证：定向 vitest 38/38。
+- [x] 2.3 评审整改（PR #974 内）：词汇引用样输入（`kind:slug` 前缀）拒收守卫 `VOCAB_REF_RE`（拒收不清输入）——后端按前缀落 vocab 引用，手造 id＝FK 违例 500；save 契约用例补自定义文本项＋拒收断言；spec 补 bullet＋「词汇引用样输入拒收」scenario。
 
 ## 3. 规格
 

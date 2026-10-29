@@ -87,6 +87,11 @@ function labelFor(id: string, pools: Array<{ id: string; label: string }>): stri
   return pools.find((p) => p.id === id)?.label ?? vocabLabel(id);
 }
 
+/** 词汇引用形态（kind:slug）：05 手填框拒收——后端保存按前缀把这类值落成 vocab 引用，
+ *  手造 id 不在 genre_vocab 里 → FK 违例＝保存 500（同 spec「像机器标识的值 SHALL NOT
+ *  落成自定义文本」的口径，AI 采纳路径有归一化拦，手填路径在这里拦）。 */
+const VOCAB_REF_RE = /^(?:promise|forbidden|battlefield):/;
+
 /** 01 选择器的一行：大类（＝只归大类）或「大类 + 子类」。 */
 type ThemeRow =
   | { kind: "theme"; theme: string; sub?: undefined }
@@ -675,6 +680,10 @@ const GenreSettingForm = forwardRef<GenreHandle, GenreSettingFormProps>(function
   const addCustomBattlefield = useCallback(() => {
     const text = customBattlefield.trim();
     if (!text) return;
+    if (VOCAB_REF_RE.test(text)) {
+      toast.info("这是系统内部的词汇编号——请直接写中文战场词");
+      return;
+    }
     const hit = cand.battlefield.find((c) => c.label === text || c.id === text);
     const val = hit ? hit.id : text;
     if (data.battlefield.includes(val)) {

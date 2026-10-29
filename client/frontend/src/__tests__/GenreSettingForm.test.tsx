@@ -158,6 +158,13 @@ describe("GenreSettingForm · 六格", () => {
     // 点 × 移除自定义项
     fireEvent.click(screen.getByText("抢天道机缘 ×"));
     expect(screen.queryByText("抢天道机缘 ×")).toBeNull();
+
+    // 词汇引用样输入拒收（后端按前缀落 vocab 引用，手造 id＝保存 FK 违例 500）
+    fireEvent.change(input, { target: { value: "battlefield:hack" } });
+    fireEvent.keyDown(input, { key: "Enter" });
+    expect(toastState.info).toHaveBeenCalledWith("这是系统内部的词汇编号——请直接写中文战场词");
+    expect(screen.queryByText("battlefield:hack ×")).toBeNull();
+    expect(input.value).toBe("battlefield:hack"); // 拒收不清输入，留作者改
   });
 
   it("save 落五字段契约（含自定义项与空值形态）", async () => {
@@ -175,6 +182,9 @@ describe("GenreSettingForm · 六格", () => {
       target: { value: "6" },
     });
     fireEvent.click(container.querySelector('[data-bf="battlefield:truth"]')!);
+    const bfInput = container.querySelector('[data-od-id="bf-input"]') as HTMLInputElement;
+    fireEvent.change(bfInput, { target: { value: "抢天道机缘" } });
+    fireEvent.keyDown(bfInput, { key: "Enter" });
 
     await ref.current!.save();
 
@@ -185,7 +195,7 @@ describe("GenreSettingForm · 六格", () => {
       promise_note: "读者要看到弱者被逼到墙角后靠脑子翻盘",
       forbidden_list: [{ tagId: "forbidden:no-villain-idiot" }, { text: "禁穿越" }],
       cost_ratio: 6,
-      battlefield: ["battlefield:truth"],
+      battlefield: ["battlefield:truth", "抢天道机缘"],
     });
   });
 
