@@ -204,7 +204,7 @@ async def resolve_genre_context(
     ]
     battlefield = [labels.get(b, b) for b in g["battlefield"]]
 
-    # 题材目录（01 格「什么题材」）落 story.yaml（与简介同族），注入时一并带上：
+    # 题材目录（01 格「什么题材」）落 KV `story` 键（与简介同族），注入时一并带上：
     # 它是「定了就不跑偏」的类型锁，模型必须知道这本书是什么题材。
     theme = sub_genre = ""
     try:

@@ -65,7 +65,7 @@ client/backend/
 ├── prompt/              提示词组装
 ├── write/               SSE 流式写作
 ├── archive/             归档
-├── filesystem/          本地文件存储
+├── filesystem/          设定存储门面：KV 键位路由（paths.py）＋ DatabaseFileBackend（无文件读写）
 ├── genres/              全局题材库（预置 seed + CRUD + 写作链路注入）
 ├── story/               剧情推演
 ├── api_configs/         API Key 多配置管理
@@ -76,7 +76,14 @@ client/backend/
 ## 关键设计
 
 - **六阶段工作流**：init → settings → outline → prompt → write → archive
-- **全局题材库**：题材定义存 SQLite `genres` 表（24 预置只读 + 自定义增删改，全局共享），写作时注入分段/整章两条路径。与 `GENRE_CORPUS_NAMES`（`novels/router.py` 死代码）、`reference/genre-corpus/`、`story.yaml.genre`、`writing-style.yaml.genre_profile`（旧独立体系，未接入）不混用。
-- **文件系统存储**：小说内容（卷章/设定/正文/版本快照）存本地文件系统 YAML/MD，SQLite 存元数据（用户/项目/计费）
+- **全局题材库**：题材定义存 SQLite `genres` 表（24 预置只读 + 自定义增删改，全局共享），写作时注入分段/整章两条路径。与 `GENRE_CORPUS_NAMES`（`novels/router.py` 死代码）、`project_settings` KV `story` 键的 `genre` 字段（每书题材目录标签）、KV `style` 键的 `genre_profile`（旧独立体系：建书写入、无消费方）不混用。
+- **存储总口径**（ADR-001/002/003）：创作内容**全部在 SQLite**（每版本一库 `novel-v{版本}.db`）。
+  - 设定走 `project_settings` KV（`story`＝简介/题材标签/主线，`world`、`style`、`character:*`、`threads`、
+    `style-quant`、`book-prefs` 等键；键位路由见 `filesystem/paths.py`）。路径形 `.yaml` 字符串是文件时代
+    遗留的**路由键名、永不落盘**——判定「某设定存在哪」看 paths.py 映射，勿信调用点字面量。
+  - 卷章/正文/版本快照为真表（`volumes` / `chapters` / `chapter_contents` / `chapter_versions`）；
+    题材五格（`novel_genre` 系）、伏笔（`novel_hooks`）、卷纲（`volumes`）亦为真表。
+  - 盘上只余：数据库文件与日志、每本书的 `novel-samples/`（文风蒸馏样本原件），以及用户主动产物
+    （`manuscript/` 成稿导出、`backup/` 备份包——写用户所选目录，禁止落 DATA_ROOT）。
 - **SSE 流式传输**：写作阶段每段一个 SSE 连接，支持并行流
 - **Token 计费**：每次 AI 调用记录到 token_log，按模型单价扣除

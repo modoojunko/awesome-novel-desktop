@@ -85,7 +85,7 @@ async def get_settings(
         from genres.novel_genre_service import get_novel_genre
 
         data = await get_novel_genre(db, project.id)
-        # 题材目录（01 大类/子类）落 story.yaml（与简介同族，复用既有 genre 键）：
+        # 题材目录（01 大类/子类）落 KV `story` 键（与简介同族，复用既有 genre 键；story.yaml 是路由键名）：
         # 契约上仍是同一个「题材」，故在这里合成一个响应，前端一次取全
         story = await get_storage().read_yaml(project.root_path, "story.yaml") or {}
         data["theme"] = story.get("genre") or ""
