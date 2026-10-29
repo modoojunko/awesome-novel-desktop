@@ -1213,29 +1213,30 @@ describe("带回常驻行与四步收尾（c-lossless-upgrade 覆盖补齐）", 
     expect(screen.queryByTestId("carry-strip-done")).toBeNull();
   });
 
-  it("稍后带（suppressed）：常驻行两出口——本版不再提醒走 snooze、带过来重开卡", async () => {
+  it("已本版静音（suppressed）：常驻行不渲染，角落出口仍在（spec：抑制后常驻行消失）", async () => {
     withRec({ suppressed: true });
     getMock.mockResolvedValue([]);
     renderPage();
-    const strip = await screen.findByTestId("carry-strip-later");
-    expect(strip.textContent).toContain("上一版还有 3 本作品未迁移");
+    await screen.findByText("开始你的第一本书");
+    await act(async () => {});
+    expect(screen.queryByTestId("carry-strip-later")).toBeNull();
     // 角落小字真分支（fr-note）：卡不在途（suppressed）→ 出口行回到带链接形态
     const note = document.querySelector(".fr-note") as HTMLElement;
     expect(note.textContent).toContain("迁移上一版的作品与模型配置");
-    postMock.mockResolvedValue({ code: 0 });
-    fireEvent.click(screen.getByTestId("carry-strip-mute"));
-    await waitFor(() =>
-      expect(postMock.mock.calls.some((c) => String(c[0]).includes("/dismiss"))).toBe(true));
-    // 角落小字链接出口：派发 legacy-migrate:open（791 行 onClick）
     const opened = vi.fn();
     window.addEventListener("legacy-migrate:open", opened);
     fireEvent.click(screen.getByText("迁移上一版的作品与模型配置"));
     window.removeEventListener("legacy-migrate:open", opened);
     expect(opened).toHaveBeenCalledTimes(1);
-    fireEvent.click(screen.getByTestId("carry-strip-open"));
-    expect(await screen.findByTestId("carry-card")).toBeTruthy(); // 重开卡
-    // 卡内「稍后带」：收卡不出队（927 行 onLater 闭包）
-    fireEvent.click(screen.getByTestId("carry-later"));
+  });
+
+  it("部分迁移＋本版静音：常驻行不渲染（修「点本版不再提醒还是消失不掉」）", async () => {
+    withRec({ carried_partial: true, suppressed: true, book_count: 3 });
+    getMock.mockResolvedValue([]);
+    renderPage();
+    await screen.findByText("开始你的第一本书");
+    await act(async () => {});
+    expect(screen.queryByTestId("carry-strip-later")).toBeNull();
     expect(screen.queryByTestId("carry-card")).toBeNull();
   });
 
@@ -1305,12 +1306,14 @@ describe("带回常驻行与四步收尾（c-lossless-upgrade 覆盖补齐）", 
     await waitFor(() => expect(dialogQueueHead()).not.toBe("carry")); // 出队放行
   });
 
-  it("稍后带行书数缺（null）：按「?」兜底显示", async () => {
-    withRec({ book_count: null, suppressed: true });
+  it("稍后带行展示源书数（卡已开过＝书数有效）", async () => {
+    withRec();
     getMock.mockResolvedValue([]);
     renderPage();
+    await screen.findByTestId("carry-card");
+    fireEvent.click(screen.getByTestId("carry-later"));
     const strip = await screen.findByTestId("carry-strip-later");
-    expect(strip.textContent).toContain("上一版还有 ? 本作品未迁移");
+    expect(strip.textContent).toContain("上一版还有 3 本作品未迁移");
   });
 
   it("recommended 缺书数（null/0）：不自动入队出卡（守卫早退＋?? 兜底）", async () => {
@@ -1323,8 +1326,8 @@ describe("带回常驻行与四步收尾（c-lossless-upgrade 覆盖补齐）", 
     expect(screen.queryByTestId("carry-strip-later")).toBeNull();
   });
 
-  it("suppressed＋完成确认后：稍后带常驻行隐藏（carryConfirmed 收口）", async () => {
-    withRec({ suppressed: true });
+  it("稍后带→完成确认后：常驻行隐藏（carryConfirmed 收口）", async () => {
+    withRec();
     let statusPayload: Record<string, unknown> = { state: "running", kind: "migration" };
     postMock.mockResolvedValue({ code: 0 });
     getMock.mockImplementation(async (path: unknown) => {
@@ -1335,6 +1338,8 @@ describe("带回常驻行与四步收尾（c-lossless-upgrade 覆盖补齐）", 
       return [novel()];
     });
     renderPage();
+    await screen.findByTestId("carry-card");
+    fireEvent.click(screen.getByTestId("carry-later")); // 常驻行接管
     await screen.findByTestId("carry-strip-later");
     fireEvent.click(screen.getByTestId("carry-strip-open"));
     await screen.findByTestId("carry-card");
