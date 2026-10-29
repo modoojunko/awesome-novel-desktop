@@ -2246,7 +2246,7 @@ async def generate_field(
         ]
         # ① 题材目录进提示词（用户 2026-09-10）：题材是「定了就不跑偏」的类型锁，
         #    AI 助手此前完全不知道本书是什么题材，产出只能靠书名硬猜。
-        #    落 story.yaml 的 genre/sub_genre（与简介同族）→ 目录取解读与案例当风格锚。
+        #    落 KV `story` 键的 genre/sub_genre（与简介同族）→ 目录取解读与案例当风格锚。
         theme_name = (story.get("genre") or "").strip()
         theme_sub = (story.get("sub_genre") or "").strip()
         theme_label = f"{theme_name}（{theme_sub}）" if theme_sub else theme_name
