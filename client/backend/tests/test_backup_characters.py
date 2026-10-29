@@ -230,8 +230,8 @@ class TestV1LegacyMapping:
             "look": "微胖", "background": "宗门底层", "speech": "公事公办",
         }
         assert out["cog"] == {
-            "w3": "规则护有钱人", "s2": "老油条", "v2": "不担责",
-            "p2": "练气后期", "p6": "收好处", "e1": "杂役房",
+            "w1": "规则护有钱人", "s1": "老油条", "v1": "不担责",
+            "p2": "练气后期", "p6": "收好处", "e3": "杂役房",
         }
         assert out["legacy"] == {
             "possessions": "一本名录", "relationships": "与林拾: 纵容",

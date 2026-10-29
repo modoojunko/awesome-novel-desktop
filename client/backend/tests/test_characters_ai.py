@@ -343,7 +343,7 @@ class TestBootstrap:
             "persona": "扫了十年落叶的杂役弟子，一双能看见修为漏洞的眼。",
             "fills": {"race": "人族", "faction": "青梧宗", "plot": "背残页翻盘",
                       "w1": "修行如登山", "w5": "不知眼眸来历", "p3": "化神即顶"},
-            "skipped": [{"key": "e5", "why": "简介里没有"}],
+            "skipped": [{"key": "s5", "why": "简介里没有"}],
         }, captured)
         r = c.post(f"/api/novels/{nid}/settings/ai/characters/bootstrap", json={})
         assert r.status_code == 200

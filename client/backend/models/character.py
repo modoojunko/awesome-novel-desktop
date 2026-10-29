@@ -71,7 +71,7 @@ class Character(Base):
     persona: Mapped[str] = mapped_column(String(300), nullable=False, default="")
     # JSON object：gender/age/race/faction/look/speech/background/plot（8 键，键名冻结）
     dossier: Mapped[str] = mapped_column(Text, nullable=False, default="{}")
-    # JSON object：认知六层 30 格（w1..e5，键名冻结；新增格位=纯代码变更）
+    # JSON object：认知六层 11 格（c-cog-cells-slim；键名冻结，退役键不回收）
     cog: Mapped[str] = mapped_column(Text, nullable=False, default="{}")
     # JSON object：老字段原文留存（possessions/experiences/relationships/state_history/
     # personality…）——只存不读、不上界面、不进 AI；响应组装必须显式白名单，禁 model_dump 直出
