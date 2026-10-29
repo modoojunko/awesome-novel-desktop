@@ -186,6 +186,13 @@ test("定题材自动写书级默认；卷列优先于书默认", async ({ page,
       data: { preset: "case", steps_len: 10, steps: PRESET_CASE_STEPS, ch1_extra_on: false, ch1_extra: "", planned: true },
     });
     expect(r.status()).toBe(200);
+    // 卷列优先于书默认：读回 source=volume 且以卷列的 10 章为准（书默认仍是 12 章）
+    const after = await (
+      await request.get(`${ORIGIN}/api/novels/${pid}/volumes/${volRef}/pacing`, { headers: H(token) })
+    ).json();
+    expect(after.source).toBe("volume");
+    expect(after.config.steps_len).toBe(10);
+    expect(after.book_default?.steps_len).toBe(12);
   } finally {
     await restore();
   }
