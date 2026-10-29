@@ -30,15 +30,30 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from deconstruct import settings_map as sm
 from deconstruct.cards import (
+    ROLE_MAP as _ROLE_MAP,
+)
+from deconstruct.cards import (
     card_to_book_payload,
     cards_from_products,
 )
 from deconstruct.cards import (
     clean_para as _clean_para,
 )
+from deconstruct.cards import (
+    role_normalize as _role_normalize,
+)
 from deconstruct.mdrender import md_map_from_products
 from filesystem.paths import KEY_TO_PATH
 from models.deconstruct import SETTING_DIMENSION_KEYS, DeconstructJob
+
+# 兼容面（scripts/tests 直接从 apply 取这些符号；__all__ 同时挡住 ruff F401 清理）
+__all__ = [
+    "_ROLE_MAP",
+    "_clean_para",
+    "_role_normalize",
+    "card_to_book_payload",
+    "cards_from_products",
+]
 
 # 建书可勾项＝7 设定项＋三项扩展（章卷结构→卷行；人物关系→关系行；写作技法→文风 rules）
 IMPORT_ITEM_KEYS = (*SETTING_DIMENSION_KEYS, "structure", "relations", "techniques")
