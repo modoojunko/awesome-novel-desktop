@@ -3,11 +3,11 @@
 v2 布局：characters/characters.yaml（角色数组，含 legacy 原文）+
 characters/relations.yaml（单向关系数组）。不再写 settings/character-setting/。
 
-v1→v2 映射（tasks 3.3，逐字段）：
+v1→v2 映射（tasks 3.3，逐字段；c-cog-cells-slim 起老字段落层主格）：
   name→name；role 枚举映射（protagonist→主角/antagonist→反派/supporting→配角）；
   appearance→dossier.look；background→dossier.background；speech→dossier.speech；
-  world_view→cog.w3；self_image→cog.s2；values→cog.v2；abilities→cog.p2；
-  skills→cog.p6；environment→cog.e1；
+  world_view→cog.w1；self_image→cog.s1；values→cog.v1；abilities→cog.p2；
+  skills→cog.p6；environment→cog.e3；
   possessions/experiences/relationships/state_history/personality→legacy（原文，
   不上界面不进 AI）。
 """
@@ -22,12 +22,12 @@ LEGACY_FIELD_MAP: dict[str, tuple[str, str]] = {
     "appearance": ("dossier", "look"),
     "background": ("dossier", "background"),
     "speech": ("dossier", "speech"),
-    "world_view": ("cog", "w3"),
-    "self_image": ("cog", "s2"),
-    "values": ("cog", "v2"),
+    "world_view": ("cog", "w1"),
+    "self_image": ("cog", "s1"),
+    "values": ("cog", "v1"),
     "abilities": ("cog", "p2"),
     "skills": ("cog", "p6"),
-    "environment": ("cog", "e1"),
+    "environment": ("cog", "e3"),
 }
 # 无归宿字段（只留原文）
 LEGACY_KEEP_KEYS = (

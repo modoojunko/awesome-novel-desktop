@@ -31,7 +31,10 @@ export const DOSSIER_FIELDS: CharacterField[] = [
 export const DOSSIER_KEYS = DOSSIER_FIELDS.map((f) => f.k);
 export const DOSSIER_FILL_KEYS = DOSSIER_KEYS;
 
-// ── 认知六层（30 格）─────────────────────────────────────────────────────
+// ── 认知六层（11 格）─────────────────────────────────────────────────────
+// c-cog-cells-slim：19 格纯手填格全库零填充，退役（w2 w3 w4 / s2 s3 s4 /
+// v2 v3 v4 / p1 p5 / b2 b3 b4 b5 / e1 e2 e4 e5）；键名不回收，残留键零迁移。
+// 保留格 = AI 认知补充候选全集（COG_FILL_KEYS 与 COG_KEYS 同集）。
 export interface CogLayer {
   id: string;
   no: string;
@@ -46,9 +49,6 @@ export const COG_LAYERS: CogLayer[] = [
     id: "worldview", no: "01", name: "世界观", tag: "认知层", primary: "w1",
     fields: [
       { k: "w1", label: "世界规则认知度", req: false },
-      { k: "w2", label: "局势主观判定", req: false },
-      { k: "w3", label: "世界运行规则信仰", req: false },
-      { k: "w4", label: "人性通用认知", req: false },
       { k: "w5", label: "核心认知盲区", req: true },
     ],
   },
@@ -56,9 +56,6 @@ export const COG_LAYERS: CogLayer[] = [
     id: "self", no: "02", name: "自我观", tag: "认知层", primary: "s1",
     fields: [
       { k: "s1", label: "自我身份定位", req: false },
-      { k: "s2", label: "自我价值判定", req: false },
-      { k: "s3", label: "深层软肋", req: false },
-      { k: "s4", label: "优势与缺陷认知", req: false },
       { k: "s5", label: "宿命认知观", req: false },
     ],
   },
@@ -66,40 +63,27 @@ export const COG_LAYERS: CogLayer[] = [
     id: "values", no: "03", name: "价值观", tag: "认知层", primary: "v1",
     fields: [
       { k: "v1", label: "核心追求", req: false },
-      { k: "v2", label: "三观底线", req: false },
-      { k: "v3", label: "核心价值优先级", req: false },
-      { k: "v4", label: "个人善恶判定标准", req: false },
     ],
   },
   {
     id: "power", no: "04", name: "能力", tag: "执行层", primary: "p2",
     fields: [
-      { k: "p1", label: "先天天赋", req: false },
       { k: "p2", label: "后天综合能力（金手指）", req: false },
       { k: "p6", label: "技能 · 习得与来源", req: false },
       { k: "p3", label: "能力上限阈值", req: true },
       { k: "p4", label: "能力代价 · 短板", req: true },
-      { k: "p5", label: "隐藏底牌后手", req: false },
     ],
   },
   {
     id: "behavior", no: "05", name: "行为", tag: "执行层", primary: "b1",
     fields: [
       { k: "b1", label: "性格 · 待人态度", req: false },
-      { k: "b2", label: "行为习惯 · 小动作 · 喜忌", req: false },
-      { k: "b3", label: "危机本能行为", req: false },
-      { k: "b4", label: "决策思维习惯", req: false },
-      { k: "b5", label: "社交表现形态", req: false },
     ],
   },
   {
     id: "env", no: "06", name: "环境", tag: "结果层", primary: "e3",
     fields: [
-      { k: "e1", label: "地域与阶级环境", req: false },
-      { k: "e2", label: "资源与权限条件", req: false },
       { k: "e3", label: "人际生态环境", req: false },
-      { k: "e4", label: "时代局势背景", req: false },
-      { k: "e5", label: "关键塑人事件", req: false },
     ],
   },
 ];

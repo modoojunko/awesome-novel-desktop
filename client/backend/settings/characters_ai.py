@@ -55,7 +55,7 @@ router = APIRouter(prefix="/api/novels/{project_id}/settings", tags=["characters
 
 # c-ai-material-audit：卡文本曾 `json.dumps(...)[:2000]` 尾部硬切（切掉的恰是认知六层
 # 后段，而体检判据靠上下三层对照）、名册曾 12 人封顶——两处上限均已退役，改全量给。
-# 单卡上限仍受 DB 列宽约束（persona 300＋档案八格＋认知 30 格），无需拼装层再切。
+# 单卡上限仍受 DB 列宽约束（persona 300＋档案八格＋认知 11 格），无需拼装层再切。
 
 def _clamp(v, n: int) -> str:
     return str(v or "")[:n]

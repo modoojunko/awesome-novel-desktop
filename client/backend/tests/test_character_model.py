@@ -31,12 +31,26 @@ class TestConstants:
     def test_shape_counts(self):
         assert len(DOSSIER_FIELDS) == 8
         assert len(DOSSIER_FILL_KEYS) == 8  # c-character-dossier-full-fill：八格全进 AI 候选
-        assert len(COG_KEYS) == 30
+        assert len(COG_KEYS) == 11  # c-cog-cells-slim：19 格零填充退役，30 → 11
         assert set(COG_REQUIRED) == {"w5", "p3", "p4"}
         assert len(COG_FILL_KEYS) == 11  # 6 主格 + w5/p3/p4 + p6 + s5（精神层落点）
         assert set(COG_FILL_KEYS) == {"w1", "s1", "v1", "p2", "b1", "e3", "w5", "p3", "p4", "p6", "s5"}
+        assert set(COG_FILL_KEYS) == set(COG_KEYS)  # 保留格 = AI 候选全集
         assert WRITE_STATE_KEYS == ("w1", "s1", "v1", "p2", "b1", "e3")
         assert CHAR_CHECK_STATUS == ("ok", "warn", "conflict", "miss")
+
+    def test_retired_cells_rejected(self):
+        """退役格（c-cog-cells-slim）不在任何白名单：AI 补全按 unknown_key 拒写。"""
+        for k in ("w2", "w3", "w4", "s2", "s3", "s4", "v2", "v3", "v4",
+                  "p1", "p5", "b2", "b3", "b4", "b5", "e1", "e2", "e4", "e5"):
+            assert k not in COG_KEYS
+        card = {"cog": {}}
+        new_card, applied, skipped = apply_character_fills(
+            card, "cog", {"w2": "残留数据", "w5": "盲区"},
+        )
+        assert new_card["cog"] == {"w5": "盲区"}
+        assert applied == [{"key": "w5", "value": "盲区"}]
+        assert skipped == [{"key": "w2", "reason": "unknown_key"}]
 
     def test_check_items_variant(self):
         power_names = [name for name, _ in check_items(True)]

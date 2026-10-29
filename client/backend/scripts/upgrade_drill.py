@@ -410,12 +410,12 @@ def phase_import_v1(root: str, work: Path) -> None:
         assert d["look"] == LIN_SHI["appearance"]
         assert d["background"] == LIN_SHI["background"]
         assert d["speech"] == LIN_SHI["speech"]
-        assert g["w3"] == LIN_SHI["world_view"]
-        assert g["s2"] == LIN_SHI["self_image"]
-        assert g["v2"] == LIN_SHI["values"]
+        assert g["w1"] == LIN_SHI["world_view"]
+        assert g["s1"] == LIN_SHI["self_image"]
+        assert g["v1"] == LIN_SHI["values"]
         assert g["p2"] == LIN_SHI["abilities"]
         assert g["p6"] == LIN_SHI["skills"]
-        assert g["e1"] == LIN_SHI["environment"]
+        assert g["e3"] == LIN_SHI["environment"]
         for k in ("possessions", "experiences", "relationships", "state_history", "personality"):
             assert leg.get(k) == LIN_SHI[k], f"legacy.{k} 丢失"
         assert rows["老周"]["role"] == "配角"
