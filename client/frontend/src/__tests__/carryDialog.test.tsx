@@ -275,6 +275,32 @@ describe("carryStore 单例（5.1）", () => {
       .filter(([url]) => url === "/backup/db-migration/status").length;
     expect(statusCalls).toBeGreaterThanOrEqual(1);
   });
+
+  it("静音强制重取：并发 refresh 在途时 snooze 后仍补一发新快照（按钮不假死）", async () => {
+    const actual = await vi.importActual<typeof import("@/lib/carryStore")>("@/lib/carryStore");
+    const { refreshCarry, snoozeCarry, resetCarryStoreForTests } = actual;
+    resetCarryStoreForTests();
+    apiState.get.mockClear();
+    apiState.post.mockClear();
+    let release!: () => void;
+    apiState.get.mockImplementationOnce(
+      () => new Promise((res) => { release = () => res({ code: 0, data: {} }); }),
+    );
+    const inflight = refreshCarry(); // 挂载期请求在途
+    apiState.get.mockResolvedValue({
+      code: 0,
+      data: { candidates: [], quarantined: [], current_version: "0.25" },
+    });
+    apiState.post.mockResolvedValue({ code: 0 });
+    const snoozed = snoozeCarry("a");
+    await Promise.resolve(); // post 落地，force 刷新挂到在途请求后
+    release();
+    await snoozed;
+    await inflight;
+    const candidatesCalls = apiState.get.mock.calls
+      .filter(([url]) => url === "/backup/db-migration/candidates");
+    expect(candidatesCalls.length).toBe(2); // 去重一发＋静音后强制补一发
+  });
 });
 
 describe("评审修复回归（P1×3）", () => {

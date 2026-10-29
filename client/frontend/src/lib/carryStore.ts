@@ -72,7 +72,7 @@ interface CarryState {
 }
 
 let state: CarryState = { status: null, job: null };
-let inflightCandidates = false;
+let inflightCandidates: Promise<void> | null = null;
 let pollTimer: ReturnType<typeof setInterval> | null = null;
 const listeners = new Set<() => void>();
 
@@ -82,16 +82,27 @@ const set = (patch: Partial<CarryState>) => {
   emit();
 };
 
-export async function refreshCarry(): Promise<void> {
-  if (inflightCandidates) return; // 并发去重（书架+账户菜单同时挂载只发一请求）
-  inflightCandidates = true;
+/** 取候选快照。并发去重（书架+账户菜单同时挂载只发一请求）；
+ *  force＝用户动作（本版静音/已阅/搬运终局）后必须拿到最新态——若恰好有
+ *  请求在途，等它落地后再补一发，避免沿用静音前的旧快照让按钮看起来没反应。 */
+export async function refreshCarry(opts: { force?: boolean } = {}): Promise<void> {
+  if (inflightCandidates) {
+    await inflightCandidates;
+    if (!opts.force) return;
+  }
+  const run = (async () => {
+    try {
+      const res = await api.get('/backup/db-migration/candidates', { quiet: true });
+      if (res.code === 0) set({ status: res.data as LegacyStatus });
+    } catch {
+      /* 静默降级：旧数据检测失败不阻塞书架 */
+    }
+  })();
+  inflightCandidates = run;
   try {
-    const res = await api.get('/backup/db-migration/candidates', { quiet: true });
-    if (res.code === 0) set({ status: res.data as LegacyStatus });
-  } catch {
-    /* 静默降级：旧数据检测失败不阻塞书架 */
+    await run;
   } finally {
-    inflightCandidates = false;
+    if (inflightCandidates === run) inflightCandidates = null;
   }
 }
 
@@ -112,7 +123,7 @@ async function pollOnce() {
       stopPoll();
     } else if (job?.state !== 'running') {
       stopPoll();
-      await refreshCarry(); // done/error → 候选态翻转（carried/常驻行换态）
+      await refreshCarry({ force: true }); // done/error → 候选态翻转（carried/常驻行换态）
     }
   } catch {
     /* 轮询失败静默重试（下一拍） */
@@ -154,14 +165,14 @@ export function resetCarryJob() {
 
 export function snoozeCarry(filename: string) {
   return api.post('/backup/db-migration/dismiss', { filename }, { quiet: true })
-    .then(() => refreshCarry());
+    .then(() => refreshCarry({ force: true }));
 }
 
 /** 完成回执「收起」（c-carry-receipt-ack）：写已阅态——刷新/重开不再复现；
  *  源数据件变化（新一次迁移）指纹对拍不命中，回执自动重开。 */
 export function ackCarryReceipt(filename: string) {
   return api.post('/backup/db-migration/receipt-ack', { filename }, { quiet: true })
-    .then(() => refreshCarry());
+    .then(() => refreshCarry({ force: true }));
 }
 
 export function subscribeCarry(cb: () => void): () => void {

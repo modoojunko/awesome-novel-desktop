@@ -665,9 +665,11 @@ function NovelList() {
           </button>
         </div>
       )}
-      {/* c-carry-degrade-remigrate：部分迁移态也走提醒行（spec「搬运不完整必须
-          提示用户」既有义务）——自动弹卡已让位，这里是缺口候选的唯一提醒面 */}
-      {carryRec && (carryRec.suppressed || carryLater || carryRec.carried_partial)
+      {/* c-carry-degrade-remigrate：候选未被本版静音时，这里是缺口提醒面
+          （自动弹卡已让位；点「本版不再提醒」后不再渲染——抑制优先于部分迁移态，
+          spec「部分迁移被显式静音后可达」。抑制只绑当前版本候选指纹，
+          缺口与重迁入口仍经「账户 › 本机旧版本数据」可达） */}
+      {carryRec && !carryRec.suppressed && (carryLater || carryRec.carried_partial)
         && !carryRec.carried && !carryConfirmed && (
         <div className="notice" data-testid="carry-strip-later">
           <span className="nt">
@@ -675,7 +677,9 @@ function NovelList() {
                 真实缺口只有结果卡/gaps 清单知道 */}
             <b>{carryRec.carried_partial
               ? "上一版迁移有缺口，可继续迁移"
-              : `上一版还有 ${carryRec.book_count ?? '?'} 本作品未迁移`}</b>
+              /* 非 partial 行只在「稍后带」后出现——卡要求 book_count>0 才弹，
+                 这里恒为真数（候选在途替换属理论边角，不设 '?' 兜底） */
+              : `上一版还有 ${carryRec.book_count} 本作品未迁移`}</b>
             <span>旧文件原样保留，下次打开还会提醒</span>
           </span>
           <span className="flex items-center gap-2">
