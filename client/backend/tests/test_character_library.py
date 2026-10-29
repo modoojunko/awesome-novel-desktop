@@ -103,7 +103,7 @@ class TestCrud:
             dossier={"gender": "女", "age": "17"},
             cog={"s3": "来历成谜"},
         ))
-        assert r.status_code == 200
+        assert r.status_code == 200, r.text
         data = r.json()["data"]
         assert data["name"] == "苏晚晴" and data["rev"] == 2
         assert data["cog"] == {"s3": "来历成谜"}
