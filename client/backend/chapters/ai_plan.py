@@ -736,11 +736,20 @@ async def ai_chapter_directions(
     # 排满提示（软信号，可忽略）：排满且从未触达「高潮爆发」——不阻断、不自动重拆（作者可写刻意的过渡卷）
     if mat["quota_overshot"] and not mat["stage_hit_climax"]:
         warn.append("这一卷已排满但还没到高潮——回卷纲核对节奏")
+    # 卡面步位角标（c-volume-pacing）：已配节奏的卷带本拍位信息（只读展示用）
+    _pacing_badge = None
+    if mat.get("pacing_task"):
+        from volumes.pacing import beat_context
+
+        _beat = await beat_context(db, project.id, vol.volume_no, ch_no)
+        if _beat:
+            _pacing_badge = {"step_idx": _beat["step_idx"], "step_name": _beat["step_name"]}
     return {
         "ok": True,
         "entry": mat["entry"],
         "is_final": mat["is_final"],
         "quota_left": mat["quota_left"],
+        "pacing": _pacing_badge,
         "diff": _as_dict(parsed, "diff"),
         "directions": cards,
         "grades": grades,
