@@ -165,3 +165,39 @@
 .pg-config .notice.warn { background: var(--warn-soft); border-color: color-mix(in oklch, var(--warn) 28%, var(--border)); }
 .pg-config .notice.warn svg { color: color-mix(in oklch, var(--warn) 80%, var(--fg)); }
 @media (max-width: 900px) { .zg-flow { grid-template-columns: minmax(0, 1fr); } }
+
+/* ─── 配置步骤指南（c-modelconfig-help-guide：.guide-* 新词入册；壳复用 .modal/.mcard） ─── */
+/* 固定尺寸 880×760（拍板 10-29：不做自适应——不随视口缩、不随页签跳）；内容超高走
+   mcard-body 内部滚动。Modal 无 className 挂点，用 :has() 作用域命中（WebView2 108 起
+   即支持，legacy 构建闸只编译颜色不涉选择器）；宽度 880 同时经 Modal width 传内联兜底 */
+.modal:has(.guide-body) .mcard { width: 880px; height: 760px; max-height: none; overflow: hidden; display: flex; flex-direction: column; }
+.modal:has(.guide-body) .mcard-body { flex: 1; min-height: 0; overflow-y: auto; padding-bottom: 24px; }
+.guide-actions { display: flex; align-items: center; gap: 10px; }
+.guide-body { font-size: 13.5px; color: var(--fg); }
+.guide-lead { margin: 2px 0 14px; line-height: 1.7; }
+.guide-tabs { width: 100%; margin-bottom: 16px; }
+.guide-tabs button { flex: 1; }
+.guide-scope-intro { margin: 0 0 4px; font-size: 12.8px; color: var(--muted); line-height: 2.1; }
+.guide-chip { display: inline-block; border: 1px solid var(--border); border-radius: 999px; padding: 1px 10px; margin: 0 6px 6px 0; font-size: 12px; color: var(--fg); background: var(--surface); }
+.guide-intro { margin: 0 0 14px; font-size: 12.8px; color: var(--muted); line-height: 1.7; }
+.guide-steps { display: flex; flex-direction: column; gap: 12px; margin: 0 0 6px; padding: 0; list-style: none; }
+.guide-step { display: flex; gap: 12px; }
+.guide-step > i { flex: none; width: 22px; height: 22px; border-radius: 50%; background: var(--accent); color: var(--on-accent); font-style: normal; font-size: 12.5px; display: flex; align-items: center; justify-content: center; margin-top: 1px; }
+.guide-step b { display: block; font-size: 14px; margin-bottom: 3px; }
+.guide-step p { margin: 0; font-size: 13.2px; line-height: 1.75; }
+.guide-kv { margin-top: 8px; border: 1px solid var(--border); border-radius: 10px; overflow: hidden; display: grid; grid-template-columns: 1fr 1fr; }
+.guide-kv-row { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; padding: 7px 12px; font-size: 12.6px; min-width: 0; }
+.guide-kv-row:nth-child(n + 3) { border-top: 1px solid var(--border); }
+.guide-kv-row:nth-child(even) { border-left: 1px solid var(--border); }
+.guide-kv-row b { font-weight: 550; white-space: nowrap; }
+.guide-kv-row code { font-family: var(--font-mono); font-size: 12px; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.guide-faq { margin-top: 16px; border: 1px solid var(--border); border-radius: 10px; background: var(--surface); }
+.guide-faq summary { cursor: pointer; padding: 9px 12px; font-size: 13px; font-weight: 550; list-style: none; }
+.guide-faq summary::-webkit-details-marker { display: none; }
+.guide-faq summary::before { content: "›"; display: inline-block; margin-right: 8px; color: var(--muted); transition: transform 0.15s; }
+.guide-faq[open] summary::before { transform: rotate(90deg); }
+.guide-faq .guide-qa { padding: 2px 14px 12px; }
+.guide-qa b { display: block; font-size: 12.8px; margin: 10px 0 2px; }
+.guide-qa p { margin: 0; font-size: 12.8px; line-height: 1.7; color: var(--muted); }
+.guide-qa code, .guide-step code { background: var(--fg-soft); border-radius: 5px; padding: 0 5px; font-family: var(--font-mono); font-size: 12px; }
+.guide-link { border: 0; background: none; padding: 0; font: inherit; color: var(--accent-strong); cursor: pointer; text-decoration: underline; text-underline-offset: 3px; }

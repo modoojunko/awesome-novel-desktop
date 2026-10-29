@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import { useApiConfigs } from "../hooks/useApiConfigs";
 import { useUsageStats } from "../hooks/useUsageStats";
@@ -8,6 +8,7 @@ import { UsageStatsCard } from "../components/api-config/UsageStatsCard";
 import { ApiConfigCard } from "../components/api-config/ApiConfigCard";
 import { ApiConfigForm } from "../components/api-config/ApiConfigForm";
 import type { ApiConfigFormData } from "../components/api-config/ApiConfigForm";
+import ConfigGuideModal, { guideTabForVendor, type GuideTab } from "../components/api-config/ConfigGuideModal";
 import { DeleteConfirmDialog } from "../components/api-config/DeleteConfirmDialog";
 import { UndoToast } from "../components/api-config/UndoToast";
 import { Ico, P } from "../components/icons";
@@ -43,6 +44,10 @@ export default function ApiKeyConfigPage() {
   const [deleting, setDeleting] = useState(false);
   const [undoToast, setUndoToast] = useState<ApiConfig | null>(null);
   const [migrationStatus, setMigrationStatus] = useState<{ completed: boolean; configName?: string } | undefined>(undefined);
+  // 配置指南（c-modelconfig-help-guide）：guideTab 随入口定位（页头＝openai；表单内＝当前选中供应商映射）
+  const [guideOpen, setGuideOpen] = useState(false);
+  const [guideTab, setGuideTab] = useState<GuideTab>("openai");
+  const formVendorRef = useRef<string>("");
 
   // Check #add anchor
   useEffect(() => {
@@ -148,13 +153,21 @@ export default function ApiKeyConfigPage() {
           <p className="sub">管理你的 AI 服务 API Key，为不同小说选择不同模型</p>
         </div>
         {cfgTab === "llm" && (
-          <button
-            className="btn btn-primary"
-            onClick={() => { setShowForm(true); setEditConfig(null); }}
-          >
-            <Ico d={P.plus} />
-            添加 API Key
-          </button>
+          <div className="guide-actions">
+            <button
+              className="btn btn-secondary"
+              onClick={() => { setGuideTab("openai"); setGuideOpen(true); }}
+            >
+              配置指南
+            </button>
+            <button
+              className="btn btn-primary"
+              onClick={() => { setShowForm(true); setEditConfig(null); }}
+            >
+              <Ico d={P.plus} />
+              添加 API Key
+            </button>
+          </div>
         )}
       </div>
 
@@ -283,7 +296,12 @@ export default function ApiKeyConfigPage() {
               })
         }
         onFetchModels={async (data) => fetchRawModels(data)}
+        onOpenGuide={() => { setGuideTab(guideTabForVendor(formVendorRef.current)); setGuideOpen(true); }}
+        onVendorChange={(id) => { formVendorRef.current = id; }}
       />
+
+      {/* 配置指南（c-modelconfig-help-guide）：两处入口共用，弹窗内入口按选中供应商定位页签 */}
+      <ConfigGuideModal open={guideOpen} onClose={() => setGuideOpen(false)} initialTab={guideTab} />
 
       {/* 删除确认 */}
       {deleteTarget && (

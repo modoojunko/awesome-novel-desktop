@@ -34,6 +34,7 @@ export const COVERAGE_CONTRACT_FILES = [
   "src/App.tsx",
   "src/components/auth/AuthGuard.tsx",
   "src/components/api-config/ApiConfigCard.tsx",
+  "src/components/api-config/ConfigGuideModal.tsx",
   "src/components/api-config/ApiConfigForm.tsx",
   "src/components/api-config/DeleteConfirmDialog.tsx",
   "src/components/api-config/MigrationBanner.tsx",
