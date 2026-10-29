@@ -121,7 +121,11 @@ def _clean_cells(value, allowed: tuple[str, ...], what: str) -> dict:
         raise LibraryError("invalid_" + what, f"{what} 格式不对")
     bad = [k for k in value if k not in allowed]
     if bad:
-        raise LibraryError("invalid_" + what, f"{what} 里有不认识的格：{'、'.join(sorted(bad))}")
+        raise LibraryError(
+            "invalid_" + what,
+            f"{what} 里有不认识的格：{'、'.join(sorted(bad))}"
+            f"（白名单 {len(allowed)} 项：{'、'.join(list(allowed)[:6])}）",
+        )
     return {k: str(v or "").strip()[:CELL_MAX] for k, v in value.items()}
 
 
