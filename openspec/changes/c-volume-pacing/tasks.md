@@ -43,5 +43,5 @@
 
 - [x] 7.1 后端：pytest 全量（新增 pacing 单测/端点测试/注入 A/B 对拍）＋ruff；重点钉「未配节奏＝现状逐字一致」的六点对拍
 - [x] 7.2 前端：vitest 全量（含新镜像 parity）＋`npm run design:lint`＋`npm run design:check`（新增块不触基线，结论登记）＋tsc --noEmit
-- [ ] 7.3 e2e：spec 草案已写（`e2e-draft/volume-pacing.spec.ts`：五页签导航／两态编辑保存真落库／定题材自动写书默认）——**待 iso 栈起服后迁移至 client/frontend/e2e/ 真跑验证**（未验证的 spec 不进 CI 目录）；拆章卡角标用例待随拆章 spec 补
+- [x] 7.3 e2e：`client/frontend/e2e/volume-pacing.spec.ts` 已真跑绿（轻量栈：S端19600＋client后端8600＋vite5674——五页签导航／两态编辑保存真落库；定题材自动写书默认）；既有 spec 的页签引用同步更名（本卷章节→章节，5 文件）；chapter-plan 等批量红经 baseline A/B 定罪为存量红（main nightly 连红一个月，非本 change 回归）
 - [x] 7.4 真机抽检清单：老书（无配置）全链路不变＋新书全流程（卷纲→节奏→排段→拆章→推演→正文→体检）

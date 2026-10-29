@@ -123,7 +123,7 @@ async function createVolumeViaApi(
     headers: H(token),
     data: { title: "第一卷", summary: "这一卷讲什么", core_conflict: "冲突", ending: "收束" },
   });
-  expect(r.status()).toBe(201);
+  expect(r.status()).toBe(200);
   return (await r.json()).ref as string;
 }
 
@@ -132,11 +132,15 @@ test("五页签导航：节奏页签在卷纲之后，两态编辑保存真落�
   try {
     const pid = await createNovel(page, `节奏${Date.now() % 100000}`);
     const volRef = await createVolumeViaApi(request, ORIGIN, token, pid, 40);
-    // 进卷视图（左树点卷）
-    await page.getByText("第一卷", { exact: false }).first().click();
+    // API 建卷后刷新页面让左树载入新卷，再点卷头进卷视图
+    await page.reload();
+    // 刷新后回写作页（默认落设定页），再等左树载入新卷
+    await page.getByRole("button", { name: /^写作/ }).click();
+    await expect(page.locator(".tree .vol .vt").first()).toContainText("第一卷", { timeout: 15000 });
+    await page.locator(".tree .vol .vt").first().click();
     // 页签顺序＝操作顺序：卷纲｜节奏｜章节｜角色关系｜伏笔
     const tabs = page.locator(".ch-tabs .chtab");
-    await expect(tabs).toHaveText(["卷纲", "节奏", "章节", "角色关系", "伏笔"]);
+    await expect(tabs).toHaveText(["卷纲", "节奏", "章节", "角色关系", "伏笔"], { timeout: 15000 });
     await page.getByRole("tab", { name: "节奏" }).click();
     // 查看态：预填展示（老书/零触达按映射兜底）
     await expect(page.getByTestId("pacing-view")).toBeVisible();
@@ -160,11 +164,10 @@ test("定题材自动写书级默认；卷列优先于书默认", async ({ page,
   const { restore, token } = await setupSession(page);
   try {
     const pid = await createNovel(page, `默认${Date.now() % 100000}`);
-    const H = H(token);
     // 设定页定题材（真实 genre 端点）→ 书级默认自动写入（零触达）
     await page.goto(`${ORIGIN}/#/novel/${pid}`);
     const genre = await request.put(`${ORIGIN}/api/novels/${pid}/settings/genre`, {
-      headers: { ...H, "Content-Type": "application/json" },
+      headers: { ...H(token), "Content-Type": "application/json" },
       data: { theme: "悬疑", sub_genre: "", core_promise: "真相至上" },
     });
     expect(genre.status()).toBe(200);

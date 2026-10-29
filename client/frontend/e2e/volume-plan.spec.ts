@@ -349,8 +349,8 @@ test("卷页签右栏跟随与「重新规划这一卷」：组序随页签 + �
     await expect(page.getByTestId("volume-rail-tab")).toHaveText("卷纲");
     await expect(report.locator(".rp-k").first()).toHaveText("对主线");
     await expect(page.getByTestId("volume-replan")).toBeVisible();
-    await page.getByRole("tab", { name: "本卷章节" }).click();
-    await expect(page.getByTestId("volume-rail-tab")).toHaveText("本卷章节");
+    await page.getByRole("tab", { name: "章节", exact: true }).click();
+    await expect(page.getByTestId("volume-rail-tab")).toHaveText("章节");
     await expect(report.locator(".rp-k").first()).toHaveText("对已写内容");
     await expect(page.getByTestId("volume-replan")).toHaveCount(0);
     await page.getByRole("tab", { name: "卷纲" }).click();

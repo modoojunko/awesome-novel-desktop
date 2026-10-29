@@ -263,10 +263,10 @@ test("卷视图：点卷节点 → 四页签 → 卷纲两态编辑保存 → �
     const pid = await createNovel(page, `卷视图${Date.now() % 100000}`);
     await writeFirstChapter(page);
 
-    // 点卷头 → 中栏卷视图：头部（卷 · 分卷计划）＋四页签，默认查看态
+    // 点卷头 → 中栏卷视图：头部（卷 · 分卷计划）＋五页签（c-volume-pacing 节奏插二位），默认查看态
     await page.locator(".col-tree .vol-head", { hasText: "第一卷" }).click();
     await expect(page.getByText("卷 · 分卷计划")).toBeVisible({ timeout: 10000 });
-    for (const name of ["卷纲", "本卷章节", "角色关系", "伏笔"]) {
+    for (const name of ["卷纲", "节奏", "章节", "角色关系", "伏笔"]) {
       await expect(page.getByRole("tab", { name })).toBeVisible();
     }
     await expect(page.getByRole("button", { name: "编辑卷纲" })).toBeVisible();
@@ -323,8 +323,8 @@ test("卷视图：点卷节点 → 四页签 → 卷纲两态编辑保存 → �
     // 右栏随卷页签（c-write-home-rail-anchor）：当前页签＝真实页签名；卷纲页签多一个重新规划入口
     await expect(page.getByTestId("volume-rail-tab")).toHaveText("卷纲");
     await expect(page.getByTestId("volume-replan")).toBeVisible();
-    await page.getByRole("tab", { name: "本卷章节" }).click();
-    await expect(page.getByTestId("volume-rail-tab")).toHaveText("本卷章节");
+    await page.getByRole("tab", { name: "章节", exact: true }).click();
+    await expect(page.getByTestId("volume-rail-tab")).toHaveText("章节");
     await expect(page.getByTestId("volume-rail-lead")).toContainText("已写内容与卷纲的出入");
     await expect(page.getByTestId("volume-replan")).toHaveCount(0);
     // 台账行（章纲一句话列）＋点行跳章
