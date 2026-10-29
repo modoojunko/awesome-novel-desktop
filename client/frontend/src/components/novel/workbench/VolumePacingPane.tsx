@@ -20,6 +20,8 @@ interface Props {
   onDirtyChange: (dirty: boolean) => void;
   /** 外部采纳信号（右栏排段/调套路后递增）：面板重取数据 */
   refreshSeq?: number;
+  /** 编辑态上抛（父级据此让右栏 AI 行让位，防采纳覆盖未保存草稿） */
+  onEditingChange?: (editing: boolean) => void;
 }
 
 const wan = (target: number) => {
@@ -35,6 +37,7 @@ export default function VolumePacingPane({
   onChanged,
   onDirtyChange,
   refreshSeq = 0,
+  onEditingChange,
 }: Props) {
   const [data, setData] = useState<VolumePacingResult | null>(null);
   const [loading, setLoading] = useState(true);
@@ -60,6 +63,11 @@ export default function VolumePacingPane({
   useEffect(() => {
     void load();
   }, [load, refreshSeq]);
+
+  useEffect(() => {
+    onEditingChange?.(mode === "edit");
+    return () => onEditingChange?.(false);
+  }, [mode, onEditingChange]);
 
   const shown = useMemo(() => data?.config ?? data?.prefill ?? null, [data]);
   const preset = useMemo(

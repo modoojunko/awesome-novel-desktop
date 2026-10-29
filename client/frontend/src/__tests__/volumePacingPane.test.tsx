@@ -191,6 +191,30 @@ describe("VolumePacingPane · 编辑态", () => {
     expect(screen.getAllByText(/读者会等疲/).length).toBeGreaterThan(0);
   });
 
+  it("编辑态上抛 onEditingChange（进编辑 true／取消 false）", async () => {
+    getVolume.mockResolvedValue({
+      config: { ...PREFILL, planned: true },
+      prefill: { ...PREFILL, planned: true },
+      source: "volume",
+      book_default: null,
+      plan: { target: 40, steps_len: 3, n: 13, rem: 1, last_from: 37, last_to: 40 },
+      presets: PRESETS,
+      theme: "仙侠/修真",
+      sub_genre: "凡人流",
+    });
+    const onEditingChange = vi.fn();
+    render(
+      <VolumePacingPane
+        {...props()}
+        onEditingChange={onEditingChange}
+      />,
+    );
+    fireEvent.click(await screen.findByRole("button", { name: "编辑节奏" }));
+    await waitFor(() => expect(onEditingChange).toHaveBeenLastCalledWith(true));
+    fireEvent.click(screen.getByRole("button", { name: "取消" }));
+    await waitFor(() => expect(onEditingChange).toHaveBeenLastCalledWith(false));
+  });
+
   it("切换套路重置步表与每段几章", async () => {
     getVolume.mockResolvedValue({
       config: null,

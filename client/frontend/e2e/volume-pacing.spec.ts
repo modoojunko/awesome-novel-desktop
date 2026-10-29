@@ -1,18 +1,18 @@
+import path from "path";
+import { randomUUID } from "crypto";
 import { test, expect } from "@playwright/test";
-import { cleanupSessionNovels } from "./helpers";
+import { cleanupSessionNovels, writeConfigAtomic } from "./helpers";
 import { entitlementFor } from "./tier-features";
 
 // =========================================================================
-// 卷节奏 e2e（c-volume-pacing）：五页签导航 → 节奏两态编辑保存（真落库）→
-// 定题材自动写书级默认 → 拆章卡步位角标（已排/未排）。AI 端点 page.route 打桩；
-// 卷/章真落库；「不落库」后端直查。
+// 卷节奏 e2e（c-volume-pacing）：
+//   ① 五页签导航（卷纲｜节奏｜章节｜角色关系｜伏笔）→ 节奏两态编辑保存（API 回查真落库）
+//   ② 定题材自动写书级默认（悬疑→破案套路）；卷列保存以卷为准
+// 线索/正文注入的拍位契约由后端单测覆盖（test_volume_pacing.py 拍位/素材 A/B），本 spec 不重复。
 // =========================================================================
 
 const S_API = process.env.E2E_S_API || "http://127.0.0.1:19000/api/web";
 const ORIGIN = process.env.E2E_BASE_URL || "http://localhost:5174";
-import path from "path";
-import { randomUUID } from "crypto";
-import { writeConfigAtomic } from "./helpers";
 
 const CONFIG_PATH = path.join(
   process.cwd(),
@@ -121,7 +121,10 @@ async function createVolumeViaApi(
 ): Promise<string> {
   const r = await request.post(`${origin}/api/novels/${pid}/volumes`, {
     headers: H(token),
-    data: { title: "第一卷", summary: "这一卷讲什么", core_conflict: "冲突", ending: "收束" },
+    data: {
+      title: "第一卷", summary: "这一卷讲什么", core_conflict: "冲突", ending: "收束",
+      chapter_target: target,
+    },
   });
   expect(r.status()).toBe(200);
   return (await r.json()).ref as string;
@@ -145,6 +148,7 @@ test("五页签导航：节奏页签在卷纲之后，两态编辑保存真落�
     // 查看态：预填展示（老书/零触达按映射兜底）
     await expect(page.getByTestId("pacing-view")).toBeVisible();
     await expect(page.getByText("这一卷的剧情安排")).toBeVisible();
+    await expect(page.getByText(/本卷目标 40 章/)).toBeVisible();
     // 编辑态：改每段章数 → 保存 → 真落库（API 直查）
     await page.getByRole("button", { name: "编辑节奏" }).click();
     await page.fill("#pacing-len", "5");

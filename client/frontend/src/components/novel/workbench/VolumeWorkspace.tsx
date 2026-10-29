@@ -35,6 +35,8 @@ export interface VolumeRailData {
   detail: VolumeDetail;
   /** 主线写作位所在卷号（c-chapter-plan-ai 末端门禁；null＝全书无章） */
   frontierVol: number | null;
+  /** 节奏页签是否在编辑态（c-volume-pacing：右栏三行让位，防采纳覆盖草稿） */
+  pacingEditing?: boolean;
 }
 
 interface VolumeWorkspaceProps {
@@ -98,6 +100,7 @@ export default function VolumeWorkspace({
     steps: Array<{ n: string; t: string }>;
   } | null>(null);
   const [pacingDirty, setPacingDirty] = useState(false);
+  const [pacingEditing, setPacingEditing] = useState(false);
   const [pacingSeq, setPacingSeq] = useState(0);
   const loadPacing = useCallback(async () => {
     try {
@@ -229,12 +232,13 @@ export default function VolumeWorkspace({
         tab,
         detail,
         frontierVol: frontier ? frontier.vol : null,
+        pacingEditing,
       });
     } else {
       onRailData(null);
     }
     return () => onRailData(null);
-  }, [detail, tab, frontier, onRailData]);
+  }, [detail, tab, frontier, pacingEditing, onRailData]);
 
   // 回填执行：进场/展开依据只读（不占表单步骤），其余按段序 160ms/段
   useEffect(() => {
@@ -399,6 +403,7 @@ export default function VolumeWorkspace({
                   setPacingSeq((n) => n + 1);
                 }}
                 onDirtyChange={setPacingDirty}
+                onEditingChange={setPacingEditing}
               />
             )}
             {tab === "chapters" && (

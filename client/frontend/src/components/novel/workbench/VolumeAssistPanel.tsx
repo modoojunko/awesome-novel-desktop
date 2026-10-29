@@ -370,7 +370,18 @@ function VolumeVerifyPanel({
               },
             ]),
         ...(tab === "pacing"
-          ? [
+          ? data.pacingEditing
+            ? [
+                {
+                  key: "pace-editing",
+                  name: "正在编辑节奏",
+                  desc: "先保存或取消编辑，再用右栏 AI——避免覆盖未保存的改动",
+                  onClick: () => {},
+                  disabled: true,
+                  testid: "pacing-editing-hint",
+                },
+              ]
+            : [
               {
                 key: "pace-plan",
                 name: pacingBusy === "plan" ? "排段中…" : "按套路分段，排这一卷（AI）",

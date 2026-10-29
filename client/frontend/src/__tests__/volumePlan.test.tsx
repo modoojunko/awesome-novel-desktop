@@ -1461,6 +1461,18 @@ describe("右栏节奏三行（c-volume-pacing）", () => {
     expect(onUpgrade).toHaveBeenCalledWith("ai-plan");
   });
 
+  it("编辑态右栏让位：三行换一行「正在编辑节奏」提示（防采纳覆盖草稿）", async () => {
+    renderPanel({ data: {
+      volume: 1, volumeRef: "vol-1", title: "血酬", tab: "pacing",
+      detail: { chapters: [] } as unknown as VolumeDetail, frontierVol: null,
+      pacingEditing: true,
+    } });
+    expect(await screen.findByTestId("pacing-editing-hint")).toBeInTheDocument();
+    expect(screen.queryByTestId("pacing-plan-btn")).toBeNull();
+    expect(screen.queryByTestId("pacing-tailor-btn")).toBeNull();
+    expect(screen.queryByTestId("pacing-polish-btn")).toBeNull();
+  });
+
   it("排段采纳＝saveVolume(planned:true)＋onPacingChanged", async () => {
     const onPacingChanged = vi.fn();
     renderPanel({ data: {
