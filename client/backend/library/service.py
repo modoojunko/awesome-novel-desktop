@@ -3,7 +3,7 @@
 语义基线（见 change 的 spec/design）：
 - 收录（书卡→库）＝整卡复制；provenance（src_kind/src_ref/src_character_id）幂等。
 - 书→库手动同步＝PULL 书内最新书域格（名字/别名/人设/档案八格/认知/头像），库分类不动。
-- 用到新书（库→书）＝复制落书内角色卡（含认知 30 格与头像），撞名自动后缀、主角冲突落配角。
+- 用到新书（库→书）＝复制落书内角色卡（含认知各格与头像），撞名自动后缀、主角冲突落配角。
 - 头像：库域自持 BLOB（独立 blobs 表），复用 normalize_image("avatar") 的 512/96 档位；
   列表只回引用，字节走 GET /{id}/avatar。
 - 随机起名：AI 能力，任何失败/无 Key/模板缺失一律本地词库兜底恒返回。
@@ -121,11 +121,7 @@ def _clean_cells(value, allowed: tuple[str, ...], what: str) -> dict:
         raise LibraryError("invalid_" + what, f"{what} 格式不对")
     bad = [k for k in value if k not in allowed]
     if bad:
-        raise LibraryError(
-            "invalid_" + what,
-            f"{what} 里有不认识的格：{'、'.join(sorted(bad))}"
-            f"（白名单 {len(allowed)} 项：{'、'.join(list(allowed)[:6])}）",
-        )
+        raise LibraryError("invalid_" + what, f"{what} 里有不认识的格：{'、'.join(sorted(bad))}")
     return {k: str(v or "").strip()[:CELL_MAX] for k, v in value.items()}
 
 
@@ -702,7 +698,7 @@ async def import_from_deconstruct(
             kind="",
             persona=payload["persona"] or "",
             dossier=_json_dumps(dossier),
-            # 认知 30 格由建书路径不从产物合成（产物无 cog）；库卡先空，后续可补
+            # 认知格：建书路径不从产物合成（产物无 cog）；库卡先空，后续可补
             cog="{}",
             src_kind="deconstruct",
             src_ref=task.id,

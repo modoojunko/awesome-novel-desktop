@@ -101,12 +101,12 @@ class TestCrud:
         r = c.put(f"/api/character-library/{card_id}", json=_card_body(
             name="苏晚晴", role="配角", genre="武侠", kind="挚友",
             dossier={"gender": "女", "age": "17"},
-            cog={"s3": "来历成谜"},
+            cog={"w5": "来历成谜"},
         ))
         assert r.status_code == 200, r.text
         data = r.json()["data"]
         assert data["name"] == "苏晚晴" and data["rev"] == 2
-        assert data["cog"] == {"s3": "来历成谜"}
+        assert data["cog"] == {"w5": "来历成谜"}
 
     def test_delete_does_not_touch_book_card(self, client):
         c, seed = client

@@ -1,4 +1,4 @@
-// 库卡编辑/新建弹窗（c-character-library）：全字段（认知 30 格直取共享常量，禁手抄）＋
+// 库卡编辑/新建弹窗（c-character-library）：全字段（认知各格直取共享常量，禁手抄）＋
 // 书源卡「从《书》同步最新设定」＋AI 随机只碰名字与年龄＋删除（显式确认，明示复制语义）。
 import { useMemo, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
@@ -356,7 +356,7 @@ export default function CardEditorModal({ open, card, onClose }: Props) {
 
         <details open={filledCog > 0} style={{ marginTop: 14 }}>
           <summary style={{ cursor: "pointer", fontSize: 12.5, fontWeight: 600 }}>
-            认知内核（六层 30 格，与设定页同格同叫法）
+            认知内核（六层，与设定页同格同叫法）
           </summary>
           <div style={{ display: "grid", gridTemplateColumns: "repeat(2, minmax(0, 1fr))", gap: 10, marginTop: 10 }}>
             {cogFields.map((f) => (
