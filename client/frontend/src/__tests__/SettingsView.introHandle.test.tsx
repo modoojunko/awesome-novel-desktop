@@ -585,6 +585,82 @@ describe("简介 AI · 起草（c-intro-draft-interview：三问 → 三候选 �
     await waitFor(() => expect(ta.value).toBe("半截旧稿"));
   });
 
+  it("P2 复现钉：选第二条→采纳→重开→直接采纳，仍写第二条（界面与写回同源）", async () => {
+    const { container } = renderIntro();
+    const ta = (await waitFor(() => container.querySelector("textarea"))) as HTMLTextAreaElement;
+    fireEvent.click(await waitFor(() => container.querySelector('[data-aiact="draft"]')!));
+    aiState.introAi.mockResolvedValueOnce(threeCandidates);
+    fireEvent.click(await waitFor(() => screen.getByTestId("draft-form-submit")));
+    await waitFor(() => expect(screen.getByTestId("draft-card-1")).toBeTruthy());
+
+    fireEvent.click(screen.getByTestId("draft-card-1"));
+    fireEvent.click(screen.getByTestId("ai-card-adopt"));
+    await waitFor(() => expect(ta.value).toBe("候选二的完整简介。"));
+
+    // 重开（缓存卡）→ 不点选直接采纳：必须仍是第二条，不能回落到第一条
+    fireEvent.click(container.querySelector('[data-aiact="draft"]')!);
+    await waitFor(() => expect(screen.getByTestId("draft-card-1")).toBeTruthy());
+    expect(
+      screen.getByTestId("draft-card-1").getAttribute("aria-pressed"),
+    ).toBe("true"); // 重开后高亮保持上次选中
+    fireEvent.click(screen.getByTestId("ai-card-adopt"));
+    await waitFor(() => expect(ta.value).toBe("候选二的完整简介。"));
+  });
+
+  it("「换一个」重出后选中态复位到第一条：不点选直接采纳写新批第一条", async () => {
+    const { container } = renderIntro();
+    const ta = (await waitFor(() => container.querySelector("textarea"))) as HTMLTextAreaElement;
+    fireEvent.click(await waitFor(() => container.querySelector('[data-aiact="draft"]')!));
+    aiState.introAi.mockResolvedValueOnce(threeCandidates);
+    fireEvent.click(await waitFor(() => screen.getByTestId("draft-form-submit")));
+    await waitFor(() => expect(screen.getByTestId("draft-card-1")).toBeTruthy());
+    fireEvent.click(screen.getByTestId("draft-card-1")); // 选中第二条
+
+    aiState.introAi.mockResolvedValueOnce({
+      candidates: [
+        { label: "新1", synopsis: "新批第一条。" },
+        { label: "新2", synopsis: "新批第二条。" },
+        { label: "新3", synopsis: "新批第三条。" },
+      ],
+      act: "replace",
+    });
+    fireEvent.click(screen.getByTestId("ai-card-regen"));
+    await waitFor(() => expect(screen.getByText(/新批第一条/)).toBeTruthy());
+
+    fireEvent.click(screen.getByTestId("ai-card-adopt"));
+    await waitFor(() => expect(ta.value).toBe("新批第一条。"));
+  });
+
+  it("P3 复现钉：三问表单关掉再开，不出缓存横幅、不出「换一个」", async () => {
+    const { container } = renderIntro();
+    fireEvent.click(await waitFor(() => container.querySelector('[data-aiact="draft"]')!));
+    await waitFor(() => expect(screen.getByTestId("draft-q-protagonist")).toBeTruthy());
+
+    // 关闭（footer 的「关闭」键）
+    const btns = screen.getAllByRole("button", { name: "关闭" });
+    fireEvent.click(btns[btns.length - 1]);
+    await waitFor(() => expect(screen.queryByTestId("intro-ai-card")).toBeNull());
+
+    // 重开：还是纯表单卡——无缓存横幅、无「换一个」
+    fireEvent.click(container.querySelector('[data-aiact="draft"]')!);
+    await waitFor(() => expect(screen.getByTestId("draft-q-protagonist")).toBeTruthy());
+    expect(screen.queryByTestId("ai-card-cache")).toBeNull();
+    expect(screen.queryByTestId("ai-card-regen")).toBeNull();
+  });
+
+  it("P3 复现钉：生成后「改一下问题」回表单，不带「第 N 版」角标", async () => {
+    const { container } = renderIntro();
+    fireEvent.click(await waitFor(() => container.querySelector('[data-aiact="draft"]')!));
+    aiState.introAi.mockResolvedValueOnce(threeCandidates);
+    fireEvent.click(await waitFor(() => screen.getByTestId("draft-form-submit")));
+    await waitFor(() => expect(screen.getByTestId("draft-card-0")).toBeTruthy());
+    expect(screen.getByTestId("ai-card-version")).toBeTruthy(); // 结果卡有版号
+
+    fireEvent.click(screen.getByText("改一下问题"));
+    await waitFor(() => expect(screen.getByTestId("draft-q-protagonist")).toBeTruthy());
+    expect(screen.queryByTestId("ai-card-version")).toBeNull(); // 表单卡无版号
+  });
+
   it("候选卡「改一下问题」：回表单且保留已填答案", async () => {
     const { container } = renderIntro();
     fireEvent.click(await waitFor(() => container.querySelector('[data-aiact="draft"]')!));
