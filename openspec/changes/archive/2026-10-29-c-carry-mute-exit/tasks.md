@@ -8,3 +8,4 @@
 - [x] 2.1 改写受影响三例：静音态常驻行断言反过来、`?` 兜底例改走「稍后带」、`carryConfirmed` 收口例改走「稍后带→重开卡→完成确认」。验证：`vitest run src/__tests__/novelListPage.test.tsx` 79 绿
 - [x] 2.2 全量覆盖率契约复跑（NovelListPage 属契约文件，perFile 100%）。验证：`vitest run --coverage` exit 0，1900 用例绿，NovelListPage 四项 100%
 - [x] 2.3 `tsc --noEmit` 零错
+- [x] 2.4 评审 P3 收口：合并重复/过时注释（「唯一提醒面」与静音后不再渲染矛盾）；`refreshCarry` 增 `force`（静音/已阅/搬运终局撞在途请求时补一发），`carryDialog.test.tsx` 加「静音强制重取：补一发新快照」用例

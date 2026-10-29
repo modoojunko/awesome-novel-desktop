@@ -665,11 +665,10 @@ function NovelList() {
           </button>
         </div>
       )}
-      {/* c-carry-degrade-remigrate：部分迁移态也走提醒行（spec「搬运不完整必须
-          提示用户」既有义务）——自动弹卡已让位，这里是缺口候选的唯一提醒面 */}
-      {/* 抑制态优先于部分迁移态：点「本版不再提醒」后常驻行 SHALL 消失
-          （spec「部分迁移被显式静音后可达」）——抑制只绑当前版本候选指纹，
-          缺口与重迁入口仍经「账户 › 本机旧版本数据」可达 */}
+      {/* c-carry-degrade-remigrate：候选未被本版静音时，这里是缺口提醒面
+          （自动弹卡已让位；点「本版不再提醒」后不再渲染——抑制优先于部分迁移态，
+          spec「部分迁移被显式静音后可达」。抑制只绑当前版本候选指纹，
+          缺口与重迁入口仍经「账户 › 本机旧版本数据」可达） */}
       {carryRec && !carryRec.suppressed && (carryLater || carryRec.carried_partial)
         && !carryRec.carried && !carryConfirmed && (
         <div className="notice" data-testid="carry-strip-later">
