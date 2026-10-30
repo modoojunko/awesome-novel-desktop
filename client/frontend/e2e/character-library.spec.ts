@@ -177,7 +177,7 @@ test.describe("角色库（UI 桩）", () => {
     await page.getByTestId("lib-new").click();
     await page.getByTestId("lib-ai-random").click();
     await expect(page.getByPlaceholder("角色叫什么")).toHaveValue("霍青山");
-    await page.getByTestId("lib-genre").fill("武侠");
+    await page.getByTestId("lib-genre").selectOption("都市");
     await page.getByTestId("lib-save").click();
     await expect(page.getByTestId("lib-card")).toHaveCount(3);
     await expect(page.getByTestId("lib-card").filter({ hasText: "霍青山" })).toHaveCount(1);

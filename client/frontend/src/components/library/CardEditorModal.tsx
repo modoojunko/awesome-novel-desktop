@@ -6,6 +6,7 @@ import { toast } from "@/lib/toast";
 import Modal from "@/components/design/Modal";
 import LibraryAvatar from "@/components/library/LibraryAvatar";
 import { COG_LAYERS, DOSSIER_FIELDS, ROLES } from "@/lib/characterModel";
+import { THEMES } from "@/lib/themeCatalog";
 import {
   clearLibraryAvatarCache,
   createLibraryCard,
@@ -284,13 +285,19 @@ export default function CardEditorModal({ open, card, onClose }: Props) {
         <div style={{ display: "flex", gap: 12 }}>
           <div className="field" style={{ flex: "0 0 96px" }}>
             <label>题材</label>
-            <input
+            <select
               className="input"
               value={form.genre}
               onChange={(e) => set("genre", e.target.value)}
-              placeholder="如：武侠"
               data-testid="lib-genre"
-            />
+            >
+              <option value="">未分题材</option>
+              {THEMES.map((t) => (
+                <option key={t.name} value={t.name}>
+                  {t.name}
+                </option>
+              ))}
+            </select>
           </div>
           <div className="field" style={{ flex: 1 }}>
             <label>定位</label>
