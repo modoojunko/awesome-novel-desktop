@@ -229,6 +229,7 @@ async def import_book(
     on_step=None,
     is_cancelled=None,
     stop_event=None,
+    refine_cache: dict | None = None,
 ) -> tuple[dict, list[str]]:
     """建书：返回 ({book_id, name, skipped}, 降级提示清单)。
 
@@ -245,7 +246,8 @@ async def import_book(
     持久化到任务 `import.items`（重试沿用同一份）；None 仅用于兼容旧口径。
     book_id＝受理时预分配的书 id（崩溃后可清理由此指向的半成品）。
     on_step＝进度回调（refine/writing）；is_cancelled＝阶段边界取消检查；
-    stop_event＝取消信号（asyncio.Event，用于掐断在途模型调用）。
+    stop_event＝取消信号（asyncio.Event，用于掐断在途模型调用）；
+    refine_cache＝精炼结果缓存（锁冲突重试时复用，避免重付一次 23 秒调用）。
     """
     from models.project import Novel
     from novels.service import create_project
@@ -270,14 +272,20 @@ async def import_book(
     # ① 慢调用前置：精炼只依赖产物，不依赖书行——放在建书之前，写入阶段才毫秒级
     condensed_world = None
     if "world" in selected and _world_source_over(_data(task, "world")):
-        if on_step is not None:
-            await on_step("refine")
-        if is_cancelled is not None and await is_cancelled():
-            raise ImportCancelled("建书已取消")
-        condensed_world = await _condense_world(
-            task, sm.world_body(_data(task, "world"), unclamped=True), warnings,
-            stop_event=stop_event,
-        )
+        cached = (refine_cache or {}).get("body")
+        if cached is not None:
+            condensed_world = cached  # 重试臂：上次已精炼过，直接复用
+        else:
+            if on_step is not None:
+                await on_step("refine")
+            if is_cancelled is not None and await is_cancelled():
+                raise ImportCancelled("建书已取消")
+            condensed_world = await _condense_world(
+                task, sm.world_body(_data(task, "world"), unclamped=True), warnings,
+                stop_event=stop_event,
+            )
+            if condensed_world is not None and refine_cache is not None:
+                refine_cache["body"] = condensed_world
     if on_step is not None:
         await on_step("writing")
     if is_cancelled is not None and await is_cancelled():

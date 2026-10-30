@@ -412,7 +412,8 @@ def test_cancel_during_write_cleans_partial_book(client, monkeypatch):
     draft = _get("imp-fix-1")["import"]["draft_book_id"]
 
     async def fake_import(db, task, user_id, items, *, book_id=None,
-                          on_step=None, is_cancelled=None, stop_event=None):
+                          on_step=None, is_cancelled=None, stop_event=None,
+                          refine_cache=None):
         await create_project(db, user_id, name="半本书", source="manual", book_id=book_id)
         await imports.cancel("imp-fix-1")  # 用户在这一刻点了取消
         raise asyncio.CancelledError()
@@ -593,3 +594,149 @@ def test_retry_inherits_previous_items(client, monkeypatch):
     r2 = client.post("/api/deconstruct/tasks/imp-fix-5/import-book", json={})
     assert r2.status_code == 202, r2.text
     assert _get("imp-fix-5")["import"]["items"] == ["world", "structure", "techniques"]
+
+
+# ── 2.6 看门狗 / 2.7 锁冲突重试 / 3.2 任务上下文 ──────────────────────────
+
+
+def test_watchdog_turns_stalled(client, monkeypatch):
+    """精炼超界（默认 180s）→ 按 stalled 收场，不再无限转圈。"""
+    from deconstruct import apply as apply_mod
+
+    _mk("imp-wd-1")
+    client.post("/api/deconstruct/tasks/imp-wd-1/import-book", json={"items": ["intro"]})
+
+    async def slow(*a, **kw):
+        await asyncio.sleep(5)
+        return {"book_id": "x", "name": "x", "skipped": []}, []
+
+    monkeypatch.setattr(apply_mod, "import_book", slow)
+    monkeypatch.setattr(imports, "IMPORT_TIMEOUT_S", 0.05)
+    _drive("imp-wd-1")
+
+    st = _get("imp-wd-1")
+    assert st["status"] == "import_failed"
+    assert st["import"]["error"]["kind"] == "stalled"
+    assert st["import"]["error"]["retryable"] is True
+
+
+def test_busy_lock_retries_with_fresh_draft(client, monkeypatch):
+    """写入撞锁：清半成品、换新 draft、复用精炼缓存重试一次后成功。"""
+    from sqlalchemy.exc import OperationalError
+
+    from deconstruct import apply as apply_mod
+    from novels.service import create_project
+
+    _mk("imp-busy-1")
+    client.post("/api/deconstruct/tasks/imp-busy-1/import-book", json={"items": ["intro"]})
+    first_draft = _get("imp-busy-1")["import"]["draft_book_id"]
+
+    seen = {"n": 0, "drafts": [], "caches": []}
+
+    async def flaky(db, task, user_id, items, *, book_id=None, refine_cache=None, **kw):
+        seen["n"] += 1
+        seen["drafts"].append(book_id)
+        seen["caches"].append(id(refine_cache))
+        await create_project(db, user_id, name=f"重试书{seen['n']}", source="manual", book_id=book_id)
+        if seen["n"] == 1:
+            raise OperationalError("INSERT", {}, Exception("database is locked"))
+        return {"book_id": book_id, "name": "重试书", "skipped": []}, []
+
+    monkeypatch.setattr(apply_mod, "import_book", flaky)
+    _drive("imp-busy-1")
+
+    st = _get("imp-busy-1")
+    assert st["status"] == "imported"
+    assert seen["n"] == 2
+    assert seen["drafts"][0] == first_draft
+    assert seen["drafts"][1] != first_draft  # 换了新 draft
+    assert seen["caches"][0] == seen["caches"][1]  # 同一份精炼缓存
+
+    async def _status_of(bid):
+        from models.project import Novel
+
+        async with async_session() as s:
+            row = await s.get(Novel, bid)
+            return row.status if row else None
+
+    assert _run(_status_of(first_draft)) == "deleted"  # 第一次的半成品被清
+    assert _run(_status_of(seen["drafts"][1])) == "active"
+
+
+def test_busy_lock_retries_exhausted_fails(client, monkeypatch):
+    """锁冲突超过重试上限：落 import_failed（storage_busy 可重试）。"""
+    from sqlalchemy.exc import OperationalError
+
+    from deconstruct import apply as apply_mod
+
+    _mk("imp-busy-2")
+    client.post("/api/deconstruct/tasks/imp-busy-2/import-book", json={"items": ["intro"]})
+
+    async def always_locked(*a, **kw):
+        raise OperationalError("INSERT", {}, Exception("database is locked"))
+
+    monkeypatch.setattr(apply_mod, "import_book", always_locked)
+    monkeypatch.setattr(imports, "IMPORT_BUSY_RETRIES", 1)
+    monkeypatch.setattr(imports, "IMPORT_BUSY_BACKOFF_S", 0)
+    _drive("imp-busy-2")
+
+    st = _get("imp-busy-2")
+    assert st["status"] == "import_failed"
+    assert st["import"]["error"]["kind"] == "storage_busy"
+    assert st["import"]["error"]["retryable"] is True
+
+
+def test_ai_call_carries_task_context():
+    """3.2：ai_call 行带 task/run，异步后仍能串起一次建书的调用。"""
+    from ai_client import TASK_CTX, task_ctx_tag
+
+    assert task_ctx_tag() == ""
+    token = TASK_CTX.set({"task": "t1", "run": "r1"})
+    try:
+        assert task_ctx_tag() == " task=t1 run=r1"
+    finally:
+        TASK_CTX.reset(token)
+    assert task_ctx_tag() == ""
+
+
+def test_import_notice_roundtrip(client, monkeypatch):
+    """5.x：建书成功把降级提示落到书侧 KV；GET 可读、DELETE 幂等清空。"""
+    from deconstruct import apply as apply_mod
+    from novels.service import create_project
+
+    _mk("imp-notice-1")
+    client.post("/api/deconstruct/tasks/imp-notice-1/import-book", json={"items": ["intro"]})
+
+    async def fake(db, task, user_id, items, *, book_id=None, **kw):
+        await create_project(db, user_id, name="提示书", source="manual", book_id=book_id)
+        return {"book_id": book_id, "name": "提示书", "skipped": []}, ["势力 8 条超过上限 6，已截断"]
+
+    monkeypatch.setattr(apply_mod, "import_book", fake)
+    _drive("imp-notice-1")
+    book_id = _get("imp-notice-1")["book_id"]
+    assert book_id
+
+    r = client.get(f"/api/novels/{book_id}/settings/import-notice")
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert body["items"] == ["势力 8 条超过上限 6，已截断"]
+    assert body["task_id"] == "imp-notice-1"
+
+    assert client.delete(f"/api/novels/{book_id}/settings/import-notice").status_code == 200
+    assert client.get(f"/api/novels/{book_id}/settings/import-notice").json() == {}
+    # 幂等：再删一次仍 200
+    assert client.delete(f"/api/novels/{book_id}/settings/import-notice").status_code == 200
+
+
+def test_import_notice_rejects_generic_settings_endpoint(client):
+    """专用键不得漏进通用 /settings/{type} 白名单（同 threads/book-prefs 先例）。"""
+    from novels.service import create_project
+
+    async def _mk_book():
+        async with async_session() as s:
+            return (await create_project(s, _UID, name="白名单书", source="manual")).id
+
+    book_id = _run(_mk_book())
+    r = client.get(f"/api/novels/{book_id}/settings/import-notice")
+    assert r.status_code == 200  # 专用端点可用
+    assert client.get(f"/api/novels/{book_id}/settings/import-notice-x").status_code in (400, 404, 422)

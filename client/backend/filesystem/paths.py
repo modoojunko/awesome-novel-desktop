@@ -39,6 +39,11 @@ STYLE_QUANT_KEY = "style-quant"
 BOOK_PREFS_PATH = "settings/book-prefs.yaml"
 BOOK_PREFS_KEY = "book-prefs"
 
+# 建书提示（c-deconstruct-import-async 5.x）：建书时的降级提示（截断/合并/推断）落在书侧，
+# 新书设定页顶部读它；同 book-prefs 先例——专用键不进 PATH_TO_KEY，只走 import_notice_router。
+IMPORT_NOTICE_PATH = "settings/import-notice.yaml"
+IMPORT_NOTICE_KEY = "import-notice"
+
 # 目录型设定：无单文件端点，/settings/{type} 泛化端点应拒绝（指引走 /character/{name} 等）
 MULTI_FILE_SETTING_KEYS = {"characters"}
 
@@ -55,6 +60,8 @@ def route_relative_path(relative_path: str) -> str | None:
         return STYLE_QUANT_KEY
     if relative_path == BOOK_PREFS_PATH:
         return BOOK_PREFS_KEY
+    if relative_path == IMPORT_NOTICE_PATH:
+        return IMPORT_NOTICE_KEY
     if relative_path.startswith(CHARACTER_DIR + "/"):
         return CHARACTER_PREFIX + relative_path[len(CHARACTER_DIR) + 1 :]
     return None
