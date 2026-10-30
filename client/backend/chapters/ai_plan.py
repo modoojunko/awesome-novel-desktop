@@ -610,7 +610,6 @@ async def next_chapter_anchor(
     next_no）复用 beat_context 推导；只读，不调模型、不记账、不落库。
     """
     from repositories import volume_repo
-
     from volumes.pacing import beat_context, pacing_fingerprint, resolve_config
 
     project = await get_novel(db, project_id, user["id"])
