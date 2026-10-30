@@ -92,7 +92,7 @@ export function ChapterPlanModal({
           ) : ap.effective === false ? (
             <p className="ai-note" data-testid="split-pacing-missing">
               这一卷还没存节奏——拆章不会照套路走（可选）
-              {onGoPacing ? (
+              {state.phase === "idle" && onGoPacing ? (
                 <button className="lnk" data-testid="split-pacing-go" onClick={onGoPacing}>
                   去节奏页签
                 </button>

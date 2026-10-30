@@ -15,14 +15,14 @@
 
 ## 3. 前端：节奏页签与右栏
 
-- [x] 3.1 `volumePacingApi.ts` 增 `effective`/`effective_source`/`config_present`/`config_invalid` 类型；`VolumePacingPane.tsx` 的 `shown` 与 `baseline` 都改 `effective ?? prefill`，来源四态行、条件承诺（含无章数目标第三态）、主「保存到这一卷」（PUT 预填、`planned=false`）、次「改为本卷设置」（PUT 生效书默认）、读不出态、`planned` tag 取 `data.config?.planned`、tooltip 说明未排≠不会照它走；验证：单测覆盖四来源态/零改动不脏/目标为空/坏配置/两个 CTA 载荷。
+- [x] 3.1 `volumePacingApi.ts` 增 `effective`/`effective_source`/`config_present`/`config_invalid` 类型；`VolumePacingPane.tsx` 的 `shown` 与 `baseline` 都改 `effective ?? prefill`，来源四态行、条件承诺（含无章数目标第三态）、主「保存到这一卷」（PUT 预填、`planned=false`）、次「改为本卷设置」（PUT 生效书默认）、之前某一卷建议带「改用这一套」出口、读不出态、`planned` tag 取 `data.config?.planned`、tooltip 说明未排≠不会照它走；验证：单测覆盖四来源态/零改动不脏/目标为空/坏配置/两个 CTA 载荷。
 - [x] 3.2 `VolumeAssistPanel.tsx` 三个节奏动作读取与写回基线改 `effective ?? prefill`；验证：单测断言书默认+上一卷预填时排段用书默认，写回后来源为 volume。
 - [x] 3.3 文案断言：新增文案不含「预填/生效/注入/拍位」，按钮为动词，常态未配置无 warn/err 徽标；验证：单测 grep 断言 + `npm run design:lint`。
 
 ## 4. 前端：拆章预告与会话一致性
 
 - [x] 4.1 `chapterPlanApi.ts` 锚点类型增 `pacing_effective?` / `pacing_preview?` / `pacing_reason?` / `pacing_fingerprint?`（optional，旧 mock 兼容）；`useChapterPlan.ts` 持久化指纹、比对内存批与 localStorage、章节抽卡用独立版本键/显式校验 `v===2`（不动卷抽卡 v1）、不一致走过期态、重抽不继承旧批 exclude；验证：单测覆盖一致恢复/从无到有/从有到无/只改任务句/改额外交代/目标清空/v1 丢弃/重抽 exclude 为空。
-- [x] 4.2 `ChapterPlanModal.tsx` 三方向态五态渲染（确认+任务句 tooltip、未存、无目标、超目标、兜底）、过期批标「节奏或章数目标变了」并抑制正面预告与旧角标、旧形状锚点不误报；验证：组件测试五态 + 旧字段缺失 + 过期批 + 不阻断出卡/排上。
+- [x] 4.2 `ChapterPlanModal.tsx` 三方向态五态渲染（确认+任务句 tooltip、未存、无目标、超目标、兜底）、过期批标「节奏或章数目标变了」并抑制正面预告与旧角标；忙碌态只提示不出「去节奏页签」，idle 才给、旧形状锚点不误报；验证：组件测试五态 + 旧字段缺失 + 过期批 + 不阻断出卡/排上。
 - [ ] 4.3 「去节奏页签」接线：`ChapterPlanModal` 增 `onGoPacing`；`NovelWorkspace` 关闭弹窗并导航到 `planTargetVolRef`，`VolumeWorkspace` 加 `pacingJumpSeq`（照 `outlineSeq` 先例）在换卷重置后切到「节奏」页签；验证：单测第 2 卷弹窗切到第 2 卷节奏页签，不切错当前卷。（已实现并测 VolumeWorkspace seq 切页签；NovelWorkspace 跨卷导航未单测）
 
 ## 5. 回归与验收

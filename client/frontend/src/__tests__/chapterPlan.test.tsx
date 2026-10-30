@@ -1492,8 +1492,29 @@ describe("拆章入口拍位预告与会话一致性（c-pacing-effectiveness）
     expect(await screen.findByTestId("split-pacing-missing")).toHaveTextContent(
       "这一卷还没存节奏——拆章不会照套路走（可选）",
     );
+    // 出卡完成（idle）才给出口——忙碌态不给关闭入口
+    await waitFor(() => expect(screen.getByTestId("split-pacing-go")).toBeInTheDocument());
     fireEvent.click(screen.getByTestId("split-pacing-go"));
     expect(go).toHaveBeenCalled();
+  });
+
+  it("忙碌态只提示不出口：出卡完成后才给去节奏页签", async () => {
+    const go = vi.fn();
+    let resolveDraw!: (v: unknown) => void;
+    const pending = new Promise((resolve) => {
+      resolveDraw = resolve;
+    });
+    mockApi.get.mockResolvedValue(
+      anchorWith({ pacing_effective: false, pacing_preview: null, pacing_reason: null }),
+    );
+    mockApi.post.mockImplementation(() => pending);
+    render(<Host onGoPacing={go} />);
+    fireEvent.click(screen.getByTestId("open-ai"));
+    expect(await screen.findByTestId("split-pacing-missing")).toBeInTheDocument();
+    expect(screen.queryByTestId("split-pacing-go")).toBeNull();
+    resolveDraw({ ...DIRS, pacing: null, pacing_fingerprint: "fp-new" });
+    await waitFor(() => expect(screen.getByTestId("pick-card-1")).toBeInTheDocument());
+    expect(screen.getByTestId("split-pacing-go")).toBeInTheDocument();
   });
 
   it.each([

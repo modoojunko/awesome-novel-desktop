@@ -302,6 +302,27 @@ describe("VolumePacingPane · 节奏会不会照它走（c-pacing-effectiveness�
     expect(saveVolume.mock.calls[0]?.[2]).toMatchObject({ preset: "case", steps_len: 4 });
   });
 
+  it("之前某一卷建议可采纳：改用这一套写 prev（planned=false）", async () => {
+    withResult({
+      effective: BOOK,
+      effective_source: "book",
+      prefill: PREFILL,
+      source: "prev",
+      plan: { target: 40, steps_len: 4, n: 10, rem: 0, last_from: 37, last_to: 40 },
+    });
+    render(<VolumePacingPane {...props()} />);
+    expect(await screen.findByTestId("pacing-prev-suggest")).toHaveTextContent(
+      "之前某一卷的设置（3 章）还没存到这一卷",
+    );
+    fireEvent.click(screen.getByTestId("pacing-use-prev"));
+    await waitFor(() => expect(saveVolume).toHaveBeenCalled());
+    expect(saveVolume.mock.calls[0]?.[2]).toMatchObject({
+      preset: "upgrade",
+      steps_len: 3,
+      planned: false,
+    });
+  });
+
   it("本卷设置：已存即承诺四个下游；无出口", async () => {
     withResult({
       config: VOL,

@@ -162,13 +162,15 @@ export default function VolumePacingPane({
   } else {
     sourceText = `全书默认 · ${suffix}`;
   }
-  const showPrevSuggest =
-    !!effective &&
+  const prevPrefill =
+    effective &&
     effectiveSource === "book" &&
     data.source === "prev" &&
-    !!data.prefill &&
+    data.prefill &&
     (data.prefill.preset !== effective.preset ||
-      data.prefill.steps_len !== effective.steps_len);
+      data.prefill.steps_len !== effective.steps_len)
+      ? data.prefill
+      : null;
   const promise = effective
     ? hasTarget
       ? "拆章、剧情、推演、正文都照这张表来。"
@@ -268,10 +270,24 @@ export default function VolumePacingPane({
               </button>
             </div>
           ) : null}
-          {showPrevSuggest ? (
-            <p className="vc-fine" data-testid="pacing-prev-suggest">
-              之前某一卷的设置（{data.prefill?.steps_len} 章）还没存到这一卷——想照它就先存到本卷
-            </p>
+          {prevPrefill ? (
+            <div
+              className="vc-rowline"
+              data-testid="pacing-prev-suggest"
+              style={{ marginTop: 8 }}
+            >
+              <span className="vc-fine">
+                之前某一卷的设置（{prevPrefill.steps_len} 章）还没存到这一卷
+              </span>
+              <button
+                className="btn btn-secondary btn-sm"
+                data-testid="pacing-use-prev"
+                disabled={saving}
+                onClick={() => void saveConfig(prevPrefill, false)}
+              >
+                改用这一套
+              </button>
+            </div>
           ) : null}
           {chapterTarget ? (
             <span className={`vc-recon${overlong ? " warn" : ""}`}>
