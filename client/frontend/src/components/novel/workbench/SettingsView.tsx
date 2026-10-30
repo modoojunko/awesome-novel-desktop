@@ -12,6 +12,7 @@
 // 数据由 CharacterManager 经 onGateHintChange 上抛（列表载入前报 null → 回落通用 note）。
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, forwardRef, useImperativeHandle } from "react";
 import { api } from "@/lib/api";
+import ImportNotice from "./ImportNotice";
 import { toast } from "@/lib/toast";
 import { useDirtyState } from "@/hooks/useDirtyState";
 import { type SettingSaveHandle } from "@/components/novel/settings/FormField";
@@ -820,6 +821,8 @@ export default function SettingsView({
 
       <main className="col-middle">
         <div className="col-panel">
+          {/* 建书提示条（c-deconstruct-import-async 8.1）：建书时的降级集中在页顶说一次 */}
+          <ImportNotice projectId={projectId} />
         <div
           className={`panel${panel === "chars" || panel === "foreshadow" ? " sub-fill" : ""}`}
         >
