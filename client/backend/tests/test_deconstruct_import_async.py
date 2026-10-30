@@ -16,7 +16,6 @@ _tmp_db.close()
 os.environ["DATABASE_URL"] = f"sqlite+aiosqlite:///{_tmp_db.name}"
 os.environ["DATA_ROOT"] = tempfile.mkdtemp(prefix="test_dec_import_async_")
 os.environ["DECONSTRUCT_DISPATCHER_OFF"] = "1"
-os.environ["IMPORT_RUNNER_OFF"] = "1"  # 执行体由用例显式驱动（见 _drive）
 
 from fastapi.testclient import TestClient  # noqa: E402
 
@@ -28,6 +27,12 @@ from main import app  # noqa: E402
 from models.deconstruct import DeconstructJob  # noqa: E402
 
 _UID = "dec-import-async-user"
+
+
+@pytest.fixture(autouse=True)
+def _runner_off(monkeypatch):
+    """执行体由用例显式驱动（见 _drive）；按用例设置，不泄漏到其它测试模块。"""
+    monkeypatch.setenv("IMPORT_RUNNER_OFF", "1")
 
 
 @pytest.fixture(autouse=True)
@@ -459,3 +464,38 @@ def test_quota_failure_is_not_retryable(client, monkeypatch):
     assert st["status"] == "import_failed"
     assert st["import"]["error"]["kind"] == "quota"
     assert st["import"]["error"]["retryable"] is False
+
+
+def test_stale_run_failure_only_cleans_its_own_draft(client):
+    """被新一轮接管后，旧一轮的失败收尾只清自己的 draft，不碰新一轮已建成的书。
+
+    `_fail` 里 `soft_delete_book(draft)` 现在无条件执行，这条用例钉住它的安全前提：
+    draft_book_id 是每轮独立的 id。
+    """
+    _mk("imp-fix-4")
+    client.post("/api/deconstruct/tasks/imp-fix-4/import-book", json={"items": ["intro"]})
+    old = _get("imp-fix-4")["import"]
+    old_run, old_draft = old["run_id"], old["draft_book_id"]
+
+    client.post("/api/deconstruct/tasks/imp-fix-4/import-book/cancel")
+    client.post("/api/deconstruct/tasks/imp-fix-4/import-book", json={"items": ["intro"]})
+    _drive("imp-fix-4")
+    st = _get("imp-fix-4")
+    assert st["status"] == "imported" and st["import"]["run_id"] != old_run
+    new_book = st["book_id"]
+
+    # 旧一轮迟到的失败收尾（例如取消后异常才浮出来）
+    _run(imports._fail("imp-fix-4", old_run, old_draft, RuntimeError("late boom")))
+
+    after = _get("imp-fix-4")
+    assert after["status"] == "imported"  # 终态不被旧轮改写
+    assert after["book_id"] == new_book
+
+    async def _book_status(bid):
+        from models.project import Novel
+
+        async with async_session() as s:
+            row = await s.get(Novel, bid)
+            return row.status if row else None
+
+    assert _run(_book_status(new_book)) == "active"  # 新一轮的书没被误删

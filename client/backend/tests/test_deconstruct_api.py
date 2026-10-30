@@ -16,10 +16,9 @@ _tmp_db.close()
 os.environ["DATABASE_URL"] = f"sqlite+aiosqlite:///{_tmp_db.name}"
 os.environ["DATA_ROOT"] = tempfile.mkdtemp(prefix="test_dec_api_")
 os.environ["DECONSTRUCT_DISPATCHER_OFF"] = "1"
-# 建书执行体开关（c-deconstruct-import-async）：本文件是「回填/清洗」类用例，建完即断言，
-# 由下面的 fixture 同步驱动执行体，不靠后台 task 抢跑。真正的异步契约（四臂/取消/收敛）
-# 见 tests/test_deconstruct_import_async.py。
-os.environ["IMPORT_RUNNER_OFF"] = "1"
+# 建书执行体开关（c-deconstruct-import-async）在 _import_runs_sync fixture 里按用例设置：
+# 本文件是「回填/清洗」类用例，建完即断言，由 fixture 同步驱动执行体、不靠后台 task 抢跑。
+# 真正的异步契约（四臂/取消/收敛）见 tests/test_deconstruct_import_async.py。
 
 from fastapi.testclient import TestClient  # noqa: E402
 
@@ -121,6 +120,7 @@ def _import_runs_sync(client, monkeypatch):
     """
     from deconstruct import imports as _imports
 
+    monkeypatch.setenv("IMPORT_RUNNER_OFF", "1")  # 只在本用例内生效，不泄漏到全仓
     orig_post = client.post
     orig_get = client.get
 

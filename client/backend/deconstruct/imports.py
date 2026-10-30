@@ -41,8 +41,6 @@ _stop_events: dict[str, asyncio.Event] = {}
 _lock: asyncio.Lock | None = None
 _lock_loop: object | None = None
 
-IMPORT_STEPS = ("waiting", "refine", "writing", "done")
-RETRYABLE_KINDS = frozenset({"interrupted", "stalled", "storage_busy", "error"})
 
 
 def _now() -> datetime:
@@ -396,9 +394,18 @@ async def run(task_id: str) -> None:
     except apply.ImportCancelled:
         await soft_delete_book(draft)
     except asyncio.CancelledError:
-        # 桌面壳关停/用户取消：用独立短事务把终态写掉，不留永久的「建书中」
+        # 桌面壳关停/用户取消：用独立短事务把终态写掉，不留永久的「建书中」。
+        # 归因必须是 interrupted（与启动 sweep 同口径）——原先借 TimeoutError 传话，
+        # 会被 _classify 改写成「建书超时未完成 / stalled」，同一件事两种说法。
         with contextlib.suppress(BaseException):
-            await asyncio.shield(_fail(task_id, run_id, draft, TimeoutError("建书被中断")))
+            await asyncio.shield(
+                _fail(
+                    task_id,
+                    run_id,
+                    draft,
+                    ImportFailure("应用退出导致建书中断，可重试", kind="interrupted", retryable=True),
+                )
+            )
         raise
     except BaseException as exc:  # noqa: BLE001 — 后台执行体：任何异常都必须落终态
         with contextlib.suppress(BaseException):
@@ -444,17 +451,3 @@ async def sweep() -> None:
         await soft_delete_book(draft)
     if rows:
         log.info("event=deconstruct_import_swept count=%s", len(rows))
-
-
-async def stale_inflight() -> list[str]:
-    """视图侧陈旧兜底用：仍在 importing 的任务 id（供上层判 started_at 是否过界）。"""
-    from sqlalchemy import select
-
-    async with async_session() as session:
-        return list(
-            (
-                await session.scalars(
-                    select(DeconstructJob.id).where(DeconstructJob.status == "importing")
-                )
-            ).all()
-        )
