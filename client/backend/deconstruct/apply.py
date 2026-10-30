@@ -57,6 +57,8 @@ __all__ = [
 
 # 建书可勾项＝7 设定项＋三项扩展（章卷结构→卷行；人物关系→关系行；写作技法→文风 rules）
 IMPORT_ITEM_KEYS = (*SETTING_DIMENSION_KEYS, "structure", "relations", "techniques")
+# 建书弹窗默认勾选（c-deconstruct-style-transfer 口径）：7 设定项＋写作技法（技法并入文风）
+DEFAULT_BOOK_ITEMS = (*SETTING_DIMENSION_KEYS, "techniques")
 
 
 def _raw(task: DeconstructJob) -> dict:
@@ -122,9 +124,39 @@ def _world_source_over(data: dict) -> bool:
     return False
 
 
-async def _condense_world(task: DeconstructJob, source_body: dict, warnings: list[str]) -> dict | None:
+class ImportCancelled(RuntimeError):
+    """建书被取消（阶段边界检查命中，或在途调用被取消信号掐断）。
+
+    调用方（deconstruct.imports）据此清理半成品并退出，**不写失败终态**——取消方已经把
+    status 写回 completed，谁再写终态谁就把用户的操作吞了。
+    """
+
+
+async def _race_stop(coro, stop_event):
+    """在途调用与取消信号竞速（照拆书管线 _Stopper 口径）：取消即放弃在途请求。"""
+    if stop_event is None:
+        return await coro
+    import asyncio
+    import contextlib
+
+    chat = asyncio.ensure_future(coro)
+    stop = asyncio.ensure_future(stop_event.wait())
+    done, _pending = await asyncio.wait({chat, stop}, return_when=asyncio.FIRST_COMPLETED)
+    if chat in done:
+        stop.cancel()
+        return chat.result()
+    chat.cancel()
+    with contextlib.suppress(BaseException):
+        await chat
+    stop.cancel()
+    raise ImportCancelled("建书已取消")
+
+
+async def _condense_world(
+    task: DeconstructJob, source_body: dict, warnings: list[str], *, stop_event=None
+) -> dict | None:
     """AI 精炼：产物分析稿 → 书内字段形态（一次轻量调用）。失败降级返回 None
-    （调用方退机械句界截断）。"""
+    （调用方退机械句界截断）；`stop_event` 置位＝取消，放弃在途调用并抛 ImportCancelled。"""
     try:
         from deconstruct.service import resolve_client
         from prompts import load_layers
@@ -138,11 +170,14 @@ async def _condense_world(task: DeconstructJob, source_body: dict, warnings: lis
         from deconstruct.pipeline import _parse_json_response
         from settings.world_model import PARAGRAPH_MAX, normalize_world
 
-        raw = await client.chat(
-            model=model, system=sys_t,
-            messages=[{"role": "user",
-                       "content": usr_t.format(source_json=json.dumps(source_body, ensure_ascii=False))}],
-            max_tokens=3000, json_mode=True, operation="deconstruct_condense",
+        raw = await _race_stop(
+            client.chat(
+                model=model, system=sys_t,
+                messages=[{"role": "user",
+                           "content": usr_t.format(source_json=json.dumps(source_body, ensure_ascii=False))}],
+                max_tokens=3000, json_mode=True, operation="deconstruct_condense",
+            ),
+            stop_event,
         )
         data = _parse_json_response(raw)
         # 完整句收口（模板铁律的代码兜底）：AI 半句停笔的字段截到最后一个句号
@@ -166,36 +201,43 @@ async def _condense_world(task: DeconstructJob, source_body: dict, warnings: lis
         ):
             raise ValueError("精炼结果为空")
         return out
+    except ImportCancelled:
+        raise  # 取消不是「精炼失败」：不得被降级吞掉（评审：取消要真中断）
     except Exception as e:  # noqa: BLE001 — 精炼失败：机械截断兜底
         warnings.append(f"AI 精炼失败（{str(e)[:60]}），世界设定按句界截断适配字段")
         return None
 
 
 async def import_book(
-    db: AsyncSession, task: DeconstructJob, user_id: str, items: list[str] | None = None
+    db: AsyncSession,
+    task: DeconstructJob,
+    user_id: str,
+    items: list[str] | None = None,
+    *,
+    book_id: str | None = None,
+    on_step=None,
+    is_cancelled=None,
+    stop_event=None,
 ) -> tuple[dict, list[str]]:
-    """建书：返回 ({book_id, name, skipped}, 降级提示清单)。幂等：book_id 已存在直接返回。
+    """建书：返回 ({book_id, name, skipped}, 降级提示清单)。
 
-    items＝作家在弹窗勾选的灌入项（7 设定项＋章卷结构/人物关系/写作技法）；
-    None＝旧口径（任务勾选维度里的设定项）——二创默认轻量，自书续写勾三项。
+    c-deconstruct-import-async 起改为**后台整段执行**（deconstruct.imports.run_import 调用），
+    三条纪律与旧同步实现不同：
+
+    1. 幂等判定不在本函数：受理/重试的分支由 router + imports.claim 负责，这里一律按
+       本次勾选完整建一遍；
+    2. 慢调用前置：世界设定超字段契约时的 AI 精炼发生在**建书行创建之前**，写入阶段
+       只有毫秒级，失败即由调用方软删半成品（不留可见的半本书）；
+    3. 幂等键（task.book_id）由调用方在全部写入成功后落——本函数不写。
+
+    items＝作家在弹窗勾选的灌入项（7 设定项＋章卷结构/人物关系/写作技法），由受理时
+    持久化到任务 `import.items`（重试沿用同一份）；None 仅用于兼容旧口径。
+    book_id＝受理时预分配的书 id（崩溃后可清理由此指向的半成品）。
+    on_step＝进度回调（refine/writing）；is_cancelled＝阶段边界取消检查；
+    stop_event＝取消信号（asyncio.Event，用于掐断在途模型调用）。
     """
     from models.project import Novel
-    from novels.service import create_project, get_novel
-
-    rebuilt_from_deleted = False
-    if task.book_id:
-        # 同一本书＝仍在且未软删；get_novel 的默认口径已排除 deleted（novel-delete 主 spec）
-        existing = await get_novel(db, task.book_id, user_id)
-        if existing is not None:
-            return (
-                {"book_id": task.book_id, "name": task.book_name, "skipped": []},
-                ["任务已建过书（幂等返回），本次未重复写入；需要补灌请新建任务或删书重导"],
-            )
-        # 幂等键指向软删/不存在/他人的书：键已失效，解绑后按本次勾选重新建书。
-        # 不复活旧行——用户删掉的作品不能在「再建一次」时原样回来（真机反馈）。
-        task.book_id = None
-        await db.commit()
-        rebuilt_from_deleted = True
+    from novels.service import create_project
 
     if items is None:
         selected = _selected(task)
@@ -204,8 +246,6 @@ async def import_book(
         selected = [k for k in IMPORT_ITEM_KEYS if k in picked]
 
     warnings: list[str] = []
-    if rebuilt_from_deleted:
-        warnings.append("原建书已被删除或不存在，已按本次勾选重新建书")
     # 简介/题材走同一投影：证据章号、分析尾巴不进设定；题材五字段一次落齐
     meta = sm.intro_genre_body(
         _data(task, "intro") if "intro" in selected else {},
@@ -216,6 +256,23 @@ async def import_book(
     synopsis = meta["synopsis"]
     genre = meta["genre"]
 
+    # ① 慢调用前置：精炼只依赖产物，不依赖书行——放在建书之前，写入阶段才毫秒级
+    condensed_world = None
+    if "world" in selected and _world_source_over(_data(task, "world")):
+        if on_step is not None:
+            await on_step("refine")
+        if is_cancelled is not None and await is_cancelled():
+            raise ImportCancelled("建书已取消")
+        condensed_world = await _condense_world(
+            task, sm.world_body(_data(task, "world"), unclamped=True), warnings,
+            stop_event=stop_event,
+        )
+    if on_step is not None:
+        await on_step("writing")
+    if is_cancelled is not None and await is_cancelled():
+        raise ImportCancelled("建书已取消")
+
+    # ② 写入阶段：建书行 + 全部设定写入（<0.2s）
     project = await create_project(
         db,
         user_id,
@@ -223,10 +280,8 @@ async def import_book(
         synopsis=synopsis,
         genre=genre,
         source="manual",
+        book_id=book_id,
     )
-    # 幂等键先落（评审 P1-7）：后续任一写入失败，重试不再重复建书
-    task.book_id = project.id
-    await db.commit()
     book_id = project.id
 
     if "genre" in selected:
@@ -275,11 +330,10 @@ async def import_book(
         )
 
         body = sm.world_body(data)
-        if _world_source_over(data):
-            # 产物超字段契约：一次 AI 精炼按字段形态重写（失败退机械句界截断）
-            condensed = await _condense_world(task, sm.world_body(data, unclamped=True), warnings)
-            if condensed is not None:
-                body = condensed
+        # 超契约：精炼已在写入阶段之前完成（慢调用前置，c-deconstruct-import-async）；
+        # 结果为空＝精炼失败/不可用，退回机械句界截断
+        if _world_source_over(data) and condensed_world is not None:
+            body = condensed_world
         # 机械兜底会按 world 契约截断条目；把截断说清楚，不静默丢
         for key, cap, label in (
             ("history", HISTORY_MAX, "大事记"),

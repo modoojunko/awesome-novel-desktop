@@ -378,6 +378,9 @@ input, textarea, select { font: inherit; }
 .ex-done b { font-size: 13.5px; display: block; }
 .ex-done span { font-size: 12px; color: var(--muted); }
 
+/* ─── 轻提示（c-deconstruct-import-async：确认建书即关闭，结果靠 toast 交代去向）─── */
+.p-toast { position: fixed; left: 50%; bottom: 76px; transform: translateX(-50%); max-width: min(560px, calc(100vw - 40px)); background: var(--fg); color: var(--surface); padding: 10px 18px; border-radius: 999px; font-size: 13px; line-height: 1.5; box-shadow: var(--shadow-card); z-index: 320; }
+
 /* ─── 出口二选一（ex-fmt 卡词汇）─── */
 .ex-fmts { display: flex; flex-direction: column; gap: 8px; }
 .ex-fmt { display: flex; align-items: flex-start; gap: 11px; text-align: left; border: 1px solid var(--border); border-radius: var(--radius); background: var(--surface); padding: 13px 14px; cursor: pointer; font: inherit; color: var(--fg); width: 100%; }
@@ -396,7 +399,7 @@ input, textarea, select { font: inherit; }
 .pgset-nav a { padding: 4px 10px; border-radius: 999px; color: var(--muted); white-space: nowrap; }
 .pgset-nav a:hover { color: var(--fg); background: var(--fg-soft); }
 .pgset-nav a.on { background: var(--accent-soft); color: var(--accent-strong); font-weight: 500; }
-.state-sw { position: fixed; right: 16px; top: 104px; z-index: 90; display: flex; align-items: center; gap: 2px; background: var(--surface); border: 1px solid var(--border); border-radius: 999px; padding: 4px 6px; box-shadow: var(--shadow-card); font-size: 12px; }
+.state-sw { position: fixed; right: 16px; top: 104px; z-index: 90; display: flex; align-items: center; gap: 2px; background: var(--surface); border: 1px solid var(--border); border-radius: 999px; padding: 4px 6px; box-shadow: var(--shadow-card); font-size: 12px; flex-wrap: wrap; justify-content: flex-end; max-width: min(720px, calc(100vw - 32px)); }
 .state-sw .sw-k { padding: 0 6px 0 8px; color: var(--muted); font-family: var(--font-mono); font-size: 10px; letter-spacing: 0.1em; }
 .state-sw button { padding: 4px 10px; border-radius: 999px; color: var(--muted); }
 .state-sw button:hover { color: var(--fg); background: var(--fg-soft); }
@@ -463,6 +466,10 @@ input, textarea, select { font: inherit; }
   <button data-state-go="done">④ 详情·完成</button>
   <button data-state-go="fail">⑤ 详情·失败</button>
   <button data-state-go="exit">⑥ 出口二选一</button>
+  <button data-state-go="importing">⑦ 详情·建书中</button>
+  <button data-state-go="imported">⑧ 详情·已建书</button>
+  <button data-state-go="import-fail">⑨ 详情·建书失败</button>
+  <button data-state-go="settings-notice">⑩ 新书设定页提示</button>
 </div>
 
 <main class="main">
@@ -557,6 +564,51 @@ input, textarea, select { font: inherit; }
         <div class="tk-foot">
           <span class="tk-sum">重新选择同一本书的文件，回到原排队位次</span>
           <span class="tk-open">重传<i data-ico="chevronRight"></i></span>
+        </div>
+      </button>
+
+      <!-- 建书中（c-deconstruct-import-async：建书是任务的下一阶段，整段后台执行） -->
+      <button class="tk-row" data-state-go="importing" data-od-id="tk-row-importing">
+        <div class="tk-top">
+          <span class="tk-type"><i data-ico="book"></i>拆书</span>
+          <span class="tk-title">《归墟纪》</span>
+          <span class="pill pill-accent"><i data-ico="spinner"></i>建书中</span>
+          <span class="tk-time">今天 11:02 拆完 · 11:05 开始建书</span>
+        </div>
+        <div class="tk-meta">41.8 万字 · 226 章 · 8 卷 · 精炼世界设定</div>
+        <div class="tk-foot">
+          <span class="tk-sum">正在建书 · 精炼世界设定（已 12 秒），可以离开，建完会出现在书架</span>
+          <span class="tk-open">详情<i data-ico="chevronRight"></i></span>
+        </div>
+      </button>
+
+      <!-- 已建书（书已在书架；结果目录与两个既有出口仍可用） -->
+      <button class="tk-row" data-state-go="imported" data-od-id="tk-row-imported">
+        <div class="tk-top">
+          <span class="tk-type"><i data-ico="book"></i>拆书</span>
+          <span class="tk-title">《星海远征》</span>
+          <span class="pill pill-ok"><i data-ico="check"></i>已建书</span>
+          <span class="tk-time">昨天 22:41 拆完 · 22:42 已建书</span>
+        </div>
+        <div class="tk-meta">54.2 万字 · 318 章 · 10 卷 · 10 份产物</div>
+        <div class="tk-foot">
+          <span class="tk-sum">已建成《星海远征》· 可打开这本书，结果目录也仍可导出/收进角色库</span>
+          <span class="tk-open">详情<i data-ico="chevronRight"></i></span>
+        </div>
+      </button>
+
+      <!-- 建书失败（可重试；不出现「从断点续拆」） -->
+      <button class="tk-row" data-state-go="import-fail" data-od-id="tk-row-import-fail">
+        <div class="tk-top">
+          <span class="tk-type"><i data-ico="book"></i>拆书</span>
+          <span class="tk-title">《万川归海》</span>
+          <span class="pill pill-err"><i data-ico="alert"></i>建书失败</span>
+          <span class="tk-time">今天 10:20 拆完 · 10:21 建书失败</span>
+        </div>
+        <div class="tk-meta">28.4 万字 · 152 章 · 5 卷 · 写入设定时存储忙</div>
+        <div class="tk-foot">
+          <span class="tk-sum">写入设定时存储忙，没有留下半本书 · 可重试建书</span>
+          <span class="tk-open">详情<i data-ico="chevronRight"></i></span>
         </div>
       </button>
     </div>
@@ -853,6 +905,175 @@ input, textarea, select { font: inherit; }
     </div>
   </div>
 
+  <!-- ══════ ⑦ 任务详情 · 建书中（c-deconstruct-import-async：整段后台执行，可离开）══════ -->
+  <div data-state="importing" hidden>
+    <div class="page-head">
+      <div>
+        <button class="btn btn-ghost btn-sm" data-state-go="list" style="margin-bottom:8px"><i data-ico="back"></i>任务清单</button>
+        <h1>《归墟纪》</h1>
+        <p class="sub">拆书 · 41.8 万字 · 226 章 · 8 卷 · 今天 11:02 拆完 · 11:05 开始建书</p>
+      </div>
+      <span class="pill pill-accent"><i data-ico="spinner"></i>建书中</span>
+    </div>
+
+    <div class="task-card" data-od-id="task-importing">
+      <div class="task-pct" style="align-items:center">
+        <b style="font-size:15px;font-weight:600">建书中</b>
+        <span style="font-size:12.5px;color:var(--muted)">已 12 秒</span>
+        <span class="pct-note">整段在后台执行，可以离开这个页面</span>
+      </div>
+
+      <ul class="ex-steps" data-od-id="import-steps">
+        <li><b>精炼世界设定</b><em class="doing">进行中 · 已 12 秒（约 20 秒）</em></li>
+        <li><b>写入设定</b><em>待开始 · 约 1 秒</em></li>
+        <li><b>完成</b><em>新书出现在书架，本页出现「打开这本书」</em></li>
+      </ul>
+
+      <div class="notice info" style="margin:14px 0 0" data-od-id="importing-note">
+        <span class="nt">
+          <b>为什么不用等在这里</b>
+          <span>建书在后台跑完才把书放进书架，中途关掉页面不影响；建完回来看这条任务即可。</span>
+        </span>
+      </div>
+
+      <div style="display:flex;gap:8px;margin-top:20px">
+        <button class="btn btn-ghost" data-od-id="btn-import-cancel" data-toggle="#import-cancel-confirm">取消建书</button>
+        <button class="btn btn-ghost" disabled title="建书中不能删除，请先取消建书" data-od-id="btn-import-delete">删除任务及产物</button>
+      </div>
+
+      <!-- 取消的二次确认（行内两步，与删除确认同款） -->
+      <div class="task-err" id="import-cancel-confirm" data-od-id="import-cancel-confirm" hidden style="margin-top:14px">
+        <b>取消建书？</b>
+        <span>已花掉的世界设定精炼结果不会保留；产物与三个出口都不受影响，之后仍可重新建书。</span>
+        <div style="display:flex;gap:8px;margin-top:10px">
+          <button class="btn btn-secondary" data-od-id="btn-import-cancel-confirm">取消建书</button>
+          <button class="btn btn-ghost" data-toggle="#import-cancel-confirm" data-toggle-off>继续等</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="hint" data-od-id="importing-hint">
+      <b>建书是这条任务的下一步：</b>拆书已完成，产物照旧保留；建书整段在后台执行，进度只报步骤，不报假百分比。
+    </div>
+  </div>
+
+  <!-- ══════ ⑧ 任务详情 · 已建书（书在书架；结果目录与既有出口仍可用）══════ -->
+  <div data-state="imported" hidden>
+    <div class="page-head">
+      <div>
+        <button class="btn btn-ghost btn-sm" data-state-go="list" style="margin-bottom:8px"><i data-ico="back"></i>任务清单</button>
+        <h1>《星海远征》</h1>
+        <p class="sub">拆书 · 54.2 万字 · 318 章 · 10 卷 · 昨天 22:41 拆完 · 22:42 已建书</p>
+      </div>
+      <span class="pill pill-ok"><i data-ico="check"></i>已建书</span>
+    </div>
+
+    <div class="ex-done" data-od-id="imported-banner" style="margin-bottom:14px">
+      <span class="ed-ic"><i data-ico="check"></i></span>
+      <div style="flex:1">
+        <b>已建成《星海远征》· 8 项设定已写入</b>
+        <span>书已在书架，可以随时打开继续写；建书时的 2 条提示记在新书设定页顶部</span>
+      </div>
+      <button class="btn btn-primary btn-sm" data-od-id="btn-open-book"><i data-ico="arrowRight"></i>打开这本书</button>
+    </div>
+
+    <div class="notice info" data-od-id="imported-note" style="margin-bottom:14px">
+      <span class="nt">
+        <b>结果与出口都还在</b>
+        <span>建书不消耗产物：结果目录仍可只读预览、导出到文件夹，也可以再收进角色库。</span>
+      </span>
+    </div>
+
+    <div style="display:flex;gap:8px;margin-bottom:18px">
+      <button class="btn btn-secondary" data-open-modal="exit" data-od-id="btn-exit-after">选择去向</button>
+      <button class="btn btn-secondary" data-state-go="create">再拆一本</button>
+    </div>
+
+    <div class="fdir" data-od-id="imported-manifest">
+      <div class="fd-group">结果目录 · 元信息（点文件名可只读预览）· <span>已选 10/10</span></div>
+      <div class="fd-row root"><span class="fd-tree"> </span><span class="fd-name">星海远征-拆书/</span><span class="fd-desc">结果目录 · 10 份产物＋README 目录页</span></div>
+      <div class="fd-row"><span class="chk on"><i data-ico="check"></i></span><span class="fd-tree">├──</span><span class="fd-name">简介.md</span><span class="fd-desc">故事核 1 条 · 主角目标/阻碍/结局</span><span class="fd-mt">1.2 KB</span><span class="pill pill-ok"><i data-ico="check"></i>已生成</span></div>
+      <div class="fd-row"><span class="chk on"><i data-ico="check"></i></span><span class="fd-tree">├──</span><span class="fd-name">角色设定.md</span><span class="fd-desc">人物卡 24 张 · 主角 1 · 核心 5</span><span class="fd-mt">21.7 KB</span><span class="pill pill-ok"><i data-ico="check"></i>已生成</span></div>
+      <div class="fd-row"><span class="chk on"><i data-ico="check"></i></span><span class="fd-tree">└──</span><span class="fd-name">伏笔.md</span><span class="fd-desc">伏笔 11 条 · 埋设→收束对位</span><span class="fd-mt">6.3 KB</span><span class="pill pill-ok"><i data-ico="check"></i>已生成</span></div>
+    </div>
+
+    <div class="hint" data-od-id="imported-hint">
+      <b>不自动跳转：</b>建完书时你可能已经离开这一页，所以书不会强行打开——入口在这里，也在书架。
+    </div>
+  </div>
+
+  <!-- ══════ ⑨ 任务详情 · 建书失败（可重试；不出现「从断点续拆」）══════ -->
+  <div data-state="import-fail" hidden>
+    <div class="page-head">
+      <div>
+        <button class="btn btn-ghost btn-sm" data-state-go="list" style="margin-bottom:8px"><i data-ico="back"></i>任务清单</button>
+        <h1>《万川归海》</h1>
+        <p class="sub">拆书 · 28.4 万字 · 152 章 · 5 卷 · 今天 10:20 拆完 · 10:21 建书失败</p>
+      </div>
+      <span class="pill pill-err"><i data-ico="alert"></i>建书失败</span>
+    </div>
+
+    <div class="task-err" data-od-id="import-fail-err">
+      <b>写入设定时存储忙 <span class="te-code">database is locked</span></b>
+      <span>写入阶段自动重试 3 次仍被占用，建书已停在写入之前并清理了半成品——书架里没有这本书，产物完整保留。
+      稍后点「重试建书」会整段重跑（会重新精炼一次世界设定）。</span>
+    </div>
+
+    <div style="display:flex;gap:8px;margin:18px 0">
+      <button class="btn btn-primary" data-od-id="btn-import-retry"><i data-ico="spark"></i>重试建书</button>
+      <button class="btn btn-secondary" data-open-modal="exit" data-od-id="btn-exit-on-fail">存本地文件夹</button>
+      <button class="btn btn-ghost" data-od-id="btn-library-on-fail">收进角色库</button>
+    </div>
+
+    <div class="fdir" data-od-id="import-fail-manifest">
+      <div class="fd-group">结果目录仍可用（点文件名可只读预览）· <span>已选 10/10</span></div>
+      <div class="fd-row root"><span class="fd-tree"> </span><span class="fd-name">万川归海-拆书/</span><span class="fd-desc">结果目录 · 10 份产物＋README 目录页</span></div>
+    </div>
+
+    <div class="hint" data-od-id="import-fail-hint">
+      <b>建书失败 ≠ 拆书失败：</b>这里不会出现「从断点续拆」——拆解产物是完整的，只有建书写入这一步失败；
+      重试是整段重跑，不产生第二本书，也不会留下半本。
+    </div>
+  </div>
+
+  <!-- ══════ ⑩ 新书设定页顶部 · 建书提示条（无 parity 基线，drafts 补画）══════ -->
+  <div data-state="settings-notice" hidden>
+    <div class="page-head">
+      <div>
+        <h1>《星海远征》· 设定</h1>
+        <p class="sub">刚由拆书建成 · 8 项设定已写入 · 建书时有 2 条提示</p>
+      </div>
+      <span class="pill pill-ok"><i data-ico="check"></i>已建书</span>
+    </div>
+
+    <div class="notice" data-od-id="import-notice">
+      <span class="nt">
+        <b>建书时的 2 条提示</b>
+        <span>世界设定「势力」12 条超过上限 6，已截断保留前 6 条；人物关系 34 条按角色对合并为 26 条。</span>
+      </span>
+      <button class="btn btn-ghost btn-sm" data-od-id="btn-notice-close" data-dismiss="import-notice">知道了</button>
+    </div>
+
+    <div class="notice info" data-od-id="import-notice-info">
+      <span class="nt">
+        <b>这次是世界设定精炼成功写入</b>
+        <span>精炼改写只替换了超契约的字段，其它设定保持原样；想核对点开「世界设定」逐条看。</span>
+      </span>
+      <button class="btn btn-ghost btn-sm" data-state-go="done">看结果目录</button>
+    </div>
+
+    <div class="dims" style="margin-top:8px">
+      <div class="dim-group">设定项 · 8 项已写入（简介 / 题材 / 世界设定 / 角色设定 / 主线剧情 / 写作文风 / 伏笔 / 写作技法）</div>
+      <div class="dim-row"><span class="chk on"><i data-ico="check"></i></span><span class="d-tx"><b>世界设定</b>势力 6（截断）· 大事记 14 · 铁律 5</span><span class="d-mt">9.4 KB</span></div>
+      <div class="dim-row"><span class="chk on"><i data-ico="check"></i></span><span class="d-tx"><b>角色设定</b>人物卡 24 张 · 主角 1</span><span class="d-mt">21.7 KB</span></div>
+      <div class="dim-row"><span class="chk on"><i data-ico="check"></i></span><span class="d-tx"><b>写作文风</b>叙事视角 / 句式 / 高频词 20 / 禁忌 7</span><span class="d-mt">7.8 KB</span></div>
+    </div>
+
+    <div class="hint" data-od-id="settings-notice-hint">
+      <b>提示条只说明降级：</b>截断、合并、推断这类「写不满」的事集中在这里说一次，关掉即消失，任务详情里仍可回看。
+    </div>
+  </div>
+
 </main>
 
 <!-- 壳层 v6：底部 26px 状态条（左版权右版本，fixed） -->
@@ -877,7 +1098,7 @@ input, textarea, select { font: inherit; }
           <span class="radio"></span>
           <span class="ex-txt">
             <b>建书 <span class="pill pill-accent" style="margin-left:6px">推荐</span></b>
-            <span>生成一本新书，简介/题材/世界/角色/主线/文风/伏笔直接写入设定页；人物关系、章卷结构与写作技法附在书内资料里。确认后直达新书设定页，7 项标「待确认」。</span>
+            <span>生成一本新书，简介/题材/世界/角色/主线/文风/伏笔直接写入设定页；人物关系、章卷结构与写作技法附在书内资料里。确认后开始建书，可以离开——完成后在任务详情打开这本书。</span>
           </span>
         </button>
         <button class="ex-fmt" data-exit-opt="files" data-od-id="exit-opt-files">
@@ -889,12 +1110,12 @@ input, textarea, select { font: inherit; }
         </button>
       </div>
       <div class="ex-sum" data-od-id="exit-sum">
-        将创建新书《星海远征》，并写入 7 项设定。建书后可到设定页逐项确认。
+        将创建新书《星海远征》，写入所选 8/10 项。建书在后台进行，本页确认后立即关闭。
       </div>
     </div>
     <div class="mcard-foot">
       <button class="btn btn-secondary" data-close-modal="exit">稍后再说</button>
-      <button class="btn btn-primary" data-close-modal="exit" data-od-id="exit-confirm"><i data-ico="check"></i>就建这本书</button>
+      <button class="btn btn-primary" data-close-modal="exit" data-toast="已开始建书，可以离开；完成后在任务详情打开这本书" data-od-id="exit-confirm"><i data-ico="check"></i>开始建书</button>
     </div>
   </div>
 </div>
@@ -922,7 +1143,9 @@ input, textarea, select { font: inherit; }
   <a href="../pages/config.html">模型配置</a>
   <a href="../pages/book-settings.html">书内设定</a>
 </nav>
-<div class="pgset-note">写作工具 · 拆书任务流 · 六态（右上切换）· 设计稿 v9 · 2026-10-12</div>
+<div class="pgset-note">写作工具 · 拆书任务流 · 十态（右上切换）· 设计稿 v10 · 2026-10-30</div>
+
+<div class="p-toast" id="p-toast" role="status" hidden></div>
 
 <script>
 (function () {
@@ -1008,6 +1231,35 @@ input, textarea, select { font: inherit; }
     b.addEventListener("click", function () { setModal(b.getAttribute("data-close-modal"), false); });
   });
 
+  /* ── 轻提示：确认建书即关闭弹窗，去向由 toast 交代（c-deconstruct-import-async）── */
+  var toastEl = document.getElementById("p-toast");
+  var toastTimer = null;
+  function toast(msg) {
+    if (!toastEl || !msg) return;
+    toastEl.textContent = msg;
+    toastEl.hidden = false;
+    if (toastTimer) clearTimeout(toastTimer);
+    toastTimer = setTimeout(function () { toastEl.hidden = true; }, 2600);
+  }
+  document.querySelectorAll("[data-toast]").forEach(function (b) {
+    b.addEventListener("click", function () { toast(b.getAttribute("data-toast")); });
+  });
+
+  /* ── 行内展开/收起（取消建书的二次确认、提示条关闭）── */
+  document.querySelectorAll("[data-toggle]").forEach(function (b) {
+    b.addEventListener("click", function (e) {
+      e.stopPropagation();
+      var el = document.querySelector(b.getAttribute("data-toggle"));
+      if (el) el.hidden = b.hasAttribute("data-toggle-off") ? true : !el.hidden;
+    });
+  });
+  document.querySelectorAll("[data-dismiss]").forEach(function (b) {
+    b.addEventListener("click", function () {
+      var el = document.querySelector('[data-od-id="' + b.getAttribute("data-dismiss") + '"]');
+      if (el) el.hidden = true;
+    });
+  });
+
   /* ── 出口二选一：单选联动摘要与确认钮 ── */
   var sum = document.querySelector('[data-od-id="exit-sum"]');
   var confirmBtn = document.querySelector('[data-od-id="exit-confirm"]');
@@ -1017,11 +1269,13 @@ input, textarea, select { font: inherit; }
       b.classList.add("on");
       var opt = b.getAttribute("data-exit-opt");
       if (opt === "book") {
-        sum.textContent = "将创建新书《星海远征》并写入 7 项设定，确认后直达新书设定页（7 项标「待确认」）。";
-        confirmBtn.innerHTML = '<i data-ico="check"></i>就建这本书';
+        sum.textContent = "将创建新书《星海远征》并写入所选设定。建书在后台进行，确认后立即关闭，完成后在任务详情打开这本书。";
+        confirmBtn.innerHTML = '<i data-ico="check"></i>开始建书';
+        confirmBtn.setAttribute("data-toast", "已开始建书，可以离开；完成后在任务详情打开这本书");
       } else {
         sum.textContent = "将选择本地文件夹，导出整个结果目录（10 份 Markdown＋README 目录页）。产物保留，之后仍可回来建书。";
         confirmBtn.innerHTML = '<i data-ico="download"></i>选择文件夹';
+        confirmBtn.setAttribute("data-toast", "已导出到所选文件夹");
       }
       confirmBtn.querySelectorAll("i[data-ico]").forEach(render);
       if (fdRefresh) fdRefresh();
@@ -1125,7 +1379,7 @@ input, textarea, select { font: inherit; }
       if (!sum) return;
       var bookOn = document.querySelector('[data-exit-opt="book"]').classList.contains("on");
       sum.textContent = bookOn
-        ? "将创建新书《星海远征》，写入所选 " + nSet + "/7 项设定（未勾的不写入），确认后直达新书设定页（标「待确认」）；人物关系/章卷结构/写作技法按勾选随书内资料。当前已选 " + sel.length + "/10 份产物。"
+        ? "将创建新书《星海远征》，写入所选 " + nSet + "/7 项设定（未勾的不写入）；人物关系/章卷结构/写作技法按勾选随书内资料。建书在后台进行，确认后立即关闭。当前已选 " + sel.length + "/10 份产物。"
         : "将导出所选 " + sel.length + " 份产物（＋README 目录页）到选择的文件夹。产物保留，之后仍可回来建书。";
     }
     rows().forEach(function (row) {
