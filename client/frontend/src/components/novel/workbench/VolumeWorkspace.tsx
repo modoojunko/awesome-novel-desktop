@@ -58,6 +58,8 @@ interface VolumeWorkspaceProps {
   onSplitManual: () => void;
   /** 右栏「去补卷纲」出口信号（seq 递增＝切回卷纲页签；autoCheckSeq 同款信号模式） */
   outlineSeq?: number;
+  /** 拆章弹窗「去节奏页签」信号（seq 递增＝切到节奏页签；c-pacing-effectiveness） */
+  pacingJumpSeq?: number;
   /** 右栏节奏动作采纳（seq 递增＝重取卷节奏配置；c-volume-pacing） */
   pacingRefreshSeq?: number;
   /** 回改这一章（5.6）：派生视图行／左树共用同一张本章卡 */
@@ -85,6 +87,7 @@ export default function VolumeWorkspace({
   onSaved,
   onSplitManual,
   outlineSeq,
+  pacingJumpSeq,
   pacingRefreshSeq,
 }: VolumeWorkspaceProps) {
   const [detail, setDetail] = useState<VolumeDetail | null>(null);
@@ -159,6 +162,17 @@ export default function VolumeWorkspace({
   useEffect(() => {
     if (outlineSeq && outlineSeq > 0) setTab("outline");
   }, [outlineSeq]);
+
+  // 拆章弹窗「去节奏页签」：只在 seq 变化时切（挂载时的旧 seq 不抢默认页签）；
+  // 声明在换卷回落 effect 之后，换卷＋切页签同批时节奏页签胜出。
+  const lastPacingSeq = useRef(pacingJumpSeq ?? 0);
+  useEffect(() => {
+    const seq = pacingJumpSeq ?? 0;
+    if (seq !== lastPacingSeq.current) {
+      lastPacingSeq.current = seq;
+      setTab("pacing");
+    }
+  }, [pacingJumpSeq]);
 
   // 主线写作位（详情变化后随刷：建章/归档会改变 frontier）
   useEffect(() => {

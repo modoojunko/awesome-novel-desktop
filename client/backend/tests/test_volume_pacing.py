@@ -357,3 +357,99 @@ class TestEndpoints:
         body = r.json()
         assert body["source"] == "book"
         assert body["prefill"]["preset"] == "romance"
+
+    def test_effective_volume_book_and_empty(self):
+        """effective：卷列 → 书默认 → 空；书默认必须是完整配置（含步表/开篇开关）。"""
+        _, novel_id = _run_async(_seed_book())
+        vol = _run_async(_seed_volume(novel_id, 1))
+        c = _client()
+        body = c.get(f"/api/novels/{novel_id}/volumes/{vol}/pacing").json()
+        assert body["effective"] is None and body["effective_source"] is None
+        assert body["config_present"] is False and body["config_invalid"] is False
+
+        c.put(
+            f"/api/novels/{novel_id}/pacing/book-default",
+            json={"preset": "upgrade", "steps_len": 4},
+        )
+        body = c.get(f"/api/novels/{novel_id}/volumes/{vol}/pacing").json()
+        assert body["effective_source"] == "book"
+        assert body["effective"]["preset"] == "upgrade"
+        assert body["effective"]["steps"]  # 完整配置，不是 {preset,steps_len} 裸对象
+        assert body["effective"]["ch1_extra_on"] is True  # 第 1 卷开篇交代
+        assert body["plan"]["steps_len"] == 4
+
+        c.put(
+            f"/api/novels/{novel_id}/volumes/{vol}/pacing",
+            json=pc.build_config("case", 5, planned=True),
+        )
+        body = c.get(f"/api/novels/{novel_id}/volumes/{vol}/pacing").json()
+        assert body["effective_source"] == "volume"
+        assert body["effective"]["preset"] == "case"
+        assert body["plan"]["steps_len"] == 5
+
+    def test_effective_uses_book_when_prev_prefill_differs(self):
+        """预填链显示上一卷 5 章，实际生效是书默认 4 章——两套都返回、plan 用书默认。"""
+        _, novel_id = _run_async(_seed_book())
+        _run_async(_seed_volume(novel_id, 1, pacing=pc.build_config("case", 5)))
+        vol2 = _run_async(_seed_volume(novel_id, 2))
+        c = _client()
+        c.put(
+            f"/api/novels/{novel_id}/pacing/book-default",
+            json={"preset": "upgrade", "steps_len": 4},
+        )
+        body = c.get(f"/api/novels/{novel_id}/volumes/{vol2}/pacing").json()
+        assert body["source"] == "prev" and body["prefill"]["preset"] == "case"
+        assert body["effective_source"] == "book"
+        assert body["effective"]["preset"] == "upgrade"
+        assert body["plan"]["steps_len"] == 4  # 段表用生效配置，不用预填
+        assert body["effective"]["ch1_extra_on"] is False  # 第 2 卷不带开篇交代
+
+    def test_effective_empty_when_config_invalid(self):
+        _, novel_id = _run_async(_seed_book())
+        vol = _run_async(_seed_volume(novel_id, 1, pacing={"preset": "nope"}))
+        c = _client()
+        body = c.get(f"/api/novels/{novel_id}/volumes/{vol}/pacing").json()
+        assert body["config"] is None
+        assert body["config_present"] is True and body["config_invalid"] is True
+        assert body["effective"] is None and body["effective_source"] is None
+
+    def test_effective_matches_resolve_config(self):
+        """GET 的 effective 与注入侧 resolve_config 逐字段一致（书默认分支）。"""
+        _, novel_id = _run_async(_seed_book())
+        _run_async(_seed_volume(novel_id, 2))
+        c = _client()
+        c.put(
+            f"/api/novels/{novel_id}/pacing/book-default",
+            json={"preset": "romance", "steps_len": 4},
+        )
+        body = c.get(f"/api/novels/{novel_id}/volumes/vol-2/pacing").json()
+
+        async def _probe():
+            async with async_session() as s:
+                project = await s.get(Novel, novel_id)
+                return await pc.resolve_config(s, project, 2)
+
+        assert body["effective"] == _run_async(_probe())
+
+
+class TestEffectiveOf:
+    def test_volume_book_empty(self):
+        cfg = pc.build_config("case", 5, planned=True)
+        book = {"preset": "upgrade", "steps_len": 4}
+        eff, src = pc.effective_of(cfg, book, 1)
+        assert eff == cfg and src == "volume"
+        eff, src = pc.effective_of(None, book, 1)
+        assert src == "book" and eff["steps"] and eff["ch1_extra_on"] is True
+        eff, src = pc.effective_of(None, book, 2)
+        assert src == "book" and eff["ch1_extra_on"] is False
+        assert pc.effective_of(None, None, 1) == (None, None)
+        assert pc.effective_of({"preset": "nope"}, book, 1)[1] == "book"  # 脏值回落书默认
+
+    def test_fingerprint_covers_task_and_extra(self):
+        cfg = pc.build_config("upgrade", 3)
+        beat = pc.beat_of(4, cfg, 40)
+        base = pc.pacing_fingerprint(beat, True)
+        assert base == pc.pacing_fingerprint(dict(beat), True)
+        assert base != pc.pacing_fingerprint({**beat, "step_task": "改一句"}, True)
+        assert base != pc.pacing_fingerprint(None, True)
+        assert pc.pacing_fingerprint(None, False) != pc.pacing_fingerprint(None, True)

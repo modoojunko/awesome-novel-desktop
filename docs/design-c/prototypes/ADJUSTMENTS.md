@@ -2339,3 +2339,16 @@ boss 口径：「文案太 AI 了，要用大白话」。清一遍 #949/#955/#95
 - **对象状态**：建书中＝`pill-accent`、已建书＝`pill-ok`、建书失败＝`pill-err`；提示条走既有 `notice`（warn 默认／`info` 变体）。未新增令牌/字号档位/胶囊形态。
 - **共享段**：零改动（未触碰 `base.css` 令牌与 `pill/notice/sk/panel/f-err` 家族）。
 - **截图证据**：`openspec/changes/c-deconstruct-import-async/shots/`（importing / imported / import-fail / settings-notice / importing-cancel-confirm / 06-exit-modal）。
+## 2026-10-30 · 节奏会不会照它走＋拆章入口预告（c-pacing-effectiveness）
+
+- **节奏页签（drafts 原型）**：`docs/design-c/drafts/ai-novel-c端-卷纲节奏-原型.src.html` 查看态新增来源行
+  （本卷设置／全书默认／题材或之前某一卷未保存／读不出来）、主「保存到这一卷」/次「改为本卷设置」、
+  条件承诺（有配置但无章数目标时只说「填上目标后才会照它走」）、之前某一卷建议行；演示条加
+  ⑥仅预填 ⑦书默认＋建议 ⑧读不出来 ⑨没填目标 四态。属新增屏块，不触 `prototypes/` parity 基线；
+  `build-pacing-proto.py` 重建、`check-pacing-proto.py` 全绿（29 个 pc- 类有溯源、文案无实现词）。
+- **拆章弹窗（实现侧状态行，不补 book.html DOM）**：三方向态新增五态——「本章将走：第 K 步 · 步名」
+  （任务句 tooltip）／未存节奏＋「去节奏页签」／未设章数目标／超出目标／算不出兜底；过期批标
+  「节奏或章数目标变了」＋「重抽」。`book.html` 的拆章弹窗按 1155/1657 先例为隐藏空壳
+  （`#split-body` 无 JS 填充），`design:check` 本无拆章屏用例——本批只登记偏差，不补 DOM；
+  视觉与交互由实现侧组件测试 + e2e 覆盖。
+- **共享段**：零改动（只用既有 `.btn` / `.pc-fine` / `.pc-openline` / `.tag` 语义类，未新增 pc- 类）。

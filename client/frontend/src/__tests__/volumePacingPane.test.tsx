@@ -60,12 +60,14 @@ const PREFILL = {
   planned: false,
 };
 
-function props(overrides: Partial<{ onChanged: () => void }> = {}) {
+function props(
+  overrides: Partial<{ onChanged: () => void; chapterTarget: number | null }> = {},
+) {
   return {
     projectId: "p1",
     volumeRef: "vol-1",
     volumeNo: 1,
-    chapterTarget: 40,
+    chapterTarget: "chapterTarget" in overrides ? overrides.chapterTarget! : 40,
     onChanged: overrides.onChanged ?? vi.fn(),
     onDirtyChange: vi.fn(),
   };
@@ -231,5 +233,154 @@ describe("VolumePacingPane · 编辑态", () => {
     fireEvent.click(screen.getByRole("button", { name: /破案套路/ }));
     expect(await screen.findByDisplayValue("案发")).toBeInTheDocument();
     expect(screen.getByDisplayValue("12")).toBeInTheDocument();
+  });
+});
+
+// ── c-pacing-effectiveness：来源/是否照它走/出口 ─────────────────────────
+const BOOK = {
+  preset: "case",
+  steps: PRESETS[1].steps.map((s) => ({ ...s })),
+  steps_len: 4,
+  ch1_extra_on: false,
+  ch1_extra: "",
+  planned: false,
+};
+const VOL = { ...PREFILL, planned: true };
+
+function withResult(extra: Record<string, unknown>) {
+  return getVolume.mockResolvedValue({
+    config: null,
+    prefill: PREFILL,
+    source: "genre",
+    effective: null,
+    effective_source: null,
+    config_present: false,
+    config_invalid: false,
+    book_default: null,
+    plan: { target: 40, steps_len: 3, n: 13, rem: 1, last_from: 37, last_to: 40 },
+    presets: PRESETS,
+    theme: "仙侠/修真",
+    sub_genre: "凡人流",
+    ...extra,
+  });
+}
+
+describe("VolumePacingPane · 节奏会不会照它走（c-pacing-effectiveness）", () => {
+  it("仅题材预填：标明没存到本卷，一键保存写预填（planned=false）", async () => {
+    const onChanged = vi.fn();
+    withResult({});
+    render(<VolumePacingPane {...props({ onChanged })} />);
+    expect(await screen.findByTestId("pacing-source")).toHaveTextContent(
+      "题材默认 · 还没存到这一卷",
+    );
+    fireEvent.click(screen.getByTestId("pacing-save-prefill"));
+    await waitFor(() => expect(saveVolume).toHaveBeenCalled());
+    const body = saveVolume.mock.calls[0]?.[2];
+    expect(body).toMatchObject({ preset: "upgrade", steps_len: 3, planned: false });
+    await waitFor(() => expect(onChanged).toHaveBeenCalled());
+  });
+
+  it("书默认生效：标全书默认＋给改为本卷设置；上一卷建议不冒充", async () => {
+    withResult({
+      effective: BOOK,
+      effective_source: "book",
+      prefill: PREFILL,
+      source: "prev",
+      book_default: { preset: "case", steps_len: 4 },
+      plan: { target: 40, steps_len: 4, n: 10, rem: 0, last_from: 37, last_to: 40 },
+    });
+    render(<VolumePacingPane {...props()} />);
+    expect(await screen.findByTestId("pacing-source")).toHaveTextContent(
+      "全书默认 · 拆章会照它走",
+    );
+    expect(screen.getByTestId("pacing-prev-suggest")).toHaveTextContent(
+      "之前某一卷的设置（3 章）还没存到这一卷",
+    );
+    expect(screen.queryByTestId("pacing-save-prefill")).not.toBeInTheDocument();
+    fireEvent.click(screen.getByTestId("pacing-freeze-book"));
+    await waitFor(() => expect(saveVolume).toHaveBeenCalled());
+    expect(saveVolume.mock.calls[0]?.[2]).toMatchObject({ preset: "case", steps_len: 4 });
+  });
+
+  it("之前某一卷建议可采纳：改用这一套写 prev（planned=false）", async () => {
+    withResult({
+      effective: BOOK,
+      effective_source: "book",
+      prefill: PREFILL,
+      source: "prev",
+      plan: { target: 40, steps_len: 4, n: 10, rem: 0, last_from: 37, last_to: 40 },
+    });
+    render(<VolumePacingPane {...props()} />);
+    expect(await screen.findByTestId("pacing-prev-suggest")).toHaveTextContent(
+      "之前某一卷的设置（3 章）还没存到这一卷",
+    );
+    fireEvent.click(screen.getByTestId("pacing-use-prev"));
+    await waitFor(() => expect(saveVolume).toHaveBeenCalled());
+    expect(saveVolume.mock.calls[0]?.[2]).toMatchObject({
+      preset: "upgrade",
+      steps_len: 3,
+      planned: false,
+    });
+  });
+
+  it("本卷设置：已存即承诺四个下游；无出口", async () => {
+    withResult({
+      config: VOL,
+      effective: VOL,
+      effective_source: "volume",
+      source: "volume",
+      config_present: true,
+      plan: { target: 40, steps_len: 3, n: 13, rem: 1, last_from: 37, last_to: 40 },
+    });
+    render(<VolumePacingPane {...props()} />);
+    expect(await screen.findByTestId("pacing-source")).toHaveTextContent(
+      "本卷设置 · 拆章会照它走",
+    );
+    expect(screen.getByTestId("pacing-promise")).toHaveTextContent(
+      "拆章、剧情、推演、正文都照这张表来",
+    );
+    expect(screen.queryByTestId("pacing-save-prefill")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("pacing-freeze-book")).not.toBeInTheDocument();
+  });
+
+  it("有配置但没填章数目标：不承诺照它走", async () => {
+    withResult({
+      config: VOL,
+      effective: VOL,
+      effective_source: "volume",
+      source: "volume",
+      config_present: true,
+      plan: { target: 0, steps_len: 3, n: 1, rem: 0, last_from: 1, last_to: 0 },
+    });
+    render(<VolumePacingPane {...props({ chapterTarget: null })} />);
+    expect(await screen.findByTestId("pacing-source")).toHaveTextContent(
+      "填上本卷章数目标后",
+    );
+    expect(screen.getByTestId("pacing-promise")).not.toHaveTextContent(
+      "都照这张表来",
+    );
+  });
+
+  it("配置读不出来：说读不出来，不说没存；不给保存预填出口", async () => {
+    withResult({ config_invalid: true, config_present: true });
+    render(<VolumePacingPane {...props()} />);
+    expect(await screen.findByTestId("pacing-source")).toHaveTextContent(
+      "本卷设置读不出来 · 请重新保存",
+    );
+    expect(screen.queryByTestId("pacing-save-prefill")).not.toBeInTheDocument();
+  });
+
+  it("书默认生效时进编辑：零改动不脏（基线取 effective，不取预填）", async () => {
+    withResult({
+      effective: BOOK,
+      effective_source: "book",
+      prefill: PREFILL,
+      source: "prev",
+      plan: { target: 40, steps_len: 4, n: 10, rem: 0, last_from: 37, last_to: 40 },
+    });
+    render(<VolumePacingPane {...props()} />);
+    fireEvent.click(await screen.findByRole("button", { name: "编辑节奏" }));
+    const saveBtn = await screen.findByRole("button", { name: "保存" });
+    expect(saveBtn).toBeDisabled();
   });
 });

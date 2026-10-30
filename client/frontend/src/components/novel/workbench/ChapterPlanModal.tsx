@@ -16,10 +16,13 @@ export function ChapterPlanModal({
   plan,
   onAdopt,
   onClose,
+  onGoPacing,
 }: {
   plan: ChapterPlanController;
   onAdopt: () => void;
   onClose: () => void;
+  /** 去这一卷的「节奏」页签（关弹窗＋导航；缺省时只显示提示不出按钮） */
+  onGoPacing?: () => void;
 }) {
   const { state, pickCard, patchDraft, toManual, draw, redraw, freshRedraw, runSelfcheck, openEdit } = plan;
   // 自检收 chapter-review（标准起，tier-plan-four-tiers 3.2——原「免费只读例外」收门）
@@ -29,6 +32,10 @@ export function ChapterPlanModal({
   const chCn = cnNum(state.nextNo);
   const no2 = String(state.nextNo).padStart(2, "0");
   const isAi = state.entrySource === "ai";
+  const ap = state.anchorPacing;
+  const pacingTitle = ap?.preview
+    ? `${ap.preview.step_task}${ap.preview.ch1_extra ? `\n开篇额外交代：${ap.preview.ch1_extra}` : ""}`
+    : undefined;
 
   // 阶段计时：按 STEP_DONE_MS 逐段标完成；出卡（离开 busy）停表。
   // 归零放「离开 busy」侧（effect 重进 busy 的复位晚于首帧绘制，会闪一次「全完成」）——
@@ -60,6 +67,61 @@ export function ChapterPlanModal({
         <p className="kicker">
           卷下拆章 · 第{cn}卷 · 第{state.nextNo}章
         </p>
+
+        {/* 拍位状态（c-pacing-effectiveness）：锚点返回后即可见，忙碌/三方向态都显示；
+            过期批抑制正面预告与旧角标，只给重抽出口 */}
+        {isAi && state.phase !== "error" && ap && (
+          state.pacingStale ? (
+            state.phase === "idle" && state.directions.length > 0 && (
+              <ul className="rp-list" data-testid="split-pacing-stale">
+                <li className="rp-row warn">
+                  <span className="rp-dot" aria-hidden="true" />
+                  <span className="rp-tx">
+                    节奏或章数目标变了——这批是之前出的
+                    {state.pick == null
+                      ? "，重抽才会按当前设置"
+                      : "，换 3 个方向会按当前设置重出"}
+                    {state.pick == null && (
+                      <button
+                        className="lnk"
+                        data-testid="split-pacing-redraw"
+                        onClick={() => void freshRedraw()}
+                      >
+                        重抽
+                      </button>
+                    )}
+                  </span>
+                </li>
+              </ul>
+            )
+          ) : ap.effective === false ? (
+            <p className="ai-note" data-testid="split-pacing-missing">
+              这一卷还没存节奏——拆章不会照套路走（可选）
+              {state.pick == null && state.phase === "idle" && onGoPacing ? (
+                <button className="lnk" data-testid="split-pacing-go" onClick={onGoPacing}>
+                  去节奏页签
+                </button>
+              ) : null}
+            </p>
+          ) : ap.effective === true && ap.preview ? (
+            <p
+              className="ai-note"
+              data-testid="split-pacing-preview"
+              title={pacingTitle}
+              aria-label={pacingTitle}
+            >
+              本章将走：第 {ap.preview.step_idx} 步 · {ap.preview.step_name}
+            </p>
+          ) : ap.effective === true ? (
+            <p className="ai-note" data-testid="split-pacing-reason">
+              {ap.reason === "no_target"
+                ? "本卷还没填章数目标，这一章先不按套路分步（不影响拆章）"
+                : ap.reason === "out_of_target"
+                  ? "本章已超出本卷章数目标，不再按套路分步（不影响拆章）"
+                  : "这一章暂时算不出第几步（不影响拆章）"}
+            </p>
+          ) : null
+        )}
 
         {/* ① 正在想 */}
         {isAi && state.phase === "busy" && (
@@ -152,7 +214,7 @@ export function ChapterPlanModal({
                   <div className="pk-row"><b>碰到的挑战</b><span>{d.obstacle}</span></div>
                   <div className="pk-row"><b>本章结尾</b><span>{d.ending}</span></div>
                   <div className="pk-row"><b>阶段</b><span>{d.stage}</span></div>
-                  {state.pacing && (
+                  {state.pacing && !state.pacingStale && (
                     <div className="pk-row" data-testid={`pick-pacing-${i + 1}`}>
                       <b>本循环</b>
                       <span>
@@ -327,7 +389,11 @@ export function ChapterPlanModal({
               排上后章节列表多出这一章（拟定）；下一章的进场会自动接「{state.draft.ending || state.draft.plot || "本章结尾"}」。
             </p>
             <div className="pick-foot">
-              <button className="btn btn-ghost btn-sm" data-testid="split-redraw" onClick={() => void redraw()}>
+              <button
+                className="btn btn-ghost btn-sm"
+                data-testid="split-redraw"
+                onClick={() => void (state.pacingStale ? freshRedraw() : redraw())}
+              >
                 ↻ 换 3 个方向
               </button>
               <button className="btn btn-ghost btn-sm" onClick={toManual}>

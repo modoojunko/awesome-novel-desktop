@@ -841,6 +841,179 @@ class TestPlanCard:
         assert "第4章" in anchor["source"]
 
 
+def _set_vol_pacing(pid: str, vol_no: int, *, target="keep", pacing=None) -> None:
+    """给已建卷补章数目标/节奏配置（测试专用；不动注入链）。"""
+    from sqlalchemy import select as _sel
+
+    async def _s():
+        async with async_session() as s:
+            vol = (
+                await s.execute(
+                    _sel(Volume).where(
+                        Volume.project_id == pid, Volume.volume_no == vol_no
+                    )
+                )
+            ).scalar_one()
+            if target != "keep":
+                vol.chapter_target = target
+            if pacing is not None:
+                vol.pacing_json = json.dumps(pacing, ensure_ascii=False)
+            await s.commit()
+
+    _run_async(_s())
+
+
+class TestAnchorPacingPreview:
+    def test_preview_uses_volume_chapter_no_not_global(self, client):
+        """第 2 卷第 1 章：全书号 5、卷内号 1——必须按卷内号出第 1 步。"""
+        from volumes import pacing as pc
+
+        pid = _seed_multi(client, [
+            (1, [{"no": n} for n in range(1, 5)]),
+            (2, []),
+        ])
+        _set_vol_pacing(pid, 2, target=40, pacing=pc.build_config("upgrade", 3, planned=True))
+        anchor = client.get(
+            f"/api/novels/{pid}/volumes/vol-2/next-chapter-anchor"
+        ).json()
+        assert anchor["next_no"] == 5  # 全书号只用于展示
+        assert anchor["pacing_effective"] is True
+        assert anchor["pacing_preview"]["step_idx"] == 1  # 卷内第 1 章；用全书号会错成第 2 步
+        assert anchor["pacing_preview"]["step_name"] == "遇麻烦"
+        assert anchor["pacing_preview"]["step_task"]
+        assert anchor["pacing_reason"] is None
+        assert anchor["pacing_fingerprint"]
+
+    def test_preview_ghost_gap_uses_volume_ch_no(self, client):
+        """ghost 空洞：全书号(next_no)与卷内号(ch_no)不同，预告必须跟卷内号。"""
+        from sqlalchemy import select as _sel
+
+        from models.chapter import Chapter
+        from volumes import pacing as pc
+
+        pid = _seed_multi(client, [
+            (1, [{"no": 1}]),
+            (2, [{"no": n} for n in range(1, 7)]),
+        ])
+
+        async def _ghost():
+            async with async_session() as s:
+                rows = (
+                    await s.scalars(
+                        _sel(Chapter).where(
+                            Chapter.project_id == pid,
+                            Chapter.ref.in_(["vol-2-ch-3", "vol-2-ch-4", "vol-2-ch-5"]),
+                        )
+                    )
+                ).all()
+                for row in rows:
+                    row.ghost_of = "vol-2-ch-2"
+                await s.commit()
+
+        _run_async(_ghost())
+        _set_vol_pacing(pid, 2, target=40, pacing=pc.build_config("upgrade", 3))
+        anchor = client.get(
+            f"/api/novels/{pid}/volumes/vol-2/next-chapter-anchor"
+        ).json()
+        assert anchor["next_no"] == 5   # 全书号（展示）
+        # 下一章实际卷内号 7 → 第 1 步；用全书号 5 会错成第 2 步
+        assert anchor["pacing_preview"]["step_idx"] == 1
+
+    def test_preview_no_config_no_target_and_out_of_target(self, client):
+        from volumes import pacing as pc
+
+        pid = _seed_multi(client, [(1, [{"no": 1}, {"no": 2}, {"no": 3}])])
+        # 无配置、无目标：不预告、不误报原因
+        anchor = client.get(
+            f"/api/novels/{pid}/volumes/vol-1/next-chapter-anchor"
+        ).json()
+        assert anchor["pacing_effective"] is False
+        assert anchor["pacing_preview"] is None
+        assert anchor["pacing_reason"] is None
+
+        # 有配置但无目标
+        _set_vol_pacing(pid, 1, target=None, pacing=pc.build_config("upgrade", 3))
+        anchor = client.get(
+            f"/api/novels/{pid}/volumes/vol-1/next-chapter-anchor"
+        ).json()
+        assert anchor["pacing_effective"] is True
+        assert anchor["pacing_preview"] is None
+        assert anchor["pacing_reason"] == "no_target"
+
+        # 有配置、下一章已超出目标（3 章、目标 2 → 下一章 4）
+        _set_vol_pacing(pid, 1, target=2)
+        anchor = client.get(
+            f"/api/novels/{pid}/volumes/vol-1/next-chapter-anchor"
+        ).json()
+        assert anchor["pacing_effective"] is True
+        assert anchor["pacing_preview"] is None
+        assert anchor["pacing_reason"] == "out_of_target"
+
+    def test_anchor_fingerprint_matches_directions(self, client, monkeypatch):
+        """锚点与出卡响应同口径：指纹相等、角标步位相等；锚点不调模型。"""
+        from volumes import pacing as pc
+
+        pid = _seed_vol(client, target=6)
+        _set_vol_pacing(pid, 1, pacing=pc.build_config("upgrade", 3, planned=True))
+        fake = _setup_ai(monkeypatch, _directions_reply())
+        anchor = client.get(
+            f"/api/novels/{pid}/volumes/vol-1/next-chapter-anchor"
+        ).json()
+        assert fake.calls == []  # 锚点不调模型
+        assert anchor["pacing_preview"]["step_idx"] == 1
+
+        r = client.post(f"/api/novels/{pid}/volumes/vol-1/chapters/ai-directions", json={})
+        assert r.status_code == 200, r.text
+        body = r.json()
+        assert body["pacing"] == {
+            "step_idx": anchor["pacing_preview"]["step_idx"],
+            "step_name": anchor["pacing_preview"]["step_name"],
+        }
+        assert body["pacing_fingerprint"] == anchor["pacing_fingerprint"]
+
+    def test_planned_false_and_book_default_still_inject(self, client, monkeypatch):
+        """注入按配置存在，不看 planned；仅书默认（卷列空）也注入；预览字段不进 prompt。"""
+        from volumes import pacing as pc
+
+        # 卷列已保存但未排段：仍注入
+        pid = _seed_vol(client, target=6)
+        _set_vol_pacing(pid, 1, pacing=pc.build_config("upgrade", 3, planned=False))
+        fake = _setup_ai(monkeypatch, _directions_reply())
+        anchor = client.get(
+            f"/api/novels/{pid}/volumes/vol-1/next-chapter-anchor"
+        ).json()
+        r = client.post(f"/api/novels/{pid}/volumes/vol-1/chapters/ai-directions", json={})
+        assert r.status_code == 200, r.text
+        user = fake.calls[0]["messages"][0]["content"]
+        assert user.count("本循环第") == 2  # 位置行 + 硬规则块
+        assert "【拍位硬规则】" in user
+        assert "pacing_preview" not in user and "pacing_reason" not in user
+        assert anchor["pacing_fingerprint"] not in user
+
+        # 卷列空、书默认生效：同样注入
+        pid2 = _seed_vol(client, target=6)
+        client.put(
+            f"/api/novels/{pid2}/pacing/book-default",
+            json={"preset": "upgrade", "steps_len": 3},
+        )
+        fake2 = _setup_ai(monkeypatch, _directions_reply())
+        r2 = client.post(f"/api/novels/{pid2}/volumes/vol-1/chapters/ai-directions", json={})
+        assert r2.status_code == 200, r2.text
+        user2 = fake2.calls[0]["messages"][0]["content"]
+        assert "本循环第" in user2 and "【拍位硬规则】" in user2
+        assert "【第 1 章额外交代】" in user2  # 第 1 卷书默认带开篇交代
+
+    def test_no_config_material_has_no_pacing(self, client, monkeypatch):
+        pid = _seed_vol(client, target=6)
+        fake = _setup_ai(monkeypatch, _directions_reply())
+        r = client.post(f"/api/novels/{pid}/volumes/vol-1/chapters/ai-directions", json={})
+        assert r.status_code == 200, r.text
+        user = fake.calls[0]["messages"][0]["content"]
+        assert "本循环第" not in user
+        assert "【拍位硬规则】" not in user
+        assert r.json()["pacing"] is None
+
+
 # 模板契约钉子已迁提示词仓（c-prompt-source-flip tests/test_templates_pins.py）；
 # 本文件保留行为用例。
 

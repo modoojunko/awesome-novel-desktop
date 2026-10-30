@@ -69,7 +69,7 @@ export default function VolumePacingPane({
     return () => onEditingChange?.(false);
   }, [mode, onEditingChange]);
 
-  const shown = useMemo(() => data?.config ?? data?.prefill ?? null, [data]);
+  const shown = useMemo(() => data?.effective ?? data?.config ?? data?.prefill ?? null, [data]);
   const preset = useMemo(
     () => data?.presets.find((p) => p.key === (draft ?? shown)?.preset) ?? null,
     [data, draft, shown],
@@ -80,8 +80,8 @@ export default function VolumePacingPane({
     return { ...segmentPlan(target, len), target, len };
   }, [draft, shown, data, chapterTarget]);
 
-  // 编辑基线＝卷列有值用卷列，未配置用展示预填（保存即固化到卷列）
-  const baseline = useMemo(() => data?.config ?? data?.prefill ?? null, [data]);
+  // 编辑基线＝实际生效配置，未生效用展示预填（与 shown 同源，零改动不判脏）
+  const baseline = useMemo(() => data?.effective ?? data?.config ?? data?.prefill ?? null, [data]);
   // dirty 剥离 planned：零改动进出编辑不应打掉「已排」（规格＝配置变更才失效）
   const dirty = useMemo(() => {
     if (!draft || !baseline) return false;
@@ -115,6 +115,23 @@ export default function VolumePacingPane({
     }
   }, [draft, projectId, volumeRef, load, onChanged]);
 
+  /** 一键落本卷：预填（保存到这一卷）或生效书默认（改为本卷设置）。
+   *  两者都是配置变更，按既有口径置未排。 */
+  const saveConfig = useCallback(
+    async (cfg: PacingConfig, planned = false) => {
+      setSaving(true);
+      try {
+        await volumePacingApi.saveVolume(projectId, volumeRef, { ...cfg, planned });
+        setMode("view");
+        await load();
+        onChanged();
+      } finally {
+        setSaving(false);
+      }
+    },
+    [projectId, volumeRef, load, onChanged],
+  );
+
   if (loading) return <p className="desc">节奏加载中…</p>;
   if (error) return <p className="desc">{error}</p>;
   if (!data || !shown) return <p className="desc">卷不存在</p>;
@@ -122,6 +139,43 @@ export default function VolumePacingPane({
   const planLine = chapterTarget
     ? `第 1–${chapterTarget} 章 · 按「${preset?.label ?? shown?.preset ?? ""}」约 ${plan.n} 段${plan.rem ? `（末段 ${plan.rem} 章收尾）` : ""}；AI 排卷纲时落成本卷章纲。`
     : "本卷还没设章数目标——填上后这里按套路给段表。";
+
+  // 兼容旧 mock/旧后端：缺 effective 时按 config 回退（生产恒返回 effective）
+  const effective = data.effective ?? data.config ?? null;
+  const effectiveSource = data.effective_source ?? (data.config ? "volume" : null);
+  const hasTarget = (chapterTarget ?? data.plan.target) > 0;
+  const suffix = hasTarget
+    ? "拆章会照它走"
+    : "已保存；填上本卷章数目标后，拆章、剧情、推演、正文才会照它走";
+  let sourceText: string;
+  if (data.config_invalid) {
+    sourceText =
+      "本卷设置读不出来 · 请重新保存" +
+      (effectiveSource === "book" ? "（暂时按全书默认）" : "");
+  } else if (!effective) {
+    sourceText =
+      data.source === "prev"
+        ? "之前某一卷的设置 · 还没存到这一卷"
+        : "题材默认 · 还没存到这一卷";
+  } else if (effectiveSource === "volume") {
+    sourceText = `本卷设置 · ${suffix}`;
+  } else {
+    sourceText = `全书默认 · ${suffix}`;
+  }
+  const prevPrefill =
+    effective &&
+    effectiveSource === "book" &&
+    data.source === "prev" &&
+    data.prefill &&
+    (data.prefill.preset !== effective.preset ||
+      data.prefill.steps_len !== effective.steps_len)
+      ? data.prefill
+      : null;
+  const promise = effective
+    ? hasTarget
+      ? "拆章、剧情、推演、正文都照这张表来。"
+      : "填上本卷章数目标后，拆章、剧情、推演、正文才会照它走。"
+    : "存到这一卷后，拆章、剧情、推演、正文才会照它走。";
 
   return (
     <div>
@@ -189,6 +243,52 @@ export default function VolumePacingPane({
               </>
             )}
           </div>
+          <p className="vc-fine" data-testid="pacing-source" style={{ marginTop: 8 }}>
+            {sourceText}
+          </p>
+          {!effective && !data.config_invalid && shown ? (
+            <div className="vc-rowline" style={{ marginTop: 8 }}>
+              <button
+                className="btn btn-primary btn-sm"
+                data-testid="pacing-save-prefill"
+                disabled={saving}
+                onClick={() => void saveConfig(shown, false)}
+              >
+                保存到这一卷
+              </button>
+            </div>
+          ) : null}
+          {effective && effectiveSource === "book" ? (
+            <div className="vc-rowline" style={{ marginTop: 8 }}>
+              <button
+                className="btn btn-secondary btn-sm"
+                data-testid="pacing-freeze-book"
+                disabled={saving}
+                onClick={() => void saveConfig(effective, false)}
+              >
+                改为本卷设置
+              </button>
+            </div>
+          ) : null}
+          {prevPrefill ? (
+            <div
+              className="vc-rowline"
+              data-testid="pacing-prev-suggest"
+              style={{ marginTop: 8 }}
+            >
+              <span className="vc-fine">
+                之前某一卷的设置（{prevPrefill.steps_len} 章）还没存到这一卷
+              </span>
+              <button
+                className="btn btn-secondary btn-sm"
+                data-testid="pacing-use-prev"
+                disabled={saving}
+                onClick={() => void saveConfig(prevPrefill, false)}
+              >
+                改用这一套
+              </button>
+            </div>
+          ) : null}
           {chapterTarget ? (
             <span className={`vc-recon${overlong ? " warn" : ""}`}>
               ✓ 本卷目标 {chapterTarget} 章 ≈ {wan(chapterTarget)} 万字（网文一卷常见 3–10 万字）
@@ -198,13 +298,16 @@ export default function VolumePacingPane({
           )}
           <div className="vc-planline">
             <em>这一卷的剧情安排</em>
-            <span className={`tag${shown?.planned ? " ok-tag" : ""}`}>
-              {shown?.planned ? "已排" : "未排"}
+            <span
+              className={`tag${data.config?.planned ? " ok-tag" : ""}`}
+              title="未排只表示还没让 AI 排段；拆章、剧情、推演、正文照常按套路走"
+            >
+              {data.config?.planned ? "已排" : "未排"}
             </span>
             <span className="vc-fine">{planLine}</span>
           </div>
-          <p className="vc-fine" style={{ marginTop: 12 }}>
-            配好之后，AI 出剧情、写正文、体检这一卷，都会照这张表来。
+          <p className="vc-fine" data-testid="pacing-promise" style={{ marginTop: 12 }}>
+            {promise}
           </p>
         </div>
       ) : (

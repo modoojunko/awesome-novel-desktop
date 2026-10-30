@@ -66,6 +66,15 @@ function mockApi(opts?: {
         pending: false,
       } });
     }
+    if (path === "/novels/p1/volumes/vol-1/pacing")
+      return Promise.resolve({
+        config: null, prefill: null, source: "genre",
+        effective: null, effective_source: null,
+        config_present: false, config_invalid: false,
+        book_default: null,
+        plan: { target: 0, steps_len: 3, n: 1, rem: 0, last_from: 1, last_to: 0 },
+        presets: [], theme: "", sub_genre: "",
+      });
     if (path === "/novels/p1/characters/graph")
       return Promise.resolve({ ok: true, data: { nodes: [], edges: [] } });
     if (path === "/novels/p1/hooks") return Promise.resolve({ data: { items: [] } });
@@ -73,7 +82,7 @@ function mockApi(opts?: {
   });
 }
 
-function renderVol() {
+function renderVol(extra: { pacingJumpSeq?: number } = {}) {
   return render(
     <VolumeWorkspace
       projectId="p1"
@@ -85,6 +94,7 @@ function renderVol() {
       onRailData={vi.fn()}
         onSplitManual={vi.fn()}
         onEditChapter={() => {}}
+      pacingJumpSeq={extra.pacingJumpSeq}
     />,
   );
 }
@@ -117,6 +127,35 @@ describe("VolumeWorkspace 卷视图", () => {
     expect(screen.queryByText(/整体目标/)).toBeNull();
     expect(screen.queryByText(/结构模板/)).toBeNull();
     expect(screen.queryByText(/待埋伏笔/)).toBeNull();
+  });
+
+  it("拆章弹窗去节奏页签：pacingJumpSeq 递增才切，挂载旧 seq 不抢默认", async () => {
+    const { rerender } = renderVol({ pacingJumpSeq: 0 });
+    await screen.findByText("卷 · 分卷计划");
+    expect(screen.getByRole("tab", { name: "卷纲" })).toHaveAttribute(
+      "aria-selected",
+      "true",
+    );
+    rerender(
+      <VolumeWorkspace
+        projectId="p1"
+        volumeRef="vol-1"
+        wb={wb}
+        onGoChapter={vi.fn()}
+        onVolumeMutated={vi.fn()}
+        onDirtyChange={vi.fn()}
+        onRailData={vi.fn()}
+        onSplitManual={vi.fn()}
+        onEditChapter={() => {}}
+        pacingJumpSeq={1}
+      />,
+    );
+    await waitFor(() =>
+      expect(screen.getByRole("tab", { name: "节奏" })).toHaveAttribute(
+        "aria-selected",
+        "true",
+      ),
+    );
   });
 
   it("进度线：互斥计数＋frontier 定位（首个未归档=草稿第 3 章）", async () => {
