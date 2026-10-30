@@ -389,7 +389,11 @@ export function ChapterPlanModal({
               排上后章节列表多出这一章（拟定）；下一章的进场会自动接「{state.draft.ending || state.draft.plot || "本章结尾"}」。
             </p>
             <div className="pick-foot">
-              <button className="btn btn-ghost btn-sm" data-testid="split-redraw" onClick={() => void redraw()}>
+              <button
+                className="btn btn-ghost btn-sm"
+                data-testid="split-redraw"
+                onClick={() => void (state.pacingStale ? freshRedraw() : redraw())}
+              >
                 ↻ 换 3 个方向
               </button>
               <button className="btn btn-ghost btn-sm" onClick={toManual}>

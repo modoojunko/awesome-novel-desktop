@@ -1597,6 +1597,11 @@ describe("拆章入口拍位预告与会话一致性（c-pacing-effectiveness）
       "换 3 个方向会按当前设置重出",
     );
     expect(screen.queryByTestId("split-pacing-redraw")).toBeNull();
+    // 本章卡的换向在过期态走 fresh：不把旧批并入 exclude
+    fireEvent.click(screen.getByTestId("split-redraw"));
+    await waitFor(() => expect(mockApi.post).toHaveBeenCalledTimes(1));
+    const [, body] = mockApi.post.mock.calls[0] as [string, Record<string, unknown>];
+    expect(body).toEqual({});
   });
 
   it("旧后端锚点缺指纹：按未知处理，恢复旧批不误标过期", async () => {
