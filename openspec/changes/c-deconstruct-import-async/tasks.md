@@ -79,7 +79,7 @@
 - [ ] 10.1 后端全量：`cd client/backend && uv run pytest -q`（含新增矩阵用例）。验证：输出结论附 PR。
 - [ ] 10.2 前端单测＋覆盖率：`cd client/frontend && npm run coverage`。验证：新增分支矩阵全覆盖（step 三值、error 空兜底、book_id 空、取消/重试 busy、结果块四态、确认四臂、未知状态兜底）；明确**不得**把新增可达 UI 扩进 `TaskDetailPage.tsx:837-1195` 的 `v8 ignore` 区。
 - [ ] 10.3 类型与设计门禁：`cd client/frontend && npx tsc --noEmit && npm run design:lint`；`npm run design:check`（像素差 <0.2%）。验证：命令实际输出结论。
-- [ ] 10.4 前端整链 e2e：仿 `e2e/character-library.spec.ts:67-92` 的 route-mock，新增 `e2e/deconstruct-import-async.spec.ts` 覆盖「确认 → 202 → 弹窗关 → toast → 建书中 → 已建书 → 书架出现 → 打开这本书」，以及失败→重试、取消两臂。验证：用例通过输出附 PR（后端链仍由 10.1 的契约测试 + 10.5 真机兜底）。
+- [x] 10.4 前端整链 e2e：仿 `e2e/character-library.spec.ts:67-92` 的 route-mock，新增 `e2e/deconstruct-import-async.spec.ts` 覆盖「确认 → 202 → 弹窗关 → toast → 建书中 → 已建书 → 书架出现 → 打开这本书」，以及失败→重试、取消两臂。验证：用例通过输出附 PR（后端链仍由 10.1 的契约测试 + 10.5 真机兜底）。
 - [ ] 10.5 真机验收：真实任务（世界设定超契约）走建书——记录 `POST import-book` 返回耗时（应 <300ms）、转建书中、书出现时间、完成态；再测三段：精炼中取消（确认无新 `ai_call`）、建书中杀应用（重启后为建书失败、无半本书、重试成功）、建书中删除任务（409）。验证：`api.request` / `ai_call` 日志行 + 截图附 change。
 
 ## 11. 归档准备（随实现 PR）
