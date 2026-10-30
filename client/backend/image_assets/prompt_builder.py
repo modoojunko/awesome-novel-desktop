@@ -493,7 +493,11 @@ async def build_library_avatar_prompt(db: AsyncSession, user_id: str, card) -> d
             declared = {}
     model = config.default_model if config else ""
     names: dict[str, str] = {}
-    candidates = [card.name, *(json.loads(card.aliases or "[]") if card.aliases else [])]
+    try:
+        aliases = json.loads(card.aliases or "[]") if card.aliases else []
+    except (TypeError, ValueError):
+        aliases = []
+    candidates = [card.name, *(aliases if isinstance(aliases, list) else [])]
     for candidate in candidates:
         text_name = str(candidate or "").strip()
         if len(text_name) >= 2:
@@ -522,7 +526,11 @@ async def build_library_avatar_prompt(db: AsyncSession, user_id: str, card) -> d
         names=names,
         seed_source_id=card.id,
         story_genre=card.genre or "",
-        sources_extra={"library_card_id": card.id, "name": card.name},
+        sources_extra={
+            "library_card_id": card.id,
+            "name": card.name,
+            "image_config_id": config.id if config else "",
+        },
     )
 
 

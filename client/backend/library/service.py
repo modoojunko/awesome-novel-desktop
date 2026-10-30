@@ -764,14 +764,9 @@ async def generate_avatar(
         seed=prompt.get("seed"),
         capabilities=prompt.get("capabilities") or {},
     )
-    config = (await db.execute(
-        select(ImageConfig).where(
-            ImageConfig.user_id == user_id,
-            ImageConfig.status == "active",
-            ImageConfig.provider == prompt["provider"],
-        ).order_by(ImageConfig.is_default.desc(), ImageConfig.created_at.asc())
-    )).scalars().first()
-    if config is None:
+    config_id = str((prompt.get("sources") or {}).get("image_config_id") or "")
+    config = await db.get(ImageConfig, config_id) if config_id else None
+    if config is None or config.user_id != user_id or config.status != "active":
         raise LibraryError("no_image_config", "图像配置已被删除——去「模型配置」重新添加再试")
 
     try:
