@@ -22,31 +22,31 @@
 
 ## 2. 后端：整段执行体
 
-- [ ] 2.1 `apply.import_book` 重排：①读产物与投影（纯内存）→ ②`world` 勾选且超契约时调 `deconstruct_condense`（**此时不建书行**）→ ③建书 + 全部写入 → ④终态。精炼结果作为世界写入 body；「条目超上限截断」的 warning 循环作用在**最终 body**（精炼结果）上，不能只留机械路径。验证：假 client 记录调用序，断言「精炼调用 < 建书行创建」；世界＝精炼结果且截断 warning 仍在。
-- [ ] 2.2 预分配书 id：`create_project` 接受可选 `book_id`，`draft_book_id` 在受理提交里就落库；写入成功后一次收尾写 `book_id` + `status='imported'` + `import.finished_at`。验证：崩溃演练（在写 book_id 前后各杀一次）后 sweep 都能凭 `draft_book_id` 清到书。
-- [ ] 2.3 失败与取消清理：**先**写 `import_failed`（含 draft_book_id、error.{message,kind,retryable}）并提交，**再**软删；软删失败留 `draft_book_id` 给 sweep 重试。取消与异常路径都以 `run_id` 条件写（`WHERE status='importing' AND import.run_id=:token`），rowcount=0 只清理自己的 draft 即退出。验证：三臂单测（写失败／取消竞态／取消后立即重建）——反例序列「取消→立刻重建」不得出现两本书或旧次写终态。
-- [ ] 2.4 精炼可中断：复用管线 `_Stopper` + `asyncio.wait` 形态包住 `client.chat`，取消即放弃在途调用。验证：桩客户端挂起时点取消，断言 5 秒内收敛、其后无新调用（假 client 计数不增）；`llm.log` 无新 `ai_call`。
-- [ ] 2.5 执行体生命周期：模块级 `_inflight` 字典持引用 + `add_done_callback` 记日志；主体 `try/except BaseException/finally`，异常路径用独立短事务 + `asyncio.shield` 写终态（桌面壳 3 秒关停会抛 `CancelledError`）。验证：注入 `CancelledError` 后状态不卡 `importing`；逃逸异常有栈日志。
-- [ ] 2.6 看门狗：精炼阶段上界（默认 180s，`started_at` 起算）→ `import_failed(stalled, retryable)`；视图侧再加一层「超 2 倍上界按可重试呈现」。验证：桩果冻结不回，断言在阈值+容差内收敛。
-- [ ] 2.7 写入阶段的锁冲突有界重试：仅 `database is locked`/`disk I/O error` 退避重试 3 次，其余直接失败（`storage_busy` 只覆盖请求级，后台没有）。验证：桩 session 抛 `OperationalError` 两次后成功 → 建书成功；一直失败 → `import_failed` 且 error.kind=`storage_busy`。
-- [ ] 2.8 步骤与秒数：`import.step ∈ {refine, writing, waiting}`、`started_at` 用 `pipeline._now()`（UTC naive）；`attempts[]` append-only 记时间/结果/kind/tokens。验证：单测断言字段与时间口径（`TZ` 双跑）。
+- [x] 2.1 `apply.import_book` 重排：①读产物与投影（纯内存）→ ②`world` 勾选且超契约时调 `deconstruct_condense`（**此时不建书行**）→ ③建书 + 全部写入 → ④终态。精炼结果作为世界写入 body；「条目超上限截断」的 warning 循环作用在**最终 body**（精炼结果）上，不能只留机械路径。验证：假 client 记录调用序，断言「精炼调用 < 建书行创建」；世界＝精炼结果且截断 warning 仍在。
+- [x] 2.2 预分配书 id：`create_project` 接受可选 `book_id`，`draft_book_id` 在受理提交里就落库；写入成功后一次收尾写 `book_id` + `status='imported'` + `import.finished_at`。验证：崩溃演练（在写 book_id 前后各杀一次）后 sweep 都能凭 `draft_book_id` 清到书。
+- [x] 2.3 失败与取消清理：**先**写 `import_failed`（含 draft_book_id、error.{message,kind,retryable}）并提交，**再**软删；软删失败留 `draft_book_id` 给 sweep 重试。取消与异常路径都以 `run_id` 条件写（`WHERE status='importing' AND import.run_id=:token`），rowcount=0 只清理自己的 draft 即退出。验证：三臂单测（写失败／取消竞态／取消后立即重建）——反例序列「取消→立刻重建」不得出现两本书或旧次写终态。
+- [x] 2.4 精炼可中断：复用管线 `_Stopper` + `asyncio.wait` 形态包住 `client.chat`，取消即放弃在途调用。验证：桩客户端挂起时点取消，断言 5 秒内收敛、其后无新调用（假 client 计数不增）；`llm.log` 无新 `ai_call`。
+- [x] 2.5 执行体生命周期：模块级 `_inflight` 字典持引用 + `add_done_callback` 记日志；主体 `try/except BaseException/finally`，异常路径用独立短事务 + `asyncio.shield` 写终态（桌面壳 3 秒关停会抛 `CancelledError`）。验证：注入 `CancelledError` 后状态不卡 `importing`；逃逸异常有栈日志。
+- [x] 2.6 看门狗：精炼阶段上界（默认 180s，`started_at` 起算）→ `import_failed(stalled, retryable)`；视图侧再加一层「超 2 倍上界按可重试呈现」。验证：桩果冻结不回，断言在阈值+容差内收敛。
+- [x] 2.7 写入阶段的锁冲突有界重试：仅 `database is locked`/`disk I/O error` 退避重试 3 次，其余直接失败（`storage_busy` 只覆盖请求级，后台没有）。验证：桩 session 抛 `OperationalError` 两次后成功 → 建书成功；一直失败 → `import_failed` 且 error.kind=`storage_busy`。
+- [x] 2.8 步骤与秒数：`import.step ∈ {refine, writing, waiting}`、`started_at` 用 `pipeline._now()`（UTC naive）；`attempts[]` append-only 记时间/结果/kind/tokens。验证：单测断言字段与时间口径（`TZ` 双跑）。
 
 ## 3. 后端：重启收敛与可观测
 
-- [ ] 3.1 `startup_sweep` 增一步：`status='importing'` → `import_failed(interrupted)`，凭 `draft_book_id` 软删并清 `book_id`；残留 draft 的重试清理要幂等。验证：构造残留行跑 sweep；重复跑不报错。
-- [ ] 3.2 `ai_client` 的 `ai_call` 行带 `task_id`/`run_id`（异步后请求行与 23 秒调用行失去时间对齐，证据链会断）。验证：`llm.log` 出现 `task=… run=…`；按 run_id 能把一次建书的调用串起来。
-- [ ] 3.3 旧任务兼容：无 `import` 键一律按 `completed`；`completed+book_id` 走 1.3 的存量分支。验证：旧夹具任务详情与受理行为用例。
+- [x] 3.1 `startup_sweep` 增一步：`status='importing'` → `import_failed(interrupted)`，凭 `draft_book_id` 软删并清 `book_id`；残留 draft 的重试清理要幂等。验证：构造残留行跑 sweep；重复跑不报错。
+- [x] 3.2 `ai_client` 的 `ai_call` 行带 `task_id`/`run_id`（异步后请求行与 23 秒调用行失去时间对齐，证据链会断）。验证：`llm.log` 出现 `task=… run=…`；按 run_id 能把一次建书的调用串起来。
+- [x] 3.3 旧任务兼容：无 `import` 键一律按 `completed`；`completed+book_id` 走 1.3 的存量分支。验证：旧夹具任务详情与受理行为用例。
 
 ## 4. 后端：透出与徽标
 
-- [ ] 4.1 `service.task_view` 与清单摘要新增 `import`（step/started_at/elapsed/warnings/`error{message,kind,retryable}`/attempts 摘要），不含产物正文与提示词。验证：契约测试断言字段与旧字段不变。
-- [ ] 4.2 徽标：`importing` 计入活动态心跳（顶栏可见），`import_failed` 计入「已完成未取结果」，`imported` 为已消费；文件夹导出/角色库出口的消费各自判定。验证：badge 计数矩阵用例（四态 × 三出口）。
+- [x] 4.1 `service.task_view` 与清单摘要新增 `import`（step/started_at/elapsed/warnings/`error{message,kind,retryable}`/attempts 摘要），不含产物正文与提示词。验证：契约测试断言字段与旧字段不变。
+- [x] 4.2 徽标：`importing` 计入活动态心跳（顶栏可见），`import_failed` 计入「已完成未取结果」，`imported` 为已消费；文件夹导出/角色库出口的消费各自判定。验证：badge 计数矩阵用例（四态 × 三出口）。
 
 ## 5. 后端：建书提示条的存储与端点
 
-- [ ] 5.1 照 `book-prefs` 先例新增专用键：`filesystem/paths.py` 加 `IMPORT_NOTICE_PATH/KEY` 与 `route_relative_path` 分支（**不进 `PATH_TO_KEY`**，防漏进通用 `/settings/{type}` 白名单）。验证：`GET/PUT /settings/{type}` 对 `deconstruct-import-notice` 仍拒绝；专用路由可读写。
-- [ ] 5.2 新增 `settings/import_notice_router.py`：`GET`（无则空）+ `DELETE`（幂等，键不存在也 200）；建书写入阶段末尾落 `{items, task_id, at}`。验证：契约三臂 + 「建书后读回与 `import.warnings` 同文」。
-- [ ] 5.3 登记两份副本允许分叉（不同后端、无共同事务），以前者为准可重生成。验证：设计/代码注释留痕。
+- [x] 5.1 照 `book-prefs` 先例新增专用键：`filesystem/paths.py` 加 `IMPORT_NOTICE_PATH/KEY` 与 `route_relative_path` 分支（**不进 `PATH_TO_KEY`**，防漏进通用 `/settings/{type}` 白名单）。验证：`GET/PUT /settings/{type}` 对 `deconstruct-import-notice` 仍拒绝；专用路由可读写。
+- [x] 5.2 新增 `settings/import_notice_router.py`：`GET`（无则空）+ `DELETE`（幂等，键不存在也 200）；建书写入阶段末尾落 `{items, task_id, at}`。验证：契约三臂 + 「建书后读回与 `import.warnings` 同文」。
+- [x] 5.3 登记两份副本允许分叉（不同后端、无共同事务），以前者为准可重生成。验证：设计/代码注释留痕。
 
 ## 6. 前端：确认四臂与三态详情
 

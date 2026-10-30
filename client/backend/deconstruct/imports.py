@@ -35,6 +35,14 @@ from models.deconstruct import DeconstructJob
 
 log = logging.getLogger(__name__)
 
+# 整段建书上界（2.6 看门狗）：精炼是唯一慢步骤，超界按 stalled 收场——否则进程还活着但
+# 执行体卡死时，「建书中」会一直转圈（应用退出那条路由启动 sweep 兜底，这条管进程活着）。
+IMPORT_TIMEOUT_S = float(os.environ.get("DECONSTRUCT_IMPORT_TIMEOUT", "180"))
+# 写入阶段的锁冲突重试（2.7）：`storage_busy` 只是请求级处理器，后台写入拿到的是
+# OperationalError，没有这层就会把一次瞬时占用变成用户可见的失败。
+IMPORT_BUSY_RETRIES = int(os.environ.get("DECONSTRUCT_IMPORT_BUSY_RETRIES", "2"))
+IMPORT_BUSY_BACKOFF_S = float(os.environ.get("DECONSTRUCT_IMPORT_BUSY_BACKOFF", "0.5"))
+
 # 执行体注册表（防重复调度 + 关停时能取消；Python 只弱引用 task，必须自持）
 _inflight: dict[str, asyncio.Task] = {}
 _stop_events: dict[str, asyncio.Event] = {}
@@ -266,6 +274,23 @@ class ImportFailure(RuntimeError):
         self.retryable = retryable
 
 
+def _is_locked(exc: BaseException) -> bool:
+    """SQLite 写锁/IO 抖动的可重试判定（只认这两类，其余一律不重试）。"""
+    from sqlalchemy.exc import OperationalError
+
+    if not isinstance(exc, OperationalError):
+        return False
+    low = str(exc).lower()
+    return "locked" in low or "disk i/o" in low
+
+
+async def _rotate_draft(task_id: str, run_id: str) -> str | None:
+    """重试臂换一个新的 draft id（旧的半成品已软删，新书用新 id，sweep 仍能清）。"""
+    draft = str(uuid.uuid4())
+    ok = await _patch(task_id, {"draft_book_id": draft}, run_id=run_id)
+    return draft if ok else None
+
+
 def _classify(exc: BaseException) -> dict:
     """失败分诊：可重试 vs 不可重试（design D1/D6）。"""
     from sqlalchemy.exc import OperationalError
@@ -338,7 +363,36 @@ async def _succeed(task_id: str, run_id: str, draft: str | None, result: dict, w
         imp["attempts"] = attempts[-20:]
         state["import"] = imp
         row.dims_json = json.dumps(state, ensure_ascii=False)
+        book_id = row.book_id
         await session.commit()
+
+    await _write_notice(book_id, task_id, warnings)
+
+
+async def _write_notice(book_id: str, task_id: str, warnings: list[str]) -> None:
+    """把建书降级提示落到书侧 KV（新书设定页顶部提示条读它）。
+
+    与任务侧 `import.warnings` 是**两份副本**（不同后端、无共同事务）：任务详情以载荷为准，
+    这份是给用户看的。写失败不拖垮已建成的书，只留日志。
+    """
+    if not warnings or not book_id:
+        return
+    try:
+        from filesystem.paths import IMPORT_NOTICE_PATH
+        from filesystem.storage import get_storage
+        from models.project import Novel
+
+        async with async_session() as session:
+            novel = await session.get(Novel, book_id)
+            if novel is None:
+                return
+            await get_storage().write_yaml(
+                novel.root_path,
+                IMPORT_NOTICE_PATH,
+                {"items": list(warnings), "task_id": task_id, "at": _now().isoformat()},
+            )
+    except Exception:  # noqa: BLE001 — 提示条是副本，写失败不影响书
+        log.warning("event=deconstruct_import_notice_failed task=%s", task_id, exc_info=True)
 
 
 async def run(task_id: str) -> None:
@@ -355,6 +409,9 @@ async def run(task_id: str) -> None:
     if not run_id or st.status != "importing":
         return
 
+    from ai_client import TASK_CTX
+
+    ctx_token = TASK_CTX.set({"task": task_id, "run": run_id})
     stop_event = asyncio.Event()
     _stop_events[task_id] = stop_event
     lock = _lock_for_loop()
@@ -372,29 +429,58 @@ async def run(task_id: str) -> None:
             if await _is_cancelled():
                 await soft_delete_book(draft)
                 return
+            # 写入前二次校验额度：受理时查过一次，但精炼这段时间里用户可能又建了一本
+            # （评审 P1-7）。必须在建书行之前拦，否则会多出一本超额的可见书。
             async with async_session() as db:
                 task = await db.get(DeconstructJob, task_id)
                 if task is None or task.status != "importing":
                     await soft_delete_book(draft)
                     return
-                # 写入前二次校验额度：受理时查过一次，但精炼这段时间里用户可能又建了一本
-                # （评审 P1-7）。必须在建书行之前拦，否则会多出一本超额的可见书。
                 from auth_local.deps import project_quota_reject
 
                 reject = await project_quota_reject(db, task.user_id)
                 if reject:
                     # 额度满属「重试也没用」：显式分诊，前端不给重试按钮（评审 P2）
                     raise ImportFailure(reject, kind="quota", retryable=False)
-                result, warnings = await apply.import_book(
-                    db,
-                    task,
-                    task.user_id,
-                    items,
-                    book_id=draft,
-                    on_step=_on_step,
-                    is_cancelled=_is_cancelled,
-                    stop_event=stop_event,
-                )
+
+            refine_cache: dict = {}  # 锁冲突重试复用精炼结果，不重付一次 23 秒调用
+            attempt = 0
+            while True:
+                try:
+                    # 每次尝试一个新 session：OperationalError 之后旧事务已不可用
+                    async with async_session() as db:
+                        task = await db.get(DeconstructJob, task_id)
+                        if task is None or task.status != "importing":
+                            await soft_delete_book(draft)
+                            return
+                        result, warnings = await asyncio.wait_for(
+                            apply.import_book(
+                                db,
+                                task,
+                                task.user_id,
+                                items,
+                                book_id=draft,
+                                on_step=_on_step,
+                                is_cancelled=_is_cancelled,
+                                stop_event=stop_event,
+                                refine_cache=refine_cache,
+                            ),
+                            timeout=IMPORT_TIMEOUT_S,
+                        )
+                    break
+                except BaseException as exc:  # noqa: BLE001 — 只重试锁冲突，其余原样抛
+                    if not _is_locked(exc) or attempt >= IMPORT_BUSY_RETRIES:
+                        raise
+                    attempt += 1
+                    log.warning(
+                        "event=deconstruct_import_busy_retry task=%s attempt=%s", task_id, attempt
+                    )
+                    await soft_delete_book(draft)  # 半成品先清，重试不叠书
+                    rotated = await _rotate_draft(task_id, run_id)
+                    if rotated is None:
+                        raise
+                    draft = rotated
+                    await asyncio.sleep(IMPORT_BUSY_BACKOFF_S * attempt)
         await _succeed(task_id, run_id, draft, result, warnings)
     except apply.ImportCancelled:
         await soft_delete_book(draft)
@@ -417,6 +503,7 @@ async def run(task_id: str) -> None:
             await asyncio.shield(_fail(task_id, run_id, draft, exc))
     finally:
         _stop_events.pop(task_id, None)
+        TASK_CTX.reset(ctx_token)
 
 
 async def sweep() -> None:

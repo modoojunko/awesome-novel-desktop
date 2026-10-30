@@ -4,6 +4,7 @@
 C/S 模式下从本地 config.json 动态读取 API Key/Base URL/Model，而不是从 config.py。
 """
 
+import contextvars
 import inspect
 import json
 import logging
@@ -99,6 +100,23 @@ _UPSTREAM_STATUS_ERRORS: tuple[type[Exception], ...] = (
 
 # backend-logging（D7）：AI 调用链留痕。每次真实调用（无论成败）一行——
 # 成功 INFO、失败 WARNING 带归一化分类；正文/Key 不落日志（只记结果与计数）。
+# 任务上下文（c-deconstruct-import-async 3.2）：拆书管线/建书执行体把 task（与建书 run_id）
+# 放进来，`ai_call` 行带上它——建书改成后台阶段后，请求行（<300ms）与那次 23 秒的精炼
+# 调用不再相邻，没有这两个键就无法把一次建书的调用串成一条证据链。
+TASK_CTX: contextvars.ContextVar[dict | None] = contextvars.ContextVar("ai_task_ctx", default=None)
+
+
+def task_ctx_tag() -> str:
+    """ai_call 行尾的任务标记（无上下文时为空串，日志格式零变化）。"""
+    ctx = TASK_CTX.get()
+    if not ctx:
+        return ""
+    tag = f" task={ctx.get('task', '')}"
+    if ctx.get("run"):
+        tag += f" run={ctx['run']}"
+    return tag
+
+
 logger = logging.getLogger(__name__)
 
 
@@ -465,9 +483,9 @@ class AIClient:
                 )
             logger.info(
                 "event=ai_call op=%s model=%s vendor=%s host=%s attempt=%s duration_ms=%.0f"
-                " tokens_in=%d tokens_out=%d result=ok%s",
+                " tokens_in=%d tokens_out=%d result=ok%s%s",
                 op, mdl, vendor, host, attempt, duration_ms,
-                tokens_in or 0, tokens_out or 0, meta,
+                tokens_in or 0, tokens_out or 0, meta, task_ctx_tag(),
             )
         else:
             # 判死失败行带思考元数据（c-thinking-display 评审 P3a）：思考时长/字数
@@ -479,9 +497,9 @@ class AIClient:
             )
             logger.warning(
                 "event=ai_call op=%s model=%s vendor=%s host=%s attempt=%s duration_ms=%.0f"
-                " result=%s error=%s%s",
+                " result=%s error=%s%s%s",
                 op, mdl, vendor, host, attempt, duration_ms,
-                _classify_error(error), str(error)[:200], meta,
+                _classify_error(error), str(error)[:200], meta, task_ctx_tag(),
             )
 
     def _supports_temperature(self) -> bool:

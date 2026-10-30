@@ -896,6 +896,11 @@ async def run_task(task_id: str) -> None:
         await _fail(task_id, error={"message": str(e), "kind": "model"})
         return
 
+    # 任务上下文（3.2）：ai_call 行带上 task，异步化后仍能把调用串成证据链
+    from ai_client import TASK_CTX
+
+    _ctx_token = TASK_CTX.set({"task": task_id})
+
     chapters = await _load_chapters(task)
     state = await _read_dims(task_id)
     selected = _selected(task)
@@ -1465,6 +1470,7 @@ async def run_task(task_id: str) -> None:
     finally:
         await _sweep_running(task_id)  # 调度落账收尾（c-deconstruct-monitor）：running 残留置 failed，幂等
         await watch.stop()
+        TASK_CTX.reset(_ctx_token)  # 任务上下文不残留到队列里的下一个任务
 
     await _patch(task_id, status="completed", finished_at=_now())
 
