@@ -131,7 +131,16 @@ class ImportCancelled(RuntimeError):
 
 
 async def _race_stop(coro, stop_event):
-    """在途调用与取消信号竞速（照拆书管线 _Stopper 口径）：取消即放弃在途请求。"""
+    """在途调用与取消信号竞速（照拆书管线 _Stopper 口径）：取消即放弃在途请求。
+
+    两条取消来源都必须掐断在途请求：
+
+    - `stop_event` 置位；
+    - **外层任务被 `task.cancel()`** ——取消端点是「先置位、紧接着 cancel 执行体」，
+      `ev.set()` 只把唤醒排进 call_soon，`task.cancel()` 会先取消这里的 `asyncio.wait`，
+      所以这条才是常见路径。原先只处理了 stop_event 分支，外层取消时 `chat` 成了孤儿，
+      那次 23 秒的调用会继续跑完并计费（评审实证）。
+    """
     if stop_event is None:
         return await coro
     import asyncio
@@ -139,14 +148,18 @@ async def _race_stop(coro, stop_event):
 
     chat = asyncio.ensure_future(coro)
     stop = asyncio.ensure_future(stop_event.wait())
-    done, _pending = await asyncio.wait({chat, stop}, return_when=asyncio.FIRST_COMPLETED)
-    if chat in done:
+    try:
+        done, _pending = await asyncio.wait({chat, stop}, return_when=asyncio.FIRST_COMPLETED)
+    except asyncio.CancelledError:
+        chat.cancel()  # 在途请求一起放弃：不留孤儿 future 继续烧 token
         stop.cancel()
+        raise
+    stop.cancel()
+    if chat in done:
         return chat.result()
     chat.cancel()
     with contextlib.suppress(BaseException):
         await chat
-    stop.cancel()
     raise ImportCancelled("建书已取消")
 
 

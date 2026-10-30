@@ -5,6 +5,7 @@
 """
 
 import asyncio
+import contextlib
 import json
 import os
 import tempfile
@@ -499,3 +500,67 @@ def test_stale_run_failure_only_cleans_its_own_draft(client):
             return row.status if row else None
 
     assert _run(_book_status(new_book)) == "active"  # 新一轮的书没被误删
+
+
+def test_race_stop_cancels_inflight_call_on_outer_cancel():
+    """外层取消（取消端点走 task.cancel() 的那条路）必须掐断在途调用。
+
+    否则「取消建书」之后那次 23 秒的精炼会继续跑完并计费（评审实证：修复前桩调用的
+    CancelledError 分支始终不触发）。stop_event 分支是另一条来源，两条都要掐。
+    """
+    from deconstruct import apply as apply_mod
+
+    async def _go():
+        started = asyncio.Event()
+        aborted = asyncio.Event()
+
+        async def slow():
+            started.set()
+            try:
+                await asyncio.sleep(5)
+            except asyncio.CancelledError:
+                aborted.set()
+                raise
+
+        outer = asyncio.ensure_future(apply_mod._race_stop(slow(), asyncio.Event()))
+        await started.wait()
+        outer.cancel()  # 等价于 imports.cancel() 里的 task.cancel()
+        with contextlib.suppress(BaseException):
+            await outer
+        await asyncio.sleep(0.05)
+        return aborted.is_set()
+
+    assert _run(_go()) is True
+
+
+def test_race_stop_honours_stop_event():
+    """stop_event 置位也要掐断在途调用并抛 ImportCancelled。"""
+    from deconstruct import apply as apply_mod
+
+    async def _go():
+        started = asyncio.Event()
+        aborted = asyncio.Event()
+
+        async def slow():
+            started.set()
+            try:
+                await asyncio.sleep(5)
+            except asyncio.CancelledError:
+                aborted.set()
+                raise
+
+        ev = asyncio.Event()
+        outer = asyncio.ensure_future(apply_mod._race_stop(slow(), ev))
+        await started.wait()
+        ev.set()
+        raised = None
+        with contextlib.suppress(BaseException) as _:
+            try:
+                await outer
+            except apply_mod.ImportCancelled as e:
+                raised = e
+        await asyncio.sleep(0.05)
+        return raised is not None, aborted.is_set()
+
+    raised, aborted = _run(_go())
+    assert raised is True and aborted is True
