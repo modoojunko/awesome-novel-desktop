@@ -127,3 +127,45 @@ describe("TaskListPage", () => {
     expect(screen.queryByText("NaN")).not.toBeInTheDocument(); // 空值留白，不出 Invalid Date
   });
 });
+
+
+// ── 建书三态与未知状态兜底（c-deconstruct-import-async）────────────────────
+
+const baseTask = {
+  total_chars: 1000, chapter_count: 2, volume_count: 1, ai_model: "qwen3-max",
+  created_at: "2026-10-30T10:00:00", finished_at: null, queued_ahead: 0,
+  product_count: 10, error: "",
+};
+
+describe("TaskListPage 建书三态", () => {
+  it("建书中/已建书/建书失败 各有徽标与摘要", async () => {
+    state.list.mockResolvedValue({
+      tasks: [
+        { ...baseTask, id: "a", status: "importing", book_name: "归墟纪", import: { step: "refine", error: {}, warnings: [], items: [], run_id: "r", started_at: null, finished_at: null, attempts: [] } },
+        { ...baseTask, id: "b", status: "imported", book_name: "星海远征" },
+        { ...baseTask, id: "c", status: "import_failed", book_name: "万川归海", import: { step: "", error: { message: "存储忙", kind: "storage_busy", retryable: true }, warnings: [], items: [], run_id: "r2", started_at: null, finished_at: null, attempts: [] } },
+      ],
+      heartbeat: { running: 0, queued: 0, importing: 1 },
+      badge: 2,
+    });
+    renderPage();
+    await waitFor(() => expect(screen.getByText("归墟纪")).toBeInTheDocument());
+    expect(screen.getByText("建书中")).toBeInTheDocument();
+    expect(screen.getByText("已建书")).toBeInTheDocument();
+    expect(screen.getByText("建书失败")).toBeInTheDocument();
+    expect(screen.getByText(/正在建书，可以离开/)).toBeInTheDocument();
+    expect(screen.getByText(/已建书 · 详情里可打开这本书/)).toBeInTheDocument();
+    expect(screen.getByText(/存储忙 · 可重试/)).toBeInTheDocument();
+  });
+
+  it("未知状态回落默认徽标，整页不崩（旧版本/脏数据）", async () => {
+    state.list.mockResolvedValue({
+      tasks: [{ ...baseTask, id: "x", status: "weird_state", book_name: "未来之书" }],
+      heartbeat: { running: 0, queued: 0 },
+      badge: 0,
+    });
+    renderPage();
+    await waitFor(() => expect(screen.getByText("未来之书")).toBeInTheDocument());
+    expect(screen.getByText("weird_state")).toBeInTheDocument();
+  });
+});

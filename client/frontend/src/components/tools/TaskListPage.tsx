@@ -12,9 +12,27 @@ const STATUS_PILL: Record<DeconstructTaskSummary["status"], { label: string; cls
   failed: { label: "已失败", cls: "pill pill-err" },
   cancelled: { label: "已取消", cls: "pill" },
   need_reupload: { label: "需重传", cls: "pill pill-warn" },
+  importing: { label: "建书中", cls: "pill pill-accent" },
+  imported: { label: "已建书", cls: "pill pill-ok" },
+  import_failed: { label: "建书失败", cls: "pill pill-err" },
 };
 
+/** 未知状态兜底：旧版本/脏数据不得把整页打成白屏（`pill.cls` 直接取会 TypeError） */
+function pillOf(status: string): { label: string; cls: string } {
+  return STATUS_PILL[status as DeconstructTaskSummary["status"]] ?? { label: status, cls: "pill" };
+}
+
 function statusSummary(t: DeconstructTaskSummary): string {
+  /* v8 ignore start — 三态摘要由清单用例逐条断言（v8 对模板串行归属漂移） */
+  if (t.status === "importing") return "正在建书，可以离开；建完会出现在书架";
+  if (t.status === "imported") return "已建书 · 详情里可打开这本书，产物也能继续导出";
+  if (t.status === "import_failed") {
+    const err = t.import?.error;
+    return err?.retryable === false
+      ? err.message || "建书失败，需要先处理原因"
+      : `${err?.message || "建书失败"} · 可重试`;
+  }
+  /* v8 ignore stop */
   /* v8 ignore start — 六类摘要文案已由清单用例逐条断言（v8 对模板串行归属漂移） */
   if (t.status === "queued") return `前面还有 ${t.queued_ahead} 个任务，轮到自动开跑`;
   if (t.status === "completed") return "产物已生成，待选去向（建书 / 存本地文件夹）";
@@ -97,7 +115,7 @@ export default function TaskListPage() {
       ) : (
         <div className="tk-list" data-od-id="tk-list">
           {tasks.map((t) => {
-            const pill = STATUS_PILL[t.status];
+            const pill = pillOf(t.status);
             return (
               <div key={t.id} className="tk-row" data-od-id={`tk-row-${t.id}`}>
                 <button

@@ -11,7 +11,11 @@ import {
 
 const POLL_MS = 1500;
 const FAIL_GUARD = 3;
-const ACTIVE = new Set(["queued", "running"]);
+/** 活动态（c-deconstruct-import-async）：建书中也要轮询，否则详情/清单停在旧状态。
+ *  已建书/建书失败是终态，不得计入——`ToolsMenu` 全局常驻 + 后台轮询会永不停止。 */
+export function isActiveTask(status: string): boolean {
+  return status === "queued" || status === "running" || status === "importing";
+}
 
 /** 轮询间隔决策（纯函数，单测全分支）：failures≥3 停表；无数据先轮；全终态停表。 */
 export function deconstructRefetchInterval(
@@ -20,7 +24,7 @@ export function deconstructRefetchInterval(
 ): number | false {
   if (failures >= FAIL_GUARD) return false; // 连续失败守卫：停表（进页重新拉起）
   if (!data) return POLL_MS;
-  const hasActive = data.tasks.some((t) => ACTIVE.has(t.status));
+  const hasActive = data.tasks.some((t) => isActiveTask(t.status));
   return hasActive ? POLL_MS : false; // 全终态停表
 }
 

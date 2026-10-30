@@ -14,6 +14,7 @@ import {
   getDeconstructEvidence,
   getDeconstructProduct,
   getDeconstructTask,
+  cancelImportBook,
   importBookFromTask,
   listDeconstructTasks,
   probeModel,
@@ -230,5 +231,16 @@ describe("角色库第三出口（c-charlib-deconstruct-exit）", () => {
     const [url, init] = state.fetch.mock.calls[0];
     expect(String(url)).toContain("/to-library");
     expect(JSON.parse(init.body)).toEqual({ picks: ["沈青崖"], rename: true });
+  });
+});
+
+
+describe("cancelImportBook（c-deconstruct-import-async）", () => {
+  it("POST 到 cancel 端点并透传状态", async () => {
+    const fetchMock = vi.fn(async (..._args: unknown[]) => new Response(JSON.stringify({ status: "completed" })));
+    vi.stubGlobal("fetch", fetchMock);
+    await expect(cancelImportBook("t1")).resolves.toEqual({ status: "completed" });
+    expect(String(fetchMock.mock.calls[0]?.[0])).toContain("/deconstruct/tasks/t1/import-book/cancel");
+    expect((fetchMock.mock.calls[0]?.[1] as RequestInit).method).toBe("POST");
   });
 });

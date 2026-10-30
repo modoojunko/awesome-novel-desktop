@@ -15,6 +15,7 @@ const state = vi.hoisted(() => ({
   resume: vi.fn(),
   retry: vi.fn(),
   importBook: vi.fn(),
+  cancelImport: vi.fn(),
   export: vi.fn(),
   modelOpts: vi.fn(),
   candidates: vi.fn(),
@@ -32,6 +33,7 @@ vi.mock("@/lib/deconstructApi", () => ({
   resumeDeconstructTask: state.resume,
   retryUploadDeconstructTask: state.retry,
   importBookFromTask: state.importBook,
+  cancelImportBook: state.cancelImport,
   exportTaskProducts: state.export,
   fetchModelOptions: state.modelOpts,
   getLibraryCandidates: state.candidates,
@@ -43,7 +45,7 @@ vi.mock("@/lib/deconstructApi", () => ({
   ],
 }));
 
-import TaskDetailPage, { statsLine } from "@/components/tools/TaskDetailPage";
+import TaskDetailPage, { importStepState, statsLine } from "@/components/tools/TaskDetailPage";
 
 /** 泡泡两模型清单（c-deconstruct-inline-model-switch）：c1 对＝任务原模型对
  *  （detailOf 夹具 ai_model/api_config_id），供「原模型」旗标与选回清空臂用。 */
@@ -1244,5 +1246,379 @@ describe("角色库第三出口（c-charlib-deconstruct-exit）", () => {
     await waitFor(() => expect(screen.getByTestId("library-submit")).toBeInTheDocument());
     fireEvent.click(screen.getByTestId("library-submit"));
     await waitFor(() => expect(screen.queryByTestId("library-panel")).not.toBeInTheDocument());
+  });
+});
+
+
+// ── 建书异步阶段（c-deconstruct-import-async）：确认四臂 + 三态 ──────────────
+
+describe("建书异步阶段", () => {
+  // Vitest4：restoreAllMocks 不清 vi.fn 的调用历史——本组用例自管，避免 toHaveBeenCalledOnce 被前序用例污染
+  beforeEach(() => {
+    state.importBook.mockClear();
+    state.cancelImport.mockClear();
+    toastState.info.mockClear();
+    toastState.error.mockClear();
+  });
+
+  const importState = (over: Record<string, unknown> = {}) => ({
+    run_id: "r1",
+    items: ["intro", "world"],
+    step: "refine",
+    started_at: new Date().toISOString(),
+    finished_at: null,
+    warnings: [],
+    error: { message: "", kind: "", retryable: true },
+    attempts: [],
+    ...over,
+  });
+
+  it("受理 202：关弹窗 + 提示可以离开，不跳转", async () => {
+    seedMax();
+    state.get.mockResolvedValue(detailOf("completed"));
+    state.importBook.mockResolvedValue({
+      status: "importing",
+      book_id: null,
+      name: "星海远征",
+      skipped: [],
+      warnings: [],
+      import: importState(),
+    });
+    renderPage();
+    await waitFor(() => expect(screen.getByText("选择去向")).toBeInTheDocument());
+    fireEvent.click(screen.getByText("选择去向"));
+    fireEvent.click(screen.getByText("就建这本书"));
+
+    await waitFor(() => expect(state.importBook).toHaveBeenCalledOnce());
+    await waitFor(() => expect(screen.queryByText(/稍后再说/)).not.toBeInTheDocument());
+    expect(toastState.info).toHaveBeenCalledWith(
+      expect.stringContaining("已开始建书"),
+    );
+  });
+
+  it("幂等 200：提示已建过、关弹窗，不跳转", async () => {
+    seedMax();
+    state.get.mockResolvedValue(detailOf("completed"));
+    state.importBook.mockResolvedValue({
+      status: "imported",
+      book_id: "book-9",
+      name: "星海远征",
+      skipped: [],
+      warnings: [],
+    });
+    renderPage();
+    await waitFor(() => expect(screen.getByText("选择去向")).toBeInTheDocument());
+    fireEvent.click(screen.getByText("选择去向"));
+    fireEvent.click(screen.getByText("就建这本书"));
+
+    await waitFor(() =>
+      expect(toastState.info).toHaveBeenCalledWith(expect.stringContaining("已经建过")),
+    );
+    expect(screen.queryByText(/稍后再说/)).not.toBeInTheDocument();
+  });
+
+  it("4xx：弹窗保留并就地报错（不把出口关掉）", async () => {
+    seedMax();
+    state.get.mockResolvedValue(detailOf("completed"));
+    state.importBook.mockRejectedValue(new Error("当前套餐最多创建 1 个项目"));
+    renderPage();
+    await waitFor(() => expect(screen.getByText("选择去向")).toBeInTheDocument());
+    fireEvent.click(screen.getByText("选择去向"));
+    fireEvent.click(screen.getByText("就建这本书"));
+
+    await waitFor(() =>
+      expect(screen.getByText("当前套餐最多创建 1 个项目")).toBeInTheDocument(),
+    );
+    expect(screen.getByText(/稍后再说/)).toBeInTheDocument();
+  });
+
+  it("建书中：显示步骤与秒数，取消走两步确认", async () => {
+    seedMax();
+    state.get.mockResolvedValue(
+      detailOf("importing", { import: importState({ step: "refine" }), book_id: null }),
+    );
+    state.cancelImport.mockResolvedValue({ status: "completed" });
+    renderPage();
+
+    await waitFor(() => expect(screen.getByText(/整段在后台执行/)).toBeInTheDocument());
+    expect(screen.getAllByText("建书中").length).toBeGreaterThan(0); // 页头徽标 + 面板标题
+    expect(screen.getByText(/已 \d+ 秒/)).toBeInTheDocument();
+    // 建书中不出现删除入口（后端也会 409）
+    expect(screen.getByText("删除任务及产物")).toBeDisabled();
+
+    fireEvent.click(screen.getByText("取消建书"));
+    expect(screen.queryByText("确认取消建书")).toBeInTheDocument();
+    fireEvent.click(screen.getByText("确认取消建书"));
+    await waitFor(() => expect(state.cancelImport).toHaveBeenCalledWith("t2"));
+  });
+
+  it("已建书：结果目录仍在，且有「打开这本书」", async () => {
+    seedMax();
+    state.get.mockResolvedValue(detailOf("imported", { book_id: "book-9" }));
+    renderPage();
+    await waitFor(() => expect(screen.getByText("打开这本书")).toBeInTheDocument());
+    expect(screen.getAllByText(/结果目录/).length).toBeGreaterThan(0);
+    expect(screen.getByText("选择去向")).toBeInTheDocument();
+  });
+
+  it("建书失败：可重试时给重试按钮；不可重试时不给", async () => {
+    seedMax();
+    state.get.mockResolvedValue(
+      detailOf("import_failed", {
+        import: importState({
+          error: { message: "写入设定时存储忙", kind: "storage_busy", retryable: true },
+        }),
+      }),
+    );
+    renderPage();
+    await waitFor(() => expect(screen.getByText("重试建书")).toBeInTheDocument());
+    cleanup();
+
+    state.get.mockResolvedValue(
+      detailOf("import_failed", {
+        import: importState({
+          error: { message: "当前套餐最多创建 1 个项目", kind: "quota", retryable: false },
+        }),
+      }),
+    );
+    renderPage();
+    await waitFor(() => expect(screen.getAllByText(/建书失败/).length).toBeGreaterThan(0));
+    expect(screen.queryByText("重试建书")).not.toBeInTheDocument();
+  });
+});
+
+
+describe("importStepState（建书步骤三态，纯函数全分支）", () => {
+  it("refine/writing 各自轮到、越过、未到", () => {
+    // 未开始（含 waiting/空）
+    expect(importStepState("waiting", "refine")).toBe("待开始");
+    expect(importStepState("", "writing")).toBe("待开始");
+    // 精炼中
+    expect(importStepState("refine", "refine")).toBe("进行中");
+    expect(importStepState("refine", "writing")).toBe("待开始");
+    // 写入中：精炼已完成
+    expect(importStepState("writing", "refine")).toBe("完成");
+    expect(importStepState("writing", "writing")).toBe("进行中");
+    // 完成：两步都完成
+    expect(importStepState("done", "refine")).toBe("完成");
+    expect(importStepState("done", "writing")).toBe("完成");
+  });
+});
+
+
+describe("建书三态的交互臂（覆盖率补齐）", () => {
+  const importState = (over: Record<string, unknown> = {}) => ({
+    run_id: "r1",
+    items: ["intro"],
+    step: "done",
+    started_at: null,
+    finished_at: null,
+    warnings: [],
+    error: { message: "", kind: "", retryable: true },
+    attempts: [],
+    ...over,
+  });
+
+  it("done 步骤：两步都显示完成；无 started_at 不显示秒数；继续等收起确认", async () => {
+    seedMax();
+    state.get.mockResolvedValue(
+      detailOf("importing", { import: importState({ step: "done", started_at: null }), book_id: null }),
+    );
+    renderPage();
+    await waitFor(() => expect(screen.getByText(/整段在后台执行/)).toBeInTheDocument());
+    expect(screen.queryByText(/已 \d+ 秒/)).not.toBeInTheDocument();
+    fireEvent.click(screen.getByText("取消建书"));
+    fireEvent.click(screen.getByText("继续等"));
+    expect(screen.queryByText("确认取消建书")).not.toBeInTheDocument();
+    expect(screen.getByText("取消建书")).toBeInTheDocument();
+  });
+
+  it("已建书：点「打开这本书」跳到书内", async () => {
+    seedMax();
+    state.get.mockResolvedValue(detailOf("imported", { book_id: "book-9" }));
+    renderPage();
+    await waitFor(() => expect(screen.getByText("打开这本书")).toBeInTheDocument());
+    fireEvent.click(screen.getByText("打开这本书"));
+    // 跳到 /novel/book-9：本页卸载（用「选择去向」消失证明发生了导航）
+    await waitFor(() => expect(screen.queryByText("选择去向")).not.toBeInTheDocument());
+  });
+
+  it("建书失败可重试：点重试会再次受理；另一个按钮打开出口弹窗", async () => {
+    seedMax();
+    state.get.mockResolvedValue(
+      detailOf("import_failed", {
+        import: importState({
+          step: "",
+          error: { message: "存储忙", kind: "storage_busy", retryable: true },
+        }),
+      }),
+    );
+    state.importBook.mockResolvedValue({
+      status: "importing",
+      book_id: null,
+      name: "星海远征",
+      skipped: [],
+      warnings: [],
+    });
+    renderPage();
+    await waitFor(() => expect(screen.getByText("重试建书")).toBeInTheDocument());
+    fireEvent.click(screen.getByText("重试建书"));
+    await waitFor(() => expect(state.importBook).toHaveBeenCalledWith("t2"));
+    expect(toastState.info).toHaveBeenCalledWith(expect.stringContaining("重新开始建书"));
+
+    fireEvent.click(screen.getByText("存本地文件夹 / 收进角色库"));
+    expect(screen.getByText("稍后再说")).toBeInTheDocument();
+  });
+});
+
+
+describe("建书三态的错误出口", () => {
+  const st = (over: Record<string, unknown> = {}) => ({
+    run_id: "r1", items: ["intro"], step: "refine", started_at: null, finished_at: null,
+    warnings: [], error: { message: "", kind: "", retryable: true }, attempts: [], ...over,
+  });
+
+  it("取消失败 → toast.error（不静默）", async () => {
+    seedMax();
+    state.get.mockResolvedValue(detailOf("importing", { import: st(), book_id: null }));
+    state.cancelImport.mockRejectedValue(new Error("当前没有正在进行的建书"));
+    renderPage();
+    await waitFor(() => expect(screen.getByText("取消建书")).toBeInTheDocument());
+    fireEvent.click(screen.getByText("取消建书"));
+    fireEvent.click(screen.getByText("确认取消建书"));
+    await waitFor(() =>
+      expect(toastState.error).toHaveBeenCalledWith("当前没有正在进行的建书"),
+    );
+  });
+
+  it("重试失败 → toast.error", async () => {
+    seedMax();
+    state.get.mockResolvedValue(
+      detailOf("import_failed", {
+        import: st({ error: { message: "存储忙", kind: "storage_busy", retryable: true } }),
+      }),
+    );
+    state.importBook.mockRejectedValue(new Error("建书已在进行中"));
+    renderPage();
+    await waitFor(() => expect(screen.getByText("重试建书")).toBeInTheDocument());
+    fireEvent.click(screen.getByText("重试建书"));
+    await waitFor(() => expect(toastState.error).toHaveBeenCalledWith("建书已在进行中"));
+  });
+});
+
+
+describe("建书三态的边角臂", () => {
+  const st = (over: Record<string, unknown> = {}) => ({
+    run_id: "r1", items: ["intro"], step: "refine", started_at: null, finished_at: null,
+    warnings: [], error: { message: "", kind: "", retryable: true }, attempts: [], ...over,
+  });
+
+  it("已建书但 book_id 缺失：打开按钮不导航（页面仍在）", async () => {
+    seedMax();
+    state.get.mockResolvedValue(detailOf("imported", { book_id: null }));
+    renderPage();
+    await waitFor(() => expect(screen.getByText("打开这本书")).toBeInTheDocument());
+    fireEvent.click(screen.getByText("打开这本书"));
+    expect(screen.getByText("选择去向")).toBeInTheDocument();
+  });
+
+  it("建书失败无错误文案：标题只显示「建书失败」", async () => {
+    seedMax();
+    state.get.mockResolvedValue(
+      detailOf("import_failed", {
+        import: st({ error: { message: "", kind: "error", retryable: true } }),
+      }),
+    );
+    renderPage();
+    await waitFor(() => expect(screen.getAllByText("建书失败").length).toBeGreaterThan(0));
+  });
+
+  it("非 Error 拒绝：取消失败与重试失败都回落固定文案", async () => {
+    seedMax();
+    state.get.mockResolvedValue(detailOf("importing", { import: st(), book_id: null }));
+    state.cancelImport.mockRejectedValue("boom");
+    renderPage();
+    await waitFor(() => expect(screen.getByText("取消建书")).toBeInTheDocument());
+    fireEvent.click(screen.getByText("取消建书"));
+    fireEvent.click(screen.getByText("确认取消建书"));
+    await waitFor(() => expect(toastState.error).toHaveBeenCalledWith("取消建书失败"));
+    cleanup();
+
+    state.get.mockResolvedValue(
+      detailOf("import_failed", {
+        import: st({ error: { message: "存储忙", kind: "storage_busy", retryable: true } }),
+      }),
+    );
+    state.importBook.mockRejectedValue("boom");
+    renderPage();
+    await waitFor(() => expect(screen.getByText("重试建书")).toBeInTheDocument());
+    fireEvent.click(screen.getByText("重试建书"));
+    await waitFor(() => expect(toastState.error).toHaveBeenCalledWith("重试建书失败"));
+  });
+});
+
+
+describe("建书阶段的剩余分支（覆盖率收口）", () => {
+  const st = (over: Record<string, unknown> = {}) => ({
+    run_id: "r1", items: ["intro"], step: "refine", started_at: null, finished_at: null,
+    warnings: [], error: { message: "", kind: "", retryable: true }, attempts: [], ...over,
+  });
+
+  it("建书超过 1 分钟：秒数按「N 分 M 秒」显示", async () => {
+    seedMax();
+    const started = new Date(Date.now() - 95_000).toISOString();
+    state.get.mockResolvedValue(
+      detailOf("importing", { import: st({ started_at: started }), book_id: null }),
+    );
+    renderPage();
+    await waitFor(() => expect(screen.getByText(/已 1 分/)).toBeInTheDocument());
+  });
+
+  it("受理被非 Error 值拒绝：弹窗内回落固定文案", async () => {
+    seedMax();
+    state.get.mockResolvedValue(detailOf("completed"));
+    state.importBook.mockRejectedValue("boom");
+    renderPage();
+    await waitFor(() => expect(screen.getByText("选择去向")).toBeInTheDocument());
+    fireEvent.click(screen.getByText("选择去向"));
+    fireEvent.click(screen.getByText("就建这本书"));
+    await waitFor(() => expect(screen.getByText("建书失败")).toBeInTheDocument());
+  });
+
+  it("act() 兜底：非 Error 拒绝回落「操作失败」（导出臂，错误渲染在弹窗内）", async () => {
+    seedMax();
+    state.get.mockResolvedValue(detailOf("completed"));
+    state.export.mockRejectedValue("boom");
+    renderPage();
+    await waitFor(() => expect(screen.getByText("选择去向")).toBeInTheDocument());
+    fireEvent.click(screen.getByText("选择去向"));
+    fireEvent.click(screen.getByText(/存本地文件夹/));
+    fireEvent.change(screen.getByLabelText("导出到文件夹"), { target: { value: "/tmp/x" } });
+    fireEvent.click(screen.getByText("选择文件夹并导出"));
+    await waitFor(() => expect(screen.getByText("操作失败")).toBeInTheDocument());
+  });
+});
+
+
+describe("建书秒数 ticker", () => {
+  it("建书中每秒重算（interval 回调生效）", async () => {
+    seedMax();
+    const started = new Date().toISOString();
+    state.get.mockResolvedValue(
+      detailOf("importing", {
+        book_id: null,
+        import: {
+          run_id: "r1", items: ["intro"], step: "refine", started_at: started,
+          finished_at: null, warnings: [], error: { message: "", kind: "", retryable: true }, attempts: [],
+        },
+      }),
+    );
+    renderPage();
+    await waitFor(() => expect(screen.getByText(/已 \d+ 秒/)).toBeInTheDocument());
+    await act(async () => {
+      await new Promise((r) => setTimeout(r, 1200));
+    });
+    // ticker 生效后仍是合法秒数（不是冻住的 0）
+    expect(screen.getByText(/已 \d+ 秒/)).toBeInTheDocument();
   });
 });
