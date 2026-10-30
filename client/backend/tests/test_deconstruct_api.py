@@ -88,7 +88,10 @@ def client():
 
 
 class _ImportDone:
-    """建书受理后「已建完」的视图：保持旧同步契约的响应形状（book_id/warnings/skipped）。"""
+    """建书受理后「已建完」的视图：保持旧同步契约的响应形状（book_id/warnings/skipped）。
+
+    status_code 固定 200＝「这是建完的结果」，与真实受理的 202 区分（本文件只测回填语义）。
+    """
 
     def __init__(self, detail):
         self._detail = detail
@@ -127,7 +130,11 @@ def _import_runs_sync(client, monkeypatch):
     def post(url, *args, **kwargs):
         resp = orig_post(url, *args, **kwargs)
         # 只有「新受理」（202 语义：status=importing）才需要驱动执行体；幂等 200 原样返回
-        if url.endswith("/import-book") and resp.status_code == 200 and resp.json().get("status") == "importing":
+        if (
+            url.endswith("/import-book")
+            and resp.status_code in (200, 202)  # 受理＝202；幂等＝200（后者不驱动执行体）
+            and resp.json().get("status") == "importing"
+        ):
             task_id = url.split("/tasks/")[1].split("/")[0]
             _run(_imports.run(task_id))
             return _ImportDone(orig_get(f"/api/deconstruct/tasks/{task_id}").json())

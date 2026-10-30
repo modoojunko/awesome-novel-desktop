@@ -151,9 +151,14 @@ async def claim(task_id: str, items: list[str], seed_warnings: list[str] | None 
         state = _parse(row.dims_json)
         prev = state.get("import") if isinstance(state.get("import"), dict) else {}
         attempts = list(prev.get("attempts") or [])[-19:]
+        # 重试请求不带勾选时沿用上一轮那份（spec：重试 SHALL 沿用同一份勾选）。
+        # 前端「重试建书」没有勾选面、请求体是 {}；不继承就会被清空，执行体回落
+        # `_selected(task)` 只灌 7 个设定项，章卷/关系/技法静默丢失（评审 P1）。
+        prev_items = [str(x) for x in (prev.get("items") or [])]
+        effective_items = list(items) or prev_items
         state["import"] = {
             "run_id": run_id,
-            "items": list(items),
+            "items": effective_items,
             "step": "waiting",
             "started_at": now,
             "finished_at": None,

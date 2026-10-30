@@ -11,6 +11,7 @@ import shutil
 from datetime import UTC, datetime
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
+from fastapi.responses import JSONResponse
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -306,7 +307,7 @@ async def retry_upload(
     return {"id": task.id, "status": task.status}
 
 
-@router.post("/tasks/{task_id}/import-book")
+@router.post("/tasks/{task_id}/import-book", status_code=202)
 @ai_feature("deconstruct-import")
 async def import_book(
     task_id: str,
@@ -341,13 +342,19 @@ async def import_book(
             if task.status == "completed":
                 task.status = "imported"  # 读时升级：旧任务未带 import 载荷也认
                 await db.commit()
-            return {
-                "status": task.status,
-                "book_id": task.book_id,
-                "name": task.book_name,
-                "skipped": [],
-                "warnings": ["任务已建过书（幂等返回），本次未重复写入；需要补灌请新建任务或删书重导"],
-            }
+            # 幂等返回是 200（已建成），与「202 受理」靠状态码区分（design D9）
+            return JSONResponse(
+                status_code=200,
+                content={
+                    "status": task.status,
+                    "book_id": task.book_id,
+                    "name": task.book_name,
+                    "skipped": [],
+                    "warnings": [
+                        "任务已建过书（幂等返回），本次未重复写入；需要补灌请新建任务或删书重导"
+                    ],
+                },
+            )
         # 键已失效（软删/不存在/他人）：解绑并回到「可重建」态，再按本次勾选重建
         task.book_id = None
         if task.status == "imported":

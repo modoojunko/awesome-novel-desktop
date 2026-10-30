@@ -172,7 +172,7 @@ def test_accept_202_persists_identity_and_items(client):
     r = client.post(
         "/api/deconstruct/tasks/imp-async-1/import-book", json={"items": ["world", "structure"]}
     )
-    assert r.status_code == 200, r.text
+    assert r.status_code == 202, r.text  # 受理（202）与幂等（200）靠状态码区分
     body = r.json()
     assert body["status"] == "importing"
     assert body["import"]["items"] == ["world", "structure"]  # 白名单保序
@@ -261,7 +261,7 @@ def test_deleted_book_rebuilds_under_new_key(client):
     _mk("imp-async-5", status="imported", book_id=dead)
 
     r = client.post("/api/deconstruct/tasks/imp-async-5/import-book", json={"items": ["intro"]})
-    assert r.status_code == 200, r.text
+    assert r.status_code == 202, r.text
     assert r.json()["status"] == "importing"
     _drive("imp-async-5")
     st = _get("imp-async-5")
@@ -564,3 +564,32 @@ def test_race_stop_honours_stop_event():
 
     raised, aborted = _run(_go())
     assert raised is True and aborted is True
+
+
+def test_retry_inherits_previous_items(client, monkeypatch):
+    """重试请求不带勾选时沿用上一轮那份（spec：重试 SHALL 沿用同一份勾选）。
+
+    前端「重试建书」没有勾选面、请求体是 {}；若 claim 用空勾选覆盖，执行体会回落
+    `_selected(task)` 只灌 7 个设定项，章卷/关系/技法静默丢失（评审 P1）。
+    """
+    from deconstruct import apply as apply_mod
+
+    _mk("imp-fix-5")
+    r = client.post(
+        "/api/deconstruct/tasks/imp-fix-5/import-book",
+        json={"items": ["world", "structure", "techniques"]},
+    )
+    assert r.status_code == 202, r.text
+    assert _get("imp-fix-5")["import"]["items"] == ["world", "structure", "techniques"]
+
+    async def boom(*a, **kw):
+        raise RuntimeError("写入失败")
+
+    monkeypatch.setattr(apply_mod, "import_book", boom)
+    _drive("imp-fix-5")
+    assert _get("imp-fix-5")["status"] == "import_failed"
+
+    # 重试：请求体为空（前端重试按钮不带勾选）
+    r2 = client.post("/api/deconstruct/tasks/imp-fix-5/import-book", json={})
+    assert r2.status_code == 202, r2.text
+    assert _get("imp-fix-5")["import"]["items"] == ["world", "structure", "techniques"]
