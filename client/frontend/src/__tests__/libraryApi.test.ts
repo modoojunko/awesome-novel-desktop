@@ -9,6 +9,7 @@ import {
   importCardFromBook,
   listLibrary,
   listNovelOptions,
+  generateLibraryAvatar,
   randomLibraryName,
   syncCardFromBook,
   updateLibraryCard,
@@ -127,5 +128,20 @@ describe("libraryApi", () => {
     await fetchLibraryAvatar(card(), "thumb");
     clearLibraryAvatarCache();
     expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("generateLibraryAvatar", () => {
+  it("POST avatar/generate 并解包", async () => {
+    fetchMock.mockReturnValueOnce(json({
+      card_id: "c1",
+      avatar: { has: true, url: "/u", thumb_url: "/t" },
+      rev: 2,
+    }));
+    const r = await generateLibraryAvatar("c1");
+    expect(r.avatar.has).toBe(true);
+    const [url, init] = fetchMock.mock.calls[0];
+    expect(String(url)).toContain("/character-library/c1/avatar/generate");
+    expect(init.method).toBe("POST");
   });
 });

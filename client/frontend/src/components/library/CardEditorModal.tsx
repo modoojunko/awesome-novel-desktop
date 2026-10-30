@@ -10,6 +10,7 @@ import {
   clearLibraryAvatarCache,
   createLibraryCard,
   deleteLibraryCard,
+  generateLibraryAvatar,
   randomLibraryName,
   syncCardFromBook,
   updateLibraryCard,
@@ -17,6 +18,7 @@ import {
   type LibraryCardInput,
 } from "@/lib/libraryApi";
 import { queryKeys } from "@/lib/queryKeys";
+import { useFeature } from "@/hooks/useTier";
 
 const KINDS = ["亲人", "朋友", "挚友", "小弟", "下人", "长辈", "敌人", "其他"] as const;
 
@@ -61,18 +63,24 @@ export function cogFieldList(): { key: string; label: string }[] {
 
 export default function CardEditorModal({ open, card, onClose }: Props) {
   const qc = useQueryClient();
-  const isNew = card === null;
   const [form, setForm] = useState<LibraryCardInput>(blank);
   const [seededFor, setSeededFor] = useState<string>("");
   const [saving, setSaving] = useState(false);
+  // 生成头像（c-library-avatar-gen）：新建时先按当前表单落卡，再按卡生成
+  const [workingCard, setWorkingCard] = useState<LibraryCard | null>(card);
+  const [avatarBusy, setAvatarBusy] = useState(false);
+  const hasImageFeature = useFeature("image-generate");
+  const isNew = workingCard === null;
   const [confirmDel, setConfirmDel] = useState(false);
   
   // 打开时按卡初始化；关闭即清播种标记——取消后再开同一张卡回到卡上原值
-  const seedKey = open ? card?.id ?? "__new__" : "";
+  // seedKey 跟 workingCard 走：新建自动落卡后不会把表单/工作卡重置回草稿
+  const seedKey = open ? workingCard?.id ?? "__new__" : "";
   if (!open && seededFor) setSeededFor("");
   if (open && seedKey !== seededFor) {
     setSeededFor(seedKey);
     setForm(card ? fromCard(card) : blank());
+    setWorkingCard(card);
     setConfirmDel(false);
   }
 
@@ -101,6 +109,12 @@ export default function CardEditorModal({ open, card, onClose }: Props) {
     }
   };
 
+  const payloadFromForm = (): LibraryCardInput => ({
+    ...form,
+    dossier: Object.fromEntries(Object.entries(form.dossier).filter(([, v]) => v.trim())),
+    cog: Object.fromEntries(Object.entries(form.cog).filter(([, v]) => v.trim())),
+  });
+
   const onSave = async () => {
     if (!form.name.trim()) {
       toast.error("先给角色起个名字");
@@ -108,13 +122,8 @@ export default function CardEditorModal({ open, card, onClose }: Props) {
     }
     setSaving(true);
     try {
-      const payload: LibraryCardInput = {
-        ...form,
-        dossier: Object.fromEntries(Object.entries(form.dossier).filter(([, v]) => v.trim())),
-        cog: Object.fromEntries(Object.entries(form.cog).filter(([, v]) => v.trim())),
-      };
-      if (isNew) await createLibraryCard(payload);
-      else await updateLibraryCard(card!.id, payload);
+      if (isNew) await createLibraryCard(payloadFromForm());
+      else await updateLibraryCard(workingCard!.id, payloadFromForm());
       await qc.invalidateQueries({ queryKey: queryKeys.characterLibrary });
       toast.success(isNew ? `已建「${form.name}」——收进库里了` : `已保存「${form.name}」`);
       onClose();
@@ -127,12 +136,43 @@ export default function CardEditorModal({ open, card, onClose }: Props) {
     }
   };
 
+  // 生成头像（c-library-avatar-gen）：新建时先按当前表单落卡再生成；PRO 门同书内
+  const onGenerateAvatar = async () => {
+    if (!hasImageFeature) {
+      toast.info("头像生成是 PRO 能力——开通后可用；也可以先把卡收进书里，用书内头像工坊生成");
+      return;
+    }
+    setAvatarBusy(true);
+    try {
+      let target = workingCard;
+      if (!target) {
+        if (!form.name.trim()) {
+          toast.error("先给角色起个名字");
+          return;
+        }
+        target = await createLibraryCard(payloadFromForm());
+        setWorkingCard(target);
+        setSeededFor(target.id); // 已落卡：别再触发表单重播种
+        await qc.invalidateQueries({ queryKey: queryKeys.characterLibrary });
+      }
+      const result = await generateLibraryAvatar(target.id);
+      clearLibraryAvatarCache(target.id);
+      setWorkingCard({ ...target, avatar: result.avatar, rev: result.rev });
+      await qc.invalidateQueries({ queryKey: queryKeys.characterLibrary });
+      toast.success("头像生成好了——不喜欢可以再生成一张");
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "头像生成失败");
+    } finally {
+      setAvatarBusy(false);
+    }
+  };
+
   const onDelete = async () => {
     setSaving(true);
     try {
-      await deleteLibraryCard(card!.id);
+      await deleteLibraryCard(workingCard!.id);
       await qc.invalidateQueries({ queryKey: queryKeys.characterLibrary });
-      toast.success(`已删除「${card!.name}」——已经用到书里的不受影响`);
+      toast.success(`已删除「${workingCard!.name}」——已经用到书里的不受影响`);
       onClose();
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "删除失败");
@@ -144,9 +184,10 @@ export default function CardEditorModal({ open, card, onClose }: Props) {
   const onSync = async () => {
     setSaving(true);
     try {
-      const fresh = await syncCardFromBook(card!.id);
+      const fresh = await syncCardFromBook(workingCard!.id);
       clearLibraryAvatarCache(fresh.id); // 头像字节可能已换：清该卡缓存图
       setForm(fromCard(fresh));
+      setWorkingCard(fresh);
       await qc.invalidateQueries({ queryKey: queryKeys.characterLibrary });
       toast.success(`已把《${fresh.src.novel_name}》里的最新设定同步进库卡`);
     } catch (e) {
@@ -199,12 +240,26 @@ export default function CardEditorModal({ open, card, onClose }: Props) {
       locked={saving}
       footer={footer}
       headExtra={
-        card ? <span style={{ fontSize: 12, color: "var(--muted)" }}>{card.src.novel_name || "手建"}</span> : undefined
+        workingCard ? <span style={{ fontSize: 12, color: "var(--muted)" }}>{workingCard.src.novel_name || "手建"}</span> : undefined
       }
     >
       <div style={{ maxHeight: "66vh", overflowY: "auto", paddingRight: 2 }}>
         <div className="field" style={{ display: "flex", flexDirection: "row", alignItems: "center", gap: 12 }}>
-          {card ? <LibraryAvatar card={card} size="lg" /> : <span className="lib-ava lg">角</span>}
+          {workingCard ? (
+            <LibraryAvatar card={workingCard} size="lg" />
+          ) : (
+            <span className="lib-ava lg">角</span>
+          )}
+          <span style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+            <button
+              className="btn btn-secondary btn-sm"
+              onClick={() => void onGenerateAvatar()}
+              disabled={avatarBusy || saving}
+              data-testid="lib-gen-avatar"
+            >
+              {avatarBusy ? "正在生成…" : workingCard ? "重新生成头像" : "生成头像"}
+            </button>
+          </span>
           <div style={{ flex: 1, minWidth: 0 }}>
             <label>名字</label>
             <div style={{ display: "flex", gap: 8 }}>
@@ -373,12 +428,12 @@ export default function CardEditorModal({ open, card, onClose }: Props) {
           </div>
         </details>
 
-        {!isNew && card?.src.kind === "book" && (
+        {workingCard?.src.kind === "book" && (
           <div className="field" style={{ marginTop: 14 }}>
             <label>同步</label>
             <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
               <button className="btn btn-secondary btn-sm" onClick={() => void onSync()} disabled={saving}>
-                <Ico d="refresh" size={13} /> 从《{card.src.novel_name}》同步最新设定
+                <Ico d="refresh" size={13} /> 从《{workingCard!.src.novel_name}》同步最新设定
               </button>
               <span className="alt" style={{ marginTop: 0 }}>
                 书里改过的点这里推回库卡；库里的小类、定位不动

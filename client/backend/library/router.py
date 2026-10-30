@@ -9,7 +9,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request, Response
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from auth_local.deps import get_current_user
+from auth_local.deps import ai_feature, get_current_user, require_tier_access
 from db import get_db
 from library import service as svc
 from models.project import Novel
@@ -22,6 +22,10 @@ _STATUS = {
     "character_not_found": 404,
     "avatar_not_found": 404,
     "source_gone": 410,
+    # 头像生成（c-library-avatar-gen）：缺配置 400 可读；供应商失败 502
+    "no_image_config": 400,
+    "image_timeout": 502,
+    "image_failed": 502,
 }
 
 
@@ -176,6 +180,23 @@ async def get_avatar(
             "Cache-Control": "private, no-cache",
         },
     )
+
+
+@router.post("/{card_id}/avatar/generate")
+@ai_feature("image-generate")
+async def generate_avatar(
+    card_id: str,
+    body: dict,
+    db: AsyncSession = Depends(get_db),
+    user: dict = Depends(get_current_user),
+    _access: bool = Depends(require_tier_access),
+):
+    """按卡上档案生成头像（复用书内头像生成能力；PRO 同权，账号级同步生成）。"""
+    try:
+        data = await svc.generate_avatar(db, user["id"], card_id, body)
+    except svc.LibraryError as e:
+        raise _http_error(e)
+    return {"ok": True, "data": data}
 
 
 @router.post("/{card_id}/sync-from-book")

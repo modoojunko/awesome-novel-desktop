@@ -722,3 +722,87 @@ async def import_from_deconstruct(
     if created:
         logger.info("event=character_library.import_deconstruct task=%s created=%s", task.id, created)
     return {"created": created, "skipped": skipped, "library_ids": library_ids}
+
+# ── 库卡头像生成（c-library-avatar-gen：复用书内头像生成能力） ─────────────
+
+
+async def generate_avatar(
+    db: AsyncSession, user_id: str, card_id: str, body: dict | None = None,
+) -> dict:
+    """按卡上档案生成头像：复用图像配置＋供应商适配器＋512/96 压缩链。
+
+    与书内头像生成同权（image-generate / PRO，门在 router）；账号级同步调用
+    （无书上下文，不经 ImageJob 异步队列）。失败一律可读文案。
+    """
+    import asyncio
+
+    from api_configs.crypto import decrypt_api_key
+    from image_assets.adapters import (
+        ImageGenerationSpec,
+        ImageProviderError,
+        generate_images,
+    )
+    from image_assets.prompt_builder import build_library_avatar_prompt
+    from image_assets.service import Unprocessable as ImageUnprocessable
+    from image_assets.service import normalize_image
+    from models.image_asset import ImageConfig
+
+    body = body or {}
+    card = await get_card(db, user_id, card_id)
+    prompt = await build_library_avatar_prompt(db, user_id, card)
+    if not prompt.get("provider"):
+        raise LibraryError(
+            "no_image_config", "还没有可用的图像配置——去「模型配置」添加一个图像模型再试"
+        )
+    spec = ImageGenerationSpec(
+        provider=str(prompt["provider"]),
+        model=str(prompt.get("model") or ""),
+        prompt=prompt["prompt"],
+        negative_prompt=prompt["negative_prompt"],
+        kind="avatar",
+        n=1,
+        seed=prompt.get("seed"),
+        capabilities=prompt.get("capabilities") or {},
+    )
+    config = (await db.execute(
+        select(ImageConfig).where(
+            ImageConfig.user_id == user_id,
+            ImageConfig.status == "active",
+            ImageConfig.provider == prompt["provider"],
+        ).order_by(ImageConfig.is_default.desc(), ImageConfig.created_at.asc())
+    )).scalars().first()
+    if config is None:
+        raise LibraryError("no_image_config", "图像配置已被删除——去「模型配置」重新添加再试")
+
+    try:
+        images = await asyncio.wait_for(
+            generate_images(
+                base_url=config.base_url,
+                api_key=decrypt_api_key(config.api_key),
+                spec=spec,
+            ),
+            timeout=120,
+        )
+    except TimeoutError:
+        raise LibraryError("image_timeout", "图像生成超时了，稍后再试一次")
+    except ImageProviderError as e:
+        raise LibraryError("image_failed", f"图像生成失败：{e.message}")
+    if not images:
+        raise LibraryError("image_failed", "图像生成失败：供应商没有返回图片")
+    try:
+        processed = normalize_image(images[0].data, "avatar")
+    except ImageUnprocessable as e:
+        raise LibraryError("image_failed", f"图像生成失败：{e.message}")
+    await put_avatar(db, card, processed["full"], processed["thumb"])
+    card.rev += 1
+    await db.commit()
+    logger.info("event=character_library.avatar_generated card=%s bytes=%s", card.id, processed["bytes"])
+    return {
+        "card_id": card.id,
+        "avatar": {
+            "has": True,
+            "url": f"/api/character-library/{card.id}/avatar?variant=full",
+            "thumb_url": f"/api/character-library/{card.id}/avatar?variant=thumb",
+        },
+        "rev": card.rev,
+    }
