@@ -769,7 +769,6 @@ def test_quota_reject_never_calls_condense(client, monkeypatch):
 
     async def _spy(*a, **kw):
         calls["condense"] += 1
-        return None
 
     async def _reject(db, user_id):
         return "当前套餐最多创建 1 个项目 — 升级套餐后可创建更多"
