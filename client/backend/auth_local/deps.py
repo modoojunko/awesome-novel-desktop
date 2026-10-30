@@ -266,33 +266,38 @@ def _book_limit_message(tier: str, limit: int) -> str:
     return f"免费用户最多创建 {limit} 个项目 — 开通套餐后可创建更多"
 
 
-async def require_project_limit(
-    user: dict = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db),
-):
-    """项目上限门控：免费/过期用户最多 1 个项目，会员不限"""
-    # 快照三段式：不完整时先重同步一次（async 边界），失败走档位标准兜底
+async def project_quota_reject(db: AsyncSession, user_id: str) -> str | None:
+    """书架满额判据**单源**：返回拒因文案（None＝未满）。
+
+    供 FastAPI 依赖（`require_project_limit`）与后台建书（c-deconstruct-import-async 的
+    受理＋写入前二次校验）共用——两边判据必须同源，否则「受理放行、写入报满额」会白烧一次
+    精炼。注意本函数会触发快照重同步（async 边界），不要放进同步路径。
+    """
     await ensure_entitlement_snapshot()
 
     perm = check_permission()
     limit = perm.get("project_limit")
     tier = perm.get("tier", "none")
     if limit is None:  # 会员无上限（免费/过期分支已带 project_limit=1）
-        return True
+        return None
 
     result = await db.execute(
-        select(Novel).where(
-            Novel.user_id == user["id"], Novel.status != "deleted"
-        )
+        select(Novel).where(Novel.user_id == user_id, Novel.status != "deleted")
     )
     count = len(result.scalars().all())
-    if count >= limit:
-        if perm.get("expired"):
-            raise HTTPException(
-                403, "套餐已过期，已降为免费待遇（最多 1 个项目）— 续费后可创建更多"
-            )
-        raise HTTPException(
-            403, _book_limit_message(tier, limit)
-        )
+    if count < limit:
+        return None
+    if perm.get("expired"):
+        return "套餐已过期，已降为免费待遇（最多 1 个项目）— 续费后可创建更多"
+    return _book_limit_message(tier, limit)
 
+
+async def require_project_limit(
+    user: dict = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """项目上限门控：免费/过期用户最多 1 个项目，会员不限"""
+    reject = await project_quota_reject(db, user["id"])
+    if reject:
+        raise HTTPException(403, reject)
     return True

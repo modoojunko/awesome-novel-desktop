@@ -16,6 +16,9 @@ _tmp_db.close()
 os.environ["DATABASE_URL"] = f"sqlite+aiosqlite:///{_tmp_db.name}"
 os.environ["DATA_ROOT"] = tempfile.mkdtemp(prefix="test_dec_api_")
 os.environ["DECONSTRUCT_DISPATCHER_OFF"] = "1"
+# 建书执行体开关（c-deconstruct-import-async）在 _import_runs_sync fixture 里按用例设置：
+# 本文件是「回填/清洗」类用例，建完即断言，由 fixture 同步驱动执行体、不靠后台 task 抢跑。
+# 真正的异步契约（四臂/取消/收敛）见 tests/test_deconstruct_import_async.py。
 
 from fastapi.testclient import TestClient  # noqa: E402
 
@@ -82,6 +85,63 @@ def client():
     yield c
     app.dependency_overrides.clear()
     c.__exit__(None, None, None)
+
+
+class _ImportDone:
+    """建书受理后「已建完」的视图：保持旧同步契约的响应形状（book_id/warnings/skipped）。
+
+    status_code 固定 200＝「这是建完的结果」，与真实受理的 202 区分（本文件只测回填语义）。
+    """
+
+    def __init__(self, detail):
+        self._detail = detail
+        self.status_code = 200
+        self.text = json.dumps(detail, ensure_ascii=False)
+
+    def json(self):
+        from models.deconstruct import SETTING_DIMENSION_KEYS
+
+        imp = self._detail.get("import") or {}
+        # 请求未带勾选＝旧口径：执行体回落任务勾选的设定维度（与旧同步实现一致）
+        items = list(imp.get("items") or []) or list(self._detail.get("selected_dims") or [])
+        return {
+            "status": self._detail["status"],
+            "book_id": self._detail.get("book_id"),
+            "name": self._detail.get("book_name"),
+            "skipped": [d for d in SETTING_DIMENSION_KEYS if d not in items],
+            "warnings": imp.get("warnings") or [],
+        }
+
+
+@pytest.fixture(autouse=True)
+def _import_runs_sync(client, monkeypatch):
+    """把 `POST …/import-book` 的受理＋后台执行体串起来（IMPORT_RUNNER_OFF=1）。
+
+    只影响「建书回填语义」类用例：POST 成功后同步跑完执行体，并回读任务详情拼出旧形状
+    响应。受理四臂（200 幂等 / 409 进行中 / 403 满额 / 202）与取消、收敛由
+    test_deconstruct_import_async.py 覆盖。
+    """
+    from deconstruct import imports as _imports
+
+    monkeypatch.setenv("IMPORT_RUNNER_OFF", "1")  # 只在本用例内生效，不泄漏到全仓
+    orig_post = client.post
+    orig_get = client.get
+
+    def post(url, *args, **kwargs):
+        resp = orig_post(url, *args, **kwargs)
+        # 只有「新受理」（202 语义：status=importing）才需要驱动执行体；幂等 200 原样返回
+        if (
+            url.endswith("/import-book")
+            and resp.status_code in (200, 202)  # 受理＝202；幂等＝200（后者不驱动执行体）
+            and resp.json().get("status") == "importing"
+        ):
+            task_id = url.split("/tasks/")[1].split("/")[0]
+            _run(_imports.run(task_id))
+            return _ImportDone(orig_get(f"/api/deconstruct/tasks/{task_id}").json())
+        return resp
+
+    monkeypatch.setattr(client, "post", post, raising=False)
+    yield
 
 
 def _mk_completed(task_id: str, products: dict, *, book_name: str = "星海远征") -> None:

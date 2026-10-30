@@ -38,6 +38,12 @@ MAX_SOURCE_BYTES = 50 * 1024 * 1024
 # 思考档位（c-deconstruct-resilience D10）：任务级，不随 ApiConfig 走
 THINKING_MODES = ("off", "low", "inherit")
 
+# 结果可读态（c-deconstruct-import-async）：拆完即产物可用；建书三态（建书中/已建书/
+# 建书失败）不回收取结果的能力。出口/收录的状态门一律用本集合判定，禁止再散落写
+# `status == "completed"`（评审 P0：建完书后导出/收录全 409、结果目录消失）。
+RESULT_READY = frozenset({"completed", "importing", "imported", "import_failed"})
+
+
 
 def normalize_thinking_mode(raw: object) -> str:
     """创建表单的思考档位归一：白名单外（含空/非法）一律默认关。"""
@@ -172,9 +178,21 @@ async def list_tasks(db: AsyncSession, user_id: str) -> list[dict]:
                 "queued_ahead": ahead,
                 "product_count": len(json.loads(r.products_json or "{}")),
                 "error": _first_error(r),
+                # 建书阶段摘要（c-deconstruct-import-async）：清单行子状态与轮询判据都读它
+                "import": _import_view(r),
             }
         )
     return out
+
+
+def _import_view(task: DeconstructJob) -> dict | None:
+    """建书阶段视图：无载荷（旧任务）返回 None，读取侧按 completed 处理。"""
+    from deconstruct import imports
+
+    state = imports.read_state(task)
+    if not state:
+        return None
+    return imports.view(state)
 
 
 def _first_error(task: DeconstructJob) -> str:
@@ -340,6 +358,7 @@ def task_view(task: DeconstructJob) -> dict:
         "warnings": _warnings_view(task),
         "model_history": _model_history(task),
         "book_id": task.book_id,
+        "import": _import_view(task),
         "created_at": task.created_at.isoformat() if task.created_at else None,
         "finished_at": task.finished_at.isoformat() if task.finished_at else None,
     }

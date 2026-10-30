@@ -881,6 +881,10 @@ async def run_task(task_id: str) -> None:
     task = await _load_task(task_id)
     if task is None:
         return
+    if task.status in ("importing", "imported", "import_failed"):
+        # dims_json 的唯一写者纪律（评审）：建书阶段占用了这行任务的状态与载荷，
+        # 管线不得在同一任务上再跑一次（会整份覆盖 dims_json，抹掉 import 键）。
+        return
     try:
         from deconstruct.service import resolve_client
 
@@ -1545,3 +1549,10 @@ async def startup_sweep() -> None:
                 changed = True
         if changed:
             await session.commit()
+
+    # 建书阶段收敛（c-deconstruct-import-async）：残留 importing → import_failed(interrupted)
+    # 并凭预分配的 draft_book_id 软删半成品——必须与上面的拆书收敛同批跑，否则重启后
+    # 「建书中」会永远停在那里，半本书也会一直挂着。
+    from deconstruct import imports
+
+    await imports.sweep()

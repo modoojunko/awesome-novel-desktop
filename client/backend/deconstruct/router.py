@@ -11,13 +11,14 @@ import shutil
 from datetime import UTC, datetime
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
+from fastapi.responses import JSONResponse
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from auth_local.deps import ai_feature, require_ai_access
 from auth_local.middleware import get_current_user
 from db import get_db
-from deconstruct import apply, service
+from deconstruct import apply, imports, service
 from deconstruct.mdrender import evidence_report
 from deconstruct.textparse import (
     MAX_SOURCE_BYTES,
@@ -132,12 +133,15 @@ async def list_tasks(
     tasks = await service.list_tasks(db, _user_id(user))
     running = next((t for t in tasks if t["status"] == "running"), None)
     queued = sum(1 for t in tasks if t["status"] == "queued")
+    # 建书中也算活动态（c-deconstruct-import-async）：顶栏心跳要让用户知道后台还在跑；
+    # 已建书＝已消费（book_id 非空），建书失败＝需要处理，继续计入「已完成未取结果」。
+    importing = sum(1 for t in tasks if t["status"] == "importing")
     done_unpicked = len(
         (
             await db.scalars(
                 select(DeconstructJob.id).where(
                     DeconstructJob.user_id == _user_id(user),
-                    DeconstructJob.status == "completed",
+                    DeconstructJob.status.in_(("completed", "import_failed")),
                     DeconstructJob.book_id.is_(None),
                     DeconstructJob.exported_at.is_(None),  # 文件夹出口也算「已取」
                 )
@@ -146,8 +150,8 @@ async def list_tasks(
     )
     return {
         "tasks": tasks,
-        "heartbeat": {"running": 1 if running else 0, "queued": queued},
-        "badge": (1 if running else 0) + queued + done_unpicked,
+        "heartbeat": {"running": 1 if running else 0, "queued": queued, "importing": importing},
+        "badge": (1 if running else 0) + queued + importing + done_unpicked,
     }
 
 
@@ -303,7 +307,7 @@ async def retry_upload(
     return {"id": task.id, "status": task.status}
 
 
-@router.post("/tasks/{task_id}/import-book")
+@router.post("/tasks/{task_id}/import-book", status_code=202)
 @ai_feature("deconstruct-import")
 async def import_book(
     task_id: str,
@@ -312,22 +316,113 @@ async def import_book(
     _gate: bool = Depends(require_ai_access),
     db: AsyncSession = Depends(get_db),
 ):
-    """建书出口：勾选维度经域服务灌入新书（幂等）。
+    """建书受理（c-deconstruct-import-async）：立即返回，整段后台执行。
 
-    body.items＝弹窗勾选的灌入项（7 设定项＋structure/relations/techniques）；
-    缺省＝旧口径（任务勾选维度里的设定项）。
+    四臂（design D9）：
+    - `book_id` 指向现存书（含本次变更前的 `completed + book_id` 存量任务）→ 200 幂等回同一本，
+      顺带把状态读时升级为 `imported`；
+    - 书已被删/不存在 → 解绑后按本次勾选重建（不复活旧书）；
+    - `importing` → 409 返回当前状态，不排第二次；
+    - `completed | import_failed` → 满额检查后条件抢占，202 + 起执行体。
+    """
+    from auth_local.deps import project_quota_reject
+
+    task = await service.get_task(db, task_id, _user_id(user))
+    _require(task, user)
+    if not task.api_config_id:
+        raise HTTPException(409, "任务缺模型信息")
+
+    invalid_key = False
+    # ① 幂等第一判定：book_id（不看 status）——存量任务也是 completed+book_id
+    if task.book_id:
+        from novels.service import get_novel
+
+        existing = await get_novel(db, task.book_id, _user_id(user))
+        if existing is not None:
+            if task.status == "completed":
+                task.status = "imported"  # 读时升级：旧任务未带 import 载荷也认
+                await db.commit()
+            # 幂等返回是 200（已建成），与「202 受理」靠状态码区分（design D9）
+            return JSONResponse(
+                status_code=200,
+                content={
+                    "status": task.status,
+                    "book_id": task.book_id,
+                    "name": task.book_name,
+                    "skipped": [],
+                    "warnings": [
+                        "任务已建过书（幂等返回），本次未重复写入；需要补灌请新建任务或删书重导"
+                    ],
+                },
+            )
+        # 键已失效（软删/不存在/他人）：解绑并回到「可重建」态，再按本次勾选重建
+        task.book_id = None
+        if task.status == "imported":
+            task.status = "completed"
+        await db.commit()
+        invalid_key = True
+    else:
+        invalid_key = False
+
+    if task.status == "importing":
+        st = await imports.state_of(task_id)
+        raise HTTPException(
+            409,
+            {
+                "reason": "import_in_progress",
+                "message": "建书已在进行中，请等它跑完或先取消",
+                "import": imports.view(st),
+            },
+        )
+    if task.status not in ("completed", "import_failed"):
+        raise HTTPException(409, "任务未完成，无法建书")
+
+    # ② 满额在受理时就拦（不烧一次精炼）；写入前执行体还会再查一次防并发越限
+    reject = await project_quota_reject(db, _user_id(user))
+    if reject:
+        raise HTTPException(403, reject)
+
+    raw_items = body.get("items") if isinstance(body, dict) else None
+    items = imports.normalize_items(raw_items)
+    seed: list[str] = []
+    if invalid_key:
+        seed.append("原建书已被删除或不存在，已按本次勾选重新建书")
+    run_id = await imports.claim(task_id, items, seed_warnings=seed)
+    if run_id is None:
+        raise HTTPException(409, "任务状态已变化，请刷新后重试")
+    imports.start(task_id)
+    # claim 在独立 session 里提交，请求 session 里的 task 仍是旧实例——状态必须重读
+    state = await imports.state_of(task_id)
+    return {
+        "status": "importing",
+        "book_id": None,
+        "name": task.book_name,
+        "skipped": [],
+        "warnings": [],
+        "import": imports.view(state),
+    }
+
+
+@router.post("/tasks/{task_id}/import-book/cancel")
+async def cancel_import(
+    task_id: str,
+    user: dict = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """取消建书：回到已完成、清理半成品。
+
+    刻意**不挂 AI 门**（`require_ai_access`/档位门）：这是止损动作——Key 失效、会员到期、
+    降档的用户必须仍然能停下正在烧 token 的建书（评审 P1）。
     """
     task = await service.get_task(db, task_id, _user_id(user))
     _require(task, user)
-    if task.status != "completed":
-        raise HTTPException(409, "任务未完成，无法建书")
-    if not task.api_config_id:
-        raise HTTPException(409, "任务缺模型信息")
-    items = None
-    if isinstance(body, dict) and body.get("items") is not None:
-        items = [str(x) for x in body["items"]]
-    result, warnings = await apply.import_book(db, task, _user_id(user), items=items)
-    return {**result, "warnings": warnings}
+    if not await imports.cancel(task_id):
+        raise HTTPException(409, "当前没有正在进行的建书")
+    fresh = await service.get_task(db, task_id, _user_id(user))
+    # 请求 session 里还是取消前的实例（identity map）：不 refresh 会把 importing 回给前端
+    if fresh is not None:
+        await db.refresh(fresh)
+    return {"status": fresh.status if fresh else "completed"}
 
 
 @router.post("/tasks/{task_id}/export")
@@ -342,7 +437,7 @@ async def export_task(
     """存本地文件夹出口：勾中产物＋README 物化到所选目录。"""
     task = await service.get_task(db, task_id, _user_id(user))
     _require(task, user)
-    if task.status != "completed":
+    if task.status not in service.RESULT_READY:
         raise HTTPException(409, "任务未完成，无法导出")
     dest = str(body.get("dest_dir") or "").strip()
     if not dest:
@@ -386,8 +481,10 @@ async def library_candidates(
 
     task = await service.get_task(db, task_id, _user_id(user))
     _require(task, user)
-    if task.status != "completed":
-        return {"can_import": False, "reason": "任务还没拆完", "items": []}
+    if task.status not in service.RESULT_READY:
+        # 建书三态仍可收录（RESULT_READY）；这里只剩拆解中/排队/取消/待重传的真拒因
+        reason = "任务还没拆完" if task.status in ("queued", "running") else "任务在这个状态下没有可收录的产物"
+        return {"can_import": False, "reason": reason, "items": []}
     try:
         products = json.loads(task.products_json or "{}")
     except ValueError:
@@ -427,7 +524,7 @@ async def to_library(
 
     task = await service.get_task(db, task_id, _user_id(user))
     _require(task, user)
-    if task.status != "completed":
+    if task.status not in service.RESULT_READY:
         raise HTTPException(409, "任务未完成，无法收录")
     try:
         products = json.loads(task.products_json or "{}")
@@ -463,6 +560,9 @@ async def delete_task(
     _require(task, user)
     if task.status == "running":
         raise HTTPException(409, "任务拆解中，请先取消再删除")
+    if task.status == "importing":
+        # 建书在后台跑：删掉任务行会让执行体无处写终态，还会留下一本无主书（评审 P0）
+        raise HTTPException(409, "建书中，请先取消建书再删除")
     if task.source_path and os.path.isdir(os.path.dirname(task.source_path)):
         shutil.rmtree(os.path.dirname(task.source_path), ignore_errors=True)
     await db.delete(task)

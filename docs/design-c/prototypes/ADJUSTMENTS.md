@@ -2330,3 +2330,12 @@ boss 口径：「文案太 AI 了，要用大白话」。清一遍 #949/#955/#95
 - **新增**：角色库编辑/新建弹窗题材格由自由输入改为目录选择器（未分题材＋开书题材目录 21 大类，同源 `lib/themeCatalog.ts`）。
 - **与原型关系**：库页无 parity 基线（既有豁免）；drafts 原型不追补。
 - **共享段**：零改动。
+
+## 2026-10-30 · 建书成为任务的异步阶段（c-deconstruct-import-async）
+
+- **新增（拆书 drafts，四态）**：`ai-novel-c端-拆书.html` 由六态扩为十态——⑦ 详情·建书中（步骤＋已运行秒数＋取消建书的行内二次确认）、⑧ 详情·已建书（打开这本书＋结果目录与既有出口共存）、⑨ 详情·建书失败（可重试，无「从断点续拆」）、⑩ 新书设定页顶部建书提示条（warn 降级项＋info 说明＋「知道了」）。清单页新增三行（建书中/已建书/建书失败）。
+- **改动**：出口弹窗的建书卡文案去掉「确认后直达新书设定页，7 项标待确认」，改为「确认后开始建书，可以离开——完成后在任务详情打开这本书」；主按钮「就建这本书」→「开始建书」，确认即关闭并由 toast 交代去向；摘要行同步。
+- **与原型关系**：拆书页是 drafts 运行资产，不在 `design:check` 像素矩阵；新书设定页无 parity 基线（既有豁免），提示条在 drafts 同屏补画，不新开文件。
+- **对象状态**：建书中＝`pill-accent`、已建书＝`pill-ok`、建书失败＝`pill-err`；提示条走既有 `notice`（warn 默认／`info` 变体）。未新增令牌/字号档位/胶囊形态。
+- **共享段**：零改动（未触碰 `base.css` 令牌与 `pill/notice/sk/panel/f-err` 家族）。
+- **截图证据**：`openspec/changes/c-deconstruct-import-async/shots/`（importing / imported / import-fail / settings-notice / importing-cancel-confirm / 06-exit-modal）。

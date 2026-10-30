@@ -35,7 +35,14 @@ async def create_project(
     genre_profile: str = "",
     genre: str = "",
     source: str = "ai",
+    book_id: str | None = None,
 ) -> Novel:
+    """建书行。
+
+    book_id 可选（c-deconstruct-import-async）：建书任务在受理时预分配 id 并落进任务的
+    `import.draft_book_id`，崩溃后 sweep 才有一个指针可清理半成品——不要改成「建完
+    再回填 id」，那个窗口里进程被杀就留下永久不可见的孤儿书。
+    """
     slug = slugify(name)
     existing = await db.execute(
         select(Novel).where(Novel.user_id == user_id, Novel.slug == slug)
@@ -70,6 +77,7 @@ async def create_project(
 
 
     project = Novel(
+        **({"id": book_id} if book_id else {}),
         user_id=user_id,
         name=name,
         slug=slug,
