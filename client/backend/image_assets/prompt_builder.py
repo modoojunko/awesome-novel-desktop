@@ -356,37 +356,38 @@ def _derive_seed(kind: str, key: str) -> int:
     return int(digest[:8], 16) % MAX_SEED
 
 
-async def build_avatar_prompt(db: AsyncSession, novel: Novel, ch: Character) -> dict:
-    story = await get_storage().read_yaml(novel.root_path, "story.yaml") or {}
-    bsettings = (await db.execute(
-        select(BookImageSettings).where(BookImageSettings.novel_id == novel.id)
-    )).scalar_one_or_none()
-    csettings = (await db.execute(
-        select(CharacterImageSettings).where(CharacterImageSettings.character_id == ch.id)
-    )).scalar_one_or_none()
-    config, model, declared = await _effective_config(db, novel, bsettings)
-    style = _canonical_style(bsettings.style_key if bsettings else DEFAULT_STYLE)
-    names = await _name_map(db, novel)
-    try:
-        dossier = json.loads(ch.dossier or "{}")
-        if not isinstance(dossier, dict):
-            dossier = {}
-    except (TypeError, ValueError):
-        dossier = {}
+
+def avatar_prompt_payload(
+    *,
+    style_key: str,
+    model: str,
+    provider: str,
+    declared: dict | None,
+    fields: dict,
+    subject: str,
+    names: dict[str, str],
+    seed_source_id: str,
+    story_genre: str = "",
+    sources_extra: dict | None = None,
+) -> dict:
+    """字段级头像 prompt 组装（c-library-avatar-gen：书内角色与库卡共用单源）。
+
+    fields: gender/age/race/look/faction/persona（原始值，内部脱敏＋截断）；
+    names: 名称→泛称映射（书名/角色名脱敏）；seed_source_id: 稳定派 seed 的身份键。
+    """
+    style = _canonical_style(style_key or DEFAULT_STYLE)
 
     def redact(value, n: int) -> str:
         return _clamp(_redact(value, names), n)
 
-    gender = redact(dossier.get("gender"), 20)
-    age = redact(dossier.get("age"), 20)
-    race = redact(dossier.get("race"), 20)
-    look = redact(dossier.get("look"), 120)
-    faction = redact(dossier.get("faction"), 60)
-    persona = redact(ch.persona, 60)
-    subject = redact(csettings.avatar_prompt if csettings else "", 140)
-    seed = _derive_seed("avatar", ch.id)
-    seed_source = "derived"
-    provider = config.provider if config else ""
+    gender = redact(fields.get("gender"), 20)
+    age = redact(fields.get("age"), 20)
+    race = redact(fields.get("race"), 20)
+    look = redact(fields.get("look"), 120)
+    faction = redact(fields.get("faction"), 60)
+    persona = redact(fields.get("persona"), 60)
+    subject = redact(subject, 140)
+    seed = _derive_seed("avatar", seed_source_id)
     capabilities = _capabilities(provider, declared)
 
     parts = [
@@ -410,7 +411,7 @@ async def build_avatar_prompt(db: AsyncSession, novel: Novel, ch: Character) -> 
         negative_prompt=NEGATIVE_AVATAR, size=AVATAR_SIZE, seed=seed,
         model=model, provider=provider, capabilities=capabilities,
     )
-    return {
+    payload = {
         "kind": "avatar",
         "prompt": prompt,
         "negative_prompt": NEGATIVE_AVATAR,
@@ -419,7 +420,7 @@ async def build_avatar_prompt(db: AsyncSession, novel: Novel, ch: Character) -> 
         "style_key": style,
         "size": {"width": AVATAR_SIZE[0], "height": AVATAR_SIZE[1]},
         "seed": seed,
-        "seed_source": seed_source,
+        "seed_source": "derived",
         "candidate_seeds": [seed, _seed_for_candidate(seed, 1)],
         "model": model or None,
         "model_unbound": not bool(model),
@@ -429,11 +430,114 @@ async def build_avatar_prompt(db: AsyncSession, novel: Novel, ch: Character) -> 
         "needs_scene": False,
         "uses_default_subject": not bool(subject),
         "sources": {
-            "character_id": ch.id,
-            "name": ch.name,
             "gender": gender, "age": age, "race": race,
             "look": look, "faction": faction, "persona": persona,
             "override": bool(subject),
-            "book_theme": _clamp(story.get("genre"), 40),
+            "book_theme": _clamp(story_genre, 40),
+            **(sources_extra or {}),
         },
     }
+    return payload
+
+
+async def build_avatar_prompt(db: AsyncSession, novel: Novel, ch: Character) -> dict:
+    story = await get_storage().read_yaml(novel.root_path, "story.yaml") or {}
+    bsettings = (await db.execute(
+        select(BookImageSettings).where(BookImageSettings.novel_id == novel.id)
+    )).scalar_one_or_none()
+    csettings = (await db.execute(
+        select(CharacterImageSettings).where(CharacterImageSettings.character_id == ch.id)
+    )).scalar_one_or_none()
+    config, model, declared = await _effective_config(db, novel, bsettings)
+    names = await _name_map(db, novel)
+    try:
+        dossier = json.loads(ch.dossier or "{}")
+        if not isinstance(dossier, dict):
+            dossier = {}
+    except (TypeError, ValueError):
+        dossier = {}
+
+    return avatar_prompt_payload(
+        style_key=bsettings.style_key if bsettings else DEFAULT_STYLE,
+        model=model,
+        provider=config.provider if config else "",
+        declared=declared,
+        fields={
+            "gender": dossier.get("gender"),
+            "age": dossier.get("age"),
+            "race": dossier.get("race"),
+            "look": dossier.get("look"),
+            "faction": dossier.get("faction"),
+            "persona": ch.persona,
+        },
+        subject=(csettings.avatar_prompt if csettings else "") or "",
+        names=names,
+        seed_source_id=ch.id,
+        story_genre=story.get("genre") or "",
+        sources_extra={"character_id": ch.id, "name": ch.name},
+    )
+
+
+async def build_library_avatar_prompt(db: AsyncSession, user_id: str, card) -> dict:
+    """库卡头像 prompt（c-library-avatar-gen）：账号级——无书上下文。
+
+    配置取用户默认图像配置（is_default 优先）；画风格式沿用默认；名称脱敏只做
+    本卡名/别名（库内跨书同名允许，不牵连其他书）。
+    """
+    config = await _effective_user_image_config(db, user_id)
+    declared = {}
+    if config:
+        try:
+            declared = json.loads(config.declared_capabilities or "{}")
+        except (TypeError, ValueError):
+            declared = {}
+    model = config.default_model if config else ""
+    names: dict[str, str] = {}
+    try:
+        aliases = json.loads(card.aliases or "[]") if card.aliases else []
+    except (TypeError, ValueError):
+        aliases = []
+    candidates = [card.name, *(aliases if isinstance(aliases, list) else [])]
+    for candidate in candidates:
+        text_name = str(candidate or "").strip()
+        if len(text_name) >= 2:
+            names[text_name] = "此人"
+    try:
+        dossier = json.loads(card.dossier or "{}")
+        if not isinstance(dossier, dict):
+            dossier = {}
+    except (TypeError, ValueError):
+        dossier = {}
+
+    return avatar_prompt_payload(
+        style_key=DEFAULT_STYLE,
+        model=model,
+        provider=config.provider if config else "",
+        declared=declared,
+        fields={
+            "gender": dossier.get("gender"),
+            "age": dossier.get("age"),
+            "race": dossier.get("race"),
+            "look": dossier.get("look"),
+            "faction": dossier.get("faction"),
+            "persona": card.persona,
+        },
+        subject="",
+        names=names,
+        seed_source_id=card.id,
+        story_genre=card.genre or "",
+        sources_extra={
+            "library_card_id": card.id,
+            "name": card.name,
+            "image_config_id": config.id if config else "",
+        },
+    )
+
+
+async def _effective_user_image_config(db: AsyncSession, user_id: str) -> ImageConfig | None:
+    """账号级默认图像配置（is_default 优先、再按创建时序列）。"""
+    row = (await db.execute(select(ImageConfig).where(
+        ImageConfig.user_id == user_id,
+        ImageConfig.status == "active",
+    ).order_by(ImageConfig.is_default.desc(), ImageConfig.created_at.asc()))).scalars().first()
+    return row

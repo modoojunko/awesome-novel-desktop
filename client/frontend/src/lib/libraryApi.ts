@@ -143,3 +143,21 @@ export function clearLibraryAvatarCache(cardId?: string): void {
   for (const url of avatarCache.values()) URL.revokeObjectURL(url);
   avatarCache.clear();
 }
+
+// ── 库卡头像生成（c-library-avatar-gen） ────────────────────────────────────
+
+export interface GeneratedLibraryAvatar {
+  card_id: string;
+  avatar: { has: boolean; url: string; thumb_url: string };
+  rev: number;
+}
+
+/** 按卡上档案生成头像（PRO 同权：image-generate 门在后端拦截）。 */
+export function generateLibraryAvatar(cardId: string): Promise<GeneratedLibraryAvatar> {
+  return unwrap<GeneratedLibraryAvatar>(
+    request(`/character-library/${cardId}/avatar/generate`, {
+      method: "POST",
+      body: JSON.stringify({}),
+    }),
+  );
+}
