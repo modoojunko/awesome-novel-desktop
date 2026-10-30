@@ -57,8 +57,6 @@ __all__ = [
 
 # 建书可勾项＝7 设定项＋三项扩展（章卷结构→卷行；人物关系→关系行；写作技法→文风 rules）
 IMPORT_ITEM_KEYS = (*SETTING_DIMENSION_KEYS, "structure", "relations", "techniques")
-# 建书弹窗默认勾选（c-deconstruct-style-transfer 口径）：7 设定项＋写作技法（技法并入文风）
-DEFAULT_BOOK_ITEMS = (*SETTING_DIMENSION_KEYS, "techniques")
 
 
 def _raw(task: DeconstructJob) -> dict:

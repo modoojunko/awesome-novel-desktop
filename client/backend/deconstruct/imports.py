@@ -249,10 +249,26 @@ def _on_done(task_id: str, task: asyncio.Task) -> None:
         log.exception("event=deconstruct_import_crash task=%s", task_id, exc_info=err)
 
 
+class ImportFailure(RuntimeError):
+    """显式分诊的建书失败：可重试性与归因由**抛出点**决定，不靠文案子串猜。
+
+    额度满/产物缺失这类「重试也没用」的失败必须走这里。原先 `_classify` 用
+    「书架已满 / 上限」子串匹配，而真实额度文案是「最多创建 N 个项目」，结果额度
+    失败被归成可重试，前端会给出「重试建书」（评审 P2）。
+    """
+
+    def __init__(self, message: str, *, kind: str, retryable: bool):
+        super().__init__(message)
+        self.kind = kind
+        self.retryable = retryable
+
+
 def _classify(exc: BaseException) -> dict:
     """失败分诊：可重试 vs 不可重试（design D1/D6）。"""
     from sqlalchemy.exc import OperationalError
 
+    if isinstance(exc, ImportFailure):
+        return {"message": str(exc), "kind": exc.kind, "retryable": exc.retryable}
     text = str(exc)
     if isinstance(exc, OperationalError):
         low = text.lower()
@@ -260,32 +276,41 @@ def _classify(exc: BaseException) -> dict:
             return {"message": "写入设定时存储忙（数据库被占用）", "kind": "storage_busy", "retryable": True}
     if isinstance(exc, TimeoutError):
         return {"message": "建书超时未完成", "kind": "stalled", "retryable": True}
-    if "书架已满" in text or "上限" in text:
-        return {"message": text, "kind": "quota", "retryable": False}
     return {"message": text or "建书失败", "kind": "error", "retryable": True}
 
 
 async def _fail(task_id: str, run_id: str, draft: str | None, exc: BaseException) -> None:
-    """失败收尾：**先**写终态再清理（顺序反了会卡在 importing，design D4）。"""
+    """失败收尾：写终态是条件化的，**清理自己那一轮的半成品不是**。
+
+    「能不能写终态」与「要不要清理」是两件事（评审 P1）：取消落在写入阶段时 status 已被
+    取消方写回 `completed`（或被新一轮 claim 成 `importing`），此时终态不该写，但那本已经
+    建出来的书必须回收——`draft_book_id` 是每轮独立的 id，删自己的一定安全。原先两件事
+    绑在一起，半本书会以 active 状态留在书架里，且任务 book_id 为空。
+    """
     err = _classify(exc)
-    patched = await _patch(
-        task_id,
-        {"step": "", "error": err, "finished_at": _now().isoformat()},
-        run_id=run_id,
-    )
-    if not patched:
-        return  # 已被取消/被新一轮抢占：连终态都不该写
-    async with async_session() as session:
-        res = await session.execute(
-            update(DeconstructJob)
-            .where(DeconstructJob.id == task_id, DeconstructJob.status == "importing")
-            .values(status="import_failed", book_id=None)
-        )
-        await session.commit()
-        if res.rowcount == 0:
-            return
-    await soft_delete_book(draft)
-    log.warning("event=deconstruct_import_failed task=%s kind=%s", task_id, err["kind"])
+    wrote = False
+    try:
+        async with async_session() as session:
+            row = await session.get(DeconstructJob, task_id)
+            state = _parse(row.dims_json) if row is not None else {}
+            imp = state.get("import") if isinstance(state.get("import"), dict) else {}
+            mine = (
+                row is not None
+                and row.status == "importing"
+                and str(imp.get("run_id") or "") == run_id
+            )
+            if mine:
+                imp.update({"step": "", "error": err, "finished_at": _now().isoformat()})
+                state["import"] = imp
+                row.dims_json = json.dumps(state, ensure_ascii=False)
+                row.status = "import_failed"
+                row.book_id = None
+                await session.commit()
+                wrote = True
+    finally:
+        await soft_delete_book(draft)  # 取消/被接管时照样清（本条的全部意义）
+    if wrote:
+        log.warning("event=deconstruct_import_failed task=%s kind=%s", task_id, err["kind"])
 
 
 async def _succeed(task_id: str, run_id: str, draft: str | None, result: dict, warnings: list[str]) -> None:
@@ -355,7 +380,8 @@ async def run(task_id: str) -> None:
 
                 reject = await project_quota_reject(db, task.user_id)
                 if reject:
-                    raise RuntimeError(reject)
+                    # 额度满属「重试也没用」：显式分诊，前端不给重试按钮（评审 P2）
+                    raise ImportFailure(reject, kind="quota", retryable=False)
                 result, warnings = await apply.import_book(
                     db,
                     task,

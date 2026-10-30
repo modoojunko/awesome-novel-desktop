@@ -412,6 +412,9 @@ async def cancel_import(
     if not await imports.cancel(task_id):
         raise HTTPException(409, "当前没有正在进行的建书")
     fresh = await service.get_task(db, task_id, _user_id(user))
+    # 请求 session 里还是取消前的实例（identity map）：不 refresh 会把 importing 回给前端
+    if fresh is not None:
+        await db.refresh(fresh)
     return {"status": fresh.status if fresh else "completed"}
 
 

@@ -390,3 +390,72 @@ def test_to_library_available_in_every_result_ready_state(client, status):
         json={"picks": ["林晚"], "rename": False},
     )
     assert r.status_code == 200, r.text
+
+
+# ── 评审整改的回归钉（取消落在写入阶段 / 取消响应体 / 额度不可重试）──
+
+
+def test_cancel_during_write_cleans_partial_book(client, monkeypatch):
+    """取消落在**写入阶段**：终态不该写（状态已被取消方改回 completed），
+    但那本已建出来的书必须被回收——否则书架里留一本 active 的半成品、任务 book_id 为空。"""
+    from deconstruct import apply as apply_mod
+    from novels.service import create_project
+
+    _mk("imp-fix-1")
+    client.post("/api/deconstruct/tasks/imp-fix-1/import-book", json={"items": ["intro"]})
+    draft = _get("imp-fix-1")["import"]["draft_book_id"]
+
+    async def fake_import(db, task, user_id, items, *, book_id=None,
+                          on_step=None, is_cancelled=None, stop_event=None):
+        await create_project(db, user_id, name="半本书", source="manual", book_id=book_id)
+        await imports.cancel("imp-fix-1")  # 用户在这一刻点了取消
+        raise asyncio.CancelledError()
+
+    monkeypatch.setattr(apply_mod, "import_book", fake_import)
+    with pytest.raises(asyncio.CancelledError):
+        _run(imports.run("imp-fix-1"))
+
+    st = _get("imp-fix-1")
+    assert st["status"] == "completed"  # 取消语义赢：不写失败终态
+    assert st["book_id"] is None
+
+    async def _book_status():
+        from models.project import Novel
+
+        async with async_session() as s:
+            row = await s.get(Novel, draft)
+            return row.status if row else None
+
+    assert _run(_book_status()) == "deleted"  # 半成品被清：不留可见半本书
+
+
+def test_cancel_response_reports_completed(client):
+    """取消接口的响应体必须是取消后的状态（请求 session 有 identity map，不 refresh 会给旧值）。"""
+    _mk("imp-fix-2")
+    client.post("/api/deconstruct/tasks/imp-fix-2/import-book", json={})
+    r = client.post("/api/deconstruct/tasks/imp-fix-2/import-book/cancel")
+    assert r.status_code == 200, r.text
+    assert r.json()["status"] == "completed"
+
+
+def test_quota_failure_is_not_retryable(client, monkeypatch):
+    """写入前二次校验撞额度：分诊为 quota/不可重试（前端据此不给「重试建书」）。"""
+    from auth_local import deps as auth_deps
+
+    calls = {"n": 0}
+
+    async def _quota(db, user_id):
+        calls["n"] += 1
+        # 受理时放行（模拟精炼期间用户又建了一本导致越限），执行体二次校验才拦
+        return None if calls["n"] == 1 else "当前套餐最多创建 1 个项目 — 升级套餐后可创建更多"
+
+    monkeypatch.setattr(auth_deps, "project_quota_reject", _quota)
+
+    _mk("imp-fix-3")
+    client.post("/api/deconstruct/tasks/imp-fix-3/import-book", json={"items": ["intro"]})
+    _drive("imp-fix-3")
+
+    st = _get("imp-fix-3")
+    assert st["status"] == "import_failed"
+    assert st["import"]["error"]["kind"] == "quota"
+    assert st["import"]["error"]["retryable"] is False
