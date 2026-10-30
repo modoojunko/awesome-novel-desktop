@@ -45,7 +45,7 @@ def _products():
                 ]
             },
         },
-        "genre": {"file": "genre.json", "data": {"genre": "武侠"}},
+        "genre": {"file": "genre.json", "data": {"genre": "古装玄幻"}},
     }
 
 
@@ -145,7 +145,7 @@ class TestToLibrary:
         names = {i["name"] for i in listed["items"]}
         assert names == {"沈青崖", "秦重霄"}
         qcx = next(i for i in listed["items"] if i["name"] == "秦重霄")
-        assert qcx["genre"] == "武侠" and qcx["src"]["kind"] == "deconstruct"
+        assert qcx["genre"] == "玄幻" and qcx["src"]["kind"] == "deconstruct"  # 自由文本经目录归一
 
         # 幂等：重复提交同一批
         again = c.post(f"/api/deconstruct/tasks/{seed['task_id']}/to-library", json=body).json()

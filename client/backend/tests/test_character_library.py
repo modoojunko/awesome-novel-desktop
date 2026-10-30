@@ -71,7 +71,7 @@ def _card_body(**over):
         "name": "秦重霄",
         "aliases": ["大当家"],
         "role": "反派",
-        "genre": "武侠",
+        "genre": "玄幻",
         "kind": "敌人",
         "persona": "黑风寨大当家",
         "dossier": {"gender": "男", "age": "42", "speech": "骂人先问候对方娘亲"},
@@ -99,7 +99,7 @@ class TestCrud:
         c, _ = client
         card_id = c.post("/api/character-library", json=_card_body()).json()["data"]["id"]
         r = c.put(f"/api/character-library/{card_id}", json=_card_body(
-            name="苏晚晴", role="配角", genre="武侠", kind="挚友",
+            name="苏晚晴", role="配角", genre="都市", kind="挚友",
             dossier={"gender": "女", "age": "17"},
             cog={"w5": "来历成谜"},
         ))
@@ -123,6 +123,17 @@ class TestCrud:
         assert c.delete(f"/api/character-library/{card_id}").status_code == 200
         assert _run(_count()) == before
         assert c.get(f"/api/character-library/{card_id}").status_code == 404
+
+    def test_genre_must_be_in_book_theme_catalog(self, client):
+        c, _ = client
+        r = c.post("/api/character-library", json=_card_body(genre="武侠"))
+        assert r.status_code == 400
+        assert r.json()["detail"]["code"] == "invalid_genre"
+        # 目录内大类（含历史自由文本可归一的）通过；空＝未分题材
+        ok = c.post("/api/character-library", json=_card_body(genre="玄幻"))
+        assert ok.status_code == 200 and ok.json()["data"]["genre"] == "玄幻"
+        empty = c.post("/api/character-library", json=_card_body(genre=""))
+        assert empty.status_code == 200 and empty.json()["data"]["genre"] == ""
 
     def test_validation_rejects_unknown_cog_key(self, client):
         c, _ = client
@@ -150,10 +161,10 @@ class TestCollectAndSync:
         card = c.post("/api/character-library/import/book", json=body).json()["data"]["card"]
         # 库里改分类；书里改语言特征
         card["kind"] = "其他"
-        card["genre"] = "仙侠"
+        card["genre"] = "仙侠/修真"
         c.put(f"/api/character-library/{card['id']}", json={
             "name": card["name"], "aliases": card["aliases"], "role": card["role"],
-            "genre": "仙侠", "kind": "其他", "persona": card["persona"],
+            "genre": "仙侠/修真", "kind": "其他", "persona": card["persona"],
             "dossier": card["dossier"], "cog": card["cog"],
         })
 
@@ -169,7 +180,7 @@ class TestCollectAndSync:
         synced = c.post(f"/api/character-library/{card['id']}/sync-from-book").json()["data"]
         assert synced["dossier"]["speech"] == "急了才连成句"
         assert synced["persona"] == "看山人独子（新版）"
-        assert synced["genre"] == "仙侠" and synced["kind"] == "其他"  # 库分类不动
+        assert synced["genre"] == "仙侠/修真" and synced["kind"] == "其他"  # 库分类不动
 
     def test_sync_source_gone(self, client):
         c, seed = client
@@ -368,3 +379,36 @@ class TestMigrationManifest:
         finally:
             con.close()
         assert rows["library_total"] == 0
+
+class TestGenreAlignment:
+    """c-library-genre-align：库卡题材＝开书题材目录（THEMES 大类，中文名即存储值）。"""
+
+    def test_normalize_theme(self):
+        from genres.theme_catalog import normalize_theme
+
+        assert normalize_theme("都市") == "都市"
+        assert normalize_theme("古装玄幻") == "玄幻"  # 包含命中
+        assert normalize_theme("仙侠") == "仙侠/修真"  # 反向包含
+        assert normalize_theme("武侠") == ""  # 目录外→未分题材
+        assert normalize_theme("") == ""
+
+    def test_collect_inherits_book_theme(self, client):
+        c, seed = client
+
+        async def _write_story(genre):
+            from filesystem.storage import get_storage
+            async with async_session() as db:
+                novel = await db.get(Novel, seed["novel_id"])
+                await get_storage().write_yaml(novel.root_path, "story.yaml", {"genre": genre})
+
+        # 目录内：原样继承
+        _run(_write_story("都市"))
+        body = {"novel_id": seed["novel_id"], "character_id": seed["char_id"]}
+        card = c.post("/api/character-library/import/book", json=body).json()["data"]["card"]
+        assert card["genre"] == "都市"
+
+        # 目录外历史自由文本：命中则归一，否则未分题材（先删卡再重收验证另一支）
+        c.delete(f"/api/character-library/{card['id']}")
+        _run(_write_story("古装玄幻"))
+        card2 = c.post("/api/character-library/import/book", json=body).json()["data"]["card"]
+        assert card2["genre"] == "玄幻"

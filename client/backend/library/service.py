@@ -21,6 +21,7 @@ from sqlalchemy import delete, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from genres.theme_catalog import normalize_theme
 from models.character import Character
 from models.character_library import CharacterLibrary, CharacterLibraryBlob
 from models.project import Novel
@@ -135,11 +136,17 @@ def clean_payload(body: dict) -> dict:
     kind = str(body.get("kind") or "").strip()
     if kind and kind not in KIND_VALUES:
         raise LibraryError("invalid_kind", "小类不合法")
+    raw_genre = str(body.get("genre") or "").strip()
+    genre = normalize_theme(raw_genre)
+    if raw_genre and not genre:
+        raise LibraryError(
+            "invalid_genre", "题材要用开书时的题材目录里的大类（如：都市、玄幻、悬疑）"
+        )
     return {
         "name": str(body.get("name") or "").strip()[:NAME_MAX],
         "aliases": _clean_aliases(body.get("aliases")),
         "role": role,
-        "genre": str(body.get("genre") or "").strip()[:GENRE_MAX],
+        "genre": genre[:GENRE_MAX],
         "kind": kind,
         "persona": str(body.get("persona") or "").strip()[:PERSONA_MAX],
         "dossier": _clean_cells(body.get("dossier"), DOSSIER_KEYS, "dossier"),
@@ -314,7 +321,7 @@ async def _story_genre(db: AsyncSession, novel: Novel) -> str:
         from filesystem.storage import get_storage
 
         story = await get_storage().read_yaml(novel.root_path, "story.yaml") or {}
-        return str(story.get("genre") or "").strip()[:GENRE_MAX]
+        return normalize_theme(story.get("genre"))[:GENRE_MAX]
     except Exception:  # noqa: BLE001 — 题材继承是尽力而为，不阻断收录
         return ""
 
@@ -644,7 +651,7 @@ def _deconstruct_genre(task) -> str:
     except (TypeError, ValueError):
         return ""
     genre = ((products.get("genre") or {}).get("data") or {}).get("genre")
-    return str(genre or "").strip()[:GENRE_MAX]
+    return normalize_theme(genre)[:GENRE_MAX]
 
 
 async def import_from_deconstruct(

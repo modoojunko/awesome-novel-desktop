@@ -161,7 +161,7 @@ describe("CardEditorModal", () => {
     expect(api.createLibraryCard).not.toHaveBeenCalled();
     fireEvent.click(screen.getByTestId("lib-ai-random"));
     await waitFor(() => expect((screen.getByPlaceholderText("角色叫什么") as HTMLInputElement).value).toBe("霍青山"));
-    fireEvent.change(screen.getByTestId("lib-genre"), { target: { value: "武侠" } });
+    fireEvent.change(screen.getByTestId("lib-genre"), { target: { value: "都市" } });
     fireEvent.click(screen.getByTestId("lib-save"));
     await waitFor(() => expect(api.createLibraryCard).toHaveBeenCalled());
     const sent = api.createLibraryCard.mock.calls[0][0];
@@ -262,5 +262,17 @@ describe("LibraryAvatar", () => {
     api.fetchLibraryAvatar.mockResolvedValue("blob:mock");
     wrap(<LibraryAvatar card={{ id: "c1", name: "沈青崖", avatar: { has: true, url: "u", thumb_url: "t" } }} />);
     await waitFor(() => expect(document.querySelector("img")).toBeTruthy());
+  });
+});
+
+describe("题材选择器（c-library-genre-align）", () => {
+  it("选项来自开书题材目录：未分题材＋目录大类", async () => {
+    wrap(<CardEditorModal open card={null} onClose={vi.fn()} />);
+    const sel = screen.getByTestId("lib-genre") as HTMLSelectElement;
+    const texts = Array.from(sel.options).map((o) => o.textContent);
+    expect(texts[0]).toBe("未分题材");
+    expect(texts).toContain("都市");
+    expect(texts).toContain("玄幻");
+    expect(texts).toContain("悬疑");
   });
 });

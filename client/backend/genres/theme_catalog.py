@@ -283,3 +283,24 @@ def sub_type_or_none(theme: str | None, value: str | None) -> str | None:
     if sub not in sub_type_names(theme):
         raise ValueError(f"「{theme}」没有这个子类：{sub}")
     return sub
+
+# ── 目录名集合与归一（c-library-genre-align：角色库题材与开书目录一致）──────
+
+THEME_NAMES: tuple[str, ...] = tuple(t["name"] for t in THEMES)
+
+
+def normalize_theme(raw) -> str:
+    """把任意题材文本归一到目录大类名：精确命中优先；否则包含匹配（双向）；
+    仍无→空串（调用方按「未分题材」处理）。"""
+    text = str(raw or "").strip()
+    if not text:
+        return ""
+    if text in THEME_NAMES:
+        return text
+    for name in THEME_NAMES:
+        if name in text:
+            return name
+    for name in THEME_NAMES:
+        if text in name:
+            return name
+    return ""
