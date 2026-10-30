@@ -16,8 +16,8 @@
 - [x] 1.2 `delete_task`（`router.py:464`）增 `importing → 409「建书中，请先取消建书」`。验证：用例断言 409 与任务仍在。
 - [x] 1.3 受理分支四臂：`task.book_id` 指向现存书（**含存量 completed+book_id**）→ 200 幂等同书 + 读时升级 `imported`；书已删/不存在 → 清键重建；`importing` → 409 返回当前状态；否则条件 UPDATE 抢 `importing` → 202。验证：契约四臂 + 「存量 completed+book_id 不建第二本」回归（对齐 `test_deconstruct_api.py:263` 删书重建语义）。
 - [x] 1.4 受理时把 `items` 规范化后与 `run_id`、预分配 `draft_book_id` 一次提交进 `dims_json.import`（白名单 `IMPORT_ITEM_KEYS`、去重保序、空则默认 8 项）；执行体与重试只读该值。验证：契约用例「非默认勾选（勾上 structure）→ 202 → 建出的书只含所选维度」；重试用例断言两次执行 items 一致。
-- [ ] 1.5 取消端点 `POST .../import-book/cancel`：仅 `importing` 可取消（条件 UPDATE 回 `completed`），并 `_inflight[task_id].cancel()`；**不挂 `require_ai_access`**（Key 失效/降档也必须能止损）。验证：用例覆盖可取消/409/降档用户仍可取消。
-- [ ] 1.6 满额：受理时查一次（快速失败、不烧 AI）+ 执行体 `create_project` 前再查一次；`require_project_limit` 在 handler 内 `await`，**不挂 `Depends`**（否则在 200/409 之前 403）。验证：超限用例断言 403 且 `deconstruct_condense` 调用数＝0；两任务先后受理时第二次在写入前被拦。
+- [x] 1.5 取消端点 `POST .../import-book/cancel`：仅 `importing` 可取消（条件 UPDATE 回 `completed`），并 `_inflight[task_id].cancel()`；**不挂 `require_ai_access`**（Key 失效/降档也必须能止损）。验证：用例覆盖可取消/409/降档用户仍可取消。
+- [x] 1.6 满额：受理时查一次（快速失败、不烧 AI）+ 执行体 `create_project` 前再查一次；`require_project_limit` 在 handler 内 `await`，**不挂 `Depends`**（否则在 200/409 之前 403）。验证：超限用例断言 403 且 `deconstruct_condense` 调用数＝0；两任务先后受理时第二次在写入前被拦。
 - [x] 1.7 写 `import` 必须基于整份 `dims_json` 读改写（保留未知顶键），并加断言：`importing/imported/import_failed` 状态下管线不得启动（`run_task` 入口守卫）。验证：单测 + 「管线补丁后 import 键仍在」的回归用例。
 
 ## 2. 后端：整段执行体
@@ -66,7 +66,7 @@
 
 ## 8. 前端：提示条
 
-- [ ] 8.1 提示条落点改为 `SettingsView` 页顶（不是 `WorldSettingPanel`：默认面板是题材，世界面板要切页才挂载）。读 5.2 的端点，按 `notice info/warn` 分级，可关闭（DELETE），关闭失败 toast。验证：组件三态（有/无/关闭后）+ 关闭失败臂。
+- [x] 8.1 提示条落点改为 `SettingsView` 页顶（不是 `WorldSettingPanel`：默认面板是题材，世界面板要切页才挂载）。读 5.2 的端点，按 `notice info/warn` 分级，可关闭（DELETE），关闭失败 toast。验证：组件三态（有/无/关闭后）+ 关闭失败臂。
 
 ## 9. 契约、兼容与回滚
 

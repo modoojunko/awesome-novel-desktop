@@ -740,3 +740,47 @@ def test_import_notice_rejects_generic_settings_endpoint(client):
     r = client.get(f"/api/novels/{book_id}/settings/import-notice")
     assert r.status_code == 200  # 专用端点可用
     assert client.get(f"/api/novels/{book_id}/settings/import-notice-x").status_code in (400, 404, 422)
+
+
+def test_cancel_allowed_for_downgraded_user(client, monkeypatch):
+    """1.5：取消建书是止损动作，**不挂 AI 门**——降档/会员过期的用户也必须能停下。"""
+    _mk("imp-cancel-free")
+    client.post("/api/deconstruct/tasks/imp-cancel-free/import-book", json={})
+
+    # 降档：无会员、无 deconstruct-import 权益
+    monkeypatch.setattr(
+        _auth_deps,
+        "check_permission",
+        lambda: {"tier": "free", "is_member": False, "expired": True, "entitlement": {}},
+    )
+    r = client.post("/api/deconstruct/tasks/imp-cancel-free/import-book/cancel")
+    assert r.status_code == 200, r.text
+    assert r.json()["status"] == "completed"
+    # 但受理建书本身仍然被门禁拦住（对照：门没被整体拆掉）
+    r2 = client.post("/api/deconstruct/tasks/imp-cancel-free/import-book", json={})
+    assert r2.status_code == 403
+
+
+def test_quota_reject_never_calls_condense(client, monkeypatch):
+    """1.6：受理时满额 → 403 且**一次精炼都不发**（不能先烧 23 秒再报满额）。"""
+    from deconstruct import apply as apply_mod
+
+    calls = {"condense": 0}
+
+    async def _spy(*a, **kw):
+        calls["condense"] += 1
+
+    async def _reject(db, user_id):
+        return "当前套餐最多创建 1 个项目 — 升级套餐后可创建更多"
+
+    monkeypatch.setattr(apply_mod, "_condense_world", _spy)
+    from auth_local import deps as auth_deps
+
+    monkeypatch.setattr(auth_deps, "project_quota_reject", _reject)
+
+    _mk("imp-quota-403")
+    r = client.post("/api/deconstruct/tasks/imp-quota-403/import-book", json={"items": ["world"]})
+    assert r.status_code == 403, r.text
+    assert "最多创建" in r.json()["detail"]
+    assert calls["condense"] == 0
+    assert _get("imp-quota-403")["status"] == "completed"  # 没进入建书态
