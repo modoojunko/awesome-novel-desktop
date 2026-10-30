@@ -77,14 +77,19 @@ export function ChapterPlanModal({
                 <li className="rp-row warn">
                   <span className="rp-dot" aria-hidden="true" />
                   <span className="rp-tx">
-                    节奏或章数目标变了——这批是之前出的，重抽才会按当前设置
-                    <button
-                      className="lnk"
-                      data-testid="split-pacing-redraw"
-                      onClick={() => void freshRedraw()}
-                    >
-                      重抽
-                    </button>
+                    节奏或章数目标变了——这批是之前出的
+                    {state.pick == null
+                      ? "，重抽才会按当前设置"
+                      : "，换 3 个方向会按当前设置重出"}
+                    {state.pick == null && (
+                      <button
+                        className="lnk"
+                        data-testid="split-pacing-redraw"
+                        onClick={() => void freshRedraw()}
+                      >
+                        重抽
+                      </button>
+                    )}
                   </span>
                 </li>
               </ul>
@@ -92,7 +97,7 @@ export function ChapterPlanModal({
           ) : ap.effective === false ? (
             <p className="ai-note" data-testid="split-pacing-missing">
               这一卷还没存节奏——拆章不会照套路走（可选）
-              {state.phase === "idle" && onGoPacing ? (
+              {state.pick == null && state.phase === "idle" && onGoPacing ? (
                 <button className="lnk" data-testid="split-pacing-go" onClick={onGoPacing}>
                   去节奏页签
                 </button>

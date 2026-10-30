@@ -1564,6 +1564,41 @@ describe("拆章入口拍位预告与会话一致性（c-pacing-effectiveness）
     expect(body).toEqual({});  // 旧批不并入排除清单
   });
 
+  it("本章卡只留只读提示：未存节奏时不出「去节奏页签」", async () => {
+    mockApi.get.mockResolvedValue(
+      anchorWith({ pacing_effective: false, pacing_preview: null, pacing_reason: null }),
+    );
+    mockApi.post.mockResolvedValue({ ...DIRS, pacing: null, pacing_fingerprint: "fp-new" });
+    render(<Host onGoPacing={vi.fn()} />);
+    fireEvent.click(screen.getByTestId("open-ai"));
+    await waitFor(() => expect(screen.getByTestId("pick-card-1")).toBeInTheDocument());
+    fireEvent.click(screen.getByTestId("pick-card-1"));
+    await waitFor(() => expect(screen.getByTestId("chapter-card")).toBeInTheDocument());
+    expect(screen.getByTestId("split-pacing-missing")).toBeInTheDocument();
+    expect(screen.queryByTestId("split-pacing-go")).toBeNull();
+  });
+
+  it("本章卡过期批只留提示：不出「重抽」，引导用换 3 个方向", async () => {
+    seed({
+      v: 2, nextNo: 3, directions: DIRS.directions, grades: DIRS.grades,
+      oneLiners: DIRS.diff.one_liner, checks: [], note: "",
+      exclude: [], pacing: { step_idx: 1, step_name: "遇麻烦" },
+      pacing_fingerprint: "fp-old",
+    });
+    mockApi.get.mockResolvedValue(
+      anchorWith({ pacing_effective: true, pacing_preview: PREVIEW, pacing_reason: null }),
+    );
+    render(<Host />);
+    fireEvent.click(screen.getByTestId("open-ai"));
+    await waitFor(() => expect(screen.getByTestId("pick-card-1")).toBeInTheDocument());
+    fireEvent.click(screen.getByTestId("pick-card-1"));
+    await waitFor(() => expect(screen.getByTestId("chapter-card")).toBeInTheDocument());
+    expect(screen.getByTestId("split-pacing-stale")).toHaveTextContent(
+      "换 3 个方向会按当前设置重出",
+    );
+    expect(screen.queryByTestId("split-pacing-redraw")).toBeNull();
+  });
+
   it("旧后端锚点缺指纹：按未知处理，恢复旧批不误标过期", async () => {
     seed({
       v: 2, nextNo: 3, directions: DIRS.directions, grades: DIRS.grades,
