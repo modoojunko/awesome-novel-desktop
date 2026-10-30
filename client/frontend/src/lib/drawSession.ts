@@ -17,8 +17,8 @@ const MAX_ITEMS = 9;
 export const drawKey = {
   /** 卷抽卡：同卷号一个会话 */
   volume: (pid: string, volNo: number) => `vp-draw:${pid}:vol${volNo}`,
-  /** 章抽卡：同卷一个会话（载荷内带 nextNo 复核目标章） */
-  chapter: (pid: string, volRef: string) => `cp-draw:${pid}:${volRef}`,
+  /** 章抽卡：同卷一个会话（载荷内带 nextNo 复核目标章；v2 起带拍位指纹，旧载荷按新键自然丢弃） */
+  chapter: (pid: string, volRef: string) => `cp-draw:v2:${pid}:${volRef}`,
   /** 人物精盘抽卡：跟章走（c-character-intro） */
   cast: (pid: string, chRef: string) => `cs-draw:${pid}:${chRef}`,
 };

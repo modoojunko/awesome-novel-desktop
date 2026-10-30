@@ -6,9 +6,11 @@ import { useCallback, useRef, useState } from "react";
 import {
   chapterPlanApi,
   type ChapterAdoptBody,
+  type ChapterAnchor,
   type ChapterDirection,
   type ChapterDirectionsResult,
   type ChapterEntry,
+  type ChapterPacingPreview,
   type DrawExcludeItem,
 } from "@/lib/chapterPlanApi";
 import { appendExclude, clearDraw, drawKey, loadDraw, saveDraw } from "@/lib/drawSession";
@@ -52,6 +54,17 @@ export interface ChapterPlanState {
   directions: ChapterDirection[];
   /** 卡面步位角标（c-volume-pacing）：本批卡对应的循环拍位；null＝未配节奏 */
   pacing: { step_idx: number; step_name: string } | null;
+  /** 本批生成时的拍位指纹（c-pacing-effectiveness）：会话恢复比对用 */
+  pacingFingerprint: string | null;
+  /** 锚点拍位预告（本轮打开时取；缺字段＝旧后端/未知，不误报） */
+  anchorPacing: {
+    effective?: boolean;
+    preview?: ChapterPacingPreview | null;
+    reason?: "no_target" | "out_of_target" | "unknown" | null;
+    fingerprint?: string;
+  } | null;
+  /** 旧批生成于不同拍位：保留旧卡但抑制正面预告/角标，给重抽出口 */
+  pacingStale: boolean;
   grades: string[];
   checks: string[];
   note: string;
@@ -89,6 +102,7 @@ export interface ChapterPlanState {
 const INITIAL = (): ChapterPlanState => ({
   entrySource: "manual", open: false, phase: "idle", error: "", submitting: false,
   landed: null, entry: { text: "", source: "" }, directions: [], pacing: null, grades: [], checks: [],
+  pacingFingerprint: null, anchorPacing: null, pacingStale: false,
   note: "", warnings: [], degradedText: "", pick: null, draft: { ...EMPTY_DRAFT },
   nextNo: 1, editing: null, cardLoaded: false, selfchecked: false, selfchecking: false, selfcheck: null,
   exclude: [], oneLiners: [], drawnNo: null,
@@ -182,7 +196,8 @@ export function useChapterPlan(
     clientTokenRef.current = `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
     setState((s) => ({ ...s, entrySource: "ai", open: true, pick: null, checks: [],
       entry: { text: "", source: "" }, editing: null, cardLoaded: true, phase: "busy",
-      warnings: [], degradedText: "", selfchecked: false, selfchecking: false, selfcheck: null }));
+      warnings: [], degradedText: "", selfchecked: false, selfchecking: false, selfcheck: null,
+      anchorPacing: null, pacingStale: false }));
     // 章号/进场先就位（忙碌态文案与卡面标题都用它），再决定恢复还是重抽（c-plan-draw-exclude）
     void (async () => {
       const anchor = await loadAnchor();
@@ -191,22 +206,32 @@ export function useChapterPlan(
       const nextNo = anchor?.next_no ?? stateRef.current.nextNo;
       const cur = stateRef.current;
       const key = drawKey.chapter(projectId, volRef);
+      // 拍位指纹：旧后端/旧 mock 缺字段＝未知，不误报过期；已知才比对
+      const currentFp = anchor?.pacing_fingerprint;
+      const samePacing = (batchFp: string | null | undefined) =>
+        currentFp === undefined ? true : (batchFp ?? null) === (currentFp ?? null);
       // ① 内存批恢复：同目标章存在未消费批（误关重开）——不重抽、不重复计量；
       // 且必须把 upfront busy 拨回 idle（否则恢复批永远显示「正在想」）
       if (cur.directions.length > 0 && cur.drawnNo !== null && cur.drawnNo === nextNo) {
-        setState((x) => ({ ...x, phase: "idle" }));
+        setState((x) => ({ ...x, phase: "idle", pacingStale: !samePacing(cur.pacingFingerprint) }));
         return;
       }
-      // ② localStorage 恢复（页面刷新兜底）
+      // ② localStorage 恢复（页面刷新兜底；v2 才认，旧载荷丢弃）
       const stored = loadDraw<{ v: number; nextNo: number; directions: ChapterDirection[];
         grades: string[]; oneLiners: string[]; checks: string[]; note: string;
-        exclude: DrawExcludeItem[] }>(key);
-      if (stored && stored.nextNo === nextNo && stored.directions?.length) {
+        exclude: DrawExcludeItem[];
+        pacing?: { step_idx: number; step_name: string } | null;
+        pacing_fingerprint?: string;
+      }>(key);
+      if (stored && stored.v === 2 && stored.nextNo === nextNo && stored.directions?.length) {
         excludeRef.current = stored.exclude ?? [];
         setState((x) => ({ ...x, phase: "idle", directions: stored.directions,
           grades: stored.grades ?? [], oneLiners: stored.oneLiners ?? [],
           checks: stored.checks ?? [], note: stored.note ?? "",
-          exclude: stored.exclude ?? [], drawnNo: stored.nextNo }));
+          exclude: stored.exclude ?? [], drawnNo: stored.nextNo,
+          pacing: stored.pacing ?? null,
+          pacingFingerprint: stored.pacing_fingerprint ?? null,
+          pacingStale: !samePacing(stored.pacing_fingerprint) }));
         return;
       }
       // ③ 目标章变化：排除清单清零后重抽
@@ -219,7 +244,7 @@ export function useChapterPlan(
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [projectId, volRef]);
 
-  const loadAnchor = useCallback(async (): Promise<ChapterEntry & { next_no?: number } | null> => {
+  const loadAnchor = useCallback(async (): Promise<ChapterAnchor | null> => {
     const token = ++anchorTokenRef.current;
     try {
       const d = await chapterPlanApi.anchor(projectId, volRef);
@@ -228,13 +253,19 @@ export function useChapterPlan(
         ...s,
         entry: { text: d.text, source: d.source },
         nextNo: d.next_no ?? s.nextNo,
+        anchorPacing: {
+          effective: d.pacing_effective,
+          preview: d.pacing_preview,
+          reason: d.pacing_reason,
+          fingerprint: d.pacing_fingerprint,
+        },
       }));
-      return { text: d.text, source: d.source, next_no: d.next_no };
+      return d;
     } catch {
       // 同一代际守卫：晚到的失败不得覆盖新开的卡面（原实现在这里比错了计数器，
       // 兜底文案被 return 掉 → 换卷残留上一卷进场）
       if (token !== anchorTokenRef.current) return null;
-      setState((s) => ({ ...s, entry: { text: "（进场读不到）", source: "" } }));
+      setState((s) => ({ ...s, entry: { text: "（进场读不到）", source: "" }, anchorPacing: null }));
       return null;
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -244,7 +275,8 @@ export function useChapterPlan(
     const token = nextToken();
     // 换一批不累积：先前的选择与卡面草稿不再显示（否则新批里第 i 张仍显选中，
     // 排上会落库上一批方向的五段）
-    setState((s) => ({ ...s, phase: "busy", error: "", pick: null, draft: { ...EMPTY_DRAFT } }));
+    setState((s) => ({ ...s, phase: "busy", error: "", pick: null, draft: { ...EMPTY_DRAFT },
+      pacingStale: false }));
     try {
       const d: ChapterDirectionsResult = await chapterPlanApi.directions(projectId, volRef, excludeRef.current);
       if (token !== tokenRef.current) return;
@@ -256,12 +288,14 @@ export function useChapterPlan(
       }
       const oneLiners = d.diff?.one_liner ?? [];
       const drawnNo = d.entry?.next_no ?? stateRef.current.nextNo;
-      saveDraw(drawKey.chapter(projectId, volRef), { v: 1, nextNo: drawnNo,
+      saveDraw(drawKey.chapter(projectId, volRef), { v: 2, nextNo: drawnNo,
         directions: d.directions, grades: d.grades ?? [], oneLiners,
-        checks: d.checks ?? [], note: d.note ?? "", exclude: excludeRef.current });
+        checks: d.checks ?? [], note: d.note ?? "", exclude: excludeRef.current,
+        pacing: d.pacing ?? null, pacing_fingerprint: d.pacing_fingerprint });
       setState((s) => ({ ...s, phase: "idle", entry: d.entry, directions: d.directions,
         grades: d.grades ?? [], oneLiners, checks: d.checks ?? [], note: d.note ?? "",
-        pacing: d.pacing ?? null, warnings: d.warnings ?? [], drawnNo }));
+        pacing: d.pacing ?? null, pacingFingerprint: d.pacing_fingerprint ?? null,
+        pacingStale: false, warnings: d.warnings ?? [], drawnNo }));
     } catch (e) {
       if (token !== tokenRef.current) return;
       const msg = (e as { message?: string })?.message || "";

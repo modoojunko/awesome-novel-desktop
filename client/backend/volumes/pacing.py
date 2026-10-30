@@ -9,13 +9,14 @@ book-prefs）→ 卷配置（卷页签精调，最终以卷为准）。段边界
   → 套路键」映射）。文案＝作家语言（套路/段/步），过实现词汇黑名单。
 - 归一与 clamp 单源：步数 2–6、每段 1–30、步名 ≤12／步任务 ≤80；前端镜像
   ``src/lib/volumePacing.ts``（公式与展示文案，parity 对拍）。
-- **注入只认卷列**：``effective_config`` 只读卷上已保存的配置——书默认/题材
-  映射只驱动页签展示预填（display_prefill），不触发任何拍位注入（未配置的书
-  行为与升级前逐字一致）。
+- **注入按配置存在推导**：``effective_of`` 只读「卷上已保存且可解析的配置 →
+  书级默认」，**不看 planned**（未排段也注入）；题材映射只驱动页签展示预填
+  （display_prefill），不触发任何拍位注入（未配置的书行为与升级前逐字一致）。
 """
 
 from __future__ import annotations
 
+import hashlib
 import json
 from typing import Any
 
@@ -286,7 +287,7 @@ def beat_of(chapter_no: int, config: dict[str, Any] | None, chapter_target: int 
     }
 
 
-# ── 预填链（展示用；注入只认卷列，见模块头） ─────────────────────────────
+# ── 预填链（展示用）与生效解析（注入用；卷列 → 书默认，不看 planned） ──────
 
 
 def book_pacing_default(doc: Any) -> dict[str, Any] | None:
@@ -307,7 +308,8 @@ def prefill_chain(
 ) -> dict[str, Any] | None:
     """展示预填链：上一卷配置 → 书级默认 → 题材映射 → 兜底升级套路。
 
-    仅驱动页签展示（「已按题材预填/继承上一卷」）；拍位注入只认卷列。
+    仅驱动页签展示（「已按题材预填/继承上一卷」）；注入走 effective_of
+    （卷列 → 书默认，不看 planned），题材映射不参与注入。
     """
     prev = normalize_pacing_config(prev_pacing)
     if prev:
@@ -321,14 +323,40 @@ def prefill_chain(
     return build_config(key, int(preset["steps_len"]), ch1_extra_on=True)
 
 
-# ── 注入助手（各生成点共用；注入只认「已配置＋已排」的卷） ────────────────
+# ── 注入助手（各生成点共用；注入按「配置存在」推导，不看 planned） ─────────
+
+
+def effective_of(
+    config: Any,
+    book_default: dict[str, Any] | None,
+    volume_no: int,
+) -> tuple[dict[str, Any] | None, str | None]:
+    """生效配置解析（注入与页签同源）：卷列 → 书级默认 → 空。
+
+    返回 ``(config, source)``，source ∈ ``volume | book | None``。书默认分支必须
+    用 build_config 补齐步表与「第 1 章额外交代」开关（第 1 卷开、其余卷关），
+    SHALL NOT 把只有 {preset, steps_len} 的书默认裸对象当完整配置返回。
+    题材映射只驱动展示预填，不进本解析。
+    """
+    normalized = normalize_pacing_config(config)
+    if normalized:
+        return normalized, "volume"
+    if book_default:
+        built = build_config(
+            book_default["preset"],
+            book_default["steps_len"],
+            ch1_extra_on=(int(volume_no) == 1),
+        )
+        if built:
+            return built, "book"
+    return None, None
 
 
 async def resolve_config(db: Any, project, volume_no: int) -> dict[str, Any] | None:
     """注入用配置解析：卷列节奏 → 书级默认（book-prefs）→ None。
 
     题材映射只驱动页签展示预填，SHALL NOT 进注入链；旧书（书默认未设且卷列空）
-    返回 None＝行为同升级前（零变化承诺）。"""
+    返回 None＝行为同升级前（零变化承诺）。与 effective_of 同源，不看 planned。"""
     from models.volume import Volume
 
     row = (
@@ -338,13 +366,14 @@ async def resolve_config(db: Any, project, volume_no: int) -> dict[str, Any] | N
             )
         )
     ).scalar_one_or_none()
+    config = None
     if row is not None and row.pacing_json:
         try:
             config = normalize_pacing_config(json.loads(row.pacing_json))
         except (ValueError, TypeError):
             config = None
-        if config:
-            return config
+    if config:
+        return config
     if not getattr(project, "root_path", None):
         return None
     from filesystem.paths import BOOK_PREFS_PATH
@@ -354,20 +383,24 @@ async def resolve_config(db: Any, project, volume_no: int) -> dict[str, Any] | N
         prefs = await get_storage().read_yaml(project.root_path, BOOK_PREFS_PATH) or {}
     except Exception:  # noqa: BLE001 — 读不到书默认按未设（拍位不注入）
         return None
-    default = book_pacing_default(prefs)
-    if not default:
-        return None
-    # 书默认驱动的拍位：第 1 卷带上黄金开篇默认交代
-    return build_config(
-        default["preset"], default["steps_len"], ch1_extra_on=(int(volume_no) == 1)
-    )
+    effective, _source = effective_of(None, book_pacing_default(prefs), int(volume_no))
+    return effective
 
 
-async def beat_context(db: Any, project_id: str, volume_no: int, chapter_no: int) -> dict[str, Any] | None:
+async def beat_context(
+    db: Any,
+    project_id: str,
+    volume_no: int,
+    chapter_no: int,
+    *,
+    config: dict[str, Any] | None = None,
+) -> dict[str, Any] | None:
     """章 → 拍位上下文；无卷列节奏且无书级默认 / 越界 → None（下游按无拍位口径照常）。
 
     返回 {seg, step_idx, step_name, task, preset_label, steps_len[, ch1_extra]}；
-    task 组好「本循环第 K 步 · 步名——任务句」直接可进素材。"""
+    task 组好「本循环第 K 步 · 步名——任务句」直接可进素材。
+    ``config`` 给定时跳过 resolve_config（调用方已解析；用于锚点预览与注入同源）。
+    """
     from models.project import Novel as NovelModel
     from models.volume import Volume
 
@@ -376,7 +409,8 @@ async def beat_context(db: Any, project_id: str, volume_no: int, chapter_no: int
     project = await db.get(NovelModel, str(project_id))
     if project is None:
         return None
-    config = await resolve_config(db, project, int(volume_no))
+    if config is None:
+        config = await resolve_config(db, project, int(volume_no))
     if config is None:
         return None
     target = 0
@@ -406,3 +440,21 @@ async def beat_context(db: Any, project_id: str, volume_no: int, chapter_no: int
     if int(volume_no) == 1 and int(chapter_no) == 1 and config.get("ch1_extra_on"):
         out["ch1_extra"] = config.get("ch1_extra") or preset.get("ch1_extra") or ""
     return out
+
+
+def pacing_fingerprint(beat: dict[str, Any] | None, effective: bool) -> str:
+    """抽卡会话的拍位指纹：覆盖实际会进素材的拍位信息。
+
+    含 step_idx/step_name/step_task/ch1_extra 与「是否有生效配置」——只改任务句、
+    只改第 1 章额外交代、目标清空导致拍位消失，都必须让旧批过期。
+    """
+    payload: dict[str, Any] = {"effective": bool(effective), "beat": None}
+    if beat:
+        payload["beat"] = {
+            "step_idx": beat.get("step_idx"),
+            "step_name": beat.get("step_name"),
+            "step_task": beat.get("step_task"),
+            "ch1_extra": beat.get("ch1_extra") or "",
+        }
+    raw = json.dumps(payload, ensure_ascii=False, sort_keys=True).encode()
+    return hashlib.sha256(raw).hexdigest()[:16]

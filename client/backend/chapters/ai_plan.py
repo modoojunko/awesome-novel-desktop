@@ -309,7 +309,8 @@ async def _chapter_material(db, project, vol, ch_no: int) -> dict:
             "stage_hit_climax": any((c.plot_stage or "").strip() == "高潮爆发" for c in rows),
         }
     )
-    # 卷节奏拍位（c-volume-pacing）：已排卷把「本拍任务」带进素材；未配置/未排＝无此键
+    # 卷节奏拍位（c-volume-pacing）：已配节奏（卷列或书默认）即带「本拍任务」；
+    # planned 不参与（只影响卷体检/派生徽章）；无配置/无章数目标/越界＝无此键
     from volumes.pacing import beat_context
 
     beat = await beat_context(db, project.id, vol.volume_no, ch_no)
@@ -603,8 +604,14 @@ async def next_chapter_anchor(
     user: dict = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    """下一章的进场（全档只读）——手写路径不发 AI 请求也要进场。"""
+    """下一章的进场（全档只读）——手写路径不发 AI 请求也要进场。
+
+    增量返回本章拍位预告：按**卷内 ch_no**（与注入链同号，SHALL NOT 用全书号
+    next_no）复用 beat_context 推导；只读，不调模型、不记账、不落库。
+    """
     from repositories import volume_repo
+
+    from volumes.pacing import beat_context, pacing_fingerprint, resolve_config
 
     project = await get_novel(db, project_id, user["id"])
     if not project:
@@ -618,11 +625,38 @@ async def next_chapter_anchor(
     # 章号/卷号单源：卡面标题「拆第N章」、行号 0N、kicker「第X卷」都取这里。
     # next_no 用全书号（多卷书第 2 卷第 1 章显示第 25 章，不显示第 1 章）。
     next_global = await _global_chapter_no(db, project.id, vol, ch_no)
+
+    cfg = await resolve_config(db, project, vol.volume_no)
+    target = int(vol.chapter_target or 0)
+    beat = None
+    reason = None
+    if cfg is not None:
+        beat = await beat_context(
+            db, project.id, vol.volume_no, ch_no, config=cfg
+        )
+        if target <= 0:
+            reason = "no_target"
+        elif ch_no > target:
+            reason = "out_of_target"
+        elif beat is None:
+            reason = "unknown"
+    preview = None
+    if beat is not None:
+        preview = {
+            "step_idx": beat["step_idx"],
+            "step_name": beat["step_name"],
+            "step_task": beat["step_task"],
+            "ch1_extra": beat.get("ch1_extra") or None,
+        }
     return {
         "ok": True,
         **entry,
         "next_no": next_global,
         "vol_no": vol.volume_no,
+        "pacing_effective": cfg is not None,
+        "pacing_preview": preview,
+        "pacing_reason": reason,
+        "pacing_fingerprint": pacing_fingerprint(beat, cfg is not None),
     }
 
 
@@ -736,20 +770,27 @@ async def ai_chapter_directions(
     # 排满提示（软信号，可忽略）：排满且从未触达「高潮爆发」——不阻断、不自动重拆（作者可写刻意的过渡卷）
     if mat["quota_overshot"] and not mat["stage_hit_climax"]:
         warn.append("这一卷已排满但还没到高潮——回卷纲核对节奏")
-    # 卡面步位角标（c-volume-pacing）：已配节奏的卷带本拍位信息（只读展示用）
-    _pacing_badge = None
-    if mat.get("pacing_task"):
-        from volumes.pacing import beat_context
+    # 卡面步位角标＋会话指纹（c-volume-pacing / c-pacing-effectiveness）：
+    # 与锚点同源（beat_context + 卷内 ch_no），只读展示与旧批比对用
+    from volumes.pacing import beat_context, pacing_fingerprint, resolve_config
 
-        _beat = await beat_context(db, project.id, vol.volume_no, ch_no)
-        if _beat:
-            _pacing_badge = {"step_idx": _beat["step_idx"], "step_name": _beat["step_name"]}
+    _cfg = await resolve_config(db, project, vol.volume_no)
+    _beat = (
+        await beat_context(db, project.id, vol.volume_no, ch_no, config=_cfg)
+        if _cfg is not None else None
+    )
+    _pacing_badge = (
+        {"step_idx": _beat["step_idx"], "step_name": _beat["step_name"]}
+        if _beat else None
+    )
+    _pacing_fingerprint = pacing_fingerprint(_beat, _cfg is not None)
     return {
         "ok": True,
         "entry": mat["entry"],
         "is_final": mat["is_final"],
         "quota_left": mat["quota_left"],
         "pacing": _pacing_badge,
+        "pacing_fingerprint": _pacing_fingerprint,
         "diff": _as_dict(parsed, "diff"),
         "directions": cards,
         "grades": grades,

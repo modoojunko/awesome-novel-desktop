@@ -253,11 +253,12 @@ function VolumeVerifyPanel({
     setPacingHint("");
     try {
       const cur = await volumePacingApi.getVolume(projectId, volRef);
-      if (!cur.config) {
+      const cfg = cur.effective ?? cur.config ?? cur.prefill;
+      if (!cfg) {
         setPacingHint("先在节奏页签保存节奏配置，再润说明");
         return;
       }
-      const d = await volumePacingApi.polish(projectId, volRef, cur.config.steps);
+      const d = await volumePacingApi.polish(projectId, volRef, cfg.steps);
       setPacingPreview({ kind: "polish", steps: d.steps });
     } catch (e: unknown) {
       setPacingHint((e as { message?: string })?.message || "润说明失败，请重试");
@@ -270,7 +271,7 @@ function VolumeVerifyPanel({
     setPacingBusy("plan");
     try {
       const cur = await volumePacingApi.getVolume(projectId, volRef);
-      const config = cur.config ?? cur.prefill;
+      const config = cur.effective ?? cur.config ?? cur.prefill;
       if (!config) {
         setPacingHint("先在节奏页签保存节奏配置");
         return;
@@ -307,12 +308,13 @@ function VolumeVerifyPanel({
     setPacingBusy("polish");
     try {
       const cur = await volumePacingApi.getVolume(projectId, volRef);
-      if (!cur.config) {
+      const cfg = cur.effective ?? cur.config ?? cur.prefill;
+      if (!cfg) {
         setPacingHint("先在节奏页签保存节奏配置");
         return;
       }
       await volumePacingApi.saveVolume(projectId, volRef, {
-        ...cur.config,
+        ...cfg,
         steps: pacingPreview.steps,
       });
       setPacingPreview(null);

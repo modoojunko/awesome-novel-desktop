@@ -49,9 +49,11 @@ const DIRS = {
 function Host({
   onAdopt = vi.fn(),
   gate,
+  onGoPacing,
 }: {
   onAdopt?: (r: { ok: boolean; mode?: string }) => void;
   gate?: { hasChapterReview?: boolean; onUpgrade?: () => void };
+  onGoPacing?: () => void;
 }) {
   const plan = useChapterPlan("p1", 1, "vol-1", gate);
   return (
@@ -73,7 +75,7 @@ function Host({
       >
         并发自检
       </button>
-      <ChapterPlanModal plan={plan} onAdopt={() => { void plan.adopt().then((r) => r.ok && onAdopt(r)); }} onClose={plan.close} />
+      <ChapterPlanModal plan={plan} onAdopt={() => { void plan.adopt().then((r) => r.ok && onAdopt(r)); }} onClose={plan.close} onGoPacing={onGoPacing} />
     </>
   );
 }
@@ -1113,7 +1115,7 @@ describe("拆章界面 · 重抽排除与会话恢复（c-plan-draw-exclude）",
     fireEvent.click(screen.getByTestId("pick-card-1"));
     fireEvent.click(screen.getByTestId("split-adopt"));
     await waitFor(() => expect(onAdopt).toHaveBeenCalled());
-    expect(localStorage.getItem("cp-draw:p1:vol-1")).toBeNull();
+    expect(localStorage.getItem("cp-draw:v2:p1:vol-1")).toBeNull();
   });
 });
 
@@ -1137,11 +1139,11 @@ describe("拆章界面 · 会话恢复与目标章迁移（localStorage 刷新�
 
   /** 直接把会话写进 localStorage（模拟刷新前的上一轮抽卡落账） */
   const seedSession = (payload: unknown) =>
-    localStorage.setItem("cp-draw:p1:vol-1", JSON.stringify(payload));
+    localStorage.setItem("cp-draw:v2:p1:vol-1", JSON.stringify(payload));
 
   it("刷新兜底：localStorage 命中同目标章 → 整批恢复（卡/角标/自检/排除齐），零模型请求", async () => {
     seedSession({
-      v: 1, nextNo: 3, directions: RESTORED_DIRS, grades: ["S", "A", "B"],
+      v: 2, nextNo: 3, directions: RESTORED_DIRS, grades: ["S", "A", "B"],
       oneLiners: ["恢复一句甲", "恢复一句乙", "恢复一句丙"],
       checks: ["恢复的自检项"], note: "恢复的备注",
       exclude: [{ axis: "旧轴", line: "旧一句" }],
@@ -1161,7 +1163,7 @@ describe("拆章界面 · 会话恢复与目标章迁移（localStorage 刷新�
   });
 
   it("刷新兜底·稀疏载荷：只带 nextNo+directions 也恢复，缺省字段按空补（排除/自检/备注为空）", async () => {
-    seedSession({ v: 1, nextNo: 3, directions: RESTORED_DIRS.slice(0, 1) });
+    seedSession({ v: 2, nextNo: 3, directions: RESTORED_DIRS.slice(0, 1) });
     render(<Host />);
     fireEvent.click(screen.getByTestId("open-ai"));
     await waitFor(() => expect(screen.getByTestId("pick-card-1")).toHaveTextContent("恢复批·甲"));
@@ -1173,7 +1175,7 @@ describe("拆章界面 · 会话恢复与目标章迁移（localStorage 刷新�
 
   it("陈旧会话：载荷 nextNo 与目标章不符 → 不恢复、旧排除不带入，直接重抽并覆写会话", async () => {
     seedSession({
-      v: 1, nextNo: 99, directions: RESTORED_DIRS, grades: ["S", "A", "B"],
+      v: 2, nextNo: 99, directions: RESTORED_DIRS, grades: ["S", "A", "B"],
       oneLiners: [], checks: [], note: "", exclude: [{ axis: "旧轴", line: "旧一句" }],
     });
     render(<Host />);
@@ -1186,12 +1188,12 @@ describe("拆章界面 · 会话恢复与目标章迁移（localStorage 刷新�
     expect(body).toEqual({});   // 陈旧会话里的排除清单不得泄进新抽卡
     // 会话被当前批覆写（nextNo 对齐目标章）
     await waitFor(() =>
-      expect(JSON.parse(localStorage.getItem("cp-draw:p1:vol-1") || "{}").nextNo).toBe(3),
+      expect(JSON.parse(localStorage.getItem("cp-draw:v2:p1:vol-1") || "{}").nextNo).toBe(3),
     );
   });
 
   it("空批次会话：directions 为空 → 不可恢复，直接重抽", async () => {
-    seedSession({ v: 1, nextNo: 3, directions: [] });
+    seedSession({ v: 2, nextNo: 3, directions: [] });
     render(<Host />);
     fireEvent.click(screen.getByTestId("open-ai"));
     await waitFor(() => expect(screen.getByTestId("pick-card-1")).toHaveTextContent("同名档案"));
@@ -1237,7 +1239,7 @@ describe("拆章界面 · 会话恢复与目标章迁移（localStorage 刷新�
     fireEvent.click(screen.getByTestId("split-adopt"));
     await waitFor(() => expect(onAdopt).toHaveBeenCalled());
     // 排上即清（storage 清零是前提；内存 directions 残留但 drawnNo 已置空）
-    expect(localStorage.getItem("cp-draw:p1:vol-1")).toBeNull();
+    expect(localStorage.getItem("cp-draw:v2:p1:vol-1")).toBeNull();
     fireEvent.click(screen.getByTestId("open-ai"));
     await waitFor(() => expect(mockApi.post).toHaveBeenCalledTimes(2));    // 真的重抽了
     await waitFor(() => expect(screen.getByTestId("pick-card-1")).toBeInTheDocument());
@@ -1354,7 +1356,7 @@ describe("拆章界面 · 落地提示回退链与竞态守卫收口", () => {
     render(<Host />);
     fireEvent.click(screen.getByTestId("open-ai"));
     await waitFor(() => expect(screen.getByTestId("pick-card-1")).toBeInTheDocument());
-    expect(JSON.parse(localStorage.getItem("cp-draw:p1:vol-1") || "{}").nextNo).toBe(1);
+    expect(JSON.parse(localStorage.getItem("cp-draw:v2:p1:vol-1") || "{}").nextNo).toBe(1);
     expect(document.querySelector(".chapter-plan .kicker")).toHaveTextContent("第1章");
   });
 
@@ -1416,5 +1418,197 @@ describe("拆章界面 · 落地提示回退链与竞态守卫收口", () => {
     await new Promise((r) => setTimeout(r, 20));
     expect(screen.getByTestId("selfcheck")).toHaveTextContent("新的");   // 未被失败覆盖
     expect(screen.getByTestId("selfcheck")).not.toHaveTextContent("AI 这一眼没看成");
+  });
+});
+
+// ── c-pacing-effectiveness：入口预告/缺失/过期批/缓存版本 ────────────────
+describe("拆章入口拍位预告与会话一致性（c-pacing-effectiveness）", () => {
+  const PREVIEW = {
+    step_idx: 2,
+    step_name: "用金手指解决",
+    step_task: "真刀真枪把麻烦解掉——怎么出手、付出什么、局面怎么松，都写实。",
+    ch1_extra: null,
+  };
+  const anchorWith = (extra: Record<string, unknown>) => ({
+    ok: true,
+    ...ENTRY,
+    pacing_fingerprint: "fp-new",
+    ...extra,
+  });
+  const seed = (payload: unknown) =>
+    localStorage.setItem("cp-draw:v2:p1:vol-1", JSON.stringify(payload));
+
+  it("有拍位：显示「本章将走」，任务句在 title/aria-label", async () => {
+    mockApi.get.mockResolvedValue(
+      anchorWith({ pacing_effective: true, pacing_preview: PREVIEW, pacing_reason: null }),
+    );
+    mockApi.post.mockResolvedValue({
+      ...DIRS,
+      pacing: { step_idx: 2, step_name: "用金手指解决" },
+      pacing_fingerprint: "fp-new",
+    });
+    render(<Host />);
+    fireEvent.click(screen.getByTestId("open-ai"));
+    const row = await screen.findByTestId("split-pacing-preview");
+    expect(row).toHaveTextContent("本章将走：第 2 步 · 用金手指解决");
+    expect(row.getAttribute("title")).toContain("真刀真枪把麻烦解掉");
+    expect(row.getAttribute("aria-label")).toContain("真刀真枪把麻烦解掉");
+  });
+
+  it("第 1 章另有开篇额外交代：任务句 tooltip 同时带出", async () => {
+    mockApi.get.mockResolvedValue(
+      anchorWith({
+        pacing_effective: true,
+        pacing_preview: { ...PREVIEW, step_idx: 1, step_name: "遇麻烦", ch1_extra: "开场即危机，金手指当场觉醒。" },
+        pacing_reason: null,
+      }),
+    );
+    mockApi.post.mockResolvedValue({ ...DIRS, pacing: { step_idx: 1, step_name: "遇麻烦" }, pacing_fingerprint: "fp-new" });
+    render(<Host />);
+    fireEvent.click(screen.getByTestId("open-ai"));
+    const row = await screen.findByTestId("split-pacing-preview");
+    expect(row.getAttribute("title")).toContain("开篇额外交代：开场即危机");
+  });
+
+  it("未存节奏且没接出口：只提示，不渲染按钮", async () => {
+    mockApi.get.mockResolvedValue(
+      anchorWith({ pacing_effective: false, pacing_preview: null, pacing_reason: null }),
+    );
+    mockApi.post.mockResolvedValue({ ...DIRS, pacing: null, pacing_fingerprint: "fp-new" });
+    render(<Host />);
+    fireEvent.click(screen.getByTestId("open-ai"));
+    expect(await screen.findByTestId("split-pacing-missing")).toBeInTheDocument();
+    expect(screen.queryByTestId("split-pacing-go")).toBeNull();
+  });
+
+  it("未存节奏：中性提示＋去节奏页签出口", async () => {
+    const go = vi.fn();
+    mockApi.get.mockResolvedValue(
+      anchorWith({ pacing_effective: false, pacing_preview: null, pacing_reason: null }),
+    );
+    mockApi.post.mockResolvedValue({ ...DIRS, pacing: null, pacing_fingerprint: "fp-new" });
+    render(<Host onGoPacing={go} />);
+    fireEvent.click(screen.getByTestId("open-ai"));
+    expect(await screen.findByTestId("split-pacing-missing")).toHaveTextContent(
+      "这一卷还没存节奏——拆章不会照套路走（可选）",
+    );
+    fireEvent.click(screen.getByTestId("split-pacing-go"));
+    expect(go).toHaveBeenCalled();
+  });
+
+  it.each([
+    ["no_target", "本卷还没填章数目标，这一章先不按套路分步（不影响拆章）"],
+    ["out_of_target", "本章已超出本卷章数目标，不再按套路分步（不影响拆章）"],
+    ["unknown", "这一章暂时算不出第几步（不影响拆章）"],
+  ])("有配置但算不出（%s）：给对应说明", async (reason, text) => {
+    mockApi.get.mockResolvedValue(
+      anchorWith({ pacing_effective: true, pacing_preview: null, pacing_reason: reason }),
+    );
+    mockApi.post.mockResolvedValue({ ...DIRS, pacing: null, pacing_fingerprint: "fp-new" });
+    render(<Host />);
+    fireEvent.click(screen.getByTestId("open-ai"));
+    expect(await screen.findByTestId("split-pacing-reason")).toHaveTextContent(text);
+  });
+
+  it("旧形状锚点（无新字段）：不误报缺节奏", async () => {
+    render(<Host />);
+    fireEvent.click(screen.getByTestId("open-ai"));
+    await waitFor(() => expect(screen.getByTestId("pick-card-1")).toBeInTheDocument());
+    expect(screen.queryByTestId("split-pacing-missing")).toBeNull();
+    expect(screen.queryByTestId("split-pacing-preview")).toBeNull();
+  });
+
+  it("旧批过期：标过期、抑制预告与角标，重抽不带旧 exclude", async () => {
+    seed({
+      v: 2, nextNo: 3, directions: DIRS.directions, grades: DIRS.grades,
+      oneLiners: DIRS.diff.one_liner, checks: [], note: "",
+      exclude: [{ axis: "旧轴", line: "旧一句" }],
+      pacing: { step_idx: 1, step_name: "遇麻烦" }, pacing_fingerprint: "fp-old",
+    });
+    mockApi.get.mockResolvedValue(
+      anchorWith({ pacing_effective: true, pacing_preview: PREVIEW, pacing_reason: null }),
+    );
+    render(<Host />);
+    fireEvent.click(screen.getByTestId("open-ai"));
+    await waitFor(() => expect(screen.getByTestId("pick-card-1")).toHaveTextContent("同名档案"));
+    expect(screen.getByTestId("split-pacing-stale")).toHaveTextContent(
+      "节奏或章数目标变了——这批是之前出的，重抽才会按当前设置",
+    );
+    expect(screen.queryByTestId("split-pacing-preview")).toBeNull();
+    expect(screen.queryByTestId("pick-pacing-1")).toBeNull();
+    expect(mockApi.post).not.toHaveBeenCalled();  // 恢复不重抽
+    fireEvent.click(screen.getByTestId("split-pacing-redraw"));
+    await waitFor(() => expect(mockApi.post).toHaveBeenCalledTimes(1));
+    const [, body] = mockApi.post.mock.calls[0] as [string, Record<string, unknown>];
+    expect(body).toEqual({});  // 旧批不并入排除清单
+  });
+
+  it("旧后端锚点缺指纹：按未知处理，恢复旧批不误标过期", async () => {
+    seed({
+      v: 2, nextNo: 3, directions: DIRS.directions, grades: DIRS.grades,
+      oneLiners: DIRS.diff.one_liner, checks: [], note: "",
+      exclude: [], pacing: { step_idx: 2, step_name: "用金手指解决" },
+      pacing_fingerprint: "fp-old",
+    });
+    mockApi.get.mockResolvedValue({ ok: true, ...ENTRY });  // 无 pacing_* 字段
+    render(<Host />);
+    fireEvent.click(screen.getByTestId("open-ai"));
+    await waitFor(() => expect(screen.getByTestId("pick-card-1")).toHaveTextContent("同名档案"));
+    expect(screen.queryByTestId("split-pacing-stale")).toBeNull();
+    expect(mockApi.post).not.toHaveBeenCalled();
+  });
+
+  it("旧批缺指纹、当前有指纹：按过期处理（批次无拍位→当前有）", async () => {
+    seed({
+      v: 2, nextNo: 3, directions: DIRS.directions, grades: DIRS.grades,
+      oneLiners: DIRS.diff.one_liner, checks: [], note: "", exclude: [],
+      pacing: null,
+    });
+    mockApi.get.mockResolvedValue(
+      anchorWith({ pacing_effective: true, pacing_preview: PREVIEW, pacing_reason: null }),
+    );
+    render(<Host />);
+    fireEvent.click(screen.getByTestId("open-ai"));
+    await waitFor(() => expect(screen.getByTestId("split-pacing-stale")).toBeInTheDocument());
+  });
+
+  it("当前锚点指纹为 null：已知但不是同一批 → 过期", async () => {
+    seed({
+      v: 2, nextNo: 3, directions: DIRS.directions, grades: DIRS.grades,
+      oneLiners: DIRS.diff.one_liner, checks: [], note: "", exclude: [],
+      pacing: { step_idx: 1, step_name: "遇麻烦" }, pacing_fingerprint: "fp-old",
+    });
+    mockApi.get.mockResolvedValue(
+      anchorWith({ pacing_effective: false, pacing_preview: null, pacing_reason: null, pacing_fingerprint: null }),
+    );
+    render(<Host />);
+    fireEvent.click(screen.getByTestId("open-ai"));
+    await waitFor(() => expect(screen.getByTestId("split-pacing-stale")).toBeInTheDocument());
+  });
+
+  it("缓存版本 v1：丢弃旧载荷，直接重抽", async () => {
+    seed({ v: 1, nextNo: 3, directions: DIRS.directions, grades: DIRS.grades });
+    render(<Host />);
+    fireEvent.click(screen.getByTestId("open-ai"));
+    await waitFor(() => expect(mockApi.post).toHaveBeenCalledTimes(1));
+    expect(screen.getByTestId("pick-card-1")).toHaveTextContent("同名档案");
+  });
+
+  it("拍位一致：照旧恢复，零模型请求", async () => {
+    seed({
+      v: 2, nextNo: 3, directions: DIRS.directions, grades: DIRS.grades,
+      oneLiners: DIRS.diff.one_liner, checks: [], note: "",
+      exclude: [], pacing: { step_idx: 2, step_name: "用金手指解决" },
+      pacing_fingerprint: "fp-new",
+    });
+    mockApi.get.mockResolvedValue(
+      anchorWith({ pacing_effective: true, pacing_preview: PREVIEW, pacing_reason: null }),
+    );
+    render(<Host />);
+    fireEvent.click(screen.getByTestId("open-ai"));
+    await waitFor(() => expect(screen.getByTestId("pick-card-1")).toHaveTextContent("同名档案"));
+    expect(mockApi.post).not.toHaveBeenCalled();
+    expect(screen.queryByTestId("split-pacing-stale")).toBeNull();
+    expect(screen.getByTestId("split-pacing-preview")).toBeInTheDocument();
   });
 });

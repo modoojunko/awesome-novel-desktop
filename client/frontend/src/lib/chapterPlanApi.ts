@@ -14,6 +14,21 @@ export interface ChapterEntry {
   vol_no?: number;
 }
 
+/** 锚点拍位预告（c-pacing-effectiveness）：可选，旧后端/旧 mock 缺字段按未知处理 */
+export interface ChapterPacingPreview {
+  step_idx: number;
+  step_name: string;
+  step_task: string;
+  ch1_extra: string | null;
+}
+
+export interface ChapterAnchor extends ChapterEntry {
+  pacing_effective?: boolean;
+  pacing_preview?: ChapterPacingPreview | null;
+  pacing_reason?: "no_target" | "out_of_target" | "unknown" | null;
+  pacing_fingerprint?: string;
+}
+
 export interface ChapterDirection {
   axis: string;
   title: string;
@@ -33,6 +48,8 @@ export interface ChapterDirectionsResult {
   entry: ChapterEntry;
   /** 卡面步位角标（c-volume-pacing）：已配节奏的卷带本拍位；未配为 null */
   pacing?: { step_idx: number; step_name: string } | null;
+  /** 拍位指纹（c-pacing-effectiveness）：会话恢复时与锚点比对，旧批不冒充新拍位 */
+  pacing_fingerprint?: string;
   is_final?: boolean;
   quota_left?: number;
   diff?: { axes?: string[]; one_liner?: string[] };
@@ -93,7 +110,7 @@ export interface DrawExcludeItem {
 
 export const chapterPlanApi = {
   /** 下一章进场（全档只读；手写路径也要） */
-  anchor: (pid: string, volRef: string): Promise<{ ok: boolean } & ChapterEntry> =>
+  anchor: (pid: string, volRef: string): Promise<{ ok: boolean } & ChapterAnchor> =>
     api.get(`/novels/${pid}/volumes/${volRef}/next-chapter-anchor`),
   /** 3 个互斥剧情方向（PRO）；exclude＝重抽排除清单（会话期用品） */
   directions: (pid: string, volRef: string, exclude?: DrawExcludeItem[]): Promise<ChapterDirectionsResult> =>

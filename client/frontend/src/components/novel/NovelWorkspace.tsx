@@ -619,6 +619,14 @@ export default function NovelWorkspace() {
     setPlanVolRef(null);
     chapterPlan.close();
   }, [chapterPlan]);
+  /** 拆章弹窗「去节奏页签」：关窗→选中正在拆的那一卷→切「节奏」（c-pacing-effectiveness） */
+  const [goPacingSeq, setGoPacingSeq] = useState(0);
+  const goPacingFromPlan = useCallback(() => {
+    const target = planTargetVolRef;
+    closeChapterPlan();
+    focusNode(target);
+    setGoPacingSeq((n) => n + 1);
+  }, [planTargetVolRef, closeChapterPlan, focusNode]);
 
   // ── 分卷规划（c-volume-antagonist 终版）：双路状态机挂壳层 ──
   const plan = useVolumePlan(projectId);
@@ -1163,6 +1171,7 @@ export default function NovelWorkspace() {
               onSplitManual={() => openChapterPlan("manual")}
               onEditChapter={openChapterEdit}
               outlineSeq={goOutlineSeq}
+              pacingJumpSeq={goPacingSeq}
               backfill={backfill}
               onSaved={handleVolumeSaved}
             />
@@ -1389,7 +1398,12 @@ export default function NovelWorkspace() {
       />
 
       {/* 卷下拆章（c-chapter-plan-ai）：弹窗＋落点卡（关窗后中栏呈现） */}
-      <ChapterPlanModal plan={chapterPlan} onAdopt={() => void handleChapterAdopt()} onClose={closeChapterPlan} />
+      <ChapterPlanModal
+        plan={chapterPlan}
+        onAdopt={() => void handleChapterAdopt()}
+        onClose={closeChapterPlan}
+        onGoPacing={goPacingFromPlan}
+      />
       {/* 抽卡确认结果：自查条可关闭提示（落点卡已由 clearSelection 承接）。
           checks **逐条可读**（P1-9：只给第一条前 30 字＝静默丢弃其余）——「展开全部」就地看。 */}
       {(() => {

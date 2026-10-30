@@ -1493,6 +1493,59 @@ describe("右栏节奏三行（c-volume-pacing）", () => {
     expect(onPacingChanged).toHaveBeenCalled();
   });
 
+  it("书默认生效＋上一卷预填：排段写书默认，不写上一卷", async () => {
+    pacingState.getVolume.mockResolvedValue({
+      config: null,
+      prefill: { preset: "case", steps: [{ n: "案发", t: "x" }], steps_len: 5,
+                 ch1_extra_on: false, ch1_extra: "", planned: false },
+      source: "prev",
+      effective: { preset: "upgrade", steps: [{ n: "遇麻烦", t: "x" }], steps_len: 3,
+                   ch1_extra_on: false, ch1_extra: "", planned: false },
+      effective_source: "book",
+      config_present: false, config_invalid: false,
+      book_default: { preset: "upgrade", steps_len: 3 },
+      plan: { target: 40, steps_len: 3, n: 13, rem: 1, last_from: 37, last_to: 40 },
+      presets: [], theme: "仙侠/修真", sub_genre: "凡人流",
+    });
+    renderPanel({ data: {
+      volume: 1, volumeRef: "vol-1", title: "血酬", tab: "pacing",
+      detail: { chapters: [] } as unknown as VolumeDetail, frontierVol: null,
+    } });
+    fireEvent.click(await screen.findByTestId("pacing-plan-btn"));
+    await waitFor(() => expect(screen.queryByTestId("pacing-plan-adopt")).not.toBeNull());
+    fireEvent.click(screen.getByTestId("pacing-plan-adopt"));
+    await waitFor(() => expect(pacingState.saveVolume).toHaveBeenCalled());
+    const body = pacingState.saveVolume.mock.calls[0]?.[2];
+    expect(body?.preset).toBe("upgrade");
+    expect(body?.steps_len).toBe(3);
+  });
+
+  it("润说明：书默认生效时用 effective，不读 config", async () => {
+    pacingState.getVolume.mockResolvedValue({
+      config: null, prefill: null, source: "genre",
+      effective: { preset: "case", steps: [{ n: "案发", t: "原始" }], steps_len: 4,
+                   ch1_extra_on: false, ch1_extra: "", planned: false },
+      effective_source: "book",
+      config_present: false, config_invalid: false,
+      book_default: { preset: "case", steps_len: 4 },
+      plan: { target: 40, steps_len: 4, n: 10, rem: 0, last_from: 37, last_to: 40 },
+      presets: [], theme: "悬疑", sub_genre: "",
+    });
+    renderPanel({ data: {
+      volume: 1, volumeRef: "vol-1", title: "血酬", tab: "pacing",
+      detail: { chapters: [] } as unknown as VolumeDetail, frontierVol: null,
+    } });
+    fireEvent.click(await screen.findByTestId("pacing-polish-btn"));
+    await waitFor(() => expect(pacingState.polish).toHaveBeenCalled());
+    expect(pacingState.polish.mock.calls[0]?.[2]).toEqual([{ n: "案发", t: "原始" }]);
+    await waitFor(() => expect(screen.queryByTestId("pacing-polish-adopt")).not.toBeNull());
+    fireEvent.click(screen.getByTestId("pacing-polish-adopt"));
+    await waitFor(() => expect(pacingState.saveVolume).toHaveBeenCalled());
+    const body = pacingState.saveVolume.mock.calls[0]?.[2];
+    expect(body?.preset).toBe("case");
+    expect(body?.steps).toEqual([{ n: "遇麻烦", t: "顺过的说明。" }]);
+  });
+
   it("排段降级：后端 text 当提示，不出预览", async () => {
     pacingState.plan.mockResolvedValue({ ok: true, degraded: true, notes: [], text: "模型没给出分段" });
     renderPanel({ data: {

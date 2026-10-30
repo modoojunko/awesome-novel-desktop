@@ -135,11 +135,13 @@ async def get_volume_pacing(
     user: dict = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    """卷配置＋展示预填＋段表（页签一次取全）。
+    """卷配置＋展示预填＋生效配置＋段表（页签一次取全）。
 
-    config＝卷列已保存配置（None＝未配置）；prefill/source＝未配置时的展示预填
-    链（上一卷 → 书默认 → 题材映射 → 兜底），source 标来源驱动「已按题材预填/
-    继承上一卷」标签；plan＝章数目标×每段几章的段表口径。
+    config＝卷列已保存且可解析的配置（None＝未配置/读不出）；prefill/source＝
+    展示预填链（上一卷 → 书默认 → 题材映射 → 兜底），语义与升级前一致；
+    effective/effective_source＝实际会进注入的完整配置（卷列 → 书默认 → 空）；
+    config_present/config_invalid 区分「没存」与「存了但读不出」；
+    plan＝章数目标×每段几章的段表口径（effective 优先，仅无生效时用预填预览）。
     """
     project = await get_novel(db, project_id, user["id"])
     if not project:
@@ -149,10 +151,16 @@ async def get_volume_pacing(
         raise HTTPException(404, "Volume not found")
 
     config = _parse_pacing(vol)
+    config_present = bool(vol.pacing_json)
+    config_invalid = config_present and config is None
     from filesystem.paths import BOOK_PREFS_PATH
 
-    prefs = await get_storage().read_yaml(project.root_path, BOOK_PREFS_PATH)
+    try:
+        prefs = await get_storage().read_yaml(project.root_path, BOOK_PREFS_PATH)
+    except Exception:  # noqa: BLE001 — 与注入侧同口径：读不到书默认按未设
+        prefs = None
     book_default = pc.book_pacing_default(prefs)
+    effective, effective_source = pc.effective_of(config, book_default, vol.volume_no)
     theme, sub = await _theme_of(project)
 
     source = "genre"
@@ -173,12 +181,16 @@ async def get_volume_pacing(
             prefill = pc.prefill_chain(None, None, theme, sub)
 
     target = int(vol.chapter_target or 0)
-    steps_len = int((config or prefill or {}).get("steps_len", 3))
+    steps_len = int((effective or prefill or {}).get("steps_len", 3))
     plan = pc.segment_plan(target, steps_len)
     return {
         "config": config,
         "prefill": prefill,
         "source": source,
+        "effective": effective,
+        "effective_source": effective_source,
+        "config_present": config_present,
+        "config_invalid": config_invalid,
         "book_default": book_default,
         "plan": {"target": target, "steps_len": steps_len, **plan},
         "presets": list(pc.PACING_PRESETS.values()),

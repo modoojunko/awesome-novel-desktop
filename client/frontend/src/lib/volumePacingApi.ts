@@ -39,11 +39,17 @@ export interface PacingPresetsResult {
   sub_genre: string;
 }
 
-/** GET /volumes/{ref}/pacing：卷配置＋展示预填＋段表 */
+/** GET /volumes/{ref}/pacing：卷配置＋展示预填＋实际生效配置＋段表 */
 export interface VolumePacingResult {
   config: PacingConfig | null;
   prefill: PacingConfig | null;
   source: "volume" | "prev" | "book" | "genre";
+  /** 实际会进注入的完整配置（卷列 → 书默认 → 空）；与 prefill/source 原义分开 */
+  effective: PacingConfig | null;
+  effective_source: "volume" | "book" | null;
+  /** 卷列是否非空（区分「没存」与「存了但读不出来」） */
+  config_present: boolean;
+  config_invalid: boolean;
   book_default: PacingBookDefault | null;
   plan: PacingPlanInfo;
   presets: PacingPreset[];
