@@ -12,9 +12,32 @@ function authHeaders(): Record<string, string> {
 }
 import { request } from "./api";
 
+/** 建书阶段载荷（c-deconstruct-import-async）：status 是生命周期，import 是这一轮的细节 */
+export interface DeconstructImportState {
+  run_id: string;
+  items: string[];
+  /** waiting=等前一个建书；refine=精炼世界设定；writing=写入设定；done=已完成 */
+  step: "waiting" | "refine" | "writing" | "done" | "";
+  started_at: string | null;
+  finished_at: string | null;
+  warnings: string[];
+  /** retryable=false（如额度满）时前端不得给「重试建书」 */
+  error: { message: string; kind: string; retryable: boolean };
+  attempts: Array<{ at: string; result?: string }>;
+}
+
 export interface DeconstructTaskSummary {
   id: string;
-  status: "queued" | "running" | "completed" | "failed" | "cancelled" | "need_reupload";
+  status:
+    | "queued"
+    | "running"
+    | "completed"
+    | "failed"
+    | "cancelled"
+    | "need_reupload"
+    | "importing"
+    | "imported"
+    | "import_failed";
   book_name: string;
   total_chars: number;
   chapter_count: number;
@@ -25,6 +48,7 @@ export interface DeconstructTaskSummary {
   queued_ahead: number;
   product_count: number;
   error: string;
+  import?: DeconstructImportState | null;
 }
 
 export interface DeconstructTaskListResp {
@@ -92,6 +116,8 @@ export interface DeconstructTaskDetail {
   /** 运行监控账（c-deconstruct-monitor）：仅排队/运行态有，终态 null */
   monitor?: DeconstructMonitor | null;
   book_id: string | null;
+  /** 建书阶段（旧任务无该键＝从未建书） */
+  import?: DeconstructImportState | null;
   created_at: string | null;
   finished_at: string | null;
 }
@@ -230,14 +256,37 @@ export async function retryUploadDeconstructTask(id: string, file: File): Promis
   return res.json();
 }
 
+/** 建书受理结果：202 受理（status=importing、book_id 为空）或 200 幂等（带 book_id） */
+export interface ImportBookAccepted {
+  status: "importing";
+  book_id: null;
+  name: string;
+  skipped: string[];
+  warnings: string[];
+  import?: DeconstructImportState | null;
+}
+
+export interface ImportBookAlready {
+  status: "imported" | "completed" | string;
+  book_id: string;
+  name: string;
+  skipped: string[];
+  warnings: string[];
+}
+
 export async function importBookFromTask(
   id: string,
   items?: string[],
-): Promise<{ book_id: string; name: string; skipped: string[]; warnings: string[] }> {
+): Promise<ImportBookAccepted | ImportBookAlready> {
   return request(`/deconstruct/tasks/${id}/import-book`, {
     method: "POST",
     body: JSON.stringify(items ? { items } : {}),
   });
+}
+
+/** 取消建书：回到已完成、清理半成品（后端不挂 AI 门，降档用户也能止损） */
+export async function cancelImportBook(id: string): Promise<{ status: string }> {
+  return request(`/deconstruct/tasks/${id}/import-book/cancel`, { method: "POST" });
 }
 
 export async function exportTaskProducts(

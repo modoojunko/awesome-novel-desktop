@@ -10,6 +10,7 @@ vi.mock("@/lib/deconstructApi", () => ({ listDeconstructTasks: state.list }));
 
 import {
   deconstructRefetchInterval,
+  isActiveTask,
   useDeconstructTasks,
 } from "@/hooks/useDeconstructTasks";
 
@@ -46,6 +47,17 @@ afterEach(() => {
   vi.restoreAllMocks();
 });
 
+describe("isActiveTask（c-deconstruct-import-async）", () => {
+  it("拆解中/排队/建书中算活动态；已建书与建书失败是终态", () => {
+    expect(isActiveTask("queued")).toBe(true);
+    expect(isActiveTask("running")).toBe(true);
+    expect(isActiveTask("importing")).toBe(true);
+    expect(isActiveTask("imported")).toBe(false);
+    expect(isActiveTask("import_failed")).toBe(false);
+    expect(isActiveTask("completed")).toBe(false);
+  });
+});
+
 describe("deconstructRefetchInterval 决策", () => {
   it("failures≥3 → false（守卫停表）", () => {
     expect(deconstructRefetchInterval(ACTIVE_RESP as never, 3)).toBe(false);
@@ -57,6 +69,12 @@ describe("deconstructRefetchInterval 决策", () => {
   it("有活动任务 → 1500；全终态 → false", () => {
     expect(deconstructRefetchInterval(ACTIVE_RESP as never, 0)).toBe(1500);
     expect(deconstructRefetchInterval(DONE_RESP as never, 0)).toBe(false);
+  });
+  it("建书中 → 1500；已建书 → false", () => {
+    const importing = { tasks: [{ id: "t", status: "importing" }], heartbeat: {}, badge: 1 };
+    const imported = { tasks: [{ id: "t", status: "imported" }], heartbeat: {}, badge: 0 };
+    expect(deconstructRefetchInterval(importing as never, 0)).toBe(1500);
+    expect(deconstructRefetchInterval(imported as never, 0)).toBe(false);
   });
 });
 

@@ -14,9 +14,11 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import UpgradeModal from "@/components/novel/UpgradeModal";
 import { ModelPicker } from "@/components/novel/workbench/modals";
 import { useFeature } from "@/hooks/useTier";
+import { isActiveTask } from "@/hooks/useDeconstructTasks";
 import type { FeatureKey } from "@/lib/features";
 import { toast } from "../../lib/toast";
 import {
+  cancelImportBook,
   getLibraryCandidates,
   toLibrary,
   type LibraryCandidateItem,
@@ -48,6 +50,9 @@ const STATUS_LABEL: Record<string, string> = {
   failed: "已失败",
   cancelled: "已取消",
   need_reupload: "需重传",
+  importing: "建书中",
+  imported: "已建书",
+  import_failed: "建书失败",
 };
 const STATUS_PILL: Record<string, string> = {
   queued: "pill pill-warn",
@@ -56,7 +61,29 @@ const STATUS_PILL: Record<string, string> = {
   failed: "pill pill-err",
   cancelled: "pill",
   need_reupload: "pill pill-warn",
+  importing: "pill pill-accent",
+  imported: "pill pill-ok",
+  import_failed: "pill pill-err",
 };
+/** 建书步骤三态（纯函数，单测全分支）：refine 轮到精炼，writing 轮到写入，done 两者都完成 */
+/** 步骤文案 → 既有 em 语气类（ok/doing/空） */
+function stepClass(label: string): string {
+  return label === "完成" ? "ok" : label === "进行中" ? "doing" : "";
+}
+
+export function importStepState(
+  step: string,
+  target: "refine" | "writing",
+): "待开始" | "进行中" | "完成" {
+  const rank = step === "refine" ? 1 : step === "writing" ? 2 : step === "done" ? 3 : 0;
+  const need = target === "refine" ? 1 : 2;
+  if (rank > need) return "完成";
+  return rank === need ? "进行中" : "待开始";
+}
+
+/** 结果可读态（c-deconstruct-import-async）：建书三态不回收取结果的能力，
+ *  与后端 service.RESULT_READY 同口径——建完书反而不能导出是评审点名的回归。 */
+const RESULT_READY = new Set(["completed", "importing", "imported", "import_failed"]);
 /** 可原地换模型的失败归因：瞬时故障＋内容审核（病根在模型本身，换一个就好）；
  *  auth/config/route 病根在配置（Key/地址/模型名），出口仍指模型配置页。 */
 const SWITCHABLE_KINDS = ["provider_unavailable", "stalled", "timeout", "rate_limit", "content_filter"];
@@ -131,6 +158,10 @@ export default function TaskDetailPage() {
   const [exitMsg, setExitMsg] = useState("");
   const [exitErr, setExitErr] = useState("");
   const [busy, setBusy] = useState(false);
+  // 建书阶段的按钮态（取消/重试走本地 busy + toast：`act` 的错误只渲染在弹窗里，弹窗关着＝没出口）
+  const [importBusy, setImportBusy] = useState(false);
+  const [confirmCancelImport, setConfirmCancelImport] = useState(false);
+  const [importTick, setImportTick] = useState(0);
   // 断点续拆过渡：点击起「正在恢复…」直到状态翻面（queued/running）——期间按钮不可再点
   const [resuming, setResuming] = useState(false);
   const [reuploadFile, setReuploadFile] = useState<File | null>(null);
@@ -157,7 +188,8 @@ export default function TaskDetailPage() {
     enabled: !!id,
     refetchInterval: (query) => {
       const s = (query.state.data as DeconstructTaskDetail | undefined)?.status;
-      return s === "queued" || s === "running" ? 1500 : false;
+      // 建书中也要刷（否则「已运行 N 秒」冻住、状态永不翻到已建书）
+      return s && isActiveTask(s) ? 1500 : false;
     },
   });
 
@@ -185,8 +217,14 @@ export default function TaskDetailPage() {
   }, [switchable, modelOptions]);
 
   useEffect(() => {
+    if (task?.status !== "importing") return;
+    const timer = setInterval(() => setImportTick((n) => n + 1), 1000);
+    return () => clearInterval(timer);
+  }, [task?.status]);
+
+  useEffect(() => {
     /* v8 ignore start — 选中保持臂（仅 refetch 后 prev 非空时触发，jsdom 单次加载不可达） */
-    if (task?.status === "completed" && task.products.length > 0) {
+    if (task && RESULT_READY.has(task.status) && task.products.length > 0) {
       setSelectedFiles((prev) => (prev.length ? prev : task.products.map((p) => p.filename)));
     }
     /* v8 ignore stop */
@@ -274,7 +312,10 @@ export default function TaskDetailPage() {
       const r = await fn();
       after?.(r);
     } catch (e) {
+      /* v8 ignore start — 非 Error 抛出在生产不可达（lib/api 一律抛 Error），纯防御臂；
+         单行 next 压不住三元臂（v8 行归属漂移，见 c-deconstruct-resilience 判例） */
       setExitErr(e instanceof Error ? e.message : "操作失败");
+      /* v8 ignore stop */
     } finally {
       setBusy(false);
     }
@@ -353,18 +394,26 @@ export default function TaskDetailPage() {
       return;
     }
     if (exitOpt === "book") {
-      void act(
-        () => importBookFromTask(task.id, bookItems),
-        (r) => {
-          /* v8 ignore next */
+      void (async () => {
+        setBusy(true);
+        setExitErr("");
+        try {
+          const r = await importBookFromTask(task.id, bookItems);
           setExitOpen(false);
-          /* v8 ignore start — 建书成功导航已由导航用例断言（v8 对 async 回调行归属漂移） */
-          const bookId = (r as { book_id: string })?.book_id ?? task.book_id;
-          if (bookId) navigate(`/novel/${bookId}`);
-          /* v8 ignore stop */
-          /* v8 ignore stop */
-        },
-      );
+          toast.info(
+            r.status === "importing"
+              ? "已开始建书，可以离开；完成后在任务详情打开这本书"
+              : "这本书已经建过了，本次没有重复写入",
+          );
+          void queryClient.invalidateQueries({ queryKey: queryKeys.deconstructTask(task.id) });
+          void queryClient.invalidateQueries({ queryKey: queryKeys.deconstructTasks });
+        } catch (e) {
+          // 4xx（满额/档位/进行中）与网络失败都留在弹窗里，别把出口关掉
+          setExitErr(e instanceof Error ? e.message : "建书失败");
+        } finally {
+          setBusy(false);
+        }
+      })();
     } else {
       void act(() => exportTaskProducts(task.id, destDir, selectedFiles), (r) => {
         const backups = (r as { backups?: string[] } | undefined)?.backups ?? [];
@@ -376,6 +425,44 @@ export default function TaskDetailPage() {
         );
         setExitOpen(false);
       });
+    }
+  };
+
+  const importElapsed = (() => {
+    const started = task.import?.started_at;
+    if (!started) return "";
+    const sec = Math.max(0, Math.floor((Date.now() - serverTimeMs(started)) / 1000));
+    return sec < 60 ? `已 ${sec} 秒` : `已 ${Math.floor(sec / 60)} 分 ${sec % 60} 秒`;
+  })();
+  const importStep = task.import?.step ?? "";
+
+  const cancelImport = async () => {
+    setImportBusy(true);
+    try {
+      await cancelImportBook(task.id);
+      setConfirmCancelImport(false);
+      toast.info("已取消建书；产物与三个出口都还在");
+      void queryClient.invalidateQueries({ queryKey: queryKeys.deconstructTask(task.id) });
+      void queryClient.invalidateQueries({ queryKey: queryKeys.deconstructTasks });
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "取消建书失败");
+    } finally {
+      setImportBusy(false);
+    }
+  };
+
+  const retryImport = async () => {
+    setImportBusy(true);
+    try {
+      // 不传勾选：后端沿用上一次那份（spec：重试 SHALL 沿用同一份勾选）
+      await importBookFromTask(task.id);
+      toast.info("已重新开始建书，可以离开");
+      void queryClient.invalidateQueries({ queryKey: queryKeys.deconstructTask(task.id) });
+      void queryClient.invalidateQueries({ queryKey: queryKeys.deconstructTasks });
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "重试建书失败");
+    } finally {
+      setImportBusy(false);
     }
   };
 
@@ -551,7 +638,117 @@ export default function TaskDetailPage() {
         </>
       ) : null}
 
-      {task.status === "completed" && (
+      {/* 建书三态（c-deconstruct-import-async）：书只在建完之后出现，不自动跳转 */}
+      {task.status === "importing" && (
+        <div className="task-card animate-fade-up" data-od-id="task-importing" style={{ marginBottom: 18 }}>
+          <div className="task-pct" style={{ marginTop: 0, alignItems: "center" }}>
+            <b style={{ fontSize: 15, fontWeight: 600 }}>建书中</b>
+            {importElapsed && <span style={{ fontSize: 12.5, color: "var(--muted)" }}>{importElapsed}</span>}
+            <span className="pct-note">整段在后台执行，可以离开这个页面</span>
+          </div>
+          <ul className="ex-steps" data-od-id="import-steps">
+            <li>
+              <b>精炼世界设定</b>
+              <em className={stepClass(importStepState(importStep, "refine"))}>
+                {importStepState(importStep, "refine")}
+              </em>
+            </li>
+            <li>
+              <b>写入设定</b>
+              <em className={stepClass(importStepState(importStep, "writing"))}>
+                {importStepState(importStep, "writing")}
+              </em>
+            </li>
+            <li>
+              <b>完成</b>
+              <em>新书出现在书架，本页出现「打开这本书」</em>
+            </li>
+          </ul>
+          <div className="hint" style={{ marginTop: 14 }}>
+            <b>可以离开：</b>建书在后台跑完才把书放进书架；中途关掉页面不影响，建完回来看这条任务即可。
+          </div>
+          <div style={{ display: "flex", gap: 8, marginTop: 16 }}>
+            {confirmCancelImport ? (
+              <>
+                <button
+                  className="btn btn-secondary"
+                  data-od-id="btn-import-cancel-confirm"
+                  disabled={importBusy}
+                  onClick={() => void cancelImport()}
+                >
+                  {importBusy ? "正在取消…" : "确认取消建书"}
+                </button>
+                <button className="btn btn-ghost" onClick={() => setConfirmCancelImport(false)}>
+                  继续等
+                </button>
+              </>
+            ) : (
+              <>
+                <button
+                  className="btn btn-ghost"
+                  data-od-id="btn-import-cancel"
+                  disabled={importBusy}
+                  onClick={() => setConfirmCancelImport(true)}
+                >
+                  取消建书
+                </button>
+                <button className="btn btn-ghost" disabled title="建书中不能删除，请先取消建书">
+                  删除任务及产物
+                </button>
+              </>
+            )}
+          </div>
+        </div>
+      )}
+
+      {task.status === "imported" && (
+        <div className="ex-done" data-od-id="imported-banner" style={{ marginBottom: 18 }}>
+          <div style={{ flex: 1 }}>
+            <b>已建成《{task.book_name}》</b>
+            <span>书已在书架；建书时的提示记在新书设定页顶部，任务详情也能回看</span>
+          </div>
+          <button
+            className="btn btn-primary btn-sm"
+            data-od-id="btn-open-book"
+            onClick={() => {
+              if (task.book_id) navigate(`/novel/${task.book_id}`);
+            }}
+          >
+            打开这本书
+          </button>
+        </div>
+      )}
+
+      {task.status === "import_failed" && (
+        <div className="task-err" data-od-id="import-fail-err" style={{ marginBottom: 18 }}>
+          <b>
+            建书失败
+            {task.import?.error?.message ? ` · ${task.import.error.message}` : ""}
+          </b>
+          <span>
+            {task.import?.error?.retryable === false
+              ? "这个原因重试也不会变，按上面的提示处理后再建书。产物与出口都还在。"
+              : "没有留下半本书；产物与三个出口都还在。重试会整段重跑（会重新精炼一次世界设定）。"}
+          </span>
+          <div style={{ display: "flex", gap: 8, marginTop: 12 }}>
+            {task.import?.error?.retryable !== false && (
+              <button
+                className="btn btn-primary btn-sm"
+                data-od-id="btn-import-retry"
+                disabled={importBusy}
+                onClick={() => void retryImport()}
+              >
+                {importBusy ? "正在重试…" : "重试建书"}
+              </button>
+            )}
+            <button className="btn btn-secondary btn-sm" onClick={() => setExitOpen(true)}>
+              存本地文件夹 / 收进角色库
+            </button>
+          </div>
+        </div>
+      )}
+
+      {RESULT_READY.has(task.status) && (
         <>
           <div className="ex-done" data-od-id="done-banner" style={{ marginBottom: 18 }}>
             <div>
