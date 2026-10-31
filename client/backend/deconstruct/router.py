@@ -165,7 +165,9 @@ async def get_task(
     _require(task, user)
     stats = await service.task_stats(task_id)  # 调用账（c-deconstruct-resilience）
     monitor = await service.monitor_view(task)  # 运行监控账（c-deconstruct-monitor，终态 None）
-    return {**service.task_view(task), "stats": stats, "monitor": monitor}
+    # 幂等键读时校正（c-import-stale-book）：书被删后详情不再显示「已建书」死链
+    live = await service.live_book_ids(db, [task.book_id])
+    return {**service.task_view(task, live_books=live), "stats": stats, "monitor": monitor}
 
 
 @router.get("/tasks/{task_id}/products/{filename}")

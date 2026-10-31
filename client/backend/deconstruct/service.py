@@ -159,15 +159,18 @@ async def list_tasks(db: AsyncSession, user_id: str) -> list[dict]:
     ).all()
     # 排队位次按仍处 queued 的行计数（取消/删除留下的序号空洞不计入，评审 P3）
     queued_seqs = [r.queue_seq for r in rows if r.status == "queued"]
+    # 幂等键读时校正（c-import-stale-book）：一次查询，逐行判定
+    live = await live_book_ids(db, [r.book_id for r in rows])
     out = []
     for r in rows:
         ahead = 0
         if r.status == "queued":
             ahead = sum(1 for q in queued_seqs if q < r.queue_seq)
+        status, _book_id, book_missing = _effective_build(r, live)
         out.append(
             {
                 "id": r.id,
-                "status": r.status,
+                "status": status,
                 "book_name": r.book_name,
                 "total_chars": r.total_chars,
                 "chapter_count": r.chapter_count,
@@ -178,11 +181,40 @@ async def list_tasks(db: AsyncSession, user_id: str) -> list[dict]:
                 "queued_ahead": ahead,
                 "product_count": len(json.loads(r.products_json or "{}")),
                 "error": _first_error(r),
+                "book_missing": book_missing,
                 # 建书阶段摘要（c-deconstruct-import-async）：清单行子状态与轮询判据都读它
                 "import": _import_view(r),
             }
         )
     return out
+
+
+def _effective_build(
+    task: DeconstructJob, live_books: set[str] | None
+) -> tuple[str, str | None, bool]:
+    """(展示状态, 有效 book_id, book_missing)：幂等键读时校正的单点。"""
+    book_id = task.book_id
+    if not book_id or live_books is None or book_id in live_books:
+        return task.status, book_id, False
+    status = "completed" if task.status in ("imported", "import_failed") else task.status
+    return status, None, True
+
+
+async def live_book_ids(db: AsyncSession, book_ids) -> set[str]:
+    """建书幂等键的有效集合（c-import-stale-book）：只认未软删且存在的书。
+
+    与 `get_novel` 同口径（status != 'deleted'）；一次 `id in (…)` 查询，供列表逐行判定用，
+    SHALL NOT 退化成 N 次查询。
+    """
+    from models.project import Novel
+
+    ids = [b for b in book_ids if b]
+    if not ids:
+        return set()
+    rows = await db.scalars(
+        select(Novel.id).where(Novel.id.in_(ids), Novel.status != "deleted")
+    )
+    return set(rows.all())
 
 
 def _import_view(task: DeconstructJob) -> dict | None:
@@ -314,8 +346,13 @@ def _graph_phase(task: DeconstructJob) -> dict | None:
     return out
 
 
-def task_view(task: DeconstructJob) -> dict:
-    """详情视图：全量（含 dims/products 元信息，不含产物正文）。"""
+def task_view(task: DeconstructJob, *, live_books: set[str] | None = None) -> dict:
+    """详情视图：全量（含 dims/products 元信息，不含产物正文）。
+
+    `live_books` 非 None 时做幂等键读时校正（c-import-stale-book）：`book_id` 指向的书已软删/
+    不存在 → 视为未建书（状态回落到已完成、不下发 book_id、带 `book_missing`），与受理侧
+    「键失效即按勾选重建」同口径。不传集合时行为与变更前一致。
+    """
     mds = products_of(task)  # 字符数按现渲染口径（c-deconstruct-evidence-report）
     product_meta = [
         {"filename": p["file"], "size": len(mds.get(p["file"], "")), "dim": dim}
@@ -327,9 +364,10 @@ def task_view(task: DeconstructJob) -> dict:
         selected = json.loads(task.selected_dims_json or "[]")
     except ValueError:
         pass
+    status, book_id, book_missing = _effective_build(task, live_books)
     return {
         "id": task.id,
-        "status": task.status,
+        "status": status,
         "book_name": task.book_name,
         "encoding": task.encoding,
         "source_name": task.source_name,
@@ -357,7 +395,8 @@ def task_view(task: DeconstructJob) -> dict:
         "error_kind": _error_kind(task),
         "warnings": _warnings_view(task),
         "model_history": _model_history(task),
-        "book_id": task.book_id,
+        "book_id": book_id,
+        "book_missing": book_missing,
         "import": _import_view(task),
         "created_at": task.created_at.isoformat() if task.created_at else None,
         "finished_at": task.finished_at.isoformat() if task.finished_at else None,
