@@ -503,10 +503,13 @@ async def collect_to_kb(
     await db.commit()
 
     return {
-        "collected": len(new_entries),
-        "skipped": skipped,
-        "total_mapped": len(entries),
-        "warnings": warnings,
+        "ok": True,
+        "data": {
+            "collected": len(new_entries),
+            "skipped": skipped,
+            "total_mapped": len(entries),
+            "warnings": warnings,
+        },
     }
 
 

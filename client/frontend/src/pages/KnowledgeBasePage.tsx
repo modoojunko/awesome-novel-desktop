@@ -62,6 +62,7 @@ export default function KnowledgeBasePage() {
   }, [genreCounts, showMoreGenres]);
 
   const moreCount = genreCounts.filter((g) => g.count > 0).length - visibleGenres.length;
+  const showFoldToggle = moreCount > 0 || showMoreGenres;
   const groups = useMemo(() => {
     const map = new Map<string, KbLibrary[]>();
     libraries.forEach((l) => {
@@ -88,14 +89,11 @@ export default function KnowledgeBasePage() {
       loadLibraries();
       kbApi.genres().then(setGenreCounts).catch(() => {});
     } catch (e: unknown) {
-      const err = e as { response?: { data?: { detail?: { errors?: Record<string, string> } } } };
-      const errors = err.response?.data?.detail?.errors;
-      if (errors) setManualError(Object.values(errors)[0] ?? "保存失败");
-      else setManualError("保存失败");
+      // ApiError：422 的 message = 后端第一条闸门错误（api.ts 不变量：4xx message 恒非空）
+      const err = e as { message?: string };
+      setManualError(err.message || "保存失败");
     }
   };
-
-  const hasContent = (g: string) => genreCounts.some((c) => (c.key ?? c.name) === g && c.count > 0);
 
   return (
     <div className="min-h-screen bg-[var(--bg)] text-[var(--fg)]">
@@ -127,7 +125,7 @@ export default function KnowledgeBasePage() {
                   <span>{g.name}</span><span className="font-mono text-[10px] opacity-70">{g.count}</span>
                 </button>
               ))}
-              {moreCount > 0 && (
+              {showFoldToggle && (
                 <button
                   onClick={() => setShowMoreGenres(!showMoreGenres)}
                   className="w-full rounded-md px-3 py-1.5 text-left text-[11px] text-[var(--faint)] hover:text-[var(--muted)]"

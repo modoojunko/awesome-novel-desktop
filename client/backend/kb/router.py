@@ -62,7 +62,7 @@ async def get_genres(
         items.append({"name": t, "count": counts.get(t, 0)})
     if "" in counts:
         items.append({"name": "跨题材通用", "count": counts[""], "key": ""})
-    return items
+    return {"ok": True, "data": items}
 
 
 # ─── 条目列表 ─────────────────────────────────────────────
@@ -83,10 +83,7 @@ async def list_entries_api(
         db, user_id=uid, genre=genre, concept=concept,
         src=src, q=q, cursor=cursor, limit=limit,
     )
-    return {
-        "entries": [_entry_dict(e) for e in entries],
-        "next_cursor": next_cursor,
-    }
+    return {"ok": True, "data": {"entries": [_entry_dict(e) for e in entries], "next_cursor": next_cursor}}
 
 
 # ─── 条目详情 ─────────────────────────────────────────────
@@ -101,7 +98,7 @@ async def get_entry_api(
     e = await get_entry(db, user_id=uid, entry_id=entry_id)
     if not e:
         raise HTTPException(404, "Entry not found")
-    return _entry_dict(e)
+    return {"ok": True, "data": _entry_dict(e)}
 
 
 # ─── 手录 ─────────────────────────────────────────────────
@@ -140,8 +137,9 @@ async def create_entry_api(
         src_kind="manual",
     )
     if error:
-        raise HTTPException(422, detail={"errors": error.errors, "warnings": gate.warnings})
-    return _entry_dict(entry)
+        first = next(iter(error.errors.values()), "入库校验未通过")
+        raise HTTPException(422, detail={"message": first, "errors": error.errors, "warnings": gate.warnings})
+    return {"ok": True, "data": _entry_dict(entry)}
 
 
 # ─── 概念元数据 ────────────────────────────────────────────
@@ -169,7 +167,7 @@ async def get_concepts(
             "fields": fields,
             "readonly": name == "情节",
         })
-    return {"concepts": result, "themes": THEMES}
+    return {"ok": True, "data": {"concepts": result, "themes": THEMES}}
 
 
 # ─── 库列表 ──────────────────────────────────────────────
@@ -182,7 +180,7 @@ async def list_libraries_api(
 ):
     uid = _user(user)
     libs = await list_libraries(db, user_id=uid, genre=genre)
-    return [
+    items = [
         {
             "id": l.id,
             "genre": l.genre,
@@ -194,3 +192,4 @@ async def list_libraries_api(
         }
         for l in libs
     ]
+    return {"ok": True, "data": items}

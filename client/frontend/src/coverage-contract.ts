@@ -75,4 +75,7 @@ export const COVERAGE_CONTRACT_FILES = [
   // c-chapter-default-words（作品偏好「章节默认字数」：后端 book-prefs KV 读写＋
   // localStorage 展示缓存＋变更订阅）
   "src/lib/chapterTarget.ts",
+  // c-knowledge-base（写作知识库：浏览页/题材栏/手录/API）
+  "src/lib/kbApi.ts",
+  "src/pages/KnowledgeBasePage.tsx",
 ] as const;
