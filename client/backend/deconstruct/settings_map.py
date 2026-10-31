@@ -339,6 +339,16 @@ def _pick_label(text: str, rules: list[tuple[tuple[str, ...], str]], default: st
     return default
 
 
+# 推断项 → 作家能懂的标签（design D4）：提示条只报这些
+INFERRED_LABELS = {
+    "core_promise": "核心承诺",
+    "promise_note": "承诺说明",
+    "forbidden": "禁写清单",
+    "cost_ratio": "代价比例",
+    "battlefield": "战场",
+}
+
+
 def _infer_forbidden(text: str) -> list[str]:
     rules = [
         (("悬疑", "推理", "查案", "解谜", "灵异", "恐怖", "惊悚"),
@@ -409,6 +419,10 @@ def genre_extras(data_genre: dict, data_mainplot: dict | None = None,
 
     core = clean_settings_text(dg.get("core_promise"), 60)
     if not core:
+        # 回退：旧产物/旧提示词包只给 promise（200 字那句）——核心承诺格限 60 字，收口即可，
+        # 不要因为键名不同就去猜（c-deconstruct-genre-fields）。
+        core = clean_settings_text(dg.get("promise"), 60)
+    if not core:
         core = _pick_label(text, (
             (("解谜", "真相", "反转", "推理", "悬疑", "谜团", "谜底", "悬念"), "层层反转的智力快感"),
             (("求生", "绝境", "生存", "逃生", "逃亡"), "绝处逢生的紧张"),
@@ -437,7 +451,11 @@ def genre_extras(data_genre: dict, data_mainplot: dict | None = None,
         battlefield = _infer_battlefield(text)
         inferred.append("battlefield")
 
+    # 展示层标签（c-deconstruct-genre-fields）：提示文案只许出现这些，不许出现内部键名
+    inferred_labels = [INFERRED_LABELS[k] for k in inferred if k in INFERRED_LABELS]
+
     return {
+        "inferred_labels": inferred_labels,
         "core_promise": core,
         "forbidden": forbidden[:6],
         "cost_ratio": cost,
@@ -457,7 +475,9 @@ def intro_genre_body(data_intro: dict, data_genre: dict,
         "synopsis": clean_settings_text(intro.get("intro"), 600),
         "genre": clean_settings_text(genre.get("genre"), 40),
         # tags 是题材标签（不是「读者预期」短句），只留任务资料；promise 是真正的承诺句
-        "promise_note": clean_settings_text(genre.get("promise"), 200),
+        "promise_note": clean_settings_text(
+            genre.get("promise_note") or genre.get("promise"), 200
+        ),
         **extras,
     }
 

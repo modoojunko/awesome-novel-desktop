@@ -322,11 +322,14 @@ async def import_book(
                 "cost_ratio": meta["cost_ratio"],
                 "battlefield": battlefield_payload,
             })
-            if meta.get("inferred"):
+            # 提示如实且面向作家（c-deconstruct-genre-fields）：只报真推断的项、用中文标签、
+            # 不出现数据库键名（design-language §13）。
+            labels = meta.get("inferred_labels") or []
+            if labels:
                 warnings.append(
-                    "题材 "
-                    + "、".join(meta["inferred"])
-                    + " 拆书产物未覆盖，已按题材/主线/世界代价给起点（请在设定页确认）"
+                    "拆书没有给出"
+                    + "、".join(labels)
+                    + "，已按题材与主线推了起点，请去「设定 → 题材」核对"
                 )
         except Exception as e:  # noqa: BLE001 — 题材补充字段失败不拖垮建书
             warnings.append(f"题材字段未写入（{str(e)[:60]}），题材目录已写")

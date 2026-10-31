@@ -1750,3 +1750,88 @@ def test_import_all_dimensions_contract_safe(client, monkeypatch):
     assert len(hooks) == 1
     assert "取档案见日期都是十五" in hooks[0].description
     assert "埋设于第1章" in hooks[0].description and "收于第10章" in hooks[0].description
+
+
+# ── 题材五格齐备（c-deconstruct-genre-fields）：核心承诺回退 + 推断提示如实 ──────
+
+
+def test_genre_core_promise_falls_back_to_promise():
+    """旧产物/旧提示词包只给 promise：核心承诺取前 60 字，且不记为「推断」。"""
+    from deconstruct import settings_map as sm
+
+    promise = "以都市夜班公交为引，主角在接连不断的撞鬼遇邪与民俗驱邪中追查十年前车祸真相，读者获得持续升级的悬疑惊悚与解密快感。"
+    out = sm.genre_extras({"genre": "灵异志怪", "tags": ["悬疑"], "promise": promise})
+    assert out["core_promise"] == promise[:60]
+    assert "core_promise" not in out["inferred"]
+    assert "核心承诺" not in out["inferred_labels"]
+
+
+def test_genre_core_promise_prefers_new_field():
+    from deconstruct import settings_map as sm
+
+    out = sm.genre_extras(
+        {"genre": "科幻", "core_promise": "层层反转的智力快感", "promise": "旧的那句"}
+    )
+    assert out["core_promise"] == "层层反转的智力快感"
+    assert "core_promise" not in out["inferred"]
+
+
+def test_genre_all_four_present_means_no_inference():
+    from deconstruct import settings_map as sm
+
+    out = sm.genre_extras(
+        {
+            "genre": "灵异志怪",
+            "core_promise": "撞鬼解谜的紧张",
+            "forbidden": ["禁天降外援"],
+            "cost_ratio": 7,
+            "battlefield": ["查真相"],
+        }
+    )
+    assert out["inferred"] == []
+    assert out["inferred_labels"] == []
+    assert out["cost_ratio"] == 7
+    assert out["forbidden"] == ["禁天降外援"]
+    assert out["battlefield"] == ["查真相"]
+
+
+def test_genre_inferred_labels_are_chinese():
+    from deconstruct import settings_map as sm
+
+    out = sm.genre_extras({"genre": "科幻"})
+    assert out["inferred_labels"] == ["核心承诺", "禁写清单", "代价比例", "战场"]
+    assert all(k in sm.INFERRED_LABELS for k in out["inferred"])
+
+
+def test_import_book_genre_warning_is_writer_facing(client):
+    """建书提示：只报真推断项、中文标签、不出现数据库键名。"""
+    products = {
+        "genre": _product(
+            "genre",
+            "题材.md",
+            {
+                "genre": "科幻",
+                "tags": ["星际"],
+                "core_promise": "层层反转的智力快感",
+                "cost_ratio": 6,
+            },
+            "# 题材",
+        ),
+    }
+    _mk_completed("dec-genre-warn", products)
+    body = client.post("/api/deconstruct/tasks/dec-genre-warn/import-book").json()
+    joined = "；".join(body["warnings"])
+    assert "禁写清单" in joined and "战场" in joined
+    assert "核心承诺" not in joined and "代价比例" not in joined  # 已取到值，不该报
+    for raw in ("core_promise", "forbidden", "cost_ratio", "battlefield"):
+        assert raw not in joined
+
+
+def test_genre_vocab_lines_injected():
+    """禁写/战场词表按 kind 取标签，逐行一个。"""
+    from deconstruct.pipeline import _vocab_lines
+
+    forbidden = _vocab_lines("forbidden").splitlines()
+    battlefield = _vocab_lines("battlefield").splitlines()
+    assert len(forbidden) >= 1 and "禁天降外援" in forbidden
+    assert len(battlefield) >= 1 and "查真相" in battlefield
