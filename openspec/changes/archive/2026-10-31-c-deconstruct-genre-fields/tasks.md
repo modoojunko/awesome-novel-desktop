@@ -22,9 +22,10 @@
       「拆书没有给出{清单}，已按题材与主线推了起点，请去「设定 → 题材」核对」；`inferred` 为空时
       SHALL NOT 追加该 warning。验证：单测覆盖「四项全缺」「只缺两项」「零缺」三臂，断言文案无
       英文键名。
-- [ ] 1.4 端到端：用真实存量任务（旧产物只有 promise）重跑建书，断言新书 `core_promise` = promise
+- [x] 1.4 端到端：用真实存量任务（旧产物只有 promise）重跑建书，断言新书 `core_promise` = promise
       前 60 字、提示条只报三项、文案为中文。验证：pytest 契约用例 + 真机一次（可复用 0.44.2 那本
-      13路末班车 的任务，删书后重建）。
+      13路末班车 的任务，删书后重建）。**实测（0.44.3）**：`core_promise`＝「以都市夜班公交为引…解密快感。」，
+      warning＝「拆书没有给出禁写清单、代价比例、战场，已按题材与主线推了起点，请去「设定 → 题材」核对」。
 
 ## 2. C 端：题材维度词表注入（契约生效的另一半）
 
@@ -40,24 +41,30 @@
 
 ## 3. prompts 仓：模板契约扩字段（另仓，按 prompts 流程走）
 
-- [ ] 3.1 `prompts/deconstruct_genre.prompt` 输出契约扩为
+- [x] 3.1 `prompts/deconstruct_genre.prompt` 输出契约扩为
       `genre / tags / core_promise / promise_note / forbidden / cost_ratio / battlefield /
       confidence / note`，逐字段写清限长与「必须从词表选」；保留三铁律与「只输出 JSON」。
       验证：prompts 仓自带测试/守卫（JSON 契约与模板守卫）全绿；模板里三个新占位符与 C 端注入名一致。
-- [ ] 3.2 manifest 版本进位与 `min_client` 判定：本次契约对旧 C 端**向后兼容**（旧客户端早已优先读
-      新键），故 `min_client` 不 bump。验证：prompts 仓 `publish.py --dry-run` 输出中 `min_client` 未变。
-- [ ] 3.3 打包 + 灰度下发（发包动作，需拍板）。验证：本机 `data/prompt-pack/` 出现新版本目录；
-      跑一次真实拆书，`products_json.genre.data` 出现 9 个键。
+- [x] 3.2 manifest 版本进位与 `min_client` 判定：**计划变更**——原以为向后兼容故不 bump；实测发现新模板
+      使用 `{forbidden_vocab}` / `{battlefield_vocab}` 两个占位符，旧客户端（<0.44.4）不注入 →
+      `str.format` KeyError → 拆书维度直接失败。故 `min_client` **必须** bump 到 `0.44.4`（当前生产版）。
+      验证：线上 `prompts/latest.json` 的 `min_client_version=0.44.4`，0.44.4 客户端正常换钥装包。
+- [x] 3.3 打包 + 灰度下发（发包动作，需拍板）。验证：本机 `data/prompt-pack/` 出现新版本目录；
+      跑一次真实拆书，`products_json.genre.data` 出现 9 个键。**实测**：包 `2026.10.31-1` 已发（四档
+      20/69/74/82，四档 CEK 已登记 S 端、线上指针已翻）；本机 receipt 同步为 `2026.10.31-1`；
+      3 章探针任务产物＝9 键，`core_promise`/`forbidden`/`cost_ratio`/`battlefield` 全部来自拆书且取自词表。
 
 ## 4. 验收与回归
 
-- [ ] 4.1 后端全量：`cd client/backend && uv run pytest -q`。验证：输出结论附 PR。
-- [ ] 4.2 真机验收（需真实拆书任务）：新拆一本 → 题材产物 9 键齐 → 建书后设定页五格＝产物值、
+- [x] 4.1 后端全量：`cd client/backend && uv run pytest -q`。验证：输出结论附 PR。**实测**：
+      `2662 passed, 320 skipped in 201s`（无失败）。
+- [x] 4.2 真机验收（需真实拆书任务）：新拆一本 → 题材产物 9 键齐 → 建书后设定页五格＝产物值、
       顶部提示条不出现；再拿旧任务（5 键产物）建书 → 提示条只报三项且为中文。
-      验证：截图 + `products_json` 键清单 + `novel_genre` 五格取值。
-- [ ] 4.3 归档前核对：`openspec validate --strict` 全绿；主 spec 两条 MODIFIED 文本与实现一致。
+      验证：截图 + `products_json` 键清单 + `novel_genre` 五格取值。**实测**：探针任务九键齐；
+      旧任务（13路末班车）建书提示为中文三项。
+- [x] 4.3 归档前核对：`openspec validate --strict` 全绿；主 spec 两条 MODIFIED 文本与实现一致。
 
 ## 5. 归档（随实现 PR）
 
-- [ ] 5.1 delta sync 进 `openspec/specs/deconstruct-book/spec.md` 并归档本 change。
+- [x] 5.1 delta sync 进 `openspec/specs/deconstruct-book/spec.md` 并归档本 change。
       验证：`openspec archive c-deconstruct-genre-fields --yes` 后 validate 与基线对拍无新增红。
