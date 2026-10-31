@@ -719,6 +719,11 @@ jobs:
       # 报错降级为 warning；清理失败不阻塞发版（发布已成功，下个版本自动重试）。本步骤不设
       # if: always()——发布或校验失败时旧版本目录是当时唯一可下载来源，绝不能先删后建。
       - name: Prune old hosting versions (keep last 2)
+        # 2026-10-31 实证（v0.44.2/v0.44.3）：旧版本目录各 ~70-100MB，`tcb hosting delete --dir`
+        # 既无确认跳过也无超时，两次都在这步挂 70+ 分钟、一个目录都没删掉，最后只能人工取消 run。
+        # 这里给单条删除与整步各加一层上界：单条超时按失败处理（走既有 warning 分支，不判红），
+        # 整步超时兜底 15 分钟；发布产物与指针早已在更早的步骤落定，清理失败不影响发布。
+        timeout-minutes: 15
         env:
           TCB_API_KEY: ${{ secrets.TCB_API_KEY }}
           TCB_ENV_ID: ${{ vars.TCB_ENV_ID }}
@@ -737,11 +742,11 @@ jobs:
           while IFS= read -r TAG; do
             VER="${TAG#v}"
             echo "--- 预览 download/v$VER/ ---"
-            tcb hosting delete "download/v$VER" --dir --dry-run -e "$TCB_ENV_ID" || true
-            if tcb hosting delete "download/v$VER" --dir -e "$TCB_ENV_ID"; then
+            timeout 60 tcb hosting delete "download/v$VER" --dir --dry-run -e "$TCB_ENV_ID" || true
+            if timeout 120 tcb hosting delete "download/v$VER" --dir -e "$TCB_ENV_ID"; then
               echo "已删除 download/v$VER/"
             else
-              echo "::warning::清理 download/v$VER 失败（可能从未上过托管），已跳过"
+              echo "::warning::清理 download/v$VER 失败或超时（可能从未上过托管），已跳过"
             fi
           done <<< "$OLD_TAGS"
           echo "旧版本清理完成（保留最近 $KEEP 个版本）"
