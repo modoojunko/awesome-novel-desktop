@@ -47,6 +47,7 @@ from db import Base, async_session, engine
 from deconstruct.router import router as deconstruct_router  # c-deconstruct-book
 from genres.router import router as genres_router
 from image_assets.router import router as image_assets_router
+from kb.router import router as kb_router
 from library.router import router as character_library_router
 from manuscript.router import router as manuscript_router
 from models.user import User
@@ -72,7 +73,6 @@ from volumes.pacing_ai import router as volume_pacing_ai_router
 from volumes.pacing_router import router as volume_pacing_router
 from workflow.router import backfill_router as workflow_backfill_router
 from workflow.router import router as workflow_router
-from kb.router import router as kb_router
 from write.ai_check import router as ai_check_router
 from write.plot_sim import router as plot_sim_router
 from write.prompt_sources import router as prompt_sources_router
