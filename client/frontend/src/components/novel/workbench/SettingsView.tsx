@@ -18,6 +18,7 @@ import { type SettingSaveHandle } from "@/components/novel/settings/FormField";
 import WorldSettingPanel from "@/components/novel/settings/world/WorldSettingPanel";
 import type { WorldPanelHandle } from "@/components/novel/settings/world/WorldSettingPanel";
 import StyleSettingForm, { type StylePanelHandle } from "@/components/novel/settings/StyleSettingForm";
+import KbSourceStrip from "@/components/novel/settings/KbSourceStrip";
 import HooksSettingForm, { type HookSaveState, type HooksPanelHandle } from "@/components/novel/settings/HooksSettingForm";
 import CharacterManager, { type CharGateHint } from "@/components/novel/settings/CharacterManager";
 import { type CharAiCtx } from "@/lib/characterModel";
@@ -867,27 +868,35 @@ export default function SettingsView({
               />
             )}
             {panel === "world" && (
-              <WorldSettingPanel
-                ref={worldRef}
-                projectId={projectId}
-                onDirtyChange={handleDirtyChange}
-                onReceiptChange={handleReceiptChange}
-                onGotoPanel={(k) => handleSelect(k)}
-                onNoPowerChange={setWorldNoPower}
-              />
+              <>
+                {/* 知识库来源行（c-kb-snapshot）：启用/同步/解绑，世界设定 */}
+                <KbSourceStrip projectId={projectId} scope="world" />
+                <WorldSettingPanel
+                  ref={worldRef}
+                  projectId={projectId}
+                  onDirtyChange={handleDirtyChange}
+                  onReceiptChange={handleReceiptChange}
+                  onGotoPanel={(k) => handleSelect(k)}
+                  onNoPowerChange={setWorldNoPower}
+                />
+              </>
             )}
             {panel === "style" && (
-              <StyleSettingForm
-                ref={(h) => {
-                  // 双 ref：formRef 供 panel-foot save/confirm；styleRef 供右栏 runAi 分发
-                  (formRef as React.MutableRefObject<SettingSaveHandle | null>).current = h;
-                  styleRef.current = h;
-                }}
-                projectId={projectId}
-                settingKey="style"
-                onDirtyChange={handleDirtyChange}
-                onReceiptChange={handleReceiptChange}
-              />
+              <>
+                {/* 知识库来源行（c-kb-snapshot）：文风/文笔共用文风面板 */}
+                <KbSourceStrip projectId={projectId} scope="style" />
+                <StyleSettingForm
+                  ref={(h) => {
+                    // 双 ref：formRef 供 panel-foot save/confirm；styleRef 供右栏 runAi 分发
+                    (formRef as React.MutableRefObject<SettingSaveHandle | null>).current = h;
+                    styleRef.current = h;
+                  }}
+                  projectId={projectId}
+                  settingKey="style"
+                  onDirtyChange={handleDirtyChange}
+                  onReceiptChange={handleReceiptChange}
+                />
+              </>
             )}
             {panel === "foreshadow" && (
               <HooksSettingForm

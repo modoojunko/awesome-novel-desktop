@@ -78,4 +78,6 @@ export const COVERAGE_CONTRACT_FILES = [
   // c-knowledge-base（写作知识库：浏览页/题材栏/手录/API）
   "src/lib/kbApi.ts",
   "src/pages/KnowledgeBasePage.tsx",
+  // c-kb-snapshot（启用库落设定：设定面板知识库来源行——启用/同步/解绑）
+  "src/components/novel/settings/KbSourceStrip.tsx",
 ] as const;
