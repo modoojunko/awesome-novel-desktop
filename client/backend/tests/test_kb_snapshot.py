@@ -383,3 +383,38 @@ def test_原型使用计数_累加与校验():
             assert r.status_code == 404
     finally:
         app.dependency_overrides.clear()
+
+
+# ─── 全局图端点（c-kb-organize 批7）────────────────────────
+
+
+def test_全局图_聚合与下钻():
+    seed = _run(_seed())
+    from fastapi.testclient import TestClient
+
+    from auth_local.middleware import get_current_user
+    from main import app
+
+    app.dependency_overrides[get_current_user] = lambda: {"id": seed["uid"]}
+    try:
+        with TestClient(app) as c:
+            r = c.get("/api/kb/graph/aggregate")
+            assert r.status_code == 200
+            data = r.json()["data"]
+            # 种子：文风(3条目含场景)/文笔(2)/世界(3)同题材 → 1 题材节点＋3 格子节点
+            kinds = {n["kind"] for n in data["nodes"]}
+            assert kinds == {"genre", "cell"}
+            genre_nodes = [n for n in data["nodes"] if n["kind"] == "genre"]
+            assert len(genre_nodes) == 1 and genre_nodes[0]["count"] == 8
+            cells = {n["concept"]: n["count"] for n in data["nodes"] if n["kind"] == "cell"}
+            assert cells == {"文风": 3, "文笔": 2, "世界设定": 3}
+            assert len(data["links"]) == 3
+
+            # 下钻：文风格 → 3 条目节点（含场景条目）
+            r = c.get("/api/kb/graph/cell?genre=%E4%BB%99%E4%BE%A0%2F%E4%BF%AE%E7%9C%9F&concept=%E6%96%87%E9%A3%8E")
+            nodes = r.json()["data"]["nodes"]
+            assert len(nodes) == 3
+            scopes = {n["scope"] for n in nodes}
+            assert scopes == {"base", "scene"}
+    finally:
+        app.dependency_overrides.clear()

@@ -158,4 +158,19 @@ export const kbApi = {
     unwrap<{ entry_id: string; adopt_count: number }>(
       request(`${BASE}/entries/${entryId}/prototype-use`, { method: "POST" }),
     ),
+
+  // ── 全局图（c-kb-organize 批7：聚合＋下钻；关系边随 AI 整理二阶段）──
+
+  graphAggregate: () =>
+    unwrap<{
+      nodes: { id: string; kind: "genre" | "cell" | "entry"; genre: string; concept: string; count: number }[];
+      links: { source: string; target: string }[];
+    }>(request(`${BASE}/graph/aggregate`)),
+
+  graphCell: (genre: string, concept: string) => {
+    const sp = new URLSearchParams({ genre, concept });
+    return unwrap<{
+      nodes: { id: string; kind: "entry"; genre: string; concept: string; title: string; scope: string }[];
+    }>(request(`${BASE}/graph/cell?${sp}`));
+  },
 };

@@ -248,6 +248,70 @@ async def list_libraries_api(
     return {"ok": True, "data": items}
 
 
+# ─── 全局图（c-kb-organize 批7：聚合＋下钻；关系边随 AI 整理二阶段）──
+
+
+@router.get("/graph/aggregate")
+async def graph_aggregate_api(
+    user: dict = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """聚合视图：题材×概念格子节点（默认首屏 ≤80 节点内）＋题材—格子层级边。"""
+    uid = _user(user)
+    counts = await genre_counts(db, user_id=uid)
+    # 格子计数：按 (genre, concept) 分组（含跨题材通用 genre=""）
+    rows = (
+        await db.execute(
+            select(KbEntry.genre, KbEntry.concept, func.count(KbEntry.id)).where(
+                KbEntry.user_id == uid, KbEntry.status == "active"
+            ).group_by(KbEntry.genre, KbEntry.concept)
+        )
+    ).all()
+    nodes = []
+    links = []
+    for genre, concept, n in rows:
+        gid = f"genre:{genre or '_general'}"
+        cid = f"cell:{genre or '_general'}:{concept}"
+        nodes.append({"id": cid, "kind": "cell", "genre": genre or "", "concept": concept, "count": int(n)})
+        links.append({"source": gid, "target": cid})
+    seen = set()
+    for lnk in links:
+        gid = lnk["source"]
+        if gid in seen:
+            continue
+        seen.add(gid)
+        gname = "" if gid == "genre:_general" else gid.removeprefix("genre:")
+        nodes.append({
+            "id": gid, "kind": "genre", "genre": gname, "concept": "",
+            "count": int(counts.get(gname, 0)),
+        })
+    return {"ok": True, "data": {"nodes": nodes, "links": links}}
+
+
+@router.get("/graph/cell")
+async def graph_cell_api(
+    genre: str = "",
+    concept: str = "",
+    user: dict = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """下钻：一个格子里的条目节点（悬停邻域高亮在前端；条目—格子边前端补）。"""
+    uid = _user(user)
+    entries, _cursor = await list_entries(db, user_id=uid, genre=genre, concept=concept, limit=100)
+    nodes = [
+        {
+            "id": e.id,
+            "kind": "entry",
+            "genre": e.genre,
+            "concept": e.concept,
+            "title": e.title or e.instruction[:20],
+            "scope": "scene" if json.loads(e.when_json or "{}") else "base",
+        }
+        for e in entries
+    ]
+    return {"ok": True, "data": {"nodes": nodes}}
+
+
 # ─── 角色库迁移（c-kb-character-migration 批6）──────────────
 
 

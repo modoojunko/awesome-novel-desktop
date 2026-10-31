@@ -2,7 +2,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { kbApi } from "@/lib/kbApi";
 
-const { bind, bindings, createEntry, entries, entry, genres, libraries, syncBinding, unbind, concepts, usePrototype } = kbApi;
+const { bind, bindings, createEntry, entries, entry, genres, libraries, syncBinding, unbind, concepts, usePrototype, graphAggregate, graphCell } = kbApi;
 
 const fetchMock = vi.fn();
 
@@ -129,6 +129,18 @@ describe("kbApi", () => {
     expect(r.adopt_count).toBe(2);
     expect(String(fetchMock.mock.calls[0][0])).toBe("/api/kb/entries/kb1/prototype-use");
     expect(fetchMock.mock.calls[0][1]?.method).toBe("POST");
+  });
+
+  it("全局图两端点：聚合与下钻", async () => {
+    fetchMock.mockReturnValueOnce(json({ nodes: [{ id: "g", kind: "genre", genre: "都市", concept: "", count: 3 }], links: [] }));
+    const agg = await graphAggregate();
+    expect(agg.nodes[0].count).toBe(3);
+    expect(String(fetchMock.mock.calls[0][0])).toBe("/api/kb/graph/aggregate");
+    fetchMock.mockReturnValueOnce(json({ nodes: [{ id: "e1", kind: "entry", genre: "都市", concept: "文风", title: "t", scope: "base" }] }));
+    const cell = await graphCell("都市", "文风");
+    expect(cell.nodes[0].id).toBe("e1");
+    expect(String(fetchMock.mock.calls[1][0])).toContain("genre=%E9%83%BD%E5%B8%82");
+    expect(String(fetchMock.mock.calls[1][0])).toContain("concept=");
   });
 
   it("信封缺 data 抛错", async () => {
