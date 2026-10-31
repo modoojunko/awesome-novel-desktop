@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { kbApi, type KbEntry, type KbGenreCount, type KbLibrary } from "@/lib/kbApi";
+import KbGraph from "@/components/tools/KbGraph";
 
 const CONCEPTS = ["文风", "文笔", "世界设定", "角色设定", "手法", "情节"] as const;
 const CONCEPT_DESC: Record<string, string> = {
@@ -26,6 +27,7 @@ export default function KnowledgeBasePage() {
   const [manualGenre, setManualGenre] = useState("");
   const [manualError, setManualError] = useState("");
   const [showMoreGenres, setShowMoreGenres] = useState(false);
+  const [view, setView] = useState<"list" | "graph">("list");
 
   const loadEntries = useCallback(async (cursorId = "") => {
     setLoading(true);
@@ -100,12 +102,26 @@ export default function KnowledgeBasePage() {
       {/* 顶栏 */}
       <div className="border-b border-[var(--border)] px-6 py-4">
         <p className="font-mono text-[10.5px] tracking-[0.14em] text-[var(--muted)]">—— 写作工具 · 知识库</p>
-        <h1 className="mt-2 font-[var(--font-display)] text-4xl font-semibold tracking-wide">知识库</h1>
+        <div className="mt-2 flex items-center justify-between gap-3">
+          <h1 className="font-[var(--font-display)] text-4xl font-semibold tracking-wide">知识库</h1>
+          <div className="flex flex-none items-center gap-1 rounded-lg border border-[var(--border)] bg-[var(--surface)] p-0.5">
+            {(["list", "graph"] as const).map((v) => (
+              <button
+                key={v}
+                onClick={() => setView(v)}
+                className={`rounded-md px-3 py-1.5 text-[12px] ${view === v ? "bg-[var(--accent-soft)] font-medium text-[var(--accent)]" : "text-[var(--muted)] hover:text-[var(--fg)]"}`}
+              >
+                {v === "list" ? "列表" : "图谱"}
+              </button>
+            ))}
+          </div>
+        </div>
         <p className="mt-2 text-sm text-[var(--muted)]">存的是拆书拆出的好写法和自己踩过的经验，写新书时能用上。</p>
       </div>
 
       <div className="mx-auto max-w-[1220px] px-6 pb-16">
-        <div className="flex gap-6">
+        {view === "graph" && <KbGraph />}
+        <div className="flex gap-6" style={{ display: view === "graph" ? "none" : undefined }}>
           {/* 左栏 */}
           <aside className="w-52 flex-none pt-4">
             <p className="mb-2 font-mono text-[9.5px] tracking-[0.14em] text-[var(--muted)]">题材</p>

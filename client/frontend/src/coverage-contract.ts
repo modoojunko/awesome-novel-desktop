@@ -83,4 +83,7 @@ export const COVERAGE_CONTRACT_FILES = [
   // c-kb-character（角色原型：渲染映射＋挑原型弹窗＋建卡预填）
   "src/lib/kbPrototype.ts",
   "src/components/novel/settings/PrototypePickModal.tsx",
+  // c-kb-organize（全局图：聚合/下钻整形＋token 实色＋force-graph 薄壳）
+  "src/lib/kbGraph.ts",
+  "src/components/tools/KbGraph.tsx",
 ] as const;

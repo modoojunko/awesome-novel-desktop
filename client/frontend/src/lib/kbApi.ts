@@ -163,7 +163,7 @@ export const kbApi = {
 
   graphAggregate: () =>
     unwrap<{
-      nodes: { id: string; kind: "genre" | "cell" | "entry"; genre: string; concept: string; count: number }[];
+      nodes: { id: string; kind: "genre" | "cell"; genre: string; concept: string; count: number }[];
       links: { source: string; target: string }[];
     }>(request(`${BASE}/graph/aggregate`)),
 

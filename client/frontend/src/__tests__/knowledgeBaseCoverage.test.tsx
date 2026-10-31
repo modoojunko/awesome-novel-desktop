@@ -7,6 +7,8 @@ const api = vi.hoisted(() => ({
   entries: vi.fn(),
   libraries: vi.fn(),
   createEntry: vi.fn(),
+  graphAggregate: vi.fn(),
+  graphCell: vi.fn(),
 }));
 
 vi.mock("@/lib/kbApi", async (orig) => {
@@ -59,6 +61,11 @@ beforeEach(() => {
   ]);
   api.entries.mockResolvedValue({ entries: [entry()], next_cursor: "" });
   api.createEntry.mockResolvedValue(entry());
+});
+
+beforeEach(() => {
+  api.graphAggregate.mockResolvedValue({ nodes: [], links: [] });
+  api.graphCell.mockResolvedValue({ nodes: [] });
 });
 
 afterEach(() => {
@@ -158,6 +165,24 @@ describe("KnowledgeBasePage 题材栏与列表", () => {
     render(<KnowledgeBasePage />);
     await screen.findByText("先果后因");
     await waitFor(() => expect(api.genres).toHaveBeenCalled());
+  });
+});
+
+describe("KnowledgeBasePage 视图切换（c-kb-organize）", () => {
+  it("列表/图谱切换：图谱态挂图、列表态隐藏两栏", async () => {
+    render(<KnowledgeBasePage />);
+    await screen.findByText("先果后因");
+    // 两栏默认可见
+    expect(screen.getByPlaceholderText("搜名字、内容、来源书名")).toBeInTheDocument();
+    // 切图谱：图谱壳出现（聚合空数据→空图），列表两栏隐藏
+    fireEvent.click(screen.getByText("图谱"));
+    await waitFor(() => expect(api.graphAggregate).toHaveBeenCalled());
+    expect(screen.getByText("点格子下钻")).toBeInTheDocument();
+    expect(screen.getByPlaceholderText("搜名字、内容、来源书名").closest("div.flex.gap-6")!.hasAttribute("style")).toBe(true);
+    // 切回列表
+    fireEvent.click(screen.getByText("列表"));
+    expect(screen.getByPlaceholderText("搜名字、内容、来源书名")).toBeInTheDocument();
+    expect(screen.queryByText("点格子下钻")).not.toBeInTheDocument();
   });
 });
 
