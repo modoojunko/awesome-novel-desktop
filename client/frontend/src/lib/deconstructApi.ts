@@ -118,6 +118,8 @@ export interface DeconstructTaskDetail {
   book_id: string | null;
   /** 建书阶段（旧任务无该键＝从未建书） */
   import?: DeconstructImportState | null;
+  /** 幂等键指向的书已删/不存在（c-import-stale-book）：状态已回落 completed */
+  book_missing?: boolean;
   created_at: string | null;
   finished_at: string | null;
 }

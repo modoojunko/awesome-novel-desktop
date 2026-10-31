@@ -1835,3 +1835,60 @@ def test_genre_vocab_lines_injected():
     battlefield = _vocab_lines("battlefield").splitlines()
     assert len(forbidden) >= 1 and "禁天降外援" in forbidden
     assert len(battlefield) >= 1 and "查真相" in battlefield
+
+
+# ── 删书后读侧校正（c-import-stale-book）─────────────────────────────────
+
+
+def test_task_view_treats_deleted_book_as_unbuilt(client):
+    """书被删后详情不再显示「已建书」：状态回落 completed、book_id 为空、带 book_missing。"""
+    _mk_completed("dec-stale-1", {"intro": _product("intro", "简介.md", {"intro": "x"}, "# x")},
+                  book_name="删书书")
+    body = client.post("/api/deconstruct/tasks/dec-stale-1/import-book", json={"items": ["intro"]}).json()
+    book_id = body["book_id"]
+    assert book_id
+
+    # 书在：详情显示已建书
+    d = client.get("/api/deconstruct/tasks/dec-stale-1").json()
+    assert d["status"] == "imported" and d["book_id"] == book_id and d["book_missing"] is False
+
+    # 删书：详情回落可重建态
+    assert client.delete(f"/api/novels/{book_id}").status_code == 200
+    d2 = client.get("/api/deconstruct/tasks/dec-stale-1").json()
+    assert d2["status"] == "completed"
+    assert d2["book_id"] is None
+    assert d2["book_missing"] is True
+
+    # 清单行同口径
+    rows = client.get("/api/deconstruct/tasks").json()["tasks"]
+    row = next(t for t in rows if t["id"] == "dec-stale-1")
+    assert row["status"] == "completed" and row["book_missing"] is True
+
+
+def test_task_view_without_live_books_unchanged():
+    """不传 live_books 时行为与变更前一致（其它调用方/测试不受影响）。"""
+    from deconstruct.service import task_view
+
+    class _T:
+        id = "t"
+        status = "imported"
+        book_id = "b1"
+        book_name = "x"
+        encoding = "utf-8"
+        source_name = "x"
+        total_chars = 0
+        chapter_count = 0
+        volume_count = 0
+        parse_warnings_json = "[]"
+        ai_model = "m"
+        api_config_id = "c"
+        selected_dims_json = "[]"
+        products_json = "{}"
+        error_json = "{}"
+        dims_json = "{}"
+        model_history_json = "[]"
+        created_at = None
+        finished_at = None
+
+    v = task_view(_T())
+    assert v["status"] == "imported" and v["book_id"] == "b1" and v["book_missing"] is False

@@ -750,6 +750,15 @@ export default function TaskDetailPage() {
 
       {RESULT_READY.has(task.status) && (
         <>
+          {/* 幂等键失效（c-import-stale-book）：书被删后不再显示「已建书」死链，给一句可行动说明 */}
+          {task.book_missing && (
+            <div className="notice info" data-od-id="book-missing" style={{ marginBottom: 18 }}>
+              <span className="nt">
+                <b>原建书已删除</b>
+                <span>这本书不在书架了；点「选择去向 → 就建这本书」会按当前勾选重新建一本。</span>
+              </span>
+            </div>
+          )}
           <div className="ex-done" data-od-id="done-banner" style={{ marginBottom: 18 }}>
             <div>
               <b>

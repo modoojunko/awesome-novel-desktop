@@ -1622,3 +1622,23 @@ describe("建书秒数 ticker", () => {
     expect(screen.getByText(/已 \d+ 秒/)).toBeInTheDocument();
   });
 });
+
+
+describe("幂等键失效（c-import-stale-book）", () => {
+  it("书已删：不显示已建书横幅，给一句可行动说明", async () => {
+    seedMax();
+    state.get.mockResolvedValue(detailOf("completed", { book_id: null, book_missing: true }));
+    renderPage();
+    await waitFor(() => expect(screen.getByText("原建书已删除")).toBeInTheDocument());
+    expect(screen.queryByText("打开这本书")).not.toBeInTheDocument();
+    expect(screen.getByText("选择去向")).toBeInTheDocument();
+  });
+
+  it("书在：不出现说明句", async () => {
+    seedMax();
+    state.get.mockResolvedValue(detailOf("completed", { book_id: null, book_missing: false }));
+    renderPage();
+    await waitFor(() => expect(screen.getByText("选择去向")).toBeInTheDocument());
+    expect(screen.queryByText("原建书已删除")).not.toBeInTheDocument();
+  });
+});
