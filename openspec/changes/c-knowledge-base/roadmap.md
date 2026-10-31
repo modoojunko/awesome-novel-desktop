@@ -41,38 +41,38 @@
 
 **目标**：作家启用一个库，全书适用的知识落成本书的文风/世界设定；**库卡在此阶段亮相**（显示"本书已启用/有 N 条更新"）
 
-- [ ] 启用记版本（快照只含基线条目，场景条目不进快照）
-- [ ] 同题材同概念互斥启用一个库
-- [ ] 文风/文笔基线渲染进 style 白名单键
-- [ ] 世界设定渲染进 world V2 8 键
-- [ ] 同步差异预览（库更新→书不自动变，显示「有 N 条更新」）
-- [ ] 书内设定面板来源行（来自哪个库/几条/本书改过保留）
-- [ ] 场景条目库页分组展示（「场景条目 N 条」不进同步）
+- [x] 启用记版本（快照只含基线条目，场景条目不进快照）
+- [x] 同题材同概念互斥启用一个库
+- [x] 文风/文笔基线渲染进 style 白名单键
+- [x] 世界设定渲染进 world V2 8 键
+- [x] 同步差异预览（库更新→书不自动变，显示「有 N 条更新」）
+- [x] 书内设定面板来源行（来自哪个库/几条/本书改过保留）
+- [x] 场景条目库页分组展示（「场景条目 N 条」不进同步）
 
 ### ④ c-kb-character · 角色原型起草
 
 **目标**：从知识库挑一个角色原型，逐格复制进新建角色表单
 
-- [ ] render_character_prototype（档案格/认知格映射）
-- [ ] 新建角色「挑原型」入口
-- [ ] 用作原型计数回写
+- [x] render_character_prototype（档案格/认知格映射；lib/kbPrototype.ts）
+- [x] 新建角色「挑原型」入口
+- [x] 用作原型计数回写
 
 ### ⑤ c-kb-backup · 备份
 
 **目标**：账号换设备/重装，知识库跟着走
 
-- [ ] FORMAT_VERSION 8→9＋配置包 knowledge_base 段（账号 8 表）
-- [ ] 书内 3 表进单书备份随书级联
-- [ ] 旧包缺段跳过不报错
-- [ ] 恢复后标签索引自动重建
-- [ ] 导出摘要显示知识库段体积
+- [x] FORMAT_VERSION 8→9＋配置包 knowledge_base 段（账号 8 表）
+- [x] 书内 3 表进单书备份随书级联
+- [x] 旧包缺段跳过不报错
+- [x] 恢复后标签索引自动重建
+- [x] 导出摘要显示知识库段体积
 
 ### ⑥ c-kb-character-migration · 角色库迁移到知识库
 
 **目标**：角色库不是独立系统，是知识库在"角色"维度的投影。迁移后角色库 UI 读/写 kb_entries（concept="角色设定"），`character_library` 表 deprecated。
 
-- [ ] 扩 CharacterPayload schema 到角色库全量字段（dossier 8 格/cog 11 格/persona/relation_slot/arc）
-- [ ] 迁移脚本：读 character_library 全量 → 每行创建 kb_entry（幂等，src_ref="character_library"，src_key=原 id）＋角色关系→kb_relations
+- [x] 扩 CharacterPayload schema 到角色库全量字段（dossier 8 格/cog 11 格/persona/relation_slot/arc）
+- [x] 迁移脚本：读 character_library 全量 → 每行创建 kb_entry（幂等，src_ref="character_library"，src_key=原 id）（角色关系→kb_relations 归批7 AI 整理同批）
 - [ ] 角色库列表页改读 kb_entries（concept="角色设定"）
 - [ ] 角色卡编辑器改读写 kb_entry payload
 - [ ] 角色关系改读 kb_relations
