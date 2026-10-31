@@ -66,17 +66,41 @@ class WorldPayload(BaseModel):
 
 # ─── 角色设定 ────────────────────────────────────────────
 class CharacterPayload(BaseModel):
-    """一个可复用的原型/造法。渲染：逐格复制进角色卡表单。"""
+    """一个可复用的原型/造法。渲染：逐格复制进角色卡表单。
+
+    扁平形态＝角色库全量（c-kb-character-migration 6.1）：
+    - archetype＝卡名；persona 一句人设
+    - 档案八格（DOSSIER_KEYS 同源）：gender/age/race/faction/look/speech/background/plot
+    - 认知十一格（COG_KEYS 同源）：w1/w5/s1/s5/v1/p2/p6/p3/p4/b1/e3
+    - relation_slot（关系槽位）/arc（成长弧线）为知识侧标注，不进建卡预填
+    """
 
     model_config = {"extra": "forbid"}
 
-    archetype: str = Field(..., max_length=40)
-    look: str | None = Field(None, max_length=200)
-    background: str | None = Field(None, max_length=200)
-    speech: str | None = Field(None, max_length=200)
-    w1: str | None = Field(None, max_length=120)
-    s1: str | None = Field(None, max_length=120)
-    v1: str | None = Field(None, max_length=120)
+    archetype: str = Field(..., max_length=50)
+    persona: str | None = Field(None, max_length=300)
+    # 档案八格（逐格 300，与 character_service 白名单 clamp 同口径）
+    gender: str | None = Field(None, max_length=300)
+    age: str | None = Field(None, max_length=300)
+    race: str | None = Field(None, max_length=300)
+    faction: str | None = Field(None, max_length=300)
+    look: str | None = Field(None, max_length=300)
+    speech: str | None = Field(None, max_length=300)
+    background: str | None = Field(None, max_length=300)
+    plot: str | None = Field(None, max_length=300)
+    # 认知十一格
+    w1: str | None = Field(None, max_length=300)
+    w5: str | None = Field(None, max_length=300)
+    s1: str | None = Field(None, max_length=300)
+    s5: str | None = Field(None, max_length=300)
+    v1: str | None = Field(None, max_length=300)
+    p2: str | None = Field(None, max_length=300)
+    p6: str | None = Field(None, max_length=300)
+    p3: str | None = Field(None, max_length=300)
+    p4: str | None = Field(None, max_length=300)
+    b1: str | None = Field(None, max_length=300)
+    e3: str | None = Field(None, max_length=300)
+    # 知识侧标注
     relation_slot: str | None = Field(None, max_length=80)
     arc: str | None = Field(None, max_length=160)
 

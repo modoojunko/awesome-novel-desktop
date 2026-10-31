@@ -248,6 +248,21 @@ async def list_libraries_api(
     return {"ok": True, "data": items}
 
 
+# ─── 角色库迁移（c-kb-character-migration 批6）──────────────
+
+
+@router.post("/migrate-library")
+async def migrate_library_api(
+    user: dict = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """角色库全量 → 知识库条目（幂等，可重复执行）。"""
+    from kb.migrate_library import migrate_character_library
+
+    result = await migrate_character_library(db, user_id=_user(user))
+    return {"ok": True, "data": result}
+
+
 # ─── 原型使用计数（c-kb-character 批4）─────────────────────
 
 
