@@ -179,12 +179,38 @@ export default function KnowledgeBasePage() {
               ))}
             </div>
 
-            {/* 库分组标题行 */}
+            {/* 库分组：标题行＋库卡（c-kb-snapshot 库卡亮相） */}
             {groups.length > 0 && (
-              <div className="mb-4 space-y-1">
+              <div className="mb-4 space-y-5">
                 {groups.map(([gname, libs]) => (
-                  <div key={gname} className="font-mono text-[10px] tracking-[0.12em] text-[var(--muted)]">
-                    {gname} · {libs.length} 个库
+                  <div key={gname}>
+                    <div className="mb-2 font-mono text-[10px] tracking-[0.12em] text-[var(--muted)]">
+                      {gname} · {libs.length} 个库
+                    </div>
+                    <div className="grid grid-cols-2 gap-2 xl:grid-cols-3">
+                      {libs.map((l) => (
+                        <div
+                          key={l.id}
+                          className="rounded-xl border border-[var(--border)] bg-[var(--surface)] px-4 py-3"
+                        >
+                          <div className="flex items-center justify-between gap-2">
+                            <span className="truncate text-[13px] font-medium text-[var(--fg)]">{l.name}</span>
+                            {l.bound_in_book ? (
+                              <span className="flex-none rounded-full bg-[var(--accent-soft)] px-2 py-0.5 font-mono text-[9.5px] text-[var(--accent)]">
+                                本书已启用
+                              </span>
+                            ) : null}
+                          </div>
+                          {l.purpose ? (
+                            <p className="mt-1 line-clamp-2 text-[11.5px] leading-relaxed text-[var(--muted)]">{l.purpose}</p>
+                          ) : null}
+                          <div className="mt-2 flex gap-3 font-mono text-[10px] text-[var(--faint)]">
+                            <span>{l.entry_count ?? 0} 条</span>
+                            {(l.bound_novels ?? 0) > 0 && <span>{l.bound_novels} 本书在用</span>}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
                   </div>
                 ))}
               </div>

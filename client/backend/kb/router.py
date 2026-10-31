@@ -7,6 +7,7 @@ from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from auth_local.deps import get_current_user
@@ -19,7 +20,8 @@ from kb.service import (
     list_entries,
     list_libraries,
 )
-from models.kb import KbEntry
+from models.kb import KbBookBinding, KbEntry
+from novels.service import get_novel
 
 router = APIRouter(prefix="/api/kb", tags=["kb"])
 
@@ -175,21 +177,163 @@ async def get_concepts(
 @router.get("/libraries")
 async def list_libraries_api(
     genre: str = "",
+    novel_id: str = "",
     user: dict = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
     uid = _user(user)
     libs = await list_libraries(db, user_id=uid, genre=genre)
-    items = [
-        {
-            "id": l.id,
-            "genre": l.genre,
-            "concept": l.concept,
-            "name": l.name,
-            "purpose": l.purpose,
-            "contract": l.contract,
-            "enabled": l.enabled,
-        }
-        for l in libs
-    ]
+    # 几本书启用（库卡亮相批3）：绑定行按库分组计数（跨书）
+    bound_counts: dict[str, int] = {
+        row[0]: row[1]
+        for row in (
+            await db.execute(
+                select(KbBookBinding.library_id, func.count(KbBookBinding.id))
+                .where(KbBookBinding.enabled.is_(True))
+                .group_by(KbBookBinding.library_id)
+            )
+        ).all()
+    }
+    # 成员数（含场景条目）：auto 库按 (user,genre,concept) 计数；手动圈选库走 items
+    from models.kb import KbLibraryItem
+
+    entry_counts: dict[str, int] = {}
+    for l in libs:
+        if l.rule_kind == "auto":
+            n = (
+                await db.execute(
+                    select(func.count(KbEntry.id)).where(
+                        KbEntry.user_id == uid,
+                        KbEntry.genre == l.genre,
+                        KbEntry.concept == l.concept,
+                        KbEntry.status == "active",
+                    )
+                )
+            ).scalar_one()
+        else:
+            n = (
+                await db.execute(
+                    select(func.count(KbLibraryItem.id)).where(KbLibraryItem.library_id == l.id)
+                )
+            ).scalar_one()
+        entry_counts[l.id] = int(n or 0)
+    items = []
+    for l in libs:
+        # 本书是否已启用（库卡「本书已启用」徽章；novel_id 缺省＝账号级浏览）
+        bound = 0
+        if novel_id:
+            bound = 1 if (
+                await db.execute(
+                    select(KbBookBinding.id).where(
+                        KbBookBinding.novel_id == novel_id,
+                        KbBookBinding.library_id == l.id,
+                        KbBookBinding.enabled.is_(True),
+                    )
+                )
+            ).scalar_one_or_none() else 0
+        items.append(
+            {
+                "id": l.id,
+                "genre": l.genre,
+                "concept": l.concept,
+                "name": l.name,
+                "purpose": l.purpose,
+                "contract": l.contract,
+                "enabled": l.enabled,
+                "entry_count": entry_counts.get(l.id, 0),
+                "bound_novels": bound_counts.get(l.id, 0),
+                "bound_in_book": bound,
+            }
+        )
     return {"ok": True, "data": items}
+
+
+# ─── 书内绑定（c-kb-snapshot 批3：启用落设定）──────────────
+
+
+class BindRequest(BaseModel):
+    novel_id: str = ""
+    library_id: str = ""
+
+
+@router.post("/bindings")
+async def bind_library_api(
+    body: BindRequest,
+    user: dict = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    uid = _user(user)
+    project = await get_novel(db, body.novel_id, uid)
+    if not project:
+        raise HTTPException(404, "Project not found")
+    from kb.snapshot import bind_library
+
+    binding, info, error = await bind_library(
+        db,
+        user_id=uid,
+        novel_id=body.novel_id,
+        root_path=project.root_path,
+        library_id=body.library_id,
+    )
+    if error:
+        raise HTTPException(404, error)
+    return {"ok": True, "data": {"binding_id": binding.id, **info}}
+
+
+@router.get("/bindings")
+async def list_bindings_api(
+    novel_id: str = "",
+    user: dict = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    uid = _user(user)
+    project = await get_novel(db, novel_id, uid)
+    if not project:
+        raise HTTPException(404, "Project not found")
+    from kb.snapshot import list_bindings
+
+    return {"ok": True, "data": await list_bindings(db, novel_id=novel_id)}
+
+
+@router.post("/bindings/{binding_id}/sync")
+async def sync_binding_api(
+    binding_id: str,
+    user: dict = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    uid = _user(user)
+    binding = (
+        await db.execute(
+            select(KbBookBinding).where(KbBookBinding.id == binding_id)
+        )
+    ).scalar_one_or_none()
+    if not binding:
+        raise HTTPException(404, "Binding not found")
+    project = await get_novel(db, binding.novel_id, uid)
+    if not project:
+        raise HTTPException(404, "Project not found")
+    from kb.snapshot import sync_binding
+
+    result = await sync_binding(db, binding, project.root_path)
+    if result.get("error"):
+        raise HTTPException(409, result["error"])
+    return {"ok": True, "data": result}
+
+
+@router.delete("/bindings/{binding_id}")
+async def unbind_api(
+    binding_id: str,
+    novel_id: str = "",
+    user: dict = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    uid = _user(user)
+    project = await get_novel(db, novel_id, uid)
+    if not project:
+        raise HTTPException(404, "Project not found")
+    from kb.snapshot import unbind
+
+    removed = await unbind(db, novel_id=novel_id, binding_id=binding_id)
+    if not removed:
+        raise HTTPException(404, "Binding not found")
+    return {"ok": True, "data": {"unbound": binding_id}}

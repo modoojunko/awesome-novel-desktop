@@ -1,8 +1,8 @@
-// 知识库 API 层测试（c-knowledge-base）：信封解包、各端点参数拼接（entries 全参/空参、libraries 体裁分支）。
+// 知识库 API 层测试（c-knowledge-base）：信封解包、各端点参数拼接、书内绑定（c-kb-snapshot）。
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { kbApi } from "@/lib/kbApi";
 
-const { createEntry, entries, entry, genres, libraries, concepts } = kbApi;
+const { bind, bindings, createEntry, entries, entry, genres, libraries, syncBinding, unbind, concepts } = kbApi;
 
 const fetchMock = vi.fn();
 
@@ -55,13 +55,54 @@ describe("kbApi", () => {
     expect(String(fetchMock.mock.calls[0][0])).toContain("/api/kb/entries/e1");
   });
 
-  it("libraries 带/不带 genre（编码臂）", async () => {
+  it("libraries 带/不带 genre 与 novel_id（编码臂＋书内徽章参数）", async () => {
     fetchMock.mockReturnValueOnce(json([]));
     await libraries("仙侠/修真");
     expect(String(fetchMock.mock.calls[0][0])).toContain(`/api/kb/libraries?genre=${encodeURIComponent("仙侠/修真")}`);
     fetchMock.mockReturnValueOnce(json([]));
     await libraries();
     expect(String(fetchMock.mock.calls[1][0])).toBe("/api/kb/libraries");
+    fetchMock.mockReturnValueOnce(json([]));
+    await libraries("都市", "n1");
+    const both = String(fetchMock.mock.calls[2][0]);
+    expect(both).toContain("genre=%E9%83%BD%E5%B8%82");
+    expect(both).toContain("novel_id=n1");
+    fetchMock.mockReturnValueOnce(json([]));
+    await libraries(undefined, "n2");
+    expect(String(fetchMock.mock.calls[3][0])).toBe("/api/kb/libraries?novel_id=n2");
+  });
+
+  it("绑定四端点：bind/bindings/sync/unbind 路径与方法", async () => {
+    fetchMock.mockReturnValueOnce(json({
+      binding_id: "b1", library_id: "l1", genre: "都市", concept: "文风",
+      library_name: "文风库", member_count: 2, landed: { "style.role": 1 }, replaced_bindings: 0,
+    }));
+    const bound = await bind("n1", "l1");
+    expect(bound.member_count).toBe(2);
+    expect(bound.landed["style.role"]).toBe(1);
+    expect(fetchMock.mock.calls[0][1]?.method).toBe("POST");
+    expect(String(fetchMock.mock.calls[0][0])).toBe("/api/kb/bindings");
+
+    fetchMock.mockReturnValueOnce(json([{
+      id: "b1", novel_id: "n1", library_id: "l1", enabled: true, genre: "都市",
+      concept: "文风", library_name: "文风库", member_count: 2, scene_count: 1,
+      added: 0, removed: 0, library_missing: false, synced_at: "",
+    }]));
+    const rows = await bindings("n1");
+    expect(rows[0].scene_count).toBe(1);
+    expect(String(fetchMock.mock.calls[1][0])).toBe("/api/kb/bindings?novel_id=n1");
+
+    fetchMock.mockReturnValueOnce(json({ member_count: 3, landed: { "style.rules": 1 } }));
+    const synced = await syncBinding("b1");
+    expect(synced.member_count).toBe(3);
+    expect(String(fetchMock.mock.calls[2][0])).toBe("/api/kb/bindings/b1/sync");
+    expect(fetchMock.mock.calls[2][1]?.method).toBe("POST");
+
+    fetchMock.mockReturnValueOnce(json({ unbound: "b1" }));
+    const res = await unbind("b1", "n1");
+    expect(res.unbound).toBe("b1");
+    expect(String(fetchMock.mock.calls[3][0])).toBe("/api/kb/bindings/b1?novel_id=n1");
+    expect(fetchMock.mock.calls[3][1]?.method).toBe("DELETE");
   });
 
   it("concepts 概念元数据", async () => {

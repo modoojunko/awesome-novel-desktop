@@ -53,9 +53,9 @@ const SEVEN_GENRES = [
 beforeEach(() => {
   api.genres.mockResolvedValue(SEVEN_GENRES);
   api.libraries.mockResolvedValue([
-    { id: "l1", genre: "都市", concept: "手法", name: "手法库", purpose: "", contract: "live", enabled: true },
-    { id: "l2", genre: "都市", concept: "文风", name: "文风库", purpose: "", contract: "snapshot", enabled: true },
-    { id: "l3", genre: "", concept: "文笔", name: "文笔库", purpose: "", contract: "snapshot", enabled: true },
+    { id: "l1", genre: "都市", concept: "手法", name: "手法库", purpose: "写每一章时的场面打法", contract: "live", enabled: true, entry_count: 6, bound_novels: 3, bound_in_book: 1 },
+    { id: "l2", genre: "都市", concept: "文风", name: "文风库", purpose: "", contract: "snapshot", enabled: true, bound_novels: 0 }, // 缺 entry_count 走 ?? 0 臂
+    { id: "l3", genre: "", concept: "文笔", name: "文笔库", purpose: "通用句子的写法", contract: "snapshot", enabled: true, entry_count: 0 },
   ]);
   api.entries.mockResolvedValue({ entries: [entry()], next_cursor: "" });
   api.createEntry.mockResolvedValue(entry());
@@ -85,6 +85,13 @@ describe("KnowledgeBasePage 题材栏与列表", () => {
     // 库分组：都市×2 ＋ 跨题材通用×1（genre 空串走兜底名）
     await screen.findByText("都市 · 2 个库");
     expect(screen.getByText("跨题材通用 · 1 个库")).toBeInTheDocument();
+    // 库卡：徽章/用途/成员数/在用数（含空 purpose 与 0 在用臂）
+    expect(screen.getByText("本书已启用")).toBeInTheDocument();
+    expect(screen.getByText("写每一章时的场面打法")).toBeInTheDocument();
+    expect(screen.getByText("6 条")).toBeInTheDocument();
+    expect(screen.getByText("3 本书在用")).toBeInTheDocument();
+    expect(screen.getAllByText("0 条").length).toBeGreaterThanOrEqual(1); // 缺 entry_count 卡与 0 计数卡
+    expect(screen.queryByText("0 本书在用")).not.toBeInTheDocument();
     // 展开全部题材 → 收起臂（展开后按钮仍要在，收得回去）
     fireEvent.click(screen.getByText("更多题材 (2)"));
     expect(screen.getByText("收起")).toBeInTheDocument();
@@ -96,7 +103,7 @@ describe("KnowledgeBasePage 题材栏与列表", () => {
     fireEvent.click(await screen.findByText("加载更多"));
     await waitFor(() => expect(api.entries).toHaveBeenCalledTimes(2));
     expect(api.entries.mock.calls[1][0].cursor).toBe("cur2");
-    await screen.findByText("2 条");
+    await screen.findByText(/bbbbbbbb/); // 第二页条目已追加（头行 id 前缀，插值拆节点用正则）
     // 三无条目详情：无指令/正例/反例/证据（假臂），标题兜底空
     fireEvent.click(screen.getAllByText(/bbbbbbbb/)[0]); // 列表头（抽屉头同文案）
     await screen.findByText("✕"); // 抽屉已开

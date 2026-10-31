@@ -27,6 +27,43 @@ export interface KbLibrary {
   purpose: string;
   contract: string;
   enabled: boolean;
+  /** 成员条目数（含场景条目） */
+  entry_count?: number;
+  /** 几本书启用（跨书计数） */
+  bound_novels?: number;
+  /** 本书是否已启用（带 novel_id 查询时返回） */
+  bound_in_book?: number;
+}
+
+export interface KbBinding {
+  id: string;
+  novel_id: string;
+  library_id: string;
+  enabled: boolean;
+  genre: string;
+  concept: string;
+  library_name: string;
+  member_count: number;
+  /** 场景条目数（不进快照，逐章挑） */
+  scene_count: number;
+  /** 库有更新：新增/移除条目数（显式同步前累积） */
+  added: number;
+  removed: number;
+  library_missing: boolean;
+  synced_at: string;
+}
+
+export interface KbBindResult {
+  binding_id: string;
+  library_id: string;
+  genre: string;
+  concept: string;
+  library_name: string;
+  member_count: number;
+  /** 逐键落库计数（style.role / world.stage ...） */
+  landed: Record<string, number>;
+  /** 互斥替换掉的同格绑定数 */
+  replaced_bindings: number;
 }
 
 export interface KbGenreCount {
@@ -68,11 +105,37 @@ export const kbApi = {
   entry: (id: string) =>
     unwrap<KbEntry>(request(`${BASE}/entries/${id}`)),
 
-  libraries: (genre?: string) =>
-    unwrap<KbLibrary[]>(request(`${BASE}/libraries${genre ? `?genre=${encodeURIComponent(genre)}` : ""}`)),
+  libraries: (genre?: string, novelId?: string) => {
+    const sp = new URLSearchParams();
+    if (genre) sp.set("genre", genre);
+    if (novelId) sp.set("novel_id", novelId);
+    const qs = sp.toString();
+    return unwrap<KbLibrary[]>(request(`${BASE}/libraries${qs ? `?${qs}` : ""}`));
+  },
 
   concepts: () =>
     unwrap<{ concepts: KbConceptMeta[]; themes: string[] }>(request(`${BASE}/concepts`)),
+
+  // ── 书内绑定（c-kb-snapshot：启用落设定）──
+
+  bind: (novelId: string, libraryId: string) =>
+    unwrap<KbBindResult>(request(`${BASE}/bindings`, {
+      method: "POST",
+      body: JSON.stringify({ novel_id: novelId, library_id: libraryId }),
+    })),
+
+  bindings: (novelId: string) =>
+    unwrap<KbBinding[]>(request(`${BASE}/bindings?novel_id=${encodeURIComponent(novelId)}`)),
+
+  syncBinding: (bindingId: string) =>
+    unwrap<{ member_count: number; landed: Record<string, number> }>(
+      request(`${BASE}/bindings/${bindingId}/sync`, { method: "POST" }),
+    ),
+
+  unbind: (bindingId: string, novelId: string) =>
+    unwrap<{ unbound: string }>(
+      request(`${BASE}/bindings/${bindingId}?novel_id=${encodeURIComponent(novelId)}`, { method: "DELETE" }),
+    ),
 
   createEntry: (body: {
     genre: string;
