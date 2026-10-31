@@ -116,15 +116,8 @@ async def create_entry(
     return entry, gate, None
 
 
-async def _materialize_tags(
-    db: AsyncSession, entry: KbEntry, payload: dict, when: dict
-) -> None:
-    """标签物化——写入同事务重建。"""
-    # 先删旧标签
-    await db.execute(
-        delete(KbEntryTag).where(KbEntryTag.entry_id == entry.id)
-    )
-
+def _tags_for(entry: KbEntry, payload: dict, when: dict) -> list[tuple[str, str]]:
+    """条目 → 标签二元组（物化与备份恢复重建共用单源）。"""
     tags: list[tuple[str, str]] = []
     if entry.genre:
         tags.append(("genre", entry.genre))
@@ -149,9 +142,51 @@ async def _materialize_tags(
     slot = payload.get("slot")
     if slot:
         tags.append(("slot", slot))
+    return tags
 
-    for dim, value in tags:
+
+async def _materialize_tags(
+    db: AsyncSession, entry: KbEntry, payload: dict, when: dict
+) -> None:
+    """标签物化——写入同事务重建。"""
+    # 先删旧标签
+    await db.execute(
+        delete(KbEntryTag).where(KbEntryTag.entry_id == entry.id)
+    )
+
+    for dim, value in _tags_for(entry, payload, when):
         db.add(KbEntryTag(entry_id=entry.id, user_id=entry.user_id, dim=dim, value=value))
+
+
+async def rebuild_tag_index(db: AsyncSession, *, user_id: str) -> int:
+    """全量重建标签索引（备份恢复后调用；c-knowledge-base 批5）。
+
+    物化索引可随时 DELETE+重建（models/kb.py 口径）；重建期间同事务，幂等。
+    返回重建条目数。
+    """
+    rows = (
+        (await db.execute(select(KbEntry).where(KbEntry.user_id == user_id, KbEntry.status == "active")))
+        .scalars()
+        .all()
+    )
+    if not rows:
+        return 0
+    await db.execute(delete(KbEntryTag).where(KbEntryTag.user_id == user_id))
+    n = 0
+    for e in rows:
+        try:
+            payload = json.loads(e.payload_json or "{}")
+        except ValueError:
+            payload = {}
+        try:
+            when = json.loads(e.when_json or "{}")
+        except ValueError:
+            when = {}
+        for dim, value in _tags_for(e, payload if isinstance(payload, dict) else {}, when if isinstance(when, dict) else {}):
+            db.add(KbEntryTag(entry_id=e.id, user_id=user_id, dim=dim, value=value))
+            n += 1
+    await db.commit()
+    return n
 
 
 async def ensure_default_library(

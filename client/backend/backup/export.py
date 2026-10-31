@@ -19,7 +19,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 
 import yaml
-from sqlalchemy import select
+from sqlalchemy import func, select
 
 import brand
 from backup.format import FORMAT_VERSION
@@ -166,6 +166,9 @@ async def dump_book_into(zf, db, project, prefix: str = "") -> None:
 
     # 伏笔段（foreshadow-settings-v2）：真表 → hooks/hooks.yaml；settings 树不再含 hooks
     await _dump_hooks(zf, db, project, prefix)
+
+    # 知识库书内段（c-knowledge-base v9）：绑定（含快照）＋选择运行 → kb/kb-book.yaml
+    await _dump_kb_book(zf, db, project, prefix)
 
     # 卷纲 + 章纲/正文 + 版本快照 + 生成提示词
     volumes = (
@@ -475,6 +478,51 @@ async def _dump_hooks(zf, db, project, prefix: str = "") -> None:
     )
 
 
+
+async def _dump_kb_book(zf, db, project, prefix: str = "") -> None:
+    """知识库书内段（c-knowledge-base v9）：书内 3 表 → kb/kb-book.yaml。
+
+    bindings 带快照整行；match_runs/items 随书级联（无行不写，沿用单书包口径）。
+    """
+    from sqlalchemy import select as _select
+
+    from models.kb import KbBookBinding, KbMatchItem, KbMatchRun
+
+    def _rows(rows):
+        out = []
+        for r in rows:
+            d = {}
+            for c in r.__table__.columns:
+                v = getattr(r, c.name)
+                d[c.name] = v.isoformat() if isinstance(v, datetime) else v
+            out.append(d)
+        return out
+
+    bindings = (
+        await db.scalars(_select(KbBookBinding).where(KbBookBinding.novel_id == project.id).order_by(KbBookBinding.id))
+    ).all()
+    runs = (
+        await db.scalars(_select(KbMatchRun).where(KbMatchRun.novel_id == project.id).order_by(KbMatchRun.id))
+    ).all()
+    if not bindings and not runs:
+        return
+    items = []
+    if runs:
+        items = (
+            await db.scalars(
+                _select(KbMatchItem).where(KbMatchItem.run_id.in_([r.id for r in runs])).order_by(KbMatchItem.id)
+            )
+        ).all()
+    zf.writestr(
+        prefix + "kb/kb-book.yaml",
+        _yaml_str({
+            "bindings": _rows(bindings),
+            "match_runs": _rows(runs),
+            "match_items": _rows(items),
+        }),
+    )
+
+
 async def build_config_package_bytes(db, user_id: str) -> tuple[bytes, str]:
     from models.user import User
 
@@ -511,6 +559,8 @@ async def build_config_package_bytes(db, user_id: str) -> tuple[bytes, str]:
         ).all()
         for b in blob_rows:
             library_blobs.setdefault(b.library_id, {})[b.variant] = b.data
+
+    kb_section = await _kb_account_section(db, user.id)
 
     payload = {
         "format_version": FORMAT_VERSION,
@@ -559,6 +609,8 @@ async def build_config_package_bytes(db, user_id: str) -> tuple[bytes, str]:
             for c in image_configs
         ],
         "character_library": _library_section(library_rows, library_blobs),
+        # 知识库段（c-knowledge-base v9）：账号 8 表；导入端跳过 tags、恢复后重建索引
+        "knowledge_base": kb_section,
     }
     raw = _yaml_str(payload)
     buf = io.BytesIO()
@@ -569,6 +621,47 @@ async def build_config_package_bytes(db, user_id: str) -> tuple[bytes, str]:
             for variant, data in variants.items():
                 zf.writestr(f"character_library/avatars/{cid}-{variant}.webp", data)
     return buf.getvalue(), config_zip_name()
+
+
+async def _kb_account_section(db, user_id: str) -> dict:
+    """配置包 knowledge_base 段：账号 8 表全量行（datetime isoformat；json 列原样字符串）。"""
+    from models.kb import (
+        KbConcept,
+        KbEntry,
+        KbEntryTag,
+        KbLibrary,
+        KbLibraryItem,
+        KbOrganizeRun,
+        KbPref,
+        KbRelation,
+    )
+
+    def _rows(rows):
+        out = []
+        for r in rows:
+            d = {}
+            for c in r.__table__.columns:
+                v = getattr(r, c.name)
+                d[c.name] = v.isoformat() if isinstance(v, datetime) else v
+            out.append(d)
+        return out
+
+    sections = {}
+    for name, model in (
+        ("entries", KbEntry), ("concepts", KbConcept), ("entry_tags", KbEntryTag),
+        ("relations", KbRelation), ("organize_runs", KbOrganizeRun),
+        ("libraries", KbLibrary), ("prefs", KbPref),
+    ):
+        rows = (await db.scalars(select(model).where(model.user_id == user_id))).all()
+        sections[name] = _rows(rows)
+    # 库成员 join 表无 user_id 列：经用户库收敛（防串账号）
+    lib_ids = [r["id"] for r in sections["libraries"]]
+    if lib_ids:
+        rows = (await db.scalars(select(KbLibraryItem).where(KbLibraryItem.library_id.in_(lib_ids)))).all()
+        sections["library_items"] = _rows(rows)
+    else:
+        sections["library_items"] = []
+    return sections
 
 
 async def config_preview(db, user_id: str) -> dict:
@@ -585,8 +678,17 @@ async def config_preview(db, user_id: str) -> dict:
         return f"{key[:3]}{'*' * 8}{key[-4:]}" if len(key) > 8 else "*" * len(key)
 
     rows = (await db.scalars(select(ApiConfig).where(ApiConfig.user_id == user.id))).all()
+    from models.kb import KbEntry, KbLibrary
+
+    kb_entries_n = (
+        await db.scalars(select(func.count(KbEntry.id)).where(KbEntry.user_id == user.id))
+    ).first() or 0
+    kb_libs_n = (
+        await db.scalars(select(func.count(KbLibrary.id)).where(KbLibrary.user_id == user.id))
+    ).first() or 0
     return {
         "warning": "配置包含明文 API Key，请妥善保管与传输",
+        "knowledge_base": {"entries": int(kb_entries_n or 0), "libraries": int(kb_libs_n or 0)},
         "account": user.display_name or user.email,
         "configs": [
             {
