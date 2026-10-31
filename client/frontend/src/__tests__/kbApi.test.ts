@@ -2,7 +2,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { kbApi } from "@/lib/kbApi";
 
-const { bind, bindings, createEntry, entries, entry, genres, libraries, syncBinding, unbind, concepts, usePrototype, graphAggregate, graphCell } = kbApi;
+const { bind, bindings, createEntry, deleteEntry, entries, entry, genres, libraries, syncBinding, unbind, concepts, updateEntry, usePrototype, graphAggregate, graphCell } = kbApi;
 
 const fetchMock = vi.fn();
 
@@ -141,6 +141,21 @@ describe("kbApi", () => {
     expect(cell.nodes[0].id).toBe("e1");
     expect(String(fetchMock.mock.calls[1][0])).toContain("genre=%E9%83%BD%E5%B8%82");
     expect(String(fetchMock.mock.calls[1][0])).toContain("concept=");
+  });
+
+  it("条目写通道：PATCH/DELETE 路径与方法", async () => {
+    fetchMock.mockReturnValueOnce(json({ id: "e1", rev: 2 }));
+    const upd = await updateEntry("e1", { rev: 1, title: "改", payload: { archetype: "x" } });
+    expect(upd.rev).toBe(2);
+    const [u, ui] = fetchMock.mock.calls[0];
+    expect(String(u)).toBe("/api/kb/entries/e1");
+    expect(ui.method).toBe("PATCH");
+    expect(JSON.parse(ui.body).rev).toBe(1);
+
+    fetchMock.mockReturnValueOnce(json({ deleted: "e1" }));
+    const del = await deleteEntry("e1");
+    expect(del.deleted).toBe("e1");
+    expect(fetchMock.mock.calls[1][1]?.method).toBe("DELETE");
   });
 
   it("信封缺 data 抛错", async () => {

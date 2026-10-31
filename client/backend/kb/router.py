@@ -15,10 +15,12 @@ from db import get_db
 from kb.concepts import CONCEPTS, THEMES
 from kb.service import (
     create_entry,
+    delete_entry,
     genre_counts,
     get_entry,
     list_entries,
     list_libraries,
+    update_entry,
 )
 from models.kb import KbBookBinding, KbEntry, KbPref
 from novels.service import get_novel
@@ -43,6 +45,7 @@ def _entry_dict(e: KbEntry) -> dict[str, Any]:
         "negative_example": e.negative_example,
         "when": json.loads(e.when_json),
         "evidence": e.evidence,
+        "rev": e.rev,
         "src_kind": e.src_kind,
         "src_novel_name": e.src_novel_name,
         "created_at": e.created_at.isoformat(),
@@ -325,6 +328,56 @@ async def migrate_library_api(
 
     result = await migrate_character_library(db, user_id=_user(user))
     return {"ok": True, "data": result}
+
+
+# ─── 条目编辑/删除（c-kb-character-migration 刀2a）──────────
+
+
+class UpdateEntryRequest(BaseModel):
+    rev: int | None = None
+    title: str | None = None
+    instruction: str | None = None
+    payload: dict[str, Any] | None = None
+    example: str | None = None
+    negative_example: str | None = None
+    when_json: dict[str, Any] | None = None
+
+
+@router.patch("/entries/{entry_id}")
+async def update_entry_api(
+    entry_id: str,
+    body: UpdateEntryRequest,
+    user: dict = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    uid = _user(user)
+    entry, gate, error = await update_entry(
+        db, user_id=uid, entry_id=entry_id,
+        rev=body.rev, title=body.title, instruction=body.instruction,
+        payload=body.payload, example=body.example,
+        negative_example=body.negative_example, when_json=body.when_json,
+    )
+    if error:
+        if error["code"] == "not_found":
+            raise HTTPException(404, "Entry not found")
+        if error["code"] == "rev_conflict":
+            raise HTTPException(409, detail={"message": "内容已被另一处改过，刷新后再试", "code": "rev_conflict", "rev": error["current_rev"]})
+        if error["code"] == "payload":
+            raise HTTPException(422, detail={"message": error.get("message") or "内容校验未通过"})
+        raise HTTPException(422, detail={"message": "入库校验未通过", "errors": gate.errors, "warnings": gate.warnings})
+    return {"ok": True, "data": _entry_dict(entry)}
+
+
+@router.delete("/entries/{entry_id}")
+async def delete_entry_api(
+    entry_id: str,
+    user: dict = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    removed = await delete_entry(db, user_id=_user(user), entry_id=entry_id)
+    if not removed:
+        raise HTTPException(404, "Entry not found")
+    return {"ok": True, "data": {"deleted": entry_id}}
 
 
 # ─── 原型使用计数（c-kb-character 批4）─────────────────────

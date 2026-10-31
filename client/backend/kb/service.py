@@ -220,6 +220,85 @@ async def ensure_default_library(
 
 # ─── 查询 ─────────────────────────────────────────────────
 
+async def update_entry(
+    db: AsyncSession,
+    *,
+    user_id: str,
+    entry_id: str,
+    rev: int | None = None,
+    title: str | None = None,
+    instruction: str | None = None,
+    payload: dict | None = None,
+    example: str | None = None,
+    negative_example: str | None = None,
+    when_json: dict | None = None,
+) -> tuple[KbEntry | None, GateResult, dict | None]:
+    """编辑条目（c-kb-character-migration 刀2a）：闸门复用＋乐观并发。
+
+    concept/genre 不可变（跨概念移动走删建）；payload/when 变更后标签物化重建。
+    返回 (entry, gate, error_dict)。error_dict={"code": ...} 非 None 即失败。
+    """
+    e = await get_entry(db, user_id=user_id, entry_id=entry_id)
+    if not e:
+        return None, GateResult(ok=False), {"code": "not_found"}
+    if rev is not None and rev != e.rev:
+        return None, GateResult(ok=False), {"code": "rev_conflict", "current_rev": e.rev}
+
+    clean_payload = None
+    if payload is not None:
+        try:
+            clean_payload = validate_payload(e.concept, payload)
+        except ValueError as ex:
+            return None, GateResult(ok=False), {"code": "payload", "message": str(ex)}
+    gate = check_gates(
+        concept=e.concept,
+        instruction=instruction if instruction is not None else e.instruction,
+        payload=clean_payload if clean_payload is not None else _json_of(e.payload_json),
+        example=example if example is not None else e.example,
+        negative_example=negative_example if negative_example is not None else e.negative_example,
+        when_json=when_json if when_json is not None else _json_of(e.when_json),
+    )
+    if not gate.ok:
+        return None, gate, {"code": "gates"}
+
+    if title is not None:
+        e.title = title[:40]
+    if instruction is not None:
+        e.instruction = instruction
+    if clean_payload is not None:
+        e.payload_json = json.dumps(clean_payload, ensure_ascii=False)
+    if example is not None:
+        e.example = example
+    if negative_example is not None:
+        e.negative_example = negative_example
+    if when_json is not None:
+        e.when_json = json.dumps(when_json, ensure_ascii=False)
+    e.rev += 1
+    await _materialize_tags(db, e, _json_of(e.payload_json), _json_of(e.when_json))
+    await db.commit()
+    await db.refresh(e)  # commit 后属性过期，router 读列需重载
+    return e, gate, None
+
+
+async def delete_entry(db: AsyncSession, *, user_id: str, entry_id: str) -> bool:
+    """删条目＝软删（status=archived；列表/快照/全局图均只出 active）。"""
+    e = await get_entry(db, user_id=user_id, entry_id=entry_id)
+    if not e:
+        return False
+    e.status = "archived"
+    e.rev += 1
+    await db.commit()
+    return True
+
+
+def _json_of(raw: str) -> dict:
+    try:
+        v = json.loads(raw or "{}")
+    except ValueError:
+        v = {}
+    return v if isinstance(v, dict) else {}
+
+
 async def list_entries(
     db: AsyncSession,
     *,

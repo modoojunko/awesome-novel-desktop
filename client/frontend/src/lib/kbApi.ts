@@ -13,6 +13,8 @@ export interface KbEntry {
   negative_example: string;
   when: Record<string, string>;
   evidence: string;
+  /** 乐观并发版本号（PATCH 带 rev 不一致 409） */
+  rev: number;
   src_kind: string;
   src_novel_name: string;
   created_at: string;
@@ -152,6 +154,28 @@ export const kbApi = {
       method: "POST",
       body: JSON.stringify(body),
     })),
+
+  /** 编辑条目（c-kb-character-migration 刀2a）：闸门复用＋rev 乐观并发 */
+  updateEntry: (
+    entryId: string,
+    body: {
+      rev?: number;
+      title?: string;
+      instruction?: string;
+      payload?: Record<string, unknown>;
+      example?: string;
+      negative_example?: string;
+      when_json?: Record<string, string>;
+    },
+  ) =>
+    unwrap<KbEntry>(request(`${BASE}/entries/${entryId}`, {
+      method: "PATCH",
+      body: JSON.stringify(body),
+    })),
+
+  /** 删条目＝软删（archived；列表/快照/全局图只出 active） */
+  deleteEntry: (entryId: string) =>
+    unwrap<{ deleted: string }>(request(`${BASE}/entries/${entryId}`, { method: "DELETE" })),
 
   /** 用作原型计数回写（c-kb-character）：KbPref.adopt_count 累加 */
   usePrototype: (entryId: string) =>

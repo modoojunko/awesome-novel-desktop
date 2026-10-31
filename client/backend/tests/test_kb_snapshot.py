@@ -418,3 +418,57 @@ def test_全局图_聚合与下钻():
             assert scopes == {"base", "scene"}
     finally:
         app.dependency_overrides.clear()
+
+
+# ─── 条目编辑/删除（c-kb-character-migration 刀2a）──────────
+
+
+def test_条目编辑删除_全链路():
+    seed = _run(_seed())
+
+    async def _mk():
+        async with async_session() as db:
+            e = _entry(seed["uid"], "都市", "角色设定", {"archetype": "落魄天才", "look": "青衫"})
+            db.add(e)
+            await db.commit()
+            return e.id
+
+    eid = _run(_mk())
+    from fastapi.testclient import TestClient
+
+    from auth_local.middleware import get_current_user
+    from main import app
+
+    app.dependency_overrides[get_current_user] = lambda: {"id": seed["uid"]}
+    try:
+        with TestClient(app) as c:
+            # PATCH：payload＋title 更新，rev 1→2
+            r = c.patch(
+                f"/api/kb/entries/{eid}",
+                json={"rev": 1, "title": "改过的原型", "payload": {"archetype": "落魄天才", "look": "白衣", "aliases": ["甲", " "]}},
+            )
+            assert r.status_code == 200, r.text
+            data = r.json()["data"]
+            assert data["rev"] == 2
+            assert data["title"] == "改过的原型"
+            assert data["payload"]["look"] == "白衣"
+            assert data["payload"]["aliases"] == ["甲"]  # 空串剔除
+
+            # rev 冲突 409
+            r = c.patch(f"/api/kb/entries/{eid}", json={"rev": 1, "title": "并发写"})
+            assert r.status_code == 409
+            assert r.json()["detail"]["code"] == "rev_conflict"
+
+            # 闸门拒：payload 非法
+            r = c.patch(f"/api/kb/entries/{eid}", json={"payload": {"archetype": "x", "unknown": 1}})
+            assert r.status_code == 422
+
+            # DELETE：软删后列表/详情 404
+            r = c.delete(f"/api/kb/entries/{eid}")
+            assert r.status_code == 200
+            r = c.get(f"/api/kb/entries/{eid}")
+            assert r.status_code == 404
+            r = c.delete(f"/api/kb/entries/{eid}")
+            assert r.status_code == 404
+    finally:
+        app.dependency_overrides.clear()

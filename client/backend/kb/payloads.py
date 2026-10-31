@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Literal
 
-from pydantic import BaseModel, Field, model_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 
 
 # ─── 文风 ───────────────────────────────────────────────
@@ -79,6 +79,17 @@ class CharacterPayload(BaseModel):
 
     archetype: str = Field(..., max_length=50)
     persona: str | None = Field(None, max_length=300)
+    # 卡级分类（角色库 UI 数据源切换 6.4：与库卡同构；aliases 逐条 clamp 50）
+    aliases: list[str] | None = Field(None, max_length=20)
+    role: str | None = Field(None, max_length=10)
+    kind: str | None = Field(None, max_length=20)
+
+    @field_validator("aliases")
+    @classmethod
+    def _clamp_aliases(cls, v: list[str] | None) -> list[str] | None:
+        if v is None:
+            return None
+        return [a.strip()[:50] for a in v if str(a).strip()]
     # 档案八格（逐格 300，与 character_service 白名单 clamp 同口径）
     gender: str | None = Field(None, max_length=300)
     age: str | None = Field(None, max_length=300)
