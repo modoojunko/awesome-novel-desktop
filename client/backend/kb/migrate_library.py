@@ -33,6 +33,17 @@ def card_to_payload(card: CharacterLibrary) -> dict[str, Any]:
     persona = str(card.persona or "").strip()
     if persona:
         payload["persona"] = persona[:300]
+    # 卡级分类（6.4 数据源切换：与库卡同构；aliases 解析失败按空）
+    try:
+        aliases = json.loads(card.aliases or "[]")
+    except ValueError:
+        aliases = []
+    if isinstance(aliases, list) and aliases:
+        payload["aliases"] = [str(a).strip()[:50] for a in aliases if str(a).strip()][:20]
+    if str(card.role or "").strip():
+        payload["role"] = str(card.role).strip()[:10]
+    if str(card.kind or "").strip():
+        payload["kind"] = str(card.kind).strip()[:20]
     try:
         dossier = json.loads(card.dossier or "{}")
     except ValueError:
@@ -54,6 +65,38 @@ def card_to_payload(card: CharacterLibrary) -> dict[str, Any]:
         if v:
             payload[k] = v[:_CELL_MAX]
     return payload
+
+
+def payload_to_card(entry: KbEntry) -> dict[str, Any]:
+    """kb 条目 → 库卡形状（数据源切换适配器读侧单源；与 card_to_payload 互逆）。
+
+    返回 dict 而非模型——适配器拼 API 响应用；avatar 头像经 src_key 回联
+    （src_ref=character_library 时 url=/api/character-library/{src_key}/avatar）。
+    """
+    try:
+        payload = json.loads(entry.payload_json or "{}")
+    except ValueError:
+        payload = {}
+    if not isinstance(payload, dict):
+        payload = {}
+    dossier = {k: str(payload[k]) for k in _DOSSIER_GRID if payload.get(k)}
+    cog = {k: str(payload[k]) for k in _COG_GRID if payload.get(k)}
+    return {
+        "id": entry.id,
+        "name": str(payload.get("archetype") or entry.title or "")[:50],
+        "aliases": [str(a) for a in (payload.get("aliases") or [])][:20],
+        "role": str(payload.get("role") or "配角")[:10],
+        "genre": entry.genre or "",
+        "kind": str(payload.get("kind") or "")[:20],
+        "persona": str(payload.get("persona") or "")[:300],
+        "dossier": dossier,
+        "cog": cog,
+        "src_kind": entry.src_kind,
+        "src_ref": entry.src_ref,
+        "src_character_id": entry.src_key,
+        "src_novel_name": entry.src_novel_name or "",
+        "rev": entry.rev,
+    }
 
 
 async def migrate_character_library(db: AsyncSession, *, user_id: str) -> dict[str, int]:
@@ -99,6 +142,7 @@ async def migrate_character_library(db: AsyncSession, *, user_id: str) -> dict[s
                 src_kind="character_library_migration",
                 src_ref="character_library",
                 src_key=card.id,
+                src_novel_name=str(card.src_novel_name or "")[:100],
             )
         )
         migrated += 1

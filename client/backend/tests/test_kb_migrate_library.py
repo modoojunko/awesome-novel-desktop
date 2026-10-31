@@ -160,3 +160,75 @@ def test_迁移端点_信封与鉴权():
             assert r.json()["data"] == {"migrated": 0, "skipped": 1}
     finally:
         app.dependency_overrides.clear()
+
+
+# ─── 双向映射单源（c-kb-character-migration 刀2b 地基）──────
+
+
+def test_卡payload卡_往返parity():
+    from kb.migrate_library import card_to_payload, payload_to_card
+    from models.kb import KbEntry
+
+    dossier = {"gender": "男", "age": "42", "race": "人族", "faction": "黑风寨",
+               "look": "虬髯", "speech": "骂人", "background": "山匪", "plot": "反派"}
+    cog = {"w1": "山规", "b1": "暴躁"}
+    card_id = str(uuid.uuid4())
+
+    async def _mk():
+        async with async_session() as db:
+            card = CharacterLibrary(
+                id=card_id, user_id="parity-user", name="秦重霄",
+                aliases=json.dumps(["大当家", "老爷子"], ensure_ascii=False),
+                role="反派", genre="武侠", kind="敌人",
+                persona="黑风寨大当家，话少刀狠。",
+                dossier=json.dumps(dossier, ensure_ascii=False),
+                cog=json.dumps(cog, ensure_ascii=False),
+                src_kind="book", src_novel_name="剑照山河",
+            )
+            db.add(card)
+            payload = card_to_payload(card)
+            entry = KbEntry(
+                id=str(uuid.uuid4()), user_id="parity-user", genre="武侠",
+                concept="角色设定", concept_id="武侠:角色设定", title="秦重霄",
+                payload_json=json.dumps(payload, ensure_ascii=False),
+                instruction="x。", when_json="{}",
+                src_kind="character_library_migration", src_ref="character_library",
+                src_key=card_id, src_novel_name="剑照山河",
+                rev=3,
+            )
+            return payload, payload_to_card(entry)
+
+    payload, back = _run(_mk())
+    # 正向：分类字段进 payload
+    assert payload["aliases"] == ["大当家", "老爷子"]
+    assert payload["role"] == "反派"
+    assert payload["kind"] == "敌人"
+    # 反向：卡形状全量还原
+    assert back["name"] == "秦重霄"
+    assert back["aliases"] == ["大当家", "老爷子"]
+    assert back["role"] == "反派"
+    assert back["kind"] == "敌人"
+    assert back["persona"] == "黑风寨大当家，话少刀狠。"
+    assert back["dossier"] == dossier
+    assert back["cog"] == cog
+    assert back["genre"] == "武侠"
+    assert back["rev"] == 3
+    assert back["src_character_id"] == card_id
+    assert back["src_novel_name"] == "剑照山河"
+
+
+def test_反向映射_空payload兜底():
+    from kb.migrate_library import payload_to_card
+    from models.kb import KbEntry
+
+    async def _mk():
+        e = KbEntry(
+            id="e1", user_id="u", genre="", concept="角色设定",
+            payload_json="not-json{", instruction="x。",
+        )
+        return payload_to_card(e)
+
+    card = _run(_mk())
+    assert card["name"] == ""  # 坏 json 兜底空卡形状
+    assert card["dossier"] == {} and card["cog"] == {}
+    assert card["role"] == "配角"  # role 缺省
