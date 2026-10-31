@@ -32,6 +32,19 @@ from models.image_asset import (
     ImageJob,
 )
 from models.import_session import ImportSession
+from models.kb import (
+    KbBookBinding,
+    KbConcept,
+    KbEntry,
+    KbEntryTag,
+    KbLibrary,
+    KbLibraryItem,
+    KbMatchItem,
+    KbMatchRun,
+    KbOrganizeRun,
+    KbPref,
+    KbRelation,
+)
 from models.novel_genre import (
     GenreVocab,
     NovelGenre,
@@ -83,6 +96,17 @@ __all__ = [
     "ImageConfig",
     "ImageJob",
     "ImportSession",
+    "KbBookBinding",
+    "KbConcept",
+    "KbEntry",
+    "KbEntryTag",
+    "KbLibrary",
+    "KbLibraryItem",
+    "KbMatchItem",
+    "KbMatchRun",
+    "KbOrganizeRun",
+    "KbPref",
+    "KbRelation",
     "Novel",
     "NovelGenre",
     "NovelGenreBattlefield",

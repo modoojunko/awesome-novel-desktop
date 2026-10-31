@@ -47,6 +47,7 @@ from db import Base, async_session, engine
 from deconstruct.router import router as deconstruct_router  # c-deconstruct-book
 from genres.router import router as genres_router
 from image_assets.router import router as image_assets_router
+from kb.router import router as kb_router
 from library.router import router as character_library_router
 from manuscript.router import router as manuscript_router
 from models.user import User
@@ -532,6 +533,7 @@ app.include_router(zhuque_result_router)
 
 # 全局题材库
 app.include_router(genres_router)
+app.include_router(kb_router)
 
 
 @app.get("/api/health")

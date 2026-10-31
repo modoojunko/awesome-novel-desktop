@@ -585,6 +585,77 @@ async def _import_hooks(
     await db.flush()
 
 
+async def _import_kb_book(
+    db, zf: zipfile.ZipFile, names: set[str], book_dir: str, novel,
+    user_id: str, warnings: list[str],
+) -> None:
+    """v9 知识库书内段：kb/kb-book.yaml → 书内 3 表（novel_id 重映射；缺段跳过）。"""
+    kb_name = f"{book_dir}kb/kb-book.yaml"
+    if kb_name not in names:
+        return
+    import json as _kbjson
+    from datetime import datetime as _dtc
+
+    from models.kb import KbBookBinding, KbMatchItem, KbMatchRun
+
+    try:
+        doc = yaml.safe_load(zf.read(kb_name)) or {}
+    except (yaml.YAMLError, UnicodeDecodeError) as e:
+        warnings.append(f"知识库段解析失败，已跳过：{e}")
+        return
+
+    def _cols(model, row: dict, **fixed):
+        cols = {}
+        for c in model.__table__.columns:
+            if c.name in fixed:
+                cols[c.name] = fixed[c.name]
+                continue
+            if c.name not in row:
+                continue
+            v = row[c.name]
+            if isinstance(v, str) and c.type.python_type is not str:
+                try:
+                    v = _dtc.fromisoformat(v) if v else None
+                except ValueError:
+                    v = None
+            cols[c.name] = v
+        return cols
+
+    created_b = created_r = created_i = 0
+    run_id_map: dict[str, str] = {}
+    for row in doc.get("bindings") or []:
+        if not isinstance(row, dict) or not row.get("library_id"):
+            continue
+        bid = str(row.get("id") or "")
+        if bid and await db.get(KbBookBinding, bid) is not None:
+            continue  # 按绑定行 id 去重（书内唯一）
+        db.add(KbBookBinding(**_cols(KbBookBinding, row, novel_id=novel.id)))
+        created_b += 1
+    for row in doc.get("match_runs") or []:
+        if not isinstance(row, dict):
+            continue
+        old_id = str(row.get("id") or "")
+        new_id = old_id or _kbjson.dumps(created_r)  # 无 id 兜底不重排
+        db.add(KbMatchRun(**_cols(KbMatchRun, row, novel_id=novel.id)))
+        if old_id:
+            run_id_map[old_id] = new_id
+        created_r += 1
+    await db.flush()
+    for row in doc.get("match_items") or []:
+        if not isinstance(row, dict):
+            continue
+        rid = run_id_map.get(str(row.get("run_id") or ""))
+        if not rid:
+            continue
+        db.add(KbMatchItem(**_cols(KbMatchItem, row, run_id=rid)))
+        created_i += 1
+    await db.flush()
+    if created_b or created_r or created_i:
+        warnings.append(
+            f"知识库书内段：绑定 {created_b}、选择运行 {created_r}、清单 {created_i}"
+        )
+
+
 async def _import_images(
     db, zf: zipfile.ZipFile, names: set[str], book_dir: str, novel,
     user_id: str, id_remap: dict[str, str], warnings: list[str],
@@ -775,6 +846,10 @@ async def _import_single_book(
     await _import_images(
         db, zf, names, book_dir, novel, user_id, id_remap,
         warnings if warnings is not None else [],
+    )
+    await _import_kb_book(
+        db, zf, names, book_dir, novel,
+        user_id, warnings,
     )
 
     # story.yaml / threads.yaml 恢复（与导出侧 dump_book_into 对称；
@@ -1164,6 +1239,78 @@ async def _restore_config(db, user_id: str, config_data: dict) -> dict:
             "created": lib_created,
             "skipped": lib_skipped,
             "avatar_warnings": lib_avatar_warnings,
+        }
+
+    # ── 知识库段（v9；复制语义按 id 冲突即忽略；tags 不导入、恢复后重建索引；
+    #    v8 旧包缺段整体跳过不报错） ──
+    kb = config_data.get("knowledge_base")
+    if isinstance(kb, dict) and kb:
+
+        from kb.service import rebuild_tag_index
+        from models.kb import (
+            KbConcept,
+            KbEntry,
+            KbLibrary,
+            KbLibraryItem,
+            KbOrganizeRun,
+            KbPref,
+            KbRelation,
+        )
+
+        def _dt(v):
+            return None if not v else v
+
+        kb_models = {
+            "concepts": KbConcept,
+            "entries": KbEntry,
+            "relations": KbRelation,
+            "organize_runs": KbOrganizeRun,
+            "libraries": KbLibrary,
+            "library_items": KbLibraryItem,
+            "prefs": KbPref,
+        }
+        kb_created: dict[str, int] = {}
+        kb_skipped: dict[str, int] = {}
+        for name, model in kb_models.items():
+            rows = kb.get(name) or []
+            if not isinstance(rows, list):
+                continue
+            created = skipped = 0
+            for row in rows:
+                if not isinstance(row, dict) or not row.get("id"):
+                    continue
+                rid = str(row["id"])
+                if await db.get(model, rid) is not None:
+                    skipped += 1
+                    continue
+                cols = {}
+                for c in model.__table__.columns:
+                    if c.name in ("id", "user_id"):
+                        cols[c.name] = cols.get(c.name) or (rid if c.name == "id" else user_id)
+                        continue
+                    if c.name not in row:
+                        continue
+                    v = row[c.name]
+                    if isinstance(v, str) and c.type.python_type is not str:
+                        # isoformat 字符串 → datetime；非法原样置 None（列可空）
+                        try:
+                            from datetime import datetime as _dtc
+
+                            v = _dtc.fromisoformat(v) if v else None
+                        except ValueError:
+                            v = None
+                    cols[c.name] = v
+                db.add(model(**cols))
+                created += 1
+            await db.flush()
+            kb_created[name] = created
+            kb_skipped[name] = skipped
+        # 标签索引恢复后自动重建（物化索引可随时重建）
+        rebuilt = await rebuild_tag_index(db, user_id=user_id)
+        summary["knowledge_base"] = {
+            "created": kb_created,
+            "skipped": kb_skipped,
+            "tags_rebuilt": rebuilt,
         }
     return summary
 

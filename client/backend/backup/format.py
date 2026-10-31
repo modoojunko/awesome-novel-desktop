@@ -11,9 +11,12 @@ c-og-slim-v2：章档案删键（关键事件/地点/时间/叙事视角/视角�
 → v6；同口径：v4 及更早包可过版本门槛，退役键按忽略处理（不落库、不报错）。
 c-cover-avatar：新增 images/ 段（current 封面/头像 full/thumb + 书/角色图像设置）
 与配置包 image_configs 段 → v7；v6 旧包无图像段时正常跳过。
+c-knowledge-base：配置包新增 knowledge_base 段（账号 8 表；导入端跳过 tags、
+恢复后重建标签索引）；单书包新增 kb/kb-book.yaml 书内 3 表 → v9；v8 旧包
+缺段时正常跳过。
 """
 
-FORMAT_VERSION = 8
+FORMAT_VERSION = 9
 
 
 # ── 产物归属单源（chapter-rewrite）─────────────────────────────────────────
