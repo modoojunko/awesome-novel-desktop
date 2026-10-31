@@ -31,19 +31,26 @@ _RED_LINE_PATTERNS = [
 
 
 def _check_instruction_length(text: str) -> str | None:
+    """硬闸：非空＋≤240 字。"""
     t = text.strip()
     if not t:
         return "指令不能为空"
     if len(t) > 240:
         return "指令超过 240 字"
-    # 句末断
-    stripped = t.rstrip("。！？…！？」』） ")
-    if stripped and stripped[-1] not in "。！？…！？」』）":
-        # 句末断不出 → 找最后一个句号截断
-        last_period = max(t.rfind("。"), t.rfind("！"), t.rfind("？"))
-        if last_period > 0:
-            return f"指令未能句末断；建议截断至：{t[:last_period + 1]}"
-        return "指令无法句末断，请重写"
+    return None
+
+
+def _check_sentence_end(text: str) -> str | None:
+    """软闸（warning 不拦截）：指令应句末断；剥掉引号/括号收尾后看末字符。
+
+    判定集只含句末标点——引号、括号先剥，否则 `他说："走。"` 末字符是引号误报。
+    """
+    t = text.strip()
+    if not t:
+        return None
+    stripped = t.rstrip("」』）\"'\u201d\u2019 ")
+    if stripped and stripped[-1] not in "。！？…":
+        return "指令未以句末标点收尾，建议补句末断"
     return None
 
 
@@ -86,14 +93,16 @@ def check_gates(
     original_texts = original_texts or []
     when = when_json or {}
 
-    # 闸1 概念词表
-    from kb.concepts import CONCEPTS, READ_ONLY_CONCEPTS, THEMES, normalize_scene, normalize_emotion
+    # 闸1 概念词表（payload 层强校验已覆盖）
 
-    # 闸2 指令长度
+    # 闸2 指令长度（硬）＋句末断（软）
     err = _check_instruction_length(instruction)
     if err:
         result.errors["instruction"] = err
         result.ok = False
+    warn = _check_sentence_end(instruction)
+    if warn:
+        result.warnings.append(warn)
 
     # 闸3 红线闸
     err = _check_red_line(instruction)

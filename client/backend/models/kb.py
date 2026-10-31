@@ -29,8 +29,6 @@ from sqlalchemy import (
     func,
     text,
 )
-from typing import Optional
-
 from sqlalchemy.orm import Mapped, mapped_column
 
 from db import Base
@@ -160,7 +158,7 @@ class KbOrganizeRun(Base):
     relations_updated: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     relations_skipped: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     started_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, server_default=func.now())
-    finished_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
+    finished_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     error: Mapped[str] = mapped_column(Text, nullable=False, default="")
 
 
@@ -225,7 +223,7 @@ class KbPref(Base):
     weight: Mapped[float] = mapped_column(Float, nullable=False, default=1.0)
     adopt_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     drop_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
-    last_used_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
+    last_used_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
 
 
 # ─── 书内（挂 novel_id、随书级联、进单书备份） ──────────────
@@ -285,4 +283,4 @@ class KbMatchItem(Base):
     score: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
     reason: Mapped[str] = mapped_column(Text, nullable=False, default="")
     used: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
-    helpful: Mapped[Optional[bool]] = mapped_column(Boolean, nullable=True)
+    helpful: Mapped[bool | None] = mapped_column(Boolean, nullable=True)

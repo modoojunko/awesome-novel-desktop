@@ -2,9 +2,9 @@
 
 from __future__ import annotations
 
-from typing import Literal, Optional
+from typing import Literal
 
-from pydantic import BaseModel, Field, field_validator, model_validator
+from pydantic import BaseModel, Field, model_validator
 
 
 # ─── 文风 ───────────────────────────────────────────────
@@ -14,10 +14,10 @@ class StylePayload(BaseModel):
     model_config = {"extra": "forbid"}
 
     slot: Literal["role", "tone", "pov", "register", "sample"]
-    role: Optional[str] = Field(None, max_length=120)
-    text: Optional[str] = Field(None, max_length=500)
-    sample: Optional[str] = Field(None, max_length=500)
-    sample_note: Optional[str] = Field(None, max_length=80)
+    role: str | None = Field(None, max_length=120)
+    text: str | None = Field(None, max_length=500)
+    sample: str | None = Field(None, max_length=500)
+    sample_note: str | None = Field(None, max_length=80)
 
     @model_validator(mode="after")
     def check_slot_fields(self):
@@ -37,12 +37,12 @@ class CraftPayload(BaseModel):
     model_config = {"extra": "forbid"}
 
     slot: Literal["rule", "craft", "banned_word", "tic"]
-    rule: Optional[str] = Field(None, max_length=160)
-    craft: Optional[str] = Field(None, max_length=160)
-    banned: Optional[str] = Field(None, max_length=50)
-    banned_alt: Optional[str] = Field(None, max_length=50)
-    tic_pattern: Optional[str] = Field(None, max_length=200)
-    tic_severity: Optional[Literal["high", "medium", "low"]] = None
+    rule: str | None = Field(None, max_length=160)
+    craft: str | None = Field(None, max_length=160)
+    banned: str | None = Field(None, max_length=50)
+    banned_alt: str | None = Field(None, max_length=50)
+    tic_pattern: str | None = Field(None, max_length=200)
+    tic_severity: Literal["high", "medium", "low"] | None = None
 
     @model_validator(mode="after")
     def check_slot_fields(self):
@@ -71,14 +71,14 @@ class CharacterPayload(BaseModel):
     model_config = {"extra": "forbid"}
 
     archetype: str = Field(..., max_length=40)
-    look: Optional[str] = Field(None, max_length=200)
-    background: Optional[str] = Field(None, max_length=200)
-    speech: Optional[str] = Field(None, max_length=200)
-    w1: Optional[str] = Field(None, max_length=120)
-    s1: Optional[str] = Field(None, max_length=120)
-    v1: Optional[str] = Field(None, max_length=120)
-    relation_slot: Optional[str] = Field(None, max_length=80)
-    arc: Optional[str] = Field(None, max_length=160)
+    look: str | None = Field(None, max_length=200)
+    background: str | None = Field(None, max_length=200)
+    speech: str | None = Field(None, max_length=200)
+    w1: str | None = Field(None, max_length=120)
+    s1: str | None = Field(None, max_length=120)
+    v1: str | None = Field(None, max_length=120)
+    relation_slot: str | None = Field(None, max_length=80)
+    arc: str | None = Field(None, max_length=160)
 
 
 # ─── 手法 ────────────────────────────────────────────────
@@ -88,10 +88,10 @@ class TechniquePayload(BaseModel):
     model_config = {"extra": "forbid"}
 
     instruction: str = Field(..., max_length=240)
-    negative: Optional[str] = Field(None, max_length=200)
+    negative: str | None = Field(None, max_length=200)
     scene: str = Field(..., max_length=20)
-    emotion: Optional[str] = Field(None, max_length=20)
-    steps: Optional[list[str]] = Field(None, max_length=5)
+    emotion: str | None = Field(None, max_length=20)
+    steps: list[str] | None = Field(None, max_length=5)
 
 
 # ─── 情节（P1 占位，本期拒收） ──────────────────────────

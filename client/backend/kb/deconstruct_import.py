@@ -8,8 +8,8 @@ from __future__ import annotations
 
 import json
 
-from kb.concepts import normalize_scene, normalize_emotion
-from kb.models import KbEntry
+from kb.concepts import normalize_emotion, normalize_scene
+from models.kb import KbEntry
 
 
 def _mk_entry(
@@ -187,7 +187,7 @@ def map_deconstruct_products(
                 **{k: str(v)[:200] for k, v in c.items()
                    if k in ("look", "background", "speech", "gender", "age", "race", "faction", "plot") and v},
                 **{k: str(v)[:120] for k, v in c.items()
-                   if k.startswith("w") or k.startswith("s") or k.startswith("v") or k.startswith("p") or k.startswith("b") or k.startswith("e")},
+                   if k.startswith(("w", "s", "v", "p", "b", "e"))},
             }
             entries.append(_mk_entry(
                 user_id, task_id, _key("character"), genre,

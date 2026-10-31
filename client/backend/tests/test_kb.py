@@ -2,10 +2,10 @@
 
 import pytest
 
-from kb.concepts import CONCEPTS, THEMES, infer_concept, normalize_scene, normalize_emotion
-from kb.payloads import validate_payload
+from kb.concepts import CONCEPTS, THEMES, normalize_emotion, normalize_scene
 from kb.gates import check_gates
-
+from kb.infer import infer_concept
+from kb.payloads import validate_payload
 
 # ─── 概念推断 ─────────────────────────────────────────────────
 
@@ -119,7 +119,7 @@ class TestCheckGates:
         assert "instruction" in r.errors
 
     def test_原文闸拦截(self):
-        original = "断剑先落地，血溅三尺，出招后补。"
+        original = "断剑先落地，血溅三尺，出招之后才补因果，满地霜华未扫。"
         r = check_gates(
             concept="手法", instruction="先给果再补因。",
             payload={"instruction": "先给果再补因。", "scene": "打斗", "sample": original},

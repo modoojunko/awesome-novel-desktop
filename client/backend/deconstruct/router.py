@@ -461,8 +461,8 @@ async def collect_to_kb(
 ):
     """收进知识库：拆书产物 → 知识条目（手法/文风/文笔/世界/角色，幂等）。"""
     from kb.deconstruct_import import map_deconstruct_products
-    from kb.models import KbEntry, KbLibrary
     from kb.service import ensure_default_library
+    from models.kb import KbEntry
 
     task = await service.get_task(db, task_id, _user_id(user))
     _require(task, user)

@@ -7,20 +7,19 @@ from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
-from sqlalchemy import select, func
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from auth_local.deps import get_current_user
 from db import get_db
 from kb.concepts import CONCEPTS, THEMES
-from kb.models import KbEntry
 from kb.service import (
     create_entry,
+    genre_counts,
     get_entry,
     list_entries,
     list_libraries,
-    genre_counts,
 )
+from models.kb import KbEntry
 
 router = APIRouter(prefix="/api/kb", tags=["kb"])
 

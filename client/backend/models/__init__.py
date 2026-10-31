@@ -21,6 +21,17 @@ from models.character_library import CharacterLibrary, CharacterLibraryBlob
 from models.deconstruct import DeconstructJob
 from models.event import Event
 from models.genre import Genre
+from models.hook import HookOp, NovelHook
+from models.image_asset import (
+    BookImageSettings,
+    CharacterImageSettings,
+    ImageAsset,
+    ImageAssetBlob,
+    ImageBatchItem,
+    ImageConfig,
+    ImageJob,
+)
+from models.import_session import ImportSession
 from models.kb import (
     KbBookBinding,
     KbConcept,
@@ -34,17 +45,6 @@ from models.kb import (
     KbPref,
     KbRelation,
 )
-from models.hook import HookOp, NovelHook
-from models.image_asset import (
-    BookImageSettings,
-    CharacterImageSettings,
-    ImageAsset,
-    ImageAssetBlob,
-    ImageBatchItem,
-    ImageConfig,
-    ImageJob,
-)
-from models.import_session import ImportSession
 from models.novel_genre import (
     GenreVocab,
     NovelGenre,
@@ -96,6 +96,17 @@ __all__ = [
     "ImageConfig",
     "ImageJob",
     "ImportSession",
+    "KbBookBinding",
+    "KbConcept",
+    "KbEntry",
+    "KbEntryTag",
+    "KbLibrary",
+    "KbLibraryItem",
+    "KbMatchItem",
+    "KbMatchRun",
+    "KbOrganizeRun",
+    "KbPref",
+    "KbRelation",
     "Novel",
     "NovelGenre",
     "NovelGenreBattlefield",

@@ -4,20 +4,18 @@ from __future__ import annotations
 
 import json
 
-from sqlalchemy import func, select
+from sqlalchemy import delete, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from kb.concepts import THEMES, infer_concept, normalize_scene, normalize_emotion
-from kb.gates import check_gates, GateResult
-from kb.models import (
-    KbConcept,
+from kb.concepts import THEMES
+from kb.gates import GateResult, check_gates
+from kb.infer import infer_concept
+from kb.payloads import validate_payload
+from models.kb import (
     KbEntry,
     KbEntryTag,
     KbLibrary,
-    KbLibraryItem,
 )
-from kb.payloads import validate_payload
-
 
 # ─── 入库 ─────────────────────────────────────────────────
 
@@ -44,8 +42,6 @@ async def create_entry(
 ) -> tuple[KbEntry | None, GateResult, dict | None]:
     """入库一条知识：闸门→payload 校验→标签物化→默认库生成。
     返回 (entry, gate_result, error_dict)。error_dict 非 None 表示入库失败。"""
-
-    from kb.infer import infer_concept
 
     # 概念推断（如果未指定）
     if not concept or concept not in (
@@ -125,7 +121,6 @@ async def _materialize_tags(
 ) -> None:
     """标签物化——写入同事务重建。"""
     # 先删旧标签
-    from sqlalchemy import delete
     await db.execute(
         delete(KbEntryTag).where(KbEntryTag.entry_id == entry.id)
     )
@@ -164,7 +159,6 @@ async def ensure_default_library(
 ) -> None:
     """题材×概念首条目入库时自动生成默认库（partial unique index 兜并发）。"""
     # 检查是否已有
-    from sqlalchemy import select
     stmt = select(KbLibrary).where(
         KbLibrary.user_id == user_id,
         KbLibrary.genre == genre,
@@ -203,7 +197,6 @@ async def list_entries(
     limit: int = 30,
 ) -> tuple[list[KbEntry], str]:
     """条目列表——游标分页。返回 (entries, next_cursor)。"""
-    from sqlalchemy import select
 
     stmt = select(KbEntry).where(
         KbEntry.user_id == user_id,
@@ -233,7 +226,6 @@ async def list_entries(
 
 
 async def get_entry(db: AsyncSession, *, user_id: str, entry_id: str) -> KbEntry | None:
-    from sqlalchemy import select
     stmt = select(KbEntry).where(
         KbEntry.id == entry_id, KbEntry.user_id == user_id, KbEntry.status == "active"
     )
@@ -243,7 +235,6 @@ async def get_entry(db: AsyncSession, *, user_id: str, entry_id: str) -> KbEntry
 async def list_libraries(
     db: AsyncSession, *, user_id: str, genre: str = ""
 ) -> list[KbLibrary]:
-    from sqlalchemy import select
     stmt = select(KbLibrary).where(KbLibrary.user_id == user_id, KbLibrary.status == "active")
     if genre and genre != "全部题材":
         stmt = stmt.where(KbLibrary.genre == genre)
@@ -253,7 +244,6 @@ async def list_libraries(
 
 async def genre_counts(db: AsyncSession, *, user_id: str) -> dict[str, int]:
     """题材→条目计数（只算 active）。"""
-    from sqlalchemy import select
     stmt = (
         select(KbEntry.genre, func.count(KbEntry.id))
         .where(KbEntry.user_id == user_id, KbEntry.status == "active")
