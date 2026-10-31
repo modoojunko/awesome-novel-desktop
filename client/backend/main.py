@@ -72,6 +72,7 @@ from volumes.pacing_ai import router as volume_pacing_ai_router
 from volumes.pacing_router import router as volume_pacing_router
 from workflow.router import backfill_router as workflow_backfill_router
 from workflow.router import router as workflow_router
+from kb.router import router as kb_router
 from write.ai_check import router as ai_check_router
 from write.plot_sim import router as plot_sim_router
 from write.prompt_sources import router as prompt_sources_router
@@ -530,6 +531,7 @@ app.include_router(zhuque_result_router)
 
 # 全局题材库
 app.include_router(genres_router)
+app.include_router(kb_router)
 
 
 @app.get("/api/health")

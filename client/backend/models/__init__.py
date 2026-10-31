@@ -21,6 +21,19 @@ from models.character_library import CharacterLibrary, CharacterLibraryBlob
 from models.deconstruct import DeconstructJob
 from models.event import Event
 from models.genre import Genre
+from models.kb import (
+    KbBookBinding,
+    KbConcept,
+    KbEntry,
+    KbEntryTag,
+    KbLibrary,
+    KbLibraryItem,
+    KbMatchItem,
+    KbMatchRun,
+    KbOrganizeRun,
+    KbPref,
+    KbRelation,
+)
 from models.hook import HookOp, NovelHook
 from models.image_asset import (
     BookImageSettings,

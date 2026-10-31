@@ -6,6 +6,7 @@ import ApiKeyConfigPage from "@/pages/ApiKeyConfigPage";
 import NovelListPage from "@/pages/NovelListPage";
 import NovelLayout from "@/pages/NovelLayout";
 import NovelWorkspace from "@/components/novel/NovelWorkspace";
+import KnowledgeBasePage from "@/pages/KnowledgeBasePage";
 import TaskListPage from "@/components/tools/TaskListPage";
 import CreateTaskPage from "@/components/tools/CreateTaskPage";
 import TaskDetailPage from "@/components/tools/TaskDetailPage";
@@ -81,7 +82,15 @@ export default function App() {
               </Authed>
             }
           />
-          <Route
+                      <Route
+              path="/tools/kb"
+              element={
+                <Authed>
+                  <KnowledgeBasePage />
+                </Authed>
+              }
+            />
+<Route
             path="/tools/characters"
             element={
               <Authed>
