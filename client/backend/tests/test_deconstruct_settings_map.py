@@ -261,11 +261,13 @@ def test_genre_extras_fills_legacy_product():
     )
     assert meta["synopsis"] == "一个夜班司机的故事。"
     assert meta["promise_note"] == "跟随主角追查旧案，在惊悚解谜中获得反转快感。"
-    assert meta["core_promise"] == "层层反转的智力快感"
+    # c-deconstruct-genre-fields：核心承诺回退读旧 promise（60 字收口），不再白猜
+    assert meta["core_promise"] == "跟随主角追查旧案，在惊悚解谜中获得反转快感。"
     assert meta["forbidden"] == ["禁天降外援", "禁反派降智"]
     assert meta["cost_ratio"] == 8
     assert meta["battlefield"] == ["查真相", "抗外敌"]
-    assert set(meta["inferred"]) == {"core_promise", "forbidden", "cost_ratio", "battlefield"}
+    assert set(meta["inferred"]) == {"forbidden", "cost_ratio", "battlefield"}
+    assert meta["inferred_labels"] == ["禁写清单", "代价比例", "战场"]
 
 
 def test_genre_extras_prefers_product_fields():

@@ -375,6 +375,17 @@ def _sanitize_vars(user_vars: dict) -> dict:
     return out
 
 
+def _vocab_lines(kind: str) -> str:
+    """候选词表（每行一个展示名）——题材维度模板注入 {forbidden_vocab}/{battlefield_vocab}。
+
+    其他维度模板没有这两个占位符，而 user 段填充是 `str.format(**vars)`，多余键被忽略，
+    所以统一注入不影响它们（c-deconstruct-genre-fields D2）。
+    """
+    from genres.vocab_presets import VOCAB_PRESETS
+
+    return "\n".join(str(e.get("label") or "") for e in VOCAB_PRESETS if e.get("kind") == kind)
+
+
 async def _genre_vocab_names() -> str:
     """题材库词表（每行一个展示名）——genre 维度 L1 注入 {genre_vocab}，让题材
     从词表逐字选词（对齐书架题材胶囊），词表外模型自行降 low。查询失败给空串
@@ -1121,6 +1132,8 @@ async def run_task(task_id: str) -> None:
         full_synopsis = _synopses(cards)
         # 题材库词表（genre 维度注入 {genre_vocab}；其他维度模板无此占位符不受影响）
         genre_vocab = await _genre_vocab_names()
+        forbidden_vocab = _vocab_lines("forbidden")
+        battlefield_vocab = _vocab_lines("battlefield")
 
         # ── 阶段二：分维度归并（勾选集；completed 跳过＝断点续拆）──
         products: dict[str, dict] = {}
@@ -1186,6 +1199,8 @@ async def run_task(task_id: str) -> None:
                             {
                                 "book_name": task.book_name, "genre_or_unknown": "unknown",
                                 "genre_vocab": genre_vocab,
+                                "forbidden_vocab": forbidden_vocab,
+                                "battlefield_vocab": battlefield_vocab,
                                 "full_synopsis": full_synopsis[:_SYNOPSIS_CAP],
                                 "seg_range": f"第{ch_from}-{ch_to}章",
                                 "excerpts": "\n".join(line for _, line in batch),
