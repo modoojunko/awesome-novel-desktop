@@ -106,6 +106,7 @@ async def create_character(
             prefill=body.get("prefill"),
             aliases=body.get("aliases"),
             dossier=body.get("dossier"),
+            cog=body.get("cog"),  # 知识库原型逐格复制（c-kb-character）：svc 白名单 clamp
         )
     except (svc.Unprocessable, svc.Conflict) as e:
         raise _svc_error(e) from e

@@ -20,7 +20,7 @@ from kb.service import (
     list_entries,
     list_libraries,
 )
-from models.kb import KbBookBinding, KbEntry
+from models.kb import KbBookBinding, KbEntry, KbPref
 from novels.service import get_novel
 
 router = APIRouter(prefix="/api/kb", tags=["kb"])
@@ -246,6 +246,35 @@ async def list_libraries_api(
             }
         )
     return {"ok": True, "data": items}
+
+
+# ─── 原型使用计数（c-kb-character 批4）─────────────────────
+
+
+@router.post("/entries/{entry_id}/prototype-use")
+async def prototype_use_api(
+    entry_id: str,
+    user: dict = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """用作原型计数回写：KbPref.adopt_count 累加（账号级，跨书共享）。"""
+    uid = _user(user)
+    e = await get_entry(db, user_id=uid, entry_id=entry_id)
+    if not e or e.concept != "角色设定":
+        raise HTTPException(404, "原型不存在")
+    from datetime import datetime
+
+    pref = (
+        await db.execute(select(KbPref).where(KbPref.user_id == uid, KbPref.entry_id == entry_id))
+    ).scalar_one_or_none()
+    if pref:
+        pref.adopt_count += 1
+        pref.last_used_at = datetime.utcnow()
+    else:
+        pref = KbPref(user_id=uid, entry_id=entry_id, weight=1.0, adopt_count=1, last_used_at=datetime.utcnow())
+        db.add(pref)
+    await db.commit()
+    return {"ok": True, "data": {"entry_id": entry_id, "adopt_count": pref.adopt_count}}
 
 
 # ─── 书内绑定（c-kb-snapshot 批3：启用落设定）──────────────

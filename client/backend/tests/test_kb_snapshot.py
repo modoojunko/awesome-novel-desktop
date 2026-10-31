@@ -346,3 +346,40 @@ def test_绑定端点_全链路():
             assert r.status_code == 404
     finally:
         app.dependency_overrides.clear()
+
+
+# ─── 原型使用计数（c-kb-character 批4）─────────────────────
+
+
+def test_原型使用计数_累加与校验():
+    from fastapi.testclient import TestClient
+
+    from auth_local.middleware import get_current_user
+    from main import app
+
+    seed = _run(_seed())
+
+    async def _mk_proto():
+        async with async_session() as db:
+            e = _entry(seed["uid"], "都市", "角色设定", {"archetype": "落魄天才"})
+            db.add(e)
+            await db.commit()
+            return e.id
+
+    proto_id = _run(_mk_proto())
+    app.dependency_overrides[get_current_user] = lambda: {"id": seed["uid"]}
+    try:
+        with TestClient(app) as c:
+            r = c.post(f"/api/kb/entries/{proto_id}/prototype-use")
+            assert r.status_code == 200, r.text
+            assert r.json()["data"]["adopt_count"] == 1
+            r = c.post(f"/api/kb/entries/{proto_id}/prototype-use")
+            assert r.json()["data"]["adopt_count"] == 2  # 累加
+            # 非角色概念 404
+            r = c.post(f"/api/kb/entries/{seed['entry_ids'][0]}/prototype-use")
+            assert r.status_code == 404
+            # 不存在的条目 404
+            r = c.post("/api/kb/entries/no-such/prototype-use")
+            assert r.status_code == 404
+    finally:
+        app.dependency_overrides.clear()

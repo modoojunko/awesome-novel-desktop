@@ -2,7 +2,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { kbApi } from "@/lib/kbApi";
 
-const { bind, bindings, createEntry, entries, entry, genres, libraries, syncBinding, unbind, concepts } = kbApi;
+const { bind, bindings, createEntry, entries, entry, genres, libraries, syncBinding, unbind, concepts, usePrototype } = kbApi;
 
 const fetchMock = vi.fn();
 
@@ -121,6 +121,14 @@ describe("kbApi", () => {
     expect(init.method).toBe("POST");
     expect(init.body).toBe(JSON.stringify({ genre: "都市", concept: "", instruction: "先给果再补因。" }));
     expect(init.headers["Content-Type"]).toBe("application/json");
+  });
+
+  it("usePrototype 计数回写", async () => {
+    fetchMock.mockReturnValueOnce(json({ entry_id: "kb1", adopt_count: 2 }));
+    const r = await usePrototype("kb1");
+    expect(r.adopt_count).toBe(2);
+    expect(String(fetchMock.mock.calls[0][0])).toBe("/api/kb/entries/kb1/prototype-use");
+    expect(fetchMock.mock.calls[0][1]?.method).toBe("POST");
   });
 
   it("信封缺 data 抛错", async () => {

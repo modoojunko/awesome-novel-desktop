@@ -152,4 +152,10 @@ export const kbApi = {
       method: "POST",
       body: JSON.stringify(body),
     })),
+
+  /** 用作原型计数回写（c-kb-character）：KbPref.adopt_count 累加 */
+  usePrototype: (entryId: string) =>
+    unwrap<{ entry_id: string; adopt_count: number }>(
+      request(`${BASE}/entries/${entryId}/prototype-use`, { method: "POST" }),
+    ),
 };
