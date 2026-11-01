@@ -120,6 +120,21 @@ def style_section(style) -> str:
     return "\n".join(lines)
 
 
+def _shadow_line(label: str, override: dict) -> str:
+    """影子覆盖行分源渲染（c-kb-write-block F6）：
+    - 知识库行（source=kb）：数值短语直陈＋场面条件面具——「约」只属于带 ±容差的
+      基线语义，覆盖行声明的是「本章值」不是「约值」（整句塞「约」槽是语法断裂）；
+    - 作者/AI 定性行：沿用「约 X（本章覆盖：reason）」旧形。"""
+    ov_value = str(override.get("value", "")).strip()
+    ov_reason = str(override.get("reason", "")).strip()
+    if str(override.get("source") or "") == "kb":
+        cond = str(override.get("condition") or "").strip()
+        mid = f"（{cond}场面适用；本章覆盖：{ov_reason}）" if cond else f"（本章覆盖：{ov_reason}）"
+        return f"- {label}：{ov_value}{mid}"
+    suffix = f"（本章覆盖：{ov_reason}）" if ov_reason else "（本章覆盖）"
+    return f"- {label}：约 {ov_value}{suffix}"
+
+
 def quant_section(quant, shadow: dict | None = None) -> str:
     """量化基线段：六行「约 X（±容差%）」＋章级自调指令。未蒸馏/缺失 → ""。
 
@@ -149,10 +164,7 @@ def quant_section(quant, shadow: dict | None = None) -> str:
             continue
         override = shadow.get(key) if isinstance(shadow.get(key), dict) else None
         if isinstance(override, dict) and str(override.get("value", "")).strip():
-            ov_value = str(override.get("value", "")).strip()
-            ov_reason = str(override.get("reason", "")).strip()
-            suffix = f"（本章覆盖：{ov_reason}）" if ov_reason else "（本章覆盖）"
-            lines.append(f"- {label}：约 {ov_value}{suffix}")
+            lines.append(_shadow_line(label, override))
             emitted = True
             continue
         row_tol = item.get("tolerance", tolerance)
@@ -180,10 +192,7 @@ def shadow_override_lines(quant, shadow: dict | None = None) -> list[str]:
             continue
         if not (isinstance(baseline.get(key), dict) and str(baseline[key].get("value", "")).strip()):
             continue  # 基线没这一行，影子无从覆盖（与 quant_section 同口径只动基线已有行）
-        ov_value = str(override.get("value", "")).strip()
-        ov_reason = str(override.get("reason", "")).strip()
-        suffix = f"（本章覆盖：{ov_reason}）" if ov_reason else "（本章覆盖）"
-        out.append(f"- {label}：约 {ov_value}{suffix}")
+        out.append(_shadow_line(label, override))
     return out
 
 

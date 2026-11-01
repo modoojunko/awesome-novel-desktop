@@ -282,6 +282,12 @@ class KbMatchRun(Base):
     emotion: Mapped[str] = mapped_column(String(20), nullable=False, default="")
     chapter_pos: Mapped[str] = mapped_column(String(20), nullable=False, default="")
     status: Mapped[str] = mapped_column(String(12), nullable=False, default="completed")
+    # 写法块（c-kb-write-block）四列预留：selector=rule|llm|rule_fallback；
+    # brief_json=LLM 选择输入/输出摘要（P1 审计）；domain_fingerprint=启用库 id 集
+    # 指纹（换库即重选——复用守卫）；server_default 保列交集搬运（老库加列口径）
+    selector: Mapped[str] = mapped_column(String(20), nullable=False, default="rule", server_default="rule")
+    brief_json: Mapped[str] = mapped_column(Text, nullable=False, default="{}", server_default="{}")
+    domain_fingerprint: Mapped[str] = mapped_column(String(255), nullable=False, default="", server_default="")
     created_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, server_default=func.now())
 
 
@@ -301,5 +307,7 @@ class KbMatchItem(Base):
     decision: Mapped[str] = mapped_column(String(12), nullable=False, default="included")
     score: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
     reason: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    # 条目文本快照（重试字节一致：条目编辑后同 run 重建仍逐字节同块）
+    text_snapshot: Mapped[str] = mapped_column(Text, nullable=False, default="", server_default="")
     used: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
     helpful: Mapped[bool | None] = mapped_column(Boolean, nullable=True)

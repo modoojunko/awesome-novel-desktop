@@ -20,6 +20,73 @@ _EXAMPLE_MAX = 500
 _NEGATIVE_MAX = 200
 _BANNED_MAX = 50
 
+# ─── 回声闸（c-kb-write-block）：条目指令与生成链固定文案撞句判据式拒收 ──
+# 基线副本（真源在 write/chapter_writer.py 的 WRITE_CLOSING_LINE / 场景分量定性行 /
+# refill_instruction 骨架；kb SHALL NOT import write，此处字面副本由 parity 钉
+# tests/test_kb_gates_parity.py 守一致——真源改动时本表同步）。
+_ECHO_BASELINES = (
+    (
+        "输出：仅正文，无标题、无总结、无引导语、无 Markdown；段落之间直接换行，不留空行；"
+        "每个场景都写足——这一场戏从起手写到见分晓，一个动作要激起一个反应，"
+        "这条没到分量不换下一场；不足目标字数就回到当前场景继续展开，"
+        "落点是收笔的位置，不是提前收卷的理由；"
+        "结尾收在「章末落点」那一瞬，末句停在动作、台词或声响；"
+        "落点是局面陈述或未给动向时以一句未展开的新动向（已登场势力的新压力）硬切，"
+        "收束章停在落点本身；落点之后不写一个字。"
+    ),
+    "动作有回应、局面有推进，这场没写完不进下一场，不得一场两三句带过。",
+    (
+        "不重述、不改写已写内容，同一时空同场景顺下去，一场接一场继续，"
+        "补够下限或写到素材「章末落点」，先到者收笔；只发新写的正文。"
+    ),
+)
+_ECHO_MIN = 8  # 最长公共子串 ≥8 字判撞句
+
+
+def _lcs_len(a: str, b: str) -> int:
+    if not a or not b:
+        return 0
+    prev = [0] * (len(b) + 1)
+    best = 0
+    for ca in a:
+        cur = [0] * (len(b) + 1)
+        for j, cb in enumerate(b, 1):
+            if ca == cb:
+                cur[j] = prev[j - 1] + 1
+                best = max(best, cur[j])
+        prev = cur
+    return best
+
+
+_STRUCTURE_LINE = __import__("re").compile(r"^(#{1,6}\s|---|\-\s|【)")
+
+
+def _check_structure(instruction: str) -> str | None:
+    """结构消毒闸（批F F5；design §7.1 补丁5 兑现）：条目指令是单行短句——
+    含换行或行首结构标记会被当成提示词结构（伪节标题/伪块首注入面）。"""
+    t = instruction.strip()
+    if not t:
+        return None
+    if "\n" in t:
+        return "指令需单行短句——含换行会被当成提示词结构，请改成单行或拆成多条"
+    if _STRUCTURE_LINE.match(t):
+        return "指令不能以 #、-、【 等结构标记开头——会被当成提示词结构"
+    if "【本章写法指引】" in t:
+        return "与写法块块首声明撞句，请改成自己的话"
+    return None
+
+
+def _check_echo(instruction: str) -> str | None:
+    """回声闸：与固定文案最长公共子串 ≥8 字返回可读错误（判据式拒收）。"""
+    t = instruction.strip()
+    if not t:
+        return None
+    for base in _ECHO_BASELINES:
+        if _lcs_len(t, base) >= _ECHO_MIN:
+            return "与系统固定文案撞句，请改写成自己的话"
+    return None
+
+
 # ─── 红线闸：强禁令词族（与反AI结构红线冲突的手法写法） ──
 _RED_LINE_PATTERNS = [
     re.compile(r"破折号.{0,4}停顿"),
@@ -103,6 +170,16 @@ def check_gates(
     warn = _check_sentence_end(instruction)
     if warn:
         result.warnings.append(warn)
+
+    # 闸2b 回声闸＋结构消毒（c-kb-write-block）：撞句/伪结构硬拒
+    echo = _check_echo(instruction)
+    if echo:
+        result.errors["instruction"] = echo
+        result.ok = False
+    structure = _check_structure(instruction)
+    if structure:
+        result.errors["instruction"] = structure
+        result.ok = False
 
     # 闸3 红线闸
     err = _check_red_line(instruction)

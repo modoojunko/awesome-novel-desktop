@@ -2,7 +2,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { kbApi } from "@/lib/kbApi";
 
-const { bind, bindings, createEntry, deleteEntry, entries, entry, genres, libraries, syncBinding, unbind, concepts, updateEntry, usePrototype, graphAggregate, graphCell } = kbApi;
+const { bind, bindings, createEntry, deleteEntry, entries, entry, genres, libraries, syncBinding, unbind, concepts, updateEntry, usePrototype, graphAggregate, graphCell, pref } = kbApi;
 
 const fetchMock = vi.fn();
 
@@ -161,5 +161,17 @@ describe("kbApi", () => {
   it("信封缺 data 抛错", async () => {
     fetchMock.mockReturnValueOnce(Promise.resolve({ ok: true, status: 200, json: () => Promise.resolve({}) } as Response));
     await expect(genres()).rejects.toThrow("响应缺少 data");
+  });
+
+  it("有用/没用回写（c-kb-write-block 批D）：POST pref 载荷与信封", async () => {
+    fetchMock.mockReturnValueOnce(
+      json({ entry_id: "e9", adopt_count: 0, drop_count: 1, useful_rate: 0.2 }),
+    );
+    const r = await pref("e9", false);
+    expect(r.useful_rate).toBe(0.2);
+    const [u, init] = fetchMock.mock.calls[0];
+    expect(String(u)).toBe("/api/kb/entries/e9/pref");
+    expect(init.method).toBe("POST");
+    expect(JSON.parse(init.body)).toEqual({ useful: false });
   });
 });
