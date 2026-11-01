@@ -11,7 +11,9 @@ import type { ReactNode } from "react";
 import { api, request } from "@/lib/api";
 import { dossierApi } from "@/lib/dossierApi";
 import { useFeature, useTier } from "@/hooks/useTier";
+import WriteBlockPanel from "./WriteBlockPanel";
 import { upgradeHintOf, type FeatureKey } from "@/lib/features";
+import type { WriteBlockPayload } from "@/lib/ai";
 import { getZhuqueShow } from "@/lib/prefs";
 import { runZhuqueCheck, useZhuqueCheck } from "@/hooks/useZhuqueCheck";
 import type { AiState } from "@/types/api-config";
@@ -61,6 +63,7 @@ export function AiAssistPanel({
   onUpgrade,
   staleDownstream,
   aiState,
+  writeBlock,
   proseRef,
   onRunReconcile,
   onFillGaps,
@@ -94,6 +97,8 @@ export function AiAssistPanel({
   staleDownstream?: number;
   /** 正文页签的 AI 状态（生成/续写） */
   aiState?: ProseAIState;
+  /** 本章写法块（c-kb-write-block 批D）：右栏正文卡片只读条渲染 */
+  writeBlock?: WriteBlockPayload | null;
   proseRef?: RefObject<ProseHandle | null>;
   /** 按类触发本章收尾（伏笔「登记新伏笔」入口）；产出在「伏笔」页签待确认 */
   onRunReconcile?: (kind: "hooks") => void;
@@ -607,6 +612,15 @@ export function AiAssistPanel({
       statusNote={tab === "prose" && !zqShow ? "朱雀检测已关闭 · 其余可用" : undefined}
       data-od-id={`ai-assist-${tab}`}
     >
+      {/* 本章写法块只读条（c-kb-write-block 批D）：提示词层元信息住右栏正文卡片，
+          不进中栏稿纸（落位评审：编辑器虚线框内会被误读为正文） */}
+      {tab === "prose" && writeBlock && (
+        <WriteBlockPanel
+          block={writeBlock.block}
+          runId={writeBlock.run_id}
+          items={writeBlock.items}
+        />
+      )}
       {/* 未到 ai-generate（免费/标准）才给统一升级出口：锁定行自带档位 hint（文案单源
           upgradeHintOf）自解释，故只留按钮不带说明文案；PRO/MAX 不显示。 */}
       {tab === "og" && !aiGenerate && (

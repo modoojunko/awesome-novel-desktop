@@ -307,4 +307,12 @@ export const kbApi = {
         request(`${BASE}/entries/${entryId}/relations`),
       ),
   },
+  /** 有用/没用回写（c-kb-write-block 批D）：账号级权重，可重复调用＝可改口 */
+  pref: (entryId: string, useful: boolean) =>
+    unwrap<{ entry_id: string; adopt_count: number; drop_count: number; useful_rate: number }>(
+      request(`${BASE}/entries/${encodeURIComponent(entryId)}/pref`, {
+        method: "POST",
+        body: JSON.stringify({ useful }),
+      }),
+    ),
 };

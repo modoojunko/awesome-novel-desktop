@@ -205,6 +205,24 @@ async def _stream_chapter(
 
     # 符号别名：模型由构造期 self._model 决定（D12，不再读 writing_model）
     model = "haiku"
+    # 本章写法块（c-kb-write-block）：启用库的书按章纲信号选块注入——
+    # 存储稿选定之后、收尾行之前；不落库不进预览；同章同素材重试复用 run（字节一致）；
+    # 任何异常在 prepare_write_block 内部吞掉（无块＝零变化）
+    from write.write_block import prepare_write_block
+
+    block_text, run_id, block_items = await prepare_write_block(
+        db, novel_id=project.id, chapter_ref=chapter_ref, user_id=project.user_id
+    )
+    if block_text:
+        prompt = f"{prompt.rstrip()}\n\n{block_text}"
+        yield (
+            "data: "
+            + json.dumps(
+                {"type": "write_block", "block": block_text, "run_id": run_id, "items": block_items},
+                ensure_ascii=False,
+            )
+            + "\n\n"
+        )
     # 收尾重申行：user 内容最末字节强制追加（同词不同句），不落库不进预览
     prompt = f"{prompt.rstrip()}\n\n{WRITE_CLOSING_LINE}"
     full_text = ""
@@ -504,7 +522,23 @@ async def _stream_refill(db, project, root_path: str, chapter_ref: str, existing
         ctx = await build_chapter_context(
             root_path, chapter_ref, project.name, novel_id=project.id
         )
-        prompt = f"{build_refill_material(ctx, existing).rstrip()}\n\n{WRITE_CLOSING_LINE}"
+        # 写法块（c-kb-write-block）：续写按章节复用当章最新 run 注入同块
+        from write.write_block import prepare_write_block
+
+        block_text, run_id, block_items = await prepare_write_block(
+            db, novel_id=project.id, chapter_ref=chapter_ref,
+            user_id=project.user_id, refill=True,
+        )
+        if block_text:
+            yield (
+                "data: "
+                + json.dumps(
+                    {"type": "write_block", "block": block_text, "run_id": run_id, "items": block_items},
+                    ensure_ascii=False,
+                )
+                + "\n\n"
+            )
+        prompt = f"{build_refill_material(ctx, existing).rstrip()}\n\n{block_text}\n\n{WRITE_CLOSING_LINE}" if block_text else f"{build_refill_material(ctx, existing).rstrip()}\n\n{WRITE_CLOSING_LINE}"
         system = ctx.build_system_prompt()
         client = await get_ai_client_for_novel(project.id)
         used_model = effective_model(project)

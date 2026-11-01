@@ -8,6 +8,7 @@ export const COVERAGE_CONTRACT_FILES = [
   "src/lib/chapterPlanApi.ts",
   "src/hooks/useChapterPlan.ts",
   "src/components/novel/workbench/ChapterPlanModal.tsx",
+  "src/components/novel/workbench/WriteBlockPanel.tsx",
   // volume-plan-ai + c-volume-antagonist（分卷规划：抽卡/四问页/状态机/API 契约）
   "src/components/novel/workbench/PickCardsModal.tsx",
   "src/components/novel/volume/form.ts",

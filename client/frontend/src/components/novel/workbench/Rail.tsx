@@ -17,6 +17,8 @@ import {
 import type { AiCheckKind } from "@/lib/aiCheck";
 import { runReconcile } from "@/lib/reconcileApi";
 
+import type { WriteBlockPayload } from "@/lib/ai";
+
 export interface RailChapterData {
   wordCount: number;
   targetWords: number;
@@ -33,6 +35,8 @@ export interface RailChapterData {
   onPlotDraw?: () => void;
   /** 盘点出场人物（章纲页签动作；免费只读盘点＋PRO 抽卡，c-character-intro） */
   onCastReview?: () => void;
+  /** 本章写法块（c-kb-write-block 批D）：右栏正文卡片只读条渲染 */
+  writeBlock?: WriteBlockPayload | null;
   /** 空章（留存格与剧情条目全空）：盘点行禁用 hint「先写剧情再盘点」 */
   castEmpty?: boolean;
   /** 盘点/抽卡在途（行「生成中…」） */
@@ -138,6 +142,7 @@ export default function Rail({
           onSimulate={d.onSimulate}
           onPlotDraw={d.onPlotDraw}
           onCastReview={d.onCastReview}
+          writeBlock={d.writeBlock}
           castEmpty={d.castEmpty}
           castBusy={d.castBusy}
           onUpgrade={onUpgrade}

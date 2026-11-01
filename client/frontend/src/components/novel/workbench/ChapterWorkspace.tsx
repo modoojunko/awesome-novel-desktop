@@ -45,6 +45,7 @@ import ProsePane, {
 } from "./ProsePane";
 import { ArchiveModal, HistoryModal, RewriteModal } from "./modals";
 import type { RailChapterData } from "./Rail";
+import type { WriteBlockPayload } from "@/lib/ai";
 import {
   EMPTY_OG_FORM,
   GAP_TO_FILL_KEY,
@@ -318,6 +319,8 @@ export default function ChapterWorkspace({
   // 章纲查看/编辑两态（对齐卷纲）：默认查看态，切章回落查看
   const [ogEditing, setOgEditing] = useState(false);
   // 正文查看/编辑两态（c-prose-edit-gate）：默认只读阅读，切章回落查看
+  // 本章写法块（c-kb-write-block）：ProsePane SSE 事件上抛，经 onRailData 透传右栏
+  const [writeBlock, setWriteBlock] = useState<WriteBlockPayload | null>(null);
   const [proseEditing, setProseEditing] = useState(false);
   useEffect(() => {
     setChTab("og");
@@ -1179,10 +1182,11 @@ const [ogForm, setOgForm] = useState<OgForm>(EMPTY_OG_FORM);
       onFillGaps: () => void handleFillGaps(),
       gapsLoading,
       onAiCheck: setAiCheckKind,
+      writeBlock,
     });
     return () => onRailDataRef.current(null);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [wordCount, targetWords, setTargetWords, archived, bookWords, chTab, ogForm, chapterRef, gapsLoading, promptSavedSignal, handleFillGaps, handlePlotDraw, openCastReview, castEmpty, castReview.state.phase, castReview.state.writing]);
+  }, [wordCount, targetWords, setTargetWords, archived, bookWords, chTab, ogForm, chapterRef, gapsLoading, promptSavedSignal, handleFillGaps, handlePlotDraw, openCastReview, castEmpty, castReview.state.phase, castReview.state.writing, writeBlock]);
 
   // ── 文风建议信号（右栏 AI 助手触发 → StyleShadowPane 内执行拉取；2026-09-20
   //    AI 入口收口右栏：页签 body 不再设 AI 按钮，建议结果仍在页签内逐项采纳） ──
@@ -1346,6 +1350,7 @@ const [ogForm, setOgForm] = useState<OgForm>(EMPTY_OG_FORM);
         lh={typo.lh}
         hidden={chTab !== "prose"}
         onAIStateChange={onAIStateChange}
+        onWriteBlock={setWriteBlock}
         resumeScroll={resumeScrollMemo}
         onWriteProgress={onWriteProgress}
         historical={imported}

@@ -27,6 +27,23 @@ export interface StreamCallbacks {
   onPhase?: (phase: string) => void;
   /** 思考增量（c-thinking-display）：与正文分流的独立通道；旧后端不下发＝不触发。 */
   onThinking?: (text: string) => void;
+  /** 本章写法块（c-kb-write-block）：启用知识库的书生成时下发（不落库不进预览）；
+   *  未启用库/零命中的书不下发＝不触发。 */
+  onWriteBlock?: (payload: WriteBlockPayload) => void;
+}
+
+/** 本章写法块载荷（write_block 事件）：块文本＋逐条留痕清单（标记反馈用）。 */
+export interface WriteBlockItem {
+  entry_id: string;
+  clause: string;
+  reason: string;
+  score: number;
+  text: string;
+}
+export interface WriteBlockPayload {
+  block: string;
+  run_id: string;
+  items: WriteBlockItem[];
 }
 
 /** 字数校验（目标 ±10% 口径；below_limit = 低于目标 90%） */
@@ -183,6 +200,8 @@ function doStreamFetch(
               callbacks.onError(data.error, typeof data.kind === "string" ? data.kind : undefined);
             } else if (data.type === "phase") {
               callbacks.onPhase?.(String(data.phase ?? ""));
+            } else if (data.type === "write_block") {
+              callbacks.onWriteBlock?.(data as WriteBlockPayload);
             }
           } catch {
             // Skip malformed lines

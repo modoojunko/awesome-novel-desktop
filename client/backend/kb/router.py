@@ -35,7 +35,6 @@ def _user(dep: dict) -> str:
 def _entry_dict(e: KbEntry) -> dict[str, Any]:
     return {
         "id": e.id,
-        "status": e.status,
         "genre": e.genre,
         "concept": e.concept,
         "concept_id": e.concept_id,
@@ -97,29 +96,14 @@ async def list_entries_api(
 @router.get("/entries/{entry_id}")
 async def get_entry_api(
     entry_id: str,
-    include_merged: bool = False,
     user: dict = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
     uid = _user(user)
-    e = await get_entry(db, user_id=uid, entry_id=entry_id, include_merged=include_merged)
+    e = await get_entry(db, user_id=uid, entry_id=entry_id)
     if not e:
         raise HTTPException(404, "Entry not found")
-    data = _entry_dict(e)
-    if e.status == "merged":
-        # c-kb-organize 追溯：合并指向＋保留条目摘要
-        from models.kb import KbEntryMerge
-
-        m = (
-            await db.execute(select(KbEntryMerge).where(KbEntryMerge.merged_id == e.id))
-        ).scalar_one_or_none()
-        surv = await db.get(KbEntry, m.surviving_id) if m else None
-        data["merged_into"] = (
-            {"entry_id": m.surviving_id, "title": surv.title if surv else ""}
-            if m and surv
-            else None
-        )
-    return {"ok": True, "data": data}
+    return {"ok": True, "data": _entry_dict(e)}
 
 
 # ─── 手录 ─────────────────────────────────────────────────
@@ -516,6 +500,116 @@ async def unbind_api(
     if not removed:
         raise HTTPException(404, "Binding not found")
     return {"ok": True, "data": {"unbound": binding_id}}
+
+
+@router.post("/entries/{entry_id}/pref")
+async def set_pref_api(
+    entry_id: str,
+    body: dict,
+    user: dict = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """有用/没用回写（c-kb-write-block C3）：kb_prefs 账号级 (user_id, entry_id)。
+
+    useful=True→adopt_count+1，否则 drop_count+1；weight 存当前有用率
+    （采纳/(采纳+弃用)，下限 0.2）。可重复调用＝可改口。"""
+    from models.kb import KbEntry, KbPref
+
+    uid = _user(user)
+    entry = (
+        await db.execute(
+            select(KbEntry).where(
+                KbEntry.id == entry_id, KbEntry.user_id == uid, KbEntry.status == "active"
+            )
+        )
+    ).scalar_one_or_none()
+    if entry is None:
+        raise HTTPException(404, "Entry not found")
+    useful = bool(body.get("useful"))
+    pref = (
+        await db.execute(
+            select(KbPref).where(KbPref.user_id == uid, KbPref.entry_id == entry_id)
+        )
+    ).scalar_one_or_none()
+    if pref is None:
+        pref = KbPref(user_id=uid, entry_id=entry_id)
+        db.add(pref)
+    if useful:
+        pref.adopt_count = (pref.adopt_count or 0) + 1
+    else:
+        pref.drop_count = (pref.drop_count or 0) + 1
+    total = (pref.adopt_count or 0) + (pref.drop_count or 0)
+    pref.weight = max(0.2, (pref.adopt_count or 0) / total) if total else 1.0
+    pref.last_used_at = func.now()
+    await db.commit()
+    return {
+        "ok": True,
+        "data": {
+            "entry_id": entry_id,
+            "adopt_count": pref.adopt_count,
+            "drop_count": pref.drop_count,
+            "useful_rate": round(pref.weight, 3),
+        },
+    }
+
+
+@router.get("/match-runs")
+async def match_runs_api(
+    novel_id: str = "",
+    chapter_ref: str = "",
+    limit: int = 10,
+    user: dict = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """选择运行清单（c-kb-write-block C3）：逐条目留痕供前端只读区与反馈回显。"""
+    from models.kb import KbMatchItem, KbMatchRun
+
+    uid = _user(user)
+    # kb_match_runs 无 user_id 列（书级级联）——归属经 Novel join 认证
+    from models.project import Novel as _Novel
+
+    stmt = (
+        select(KbMatchRun)
+        .join(_Novel, _Novel.id == KbMatchRun.novel_id)
+        .where(_Novel.user_id == uid)
+    )
+    if novel_id:
+        stmt = stmt.where(KbMatchRun.novel_id == novel_id)
+    if chapter_ref:
+        stmt = stmt.where(KbMatchRun.chapter_ref == chapter_ref)
+    stmt = stmt.order_by(KbMatchRun.created_at.desc(), KbMatchRun.id.desc()).limit(max(1, min(limit, 50)))
+    runs = (await db.execute(stmt)).scalars().all()
+    out = []
+    for r in runs:
+        items = (
+            await db.execute(
+                select(KbMatchItem).where(KbMatchItem.run_id == r.id).order_by(KbMatchItem.id)
+            )
+        ).scalars().all()
+        out.append(
+            {
+                "run_id": r.id,
+                "novel_id": r.novel_id,
+                "chapter_ref": r.chapter_ref,
+                "brief_hash": r.brief_hash,
+                "scene": r.scene,
+                "emotion": r.emotion,
+                "chapter_pos": r.chapter_pos,
+                "status": r.status,
+                "created_at": r.created_at.isoformat() if r.created_at else "",
+                "items": [
+                    {
+                        "clause": i.clause,
+                        "entry_id": i.entry_id,
+                        "decision": i.decision,
+                        "score": i.score,
+                        "reason": i.reason,
+                    }
+                    for i in items
+                ],
+            }
+        )
+    return {"ok": True, "data": {"runs": out}}
 
 
 # ─── 知识整理（c-kb-organize 批C：手动触发/状态/待确认清单/采纳与反馈/条目图） ──

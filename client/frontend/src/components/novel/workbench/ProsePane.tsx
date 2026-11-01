@@ -49,6 +49,7 @@ import {
 import { docToProse, linesToParagraphs, proseToDoc, normalizeStreamedProse, proseDelta} from "./proseDoc";
 import { RenweiMarks, applyRenweiMarks } from "./renweiMarks";
 import RenweiCheckModal from "./RenweiCheckModal";
+import type { WriteBlockPayload } from "@/lib/ai";
 import RenweiMarginNotes from "./RenweiMarginNotes";
 import { renweiCheck, type RenweiReport } from "@/lib/renwei";
 import { ZhuqueMarks, applyZhuqueSegments } from "./zhuqueMarks";
@@ -102,6 +103,8 @@ interface ProsePaneProps {
   hidden?: boolean;
   /** 状态上抛（updater 形态：调用方直接传 React setState） */
   onAIStateChange: (update: (prev: ProseAIState) => ProseAIState) => void;
+  /** 本章写法块上抛（c-kb-write-block 批D 落位改右栏）：SSE 事件经此回传父级渲染 */
+  onWriteBlock?: (payload: WriteBlockPayload | null) => void;
   /** 续写恢复信号（顶栏 CTA）：n 递增触发，切到本页签后把编辑器滚回 pct */
   resumeScroll?: { n: number; pct: number };
   /** 排队门禁（workbench-frontier）：非主线端点且无正文的章——只读＋提示 */
@@ -163,7 +166,7 @@ function replaceDocNoHistory(editor: Editor, doc: JSONContent) {
 }
 
 const ProsePane = forwardRef<ProseHandle, ProsePaneProps>(function ProsePane(
-  { projectId, chapterRef, fs, lh, hidden, onAIStateChange, resumeScroll, onWriteProgress, historical, locked, editing, onStartEdit, onEndEdit },
+  { projectId, chapterRef, fs, lh, hidden, onAIStateChange, onWriteBlock, resumeScroll, onWriteProgress, historical, locked, editing, onStartEdit, onEndEdit },
   ref,
 ) {
   const wrapRef = useRef<HTMLDivElement>(null);
@@ -829,6 +832,7 @@ const ProsePane = forwardRef<ProseHandle, ProsePaneProps>(function ProsePane(
             }, 100);
           }
         },
+        onWriteBlock: (payload: WriteBlockPayload) => onWriteBlock?.(payload),
       };
       abortRef.current = streamChapterWrite(
         projectId,
@@ -892,6 +896,7 @@ const ProsePane = forwardRef<ProseHandle, ProsePaneProps>(function ProsePane(
     setGenStage("assemble");
     genSecsRef.current = 0;
       setGenSecs(0);
+    onWriteBlock?.(null); // refill 重选/刷新重组时清旧块（服务端事件重发驱动）
     const size = editor.state.doc.content.size;
     streamStartRef.current = size - 1; // 末段内起流；不删任何旧内容
     streamPosRef.current = size - 1;
@@ -917,6 +922,7 @@ const ProsePane = forwardRef<ProseHandle, ProsePaneProps>(function ProsePane(
         if (sawFirstChunkRef.current) return;
         if (GEN_STAGE_LABELS[phase]) setGenStage(phase);
       },
+      onWriteBlock: (payload: WriteBlockPayload) => onWriteBlock?.(payload),
     };
     abortRef.current = streamChapterRefill(projectId, chapterRef, cbs);
   }, [
@@ -1341,6 +1347,7 @@ const ProsePane = forwardRef<ProseHandle, ProsePaneProps>(function ProsePane(
             <p className="gl-note">通常要半分钟到一分钟；期间可点「停止」。</p>
           </div>
         )}
+
         {/* 思考面板（c-thinking-display ①）：占位行让位后的唯一等待面——
             模型名＋已思考秒数＋弱化全文（限高滚动锚尾、全量保留）＋非文档说明；
             宽度相对正文列、与思考文字量无关 */}
