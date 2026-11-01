@@ -49,6 +49,9 @@ import {
 import { docToProse, linesToParagraphs, proseToDoc, normalizeStreamedProse, proseDelta} from "./proseDoc";
 import { RenweiMarks, applyRenweiMarks } from "./renweiMarks";
 import RenweiCheckModal from "./RenweiCheckModal";
+import WriteBlockPanel from "./WriteBlockPanel";
+import type { WriteBlockPayload } from "@/lib/ai";
+import { kbApi } from "@/lib/kbApi";
 import RenweiMarginNotes from "./RenweiMarginNotes";
 import { renweiCheck, type RenweiReport } from "@/lib/renwei";
 import { ZhuqueMarks, applyZhuqueSegments } from "./zhuqueMarks";
@@ -214,6 +217,8 @@ const ProsePane = forwardRef<ProseHandle, ProsePaneProps>(function ProsePane(
   // 生成等待呈现（c-prose-gen-phases）：首字前的真实阶段（服务端 phase 事件驱动）；
   // 首字到达即退场；呼吸灯（.prose-body 的环）此时才亮起
   const [genStage, setGenStage] = useState<string | null>(null);
+  // 本章写法块（c-kb-write-block 批D）：SSE write_block 事件驱动，生成后保留可标记
+  const [writeBlock, setWriteBlock] = useState<WriteBlockPayload | null>(null);
   // 等首字计时（c-prose-thinking-timeout 顺带）：开思考后首字可能要等上一阵，
   // 秒表随等待呈现同行——静默等 90s 判死与正常等待都有数；随 genStage 退场停表
   const [genSecs, setGenSecs] = useState(0);
@@ -829,6 +834,7 @@ const ProsePane = forwardRef<ProseHandle, ProsePaneProps>(function ProsePane(
             }, 100);
           }
         },
+        onWriteBlock: (payload: WriteBlockPayload) => setWriteBlock(payload),
       };
       abortRef.current = streamChapterWrite(
         projectId,
@@ -892,6 +898,7 @@ const ProsePane = forwardRef<ProseHandle, ProsePaneProps>(function ProsePane(
     setGenStage("assemble");
     genSecsRef.current = 0;
       setGenSecs(0);
+    setWriteBlock(null); // refill 重选/刷新重组时清旧块（服务端事件重发驱动）
     const size = editor.state.doc.content.size;
     streamStartRef.current = size - 1; // 末段内起流；不删任何旧内容
     streamPosRef.current = size - 1;
@@ -917,6 +924,7 @@ const ProsePane = forwardRef<ProseHandle, ProsePaneProps>(function ProsePane(
         if (sawFirstChunkRef.current) return;
         if (GEN_STAGE_LABELS[phase]) setGenStage(phase);
       },
+      onWriteBlock: (payload: WriteBlockPayload) => setWriteBlock(payload),
     };
     abortRef.current = streamChapterRefill(projectId, chapterRef, cbs);
   }, [
@@ -1340,6 +1348,15 @@ const ProsePane = forwardRef<ProseHandle, ProsePaneProps>(function ProsePane(
             </p>
             <p className="gl-note">通常要半分钟到一分钟；期间可点「停止」。</p>
           </div>
+        )}
+        {/* 本章写法块只读条（c-kb-write-block 批D）：事件驱动，生成后保留可标记；
+            未启用知识库/零命中的书后端不下发事件＝零渲染（未启用书零变化） */}
+        {writeBlock && !hidden && (
+          <WriteBlockPanel
+            block={writeBlock.block}
+            runId={writeBlock.run_id}
+            items={writeBlock.items}
+          />
         )}
         {/* 思考面板（c-thinking-display ①）：占位行让位后的唯一等待面——
             模型名＋已思考秒数＋弱化全文（限高滚动锚尾、全量保留）＋非文档说明；
