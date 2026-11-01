@@ -80,6 +80,61 @@ export interface KbConceptMeta {
   readonly: boolean;
 }
 
+// ── 知识整理（c-kb-organize 批D）──
+
+export interface KbOrganizeStatus {
+  genre: string;
+  running: boolean;
+  last_run: null | {
+    id: string;
+    status: string;
+    started_at: string;
+    finished_at: string;
+    entries_scanned: number;
+    relations_added: number;
+    error: string;
+  };
+  pending_relations: number;
+  proposed_findings: number;
+}
+
+export interface KbPendingRelation {
+  id: string;
+  rel_type: string;
+  from_id: string;
+  to_id: string;
+  from_title: string;
+  to_title: string;
+  confidence: number;
+  note: string;
+  evidence: string;
+}
+
+export interface KbPendingFinding {
+  id: string;
+  kind: "merge" | "reclass" | "subconcept" | "quality";
+  subject_id: string;
+  subject2_id: string;
+  subject_title: string;
+  payload: Record<string, unknown>;
+}
+
+export interface KbGraphEntryNode {
+  id: string;
+  title: string;
+  concept: string;
+  instruction: string;
+}
+
+export interface KbGraphEntryEdge {
+  rel_type: string;
+  from_id: string;
+  to_id: string;
+  confidence: number;
+  note: string;
+  evidence: string;
+}
+
 // request() 自带 /api 前缀，这里只给功能段（同 libraryApi 的 /character-library 口径）
 const BASE = "/kb";
 
@@ -196,5 +251,60 @@ export const kbApi = {
     return unwrap<{
       nodes: { id: string; kind: "entry"; genre: string; concept: string; title: string; scope: string }[];
     }>(request(`${BASE}/graph/cell?${sp}`));
+  },
+
+  // ── 知识整理（c-kb-organize 批D）：方法挂 kbApi.organize 命名空间 ──
+
+  organize: {
+    run: (genre: string, full = false) =>
+      unwrap<{ skipped?: boolean; message?: string; status?: string; relations_added?: number }>(
+        request(`${BASE}/organize/run`, {
+          method: "POST",
+          body: JSON.stringify({ genre, full }),
+        }),
+      ),
+
+    status: (genre: string) =>
+      unwrap<KbOrganizeStatus>(request(`${BASE}/organize/status?genre=${encodeURIComponent(genre)}`)),
+
+    findings: (genre: string) =>
+      unwrap<{ relations: KbPendingRelation[]; findings: KbPendingFinding[]; counts: { relations: number; findings: number } }>(
+        request(`${BASE}/organize/findings?genre=${encodeURIComponent(genre)}`),
+      ),
+
+    adoptFinding: (findingId: string) =>
+      unwrap<{ message: string }>(
+        request(`${BASE}/organize/findings/${findingId}/adopt`, { method: "POST" }),
+      ),
+
+    ignoreFinding: (findingId: string) =>
+      unwrap<{ message: string }>(
+        request(`${BASE}/organize/findings/${findingId}/ignore`, { method: "POST" }),
+      ),
+
+    adoptRelation: (relationId: string) =>
+      unwrap<{ message: string }>(
+        request(`${BASE}/relations/${relationId}/adopt`, { method: "POST" }),
+      ),
+
+    rejectRelation: (relationId: string) =>
+      unwrap<{ message: string }>(
+        request(`${BASE}/relations/${relationId}/reject`, { method: "POST" }),
+      ),
+
+    relationFeedback: (relationId: string) =>
+      unwrap<{ message: string }>(
+        request(`${BASE}/relations/${relationId}/feedback`, { method: "POST" }),
+      ),
+
+    graphEntries: (genre: string) =>
+      unwrap<{ genre: string; nodes: KbGraphEntryNode[]; edges: KbGraphEntryEdge[]; edge_count: number; edge_truncated: number }>(
+        request(`${BASE}/graph/entries?genre=${encodeURIComponent(genre)}`),
+      ),
+
+    entryRelations: (entryId: string) =>
+      unwrap<{ relations: { id: string; rel_type: string; status: string; direction: string; other_id: string; other_title: string; confidence: number; note: string; evidence: string }[]; merged_into: null | { surviving_id: string; title: string } }>(
+        request(`${BASE}/entries/${entryId}/relations`),
+      ),
   },
 };

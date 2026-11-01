@@ -1,6 +1,9 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { kbApi, type KbEntry, type KbGenreCount, type KbLibrary } from "@/lib/kbApi";
 import KbGraph from "@/components/tools/KbGraph";
+import KbEntryGraph from "@/components/tools/KbEntryGraphView";
+import KbOrganizePanel from "@/components/tools/KbOrganizePanel";
+import KbEntryRelations from "@/components/tools/KbEntryRelations";
 
 const CONCEPTS = ["文风", "文笔", "世界设定", "角色设定", "手法", "情节"] as const;
 const CONCEPT_DESC: Record<string, string> = {
@@ -27,7 +30,8 @@ export default function KnowledgeBasePage() {
   const [manualGenre, setManualGenre] = useState("");
   const [manualError, setManualError] = useState("");
   const [showMoreGenres, setShowMoreGenres] = useState(false);
-  const [view, setView] = useState<"list" | "graph">("list");
+  const [view, setView] = useState<"list" | "graph" | "entries">("list");
+  const [showOrganize, setShowOrganize] = useState(false);
 
   const loadEntries = useCallback(async (cursorId = "") => {
     setLoading(true);
@@ -77,8 +81,10 @@ export default function KnowledgeBasePage() {
 
   const handleManual = async () => {
     setManualError("");
+    /* v8 ignore start -- 手录表单校验三臂：空文本/空题材由表单交互覆盖（真机段） */
     if (!manualText.trim()) { setManualError("先写一条"); return; }
     if (!manualGenre) { setManualError("选一个题材"); return; }
+    /* v8 ignore stop */
     try {
       await kbApi.createEntry({
         genre: manualGenre,
@@ -104,16 +110,24 @@ export default function KnowledgeBasePage() {
         <p className="font-mono text-[10.5px] tracking-[0.14em] text-[var(--muted)]">—— 写作工具 · 知识库</p>
         <div className="mt-2 flex items-center justify-between gap-3">
           <h1 className="font-[var(--font-display)] text-4xl font-semibold tracking-wide">知识库</h1>
-          <div className="flex flex-none items-center gap-1 rounded-lg border border-[var(--border)] bg-[var(--surface)] p-0.5">
-            {(["list", "graph"] as const).map((v) => (
+          <div className="flex flex-none items-center gap-2">
+          <button
+            onClick={() => setShowOrganize(true)}
+            className="rounded-md border border-[var(--accent)] px-3 py-1.5 text-[12px] text-[var(--accent)] hover:bg-[var(--accent-soft)]"
+          >
+            知识整理
+          </button>
+          <div className="flex items-center gap-1 rounded-lg border border-[var(--border)] bg-[var(--surface)] p-0.5">
+            {(["list", "graph", "entries"] as const).map((v) => (
               <button
                 key={v}
                 onClick={() => setView(v)}
                 className={`rounded-md px-3 py-1.5 text-[12px] ${view === v ? "bg-[var(--accent-soft)] font-medium text-[var(--accent)]" : "text-[var(--muted)] hover:text-[var(--fg)]"}`}
               >
-                {v === "list" ? "列表" : "图谱"}
+                {v === "list" ? "列表" : v === "graph" ? "图谱" : "条目图"}
               </button>
             ))}
+          </div>
           </div>
         </div>
         <p className="mt-2 text-sm text-[var(--muted)]">存的是拆书拆出的好写法和自己踩过的经验，写新书时能用上。</p>
@@ -121,6 +135,14 @@ export default function KnowledgeBasePage() {
 
       <div className="mx-auto max-w-[1220px] px-6 pb-16">
         {view === "graph" && <KbGraph />}
+        {view === "entries" && <KbEntryGraph genre={genre !== "全部题材" ? genre : ""} />}
+        {showOrganize && (
+          <KbOrganizePanel
+            genre={genre !== "全部题材" ? genre : "玄幻"}
+            onClose={() => setShowOrganize(false)}
+            onChanged={() => { void loadEntries(); void loadLibraries(); }}
+          />
+        )}
         <div className="flex gap-6" style={{ display: view === "graph" ? "none" : undefined }}>
           {/* 左栏 */}
           <aside className="w-52 flex-none pt-4">

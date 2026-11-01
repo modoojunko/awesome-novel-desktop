@@ -16,7 +16,7 @@ import logging
 import re
 from datetime import UTC, datetime
 
-from sqlalchemy import delete, select
+from sqlalchemy import delete, func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -840,3 +840,333 @@ async def adopt_finding(db: AsyncSession, *, user_id: str, finding_id: str) -> t
     f.status = "adopted"
     await db.commit()
     return True, "提案已确认"
+
+
+# ─── 批C：端点服务层（清单/反馈/条目图） ─────────────────────────────────
+
+
+async def organize_status(db: AsyncSession, *, user_id: str, genre: str) -> dict:
+    """运行状态：最近一次 run＋待确认计数（pending 关系＋proposed findings）。"""
+    last = (
+        await db.execute(
+            select(KbOrganizeRun)
+            .where(KbOrganizeRun.user_id == user_id, KbOrganizeRun.genre == genre)
+            .order_by(KbOrganizeRun.started_at.desc())
+            .limit(1)
+        )
+    ).scalars().first()
+    pending_rel = (
+        await db.execute(
+            select(func.count(KbRelation.id)).where(
+                KbRelation.user_id == user_id,
+                KbRelation.status == PENDING,
+                KbRelation.rel_type.in_(REL_TYPES),
+            )
+        )
+    ).scalar() or 0
+    proposed_f = (
+        await db.execute(
+            select(func.count(KbOrganizeFinding.id)).where(
+                KbOrganizeFinding.user_id == user_id,
+                KbOrganizeFinding.status == "proposed",
+            )
+        )
+    ).scalar() or 0
+    return {
+        "genre": genre,
+        "running": bool(last and last.status == "running"),
+        "last_run": {
+            "id": last.id,
+            "status": last.status,
+            "started_at": last.started_at.isoformat() if last.started_at else "",
+            "finished_at": last.finished_at.isoformat() if last.finished_at else "",
+            "entries_scanned": last.entries_scanned,
+            "relations_added": last.relations_added,
+            "error": last.error or "",
+        } if last else None,
+        "pending_relations": int(pending_rel),
+        "proposed_findings": int(proposed_f),
+    }
+
+
+async def run_manual(db: AsyncSession, *, user_id: str, genre: str, full: bool) -> dict:
+    """手动整理入口（端点用）：running 即幂等跳过；fire-and-forget 不适用（端点等结果）。"""
+    existing = await _pending_run(db, user_id, genre)
+    if existing is not None:
+        return {"ok": False, "code": "running", "run_id": existing.id,
+                "message": "该题材正在整理中，稍后再看结果"}
+    run, err = await run_organize(
+        db, user_id=user_id, genre=genre, trigger="manual", full=full, llm=True
+    )
+    if run is None:
+        return {"ok": False, "code": "running", "message": "该题材正在整理中"}
+    return {
+        "ok": err == "",
+        "code": "done" if err == "" else "error",
+        "run_id": run.id,
+        "status": run.status,
+        "entries_scanned": run.entries_scanned,
+        "relations_added": run.relations_added,
+        "relations_updated": run.relations_updated,
+        "relations_skipped": run.relations_skipped,
+        "error": run.error or "",
+        "message": ("整理完成" if err == "" else f"整理失败：{err[:120]}"),
+    }
+
+
+async def list_pending(db: AsyncSession, *, user_id: str, genre: str = "") -> dict:
+    """待确认清单：pending 关系＋proposed findings（四类建议）汇聚。"""
+    rel_rows = (
+        await db.execute(
+            select(KbRelation).where(
+                KbRelation.user_id == user_id,
+                KbRelation.status == PENDING,
+                KbRelation.rel_type.in_(REL_TYPES),
+            )
+        )
+    ).scalars().all()
+    f_stmt = select(KbOrganizeFinding).where(
+        KbOrganizeFinding.user_id == user_id, KbOrganizeFinding.status == "proposed"
+    )
+    if genre:
+        f_stmt = f_stmt.where(KbOrganizeFinding.genre == genre)
+    f_rows = (
+        await db.execute(f_stmt.order_by(KbOrganizeFinding.created_at.desc()).limit(200))
+    ).scalars().all()
+
+    entry_ids = sorted(
+        {r.from_id for r in rel_rows} | {r.to_id for r in rel_rows}
+        | {f.subject_id for f in f_rows} | {f.subject2_id for f in f_rows if f.subject2_id}
+    )
+    titles: dict[str, str] = {}
+    if entry_ids:
+        for e in (
+            await db.execute(select(KbEntry).where(KbEntry.id.in_(entry_ids)))
+        ).scalars():
+            titles[e.id] = e.title
+
+    relations = [
+        {
+            "id": r.id,
+            "rel_type": r.rel_type,
+            "from_id": r.from_id,
+            "to_id": r.to_id,
+            "from_title": titles.get(r.from_id, r.from_id),
+            "to_title": titles.get(r.to_id, r.to_id),
+            "confidence": r.confidence,
+            "note": r.note,
+            "evidence": r.evidence,
+        }
+        for r in rel_rows
+    ]
+    findings = [
+        {
+            "id": f.id,
+            "kind": f.kind,
+            "subject_id": f.subject_id,
+            "subject2_id": f.subject2_id,
+            "subject_title": titles.get(f.subject_id, f.subject_id),
+            "payload": _safe_json(f.payload_json),
+        }
+        for f in f_rows
+    ]
+    return {"relations": relations, "findings": findings,
+            "counts": {"relations": len(relations), "findings": len(findings)}}
+
+
+def _safe_json(raw: str) -> dict:
+    try:
+        v = json.loads(raw or "{}")
+    except (TypeError, ValueError):
+        return {}
+    return v if isinstance(v, dict) else {}
+
+
+async def relation_feedback(
+    db: AsyncSession, *, user_id: str, relation_id: str
+) -> tuple[bool, str]:
+    """「这条不对」：落特征签名反馈（下次整理降权），SHALL NOT 删改关系本体。"""
+    r = (
+        await db.execute(
+            select(KbRelation).where(
+                KbRelation.id == relation_id, KbRelation.user_id == user_id
+            )
+        )
+    ).scalar_one_or_none()
+    if r is None:
+        return False, "not_found"
+    sig = pair_signature(r.from_id, r.to_id)
+    exists = (
+        await db.execute(
+            select(KbOrganizeFeedback.id).where(
+                KbOrganizeFeedback.user_id == user_id,
+                KbOrganizeFeedback.kind == "relation",
+                KbOrganizeFeedback.signature == sig,
+            )
+        )
+    ).scalar_one_or_none()
+    if exists is None:
+        db.add(KbOrganizeFeedback(
+            user_id=user_id, kind="relation", signature=sig, entry_id=r.from_id,
+        ))
+        await db.commit()
+    return True, "已记录，下次整理会降低同类候选权重"
+
+
+async def adopt_pending_relation(db: AsyncSession, *, user_id: str, relation_id: str) -> tuple[bool, str]:
+    r = (
+        await db.execute(
+            select(KbRelation).where(
+                KbRelation.id == relation_id,
+                KbRelation.user_id == user_id,
+                KbRelation.status == PENDING,
+            )
+        )
+    ).scalar_one_or_none()
+    if r is None:
+        return False, "not_found"
+    r.status = ACTIVE
+    await db.commit()
+    return True, "关系已生效"
+
+
+async def reject_pending_relation(db: AsyncSession, *, user_id: str, relation_id: str) -> tuple[bool, str]:
+    r = (
+        await db.execute(
+            select(KbRelation).where(
+                KbRelation.id == relation_id,
+                KbRelation.user_id == user_id,
+                KbRelation.status == PENDING,
+            )
+        )
+    ).scalar_one_or_none()
+    if r is None:
+        return False, "not_found"
+    r.status = ARCHIVED
+    await db.commit()
+    return True, "已否决"
+
+
+GRAPH_EDGE_CAP = 500  # 条目图边硬顶（design D7）：按 confidence 降序取
+
+
+async def graph_entries(db: AsyncSession, *, user_id: str, genre: str) -> dict:
+    """条目图数据：题材内 active 条目为节点、active 关系为边（≤GRAPH_EDGE_CAP）。
+
+    pending 关系、merged 条目、merged_into（独立表）SHALL NOT 出现。
+    """
+    nodes = (
+        await db.execute(
+            select(KbEntry)
+            .where(
+                KbEntry.user_id == user_id,
+                KbEntry.genre == genre,
+                KbEntry.concept != "情节",
+                KbEntry.status == ACTIVE,
+            )
+            .order_by(KbEntry.created_at, KbEntry.id)
+        )
+    ).scalars().all()
+    node_ids = {e.id for e in nodes}
+    edges_all = (
+        await db.execute(
+            select(KbRelation)
+            .where(
+                KbRelation.user_id == user_id,
+                KbRelation.status == ACTIVE,
+                KbRelation.rel_type.in_(REL_TYPES),
+            )
+            .order_by(KbRelation.confidence.desc(), KbRelation.created_at.asc())
+        )
+    ).scalars().all()
+    edges = []
+    truncated = 0
+    for r in edges_all:
+        if r.from_id not in node_ids or r.to_id not in node_ids or r.from_id == r.to_id:
+            continue
+        if len(edges) >= GRAPH_EDGE_CAP:
+            truncated += 1
+            continue
+        edges.append({
+            "rel_type": r.rel_type,
+            "from_id": r.from_id,
+            "to_id": r.to_id,
+            "confidence": r.confidence,
+            "note": r.note,
+            "evidence": r.evidence,
+        })
+    return {
+        "genre": genre,
+        "nodes": [
+            {"id": e.id, "title": e.title, "concept": e.concept,
+             "instruction": (e.instruction or "")[:120]}
+            for e in nodes
+        ],
+        "edges": edges,
+        "edge_count": len(edges),
+        "edge_truncated": truncated,
+    }
+
+
+async def entry_relations(
+    db: AsyncSession, *, user_id: str, entry_id: str
+) -> dict:
+    """条目详情的关系列表：active＋pending 中两端含该条目的关系（含对方标题）。
+
+    merged 条目的追溯（kb_entry_merges 指向）随返回（merged_into 段）。
+    """
+    e = await db.get(KbEntry, entry_id)
+    if e is None or e.user_id != user_id:
+        return {"error": "not_found"}
+    rel_rows = (
+        await db.execute(
+            select(KbRelation).where(
+                KbRelation.user_id == user_id,
+                KbRelation.status.in_((ACTIVE, PENDING)),
+                KbRelation.rel_type.in_(REL_TYPES),
+            )
+        )
+    ).scalars().all()
+    mine = [r for r in rel_rows if r.from_id == entry_id or r.to_id == entry_id]
+    other_ids = sorted(
+        {r.from_id if r.from_id != entry_id else r.to_id for r in mine}
+    )
+    titles: dict[str, str] = {}
+    if other_ids:
+        for o in (
+            await db.execute(select(KbEntry).where(KbEntry.id.in_(other_ids)))
+        ).scalars():
+            titles[o.id] = o.title
+    relations = [
+        {
+            "id": r.id,
+            "rel_type": r.rel_type,
+            "status": r.status,
+            "direction": "out" if r.from_id == entry_id else "in",
+            "other_id": r.from_id if r.from_id != entry_id else r.to_id,
+            "other_title": titles.get(
+                r.from_id if r.from_id != entry_id else r.to_id,
+                r.from_id if r.from_id != entry_id else r.to_id,
+            ),
+            "confidence": r.confidence,
+            "note": r.note,
+            "evidence": r.evidence,
+        }
+        for r in mine
+    ]
+    from models.kb import KbEntryMerge
+
+    merged_into = None
+    if e.status == "merged":
+        m = (
+            await db.execute(
+                select(KbEntryMerge).where(KbEntryMerge.merged_id == entry_id)
+            )
+        ).scalar_one_or_none()
+        if m is not None:
+            surv = await db.get(KbEntry, m.surviving_id)
+            merged_into = {
+                "surviving_id": m.surviving_id,
+                "title": surv.title if surv else "",
+            }
+    return {"relations": relations, "merged_into": merged_into}

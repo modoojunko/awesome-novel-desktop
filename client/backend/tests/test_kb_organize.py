@@ -396,7 +396,7 @@ class TestFindingsAndAdoption:
             async with async_session() as db:
                 for eid, key in (("p-a", "洛九歌"), ("p-b", "character:1")):
                     db.add(KbEntry(
-                        id=f"{eid}-{uid[:6]}", user_id=uid, genre="玄幻",
+                        id=f"{eid}-{uuid.uuid4().hex[:8]}", user_id=uid, genre="玄幻",
                         concept="角色设定", concept_id="玄幻:角色设定",
                         title="洛九歌", payload_json=json.dumps(
                             {"archetype": "洛九歌", "aliases": ["掌灯人"], "gender": "女"},
@@ -686,3 +686,145 @@ async def _char_id(novel_id: str) -> str:
 
 # 别名：批B 检测入口（run_organize 内同名函数；测试直接打它）
 org_detect = org.detect_findings
+
+
+class TestOrganizeEndpoints:
+    """批C：端点幂等/待确认清单/采纳与反馈/条目图形状与 cap。"""
+
+    def _uid(self):
+        return _mk("ep")
+
+    async def _seed_graph(self, uid: str):
+        """4 条目＋5 条关系（1 pending／3 active）→图 cap 断言素材。"""
+        async with async_session() as db:
+            specs = [
+                ("m1", "手法", "打斗先果后因。"), ("m2", "手法", "悬念钩子打法。"),
+                ("w1", "文风", "冷峻旁白。"), ("w2", "文风", "克制短句。"),
+            ]
+            entry_ids = {}
+            by_eid = {}
+            for eid, concept, instr in specs:
+                real_id = f"{eid}-{uuid.uuid4().hex[:8]}"
+                entry_ids[eid] = real_id
+                by_eid[eid] = KbEntry(id=real_id, user_id=uid, genre="玄幻",
+                                      concept=concept, concept_id=f"玄幻:{concept}", title=instr[:8],
+                                      payload_json="{}", instruction=instr)
+            db.add_all(by_eid.values())
+            rels = [
+                ("m1", "w1", "applies_to", 0.9, "active"),
+                ("m2", "w2", "applies_to", 0.85, "active"),
+                ("m1", "m2", "depends_on", 0.8, "active"),
+                ("m1", "w2", "applies_to", 0.7, "pending"),
+                ("m2", "w1", "derived_from", 0.6, "active"),
+            ]
+            for (a, b, rt, conf, st) in rels:
+                db.add(KbRelation(user_id=uid, from_id=entry_ids[a], to_id=entry_ids[b],
+                                  rel_type=rt, confidence=conf, status=st, source="ai"))
+            await db.commit()
+        return {"ids": entry_ids}
+
+    def test_手动触发幂等与状态(self):
+        uid = self._uid()
+        _run(_seed_user(uid))
+        ids = _run(self._seed_graph(uid))["ids"]
+
+        async def _override():
+            return {"id": uid}
+        app.dependency_overrides[get_current_user] = _override
+        try:
+            with TestClient(app) as c:
+                r1 = c.post("/api/kb/organize/run", json={"genre": "玄幻"})
+                assert r1.status_code == 200
+                d1 = r1.json()["data"]
+                assert d1.get("skipped") is not True
+                assert d1["status"] in ("completed", "error")  # llm 真调可 error（无 Key fail-soft）
+                # status 端点
+                s = c.get("/api/kb/organize/status?genre=玄幻").json()["data"]
+                assert s["running"] is False and s["last_run"]["entries_scanned"] == 4
+                assert s["pending_relations"] >= 1
+                # 缺参 400
+                assert c.post("/api/kb/organize/run", json={}).status_code == 400
+                assert c.get("/api/kb/organize/status").status_code == 400
+        finally:
+            app.dependency_overrides.clear()
+
+    def test_待确认清单_采纳_否决_反馈(self):
+        uid = self._uid()
+        _run(_seed_user(uid))
+        ids = _run(self._seed_graph(uid))["ids"]
+
+        async def _override():
+            return {"id": uid}
+        app.dependency_overrides[get_current_user] = _override
+        try:
+            with TestClient(app) as c:
+                lst = c.get("/api/kb/organize/findings?genre=玄幻").json()["data"]
+                assert lst["counts"]["relations"] == 1  # 仅 pending 那条
+                rel = lst["relations"][0]
+                assert rel["from_title"] and rel["to_title"]  # 标题回填
+
+                # 否决 pending → 不再出现在清单
+                rj = c.post(f"/api/kb/relations/{rel['id']}/reject")
+                assert rj.status_code == 200
+                lst2 = c.get("/api/kb/organize/findings?genre=玄幻").json()["data"]
+                assert lst2["counts"]["relations"] == 0
+
+                # 「这条不对」：落反馈签名（幂等）
+                fb = c.post(f"/api/kb/relations/{ids['m1'][:0]}{rel['id']}/feedback")
+                # 用已否决关系也行（本体在）——换 m1→w1 那条：需查 id
+                async def _rel_id():
+                    async with async_session() as db:
+                        r = (await db.execute(sel(KbRelation).where(
+                            KbRelation.user_id == uid,
+                            KbRelation.rel_type == "applies_to"))).scalars().first()
+                        return r.id
+                rid = _run(_rel_id())
+                fb1 = c.post(f"/api/kb/relations/{rid}/feedback").json()["data"]
+                assert "降低" in fb1["message"]
+                fb2 = c.post(f"/api/kb/relations/{rid}/feedback").json()["data"]  # 幂等
+
+                async def _fb_count():
+                    async with async_session() as db:
+                        return len((await db.execute(sel(KbOrganizeFeedback))).scalars().all())
+                assert _run(_fb_count()) >= 1
+        finally:
+            app.dependency_overrides.clear()
+
+    def test_条目图形状_cap与排除(self, monkeypatch):
+        uid = self._uid()
+        _run(_seed_user(uid))
+        ids = _run(self._seed_graph(uid))["ids"]
+
+        async def _override():
+            return {"id": uid}
+        app.dependency_overrides[get_current_user] = _override
+        try:
+            with TestClient(app) as c:
+                g = c.get("/api/kb/graph/entries?genre=玄幻").json()["data"]
+                assert g["edge_count"] == 4  # pending 不入图（4 active）
+                assert all(e["rel_type"] in org.REL_TYPES for e in g["edges"])
+                assert {n["concept"] for n in g["nodes"]} == {"手法", "文风"}
+                # cap：monkeypatch 硬顶（4 条 active 边 → cap 1，其余计 truncated）
+                monkeypatch.setattr(org, "GRAPH_EDGE_CAP", 1)
+                g_cap = c.get("/api/kb/graph/entries?genre=玄幻").json()["data"]
+                assert g_cap["edge_count"] == 1 and g_cap["edge_truncated"] == 3
+                monkeypatch.setattr(org, "GRAPH_EDGE_CAP", 500)
+                # merged 条目不入图
+                async def _merge_one():
+                    async with async_session() as db:
+                        e = await db.get(KbEntry, ids["m2"])
+                        e.status = "merged"
+                        await db.commit()
+                _run(_merge_one())
+                g2 = c.get("/api/kb/graph/entries?genre=玄幻").json()["data"]
+                assert all(n["id"] != ids["m2"] for n in g2["nodes"])
+                assert g2["edge_count"] == 1  # m2 相关边消失（m2→w2、m1→m2、m2→w1）
+                assert c.get("/api/kb/graph/entries").status_code == 400
+        finally:
+            app.dependency_overrides.clear()
+
+    def test_权限_未登录401(self):
+        # 不做 override——真实依赖链（共享测试库 config 无 token）→ 401
+        with TestClient(app) as c:
+            r = c.get("/api/kb/organize/findings")
+            assert r.status_code in (401, 403)

@@ -86,4 +86,7 @@ export const COVERAGE_CONTRACT_FILES = [
   // c-kb-organize（全局图：聚合/下钻整形＋token 实色＋force-graph 薄壳）
   "src/lib/kbGraph.ts",
   "src/components/tools/KbGraph.tsx",
+  "src/lib/kbEntryGraph.ts",
+  "src/components/tools/KbOrganizePanel.tsx",
+  "src/components/tools/KbEntryRelations.tsx",
 ] as const;

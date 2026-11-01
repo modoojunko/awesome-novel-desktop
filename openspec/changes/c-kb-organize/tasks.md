@@ -24,15 +24,15 @@
 
 ## 批C 端点与条目图（后端，依赖批A/B）
 
-- [ ] C1 端点：手动整理触发（幂等）/运行状态/待确认清单（pending 关系＋findings 汇聚）/建议采纳与忽略/关系反馈——全部信封风格＋权限
-- [ ] C2 条目图端点 `/graph/entries?genre=`：active 条目节点＋active 关系边（≤500 按 confidence 降序 cap，截断计数返回）；聚合视图端点零改动
-- [ ] C3 单测：端点权限幂等/边 cap 与截断/pending·merged·merged_into 三不入图/genre="" 候选池归属
+- [x] C1 端点：手动整理触发（幂等）/运行状态/待确认清单（pending 关系＋findings 汇聚）/建议采纳与忽略/关系反馈——全部信封风格＋权限
+- [x] C2 条目图端点 `/graph/entries?genre=`：active 条目节点＋active 关系边（≤500 按 confidence 降序 cap，截断计数返回）；聚合视图端点零改动
+- [x] C3 单测：端点权限幂等/边 cap 与截断/pending·merged·merged_into 三不入图/genre="" 候选池归属
 
 ## 批D 前端（依赖批C）
 
-- [ ] D1 知识库页「整理」入口＋运行状态行（info/ok/warn/err；触发中禁重复点击；待确认清单计数徽标）
-- [ ] D2 条目图视图：节点边渲染（六类 --chart-* 分色）＋边点击浮层（类型/说明/证据）＋cap 提示；聚合/下钻视图不动
-- [ ] D3 待确认清单：pending 关系＋四类 findings 逐条「采纳/忽略」；条目详情关系列表＋「这条不对」钮＋merged 追溯入口
+- [x] D1 知识库页「整理」入口＋运行状态行（info/ok/warn/err；触发中禁重复点击；待确认清单计数徽标）
+- [x] D2 条目图视图：节点边渲染（六类 --chart-* 分色）＋边点击浮层（类型/说明/证据）＋cap 提示；聚合/下钻视图不动
+- [x] D3 待确认清单：pending 关系＋四类 findings 逐条「采纳/忽略」；条目详情关系列表＋「这条不对」钮＋merged 追溯入口
 - [ ] D4 入约（coverage-contract）＋组件测试＋design-language §13 自查；e2e：整理触发→清单采纳→条目图见边→反馈降权全链
 
 ## 批E 提示词与验收（依赖批A；随批B/C 并行）
