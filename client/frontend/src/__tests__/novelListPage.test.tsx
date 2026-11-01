@@ -203,7 +203,8 @@ describe("列表状态与卡片", () => {
     expect(screen.getByText(/完结于/)).toBeTruthy();
     expect(within(cardOf("空书")).getByText("设定中")).toBeTruthy();
     expect(screen.getByText("待定题材")).toBeTruthy();
-    expect(screen.getByText("继续创作")).toBeTruthy();
+    // 设定态文案召唤（c-shelf-settings-nudge）：0 章书 CTA＝去补设定（文案与落点对齐）
+    expect(within(cardOf("空书")).getByText("去补设定")).toBeTruthy();
   });
 
   it("相对时间口径：分钟/小时/昨天/天/日期", async () => {
@@ -1439,11 +1440,12 @@ describe("封面入口（c-book-card-cover-column：占位块/悬浮换封面/�
     await waitFor(() => expect(screen.queryByTestId("image-workshop")).toBeNull());
   });
 
-  it("0 章书：占位弱化不可点（「可稍后添加」），封面入口走 ⋯ 菜单「封面…」", async () => {
+  it("0 章书：占位弱化不可点（提示「可在 ⋯ 菜单添加」），封面入口走 ⋯ 菜单「封面…」，CTA＝去补设定", async () => {
     getMock.mockResolvedValue([novel({ id: "n0", name: "雪落无声", total_chapters: 0 })]);
     renderPage();
     await waitFor(() => expect(screen.getByText("《雪落无声》")).toBeTruthy());
-    expect(screen.getByText("可稍后添加")).toBeTruthy();
+    expect(screen.getByText("可在 ⋯ 菜单添加")).toBeTruthy();
+    expect(screen.getByText("去补设定")).toBeTruthy(); // 设定态文案召唤（c-shelf-settings-nudge）
     expect(screen.queryByLabelText(/生成封面/)).toBeNull();
     fireEvent.click(screen.getByLabelText("更多操作"));
     fireEvent.click(screen.getByText("封面…"));
@@ -1509,14 +1511,14 @@ describe("封面入口（c-book-card-cover-column：占位块/悬浮换封面/�
     await waitFor(() => expect(screen.getByText("AI 封面 · 未指定画风")).toBeTruthy());
   });
 
-  it("兜底臂：章节数缺失按 0 章（可稍后添加）＋空书名占位钮取「书」首字", async () => {
+  it("兜底臂：章节数缺失按 0 章（⋯ 菜单提示）＋空书名占位钮取「书」首字", async () => {
     getMock.mockResolvedValue([
       novel({ id: "nx", name: "无章节数的书", total_chapters: undefined }),
       novel({ id: "nn", name: "" }),
     ]);
     renderPage();
     await waitFor(() => expect(screen.getByText("《》")).toBeTruthy());
-    expect(screen.getByText("可稍后添加")).toBeTruthy(); // total_chapters ?? 0 → 0 章弱化
+    expect(screen.getByText("可在 ⋯ 菜单添加")).toBeTruthy(); // total_chapters ?? 0 → 0 章弱化态
     expect(screen.getByLabelText("为《》生成封面")).toBeTruthy(); // 空名有章 → 占位按钮臂
     const btnSeal = document.querySelector("button.cover-empty .ce-seal")?.textContent; // name || "书"
     expect(btnSeal).toBe("书");

@@ -400,7 +400,7 @@ function NovelList() {
     const words = p.word_count ?? 0;
     const chapters = p.total_chapters ?? 0;
     /* 封面列（拍板 C）：有封面＝竖版图＋悬浮「换封面」；
-       无封面有章节＝占位块即按钮「生成封面」；0 章＝不可点占位「可稍后添加」（入口走 ⋯ 菜单） */
+       无封面有章节＝占位块即按钮「生成封面」；0 章＝不可点弱化态，文案提示 ⋯ 菜单入口（c-shelf-settings-nudge） */
     const coverCol = p.cover ? (
       <>
         <ImageThumb asset={p.cover} className="book-cover-img" alt="" />
@@ -418,7 +418,7 @@ function NovelList() {
       <div className="cover-empty is-later">
         <span className="mono ce-seal">{(p.name || "书")[0]}</span>
         <span>还没有封面</span>
-        <span className="ce-cta">可稍后添加</span>
+        <span className="ce-cta">可在 ⋯ 菜单添加</span>
       </div>
     ) : (
       <button
@@ -556,7 +556,9 @@ function NovelList() {
                 <span className="updated">更新于 {relTime(p.updated_at)}</span>
                 <span className="foot-acts">
                   <span className="go">
-                    继续创作
+                    {/* 设定态文案召唤（c-shelf-settings-nudge）：0 章书默认落点本就是设定页，
+                        文案与落点对齐；写作中恒「继续创作」 */}
+                    {stage === "setting" ? "去补设定" : "继续创作"}
                     <Ico d={P.arrowRight} />
                   </span>
                 </span>

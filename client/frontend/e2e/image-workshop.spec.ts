@@ -92,8 +92,9 @@ test.describe("封面/头像上传型工坊", () => {
     await page.goto(`${ORIGIN}/#/novels`);
     const card = page.locator(".book-card", { hasText: bookName });
     await expect(card).toBeVisible({ timeout: 15000 });
-    // 0 章书占位弱化不可点（c-book-card-cover-column）：「可稍后添加」，入口走 ⋯ 菜单「封面…」
-    await expect(card.getByText("可稍后添加")).toBeVisible();
+    // 0 章书占位弱化不可点（c-book-card-cover-column），文案提示 ⋯ 菜单入口＋设定态 CTA「去补设定」（c-shelf-settings-nudge）
+    await expect(card.getByText("可在 ⋯ 菜单添加")).toBeVisible();
+    await expect(card.getByText("去补设定")).toBeVisible();
 
     // 无图态：⋯ 菜单「封面…」打开封面工坊
     await card.getByRole("button", { name: "更多操作" }).click();
