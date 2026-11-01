@@ -33,9 +33,9 @@
 - [x] D1 知识库页「整理」入口＋运行状态行（info/ok/warn/err；触发中禁重复点击；待确认清单计数徽标）
 - [x] D2 条目图视图：节点边渲染（六类 --chart-* 分色）＋边点击浮层（类型/说明/证据）＋cap 提示；聚合/下钻视图不动
 - [x] D3 待确认清单：pending 关系＋四类 findings 逐条「采纳/忽略」；条目详情关系列表＋「这条不对」钮＋merged 追溯入口
-- [ ] D4 入约（coverage-contract）＋组件测试＋design-language §13 自查；e2e：整理触发→清单采纳→条目图见边→反馈降权全链
+- [x] D4 入约（coverage-contract）＋组件测试＋design-language §13 自查；e2e：整理触发→清单采纳→条目图见边→反馈降权全链
 
 ## 批E 提示词与验收（依赖批A；随批B/C 并行）
 
-- [ ] E1 prompts 仓 kb_organize 模板（短名单批产候选；输出契约 JSON；占位符/配额按 prompt-pack 惯例）＋冒烟
-- [ ] E2 CQ 六问回归落 tests（D1 各一断言）＋真机走查单（拆书入库→自动整理→条目图见边→反馈降权→平行条目合并建议全链）
+- [x] E1 prompts 仓 kb_organize 模板（短名单批产候选；输出契约 JSON；占位符/配额按 prompt-pack 惯例）＋冒烟
+- [x] E2 CQ 六问回归落 tests（D1 各一断言）＋真机走查单（拆书入库→自动整理→条目图见边→反馈降权→平行条目合并建议全链）
