@@ -2352,3 +2352,11 @@ boss 口径：「文案太 AI 了，要用大白话」。清一遍 #949/#955/#95
   （`#split-body` 无 JS 填充），`design:check` 本无拆章屏用例——本批只登记偏差，不补 DOM；
   视觉与交互由实现侧组件测试 + e2e 覆盖。
 - **共享段**：零改动（只用既有 `.btn` / `.pc-fine` / `.pc-openline` / `.tag` 语义类，未新增 pc- 类）。
+
+## 2026-11-01 · 书架设定态文案召唤（c-shelf-settings-nudge）
+
+- **文案（list.html 书卡，两处，纯文案零样式）**：设定态（0 章）页脚 CTA「继续创作」→「去补设定」——0 章书默认落点本就是设定页，文案与落点对齐（写作中恒「继续创作」不变）；0 章无封面占位 CTA「可稍后添加」→「可在 ⋯ 菜单添加」——is-later 不可点弱化态语义不变，只把 ⋯ 菜单入口讲清楚。拍板口径＝「文案提示就够」（readiness 进度下发／「设定 N/7」徽章等重方案整体裁撤）。
+- **同源同步**：`backup-restore.html` 书架卡 CTA 照 list.html 三分支同步（done→查看／setting→去补设定／其余→继续创作）——该屏不在 parity 矩阵（design:check 只跑 list.html/preview.html），无闸可抓，随批手工对齐。
+- **与原型关系**：实现与原型同批改字，无实现-原型偏差；parity 打桩两侧分支条件逐字一致（长夜灯 0 章＝setting，两侧同出「去补设定」），像素对拍零差异。测试钉同批改：`novelListPage.test.tsx` 3 处＋`e2e/image-workshop.spec.ts`。
+- **历史段注记**：§c-book-card-cover-column（2026-10-24）所记「CTA 弱化『可稍后添加』」为彼时事实，现行文案以本段为准（历史登记不回改）。
+- **共享段**：零改动。
