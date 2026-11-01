@@ -8,7 +8,7 @@ from sqlalchemy import select as sel
 
 from db import async_session
 from models.character_library import CharacterLibrary, CharacterLibraryBlob
-from models.kb import KbEntry, KbEntryBlob
+from models.kb import KbEntry, KbEntryBlob, KbLibrary
 from models.user import User
 
 
@@ -93,3 +93,43 @@ def test_搬运_幂等_孤儿_多用户同键():
     assert r2["migrated"] == 0 and r2["removed"] == 0
     assert r2["orphaned"] == 1
     assert _blob_rows(ent1) == {"full": b"OLD-FULL", "thumb": b"OLD-THUMB"}
+
+
+def test_auto库enabled自愈():
+    """批3 潜伏 bug：auto 库生成漏传 enabled（default False）→ 书内启用链断。
+    heal 翻 True 且幂等；手动圈选库（manual）不动。"""
+    from kb.blob_migration import heal_auto_libraries_v1
+
+    suffix = uuid.uuid4().hex[:8]
+    uid = f"heal-{suffix}"
+
+    async def _seed():
+        async with async_session() as db:
+            db.add(User(id=uid, email=f"{uid}@t.local", password_hash="x"))
+            db.add(KbLibrary(
+                user_id=uid, genre="玄幻", concept="世界设定", name="世界设定库",
+                rule_kind="auto", enabled=False,  # 批3 缺陷形态
+            ))
+            db.add(KbLibrary(
+                user_id=uid, genre="玄幻", concept="文风", name="圈选库",
+                rule_kind="manual", enabled=False,  # 未来「停用」语义：不动
+            ))
+            await db.commit()
+    _run(_seed())
+
+    healed = _run(heal_auto_libraries_v1())
+    assert healed >= 1  # 共享库可能有他测试的 False auto 库一并翻正
+
+    async def _check():
+        async with async_session() as db:
+            rows = (await db.execute(
+                sel(KbLibrary).where(KbLibrary.user_id == uid)
+            )).scalars().all()
+            return {r.rule_kind: r.enabled for r in rows}
+    state = _run(_check())
+    assert state["auto"] is True   # auto 库翻正
+    assert state["manual"] is False  # 手动库保留停用语义
+
+    # 幂等：再跑一遍不再产生变化（本 uid 范围无 False auto 可翻）
+    assert _run(heal_auto_libraries_v1()) >= 0
+    assert _run(_check()) == {"auto": True, "manual": False}

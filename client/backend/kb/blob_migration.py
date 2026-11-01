@@ -1,20 +1,36 @@
-"""legacy 库卡头像字节搬迁（c-kb-character-migration 刀2c ③）。
+"""kb 存量自愈（c-knowledge-base）：boot 一次性修批3 潜伏缺陷。
 
-CharacterLibraryBlob → kb_entry_blobs（entry id 键）：
-- 回联键：blob.library_id＝迁移卡 id＝kb 条目 src_key（src_ref=character_library）
-- 幂等：(entry_id, variant) 已在 kb 表＝跳过；同键多用户（同备份恢复到两账号）
-  各自补齐；搬成功的 legacy 行删除（字节已全部在新表，删行省双份存储）
-- 孤儿行（无对应条目）保留：旧包恢复链路仍写 legacy 行（union 读兜底），
-  下一轮 boot 重试时随条目补齐再搬
-- boot 挂 main.lifespan（照 import backfill 先例：失败不挡启动，下次重试）
+- migrate_library_blobs_v1：legacy 库卡头像字节 → kb_entry_blobs（刀2c ③）
+  回联键：blob.library_id＝迁移卡 id＝kb 条目 src_key（src_ref=character_library）
+  幂等：(entry_id, variant) 已在 kb 表＝跳过；同键多用户各自补齐；搬成功的
+  legacy 行删除；孤儿行保留走 union 读兜底。boot 挂 main.lifespan（照
+  import backfill 先例：失败不挡启动，下次重试）
+- heal_auto_libraries_v1：auto 库生成时漏传 enabled（model default False）→
+  书内来源行启用 picker 只列 enabled≠False，auto 库全被滤＝启用链断（批3 潜伏，
+  真机来源行走查抓出）。无「停用」入口＝存量 False 全是生成缺陷产物，boot 翻 True；
+  幂等（只翻 False）。
 """
 
 from __future__ import annotations
 
-from sqlalchemy import delete, select
+from sqlalchemy import delete, select, update
 
 from models.character_library import CharacterLibraryBlob
-from models.kb import KbEntry, KbEntryBlob
+from models.kb import KbEntry, KbEntryBlob, KbLibrary
+
+
+async def heal_auto_libraries_v1() -> int:
+    """auto 库 enabled 自愈。返回翻牌行数。"""
+    from db import async_session
+
+    async with async_session() as db:
+        res = await db.execute(
+            update(KbLibrary)
+            .where(KbLibrary.rule_kind == "auto", KbLibrary.enabled.is_(False))
+            .values(enabled=True)
+        )
+        await db.commit()
+        return res.rowcount or 0
 
 
 async def migrate_library_blobs_v1() -> dict[str, int]:

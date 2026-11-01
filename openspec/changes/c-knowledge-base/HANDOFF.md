@@ -137,9 +137,24 @@ legacy 卡＋字节 → 迁移端点镜像 → 重启 boot 日志 `migrated=2 re
 AI 整理（关系/合并/纠偏，kb_relations 写入口＋全局图关系边）；写法块选择器+注入
 （kb_match_runs 消费链，delta 草案在 drafts/c-kb-write-block/）。
 
+### 真机走查（2026-11-01 合并前验收，全绿；data-smoke 栈＋浏览器走查）
+- 角色库页：列表/筛选计数/迁移卡头像显示（③搬迁后）/新建/编辑（rev 链）/用到新书
+  （撞主角自动降配角 demote 实证）/删卡 404 全通
+- 书内：收录沈青崖（src=book 来源书对）/同步拉取（改书内人设→库卡「同步进库卡」）/
+  挑原型弹窗三卡入池（新卡＋迁移卡）→建卡预填落格 全通
+- 设定面板来源行 KbSourceStrip：「从知识库启用」→picker→「已启用，落了 1 条」→
+  来源行「来自「世界设定库」· 1 条」＋解除绑定钮→KV world.stage 落库实证 全通
+- **走查抓出批3 潜伏 bug（已修）**：ensure_default_library 漏传 enabled（model
+  default False）＋后端无停用端点→auto 库永远进不了书内启用 picker（mock 测试
+  直插 ORM 走 bind_library 不过滤＝假绿，判例再+1）。修复：生成时 enabled=True
+  ＋boot 自愈 heal_auto_libraries_v1（存量 False 翻 True，幂等；真机 healed=4）
+  ——挂账「来源行真栈走查」就此收口
+
 ### 小账
-- 节点圆视觉打磨（半径/配色饱和度）可再调；真机待复验：设定面板来源行
-  （KbSourceStrip 启用/同步/解绑真栈走查，本轮只验了知识库页）
+- 节点圆视觉打磨（半径/配色饱和度）可再调；启用后世界面板内容不即时回显
+  （KbSourceStrip 未传 onChanged，刷新页面才回读）——批3 UX 小瑕，P2 挂账
+- 手录一句自由文本被概念推断成手法（关键词不中默认手法）——批1 既有行为，
+  世界设定类手录建议明说「世界」词眼或后续加概念改选，P2 挂账
 - OpenDesign 原型 v29 后的改动未推送（守护进程停了）
 
 ## 设计文档（权威，不要重写）

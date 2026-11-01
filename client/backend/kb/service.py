@@ -227,6 +227,9 @@ async def ensure_default_library(
         contract="live" if concept == "手法" else "snapshot",
         rule_kind="auto",
         rule_json=json.dumps({"genre": genre, "concept": concept}, ensure_ascii=False),
+        # 默认库生成即可用（书内来源行启用 picker 只列 enabled≠False 的库）；
+        # 批3 漏传落 model default False，启用链对 auto 库全断——真机走查抓出
+        enabled=True,
     )
     db.add(lib)
     # IntegrityError 由 partial unique index 兜底；调用方 catch 回读

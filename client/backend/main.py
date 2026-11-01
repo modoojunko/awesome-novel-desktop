@@ -216,6 +216,16 @@ async def lifespan(app: FastAPI):
     except Exception as _e:  # noqa: BLE001 — 搬迁失败不挡启动
         _log.warning("library blob migration failed: %s", _e)
 
+    # ── auto 库 enabled 自愈（批3 潜伏：生成漏传 → 书内启用链对 auto 库全断） ──
+    try:
+        from kb.blob_migration import heal_auto_libraries_v1
+
+        _healed = await heal_auto_libraries_v1()
+        if _healed:
+            _log.info("kb auto libraries healed: enabled=%s", _healed)
+    except Exception as _e:  # noqa: BLE001 — 自愈失败不挡启动（下次启动重试）
+        _log.warning("kb auto library heal failed: %s", _e)
+
     # ── 预置题材播种（#453 重写 lifespan 时被误删，2026-09-21 补回）──────────
     # 两个都是幂等（只插缺失、不覆盖用户改动）；缺了它们**新建库的题材目录是空的**：
     # GET /genres/candidates 返回空 → 题材面板的预置词条 PUT 会 400「未知的候选词汇」，
