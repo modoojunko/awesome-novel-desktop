@@ -73,8 +73,8 @@
 
 - [x] 扩 CharacterPayload schema 到角色库全量字段（dossier 8 格/cog 11 格/persona/relation_slot/arc）
 - [x] 迁移脚本：读 character_library 全量 → 每行创建 kb_entry（幂等，src_ref="character_library"，src_key=原 id）（角色关系→kb_relations 归批7 AI 整理同批）
-- [ ] 角色库列表页改读 kb_entries（concept="角色设定"）
-- [ ] 角色卡编辑器改读写 kb_entry payload
+- [x] 角色库列表页改读 kb_entries（concept="角色设定"；刀2c ① 后端适配器，11-01 parity 全套绿）
+- [x] 角色卡编辑器改读写 kb_entry payload（刀2c ① 同批：写侧 card_to_payload＋kb 闸门）
 - [ ] 角色关系改读 kb_relations
 - [ ] `character_library` 表标 deprecated，不再写入
 - [ ] 头像保留独立存储，kb_entry 加 avatar_url 字段引用

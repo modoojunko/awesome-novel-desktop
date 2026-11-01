@@ -3,8 +3,8 @@
 ## 一句话现状
 
 PR #993（`c-knowledge-base` → main）**21 笔提交、CI 双绿**：批 1-7 全部开工，一期能力闭环
-（存/看/管/进书/备份），**真机首验完成并修了 4 个 mock 探不到的真 bug**。剩刀2c（角色库
-适配器手术）与二阶段。
+（存/看/管/进书/备份），**真机首验完成并修了 4 个 mock 探不到的真 bug**。**刀2c ① 存储切换
+已落（11-01，parity 全套原样跑绿）**，剩②③与二阶段。
 
 ## Boss 拍板集（按时间序，均已执行或挂账）
 
@@ -31,6 +31,7 @@ PR #993（`c-knowledge-base` → main）**21 笔提交、CI 双绿**：批 1-7 �
 | 批6 刀1 迁移 | CharacterPayload 全量 24 字段＋migrate_library.py＋表 DEPRECATED | 88a468e3 |
 | 批6 刀2a 写通道 | PATCH/DELETE 条目（rev 并发/软删）＋payload 补 aliases/role/kind | 97141aba |
 | 批6 刀2b 地基 | 双向映射单源＋适配器裁定＋备份恢复自动镜像 | e184bbfa＋4044f35c |
+| 批6 刀2c ① 存储切换 | library/service 读写切 kb_entries＋kb_entry_blobs 头像新表＋复活臂＋备份带字节 | 本轮（未提交） |
 | 批7 全局图 | graph 两端点＋force-graph 2D（聚合/下钻/面包屑/邻域高亮） | 7b1d4f12＋4e0ae77f |
 | 真机四连修 | 手录 500/默认装载/kapsule 两层/节点可见性 | 2e493fb4＋79d17ff2 |
 | 性能/工件 | 10 万级回归闸＋tasks 勾选＋roadmap | 3786618d |
@@ -72,6 +73,11 @@ config.json 里 token/username 已备好（smoke-tester）。**「正在准备�
   手录 500 四案全靠真机+覆盖率契约钓出）；新页面必须真机走一遍再算完
 - **真机 500 根因**：`create_entry` 失败臂 `error` 恒 None，router 必须判 `entry is None`
   而非 `if error`（回归钉：test_手录校验失败_422带字段错误而非500）
+- **CharacterLibraryBlob 真 FK 墙**（刀2c ① 实证）：blob.library_id 有指向
+  character_library 的真 FK＋foreign_keys=ON，entry id 键插必炸——「新表 kb_entry_blobs」
+  才是活库唯一无手术的路；交接文档旧计划「新卡键=entry id 写 Blob 表」作废
+- **共享测试库 id 冲突**（刀2c ① 再踩）：`db.get` 按 PK 不分用户——备份恢复测试
+  清源/改包内 id 模拟新机；跨类共跑时计数断言别用全表 count（捞别家行假红）
 - **手录默认装载**：表单只有一句文本，payload 为空时 service 按概念补默认槽位
   （手法→scene 日常/文笔→rule/文风→sample/世界→extra/角色→archetype），否则校验必炸
 - **kapsule 双层调用**：`ForceGraph()(el)` 先配置层拿装配函数再传 DOM；单层调用把 el
@@ -79,9 +85,8 @@ config.json 里 token/username 已备好（smoke-tester）。**「正在准备�
   `built:canvas=0` 实锤
 - **force-graph val=面积系数**：val 3~7 → r≈2px 不可见；题材 40/格子随计数封顶 40/
   条目 8＋graphData 后 `zoomToFit(400, 60)`；节点可见性必须真机截图验证
-- **commit 后属性过期**：service 层 commit 后 router 读 ORM 列 → greenlet 崩；
-  `await db.refresh(e)` 收口
-- **共享测试库 id 冲突**：db.get 不分用户——备份恢复测试须改写包内 id 模拟新机
+- **commit 后属性过期**：expire_on_commit=False 下只读对象过 commit/rollback 无恙；
+  判例真因＝server_default 列（created_at/updated_at）插后未载，`await db.refresh(e)` 收口
 - **CI 口径**：ruff==0.16.3 `--extend-select F811,F821,F841 .`（**全仓扫**含 main.py；
   函数内 import 排序也会红）；前端覆盖率契约（src/coverage-contract.ts）perFile 100
   ＋目录完整性——新页面/组件必须入约并补测试
@@ -89,18 +94,30 @@ config.json 里 token/username 已备好（smoke-tester）。**「正在准备�
 - 管道吞退出码：`pytest | tail` 的 0 是 tail 的；用 `; echo EXIT=$?` 或落文件
 - vite 后台起服务别接 `| head`；探活用 `localhost`（IPv6 绑定）
 
-## 余账（按序，下一件是刀2c ①）
+## 余账（按序，下一件是刀2c ②）
 
-### 刀2c ①（下轮首件，整段预算）
-`library/service.py`（810 行）读写从 CharacterLibrary 切 kb_entries：
-- 读侧 `payload_to_card`（kb/migrate_library.py，已备）→ 卡形状 API 响应不变；
-- 写侧 `card_to_payload`＋kb/service.update_entry（rev 并发）；
-- 头像 CharacterLibraryBlob 保留（键经 src_key 回联；新卡键=entry id，换锚在 ③）；
-- **现有 test_character_library.py 全套就是 parity 测试**——改造后它原样跑绿即等价；
-- 判据：前端 6 组件零改动全绿。
+### 刀2c ①（2026-11-01 已落，parity 全套原样跑绿＋4 回归钉）
+`library/service.py` 读写从 CharacterLibrary 切 kb_entries，全部完成：
+- 读侧 `payload_to_card` 单源映射，API 卡形状逐键不变（嵌套 src/avatar 在
+  `_card_view` 包回；updated_at＝entry.updated_at）；列表＝全部 active 角色设定条目
+- 写侧 `card_to_payload`＋kb create/update/delete_entry（闸门/payload 校验/标签
+  物化/rev 复用）；update_entry 扩 genre（同步 concept_id）/src_novel_name 可选参
+- **头像（FK 实证修订，boss 未及拍板按推荐落地、可翻案）**：新字节住新表
+  kb_entry_blobs（Blob 表真 FK 挡 entry id 键，sqlite 实证）；迁移存量经 src_key
+  回联读；删卡双清；备份往返带字节（kb/entry-avatars/*.webp＋yaml 元数据）
+- 软删卡重新收录＝同键复活（置回 active＋update_entry 整卡覆盖）
+- parity：test_character_library.py 全套零改动跑绿；新增
+  tests/test_kb_character_adapter.py 4 钉（FK/回联/双清复活/备份往返）；
+  test_library_avatar_gen.py 特性测试随存储演进改播种（同 id 双播 CharacterLibrary
+  供 prompt builder 直测＋KbEntry 供端点）与断言目标表（行为断言全保留）
+- 判据：前端 6 组件零改动（无前端 diff）
+- 已知可接受行为差：空卡（无 persona 无 name）从可存变 400（指令闸）；空字符串格
+  落 payload 时省略（读侧 falsy 等价）；拆书 collect-to-kb 的 character:N 条目与
+  to-library 名字键并存于同一列表（二阶段 AI 整理去重）
 
 ### 刀2c ②③
-收录/同步/用到新书端点跟随；头像键迁移（entry id）；旧备份恢复镜像已落（4044f35c）。
+② 收录/同步/用到新书消费面走查（kb 快照/建卡预填）；③ 旧头像字节搬 kb_entry_blobs
+＋CharacterLibraryBlob 退役；旧备份恢复镜像已落（4044f35c）。
 
 ### 二阶段（已拍板挂账）
 AI 整理（关系/合并/纠偏，kb_relations 写入口＋全局图关系边）；写法块选择器+注入

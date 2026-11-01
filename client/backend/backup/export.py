@@ -560,7 +560,7 @@ async def build_config_package_bytes(db, user_id: str) -> tuple[bytes, str]:
         for b in blob_rows:
             library_blobs.setdefault(b.library_id, {})[b.variant] = b.data
 
-    kb_section = await _kb_account_section(db, user.id)
+    kb_section, kb_entry_blob_rows = await _kb_account_section(db, user.id)
 
     payload = {
         "format_version": FORMAT_VERSION,
@@ -620,14 +620,21 @@ async def build_config_package_bytes(db, user_id: str) -> tuple[bytes, str]:
         for cid, variants in library_blobs.items():
             for variant, data in variants.items():
                 zf.writestr(f"character_library/avatars/{cid}-{variant}.webp", data)
+        # 知识库条目头像（刀2c ① 新卡字节住 kb_entry_blobs）：同先例独立条目
+        for b in kb_entry_blob_rows:
+            zf.writestr(f"kb/entry-avatars/{b['entry_id']}-{b['variant']}.webp", b["data"])
     return buf.getvalue(), config_zip_name()
 
 
-async def _kb_account_section(db, user_id: str) -> dict:
-    """配置包 knowledge_base 段：账号 8 表全量行（datetime isoformat；json 列原样字符串）。"""
+async def _kb_account_section(db, user_id: str) -> tuple[dict, list[dict]]:
+    """配置包 knowledge_base 段：账号 8 表全量行（datetime isoformat；json 列原样字符串）。
+
+    第二返回值＝条目头像字节行（带 data，只进 zip 独立条目；yaml 段只留元数据）。
+    """
     from models.kb import (
         KbConcept,
         KbEntry,
+        KbEntryBlob,
         KbEntryTag,
         KbLibrary,
         KbLibraryItem,
@@ -661,7 +668,18 @@ async def _kb_account_section(db, user_id: str) -> dict:
         sections["library_items"] = _rows(rows)
     else:
         sections["library_items"] = []
-    return sections
+    # 条目头像字节（表无 user_id 列：经用户条目收敛，防串账号）；字节不进 yaml
+    blob_rows: list[dict] = []
+    entry_ids = [r["id"] for r in sections["entries"]]
+    if entry_ids:
+        for b in (
+            await db.scalars(select(KbEntryBlob).where(KbEntryBlob.entry_id.in_(entry_ids)))
+        ).all():
+            blob_rows.append({"entry_id": b.entry_id, "variant": b.variant, "data": b.data})
+    sections["entry_blobs"] = [
+        {"entry_id": b["entry_id"], "variant": b["variant"]} for b in blob_rows
+    ]
+    return sections, blob_rows
 
 
 async def config_preview(db, user_id: str) -> dict:

@@ -97,6 +97,17 @@ def parse_package(paths: list[str]) -> dict:
                             avatar_data[variant] = zf.read(name)
                     if avatar_data:
                         entry["avatar_data"] = avatar_data
+            # 知识库条目头像（刀2c ①）：字节从 zip 独立条目读入（旧包无该段＝无键）。
+            kb_section = (
+                config_data.get("knowledge_base") if isinstance(config_data, dict) else None
+            )
+            if isinstance(kb_section, dict) and isinstance(kb_section.get("entry_blobs"), list):
+                for row in kb_section["entry_blobs"]:
+                    if not isinstance(row, dict) or not row.get("entry_id"):
+                        continue
+                    blob_name = f"kb/entry-avatars/{row['entry_id']}-{row.get('variant')}.webp"
+                    if blob_name in names:
+                        row["data"] = zf.read(blob_name)
 
     # 格式契约演进规则（backup-restore spec）：高于本应用支持的格式版本一律拒绝，
     # 防止新格式包被旧应用静默半恢复。v0（无版本号）按兼容模式全量回吃。
@@ -1311,11 +1322,38 @@ async def _restore_config(db, user_id: str, config_data: dict) -> dict:
             await db.flush()
             kb_created[name] = created
             kb_skipped[name] = skipped
+        # 条目头像字节（刀2c ①；parse_package 已注入 data）：
+        # (entry_id, variant) 冲突即忽略；条目行缺失计 missing 不报错
+        blob_created = blob_skipped = blob_missing = 0
+        from models.kb import KbEntryBlob
+
+        for row in kb.get("entry_blobs") or []:
+            if not isinstance(row, dict):
+                continue
+            eid = str(row.get("entry_id") or "")
+            variant = str(row.get("variant") or "")
+            data = row.get("data")
+            if not eid or variant not in ("full", "thumb") or not data:
+                blob_missing += 1
+                continue
+            if await db.get(KbEntry, eid) is None:
+                blob_missing += 1
+                continue
+            if await db.get(KbEntryBlob, (eid, variant)) is not None:
+                blob_skipped += 1
+                continue
+            db.add(KbEntryBlob(entry_id=eid, variant=variant, data=data))
+            blob_created += 1
         # 标签索引恢复后自动重建（物化索引可随时重建）
         rebuilt = await rebuild_tag_index(db, user_id=user_id)
         summary["knowledge_base"] = {
             "created": kb_created,
             "skipped": kb_skipped,
+            "entry_blobs": {
+                "created": blob_created,
+                "skipped": blob_skipped,
+                "missing": blob_missing,
+            },
             "tags_rebuilt": rebuilt,
         }
     return summary

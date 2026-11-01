@@ -24,6 +24,7 @@ from sqlalchemy import (
     Float,
     Index,
     Integer,
+    LargeBinary,
     String,
     Text,
     func,
@@ -115,6 +116,24 @@ class KbEntryTag(Base):
     user_id: Mapped[str] = mapped_column(String(36), nullable=False)
     dim: Mapped[str] = mapped_column(String(20), nullable=False)
     value: Mapped[str] = mapped_column(String(80), nullable=False)
+
+
+class KbEntryBlob(Base):
+    """条目头像/图片字节 — (entry_id, variant) 复合主键；variant=full|thumb。
+
+    角色库数据源切换（c-kb-character-migration 刀2c ①）：库卡头像字节的新家。
+    不用 CharacterLibraryBlob 承接新键是实证裁定：那张表 library_id 有指向
+    character_library 的真 FK（PRAGMA foreign_keys=ON 下 entry id 键插入必
+    FOREIGN KEY constraint failed），且 C端无 alembic、活库无 schema 手术通道。
+    旧字节仍住 CharacterLibraryBlob（迁移卡经 src_key 回联读，零迁移），
+    头像键统一（③）搬迁后退役。照 KbEntryTag 先例不挂 FK（kb 家族松约束）。
+    """
+
+    __tablename__ = "kb_entry_blobs"
+
+    entry_id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    variant: Mapped[str] = mapped_column(String(10), primary_key=True)  # full | thumb
+    data: Mapped[bytes] = mapped_column(LargeBinary, nullable=False)
 
 
 class KbRelation(Base):

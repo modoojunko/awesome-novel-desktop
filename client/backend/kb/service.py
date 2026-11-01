@@ -246,10 +246,13 @@ async def update_entry(
     example: str | None = None,
     negative_example: str | None = None,
     when_json: dict | None = None,
+    genre: str | None = None,
+    src_novel_name: str | None = None,
 ) -> tuple[KbEntry | None, GateResult, dict | None]:
     """编辑条目（c-kb-character-migration 刀2a）：闸门复用＋乐观并发。
 
-    concept/genre 不可变（跨概念移动走删建）；payload/when 变更后标签物化重建。
+    concept 不可变（跨概念移动走删建）；genre 默认不动，传入即改并同步 concept_id
+    （角色库适配器刀2c ①：库卡题材是可编辑分类格）；payload/when 变更后标签物化重建。
     返回 (entry, gate, error_dict)。error_dict={"code": ...} 非 None 即失败。
     """
     e = await get_entry(db, user_id=user_id, entry_id=entry_id)
@@ -287,6 +290,11 @@ async def update_entry(
         e.negative_example = negative_example
     if when_json is not None:
         e.when_json = json.dumps(when_json, ensure_ascii=False)
+    if genre is not None:
+        e.genre = genre
+        e.concept_id = f"{genre}:{e.concept}"
+    if src_novel_name is not None:
+        e.src_novel_name = src_novel_name[:100]
     e.rev += 1
     await _materialize_tags(db, e, _json_of(e.payload_json), _json_of(e.when_json))
     await db.commit()
