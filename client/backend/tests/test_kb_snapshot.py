@@ -476,9 +476,9 @@ def test_条目编辑删除_全链路():
 
 def test_手录校验失败_422带字段错误而非500():
     """真机实锤回归钉：create 各失败臂 error=None，router 必须看 entry is None。"""
-    from auth_local.middleware import get_current_user
     from fastapi.testclient import TestClient
 
+    from auth_local.middleware import get_current_user
     from main import app
 
     seed = _run(_seed())
@@ -500,9 +500,9 @@ def test_手录校验失败_422带字段错误而非500():
 
 def test_手录默认装载_四概念免填payload全过():
     """真机实锤回归钉：手录只有一句文本，payload 为空时按概念默认槽位装载。"""
-    from auth_local.middleware import get_current_user
     from fastapi.testclient import TestClient
 
+    from auth_local.middleware import get_current_user
     from main import app
 
     seed = _run(_seed())
