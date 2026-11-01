@@ -751,7 +751,7 @@ class TestOrganizeEndpoints:
     def test_待确认清单_采纳_否决_反馈(self):
         uid = self._uid()
         _run(_seed_user(uid))
-        ids = _run(self._seed_graph(uid))["ids"]
+        _run(self._seed_graph(uid))
 
         async def _override():
             return {"id": uid}
