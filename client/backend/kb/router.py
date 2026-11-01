@@ -46,6 +46,7 @@ def _entry_dict(e: KbEntry) -> dict[str, Any]:
         "when": json.loads(e.when_json),
         "evidence": e.evidence,
         "rev": e.rev,
+        "status": e.status,
         "src_kind": e.src_kind,
         "src_novel_name": e.src_novel_name,
         "created_at": e.created_at.isoformat(),
@@ -96,14 +97,29 @@ async def list_entries_api(
 @router.get("/entries/{entry_id}")
 async def get_entry_api(
     entry_id: str,
+    include_merged: bool = False,
     user: dict = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
     uid = _user(user)
-    e = await get_entry(db, user_id=uid, entry_id=entry_id)
+    e = await get_entry(db, user_id=uid, entry_id=entry_id, include_merged=include_merged)
     if not e:
         raise HTTPException(404, "Entry not found")
-    return {"ok": True, "data": _entry_dict(e)}
+    data = _entry_dict(e)
+    if e.status == "merged":
+        # c-kb-organize 追溯：合并指向＋保留条目摘要
+        from models.kb import KbEntryMerge
+
+        m = (
+            await db.execute(select(KbEntryMerge).where(KbEntryMerge.merged_id == e.id))
+        ).scalar_one_or_none()
+        surv = await db.get(KbEntry, m.surviving_id) if m else None
+        data["merged_into"] = (
+            {"surviving_id": m.surviving_id, "title": surv.title if surv else ""}
+            if m and surv
+            else None
+        )
+    return {"ok": True, "data": data}
 
 
 # ─── 手录 ─────────────────────────────────────────────────
@@ -610,3 +626,154 @@ async def match_runs_api(
             }
         )
     return {"ok": True, "data": {"runs": out}}
+
+
+# ─── 知识整理（c-kb-organize 批C：手动触发/状态/待确认清单/采纳与反馈/条目图） ──
+
+
+@router.post("/organize/run")
+async def organize_run_api(
+    body: dict,
+    user: dict = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """手动整理一次（幂等：该题材 running 中返回提示不重复跑）。full=True 走全量深度。"""
+    from kb.organize import run_manual
+
+    genre = str(body.get("genre") or "").strip()
+    if not genre:
+        raise HTTPException(400, "缺 genre")
+    result = await run_manual(
+        db, user_id=_user(user), genre=genre, full=bool(body.get("full"))
+    )
+    if not result.get("ok") and result.get("code") == "running":
+        return {"ok": True, "data": {"skipped": True, "message": result["message"]}}
+    if not result.get("ok"):
+        raise HTTPException(502, result.get("message") or "整理失败")
+    return {"ok": True, "data": result}
+
+
+@router.get("/organize/status")
+async def organize_status_api(
+    genre: str = "",
+    user: dict = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    from kb.organize import organize_status
+
+    if not genre:
+        raise HTTPException(400, "缺 genre")
+    return {"ok": True, "data": await organize_status(db, user_id=_user(user), genre=genre)}
+
+
+@router.get("/organize/findings")
+async def organize_findings_api(
+    genre: str = "",
+    user: dict = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """待确认清单：pending 关系＋四类建议汇聚（作家逐条采纳/忽略）。"""
+    from kb.organize import list_pending
+
+    return {"ok": True, "data": await list_pending(db, user_id=_user(user), genre=genre)}
+
+
+@router.post("/organize/findings/{finding_id}/adopt")
+async def organize_finding_adopt_api(
+    finding_id: str,
+    user: dict = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """采纳建议（merge/reclass/quality 动数据；subconcept 仅落状态）。"""
+    from kb.organize import adopt_finding
+
+    ok, message = await adopt_finding(db, user_id=_user(user), finding_id=finding_id)
+    if not ok:
+        raise HTTPException(404 if message == "not_found" else 409, message)
+    return {"ok": True, "data": {"message": message}}
+
+
+@router.post("/organize/findings/{finding_id}/ignore")
+async def organize_finding_ignore_api(
+    finding_id: str,
+    user: dict = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """忽略建议：同签名不再提出（条目实质更新后可再提）。"""
+    from kb.organize import ignore_finding
+
+    if not await ignore_finding(db, user_id=_user(user), finding_id=finding_id):
+        raise HTTPException(404, "not_found")
+    return {"ok": True, "data": {"message": "已忽略"}}
+
+
+@router.post("/relations/{relation_id}/adopt")
+async def organize_relation_adopt_api(
+    relation_id: str,
+    user: dict = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """待确认关系 → 生效（进全局图与计数）。"""
+    from kb.organize import adopt_pending_relation
+
+    ok, message = await adopt_pending_relation(db, user_id=_user(user), relation_id=relation_id)
+    if not ok:
+        raise HTTPException(404 if message == "not_found" else 409, message)
+    return {"ok": True, "data": {"message": message}}
+
+
+@router.post("/relations/{relation_id}/reject")
+async def organize_relation_reject_api(
+    relation_id: str,
+    user: dict = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """否决待确认关系（archived，不删行）。"""
+    from kb.organize import reject_pending_relation
+
+    ok, message = await reject_pending_relation(db, user_id=_user(user), relation_id=relation_id)
+    if not ok:
+        raise HTTPException(404 if message == "not_found" else 409, message)
+    return {"ok": True, "data": {"message": message}}
+
+
+@router.get("/entries/{entry_id}/relations")
+async def entry_relations_api(
+    entry_id: str,
+    user: dict = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """条目详情的关系列表（active＋pending；merged 条目附合并指向）。"""
+    from kb.organize import entry_relations
+
+    data = await entry_relations(db, user_id=_user(user), entry_id=entry_id)
+    if data.get("error"):
+        raise HTTPException(404, "Entry not found")
+    return {"ok": True, "data": data}
+
+
+@router.post("/relations/{relation_id}/feedback")
+async def organize_relation_feedback_api(
+    relation_id: str,
+    user: dict = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """「这条不对」：落签名反馈，下次整理降低同类候选权重；关系本体不动。"""
+    from kb.organize import relation_feedback
+
+    ok, message = await relation_feedback(db, user_id=_user(user), relation_id=relation_id)
+    if not ok:
+        raise HTTPException(404, "not_found")
+    return {"ok": True, "data": {"message": message}}
+
+
+@router.get("/graph/entries")
+async def graph_entries_api(
+    genre: str = "",
+    user: dict = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """条目图：题材内 active 条目为节点、active 关系为边（≤500 按置信降序）。"""
+    from kb.organize import graph_entries
+
+    return {"ok": True, "data": await graph_entries(db, user_id=_user(user), genre=genre)}

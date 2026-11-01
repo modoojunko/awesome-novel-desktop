@@ -175,6 +175,9 @@ def map_deconstruct_products(
     characters = products.get("characters")
     if isinstance(characters, dict):
         data = characters.get("data") or characters.get("characters") or []
+        if isinstance(data, dict):
+            # 标准产物形状 data={"characters":[...]}（与 cards_from_products 同口径）
+            data = data.get("characters") or []
         for i, c in enumerate(data[:10]):
             if not isinstance(c, dict):
                 continue

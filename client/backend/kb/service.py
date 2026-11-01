@@ -156,6 +156,11 @@ def _tags_for(entry: KbEntry, payload: dict, when: dict) -> list[tuple[str, str]
     slot = payload.get("slot")
     if slot:
         tags.append(("slot", slot))
+    # alias（c-kb-organize：别名共现特征走物化标签，SHALL NOT 读 payload_json）
+    for a in (payload.get("aliases") or []):
+        a = str(a).strip()[:80]
+        if a:
+            tags.append(("alias", a))
     return tags
 
 
@@ -364,10 +369,20 @@ async def list_entries(
     return entries, next_cursor
 
 
-async def get_entry(db: AsyncSession, *, user_id: str, entry_id: str) -> KbEntry | None:
+async def get_entry(
+    db: AsyncSession, *, user_id: str, entry_id: str, include_merged: bool = False
+) -> KbEntry | None:
+    """取条目（active）；include_merged 放行 merged（c-kb-organize 详情追溯口，
+    配合 kb_entry_merges 返回原载荷与指向）。archived 仍不可达。"""
     stmt = select(KbEntry).where(
         KbEntry.id == entry_id, KbEntry.user_id == user_id, KbEntry.status == "active"
     )
+    if include_merged:
+        stmt = select(KbEntry).where(
+            KbEntry.id == entry_id,
+            KbEntry.user_id == user_id,
+            KbEntry.status.in_(("active", "merged")),
+        )
     return (await db.execute(stmt)).scalar_one_or_none()
 
 

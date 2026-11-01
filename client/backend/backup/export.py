@@ -635,9 +635,13 @@ async def _kb_account_section(db, user_id: str) -> tuple[dict, list[dict]]:
         KbConcept,
         KbEntry,
         KbEntryBlob,
+        KbEntryMerge,
         KbEntryTag,
         KbLibrary,
         KbLibraryItem,
+        KbOrganizeFeedback,
+        KbOrganizeFinding,
+        KbOrganizeOutput,
         KbOrganizeRun,
         KbPref,
         KbRelation,
@@ -657,6 +661,8 @@ async def _kb_account_section(db, user_id: str) -> tuple[dict, list[dict]]:
     for name, model in (
         ("entries", KbEntry), ("concepts", KbConcept), ("entry_tags", KbEntryTag),
         ("relations", KbRelation), ("organize_runs", KbOrganizeRun),
+        ("organize_findings", KbOrganizeFinding),
+        ("organize_feedback", KbOrganizeFeedback),
         ("libraries", KbLibrary), ("prefs", KbPref),
     ):
         rows = (await db.scalars(select(model).where(model.user_id == user_id))).all()
@@ -668,6 +674,21 @@ async def _kb_account_section(db, user_id: str) -> tuple[dict, list[dict]]:
         sections["library_items"] = _rows(rows)
     else:
         sections["library_items"] = []
+    # 整理明细与合并指向无 user_id 列：经用户 run/条目收敛（防串账号）
+    run_ids = [r["id"] for r in sections["organize_runs"]]
+    if run_ids:
+        sections["organize_outputs"] = _rows(
+            (await db.scalars(select(KbOrganizeOutput).where(KbOrganizeOutput.run_id.in_(run_ids)))).all()
+        )
+    else:
+        sections["organize_outputs"] = []
+    entry_ids = [r["id"] for r in sections["entries"]]
+    if entry_ids:
+        sections["entry_merges"] = _rows(
+            (await db.scalars(select(KbEntryMerge).where(KbEntryMerge.surviving_id.in_(entry_ids)))).all()
+        )
+    else:
+        sections["entry_merges"] = []
     # 条目头像字节（表无 user_id 列：经用户条目收敛，防串账号）；字节不进 yaml
     blob_rows: list[dict] = []
     entry_ids = [r["id"] for r in sections["entries"]]

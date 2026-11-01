@@ -311,3 +311,85 @@ class KbMatchItem(Base):
     text_snapshot: Mapped[str] = mapped_column(Text, nullable=False, default="", server_default="")
     used: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
     helpful: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
+
+
+class KbOrganizeOutput(Base):
+    """整理运行明细计数（c-kb-organize）——runs 只有关系三计数，本表装其余各类。
+
+    spec 措辞「运行记录（含关联明细表）」；kind 例：trigger/scan/pending_relations/
+    suggestion_merge/suggestion_reclass/suggestion_subconcept/quality/truncated。
+    """
+
+    __tablename__ = "kb_organize_outputs"
+
+    # uuid 主键：备份导入端通用循环按 row["id"] 识别行（无 id 行会被跳过）
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid)
+    run_id: Mapped[str] = mapped_column(String(36), nullable=False, index=True)
+    kind: Mapped[str] = mapped_column(String(40), nullable=False)
+    count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+
+
+class KbOrganizeFinding(Base):
+    """整理建议/待确认项（c-kb-organize）——合并/纠偏/子概念/质量四类，跨 run 持久。
+
+    status: proposed（待作家处置）/ adopted（采纳）/ ignored（忽略——同 signature
+    不再提出）。payload_json 为建议快照（目标概念/保留条目/说明/证据）。
+    """
+
+    __tablename__ = "kb_organize_findings"
+    __table_args__ = (
+        Index("ix_kb_org_findings_user_kind", "user_id", "kind", "status"),
+        Index("uq_kb_org_findings_sig", "user_id", "kind", "signature",
+              unique=True, sqlite_where=text("status = 'proposed'")),
+    )
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid)
+    user_id: Mapped[str] = mapped_column(String(36), nullable=False, index=True)
+    genre: Mapped[str] = mapped_column(String(40), nullable=False, default="")
+    kind: Mapped[str] = mapped_column(String(20), nullable=False)  # merge|reclass|subconcept|quality
+    subject_id: Mapped[str] = mapped_column(String(36), nullable=False)
+    subject2_id: Mapped[str] = mapped_column(String(36), nullable=False, default="")
+    payload_json: Mapped[str] = mapped_column(Text, nullable=False, default="{}")
+    status: Mapped[str] = mapped_column(String(12), nullable=False, default="proposed")
+    signature: Mapped[str] = mapped_column(String(64), nullable=False, default="")
+    run_id: Mapped[str] = mapped_column(String(36), nullable=False, default="")
+    created_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, server_default=func.now(), onupdate=func.now())
+
+
+class KbOrganizeFeedback(Base):
+    """整理负反馈（c-kb-organize）——「这条不对」的特征签名，下次整理降权。
+
+    与 kb_prefs（条目有用率）语义隔离：本表只服务整理器特征打分。
+    """
+
+    __tablename__ = "kb_organize_feedback"
+    __table_args__ = (
+        Index("uq_kb_org_feedback_sig", "user_id", "kind", "signature", unique=True),
+    )
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid)
+    user_id: Mapped[str] = mapped_column(String(36), nullable=False, index=True)
+    kind: Mapped[str] = mapped_column(String(20), nullable=False)  # relation|merge
+    signature: Mapped[str] = mapped_column(String(64), nullable=False)
+    entry_id: Mapped[str] = mapped_column(String(36), nullable=False, default="")
+    created_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, server_default=func.now())
+
+
+class KbEntryMerge(Base):
+    """条目合并指向（c-kb-organize）——被并条目（status=merged）→保留条目。
+
+    独立表而非 kb_relations：六类白名单纯度保住、5× 上限计数免过滤。
+    详情追溯（include_merged）读它。
+    """
+
+    __tablename__ = "kb_entry_merges"
+    __table_args__ = (
+        Index("uq_kb_entry_merges_merged", "merged_id", unique=True),
+    )
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid)
+    surviving_id: Mapped[str] = mapped_column(String(36), nullable=False, index=True)
+    merged_id: Mapped[str] = mapped_column(String(36), nullable=False)
+    run_id: Mapped[str] = mapped_column(String(36), nullable=False, default="")
+    created_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, server_default=func.now())

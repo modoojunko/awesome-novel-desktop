@@ -227,6 +227,17 @@ async def lifespan(app: FastAPI):
     except Exception as _e:  # noqa: BLE001 — 自愈失败不挡启动（下次启动重试）
         _log.warning("kb auto library heal failed: %s", _e)
 
+    # ── 知识整理启动钩（c-kb-organize）：僵尸 running sweep＋runs 保留＋>7 天题材整理 ──
+    try:
+        from kb.organize import startup_sweep_and_maybe_run
+
+        _org = await startup_sweep_and_maybe_run()
+        if _org.get("swept") or _org.get("triggered"):
+            _log.info("kb organize startup: swept=%s genres=%s triggered=%s",
+                      _org.get("swept"), _org.get("genres"), _org.get("triggered"))
+    except Exception as _e:  # noqa: BLE001 — 失败不挡启动（下次启动重试）
+        _log.warning("kb organize startup failed: %s", _e)
+
     # ── 预置题材播种（#453 重写 lifespan 时被误删，2026-09-21 补回）──────────
     # 两个都是幂等（只插缺失、不覆盖用户改动）；缺了它们**新建库的题材目录是空的**：
     # GET /genres/candidates 返回空 → 题材面板的预置词条 PUT 会 400「未知的候选词汇」，
