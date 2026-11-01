@@ -726,7 +726,7 @@ class TestOrganizeEndpoints:
     def test_手动触发幂等与状态(self):
         uid = self._uid()
         _run(_seed_user(uid))
-        ids = _run(self._seed_graph(uid))["ids"]
+        _run(self._seed_graph(uid))
 
         async def _override():
             return {"id": uid}
@@ -770,7 +770,7 @@ class TestOrganizeEndpoints:
                 assert lst2["counts"]["relations"] == 0
 
                 # 「这条不对」：落反馈签名（幂等）
-                fb = c.post(f"/api/kb/relations/{ids['m1'][:0]}{rel['id']}/feedback")
+                c.post(f"/api/kb/relations/{rel['id']}/feedback")
                 # 用已否决关系也行（本体在）——换 m1→w1 那条：需查 id
                 async def _rel_id():
                     async with async_session() as db:
@@ -781,7 +781,7 @@ class TestOrganizeEndpoints:
                 rid = _run(_rel_id())
                 fb1 = c.post(f"/api/kb/relations/{rid}/feedback").json()["data"]
                 assert "降低" in fb1["message"]
-                fb2 = c.post(f"/api/kb/relations/{rid}/feedback").json()["data"]  # 幂等
+                c.post(f"/api/kb/relations/{rid}/feedback")  # 幂等
 
                 async def _fb_count():
                     async with async_session() as db:
