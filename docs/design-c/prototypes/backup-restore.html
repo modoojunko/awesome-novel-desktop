@@ -1126,7 +1126,8 @@ function renderShelf(id, books, menuIdx) {
       '</div>' +
       '<div class="foot">' +
       '<span class="updated">更新于 ' + b.updated + '</span>' +
-      '<span class="go">' + (b.stage === 'done' ? '查看' : '继续创作') + '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M5 12h14M13 6l6 6-6 6"/></svg></span>' +
+      /* CTA 与书架同源三分支（list.html／c-shelf-settings-nudge）：设定态＝去补设定 */
+      '<span class="go">' + (b.stage === 'done' ? '查看' : b.stage === 'setting' ? '去补设定' : '继续创作') + '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M5 12h14M13 6l6 6-6 6"/></svg></span>' +
       '</div>';
     wrap.appendChild(card);
   });

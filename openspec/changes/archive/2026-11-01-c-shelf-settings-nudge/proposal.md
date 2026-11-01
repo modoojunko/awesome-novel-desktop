@@ -24,7 +24,7 @@
 ## Impact
 
 - **前端**：`NovelListPage.tsx` 两处文案常量；无逻辑/接口/样式改动（`is-later` 弱化态保留）。
-- **原型**：`docs/design-c/prototypes/list.html` 同步文案（design:check parity 对拍面）。
+- **原型**：`docs/design-c/prototypes/list.html` 同步文案（design:check parity 对拍面）；`backup-restore.html` 书卡 CTA 分支同源同步（书架卡副本屏，不在 parity 矩阵——评审 P3 修复）。
 - **测试**：`novelListPage.test.tsx`／e2e `image-workshop.spec.ts` 文案断言更新。
 - **不触碰**：后端零改动；`lib/novelStage.ts` 四态判据不动；两端共享段不涉。
 
