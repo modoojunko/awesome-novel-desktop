@@ -952,7 +952,7 @@ async def import_from_deconstruct(
         library_ids.append(record.id)
     if created:
         logger.info("event=character_library.import_deconstruct task=%s created=%s", task.id, created)
-    return {"created": created, "skipped": skipped, "library_ids": library_ids}
+    return {"created": created, "skipped": skipped, "library_ids": library_ids, "genre": genre}
 
 # ── 库卡头像生成（c-library-avatar-gen：复用书内头像生成能力） ─────────────
 

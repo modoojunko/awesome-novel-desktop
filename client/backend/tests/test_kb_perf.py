@@ -102,3 +102,70 @@ def test_十万级_列表_搜索_计数_深翻页():
     assert t_page2 < 5, f"第二页 {t_page2:.2f}s"
     assert t_counts < 5, f"题材计数 {t_counts:.2f}s"
     assert t_deep < 30, f"百页深翻 {t_deep:.2f}s"
+
+
+def test_十万级_整理预筛与打分预算():
+    """c-kb-organize A9：10 万级题材下，增量整理的预筛＋特征打分路径过预算闸。
+
+    只跑确定性路径（llm=False＝候选空，预筛/打分骨架全走）；
+    证明增量对＋桶 cap 使 organize 不因全库规模退化。
+    """
+    from sqlalchemy import select as _sel
+
+    from db import async_session
+    from kb.organize import run_organize, startup_sweep_and_maybe_run
+    from models.kb import KbOrganizeRun, KbRelation
+    from models.user import User
+
+    uid = f"orgaperf-{uuid.uuid4().hex[:8]}"
+
+    async def _seed():
+        async with async_session() as db:
+            db.add(User(id=uid, email=f"{uid}@t.local", password_hash="x", display_name="整理性能"))
+            rows = []
+            tags = []
+            for i in range(N):
+                eid = f"{uid}-{i:06d}"
+                concept = CONCEPTS[i % len(CONCEPTS)]
+                rows.append({
+                    "id": eid, "user_id": uid,
+                    "genre": "都市" if i % 2 == 0 else "悬疑",
+                    "concept": concept, "concept_id": f"都市:{concept}",
+                    "title": f"条目{i}", "payload_json": "{}",
+                    "instruction": f"第{i}条整理指令。", "when_json": "{}", "src_kind": "manual",
+                })
+                tags.append({"entry_id": eid, "user_id": uid, "dim": "concept", "value": concept})
+            for start in range(0, N, 500):
+                await db.execute(insert(KbEntry), rows[start:start + 500])
+            for start in range(0, N, 2000):
+                await db.execute(insert(KbEntryTag), tags[start:start + 2000])
+            await db.commit()
+    _run(_seed())
+
+    t0 = time.monotonic()
+    run, err = _run(_run_with_session(lambda db: run_organize(
+        db, user_id=uid, genre="都市", trigger="manual", llm=False)))
+    t_elapsed = time.monotonic() - t0
+    assert err == "" and run.status == "completed"
+    # 宽松回归闸（非跑分）：预筛＋打分骨架在 10 万级条目上秒级完成
+    assert t_elapsed < 30, f"organize 预算爆了：{t_elapsed:.1f}s"
+    # 关系零候选（llm=False）→ 无 active 边；run 计数在
+    async def _check():
+        async with async_session() as db:
+            rels = (await db.execute(_sel(KbRelation).where(KbRelation.user_id == uid))).scalars().all()
+            runs = (await db.execute(_sel(KbOrganizeRun).where(KbOrganizeRun.user_id == uid))).scalars().all()
+            return len(rels), runs[-1].entries_scanned if runs else 0
+    n_rels, scanned = _run(_check())
+    assert n_rels == 0 and scanned == N // 2  # 都市半库
+
+    # 启动钩（sweep＋保留）在 10 万级不炸不超时
+    t3 = time.monotonic()
+    _run(startup_sweep_and_maybe_run())
+    assert time.monotonic() - t3 < 30
+
+
+def _run_with_session(fn):
+    async def _go():
+        async with async_session() as db:
+            return await fn(db)
+    return _go()

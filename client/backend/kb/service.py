@@ -156,6 +156,11 @@ def _tags_for(entry: KbEntry, payload: dict, when: dict) -> list[tuple[str, str]
     slot = payload.get("slot")
     if slot:
         tags.append(("slot", slot))
+    # alias（c-kb-organize：别名共现特征走物化标签，SHALL NOT 读 payload_json）
+    for a in (payload.get("aliases") or []):
+        a = str(a).strip()[:80]
+        if a:
+            tags.append(("alias", a))
     return tags
 
 

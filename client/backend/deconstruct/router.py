@@ -468,6 +468,11 @@ async def export_task(
     result["graph_error"] = graph_err
     task.exported_at = datetime.now(UTC).replace(tzinfo=None)  # 已取标记：badge 不再计数
     await db.commit()
+    if result.get("created"):
+        # c-kb-organize：拆书入库后该题材自动整理一次（fire-and-forget；7 天启动钩兜底）
+        from kb.organize import trigger_after_collect
+
+        await trigger_after_collect(_user_id(user), str(result.get("genre") or ""))  # to-library：genre 随返回值
     return result
 
 
@@ -549,6 +554,11 @@ async def to_library(
     )
     task.exported_at = datetime.now(UTC).replace(tzinfo=None)  # 已取标记：badge 不再计数
     await db.commit()
+    if result.get("created"):
+        # c-kb-organize：拆书入库后该题材自动整理一次（fire-and-forget；7 天启动钩兜底）
+        from kb.organize import trigger_after_collect
+
+        await trigger_after_collect(_user_id(user), str(result.get("genre") or ""))  # to-library：genre 随返回值
     return result
 
 
@@ -600,6 +610,13 @@ async def collect_to_kb(
         await ensure_default_library(db, uid, e.genre, e.concept)
 
     await db.commit()
+
+    await db.commit()
+
+    # c-kb-organize：拆书入库后该题材自动整理一次（fire-and-forget）
+    from kb.organize import trigger_after_collect
+
+    await trigger_after_collect(uid, genre)
 
     return {
         "ok": True,
