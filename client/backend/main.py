@@ -200,6 +200,22 @@ async def lifespan(app: FastAPI):
     except Exception as _e:  # noqa: BLE001 — 迁移失败不挡启动（下次启动重试）
         _log.warning("dossier legacy migration failed: %s", _e)
 
+    # ── 库卡 legacy 头像字节搬迁（c-kb-character-migration 刀2c ③）：
+    #    CharacterLibraryBlob → kb_entry_blobs（entry id 键）；搬成功的旧行删除；
+    #    失败不挡启动（头像 union 读兜底，下次启动重试） ──
+    try:
+        from kb.blob_migration import migrate_library_blobs_v1
+
+        _lbm = await migrate_library_blobs_v1()
+        if _lbm.get("migrated") or _lbm.get("removed"):
+            _log.info(
+                "library blobs: migrated=%s skipped=%s orphaned=%s removed=%s",
+                _lbm.get("migrated"), _lbm.get("skipped"),
+                _lbm.get("orphaned"), _lbm.get("removed"),
+            )
+    except Exception as _e:  # noqa: BLE001 — 搬迁失败不挡启动
+        _log.warning("library blob migration failed: %s", _e)
+
     # ── 预置题材播种（#453 重写 lifespan 时被误删，2026-09-21 补回）──────────
     # 两个都是幂等（只插缺失、不覆盖用户改动）；缺了它们**新建库的题材目录是空的**：
     # GET /genres/candidates 返回空 → 题材面板的预置词条 PUT 会 400「未知的候选词汇」，

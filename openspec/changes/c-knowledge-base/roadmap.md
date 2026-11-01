@@ -75,11 +75,11 @@
 - [x] 迁移脚本：读 character_library 全量 → 每行创建 kb_entry（幂等，src_ref="character_library"，src_key=原 id）（角色关系→kb_relations 归批7 AI 整理同批）
 - [x] 角色库列表页改读 kb_entries（concept="角色设定"；刀2c ① 后端适配器，11-01 parity 全套绿）
 - [x] 角色卡编辑器改读写 kb_entry payload（刀2c ① 同批：写侧 card_to_payload＋kb 闸门）
-- [ ] 角色关系改读 kb_relations
+- [ ] 角色关系改读 kb_relations（二阶段 AI 整理同批）
 - [ ] `character_library` 表标 deprecated，不再写入
 - [ ] 头像保留独立存储，kb_entry 加 avatar_url 字段引用
 - [ ] legacy 原文（possessions/experiences 等）不迁移——只存不读不上界面不进 AI，留 character_library 不动
-- [ ] 单测：迁移前后字段映射 parity（角色库全量字段 vs kb_entry payload）＋幂等（重复迁移不产生副本）
+- [x] 单测：迁移前后字段映射 parity（角色库全量字段 vs kb_entry payload）＋幂等（重复迁移不产生副本）——test_kb_migrate_library.py 批6 已落
 
 **依赖**：①（底座+浏览）必须先合入。迁移脚本本身幂等，可重复执行。
 

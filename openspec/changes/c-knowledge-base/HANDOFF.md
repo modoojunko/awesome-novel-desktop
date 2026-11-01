@@ -3,8 +3,8 @@
 ## 一句话现状
 
 PR #993（`c-knowledge-base` → main）**21 笔提交、CI 双绿**：批 1-7 全部开工，一期能力闭环
-（存/看/管/进书/备份），**真机首验完成并修了 4 个 mock 探不到的真 bug**。**刀2c ① 存储切换
-已落（11-01，parity 全套原样跑绿）**，剩②③与二阶段。
+（存/看/管/进书/备份），**真机首验完成并修了 4 个 mock 探不到的真 bug**。**刀2c ①②③ 全落**（① 存储切换 5e062fa3；② 消费面走查过；③ 头像字节 boot 搬迁），
+剩二阶段（AI 整理＋写法块注入）。
 
 ## Boss 拍板集（按时间序，均已执行或挂账）
 
@@ -31,7 +31,8 @@ PR #993（`c-knowledge-base` → main）**21 笔提交、CI 双绿**：批 1-7 �
 | 批6 刀1 迁移 | CharacterPayload 全量 24 字段＋migrate_library.py＋表 DEPRECATED | 88a468e3 |
 | 批6 刀2a 写通道 | PATCH/DELETE 条目（rev 并发/软删）＋payload 补 aliases/role/kind | 97141aba |
 | 批6 刀2b 地基 | 双向映射单源＋适配器裁定＋备份恢复自动镜像 | e184bbfa＋4044f35c |
-| 批6 刀2c ① 存储切换 | library/service 读写切 kb_entries＋kb_entry_blobs 头像新表＋复活臂＋备份带字节 | 本轮（未提交） |
+| 批6 刀2c ① 存储切换 | library/service 读写切 kb_entries＋kb_entry_blobs 头像新表＋复活臂＋备份带字节 | 5e062fa3 |
+| 批6 刀2c ②③ 消费面＋头像搬迁 | 走查三面全过＋blob_migration boot 迁移（幂等/孤儿保留/搬后删旧行） | 本轮 |
 | 批7 全局图 | graph 两端点＋force-graph 2D（聚合/下钻/面包屑/邻域高亮） | 7b1d4f12＋4e0ae77f |
 | 真机四连修 | 手录 500/默认装载/kapsule 两层/节点可见性 | 2e493fb4＋79d17ff2 |
 | 性能/工件 | 10 万级回归闸＋tasks 勾选＋roadmap | 3786618d |
@@ -94,7 +95,7 @@ config.json 里 token/username 已备好（smoke-tester）。**「正在准备�
 - 管道吞退出码：`pytest | tail` 的 0 是 tail 的；用 `; echo EXIT=$?` 或落文件
 - vite 后台起服务别接 `| head`；探活用 `localhost`（IPv6 绑定）
 
-## 余账（按序，下一件是刀2c ②）
+## 余账（按序，下一件是二阶段）
 
 ### 刀2c ①（2026-11-01 已落，parity 全套原样跑绿＋4 回归钉）
 `library/service.py` 读写从 CharacterLibrary 切 kb_entries，全部完成：
@@ -115,9 +116,22 @@ config.json 里 token/username 已备好（smoke-tester）。**「正在准备�
   落 payload 时省略（读侧 falsy 等价）；拆书 collect-to-kb 的 character:N 条目与
   to-library 名字键并存于同一列表（二阶段 AI 整理去重）
 
-### 刀2c ②③
-② 收录/同步/用到新书消费面走查（kb 快照/建卡预填）；③ 旧头像字节搬 kb_entry_blobs
-＋CharacterLibraryBlob 退役；旧备份恢复镜像已落（4044f35c）。
+### 刀2c ②③（2026-11-01 已落）
+**② 消费面走查**（全过，零代码改动）：
+- kb 快照：`build_members` 对角色/手法无落点直接跳过——新卡进 kb 后即便启用角色库
+  也落 0 条，system 快照零污染 ✓
+- 建卡预填：`kbPrototype.ts` 对任意角色设定 payload 生效（archetype→persona 句＋
+  dossier/cog 白名单格）——收录/拆书新卡自动成为可选原型，特性增强 ✓
+- 主表停写 sweep：生产写路径只剩 `backup/importer.py` 恢复段（设计内 legacy 兼容）✓
+
+**③ 头像字节搬迁**（`kb/blob_migration.py`＋main.lifespan boot 挂钩；**data-smoke 真栈已验**：
+legacy 卡＋字节 → 迁移端点镜像 → 重启 boot 日志 `migrated=2 removed=2`、legacy 0 行、
+新表 2 行、字节照读；data-smoke 里留了一张带头像的迁移卡 smokelib 可复用）：
+- boot 一次性迁移：CharacterLibraryBlob → kb_entry_blobs（src_key 回联 entry id）；
+  幂等（(entry_id,variant) 已在跳过）；同键多用户（同备份恢复到两账号）各自补齐；
+  搬成功的旧行删除（省双份存储）；孤儿行（父卡在、条目不在）保留走 union 读兜底
+- 失败不挡启动（照 import backfill 先例，下次启动重试）；无 legacy 行时 O(1) 探测即返
+- 回归钉：test_kb_blob_migration.py（搬运/幂等/孤儿/多用户同键）
 
 ### 二阶段（已拍板挂账）
 AI 整理（关系/合并/纠偏，kb_relations 写入口＋全局图关系边）；写法块选择器+注入

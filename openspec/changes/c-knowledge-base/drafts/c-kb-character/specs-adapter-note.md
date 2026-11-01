@@ -34,6 +34,8 @@ FOREIGN KEY constraint failed），kb entry id 永远不在 character_library �
 - 替代方案（前端直调 /api/kb）被否：六组件×100% 契约全重写＋三后端面
   （头像/收录/用到新书）仍须改造，风险与工作量双高，收益只有 URL 语义
 
-**后续顺序**：① ~~router 委托改造＋parity 测试~~ 已落 → ② 收录/同步/用到新书
-端点跟随（kb 快照/建卡预填消费面走查）→ ③ 旧头像字节搬 kb_entry_blobs＋
-CharacterLibraryBlob 退役 → ④ 前端 URL 语义收敛（P1 可缓）
+**后续顺序**：① ~~router 委托改造＋parity 测试~~ 已落 → ② ~~消费面走查~~ 已落
+（snapshot 角色无落点跳过／建卡预填新卡入池／主表停写 sweep 干净）→
+③ ~~旧头像字节搬 kb_entry_blobs＋退役~~ 已落（kb/blob_migration.py boot 迁移：
+幂等＋孤儿保留走 union 读＋搬后删旧行；同键多用户各自补齐）→
+④ 前端 URL 语义收敛（P1 可缓）
