@@ -596,7 +596,8 @@ const ARROW = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke
 const CHECK = '<svg viewBox="0 0 16 16" width="11" height="11" aria-hidden="true"><path d="M3.5 8.6l3 3 6-7" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg>';
 
 /* 星海拾遗 主线已全部归档 → 待完本（演示「AI 封面」来源行）；雾中法庭 演示已完结态；
-   雪落无声 0 章 → 占位弱化「可稍后添加」（c-book-card-cover-column 三态） */
+   雪落无声 0 章 → 占位弱化「可在 ⋯ 菜单添加」＋设定态 CTA「去补设定」（c-book-card-cover-column 三态
+   ＋c-shelf-settings-nudge 文案召唤） */
 const DAY = 86400000;
 const T = Date.now();
 const COVER_STAR = 'data:image/svg+xml;utf8,' + encodeURIComponent(
@@ -843,10 +844,10 @@ function bookCard(it){
     foot = '<span class="updated">' + (b.state === 'done' ? '完结于 ' + esc(b.finishedAt || '—') : '更新于 ' + esc(b.updated || '—')) + '</span>'
       + '<span class="foot-acts">'
       +   (b.state === 'done' ? '<button class="btn btn-secondary btn-sm" data-preview="' + it.idx + '" data-od-id="preview-open-' + it.idx + '">回看</button>' : '')
-      +   '<span class="go">' + (b.state === 'done' ? '查看' : '继续创作') + ARROW + '</span>'
+      +   '<span class="go">' + (b.state === 'done' ? '查看' : b.state === 'setting' ? '去补设定' : '继续创作') + ARROW + '</span>'
       + '</span>';
   }
-  /* 封面列（拍板 C）：有封面＝竖版图＋悬浮「换封面」；无封面有章节＝占位块即按钮「生成封面」；0 章＝不可点「可稍后添加」 */
+  /* 封面列（拍板 C）：有封面＝竖版图＋悬浮「换封面」；无封面有章节＝占位块即按钮「生成封面」；0 章＝不可点弱化态，提示 ⋯ 菜单入口（c-shelf-settings-nudge） */
   const cover = b.cover
     ? '<img src="' + b.cover + '" alt="《' + esc(b.title) + '》封面">'
       + '<button type="button" class="cover-act" data-cover="' + it.idx + '" data-od-id="cover-open-' + it.idx + '" aria-label="更换封面">换封面</button>'
@@ -854,7 +855,7 @@ function bookCard(it){
       ? '<div class="cover-empty is-later">'
         + '<span class="mono ce-seal">' + esc((b.title || '书')[0]) + '</span>'
         + '<span>还没有封面</span>'
-        + '<span class="ce-cta">可稍后添加</span>'
+        + '<span class="ce-cta">可在 ⋯ 菜单添加</span>'
         + '</div>'
       : '<button type="button" class="cover-empty" data-cover="' + it.idx + '" data-od-id="cover-open-' + it.idx + '" aria-label="为《' + esc(b.title) + '》生成封面">'
         + '<span class="mono ce-seal">' + esc((b.title || '书')[0]) + '</span>'
