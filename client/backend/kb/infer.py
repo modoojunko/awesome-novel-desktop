@@ -29,16 +29,23 @@ _KEYWORDS: dict[str, list[str]] = {
 }
 
 
-def infer_concept(text: str) -> str:
-    """自由文本 → 六概念之一。匹配不出返回默认"手法"。"""
-    t = text.strip()
-    if not t:
-        return "手法"
+def infer_scores(text: str) -> dict[str, int]:
+    """自由文本 → 各概念词眼命中数（c-kb-organize 纠偏判据复用）。"""
+    t = str(text or "").strip()
     hits: dict[str, int] = {}
     for concept, kws in _KEYWORDS.items():
         score = sum(1 for kw in kws if kw in t)
         if score > 0:
             hits[concept] = score
+    return hits
+
+
+def infer_concept(text: str) -> str:
+    """自由文本 → 六概念之一。匹配不出返回默认"手法"。"""
+    t = text.strip()
+    if not t:
+        return "手法"
+    hits = infer_scores(t)
     if not hits:
         return "手法"
     return max(hits, key=lambda c: (hits[c], c))

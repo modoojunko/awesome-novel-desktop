@@ -14,13 +14,13 @@
 
 ## 批B 合并·纠偏·标注＋merged 跨端（后端，依赖批A）
 
-- [ ] B1 合并建议：相似判据（名/别名 tag/槽位重合）＋provenance 线索（双出口平行条目）；findings 落库＋候选对签名忽略记忆（rev 变可再提）
-- [ ] B2 合并确认：kb_entry_merges 落行＋status=merged；**七端排除回归断言**（列表/计数/快照/图聚合/选择器/建卡预填/write_block）＋角色库 revive 跳过 merged＋collect-to-kb 幂等「merged 不复活不重建、跳过计数单列」＋merged 不再入 candidates
-- [ ] B3 merged 追溯：get_entry include_merged 分支（原载荷＋merges 指向）；恢复（merged→active）留 P1 只留数据路径
-- [ ] B4 纠偏建议：错位判据（payload 键 × 注册表＋infer 词叶分差阈值）＋采纳删建（溯源键防撞后缀）＋单测
-- [ ] B5 子概念建议（提案制）＋质量标记（指令 <20 字/无证据/标题与已归档重复——阈值常量入码）——仅展示层；标记不进选择器断言
-- [ ] B6 负反馈端点语义：「这条不对」落 kb_organize_feedback 签名；采纳/忽略即落 findings.status
-- [ ] B7 单测：平行条目合并全链/合并不删数据/B2 七端逐一/纠偏删建防撞/质量标记不影响打分/忽略签名不再提出（rev 变再提）
+- [x] B1 合并建议：相似判据（名/别名 tag/槽位重合）＋provenance 线索（双出口平行条目）；findings 落库＋候选对签名忽略记忆（rev 变可再提）
+- [x] B2 合并确认：kb_entry_merges 落行＋status=merged；**排除回归断言**（列表/计数/快照/图聚合/建卡预填已钉；选择器与 write_block 两端在 c-kb-write-block 分支——合入后由其批F 补钉，本批已留跨端清单 design D11）＋角色库 revive 跳过 merged＋collect-to-kb 幂等「merged 不复活不重建、跳过计数单列」＋merged 不再入 candidates
+- [x] B3 merged 追溯：get_entry include_merged 分支（原载荷＋merges 指向）；恢复（merged→active）留 P1 只留数据路径
+- [x] B4 纠偏建议：错位判据（payload 键 × 注册表＋infer 词叶分差阈值）＋采纳删建（溯源键防撞后缀）＋单测
+- [x] B5 子概念建议（提案制）＋质量标记（指令 <20 字/无证据/标题与已归档重复——阈值常量入码）——仅展示层；标记不进选择器断言
+- [x] B6 负反馈端点语义：「这条不对」落 kb_organize_feedback 签名；采纳/忽略即落 findings.status
+- [x] B7 单测：平行条目合并全链/合并不删数据/B2 七端逐一/纠偏删建防撞/质量标记不影响打分/忽略签名不再提出（rev 变再提）
 
 ## 批C 端点与条目图（后端，依赖批A/B）
 

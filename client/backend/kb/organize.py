@@ -17,10 +17,13 @@ import re
 from datetime import UTC, datetime
 
 from sqlalchemy import delete, select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from models.kb import (
+    KbConcept,
     KbEntry,
+    KbEntryMerge,
     KbEntryTag,
     KbOrganizeFeedback,
     KbOrganizeFinding,
@@ -421,11 +424,16 @@ async def run_organize(
             outputs["evicted"] = overflow
             _count_output(db, run.id, "evicted", overflow)
 
-        run.status = "completed"
-        run.entries_scanned = len(entries_all)
         run.relations_added = active_n
         run.relations_updated = pending_n
         run.relations_skipped = dup_n + drop_n + invalid_n
+
+        # 批B：四类检测（合并/纠偏/子概念/质量）→ findings（作家确认制，不动条目）
+        counts = await detect_findings(db, run=run, entries=entries_all)
+        outputs.update({f"suggestion_{k}": v for k, v in counts.items()})
+
+        run.status = "completed"
+        run.entries_scanned = len(entries_all)
         run.error = error or ""
         run.finished_at = datetime.now(UTC).replace(tzinfo=None)
         await db.commit()
@@ -538,3 +546,273 @@ async def ignore_finding(db: AsyncSession, user_id: str, finding_id: str) -> boo
     f.status = "ignored"
     await db.commit()
     return True
+
+
+# ─── 批B：合并·纠偏·子概念·质量 检测与采纳（作家确认制，SHALL NOT 自动动数据） ──
+
+QUALITY_MIN_INSTRUCTION = 20     # 质量标记阈值：指令 <20 字＝过短（spec 钉死）
+RECLASS_MIN_TARGET = 2           # 纠偏：目标概念词叶命中 ≥2
+RECLASS_GAP = 2                  # 纠偏：目标得分须超现概念 2 分以上
+FINDING_KINDS = ("merge", "reclass", "subconcept", "quality")
+
+
+def _payload_keys(e: KbEntry) -> set[str]:
+    try:
+        v = json.loads(e.payload_json or "{}")
+    except (TypeError, ValueError):
+        return set()
+    return {k for k in v if k != "aliases"} if isinstance(v, dict) else set()
+
+
+def _merge_reason(a: KbEntry, b: KbEntry, alias_a: set[str], alias_b: set[str]) -> str:
+    """合并判据（design D4/B1）：须含至少一条强线索（同名/别名共现/同源）；槽位重合只是佐证。"""
+    reasons: list[str] = []
+    na, nb = (a.title or "").strip(), (b.title or "").strip()
+    if na and na == nb:
+        reasons.append("同名")
+    elif na and nb and min(len(na), len(nb)) >= 2 and (na in nb or nb in na):
+        reasons.append("名字互含")
+    if alias_a & alias_b:
+        reasons.append("别名共现")
+    if a.src_ref and a.src_ref == b.src_ref and a.src_kind == b.src_kind:
+        reasons.append("同来源（疑似双出口平行条目）")
+    if not reasons:
+        return ""
+    ka, kb_ = _payload_keys(a), _payload_keys(b)
+    if ka and kb_ and len(ka & kb_) / len(ka | kb_) >= 0.5:
+        reasons.append("槽位重合")
+    return "、".join(reasons)
+
+
+async def _upsert_finding(
+    db: AsyncSession, *, user_id: str, genre: str, kind: str,
+    subject_id: str, subject2_id: str, payload: dict, run_id: str,
+) -> str:
+    """findings 落库（签名去重）：proposed 已在→跳；adopted→永不重提；
+    ignored→两端 rev 指纹未变→跳，变了→重新提出。返回落库状态。"""
+    ids = sorted([subject_id, subject2_id] if subject2_id else [subject_id])
+    sig = hashlib.sha256((kind + "┃" + "┃".join(ids)).encode()).hexdigest()[:64]
+    existing = (
+        await db.execute(
+            select(KbOrganizeFinding).where(
+                KbOrganizeFinding.user_id == user_id,
+                KbOrganizeFinding.kind == kind,
+                KbOrganizeFinding.signature == sig,
+            )
+        )
+    ).scalars().all()
+    for f in existing:
+        if f.status == "proposed":
+            return "dup"
+        if f.status == "adopted":
+            return "adopted"
+        if f.status == "ignored":
+            try:
+                old_revs = (json.loads(f.payload_json or "{}").get("revs") or {})
+            except (TypeError, ValueError):
+                old_revs = {}
+            cur_revs = {"revs": {}}
+            for sid in ([f.subject_id, f.subject2_id] if f.subject2_id else [f.subject_id]):
+                s_ = await db.get(KbEntry, sid)
+                cur_revs["revs"][sid] = int(getattr(s_, "rev", 0) or 0)
+            if old_revs == cur_revs["revs"]:
+                return "ignored_hold"
+            break  # rev 指纹变了 → 重新提出
+    subj = await db.get(KbEntry, subject_id)
+    revs = {"revs": {subject_id: int(getattr(subj, "rev", 0) or 0)}}
+    if subject2_id:
+        s2 = await db.get(KbEntry, subject2_id)
+        revs["revs"][subject2_id] = int(getattr(s2, "rev", 0) or 0)
+    payload = {**payload, **revs}
+    try:
+        db.add(KbOrganizeFinding(
+            user_id=user_id, genre=genre, kind=kind, subject_id=subject_id,
+            subject2_id=subject2_id, payload_json=json.dumps(payload, ensure_ascii=False),
+            status="proposed", signature=sig, run_id=run_id,
+        ))
+        await db.flush()
+        return "proposed"
+    except IntegrityError:
+        # 并发缝隙（singleflight 间隙/跨会话）：同签名 proposed 已落 → 视为重复
+        await db.rollback()
+        return "dup"
+
+
+async def detect_findings(db: AsyncSession, *, run: KbOrganizeRun, entries: list[KbEntry]) -> dict[str, int]:
+    """四类检测 → findings（作家确认制；本函数 SHALL NOT 改任何条目）。"""
+    uid, genre = run.user_id, run.genre
+    counts: dict[str, int] = {}
+    alias_map = await _alias_set(db, uid, [e.id for e in entries])
+
+    async def _emit(kind: str, subject_id: str, subject2_id: str, payload: dict) -> None:
+        st = await _upsert_finding(
+            db, user_id=uid, genre=genre, kind=kind, subject_id=subject_id,
+            subject2_id=subject2_id, payload=payload, run_id=run.id,
+        )
+        if st == "proposed":
+            counts[kind] = counts.get(kind, 0) + 1
+
+    # ── 合并（同概念桶内 pairwise；桶 cap 同短名单） ──
+    by_concept: dict[str, list[KbEntry]] = {}
+    for e in entries:
+        by_concept.setdefault(e.concept, []).append(e)
+    seen_pairs: set[tuple[str, str]] = set()
+    for bucket in by_concept.values():
+        bucket = bucket[:BUCKET_CAP]
+        for i in range(len(bucket)):
+            for j in range(i + 1, len(bucket)):
+                a, b = bucket[i], bucket[j]
+                key = tuple(sorted([a.id, b.id]))
+                if key in seen_pairs:
+                    continue
+                seen_pairs.add(key)
+                reason = _merge_reason(a, b, alias_map.get(a.id, set()), alias_map.get(b.id, set()))
+                if reason:
+                    lo, hi = sorted([a.id, b.id])
+                    surviving = hi if (a.title or "") <= (b.title or "") else lo
+                    merged = b if surviving == a.id else a
+                    await _emit("merge", merged.id, surviving,
+                                {"surviving": surviving, "merged": merged.id,
+                                 "reason": reason, "titles": [a.title, b.title]})
+
+    # ── 纠偏（词叶得分超现概念且差 ≥2；目标须在六概念注册表内） ──
+    from kb.infer import infer_scores
+
+    for e in entries:
+        scores = infer_scores(e.instruction or "")
+        scores.pop(e.concept, None)
+        if not scores:
+            continue
+        target, ts = max(scores.items(), key=lambda kv: (kv[1], kv[0]))
+        cur_score = max((v for k, v in scores.items() if k == e.concept), default=0)
+        if ts >= RECLASS_MIN_TARGET and ts - cur_score >= RECLASS_GAP and target in (
+            "文风", "文笔", "世界设定", "角色设定", "手法"
+        ):
+            await _emit("reclass", e.id, "",
+                        {"target_concept": target, "reason": f"词叶更匹配 {target}（{ts} 命中）",
+                         "title": e.title})
+
+    # ── 子概念提案（命中 kb_concepts 子概念名/别名；提案制 SHALL NOT 自动建行） ──
+    sub_rows = (
+        await db.execute(
+            select(KbConcept).where(KbConcept.level == 2, KbConcept.status == "active")
+        )
+    ).scalars().all()
+    for e in entries:
+        text = f"{e.title}｜{e.instruction or ''}"
+        for sc in sub_rows:
+            names = [sc.name]
+            try:
+                names += [str(x) for x in json.loads(sc.aliases or "[]")]
+            except (TypeError, ValueError):
+                pass
+            if any(n and n in text for n in names):
+                await _emit("subconcept", e.id, "",
+                            {"subconcept": sc.name, "reason": f"命中子概念「{sc.name}」",
+                             "title": e.title})
+                break
+
+    # ── 质量标记（指令 <20 字／无证据／标题与已归档重复——首判据即出） ──
+    archived_titles = set(
+        (
+            await db.execute(
+                select(KbEntry.title).where(
+                    KbEntry.user_id == uid, KbEntry.genre == genre, KbEntry.status == "archived"
+                )
+            )
+        ).scalars()
+    )
+    for e in entries:
+        reason = ""
+        if len((e.instruction or "").strip()) < QUALITY_MIN_INSTRUCTION:
+            reason = f"指令过短（<{QUALITY_MIN_INSTRUCTION} 字）"
+        elif not (e.evidence or "").strip() and (e.evidence_json or "{}") in ("", "{}"):
+            reason = "无证据来源"
+        elif (e.title or "") in archived_titles:
+            reason = "标题与已归档条目重复"
+        if reason:
+            await _emit("quality", e.id, "", {"reason": reason, "title": e.title})
+
+    for kind, n in counts.items():
+        db.add(KbOrganizeOutput(run_id=run.id, kind=f"suggestion_{kind}", count=n))
+        _count_output(db, run.id, f"suggestion_{kind}", n)
+    await db.commit()
+    return counts
+
+
+async def adopt_finding(db: AsyncSession, *, user_id: str, finding_id: str) -> tuple[bool, str]:
+    """采纳建议（作家确认动作）。返回 (ok, message)。merge/reclass 动数据，quality 归档，subconcept 仅落状态。"""
+    f = (
+        await db.execute(
+            select(KbOrganizeFinding).where(
+                KbOrganizeFinding.id == finding_id,
+                KbOrganizeFinding.user_id == user_id,
+                KbOrganizeFinding.status == "proposed",
+            )
+        )
+    ).scalar_one_or_none()
+    if f is None:
+        return False, "not_found"
+    payload = {}
+    try:
+        payload = json.loads(f.payload_json or "{}")
+    except (TypeError, ValueError):
+        pass
+
+    if f.kind == "merge":
+        merged_id, surviving_id = f.subject_id, (payload.get("surviving") or f.subject2_id)
+        merged = await db.get(KbEntry, merged_id)
+        surviving = await db.get(KbEntry, surviving_id)
+        if merged is None or surviving is None:
+            return False, "entry_gone"
+        if merged.status != ACTIVE or surviving.status != ACTIVE:
+            return False, "state_changed"
+        merged.status = "merged"
+        db.add(KbEntryMerge(surviving_id=surviving.id, merged_id=merged.id, run_id=f.run_id))
+        f.status = "adopted"
+        await db.commit()
+        return True, f"已合并进「{surviving.title}」"
+
+    if f.kind == "reclass":
+        e = await db.get(KbEntry, f.subject_id)
+        if e is None or e.status != ACTIVE:
+            return False, "entry_gone"
+        target = str(payload.get("target_concept") or "")
+        if target not in ("文风", "文笔", "世界设定", "角色设定", "手法"):
+            return False, "bad_target"
+        from kb.service import create_entry as kb_create_entry
+
+        new_entry, _gate, error = await kb_create_entry(
+            db,
+            user_id=user_id,
+            genre=e.genre,
+            concept=target,
+            title=e.title,
+            payload={},  # 空载荷走手录默认装载（错位载荷不平移；作家后续编辑）
+            instruction=e.instruction,
+            evidence=e.evidence,
+            src_kind=e.src_kind,
+            src_ref=e.src_ref,
+            src_key=(e.src_key + ":reclass") if e.src_key else "",
+            src_novel_name=e.src_novel_name,
+        )
+        if new_entry is None:
+            return False, f"recreate_failed: {error}"
+        e.status = ARCHIVED
+        f.status = "adopted"
+        await db.commit()
+        return True, f"已按 {target} 重建"
+
+    if f.kind == "quality":
+        e = await db.get(KbEntry, f.subject_id)
+        if e is None or e.status != ACTIVE:
+            return False, "entry_gone"
+        e.status = ARCHIVED
+        f.status = "adopted"
+        await db.commit()
+        return True, "已归档"
+
+    # subconcept：提案确认只落状态（数据落点 P1；SHALL NOT 自动建概念行）
+    f.status = "adopted"
+    await db.commit()
+    return True, "提案已确认"

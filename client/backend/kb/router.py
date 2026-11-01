@@ -35,6 +35,7 @@ def _user(dep: dict) -> str:
 def _entry_dict(e: KbEntry) -> dict[str, Any]:
     return {
         "id": e.id,
+        "status": e.status,
         "genre": e.genre,
         "concept": e.concept,
         "concept_id": e.concept_id,
@@ -96,14 +97,29 @@ async def list_entries_api(
 @router.get("/entries/{entry_id}")
 async def get_entry_api(
     entry_id: str,
+    include_merged: bool = False,
     user: dict = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
     uid = _user(user)
-    e = await get_entry(db, user_id=uid, entry_id=entry_id)
+    e = await get_entry(db, user_id=uid, entry_id=entry_id, include_merged=include_merged)
     if not e:
         raise HTTPException(404, "Entry not found")
-    return {"ok": True, "data": _entry_dict(e)}
+    data = _entry_dict(e)
+    if e.status == "merged":
+        # c-kb-organize 追溯：合并指向＋保留条目摘要
+        from models.kb import KbEntryMerge
+
+        m = (
+            await db.execute(select(KbEntryMerge).where(KbEntryMerge.merged_id == e.id))
+        ).scalar_one_or_none()
+        surv = await db.get(KbEntry, m.surviving_id) if m else None
+        data["merged_into"] = (
+            {"entry_id": m.surviving_id, "title": surv.title if surv else ""}
+            if m and surv
+            else None
+        )
+    return {"ok": True, "data": data}
 
 
 # ─── 手录 ─────────────────────────────────────────────────

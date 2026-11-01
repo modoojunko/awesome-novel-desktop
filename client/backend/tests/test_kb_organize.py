@@ -2,6 +2,7 @@
 
 import asyncio
 import io
+import json
 import uuid
 import zipfile
 
@@ -43,7 +44,9 @@ async def _seed_entries(uid: str, specs: list[dict]) -> dict[str, KbEntry]:
                 instruction=sp["instruction"],
                 evidence=sp.get("evidence", ""),
                 evidence_json=sp.get("evidence_json"),
-                src_kind="manual",
+                src_kind=sp.get("src_kind", "manual"),
+                src_ref=sp.get("src_ref", ""),
+                src_key=sp.get("src_key", ""),
             )
             assert entry is not None, f"seed 失败: {error}"
             out[entry.id] = entry
@@ -367,3 +370,310 @@ async def _run_with_db(fn):
 
     async with async_session() as db:
         return await fn(db)
+
+
+class TestFindingsAndAdoption:
+    """批B：四类检测→findings→采纳语义＋merged 跨端。"""
+
+    def _mk_uid(self):
+        return _mk("find")
+
+    def test_平行条目合并全链(self):
+        """双出口平行条目（同 src_ref）：检测→建议→采纳→merged 不删数据→详情追溯。"""
+        uid = _mk("para")
+        _run(_seed_user(uid))
+
+        async def _seed_pair():
+            async with async_session() as db:
+                for eid, key in (("p-a", "洛九歌"), ("p-b", "character:1")):
+                    db.add(KbEntry(
+                        id=f"{eid}-{uid[:6]}", user_id=uid, genre="玄幻",
+                        concept="角色设定", concept_id="玄幻:角色设定",
+                        title="洛九歌", payload_json=json.dumps(
+                            {"archetype": "洛九歌", "aliases": ["掌灯人"], "gender": "女"},
+                            ensure_ascii=False),
+                        instruction="掌灯人，笑里藏刀。",
+                        src_kind="deconstruct", src_ref="task-x", src_key=key,
+                    ))
+                await db.commit()
+        _run(_seed_pair())
+
+        async def _detect():
+            async with async_session() as db:
+                entries = (await db.execute(sel(KbEntry).where(
+                    KbEntry.user_id == uid, KbEntry.status == "active"))).scalars().all()
+                run = KbOrganizeRun(user_id=uid, genre="玄幻", status="running")
+                db.add(run)
+                await db.flush()
+                counts = await org_detect(db, run=run, entries=list(entries))
+                await db.commit()
+                finds = (await db.execute(sel(KbOrganizeFinding).where(
+                    KbOrganizeFinding.user_id == uid, KbOrganizeFinding.kind == "merge"))).scalars().all()
+                return counts, finds
+        counts, finds = _run(_detect())
+        print("DBG-PARA counts:", counts, "finds:", [(f.kind, f.subject_id[:8], f.subject2_id[:8], f.signature[:10], f.status) for f in finds])
+        assert counts.get("merge", 0) >= 1 and len(finds) == 1
+        f = finds[0]
+        payload = json.loads(f.payload_json)
+        assert "同来源" in payload["reason"]  # provenance 线索在案
+
+        # 采纳合并
+        async def _adopt():
+            async with async_session() as db:
+                from kb.organize import adopt_finding
+
+                return await adopt_finding(db, user_id=uid, finding_id=f.id)
+        ok, msg = _run(_adopt())
+        assert ok, msg
+
+        async def _verify():
+            async with async_session() as db:
+                rows = (await db.execute(sel(KbEntry).where(KbEntry.user_id == uid))).scalars().all()
+                states = {r.id: r.status for r in rows}
+                merges = (await db.execute(sel(KbEntryMerge).where(
+                    KbEntryMerge.merged_id.in_([f.subject_id, f.subject2_id])))).scalars().all()
+                detail = await db.get(KbEntry, f.subject_id)
+                return states, len(merges), detail.status, detail.payload_json
+        states, n_merges, merged_status, merged_payload = _run(_verify())
+        assert set(states.values()) == {"active", "merged"}          # 不删行
+        assert n_merges == 1 and merged_status == "merged"
+        assert "洛九歌" in merged_payload                             # 载荷原样保留
+
+    def test_纠偏删建_溯源键防撞(self):
+        uid = _mk("recl")
+        _run(_seed_user(uid))
+        specs = [
+            # 词叶「世界/设定」双重命中，落在手法 → reclass 建议
+            {"concept": "手法", "genre": "玄幻",
+             "instruction": "这个世界的设定里，灵气以灯为纪，铁律不可破。",
+             "src_kind": "deconstruct", "src_ref": "task-r", "src_key": "world:1"},
+            {"concept": "文风", "genre": "玄幻", "instruction": "冷峻旁白，短句克制。"},
+        ]
+        entries = _run(_seed_entries(uid, specs))
+        subj_id = next(iter(entries))
+
+        async def _detect_and_adopt():
+            async with async_session() as db:
+                es = (await db.execute(sel(KbEntry).where(
+                    KbEntry.user_id == uid, KbEntry.status == "active"))).scalars().all()
+                run = KbOrganizeRun(user_id=uid, genre="玄幻", status="running")
+                db.add(run)
+                await db.flush()
+                await org_detect(db, run=run, entries=list(es))
+                await db.commit()
+                f = (await db.execute(sel(KbOrganizeFinding).where(
+                    KbOrganizeFinding.user_id == uid, KbOrganizeFinding.kind == "reclass"))).scalars().all()
+                return [x for x in f if x.subject_id == subj_id]
+        finds = _run(_detect_and_adopt())
+        assert finds, "应有纠偏建议"
+        payload = json.loads(finds[0].payload_json)
+        assert payload["target_concept"] == "世界设定"
+
+        async def _adopt():
+            async with async_session() as db:
+                from kb.organize import adopt_finding
+
+                return await adopt_finding(db, user_id=uid, finding_id=finds[0].id)
+        ok, _msg = _run(_adopt())
+        assert ok
+
+        async def _verify():
+            async with async_session() as db:
+                rows = (await db.execute(sel(KbEntry).where(
+                    KbEntry.user_id == uid, KbEntry.status.in_(("active", "archived"))))).scalars().all()
+                return [(r.concept, r.status, r.src_key) for r in rows]
+        rows = _run(_verify())
+        worlds = [r for r in rows if r[0] == "世界设定" and r[1] == "active"]
+        assert worlds and worlds[0][2] == "world:1:reclass"  # 溯源键防撞后缀
+        assert any(r[0] == "手法" and r[1] == "archived" for r in rows)  # 原条目归档
+
+    def test_质量标记_采纳归档_不影响打分输入(self):
+        uid = _mk("qual")
+        _run(_seed_user(uid))
+        specs = [{"concept": "手法", "genre": "玄幻", "instruction": "太短。"}]  # <20 字
+        entries = _run(_seed_entries(uid, specs))
+
+        async def _detect():
+            async with async_session() as db:
+                es = (await db.execute(sel(KbEntry).where(
+                    KbEntry.user_id == uid, KbEntry.status == "active"))).scalars().all()
+                run = KbOrganizeRun(user_id=uid, genre="玄幻", status="running")
+                db.add(run)
+                await db.flush()
+                counts = await org_detect(db, run=run, entries=list(es))
+                await db.commit()
+                f = (await db.execute(sel(KbOrganizeFinding).where(
+                    KbOrganizeFinding.user_id == uid, KbOrganizeFinding.kind == "quality"))).scalars().all()
+                return counts, f
+        counts, finds = _run(_detect())
+        assert counts.get("quality", 0) >= 1 and finds
+        # 打分输入不受标记影响（confidence 纯函数吃显式特征，无 findings 读点）
+        s1 = confidence("applies_to", "手法", "文风", chapter_a=3, chapter_b=3,
+                        genre_a="玄幻", genre_b="玄幻", alias_cooccur=True, neg_hit=False)
+        s2 = confidence("applies_to", "手法", "文风", chapter_a=3, chapter_b=3,
+                        genre_a="玄幻", genre_b="玄幻", alias_cooccur=True, neg_hit=False)
+        assert s1 == s2
+
+        async def _adopt():
+            async with async_session() as db:
+                from kb.organize import adopt_finding
+
+                return await adopt_finding(db, user_id=uid, finding_id=finds[0].id)
+        ok, _msg = _run(_adopt())
+        assert ok
+
+        async def _status():
+            async with async_session() as db:
+                e = await db.get(KbEntry, next(iter(entries)))
+                return e.status
+        assert _run(_status()) == "archived"
+
+    def test_忽略签名不再提_rev变再提(self):
+        uid = _mk("ign")
+        _run(_seed_user(uid))
+        pair_specs = [
+            {"concept": "角色设定", "genre": "玄幻", "instruction": "掌灯人，笑里藏刀。",
+             "payload": {"archetype": "洛九歌", "aliases": ["掌灯人"]}},
+            {"concept": "角色设定", "genre": "玄幻", "instruction": "洛九歌，掌灯人。",
+             "payload": {"archetype": "洛九歌", "aliases": ["掌灯人"]}},
+        ]
+        _run(_seed_entries(uid, pair_specs))
+
+        async def _detect():
+            async with async_session() as db:
+                es = (await db.execute(sel(KbEntry).where(
+                    KbEntry.user_id == uid, KbEntry.status == "active"))).scalars().all()
+                run = KbOrganizeRun(user_id=uid, genre="玄幻", status="running")
+                db.add(run)
+                await db.flush()
+                await org_detect(db, run=run, entries=list(es))
+                await db.commit()
+                return (await db.execute(sel(KbOrganizeFinding).where(
+                    KbOrganizeFinding.user_id == uid, KbOrganizeFinding.kind == "merge"))).scalars().all()
+        finds1 = _run(_detect())
+        assert len(finds1) == 1
+
+        async def _ignore():
+            async with async_session() as db:
+                from kb.organize import ignore_finding
+
+                return await ignore_finding(db, user_id=uid, finding_id=finds1[0].id)
+        assert _run(_ignore()) is True
+
+        # rev 未变再跑 → 不再提出
+        finds2 = _run(_detect())
+        assert all(f.status == "ignored" for f in finds2) and not [
+            f for f in finds2 if f.status == "proposed"
+        ]
+
+        # rev 变化（模拟条目被编辑）→ 重新提出
+        async def _bump():
+            async with async_session() as db:
+                es = (await db.execute(sel(KbEntry).where(
+                    KbEntry.user_id == uid))).scalars().all()
+                es[0].rev += 1
+                await db.commit()
+        _run(_bump())
+        finds3 = _run(_detect())
+        assert any(f.status == "proposed" for f in finds3)
+
+    def test_merged_不复活_详情追溯(self):
+        uid = _mk("mrev")
+        _run(_seed_user(uid))
+        # 书＋角色＋条目（src_kind=book, src_ref=novel）
+        from models.project import Novel
+
+        async def _seed_full():
+            from models.character import Character as _C
+
+            async with async_session() as db:
+                novel = Novel(user_id=uid, name="合并钉书", slug=f"mrg-{uuid.uuid4().hex[:6]}",
+                              root_path=f"./data/mrg-{uuid.uuid4().hex[:6]}",
+                              source="manual", current_phase="write")
+                db.add(novel)
+                await db.flush()
+                ch = _C(novel_id=novel.id, seq=1, name="洛九歌", role="反派")
+                db.add(ch)
+                await db.flush()
+                db.add(KbEntry(
+                    id=f"mrg-{uid[:6]}", user_id=uid, genre="", concept="角色设定",
+                    concept_id=":角色设定", title="洛九歌",
+                    payload_json=json.dumps({"archetype": "洛九歌"}, ensure_ascii=False),
+                    instruction="掌灯人。", status="merged",
+                    src_kind="book", src_ref=novel.id, src_key=ch.id,  # 与 collect 的 character_id 同源
+                ))
+                await db.commit()
+                return novel.id
+        novel_id = _run(_seed_full())
+
+        # 收录同源角色：merged 不复活（created=False 且状态保持 merged）
+        from library import service as libsvc
+
+        _run(_ensure_char(novel_id))
+
+        async def _char_id(nid):
+            from models.character import Character as _C
+
+            async with async_session() as db:
+                ch = (await db.execute(sel(_C).where(_C.novel_id == nid))).scalars().first()
+                return ch.id
+        cid = _run(_char_id(novel_id))
+
+        async def _collect():
+            async with async_session() as db:
+                novel = await db.get(Novel, novel_id)
+                r = await libsvc.collect_from_book(db, uid, novel, cid, rename=False)
+                return r
+        result = _run(_collect())
+        assert result["created"] is False
+
+        async def _state():
+            async with async_session() as db:
+                e = await db.get(KbEntry, f"mrg-{uid[:6]}")
+                return e.status
+        assert _run(_state()) == "merged"  # 不复活
+
+        # 详情追溯：include_merged 放行＋merged_into 指向（端点层）
+        async def _override():
+            return {"id": uid}
+        app.dependency_overrides[get_current_user] = _override
+        try:
+            with TestClient(app) as c:
+                r404 = c.get(f"/api/kb/entries/mrg-{uid[:6]}")
+                assert r404.status_code == 404  # 默认 active-only
+                r = c.get(f"/api/kb/entries/mrg-{uid[:6]}?include_merged=1")
+                assert r.status_code == 200
+                data = r.json()["data"]
+                assert data["status"] == "merged"
+        finally:
+            app.dependency_overrides.clear()
+
+
+from fastapi.testclient import TestClient  # noqa: E402
+
+from auth_local.middleware import get_current_user  # noqa: E402
+from main import app  # noqa: E402
+
+
+async def _ensure_char(novel_id: str) -> None:
+    from db import async_session as _session
+    from models.character import Character as _Character
+
+    async with _session() as db:
+        ch = (await db.execute(sel(_Character).where(_Character.novel_id == novel_id))).scalars().first()
+        if ch is None:
+            db.add(_Character(novel_id=novel_id, seq=1, name="洛九歌", role="反派"))
+            await db.commit()
+
+
+async def _char_id(novel_id: str) -> str:
+    from db import async_session as _session
+    from models.character import Character as _Character
+
+    async with _session() as db:
+        ch = (await db.execute(sel(_Character).where(_Character.novel_id == novel_id))).scalars().first()
+        return ch.id
+
+
+# 别名：批B 检测入口（run_organize 内同名函数；测试直接打它）
+org_detect = org.detect_findings

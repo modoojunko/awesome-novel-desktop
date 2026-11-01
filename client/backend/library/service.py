@@ -561,6 +561,10 @@ async def collect_from_book(
     if stale is not None and stale.status == "active":
         created = False
         entry = stale
+    elif stale is not None and stale.status == "merged":
+        # c-kb-organize：已合并条目不复活（spec——收录侧以既有卡呈现，不产生第三条）
+        created = False
+        entry = stale
     else:
         try:
             if stale is not None:  # 软删过：unique 键被占，复活而非重插
@@ -581,7 +585,7 @@ async def collect_from_book(
             )
             if race is None:
                 raise
-            if race.status == "active":
+            if race.status in ("active", "merged"):
                 created = False
                 entry = race
             else:
@@ -898,8 +902,8 @@ async def import_from_deconstruct(
             db, user_id, task.id, key, include_archived=True
         )
         try:
-            if stale is not None and stale.status == "active":
-                skipped += 1
+            if stale is not None and stale.status in ("active", "merged"):
+                skipped += 1  # merged 不复活不重建（c-kb-organize）
                 library_ids.append(stale.id)
                 continue
             if stale is not None:  # 软删过：同键复活
