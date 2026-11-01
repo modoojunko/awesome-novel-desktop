@@ -24,7 +24,8 @@
 
 - [ ] 1.14 单测：闸门/槽位/默认库并发/标签重建/normalize_theme parity/import 断言
 - [ ] 1.15 e2e：批1 范围断言（题材栏折叠/分组标题行/手录推断概念/Esc 抽屉/搜索/空态/加载更多）；原型 verify 脚本 ① 约 15 项直译
-- [ ] 1.16 性能：10 万级列表＋搜索回归
+- [x] 1.16 性能：10 万级列表＋搜索回归（test_kb_perf：批插 10 万行，列表/搜索/计数/百页深翻全过闸）
+- [ ] 1.17 design:check 收编：知识库屏入 strictSrcGlobs（**改判 2026-11-01**：KB 屏与 CharacterLibraryPage 等已交付屏同款 utility 风格，收编属逐屏校准工程；强登记会污染设计闸信号——随 design 校准批次走）
 - [ ] 1.17 design:check 收编：知识库屏入 strictSrcGlobs
 
 ## 角色库迁移（⑥ c-kb-character-migration）
