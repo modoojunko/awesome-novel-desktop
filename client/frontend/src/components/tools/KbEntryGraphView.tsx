@@ -83,13 +83,9 @@ export default function KbEntryGraphView({ genre }: { genre: string }) {
         onEdgeClick: setEdgeInfo,
         titleOf: (id: string) => titleRef.current.get(id) || "",
       });
-      /* v8 ignore next */
       if (!alive) return;
-      /* v8 ignore next */
       graphRef.current = graph;
-      /* v8 ignore next */
       graph.graphData({ nodes: [], links: [] });
-      /* v8 ignore next */
       setGraphReady(true);
     })();
     return () => {
