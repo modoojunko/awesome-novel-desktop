@@ -173,8 +173,10 @@ class TestRunOrganize:
                                       status="active", source="ai"))
                 await db.commit()
         _run(_seed_rels())
-        _run_org, err = _run(_run_with_db(lambda db: run_organize(db, user_id=uid, genre="玄幻", trigger="manual", llm=False)))
+        _run_org, err = _run(_run_with_db(lambda db: run_organize(
+            db, user_id=uid, genre="玄幻", trigger="manual", llm=False)))
         assert err == ""
+        assert _run_org.entries_scanned == 3
 
         async def _check():
             async with async_session() as db:
@@ -278,8 +280,13 @@ class TestAliasMaterializeAndRunsKeep:
                     db.add(KbOrganizeRun(user_id=uid, genre="玄幻", status="completed"))
                 await db.commit()
         _run(_seed_runs())
-        _run_org, err = _run(_run_with_db(lambda db: run_organize(db, user_id=uid, genre="玄幻", trigger="manual", llm=False)))
-        assert err == ""
+        # 直调 _prune_runs（保留语义的隔离验证；不经 run_organize——共享库免疫）
+        async def _prune():
+            from kb.organize import _prune_runs
+
+            async with async_session() as db:
+                return await _prune_runs(db, user_id=uid, genre="玄幻")
+        _run(_prune())
 
         async def _count():
             async with async_session() as db:

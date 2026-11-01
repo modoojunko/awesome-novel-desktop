@@ -40,6 +40,7 @@ REL_TYPES = ("refines", "contradicts", "depends_on", "instance_of", "derived_fro
 RUN_KEEP_PER_GENRE = 50          # runs/outputs 保留：每 user+genre 最近 50 条 run
 SHORTLIST_MAX = 200              # LLM 候选短名单硬顶（对）
 BUCKET_CAP = 50                  # 相容矩阵每概念桶参与产对的条目上限（id 序）——防全量 O(n²)
+DETECT_POOL_MAX = 2000           # 四类标注的扫描池上限（id 序截断）——防 infer 全库爆预算
 WRITE_BATCH = 50                 # 关系写入分批 commit 行数
 RELATION_CAP_MULTIPLE = 5        # active 关系数 ≤ active 条目数 × 5
 ACTIVE, PENDING, ARCHIVED = "active", "pending", "archived"
@@ -132,20 +133,27 @@ def _entry_chapter(e: KbEntry) -> int | None:
     return chapter_no(e.evidence or "")
 
 
+_IN_CHUNK = 500  # SQLite 变量上限防御：大 id 集分块查询
+
+
 async def _alias_set(db: AsyncSession, user_id: str, entry_ids: list[str]) -> dict[str, set[str]]:
-    """条目 → 物化别名集合（kb_entry_tags dim=alias；SHALL NOT 读 payload_json）。"""
+    """条目 → 物化别名集合（kb_entry_tags dim=alias；SHALL NOT 读 payload_json）。
+
+    entry_ids 分块查询（防 SQLite too many SQL variables）；返回键只含命中的条目。
+    """
     if not entry_ids:
         return {}
-    rows = await db.execute(
-        select(KbEntryTag.entry_id, KbEntryTag.value).where(
-            KbEntryTag.user_id == user_id,
-            KbEntryTag.dim == "alias",
-            KbEntryTag.entry_id.in_(entry_ids),
-        )
-    )
     out: dict[str, set[str]] = {}
-    for eid, val in rows:
-        out.setdefault(eid, set()).add(str(val))
+    for start in range(0, len(entry_ids), _IN_CHUNK):
+        rows = await db.execute(
+            select(KbEntryTag.entry_id, KbEntryTag.value).where(
+                KbEntryTag.user_id == user_id,
+                KbEntryTag.dim == "alias",
+                KbEntryTag.entry_id.in_(entry_ids[start:start + _IN_CHUNK]),
+            )
+        )
+        for eid, val in rows:
+            out.setdefault(eid, set()).add(str(val))
     return out
 
 
@@ -429,7 +437,12 @@ async def run_organize(
         run.relations_skipped = dup_n + drop_n + invalid_n
 
         # 批B：四类检测（合并/纠偏/子概念/质量）→ findings（作家确认制，不动条目）
-        counts = await detect_findings(db, run=run, entries=entries_all)
+        detect_pool = sorted(new_ids)[:DETECT_POOL_MAX]
+        detect_entries = [entry_by_id[i] for i in detect_pool if i in entry_by_id]
+        _count_output(db, run.id, "detect_scanned", len(detect_entries))
+        counts = await detect_findings(
+            db, run=run, entries=entries_all, detect_entries=detect_entries
+        )
         outputs.update({f"suggestion_{k}": v for k, v in counts.items()})
 
         run.status = "completed"
@@ -625,24 +638,35 @@ async def _upsert_finding(
         revs["revs"][subject2_id] = int(getattr(s2, "rev", 0) or 0)
     payload = {**payload, **revs}
     try:
-        db.add(KbOrganizeFinding(
-            user_id=user_id, genre=genre, kind=kind, subject_id=subject_id,
-            subject2_id=subject2_id, payload_json=json.dumps(payload, ensure_ascii=False),
-            status="proposed", signature=sig, run_id=run_id,
-        ))
-        await db.flush()
+        # SAVEPOINT 隔离：签名撞 unique 只回滚 savepoint，不连带主事务（淘汰块等已做改动）
+        async with db.begin_nested():
+            db.add(KbOrganizeFinding(
+                user_id=user_id, genre=genre, kind=kind, subject_id=subject_id,
+                subject2_id=subject2_id, payload_json=json.dumps(payload, ensure_ascii=False),
+                status="proposed", signature=sig, run_id=run_id,
+            ))
+            await db.flush()
         return "proposed"
     except IntegrityError:
         # 并发缝隙（singleflight 间隙/跨会话）：同签名 proposed 已落 → 视为重复
-        await db.rollback()
         return "dup"
 
 
-async def detect_findings(db: AsyncSession, *, run: KbOrganizeRun, entries: list[KbEntry]) -> dict[str, int]:
-    """四类检测 → findings（作家确认制；本函数 SHALL NOT 改任何条目）。"""
+async def detect_findings(
+    db: AsyncSession, *, run: KbOrganizeRun, entries: list[KbEntry],
+    detect_entries: list[KbEntry] | None = None,
+) -> dict[str, int]:
+    """四类检测 → findings（作家确认制；本函数 SHALL NOT 改任何条目）。
+
+    merge 对照池＝entries（全库桶，桶 cap 限价）；reclass/subconcept/quality 只扫
+    detect_entries（增量集，≤DETECT_POOL_MAX 截断——10 万级全库 infer 会爆预算）。
+    """
     uid, genre = run.user_id, run.genre
     counts: dict[str, int] = {}
-    alias_map = await _alias_set(db, uid, [e.id for e in entries])
+    scan_entries = detect_entries if detect_entries is not None else entries
+    alias_map = await _alias_set(
+        db, uid, sorted({e.id for e in entries} | {e.id for e in scan_entries})
+    )
 
     async def _emit(kind: str, subject_id: str, subject2_id: str, payload: dict) -> None:
         st = await _upsert_finding(
@@ -678,7 +702,7 @@ async def detect_findings(db: AsyncSession, *, run: KbOrganizeRun, entries: list
     # ── 纠偏（词叶得分超现概念且差 ≥2；目标须在六概念注册表内） ──
     from kb.infer import infer_scores
 
-    for e in entries:
+    for e in scan_entries:
         scores = infer_scores(e.instruction or "")
         scores.pop(e.concept, None)
         if not scores:
@@ -698,7 +722,7 @@ async def detect_findings(db: AsyncSession, *, run: KbOrganizeRun, entries: list
             select(KbConcept).where(KbConcept.level == 2, KbConcept.status == "active")
         )
     ).scalars().all()
-    for e in entries:
+    for e in scan_entries:
         text = f"{e.title}｜{e.instruction or ''}"
         for sc in sub_rows:
             names = [sc.name]
@@ -722,7 +746,7 @@ async def detect_findings(db: AsyncSession, *, run: KbOrganizeRun, entries: list
             )
         ).scalars()
     )
-    for e in entries:
+    for e in scan_entries:
         reason = ""
         if len((e.instruction or "").strip()) < QUALITY_MIN_INSTRUCTION:
             reason = f"指令过短（<{QUALITY_MIN_INSTRUCTION} 字）"
