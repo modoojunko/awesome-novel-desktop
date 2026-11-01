@@ -183,3 +183,51 @@ def test_旧包缺kb段跳过不报错():
 
     summary = _run(_go())
     assert "knowledge_base" not in summary  # 缺段整体跳过
+
+
+def test_旧备份库卡段恢复_自动镜像进知识库():
+    """v8 老包只有 character_library 段：恢复后镜像 kb_entries（新世界即见）。"""
+    from backup.importer import _restore_config
+
+    uid = f"kbak4-{uuid.uuid4().hex[:8]}"
+    card_id = str(uuid.uuid4())
+
+    async def _go():
+        async with async_session() as db:
+            db.add(User(
+                id=uid, email=f"{uid}@t.local", password_hash="x", display_name="镜像测试",
+                api_key="", api_base_url="", api_model="",
+            ))
+            await db.commit()
+            cfg = {
+                "format_version": 8,
+                "user": {"display_name": "x"},
+                "api_configs": [],
+                "character_library": [
+                    {
+                        "id": card_id, "name": "秦重霄", "aliases": ["大当家"],
+                        "role": "反派", "genre": "武侠", "kind": "敌人",
+                        "persona": "黑风寨大当家。",
+                        "dossier": {"look": "虬髯"}, "cog": {"b1": "暴躁"},
+                        "src_kind": "book", "src_ref": "", "src_character_id": "",
+                        "src_novel_name": "剑照山河", "rev": 1,
+                    }
+                ],
+            }
+            summary = await _restore_config(db, uid, cfg)
+            await db.commit()
+            entries = (
+                await db.scalars(
+                    __import__("sqlalchemy", fromlist=["select"]).select(KbEntry).where(KbEntry.user_id == uid)
+                )
+            ).all()
+            return summary, entries
+
+    summary, entries = _run(_go())
+    assert summary["library"]["kb_mirrored"] == 1
+    assert len(entries) == 1
+    e = entries[0]
+    assert e.concept == "角色设定" and e.title == "秦重霄"
+    assert e.src_key == card_id  # 镜像幂等键＝卡 id
+    payload = json.loads(e.payload_json)
+    assert payload["aliases"] == ["大当家"] and payload["look"] == "虬髯"

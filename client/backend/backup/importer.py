@@ -1240,6 +1240,12 @@ async def _restore_config(db, user_id: str, config_data: dict) -> dict:
             "skipped": lib_skipped,
             "avatar_warnings": lib_avatar_warnings,
         }
+        # 旧备份的库卡镜像进知识库（c-kb-character-migration：恢复后新世界即见）；
+        # 幂等（src_key=卡 id），与 v9 knowledge_base 段并存时按 src_key 去重零副本
+        from kb.migrate_library import migrate_character_library
+
+        mirrored = await migrate_character_library(db, user_id=user_id)
+        summary["library"]["kb_mirrored"] = mirrored["migrated"]
 
     # ── 知识库段（v9；复制语义按 id 冲突即忽略；tags 不导入、恢复后重建索引；
     #    v8 旧包缺段整体跳过不报错） ──

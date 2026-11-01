@@ -1,6 +1,9 @@
-# 刀2c 架构裁定（2026-10-31，待 boss 拍板可推翻）
+# 刀2c 架构裁定（2026-11-01 boss 已拍板：知识库是角色库/世界库/文风库等一切库的底座，各库只是知识的一部分）
 
 **数据源切换走「后端适配器」而非前端原生改造**：
+
+**拍板后进度**：镜像步骤已落——旧备份 character_library 段恢复后自动 migrate
+进知识库（importer kb_mirrored 计数；幂等 src_key=卡 id）；①router 委托待下轮。
 
 - character-library router 各端点改为委托 kb_entries 存储（读 payload_to_card /
   写 card_to_payload＋update_entry 闸门复用），前端 6 组件零改动零风险
