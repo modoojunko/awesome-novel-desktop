@@ -666,6 +666,4 @@ async def graph_entries_api(
     """条目图：题材内 active 条目为节点、active 关系为边（≤500 按置信降序）。"""
     from kb.organize import graph_entries
 
-    if not genre:
-        raise HTTPException(400, "缺 genre")
     return {"ok": True, "data": await graph_entries(db, user_id=_user(user), genre=genre)}

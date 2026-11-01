@@ -819,7 +819,8 @@ class TestOrganizeEndpoints:
                 g2 = c.get("/api/kb/graph/entries?genre=玄幻").json()["data"]
                 assert all(n["id"] != ids["m2"] for n in g2["nodes"])
                 assert g2["edge_count"] == 1  # m2 相关边消失（m2→w2、m1→m2、m2→w1）
-                assert c.get("/api/kb/graph/entries").status_code == 400
+                # 空 genre＝全题材条目图（合法语义，不再 400）
+                assert c.get("/api/kb/graph/entries").status_code == 200
         finally:
             app.dependency_overrides.clear()
 

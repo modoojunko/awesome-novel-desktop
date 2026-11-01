@@ -488,9 +488,7 @@ async def trigger_after_collect(user_id: str, genre: str) -> None:
     """拆书入库成功后的 fire-and-forget 触发（进程死丢触发由启动 7 天钩兜底）。"""
     import asyncio
 
-    if not genre:
-        return
-
+    # genre 空串（目录外/跨题材通用）也触发：按 "" 题材分组跑一次
     async def _job() -> None:
         from db import async_session
 
@@ -1055,16 +1053,12 @@ async def graph_entries(db: AsyncSession, *, user_id: str, genre: str) -> dict:
 
     pending 关系、merged 条目、merged_into（独立表）SHALL NOT 出现。
     """
+    conds = [KbEntry.user_id == user_id, KbEntry.concept != "情节", KbEntry.status == ACTIVE]
+    if genre:
+        conds.append(KbEntry.genre == genre)
     nodes = (
         await db.execute(
-            select(KbEntry)
-            .where(
-                KbEntry.user_id == user_id,
-                KbEntry.genre == genre,
-                KbEntry.concept != "情节",
-                KbEntry.status == ACTIVE,
-            )
-            .order_by(KbEntry.created_at, KbEntry.id)
+            select(KbEntry).where(*conds).order_by(KbEntry.created_at, KbEntry.id)
         )
     ).scalars().all()
     node_ids = {e.id for e in nodes}
