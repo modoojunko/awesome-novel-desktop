@@ -47,6 +47,7 @@ from db import Base, async_session, engine
 from deconstruct.router import router as deconstruct_router  # c-deconstruct-book
 from genres.router import router as genres_router
 from image_assets.router import router as image_assets_router
+from kb.router import router as kb_router
 from library.router import router as character_library_router
 from manuscript.router import router as manuscript_router
 from models.user import User
@@ -199,6 +200,32 @@ async def lifespan(app: FastAPI):
             _log.info("dossier: legacy reconcile migrated=%(migrated)s rejected=%(char_states_rejected)s", _mig)
     except Exception as _e:  # noqa: BLE001 — 迁移失败不挡启动（下次启动重试）
         _log.warning("dossier legacy migration failed: %s", _e)
+
+    # ── 库卡 legacy 头像字节搬迁（c-kb-character-migration 刀2c ③）：
+    #    CharacterLibraryBlob → kb_entry_blobs（entry id 键）；搬成功的旧行删除；
+    #    失败不挡启动（头像 union 读兜底，下次启动重试） ──
+    try:
+        from kb.blob_migration import migrate_library_blobs_v1
+
+        _lbm = await migrate_library_blobs_v1()
+        if _lbm.get("migrated") or _lbm.get("removed"):
+            _log.info(
+                "library blobs: migrated=%s skipped=%s orphaned=%s removed=%s",
+                _lbm.get("migrated"), _lbm.get("skipped"),
+                _lbm.get("orphaned"), _lbm.get("removed"),
+            )
+    except Exception as _e:  # noqa: BLE001 — 搬迁失败不挡启动
+        _log.warning("library blob migration failed: %s", _e)
+
+    # ── auto 库 enabled 自愈（批3 潜伏：生成漏传 → 书内启用链对 auto 库全断） ──
+    try:
+        from kb.blob_migration import heal_auto_libraries_v1
+
+        _healed = await heal_auto_libraries_v1()
+        if _healed:
+            _log.info("kb auto libraries healed: enabled=%s", _healed)
+    except Exception as _e:  # noqa: BLE001 — 自愈失败不挡启动（下次启动重试）
+        _log.warning("kb auto library heal failed: %s", _e)
 
     # ── 预置题材播种（#453 重写 lifespan 时被误删，2026-09-21 补回）──────────
     # 两个都是幂等（只插缺失、不覆盖用户改动）；缺了它们**新建库的题材目录是空的**：
@@ -532,6 +559,7 @@ app.include_router(zhuque_result_router)
 
 # 全局题材库
 app.include_router(genres_router)
+app.include_router(kb_router)
 
 
 @app.get("/api/health")

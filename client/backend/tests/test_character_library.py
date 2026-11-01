@@ -297,7 +297,7 @@ class TestBackup:
         blob, _name = _run(_export())
         zf = zipfile.ZipFile(io.BytesIO(blob))
         cfg = yaml.safe_load(zf.read("config.yaml"))
-        assert cfg["format_version"] == 8
+        assert cfg["format_version"] == 9  # c-knowledge-base v9
         entry = cfg["character_library"][0]
         assert entry["name"] == "秦重霄" and entry["avatar"]["full"]["sha256"]
         assert f"character_library/avatars/lib-{suffix}-full.webp" in zf.namelist()

@@ -1,5 +1,10 @@
 """角色库族表 — 跨书角色库（c-character-library）。
 
+**DEPRECATED（c-kb-character-migration 批6）**：数据源已迁知识库
+（kb_entries concept=角色设定，见 kb/migrate_library.py）；本表原样保留作
+迁移源与头像字节存储（CharacterLibraryBlob），UI 数据源切换（6.4）后只读，
+删除属后续版本。新代码不要再写本表。
+
 账号级内容资产：不挂 novel_id、不随书级联；uuid 主键 + user_id（全查询按它过滤）。
 字段与书内 characters 卡同构（dossier 八格 / cog 三十格 JSON 列，键名冻结）；
 库专属分类格：genre 题材 / role 定位（与书内 ROLES 同源四档）/ kind 小类。

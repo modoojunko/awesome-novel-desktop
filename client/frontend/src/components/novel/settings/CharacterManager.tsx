@@ -25,6 +25,9 @@ import BatchAvatarModal from "@/components/image/BatchAvatarModal";
 import AiCardModal from "./AiCardModal";
 import BatchAddModal from "./BatchAddModal";
 import ImportFromLibraryModal from "@/components/library/ImportFromLibraryModal";
+import PrototypePickModal from "./PrototypePickModal";
+import { kbApi, type KbEntry } from "@/lib/kbApi";
+import { prototypeOf } from "@/lib/kbPrototype";
 import CollectToLibrary from "@/components/library/CollectToLibrary";
 import type { BatchRow } from "@/lib/characterImport";
 import { effectiveRole } from "@/lib/characterImport";
@@ -165,6 +168,7 @@ const CharacterManager = forwardRef<CharacterSaveHandle, Props>(function Charact
   /** 批量导入（c-char-batch-import）：弹层开关＋本批已建卡 id（「撤销本次全部」的靶子） */
   const [batchOpen, setBatchOpen] = useState(false);
   const [fromLibraryOpen, setFromLibraryOpen] = useState(false);
+  const [prototypeOpen, setPrototypeOpen] = useState(false);
   const [batchCreatedIds, setBatchCreatedIds] = useState<string[]>([]);
   const [avatarTarget, setAvatarTarget] = useState<CharacterCard | null>(null);
   const [avatarBatchOpen, setAvatarBatchOpen] = useState(false);
@@ -435,6 +439,31 @@ const CharacterManager = forwardRef<CharacterSaveHandle, Props>(function Charact
       showToast("\u540d\u5b57\u4e00\u5199\u5c31\u51fa\u73b0\u5728\u5de6\u8fb9\u5217\u8868");
     } catch (e) {
       showToast((e as Error).message || "\u521b\u5efa\u5931\u8d25");
+    }
+  }, [projectId, list.length, reloadList, loadCard, showToast]);
+
+  /** 挑原型建卡（c-kb-character）：payload 逐格复制进新卡＋用作计数回写
+   *  （计数失败不影响建卡，静默）；同 addCharacter 的首卡主角规则。 */
+  const addFromPrototype = useCallback(async (entry: KbEntry) => {
+    setPrototypeOpen(false);
+    try {
+      const r = prototypeOf(entry);
+      const created = await charactersApi.create(projectId, "", {
+        role: list.length === 0 ? "主角" : "配角",
+        persona: r.persona,
+        ...(Object.keys(r.dossier).length ? { dossier: r.dossier } : {}),
+        ...(Object.keys(r.cog).length ? { cog: r.cog } : {}),
+      });
+      void kbApi.usePrototype(entry.id).catch(() => {});
+      await reloadList();
+      selectedIdRef.current = created.id;
+      setSelectedId(created.id);
+      setOpsPanel("");
+      setRelForm(false);
+      await loadCard(created.id);
+      showToast("原型已复制进新卡，名字自己起");
+    } catch (e) {
+      showToast((e as Error).message || "建卡失败");
     }
   }, [projectId, list.length, reloadList, loadCard, showToast]);
 
@@ -809,6 +838,14 @@ const CharacterManager = forwardRef<CharacterSaveHandle, Props>(function Charact
             onClick={() => setFromLibraryOpen(true)}
           >
             从角色库导入
+          </button>
+          <button
+            type="button"
+            className="char-add char-add-more"
+            data-testid="char-from-prototype"
+            onClick={() => setPrototypeOpen(true)}
+          >
+            挑原型
           </button>
         </div>
         <input
@@ -1301,6 +1338,11 @@ const CharacterManager = forwardRef<CharacterSaveHandle, Props>(function Charact
         onDone={() => {
           void reloadList();
         }}
+      />
+      <PrototypePickModal
+        open={prototypeOpen}
+        onClose={() => setPrototypeOpen(false)}
+        onPick={(e) => void addFromPrototype(e)}
       />
 
       {/* AI 出卡确认弹窗：出稿（bootstrap/persona/dossier/cog）＋体检统一进卡，

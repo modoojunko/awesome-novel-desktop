@@ -55,6 +55,11 @@ describe("ToolsMenu", () => {
     fireEvent.click(screen.getByText("写作工具"));
     fireEvent.click(screen.getByText("角色库"));
     expect(screen.queryByText("任务清单")).not.toBeInTheDocument();
+    // 知识库菜单项点击 → 导航 /tools/kb（go 分支；c-knowledge-base）
+    fireEvent.click(screen.getByText("写作工具"));
+    expect(screen.getByText("知识库")).toBeInTheDocument();
+    fireEvent.click(screen.getByText("知识库"));
+    expect(screen.queryByText("任务清单")).not.toBeInTheDocument();
   });
 
   it("有任务显示徽标计数；菜单项点击导航并收起", async () => {

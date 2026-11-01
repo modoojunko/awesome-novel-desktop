@@ -552,6 +552,66 @@ async def to_library(
     return result
 
 
+@router.post("/tasks/{task_id}/collect-to-kb")
+async def collect_to_kb(
+    task_id: str,
+    user: dict = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """收进知识库：拆书产物 → 知识条目（手法/文风/文笔/世界/角色，幂等）。"""
+    from kb.deconstruct_import import map_deconstruct_products
+    from kb.service import ensure_default_library
+    from models.kb import KbEntry
+
+    task = await service.get_task(db, task_id, _user_id(user))
+    _require(task, user)
+    if task.status != "completed":
+        raise HTTPException(409, "任务未完成，无法收录")
+    try:
+        products = json.loads(task.products_json or "{}")
+    except ValueError:
+        products = {}
+    if not products:
+        raise HTTPException(422, "这批产物为空，无法收录")
+
+    genre = str(task.genre or "").strip()
+    uid = _user_id(user)
+
+    entries, warnings = map_deconstruct_products(uid, task_id, genre, products)
+
+    # 幂等：查已有的 src_key，跳过重复
+    existing_keys = set()
+    if entries:
+        src_keys = [e.src_key for e in entries]
+        stmt = select(KbEntry.src_key).where(
+            KbEntry.user_id == uid,
+            KbEntry.src_ref == task_id,
+            KbEntry.src_key.in_(src_keys),
+        )
+        rows = (await db.execute(stmt)).scalars().all()
+        existing_keys = set(rows)
+
+    new_entries = [e for e in entries if e.src_key not in existing_keys]
+    skipped = len(entries) - len(new_entries)
+
+    for e in new_entries:
+        db.add(e)
+        await db.flush()
+        await ensure_default_library(db, uid, e.genre, e.concept)
+
+    await db.commit()
+
+    return {
+        "ok": True,
+        "data": {
+            "collected": len(new_entries),
+            "skipped": skipped,
+            "total_mapped": len(entries),
+            "warnings": warnings,
+        },
+    }
+
+
 @router.delete("/tasks/{task_id}")
 async def delete_task(
     task_id: str,

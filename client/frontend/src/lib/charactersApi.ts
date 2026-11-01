@@ -96,6 +96,8 @@ export interface CreateCharacterOpts {
   prefill?: { plot?: string; background?: string };
   aliases?: string[];
   dossier?: Record<string, string>;
+  /** 认知格预填（c-kb-character 原型逐格复制；服务端白名单 clamp） */
+  cog?: Record<string, string>;
 }
 
 /** 建卡撞同名（409 {"detail":{"code":"name_taken"}}）判定 */
@@ -123,6 +125,7 @@ export const charactersApi = {
         ...(opts.prefill ? { prefill: opts.prefill } : {}),
         ...(opts.aliases?.length ? { aliases: opts.aliases } : {}),
         ...(opts.dossier && Object.keys(opts.dossier).length ? { dossier: opts.dossier } : {}),
+        ...(opts.cog && Object.keys(opts.cog).length ? { cog: opts.cog } : {}),
       }),
     ),
 

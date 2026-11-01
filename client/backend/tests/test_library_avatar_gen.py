@@ -17,8 +17,9 @@ from image_assets import adapters as image_adapters
 from image_assets.adapters import GeneratedImage, ImageProviderError
 from image_assets.prompt_builder import build_library_avatar_prompt
 from main import app
-from models.character_library import CharacterLibrary, CharacterLibraryBlob
+from models.character_library import CharacterLibrary
 from models.image_asset import ImageConfig
+from models.kb import KbEntry, KbEntryBlob
 from models.user import User
 
 
@@ -45,6 +46,18 @@ async def _seed(with_config: bool = True) -> dict:
                 "gender": "男", "age": "42", "race": "人族",
                 "look": "络腮胡，左颊刀疤", "faction": "黑风寨", "speech": "骂人",
             }, ensure_ascii=False),
+        ))
+        # 刀2c ① 存储切换：API 卡面读 kb_entries——同 id 播种 kb 条目供端点解析
+        db.add(KbEntry(
+            id=cid, user_id=uid, genre="武侠", concept="角色设定",
+            concept_id="武侠:角色设定", title="秦重霄",
+            payload_json=json.dumps({
+                "archetype": "秦重霄", "aliases": ["大当家"], "role": "反派", "kind": "敌人",
+                "persona": "黑风寨大当家，暴躁记仇",
+                "gender": "男", "age": "42", "race": "人族",
+                "look": "络腮胡，左颊刀疤", "faction": "黑风寨", "speech": "骂人",
+            }, ensure_ascii=False),
+            instruction="黑风寨大当家，暴躁记仇", src_kind="manual",
         ))
         if with_config:
             db.add(ImageConfig(
@@ -127,9 +140,10 @@ class TestGenerate:
 
         async def _blobs():
             async with async_session() as db:
+                from sqlalchemy import select as sel
+
                 rows = (await db.execute(
-                    __import__("sqlalchemy").select(CharacterLibraryBlob).where(
-                        CharacterLibraryBlob.library_id == seed["card_id"])
+                    sel(KbEntryBlob).where(KbEntryBlob.entry_id == seed["card_id"])
                 )).scalars().all()
                 return {b.variant: b.data for b in rows}
 

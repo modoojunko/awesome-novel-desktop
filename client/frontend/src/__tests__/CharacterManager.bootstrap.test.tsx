@@ -23,6 +23,13 @@ vi.mock("@/lib/api", () => ({
   },
 }));
 
+// kbApi 走 request 导出（本文件未 mock）；直接 mock kbApi 方法（c-kb-character）
+const kb = vi.hoisted(() => ({ entries: vi.fn(), usePrototype: vi.fn() }));
+vi.mock("@/lib/kbApi", async (orig) => {
+  const actual = await orig<typeof import("@/lib/kbApi")>();
+  return { ...actual, kbApi: { ...actual.kbApi, ...kb } };
+});
+
 function emptyList() {
   return {
     count: 0,
@@ -112,6 +119,47 @@ describe("CharacterManager 首进引导", () => {
     fireEvent.click(screen.getByRole("button", { name: /添加角色/ }));
     await waitFor(() => expect(apiPost).toHaveBeenCalled());
     expect(apiPost).toHaveBeenCalledWith("/novels/p1/characters", { name: "", role: "配角" });
+  });
+});
+
+describe("CharacterManager 挑原型建卡（c-kb-character）", () => {
+  const KB_ENTRY = {
+    id: "kb1", genre: "都市", concept: "角色设定", concept_id: "都市:角色设定",
+    title: "落魄天才", instruction: "家道中落但心气极高。",
+    payload: { archetype: "落魄天才", look: "青衫", w1: "不服" },
+    example: "", negative_example: "", when: {}, evidence: "",
+    src_kind: "manual", src_novel_name: "", created_at: "", updated_at: "",
+  };
+
+  it("挑原型：建卡带 persona/dossier/cog 预填＋计数回写；toast", async () => {
+    kb.entries.mockResolvedValue({ entries: [KB_ENTRY], next_cursor: "" });
+    kb.usePrototype.mockResolvedValue({ entry_id: "kb1", adopt_count: 1 });
+    render(<CharacterManager projectId="p1" introReady />);
+    await screen.findByText("简介里已经有主角的线索了");
+    fireEvent.click(screen.getByTestId("char-from-prototype"));
+    fireEvent.click(await screen.findByText("落魄天才"));
+    await waitFor(() =>
+      expect(apiPost).toHaveBeenCalledWith("/novels/p1/characters", {
+        name: "",
+        role: "主角",
+        persona: "落魄天才",
+        dossier: { look: "青衫" },
+        cog: { w1: "不服" },
+      }),
+    );
+    await waitFor(() => expect(kb.usePrototype).toHaveBeenCalledWith("kb1"));
+    expect(await screen.findByText("原型已复制进新卡，名字自己起")).toBeTruthy();
+  });
+
+  it("建卡失败 toast（计数回写失败不惊动）", async () => {
+    kb.entries.mockResolvedValue({ entries: [KB_ENTRY], next_cursor: "" });
+    kb.usePrototype.mockRejectedValue(new Error("net"));
+    apiPost.mockRejectedValue(new Error("name_taken"));
+    render(<CharacterManager projectId="p1" introReady />);
+    await screen.findByText("简介里已经有主角的线索了");
+    fireEvent.click(screen.getByTestId("char-from-prototype"));
+    fireEvent.click(await screen.findByText("落魄天才"));
+    expect(await screen.findByText("name_taken")).toBeTruthy();
   });
 });
 

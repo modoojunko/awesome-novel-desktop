@@ -75,4 +75,15 @@ export const COVERAGE_CONTRACT_FILES = [
   // c-chapter-default-words（作品偏好「章节默认字数」：后端 book-prefs KV 读写＋
   // localStorage 展示缓存＋变更订阅）
   "src/lib/chapterTarget.ts",
+  // c-knowledge-base（写作知识库：浏览页/题材栏/手录/API）
+  "src/lib/kbApi.ts",
+  "src/pages/KnowledgeBasePage.tsx",
+  // c-kb-snapshot（启用库落设定：设定面板知识库来源行——启用/同步/解绑）
+  "src/components/novel/settings/KbSourceStrip.tsx",
+  // c-kb-character（角色原型：渲染映射＋挑原型弹窗＋建卡预填）
+  "src/lib/kbPrototype.ts",
+  "src/components/novel/settings/PrototypePickModal.tsx",
+  // c-kb-organize（全局图：聚合/下钻整形＋token 实色＋force-graph 薄壳）
+  "src/lib/kbGraph.ts",
+  "src/components/tools/KbGraph.tsx",
 ] as const;
