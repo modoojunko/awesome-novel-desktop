@@ -8,12 +8,13 @@ import pytest
 from sqlalchemy import select as sel
 
 from db import async_session
-from kb.match import extract_signals, select_block
+from kb.match import select_block
 from models.chapter import Chapter, ChapterCharacter
 from models.kb import KbEntry, KbPref
 from models.project import Novel
 from models.user import User
 from models.volume import Volume
+from write.write_block import extract_signals
 
 
 def _run(coro):
@@ -156,7 +157,8 @@ def test_配额与排除_role槽(lib_uid):
 
     async def _select():
         async with async_session() as db:
-            return await select_block(db, user_id=uid, novel_id=novel_id, chapter_ref=ref, genre="玄幻")
+            signals = await extract_signals(db, novel_id=novel_id, chapter_ref=ref, genre="玄幻")
+            return await select_block(db, user_id=uid, signals=signals, genre="玄幻")
     selr = _run(_select())
     assert selr is not None
     tech = [i for i in selr.items if i.entry.concept == "手法"]
@@ -187,7 +189,8 @@ def test_条件不命中不选_无场面线索只出兜底(lib_uid):
 
     async def _select():
         async with async_session() as db:
-            return await select_block(db, user_id=uid, novel_id=novel_id, chapter_ref=ref, genre="玄幻")
+            signals = await extract_signals(db, novel_id=novel_id, chapter_ref=ref, genre="玄幻")
+            return await select_block(db, user_id=uid, signals=signals, genre="玄幻")
     selr = _run(_select())
     assert selr is not None, "selection None; entries seeded above"
     titles = {i.entry.title for i in selr.items}
@@ -201,7 +204,8 @@ def test_零命中返回None_空库(lib_uid):
     novel_id, ref = _run(_seed_book(uid, summary="两军交锋"))
     async def _select():
         async with async_session() as db:
-            return await select_block(db, user_id=uid, novel_id=novel_id, chapter_ref=ref, genre="玄幻")
+            signals = await extract_signals(db, novel_id=novel_id, chapter_ref=ref, genre="玄幻")
+            return await select_block(db, user_id=uid, signals=signals, genre="玄幻")
     assert _run(_select()) is None  # 空库
 
 
@@ -218,7 +222,8 @@ def test_确定性_同输入同选集(lib_uid):
 
     async def _select():
         async with async_session() as db:
-            selr = await select_block(db, user_id=uid, novel_id=novel_id, chapter_ref=ref, genre="玄幻")
+            signals = await extract_signals(db, novel_id=novel_id, chapter_ref=ref, genre="玄幻")
+            selr = await select_block(db, user_id=uid, signals=signals, genre="玄幻")
             return [(i.entry.id, round(i.score, 6)) for i in selr.items] if selr else None
     a = _run(_select())
     b = _run(_select())
@@ -247,7 +252,8 @@ def test_有用率回写影响排序(lib_uid):
     before = _run(_ids_and_mark(0))  # 标记第一条「没用」×5
     async def _select_order():
         async with async_session() as db:
-            selr = await select_block(db, user_id=uid, novel_id=novel_id, chapter_ref=ref, genre="玄幻")
+            signals = await extract_signals(db, novel_id=novel_id, chapter_ref=ref, genre="玄幻")
+            selr = await select_block(db, user_id=uid, signals=signals, genre="玄幻")
             return [i.entry.id for i in selr.items]
     after = _run(_select_order())
     assert before[0] not in after[:2]  # 被标没用后跌出前列

@@ -58,6 +58,24 @@ def _lcs_len(a: str, b: str) -> int:
     return best
 
 
+_STRUCTURE_LINE = __import__("re").compile(r"^(#{1,6}\s|---|\-\s|【)")
+
+
+def _check_structure(instruction: str) -> str | None:
+    """结构消毒闸（批F F5；design §7.1 补丁5 兑现）：条目指令是单行短句——
+    含换行或行首结构标记会被当成提示词结构（伪节标题/伪块首注入面）。"""
+    t = instruction.strip()
+    if not t:
+        return None
+    if "\n" in t:
+        return "指令需单行短句——含换行会被当成提示词结构，请改成单行或拆成多条"
+    if _STRUCTURE_LINE.match(t):
+        return "指令不能以 #、-、【 等结构标记开头——会被当成提示词结构"
+    if "【本章写法指引】" in t:
+        return "与写法块块首声明撞句，请改成自己的话"
+    return None
+
+
 def _check_echo(instruction: str) -> str | None:
     """回声闸：与固定文案最长公共子串 ≥8 字返回可读错误（判据式拒收）。"""
     t = instruction.strip()
@@ -153,10 +171,14 @@ def check_gates(
     if warn:
         result.warnings.append(warn)
 
-    # 闸2b 回声闸（c-kb-write-block）：与生成链固定文案撞句硬拒
+    # 闸2b 回声闸＋结构消毒（c-kb-write-block）：撞句/伪结构硬拒
     echo = _check_echo(instruction)
     if echo:
         result.errors["instruction"] = echo
+        result.ok = False
+    structure = _check_structure(instruction)
+    if structure:
+        result.errors["instruction"] = structure
         result.ok = False
 
     # 闸3 红线闸

@@ -26,7 +26,7 @@ CHAPTER_POS = ("开头", "中段", "卷末", "any")
 # scene 别名表（章纲自由文本 → 封闭值）
 _SCENE_ALIASES: dict[str, set[str]] = {
     "打斗": {"打", "打起来", "动手", "交手", "出招", "追逃", "厮杀", "激战", "混战", "迎战", "偷袭", "对决", "交锋", "械斗", "群殴", "决战", "大战", "血战", "开战", "围攻"},
-    "文戏": {"聊天", "谈心", "对话", "日常", "闲聊", "交流", "谈天", "表白", "告白", "闲话", "家常"},
+    "文戏": {"聊天", "谈心", "对话", "闲聊", "交流", "谈天", "表白", "告白", "闲话", "家常"},
     "开篇": {"开场", "开局", "开头", "首章", "起手", "登场", "亮相", "引入"},
     "转折": {"反转", "突变", "意外", "翻盘", "急转", "揭底", "揭穿", "揭秘"},
     "收尾": {"收束", "结尾", "落幕", "完结", "收场", "了结", "尾声", "终结"},
@@ -46,12 +46,18 @@ _EMOTION_ALIASES: dict[str, set[str]] = {
 
 
 def normalize_scene(text: str) -> str:
-    """章纲文本 → 封闭场面值；未命中返回空串。"""
+    """章纲文本 → 封闭场面值；未命中返回空串。
+
+    F9（c-kb-write-block）：精确匹配（canonical/别名全等）优先于包含式——
+    否则独立场面类（如「日常」）被先序类（文戏）的别名吞成死值。"""
     t = text.strip()
     if not t:
         return ""
     for canonical, aliases in _SCENE_ALIASES.items():
-        if t == canonical or t in aliases:
+        if t == canonical:
+            return canonical
+    for canonical, aliases in _SCENE_ALIASES.items():
+        if t in aliases:
             return canonical
     for canonical, aliases in _SCENE_ALIASES.items():
         for a in aliases:

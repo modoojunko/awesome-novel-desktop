@@ -1,9 +1,8 @@
 """写法块选择器（c-kb-write-block 批A）——章纲信号 → 知识条目确定性挑选。
 
-P0 规则匹配器（不调用模型；确定性＝重试字节一致的前提）：
-- 信号抽取：只读章纲——出场角色直取 chapter_characters；情绪优先 primary_mood
-  字段、场面由概要与剧情条目经别名表归类；章位由拆章六档 plot_stage 映射；
-  归类不出返回空串（SHALL NOT 硬猜，只出通用兜底）。
+P0 规则匹配器（不调用模型；确定性＝重试字节一致的前提）。
+- 信号抽取住 write/write_block.py（章纲语义归 write 域，kb 不认识章纲表——
+  2026-11-02 四角色评审 F8）；本模块收 MatchSignals 做确定性挑选。
 - 候选短名单：kb_entry_tags 两段式（concept/genre/scope/slot 维度），≤200 稳定
   排序；SHALL NOT 对 payload_json 全表扫描（§12 铁律）。
 - 打分＝匹配度×有用率×新鲜度；有用率读 kb_prefs（账号级，未标记=1.0）；
@@ -19,8 +18,6 @@ from dataclasses import dataclass, field
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from kb.concepts import normalize_emotion, normalize_scene
-from models.chapter import Chapter, ChapterCharacter
 from models.kb import KbEntry, KbEntryTag, KbPref
 
 # 拆章六档 plot_stage → 章位封闭值（CHAPTER_POS）；空/未知 → ""（不硬猜）
@@ -100,6 +97,7 @@ class SelectedItem:
     entry: KbEntry
     score: float
     reason: str
+    text_override: str = ""  # run 快照文本（重试字节一致——条目编辑后仍用固化文本）
 
 
 @dataclass
@@ -118,76 +116,14 @@ class Selection:
 # ── 信号抽取（A1/A2）──────────────────────────────────────────
 
 
-async def extract_signals(
-    db: AsyncSession, *, novel_id: str, chapter_ref: str, genre: str
-) -> MatchSignals:
-    """章纲行 → 选块信号。归类不出保持空串，不硬猜。"""
-    ch = (
-        await db.execute(
-            select(Chapter).where(
-                Chapter.project_id == novel_id,
-                Chapter.ref == chapter_ref,
-                Chapter.ghost_of.is_(None),
-            )
-        )
-    ).scalar_one_or_none()
-    if ch is None:
-        return MatchSignals(genre=genre)
-
-    # 场面：概要优先，miss 逐条剧情条目（首个命中即用）
-    scene = normalize_scene(ch.summary or "")
-    if not scene:
-        for item in _plot_items(ch.plot_items):
-            scene = normalize_scene(item)
-            if scene:
-                break
-    # 情绪：主情绪字段优先（章纲表单直填），miss 概要与剧情条目文本归类
-    emotion = normalize_emotion(ch.primary_mood or "")
-    if not emotion:
-        emotion = normalize_emotion(ch.summary or "")
-    if not emotion:
-        for item in _plot_items(ch.plot_items):
-            emotion = normalize_emotion(item)
-            if emotion:
-                break
-    # 章位：拆章六档 plot_stage 映射（确定性）
-    chapter_pos = _STAGE_TO_POS.get(ch.plot_stage or "", "")
-    # 出场角色：章纲角色快照名（直取，不做推断）
-    names = (
-        (
-            await db.execute(
-                select(ChapterCharacter.character_name).where(
-                    ChapterCharacter.chapter_id == ch.id
-                )
-            )
-        )
-        .scalars()
-        .all()
-    )
-    return MatchSignals(
-        scene=scene,
-        emotion=emotion,
-        chapter_pos=chapter_pos,
-        characters=[n for n in names if n],
-        genre=genre,
-    )
-
-
-def _plot_items(raw: str | None) -> list[str]:
-    try:
-        items = json.loads(raw or "[]")
-    except ValueError:
-        return []
-    return [str(i) for i in items if isinstance(i, str) and i.strip()] if isinstance(items, list) else []
-
-
 # ── 候选短名单（A3）──────────────────────────────────────────
 
 
-async def _candidate_ids(
+async def digest_candidates(
     db: AsyncSession, *, user_id: str, genre: str,
     concepts: tuple[str, ...] = ("手法", "文风", "文笔"),
 ) -> dict[str, set[str]]:
+    """候选短名单（公开：P1 LLM 选择器的候选摘要以本集合为域）。"""
     """kb_entry_tags 两段式：出 (手法 id 集, 场景定性文风/文笔 id 集)。
 
     不碰 payload_json——条目是否场景条目（scope=scene）与槽位（slot）全是物化维度。
@@ -322,8 +258,7 @@ async def select_block(
     db: AsyncSession,
     *,
     user_id: str,
-    novel_id: str,
-    chapter_ref: str,
+    signals: MatchSignals,
     genre: str,
     concepts: tuple[str, ...] = ("手法", "文风", "文笔"),
     now=None,
@@ -332,10 +267,7 @@ async def select_block(
     import datetime as _dt
 
     now = now or _dt.datetime.utcnow()
-    signals = await extract_signals(
-        db, novel_id=novel_id, chapter_ref=chapter_ref, genre=genre
-    )
-    groups = await _candidate_ids(db, user_id=user_id, genre=genre, concepts=concepts)
+    groups = await digest_candidates(db, user_id=user_id, genre=genre, concepts=concepts)
     if not groups["tech"] and not groups["style"]:
         return None
 

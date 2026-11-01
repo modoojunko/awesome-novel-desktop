@@ -28,17 +28,17 @@
 
 ## 批F 架构加固（四角色评审 P0 收口，先于批D）
 
-- [ ] F1 run 竞态：插入 catch IntegrityError → rollback → 重查赢家 run 复用（修会话中毒＋误报失败）
-- [ ] F2 字节一致快照：KbMatchItem 加 `text_snapshot` 列，run 创建时固化；重建走快照（条目编辑不再破坏一致）
-- [ ] F3 库域指纹：KbMatchRun 加 `domain_fingerprint` 列（启用库 id 集）；复用前必须匹配，换库即重选
-- [ ] F4 影子残留清理：新写影子前清同章全部「知识库·」行；停用/零命中路径同清；ghost 章过滤补齐；影子 commit 并入 run 单事务
-- [ ] F5 结构消毒：gates 新检查（换行/行首结构标记/「【本章写法指引】」字样拒收）＋block 组装守卫同口径
-- [ ] F6 量化影子渲染分源：value 只提数值短语＋condition 拆场面短语；render.py 影子行按 source 分支（「交手场面适用；本章覆盖：…」）
-- [ ] F7 条件标签只发命中维度（按 selector reason）＋块首 v2 文案
-- [ ] F8 列预留：run 加 `selector`/`brief_json`；extract_signals 上移 write/write_block.py；digest_candidates 公开化
-- [ ] F9 「日常」信号死值：文戏别名集删「日常」＋normalize 精确匹配优先＋E1 判例
-- [ ] F10 spec 同步：⑦ Req 已移 drafts/c-kb-organize/；仲裁句 v2 两份 spec 已同步；零命中「命中章」限定已补
-- [ ] F11 批F 回归：全量 pytest＋write 链＋新钉（竞态单 run/快照一致/换库重选/影子零残留/消毒拒收）
+- [x] F1 run 竞态：插入 catch IntegrityError → rollback → 重查赢家 run 复用（修会话中毒＋误报失败）
+- [x] F2 字节一致快照：KbMatchItem 加 `text_snapshot` 列，run 创建时固化；重建走快照（条目编辑不再破坏一致）
+- [x] F3 库域指纹：KbMatchRun 加 `domain_fingerprint` 列（启用库 id 集）；复用前必须匹配，换库即重选
+- [x] F4 影子残留清理：新写影子前清同章全部「知识库·」行；停用/零命中路径同清；ghost 章过滤补齐；影子 commit 并入 run 单事务
+- [x] F5 结构消毒：gates 新检查（换行/行首结构标记/「【本章写法指引】」字样拒收）＋block 组装守卫同口径
+- [x] F6 量化影子渲染分源：value 只提数值短语＋condition 拆场面短语；render.py 影子行按 source 分支（「交手场面适用；本章覆盖：…」）
+- [x] F7 条件标签只发命中维度（按 selector reason）＋块首 v2 文案
+- [x] F8 列预留：run 加 `selector`/`brief_json`；extract_signals 上移 write/write_block.py；digest_candidates 公开化
+- [x] F9 「日常」信号死值：文戏别名集删「日常」＋normalize 精确匹配优先＋E1 判例
+- [x] F10 spec 同步：⑦ Req 已移 drafts/c-kb-organize/；仲裁句 v2 两份 spec 已同步；零命中「命中章」限定已补
+- [x] F11 批F 回归：全量 pytest＋write 链＋新钉（竞态单 run/快照一致/换库重选/影子零残留/消毒拒收）
 
 ## 批D 前端（依赖批B3/B5＋批F）
 
