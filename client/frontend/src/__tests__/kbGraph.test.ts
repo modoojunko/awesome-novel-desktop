@@ -21,12 +21,12 @@ describe("toAggregateGraph", () => {
     );
     const genre = nodes.find((n) => n.kind === "genre")!;
     expect(genre.label).toBe("都市 9");
-    expect(genre.val).toBe(7);
+    expect(genre.val).toBe(40);
     const c1 = nodes.find((n) => n.id === "c1")!;
     expect(c1.label).toBe("文风 3");
-    expect(c1.val).toBe(5);
+    expect(c1.val).toBe(18);
     const c2 = nodes.find((n) => n.id === "c2")!;
-    expect(c2.val).toBe(12); // 封顶 2+10
+    expect(c2.val).toBe(40); // 封顶 12+14×2
     expect(links).toEqual([{ source: "g1", target: "c1" }, { source: "g1", target: "c2" }]);
   });
 
@@ -45,7 +45,7 @@ describe("toCellGraph", () => {
         { id: "e2", kind: "entry", genre: "都市", concept: "文风", title: "", scope: "scene" },
       ],
     );
-    expect(nodes[0]).toMatchObject({ id: "cell:都市:文风", kind: "cell", label: "文风 2", val: 7 });
+    expect(nodes[0]).toMatchObject({ id: "cell:都市:文风", kind: "cell", label: "文风 2", val: 40 });
     const e2 = nodes.find((n) => n.id === "e2")!;
     expect(e2.label).toBe("文风"); // 空标题兜底
     expect(e2.scope).toBe("scene");

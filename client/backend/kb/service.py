@@ -57,11 +57,25 @@ async def create_entry(
     if genre and genre not in THEMES:
         genre = ""  # 未定题材
 
+    # 手录默认装载：表单只有一句自由文本，按概念装进默认槽位（编辑器可后续调）
+    if not payload:
+        text = instruction or title
+        if concept == "手法":
+            payload = {"instruction": text, "scene": "日常"}
+        elif concept == "文笔":
+            payload = {"slot": "rule", "rule": text}
+        elif concept == "文风":
+            payload = {"slot": "sample", "sample": text}
+        elif concept == "世界设定":
+            payload = {"part": "extra", "content": text}
+        elif concept == "角色设定":
+            payload = {"archetype": (text or "未命名")[:40]}
+
     # payload 校验
     try:
         clean_payload = validate_payload(concept, payload)
     except ValueError as e:
-        return None, GateResult(ok=False, errors={"payload": str(e)}), None
+        return None, GateResult(ok=False, errors={"payload": f"{concept}的内容不完整：{str(e)[:120]}"}), None
 
     # 闸门
     gate = check_gates(

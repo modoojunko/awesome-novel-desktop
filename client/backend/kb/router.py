@@ -127,7 +127,7 @@ async def create_entry_api(
     db: AsyncSession = Depends(get_db),
 ):
     uid = _user(user)
-    entry, gate, error = await create_entry(
+    entry, gate, _error = await create_entry(
         db,
         user_id=uid,
         genre=body.genre,
@@ -141,9 +141,11 @@ async def create_entry_api(
         when_json=body.when_json,
         src_kind="manual",
     )
-    if error:
-        first = next(iter(error.errors.values()), "入库校验未通过")
-        raise HTTPException(422, detail={"message": first, "errors": error.errors, "warnings": gate.warnings})
+    # 失败统一看 entry is None（service 的情节拒收/payload/闸门臂 error 恒 None，
+    # 错误明细在 gate.errors——真机 500 实锤后修正的接法）
+    if entry is None:
+        first = next(iter(gate.errors.values()), "入库校验未通过")
+        raise HTTPException(422, detail={"message": first, "errors": gate.errors, "warnings": gate.warnings})
     return {"ok": True, "data": _entry_dict(entry)}
 
 

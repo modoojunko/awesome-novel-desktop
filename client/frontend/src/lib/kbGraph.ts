@@ -58,7 +58,8 @@ export function toAggregateGraph(
     genre: n.genre,
     concept: n.concept,
     count: n.count,
-    val: n.kind === "genre" ? 7 : 2 + Math.min(n.count, 10),
+    // val＝节点面积系数（force-graph 默认半径≈√val）：题材 40→r6，格子随计数封顶
+    val: n.kind === "genre" ? 40 : 12 + Math.min(n.count, 14) * 2,
     scope: "base",
   }));
   return { nodes: out, links: links.map((l) => ({ ...l })) };
@@ -79,7 +80,7 @@ export function toCellGraph(
       genre,
       concept,
       count: entries.length,
-      val: 7,
+      val: 40,
       scope: "base",
     },
   ];
@@ -92,7 +93,7 @@ export function toCellGraph(
       genre: e.genre,
       concept: e.concept,
       count: 0,
-      val: 2,
+      val: 8,
       scope: e.scope,
     });
     links.push({ source: cellId, target: e.id });

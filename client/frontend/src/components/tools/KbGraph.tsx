@@ -19,6 +19,24 @@ interface Drill {
   concept: string;
 }
 
+function drawNodeLabel(
+  node: object,
+  ctx: CanvasRenderingContext2D,
+  scale: number,
+  color: string,
+): void {
+  // 恒显标签（屏幕恒定：字号随缩放折算）
+  const n = node as { label: string; x?: number; y?: number; val: number };
+  if (n.x === undefined || n.y === undefined) return;
+  const size = 11 / scale;
+  const bold = n.val >= 20;
+  ctx.font = `${bold ? 600 : 400} ${size}px sans-serif`;
+  ctx.fillStyle = color;
+  ctx.textAlign = "center";
+  ctx.textBaseline = "top";
+  ctx.fillText(n.label, n.x, n.y + (n.val >= 20 ? 10 : 6));
+}
+
 interface GraphFactory {
   (elem: HTMLElement): GraphInstance;
 }
@@ -37,6 +55,9 @@ interface GraphInstance {
   d3Force: (name: string, force: unknown) => GraphInstance;
   width: (n: number) => GraphInstance;
   height: (n: number) => GraphInstance;
+  zoomToFit: (ms?: number, px?: number) => GraphInstance;
+  zoom: (z?: number) => GraphInstance;
+  centerAt: (x?: number, y?: number) => GraphInstance;
   cooldownTicks?: number;
 }
 
@@ -84,7 +105,11 @@ export default function KbGraph() {
     function applyData(d: { nodes: GraphNode[]; links: GraphLink[] }) {
       /* v8 ignore start -- 防御分支：paint 被 graphReady 门控，建图后才会装载 */
       const g = graphRef.current;
-      if (g) g.graphData(d);
+      if (g) {
+        g.graphData(d);
+        // 装载后适配边界：初始 zoom=1 下小节点不可见（真机实锤）
+        setTimeout(() => g.zoomToFit(400, 60), 300);
+      }
       /* v8 ignore stop */
     }
   }, [drill]);
@@ -103,7 +128,8 @@ export default function KbGraph() {
       const colors = tokenColors();
       colorsRef.current = colors;
       const hoverBg = "rgba(0,0,0,0.06)";
-      const factory = mod.default as unknown as GraphFactory;
+      // kapsule 两层调用：第一层（配置）返回接收 DOM 的装配函数
+      const factory = (mod.default as unknown as (cfg?: object) => GraphFactory)();
       graph = factory(el)
         .width(el.clientWidth || 800)
         .height(el.clientHeight || 480)
@@ -133,16 +159,11 @@ export default function KbGraph() {
           }
         })
         .nodeCanvasObject((node: object, ctx: CanvasRenderingContext2D, scale: number) => {
-          // 恒显标签（屏幕恒定：字号随缩放折算）
-          const n = node as { label: string; x?: number; y?: number; val: number };
-          if (n.x === undefined || n.y === undefined) return;
-          const size = 11 / scale;
-          const bold = n.val >= 7;
-          ctx.font = `${bold ? 600 : 400} ${size}px sans-serif`;
-          ctx.fillStyle = colorsRef.current.fg;
-          ctx.textAlign = "center";
-          ctx.textBaseline = "top";
-          ctx.fillText(n.label, n.x, n.y + (n.val >= 7 ? 8 : 5));
+          try {
+            drawNodeLabel(node, ctx, scale, colorsRef.current.fg);
+          } catch (err) {
+            (window as unknown as { __drawErr?: string }).__drawErr = String(err).slice(0, 200);
+          }
         });
       graphRef.current = graph;
       setGraphReady(true);
@@ -170,7 +191,7 @@ export default function KbGraph() {
           onClick={() => setDrill(null)}
           className={`hover:underline ${drill ? "" : "font-medium text-[var(--accent)]"}`}
         >
-          {genreLabel(drill?.genre ?? "")}
+          {drill ? genreLabel(drill.genre) : "全部"}
         </button>
         {drill && (
           <>

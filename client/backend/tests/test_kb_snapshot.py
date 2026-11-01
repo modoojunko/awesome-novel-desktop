@@ -472,3 +472,55 @@ def test_条目编辑删除_全链路():
             assert r.status_code == 404
     finally:
         app.dependency_overrides.clear()
+
+
+def test_手录校验失败_422带字段错误而非500():
+    """真机实锤回归钉：create 各失败臂 error=None，router 必须看 entry is None。"""
+    from auth_local.middleware import get_current_user
+    from fastapi.testclient import TestClient
+
+    from main import app
+
+    seed = _run(_seed())
+    app.dependency_overrides[get_current_user] = lambda: {"id": seed["uid"]}
+    try:
+        with TestClient(app) as c:
+            # 情节拒收臂 → 422 带 message，不再 500
+            r = c.post("/api/kb/entries", json={"genre": "都市", "concept": "情节", "instruction": "主线冲突。"})
+            assert r.status_code == 422, r.text
+            detail = r.json()["detail"]
+            assert detail["message"], "422 message 恒非空（api.ts 口径）"
+            # 显式非法 payload（extra 字段）→ 422 带人话前缀不裸 pydantic 串
+            r = c.post("/api/kb/entries", json={"genre": "都市", "concept": "文笔", "payload": {"slot": "rule", "rule": "x", "mystery": 1}})
+            assert r.status_code == 422
+            assert "文笔" in r.json()["detail"]["message"]
+    finally:
+        app.dependency_overrides.clear()
+
+
+def test_手录默认装载_四概念免填payload全过():
+    """真机实锤回归钉：手录只有一句文本，payload 为空时按概念默认槽位装载。"""
+    from auth_local.middleware import get_current_user
+    from fastapi.testclient import TestClient
+
+    from main import app
+
+    seed = _run(_seed())
+    app.dependency_overrides[get_current_user] = lambda: {"id": seed["uid"]}
+    try:
+        with TestClient(app) as c:
+            # 打斗关键词 → 推断手法 → 默认 scene=日常 → 200 不再 422/500
+            r = c.post("/api/kb/entries", json={"genre": "都市", "concept": "", "instruction": "打斗先给果再补因，第一句直接写结果。"})
+            assert r.status_code == 200, r.text
+            data = r.json()["data"]
+            assert data["concept"] == "手法"
+            assert data["payload"]["scene"] == "日常"
+            # 文笔/文风默认槽位同样装载成功
+            r = c.post("/api/kb/entries", json={"genre": "都市", "concept": "文笔", "instruction": "一句不超过二十字。"})
+            assert r.status_code == 200
+            assert r.json()["data"]["payload"]["slot"] == "rule"
+            r = c.post("/api/kb/entries", json={"genre": "都市", "concept": "文风", "instruction": "冷峻克制的旁白口吻。"})
+            assert r.status_code == 200
+            assert r.json()["data"]["payload"]["slot"] == "sample"
+    finally:
+        app.dependency_overrides.clear()

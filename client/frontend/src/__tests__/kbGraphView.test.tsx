@@ -24,7 +24,9 @@ const graphInstance = vi.hoisted(() => {
   return inst;
 });
 
-const forceGraphFactory = vi.hoisted(() => vi.fn(() => graphInstance));
+// kapsule 两层调用：mod.default() → 接收 DOM 的装配函数 → (el) → 实例
+const secondLayer = vi.hoisted(() => vi.fn(() => graphInstance));
+const forceGraphFactory = vi.hoisted(() => vi.fn(() => secondLayer));
 
 vi.mock("force-graph", () => ({ default: forceGraphFactory }));
 
@@ -131,13 +133,16 @@ describe("KbGraph", () => {
       font: "", fillStyle: "", textAlign: "", textBaseline: "", fillText: vi.fn(),
     } as unknown as CanvasRenderingContext2D;
     const stub = ctx as unknown as CtxStub;
-    draw({ label: "都市 9", x: 10, y: 20, val: 8 }, ctx, 2);
+    draw({ label: "都市 9", x: 10, y: 20, val: 40 }, ctx, 2); // 题材级 val 阈值 20
     expect(stub.font).toContain("600");
     expect(stub.fillText).toHaveBeenCalled();
     draw({ label: "小", x: 1, y: 2, val: 2 }, ctx, 1);
     expect(stub.font).toContain("400");
     draw({ label: "无坐标" }, ctx, 1); // 早退臂
     expect(stub.fillText).toHaveBeenCalledTimes(2);
+    // 坏 ctx 抛错被 catch 吃掉（防御帧循环不死臂）
+    draw({ label: "坏ctx", x: 1, y: 2, val: 2 }, null as never, 1);
+    expect((ctx as unknown as CtxStub).fillText).toHaveBeenCalledTimes(2);
   });
 
   it("卸载竞态：import resolve 前 unmount，早退臂不建图", async () => {

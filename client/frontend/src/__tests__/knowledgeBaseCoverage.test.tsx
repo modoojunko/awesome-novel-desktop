@@ -17,6 +17,23 @@ vi.mock("@/lib/kbApi", async (orig) => {
   return { ...actual, kbApi: { ...actual.kbApi, ...api } };
 });
 
+// force-graph 两层 mock（jsdom 无 canvas；kapsule 初始化会抛）
+const kbGraphMock = vi.hoisted(() => {
+  const inst: Record<string, ReturnType<typeof vi.fn>> = {};
+  for (const k of [
+    "graphData", "nodeColor", "nodeLabel", "nodeVal", "linkColor", "linkWidth",
+    "nodeId", "nodeCanvasObject", "onNodeHover", "onNodeClick",
+    "width", "height", "zoomToFit",
+  ]) {
+    inst[k] = vi.fn().mockReturnThis();
+  }
+  const second = vi.fn(() => inst);
+  return { second };
+});
+vi.mock("force-graph", () => ({
+  default: vi.fn(() => kbGraphMock.second),
+}));
+
 import KnowledgeBasePage from "@/pages/KnowledgeBasePage";
 
 function entry(over: Record<string, unknown> = {}) {
