@@ -301,13 +301,15 @@ async def select_block(
         score = m * _usefulness(prefs.get(e.id)) * _freshness(e, now)
         scored.append(SelectedItem(entry=e, score=round(score, 6), reason=reason))
 
+    # 排序 tiebreaker 用 title（语义稳定）——entry.id 是随进程随机的 uuid，
+    # 同分条目跨进程顺序漂移会打破 golden 集与「重试一致」的跨会话口径
     tech = sorted(
         (s for s in scored if s.entry.concept == "手法"),
-        key=lambda s: (-s.score, s.entry.id),
+        key=lambda s: (-s.score, s.entry.title or "", s.entry.id),
     )[:_TECH_MAX]
     style = sorted(
         (s for s in scored if s.entry.concept != "手法"),
-        key=lambda s: (-s.score, s.entry.id),
+        key=lambda s: (-s.score, s.entry.title or "", s.entry.id),
     )[:_SCENE_STYLE_MAX]
 
     # 预算截断：优先保手法，写法按分补到上限（成本＝条目指令字符数）
@@ -324,6 +326,6 @@ async def select_block(
     # 保持 tech 优先、写法随后的稳定顺序
     picked_tech = [s for s in picked if s.entry.concept == "手法"]
     picked_style = [s for s in picked if s.entry.concept != "手法"]
-    picked_tech.sort(key=lambda s: (-s.score, s.entry.id))
-    picked_style.sort(key=lambda s: (-s.score, s.entry.id))
+    picked_tech.sort(key=lambda s: (-s.score, s.entry.title or "", s.entry.id))
+    picked_style.sort(key=lambda s: (-s.score, s.entry.title or "", s.entry.id))
     return Selection(signals=signals, items=picked_tech + picked_style)
