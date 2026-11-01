@@ -292,7 +292,9 @@ class TestAliasMaterializeAndRunsKeep:
             async with async_session() as db:
                 rows = (await db.execute(sel(KbOrganizeRun).where(
                     KbOrganizeRun.user_id == uid, KbOrganizeRun.genre == "玄幻"))).scalars().all()
-                outs = (await db.execute(sel(KbOrganizeOutput))).scalars().all()
+                my_run_ids = [r.id for r in rows]
+                outs = (await db.execute(sel(KbOrganizeOutput).where(
+                    KbOrganizeOutput.run_id.in_(my_run_ids)))).scalars().all()
                 return len(rows), len(outs)
         n_runs, n_outs = _run(_count())
         assert n_runs == org.RUN_KEEP_PER_GENRE
