@@ -393,3 +393,63 @@ class KbEntryMerge(Base):
     merged_id: Mapped[str] = mapped_column(String(36), nullable=False)
     run_id: Mapped[str] = mapped_column(String(36), nullable=False, default="")
     created_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, server_default=func.now())
+
+
+class KbBaselineEntry(Base):
+    """官方基线条目——只读 lower 层（c-kb-baseline）。
+
+    overlay 双层：同步＝整层事务替换（清旧插新＋记 pack_version），客户端任何路径
+    SHALL NOT 对单条修改；用户改/藏＝upper 层 kb_baseline_overlays 写时复制。
+    主键＝uuid5(NS, src_key) 确定性代理——跨包/跨设备/跨备份稳定。
+    设备级、非账号级：不进备份（重同步重建）、不进账号级八表计数。
+    """
+
+    __tablename__ = "kb_baseline_entries"
+
+    entry_id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    src_key: Mapped[str] = mapped_column(String(120), nullable=False, unique=True)
+    pack_version: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
+    genre: Mapped[str] = mapped_column(String(40), nullable=False, default="", index=True)
+    concept: Mapped[str] = mapped_column(String(20), nullable=False, index=True)
+    scope: Mapped[str] = mapped_column(String(12), nullable=False, default="base")
+    slot: Mapped[str] = mapped_column(String(20), nullable=False, default="")
+    title: Mapped[str] = mapped_column(String(40), nullable=False, default="")
+    instruction: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    when_json: Mapped[str] = mapped_column(Text, nullable=False, default="{}")
+    payload_json: Mapped[str] = mapped_column(Text, nullable=False, default="{}")
+    content_sha256: Mapped[str] = mapped_column(String(64), nullable=False, default="")
+    published_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+
+
+class KbBaselineOverlay(Base):
+    """用户对基线条目的覆盖（upper 层写时复制）——hide whiteout / edit 私有副本。"""
+
+    __tablename__ = "kb_baseline_overlays"
+    __table_args__ = (
+        Index("uq_kb_baseline_overlay", "user_id", "src_key", unique=True),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    user_id: Mapped[str] = mapped_column(String(36), nullable=False, index=True)
+    src_key: Mapped[str] = mapped_column(String(120), nullable=False)
+    action: Mapped[str] = mapped_column(String(8), nullable=False)  # hide | edit
+    content: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    base_content_sha256: Mapped[str] = mapped_column(String(64), nullable=False, default="")
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime, nullable=False, server_default=func.now(), onupdate=func.now()
+    )
+
+
+class KbBaselineTag(Base):
+    """基线条目物化过滤维度（照 kb_entry_tags 可重建先例——同步时随层物化）。"""
+
+    __tablename__ = "kb_baseline_tags"
+    __table_args__ = (
+        Index("ix_kb_baseline_tags_dim_value", "dim", "value"),
+        Index("ix_kb_baseline_tags_entry", "entry_id"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    entry_id: Mapped[str] = mapped_column(String(36), nullable=False, index=True)
+    dim: Mapped[str] = mapped_column(String(20), nullable=False)
+    value: Mapped[str] = mapped_column(String(80), nullable=False)
