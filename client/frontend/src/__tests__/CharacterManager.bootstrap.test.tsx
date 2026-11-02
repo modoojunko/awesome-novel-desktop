@@ -527,17 +527,17 @@ describe("CharsAiRail 从简介立主角行", () => {
 describe("CharsAiRail 空态入口（书里还没有角色卡）", () => {
   const onRun = vi.fn();
 
-  it("空态首行给「从简介立主角」，其余四行置灰并指路", async () => {
+  it("空态只给「从简介立主角」，不给起草角色/体检/三补充", async () => {
     render(<CharsAiRail ctx={null} noCard introReady aiState="ready" onRun={onRun} />);
     const row = await screen.findByTestId("char-rail-bootstrap");
     expect(row.textContent).toContain("从简介立主角");
     fireEvent.click(row);
     await waitFor(() => expect(onRun).toHaveBeenCalledWith("bootstrap"));
-    // 卡片级四行没有卡可作用于：置灰＋hint（点击静默落空的老毛病不再出现）
-    for (const name of ["人设补充", "基础信息补充", "认知补充", "一致性体检"]) {
-      const btn = screen.getByText(name).closest("button")!;
-      expect(btn.disabled).toBe(true);
-      expect(btn.textContent).toContain("先立主角");
+    // 空书先把主角立起来：起草角色（配角/反派）与体检都不出现；三补充已合并退役
+    expect(screen.queryByText("起草角色")).toBeNull();
+    expect(screen.queryByText("一致性体检")).toBeNull();
+    for (const name of ["人设补充", "基础信息补充", "认知补充", "一键立卡"]) {
+      expect(screen.queryByText(name)).toBeNull();
     }
   });
 
