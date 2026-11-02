@@ -489,3 +489,44 @@ def test_基线层种子未落_kb_entries(base_env):
             return rows
 
     assert _run(_go()) == []
+
+
+def test_同步状态与手动重试端点(base_env):
+    """规格「未同步完成不阻断」：状态可查、失败可重试（幂等）。"""
+    from kb import baseline as bl
+
+    eid = _run(_seed_pack([_b("baseline:玄幻:tech-a", "官方手法A")]))[0]
+    uid = f"mg-{uuid.uuid4().hex[:8]}"
+
+    async def _setup():
+        async with async_session() as db:
+            db.add(User(id=uid, email=f"{uid}@t.local", password_hash="x"))
+            await db.commit()
+
+    _run(_setup())
+    app.dependency_overrides[get_current_user] = lambda: {"id": uid, "email": f"{uid}@t.local"}
+
+    calls: list[int] = []
+
+    async def _fake_sync(db=None):
+        calls.append(1)
+        return {"status": "current", "version": 1}
+
+    orig = bl.sync_baseline
+    bl.sync_baseline = _fake_sync
+    try:
+        with TestClient(app) as c:
+            # lifespan 的启动补偿也会调一次（A3 挂接实证）——从这里开始数
+            calls.clear()
+            r = c.get("/api/kb/baseline/status")
+            assert r.status_code == 200, r.text
+            assert r.json()["data"] == {"version": 1, "entries": 1}
+            assert eid
+
+            r = c.post("/api/kb/baseline/sync")
+            assert r.status_code == 200, r.text
+            assert r.json()["data"]["status"] == "current"
+            assert calls == [1]
+    finally:
+        bl.sync_baseline = orig
+        app.dependency_overrides.clear()

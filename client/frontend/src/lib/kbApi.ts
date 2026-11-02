@@ -335,6 +335,16 @@ export const kbApi = {
       }),
     ),
 
+  // ── 官方精选同步（c-kb-baseline）：启动补偿失败后的重试面 ──
+
+  baselineStatus: () =>
+    unwrap<{ version: number; entries: number }>(request(`${BASE}/baseline/status`)),
+
+  baselineSync: () =>
+    unwrap<{ status: string; version?: number }>(
+      request(`${BASE}/baseline/sync`, { method: "POST" }),
+    ),
+
   /** 恢复默认／恢复官方版：删覆盖记录，原件重新透出 */
   clearBaselineOverride: (entryId: string) =>
     unwrap<{ entry_id: string; restored: boolean }>(

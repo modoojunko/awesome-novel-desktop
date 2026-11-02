@@ -2,7 +2,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { kbApi } from "@/lib/kbApi";
 
-const { bind, bindings, createEntry, deleteEntry, entries, entry, genres, libraries, syncBinding, unbind, concepts, updateEntry, usePrototype, graphAggregate, graphCell, pref, baselineOverride, clearBaselineOverride } = kbApi;
+const { bind, bindings, createEntry, deleteEntry, entries, entry, genres, libraries, syncBinding, unbind, concepts, updateEntry, usePrototype, graphAggregate, graphCell, pref, baselineOverride, clearBaselineOverride, baselineStatus, baselineSync } = kbApi;
 
 const fetchMock = vi.fn();
 
@@ -194,5 +194,19 @@ describe("kbApi", () => {
     const back = await clearBaselineOverride("b1");
     expect(back.restored).toBe(true);
     expect(fetchMock.mock.calls[2][1]?.method).toBe("DELETE");
+  });
+
+  it("官方精选同步状态与手动重试（c-kb-baseline）", async () => {
+    fetchMock.mockReturnValueOnce(json({ version: 3, entries: 42 }));
+    const st = await baselineStatus();
+    expect(st).toEqual({ version: 3, entries: 42 });
+    expect(String(fetchMock.mock.calls[0][0])).toBe("/api/kb/baseline/status");
+
+    fetchMock.mockReturnValueOnce(json({ status: "synced", version: 4 }));
+    const r = await baselineSync();
+    expect(r.status).toBe("synced");
+    const [u, init] = fetchMock.mock.calls[1];
+    expect(String(u)).toBe("/api/kb/baseline/sync");
+    expect(init.method).toBe("POST");
   });
 });

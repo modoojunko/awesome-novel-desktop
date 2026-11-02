@@ -63,6 +63,8 @@ export default function KnowledgeBasePage() {
   const [view, setView] = useState<"list" | "graph" | "entries">("list");
   const [showOrganize, setShowOrganize] = useState(false);
   const [opBusy, setOpBusy] = useState(false);
+  const [syncBusy, setSyncBusy] = useState(false);
+  const [syncNote, setSyncNote] = useState("");
 
   const loadEntries = useCallback(async (cursorId = "") => {
     setLoading(true);
@@ -126,6 +128,25 @@ export default function KnowledgeBasePage() {
       kbApi.genres().then(setGenreCounts).catch(() => {});
     } catch { /* 静默：下一次列表刷新即真实状态 */ }
     finally { setOpBusy(false); }
+  };
+
+  /* 官方精选未就绪的重试面（c-kb-baseline：启动补偿失败可手动重试，幂等） */
+  const handleBaselineSync = async () => {
+    /* v8 ignore start -- 双保险：按钮同时 disabled，UI 面走不到该早退 */
+    if (syncBusy) return;
+    /* v8 ignore stop */
+    setSyncBusy(true);
+    setSyncNote("");
+    try {
+      const r = await kbApi.baselineSync();
+      setSyncNote(r.status === "synced" ? "官方精选已更新" : "暂时没有新版本");
+      await loadEntries();
+      kbApi.genres().then(setGenreCounts).catch(() => {});
+    } catch {
+      setSyncNote("同步没成功，稍后再试");
+    } finally {
+      setSyncBusy(false);
+    }
   };
 
   const handleManual = async () => {
@@ -368,7 +389,19 @@ export default function KnowledgeBasePage() {
                   className="w-full py-3 text-center text-[13px] text-[var(--accent)] hover:underline"
                 >加载更多</button>
               )}
-              {!entries.length && !loading && (
+              {!entries.length && !loading && src === "官方精选" && (
+                <div data-testid="kb-baseline-empty" className="rounded-lg border border-dashed border-[var(--border)] p-6 text-center">
+                  <p className="text-[13px] text-[var(--muted)]">官方精选还没有同步下来。</p>
+                  {syncNote && <p className="mt-1 text-[12px] text-[var(--muted)]">{syncNote}</p>}
+                  <button
+                    data-testid="kb-baseline-sync"
+                    disabled={syncBusy}
+                    onClick={() => { void handleBaselineSync(); }}
+                    className="mt-3 rounded-lg border border-[var(--accent)] px-4 py-2 text-[13px] text-[var(--accent)] hover:bg-[var(--accent-soft)] disabled:opacity-50"
+                  >重新同步</button>
+                </div>
+              )}
+              {!entries.length && !loading && src !== "官方精选" && (
                 <div className="rounded-lg border border-dashed border-[var(--border)] p-6 text-center">
                   <p className="text-[13px] text-[var(--muted)]">还没有条目——先拆书或手录，写法到位后这里会长出来。</p>
                   <button

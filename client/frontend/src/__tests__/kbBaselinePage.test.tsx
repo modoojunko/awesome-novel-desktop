@@ -9,6 +9,8 @@ const api = vi.hoisted(() => ({
   concepts: vi.fn(),
   baselineOverride: vi.fn(),
   clearBaselineOverride: vi.fn(),
+  baselineStatus: vi.fn(),
+  baselineSync: vi.fn(),
 }));
 
 vi.mock("@/lib/kbApi", async (orig) => {
@@ -23,6 +25,8 @@ vi.mock("@/lib/kbApi", async (orig) => {
       concepts: api.concepts,
       baselineOverride: api.baselineOverride,
       clearBaselineOverride: api.clearBaselineOverride,
+      baselineStatus: api.baselineStatus,
+      baselineSync: api.baselineSync,
     },
   };
 });
@@ -56,6 +60,8 @@ beforeEach(() => {
   api.concepts.mockResolvedValue({ concepts: [], themes: [] });
   api.baselineOverride.mockResolvedValue({ entry_id: "b1", action: "hide" });
   api.clearBaselineOverride.mockResolvedValue({ entry_id: "b1", restored: true });
+  api.baselineStatus.mockResolvedValue({ version: 0, entries: 0 });
+  api.baselineSync.mockResolvedValue({ status: "synced", version: 1 });
 });
 
 afterEach(() => {
@@ -130,5 +136,30 @@ describe("KnowledgeBasePage · 官方精选", () => {
     await waitFor(() => expect(screen.getByText(/^指令$/)).toBeTruthy());
     expect(screen.queryByTestId("kb-baseline-hide")).toBeNull();
     expect(screen.queryByTestId("kb-baseline-restore")).toBeNull();
+  });
+
+  it("官方精选为空给重试面：同步成功后刷新列表", async () => {
+    api.entries.mockResolvedValue({ entries: [], next_cursor: "" });
+    render(<KnowledgeBasePage />);
+    await waitFor(() => expect(api.entries).toHaveBeenCalled());
+    fireEvent.click(screen.getByTestId("kb-src-官方精选"));
+    const panel = await screen.findByTestId("kb-baseline-empty");
+    expect(panel.textContent).toContain("还没有同步下来");
+    const before = api.entries.mock.calls.length;
+    api.genres.mockRejectedValueOnce(new Error("g")); // 计数刷新失败静默（catch 臂）
+    fireEvent.click(screen.getByTestId("kb-baseline-sync"));
+    await waitFor(() => expect(api.baselineSync).toHaveBeenCalledTimes(1));
+    await waitFor(() => expect(api.entries.mock.calls.length).toBeGreaterThan(before));
+    await waitFor(() => expect(screen.getByText("官方精选已更新")).toBeTruthy());
+  });
+
+  it("同步失败提示可重试（不抛）", async () => {
+    api.entries.mockResolvedValue({ entries: [], next_cursor: "" });
+    api.baselineSync.mockRejectedValueOnce(new Error("cdn"));
+    render(<KnowledgeBasePage />);
+    await waitFor(() => expect(api.entries).toHaveBeenCalled());
+    fireEvent.click(screen.getByTestId("kb-src-官方精选"));
+    fireEvent.click(await screen.findByTestId("kb-baseline-sync"));
+    await waitFor(() => expect(screen.getByText("同步没成功，稍后再试")).toBeTruthy());
   });
 });

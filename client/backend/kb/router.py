@@ -72,6 +72,39 @@ def _entry_dict(e: KbEntry) -> dict[str, Any]:
     }
 
 
+# ─── 官方精选同步状态（c-kb-baseline）：未就绪可重试 ───────
+
+
+@router.get("/baseline/status")
+async def baseline_status_api(
+    user: dict = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """基线层就绪状态（设备级；不要求登录态才有数据，这里只是展示口）。"""
+    from kb.baseline import VERSION_KEY
+    from models.app_meta import AppMeta
+    from models.kb import KbBaselineEntry
+
+    meta = await db.get(AppMeta, VERSION_KEY)
+    version = int(meta.value) if meta and str(meta.value).isdigit() else 0
+    n = (
+        await db.execute(select(func.count(KbBaselineEntry.entry_id)))
+    ).scalar_one()
+    return {"ok": True, "data": {"version": version, "entries": int(n or 0)}}
+
+
+@router.post("/baseline/sync")
+async def baseline_sync_api(
+    user: dict = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """手动重试同步（启动补偿失败后的重试面；幂等，失败保旧层）。"""
+    from kb.baseline import sync_baseline
+
+    result = await sync_baseline(db)
+    return {"ok": True, "data": result}
+
+
 # ─── 题材栏 ──────────────────────────────────────────────
 
 @router.get("/genres")
