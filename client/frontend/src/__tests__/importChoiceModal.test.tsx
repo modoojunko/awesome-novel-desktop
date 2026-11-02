@@ -121,6 +121,22 @@ describe("ImportChoiceModal", () => {
     expect(props.onClose).toHaveBeenCalledTimes(1);
   });
 
+  it("并发自愈重试批次：新 total 让 done 归零，进度不越 88%", () => {
+    mount();
+    const cb = startImport();
+    act(() => cb({ type: "phase", phase: "copy", total: 3 }));
+    act(() => cb({ type: "phase", phase: "copy", concept: "手法", done: 3, total: 3 }));
+    expect(screen.getByTestId("kb-import-progress-bar").getAttribute("aria-valuenow")).toBe("88");
+
+    // 后端重算差集后的新批次（只有 total）：done 必须归零，否则 3/1 会算成 264%
+    act(() => cb({ type: "phase", phase: "copy", total: 1 }));
+    expect(screen.getByTestId("kb-import-progress-bar").getAttribute("aria-valuenow")).toBe("0");
+    expect(screen.getByTestId("kb-import-phase").textContent).toContain("（0/1）");
+
+    act(() => cb({ type: "phase", phase: "copy", concept: "文风", done: 1, total: 1 }));
+    expect(screen.getByTestId("kb-import-progress-bar").getAttribute("aria-valuenow")).toBe("88");
+  });
+
   it("事件缺字段：total/done/imported 缺省不崩", () => {
     mount();
     const cb = startImport();

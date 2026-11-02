@@ -64,7 +64,7 @@ export default function ImportChoiceModal({
       : baseline
         ? 92
         : total > 0
-          ? Math.round((done / total) * 88)
+          ? Math.min(88, Math.round((done / total) * 88))  // 重试批次切换瞬间不越 88%
           : 6;
 
   const doImport = () => {
@@ -84,7 +84,15 @@ export default function ImportChoiceModal({
       (ev: BookScopeProgressEvent) => {
         if (ev.type === "phase") {
           if (ev.phase === "copy") {
-            if (typeof ev.total === "number") setTotal(ev.total);
+            if (typeof ev.total === "number") {
+              setTotal(ev.total);
+              // 无 concept 的 total 事件＝新一轮复制起点（后端并发自愈重试）：
+              // done 必须归零，否则沿用上一批会算出 >100%
+              if (!ev.concept) {
+                setDone(ev.done ?? 0);
+                setConcept("");
+              }
+            }
             if (ev.concept) {
               setConcept(ev.concept);
               setDone(ev.done ?? 0);
