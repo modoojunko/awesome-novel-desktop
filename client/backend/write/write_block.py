@@ -170,13 +170,15 @@ async def _baseline_domain(
 
     genre = ""
     try:
-        from filesystem.paths import PATH_TO_KEY
+        from filesystem.paths import KEY_TO_PATH
         from filesystem.storage import get_storage
 
         novel = await db.get(Novel, novel_id)
         if novel is not None and novel.root_path:
+            # read_yaml 收「相对路径」（内部再路由到 KV 键）：KEY_TO_PATH["story"]
+            # = "story.yaml"；用 PATH_TO_KEY 会读到 {}（题材恒空→跨题材条目互串）
             story = await get_storage().read_yaml(
-                novel.root_path, PATH_TO_KEY["story.yaml"]
+                novel.root_path, KEY_TO_PATH["story"]
             ) or {}
             genre = str(story.get("genre") or "").strip()
     except Exception:  # noqa: BLE001 — 题材读不到＝空（跨题材通用条目照出）

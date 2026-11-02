@@ -420,19 +420,44 @@ def test_冷启动回退域_零绑定出块(base_env):
                 primary_mood="燃", plot_stage="高潮爆发",
             ))
             await db.commit()
-            return uid, novel.id
+            return uid, novel.id, novel.root_path
 
-    uid, novel_id = _run(_go())
+    uid, novel_id, root_path = _run(_go())
+
+    # 书题材落 story KV（select 回退域必须按它收窄，不能把别题材的基线串进来）
+    async def _story():
+        from filesystem.storage import get_storage
+
+        await get_storage().write_yaml(root_path, "story.yaml", {"genre": "玄幻"})
+
+    _run(_story())
 
     # 基线层空 → 回退域不存在 → 无块
     block0, run0, _ = _run(_prepare(novel_id, "vol-1-ch-1", uid))
     assert block0 is None and run0 is None
 
-    _run(_seed_pack([_b("baseline::tech-a", "通用手法A", genre="")]))
+    _run(_seed_pack([
+        _b("baseline:玄幻:tech-a", "本题材手法", genre="玄幻",
+           instruction="本题材专用：交手先守后攻，招式收在第三拍。"),
+        _b("baseline:都市:tech-b", "别题材手法", genre="都市",
+           instruction="别题材专用：交锋写成交谈，火气压在话里。"),
+    ]))
 
     block, run_id, items = _run(_prepare(novel_id, "vol-1-ch-1", uid))
     assert block and run_id and items, "基线就绪＋零绑定应出块"
     assert "【本章写法指引】" in block
+    assert "本题材专用" in block
+    assert "别题材专用" not in block, "回退域必须按书题材收窄"
+
+    async def _domain():
+        from write.write_block import _binding_domain
+
+        async with async_session() as db:
+            return await _binding_domain(db, novel_id)
+
+    genre, concepts, fp = _run(_domain())
+    assert genre == "玄幻" and list(concepts) == ["手法", "文风", "文笔"]
+    assert fp and len(fp) == 64
 
 
 async def _prepare(novel_id, chapter_ref, uid):
