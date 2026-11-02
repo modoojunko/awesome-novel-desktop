@@ -522,10 +522,12 @@ async def ensure_genre_backfill(db: AsyncSession, user_id: str) -> None:
     """题材回填（c-library-genre-gate）：来源可解的空题材库卡补题材。
 
     拍板口径同 c-kb-library-once-migration：**不挂 boot**、读面触达、幂等自熄。
-    只挑 concept=角色设定 且 genre 空 且 src_kind∈{deconstruct,book} 的条目——
-    拆书来源回查任务产物 genre 维度（与收录时 _deconstruct_genre 同源）、书来源
-    回查 story.genre（与收录时 _story_genre 同源）→ normalize_theme。解不出＝
-    保持空（跨题材通用语义不动，手动卡不碰）；全部补完探测即返。失败降级。
+    覆盖两种条目形状：
+    - 直连来源：src_kind∈{deconstruct,book}——回查任务产物 genre 维度（与收录时
+      _deconstruct_genre 同源）/ story.genre（与 _story_genre 同源）；
+    - 迁移镜像：src_kind=character_library_migration——真实来源藏在 legacy 卡
+      （src_key＝卡 id）里：卡自带题材优先，否则按卡的 src_kind/src_ref 再回查。
+    解不出＝保持空（跨题材通用语义不动，手动卡不碰）；全部补完探测即返。失败降级。
     """
     try:
         rows = (
@@ -533,18 +535,46 @@ async def ensure_genre_backfill(db: AsyncSession, user_id: str) -> None:
                 select(KbEntry).where(
                     KbEntry.user_id == user_id,
                     KbEntry.concept == CONCEPT,
-                    KbEntry.src_kind.in_(("deconstruct", "book")),
+                    KbEntry.src_kind.in_(
+                        ("deconstruct", "book", "character_library_migration")
+                    ),
                     or_(KbEntry.genre.is_(None), KbEntry.genre == ""),
                 )
             )
         ).scalars().all()
         if not rows:
             return
+        from models.character_library import CharacterLibrary
         from models.deconstruct import DeconstructJob
         from models.project import Novel
 
+        # 迁移镜像：经 legacy 卡（src_key＝卡 id）反查真实来源
+        mirror = {
+            e.src_key for e in rows
+            if e.src_kind == "character_library_migration" and e.src_key
+        }
+        cards = {}
+        if mirror:
+            for card in (
+                await db.execute(
+                    select(CharacterLibrary).where(
+                        CharacterLibrary.user_id == user_id,
+                        CharacterLibrary.id.in_(sorted(mirror)),
+                    )
+                )
+            ).scalars():
+                cards[card.id] = card
+
         task_ids = {e.src_ref for e in rows if e.src_kind == "deconstruct" and e.src_ref}
         novel_ids = {e.src_ref for e in rows if e.src_kind == "book" and e.src_ref}
+        for card in cards.values():
+            if normalize_theme(card.genre):
+                continue  # 卡自带题材，直接采用
+            if card.src_kind == "deconstruct" and card.src_ref:
+                task_ids.add(card.src_ref)
+            elif card.src_kind == "book" and card.src_ref:
+                novel_ids.add(card.src_ref)
+
         resolved: dict[str, str] = {}
         if task_ids:
             tasks = (
@@ -564,9 +594,20 @@ async def ensure_genre_backfill(db: AsyncSession, user_id: str) -> None:
                 g = await _story_genre(db, nv)
                 if g:
                     resolved[nv.id] = g
+
         changed = 0
         for e in rows:
-            g = resolved.get(e.src_ref or "")
+            if e.src_kind == "character_library_migration":
+                card = cards.get(e.src_key or "")
+                if card is None:
+                    continue
+                g = normalize_theme(card.genre) or (
+                    resolved.get(card.src_ref or "")
+                    if card.src_kind in ("deconstruct", "book")
+                    else ""
+                )
+            else:
+                g = resolved.get(e.src_ref or "")
             if g:
                 e.genre = g
                 e.concept_id = f"{g}:{e.concept}"

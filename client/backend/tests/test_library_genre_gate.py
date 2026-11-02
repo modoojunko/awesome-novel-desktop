@@ -167,6 +167,78 @@ def test_回填_读面挂点_角色库列表即触发():
     assert r["items"][0]["genre_norm"] == "志怪/民俗灵异"
 
 
+def test_回填_迁移镜像形状经legacy卡反查来源():
+    """升级用户的真实形状：条目 src_kind=character_library_migration，真实来源
+    藏在 legacy 卡（src_key＝卡 id）里——快照真数据验证抓到过的坑。"""
+    seed = _run(_seed(with_task=True))
+
+    async def _go():
+        from models.character_library import CharacterLibrary
+
+        async with async_session() as db:
+            card = CharacterLibrary(
+                id=str(uuid.uuid4()), user_id=seed["uid"], name="刘望津", role="配角",
+                genre="", src_kind="deconstruct", src_ref=seed["task_id"],
+                src_novel_name="13路末班车",
+            )
+            db.add(card)
+            await db.flush()
+            db.add(_entry(
+                seed["uid"], src_kind="character_library_migration",
+                src_ref="character_library", src_key=card.id,
+            ))
+            await db.commit()
+            from library.service import ensure_genre_backfill
+
+            await ensure_genre_backfill(db, seed["uid"])
+            rows = (await db.execute(
+                KbEntry.__table__.select().where(KbEntry.user_id == seed["uid"])
+            )).mappings().all()
+            return rows[0]
+
+    e = _run(_go())
+    assert e["genre"] == "志怪/民俗灵异"
+    assert e["concept_id"] == "志怪/民俗灵异:角色设定"
+
+
+def test_回填_迁移镜像卡自带题材优先_卡删保持空():
+    seed = _run(_seed(with_task=False))
+
+    async def _go():
+        from models.character_library import CharacterLibrary
+
+        async with async_session() as db:
+            own = CharacterLibrary(
+                id=str(uuid.uuid4()), user_id=seed["uid"], name="自带题材卡", role="配角",
+                genre="玄幻", src_kind="manual", src_ref="",
+            )
+            db.add(own)
+            await db.flush()
+            own_id = own.id
+            db.add(_entry(
+                seed["uid"], src_kind="character_library_migration",
+                src_ref="character_library", src_key=own_id,
+            ))
+            # legacy 卡已不存在（源已删）→ 保持空
+            db.add(_entry(
+                seed["uid"], id=str(uuid.uuid4()),
+                src_kind="character_library_migration",
+                src_ref="character_library", src_key="no-such-card",
+            ))
+            await db.commit()
+            from library.service import ensure_genre_backfill
+
+            await ensure_genre_backfill(db, seed["uid"])
+            rows = (await db.execute(
+                KbEntry.__table__.select().where(KbEntry.user_id == seed["uid"])
+            )).mappings().all()
+            return own_id, {r["src_key"]: r["genre"] for r in rows}
+
+    own_id, genres = _run(_go())
+    assert genres[own_id] == "玄幻"  # 卡自带题材归一后落
+    assert genres["no-such-card"] == ""
+
+
 # ─── ③ apply_to_book 题材硬门 ────────────────────────────────
 
 
