@@ -127,13 +127,15 @@ export default function KnowledgeBasePage() {
   };
 
   return (
-    <div className="min-h-screen bg-[var(--bg)] text-[var(--fg)]">
-      {/* 顶栏 */}
-      <div className="border-b border-[var(--border)] px-6 py-4">
-        <p className="font-mono text-[10.5px] tracking-[0.14em] text-[var(--muted)]">—— 写作工具 · 知识库</p>
-        <div className="mt-2 flex items-center justify-between gap-3">
-          <h1 className="font-[var(--font-display)] text-4xl font-semibold tracking-wide">知识库</h1>
-          <div className="flex flex-none items-center gap-2">
+    // 版式对齐写作工具系各页（c-kb-header-align）：共用 .main 居中容器＋.page-head
+    // 标题行（h1 30px/副标题 .sub/右侧动作），不再用整幅通栏大标题
+    <main className="main" data-od-id="kb-home">
+      <div className="page-head">
+        <div>
+          <h1>知识库</h1>
+          <p className="sub">存的是拆书拆出的好写法和自己踩过的经验，写新书时能用上。</p>
+        </div>
+        <div className="flex flex-none items-center gap-2">
           <button
             onClick={() => setShowOrganize(true)}
             className="rounded-md border border-[var(--accent)] px-3 py-1.5 text-[12px] text-[var(--accent)] hover:bg-[var(--accent-soft)]"
@@ -151,13 +153,10 @@ export default function KnowledgeBasePage() {
               </button>
             ))}
           </div>
-          </div>
         </div>
-        <p className="mt-2 text-sm text-[var(--muted)]">存的是拆书拆出的好写法和自己踩过的经验，写新书时能用上。</p>
       </div>
 
-      <div className="mx-auto max-w-[1220px] px-6 pb-16">
-        {view === "graph" && <KbGraph />}
+      {view === "graph" && <KbGraph />}
         {view === "entries" && <KbEntryGraph genre={genre !== "全部题材" ? genre : ""} />}
         {showOrganize && (
           <KbOrganizePanel
@@ -323,7 +322,6 @@ export default function KnowledgeBasePage() {
             </div>
           </div>
         </div>
-      </div>
 
       {/* 手录表单 */}
       {showManual && (
@@ -416,6 +414,6 @@ export default function KnowledgeBasePage() {
           </div>
         </div>
       )}
-    </div>
+    </main>
   );
 }
