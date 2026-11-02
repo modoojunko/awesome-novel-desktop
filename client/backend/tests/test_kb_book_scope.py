@@ -219,3 +219,42 @@ def test_指纹随副本变化_pref标记不刷():
             await db.commit()
     _run(_mark())
     assert _run(_fp()) == fp2  # pref 不刷新指纹（重试字节一致守卫）
+
+
+def test_量化合成保守基线():
+    """书级量化未蒸馏：导入时按维度合成 conf=40 基线（F-3）；作者蒸馏后覆盖。"""
+    from filesystem.paths import STYLE_QUANT_PATH
+    from filesystem.storage import get_storage
+    from settings.style_quant_model import quant_doc
+
+    uid = f"qs{uuid.uuid4().hex[:8]}"
+    _run(_seed_user(uid))
+    _run(_seed_master(uid, [ENTRY_QUANT, ENTRY_HIT, ENTRY_COMMON]))
+    novel_id = _run(_seed_book(uid))
+    r = _run(_import(novel_id, uid))
+    assert r["imported"] >= 1
+
+    async def _read():
+        async with async_session() as db:
+            novel = (await db.execute(sel(Novel).where(Novel.id == novel_id))).scalar_one()
+            doc = quant_doc(await get_storage().read_yaml(novel.root_path, STYLE_QUANT_PATH))
+            return doc
+    doc = _run(_read())
+    assert doc["confidence"] == 40
+    assert doc.get("source") == "kb-synthesized"
+    # 下限型（不少于）不进约框架——句长条目是上限型，进 syntax 维
+    assert doc["baseline"]["syntax"]["value"].endswith("字")
+
+    # 作者蒸馏覆盖合成值
+    async def _distill():
+        from filesystem.storage import get_storage
+        async with async_session() as db:
+            novel = (await db.execute(sel(Novel).where(Novel.id == novel_id))).scalar_one()
+            await get_storage().write_yaml(
+                novel.root_path, STYLE_QUANT_PATH,
+                {"confidence": 85, "baseline": {"syntax": {"value": "约20字", "tolerance": 10}}},
+            )
+    _run(_distill())
+    _run(_import(novel_id, uid))  # 重复导入不覆盖作者蒸馏
+    doc2 = _run(_read())
+    assert doc2["confidence"] == 85  # 蒸馏资产保留

@@ -14,6 +14,7 @@
 from __future__ import annotations
 
 import hashlib
+from datetime import UTC
 
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -26,6 +27,7 @@ from models.kb import (
     KbLibrary,
     KbPref,
 )
+from settings.style_quant_model import BASELINE_KEYS
 
 
 async def import_genre_knowledge(
@@ -126,6 +128,14 @@ async def import_genre_knowledge(
     await db.commit()  # 副本＋标签＋种子权重一次落（KV 落地在其后，另一介质）
 
     style_land, world_land = await _land_baselines(db, novel_id=novel_id, user_id=user_id, genre=genre)
+    if new_rows:
+        from models.project import Novel as _Novel
+
+        novel = await db.get(_Novel, novel_id)
+        if novel is not None and novel.root_path:
+            await synthesize_quant_baseline(
+                novel.root_path, [row for row, _src in new_rows]
+            )
     return {
         "imported": copied,
         "skipped": len(rows) - copied,
@@ -191,3 +201,48 @@ async def book_scope_fingerprint(db: AsyncSession, *, novel_id: str) -> str:
     ).one()
     payload = f"{novel_id}:{row[0]}:{row[1].isoformat() if row[1] else ''}"
     return hashlib.sha256(payload.encode("utf-8")).hexdigest()[:64]
+
+
+async def synthesize_quant_baseline(root_path: str, copies) -> None:
+    """量化合成保守基线（c-kb-book-scope 批C；提示词评审 F-3）。
+
+    书级 style-quant 未蒸馏（confidence=0/缺）且副本含量化条目时：按维度合成
+    六行基线（confidence=40 → ±30% 最保守档），来源标注「知识库·题材（合成）」；
+    作者后续蒸馏 SHALL 覆盖合成值。下限型（不少于/至少）不进「约 X」框架——跳过。"""
+    import re as _re
+    from datetime import datetime as _dt
+
+    from filesystem.paths import STYLE_QUANT_PATH
+    from filesystem.storage import get_storage
+    from settings.style_quant_model import quant_doc
+
+    doc = quant_doc(await get_storage().read_yaml(root_path, STYLE_QUANT_PATH))
+    if int(doc.get("confidence") or 0) > 0:
+        return  # 已蒸馏：作者资产不动
+    baseline = doc.get("baseline") if isinstance(doc.get("baseline"), dict) else {}
+    value_pat = _re.compile(
+        r"(不少于|至少|高于)?\s*\d+(?:\.\d+)?\s*(?:字|句|段|行|%|％)"
+    )
+    for row in sorted(copies, key=lambda c: c.title or ""):
+        if row.concept not in ("文笔", "文风", "手法"):
+            continue
+        text = (row.instruction or "").strip()
+        m = value_pat.search(text)
+        if not m:
+            continue
+        if m.group(1):  # 下限型：不进「约 X」框架
+            continue
+        from kb.match import is_quantitative
+
+        dim = is_quantitative(row)
+        if dim not in BASELINE_KEYS or dim in baseline and baseline[dim].get("value"):
+            continue
+        baseline[dim] = {"value": m.group(0).strip(), "tolerance": 30}
+    if not baseline:
+        return
+    doc["confidence"] = 40
+    doc["sample_chars"] = 0
+    doc["updated_at"] = _dt.now(UTC).replace(tzinfo=None).isoformat(timespec="seconds")
+    doc["baseline"] = baseline
+    doc["source"] = "kb-synthesized"
+    await get_storage().write_yaml(root_path, STYLE_QUANT_PATH, doc)

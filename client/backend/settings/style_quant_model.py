@@ -33,6 +33,7 @@ _EMPTY = {
     "version": 1,
     "confidence": 0,
     "sample_chars": 0,
+    "source": "",  # c-kb-book-scope：kb-synthesized＝开书合成保守基线（作者蒸馏覆盖）
     "updated_at": "",
     "baseline": {},
     "details": {},
