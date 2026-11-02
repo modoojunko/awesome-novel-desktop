@@ -38,10 +38,12 @@ def _run(coro):
 
 def _entry(src_key: str, title: str = "条目", *, instruction: str | None = None,
            genre: str = "玄幻", when: dict | None = None) -> dict:
+    # 判据集与内容仓同集（kb.gates.check_baseline_entry）：手法须带 payload.instruction
+    ins = instruction or f"{title}：交手先守后攻，招式收在第三拍。"
     return {
         "src_key": src_key, "title": title, "concept": "手法", "genre": genre,
-        "instruction": instruction or f"{title}：交手先守后攻，招式收在第三拍。",
-        "payload": {"slot": "打斗-节奏", "scene": "打斗"},
+        "instruction": ins,
+        "payload": {"instruction": ins, "slot": "打斗-节奏", "scene": "打斗"},
         "when": when if when is not None else {"scene": "打斗"},
     }
 
@@ -425,3 +427,68 @@ def test_启动补偿_后台任务执行(monkeypatch):
 
     _run(_go())
     assert calls == [1]
+
+
+def test_下架孤儿edit提升为用户条目(sync_env):
+    """D0-6：官方下架条目的用户副本不蒸发——提升为账号自有条目（src_kind≠baseline）。"""
+    from sqlalchemy import delete
+
+    from kb.baseline import content_sha
+    from models.kb import KbEntry, KbEntryTag
+
+    bl = sync_env
+    a = _entry("baseline:玄幻:tech-a", "玄幻手法A")
+    keep = _entry("baseline:玄幻:tech-b", "玄幻手法B")
+    _publish(1, [a, keep])
+    assert _sync(bl)["status"] == "synced"
+
+    uid = f"promote-{uuid.uuid4().hex[:8]}"
+
+    async def _seed_overlay():
+        async with async_session() as db:
+            db.add(KbBaselineOverlay(
+                user_id=uid, src_key=a["src_key"], action="edit",
+                content="我的说法：交手先让三招再还手。",
+                base_content_sha256=content_sha(a["instruction"])))
+            await db.commit()
+
+    _run(_seed_overlay())
+
+    # v2：A 官方下架（B 保留）
+    _publish(2, [keep])
+    r = _sync(bl)
+    assert r["status"] == "synced" and r["promoted"] == 1, f"got {r}"
+    assert _overlays(a["src_key"]) == {}  # 覆盖记录已消费
+
+    async def _user_entries():
+        async with async_session() as db:
+            rows = (await db.execute(sel(KbEntry).where(KbEntry.user_id == uid))).scalars().all()
+            tags = (await db.execute(sel(KbEntryTag).where(KbEntryTag.user_id == uid))).scalars().all()
+            return rows, tags
+
+    rows, tags = _run(_user_entries())
+    assert len(rows) == 1
+    e = rows[0]
+    assert e.instruction == "我的说法：交手先让三招再还手。"
+    assert e.concept == a["concept"] and e.genre == a["genre"]
+    assert e.title == a["title"]
+    assert e.src_kind == "manual"  # delta 硬约束：不得落 baseline
+    assert e.src_novel_name == "官方精选（已下架）"
+    assert set(e.payload_json) > {"{"} and "打斗-节奏" in e.payload_json
+    assert len(tags) >= 3  # concept/scope/scene 物化
+    assert any(t.dim == "scene" and t.value == "打斗" for t in tags)
+
+    # 再同步（同版本）零写；升 v3 不重复提升
+    _publish(3, [keep])
+    assert _sync(bl)["status"] == "synced"
+    rows2, _tags2 = _run(_user_entries())
+    assert len(rows2) == 1
+
+    # 清理提升件，避免污染共享测试库
+    async def _cleanup():
+        async with async_session() as db:
+            await db.execute(delete(KbEntryTag).where(KbEntryTag.user_id == uid))
+            await db.execute(delete(KbEntry).where(KbEntry.user_id == uid))
+            await db.commit()
+
+    _run(_cleanup())

@@ -84,8 +84,10 @@ def _validate_outbound(url: str) -> bool:
 
 
 def _derive(base: str, name: str) -> str:
+    """基址即发布目录（…/knowledge/baseline）：latest 与 vN/ 同级（与内容仓
+    publish 落盘布局一致；不采信 manifest 里出现的任何 URL）。"""
     p = urlparse(base)
-    return f"{p.scheme}://{p.netloc}{p.path.rsplit('/', 1)[0]}/{name}"
+    return f"{p.scheme}://{p.netloc}{p.path.rstrip('/')}/{name}"
 
 
 async def _fetch_json(client, url: str) -> dict | None:
@@ -112,12 +114,14 @@ async def _fetch_bytes(client, url: str) -> bytes | None:
 
 
 def _parse_entries(raw: bytes) -> tuple[list[dict], int]:
-    """entries.jsonl → (合格条目, 违规跳过计数)。同步端逐条复验（闸门子集）。
+    """entries.jsonl → (合格条目, 违规跳过计数)。同步端逐条复验。
 
-    instruction 归一为 strip 后原文（存储与 content_sha256 同一字节口径）；
-    src_key 在包内重复＝整包坏（唯一约束），按违规计数退化为跳过，不让单条
-    脏数据把整层事务炸掉。
+    判据集＝`kb.gates.check_baseline_entry`（与内容仓 validate 同集，fixture 双端
+    parity）；instruction 归一为 strip 后原文（存储与 content_sha256 同字节口径）；
+    src_key 包内重复按违规跳过，不让单条脏数据把整层事务炸掉。
     """
+    from kb.gates import check_baseline_entry
+
     ok: list[dict] = []
     seen: set[str] = set()
     bad = 0
@@ -130,25 +134,15 @@ def _parse_entries(raw: bytes) -> tuple[list[dict], int]:
         except ValueError:
             bad += 1
             continue
-        if not isinstance(e, dict):
+        if check_baseline_entry(e) is not None:
             bad += 1
             continue
-        src_key = str(e.get("src_key") or "")
-        ins = str(e.get("instruction") or "").strip()
-        if (
-            not src_key.startswith("baseline:")
-            or len(src_key) > 120
-            or src_key in seen
-            or "\n" in ins
-            or not (6 <= len(ins) <= 240)
-        ):
-            bad += 1
-            continue
-        if "【本章写法指引】" in ins:
+        src_key = e["src_key"]
+        if src_key in seen:
             bad += 1
             continue
         seen.add(src_key)
-        e["instruction"] = ins
+        e["instruction"] = e["instruction"].strip()
         ok.append(e)
     return ok, bad
 
@@ -291,8 +285,13 @@ async def _replace_layer(
     from sqlalchemy import delete as _del
     from sqlalchemy import insert as _ins
 
-    # 整层替换＝单事务：清旧层 → 批插条目/标签 → 记 pack_version → 清孤儿 hide。
-    # 中途任何异常都不 commit，会话关闭即回滚（旧层原样）。
+    # 整层替换＝单事务：留档旧层（下架孤儿提升要用）→ 清旧层 → 批插条目/标签 →
+    # 记 pack_version → 清孤儿 hide → 提升孤儿 edit。中途任何异常都不 commit，
+    # 会话关闭即回滚（旧层原样）。
+    old_rows = {
+        r.src_key: r
+        for r in (await db.execute(select(KbBaselineEntry))).scalars().all()
+    }
     await db.execute(_del(KbBaselineTag))
     await db.execute(_del(KbBaselineEntry))
     published = str(manifest.get("generated_at") or "")
@@ -338,14 +337,23 @@ async def _replace_layer(
         db.add(AppMeta(key=VERSION_KEY, value=str(version)))
     else:
         meta.value = str(version)
-    # hide 孤儿清理（src_key 不在新包）——edit 副本保留（用户资产，B4 提升为用户条目）
+    # hide 孤儿清理（src_key 不在新包）；edit 孤儿提升为用户自有条目（D0-6）
     new_keys = {e["src_key"] for e in entries}
-    overlays = (
-        await db.execute(select(KbBaselineOverlay).where(KbBaselineOverlay.action == "hide"))
-    ).scalars().all()
+    overlays = (await db.execute(select(KbBaselineOverlay))).scalars().all()
+    promoted = 0
     for ov in overlays:
-        if ov.src_key not in new_keys:
-            await db.delete(ov)
+        if ov.src_key in new_keys:
+            continue
+        if ov.action == "hide":
+            await db.delete(ov)  # 下架条目的 hide 记录已无意义
+            continue
+        # edit 副本＝用户的话，官方下架不得蒸发：提升为账号自有条目后删覆盖
+        old = old_rows.get(ov.src_key)
+        if old is None:
+            continue  # 旧层本来就没有这条（跨两版下架）：覆盖留着，不臆造条目
+        await _promote_overlay(db, ov, old)
+        await db.delete(ov)
+        promoted += 1
     await db.commit()
     return {
         "status": "synced",
@@ -353,7 +361,59 @@ async def _replace_layer(
         "entries": len(rows),
         "tags": len(tag_rows),
         "skipped": skipped,
+        "promoted": promoted,
     }
+
+
+async def _promote_overlay(
+    db: AsyncSession, ov: KbBaselineOverlay, old: KbBaselineEntry
+) -> None:
+    """孤儿 edit 副本 → 用户自有条目（D0-6：写时复制的副本本就是用户的话）。
+
+    src_kind SHALL NOT 落 "baseline"（delta 硬约束）——提升件记 manual，
+    来源信息留在 src_novel_name；标签索引同事务物化（选择器读标签不扫 JSON）。
+    """
+    from sqlalchemy import insert as _ins
+
+    from kb.service import _tags_for  # 物化标签单源（与手录/导入同口径）
+    from models.kb import KbEntry, KbEntryTag
+
+    text = (ov.content or "").strip() or (old.instruction or "")
+    if not text:
+        return
+    try:
+        payload = json.loads(old.payload_json or "{}")
+        when = json.loads(old.when_json or "{}")
+    except ValueError:
+        payload, when = {}, {}
+    if not isinstance(payload, dict):
+        payload = {}
+    if not isinstance(when, dict):
+        when = {}
+
+    entry = KbEntry(
+        user_id=ov.user_id,
+        genre=old.genre or "",
+        concept=old.concept or "",
+        concept_id=f"{old.genre}:{old.concept}",
+        title=(old.title or "")[:40],
+        payload_json=json.dumps(payload, ensure_ascii=False),
+        instruction=text,
+        when_json=json.dumps(when, ensure_ascii=False),
+        status="active",
+        src_kind="manual",
+        src_ref="",
+        src_key="",
+        src_novel_name="官方精选（已下架）",
+    )
+    db.add(entry)
+    await db.flush()
+    tag_rows = [
+        {"entry_id": entry.id, "user_id": ov.user_id, "dim": dim, "value": value}
+        for dim, value in _tags_for(entry, payload, when)
+    ]
+    if tag_rows:
+        await db.execute(_ins(KbEntryTag), tag_rows)
 
 
 async def _current_version() -> int:

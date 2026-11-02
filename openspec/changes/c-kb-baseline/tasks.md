@@ -22,18 +22,28 @@
 - [x] B3 冷启动回退域：零绑定账号 _binding_domain 基线回退（fingerprint 由 pack_version 派生）＋正向场景测试
 - [x] B4 覆盖/隐藏/恢复端点（写时复制＋过 C 端闸门回显）＋action 转换矩阵＋「官方有新版」双哈希比对
   - `PUT/DELETE /api/kb/entries/{id}/baseline-override`；edit 过 check_gates、edit→hide 保留副本文本；pref 端点放行基线条目
-  - 遗留：官方下架条目的孤儿 edit「提升为用户条目」（D0-6）仍未做——当前 overlay 行保留（数据不丢），待单独定 shape（src_kind/概念映射/标签）
+  - D0-6 已补：孤儿 edit 副本在整层替换时提升为账号自有条目（src_kind=manual／src_novel_name=「官方精选（已下架）」／标签同事务物化），随后删覆盖记录；hide 孤儿照旧清理
 - [x] B5 备份登记：overlays 进 export/importer/config_preview 三处（roundtrip 钉）
   - 导入按 (user_id, src_key) upsert（自增 id 不能走通用按 id 去重循环）
 - [x] B6 前端：知识库页基线条目只读操作面＋来源筛选「官方精选」＋入约＋组件测试
   - 已做：来源筛选四档、官方精选/我的副本/官方有新版三徽章、抽屉「隐藏这条／恢复官方版」、kbApi 两方法＋组件/API 测试
   - 补规格「未同步完成不阻断…状态行可重试」：GET /api/kb/baseline/status ＋ POST /api/kb/baseline/sync ＋ 官方精选空态「重新同步」
-  - 未做：「入约」（基线条目加入自有库）当前口径未定义（库成员是手动圈选 P1），挂账待拍板
+  - 「入约」裁撤：与 design D4-6「本变更不扩 KbLibraryItem 与启用快照域」冲突——基线不进自有库成员，出块走 merged 域（见 design D4 补注）
 - [x] B7 AI 整理边界钉：整理查询域不含基线（结构性不可达的回归钉）
 
 ## 批C 内容与发布（内容仓＋boss 侧）
 
-- [ ] C1 validate 扩为与 C 端闸门同集（共享 fixture 双端 parity）
-- [ ] C2 build 拒绝已存在版本＋publish 仅 CI 触发＋版本目录 immutable
+- [x] C1 validate 扩为与 C 端闸门同集（共享 fixture 双端 parity）
+  - C 端单源 `kb.gates.check_baseline_entry`（同步 `_parse_entries` 直接调用）＋内容仓 `tools/validate.py` 同序同码
+  - fixture `tests/fixtures/kb_baseline_gate_cases.json`（23 例＋四张封闭词表）两仓同一份；C 端 parity 测试含「两仓 fixture 一致」「内容仓条目全过 C 判据」
+  - 实锤：内容仓原有 1 条 when.scene=「对决」（非封闭值）——已改「打斗」，此类条目在旧口径下永远匹配不上
+- [x] C2 build 拒绝已存在版本＋publish 仅 CI 触发＋版本目录 immutable
+  - build：先过闸→版本目录已存在即拒→Ed25519 签 manifest＋latest（canonical 与 C 端 manifest_crypto 同源）＋自签名回验；`--unsigned` 调试包不可发布
+  - publish：未签名拒发／非 CI 且无演练目录拒发／同版本同内容幂等、不同内容拒绝覆盖；`KNOWLEDGE_CDN_DIR` 支持本地演练目录
+  - `tests/selftest_tools.py` 7 项（签名复验/不可变/发布闸/幂等/未签名拒收/非 CI 拒发/fixture），CI validate.yml 已挂
 - [ ] C3 打样扩量（玄幻/都市补齐＋新增 1-3 题材）＋基线包 v1 发布
+  - 打样扩量已做：13 → 53 条（玄幻/都市补齐，新增 仙侠/修真、悬疑；全过双端闸）
+  - **v1 发布待 CI secrets**：`KNOWLEDGE_SIGNING_PRIVATE_KEY`／`KNOWLEDGE_SIGNING_KEY_ID`／`KNOWLEDGE_CDN_BUCKET`（boss 侧），publish workflow 已就绪
 - [ ] C4 真机走查：同步/出块/标记/升级整层替换保 overlays/回退
+  - 本地全链已过（`tests/test_kb_baseline_fullchain.py`）：内容仓真实 build→publish→本地 HTTP→真实 httpx 同步→merged 选择→hide 生效→同版本零下载
+  - 真机待发版（需 C3 签名包上线）
