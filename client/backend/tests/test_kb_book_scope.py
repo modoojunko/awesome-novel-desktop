@@ -495,3 +495,61 @@ def test_并发双开导入_唯一索引冲突自动重算(monkeypatch):
     done = next(e for e in events if e["type"] == "done")
     assert done["imported"] == 1 and done["skipped"] == 1
     assert sorted(_run(_copies(novel_id))) == sorted(["玄幻命中手法", "通用手法"])
+
+
+def test_书域_F3换库重选仍只取副本():
+    """F3（同素材域指纹变→覆盖重选）在书域下必须仍从副本取数：
+    补平后同章重生成，块清单不得出现账号级条目 id（P1 回归钉）。"""
+    uid = f"f3{uuid.uuid4().hex[:8]}"
+    _run(_seed_user(uid))
+    _run(_seed_master(uid, [ENTRY_HIT, ENTRY_COMMON]))
+    novel_id = _run(_seed_book(uid))
+    _run(_set_genre(novel_id, "玄幻"))
+    _run(_import(novel_id, uid))
+
+    async def _mk_chapter():
+        async with async_session() as db:
+            vol = Volume(project_id=novel_id, volume_no=1, title="卷")
+            db.add(vol)
+            await db.flush()
+            db.add(Chapter(
+                project_id=novel_id, volume_id=vol.id, chapter_no=1, ref="vol-1-ch-1",
+                title="第一章", summary="与老祖正面交锋", primary_mood="燃",
+                plot_stage="高潮爆发",
+            ))
+            await db.commit()
+    _run(_mk_chapter())
+
+    async def _block():
+        from write.write_block import prepare_write_block
+
+        async with async_session() as db:
+            return await prepare_write_block(
+                db, novel_id=novel_id, chapter_ref="vol-1-ch-1", user_id=uid
+            )
+
+    first = _run(_block())
+    assert first[0] is not None and first[2]
+
+    # 补平一条新账号知识 → 副本计数变 → 域指纹变 → 同素材走进 F3 覆盖分支
+    _run(_seed_master(uid, [{
+        "concept": "手法", "genre": "玄幻", "title": "补平新增手法",
+        "payload": {"instruction": "补平后新增：以攻代守。", "scene": "打斗"},
+        "instruction": "补平后新增：以攻代守。",
+    }]))
+    _run(_import(novel_id, uid))
+
+    second = _run(_block())
+    assert second[0] is not None and second[2]
+    assert second[1] == first[1]  # 同素材覆盖同一 run（uq(novel,ref,hash)）
+
+    async def _copy_ids():
+        async with async_session() as db:
+            return set(
+                (await db.execute(
+                    sel(KbBookEntry.id).where(KbBookEntry.novel_id == novel_id)
+                )).scalars()
+            )
+    copies = _run(_copy_ids())
+    picked = {i["entry_id"] for i in second[2]}
+    assert picked and picked <= copies  # 全部来自书副本，无账号级 id

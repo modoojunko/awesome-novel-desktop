@@ -465,6 +465,7 @@ async def prepare_write_block(
                 selr = await select_block(
                     db, user_id=user_id, signals=signals,
                     genre=genre, concepts=concepts,
+                    book_scope=novel_id if book_scope else None,
                 )
                 if selr is None:
                     await _clear_kb_shadow_rows(db, ch.id)
