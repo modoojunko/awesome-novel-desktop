@@ -19,6 +19,14 @@ export interface KbEntry {
   src_novel_name: string;
   created_at: string;
   updated_at: string;
+  /** 层（c-kb-baseline 批B）：「官方精选」随层派生，不落 kb_entries */
+  layer?: "user" | "baseline";
+  /** 基线业务键（overlay join／官方新版比对用） */
+  src_key?: string;
+  /** merged 文本来自用户副本（写时复制） */
+  overlaid?: boolean;
+  /** 双哈希：副本基线落后于官方新版＝显示「官方有新版」 */
+  official_update?: boolean;
 }
 
 export interface KbLibrary {
@@ -313,6 +321,25 @@ export const kbApi = {
       request(`${BASE}/entries/${encodeURIComponent(entryId)}/pref`, {
         method: "POST",
         body: JSON.stringify({ useful }),
+      }),
+    ),
+
+  // ── 官方精选覆盖（c-kb-baseline 批B）：写时复制，只写用户层 ──
+
+  /** 隐藏／存副本（edit 需要 instruction；隐藏传空即可） */
+  baselineOverride: (entryId: string, action: "hide" | "edit", instruction = "") =>
+    unwrap<{ entry_id: string; action: string }>(
+      request(`${BASE}/entries/${encodeURIComponent(entryId)}/baseline-override`, {
+        method: "PUT",
+        body: JSON.stringify({ action, instruction }),
+      }),
+    ),
+
+  /** 恢复默认／恢复官方版：删覆盖记录，原件重新透出 */
+  clearBaselineOverride: (entryId: string) =>
+    unwrap<{ entry_id: string; restored: boolean }>(
+      request(`${BASE}/entries/${encodeURIComponent(entryId)}/baseline-override`, {
+        method: "DELETE",
       }),
     ),
 };

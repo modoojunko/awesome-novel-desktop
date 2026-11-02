@@ -68,7 +68,9 @@ def test_配置包含knowledge_base段与预览摘要():
             return data, name, preview
 
     data, _name, preview = _run(_go())
-    assert preview["knowledge_base"] == {"entries": 1, "libraries": 1}
+    assert preview["knowledge_base"] == {
+        "entries": 1, "libraries": 1, "baseline_overlays": 0,
+    }
     zf = zipfile.ZipFile(io.BytesIO(data))
     cfg = yaml.safe_load(zf.read("config.yaml"))
     kb = cfg["knowledge_base"]
@@ -76,6 +78,7 @@ def test_配置包含knowledge_base段与预览摘要():
     assert len(kb["entries"]) == 1 and kb["entries"][0]["id"] == seed["entry_id"]
     assert len(kb["libraries"]) == 1
     assert len(kb["prefs"]) == 1
+    assert kb["baseline_overlays"] == []  # c-kb-baseline 批B：覆盖段随账号包（空集也在）
     assert len(kb["entry_tags"]) >= 1  # 物化标签随包（导入端不导入，重建）
     assert "concepts" in kb and "relations" in kb
 

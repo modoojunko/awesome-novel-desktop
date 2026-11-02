@@ -1352,6 +1352,41 @@ async def _restore_config(db, user_id: str, config_data: dict) -> dict:
                 continue
             db.add(KbEntryBlob(entry_id=eid, variant=variant, data=data))
             blob_created += 1
+        # 基线覆盖（c-kb-baseline 批B）：按 (user_id, src_key) 幂等 upsert——
+        # 不能用通用循环（主键是自增 id，跨账号 id 相撞会误判已存在而丢覆盖）
+        from models.kb import KbBaselineOverlay
+
+        ov_created = ov_skipped = 0
+        ov_existing = {
+            o.src_key
+            for o in (
+                await db.scalars(
+                    select(KbBaselineOverlay).where(KbBaselineOverlay.user_id == user_id)
+                )
+            ).all()
+        }
+        for row in kb.get("baseline_overlays") or []:
+            if not isinstance(row, dict):
+                continue
+            src_key = str(row.get("src_key") or "")
+            action = str(row.get("action") or "")
+            if not src_key or action not in ("hide", "edit"):
+                ov_skipped += 1
+                continue
+            if src_key in ov_existing:
+                ov_skipped += 1
+                continue
+            db.add(KbBaselineOverlay(
+                user_id=user_id,
+                src_key=src_key,
+                action=action,
+                content=str(row.get("content") or ""),
+                base_content_sha256=str(row.get("base_content_sha256") or ""),
+            ))
+            ov_existing.add(src_key)
+            ov_created += 1
+        await db.flush()
+
         # 标签索引恢复后自动重建（物化索引可随时重建）
         rebuilt = await rebuild_tag_index(db, user_id=user_id)
         summary["knowledge_base"] = {
@@ -1362,6 +1397,7 @@ async def _restore_config(db, user_id: str, config_data: dict) -> dict:
                 "skipped": blob_skipped,
                 "missing": blob_missing,
             },
+            "baseline_overlays": {"created": ov_created, "skipped": ov_skipped},
             "tags_rebuilt": rebuilt,
         }
     return summary

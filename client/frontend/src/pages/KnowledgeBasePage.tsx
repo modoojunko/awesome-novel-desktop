@@ -36,9 +36,18 @@ export function payloadRows(payload: Record<string, unknown>): [string, string][
   return rows;
 }
 
+// 来源筛选（c-kb-baseline 批B）：官方精选＝只读基线层；手录/拆书＝用户条目
+const SOURCE_FILTERS = [
+  { key: "全部", label: "全部来源" },
+  { key: "官方精选", label: "官方精选" },
+  { key: "手录", label: "手录" },
+  { key: "拆书", label: "拆书" },
+] as const;
+
 export default function KnowledgeBasePage() {
   const [genre, setGenre] = useState("全部题材");
   const [concept, setConcept] = useState("全部");
+  const [src, setSrc] = useState("全部");
   const [q, setQ] = useState("");
   const [entries, setEntries] = useState<KbEntry[]>([]);
   const [libraries, setLibraries] = useState<KbLibrary[]>([]);
@@ -53,6 +62,7 @@ export default function KnowledgeBasePage() {
   const [showMoreGenres, setShowMoreGenres] = useState(false);
   const [view, setView] = useState<"list" | "graph" | "entries">("list");
   const [showOrganize, setShowOrganize] = useState(false);
+  const [opBusy, setOpBusy] = useState(false);
 
   const loadEntries = useCallback(async (cursorId = "") => {
     setLoading(true);
@@ -60,13 +70,14 @@ export default function KnowledgeBasePage() {
       const sp = new URLSearchParams();
       if (genre !== "全部题材") sp.set("genre", genre);
       if (concept !== "全部") sp.set("concept", concept);
+      if (src !== "全部") sp.set("src", src);
       if (q) sp.set("q", q);
       if (cursorId) sp.set("cursor", cursorId);
       const r = await kbApi.entries(Object.fromEntries(sp));
       setEntries((prev) => cursorId ? [...prev, ...r.entries] : r.entries);
       setCursor(r.next_cursor);
     } finally { setLoading(false); }
-  }, [genre, concept, q]);
+  }, [genre, concept, src, q]);
 
   const loadLibraries = useCallback(async () => {
     const r = await kbApi.libraries(genre !== "全部题材" ? genre : undefined);
@@ -80,7 +91,7 @@ export default function KnowledgeBasePage() {
   useEffect(() => {
     loadEntries();
     loadLibraries();
-  }, [genre, concept, q]);
+  }, [genre, concept, src, q]);
 
   const visibleGenres = useMemo(() => {
     const filled = genreCounts.filter((g) => g.count > 0);
@@ -99,6 +110,23 @@ export default function KnowledgeBasePage() {
     });
     return [...map.entries()];
   }, [libraries]);
+
+  /* 官方精选只读操作面（c-kb-baseline 批B）：隐藏＝白名单外记录；恢复官方版＝删副本。
+     原件永不修改，失败静默（刷新后状态即真相）。 */
+  const handleBaselineOp = async (entry: KbEntry, action: "hide" | "clear") => {
+    /* v8 ignore start -- 双保险：按钮同时 disabled，UI 面走不到该早退（真机连点防护） */
+    if (opBusy) return;
+    /* v8 ignore stop */
+    setOpBusy(true);
+    try {
+      if (action === "hide") await kbApi.baselineOverride(entry.id, "hide");
+      else await kbApi.clearBaselineOverride(entry.id);
+      setSelected(null);
+      await loadEntries();
+      kbApi.genres().then(setGenreCounts).catch(() => {});
+    } catch { /* 静默：下一次列表刷新即真实状态 */ }
+    finally { setOpBusy(false); }
+  };
 
   const handleManual = async () => {
     setManualError("");
@@ -275,6 +303,20 @@ export default function KnowledgeBasePage() {
               </div>
             )}
 
+            {/* 来源筛选（c-kb-baseline 批B）：官方精选可单独过滤 */}
+            <div className="mb-3 flex flex-wrap gap-1.5">
+              {SOURCE_FILTERS.map((s) => (
+                <button
+                  key={s.key}
+                  data-testid={`kb-src-${s.key}`}
+                  onClick={() => setSrc(s.key)}
+                  className={`rounded-md border px-3 py-1 text-[12px] ${src === s.key ? "border-[var(--accent)] bg-[var(--accent-soft)] font-medium text-[var(--accent)]" : "border-[var(--border)] text-[var(--muted)] hover:text-[var(--fg)]"}`}
+                >
+                  {s.label}
+                </button>
+              ))}
+            </div>
+
             {/* 搜索 */}
             <div className="mb-4">
               <input
@@ -301,6 +343,23 @@ export default function KnowledgeBasePage() {
                   </span>
                   <span className="mt-0.5 block text-[14px] font-medium text-[var(--fg)]">{e.title || e.instruction.slice(0, 30)}</span>
                   <span className="mt-0.5 block text-[12px] text-[var(--muted)]">{e.instruction.slice(0, 60)}</span>
+                  {e.layer === "baseline" && (
+                    <span className="mt-1 flex flex-wrap gap-1">
+                      <span className="rounded-full bg-[var(--accent-soft)] px-1.5 py-0.5 font-mono text-[9px] text-[var(--accent)]">
+                        官方精选
+                      </span>
+                      {e.overlaid && (
+                        <span className="rounded-full bg-[var(--fg-soft)] px-1.5 py-0.5 font-mono text-[9px] text-[var(--muted)]">
+                          我的副本
+                        </span>
+                      )}
+                      {e.official_update && (
+                        <span className="rounded-full border border-[var(--accent)] px-1.5 py-0.5 font-mono text-[9px] text-[var(--accent)]">
+                          官方有新版
+                        </span>
+                      )}
+                    </span>
+                  )}
                 </button>
               ))}
               {cursor && (
@@ -409,6 +468,40 @@ export default function KnowledgeBasePage() {
               <div className="mt-4">
                 <p className="text-[10.5px] font-mono tracking-[0.12em] text-[var(--muted)]">证据</p>
                 <p className="mt-1 text-[12px] text-[var(--muted)]">{selected.evidence}</p>
+              </div>
+            )}
+            {selected.layer === "baseline" && (
+              <div className="mt-6 border-t border-[var(--border)] pt-4">
+                <p className="text-[10.5px] font-mono tracking-[0.12em] text-[var(--accent)]">官方精选 · 只读</p>
+                <p className="mt-1 text-[11.5px] leading-relaxed text-[var(--muted)]">
+                  官方条目不能编辑或删除；隐藏后可在「全部来源」外随时恢复。
+                </p>
+                {selected.official_update && (
+                  <p className="mt-2 text-[11.5px] leading-relaxed text-[var(--accent)]">
+                    官方已更新这条，当前显示的是你的副本，可恢复官方版。
+                  </p>
+                )}
+                <div className="mt-3">
+                  {selected.overlaid ? (
+                    <button
+                      data-testid="kb-baseline-restore"
+                      disabled={opBusy}
+                      onClick={() => { void handleBaselineOp(selected, "clear"); }}
+                      className="rounded-lg border border-[var(--accent)] px-3 py-1.5 text-[12px] text-[var(--accent)] hover:bg-[var(--accent-soft)] disabled:opacity-50"
+                    >
+                      恢复官方版
+                    </button>
+                  ) : (
+                    <button
+                      data-testid="kb-baseline-hide"
+                      disabled={opBusy}
+                      onClick={() => { void handleBaselineOp(selected, "hide"); }}
+                      className="rounded-lg border border-[var(--border)] px-3 py-1.5 text-[12px] text-[var(--muted)] hover:text-[var(--fg)] disabled:opacity-50"
+                    >
+                      隐藏这条
+                    </button>
+                  )}
+                </div>
               </div>
             )}
           </div>

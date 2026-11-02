@@ -16,13 +16,19 @@
 
 ## 批B merged 换源＋操作面（后端＋前端）
 
-- [ ] B1 merged 查询：基线段（排除 hidden、edit 套副本）∪ 用户段——digest_candidates 换源＋跨表分页归并＋题材栏计数＋搜索覆盖
-- [ ] B2 run 重建双表解析器（代理 id 从 merged 域回读）——纯基线 run 二次生成/续写字节一致钉
-- [ ] B3 冷启动回退域：零绑定账号 _binding_domain 基线回退（fingerprint 由 pack_version 派生）＋正向场景测试
-- [ ] B4 覆盖/隐藏/恢复端点（写时复制＋过 C 端闸门回显）＋action 转换矩阵＋「官方有新版」双哈希比对
-- [ ] B5 备份登记：overlays 进 export/importer/config_preview 三处（roundtrip 钉）
-- [ ] B6 前端：知识库页基线条目只读操作面＋来源筛选「官方精选」＋入约＋组件测试
-- [ ] B7 AI 整理边界钉：整理查询域不含基线（结构性不可达的回归钉）
+- [x] B1 merged 查询：基线段（排除 hidden、edit 套副本）∪ 用户段——digest_candidates 换源＋跨表分页归并＋题材栏计数＋搜索覆盖
+  - 新模块 `kb/merged.py`（MergedEntry 与 KbEntry 读口径同形＋hide 走 SQL NOT EXISTS＋分页归并）；`kb/match.py` 短名单/取行并入基线；`kb/service.list_entries` 跨表分页、`genre_counts` 相加、详情端点基线回退
+- [x] B2 run 重建双表解析器（代理 id 从 merged 域回读）——纯基线 run 二次生成/续写字节一致钉
+- [x] B3 冷启动回退域：零绑定账号 _binding_domain 基线回退（fingerprint 由 pack_version 派生）＋正向场景测试
+- [x] B4 覆盖/隐藏/恢复端点（写时复制＋过 C 端闸门回显）＋action 转换矩阵＋「官方有新版」双哈希比对
+  - `PUT/DELETE /api/kb/entries/{id}/baseline-override`；edit 过 check_gates、edit→hide 保留副本文本；pref 端点放行基线条目
+  - 遗留：官方下架条目的孤儿 edit「提升为用户条目」（D0-6）仍未做——当前 overlay 行保留（数据不丢），待单独定 shape（src_kind/概念映射/标签）
+- [x] B5 备份登记：overlays 进 export/importer/config_preview 三处（roundtrip 钉）
+  - 导入按 (user_id, src_key) upsert（自增 id 不能走通用按 id 去重循环）
+- [x] B6 前端：知识库页基线条目只读操作面＋来源筛选「官方精选」＋入约＋组件测试
+  - 已做：来源筛选四档、官方精选/我的副本/官方有新版三徽章、抽屉「隐藏这条／恢复官方版」、kbApi 两方法＋组件/API 测试
+  - 未做：「入约」（基线条目加入自有库）当前口径未定义（库成员是手动圈选 P1），挂账待拍板
+- [x] B7 AI 整理边界钉：整理查询域不含基线（结构性不可达的回归钉）
 
 ## 批C 内容与发布（内容仓＋boss 侧）
 

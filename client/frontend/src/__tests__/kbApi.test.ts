@@ -2,7 +2,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { kbApi } from "@/lib/kbApi";
 
-const { bind, bindings, createEntry, deleteEntry, entries, entry, genres, libraries, syncBinding, unbind, concepts, updateEntry, usePrototype, graphAggregate, graphCell, pref } = kbApi;
+const { bind, bindings, createEntry, deleteEntry, entries, entry, genres, libraries, syncBinding, unbind, concepts, updateEntry, usePrototype, graphAggregate, graphCell, pref, baselineOverride, clearBaselineOverride } = kbApi;
 
 const fetchMock = vi.fn();
 
@@ -173,5 +173,26 @@ describe("kbApi", () => {
     expect(String(u)).toBe("/api/kb/entries/e9/pref");
     expect(init.method).toBe("POST");
     expect(JSON.parse(init.body)).toEqual({ useful: false });
+  });
+
+  it("官方精选覆盖：PUT hide/edit 与 DELETE 恢复（c-kb-baseline 批B）", async () => {
+    fetchMock.mockReturnValueOnce(json({ entry_id: "b1", action: "hide" }));
+    const hid = await baselineOverride("b1", "hide");
+    expect(hid.action).toBe("hide");
+    const [u1, i1] = fetchMock.mock.calls[0];
+    expect(String(u1)).toBe("/api/kb/entries/b1/baseline-override");
+    expect(i1.method).toBe("PUT");
+    expect(JSON.parse(i1.body)).toEqual({ action: "hide", instruction: "" });
+
+    fetchMock.mockReturnValueOnce(json({ entry_id: "b1", action: "edit" }));
+    await baselineOverride("b1", "edit", "我的写法。");
+    expect(JSON.parse(fetchMock.mock.calls[1][1].body)).toEqual({
+      action: "edit", instruction: "我的写法。",
+    });
+
+    fetchMock.mockReturnValueOnce(json({ entry_id: "b1", restored: true }));
+    const back = await clearBaselineOverride("b1");
+    expect(back.restored).toBe(true);
+    expect(fetchMock.mock.calls[2][1]?.method).toBe("DELETE");
   });
 });

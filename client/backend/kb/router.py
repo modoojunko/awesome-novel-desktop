@@ -35,6 +35,18 @@ def _user(dep: dict) -> str:
 
 
 def _entry_dict(e: KbEntry) -> dict[str, Any]:
+    """条目 API 形状（用户条目与基线条目 MergedEntry 共用）。
+
+    基线层来源标签「官方精选」随层派生：src_kind="baseline" 只出现在响应里，
+    永不落 kb_entries（knowledge-base delta 明文）。layer/official_update 供 B6
+    前端只读操作面与「官方有新版」提示使用。
+    """
+    from kb.merged import has_official_update
+
+    def _iso(v):
+        return v.isoformat() if v is not None else ""
+
+    layer = getattr(e, "layer", "user")
     return {
         "id": e.id,
         "genre": e.genre,
@@ -51,8 +63,12 @@ def _entry_dict(e: KbEntry) -> dict[str, Any]:
         "status": e.status,
         "src_kind": e.src_kind,
         "src_novel_name": e.src_novel_name,
-        "created_at": e.created_at.isoformat(),
-        "updated_at": e.updated_at.isoformat(),
+        "created_at": _iso(e.created_at),
+        "updated_at": _iso(e.updated_at),
+        "layer": layer,
+        "src_key": getattr(e, "src_key", ""),
+        "overlaid": bool(getattr(e, "overlaid", False)),
+        "official_update": has_official_update(e) if layer == "baseline" else False,
     }
 
 
@@ -111,7 +127,13 @@ async def get_entry_api(
     uid = _user(user)
     e = await get_entry(db, user_id=uid, entry_id=entry_id, include_merged=include_merged)
     if not e:
-        raise HTTPException(404, "Entry not found")
+        # 基线层条目：代理 id 落 kb_baseline_entries（merged 域回读，含副本/hide 判定）
+        from kb.merged import get_merged_entry
+
+        base = await get_merged_entry(db, user_id=uid, entry_id=entry_id)
+        if not base:
+            raise HTTPException(404, "Entry not found")
+        return {"ok": True, "data": _entry_dict(base)}
     data = _entry_dict(e)
     if e.status == "merged":
         # c-kb-organize 追溯：合并指向＋保留条目摘要
@@ -405,6 +427,55 @@ async def delete_entry_api(
     return {"ok": True, "data": {"deleted": entry_id}}
 
 
+# ─── 基线条目覆盖（c-kb-baseline 批B）：写时复制 ───────────
+
+
+class BaselineOverrideRequest(BaseModel):
+    action: str  # hide | edit
+    instruction: str = ""
+
+
+@router.put("/entries/{entry_id}/baseline-override")
+async def set_baseline_override_api(
+    entry_id: str,
+    body: BaselineOverrideRequest,
+    user: dict = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """隐藏／存副本（编辑基线＝在用户层物化副本，官方原件不变）。
+
+    只读层条目 SHALL 无编辑与删除：本端点是基线层唯一写口，且只写用户层。
+    """
+    from kb.merged import set_overlay
+
+    result = await set_overlay(
+        db, user_id=_user(user), entry_id=entry_id,
+        action=body.action, instruction=body.instruction,
+    )
+    if result.get("error") == "not_found":
+        raise HTTPException(404, "Entry not found")
+    if result.get("error") == "action":
+        raise HTTPException(422, detail={"message": "不支持的覆盖动作"})
+    if result.get("error") == "gate":
+        raise HTTPException(422, detail={"message": result.get("message") or "内容校验未通过"})
+    return {"ok": True, "data": {"entry_id": entry_id, "action": body.action}}
+
+
+@router.delete("/entries/{entry_id}/baseline-override")
+async def clear_baseline_override_api(
+    entry_id: str,
+    user: dict = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """恢复默认／恢复官方版：删覆盖记录，原件重新透出（基线层零变化）。"""
+    from kb.merged import clear_overlay
+
+    result = await clear_overlay(db, user_id=_user(user), entry_id=entry_id)
+    if result.get("error") == "not_found":
+        raise HTTPException(404, "Entry not found")
+    return {"ok": True, "data": {"entry_id": entry_id, "restored": True}}
+
+
 # ─── 原型使用计数（c-kb-character 批4）─────────────────────
 
 
@@ -535,7 +606,8 @@ async def set_pref_api(
     """有用/没用回写（c-kb-write-block C3）：kb_prefs 账号级 (user_id, entry_id)。
 
     useful=True→adopt_count+1，否则 drop_count+1；weight 存当前有用率
-    （采纳/(采纳+弃用)，下限 0.2）。可重复调用＝可改口。"""
+    （采纳/(采纳+弃用)，下限 0.2）。可重复调用＝可改口。
+    基线条目同样可反馈（反馈记在代理 id 上，供官方修订聚合，c-kb-baseline 批B）。"""
     from models.kb import KbEntry, KbPref
 
     uid = _user(user)
@@ -547,7 +619,10 @@ async def set_pref_api(
         )
     ).scalar_one_or_none()
     if entry is None:
-        raise HTTPException(404, "Entry not found")
+        from kb.merged import get_merged_entry
+
+        if await get_merged_entry(db, user_id=uid, entry_id=entry_id) is None:
+            raise HTTPException(404, "Entry not found")
     useful = bool(body.get("useful"))
     pref = (
         await db.execute(

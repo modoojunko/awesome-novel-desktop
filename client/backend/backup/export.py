@@ -632,6 +632,7 @@ async def _kb_account_section(db, user_id: str) -> tuple[dict, list[dict]]:
     第二返回值＝条目头像字节行（带 data，只进 zip 独立条目；yaml 段只留元数据）。
     """
     from models.kb import (
+        KbBaselineOverlay,
         KbConcept,
         KbEntry,
         KbEntryBlob,
@@ -664,6 +665,9 @@ async def _kb_account_section(db, user_id: str) -> tuple[dict, list[dict]]:
         ("organize_findings", KbOrganizeFinding),
         ("organize_feedback", KbOrganizeFeedback),
         ("libraries", KbLibrary), ("prefs", KbPref),
+        # 基线覆盖（c-kb-baseline 批B）：账号级用户资产（hide/edit 副本）随账号包走；
+        # 只读基线层是设备级、靠重同步重建，不进备份
+        ("baseline_overlays", KbBaselineOverlay),
     ):
         rows = (await db.scalars(select(model).where(model.user_id == user_id))).all()
         sections[name] = _rows(rows)
@@ -717,7 +721,7 @@ async def config_preview(db, user_id: str) -> dict:
         return f"{key[:3]}{'*' * 8}{key[-4:]}" if len(key) > 8 else "*" * len(key)
 
     rows = (await db.scalars(select(ApiConfig).where(ApiConfig.user_id == user.id))).all()
-    from models.kb import KbEntry, KbLibrary
+    from models.kb import KbBaselineOverlay, KbEntry, KbLibrary
 
     kb_entries_n = (
         await db.scalars(select(func.count(KbEntry.id)).where(KbEntry.user_id == user.id))
@@ -725,9 +729,18 @@ async def config_preview(db, user_id: str) -> dict:
     kb_libs_n = (
         await db.scalars(select(func.count(KbLibrary.id)).where(KbLibrary.user_id == user.id))
     ).first() or 0
+    kb_overlays_n = (
+        await db.scalars(
+            select(func.count(KbBaselineOverlay.id)).where(KbBaselineOverlay.user_id == user.id)
+        )
+    ).first() or 0
     return {
         "warning": "配置包含明文 API Key，请妥善保管与传输",
-        "knowledge_base": {"entries": int(kb_entries_n or 0), "libraries": int(kb_libs_n or 0)},
+        "knowledge_base": {
+            "entries": int(kb_entries_n or 0),
+            "libraries": int(kb_libs_n or 0),
+            "baseline_overlays": int(kb_overlays_n or 0),
+        },
         "account": user.display_name or user.email,
         "configs": [
             {
