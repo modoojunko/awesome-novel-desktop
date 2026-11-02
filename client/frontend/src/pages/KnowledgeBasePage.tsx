@@ -15,6 +15,27 @@ const CONCEPT_DESC: Record<string, string> = {
   情节: "即将上线",
 };
 
+/** 通用载荷平铺（概念无关，规格「条目详情抽屉：字段…」实现）：有值键按存储序出
+ * (键, 展示串)；数组顿号连、对象/数组元素套对象走紧凑 JSON、空值跳过。 */
+export function payloadRows(payload: Record<string, unknown>): [string, string][] {
+  const rows: [string, string][] = [];
+  for (const [k, v] of Object.entries(payload)) {
+    if (v === null || v === undefined || v === "") continue;
+    if (Array.isArray(v)) {
+      if (v.length) {
+        rows.push([k, v.map((x) => (typeof x === "object" && x !== null ? JSON.stringify(x) : String(x))).join("、")]);
+      }
+      continue;
+    }
+    if (typeof v === "object") {
+      rows.push([k, JSON.stringify(v)]);
+      continue;
+    }
+    rows.push([k, String(v)]);
+  }
+  return rows;
+}
+
 export default function KnowledgeBasePage() {
   const [genre, setGenre] = useState("全部题材");
   const [concept, setConcept] = useState("全部");
@@ -357,6 +378,19 @@ export default function KnowledgeBasePage() {
               <div className="mt-4">
                 <p className="text-[10.5px] font-mono tracking-[0.12em] text-[var(--muted)]">指令</p>
                 <p className="mt-1 text-[13px] leading-relaxed">{selected.instruction}</p>
+              </div>
+            )}
+            {payloadRows(selected.payload).length > 0 && (
+              <div className="mt-4">
+                <p className="text-[10.5px] font-mono tracking-[0.12em] text-[var(--muted)]">字段</p>
+                <dl className="mt-1 space-y-1.5">
+                  {payloadRows(selected.payload).map(([k, v]) => (
+                    <div key={k}>
+                      <dt className="font-mono text-[10px] text-[var(--faint)]">{k}</dt>
+                      <dd className="whitespace-pre-wrap text-[12.5px] leading-relaxed text-[var(--fg)]">{v}</dd>
+                    </div>
+                  ))}
+                </dl>
               </div>
             )}
             {selected.example && (
