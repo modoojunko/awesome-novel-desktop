@@ -412,6 +412,10 @@ export const kbApi = {
         }
         const decoder = new TextDecoder();
         let buffer = "";
+        // 终态事件（done/error）是否出现过：流干净结束却未见终态＝服务端异常中止
+        // （同 ai.ts sawTerminal 口径，c-prose-stream-silent-hang）——必须按失败收尾，
+        // 否则弹窗停在最后的进度上，作家只能自己点取消
+        let sawTerminal = false;
         while (true) {
           const { done, value } = await reader.read();
           if (done) break;
@@ -421,11 +425,19 @@ export const kbApi = {
           for (const line of lines) {
             if (!line.startsWith("data: ")) continue;
             try {
-              onEvent(JSON.parse(line.slice(6)) as BookScopeProgressEvent);
+              const ev = JSON.parse(line.slice(6)) as BookScopeProgressEvent;
+              if (ev.type === "done" || ev.type === "error") sawTerminal = true;
+              onEvent(ev);
             } catch {
               // 跳过坏行（同 ai.ts 流解析口径）
             }
           }
+        }
+        if (!sawTerminal) {
+          onEvent({
+            type: "error",
+            message: "导入中断：未收到完成信号（可能被中断或服务异常），请重试",
+          });
         }
       })
       .catch((e) => {

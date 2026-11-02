@@ -278,6 +278,22 @@ describe("kbApi", () => {
       expect((init.headers as Record<string, string>).Authorization).toBe("Bearer tk");
     });
 
+    it("流干净结束但无终态事件：按失败收尾（sawTerminal 守卫）", async () => {
+      fetchMock.mockReturnValueOnce(
+        Promise.resolve(
+          sse(['data: {"type":"phase","phase":"copy","total":2}\n\n']),
+        ),
+      );
+      const events: Record<string, unknown>[] = [];
+      kbApi.bookScopeImportStream("n1", (ev) =>
+        events.push(ev as unknown as Record<string, unknown>),
+      );
+      await vi.waitFor(() => expect(events).toHaveLength(2));
+      expect(events[0]).toMatchObject({ type: "phase" });
+      expect(events[1]).toMatchObject({ type: "error" });
+      expect(String(events[1].message)).toContain("导入中断");
+    });
+
     it("HTTP 失败：detail 字符串直出；非字符串/坏 JSON 走兜底文案", async () => {
       fetchMock.mockReturnValueOnce(
         Promise.resolve({
