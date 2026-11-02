@@ -44,10 +44,11 @@
 - [ ] C3 打样扩量（玄幻/都市补齐＋新增 1-3 题材）＋基线包 v1 发布
   - 打样扩量已做：13 → 53 条（玄幻/都市补齐，新增 仙侠/修真、悬疑；全过双端闸）
   - 分发面已改走**既有静态托管**（不新建 CDN）：`www.awesomenovel.com/knowledge/baseline/`，
-    publish 走 `tcb hosting deploy`；C 端 URL/验签钥已烘焙（`update-k1` 同钥、主域失败切兜底域）
+    publish 走 `tcb hosting deploy`；C 端 URL/验签钥已烘焙（**与提示词包共用 `pack-k1`**、
+    主域失败切兜底域）
   - **v1 发布待内容仓 Settings 填既有值**（不新造凭据）：`TCB_API_KEY`(secret)＋
-    `TCB_ENV_ID`(variable)＝与 desktop 发布同一套；`KNOWLEDGE_SIGNING_PRIVATE_KEY`(secret)
-    ＝desktop `UPDATE_SIGNING_PRIVATE_KEY` 同一值
+    `TCB_ENV_ID`(variable)＝与 desktop 发布同一套；`PACK_SIGNING_KEY`(secret)
+    ＝awesome-novel-prompts 同名 secret 同一值（PEM，pack-k1）
 - [ ] C4 真机走查：同步/出块/标记/升级整层替换保 overlays/回退
   - 本地全链已过（`tests/test_kb_baseline_fullchain.py`）：内容仓真实 build→publish→本地 HTTP→真实 httpx 同步→merged 选择→hide 生效→同版本零下载
   - 真机待发版（需 C3 签名包上线）

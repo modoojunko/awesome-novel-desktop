@@ -402,17 +402,17 @@ def test_未配置信任钥静默跳过(sync_env, monkeypatch):
 
 
 def test_生产默认_静态托管同域与烘焙公钥(monkeypatch):
-    """不另造 CDN/钥：基线走 www.awesomenovel.com 静态托管 + update-k1 同一把钥。"""
+    """不另造 CDN/钥：基线走 www.awesomenovel.com 静态托管 + 提示词包 pack-k1 同一把钥。"""
     from kb import baseline as bl
 
     monkeypatch.delenv("CLIENT_KB_PUBKEYS", raising=False)
-    monkeypatch.delenv("CLIENT_UPDATE_PUBKEYS", raising=False)
+    monkeypatch.delenv("CLIENT_PACK_PUBKEYS", raising=False)
     monkeypatch.setattr(bl, "_TRUST_PUBKEYS", {})
     assert bl._DEFAULT_CDN_BASE == "https://www.awesomenovel.com/knowledge/baseline"
     keys = bl._trust_keys()
-    assert set(keys) == {"update-k1"}
-    assert len(keys["update-k1"]) == 32
-    assert base64.b64encode(keys["update-k1"]).decode() == "Ktq81Y4Qf9cPapmfbLw2h4SGGo1E72X3HaGUxOBU/EU="
+    assert set(keys) == {"pack-k1"}
+    assert len(keys["pack-k1"]) == 32
+    assert base64.b64encode(keys["pack-k1"]).decode() == "UaJFasM5PBIB3Tg1o03cjG6Opeq5CaKtPv2ooLyNPPM="
     assert "www.awesomenovel.com" in bl._trusted_hosts()
 
 
@@ -420,7 +420,8 @@ def test_环境钥优先于烘焙默认(monkeypatch):
     from kb import baseline as bl
 
     monkeypatch.setattr(bl, "_TRUST_PUBKEYS", {})
-    monkeypatch.setenv("CLIENT_KB_PUBKEYS", json.dumps(
+    monkeypatch.delenv("CLIENT_KB_PUBKEYS", raising=False)
+    monkeypatch.setenv("CLIENT_PACK_PUBKEYS", json.dumps(
         {_TEST_KID: base64.b64encode(_TEST_PUBKEYS[_TEST_KID]).decode()}))
     keys = bl._trust_keys()
     assert keys[_TEST_KID] == _TEST_PUBKEYS[_TEST_KID]

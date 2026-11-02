@@ -39,9 +39,9 @@ _DEFAULT_CDN_BASE_FALLBACK = (
 
 _NS = uuid.uuid5(uuid.NAMESPACE_URL, "https://ai-novel/kb-baseline")
 # {kid: 32B raw}——非空即优先（测试/联调注入）；否则 CLIENT_KB_PUBKEYS →
-# CLIENT_UPDATE_PUBKEYS（与自动升级同一把 update-k1 钥，不另造钥）→ 生产默认。
+# CLIENT_PACK_PUBKEYS（**与提示词包共用 pack-k1 同一把钥**）→ 生产默认。
 _TRUST_PUBKEYS: dict[str, bytes] = {}
-_PROD_PUBKEYS_JSON = '{"update-k1":"Ktq81Y4Qf9cPapmfbLw2h4SGGo1E72X3HaGUxOBU/EU="}'
+_PROD_PUBKEYS_JSON = '{"pack-k1":"UaJFasM5PBIB3Tg1o03cjG6Opeq5CaKtPv2ooLyNPPM="}'
 
 _syncing = False
 
@@ -76,7 +76,7 @@ def _trust_keys() -> dict[str, bytes]:
 
     if _TRUST_PUBKEYS:
         return _TRUST_PUBKEYS
-    for name in ("CLIENT_KB_PUBKEYS", "CLIENT_UPDATE_PUBKEYS"):
+    for name in ("CLIENT_KB_PUBKEYS", "CLIENT_PACK_PUBKEYS"):
         raw = (os.environ.get(name) or "").strip()
         if not raw:
             continue
