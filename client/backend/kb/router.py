@@ -23,6 +23,7 @@ from kb.service import (
     list_libraries,
     update_entry,
 )
+from library.service import ensure_genre_backfill
 from models.kb import KbBookBinding, KbEntry, KbPref
 from novels.service import get_novel
 
@@ -89,6 +90,8 @@ async def list_entries_api(
     # 老版角色库存量一次性迁移挂点（c-kb-library-once-migration）：升级账号首次
     # 触达知识库读面即整账号搬入；幂等自熄，失败降级不阻断（详见 ensure 文档）
     await ensure_legacy_migrated(db, user_id=uid)
+    # 题材回填挂点（c-library-genre-gate）：来源可解的空题材条目补题材，幂等自熄
+    await ensure_genre_backfill(db, uid)
     entries, next_cursor = await list_entries(
         db, user_id=uid, genre=genre, concept=concept,
         src=src, q=q, cursor=cursor, limit=limit,

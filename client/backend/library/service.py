@@ -25,7 +25,7 @@ import random
 from datetime import UTC, datetime
 from types import SimpleNamespace
 
-from sqlalchemy import delete, select
+from sqlalchemy import delete, or_, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -123,6 +123,8 @@ def _card_view(entry: KbEntry, *, has_avatar: bool) -> dict:
         "aliases": v["aliases"],
         "role": v["role"],
         "genre": v["genre"],
+        # 归一题材（c-library-genre-gate）：跨书门禁前端过滤用；老卡自由文本也归得出
+        "genre_norm": normalize_theme(v["genre"]),
         "kind": v["kind"],
         "persona": v["persona"],
         "dossier": v["dossier"],
@@ -345,6 +347,8 @@ async def list_cards(db: AsyncSession, user_id: str) -> dict:
     # 老版角色库存量一次性迁移挂点（c-kb-library-once-migration）：升级账号首次
     # 触达角色库读面即整账号搬入；幂等自熄，失败降级不阻断（详见 ensure 文档）
     await ensure_legacy_migrated(db, user_id=user_id)
+    # 题材回填挂点（c-library-genre-gate）：来源可解的空题材卡补题材，幂等自熄
+    await ensure_genre_backfill(db, user_id)
     entries = (
         await db.execute(
             select(KbEntry)
@@ -512,6 +516,70 @@ async def _story_genre(db: AsyncSession, novel: Novel) -> str:
         return normalize_theme(story.get("genre"))[:GENRE_MAX]
     except Exception:  # noqa: BLE001 — 题材继承是尽力而为，不阻断收录
         return ""
+
+
+async def ensure_genre_backfill(db: AsyncSession, user_id: str) -> None:
+    """题材回填（c-library-genre-gate）：来源可解的空题材库卡补题材。
+
+    拍板口径同 c-kb-library-once-migration：**不挂 boot**、读面触达、幂等自熄。
+    只挑 concept=角色设定 且 genre 空 且 src_kind∈{deconstruct,book} 的条目——
+    拆书来源回查任务产物 genre 维度（与收录时 _deconstruct_genre 同源）、书来源
+    回查 story.genre（与收录时 _story_genre 同源）→ normalize_theme。解不出＝
+    保持空（跨题材通用语义不动，手动卡不碰）；全部补完探测即返。失败降级。
+    """
+    try:
+        rows = (
+            await db.execute(
+                select(KbEntry).where(
+                    KbEntry.user_id == user_id,
+                    KbEntry.concept == CONCEPT,
+                    KbEntry.src_kind.in_(("deconstruct", "book")),
+                    or_(KbEntry.genre.is_(None), KbEntry.genre == ""),
+                )
+            )
+        ).scalars().all()
+        if not rows:
+            return
+        from models.deconstruct import DeconstructJob
+        from models.project import Novel
+
+        task_ids = {e.src_ref for e in rows if e.src_kind == "deconstruct" and e.src_ref}
+        novel_ids = {e.src_ref for e in rows if e.src_kind == "book" and e.src_ref}
+        resolved: dict[str, str] = {}
+        if task_ids:
+            tasks = (
+                await db.execute(select(DeconstructJob).where(DeconstructJob.id.in_(task_ids)))
+            ).scalars().all()
+            for t in tasks:
+                g = _deconstruct_genre(t)
+                if g:
+                    resolved[t.id] = g
+        if novel_ids:
+            novels = (
+                await db.execute(
+                    select(Novel).where(Novel.id.in_(novel_ids), Novel.user_id == user_id)
+                )
+            ).scalars().all()
+            for nv in novels:
+                g = await _story_genre(db, nv)
+                if g:
+                    resolved[nv.id] = g
+        changed = 0
+        for e in rows:
+            g = resolved.get(e.src_ref or "")
+            if g:
+                e.genre = g
+                e.concept_id = f"{g}:{e.concept}"
+                changed += 1
+        if changed:
+            await db.commit()
+            logger.info(
+                "event=character_library.genre_backfill user=%s changed=%s", user_id, changed
+            )
+    except Exception:  # noqa: BLE001 — 读面永不因回填失败红
+        logger.warning(
+            "event=character_library.genre_backfill.fail user=%s", user_id, exc_info=True
+        )
 
 
 def _role_of_character(character: Character) -> str:
@@ -698,6 +766,16 @@ async def apply_to_book(
         raise LibraryError("novel_not_found", "目标书不存在")
 
     view = payload_to_card(entry)
+    # 题材门（c-library-genre-gate，boss 拍板硬拦）：卡题材与目标书题材同域才可落卡；
+    # 任一侧空（跨题材通用卡 / 书题材未设）放行。两侧同走 normalize_theme 归一比较，
+    # 与收录/回填同源。
+    card_genre = normalize_theme(view["genre"])
+    book_genre = await _story_genre(db, novel)
+    if card_genre and book_genre and card_genre != book_genre:
+        raise LibraryError(
+            "genre_mismatch",
+            f"这本书是「{book_genre}」题材，这张角色卡属于「{card_genre}」——跨题材不能落卡。",
+        )
     dossier = dict(view["dossier"])
     base_name = view["name"]
     if rename:
