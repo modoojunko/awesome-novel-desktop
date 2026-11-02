@@ -291,6 +291,8 @@ THEME_NAMES: tuple[str, ...] = tuple(t["name"] for t in THEMES)
 
 def normalize_theme(raw) -> str:
     """把任意题材文本归一到目录大类名：精确命中优先；否则包含匹配（双向）；
+    组件匹配兜底（c-library-genre-gate：目录名按「/」拆，任一组分出现在原文即
+    命中，最长组件优先——自由词序如「灵异志怪」↔ 目录名「志怪/民俗灵异」）；
     仍无→空串（调用方按「未分题材」处理）。"""
     text = str(raw or "").strip()
     if not text:
@@ -303,4 +305,9 @@ def normalize_theme(raw) -> str:
     for name in THEME_NAMES:
         if text in name:
             return name
-    return ""
+    best_name, best_len = "", 0
+    for name in THEME_NAMES:
+        for part in name.split("/"):
+            if len(part) >= 2 and part in text and len(part) > best_len:
+                best_name, best_len = name, len(part)
+    return best_name
