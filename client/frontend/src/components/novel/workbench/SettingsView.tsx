@@ -1067,7 +1067,10 @@ export default function SettingsView({
             noCard={charEmpty}
             hasCards={charHasCards}
             introReady={!!settingsStatus?.synopsis}
-            hasConfirmed={!!settingsStatus && Object.values(settingsStatus).some(Boolean)}
+            hasConfirmed={
+              !!settingsStatus &&
+              ["genre", "synopsis", "world", "story-arc"].some((k) => settingsStatus[k] === true)
+            }
             aiState={aiState}
             onBlocked={handleAiBlocked}
             runningKey={aiRunningKey}
