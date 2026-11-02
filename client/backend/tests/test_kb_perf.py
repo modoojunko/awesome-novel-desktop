@@ -8,6 +8,7 @@ import asyncio
 import time
 import uuid
 
+import pytest
 from sqlalchemy import insert
 
 from db import async_session
@@ -57,6 +58,9 @@ async def _seed() -> dict:
         return {"uid": uid}
 
 
+# CI 全局 --timeout=30 把「造 10 万行 fixture」也算进超时（实测造数本身 >30s 的机器上
+# 必假红，main CI 已连红）；预算断言在用例内部只量被测路径，故这里放宽用例级超时。
+@pytest.mark.timeout(300)
 def test_十万级_列表_搜索_计数_深翻页():
     seed = _run(_seed())
     from kb.service import genre_counts, list_entries
@@ -104,6 +108,7 @@ def test_十万级_列表_搜索_计数_深翻页():
     assert t_deep < 30, f"百页深翻 {t_deep:.2f}s"
 
 
+@pytest.mark.timeout(300)
 def test_十万级_整理预筛与打分预算():
     """c-kb-organize A9：10 万级题材下，增量整理的预筛＋特征打分路径过预算闸。
 
