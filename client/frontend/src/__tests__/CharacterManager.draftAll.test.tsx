@@ -162,6 +162,45 @@ describe("CharsAiRail 起草角色行", () => {
     expect(screen.getByTestId("char-rail-draft-all").textContent).toContain("基础档案");
   });
 
+  it("只剩名字为空也出起草角色行；主角待立仍不给", () => {
+    const { unmount } = render(
+      <CharsAiRail
+        ctx={{
+          ...base,
+          nameless: true,
+          name: "未命名",
+          personaGap: 0,
+          dossierGap: 0,
+          cogGap: 0,
+        }}
+        hasCards
+        hasConfirmed
+        aiState="ready"
+        onRun={onRun}
+      />,
+    );
+    expect(screen.getByTestId("char-rail-draft-all")).toBeTruthy();
+    unmount();
+    render(
+      <CharsAiRail
+        ctx={{
+          ...base,
+          role: "主角",
+          nameless: true,
+          name: "未命名",
+          personaGap: 0,
+          dossierGap: 0,
+          cogGap: 0,
+        }}
+        hasCards
+        hasConfirmed
+        aiState="ready"
+        onRun={onRun}
+      />,
+    );
+    expect(screen.queryByTestId("char-rail-draft-all")).toBeNull();
+  });
+
   it("有卡但未选中：起草角色＝新建；空书不出现", () => {
     const { unmount } = render(
       <CharsAiRail ctx={null} hasCards hasConfirmed aiState="ready" onRun={onRun} />,
@@ -206,6 +245,8 @@ describe("CharacterManager 起草角色：有卡只补空格", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "生成" }));
     await screen.findByText("AI 拟稿 · 起草角色（采纳才写入）");
+    // 结果段也要标明本次输入（spec：结果段 SHALL 标明已确认项）
+    expect(screen.getByTestId("char-draft-sources").textContent).toContain("本次输入：题材、简介");
     expect(apiPost).toHaveBeenCalledWith("/novels/p1/settings/ai/characters/draft-all", {
       character_id: "c1",
       role: undefined,
@@ -295,6 +336,32 @@ describe("CharacterManager 起草角色：无卡新建", () => {
     );
     const patched = apiPatch.mock.calls.map((c) => (c[1] as { path: string }).path);
     expect(patched).toEqual(["aliases", "persona", "dossier.look", "cog.v1"]);
+  });
+
+  it("双击采纳只建一张卡（在途互斥）", async () => {
+    apiGet.mockImplementation((url: string) => {
+      if (String(url) === "/novels/p1/characters") return Promise.resolve({ data: emptyList() });
+      return Promise.resolve({ data: cardData({ id: "c9", name: "老周", role: "配角" }) });
+    });
+    mockDraftAll();
+    apiPatch.mockResolvedValue({ data: { rev: 2 } });
+
+    const ref = createRef<CharacterSaveHandle>();
+    render(<CharacterManager ref={ref} projectId="p1" introReady />);
+    await screen.findByTestId("char-empty-guide");
+    await act(async () => {
+      await ref.current?.runAi?.("draftAll");
+    });
+    await screen.findByTestId("char-ai-prompt-edit");
+    fireEvent.click(screen.getByRole("button", { name: "生成" }));
+    await screen.findByText("AI 拟稿 · 起草角色（采纳才建卡）");
+
+    const adopt = screen.getByRole("button", { name: "采纳 · 建卡" });
+    fireEvent.click(adopt);
+    fireEvent.click(adopt); // 同一 tick 连点：第二次必须被在途互斥丢弃
+    await waitFor(() => expect(apiPatch).toHaveBeenCalled());
+    const createCalls = apiPost.mock.calls.filter((c) => c[0] === "/novels/p1/characters");
+    expect(createCalls).toHaveLength(1);
   });
 });
 
