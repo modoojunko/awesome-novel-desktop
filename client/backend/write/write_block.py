@@ -372,23 +372,8 @@ async def prepare_write_block(
 ) -> tuple[str | None, str | None, list[dict] | None]:
     """主入口。返回 (块文本, run_id, 清单摘要[前端只读区])；整链不抛（失败无块）。"""
     try:
-        domain = await _binding_domain(db, novel_id)
-        ch = (
-            await db.execute(
-                select(Chapter).where(
-                    Chapter.project_id == novel_id,
-                    Chapter.ref == chapter_ref,
-                    Chapter.ghost_of.is_(None),
-                )
-            )
-        ).scalar_one_or_none()
-        if domain is None or ch is None:
-            if ch is not None:
-                await _clear_kb_shadow_rows(db, ch.id)
-                await db.commit()
-            return None, None, None
-        # 书级副本非空＝启用（c-kb-book-scope 批B：开书导入即开）；
-        # 副本空回退 bindings 老路径（存量兼容：绑定启用库仍走账号域）
+        # 书级副本非空＝启用（c-kb-book-scope 批B：开书导入即开——开书自动导入
+        # 不落 bindings，闸门必须认副本；副本空再回退 bindings 存量路径）
         copy_count = (
             await db.execute(
                 select(KbBookEntry.id).where(
@@ -398,11 +383,27 @@ async def prepare_write_block(
             )
         ).scalars().first()
         book_scope = copy_count is not None
+        domain = await _binding_domain(db, novel_id) if not book_scope else None
+        ch = (
+            await db.execute(
+                select(Chapter).where(
+                    Chapter.project_id == novel_id,
+                    Chapter.ref == chapter_ref,
+                    Chapter.ghost_of.is_(None),
+                )
+            )
+        ).scalar_one_or_none()
+        if ch is None or (domain is None and not book_scope):
+            if ch is not None:
+                await _clear_kb_shadow_rows(db, ch.id)
+                await db.commit()
+            return None, None, None
         if book_scope:
             from kb.book_scope import book_scope_fingerprint
 
             fingerprint = await book_scope_fingerprint(db, novel_id=novel_id)
             genre = ""  # 书副本已按题材筛过：书域取数不再按 genre 二次过滤
+            concepts = ("手法", "文风", "文笔")  # 副本已按题材筛过：全概念一致
         else:
             genre, concepts, fingerprint = domain
         chapter_pk = ch.id  # int 值拷贝：F1 rollback 会使 ORM 实例过期（MissingGreenlet 判例）
