@@ -106,6 +106,25 @@
 - **WHEN** 选择「全部题材」
 - **THEN** 条目列表按题材×概念分组，组头为文字标题行（如"仙侠 · 手法 12 条"）；不出现独立库卡卡片
 
+### Requirement: 角色库存量一次性迁移
+
+系统 SHALL 在老版角色库（character_library 表，deprecated）存在某账号存量卡且该账号尚未迁移过时，于该账号首次触达库域读面（知识库条目列表或角色库卡列表）时，把该账号存量卡整账号一次性镜像搬入知识库条目（src_kind=character_library_migration、src_ref=character_library、src_key=原卡 id）。迁移 SHALL 幂等（重复执行零副本）；SHALL NOT 以常驻启动钩子形式运行（一次性升级迁移，非例行自愈）；迁移失败 SHALL NOT 阻断读面（降级返回现有数据，下次触达重试）。
+
+#### Scenario: 升级用户首次触达库域即见老卡
+
+- **WHEN** 由老版本升级而来、character_library 存有存量卡且 kb_entries 无 migration 来源条目的账号，请求知识库条目列表或角色库卡列表
+- **THEN** 系统先把该账号全部存量卡镜像为知识库条目（概念=角色设定，逐格映射与既有迁移端点一致），本次响应即包含迁移后的条目
+
+#### Scenario: 迁移一次后自熄
+
+- **WHEN** 该账号已存在 migration 来源条目时再次触达任一库域读面
+- **THEN** 探测即返、不产生任何写入；作家在知识库中删除过的迁移卡 SHALL NOT 被复活
+
+#### Scenario: 无存量账号零成本
+
+- **WHEN** character_library 中该账号无任何行
+- **THEN** 单次索引点查即返，不产生任何知识库条目写入
+
 ### Requirement: AI 关系整理
 
 系统 SHALL 提供知识关系的 AI 定期整理：触发为某题材拆书入库后自动一次、距上次超 7 天启动时一次、手动立即一次；一次 SHALL 只整理一个题材且零条目题材跳过（跨题材通用条目并入触发题材候选池，不单独立运行）。自动触发 SHALL 采用增量范围（本轮更新条目 × 既有条目的候选对，经确定性预筛短名单 ≤200 对），手动触发 SHALL 支持全量深度整理（按概念分桶分批）。AI SHALL 只产出候选关系（类型在六类白名单内）、说明与证据引用；**置信分 SHALL 由确定性特征合成**（证据章接近度、同题材命中、别名共现——经物化标签、概念相容矩阵、作家负反馈降权——SHALL NOT 采信模型自报置信，SHALL NOT 对载荷 JSON 做全表扫描），同输入 SHALL 产出同分数。置信 ≥0.75 直接生效（status=active）、0.5–0.75 进待确认清单（status=pending，不自动生效、不进全局图）、<0.5 丢弃；端点不存在、自环、重复（应用层按 from/to/rel_type 查重）、类型越白名单 SHALL 被前置拒绝。整理 SHALL 只写关系表，SHALL NOT 修改任何条目内容；同账号同题材的 active 关系数 SHALL ≤ 同题材 active 条目数五倍（超出按 confidence 升序、created_at 升序淘汰 status=archived 至限额内）。整理 SHALL 落运行记录（runs 表＋关联明细表：触发方式/题材/扫描数/各类产出计数/状态/错误）；同 user+genre SHALL 互斥运行（已有 running 即跳过）。整理模板缺失时 SHALL 记 error 于 run 不阻断知识库。

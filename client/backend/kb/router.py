@@ -13,6 +13,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from auth_local.deps import get_current_user
 from db import get_db
 from kb.concepts import CONCEPTS, THEMES
+from kb.migrate_library import ensure_legacy_migrated
 from kb.service import (
     create_entry,
     delete_entry,
@@ -85,6 +86,9 @@ async def list_entries_api(
     db: AsyncSession = Depends(get_db),
 ):
     uid = _user(user)
+    # 老版角色库存量一次性迁移挂点（c-kb-library-once-migration）：升级账号首次
+    # 触达知识库读面即整账号搬入；幂等自熄，失败降级不阻断（详见 ensure 文档）
+    await ensure_legacy_migrated(db, user_id=uid)
     entries, next_cursor = await list_entries(
         db, user_id=uid, genre=genre, concept=concept,
         src=src, q=q, cursor=cursor, limit=limit,

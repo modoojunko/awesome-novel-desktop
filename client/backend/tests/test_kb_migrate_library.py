@@ -232,3 +232,132 @@ def test_反向映射_空payload兜底():
     assert card["name"] == ""  # 坏 json 兜底空卡形状
     assert card["dossier"] == {} and card["cog"] == {}
     assert card["role"] == "配角"  # role 缺省
+
+
+# ─── 触达自迁一次性迁移（c-kb-library-once-migration）──────
+
+
+def test_触达自迁_角色库读面首调即搬入():
+    seed = _run(_seed([{"name": "钱七", "genre": "武侠"}, {"name": "孙八", "genre": "都市"}]))
+
+    async def _go():
+        from library.service import list_cards
+
+        async with async_session() as db:
+            r = await list_cards(db, user_id=seed["uid"])
+            rows = (
+                await db.execute(KbEntry.__table__.select().where(KbEntry.user_id == seed["uid"]))
+            ).mappings().all()
+            return r, rows
+
+    r, rows = _run(_go())
+    assert r["count"] == 2
+    assert len(rows) == 2
+    assert {e["src_kind"] for e in rows} == {"character_library_migration"}
+
+
+def test_触达自迁_知识库条目端点同样生效():
+    from fastapi.testclient import TestClient
+
+    from auth_local.middleware import get_current_user
+    from main import app
+
+    seed = _run(_seed([{"name": "周九", "genre": "武侠"}]))
+    app.dependency_overrides[get_current_user] = lambda: {"id": seed["uid"]}
+    try:
+        with TestClient(app) as c:
+            r = c.get("/api/kb/entries", params={"concept": "角色设定"})
+            assert r.status_code == 200
+            items = r.json()["data"]["entries"]
+            assert len(items) == 1
+            assert items[0]["src_kind"] == "character_library_migration"
+            assert items[0]["title"] == "周九"
+    finally:
+        app.dependency_overrides.clear()
+
+
+def test_二次触达自熄_零重复():
+    seed = _run(_seed([{"name": "吴十", "genre": "都市"}]))
+
+    async def _go():
+        from library.service import list_cards
+
+        async with async_session() as db:
+            await list_cards(db, user_id=seed["uid"])
+            await list_cards(db, user_id=seed["uid"])
+            rows = (
+                await db.execute(KbEntry.__table__.select().where(KbEntry.user_id == seed["uid"]))
+            ).mappings().all()
+            return rows
+
+    rows = _run(_go())
+    assert len(rows) == 1  # 再触达零副本
+
+
+def test_软删迁移卡再触达不复活():
+    seed = _run(_seed([{"name": "郑一", "genre": "武侠"}]))
+
+    async def _go():
+        from library.service import list_cards
+
+        async with async_session() as db:
+            await list_cards(db, user_id=seed["uid"])
+            # 作家在知识库删掉这张迁移卡（软删）
+            await db.execute(
+                KbEntry.__table__.update()
+                .where(KbEntry.user_id == seed["uid"])
+                .values(status="deleted")
+            )
+            await db.commit()
+        # 再触达：快路/存在性检查都不许复活软删行
+        async with async_session() as db:
+            r = await list_cards(db, user_id=seed["uid"])
+            rows = (
+                await db.execute(KbEntry.__table__.select().where(KbEntry.user_id == seed["uid"]))
+            ).mappings().all()
+            return r, rows
+
+    r, rows = _run(_go())
+    assert r["count"] == 0
+    assert len(rows) == 1 and rows[0]["status"] == "deleted"
+
+
+def test_无存量账号零写入():
+    seed = _run(_seed([]))  # 建号但不建 legacy 卡
+
+    async def _go():
+        from library.service import list_cards
+
+        async with async_session() as db:
+            r = await list_cards(db, user_id=seed["uid"])
+            rows = (
+                await db.execute(KbEntry.__table__.select().where(KbEntry.user_id == seed["uid"]))
+            ).mappings().all()
+            return r, rows
+
+    r, rows = _run(_go())
+    assert r == {"count": 0, "items": []}
+    assert rows == []  # 点查即返，零写入
+
+
+def test_迁移失败_读面降级不红():
+    seed = _run(_seed([{"name": "王二", "genre": "武侠"}]))
+
+    async def _go():
+        from library.service import list_cards
+
+        async with async_session() as db:
+            return await list_cards(db, user_id=seed["uid"])
+
+    import kb.migrate_library as mig
+
+    def _boom(db, *, user_id):
+        raise RuntimeError("迁移炸了")
+
+    real = mig.migrate_character_library
+    mig.migrate_character_library = _boom
+    try:
+        r = _run(_go())  # 不抛＝降级成立
+    finally:
+        mig.migrate_character_library = real
+    assert r == {"count": 0, "items": []}
