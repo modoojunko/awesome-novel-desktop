@@ -346,8 +346,9 @@ async def list_entries(
     两段各按 id 游标取页后在 Python 归并（基线 ≤1000 行、单页有界），
     保证跨表分页不重不漏。来源筛选："官方精选" 只取基线；手录/拆书 只取用户条目。
     """
-    from kb.merged import load_baseline_entries
+    from kb.merged import load_baseline_entries, load_hidden_entries
 
+    src_hidden_only = src == "已隐藏"
     src_base_only = src == "官方精选"
     src_user_only = src in ("手录", "拆书")
 
@@ -356,6 +357,15 @@ async def list_entries(
 
     entries: list = []
     next_cursor = ""
+    if src_hidden_only:
+        # 「已隐藏」＝hide 白名单回读（恢复默认的唯一入口，否则隐藏不可逆）
+        rows = await load_hidden_entries(
+            db, user_id=user_id, genre=g, concept=c, q=q, cursor=cursor, limit=limit + 1,
+        )
+        has_more = len(rows) > limit
+        entries = rows[:limit]
+        next_cursor = entries[-1].id if has_more and entries else ""
+        return entries, next_cursor
     if src_base_only:
         rows = await load_baseline_entries(
             db, user_id=user_id, genre=g, concept=c, q=q, cursor=cursor, limit=limit + 1,

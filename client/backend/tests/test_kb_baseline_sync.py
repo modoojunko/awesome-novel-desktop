@@ -569,3 +569,91 @@ def test_下架孤儿edit提升为用户条目(sync_env):
             await db.commit()
 
     _run(_cleanup())
+
+
+def test_回退再上架_提升副本与复活原件不重复(sync_env):
+    """P3 修复钉：下架提升后回退/再上架，官方条目不与用户副本重复显示。"""
+    from sqlalchemy import delete
+
+    from kb.baseline import content_sha
+    from kb.merged import load_baseline_entries, load_hidden_entries
+    from models.kb import KbEntry, KbEntryTag
+
+    bl = sync_env
+    a = _entry("baseline:玄幻:tech-a", "玄幻手法A")
+    _publish(1, [a])
+    assert _sync(bl)["status"] == "synced"
+
+    uid = f"readd-{uuid.uuid4().hex[:8]}"
+
+    async def _edit():
+        async with async_session() as db:
+            db.add(KbBaselineOverlay(
+                user_id=uid, src_key=a["src_key"], action="edit",
+                content="我的说法：先让三招再还手。",
+                base_content_sha256=content_sha(a["instruction"])))
+            await db.commit()
+
+    _run(_edit())
+
+    _publish(2, [])  # 下架 → 提升
+    r = _sync(bl)
+    assert r["status"] == "synced" and r["promoted"] == 1, f"got {r}"
+
+    _publish(3, [a])  # 回退/再上架
+    assert _sync(bl)["status"] == "synced"
+
+    async def _check():
+        async with async_session() as db:
+            visible = await load_baseline_entries(db, user_id=uid, genre="玄幻")
+            hidden = await load_hidden_entries(db, user_id=uid)
+            entries = (await db.execute(
+                sel(KbEntry).where(KbEntry.user_id == uid))).scalars().all()
+            ov = (await db.execute(sel(KbBaselineOverlay).where(
+                KbBaselineOverlay.user_id == uid))).scalars().all()
+            return visible, hidden, entries, ov
+
+    visible, hidden, entries, ov = _run(_check())
+    assert [e.src_key for e in visible] == []          # 官方不重复露出
+    assert [e.src_key for e in hidden] == [a["src_key"]]  # 在「已隐藏」可恢复
+    assert len(entries) == 1 and entries[0].instruction.startswith("我的说法")
+    assert [(o.action, o.src_key) for o in ov] == [("hide", a["src_key"])]
+
+    async def _cleanup():
+        async with async_session() as db:
+            await db.execute(delete(KbEntryTag).where(KbEntryTag.user_id == uid))
+            await db.execute(delete(KbEntry).where(KbEntry.user_id == uid))
+            await db.execute(delete(KbBaselineOverlay).where(KbBaselineOverlay.user_id == uid))
+            await db.commit()
+
+    _run(_cleanup())
+
+
+def test_hide带正文_下架不丢副本内容(sync_env):
+    """P3 修复钉：edit→hide 保留的正文在官方下架时不得整条删除。"""
+    bl = sync_env
+    a = _entry("baseline:玄幻:tech-a", "玄幻手法A")
+    _publish(1, [a])
+    assert _sync(bl)["status"] == "synced"
+
+    uid = f"hidekeep-{uuid.uuid4().hex[:8]}"
+
+    async def _hide_with_content():
+        async with async_session() as db:
+            db.add(KbBaselineOverlay(
+                user_id=uid, src_key=a["src_key"], action="hide",
+                content="我写过的旧副本。", base_content_sha256="h1"))
+            await db.commit()
+
+    _run(_hide_with_content())
+    _publish(2, [])  # 官方下架
+    assert _sync(bl)["status"] == "synced"
+
+    async def _row():
+        async with async_session() as db:
+            return (await db.execute(sel(KbBaselineOverlay).where(
+                KbBaselineOverlay.user_id == uid))).scalar_one_or_none()
+
+    row = _run(_row())
+    assert row is not None and row.action == "hide"
+    assert row.content == "我写过的旧副本。"

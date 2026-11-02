@@ -162,4 +162,32 @@ describe("KnowledgeBasePage · 官方精选", () => {
     fireEvent.click(await screen.findByTestId("kb-baseline-sync"));
     await waitFor(() => expect(screen.getByText("同步没成功，稍后再试")).toBeTruthy());
   });
+
+  it("「已隐藏」筛选可找回被隐藏条目并恢复默认（P1 回归）", async () => {
+    api.entries.mockResolvedValue({
+      entries: [{ ...BASE_ENTRY, hidden: true }],
+      next_cursor: "",
+    });
+    render(<KnowledgeBasePage />);
+    await waitFor(() => expect(api.entries).toHaveBeenCalled());
+    fireEvent.click(screen.getByTestId("kb-src-已隐藏"));
+    await waitFor(() => {
+      const calls = api.entries.mock.calls.map((c) => c[0] as { src?: string });
+      expect(calls.some((c) => c.src === "已隐藏")).toBe(true);
+    });
+    await waitFor(() => expect(screen.getAllByText("已隐藏").length).toBeGreaterThan(1)); // 筛选钮＋行徽章
+    fireEvent.click(await screen.findByText("官方手法A"));
+    fireEvent.click(await screen.findByTestId("kb-baseline-unhide"));
+    await waitFor(() => expect(api.clearBaselineOverride).toHaveBeenCalledWith("b1"));
+  });
+
+  it("同步失败提示「同步没成功」而不是「没有新版本」", async () => {
+    api.entries.mockResolvedValue({ entries: [], next_cursor: "" });
+    api.baselineSync.mockResolvedValueOnce({ status: "failed" });
+    render(<KnowledgeBasePage />);
+    await waitFor(() => expect(api.entries).toHaveBeenCalled());
+    fireEvent.click(screen.getByTestId("kb-src-官方精选"));
+    fireEvent.click(await screen.findByTestId("kb-baseline-sync"));
+    await waitFor(() => expect(screen.getByText("同步没成功，稍后再试")).toBeTruthy());
+  });
 });

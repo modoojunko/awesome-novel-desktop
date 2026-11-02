@@ -60,7 +60,7 @@ def _content_repo() -> Path | None:
     env = os.environ.get("KNOWLEDGE_REPO_DIR")
     cand = [Path(env)] if env else []
     cand += [
-        Path(__file__).resolve().parents[3] / "awesome-novel-knowledge",
+        Path(__file__).resolve().parents[4] / "awesome-novel-knowledge",
         Path("/Users/modoojunko/Desktop/coding/awesome-novel-knowledge"),
     ]
     for p in cand:

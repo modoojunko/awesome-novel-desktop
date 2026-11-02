@@ -555,3 +555,159 @@ def test_同步状态与手动重试端点(base_env):
     finally:
         bl.sync_baseline = orig
         app.dependency_overrides.clear()
+
+
+def test_已隐藏列表可回读_恢复默认回到精选(base_env):
+    """P1 修复钉：hide 不能是单向门——「已隐藏」筛选必须能拿回 id 并恢复。"""
+    eid = _run(_seed_pack([_b("baseline:玄幻:tech-a", "官方手法A")]))[0]
+    uid = f"mg-{uuid.uuid4().hex[:8]}"
+
+    async def _setup():
+        async with async_session() as db:
+            db.add(User(id=uid, email=f"{uid}@t.local", password_hash="x"))
+            await db.commit()
+
+    _run(_setup())
+    app.dependency_overrides[get_current_user] = lambda: {"id": uid, "email": f"{uid}@t.local"}
+    try:
+        with TestClient(app) as c:
+            assert c.put(
+                f"/api/kb/entries/{eid}/baseline-override", json={"action": "hide"}
+            ).status_code == 200
+
+            r = c.get("/api/kb/entries", params={"src": "已隐藏"})
+            assert r.status_code == 200, r.text
+            rows = r.json()["data"]["entries"]
+            assert [x["id"] for x in rows] == [eid]
+            assert rows[0]["hidden"] is True and rows[0]["instruction"].startswith("官方手法A")
+
+            # 常规列表不再出现（隐藏语义不变）
+            all_rows = c.get("/api/kb/entries").json()["data"]["entries"]
+            assert eid not in {x["id"] for x in all_rows}
+
+            # 恢复默认 → 回官方精选
+            assert c.delete(f"/api/kb/entries/{eid}/baseline-override").status_code == 200
+            r2 = c.get("/api/kb/entries", params={"src": "官方精选"})
+            assert eid in {x["id"] for x in r2.json()["data"]["entries"]}
+            assert c.get("/api/kb/entries", params={"src": "已隐藏"}).json()["data"]["entries"] == []
+    finally:
+        app.dependency_overrides.clear()
+
+
+def test_图谱聚合含基线格子(base_env):
+    """P2 修复钉：格子计数与题材栏/下钻同口径（纯基线账号图谱不再空白）。"""
+    _run(_seed_pack([
+        _b("baseline:玄幻:tech-a", "官方手法A", genre="玄幻"),
+        _b("baseline:都市:tech-b", "官方手法B", genre="都市"),
+    ]))
+    uid = f"mg-{uuid.uuid4().hex[:8]}"
+
+    async def _setup():
+        async with async_session() as db:
+            db.add(User(id=uid, email=f"{uid}@t.local", password_hash="x"))
+            await db.commit()
+
+    _run(_setup())
+    app.dependency_overrides[get_current_user] = lambda: {"id": uid, "email": f"{uid}@t.local"}
+    try:
+        with TestClient(app) as c:
+            agg = c.get("/api/kb/graph/aggregate").json()["data"]
+            cells = {n["id"]: n["count"] for n in agg["nodes"] if n["kind"] == "cell"}
+            genres = {n["id"]: n["count"] for n in agg["nodes"] if n["kind"] == "genre"}
+            assert cells == {"cell:玄幻:手法": 1, "cell:都市:手法": 1}
+            assert genres == {"genre:玄幻": 1, "genre:都市": 1}
+            # 下钻数量与格子计数一致（同一 merged 口径）
+            cell = c.get("/api/kb/graph/cell", params={"genre": "玄幻", "concept": "手法"})
+            assert len(cell.json()["data"]["nodes"]) == cells["cell:玄幻:手法"]
+    finally:
+        app.dependency_overrides.clear()
+
+
+def test_set覆盖_并发撞唯一键_回滚后改写(base_env):
+    """P3 修复钉：首次写入撞 (user_id, src_key) 唯一索引时不得 500——回滚后改更新赢家行。"""
+    from sqlalchemy.exc import IntegrityError
+
+    from kb.merged import set_overlay
+
+    eid = _run(_seed_pack([_b("baseline:玄幻:tech-a", "官方手法A")]))[0]
+    uid = f"mg-{uuid.uuid4().hex[:8]}"
+
+    async def _go():
+        async with async_session() as db:
+            db.add(User(id=uid, email=f"{uid}@t.local", password_hash="x"))
+            await db.commit()
+
+        async with async_session() as db:
+            orig_commit = db.commit
+            state = {"n": 0}
+
+            async def _commit():
+                state["n"] += 1
+                if state["n"] == 1:
+                    # 竞态窗口：并发赢家用另一连接先提交了同一 (user, src_key)
+                    async with async_session() as other:
+                        other.add(KbBaselineOverlay(
+                            user_id=uid, src_key="baseline:玄幻:tech-a",
+                            action="hide", content="", base_content_sha256=""))
+                        await other.commit()
+                    raise IntegrityError("INSERT", {}, Exception("UNIQUE constraint failed"))
+                return await orig_commit()
+
+            db.commit = _commit  # type: ignore[method-assign]
+            res = await set_overlay(
+                db, user_id=uid, entry_id=eid, action="edit", instruction="我的副本内容。")
+
+        async with async_session() as db:
+            row = (await db.execute(sel(KbBaselineOverlay).where(
+                KbBaselineOverlay.user_id == uid))).scalar_one()
+            return res, state["n"], row.action, row.content
+
+    res, commits, action, content = _run(_go())
+    assert res.get("ok") is True
+    assert commits == 2  # 第一次抛冲突→回滚重查→第二次成功
+    assert action == "edit" and content == "我的副本内容。"
+
+
+def test_书未设题材_不跨题材回退(base_env):
+    """P2 修复钉：题材缺失时宁可不回退——空 genre 在 digest 里是「不过滤」，
+    会把别题材的基线混进本书（跨题材串味）。"""
+    from models.chapter import Chapter
+    from models.project import Novel
+    from models.volume import Volume
+
+    async def _seed():
+        uid = f"mg-{uuid.uuid4().hex[:8]}"
+        async with async_session() as db:
+            db.add(User(id=uid, email=f"{uid}@t.local", password_hash="x"))
+            novel = Novel(
+                user_id=uid, name="无题材书", slug=uuid.uuid4().hex[:12],
+                root_path=f"./data/{uuid.uuid4().hex[:12]}", source="manual",
+                current_phase="write",
+            )
+            db.add(novel)
+            await db.flush()
+            vol = Volume(project_id=novel.id, volume_no=1, title="卷")
+            db.add(vol)
+            await db.flush()
+            db.add(Chapter(
+                project_id=novel.id, volume_id=vol.id, chapter_no=1, ref="vol-1-ch-1",
+                title="第一章", summary="与老祖正面交锋，硬撼对方底牌",
+                primary_mood="燃", plot_stage="高潮爆发",
+            ))
+            await db.commit()
+            return uid, novel.id
+
+    uid, novel_id = _run(_seed())
+    _run(_seed_pack([_b("baseline:都市:tech-b", "都市手法", genre="都市")]))
+
+    # 基线就绪但书没设题材 → 不出块（不回退到全题材）
+    block, run_id, _items = _run(_prepare(novel_id, "vol-1-ch-1", uid))
+    assert block is None and run_id is None
+
+    async def _domain():
+        from write.write_block import _binding_domain
+
+        async with async_session() as db:
+            return await _binding_domain(db, novel_id)
+
+    assert _run(_domain()) is None

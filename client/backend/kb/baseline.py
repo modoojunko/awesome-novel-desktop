@@ -410,7 +410,11 @@ async def _replace_layer(
         if ov.src_key in new_keys:
             continue
         if ov.action == "hide":
-            await db.delete(ov)  # 下架条目的 hide 记录已无意义
+            # 下架条目的 hide 记录：无副本正文＝已无意义，删；有正文＝用户写过的
+            # 话，保留（再上架时仍可还原，符合 D1「edit→hide 保留 content」）
+            if (ov.content or "").strip():
+                continue
+            await db.delete(ov)
             continue
         # edit 副本＝用户的话，官方下架不得蒸发：提升为账号自有条目后删覆盖
         old = old_rows.get(ov.src_key)
@@ -419,6 +423,7 @@ async def _replace_layer(
         await _promote_overlay(db, ov, old)
         await db.delete(ov)
         promoted += 1
+    await _hide_radded_promoted(db, new_keys)
     await db.commit()
     return {
         "status": "synced",
@@ -428,6 +433,42 @@ async def _replace_layer(
         "skipped": skipped,
         "promoted": promoted,
     }
+
+
+_PROMOTED_SRC = "官方精选（已下架）"
+
+
+async def _hide_radded_promoted(db: AsyncSession, new_keys: set[str]) -> None:
+    """回退/重新上架去重：官方条目复活而用户已有「提升副本」时，给该用户补 hide。
+
+    否则 merged 视图会同时出现「用户副本」与「复活的原件」两份近乎相同的内容。
+    hide 可逆（「已隐藏」列表里能恢复官方版），不留死数据。
+    """
+    from models.kb import KbEntry
+
+    rows = (
+        await db.execute(select(KbEntry).where(KbEntry.src_novel_name == _PROMOTED_SRC))
+    ).scalars().all()
+    if not rows:
+        return
+    existing = {
+        (o.user_id, o.src_key)
+        for o in (await db.execute(select(KbBaselineOverlay))).scalars().all()
+    }
+    for row in rows:
+        try:
+            key = str(json.loads(row.evidence_json or "{}").get("promoted_from") or "")
+        except ValueError:
+            key = ""
+        if not key or key not in new_keys or (row.user_id, key) in existing:
+            continue
+        db.add(
+            KbBaselineOverlay(
+                user_id=row.user_id, src_key=key, action="hide", content="",
+                base_content_sha256="",
+            )
+        )
+        existing.add((row.user_id, key))
 
 
 async def _promote_overlay(
@@ -469,7 +510,9 @@ async def _promote_overlay(
         src_kind="manual",
         src_ref="",
         src_key="",
-        src_novel_name="官方精选（已下架）",
+        src_novel_name=_PROMOTED_SRC,
+        # 溯源：原文 src_key（回退/再上架时据此给对方账号补 hide，防两份重复）
+        evidence_json=json.dumps({"promoted_from": old.src_key}, ensure_ascii=False),
     )
     db.add(entry)
     await db.flush()

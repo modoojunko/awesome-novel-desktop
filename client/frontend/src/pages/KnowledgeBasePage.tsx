@@ -42,6 +42,8 @@ const SOURCE_FILTERS = [
   { key: "官方精选", label: "官方精选" },
   { key: "手录", label: "手录" },
   { key: "拆书", label: "拆书" },
+  // 隐藏可逆：这里回读 hide 白名单，恢复默认的唯一入口
+  { key: "已隐藏", label: "已隐藏" },
 ] as const;
 
 export default function KnowledgeBasePage() {
@@ -115,6 +117,9 @@ export default function KnowledgeBasePage() {
 
   /* 官方精选只读操作面（c-kb-baseline 批B）：隐藏＝白名单外记录；恢复官方版＝删副本。
      原件永不修改，失败静默（刷新后状态即真相）。 */
+  // 只有「无筛选」时官方精选空集才等价于「没同步下来」（有筛选＝该筛选下没有）
+  const noFilters = genre === "全部题材" && concept === "全部" && !q.trim();
+
   const handleBaselineOp = async (entry: KbEntry, action: "hide" | "clear") => {
     /* v8 ignore start -- 双保险：按钮同时 disabled，UI 面走不到该早退（真机连点防护） */
     if (opBusy) return;
@@ -139,7 +144,15 @@ export default function KnowledgeBasePage() {
     setSyncNote("");
     try {
       const r = await kbApi.baselineSync();
-      setSyncNote(r.status === "synced" ? "官方精选已更新" : "暂时没有新版本");
+      setSyncNote(
+        r.status === "synced"
+          ? "官方精选已更新"
+          : r.status === "current"
+            ? "已经是最新版本"
+            : r.status === "failed"
+              ? "同步没成功，稍后再试"
+              : "暂时取不到官方精选",
+      );
       await loadEntries();
       kbApi.genres().then(setGenreCounts).catch(() => {});
     } catch {
@@ -374,6 +387,11 @@ export default function KnowledgeBasePage() {
                           我的副本
                         </span>
                       )}
+                      {e.hidden && (
+                        <span className="rounded-full bg-[var(--fg-soft)] px-1.5 py-0.5 font-mono text-[9px] text-[var(--muted)]">
+                          已隐藏
+                        </span>
+                      )}
                       {e.official_update && (
                         <span className="rounded-full border border-[var(--accent)] px-1.5 py-0.5 font-mono text-[9px] text-[var(--accent)]">
                           官方有新版
@@ -389,7 +407,7 @@ export default function KnowledgeBasePage() {
                   className="w-full py-3 text-center text-[13px] text-[var(--accent)] hover:underline"
                 >加载更多</button>
               )}
-              {!entries.length && !loading && src === "官方精选" && (
+              {!entries.length && !loading && src === "官方精选" && noFilters && (
                 <div data-testid="kb-baseline-empty" className="rounded-lg border border-dashed border-[var(--border)] p-6 text-center">
                   <p className="text-[13px] text-[var(--muted)]">官方精选还没有同步下来。</p>
                   {syncNote && <p className="mt-1 text-[12px] text-[var(--muted)]">{syncNote}</p>}
@@ -401,7 +419,17 @@ export default function KnowledgeBasePage() {
                   >重新同步</button>
                 </div>
               )}
-              {!entries.length && !loading && src !== "官方精选" && (
+              {!entries.length && !loading && src === "官方精选" && !noFilters && (
+                <div className="rounded-lg border border-dashed border-[var(--border)] p-6 text-center">
+                  <p className="text-[13px] text-[var(--muted)]">当前筛选下没有官方精选条目。</p>
+                </div>
+              )}
+              {!entries.length && !loading && src === "已隐藏" && (
+                <div className="rounded-lg border border-dashed border-[var(--border)] p-6 text-center">
+                  <p className="text-[13px] text-[var(--muted)]">没有隐藏的官方精选条目。</p>
+                </div>
+              )}
+              {!entries.length && !loading && src !== "官方精选" && src !== "已隐藏" && (
                 <div className="rounded-lg border border-dashed border-[var(--border)] p-6 text-center">
                   <p className="text-[13px] text-[var(--muted)]">还没有条目——先拆书或手录，写法到位后这里会长出来。</p>
                   <button
@@ -515,7 +543,16 @@ export default function KnowledgeBasePage() {
                   </p>
                 )}
                 <div className="mt-3">
-                  {selected.overlaid ? (
+                  {selected.hidden ? (
+                    <button
+                      data-testid="kb-baseline-unhide"
+                      disabled={opBusy}
+                      onClick={() => { void handleBaselineOp(selected, "clear"); }}
+                      className="rounded-lg border border-[var(--accent)] px-3 py-1.5 text-[12px] text-[var(--accent)] hover:bg-[var(--accent-soft)] disabled:opacity-50"
+                    >
+                      恢复默认
+                    </button>
+                  ) : selected.overlaid ? (
                     <button
                       data-testid="kb-baseline-restore"
                       disabled={opBusy}

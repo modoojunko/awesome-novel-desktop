@@ -39,7 +39,7 @@ _PUB = {_KID: _PRIV.public_key().public_bytes(Encoding.Raw, PublicFormat.Raw)}
 def _content_repo() -> Path | None:
     env = os.environ.get("KNOWLEDGE_REPO_DIR")
     cand = [Path(env)] if env else []
-    cand.append(Path(__file__).resolve().parents[3] / "awesome-novel-knowledge")
+    cand.append(Path(__file__).resolve().parents[4] / "awesome-novel-knowledge")
     for p in cand:
         if p and (p / "tools" / "build.py").is_file():
             return p

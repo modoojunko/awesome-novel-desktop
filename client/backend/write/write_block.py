@@ -181,8 +181,12 @@ async def _baseline_domain(
                 novel.root_path, KEY_TO_PATH["story"]
             ) or {}
             genre = str(story.get("genre") or "").strip()
-    except Exception:  # noqa: BLE001 — 题材读不到＝空（跨题材通用条目照出）
+    except Exception:  # noqa: BLE001 — 题材读不到＝按未建域处理（见下）
         genre = ""
+    if not genre:
+        # 空题材在 digest 语义里是「不过滤」——会把所有题材的基线条目混进本书
+        # （跨题材串味）。宁可不回退：与「零绑定且无题材」的旧行为一致。
+        return None
     fingerprint = hashlib.sha256(
         f"baseline:{version}:{genre}".encode()
     ).hexdigest()[:64]

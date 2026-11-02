@@ -17,6 +17,7 @@ from dataclasses import dataclass
 from datetime import datetime
 
 from sqlalchemy import and_, exists, or_, select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from models.kb import KbBaselineEntry, KbBaselineOverlay
@@ -57,6 +58,7 @@ class MergedEntry:
     content_sha256: str = ""          # 当前原件指纹
     base_content_sha256: str = ""     # edit 副本记录的「当时原件」指纹
     overlaid: bool = False            # 该行文本来自用户副本
+    hidden: bool = False              # 被用户隐藏（只出现在「已隐藏」列表）
 
 
 def has_official_update(e: MergedEntry) -> bool:
@@ -67,7 +69,11 @@ def has_official_update(e: MergedEntry) -> bool:
 
 
 def _to_merged(
-    row: KbBaselineEntry, *, user_id: str, overlay: KbBaselineOverlay | None
+    row: KbBaselineEntry,
+    *,
+    user_id: str,
+    overlay: KbBaselineOverlay | None,
+    hidden: bool = False,
 ) -> MergedEntry:
     text = row.instruction or ""
     overlaid = False
@@ -94,6 +100,7 @@ def _to_merged(
         content_sha256=row.content_sha256 or "",
         base_content_sha256=base_sha,
         overlaid=overlaid,
+        hidden=hidden,
     )
 
 
@@ -196,6 +203,72 @@ async def baseline_genre_counts(
     return {r[0]: r[1] for r in rows}
 
 
+async def load_hidden_entries(
+    db: AsyncSession,
+    *,
+    user_id: str,
+    genre: str = "",
+    concept: str = "",
+    q: str = "",
+    cursor: str = "",
+    limit: int | None = None,
+) -> list[MergedEntry]:
+    """「已隐藏」列表（hide 白名单里的条目）——恢复默认的唯一入口。
+
+    hide 只在用户层记一条白名单，基线原件仍在——把两者 join 回来给前端，
+    否则「隐藏」在界面上不可逆（拿不到 id 就调不了恢复接口）。
+    """
+    stmt = (
+        select(KbBaselineEntry, KbBaselineOverlay)
+        .join(KbBaselineOverlay, KbBaselineOverlay.src_key == KbBaselineEntry.src_key)
+        .where(
+            KbBaselineOverlay.user_id == user_id,
+            KbBaselineOverlay.action == "hide",
+        )
+    )
+    if genre:
+        stmt = stmt.where(KbBaselineEntry.genre == genre)
+    if concept:
+        stmt = stmt.where(KbBaselineEntry.concept == concept)
+    if q:
+        stmt = stmt.where(
+            or_(
+                KbBaselineEntry.title.contains(q),
+                KbBaselineEntry.instruction.contains(q),
+            )
+        )
+    if cursor:
+        stmt = stmt.where(KbBaselineEntry.entry_id > cursor)
+    stmt = stmt.order_by(KbBaselineEntry.entry_id)
+    if limit is not None:
+        stmt = stmt.limit(limit)
+    rows = (await db.execute(stmt)).all()
+    return [
+        _to_merged(row, user_id=user_id, overlay=ov, hidden=True)
+        for row, ov in rows
+    ]
+
+
+async def baseline_cell_counts(
+    db: AsyncSession, *, user_id: str
+) -> dict[tuple[str, str], int]:
+    """(题材, 概念) 格子计数（基线段，已排 hide）——图谱聚合与题材栏同口径。"""
+    from sqlalchemy import func
+
+    rows = (
+        await db.execute(
+            select(
+                KbBaselineEntry.genre,
+                KbBaselineEntry.concept,
+                func.count(KbBaselineEntry.entry_id),
+            )
+            .where(_hidden_clause(user_id))
+            .group_by(KbBaselineEntry.genre, KbBaselineEntry.concept)
+        )
+    ).all()
+    return {(r[0], r[1]): int(r[2]) for r in rows}
+
+
 async def digest_baseline_ids(
     db: AsyncSession, *, user_id: str, genre: str,
     concepts: tuple[str, ...] = ("手法", "文风", "文笔"),
@@ -281,25 +354,46 @@ async def set_overlay(
         if not gate.ok:
             return {"error": "gate", "message": next(iter(gate.errors.values()), "内容校验未通过")}
 
+    src_key = row.src_key
+    base_sha = row.content_sha256 or ""
     ov = (
         await db.execute(
             select(KbBaselineOverlay).where(
                 KbBaselineOverlay.user_id == user_id,
-                KbBaselineOverlay.src_key == row.src_key,
+                KbBaselineOverlay.src_key == src_key,
             )
         )
     ).scalar_one_or_none()
     if ov is None:
         ov = KbBaselineOverlay(
-            user_id=user_id, src_key=row.src_key, action=action, content="",
-            base_content_sha256=row.content_sha256 or "",
+            user_id=user_id, src_key=src_key, action=action, content="",
+            base_content_sha256=base_sha,
         )
         db.add(ov)
     ov.action = action
     if action == "edit":
         ov.content = text
-        ov.base_content_sha256 = row.content_sha256 or ""
-    await db.commit()
+        ov.base_content_sha256 = base_sha
+    try:
+        await db.commit()
+    except IntegrityError:
+        # 并发首写撞 (user_id, src_key) 唯一索引：回滚后改更新赢家行（幂等）
+        await db.rollback()
+        ov = (
+            await db.execute(
+                select(KbBaselineOverlay).where(
+                    KbBaselineOverlay.user_id == user_id,
+                    KbBaselineOverlay.src_key == src_key,
+                )
+            )
+        ).scalar_one_or_none()
+        if ov is None:
+            raise
+        ov.action = action
+        if action == "edit":
+            ov.content = text
+            ov.base_content_sha256 = base_sha
+        await db.commit()
     return {"ok": True, "action": action}
 
 

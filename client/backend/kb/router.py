@@ -68,6 +68,7 @@ def _entry_dict(e: KbEntry) -> dict[str, Any]:
         "layer": layer,
         "src_key": getattr(e, "src_key", ""),
         "overlaid": bool(getattr(e, "overlaid", False)),
+        "hidden": bool(getattr(e, "hidden", False)),
         "official_update": has_official_update(e) if layer == "baseline" else False,
     }
 
@@ -342,7 +343,10 @@ async def graph_aggregate_api(
     """聚合视图：题材×概念格子节点（默认首屏 ≤80 节点内）＋题材—格子层级边。"""
     uid = _user(user)
     counts = await genre_counts(db, user_id=uid)
-    # 格子计数：按 (genre, concept) 分组（含跨题材通用 genre=""）
+    # 格子计数：用户条目 ∪ 基线层（与题材栏/下钻同口径；只算用户段会让纯基线
+    # 账号的图谱空白、混合账号的节点数与格子和对不上）
+    from kb.merged import baseline_cell_counts
+
     rows = (
         await db.execute(
             select(KbEntry.genre, KbEntry.concept, func.count(KbEntry.id)).where(
@@ -350,9 +354,12 @@ async def graph_aggregate_api(
             ).group_by(KbEntry.genre, KbEntry.concept)
         )
     ).all()
+    cells: dict[tuple[str, str], int] = {(g, c): int(n) for g, c, n in rows}
+    for key, n in (await baseline_cell_counts(db, user_id=uid)).items():
+        cells[key] = cells.get(key, 0) + n
     nodes = []
     links = []
-    for genre, concept, n in rows:
+    for (genre, concept), n in cells.items():
         gid = f"genre:{genre or '_general'}"
         cid = f"cell:{genre or '_general'}:{concept}"
         nodes.append({"id": cid, "kind": "cell", "genre": genre or "", "concept": concept, "count": int(n)})
