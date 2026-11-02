@@ -607,7 +607,7 @@ async def _import_kb_book(
     import json as _kbjson
     from datetime import datetime as _dtc
 
-    from models.kb import KbBookBinding, KbMatchItem, KbMatchRun
+    from models.kb import KbBookBinding, KbBookEntry, KbMatchItem, KbMatchRun
 
     try:
         doc = yaml.safe_load(zf.read(kb_name)) or {}
@@ -634,6 +634,7 @@ async def _import_kb_book(
 
     created_b = created_r = created_i = 0
     run_id_map: dict[str, str] = {}
+    created_e = 0
     for row in doc.get("bindings") or []:
         if not isinstance(row, dict) or not row.get("library_id"):
             continue
@@ -642,6 +643,16 @@ async def _import_kb_book(
             continue  # 按绑定行 id 去重（书内唯一）
         db.add(KbBookBinding(**_cols(KbBookBinding, row, novel_id=novel.id)))
         created_b += 1
+    # 书级知识副本（c-kb-book-scope）：按 id 去重（换机同 id 直接跳过——
+    # 源账号条目不在本机也不影响：副本自包含）
+    for row in doc.get("book_entries") or []:
+        if not isinstance(row, dict) or not row.get("id"):
+            continue
+        eid = str(row["id"])
+        if await db.get(KbBookEntry, eid) is not None:
+            continue
+        db.add(KbBookEntry(**_cols(KbBookEntry, row, novel_id=novel.id)))
+        created_e += 1
     for row in doc.get("match_runs") or []:
         if not isinstance(row, dict):
             continue

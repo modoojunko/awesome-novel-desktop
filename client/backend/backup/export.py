@@ -486,7 +486,7 @@ async def _dump_kb_book(zf, db, project, prefix: str = "") -> None:
     """
     from sqlalchemy import select as _select
 
-    from models.kb import KbBookBinding, KbMatchItem, KbMatchRun
+    from models.kb import KbBookBinding, KbBookEntry, KbMatchItem, KbMatchRun
 
     def _rows(rows):
         out = []
@@ -504,7 +504,10 @@ async def _dump_kb_book(zf, db, project, prefix: str = "") -> None:
     runs = (
         await db.scalars(_select(KbMatchRun).where(KbMatchRun.novel_id == project.id).order_by(KbMatchRun.id))
     ).all()
-    if not bindings and not runs:
+    book_entries = (
+        await db.scalars(_select(KbBookEntry).where(KbBookEntry.novel_id == project.id).order_by(KbBookEntry.id))
+    ).all()
+    if not bindings and not runs and not book_entries:
         return
     items = []
     if runs:
@@ -519,6 +522,7 @@ async def _dump_kb_book(zf, db, project, prefix: str = "") -> None:
             "bindings": _rows(bindings),
             "match_runs": _rows(runs),
             "match_items": _rows(items),
+            "book_entries": _rows(book_entries),  # c-kb-book-scope：书级知识副本（兼容键不升版）
         }),
     )
 

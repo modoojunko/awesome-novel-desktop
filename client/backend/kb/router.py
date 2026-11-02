@@ -24,7 +24,7 @@ from kb.service import (
     update_entry,
 )
 from library.service import ensure_genre_backfill
-from models.kb import KbBookBinding, KbEntry, KbPref
+from models.kb import KbBookBinding, KbBookEntry, KbEntry, KbPref
 from novels.service import get_novel
 
 router = APIRouter(prefix="/api/kb", tags=["kb"])
@@ -915,3 +915,61 @@ async def graph_entries_api(
     from kb.organize import graph_entries
 
     return {"ok": True, "data": await graph_entries(db, user_id=_user(user), genre=genre)}
+
+@router.post("/book-scope/import")
+async def import_book_scope_api(
+    body: dict,
+    user: dict = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """存量书补平（c-kb-book-scope 批C）：按书题材把账号库「命中＋通用」增量导入
+    书级副本（幂等，只补新条）。新人开书自动导入之外的显式出口（设定面板入口）。"""
+    from models.project import Novel as _Novel
+
+    uid = _user(user)
+    novel_id = str(body.get("novel_id") or "")
+    novel = await db.get(_Novel, novel_id)
+    if novel is None or novel.user_id != uid or novel.status == "deleted":
+        raise HTTPException(404, "Book not found")
+    from kb.book_scope import import_genre_knowledge
+
+    result = await import_genre_knowledge(
+        db, novel_id=novel_id, user_id=uid, genre=novel.genre or ""
+    )
+    return {"ok": True, "data": result}
+
+
+@router.get("/book-scope/diff")
+async def book_scope_diff_api(
+    novel_id: str = "",
+    user: dict = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """「库有 N 条新增」差异计数（c-kb-book-scope）：题材命中未复制的 active 条目数。"""
+    from models.project import Novel as _Novel
+
+    uid = _user(user)
+    novel = await db.get(_Novel, novel_id)
+    if novel is None or novel.user_id != uid or novel.status == "deleted":
+        raise HTTPException(404, "Book not found")
+    copied = set(
+        (
+            await db.execute(
+                select(KbBookEntry.src_key).where(
+                    KbBookEntry.novel_id == novel_id,
+                    KbBookEntry.status == "active",
+                )
+            )
+        ).scalars()
+    )
+    new_count = (
+        await db.execute(
+            select(func.count(KbEntry.id)).where(
+                KbEntry.user_id == uid,
+                KbEntry.status == "active",
+                (KbEntry.genre == (novel.genre or "")) | (KbEntry.genre == ""),
+                KbEntry.id.not_in(copied or ["-"]),
+            )
+        )
+    ).scalar_one()
+    return {"ok": True, "data": {"new_count": int(new_count or 0)}}

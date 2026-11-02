@@ -258,3 +258,45 @@ def test_量化合成保守基线():
     _run(_import(novel_id, uid))  # 重复导入不覆盖作者蒸馏
     doc2 = _run(_read())
     assert doc2["confidence"] == 85  # 蒸馏资产保留
+
+
+def test_单书备份往返_书级段():
+    """C3：_dump_kb_book 带书级知识段；_import_kb_book 重建（按 id 去重）。"""
+    import io
+    import zipfile
+
+    uid = f"bk{uuid.uuid4().hex[:8]}"
+    _run(_seed_user(uid))
+    _run(_seed_master(uid, [ENTRY_HIT, ENTRY_COMMON, ENTRY_QUANT]))
+    novel_id = _run(_seed_book(uid))
+    _run(_import(novel_id, uid))
+
+    async def _roundtrip():
+        import yaml as _yaml
+        from sqlalchemy import delete as _del
+
+        from backup.export import _dump_kb_book
+        from backup.importer import _import_kb_book
+        from models.project import Novel as _Novel
+
+        async with async_session() as db:
+            project = await db.get(_Novel, novel_id)
+            buf = io.BytesIO()
+            with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
+                await _dump_kb_book(zf, db, project)
+                doc = _yaml.safe_load(zf.read("kb/kb-book.yaml"))
+                n_before = len(doc.get("book_entries") or [])
+                # 模拟换机恢复：清空本书副本后重建
+                await db.execute(_del(KbBookEntry).where(KbBookEntry.novel_id == novel_id))
+                await db.commit()
+                await _import_kb_book(db, zf, set(zf.namelist()), "", project, uid, [])
+                await db.commit()
+                rows = (await db.execute(
+                    sel(KbBookEntry).where(KbBookEntry.novel_id == novel_id)
+                )).scalars().all()
+            return n_before, len(rows), [r.title for r in rows]
+    n_before, n_after, titles = _run(_roundtrip())
+    assert n_before >= 3  # 命中＋通用＋量化
+    assert n_after == n_before  # 段重建完整
+    assert "玄幻命中手法" in titles
+
