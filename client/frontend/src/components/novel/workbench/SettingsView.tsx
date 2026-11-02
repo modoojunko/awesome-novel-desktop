@@ -19,6 +19,7 @@ import { type SettingSaveHandle } from "@/components/novel/settings/FormField";
 import WorldSettingPanel from "@/components/novel/settings/world/WorldSettingPanel";
 import type { WorldPanelHandle } from "@/components/novel/settings/world/WorldSettingPanel";
 import StyleSettingForm, { type StylePanelHandle } from "@/components/novel/settings/StyleSettingForm";
+import BookScopeStrip from "@/components/novel/settings/BookScopeStrip";
 import KbSourceStrip from "@/components/novel/settings/KbSourceStrip";
 import HooksSettingForm, { type HookSaveState, type HooksPanelHandle } from "@/components/novel/settings/HooksSettingForm";
 import CharacterManager, { type CharGateHint } from "@/components/novel/settings/CharacterManager";
@@ -849,7 +850,10 @@ export default function SettingsView({
             className={panel === "chars" || panel === "foreshadow" ? "sub-wrap" : undefined}
           >
             {panel === "genre" && (
-              <GenreSettingForm
+              <>
+                {/* 书级知识副本补平入口（c-kb-book-scope 批D）：题材命中未导入时给一键导入 */}
+                <BookScopeStrip projectId={projectId} />
+                <GenreSettingForm
                 ref={genreRef}
                 projectId={projectId}
                 settingKey="genre"
@@ -857,6 +861,7 @@ export default function SettingsView({
                 onReceiptChange={handleReceiptChange}
                 novelName={novelName}
               />
+              </>
             )}
             {panel === "intro" && (
               <IntroPanel

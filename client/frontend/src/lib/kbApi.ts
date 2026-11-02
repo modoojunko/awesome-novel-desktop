@@ -354,4 +354,16 @@ export const kbApi = {
         method: "DELETE",
       }),
     ),
+  /** 书级知识副本（c-kb-book-scope）：存量书补平＋「库有 N 条新增」差异计数 */
+  bookScopeImport: (novelId: string) =>
+    unwrap<{ imported: number; skipped: number }>(
+      request(`${BASE}/book-scope/import`, {
+        method: "POST",
+        body: JSON.stringify({ novel_id: novelId }),
+      }),
+    ),
+  bookScopeDiff: (novelId: string) =>
+    unwrap<{ new_count: number }>(
+      request(`${BASE}/book-scope/diff?novel_id=${encodeURIComponent(novelId)}`),
+    ),
 };
