@@ -32,10 +32,16 @@ VERSION_KEY = "kb_baseline_version"
 SUPPORTED_FORMAT_VERSION = 1
 _MAX_PACK_BYTES = 16 * 1024 * 1024
 _FETCH_TIMEOUT = 8.0
-_DEFAULT_CDN_BASE = ""  # CDN 接入后烘焙；未配置＝同步静默跳过（库空写法块不出现，同级降级）
+_DEFAULT_CDN_BASE = "https://www.awesomenovel.com/knowledge/baseline"
+_DEFAULT_CDN_BASE_FALLBACK = (
+    "https://ai-novel-test-d1ghsr86ra814c12c-1468883265.tcloudbaseapp.com/knowledge/baseline"
+)
 
 _NS = uuid.uuid5(uuid.NAMESPACE_URL, "https://ai-novel/kb-baseline")
-_TRUST_PUBKEYS: dict[str, bytes] = {}  # {kid: base64(32B raw)}——打包期烘焙（同 CLIENT_PACK_PUBKEYS 先例）
+# {kid: 32B raw}——非空即优先（测试/联调注入）；否则 CLIENT_KB_PUBKEYS →
+# CLIENT_UPDATE_PUBKEYS（与自动升级同一把 update-k1 钥，不另造钥）→ 生产默认。
+_TRUST_PUBKEYS: dict[str, bytes] = {}
+_PROD_PUBKEYS_JSON = '{"update-k1":"Ktq81Y4Qf9cPapmfbLw2h4SGGo1E72X3HaGUxOBU/EU="}'
 
 _syncing = False
 
@@ -51,9 +57,50 @@ def _cdn_base() -> str:
     return (os.environ.get("KNOWLEDGE_CDN_BASE") or _DEFAULT_CDN_BASE).strip().rstrip("/")
 
 
+def _cdn_bases() -> list[str]:
+    """主域→兜底域（与 prompt_pack/update_check 同源模式）；env 覆盖时只走覆盖值。"""
+    import os
+
+    if (os.environ.get("KNOWLEDGE_CDN_BASE") or "").strip():
+        return [_cdn_base()]
+    out = [_cdn_base()]
+    fb = _DEFAULT_CDN_BASE_FALLBACK.strip().rstrip("/")
+    if fb and fb != out[0]:
+        out.append(fb)
+    return out
+
+
+def _trust_keys() -> dict[str, bytes]:
+    import base64
+    import os
+
+    if _TRUST_PUBKEYS:
+        return _TRUST_PUBKEYS
+    for name in ("CLIENT_KB_PUBKEYS", "CLIENT_UPDATE_PUBKEYS"):
+        raw = (os.environ.get(name) or "").strip()
+        if not raw:
+            continue
+        try:
+            parsed = json.loads(raw)
+            keys = {str(k): base64.b64decode(str(v)) for k, v in parsed.items()}
+        except (ValueError, TypeError, AttributeError):
+            continue
+        if keys and all(len(v) == 32 for v in keys.values()):
+            return keys
+    try:
+        parsed = json.loads(_PROD_PUBKEYS_JSON)
+        return {str(k): base64.b64decode(str(v)) for k, v in parsed.items()}
+    except (ValueError, TypeError):
+        return {}
+
+
 def _trusted_hosts() -> set[str]:
-    base = _cdn_base()
-    return {urlparse(base).hostname.lower()} if base and urlparse(base).hostname else set()
+    hosts = set()
+    for base in _cdn_bases():
+        host = urlparse(base).hostname
+        if host:
+            hosts.add(host.lower())
+    return hosts
 
 
 def _validate_outbound(url: str) -> bool:
@@ -228,16 +275,23 @@ async def _sync_impl(db: AsyncSession | None) -> dict:
 
     from manifest_crypto import verify_manifest
 
-    base = _cdn_base()
-    if not base or not _TRUST_PUBKEYS:
+    keys = _trust_keys()
+    if not keys:
         return {"status": "skipped", "reason": "not_configured"}
 
     async with httpx.AsyncClient() as client:
-        latest_url = _derive(base, "latest.json")
-        if not _validate_outbound(latest_url):
-            return {"status": "failed", "reason": "unsafe_url"}
-        latest = await _fetch_json(client, latest_url)
-        if latest is None or not verify_manifest(latest, _TRUST_PUBKEYS):
+        # 主域→兜底域逐个探 latest.json（签名有效才算命中；静态托管与更新/提示词包同域）
+        base = ""
+        latest = None
+        for candidate in _cdn_bases():
+            latest_url = _derive(candidate, "latest.json")
+            if not _validate_outbound(latest_url):
+                continue
+            probe = await _fetch_json(client, latest_url)
+            if probe is not None and verify_manifest(probe, keys):
+                base, latest = candidate, probe
+                break
+        if latest is None:
             return {"status": "failed", "reason": "latest_invalid"}
         version = int(latest.get("version") or 0)
         if _too_old(latest.get("min_client_version")):
@@ -254,7 +308,7 @@ async def _sync_impl(db: AsyncSession | None) -> dict:
             manifest = json.loads(manifest_raw) if manifest_raw is not None else None
         except ValueError:
             manifest = None
-        if not isinstance(manifest, dict) or not verify_manifest(manifest, _TRUST_PUBKEYS):
+        if not isinstance(manifest, dict) or not verify_manifest(manifest, keys):
             return {"status": "failed", "reason": "manifest_invalid"}
         # 清单内声明优先（latest 是「有没有新版」的门，manifest 是「本包能不能装」的门）
         if _too_old(manifest.get("min_client_version")):

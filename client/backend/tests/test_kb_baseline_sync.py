@@ -60,8 +60,11 @@ class _FakeCDN:
         self.latest = None
         self.manifest_raw = b"{}"
         self.entries_raw = b"[]"
+        self.dead: set[str] = set()  # 含这些片段的主机一律失败（兜底域用例）
 
     async def get_json(self, client=None, url="", **kw):
+        if any(d in url for d in self.dead):
+            return None
         if url.endswith("latest.json"):
             return self.latest
         if url.endswith("manifest.json"):
@@ -69,6 +72,8 @@ class _FakeCDN:
         return None
 
     async def get_bytes(self, client=None, url="", **kw):
+        if any(d in url for d in self.dead):
+            return None
         if url.endswith("entries.jsonl"):
             return self.entries_raw
         if url.endswith("manifest.json"):
@@ -192,7 +197,9 @@ def sync_env(monkeypatch):
         _run(_go())
 
     _reset()
+    _CDN.dead = set()
     yield bl
+    _CDN.dead = set()
     _reset()
 
 
@@ -387,11 +394,48 @@ def test_双账号隔离(sync_env):
     assert ovs[u2].base_content_sha256 == "h2"
 
 
-def test_未配置静默跳过(sync_env, monkeypatch):
+def test_未配置信任钥静默跳过(sync_env, monkeypatch):
     bl = sync_env
-    monkeypatch.setattr(bl, "_cdn_base", lambda: "")
+    monkeypatch.setattr(bl, "_trust_keys", dict)
     r = _sync(bl)
     assert r["status"] == "skipped" and r["reason"] == "not_configured"
+
+
+def test_生产默认_静态托管同域与烘焙公钥(monkeypatch):
+    """不另造 CDN/钥：基线走 www.awesomenovel.com 静态托管 + update-k1 同一把钥。"""
+    from kb import baseline as bl
+
+    monkeypatch.delenv("CLIENT_KB_PUBKEYS", raising=False)
+    monkeypatch.delenv("CLIENT_UPDATE_PUBKEYS", raising=False)
+    monkeypatch.setattr(bl, "_TRUST_PUBKEYS", {})
+    assert bl._DEFAULT_CDN_BASE == "https://www.awesomenovel.com/knowledge/baseline"
+    keys = bl._trust_keys()
+    assert set(keys) == {"update-k1"}
+    assert len(keys["update-k1"]) == 32
+    assert base64.b64encode(keys["update-k1"]).decode() == "Ktq81Y4Qf9cPapmfbLw2h4SGGo1E72X3HaGUxOBU/EU="
+    assert "www.awesomenovel.com" in bl._trusted_hosts()
+
+
+def test_环境钥优先于烘焙默认(monkeypatch):
+    from kb import baseline as bl
+
+    monkeypatch.setattr(bl, "_TRUST_PUBKEYS", {})
+    monkeypatch.setenv("CLIENT_KB_PUBKEYS", json.dumps(
+        {_TEST_KID: base64.b64encode(_TEST_PUBKEYS[_TEST_KID]).decode()}))
+    keys = bl._trust_keys()
+    assert keys[_TEST_KID] == _TEST_PUBKEYS[_TEST_KID]
+
+
+def test_主域失败自动走兜底域(sync_env):
+    """主域挂掉（DNS/超时/404）→ 兜底域取同一份签名清单，同步照常成功。"""
+    bl = sync_env
+    _CDN.dead = {"www.awesomenovel.com"}
+    e = _entry("baseline:玄幻:tech-a", "玄幻手法A")
+    _publish(1, [e])
+    r = _sync(bl)
+    assert r["status"] == "synced" and r["entries"] == 1, f"got {r}"
+    rows, _, ver = _layer_state()
+    assert set(rows) == {e["src_key"]} and ver == 1
 
 
 def test_启动补偿_无事件循环静默跳过():

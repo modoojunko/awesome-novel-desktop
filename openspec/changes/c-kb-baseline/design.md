@@ -24,6 +24,12 @@
    判例。latest+manifest 复用 manifest_crypto 同一 Ed25519 信任根（客户端烘焙公钥，
    publish 侧 UPDATE_SIGNING_PRIVATE_KEY CI secret）；加包体 size 上限（16MB）与
    https＋可信域＋拒非公网 DNS 的 SSRF 防线（照 prompt_pack 七道校验）。
+   **分发面不新建渠道**：知识包落既有 CloudBase 静态托管
+   `https://www.awesomenovel.com/knowledge/baseline/`（与 `/download`、`/prompts` 同桶
+   同域），发布 CI 复用现有 `TCB_API_KEY`＋`TCB_ENV_ID`；验签钥复用 `update-k1`
+   （打包侧经 `CLIENT_UPDATE_PUBKEYS` 注入，本模块按 `CLIENT_KB_PUBKEYS` →
+   `CLIENT_UPDATE_PUBKEYS` → 烘焙默认三级回退）。**不新增 CDN、不新增 secret**；
+   主域失败自动切 `*.tcloudbaseapp.com` 兜底域（与 update_check/prompt_pack 同源）。
 5. **格式版本闸**：manifest 自 v1 带 format_version＋min_client_version；高于本端支持
    → 静默跳过保持旧层（与 backup「弹错拒绝」语义不同，显式写清）；失败/跳过均保持旧层
    ＋failed 可重试。
