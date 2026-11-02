@@ -8,7 +8,7 @@ import CharacterManager, {
   type CharacterSaveHandle,
 } from "@/components/novel/settings/CharacterManager";
 import { CharsAiRail } from "@/components/novel/AiWriterAssistant";
-import type { CharAiCtx } from "@/lib/characterModel";
+import { characterFieldLabel, type CharAiCtx } from "@/lib/characterModel";
 
 const apiGet = vi.fn();
 const apiPost = vi.fn();
@@ -223,6 +223,11 @@ describe("CharacterManager 从简介立主角（提示词编辑流）", () => {
     await screen.findByText("AI 拟稿 · 从简介立主角（采纳才写入）");
     const body = screen.getByTestId("char-ai-card").textContent!;
     expect(body).toContain("林拾");
+    // 明细行给中文标签，不把内部路径 dossier.race 暴露给作者
+    expect(body).toContain("种族");
+    expect(body).toContain("核心认知盲区");
+    expect(body).not.toContain("dossier.race");
+    expect(body).not.toContain("cog.w5");
     // 调用序：preview 带渲染稿请求；生成带编辑稿（未改＝渲染稿逐字下发）
     expect(apiPost).toHaveBeenCalledWith("/novels/p1/settings/ai/characters/bootstrap", {
       character_id: undefined,
@@ -516,5 +521,82 @@ describe("CharsAiRail 从简介立主角行", () => {
       <CharsAiRail ctx={{ ...base, role: "配角" }} aiState="ready" onRun={onRun} />,
     );
     expect(screen.queryByText("从简介立主角")).toBeNull();
+  });
+});
+
+describe("CharsAiRail 空态入口（书里还没有角色卡）", () => {
+  const onRun = vi.fn();
+
+  it("空态首行给「从简介立主角」，其余四行置灰并指路", async () => {
+    render(<CharsAiRail ctx={null} noCard introReady aiState="ready" onRun={onRun} />);
+    const row = await screen.findByTestId("char-rail-bootstrap");
+    expect(row.textContent).toContain("从简介立主角");
+    fireEvent.click(row);
+    await waitFor(() => expect(onRun).toHaveBeenCalledWith("bootstrap"));
+    // 卡片级四行没有卡可作用于：置灰＋hint（点击静默落空的老毛病不再出现）
+    for (const name of ["人设补充", "基础信息补充", "认知补充", "一致性体检"]) {
+      const btn = screen.getByText(name).closest("button")!;
+      expect(btn.disabled).toBe(true);
+      expect(btn.textContent).toContain("先立主角");
+    }
+  });
+
+  it("简介未确认：行可见但置灰，hint 先写 02 简介", () => {
+    render(<CharsAiRail ctx={null} noCard introReady={false} aiState="ready" onRun={onRun} />);
+    const row = screen.getByTestId("char-rail-bootstrap") as HTMLButtonElement;
+    expect(row.disabled).toBe(true);
+    expect(row.textContent).toContain("先写 02 简介");
+    fireEvent.click(row);
+    expect(onRun).not.toHaveBeenCalled();
+  });
+
+  it("列表未就绪（noCard=false）不给空态入口，防把「还不知道」当成空书", () => {
+    render(<CharsAiRail ctx={null} aiState="ready" onRun={onRun} />);
+    expect(screen.queryByTestId("char-rail-bootstrap")).toBeNull();
+  });
+});
+
+describe("CharacterManager 空态上报（右栏入口判据）", () => {
+  it("空列表上报 true；有卡上报 false（换书首帧先报 false）", async () => {
+    const onEmpty = vi.fn();
+    const first = render(<CharacterManager projectId="p1" onEmptyChange={onEmpty} />);
+    await waitFor(() => expect(onEmpty).toHaveBeenCalledWith(true));
+    first.unmount();
+
+    apiGet.mockImplementation((url: string) => {
+      if (String(url) === "/novels/p2/characters") {
+        return Promise.resolve({ data: listWith([cardData()]) });
+      }
+      return Promise.resolve({ data: cardData() });
+    });
+    const onEmpty2 = vi.fn();
+    render(<CharacterManager projectId="p2" onEmptyChange={onEmpty2} />);
+    await waitFor(() => expect(apiGet).toHaveBeenCalledWith("/novels/p2/characters"));
+    expect(onEmpty2).not.toHaveBeenCalledWith(true);
+    expect(onEmpty2).toHaveBeenLastCalledWith(false);
+  });
+});
+
+describe("characterFieldLabel（出稿明细中文化）", () => {
+  it("档案/认知路径取角色卡同源 label", () => {
+    expect(characterFieldLabel("dossier.gender")).toBe("性别");
+    expect(characterFieldLabel("dossier.faction")).toBe("势力 · 身份");
+    expect(characterFieldLabel("cog.w5")).toBe("核心认知盲区");
+    expect(characterFieldLabel("cog.p2")).toBe("后天综合能力（金手指）");
+  });
+
+  it("裸键（跳过项）按同键查表，name/aliases/persona 直出", () => {
+    expect(characterFieldLabel("age")).toBe("年龄");
+    expect(characterFieldLabel("w1")).toBe("世界规则认知度");
+    expect(characterFieldLabel("name")).toBe("名称");
+    expect(characterFieldLabel("aliases")).toBe("别名");
+    expect(characterFieldLabel("persona")).toBe("一句话人设");
+  });
+
+  it("未知键原样回退（不吞信息）", () => {
+    expect(characterFieldLabel("dossier.unknown")).toBe("dossier.unknown");
+    expect(characterFieldLabel("cog.zz")).toBe("cog.zz");
+    expect(characterFieldLabel("foo.bar")).toBe("foo.bar");
+    expect(characterFieldLabel("mystery")).toBe("mystery");
   });
 });

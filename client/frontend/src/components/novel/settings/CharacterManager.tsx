@@ -9,6 +9,7 @@ import { charactersApi, BootstrapDraft, CharacterCard } from "@/lib/charactersAp
 import {
   COG_FIELD_HINTS,
   COG_FILL_KEYS,
+  characterFieldLabel,
   COG_LEVEL_HINTS,
   COG_LAYERS,
   DOSSIER_FIELDS,
@@ -40,6 +41,9 @@ interface Props {
   onDirtyChange?: (dirty: boolean) => void;
   /** 选中卡变化时上报（右栏四行提示与缺口计数的数据源） */
   onCtxChange?: (ctx: CharAiCtx | null) => void;
+  /** 列表载入后是否一张卡都没有（右栏空态「从简介立主角」入口的判据）。
+   *  未载入/载入失败一律报 false——「还不知道」不能当成「没有卡」误建主角。 */
+  onEmptyChange?: (empty: boolean) => void;
   /** 02 简介是否已填（readiness settingsStatus.synopsis）——空态引导卡的分路判据 */
   introReady?: boolean;
   /** 本书 AI 就绪态（D13）：空态引导按钮与右栏行同一门控；不 ready 时点击走 onBlocked */
@@ -122,8 +126,8 @@ const CharacterManager = forwardRef<CharacterSaveHandle, Props>(function Charact
   ref,
 ) {
   const {
-    projectId, onDirtyChange, onCtxChange, introReady, aiState, onBlocked, onGateHintChange,
-    onRefreshConfirmState,
+    projectId, onDirtyChange, onCtxChange, onEmptyChange, introReady, aiState, onBlocked,
+    onGateHintChange, onRefreshConfirmState,
   } = props;
   const [list, setList] = useState<CharacterCard[]>([]);
   const [gate, setGate] = useState<{ ok: boolean; no_protagonist: boolean; confirmed: boolean }>({
@@ -192,9 +196,10 @@ const CharacterManager = forwardRef<CharacterSaveHandle, Props>(function Charact
     setList(data.items);
     setGate({ ok: data.gate.ok, no_protagonist: data.gate.no_protagonist, confirmed: data.confirmed });
     setListLoaded(true); // 只有真拿到列表才放行门禁摘要（失败路径保持静默，见 listLoaded 声明处）
+    onEmptyChange?.(data.items.length === 0); // 右栏空态入口只认「真载入且为空」
     onRefreshConfirmState?.(); // 数据已刷新＝存档可能过期：请父层重取（c-chars-stale-reconfirm）
     return data.items;
-  }, [projectId, onRefreshConfirmState]);
+  }, [projectId, onRefreshConfirmState, onEmptyChange]);
 
   const loadCard = useCallback(async (id: string) => {
     const full = await charactersApi.get(projectId, id);
@@ -234,6 +239,7 @@ const CharacterManager = forwardRef<CharacterSaveHandle, Props>(function Charact
 
   useEffect(() => {
     setListLoaded(false); // 换书重取：旧书的缺口摘要不得借道新书的首帧（评审补丁）
+    onEmptyChange?.(false); // 换书首帧：上一本的空态不能借道给新书（防误开立主角入口）
     selectedIdRef.current = ""; // 换书清选中：空书残留旧书 id 会让空态立主角被迟到守卫误弃
     (async () => {
       try {
@@ -632,6 +638,9 @@ const CharacterManager = forwardRef<CharacterSaveHandle, Props>(function Charact
         setCardOpen(false);
         await loadCard(created.id);
         await reloadList();
+        // 空态立主角：明确落到卡上（用户现场「看不到写进哪」——不说清楚就像没生效）
+        showToast("主角已写入卡上，可继续补配角或点「确认完成」");
+        return;
       }
       showToast("\u5df2\u91c7\u7eb3\uff0c\u53ef\u7ee7\u7eed\u6539");
     } catch (e) {
@@ -794,12 +803,17 @@ const CharacterManager = forwardRef<CharacterSaveHandle, Props>(function Charact
     <>
       {data.cells.map((cell) => (
         <div key={cell.path} style={{ display: "flex", gap: 8, margin: "5px 0", alignItems: "baseline" }}>
-          <span style={{ flex: "none", width: 108, fontSize: 12, color: "var(--muted)" }}>{cell.path}</span>
+          {/* 中文标签（与角色卡同源）：内部路径 dossier.gender / cog.w1 不给作者看 */}
+          <span style={{ flex: "none", width: 128, fontSize: 12, color: "var(--muted)" }}>
+            {characterFieldLabel(cell.path)}
+          </span>
           <span style={{ minWidth: 0, fontSize: 12.5 }}>{cell.value}</span>
         </div>
       ))}
       {data.skipped?.map((s, i) => (
-        <div key={`${s.key}-${i}`} className="opt">跳过 {s.key}：{s.why}</div>
+        <div key={`${s.key}-${i}`} className="opt">
+          跳过 {characterFieldLabel(s.key)}：{s.why}
+        </div>
       ))}
     </>
   );
@@ -1400,7 +1414,7 @@ const CharacterManager = forwardRef<CharacterSaveHandle, Props>(function Charact
                     )}
                     {draftRows(bootstrapSink)}
                     <p style={{ margin: "8px 0 0", fontSize: 11.5, color: "var(--muted)" }}>
-                      只补空格——你写过的字一个不动。
+                      只补空格——你写过的字一个不动；点右下角「采纳 · 写入」才会落到主角卡上。
                     </p>
                   </>
                 ),
