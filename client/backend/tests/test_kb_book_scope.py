@@ -286,18 +286,27 @@ def test_单书备份往返_书级段():
                 await _dump_kb_book(zf, db, project)
                 doc = _yaml.safe_load(zf.read("kb/kb-book.yaml"))
                 n_before = len(doc.get("book_entries") or [])
-                # 模拟换机恢复：清空本书副本后重建
+                n_tags_before = len(doc.get("book_entry_tags") or [])
+                # 模拟换机恢复：清空本书副本与标签后重建（标签是选择器候选域，
+                # 只恢复条目不恢复标签＝写法块静默为空）
                 await db.execute(_del(KbBookEntry).where(KbBookEntry.novel_id == novel_id))
+                await db.execute(
+                    _del(KbBookEntryTag).where(KbBookEntryTag.novel_id == novel_id)
+                )
                 await db.commit()
                 await _import_kb_book(db, zf, set(zf.namelist()), "", project, uid, [])
                 await db.commit()
                 rows = (await db.execute(
                     sel(KbBookEntry).where(KbBookEntry.novel_id == novel_id)
                 )).scalars().all()
-            return n_before, len(rows), [r.title for r in rows]
-    n_before, n_after, titles = _run(_roundtrip())
+                tags = (await db.execute(
+                    sel(KbBookEntryTag).where(KbBookEntryTag.novel_id == novel_id)
+                )).scalars().all()
+            return n_before, len(rows), n_tags_before, len(tags), [r.title for r in rows]
+    n_before, n_after, n_tags_before, n_tags_after, titles = _run(_roundtrip())
     assert n_before >= 3  # 命中＋通用＋量化
     assert n_after == n_before  # 段重建完整
+    assert n_tags_before > 0 and n_tags_after == n_tags_before  # 标签索引随包往返
     assert "玄幻命中手法" in titles
 
 
@@ -389,13 +398,25 @@ def test_改题材复位decline():
         return {"id": uid}
 
     app.dependency_overrides[get_current_user] = _override
-    try:
-        with TestClient(app) as c:
-            r = c.put(
-                f"/api/novels/{novel_id}/settings/genre",
-                json={"theme": "玄幻"},
-            )
-            assert r.status_code == 200, r.text
-    finally:
-        app.dependency_overrides.clear()
+
+    def _put(body: dict):
+        try:
+            with TestClient(app) as c:
+                r = c.put(f"/api/novels/{novel_id}/settings/genre", json=body)
+                assert r.status_code == 200, r.text
+        finally:
+            app.dependency_overrides.clear()
+
+    _put({"theme": "玄幻"})
+    assert _run(read_import_declined(root)) is False  # 空→玄幻＝真改题材，复位
+
+    # 同题材保存（只改 02 主要看什么）不清 declined：作家选的「我自己设定」保留
+    _run(write_import_declined(root, True))
+    app.dependency_overrides[get_current_user] = _override
+    _put({"theme": "玄幻", "core_promise": "逆袭打脸"})
+    assert _run(read_import_declined(root)) is True
+
+    # 真改题材才重新征询
+    app.dependency_overrides[get_current_user] = _override
+    _put({"theme": "都市"})
     assert _run(read_import_declined(root)) is False

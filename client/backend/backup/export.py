@@ -486,7 +486,13 @@ async def _dump_kb_book(zf, db, project, prefix: str = "") -> None:
     """
     from sqlalchemy import select as _select
 
-    from models.kb import KbBookBinding, KbBookEntry, KbMatchItem, KbMatchRun
+    from models.kb import (
+        KbBookBinding,
+        KbBookEntry,
+        KbBookEntryTag,
+        KbMatchItem,
+        KbMatchRun,
+    )
 
     def _rows(rows):
         out = []
@@ -509,6 +515,21 @@ async def _dump_kb_book(zf, db, project, prefix: str = "") -> None:
     ).all()
     if not bindings and not runs and not book_entries:
         return
+    # 书级副本的物化标签（c-kb-book-scope）：选择器候选域＝标签，必须随包走——
+    # 只带条目不带标签，恢复后写法块会静默为空（delta 明文要求「重建标签索引」）
+    book_tags = []
+    if book_entries:
+        ids = [e.id for e in book_entries]
+        for start in range(0, len(ids), 500):
+            book_tags.extend(
+                (
+                    await db.scalars(
+                        _select(KbBookEntryTag)
+                        .where(KbBookEntryTag.entry_id.in_(ids[start:start + 500]))
+                        .order_by(KbBookEntryTag.id)
+                    )
+                ).all()
+            )
     items = []
     if runs:
         items = (
@@ -523,6 +544,7 @@ async def _dump_kb_book(zf, db, project, prefix: str = "") -> None:
             "match_runs": _rows(runs),
             "match_items": _rows(items),
             "book_entries": _rows(book_entries),  # c-kb-book-scope：书级知识副本（兼容键不升版）
+            "book_entry_tags": _rows(book_tags),  # 物化标签投影（恢复重建索引用）
         }),
     )
 

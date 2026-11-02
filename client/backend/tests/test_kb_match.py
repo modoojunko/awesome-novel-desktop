@@ -257,3 +257,32 @@ def test_有用率回写影响排序(lib_uid):
             return [i.entry.id for i in selr.items]
     after = _run(_select_order())
     assert before[0] not in after[:2]  # 被标没用后跌出前列
+
+
+def test_账号路径跨题材不入选(lib_uid):
+    """账号级存量路径（无书副本、走绑定的老书）：题材过滤必须仍在——
+    其他题材的全章适用条目录不得混进本书写法块（P1 回归钉）。"""
+    uid = lib_uid
+    novel_id, ref = _run(_seed_book(uid, summary="正面交锋", mood="燃"))
+    entries = [
+        {"concept": "手法", "genre": "玄幻", "title": "玄幻全章手法",
+         "payload": {"instruction": "玄幻打法：先让三招。", "scene": "打斗"},
+         "instruction": "玄幻打法：先让三招。"},
+        {"concept": "手法", "genre": "悬疑", "title": "悬疑全章手法",
+         "payload": {"instruction": "悬疑打法：先抛钩子。", "scene": "打斗"},
+         "instruction": "悬疑打法：先抛钩子。"},
+        {"concept": "手法", "genre": "", "title": "通用全章手法",
+         "payload": {"instruction": "通用打法：对话别说完。", "scene": "打斗"},
+         "instruction": "通用打法：对话别说完。"},
+    ]
+    _run(_seed_library(uid, entries))
+
+    async def _titles():
+        async with async_session() as db:
+            signals = await extract_signals(db, novel_id=novel_id, chapter_ref=ref, genre="玄幻")
+            selr = await select_block(db, user_id=uid, signals=signals, genre="玄幻")
+            return [i.entry.title for i in selr.items] if selr else []
+
+    titles = _run(_titles())
+    assert "玄幻全章手法" in titles and "通用全章手法" in titles
+    assert "悬疑全章手法" not in titles  # 跨题材不得混入

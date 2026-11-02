@@ -607,7 +607,13 @@ async def _import_kb_book(
     import json as _kbjson
     from datetime import datetime as _dtc
 
-    from models.kb import KbBookBinding, KbBookEntry, KbMatchItem, KbMatchRun
+    from models.kb import (
+        KbBookBinding,
+        KbBookEntry,
+        KbBookEntryTag,
+        KbMatchItem,
+        KbMatchRun,
+    )
 
     try:
         doc = yaml.safe_load(zf.read(kb_name)) or {}
@@ -653,6 +659,27 @@ async def _import_kb_book(
             continue
         db.add(KbBookEntry(**_cols(KbBookEntry, row, novel_id=novel.id)))
         created_e += 1
+    # 书级标签（选择器候选域）：按 (entry_id, dim, value) 去重、id 交自增——
+    # 标签 id 是自增整数，跨库保留原 id 会与既有标签行撞号；条目 id 已按原值恢复
+    for row in doc.get("book_entry_tags") or []:
+        if not isinstance(row, dict) or not row.get("entry_id"):
+            continue
+        exists = (
+            await db.execute(
+                select(KbBookEntryTag.id).where(
+                    KbBookEntryTag.entry_id == str(row["entry_id"]),
+                    KbBookEntryTag.dim == str(row.get("dim") or ""),
+                    KbBookEntryTag.value == str(row.get("value") or ""),
+                )
+            )
+        ).first()
+        if exists:
+            continue
+        db.add(KbBookEntryTag(**_cols(
+            KbBookEntryTag,
+            {k: v for k, v in row.items() if k != "id"},
+            novel_id=novel.id,
+        )))
     for row in doc.get("match_runs") or []:
         if not isinstance(row, dict):
             continue

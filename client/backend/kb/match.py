@@ -134,6 +134,7 @@ async def digest_candidates(
     """
     tag_model = KbBookEntryTag if book_scope else KbEntryTag
     if book_scope:
+        # 书域：副本已按题材筛过，只按 novel_id 收窄（genre 二次过滤会误杀通用条目）
         stmt = select(tag_model.entry_id, tag_model.dim, tag_model.value).where(
             tag_model.dim.in_(("concept", "scope", "slot")),
             tag_model.novel_id == book_scope,

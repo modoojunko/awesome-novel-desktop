@@ -71,6 +71,12 @@ export default function ImportChoiceModal({
     /* v8 ignore start —— 重入守卫：导入态按钮已卸载，UI 不可达（双击/程序调用兜底） */
     if (stage === "importing") return;
     /* v8 ignore stop */
+    // 重试＝从头再来：上一轮的进度/阶段不带进来（否则先显示旧 92%/「落基线」）
+    setTotal(0);
+    setDone(0);
+    setConcept("");
+    setBaseline(false);
+    setImported(0);
     setStage("importing");
     setErr("");
     ctrlRef.current = kbApi.bookScopeImportStream(

@@ -88,12 +88,17 @@ describe("ImportChoiceModal", () => {
   it("流内失败：显示错误并可重试；无 message 走兜底文案", () => {
     const props = mount();
     const cb = startImport();
+    // 先推进到「落基线」再失败：重试应从零开始，不沿用旧进度/阶段
+    act(() => cb({ type: "phase", phase: "copy", total: 3 }));
+    act(() => cb({ type: "phase", phase: "copy", concept: "手法", done: 3, total: 3 }));
+    act(() => cb({ type: "phase", phase: "baseline" }));
     act(() => cb({ type: "error", message: "数据库忙" }));
     expect(screen.getByTestId("kb-import-error").textContent).toContain("数据库忙");
 
     fireEvent.click(screen.getByTestId("kb-import-retry"));
     expect(api.bookScopeImportStream).toHaveBeenCalledTimes(2);
-    expect(screen.getByTestId("kb-import-progress")).toBeTruthy();
+    expect(screen.getByTestId("kb-import-phase").textContent).toContain("正在读取知识库");
+    expect(screen.getByTestId("kb-import-progress-bar").getAttribute("aria-valuenow")).toBe("6");
 
     // 无 message：兜底「导入失败，请重试」；错误态脚部「知道了」关闭
     const cb2 = api.bookScopeImportStream.mock.calls.at(-1)?.[1] as Cb;
