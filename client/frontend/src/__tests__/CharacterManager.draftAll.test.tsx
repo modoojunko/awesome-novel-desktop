@@ -417,3 +417,55 @@ describe("CharacterManager 起草角色：迟到守卫", () => {
     await waitFor(() => expect(screen.queryByTestId("char-ai-card")).toBeNull());
   });
 });
+
+describe("CharacterManager 起草角色：关闭在途", () => {
+  it("生成中关窗：结果只缓存，不把弹窗顶回来；重开看缓存", async () => {
+    let resolveDraft!: (v: { data: unknown }) => void;
+    apiGet.mockImplementation((url: string) => {
+      if (String(url) === "/novels/p1/characters") {
+        return Promise.resolve({ data: listWith([cardData({ name: "老周" })]) });
+      }
+      return Promise.resolve({ data: cardData({ name: "老周" }) });
+    });
+    apiPost.mockImplementation((url: string, body?: unknown) => {
+      if (String(url).includes("/draft-all")) {
+        if ((body as { preview?: boolean } | undefined)?.preview) {
+          return Promise.resolve({
+            data: { prompt: RENDERED_PROMPT, sources: SOURCES, role: "配角" },
+          });
+        }
+        return new Promise((r) => {
+          resolveDraft = r;
+        });
+      }
+      return Promise.resolve({ data: cardData() });
+    });
+    apiPatch.mockResolvedValue({ data: { rev: 2 } });
+
+    const ref = createRef<CharacterSaveHandle>();
+    render(<CharacterManager ref={ref} projectId="p1" introReady />);
+    await screen.findByText("老周");
+    await act(async () => {
+      await ref.current?.runAi?.("draftAll");
+    });
+    await screen.findByTestId("char-ai-prompt-edit");
+    fireEvent.click(screen.getByRole("button", { name: "生成" }));
+    await waitFor(() => expect(apiPost).toHaveBeenCalledTimes(2)); // preview + generate
+
+    fireEvent.click(footerClose()); // 生成在途，作者关窗
+    await waitFor(() => expect(screen.queryByTestId("char-ai-card")).toBeNull());
+    await act(async () => {
+      resolveDraft({ data: DRAFT });
+    });
+    // 迟到结果只缓存；不得把弹窗顶回来
+    await waitFor(() => expect(screen.queryByTestId("char-ai-card")).toBeNull());
+
+    // 重开同一行：展示缓存，不再发请求
+    await act(async () => {
+      await ref.current?.runAi?.("draftAll");
+    });
+    await screen.findByTestId("char-ai-card");
+    expect(screen.getByText(/上次生成结果/)).toBeTruthy();
+    expect(apiPost).toHaveBeenCalledTimes(2);
+  });
+});
