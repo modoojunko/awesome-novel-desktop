@@ -112,8 +112,14 @@ async def _fetch_bytes(client, url: str) -> bytes | None:
 
 
 def _parse_entries(raw: bytes) -> tuple[list[dict], int]:
-    """entries.jsonl → (合格条目, 违规跳过计数)。同步端逐条复验（闸门子集）。"""
+    """entries.jsonl → (合格条目, 违规跳过计数)。同步端逐条复验（闸门子集）。
+
+    instruction 归一为 strip 后原文（存储与 content_sha256 同一字节口径）；
+    src_key 在包内重复＝整包坏（唯一约束），按违规计数退化为跳过，不让单条
+    脏数据把整层事务炸掉。
+    """
     ok: list[dict] = []
+    seen: set[str] = set()
     bad = 0
     for raw_line in raw.decode("utf-8", errors="replace").splitlines():
         line = raw_line.strip()
@@ -124,14 +130,25 @@ def _parse_entries(raw: bytes) -> tuple[list[dict], int]:
         except ValueError:
             bad += 1
             continue
+        if not isinstance(e, dict):
+            bad += 1
+            continue
         src_key = str(e.get("src_key") or "")
         ins = str(e.get("instruction") or "").strip()
-        if not src_key.startswith("baseline:") or "\n" in ins or not (6 <= len(ins) <= 240):
+        if (
+            not src_key.startswith("baseline:")
+            or len(src_key) > 120
+            or src_key in seen
+            or "\n" in ins
+            or not (6 <= len(ins) <= 240)
+        ):
             bad += 1
             continue
         if "【本章写法指引】" in ins:
             bad += 1
             continue
+        seen.add(src_key)
+        e["instruction"] = ins
         ok.append(e)
     return ok, bad
 
@@ -155,6 +172,29 @@ def _tags_for(e: dict) -> list[tuple[str, str]]:
 
 def sha256_hex(data: bytes) -> str:
     return hashlib.sha256(data).hexdigest()
+
+
+def content_sha(instruction: str) -> str:
+    """条目内容指纹（双哈希之一）——与 overlay.base_content_sha256 同一口径。
+
+    D0-7：同步时对原文算 content_sha256；edit 物化时对当时原件算
+    base_content_sha256；读时两值不等＝「官方有新版」。口径必须与同步端逐字节
+    一致（strip 后 UTF-8），否则每次同步都会误报新版本。
+    """
+    return hashlib.sha256((instruction or "").strip().encode("utf-8")).hexdigest()
+
+
+def _too_old(min_client: object) -> bool:
+    """min_client_version 闸：新包＋旧客户端＝静默跳过（保持旧层）。dev 不拦。"""
+    from schema_version import app_version, is_newer
+
+    cur = app_version()
+    if not isinstance(min_client, str) or not min_client or cur in ("dev", "", None):
+        return False
+    try:
+        return bool(is_newer(min_client, cur))
+    except Exception:  # noqa: BLE001 — 版本串非法＝不拦（交由验签/格式闸兜底）
+        return False
 
 
 def schedule_sync() -> None:
@@ -206,6 +246,8 @@ async def _sync_impl(db: AsyncSession | None) -> dict:
         if latest is None or not verify_manifest(latest, _TRUST_PUBKEYS):
             return {"status": "failed", "reason": "latest_invalid"}
         version = int(latest.get("version") or 0)
+        if _too_old(latest.get("min_client_version")):
+            return {"status": "skipped", "reason": "min_client_version", "version": version}
         current = await _current_version()
         if version and version == current:
             return {"status": "current", "version": current}
@@ -214,9 +256,15 @@ async def _sync_impl(db: AsyncSession | None) -> dict:
         if not _validate_outbound(manifest_url):
             return {"status": "failed", "reason": "unsafe_url"}
         manifest_raw = await _fetch_bytes(client, manifest_url)
-        if manifest_raw is None or not verify_manifest(json.loads(manifest_raw), _TRUST_PUBKEYS):
+        try:
+            manifest = json.loads(manifest_raw) if manifest_raw is not None else None
+        except ValueError:
+            manifest = None
+        if not isinstance(manifest, dict) or not verify_manifest(manifest, _TRUST_PUBKEYS):
             return {"status": "failed", "reason": "manifest_invalid"}
-        manifest = json.loads(manifest_raw)
+        # 清单内声明优先（latest 是「有没有新版」的门，manifest 是「本包能不能装」的门）
+        if _too_old(manifest.get("min_client_version")):
+            return {"status": "skipped", "reason": "min_client_version", "version": version}
         fmt = int(manifest.get("format_version") or 0)
         if fmt > SUPPORTED_FORMAT_VERSION:
             return {"status": "skipped", "reason": "format_newer", "version": version}
@@ -243,6 +291,8 @@ async def _replace_layer(
     from sqlalchemy import delete as _del
     from sqlalchemy import insert as _ins
 
+    # 整层替换＝单事务：清旧层 → 批插条目/标签 → 记 pack_version → 清孤儿 hide。
+    # 中途任何异常都不 commit，会话关闭即回滚（旧层原样）。
     await db.execute(_del(KbBaselineTag))
     await db.execute(_del(KbBaselineEntry))
     published = str(manifest.get("generated_at") or "")
@@ -250,37 +300,45 @@ async def _replace_layer(
         published_at = datetime.fromisoformat(published)
     except (ValueError, TypeError):
         published_at = datetime.now(UTC).replace(tzinfo=None)
+
+    rows: list[dict] = []
+    tag_rows: list[dict] = []
     for e in entries:
         src_key = e["src_key"]
         entry_id = proxy_id(src_key)
         when = e.get("when") or {}
-        db.execute(
-            _ins(KbBaselineEntry).values(
-                entry_id=entry_id,
-                src_key=src_key,
-                pack_version=version,
-                genre=str(e.get("genre") or ""),
-                concept=str(e.get("concept") or ""),
-                title=str(e.get("title") or "")[:40],
-                instruction=str(e.get("instruction") or ""),
-                when_json=json.dumps(when or {}, ensure_ascii=False),
-                payload_json=json.dumps(e.get("payload") or {}, ensure_ascii=False),
-                scope="scene" if when else "base",
-                slot=str((e.get("payload") or {}).get("slot") or ""),
-                content_sha256=hashlib.sha256(
-                    str(e.get("instruction") or "").encode("utf-8")
-                ).hexdigest(),
-                published_at=published_at,
-            )
+        instruction = str(e.get("instruction") or "")
+        payload = e.get("payload") or {}
+        rows.append(
+            {
+                "entry_id": entry_id,
+                "src_key": src_key,
+                "pack_version": version,
+                "genre": str(e.get("genre") or ""),
+                "concept": str(e.get("concept") or ""),
+                "title": str(e.get("title") or "")[:40],
+                "instruction": instruction,
+                "when_json": json.dumps(when, ensure_ascii=False),
+                "payload_json": json.dumps(payload, ensure_ascii=False),
+                "scope": "scene" if when else "base",
+                "slot": str(payload.get("slot") or ""),
+                "content_sha256": content_sha(instruction),
+                "published_at": published_at,
+            }
         )
         for dim, value in _tags_for(e):
-            db.execute(_ins(KbBaselineTag).values(entry_id=entry_id, dim=dim, value=value))
+            tag_rows.append({"entry_id": entry_id, "dim": dim, "value": value})
+    if rows:
+        await db.execute(_ins(KbBaselineEntry), rows)
+    if tag_rows:
+        await db.execute(_ins(KbBaselineTag), tag_rows)
+
     meta = await db.get(AppMeta, VERSION_KEY)
     if meta is None:
         db.add(AppMeta(key=VERSION_KEY, value=str(version)))
     else:
         meta.value = str(version)
-    # hide 孤儿清理（src_key 不在新包）——edit 副本保留（用户资产）
+    # hide 孤儿清理（src_key 不在新包）——edit 副本保留（用户资产，B4 提升为用户条目）
     new_keys = {e["src_key"] for e in entries}
     overlays = (
         await db.execute(select(KbBaselineOverlay).where(KbBaselineOverlay.action == "hide"))
@@ -289,7 +347,13 @@ async def _replace_layer(
         if ov.src_key not in new_keys:
             await db.delete(ov)
     await db.commit()
-    return {"status": "synced", "version": version, "entries": len(entries), "skipped": skipped}
+    return {
+        "status": "synced",
+        "version": version,
+        "entries": len(rows),
+        "tags": len(tag_rows),
+        "skipped": skipped,
+    }
 
 
 async def _current_version() -> int:

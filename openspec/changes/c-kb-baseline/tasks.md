@@ -7,10 +7,12 @@
 
 ## 批A 只读层与同步（后端）
 
-- [ ] A1 建表：kb_baseline_entries（uuid5 代理主键＋src_key 唯一＋content_sha256＋投影一等列＋pack_version）＋kb_baseline_overlays（(user_id,src_key) 主键＋action＋content＋base_content_sha256）＋kb_baseline_tags（同步物化，照 entry_tags 可重建先例）
-- [ ] A2 同步器：Ed25519 验签→format/min_client 闸→size 上限→manifest sha256→整层替换单事务（delete＋executemany 批插＋记 pack_version；重入排队去重）
-- [ ] A3 启动补偿挂接（不要求登录态——纯 CDN；失败静默可重试；异常不挡启动）
-- [ ] A4 单测：坏哈希/断网/新格式三失败保旧层且 pack_version 不变/同版本 0 DELETE/升级演练（mismatch→带回→重同步→overlays 空 but valid）/双账号隔离
+- [x] A1 建表：kb_baseline_entries（uuid5 代理主键＋src_key 唯一＋content_sha256＋投影一等列＋pack_version）＋kb_baseline_overlays（(user_id,src_key) 主键＋action＋content＋base_content_sha256）＋kb_baseline_tags（同步物化，照 entry_tags 可重建先例）
+- [x] A2 同步器：Ed25519 验签→format/min_client 闸→size 上限→manifest sha256→整层替换单事务（delete＋executemany 批插＋记 pack_version；重入排队去重）
+- [x] A3 启动补偿挂接（不要求登录态——纯 CDN；失败静默可重试；异常不挡启动）
+- [x] A4 单测：坏哈希/断网/新格式三失败保旧层且 pack_version 不变/同版本 0 DELETE/升级演练（mismatch→带回→重同步→overlays 空 but valid）/双账号隔离
+  - 12 例见 `tests/test_kb_baseline_sync.py`；顺手修 A2 实现 P0（`db.execute` 漏 await → 「synced」但零行落库）、补 executemany、min_client 闸、坏行/重复键/超长 src_key 复验
+  - 遗留：下架条目的孤儿 **edit** 副本「提升为用户条目」（D0-6）归 B4 与 action 矩阵同批做（当前保留 overlay 行，数据不丢）
 
 ## 批B merged 换源＋操作面（后端＋前端）
 
