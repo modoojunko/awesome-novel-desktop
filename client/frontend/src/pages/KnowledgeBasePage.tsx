@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { kbApi, type KbEntry, type KbGenreCount, type KbLibrary } from "@/lib/kbApi";
+import { kbFieldLabel, kbValueLabel } from "@/lib/kbFieldLabels";
 import KbGraph from "@/components/tools/KbGraph";
 import KbEntryGraph from "@/components/tools/KbEntryGraphView";
 import KbOrganizePanel from "@/components/tools/KbOrganizePanel";
@@ -16,7 +17,8 @@ const CONCEPT_DESC: Record<string, string> = {
 };
 
 /** 通用载荷平铺（概念无关，规格「条目详情抽屉：字段…」实现）：有值键按存储序出
- * (键, 展示串)；数组顿号连、对象/数组元素套对象走紧凑 JSON、空值跳过。 */
+ * (键, 展示串)；数组顿号连、对象/数组元素套对象走紧凑 JSON、空值跳过；标量值
+ * 走 kbValueLabel（枚举值/布尔转中文）。 */
 export function payloadRows(payload: Record<string, unknown>): [string, string][] {
   const rows: [string, string][] = [];
   for (const [k, v] of Object.entries(payload)) {
@@ -31,7 +33,7 @@ export function payloadRows(payload: Record<string, unknown>): [string, string][
       rows.push([k, JSON.stringify(v)]);
       continue;
     }
-    rows.push([k, String(v)]);
+    rows.push([k, kbValueLabel(k, v)]);
   }
   return rows;
 }
@@ -386,7 +388,7 @@ export default function KnowledgeBasePage() {
                 <dl className="mt-1 space-y-1.5">
                   {payloadRows(selected.payload).map(([k, v]) => (
                     <div key={k}>
-                      <dt className="font-mono text-[10px] text-[var(--faint)]">{k}</dt>
+                      <dt className="text-[10.5px] font-mono tracking-[0.12em] text-[var(--muted)]">{kbFieldLabel(selected.concept, k)}</dt>
                       <dd className="whitespace-pre-wrap text-[12.5px] leading-relaxed text-[var(--fg)]">{v}</dd>
                     </div>
                   ))}
