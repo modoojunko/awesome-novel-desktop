@@ -88,6 +88,7 @@ export const COVERAGE_CONTRACT_FILES = [
   "src/lib/kbGraph.ts",
   "src/components/tools/KbGraph.tsx",
   "src/lib/kbEntryGraph.ts",
+  "src/lib/kbFieldLabels.ts",
   "src/components/tools/KbOrganizePanel.tsx",
   "src/components/tools/KbEntryRelations.tsx",
 ] as const;

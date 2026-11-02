@@ -33,6 +33,7 @@ const ENTRY: KbEntry = {
     plot: "与李耀相亲；识怪字；出车祸丢魂昏迷。",
     empty_key: "",
     blank_arr: [],
+    custom_note: "字段字典未收录的键",
   },
   example: "",
   negative_example: "",
@@ -60,7 +61,7 @@ describe("payloadRows（通用载荷平铺）", () => {
   it("字符串按存储序平铺、空值跳过、数组顿号连", () => {
     const rows = payloadRows(ENTRY.payload);
     expect(rows.map(([k]) => k)).toEqual([
-      "archetype", "persona", "aliases", "gender", "age", "plot",
+      "archetype", "persona", "aliases", "gender", "age", "plot", "custom_note",
     ]);
     expect(rows[2]).toEqual(["aliases", "小刘、津津"]);
   });
@@ -83,21 +84,29 @@ describe("payloadRows（通用载荷平铺）", () => {
 });
 
 describe("KnowledgeBasePage 详情抽屉", () => {
-  it("点开条目：字段段逐键渲染（迁移卡属性全可见）", async () => {
+  it("点开条目：字段以中文标签逐格渲染（迁移卡属性全可见）", async () => {
     render(<KnowledgeBasePage />);
     await waitFor(() => expect(screen.getByText("刘望津")).toBeTruthy());
     fireEvent.click(screen.getByText("刘望津"));
     await waitFor(() => expect(screen.getByText("字段")).toBeTruthy());
-    // 键名原样（通用，不做角色专用标签）
-    expect(screen.getByText("gender")).toBeTruthy();
-    expect(screen.getByText("archetype")).toBeTruthy();
+    // 中文标签（通用字典），不露英文字段名
+    expect(screen.getByText("性别")).toBeTruthy();
+    expect(screen.getByText("名字")).toBeTruthy();
+    expect(screen.getByText("一句话人设")).toBeTruthy();
+    expect(screen.getByText("别名")).toBeTruthy();
+    expect(screen.getByText("年龄")).toBeTruthy();
+    expect(screen.getByText("剧情定位")).toBeTruthy();
+    expect(screen.queryByText("gender")).toBeNull();
+    expect(screen.queryByText("archetype")).toBeNull();
     // 值：标量与数组顿号连
     expect(screen.getByText("女")).toBeTruthy();
     expect(screen.getByText("小刘、津津")).toBeTruthy();
     expect(screen.getByText("与李耀相亲；识怪字；出车祸丢魂昏迷。")).toBeTruthy();
-    // 空值键不出行
+    // 空值键不出行；字典未收录的键回退原键（不编造中文）
     expect(screen.queryByText("empty_key")).toBeNull();
     expect(screen.queryByText("blank_arr")).toBeNull();
+    expect(screen.getByText("custom_note")).toBeTruthy();
+    expect(screen.getByText("字段字典未收录的键")).toBeTruthy();
     // 其余四段照旧
     expect(screen.getByText("指令")).toBeTruthy();
     expect(screen.getByText("证据")).toBeTruthy();
