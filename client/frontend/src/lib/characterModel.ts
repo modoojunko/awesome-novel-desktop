@@ -116,6 +116,21 @@ export const COG_FIELD_HINTS: Record<string, string> = {
 };
 export const PERSONA_FILL_KEY = "persona";
 
+/** 字段路径 → 中文标签（AI 出稿明细等展示面用）：与角色卡同一套 label，不另抄词表。
+ *  收 `dossier.<k>` / `cog.<k>` / 裸键（跳过项）三种形态；未知键原样回退（不吞信息）。 */
+export function characterFieldLabel(path: string): string {
+  if (path === "name") return "名称";
+  if (path === "aliases") return "别名";
+  if (path === "persona") return "一句话人设";
+  const dot = path.indexOf(".");
+  const head = dot >= 0 ? path.slice(0, dot) : "";
+  if (head && head !== "dossier" && head !== "cog") return path; // 未知前缀：原样
+  const key = dot >= 0 ? path.slice(dot + 1) : path;
+  const cogFields = COG_LAYERS.flatMap((l) => l.fields);
+  const fields = head === "cog" ? cogFields : [...DOSSIER_FIELDS, ...cogFields];
+  return fields.find((f) => f.k === key)?.label ?? path;
+}
+
 // ── 写章状态块（后端 WRITE_STATE_KEYS 同源）──────────────────────────────
 export const WRITE_STATE_KEYS = COG_PRIMARY_KEYS;
 export const WRITE_STATE_PER_CELL_MAX = 40;

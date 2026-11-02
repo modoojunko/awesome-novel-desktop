@@ -234,6 +234,10 @@ export default function SettingsView({
     }
   }, []);
   const [charCtx, setCharCtx] = useState<CharAiCtx | null>(null);
+  /** 角色列表已载入且一张卡都没有（右栏空态「从简介立主角」入口判据） */
+  const [charEmpty, setCharEmpty] = useState(false);
+  // 换面板即清：上一轮的空态不能借给新挂载的角色面板首帧（防误开立主角入口建重卡）
+  useEffect(() => setCharEmpty(false), [panel]);
   /** 角色整项确认缺口（c-chars-confirm-scope）：CharacterManager 上抛，页脚提示按档位取用 */
   const [charGateHint, setCharGateHint] = useState<CharGateHint | null>(null);
   // 伏笔面板（foreshadow-settings-v2）：徽标五态 / 保存四态 / 选中条目 ctx 的上报落点。
@@ -925,6 +929,7 @@ export default function SettingsView({
                 projectId={projectId}
                 onDirtyChange={handleDirtyChange}
                 onCtxChange={setCharCtx}
+                onEmptyChange={setCharEmpty}
                 onGateHintChange={setCharGateHint}
                 onRefreshConfirmState={onRefreshConfirmState}
                 introReady={!!settingsStatus?.synopsis}
@@ -1053,6 +1058,8 @@ export default function SettingsView({
         ) : panel === "chars" ? (
           <CharsAiRail
             ctx={charCtx}
+            noCard={charEmpty}
+            introReady={!!settingsStatus?.synopsis}
             aiState={aiState}
             onBlocked={handleAiBlocked}
             runningKey={aiRunningKey}
