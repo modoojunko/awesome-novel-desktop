@@ -22,6 +22,7 @@ import hashlib
 import json
 import logging
 import random
+import time
 from datetime import UTC, datetime
 from types import SimpleNamespace
 
@@ -518,6 +519,12 @@ async def _story_genre(db: AsyncSession, novel: Novel) -> str:
         return ""
 
 
+# 回填节流（跟进 P3）：跑完仍有解不出的条目时逐用户记一次时间，窗口内读面直接
+# 跳过——避免搜索逐键触发重复点查与 story 读取；源补好后窗口到期自然重试。
+_BACKFILL_RETRY_SEC = 600.0
+_BACKFILL_UNSETTLED: dict[str, float] = {}
+
+
 async def ensure_genre_backfill(db: AsyncSession, user_id: str) -> None:
     """题材回填（c-library-genre-gate）：来源可解的空题材库卡补题材。
 
@@ -528,8 +535,14 @@ async def ensure_genre_backfill(db: AsyncSession, user_id: str) -> None:
     - 迁移镜像：src_kind=character_library_migration——真实来源藏在 legacy 卡
       （src_key＝卡 id）里：卡自带题材优先，否则按卡的 src_kind/src_ref 再回查。
     解不出＝保持空（跨题材通用语义不动，手动卡不碰）；全部补完探测即返。失败降级。
+    节流（跟进 P3）：跑完仍有解不出的条目（源已删/书无题材/目录外自由文本）时，
+    该用户 10 分钟内再触达直接跳过——避免搜索框逐键触发时的重复点查与 story
+    读取；期间源被补好则等窗口到期自然重试（进程内即可：桌面后端单进程）。
     """
     try:
+        now = time.monotonic()
+        if now - _BACKFILL_UNSETTLED.get(user_id, 0.0) < _BACKFILL_RETRY_SEC:
+            return
         rows = (
             await db.execute(
                 select(KbEntry).where(
@@ -543,6 +556,7 @@ async def ensure_genre_backfill(db: AsyncSession, user_id: str) -> None:
             )
         ).scalars().all()
         if not rows:
+            _BACKFILL_UNSETTLED.pop(user_id, None)
             return
         from models.character_library import CharacterLibrary
         from models.deconstruct import DeconstructJob
@@ -617,6 +631,10 @@ async def ensure_genre_backfill(db: AsyncSession, user_id: str) -> None:
             logger.info(
                 "event=character_library.genre_backfill user=%s changed=%s", user_id, changed
             )
+        if changed < len(rows):
+            _BACKFILL_UNSETTLED[user_id] = now  # 仍有解不出的 → 窗口内不再重探
+        else:
+            _BACKFILL_UNSETTLED.pop(user_id, None)
     except Exception:  # noqa: BLE001 — 读面永不因回填失败红
         logger.warning(
             "event=character_library.genre_backfill.fail user=%s", user_id, exc_info=True
