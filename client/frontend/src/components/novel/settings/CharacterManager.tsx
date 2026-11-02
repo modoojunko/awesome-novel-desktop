@@ -167,6 +167,8 @@ const CharacterManager = forwardRef<CharacterSaveHandle, Props>(function Charact
   const aiBusyRef = useRef(false); // ref 同步判定：同一 tick 连点不穿透
   /** 采纳在途互斥：双击「采纳」不得重复建卡/重复写格（bootstrap/draftAll 共用） */
   const adoptBusyRef = useRef(false);
+  /** 弹窗关闭序号：在途请求返回时若作者已关窗，只缓存结果、不再把弹窗顶回来 */
+  const modalCloseSeqRef = useRef(0);
   const [versions, setVersions] = useState<Partial<Record<"bootstrap" | "draftAll" | "check", number>>>({});
   const [cardOpen, setCardOpen] = useState(false);
   const [cardCached, setCardCached] = useState(false);
@@ -356,6 +358,7 @@ const CharacterManager = forwardRef<CharacterSaveHandle, Props>(function Charact
       setDraftPrompt("");
       setDraftSources([]);
       draftTokenRef.current += 1;
+      modalCloseSeqRef.current += 1; // 清 AI＝作废在途响应，别把弹窗顶回来
       setCardAction(null);
       setCardOpen(false);
       setVersions({});
@@ -396,6 +399,7 @@ const CharacterManager = forwardRef<CharacterSaveHandle, Props>(function Charact
       setAiBusy(true);
       setCardAction("check"); // 首跑先开弹窗给 loading 占位
       setCardOpen(true);
+      const closeSeq = modalCloseSeqRef.current;
       const cardId = card.id;
       try {
         const res = await charactersApi.aiCheck(projectId, cardId);
@@ -403,7 +407,7 @@ const CharacterManager = forwardRef<CharacterSaveHandle, Props>(function Charact
           setCheck(res);
           setCardCached(false);
           setCardAction("check");
-          setCardOpen(true);
+          if (modalCloseSeqRef.current === closeSeq) setCardOpen(true);
           setVersions((prev) => ({ ...prev, check: (prev.check ?? 0) + 1 }));
         }
       } catch (e) {
@@ -634,6 +638,7 @@ const CharacterManager = forwardRef<CharacterSaveHandle, Props>(function Charact
     // 迟到守卫（与 runAi 的 selectedIdRef 判据同款）：预览途中切卡后返回的稿
     // 不得在别的卡上下文开弹窗——label 取当前卡名、内容却是出稿卡素材，采纳即串卡
     const targetId = card?.id || "";
+    const closeSeq = modalCloseSeqRef.current;
     try {
       const res = await charactersApi.bootstrapPreview(projectId, card?.id || undefined);
       if (selectedIdRef.current !== targetId) return; // 已切卡：弃稿
@@ -642,7 +647,7 @@ const CharacterManager = forwardRef<CharacterSaveHandle, Props>(function Charact
       setBootstrapPrompt(res.prompt);
       setCardCached(false);
       setCardAction("bootstrap");
-      setCardOpen(true);
+      if (modalCloseSeqRef.current === closeSeq) setCardOpen(true);
     } catch (e) {
       showToast((e as Error).message || "AI \u751f\u6210\u5931\u8d25\uff0c\u53ef\u91cd\u8bd5");
     } finally {
@@ -659,6 +664,7 @@ const CharacterManager = forwardRef<CharacterSaveHandle, Props>(function Charact
     aiBusyRef.current = true;
     setAiBusy(true);
     const targetId = card?.id || "";
+    const closeSeq = modalCloseSeqRef.current;
     try {
       const res = await charactersApi.bootstrapDraft(
         projectId, card?.id || undefined, bootstrapPrompt,
@@ -668,7 +674,7 @@ const CharacterManager = forwardRef<CharacterSaveHandle, Props>(function Charact
       setBootstrapSink(res);
       setCardCached(false);
       setCardAction("bootstrap");
-      setCardOpen(true);
+      if (modalCloseSeqRef.current === closeSeq) setCardOpen(true);
       setVersions((prev) => ({ ...prev, bootstrap: (prev.bootstrap ?? 0) + 1 }));
     } catch (e) {
       // 失败留在提示词段：稿子可改可重试，不空白弹窗滞留
@@ -689,6 +695,7 @@ const CharacterManager = forwardRef<CharacterSaveHandle, Props>(function Charact
     const nextRole = card ? undefined : (role ?? draftRole);
     const token = ++draftTokenRef.current;
     const targetId = card?.id || "";
+    const closeSeq = modalCloseSeqRef.current;
     aiBusyRef.current = true;
     setAiBusy(true);
     try {
@@ -703,7 +710,7 @@ const CharacterManager = forwardRef<CharacterSaveHandle, Props>(function Charact
       if (!card && nextRole) setDraftRole(nextRole);
       setCardCached(false);
       setCardAction("draftAll");
-      setCardOpen(true);
+      if (modalCloseSeqRef.current === closeSeq) setCardOpen(true);
     } catch (e) {
       showToast((e as Error).message || "AI \u751f\u6210\u5931\u8d25\uff0c\u53ef\u91cd\u8bd5");
     } finally {
@@ -718,6 +725,7 @@ const CharacterManager = forwardRef<CharacterSaveHandle, Props>(function Charact
     if (!draftPrompt.trim()) return;
     const token = ++draftTokenRef.current;
     const targetId = card?.id || "";
+    const closeSeq = modalCloseSeqRef.current;
     aiBusyRef.current = true;
     setAiBusy(true);
     try {
@@ -733,7 +741,7 @@ const CharacterManager = forwardRef<CharacterSaveHandle, Props>(function Charact
       setDraftSources(res.sources);
       setCardCached(false);
       setCardAction("draftAll");
-      setCardOpen(true);
+      if (modalCloseSeqRef.current === closeSeq) setCardOpen(true);
       setVersions((prev) => ({ ...prev, draftAll: (prev.draftAll ?? 0) + 1 }));
     } catch (e) {
       showToast((e as Error).message || "AI \u751f\u6210\u5931\u8d25\uff0c\u53ef\u91cd\u8bd5");
@@ -1683,7 +1691,11 @@ const CharacterManager = forwardRef<CharacterSaveHandle, Props>(function Charact
                   }
                 : undefined
         }
-        onClose={() => setCardOpen(false)}
+        onClose={() => {
+          // 记一次关窗：在途请求返回时据此只缓存结果，不把弹窗顶回来
+          modalCloseSeqRef.current += 1;
+          setCardOpen(false);
+        }}
         data-testid="char-ai-card"
       />
 
