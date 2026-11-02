@@ -45,6 +45,8 @@ interface GenreSettingFormProps {
   onReceiptChange?: (r: import("./ChangeReceipt").ChangeReceiptState | null) => void;
   /** 本书书名——题材 AI 入参 title 的来源。 */
   novelName?: string;
+  /** 保存成功（题材落库后）：父层据此重新征询「从知识库导入 / 我自己设定」。 */
+  onSaved?: (theme: string) => void;
 }
 
 /** 题材面板句柄：save 落库；runAi 由右栏 AI 卡片调用（tasks 4.2）。 */
@@ -258,7 +260,7 @@ function PointChooser({
 // ── Main ─────────────────────────────────────────────────────────────────
 
 const GenreSettingForm = forwardRef<GenreHandle, GenreSettingFormProps>(function GenreSettingForm(
-  { projectId, settingKey, onDirtyChange, onReceiptChange, novelName },
+  { projectId, settingKey, onDirtyChange, onReceiptChange, novelName, onSaved },
   ref,
 ) {
   const [loading, setLoading] = useState(true);
@@ -950,7 +952,11 @@ const GenreSettingForm = forwardRef<GenreHandle, GenreSettingFormProps>(function
       noteBaseRef.current = data.promise_note;
       setNoteHint(false);
       // 题材落库后端会按映射补书默认（未设时）——同步刷新本块的显示
-      if (settingKey === "genre") void reloadPacing();
+      if (settingKey === "genre") {
+        void reloadPacing();
+        // 题材定稿＝征询「从知识库导入 / 我自己设定」（c-kb-book-scope 弹窗二选一）
+        onSaved?.(data.theme);
+      }
       return true;
     } catch (e) {
       setError((e as Error).message || "保存失败");
@@ -958,7 +964,7 @@ const GenreSettingForm = forwardRef<GenreHandle, GenreSettingFormProps>(function
     } finally {
       setSaving(false);
     }
-  }, [projectId, settingKey, data, saving, markSaved, reloadPacing]);
+  }, [projectId, settingKey, data, saving, markSaved, reloadPacing, onSaved]);
 
   useImperativeHandle(
     ref,

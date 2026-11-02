@@ -1,19 +1,19 @@
-"""书级知识副本（c-kb-book-scope 批A）——作家的知识与书的知识分家。
+"""书级知识副本（c-kb-book-scope 批A/D）——作家的知识与书的知识分家。
 
-- import_genre_knowledge：开书选题材确认时把「题材命中＋跨题材通用」全部概念
-  条目复制进 kb_book_entries（复制即脱离）；同时把题材默认库的**基线设定面**
-  落本书 style/world KV——world 只落舞台/力量/代价三语法面（源书事实/铁律不灌
-  新书，提示词评审 F-2）；文风示范段落来源标记（渲染端分源，F-1）。
-- 幂等：src_key（源条目 id）已复制即跳过；批量克隆单事务（禁逐条 create_entry
-  ——千次 commit 拖死确认路径，评审 P2-11）。
-- 复制时播种源条目 pref 摘要为副本初始权重（经验继承，评审 P1-8）。
-- 域指纹＝hash(副本计数, max(updated_at))（无状态现算；pref 标记不刷
-  updated_at → 不打破重试字节一致，评审 P2-12）。
+- stream_import_genre_knowledge：分概念组流式复制（SSE 进度条数据源）；
+  组内批量克隆、组间 yield 进度事件；基线面（style/world KV）收尾统一落。
+- import_genre_knowledge：非流式包装（跑完生成器返回汇总）——测试/存量调用用。
+- 幂等：src_key（源条目 id）已复制即跳过；复制即脱离（双向零回写）。
+- 基线面：world 只落舞台/力量/代价（源书事实/铁律不灌新书，评审 F-2）；
+  文风示范段来源标记（F-1）；量化合成保守基线（F-3）。
+- book_scope_fingerprint：书级域指纹（无状态 hash——副本计数＋最新 updated_at；
+  pref 标记不刷新 → 不打破重试字节一致）。
 """
 
 from __future__ import annotations
 
 import hashlib
+from collections.abc import AsyncIterator
 from datetime import UTC
 
 from sqlalchemy import func, select
@@ -29,15 +29,19 @@ from models.kb import (
 )
 from settings.style_quant_model import BASELINE_KEYS
 
+_CONCEPT_ORDER = ("手法", "文风", "文笔", "世界设定", "角色设定")
 
-async def import_genre_knowledge(
+
+async def stream_import_genre_knowledge(
     db: AsyncSession, *, novel_id: str, user_id: str, genre: str
-) -> dict:
-    """把账号级「题材命中＋跨题材通用」条目复制进书级副本，并落题材基线设定面。
+) -> AsyncIterator[dict]:
+    """流式导入（async generator）：逐概念组复制并 yield 进度事件，收尾基线面。
 
-    幂等（src_key 已复制即跳过）；批量单事务；失败整体回滚由调用方兜
-    （导入失败不阻塞题材保存）。返回 {imported, skipped, style_land, world_land}。
-    """
+    事件形状：
+      {"type": "phase", "phase": "copy", "concept": X, "done": n, "total": N}
+      {"type": "phase", "phase": "baseline"}
+      {"type": "done", "imported": n, "skipped": n, "style_land": {...}, "world_land": {...}}
+    副本行/标签/种子权重单事务（末尾 commit）；基线 KV 落地在其后（另一介质）。"""
     rows = (
         await db.execute(
             select(KbEntry).where(
@@ -58,38 +62,48 @@ async def import_genre_knowledge(
             )
         ).scalars()
     )
-    copied = 0
-    new_rows: list[tuple[KbBookEntry, KbEntry]] = []
-    for src in rows:
-        if src.id in have:
-            continue
-        row = KbBookEntry(
-            novel_id=novel_id,
-            user_id=user_id,
-            genre=src.genre,
-            concept=src.concept,
-            concept_id=src.concept_id,
-            title=src.title,
-            payload_json=src.payload_json,
-            payload_version=src.payload_version,
-            instruction=src.instruction,
-            example=src.example,
-            negative_example=src.negative_example,
-            when_json=src.when_json,
-            evidence=src.evidence,
-            evidence_json=src.evidence_json,
-            rev=src.rev,
-            src_kind="book_copy",
-            src_ref=novel_id,
-            src_key=src.id,
-        )
-        db.add(row)
-        new_rows.append((row, src))  # type: ignore[arg-type]
-        copied += 1
-    await db.flush()  # 拿副本 id（标签克隆/经验播种都要用）；单次 commit 在段尾
+    todo = [src for src in rows if src.id not in have]
+    already = len(rows) - len(todo)  # 幂等跳过数（已复制过）
+    total = len(todo)
+    yield {"type": "phase", "phase": "copy", "total": total}
 
-    # 标签物化：源条目 tags 原样克隆（比重算保真）
+    copied = 0
+    done = 0
+    new_rows: list[tuple[KbBookEntry, KbEntry]] = []
+    for concept in _CONCEPT_ORDER:
+        group = [src for src in todo if src.concept == concept]
+        if not group:
+            continue
+        for src in group:
+            row = KbBookEntry(
+                novel_id=novel_id,
+                user_id=user_id,
+                genre=src.genre,
+                concept=src.concept,
+                concept_id=src.concept_id,
+                title=src.title,
+                payload_json=src.payload_json,
+                payload_version=src.payload_version,
+                instruction=src.instruction,
+                example=src.example,
+                negative_example=src.negative_example,
+                when_json=src.when_json,
+                evidence=src.evidence,
+                evidence_json=src.evidence_json,
+                rev=src.rev,
+                src_kind="book_copy",
+                src_ref=novel_id,
+                src_key=src.id,
+            )
+            db.add(row)
+            new_rows.append((row, src))
+            copied += 1
+            done += 1
+        await db.flush()
+        yield {"type": "phase", "phase": "copy", "concept": concept, "done": done, "total": total}
+
     if new_rows:
+        # 标签物化：源条目 tags 原样克隆（比重算保真）
         src_ids = [src.id for _row, src in new_rows]
         src_tags = (
             await db.execute(
@@ -105,7 +119,7 @@ async def import_genre_knowledge(
                 entry_id=copy.id, novel_id=novel_id, user_id=user_id,
                 dim=t.dim, value=t.value,
             ))
-        # 经验继承：源条目 pref 有用率播种为副本初始 weight（未标记源=1.0）
+        # 经验继承：源条目 pref 有用率播种为副本初始权重（未标记源=1.0）
         src_prefs = {
             p.entry_id: p
             for p in (
@@ -119,15 +133,18 @@ async def import_genre_knowledge(
         for row, src in new_rows:
             p = src_prefs.get(src.id)
             if p is not None and (p.adopt_count + p.drop_count) > 0:
-                total = p.adopt_count + p.drop_count
+                total_cnt = p.adopt_count + p.drop_count
                 db.add(KbPref(
                     user_id=user_id, entry_id=row.id,
-                    weight=max(0.2, p.adopt_count / total),
+                    weight=max(0.2, p.adopt_count / total_cnt),
                     adopt_count=p.adopt_count, drop_count=p.drop_count,
                 ))
     await db.commit()  # 副本＋标签＋种子权重一次落（KV 落地在其后，另一介质）
 
-    style_land, world_land = await _land_baselines(db, novel_id=novel_id, user_id=user_id, genre=genre)
+    yield {"type": "phase", "phase": "baseline"}
+    style_land, world_land = await _land_baselines(
+        db, novel_id=novel_id, user_id=user_id, genre=genre
+    )
     if new_rows:
         from models.project import Novel as _Novel
 
@@ -136,12 +153,31 @@ async def import_genre_knowledge(
             await synthesize_quant_baseline(
                 novel.root_path, [row for row, _src in new_rows]
             )
-    return {
+    yield {
+        "type": "done",
         "imported": copied,
-        "skipped": len(rows) - copied,
+        "skipped": already,
         "style_land": style_land,
         "world_land": world_land,
     }
+
+
+async def import_genre_knowledge(
+    db: AsyncSession, *, novel_id: str, user_id: str, genre: str
+) -> dict:
+    """非流式包装：跑完流式导入，返回最终汇总（测试/存量调用方用）。"""
+    summary: dict = {}
+    async for ev in stream_import_genre_knowledge(
+        db, novel_id=novel_id, user_id=user_id, genre=genre
+    ):
+        if ev["type"] == "done":
+            summary = {
+                "imported": ev["imported"],
+                "skipped": ev["skipped"],
+                "style_land": ev["style_land"],
+                "world_land": ev["world_land"],
+            }
+    return summary
 
 
 async def _land_baselines(
@@ -182,6 +218,36 @@ async def _land_baselines(
             elif k.startswith("world."):
                 world_land[k] = v
     return style_land, world_land
+
+
+async def novel_genre(root_path: str) -> str:
+    """本书题材名（story KV 的 `genre` 键）——知识库题材匹配口径。
+
+    D19 关系化后题材目录仍落 KV（genres/service.py resolve_genre_context 同源读法）；
+    Novel 模型本身没有 genre 列，不要读 novel.genre。"""
+    from filesystem.storage import get_storage
+
+    story = await get_storage().read_yaml(root_path, "story.yaml")
+    if not isinstance(story, dict):
+        return ""
+    return str(story.get("genre") or "").strip()
+
+
+async def read_import_declined(root_path: str) -> bool:
+    """作家是否已选过「我自己设定」（不再自动弹导入弹窗）。"""
+    from filesystem.paths import KB_IMPORT_PATH
+    from filesystem.storage import get_storage
+
+    doc = await get_storage().read_yaml(root_path, KB_IMPORT_PATH)
+    return bool(isinstance(doc, dict) and doc.get("declined"))
+
+
+async def write_import_declined(root_path: str, declined: bool) -> None:
+    """写/清「我自己设定」决策；改题材时调用方传 False 复位。"""
+    from filesystem.paths import KB_IMPORT_PATH
+    from filesystem.storage import get_storage
+
+    await get_storage().write_yaml(root_path, KB_IMPORT_PATH, {"declined": bool(declined)})
 
 
 async def book_scope_fingerprint(db: AsyncSession, *, novel_id: str) -> str:

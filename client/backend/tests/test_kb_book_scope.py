@@ -300,3 +300,102 @@ def test_单书备份往返_书级段():
     assert n_after == n_before  # 段重建完整
     assert "玄幻命中手法" in titles
 
+
+
+async def _set_genre(novel_id: str, genre: str):
+    """本书题材＝story KV 的 genre 键（Novel 无 genre 列；D19 关系化后目录仍在 KV）。"""
+    from filesystem.storage import get_storage
+
+    async with async_session() as db:
+        novel = (await db.execute(sel(Novel).where(Novel.id == novel_id))).scalar_one()
+    await get_storage().write_yaml(novel.root_path, "story.yaml", {"genre": genre})
+
+
+def test_导入进度流_SSE与decline标记():
+    """弹窗二选一后端契约：SSE 逐概念组进度＋done 汇总；decline 落标记；
+    diff 返 declined；题材取自 story KV（不是 novel.genre）。"""
+    from fastapi.testclient import TestClient
+
+    from auth_local.middleware import get_current_user
+    from main import app
+
+    uid = f"st{uuid.uuid4().hex[:8]}"
+    _run(_seed_user(uid))
+    _run(_seed_master(uid, [ENTRY_HIT, ENTRY_OTHER, ENTRY_COMMON]))
+    novel_id = _run(_seed_book(uid))
+    _run(_set_genre(novel_id, "玄幻"))
+
+    async def _override():
+        return {"id": uid}
+
+    app.dependency_overrides[get_current_user] = _override
+    try:
+        with TestClient(app) as c:
+            r = c.post("/api/kb/book-scope/import/stream", json={"novel_id": novel_id})
+            assert r.status_code == 200, r.text
+            assert "text/event-stream" in r.headers.get("content-type", "")
+            events = [
+                json.loads(line[len("data: "):])
+                for line in r.text.splitlines()
+                if line.startswith("data: ")
+            ]
+            assert events[0] == {"type": "phase", "phase": "copy", "total": 2}
+            phases = [e for e in events if e["type"] == "phase" and e.get("concept")]
+            assert phases, events
+            assert phases[-1]["done"] == 2 and phases[-1]["total"] == 2
+            assert any(e["type"] == "phase" and e["phase"] == "baseline" for e in events)
+            done = next(e for e in events if e["type"] == "done")
+            assert done["imported"] == 2 and done["skipped"] == 0
+            assert not [e for e in events if e["type"] == "error"], events
+
+            d = c.get(f"/api/kb/book-scope/diff?novel_id={novel_id}").json()["data"]
+            assert d == {"new_count": 0, "declined": False}
+
+            r2 = c.post("/api/kb/book-scope/decline", json={"novel_id": novel_id})
+            assert r2.status_code == 200 and r2.json()["data"]["declined"] is True
+            d2 = c.get(f"/api/kb/book-scope/diff?novel_id={novel_id}").json()["data"]
+            assert d2["declined"] is True
+
+            r3 = c.post(
+                "/api/kb/book-scope/decline",
+                json={"novel_id": novel_id, "declined": False},
+            )
+            assert r3.json()["data"]["declined"] is False
+    finally:
+        app.dependency_overrides.clear()
+
+
+def test_改题材复位decline():
+    """改题材＝新题材重新征询：settings genre PUT 清 declined 标记。"""
+    from fastapi.testclient import TestClient
+
+    from auth_local.middleware import get_current_user
+    from kb.book_scope import read_import_declined, write_import_declined
+    from main import app
+
+    uid = f"gr{uuid.uuid4().hex[:8]}"
+    _run(_seed_user(uid))
+    novel_id = _run(_seed_book(uid))
+
+    async def _root():
+        async with async_session() as db:
+            novel = (await db.execute(sel(Novel).where(Novel.id == novel_id))).scalar_one()
+            return novel.root_path
+    root = _run(_root())
+    _run(write_import_declined(root, True))
+    assert _run(read_import_declined(root)) is True
+
+    async def _override():
+        return {"id": uid}
+
+    app.dependency_overrides[get_current_user] = _override
+    try:
+        with TestClient(app) as c:
+            r = c.put(
+                f"/api/novels/{novel_id}/settings/genre",
+                json={"theme": "玄幻"},
+            )
+            assert r.status_code == 200, r.text
+    finally:
+        app.dependency_overrides.clear()
+    assert _run(read_import_declined(root)) is False

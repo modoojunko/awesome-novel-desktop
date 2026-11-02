@@ -1,5 +1,7 @@
 // 写作知识库 API（c-knowledge-base）：账号级知识条目/库，信封 {ok, data} 同源。
 import { request } from "./api";
+import { getToken } from "./auth";
+import { getApiBaseUrl } from "./env";
 
 export interface KbEntry {
   id: string;
@@ -363,7 +365,86 @@ export const kbApi = {
       }),
     ),
   bookScopeDiff: (novelId: string) =>
-    unwrap<{ new_count: number }>(
+    unwrap<{ new_count: number; declined: boolean }>(
       request(`${BASE}/book-scope/diff?novel_id=${encodeURIComponent(novelId)}`),
     ),
+
+  /** 「我自己设定」：落 declined 标记，设定页不再自动弹导入弹窗（可再改口） */
+  bookScopeDecline: (novelId: string, declined = true) =>
+    unwrap<{ declined: boolean }>(
+      request(`${BASE}/book-scope/decline`, {
+        method: "POST",
+        body: JSON.stringify({ novel_id: novelId, declined }),
+      }),
+    ),
+
+  /** 题材知识导入进度流（弹窗二选一）：逐概念组 SSE 进度，返回 AbortController。 */
+  bookScopeImportStream: (
+    novelId: string,
+    onEvent: (ev: BookScopeProgressEvent) => void,
+  ): AbortController => {
+    const controller = new AbortController();
+    const token = getToken();
+    fetch(`${getApiBaseUrl()}/api${BASE}/book-scope/import/stream`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      },
+      body: JSON.stringify({ novel_id: novelId }),
+      signal: controller.signal,
+    })
+      .then(async (res) => {
+        if (!res.ok) {
+          const err = await res.json().catch(() => null);
+          onEvent({
+            type: "error",
+            message:
+              (typeof err?.detail === "string" && err.detail) ||
+              `导入失败（HTTP ${res.status}）`,
+          });
+          return;
+        }
+        const reader = res.body?.getReader();
+        if (!reader) {
+          onEvent({ type: "error", message: "无法读取响应流" });
+          return;
+        }
+        const decoder = new TextDecoder();
+        let buffer = "";
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
+          buffer += decoder.decode(value, { stream: true });
+          const lines = buffer.split("\n");
+          buffer = lines.pop() || "";
+          for (const line of lines) {
+            if (!line.startsWith("data: ")) continue;
+            try {
+              onEvent(JSON.parse(line.slice(6)) as BookScopeProgressEvent);
+            } catch {
+              // 跳过坏行（同 ai.ts 流解析口径）
+            }
+          }
+        }
+      })
+      .catch((e) => {
+        if ((e as Error)?.name === "AbortError") return;
+        onEvent({ type: "error", message: (e as Error)?.message || "网络错误" });
+      });
+    return controller;
+  },
 };
+
+/** 题材知识导入进度事件（c-kb-book-scope 弹窗进度条）。 */
+export interface BookScopeProgressEvent {
+  type: "phase" | "done" | "error";
+  /** copy=逐概念组复制；baseline=落基线设定 */
+  phase?: string;
+  concept?: string;
+  done?: number;
+  total?: number;
+  imported?: number;
+  skipped?: number;
+  message?: string;
+}

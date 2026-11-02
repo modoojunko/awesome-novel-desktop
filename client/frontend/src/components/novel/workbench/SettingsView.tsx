@@ -20,6 +20,8 @@ import WorldSettingPanel from "@/components/novel/settings/world/WorldSettingPan
 import type { WorldPanelHandle } from "@/components/novel/settings/world/WorldSettingPanel";
 import StyleSettingForm, { type StylePanelHandle } from "@/components/novel/settings/StyleSettingForm";
 import BookScopeStrip from "@/components/novel/settings/BookScopeStrip";
+import ImportChoiceModal from "@/components/novel/settings/ImportChoiceModal";
+import { kbApi } from "@/lib/kbApi";
 import KbSourceStrip from "@/components/novel/settings/KbSourceStrip";
 import HooksSettingForm, { type HookSaveState, type HooksPanelHandle } from "@/components/novel/settings/HooksSettingForm";
 import CharacterManager, { type CharGateHint } from "@/components/novel/settings/CharacterManager";
@@ -139,6 +141,43 @@ export default function SettingsView({
   useEffect(() => setReceipt(null), [panel]);
   const [dirty, setDirty] = useState(false);
   const [busy, setBusy] = useState(false);
+
+  // ── 题材知识导入征询（c-kb-book-scope 弹窗二选一）──────────────────────
+  // 题材定稿后（或进入已有题材的书）差异 >0 且作家没选过「我自己设定」→ 自动弹。
+  // 取不到差异＝安静（增强件，不能挡设定页）。
+  const [kbImportOpen, setKbImportOpen] = useState(false);
+  const [kbNewCount, setKbNewCount] = useState(0);
+  const [kbGenre, setKbGenre] = useState("");
+  const kbPromptedRef = useRef(false);
+  const checkKbImport = useCallback(
+    async (genreLabel?: string) => {
+      try {
+        const d = await kbApi.bookScopeDiff(projectId);
+        setKbNewCount(d.new_count);
+        if (genreLabel !== undefined) {
+          setKbGenre(genreLabel);
+        } else if (d.new_count > 0) {
+          // 进设定页自动征询：题材名现读（story KV 的 01 格），失败就按「本题材」兜底
+          try {
+            const g = (await api.get(`/novels/${projectId}/settings/genre`)) as { theme?: string };
+            setKbGenre(g?.theme || "");
+          } catch {
+            /* 静默：弹窗文案兜底「本题材」 */
+          }
+        }
+        if (d.new_count > 0 && !d.declined) setKbImportOpen(true);
+      } catch {
+        /* 增强件：差异取不到就不打扰 */
+      }
+    },
+    [projectId],
+  );
+  // 进入设定页时只在「已有题材」的书上自动征询一次（未选题材不弹）
+  useEffect(() => {
+    if (!settingsStatus?.genre || kbPromptedRef.current) return;
+    kbPromptedRef.current = true;
+    void checkKbImport();
+  }, [settingsStatus?.genre, checkKbImport]);
 
   const formRef = useRef<SettingSaveHandle>(null);
   /** 主线面板句柄（save 走 formRef 同一 ref；runAi 为 arc 面板专属能力） */
@@ -852,7 +891,7 @@ export default function SettingsView({
             {panel === "genre" && (
               <>
                 {/* 书级知识副本补平入口（c-kb-book-scope 批D）：题材命中未导入时给一键导入 */}
-                <BookScopeStrip projectId={projectId} />
+                <BookScopeStrip key={kbNewCount} projectId={projectId} />
                 <GenreSettingForm
                 ref={genreRef}
                 projectId={projectId}
@@ -860,6 +899,11 @@ export default function SettingsView({
                 onDirtyChange={handleDirtyChange}
                 onReceiptChange={handleReceiptChange}
                 novelName={novelName}
+                onSaved={(theme) => {
+                  // 题材定稿＝重新征询二选一（改题材后端已清 declined）
+                  kbPromptedRef.current = true;
+                  void checkKbImport(theme);
+                }}
               />
               </>
             )}
@@ -1110,6 +1154,20 @@ export default function SettingsView({
           </div>
         )}
       </aside>
+
+      {/* 题材知识导入二选一（c-kb-book-scope）：从知识库导入默认设定 / 我自己设定 */}
+      <ImportChoiceModal
+        projectId={projectId}
+        open={kbImportOpen}
+        newCount={kbNewCount}
+        genreLabel={kbGenre}
+        onClose={() => setKbImportOpen(false)}
+        onImported={() => void checkKbImport()}
+        onDeclined={() => {
+          setKbNewCount(0);
+          setKbImportOpen(false);
+        }}
+      />
     </div>
   );
 }

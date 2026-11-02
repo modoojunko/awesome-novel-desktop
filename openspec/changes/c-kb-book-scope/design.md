@@ -49,13 +49,13 @@
 ## D8 四角色评审决议（2026-11-02 后端/架构/测试/提示词 40+ 发现合并）
 
 ### 挂点修正（P0）
-- 手动建书弹窗只问书名（2026-09-10 裁定），题材确认实际在书内设定 PUT /settings/genre（可重复/可改题材）→ 导入挂该端点**首次定题材**分支；**改题材**＝补新题材副本（旧副本保留＋来源行提示可清理），不叠加同题材；导入失败不阻塞题材保存。拆书建书入口挂**书自有设定写入之后**（put_style 整替会清 genre 基线——次序钉死＋A5 锁序单测）。
+- 手动建书弹窗只问书名（2026-09-10 裁定），题材确认实际在书内设定 PUT /settings/genre（可重复/可改题材）→ **2026-11-02 改口径**：保存成功后前端弹「从知识库导入 / 我自己设定」二选一（不静默导入）；选导入走 SSE 进度（`/book-scope/import/stream`），选自己设定落 `kb-import.declined` 不再自动弹。**改题材**＝清 declined 重新征询＋补新题材副本（旧副本保留＋来源行提示可清理），不叠加同题材；导入失败不阻塞题材保存。拆书建书入口挂**书自有设定写入之后**（put_style 整替会清 genre 基线——次序钉死＋A5 锁序单测）。
 
 ### 反馈/原型端点双域（P0）
 - set_pref_api/prototype_use 现校验账号表 → 副本 id 打点必 404。改按 book_scope 切校验表（KbBookEntry＋novel_id 归属校验防跨书打标）；tasks B3 展开。
 
 ### 启用闸门书域方案（P0）
-- `_binding_domain` 要求 enabled bindings——自动导入不落 bindings → 副本满仓但块永不出（批3 enabled=False 假绿同型）。裁决：**自动导入即开**（块使能＝书副本非空）；bindings 收窄为快照面（style/world KV）＋中途加库＋「库有 N 条新增」差异行；书级停用开关＝设定面板清空副本或显式开关（批F「停用无块」语义迁移到此）。
+- `_binding_domain` 要求 enabled bindings——导入不落 bindings → 副本满仓但块永不出（批3 enabled=False 假绿同型）。裁决：**导入即开**（块使能＝书副本非空）；bindings 收窄为快照面（style/world KV）＋中途加库＋「库有 N 条新增」差异行；书级停用开关＝设定面板清空副本或显式开关（批F「停用无块」语义迁移到此）。
 
 ### 部分唯一索引（P1）
 - `uq_kb_book_entries_src(novel_id, src_key) WHERE src_ref<>''`（照账号表先例）——并发双击防重；导入 catch IntegrityError 计 skipped；补平端点幂等靠它。

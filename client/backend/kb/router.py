@@ -923,7 +923,7 @@ async def import_book_scope_api(
     db: AsyncSession = Depends(get_db),
 ):
     """存量书补平（c-kb-book-scope 批C）：按书题材把账号库「命中＋通用」增量导入
-    书级副本（幂等，只补新条）。新人开书自动导入之外的显式出口（设定面板入口）。"""
+    书级副本（幂等，只补新条）。非流式出口（来源行一键导入）。"""
     from models.project import Novel as _Novel
 
     uid = _user(user)
@@ -931,12 +931,80 @@ async def import_book_scope_api(
     novel = await db.get(_Novel, novel_id)
     if novel is None or novel.user_id != uid or novel.status == "deleted":
         raise HTTPException(404, "Book not found")
-    from kb.book_scope import import_genre_knowledge
+    from kb.book_scope import import_genre_knowledge, novel_genre
 
     result = await import_genre_knowledge(
-        db, novel_id=novel_id, user_id=uid, genre=novel.genre or ""
+        db, novel_id=novel_id, user_id=uid, genre=await novel_genre(novel.root_path)
     )
     return {"ok": True, "data": result}
+
+
+@router.post("/book-scope/import/stream")
+async def import_book_scope_stream_api(
+    body: dict,
+    user: dict = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """题材知识导入进度流（c-kb-book-scope 弹窗二选一）：SSE 逐概念组下发进度。
+
+    事件：phase(copy,total) → phase(copy,concept,done,total)×N → phase(baseline)
+    → done{imported,skipped,...}；流内失败以 error 事件收尾（前端可读）。"""
+    from fastapi.responses import StreamingResponse
+
+    from models.project import Novel as _Novel
+
+    uid = _user(user)
+    novel_id = str(body.get("novel_id") or "")
+    novel = await db.get(_Novel, novel_id)
+    if novel is None or novel.user_id != uid or novel.status == "deleted":
+        raise HTTPException(404, "Book not found")
+    from kb.book_scope import novel_genre, stream_import_genre_knowledge
+
+    genre = await novel_genre(novel.root_path)
+
+    async def _gen():
+        try:
+            async for ev in stream_import_genre_knowledge(
+                db, novel_id=novel_id, user_id=uid, genre=genre
+            ):
+                yield f"data: {json.dumps(ev, ensure_ascii=False)}\n\n"
+        except Exception as e:  # noqa: BLE001 —— 流内失败以事件收尾，不静默断流
+            yield (
+                "data: "
+                + json.dumps(
+                    {"type": "error", "message": str(e) or "导入失败"},
+                    ensure_ascii=False,
+                )
+                + "\n\n"
+            )
+
+    return StreamingResponse(
+        _gen(),
+        media_type="text/event-stream",
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+    )
+
+
+@router.post("/book-scope/decline")
+async def book_scope_decline_api(
+    body: dict,
+    user: dict = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """弹窗二选一里的「我自己设定」：落 declined 标记，设定页不再自动弹窗
+    （来源行保留手动导入出口）。"""
+    from models.project import Novel as _Novel
+
+    uid = _user(user)
+    novel_id = str(body.get("novel_id") or "")
+    novel = await db.get(_Novel, novel_id)
+    if novel is None or novel.user_id != uid or novel.status == "deleted":
+        raise HTTPException(404, "Book not found")
+    from kb.book_scope import write_import_declined
+
+    declined = bool(body.get("declined", True))
+    await write_import_declined(novel.root_path, declined)
+    return {"ok": True, "data": {"declined": declined}}
 
 
 @router.get("/book-scope/diff")
@@ -945,13 +1013,17 @@ async def book_scope_diff_api(
     user: dict = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    """「库有 N 条新增」差异计数（c-kb-book-scope）：题材命中未复制的 active 条目数。"""
+    """「库有 N 条新增」差异计数＋导入决策（c-kb-book-scope）：题材命中未复制的
+    active 条目数；declined=作家已选过「我自己设定」。"""
     from models.project import Novel as _Novel
 
     uid = _user(user)
     novel = await db.get(_Novel, novel_id)
     if novel is None or novel.user_id != uid or novel.status == "deleted":
         raise HTTPException(404, "Book not found")
+    from kb.book_scope import novel_genre
+
+    genre = await novel_genre(novel.root_path)
     copied = set(
         (
             await db.execute(
@@ -967,9 +1039,15 @@ async def book_scope_diff_api(
             select(func.count(KbEntry.id)).where(
                 KbEntry.user_id == uid,
                 KbEntry.status == "active",
-                (KbEntry.genre == (novel.genre or "")) | (KbEntry.genre == ""),
+                (KbEntry.genre == genre) | (KbEntry.genre == ""),
                 KbEntry.id.not_in(copied or ["-"]),
             )
         )
     ).scalar_one()
-    return {"ok": True, "data": {"new_count": int(new_count or 0)}}
+    from kb.book_scope import read_import_declined
+
+    declined = await read_import_declined(novel.root_path)
+    return {
+        "ok": True,
+        "data": {"new_count": int(new_count or 0), "declined": declined},
+    }
