@@ -30,7 +30,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from genres.theme_catalog import normalize_theme
-from kb.migrate_library import card_to_payload, payload_to_card
+from kb.migrate_library import card_to_payload, ensure_legacy_migrated, payload_to_card
 from kb.service import create_entry as kb_create_entry
 from kb.service import delete_entry as kb_delete_entry
 from kb.service import update_entry as kb_update_entry
@@ -342,6 +342,9 @@ async def _avatar_presence(db: AsyncSession, entries: list[KbEntry]) -> dict[str
 
 async def list_cards(db: AsyncSession, user_id: str) -> dict:
     """一次给全（文本字段＋头像引用）；筛选/搜索/排序在前端内存完成。"""
+    # 老版角色库存量一次性迁移挂点（c-kb-library-once-migration）：升级账号首次
+    # 触达角色库读面即整账号搬入；幂等自熄，失败降级不阻断（详见 ensure 文档）
+    await ensure_legacy_migrated(db, user_id=user_id)
     entries = (
         await db.execute(
             select(KbEntry)

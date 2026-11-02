@@ -13,6 +13,7 @@ character_library 全量 → kb_entries（concept=角色设定）：
 from __future__ import annotations
 
 import json
+import logging
 from typing import Any
 
 from sqlalchemy import select
@@ -20,6 +21,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from models.character_library import CharacterLibrary
 from models.kb import KbEntry
+
+logger = logging.getLogger(__name__)
 
 # 迁移列：卡字段 → payload 顶层键（逐格 clamp 上限）
 _DOSSIER_GRID = ("gender", "age", "race", "faction", "look", "speech", "background", "plot")
@@ -148,3 +151,42 @@ async def migrate_character_library(db: AsyncSession, *, user_id: str) -> dict[s
         migrated += 1
     await db.commit()
     return {"migrated": migrated, "skipped": skipped}
+
+
+async def ensure_legacy_migrated(db: AsyncSession, *, user_id: str) -> None:
+    """老版库卡一次性搬入知识库（c-kb-library-once-migration）。
+
+    升级用户首次触达库域读面（kb 条目列表 / 角色库卡列表）时执行；**拍板（boss
+    2026-11-02）：不挂 boot**——一次性升级迁移，非例行自愈。幂等自熄：
+    - 无 legacy 行＝单次索引点查即返（全新账号恒走此路，零成本）；
+    - 已有 migration 来源条目＝快路跳过（迁移恒整账号进行，见过条目即整账号完成；
+      备份恢复带来的新 legacy 行由 importer 恢复链路自调 migrate_character_library，
+      不经本入口）；
+    - 否则整账号迁移（per-card 存在性检查不过滤 status——软删的迁移卡不复活）。
+    失败不抛（读面降级返回现有数据，下次触达重试）。
+    """
+    try:
+        has_legacy = (
+            await db.execute(
+                select(CharacterLibrary.id)
+                .where(CharacterLibrary.user_id == user_id)
+                .limit(1)
+            )
+        ).scalar_one_or_none()
+        if has_legacy is None:
+            return
+        stamped = (
+            await db.execute(
+                select(KbEntry.id)
+                .where(
+                    KbEntry.user_id == user_id,
+                    KbEntry.src_kind == "character_library_migration",
+                )
+                .limit(1)
+            )
+        ).scalar_one_or_none()
+        if stamped is not None:
+            return
+        await migrate_character_library(db, user_id=user_id)
+    except Exception:  # noqa: BLE001 — 读面永不因迁移失败红
+        logger.warning("event=kb.ensure_legacy_migrated.fail user=%s", user_id, exc_info=True)
