@@ -74,6 +74,7 @@ def _mk_job(task_id: str, *, selected: list[str], chapters: int = 4, status: str
                 api_config_id="cfg-1", ai_model="m-1",
                 chapter_count=chapters,
                 selected_dims_json=json.dumps(selected),
+                mode="full",  # 韧性测试＝全书拆行为背书（smart 有专属测试）
                 dims_json=dims_json,
             ))
             await s.commit()
@@ -599,8 +600,10 @@ def test_resume_with_model_change_updates_history(monkeypatch):
     # 鉴权覆盖：router 依赖 get_current_user —— 复用 test_deconstruct_api 的做法太重，
     # 这里直接 dependency_overrides
     from auth_local.middleware import get_current_user
+    from auth_local.deps import require_ai_access
 
     app.dependency_overrides[get_current_user] = lambda: {"id": _UID}
+    app.dependency_overrides[require_ai_access] = lambda: True  # 档位门环境隔离（config.json tier 过期即 403）
     from db import get_db
 
     async def _override_db():
