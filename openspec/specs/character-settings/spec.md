@@ -297,7 +297,7 @@
 
 ### Requirement: 免费 / PRO 门控
 
-右栏 AI 行（人设补充 / 基础信息补充 / 认知补充 / 一致性体检 / 从简介立主角）SHALL 复用既有「可见 + 锁定」门控（门控 key 用已登记的 `settings-ai-fields`）：免费用户 SHALL 能看到卡片与各行的名称与说明，但 SHALL NOT 能触发；字段本身 SHALL 照常可手工填写。
+右栏 AI 行（起草角色 / 一致性体检 / 从简介立主角）SHALL 复用既有「可见 + 锁定」门控（门控 key 用已登记的 `settings-ai-fields`）：免费用户 SHALL 能看到卡片与各行的名称与说明，但 SHALL NOT 能触发；字段本身 SHALL 照常可手工填写。
 
 #### Scenario: 免费用户看到但点不动
 - **WHEN** 免费用户打开「角色」面板
