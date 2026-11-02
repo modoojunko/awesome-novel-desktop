@@ -1,43 +1,43 @@
 # c-kb-baseline · Design
 
-设计权威＝整体方案 §7/§8（四来源/书级副本方向）。本文件记实现决策。
+设计核心＝**overlay 双层存储**（boss 定案）：官方基线＝只读 lower 层（不可变、整层替换式
+更新），用户知识＝可写 upper 层；一切「修改/删除基线」都是 upper 层的写时复制（CoW），
+基线原件永不改变。
 
-## D1 分发形状（与提示词包的三点不同）
+## D1 双层模型
 
-不加密（基线在知识库页对作者可见，加密无意义）；无档位门（冷启动底座人人有）；消费＝
-同步期幂等 merge 进 kb_entries（数据行），非运行时模板读取。
+- **lower 只读层**：`kb_baseline_entries`（src_key 主键＋pack_version＋条目内容 JSON）。
+  基线包同步＝**整层事务替换**（删旧插新，单事务）；客户端任何路径 SHALL NOT 更新单条。
+- **upper 可写层**：
+  - 用户自有条目（kb_entries 现状，零改动）
+  - `kb_baseline_overlays`（user_id＋src_key＋action∈{hide,edit}＋content＋updated_at）：
+    hide＝whiteout（隐藏）；edit＝写时复制的私有副本（merged view 以副本遮蔽原件）
+- **merged view**（选择器与知识库页统一查询口径）：
+  基线（排除 hidden，edit 命中套用户副本）∪ 用户自有条目；来源标签「官方精选」随层走。
 
-## D2 同步管线（挂既有启动补偿点）
+## D2 升级语义（整层替换）
 
-- 拉 `{CDN}/download/knowledge/baseline/latest.json`（薄指针 version+manifest_sha256）
-- 本地记录（app_meta key="kb_baseline_version"）相同即静默返回（O(1) 探测）
-- 拉 v< N >/manifest.json 校验指针哈希 → 逐文件 sha256 校验 → merge → 记版本
-- 失败：知识库页状态行可重试；不弹窗；不阻断写法块（未就绪＝不出现，同级降级）
+- 同步＝拉 latest → manifest 哈希校验 → 事务内：清空 kb_baseline_entries → 按包全量插入
+  → 记 pack_version（app_meta）。overlays 表 SHALL NOT 触碰。
+- 版本相同 → O(1) 静默返回；失败 → 状态行可重试，旧层继续服务（同步是替换不是增删，
+  无半套状态）。
+- 官方修订了被用户 edit 的条目 → 用户副本继续生效；知识库页该条目提示「官方有新版」
+  （不自动覆盖，用户主动「恢复官方版」＝删 edit 记录）。
 
-## D3 merge 规则（用户资产优先）
+## D3 merged 查询口径
 
-逐条按 src_key：
-- 库内缺失 → 插入（src_kind="baseline"，来源标签官方精选）
-- 库内已有且 src_kind=baseline：
-  - 本地 tombstone（用户删除）→ 保持删除，仅刷新内容快照
-  - 用户改过（rev>1 或 rev 与包版本记录不一致）→ 保持用户版
-  - 未触碰 → 用包版本刷新（修订下发通道）
-- 逻辑删除条目（status=archived 且非用户删）→ 按包恢复
+- 写法块选择器候选：`基线（src_key NOT IN hidden，instruction 取 COALESCE(overlay.content, 原文)）∪ 用户条目`
+  ——两段查询 UNION 后进既有打分/配额链（c-kb-write-block 结构零改动，只是候选域换源）。
+- 知识库页：同口径分页；来源筛选「官方精选/我的」；基线条目操作面＝隐藏/恢复默认/
+  （有副本时）恢复官方版，SHALL NOT 出现编辑/删除。
 
-「用户触碰」判定：merge 时比对条目内容与上一已同步包版本的 text_snapshot——不依赖
-运行时标记。首版无历史记录时，除 key 缺失外一律按「已同步过」跳过（保守首装口径）。
+## D4 反馈与推演
 
-## D4 tombstone 下架
+- prefs（有用/没用）挂 overlay（对官方条目的反馈＝用户层注解；恢复默认不删反馈）。
+- 反馈聚合（没用率）随遥测/备份上抛，作为**我们修订基线包**的数据依据（内容维护闭环）；
+  书级副本（独立方向）从 merged view 复制，书内演化与本层互不影响。
 
-tombstones.removed 里的 src_key：用户未触碰 → 物理移除；触碰过 → status=archived（隐藏，
-可手动清）。下架不回写内容仓（单向下架）。
+## D5 明确不做
 
-## D5 AI 整理边界（与 #998 交互）
-
-c-kb-organize 的整理/合并/纠偏/关系提案对 src_kind="baseline" 条目跳过——官方内容修订
-只走基线包版本。跳过实现＝整理候选查询统一过滤 src_kind<>'baseline'。
-
-## D6 明确不做
-
-不做统一 resources.json 收敛（阶段2 独立变更：拆提示词包弹窗）；不做档位门；不做书级
-副本复制（书级副本为独立方向变更，本变更的账号库基线条目是其复制源）；不做条目加密。
+merge 判定（快照比对/rev 推断）；基线条目加密/档位门；统一 resources.json 收敛（阶段2
+独立变更）；AI 整理写入本层（#998 的整理对基线跳过，见 knowledge-base delta）。
