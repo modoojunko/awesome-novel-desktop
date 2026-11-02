@@ -281,18 +281,31 @@ def test_单书备份往返_书级段():
 
         async with async_session() as db:
             project = await db.get(_Novel, novel_id)
+            copy_ids = list(
+                (
+                    await db.execute(
+                        sel(KbBookEntry.id).where(KbBookEntry.novel_id == novel_id)
+                    )
+                ).scalars()
+            )
+            # 副本反馈权重（书级心智）：随副本 id 落 KbPref
+            db.add(KbPref(user_id=uid, entry_id=copy_ids[0], weight=0.3,
+                          adopt_count=1, drop_count=2))
+            await db.commit()
             buf = io.BytesIO()
             with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
                 await _dump_kb_book(zf, db, project)
                 doc = _yaml.safe_load(zf.read("kb/kb-book.yaml"))
                 n_before = len(doc.get("book_entries") or [])
                 n_tags_before = len(doc.get("book_entry_tags") or [])
-                # 模拟换机恢复：清空本书副本与标签后重建（标签是选择器候选域，
-                # 只恢复条目不恢复标签＝写法块静默为空）
+                n_prefs_before = len(doc.get("book_prefs") or [])
+                # 模拟换机恢复：清空本书副本/标签/权重后重建（标签是选择器候选域，
+                # 只恢复条目不恢复标签＝写法块静默为空；权重丢了有用率归零）
                 await db.execute(_del(KbBookEntry).where(KbBookEntry.novel_id == novel_id))
                 await db.execute(
                     _del(KbBookEntryTag).where(KbBookEntryTag.novel_id == novel_id)
                 )
+                await db.execute(_del(KbPref).where(KbPref.entry_id.in_(copy_ids)))
                 await db.commit()
                 await _import_kb_book(db, zf, set(zf.namelist()), "", project, uid, [])
                 await db.commit()
@@ -302,11 +315,21 @@ def test_单书备份往返_书级段():
                 tags = (await db.execute(
                     sel(KbBookEntryTag).where(KbBookEntryTag.novel_id == novel_id)
                 )).scalars().all()
-            return n_before, len(rows), n_tags_before, len(tags), [r.title for r in rows]
-    n_before, n_after, n_tags_before, n_tags_after, titles = _run(_roundtrip())
+                prefs = (await db.execute(
+                    sel(KbPref).where(KbPref.entry_id.in_(copy_ids))
+                )).scalars().all()
+            return (
+                n_before, len(rows), n_tags_before, len(tags),
+                n_prefs_before, len(prefs), [r.title for r in rows],
+            )
+    (
+        n_before, n_after, n_tags_before, n_tags_after,
+        n_prefs_before, n_prefs_after, titles,
+    ) = _run(_roundtrip())
     assert n_before >= 3  # 命中＋通用＋量化
     assert n_after == n_before  # 段重建完整
     assert n_tags_before > 0 and n_tags_after == n_tags_before  # 标签索引随包往返
+    assert n_prefs_before == 1 and n_prefs_after == 1  # 反馈权重随包往返
     assert "玄幻命中手法" in titles
 
 
@@ -420,3 +443,55 @@ def test_改题材复位decline():
     app.dependency_overrides[get_current_user] = _override
     _put({"theme": "都市"})
     assert _run(read_import_declined(root)) is False
+
+
+def test_并发双开导入_唯一索引冲突自动重算(monkeypatch):
+    """两个标签页同时导入：对方抢先落库后，本请求回滚重算差集再来一次，
+    不把 UNIQUE 冲突当错误丢给用户（对方已落库的条目按 skipped 计）。"""
+    from kb import book_scope as bs
+
+    uid = f"cc{uuid.uuid4().hex[:8]}"
+    _run(_seed_user(uid))
+    _run(_seed_master(uid, [ENTRY_HIT, ENTRY_COMMON]))
+    novel_id = _run(_seed_book(uid))
+
+    async def _winner():
+        from models.kb import KbBookEntry
+
+        async with async_session() as db:
+            src = (await db.execute(
+                sel(KbEntry).where(
+                    KbEntry.user_id == uid, KbEntry.title == "玄幻命中手法"
+                )
+            )).scalars().one()
+            db.add(KbBookEntry(
+                novel_id=novel_id, user_id=uid, genre=src.genre,
+                concept=src.concept, title=src.title,
+                payload_json=src.payload_json, instruction=src.instruction,
+                src_kind="book_copy", src_ref=novel_id, src_key=src.id,
+            ))
+            await db.commit()
+    _run(_winner())  # 模拟对方已抢到一条
+
+    real = bs._load_import_state
+    calls = {"n": 0}
+
+    async def _stale_then_real(db, *, novel_id, user_id, genre):
+        calls["n"] += 1
+        rows, todo = await real(db, novel_id=novel_id, user_id=user_id, genre=genre)
+        return (rows, rows) if calls["n"] == 1 else (rows, todo)  # 首轮装作没看见
+
+    monkeypatch.setattr(bs, "_load_import_state", _stale_then_real)
+
+    async def _go():
+        async with async_session() as db:
+            return [
+                ev async for ev in bs.stream_import_genre_knowledge(
+                    db, novel_id=novel_id, user_id=uid, genre="玄幻"
+                )
+            ]
+    events = _run(_go())
+    assert not [e for e in events if e["type"] == "error"]
+    done = next(e for e in events if e["type"] == "done")
+    assert done["imported"] == 1 and done["skipped"] == 1
+    assert sorted(_run(_copies(novel_id))) == sorted(["玄幻命中手法", "通用手法"])

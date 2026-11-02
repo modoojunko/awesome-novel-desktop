@@ -123,7 +123,10 @@ export default function ImportChoiceModal({
 
   const phaseText =
     stage === "done"
-      ? `已导入 ${imported} 条知识，基线设定已就绪`
+      ? imported > 0
+        ? `已导入 ${imported} 条知识，基线设定已就绪`
+        // 并发的另一处导入已落库（本请求 skipped 全部）：不报「导入 0 条」吓人
+        : "这本书已经有这些知识了，基线设定已就绪"
       : baseline
         ? "正在落基线设定（文风 / 世界舞台）…"
         : total > 0

@@ -613,6 +613,7 @@ async def _import_kb_book(
         KbBookEntryTag,
         KbMatchItem,
         KbMatchRun,
+        KbPref,
     )
 
     try:
@@ -679,6 +680,27 @@ async def _import_kb_book(
             KbBookEntryTag,
             {k: v for k, v in row.items() if k != "id"},
             novel_id=novel.id,
+        )))
+    # 副本反馈权重（有用率）：按 (user_id, entry_id) 去重、id 交自增——
+    # 副本 id 已按原值恢复，权重能对上；旧包无本段＝保持默认 1.0
+    for row in doc.get("book_prefs") or []:
+        if not isinstance(row, dict) or not row.get("entry_id"):
+            continue
+        eid = str(row["entry_id"])
+        exists = (
+            await db.execute(
+                select(KbPref.id).where(
+                    KbPref.user_id == user_id,
+                    KbPref.entry_id == eid,
+                )
+            )
+        ).first()
+        if exists:
+            continue
+        db.add(KbPref(**_cols(
+            KbPref,
+            {k: v for k, v in row.items() if k != "id"},
+            user_id=user_id,
         )))
     for row in doc.get("match_runs") or []:
         if not isinstance(row, dict):

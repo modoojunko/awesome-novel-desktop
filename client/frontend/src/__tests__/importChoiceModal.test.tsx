@@ -131,7 +131,7 @@ describe("ImportChoiceModal", () => {
     act(() => cb({ type: "phase", phase: "other" }));
     expect(screen.getByTestId("kb-import-progress")).toBeTruthy();
     act(() => cb({ type: "done" }));
-    expect(screen.getByTestId("kb-import-phase").textContent).toContain("已导入 0 条知识");
+    expect(screen.getByTestId("kb-import-phase").textContent).toContain("这本书已经有这些知识了");
   });
 
   it("选「我自己设定」：落 declined＋关闭＋回调", async () => {

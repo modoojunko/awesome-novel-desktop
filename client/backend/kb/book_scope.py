@@ -17,6 +17,7 @@ from collections.abc import AsyncIterator
 from datetime import UTC
 
 from sqlalchemy import func, select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from models.kb import (
@@ -32,16 +33,10 @@ from settings.style_quant_model import BASELINE_KEYS
 _CONCEPT_ORDER = ("手法", "文风", "文笔", "世界设定", "角色设定")
 
 
-async def stream_import_genre_knowledge(
+async def _load_import_state(
     db: AsyncSession, *, novel_id: str, user_id: str, genre: str
-) -> AsyncIterator[dict]:
-    """流式导入（async generator）：逐概念组复制并 yield 进度事件，收尾基线面。
-
-    事件形状：
-      {"type": "phase", "phase": "copy", "concept": X, "done": n, "total": N}
-      {"type": "phase", "phase": "baseline"}
-      {"type": "done", "imported": n, "skipped": n, "style_land": {...}, "world_land": {...}}
-    副本行/标签/种子权重单事务（末尾 commit）；基线 KV 落地在其后（另一介质）。"""
+) -> tuple[list[KbEntry], list[KbEntry]]:
+    """导入差集：(active 题材命中＋通用条目, 尚未复制进本书的条目)。"""
     rows = (
         await db.execute(
             select(KbEntry).where(
@@ -62,84 +57,123 @@ async def stream_import_genre_knowledge(
             )
         ).scalars()
     )
-    todo = [src for src in rows if src.id not in have]
-    already = len(rows) - len(todo)  # 幂等跳过数（已复制过）
+    return list(rows), [src for src in rows if src.id not in have]
+
+
+async def stream_import_genre_knowledge(
+    db: AsyncSession, *, novel_id: str, user_id: str, genre: str
+) -> AsyncIterator[dict]:
+    """流式导入（async generator）：逐概念组复制并 yield 进度事件，收尾基线面。
+
+    事件形状：
+      {"type": "phase", "phase": "copy", "concept": X, "done": n, "total": N}
+      {"type": "phase", "phase": "baseline"}
+      {"type": "done", "imported": n, "skipped": n, "style_land": {...}, "world_land": {...}}
+    副本行/标签/种子权重单事务（末尾 commit）；基线 KV 落地在其后（另一介质）。
+    并发双开（两个标签页同时点导入）：唯一索引冲突时回滚重算差集重来一次，
+    不把 UNIQUE 错误丢给用户（对方已落库的条目按 skipped 计）。"""
+    rows, todo = await _load_import_state(
+        db, novel_id=novel_id, user_id=user_id, genre=genre
+    )
     total = len(todo)
+    skipped = len(rows) - total  # 幂等跳过数（已复制过）
     yield {"type": "phase", "phase": "copy", "total": total}
 
     copied = 0
-    done = 0
     new_rows: list[tuple[KbBookEntry, KbEntry]] = []
-    for concept in _CONCEPT_ORDER:
-        group = [src for src in todo if src.concept == concept]
-        if not group:
-            continue
-        for src in group:
-            row = KbBookEntry(
-                novel_id=novel_id,
-                user_id=user_id,
-                genre=src.genre,
-                concept=src.concept,
-                concept_id=src.concept_id,
-                title=src.title,
-                payload_json=src.payload_json,
-                payload_version=src.payload_version,
-                instruction=src.instruction,
-                example=src.example,
-                negative_example=src.negative_example,
-                when_json=src.when_json,
-                evidence=src.evidence,
-                evidence_json=src.evidence_json,
-                rev=src.rev,
-                src_kind="book_copy",
-                src_ref=novel_id,
-                src_key=src.id,
-            )
-            db.add(row)
-            new_rows.append((row, src))
-            copied += 1
-            done += 1
-        await db.flush()
-        yield {"type": "phase", "phase": "copy", "concept": concept, "done": done, "total": total}
-
-    if new_rows:
-        # 标签物化：源条目 tags 原样克隆（比重算保真）
-        src_ids = [src.id for _row, src in new_rows]
-        src_tags = (
-            await db.execute(
-                select(KbEntryTag).where(KbEntryTag.entry_id.in_(src_ids))
-            )
-        ).scalars().all()
-        copy_by_src = {row.src_key: row for row, _src in new_rows}
-        for t in src_tags:
-            copy = copy_by_src.get(t.entry_id)
-            if copy is None:
-                continue
-            db.add(KbBookEntryTag(
-                entry_id=copy.id, novel_id=novel_id, user_id=user_id,
-                dim=t.dim, value=t.value,
-            ))
-        # 经验继承：源条目 pref 有用率播种为副本初始权重（未标记源=1.0）
-        src_prefs = {
-            p.entry_id: p
-            for p in (
-                await db.execute(
-                    select(KbPref).where(
-                        KbPref.user_id == user_id, KbPref.entry_id.in_(src_ids)
+    attempt = 0
+    while True:
+        done = 0
+        try:
+            for concept in _CONCEPT_ORDER:
+                group = [src for src in todo if src.concept == concept]
+                if not group:
+                    continue
+                for src in group:
+                    row = KbBookEntry(
+                        novel_id=novel_id,
+                        user_id=user_id,
+                        genre=src.genre,
+                        concept=src.concept,
+                        concept_id=src.concept_id,
+                        title=src.title,
+                        payload_json=src.payload_json,
+                        payload_version=src.payload_version,
+                        instruction=src.instruction,
+                        example=src.example,
+                        negative_example=src.negative_example,
+                        when_json=src.when_json,
+                        evidence=src.evidence,
+                        evidence_json=src.evidence_json,
+                        rev=src.rev,
+                        src_kind="book_copy",
+                        src_ref=novel_id,
+                        src_key=src.id,
                     )
-                )
-            ).scalars()
-        }
-        for row, src in new_rows:
-            p = src_prefs.get(src.id)
-            if p is not None and (p.adopt_count + p.drop_count) > 0:
-                total_cnt = p.adopt_count + p.drop_count
-                db.add(KbPref(
-                    user_id=user_id, entry_id=row.id,
-                    weight=max(0.2, p.adopt_count / total_cnt),
-                    adopt_count=p.adopt_count, drop_count=p.drop_count,
-                ))
-    await db.commit()  # 副本＋标签＋种子权重一次落（KV 落地在其后，另一介质）
+                    db.add(row)
+                    new_rows.append((row, src))
+                    copied += 1
+                    done += 1
+                await db.flush()
+                yield {
+                    "type": "phase", "phase": "copy", "concept": concept,
+                    "done": done, "total": total,
+                }
+
+            if new_rows:
+                # 标签物化：源条目 tags 原样克隆（比重算保真）
+                src_ids = [src.id for _row, src in new_rows]
+                src_tags = (
+                    await db.execute(
+                        select(KbEntryTag).where(KbEntryTag.entry_id.in_(src_ids))
+                    )
+                ).scalars().all()
+                copy_by_src = {row.src_key: row for row, _src in new_rows}
+                for t in src_tags:
+                    copy = copy_by_src.get(t.entry_id)
+                    if copy is None:
+                        continue
+                    db.add(KbBookEntryTag(
+                        entry_id=copy.id, novel_id=novel_id, user_id=user_id,
+                        dim=t.dim, value=t.value,
+                    ))
+                # 经验继承：源条目 pref 有用率播种为副本初始权重（未标记源=1.0）
+                src_prefs = {
+                    p.entry_id: p
+                    for p in (
+                        await db.execute(
+                            select(KbPref).where(
+                                KbPref.user_id == user_id, KbPref.entry_id.in_(src_ids)
+                            )
+                        )
+                    ).scalars()
+                }
+                for row, src in new_rows:
+                    p = src_prefs.get(src.id)
+                    if p is not None and (p.adopt_count + p.drop_count) > 0:
+                        total_cnt = p.adopt_count + p.drop_count
+                        db.add(KbPref(
+                            user_id=user_id, entry_id=row.id,
+                            weight=max(0.2, p.adopt_count / total_cnt),
+                            adopt_count=p.adopt_count, drop_count=p.drop_count,
+                        ))
+            await db.commit()  # 副本＋标签＋种子权重一次落（KV 落地在其后，另一介质）
+            break
+        except IntegrityError:
+            # 并发导入抢先落库（同 (novel_id, src_key) 已存在）——回滚重算差集重来；
+            # 第二轮仍冲突＝真实数据问题，照旧上抛。
+            await db.rollback()
+            if attempt >= 1:
+                raise
+            attempt += 1
+            rows, todo = await _load_import_state(
+                db, novel_id=novel_id, user_id=user_id, genre=genre
+            )
+            total = len(todo)
+            skipped = len(rows) - total
+            copied = 0
+            new_rows = []
+            yield {"type": "phase", "phase": "copy", "total": total}
 
     yield {"type": "phase", "phase": "baseline"}
     style_land, world_land = await _land_baselines(
@@ -156,7 +190,7 @@ async def stream_import_genre_knowledge(
     yield {
         "type": "done",
         "imported": copied,
-        "skipped": already,
+        "skipped": skipped,
         "style_land": style_land,
         "world_land": world_land,
     }
