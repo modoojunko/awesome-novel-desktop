@@ -44,7 +44,7 @@ interface Props {
   projectId: string;
   /** P2-1：脏状态回调（有未落库修改时 true） */
   onDirtyChange?: (dirty: boolean) => void;
-  /** 选中卡变化时上报（右栏四行提示与缺口计数的数据源） */
+  /** 选中卡变化时上报（右栏起草角色提示与缺口计数的数据源） */
   onCtxChange?: (ctx: CharAiCtx | null) => void;
   /** 列表载入后是否一张卡都没有（右栏空态「从简介立主角」入口的判据）。
    *  未载入/载入失败一律报 false——「还不知道」不能当成「没有卡」误建主角。 */
@@ -224,8 +224,8 @@ const CharacterManager = forwardRef<CharacterSaveHandle, Props>(function Charact
     setVersions({}); // 版数随卡复位：新卡首稿是「第 1 版」，不带上一张卡的计数
   }, [projectId, clearDirty, onDirtyChange]);
 
-  // 右栏 AI 作用域随卡走：加载与每次字段编辑都重报（一键立卡行门控吃 role/缺口，
-  // 卡上切类型、填格后行与「当前角色」行须即时进退——c-char-ai-card-generic）
+  // 右栏 AI 作用域随卡走：加载与每次字段编辑都重报（起草角色行门控吃 role/缺口，
+  // 卡上切类型、填格后行与「当前角色」行须即时进退——c-chars-draft-all）
   useEffect(() => {
     if (!card) return;
     onCtxChange?.({
@@ -1118,7 +1118,7 @@ const CharacterManager = forwardRef<CharacterSaveHandle, Props>(function Charact
 
             {(card.role === "配角" || card.role === "反派") && !displayName(card.name) && !card.persona.trim() && (
               <p className="opt" data-testid="char-ai-hint" style={{ margin: "2px 0 0" }}>
-                右侧「一键立卡」可以先为 TA 拟一稿——只补空格，采纳才写入。
+                右侧「起草角色」可以先为 TA 拟一稿——只补空格，采纳才写入。
               </p>
             )}
 
