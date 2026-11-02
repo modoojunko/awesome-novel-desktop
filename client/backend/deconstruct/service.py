@@ -380,6 +380,7 @@ def task_view(task: DeconstructJob, *, live_books: set[str] | None = None) -> di
         "ai_model": task.ai_model,
         "api_config_id": task.api_config_id,
         "mode": getattr(task, "mode", "smart"),
+        "rhythm_json": getattr(task, "rhythm_json", "{}"),
         "selected_dims": selected,
         "cards": {
             "state": str(_cards_state(task).get("state", "queued")),

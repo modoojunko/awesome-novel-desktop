@@ -77,6 +77,8 @@ class DeconstructJob(Base):
     mode: Mapped[str] = mapped_column(String(10), nullable=False, default="smart", server_default="smart")
     # smart 模式固化采样集（章 ref 有序清单）——断点续拆/重跑一致（不重选章）
     selected_chapters_json: Mapped[str] = mapped_column(Text, nullable=False, default="[]", server_default="[]")
+    # 节奏统计档（c-deconstruct-knowledge 批C）：四指标 JSON（章字数/场景数/爽点间隔/卷配比）
+    rhythm_json: Mapped[str] = mapped_column(Text, nullable=False, default="{}", server_default="{}")
     # 创建时勾选的维度子集（JSON 数组，默认全选；管线/续拆/出口计数以此为基础）
     selected_dims_json: Mapped[str] = mapped_column(Text, nullable=False, default="[]")
     dims_json: Mapped[str] = mapped_column(Text, nullable=False, default="{}")

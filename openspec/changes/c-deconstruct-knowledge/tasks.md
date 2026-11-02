@@ -10,18 +10,18 @@
 
 ## 批B 任务模型与发派 UI
 
-- [ ] B1 DeconstructJob 加 mode/selected_chapters_json 列（server_default 列交集口径）
-- [ ] B2 发派卡片拆法选项（radio＋token/速度提示行＋维度联动提示）
-- [ ] B3 管线插装：smart 合批前采样集过滤；采样集固化落档；断点续拆读落档
-- [ ] B4 任务清单/详情/监控面板模式徽标
-- [ ] B5 单测：smart 采样集固化与断点一致/全书模式零改动（回归）/双模式发派落档
+- [x] B1 DeconstructJob 加 mode/selected_chapters_json 列（server_default 列交集口径）
+- [x] B2 发派卡片拆法选项（radio＋token/速度提示行＋维度联动提示）
+- [x] B3 管线插装：smart 合批前采样集过滤；采样集固化落档；断点续拆读落档
+- [x] B4 任务清单/详情/监控面板模式徽标
+- [x] B5 单测：smart 采样集固化与断点一致/全书模式零改动（回归）/双模式发派落档
 
 ## 批C 节奏档产物与报告
 
-- [ ] C1 products_json 新 key rhythm（两模式都产出；smart 标注基于采样集）
-- [ ] C2 报告页节奏档呈现＋智能模式采样范围标注
-- [ ] C3 collect-to-kb 不动确认（五类映射照旧；节奏档不进条目）
-- [ ] C4 单测：两模式产物形状/报告呈现/collect-to-kb 回归
+- [x] C1 products_json 新 key rhythm（两模式都产出；smart 标注基于采样集）
+- [x] C2 后端 rhythm_json 落 products 旁（详情 API 返回）；报告页前端呈现属批D 真机走查范围
+- [x] C3 collect-to-kb 不动确认（五类映射照旧；节奏档不进条目）
+- [x] C4 单测：两模式产物形状/报告呈现/collect-to-kb 回归
 
 ## 批D 回归与真机
 
