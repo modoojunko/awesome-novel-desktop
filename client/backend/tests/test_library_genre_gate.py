@@ -305,3 +305,111 @@ def test_门禁_书题材未设时放行():
             assert r.status_code == 200
     finally:
         app.dependency_overrides.clear()
+
+
+# ─── 跟进 P3：题材栏端点同挂回填＋未清空节流 ─────────────────
+
+
+def test_题材栏端点触发回填_计数与列表同口径():
+    seed = _run(_seed(with_task=True))
+
+    async def _go():
+        from models.character_library import CharacterLibrary
+
+        async with async_session() as db:
+            card = CharacterLibrary(
+                id=str(uuid.uuid4()), user_id=seed["uid"], name="刘望津", role="配角",
+                genre="", src_kind="deconstruct", src_ref=seed["task_id"],
+            )
+            db.add(card)
+            await db.flush()
+            db.add(_entry(
+                seed["uid"], src_kind="character_library_migration",
+                src_ref="character_library", src_key=card.id,
+            ))
+            await db.commit()
+
+    _run(_go())
+    c = _client(seed)
+    try:
+        with c:
+            r = c.get("/api/kb/genres")
+            assert r.status_code == 200
+            items = {i["name"]: i["count"] for i in r.json()["data"]}
+            assert items.get("志怪/民俗灵异") == 1  # 计数前已回填，不再落「跨题材通用」
+            assert items.get("跨题材通用", 0) == 0
+    finally:
+        app.dependency_overrides.clear()
+
+
+def test_回填_未清空时窗口内节流_窗口到期重试():
+    seed = _run(_seed(with_task=True))
+
+    async def _go():
+        from library import service as svc
+
+        async with async_session() as db:
+            # 不可解来源（卡已删）→ 跑完未清空 → 该用户进入节流窗口
+            db.add(_entry(seed["uid"], src_kind="character_library_migration",
+                          src_ref="character_library", src_key="gone-card"))
+            await db.commit()
+            await svc.ensure_genre_backfill(db, seed["uid"])
+        # 窗口内新增一条可解条目＋再触达：应被节流跳过（保持空）
+        async with async_session() as db:
+            db.add(_entry(seed["uid"], src_kind="deconstruct",
+                          src_ref=seed["task_id"], src_key="k2"))
+            await db.commit()
+            await svc.ensure_genre_backfill(db, seed["uid"])
+            rows = (await db.execute(
+                KbEntry.__table__.select().where(KbEntry.user_id == seed["uid"])
+            )).mappings().all()
+            return {r["src_key"]: r["genre"] for r in rows}
+
+    genres = _run(_go())
+    assert genres["k2"] == ""  # 节流：窗口内不重探
+
+    async def _after_window():
+        from library import service as svc
+
+        real = svc._BACKFILL_RETRY_SEC
+        svc._BACKFILL_RETRY_SEC = 0.0  # 等价窗口到期
+        try:
+            async with async_session() as db:
+                await svc.ensure_genre_backfill(db, seed["uid"])
+                rows = (await db.execute(
+                    KbEntry.__table__.select().where(KbEntry.user_id == seed["uid"])
+                )).mappings().all()
+                return {r["src_key"]: r["genre"] for r in rows}
+        finally:
+            svc._BACKFILL_RETRY_SEC = real
+
+    genres2 = _run(_after_window())
+    assert genres2["k2"] == "志怪/民俗灵异"  # 窗口到期重探补上
+    assert genres2["gone-card"] == ""
+
+
+def test_回填_新进程monotonic小于窗口也照跑(monkeypatch):
+    """CI 实锤回归：哨兵用 0.0 时，刚启动的机器 monotonic < 窗口秒数 → 首跑被
+    误判节流，回填全不生效。修后空表首跑必执行。"""
+    seed = _run(_seed(with_task=True))
+
+    async def _go():
+        from library import service as svc
+
+        assert svc._BACKFILL_UNSETTLED.get(seed["uid"]) is None
+        monkeypatch.setattr(svc.time, "monotonic", lambda: 5.0)  # 等价刚启动的 VM
+        try:
+            async with async_session() as db:
+                db.add(_entry(seed["uid"], src_kind="deconstruct",
+                              src_ref=seed["task_id"], src_key="k3"))
+                await db.commit()
+                await svc.ensure_genre_backfill(db, seed["uid"])
+                rows = (await db.execute(
+                    KbEntry.__table__.select().where(KbEntry.user_id == seed["uid"])
+                )).mappings().all()
+                return {r["src_key"]: r["genre"] for r in rows}
+        finally:
+            svc._BACKFILL_UNSETTLED.pop(seed["uid"], None)
+
+    genres = _run(_go())
+    assert genres["k3"] == "志怪/民俗灵异"

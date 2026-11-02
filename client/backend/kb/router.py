@@ -64,6 +64,9 @@ async def get_genres(
     db: AsyncSession = Depends(get_db),
 ):
     uid = _user(user)
+    # 题材回填挂点（c-library-genre-gate 跟进）：本端点与条目列表并行发起，计数
+    # 若先算会漏掉刚回填的条目——这里同挂一次，保证首屏计数与列表同口径（幂等自熄）
+    await ensure_genre_backfill(db, uid)
     counts = await genre_counts(db, user_id=uid)
     items = []
     for t in THEMES:
