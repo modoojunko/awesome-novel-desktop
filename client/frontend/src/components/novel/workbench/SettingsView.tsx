@@ -236,8 +236,13 @@ export default function SettingsView({
   const [charCtx, setCharCtx] = useState<CharAiCtx | null>(null);
   /** 角色列表已载入且一张卡都没有（右栏空态「从简介立主角」入口判据） */
   const [charEmpty, setCharEmpty] = useState(false);
-  // 换面板即清：上一轮的空态不能借给新挂载的角色面板首帧（防误开立主角入口建重卡）
-  useEffect(() => setCharEmpty(false), [panel]);
+  /** 角色列表已载入且至少有一张卡（右栏「起草角色」新建分支判据） */
+  const [charHasCards, setCharHasCards] = useState(false);
+  // 换面板即清：上一轮的空态/有卡判据不能借给新挂载的角色面板首帧
+  useEffect(() => {
+    setCharEmpty(false);
+    setCharHasCards(false);
+  }, [panel]);
   /** 角色整项确认缺口（c-chars-confirm-scope）：CharacterManager 上抛，页脚提示按档位取用 */
   const [charGateHint, setCharGateHint] = useState<CharGateHint | null>(null);
   // 伏笔面板（foreshadow-settings-v2）：徽标五态 / 保存四态 / 选中条目 ctx 的上报落点。
@@ -930,6 +935,7 @@ export default function SettingsView({
                 onDirtyChange={handleDirtyChange}
                 onCtxChange={setCharCtx}
                 onEmptyChange={setCharEmpty}
+                onHasCardsChange={setCharHasCards}
                 onGateHintChange={setCharGateHint}
                 onRefreshConfirmState={onRefreshConfirmState}
                 introReady={!!settingsStatus?.synopsis}
@@ -1059,7 +1065,9 @@ export default function SettingsView({
           <CharsAiRail
             ctx={charCtx}
             noCard={charEmpty}
+            hasCards={charHasCards}
             introReady={!!settingsStatus?.synopsis}
+            hasConfirmed={!!settingsStatus && Object.values(settingsStatus).some(Boolean)}
             aiState={aiState}
             onBlocked={handleAiBlocked}
             runningKey={aiRunningKey}

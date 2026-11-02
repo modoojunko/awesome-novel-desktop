@@ -76,6 +76,19 @@ export interface BootstrapDraft {
   prompt?: string;
 }
 
+/** 起草角色（c-chars-draft-all）：有卡补空格 / 无卡新建；输入只读已确认设定＋名册＋本卡 */
+export interface DraftAllResult {
+  role: string;
+  name: string;
+  aliases: string[];
+  persona: string;
+  cells: { path: string; value: string }[];
+  skipped?: { key: string; why: string }[];
+  prompt?: string;
+  /** 本次入参的已确认设定来源（题材/简介/世界/主线） */
+  sources: string[];
+}
+
 export interface UndoResult {
   ok: boolean;
   receipt: string;
@@ -234,6 +247,32 @@ export const charactersApi = {
       api.post(`/novels/${projectId}/settings/ai/characters/bootstrap`, {
         character_id: characterId || undefined,
         ...(promptOverride ? { prompt: promptOverride } : {}),
+      }),
+    ),
+
+  /** 起草角色预览（c-chars-draft-all）：只渲染提示词，不调 AI 不计费 */
+  draftAllPreview: (
+    projectId: string,
+    opts: { characterId?: string; role?: string },
+  ) =>
+    unwrap<{ prompt: string; sources: string[]; role: string }>(
+      api.post(`/novels/${projectId}/settings/ai/characters/draft-all`, {
+        character_id: opts.characterId || undefined,
+        role: opts.characterId ? undefined : opts.role,
+        preview: true,
+      }),
+    ),
+
+  /** 起草角色出稿：有卡只补空格；无卡按 role 新建（采纳由前端 create＋单格 PATCH） */
+  draftAll: (
+    projectId: string,
+    opts: { characterId?: string; role?: string; promptOverride?: string },
+  ) =>
+    unwrap<DraftAllResult>(
+      api.post(`/novels/${projectId}/settings/ai/characters/draft-all`, {
+        character_id: opts.characterId || undefined,
+        role: opts.characterId ? undefined : opts.role,
+        ...(opts.promptOverride ? { prompt: opts.promptOverride } : {}),
       }),
     ),
 

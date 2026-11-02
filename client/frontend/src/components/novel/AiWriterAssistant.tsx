@@ -203,26 +203,27 @@ export default function AiWriterAssistant({
   );
 }
 
-/** 角色右栏 AI 行（character-settings-v2 四行 + bootstrap + cardDraft；作用域见各行）：免费可见、点不动。 */
+/** 角色右栏 AI 行（c-chars-draft-all：起草角色＋体检＋空态立主角）：免费可见、点不动。 */
 export function CharsAiRail(props: {
   ctx: CharAiCtx | null;
-  /** 书里还没有任何角色卡（列表已载入且为空）：右栏直接给「从简介立主角」入口——
-   *  空态下中栏引导卡在设置区里，右栏是 AI 能力的常驻位（用户口径：入口在右侧）。
+  /** 书里还没有任何角色卡（列表已载入且为空）：右栏直接给「从简介立主角」入口。
    *  未载入/载入失败时传 false，避免把「还不知道」当成「没有卡」误建主角。 */
   noCard?: boolean;
+  /** 列表已载入且至少有一张卡：未选中卡时「起草角色」＝新建一张。 */
+  hasCards?: boolean;
   /** 02 简介是否已确认：空态立主角的前置（未确认＝行置灰并给出「先写简介」出口）。 */
   introReady?: boolean;
+  /** 是否至少有一项已确认设定（题材/简介/世界/主线）：「起草角色」的前置。 */
+  hasConfirmed?: boolean;
   aiState?: AiState;
   onBlocked?: (reason: AiState) => void;
   runningKey?: string | null;
   onRun: (key: string) => void | Promise<void>;
 }) {
-  const { ctx, noCard, introReady } = props;
+  const { ctx, noCard, hasCards, introReady, hasConfirmed } = props;
   const part = (n: number, max: number) => (n ? `缺 ${n}/${max}` : "已齐");
   const targetLine = noCard ? (
-    <>
-      还没有角色卡 · 先立主角（主角必立，确认「角色」的前提）
-    </>
+    <>还没有角色卡 · 先立主角（主角必立，确认「角色」的前提）</>
   ) : ctx ? (
     <>
       当前角色：<b>{ctx.name}</b> <span className="num">#{ctx.code}</span>
@@ -235,6 +236,8 @@ export function CharsAiRail(props: {
         </>
       )}
     </>
+  ) : hasCards ? (
+    <>未选中角色 · 「起草角色」会按已确认设定新建一张卡</>
   ) : null;
   // 主角待立（有主角卡但名字还空着）时出现：与空态引导同源，出稿只补空格
   const bootstrapRow: AiCapabilityRow[] =
@@ -264,67 +267,57 @@ export function CharsAiRail(props: {
           },
         ]
       : [];
-  // 一键立卡（c-char-ai-card-generic）：配角/反派且有任一空格才出现，卡满退场；
-  // 路人不给行（与体检排除同口径）、主角走 bootstrap，互不越位
-  const cardDraftRow: AiCapabilityRow[] =
-    ctx && (ctx.role === "配角" || ctx.role === "反派") && ctx.personaGap + ctx.dossierGap + ctx.cogGap > 0
-      ? [
-          {
-            key: "cardDraft",
-            name: "一键立卡",
-            desc: `按简介为「${ctx.name || "未命名"}」把人设、档案、认知的空格一次拟齐 · 采纳才写入`,
-            onClick: () => props.onRun("cardDraft"),
-          },
-        ]
-      : [];
-  // 空态没有卡：这四行是卡片级能力，点了只会静默落空（runAi 里 !card 直接 return）——
-  // 置灰＋hint，把出口指向首行的「从简介立主角」；有卡时维持原口径。
-  const cardScopedDisabled = noCard && !ctx;
-  const cardScopedHint = cardScopedDisabled ? "先立主角" : undefined;
+  // 起草角色（c-chars-draft-all）：有卡且还有空格 → 补空格；有卡但未选中 → 新建。
+  // 路人只补档案空格；主角待立走「从简介立主角」，不重复给起草行。
+  const draftGaps = ctx
+    ? ctx.role === "路人"
+      ? ctx.dossierGap
+      : ctx.personaGap + ctx.dossierGap + ctx.cogGap
+    : 0;
+  const canDraftAll =
+    !noCard &&
+    !(ctx?.role === "主角" && ctx.nameless) &&
+    (ctx ? draftGaps > 0 : !!hasCards);
+  const draftAllRow: AiCapabilityRow[] = canDraftAll
+    ? [
+        {
+          key: "draftAll",
+          name: "起草角色",
+          desc: ctx
+            ? ctx.role === "路人"
+              ? `补「${ctx.name || "未命名"}」的基础档案空格 · 采纳才写入`
+              : `一次补齐「${ctx.name || "未命名"}」剩下的空格（人设/档案/认知）· 采纳才写入`
+            : "按已确认设定新建一张角色卡（配角/反派）· 采纳才建卡",
+          disabled: !hasConfirmed,
+          hint: hasConfirmed ? undefined : "先确认设定",
+          onClick: () => props.onRun("draftAll"),
+          testid: "char-rail-draft-all",
+        },
+      ]
+    : [];
+  const checkRow: AiCapabilityRow[] = ctx
+    ? [
+        {
+          key: "check",
+          name: "一致性体检",
+          desc: `拿「${ctx.name}」去对整体设定 · 会读：这张卡、已确认设定、现有角色`,
+          onClick: () => props.onRun("check"),
+        },
+      ]
+    : [];
   const rows: AiCapabilityRow[] = [
     ...emptyBootstrapRow,
     ...bootstrapRow,
-    ...cardDraftRow,
-    {
-      key: "persona",
-      name: "人设补充",
-      desc: ctx ? `为「${ctx.name}」出一稿 · 会读：这张卡、简介、题材` : "补一句话人设，采纳才覆盖",
-      disabled: cardScopedDisabled,
-      hint: cardScopedHint,
-      onClick: () => props.onRun("persona"),
-    },
-    {
-      key: "dossier",
-      name: "基础信息补充",
-      desc: ctx ? `补「${ctx.name}」的档案空格（含性别、年龄、种族）· 会读：这张卡、简介、题材、世界` : "补档案空格，含性别、年龄、种族",
-      disabled: cardScopedDisabled,
-      hint: cardScopedHint,
-      onClick: () => props.onRun("dossier"),
-    },
-    {
-      key: "cog",
-      name: "认知补充",
-      desc: ctx ? `补「${ctx.name}」每层要写的那几格（含技能）· 会读：这张卡、世界（力量与代价）、主线` : "把每层要写的那几格补上，只补空格",
-      disabled: cardScopedDisabled,
-      hint: cardScopedHint,
-      onClick: () => props.onRun("cog"),
-    },
-    {
-      key: "check",
-      name: "一致性体检",
-      desc: ctx ? `拿「${ctx.name}」去对整体设定 · 会读：这张卡、简介、题材、世界、主线` : "拿这张卡去对简介、题材、世界、主线",
-      disabled: cardScopedDisabled,
-      hint: cardScopedHint,
-      onClick: () => props.onRun("check"),
-    },
+    ...draftAllRow,
+    ...checkRow,
   ];
   return (
     <AiWriterAssistant
       rows={rows}
       footNote={
         noCard && !ctx
-          ? "还没有角色卡：首行「从简介立主角」直接可用（需先在 02 简介写几句并确认），出稿在弹窗里过目，点「采纳 · 写入」才建卡落字；下面四行等主角卡建立后生效。卡片上不放 AI 按钮：免费用户照样可以手填所有字段。"
-          : "这些行都只对当前选中的角色生效（「从简介立主角」只认主角待立那一张，「一键立卡」只认配角与反派）：先在弹窗里给你一稿，点「采纳 · 写入」才落到卡上，写错了能一步撤销。只补空格——你写过的字一个不动。重开同一行先看上次结果，重新生成才再跑一次。卡片上不放 AI 按钮：免费用户照样可以手填所有字段，这一栏看得见、点不动。"
+          ? "还没有角色卡：首行「从简介立主角」直接可用（需先在 02 简介写几句并确认），出稿在弹窗里过目，点「采纳 · 写入」才建卡落字。卡片上不放 AI 按钮：免费用户照样可以手填所有字段。"
+          : "「起草角色」一次补齐整张卡：卡上你写过的字一个不动，只补空格；没选中卡时按已确认的题材/简介/世界/主线＋现有角色新建一张（可切配角/反派），采纳才建卡。一致性体检只读不写。卡片上不放 AI 按钮：免费用户照样可以手填所有字段。"
       }
       targetLine={targetLine}
       aiState={props.aiState}

@@ -5,7 +5,12 @@
 // + 整项确认口径（c-chars-confirm-scope）：门禁缺口经 onGateHintChange 上抛给页脚提示；
 //   卡片级保存态归位卡头（「这张卡…」），与整项口径分开。
 import { forwardRef, useCallback, useEffect, useImperativeHandle, useMemo, useRef, useState } from "react";
-import { charactersApi, BootstrapDraft, CharacterCard } from "@/lib/charactersApi";
+import {
+  charactersApi,
+  BootstrapDraft,
+  CharacterCard,
+  DraftAllResult,
+} from "@/lib/charactersApi";
 import {
   COG_FIELD_HINTS,
   COG_FILL_KEYS,
@@ -44,6 +49,8 @@ interface Props {
   /** 列表载入后是否一张卡都没有（右栏空态「从简介立主角」入口的判据）。
    *  未载入/载入失败一律报 false——「还不知道」不能当成「没有卡」误建主角。 */
   onEmptyChange?: (empty: boolean) => void;
+  /** 列表载入后是否至少有一张卡（右栏「起草角色」新建分支的判据）。 */
+  onHasCardsChange?: (has: boolean) => void;
   /** 02 简介是否已填（readiness settingsStatus.synopsis）——空态引导卡的分路判据 */
   introReady?: boolean;
   /** 本书 AI 就绪态（D13）：空态引导按钮与右栏行同一门控；不 ready 时点击走 onBlocked */
@@ -99,13 +106,6 @@ export function gateHintOf(list: CharacterCard[], noProtagonist: boolean): CharG
 
 type SaveState = "saved" | "saving" | "dirty" | "failed";
 
-interface AiDraft {
-  target?: string;
-  cells: { path: string; value: string }[];
-  skipped?: { key: string; why: string }[];
-  act: "insert" | "replace";
-}
-
 interface CheckResult {
   items: { name: string; status: "ok" | "warn" | "conflict" | "miss"; note: string; goto?: string }[];
   degraded: boolean;
@@ -126,8 +126,8 @@ const CharacterManager = forwardRef<CharacterSaveHandle, Props>(function Charact
   ref,
 ) {
   const {
-    projectId, onDirtyChange, onCtxChange, onEmptyChange, introReady, aiState, onBlocked,
-    onGateHintChange, onRefreshConfirmState,
+    projectId, onDirtyChange, onCtxChange, onEmptyChange, onHasCardsChange, introReady,
+    aiState, onBlocked, onGateHintChange, onRefreshConfirmState,
   } = props;
   const [list, setList] = useState<CharacterCard[]>([]);
   const [gate, setGate] = useState<{ ok: boolean; no_protagonist: boolean; confirmed: boolean }>({
@@ -149,20 +149,23 @@ const CharacterManager = forwardRef<CharacterSaveHandle, Props>(function Charact
   const [cogOpen, setCogOpen] = useState<Record<string, boolean>>({});
   const [relForm, setRelForm] = useState(false);
   const [relDraft, setRelDraft] = useState({ other: "", rel_type: "\u540c\u76df", stance: "", note: "" });
-  const [sink, setSink] = useState<AiDraft | null>(null);
-  /** 最近一次出稿的能力（缓存命中判定：重开同一行展示缓存不再发请求，D9） */
-  const [sinkAction, setSinkAction] = useState<"persona" | "dossier" | "cog" | null>(null);
-  /** 「从简介立主角」出稿（character-bootstrap-from-intro）：出稿过目，采纳才写入；
-      c-char-ai-card-generic 起同一槽位兼收配角/反派「一键立卡」稿（bootstrapKind 区分来路） */
+  /** 「从简介立主角」出稿（character-bootstrap-from-intro）：出稿过目，采纳才写入 */
   const [bootstrapSink, setBootstrapSink] = useState<BootstrapDraft | null>(null);
-  const [bootstrapKind, setBootstrapKind] = useState<"bootstrap" | "cardDraft">("bootstrap");
   /** 编辑流（c-char-prompt-view）：本次起草的提示词（服务端渲染稿，弹窗里可改后再生成） */
   const [bootstrapPrompt, setBootstrapPrompt] = useState("");
+  /** 「起草角色」出稿（c-chars-draft-all）：有卡补空格 / 无卡新建；输入只读已确认设定＋名册＋本卡 */
+  const [draftSink, setDraftSink] = useState<DraftAllResult | null>(null);
+  const [draftPrompt, setDraftPrompt] = useState("");
+  const [draftSources, setDraftSources] = useState<string[]>([]);
+  /** 无卡新建时的角色（配角/反派）；有卡时恒取卡的角色 */
+  const [draftRole, setDraftRole] = useState<"配角" | "反派">("配角");
+  /** 迟到守卫：无卡新建没有卡 id 可比，用递增 token 丢弃过期响应 */
+  const draftTokenRef = useRef(0);
   const [check, setCheck] = useState<CheckResult | null>(null);
   // AI 出卡确认弹窗（c-settings-ai-confirm-modal）：出稿/体检统一进弹窗，内嵌预览块退役
-  const [cardAction, setCardAction] = useState<"persona" | "dossier" | "cog" | "bootstrap" | "cardDraft" | "check" | null>(null);
+  const [cardAction, setCardAction] = useState<"bootstrap" | "draftAll" | "check" | null>(null);
   const aiBusyRef = useRef(false); // ref 同步判定：同一 tick 连点不穿透
-  const [versions, setVersions] = useState<Partial<Record<"persona" | "dossier" | "cog" | "bootstrap" | "cardDraft" | "check", number>>>({});
+  const [versions, setVersions] = useState<Partial<Record<"bootstrap" | "draftAll" | "check", number>>>({});
   const [cardOpen, setCardOpen] = useState(false);
   const [cardCached, setCardCached] = useState(false);
   const [aiBusy, setAiBusy] = useState(false);
@@ -197,9 +200,10 @@ const CharacterManager = forwardRef<CharacterSaveHandle, Props>(function Charact
     setGate({ ok: data.gate.ok, no_protagonist: data.gate.no_protagonist, confirmed: data.confirmed });
     setListLoaded(true); // 只有真拿到列表才放行门禁摘要（失败路径保持静默，见 listLoaded 声明处）
     onEmptyChange?.(data.items.length === 0); // 右栏空态入口只认「真载入且为空」
+    onHasCardsChange?.(data.items.length > 0); // 右栏起草角色「新建」分支只认真载入
     onRefreshConfirmState?.(); // 数据已刷新＝存档可能过期：请父层重取（c-chars-stale-reconfirm）
     return data.items;
-  }, [projectId, onRefreshConfirmState, onEmptyChange]);
+  }, [projectId, onRefreshConfirmState, onEmptyChange, onHasCardsChange]);
 
   const loadCard = useCallback(async (id: string) => {
     const full = await charactersApi.get(projectId, id);
@@ -208,13 +212,14 @@ const CharacterManager = forwardRef<CharacterSaveHandle, Props>(function Charact
     setSaveState("saved");
     clearDirty();
     onDirtyChange?.(false);
-    setSink(null);
     setCheck(null);
-    // 出稿槽随卡清：bootstrapSink 泛化收配角/反派「一键立卡」稿后不清会把 A 卡的稿
-    // 借给 B 卡当缓存（评审 P2）——主角待立时代只有一张卡，这条不存在
+    // 出稿槽随卡清：不清会把 A 卡的稿借给 B 卡当缓存（评审 P2）
     setBootstrapSink(null);
-    setBootstrapKind("bootstrap");
     setBootstrapPrompt(""); // 编辑流提示词随卡清：不把 A 卡的渲染稿借给 B 卡
+    setDraftSink(null);
+    setDraftPrompt("");
+    setDraftSources([]);
+    draftTokenRef.current += 1; // 换卡作废在途的起草响应
     setCardOpen(false); // 换卡＝弹窗随结果一起清（D9 缓存面板级寿命）
     setVersions({}); // 版数随卡复位：新卡首稿是「第 1 版」，不带上一张卡的计数
   }, [projectId, clearDirty, onDirtyChange]);
@@ -240,6 +245,7 @@ const CharacterManager = forwardRef<CharacterSaveHandle, Props>(function Charact
   useEffect(() => {
     setListLoaded(false); // 换书重取：旧书的缺口摘要不得借道新书的首帧（评审补丁）
     onEmptyChange?.(false); // 换书首帧：上一本的空态不能借道给新书（防误开立主角入口）
+    onHasCardsChange?.(false); // 换书首帧：有卡判据同样只认「真载入」
     selectedIdRef.current = ""; // 换书清选中：空书残留旧书 id 会让空态立主角被迟到守卫误弃
     (async () => {
       try {
@@ -341,68 +347,62 @@ const CharacterManager = forwardRef<CharacterSaveHandle, Props>(function Charact
       return queueRef.current.length === 0 && saveState !== "failed";
     },
     clearAi: () => {
-      setSink(null);
       setCheck(null);
       setBootstrapSink(null);
-      setBootstrapKind("bootstrap");
       setBootstrapPrompt("");
+      setDraftSink(null);
+      setDraftPrompt("");
+      setDraftSources([]);
+      draftTokenRef.current += 1;
       setCardAction(null);
       setCardOpen(false);
       setVersions({});
     },
     runAi: async (key: string) => {
       if (aiBusyRef.current) return;
-      if (key === "bootstrap" || key === "cardDraft") {
+      if (key === "bootstrap") {
         // 从简介立主角：允许无卡（空态）触发；主角待立时带当前卡 id（出稿只补空格）。
-        // 一键立卡（c-char-ai-card-generic）：只挂在选中配角/反派卡的右栏行上，永远有卡。
-        if (bootstrapSink && bootstrapKind === key) {
+        if (bootstrapSink) {
           setCardCached(true); // 重开＝展示缓存，不重复生成（D9）
-          setCardAction(key);
+          setCardAction("bootstrap");
           setCardOpen(true);
           return;
         }
-        await runBootstrap(key);
+        await runBootstrap();
         return;
       }
-      if (key !== "persona" && key !== "dossier" && key !== "cog" && key !== "check") return;
-      if (key === "check" && check) {
+      if (key === "draftAll") {
+        // 起草角色：有卡补空格 / 无卡新建（c-chars-draft-all）
+        if (draftSink) {
+          setCardCached(true);
+          setCardAction("draftAll");
+          setCardOpen(true);
+          return;
+        }
+        await runDraftAll();
+        return;
+      }
+      if (key !== "check") return;
+      if (check) {
         setCardCached(true);
         setCardAction("check");
-        setCardOpen(true);
-        return;
-      }
-      if (key !== "check" && sink && sinkAction === key) {
-        setCardCached(true);
-        setCardAction(key);
         setCardOpen(true);
         return;
       }
       if (!card) return;
       aiBusyRef.current = true;
       setAiBusy(true);
-      setCardAction(key as "persona" | "dossier" | "cog" | "check"); // 首跑先开弹窗给 loading 占位
+      setCardAction("check"); // 首跑先开弹窗给 loading 占位
       setCardOpen(true);
       const cardId = card.id;
       try {
-        if (key === "check") {
-          const res = await charactersApi.aiCheck(projectId, cardId);
-          if (selectedIdRef.current === cardId) {
-            setCheck(res);
-            setCardCached(false);
-            setCardAction("check");
-            setCardOpen(true);
-            setVersions((prev) => ({ ...prev, check: (prev.check ?? 0) + 1 }));
-          }
-        } else {
-          const res = await charactersApi.aiDraft(projectId, cardId, key as "persona" | "dossier" | "cog");
-          if (selectedIdRef.current === cardId) {
-            setSink(res);
-            setSinkAction(key);
-            setCardCached(false);
-            setCardAction(key);
-            setCardOpen(true);
-            setVersions((prev) => ({ ...prev, [key]: (prev[key] ?? 0) + 1 }));
-          }
+        const res = await charactersApi.aiCheck(projectId, cardId);
+        if (selectedIdRef.current === cardId) {
+          setCheck(res);
+          setCardCached(false);
+          setCardAction("check");
+          setCardOpen(true);
+          setVersions((prev) => ({ ...prev, check: (prev.check ?? 0) + 1 }));
         }
       } catch (e) {
         // 走到请求＝该能力无缓存：失败关门走 toast（对齐 world fail-close），
@@ -558,44 +558,6 @@ const CharacterManager = forwardRef<CharacterSaveHandle, Props>(function Charact
     showToast("已撤销本次导入");
   }, [batchCreatedIds, projectId, reloadList, loadCard, showToast, onCtxChange]);
 
-  const adoptSink = useCallback(async () => {
-    if (!sink || !card) return;
-    // 逐格采纳：以服务端返回的 rev 为准（本地 +1 会与真实版本脱钩）；
-    // 单格 409 不整批中止——重同步 rev 后跳过该格继续，结果逐格汇报
-    let applied = 0;
-    const skipped: string[] = [];
-    try {
-      for (const cell of sink.cells) {
-        try {
-          const { rev } = await charactersApi.patch(
-            projectId, card.id, cell.path, cell.value, revRef.current,
-          );
-          revRef.current = rev;
-          applied += 1;
-        } catch (e) {
-          const err = e as Error & { status?: number; rev?: number };
-          if (err.status === 409 && err.rev !== undefined) {
-            revRef.current = err.rev;
-            skipped.push(cell.path);
-            continue;
-          }
-          throw e;
-        }
-      }
-      setSink(null); // 采纳即作废旧稿（只补空格的稿采纳后无二次价值）：重开会重新出稿，D9 的缓存例外
-      setCardOpen(false); // 确认写回＝弹窗自动关
-      await loadCard(card.id);
-      await reloadList();
-      showToast(
-        skipped.length
-          ? `\u5df2\u91c7\u7eb3 ${applied} \u683c\uff1b${skipped.length} \u683c\u51b2\u7a81\u8df3\u8fc7\uff08\u8bf7\u624b\u52a8\u6838\u5bf9\uff09`
-          : "\u5df2\u91c7\u7eb3\uff0c\u53ef\u7ee7\u7eed\u6539",
-      );
-    } catch (e) {
-      showToast((e as Error).message || "\u91c7\u7eb3\u5931\u8d25\uff0c\u8bf7\u91cd\u8bd5");
-    }
-  }, [sink, card, projectId, loadCard, reloadList, showToast]);
-
   /** 采纳「从简介立主角」草稿：空态=建主角卡+逐格补写；主角待立=只补空格（含名字/别名/人设） */
   const adoptBootstrap = useCallback(async () => {
     if (!bootstrapSink) return;
@@ -619,7 +581,6 @@ const CharacterManager = forwardRef<CharacterSaveHandle, Props>(function Charact
         await loadCard(card.id);
         await reloadList();
       } else {
-        if (bootstrapKind === "cardDraft") return; // 一键立卡不建卡（行只在有卡时出现）
         const created = await charactersApi.create(projectId, draft.name, { role: "主角" });
         selectedIdRef.current = created.id;
         setSelectedId(created.id);
@@ -652,14 +613,12 @@ const CharacterManager = forwardRef<CharacterSaveHandle, Props>(function Charact
       }
       showToast((e as Error).message || "\u91c7\u7eb3\u5931\u8d25");
     }
-  }, [bootstrapSink, bootstrapKind, card, projectId, flushQueue, loadCard, reloadList, showToast]);
+  }, [bootstrapSink, card, projectId, flushQueue, loadCard, reloadList, showToast]);
 
   /** 空态引导卡入口与右栏行共用：门控（不 ready → onBlocked）后进编辑流第一步；
-      kind＝「从简介立主角」/ 配角/反派「一键立卡」（同一端点，后端按卡角色分派模板）。
       c-char-prompt-view：先取服务端渲染稿（不调 AI），弹窗给提示词可改，点「生成」才真跑 */
-  const runBootstrap = useCallback(async (kind: "bootstrap" | "cardDraft" = "bootstrap") => {
+  const runBootstrap = useCallback(async () => {
     if (aiBusyRef.current) return; // ref 同步判定（与 runAi 同锁）
-    if (kind === "cardDraft" && !card) return; // 一键立卡只挂在有卡上下文
     if (aiState && aiState !== "ready") {
       onBlocked?.(aiState);
       return;
@@ -672,13 +631,11 @@ const CharacterManager = forwardRef<CharacterSaveHandle, Props>(function Charact
     try {
       const res = await charactersApi.bootstrapPreview(projectId, card?.id || undefined);
       if (selectedIdRef.current !== targetId) return; // 已切卡：弃稿
-      setSink(null);
       setCheck(null);
       setBootstrapSink(null); // 编辑流第一步永远回到提示词段，旧稿不留
       setBootstrapPrompt(res.prompt);
-      setBootstrapKind(kind);
       setCardCached(false);
-      setCardAction(kind);
+      setCardAction("bootstrap");
       setCardOpen(true);
     } catch (e) {
       showToast((e as Error).message || "AI \u751f\u6210\u5931\u8d25\uff0c\u53ef\u91cd\u8bd5");
@@ -690,7 +647,7 @@ const CharacterManager = forwardRef<CharacterSaveHandle, Props>(function Charact
 
   /** 编辑流第二步（c-char-prompt-view）：以（可编辑后的）提示词真跑出稿；
       「换一个」同款重跑——提示词保留在编辑态，改完再点生成即按新要求出稿 */
-  const generateBootstrap = useCallback(async (kind: "bootstrap" | "cardDraft") => {
+  const generateBootstrap = useCallback(async () => {
     if (aiBusyRef.current) return;
     if (!bootstrapPrompt.trim()) return; // 空提示词不出手（生成钮已置灰，双保险）
     aiBusyRef.current = true;
@@ -701,14 +658,12 @@ const CharacterManager = forwardRef<CharacterSaveHandle, Props>(function Charact
         projectId, card?.id || undefined, bootstrapPrompt,
       );
       if (selectedIdRef.current !== targetId) return; // 已切卡：弃稿
-      setSink(null);
       setCheck(null);
       setBootstrapSink(res);
-      setBootstrapKind(kind);
       setCardCached(false);
-      setCardAction(kind);
+      setCardAction("bootstrap");
       setCardOpen(true);
-      setVersions((prev) => ({ ...prev, [kind]: (prev[kind] ?? 0) + 1 }));
+      setVersions((prev) => ({ ...prev, bootstrap: (prev.bootstrap ?? 0) + 1 }));
     } catch (e) {
       // 失败留在提示词段：稿子可改可重试，不空白弹窗滞留
       showToast((e as Error).message || "AI \u751f\u6210\u5931\u8d25\uff0c\u53ef\u91cd\u8bd5");
@@ -717,6 +672,143 @@ const CharacterManager = forwardRef<CharacterSaveHandle, Props>(function Charact
       setAiBusy(false);
     }
   }, [bootstrapPrompt, card, projectId, showToast]);
+
+  /** 起草角色第一步（c-chars-draft-all）：有卡补空格 / 无卡按角色新建；只出提示词不调 AI。 */
+  const runDraftAll = useCallback(async (role?: "配角" | "反派") => {
+    if (aiBusyRef.current) return;
+    if (aiState && aiState !== "ready") {
+      onBlocked?.(aiState);
+      return;
+    }
+    const nextRole = card ? undefined : (role ?? draftRole);
+    const token = ++draftTokenRef.current;
+    const targetId = card?.id || "";
+    aiBusyRef.current = true;
+    setAiBusy(true);
+    try {
+      const res = await charactersApi.draftAllPreview(
+        projectId, card ? { characterId: card.id } : { role: nextRole },
+      );
+      if (token !== draftTokenRef.current || selectedIdRef.current !== targetId) return;
+      setCheck(null);
+      setDraftSink(null);
+      setDraftPrompt(res.prompt);
+      setDraftSources(res.sources);
+      if (!card && nextRole) setDraftRole(nextRole);
+      setCardCached(false);
+      setCardAction("draftAll");
+      setCardOpen(true);
+    } catch (e) {
+      showToast((e as Error).message || "AI \u751f\u6210\u5931\u8d25\uff0c\u53ef\u91cd\u8bd5");
+    } finally {
+      aiBusyRef.current = false;
+      setAiBusy(false);
+    }
+  }, [aiState, onBlocked, card, projectId, showToast, draftRole]);
+
+  /** 起草角色第二步：以（可编辑后的）提示词真跑出稿；「换一个」同款重跑。 */
+  const generateDraftAll = useCallback(async () => {
+    if (aiBusyRef.current) return;
+    if (!draftPrompt.trim()) return;
+    const token = ++draftTokenRef.current;
+    const targetId = card?.id || "";
+    aiBusyRef.current = true;
+    setAiBusy(true);
+    try {
+      const res = await charactersApi.draftAll(
+        projectId,
+        card
+          ? { characterId: card.id, promptOverride: draftPrompt }
+          : { role: draftRole, promptOverride: draftPrompt },
+      );
+      if (token !== draftTokenRef.current || selectedIdRef.current !== targetId) return;
+      setCheck(null);
+      setDraftSink(res);
+      setDraftSources(res.sources);
+      setCardCached(false);
+      setCardAction("draftAll");
+      setCardOpen(true);
+      setVersions((prev) => ({ ...prev, draftAll: (prev.draftAll ?? 0) + 1 }));
+    } catch (e) {
+      showToast((e as Error).message || "AI \u751f\u6210\u5931\u8d25\uff0c\u53ef\u91cd\u8bd5");
+    } finally {
+      aiBusyRef.current = false;
+      setAiBusy(false);
+    }
+  }, [draftPrompt, card, projectId, showToast, draftRole]);
+
+  /** 采纳起草角色草稿：有卡只补空格；无卡 create(role)＋逐格补写（既有写路径）。 */
+  const adoptDraftAll = useCallback(async () => {
+    if (!draftSink) return;
+    const draft = draftSink;
+    try {
+      if (timerRef.current) window.clearTimeout(timerRef.current);
+      await flushQueue();
+      if (card) {
+        const steps: { path: string; value: unknown }[] = [];
+        if (!displayName(card.name) && draft.name) steps.push({ path: "name", value: draft.name });
+        if (!card.aliases.length && draft.aliases.length)
+          steps.push({ path: "aliases", value: draft.aliases });
+        if (!card.persona.trim() && draft.persona) steps.push({ path: "persona", value: draft.persona });
+        steps.push(...draft.cells.filter((c) => cellStillEmpty(card, c.path)));
+        // 逐格以服务端返回 rev 记账（本地 +1 会与真实版本脱钩）；单格 409 重同步后跳过续走
+        const skippedPaths: string[] = [];
+        for (const s of steps) {
+          try {
+            const { rev } = await charactersApi.patch(
+              projectId, card.id, s.path, s.value, revRef.current,
+            );
+            revRef.current = rev;
+          } catch (e) {
+            const err = e as Error & { status?: number; rev?: number };
+            if (err.status === 409 && err.rev !== undefined) {
+              revRef.current = err.rev;
+              skippedPaths.push(s.path);
+              continue;
+            }
+            throw e;
+          }
+        }
+        setDraftSink(null);
+        setCardOpen(false);
+        await loadCard(card.id);
+        await reloadList();
+        showToast(
+          skippedPaths.length
+            ? `已采纳；${skippedPaths.length} 格冲突跳过（请手动核对）`
+            : "已采纳，可继续改",
+        );
+      } else {
+        const role = draft.role || draftRole;
+        const created = await charactersApi.create(projectId, draft.name, { role });
+        selectedIdRef.current = created.id;
+        setSelectedId(created.id);
+        setOpsPanel("");
+        setRelForm(false);
+        await loadCard(created.id);
+        const steps: { path: string; value: unknown }[] = [];
+        if (draft.aliases.length) steps.push({ path: "aliases", value: draft.aliases });
+        if (draft.persona) steps.push({ path: "persona", value: draft.persona });
+        steps.push(...draft.cells.filter((c) => cellStillEmpty(created, c.path)));
+        for (const s of steps) {
+          await charactersApi.patch(projectId, created.id, s.path, s.value, revRef.current);
+          revRef.current += 1;
+        }
+        setDraftSink(null);
+        setCardOpen(false);
+        await loadCard(created.id);
+        await reloadList();
+        showToast(`${role}已起草并建卡，可继续改`);
+      }
+    } catch (e) {
+      const err = e as Error & { status?: number; rev?: number };
+      if (err.status === 409 && err.rev !== undefined) {
+        revRef.current = err.rev;
+        if (card) await loadCard(card.id);
+      }
+      showToast((e as Error).message || "采纳失败，请重试");
+    }
+  }, [draftSink, card, projectId, flushQueue, loadCard, reloadList, showToast, draftRole]);
 
   const doDelete = useCallback(async () => {
     if (!card) return;
@@ -1364,13 +1456,10 @@ const CharacterManager = forwardRef<CharacterSaveHandle, Props>(function Charact
       <AiCardModal
         open={cardOpen && cardAction !== null}
         card={
-          cardAction != null && (cardAction === "bootstrap" || cardAction === "cardDraft") && !bootstrapSink
+          cardAction === "bootstrap" && !bootstrapSink
             ? {
                 /* 编辑流第一步（c-char-prompt-view）：先给渲染稿提示词，可改，点「生成」才真跑 */
-                label:
-                  cardAction === "cardDraft"
-                    ? `AI 起草 · 为「${card ? displayName(card.name) || "未命名" : ""}」立卡（提示词可改）`
-                    : "AI 起草 · 从简介立主角（提示词可改）",
+                label: "AI 起草 · 从简介立主角（提示词可改）",
                 kind: "struct",
                 adoptText: "生成",
                 canAdopt: !!bootstrapPrompt.trim(),
@@ -1389,14 +1478,11 @@ const CharacterManager = forwardRef<CharacterSaveHandle, Props>(function Charact
                     />
                   </>
                 ),
-                adopt: () => void generateBootstrap(cardAction),
+                adopt: () => void generateBootstrap(),
               }
-            : cardAction != null && (cardAction === "bootstrap" || cardAction === "cardDraft") && bootstrapSink
+            : cardAction === "bootstrap" && bootstrapSink
             ? {
-                label:
-                  cardAction === "cardDraft"
-                    ? `AI 拟稿 · 为「${card ? displayName(card.name) || "未命名" : ""}」立卡（采纳才写入）`
-                    : "AI 拟稿 · 从简介立主角（采纳才写入）",
+                label: "AI 拟稿 · 从简介立主角（采纳才写入）",
                 kind: "struct",
                 adoptText: "采纳 · 写入",
                 cached: cardCached,
@@ -1420,22 +1506,87 @@ const CharacterManager = forwardRef<CharacterSaveHandle, Props>(function Charact
                 ),
                 adopt: () => void adoptBootstrap(),
               }
-            : cardAction && cardAction !== "bootstrap" && cardAction !== "check" && sink
-              ? {
-                  label: "AI 生成 · 采纳才写入（只补空格）",
-                  kind: "struct",
-                  adoptText: "采纳 · 写入",
-                  cached: cardCached,
-                  node: (
-                    <>
-                      {draftRows(sink)}
-                      <p style={{ margin: "8px 0 0", fontSize: 11.5, color: "var(--muted)" }}>
-                        这一格你写过就不动；采纳走既有单格写入。
+            : cardAction === "draftAll" && !draftSink
+            ? {
+                /* 起草角色第一步：先看本次输入与提示词，可改；无卡时可切配角/反派 */
+                label: card
+                  ? `AI 起草 · 补齐「${displayName(card.name) || "未命名"}」剩下的空格（提示词可改）`
+                  : "AI 起草 · 新建一张角色卡（提示词可改）",
+                kind: "struct",
+                adoptText: "生成",
+                canAdopt: !!draftPrompt.trim(),
+                node: (
+                  <>
+                    {draftSources.length > 0 && (
+                      <p
+                        style={{ margin: "0 0 8px", fontSize: 11.5, color: "var(--muted)" }}
+                        data-testid="char-draft-sources"
+                      >
+                        本次输入：{draftSources.join("、")}（只读已确认项）
                       </p>
-                    </>
-                  ),
-                  adopt: () => void adoptSink(),
-                }
+                    )}
+                    {!card && (
+                      <div style={{ display: "flex", gap: 8, alignItems: "center", margin: "0 0 10px" }}>
+                        <span style={{ fontSize: 12, color: "var(--muted)" }}>角色</span>
+                        {(["配角", "反派"] as const).map((r) => (
+                          <button
+                            key={r}
+                            type="button"
+                            className={`chip${draftRole === r ? " on" : ""}`}
+                            data-testid={`char-draft-role-${r === "配角" ? "support" : "villain"}`}
+                            disabled={aiBusy}
+                            onClick={() => void runDraftAll(r)}
+                          >
+                            {r}
+                          </button>
+                        ))}
+                      </div>
+                    )}
+                    <p style={{ margin: "0 0 6px", fontSize: 11.5, color: "var(--muted)" }}>
+                      这是本次起草用的提示词——想加要求（比如这个角色该干什么、和谁有旧账）直接写进去，点「生成」出稿。
+                    </p>
+                    <textarea
+                      className="ac-prompt-edit"
+                      aria-label="本次提示词（可编辑）"
+                      data-testid="char-ai-prompt-edit"
+                      value={draftPrompt}
+                      disabled={aiBusy}
+                      onChange={(e) => setDraftPrompt(e.target.value)}
+                    />
+                  </>
+                ),
+                adopt: () => void generateDraftAll(),
+              }
+            : cardAction === "draftAll" && draftSink
+            ? {
+                label: card
+                  ? "AI 拟稿 · 起草角色（采纳才写入）"
+                  : "AI 拟稿 · 起草角色（采纳才建卡）",
+                kind: "struct",
+                adoptText: card ? "采纳 · 写入" : "采纳 · 建卡",
+                cached: cardCached,
+                prompt: draftSink.prompt,
+                node: (
+                  <>
+                    {draftSink.name && (
+                      <p style={{ margin: "5px 0" }}><b>名称</b>：{draftSink.name}</p>
+                    )}
+                    {draftSink.aliases.length > 0 && (
+                      <p style={{ margin: "5px 0" }}><b>别名</b>：{draftSink.aliases.join(" · ")}</p>
+                    )}
+                    {draftSink.persona && (
+                      <p style={{ margin: "5px 0" }}><b>一句话人设</b>：{draftSink.persona}</p>
+                    )}
+                    {draftRows(draftSink)}
+                    <p style={{ margin: "8px 0 0", fontSize: 11.5, color: "var(--muted)" }}>
+                      {card
+                        ? "只补空格——你写过的字一个不动；点右下角「采纳 · 写入」才会落到这张卡上。"
+                        : `点右下角「采纳 · 建卡」才会新建一张${draftSink.role || draftRole}卡并落字。`}
+                    </p>
+                  </>
+                ),
+                adopt: () => void adoptDraftAll(),
+              }
               : cardAction === "check" && check
                 ? {
                     label: `AI 体检 · ${check.verdict || "角色 × 整体设定"}`,
@@ -1471,65 +1622,48 @@ const CharacterManager = forwardRef<CharacterSaveHandle, Props>(function Charact
         }
         running={aiBusy}
         runningText={
-          cardAction === "bootstrap" || cardAction === "cardDraft"
+          cardAction === "bootstrap"
             ? (bootstrapSink ? "正在生成新一版…" : "AI 正在按提示词起草…")
-            : undefined
+            : cardAction === "draftAll"
+              ? (draftSink ? "正在生成新一版…" : "AI 正在按提示词起草…")
+              : undefined
         }
         version={
           cardAction
-            ? (cardAction === "bootstrap" || cardAction === "cardDraft") && !bootstrapSink
+            ? (cardAction === "bootstrap" && !bootstrapSink) ||
+              (cardAction === "draftAll" && !draftSink)
               ? undefined // 提示词编辑段＝还没出稿，不带「第 N 版」
               : versions[cardAction]
             : undefined
         }
         onRegenerate={
-          cardAction && (cardAction !== "bootstrap" && cardAction !== "cardDraft" || bootstrapSink)
-            ? () => {
-                // 立卡结果段的「换一个」＝按当前（可编辑后的）提示词重跑（c-char-prompt-view）；
-                // 提示词编辑段没有换一个（先点生成才有得换）
-                if (cardAction === "bootstrap" || cardAction === "cardDraft") void generateBootstrap(cardAction);
-                else if (cardAction === "check") {
-                  // 体检「重新检查」：报告卡在会话内可刷新（D2 报告卡骨架）
-                  if (!card) return;
-                  aiBusyRef.current = true;
-                  setAiBusy(true);
-                  void (async () => {
-                    try {
-                      const res = await charactersApi.aiCheck(projectId, card.id);
-                      if (selectedIdRef.current === card.id) {
-                        setCheck(res);
-                        setCardCached(false);
-                        setVersions((prev) => ({ ...prev, check: (prev.check ?? 0) + 1 }));
-                      }
-                    } catch (e) {
-                      showToast((e as Error).message || "AI \u751f\u6210\u5931\u8d25\uff0c\u53ef\u91cd\u8bd5");
-                    } finally {
-                      aiBusyRef.current = false;
-                      setAiBusy(false);
-                    }
-                  })();
-                } else {
-                  // 出稿重生成：清缓存标记走原请求路径（cache 判定键 sinkAction 不变即重开，
-                  // 这里直接驱动句柄级重跑）
-                  void (async () => {
+          cardAction === "bootstrap" && bootstrapSink
+            ? () => void generateBootstrap()
+            : cardAction === "draftAll" && draftSink
+              ? () => void generateDraftAll()
+              : cardAction === "check"
+                ? () => {
+                    // 体检「重新检查」：报告卡在会话内可刷新（D2 报告卡骨架）
+                    if (!card) return;
                     aiBusyRef.current = true;
                     setAiBusy(true);
-                    try {
-                      const res = await charactersApi.aiDraft(projectId, card!.id, cardAction as "persona" | "dossier" | "cog");
-                      setSink(res);
-                      setSinkAction(cardAction);
-                      setCardCached(false);
-                      setVersions((prev) => ({ ...prev, [cardAction]: (prev[cardAction] ?? 0) + 1 }));
-                    } catch (e) {
-                      showToast((e as Error).message || "AI \u751f\u6210\u5931\u8d25\uff0c\u53ef\u91cd\u8bd5");
-                    } finally {
-                      aiBusyRef.current = false;
-                      setAiBusy(false);
-                    }
-                  })();
-                }
-              }
-            : undefined
+                    void (async () => {
+                      try {
+                        const res = await charactersApi.aiCheck(projectId, card.id);
+                        if (selectedIdRef.current === card.id) {
+                          setCheck(res);
+                          setCardCached(false);
+                          setVersions((prev) => ({ ...prev, check: (prev.check ?? 0) + 1 }));
+                        }
+                      } catch (e) {
+                        showToast((e as Error).message || "AI \u751f\u6210\u5931\u8d25\uff0c\u53ef\u91cd\u8bd5");
+                      } finally {
+                        aiBusyRef.current = false;
+                        setAiBusy(false);
+                      }
+                    })();
+                  }
+                : undefined
         }
         onClose={() => setCardOpen(false)}
         data-testid="char-ai-card"
