@@ -423,7 +423,10 @@ async def _replace_layer(
         await _promote_overlay(db, ov, old)
         await db.delete(ov)
         promoted += 1
-    await _hide_radded_promoted(db, new_keys)
+    # 只在「本次重新上架」的迁移上补 hide（new_keys − old_rows）：否则每次版本升级都会
+    # 把用户手动「恢复官方版」后的状态再盖回去（用户选择必须胜过一次性去重）
+    readded = new_keys - set(old_rows)
+    await _hide_radded_promoted(db, readded)
     await db.commit()
     return {
         "status": "synced",
@@ -438,11 +441,12 @@ async def _replace_layer(
 _PROMOTED_SRC = "官方精选（已下架）"
 
 
-async def _hide_radded_promoted(db: AsyncSession, new_keys: set[str]) -> None:
+async def _hide_radded_promoted(db: AsyncSession, readded: set[str]) -> None:
     """回退/重新上架去重：官方条目复活而用户已有「提升副本」时，给该用户补 hide。
 
     否则 merged 视图会同时出现「用户副本」与「复活的原件」两份近乎相同的内容。
-    hide 可逆（「已隐藏」列表里能恢复官方版），不留死数据。
+    `readded` 只含「本次从无到有」的 src_key——版本升级里一直存在的条目不再处理，
+    用户手动「恢复官方版」（删 hide）后的选择因此不会被下一次升级覆盖。
     """
     from models.kb import KbEntry
 
@@ -460,7 +464,7 @@ async def _hide_radded_promoted(db: AsyncSession, new_keys: set[str]) -> None:
             key = str(json.loads(row.evidence_json or "{}").get("promoted_from") or "")
         except ValueError:
             key = ""
-        if not key or key not in new_keys or (row.user_id, key) in existing:
+        if not key or key not in readded or (row.user_id, key) in existing:
             continue
         db.add(
             KbBaselineOverlay(

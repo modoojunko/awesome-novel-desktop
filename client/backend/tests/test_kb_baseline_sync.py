@@ -635,6 +635,29 @@ def test_回退再上架_提升副本与复活原件不重复(sync_env):
     assert len(entries) == 1 and entries[0].instruction.startswith("我的说法")
     assert [(o.action, o.src_key) for o in ov] == [("hide", a["src_key"])]
 
+    # 用户手动恢复官方版后，后续版本升级不得把 auto-hide 盖回来（用户选择优先）
+    async def _restore():
+        async with async_session() as db:
+            ov = (await db.execute(sel(KbBaselineOverlay).where(
+                KbBaselineOverlay.user_id == uid))).scalar_one()
+            await db.delete(ov)
+            await db.commit()
+
+    _run(_restore())
+    _publish(4, [a])
+    assert _sync(bl)["status"] == "synced"
+
+    async def _after_restore():
+        async with async_session() as db:
+            visible = await load_baseline_entries(db, user_id=uid, genre="玄幻")
+            ov = (await db.execute(sel(KbBaselineOverlay).where(
+                KbBaselineOverlay.user_id == uid))).scalars().all()
+            return [e.src_key for e in visible], ov
+
+    visible_keys, overlays = _run(_after_restore())
+    assert visible_keys == [a["src_key"]]  # 恢复后官方重新露出
+    assert overlays == []                  # 升级不会重建 auto-hide
+
     async def _cleanup():
         async with async_session() as db:
             await db.execute(delete(KbEntryTag).where(KbEntryTag.user_id == uid))
