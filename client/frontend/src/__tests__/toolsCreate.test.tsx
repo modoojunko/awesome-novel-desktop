@@ -116,6 +116,9 @@ describe("CreateTaskPage", () => {
     pickFile();
     expect(screen.getByText(/试拆\.txt/)).toBeInTheDocument();
 
+    // 默认智能拆书只勾推荐维（c-deconstruct-knowledge）——先切全书拆拿全选基线，
+    // 再验「下限 1 / 重勾回加」这两条原语义
+    fireEvent.click(screen.getByTestId("mode-full"));
     const boxes = await screen.findAllByRole("checkbox");
     expect(boxes.length).toBe(3);
     for (const b of boxes.slice(0, -1)) fireEvent.click(b);
@@ -551,5 +554,39 @@ describe("CreateTaskPage", () => {
     fireEvent.click(screen.getByText("收起格式示例"));
     expect(screen.queryByText(/第1章 开端/)).not.toBeInTheDocument();
     expect(screen.getByRole("button", { name: /查看示例/ })).toHaveAttribute("aria-expanded", "false");
+  });
+
+  it("拆法双卡：默认智能拆书＋推荐维，切全书拆全选、切回恢复（批B coverage）", async () => {
+    state.fetchOpts.mockResolvedValue([
+      { api_config_id: "c1", config_name: "A", model: "m1", vendor: "v" },
+    ]);
+    state.probe.mockResolvedValue(true);
+    state.create.mockResolvedValue({ id: "t-mode", status: "queued" });
+    renderPage();
+    pickFile();
+    await waitFor(() => expect(screen.getByTestId("mode-field")).toBeInTheDocument());
+
+    // 默认智能拆书：提示行在，推荐维按 mock 词表命中（world/techniques），intro 未选
+    expect(screen.getByText(/智能拆书自动挑有代表性的章节/)).toBeInTheDocument();
+    expect((screen.getByLabelText("世界设定") as HTMLInputElement).checked).toBe(true);
+    expect((screen.getByLabelText("写作技法") as HTMLInputElement).checked).toBe(true);
+    expect((screen.getByLabelText("简介") as HTMLInputElement).checked).toBe(false);
+
+    // 切全书拆：提示消失，全维选中
+    fireEvent.click(screen.getByTestId("mode-full"));
+    expect(screen.queryByText(/智能拆书自动挑有代表性的章节/)).not.toBeInTheDocument();
+    for (const name of ["简介", "世界设定", "写作技法"]) {
+      expect((screen.getByLabelText(name) as HTMLInputElement).checked).toBe(true);
+    }
+
+    // 切回智能：恢复推荐维（intro 取消）
+    fireEvent.click(screen.getByTestId("mode-smart"));
+    expect((screen.getByLabelText("简介") as HTMLInputElement).checked).toBe(false);
+
+    // 提交携带所选拆法
+    await waitFor(() => expect(screen.getByText(/创建任务（进队列排队）/)).not.toBeDisabled());
+    fireEvent.click(screen.getByText(/创建任务（进队列排队）/));
+    await waitFor(() => expect(state.create).toHaveBeenCalled());
+    expect(state.create.mock.calls.at(-1)?.[1].mode).toBe("smart");
   });
 });

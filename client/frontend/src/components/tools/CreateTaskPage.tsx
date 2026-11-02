@@ -19,6 +19,9 @@ import {
 } from "../../lib/deconstructStructure";
 
 
+/** 智能拆书推荐维（写法向）：主线剧情/伏笔类依赖全书覆盖，不在推荐集内 */
+const SMART_DEFAULT_DIMS = ["genre", "world", "characters", "style", "techniques"];
+
 /** 单本容量口径（spec「单本容量口径」）：v2 分级归并后残留为全书梗概注入截断（约 200 章）；超线只提示不拦截 */
 const OVER_CAPACITY_CHARS = 600_000;
 
@@ -129,9 +132,14 @@ export default function CreateTaskPage() {
   const [modelKey, setModelKey] = useState("");
   const [probeOk, setProbeOk] = useState<boolean | null>(null);
   const [probing, setProbing] = useState(false);
-  const [selected, setSelected] = useState<string[]>(DECONSTRUCT_DIMS.map((d) => d.key));
-  // 拆解模式（c-deconstruct-knowledge）：smart=智能拆书（默认）/ full=全书拆
+  // 拆解模式（c-deconstruct-knowledge）：smart=智能拆书（默认）/ full=全书拆。
+  // 默认即智能模式，维度初值必须与「智能推荐四维」一致——否则默认发派嘴上智能、
+  // 实际仍按全维跑（剧情/伏笔维度依赖全书覆盖，智能采样给不了）。
   const [mode, setMode] = useState<"smart" | "full">("smart");
+  const smartDims = SMART_DEFAULT_DIMS.filter((k) => DECONSTRUCT_DIMS.some((d) => d.key === k));
+  const [selected, setSelected] = useState<string[]>(
+    mode === "smart" ? smartDims : DECONSTRUCT_DIMS.map((d) => d.key),
+  );
   const [bookName, setBookName] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [submitErr, setSubmitErr] = useState("");
@@ -526,7 +534,7 @@ export default function CreateTaskPage() {
                   onChange={() => {
                     setMode("smart");
                     // 智能拆书推荐知识四维（写法向），主线剧情/伏笔类依赖全书覆盖建议全书拆
-                    setSelected(["genre", "world", "characters", "style", "techniques"]);
+                    setSelected(smartDims);
                   }} style={{ display: "none" }}
                 />
                 <b style={{ color: mode === "smart" ? "var(--accent)" : "inherit" }}>智能拆书</b>
