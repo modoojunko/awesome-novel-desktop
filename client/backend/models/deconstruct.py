@@ -72,6 +72,11 @@ class DeconstructJob(Base):
     parse_warnings_json: Mapped[str] = mapped_column(Text, nullable=False, default="[]")
     api_config_id: Mapped[str] = mapped_column(String(36), nullable=False, default="")
     ai_model: Mapped[str] = mapped_column(String(120), nullable=False, default="")
+    # 拆解模式（c-deconstruct-knowledge）：full＝全书进管线（现状）；smart＝选章器
+    # 采样 ≤31 章进管线（省 token 迅速）。server_default 保列交集搬运（老库加列口径）。
+    mode: Mapped[str] = mapped_column(String(10), nullable=False, default="smart", server_default="smart")
+    # smart 模式固化采样集（章 ref 有序清单）——断点续拆/重跑一致（不重选章）
+    selected_chapters_json: Mapped[str] = mapped_column(Text, nullable=False, default="[]", server_default="[]")
     # 创建时勾选的维度子集（JSON 数组，默认全选；管线/续拆/出口计数以此为基础）
     selected_dims_json: Mapped[str] = mapped_column(Text, nullable=False, default="[]")
     dims_json: Mapped[str] = mapped_column(Text, nullable=False, default="{}")

@@ -103,6 +103,7 @@ async def create_task(
     selected_dims: list[str],
     graph_caps_flag: bool = True,
     thinking_mode: str = "off",
+    mode: str = "smart",
 ) -> DeconstructJob:
     task_id = str(uuid.uuid4())
     os.makedirs(staging_dir(task_id), exist_ok=True)
@@ -123,6 +124,7 @@ async def create_task(
         api_config_id=api_config_id,
         ai_model=ai_model[:120],
         selected_dims_json=json.dumps(selected_dims, ensure_ascii=False),
+        mode=("smart" if mode == "smart" else "full"),
         thinking_mode=normalize_thinking_mode(thinking_mode),
         dims_json=json.dumps(
             {
@@ -377,6 +379,7 @@ def task_view(task: DeconstructJob, *, live_books: set[str] | None = None) -> di
         "parse_warnings": json.loads(task.parse_warnings_json or "[]"),
         "ai_model": task.ai_model,
         "api_config_id": task.api_config_id,
+        "mode": getattr(task, "mode", "smart"),
         "selected_dims": selected,
         "cards": {
             "state": str(_cards_state(task).get("state", "queued")),

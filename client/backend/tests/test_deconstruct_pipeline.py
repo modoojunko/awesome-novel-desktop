@@ -76,6 +76,7 @@ def _mk_job(task_id: str, *, selected: list[str], chapters: int = 2, status: str
                     ai_model="m-1",
                     chapter_count=chapters,
                     selected_dims_json=json.dumps(selected),
+                    mode="full",  # 既有管线测试＝全书拆行为背书（smart 有专属测试）
                     dims_json=dims_json,
                     products_json=products_json,
                 )

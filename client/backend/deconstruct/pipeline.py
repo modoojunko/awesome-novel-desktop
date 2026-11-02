@@ -913,6 +913,36 @@ async def run_task(task_id: str) -> None:
     _ctx_token = TASK_CTX.set({"task": task_id})
 
     chapters = await _load_chapters(task)
+    # 智能拆书（c-deconstruct-knowledge）：选章器采样集过滤——管线只处理代表章；
+    # 采样集固化落档（断点续拆/重跑一致）。全书拆（full）路径零改动。
+    if getattr(task, "mode", "full") == "smart":
+        from deconstruct.sampler import ChapterInput, select_chapters
+
+        chapter_inputs = [
+            ChapterInput(
+                ref=c.get("ref", f"ch-{i}"),
+                vol_no=int(c.get("vol", 1) or 1),
+                chapter_no=i + 1,
+                title=str(c.get("title") or ""),
+                text=str(c.get("text") or c.get("content") or ""),
+            )
+            for i, c in enumerate(chapters)
+        ]
+        selection = select_chapters(chapter_inputs)
+        keep = {inp.ref for inp in chapter_inputs} & set(selection.selected_refs)
+        chapters = [c for c, inp in zip(chapters, chapter_inputs) if inp.ref in keep]
+        # 固化采样集（断点续拆/重跑一致）——run_task 无 db 会话，直接落库
+        from db import async_session as _sess
+        from models.deconstruct import DeconstructJob as _Job
+
+        async with _sess() as _s:
+            await _s.execute(
+                _Job.__table__.update()
+                .where(_Job.__table__.c.id == task_id)
+                .values(selected_chapters_json=json.dumps(selection.selected_refs, ensure_ascii=False))
+            )
+            await _s.commit()
+        task.selected_chapters_json = json.dumps(selection.selected_refs, ensure_ascii=False)
     state = await _read_dims(task_id)
     selected = _selected(task)
     dims = state.get("dims", {})

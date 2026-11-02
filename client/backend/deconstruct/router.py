@@ -51,6 +51,7 @@ async def create_task(
     ai_model: str = Form(...),
     selected_dims: str = Form("[]"),
     thinking: str = Form("off"),
+    mode: str = Form("smart"),
     user: dict = Depends(get_current_user),
     _gate: bool = Depends(require_ai_access),
     db: AsyncSession = Depends(get_db),
@@ -104,6 +105,7 @@ async def create_task(
             selected_dims=dims,
             graph_caps_flag=caps,
             thinking_mode=service.normalize_thinking_mode(thinking),
+            mode=("smart" if mode == "smart" else "full"),
         )
         os.replace(part_path, task.source_path)  # 上传即落盘契约：排队不依赖浏览器 File
     finally:
