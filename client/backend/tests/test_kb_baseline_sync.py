@@ -456,6 +456,7 @@ def test_启动补偿_无事件循环静默跳过():
 def test_启动补偿_后台任务执行(monkeypatch):
     from kb import baseline as bl
 
+    monkeypatch.delenv("KB_BASELINE_SYNC", raising=False)  # conftest 默认关（测试进程防抢锁）
     calls: list[int] = []
 
     async def _fake():
@@ -472,6 +473,37 @@ def test_启动补偿_后台任务执行(monkeypatch):
 
     _run(_go())
     assert calls == [1]
+
+
+def test_启动补偿_测试闸可关(monkeypatch):
+    """KB_BASELINE_SYNC=0：lifespan 在测试进程里不乱联网（CI database is locked 定诊）。"""
+    from kb import baseline as bl
+
+    monkeypatch.setenv("KB_BASELINE_SYNC", "0")
+    called: list[int] = []
+
+    async def _fake():
+        called.append(1)
+        return {"status": "current"}
+
+    monkeypatch.setattr(bl, "sync_baseline", _fake)
+
+    async def _go():
+        bl.schedule_sync()
+        await asyncio.sleep(0)
+        await asyncio.sleep(0)
+
+    _run(_go())
+    assert called == []
+
+
+def test_手动同步不受测试闸影响(monkeypatch):
+    """闸只挡启动补偿：sync_baseline() 显式调用照常执行（运维/重试面依赖此性质）。"""
+    from kb import baseline as bl
+
+    monkeypatch.setenv("KB_BASELINE_SYNC", "0")
+    monkeypatch.setattr(bl, "_trust_keys", dict)  # 无钥＝early return，不发网络
+    assert _run(bl.sync_baseline())["reason"] == "not_configured"
 
 
 def test_下架孤儿edit提升为用户条目(sync_env):

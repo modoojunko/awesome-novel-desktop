@@ -239,9 +239,17 @@ def _too_old(min_client: object) -> bool:
 
 
 def schedule_sync() -> None:
-    """启动补偿：后台任务执行同步（CDN 等待不挡启动）；无事件循环＝静默跳过。"""
-    import asyncio
+    """启动补偿：后台任务执行同步（CDN 等待不挡启动）；无事件循环＝静默跳过。
 
+    `KB_BASELINE_SYNC=0` 关闭（测试/诊断用）：lifespan 在测试进程里也会跑，
+    不关掉就会真联网并抢共享 SQLite 写锁（CI 实锤 database is locked）。
+    手动 `sync_baseline()` 不受此闸影响。
+    """
+    import asyncio
+    import os
+
+    if (os.environ.get("KB_BASELINE_SYNC") or "").strip() == "0":
+        return
     try:
         loop = asyncio.get_running_loop()
     except RuntimeError:
@@ -271,6 +279,8 @@ async def sync_baseline(db: AsyncSession | None = None) -> dict:
 
 
 async def _sync_impl(db: AsyncSession | None) -> dict:
+    import asyncio
+
     import httpx
 
     from manifest_crypto import verify_manifest
@@ -285,7 +295,8 @@ async def _sync_impl(db: AsyncSession | None) -> dict:
         latest = None
         for candidate in _cdn_bases():
             latest_url = _derive(candidate, "latest.json")
-            if not _validate_outbound(latest_url):
+            # DNS 解析是同步调用：丢线程，别让慢解析卡住整个事件循环（启动期尤甚）
+            if not await asyncio.to_thread(_validate_outbound, latest_url):
                 continue
             probe = await _fetch_json(client, latest_url)
             if probe is not None and verify_manifest(probe, keys):
@@ -301,7 +312,7 @@ async def _sync_impl(db: AsyncSession | None) -> dict:
             return {"status": "current", "version": current}
 
         manifest_url = _derive(base, f"v{version}/manifest.json")
-        if not _validate_outbound(manifest_url):
+        if not await asyncio.to_thread(_validate_outbound, manifest_url):
             return {"status": "failed", "reason": "unsafe_url"}
         manifest_raw = await _fetch_bytes(client, manifest_url)
         try:
