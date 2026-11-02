@@ -11,10 +11,19 @@ const api = vi.hoisted(() => ({
   graphCell: vi.fn(),
 }));
 
+const organize = vi.hoisted(() => ({
+  graphEntries: vi.fn(),
+  status: vi.fn(),
+  findings: vi.fn(),
+}));
+
 vi.mock("@/lib/kbApi", async (orig) => {
   const actual = await orig<typeof import("@/lib/kbApi")>();
   // kbApi 是对象导出：mock 要替换对象内方法，不是模块顶层
-  return { ...actual, kbApi: { ...actual.kbApi, ...api } };
+  return {
+    ...actual,
+    kbApi: { ...actual.kbApi, ...api, organize: { ...actual.kbApi.organize, ...organize } },
+  };
 });
 
 // force-graph 两层 mock（jsdom 无 canvas；kapsule 初始化会抛）
@@ -32,6 +41,14 @@ const kbGraphMock = vi.hoisted(() => {
 });
 vi.mock("force-graph", () => ({
   default: vi.fn(() => kbGraphMock.second),
+}));
+
+// 条目图组件替换为探针：本文件的 force-graph mock 只服务 KbGraph 的 kapsule
+// 两层调用，条目图走单层 factory；这里只验 genre 透传（图装配归 kbEntryGraph.test）
+vi.mock("@/components/tools/KbEntryGraphView", () => ({
+  default: ({ genre }: { genre: string }) => (
+    <div data-testid="entry-graph" data-genre={genre} />
+  ),
 }));
 
 import KnowledgeBasePage from "@/pages/KnowledgeBasePage";
@@ -200,6 +217,29 @@ describe("KnowledgeBasePage 视图切换（c-kb-organize）", () => {
     fireEvent.click(screen.getByText("列表"));
     expect(screen.getByPlaceholderText("搜名字、内容、来源书名")).toBeInTheDocument();
     expect(screen.queryByText("点格子下钻")).not.toBeInTheDocument();
+  });
+});
+
+describe("KnowledgeBasePage 全部题材兜底（条目图/知识整理）", () => {
+  it("全部题材 → 条目图 genre=''、整理面板 genre='玄幻'", async () => {
+    organize.status.mockResolvedValue({
+      genre: "玄幻", running: false, last_run: null, pending_relations: 0, proposed_findings: 0,
+    });
+    organize.findings.mockResolvedValue({ relations: [], findings: [], counts: { relations: 0, findings: 0 } });
+    render(<KnowledgeBasePage />);
+    await screen.findByText("先果后因");
+    fireEvent.click(screen.getByText("条目图"));
+    await waitFor(() =>
+      expect(screen.getByTestId("entry-graph").getAttribute("data-genre")).toBe(""),
+    );
+    fireEvent.click(screen.getByText("知识整理"));
+    await waitFor(() => expect(screen.getByText(/题材「玄幻」/)).toBeTruthy());
+    // 选了真实题材 → 条目图/整理面板透传该题材（三元真臂）
+    fireEvent.click(screen.getByText("都市"));
+    await waitFor(() =>
+      expect(screen.getByTestId("entry-graph").getAttribute("data-genre")).toBe("都市"),
+    );
+    await waitFor(() => expect(screen.getByText(/题材「都市」/)).toBeTruthy());
   });
 });
 
