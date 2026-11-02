@@ -479,17 +479,37 @@ async def _promote_overlay(
     src_kind SHALL NOT 落 "baseline"（delta 硬约束）——提升件记 manual，
     来源信息留在 src_novel_name；标签索引同事务物化（选择器读标签不扫 JSON）。
     """
+    await promote_overlay_copy(
+        db,
+        user_id=ov.user_id,
+        src_key=old.src_key,
+        content=ov.content or "",
+        meta={
+            "genre": old.genre, "concept": old.concept, "title": old.title,
+            "payload_json": old.payload_json, "when_json": old.when_json,
+            "instruction": old.instruction,
+        },
+    )
+
+
+async def promote_overlay_copy(
+    db: AsyncSession, *, user_id: str, src_key: str, content: str, meta: dict
+) -> bool:
+    """孤儿 edit 副本 → 账号自有条目（同步下架与备份恢复共用单源）。
+
+    meta 来自旧层行（同步路径）或备份包 enrichment（导入路径）；两处必须同形状。
+    """
     from sqlalchemy import insert as _ins
 
     from kb.service import _tags_for  # 物化标签单源（与手录/导入同口径）
     from models.kb import KbEntry, KbEntryTag
 
-    text = (ov.content or "").strip() or (old.instruction or "")
+    text = (content or "").strip() or str(meta.get("instruction") or "").strip()
     if not text:
-        return
+        return False
     try:
-        payload = json.loads(old.payload_json or "{}")
-        when = json.loads(old.when_json or "{}")
+        payload = json.loads(str(meta.get("payload_json") or "{}"))
+        when = json.loads(str(meta.get("when_json") or "{}"))
     except ValueError:
         payload, when = {}, {}
     if not isinstance(payload, dict):
@@ -497,12 +517,14 @@ async def _promote_overlay(
     if not isinstance(when, dict):
         when = {}
 
+    genre = str(meta.get("genre") or "")
+    concept = str(meta.get("concept") or "")
     entry = KbEntry(
-        user_id=ov.user_id,
-        genre=old.genre or "",
-        concept=old.concept or "",
-        concept_id=f"{old.genre}:{old.concept}",
-        title=(old.title or "")[:40],
+        user_id=user_id,
+        genre=genre,
+        concept=concept,
+        concept_id=f"{genre}:{concept}",
+        title=(str(meta.get("title") or ""))[:40],
         payload_json=json.dumps(payload, ensure_ascii=False),
         instruction=text,
         when_json=json.dumps(when, ensure_ascii=False),
@@ -512,16 +534,17 @@ async def _promote_overlay(
         src_key="",
         src_novel_name=_PROMOTED_SRC,
         # 溯源：原文 src_key（回退/再上架时据此给对方账号补 hide，防两份重复）
-        evidence_json=json.dumps({"promoted_from": old.src_key}, ensure_ascii=False),
+        evidence_json=json.dumps({"promoted_from": src_key}, ensure_ascii=False),
     )
     db.add(entry)
     await db.flush()
     tag_rows = [
-        {"entry_id": entry.id, "user_id": ov.user_id, "dim": dim, "value": value}
+        {"entry_id": entry.id, "user_id": user_id, "dim": dim, "value": value}
         for dim, value in _tags_for(entry, payload, when)
     ]
     if tag_rows:
         await db.execute(_ins(KbEntryTag), tag_rows)
+    return True
 
 
 async def _current_version() -> int:

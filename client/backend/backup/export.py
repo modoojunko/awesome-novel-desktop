@@ -704,6 +704,28 @@ async def _kb_account_section(db, user_id: str) -> tuple[dict, list[dict]]:
     sections["entry_blobs"] = [
         {"entry_id": b["entry_id"], "variant": b["variant"]} for b in blob_rows
     ]
+    # 基线覆盖带上「导出设备当时的原件元数据」（c-kb-baseline 评审 P2）：恢复端若该
+    # src_key 已不在当前基线层（官方下架/包更新），没有这份元数据就只能干瞪眼——
+    # 覆盖行仍在但永远不可见。enrichment 让它能就地提升为用户自有条目。
+    ovs = sections.get("baseline_overlays") or []
+    keys = [o["src_key"] for o in ovs if o.get("src_key")]
+    if keys:
+        from models.kb import KbBaselineEntry
+
+        base = {
+            r.src_key: r
+            for r in (
+                await db.scalars(select(KbBaselineEntry).where(KbBaselineEntry.src_key.in_(keys)))
+            ).all()
+        }
+        for o in ovs:
+            b = base.get(o.get("src_key"))
+            if b is not None:
+                o["base_meta"] = {
+                    "genre": b.genre, "concept": b.concept, "title": b.title,
+                    "payload_json": b.payload_json, "when_json": b.when_json,
+                    "instruction": b.instruction,
+                }
     return sections, blob_rows
 
 

@@ -190,4 +190,48 @@ describe("KnowledgeBasePage · 官方精选", () => {
     fireEvent.click(await screen.findByTestId("kb-baseline-sync"));
     await waitFor(() => expect(screen.getByText("同步没成功，稍后再试")).toBeTruthy());
   });
+
+  it("编辑＝存我的副本：草稿预填、取消可退、保存调 PUT edit 并刷新", async () => {
+    api.baselineOverride.mockResolvedValue({ entry_id: "b1", action: "edit" });
+    render(<KnowledgeBasePage />);
+    fireEvent.click(await screen.findByText("官方手法A"));
+
+    // 展开：草稿预填官方原文（用户从「看到的这条」开始改，不是从空白）
+    fireEvent.click(await screen.findByTestId("kb-baseline-edit"));
+    const ta = (await screen.findByTestId("kb-baseline-draft")) as HTMLTextAreaElement;
+    expect(ta.value).toBe(BASE_ENTRY.instruction);
+
+    // 取消＝收起且不发请求
+    fireEvent.click(screen.getByTestId("kb-baseline-edit-cancel"));
+    expect(screen.queryByTestId("kb-baseline-draft")).toBeNull();
+    expect(api.baselineOverride).not.toHaveBeenCalled();
+
+    // 再展开、改写、保存 → 只写用户副本
+    fireEvent.click(screen.getByTestId("kb-baseline-edit"));
+    fireEvent.change(await screen.findByTestId("kb-baseline-draft"), {
+      target: { value: "我的说法：交手先让三招，再还手。" },
+    });
+    const before = api.entries.mock.calls.length;
+    api.genres.mockRejectedValueOnce(new Error("g")); // 计数刷新失败静默（catch 臂）
+    fireEvent.click(screen.getByTestId("kb-baseline-save"));
+    await waitFor(() => {
+      expect(api.baselineOverride).toHaveBeenCalledWith(
+        "b1", "edit", "我的说法：交手先让三招，再还手。",
+      );
+    });
+    await waitFor(() => expect(api.entries.mock.calls.length).toBeGreaterThan(before));
+  });
+
+  it("副本保存被闸门拒收：留在抽屉并给可重试提示", async () => {
+    api.baselineOverride.mockRejectedValueOnce(new Error("gate"));
+    render(<KnowledgeBasePage />);
+    fireEvent.click(await screen.findByText("官方手法A"));
+    fireEvent.click(await screen.findByTestId("kb-baseline-edit"));
+    fireEvent.click(screen.getByTestId("kb-baseline-save"));
+    await waitFor(() => {
+      expect(screen.getByTestId("kb-baseline-op-note").textContent).toContain("没存上");
+    });
+    // 不关抽屉、不清草稿：用户可改完再存
+    expect(screen.getByTestId("kb-baseline-draft")).toBeTruthy();
+  });
 });

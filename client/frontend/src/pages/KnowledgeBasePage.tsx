@@ -67,6 +67,10 @@ export default function KnowledgeBasePage() {
   const [opBusy, setOpBusy] = useState(false);
   const [syncBusy, setSyncBusy] = useState(false);
   const [syncNote, setSyncNote] = useState("");
+  // 「存为我的副本」（写时复制）：官方原件不动，编辑结果落用户层
+  const [editDraft, setEditDraft] = useState(false);
+  const [draft, setDraft] = useState("");
+  const [opNote, setOpNote] = useState("");
 
   const loadEntries = useCallback(async (cursorId = "") => {
     setLoading(true);
@@ -133,6 +137,25 @@ export default function KnowledgeBasePage() {
       kbApi.genres().then(setGenreCounts).catch(() => {});
     } catch { /* 静默：下一次列表刷新即真实状态 */ }
     finally { setOpBusy(false); }
+  };
+
+  /* 编辑基线条目＝存一份用户副本（写时复制）：官方原件 SHALL NOT 被改动；
+     过 C 端同一套入库闸门，失败把后端提示原样给用户。 */
+  const handleBaselineEdit = async (entry: KbEntry) => {
+    /* v8 ignore start -- 双保险：按钮同时 disabled，UI 面走不到该早退（真机连点防护） */
+    if (opBusy) return;
+    /* v8 ignore stop */
+    setOpBusy(true);
+    setOpNote("");
+    try {
+      await kbApi.baselineOverride(entry.id, "edit", draft);
+      setSelected(null);
+      setEditDraft(false);
+      await loadEntries();
+      kbApi.genres().then(setGenreCounts).catch(() => {});
+    } catch {
+      setOpNote("没存上——检查字数与格式后再试");
+    } finally { setOpBusy(false); }
   };
 
   /* 官方精选未就绪的重试面（c-kb-baseline：启动补偿失败可手动重试，幂等） */
@@ -369,7 +392,7 @@ export default function KnowledgeBasePage() {
               {entries.map((e) => (
                 <button
                   key={e.id}
-                  onClick={() => setSelected(e)}
+                  onClick={() => { setSelected(e); setEditDraft(false); setOpNote(""); }}
                   className="block w-full rounded-md px-3 py-2.5 text-left hover:bg-[var(--fg-soft)]"
                 >
                   <span className="font-mono text-[9.5px] tracking-[0.1em] text-[var(--faint)]">
@@ -535,12 +558,63 @@ export default function KnowledgeBasePage() {
               <div className="mt-6 border-t border-[var(--border)] pt-4">
                 <p className="text-[10.5px] font-mono tracking-[0.12em] text-[var(--accent)]">官方精选 · 只读</p>
                 <p className="mt-1 text-[11.5px] leading-relaxed text-[var(--muted)]">
-                  官方条目不能编辑或删除；隐藏后可在「全部来源」外随时恢复。
+                  官方条目不能删除；想改就存一份你的副本（官方原件不变）。隐藏后可在「已隐藏」里恢复。
                 </p>
                 {selected.official_update && (
                   <p className="mt-2 text-[11.5px] leading-relaxed text-[var(--accent)]">
                     官方已更新这条，当前显示的是你的副本，可恢复官方版。
                   </p>
+                )}
+                {!selected.hidden && (
+                  <div className="mt-3">
+                    {!editDraft ? (
+                      <button
+                        data-testid="kb-baseline-edit"
+                        disabled={opBusy}
+                        onClick={() => {
+                          setEditDraft(true);
+                          setDraft(selected.instruction);
+                          setOpNote("");
+                        }}
+                        className="rounded-lg border border-[var(--border)] px-3 py-1.5 text-[12px] text-[var(--muted)] hover:text-[var(--fg)] disabled:opacity-50"
+                      >
+                        存为我的副本
+                      </button>
+                    ) : (
+                      <div className="space-y-2">
+                        <textarea
+                          data-testid="kb-baseline-draft"
+                          value={draft}
+                          onChange={(ev) => setDraft(ev.target.value)}
+                          rows={4}
+                          className="w-full rounded-lg border border-[var(--border)] bg-[var(--surface)] p-2 text-[12.5px] leading-relaxed text-[var(--fg)]"
+                        />
+                        <div className="flex gap-2">
+                          <button
+                            data-testid="kb-baseline-save"
+                            disabled={opBusy}
+                            onClick={() => { void handleBaselineEdit(selected); }}
+                            className="rounded-lg border border-[var(--accent)] px-3 py-1.5 text-[12px] text-[var(--accent)] hover:bg-[var(--accent-soft)] disabled:opacity-50"
+                          >
+                            保存副本
+                          </button>
+                          <button
+                            data-testid="kb-baseline-edit-cancel"
+                            disabled={opBusy}
+                            onClick={() => { setEditDraft(false); setOpNote(""); }}
+                            className="rounded-lg border border-[var(--border)] px-3 py-1.5 text-[12px] text-[var(--muted)] hover:text-[var(--fg)] disabled:opacity-50"
+                          >
+                            取消
+                          </button>
+                        </div>
+                        {opNote && (
+                          <p data-testid="kb-baseline-op-note" className="text-[11.5px] text-[var(--muted)]">
+                            {opNote}
+                          </p>
+                        )}
+                      </div>
+                    )}
+                  </div>
                 )}
                 <div className="mt-3">
                   {selected.hidden ? (

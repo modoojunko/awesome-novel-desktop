@@ -394,6 +394,84 @@ def test_备份_覆盖记录roundtrip(base_env):
     assert ids  # 基线层本身不进备份（只读层重同步重建）
 
 
+def test_备份导入_官方已下架的副本就地提升为用户条目(base_env):
+    """评审 P2：恢复带回的 edit 副本若 src_key 已不在当前基线层，不能变成隐形孤儿。
+
+    导出时给覆盖行带上原件元数据（base_meta）；导入端对不上当前层即提升为账号自有
+    条目（写时复制的副本本就是用户的话），覆盖行不再落库。
+    """
+    import io
+    import zipfile
+
+    import yaml
+
+    from backup.export import build_config_package_bytes
+    from backup.importer import _restore_config
+
+    uid, _ = _run(_seed_user(entries=0))
+    _run(_seed_pack([_b("baseline:玄幻:tech-a", "官方手法A", genre="玄幻")]))
+
+    async def _seed_ov():
+        async with async_session() as db:
+            db.add(KbBaselineOverlay(
+                user_id=uid, src_key="baseline:玄幻:tech-a", action="edit",
+                content="我的说法：交手先让三招，再还手。",
+                base_content_sha256=content_sha("官方手法A：交手先守后攻，招式收在第三拍。")))
+            await db.commit()
+
+    _run(_seed_ov())
+
+    async def _export():
+        async with async_session() as db:
+            return await build_config_package_bytes(db, uid)
+
+    data, _name = _run(_export())
+    cfg = yaml.safe_load(zipfile.ZipFile(io.BytesIO(data)).read("config.yaml"))
+    row = cfg["knowledge_base"]["baseline_overlays"][0]
+    assert row["base_meta"]["concept"] == "手法"  # 导出带上原件元数据
+    assert row["base_meta"]["genre"] == "玄幻"
+
+    # 新设备/新包：该条目已下架（当前层没有这个 src_key）
+    async def _drop_from_layer():
+        async with async_session() as db:
+            await db.execute(delete(KbBaselineEntry))
+            await db.commit()
+
+    _run(_drop_from_layer())
+
+    uid2 = f"mg3-{uuid.uuid4().hex[:8]}"
+
+    async def _import():
+        async with async_session() as db:
+            db.add(User(id=uid2, email=f"{uid2}@t.local", password_hash="x"))
+            await db.commit()
+            summary = await _restore_config(db, uid2, cfg)
+            await db.commit()
+            ovs = (await db.execute(sel(KbBaselineOverlay).where(
+                KbBaselineOverlay.user_id == uid2))).scalars().all()
+            entries = (await db.execute(sel(KbEntry).where(
+                KbEntry.user_id == uid2))).scalars().all()
+            return summary, ovs, entries
+
+    summary, ovs, entries = _run(_import())
+    assert summary["knowledge_base"]["baseline_overlays"]["promoted"] == 1
+    assert ovs == []  # 覆盖行被消费，不留隐形孤儿
+    assert len(entries) == 1
+    e = entries[0]
+    assert e.instruction == "我的说法：交手先让三招，再还手。"
+    assert e.concept == "手法" and e.genre == "玄幻" and e.title == "官方手法A"
+    assert e.src_kind == "manual"  # delta 硬约束：不得落 baseline
+    assert e.src_novel_name == "官方精选（已下架）"
+
+    async def _cleanup():
+        async with async_session() as db:
+            await db.execute(delete(KbEntryTag).where(KbEntryTag.user_id == uid2))
+            await db.execute(delete(KbEntry).where(KbEntry.user_id == uid2))
+            await db.commit()
+
+    _run(_cleanup())
+
+
 def test_冷启动回退域_零绑定出块(base_env):
     """D0-3：零绑定账号 → 基线域出块；基线未就绪 → 无块。"""
     from models.chapter import Chapter

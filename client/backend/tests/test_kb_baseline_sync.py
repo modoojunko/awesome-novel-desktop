@@ -416,6 +416,22 @@ def test_生产默认_静态托管同域与烘焙公钥(monkeypatch):
     assert "www.awesomenovel.com" in bl._trusted_hosts()
 
 
+def test_烘焙公钥与打包常量同源(monkeypatch):
+    """轮换漂移防线：默认钥改错一处 = 每次同步 latest_invalid（与断网无法区分）。"""
+    import re
+    from pathlib import Path
+
+    from kb import baseline as bl
+
+    src = (
+        Path(__file__).resolve().parents[3]
+        / "client" / "packaging" / "build" / "pywebview_app.py"
+    ).read_text(encoding="utf-8")
+    m = re.search(r"^PROD_PACK_PUBKEYS = '(.+)'$", src, re.MULTILINE)
+    assert m, "pywebview_app.py 缺 PROD_PACK_PUBKEYS 常量"
+    assert json.loads(m.group(1)) == json.loads(bl._PROD_PUBKEYS_JSON)
+
+
 def test_环境钥优先于烘焙默认(monkeypatch):
     from kb import baseline as bl
 

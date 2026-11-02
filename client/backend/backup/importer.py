@@ -1354,9 +1354,9 @@ async def _restore_config(db, user_id: str, config_data: dict) -> dict:
             blob_created += 1
         # 基线覆盖（c-kb-baseline 批B）：按 (user_id, src_key) 幂等 upsert——
         # 不能用通用循环（主键是自增 id，跨账号 id 相撞会误判已存在而丢覆盖）
-        from models.kb import KbBaselineOverlay
+        from models.kb import KbBaselineEntry, KbBaselineOverlay
 
-        ov_created = ov_skipped = 0
+        ov_created = ov_skipped = ov_promoted = 0
         ov_existing = {
             o.src_key
             for o in (
@@ -1365,9 +1365,19 @@ async def _restore_config(db, user_id: str, config_data: dict) -> dict:
                 )
             ).all()
         }
-        for row in kb.get("baseline_overlays") or []:
-            if not isinstance(row, dict):
-                continue
+        ov_rows = [r for r in (kb.get("baseline_overlays") or []) if isinstance(r, dict)]
+        # 当前基线层已有的 src_key：不在的＝官方已下架/本机包更新——edit 副本提升成
+        # 用户自有条目（评审 P2：否则恢复带回来的副本永远不可见）
+        layer_keys = set(
+            (
+                await db.scalars(
+                    select(KbBaselineEntry.src_key).where(
+                        KbBaselineEntry.src_key.in_([str(r.get("src_key") or "") for r in ov_rows])
+                    )
+                )
+            ).all()
+        ) if ov_rows else set()
+        for row in ov_rows:
             src_key = str(row.get("src_key") or "")
             action = str(row.get("action") or "")
             if not src_key or action not in ("hide", "edit"):
@@ -1376,6 +1386,20 @@ async def _restore_config(db, user_id: str, config_data: dict) -> dict:
             if src_key in ov_existing:
                 ov_skipped += 1
                 continue
+            meta = row.get("base_meta")
+            if (
+                action == "edit"
+                and src_key not in layer_keys
+                and isinstance(meta, dict)
+            ):
+                from kb.baseline import promote_overlay_copy
+
+                if await promote_overlay_copy(
+                    db, user_id=user_id, src_key=src_key,
+                    content=str(row.get("content") or ""), meta=meta,
+                ):
+                    ov_promoted += 1
+                    continue
             db.add(KbBaselineOverlay(
                 user_id=user_id,
                 src_key=src_key,
@@ -1397,7 +1421,9 @@ async def _restore_config(db, user_id: str, config_data: dict) -> dict:
                 "skipped": blob_skipped,
                 "missing": blob_missing,
             },
-            "baseline_overlays": {"created": ov_created, "skipped": ov_skipped},
+            "baseline_overlays": {
+                "created": ov_created, "skipped": ov_skipped, "promoted": ov_promoted,
+            },
             "tags_rebuilt": rebuilt,
         }
     return summary
