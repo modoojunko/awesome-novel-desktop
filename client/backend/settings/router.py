@@ -208,6 +208,21 @@ async def update_settings(
                     prefs["pacing_preset"] = key
                     prefs["pacing_steps_len"] = PACING_PRESETS[key]["steps_len"]
                     await storage.write_yaml(project.root_path, BOOK_PREFS_PATH, prefs)
+                # 开书导入题材默认设定（c-kb-book-scope）：首次定题材自动复制知识进书级
+                # 副本＋落基线面；幂等（重复确认/改题材只补增量）；失败不阻塞题材保存
+                try:
+                    from kb.book_scope import import_genre_knowledge
+
+                    await import_genre_knowledge(
+                        db, novel_id=project.id, user_id=project.user_id, genre=theme
+                    )
+                except Exception:  # noqa: BLE001 — 导入失败不阻塞题材保存（评审 P0-1 口径）
+                    import logging as _log
+
+                    _log.getLogger("uvicorn.error").warning(
+                        "event=kb_book_import_failed novel=%s theme=%s",
+                        project.id, theme,
+                    )
     else:
         await get_storage().write_yaml(project.root_path, KEY_TO_PATH[type], body)
 

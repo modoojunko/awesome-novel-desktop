@@ -8,20 +8,20 @@
 
 ## 批A 数据模型＋开书导入链（后端；design D8 修订条款全部吸收）
 
-- [ ] A1 `kb_book_entries`＋`kb_book_entry_tags` 建模＋**部分唯一索引 uq(novel_id, src_key) WHERE src_ref<>''**（并发双击防重）＋副本 stamp＝每书一行状态（非行级列；pref 标记不刷新）
-- [ ] A2 `import_genre_knowledge`：**批量克隆**（预查已有 src_key → 批量 add 单 flush 单 commit，禁逐条 create_entry）；范围＝题材命中＋跨题材通用（通用照复制——书自包含口径，量级记账 M6 治理）；**world 白名单只落 stage/power/cost**（factions/history/extra/constraints 不落 KV）；style_samples 落 KV 带 source="kb-genre"；量化合成保守基线（confidence=40/source=kb-synthesized/剥限定词/下限跳过）；导入时播种源 pref 摘要为副本初始权重（经验继承）
-- [ ] A3 挂点：手动入口＝PUT /settings/genre **首次定题材**分支（改题材＝补新题材副本不叠加、导入失败不阻塞）；拆书入口＝书自有设定写入**之后**（锁序单测）；「同一事务」改可实现口径（先 DB commit 再落 KV，失败标记差异行可重试）
-- [ ] A4 书级标签物化＋重建；删书＝软删保留副本（按 novel_id 天然隔离）；书内删副本＝软删 archived（补平 diff 排除）
-- [ ] A5 单测：复制范围/幂等/空库/基线落 KV **读 yaml 实文对账**/隔离（源删不影响副本）/题材降级/**锁序**（拆书建书后 role=拆书值、genre 基线不丢、列表无重复）/**量级**（1000 条复制单事务）/并发双 import（索引守卫）/复制×首章生成竞态（不提交不半块）
+- [x] A1 `kb_book_entries`＋`kb_book_entry_tags` 建模＋**部分唯一索引 uq(novel_id, src_key) WHERE src_ref<>''**（并发双击防重）＋副本 stamp＝每书一行状态（非行级列；pref 标记不刷新）
+- [x] A2 `import_genre_knowledge`：**批量克隆**（预查已有 src_key → 批量 add 单 flush 单 commit，禁逐条 create_entry）；范围＝题材命中＋跨题材通用（通用照复制——书自包含口径，量级记账 M6 治理）；**world 白名单只落 stage/power/cost**（factions/history/extra/constraints 不落 KV）；style_samples 落 KV 带 source="kb-genre"；量化合成保守基线（confidence=40/source=kb-synthesized/剥限定词/下限跳过）；导入时播种源 pref 摘要为副本初始权重（经验继承）
+- [x] A3 挂点：手动入口＝PUT /settings/genre **首次定题材**分支（改题材＝补新题材副本不叠加、导入失败不阻塞）；拆书入口＝书自有设定写入**之后**（锁序单测）；「同一事务」改可实现口径（先 DB commit 再落 KV，失败标记差异行可重试）
+- [x] A4 书级标签物化＋重建；删书＝软删保留副本（按 novel_id 天然隔离）；书内删副本＝软删 archived（补平 diff 排除）
+- [x] A5 单测：复制范围/幂等/空库/基线落 KV **读 yaml 实文对账**/隔离（源删不影响副本）/题材降级/**锁序**（拆书建书后 role=拆书值、genre 基线不丢、列表无重复）/**量级**（1000 条复制单事务）/并发双 import（索引守卫）/复制×首章生成竞态（不提交不半块）
 
 ## 批B 选择器切源（后端，依赖批A）
 
-- [ ] B1 切表面清单：digest_candidates/select_block/**_load_run_items 双域（副本优先 miss 回退账号标 legacy）**/影子转写读副本/is_quantitative 消费
-- [ ] B2 域指纹＝每书 stamp；**增量导入 SHALL NOT 改写既有章 run**（只影响未来选择——F3 覆盖分支仅限显式启停触发）；refill 补指纹校验
-- [ ] B3 **pref/prototype_use 端点双域**（副本 id＋novel_id 归属校验防跨书打标；现打副本 id 必 404）
-- [ ] B4 闸门书域化：块使能＝书副本非空（自动导入即开）；bindings 收窄快照面＋中途加库＋差异行；书级停用开关（停用后影子清零——批F F4 语义迁移）
-- [ ] B5 块首 v3 补句（参考书专名不进正文）＋短名单截断 title 序＋基线列表导入上限（rules≤12/banned≤20）
-- [ ] B6 单测：账号库新增不混入/源删不影响/增量导入不改写既有 run/停用影子清零/pref 双域 404 面/消毒照旧
+- [x] B1 切表面清单：digest_candidates/select_block/**_load_run_items 双域（副本优先 miss 回退账号标 legacy）**/影子转写读副本/is_quantitative 消费
+- [x] B2 域指纹＝每书 stamp；**增量导入 SHALL NOT 改写既有章 run**（只影响未来选择——F3 覆盖分支仅限显式启停触发）；refill 补指纹校验
+- [x] B3 **pref/prototype_use 端点双域**（副本 id＋novel_id 归属校验防跨书打标；现打副本 id 必 404）
+- [x] B4 闸门书域化：块使能＝书副本非空（自动导入即开）；bindings 收窄快照面＋中途加库＋差异行；书级停用开关（停用后影子清零——批F F4 语义迁移）
+- [ ] B5 块首补「参考书专名不进正文」句（渲染文案变更，随批D 前端/发版窗口一起）＋短名单截断 title 序＋基线列表导入上限（rules≤12/banned≤20）
+- [x] B6 单测：账号库新增不混入/源删不影响/增量导入不改写既有 run/停用影子清零/pref 双域 404 面/消毒照旧
 
 ## 批C 存量书补平＋备份（后端＋前端）
 

@@ -32,7 +32,14 @@ from kb.match import (
     select_block,
 )
 from models.chapter import Chapter, ChapterCharacter
-from models.kb import KbBookBinding, KbEntry, KbLibrary, KbMatchItem, KbMatchRun
+from models.kb import (
+    KbBookBinding,
+    KbBookEntry,
+    KbEntry,
+    KbLibrary,
+    KbMatchItem,
+    KbMatchRun,
+)
 from models.project import Novel
 
 logger = logging.getLogger(__name__)
@@ -204,12 +211,9 @@ def _material_hash(novel_id: str, chapter_ref: str, signals_brief: dict) -> str:
 async def _load_run_items(
     db: AsyncSession, run: KbMatchRun, *, user_id: str
 ) -> list[tuple[KbMatchItem, object | None]]:
-    """run 清单 → (item, 条目) 双表解析（c-kb-baseline 批B）。
-
-    代理 id 可能落 kb_entries（用户条目）或 kb_baseline_entries（官方精选层）：
-    先查用户表，未命中的 id 再走 merged 基线回读（hide 已排、edit 副本已套）。
-    两边都缺（条目已删/官方下架）→ entry=None，重建时按 text_snapshot 仍可出块。
-    """
+    """run 清单 → (item, 条目)。三域解析（c-kb-book-scope × c-kb-baseline）：
+    书级副本 id 优先 → 账号条目 → 官方基线（merged：hide 已排、edit 副本已套）；
+    全部缺失（条目已删/官方下架）→ None，重建时按 text_snapshot 仍可出块。"""
     from kb.merged import load_baseline_entries
 
     items = (
@@ -219,17 +223,22 @@ async def _load_run_items(
     ).scalars().all()
     if not items:
         return []
-    wanted = sorted({i.entry_id for i in items})
-    entries: dict[str, object] = {
-        e.id: e
+    ids = sorted({i.entry_id for i in items})
+    entries: dict[str, object] = {}
+    for e in (
+        await db.execute(select(KbBookEntry).where(KbBookEntry.id.in_(ids)))
+    ).scalars():
+        entries[e.id] = e
+    miss = [i for i in ids if i not in entries]
+    if miss:
         for e in (
-            await db.execute(select(KbEntry).where(KbEntry.id.in_(wanted)))
-        ).scalars()
-    }
-    missing = [i for i in wanted if i not in entries]
-    if missing:
-        for b in await load_baseline_entries(db, user_id=user_id, ids=missing):
-            entries[b.id] = b
+            await db.execute(select(KbEntry).where(KbEntry.id.in_(miss)))
+        ).scalars():
+            entries[e.id] = e
+        miss = [i for i in ids if i not in entries]
+        if miss:
+            for b in await load_baseline_entries(db, user_id=user_id, ids=miss):
+                entries[b.id] = b
     return [(i, entries.get(i.entry_id)) for i in items]
 
 
@@ -378,7 +387,24 @@ async def prepare_write_block(
                 await _clear_kb_shadow_rows(db, ch.id)
                 await db.commit()
             return None, None, None
-        genre, concepts, fingerprint = domain
+        # 书级副本非空＝启用（c-kb-book-scope 批B：开书导入即开）；
+        # 副本空回退 bindings 老路径（存量兼容：绑定启用库仍走账号域）
+        copy_count = (
+            await db.execute(
+                select(KbBookEntry.id).where(
+                    KbBookEntry.novel_id == novel_id,
+                    KbBookEntry.status == "active",
+                )
+            )
+        ).scalars().first()
+        book_scope = copy_count is not None
+        if book_scope:
+            from kb.book_scope import book_scope_fingerprint
+
+            fingerprint = await book_scope_fingerprint(db, novel_id=novel_id)
+            genre = ""  # 书副本已按题材筛过：书域取数不再按 genre 二次过滤
+        else:
+            genre, concepts, fingerprint = domain
         chapter_pk = ch.id  # int 值拷贝：F1 rollback 会使 ORM 实例过期（MissingGreenlet 判例）
 
         runs = (
@@ -470,7 +496,7 @@ async def prepare_write_block(
             else:
                 selr = await select_block(
                     db, user_id=user_id, signals=signals,
-                    genre=genre, concepts=concepts,
+                    genre=genre, concepts=concepts, book_scope=novel_id if book_scope else None,
                 )
                 if selr is None:
                     await _clear_kb_shadow_rows(db, chapter_pk)  # F4：零命中同清影子

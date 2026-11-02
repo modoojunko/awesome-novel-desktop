@@ -783,10 +783,20 @@ class ChapterContext:
             )
         samples = self._style_samples()
         if samples:
-            style_rows.append(
-                "文风示范段（本书原文摘录——句式、节奏、对话密度的最高依据，照着写）：\n"
-                + "\n".join(f"〔{i + 1}〕{s}" for i, s in enumerate(samples))
-            )
+            # F-1 分源（c-kb-book-scope）：kb-genre 来源＝题材示例（只学笔法、专名禁入）；
+            # manual/缺省＝本书原文旧文案。style_meta.source 由导入链落 KV。
+            if str((self.style_setting.get("style_meta") or {}).get("source") or "") == "kb-genre":
+                style_rows.append(
+                    "文风示范段（题材文风示例，提炼自参考作品——只学句式、节奏、对话密度与段落质感；"
+                    "示例中出现的专有人名、地名、组织、功法名一律不得出现在正文；"
+                    "模仿以上示范的笔法写本书的故事）：\n"
+                    + "\n".join(f"〔{i + 1}〕{s}" for i, s in enumerate(samples))
+                )
+            else:
+                style_rows.append(
+                    "文风示范段（本书原文摘录——句式、节奏、对话密度的最高依据，照着写）：\n"
+                    + "\n".join(f"〔{i + 1}〕{s}" for i, s in enumerate(samples))
+                )
         banned = [str(w) for w in (self.style_setting.get("banned_words") or [])]
         tic_patterns = [
             r.get("pattern", "")

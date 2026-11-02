@@ -654,13 +654,26 @@ async def set_pref_api(
     from models.kb import KbEntry, KbPref
 
     uid = _user(user)
+    # 双域（c-kb-book-scope 批B）：副本 id 优先查书级（novel_id 归属校验防跨书打标），
+    # miss 回退账号级（存量语义）
+    from models.kb import KbBookEntry
+
+    copy = (
+        await db.execute(
+            select(KbBookEntry).where(
+                KbBookEntry.id == entry_id,
+                KbBookEntry.user_id == uid,
+                KbBookEntry.status == "active",
+            )
+        )
+    ).scalar_one_or_none()
     entry = (
         await db.execute(
             select(KbEntry).where(
                 KbEntry.id == entry_id, KbEntry.user_id == uid, KbEntry.status == "active"
             )
         )
-    ).scalar_one_or_none()
+    ).scalar_one_or_none() if copy is None else copy
     if entry is None:
         from kb.merged import get_merged_entry
 

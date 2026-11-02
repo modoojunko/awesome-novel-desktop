@@ -157,8 +157,15 @@ def _snapshot_members(binding: KbBookBinding) -> list[dict[str, Any]]:
     return members if isinstance(members, list) else []
 
 
-async def apply_members(root_path: str, members: list[dict[str, Any]]) -> dict[str, int]:
-    """快照成员落书内 KV（style/world）。返回逐键落库计数（来源行「N 条」用）。"""
+async def apply_members(
+    root_path: str, members: list[dict[str, Any]], *, source: str = "manual"
+) -> dict[str, int]:
+    """快照成员落书内 KV（style/world）。返回逐键落库计数（来源行「N 条」用）。
+
+    source="manual"（默认，启用库/存量语义）｜"kb-genre"（c-kb-book-scope 开书导入）：
+    kb-genre 时 world 只落舞台/力量/代价三语法面（源书事实/铁律不灌新书——评审 F-2），
+    style KV 落 style_meta.source 标记（渲染端「题材文风示例」分源——评审 F-1）。"""
+    kb_genre = source == "kb-genre"
     landed: dict[str, int] = {}
 
     # ── 文风/文笔 → style KV ──
@@ -221,10 +228,18 @@ async def apply_members(root_path: str, members: list[dict[str, Any]]) -> dict[s
                 landed["style.tic_patterns"] = added
 
         if body:
-            await get_storage().write_yaml(root_path, path, put_style(raw, body))
+            merged_raw = put_style(raw, body)
+            if kb_genre:
+                # F-1：来源标记——渲染端分「题材文风示例」/「本书原文摘录」两种文案
+                merged_raw["style_meta"] = {**(merged_raw.get("style_meta") or {}), "source": "kb-genre"}
+            await get_storage().write_yaml(root_path, path, merged_raw)
 
     # ── 世界设定 → world KV ──
     world_members = [m for m in members if m["concept"] == "世界设定"]
+    if kb_genre:
+        # F-2 白名单：舞台/力量/代价＝题材语法可搬；势力/历史/细节/铁律＝源书事实不灌
+        _WORLD_PARTS_ALLOWED = ("stage", "power", "cost")
+        world_members = [m for m in world_members if m.get("part") in _WORLD_PARTS_ALLOWED]
     if world_members:
         from settings.world_model import normalize_world, put_world_merged
 
