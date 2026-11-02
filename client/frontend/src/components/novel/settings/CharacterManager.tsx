@@ -165,6 +165,8 @@ const CharacterManager = forwardRef<CharacterSaveHandle, Props>(function Charact
   // AI 出卡确认弹窗（c-settings-ai-confirm-modal）：出稿/体检统一进弹窗，内嵌预览块退役
   const [cardAction, setCardAction] = useState<"bootstrap" | "draftAll" | "check" | null>(null);
   const aiBusyRef = useRef(false); // ref 同步判定：同一 tick 连点不穿透
+  /** 采纳在途互斥：双击「采纳」不得重复建卡/重复写格（bootstrap/draftAll 共用） */
+  const adoptBusyRef = useRef(false);
   const [versions, setVersions] = useState<Partial<Record<"bootstrap" | "draftAll" | "check", number>>>({});
   const [cardOpen, setCardOpen] = useState(false);
   const [cardCached, setCardCached] = useState(false);
@@ -561,6 +563,8 @@ const CharacterManager = forwardRef<CharacterSaveHandle, Props>(function Charact
   /** 采纳「从简介立主角」草稿：空态=建主角卡+逐格补写；主角待立=只补空格（含名字/别名/人设） */
   const adoptBootstrap = useCallback(async () => {
     if (!bootstrapSink) return;
+    if (adoptBusyRef.current) return; // 双击采纳：第二次直接丢弃（防空态重复建卡）
+    adoptBusyRef.current = true;
     const draft = bootstrapSink;
     try {
       if (timerRef.current) window.clearTimeout(timerRef.current);
@@ -612,6 +616,8 @@ const CharacterManager = forwardRef<CharacterSaveHandle, Props>(function Charact
         if (card) await loadCard(card.id);
       }
       showToast((e as Error).message || "\u91c7\u7eb3\u5931\u8d25");
+    } finally {
+      adoptBusyRef.current = false;
     }
   }, [bootstrapSink, card, projectId, flushQueue, loadCard, reloadList, showToast]);
 
@@ -740,6 +746,8 @@ const CharacterManager = forwardRef<CharacterSaveHandle, Props>(function Charact
   /** 采纳起草角色草稿：有卡只补空格；无卡 create(role)＋逐格补写（既有写路径）。 */
   const adoptDraftAll = useCallback(async () => {
     if (!draftSink) return;
+    if (adoptBusyRef.current) return; // 双击采纳：第二次直接丢弃（防重复建卡/重复写格）
+    adoptBusyRef.current = true;
     const draft = draftSink;
     try {
       if (timerRef.current) window.clearTimeout(timerRef.current);
@@ -807,6 +815,8 @@ const CharacterManager = forwardRef<CharacterSaveHandle, Props>(function Charact
         if (card) await loadCard(card.id);
       }
       showToast((e as Error).message || "采纳失败，请重试");
+    } finally {
+      adoptBusyRef.current = false;
     }
   }, [draftSink, card, projectId, flushQueue, loadCard, reloadList, showToast, draftRole]);
 
@@ -1568,6 +1578,14 @@ const CharacterManager = forwardRef<CharacterSaveHandle, Props>(function Charact
                 prompt: draftSink.prompt,
                 node: (
                   <>
+                    {draftSources.length > 0 && (
+                      <p
+                        style={{ margin: "0 0 8px", fontSize: 11.5, color: "var(--muted)" }}
+                        data-testid="char-draft-sources"
+                      >
+                        本次输入：{draftSources.join("、")}（只读已确认项）
+                      </p>
+                    )}
                     {draftSink.name && (
                       <p style={{ margin: "5px 0" }}><b>名称</b>：{draftSink.name}</p>
                     )}

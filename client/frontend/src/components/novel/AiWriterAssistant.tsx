@@ -269,10 +269,12 @@ export function CharsAiRail(props: {
       : [];
   // 起草角色（c-chars-draft-all）：有卡且还有空格 → 补空格；有卡但未选中 → 新建。
   // 路人只补档案空格；主角待立走「从简介立主角」，不重复给起草行。
+  // 名字空格也算「剩下的」：其他格填满、只留下空名/占位名时仍应可点。
+  const nameGap = ctx?.nameless ? 1 : 0;
   const draftGaps = ctx
-    ? ctx.role === "路人"
-      ? ctx.dossierGap
-      : ctx.personaGap + ctx.dossierGap + ctx.cogGap
+    ? (ctx.role === "路人"
+        ? ctx.dossierGap
+        : ctx.personaGap + ctx.dossierGap + ctx.cogGap) + nameGap
     : 0;
   const canDraftAll =
     !noCard &&
