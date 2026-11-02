@@ -541,7 +541,10 @@ async def ensure_genre_backfill(db: AsyncSession, user_id: str) -> None:
     """
     try:
         now = time.monotonic()
-        if now - _BACKFILL_UNSETTLED.get(user_id, 0.0) < _BACKFILL_RETRY_SEC:
+        last = _BACKFILL_UNSETTLED.get(user_id)
+        # 哨兵必须用 None 判「没跑过」——用 0.0 时，机器/CI VM 刚启动（monotonic
+        # 小于窗口秒数）会把首跑误判成节流，回填永不生效（CI 实锤）
+        if last is not None and now - last < _BACKFILL_RETRY_SEC:
             return
         rows = (
             await db.execute(

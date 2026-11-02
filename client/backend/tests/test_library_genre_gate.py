@@ -386,3 +386,30 @@ def test_回填_未清空时窗口内节流_窗口到期重试():
     genres2 = _run(_after_window())
     assert genres2["k2"] == "志怪/民俗灵异"  # 窗口到期重探补上
     assert genres2["gone-card"] == ""
+
+
+def test_回填_新进程monotonic小于窗口也照跑(monkeypatch):
+    """CI 实锤回归：哨兵用 0.0 时，刚启动的机器 monotonic < 窗口秒数 → 首跑被
+    误判节流，回填全不生效。修后空表首跑必执行。"""
+    seed = _run(_seed(with_task=True))
+
+    async def _go():
+        from library import service as svc
+
+        assert svc._BACKFILL_UNSETTLED.get(seed["uid"]) is None
+        monkeypatch.setattr(svc.time, "monotonic", lambda: 5.0)  # 等价刚启动的 VM
+        try:
+            async with async_session() as db:
+                db.add(_entry(seed["uid"], src_kind="deconstruct",
+                              src_ref=seed["task_id"], src_key="k3"))
+                await db.commit()
+                await svc.ensure_genre_backfill(db, seed["uid"])
+                rows = (await db.execute(
+                    KbEntry.__table__.select().where(KbEntry.user_id == seed["uid"])
+                )).mappings().all()
+                return {r["src_key"]: r["genre"] for r in rows}
+        finally:
+            svc._BACKFILL_UNSETTLED.pop(seed["uid"], None)
+
+    genres = _run(_go())
+    assert genres["k3"] == "志怪/民俗灵异"
