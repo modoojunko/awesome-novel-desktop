@@ -326,6 +326,8 @@ export async function createDeconstructTask(
     /** 思考档位（c-deconstruct-resilience D10）：off=关思考（默认，推荐）/
      *  low=思考·低 / inherit=跟随模型配置 */
     thinking?: string;
+    /** 拆解模式（c-deconstruct-knowledge）：smart=智能拆书（默认）/ full=全书拆 */
+    mode?: string;
   },
 ): Promise<CreateTaskResult> {
   const formData = new FormData();
