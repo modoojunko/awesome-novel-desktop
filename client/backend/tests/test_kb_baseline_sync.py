@@ -696,3 +696,67 @@ def test_hide带正文_下架不丢副本内容(sync_env):
     row = _run(_row())
     assert row is not None and row.action == "hide"
     assert row.content == "我写过的旧副本。"
+
+
+def test_再次下架_已提升副本原地更新不重复(sync_env):
+    """P3 回归：提升副本已存在时再次下架，不得新建第二份（同步路径同吃幂等锁）。"""
+    from sqlalchemy import delete
+
+    from kb.baseline import content_sha
+    from models.kb import KbEntry, KbEntryTag
+
+    bl = sync_env
+    a = _entry("baseline:玄幻:tech-a", "玄幻手法A")
+    _publish(1, [a])
+    assert _sync(bl)["status"] == "synced"
+
+    uid = f"repromote-{uuid.uuid4().hex[:8]}"
+
+    async def _overlay(text: str):
+        async with async_session() as db:
+            db.add(KbBaselineOverlay(
+                user_id=uid, src_key=a["src_key"], action="edit", content=text,
+                base_content_sha256=content_sha(a["instruction"])))
+            await db.commit()
+
+    _run(_overlay("第一版副本：先让三招。"))
+    _publish(2, [])
+    assert _sync(bl)["promoted"] == 1
+
+    _publish(3, [a])           # 再上架（会给该用户补 auto-hide）
+    assert _sync(bl)["status"] == "synced"
+
+    async def _restore_and_edit():
+        async with async_session() as db:
+            ov = (await db.execute(sel(KbBaselineOverlay).where(
+                KbBaselineOverlay.user_id == uid))).scalar_one()
+            await db.delete(ov)
+            await db.commit()
+        await _overlay("第二版副本：先让五招。")   # 恢复官方后再改一次
+
+    _run(_restore_and_edit())
+
+    _publish(4, [])            # 再次下架：已有提升副本 → 原地更新
+    r = _sync(bl)
+    assert r["status"] == "synced" and r["promoted"] == 1, f"got {r}"
+
+    async def _check():
+        async with async_session() as db:
+            entries = (await db.execute(sel(KbEntry).where(
+                KbEntry.user_id == uid))).scalars().all()
+            ovs = (await db.execute(sel(KbBaselineOverlay).where(
+                KbBaselineOverlay.user_id == uid))).scalars().all()
+            return entries, ovs
+
+    entries, ovs = _run(_check())
+    assert len(entries) == 1, "不得出现第二份提升副本"
+    assert entries[0].instruction == "第二版副本：先让五招。"
+    assert ovs == []  # 覆盖已被消费
+
+    async def _cleanup():
+        async with async_session() as db:
+            await db.execute(delete(KbEntryTag).where(KbEntryTag.user_id == uid))
+            await db.execute(delete(KbEntry).where(KbEntry.user_id == uid))
+            await db.commit()
+
+    _run(_cleanup())

@@ -913,3 +913,42 @@ def test_备份导入_无元数据孤儿_保留并计数(base_env):
             await db.commit()
 
     _run(_cleanup())
+
+
+def test_备份导入_hide带正文孤儿也计数(base_env):
+    """P3 回归：hide+content 且层里没有该条——同样隐形，必须进 orphaned 口径。"""
+    from sqlalchemy import delete as _del
+
+    from backup.importer import _restore_config
+
+    uid = f"mghideorph-{uuid.uuid4().hex[:8]}"
+
+    async def _setup():
+        async with async_session() as db:
+            db.add(User(id=uid, email=f"{uid}@t.local", password_hash="x"))
+            await db.commit()
+
+    _run(_setup())
+    cfg = {"knowledge_base": {"baseline_overlays": [{
+        "src_key": "baseline:玄幻:tech-gone", "action": "hide",
+        "content": "隐藏前写过的副本。", "base_content_sha256": "",
+    }]}}
+
+    async def _import():
+        async with async_session() as db:
+            s = await _restore_config(db, uid, cfg)
+            await db.commit()
+            ovs = (await db.execute(sel(KbBaselineOverlay).where(
+                KbBaselineOverlay.user_id == uid))).scalars().all()
+            return s, ovs
+
+    summary, ovs = _run(_import())
+    assert summary["knowledge_base"]["baseline_overlays"]["orphaned"] == 1
+    assert len(ovs) == 1 and ovs[0].content == "隐藏前写过的副本。"
+
+    async def _cleanup():
+        async with async_session() as db:
+            await db.execute(_del(KbBaselineOverlay).where(KbBaselineOverlay.user_id == uid))
+            await db.commit()
+
+    _run(_cleanup())

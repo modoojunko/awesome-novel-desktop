@@ -1409,6 +1409,9 @@ async def _restore_config(db, user_id: str, config_data: dict) -> dict:
                     # 旧包没带原件元数据（概念/题材/载荷都缺）——不能凭空造条目；
                     # 覆盖行保留（未来该条重新上架仍会生效），但必须在摘要里可见
                     ov_orphaned += 1
+            elif action == "hide" and src_key not in layer_keys and str(row.get("content") or "").strip():
+                # hide 带正文的隐形孤儿（层里没有该条、却存着用户写过的副本）
+                ov_orphaned += 1
             db.add(KbBaselineOverlay(
                 user_id=user_id,
                 src_key=src_key,

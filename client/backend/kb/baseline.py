@@ -420,6 +420,17 @@ async def _replace_layer(
         old = old_rows.get(ov.src_key)
         if old is None:
             continue  # 旧层本来就没有这条（跨两版下架）：覆盖留着，不臆造条目
+        existing = await find_promoted_copy(db, user_id=ov.user_id, src_key=ov.src_key)
+        if existing is not None and getattr(existing, "status", "active") == "active":
+            # 已有「在用」的提升副本（导入/前一轮下架留下的）：原地更新为用户最新正文，
+            # 不再新建第二份（提升件无唯一约束，不查就重复）。archive 副本不算——
+            # 用户删过的不可见，本次下架应重新提升一份 active 的
+            text = (ov.content or "").strip()
+            if text:
+                existing.instruction = text
+            await db.delete(ov)
+            promoted += 1
+            continue
         await _promote_overlay(db, ov, old)
         await db.delete(ov)
         promoted += 1
@@ -441,6 +452,14 @@ async def _replace_layer(
 _PROMOTED_SRC = "官方精选（已下架）"
 
 
+def _promoted_key(row) -> str:
+    """提升件的溯源键（evidence_json.promoted_from）——两处判定共用单源。"""
+    try:
+        return str(json.loads(row.evidence_json or "{}").get("promoted_from") or "")
+    except ValueError:
+        return ""
+
+
 async def find_promoted_copy(
     db: AsyncSession, *, user_id: str, src_key: str
 ) -> object | None:
@@ -460,11 +479,7 @@ async def find_promoted_copy(
         )
     ).scalars().all()
     for r in rows:
-        try:
-            key = str(json.loads(r.evidence_json or "{}").get("promoted_from") or "")
-        except ValueError:
-            continue
-        if key == src_key:
+        if _promoted_key(r) == src_key:
             return r
     return None
 
@@ -488,10 +503,7 @@ async def _hide_radded_promoted(db: AsyncSession, readded: set[str]) -> None:
         for o in (await db.execute(select(KbBaselineOverlay))).scalars().all()
     }
     for row in rows:
-        try:
-            key = str(json.loads(row.evidence_json or "{}").get("promoted_from") or "")
-        except ValueError:
-            key = ""
+        key = _promoted_key(row)
         if not key or key not in readded or (row.user_id, key) in existing:
             continue
         db.add(
