@@ -4,7 +4,7 @@
 
 系统 SHALL 提供只读端点 `GET /api/novels/{project_id}/settings/style/kb-draft`，按本书题材（`story.yaml.genre`，21 大类）返回知识库里的文风基线草稿，供文风面板右栏「按题材填文风」使用。SHALL NOT 写任何 KV 或表——采纳后的保存仍走 `PUT /settings/style`。
 
-取数口径 SHALL 为：同账号用户条目（`status=active`、`concept ∈ {文风, 文笔}`、`genre ∈ {本书题材, 跨题材通用}`）＋官方基线（c-kb-baseline merged 视图：同题材与跨题材通用；用户 hide 的基线 SHALL NOT 出现，用户 edit 副本 SHALL 以其文本为准），且只取基线条目（`when_json` 为空）。槽位映射 SHALL 与启用快照一致：文风 `role/sample` → 叙事身份/示范段；文笔 `rule/craft/banned_word/tic` → 硬约束/描写手法/禁用词/句式规则。同题材条目 SHALL 排在跨题材通用之前，文本去重。展示上限 SHALL 为 rules 20 / craft 20 / samples 6 / banned_words 100 / tic_patterns 20，并返回逐项 `counts` 与 `total`。`tone/pov/register` 无书内落点，SHALL 只在缺叙事身份时各取第一条拼一句兜底。
+取数口径 SHALL 为：同账号用户条目（`status=active`、`concept ∈ {文风, 文笔}`、`genre ∈ {本书题材, 跨题材通用}`）＋官方基线（c-kb-baseline merged 视图：同题材与跨题材通用；用户 hide 的基线 SHALL NOT 出现；用户 edit 副本的文本 SHALL 在正文型落点（叙事身份/硬约束/描写手法/示范段）生效，禁用词与句式正则保留 payload 的结构化值），且只取基线条目（`when_json` 为空）。槽位映射 SHALL 与启用快照一致：文风 `role/sample` → 叙事身份/示范段；文笔 `rule/craft/banned_word/tic` → 硬约束/描写手法/禁用词/句式规则。同题材条目 SHALL 排在跨题材通用之前，文本去重。展示上限 SHALL 为 rules 20 / craft 20 / samples 6 / banned_words 100 / tic_patterns 20，并返回逐项 `counts` 与 `total`。`tone/pov/register` 无书内落点，SHALL 只在缺叙事身份时各取第一条拼一句兜底。
 
 #### Scenario: 未定题材
 
@@ -13,7 +13,7 @@
 
 #### Scenario: 同题材优先、通用兜底
 
-- **WHEN** 知识库同时存在「悬疑」与「跨题材通用」的文风条目的角色条目
+- **WHEN** 知识库同时存在「悬疑」与「跨题材通用」的叙事身份条目
 - **THEN** `role` 取同题材那条；`rules/craft/banned_words/tic_patterns` 合并两类并去重，同题材条目排在前面
 
 #### Scenario: 场景条目与已归档条目不进草稿
