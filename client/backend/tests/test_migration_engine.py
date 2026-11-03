@@ -1312,7 +1312,7 @@ class TestBaselineLayerSurvivesUpgrade:
                 entry_id="base-1", dim="concept", value="手法"))
         se.dispose()
 
-        old = _old_gen0(root, books=2)  # 老库：没有任何基线表
+        _old_gen0(root, books=2)  # 老库：没有任何基线表
         rep = run_migration(root, "novel.db", active)
         assert rep["status"] == "ok", rep
 

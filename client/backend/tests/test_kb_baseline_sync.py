@@ -90,6 +90,7 @@ def _publish(
     entries: list[dict],
     *,
     fmt: int = 1,
+    format_client: str | None = None,
     bad_hash: bool = False,
     count: int | None = None,
     min_client: str | None = None,
@@ -106,6 +107,8 @@ def _publish(
         "files": [{"path": "entries.jsonl",
                    "sha256": ("deadbeef" + digest[8:]) if bad_hash else digest}],
     }
+    if format_client:
+        manifest["format_client"] = format_client
     if min_client:
         manifest["min_client_version"] = min_client
     signed = sign_manifest(manifest, _TEST_PRIV, _TEST_KID)
@@ -264,6 +267,41 @@ def test_新格式静默跳过保旧层(sync_env):
     assert r["status"] == "skipped" and r["reason"] == "format_newer"
     rows, _, ver = _layer_state()
     assert set(rows) == {old["src_key"]} and ver == 1
+
+
+# ── 格式代随客户端版本走：manifest 的 format_client 是真身，整数是等价老读法 ──
+
+
+def test_格式代_已登记客户端版本_照收(sync_env):
+    """新包带 format_client="0.45.0"（本端代际）→ 照常同步。"""
+    bl = sync_env
+    e = _entry("baseline:玄幻:tech-a", "玄幻手法A")
+    _publish(1, [e], format_client="0.45.0")
+    r = _sync(bl)
+    assert r["status"] == "synced" and r["entries"] == 1, f"got {r}"
+
+
+def test_格式代_更新的客户端版本_静默跳过保旧层(sync_env):
+    """format_client 是映射表里没有的更新代际 → 不认识，保持旧层（不猜）。"""
+    bl = sync_env
+    old = _entry("baseline:玄幻:tech-a", "玄幻手法A")
+    _publish(1, [old])
+    assert _sync(bl)["status"] == "synced"
+
+    _publish(2, [_entry("baseline:玄幻:tech-b", "玄幻手法B")], format_client="0.50.0")
+    r = _sync(bl)
+    assert r["status"] == "skipped" and r["reason"] == "format_newer", f"got {r}"
+    rows, _, ver = _layer_state()
+    assert set(rows) == {old["src_key"]} and ver == 1
+
+
+def test_格式代_client优先于整数(sync_env):
+    """双写时以 format_client 为准：整数写错成 9 也不能把认得的代际挡在外面。"""
+    bl = sync_env
+    e = _entry("baseline:玄幻:tech-a", "玄幻手法A")
+    _publish(1, [e], fmt=9, format_client="0.45.0")
+    r = _sync(bl)
+    assert r["status"] == "synced" and r["entries"] == 1, f"got {r}"
 
 
 def test_客户端过旧跳过保旧层(sync_env):

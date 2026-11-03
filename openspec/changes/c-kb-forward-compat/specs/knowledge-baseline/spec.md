@@ -9,9 +9,13 @@
 
 同步 SHALL 向前兼容：本端不认识的条目（新概念、新适用维度等）SHALL 只跳过该条，SHALL NOT
 因存在不识别条目而拒收整包；包级与条目级新增字段 SHALL 可被忽略而不影响解析。仅当整包
-一条都不可识别时，同步 SHALL 保持旧层（SHALL NOT 落空层）。结构性不兼容 SHALL 由
-`format_version` 闸表达；`min_client_version` SHALL 仅用于产品级要求，SHALL NOT 作为内容
-追加的默认门槛。
+一条都不可识别时，同步 SHALL 保持旧层（SHALL NOT 落空层）。
+
+格式代 SHALL **以引入它的客户端版本表达**（manifest.format_client，如 `0.45.0`），
+SHALL NOT 维护与客户端版本脱节的独立编号；manifest 双写的整数 `format_version` 仅为
+只认整数的老客户端提供等价读法（`0.45.0` ⇔ 1），SHALL 由映射表派生而非手工填写。
+本端不认识的格式代 SHALL 静默跳过并保持旧层。`min_client_version` SHALL 仅用于产品级
+要求，SHALL NOT 作为内容追加的默认门槛。
 
 #### Scenario: 同步整层替换
 

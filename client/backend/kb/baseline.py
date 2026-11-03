@@ -29,6 +29,11 @@ from models.kb import KbBaselineEntry, KbBaselineOverlay, KbBaselineTag
 logger = logging.getLogger(__name__)
 
 VERSION_KEY = "kb_baseline_version"
+# 格式代＝**引入它的客户端版本**（boss 拍板：格式随客户端版本走）。新增不兼容代际时
+# 加一行映射（如 "0.50.0": 2）并把 SUPPORTED_FORMAT_VERSION 抬到该代；整数只是给
+# 只认整数的老包/老读法用的等价编码，不是独立的编号体系。
+FORMAT_CLIENT = "0.45.0"
+_FORMAT_INT_BY_CLIENT = {FORMAT_CLIENT: 1}
 SUPPORTED_FORMAT_VERSION = 1
 _MAX_PACK_BYTES = 16 * 1024 * 1024
 _FETCH_TIMEOUT = 8.0
@@ -238,6 +243,23 @@ def _too_old(min_client: object) -> bool:
         return False
 
 
+def _format_ok(manifest: dict) -> bool:
+    """格式闸：**格式代以客户端版本表达**（format_client），整数是等价老读法。
+
+    - 新包（build 双写）：`format_client` 命中本端映射 → 等价整数比大小；
+      映射里没有＝比本端更新的代际 → 不认识，静默跳过保旧层。
+    - 老包（v1 已发，只有 `format_version`）：按整数比。
+    """
+    fc = manifest.get("format_client")
+    if isinstance(fc, str) and fc.strip():
+        mapped = _FORMAT_INT_BY_CLIENT.get(fc.strip())
+        return mapped is not None and mapped <= SUPPORTED_FORMAT_VERSION
+    try:
+        return int(manifest.get("format_version") or 0) <= SUPPORTED_FORMAT_VERSION
+    except (TypeError, ValueError):
+        return False
+
+
 def schedule_sync() -> None:
     """启动补偿：后台任务执行同步（CDN 等待不挡启动）；无事件循环＝静默跳过。
 
@@ -324,8 +346,7 @@ async def _sync_impl(db: AsyncSession | None) -> dict:
         # 清单内声明优先（latest 是「有没有新版」的门，manifest 是「本包能不能装」的门）
         if _too_old(manifest.get("min_client_version")):
             return {"status": "skipped", "reason": "min_client_version", "version": version}
-        fmt = int(manifest.get("format_version") or 0)
-        if fmt > SUPPORTED_FORMAT_VERSION:
+        if not _format_ok(manifest):
             return {"status": "skipped", "reason": "format_newer", "version": version}
 
         files = {f["path"]: f for f in manifest.get("files", []) if isinstance(f, dict)}
