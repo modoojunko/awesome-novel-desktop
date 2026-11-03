@@ -1,4 +1,4 @@
-"""写作知识库 · 11 张表（账号级 8 + 书内 3）。
+"""写作知识库 · 知识两域（账号级域＋书级域；表清单见各域注释——表数以域枚举为准，不锁计数）。
 
 账号级（不挂 novel_id、不随书级联）：
   kb_concepts        概念树（六概念 + 子概念叶子；种子只读，P1 可加）
@@ -357,6 +357,50 @@ class KbOrganizeFinding(Base):
     updated_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, server_default=func.now(), onupdate=func.now())
 
 
+class KbBookEntry(Base):
+    """书级知识副本（c-kb-book-scope）——开书选题材时从账号级条目复制而来，
+    复制即脱离：源条目编辑/删除不影响副本，副本编辑/删除不回写源。
+
+    src 溯源：src_kind="book_copy"、src_ref=novel_id、src_key=源条目 id
+    （增量导入/补平的幂等键；部分唯一索引防并发双击重复复制）。
+    标签物化照 kb_entry_tags 同构落 kb_book_entry_tags（选择器书级取数域）。"""
+
+    __tablename__ = "kb_book_entries"
+    __table_args__ = (
+        Index(
+            "uq_kb_book_entries_src",
+            "novel_id", "src_key",
+            unique=True,
+            sqlite_where=text("src_ref <> ''"),
+        ),
+        Index("ix_kb_book_entries_novel", "novel_id", "status"),
+    )
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid)
+    novel_id: Mapped[str] = mapped_column(String(36), nullable=False, index=True)
+    user_id: Mapped[str] = mapped_column(String(36), nullable=False, index=True)
+    genre: Mapped[str] = mapped_column(String(40), nullable=False, default="", index=True)
+    concept: Mapped[str] = mapped_column(String(20), nullable=False, index=True)
+    concept_id: Mapped[str] = mapped_column(String(80), nullable=False, default="")
+    title: Mapped[str] = mapped_column(String(40), nullable=False, default="")
+    payload_json: Mapped[str] = mapped_column(Text, nullable=False, default="{}")
+    payload_version: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
+    instruction: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    example: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    negative_example: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    when_json: Mapped[str] = mapped_column(Text, nullable=False, default="{}")
+    evidence: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    evidence_json: Mapped[str] = mapped_column(Text, nullable=False, default="{}")
+    status: Mapped[str] = mapped_column(String(12), nullable=False, default="active")
+    rev: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
+    src_kind: Mapped[str] = mapped_column(String(20), nullable=False, default="book_copy")
+    src_ref: Mapped[str] = mapped_column(String(80), nullable=False, default="")
+    src_key: Mapped[str] = mapped_column(String(80), nullable=False, default="")
+    src_novel_name: Mapped[str] = mapped_column(String(100), nullable=False, default="")
+    created_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, server_default=func.now(), onupdate=func.now())
+
+
 class KbOrganizeFeedback(Base):
     """整理负反馈（c-kb-organize）——「这条不对」的特征签名，下次整理降权。
 
@@ -451,5 +495,23 @@ class KbBaselineTag(Base):
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     entry_id: Mapped[str] = mapped_column(String(36), nullable=False, index=True)
+    dim: Mapped[str] = mapped_column(String(20), nullable=False)
+    value: Mapped[str] = mapped_column(String(80), nullable=False)
+
+
+class KbBookEntryTag(Base):
+    """书级副本的物化标签（照 kb_entry_tags 同构；选择器书级取数域）——
+    可随时 DELETE+重建（自愈），novel_id 冗余列使单表索引成立。"""
+
+    __tablename__ = "kb_book_entry_tags"
+    __table_args__ = (
+        Index("ix_kb_book_entry_tags_novel_dim", "novel_id", "dim", "value"),
+        Index("ix_kb_book_entry_tags_entry", "entry_id"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    entry_id: Mapped[str] = mapped_column(String(36), nullable=False)
+    novel_id: Mapped[str] = mapped_column(String(36), nullable=False)
+    user_id: Mapped[str] = mapped_column(String(36), nullable=False)
     dim: Mapped[str] = mapped_column(String(20), nullable=False)
     value: Mapped[str] = mapped_column(String(80), nullable=False)

@@ -34,6 +34,8 @@ from models.image_asset import (
 from models.import_session import ImportSession
 from models.kb import (
     KbBookBinding,
+    KbBookEntry,
+    KbBookEntryTag,
     KbConcept,
     KbEntry,
     KbEntryBlob,
@@ -102,6 +104,8 @@ __all__ = [
     "ImageJob",
     "ImportSession",
     "KbBookBinding",
+    "KbBookEntry",
+    "KbBookEntryTag",
     "KbConcept",
     "KbEntry",
     "KbEntryBlob",

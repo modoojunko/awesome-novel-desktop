@@ -184,6 +184,11 @@ async def update_settings(
         if theme_touched:
             storage = get_storage()
             story = await storage.read_yaml(project.root_path, "story.yaml") or {}
+            # 题材是否真变化（c-kb-book-scope 弹窗二选一）：前端每次保存都带
+            # theme/sub_genre 全量字段——只按「键存在」清 declined 会把作家选的
+            # 「我自己设定」在同题材改其他格时又清掉、反复弹窗。
+            prev_theme = str(story.get("genre") or "").strip()
+            prev_sub = str(story.get("sub_genre") or "").strip()
             # 复用既有 genre 键（书卡胶囊/书内标签的展示链一直读它）
             if theme:
                 story["genre"] = theme
@@ -208,6 +213,13 @@ async def update_settings(
                     prefs["pacing_preset"] = key
                     prefs["pacing_steps_len"] = PACING_PRESETS[key]["steps_len"]
                     await storage.write_yaml(project.root_path, BOOK_PREFS_PATH, prefs)
+            # 改题材＝新题材重新征询（c-kb-book-scope）：清「我自己设定」决策；
+            # 同题材保存（只改 02~05 其他格）保留决策，不再打扰。
+            if (prev_theme, prev_sub) != (theme, sub):
+                from kb.book_scope import write_import_declined
+
+                await write_import_declined(project.root_path, False)
+
     else:
         await get_storage().write_yaml(project.root_path, KEY_TO_PATH[type], body)
 

@@ -215,6 +215,16 @@ describe("KbOrganizePanel 缺省臂大扫除", () => {
     const { unmount: u3 } = render(<KbOrganizePanel genre="玄幻" onClose={() => {}} />);
     await waitFor(() => expect(screen.getByText(/完成 · 扫 2 条/)).toBeTruthy());
     u3();
+    // 臂4：未知状态（running 等）→ 原样显示状态串（#1002 后的缺省臂）
+    api.status.mockResolvedValue({
+      genre: "玄幻", running: true,
+      last_run: { id: "r", status: "running", started_at: "", finished_at: "",
+        entries_scanned: 0, relations_added: 0, error: "" },
+      pending_relations: 0, proposed_findings: 0,
+    });
+    const { unmount: u4 } = render(<KbOrganizePanel genre="玄幻" onClose={() => {}} />);
+    await waitFor(() => expect(screen.getByText(/上次整理：running/)).toBeTruthy());
+    u4();
   });
 
   it("act catch 右臂（非 Error 无 message）", async () => {

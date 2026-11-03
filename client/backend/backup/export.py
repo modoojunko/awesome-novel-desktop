@@ -486,7 +486,14 @@ async def _dump_kb_book(zf, db, project, prefix: str = "") -> None:
     """
     from sqlalchemy import select as _select
 
-    from models.kb import KbBookBinding, KbMatchItem, KbMatchRun
+    from models.kb import (
+        KbBookBinding,
+        KbBookEntry,
+        KbBookEntryTag,
+        KbMatchItem,
+        KbMatchRun,
+        KbPref,
+    )
 
     def _rows(rows):
         out = []
@@ -504,8 +511,38 @@ async def _dump_kb_book(zf, db, project, prefix: str = "") -> None:
     runs = (
         await db.scalars(_select(KbMatchRun).where(KbMatchRun.novel_id == project.id).order_by(KbMatchRun.id))
     ).all()
-    if not bindings and not runs:
+    book_entries = (
+        await db.scalars(_select(KbBookEntry).where(KbBookEntry.novel_id == project.id).order_by(KbBookEntry.id))
+    ).all()
+    if not bindings and not runs and not book_entries:
         return
+    # 书级副本的物化标签（c-kb-book-scope）：选择器候选域＝标签，必须随包走——
+    # 只带条目不带标签，恢复后写法块会静默为空（delta 明文要求「重建标签索引」）
+    book_tags = []
+    book_prefs = []
+    if book_entries:
+        ids = [e.id for e in book_entries]
+        for start in range(0, len(ids), 500):
+            chunk = ids[start:start + 500]
+            book_tags.extend(
+                (
+                    await db.scalars(
+                        _select(KbBookEntryTag)
+                        .where(KbBookEntryTag.entry_id.in_(chunk))
+                        .order_by(KbBookEntryTag.id)
+                    )
+                ).all()
+            )
+            # 书副本的反馈权重（有用率）：随副本 id 天然书级，换机恢复后不得归零
+            book_prefs.extend(
+                (
+                    await db.scalars(
+                        _select(KbPref)
+                        .where(KbPref.entry_id.in_(chunk))
+                        .order_by(KbPref.id)
+                    )
+                ).all()
+            )
     items = []
     if runs:
         items = (
@@ -519,6 +556,9 @@ async def _dump_kb_book(zf, db, project, prefix: str = "") -> None:
             "bindings": _rows(bindings),
             "match_runs": _rows(runs),
             "match_items": _rows(items),
+            "book_entries": _rows(book_entries),  # c-kb-book-scope：书级知识副本（兼容键不升版）
+            "book_entry_tags": _rows(book_tags),  # 物化标签投影（恢复重建索引用）
+            "book_prefs": _rows(book_prefs),  # 副本反馈权重（书级心智随包走）
         }),
     )
 

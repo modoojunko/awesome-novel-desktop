@@ -20,7 +20,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from kb.merged import STYLE_SLOTS_IN_BLOCK as _STYLE_SLOTS_IN_BLOCK
 from kb.merged import digest_baseline_ids, load_baseline_entries
-from models.kb import KbEntry, KbEntryTag, KbPref
+from models.kb import KbBookEntry, KbBookEntryTag, KbEntry, KbEntryTag, KbPref
 
 # 拆章六档 plot_stage → 章位封闭值（CHAPTER_POS）；空/未知 → ""（不硬猜）
 _STAGE_TO_POS = {
@@ -124,27 +124,36 @@ class Selection:
 async def digest_candidates(
     db: AsyncSession, *, user_id: str, genre: str,
     concepts: tuple[str, ...] = ("手法", "文风", "文笔"),
+    book_scope: str | None = None,
 ) -> dict[str, set[str]]:
-    """候选短名单（公开：P1 LLM 选择器的候选摘要以本集合为域）。"""
-    """kb_entry_tags 两段式：出 (手法 id 集, 场景定性文风/文笔 id 集)。
+    """候选短名单（公开：P1 LLM 选择器的候选摘要以本集合为域）。
 
-    不碰 payload_json——条目是否场景条目（scope=scene）与槽位（slot）全是物化维度。
-    手法 base＋scene 全进；文风/文笔只取场景条目（基线走快照），且排除
-    slot=role/pov（书级恒定槽）。
+    book_scope=书 id：候选走书级副本标签（kb_book_entry_tags 按 novel_id 过滤）——
+    书副本已是开书时对 merged 视图的一次性快照，不再叠加实时基线层；
+    None：账号级标签域（存量兼容路径）＋基线层（merged，c-kb-baseline）。
     """
-    rows = (
-        await db.execute(
-            select(KbEntryTag.entry_id, KbEntryTag.dim, KbEntryTag.value)
-            .select_from(KbEntryTag)
-            .join(KbEntry, KbEntry.id == KbEntryTag.entry_id)
+    tag_model = KbBookEntryTag if book_scope else KbEntryTag
+    if book_scope:
+        # 书域：副本已按题材筛过，只按 novel_id 收窄（genre 二次过滤会误杀通用条目）
+        stmt = select(tag_model.entry_id, tag_model.dim, tag_model.value).where(
+            tag_model.dim.in_(("concept", "scope", "slot")),
+            tag_model.novel_id == book_scope,
+        )
+    else:
+        # 账号级存量路径：题材/状态必须在标签查询就收窄——select_block 只补 status，
+        # genre 无第二道闸；漏掉会把其他题材条目选进本书（跨题材污染）
+        stmt = (
+            select(tag_model.entry_id, tag_model.dim, tag_model.value)
+            .select_from(tag_model)
+            .join(KbEntry, KbEntry.id == tag_model.entry_id)
             .where(
-                KbEntryTag.user_id == user_id,
-                KbEntryTag.dim.in_(("concept", "scope", "slot")),
+                tag_model.user_id == user_id,
+                tag_model.dim.in_(("concept", "scope", "slot")),
                 KbEntry.status == "active",
                 KbEntry.genre.in_((genre, "")) if genre else True,
             )
         )
-    ).all()
+    rows = (await db.execute(stmt)).all()
     concept: dict[str, str] = {}
     scope: dict[str, str] = {}
     slot: dict[str, str] = {}
@@ -165,11 +174,12 @@ async def digest_candidates(
             s = slot.get(entry_id, "")
             if cname == "文笔" or s in _STYLE_SLOTS_IN_BLOCK:
                 style.add(entry_id)
+    if not book_scope:
+        # merged 域：用户条目 ∪ 基线层（基线已排 hide、edit 副本在取行时套用）
+        base = await digest_baseline_ids(db, user_id=user_id, genre=genre, concepts=concepts)
+        tech |= base["tech"]
+        style |= base["style"]
     # 稳定排序截断（id 序）——短名单超 200 时保序取前
-    # merged 域：用户条目 ∪ 基线层（基线已排 hide、edit 副本在取行时套用）
-    base = await digest_baseline_ids(db, user_id=user_id, genre=genre, concepts=concepts)
-    tech |= base["tech"]
-    style |= base["style"]
     return {
         "tech": set(sorted(tech)[:_SHORTLIST_MAX]),
         "style": set(sorted(style)[:_SHORTLIST_MAX]),
@@ -267,28 +277,37 @@ async def select_block(
     signals: MatchSignals,
     genre: str,
     concepts: tuple[str, ...] = ("手法", "文风", "文笔"),
+    book_scope: str | None = None,
     now=None,
 ) -> Selection | None:
     """选块主入口。零命中返回 None。确定性：同库同权重同章纲 → 同选集同顺序。"""
     import datetime as _dt
 
     now = now or _dt.datetime.utcnow()
-    groups = await digest_candidates(db, user_id=user_id, genre=genre, concepts=concepts)
+    groups = await digest_candidates(
+        db, user_id=user_id, genre=genre, concepts=concepts, book_scope=book_scope
+    )
     if not groups["tech"] and not groups["style"]:
         return None
 
     wanted = groups["tech"] | groups["style"]
+    entry_model = KbBookEntry if book_scope else KbEntry
     user_rows = (
         (
             await db.execute(
-                select(KbEntry).where(KbEntry.id.in_(sorted(wanted))).order_by(KbEntry.id)
+                select(entry_model)
+                .where(entry_model.id.in_(sorted(wanted)), entry_model.status == "active")
+                .order_by(entry_model.id)
             )
         )
         .scalars()
         .all()
     )
-    # 基线层取行（hide 已排、edit 副本已套＝merged 口径）；与用户条目同池打分
-    base_rows = await load_baseline_entries(db, user_id=user_id, ids=sorted(wanted))
+    # 基线层取行（hide 已排、edit 副本已套＝merged 口径）；书域副本已含快照则不叠加
+    base_rows = (
+        [] if book_scope
+        else await load_baseline_entries(db, user_id=user_id, ids=sorted(wanted))
+    )
     rows = list(user_rows) + list(base_rows)
     # 维度值集合（适用条件）一次性取回，避免逐条查 tags
     prefs = {

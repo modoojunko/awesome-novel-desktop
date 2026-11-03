@@ -2,7 +2,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { kbApi } from "@/lib/kbApi";
 
-const { bind, bindings, createEntry, deleteEntry, entries, entry, genres, libraries, syncBinding, unbind, concepts, updateEntry, usePrototype, graphAggregate, graphCell, pref, baselineOverride, clearBaselineOverride, baselineStatus, baselineSync } = kbApi;
+const { bind, bindings, createEntry, deleteEntry, entries, entry, genres, libraries, syncBinding, unbind, concepts, updateEntry, usePrototype, graphAggregate, graphCell, pref, baselineOverride, clearBaselineOverride, baselineStatus, baselineSync, bookScopeImport, bookScopeDiff, bookScopeDecline } = kbApi;
 
 const fetchMock = vi.fn();
 
@@ -158,6 +158,30 @@ describe("kbApi", () => {
     expect(fetchMock.mock.calls[1][1]?.method).toBe("DELETE");
   });
 
+  it("书级知识副本：补平与差异计数（c-kb-book-scope 批D）", async () => {
+    fetchMock.mockReturnValueOnce(json({ imported: 2, skipped: 1 }));
+    const imp = await bookScopeImport("n1");
+    expect(imp.imported).toBe(2);
+    const last = fetchMock.mock.calls.at(-1)!;
+    const [u1, i1] = last;
+    expect(String(u1)).toBe("/api/kb/book-scope/import");
+    expect(JSON.parse(i1!.body)).toEqual({ novel_id: "n1" });
+
+    fetchMock.mockReturnValueOnce(json({ new_count: 3, declined: false }));
+    const d = await bookScopeDiff("n1");
+    expect(d.new_count).toBe(3);
+    expect(d.declined).toBe(false);
+    const lastDiff = fetchMock.mock.calls.at(-1)!;
+    expect(String(lastDiff[0])).toBe("/api/kb/book-scope/diff?novel_id=n1");
+
+    fetchMock.mockReturnValueOnce(json({ declined: true }));
+    const dec = await bookScopeDecline("n1");
+    expect(dec.declined).toBe(true);
+    const lastDec = fetchMock.mock.calls.at(-1)!;
+    expect(String(lastDec[0])).toBe("/api/kb/book-scope/decline");
+    expect(JSON.parse(lastDec[1]!.body)).toEqual({ novel_id: "n1", declined: true });
+  });
+
   it("信封缺 data 抛错", async () => {
     fetchMock.mockReturnValueOnce(Promise.resolve({ ok: true, status: 200, json: () => Promise.resolve({}) } as Response));
     await expect(genres()).rejects.toThrow("响应缺少 data");
@@ -208,5 +232,139 @@ describe("kbApi", () => {
     const [u, init] = fetchMock.mock.calls[1];
     expect(String(u)).toBe("/api/kb/baseline/sync");
     expect(init.method).toBe("POST");
+  });
+
+  describe("题材知识导入进度流（c-kb-book-scope 弹窗二选一）", () => {
+    /** 假 SSE 响应：按 chunk 逐次 read，覆盖跨块拼行与坏行/坏 JSON 跳过。 */
+    function sse(chunks: string[], init: { ok?: boolean; status?: number } = {}) {
+      let i = 0;
+      const enc = new TextEncoder();
+      return {
+        ok: init.ok ?? true,
+        status: init.status ?? 200,
+        body: {
+          getReader: () => ({
+            read: async () =>
+              i < chunks.length
+                ? { done: false, value: enc.encode(chunks[i++]) }
+                : { done: true, value: undefined },
+          }),
+        },
+      } as unknown as Response;
+    }
+
+    it("逐事件解析：跨块拼行＋非 data 行/坏 JSON 跳过", async () => {
+      fetchMock.mockReturnValueOnce(
+        Promise.resolve(
+          sse([
+            'event: ping\ndata: {"type":"phase","phase":"copy","total":2}\n',
+            'data: {"type":"phase","phase":"copy","concept":"手',
+            '法","done":1,"total":2}\n\nnot-a-data-line\ndata: {broken\n',
+            'data: {"type":"done","imported":2,"skipped":0}\n\n',
+          ]),
+        ),
+      );
+      const events: Record<string, unknown>[] = [];
+      const ctrl = kbApi.bookScopeImportStream("n1", (ev) => events.push(ev as unknown as Record<string, unknown>));
+      expect(ctrl).toBeInstanceOf(AbortController);
+      await vi.waitFor(() => expect(events).toHaveLength(3));
+      expect(events[0]).toMatchObject({ type: "phase", phase: "copy", total: 2 });
+      expect(events[1]).toMatchObject({ concept: "手法", done: 1 });
+      expect(events[2]).toMatchObject({ type: "done", imported: 2 });
+      const [u, init] = fetchMock.mock.calls[0];
+      expect(String(u)).toContain("/api/kb/book-scope/import/stream");
+      expect(init.method).toBe("POST");
+      expect(JSON.parse(init.body)).toEqual({ novel_id: "n1" });
+      expect((init.headers as Record<string, string>).Authorization).toBe("Bearer tk");
+    });
+
+    it("流干净结束但无终态事件：按失败收尾（sawTerminal 守卫）", async () => {
+      fetchMock.mockReturnValueOnce(
+        Promise.resolve(
+          sse(['data: {"type":"phase","phase":"copy","total":2}\n\n']),
+        ),
+      );
+      const events: Record<string, unknown>[] = [];
+      kbApi.bookScopeImportStream("n1", (ev) =>
+        events.push(ev as unknown as Record<string, unknown>),
+      );
+      await vi.waitFor(() => expect(events).toHaveLength(2));
+      expect(events[0]).toMatchObject({ type: "phase" });
+      expect(events[1]).toMatchObject({ type: "error" });
+      expect(String(events[1].message)).toContain("导入中断");
+    });
+
+    it("HTTP 失败：detail 字符串直出；非字符串/坏 JSON 走兜底文案", async () => {
+      fetchMock.mockReturnValueOnce(
+        Promise.resolve({
+          ok: false,
+          status: 404,
+          json: async () => ({ detail: "Book not found" }),
+        } as unknown as Response),
+      );
+      const a: Record<string, unknown>[] = [];
+      kbApi.bookScopeImportStream("n1", (ev) => a.push(ev as unknown as Record<string, unknown>));
+      await vi.waitFor(() => expect(a).toHaveLength(1));
+      expect(a[0]).toMatchObject({ type: "error", message: "Book not found" });
+
+      fetchMock.mockReturnValueOnce(
+        Promise.resolve({
+          ok: false,
+          status: 500,
+          json: async () => {
+            throw new Error("not json");
+          },
+        } as unknown as Response),
+      );
+      const b: Record<string, unknown>[] = [];
+      kbApi.bookScopeImportStream("n1", (ev) => b.push(ev as unknown as Record<string, unknown>));
+      await vi.waitFor(() => expect(b).toHaveLength(1));
+      expect(b[0]).toMatchObject({ type: "error", message: "导入失败（HTTP 500）" });
+    });
+
+    it("响应无 body：报「无法读取响应流」", async () => {
+      fetchMock.mockReturnValueOnce(
+        Promise.resolve({ ok: true, status: 200, body: null } as unknown as Response),
+      );
+      const events: Record<string, unknown>[] = [];
+      kbApi.bookScopeImportStream("n1", (ev) => events.push(ev as unknown as Record<string, unknown>));
+      await vi.waitFor(() => expect(events).toHaveLength(1));
+      expect(events[0]).toMatchObject({ type: "error", message: "无法读取响应流" });
+    });
+
+    it("网络失败：AbortError 静默；其余报错", async () => {
+      const abortErr = new DOMException("aborted", "AbortError");
+      fetchMock.mockReturnValueOnce(Promise.reject(abortErr));
+      const a: Record<string, unknown>[] = [];
+      kbApi.bookScopeImportStream("n1", (ev) => a.push(ev as unknown as Record<string, unknown>));
+      await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
+      await Promise.resolve();
+      expect(a).toHaveLength(0);
+
+      fetchMock.mockReturnValueOnce(Promise.reject(new Error("断网了")));
+      const b: Record<string, unknown>[] = [];
+      kbApi.bookScopeImportStream("n1", (ev) => b.push(ev as unknown as Record<string, unknown>));
+      await vi.waitFor(() => expect(b).toHaveLength(1));
+      expect(b[0]).toMatchObject({ type: "error", message: "断网了" });
+
+      // 空 message → 兜底文案
+      fetchMock.mockReturnValueOnce(Promise.reject(new Error("")));
+      const c: Record<string, unknown>[] = [];
+      kbApi.bookScopeImportStream("n1", (ev) => c.push(ev as unknown as Record<string, unknown>));
+      await vi.waitFor(() => expect(c).toHaveLength(1));
+      expect(c[0]).toMatchObject({ type: "error", message: "网络错误" });
+    });
+
+    it("未登录：不带 Authorization 头", async () => {
+      localStorage.removeItem("auth_token");
+      fetchMock.mockReturnValueOnce(
+        Promise.resolve(sse(['data: {"type":"done","imported":0,"skipped":0}\n\n'])),
+      );
+      const events: Record<string, unknown>[] = [];
+      kbApi.bookScopeImportStream("n1", (ev) => events.push(ev as unknown as Record<string, unknown>));
+      await vi.waitFor(() => expect(events).toHaveLength(1));
+      const init = fetchMock.mock.calls[0][1] as RequestInit;
+      expect((init.headers as Record<string, string>).Authorization).toBeUndefined();
+    });
   });
 });
