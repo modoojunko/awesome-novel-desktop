@@ -37,22 +37,22 @@ def _run(coro):
 
 
 def _entry(src_key: str, title: str = "条目", *, instruction: str | None = None,
-           genre: str = "玄幻", when: dict | None = None) -> dict:
+           genre: str = "玄幻", when: dict | None = None, concept: str = "手法",
+           payload: dict | None = None) -> dict:
     # 判据集与内容仓同集（kb.gates.check_baseline_entry）：手法须带 payload.instruction
     ins = instruction or f"{title}：交手先守后攻，招式收在第三拍。"
     return {
-        "src_key": src_key, "title": title, "concept": "手法", "genre": genre,
+        "src_key": src_key, "title": title, "concept": concept, "genre": genre,
         "instruction": ins,
-        "payload": {"instruction": ins, "slot": "打斗-节奏", "scene": "打斗"},
+        "payload": payload or {"instruction": ins, "slot": "打斗-节奏", "scene": "打斗"},
         "when": when if when is not None else {"scene": "打斗"},
     }
 
 
-def _signed_latest(version: int, manifest_sha: str, *, min_client: str | None = None) -> dict:
-    body = {"version": version, "manifest_sha256": manifest_sha}
-    if min_client:
-        body["min_client_version"] = min_client
-    return sign_manifest(body, _TEST_PRIV, _TEST_KID)
+def _signed_latest(version: int, manifest_sha: str) -> dict:
+    return sign_manifest(
+        {"version": version, "manifest_sha256": manifest_sha}, _TEST_PRIV, _TEST_KID
+    )
 
 
 class _FakeCDN:
@@ -88,30 +88,31 @@ def _publish(
     version: int,
     entries: list[dict],
     *,
-    fmt: int = 1,
+    format_client: str | None = None,
     bad_hash: bool = False,
     count: int | None = None,
-    min_client: str | None = None,
     extra_lines: list[str] | None = None,
 ):
-    """打包并挂到假 CDN。count 默认＝有效条目数；extra_lines 追加原始坏行。"""
+    """打包并挂到假 CDN。count 默认＝有效条目数；extra_lines 追加原始坏行。
+
+    包里只有内容包 version 与 format_client（按哪代客户端写）两个版本概念。
+    """
     lines = [json.dumps(e, ensure_ascii=False) for e in entries] + list(extra_lines or [])
     body = "\n".join(lines).encode()
     digest = hashlib.sha256(body).hexdigest()
     manifest = {
-        "version": version, "format_version": fmt,
+        "version": version,
         "entry_count": len(entries) if count is None else count,
         "generated_at": "2026-11-02T00:00:00Z",
         "files": [{"path": "entries.jsonl",
                    "sha256": ("deadbeef" + digest[8:]) if bad_hash else digest}],
     }
-    if min_client:
-        manifest["min_client_version"] = min_client
+    if format_client:
+        manifest["format_client"] = format_client
     signed = sign_manifest(manifest, _TEST_PRIV, _TEST_KID)
     _CDN.latest = _signed_latest(
         version,
         hashlib.sha256(json.dumps(signed, ensure_ascii=False).encode()).hexdigest(),
-        min_client=min_client,
     )
     _CDN.manifest_raw = json.dumps(signed, ensure_ascii=False).encode()
     _CDN.entries_raw = body
@@ -252,30 +253,39 @@ def test_坏哈希保旧层(sync_env):
     assert rows[old["src_key"]].pack_version == 1 and ver == 1
 
 
-def test_新格式静默跳过保旧层(sync_env):
+# ── 格式随客户端版本走：manifest 只有 format_client 一个兼容标记 ─────────────
+
+
+def test_格式代_已登记客户端版本_照收(sync_env):
+    """新包带 format_client="0.45.0"（本端代际）→ 照常同步。"""
+    bl = sync_env
+    e = _entry("baseline:玄幻:tech-a", "玄幻手法A")
+    _publish(1, [e], format_client="0.45.0")
+    r = _sync(bl)
+    assert r["status"] == "synced" and r["entries"] == 1, f"got {r}"
+
+
+def test_格式代_更新的客户端版本_静默跳过保旧层(sync_env):
+    """format_client 是不认识的更新代际 → 保持旧层（不猜）。"""
     bl = sync_env
     old = _entry("baseline:玄幻:tech-a", "玄幻手法A")
     _publish(1, [old])
     assert _sync(bl)["status"] == "synced"
 
-    _publish(2, [_entry("baseline:玄幻:tech-b", "玄幻手法B")], fmt=2)
+    _publish(2, [_entry("baseline:玄幻:tech-b", "玄幻手法B")], format_client="0.50.0")
     r = _sync(bl)
-    assert r["status"] == "skipped" and r["reason"] == "format_newer"
+    assert r["status"] == "skipped" and r["reason"] == "format_newer", f"got {r}"
     rows, _, ver = _layer_state()
     assert set(rows) == {old["src_key"]} and ver == 1
 
 
-def test_客户端过旧跳过保旧层(sync_env):
+def test_历史包无格式声明_照收(sync_env):
+    """已发布的 v1 只有整数 format_version、没有 format_client → 属第一代，照收。"""
     bl = sync_env
-    old = _entry("baseline:玄幻:tech-a", "玄幻手法A")
-    _publish(1, [old])
-    assert _sync(bl)["status"] == "synced"
-
-    _publish(2, [_entry("baseline:玄幻:tech-b", "玄幻手法B")], min_client="9.9.9")
+    e = _entry("baseline:玄幻:tech-a", "玄幻手法A")
+    _publish(1, [e])
     r = _sync(bl)
-    assert r["status"] == "skipped" and r["reason"] == "min_client_version"
-    rows, _, ver = _layer_state()
-    assert set(rows) == {old["src_key"]} and ver == 1
+    assert r["status"] == "synced" and r["entries"] == 1, f"got {r}"
 
 
 def test_断网保旧层(sync_env):
@@ -307,6 +317,139 @@ def test_坏行跳过_有效行照落(sync_env):
     assert r["status"] == "synced" and r["skipped"] == 3, f"got {r}"
     rows, _, _ = _layer_state()
     assert set(rows) == {good["src_key"]}
+
+
+# ── 向前兼容（c-kb-forward-compat）：新包里的「新东西」不拖垮老客户端 ─────────
+
+
+def test_新概念条目_只跳过该条不整包拒收(sync_env):
+    """新包引入老客户端不认识的 concept：跳过那一条，其余照常落层。"""
+    bl = sync_env
+    a = _entry("baseline:玄幻:tech-a", "玄幻手法A")
+    b = _entry("baseline:玄幻:tech-b", "玄幻手法B")
+    future = _entry("baseline:玄幻:dialog-x", "对话手法X", concept="对话",
+                    payload={"instruction": "对话不要每次说完。"})
+    _publish(1, [a, b, future])  # entry_count=3，老客户端只认得 2 条
+    r = _sync(bl)
+    assert r["status"] == "synced" and r["entries"] == 2 and r["skipped"] == 1, f"got {r}"
+    rows, _, _ = _layer_state()
+    assert set(rows) == {a["src_key"], b["src_key"]}
+
+
+def test_未知适用维度_跳过该条不整包拒收(sync_env):
+    """新包给 when 加了老客户端不认识的维度：该条整条跳过（不敢按窄条件外扩注入）。"""
+    bl = sync_env
+    ok = _entry("baseline:玄幻:tech-a", "玄幻手法A")
+    future = _entry("baseline:玄幻:tech-b", "玄幻手法B",
+                    when={"scene": "打斗", "pace": "快"})
+    _publish(1, [ok, future])
+    r = _sync(bl)
+    assert r["status"] == "synced" and r["entries"] == 1 and r["skipped"] == 1, f"got {r}"
+    rows, _, _ = _layer_state()
+    assert set(rows) == {ok["src_key"]}
+
+
+def test_读不懂的条目沿用旧层_不缩水不算下架(sync_env):
+    """评审 P2：本端读不懂 ≠ 官方下架。
+
+    官方仍发布的条目（只是加了本端不认识的条件维度）必须沿用旧层原文：
+    条目不少、用户副本不被误提升成「官方精选（已下架）」。
+    """
+    from kb.baseline import content_sha
+    from models.app_meta import AppMeta
+    from models.kb import KbEntry, KbEntryTag
+    from models.user import User
+
+    bl = sync_env
+    a = _entry("baseline:玄幻:tech-a", "玄幻手法A")
+    b = _entry("baseline:玄幻:tech-b", "玄幻手法B")
+    _publish(1, [a, b])
+    assert _sync(bl)["status"] == "synced"
+    old_b_text = _layer_state()[0][b["src_key"]].instruction
+
+    uid = f"carry-{uuid.uuid4().hex[:8]}"
+
+    async def _seed_ov():
+        async with async_session() as db:
+            db.add(User(id=uid, email=f"{uid}@t.local", password_hash="x"))
+            db.add(KbBaselineOverlay(
+                user_id=uid, src_key=b["src_key"], action="edit",
+                content="我的副本：先让三招。", base_content_sha256=content_sha(old_b_text)))
+            await db.commit()
+
+    _run(_seed_ov())
+
+    # v2：A 不变、B 加了本端不认识的维度、C 新增
+    b_future = _entry("baseline:玄幻:tech-b", "玄幻手法B",
+                      when={"scene": "打斗", "pace": "快"})
+    c = _entry("baseline:玄幻:tech-c", "玄幻手法C")
+    _publish(2, [a, b_future, c])
+    r = _sync(bl)
+    assert r["status"] == "synced" and r["skipped"] == 1 and r["carried"] == 1, f"got {r}"
+
+    rows, _, ver = _layer_state()
+    assert set(rows) == {a["src_key"], b["src_key"], c["src_key"]}  # 不缩水
+    assert rows[b["src_key"]].instruction == old_b_text  # 沿用旧原文
+    assert rows[b["src_key"]].pack_version == 1  # 内容确实来自上一包
+    assert ver == 2
+
+    async def _check():
+        async with async_session() as db:
+            ovs = (await db.execute(sel(KbBaselineOverlay).where(
+                KbBaselineOverlay.user_id == uid))).scalars().all()
+            promoted = (await db.execute(sel(KbEntry).where(
+                KbEntry.user_id == uid))).scalars().all()
+            meta = await db.get(AppMeta, "kb_baseline_last_sync")
+            return ovs, promoted, json.loads(meta.value) if meta else {}
+
+    ovs, promoted, last = _run(_check())
+    assert len(ovs) == 1 and ovs[0].action == "edit"  # 副本仍在，没被当孤儿
+    assert promoted == []  # 没被误提升成「官方精选（已下架）」
+    # 摘要口径（评审 P3）：accepted 只计入闸子集，entries 是层内总数（含 carried）
+    assert last.get("accepted") == 2 and last.get("skipped") == 1 and last.get("carried") == 1
+    assert r["entries"] == 3
+
+    async def _cleanup():
+        from sqlalchemy import delete as _del
+
+        async with async_session() as db:
+            await db.execute(_del(KbEntryTag).where(KbEntryTag.user_id == uid))
+            await db.execute(_del(KbEntry).where(KbEntry.user_id == uid))
+            await db.execute(_del(KbBaselineOverlay).where(KbBaselineOverlay.user_id == uid))
+            await db.commit()
+
+    _run(_cleanup())
+
+
+def test_未知顶层字段_照收(sync_env):
+    """包级扩展字段（如未来的 published_by）不进判据：老客户端忽略即可。"""
+    bl = sync_env
+    e = _entry("baseline:玄幻:tech-a", "玄幻手法A")
+    e["future_field"] = {"anything": 1}
+    _publish(1, [e])
+    r = _sync(bl)
+    assert r["status"] == "synced" and r["entries"] == 1, f"got {r}"
+    rows, _, _ = _layer_state()
+    assert set(rows) == {e["src_key"]}
+
+
+def test_整包读不懂_保旧层不清空(sync_env):
+    """一条都读不懂＝代际不兼容：拒绝本次同步，旧层原样保留（绝不落空层）。"""
+    bl = sync_env
+    old = _entry("baseline:玄幻:tech-a", "玄幻手法A")
+    _publish(1, [old])
+    assert _sync(bl)["status"] == "synced"
+
+    _publish(2, [
+        _entry("baseline:玄幻:new-1", "新概念一", concept="对话",
+               payload={"instruction": "对话别说完。"}),
+        _entry("baseline:玄幻:new-2", "新概念二", concept="对话",
+               payload={"instruction": "对话留半句。"}),
+    ])
+    r = _sync(bl)
+    assert r["status"] == "failed" and r["reason"] == "entry_count", f"got {r}"
+    rows, _, ver = _layer_state()
+    assert set(rows) == {old["src_key"]} and ver == 1  # 旧层零变化
 
 
 def test_升级演练_双哈希_孤儿hide_重同步_回退(sync_env):

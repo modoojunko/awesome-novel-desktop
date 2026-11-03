@@ -81,8 +81,14 @@ async def baseline_status_api(
     user: dict = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    """基线层就绪状态（设备级；不要求登录态才有数据，这里只是展示口）。"""
-    from kb.baseline import VERSION_KEY
+    """基线层就绪状态（设备级；不要求登录态才有数据，这里只是展示口）。
+
+    `last_sync` 透出最近一次同步摘要（accepted/skipped/carried/promoted）：
+    skipped>0 表示包里有本端读不懂的条目（已沿用旧层原文，≠下架），便于发现两端口径漂移。
+    """
+    import json as _json
+
+    from kb.baseline import LAST_SYNC_KEY, VERSION_KEY
     from models.app_meta import AppMeta
     from models.kb import KbBaselineEntry
 
@@ -91,7 +97,15 @@ async def baseline_status_api(
     n = (
         await db.execute(select(func.count(KbBaselineEntry.entry_id)))
     ).scalar_one()
-    return {"ok": True, "data": {"version": version, "entries": int(n or 0)}}
+    last = await db.get(AppMeta, LAST_SYNC_KEY)
+    try:
+        last_sync = _json.loads(last.value) if last and last.value else {}
+    except ValueError:
+        last_sync = {}
+    return {
+        "ok": True,
+        "data": {"version": version, "entries": int(n or 0), "last_sync": last_sync},
+    }
 
 
 @router.post("/baseline/sync")
