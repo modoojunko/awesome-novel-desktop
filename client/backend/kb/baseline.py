@@ -31,6 +31,7 @@ from models.kb import KbBaselineEntry, KbBaselineOverlay, KbBaselineTag
 logger = logging.getLogger(__name__)
 
 VERSION_KEY = "kb_baseline_version"
+LAST_SYNC_KEY = "kb_baseline_last_sync"
 # 包里只有两个版本概念，别再增生：
 #   ① 内容包 version（第几版，单调递增，目录不可变）
 #   ② format_client＝「这份内容按哪一代客户端的结构写」（boss 拍板：格式随客户端版本走）
@@ -168,17 +169,21 @@ async def _fetch_bytes(client, url: str) -> bytes | None:
         return None
 
 
-def _parse_entries(raw: bytes) -> tuple[list[dict], int]:
-    """entries.jsonl → (合格条目, 违规跳过计数)。同步端逐条复验。
+def _parse_entries(raw: bytes) -> tuple[list[dict], int, set[str]]:
+    """entries.jsonl → (合格条目, 违规计数, 认得出 src_key 的违规条目键)。
 
     判据集＝`kb.gates.check_baseline_entry`（与内容仓 validate 同集，fixture 双端
     parity）；instruction 归一为 strip 后原文（存储与 content_sha256 同字节口径）；
     src_key 包内重复按违规跳过，不让单条脏数据把整层事务炸掉。
+
+    第三返回值用于「本端读不懂 ≠ 官方下架」：官方仍发布的条目若用了新概念/新维度，
+    同步器沿用旧层原文而不是把它当移除（见 `_replace_layer` 的 carried）。
     """
     from kb.gates import check_baseline_entry
 
     ok: list[dict] = []
     seen: set[str] = set()
+    rejected: set[str] = set()
     bad = 0
     for raw_line in raw.decode("utf-8", errors="replace").splitlines():
         line = raw_line.strip()
@@ -191,6 +196,9 @@ def _parse_entries(raw: bytes) -> tuple[list[dict], int]:
             continue
         if check_baseline_entry(e) is not None:
             bad += 1
+            key = e.get("src_key") if isinstance(e, dict) else None
+            if isinstance(key, str) and key:
+                rejected.add(key)
             continue
         src_key = e["src_key"]
         if src_key in seen:
@@ -199,7 +207,7 @@ def _parse_entries(raw: bytes) -> tuple[list[dict], int]:
         seen.add(src_key)
         e["instruction"] = e["instruction"].strip()
         ok.append(e)
-    return ok, bad
+    return ok, bad, rejected
 
 
 def _tags_for(e: dict) -> list[tuple[str, str]]:
@@ -335,24 +343,33 @@ async def _sync_impl(db: AsyncSession | None) -> dict:
         entries_bytes = await _fetch_bytes(client, _derive(base, f"v{version}/entries.jsonl"))
         if entries_bytes is None or sha256_hex(entries_bytes) != files.get("entries.jsonl", {}).get("sha256"):
             return {"status": "failed", "reason": "entries_hash"}
-        entries, skipped = _parse_entries(entries_bytes)
+        entries, skipped, rejected = _parse_entries(entries_bytes)
         # 向前兼容（c-kb-forward-compat）：包里的条目按本端「看得懂的那一子集」落层——
         # 新增概念/新维度的条目由老客户端整条跳过，其余照收，绝不因此整包拒收。
         # 只有「一条都读不懂」才视为代际不兼容，保旧层（免得把用户现有基线清空）。
         expected = manifest.get("entry_count")
         if isinstance(expected, int) and expected > 0 and not entries:
             return {"status": "failed", "reason": "entry_count", "skipped": skipped}
+        if skipped:
+            logger.warning(
+                "event=kb_baseline_partial version=%s accepted=%d skipped=%d "
+                "（本端读不懂的条目沿用旧层原文，不当下架）",
+                version, len(entries), skipped,
+            )
 
         if db is None:
             from db import async_session as _session
 
             async with _session() as session:
-                return await _replace_layer(session, version, entries, skipped, manifest)
-        return await _replace_layer(db, version, entries, skipped, manifest)
+                return await _replace_layer(
+                    session, version, entries, skipped, manifest, rejected
+                )
+        return await _replace_layer(db, version, entries, skipped, manifest, rejected)
 
 
 async def _replace_layer(
-    db: AsyncSession, version: int, entries: list[dict], skipped: int, manifest: dict
+    db: AsyncSession, version: int, entries: list[dict], skipped: int, manifest: dict,
+    rejected: set[str] | None = None,
 ) -> dict:
     from sqlalchemy import delete as _del
     from sqlalchemy import insert as _ins
@@ -399,6 +416,43 @@ async def _replace_layer(
         )
         for dim, value in _tags_for(e):
             tag_rows.append({"entry_id": entry_id, "dim": dim, "value": value})
+
+    # 「本端读不懂」≠「官方下架」：包内仍发布、只是本端判据不认的条目，沿用旧层原文
+    # （不缩水、不触发下架提升）。只有整包里真的没有该 src_key 才算移除。
+    carried = 0
+    accepted_keys = {e["src_key"] for e in entries}
+    for key in sorted(rejected or ()):
+        old = old_rows.get(key)
+        if old is None or key in accepted_keys:
+            continue
+        rows.append(
+            {
+                "entry_id": old.entry_id,
+                "src_key": old.src_key,
+                "pack_version": old.pack_version,  # 留旧版本号：内容确实来自上一包
+                "genre": old.genre,
+                "concept": old.concept,
+                "title": old.title,
+                "instruction": old.instruction,
+                "when_json": old.when_json,
+                "payload_json": old.payload_json,
+                "scope": old.scope,
+                "slot": old.slot,
+                "content_sha256": old.content_sha256,
+                "published_at": old.published_at,
+            }
+        )
+        for dim, value in _tags_for(
+            {
+                "concept": old.concept, "genre": old.genre,
+                "payload": json.loads(old.payload_json or "{}"),
+                "when": json.loads(old.when_json or "{}"),
+            }
+        ):
+            tag_rows.append({"entry_id": old.entry_id, "dim": dim, "value": value})
+        accepted_keys.add(key)
+        carried += 1
+
     if rows:
         await db.execute(_ins(KbBaselineEntry), rows)
     if tag_rows:
@@ -409,8 +463,9 @@ async def _replace_layer(
         db.add(AppMeta(key=VERSION_KEY, value=str(version)))
     else:
         meta.value = str(version)
-    # hide 孤儿清理（src_key 不在新包）；edit 孤儿提升为用户自有条目（D0-6）
-    new_keys = {e["src_key"] for e in entries}
+    # 孤儿清理/提升只认「整包里真的没有」：carried（本端读不懂、沿用旧层）仍在架，
+    # 不能当移除——否则用户副本会被误提升成「官方精选（已下架）」自有条目。
+    new_keys = set(accepted_keys)
     overlays = (await db.execute(select(KbBaselineOverlay))).scalars().all()
     promoted = 0
     for ov in overlays:
@@ -445,6 +500,17 @@ async def _replace_layer(
     # 把用户手动「恢复官方版」后的状态再盖回去（用户选择必须胜过一次性去重）
     readded = new_keys - set(old_rows)
     await _hide_radded_promoted(db, readded)
+    # 最近一次同步摘要（状态端点透出）：让「部分接受」可被看见，而不是只躺在日志里
+    summary = {
+        "at": datetime.now(UTC).replace(tzinfo=None).isoformat(timespec="seconds"),
+        "version": version, "accepted": len(rows),
+        "skipped": skipped, "carried": carried, "promoted": promoted,
+    }
+    last = await db.get(AppMeta, LAST_SYNC_KEY)
+    if last is None:
+        db.add(AppMeta(key=LAST_SYNC_KEY, value=json.dumps(summary, ensure_ascii=False)))
+    else:
+        last.value = json.dumps(summary, ensure_ascii=False)
     await db.commit()
     return {
         "status": "synced",
@@ -452,6 +518,7 @@ async def _replace_layer(
         "entries": len(rows),
         "tags": len(tag_rows),
         "skipped": skipped,
+        "carried": carried,
         "promoted": promoted,
     }
 

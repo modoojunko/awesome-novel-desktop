@@ -7,9 +7,12 @@
 （baseline:<题材>:<slug>）与包版本号。分发包 SHALL 先过与 C 端同口径硬闸自检（单行、无
 结构标记、无块首字样、撞句 <8 字）方可发布；分发 SHALL NOT 加密、SHALL NOT 设档位门。
 
-同步 SHALL 向前兼容：本端不认识的条目（新概念、新适用维度等）SHALL 只跳过该条，SHALL NOT
-因存在不识别条目而拒收整包；包级与条目级新增字段 SHALL 可被忽略而不影响解析。仅当整包
-一条都不可识别时，同步 SHALL 保持旧层（SHALL NOT 落空层）。
+同步 SHALL 向前兼容：本端不认识的条目（新概念、新适用维度等）SHALL 沿用旧层原文落层，
+SHALL NOT 因存在不识别条目而拒收整包；SHALL NOT 把「本端读不懂」当作「官方下架」（否则
+用户副本会被误提升为自有条目）。官方确实移除的条目（整包里无该 src_key）SHALL 按移除处理。
+包级与条目级新增字段 SHALL 可被忽略而不影响解析。仅当整包一条都不可识别时，同步 SHALL
+保持旧层（SHALL NOT 落空层）。同步结果 SHALL 透出 accepted/skipped/carried，便于发现两端
+判据漂移。
 
 基线包 SHALL 只有两个版本概念：内容包 `version`（第几版，单调递增、目录不可变）与
 `format_client`（这份内容按哪一代客户端的结构写，如 `0.45.0`）。SHALL NOT 引入独立格式

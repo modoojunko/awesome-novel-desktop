@@ -50,9 +50,11 @@ def test_parse_entries_按同一判据计数():
     good = [c["entry"] for c in doc["cases"] if c["error"] is None]
     bad = [c["entry"] for c in doc["cases"] if c["error"] is not None]
     raw = "\n".join(json.dumps(e, ensure_ascii=False) for e in good + bad).encode()
-    ok, n_bad = _parse_entries(raw)
+    ok, n_bad, rejected = _parse_entries(raw)
     assert len(ok) == len(good)
     assert n_bad == len(bad)
+    # 第三返回值＝认得出 src_key 的违规条目（供「读不懂≠下架」沿用旧层用）
+    assert rejected <= {e.get("src_key") for e in bad if isinstance(e, dict)}
     assert all(e["instruction"] == e["instruction"].strip() for e in ok)
 
 
@@ -104,3 +106,26 @@ def test_内容仓_现有条目全过_C端判据():
             entry = json.loads(raw)
             assert check_baseline_entry(entry) is None, f"{path.name}:{lineno} {check_baseline_entry(entry)}"
     assert total > 0
+
+
+def test_格式代清单双端一致():
+    """`format_client` 清单两仓必须同批登记（评审 P3）。
+
+    单边登记＝内容仓发了新代际、客户端不认识 → 所有客户端永远静默跳过新包，
+    界面只说「暂时取不到官方精选」，排查成本极高。内容仓不在本机时跳过（同先例）。
+    """
+    repo = _content_repo()
+    if repo is None:
+        pytest.skip("内容仓不在本机——格式代清单对拍跳过")
+
+    spec = importlib.util.spec_from_file_location("kb_content_build", repo / "tools" / "build.py")
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+
+    from kb.baseline import _KNOWN_FORMAT_CLIENTS
+
+    content_clients = set(mod.KNOWN_FORMAT_CLIENTS)
+    assert content_clients <= set(_KNOWN_FORMAT_CLIENTS), (
+        f"内容仓能发的格式代 {sorted(content_clients)} 里有 C 端不认识的 "
+        f"{sorted(content_clients - set(_KNOWN_FORMAT_CLIENTS))}——两边必须同批登记"
+    )

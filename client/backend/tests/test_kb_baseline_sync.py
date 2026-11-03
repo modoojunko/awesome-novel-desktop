@@ -349,6 +349,76 @@ def test_未知适用维度_跳过该条不整包拒收(sync_env):
     assert set(rows) == {ok["src_key"]}
 
 
+def test_读不懂的条目沿用旧层_不缩水不算下架(sync_env):
+    """评审 P2：本端读不懂 ≠ 官方下架。
+
+    官方仍发布的条目（只是加了本端不认识的条件维度）必须沿用旧层原文：
+    条目不少、用户副本不被误提升成「官方精选（已下架）」。
+    """
+    from kb.baseline import content_sha
+    from models.app_meta import AppMeta
+    from models.kb import KbEntry, KbEntryTag
+    from models.user import User
+
+    bl = sync_env
+    a = _entry("baseline:玄幻:tech-a", "玄幻手法A")
+    b = _entry("baseline:玄幻:tech-b", "玄幻手法B")
+    _publish(1, [a, b])
+    assert _sync(bl)["status"] == "synced"
+    old_b_text = _layer_state()[0][b["src_key"]].instruction
+
+    uid = f"carry-{uuid.uuid4().hex[:8]}"
+
+    async def _seed_ov():
+        async with async_session() as db:
+            db.add(User(id=uid, email=f"{uid}@t.local", password_hash="x"))
+            db.add(KbBaselineOverlay(
+                user_id=uid, src_key=b["src_key"], action="edit",
+                content="我的副本：先让三招。", base_content_sha256=content_sha(old_b_text)))
+            await db.commit()
+
+    _run(_seed_ov())
+
+    # v2：A 不变、B 加了本端不认识的维度、C 新增
+    b_future = _entry("baseline:玄幻:tech-b", "玄幻手法B",
+                      when={"scene": "打斗", "pace": "快"})
+    c = _entry("baseline:玄幻:tech-c", "玄幻手法C")
+    _publish(2, [a, b_future, c])
+    r = _sync(bl)
+    assert r["status"] == "synced" and r["skipped"] == 1 and r["carried"] == 1, f"got {r}"
+
+    rows, _, ver = _layer_state()
+    assert set(rows) == {a["src_key"], b["src_key"], c["src_key"]}  # 不缩水
+    assert rows[b["src_key"]].instruction == old_b_text  # 沿用旧原文
+    assert rows[b["src_key"]].pack_version == 1  # 内容确实来自上一包
+    assert ver == 2
+
+    async def _check():
+        async with async_session() as db:
+            ovs = (await db.execute(sel(KbBaselineOverlay).where(
+                KbBaselineOverlay.user_id == uid))).scalars().all()
+            promoted = (await db.execute(sel(KbEntry).where(
+                KbEntry.user_id == uid))).scalars().all()
+            meta = await db.get(AppMeta, "kb_baseline_last_sync")
+            return ovs, promoted, json.loads(meta.value) if meta else {}
+
+    ovs, promoted, last = _run(_check())
+    assert len(ovs) == 1 and ovs[0].action == "edit"  # 副本仍在，没被当孤儿
+    assert promoted == []  # 没被误提升成「官方精选（已下架）」
+    assert last.get("skipped") == 1 and last.get("carried") == 1  # 状态面可见
+
+    async def _cleanup():
+        from sqlalchemy import delete as _del
+
+        async with async_session() as db:
+            await db.execute(_del(KbEntryTag).where(KbEntryTag.user_id == uid))
+            await db.execute(_del(KbEntry).where(KbEntry.user_id == uid))
+            await db.execute(_del(KbBaselineOverlay).where(KbBaselineOverlay.user_id == uid))
+            await db.commit()
+
+    _run(_cleanup())
+
+
 def test_未知顶层字段_照收(sync_env):
     """包级扩展字段（如未来的 published_by）不进判据：老客户端忽略即可。"""
     bl = sync_env

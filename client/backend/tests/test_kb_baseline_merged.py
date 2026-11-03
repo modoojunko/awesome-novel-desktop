@@ -623,7 +623,10 @@ def test_同步状态与手动重试端点(base_env):
             calls.clear()
             r = c.get("/api/kb/baseline/status")
             assert r.status_code == 200, r.text
-            assert r.json()["data"] == {"version": 1, "entries": 1}
+            d = r.json()["data"]
+            assert d["version"] == 1 and d["entries"] == 1
+            # last_sync 摘要内容取决于共享测试库里的历史同步（只钉形状，不钉具体值）
+            assert isinstance(d["last_sync"], dict)
             assert eid
 
             r = c.post("/api/kb/baseline/sync")
