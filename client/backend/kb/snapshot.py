@@ -111,6 +111,19 @@ def _payload_of(e: KbEntry) -> dict:
     return p if isinstance(p, dict) else {}
 
 
+def slot_target(concept: str, slot: str) -> str:
+    """概念+槽位 → style 落点键（无消费键/未知槽位 → ""）。
+
+    与 `build_members` 同一张映射表；供 payload 缺文本时改用 instruction 兜底的
+    调用方（c-style-kb-fill 草稿端点）复用，避免两处映射漂移。
+    """
+    if concept == "文风":
+        return _STYLE_SLOT_TARGET.get(slot, "")
+    if concept == "文笔":
+        return _CRAFT_SLOT_TARGET.get(slot, "")
+    return ""
+
+
 def build_members(entries: list[KbEntry]) -> list[dict[str, Any]]:
     """基线条目 → 快照成员（含落点 target 与落库文本，供来源行展示＋同步 diff）。
 
@@ -143,6 +156,9 @@ def build_members(entries: list[KbEntry]) -> list[dict[str, Any]]:
                 "part": part,
                 "target": target,
                 "text": text.strip(),
+                # 句式规则专用（c-style-kb-fill）：档次随条目走；其余槽位为空串。
+                # apply_members 仍按 medium 落库（行为不变），草稿端点用它回填表单。
+                "severity": str(payload.get("tic_severity") or ""),
             }
         )
     return members

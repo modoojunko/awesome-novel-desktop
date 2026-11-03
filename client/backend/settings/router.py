@@ -50,6 +50,29 @@ async def update_character(
     return {"ok": True}
 
 
+@router.get("/style/kb-draft")
+async def get_style_kb_draft(
+    project_id: str,
+    user: dict = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """按本书题材从知识库取文风草稿（c-style-kb-fill）——只读，不写任何 KV。
+
+    两段路径，与通用 `/{type}`（单段）不冲突。没定题材时返回 `theme: ""` ＋空数组，
+    由前端给「先定题材」的引导（不 400：面板进页就要拿它渲染右栏行）。
+    """
+    project = await get_novel(db, project_id, user["id"])
+    if not project:
+        raise HTTPException(404, "Project not found")
+    from settings.style_kb import style_draft_from_kb
+
+    story = await get_storage().read_yaml(project.root_path, "story.yaml") or {}
+    theme = str(story.get("genre") or "").strip()
+    draft = await style_draft_from_kb(db, user_id=user["id"], theme=theme)
+    draft["sub_genre"] = str(story.get("sub_genre") or "").strip()
+    return draft
+
+
 @router.get("/{type}")
 async def get_settings(
     project_id: str,

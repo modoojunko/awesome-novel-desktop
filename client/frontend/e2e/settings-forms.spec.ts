@@ -160,6 +160,24 @@ async function apiPostJSON(
   return r.json();
 }
 
+/** 带 Bearer token 的 API PUT 并解析 JSON。 */
+async function apiPutJSON(
+  request: APIRequestContext,
+  token: string,
+  path: string,
+  data: unknown,
+) {
+  const r = await request.put(`${ORIGIN}/api${path}`, {
+    headers: { Authorization: `Bearer ${token}` },
+    data,
+  });
+  expect(
+    r.ok(),
+    `${path} → ${r.status()}: ${r.status() >= 400 ? await r.text() : ""}`,
+  ).toBeTruthy();
+  return r.json();
+}
+
 // ── v2 设定视图定位助手（settings-three-col 后设定根 = .settings-v 三栏：col-tree/col-middle/col-ai；预览仍 two-col）──
 
 /** 在设定左栏点一个导航项（col-tree 内精确匹配短名：题材/简介/世界/风格/…）。 */
@@ -399,7 +417,8 @@ test("文风：两页签（文字文风三区＋量化空态）→ 确认完成�
 
     // 两页签：文字文风（默认签）｜量化参数（未蒸馏 → 空态）
     await expect(page.locator('[data-od-id="style-tabs"]')).toBeVisible();
-    await expect(page.locator('[data-od-id="style-tab-badge"]')).toHaveText("题材默认");
+    // c-style-kb-fill：新书三区留空 → 徽标「未填」（不再假装有题材默认）
+    await expect(page.locator('[data-od-id="style-tab-badge"]')).toHaveText("未填");
     await page.locator('[data-od-id="ptab-quant"]').click();
     await expect(page.locator('[data-od-id="quant-empty"]')).toBeVisible();
     await expect(page.locator('[data-od-id="quant-tab-badge"]')).toHaveText("未蒸馏");
@@ -443,6 +462,65 @@ test("文风：两页签（文字文风三区＋量化空态）→ 确认完成�
 });
 
 // -------------------------------------------------------------------------
+// ②b 按题材填文风（c-style-kb-fill）：右栏行 → 知识库勾选卡 → 采纳填表 → 落库
+// -------------------------------------------------------------------------
+
+test("按题材填文风：右栏行读知识库，弹窗勾选采纳后整页填好", async ({ page, request }) => {
+  const { restore, token } = await setupSession(page);
+  try {
+    const pid = await createNovel(page, `取题材${Date.now() % 100000}`);
+    // 定题材（知识库按大类存）；再造两条同题材基线
+    await apiPutJSON(request, token, `/novels/${pid}/settings/genre`, { theme: "悬疑" });
+    await apiPostJSON(request, token, "/kb/entries", {
+      genre: "悬疑",
+      concept: "文风",
+      title: "叙事身份",
+      payload: { slot: "role", role: "贴着主角写的第三人称，不替读者下结论。" },
+      instruction: "贴着主角写的第三人称，不替读者下结论。",
+    });
+    await apiPostJSON(request, token, "/kb/entries", {
+      genre: "悬疑",
+      concept: "文笔",
+      title: "留白",
+      payload: { slot: "rule", rule: "每章至少留一个没解释的细节。" },
+      instruction: "每章至少留一个没解释的细节。",
+    });
+
+    await page.getByRole("button", { name: /^设定/ }).click();
+    await openSetting(page, "文风");
+
+    // 右栏第一行读知识库（不调模型）；摘要行文案随取数结果变，这里只验入口可点
+    const row = page.locator('[data-od-id="ai-style-kb"]');
+    await expect(row).toBeEnabled();
+    await row.click();
+
+    const card = page.getByTestId("style-ai-card");
+    await expect(card).toBeVisible();
+    await expect(card).toContainText("这些是从知识库找出来的「悬疑」写法");
+    // 采纳键在弹窗 footer，不在卡体（AiCardModal 结构：body 有 testid，footer 是兄弟节点）
+    await page.getByTestId("ai-card-adopt").click();
+
+    // 采纳只填表单、不自动保存
+    await expect(page.locator('[data-od-id="input-style-role"]')).toHaveValue(/贴着主角写的第三人称/);
+    await expect(page.locator('[data-od-id="list-rules"] input.input').first()).toHaveValue(
+      "每章至少留一个没解释的细节。",
+    );
+
+    const stylePut = page.waitForResponse(
+      (r) => r.request().method() === "PUT" && r.url().includes("/settings/style"),
+    );
+    await page.locator(".panel-foot").getByRole("button", { name: "确认完成" }).click();
+    await stylePut;
+
+    const style = await apiGetJSON(request, token, `/novels/${pid}/settings/style`);
+    expect(style.role).toContain("贴着主角写的第三人称");
+    expect(style.rules).toContain("每章至少留一个没解释的细节。");
+  } finally {
+    await restore();
+  }
+});
+
+// -------------------------------------------------------------------------
 // ③ 禁用词收编（banned-words-into-style）：文风硬约束区「禁用词」折叠组 →
 //    确认完成自动落库；文风确认后推进到伏笔（末项语义变更一并回归）
 // -------------------------------------------------------------------------
@@ -464,6 +542,10 @@ test("禁用词收编：文风硬约束区禁用词折叠组 → 确认完成落
     await addBtn.scrollIntoViewIfNeeded();
     await addBtn.click();
     await bannedCfg.locator("input.input").last().fill("似乎");
+    // c-style-kb-fill：新书三区不再有模板默认 → 先写一句身份，确认才不会被预检拦下
+    await page
+      .locator('[data-od-id="input-style-role"]')
+      .fill("冷静克制的第三人称叙事，短句为主");
 
     // 确认完成（save + confirm）；文风确认后即前进到伏笔（07 末项语义）
     const stylePut = page.waitForResponse(
