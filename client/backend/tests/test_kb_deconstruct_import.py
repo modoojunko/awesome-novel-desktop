@@ -1,0 +1,291 @@
+"""拆书产物 → 知识库映射/收录（c-kb-import）测试。
+
+映射口径按真机产物形状（pipeline 写的 {dim: {file, data}}）钉死：
+techniques.data=reader_needs/techniques/borrowable/avoid、style.data=role/rules/craft/
+examples/taboo、world.data=no_power/stage/power/cost/history/factions/constraints/extra、
+characters.data.characters[]、genre.data.genre。
+"""
+
+import asyncio
+import json
+import uuid
+from types import SimpleNamespace
+
+import pytest
+from sqlalchemy import select as sel
+
+from db import async_session
+from kb.deconstruct_import import (
+    collect_task_to_kb,
+    genre_from_products,
+    map_deconstruct_products,
+)
+from kb.payloads import validate_payload
+from models.kb import KbEntry, KbEntryTag, KbLibrary
+
+PRODUCTS = {
+    "genre": {"file": "题材.md", "data": {"genre": "灵异志怪", "tags": ["灵异"]}},
+    "intro": {"file": "简介.md", "data": {"intro": "夜班公交撞鬼"}},
+    "techniques": {
+        "file": "写作技法.md",
+        "data": {
+            "reader_needs": [
+                {
+                    "need": "在庸常生活里体验可控的恐怖",
+                    "how": "把公交夜班、面馆等日常场景作为灵异舞台",
+                    "evidence_ch": "第2章",
+                    "transferable": "都市题材通用",
+                }
+            ],
+            "techniques": [
+                {
+                    "name": "信息差递进式强派任务",
+                    "emotion_chain": "放松—意外—不安—恐惧",
+                    "repro_steps": ["先抛补助诱人", "再补一句是个夜班"],
+                    "swappable": "任务类型可换",
+                    "no_copy": "原作的司机—水库组合不可照搬",
+                    "example": "先给补助再补一句是个夜班",
+                    "evidence_ch": "第1章",
+                }
+            ],
+            "borrowable": [
+                {"item": "以日常场景作为灵异舞台", "evidence_ch": "第2章", "note": ""}
+            ],
+            "avoid": [
+                {"item": "中段密集使用同一句式", "evidence_ch": "第98章", "note": "死法疲劳"}
+            ],
+        },
+    },
+    "style": {
+        "file": "写作文风.md",
+        "data": {
+            "role": "第一人称限知，紧贴司机",
+            "rules": [
+                {"name": "口语自述", "how": "用第一人称口语叙述，夹杂自嘲", "evidence_ch": "第1章"}
+            ],
+            "craft": [{"name": "感官堆叠", "how": "叠加声音、气味与触感"}],
+            "examples": [
+                {"example": "我三十出头，是一个公交车司机。\n　　在公司车队里，也是最年轻的司机。", "evidence_ch": "第1章"}
+            ],
+            "taboo": [{"name": "长段静描", "how": "不用整页环境描写"}],
+        },
+    },
+    "world": {
+        "file": "世界设定.md",
+        "data": {
+            "no_power": "存在大量民间法术、邪祟与鬼魂规则",
+            "stage": "以东北某城市及郊区为主舞台",
+            "power": [{"name": "13路末班车诅咒", "rule": "十年一换司机、与司机绑定契约"}],
+            "cost": [{"name": "司机契约", "rule": "继续开车必死之信"}],
+            "history": [{"name": "十年前车祸", "note": "三任司机载人冲入水库"}],
+            "factions": [{"name": "13路车队", "note": "队长强派夜班"}],
+            "constraints": [{"name": "天黑锁门", "note": "活物在外过夜必死"}],
+            "extra": [{"key": "黑色手链", "value": "刘云波所赠保平安之物"}],
+        },
+    },
+    "characters": {
+        "file": "角色设定.md",
+        "data": {
+            "characters": [
+                {
+                    "name": "李耀",
+                    "aliases": ["我", "小李"],
+                    "role": "主角",
+                    "persona": "十三路末班车司机，胆小多疑却重情执拗",
+                    "gender": "男",
+                    "age": "三十出头",
+                    "look": "原文未明确",
+                    "speech": "话少孤僻，嘴硬爱吐槽",
+                    "background": "被队长强派13路夜班",
+                    "plot": "第1章被强派夜班",
+                }
+            ]
+        },
+    },
+    "mainplot": {"file": "主线剧情.md", "data": {"fullstory": "追查十年前车祸真相"}},
+    "structure": {"file": "章卷结构.md", "data": {"volumes": []}},
+}
+
+
+def _map(products=None, genre="", src_ref=None):
+    return map_deconstruct_products(
+        "u-map", "task-1", genre, products if products is not None else PRODUCTS,
+        src_ref=src_ref,
+    )
+
+
+def test_genre_from_products_normalizes_catalog_name():
+    assert genre_from_products(PRODUCTS) == "志怪/民俗灵异"
+    assert genre_from_products({}) == ""
+
+
+def test_maps_real_product_shapes_into_five_concepts():
+    entries, warnings = _map(genre="志怪/民俗灵异")
+    assert warnings == []
+    by_concept: dict[str, list[KbEntry]] = {}
+    for entry in entries:
+        by_concept.setdefault(entry.concept, []).append(entry)
+        assert entry.src_kind == "deconstruct"
+        assert entry.src_ref == "task-1"
+        assert entry.genre == "志怪/民俗灵异"
+        assert "\n" not in entry.instruction  # 写法块结构消毒：指令必须单行
+        # 知识文案第一要求：念得通顺——句末必须收口
+        assert entry.instruction.endswith(("。", "！", "？", "…")), entry.instruction
+        # 每条 payload 必须过消费端强校验（选择器/写法块读的就是这些键）
+        validate_payload(entry.concept, json.loads(entry.payload_json))
+
+    # 手法：techniques 1 + borrowable 1 + avoid 1 + reader_needs 1
+    assert len(by_concept["手法"]) == 4
+    # 文风：role 1 + 示范段 1；文笔：rules 1 + craft 1 + taboo 1
+    assert len(by_concept["文风"]) == 2
+    assert len(by_concept["文笔"]) == 3
+    # 世界：stage + no_power + power + cost + history + factions + constraints + extra
+    assert len(by_concept["世界设定"]) == 8
+    assert len(by_concept["角色设定"]) == 1
+    # 情节消费链未建：mainplot/structure 不收
+    assert "情节" not in by_concept
+
+
+def test_technique_payload_carries_steps_and_evidence():
+    entries, _ = _map()
+    tech = next(e for e in entries if e.title == "信息差递进式强派任务" and e.concept == "手法")
+    payload = json.loads(tech.payload_json)
+    assert payload["scene"] == "日常"
+    assert payload["steps"] == ["先抛补助诱人", "再补一句是个夜班"]
+    assert "第1章" in tech.evidence
+    assert tech.negative_example.startswith("原作的司机")
+
+
+def test_world_constraints_use_singular_part_and_hard_flag():
+    entries, _ = _map()
+    hard = next(e for e in entries if e.concept == "世界设定" and "天黑锁门" in e.title)
+    payload = json.loads(hard.payload_json)
+    assert payload["part"] == "constraint"
+    assert payload["hard"] is True
+    # 兜底分区名不会被写成非法的 constraints
+    worlds = [json.loads(e.payload_json) for e in entries if e.concept == "世界设定"]
+    assert all(w["part"] != "constraints" for w in worlds)
+
+
+def test_character_payload_keeps_persona_and_aliases():
+    entries, _ = _map()
+    char = next(e for e in entries if e.concept == "角色设定")
+    payload = json.loads(char.payload_json)
+    assert payload["archetype"] == "李耀"
+    assert payload["persona"].startswith("十三路末班车司机")
+    assert payload["aliases"] == ["我", "小李"]
+    assert payload["role"] == "主角"
+
+
+def test_src_ref_override_keeps_task_id_default():
+    entries, _ = _map(src_ref="book:abc123")
+    assert entries and all(e.src_ref == "book:abc123" for e in entries)
+    default_entries, _ = _map()
+    assert all(e.src_ref == "task-1" for e in default_entries)
+
+
+def test_long_instructions_are_single_lined_and_clamped():
+    products = {
+        "techniques": {
+            "data": {
+                "techniques": [
+                    {
+                        "name": "长句",
+                        "repro_steps": ["一" * 200, "二" * 200],
+                    }
+                ]
+            }
+        }
+    }
+    entries, _ = _map(products)
+    assert len(entries) == 1
+    entry = entries[0]
+    assert "\n" not in entry.instruction
+    assert len(entry.instruction) <= 240
+
+
+def _collect(uid, task, **kwargs):
+    async def _run():
+        async with async_session() as db:
+            return await collect_task_to_kb(db, uid, task, **kwargs)
+
+    return asyncio.run(_run())
+
+
+def test_collect_is_idempotent_and_materializes_tags_and_libraries():
+    uid = f"kb-batch-{uuid.uuid4()}"
+    task = SimpleNamespace(
+        id=f"task-{uuid.uuid4()}",
+        user_id=uid,
+        products_json=json.dumps(PRODUCTS, ensure_ascii=False),
+    )
+
+    first = _collect(uid, task)
+    assert first["collected"] == first["total_mapped"] > 0
+    assert first["skipped"] == 0
+    assert first["genre"] == "志怪/民俗灵异"
+
+    second = _collect(uid, task)
+    assert second["collected"] == 0
+    assert second["skipped"] == first["collected"]
+
+    async def _counts():
+        async with async_session() as db:
+            rows = (
+                await db.execute(sel(KbEntry).where(KbEntry.user_id == uid))
+            ).scalars().all()
+            tags = (
+                await db.execute(sel(KbEntryTag).where(KbEntryTag.user_id == uid))
+            ).scalars().all()
+            libs = (
+                await db.execute(sel(KbLibrary).where(KbLibrary.user_id == uid))
+            ).scalars().all()
+            return len(rows), len(tags), {(lib.genre, lib.concept) for lib in libs}
+
+    entry_count, tag_count, libraries = asyncio.run(_counts())
+    assert entry_count == first["collected"]
+    assert tag_count > 0  # 不物化标签＝这批条目进不了选择器短名单
+    assert ("志怪/民俗灵异", "手法") in libraries
+
+
+def test_collect_genre_override_and_src_ref():
+    uid = f"kb-batch-{uuid.uuid4()}"
+    task = SimpleNamespace(
+        id=f"task-{uuid.uuid4()}",
+        user_id=uid,
+        products_json=json.dumps(PRODUCTS, ensure_ascii=False),
+    )
+    result = _collect(uid, task, genre_override="仙侠", src_ref="book:deadbeef")
+    assert result["genre"] == "仙侠/修真"
+
+    async def _rows():
+        async with async_session() as db:
+            return (
+                await db.execute(sel(KbEntry).where(KbEntry.user_id == uid))
+            ).scalars().all()
+
+    rows = asyncio.run(_rows())
+    assert rows and all(r.genre == "仙侠/修真" for r in rows)
+    assert all(r.src_ref == "book:deadbeef" for r in rows)
+
+
+def test_collect_rejects_empty_products():
+    task = SimpleNamespace(id="t", user_id="u", products_json="{}")
+    with pytest.raises(ValueError):
+        _collect("u-empty", task)
+
+
+def test_collect_dedupes_across_task_id_and_book_fingerprint_refs():
+    """界面按 task_id 收过、脚本按书指纹再收：同一份产物不重复入库。"""
+    uid = f"kb-batch-{uuid.uuid4()}"
+    task = SimpleNamespace(
+        id=f"task-{uuid.uuid4()}",
+        user_id=uid,
+        products_json=json.dumps(PRODUCTS, ensure_ascii=False),
+    )
+    first = _collect(uid, task)  # 界面口径：src_ref=task_id
+    assert first["collected"] > 0
+
+    second = _collect(uid, task, src_ref="book:abcdef0123456789")
+    assert second["collected"] == 0
+    assert second["skipped"] == first["collected"]

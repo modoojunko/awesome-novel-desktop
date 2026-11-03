@@ -1,44 +1,165 @@
-"""拆书产物 → 知识库条目映射（c-kb-import 批4）。
+"""拆书产物 → 知识库条目映射（c-kb-import 批4；2026-11-03 对齐真实产物形状）。
 
-从 deconstruct 产物的五类维度（手法/文风/文笔/世界/角色）
-映射为知识库条目。幂等键 = (user_id, src_ref=task_id, src_key=维度:序号)。
+产物形状单源 = `deconstruct/pipeline.py` 写 `products_json` 的契约：
+    {dim: {"file": 文件名, "data": {...}}}
+各维度 data 键（真机产物实证）：techniques=reader_needs/techniques/borrowable/avoid；
+style=role/rules/craft/examples/taboo；world=no_power/stage/power/cost/history/
+factions/constraints/extra；characters=characters[]；genre=genre/tags/promise。
+
+映射口径：
+- 手法 ← techniques.techniques（名称＋复现步骤）＋borrowable/avoid/reader_needs
+- 文风 ← style.role（叙事身份）＋style.examples（逐字示范段）
+- 文笔 ← style.rules/craft/taboo（规则/写法/忌用）
+- 世界设定 ← world 各分区（constraint 分区落 hard）
+- 角色设定 ← characters[].persona/档案八格
+- mainplot/structure/relations/intro 不收（P1，消费链未建）
+
+每条 payload 都过 `kb.payloads.validate_payload` 强校验（写法块/选择器读的就是这些键）；
+不合契约的条目跳过并进 warnings，MUST NOT 把脏 payload 写进库。
+幂等键 = (user_id, src_ref, src_key)；src_ref 默认 task_id，批量脚本可传内容指纹。
 """
 
 from __future__ import annotations
 
 import json
+import re
 
-from kb.concepts import normalize_emotion, normalize_scene
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from kb.concepts import emotion_phrase, normalize_scene
+from kb.payloads import validate_payload
 from models.kb import KbEntry
+
+_WS_RE = re.compile(r"\s+")
+# 行首结构标记（# - * > · 或整段【…】）：写法块结构消毒同口径——
+# 指令含换行/以结构标记开头会在组装期被跳过，入库前就拍平成单行。
+_LEAD_MARK_RE = re.compile(r"^(?:[-*#>·]+|【[^】]*】)\s*")
+
+_MAX_CHARACTERS = 10
+_MAX_STYLE_SAMPLES = 6
+# world.extra 是书内道具/零散设定（一条 60+ 个）：限量收，避免批量灌库时道具淹没分区事实
+_MAX_WORLD_EXTRA = 20
+
+
+def _data(product) -> dict:
+    """维度产物 → data 字典（兼容老任务直接是平铺 dict 的形状）。"""
+    if isinstance(product, dict):
+        inner = product.get("data")
+        if isinstance(inner, dict):
+            return inner
+        return product
+    return {}
+
+
+def _items(value) -> list:
+    """列表归一：list 原样；dict 取常见包裹键；其余空表。"""
+    if isinstance(value, list):
+        return value
+    if isinstance(value, dict):
+        for key in ("items", "list", "entries"):
+            if isinstance(value.get(key), list):
+                return value[key]
+    return []
+
+
+def _line(text, limit: int) -> str:
+    """单行化＋去行首结构标记＋截断。"""
+    t = _WS_RE.sub(" ", str(text or "")).strip()
+    t = _LEAD_MARK_RE.sub("", t).strip()
+    return t[:limit]
+
+
+def _sentence(text: str, limit: int) -> str:
+    """知识文案第一要求是念得通顺：超长按分句标点收尾，不留悬空分隔符，句末补句号。
+
+    与内容仓 `tools/deconstruct_batch.py::_sentence` 同口径（写进提示词的就是这句，
+    腰斩/悬空在写法块里会读成半句话）。
+    """
+    t = str(text or "").strip()
+    if len(t) > limit:
+        window = t[:limit]
+        cut = max(window.rfind(p) for p in "；。！？，")
+        if cut >= limit // 2:
+            window = window[: cut + 1]
+        t = window.rstrip("；，、：; ")
+        if len(t) > limit:
+            t = t[:limit]
+    t = t.rstrip("；，、：; ")
+    if t and t[-1] not in "。！？…":
+        t = t[: limit - 1] + "。" if len(t) >= limit else t + "。"
+    return t
+
+
+def _text_of(item, *keys: str, limit: int = 300) -> str:
+    """条目取文本：dict 按候选键取，str 原样。"""
+    if isinstance(item, str):
+        return _line(item, limit)
+    if isinstance(item, dict):
+        for key in keys:
+            if item.get(key):
+                return _line(item[key], limit)
+    return ""
+
+
+def _ev(chapter, quote: str = "", limit: int = 500) -> tuple[str, dict]:
+    """证据串＋证据 JSON（章号原样保留；quote 截断）。"""
+    chapter = _line(chapter, 80)
+    quote = _line(quote, 200)
+    head = f"第{chapter}章" if chapter else ""
+    evidence = f"{head} {quote}".strip()[:limit]
+    ev_json = {"quotes": [{"loc": chapter, "text": quote}]} if quote else {}
+    return evidence, ev_json
 
 
 def _mk_entry(
-    user_id: str, task_id: str, src_key: str, genre: str,
-    concept: str, concept_id: str, title: str,
-    payload: dict, instruction: str,
-    example: str = "", negative_example: str = "",
-    evidence: str = "", evidence_json: dict | None = None,
+    user_id: str,
+    src_ref: str,
+    src_key: str,
+    genre: str,
+    concept: str,
+    title: str,
+    payload: dict,
+    *,
+    instruction: str = "",
+    example: str = "",
+    negative_example: str = "",
+    evidence: str = "",
+    evidence_json: dict | None = None,
     when_json: dict | None = None,
-) -> KbEntry:
+) -> KbEntry | None:
+    """构造条目；payload 不合契约返回 None（由调用方记 warning）。"""
+    try:
+        clean_payload = validate_payload(concept, payload)
+    except ValueError:
+        return None
     return KbEntry(
         user_id=user_id,
         genre=genre,
         concept=concept,
-        concept_id=concept_id,
-        title=title[:40],
-        payload_json=json.dumps(payload, ensure_ascii=False),
+        concept_id=f"{genre}:{concept}",
+        title=_line(title, 40) or concept,
+        payload_json=json.dumps(clean_payload, ensure_ascii=False),
         payload_version=1,
-        instruction=instruction[:240],
-        example=example[:500],
-        negative_example=negative_example[:200],
+        instruction=_sentence(_line(instruction, 240), 240),
+        example=str(example or "")[:500],
+        negative_example=_line(negative_example, 200),
         when_json=json.dumps(when_json or {}, ensure_ascii=False),
-        evidence=evidence[:500],
+        evidence=str(evidence or "")[:500],
         evidence_json=json.dumps(evidence_json or {}, ensure_ascii=False),
         src_kind="deconstruct",
-        src_ref=task_id,
+        src_ref=src_ref,
         src_key=src_key,
         src_novel_name="",
     )
+
+
+def genre_from_products(products: dict) -> str:
+    """产物题材维度 → 目录大类（未命中返回空串＝未定题材）。"""
+    from genres.theme_catalog import normalize_theme
+
+    data = _data(products.get("genre")) if isinstance(products, dict) else {}
+    return normalize_theme(str(data.get("genre") or "").strip())
 
 
 def map_deconstruct_products(
@@ -46,157 +167,317 @@ def map_deconstruct_products(
     task_id: str,
     genre: str,
     products: dict,
+    *,
+    src_ref: str | None = None,
 ) -> tuple[list[KbEntry], list[str]]:
     """拆书产物 → 知识条目列表。返回 (entries, warnings)。
 
-    五类维度映射（对齐 settings_map.py）：
-    - techniques/avoid/borrowable → 手法
-    - style → 文风（slot=role/tone）+ 文笔（slot=rule/craft/banned/tic）
-    - world → 世界设定（按分区）
-    - characters → 角色设定（原型）
-    - mainplot/structure → 不收（P1）
+    src_ref：幂等来源键，默认 task_id；批量脚本传内容指纹，使同一本书重拆后
+    再收录仍是同一批条目（src_key 序号稳定，重复项跳过不重复写）。
     """
     entries: list[KbEntry] = []
     warnings: list[str] = []
+    ref = src_ref or task_id
     seq = 0
 
-    def _key(dim: str) -> str:
-        return f"{dim}:{seq}"
+    def add(
+        prefix: str,
+        concept: str,
+        title: str,
+        payload: dict,
+        **kwargs,
+    ) -> None:
+        nonlocal seq
+        seq += 1
+        entry = _mk_entry(
+            user_id, ref, f"{prefix}:{seq}", genre, concept, title, payload, **kwargs
+        )
+        if entry is None:
+            warnings.append(f"{concept}·{title or prefix} 字段不完整，已跳过")
+            return
+        entries.append(entry)
 
-    def _ev(chapter: str = "", quote: str = "") -> str:
-        return f"{'第' + chapter + '章' if chapter else ''} {quote}".strip()
+    # ─── 手法（techniques / borrowable / avoid / reader_needs）───
+    tech = _data(products.get("techniques"))
+    for item in _items(tech.get("techniques")):
+        if not isinstance(item, dict):
+            continue
+        name = _line(item.get("name") or item.get("title"), 40)
+        steps = [_line(s, 120) for s in _items(item.get("repro_steps")) if _line(s, 120)][:5]
+        if not name and not steps:
+            continue
+        instruction = _line(f"{name}：{'；'.join(steps)}", 240) if steps else name
+        if not instruction:
+            continue
+        scene = normalize_scene(str(item.get("scene") or "")) or "日常"
+        emotion = emotion_phrase(str(item.get("emotion_chain") or ""))
+        payload = {"instruction": instruction, "scene": scene}
+        if steps:
+            payload["steps"] = steps
+        if emotion:
+            payload["emotion"] = emotion
+        evidence, ev_json = _ev(item.get("evidence_ch"), item.get("example") or "")
+        add(
+            "technique", "手法", name or instruction, payload,
+            instruction=instruction,
+            example=str(item.get("example") or item.get("swappable") or ""),
+            negative_example=str(item.get("no_copy") or ""),
+            evidence=evidence, evidence_json=ev_json,
+            when_json={"scene": scene, **({"emotion": emotion} if emotion else {})},
+        )
 
-    # ─── 手法（techniques + avoid + borrowable）───
-    for section in ("techniques", "avoid", "borrowable"):
-        items = products.get(section) or []
-        if isinstance(items, dict):
-            items = items.get("items") or items.get("list") or []
-        for item in items:
-            if not isinstance(item, dict):
+    for item in _items(tech.get("borrowable")):
+        text = _text_of(item, "item", "content", "text", limit=240)
+        if not text:
+            continue
+        evidence, ev_json = _ev(
+            item.get("evidence_ch") if isinstance(item, dict) else "",
+            item.get("note") if isinstance(item, dict) else "",
+        )
+        add(
+            "technique", "手法", text, {"instruction": text, "scene": "日常"},
+            instruction=text, evidence=evidence, evidence_json=ev_json,
+            when_json={"scene": "日常"},
+        )
+
+    for item in _items(tech.get("avoid")):
+        text = _text_of(item, "item", "content", "text", limit=200)
+        if not text:
+            continue
+        evidence, ev_json = _ev(
+            item.get("evidence_ch") if isinstance(item, dict) else "",
+            item.get("note") if isinstance(item, dict) else "",
+        )
+        add(
+            "technique", "手法", f"避免：{text}",
+            {"instruction": _line(f"避免：{text}", 240), "negative": text, "scene": "日常"},
+            instruction=f"避免：{text}", negative_example=text,
+            evidence=evidence, evidence_json=ev_json,
+            when_json={"scene": "日常"},
+        )
+
+    for item in _items(tech.get("reader_needs")):
+        need = _text_of(item, "need", "name", limit=40)
+        how = _text_of(item, "how", "content", limit=240)
+        if not how:
+            continue
+        evidence, ev_json = _ev(item.get("evidence_ch") if isinstance(item, dict) else "")
+        add(
+            "technique", "手法", f"读者需求：{need}" if need else how,
+            {"instruction": how, "scene": "日常"},
+            instruction=how,
+            example=str(item.get("transferable") or "") if isinstance(item, dict) else "",
+            evidence=evidence, evidence_json=ev_json,
+            when_json={"scene": "日常"},
+        )
+
+    # ─── 文风（叙事身份＋逐字示范段）───
+    style = _data(products.get("style"))
+    role = _line(style.get("role") or style.get("identity"), 120)
+    if role:
+        add(
+            "style.role", "文风", "叙事身份", {"slot": "role", "role": role},
+            instruction=role, evidence="文风蒸馏·叙事身份",
+        )
+
+    samples = (
+        style.get("examples") or style.get("samples") or style.get("style_samples") or []
+    )
+    for i, sample in enumerate(_items(samples)[:_MAX_STYLE_SAMPLES]):
+        if isinstance(sample, dict):
+            text = str(sample.get("example") or sample.get("text") or sample.get("sample") or "")
+            evidence, ev_json = _ev(sample.get("evidence_ch") or "")
+        else:
+            text, evidence, ev_json = str(sample or ""), "文风蒸馏·示范段", {}
+        text = text.strip()[:500]
+        if not text:
+            continue
+        add(
+            "style.sample", "文风", f"示范段 {i + 1}",
+            {"slot": "sample", "sample": text},
+            instruction=text, example=text,
+            evidence=evidence or "文风蒸馏·示范段", evidence_json=ev_json,
+        )
+
+    # ─── 文笔（规则 / 写法 / 忌用）───
+    for section, prefix, slot, label in (
+        ("rules", "craft.rule", "rule", "规则"),
+        ("craft", "craft.craft", "craft", "写法"),
+    ):
+        for i, item in enumerate(_items(style.get(section))):
+            name = _text_of(item, "name", "title", limit=40)
+            how = _text_of(item, "how", "rule", "craft", "content", limit=160)
+            text = _line(f"{name}：{how}" if name and how else (how or name), 160)
+            if not text:
                 continue
-            seq += 1
-            title = str(item.get("title") or item.get("name") or "")[:40]
-            instruction = str(item.get("instruction") or item.get("description") or item.get("content") or "")[:240]
-            example = str(item.get("example") or item.get("quote") or "")[:500]
-            negative = str(item.get("negative") or item.get("avoid_description") or "") if section == "avoid" else ""
-            scene_raw = str(item.get("scene") or item.get("type") or "")
-            scene = normalize_scene(scene_raw)
-            emotion = normalize_emotion(str(item.get("emotion") or ""))
-            when = {}
-            if scene:
-                when["scene"] = scene
-            if emotion:
-                when["emotion"] = emotion
-            payload = {
-                "instruction": instruction,
-                "scene": scene or "日常",
-                **({"emotion": emotion} if emotion else {}),
-                **({"negative": negative} if negative else {}),
-            }
-            ev_chapter = str(item.get("chapter") or "")
-            ev_quote = str(item.get("quote") or item.get("example") or "")[:200]
-            evidence = _ev(ev_chapter, ev_quote)
-            ev_json = {"quotes": [{"loc": ev_chapter, "text": ev_quote}]} if ev_quote else {}
-            entries.append(_mk_entry(
-                user_id, task_id, _key("technique"), genre,
-                "手法", f"{genre}:手法", title or f"手法 {seq}",
-                payload, instruction, example, negative,
-                evidence, ev_json, when,
-            ))
+            evidence, ev_json = _ev(item.get("evidence_ch") if isinstance(item, dict) else "")
+            add(
+                prefix, "文笔", name or f"{label} {i + 1}",
+                {"slot": slot, slot: text},
+                instruction=text, evidence=evidence, evidence_json=ev_json,
+            )
 
-    # ─── 文风 + 文笔 ───
-    style = products.get("style")
-    if isinstance(style, dict):
-        data = style.get("data") or style
-        role = str(data.get("role") or data.get("identity") or "")[:120]
+    for i, item in enumerate(_items(style.get("taboo"))):
+        name = _text_of(item, "name", "title", limit=40)
+        how = _text_of(item, "how", "rule", "content", limit=140)
+        text = _line(f"忌用·{name}：{how}" if name and how else (how or name), 160)
+        if not text:
+            continue
+        evidence, ev_json = _ev(item.get("evidence_ch") if isinstance(item, dict) else "")
+        add(
+            "craft.taboo", "文笔", name or f"忌用 {i + 1}",
+            {"slot": "rule", "rule": text},
+            instruction=text, negative_example=f"{name}：{how}".strip("："),
+            evidence=evidence, evidence_json=ev_json,
+        )
+
+    # ─── 世界设定（按分区；constraint 落 hard）───
+    world = _data(products.get("world"))
+
+    def add_world(part: str, title: str, content: str, *, hard: bool = False,
+                  evidence: str = "") -> None:
+        content = _line(content, 300)
+        if not content:
+            return
+        payload = {"part": part, "content": content}
+        if hard:
+            payload["hard"] = True
+        add(
+            f"world.{part}", "世界设定", title or content, payload,
+            instruction=content, evidence=evidence or f"拆书·世界设定·{part}",
+        )
+
+    add_world("stage", "舞台", _text_of(world.get("stage"), "content", "text", limit=300))
+    add_world("power", "力量/规则", _text_of(world.get("no_power"), "content", "text", limit=300))
+
+    for part, key, hard in (
+        ("power", "power", False),
+        ("cost", "cost", False),
+        ("history", "history", False),
+        ("factions", "factions", False),
+        ("constraint", "constraints", True),
+    ):
+        for item in _items(world.get(key)):
+            name = _text_of(item, "name", "title", "key", limit=60)
+            body = _text_of(item, "rule", "note", "content", "value", limit=280)
+            if not body and not name:
+                continue
+            evidence, _ = _ev(item.get("evidence_ch") if isinstance(item, dict) else "")
+            content = f"{name}：{body}" if name and body else (body or name)
+            add_world(part, name or f"{part} {len(entries) + 1}", content,
+                      hard=hard, evidence=evidence)
+
+    for item in _items(world.get("extra"))[:_MAX_WORLD_EXTRA]:
+        key = _text_of(item, "key", "name", limit=60)
+        value = _text_of(item, "value", "content", "note", limit=260)
+        if not key and not value:
+            continue
+        content = f"{key}：{value}" if key and value else (value or key)
+        add_world("extra", key or "补充", content)
+
+    # ─── 角色设定（原型＋档案八格）───
+    characters = _data(products.get("characters"))
+    rows = characters.get("characters") or characters.get("items") or []
+    if isinstance(rows, dict):
+        rows = rows.get("characters") or []
+    for item in _items(rows)[:_MAX_CHARACTERS]:
+        if not isinstance(item, dict):
+            continue
+        name = _line(item.get("name") or item.get("title"), 50)
+        if not name:
+            continue
+        payload: dict = {"archetype": name}
+        for key in ("persona", "gender", "age", "race", "faction", "look",
+                    "speech", "background", "plot"):
+            value = _text_of(item.get(key), "value", "text", limit=300)
+            if value:
+                payload[key] = value
+        aliases = [
+            _line(a, 50) for a in _items(item.get("aliases")) if _line(a, 50)
+        ][:20]
+        if aliases:
+            payload["aliases"] = aliases
+        role = _line(item.get("role"), 10)
         if role:
-            seq += 1
-            entries.append(_mk_entry(
-                user_id, task_id, _key("style.role"), genre,
-                "文风", f"{genre}:文风", "叙事身份",
-                {"slot": "role", "role": role}, role,
-                evidence="文风蒸馏·叙事身份",
-            ))
-        samples = data.get("samples") or data.get("style_samples") or []
-        for i, s in enumerate(samples[:6]):
-            seq += 1
-            s_text = str(s)[:500] if isinstance(s, str) else ""
-            if not s_text:
-                continue
-            entries.append(_mk_entry(
-                user_id, task_id, _key("style.sample"), genre,
-                "文风", f"{genre}:文风", f"示范段 {i+1}",
-                {"slot": "sample", "sample": s_text}, s_text,
-                evidence="文风蒸馏·示范段",
-            ))
-        # 文笔：rules + craft + banned
-        rules = data.get("rules") or []
-        if isinstance(rules, list):
-            for i, r in enumerate(rules[:20]):
-                seq += 1
-                r_text = str(r)[:160]
-                if not r_text:
-                    continue
-                entries.append(_mk_entry(
-                    user_id, task_id, _key("craft.rule"), genre,
-                    "文笔", f"{genre}:文笔", f"规则 {i+1}",
-                    {"slot": "rule", "rule": r_text}, r_text,
-                    evidence="拆书·文笔规则",
-                ))
-
-    # ─── 世界设定 ───
-    world = products.get("world")
-    if isinstance(world, dict):
-        data = world.get("data") or world
-        for part in ("stage", "power", "cost", "history", "factions", "constraints", "extra"):
-            items = data.get(part) or []
-            if isinstance(items, str):
-                items = [{"content": items}]
-            elif isinstance(items, list):
-                pass
-            else:
-                items = []
-            for i, item in enumerate(items):
-                seq += 1
-                content = str(item if isinstance(item, str) else item.get("content") or item.get("text") or "")[:300]
-                if not content:
-                    continue
-                hard = part == "constraints"
-                payload = {"part": part, "content": content, **({"hard": True} if hard else {})}
-                entries.append(_mk_entry(
-                    user_id, task_id, _key("world"), genre,
-                    "世界设定", f"{genre}:世界设定",
-                    f"{part} {i+1}",
-                    payload, content[:240],
-                    evidence=f"拆书·世界设定·{part}",
-                ))
-
-    # ─── 角色设定 ───
-    characters = products.get("characters")
-    if isinstance(characters, dict):
-        data = characters.get("data") or characters.get("characters") or []
-        if isinstance(data, dict):
-            # 标准产物形状 data={"characters":[...]}（与 cards_from_products 同口径）
-            data = data.get("characters") or []
-        for i, c in enumerate(data[:10]):
-            if not isinstance(c, dict):
-                continue
-            seq += 1
-            name = str(c.get("name") or c.get("title") or "")[:40]
-            if not name:
-                continue
-            payload = {
-                "archetype": name,
-                **{k: str(v)[:200] for k, v in c.items()
-                   if k in ("look", "background", "speech", "gender", "age", "race", "faction", "plot") and v},
-                **{k: str(v)[:120] for k, v in c.items()
-                   if k.startswith(("w", "s", "v", "p", "b", "e"))},
-            }
-            entries.append(_mk_entry(
-                user_id, task_id, _key("character"), genre,
-                "角色设定", f"{genre}:角色设定",
-                name, payload, name[:240],
-                evidence="拆书·角色设定",
-            ))
+            payload["role"] = role
+        persona = payload.get("persona") or name
+        add(
+            "character", "角色设定", name, payload,
+            instruction=persona, evidence="拆书·角色设定",
+        )
 
     return entries, warnings
+
+
+async def collect_task_to_kb(
+    db: AsyncSession,
+    user_id: str,
+    task,
+    *,
+    genre_override: str = "",
+    src_ref: str = "",
+) -> dict:
+    """拆书任务 → 知识库（幂等）：映射＋去重＋默认库＋标签物化。
+
+    返回 {collected, skipped, total_mapped, warnings, genre}；
+    产物为空抛 ValueError（端点转 422，脚本按失败记账）。
+    """
+    from kb.service import (  # noqa: PLC2701 — 同包内标签物化单源
+        _materialize_tags,
+        ensure_default_library,
+    )
+
+    try:
+        products = json.loads(getattr(task, "products_json", "") or "{}")
+    except ValueError:
+        products = {}
+    if not isinstance(products, dict) or not products:
+        raise ValueError("这批产物为空，无法收录")
+
+    if genre_override:
+        from genres.theme_catalog import normalize_theme
+
+        genre = normalize_theme(str(genre_override).strip())
+    else:
+        genre = genre_from_products(products)
+
+    entries, warnings = map_deconstruct_products(
+        user_id, str(task.id), genre, products, src_ref=src_ref or None
+    )
+
+    existing_keys: set[str] = set()
+    if entries:
+        # 兼容两种来源键（脚本按书内容指纹、界面按 task_id）：任一已入库即跳过，
+        # 防止同一份产物经两条入口各收一遍。src_key 序号在两次映射间稳定（同一产物）。
+        refs = {src_ref or str(task.id)}
+        if src_ref:
+            refs.add(str(task.id))
+        stmt = select(KbEntry.src_key).where(
+            KbEntry.user_id == user_id,
+            KbEntry.src_ref.in_(refs),
+            KbEntry.src_key.in_([e.src_key for e in entries]),
+        )
+        existing_keys = set((await db.execute(stmt)).scalars().all())
+
+    new_entries = [e for e in entries if e.src_key not in existing_keys]
+    for entry in new_entries:
+        db.add(entry)
+        await db.flush()
+        await ensure_default_library(db, user_id, entry.genre, entry.concept)
+        # 标签物化（选择器短名单读 kb_entry_tags；手录路径由 create_entry 做，
+        # 拆书收录是同一条消费链，不物化会让这批条目进不了候选）
+        await _materialize_tags(
+            db,
+            entry,
+            json.loads(entry.payload_json or "{}"),
+            json.loads(entry.when_json or "{}"),
+        )
+    await db.commit()
+
+    return {
+        "collected": len(new_entries),
+        "skipped": len(entries) - len(new_entries),
+        "total_mapped": len(entries),
+        "warnings": warnings,
+        "genre": genre,
+    }
