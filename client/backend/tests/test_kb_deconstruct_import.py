@@ -327,3 +327,17 @@ def test_mapping_when_scope_evidence_and_taboo_copy():
     taboo = by_title["忌书面长句"]
     assert taboo.instruction.startswith("忌书面长句"), taboo.instruction
     assert "忌用·忌" not in taboo.instruction
+
+
+def test_taboo_text_fits_payload_limit_after_prefix():
+    """忌用前缀参与长度截断：不得因超 160 字被 payload 校验静默丢弃。"""
+    products = {
+        "style": {
+            "data": {"taboo": [{"name": "长" * 40, "how": "短" * 140}]}
+        }
+    }
+    entries, warnings = map_deconstruct_products("u-map", "task-y", "悬疑", products)
+    assert entries, warnings
+    payload = json.loads(entries[0].payload_json)
+    assert len(payload["rule"]) <= 160
+    assert entries[0].instruction.startswith("忌用·")

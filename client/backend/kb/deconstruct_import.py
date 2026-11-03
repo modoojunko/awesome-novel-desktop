@@ -326,11 +326,13 @@ def map_deconstruct_products(
         name = _text_of(item, "name", "title", limit=40)
         how = _text_of(item, "how", "rule", "content", limit=140)
         text = _line(f"{name}：{how}" if name and how else (how or name), 160)
-        # name 实数据常自带「忌」（忌书面长句）；已带就不再叠「忌用·」，否则读成病句
-        if text and not text.startswith("忌"):
-            text = f"忌用·{text}"
         if not text:
             continue
+        # name 实数据常自带「忌」（忌书面长句）；已带就不再叠「忌用·」，否则读成病句。
+        # 前缀必须参与长度截断：CraftPayload.rule 上限 160，前缀后再超会被 payload
+        # 校验整条丢掉（静默消失）。
+        if not text.startswith("忌"):
+            text = _line(f"忌用·{text}", 160)
         evidence, ev_json = _ev(item.get("evidence_ch") if isinstance(item, dict) else "")
         add(
             "craft.taboo", "文笔", name or f"忌用 {i + 1}",
