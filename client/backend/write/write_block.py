@@ -471,8 +471,9 @@ async def prepare_write_block(
                     await _clear_kb_shadow_rows(db, ch.id)
                     await db.commit()
                     return None, None, None
-                selr = await _split_quantitative(db, chapter_id=chapter_pk, selection=selr)
+                # 先清旧影子再 split 写新影子（顺序反了会把刚写的量化行自己清掉）
                 await _clear_kb_shadow_rows(db, chapter_pk)
+                selr = await _split_quantitative(db, chapter_id=chapter_pk, selection=selr)
                 await db.flush()
                 if selr is None:
                     await db.commit()

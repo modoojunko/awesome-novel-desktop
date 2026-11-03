@@ -315,8 +315,9 @@ def test_单书备份往返_书级段():
                 tags = (await db.execute(
                     sel(KbBookEntryTag).where(KbBookEntryTag.novel_id == novel_id)
                 )).scalars().all()
+                new_ids = [r.id for r in rows]  # 恢复会重生成副本 id：按新 id 查权重
                 prefs = (await db.execute(
-                    sel(KbPref).where(KbPref.entry_id.in_(copy_ids))
+                    sel(KbPref).where(KbPref.entry_id.in_(new_ids))
                 )).scalars().all()
             return (
                 n_before, len(rows), n_tags_before, len(tags),
@@ -502,10 +503,23 @@ def test_书域_F3换库重选仍只取副本():
     补平后同章重生成，块清单不得出现账号级条目 id（P1 回归钉）。"""
     uid = f"f3{uuid.uuid4().hex[:8]}"
     _run(_seed_user(uid))
-    _run(_seed_master(uid, [ENTRY_HIT, ENTRY_COMMON]))
+    _run(_seed_master(uid, [ENTRY_HIT, ENTRY_COMMON, ENTRY_QUANT]))
     novel_id = _run(_seed_book(uid))
     _run(_set_genre(novel_id, "玄幻"))
     _run(_import(novel_id, uid))
+
+    # 蒸馏出 syntax 基线：量化条目才进影子（否则回退写法块，测不出清影子问题）
+    async def _baseline():
+        from filesystem.paths import STYLE_QUANT_PATH
+        from filesystem.storage import get_storage
+
+        async with async_session() as db:
+            novel = (await db.execute(sel(Novel).where(Novel.id == novel_id))).scalar_one()
+        await get_storage().write_yaml(
+            novel.root_path, STYLE_QUANT_PATH,
+            {"confidence": 80, "baseline": {"syntax": {"value": "约20字", "tolerance": 10}}},
+        )
+    _run(_baseline())
 
     async def _mk_chapter():
         async with async_session() as db:
@@ -553,3 +567,108 @@ def test_书域_F3换库重选仍只取副本():
     copies = _run(_copy_ids())
     picked = {i["entry_id"] for i in second[2]}
     assert picked and picked <= copies  # 全部来自书副本，无账号级 id
+
+    # F3 分支「先清影子再 split」：重选后量化影子不得被自己清掉
+    async def _shadow():
+        async with async_session() as db:
+            ch = (await db.execute(
+                sel(Chapter).where(Chapter.project_id == novel_id)
+            )).scalars().first()
+            return ch.style_shadow or ""
+    shadow = _run(_shadow())
+    assert "知识库·" in shadow and '"syntax"' in shadow
+
+
+def test_单书恢复为新书_副本id重映射():
+    """单书备份恢复总是新建书（同名（备份））：副本/标签/权重/清单 id 全部重映射，
+    不撞原书主键、不指回原书（P1 回归钉）。"""
+    import io
+    import zipfile
+
+    uid = f"rn{uuid.uuid4().hex[:8]}"
+    _run(_seed_user(uid))
+    _run(_seed_master(uid, [ENTRY_HIT, ENTRY_COMMON]))
+    novel_id = _run(_seed_book(uid))
+    _run(_set_genre(novel_id, "玄幻"))
+    _run(_import(novel_id, uid))
+
+    async def _prep():
+        from models.kb import KbMatchItem, KbMatchRun
+
+        async with async_session() as db:
+            copy = (await db.execute(
+                sel(KbBookEntry)
+                .where(KbBookEntry.novel_id == novel_id)
+                .order_by(KbBookEntry.id)
+            )).scalars().first()
+            db.add(KbPref(user_id=uid, entry_id=copy.id, weight=0.4,
+                          adopt_count=1, drop_count=1))
+            run = KbMatchRun(
+                novel_id=novel_id, chapter_ref="vol-1-ch-1",
+                brief_hash="h1", status="completed",
+            )
+            db.add(run)
+            await db.flush()
+            db.add(KbMatchItem(
+                run_id=run.id, clause="手法", entry_id=copy.id,
+                decision="included", score=1.0, reason="",
+                text_snapshot=copy.instruction or "",
+            ))
+            await db.commit()
+            return copy.id
+    old_copy_id = _run(_prep())
+
+    async def _restore_new_book():
+        from backup.export import _dump_kb_book
+        from backup.importer import _import_kb_book
+        from models.kb import KbMatchItem, KbMatchRun
+
+        async with async_session() as db:
+            project = await db.get(Novel, novel_id)
+            buf = io.BytesIO()
+            with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
+                await _dump_kb_book(zf, db, project)
+            buf.seek(0)
+            novel2 = Novel(
+                user_id=uid, name="恢复副本", slug=f"rs{uuid.uuid4().hex[:8]}",
+                root_path=f"./data/rs{uuid.uuid4().hex[:8]}",
+                source="manual", current_phase="write",
+            )
+            db.add(novel2)
+            await db.flush()
+            warnings: list[str] = []
+            with zipfile.ZipFile(buf) as zf:
+                await _import_kb_book(
+                    db, zf, set(zf.namelist()), "", novel2, uid, warnings
+                )
+            await db.commit()
+            copies = (await db.execute(
+                sel(KbBookEntry).where(KbBookEntry.novel_id == novel2.id)
+            )).scalars().all()
+            tags = (await db.execute(
+                sel(KbBookEntryTag).where(KbBookEntryTag.novel_id == novel2.id)
+            )).scalars().all()
+            prefs = (await db.execute(
+                sel(KbPref).where(KbPref.entry_id.in_([c.id for c in copies]))
+            )).scalars().all()
+            runs = (await db.execute(
+                sel(KbMatchRun).where(KbMatchRun.novel_id == novel2.id)
+            )).scalars().all()
+            items = (await db.execute(
+                sel(KbMatchItem).where(KbMatchItem.run_id.in_([r.id for r in runs]))
+            )).scalars().all() if runs else []
+            orig = set((await db.execute(
+                sel(KbBookEntry.id).where(KbBookEntry.novel_id == novel_id)
+            )).scalars())
+            return copies, tags, prefs, runs, items, orig
+    copies, tags, prefs, runs, items, orig_ids = _run(_restore_new_book())
+
+    assert len(copies) == 2
+    new_ids = {c.id for c in copies}
+    assert new_ids.isdisjoint(orig_ids)  # 新 id，不撞原书
+    assert tags and all(t.entry_id in new_ids for t in tags)
+    assert len(prefs) == 1 and prefs[0].weight == 0.4
+    assert prefs[0].entry_id in new_ids  # 权重跟着新副本
+    assert len(runs) == 1 and len(items) == 1
+    assert items[0].entry_id in new_ids  # 清单指向新副本，不指回原书
+    assert old_copy_id not in new_ids

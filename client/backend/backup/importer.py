@@ -604,7 +604,6 @@ async def _import_kb_book(
     kb_name = f"{book_dir}kb/kb-book.yaml"
     if kb_name not in names:
         return
-    import json as _kbjson
     from datetime import datetime as _dtc
 
     from models.kb import (
@@ -639,75 +638,64 @@ async def _import_kb_book(
             cols[c.name] = v
         return cols
 
-    created_b = created_r = created_i = 0
+    created_b = created_r = created_i = created_e = 0
     run_id_map: dict[str, str] = {}
-    created_e = 0
+    # 副本 id 重映射（c-kb-book-scope）：单书恢复总是新建 Novel（同名自动「（备份）」），
+    # 原书还在时保留原 id 会撞主键/被去重跳过——恢复照 characters 先例重生成 id，
+    # 且必须在插库前建好映射（tags/prefs/run items 都跟着换）。
+    entry_id_map: dict[str, str] = {}
     for row in doc.get("bindings") or []:
         if not isinstance(row, dict) or not row.get("library_id"):
             continue
-        bid = str(row.get("id") or "")
-        if bid and await db.get(KbBookBinding, bid) is not None:
-            continue  # 按绑定行 id 去重（书内唯一）
-        db.add(KbBookBinding(**_cols(KbBookBinding, row, novel_id=novel.id)))
+        # 绑定行 id 是自增整数、无外部引用：不沿用（原书还在时会撞主键）
+        db.add(KbBookBinding(**_cols(
+            KbBookBinding,
+            {k: v for k, v in row.items() if k != "id"},
+            novel_id=novel.id,
+        )))
         created_b += 1
-    # 书级知识副本（c-kb-book-scope）：按 id 去重（换机同 id 直接跳过——
-    # 源账号条目不在本机也不影响：副本自包含）
     for row in doc.get("book_entries") or []:
         if not isinstance(row, dict) or not row.get("id"):
             continue
-        eid = str(row["id"])
-        if await db.get(KbBookEntry, eid) is not None:
-            continue
-        db.add(KbBookEntry(**_cols(KbBookEntry, row, novel_id=novel.id)))
+        old_id = str(row["id"])
+        new_id = str(uuid.uuid4())
+        entry_id_map[old_id] = new_id
+        db.add(KbBookEntry(**_cols(KbBookEntry, row, novel_id=novel.id, id=new_id)))
         created_e += 1
-    # 书级标签（选择器候选域）：按 (entry_id, dim, value) 去重、id 交自增——
-    # 标签 id 是自增整数，跨库保留原 id 会与既有标签行撞号；条目 id 已按原值恢复
+    # 书级标签（选择器候选域）：entry_id 随副本换新；id 交自增
     for row in doc.get("book_entry_tags") or []:
         if not isinstance(row, dict) or not row.get("entry_id"):
             continue
-        exists = (
-            await db.execute(
-                select(KbBookEntryTag.id).where(
-                    KbBookEntryTag.entry_id == str(row["entry_id"]),
-                    KbBookEntryTag.dim == str(row.get("dim") or ""),
-                    KbBookEntryTag.value == str(row.get("value") or ""),
-                )
-            )
-        ).first()
-        if exists:
-            continue
+        eid = entry_id_map.get(str(row["entry_id"]))
+        if not eid:
+            continue  # 旧包标签指向账号条目/不存在的副本——书域无对应行
         db.add(KbBookEntryTag(**_cols(
             KbBookEntryTag,
             {k: v for k, v in row.items() if k != "id"},
             novel_id=novel.id,
+            entry_id=eid,
         )))
-    # 副本反馈权重（有用率）：按 (user_id, entry_id) 去重、id 交自增——
-    # 副本 id 已按原值恢复，权重能对上；旧包无本段＝保持默认 1.0
+    # 副本反馈权重（有用率）：entry_id 同上换新；旧包无本段＝保持默认 1.0
     for row in doc.get("book_prefs") or []:
         if not isinstance(row, dict) or not row.get("entry_id"):
             continue
-        eid = str(row["entry_id"])
-        exists = (
-            await db.execute(
-                select(KbPref.id).where(
-                    KbPref.user_id == user_id,
-                    KbPref.entry_id == eid,
-                )
-            )
-        ).first()
-        if exists:
+        eid = entry_id_map.get(str(row["entry_id"]))
+        if not eid:
             continue
         db.add(KbPref(**_cols(
             KbPref,
             {k: v for k, v in row.items() if k != "id"},
             user_id=user_id,
+            entry_id=eid,
         )))
+    # 运行/清单 id 也全部重生成（原书还在时同 id 落库会撞主键）；
+    # 清单的 entry_id 只换副本 id，账号级 legacy id 原样保留（双域回退路径）
     for row in doc.get("match_runs") or []:
         if not isinstance(row, dict):
             continue
         old_id = str(row.get("id") or "")
-        new_id = old_id or _kbjson.dumps(created_r)  # 无 id 兜底不重排
-        db.add(KbMatchRun(**_cols(KbMatchRun, row, novel_id=novel.id)))
+        new_id = str(uuid.uuid4())
+        db.add(KbMatchRun(**_cols(KbMatchRun, row, novel_id=novel.id, id=new_id)))
         if old_id:
             run_id_map[old_id] = new_id
         created_r += 1
@@ -718,12 +706,19 @@ async def _import_kb_book(
         rid = run_id_map.get(str(row.get("run_id") or ""))
         if not rid:
             continue
-        db.add(KbMatchItem(**_cols(KbMatchItem, row, run_id=rid)))
+        old_eid = str(row.get("entry_id") or "")
+        db.add(KbMatchItem(**_cols(
+            KbMatchItem,
+            {k: v for k, v in row.items() if k != "id"},
+            run_id=rid,
+            entry_id=entry_id_map.get(old_eid, old_eid),
+        )))
         created_i += 1
     await db.flush()
-    if created_b or created_r or created_i:
+    if created_b or created_r or created_i or created_e:
         warnings.append(
-            f"知识库书内段：绑定 {created_b}、选择运行 {created_r}、清单 {created_i}"
+            f"知识库书内段：绑定 {created_b}、知识副本 {created_e}、"
+            f"选择运行 {created_r}、清单 {created_i}"
         )
 
 
