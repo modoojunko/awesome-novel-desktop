@@ -23,7 +23,12 @@ export default function UseInNovelModal({
   const [rename, setRename] = useState(true);
   const [busy, setBusy] = useState(false);
 
-  const list = novels || [];
+  // 题材门禁（c-library-genre-gate，boss 拍板硬拦）：只列同题材书；卡题材空（跨
+  // 题材通用）或书题材未设都放行。后端 apply_to_book 同口径二次校验。
+  const cardGenre = card?.genre_norm || "";
+  const list = (novels || []).filter(
+    (n) => !cardGenre || !n.genre_norm || n.genre_norm === cardGenre,
+  );
   const effectiveTarget = target || (list[0]?.id ?? "");
 
   const submit = async () => {
@@ -76,7 +81,11 @@ export default function UseInNovelModal({
       <div className="field">
         <label>放进哪本书</label>
         {list.length === 0 ? (
-          <div className="alt">书架还没有书——先去新建一本，再回来取用。</div>
+          <div className="alt">
+            {cardGenre
+              ? `没有「${cardGenre}」题材的书——跨题材不能落卡；先去新建一本同题材的，再回来取用。`
+              : "书架还没有书——先去新建一本，再回来取用。"}
+          </div>
         ) : (
           <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
             {list.map((n) => (

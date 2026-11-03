@@ -50,6 +50,29 @@ async def update_character(
     return {"ok": True}
 
 
+@router.get("/style/kb-draft")
+async def get_style_kb_draft(
+    project_id: str,
+    user: dict = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """按本书题材从知识库取文风草稿（c-style-kb-fill）——只读，不写任何 KV。
+
+    两段路径，与通用 `/{type}`（单段）不冲突。没定题材时返回 `theme: ""` ＋空数组，
+    由前端给「先定题材」的引导（不 400：面板进页就要拿它渲染右栏行）。
+    """
+    project = await get_novel(db, project_id, user["id"])
+    if not project:
+        raise HTTPException(404, "Project not found")
+    from settings.style_kb import style_draft_from_kb
+
+    story = await get_storage().read_yaml(project.root_path, "story.yaml") or {}
+    theme = str(story.get("genre") or "").strip()
+    draft = await style_draft_from_kb(db, user_id=user["id"], theme=theme)
+    draft["sub_genre"] = str(story.get("sub_genre") or "").strip()
+    return draft
+
+
 @router.get("/{type}")
 async def get_settings(
     project_id: str,
@@ -184,6 +207,11 @@ async def update_settings(
         if theme_touched:
             storage = get_storage()
             story = await storage.read_yaml(project.root_path, "story.yaml") or {}
+            # 题材是否真变化（c-kb-book-scope 弹窗二选一）：前端每次保存都带
+            # theme/sub_genre 全量字段——只按「键存在」清 declined 会把作家选的
+            # 「我自己设定」在同题材改其他格时又清掉、反复弹窗。
+            prev_theme = str(story.get("genre") or "").strip()
+            prev_sub = str(story.get("sub_genre") or "").strip()
             # 复用既有 genre 键（书卡胶囊/书内标签的展示链一直读它）
             if theme:
                 story["genre"] = theme
@@ -208,6 +236,13 @@ async def update_settings(
                     prefs["pacing_preset"] = key
                     prefs["pacing_steps_len"] = PACING_PRESETS[key]["steps_len"]
                     await storage.write_yaml(project.root_path, BOOK_PREFS_PATH, prefs)
+            # 改题材＝新题材重新征询（c-kb-book-scope）：清「我自己设定」决策；
+            # 同题材保存（只改 02~05 其他格）保留决策，不再打扰。
+            if (prev_theme, prev_sub) != (theme, sub):
+                from kb.book_scope import write_import_declined
+
+                await write_import_declined(project.root_path, False)
+
     else:
         await get_storage().write_yaml(project.root_path, KEY_TO_PATH[type], body)
 

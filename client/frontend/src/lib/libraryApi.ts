@@ -7,6 +7,8 @@ export interface LibraryCard {
   aliases: string[];
   role: string;
   genre: string;
+  /** 归一题材名（c-library-genre-gate 跨书门禁过滤用；空＝跨题材通用） */
+  genre_norm?: string;
   kind: string;
   persona: string;
   dossier: Record<string, string>;
@@ -103,12 +105,16 @@ export function randomLibraryName(gender: string): Promise<{ name: string; age: 
 export interface NovelOption {
   id: string;
   name: string;
+  /** 归一题材名（c-library-genre-gate 跨书门禁过滤用；空＝题材未设） */
+  genre_norm?: string;
 }
 
 /** 书架现存书（用到新书/书内导入的选书源） */
 export async function listNovelOptions(): Promise<NovelOption[]> {
   const rows = (await request<NovelOption[]>("/novels")) as unknown as NovelOption[];
-  return Array.isArray(rows) ? rows.map((n) => ({ id: n.id, name: n.name })) : [];
+  return Array.isArray(rows)
+    ? rows.map((n) => ({ id: n.id, name: n.name, genre_norm: n.genre_norm || "" }))
+    : [];
 }
 
 /** 头像字节走鉴权 fetch（<img> 不带 Bearer）——按卡缓存 objectURL，避免列表重渲重下。 */

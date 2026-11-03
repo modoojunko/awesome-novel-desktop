@@ -1,0 +1,486 @@
+{
+ "_note": "基线包单条硬闸 fixture——C 端 kb.gates.check_baseline_entry 与内容仓 tools/validate.py 共用同一份（字节一致由双端 parity 测试守）。error=首个违规码，None=合格。",
+ "version": 1,
+ "cases": [
+  {
+   "name": "ok_tech",
+   "entry": {
+    "src_key": "baseline:玄幻:tech-jiaoshou",
+    "title": "交手先守后攻",
+    "concept": "手法",
+    "genre": "玄幻",
+    "instruction": "交手先写守势吃亏，再写抓空当反制，攻防要换手。",
+    "payload": {
+     "instruction": "交手先写守势吃亏，再写抓空当反制，攻防要换手。",
+     "scene": "打斗"
+    },
+    "when": {
+     "scene": "打斗"
+    }
+   },
+   "error": null
+  },
+  {
+   "name": "ok_style",
+   "entry": {
+    "src_key": "baseline:都市:style-tone",
+    "title": "冷峻旁白",
+    "concept": "文风",
+    "genre": "都市",
+    "instruction": "旁白保持冷峻，句子短促，情绪只从物件变化里露出来。",
+    "payload": {
+     "slot": "tone",
+     "value": "冷峻"
+    },
+    "when": {
+     "scene": "文戏",
+     "emotion": "冷"
+    }
+   },
+   "error": null
+  },
+  {
+   "name": "ok_no_when",
+   "entry": {
+    "src_key": "baseline:玄幻:tech-nowhen",
+    "title": "交手先守后攻",
+    "concept": "手法",
+    "genre": "玄幻",
+    "instruction": "交手先写守势吃亏，再写抓空当反制，攻防要换手。",
+    "payload": {
+     "instruction": "交手先写守势吃亏，再写抓空当反制，攻防要换手。",
+     "scene": "打斗"
+    },
+    "when": null
+   },
+   "error": null
+  },
+  {
+   "name": "ok_generic_genre",
+   "entry": {
+    "src_key": "baseline:玄幻:tech-generic",
+    "title": "交手先守后攻",
+    "concept": "手法",
+    "genre": "",
+    "instruction": "交手先写守势吃亏，再写抓空当反制，攻防要换手。",
+    "payload": {
+     "instruction": "交手先写守势吃亏，再写抓空当反制，攻防要换手。",
+     "scene": "打斗"
+    },
+    "when": {
+     "scene": "打斗"
+    }
+   },
+   "error": null
+  },
+  {
+   "name": "bad_not_object",
+   "entry": "baseline:玄幻:x",
+   "error": "entry_not_object"
+  },
+  {
+   "name": "bad_src_key_prefix",
+   "entry": {
+    "src_key": "kb:玄幻:tech-a",
+    "title": "交手先守后攻",
+    "concept": "手法",
+    "genre": "玄幻",
+    "instruction": "交手先写守势吃亏，再写抓空当反制，攻防要换手。",
+    "payload": {
+     "instruction": "交手先写守势吃亏，再写抓空当反制，攻防要换手。",
+     "scene": "打斗"
+    },
+    "when": {
+     "scene": "打斗"
+    }
+   },
+   "error": "src_key_invalid"
+  },
+  {
+   "name": "bad_src_key_missing_slug",
+   "entry": {
+    "src_key": "baseline:玄幻",
+    "title": "交手先守后攻",
+    "concept": "手法",
+    "genre": "玄幻",
+    "instruction": "交手先写守势吃亏，再写抓空当反制，攻防要换手。",
+    "payload": {
+     "instruction": "交手先写守势吃亏，再写抓空当反制，攻防要换手。",
+     "scene": "打斗"
+    },
+    "when": {
+     "scene": "打斗"
+    }
+   },
+   "error": "src_key_invalid"
+  },
+  {
+   "name": "bad_src_key_space",
+   "entry": {
+    "src_key": "baseline:玄幻 : tech-a",
+    "title": "交手先守后攻",
+    "concept": "手法",
+    "genre": "玄幻",
+    "instruction": "交手先写守势吃亏，再写抓空当反制，攻防要换手。",
+    "payload": {
+     "instruction": "交手先写守势吃亏，再写抓空当反制，攻防要换手。",
+     "scene": "打斗"
+    },
+    "when": {
+     "scene": "打斗"
+    }
+   },
+   "error": "src_key_invalid"
+  },
+  {
+   "name": "bad_src_key_long",
+   "entry": {
+    "src_key": "baseline:玄幻:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "title": "交手先守后攻",
+    "concept": "手法",
+    "genre": "玄幻",
+    "instruction": "交手先写守势吃亏，再写抓空当反制，攻防要换手。",
+    "payload": {
+     "instruction": "交手先写守势吃亏，再写抓空当反制，攻防要换手。",
+     "scene": "打斗"
+    },
+    "when": {
+     "scene": "打斗"
+    }
+   },
+   "error": "src_key_invalid"
+  },
+  {
+   "name": "bad_concept",
+   "entry": {
+    "src_key": "baseline:玄幻:tech-jiaoshou",
+    "title": "交手先守后攻",
+    "concept": "情节",
+    "genre": "玄幻",
+    "instruction": "交手先写守势吃亏，再写抓空当反制，攻防要换手。",
+    "payload": {
+     "instruction": "交手先写守势吃亏，再写抓空当反制，攻防要换手。",
+     "scene": "打斗"
+    },
+    "when": {
+     "scene": "打斗"
+    }
+   },
+   "error": "concept_invalid"
+  },
+  {
+   "name": "bad_genre",
+   "entry": {
+    "src_key": "baseline:玄幻:tech-jiaoshou",
+    "title": "交手先守后攻",
+    "concept": "手法",
+    "genre": "科幻电影",
+    "instruction": "交手先写守势吃亏，再写抓空当反制，攻防要换手。",
+    "payload": {
+     "instruction": "交手先写守势吃亏，再写抓空当反制，攻防要换手。",
+     "scene": "打斗"
+    },
+    "when": {
+     "scene": "打斗"
+    }
+   },
+   "error": "genre_invalid"
+  },
+  {
+   "name": "bad_title",
+   "entry": {
+    "src_key": "baseline:玄幻:tech-jiaoshou",
+    "title": "标标标标标标标标标标标标标标标标标标标标标标标标标标标标标标标标标标标标标标标标标",
+    "concept": "手法",
+    "genre": "玄幻",
+    "instruction": "交手先写守势吃亏，再写抓空当反制，攻防要换手。",
+    "payload": {
+     "instruction": "交手先写守势吃亏，再写抓空当反制，攻防要换手。",
+     "scene": "打斗"
+    },
+    "when": {
+     "scene": "打斗"
+    }
+   },
+   "error": "title_invalid"
+  },
+  {
+   "name": "bad_instruction_short",
+   "entry": {
+    "src_key": "baseline:玄幻:tech-jiaoshou",
+    "title": "交手先守后攻",
+    "concept": "手法",
+    "genre": "玄幻",
+    "instruction": "太短。",
+    "payload": {
+     "instruction": "交手先写守势吃亏，再写抓空当反制，攻防要换手。",
+     "scene": "打斗"
+    },
+    "when": {
+     "scene": "打斗"
+    }
+   },
+   "error": "instruction_length"
+  },
+  {
+   "name": "bad_instruction_long",
+   "entry": {
+    "src_key": "baseline:玄幻:tech-jiaoshou",
+    "title": "交手先守后攻",
+    "concept": "手法",
+    "genre": "玄幻",
+    "instruction": "交交交交交交交交交交交交交交交交交交交交交交交交交交交交交交交交交交交交交交交交交交交交交交交交交交交交交交交交交交交交交交交交交交交交交交交交交交交交交交交交交交交交交交交交交交交交交交交交交交交交交交交交交交交交交交交交交交交交交交交交交交交交交交交交交交交交交交交交交交交交交交交交交交交交交交交交交交交交交交交交交交交交交交交交交交交交交交交交交交交交交交交交交交交交交交交交交交交交交交交交交交交交交交交交交交交交交交交交交交交交交交交交交交交交交交交交交交交交交交交交交",
+    "payload": {
+     "instruction": "交手先写守势吃亏，再写抓空当反制，攻防要换手。",
+     "scene": "打斗"
+    },
+    "when": {
+     "scene": "打斗"
+    }
+   },
+   "error": "instruction_length"
+  },
+  {
+   "name": "bad_instruction_newline",
+   "entry": {
+    "src_key": "baseline:玄幻:tech-jiaoshou",
+    "title": "交手先守后攻",
+    "concept": "手法",
+    "genre": "玄幻",
+    "instruction": "交手先写守势吃亏，\n再写抓空当反制。",
+    "payload": {
+     "instruction": "交手先写守势吃亏，再写抓空当反制，攻防要换手。",
+     "scene": "打斗"
+    },
+    "when": {
+     "scene": "打斗"
+    }
+   },
+   "error": "instruction_structure"
+  },
+  {
+   "name": "bad_instruction_structure",
+   "entry": {
+    "src_key": "baseline:玄幻:tech-jiaoshou",
+    "title": "交手先守后攻",
+    "concept": "手法",
+    "genre": "玄幻",
+    "instruction": "# 交手写法：先守后攻再换手。",
+    "payload": {
+     "instruction": "交手先写守势吃亏，再写抓空当反制，攻防要换手。",
+     "scene": "打斗"
+    },
+    "when": {
+     "scene": "打斗"
+    }
+   },
+   "error": "instruction_structure"
+  },
+  {
+   "name": "bad_instruction_header",
+   "entry": {
+    "src_key": "baseline:玄幻:tech-jiaoshou",
+    "title": "交手先守后攻",
+    "concept": "手法",
+    "genre": "玄幻",
+    "instruction": "【本章写法指引】交手先守后攻，招式收在第三拍。",
+    "payload": {
+     "instruction": "交手先写守势吃亏，再写抓空当反制，攻防要换手。",
+     "scene": "打斗"
+    },
+    "when": {
+     "scene": "打斗"
+    }
+   },
+   "error": "instruction_structure"
+  },
+  {
+   "name": "bad_instruction_echo",
+   "entry": {
+    "src_key": "baseline:玄幻:tech-jiaoshou",
+    "title": "交手先守后攻",
+    "concept": "手法",
+    "genre": "玄幻",
+    "instruction": "动作有回应、局面有推进，这场没写完不进下一场。",
+    "payload": {
+     "instruction": "交手先写守势吃亏，再写抓空当反制，攻防要换手。",
+     "scene": "打斗"
+    },
+    "when": {
+     "scene": "打斗"
+    }
+   },
+   "error": "instruction_echo"
+  },
+  {
+   "name": "bad_payload_missing",
+   "entry": {
+    "src_key": "baseline:玄幻:tech-jiaoshou",
+    "title": "交手先守后攻",
+    "concept": "手法",
+    "genre": "玄幻",
+    "instruction": "交手先写守势吃亏，再写抓空当反制，攻防要换手。",
+    "payload": {
+     "scene": "打斗"
+    },
+    "when": {
+     "scene": "打斗"
+    }
+   },
+   "error": "payload_slot_missing"
+  },
+  {
+   "name": "bad_payload_not_object",
+   "entry": {
+    "src_key": "baseline:玄幻:tech-jiaoshou",
+    "title": "交手先守后攻",
+    "concept": "手法",
+    "genre": "玄幻",
+    "instruction": "交手先写守势吃亏，再写抓空当反制，攻防要换手。",
+    "payload": "x",
+    "when": {
+     "scene": "打斗"
+    }
+   },
+   "error": "payload_invalid"
+  },
+  {
+   "name": "bad_when_key",
+   "entry": {
+    "src_key": "baseline:玄幻:tech-jiaoshou",
+    "title": "交手先守后攻",
+    "concept": "手法",
+    "genre": "玄幻",
+    "instruction": "交手先写守势吃亏，再写抓空当反制，攻防要换手。",
+    "payload": {
+     "instruction": "交手先写守势吃亏，再写抓空当反制，攻防要换手。",
+     "scene": "打斗"
+    },
+    "when": {
+     "stage": "打斗"
+    }
+   },
+   "error": "when_invalid"
+  },
+  {
+   "name": "bad_when_value",
+   "entry": {
+    "src_key": "baseline:玄幻:tech-jiaoshou",
+    "title": "交手先守后攻",
+    "concept": "手法",
+    "genre": "玄幻",
+    "instruction": "交手先写守势吃亏，再写抓空当反制，攻防要换手。",
+    "payload": {
+     "instruction": "交手先写守势吃亏，再写抓空当反制，攻防要换手。",
+     "scene": "打斗"
+    },
+    "when": {
+     "scene": "决战"
+    }
+   },
+   "error": "when_invalid"
+  },
+  {
+   "name": "bad_when_type",
+   "entry": {
+    "src_key": "baseline:玄幻:tech-jiaoshou",
+    "title": "交手先守后攻",
+    "concept": "手法",
+    "genre": "玄幻",
+    "instruction": "交手先写守势吃亏，再写抓空当反制，攻防要换手。",
+    "payload": {
+     "instruction": "交手先写守势吃亏，再写抓空当反制，攻防要换手。",
+     "scene": "打斗"
+    },
+    "when": [
+     "打斗"
+    ]
+   },
+   "error": "when_invalid"
+  },
+  {
+   "name": "ok_when_emotion_free_text",
+   "entry": {
+    "src_key": "baseline:玄幻:tech-shouya-chukou",
+    "title": "受压时给出口",
+    "concept": "手法",
+    "genre": "玄幻",
+    "instruction": "受压时先写主角的动作变形，再给一个出口，情绪别停在原地。",
+    "payload": {
+     "instruction": "受压时先写主角的动作变形，再给一个出口，情绪别停在原地。",
+     "scene": "文戏"
+    },
+    "when": {
+     "emotion": "压抑—不安"
+    }
+   },
+   "error": null
+  },
+  {
+   "name": "bad_when_emotion_too_long",
+   "entry": {
+    "src_key": "baseline:玄幻:tech-shouya-chukou",
+    "title": "受压时给出口",
+    "concept": "手法",
+    "genre": "玄幻",
+    "instruction": "受压时先写主角的动作变形，再给一个出口，情绪别停在原地。",
+    "payload": {
+     "instruction": "受压时先写主角的动作变形，再给一个出口，情绪别停在原地。",
+     "scene": "文戏"
+    },
+    "when": {
+     "emotion": "非常非常压抑难受"
+    }
+   },
+   "error": "when_invalid"
+  }
+ ],
+ "vocab": {
+  "themes": [
+   "都市",
+   "年代文",
+   "乡土/乡村",
+   "悬疑",
+   "刑侦/现实犯罪",
+   "校园长篇",
+   "谍战",
+   "军事",
+   "体育",
+   "美食",
+   "正史历史小说",
+   "架空古王朝",
+   "穿越历史",
+   "仙侠/修真",
+   "玄幻",
+   "志怪/民俗灵异",
+   "西式奇幻",
+   "科幻",
+   "末世/废土",
+   "无限流",
+   "游戏文"
+  ],
+  "scenes": [
+   "打斗",
+   "文戏",
+   "开篇",
+   "转折",
+   "收尾",
+   "对峙",
+   "日常"
+  ],
+  "emotions": [
+   "燃",
+   "冷",
+   "虐",
+   "甜",
+   "疑",
+   "静"
+  ],
+  "chapter_pos": [
+   "开头",
+   "中段",
+   "卷末",
+   "any"
+  ]
+ }
+}

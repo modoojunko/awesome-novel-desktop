@@ -81,6 +81,28 @@ def normalize_emotion(text: str) -> str:
     return ""
 
 
+_EMOTION_LABELS = {"燃": "热血", "冷": "压抑", "虐": "虐心", "甜": "甜暖", "疑": "不安", "静": "沉静"}
+
+
+def emotion_phrase(chain: str, limit: int = 6) -> str:
+    """情绪链 → 条目里用的两字情绪词（与内容仓 deconstruct_batch 同口径）。
+
+    取链上**最后出现**的情绪词所属族（链尾＝结果情绪），再落成两字标签：
+    热血/压抑/虐心/甜暖/不安/沉静。比单字念得顺，也不会把书内措辞当标签。
+    """
+    text = str(chain or "").strip()
+    if not text:
+        return ""
+    best_canonical, best_pos, best_len = "", -1, 0
+    for canonical, aliases in _EMOTION_ALIASES.items():
+        for alias in aliases:
+            pos = text.rfind(alias)
+            if pos > best_pos or (pos == best_pos and pos >= 0 and len(alias) > best_len):
+                best_canonical, best_pos, best_len = canonical, pos, len(alias)
+    label = _EMOTION_LABELS.get(best_canonical, "")
+    return label if len(label) <= limit else ""
+
+
 def is_valid_concept(name: str) -> bool:
     return name in CONCEPTS
 

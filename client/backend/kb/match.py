@@ -18,7 +18,10 @@ from dataclasses import dataclass, field
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from models.kb import KbEntry, KbEntryTag, KbPref
+from kb.concepts import normalize_emotion
+from kb.merged import STYLE_SLOTS_IN_BLOCK as _STYLE_SLOTS_IN_BLOCK
+from kb.merged import digest_baseline_ids, load_baseline_entries
+from models.kb import KbBookEntry, KbBookEntryTag, KbEntry, KbEntryTag, KbPref
 
 # 拆章六档 plot_stage → 章位封闭值（CHAPTER_POS）；空/未知 → ""（不硬猜）
 _STAGE_TO_POS = {
@@ -37,7 +40,7 @@ _SCENE_STYLE_MAX = 4   # 场景定性写法（文风/文笔）配额
 _BUDGET_CHARS = 3200   # ≤2K tokens 的中文字符粗估上限
 
 # 文风 slot 白名单：进块的定性槽位（role/pov 书级恒定，走快照不进块）
-_STYLE_SLOTS_IN_BLOCK = ("tone", "register", "sample")
+# 单源在 kb/merged.py（基线段短名单共用同一判定，防两侧漂移）
 # 文笔 slot 全部定性（rule/craft/banned_word/tic）
 _CRAFT_SLOTS = ("rule", "craft", "banned_word", "tic")
 
@@ -122,27 +125,36 @@ class Selection:
 async def digest_candidates(
     db: AsyncSession, *, user_id: str, genre: str,
     concepts: tuple[str, ...] = ("手法", "文风", "文笔"),
+    book_scope: str | None = None,
 ) -> dict[str, set[str]]:
-    """候选短名单（公开：P1 LLM 选择器的候选摘要以本集合为域）。"""
-    """kb_entry_tags 两段式：出 (手法 id 集, 场景定性文风/文笔 id 集)。
+    """候选短名单（公开：P1 LLM 选择器的候选摘要以本集合为域）。
 
-    不碰 payload_json——条目是否场景条目（scope=scene）与槽位（slot）全是物化维度。
-    手法 base＋scene 全进；文风/文笔只取场景条目（基线走快照），且排除
-    slot=role/pov（书级恒定槽）。
+    book_scope=书 id：候选走书级副本标签（kb_book_entry_tags 按 novel_id 过滤）——
+    书副本已是开书时对 merged 视图的一次性快照，不再叠加实时基线层；
+    None：账号级标签域（存量兼容路径）＋基线层（merged，c-kb-baseline）。
     """
-    rows = (
-        await db.execute(
-            select(KbEntryTag.entry_id, KbEntryTag.dim, KbEntryTag.value)
-            .select_from(KbEntryTag)
-            .join(KbEntry, KbEntry.id == KbEntryTag.entry_id)
+    tag_model = KbBookEntryTag if book_scope else KbEntryTag
+    if book_scope:
+        # 书域：副本已按题材筛过，只按 novel_id 收窄（genre 二次过滤会误杀通用条目）
+        stmt = select(tag_model.entry_id, tag_model.dim, tag_model.value).where(
+            tag_model.dim.in_(("concept", "scope", "slot")),
+            tag_model.novel_id == book_scope,
+        )
+    else:
+        # 账号级存量路径：题材/状态必须在标签查询就收窄——select_block 只补 status，
+        # genre 无第二道闸；漏掉会把其他题材条目选进本书（跨题材污染）
+        stmt = (
+            select(tag_model.entry_id, tag_model.dim, tag_model.value)
+            .select_from(tag_model)
+            .join(KbEntry, KbEntry.id == tag_model.entry_id)
             .where(
-                KbEntryTag.user_id == user_id,
-                KbEntryTag.dim.in_(("concept", "scope", "slot")),
+                tag_model.user_id == user_id,
+                tag_model.dim.in_(("concept", "scope", "slot")),
                 KbEntry.status == "active",
                 KbEntry.genre.in_((genre, "")) if genre else True,
             )
         )
-    ).all()
+    rows = (await db.execute(stmt)).all()
     concept: dict[str, str] = {}
     scope: dict[str, str] = {}
     slot: dict[str, str] = {}
@@ -163,6 +175,11 @@ async def digest_candidates(
             s = slot.get(entry_id, "")
             if cname == "文笔" or s in _STYLE_SLOTS_IN_BLOCK:
                 style.add(entry_id)
+    if not book_scope:
+        # merged 域：用户条目 ∪ 基线层（基线已排 hide、edit 副本在取行时套用）
+        base = await digest_baseline_ids(db, user_id=user_id, genre=genre, concepts=concepts)
+        tech |= base["tech"]
+        style |= base["style"]
     # 稳定排序截断（id 序）——短名单超 200 时保序取前
     return {
         "tech": set(sorted(tech)[:_SHORTLIST_MAX]),
@@ -181,6 +198,23 @@ def _when_of(entry: KbEntry) -> dict:
     return w if isinstance(w, dict) else {}
 
 
+def _emotion_conds(when: dict, signals) -> set[str]:
+    """条目是否声明了**可判定**的情绪条件（供「无条件＝全章适用」分支用）。
+
+    emotion 是短自由文本（≤6 字）；只有能归一到情绪族的才算条件——归一不了的写法
+    （如「复杂」）不该把条目变成永远 0 分（`select_block` 丢弃 m<=0），按无条件处理。
+    """
+    raw = str(when.get("emotion") or "")
+    return {raw} if normalize_emotion(raw) else set()
+
+
+def _emotion_hit(when: dict, signals) -> bool:
+    """情绪命中：条件与信号**双方都归一**后相等（「压抑—不安」↔「不安」能碰上）。"""
+    want = normalize_emotion(str(when.get("emotion") or ""))
+    got = normalize_emotion(str(signals.emotion or ""))
+    return bool(want and got and want == got)
+
+
 def _match_score(entry: KbEntry, signals: MatchSignals) -> tuple[float, str]:
     """匹配度∈[0,1]＋命中理由。适用条件＝when_json（payload.scene 是记录字段
     不参与匹配——§7.1「匹配＝when_json∪实体命中」口径）。手法无 when 给基础分。"""
@@ -189,7 +223,7 @@ def _match_score(entry: KbEntry, signals: MatchSignals) -> tuple[float, str]:
     w = _when_of(entry)
     if entry.concept == "手法":
         conds = {w["scene"]} if w.get("scene") else set()
-        emo_conds = {w["emotion"]} if w.get("emotion") else set()
+        emo_conds = _emotion_conds(w, signals)
         pos_conds = {w["chapter_pos"]} if w.get("chapter_pos") else set()
         if not any((conds, emo_conds, pos_conds)):
             m, hits = 0.5, ("全章适用",)
@@ -197,7 +231,7 @@ def _match_score(entry: KbEntry, signals: MatchSignals) -> tuple[float, str]:
             per = []
             if signals.scene and signals.scene in conds:
                 per.append(f"场面:{signals.scene}")
-            if signals.emotion and signals.emotion in emo_conds:
+            if signals.emotion and _emotion_hit(w, signals):
                 per.append(f"情绪:{signals.emotion}")
             if signals.chapter_pos and signals.chapter_pos in pos_conds:
                 per.append(f"章位:{signals.chapter_pos}")
@@ -210,11 +244,11 @@ def _match_score(entry: KbEntry, signals: MatchSignals) -> tuple[float, str]:
         # 文风/文笔场景条目：scope=scene 已在短名单保证；命中＝when 与信号相交
         per = []
         conds = {w["scene"]} if w.get("scene") else set()
-        emo_conds = {w["emotion"]} if w.get("emotion") else set()
+        emo_conds = _emotion_conds(w, signals)
         pos_conds = {w["chapter_pos"]} if w.get("chapter_pos") else set()
         if signals.scene and signals.scene in conds:
             per.append(f"场面:{signals.scene}")
-        if signals.emotion and signals.emotion in emo_conds:
+        if signals.emotion and _emotion_hit(w, signals):
             per.append(f"情绪:{signals.emotion}")
         if signals.chapter_pos and signals.chapter_pos in pos_conds:
             per.append(f"章位:{signals.chapter_pos}")
@@ -261,26 +295,38 @@ async def select_block(
     signals: MatchSignals,
     genre: str,
     concepts: tuple[str, ...] = ("手法", "文风", "文笔"),
+    book_scope: str | None = None,
     now=None,
 ) -> Selection | None:
     """选块主入口。零命中返回 None。确定性：同库同权重同章纲 → 同选集同顺序。"""
     import datetime as _dt
 
     now = now or _dt.datetime.utcnow()
-    groups = await digest_candidates(db, user_id=user_id, genre=genre, concepts=concepts)
+    groups = await digest_candidates(
+        db, user_id=user_id, genre=genre, concepts=concepts, book_scope=book_scope
+    )
     if not groups["tech"] and not groups["style"]:
         return None
 
     wanted = groups["tech"] | groups["style"]
-    rows = (
+    entry_model = KbBookEntry if book_scope else KbEntry
+    user_rows = (
         (
             await db.execute(
-                select(KbEntry).where(KbEntry.id.in_(sorted(wanted))).order_by(KbEntry.id)
+                select(entry_model)
+                .where(entry_model.id.in_(sorted(wanted)), entry_model.status == "active")
+                .order_by(entry_model.id)
             )
         )
         .scalars()
         .all()
     )
+    # 基线层取行（hide 已排、edit 副本已套＝merged 口径）；书域副本已含快照则不叠加
+    base_rows = (
+        [] if book_scope
+        else await load_baseline_entries(db, user_id=user_id, ids=sorted(wanted))
+    )
+    rows = list(user_rows) + list(base_rows)
     # 维度值集合（适用条件）一次性取回，避免逐条查 tags
     prefs = {
         p.entry_id: p

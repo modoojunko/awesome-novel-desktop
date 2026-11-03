@@ -12,7 +12,7 @@ from __future__ import annotations
 import json
 import os
 import uuid
-from datetime import datetime
+from datetime import UTC, datetime
 
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -104,14 +104,21 @@ async def create_task(
     graph_caps_flag: bool = True,
     thinking_mode: str = "off",
     mode: str = "smart",
+    status: str = "queued",
 ) -> DeconstructJob:
+    """建任务行。status 默认 queued 进应用内 FIFO；
+
+    离线批量脚本传 "running" 直接领取（否则应用里跑着的 dispatcher 会在 2s 轮询里
+    抢走同一行、造成双跑；脚本自己调 run_task 串行执行）。
+    """
     task_id = str(uuid.uuid4())
     os.makedirs(staging_dir(task_id), exist_ok=True)
     task = DeconstructJob(
         id=task_id,
         user_id=user_id,
-        status="queued",
+        status=status,
         queue_seq=await next_queue_seq(db),
+        started_at=datetime.now(UTC).replace(tzinfo=None) if status == "running" else None,
         source_name=source_name[:255],
         source_size=source_size,
         source_path=source_path_of(task_id),

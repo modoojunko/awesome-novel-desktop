@@ -32,7 +32,14 @@ from kb.match import (
     select_block,
 )
 from models.chapter import Chapter, ChapterCharacter
-from models.kb import KbBookBinding, KbEntry, KbLibrary, KbMatchItem, KbMatchRun
+from models.kb import (
+    KbBookBinding,
+    KbBookEntry,
+    KbEntry,
+    KbLibrary,
+    KbMatchItem,
+    KbMatchRun,
+)
 from models.project import Novel
 
 logger = logging.getLogger(__name__)
@@ -121,7 +128,9 @@ async def _binding_domain(
 ) -> tuple[str, list[str], str] | None:
     """书内启用且可进块的库域：(genre, concepts, fingerprint)。无 → None。
 
-    fingerprint＝启用库 id 集的稳定指纹（换库/启停即变——复用守卫，批F F3）。"""
+    fingerprint＝启用库 id 集的稳定指纹（换库/启停即变——复用守卫，批F F3）。
+    零绑定账号 → 基线回退域（c-kb-baseline 批B D0-3）：官方精选层就绪即出块，
+    不要求先建库绑定；有绑定的账号行为完全不变。"""
     rows = (
         await db.execute(
             select(KbBookBinding, KbLibrary)
@@ -136,7 +145,7 @@ async def _binding_domain(
         )
     ).all()
     if not rows:
-        return None
+        return await _baseline_domain(db, novel_id)
     genres = sorted({lib.genre for _b, lib in rows if lib.genre})
     genre = genres[0] if len(genres) == 1 else ""
     concepts = sorted({lib.concept for _b, lib in rows})
@@ -144,6 +153,51 @@ async def _binding_domain(
         json.dumps(sorted(lib.id for _b, lib in rows), ensure_ascii=False).encode("utf-8")
     ).hexdigest()[:64]
     return genre, concepts, fingerprint
+
+
+async def _baseline_domain(
+    db: AsyncSession, novel_id: str
+) -> tuple[str, list[str], str] | None:
+    """冷启动回退域：基线层未就绪（未同步/失败/空层）→ None（写法块不出现）。
+
+    genre 取书题材（story KV），concepts 恒为可进块三类，fingerprint 由
+    pack_version 派生——官方升级即换域重选（不误复用旧 run）。
+    """
+    from kb.baseline import VERSION_KEY
+    from models.app_meta import AppMeta
+    from models.kb import KbBaselineEntry
+
+    probe = (
+        await db.execute(select(KbBaselineEntry.entry_id).limit(1))
+    ).scalar_one_or_none()
+    if not probe:
+        return None
+    meta = await db.get(AppMeta, VERSION_KEY)
+    version = int(meta.value) if meta and str(meta.value).isdigit() else 0
+
+    genre = ""
+    try:
+        from filesystem.paths import KEY_TO_PATH
+        from filesystem.storage import get_storage
+
+        novel = await db.get(Novel, novel_id)
+        if novel is not None and novel.root_path:
+            # read_yaml 收「相对路径」（内部再路由到 KV 键）：KEY_TO_PATH["story"]
+            # = "story.yaml"；用 PATH_TO_KEY 会读到 {}（题材恒空→跨题材条目互串）
+            story = await get_storage().read_yaml(
+                novel.root_path, KEY_TO_PATH["story"]
+            ) or {}
+            genre = str(story.get("genre") or "").strip()
+    except Exception:  # noqa: BLE001 — 题材读不到＝按未建域处理（见下）
+        genre = ""
+    if not genre:
+        # 空题材在 digest 语义里是「不过滤」——会把所有题材的基线条目混进本书
+        # （跨题材串味）。宁可不回退：与「零绑定且无题材」的旧行为一致。
+        return None
+    fingerprint = hashlib.sha256(
+        f"baseline:{version}:{genre}".encode()
+    ).hexdigest()[:64]
+    return genre, list(_BLOCK_CONCEPTS), fingerprint
 
 
 def _material_hash(novel_id: str, chapter_ref: str, signals_brief: dict) -> str:
@@ -155,21 +209,36 @@ def _material_hash(novel_id: str, chapter_ref: str, signals_brief: dict) -> str:
 
 
 async def _load_run_items(
-    db: AsyncSession, run: KbMatchRun
-) -> list[tuple[KbMatchItem, KbEntry | None]]:
+    db: AsyncSession, run: KbMatchRun, *, user_id: str
+) -> list[tuple[KbMatchItem, object | None]]:
+    """run 清单 → (item, 条目)。三域解析（c-kb-book-scope × c-kb-baseline）：
+    书级副本 id 优先 → 账号条目 → 官方基线（merged：hide 已排、edit 副本已套）；
+    全部缺失（条目已删/官方下架）→ None，重建时按 text_snapshot 仍可出块。"""
+    from kb.merged import load_baseline_entries
+
     items = (
         await db.execute(
             select(KbMatchItem).where(KbMatchItem.run_id == run.id).order_by(KbMatchItem.id)
         )
     ).scalars().all()
-    entries = {
-        e.id: e
+    if not items:
+        return []
+    ids = sorted({i.entry_id for i in items})
+    entries: dict[str, object] = {}
+    for e in (
+        await db.execute(select(KbBookEntry).where(KbBookEntry.id.in_(ids)))
+    ).scalars():
+        entries[e.id] = e
+    miss = [i for i in ids if i not in entries]
+    if miss:
         for e in (
-            await db.execute(
-                select(KbEntry).where(KbEntry.id.in_([i.entry_id for i in items] or ["-"]))
-            )
-        ).scalars()
-    } if items else {}
+            await db.execute(select(KbEntry).where(KbEntry.id.in_(miss)))
+        ).scalars():
+            entries[e.id] = e
+        miss = [i for i in ids if i not in entries]
+        if miss:
+            for b in await load_baseline_entries(db, user_id=user_id, ids=miss):
+                entries[b.id] = b
     return [(i, entries.get(i.entry_id)) for i in items]
 
 
@@ -303,7 +372,18 @@ async def prepare_write_block(
 ) -> tuple[str | None, str | None, list[dict] | None]:
     """主入口。返回 (块文本, run_id, 清单摘要[前端只读区])；整链不抛（失败无块）。"""
     try:
-        domain = await _binding_domain(db, novel_id)
+        # 书级副本非空＝启用（c-kb-book-scope 批B：开书导入即开——开书自动导入
+        # 不落 bindings，闸门必须认副本；副本空再回退 bindings 存量路径）
+        copy_count = (
+            await db.execute(
+                select(KbBookEntry.id).where(
+                    KbBookEntry.novel_id == novel_id,
+                    KbBookEntry.status == "active",
+                )
+            )
+        ).scalars().first()
+        book_scope = copy_count is not None
+        domain = await _binding_domain(db, novel_id) if not book_scope else None
         ch = (
             await db.execute(
                 select(Chapter).where(
@@ -313,12 +393,19 @@ async def prepare_write_block(
                 )
             )
         ).scalar_one_or_none()
-        if domain is None or ch is None:
+        if ch is None or (domain is None and not book_scope):
             if ch is not None:
                 await _clear_kb_shadow_rows(db, ch.id)
                 await db.commit()
             return None, None, None
-        genre, concepts, fingerprint = domain
+        if book_scope:
+            from kb.book_scope import book_scope_fingerprint
+
+            fingerprint = await book_scope_fingerprint(db, novel_id=novel_id)
+            genre = ""  # 书副本已按题材筛过：书域取数不再按 genre 二次过滤
+            concepts = ("手法", "文风", "文笔")  # 副本已按题材筛过：全概念一致
+        else:
+            genre, concepts, fingerprint = domain
         chapter_pk = ch.id  # int 值拷贝：F1 rollback 会使 ORM 实例过期（MissingGreenlet 判例）
 
         runs = (
@@ -378,13 +465,15 @@ async def prepare_write_block(
                 selr = await select_block(
                     db, user_id=user_id, signals=signals,
                     genre=genre, concepts=concepts,
+                    book_scope=novel_id if book_scope else None,
                 )
                 if selr is None:
                     await _clear_kb_shadow_rows(db, ch.id)
                     await db.commit()
                     return None, None, None
-                selr = await _split_quantitative(db, chapter_id=chapter_pk, selection=selr)
+                # 先清旧影子再 split 写新影子（顺序反了会把刚写的量化行自己清掉）
                 await _clear_kb_shadow_rows(db, chapter_pk)
+                selr = await _split_quantitative(db, chapter_id=chapter_pk, selection=selr)
                 await db.flush()
                 if selr is None:
                     await db.commit()
@@ -410,7 +499,7 @@ async def prepare_write_block(
             else:
                 selr = await select_block(
                     db, user_id=user_id, signals=signals,
-                    genre=genre, concepts=concepts,
+                    genre=genre, concepts=concepts, book_scope=novel_id if book_scope else None,
                 )
                 if selr is None:
                     await _clear_kb_shadow_rows(db, chapter_pk)  # F4：零命中同清影子
@@ -464,7 +553,7 @@ async def prepare_write_block(
                         raise
                     run = race
                     # 赢家 run 的量化条目影子补写（rollback 丢了本流影子改动）
-                    pair = await _load_run_items(db, run)
+                    pair = await _load_run_items(db, run, user_id=user_id)
                     quant = []
                     for it, entry in pair:
                         dim = is_quantitative(entry) if entry else None
@@ -475,7 +564,7 @@ async def prepare_write_block(
                     await _apply_quant_shadow(db, chapter_pk, quant)
                     await db.commit()
 
-        pair = await _load_run_items(db, run)
+        pair = await _load_run_items(db, run, user_id=user_id)
         run_signals = MatchSignals(
             scene=run.scene, emotion=run.emotion, chapter_pos=run.chapter_pos, genre=genre,
         )

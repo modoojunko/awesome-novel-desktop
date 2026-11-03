@@ -66,6 +66,36 @@ export interface StyleSamples {
   hint: string;
 }
 
+/** 一条句式规则的草稿形状（与后端 style_kb 返回同构；form 的 TicPattern 少 name 以外都可缺省）。 */
+export interface StyleKbTic {
+  pattern: string;
+  name: string;
+  threshold: number;
+  severity: "high" | "medium" | "low";
+  description: string;
+}
+
+/** 按题材从知识库取到的文风草稿（c-style-kb-fill）——只读，采纳后由表单自己保存。 */
+export interface StyleKbDraft {
+  theme: string;
+  sub_genre: string;
+  role: string;
+  rules: string[];
+  craft: string[];
+  banned_words: string[];
+  tic_patterns: StyleKbTic[];
+  style_samples: string[];
+  counts: {
+    role: number;
+    rules: number;
+    craft: number;
+    banned_words: number;
+    tic_patterns: number;
+    style_samples: number;
+    total: number;
+  };
+}
+
 /** 六行基线（行序/标签与后端 style_quant_model.BASELINE_ROWS 镜像——改两边同批）。 */
 export const BASELINE_ROWS: Array<[string, string]> = [
   ["narrative", "镜头与人称"],
@@ -110,6 +140,13 @@ export const styleQuantApi = {
   },
   async commit(projectId: string): Promise<{ ok: boolean; quant: StyleQuant; banned_added: number }> {
     return api.post(`/novels/${projectId}/settings/ai/style-distill/commit`, {});
+  },
+};
+
+export const styleKbApi = {
+  /** 按本书题材取知识库文风草稿（只读；没定题材时返回 theme=""＋空数组）。 */
+  async draft(projectId: string): Promise<StyleKbDraft> {
+    return api.get(`/novels/${projectId}/settings/style/kb-draft`);
   },
 };
 

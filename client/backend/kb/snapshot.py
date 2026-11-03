@@ -111,6 +111,19 @@ def _payload_of(e: KbEntry) -> dict:
     return p if isinstance(p, dict) else {}
 
 
+def slot_target(concept: str, slot: str) -> str:
+    """概念+槽位 → style 落点键（无消费键/未知槽位 → ""）。
+
+    与 `build_members` 同一张映射表；供 payload 缺文本时改用 instruction 兜底的
+    调用方（c-style-kb-fill 草稿端点）复用，避免两处映射漂移。
+    """
+    if concept == "文风":
+        return _STYLE_SLOT_TARGET.get(slot, "")
+    if concept == "文笔":
+        return _CRAFT_SLOT_TARGET.get(slot, "")
+    return ""
+
+
 def build_members(entries: list[KbEntry]) -> list[dict[str, Any]]:
     """基线条目 → 快照成员（含落点 target 与落库文本，供来源行展示＋同步 diff）。
 
@@ -143,6 +156,9 @@ def build_members(entries: list[KbEntry]) -> list[dict[str, Any]]:
                 "part": part,
                 "target": target,
                 "text": text.strip(),
+                # 句式规则专用（c-style-kb-fill）：档次随条目走；其余槽位为空串。
+                # apply_members 仍按 medium 落库（行为不变），草稿端点用它回填表单。
+                "severity": str(payload.get("tic_severity") or ""),
             }
         )
     return members
@@ -157,8 +173,15 @@ def _snapshot_members(binding: KbBookBinding) -> list[dict[str, Any]]:
     return members if isinstance(members, list) else []
 
 
-async def apply_members(root_path: str, members: list[dict[str, Any]]) -> dict[str, int]:
-    """快照成员落书内 KV（style/world）。返回逐键落库计数（来源行「N 条」用）。"""
+async def apply_members(
+    root_path: str, members: list[dict[str, Any]], *, source: str = "manual"
+) -> dict[str, int]:
+    """快照成员落书内 KV（style/world）。返回逐键落库计数（来源行「N 条」用）。
+
+    source="manual"（默认，启用库/存量语义）｜"kb-genre"（c-kb-book-scope 开书导入）：
+    kb-genre 时 world 只落舞台/力量/代价三语法面（源书事实/铁律不灌新书——评审 F-2），
+    style KV 落 style_meta.source 标记（渲染端「题材文风示例」分源——评审 F-1）。"""
+    kb_genre = source == "kb-genre"
     landed: dict[str, int] = {}
 
     # ── 文风/文笔 → style KV ──
@@ -221,10 +244,18 @@ async def apply_members(root_path: str, members: list[dict[str, Any]]) -> dict[s
                 landed["style.tic_patterns"] = added
 
         if body:
-            await get_storage().write_yaml(root_path, path, put_style(raw, body))
+            merged_raw = put_style(raw, body)
+            if kb_genre:
+                # F-1：来源标记——渲染端分「题材文风示例」/「本书原文摘录」两种文案
+                merged_raw["style_meta"] = {**(merged_raw.get("style_meta") or {}), "source": "kb-genre"}
+            await get_storage().write_yaml(root_path, path, merged_raw)
 
     # ── 世界设定 → world KV ──
     world_members = [m for m in members if m["concept"] == "世界设定"]
+    if kb_genre:
+        # F-2 白名单：舞台/力量/代价＝题材语法可搬；势力/历史/细节/铁律＝源书事实不灌
+        _WORLD_PARTS_ALLOWED = ("stage", "power", "cost")
+        world_members = [m for m in world_members if m.get("part") in _WORLD_PARTS_ALLOWED]
     if world_members:
         from settings.world_model import normalize_world, put_world_merged
 

@@ -1,4 +1,4 @@
-// 采纳 rev 记账回归（fix/char-adopt-rev 评审补测）：逐格以服务端返回 rev 记账；
+// 起草角色采纳 rev 记账回归：逐格以服务端返回 rev 记账；
 // 单格 409 重同步后跳过续走，不再整批静默失败。
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { createRef } from "react";
@@ -50,18 +50,19 @@ function listWith(items: Record<string, unknown>[]) {
   };
 }
 
-function streamReceivedRefUnknown() {
-  return "n/a";
-}
-const DRAFT_COG = {
-  targets: "认知",
+const DRAFT = {
+  role: "配角",
+  name: "",
+  aliases: [] as string[],
+  persona: "",
   cells: [
     { path: "cog.w5", value: "甲" },
     { path: "cog.p3", value: "乙" },
     { path: "cog.p4", value: "丙" },
   ],
   skipped: [] as { key: string; why: string }[],
-  act: "insert",
+  prompt: "【本次提示词】",
+  sources: ["简介"],
 };
 
 beforeEach(() => {
@@ -72,31 +73,38 @@ beforeEach(() => {
     }
     return Promise.resolve({ data: cardData() });
   });
-  apiPost.mockResolvedValue({ data: cardData() });
+  apiPost.mockImplementation((url: string, body?: unknown) => {
+    if (String(url).includes("/draft-all")) {
+      if ((body as { preview?: boolean } | undefined)?.preview) {
+        return Promise.resolve({ data: { prompt: "【本次提示词】", sources: ["简介"], role: "配角" } });
+      }
+      return Promise.resolve({ data: DRAFT });
+    }
+    return Promise.resolve({ data: cardData() });
+  });
   apiPatch.mockResolvedValue({ data: { rev: 2 } });
 });
 
-async function openCogSink(ref: React.RefObject<CharacterSaveHandle | null>) {
+async function openDraftAllResult(ref: React.RefObject<CharacterSaveHandle | null>) {
   render(<CharacterManager ref={ref} projectId="p1" introReady />);
-  // 等卡片视图就绪（列表项会先行出现，card 未载时 runAi 会静默空跑）
   await screen.findByText(/一句话人设/);
-  // 排空挂载期 loadCard 的尾巴（其 setSink(null) 会清掉刚出的稿）
   await act(async () => {});
   await act(async () => {
-    await ref.current?.runAi?.("cog");
+    await ref.current?.runAi?.("draftAll");
   });
-  await screen.findByText("AI 生成 · 采纳才写入（只补空格）");
+  await screen.findByTestId("char-ai-prompt-edit");
+  fireEvent.click(screen.getByRole("button", { name: "生成" }));
+  await screen.findByText("AI 拟稿 · 起草角色（采纳才写入）");
 }
 
-describe("角色卡 AI 采纳 rev 记账", () => {
-  it("认知出稿→采纳：逐格 PATCH 以服务端返回 rev 记账（不本地 +1）", async () => {
-    apiPost.mockResolvedValue({ data: DRAFT_COG });
+describe("起草角色采纳 rev 记账", () => {
+  it("出稿→采纳：逐格 PATCH 以服务端返回 rev 记账（不本地 +1）", async () => {
     apiPatch
       .mockResolvedValueOnce({ data: { rev: 10 } })
       .mockResolvedValueOnce({ data: { rev: 20 } })
       .mockResolvedValueOnce({ data: { rev: 30 } });
     const ref = createRef<CharacterSaveHandle>();
-    await openCogSink(ref);
+    await openDraftAllResult(ref);
     fireEvent.click(screen.getByRole("button", { name: "采纳 · 写入" }));
     await waitFor(() => expect(apiPatch).toHaveBeenCalledTimes(3));
     const revs = apiPatch.mock.calls.map((c) => (c[1] as { base_rev: number }).base_rev);
@@ -105,32 +113,30 @@ describe("角色卡 AI 采纳 rev 记账", () => {
   });
 
   it("单格 409：重同步 rev 后跳过该格继续，不再整批中止", async () => {
-    apiPost.mockResolvedValue({ data: DRAFT_COG });
     apiPatch
       .mockRejectedValueOnce(Object.assign(new Error("rev_conflict"), { status: 409, rev: 9 }))
       .mockResolvedValueOnce({ data: { rev: 10 } })
       .mockResolvedValueOnce({ data: { rev: 11 } });
     const ref = createRef<CharacterSaveHandle>();
-    await openCogSink(ref);
+    await openDraftAllResult(ref);
     fireEvent.click(screen.getByRole("button", { name: "采纳 · 写入" }));
     await waitFor(() => expect(apiPatch).toHaveBeenCalledTimes(3));
     const revs = apiPatch.mock.calls.map((c) => (c[1] as { base_rev: number }).base_rev);
     expect(revs).toEqual([1, 9, 10]);
     const paths = apiPatch.mock.calls.map((c) => (c[1] as { path: string }).path);
     expect(paths).toEqual(["cog.w5", "cog.p3", "cog.p4"]);
-    // 采纳完成后 sink 收起
-    expect(screen.queryByText("AI 生成 · 采纳才写入（只补空格）")).toBeNull();
+    // 采纳完成后弹窗收起
+    expect(screen.queryByText("AI 拟稿 · 起草角色（采纳才写入）")).toBeNull();
   });
 
   it("非 409 错误仍整批抛出并提示重试", async () => {
-    apiPost.mockResolvedValue({ data: DRAFT_COG });
     apiPatch.mockRejectedValueOnce(new Error("网络断开"));
     const ref = createRef<CharacterSaveHandle>();
-    await openCogSink(ref);
+    await openDraftAllResult(ref);
     fireEvent.click(screen.getByRole("button", { name: "采纳 · 写入" }));
     await waitFor(() => expect(apiPatch).toHaveBeenCalledTimes(1));
-    // 只尝试了第一格（错误抛出中止），sink 未收起可重试
+    // 只尝试了第一格（错误抛出中止），弹窗未收起可重试
     expect(apiPatch).toHaveBeenCalledTimes(1);
-    expect(screen.getByText("AI 生成 · 采纳才写入（只补空格）")).toBeTruthy();
+    expect(screen.getByText("AI 拟稿 · 起草角色（采纳才写入）")).toBeTruthy();
   });
 });

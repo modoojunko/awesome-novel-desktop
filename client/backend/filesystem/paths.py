@@ -44,6 +44,12 @@ BOOK_PREFS_KEY = "book-prefs"
 IMPORT_NOTICE_PATH = "settings/import-notice.yaml"
 IMPORT_NOTICE_KEY = "import-notice"
 
+# 题材知识导入决策（c-kb-book-scope 弹窗二选一）：作家选过「我自己设定」后置
+# declined=true，设定页不再自动弹窗；改题材时清除（新题材重新征询）。同 book-prefs
+# 先例——专用键不进 PATH_TO_KEY，读写只走 kb/router.py 的 book-scope 端点。
+KB_IMPORT_PATH = "settings/kb-import.yaml"
+KB_IMPORT_KEY = "kb-import"
+
 # 目录型设定：无单文件端点，/settings/{type} 泛化端点应拒绝（指引走 /character/{name} 等）
 MULTI_FILE_SETTING_KEYS = {"characters"}
 
@@ -62,6 +68,8 @@ def route_relative_path(relative_path: str) -> str | None:
         return BOOK_PREFS_KEY
     if relative_path == IMPORT_NOTICE_PATH:
         return IMPORT_NOTICE_KEY
+    if relative_path == KB_IMPORT_PATH:
+        return KB_IMPORT_KEY
     if relative_path.startswith(CHARACTER_DIR + "/"):
         return CHARACTER_PREFIX + relative_path[len(CHARACTER_DIR) + 1 :]
     return None

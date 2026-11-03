@@ -227,6 +227,15 @@ async def lifespan(app: FastAPI):
     except Exception as _e:  # noqa: BLE001 — 自愈失败不挡启动（下次启动重试）
         _log.warning("kb auto library heal failed: %s", _e)
 
+    # ── 基线知识包同步（c-kb-baseline 批A）：启动补偿，纯 CDN 不要求登录态；
+    #    后台任务执行不挡启动，失败静默可重试（未就绪＝写法块不出现） ──
+    try:
+        from kb.baseline import schedule_sync
+
+        schedule_sync()
+    except Exception as _e:  # noqa: BLE001 — 挂接失败不挡启动
+        _log.warning("kb baseline sync schedule failed: %s", _e)
+
     # ── 知识整理启动钩（c-kb-organize）：僵尸 running sweep＋runs 保留＋>7 天题材整理 ──
     try:
         from kb.organize import startup_sweep_and_maybe_run

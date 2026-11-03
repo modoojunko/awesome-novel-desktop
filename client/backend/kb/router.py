@@ -13,6 +13,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from auth_local.deps import get_current_user
 from db import get_db
 from kb.concepts import CONCEPTS, THEMES
+from kb.migrate_library import ensure_legacy_migrated
 from kb.service import (
     create_entry,
     delete_entry,
@@ -22,7 +23,8 @@ from kb.service import (
     list_libraries,
     update_entry,
 )
-from models.kb import KbBookBinding, KbEntry, KbPref
+from library.service import ensure_genre_backfill
+from models.kb import KbBookBinding, KbBookEntry, KbEntry, KbPref
 from novels.service import get_novel
 
 router = APIRouter(prefix="/api/kb", tags=["kb"])
@@ -33,6 +35,18 @@ def _user(dep: dict) -> str:
 
 
 def _entry_dict(e: KbEntry) -> dict[str, Any]:
+    """条目 API 形状（用户条目与基线条目 MergedEntry 共用）。
+
+    基线层来源标签「官方精选」随层派生：src_kind="baseline" 只出现在响应里，
+    永不落 kb_entries（knowledge-base delta 明文）。layer/official_update 供 B6
+    前端只读操作面与「官方有新版」提示使用。
+    """
+    from kb.merged import has_official_update
+
+    def _iso(v):
+        return v.isoformat() if v is not None else ""
+
+    layer = getattr(e, "layer", "user")
     return {
         "id": e.id,
         "genre": e.genre,
@@ -49,9 +63,61 @@ def _entry_dict(e: KbEntry) -> dict[str, Any]:
         "status": e.status,
         "src_kind": e.src_kind,
         "src_novel_name": e.src_novel_name,
-        "created_at": e.created_at.isoformat(),
-        "updated_at": e.updated_at.isoformat(),
+        "created_at": _iso(e.created_at),
+        "updated_at": _iso(e.updated_at),
+        "layer": layer,
+        "src_key": getattr(e, "src_key", ""),
+        "overlaid": bool(getattr(e, "overlaid", False)),
+        "hidden": bool(getattr(e, "hidden", False)),
+        "official_update": has_official_update(e) if layer == "baseline" else False,
     }
+
+
+# ─── 官方精选同步状态（c-kb-baseline）：未就绪可重试 ───────
+
+
+@router.get("/baseline/status")
+async def baseline_status_api(
+    user: dict = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """基线层就绪状态（设备级；不要求登录态才有数据，这里只是展示口）。
+
+    `last_sync` 透出最近一次同步摘要（accepted/skipped/carried/promoted）：
+    skipped>0 表示包里有本端读不懂的条目（已沿用旧层原文，≠下架），便于发现两端口径漂移。
+    """
+    import json as _json
+
+    from kb.baseline import LAST_SYNC_KEY, VERSION_KEY
+    from models.app_meta import AppMeta
+    from models.kb import KbBaselineEntry
+
+    meta = await db.get(AppMeta, VERSION_KEY)
+    version = int(meta.value) if meta and str(meta.value).isdigit() else 0
+    n = (
+        await db.execute(select(func.count(KbBaselineEntry.entry_id)))
+    ).scalar_one()
+    last = await db.get(AppMeta, LAST_SYNC_KEY)
+    try:
+        last_sync = _json.loads(last.value) if last and last.value else {}
+    except ValueError:
+        last_sync = {}
+    return {
+        "ok": True,
+        "data": {"version": version, "entries": int(n or 0), "last_sync": last_sync},
+    }
+
+
+@router.post("/baseline/sync")
+async def baseline_sync_api(
+    user: dict = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """手动重试同步（启动补偿失败后的重试面；幂等，失败保旧层）。"""
+    from kb.baseline import sync_baseline
+
+    result = await sync_baseline(db)
+    return {"ok": True, "data": result}
 
 
 # ─── 题材栏 ──────────────────────────────────────────────
@@ -62,6 +128,9 @@ async def get_genres(
     db: AsyncSession = Depends(get_db),
 ):
     uid = _user(user)
+    # 题材回填挂点（c-library-genre-gate 跟进）：本端点与条目列表并行发起，计数
+    # 若先算会漏掉刚回填的条目——这里同挂一次，保证首屏计数与列表同口径（幂等自熄）
+    await ensure_genre_backfill(db, uid)
     counts = await genre_counts(db, user_id=uid)
     items = []
     for t in THEMES:
@@ -85,6 +154,11 @@ async def list_entries_api(
     db: AsyncSession = Depends(get_db),
 ):
     uid = _user(user)
+    # 老版角色库存量一次性迁移挂点（c-kb-library-once-migration）：升级账号首次
+    # 触达知识库读面即整账号搬入；幂等自熄，失败降级不阻断（详见 ensure 文档）
+    await ensure_legacy_migrated(db, user_id=uid)
+    # 题材回填挂点（c-library-genre-gate）：来源可解的空题材条目补题材，幂等自熄
+    await ensure_genre_backfill(db, uid)
     entries, next_cursor = await list_entries(
         db, user_id=uid, genre=genre, concept=concept,
         src=src, q=q, cursor=cursor, limit=limit,
@@ -104,7 +178,13 @@ async def get_entry_api(
     uid = _user(user)
     e = await get_entry(db, user_id=uid, entry_id=entry_id, include_merged=include_merged)
     if not e:
-        raise HTTPException(404, "Entry not found")
+        # 基线层条目：代理 id 落 kb_baseline_entries（merged 域回读，含副本/hide 判定）
+        from kb.merged import get_merged_entry
+
+        base = await get_merged_entry(db, user_id=uid, entry_id=entry_id)
+        if not base:
+            raise HTTPException(404, "Entry not found")
+        return {"ok": True, "data": _entry_dict(base)}
     data = _entry_dict(e)
     if e.status == "merged":
         # c-kb-organize 追溯：合并指向＋保留条目摘要
@@ -280,7 +360,10 @@ async def graph_aggregate_api(
     """聚合视图：题材×概念格子节点（默认首屏 ≤80 节点内）＋题材—格子层级边。"""
     uid = _user(user)
     counts = await genre_counts(db, user_id=uid)
-    # 格子计数：按 (genre, concept) 分组（含跨题材通用 genre=""）
+    # 格子计数：用户条目 ∪ 基线层（与题材栏/下钻同口径；只算用户段会让纯基线
+    # 账号的图谱空白、混合账号的节点数与格子和对不上）
+    from kb.merged import baseline_cell_counts
+
     rows = (
         await db.execute(
             select(KbEntry.genre, KbEntry.concept, func.count(KbEntry.id)).where(
@@ -288,9 +371,12 @@ async def graph_aggregate_api(
             ).group_by(KbEntry.genre, KbEntry.concept)
         )
     ).all()
+    cells: dict[tuple[str, str], int] = {(g, c): int(n) for g, c, n in rows}
+    for key, n in (await baseline_cell_counts(db, user_id=uid)).items():
+        cells[key] = cells.get(key, 0) + n
     nodes = []
     links = []
-    for genre, concept, n in rows:
+    for (genre, concept), n in cells.items():
         gid = f"genre:{genre or '_general'}"
         cid = f"cell:{genre or '_general'}:{concept}"
         nodes.append({"id": cid, "kind": "cell", "genre": genre or "", "concept": concept, "count": int(n)})
@@ -396,6 +482,55 @@ async def delete_entry_api(
     if not removed:
         raise HTTPException(404, "Entry not found")
     return {"ok": True, "data": {"deleted": entry_id}}
+
+
+# ─── 基线条目覆盖（c-kb-baseline 批B）：写时复制 ───────────
+
+
+class BaselineOverrideRequest(BaseModel):
+    action: str  # hide | edit
+    instruction: str = ""
+
+
+@router.put("/entries/{entry_id}/baseline-override")
+async def set_baseline_override_api(
+    entry_id: str,
+    body: BaselineOverrideRequest,
+    user: dict = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """隐藏／存副本（编辑基线＝在用户层物化副本，官方原件不变）。
+
+    只读层条目 SHALL 无编辑与删除：本端点是基线层唯一写口，且只写用户层。
+    """
+    from kb.merged import set_overlay
+
+    result = await set_overlay(
+        db, user_id=_user(user), entry_id=entry_id,
+        action=body.action, instruction=body.instruction,
+    )
+    if result.get("error") == "not_found":
+        raise HTTPException(404, "Entry not found")
+    if result.get("error") == "action":
+        raise HTTPException(422, detail={"message": "不支持的覆盖动作"})
+    if result.get("error") == "gate":
+        raise HTTPException(422, detail={"message": result.get("message") or "内容校验未通过"})
+    return {"ok": True, "data": {"entry_id": entry_id, "action": body.action}}
+
+
+@router.delete("/entries/{entry_id}/baseline-override")
+async def clear_baseline_override_api(
+    entry_id: str,
+    user: dict = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """恢复默认／恢复官方版：删覆盖记录，原件重新透出（基线层零变化）。"""
+    from kb.merged import clear_overlay
+
+    result = await clear_overlay(db, user_id=_user(user), entry_id=entry_id)
+    if result.get("error") == "not_found":
+        raise HTTPException(404, "Entry not found")
+    return {"ok": True, "data": {"entry_id": entry_id, "restored": True}}
 
 
 # ─── 原型使用计数（c-kb-character 批4）─────────────────────
@@ -528,19 +663,35 @@ async def set_pref_api(
     """有用/没用回写（c-kb-write-block C3）：kb_prefs 账号级 (user_id, entry_id)。
 
     useful=True→adopt_count+1，否则 drop_count+1；weight 存当前有用率
-    （采纳/(采纳+弃用)，下限 0.2）。可重复调用＝可改口。"""
+    （采纳/(采纳+弃用)，下限 0.2）。可重复调用＝可改口。
+    基线条目同样可反馈（反馈记在代理 id 上，供官方修订聚合，c-kb-baseline 批B）。"""
     from models.kb import KbEntry, KbPref
 
     uid = _user(user)
+    # 双域（c-kb-book-scope 批B）：副本 id 优先查书级（novel_id 归属校验防跨书打标），
+    # miss 回退账号级（存量语义）
+
+    copy = (
+        await db.execute(
+            select(KbBookEntry).where(
+                KbBookEntry.id == entry_id,
+                KbBookEntry.user_id == uid,
+                KbBookEntry.status == "active",
+            )
+        )
+    ).scalar_one_or_none()
     entry = (
         await db.execute(
             select(KbEntry).where(
                 KbEntry.id == entry_id, KbEntry.user_id == uid, KbEntry.status == "active"
             )
         )
-    ).scalar_one_or_none()
+    ).scalar_one_or_none() if copy is None else copy
     if entry is None:
-        raise HTTPException(404, "Entry not found")
+        from kb.merged import get_merged_entry
+
+        if await get_merged_entry(db, user_id=uid, entry_id=entry_id) is None:
+            raise HTTPException(404, "Entry not found")
     useful = bool(body.get("useful"))
     pref = (
         await db.execute(
@@ -777,3 +928,122 @@ async def graph_entries_api(
     from kb.organize import graph_entries
 
     return {"ok": True, "data": await graph_entries(db, user_id=_user(user), genre=genre)}
+
+@router.post("/book-scope/import")
+async def import_book_scope_api(
+    body: dict,
+    user: dict = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """存量书补平（c-kb-book-scope 批C）：按书题材把账号库「命中＋通用」增量导入
+    书级副本（幂等，只补新条）。非流式出口（来源行一键导入）。"""
+    from models.project import Novel as _Novel
+
+    uid = _user(user)
+    novel_id = str(body.get("novel_id") or "")
+    novel = await db.get(_Novel, novel_id)
+    if novel is None or novel.user_id != uid or novel.status == "deleted":
+        raise HTTPException(404, "Book not found")
+    from kb.book_scope import import_genre_knowledge, novel_genre
+
+    result = await import_genre_knowledge(
+        db, novel_id=novel_id, user_id=uid, genre=await novel_genre(novel.root_path)
+    )
+    return {"ok": True, "data": result}
+
+
+@router.post("/book-scope/import/stream")
+async def import_book_scope_stream_api(
+    body: dict,
+    user: dict = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """题材知识导入进度流（c-kb-book-scope 弹窗二选一）：SSE 逐概念组下发进度。
+
+    事件：phase(copy,total) → phase(copy,concept,done,total)×N → phase(baseline)
+    → done{imported,skipped,...}；流内失败以 error 事件收尾（前端可读）。"""
+    from fastapi.responses import StreamingResponse
+
+    from models.project import Novel as _Novel
+
+    uid = _user(user)
+    novel_id = str(body.get("novel_id") or "")
+    novel = await db.get(_Novel, novel_id)
+    if novel is None or novel.user_id != uid or novel.status == "deleted":
+        raise HTTPException(404, "Book not found")
+    from kb.book_scope import novel_genre, stream_import_genre_knowledge
+
+    genre = await novel_genre(novel.root_path)
+
+    async def _gen():
+        try:
+            async for ev in stream_import_genre_knowledge(
+                db, novel_id=novel_id, user_id=uid, genre=genre
+            ):
+                yield f"data: {json.dumps(ev, ensure_ascii=False)}\n\n"
+        except Exception as e:  # noqa: BLE001 —— 流内失败以事件收尾，不静默断流
+            yield (
+                "data: "
+                + json.dumps(
+                    {"type": "error", "message": str(e) or "导入失败"},
+                    ensure_ascii=False,
+                )
+                + "\n\n"
+            )
+
+    return StreamingResponse(
+        _gen(),
+        media_type="text/event-stream",
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+    )
+
+
+@router.post("/book-scope/decline")
+async def book_scope_decline_api(
+    body: dict,
+    user: dict = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """弹窗二选一里的「我自己设定」：落 declined 标记，设定页不再自动弹窗
+    （来源行保留手动导入出口）。"""
+    from models.project import Novel as _Novel
+
+    uid = _user(user)
+    novel_id = str(body.get("novel_id") or "")
+    novel = await db.get(_Novel, novel_id)
+    if novel is None or novel.user_id != uid or novel.status == "deleted":
+        raise HTTPException(404, "Book not found")
+    from kb.book_scope import write_import_declined
+
+    declined = bool(body.get("declined", True))
+    await write_import_declined(novel.root_path, declined)
+    return {"ok": True, "data": {"declined": declined}}
+
+
+@router.get("/book-scope/diff")
+async def book_scope_diff_api(
+    novel_id: str = "",
+    user: dict = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """「库有 N 条新增」差异计数＋导入决策（c-kb-book-scope）：题材命中未复制的
+    active 条目数；declined=作家已选过「我自己设定」。"""
+    from models.project import Novel as _Novel
+
+    uid = _user(user)
+    novel = await db.get(_Novel, novel_id)
+    if novel is None or novel.user_id != uid or novel.status == "deleted":
+        raise HTTPException(404, "Book not found")
+    from kb.book_scope import load_import_state, novel_genre, read_import_declined
+
+    genre = await novel_genre(novel.root_path)
+    # 差异＝merged 视图（用户条目∪基线层）里尚未复制进本书的条数——与导入同一口径
+    _sources, todo = await load_import_state(
+        db, novel_id=novel_id, user_id=uid, genre=genre
+    )
+    new_count = len(todo)
+    declined = await read_import_declined(novel.root_path)
+    return {
+        "ok": True,
+        "data": {"new_count": int(new_count or 0), "declined": declined},
+    }

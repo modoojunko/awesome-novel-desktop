@@ -19,6 +19,10 @@ import { type SettingSaveHandle } from "@/components/novel/settings/FormField";
 import WorldSettingPanel from "@/components/novel/settings/world/WorldSettingPanel";
 import type { WorldPanelHandle } from "@/components/novel/settings/world/WorldSettingPanel";
 import StyleSettingForm, { type StylePanelHandle } from "@/components/novel/settings/StyleSettingForm";
+import BookScopeStrip from "@/components/novel/settings/BookScopeStrip";
+import ImportChoiceModal from "@/components/novel/settings/ImportChoiceModal";
+import { kbApi } from "@/lib/kbApi";
+import { styleKbApi, type StyleKbDraft } from "@/lib/styleApi";
 import KbSourceStrip from "@/components/novel/settings/KbSourceStrip";
 import HooksSettingForm, { type HookSaveState, type HooksPanelHandle } from "@/components/novel/settings/HooksSettingForm";
 import CharacterManager, { type CharGateHint } from "@/components/novel/settings/CharacterManager";
@@ -139,6 +143,43 @@ export default function SettingsView({
   const [dirty, setDirty] = useState(false);
   const [busy, setBusy] = useState(false);
 
+  // ── 题材知识导入征询（c-kb-book-scope 弹窗二选一）──────────────────────
+  // 题材定稿后（或进入已有题材的书）差异 >0 且作家没选过「我自己设定」→ 自动弹。
+  // 取不到差异＝安静（增强件，不能挡设定页）。
+  const [kbImportOpen, setKbImportOpen] = useState(false);
+  const [kbNewCount, setKbNewCount] = useState(0);
+  const [kbGenre, setKbGenre] = useState("");
+  const kbPromptedRef = useRef(false);
+  const checkKbImport = useCallback(
+    async (genreLabel?: string) => {
+      try {
+        const d = await kbApi.bookScopeDiff(projectId);
+        setKbNewCount(d.new_count);
+        if (genreLabel !== undefined) {
+          setKbGenre(genreLabel);
+        } else if (d.new_count > 0) {
+          // 进设定页自动征询：题材名现读（story KV 的 01 格），失败就按「本题材」兜底
+          try {
+            const g = (await api.get(`/novels/${projectId}/settings/genre`)) as { theme?: string };
+            setKbGenre(g?.theme || "");
+          } catch {
+            /* 静默：弹窗文案兜底「本题材」 */
+          }
+        }
+        if (d.new_count > 0 && !d.declined) setKbImportOpen(true);
+      } catch {
+        /* 增强件：差异取不到就不打扰 */
+      }
+    },
+    [projectId],
+  );
+  // 进入设定页时只在「已有题材」的书上自动征询一次（未选题材不弹）
+  useEffect(() => {
+    if (!settingsStatus?.genre || kbPromptedRef.current) return;
+    kbPromptedRef.current = true;
+    void checkKbImport();
+  }, [settingsStatus?.genre, checkKbImport]);
+
   const formRef = useRef<SettingSaveHandle>(null);
   /** 主线面板句柄（save 走 formRef 同一 ref；runAi 为 arc 面板专属能力） */
   const arcFormRef = useRef<ArcFormHandle>(null);
@@ -234,6 +275,33 @@ export default function SettingsView({
     }
   }, []);
   const [charCtx, setCharCtx] = useState<CharAiCtx | null>(null);
+  /** 按题材填文风（c-style-kb-fill）：进文风面板取一次草稿摘要，只用于右栏行的描述与置灰。 */
+  const [styleKb, setStyleKb] = useState<StyleKbDraft | null>(null);
+  useEffect(() => {
+    if (panel !== "style") return;
+    let alive = true;
+    styleKbApi
+      .draft(projectId)
+      .then((d) => {
+        if (alive) setStyleKb(d);
+      })
+      .catch(() => {
+        // 摘要失败＝行退回通用描述仍可点（点击时再取一次，失败给 toast）
+        if (alive) setStyleKb(null);
+      });
+    return () => {
+      alive = false;
+    };
+  }, [panel, projectId]);
+  /** 角色列表已载入且一张卡都没有（右栏空态「从简介立主角」入口判据） */
+  const [charEmpty, setCharEmpty] = useState(false);
+  /** 角色列表已载入且至少有一张卡（右栏「起草角色」新建分支判据） */
+  const [charHasCards, setCharHasCards] = useState(false);
+  // 换面板即清：上一轮的空态/有卡判据不能借给新挂载的角色面板首帧
+  useEffect(() => {
+    setCharEmpty(false);
+    setCharHasCards(false);
+  }, [panel]);
   /** 角色整项确认缺口（c-chars-confirm-scope）：CharacterManager 上抛，页脚提示按档位取用 */
   const [charGateHint, setCharGateHint] = useState<CharGateHint | null>(null);
   // 伏笔面板（foreshadow-settings-v2）：徽标五态 / 保存四态 / 选中条目 ctx 的上报落点。
@@ -426,13 +494,34 @@ export default function SettingsView({
     [hookCtx, runHooksAi],
   );
 
-  // 文风右栏四行（style-settings-v2；data-aiact s1-s4）：蒸馏跳量化页签并打开样本面板。
+  // 文风右栏五行（style-settings-v2；data-aiact s1-s4；c-style-kb-fill 增首行）：
+  // 首行「按题材填文风」读知识库、不调模型（ungated：无 Key/免费版照常可用）；
   // 蒸馏＝style-quant（MAX 专属，四档拆 key）——maxlk 锁视觉但保持可点，非 MAX 点击
   // 端内直出升级口（member-block），不发请求；前端快照误放行时后端 style-quant 门
   // 403 兜底。（AiWriterAssistant 行契约：锁定行 SHALL NOT disabled——吞 click 即无出口）
   const styleQuant = useFeature("style-quant");
-  const styleAiRows = useMemo<AiCapabilityRow[]>(
-    () => [
+  const styleAiRows = useMemo<AiCapabilityRow[]>(() => {
+    const kbTheme = styleKb?.theme ?? "";
+    const kbTotal = styleKb?.counts?.total ?? 0;
+    const kbEmpty = !!styleKb && (!kbTheme || kbTotal === 0);
+    return [
+      {
+        key: "kb",
+        name: "按题材填文风",
+        desc: !styleKb
+          ? "按这本书的题材，从知识库里找一份文风起点。"
+          : !kbTheme
+            ? "还没定题材，不知道该按哪个题材取。"
+            : kbTotal === 0
+              ? `知识库里还没有${kbTheme}的写法——先拆一本同题材的书，或者去知识库记几条。`
+              : `这本书是${kbTheme}，库里有 ${kbTotal} 条同题材的写法。点开挑一挑，采纳就填进文风页。`,
+        disabled: kbEmpty,
+        hint: !kbTheme ? "先定题材" : "库是空的",
+        ungated: true,
+        runningHint: "正在翻知识库…",
+        odId: "ai-style-kb",
+        onClick: () => runStyleAi("kb"),
+      },
       {
         key: "distill",
         name: "蒸馏我的文风",
@@ -471,9 +560,8 @@ export default function SettingsView({
         desc: "从已归档正文里挑 1–3 条最能代表文风的句子 · 输入：已归档章节",
         onClick: () => runStyleAi("fewshot"),
       },
-    ],
-    [runStyleAi, styleQuant],
-  );
+    ];
+  }, [runStyleAi, styleQuant, styleKb]);
 
   useEffect(() => {
     if (initialPanel) setPanel(normalizePanel(initialPanel));
@@ -840,14 +928,23 @@ export default function SettingsView({
             className={panel === "chars" || panel === "foreshadow" ? "sub-wrap" : undefined}
           >
             {panel === "genre" && (
-              <GenreSettingForm
+              <>
+                {/* 书级知识副本补平入口（c-kb-book-scope 批D）：题材命中未导入时给一键导入 */}
+                <BookScopeStrip key={kbNewCount} projectId={projectId} />
+                <GenreSettingForm
                 ref={genreRef}
                 projectId={projectId}
                 settingKey="genre"
                 onDirtyChange={handleDirtyChange}
                 onReceiptChange={handleReceiptChange}
                 novelName={novelName}
+                onSaved={(theme) => {
+                  // 题材定稿＝重新征询二选一（改题材后端已清 declined）
+                  kbPromptedRef.current = true;
+                  void checkKbImport(theme);
+                }}
               />
+              </>
             )}
             {panel === "intro" && (
               <IntroPanel
@@ -925,6 +1022,8 @@ export default function SettingsView({
                 projectId={projectId}
                 onDirtyChange={handleDirtyChange}
                 onCtxChange={setCharCtx}
+                onEmptyChange={setCharEmpty}
+                onHasCardsChange={setCharHasCards}
                 onGateHintChange={setCharGateHint}
                 onRefreshConfirmState={onRefreshConfirmState}
                 introReady={!!settingsStatus?.synopsis}
@@ -1053,6 +1152,13 @@ export default function SettingsView({
         ) : panel === "chars" ? (
           <CharsAiRail
             ctx={charCtx}
+            noCard={charEmpty}
+            hasCards={charHasCards}
+            introReady={!!settingsStatus?.synopsis}
+            hasConfirmed={
+              !!settingsStatus &&
+              ["genre", "synopsis", "world", "story-arc"].some((k) => settingsStatus[k] === true)
+            }
             aiState={aiState}
             onBlocked={handleAiBlocked}
             runningKey={aiRunningKey}
@@ -1071,7 +1177,7 @@ export default function SettingsView({
         ) : panel === "style" ? (
           <AiWriterAssistant
             rows={styleAiRows}
-            footNote="蒸馏学到的禁用词会自动并入硬约束区下方的「禁用词」组并去重；机器写的章永不回写文风卡——重蒸馏只由你触发，每次蒸馏都有版本快照；要保住的基线行锁定即可，重蒸馏跳过。所有 AI 辅助功能都在本栏，编辑区不放 AI 按钮；免费版四行可见＋锁定，点击走统一升级提示。"
+            footNote="「按题材填文风」读的是知识库，不调用模型，也不花额度；其余四行才是 AI。蒸馏学到的禁用词会自动并入硬约束区下方的「禁用词」组并去重；机器写的章永不回写文风卡——重蒸馏只由你触发，每次蒸馏都有版本快照；要保住的基线行锁定即可，重蒸馏跳过。"
             aiState={aiState}
             aiStateMessage={aiMessage}
             onBlocked={handleAiBlocked}
@@ -1087,6 +1193,20 @@ export default function SettingsView({
           </div>
         )}
       </aside>
+
+      {/* 题材知识导入二选一（c-kb-book-scope）：从知识库导入默认设定 / 我自己设定 */}
+      <ImportChoiceModal
+        projectId={projectId}
+        open={kbImportOpen}
+        newCount={kbNewCount}
+        genreLabel={kbGenre}
+        onClose={() => setKbImportOpen(false)}
+        onImported={() => void checkKbImport()}
+        onDeclined={() => {
+          setKbNewCount(0);
+          setKbImportOpen(false);
+        }}
+      />
     </div>
   );
 }

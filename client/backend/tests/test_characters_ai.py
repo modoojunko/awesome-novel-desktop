@@ -644,3 +644,175 @@ class TestBootstrapCellBriefs:
         assert "种族" in prompt and "势力 · 身份" in prompt
         # 防错位禁令在 prompt 里
         assert "不同格禁止说同一件事" in prompt
+
+
+# ═══════════ 起草角色（c-chars-draft-all） ═══════════
+
+
+async def _root_of(nid: str) -> str:
+    async with async_session() as session:
+        novel = await session.get(Novel, nid)
+        return novel.root_path  # type: ignore[union-attr]
+
+
+class TestDraftAll:
+    """有卡只补空格 / 无卡新建；输入只读已确认设定＋名册＋本卡。"""
+
+    def _confirm(self, nid: str, **flags):
+        async def _go():
+            from filesystem.storage import get_storage
+
+            await get_storage().write_yaml(
+                await _root_of(nid), "settings/settings-status.yaml", flags
+            )
+
+        asyncio.run(_go())
+
+    def _preview(self, c, nid, body):
+        return c.post(
+            f"/api/novels/{nid}/settings/ai/characters/draft-all",
+            json={**body, "preview": True},
+        )
+
+    def test_preview_reads_confirmed_only(self, client):
+        c, nid, captured = client
+        self._confirm(nid, synopsis=True, world=False, **{"story-arc": False})
+        r = self._preview(c, nid, {"role": "配角"})
+        assert r.status_code == 200, r.text
+        data = r.json()["data"]
+        assert data["role"] == "配角"
+        assert data["sources"] == ["简介"]  # world 内容已在库，但未确认 → 不入参
+        assert "【简介】" in data["prompt"] and "杂役弟子靠背残页翻盘" in data["prompt"]
+        assert "【世界】" not in data["prompt"]
+        assert "【主线】" not in data["prompt"]
+        assert captured == []  # preview 不调 AI、不计费
+
+    def test_preview_world_confirmed_included(self, client):
+        c, nid, _ = client
+        self._confirm(nid, synopsis=True, world=True)
+        r = self._preview(c, nid, {"role": "反派"})
+        assert r.status_code == 200, r.text
+        data = r.json()["data"]
+        assert data["sources"] == ["简介", "世界"]
+        assert "【世界】" in data["prompt"]
+
+    def test_no_confirmed_400(self, client):
+        c, nid, _ = client
+        self._confirm(nid, genre=False, synopsis=False, world=False, **{"story-arc": False})
+        r = self._preview(c, nid, {"role": "配角"})
+        assert r.status_code == 400
+        assert "还没有已确认的设定" in r.text
+
+    def test_new_card_requires_role(self, client):
+        c, nid, _ = client
+        self._confirm(nid, synopsis=True)
+        r = self._preview(c, nid, {})
+        assert r.status_code == 400
+        assert "配角或反派" in r.text
+
+    def test_existing_card_only_fills_empty(self, client, monkeypatch):
+        c, nid, captured = client
+        self._confirm(nid, synopsis=True)
+        card = asyncio.run(
+            _add_card(
+                nid, name="老周", role="配角", persona="已经有人设",
+                dossier={"race": "人族"}, cog={"w1": "旧认知"},
+            )
+        )
+        # 预览：本卡已写进 filled_lines，且不再进「已有角色」名册
+        prev = self._preview(c, nid, {"character_id": card.id})
+        assert prev.status_code == 200, prev.text
+        prompt = prev.json()["data"]["prompt"]
+        assert prompt.count("老周") == 1  # 只在 filled_lines 出现（名册排除了本卡）
+        assert "名字：老周" in prompt
+        assert "一句话人设：已经有人设" in prompt
+        assert "race：人族" in prompt
+        assert "（还没有其他角色卡）" in prompt
+        assert captured == []
+
+        payload = {
+            "name": "新名", "aliases": ["老周别名"], "persona": "新的人设",
+            "fills": {"race": "妖族", "look": "瘦高", "w1": "新认知", "w5": "盲区"},
+        }
+        _install_fake(monkeypatch, payload, captured)
+        r = c.post(
+            f"/api/novels/{nid}/settings/ai/characters/draft-all",
+            json={"character_id": card.id, "prompt": "CUSTOM PROMPT"},
+        )
+        assert r.status_code == 200, r.text
+        data = r.json()["data"]
+        assert data["role"] == "配角"
+        # 已有字一个不动：name/persona 丢弃，race/w1 已填 → 只落 look/w5
+        assert data["name"] == "" and data["persona"] == ""
+        assert [x["path"] for x in data["cells"]] == ["dossier.look", "cog.w5"]
+        assert data["aliases"] == ["老周别名"]  # 卡上原本没有别名 → 可写
+        # 编辑稿逐字下发
+        assert captured[0]["messages"][0]["content"] == "CUSTOM PROMPT"
+        assert data["prompt"] == "CUSTOM PROMPT"
+
+    def test_roadman_only_dossier(self, client, monkeypatch):
+        c, nid, captured = client
+        self._confirm(nid, synopsis=True)
+        card = asyncio.run(_add_card(nid, name="路人甲", role="路人"))
+        _install_fake(
+            monkeypatch,
+            {"name": "新名", "persona": "人设", "fills": {"gender": "男", "w5": "盲区", "b1": "憨"}},
+            captured,
+        )
+        r = c.post(
+            f"/api/novels/{nid}/settings/ai/characters/draft-all",
+            json={"character_id": card.id},
+        )
+        assert r.status_code == 200, r.text
+        data = r.json()["data"]
+        assert data["persona"] == ""  # 路人只填基础档案
+        assert [x["path"] for x in data["cells"]] == ["dossier.gender"]
+
+    def test_new_card_generates_with_role(self, client, monkeypatch):
+        c, nid, captured = client
+        self._confirm(nid, synopsis=True)
+        _install_fake(
+            monkeypatch,
+            {"name": "反派甲", "aliases": [], "persona": "根由", "fills": {"w5": "盲区"}},
+            captured,
+        )
+        r = c.post(
+            f"/api/novels/{nid}/settings/ai/characters/draft-all",
+            json={"role": "反派"},
+        )
+        assert r.status_code == 200, r.text
+        data = r.json()["data"]
+        assert data["role"] == "反派"
+        assert data["name"] == "反派甲"
+        assert [x["path"] for x in data["cells"]] == ["cog.w5"]
+        assert "CUSTOM" not in data["prompt"]
+        assert data["prompt"]  # 渲染稿回显
+
+    def test_empty_output_502(self, client, monkeypatch):
+        c, nid, captured = client
+        self._confirm(nid, synopsis=True)
+        _install_fake(monkeypatch, {}, captured)
+        r = c.post(
+            f"/api/novels/{nid}/settings/ai/characters/draft-all",
+            json={"role": "配角"},
+        )
+        assert r.status_code == 502
+
+    def test_timeout_502(self, client, monkeypatch):
+        c, nid, _ = client
+        self._confirm(nid, synopsis=True)
+
+        async def _fake(novel_id):
+            class _T:
+                async def chat(self, **kw):
+                    raise AITimeoutError("slow")
+
+            return _T()
+
+        monkeypatch.setattr("settings.characters_ai.get_ai_client_for_novel", _fake)
+        r = c.post(
+            f"/api/novels/{nid}/settings/ai/characters/draft-all",
+            json={"role": "配角"},
+        )
+        assert r.status_code == 502
+        assert "超时" in r.text

@@ -1537,13 +1537,18 @@ def test_import_style_accepts_string_and_single_object(client):
     assert style["craft"] == ["雨意象：以雨串场"]
 
 
-def test_import_style_empty_product_keeps_seeded_defaults(client):
-    """产物为空不写空数组：新书种子的默认硬约束/手法保留，文风页不被清空。"""
+def test_import_style_empty_product_keeps_book_style(client):
+    """产物为空不写空数组：本书文风原样保留。
+
+    c-style-kb-fill 后新书三区不再播种（留空），故这里断言「空产物仍空」＋
+    通用护栏（禁用词）在位——退化的写法（写空数组）不会把护栏冲掉。
+    """
     body = _import_style(client, "dec-style-empty", {}, book_name="空文风书")
     assert any("写作文风产物为空" in w for w in body["warnings"])
     style = _read_style(body["book_id"])
-    assert style["role"].strip()
-    assert style["rules"] and style["craft"]
+    assert style["role"] == ""
+    assert style["rules"] == [] and style["craft"] == []
+    assert style["banned_words"]
 
 
 def test_render_md_style_role_label():

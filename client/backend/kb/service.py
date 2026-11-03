@@ -339,17 +339,50 @@ async def list_entries(
     q: str = "",
     cursor: str = "",
     limit: int = 30,
-) -> tuple[list[KbEntry], str]:
-    """条目列表——游标分页。返回 (entries, next_cursor)。"""
+) -> tuple[list, str]:
+    """条目列表——merged 视图游标分页。返回 (entries, next_cursor)。
+
+    merged 域（c-kb-baseline 批B）：基线段（已排 hide、edit 副本已套）∪ 用户条目。
+    两段各按 id 游标取页后在 Python 归并（基线 ≤1000 行、单页有界），
+    保证跨表分页不重不漏。来源筛选："官方精选" 只取基线；手录/拆书 只取用户条目。
+    """
+    from kb.merged import load_baseline_entries, load_hidden_entries
+
+    src_hidden_only = src == "已隐藏"
+    src_base_only = src == "官方精选"
+    src_user_only = src in ("手录", "拆书")
+
+    g = genre if genre and genre != "全部题材" else ""
+    c = concept if concept and concept != "全部" else ""
+
+    entries: list = []
+    next_cursor = ""
+    if src_hidden_only:
+        # 「已隐藏」＝hide 白名单回读（恢复默认的唯一入口，否则隐藏不可逆）
+        rows = await load_hidden_entries(
+            db, user_id=user_id, genre=g, concept=c, q=q, cursor=cursor, limit=limit + 1,
+        )
+        has_more = len(rows) > limit
+        entries = rows[:limit]
+        next_cursor = entries[-1].id if has_more and entries else ""
+        return entries, next_cursor
+    if src_base_only:
+        rows = await load_baseline_entries(
+            db, user_id=user_id, genre=g, concept=c, q=q, cursor=cursor, limit=limit + 1,
+        )
+        has_more = len(rows) > limit
+        entries = rows[:limit]
+        next_cursor = entries[-1].id if has_more and entries else ""
+        return entries, next_cursor
 
     stmt = select(KbEntry).where(
         KbEntry.user_id == user_id,
         KbEntry.status == "active",
     )
-    if genre and genre != "全部题材":
-        stmt = stmt.where(KbEntry.genre == genre)
-    if concept and concept != "全部":
-        stmt = stmt.where(KbEntry.concept == concept)
+    if g:
+        stmt = stmt.where(KbEntry.genre == g)
+    if c:
+        stmt = stmt.where(KbEntry.concept == c)
     if src and src != "全部":
         if src == "手录":
             stmt = stmt.where(KbEntry.src_kind == "manual")
@@ -361,10 +394,21 @@ async def list_entries(
         stmt = stmt.where(KbEntry.id > cursor)
 
     stmt = stmt.order_by(KbEntry.id).limit(limit + 1)
-    rows = (await db.execute(stmt)).scalars().all()
+    user_rows = list((await db.execute(stmt)).scalars().all())
 
-    has_more = len(rows) > limit
-    entries = rows[:limit]
+    if src_user_only:
+        rows = user_rows
+        has_more = len(rows) > limit
+        entries = rows[:limit]
+        next_cursor = entries[-1].id if has_more and entries else ""
+        return entries, next_cursor
+
+    base_rows = await load_baseline_entries(
+        db, user_id=user_id, genre=g, concept=c, q=q, cursor=cursor, limit=limit + 1,
+    )
+    merged = sorted(user_rows + base_rows, key=lambda e: e.id)
+    has_more = len(merged) > limit
+    entries = merged[:limit]
     next_cursor = entries[-1].id if has_more and entries else ""
     return entries, next_cursor
 
@@ -397,11 +441,16 @@ async def list_libraries(
 
 
 async def genre_counts(db: AsyncSession, *, user_id: str) -> dict[str, int]:
-    """题材→条目计数（只算 active）。"""
+    """题材→条目计数（只算 active）；merged 口径＝用户段∪基线段（已排 hide）。"""
+    from kb.merged import baseline_genre_counts
+
     stmt = (
         select(KbEntry.genre, func.count(KbEntry.id))
         .where(KbEntry.user_id == user_id, KbEntry.status == "active")
         .group_by(KbEntry.genre)
     )
     rows = (await db.execute(stmt)).all()
-    return {r[0]: r[1] for r in rows}
+    counts = {r[0]: r[1] for r in rows}
+    for g, n in (await baseline_genre_counts(db, user_id=user_id)).items():
+        counts[g] = counts.get(g, 0) + n
+    return counts

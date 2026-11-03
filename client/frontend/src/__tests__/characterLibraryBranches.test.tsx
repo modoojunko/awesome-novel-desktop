@@ -196,3 +196,57 @@ describe("LibraryAvatar 加载失败兜底", () => {
     expect(document.querySelector("img")).toBeNull();
   });
 });
+
+// ─── 题材门禁（c-library-genre-gate）：跨题材不列、通用/未设放行、全滤题材空态 ───
+
+describe("题材门禁", () => {
+  it("用到新书：只列同题材书＋书题材未设放行，跨题材不出现", async () => {
+    api.listNovelOptions.mockResolvedValue([
+      { id: "n1", name: "剑照山河", genre_norm: "武侠" },
+      { id: "n2", name: "长夜灯", genre_norm: "科幻" },
+      { id: "n3", name: "待定书", genre_norm: "" },
+    ]);
+    wrap(<UseInNovelModal card={card({ genre_norm: "武侠" }) as never} onClose={vi.fn()} />);
+    await waitFor(() => expect(screen.getByText("《剑照山河》")).toBeInTheDocument());
+    expect(screen.getByText("《待定书》")).toBeInTheDocument();
+    expect(screen.queryByText("《长夜灯》")).toBeNull();
+  });
+
+  it("用到新书：没有同题材书时给题材提示", async () => {
+    api.listNovelOptions.mockResolvedValue([
+      { id: "n2", name: "长夜灯", genre_norm: "科幻" },
+    ]);
+    wrap(<UseInNovelModal card={card({ genre_norm: "武侠" }) as never} onClose={vi.fn()} />);
+    await waitFor(() => expect(screen.getByText(/没有「武侠」题材的书/)).toBeInTheDocument());
+  });
+
+  it("书内导入：只列同题材卡＋卡题材空放行，跨题材不出现", async () => {
+    api.listNovelOptions.mockResolvedValue([
+      { id: "n1", name: "剑照山河", genre_norm: "武侠" },
+    ]);
+    api.listLibrary.mockResolvedValue({
+      count: 3,
+      items: [
+        card({ id: "c1", name: "同题材卡", genre_norm: "武侠" }),
+        card({ id: "c2", name: "异题材卡", genre_norm: "科幻" }),
+        card({ id: "c3", name: "通用卡", genre_norm: "" }),
+      ],
+    });
+    wrap(<ImportFromLibraryModal open novelId="n1" onClose={vi.fn()} />);
+    await waitFor(() => expect(screen.getByText("同题材卡")).toBeInTheDocument());
+    expect(screen.getByText("通用卡")).toBeInTheDocument();
+    expect(screen.queryByText("异题材卡")).toBeNull();
+  });
+
+  it("书内导入：没有同题材卡时给题材提示", async () => {
+    api.listNovelOptions.mockResolvedValue([
+      { id: "n1", name: "剑照山河", genre_norm: "武侠" },
+    ]);
+    api.listLibrary.mockResolvedValue({
+      count: 1,
+      items: [card({ id: "c2", name: "异题材卡", genre_norm: "科幻" })],
+    });
+    wrap(<ImportFromLibraryModal open novelId="n1" onClose={vi.fn()} />);
+    await waitFor(() => expect(screen.getByText(/没有「武侠」题材的角色/)).toBeInTheDocument());
+  });
+});

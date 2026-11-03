@@ -17,6 +17,7 @@ from auth_local.deps import ai_feature, require_ai_access, require_project_limit
 from auth_local.middleware import get_current_user
 from db import get_db
 from filesystem.storage import get_storage
+from genres.theme_catalog import normalize_theme
 from novels.importer import IMPORT_TEMPLATE_MD, parse_file
 from novels.service import (
     build_project_tree,
@@ -310,6 +311,9 @@ async def list_all(
             or core_promises.get(str(p.id))
             or kv_genres.get(str(p.id))
         )
+        # 归一题材（c-library-genre-gate）：角色卡跨书门禁的前端过滤用；与卡片
+        # genre_norm 同走 normalize_theme，源取 story.genre（与卡片题材继承同源）
+        d["genre_norm"] = normalize_theme(story.get("genre"))
         out.append(d)
     from image_assets.service import current_cover_refs
     covers = await current_cover_refs(db, user["id"], [str(p.id) for p in projects])

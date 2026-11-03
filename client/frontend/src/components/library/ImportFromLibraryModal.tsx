@@ -35,14 +35,18 @@ function ImportFromLibraryModalInner({
   const { data: novels } = useQuery({
     queryKey: queryKeys.novels,
     queryFn: listNovelOptions,
-    enabled: !novelName,
   });
   const resolvedName = novelName || (novels || []).find((n) => n.id === novelId)?.name || "本书";
   const { data } = useCharacterLibrary(true);
   const [picked, setPicked] = useState<string>("");
   const [rename, setRename] = useState(true);
   const [busy, setBusy] = useState(false);
-  const items = data?.items || [];
+  // 题材门禁（c-library-genre-gate，boss 拍板硬拦）：只列与本书同题材的库卡；
+  // 书题材未设或卡题材空（跨题材通用）都放行。后端 apply_to_book 同口径二次校验。
+  const bookGenre = (novels || []).find((n) => n.id === novelId)?.genre_norm || "";
+  const items = (data?.items || []).filter(
+    (c) => !bookGenre || !c.genre_norm || c.genre_norm === bookGenre,
+  );
   const card = items.find((c) => c.id === picked) || null;
 
   const submit = async () => {
@@ -94,7 +98,11 @@ function ImportFromLibraryModalInner({
         挑一个库里收着的角色放进这本书——设定照原卡复制一份，之后在书里怎么改都不影响库里的。
       </p>
       {items.length === 0 ? (
-        <div className="alt">角色库还是空的——去「写作工具 → 角色库」先收几个角色。</div>
+        <div className="alt">
+          {bookGenre
+            ? `角色库里没有「${bookGenre}」题材的角色——跨题材不能落卡；去角色库收几个同题材的，再回来导入。`
+            : "角色库还是空的——去「写作工具 → 角色库」先收几个角色。"}
+        </div>
       ) : (
         <div
           style={{

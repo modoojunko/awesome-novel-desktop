@@ -81,6 +81,8 @@ export const COVERAGE_CONTRACT_FILES = [
   "src/pages/KnowledgeBasePage.tsx",
   // c-kb-snapshot（启用库落设定：设定面板知识库来源行——启用/同步/解绑）
   "src/components/novel/settings/KbSourceStrip.tsx",
+  "src/components/novel/settings/BookScopeStrip.tsx",
+  "src/components/novel/settings/ImportChoiceModal.tsx",
   // c-kb-character（角色原型：渲染映射＋挑原型弹窗＋建卡预填）
   "src/lib/kbPrototype.ts",
   "src/components/novel/settings/PrototypePickModal.tsx",
@@ -88,6 +90,7 @@ export const COVERAGE_CONTRACT_FILES = [
   "src/lib/kbGraph.ts",
   "src/components/tools/KbGraph.tsx",
   "src/lib/kbEntryGraph.ts",
+  "src/lib/kbFieldLabels.ts",
   "src/components/tools/KbOrganizePanel.tsx",
   "src/components/tools/KbEntryRelations.tsx",
 ] as const;

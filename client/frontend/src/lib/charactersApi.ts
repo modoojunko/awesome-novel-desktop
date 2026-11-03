@@ -76,6 +76,19 @@ export interface BootstrapDraft {
   prompt?: string;
 }
 
+/** 起草角色（c-chars-draft-all）：有卡补空格 / 无卡新建；输入只读已确认设定＋名册＋本卡 */
+export interface DraftAllResult {
+  role: string;
+  name: string;
+  aliases: string[];
+  persona: string;
+  cells: { path: string; value: string }[];
+  skipped?: { key: string; why: string }[];
+  prompt?: string;
+  /** 本次入参的已确认设定来源（题材/简介/世界/主线） */
+  sources: string[];
+}
+
 export interface UndoResult {
   ok: boolean;
   receipt: string;
@@ -226,14 +239,40 @@ export const charactersApi = {
       }),
     ),
 
-  /** 立卡出稿（书级端点，c-char-ai-card-generic）：characterId 缺省＝从简介立主角；
-      带配角/反派卡 id＝右栏「一键立卡」，后端按卡角色分派模板，出稿只补空格；
+  /** 「从简介立主角」出稿（书级端点）：characterId 缺省＝空态建主角，
+      带主角卡 id＝主角待立只补空格（c-chars-draft-all 起配角/反派不再走本端点）；
       promptOverride＝作者编辑后的提示词逐字下发（缺省＝服务端渲染稿） */
   bootstrapDraft: (projectId: string, characterId?: string, promptOverride?: string) =>
     unwrap<BootstrapDraft>(
       api.post(`/novels/${projectId}/settings/ai/characters/bootstrap`, {
         character_id: characterId || undefined,
         ...(promptOverride ? { prompt: promptOverride } : {}),
+      }),
+    ),
+
+  /** 起草角色预览（c-chars-draft-all）：只渲染提示词，不调 AI 不计费 */
+  draftAllPreview: (
+    projectId: string,
+    opts: { characterId?: string; role?: string },
+  ) =>
+    unwrap<{ prompt: string; sources: string[]; role: string }>(
+      api.post(`/novels/${projectId}/settings/ai/characters/draft-all`, {
+        character_id: opts.characterId || undefined,
+        role: opts.characterId ? undefined : opts.role,
+        preview: true,
+      }),
+    ),
+
+  /** 起草角色出稿：有卡只补空格；无卡按 role 新建（采纳由前端 create＋单格 PATCH） */
+  draftAll: (
+    projectId: string,
+    opts: { characterId?: string; role?: string; promptOverride?: string },
+  ) =>
+    unwrap<DraftAllResult>(
+      api.post(`/novels/${projectId}/settings/ai/characters/draft-all`, {
+        character_id: opts.characterId || undefined,
+        role: opts.characterId ? undefined : opts.role,
+        ...(opts.promptOverride ? { prompt: opts.promptOverride } : {}),
       }),
     ),
 

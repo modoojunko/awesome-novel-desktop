@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { kbApi, type KbEntry, type KbGenreCount, type KbLibrary } from "@/lib/kbApi";
+import { kbFieldLabel, kbValueLabel } from "@/lib/kbFieldLabels";
 import KbGraph from "@/components/tools/KbGraph";
 import KbEntryGraph from "@/components/tools/KbEntryGraphView";
 import KbOrganizePanel from "@/components/tools/KbOrganizePanel";
@@ -15,9 +16,42 @@ const CONCEPT_DESC: Record<string, string> = {
   情节: "即将上线",
 };
 
+/** 通用载荷平铺（概念无关，规格「条目详情抽屉：字段…」实现）：有值键按存储序出
+ * (键, 展示串)；数组顿号连、对象/数组元素套对象走紧凑 JSON、空值跳过；标量值
+ * 走 kbValueLabel（枚举值/布尔转中文）。 */
+export function payloadRows(payload: Record<string, unknown>): [string, string][] {
+  const rows: [string, string][] = [];
+  for (const [k, v] of Object.entries(payload)) {
+    if (v === null || v === undefined || v === "") continue;
+    if (Array.isArray(v)) {
+      if (v.length) {
+        rows.push([k, v.map((x) => (typeof x === "object" && x !== null ? JSON.stringify(x) : String(x))).join("、")]);
+      }
+      continue;
+    }
+    if (typeof v === "object") {
+      rows.push([k, JSON.stringify(v)]);
+      continue;
+    }
+    rows.push([k, kbValueLabel(k, v)]);
+  }
+  return rows;
+}
+
+// 来源筛选（c-kb-baseline 批B）：官方精选＝只读基线层；手录/拆书＝用户条目
+const SOURCE_FILTERS = [
+  { key: "全部", label: "全部来源" },
+  { key: "官方精选", label: "官方精选" },
+  { key: "手录", label: "手录" },
+  { key: "拆书", label: "拆书" },
+  // 隐藏可逆：这里回读 hide 白名单，恢复默认的唯一入口
+  { key: "已隐藏", label: "已隐藏" },
+] as const;
+
 export default function KnowledgeBasePage() {
   const [genre, setGenre] = useState("全部题材");
   const [concept, setConcept] = useState("全部");
+  const [src, setSrc] = useState("全部");
   const [q, setQ] = useState("");
   const [entries, setEntries] = useState<KbEntry[]>([]);
   const [libraries, setLibraries] = useState<KbLibrary[]>([]);
@@ -32,6 +66,13 @@ export default function KnowledgeBasePage() {
   const [showMoreGenres, setShowMoreGenres] = useState(false);
   const [view, setView] = useState<"list" | "graph" | "entries">("list");
   const [showOrganize, setShowOrganize] = useState(false);
+  const [opBusy, setOpBusy] = useState(false);
+  const [syncBusy, setSyncBusy] = useState(false);
+  const [syncNote, setSyncNote] = useState("");
+  // 「存为我的副本」（写时复制）：官方原件不动，编辑结果落用户层
+  const [editDraft, setEditDraft] = useState(false);
+  const [draft, setDraft] = useState("");
+  const [opNote, setOpNote] = useState("");
 
   const loadEntries = useCallback(async (cursorId = "") => {
     setLoading(true);
@@ -39,13 +80,14 @@ export default function KnowledgeBasePage() {
       const sp = new URLSearchParams();
       if (genre !== "全部题材") sp.set("genre", genre);
       if (concept !== "全部") sp.set("concept", concept);
+      if (src !== "全部") sp.set("src", src);
       if (q) sp.set("q", q);
       if (cursorId) sp.set("cursor", cursorId);
       const r = await kbApi.entries(Object.fromEntries(sp));
       setEntries((prev) => cursorId ? [...prev, ...r.entries] : r.entries);
       setCursor(r.next_cursor);
     } finally { setLoading(false); }
-  }, [genre, concept, q]);
+  }, [genre, concept, src, q]);
 
   const loadLibraries = useCallback(async () => {
     const r = await kbApi.libraries(genre !== "全部题材" ? genre : undefined);
@@ -59,7 +101,7 @@ export default function KnowledgeBasePage() {
   useEffect(() => {
     loadEntries();
     loadLibraries();
-  }, [genre, concept, q]);
+  }, [genre, concept, src, q]);
 
   const visibleGenres = useMemo(() => {
     const filled = genreCounts.filter((g) => g.count > 0);
@@ -78,6 +120,74 @@ export default function KnowledgeBasePage() {
     });
     return [...map.entries()];
   }, [libraries]);
+
+  /* 官方精选只读操作面（c-kb-baseline 批B）：隐藏＝白名单外记录；恢复官方版＝删副本。
+     原件永不修改，失败静默（刷新后状态即真相）。 */
+  // 只有「无筛选」时官方精选空集才等价于「没同步下来」（有筛选＝该筛选下没有）
+  const noFilters = genre === "全部题材" && concept === "全部" && !q.trim();
+
+  const handleBaselineOp = async (entry: KbEntry, action: "hide" | "clear") => {
+    /* v8 ignore start -- 双保险：按钮同时 disabled，UI 面走不到该早退（真机连点防护） */
+    if (opBusy) return;
+    /* v8 ignore stop */
+    setOpBusy(true);
+    try {
+      if (action === "hide") await kbApi.baselineOverride(entry.id, "hide");
+      else await kbApi.clearBaselineOverride(entry.id);
+      setSelected(null);
+      await loadEntries();
+      kbApi.genres().then(setGenreCounts).catch(() => {});
+    } catch { /* 静默：下一次列表刷新即真实状态 */ }
+    finally { setOpBusy(false); }
+  };
+
+  /* 编辑基线条目＝存一份用户副本（写时复制）：官方原件 SHALL NOT 被改动；
+     过 C 端同一套入库闸门，失败把后端提示原样给用户。 */
+  const handleBaselineEdit = async (entry: KbEntry) => {
+    /* v8 ignore start -- 双保险：按钮同时 disabled，UI 面走不到该早退（真机连点防护） */
+    if (opBusy) return;
+    /* v8 ignore stop */
+    setOpBusy(true);
+    setOpNote("");
+    try {
+      await kbApi.baselineOverride(entry.id, "edit", draft);
+      setSelected(null);
+      setEditDraft(false);
+      await loadEntries();
+      kbApi.genres().then(setGenreCounts).catch(() => {});
+    } catch (e: unknown) {
+      // 后端 422 的 message＝第一条闸门原因（api.ts 不变量），原样给用户
+      const err = e as { message?: string };
+      setOpNote(err.message || "没存上——检查字数与格式后再试");
+    } finally { setOpBusy(false); }
+  };
+
+  /* 官方精选未就绪的重试面（c-kb-baseline：启动补偿失败可手动重试，幂等） */
+  const handleBaselineSync = async () => {
+    /* v8 ignore start -- 双保险：按钮同时 disabled，UI 面走不到该早退 */
+    if (syncBusy) return;
+    /* v8 ignore stop */
+    setSyncBusy(true);
+    setSyncNote("");
+    try {
+      const r = await kbApi.baselineSync();
+      setSyncNote(
+        r.status === "synced"
+          ? "官方精选已更新"
+          : r.status === "current"
+            ? "已经是最新版本"
+            : r.status === "failed"
+              ? "同步没成功，稍后再试"
+              : "暂时取不到官方精选",
+      );
+      await loadEntries();
+      kbApi.genres().then(setGenreCounts).catch(() => {});
+    } catch {
+      setSyncNote("同步没成功，稍后再试");
+    } finally {
+      setSyncBusy(false);
+    }
+  };
 
   const handleManual = async () => {
     setManualError("");
@@ -104,13 +214,15 @@ export default function KnowledgeBasePage() {
   };
 
   return (
-    <div className="min-h-screen bg-[var(--bg)] text-[var(--fg)]">
-      {/* 顶栏 */}
-      <div className="border-b border-[var(--border)] px-6 py-4">
-        <p className="font-mono text-[10.5px] tracking-[0.14em] text-[var(--muted)]">—— 写作工具 · 知识库</p>
-        <div className="mt-2 flex items-center justify-between gap-3">
-          <h1 className="font-[var(--font-display)] text-4xl font-semibold tracking-wide">知识库</h1>
-          <div className="flex flex-none items-center gap-2">
+    // 版式对齐写作工具系各页（c-kb-header-align）：共用 .main 居中容器＋.page-head
+    // 标题行（h1 30px/副标题 .sub/右侧动作），不再用整幅通栏大标题
+    <main className="main" data-od-id="kb-home">
+      <div className="page-head">
+        <div>
+          <h1>知识库</h1>
+          <p className="sub">存的是拆书拆出的好写法和自己踩过的经验，写新书时能用上。</p>
+        </div>
+        <div className="flex flex-none items-center gap-2">
           <button
             onClick={() => setShowOrganize(true)}
             className="rounded-md border border-[var(--accent)] px-3 py-1.5 text-[12px] text-[var(--accent)] hover:bg-[var(--accent-soft)]"
@@ -128,13 +240,10 @@ export default function KnowledgeBasePage() {
               </button>
             ))}
           </div>
-          </div>
         </div>
-        <p className="mt-2 text-sm text-[var(--muted)]">存的是拆书拆出的好写法和自己踩过的经验，写新书时能用上。</p>
       </div>
 
-      <div className="mx-auto max-w-[1220px] px-6 pb-16">
-        {view === "graph" && <KbGraph />}
+      {view === "graph" && <KbGraph />}
         {view === "entries" && <KbEntryGraph genre={genre !== "全部题材" ? genre : ""} />}
         {showOrganize && (
           <KbOrganizePanel
@@ -254,6 +363,20 @@ export default function KnowledgeBasePage() {
               </div>
             )}
 
+            {/* 来源筛选（c-kb-baseline 批B）：官方精选可单独过滤 */}
+            <div className="mb-3 flex flex-wrap gap-1.5">
+              {SOURCE_FILTERS.map((s) => (
+                <button
+                  key={s.key}
+                  data-testid={`kb-src-${s.key}`}
+                  onClick={() => setSrc(s.key)}
+                  className={`rounded-md border px-3 py-1 text-[12px] ${src === s.key ? "border-[var(--accent)] bg-[var(--accent-soft)] font-medium text-[var(--accent)]" : "border-[var(--border)] text-[var(--muted)] hover:text-[var(--fg)]"}`}
+                >
+                  {s.label}
+                </button>
+              ))}
+            </div>
+
             {/* 搜索 */}
             <div className="mb-4">
               <input
@@ -272,7 +395,7 @@ export default function KnowledgeBasePage() {
               {entries.map((e) => (
                 <button
                   key={e.id}
-                  onClick={() => setSelected(e)}
+                  onClick={() => { setSelected(e); setEditDraft(false); setOpNote(""); }}
                   className="block w-full rounded-md px-3 py-2.5 text-left hover:bg-[var(--fg-soft)]"
                 >
                   <span className="font-mono text-[9.5px] tracking-[0.1em] text-[var(--faint)]">
@@ -280,6 +403,28 @@ export default function KnowledgeBasePage() {
                   </span>
                   <span className="mt-0.5 block text-[14px] font-medium text-[var(--fg)]">{e.title || e.instruction.slice(0, 30)}</span>
                   <span className="mt-0.5 block text-[12px] text-[var(--muted)]">{e.instruction.slice(0, 60)}</span>
+                  {e.layer === "baseline" && (
+                    <span className="mt-1 flex flex-wrap gap-1">
+                      <span className="rounded-full bg-[var(--accent-soft)] px-1.5 py-0.5 font-mono text-[9px] text-[var(--accent)]">
+                        官方精选
+                      </span>
+                      {e.overlaid && (
+                        <span className="rounded-full bg-[var(--fg-soft)] px-1.5 py-0.5 font-mono text-[9px] text-[var(--muted)]">
+                          我的副本
+                        </span>
+                      )}
+                      {e.hidden && (
+                        <span className="rounded-full bg-[var(--fg-soft)] px-1.5 py-0.5 font-mono text-[9px] text-[var(--muted)]">
+                          已隐藏
+                        </span>
+                      )}
+                      {e.official_update && (
+                        <span className="rounded-full border border-[var(--accent)] px-1.5 py-0.5 font-mono text-[9px] text-[var(--accent)]">
+                          官方有新版
+                        </span>
+                      )}
+                    </span>
+                  )}
                 </button>
               ))}
               {cursor && (
@@ -288,7 +433,29 @@ export default function KnowledgeBasePage() {
                   className="w-full py-3 text-center text-[13px] text-[var(--accent)] hover:underline"
                 >加载更多</button>
               )}
-              {!entries.length && !loading && (
+              {!entries.length && !loading && src === "官方精选" && noFilters && (
+                <div data-testid="kb-baseline-empty" className="rounded-lg border border-dashed border-[var(--border)] p-6 text-center">
+                  <p className="text-[13px] text-[var(--muted)]">官方精选还没有同步下来。</p>
+                  {syncNote && <p className="mt-1 text-[12px] text-[var(--muted)]">{syncNote}</p>}
+                  <button
+                    data-testid="kb-baseline-sync"
+                    disabled={syncBusy}
+                    onClick={() => { void handleBaselineSync(); }}
+                    className="mt-3 rounded-lg border border-[var(--accent)] px-4 py-2 text-[13px] text-[var(--accent)] hover:bg-[var(--accent-soft)] disabled:opacity-50"
+                  >重新同步</button>
+                </div>
+              )}
+              {!entries.length && !loading && src === "官方精选" && !noFilters && (
+                <div className="rounded-lg border border-dashed border-[var(--border)] p-6 text-center">
+                  <p className="text-[13px] text-[var(--muted)]">当前筛选下没有官方精选条目。</p>
+                </div>
+              )}
+              {!entries.length && !loading && src === "已隐藏" && (
+                <div className="rounded-lg border border-dashed border-[var(--border)] p-6 text-center">
+                  <p className="text-[13px] text-[var(--muted)]">没有隐藏的官方精选条目。</p>
+                </div>
+              )}
+              {!entries.length && !loading && src !== "官方精选" && src !== "已隐藏" && (
                 <div className="rounded-lg border border-dashed border-[var(--border)] p-6 text-center">
                   <p className="text-[13px] text-[var(--muted)]">还没有条目——先拆书或手录，写法到位后这里会长出来。</p>
                   <button
@@ -300,7 +467,6 @@ export default function KnowledgeBasePage() {
             </div>
           </div>
         </div>
-      </div>
 
       {/* 手录表单 */}
       {showManual && (
@@ -359,6 +525,19 @@ export default function KnowledgeBasePage() {
                 <p className="mt-1 text-[13px] leading-relaxed">{selected.instruction}</p>
               </div>
             )}
+            {payloadRows(selected.payload).length > 0 && (
+              <div className="mt-4">
+                <p className="text-[10.5px] font-mono tracking-[0.12em] text-[var(--muted)]">字段</p>
+                <dl className="mt-1 space-y-1.5">
+                  {payloadRows(selected.payload).map(([k, v]) => (
+                    <div key={k}>
+                      <dt className="text-[10.5px] font-mono tracking-[0.12em] text-[var(--muted)]">{kbFieldLabel(selected.concept, k)}</dt>
+                      <dd className="whitespace-pre-wrap text-[12.5px] leading-relaxed text-[var(--fg)]">{v}</dd>
+                    </div>
+                  ))}
+                </dl>
+              </div>
+            )}
             {selected.example && (
               <div className="mt-4 border-l-2 border-[var(--accent)] pl-3">
                 <p className="text-[10.5px] font-mono tracking-[0.12em] text-[var(--muted)]">正例</p>
@@ -377,9 +556,107 @@ export default function KnowledgeBasePage() {
                 <p className="mt-1 text-[12px] text-[var(--muted)]">{selected.evidence}</p>
               </div>
             )}
+            {selected.layer === "baseline" && (
+              <div className="mt-6 border-t border-[var(--border)] pt-4">
+                <p className="text-[10.5px] font-mono tracking-[0.12em] text-[var(--accent)]">官方精选 · 只读</p>
+                <p className="mt-1 text-[11.5px] leading-relaxed text-[var(--muted)]">
+                  官方条目不能删除；想改就存一份你的副本（官方原件不变）。隐藏后可在「已隐藏」里恢复。
+                </p>
+                {selected.official_update && (
+                  <p className="mt-2 text-[11.5px] leading-relaxed text-[var(--accent)]">
+                    官方已更新这条，当前显示的是你的副本，可恢复官方版。
+                  </p>
+                )}
+                {!selected.hidden && (
+                  <div className="mt-3">
+                    {!editDraft ? (
+                      <button
+                        data-testid="kb-baseline-edit"
+                        disabled={opBusy}
+                        onClick={() => {
+                          setEditDraft(true);
+                          setDraft(selected.instruction);
+                          setOpNote("");
+                        }}
+                        className="rounded-lg border border-[var(--border)] px-3 py-1.5 text-[12px] text-[var(--muted)] hover:text-[var(--fg)] disabled:opacity-50"
+                      >
+                        存为我的副本
+                      </button>
+                    ) : (
+                      <div className="space-y-2">
+                        <textarea
+                          data-testid="kb-baseline-draft"
+                          value={draft}
+                          onChange={(ev) => setDraft(ev.target.value)}
+                          rows={4}
+                          maxLength={240}
+                          className="w-full rounded-lg border border-[var(--border)] bg-[var(--surface)] p-2 text-[12.5px] leading-relaxed text-[var(--fg)]"
+                        />
+                        <p className="text-right font-mono text-[10px] text-[var(--faint)]">
+                          {draft.length}/240
+                        </p>
+                        <div className="flex gap-2">
+                          <button
+                            data-testid="kb-baseline-save"
+                            disabled={opBusy}
+                            onClick={() => { void handleBaselineEdit(selected); }}
+                            className="rounded-lg border border-[var(--accent)] px-3 py-1.5 text-[12px] text-[var(--accent)] hover:bg-[var(--accent-soft)] disabled:opacity-50"
+                          >
+                            保存副本
+                          </button>
+                          <button
+                            data-testid="kb-baseline-edit-cancel"
+                            disabled={opBusy}
+                            onClick={() => { setEditDraft(false); setOpNote(""); }}
+                            className="rounded-lg border border-[var(--border)] px-3 py-1.5 text-[12px] text-[var(--muted)] hover:text-[var(--fg)] disabled:opacity-50"
+                          >
+                            取消
+                          </button>
+                        </div>
+                        {opNote && (
+                          <p data-testid="kb-baseline-op-note" className="text-[11.5px] text-[var(--muted)]">
+                            {opNote}
+                          </p>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                )}
+                <div className="mt-3">
+                  {selected.hidden ? (
+                    <button
+                      data-testid="kb-baseline-unhide"
+                      disabled={opBusy}
+                      onClick={() => { void handleBaselineOp(selected, "clear"); }}
+                      className="rounded-lg border border-[var(--accent)] px-3 py-1.5 text-[12px] text-[var(--accent)] hover:bg-[var(--accent-soft)] disabled:opacity-50"
+                    >
+                      恢复默认
+                    </button>
+                  ) : selected.overlaid ? (
+                    <button
+                      data-testid="kb-baseline-restore"
+                      disabled={opBusy}
+                      onClick={() => { void handleBaselineOp(selected, "clear"); }}
+                      className="rounded-lg border border-[var(--accent)] px-3 py-1.5 text-[12px] text-[var(--accent)] hover:bg-[var(--accent-soft)] disabled:opacity-50"
+                    >
+                      恢复官方版
+                    </button>
+                  ) : (
+                    <button
+                      data-testid="kb-baseline-hide"
+                      disabled={opBusy}
+                      onClick={() => { void handleBaselineOp(selected, "hide"); }}
+                      className="rounded-lg border border-[var(--border)] px-3 py-1.5 text-[12px] text-[var(--muted)] hover:text-[var(--fg)] disabled:opacity-50"
+                    >
+                      隐藏这条
+                    </button>
+                  )}
+                </div>
+              </div>
+            )}
           </div>
         </div>
       )}
-    </div>
+    </main>
   );
 }

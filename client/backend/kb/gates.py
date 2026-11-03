@@ -207,3 +207,81 @@ def check_gates(
         result.ok = False
 
     return result
+
+
+# ─── 基线包单条硬闸（c-kb-baseline C1）────────────────────────────
+# 内容仓 tools/validate.py 与 C 端同步器共用同一判据集（fixture 双端 parity：
+# tests/fixtures/kb_baseline_gate_cases.json）。返回 None＝合格，否则返回
+# 稳定错误码（前端/CI 只按码展示，不解析文案）。
+_SRC_KEY_RE = re.compile(r"^baseline:[^:\s]+:[^:\s]+$")
+_BASELINE_CONCEPTS = ("手法", "文风", "文笔")
+_WHEN_KEYS = ("scene", "emotion", "chapter_pos")
+
+
+def check_baseline_entry(e: object) -> str | None:
+    """基线包条目闸（同步端逐条复验＋内容仓 validate 同集单源）。
+
+    规则顺序固定（parity 依赖首个违规码）：
+    src_key → concept → genre → title → instruction → payload → when。
+
+    向前兼容（c-kb-forward-compat）：本判据即「本端看得懂什么」的边界——
+    返回非 None 的条目由同步器**整条跳过**（其余照收），不构成整包拒收；
+    未知顶层字段不设判据（包级扩展字段老客户端忽略即可）。
+    """
+    from kb.concepts import CHAPTER_POS, SCENES, THEMES
+
+    if not isinstance(e, dict):
+        return "entry_not_object"
+    key = e.get("src_key")
+    if not isinstance(key, str) or not _SRC_KEY_RE.match(key) or len(key) > 120:
+        return "src_key_invalid"
+    concept = e.get("concept")
+    if concept not in _BASELINE_CONCEPTS:
+        return "concept_invalid"
+    genre = e.get("genre")
+    if not isinstance(genre, str) or (genre and genre not in THEMES):
+        return "genre_invalid"
+    title = e.get("title")
+    if not isinstance(title, str) or len(title) > 40:
+        return "title_invalid"
+
+    ins = e.get("instruction")
+    if not isinstance(ins, str):
+        return "instruction_invalid"
+    text = ins.strip()
+    if not (6 <= len(text) <= _INSTRUCTION_MAX):
+        return "instruction_length"
+    structure = _check_structure(text)
+    if structure:
+        return "instruction_structure"
+    if _check_echo(text):
+        return "instruction_echo"
+
+    payload = e.get("payload")
+    if not isinstance(payload, dict):
+        return "payload_invalid"
+    if concept == "手法" and not str(payload.get("instruction") or "").strip():
+        return "payload_slot_missing"
+    if concept in ("文风", "文笔") and not str(payload.get("slot") or "").strip():
+        return "payload_slot_missing"
+
+    when = e.get("when")
+    if when is None:
+        return None
+    if not isinstance(when, dict) or len(when) > 3:
+        return "when_invalid"
+    # scene / chapter_pos 仍是封闭词表；emotion 放开为短自由文本（≤6 字）：
+    # 条目可以写「压抑—不安」这类多字说法，匹配侧双方都过 normalize_emotion 再比。
+    allowed = {"scene": set(SCENES), "chapter_pos": set(CHAPTER_POS)}
+    for k, v in when.items():
+        if k not in _WHEN_KEYS:
+            return "when_invalid"
+        if not isinstance(v, str) or not v.strip():
+            return "when_invalid"
+        if k == "emotion":
+            if len(v.strip()) > 6:
+                return "when_invalid"
+            continue
+        if v not in allowed[k]:
+            return "when_invalid"
+    return None

@@ -48,6 +48,17 @@ python -m pytest tests/ -v
 python -m pytest tests/ -k "test_name"
 ```
 
+## 与知识库内容仓的衔接
+
+基线条目（手法/文风/文笔）的批量生产与打包发布不在本仓：用
+`awesome-novel-knowledge` 的 `tools/deconstruct_batch.py` 批量拆书出源条目，
+再走它的 `validate → build → publish`。本仓负责消费侧——启动时 `kb/baseline.py`
+从 CDN 下载、验签、整层导入。
+
+拆书产物 → 账号知识库（`kb_entries`）的单任务入口是
+`POST /api/deconstruct/tasks/{id}/collect-to-kb`，实现在
+`kb/deconstruct_import.collect_task_to_kb`。
+
 ## 目录结构
 
 ```

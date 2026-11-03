@@ -389,6 +389,11 @@
     .col-panel { padding: 20px 14px 24px; }
     .caliber { padding: 10px 12px; }
   }
+  .ss-list { display: flex; flex-direction: column; }
+  .ss-row { display: flex; align-items: flex-start; gap: 10px; padding: 8px 0; border-bottom: 1px dashed var(--border); }
+  .ss-row:last-child { border-bottom: none; }
+  .ss-row .ss-txt { flex: 1; min-width: 0; margin: 0; font-size: 12.5px; line-height: 1.8; white-space: pre-wrap; color: var(--fg); }
+  .ss-row .btn { flex: none; }
 </style>
 </head>
 <body>
@@ -454,7 +459,7 @@
        </div>
        <p class="desc">写章时两层一起生效：<b>文字文风</b>管身份与红线（免费，继承题材），<b>量化参数</b>管数字手感（会员 · 蒸馏 3,000–10,000 字案例）。</p>
        <div class="ptabs" data-od-id="style-tabs">
-        <button class="ptab on" type="button" data-tab="text">文字文风<span class="badge ok" id="badgeStyle">题材默认</span></button>
+        <button class="ptab on" type="button" data-tab="text">文字文风<span class="badge empty" id="badgeStyle">未填</span></button>
         <button class="ptab" type="button" data-tab="quant">量化参数<span class="sc-badge">PRO</span><span class="badge acc">已蒸馏</span></button>
        </div>
        <div class="panel-scroll">
@@ -463,7 +468,7 @@
         <div id="viewCard">
 
           <div id="tabText">
-          <p class="opt" style="margin:-2px 0 12px;">进页即按「仙侠/修真」蓝图填好——要动笔的只有身份一句和几条红线，手法预填删改即可；蒸馏之前 AI 只按这部分写。<button class="text-btn gray" id="btnResetBp" type="button" data-od-id="btn-reset-text" style="margin-left:8px;">重置为题材默认</button></p>
+          <p class="opt" style="margin:-2px 0 12px;">文风由你定：先写一句叙事身份，再给 3–5 条能检查的硬约束和几条描写手法。三区空着时，可从右侧「按题材填文风」取一份同题材的起点。</p>
 
           <div class="anchor-chain" data-od-id="chain-anchor">
             <button class="ac-node" type="button" data-goto="fRole">叙事身份</button>
@@ -708,6 +713,12 @@
           <div class="rh-t"><b>AI 写作助手</b><span>已解锁 · 包含在你的 PRO 套餐（Max 同享）· 只学你的，不代写</span></div>
         </div>
         <div class="ra-row">
+          <button class="ra-step" type="button" id="btnKbFill" data-od-id="ai-style-kb">
+            <span class="ra-body"><b>按题材填文风</b><i>这本书是悬疑，库里有 11 条同题材的写法。点开挑一挑，采纳就填进文风页。</i></span>
+            <svg class="ra-arrow" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" width="14" height="14"><path d="m9 6 6 6-6 6"/></svg>
+          </button>
+        </div>
+        <div class="ra-row">
           <button class="ra-step" type="button" data-aiask="s1" data-od-id="ai-distill">
             <span class="ra-body"><b>蒸馏我的文风</b><i>交 3,000–10,000 字案例 → 出「作者画像」给你确认 → 六行基线落卡 · 输入：粘贴文本、novel-samples 或已归档章节</i></span>
             <svg class="ra-arrow" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" width="14" height="14"><path d="m9 6 6 6-6 6"/></svg>
@@ -776,6 +787,57 @@
       <span class="note">样本只用于这一次蒸馏；之后可随时「重新蒸馏」换掉。</span>
       <button class="btn btn-secondary" id="pasteCancel" type="button" data-od-id="btn-paste-cancel">取消</button>
       <button class="btn btn-primary" id="pasteStart" type="button" data-od-id="btn-paste-start" disabled>开始蒸馏</button>
+    </div>
+  </div>
+</div>
+
+<!-- ═══ 按题材填文风 · 知识库勾选卡（c-style-kb-fill；演示打开态，不入 parity 基线场景） ═══ -->
+<div class="modal" id="kbModal" data-od-id="kb-pick-card">
+  <div class="backdrop" id="kbBackdrop"></div>
+  <div class="sheet" style="width:min(520px, calc(100% - 32px));">
+    <h2>按题材填文风 · 悬疑</h2>
+    <p class="opt" style="margin:8px 0 12px;">这些是从知识库找出来的「悬疑」写法。勾上你要的，采纳后填进文风页，还能接着改。</p>
+
+    <section style="margin-bottom:14px;">
+      <div style="display:flex;align-items:baseline;gap:8px;margin-bottom:4px;">
+        <b style="font-size:13px;">叙事身份</b><span style="font-size:11.5px;color:var(--muted);">已勾 1/1</span>
+      </div>
+      <label style="display:flex;gap:8px;align-items:flex-start;font-size:12.5px;line-height:1.65;">
+        <input type="checkbox" checked style="margin-top:4px;">
+        <textarea class="textarea" rows="2" style="flex:1;font-size:12.5px;">贴着主角写的第三人称，语气克制，不替读者下结论。</textarea>
+      </label>
+    </section>
+
+    <section style="margin-bottom:14px;">
+      <div style="display:flex;align-items:baseline;gap:8px;margin-bottom:4px;">
+        <b style="font-size:13px;">硬约束</b><span style="font-size:11.5px;color:var(--muted);">已勾 5/12</span>
+        <button class="text-btn gray" type="button" style="margin-left:auto;font-size:11.5px;">全选</button>
+      </div>
+      <label style="display:flex;gap:8px;padding:3px 0;font-size:12.5px;line-height:1.65;"><input type="checkbox" checked style="margin-top:3px;">每章至少留一个没解释的细节</label>
+      <label style="display:flex;gap:8px;padding:3px 0;font-size:12.5px;line-height:1.65;"><input type="checkbox" checked style="margin-top:3px;">线索先出现在动作里，后出现在对话里</label>
+      <label style="display:flex;gap:8px;padding:3px 0;font-size:12.5px;line-height:1.65;"><input type="checkbox" style="margin-top:3px;">每三章至少一次误导（红鲱鱼）</label>
+    </section>
+
+    <section style="margin-bottom:14px;">
+      <div style="display:flex;align-items:baseline;gap:8px;margin-bottom:4px;">
+        <b style="font-size:13px;">描写手法</b><span style="font-size:11.5px;color:var(--muted);">已勾 3/5</span>
+      </div>
+      <label style="display:flex;gap:8px;padding:3px 0;font-size:12.5px;line-height:1.65;"><input type="checkbox" checked style="margin-top:3px;">用物件代替情绪：紧张就写手在做什么</label>
+      <label style="display:flex;gap:8px;padding:3px 0;font-size:12.5px;line-height:1.65;"><input type="checkbox" checked style="margin-top:3px;">把信息差的缺口藏在日常动作里</label>
+    </section>
+
+    <section style="margin-bottom:14px;">
+      <div style="display:flex;align-items:baseline;gap:8px;margin-bottom:4px;">
+        <b style="font-size:13px;">禁用词 · 句式规则</b><span style="font-size:11.5px;color:var(--muted);">已勾 6/6</span>
+      </div>
+      <label style="display:flex;gap:8px;padding:3px 0;font-size:12.5px;line-height:1.65;"><input type="checkbox" checked style="margin-top:3px;">与此同时、他感到、不禁、仿佛</label>
+      <label style="display:flex;gap:8px;padding:3px 0;font-size:12.5px;line-height:1.65;"><input type="checkbox" checked style="margin-top:3px;">不是…而是…（每章最多 3 次）</label>
+    </section>
+
+    <p class="opt" style="margin:10px 0 0;">勾上的会换掉你现在写的身份、硬约束和手法；禁用词、句式规则、示范段只往里加，不删你写的。</p>
+    <div class="modal-foot">
+      <button class="btn btn-secondary" id="kbCancel" type="button">关闭</button>
+      <button class="btn btn-primary" id="kbAdopt" type="button" data-od-id="btn-kb-adopt">采纳，填进文风</button>
     </div>
   </div>
 </div>
@@ -883,11 +945,11 @@
     const n = (edited.role ? 1 : 0) + edited.rules.length + edited.craft.length;
     const badge = $('#tabBadgeStyle');
     if (n > 0) { badge.textContent = '已自定义 · ' + n + ' 处'; badge.className = 'badge warn'; }
-    else { badge.textContent = '题材默认'; badge.className = 'badge ok'; }
+    else { badge.textContent = '未改动'; badge.className = 'badge ok'; }
     const diff = $('#diffNote');
     if (n > 0) {
       diff.hidden = false;
-      diff.innerHTML = '与题材默认（仙侠/修真蓝图）不同：<b>' + n + ' 处</b>（改于今天）——改过的都会被记住。';
+      diff.innerHTML = '与上次保存的不同：<b>' + n + ' 处</b>（改于今天）——改过的都会被记住。';
     } else {
       diff.hidden = true;
     }
@@ -946,11 +1008,6 @@
   }));
 
   /* ═══ 文风示范段（拆书导入，只读＋可删） ═══ */
-  .ss-list { display: flex; flex-direction: column; }
-  .ss-row { display: flex; align-items: flex-start; gap: 10px; padding: 8px 0; border-bottom: 1px dashed var(--border); }
-  .ss-row:last-child { border-bottom: none; }
-  .ss-row .ss-txt { flex: 1; min-width: 0; margin: 0; font-size: 12.5px; line-height: 1.8; white-space: pre-wrap; color: var(--fg); }
-  .ss-row .btn { flex: none; }
 
   /* ═══ 文风例句（1–3 条） ═══ */
   let shots = ['雨点砸在铁皮棚上，他没有抬头。', '等声音停下来，他的左臂已经不自然地垂在身侧。', ''];
@@ -1119,18 +1176,15 @@
     '<div class="det-row"><span class="dk">' + esc(d[0]) + '</span><span class="dv2">' + esc(d[1]) + '</span></div>').join('');
   bindCfg('#cfgDetailHead', '#cfgDetailBody', '#cfgDetail');
 
-  /* ═══ 文字文风重置（恢复题材默认蓝图；量化参数不受影响） ═══ */
-  $('#btnResetBp').addEventListener('click', () => {
-    const snapshot = JSON.stringify({ style, edited });
-    style = JSON.parse(JSON.stringify(PRESET));
-    edited = { role: false, rules: [], craft: [] };
-    renderAll();
-    showReceipt('已重置为题材默认（继承自「仙侠/修真」文字文风蓝图）', () => {
-      const s0 = JSON.parse(snapshot);
-      style = s0.style; edited = s0.edited;
-      renderAll();
-      toast('已撤销，恢复重置前内容');
-    });
+  /* ═══ 按题材填文风（知识库勾选卡；c-style-kb-fill） ═══ */
+  const kbModal = $('#kbModal');
+  const closeKb = () => kbModal.classList.remove('on');
+  $('#btnKbFill').addEventListener('click', () => kbModal.classList.add('on'));
+  $('#kbBackdrop').addEventListener('click', closeKb);
+  $('#kbCancel').addEventListener('click', closeKb);
+  $('#kbAdopt').addEventListener('click', () => {
+    closeKb();
+    toast('已经填进文风页了，别忘了保存。');
   });
 
   /* ═══ 蒸馏流程（状态 B） ═══ */
