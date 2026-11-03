@@ -568,72 +568,30 @@ async def collect_to_kb(
     user: dict = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    """收进知识库：拆书产物 → 知识条目（手法/文风/文笔/世界/角色，幂等）。"""
-    from kb.deconstruct_import import map_deconstruct_products
-    from kb.service import ensure_default_library
-    from models.kb import KbEntry
+    """收进知识库：拆书产物 → 知识条目（手法/文风/文笔/世界/角色，幂等）。
+
+    映射/去重/默认库/标签物化单源在 kb.deconstruct_import.collect_task_to_kb
+    ——离线批量脚本走同一个函数，两条入口不会漂移。
+    """
+    from kb.deconstruct_import import collect_task_to_kb
 
     task = await service.get_task(db, task_id, _user_id(user))
     _require(task, user)
     if task.status != "completed":
         raise HTTPException(409, "任务未完成，无法收录")
-    try:
-        products = json.loads(task.products_json or "{}")
-    except ValueError:
-        products = {}
-    if not products:
-        raise HTTPException(422, "这批产物为空，无法收录")
 
-    # 题材从产物 genre 维度取（与建书/角色库收录同源）——DeconstructJob 无 genre 列
-    try:
-        _genre_raw = ((products.get("genre") or {}).get("data") or {}).get("genre") or ""
-    except AttributeError:
-        _genre_raw = ""
-    from genres.theme_catalog import normalize_theme
-
-    genre = normalize_theme(str(_genre_raw).strip())
     uid = _user_id(user)
-
-    entries, warnings = map_deconstruct_products(uid, task_id, genre, products)
-
-    # 幂等：查已有的 src_key，跳过重复
-    existing_keys = set()
-    if entries:
-        src_keys = [e.src_key for e in entries]
-        stmt = select(KbEntry.src_key).where(
-            KbEntry.user_id == uid,
-            KbEntry.src_ref == task_id,
-            KbEntry.src_key.in_(src_keys),
-        )
-        rows = (await db.execute(stmt)).scalars().all()
-        existing_keys = set(rows)
-
-    new_entries = [e for e in entries if e.src_key not in existing_keys]
-    skipped = len(entries) - len(new_entries)
-
-    for e in new_entries:
-        db.add(e)
-        await db.flush()
-        await ensure_default_library(db, uid, e.genre, e.concept)
-
-    await db.commit()
-
-    await db.commit()
+    try:
+        result = await collect_task_to_kb(db, uid, task)
+    except ValueError as e:
+        raise HTTPException(422, str(e)) from e
 
     # c-kb-organize：拆书入库后该题材自动整理一次（fire-and-forget）
     from kb.organize import trigger_after_collect
 
-    await trigger_after_collect(uid, genre)
+    await trigger_after_collect(uid, result["genre"])
 
-    return {
-        "ok": True,
-        "data": {
-            "collected": len(new_entries),
-            "skipped": skipped,
-            "total_mapped": len(entries),
-            "warnings": warnings,
-        },
-    }
+    return {"ok": True, "data": result}
 
 
 @router.delete("/tasks/{task_id}")

@@ -397,6 +397,42 @@
     ]
    },
    "error": "when_invalid"
+  },
+  {
+   "name": "ok_when_emotion_free_text",
+   "entry": {
+    "src_key": "baseline:玄幻:tech-shouya-chukou",
+    "title": "受压时给出口",
+    "concept": "手法",
+    "genre": "玄幻",
+    "instruction": "受压时先写主角的动作变形，再给一个出口，情绪别停在原地。",
+    "payload": {
+     "instruction": "受压时先写主角的动作变形，再给一个出口，情绪别停在原地。",
+     "scene": "文戏"
+    },
+    "when": {
+     "emotion": "压抑—不安"
+    }
+   },
+   "error": null
+  },
+  {
+   "name": "bad_when_emotion_too_long",
+   "entry": {
+    "src_key": "baseline:玄幻:tech-shouya-chukou",
+    "title": "受压时给出口",
+    "concept": "手法",
+    "genre": "玄幻",
+    "instruction": "受压时先写主角的动作变形，再给一个出口，情绪别停在原地。",
+    "payload": {
+     "instruction": "受压时先写主角的动作变形，再给一个出口，情绪别停在原地。",
+     "scene": "文戏"
+    },
+    "when": {
+     "emotion": "非常非常压抑难受"
+    }
+   },
+   "error": "when_invalid"
   }
  ],
  "vocab": {

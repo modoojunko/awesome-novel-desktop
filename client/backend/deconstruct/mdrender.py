@@ -18,7 +18,9 @@ from __future__ import annotations
 from models.deconstruct import DIMENSIONS
 
 # 条目级证据字段黑名单：只承担「证明这条结论」职责，永不进作家 md
-EVIDENCE_KEYS: frozenset[str] = frozenset({"evidence_ch", "confidence", "note", "quote", "raw"})
+EVIDENCE_KEYS: frozenset[str] = frozenset(
+    {"evidence_ch", "confidence", "note", "quote", "raw", "promise_note"}
+)
 
 # 产物 JSON 键 → 作家中文标签（渲染层单源；未登记的键回退原键展示）
 _MD_LABELS: dict[str, str] = {
@@ -42,6 +44,12 @@ _MD_LABELS: dict[str, str] = {
     "hooks": "伏笔", "type": "类型", "priority": "重要度", "desc": "内容",
     "plant_ch": "埋设章", "payoff_ch": "回收章", "status": "状态",
     "result": "结果",
+    # world 分区条目（power/cost/constraints 用 rule；历史/势力用 note）
+    "rule": "规则",
+    # 结构与题材的补充键（真机产物实见；漏登记会裸出英文键）
+    "no": "章号", "range": "范围", "pacing_notes": "节奏备注",
+    "core_promise": "核心承诺", "promise_note": "承诺说明",
+    "forbidden": "禁写项", "battlefield": "争夺焦点", "cost_ratio": "代价强度",
     # 写作技法新契约（呈现说人话：不再裸出英文键）
     "reader_needs": "读者需求", "need": "读者需求", "transferable": "可迁移",
     "techniques": "可复现模块卡", "emotion_chain": "情绪链", "repro_steps": "复现步骤",
@@ -198,6 +206,22 @@ def render_evidence(dim: str, data) -> dict:
             items.append({"head": _evidence_head(entry), "cells": cells})
         if items:
             sections.append({"title": _label(dim, key), "items": items})
+    # 顶层标量证据（如 genre 的 note/promise_note）：按「证据搬家」政策进报告；
+    # 不收的话这些字段会从作家 md 与证据报告里同时消失。confidence 已在视图顶部
+    # 单列，不再重复成节；排序保证同 data 同字节。
+    for key in sorted(data.keys()):
+        if key == "confidence":
+            continue
+        if key not in EVIDENCE_KEYS or isinstance(data.get(key), (list, dict)):
+            continue
+        text = _cell_value(key, data.get(key))
+        if not text:
+            continue
+        title = _label(dim, key)
+        sections.append({
+            "title": title,
+            "items": [{"head": text[:40], "cells": [{"label": title, "value": text}]}],
+        })
     return {"dim": dim, "name": name, "confidence": conf_top, "sections": sections}
 
 
