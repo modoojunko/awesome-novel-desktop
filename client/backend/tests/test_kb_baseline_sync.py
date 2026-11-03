@@ -49,11 +49,10 @@ def _entry(src_key: str, title: str = "条目", *, instruction: str | None = Non
     }
 
 
-def _signed_latest(version: int, manifest_sha: str, *, min_client: str | None = None) -> dict:
-    body = {"version": version, "manifest_sha256": manifest_sha}
-    if min_client:
-        body["min_client_version"] = min_client
-    return sign_manifest(body, _TEST_PRIV, _TEST_KID)
+def _signed_latest(version: int, manifest_sha: str) -> dict:
+    return sign_manifest(
+        {"version": version, "manifest_sha256": manifest_sha}, _TEST_PRIV, _TEST_KID
+    )
 
 
 class _FakeCDN:
@@ -89,19 +88,20 @@ def _publish(
     version: int,
     entries: list[dict],
     *,
-    fmt: int = 1,
     format_client: str | None = None,
     bad_hash: bool = False,
     count: int | None = None,
-    min_client: str | None = None,
     extra_lines: list[str] | None = None,
 ):
-    """打包并挂到假 CDN。count 默认＝有效条目数；extra_lines 追加原始坏行。"""
+    """打包并挂到假 CDN。count 默认＝有效条目数；extra_lines 追加原始坏行。
+
+    包里只有内容包 version 与 format_client（按哪代客户端写）两个版本概念。
+    """
     lines = [json.dumps(e, ensure_ascii=False) for e in entries] + list(extra_lines or [])
     body = "\n".join(lines).encode()
     digest = hashlib.sha256(body).hexdigest()
     manifest = {
-        "version": version, "format_version": fmt,
+        "version": version,
         "entry_count": len(entries) if count is None else count,
         "generated_at": "2026-11-02T00:00:00Z",
         "files": [{"path": "entries.jsonl",
@@ -109,13 +109,10 @@ def _publish(
     }
     if format_client:
         manifest["format_client"] = format_client
-    if min_client:
-        manifest["min_client_version"] = min_client
     signed = sign_manifest(manifest, _TEST_PRIV, _TEST_KID)
     _CDN.latest = _signed_latest(
         version,
         hashlib.sha256(json.dumps(signed, ensure_ascii=False).encode()).hexdigest(),
-        min_client=min_client,
     )
     _CDN.manifest_raw = json.dumps(signed, ensure_ascii=False).encode()
     _CDN.entries_raw = body
@@ -256,20 +253,7 @@ def test_坏哈希保旧层(sync_env):
     assert rows[old["src_key"]].pack_version == 1 and ver == 1
 
 
-def test_新格式静默跳过保旧层(sync_env):
-    bl = sync_env
-    old = _entry("baseline:玄幻:tech-a", "玄幻手法A")
-    _publish(1, [old])
-    assert _sync(bl)["status"] == "synced"
-
-    _publish(2, [_entry("baseline:玄幻:tech-b", "玄幻手法B")], fmt=2)
-    r = _sync(bl)
-    assert r["status"] == "skipped" and r["reason"] == "format_newer"
-    rows, _, ver = _layer_state()
-    assert set(rows) == {old["src_key"]} and ver == 1
-
-
-# ── 格式代随客户端版本走：manifest 的 format_client 是真身，整数是等价老读法 ──
+# ── 格式随客户端版本走：manifest 只有 format_client 一个兼容标记 ─────────────
 
 
 def test_格式代_已登记客户端版本_照收(sync_env):
@@ -282,7 +266,7 @@ def test_格式代_已登记客户端版本_照收(sync_env):
 
 
 def test_格式代_更新的客户端版本_静默跳过保旧层(sync_env):
-    """format_client 是映射表里没有的更新代际 → 不认识，保持旧层（不猜）。"""
+    """format_client 是不认识的更新代际 → 保持旧层（不猜）。"""
     bl = sync_env
     old = _entry("baseline:玄幻:tech-a", "玄幻手法A")
     _publish(1, [old])
@@ -295,26 +279,13 @@ def test_格式代_更新的客户端版本_静默跳过保旧层(sync_env):
     assert set(rows) == {old["src_key"]} and ver == 1
 
 
-def test_格式代_client优先于整数(sync_env):
-    """双写时以 format_client 为准：整数写错成 9 也不能把认得的代际挡在外面。"""
+def test_历史包无格式声明_照收(sync_env):
+    """已发布的 v1 只有整数 format_version、没有 format_client → 属第一代，照收。"""
     bl = sync_env
     e = _entry("baseline:玄幻:tech-a", "玄幻手法A")
-    _publish(1, [e], fmt=9, format_client="0.45.0")
+    _publish(1, [e])
     r = _sync(bl)
     assert r["status"] == "synced" and r["entries"] == 1, f"got {r}"
-
-
-def test_客户端过旧跳过保旧层(sync_env):
-    bl = sync_env
-    old = _entry("baseline:玄幻:tech-a", "玄幻手法A")
-    _publish(1, [old])
-    assert _sync(bl)["status"] == "synced"
-
-    _publish(2, [_entry("baseline:玄幻:tech-b", "玄幻手法B")], min_client="9.9.9")
-    r = _sync(bl)
-    assert r["status"] == "skipped" and r["reason"] == "min_client_version"
-    rows, _, ver = _layer_state()
-    assert set(rows) == {old["src_key"]} and ver == 1
 
 
 def test_断网保旧层(sync_env):

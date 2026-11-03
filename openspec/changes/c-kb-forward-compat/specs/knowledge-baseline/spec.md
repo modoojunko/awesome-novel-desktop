@@ -11,11 +11,11 @@
 因存在不识别条目而拒收整包；包级与条目级新增字段 SHALL 可被忽略而不影响解析。仅当整包
 一条都不可识别时，同步 SHALL 保持旧层（SHALL NOT 落空层）。
 
-格式代 SHALL **以引入它的客户端版本表达**（manifest.format_client，如 `0.45.0`），
-SHALL NOT 维护与客户端版本脱节的独立编号；manifest 双写的整数 `format_version` 仅为
-只认整数的老客户端提供等价读法（`0.45.0` ⇔ 1），SHALL 由映射表派生而非手工填写。
-本端不认识的格式代 SHALL 静默跳过并保持旧层。`min_client_version` SHALL 仅用于产品级
-要求，SHALL NOT 作为内容追加的默认门槛。
+基线包 SHALL 只有两个版本概念：内容包 `version`（第几版，单调递增、目录不可变）与
+`format_client`（这份内容按哪一代客户端的结构写，如 `0.45.0`）。SHALL NOT 引入独立格式
+编号或 `min_client_version` 等与客户端版本重复的字段——格式随客户端版本走，多一套号会漂。
+本端不认识的 `format_client` SHALL 静默跳过并保持旧层；缺省该字段的历史包 SHALL 视为
+第一代照收。新增不兼容代际 SHALL 在本端与内容仓同批登记。
 
 #### Scenario: 同步整层替换
 

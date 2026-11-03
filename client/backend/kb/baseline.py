@@ -6,7 +6,9 @@
   基线原件永不改变；恢复默认＝删覆盖记录。
 - 同步挂启动补偿：静默、失败可重试、不阻断启动与写法块（未就绪＝不出现）。
 - 信任模型：latest/manifest Ed25519 验签（manifest_crypto 同源）＋manifest sha256
-  ＋format_version 闸＋包体上限＋https/可信域/公网 SSRF 防线（照 prompt_pack）。
+  ＋格式闸（format_client＝按哪代客户端写）＋包体上限＋https/可信域/公网 SSRF 防线。
+- 版本口径只有两个：内容包 version（第几版）＋format_client（哪代客户端的结构）；
+  条目级向前兼容（读不懂的条目只跳过），整包都不认识才保旧层。
 """
 
 from __future__ import annotations
@@ -29,12 +31,13 @@ from models.kb import KbBaselineEntry, KbBaselineOverlay, KbBaselineTag
 logger = logging.getLogger(__name__)
 
 VERSION_KEY = "kb_baseline_version"
-# 格式代＝**引入它的客户端版本**（boss 拍板：格式随客户端版本走）。新增不兼容代际时
-# 加一行映射（如 "0.50.0": 2）并把 SUPPORTED_FORMAT_VERSION 抬到该代；整数只是给
-# 只认整数的老包/老读法用的等价编码，不是独立的编号体系。
+# 包里只有两个版本概念，别再增生：
+#   ① 内容包 version（第几版，单调递增，目录不可变）
+#   ② format_client＝「这份内容按哪一代客户端的结构写」（boss 拍板：格式随客户端版本走）
+# 独立的格式编号与 min_client 字段已裁撤——与客户端版本重复，多一套号迟早漂。
+# 新增不兼容代际时：本端把新客户端版本加进 _KNOWN_FORMAT_CLIENTS，内容仓同批登记。
 FORMAT_CLIENT = "0.45.0"
-_FORMAT_INT_BY_CLIENT = {FORMAT_CLIENT: 1}
-SUPPORTED_FORMAT_VERSION = 1
+_KNOWN_FORMAT_CLIENTS = frozenset({FORMAT_CLIENT})
 _MAX_PACK_BYTES = 16 * 1024 * 1024
 _FETCH_TIMEOUT = 8.0
 _DEFAULT_CDN_BASE = "https://www.awesomenovel.com/knowledge/baseline"
@@ -230,34 +233,17 @@ def content_sha(instruction: str) -> str:
     return hashlib.sha256((instruction or "").strip().encode("utf-8")).hexdigest()
 
 
-def _too_old(min_client: object) -> bool:
-    """min_client_version 闸：新包＋旧客户端＝静默跳过（保持旧层）。dev 不拦。"""
-    from schema_version import app_version, is_newer
-
-    cur = app_version()
-    if not isinstance(min_client, str) or not min_client or cur in ("dev", "", None):
-        return False
-    try:
-        return bool(is_newer(min_client, cur))
-    except Exception:  # noqa: BLE001 — 版本串非法＝不拦（交由验签/格式闸兜底）
-        return False
-
-
 def _format_ok(manifest: dict) -> bool:
-    """格式闸：**格式代以客户端版本表达**（format_client），整数是等价老读法。
+    """格式闸：`format_client` 表达「这份内容按哪代客户端写」。
 
-    - 新包（build 双写）：`format_client` 命中本端映射 → 等价整数比大小；
-      映射里没有＝比本端更新的代际 → 不认识，静默跳过保旧层。
-    - 老包（v1 已发，只有 `format_version`）：按整数比。
+    - 认识的代际 → 收（条目级子集容错另行处理新东西）；
+    - 不认识的代际 → 静默跳过，保持旧层；
+    - 没有该字段（v1 这类历史包）→ 就是第一代，照收。
     """
     fc = manifest.get("format_client")
-    if isinstance(fc, str) and fc.strip():
-        mapped = _FORMAT_INT_BY_CLIENT.get(fc.strip())
-        return mapped is not None and mapped <= SUPPORTED_FORMAT_VERSION
-    try:
-        return int(manifest.get("format_version") or 0) <= SUPPORTED_FORMAT_VERSION
-    except (TypeError, ValueError):
-        return False
+    if not isinstance(fc, str) or not fc.strip():
+        return True
+    return fc.strip() in _KNOWN_FORMAT_CLIENTS
 
 
 def schedule_sync() -> None:
@@ -327,8 +313,6 @@ async def _sync_impl(db: AsyncSession | None) -> dict:
         if latest is None:
             return {"status": "failed", "reason": "latest_invalid"}
         version = int(latest.get("version") or 0)
-        if _too_old(latest.get("min_client_version")):
-            return {"status": "skipped", "reason": "min_client_version", "version": version}
         current = await _current_version()
         if version and version == current:
             return {"status": "current", "version": current}
@@ -344,8 +328,6 @@ async def _sync_impl(db: AsyncSession | None) -> dict:
         if not isinstance(manifest, dict) or not verify_manifest(manifest, keys):
             return {"status": "failed", "reason": "manifest_invalid"}
         # 清单内声明优先（latest 是「有没有新版」的门，manifest 是「本包能不能装」的门）
-        if _too_old(manifest.get("min_client_version")):
-            return {"status": "skipped", "reason": "min_client_version", "version": version}
         if not _format_ok(manifest):
             return {"status": "skipped", "reason": "format_newer", "version": version}
 
