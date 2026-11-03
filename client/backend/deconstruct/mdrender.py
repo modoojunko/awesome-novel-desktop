@@ -42,6 +42,12 @@ _MD_LABELS: dict[str, str] = {
     "hooks": "伏笔", "type": "类型", "priority": "重要度", "desc": "内容",
     "plant_ch": "埋设章", "payoff_ch": "回收章", "status": "状态",
     "result": "结果",
+    # world 分区条目（power/cost/constraints 用 rule；历史/势力用 note）
+    "rule": "规则",
+    # 结构与题材的补充键（真机产物实见；漏登记会裸出英文键）
+    "no": "章号", "range": "范围", "pacing_notes": "节奏备注",
+    "core_promise": "核心承诺", "promise_note": "承诺说明",
+    "forbidden": "禁写项", "battlefield": "主要战场", "cost_ratio": "代价配比",
     # 写作技法新契约（呈现说人话：不再裸出英文键）
     "reader_needs": "读者需求", "need": "读者需求", "transferable": "可迁移",
     "techniques": "可复现模块卡", "emotion_chain": "情绪链", "repro_steps": "复现步骤",
