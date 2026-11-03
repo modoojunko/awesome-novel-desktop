@@ -55,7 +55,7 @@
 - set_pref_api/prototype_use 现校验账号表 → 副本 id 打点必 404。改按 book_scope 切校验表（KbBookEntry＋novel_id 归属校验防跨书打标）；tasks B3 展开。
 
 ### 启用闸门书域方案（P0）
-- `_binding_domain` 要求 enabled bindings——导入不落 bindings → 副本满仓但块永不出（批3 enabled=False 假绿同型）。裁决：**导入即开**（块使能＝书副本非空）；bindings 收窄为快照面（style/world KV）＋中途加库＋「库有 N 条新增」差异行；书级停用开关＝设定面板清空副本或显式开关（批F「停用无块」语义迁移到此）。
+- `_binding_domain` 要求 enabled bindings——导入不落 bindings → 副本满仓但块永不出（批3 enabled=False 假绿同型）。裁决：**导入即开**（块使能＝书副本非空）；bindings 收窄为快照面（style/world KV）＋中途加库＋「库有 N 条新增」差异行；书级停用/清空开关**本变更不提供**（副本非空即开；显式停用挂后续变更，批F「停用无块」语义只保留在账号停用路径）。
 
 ### 部分唯一索引（P1）
 - `uq_kb_book_entries_src(novel_id, src_key) WHERE src_ref<>''`（照账号表先例）——并发双击防重；导入 catch IntegrityError 计 skipped；补平端点幂等靠它。
