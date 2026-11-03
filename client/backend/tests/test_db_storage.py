@@ -7,6 +7,7 @@
 """
 
 import asyncio
+import json
 import os
 import tempfile
 
@@ -252,6 +253,20 @@ def test_seed_settings_seeds_db_not_disk():
     assert _run_async(_has("hooks")) is False
     assert _run_async(_has("anti-ai")) is False
     assert _run_async(_has("threads")) is False  # 首次归档时才建行
+
+    # c-style-kb-fill：文风种子只留通用 AI 腔护栏，三区留空
+    async def _style() -> dict:
+        async with async_session() as session:
+            row = await session.get(ProjectSetting, (root, "style"))
+            return json.loads(row.content) if row else {}
+
+    style = _run_async(_style())
+    assert not str(style.get("role") or "").strip()
+    assert style.get("rules") == [] and style.get("craft") == []
+    assert len(style.get("banned_words") or []) == 37
+    assert len(style.get("tic_patterns") or []) == 8
+    for retired in ("core_principles", "possible_mistakes", "depiction_techniques", "tone"):
+        assert retired not in style
     # 盘上零足迹：种子不落任何文件/子目录（root 本身是 mkdtemp 建的测试容器）
     assert os.path.isdir(root)
     assert os.listdir(root) == []

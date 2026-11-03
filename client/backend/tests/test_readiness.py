@@ -160,24 +160,25 @@ def _add_hook(client, pid: str, description: str, status: str = "active") -> dic
 
 class TestReadiness:
     def test_new_project_missing_defaults(self, client):
-        """新项目：模板默认值算内容（style 通过），空项进入 missing。
+        """新项目：文风三区留空（c-style-kb-fill）→ 与其他空项一起进 missing。
 
-        banned-words-into-style：anti-ai 检查项退役（7 项），禁用词不再参与 readiness。
+        banned-words-into-style：anti-ai 检查项退役（7 项），禁用词不再参与 readiness；
+        c-style-kb-fill：建书只播种禁用词/句式规则，role 不再有模板默认。
         """
         pid = _create_project(client)
         r = client.get(f"/api/novels/{pid}/readiness")
         assert r.status_code == 200
         data = r.json()
         keys = {m["key"] for m in data["missing"]}
-        # synopsis/story-arc/genre/world/hooks/characters 为空 → missing；style 模板有默认 → 通过
-        assert keys == {"synopsis", "story-arc", "genre", "world", "hooks", "characters"}
+        # 七项全空（style 的 role 不再由模板播种）→ 全部 missing
+        assert keys == {"genre", "synopsis", "world", "characters", "story-arc", "style", "hooks"}
         assert not data["complete"]
         assert "还差" in data["warning"]
         # 中文 label + jump
         labels = {m["label"] for m in data["missing"]}
-        assert labels == {"故事简介", "主线规划", "题材类型", "世界设定", "伏笔管理", "角色管理"}
+        assert labels == {"题材类型", "故事简介", "世界设定", "角色管理", "主线规划", "文风", "伏笔管理"}
         for m in data["missing"]:
-            assert m["jump"] in {"synopsis", "story-arc", "genre", "world", "hooks", "characters"}
+            assert m["jump"] in {"genre", "synopsis", "world", "characters", "story-arc", "style", "hooks"}
         # missing 列表与设定左栏菜单同序（c-genre-first-order：题材第一、简介第二）
         order = [m["key"] for m in data["missing"]]
         assert order.index("genre") < order.index("synopsis")
@@ -194,7 +195,8 @@ class TestReadiness:
         _fill_world(client, pid, filled=4)
         _add_hook(client, pid, "一个钩子")
         client.post(f"/api/novels/{pid}/characters", json={"name": "张三", "role": "主角"})
-        # style 模板默认已通过
+        # 文风三区不再有模板默认（c-style-kb-fill）——写一句身份才算有内容
+        client.put(f"/api/novels/{pid}/settings/style", json={"role": "克制的第三人称叙事"})
         r = client.get(f"/api/novels/{pid}/readiness")
         data = r.json()
         assert data["complete"] is True, data
@@ -266,9 +268,13 @@ class TestConfirmToggle:
         r = client.put(f"/api/novels/{pid}/settings/status/ai-model")
         assert r.status_code == 400
 
-    def test_style_default_passes(self, client):
-        """style.role 模板默认值算内容 → 点完成通过。"""
+    def test_style_blank_needs_identity(self, client):
+        """c-style-kb-fill：新书三区留空 → 点完成 400；写一句叙事身份后才通过。"""
         pid = _create_project(client)
+        r = client.put(f"/api/novels/{pid}/settings/status/style")
+        assert r.status_code == 400
+        assert "还未填写" in r.json()["detail"]
+        client.put(f"/api/novels/{pid}/settings/style", json={"role": "贴着主角写的第三人称"})
         r = client.put(f"/api/novels/{pid}/settings/status/style")
         assert r.status_code == 200, r.text
 
@@ -401,7 +407,9 @@ class TestGateSettingsWarnings:
         _fill_world(client, pid, filled=4)
         _add_hook(client, pid, "一个钩子")
         client.post(f"/api/novels/{pid}/characters", json={"name": "张三", "role": "主角"})
-        # style 模板默认已通过内容判定；anti-ai 已退役（banned-words-into-style，7 项）
+        # c-style-kb-fill：文风三区不再由模板播种，写一句身份才算有内容
+        client.put(f"/api/novels/{pid}/settings/style", json={"role": "克制的第三人称叙事"})
+        # anti-ai 已退役（banned-words-into-style，7 项）
         for t in ["synopsis", "story-arc", "genre", "world", "style", "hooks", "characters"]:
             r = client.put(f"/api/novels/{pid}/settings/status/{t}")
             assert r.status_code == 200, f"confirm {t} failed: {r.text}"

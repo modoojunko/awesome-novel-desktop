@@ -30,8 +30,8 @@ import { useDirtyState } from "@/hooks/useDirtyState";
 import { Cfg, ListEditor, type SettingSaveHandle } from "./FormField";
 import { Ico, P } from "@/components/icons";
 import type { ChangeReceiptState } from "./ChangeReceipt";
-import { styleAiApi, styleQuantApi, BASELINE_ROWS, countSampleChars } from "@/lib/styleApi";
-import type { StyleQuant, StyleQuantDraft } from "@/lib/styleApi";
+import { styleAiApi, styleKbApi, styleQuantApi, BASELINE_ROWS, countSampleChars } from "@/lib/styleApi";
+import type { StyleKbDraft, StyleQuant, StyleQuantDraft } from "@/lib/styleApi";
 import StylePasteModal from "./StylePasteModal";
 import AiCardModal from "./AiCardModal";
 import { toast } from "@/lib/toast";
@@ -78,6 +78,101 @@ function toTics(v: unknown): TicPattern[] {
       };
     })
     .filter((p) => p.pattern.trim() !== "");
+}
+
+/** 保序去重（按原文，去首尾空白）——知识库导入合并护栏用 */
+function _dedupeText(items: string[]): string[] {
+  const seen = new Set<string>();
+  const out: string[] = [];
+  for (const raw of items) {
+    const v = String(raw ?? "").trim();
+    if (v && !seen.has(v)) {
+      seen.add(v);
+      out.push(v);
+    }
+  }
+  return out;
+}
+
+/** 句式规则合并：按 pattern 去重，保留书内已有条目的阈值/说明 */
+function _mergeTics(cur: TicPattern[], picked: StyleKbDraft["tic_patterns"]): TicPattern[] {
+  const seen = new Set(cur.map((t) => t.pattern.trim()).filter(Boolean));
+  const out = [...cur];
+  for (const t of picked) {
+    const pattern = String(t.pattern ?? "").trim();
+    if (!pattern || seen.has(pattern)) continue;
+    seen.add(pattern);
+    out.push({
+      pattern,
+      name: String(t.name ?? "").trim(),
+      threshold: t.threshold >= 1 ? t.threshold : 3,
+      severity: t.severity === "high" || t.severity === "low" ? t.severity : "medium",
+      description: String(t.description ?? "").trim(),
+    });
+  }
+  return out.slice(0, 20);
+}
+
+/** 按题材填文风（c-style-kb-fill）：弹窗里的一组候选（勾选 + 组头全选/全不选）。
+ *  max：表单落表上限（如描写手法 8 条）——到顶后未勾项禁用；全选只勾前 max 条。 */
+function KbPickGroup({
+  title,
+  items,
+  selected,
+  max,
+  onToggle,
+  onToggleAll,
+}: {
+  title: string;
+  items: string[];
+  selected: number[];
+  max?: number;
+  onToggle: (i: number) => void;
+  onToggleAll: () => void;
+}) {
+  const capped = max !== undefined && selected.length >= max;
+  return (
+    <section style={{ margin: "0 0 14px" }}>
+      <div style={{ display: "flex", alignItems: "baseline", gap: 8, margin: "0 0 4px" }}>
+        <b style={{ fontSize: 13 }}>{title}</b>
+        <span style={{ fontSize: 11.5, color: "var(--muted)" }}>
+          已勾 {selected.length}/{items.length}
+          {max !== undefined ? `（最多 ${max} 条）` : ""}
+        </span>
+        <button
+          type="button"
+          className="text-btn gray"
+          style={{ marginLeft: "auto", fontSize: 11.5 }}
+          onClick={onToggleAll}
+        >
+          {selected.length === items.length ? "全不选" : "全选"}
+        </button>
+      </div>
+      {items.map((text, i) => (
+        <label
+          key={i}
+          style={{
+            display: "flex",
+            gap: 8,
+            alignItems: "flex-start",
+            padding: "3px 0",
+            fontSize: 12.5,
+            lineHeight: 1.65,
+            cursor: "pointer",
+          }}
+        >
+          <input
+            type="checkbox"
+            checked={selected.includes(i)}
+            disabled={capped && !selected.includes(i)}
+            onChange={() => onToggle(i)}
+            style={{ marginTop: 3, flex: "none" }}
+          />
+          <span>{text}</span>
+        </label>
+      ))}
+    </section>
+  );
 }
 
 /** 句式规则编辑器：首行 句式名/严重度/阈值/删除 ＋ 正则 pattern（mono）＋ 修复说明 */
@@ -180,7 +275,7 @@ const StyleSettingForm = forwardRef<StylePanelHandle, Props>(function StyleSetti
   const [banned, setBanned] = useState<string[]>([]);
   const [tics, setTics] = useState<TicPattern[]>([]);
   const [error, setError] = useState("");
-  // 题材默认快照（首次加载的归一三区）——页签徽标「已自定义 · N 处」的 diff 基准
+  // 加载快照（首次 GET 的归一三区）——页签徽标「未改动 / 已自定义 · N 处」的 diff 基准
   const presetRef = useRef<{ role: string; rules: string[]; craft: string[] } | null>(null);
 
   // 量化层
@@ -212,17 +307,31 @@ const StyleSettingForm = forwardRef<StylePanelHandle, Props>(function StyleSetti
   // 弹窗过目、确认才写回；每行缓存最近一版，重开免请求，「换一个」才重生成（D9）。
   const [polishOut, setPolishOut] = useState<{ role: string; rules: string[]; craft: string[] } | null>(null);
   const [fewshotOut, setFewshotOut] = useState<string[] | null>(null);
-  const [cardAction, setCardAction] = useState<"polish" | "check" | "fewshot" | null>(null);
+  const [cardAction, setCardAction] = useState<"polish" | "check" | "fewshot" | "kb" | null>(null);
   const [cardOpen, setCardOpen] = useState(false);
   const [cardCached, setCardCached] = useState(false);
   const [cardError, setCardError] = useState("");
   const [versions, setVersions] = useState<Partial<Record<"polish" | "check" | "fewshot", number>>>({});
   const [aiRunning, setAiRunning] = useState(false);
   const aiBusyRef = useRef(false);
+  // 按题材填文风（c-style-kb-fill）：知识库草稿＋弹窗里的勾选。不调模型，独立在途互斥。
+  const [kbOut, setKbOut] = useState<StyleKbDraft | null>(null);
+  const [kbRoleText, setKbRoleText] = useState("");
+  const [kbSel, setKbSel] = useState<{
+    role: boolean;
+    rules: number[];
+    craft: number[];
+    banned: number[];
+    tics: number[];
+    samples: number[];
+  } | null>(null);
+  const kbBusyRef = useRef(false);
 
+  // styleSamples 也进脏判定：示范段可经「按题材填文风」单独改动，漏了会让切面板
+  // 无提示丢改动（顺带修掉原本删示范段不变脏的旧缺口）
   const shape = useMemo(
-    () => ({ role, rules, craft, fewShots, banned, tics }),
-    [role, rules, craft, fewShots, banned, tics],
+    () => ({ role, rules, craft, fewShots, banned, tics, styleSamples }),
+    [role, rules, craft, fewShots, banned, tics, styleSamples],
   );
   const { isDirty, snapshotLoaded, markSaved, getSnapshot } = useDirtyState(shape, onDirtyChange);
 
@@ -325,12 +434,23 @@ const StyleSettingForm = forwardRef<StylePanelHandle, Props>(function StyleSetti
         setCardAction(null);
         setCardOpen(false);
         setVersions({});
+        setKbOut(null);
+        setKbSel(null);
         publishReceipt(null);
       },
       runAi: async (key: string) => {
         if (key === "distill") {
           setTab("quant");
           await openDistill();
+          return;
+        }
+        if (key === "kb") {
+          try {
+            await openKbImport();
+          } catch (e: unknown) {
+            setCardOpen(false);
+            toast.error((e as Error).message || "知识库没读出来，稍后再试");
+          }
           return;
         }
         try {
@@ -407,6 +527,139 @@ const StyleSettingForm = forwardRef<StylePanelHandle, Props>(function StyleSetti
       aiBusyRef.current = false;
       setAiRunning(false);
     }
+  }
+
+  // ── 按题材填文风（c-style-kb-fill）：知识库草稿 → 勾选弹窗 → 采纳进表单 ──
+  /** 拉草稿并开卡；无题材/库空只给 toast，不弹空窗。 */
+  async function openKbImport() {
+    if (kbBusyRef.current) return;
+    kbBusyRef.current = true;
+    setAiRunning(true);
+    try {
+      const draft = await styleKbApi.draft(projectId);
+      if (!draft.theme) {
+        toast.info("先去定题材，再来按题材填文风。");
+        return;
+      }
+      if (!draft.counts.total) {
+        toast.info(`知识库里还没有${draft.theme}的写法——先拆一本同题材的书，或者去知识库记几条。`);
+        return;
+      }
+      setKbOut(draft);
+      setKbRoleText(draft.role);
+      // 默认只勾推荐量：身份、前 5 条硬约束、前 3 条手法；护栏全勾，示范段不勾
+      setKbSel({
+        role: !!draft.role,
+        rules: draft.rules.map((_, i) => i).slice(0, 5),
+        craft: draft.craft.map((_, i) => i).slice(0, 3),
+        banned: draft.banned_words.map((_, i) => i),
+        tics: draft.tic_patterns.map((_, i) => i),
+        samples: [],
+      });
+      setCardError("");
+      setCardAction("kb");
+      setCardOpen(true);
+    } finally {
+      kbBusyRef.current = false;
+      setAiRunning(false);
+    }
+  }
+
+  function kbToggle(group: "rules" | "craft" | "banned" | "tics" | "samples", i: number) {
+    const cur = kbSel?.[group] ?? [];
+    // 描写手法在表单里最多 8 条：到顶后不许再加（勾选卡复选框同步禁用），
+    // 避免"勾了 12 条、只落 8 条"的静默截断与条数虚报。
+    if (group === "craft" && !cur.includes(i) && cur.length >= 8) {
+      toast.info("描写手法最多挑 8 条，先取消一条再挑。");
+      return;
+    }
+    setKbSel((prev) =>
+      prev
+        ? {
+            ...prev,
+            [group]: prev[group].includes(i)
+              ? prev[group].filter((x) => x !== i)
+              : [...prev[group], i].sort((a, b) => a - b),
+          }
+        : prev,
+    );
+  }
+
+  function kbToggleAll(group: "rules" | "craft" | "banned" | "tics" | "samples", total: number) {
+    const limit = group === "craft" ? Math.min(total, 8) : total;
+    setKbSel((prev) =>
+      prev
+        ? {
+            ...prev,
+            [group]:
+              prev[group].length >= limit ? [] : Array.from({ length: limit }, (_, i) => i),
+          }
+        : prev,
+    );
+  }
+
+  const kbSelCount = kbSel
+    ? (kbSel.role ? 1 : 0) +
+      kbSel.rules.length +
+      kbSel.craft.length +
+      kbSel.banned.length +
+      kbSel.tics.length +
+      kbSel.samples.length
+    : 0;
+
+  /** 采纳：勾中的三区替换现有、护栏合并去重；整页填好但不保存，可一步撤销。 */
+  function adoptKb() {
+    if (!kbOut || !kbSel) return;
+    const picked = {
+      role: kbSel.role ? kbRoleText.trim() : "",
+      rules: kbSel.rules.map((i) => kbOut.rules[i]).filter(Boolean),
+      craft: kbSel.craft.map((i) => kbOut.craft[i]).filter(Boolean),
+      banned: kbSel.banned.map((i) => kbOut.banned_words[i]).filter(Boolean),
+      tics: kbSel.tics.map((i) => kbOut.tic_patterns[i]).filter(Boolean),
+      samples: kbSel.samples.map((i) => kbOut.style_samples[i]).filter(Boolean),
+    };
+    // 先算「实际会落表」的结果：回执条数与页面所见一致（去重/上限之后），
+    // 不在截断前后各算一套。
+    const nextBanned = _dedupeText([...banned, ...picked.banned]).slice(0, 100);
+    const nextTics = _mergeTics(tics, picked.tics);
+    const nextSamples = _dedupeText([...styleSamples, ...picked.samples]).slice(0, 6);
+    const prev = {
+      role,
+      rules: [...rules],
+      craft: [...craft],
+      banned: [...banned],
+      tics: tics.map((t) => ({ ...t })),
+      samples: [...styleSamples],
+    };
+    const count =
+      (picked.role ? 1 : 0) +
+      picked.rules.length +
+      picked.craft.length +
+      Math.max(0, nextBanned.length - prev.banned.length) +
+      Math.max(0, nextTics.length - prev.tics.length) +
+      Math.max(0, nextSamples.length - prev.samples.length);
+    record(
+      `按题材填了 ${count} 条，还没保存。不合适点「撤销」退回。`,
+      () => {
+        if (picked.role) setRole(picked.role);
+        if (picked.rules.length) setRules(picked.rules);
+        if (picked.craft.length) setCraft(picked.craft.slice(0, 8));
+        if (picked.banned.length) setBanned(nextBanned);
+        if (picked.tics.length) setTics(nextTics);
+        if (picked.samples.length) setStyleSamples(nextSamples);
+      },
+      () => {
+        setRole(prev.role);
+        setRules(prev.rules.length ? prev.rules : [""]);
+        setCraft(prev.craft.length ? prev.craft : [""]);
+        setBanned(prev.banned);
+        setTics(prev.tics);
+        setStyleSamples(prev.samples);
+      },
+    );
+    setCardOpen(false);
+    setTab("text");
+    toast.success("已经填进文风页了，别忘了保存。");
   }
 
   /** 润色确认：三区写回＋回执撤销（原无预览直写路径退役，D7） */
@@ -735,7 +988,7 @@ const StyleSettingForm = forwardRef<StylePanelHandle, Props>(function StyleSetti
   // ── 渲染 ─────────────────────────────────────────────────────────
   if (loading) return <p className="opt">加载中…</p>;
 
-  // 页签徽标：题材默认 ↔ 已自定义 · N 处（与首次加载快照比，N＝有差异的区数）
+  // 页签徽标三态（c-style-kb-fill）：三区全空＝未填；与加载快照一致＝未改动；否则已自定义。
   let changed = 0;
   const preset = presetRef.current;
   if (preset) {
@@ -745,6 +998,8 @@ const StyleSettingForm = forwardRef<StylePanelHandle, Props>(function StyleSetti
     if (JSON.stringify(craft.map((c) => c.trim()).filter(Boolean)) !== JSON.stringify(preset.craft))
       changed += 1;
   }
+  const styleBlank =
+    !role.trim() && !rules.some((r) => r.trim()) && !craft.some((c) => c.trim());
 
   const totalSel =
     (samples?.files ?? []).filter((f) => selFiles.has(f.name)).reduce((a, f) => a + f.chars, 0) +
@@ -778,8 +1033,8 @@ const StyleSettingForm = forwardRef<StylePanelHandle, Props>(function StyleSetti
           onClick={() => setTab("text")}
         >
           文字文风
-          <span className={`badge ${changed > 0 ? "warn" : "ok"}`} data-od-id="style-tab-badge">
-            {changed > 0 ? `已自定义 · ${changed} 处` : "题材默认"}
+          <span className={`badge ${styleBlank ? "empty" : changed > 0 ? "warn" : "ok"}`} data-od-id="style-tab-badge">
+            {styleBlank ? "未填" : changed > 0 ? `已自定义 · ${changed} 处` : "未改动"}
           </span>
         </button>
         <button
@@ -802,7 +1057,7 @@ const StyleSettingForm = forwardRef<StylePanelHandle, Props>(function StyleSetti
       {tab === "text" ? (
         <div data-od-id="style-text-tab">
           <p className="opt" style={{ margin: "-2px 0 12px" }}>
-            进页即按题材蓝图填好——要动笔的只有身份一句和几条红线，手法预填删改即可；蒸馏之前 AI 只按这部分写。
+            文风由你定：先写一句叙事身份，再给 3–5 条能检查的硬约束和几条描写手法。三区空着时，可从右侧「按题材填文风」取一份同题材的起点。
           </p>
           <div className="anchor-chain" data-od-id="chain-anchor">
             <button className="ac-node" type="button" onClick={() => document.getElementById("fRole")?.focus()}>
@@ -1387,7 +1642,110 @@ const StyleSettingForm = forwardRef<StylePanelHandle, Props>(function StyleSetti
       <AiCardModal
         open={cardOpen && !pasteOpen}
         card={
-          cardAction === "polish" && polishOut
+          cardAction === "kb" && kbOut && kbSel
+            ? {
+                label: `按题材填文风 · ${kbOut.theme}`,
+                kind: "pick",
+                uiOnly: true,
+                adoptText: "采纳，填进文风",
+                canAdopt: kbSelCount > 0,
+                node: (
+                  <div data-testid="kb-pick-card" data-od-id="kb-pick-card">
+                    <p style={{ margin: "0 0 12px", fontSize: 12, color: "var(--muted)", lineHeight: 1.7 }}>
+                      这些是从知识库找出来的「{kbOut.theme}」写法。勾上你要的，采纳后填进文风页，还能接着改。
+                    </p>
+
+                    <section style={{ margin: "0 0 14px" }}>
+                      <div style={{ display: "flex", alignItems: "baseline", gap: 8, margin: "0 0 4px" }}>
+                        <b style={{ fontSize: 13 }}>叙事身份</b>
+                        <span style={{ fontSize: 11.5, color: "var(--muted)" }}>
+                          已勾 {kbSel.role ? 1 : 0}/1
+                        </span>
+                      </div>
+                      {kbOut.role ? (
+                        <label style={{ display: "flex", gap: 8, alignItems: "flex-start" }}>
+                          <input
+                            type="checkbox"
+                            checked={kbSel.role}
+                            onChange={() =>
+                              setKbSel((prev) => (prev ? { ...prev, role: !prev.role } : prev))
+                            }
+                            style={{ marginTop: 7, flex: "none" }}
+                          />
+                          <textarea
+                            className="textarea"
+                            rows={2}
+                            value={kbRoleText}
+                            disabled={!kbSel.role}
+                            onChange={(e) => setKbRoleText(e.target.value)}
+                            style={{ flex: 1, fontSize: 12.5 }}
+                            aria-label="叙事身份"
+                          />
+                        </label>
+                      ) : (
+                        <p style={{ margin: 0, fontSize: 12, color: "var(--muted)" }}>
+                          知识库里没有叙事身份，这一项留空，你自己写一句。
+                        </p>
+                      )}
+                    </section>
+
+                    {kbOut.rules.length > 0 && (
+                      <KbPickGroup
+                        title="硬约束"
+                        items={kbOut.rules}
+                        selected={kbSel.rules}
+                        onToggle={(i) => kbToggle("rules", i)}
+                        onToggleAll={() => kbToggleAll("rules", kbOut.rules.length)}
+                      />
+                    )}
+                    {kbOut.craft.length > 0 && (
+                      <KbPickGroup
+                        title="描写手法"
+                        items={kbOut.craft}
+                        selected={kbSel.craft}
+                        max={8}
+                        onToggle={(i) => kbToggle("craft", i)}
+                        onToggleAll={() => kbToggleAll("craft", kbOut.craft.length)}
+                      />
+                    )}
+                    {kbOut.banned_words.length > 0 && (
+                      <KbPickGroup
+                        title="禁用词"
+                        items={kbOut.banned_words}
+                        selected={kbSel.banned}
+                        onToggle={(i) => kbToggle("banned", i)}
+                        onToggleAll={() => kbToggleAll("banned", kbOut.banned_words.length)}
+                      />
+                    )}
+                    {kbOut.tic_patterns.length > 0 && (
+                      <KbPickGroup
+                        title="句式规则"
+                        items={kbOut.tic_patterns.map((t) =>
+                          t.name ? `${t.name}：${t.pattern}` : t.pattern,
+                        )}
+                        selected={kbSel.tics}
+                        onToggle={(i) => kbToggle("tics", i)}
+                        onToggleAll={() => kbToggleAll("tics", kbOut.tic_patterns.length)}
+                      />
+                    )}
+                    {kbOut.style_samples.length > 0 && (
+                      <KbPickGroup
+                        title="示范段"
+                        items={kbOut.style_samples}
+                        selected={kbSel.samples}
+                        onToggle={(i) => kbToggle("samples", i)}
+                        onToggleAll={() => kbToggleAll("samples", kbOut.style_samples.length)}
+                      />
+                    )}
+
+                    <p style={{ margin: "10px 0 0", fontSize: 11.5, color: "var(--muted)", lineHeight: 1.7 }}>
+                      勾上的会换掉你现在写的身份、硬约束和手法；禁用词、句式规则、示范段只往里加，不删你写的。
+                    </p>
+                  </div>
+                ),
+                adopt: adoptKb,
+              }
+            : cardAction === "polish" && polishOut
             ? {
                 label: "AI 起草 · 文字文风三区（前后对照）",
                 kind: "struct",
@@ -1468,9 +1826,11 @@ const StyleSettingForm = forwardRef<StylePanelHandle, Props>(function StyleSetti
         }
         running={aiRunning}
         error={aiRunning ? undefined : cardError}
-        version={cardAction ? versions[cardAction] : undefined}
+        version={cardAction && cardAction !== "kb" ? versions[cardAction] : undefined}
         onClose={() => setCardOpen(false)}
-        onRegenerate={cardAction ? () => void runCardRequest(cardAction) : undefined}
+        onRegenerate={
+          cardAction && cardAction !== "kb" ? () => void runCardRequest(cardAction) : undefined
+        }
         data-testid="style-ai-card"
       />
     </div>

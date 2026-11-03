@@ -255,13 +255,20 @@ describe("文风示范段（c-deconstruct-style-transfer）", () => {
 });
 
 describe("两页签与确认门槛", () => {
-  it("页签徽标：题材默认 → 改身份后「已自定义 · 1 处」", async () => {
+  it("页签徽标：未改动 → 改身份后「已自定义 · 1 处」", async () => {
     mockGet({ role: "冷静叙事者", rules: ["钩子"] });
     renderForm();
     await waitFor(() => expect(screen.getByTestId("input-style-role")).toBeTruthy());
-    expect(screen.getByTestId("style-tab-badge").textContent).toBe("题材默认");
+    expect(screen.getByTestId("style-tab-badge").textContent).toBe("未改动");
     fireEvent.change(screen.getByTestId("input-style-role"), { target: { value: "改过的身份" } });
     expect(screen.getByTestId("style-tab-badge").textContent).toBe("已自定义 · 1 处");
+  });
+
+  it("新建书三区全空 → 徽标「未填」（c-style-kb-fill）", async () => {
+    mockGet({ role: "", rules: [], craft: [] });
+    renderForm();
+    await waitFor(() => expect(screen.getByTestId("input-style-role")).toBeTruthy());
+    expect(screen.getByTestId("style-tab-badge").textContent).toBe("未填");
   });
 
   it("canConfirm：叙事身份非空 true、空 false", async () => {
