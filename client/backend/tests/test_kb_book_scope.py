@@ -474,7 +474,7 @@ def test_并发双开导入_唯一索引冲突自动重算(monkeypatch):
             await db.commit()
     _run(_winner())  # 模拟对方已抢到一条
 
-    real = bs._load_import_state
+    real = bs.load_import_state
     calls = {"n": 0}
 
     async def _stale_then_real(db, *, novel_id, user_id, genre):
@@ -482,7 +482,7 @@ def test_并发双开导入_唯一索引冲突自动重算(monkeypatch):
         rows, todo = await real(db, novel_id=novel_id, user_id=user_id, genre=genre)
         return (rows, rows) if calls["n"] == 1 else (rows, todo)  # 首轮装作没看见
 
-    monkeypatch.setattr(bs, "_load_import_state", _stale_then_real)
+    monkeypatch.setattr(bs, "load_import_state", _stale_then_real)
 
     async def _go():
         async with async_session() as db:
@@ -672,3 +672,76 @@ def test_单书恢复为新书_副本id重映射():
     assert len(runs) == 1 and len(items) == 1
     assert items[0].entry_id in new_ids  # 清单指向新副本，不指回原书
     assert old_copy_id not in new_ids
+
+
+def test_基线层纳入开书导入_merged快照():
+    """开书复制＝merged 视图一次快照（c-kb-baseline）：官方基线层随题材进书副本，
+    差异计数同口径；跨题材基线不进。"""
+    uid = f"bl{uuid.uuid4().hex[:8]}"
+    _run(_seed_user(uid))
+    novel_id = _run(_seed_book(uid))
+    _run(_set_genre(novel_id, "玄幻"))
+
+    async def _seed_baseline():
+        from models.kb import KbBaselineEntry, KbBaselineTag
+
+        async with async_session() as db:
+            for eid, src_key, genre, title, ins, when in (
+                ("bl-hit", "pack:hit", "玄幻", "基线玄幻手法", "基线打斗：先守后攻。",
+                 '{"scene": "打斗"}'),
+                ("bl-gen", "pack:gen", "", "基线通用手法", "基线通用：少用形容词。", "{}"),
+                ("bl-other", "pack:other", "悬疑", "基线悬疑手法", "悬疑基线：先抛钩子。", "{}"),
+            ):
+                db.add(KbBaselineEntry(
+                    entry_id=eid, src_key=src_key, genre=genre, concept="手法",
+                    scope="base", slot="", title=title, instruction=ins,
+                    when_json=when,
+                    payload_json=f'{{"instruction": "{ins}", "scene": "打斗"}}',
+                ))
+                db.add(KbBaselineTag(entry_id=eid, dim="concept", value="手法"))
+                db.add(KbBaselineTag(entry_id=eid, dim="scope", value="base"))
+            await db.commit()
+    _run(_seed_baseline())
+
+    async def _todo_ids():
+        from kb.book_scope import load_import_state, novel_genre
+
+        async with async_session() as db:
+            novel = (await db.execute(sel(Novel).where(Novel.id == novel_id))).scalar_one()
+            genre = await novel_genre(novel.root_path)
+            _sources, todo = await load_import_state(
+                db, novel_id=novel_id, user_id=uid, genre=genre
+            )
+            return {s.id for s in todo}
+    async def _cleanup():
+        from sqlalchemy import delete as _del
+
+        from models.kb import KbBaselineEntry, KbBaselineTag
+
+        async with async_session() as db:
+            ids = ["bl-hit", "bl-gen", "bl-other"]
+            await db.execute(_del(KbBaselineTag).where(KbBaselineTag.entry_id.in_(ids)))
+            await db.execute(_del(KbBaselineEntry).where(KbBaselineEntry.entry_id.in_(ids)))
+            await db.commit()
+
+    try:
+        assert _run(_todo_ids()) == {"bl-hit", "bl-gen"}  # 悬疑基线不进
+
+        r = _run(_import(novel_id, uid))
+        assert r["imported"] == 2
+
+        async def _meta():
+            async with async_session() as db:
+                rows = (await db.execute(
+                    sel(KbBookEntry).where(KbBookEntry.novel_id == novel_id)
+                )).scalars().all()
+                tags = (await db.execute(
+                    sel(KbBookEntryTag).where(KbBookEntryTag.novel_id == novel_id)
+                )).scalars().all()
+                return {r.src_key for r in rows}, {(t.dim, t.value) for t in tags}
+        src_keys, tags = _run(_meta())
+        assert src_keys == {"bl-hit", "bl-gen"}
+        assert {("concept", "手法"), ("scope", "base")} <= tags  # 基线标签随副本物化
+    finally:
+        # 基线层是设备级共享表（不按账号隔离）——不清会污染后续同题材用例
+        _run(_cleanup())

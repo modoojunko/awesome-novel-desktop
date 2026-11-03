@@ -656,7 +656,6 @@ async def set_pref_api(
     uid = _user(user)
     # 双域（c-kb-book-scope 批B）：副本 id 优先查书级（novel_id 归属校验防跨书打标），
     # miss 回退账号级（存量语义）
-    from models.kb import KbBookEntry
 
     copy = (
         await db.execute(
@@ -1021,31 +1020,14 @@ async def book_scope_diff_api(
     novel = await db.get(_Novel, novel_id)
     if novel is None or novel.user_id != uid or novel.status == "deleted":
         raise HTTPException(404, "Book not found")
-    from kb.book_scope import novel_genre
+    from kb.book_scope import load_import_state, novel_genre, read_import_declined
 
     genre = await novel_genre(novel.root_path)
-    copied = set(
-        (
-            await db.execute(
-                select(KbBookEntry.src_key).where(
-                    KbBookEntry.novel_id == novel_id,
-                    KbBookEntry.status == "active",
-                )
-            )
-        ).scalars()
+    # 差异＝merged 视图（用户条目∪基线层）里尚未复制进本书的条数——与导入同一口径
+    _sources, todo = await load_import_state(
+        db, novel_id=novel_id, user_id=uid, genre=genre
     )
-    new_count = (
-        await db.execute(
-            select(func.count(KbEntry.id)).where(
-                KbEntry.user_id == uid,
-                KbEntry.status == "active",
-                (KbEntry.genre == genre) | (KbEntry.genre == ""),
-                KbEntry.id.not_in(copied or ["-"]),
-            )
-        )
-    ).scalar_one()
-    from kb.book_scope import read_import_declined
-
+    new_count = len(todo)
     declined = await read_import_declined(novel.root_path)
     return {
         "ok": True,

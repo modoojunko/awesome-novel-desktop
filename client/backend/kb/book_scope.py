@@ -33,10 +33,16 @@ from settings.style_quant_model import BASELINE_KEYS
 _CONCEPT_ORDER = ("手法", "文风", "文笔", "世界设定", "角色设定")
 
 
-async def _load_import_state(
+async def load_import_state(
     db: AsyncSession, *, novel_id: str, user_id: str, genre: str
-) -> tuple[list[KbEntry], list[KbEntry]]:
-    """导入差集：(active 题材命中＋通用条目, 尚未复制进本书的条目)。"""
+) -> tuple[list, list]:
+    """导入差集（merged 视图）：(可导入源, 尚未复制进本书的源)。
+
+    源＝用户 active 条目（题材命中＋通用）∪ 官方基线层（kb.merged：hide 已排、
+    edit 副本已套）——开书复制是对 merged 视图的一次性值快照（c-kb-baseline 口径）；
+    书副本自包含，之后基线层再同步不自动进老书（走差异行显式补平）。"""
+    from kb.merged import load_baseline_entries
+
     rows = (
         await db.execute(
             select(KbEntry).where(
@@ -46,6 +52,13 @@ async def _load_import_state(
             )
         )
     ).scalars().all()
+    base_rows = await load_baseline_entries(
+        db, user_id=user_id, genre=genre, match_generic=bool(genre)
+    )
+    if not genre:
+        # load_baseline_entries 的 genre="" 语义是「不过滤」——无题材书只要通用条目
+        base_rows = [b for b in base_rows if b.genre == ""]
+    sources = list(rows) + list(base_rows)
     have = set(
         (
             await db.execute(
@@ -57,7 +70,7 @@ async def _load_import_state(
             )
         ).scalars()
     )
-    return list(rows), [src for src in rows if src.id not in have]
+    return sources, [src for src in sources if src.id not in have]
 
 
 async def stream_import_genre_knowledge(
@@ -72,7 +85,7 @@ async def stream_import_genre_knowledge(
     副本行/标签/种子权重单事务（末尾 commit）；基线 KV 落地在其后（另一介质）。
     并发双开（两个标签页同时点导入）：唯一索引冲突时回滚重算差集重来一次，
     不把 UNIQUE 错误丢给用户（对方已落库的条目按 skipped 计）。"""
-    rows, todo = await _load_import_state(
+    rows, todo = await load_import_state(
         db, novel_id=novel_id, user_id=user_id, genre=genre
     )
     total = len(todo)
@@ -123,19 +136,32 @@ async def stream_import_genre_knowledge(
             if new_rows:
                 # 标签物化：源条目 tags 原样克隆（比重算保真）
                 src_ids = [src.id for _row, src in new_rows]
-                src_tags = (
-                    await db.execute(
-                        select(KbEntryTag).where(KbEntryTag.entry_id.in_(src_ids))
-                    )
-                ).scalars().all()
+                from models.kb import KbBaselineTag
+
+                src_tags = [
+                    (t.entry_id, t.dim, t.value)
+                    for t in (
+                        await db.execute(
+                            select(KbEntryTag).where(KbEntryTag.entry_id.in_(src_ids))
+                        )
+                    ).scalars().all()
+                ]
+                src_tags += [
+                    (t.entry_id, t.dim, t.value)
+                    for t in (
+                        await db.execute(
+                            select(KbBaselineTag).where(KbBaselineTag.entry_id.in_(src_ids))
+                        )
+                    ).scalars().all()
+                ]
                 copy_by_src = {row.src_key: row for row, _src in new_rows}
-                for t in src_tags:
-                    copy = copy_by_src.get(t.entry_id)
+                for entry_id, dim, value in src_tags:
+                    copy = copy_by_src.get(entry_id)
                     if copy is None:
                         continue
                     db.add(KbBookEntryTag(
                         entry_id=copy.id, novel_id=novel_id, user_id=user_id,
-                        dim=t.dim, value=t.value,
+                        dim=dim, value=value,
                     ))
                 # 经验继承：源条目 pref 有用率播种为副本初始权重（未标记源=1.0）
                 src_prefs = {
@@ -166,7 +192,7 @@ async def stream_import_genre_knowledge(
             if attempt >= 1:
                 raise
             attempt += 1
-            rows, todo = await _load_import_state(
+            rows, todo = await load_import_state(
                 db, novel_id=novel_id, user_id=user_id, genre=genre
             )
             total = len(todo)
