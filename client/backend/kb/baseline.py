@@ -441,6 +441,34 @@ async def _replace_layer(
 _PROMOTED_SRC = "官方精选（已下架）"
 
 
+async def find_promoted_copy(
+    db: AsyncSession, *, user_id: str, src_key: str
+) -> object | None:
+    """按溯源标记找该用户的「提升副本」（导入/再同步的幂等键）。
+
+    提升件没有天然唯一约束（src_ref='' 不进 uq_kb_entries_src），只能靠
+    evidence_json.promoted_from 认亲；重复导入同一包不得再建一份。
+    """
+    from models.kb import KbEntry
+
+    rows = (
+        await db.execute(
+            select(KbEntry).where(
+                KbEntry.user_id == user_id,
+                KbEntry.src_novel_name == _PROMOTED_SRC,
+            )
+        )
+    ).scalars().all()
+    for r in rows:
+        try:
+            key = str(json.loads(r.evidence_json or "{}").get("promoted_from") or "")
+        except ValueError:
+            continue
+        if key == src_key:
+            return r
+    return None
+
+
 async def _hide_radded_promoted(db: AsyncSession, readded: set[str]) -> None:
     """回退/重新上架去重：官方条目复活而用户已有「提升副本」时，给该用户补 hide。
 

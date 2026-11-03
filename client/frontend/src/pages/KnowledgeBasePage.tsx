@@ -153,8 +153,10 @@ export default function KnowledgeBasePage() {
       setEditDraft(false);
       await loadEntries();
       kbApi.genres().then(setGenreCounts).catch(() => {});
-    } catch {
-      setOpNote("没存上——检查字数与格式后再试");
+    } catch (e: unknown) {
+      // 后端 422 的 message＝第一条闸门原因（api.ts 不变量），原样给用户
+      const err = e as { message?: string };
+      setOpNote(err.message || "没存上——检查字数与格式后再试");
     } finally { setOpBusy(false); }
   };
 
@@ -587,8 +589,12 @@ export default function KnowledgeBasePage() {
                           value={draft}
                           onChange={(ev) => setDraft(ev.target.value)}
                           rows={4}
+                          maxLength={240}
                           className="w-full rounded-lg border border-[var(--border)] bg-[var(--surface)] p-2 text-[12.5px] leading-relaxed text-[var(--fg)]"
                         />
+                        <p className="text-right font-mono text-[10px] text-[var(--faint)]">
+                          {draft.length}/240
+                        </p>
                         <div className="flex gap-2">
                           <button
                             data-testid="kb-baseline-save"

@@ -789,3 +789,127 @@ def test_书未设题材_不跨题材回退(base_env):
             return await _binding_domain(db, novel_id)
 
     assert _run(_domain()) is None
+
+
+def _promote_cfg() -> dict:
+    return {
+        "knowledge_base": {
+            "baseline_overlays": [{
+                "src_key": "baseline:玄幻:tech-a",
+                "action": "edit",
+                "content": "我的说法：先让三招再还手。",
+                "base_content_sha256": "",
+                "base_meta": {
+                    "genre": "玄幻", "concept": "手法", "title": "官方手法A",
+                    "payload_json": json.dumps(
+                        {"instruction": "官方手法A：交手先守后攻。", "scene": "打斗"},
+                        ensure_ascii=False),
+                    "when_json": json.dumps({"scene": "打斗"}, ensure_ascii=False),
+                    "instruction": "官方手法A：交手先守后攻，招式收在第三拍。",
+                },
+            }],
+        }
+    }
+
+
+def test_备份导入_提升幂等_重复导入不重复造条目(base_env):
+    """P2 回归：同一包重复导入不得二次提升（提升件无唯一约束，只能靠溯源标记）。"""
+    from sqlalchemy import delete as _del
+
+    from backup.importer import _restore_config
+
+    uid = f"mgidem-{uuid.uuid4().hex[:8]}"
+
+    async def _setup():
+        async with async_session() as db:
+            db.add(User(id=uid, email=f"{uid}@t.local", password_hash="x"))
+            await db.commit()
+
+    _run(_setup())
+    cfg = _promote_cfg()
+
+    async def _import():
+        async with async_session() as db:
+            s1 = await _restore_config(db, uid, cfg)
+            await db.commit()
+            s2 = await _restore_config(db, uid, cfg)
+            await db.commit()
+            entries = (await db.execute(sel(KbEntry).where(
+                KbEntry.user_id == uid))).scalars().all()
+            ovs = (await db.execute(sel(KbBaselineOverlay).where(
+                KbBaselineOverlay.user_id == uid))).scalars().all()
+            return s1, s2, entries, ovs
+
+    s1, s2, entries, ovs = _run(_import())
+    assert s1["knowledge_base"]["baseline_overlays"]["promoted"] == 1
+    assert s2["knowledge_base"]["baseline_overlays"]["promoted"] == 0
+    assert s2["knowledge_base"]["baseline_overlays"]["skipped"] >= 1
+    assert len(entries) == 1 and ovs == []
+
+    # 层里重新出现该 key（同步/再上架）后再导入：也不得补建覆盖行变成两份
+    _run(_seed_pack([_b("baseline:玄幻:tech-a", "官方手法A", genre="玄幻")]))
+
+    async def _import3():
+        async with async_session() as db:
+            s3 = await _restore_config(db, uid, cfg)
+            await db.commit()
+            ovs = (await db.execute(sel(KbBaselineOverlay).where(
+                KbBaselineOverlay.user_id == uid))).scalars().all()
+            entries = (await db.execute(sel(KbEntry).where(
+                KbEntry.user_id == uid))).scalars().all()
+            return s3, ovs, entries
+
+    s3, ovs2, entries2 = _run(_import3())
+    assert s3["knowledge_base"]["baseline_overlays"]["promoted"] == 0
+    assert ovs2 == [] and len(entries2) == 1
+
+    async def _cleanup():
+        async with async_session() as db:
+            await db.execute(_del(KbEntryTag).where(KbEntryTag.user_id == uid))
+            await db.execute(_del(KbEntry).where(KbEntry.user_id == uid))
+            await db.execute(_del(KbBaselineOverlay).where(KbBaselineOverlay.user_id == uid))
+            await db.commit()
+
+    _run(_cleanup())
+
+
+def test_备份导入_无元数据孤儿_保留并计数(base_env):
+    """P3 回归：旧包不带 base_meta 时不能凭空造条目，但必须可见计数而非静默隐形。"""
+    from sqlalchemy import delete as _del
+
+    from backup.importer import _restore_config
+
+    uid = f"mgorph-{uuid.uuid4().hex[:8]}"
+
+    async def _setup():
+        async with async_session() as db:
+            db.add(User(id=uid, email=f"{uid}@t.local", password_hash="x"))
+            await db.commit()
+
+    _run(_setup())
+    cfg = {"knowledge_base": {"baseline_overlays": [{
+        "src_key": "baseline:玄幻:tech-gone", "action": "edit",
+        "content": "旧包里的副本。", "base_content_sha256": "",
+    }]}}
+
+    async def _import():
+        async with async_session() as db:
+            s = await _restore_config(db, uid, cfg)
+            await db.commit()
+            ovs = (await db.execute(sel(KbBaselineOverlay).where(
+                KbBaselineOverlay.user_id == uid))).scalars().all()
+            entries = (await db.execute(sel(KbEntry).where(
+                KbEntry.user_id == uid))).scalars().all()
+            return s, ovs, entries
+
+    summary, ovs, entries = _run(_import())
+    assert summary["knowledge_base"]["baseline_overlays"]["orphaned"] == 1
+    assert entries == []                       # 不凭空造知识点
+    assert len(ovs) == 1 and ovs[0].content == "旧包里的副本。"  # 覆盖行保留（可等重上架）
+
+    async def _cleanup():
+        async with async_session() as db:
+            await db.execute(_del(KbBaselineOverlay).where(KbBaselineOverlay.user_id == uid))
+            await db.commit()
+
+    _run(_cleanup())

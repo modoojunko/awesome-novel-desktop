@@ -1356,7 +1356,7 @@ async def _restore_config(db, user_id: str, config_data: dict) -> dict:
         # 不能用通用循环（主键是自增 id，跨账号 id 相撞会误判已存在而丢覆盖）
         from models.kb import KbBaselineEntry, KbBaselineOverlay
 
-        ov_created = ov_skipped = ov_promoted = 0
+        ov_created = ov_skipped = ov_promoted = ov_orphaned = 0
         ov_existing = {
             o.src_key
             for o in (
@@ -1386,20 +1386,29 @@ async def _restore_config(db, user_id: str, config_data: dict) -> dict:
             if src_key in ov_existing:
                 ov_skipped += 1
                 continue
-            meta = row.get("base_meta")
-            if (
-                action == "edit"
-                and src_key not in layer_keys
-                and isinstance(meta, dict)
-            ):
-                from kb.baseline import promote_overlay_copy
+            if action == "edit":
+                # 幂等键：该副本已被前一次导入/同步提升过 → 跳过（提升件无唯一约束，
+                # 不查就会重复造条目；层已同步时还会多出一条遮盖官方的覆盖行）
+                from kb.baseline import find_promoted_copy
 
-                if await promote_overlay_copy(
-                    db, user_id=user_id, src_key=src_key,
-                    content=str(row.get("content") or ""), meta=meta,
-                ):
-                    ov_promoted += 1
+                if await find_promoted_copy(db, user_id=user_id, src_key=src_key) is not None:
+                    ov_skipped += 1
                     continue
+            meta = row.get("base_meta")
+            if action == "edit" and src_key not in layer_keys:
+                if isinstance(meta, dict):
+                    from kb.baseline import promote_overlay_copy
+
+                    if await promote_overlay_copy(
+                        db, user_id=user_id, src_key=src_key,
+                        content=str(row.get("content") or ""), meta=meta,
+                    ):
+                        ov_promoted += 1
+                        continue
+                else:
+                    # 旧包没带原件元数据（概念/题材/载荷都缺）——不能凭空造条目；
+                    # 覆盖行保留（未来该条重新上架仍会生效），但必须在摘要里可见
+                    ov_orphaned += 1
             db.add(KbBaselineOverlay(
                 user_id=user_id,
                 src_key=src_key,
@@ -1422,7 +1431,8 @@ async def _restore_config(db, user_id: str, config_data: dict) -> dict:
                 "missing": blob_missing,
             },
             "baseline_overlays": {
-                "created": ov_created, "skipped": ov_skipped, "promoted": ov_promoted,
+                "created": ov_created, "skipped": ov_skipped,
+                "promoted": ov_promoted, "orphaned": ov_orphaned,
             },
             "tags_rebuilt": rebuilt,
         }

@@ -222,16 +222,21 @@ describe("KnowledgeBasePage · 官方精选", () => {
     await waitFor(() => expect(api.entries.mock.calls.length).toBeGreaterThan(before));
   });
 
-  it("副本保存被闸门拒收：留在抽屉并给可重试提示", async () => {
-    api.baselineOverride.mockRejectedValueOnce(new Error("gate"));
+  it("副本保存被闸门拒收：原样展示后端原因、留在抽屉可重试", async () => {
+    // 后端 422 的 message＝第一条闸门原因（api.ts 不变量）——必须原样给用户
+    api.baselineOverride.mockRejectedValueOnce(
+      new Error("与系统固定文案撞句，请改写成自己的话"),
+    );
     render(<KnowledgeBasePage />);
     fireEvent.click(await screen.findByText("官方手法A"));
     fireEvent.click(await screen.findByTestId("kb-baseline-edit"));
     fireEvent.click(screen.getByTestId("kb-baseline-save"));
     await waitFor(() => {
-      expect(screen.getByTestId("kb-baseline-op-note").textContent).toContain("没存上");
+      expect(screen.getByTestId("kb-baseline-op-note").textContent).toContain("撞句");
     });
-    // 不关抽屉、不清草稿：用户可改完再存
-    expect(screen.getByTestId("kb-baseline-draft")).toBeTruthy();
+    // 不关抽屉、不清草稿：用户可改完再存；草稿限长 240（后端闸门同口径）
+    const draft = screen.getByTestId("kb-baseline-draft") as HTMLTextAreaElement;
+    expect(draft).toBeTruthy();
+    expect(draft.getAttribute("maxLength")).toBe("240");
   });
 });
