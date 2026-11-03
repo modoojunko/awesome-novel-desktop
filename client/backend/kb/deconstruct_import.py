@@ -106,7 +106,8 @@ def _ev(chapter, quote: str = "", limit: int = 500) -> tuple[str, dict]:
     """证据串＋证据 JSON（章号原样保留；quote 截断）。"""
     chapter = _line(chapter, 80)
     quote = _line(quote, 200)
-    head = f"第{chapter}章" if chapter else ""
+    # evidence_ch 在真机产物里本身就是「第1章」「第2、6章」；只有裸章号才补包装
+    head = chapter if chapter.startswith("第") else (f"第{chapter}章" if chapter else "")
     evidence = f"{head} {quote}".strip()[:limit]
     ev_json = {"quotes": [{"loc": chapter, "text": quote}]} if quote else {}
     return evidence, ev_json
@@ -209,21 +210,28 @@ def map_deconstruct_products(
         instruction = _line(f"{name}：{'；'.join(steps)}", 240) if steps else name
         if not instruction:
             continue
-        scene = normalize_scene(str(item.get("scene") or "")) or "日常"
+        model_scene = normalize_scene(str(item.get("scene") or ""))
         emotion = emotion_phrase(str(item.get("emotion_chain") or ""))
-        payload = {"instruction": instruction, "scene": scene}
+        payload = {"instruction": instruction, "scene": model_scene or "日常"}
         if steps:
             payload["steps"] = steps
         if emotion:
             payload["emotion"] = emotion
         evidence, ev_json = _ev(item.get("evidence_ch"), item.get("example") or "")
+        # when 是「适用范围」不是记录字段：模型没给场面就不写，保持全章适用；
+        # 硬填「日常」会让条目在打斗/对峙/无场景信号章全部落选（_match_score 丢弃 m<=0）。
+        when = {}
+        if model_scene:
+            when["scene"] = model_scene
+        if emotion:
+            when["emotion"] = emotion
         add(
             "technique", "手法", name or instruction, payload,
             instruction=instruction,
             example=str(item.get("example") or item.get("swappable") or ""),
             negative_example=str(item.get("no_copy") or ""),
             evidence=evidence, evidence_json=ev_json,
-            when_json={"scene": scene, **({"emotion": emotion} if emotion else {})},
+            when_json=when,
         )
 
     for item in _items(tech.get("borrowable")):
@@ -237,7 +245,6 @@ def map_deconstruct_products(
         add(
             "technique", "手法", text, {"instruction": text, "scene": "日常"},
             instruction=text, evidence=evidence, evidence_json=ev_json,
-            when_json={"scene": "日常"},
         )
 
     for item in _items(tech.get("avoid")):
@@ -253,7 +260,6 @@ def map_deconstruct_products(
             {"instruction": _line(f"避免：{text}", 240), "negative": text, "scene": "日常"},
             instruction=f"避免：{text}", negative_example=text,
             evidence=evidence, evidence_json=ev_json,
-            when_json={"scene": "日常"},
         )
 
     for item in _items(tech.get("reader_needs")):
@@ -268,7 +274,6 @@ def map_deconstruct_products(
             instruction=how,
             example=str(item.get("transferable") or "") if isinstance(item, dict) else "",
             evidence=evidence, evidence_json=ev_json,
-            when_json={"scene": "日常"},
         )
 
     # ─── 文风（叙事身份＋逐字示范段）───
@@ -320,7 +325,10 @@ def map_deconstruct_products(
     for i, item in enumerate(_items(style.get("taboo"))):
         name = _text_of(item, "name", "title", limit=40)
         how = _text_of(item, "how", "rule", "content", limit=140)
-        text = _line(f"忌用·{name}：{how}" if name and how else (how or name), 160)
+        text = _line(f"{name}：{how}" if name and how else (how or name), 160)
+        # name 实数据常自带「忌」（忌书面长句）；已带就不再叠「忌用·」，否则读成病句
+        if text and not text.startswith("忌"):
+            text = f"忌用·{text}"
         if not text:
             continue
         evidence, ev_json = _ev(item.get("evidence_ch") if isinstance(item, dict) else "")

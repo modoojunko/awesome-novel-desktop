@@ -199,11 +199,13 @@ def _when_of(entry: KbEntry) -> dict:
 
 
 def _emotion_conds(when: dict, signals) -> set[str]:
-    """条目是否声明了情绪条件（存在性判定，供「无条件＝全章适用」分支用）。
+    """条目是否声明了**可判定**的情绪条件（供「无条件＝全章适用」分支用）。
 
-    emotion 已放开为短自由文本（≤6 字），这里只看有没有写，不做词表校验。
+    emotion 是短自由文本（≤6 字）；只有能归一到情绪族的才算条件——归一不了的写法
+    （如「复杂」）不该把条目变成永远 0 分（`select_block` 丢弃 m<=0），按无条件处理。
     """
-    return {str(when.get("emotion"))} if when.get("emotion") else set()
+    raw = str(when.get("emotion") or "")
+    return {raw} if normalize_emotion(raw) else set()
 
 
 def _emotion_hit(when: dict, signals) -> bool:

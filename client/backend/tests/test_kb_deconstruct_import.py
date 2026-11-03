@@ -289,3 +289,41 @@ def test_collect_dedupes_across_task_id_and_book_fingerprint_refs():
     second = _collect(uid, task, src_ref="book:abcdef0123456789")
     assert second["collected"] == 0
     assert second["skipped"] == first["collected"]
+
+
+def test_mapping_when_scope_evidence_and_taboo_copy():
+    """真机产物回归：when 只在有场面时收窄、证据章号不双包、忌用名不叠前缀。"""
+    products = {
+        "techniques": {
+            "data": {
+                "techniques": [
+                    {
+                        "name": "先声夺人",
+                        "repro_steps": ["先压后放"],
+                        "emotion_chain": "压抑—不安",
+                        "evidence_ch": "第3章、第9章",
+                    }
+                ],
+                "borrowable": [{"item": "用一句闲话起头", "evidence_ch": "第2章"}],
+            }
+        },
+        "style": {
+            "data": {"taboo": [{"name": "忌书面长句", "how": "拆短句", "evidence_ch": "第4章"}]}
+        },
+    }
+    entries, _ = map_deconstruct_products("u-map", "task-x", "悬疑", products)
+    by_title = {e.title: e for e in entries}
+
+    tech = by_title["先声夺人"]
+    when = json.loads(tech.when_json)
+    assert "scene" not in when, "模型没给场面时不得硬填 scene"
+    assert when.get("emotion") == "不安", "情绪仍要带上"
+    assert tech.evidence.startswith("第3章"), tech.evidence
+    assert "第第" not in tech.evidence
+
+    borrow = by_title["用一句闲话起头"]
+    assert json.loads(borrow.when_json) == {}, "借用套路保持全章适用"
+
+    taboo = by_title["忌书面长句"]
+    assert taboo.instruction.startswith("忌书面长句"), taboo.instruction
+    assert "忌用·忌" not in taboo.instruction
