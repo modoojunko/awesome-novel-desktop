@@ -18,6 +18,7 @@ from dataclasses import dataclass, field
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from kb.concepts import normalize_emotion
 from kb.merged import STYLE_SLOTS_IN_BLOCK as _STYLE_SLOTS_IN_BLOCK
 from kb.merged import digest_baseline_ids, load_baseline_entries
 from models.kb import KbBookEntry, KbBookEntryTag, KbEntry, KbEntryTag, KbPref
@@ -197,6 +198,21 @@ def _when_of(entry: KbEntry) -> dict:
     return w if isinstance(w, dict) else {}
 
 
+def _emotion_conds(when: dict, signals) -> set[str]:
+    """条目是否声明了情绪条件（存在性判定，供「无条件＝全章适用」分支用）。
+
+    emotion 已放开为短自由文本（≤6 字），这里只看有没有写，不做词表校验。
+    """
+    return {str(when.get("emotion"))} if when.get("emotion") else set()
+
+
+def _emotion_hit(when: dict, signals) -> bool:
+    """情绪命中：条件与信号**双方都归一**后相等（「压抑—不安」↔「不安」能碰上）。"""
+    want = normalize_emotion(str(when.get("emotion") or ""))
+    got = normalize_emotion(str(signals.emotion or ""))
+    return bool(want and got and want == got)
+
+
 def _match_score(entry: KbEntry, signals: MatchSignals) -> tuple[float, str]:
     """匹配度∈[0,1]＋命中理由。适用条件＝when_json（payload.scene 是记录字段
     不参与匹配——§7.1「匹配＝when_json∪实体命中」口径）。手法无 when 给基础分。"""
@@ -205,7 +221,7 @@ def _match_score(entry: KbEntry, signals: MatchSignals) -> tuple[float, str]:
     w = _when_of(entry)
     if entry.concept == "手法":
         conds = {w["scene"]} if w.get("scene") else set()
-        emo_conds = {w["emotion"]} if w.get("emotion") else set()
+        emo_conds = _emotion_conds(w, signals)
         pos_conds = {w["chapter_pos"]} if w.get("chapter_pos") else set()
         if not any((conds, emo_conds, pos_conds)):
             m, hits = 0.5, ("全章适用",)
@@ -213,7 +229,7 @@ def _match_score(entry: KbEntry, signals: MatchSignals) -> tuple[float, str]:
             per = []
             if signals.scene and signals.scene in conds:
                 per.append(f"场面:{signals.scene}")
-            if signals.emotion and signals.emotion in emo_conds:
+            if signals.emotion and _emotion_hit(w, signals):
                 per.append(f"情绪:{signals.emotion}")
             if signals.chapter_pos and signals.chapter_pos in pos_conds:
                 per.append(f"章位:{signals.chapter_pos}")
@@ -226,11 +242,11 @@ def _match_score(entry: KbEntry, signals: MatchSignals) -> tuple[float, str]:
         # 文风/文笔场景条目：scope=scene 已在短名单保证；命中＝when 与信号相交
         per = []
         conds = {w["scene"]} if w.get("scene") else set()
-        emo_conds = {w["emotion"]} if w.get("emotion") else set()
+        emo_conds = _emotion_conds(w, signals)
         pos_conds = {w["chapter_pos"]} if w.get("chapter_pos") else set()
         if signals.scene and signals.scene in conds:
             per.append(f"场面:{signals.scene}")
-        if signals.emotion and signals.emotion in emo_conds:
+        if signals.emotion and _emotion_hit(w, signals):
             per.append(f"情绪:{signals.emotion}")
         if signals.chapter_pos and signals.chapter_pos in pos_conds:
             per.append(f"章位:{signals.chapter_pos}")

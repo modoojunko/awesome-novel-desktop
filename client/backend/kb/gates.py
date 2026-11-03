@@ -224,7 +224,7 @@ def check_baseline_entry(e: object) -> str | None:
     规则顺序固定（parity 依赖首个违规码）：
     src_key → concept → genre → title → instruction → payload → when。
     """
-    from kb.concepts import CHAPTER_POS, EMOTIONS, SCENES, THEMES
+    from kb.concepts import CHAPTER_POS, SCENES, THEMES
 
     if not isinstance(e, dict):
         return "entry_not_object"
@@ -266,10 +266,18 @@ def check_baseline_entry(e: object) -> str | None:
         return None
     if not isinstance(when, dict) or len(when) > 3:
         return "when_invalid"
-    allowed = {"scene": set(SCENES), "emotion": set(EMOTIONS), "chapter_pos": set(CHAPTER_POS)}
+    # scene / chapter_pos 仍是封闭词表；emotion 放开为短自由文本（≤6 字）：
+    # 条目可以写「压抑—不安」这类多字说法，匹配侧双方都过 normalize_emotion 再比。
+    allowed = {"scene": set(SCENES), "chapter_pos": set(CHAPTER_POS)}
     for k, v in when.items():
         if k not in _WHEN_KEYS:
             return "when_invalid"
-        if not isinstance(v, str) or v not in allowed[k]:
+        if not isinstance(v, str) or not v.strip():
+            return "when_invalid"
+        if k == "emotion":
+            if len(v.strip()) > 6:
+                return "when_invalid"
+            continue
+        if v not in allowed[k]:
             return "when_invalid"
     return None
