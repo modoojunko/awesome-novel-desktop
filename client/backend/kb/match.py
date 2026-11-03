@@ -18,6 +18,8 @@ from dataclasses import dataclass, field
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from kb.merged import STYLE_SLOTS_IN_BLOCK as _STYLE_SLOTS_IN_BLOCK
+from kb.merged import digest_baseline_ids, load_baseline_entries
 from models.kb import KbEntry, KbEntryTag, KbPref
 
 # 拆章六档 plot_stage → 章位封闭值（CHAPTER_POS）；空/未知 → ""（不硬猜）
@@ -37,7 +39,7 @@ _SCENE_STYLE_MAX = 4   # 场景定性写法（文风/文笔）配额
 _BUDGET_CHARS = 3200   # ≤2K tokens 的中文字符粗估上限
 
 # 文风 slot 白名单：进块的定性槽位（role/pov 书级恒定，走快照不进块）
-_STYLE_SLOTS_IN_BLOCK = ("tone", "register", "sample")
+# 单源在 kb/merged.py（基线段短名单共用同一判定，防两侧漂移）
 # 文笔 slot 全部定性（rule/craft/banned_word/tic）
 _CRAFT_SLOTS = ("rule", "craft", "banned_word", "tic")
 
@@ -164,6 +166,10 @@ async def digest_candidates(
             if cname == "文笔" or s in _STYLE_SLOTS_IN_BLOCK:
                 style.add(entry_id)
     # 稳定排序截断（id 序）——短名单超 200 时保序取前
+    # merged 域：用户条目 ∪ 基线层（基线已排 hide、edit 副本在取行时套用）
+    base = await digest_baseline_ids(db, user_id=user_id, genre=genre, concepts=concepts)
+    tech |= base["tech"]
+    style |= base["style"]
     return {
         "tech": set(sorted(tech)[:_SHORTLIST_MAX]),
         "style": set(sorted(style)[:_SHORTLIST_MAX]),
@@ -272,7 +278,7 @@ async def select_block(
         return None
 
     wanted = groups["tech"] | groups["style"]
-    rows = (
+    user_rows = (
         (
             await db.execute(
                 select(KbEntry).where(KbEntry.id.in_(sorted(wanted))).order_by(KbEntry.id)
@@ -281,6 +287,9 @@ async def select_block(
         .scalars()
         .all()
     )
+    # 基线层取行（hide 已排、edit 副本已套＝merged 口径）；与用户条目同池打分
+    base_rows = await load_baseline_entries(db, user_id=user_id, ids=sorted(wanted))
+    rows = list(user_rows) + list(base_rows)
     # 维度值集合（适用条件）一次性取回，避免逐条查 tags
     prefs = {
         p.entry_id: p

@@ -121,7 +121,9 @@ async def _binding_domain(
 ) -> tuple[str, list[str], str] | None:
     """书内启用且可进块的库域：(genre, concepts, fingerprint)。无 → None。
 
-    fingerprint＝启用库 id 集的稳定指纹（换库/启停即变——复用守卫，批F F3）。"""
+    fingerprint＝启用库 id 集的稳定指纹（换库/启停即变——复用守卫，批F F3）。
+    零绑定账号 → 基线回退域（c-kb-baseline 批B D0-3）：官方精选层就绪即出块，
+    不要求先建库绑定；有绑定的账号行为完全不变。"""
     rows = (
         await db.execute(
             select(KbBookBinding, KbLibrary)
@@ -136,7 +138,7 @@ async def _binding_domain(
         )
     ).all()
     if not rows:
-        return None
+        return await _baseline_domain(db, novel_id)
     genres = sorted({lib.genre for _b, lib in rows if lib.genre})
     genre = genres[0] if len(genres) == 1 else ""
     concepts = sorted({lib.concept for _b, lib in rows})
@@ -144,6 +146,51 @@ async def _binding_domain(
         json.dumps(sorted(lib.id for _b, lib in rows), ensure_ascii=False).encode("utf-8")
     ).hexdigest()[:64]
     return genre, concepts, fingerprint
+
+
+async def _baseline_domain(
+    db: AsyncSession, novel_id: str
+) -> tuple[str, list[str], str] | None:
+    """冷启动回退域：基线层未就绪（未同步/失败/空层）→ None（写法块不出现）。
+
+    genre 取书题材（story KV），concepts 恒为可进块三类，fingerprint 由
+    pack_version 派生——官方升级即换域重选（不误复用旧 run）。
+    """
+    from kb.baseline import VERSION_KEY
+    from models.app_meta import AppMeta
+    from models.kb import KbBaselineEntry
+
+    probe = (
+        await db.execute(select(KbBaselineEntry.entry_id).limit(1))
+    ).scalar_one_or_none()
+    if not probe:
+        return None
+    meta = await db.get(AppMeta, VERSION_KEY)
+    version = int(meta.value) if meta and str(meta.value).isdigit() else 0
+
+    genre = ""
+    try:
+        from filesystem.paths import KEY_TO_PATH
+        from filesystem.storage import get_storage
+
+        novel = await db.get(Novel, novel_id)
+        if novel is not None and novel.root_path:
+            # read_yaml 收「相对路径」（内部再路由到 KV 键）：KEY_TO_PATH["story"]
+            # = "story.yaml"；用 PATH_TO_KEY 会读到 {}（题材恒空→跨题材条目互串）
+            story = await get_storage().read_yaml(
+                novel.root_path, KEY_TO_PATH["story"]
+            ) or {}
+            genre = str(story.get("genre") or "").strip()
+    except Exception:  # noqa: BLE001 — 题材读不到＝按未建域处理（见下）
+        genre = ""
+    if not genre:
+        # 空题材在 digest 语义里是「不过滤」——会把所有题材的基线条目混进本书
+        # （跨题材串味）。宁可不回退：与「零绑定且无题材」的旧行为一致。
+        return None
+    fingerprint = hashlib.sha256(
+        f"baseline:{version}:{genre}".encode()
+    ).hexdigest()[:64]
+    return genre, list(_BLOCK_CONCEPTS), fingerprint
 
 
 def _material_hash(novel_id: str, chapter_ref: str, signals_brief: dict) -> str:
@@ -155,21 +202,34 @@ def _material_hash(novel_id: str, chapter_ref: str, signals_brief: dict) -> str:
 
 
 async def _load_run_items(
-    db: AsyncSession, run: KbMatchRun
-) -> list[tuple[KbMatchItem, KbEntry | None]]:
+    db: AsyncSession, run: KbMatchRun, *, user_id: str
+) -> list[tuple[KbMatchItem, object | None]]:
+    """run 清单 → (item, 条目) 双表解析（c-kb-baseline 批B）。
+
+    代理 id 可能落 kb_entries（用户条目）或 kb_baseline_entries（官方精选层）：
+    先查用户表，未命中的 id 再走 merged 基线回读（hide 已排、edit 副本已套）。
+    两边都缺（条目已删/官方下架）→ entry=None，重建时按 text_snapshot 仍可出块。
+    """
+    from kb.merged import load_baseline_entries
+
     items = (
         await db.execute(
             select(KbMatchItem).where(KbMatchItem.run_id == run.id).order_by(KbMatchItem.id)
         )
     ).scalars().all()
-    entries = {
+    if not items:
+        return []
+    wanted = sorted({i.entry_id for i in items})
+    entries: dict[str, object] = {
         e.id: e
         for e in (
-            await db.execute(
-                select(KbEntry).where(KbEntry.id.in_([i.entry_id for i in items] or ["-"]))
-            )
+            await db.execute(select(KbEntry).where(KbEntry.id.in_(wanted)))
         ).scalars()
-    } if items else {}
+    }
+    missing = [i for i in wanted if i not in entries]
+    if missing:
+        for b in await load_baseline_entries(db, user_id=user_id, ids=missing):
+            entries[b.id] = b
     return [(i, entries.get(i.entry_id)) for i in items]
 
 
@@ -464,7 +524,7 @@ async def prepare_write_block(
                         raise
                     run = race
                     # 赢家 run 的量化条目影子补写（rollback 丢了本流影子改动）
-                    pair = await _load_run_items(db, run)
+                    pair = await _load_run_items(db, run, user_id=user_id)
                     quant = []
                     for it, entry in pair:
                         dim = is_quantitative(entry) if entry else None
@@ -475,7 +535,7 @@ async def prepare_write_block(
                     await _apply_quant_shadow(db, chapter_pk, quant)
                     await db.commit()
 
-        pair = await _load_run_items(db, run)
+        pair = await _load_run_items(db, run, user_id=user_id)
         run_signals = MatchSignals(
             scene=run.scene, emotion=run.emotion, chapter_pos=run.chapter_pos, genre=genre,
         )

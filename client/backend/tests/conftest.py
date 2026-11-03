@@ -232,6 +232,9 @@ os.environ["MIGRATION_WORKER_INPROCESS"] = "1"
 os.environ.setdefault("CLIENT_VERSION", "0.25")
 # c-deconstruct-resilience：退避等待测试零缩放（退避语义由入参捕获断言，不吃真实等待）
 os.environ.setdefault("DECONSTRUCT_BACKOFF_SCALE", "0")
+# c-kb-baseline：TestClient 会跑 lifespan → 启动补偿会真联网并抢共享 SQLite 写锁
+# （CI 实锤 database is locked）。测试默认关掉；要同步的用例直接调 sync_baseline()
+os.environ.setdefault("KB_BASELINE_SYNC", "0")
 from schema_version import active_db_filename as _active_db_filename
 
 os.environ["DATABASE_URL"] = (
