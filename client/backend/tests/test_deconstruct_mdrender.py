@@ -31,8 +31,10 @@ _TECHNIQUES = {
 
 
 def test_evidence_keys_contract():
-    """证据键单源：五键只承担「证明结论」职责，全部维度一视同仁剥除。"""
-    assert EVIDENCE_KEYS == frozenset({"evidence_ch", "confidence", "note", "quote", "raw"})
+    """证据键单源：只承担「证明结论」职责，全部维度一视同仁剥除。"""
+    assert EVIDENCE_KEYS == frozenset(
+        {"evidence_ch", "confidence", "note", "quote", "raw", "promise_note"}
+    )  # promise_note＝genre 的逐章卖点依据账，同为证据不入作家 md
 
 
 def test_render_md_strips_evidence_and_humanizes_lists():
@@ -181,3 +183,24 @@ def test_render_md_never_leaks_english_field_keys():
     leaked = re.findall(r"[A-Za-z_]+：", md)
     assert not leaked, f"渲染结果裸出英文键：{leaked}"
     assert "规则：盏、池、川、海" in md
+
+
+def test_genre_scalar_evidence_moves_to_report():
+    """promise_note（逐章卖点依据）不入作家 md，进证据报告；note 同口径。"""
+    data = {
+        "genre": "都市异能",
+        "tags": ["都市异能"],
+        "core_promise": "收容怪物、快速升级",
+        "promise_note": "第1-2章确立金手指；第3-4章招揽入 749 局",
+        "note": "题材判定依据第1-40章卡片高频标签",
+        "confidence": "high",
+    }
+    md = render_md("题材", data, "测试书", "第1-40章")
+    assert "promise_note" not in md and "承诺说明" not in md, "依据账不入作家 md"
+    assert "## 核心承诺" in md and "收容怪物、快速升级" in md
+
+    view = render_evidence("genre", data)
+    sections = {s["title"]: s for s in view["sections"]}
+    assert set(sections) == {"说明", "承诺说明"}
+    assert sections["承诺说明"]["items"][0]["cells"][0]["value"].startswith("第1-2章")
+    assert view["confidence"] == "高"
