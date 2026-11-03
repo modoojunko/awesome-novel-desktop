@@ -1286,3 +1286,77 @@ def test_image_configs_key_reencrypted(tmp_path):
     src2 = sqlite3.connect(":memory:")
     src2.execute("CREATE TABLE app_meta (key TEXT PRIMARY KEY, value TEXT)")
     assert _reencrypt_dead_image_ciphertexts(tgt2, src2, tmp_path) == 1
+
+
+class TestBaselineLayerSurvivesUpgrade:
+    """c-kb-baseline：升级搬家用「两边都有的表」才搬——基线三张表不在老库里，
+    同步已在新库落好的基线数据必须原样存活（搬迁既不覆盖也不清空它）。"""
+
+    def test_升级搬迁不碰基线层(self, sandbox):
+        from sqlalchemy import create_engine, insert
+
+        from models.kb import KbBaselineEntry, KbBaselineTag
+
+        root, active = sandbox
+        # 新库：模拟启动补偿已同步完 v1（用户还没点迁移卡）
+        se = create_engine(f"sqlite:///{active}")
+        with se.begin() as conn:
+            conn.execute(insert(KbBaselineEntry).values(
+                entry_id="base-1", src_key="baseline:玄幻:tech-a", pack_version=1,
+                genre="玄幻", concept="手法", scope="scene", slot="打斗-节奏",
+                title="官方手法A", instruction="交手先守后攻，招式收在第三拍。",
+                when_json='{"scene": "打斗"}', payload_json="{}",
+                content_sha256="x" * 64, published_at=None,
+            ))
+            conn.execute(insert(KbBaselineTag).values(
+                entry_id="base-1", dim="concept", value="手法"))
+        se.dispose()
+
+        old = _old_gen0(root, books=2)  # 老库：没有任何基线表
+        rep = run_migration(root, "novel.db", active)
+        assert rep["status"] == "ok", rep
+
+        # 搬迁计划里不含基线表（老库没这表）
+        migrated_tables = {t["table"] for t in rep["tables"]}
+        assert migrated_tables & {"kb_baseline_entries", "kb_baseline_tags",
+                                  "kb_baseline_overlays"} == set()
+
+        con = sqlite3.connect(f"file:{active}?mode=ro", uri=True)
+        try:
+            row = con.execute(
+                "SELECT src_key, pack_version, instruction FROM kb_baseline_entries"
+            ).fetchall()
+            tags = con.execute("SELECT COUNT(*) FROM kb_baseline_tags").fetchone()[0]
+            books = con.execute("SELECT COUNT(*) FROM novels").fetchone()[0]
+        finally:
+            con.close()
+        assert row == [("baseline:玄幻:tech-a", 1, "交手先守后攻，招式收在第三拍。")]
+        assert tags == 1
+        assert books == 2  # 用户数据照常搬回
+
+    def test_二次升级_用户副本随库搬迁(self, sandbox):
+        """下一版升级：overlay 表两边都有 → 用户改过的基线副本随库搬回。
+
+        真实升级里目标库是空的，源库带 overlay 行；INSERT OR IGNORE 原样搬入。
+        """
+        root, active = sandbox
+        p = root / "novel.db"
+        conn = sqlite3.connect(p)
+        conn.execute("CREATE TABLE kb_baseline_overlays ("
+                     "id INTEGER PRIMARY KEY AUTOINCREMENT, user_id TEXT, src_key TEXT, "
+                     "action TEXT, content TEXT, base_content_sha256 TEXT, updated_at TIMESTAMP)")
+        conn.execute("INSERT INTO kb_baseline_overlays "
+                     "(user_id, src_key, action, content, base_content_sha256, updated_at) "
+                     "VALUES ('u1','baseline:玄幻:tech-a','edit','上一版的副本。','y','2026-01-01 00:00:00')")
+        conn.commit()
+        conn.close()
+
+        rep = run_migration(root, "novel.db", active)
+        assert rep["status"] == "ok", rep
+        assert "kb_baseline_overlays" in {t["table"] for t in rep["tables"]}
+        con = sqlite3.connect(f"file:{active}?mode=ro", uri=True)
+        try:
+            rows = con.execute("SELECT user_id, content FROM kb_baseline_overlays").fetchall()
+        finally:
+            con.close()
+        assert rows == [("u1", "上一版的副本。")]
