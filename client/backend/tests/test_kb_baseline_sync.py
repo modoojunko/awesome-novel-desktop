@@ -405,7 +405,9 @@ def test_读不懂的条目沿用旧层_不缩水不算下架(sync_env):
     ovs, promoted, last = _run(_check())
     assert len(ovs) == 1 and ovs[0].action == "edit"  # 副本仍在，没被当孤儿
     assert promoted == []  # 没被误提升成「官方精选（已下架）」
-    assert last.get("skipped") == 1 and last.get("carried") == 1  # 状态面可见
+    # 摘要口径（评审 P3）：accepted 只计入闸子集，entries 是层内总数（含 carried）
+    assert last.get("accepted") == 2 and last.get("skipped") == 1 and last.get("carried") == 1
+    assert r["entries"] == 3
 
     async def _cleanup():
         from sqlalchemy import delete as _del

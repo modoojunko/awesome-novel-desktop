@@ -500,10 +500,11 @@ async def _replace_layer(
     # 把用户手动「恢复官方版」后的状态再盖回去（用户选择必须胜过一次性去重）
     readded = new_keys - set(old_rows)
     await _hide_radded_promoted(db, readded)
-    # 最近一次同步摘要（状态端点透出）：让「部分接受」可被看见，而不是只躺在日志里
+    # 最近一次同步摘要（状态端点透出）：让「部分接受」可被看见，而不是只躺在日志里。
+    # accepted＝入闸条目数（不含 carried），entries＋carried＋…对得上包 entry_count。
     summary = {
         "at": datetime.now(UTC).replace(tzinfo=None).isoformat(timespec="seconds"),
-        "version": version, "accepted": len(rows),
+        "version": version, "accepted": len(entries),
         "skipped": skipped, "carried": carried, "promoted": promoted,
     }
     last = await db.get(AppMeta, LAST_SYNC_KEY)
@@ -515,7 +516,7 @@ async def _replace_layer(
     return {
         "status": "synced",
         "version": version,
-        "entries": len(rows),
+        "entries": len(rows),  # 层内条目数＝accepted＋carried（沿用件也是层的一员）
         "tags": len(tag_rows),
         "skipped": skipped,
         "carried": carried,
