@@ -333,8 +333,12 @@ async def _sync_impl(db: AsyncSession | None) -> dict:
         if entries_bytes is None or sha256_hex(entries_bytes) != files.get("entries.jsonl", {}).get("sha256"):
             return {"status": "failed", "reason": "entries_hash"}
         entries, skipped = _parse_entries(entries_bytes)
-        if len(entries) != manifest.get("entry_count"):
-            return {"status": "failed", "reason": "entry_count"}
+        # 向前兼容（c-kb-forward-compat）：包里的条目按本端「看得懂的那一子集」落层——
+        # 新增概念/新维度的条目由老客户端整条跳过，其余照收，绝不因此整包拒收。
+        # 只有「一条都读不懂」才视为代际不兼容，保旧层（免得把用户现有基线清空）。
+        expected = manifest.get("entry_count")
+        if isinstance(expected, int) and expected > 0 and not entries:
+            return {"status": "failed", "reason": "entry_count", "skipped": skipped}
 
         if db is None:
             from db import async_session as _session

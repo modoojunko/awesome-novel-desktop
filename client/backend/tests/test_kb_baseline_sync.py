@@ -37,13 +37,14 @@ def _run(coro):
 
 
 def _entry(src_key: str, title: str = "条目", *, instruction: str | None = None,
-           genre: str = "玄幻", when: dict | None = None) -> dict:
+           genre: str = "玄幻", when: dict | None = None, concept: str = "手法",
+           payload: dict | None = None) -> dict:
     # 判据集与内容仓同集（kb.gates.check_baseline_entry）：手法须带 payload.instruction
     ins = instruction or f"{title}：交手先守后攻，招式收在第三拍。"
     return {
-        "src_key": src_key, "title": title, "concept": "手法", "genre": genre,
+        "src_key": src_key, "title": title, "concept": concept, "genre": genre,
         "instruction": ins,
-        "payload": {"instruction": ins, "slot": "打斗-节奏", "scene": "打斗"},
+        "payload": payload or {"instruction": ins, "slot": "打斗-节奏", "scene": "打斗"},
         "when": when if when is not None else {"scene": "打斗"},
     }
 
@@ -307,6 +308,67 @@ def test_坏行跳过_有效行照落(sync_env):
     assert r["status"] == "synced" and r["skipped"] == 3, f"got {r}"
     rows, _, _ = _layer_state()
     assert set(rows) == {good["src_key"]}
+
+
+# ── 向前兼容（c-kb-forward-compat）：新包里的「新东西」不拖垮老客户端 ─────────
+
+
+def test_新概念条目_只跳过该条不整包拒收(sync_env):
+    """新包引入老客户端不认识的 concept：跳过那一条，其余照常落层。"""
+    bl = sync_env
+    a = _entry("baseline:玄幻:tech-a", "玄幻手法A")
+    b = _entry("baseline:玄幻:tech-b", "玄幻手法B")
+    future = _entry("baseline:玄幻:dialog-x", "对话手法X", concept="对话",
+                    payload={"instruction": "对话不要每次说完。"})
+    _publish(1, [a, b, future])  # entry_count=3，老客户端只认得 2 条
+    r = _sync(bl)
+    assert r["status"] == "synced" and r["entries"] == 2 and r["skipped"] == 1, f"got {r}"
+    rows, _, _ = _layer_state()
+    assert set(rows) == {a["src_key"], b["src_key"]}
+
+
+def test_未知适用维度_跳过该条不整包拒收(sync_env):
+    """新包给 when 加了老客户端不认识的维度：该条整条跳过（不敢按窄条件外扩注入）。"""
+    bl = sync_env
+    ok = _entry("baseline:玄幻:tech-a", "玄幻手法A")
+    future = _entry("baseline:玄幻:tech-b", "玄幻手法B",
+                    when={"scene": "打斗", "pace": "快"})
+    _publish(1, [ok, future])
+    r = _sync(bl)
+    assert r["status"] == "synced" and r["entries"] == 1 and r["skipped"] == 1, f"got {r}"
+    rows, _, _ = _layer_state()
+    assert set(rows) == {ok["src_key"]}
+
+
+def test_未知顶层字段_照收(sync_env):
+    """包级扩展字段（如未来的 published_by）不进判据：老客户端忽略即可。"""
+    bl = sync_env
+    e = _entry("baseline:玄幻:tech-a", "玄幻手法A")
+    e["future_field"] = {"anything": 1}
+    _publish(1, [e])
+    r = _sync(bl)
+    assert r["status"] == "synced" and r["entries"] == 1, f"got {r}"
+    rows, _, _ = _layer_state()
+    assert set(rows) == {e["src_key"]}
+
+
+def test_整包读不懂_保旧层不清空(sync_env):
+    """一条都读不懂＝代际不兼容：拒绝本次同步，旧层原样保留（绝不落空层）。"""
+    bl = sync_env
+    old = _entry("baseline:玄幻:tech-a", "玄幻手法A")
+    _publish(1, [old])
+    assert _sync(bl)["status"] == "synced"
+
+    _publish(2, [
+        _entry("baseline:玄幻:new-1", "新概念一", concept="对话",
+               payload={"instruction": "对话别说完。"}),
+        _entry("baseline:玄幻:new-2", "新概念二", concept="对话",
+               payload={"instruction": "对话留半句。"}),
+    ])
+    r = _sync(bl)
+    assert r["status"] == "failed" and r["reason"] == "entry_count", f"got {r}"
+    rows, _, ver = _layer_state()
+    assert set(rows) == {old["src_key"]} and ver == 1  # 旧层零变化
 
 
 def test_升级演练_双哈希_孤儿hide_重同步_回退(sync_env):

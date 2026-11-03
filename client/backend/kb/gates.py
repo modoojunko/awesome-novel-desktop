@@ -223,6 +223,10 @@ def check_baseline_entry(e: object) -> str | None:
 
     规则顺序固定（parity 依赖首个违规码）：
     src_key → concept → genre → title → instruction → payload → when。
+
+    向前兼容（c-kb-forward-compat）：本判据即「本端看得懂什么」的边界——
+    返回非 None 的条目由同步器**整条跳过**（其余照收），不构成整包拒收；
+    未知顶层字段不设判据（包级扩展字段老客户端忽略即可）。
     """
     from kb.concepts import CHAPTER_POS, EMOTIONS, SCENES, THEMES
 
