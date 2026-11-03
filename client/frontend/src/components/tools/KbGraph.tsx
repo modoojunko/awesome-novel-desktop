@@ -77,6 +77,8 @@ export default function KbGraph() {
   const adjRef = useRef<Map<string, Set<string>>>(new Map());
   const hoverRef = useRef<string | null>(null);
   const colorsRef = useRef(tokenColors());
+  // 装载后的 zoomToFit 定时器：卸载即清（测试/真机都会在 300ms 内切页，留着会打空）
+  const adaptTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const paint = useCallback(async () => {
     /* v8 ignore start -- 防御分支：paint 只在挂载期 effect 里调度，容器恒在 */
@@ -108,7 +110,11 @@ export default function KbGraph() {
       if (g) {
         g.graphData(d);
         // 装载后适配边界：初始 zoom=1 下小节点不可见（真机实锤）
-        setTimeout(() => g.zoomToFit(400, 60), 300);
+        if (adaptTimerRef.current) clearTimeout(adaptTimerRef.current);
+        adaptTimerRef.current = setTimeout(() => {
+          if (graphRef.current !== g) return; // 卸载/换图后不再打
+          g.zoomToFit?.(400, 60);
+        }, 300);
       }
       /* v8 ignore stop */
     }
@@ -170,6 +176,10 @@ export default function KbGraph() {
     })();
     return () => {
       alive = false;
+      if (adaptTimerRef.current) {
+        clearTimeout(adaptTimerRef.current);
+        adaptTimerRef.current = null;
+      }
       graphRef.current = null;
       /* v8 ignore start -- 防御分支：boxRef 只在组件卸载时仍指向容器 */
       if (boxRef.current) boxRef.current.innerHTML = "";
