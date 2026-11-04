@@ -415,6 +415,13 @@ export default function CardEditorModal({ open, card, onClose }: Props) {
             onChange={(e) => setCell("dossier", "plot", e.target.value)}
           />
         </div>
+        {/* 拆书卡的回查锚（#906）：住证据列不占剧情定位，只读展示 */}
+        {workingCard?.evidence && (
+          <div className="field" style={{ marginTop: 10 }}>
+            <label>证据章节</label>
+            <div className="alt" style={{ marginTop: 0 }} aria-label="证据章节">{workingCard.evidence}</div>
+          </div>
+        )}
 
         <details open={filledCog > 0} style={{ marginTop: 14 }}>
           <summary style={{ cursor: "pointer", fontSize: 12.5, fontWeight: 600 }}>

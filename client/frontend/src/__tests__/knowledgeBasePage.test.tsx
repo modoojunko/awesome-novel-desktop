@@ -38,7 +38,7 @@ const ENTRY: KbEntry = {
   example: "",
   negative_example: "",
   when: {},
-  evidence: "怪字书",
+  evidence: "第9章",
   rev: 1,
   src_kind: "character_library_migration",
   src_novel_name: "怪字书",
@@ -107,9 +107,27 @@ describe("KnowledgeBasePage 详情抽屉", () => {
     expect(screen.queryByText("blank_arr")).toBeNull();
     expect(screen.getByText("custom_note")).toBeTruthy();
     expect(screen.getByText("字段字典未收录的键")).toBeTruthy();
-    // 其余四段照旧
+    // 其余四段照旧；证据＝章锚、小说名住「源自小说」专行
     expect(screen.getByText("指令")).toBeTruthy();
     expect(screen.getByText("证据")).toBeTruthy();
+    expect(screen.getByText("第9章")).toBeTruthy();
+    expect(screen.getByText("源自小说")).toBeTruthy();
+    expect(screen.getByText("怪字书")).toBeTruthy();
+  });
+
+  it("指令与一句话人设相同时去重，人设本身照常显示", async () => {
+    api.entries.mockResolvedValue({
+      entries: [{ ...ENTRY, instruction: String(ENTRY.payload.persona) }],
+      next_cursor: "",
+    });
+    render(<KnowledgeBasePage />);
+    await waitFor(() => expect(screen.getByText("刘望津")).toBeTruthy());
+    fireEvent.click(screen.getByText("刘望津"));
+    await waitFor(() => expect(screen.getByText("字段")).toBeTruthy());
+    expect(screen.queryByText("指令")).toBeNull();
+    expect(screen.getByText("一句话人设")).toBeTruthy();
+    // 列表卡片同渲染该句 → 多命中按存在性断言
+    expect(screen.getAllByText("漂亮热情的农村出身姑娘。").length).toBeGreaterThan(0);
   });
 
   it("关闭抽屉后字段段退场", async () => {

@@ -4,7 +4,8 @@ character_library 全量 → kb_entries（concept=角色设定）：
 - 幂等：src_kind="character_library_migration"、src_ref="character_library"、
   src_key=原卡 id；部分唯一索引 (user_id, src_ref, src_key) 兜底，重复迁移零副本
 - 字段映射 parity：卡名→archetype/title、persona、档案八格、认知十一格逐格复制；
-  空格不落（payload 扁平形态见 CharacterPayload）
+  空格不落（payload 扁平形态见 CharacterPayload）；plot 尾部「（第N章）」回查锚
+  剥到 evidence 列——粘尾形态只活在拆书预览角色页（#906），知识库证据有自己的列
 - legacy 原文不迁移（6.5 口径）；头像仍住 CharacterLibraryBlob（src_key 可回联），
   UI 数据源切换（6.4）后再迁头像引用
 - character_library 表本身原样保留（6.6 deprecated 标注在模型），删除属后续版本
@@ -19,6 +20,7 @@ from typing import Any
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from deconstruct.cards import split_plot_evidence
 from models.character_library import CharacterLibrary
 from models.kb import KbEntry
 
@@ -61,8 +63,12 @@ def card_to_payload(card: CharacterLibrary) -> dict[str, Any]:
         cog = {}
     for k in _DOSSIER_GRID:
         v = str(dossier.get(k) or "").strip()
-        if v:
-            payload[k] = v[:_CELL_MAX]
+        if not v:
+            continue
+        if k == "plot":
+            # 尾部「（第N章）」是拆书预览页的回查锚（#906）；KB 证据有自己的列，落库换轨
+            v = split_plot_evidence(v)[0]
+        payload[k] = v[:_CELL_MAX]
     for k in _COG_GRID:
         v = str(cog.get(k) or "").strip()
         if v:
@@ -94,6 +100,8 @@ def payload_to_card(entry: KbEntry) -> dict[str, Any]:
         "persona": str(payload.get("persona") or "")[:300],
         "dossier": dossier,
         "cog": cog,
+        # 剧情定位剥出的「（第N章）」回查锚（角色库卡页显式「证据章节」行数据源）
+        "evidence": entry.evidence or "",
         "src_kind": entry.src_kind,
         "src_ref": entry.src_ref,
         "src_character_id": entry.src_key,
@@ -129,6 +137,14 @@ async def migrate_character_library(db: AsyncSession, *, user_id: str) -> dict[s
             continue
         payload = card_to_payload(card)
         persona = str(card.persona or "").strip()
+        # 证据＝剧情定位尾部剥出的「（第N章）」回查锚（无则空）；小说名住 src_novel_name 专列
+        try:
+            dossier_raw = json.loads(card.dossier or "{}")
+        except ValueError:
+            dossier_raw = {}
+        plot_anchor = ""
+        if isinstance(dossier_raw, dict):
+            plot_anchor = split_plot_evidence(str(dossier_raw.get("plot") or ""))[1]
         db.add(
             KbEntry(
                 user_id=user_id,
@@ -141,7 +157,7 @@ async def migrate_character_library(db: AsyncSession, *, user_id: str) -> dict[s
                 # 指令＝一句人设（手录闸门句末断口径：补句号）
                 instruction=(persona or str(card.name or ""))[:240],
                 when_json="{}",
-                evidence=str(card.src_novel_name or "")[:200],
+                evidence=plot_anchor[:200],
                 src_kind="character_library_migration",
                 src_ref="character_library",
                 src_key=card.id,
@@ -151,6 +167,48 @@ async def migrate_character_library(db: AsyncSession, *, user_id: str) -> dict[s
         migrated += 1
     await db.commit()
     return {"migrated": migrated, "skipped": skipped}
+
+
+async def repair_character_evidence(db: AsyncSession, *, user_id: str) -> int:
+    """存量自愈：老迁移把小说名写进证据列（真机 35/35），换轨为剧情定位尾部锚。
+
+    病形＝evidence 与 src_novel_name 相同（concept=角色设定）。修＝payload.plot
+    剥「（第N章）」锚落证据列（无锚只清空证据），payload 其余格零变动。
+    查无病形即返（自熄）；返回修复条数。失败不抛（读面永不因自愈失败红）。
+    """
+    try:
+        broken = (
+            await db.scalars(
+                select(KbEntry).where(
+                    KbEntry.user_id == user_id,
+                    KbEntry.concept == "角色设定",
+                    KbEntry.evidence != "",
+                    KbEntry.evidence == KbEntry.src_novel_name,
+                )
+            )
+        ).all()
+        fixed = 0
+        for entry in broken:
+            try:
+                payload = json.loads(entry.payload_json or "{}")
+            except ValueError:
+                payload = {}
+            if not isinstance(payload, dict):
+                payload = {}
+            plot, evidence = split_plot_evidence(str(payload.get("plot") or ""))
+            if plot:
+                payload["plot"] = plot
+            else:  # plot 只剩锚本身 → 键不落（空格不落口径）
+                payload.pop("plot", None)
+            entry.payload_json = json.dumps(payload, ensure_ascii=False)
+            entry.evidence = evidence
+            fixed += 1
+        if fixed:
+            await db.commit()
+        return fixed
+    except Exception:  # noqa: BLE001 — 读面永不因自愈失败红
+        logger.warning("event=kb.repair_character_evidence.fail user=%s", user_id, exc_info=True)
+        return 0
 
 
 async def ensure_legacy_migrated(db: AsyncSession, *, user_id: str) -> None:
@@ -164,8 +222,12 @@ async def ensure_legacy_migrated(db: AsyncSession, *, user_id: str) -> None:
       不经本入口）；
     - 否则整账号迁移（per-card 存在性检查不过滤 status——软删的迁移卡不复活）。
     失败不抛（读面降级返回现有数据，下次触达重试）。
+
+    先跑 repair_character_evidence（老映射把小说名写进证据列的存量换轨）：
+    独立于 stamped 短路——备份恢复回的旧形状条目不经迁移入口，也要能被修。
     """
     try:
+        await repair_character_evidence(db, user_id=user_id)
         has_legacy = (
             await db.execute(
                 select(CharacterLibrary.id)

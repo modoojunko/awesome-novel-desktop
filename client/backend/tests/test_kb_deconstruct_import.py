@@ -98,6 +98,7 @@ PRODUCTS = {
                     "speech": "话少孤僻，嘴硬爱吐槽",
                     "background": "被队长强派13路夜班",
                     "plot": "第1章被强派夜班",
+                    "evidence_ch": "第2章",
                 }
             ]
         },
@@ -175,6 +176,22 @@ def test_character_payload_keeps_persona_and_aliases():
     assert payload["persona"].startswith("十三路末班车司机")
     assert payload["aliases"] == ["我", "小李"]
     assert payload["role"] == "主角"
+    # 证据＝产物 evidence_ch（不再是静态「拆书·角色设定」标签）
+    assert char.evidence == "第2章"
+
+
+def test_character_evidence_sentinel_and_missing_stay_empty():
+    # 「原文未明确」哨兵不进 _ev（否则包成「第原文未明确章」）；缺失同样留空
+    products = json.loads(json.dumps(PRODUCTS))
+    products["characters"]["data"]["characters"][0]["evidence_ch"] = "原文未明确"
+    entries, _ = _map(products)
+    char = next(e for e in entries if e.concept == "角色设定")
+    assert char.evidence == ""
+
+    products["characters"]["data"]["characters"][0].pop("evidence_ch")
+    entries, _ = _map(products)
+    char = next(e for e in entries if e.concept == "角色设定")
+    assert char.evidence == ""
 
 
 def test_src_ref_override_keeps_task_id_default():

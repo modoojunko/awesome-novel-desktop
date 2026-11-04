@@ -525,7 +525,8 @@ export default function KnowledgeBasePage() {
               <button onClick={() => setSelected(null)} className="text-[var(--faint)] hover:text-[var(--fg)]">✕</button>
             </div>
             <h2 className="text-xl font-semibold text-[var(--fg)]">{selected.title || selected.instruction.slice(0, 30)}</h2>
-            {selected.instruction && (
+            {/* 指令＝一句人设是闸门惯例（角色条目）；与一句话人设相同时不再重复显示 */}
+            {selected.instruction && selected.payload?.persona !== selected.instruction && (
               <div className="mt-4">
                 <p className="text-[10.5px] font-mono tracking-[0.12em] text-[var(--muted)]">指令</p>
                 <p className="mt-1 text-[13px] leading-relaxed">{selected.instruction}</p>
@@ -560,6 +561,12 @@ export default function KnowledgeBasePage() {
               <div className="mt-4">
                 <p className="text-[10.5px] font-mono tracking-[0.12em] text-[var(--muted)]">证据</p>
                 <p className="mt-1 text-[12px] text-[var(--muted)]">{selected.evidence}</p>
+              </div>
+            )}
+            {selected.src_novel_name && (
+              <div className="mt-4">
+                <p className="text-[10.5px] font-mono tracking-[0.12em] text-[var(--muted)]">源自小说</p>
+                <p className="mt-1 text-[12px] text-[var(--muted)]">{selected.src_novel_name}</p>
               </div>
             )}
             {selected.layer === "baseline" && (
