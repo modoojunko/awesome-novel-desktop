@@ -13,6 +13,8 @@ export interface LibraryCard {
   persona: string;
   dossier: Record<string, string>;
   cog: Record<string, string>;
+  /** 剧情定位剥出的「（第N章）」回查锚（#906 锚点显式化；空＝无锚） */
+  evidence?: string;
   src: { kind: "book" | "deconstruct" | "manual"; novel_name: string; ref: string; character_id: string };
   avatar: { has: boolean; url: string; thumb_url: string };
   rev: number;

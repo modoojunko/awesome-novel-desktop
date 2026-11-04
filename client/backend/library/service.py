@@ -130,6 +130,8 @@ def _card_view(entry: KbEntry, *, has_avatar: bool) -> dict:
         "persona": v["persona"],
         "dossier": v["dossier"],
         "cog": v["cog"],
+        # 剧情定位剥出的「（第N章）」回查锚（#906 锚点显式化：库卡页「证据章节」行）
+        "evidence": v["evidence"],
         "src": {
             "kind": v["src_kind"],
             "novel_name": v["src_novel_name"],
@@ -708,7 +710,8 @@ async def collect_from_book(
                 entry = await _create_card_entry(
                     db, user_id, **fields, genre=genre, src_kind="book",
                     src_ref=novel.id, src_key=character_id,
-                    src_novel_name=novel_name, evidence=novel_name,
+                    # 证据列不住小说名（住 src_novel_name 专列）；书源卡无剧情锚，留空
+                    src_novel_name=novel_name,
                 )
         except IntegrityError:
             # 双击/并发：唯一索引兜底，回查返回已有卡（软删过的同键复活）
@@ -1008,7 +1011,11 @@ async def import_from_deconstruct(
 ) -> dict:
     """拆书产物角色收进库：走 cards 单源投影；provenance 幂等；只写库不动书。
     软删过的卡重新收录＝同键复活。"""
-    from deconstruct.cards import card_to_book_payload, cards_from_products
+    from deconstruct.cards import (
+        card_to_book_payload,
+        cards_from_products,
+        split_plot_evidence,
+    )
 
     try:
         products = json.loads(task.products_json or "{}")
@@ -1041,6 +1048,9 @@ async def import_from_deconstruct(
             picked = random_name_local(dossier.get("gender") or "")
             payload["name"] = picked["name"]
             dossier["age"] = str(picked["age"])
+        # 证据＝剧情定位尾部「（第N章）」回查锚（无则空）；payload 侧剥除在
+        # card_to_payload 内统一做。证据列不住小说名（住 src_novel_name 专列）。
+        plot_anchor = split_plot_evidence(str(dossier.get("plot") or ""))[1]
         stale = await _existing_source_entry(
             db, user_id, task.id, key, include_archived=True
         )
@@ -1072,7 +1082,7 @@ async def import_from_deconstruct(
                     cog="{}",
                     genre=genre, src_kind="deconstruct",
                     src_ref=task.id, src_key=key,
-                    src_novel_name=task.book_name or "", evidence=task.book_name or "",
+                    src_novel_name=task.book_name or "", evidence=plot_anchor,
                 )
         except IntegrityError:
             # 逐卡提交：并发/双击的唯一索引冲突只回滚当前这张，不吞本批已建的卡

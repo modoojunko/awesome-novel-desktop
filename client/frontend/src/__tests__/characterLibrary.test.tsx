@@ -192,6 +192,19 @@ describe("CardEditorModal", () => {
     await waitFor(() => expect(api.deleteLibraryCard).toHaveBeenCalledWith("c1"));
   });
 
+  it("拆书卡剧情锚显示为只读证据章节行；无锚卡不出行", () => {
+    const c = card({
+      src: { kind: "deconstruct", novel_name: "13路末班车", ref: "t1", character_id: "k1" },
+      evidence: "第159章",
+    });
+    const { unmount } = wrap(<CardEditorModal open card={c as never} onClose={vi.fn()} />);
+    expect(screen.getByLabelText("证据章节")).toHaveTextContent("第159章");
+    unmount();
+    // 书源/手建卡无锚：不出行
+    wrap(<CardEditorModal open card={card() as never} onClose={vi.fn()} />);
+    expect(screen.queryByLabelText("证据章节")).toBeNull();
+  });
+
   it("AI 随机失败给可读提示；保存失败提示", async () => {
     api.randomLibraryName.mockRejectedValue(new Error("模型不可用"));
     api.updateLibraryCard.mockRejectedValue(new Error("写库失败"));

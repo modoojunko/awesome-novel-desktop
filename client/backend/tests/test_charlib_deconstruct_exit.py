@@ -207,3 +207,23 @@ class TestLibrarySideKeys:
     def test_source_key_fallback(self):
         assert lib_service.deconstruct_source_key({"name": "  "}, 4) == "未命名#4"
         assert lib_service.deconstruct_source_key({"name": " 甲 "}, 1) == "甲"
+
+
+def test_split_plot_evidence_peels_tail_anchor():
+    """plot 粘尾回查锚（cards ：82 粘 / split 剥，互逆同址）：知识库落库前换轨用。"""
+    from deconstruct.cards import split_plot_evidence
+
+    assert split_plot_evidence("装傻吃不明之物。（第159章）") == ("装傻吃不明之物。", "第159章")
+    assert split_plot_evidence("庙中斗法伤小六。（第2、6章）") == ("庙中斗法伤小六。", "第2、6章")
+    assert split_plot_evidence("洞中逃生。（159-160章）") == ("洞中逃生。", "159-160章")
+    assert split_plot_evidence("无锚条目") == ("无锚条目", "")
+    assert split_plot_evidence("") == ("", "")
+    # 普通括号文案不误剥（锚须以「章）」收尾）
+    assert split_plot_evidence("他笑了笑（下一章再讲）") == ("他笑了笑（下一章再讲）", "")
+    # 粘尾→剥回互逆：cards_from_products 粘的锚能被完整剥出
+    cards = cards_from_products({
+        "characters": [{
+            "name": "甲", "role": "配角", "plot": "洞中逃生", "evidence_ch": "第27章",
+        }],
+    })
+    assert split_plot_evidence(cards[0]["plot"]) == ("洞中逃生", "第27章")

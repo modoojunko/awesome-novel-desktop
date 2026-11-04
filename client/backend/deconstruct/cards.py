@@ -22,6 +22,9 @@ ROLE_SCAN_ORDER = ("主角", "反派", "配角", "核心", "功能", "路人")
 
 _EVIDENCE_RE = re.compile(r"【[^】]{0,50}章】")
 _SENT_END = "。！？；!?！？"
+# 下：卡 plot 尾部粘的回查锚「（第N章）」「（第2、6章）」「（159-160章）」；
+# 须以「章）」收尾且括号内无嵌套，防误剥正文里的普通括号文案
+_PLOT_ANCHOR_RE = re.compile(r"（第?[\d零一二三四五六七八九十百、,，\-—~至]{1,20}章）$")
 
 
 def role_normalize(raw: str) -> str:
@@ -32,6 +35,20 @@ def role_normalize(raw: str) -> str:
         if key in raw:
             return ROLE_MAP[key]
     return "配角"
+
+
+def split_plot_evidence(plot: str) -> tuple[str, str]:
+    """卡 plot → (净文, 章节锚)：剥掉下方 ：82 粘在尾部的「（第N章）」回查锚。
+
+    粘尾形态只该活在拆书预览角色页（#906 拍板）；知识库侧证据有自己的列，
+    迁移/收录落库前经此换轨（kb 条目 evidence=锚，payload.plot=净文）。
+    无尾巴原样返回、锚为空串；本函数与粘尾互逆、同址维护。
+    """
+    plot = str(plot or "").strip()
+    m = _PLOT_ANCHOR_RE.search(plot)
+    if not m:
+        return plot, ""
+    return plot[: m.start()].strip(), m.group(0)[1:-1]
 
 
 def clean_para(text, limit: int) -> str:

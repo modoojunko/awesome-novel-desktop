@@ -411,9 +411,13 @@ def map_deconstruct_products(
         if role:
             payload["role"] = role
         persona = payload.get("persona") or name
+        # 证据＝产物 evidence_ch（章号口径同其他节）；「原文未明确」哨兵不过 _ev
+        # （否则包成「第原文未明确章」），置空＝抽屉不出证据节；裸产物 plot 无粘尾
+        raw_ch = str(item.get("evidence_ch") or "").strip()
+        evidence, ev_json = ("", {}) if not raw_ch or raw_ch == "原文未明确" else _ev(raw_ch)
         add(
             "character", "角色设定", name, payload,
-            instruction=persona, evidence="拆书·角色设定",
+            instruction=persona, evidence=evidence, evidence_json=ev_json,
         )
 
     return entries, warnings

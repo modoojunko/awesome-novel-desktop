@@ -83,7 +83,9 @@ def test_字段映射_parity():
     assert e["src_kind"] == "character_library_migration"
     assert e["src_ref"] == "character_library"
     assert e["src_key"] == seed["card_ids"][0]
-    assert e["evidence"] == "剑照山河"
+    # 证据列不住小说名（住 src_novel_name 专列）；无剧情锚＝证据空
+    assert e["evidence"] == ""
+    assert e["src_novel_name"] == "剑照山河"
     assert e["instruction"].endswith("。")
     # parity：档案八格＋认知格逐格
     assert payload["archetype"] == "秦重霄"
@@ -94,6 +96,33 @@ def test_字段映射_parity():
         assert payload[k] == v, f"认知格 {k} 丢失"
     # 缺格不落（夹具 cog 只给了 w1/w5/s1/v1；档案格全给）
     assert "p3" not in payload and "e3" not in payload and "s5" not in payload and "p2" not in payload
+
+
+def test_映射换轨_剧情锚剥到证据列():
+    seed = _run(_seed([{
+        "name": "锚哥", "genre": "灵异志怪", "persona": "守钟人，装疯半生。",
+        "dossier": {"plot": "装傻吃不明之物、被制服后揭真相。（第159章）", "background": "散打教练出身"},
+        "src_novel_name": "13路末班车",
+    }]))
+
+    async def _go():
+        async with async_session() as db:
+            from kb.migrate_library import migrate_character_library
+
+            await migrate_character_library(db, user_id=seed["uid"])
+            return (
+                await db.execute(KbEntry.__table__.select().where(KbEntry.user_id == seed["uid"]))
+            ).mappings().all()
+
+    rows = _run(_go())
+    assert len(rows) == 1
+    e = rows[0]
+    payload = json.loads(e["payload_json"])
+    # 锚换轨：证据列＝章，payload.plot＝净文；小说名归专列
+    assert e["evidence"] == "第159章"
+    assert payload["plot"] == "装傻吃不明之物、被制服后揭真相。"
+    assert e["src_novel_name"] == "13路末班车"
+    assert payload["background"] == "散打教练出身"  # 其余格零变动
 
 
 def test_幂等_重复迁移零副本():
@@ -361,3 +390,93 @@ def test_迁移失败_读面降级不红():
     finally:
         mig.migrate_character_library = real
     assert r == {"count": 0, "items": []}
+
+
+# ─── 证据列存量自愈（c-kb-char-evidence：老迁移把小说名写进证据列）──────
+
+
+def _seed_kb_rows(uid: str, specs: list[dict]) -> None:
+    async def _go():
+        async with async_session() as db:
+            for s in specs:
+                db.add(KbEntry(
+                    id=str(uuid.uuid4()), user_id=uid,
+                    genre=s.get("genre", ""), concept=s["concept"],
+                    concept_id=f"{s.get('genre', '')}:{s['concept']}",
+                    title=s["title"],
+                    payload_json=json.dumps(s["payload"], ensure_ascii=False),
+                    instruction="x。", when_json="{}",
+                    evidence=s["evidence"],
+                    src_kind="character_library_migration",
+                    src_ref="character_library", src_key=str(uuid.uuid4()),
+                    src_novel_name=s["src_novel_name"],
+                ))
+            await db.commit()
+
+    _run(_go())
+
+
+def test_证据自愈_病形换轨_自熄():
+    uid = f"kbrep-{uuid.uuid4().hex[:8]}"
+    _seed_kb_rows(uid, [
+        # 病形＋有锚：锚换轨成证据，plot 落净文
+        {"concept": "角色设定", "title": "甲",
+         "payload": {"archetype": "甲", "plot": "中期反派。（第45章）", "background": "山匪"},
+         "evidence": "剑照山河", "src_novel_name": "剑照山河"},
+        # 病形＋无锚：只清空证据（证据列不该住小说名）
+        {"concept": "角色设定", "title": "乙",
+         "payload": {"archetype": "乙", "plot": "无锚条目"},
+         "evidence": "剑照山河", "src_novel_name": "剑照山河"},
+        # 健康条目（新映射形状）：不动
+        {"concept": "角色设定", "title": "丙",
+         "payload": {"archetype": "丙", "plot": "健康。（第7章）"},
+         "evidence": "第7章", "src_novel_name": "剑照山河"},
+        # 非角色概念：不动（concept 过滤）
+        {"concept": "手法", "genre": "武侠", "title": "丁",
+         "payload": {"instruction": "打压后反转"},
+         "evidence": "剑照山河", "src_novel_name": "剑照山河"},
+    ])
+
+    async def _go():
+        async with async_session() as db:
+            from kb.migrate_library import repair_character_evidence
+
+            n1 = await repair_character_evidence(db, user_id=uid)
+            n2 = await repair_character_evidence(db, user_id=uid)  # 自熄
+            rows = (
+                await db.execute(KbEntry.__table__.select().where(KbEntry.user_id == uid))
+            ).mappings().all()
+            return n1, n2, {r["title"]: r for r in rows}
+
+    n1, n2, by_title = _run(_go())
+    assert n1 == 2 and n2 == 0
+    jia = json.loads(by_title["甲"]["payload_json"])
+    assert by_title["甲"]["evidence"] == "第45章"
+    assert jia["plot"] == "中期反派。" and jia["background"] == "山匪"  # 其余格零变动
+    assert by_title["乙"]["evidence"] == ""
+    assert json.loads(by_title["乙"]["payload_json"])["plot"] == "无锚条目"
+    assert by_title["丙"]["evidence"] == "第7章"
+    assert by_title["丁"]["evidence"] == "剑照山河"
+
+
+def test_证据自愈_读面触达即修():
+    uid = f"kbrep-{uuid.uuid4().hex[:8]}"
+    _seed_kb_rows(uid, [
+        {"concept": "角色设定", "title": "甲",
+         "payload": {"archetype": "甲", "plot": "装傻半生。（第11章）"},
+         "evidence": "13路末班车", "src_novel_name": "13路末班车"},
+    ])
+
+    async def _go():
+        from library.service import list_cards
+
+        async with async_session() as db:
+            await list_cards(db, user_id=uid)  # 读面触达：自愈挂点在 ensure_legacy_migrated 前段
+            rows = (
+                await db.execute(KbEntry.__table__.select().where(KbEntry.user_id == uid))
+            ).mappings().all()
+            return rows
+
+    rows = _run(_go())
+    assert len(rows) == 1
+    assert rows[0]["evidence"] == "第11章"
