@@ -79,6 +79,7 @@ def test_迁移_DDL幂等_实例生成():
     assert "origin" in cols and "archived_at" in cols
     assert n >= 2
     assert has_def == ""  # 新字段首轮待补
+    assert has_ver == 1  # version 首轮即 1（迁移默认值落位）
 
 
 def test_归档映射_约束():
