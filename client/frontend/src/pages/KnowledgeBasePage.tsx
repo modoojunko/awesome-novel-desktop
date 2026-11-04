@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useSearchParams } from "react-router-dom";
 import { kbApi, type KbEntry, type KbGenreCount, type KbLibrary } from "@/lib/kbApi";
+import StarSeaPanel from "@/components/tools/StarSeaPanel";
 import { kbFieldLabel, kbValueLabel } from "@/lib/kbFieldLabels";
 import KbOrganizePanel from "@/components/tools/KbOrganizePanel";
 import KbEntryRelations from "@/components/tools/KbEntryRelations";
@@ -499,11 +500,7 @@ export default function KnowledgeBasePage() {
           </div>
         </div>
 
-      {view === "starsea" && (
-        <div className="flex items-center justify-center pt-16">
-          <p className="text-[13px] text-[var(--muted)]">星图加载中…（实现侧组件挂载点）</p>
-        </div>
-      )}
+      {view === "starsea" && <StarSeaPanel genre={genre !== "全部题材" ? genre : ""} />}
 
       {/* 手录表单 */}
       {showManual && (
