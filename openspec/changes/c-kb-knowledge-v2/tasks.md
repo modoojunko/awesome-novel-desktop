@@ -2,16 +2,16 @@
 
 ## 1. 原型先行与影响判定
 
-- [ ] 1.1 把定稿原型纳入运行基线：将 `docs/design-c/drafts/ai-novel-c端-知识条目-obsidian式建模-原型.html`、`…知识库星图-整合原型.html`、`…知识库星图-流程原型.html` 登记到 `docs/design-c/prototypes/`（或按 project 约定标注为 drafts 不纳入像素基线），逐项在 `prototypes/ADJUSTMENTS.md` 登记与实现的预期偏差；验证：文件存在＋ADJUSTMENTS 有对应条目
-- [ ] 1.2 判定共享段：确认本变更不触碰 `base.css` 令牌/基础类与 design-system 共享段（依据 proposal「Design Impact」单端判定）；验证：`git diff --stat` 不含共享段文件
-- [ ] 1.3 设计语言对齐复查：对照 `docs/ux/design-language.html` 与 `base.css` 令牌，核对原型无暖纸色/紫色链接/英文属性键；按钮 34px 层级、胶囊、ListEditor、ConfirmGuard、Toast 位置与现网一致；验证：原型 grep 无未登记裸 hex（画布 token→hex 例外）、组件逐项对照通过
-- [ ] 1.4 文案复核：按 design-language §13 复读知识视图/编辑器/星图全部用户可见串，按钮用动词、无内部术语；验证：文案清单逐条过、最长三条念出声
+- [x] 1.1 把定稿原型纳入运行基线：将 `docs/design-c/drafts/ai-novel-c端-知识条目-obsidian式建模-原型.html`、`…知识库星图-整合原型.html`、`…知识库星图-流程原型.html` 登记到 `docs/design-c/prototypes/`（或按 project 约定标注为 drafts 不纳入像素基线），逐项在 `prototypes/ADJUSTMENTS.md` 登记与实现的预期偏差；验证：文件存在＋ADJUSTMENTS 有对应条目
+- [x] 1.2 判定共享段：确认本变更不触碰 `base.css` 令牌/基础类与 design-system 共享段（依据 proposal「Design Impact」单端判定）；验证：`git diff --stat` 不含共享段文件
+- [x] 1.3 设计语言对齐复查：对照 `docs/ux/design-language.html` 与 `base.css` 令牌，核对原型无暖纸色/紫色链接/英文属性键；按钮 34px 层级、胶囊、ListEditor、ConfirmGuard、Toast 位置与现网一致；验证：原型 grep 无未登记裸 hex（画布 token→hex 例外）、组件逐项对照通过
+- [x] 1.4 文案复核：按 design-language §13 复读知识视图/编辑器/星图全部用户可见串，按钮用动词、无内部术语；验证：文案清单逐条过、最长三条念出声
 
 ## 2. 数据模型与迁移
 
-- [ ] 2.1 新增 SQLAlchemy 模型：`kb_knowledge`、`kb_knowledge_instances`、`kb_knowledge_relations`、`kb_knowledge_aliases`、`kb_knowledge_revisions`（字段/约束/索引照 `docs/design-c/drafts/ai-novel-c端-知识条目-数据模型.sql`）；验证：模型导入成功，建表后 `PRAGMA table_info` 字段齐全
-- [ ] 2.2 建表与索引幂等 DDL（含 `CHECK(category/status/rel_type)`、`CHECK(from_id<>to_id)`、active 部分唯一索引）；验证：空库跑两遍不报错
-- [ ] 2.3 迁移脚本：`kb_entries`→`kb_knowledge`（id 不变、instruction→第 1 条实例、example/negative/evidence/src_*→实例、definition 置空）＋`kb_relations`→`kb_knowledge_relations`；验证：迁移单测覆盖「知识+1 实例」「关系不断」「重跑幂等」
+- [x] 2.1 新增 SQLAlchemy 模型：`kb_knowledge`、`kb_knowledge_instances`、`kb_knowledge_relations`、`kb_knowledge_aliases`、`kb_knowledge_revisions`（字段/约束/索引照 `docs/design-c/drafts/ai-novel-c端-知识条目-数据模型.sql`）；验证：模型导入成功，建表后 `PRAGMA table_info` 字段齐全
+- [x] 2.2 建表与索引幂等 DDL（含 `CHECK(category/status/rel_type)`、`CHECK(from_id<>to_id)`、active 部分唯一索引）；验证：空库跑两遍不报错
+- [x] 2.3 迁移脚本：`kb_entries`→`kb_knowledge`（id 不变、instruction→第 1 条实例、example/negative/evidence/src_*→实例、definition 置空）＋`kb_relations`→`kb_knowledge_relations`；验证：迁移单测覆盖「知识+1 实例」「关系不断」「重跑幂等」
 - [ ] 2.4 迁移前备份与对拍：落账号级知识库备份，迁移后行数/实例数/关系数对拍；验证：对拍脚本 0 差异，失败可从备份恢复（演练一次）
 - [ ] 2.5 旧表只读与后续删除计划：迁移后 `kb_entries`/`kb_relations` 置只读保留一版；验证：写入被拒/无代码写入
 

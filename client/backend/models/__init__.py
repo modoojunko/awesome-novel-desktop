@@ -32,6 +32,14 @@ from models.image_asset import (
     ImageJob,
 )
 from models.import_session import ImportSession
+from models.kb_knowledge import (
+    KbKnowledge,
+    KbKnowledgeMigrationBackup,
+    KbKnowledgeAlias,
+    KbKnowledgeInstance,
+    KbKnowledgeRelation,
+    KbKnowledgeRevision,
+)
 from models.kb import (
     KbBookBinding,
     KbBookEntry,
