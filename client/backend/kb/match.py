@@ -21,7 +21,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from kb.concepts import normalize_emotion
 from kb.merged import STYLE_SLOTS_IN_BLOCK as _STYLE_SLOTS_IN_BLOCK
 from kb.merged import digest_baseline_ids, load_baseline_entries
-from models.kb import KbBookEntry, KbBookEntryTag, KbEntry, KbEntryTag, KbPref
+from models.kb import KbBookEntry, KbBookEntryTag, KbKnowledge, KbEntryTag, KbPref
 
 # 拆章六档 plot_stage → 章位封闭值（CHAPTER_POS）；空/未知 → ""（不硬猜）
 _STAGE_TO_POS = {
@@ -97,7 +97,7 @@ class MatchSignals:
 
 @dataclass
 class SelectedItem:
-    entry: KbEntry
+    entry: KbKnowledge
     score: float
     reason: str
     text_override: str = ""  # run 快照文本（重试字节一致——条目编辑后仍用固化文本）
@@ -146,12 +146,12 @@ async def digest_candidates(
         stmt = (
             select(tag_model.entry_id, tag_model.dim, tag_model.value)
             .select_from(tag_model)
-            .join(KbEntry, KbEntry.id == tag_model.entry_id)
+            .join(KbKnowledge, KbKnowledge.id == tag_model.entry_id)
             .where(
                 tag_model.user_id == user_id,
                 tag_model.dim.in_(("concept", "scope", "slot")),
-                KbEntry.status == "active",
-                KbEntry.genre.in_((genre, "")) if genre else True,
+                KbKnowledge.status == "active",
+                KbKnowledge.genre.in_((genre, "")) if genre else True,
             )
         )
     rows = (await db.execute(stmt)).all()
@@ -190,7 +190,7 @@ async def digest_candidates(
 # ── 打分与配额（A4）──────────────────────────────────────────
 
 
-def _when_of(entry: KbEntry) -> dict:
+def _when_of(entry: KbKnowledge) -> dict:
     try:
         w = json.loads(entry.when_json or "{}")
     except ValueError:
@@ -215,7 +215,7 @@ def _emotion_hit(when: dict, signals) -> bool:
     return bool(want and got and want == got)
 
 
-def _match_score(entry: KbEntry, signals: MatchSignals) -> tuple[float, str]:
+def _match_score(entry: KbKnowledge, signals: MatchSignals) -> tuple[float, str]:
     """匹配度∈[0,1]＋命中理由。适用条件＝when_json（payload.scene 是记录字段
     不参与匹配——§7.1「匹配＝when_json∪实体命中」口径）。手法无 when 给基础分。"""
     hits: list[str] = []
@@ -281,7 +281,7 @@ def _usefulness(pref: KbPref | None) -> float:
     return max(0.2, pref.adopt_count / total)
 
 
-def _freshness(entry: KbEntry, now) -> float:
+def _freshness(entry: KbKnowledge, now) -> float:
     if entry.updated_at is None:
         return 1.0
     days = max(0.0, (now - entry.updated_at).total_seconds() / 86400)
@@ -309,7 +309,7 @@ async def select_block(
         return None
 
     wanted = groups["tech"] | groups["style"]
-    entry_model = KbBookEntry if book_scope else KbEntry
+    entry_model = KbBookEntry if book_scope else KbKnowledge
     user_rows = (
         (
             await db.execute(

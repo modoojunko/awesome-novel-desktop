@@ -23,7 +23,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from models.kb import (
     KbBookEntry,
     KbBookEntryTag,
-    KbEntry,
+    KbKnowledge,
     KbEntryTag,
     KbLibrary,
     KbPref,
@@ -45,10 +45,10 @@ async def load_import_state(
 
     rows = (
         await db.execute(
-            select(KbEntry).where(
-                KbEntry.user_id == user_id,
-                KbEntry.status == "active",
-                (KbEntry.genre == genre) | (KbEntry.genre == ""),
+            select(KbKnowledge).where(
+                KbKnowledge.user_id == user_id,
+                KbKnowledge.status == "active",
+                (KbKnowledge.genre == genre) | (KbKnowledge.genre == ""),
             )
         )
     ).scalars().all()
@@ -93,7 +93,7 @@ async def stream_import_genre_knowledge(
     yield {"type": "phase", "phase": "copy", "total": total}
 
     copied = 0
-    new_rows: list[tuple[KbBookEntry, KbEntry]] = []
+    new_rows: list[tuple[KbBookEntry, KbKnowledge]] = []
     attempt = 0
     while True:
         done = 0

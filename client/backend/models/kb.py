@@ -26,8 +26,10 @@ from sqlalchemy import (
     Index,
     Integer,
     LargeBinary,
+    PrimaryKeyConstraint,
     String,
     Text,
+    UniqueConstraint,
     func,
     text,
 )
@@ -108,6 +110,10 @@ class KbEntry(Base):
     updated_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, server_default=func.now(), onupdate=func.now())
 
 
+# 知识 v2 别名：消费端统一用 KbKnowledge（与星图/编辑器口径一致）
+KbKnowledge = KbEntry
+
+
 class KbEntryTag(Base):
     """物化过滤索引——payload/when_json 的可索引投影；可随时 DELETE+重建（自愈）。"""
 
@@ -149,6 +155,41 @@ class KbKnowledgeInstance(Base):
     )
     updated_at: Mapped[datetime] = mapped_column(
         DateTime, nullable=False, server_default=func.now(), onupdate=func.now()
+    )
+
+
+class KbKnowledgeAlias(Base):
+    """别名——可检索投影；(knowledge_id, alias) 唯一。"""
+
+    __tablename__ = "kb_knowledge_aliases"
+    __table_args__ = (
+        PrimaryKeyConstraint("knowledge_id", "alias"),
+        Index("ix_kb_knowledge_alias", "alias"),
+    )
+
+    knowledge_id: Mapped[str] = mapped_column(
+        String(36), ForeignKey("kb_entries.id", ondelete="CASCADE"), nullable=False
+    )
+    alias: Mapped[str] = mapped_column(String(80), nullable=False)
+
+
+class KbKnowledgeRevision(Base):
+    """版本快照——保存时 version+1 并落一份快照；保留策略在应用层。"""
+
+    __tablename__ = "kb_knowledge_revisions"
+    __table_args__ = (
+        UniqueConstraint("knowledge_id", "version", name="uq_kb_revision_version"),
+        Index("ix_kb_revisions_knowledge", "knowledge_id", "version"),
+    )
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid)
+    knowledge_id: Mapped[str] = mapped_column(
+        String(36), ForeignKey("kb_entries.id", ondelete="CASCADE"), nullable=False
+    )
+    version: Mapped[int] = mapped_column(Integer, nullable=False)
+    snapshot_json: Mapped[str] = mapped_column(Text, nullable=False, default="{}")
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime, nullable=False, server_default=func.now()
     )
 
 

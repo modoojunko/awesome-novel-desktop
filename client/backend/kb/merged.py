@@ -4,7 +4,7 @@
 - 基线层：kb_baseline_entries（uuid5 代理主键）− 用户 hide 白名单 ＋ 用户 edit 副本
   （写时复制：副本以 overlay.content 遮蔽原件文本，原件行永不改）。
 - 用户条目：kb_entries 原样（该表零改动，src_kind SHALL NOT 落 "baseline"）。
-- 基线行在 API/选择器里以 `MergedEntry` 呈现：属性面与 KbEntry 读口径一致
+- 基线行在 API/选择器里以 `MergedEntry` 呈现：属性面与 KbKnowledge 读口径一致
   （id/genre/concept/concept_id/title/instruction/when_json/payload_json/updated_at），
   并带 layer="baseline"、src_kind="baseline"（**随层派生，不落库**）、src_key。
 - 设备级数据：基线层不按账号分行，hide/edit 才是账号级（overlays）。
@@ -28,7 +28,7 @@ STYLE_SLOTS_IN_BLOCK = ("tone", "register", "sample")
 
 @dataclass(slots=True)
 class MergedEntry:
-    """基线条目的只读呈现（属性面照 KbEntry，前端/选择器零分支）。"""
+    """基线条目的只读呈现（属性面照 KbKnowledge，前端/选择器零分支）。"""
 
     id: str
     user_id: str

@@ -1321,7 +1321,7 @@ async def _restore_config(db, user_id: str, config_data: dict) -> dict:
         from kb.service import rebuild_tag_index
         from models.kb import (
             KbConcept,
-            KbEntry,
+            KbKnowledge,
             KbEntryMerge,
             KbLibrary,
             KbLibraryItem,
@@ -1338,7 +1338,7 @@ async def _restore_config(db, user_id: str, config_data: dict) -> dict:
 
         kb_models = {
             "concepts": KbConcept,
-            "entries": KbEntry,
+            "entries": KbKnowledge,
             "relations": KbRelation,
             "organize_runs": KbOrganizeRun,
             "organize_outputs": KbOrganizeOutput,
@@ -1399,7 +1399,7 @@ async def _restore_config(db, user_id: str, config_data: dict) -> dict:
             if not eid or variant not in ("full", "thumb") or not data:
                 blob_missing += 1
                 continue
-            if await db.get(KbEntry, eid) is None:
+            if await db.get(KbKnowledge, eid) is None:
                 blob_missing += 1
                 continue
             if await db.get(KbEntryBlob, (eid, variant)) is not None:

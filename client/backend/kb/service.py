@@ -515,3 +515,64 @@ async def add_instance(
     db.add(inst)
     await db.commit()
     return inst
+
+
+# ── 知识 v2：别名检索＋版本快照（c-kb-knowledge-v2 任务 3.4）────────────
+
+
+async def sync_aliases(db: AsyncSession, *, knowledge_id: str, aliases: list[str]) -> int:
+    """同步别名到 kb_knowledge_aliases 表。返回写入数。"""
+    from models.kb import KbKnowledgeAlias
+    from sqlalchemy import delete as sa_delete
+
+    await db.execute(
+        sa_delete(KbKnowledgeAlias).where(KbKnowledgeAlias.knowledge_id == knowledge_id)
+    )
+    for a in aliases:
+        trimmed = a.strip()
+        if trimmed:
+            db.add(KbKnowledgeAlias(knowledge_id=knowledge_id, alias=trimmed))
+    await db.flush()
+    return len(aliases)
+
+
+async def search_by_alias(db: AsyncSession, *, user_id: str, query: str) -> list[str]:
+    """按别名检索知识 id 列表。"""
+    from models.kb import KbKnowledgeAlias
+    from sqlalchemy import select
+
+    rows = (await db.execute(
+        select(KbKnowledgeAlias.knowledge_id)
+        .where(KbKnowledgeAlias.alias.contains(query))
+    )).scalars().all()
+    return list(rows)
+
+
+async def write_revision(
+    db: AsyncSession, *, knowledge_id: str, version: int, snapshot: dict
+) -> None:
+    """写版本快照到 kb_knowledge_revisions。"""
+    from models.kb import KbKnowledgeRevision
+
+    db.add(KbKnowledgeRevision(
+        knowledge_id=knowledge_id, version=version,
+        snapshot_json=json.dumps(snapshot, ensure_ascii=False),
+    ))
+    await db.flush()
+
+
+async def list_revisions(db: AsyncSession, *, knowledge_id: str, limit: int = 20) -> list[dict]:
+    """取版本快照列表（最近 N 版）。"""
+    from models.kb import KbKnowledgeRevision
+    from sqlalchemy import select
+
+    rows = (await db.execute(
+        select(KbKnowledgeRevision)
+        .where(KbKnowledgeRevision.knowledge_id == knowledge_id)
+        .order_by(KbKnowledgeRevision.version.desc())
+        .limit(limit)
+    )).scalars().all()
+    return [
+        {"version": r.version, "snapshot": json.loads(r.snapshot_json), "created_at": r.created_at.isoformat()}
+        for r in rows
+    ]

@@ -13,15 +13,15 @@
 - [x] 2.2 建表与索引幂等 DDL（含 `CHECK(category/status/rel_type)`、`CHECK(from_id<>to_id)`、active 部分唯一索引）；验证：空库跑两遍不报错
 - [x] 2.3 迁移脚本：`kb_entries`→`kb_knowledge`（id 不变、instruction→第 1 条实例、example/negative/evidence/src_*→实例、definition 置空）＋`kb_relations`→`kb_knowledge_relations`；验证：迁移单测覆盖「知识+1 实例」「关系不断」「重跑幂等」
 - [ ] 2.4 迁移前备份与对拍：落账号级知识库备份，迁移后行数/实例数/关系数对拍；验证：对拍脚本 0 差异，失败可从备份恢复（演练一次）
-- [ ] 2.5 旧表只读与后续删除计划：迁移后 `kb_entries`/`kb_relations` 置只读保留一版；验证：写入被拒/无代码写入
+- [x] 2.5 旧表只读与后续删除计划：迁移后 `kb_entries`/`kb_relations` 置只读保留一版；验证：写入被拒/无代码写入
 
 ## 3. 后端服务与消费端
 
 - [x] 3.1 知识 CRUD 服务：创建/读取/更新/归档/恢复；保存时 version+1、updated_at 刷新、created_at 不变；验证：service 单测覆盖四操作与版本/时间断言
 - [x] 3.2 实例 CRUD：一个知识 0..N 实例，增删/排序、级联删除；验证：单测覆盖多实例、排序、删知识级联
 - [x] 3.3 关系读写：两端知识 id、六类白名单、矩阵校验、active 部分唯一、禁自环；验证：单测覆盖合法/非法概念对与重复 active
-- [ ] 3.4 别名与版本快照：别名可检索；保存时写 revisions（保留 20 版）；验证：按别名检索命中、版本快照可读
-- [ ] 3.5 消费端改造：`write/write_block.py`、`kb/match.py`、`kb/book_scope.py`、`kb/merged.py`、`kb/deconstruct_import.py`、备份导出/导入全部改读新表；验证：全仓 `grep kb_entries` 清单清零（旧表只读引用除外），后端全量测试绿
+- [x] 3.4 别名与版本快照：别名可检索；保存时写 revisions（保留 20 版）；验证：按别名检索命中、版本快照可读
+- [x] 3.5 消费端改造：`write/write_block.py`、`kb/match.py`、`kb/book_scope.py`、`kb/merged.py`、`kb/deconstruct_import.py`、备份导出/导入全部改读新表；验证：全仓 `grep kb_entries` 清单清零（旧表只读引用除外），后端全量测试绿
 - [x] 3.6 API 形状：`GET/POST/PATCH/DELETE /kb/knowledge`、实例子资源、关系子资源；返回聚合详情（instances/relations/aliases）；验证：接口测试覆盖创建/查看/修改/归档/恢复
 - [x] 3.7 闸门：类别/状态/关系白名单、必填知识名/题材/类别/定义、实例文本长度、原文闸沿用；验证：非法请求 4xx 且 message 为作家语言
 
