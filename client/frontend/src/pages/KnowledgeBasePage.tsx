@@ -554,7 +554,6 @@ export default function KnowledgeBasePage() {
             </div>
             <h2 className="text-xl font-semibold text-[var(--fg)]">{selected.title || selected.instruction.slice(0, 30)}</h2>
             {/* 分类：类别 + 题材 */}
-            // v8 ignore next
             <div className="mt-2 text-[11px] text-[var(--muted)]">
               分类：类别 / {selected.concept} · 题材 / {selected.genre}
             </div>
