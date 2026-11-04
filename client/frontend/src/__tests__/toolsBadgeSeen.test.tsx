@@ -1,9 +1,12 @@
 // toolsBadgeSeen（c-tools-badge-seen）：顶栏徽标「看过不再引导」本地账——读写合并、
-// 上限裁剪、坏账容错（非 JSON/非数组/非字符串/存储抛错一律退回「没看过」且不炸）。
+// 上限裁剪、坏账容错（非 JSON/非数组/非字符串/存储抛错一律退回「没看过」且不炸）、
+// 账变广播（useSeenTaskIds 订阅者实时重算；写失败不广播＝徽标不跟着假清零）。
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { markTasksSeen, seenTaskIds } from "@/lib/toolsBadgeSeen";
+import { act, cleanup, render, screen } from "@testing-library/react";
+import { markTasksSeen, seenTaskIds, useSeenTaskIds } from "@/lib/toolsBadgeSeen";
 
 afterEach(() => {
+  cleanup();
   localStorage.clear();
   vi.restoreAllMocks();
 });
@@ -49,5 +52,31 @@ describe("toolsBadgeSeen", () => {
       throw new Error("blocked");
     });
     expect(seenTaskIds().size).toBe(0);
+  });
+});
+
+describe("toolsBadgeSeen 账变广播", () => {
+  let renders = 0;
+  function Probe() {
+    const seen = useSeenTaskIds();
+    renders += 1;
+    return <span data-od-id="seen-probe">{seen.size}</span>;
+  }
+
+  it("markTasksSeen 写成功广播订阅者，useSeenTaskIds 当场拿到新账；写失败不广播", () => {
+    render(<Probe />);
+    expect(screen.getByText("0")).toBeInTheDocument();
+    const rendersBefore = renders;
+    act(() => markTasksSeen(["a", "b"]));
+    expect(screen.getByText("2")).toBeInTheDocument(); // 广播 → 重渲染 → 新账
+    expect(renders).toBeGreaterThan(rendersBefore);
+    // 写失败＝账没变：不广播、不重渲染（徽标不跟着假清零）
+    const rendersAfterNotify = renders;
+    vi.spyOn(Storage.prototype, "setItem").mockImplementation(() => {
+      throw new Error("quota");
+    });
+    act(() => markTasksSeen(["c"]));
+    expect(screen.getByText("2")).toBeInTheDocument();
+    expect(renders).toBe(rendersAfterNotify);
   });
 });

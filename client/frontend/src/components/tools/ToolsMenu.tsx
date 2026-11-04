@@ -4,14 +4,14 @@ import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { useNavigate } from "react-router-dom";
 import { isActiveTask, useDeconstructTasks } from "../../hooks/useDeconstructTasks";
-import { seenTaskIds } from "../../lib/toolsBadgeSeen";
+import { useSeenTaskIds } from "../../lib/toolsBadgeSeen";
 
 /** 徽标口径（c-tools-badge-seen）：进行中/排队/建书中恒计（后台心跳）；已完成未取只在
- *  没看过时引导——看过任务清单/详情即消账（toolsBadgeSeen 本地账），新任务完成重亮 */
+ *  没看过时引导——看过任务清单/详情即消账（toolsBadgeSeen 订阅式本地账），新任务完成重亮 */
 export function useToolsBadge(): number {
   const { data } = useDeconstructTasks();
   const tasks = data?.tasks ?? [];
-  const seen = seenTaskIds();
+  const seen = useSeenTaskIds();
   return (
     tasks.filter((t) => isActiveTask(t.status)).length +
     tasks.filter((t) => t.unpicked && !seen.has(t.id)).length

@@ -6,9 +6,13 @@ import { MemoryRouter } from "react-router-dom";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 
 const state = vi.hoisted(() => ({ list: vi.fn() }));
-vi.mock("@/lib/deconstructApi", () => ({ listDeconstructTasks: state.list }));
+vi.mock("@/lib/deconstructApi", () => ({
+  listDeconstructTasks: state.list,
+  deleteDeconstructTask: vi.fn(), // TaskListPage 同挂载集成用（评审 P2 实时性用例）
+}));
 
 import ToolsMenu from "@/components/tools/ToolsMenu";
+import TaskListPage from "@/components/tools/TaskListPage";
 
 function renderMenu() {
   const qc = new QueryClient();
@@ -108,6 +112,42 @@ describe("ToolsMenu", () => {
     });
     renderMenu();
     await waitFor(() => expect(screen.getAllByText("2").length).toBeGreaterThan(0));
+  });
+
+  it("清单页消账后徽标当场归零——同挂载订阅广播，无任何交互（评审 P2）；重启重亮", async () => {
+    // 全终态任务：轮询停表＋focus 重取关闭——徽标归零只能靠账变广播（非订阅实现停死在 2）
+    state.list.mockResolvedValue({
+      tasks: [
+        { id: "t2", status: "completed", unpicked: true, book_name: "星海远征" },
+        { id: "t3", status: "completed", unpicked: true, book_name: "万川归海" },
+      ],
+      heartbeat: { running: 0, queued: 0 },
+      badge: 2,
+    });
+    const qc = new QueryClient();
+    render(
+      <QueryClientProvider client={qc}>
+        <MemoryRouter>
+          <ToolsMenu />
+          <TaskListPage />
+        </MemoryRouter>
+      </QueryClientProvider>,
+    );
+    await waitFor(() => expect(screen.getByText("万川归海")).toBeInTheDocument()); // 清单回包
+    await waitFor(() => expect(screen.queryByText("2")).not.toBeInTheDocument()); // 消账即时生效
+    expect(JSON.parse(localStorage.getItem("tools_badge_seen_v1") ?? "[]")).toEqual(["t2", "t3"]);
+    cleanup();
+    // 重启（重挂载）后新任务完成＝没看过的 id → 引导重亮
+    state.list.mockResolvedValue({
+      tasks: [
+        { id: "t2", status: "completed", unpicked: true },
+        { id: "t4", status: "completed", unpicked: true },
+      ],
+      heartbeat: { running: 0, queued: 0 },
+      badge: 1,
+    });
+    renderMenu();
+    await waitFor(() => expect(screen.getAllByText("1").length).toBeGreaterThan(0));
   });
 
   it("徽标口径只认 unpicked 标记：已建书/已导出（无 unpicked） completed 不计数", async () => {
