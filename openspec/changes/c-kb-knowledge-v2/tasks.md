@@ -27,9 +27,9 @@
 
 ## 4. 前端数据与页面骨架
 
-- [ ] 4.1 `kbApi` 类型与端点：Knowledge/Instance/Relation、CRUD；验证：tsc 通过、单测 mock 命中
-- [ ] 4.2 `KnowledgeBasePage`：页签 `列表 / 星图`，移除 `图谱`/`条目图`；题材/类别筛选与搜索保留；验证：页面测试覆盖两页签与筛选
-- [ ] 4.3 删除 `KbGraph.tsx`、`KbEntryGraphView.tsx` 及测试/coverage 契约；验证：全仓无引用，coverage 契约更新
+- [x] 4.1 `kbApi` 类型与端点：Knowledge/Instance/Relation、CRUD；验证：tsc 通过、单测 mock 命中
+- [x] 4.2 `KnowledgeBasePage`：页签 `列表 / 星图`，移除 `图谱`/`条目图`；题材/类别筛选与搜索保留；验证：页面测试覆盖两页签与筛选
+- [x] 4.3 删除 `KbGraph.tsx`、`KbEntryGraphView.tsx` 及测试/coverage 契约；验证：全仓无引用，coverage 契约更新
 
 ## 5. 知识视图与编辑器
 
