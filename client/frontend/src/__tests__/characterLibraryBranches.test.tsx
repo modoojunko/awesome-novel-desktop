@@ -23,7 +23,7 @@ vi.mock("@/lib/libraryApi", async (orig) => {
   return { ...actual, ...api };
 });
 
-import CharacterLibraryPage from "@/components/library/CharacterLibraryPage";
+import CharacterInstanceView from "@/components/library/CharacterInstanceView";
 import CardEditorModal from "@/components/library/CardEditorModal";
 import UseInNovelModal from "@/components/library/UseInNovelModal";
 import ImportFromLibraryModal from "@/components/library/ImportFromLibraryModal";
@@ -102,9 +102,9 @@ describe("CardEditorModal 字段编辑覆盖", () => {
   });
 });
 
-describe("CharacterLibraryPage 分支", () => {
+describe("CharacterInstanceView 分支", () => {
   it("重叠多词搜索/手建兜底/列表视图空态清空", async () => {
-    wrap(<CharacterLibraryPage />);
+    wrap(<CharacterInstanceView />);
     await waitFor(() => expect(screen.getAllByTestId("lib-card")).toHaveLength(2));
     // 手建卡无来源书 → 「手建」脚注
     expect(screen.getAllByText("手建").length).toBeGreaterThanOrEqual(2);
@@ -125,7 +125,7 @@ describe("CharacterLibraryPage 分支", () => {
 
   it("用到新书全流程（选另一本→提交→onDone 提示）", async () => {
     api.applyCardToBook.mockResolvedValue({ character_id: "x", name: "秦重霄", role: "配角", renamed: false, demoted: false, avatar: false });
-    wrap(<CharacterLibraryPage />);
+    wrap(<CharacterInstanceView />);
     await waitFor(() => expect(screen.getAllByTestId("lib-card")).toHaveLength(2));
     const goal = screen.getAllByTestId("lib-card").find((el) => el.textContent?.includes("秦重霄"))!;
     fireEvent.click(within(goal).getByText("用到新书"));
@@ -138,7 +138,7 @@ describe("CharacterLibraryPage 分支", () => {
 
   it("错误非 Error 实例 → 兜底「加载失败」", async () => {
     api.listLibrary.mockRejectedValueOnce("炸了");
-    wrap(<CharacterLibraryPage />);
+    wrap(<CharacterInstanceView />);
     await waitFor(() => expect(screen.getAllByText("加载失败").length).toBeGreaterThan(0));
   });
 });
@@ -161,7 +161,7 @@ describe("ImportFromLibraryModal 分支", () => {
   it("空库提示、换名开关、提交失败", async () => {
     api.listLibrary.mockResolvedValue({ count: 0, items: [] });
     wrap(<ImportFromLibraryModal open novelId="n1" onClose={vi.fn()} />);
-    await waitFor(() => expect(screen.getByText(/角色库还是空的/)).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByText(/知识库的角色还是空的/)).toBeInTheDocument());
     cleanup();
     queryClient.clear();
     api.listLibrary.mockResolvedValue({ count: 1, items: [card()] });
@@ -182,8 +182,8 @@ describe("CollectToLibrary 失败分支", () => {
     api.listLibrary.mockResolvedValue({ count: 1, items: [card()] });
     api.syncCardFromBook.mockRejectedValue(new Error("同步炸了"));
     wrap(<CollectToLibrary novelId="n1" characterId="ch1" characterName="秦重霄" />);
-    await waitFor(() => expect(screen.getByText("同步到角色库")).toBeInTheDocument());
-    fireEvent.click(screen.getByText("同步到角色库"));
+    await waitFor(() => expect(screen.getByText("同步到知识库")).toBeInTheDocument());
+    fireEvent.click(screen.getByText("同步到知识库"));
     await waitFor(() => expect(toastError).toHaveBeenCalled());
   });
 });
@@ -247,6 +247,6 @@ describe("题材门禁", () => {
       items: [card({ id: "c2", name: "异题材卡", genre_norm: "科幻" })],
     });
     wrap(<ImportFromLibraryModal open novelId="n1" onClose={vi.fn()} />);
-    await waitFor(() => expect(screen.getByText(/没有「武侠」题材的角色/)).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByText(/还没有「武侠」题材的/)).toBeInTheDocument());
   });
 });

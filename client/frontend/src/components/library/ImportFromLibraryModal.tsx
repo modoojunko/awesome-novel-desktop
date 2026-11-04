@@ -74,7 +74,7 @@ function ImportFromLibraryModalInner({
     <Modal
       open
       onClose={onClose}
-      title="从角色库导入"
+      title="从知识库导入"
       width={560}
       locked={busy}
       headExtra={<span style={{ fontSize: 12, color: "var(--muted)" }}>《{resolvedName}》</span>}
@@ -100,8 +100,8 @@ function ImportFromLibraryModalInner({
       {items.length === 0 ? (
         <div className="alt">
           {bookGenre
-            ? `角色库里没有「${bookGenre}」题材的角色——跨题材不能落卡；去角色库收几个同题材的，再回来导入。`
-            : "角色库还是空的——去「写作工具 → 角色库」先收几个角色。"}
+            ? `知识库的角色里还没有「${bookGenre}」题材的——跨题材不能落卡；先在知识库的角色设定里收几个同题材的，再回来导入。`
+            : "知识库的角色还是空的——去「写作工具 → 知识库」，在角色设定里先收几个角色。"}
         </div>
       ) : (
         <div

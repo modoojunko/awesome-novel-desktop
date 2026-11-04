@@ -1,5 +1,6 @@
-// 角色库 E2E（c-character-library）：UI 桩模式——所有 /api/* 由 page.route 打桩，
-// 不依赖真实后端/拆书任务；覆盖：工具菜单入口 → 库页筛选/搜索/双视图 → 编辑保存 → 用到新书。
+// 角色实例视图 E2E（c-character-library + c-charlib-into-kb）：UI 桩模式——所有 /api/* 由
+// page.route 打桩，不依赖真实后端/拆书任务；覆盖：知识库入口/旧地址重定向 → 视角筛选/搜索/
+// 双视图 → 编辑保存 → 用到新书。独立角色库页已退役。
 // 书内落卡（含认知 30 格/头像拷贝）由后端 pytest 覆盖（test_character_library.py），
 // 前端契约以 apply-to-book 请求参数断言。
 import { test, expect, type Page } from "@playwright/test";
@@ -119,6 +120,15 @@ async function stubApi(page: Page, opts: { items?: StubCard[] } = {}) {
     if (url.includes("/api/novels") && method === "GET") {
       return route.fulfill({ json: [{ id: "n1", name: "剑照山河", current_phase: "settings", status: "active" }] });
     }
+    if (url.includes("/api/kb/genres")) {
+      return route.fulfill({ json: { ok: true, data: [{ key: "仙侠/修真", name: "仙侠/修真", count: 4 }, { key: "都市", name: "都市", count: 2 }] } });
+    }
+    if (url.includes("/api/kb/entries")) {
+      return route.fulfill({ json: { ok: true, data: { entries: [], next_cursor: "" } } });
+    }
+    if (url.includes("/api/kb/libraries")) {
+      return route.fulfill({ json: { ok: true, data: [] } });
+    }
     if (url.endsWith("/api/character-library") && method === "GET") {
       return route.fulfill({ json: { ok: true, data: { count: state.items.length, items: state.items } } });
     }
@@ -151,14 +161,16 @@ test.describe("角色库（UI 桩）", () => {
     });
   });
 
-  test("工具菜单第三项进入角色库；筛选/搜索/双视图", async ({ page }) => {
+  test("工具菜单进知识库→角色设定视角；筛选/搜索/双视图", async ({ page }) => {
     await stubApi(page);
     await page.goto(`${BASE}/#/novels`);
     await page.locator(".tools-trigger").click();
-    await expect(page.locator('[data-od-id="menu-charlib"]')).toBeVisible();
-    await page.locator('[data-od-id="menu-charlib"]').click();
-    await expect(page).toHaveURL(/#\/tools\/characters/);
-    await expect(page.getByRole("heading", { name: "角色库" })).toBeVisible();
+    // 角色库菜单项退役（c-charlib-into-kb）：菜单里不再有该项
+    await expect(page.locator('[data-od-id="menu-charlib"]')).toHaveCount(0);
+    await page.locator('[data-od-id="menu-kb"]').click();
+    await expect(page).toHaveURL(/#\/tools\/kb/);
+    await page.getByRole("button", { name: "角色设定" }).click();
+    await expect(page.getByTestId("char-instance-view")).toBeVisible();
     await expect(page.getByTestId("lib-card")).toHaveCount(2);
     // 搜索（隐藏字段回落）
     await page.getByTestId("lib-search").fill("娘亲");
@@ -171,9 +183,17 @@ test.describe("角色库（UI 桩）", () => {
     await expect(page.getByTestId("lib-card")).toHaveCount(2);
   });
 
-  test("新建角色：AI 随机填名龄 → 保存 → 列表出现", async ({ page }) => {
+  test("旧地址 /tools/characters 重定向知识库并预选角色设定视角", async ({ page }) => {
     await stubApi(page);
     await page.goto(`${BASE}/#/tools/characters`);
+    await expect(page).toHaveURL(/#\/tools\/kb\?concept=/);
+    await expect(page.getByTestId("char-instance-view")).toBeVisible();
+    await expect(page.getByTestId("lib-card")).toHaveCount(2);
+  });
+
+  test("新建角色：AI 随机填名龄 → 保存 → 列表出现", async ({ page }) => {
+    await stubApi(page);
+    await page.goto(`${BASE}/#/tools/kb?concept=%E8%A7%92%E8%89%B2%E8%AE%BE%E5%AE%9A`);
     await page.getByTestId("lib-new").click();
     await page.getByTestId("lib-ai-random").click();
     await expect(page.getByPlaceholder("角色叫什么")).toHaveValue("霍青山");
@@ -185,7 +205,7 @@ test.describe("角色库（UI 桩）", () => {
 
   test("用到新书：选书弹出 → 提交参数带目标书", async ({ page }) => {
     const { applied } = await stubApi(page);
-    await page.goto(`${BASE}/#/tools/characters`);
+    await page.goto(`${BASE}/#/tools/kb?concept=%E8%A7%92%E8%89%B2%E8%AE%BE%E5%AE%9A`);
     const first = page.getByTestId("lib-card").filter({ hasText: "秦重霄" });
     await first.hover();
     await first.getByText("用到新书").click();
@@ -195,7 +215,7 @@ test.describe("角色库（UI 桩）", () => {
     expect(applied[0].body).toMatchObject({ novel_id: "n1", rename: true });
   });
 
-  test("拆书完成 → 收进角色库：第三卡→清单（已收录灰态）→提交参数", async ({ page }) => {
+  test("拆书完成 → 收进知识库：第三卡→清单（已收录灰态）→提交参数", async ({ page }) => {
     const { toLibraryBodies } = await stubApi(page);
     await page.goto(`${BASE}/#/tools/deconstruct/t1`);
     await expect(page.getByText("选择去向")).toBeVisible();

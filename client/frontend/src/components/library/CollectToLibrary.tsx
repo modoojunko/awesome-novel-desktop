@@ -1,4 +1,4 @@
-// 书内卡「收入角色库／同步到角色库」（c-character-library）：
+// 书内卡「收进知识库／同步到知识库」（c-charlib-into-kb 改口；原 c-character-library）：
 // 已收录态由库列表同源 key 判定；收录幂等由后端兜底。
 // 用应用级 queryClient 单例取数（非 hook）——面板测试/挂载不依赖 QueryClientProvider。
 import { useEffect, useState } from "react";
@@ -51,7 +51,7 @@ export default function CollectToLibrary({
       } else {
         const result = await importCardFromBook(novelId, characterId, false);
         toast.success(
-          result.created ? `已把「${characterName}」收进角色库` : `「${characterName}」已经在角色库里了`,
+          result.created ? `已把「${characterName}」收进知识库` : `「${characterName}」已经在知识库里了`,
         );
       }
       await queryClient.invalidateQueries({ queryKey: queryKeys.characterLibrary });
@@ -65,7 +65,7 @@ export default function CollectToLibrary({
 
   return (
     <button type="button" onClick={() => void onClick()} disabled={busy} data-testid="char-collect">
-      {mine ? "同步到角色库" : "收入角色库"}
+      {mine ? "同步到知识库" : "收进知识库"}
     </button>
   );
 }

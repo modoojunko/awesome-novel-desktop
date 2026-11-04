@@ -23,7 +23,7 @@ vi.mock("@/lib/libraryApi", async (orig) => {
   return { ...actual, ...api };
 });
 
-import CharacterLibraryPage from "@/components/library/CharacterLibraryPage";
+import CharacterInstanceView from "@/components/library/CharacterInstanceView";
 import CardEditorModal from "@/components/library/CardEditorModal";
 import LibraryAvatar from "@/components/library/LibraryAvatar";
 import { toast } from "@/lib/toast";
@@ -106,9 +106,9 @@ describe("CardEditorModal 全输入面", () => {
   });
 });
 
-describe("CharacterLibraryPage 键盘与动作", () => {
+describe("CharacterInstanceView 键盘与动作", () => {
   it("卡片键盘 Enter/Space 进编辑、行键盘 Enter、动作按钮、rail 全部复位、视图回切", async () => {
-    wrap(<CharacterLibraryPage />);
+    wrap(<CharacterInstanceView />);
     const cards = await screen.findAllByTestId("lib-card");
     fireEvent.keyDown(cards[0], { key: "Enter" });
     await waitFor(() => expect(screen.getByTestId("lib-save")).toBeInTheDocument());
@@ -147,7 +147,7 @@ describe("CharacterLibraryPage 键盘与动作", () => {
   });
 
   it("卡上两个动作钮的 stopPropagation 分支", async () => {
-    wrap(<CharacterLibraryPage />);
+    wrap(<CharacterInstanceView />);
     await screen.findAllByTestId("lib-card");
     fireEvent.click(within(screen.getAllByTestId("lib-card")[0]).getByText("编辑"));
     await waitFor(() => expect(screen.getByTestId("lib-save")).toBeInTheDocument());
@@ -158,7 +158,7 @@ describe("CharacterLibraryPage 键盘与动作", () => {
 
   it("空库两钮：去拆书收角色与新建角色", async () => {
     api.listLibrary.mockResolvedValue({ count: 0, items: [] });
-    wrap(<CharacterLibraryPage />);
+    wrap(<CharacterInstanceView />);
     await waitFor(() => expect(screen.getByText("去拆书收角色")).toBeInTheDocument());
     fireEvent.click(screen.getByText("去拆书收角色"));
     // 空态区里的「新建角色」钮（页头同名，取最后一个）
@@ -171,7 +171,7 @@ describe("CharacterLibraryPage 键盘与动作", () => {
     const spy = vi.spyOn(Storage.prototype, "getItem").mockImplementation(() => {
       throw new Error("storage 挂了");
     });
-    wrap(<CharacterLibraryPage />);
+    wrap(<CharacterInstanceView />);
     await waitFor(() => expect(screen.getAllByTestId("lib-card").length).toBeGreaterThan(0));
     spy.mockRestore();
   });

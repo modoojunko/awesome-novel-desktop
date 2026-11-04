@@ -10,7 +10,6 @@ import KnowledgeBasePage from "@/pages/KnowledgeBasePage";
 import TaskListPage from "@/components/tools/TaskListPage";
 import CreateTaskPage from "@/components/tools/CreateTaskPage";
 import TaskDetailPage from "@/components/tools/TaskDetailPage";
-import CharacterLibraryPage from "@/components/library/CharacterLibraryPage";
 import MemberBlockPrompt from "@/components/novel/license/MemberBlockPrompt";
 import PromptPackModal from "@/components/novel/license/PromptPackModal";
 import AuthGuard from "@/components/auth/AuthGuard";
@@ -32,6 +31,12 @@ function Authed({ children }: { children: React.ReactNode }) {
 /** `/` 分流：静态首页只服务未登录；已登录直落书架，不再看入口卡。 */
 function HomeGate() {
   return isLoggedIn() ? <Navigate to="/novels" replace /> : <LandingPage />;
+}
+
+/** 301 过渡（c-charlib-into-kb，一个版本期后删除）：独立角色库页退役，
+ *  旧地址落知识库并预选「角色设定」页签。 */
+export function RedirectToKbCharView() {
+  return <Navigate to="/tools/kb?concept=角色设定" replace />;
 }
 
 export default function App() {
@@ -94,7 +99,7 @@ export default function App() {
             path="/tools/characters"
             element={
               <Authed>
-                <CharacterLibraryPage />
+                <RedirectToKbCharView />
               </Authed>
             }
           />

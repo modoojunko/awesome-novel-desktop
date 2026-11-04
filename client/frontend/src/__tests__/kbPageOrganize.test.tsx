@@ -1,6 +1,17 @@
 // 知识库页「知识整理」入口接线测试（c-kb-organize 批D）：按钮开面板/genre 传递/关闭回调。
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { MemoryRouter } from "react-router-dom";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+
+const libApi = vi.hoisted(() => ({
+  listLibrary: vi.fn(),
+}));
+
+vi.mock("@/lib/libraryApi", async (orig) => {
+  const actual = await orig<typeof import("@/lib/libraryApi")>();
+  return { ...actual, listLibrary: libApi.listLibrary };
+});
 
 const api = vi.hoisted(() => ({
   genres: vi.fn(),
@@ -42,7 +53,20 @@ vi.mock("force-graph", () => ({ default: vi.fn(() => {
 
 import KnowledgeBasePage from "@/pages/KnowledgeBasePage";
 
+// c-charlib-into-kb：页组件引入 useSearchParams/useCharacterLibrary 后，
+// 渲染必须挂 Router＋QueryClient 上下文（既有裸渲染统一走这里）。
+function renderPage(ui: React.ReactElement = <KnowledgeBasePage />, opts: { route?: string } = {}) {
+  const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  return render(
+    <QueryClientProvider client={qc}>
+      <MemoryRouter initialEntries={[opts.route ?? "/"]}>{ui}</MemoryRouter>
+    </QueryClientProvider>,
+  );
+}
+
+
 beforeEach(() => {
+  libApi.listLibrary.mockResolvedValue({ count: 0, items: [] });
   api.genres.mockResolvedValue([{ name: "玄幻", count: 1 }]);
   api.entries.mockResolvedValue({ entries: [], next_cursor: "" });
   api.libraries.mockResolvedValue([]);
@@ -61,7 +85,7 @@ afterEach(() => {
 describe("知识库页整理入口", () => {
   it("面板整理完成触发 onChanged（重载列表/库）", async () => {
     api.organizeRun.mockResolvedValue({ status: "completed", relations_added: 2 });
-    render(<KnowledgeBasePage />);
+    renderPage();
     await waitFor(() => expect(screen.getByText("知识整理")).toBeTruthy());
     const entriesCallsBefore = api.entries.mock.calls.length;
     fireEvent.click(screen.getByText("知识整理"));
@@ -73,7 +97,7 @@ describe("知识库页整理入口", () => {
   });
 
   it("具体题材直传整理面板（genre 三元两臂全覆盖）", async () => {
-    render(<KnowledgeBasePage />);
+    renderPage();
     await waitFor(() => expect(screen.getByText("知识整理")).toBeTruthy());
     // 左栏点具体题材 → genre="玄幻" → 直传臂
     const genreBtn = screen.getAllByRole("button").find((b) => b.textContent === "玄幻"
@@ -87,7 +111,7 @@ describe("知识库页整理入口", () => {
   });
 
   it("按钮开整理面板（默认题材兜底玄幻）并关闭", async () => {
-    render(<KnowledgeBasePage />);
+    renderPage();
     await waitFor(() => expect(screen.getByText("知识整理")).toBeTruthy());
     fireEvent.click(screen.getByText("知识整理"));
     await waitFor(() => expect(screen.getByTestId("kb-organize-panel")).toBeTruthy());

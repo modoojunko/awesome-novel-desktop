@@ -9,7 +9,7 @@
   · 视觉基线：client/frontend/src/design/base.css 逐字 token
     （冷白 oklch 240 / --radius:10px / Noto Serif SC + Noto Sans SC / teal accent）
   · 产品壳：真实应用 48px appbar / 1220 容器 / 弹窗与抽屉惯例
-  · 场景：知识库首页 / 库 / 条目详情 / 书内引用 / 全局图(2D)+Lab(3D)
+  · 场景：知识库首页 / 库 / 条目详情 / 角色设定视角(c-charlib-into-kb) / 书内引用 / 全局图(2D)+Lab(3D)
   · 自包含、无外链；演示数据＝仙侠书《青冥问剑》
 ═══════════════════════════════════════════════════════════════ -->
 <style>
@@ -453,6 +453,59 @@ body { padding-top: 52px; }
   .grail { position: static; border-right: 0; border-bottom: 1px solid var(--border); padding: 0 0 12px; }
   .grail > div { display: flex; flex-wrap: wrap; gap: 4px; }
 }
+
+/* ── ④ 角色设定视角（c-charlib-into-kb：原角色库档案柜整体搬进知识库，页面壳退役） ── */
+.cv-eyebrow { font-size: 11px; color: var(--muted); letter-spacing: .04em; }
+.cv-eyebrow b { color: var(--fg); font-size: 12.5px; margin-right: 4px; }
+.cv-top { display: flex; align-items: flex-end; gap: 18px; margin: 2px 0 14px; }
+.cv-stats { display: flex; gap: 18px; margin-left: auto; }
+.cv-stat { text-align: center; }
+.cv-stat b { display: block; font-family: var(--font-mono); font-size: 20px; font-weight: 600; }
+.cv-stat span { font-size: 10.5px; color: var(--muted); }
+.cv-body { display: flex; gap: 22px; align-items: flex-start; }
+.cv-rail { width: 168px; flex: none; display: grid; gap: 13px; }
+.cv-rg .k { font-family: var(--font-mono); font-size: 9.5px; letter-spacing: .14em; color: var(--faint); margin-bottom: 5px; }
+.cv-rg button { display: flex; width: 100%; align-items: center; justify-content: space-between; padding: 3.5px 8px; border-radius: 6px; font-size: 12.5px; color: var(--muted); }
+.cv-rg button:hover { color: var(--fg); }
+.cv-rg button.on { background: var(--accent-soft); color: var(--accent); font-weight: 500; }
+.cv-rg button i { font-style: normal; font-family: var(--font-mono); font-size: 10px; opacity: .7; }
+.cv-main { flex: 1; min-width: 0; }
+.cv-tools { display: flex; gap: 10px; align-items: center; margin-bottom: 10px; }
+.cv-count { font-size: 12.5px; color: var(--muted); margin-bottom: 8px; }
+.cv-cells { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; }
+.cv-cell { position: relative; border: 1px solid var(--border); border-radius: var(--radius-lg); background: var(--surface); box-shadow: var(--shadow-card); padding: 13px 14px 34px; cursor: pointer; }
+.cv-cell:hover { border-color: var(--line); }
+.cv-c1 { display: flex; align-items: center; gap: 9px; }
+.cv-ava { width: 36px; height: 36px; border-radius: 9px; background: var(--fg-soft); display: grid; place-items: center; font-family: var(--font-display); font-size: 15px; overflow: hidden; flex: none; }
+.cv-cname { font-size: 13.5px; font-weight: 600; margin-top: 9px; }
+.cv-cpersona { font-size: 12px; color: var(--muted); margin-top: 3px; line-height: 1.55; }
+.cv-cspeech { margin-top: 7px; font-size: 11.5px; color: var(--muted); border-top: 1px dashed var(--border); padding-top: 7px; }
+.cv-hitline { margin-top: 7px; font-size: 11px; color: var(--accent); background: var(--accent-soft); border-radius: 6px; padding: 3px 8px; }
+.cv-hitline mark { background: none; color: var(--accent-strong); font-weight: 600; }
+.cv-foot { display: flex; gap: 6px; align-items: center; margin-top: 9px; flex-wrap: wrap; }
+.cv-tag { font-size: 10px; padding: 1.5px 7px; border-radius: 999px; background: var(--fg-soft); color: var(--muted); }
+.cv-born { margin-left: auto; font-size: 10px; color: var(--faint); }
+.cv-acts { position: absolute; right: 10px; bottom: 10px; display: none; gap: 6px; }
+.cv-cell:hover .cv-acts { display: flex; }
+.cv-act { font-size: 11px; padding: 3px 10px; border-radius: 999px; border: 1px solid var(--border); background: var(--surface); color: var(--muted); }
+.cv-act.use { border-color: color-mix(in oklch, var(--accent) 45%, transparent); color: var(--accent); }
+.cv-rrow { display: flex; gap: 10px; align-items: baseline; padding: 8px 4px; border-bottom: 1px solid var(--border); font-size: 12.5px; }
+.cv-rrow .nm { font-weight: 600; }
+.cv-rrow .who { color: var(--muted); font-size: 11.5px; }
+.cv-rrow .src { margin-left: auto; font-size: 10.5px; color: var(--faint); }
+.cv-modal { position: fixed; inset: 0; z-index: 80; display: none; }
+.cv-modal.open { display: grid; place-items: center; }
+.cv-modal .scrim { position: absolute; inset: 0; background: color-mix(in oklch, var(--fg) 32%, transparent); }
+.cv-modal .box { position: relative; width: min(640px, 92vw); max-height: 84vh; overflow-y: auto; background: var(--surface); border-radius: var(--radius-lg); box-shadow: var(--shadow-card); padding: 20px 22px; }
+.cv-modal h3 { font-family: var(--font-display); font-size: 20px; font-weight: 600; }
+.cv-modal .x { position: absolute; right: 14px; top: 12px; width: 28px; height: 28px; display: grid; place-items: center; color: var(--muted); font-size: 16px; }
+.cv-frow { display: grid; grid-template-columns: 92px 1fr; gap: 8px 12px; align-items: center; margin-top: 10px; }
+.cv-frow label { font-size: 12px; color: var(--muted); }
+.cv-frow input, .cv-frow select, .cv-frow textarea { height: 32px; border: 1px solid var(--border); border-radius: 8px; padding: 0 10px; background: var(--surface); color: var(--fg); font-size: 12.5px; width: 100%; }
+.cv-frow textarea { height: auto; padding: 8px 10px; resize: none; }
+.cv-mfoot { display: flex; gap: 8px; justify-content: flex-end; margin-top: 16px; }
+.cv-prim { height: 34px; padding: 0 16px; border-radius: var(--radius); background: var(--accent); color: var(--on-accent); font-size: 13px; }
+.cv-note { margin-top: 10px; font-size: 11.5px; color: var(--muted); background: var(--fg-soft); border-radius: 8px; padding: 7px 10px; line-height: 1.6; }
 </style>
 </head>
 <body>
@@ -463,6 +516,7 @@ body { padding-top: 52px; }
     <button data-scene="home" class="on">① 知识库</button>
     <button data-scene="library">② 库</button>
     <button data-scene="drawer">③ 条目</button>
+    <button data-scene="charview">④ 角色视角</button>
     <button data-scene="inbook">⑤ 书内</button>
     <button data-scene="star">⑥ 星图</button>
   </div>
@@ -532,6 +586,166 @@ body { padding-top: 52px; }
   <div class="sechead"><span class="k">库里的条目</span><span class="note">带「本书改过」的，同步时不会被覆盖</span><span class="right" id="libCount"></span></div>
   <div class="memlist" id="libMembers"></div>
 </main>
+
+<!-- ═══════════ ④ 角色设定视角（c-charlib-into-kb：原角色库档案柜整体搬进知识库） ═══════════ -->
+<main class="scene" id="sceneCharview">
+  <div class="pagehead">
+    <div>
+      <p class="eyebrow">写作工具 · 知识库</p>
+      <h1>知识库</h1>
+      <p class="lead">存的是拆书拆出的好写法和自己踩过的经验，写新书时能用上。</p>
+    </div>
+  </div>
+  <div class="kb-body">
+    <aside class="grail">
+      <p class="gk">题材</p>
+      <div class="cv-rg">
+        <button>全部 <i>12</i></button>
+        <button class="on">仙侠 <i>08</i></button>
+        <button>都市 <i>03</i></button>
+        <button>架空古王朝 <i>01</i></button>
+      </div>
+      <p class="gnote">拆书时按题材归档；一本书只用一个题材的库。</p>
+    </aside>
+    <div class="gmain">
+      <div class="tabs" style="margin-bottom:12px">
+        <button>全部</button><button>文风</button><button>文笔</button><button>世界设定</button><button class="on">角色设定</button><button>手法</button><button disabled style="opacity:.4">情节 · 即将上线</button>
+      </div>
+      <div class="chips" style="margin-bottom:16px">
+        <button class="chip on">全部来源</button><button class="chip">官方精选</button><button class="chip">手录</button><button class="chip">拆书</button><button class="chip">已隐藏</button>
+      </div>
+      <p class="note" style="font-size:11px;color:var(--faint);margin-bottom:10px">来源切「官方精选 / 已隐藏」时回通用条目列表——角色设定的官方方法论住在那里；实例视图只装你自己的角色。</p>
+      <!-- 视图体：原角色库档案柜整体搬入（页面壳与导航入口退役，路由 /tools/characters → 知识库预选本视角） -->
+      <div class="cv-top">
+        <div>
+          <p class="cv-eyebrow"><b>人物档案</b>· 拆书 / 书内 / 手建</p>
+          <p class="note" style="font-size:11px;color:var(--faint)">造好的角色，一人一条——改个名字，就能带进下一本书。</p>
+        </div>
+        <div class="cv-stats">
+          <div class="cv-stat"><b>12</b><span>角色</span></div>
+          <div class="cv-stat"><b>3</b><span>题材</span></div>
+          <div class="cv-stat"><b>5</b><span>作品</span></div>
+        </div>
+        <button class="cv-prim" id="cvNew">新建角色</button>
+      </div>
+      <div class="cv-body">
+        <div class="cv-rail">
+          <div class="cv-rg"><p class="k">题材</p><button class="on">全部 <i>12</i></button><button>仙侠 <i>08</i></button><button>都市 <i>03</i></button></div>
+          <div class="cv-rg"><p class="k">定位</p><button class="on">全部 <i>12</i></button><button>主角 <i>02</i></button><button>配角 <i>06</i></button><button>反派 <i>03</i></button><button>路人 <i>01</i></button></div>
+          <div class="cv-rg"><p class="k">来源</p><button class="on">全部 <i>12</i></button><button>拆书 <i>07</i></button><button>书内 <i>04</i></button><button>手建 <i>01</i></button></div>
+          <div class="cv-rg"><p class="k">小类</p><button class="on">全部 <i>12</i></button><button>亲人 <i>02</i></button><button>朋友 <i>03</i></button><button>挚友 <i>01</i></button><button>敌人 <i>02</i></button><button>其他 <i>04</i></button></div>
+        </div>
+        <div class="cv-main">
+          <div class="cv-tools">
+            <input class="search" style="flex:1" placeholder="搜名字、别名、人设、语言特征、背景、来源书名，可多个词空格隔开">
+            <div class="tabs"><button class="on">最近收录</button><button>按姓名</button></div>
+            <div class="viewtoggle"><button data-cvview="cards" class="on">卡片</button><button data-cvview="rows">列表</button></div>
+          </div>
+          <p class="cv-count">共 12 位角色</p>
+          <div class="cv-cells" id="cvCells">
+            <div class="cv-cell">
+              <div class="cv-c1"><span class="cv-ava">落</span><span class="status on">主角</span></div>
+              <p class="cv-cname">落魄天才</p>
+              <p class="cv-cpersona">曾经的第一，跌落之后表面散漫。</p>
+              <p class="cv-cspeech">语言特征：话短，句尾不带语气词</p>
+              <div class="cv-foot"><span class="cv-tag">仙侠/修真</span><span class="cv-tag">拆书</span><span class="cv-born">诞生于 剑照山河</span></div>
+              <span class="cv-acts"><button class="cv-act use">用到新书</button><button class="cv-act">编辑</button></span>
+            </div>
+            <div class="cv-cell">
+              <div class="cv-c1"><span class="cv-ava">笑</span><span class="status warn">反派</span></div>
+              <p class="cv-cname">笑面反派</p>
+              <p class="cv-cpersona">永远先笑再出手。</p>
+              <p class="cv-cspeech">语言特征：爱用「您」字开头，笑里藏刀</p>
+              <div class="cv-foot"><span class="cv-tag">仙侠/修真</span><span class="cv-tag">拆书</span><span class="cv-born">诞生于 剑照山河</span></div>
+              <span class="cv-acts"><button class="cv-act use">用到新书</button><button class="cv-act">编辑</button></span>
+            </div>
+            <div class="cv-cell">
+              <div class="cv-c1"><span class="cv-ava">沈</span><span class="status off">配角</span></div>
+              <p class="cv-cname">沈青梧</p>
+              <p class="cv-cpersona">灯笼铺的少东家，账算得比谁都快。</p>
+              <p class="cv-cspeech">语言特征：语速快，爱反问</p>
+              <div class="cv-hitline">命中：背景 里的「<mark>灯笼铺</mark>」</div>
+              <div class="cv-foot"><span class="cv-tag">仙侠/修真</span><span class="cv-tag">书内</span><span class="cv-born">诞生于 青冥问剑</span></div>
+              <span class="cv-acts"><button class="cv-act use">用到新书</button><button class="cv-act">编辑</button></span>
+            </div>
+            <div class="cv-cell">
+              <div class="cv-c1"><span class="cv-ava">阿</span><span class="status off">路人</span></div>
+              <p class="cv-cname">阿九</p>
+              <p class="cv-cpersona">巷口打更的，更声比人先到。</p>
+              <p class="cv-cspeech">语言特征：没填</p>
+              <div class="cv-foot"><span class="cv-tag">手建</span><span class="cv-born">手建</span></div>
+              <span class="cv-acts"><button class="cv-act use">用到新书</button><button class="cv-act">编辑</button></span>
+            </div>
+          </div>
+          <div class="cv-rows" id="cvRows" hidden>
+            <div class="cv-rrow"><span class="cv-ava" style="width:26px;height:26px;font-size:12px;border-radius:7px">落</span><span class="nm">落魄天才</span><span class="status on">主角</span><span class="who">曾经的第一，跌落之后表面散漫。—— 话短，句尾不带语气词</span><span class="src">剑照山河 · 拆书</span></div>
+            <div class="cv-rrow"><span class="cv-ava" style="width:26px;height:26px;font-size:12px;border-radius:7px">沈</span><span class="nm">沈青梧</span><span class="status off">配角</span><span class="who">灯笼铺的少东家，账算得比谁都快。—— 语速快，爱反问</span><span class="src">青冥问剑 · 书内</span></div>
+            <div class="cv-rrow"><span class="cv-ava" style="width:26px;height:26px;font-size:12px;border-radius:7px">阿</span><span class="nm">阿九</span><span class="status off">路人</span><span class="who">巷口打更的，更声比人先到。—— 没填</span><span class="src">手建</span></div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</main>
+
+<!-- 编辑卡弹窗（原 CardEditorModal 骨架随视图体搬入） -->
+<div class="cv-modal" id="cvEdit">
+  <div class="scrim"></div>
+  <div class="box">
+    <button class="x">✕</button>
+    <h3>编辑角色</h3>
+    <div class="cv-frow"><label>名字</label><div style="display:flex;gap:6px"><input value="落魄天才"><button class="btn2" style="height:32px;font-size:11px;flex:none">AI 随机来一个</button></div></div>
+    <div class="cv-frow"><label>年龄</label><div style="display:flex;gap:6px"><input value="34" style="width:88px"><button class="btn2" style="height:32px;font-size:11px;flex:none">AI 随机</button><span style="font-size:11px;color:var(--faint)">随机只碰名字与年龄两格</span></div></div>
+    <div class="cv-frow"><label>题材</label><select><option>仙侠/修真</option><option>都市</option><option>未分题材</option></select></div>
+    <div class="cv-frow"><label>定位 / 小类</label><div style="display:flex;gap:6px"><select><option>主角</option><option>配角</option><option>反派</option><option>路人</option></select><select><option>其他</option><option>亲人</option><option>朋友</option><option>挚友</option><option>敌人</option></select></div></div>
+    <div class="cv-frow"><label>一句话人设</label><textarea rows="2">曾经的第一，跌落之后表面散漫。</textarea></div>
+    <div class="cv-frow"><label>语言特征</label><input value="话短，句尾不带语气词"></div>
+    <div class="cv-frow"><label>背景</label><textarea rows="2">宗门大比头名出身，一败之后离山。</textarea></div>
+    <div class="cv-frow"><label>头像</label><div style="display:flex;gap:8px;align-items:center"><span class="cv-ava">落</span><button class="btn2" style="height:32px;font-size:12px">生成头像</button><span style="font-size:11px;color:var(--faint)">按档案画一张，PRO 同权</span></div></div>
+    <p class="cv-note">认知内核 11 格在此逐格可改（演示从略）。题材用开书目录里的大类；定位/小类只在知识库生效，用到新书时不进书内卡。</p>
+    <div class="cv-mfoot"><button class="btn2">取消</button><button class="cv-prim">保存</button></div>
+  </div>
+</div>
+
+<!-- 用到新书弹窗（原 UseInNovelModal 骨架随视图体搬入） -->
+<div class="cv-modal" id="cvUse">
+  <div class="scrim"></div>
+  <div class="box">
+    <button class="x">✕</button>
+    <h3>把「落魄天才」用到新书</h3>
+    <div class="cv-frow"><label>选一本书</label><div style="display:grid;gap:6px;font-size:12.5px">
+      <label style="display:flex;gap:7px;align-items:center;color:var(--fg)"><input type="radio" name="cvbook" checked>长夜灯 <span style="color:var(--faint);font-size:11px">仙侠/修真 · 同域可落</span></label>
+      <label style="display:flex;gap:7px;align-items:center;color:var(--fg)"><input type="radio" name="cvbook">长安十二楼 <span style="color:var(--faint);font-size:11px">仙侠/修真</span></label>
+      <label style="display:flex;gap:7px;align-items:center;color:var(--fg)"><input type="radio" name="cvbook">新建一本…</label>
+    </div></div>
+    <div class="cv-frow"><label>改名换龄</label><label style="display:flex;gap:7px;align-items:center;font-size:12.5px;color:var(--fg)"><input type="checkbox">换个新名字和年龄（AI 随机）</label></div>
+    <p class="cv-note">整卡复制一份落为目标书，两边之后互不影响。撞名自动改「名字（角色库1）」并在回执留痕；目标书已有主角时落为配角留痕；题材不同域的书不在这个单子里。</p>
+    <div class="cv-mfoot"><button class="btn2">取消</button><button class="cv-prim">用到这本书</button></div>
+  </div>
+</div>
+
+<script>
+/* ④ 角色设定视角：卡片/列表切换＋编辑/用到新书弹窗（演示线） */
+(() => {
+  const $$ = (s, r) => [...(r || document).querySelectorAll(s)];
+  const cv = document.getElementById("sceneCharview");
+  $$(".viewtoggle [data-cvview]", cv).forEach((b) => { b.onclick = () => {
+    $$(".viewtoggle [data-cvview]", cv).forEach((x) => x.classList.toggle("on", x === b));
+    document.getElementById("cvCells").hidden = b.dataset.cvview !== "cards";
+    document.getElementById("cvRows").hidden = b.dataset.cvview !== "rows";
+  }; });
+  const open = (id) => document.getElementById(id).classList.add("open");
+  $$(".cv-act.use", cv).forEach((b) => { b.onclick = (e) => { e.stopPropagation(); open("cvUse"); }; });
+  $$(".cv-act:not(.use)", cv).forEach((b) => { b.onclick = (e) => { e.stopPropagation(); open("cvEdit"); }; });
+  $$(".cv-cell", cv).forEach((c) => { c.onclick = () => open("cvEdit"); });
+  document.getElementById("cvNew").onclick = () => open("cvEdit");
+  $$(".cv-modal").forEach((m) => {
+    const close = () => m.classList.remove("open");
+    m.querySelector(".scrim").onclick = close;
+    m.querySelector(".x").onclick = close;
+  });
+})();
+</script>
 
 <!-- ═══════════ ⑤ 书内引用截面 ═══════════ -->
 <main class="scene" id="sceneInbook">

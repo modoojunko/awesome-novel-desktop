@@ -24,7 +24,7 @@ vi.mock("@/lib/libraryApi", async (orig) => {
   return { ...actual, ...api };
 });
 
-import CharacterLibraryPage from "@/components/library/CharacterLibraryPage";
+import CharacterInstanceView from "@/components/library/CharacterInstanceView";
 import CardEditorModal from "@/components/library/CardEditorModal";
 import UseInNovelModal from "@/components/library/UseInNovelModal";
 import ImportFromLibraryModal from "@/components/library/ImportFromLibraryModal";
@@ -81,9 +81,9 @@ beforeEach(() => {
   api.listNovelOptions.mockResolvedValue([{ id: "n1", name: "剑照山河" }]);
 });
 
-describe("CharacterLibraryPage", () => {
+describe("CharacterInstanceView", () => {
   it("渲染统计/卡/筛选计数；搜索命中与隐藏字段回落", async () => {
-    wrap(<CharacterLibraryPage />);
+    wrap(<CharacterInstanceView />);
     await waitFor(() => expect(screen.getAllByTestId("lib-card")).toHaveLength(2));
     expect(screen.getByTestId("lib-stats").textContent).toContain("2");
     // 搜索命中语言特征
@@ -99,7 +99,7 @@ describe("CharacterLibraryPage", () => {
   });
 
   it("左侧四组筛选（定位/来源/小类）与清空出口", async () => {
-    wrap(<CharacterLibraryPage />);
+    wrap(<CharacterInstanceView />);
     await waitFor(() => expect(screen.getAllByTestId("lib-card")).toHaveLength(2));
     fireEvent.click(within(screen.getByTestId("lib-rail-src")).getByText("手建"));
     await waitFor(() => expect(screen.getAllByTestId("lib-card")).toHaveLength(1));
@@ -112,7 +112,7 @@ describe("CharacterLibraryPage", () => {
   });
 
   it("视图切换存 localStorage；空库双入口；排序", async () => {
-    wrap(<CharacterLibraryPage />);
+    wrap(<CharacterInstanceView />);
     await waitFor(() => expect(screen.getAllByTestId("lib-card")).toHaveLength(2));
     fireEvent.click(within(screen.getByTestId("lib-viewseg")).getByText("列表"));
     await waitFor(() => expect(screen.getAllByTestId("lib-row")).toHaveLength(2));
@@ -121,14 +121,14 @@ describe("CharacterLibraryPage", () => {
     expect(screen.getAllByTestId("lib-row")).toHaveLength(2);
     cleanup();
     api.listLibrary.mockResolvedValue({ count: 0, items: [] });
-    wrap(<CharacterLibraryPage />);
+    wrap(<CharacterInstanceView />);
     await waitFor(() => expect(screen.getByText("柜子还空着")).toBeInTheDocument());
     expect(screen.getByText("去拆书收角色")).toBeInTheDocument();
   });
 
   it("加载失败显示重试并恢复", async () => {
     api.listLibrary.mockRejectedValueOnce(new Error("网络炸了"));
-    wrap(<CharacterLibraryPage />);
+    wrap(<CharacterInstanceView />);
     await waitFor(() => expect(screen.getByText("加载失败")).toBeInTheDocument());
     api.listLibrary.mockResolvedValue({ count: 0, items: [] });
     fireEvent.click(screen.getByText("重试"));
@@ -136,7 +136,7 @@ describe("CharacterLibraryPage", () => {
   });
 
   it("新建按钮打开编辑弹窗；用到新书打开选书弹窗", async () => {
-    wrap(<CharacterLibraryPage />);
+    wrap(<CharacterInstanceView />);
     await waitFor(() => expect(screen.getAllByTestId("lib-card")).toHaveLength(2));
     fireEvent.click(screen.getByTestId("lib-new"));
     // 页头按钮与弹窗标题同名——弹窗以「取消」钮为开面判据
@@ -255,15 +255,15 @@ describe("CollectToLibrary", () => {
     api.syncCardFromBook.mockResolvedValue(card());
     api.listLibrary.mockResolvedValue({ count: 0, items: [] });
     wrap(<CollectToLibrary novelId="n1" characterId="ch1" characterName="秦重霄" />);
-    await waitFor(() => expect(screen.getByText("收入角色库")).toBeInTheDocument());
-    fireEvent.click(screen.getByText("收入角色库"));
+    await waitFor(() => expect(screen.getByText("收进知识库")).toBeInTheDocument());
+    fireEvent.click(screen.getByText("收进知识库"));
     await waitFor(() => expect(api.importCardFromBook).toHaveBeenCalledWith("n1", "ch1", false));
     cleanup();
     queryClient.clear();
     api.listLibrary.mockResolvedValue({ count: 1, items: [card()] });
     wrap(<CollectToLibrary novelId="n1" characterId="ch1" characterName="秦重霄" />);
-    await waitFor(() => expect(screen.getByText("同步到角色库")).toBeInTheDocument());
-    fireEvent.click(screen.getByText("同步到角色库"));
+    await waitFor(() => expect(screen.getByText("同步到知识库")).toBeInTheDocument());
+    fireEvent.click(screen.getByText("同步到知识库"));
     await waitFor(() => expect(api.syncCardFromBook).toHaveBeenCalledWith("c1"));
   });
 });
@@ -287,5 +287,70 @@ describe("题材选择器（c-library-genre-align）", () => {
     expect(texts).toContain("都市");
     expect(texts).toContain("玄幻");
     expect(texts).toContain("悬疑");
+  });
+});
+
+describe("CharacterInstanceView 视角接入（c-charlib-into-kb D3）", () => {
+  it("题材筛选与 rail 走 genre_norm；KB 预设灌入命中归一题材；未分题材哨兵档", async () => {
+    api.listLibrary.mockResolvedValue({
+      count: 3,
+      items: [
+        card({ id: "g1", name: "目录内甲", genre: "仙侠/修真", genre_norm: "仙侠/修真" }),
+        card({ id: "g2", name: "归一乙", genre: "灵异志怪", genre_norm: "志怪/民俗灵异" }), // #980 读取侧归一
+        card({ id: "g3", name: "未分丙", genre: "", genre_norm: "" }),
+      ],
+    });
+    wrap(<CharacterInstanceView kbGenre="志怪/民俗灵异" />);
+    // KB 题材预设命中归一后的乙（原始 genre 是自由文本「灵异志怪」，严格比对必 miss）
+    await waitFor(() => expect(screen.getAllByTestId("lib-card")).toHaveLength(1));
+    expect(screen.getByText("归一乙")).toBeInTheDocument();
+    // 「未分题材」哨兵档＝只看 genre 为空的卡（"" 在筛选语义里是「全部」，不能当档值）
+    fireEvent.click(within(screen.getByTestId("lib-rail-genre")).getByText("未分题材"));
+    await waitFor(() => expect(screen.getAllByTestId("lib-card")).toHaveLength(1));
+    expect(screen.getByText("未分丙")).toBeInTheDocument();
+    // 回「全部」→ 三张都在
+    fireEvent.click(within(screen.getByTestId("lib-rail-genre")).getByText("全部"));
+    await waitFor(() => expect(screen.getAllByTestId("lib-card")).toHaveLength(3));
+  });
+
+  it("kbSrc 单向预设（手录→手建）；kbGenre=全部题材 不灌入", async () => {
+    api.listLibrary.mockResolvedValue({
+      count: 2,
+      items: [
+        card(), // src.kind = book
+        card({ id: "m2", name: "手建的", src: { kind: "manual", novel_name: "", ref: "", character_id: "" } }),
+      ],
+    });
+    wrap(<CharacterInstanceView kbGenre="全部题材" kbSrc="手录" />);
+    await waitFor(() => expect(screen.getAllByTestId("lib-card")).toHaveLength(1));
+    expect(screen.getByText("手建的")).toBeInTheDocument();
+  });
+});
+
+describe("CharacterInstanceView 值域臂补全（D3 全臂）", () => {
+  it("kbGenre=跨题材通用（空串）→ 哨兵生效：只看未分题材", async () => {
+    api.listLibrary.mockResolvedValue({
+      count: 2,
+      items: [
+        card({ id: "e1", name: "分了题材", genre: "仙侠/修真", genre_norm: "仙侠/修真" }),
+        card({ id: "e2", name: "没分题材", genre: "", genre_norm: "" }),
+      ],
+    });
+    wrap(<CharacterInstanceView kbGenre="" />);
+    await waitFor(() => expect(screen.getAllByTestId("lib-card")).toHaveLength(1));
+    expect(screen.getByText("没分题材")).toBeInTheDocument();
+  });
+
+  it("kbSrc=拆书 → 来源组预设 deconstruct", async () => {
+    api.listLibrary.mockResolvedValue({
+      count: 2,
+      items: [
+        card(), // book
+        card({ id: "d1", name: "拆来的", src: { kind: "deconstruct", novel_name: "剑照山河", ref: "t1", character_id: "k1" } }),
+      ],
+    });
+    wrap(<CharacterInstanceView kbSrc="拆书" />);
+    await waitFor(() => expect(screen.getAllByTestId("lib-card")).toHaveLength(1));
+    expect(screen.getByText("拆来的")).toBeInTheDocument();
   });
 });

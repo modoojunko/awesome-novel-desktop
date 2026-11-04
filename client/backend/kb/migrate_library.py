@@ -148,7 +148,8 @@ async def migrate_character_library(db: AsyncSession, *, user_id: str) -> dict[s
         db.add(
             KbEntry(
                 user_id=user_id,
-                # 题材不在 21 目录（旧卡自由填写）→ 落跨题材通用（""）
+                # 题材照旧卡原样拷贝（含目录外自由文本）——读取侧由 genre_norm 归一
+                #（#980 口径：存量不重写）；空题材落 ""（跨题材通用）
                 genre=card.genre if card.genre else "",
                 concept="角色设定",
                 concept_id=f"{card.genre or ''}:角色设定",

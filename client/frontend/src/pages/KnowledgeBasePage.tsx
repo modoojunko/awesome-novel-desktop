@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { useSearchParams } from "react-router-dom";
 import { kbApi, type KbEntry, type KbGenreCount, type KbLibrary } from "@/lib/kbApi";
 import { kbFieldLabel, kbValueLabel } from "@/lib/kbFieldLabels";
 import KbGraph from "@/components/tools/KbGraph";
@@ -6,16 +7,22 @@ import KbEntryGraph from "@/components/tools/KbEntryGraphView";
 import KbOrganizePanel from "@/components/tools/KbOrganizePanel";
 import KbEntryRelations from "@/components/tools/KbEntryRelations";
 import KbEntryAvatar from "@/components/tools/KbEntryAvatar";
+import CharacterInstanceView from "@/components/library/CharacterInstanceView";
 
 const CONCEPTS = ["文风", "文笔", "世界设定", "角色设定", "手法", "情节"] as const;
 const CONCEPT_DESC: Record<string, string> = {
   文风: "这本书的整体声音",
   文笔: "具体句子的写法",
   世界设定: "舞台、力量、势力、铁律",
-  角色设定: "造角色的方法，成品在角色库",
+  角色设定: "造好的角色，一人一条",
   手法: "写每一章时的场面打法",
   情节: "即将上线",
 };
+
+/** 深链合法值（?concept= 只认六概念；非法/缺省落「全部」）。 */
+function conceptFromQuery(v: string | null): string {
+  return v && (CONCEPTS as readonly string[]).includes(v) ? v : "全部";
+}
 
 /** 通用载荷平铺（概念无关，规格「条目详情抽屉：字段…」实现）：有值键按存储序出
  * (键, 展示串)；数组顿号连、对象/数组元素套对象走紧凑 JSON、空值跳过；标量值
@@ -50,8 +57,11 @@ const SOURCE_FILTERS = [
 ] as const;
 
 export default function KnowledgeBasePage() {
+  const [searchParams, setSearchParams] = useSearchParams();
   const [genre, setGenre] = useState("全部题材");
-  const [concept, setConcept] = useState("全部");
+  // ?concept= 深链（c-charlib-into-kb）：/tools/characters 重定向落位用；消费后即清，
+  // URL 回到干净态（页签选择本身不进 URL，刷新回「全部」是预期）。
+  const [concept, setConcept] = useState(() => conceptFromQuery(searchParams.get("concept")));
   const [src, setSrc] = useState("全部");
   const [q, setQ] = useState("");
   const [entries, setEntries] = useState<KbEntry[]>([]);
@@ -90,13 +100,25 @@ export default function KnowledgeBasePage() {
     } finally { setLoading(false); }
   }, [genre, concept, src, q]);
 
+  // 角色设定视角（c-charlib-into-kb）：角色设定页签＋实例侧来源 → 档案柜视图体；
+  // 官方精选/已隐藏两臂回通用列表（官方方法论与隐藏管理住在通用列表）。
+  const viewMode = concept === "角色设定" && (src === "全部" || src === "手录" || src === "拆书");
+
   const loadLibraries = useCallback(async () => {
+    // 视角模式下库分组卡隐藏，库列表零消费不发（D4 门控）
+    if (viewMode) return;
     const r = await kbApi.libraries(genre !== "全部题材" ? genre : undefined);
     setLibraries(r);
-  }, [genre]);
+  }, [genre, viewMode]);
 
   useEffect(() => {
     kbApi.genres().then(setGenreCounts).catch(() => {});
+  }, []);
+
+  useEffect(() => {
+    if (!searchParams.get("concept")) return;
+    setSearchParams({}, { replace: true });
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- 只在挂载后消费一次深链参数
   }, []);
 
   useEffect(() => {
@@ -327,8 +349,8 @@ export default function KnowledgeBasePage() {
               ))}
             </div>
 
-            {/* 库分组：标题行＋库卡（c-kb-snapshot 库卡亮相） */}
-            {groups.length > 0 && (
+            {/* 库分组：标题行＋库卡（c-kb-snapshot 库卡亮相）；视角模式下退位（D4） */}
+            {!viewMode && groups.length > 0 && (
               <div className="mb-4 space-y-5">
                 {groups.map(([gname, libs]) => (
                   <div key={gname}>
@@ -378,17 +400,23 @@ export default function KnowledgeBasePage() {
               ))}
             </div>
 
-            {/* 搜索 */}
-            <div className="mb-4">
-              <input
-                value={q}
-                onChange={(e) => setQ(e.target.value)}
-                placeholder="搜名字、内容、来源书名"
-                className="w-full max-w-xs rounded-lg border border-[var(--border)] bg-[var(--surface)] px-3 py-2 text-[13px] text-[var(--fg)] placeholder:text-[var(--faint)] focus:border-[var(--accent)] focus:outline-none"
-              />
-            </div>
+            {/* 搜索（视角模式下由视图体自带搜索接管，D4） */}
+            {!viewMode && (
+              <div className="mb-4">
+                <input
+                  value={q}
+                  onChange={(e) => setQ(e.target.value)}
+                  placeholder="搜名字、内容、来源书名"
+                  className="w-full max-w-xs rounded-lg border border-[var(--border)] bg-[var(--surface)] px-3 py-2 text-[13px] text-[var(--fg)] placeholder:text-[var(--faint)] focus:border-[var(--accent)] focus:outline-none"
+                />
+              </div>
+            )}
 
-            {/* 条目列表 */}
+            {/* 角色设定视角：档案柜视图体（c-charlib-into-kb）——题材/来源经 props 单向灌入 */}
+            {viewMode && <CharacterInstanceView kbGenre={genre} kbSrc={src} />}
+
+            {/* 条目列表（视角模式下退位） */}
+            {!viewMode && (<>
             <div className="mb-2 flex items-center justify-between">
               <span className="text-sm font-medium">{entries.length} 条</span>
             </div>
@@ -471,6 +499,7 @@ export default function KnowledgeBasePage() {
                 </div>
               )}
             </div>
+            </>)}
           </div>
         </div>
 

@@ -224,7 +224,7 @@ export default function CarryDialog({
           )}
           {m && ((m.library_total ?? 0) > 0) && (
             <section>
-              {secTitle('角色库', <><span className="num">{m.library_total}</span> 张角色卡 · 含头像</>)}
+              {secTitle('角色卡', <><span className="num">{m.library_total}</span> 张角色卡 · 含头像</>)}
             </section>
           )}
           {!m && candidate.book_count != null && candidate.book_count > 0 && (

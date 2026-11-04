@@ -1,6 +1,17 @@
 // 知识库页「官方精选」面（c-kb-baseline 批B）：来源筛选、只读徽章、隐藏/恢复官方版。
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { MemoryRouter } from "react-router-dom";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+
+const libApi = vi.hoisted(() => ({
+  listLibrary: vi.fn(),
+}));
+
+vi.mock("@/lib/libraryApi", async (orig) => {
+  const actual = await orig<typeof import("@/lib/libraryApi")>();
+  return { ...actual, listLibrary: libApi.listLibrary };
+});
 
 const api = vi.hoisted(() => ({
   genres: vi.fn(),
@@ -44,6 +55,18 @@ vi.mock("force-graph", () => ({
 
 import KnowledgeBasePage from "@/pages/KnowledgeBasePage";
 
+// c-charlib-into-kb：页组件引入 useSearchParams/useCharacterLibrary 后，
+// 渲染必须挂 Router＋QueryClient 上下文（既有裸渲染统一走这里）。
+function renderPage(ui: React.ReactElement = <KnowledgeBasePage />, opts: { route?: string } = {}) {
+  const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  return render(
+    <QueryClientProvider client={qc}>
+      <MemoryRouter initialEntries={[opts.route ?? "/"]}>{ui}</MemoryRouter>
+    </QueryClientProvider>,
+  );
+}
+
+
 const BASE_ENTRY = {
   id: "b1", genre: "玄幻", concept: "手法", concept_id: "玄幻:手法",
   title: "官方手法A", instruction: "交手先守后攻，招式收在第三拍。",
@@ -54,6 +77,7 @@ const BASE_ENTRY = {
 };
 
 beforeEach(() => {
+  libApi.listLibrary.mockResolvedValue({ count: 0, items: [] });
   api.genres.mockResolvedValue([{ name: "玄幻", count: 1 }]);
   api.entries.mockResolvedValue({ entries: [BASE_ENTRY], next_cursor: "" });
   api.libraries.mockResolvedValue([]);
@@ -71,7 +95,7 @@ afterEach(() => {
 
 describe("KnowledgeBasePage · 官方精选", () => {
   it("来源筛选「官方精选」透传 src 参数", async () => {
-    render(<KnowledgeBasePage />);
+    renderPage();
     await waitFor(() => expect(api.entries).toHaveBeenCalled());
     fireEvent.click(screen.getByTestId("kb-src-官方精选"));
     await waitFor(() => {
@@ -85,14 +109,14 @@ describe("KnowledgeBasePage · 官方精选", () => {
       entries: [{ ...BASE_ENTRY, overlaid: true, official_update: true }],
       next_cursor: "",
     });
-    render(<KnowledgeBasePage />);
+    renderPage();
     await waitFor(() => expect(screen.getByText("官方精选")).toBeTruthy());
     expect(screen.getByText("我的副本")).toBeTruthy();
     expect(screen.getByText("官方有新版")).toBeTruthy();
   });
 
   it("抽屉里隐藏这条 → PUT hide 并刷新列表", async () => {
-    render(<KnowledgeBasePage />);
+    renderPage();
     const row = await screen.findByText("官方手法A");
     fireEvent.click(row);
     const hide = await screen.findByTestId("kb-baseline-hide");
@@ -109,7 +133,7 @@ describe("KnowledgeBasePage · 官方精选", () => {
       entries: [{ ...BASE_ENTRY, overlaid: true }],
       next_cursor: "",
     });
-    render(<KnowledgeBasePage />);
+    renderPage();
     fireEvent.click(await screen.findByText("官方手法A"));
     fireEvent.click(await screen.findByTestId("kb-baseline-restore"));
     await waitFor(() => expect(api.clearBaselineOverride).toHaveBeenCalledWith("b1"));
@@ -117,7 +141,7 @@ describe("KnowledgeBasePage · 官方精选", () => {
 
   it("操作失败静默：抽屉不崩，可重试", async () => {
     api.baselineOverride.mockRejectedValueOnce(new Error("network"));
-    render(<KnowledgeBasePage />);
+    renderPage();
     fireEvent.click(await screen.findByText("官方手法A"));
     fireEvent.click(await screen.findByTestId("kb-baseline-hide"));
     await waitFor(() => expect(api.baselineOverride).toHaveBeenCalled());
@@ -131,7 +155,7 @@ describe("KnowledgeBasePage · 官方精选", () => {
       entries: [{ ...BASE_ENTRY, id: "u1", layer: "user" as const, src_kind: "manual" }],
       next_cursor: "",
     });
-    render(<KnowledgeBasePage />);
+    renderPage();
     fireEvent.click(await screen.findByText("官方手法A"));
     await waitFor(() => expect(screen.getByText(/^指令$/)).toBeTruthy());
     expect(screen.queryByTestId("kb-baseline-hide")).toBeNull();
@@ -140,7 +164,7 @@ describe("KnowledgeBasePage · 官方精选", () => {
 
   it("官方精选为空给重试面：同步成功后刷新列表", async () => {
     api.entries.mockResolvedValue({ entries: [], next_cursor: "" });
-    render(<KnowledgeBasePage />);
+    renderPage();
     await waitFor(() => expect(api.entries).toHaveBeenCalled());
     fireEvent.click(screen.getByTestId("kb-src-官方精选"));
     const panel = await screen.findByTestId("kb-baseline-empty");
@@ -156,7 +180,7 @@ describe("KnowledgeBasePage · 官方精选", () => {
   it("同步失败提示可重试（不抛）", async () => {
     api.entries.mockResolvedValue({ entries: [], next_cursor: "" });
     api.baselineSync.mockRejectedValueOnce(new Error("cdn"));
-    render(<KnowledgeBasePage />);
+    renderPage();
     await waitFor(() => expect(api.entries).toHaveBeenCalled());
     fireEvent.click(screen.getByTestId("kb-src-官方精选"));
     fireEvent.click(await screen.findByTestId("kb-baseline-sync"));
@@ -168,7 +192,7 @@ describe("KnowledgeBasePage · 官方精选", () => {
       entries: [{ ...BASE_ENTRY, hidden: true }],
       next_cursor: "",
     });
-    render(<KnowledgeBasePage />);
+    renderPage();
     await waitFor(() => expect(api.entries).toHaveBeenCalled());
     fireEvent.click(screen.getByTestId("kb-src-已隐藏"));
     await waitFor(() => {
@@ -184,7 +208,7 @@ describe("KnowledgeBasePage · 官方精选", () => {
   it("同步失败提示「同步没成功」而不是「没有新版本」", async () => {
     api.entries.mockResolvedValue({ entries: [], next_cursor: "" });
     api.baselineSync.mockResolvedValueOnce({ status: "failed" });
-    render(<KnowledgeBasePage />);
+    renderPage();
     await waitFor(() => expect(api.entries).toHaveBeenCalled());
     fireEvent.click(screen.getByTestId("kb-src-官方精选"));
     fireEvent.click(await screen.findByTestId("kb-baseline-sync"));
@@ -193,7 +217,7 @@ describe("KnowledgeBasePage · 官方精选", () => {
 
   it("编辑＝存我的副本：草稿预填、取消可退、保存调 PUT edit 并刷新", async () => {
     api.baselineOverride.mockResolvedValue({ entry_id: "b1", action: "edit" });
-    render(<KnowledgeBasePage />);
+    renderPage();
     fireEvent.click(await screen.findByText("官方手法A"));
 
     // 展开：草稿预填官方原文（用户从「看到的这条」开始改，不是从空白）
@@ -227,7 +251,7 @@ describe("KnowledgeBasePage · 官方精选", () => {
     api.baselineOverride.mockRejectedValueOnce(
       new Error("与系统固定文案撞句，请改写成自己的话"),
     );
-    render(<KnowledgeBasePage />);
+    renderPage();
     fireEvent.click(await screen.findByText("官方手法A"));
     fireEvent.click(await screen.findByTestId("kb-baseline-edit"));
     fireEvent.click(screen.getByTestId("kb-baseline-save"));
