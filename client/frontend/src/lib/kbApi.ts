@@ -29,6 +29,8 @@ export interface KbEntry {
   overlaid?: boolean;
   /** 双哈希：副本基线落后于官方新版＝显示「官方有新版」 */
   official_update?: boolean;
+  /** 角色设定条目是否有头像字节（有→出图，无→姓氏 SVG 占位） */
+  has_avatar?: boolean;
   /** 被用户隐藏（只出现在「已隐藏」筛选，可恢复默认） */
   hidden?: boolean;
 }
