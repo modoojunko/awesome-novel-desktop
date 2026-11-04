@@ -584,6 +584,20 @@ def run_migration(data_root: Path, source_filename: str, active_db_path: Path,
                     f'(SELECT {tup} FROM mig_src."{entry["table"]}")'
                 ).fetchone()[0]
                 entry["rows_missing"] = max((entry.get("rows_source") or 0) - present, 0)
+                # 5.1.5 主键换血对拍（迁移缺行误报根修）：子表行（chapter_characters
+                # 等）在新版「保存章纲」时会整行重建——id 换血、内容逐字在场。按
+                # 主键配对把在场内容报成缺行，且 UNIQUE(章,序) 令按源主键重插永远
+                # 进不去＝缺口永不闭合、每次重带照旧报警。对仍缺的行按「非主键列
+                # 全等（NULL 安全 IS）」找内容孪生：孪生在场＝内容没丢，只记换血
+                # 留痕（rows_id_churn），不计缺口；无孪生的行照旧走降级/如实报缺。
+                if entry["rows_missing"] > 0:
+                    churn = _count_id_churn_twins(tgt, entry)
+                    if churn > 0:
+                        entry["rows_missing"] -= churn
+                        entry["rows_id_churn"] = churn
+                        report["notes"].append(
+                            f"「{entry['table']}」{churn} 行主键已重建"
+                            "（内容原样在场），不计缺口")
                 # 5.2 值域降级回迁（c-carry-degrade-remigrate）：被值域约束拒收的
                 # 行，按映射登记表（value_mappings 单源）改写声明过的列后重插缺
                 # 行——保行优先，降级必须实名；未声明的拒收行不降级（如实报缺口）。
@@ -768,6 +782,30 @@ def _table_pk_cols(tname: str) -> list[str]:
     if table is None:
         return []
     return [c.name for c in table.primary_key.columns]
+
+
+def _count_id_churn_twins(tgt: sqlite3.Connection, entry: dict) -> int:
+    """主键换血孪生计数（5.1.5）：源里缺于目标（按主键）的行中，有多少行的
+    **非主键列内容**在目标逐字在场（NULL 安全 IS 全等）。
+
+    只数不写——孪生意味着内容没丢（id 被新版重建），无需也不可重插
+    （UNIQUE(章,序) 会吞掉重插）。无主键列或无非主键列 → 0（无从对拍）。
+    """
+    t = entry["table"]
+    pk_cols = [c for c in _table_pk_cols(t) if c in entry["columns"]]
+    if not pk_cols:
+        return 0
+    non_pk = [c for c in entry["columns"] if c not in pk_cols]
+    if not non_pk:
+        return 0
+    tup = ",".join(f'"{c}"' for c in pk_cols)
+    match = " AND ".join(f's."{c}" IS g."{c}"' for c in non_pk)
+    row = tgt.execute(
+        f'SELECT COUNT(*) FROM mig_src."{t}" s WHERE ({tup}) NOT IN '
+        f'(SELECT {tup} FROM main."{t}") AND EXISTS ('
+        f'SELECT 1 FROM main."{t}" g WHERE {match})'
+    ).fetchone()
+    return int(row[0])
 
 
 def _has_table(con: sqlite3.Connection, name: str) -> bool:

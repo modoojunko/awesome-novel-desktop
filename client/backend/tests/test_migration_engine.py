@@ -781,6 +781,104 @@ class TestCarryRetryCompleteness:
         assert rep["complete"] is True, rep
 
 
+class TestIdChurnFalseGap:
+    """主键换血误报根修（真机 v0.44.4 形态）：保存章纲重建子表行——id 换血、
+    内容逐字在场；按主键配对报「缺 N 行」且 UNIQUE(章,序) 令重插永远进不去，
+    缺口永不闭合。内容孪生对拍后不计缺口、整体判完整；真丢行仍如实报。"""
+
+    @staticmethod
+    def _seed_child_rows(p):
+        con = sqlite3.connect(p)
+        # 旧世代形态：无 UNIQUE 无 FK 的子表；挂在首章 c0-1 下
+        con.execute("CREATE TABLE chapter_characters (id TEXT PRIMARY KEY, "
+                    "chapter_id TEXT, sort_order INTEGER, character_name TEXT, state_change TEXT)")
+        con.executemany(
+            "INSERT INTO chapter_characters (id, chapter_id, sort_order, character_name, state_change) "
+            "VALUES (?,?,?,?,?)",
+            [("cc1", "c0-1", 0, "林野", ""),
+             ("cc2", "c0-1", 1, "老周", "接过钥匙不再说话"),
+             ("cc3", "c0-1", 2, "苏眉", "")])
+        con.commit()
+        con.close()
+
+    def test_id_churn_content_twins_not_reported_missing(self, sandbox):
+        root, active = sandbox
+        p = _old_gen0(root, books=1)
+        self._seed_child_rows(p)
+        rep1 = run_migration(root, "novel.db", active)
+        assert rep1["complete"] is True, rep1
+        # 模拟新版「保存章纲」：子表整行重建，id 换血、内容逐字在场
+        con = sqlite3.connect(active)
+        con.execute("DELETE FROM chapter_characters")
+        con.executemany(
+            "INSERT INTO chapter_characters (id, chapter_id, sort_order, character_name, state_change) "
+            "VALUES (?,?,?,?,?)",
+            [("cc1-r2", "c0-1", 0, "林野", ""),
+             ("cc2-r2", "c0-1", 1, "老周", "接过钥匙不再说话"),
+             ("cc3-r2", "c0-1", 2, "苏眉", "")])
+        con.commit()
+        con.close()
+        rep2 = run_migration(root, "novel.db", active)
+        ch = next(e for e in rep2["tables"] if e["table"] == "chapter_characters")
+        assert ch["rows_missing"] == 0, ch
+        assert ch.get("rows_id_churn") == 3, ch
+        assert rep2["complete"] is True, rep2
+        assert any("主键已重建" in n for n in rep2["notes"]), rep2["notes"]
+
+    def test_real_gap_still_reported_beside_twins(self, sandbox):
+        """孪生对拍只豁免内容在场的行——真丢行仍计缺口、判不完整。
+
+        cc3 的 (章,序) 槽位被**内容不同**的行占着：UNIQUE 拒重插、孪生也对不上，
+        主搬运与豁免都救不了它＝诚实报缺（空槽位的行主搬运自己就能补，轮不到这里）。"""
+        root, active = sandbox
+        p = _old_gen0(root, books=1)
+        self._seed_child_rows(p)
+        assert run_migration(root, "novel.db", active)["complete"] is True
+        con = sqlite3.connect(active)
+        con.execute("DELETE FROM chapter_characters")
+        con.executemany(
+            "INSERT INTO chapter_characters (id, chapter_id, sort_order, character_name, state_change) "
+            "VALUES (?,?,?,?,?)",
+            [("cc1-r2", "c0-1", 0, "林野", ""),
+             ("cc2-r2", "c0-1", 1, "老周", "接过钥匙不再说话"),
+             ("ccX", "c0-1", 2, "顶替者", "换了人")])
+        con.commit()
+        con.close()
+        rep = run_migration(root, "novel.db", active)
+        ch = next(e for e in rep["tables"] if e["table"] == "chapter_characters")
+        assert ch["rows_missing"] == 1, ch
+        assert ch.get("rows_id_churn") == 2, ch
+        assert rep["complete"] is False, rep
+
+    def test_empty_slot_repairable_row_restored_by_transfer(self, sandbox):
+        """换血行旁边真丢行的行若槽位空着，主搬运 OR IGNORE 直接补回——
+        孪生豁免不抢功：rows_missing=0 且 rows_id_churn 只记真换血的 2 行。"""
+        root, active = sandbox
+        p = _old_gen0(root, books=1)
+        self._seed_child_rows(p)
+        assert run_migration(root, "novel.db", active)["complete"] is True
+        con = sqlite3.connect(active)
+        con.execute("DELETE FROM chapter_characters")
+        con.executemany(
+            "INSERT INTO chapter_characters (id, chapter_id, sort_order, character_name, state_change) "
+            "VALUES (?,?,?,?,?)",
+            [("cc1-r2", "c0-1", 0, "林野", ""),
+             ("cc2-r2", "c0-1", 1, "老周", "接过钥匙不再说话")])
+        con.commit()
+        con.close()
+        rep = run_migration(root, "novel.db", active)
+        ch = next(e for e in rep["tables"] if e["table"] == "chapter_characters")
+        assert ch["rows_missing"] == 0, ch
+        assert ch.get("rows_id_churn") == 2, ch
+        assert rep["complete"] is True, rep
+        con = sqlite3.connect(f"file:{active}?mode=ro", uri=True)
+        try:
+            n = con.execute("SELECT COUNT(*) FROM chapter_characters").fetchone()[0]
+        finally:
+            con.close()
+        assert n == 3, "cc3 由主搬运按源主键补回（含旧 id）"
+
+
 class TestCompletenessUnit:
     """is_complete_report / completeness_from_history 判定单源（含老数据口径）。"""
 
