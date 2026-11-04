@@ -2,8 +2,6 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { useSearchParams } from "react-router-dom";
 import { kbApi, type KbEntry, type KbGenreCount, type KbLibrary } from "@/lib/kbApi";
 import { kbFieldLabel, kbValueLabel } from "@/lib/kbFieldLabels";
-import KbGraph from "@/components/tools/KbGraph";
-import KbEntryGraph from "@/components/tools/KbEntryGraphView";
 import KbOrganizePanel from "@/components/tools/KbOrganizePanel";
 import KbEntryRelations from "@/components/tools/KbEntryRelations";
 import KbEntryAvatar from "@/components/tools/KbEntryAvatar";
@@ -75,7 +73,7 @@ export default function KnowledgeBasePage() {
   const [manualGenre, setManualGenre] = useState("");
   const [manualError, setManualError] = useState("");
   const [showMoreGenres, setShowMoreGenres] = useState(false);
-  const [view, setView] = useState<"list" | "graph" | "entries">("list");
+  const [view, setView] = useState<"list" | "starsea">("list");
   const [showOrganize, setShowOrganize] = useState(false);
   const [opBusy, setOpBusy] = useState(false);
   const [syncBusy, setSyncBusy] = useState(false);
@@ -253,21 +251,19 @@ export default function KnowledgeBasePage() {
             知识整理
           </button>
           <div className="flex items-center gap-1 rounded-lg border border-[var(--border)] bg-[var(--surface)] p-0.5">
-            {(["list", "graph", "entries"] as const).map((v) => (
+            {(["list", "starsea"] as const).map((v) => (
               <button
                 key={v}
                 onClick={() => setView(v)}
                 className={`rounded-md px-3 py-1.5 text-[12px] ${view === v ? "bg-[var(--accent-soft)] font-medium text-[var(--accent)]" : "text-[var(--muted)] hover:text-[var(--fg)]"}`}
               >
-                {v === "list" ? "列表" : v === "graph" ? "图谱" : "条目图"}
+                {v === "list" ? "列表" : "星图"}
               </button>
             ))}
           </div>
         </div>
       </div>
 
-      {view === "graph" && <KbGraph />}
-        {view === "entries" && <KbEntryGraph genre={genre !== "全部题材" ? genre : ""} />}
         {showOrganize && (
           <KbOrganizePanel
             genre={genre !== "全部题材" ? genre : "玄幻"}
@@ -275,7 +271,7 @@ export default function KnowledgeBasePage() {
             onChanged={() => { void loadEntries(); void loadLibraries(); }}
           />
         )}
-        <div className="flex gap-6" style={{ display: view === "graph" ? "none" : undefined }}>
+        <div className="flex gap-6" style={{ display: view === "list" ? undefined : "none" }}>
           {/* 左栏 */}
           <aside className="w-52 flex-none pt-4">
             <p className="mb-2 font-mono text-[9.5px] tracking-[0.14em] text-[var(--muted)]">题材</p>
@@ -502,6 +498,12 @@ export default function KnowledgeBasePage() {
             </>)}
           </div>
         </div>
+
+      {view === "starsea" && (
+        <div className="flex items-center justify-center pt-16">
+          <p className="text-[13px] text-[var(--muted)]">星图加载中…（实现侧组件挂载点）</p>
+        </div>
+      )}
 
       {/* 手录表单 */}
       {showManual && (

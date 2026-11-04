@@ -242,6 +242,26 @@ export const kbApi = {
       body: JSON.stringify(body),
     })),
 
+  /** 归档（写 archived_at，可恢复） */
+  archiveEntry: (entryId: string) =>
+    unwrap<{ ok: boolean; entry_id: string }>(
+      request(`${BASE}/entries/${entryId}/archive`, { method: "POST" }),
+    ),
+  /** 恢复归档知识 */
+  restoreEntry: (entryId: string) =>
+    unwrap<{ ok: boolean; entry_id: string }>(
+      request(`${BASE}/entries/${entryId}/restore`, { method: "POST" }),
+    ),
+  /** 实例列表 */
+  listInstances: (entryId: string) =>
+    unwrap<{ ok: boolean; instances: { id: string; text: string; source_kind: string; source_novel: string; source_chapter: string; quote: string; sort: number }[] }>(
+      request(`${BASE}/entries/${entryId}/instances`),
+    ),
+  /** 添加实例 */
+  addInstance: (entryId: string, body: { text?: string; source_kind?: string; source_novel?: string; source_chapter?: string; quote?: string; sort?: number }) =>
+    unwrap<{ ok: boolean; instance: { id: string; text: string } }>(
+      request(`${BASE}/entries/${entryId}/instances`, { method: "POST", body: JSON.stringify(body), headers: { "Content-Type": "application/json" } }),
+    ),
   /** 删条目＝软删（archived；列表/快照/全局图只出 active） */
   deleteEntry: (entryId: string) =>
     unwrap<{ deleted: string }>(request(`${BASE}/entries/${entryId}`, { method: "DELETE" })),
