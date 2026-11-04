@@ -22,6 +22,7 @@ from sqlalchemy import (
     Boolean,
     DateTime,
     Float,
+    ForeignKey,
     Index,
     Integer,
     LargeBinary,
@@ -94,6 +95,11 @@ class KbEntry(Base):
     evidence_json: Mapped[str] = mapped_column(Text, nullable=False, default="{}")
     status: Mapped[str] = mapped_column(String(12), nullable=False, default="active")
     rev: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
+    # ── 知识 v2 新列（c-kb-knowledge-v2）──
+    definition: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    version: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
+    origin: Mapped[str] = mapped_column(String(20), nullable=False, default="manual")
+    archived_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     src_kind: Mapped[str] = mapped_column(String(20), nullable=False, default="manual")
     src_ref: Mapped[str] = mapped_column(String(80), nullable=False, default="")
     src_key: Mapped[str] = mapped_column(String(80), nullable=False, default="")
@@ -116,6 +122,34 @@ class KbEntryTag(Base):
     user_id: Mapped[str] = mapped_column(String(36), nullable=False)
     dim: Mapped[str] = mapped_column(String(20), nullable=False)
     value: Mapped[str] = mapped_column(String(80), nullable=False)
+
+
+class KbKnowledgeInstance(Base):
+    """实例——1 条知识 N 个实例；实例有自己的 id；删知识级联删实例。"""
+
+    __tablename__ = "kb_knowledge_instances"
+    __table_args__ = (
+        Index("ix_kb_instances_knowledge", "knowledge_id", "sort"),
+    )
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid)
+    knowledge_id: Mapped[str] = mapped_column(
+        String(36),
+        ForeignKey("kb_entries.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    text: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    source_kind: Mapped[str] = mapped_column(String(30), nullable=False, default="拆书")
+    source_novel: Mapped[str] = mapped_column(String(100), nullable=False, default="")
+    source_chapter: Mapped[str] = mapped_column(String(40), nullable=False, default="")
+    quote: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    sort: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime, nullable=False, server_default=func.now()
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime, nullable=False, server_default=func.now(), onupdate=func.now()
+    )
 
 
 class KbEntryBlob(Base):
@@ -393,6 +427,11 @@ class KbBookEntry(Base):
     evidence_json: Mapped[str] = mapped_column(Text, nullable=False, default="{}")
     status: Mapped[str] = mapped_column(String(12), nullable=False, default="active")
     rev: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
+    # ── 知识 v2 新列（c-kb-knowledge-v2）──
+    definition: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    version: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
+    origin: Mapped[str] = mapped_column(String(20), nullable=False, default="manual")
+    archived_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     src_kind: Mapped[str] = mapped_column(String(20), nullable=False, default="book_copy")
     src_ref: Mapped[str] = mapped_column(String(80), nullable=False, default="")
     src_key: Mapped[str] = mapped_column(String(80), nullable=False, default="")
