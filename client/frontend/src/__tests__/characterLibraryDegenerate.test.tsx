@@ -23,7 +23,7 @@ vi.mock("@/lib/libraryApi", async (orig) => {
   return { ...actual, ...api };
 });
 
-import CharacterLibraryPage from "@/components/library/CharacterLibraryPage";
+import CharacterInstanceView from "@/components/library/CharacterInstanceView";
 import CardEditorModal from "@/components/library/CardEditorModal";
 import UseInNovelModal from "@/components/library/UseInNovelModal";
 import ImportFromLibraryModal from "@/components/library/ImportFromLibraryModal";
@@ -76,7 +76,7 @@ afterEach(() => {
 
 describe("退化卡渲染（页/行/编辑器兜底）", () => {
   it("未命名/空人设/未知来源/路人定位 全部走兜底文案；键位非 Enter 不触发", async () => {
-    wrap(<CharacterLibraryPage />);
+    wrap(<CharacterInstanceView />);
     const cards = await screen.findAllByTestId("lib-card");
     expect(screen.getAllByText("未命名").length).toBeGreaterThan(0);
     expect(screen.getAllByText("还没写一句话人设").length).toBeGreaterThan(0);
@@ -100,7 +100,7 @@ describe("退化卡渲染（页/行/编辑器兜底）", () => {
       count: 1,
       items: [degenerate({ name: "甲", src: { kind: "unknown", novel_name: "剑照山河", ref: "", character_id: "" } })],
     });
-    wrap(<CharacterLibraryPage />);
+    wrap(<CharacterInstanceView />);
     await waitFor(() => expect(screen.getAllByTestId("lib-card").length).toBeGreaterThan(0));
     fireEvent.change(screen.getByTestId("lib-search"), { target: { value: "剑照" } });
     await waitFor(() => expect(screen.getAllByText(/命中：/).length).toBeGreaterThan(0));
@@ -117,7 +117,7 @@ describe("退化卡渲染（页/行/编辑器兜底）", () => {
       count: 1,
       items: [degenerate({ name: "秦重霄", aliases: ["霄爷"] })],
     });
-    wrap(<CharacterLibraryPage />);
+    wrap(<CharacterInstanceView />);
     await waitFor(() => expect(screen.getAllByTestId("lib-card").length).toBeGreaterThan(0));
     fireEvent.change(screen.getByTestId("lib-search"), { target: { value: "秦 霄" } });
     await waitFor(() => expect(document.querySelectorAll("mark").length).toBeGreaterThan(1));
@@ -131,7 +131,7 @@ describe("退化卡渲染（页/行/编辑器兜底）", () => {
         degenerate({ id: "b", name: "乙", genre: "都市" }),
       ],
     });
-    wrap(<CharacterLibraryPage />);
+    wrap(<CharacterInstanceView />);
     await waitFor(() => expect(screen.getAllByTestId("lib-card").length).toBe(2));
     fireEvent.click(within(screen.getByTestId("lib-rail-genre")).getByText("武侠"));
     await waitFor(() => expect(screen.getAllByTestId("lib-card").length).toBe(1));
@@ -194,8 +194,8 @@ describe("非 Error 拒绝对话兜底文案", () => {
     queryClient.clear();
     api.importCardFromBook.mockRejectedValue("炸");
     wrap(<CollectToLibrary novelId="n1" characterId="ch1" characterName="甲" />);
-    await waitFor(() => expect(screen.getByText("收入角色库")).toBeInTheDocument());
-    fireEvent.click(screen.getByText("收入角色库"));
+    await waitFor(() => expect(screen.getByText("收进知识库")).toBeInTheDocument());
+    fireEvent.click(screen.getByText("收进知识库"));
     await waitFor(() => expect(toast.error).toHaveBeenCalledTimes(3));
   });
 
@@ -203,8 +203,8 @@ describe("非 Error 拒绝对话兜底文案", () => {
     api.importCardFromBook.mockResolvedValue({ created: false, card: degenerate() });
     api.listLibrary.mockResolvedValue({ count: 0, items: [] });
     wrap(<CollectToLibrary novelId="n1" characterId="ch1" characterName="甲" />);
-    await waitFor(() => expect(screen.getByText("收入角色库")).toBeInTheDocument());
-    fireEvent.click(screen.getByText("收入角色库"));
+    await waitFor(() => expect(screen.getByText("收进知识库")).toBeInTheDocument());
+    fireEvent.click(screen.getByText("收进知识库"));
     await waitFor(() => expect(toast.success).toHaveBeenCalled());
   });
 

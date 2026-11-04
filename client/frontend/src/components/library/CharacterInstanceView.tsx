@@ -1,7 +1,9 @@
-// 角色库页（c-character-library）：写作工具第三项——跨书角色库（档案柜版式）。
-// 版式基线：docs/design-c/drafts/ai-novel-c端-角色库-原型.html（原型五场景）。
-// 列表一次给全（文本＋头像引用）；筛选/搜索/排序/双视图在前端内存完成。
-import { useMemo, useState } from "react";
+// 角色实例视图体（c-charlib-into-kb）：原角色库档案柜整体搬进知识库「角色设定」视角。
+// 只含视图体（rail 四组筛选/toolbar/双视图/统计/空态＋编辑卡与用到新书弹窗），
+// 无页面壳（页头/导航入口随独立页面退役）；样式沿用 lib-* 家族零新增。
+// 题材比对与 rail 选项走 genre_norm（#980 读取侧归一；存量自由题材 fallback 原始值）；
+// 跨题材通用灌入走 __empty__ 哨兵（"" 在 Filters 语义里是「清除筛选」，不能当筛选值灌入）。
+import { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { useQueryClient } from "@tanstack/react-query";
 import { toast } from "@/lib/toast";
@@ -16,6 +18,27 @@ const KIND_VALUES = ["亲人", "朋友", "挚友", "小弟", "下人", "长辈",
 const SRC_LABEL: Record<string, string> = { book: "书内", deconstruct: "拆书", manual: "手建" };
 const ROLE_ORDER = ["主角", "配角", "反派", "路人"];
 const PILL_CLS: Record<string, string> = { 主角: "pro", 配角: "support", 反派: "villain" };
+
+/** KB「跨题材通用」灌入哨兵：视角内表达「只看未分题材」，与「全部」（空串）区分开。 */
+export const GENRE_EMPTY = "__empty__";
+
+/** KB 左栏题材选中值 → 视角题材筛选预设；「全部题材」＝不预设（视角保持自己的选择）。 */
+export function genrePresetOf(kbGenre: string): string | null {
+  if (kbGenre === "全部题材") return null;
+  return kbGenre === "" ? GENRE_EMPTY : kbGenre;
+}
+
+/** KB 来源筛选值 → 视角来源组预设（手录→手建 manual、拆书→deconstruct；官方精选/已隐藏不会走到视角）。 */
+export function srcPresetOf(kbSrc: string): "" | "deconstruct" | "manual" {
+  if (kbSrc === "手录") return "manual";
+  if (kbSrc === "拆书") return "deconstruct";
+  return "";
+}
+
+/** 卡的归一题材（读取侧归一口径）：genre_norm 优先，自由题材/老卡回落原始值。 */
+function normGenre(c: LibraryCard): string {
+  return c.genre_norm || c.genre || "";
+}
 
 interface Filters {
   genre: string;
@@ -91,7 +114,15 @@ function hiddenHitLine(card: LibraryCard, terms: string[]): string {
   return sources.find(([, text]) => hidden.some((t) => normalize(text).includes(t)))![0];
 }
 
-export default function CharacterLibraryPage() {
+export default function CharacterInstanceView({
+  kbGenre = "全部题材",
+  kbSrc = "全部",
+}: {
+  /** 宿主（知识库页）题材栏选中值：单向灌入视角，视角内改选不回写（design D3）。 */
+  kbGenre?: string;
+  /** 宿主来源筛选值：手录→手建、拆书→拆书、全部→全部（官方精选/已隐藏不会挂载本视图）。 */
+  kbSrc?: string;
+}) {
   const navigate = useNavigate();
   const qc = useQueryClient();
   const { data, isLoading, error, refetch } = useCharacterLibrary();
@@ -101,6 +132,16 @@ export default function CharacterLibraryPage() {
   const [creating, setCreating] = useState(false);
   const [usingCard, setUsingCard] = useState<LibraryCard | null>(null);
 
+  // KB 左栏单向灌入（D3）：题材/来源预设变化即重置对应筛选；视角内手选不被打扰，
+  // 直到 KB 栏再次变化。跨题材通用走哨兵，不把「清除筛选」的 "" 当筛选值灌入。
+  useEffect(() => {
+    const g = genrePresetOf(kbGenre);
+    if (g !== null) setFilters((f) => ({ ...f, genre: g === GENRE_EMPTY ? GENRE_EMPTY : g }));
+  }, [kbGenre]);
+  useEffect(() => {
+    setFilters((f) => ({ ...f, src: srcPresetOf(kbSrc) }));
+  }, [kbSrc]);
+
   const items = data?.items || [];
   const terms = useMemo(
     () => normalize(filters.q).split(/\s+/).filter(Boolean),
@@ -109,7 +150,11 @@ export default function CharacterLibraryPage() {
 
   const visible = useMemo(() => {
     const list = items
-      .filter((c) => (!filters.genre || c.genre === filters.genre))
+      .filter((c) => {
+        if (!filters.genre) return true;
+        if (filters.genre === GENRE_EMPTY) return !normGenre(c);
+        return normGenre(c) === filters.genre;
+      })
       .filter((c) => (!filters.role || c.role === filters.role))
       .filter((c) => (!filters.kind || c.kind === filters.kind))
       .filter((c) => (!filters.src || c.src.kind === filters.src))
@@ -122,11 +167,21 @@ export default function CharacterLibraryPage() {
     return list;
   }, [items, filters, terms]);
 
+  // 题材 rail 选项走归一题材（D3）：目录内卡同域命中；目录外自由题材保留原样可见
   const genres = useMemo(() => {
     const seen: string[] = [];
-    for (const c of items) if (c.genre && !seen.includes(c.genre)) seen.push(c.genre);
+    for (const c of items) {
+      const g = normGenre(c);
+      if (g && !seen.includes(g)) seen.push(g);
+    }
     return seen;
   }, [items]);
+
+  // 「未分题材」档（跨题材通用）：与 KB 题材栏同名档同口径
+  const emptyGenreCount = useMemo(
+    () => items.filter((c) => !normGenre(c)).length,
+    [items],
+  );
 
   const bookTotal = useMemo(
     () => new Set(items.map((c) => c.src.novel_name).filter(Boolean)).size,
@@ -183,6 +238,7 @@ export default function CharacterLibraryPage() {
     title: string,
     key: keyof Pick<Filters, "genre" | "role" | "kind" | "src">,
     options: { value: string; label: string; count: number }[],
+    extra?: { value: string; label: string; count: number }[],
   ) => (
     <div className="lib-rail-group" data-testid={`lib-rail-${key}`}>
       <div className="lib-rail-cap">{title}</div>
@@ -190,6 +246,16 @@ export default function CharacterLibraryPage() {
         全部<span className="lib-n">{String(items.length).padStart(2, "0")}</span>
       </button>
       {options.map((o) => (
+        <button
+          key={o.value}
+          className={filters[key] === o.value ? "on" : ""}
+          onClick={() => setFilters((f) => ({ ...f, [key]: o.value }))}
+        >
+          {o.label}
+          <span className="lib-n">{String(o.count).padStart(2, "0")}</span>
+        </button>
+      ))}
+      {(extra ?? []).map((o) => (
         <button
           key={o.value}
           className={filters[key] === o.value ? "on" : ""}
@@ -319,164 +385,160 @@ export default function CharacterLibraryPage() {
   );
 
   return (
-    <main className="main" data-od-id="charlib-page">
-      <div className="lib-page">
-        <div className="lib-head">
-          <div>
-            <div className="lib-eyebrow">
-              <b>人物档案</b>
-              <span>· 拆书 / 书内 / 手建</span>
-            </div>
-            <h1>角色库</h1>
-            <p className="lib-sub">
-              拆书里捡来的、自己书里长出来的、还没落笔的，都收在同一个档案柜——改个名字，就能带进下一本书。
-            </p>
+    <div className="lib-view" data-testid="char-instance-view">
+      {/* 视图头部统计（原页头三枚随视图体走；新建角色入口同级） */}
+      <div className="lib-view-head">
+        <div className="lib-view-title">
+          <b>人物档案</b>
+          <span>· 拆书 / 书内 / 手建</span>
+        </div>
+        <div className="lib-stats" data-testid="lib-stats">
+          <div className="lib-stat">
+            <div className="lib-stat-n">{items.length}</div>
+            <div className="lib-stat-t">角色</div>
           </div>
-          <div className="lib-head-right">
-            <div className="lib-stats" data-testid="lib-stats">
-              <div className="lib-stat">
-                <div className="lib-stat-n">{items.length}</div>
-                <div className="lib-stat-t">角色</div>
-              </div>
-              <div className="lib-stat">
-                <div className="lib-stat-n">{genres.length}</div>
-                <div className="lib-stat-t">题材</div>
-              </div>
-              <div className="lib-stat">
-                <div className="lib-stat-n">{bookTotal}</div>
-                <div className="lib-stat-t">作品</div>
-              </div>
-            </div>
-            <button className="btn btn-primary" onClick={() => setCreating(true)} data-testid="lib-new">
-              新建角色
-            </button>
+          <div className="lib-stat">
+            <div className="lib-stat-n">{genres.length}</div>
+            <div className="lib-stat-t">题材</div>
+          </div>
+          <div className="lib-stat">
+            <div className="lib-stat-n">{bookTotal}</div>
+            <div className="lib-stat-t">作品</div>
           </div>
         </div>
+        <button className="btn btn-primary" onClick={() => setCreating(true)} data-testid="lib-new">
+          新建角色
+        </button>
+      </div>
 
-        {error && (
-          <div className="notice" role="alert" style={{ marginBottom: 12 }}>
-            <span className="nt">
-              <b>加载失败</b>
-              <span>{error}</span>
-            </span>
-            <button className="btn btn-secondary btn-sm" onClick={() => void refresh()}>
-              重试
-            </button>
+      {error && (
+        <div className="notice" role="alert" style={{ marginBottom: 12 }}>
+          <span className="nt">
+            <b>加载失败</b>
+            <span>{error}</span>
+          </span>
+          <button className="btn btn-secondary btn-sm" onClick={() => void refetch()}>
+            重试
+          </button>
+        </div>
+      )}
+
+      <div className="lib-body">
+        <div className="lib-rail">
+          {railGroup(
+            "题材",
+            "genre",
+            genres.map((g) => ({
+              value: g,
+              label: g,
+              count: items.filter((c) => normGenre(c) === g).length,
+            })),
+            [{ value: GENRE_EMPTY, label: "未分题材", count: emptyGenreCount }],
+          )}
+          {railGroup(
+            "定位",
+            "role",
+            ROLE_ORDER.map((r) => ({ value: r, label: r, count: items.filter((c) => c.role === r).length })),
+          )}
+          {railGroup(
+            "来源",
+            "src",
+            ["deconstruct", "book", "manual"].map((k) => ({
+              value: k,
+              label: SRC_LABEL[k],
+              count: items.filter((c) => c.src.kind === k).length,
+            })),
+          )}
+          {railGroup(
+            "小类",
+            "kind",
+            KIND_VALUES.map((k) => ({ value: k, label: k, count: items.filter((c) => c.kind === k).length })),
+          )}
+        </div>
+
+        <div className="lib-main">
+          <div className="lib-toolbar">
+            <div className="lib-search">
+              <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round">
+                <circle cx="11" cy="11" r="7" />
+                <path d="M20 20l-3.5-3.5" />
+              </svg>
+              <input
+                value={filters.q}
+                onChange={(e) => setFilters((f) => ({ ...f, q: e.target.value }))}
+                placeholder="搜名字、别名、人设、语言特征、背景、来源书名，可多个词空格隔开"
+                data-testid="lib-search"
+              />
+            </div>
+            <div className="lib-sort">
+              排序
+              <select
+                value={filters.sort}
+                onChange={(e) => setFilters((f) => ({ ...f, sort: e.target.value as Filters["sort"] }))}
+                data-testid="lib-sort"
+              >
+                <option value="default">最近收录</option>
+                <option value="name">按姓名</option>
+              </select>
+            </div>
+            <div className="lib-viewseg" data-testid="lib-viewseg">
+              <button className={view === "card" ? "on" : ""} onClick={() => switchView("card")}>
+                卡片
+              </button>
+              <button className={view === "list" ? "on" : ""} onClick={() => switchView("list")}>
+                列表
+              </button>
+            </div>
           </div>
-        )}
 
-        <div className="lib-body">
-          <div className="lib-rail">
-            {railGroup(
-              "题材",
-              "genre",
-              genres.map((g) => ({ value: g, label: g, count: items.filter((c) => c.genre === g).length })),
-            )}
-            {railGroup(
-              "定位",
-              "role",
-              ROLE_ORDER.map((r) => ({ value: r, label: r, count: items.filter((c) => c.role === r).length })),
-            )}
-            {railGroup(
-              "来源",
-              "src",
-              ["deconstruct", "book", "manual"].map((k) => ({
-                value: k,
-                label: SRC_LABEL[k],
-                count: items.filter((c) => c.src.kind === k).length,
-              })),
-            )}
-            {railGroup(
-              "小类",
-              "kind",
-              KIND_VALUES.map((k) => ({ value: k, label: k, count: items.filter((c) => c.kind === k).length })),
-            )}
+          <div className="lib-count-line">
+            {isLoading ? "加载中…" : `共 ${visible.length} 位角色`}
           </div>
 
-          <div className="lib-main">
-            <div className="lib-toolbar">
-              <div className="lib-search">
-                <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round">
-                  <circle cx="11" cy="11" r="7" />
-                  <path d="M20 20l-3.5-3.5" />
-                </svg>
-                <input
-                  value={filters.q}
-                  onChange={(e) => setFilters((f) => ({ ...f, q: e.target.value }))}
-                  placeholder="搜名字、别名、人设、语言特征、背景、来源书名，可多个词空格隔开"
-                  data-testid="lib-search"
-                />
-              </div>
-              <div className="lib-sort">
-                排序
-                <select
-                  value={filters.sort}
-                  onChange={(e) => setFilters((f) => ({ ...f, sort: e.target.value as Filters["sort"] }))}
-                  data-testid="lib-sort"
-                >
-                  <option value="default">最近收录</option>
-                  <option value="name">按姓名</option>
-                </select>
-              </div>
-              <div className="lib-viewseg" data-testid="lib-viewseg">
-                <button className={view === "card" ? "on" : ""} onClick={() => switchView("card")}>
-                  卡片
-                </button>
-                <button className={view === "list" ? "on" : ""} onClick={() => switchView("list")}>
-                  列表
+          {!isLoading && items.length === 0 ? (
+            <div className="lib-empty">
+              <b>柜子还空着</b>
+              把书里的角色收进来，或者先手建一个——开新书时换个名字就能用。
+              <div>
+                <button className="btn btn-secondary btn-sm" onClick={() => navigate("/tools/deconstruct/new")}>
+                  去拆书收角色
+                </button>{" "}
+                <button className="btn btn-primary btn-sm" onClick={() => setCreating(true)}>
+                  新建角色
                 </button>
               </div>
             </div>
-
-            <div className="lib-count-line">
-              {isLoading ? "加载中…" : `共 ${visible.length} 位角色`}
-            </div>
-
-            {!isLoading && items.length === 0 ? (
-              <div className="lib-empty">
-                <b>柜子还空着</b>
-                把书里的角色收进来，或者先手建一个——开新书时换个名字就能用。
-                <div>
-                  <button className="btn btn-secondary btn-sm" onClick={() => navigate("/tools/deconstruct/new")}>
-                    去拆书收角色
-                  </button>{" "}
-                  <button className="btn btn-primary btn-sm" onClick={() => setCreating(true)}>
-                    新建角色
+          ) : view === "card" ? (
+            <div className="lib-cells">
+              {visible.map((c, i) => renderCard(c, i))}
+              {!isLoading && visible.length === 0 && (
+                <div className="lib-empty" style={{ gridColumn: "1 / -1" }}>
+                  <b>没有符合筛选的角色</b>
+                  <button
+                    className="btn btn-secondary btn-sm"
+                    onClick={() => setFilters((f) => ({ ...EMPTY_FILTERS, sort: f.sort }))}
+                  >
+                    清空筛选
                   </button>
                 </div>
-              </div>
-            ) : view === "card" ? (
-              <div className="lib-cells">
-                {visible.map((c, i) => renderCard(c, i))}
-                {!isLoading && visible.length === 0 && (
-                  <div className="lib-empty" style={{ gridColumn: "1 / -1" }}>
-                    <b>没有符合筛选的角色</b>
-                    <button
-                      className="btn btn-secondary btn-sm"
-                      onClick={() => setFilters((f) => ({ ...EMPTY_FILTERS, sort: f.sort }))}
-                    >
-                      清空筛选
-                    </button>
-                  </div>
-                )}
-              </div>
-            ) : (
-              <div className="lib-rows-wrap">
-                {visible.map(renderRow)}
-                {!isLoading && visible.length === 0 && (
-                  <div className="lib-empty">
-                    <b>没有符合筛选的角色</b>
-                    <button
-                      className="btn btn-secondary btn-sm"
-                      onClick={() => setFilters((f) => ({ ...EMPTY_FILTERS, sort: f.sort }))}
-                    >
-                      清空筛选
-                    </button>
-                  </div>
-                )}
-              </div>
-            )}
-          </div>
+              )}
+            </div>
+          ) : (
+            <div className="lib-rows-wrap">
+              {visible.map(renderRow)}
+              {!isLoading && visible.length === 0 && (
+                <div className="lib-empty">
+                  <b>没有符合筛选的角色</b>
+                  <button
+                    className="btn btn-secondary btn-sm"
+                    onClick={() => setFilters((f) => ({ ...EMPTY_FILTERS, sort: f.sort }))}
+                  >
+                    清空筛选
+                  </button>
+                </div>
+              )}
+            </div>
+          )}
         </div>
       </div>
 
@@ -494,6 +556,6 @@ export default function CharacterLibraryPage() {
         onClose={() => setUsingCard(null)}
         onDone={() => toast.info("去那本书的角色页就能看到 TA 了")}
       />
-    </main>
+    </div>
   );
 }

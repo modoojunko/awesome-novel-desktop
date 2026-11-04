@@ -383,7 +383,7 @@ export default function TaskDetailPage() {
         try {
           const r = await toLibrary(task.id, picks, libRename);
           toast.success(
-            `已把 ${r.created} 个角色收进角色库` +
+            `已把 ${r.created} 个角色收进知识库` +
               (r.skipped > 0 ? `（${r.skipped} 个已在库里，跳过）` : ""),
           );
           setExitOpen(false);
@@ -392,7 +392,7 @@ export default function TaskDetailPage() {
           void queryClient.invalidateQueries({ queryKey: queryKeys.deconstructTasks });
           void queryClient.invalidateQueries({ queryKey: queryKeys.deconstructTask(task.id) });
         } catch (e) {
-          toast.error(e instanceof Error ? e.message : "收进角色库失败");
+          toast.error(e instanceof Error ? e.message : "收进知识库失败");
         } finally {
           setLibBusy(false);
         }
@@ -748,7 +748,7 @@ export default function TaskDetailPage() {
               </button>
             )}
             <button className="btn btn-secondary btn-sm" onClick={() => setExitOpen(true)}>
-              存本地文件夹 / 收进角色库
+              存本地文件夹 / 收进知识库
             </button>
           </div>
         </div>
@@ -1116,8 +1116,8 @@ export default function TaskDetailPage() {
                     }}
                   >
                     <span className="ex-txt">
-                      <b>收进角色库</b>
-                      <span>把拆出来的角色收进角色库——不动这本书；之后开任何新书都能取用。</span>
+                      <b>收进知识库</b>
+                      <span>把拆出来的角色收进知识库——不动这本书；之后开任何新书都能取用。</span>
                     </span>
                   </button>
                 </div>
@@ -1164,7 +1164,7 @@ export default function TaskDetailPage() {
                     ) : (
                       <>
                         <div className="alt" style={{ marginTop: 0 }}>
-                          勾选收进角色库——性格和说话方式原样带走；这本书本身不受影响。
+                          勾选收进知识库——性格和说话方式原样带走；这本书本身不受影响。
                         </div>
                         <div
                           style={{
@@ -1244,7 +1244,7 @@ export default function TaskDetailPage() {
                           onClick={doExit}
                           data-testid="library-submit"
                         >
-                          {libBusy ? "正在收进角色库…" : `收进角色库（${libPicks.size}）`}
+                          {libBusy ? "正在收进知识库…" : `收进知识库（${libPicks.size}）`}
                         </button>
                       </>
                     )}

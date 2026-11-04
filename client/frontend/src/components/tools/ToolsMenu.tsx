@@ -105,11 +105,7 @@ export default function ToolsMenu() {
             </button>
             <button className="tm-item" role="menuitem" data-od-id="menu-kb" onClick={() => go("/tools/kb")}>
               <b>知识库</b>
-              <span className="tm-desc">拆书拆出的好写法和自己踩的经验，写新书时能用上</span>
-            </button>
-            <button className="tm-item" role="menuitem" data-od-id="menu-charlib" onClick={() => go("/tools/characters")}>
-              <b>角色库</b>
-              <span className="tm-desc">书里的角色收进来，换本小说改个名字接着用</span>
+              <span className="tm-desc">拆书拆出的好写法和收进来的角色，写新书时能用上</span>
             </button>
             <div className="tm-note">更多写作工具陆续上线</div>
           </div>,

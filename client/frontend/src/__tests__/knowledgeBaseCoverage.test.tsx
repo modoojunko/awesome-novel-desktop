@@ -1,6 +1,17 @@
 // 知识库页覆盖（c-knowledge-base）：题材栏折叠/概念页签/手录全分支/详情抽屉/加载更多。
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { MemoryRouter } from "react-router-dom";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+
+const libApi = vi.hoisted(() => ({
+  listLibrary: vi.fn(),
+}));
+
+vi.mock("@/lib/libraryApi", async (orig) => {
+  const actual = await orig<typeof import("@/lib/libraryApi")>();
+  return { ...actual, listLibrary: libApi.listLibrary };
+});
 
 const api = vi.hoisted(() => ({
   genres: vi.fn(),
@@ -53,6 +64,18 @@ vi.mock("@/components/tools/KbEntryGraphView", () => ({
 
 import KnowledgeBasePage from "@/pages/KnowledgeBasePage";
 
+// c-charlib-into-kb：页组件引入 useSearchParams/useCharacterLibrary 后，
+// 渲染必须挂 Router＋QueryClient 上下文（既有裸渲染统一走这里）。
+function renderPage(ui: React.ReactElement = <KnowledgeBasePage />, opts: { route?: string } = {}) {
+  const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  return render(
+    <QueryClientProvider client={qc}>
+      <MemoryRouter initialEntries={[opts.route ?? "/"]}>{ui}</MemoryRouter>
+    </QueryClientProvider>,
+  );
+}
+
+
 function entry(over: Record<string, unknown> = {}) {
   return {
     id: "aaaaaaaa-0000-0000-0000-000000000001",
@@ -87,6 +110,7 @@ const SEVEN_GENRES = [
 ];
 
 beforeEach(() => {
+  libApi.listLibrary.mockResolvedValue({ count: 0, items: [] });
   api.genres.mockResolvedValue(SEVEN_GENRES);
   api.libraries.mockResolvedValue([
     { id: "l1", genre: "都市", concept: "手法", name: "手法库", purpose: "写每一章时的场面打法", contract: "live", enabled: true, entry_count: 6, bound_novels: 3, bound_in_book: 1 },
@@ -117,7 +141,7 @@ describe("KnowledgeBasePage 题材栏与列表", () => {
         entries: [entry({ id: "bbbbbbbb-0000-0000-0000-000000000002", title: "", instruction: "", example: "", negative_example: "", evidence: "" })],
         next_cursor: "",
       });
-    const { container } = render(<KnowledgeBasePage />);
+    const { container } = renderPage();
     // 首屏：visibleGenres 截 5（末世/废土 藏起），0 计数题材只露前两个
     await screen.findByText("更多题材 (2)");
     expect(screen.getByText("都市")).toBeInTheDocument();
@@ -166,7 +190,7 @@ describe("KnowledgeBasePage 题材栏与列表", () => {
   });
 
   it("概念页签切换带 concept 参数、题材切换带 genre、搜索带 q、情节页签禁用", async () => {
-    render(<KnowledgeBasePage />);
+    renderPage();
     await screen.findByText("先果后因");
     // 初始 libraries 不带 genre（undefined 臂）
     expect(api.libraries).toHaveBeenCalledWith(undefined);
@@ -196,7 +220,7 @@ describe("KnowledgeBasePage 题材栏与列表", () => {
 
   it("genres 接口失败静默（catch 臂），列表照常", async () => {
     api.genres.mockRejectedValue(new Error("network"));
-    render(<KnowledgeBasePage />);
+    renderPage();
     await screen.findByText("先果后因");
     await waitFor(() => expect(api.genres).toHaveBeenCalled());
   });
@@ -204,7 +228,7 @@ describe("KnowledgeBasePage 题材栏与列表", () => {
 
 describe("KnowledgeBasePage 视图切换（c-kb-organize）", () => {
   it("列表/图谱切换：图谱态挂图、列表态隐藏两栏", async () => {
-    render(<KnowledgeBasePage />);
+    renderPage();
     await screen.findByText("先果后因");
     // 两栏默认可见
     expect(screen.getByPlaceholderText("搜名字、内容、来源书名")).toBeInTheDocument();
@@ -240,7 +264,7 @@ describe("KnowledgeBasePage 角色设定条目头像框", () => {
       ],
       next_cursor: "",
     });
-    render(<KnowledgeBasePage />);
+    renderPage();
     await screen.findByText("刘望津");
     const frames = screen.getAllByTestId("kb-entry-avatar-fallback");
     expect(frames).toHaveLength(1); // 只有角色设定条目有头像框
@@ -254,7 +278,7 @@ describe("KnowledgeBasePage 全部题材兜底（条目图/知识整理）", () 
       genre: "玄幻", running: false, last_run: null, pending_relations: 0, proposed_findings: 0,
     });
     organize.findings.mockResolvedValue({ relations: [], findings: [], counts: { relations: 0, findings: 0 } });
-    render(<KnowledgeBasePage />);
+    renderPage();
     await screen.findByText("先果后因");
     fireEvent.click(screen.getByText("条目图"));
     await waitFor(() =>
@@ -274,7 +298,7 @@ describe("KnowledgeBasePage 全部题材兜底（条目图/知识整理）", () 
 describe("KnowledgeBasePage 手录表单", () => {
   async function openManual() {
     api.entries.mockResolvedValue({ entries: [], next_cursor: "" });
-    render(<KnowledgeBasePage />);
+    renderPage();
     fireEvent.click(await screen.findByText("记一条"));
     await screen.findByText("题材 *");
   }

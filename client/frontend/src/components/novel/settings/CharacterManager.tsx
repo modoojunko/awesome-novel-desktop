@@ -961,7 +961,7 @@ const CharacterManager = forwardRef<CharacterSaveHandle, Props>(function Charact
             data-testid="char-from-library"
             onClick={() => setFromLibraryOpen(true)}
           >
-            从角色库导入
+            从知识库导入
           </button>
           <button
             type="button"

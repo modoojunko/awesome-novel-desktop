@@ -1,4 +1,5 @@
-// ToolsMenu（c-deconstruct-book 5.1）：徽标口径、三项菜单（任务清单/拆书/角色库）＋扩展位、Esc/点外收起。
+// ToolsMenu（c-deconstruct-book 5.1）：徽标口径、三项菜单（任务清单/拆书/知识库）＋扩展位、Esc/点外收起。
+// c-charlib-into-kb：角色库项退役（角色实例进知识库「角色设定」视角）。
 // c-tools-badge-seen：已完成未取任务「看过不再引导」——本地账里已看的 id 不计数，新 id 重亮。
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
@@ -39,9 +40,9 @@ describe("ToolsMenu", () => {
     fireEvent.click(screen.getByText("写作工具"));
     expect(screen.getByText("任务清单")).toBeInTheDocument();
     expect(screen.getByText("拆书")).toBeInTheDocument();
-    // 第三项：角色库（c-character-library）
-    expect(screen.getByText("角色库")).toBeInTheDocument();
-    expect(screen.getByText("书里的角色收进来，换本小说改个名字接着用")).toBeInTheDocument();
+    // 第三项：知识库（c-charlib-into-kb：角色库项退役，角色收在知识库 desc 里）
+    expect(screen.getByText("知识库")).toBeInTheDocument();
+    expect(screen.getByText("拆书拆出的好写法和收进来的角色，写新书时能用上")).toBeInTheDocument();
     expect(screen.getByText("更多写作工具陆续上线")).toBeInTheDocument();
     fireEvent.keyDown(document, { key: "Enter" }); // 非 Esc 键不关（假臂）
     expect(screen.getByText("任务清单")).toBeInTheDocument();
@@ -56,10 +57,6 @@ describe("ToolsMenu", () => {
     // 拆书菜单项点击 → 导航创建页（go 分支）
     fireEvent.click(screen.getByText("写作工具"));
     fireEvent.click(screen.getByText("拆书"));
-    expect(screen.queryByText("任务清单")).not.toBeInTheDocument();
-    // 角色库菜单项点击 → 导航 /tools/characters（go 分支；c-character-library）
-    fireEvent.click(screen.getByText("写作工具"));
-    fireEvent.click(screen.getByText("角色库"));
     expect(screen.queryByText("任务清单")).not.toBeInTheDocument();
     // 知识库菜单项点击 → 导航 /tools/kb（go 分支；c-knowledge-base）
     fireEvent.click(screen.getByText("写作工具"));

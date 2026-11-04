@@ -2,6 +2,18 @@
 // 「条目详情抽屉：字段、正反例、证据只读」实现补课——payload 概念无关平铺。
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { MemoryRouter, Route, Routes, useLocation } from "react-router-dom";
+import { RedirectToKbCharView } from "@/App";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+
+const libApi = vi.hoisted(() => ({
+  listLibrary: vi.fn(),
+}));
+
+vi.mock("@/lib/libraryApi", async (orig) => {
+  const actual = await orig<typeof import("@/lib/libraryApi")>();
+  return { ...actual, listLibrary: libApi.listLibrary };
+});
 
 const api = vi.hoisted(() => ({
   entries: vi.fn(),
@@ -16,6 +28,18 @@ vi.mock("@/lib/kbApi", async (orig) => {
 
 import KnowledgeBasePage, { payloadRows } from "@/pages/KnowledgeBasePage";
 import type { KbEntry } from "@/lib/kbApi";
+
+// c-charlib-into-kb：页组件引入 useSearchParams/useCharacterLibrary 后，
+// 渲染必须挂 Router＋QueryClient 上下文（既有裸渲染统一走这里）。
+function renderPage(ui: React.ReactElement = <KnowledgeBasePage />, opts: { route?: string } = {}) {
+  const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  return render(
+    <QueryClientProvider client={qc}>
+      <MemoryRouter initialEntries={[opts.route ?? "/"]}>{ui}</MemoryRouter>
+    </QueryClientProvider>,
+  );
+}
+
 
 const ENTRY: KbEntry = {
   id: "kbentry-0001",
@@ -47,6 +71,7 @@ const ENTRY: KbEntry = {
 };
 
 beforeEach(() => {
+  libApi.listLibrary.mockResolvedValue({ count: 0, items: [] });
   api.entries.mockResolvedValue({ entries: [ENTRY], next_cursor: "" });
   api.libraries.mockResolvedValue([]);
   api.genres.mockResolvedValue([]);
@@ -85,7 +110,7 @@ describe("payloadRows（通用载荷平铺）", () => {
 
 describe("KnowledgeBasePage 详情抽屉", () => {
   it("点开条目：字段以中文标签逐格渲染（迁移卡属性全可见）", async () => {
-    render(<KnowledgeBasePage />);
+    renderPage();
     await waitFor(() => expect(screen.getByText("刘望津")).toBeTruthy());
     fireEvent.click(screen.getByText("刘望津"));
     await waitFor(() => expect(screen.getByText("字段")).toBeTruthy());
@@ -120,7 +145,7 @@ describe("KnowledgeBasePage 详情抽屉", () => {
       entries: [{ ...ENTRY, instruction: String(ENTRY.payload.persona) }],
       next_cursor: "",
     });
-    render(<KnowledgeBasePage />);
+    renderPage();
     await waitFor(() => expect(screen.getByText("刘望津")).toBeTruthy());
     fireEvent.click(screen.getByText("刘望津"));
     await waitFor(() => expect(screen.getByText("字段")).toBeTruthy());
@@ -131,11 +156,56 @@ describe("KnowledgeBasePage 详情抽屉", () => {
   });
 
   it("关闭抽屉后字段段退场", async () => {
-    render(<KnowledgeBasePage />);
+    renderPage();
     await waitFor(() => expect(screen.getByText("刘望津")).toBeTruthy());
     fireEvent.click(screen.getByText("刘望津"));
     await waitFor(() => expect(screen.getByText("字段")).toBeTruthy());
     fireEvent.click(screen.getByText("✕"));
     await waitFor(() => expect(screen.queryByText("字段")).toBeNull());
+  });
+});
+
+describe("角色设定视角（c-charlib-into-kb）", () => {
+  it("?concept=角色设定 深链落位：档案柜视图体在位，通用列表退位", async () => {
+    renderPage(<KnowledgeBasePage />, { route: "/tools/kb?concept=角色设定" });
+    await waitFor(() => expect(screen.getByTestId("char-instance-view")).toBeTruthy());
+    // 通用列表退位：条数行不出现（entries 有 1 条，若未退位会渲染「1 条」）
+    expect(screen.queryByText("1 条")).toBeNull();
+    // 库分组与通用搜索退位
+    expect(screen.queryByTestId("kb-baseline-sync")).toBeNull();
+  });
+
+  it("来源切「官方精选」→ 通用列表回位（仍带角色设定概念过滤）", async () => {
+    renderPage(<KnowledgeBasePage />, { route: "/tools/kb?concept=角色设定" });
+    await waitFor(() => expect(screen.getByTestId("char-instance-view")).toBeTruthy());
+    fireEvent.click(screen.getByTestId("kb-src-官方精选"));
+    await waitFor(() => expect(screen.queryByTestId("char-instance-view")).toBeNull());
+    // 官方精选臂下通用列表在位：条目行照常出
+    await waitFor(() => expect(screen.getByText("刘望津")).toBeTruthy());
+    expect(screen.getByText("1 条")).toBeTruthy();
+  });
+
+  it("非法 ?concept= 落「全部」，不进视角", async () => {
+    renderPage(<KnowledgeBasePage />, { route: "/tools/kb?concept=不存在" });
+    await waitFor(() => expect(screen.getByTestId("kb-src-官方精选")).toBeTruthy());
+    expect(screen.queryByTestId("char-instance-view")).toBeNull();
+  });
+});
+
+describe("旧地址重定向（c-charlib-into-kb）", () => {
+  it("/tools/characters → /tools/kb?concept=角色设定", () => {
+    function ShowLoc() {
+      const location = useLocation();
+      return <span data-testid="loc">{location.pathname + location.search}</span>;
+    }
+    render(
+      <MemoryRouter initialEntries={["/tools/characters"]}>
+        <Routes>
+          <Route path="/tools/characters" element={<RedirectToKbCharView />} />
+          <Route path="/tools/kb" element={<ShowLoc />} />
+        </Routes>
+      </MemoryRouter>,
+    );
+    expect(screen.getByTestId("loc").textContent).toBe("/tools/kb?concept=角色设定");
   });
 });

@@ -1162,7 +1162,7 @@ describe("进度可视二阶（边界臂）", () => {
   });
 });
 
-describe("角色库第三出口（c-charlib-deconstruct-exit）", () => {
+describe("拆书收录出口（c-charlib-deconstruct-exit；c-charlib-into-kb 改口）", () => {
   beforeEach(() => {
     toastState.error.mockClear();
     toastState.success.mockClear();
@@ -1466,7 +1466,7 @@ describe("建书三态的交互臂（覆盖率补齐）", () => {
     await waitFor(() => expect(state.importBook).toHaveBeenCalledWith("t2"));
     expect(toastState.info).toHaveBeenCalledWith(expect.stringContaining("重新开始建书"));
 
-    fireEvent.click(screen.getByText("存本地文件夹 / 收进角色库"));
+    fireEvent.click(screen.getByText("存本地文件夹 / 收进知识库"));
     expect(screen.getByText("稍后再说")).toBeInTheDocument();
   });
 });
