@@ -39,6 +39,8 @@ async def create_entry(
     src_key: str = "",
     src_novel_name: str = "",
     original_texts: list[str] | None = None,
+    definition: str = "",
+    when_text: str = "",
 ) -> tuple[KbEntry | None, GateResult, dict | None]:
     """入库一条知识：闸门→payload 校验→标签物化→默认库生成。
     返回 (entry, gate_result, error_dict)。error_dict 非 None 表示入库失败。"""
@@ -116,6 +118,10 @@ async def create_entry(
         src_ref=src_ref,
         src_key=src_key,
         src_novel_name=src_novel_name,
+        definition=definition,
+        when_text=when_text,
+        version=1,
+        origin=src_kind if src_kind != "manual" else "manual",
     )
     db.add(entry)
     await db.flush()
@@ -454,3 +460,60 @@ async def genre_counts(db: AsyncSession, *, user_id: str) -> dict[str, int]:
     for g, n in (await baseline_genre_counts(db, user_id=user_id)).items():
         counts[g] = counts.get(g, 0) + n
     return counts
+
+
+# ── 知识 v2：归档/恢复/实例（c-kb-knowledge-v2）─────────────────────────
+
+
+async def archive_knowledge(db: AsyncSession, *, user_id: str, entry_id: str) -> bool:
+    """归档：写 archived_at，不硬删。返回是否生效。"""
+    from datetime import datetime
+
+    e = await db.get(KbEntry, entry_id)
+    if not e or e.user_id != user_id or e.archived_at:
+        return False
+    e.archived_at = datetime.now()
+    e.version += 1
+    await db.commit()
+    return True
+
+
+async def restore_knowledge(db: AsyncSession, *, user_id: str, entry_id: str) -> bool:
+    """恢复归档知识。返回是否生效。"""
+    e = await db.get(KbEntry, entry_id)
+    if not e or e.user_id != user_id or not e.archived_at:
+        return False
+    e.archived_at = None
+    e.version += 1
+    await db.commit()
+    return True
+
+
+async def list_instances(db: AsyncSession, *, knowledge_id: str) -> list:
+    from models.kb import KbKnowledgeInstance
+
+    from sqlalchemy import select
+
+    return (await db.execute(
+        select(KbKnowledgeInstance)
+        .where(KbKnowledgeInstance.knowledge_id == knowledge_id)
+        .order_by(KbKnowledgeInstance.sort)
+    )).scalars().all()
+
+
+async def add_instance(
+    db: AsyncSession, *, knowledge_id: str,
+    text: str = "", source_kind: str = "拆书",
+    source_novel: str = "", source_chapter: str = "",
+    quote: str = "", sort: int = 0,
+) -> KbKnowledgeInstance:
+    from models.kb import KbKnowledgeInstance
+
+    inst = KbKnowledgeInstance(
+        knowledge_id=knowledge_id, text=text,
+        source_kind=source_kind, source_novel=source_novel,
+        source_chapter=source_chapter, quote=quote, sort=sort,
+    )
+    db.add(inst)
+    await db.commit()
+    return inst

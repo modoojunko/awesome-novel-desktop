@@ -17,13 +17,13 @@
 
 ## 3. 后端服务与消费端
 
-- [ ] 3.1 知识 CRUD 服务：创建/读取/更新/归档/恢复；保存时 version+1、updated_at 刷新、created_at 不变；验证：service 单测覆盖四操作与版本/时间断言
-- [ ] 3.2 实例 CRUD：一个知识 0..N 实例，增删/排序、级联删除；验证：单测覆盖多实例、排序、删知识级联
-- [ ] 3.3 关系读写：两端知识 id、六类白名单、矩阵校验、active 部分唯一、禁自环；验证：单测覆盖合法/非法概念对与重复 active
+- [x] 3.1 知识 CRUD 服务：创建/读取/更新/归档/恢复；保存时 version+1、updated_at 刷新、created_at 不变；验证：service 单测覆盖四操作与版本/时间断言
+- [x] 3.2 实例 CRUD：一个知识 0..N 实例，增删/排序、级联删除；验证：单测覆盖多实例、排序、删知识级联
+- [x] 3.3 关系读写：两端知识 id、六类白名单、矩阵校验、active 部分唯一、禁自环；验证：单测覆盖合法/非法概念对与重复 active
 - [ ] 3.4 别名与版本快照：别名可检索；保存时写 revisions（保留 20 版）；验证：按别名检索命中、版本快照可读
 - [ ] 3.5 消费端改造：`write/write_block.py`、`kb/match.py`、`kb/book_scope.py`、`kb/merged.py`、`kb/deconstruct_import.py`、备份导出/导入全部改读新表；验证：全仓 `grep kb_entries` 清单清零（旧表只读引用除外），后端全量测试绿
-- [ ] 3.6 API 形状：`GET/POST/PATCH/DELETE /kb/knowledge`、实例子资源、关系子资源；返回聚合详情（instances/relations/aliases）；验证：接口测试覆盖创建/查看/修改/归档/恢复
-- [ ] 3.7 闸门：类别/状态/关系白名单、必填知识名/题材/类别/定义、实例文本长度、原文闸沿用；验证：非法请求 4xx 且 message 为作家语言
+- [x] 3.6 API 形状：`GET/POST/PATCH/DELETE /kb/knowledge`、实例子资源、关系子资源；返回聚合详情（instances/relations/aliases）；验证：接口测试覆盖创建/查看/修改/归档/恢复
+- [x] 3.7 闸门：类别/状态/关系白名单、必填知识名/题材/类别/定义、实例文本长度、原文闸沿用；验证：非法请求 4xx 且 message 为作家语言
 
 ## 4. 前端数据与页面骨架
 
