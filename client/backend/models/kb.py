@@ -193,6 +193,23 @@ class KbKnowledgeRevision(Base):
     )
 
 
+class KbKnowledgeMigrationBackup(Base):
+    """迁移前快照（c-kb-knowledge-v2 一次性）——回放可重建旧表行。"""
+
+    __tablename__ = "kb_knowledge_migration_backup"
+    __table_args__ = (
+        Index("ix_kb_migration_backup_kind", "kind", "row_key"),
+    )
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid)
+    kind: Mapped[str] = mapped_column(String(20), nullable=False)
+    row_key: Mapped[str] = mapped_column(String(120), nullable=False)
+    payload_json: Mapped[str] = mapped_column(Text, nullable=False, default="{}")
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime, nullable=False, server_default=func.now()
+    )
+
+
 class KbEntryBlob(Base):
     """条目头像/图片字节 — (entry_id, variant) 复合主键；variant=full|thumb。
 

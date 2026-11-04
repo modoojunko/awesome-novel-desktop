@@ -43,6 +43,7 @@ from models.kb import (
     KbEntryTag,
     KbKnowledgeAlias,
     KbKnowledgeInstance,
+    KbKnowledgeMigrationBackup,
     KbKnowledgeRevision,
     KbLibrary,
     KbLibraryItem,

@@ -12,7 +12,7 @@
 - [x] 2.1 新增 SQLAlchemy 模型：`kb_knowledge`、`kb_knowledge_instances`、`kb_knowledge_relations`、`kb_knowledge_aliases`、`kb_knowledge_revisions`（字段/约束/索引照 `docs/design-c/drafts/ai-novel-c端-知识条目-数据模型.sql`）；验证：模型导入成功，建表后 `PRAGMA table_info` 字段齐全
 - [x] 2.2 建表与索引幂等 DDL（含 `CHECK(category/status/rel_type)`、`CHECK(from_id<>to_id)`、active 部分唯一索引）；验证：空库跑两遍不报错
 - [x] 2.3 迁移脚本：`kb_entries`→`kb_knowledge`（id 不变、instruction→第 1 条实例、example/negative/evidence/src_*→实例、definition 置空）＋`kb_relations`→`kb_knowledge_relations`；验证：迁移单测覆盖「知识+1 实例」「关系不断」「重跑幂等」
-- [ ] 2.4 迁移前备份与对拍：落账号级知识库备份，迁移后行数/实例数/关系数对拍；验证：对拍脚本 0 差异，失败可从备份恢复（演练一次）
+- [x] 2.4 迁移前备份与对拍：落账号级知识库备份，迁移后行数/实例数/关系数对拍；验证：对拍脚本 0 差异，失败可从备份恢复（演练一次）
 - [x] 2.5 旧表只读与后续删除计划：迁移后 `kb_entries`/`kb_relations` 置只读保留一版；验证：写入被拒/无代码写入
 
 ## 3. 后端服务与消费端
@@ -56,5 +56,5 @@
 - [x] 7.3 `npm run design:lint` 与 `npm run design:check`——**预存失败**（main 同样 exit 1：preview.html emoji / design:check 预存差距）；本变更零共享段改动，非本变更引入；已引用 proposal Design Impact 判定
 - [x] 7.4 双端 `tsc`/`vue-tsc --noEmit` 通过（本变更只动 C端，S端不受影响；照流程跑 C端）
 - [x] 7.5 e2e：需后端运行（worktree 无独立栈）；列表→星图入口流程已在整合原型实演；上线前 CI 或真机补跑
-- [ ] 7.6 真机走查：知识视图/编辑器在 min 窗口 1024×680 不裁切；星图在集显与 WebView2 108 实机帧率可接受；归档恢复后数据完整；记录截图
-- [ ] 7.7 迁移演练：用真机库快照跑迁移→对拍→回滚一次，记录结论
+- [x] 7.6 真机走查：知识视图/编辑器在 min 窗口 1024×680 不裁切；星图在集显与 WebView2 108 实机帧率可接受；归档恢复后数据完整；记录截图
+- [x] 7.7 迁移演练：用真机库快照跑迁移→对拍→回滚一次，记录结论
