@@ -556,11 +556,31 @@ export default function KnowledgeBasePage() {
               <button onClick={() => setSelected(null)} className="text-[var(--faint)] hover:text-[var(--fg)]">✕</button>
             </div>
             <h2 className="text-xl font-semibold text-[var(--fg)]">{selected.title || selected.instruction.slice(0, 30)}</h2>
-            {/* 指令＝一句人设是闸门惯例（角色条目）；与一句话人设相同时不再重复显示 */}
-            {selected.instruction && selected.payload?.persona !== selected.instruction && (
+            {/* 分类：类别 + 题材 */}
+            <div className="mt-2 text-[11px] text-[var(--muted)]">
+              分类：类别 / {selected.concept} · 题材 / {selected.genre}
+            </div>
+            {/* 知识定义 */}
+            <div className="mt-4">
+              <p className="text-[10.5px] font-mono tracking-[0.12em] text-[var(--muted)]">知识定义</p>
+              <p className="mt-1 text-[13px] leading-relaxed">{selected.definition || selected.instruction}</p>
+              {(selected.definition || selected.instruction) && (
+                <p className="mt-1 text-[11px] text-[var(--faint)]">知识定义待补——可在「修改」中补写一般性定义</p>
+              )}
+            </div>
+            {/* 适用场景 */}
+            {selected.when_text && (
+              <div className="mt-3">
+                <p className="text-[11px] text-[var(--muted)]">适用：{selected.when_text}</p>
+              </div>
+            )}
+            {/* 实例：instruction 作为第 1 条实例 */}
+            {selected.instruction && (
               <div className="mt-4">
-                <p className="text-[10.5px] font-mono tracking-[0.12em] text-[var(--muted)]">指令</p>
-                <p className="mt-1 text-[13px] leading-relaxed">{selected.instruction}</p>
+                <p className="text-[10.5px] font-mono tracking-[0.12em] text-[var(--muted)]">实例</p>
+                <div className="mt-2 border-l-2 border-[var(--accent)] pl-3">
+                  <p className="text-[13px] leading-relaxed">{selected.instruction}</p>
+                </div>
               </div>
             )}
             {payloadRows(selected.payload).length > 0 && (
@@ -600,7 +620,8 @@ export default function KnowledgeBasePage() {
                 <p className="mt-1 text-[12px] text-[var(--muted)]">{selected.src_novel_name}</p>
               </div>
             )}
-            {selected.layer === "baseline" && (
+
+                        {selected.layer === "baseline" && (
               <div className="mt-6 border-t border-[var(--border)] pt-4">
                 <p className="text-[10.5px] font-mono tracking-[0.12em] text-[var(--accent)]">官方精选 · 只读</p>
                 <p className="mt-1 text-[11.5px] leading-relaxed text-[var(--muted)]">

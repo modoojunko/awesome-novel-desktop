@@ -15,7 +15,11 @@ export interface KbEntry {
   negative_example: string;
   when: Record<string, string>;
   evidence: string;
-  /** 乐观并发版本号（PATCH 带 rev 不一致 409） */
+  definition?: string;
+  when_text?: string;
+  version?: number;
+  origin?: string;
+  archived_at?: string | null;  /** 乐观并发版本号（PATCH 带 rev 不一致 409） */
   rev: number;
   src_kind: string;
   src_novel_name: string;
@@ -122,7 +126,11 @@ export interface KbPendingRelation {
   confidence: number;
   note: string;
   evidence: string;
-}
+  definition?: string;
+  when_text?: string;
+  version?: number;
+  origin?: string;
+  archived_at?: string | null;}
 
 export interface KbPendingFinding {
   id: string;
@@ -147,7 +155,11 @@ export interface KbGraphEntryEdge {
   confidence: number;
   note: string;
   evidence: string;
-}
+  definition?: string;
+  when_text?: string;
+  version?: number;
+  origin?: string;
+  archived_at?: string | null;}
 
 // request() 自带 /api 前缀，这里只给功能段（同 libraryApi 的 /character-library 口径）
 const BASE = "/kb";
