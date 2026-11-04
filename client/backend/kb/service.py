@@ -40,7 +40,6 @@ async def create_entry(
     src_novel_name: str = "",
     original_texts: list[str] | None = None,
     definition: str = "",
-    when_text: str = "",
 ) -> tuple[KbEntry | None, GateResult, dict | None]:
     """入库一条知识：闸门→payload 校验→标签物化→默认库生成。
     返回 (entry, gate_result, error_dict)。error_dict 非 None 表示入库失败。"""
@@ -119,7 +118,6 @@ async def create_entry(
         src_key=src_key,
         src_novel_name=src_novel_name,
         definition=definition,
-        when_text=when_text,
         version=1,
         origin=src_kind if src_kind != "manual" else "manual",
     )
