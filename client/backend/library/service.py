@@ -343,6 +343,14 @@ async def _avatar_presence(db: AsyncSession, entries: list[KbEntry]) -> dict[str
     return {i: i in hits for i in ids}
 
 
+async def avatar_presence(db: AsyncSession, entries) -> dict[str, bool]:
+    """读面共用：entry id → 是否有头像（新表字节 ∪ legacy 回联）。
+
+    知识库列表/详情按此出 `has_avatar`，前端据此渲染「有图出图、无图出姓氏占位」。
+    """
+    return await _avatar_presence(db, entries)
+
+
 async def list_cards(db: AsyncSession, user_id: str) -> dict:
     """一次给全（文本字段＋头像引用）；筛选/搜索/排序在前端内存完成。"""
     # 老版角色库存量一次性迁移挂点（c-kb-library-once-migration）：升级账号首次

@@ -5,6 +5,7 @@ import KbGraph from "@/components/tools/KbGraph";
 import KbEntryGraph from "@/components/tools/KbEntryGraphView";
 import KbOrganizePanel from "@/components/tools/KbOrganizePanel";
 import KbEntryRelations from "@/components/tools/KbEntryRelations";
+import KbEntryAvatar from "@/components/tools/KbEntryAvatar";
 
 const CONCEPTS = ["文风", "文笔", "世界设定", "角色设定", "手法", "情节"] as const;
 const CONCEPT_DESC: Record<string, string> = {
@@ -398,11 +399,16 @@ export default function KnowledgeBasePage() {
                   onClick={() => { setSelected(e); setEditDraft(false); setOpNote(""); }}
                   className="block w-full rounded-md px-3 py-2.5 text-left hover:bg-[var(--fg-soft)]"
                 >
-                  <span className="font-mono text-[9.5px] tracking-[0.1em] text-[var(--faint)]">
-                    {e.id.slice(0, 8)} · {e.concept} · {e.genre}
+                  <span className="flex items-start gap-2.5">
+                    {e.concept === "角色设定" && <KbEntryAvatar entry={e} />}
+                    <span className="min-w-0 flex-1">
+                      <span className="font-mono text-[9.5px] tracking-[0.1em] text-[var(--faint)]">
+                        {e.id.slice(0, 8)} · {e.concept} · {e.genre}
+                      </span>
+                      <span className="mt-0.5 block text-[14px] font-medium text-[var(--fg)]">{e.title || e.instruction.slice(0, 30)}</span>
+                      <span className="mt-0.5 block text-[12px] text-[var(--muted)]">{e.instruction.slice(0, 60)}</span>
+                    </span>
                   </span>
-                  <span className="mt-0.5 block text-[14px] font-medium text-[var(--fg)]">{e.title || e.instruction.slice(0, 30)}</span>
-                  <span className="mt-0.5 block text-[12px] text-[var(--muted)]">{e.instruction.slice(0, 60)}</span>
                   {e.layer === "baseline" && (
                     <span className="mt-1 flex flex-wrap gap-1">
                       <span className="rounded-full bg-[var(--accent-soft)] px-1.5 py-0.5 font-mono text-[9px] text-[var(--accent)]">

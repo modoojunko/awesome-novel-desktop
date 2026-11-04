@@ -83,6 +83,7 @@ export const COVERAGE_CONTRACT_FILES = [
   "src/components/novel/settings/KbSourceStrip.tsx",
   "src/components/novel/settings/BookScopeStrip.tsx",
   "src/components/novel/settings/ImportChoiceModal.tsx",
+  "src/components/tools/KbEntryAvatar.tsx",
   // c-kb-character（角色原型：渲染映射＋挑原型弹窗＋建卡预填）
   "src/lib/kbPrototype.ts",
   "src/components/novel/settings/PrototypePickModal.tsx",

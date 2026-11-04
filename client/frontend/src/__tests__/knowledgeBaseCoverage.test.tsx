@@ -220,6 +220,34 @@ describe("KnowledgeBasePage 视图切换（c-kb-organize）", () => {
   });
 });
 
+describe("KnowledgeBasePage 角色设定条目头像框", () => {
+  it("角色设定条目出姓氏占位（无字节），其他概念不出头像框", async () => {
+    api.entries.mockResolvedValue({
+      entries: [
+        entry({
+          id: "cccccccc-0000-0000-0000-000000000001",
+          concept: "角色设定",
+          concept_id: "年代文:角色设定",
+          title: "刘望津",
+          instruction: "漂亮热情的农村出身姑娘。",
+        }),
+        entry({
+          id: "cccccccc-0000-0000-0000-000000000002",
+          concept: "手法",
+          title: "传功只给一句",
+          instruction: "传功只给一句口诀。",
+        }),
+      ],
+      next_cursor: "",
+    });
+    render(<KnowledgeBasePage />);
+    await screen.findByText("刘望津");
+    const frames = screen.getAllByTestId("kb-entry-avatar-fallback");
+    expect(frames).toHaveLength(1); // 只有角色设定条目有头像框
+    expect(frames[0].textContent).toContain("刘");
+  });
+});
+
 describe("KnowledgeBasePage 全部题材兜底（条目图/知识整理）", () => {
   it("全部题材 → 条目图 genre=''、整理面板 genre='玄幻'", async () => {
     organize.status.mockResolvedValue({

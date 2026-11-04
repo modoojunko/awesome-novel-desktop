@@ -34,7 +34,7 @@ def _user(dep: dict) -> str:
     return dep["id"]
 
 
-def _entry_dict(e: KbEntry) -> dict[str, Any]:
+def _entry_dict(e: KbEntry, *, has_avatar: bool = False) -> dict[str, Any]:
     """条目 API 形状（用户条目与基线条目 MergedEntry 共用）。
 
     基线层来源标签「官方精选」随层派生：src_kind="baseline" 只出现在响应里，
@@ -70,6 +70,8 @@ def _entry_dict(e: KbEntry) -> dict[str, Any]:
         "overlaid": bool(getattr(e, "overlaid", False)),
         "hidden": bool(getattr(e, "hidden", False)),
         "official_update": has_official_update(e) if layer == "baseline" else False,
+        # 角色设定条目与角色库同源（kb_entries）：有字节出图、无字节前端出姓氏占位
+        "has_avatar": bool(has_avatar) and e.concept == "角色设定",
     }
 
 
@@ -163,7 +165,18 @@ async def list_entries_api(
         db, user_id=uid, genre=genre, concept=concept,
         src=src, q=q, cursor=cursor, limit=limit,
     )
-    return {"ok": True, "data": {"entries": [_entry_dict(e) for e in entries], "next_cursor": next_cursor}}
+    from library.service import avatar_presence
+
+    presence = await avatar_presence(db, entries)
+    return {
+        "ok": True,
+        "data": {
+            "entries": [
+                _entry_dict(e, has_avatar=presence.get(e.id, False)) for e in entries
+            ],
+            "next_cursor": next_cursor,
+        },
+    }
 
 
 # ─── 条目详情 ─────────────────────────────────────────────
@@ -185,7 +198,10 @@ async def get_entry_api(
         if not base:
             raise HTTPException(404, "Entry not found")
         return {"ok": True, "data": _entry_dict(base)}
-    data = _entry_dict(e)
+    from library.service import avatar_presence
+
+    presence = await avatar_presence(db, [e])
+    data = _entry_dict(e, has_avatar=presence.get(e.id, False))
     if e.status == "merged":
         # c-kb-organize 追溯：合并指向＋保留条目摘要
         from models.kb import KbEntryMerge
