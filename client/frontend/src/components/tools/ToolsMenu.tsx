@@ -3,12 +3,19 @@
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { useNavigate } from "react-router-dom";
-import { useDeconstructTasks } from "../../hooks/useDeconstructTasks";
+import { isActiveTask, useDeconstructTasks } from "../../hooks/useDeconstructTasks";
+import { seenTaskIds } from "../../lib/toolsBadgeSeen";
 
-/** 徽标口径＝进行中＋排队中＋已完成未取结果（评审 P1-3） */
+/** 徽标口径（c-tools-badge-seen）：进行中/排队/建书中恒计（后台心跳）；已完成未取只在
+ *  没看过时引导——看过任务清单/详情即消账（toolsBadgeSeen 本地账），新任务完成重亮 */
 export function useToolsBadge(): number {
   const { data } = useDeconstructTasks();
-  return data?.badge ?? 0;
+  const tasks = data?.tasks ?? [];
+  const seen = seenTaskIds();
+  return (
+    tasks.filter((t) => isActiveTask(t.status)).length +
+    tasks.filter((t) => t.unpicked && !seen.has(t.id)).length
+  );
 }
 
 export default function ToolsMenu() {

@@ -169,3 +169,24 @@ describe("TaskListPage 建书三态", () => {
     expect(screen.getByText("weird_state")).toBeInTheDocument();
   });
 });
+
+// ── 顶栏徽标「进清单＝看过」消账（c-tools-badge-seen）────────────────────
+
+describe("TaskListPage 看过消账", () => {
+  it("进清单即把已完成未取任务记入本地已看账", async () => {
+    localStorage.clear();
+    state.list.mockResolvedValue({
+      tasks: [
+        { ...baseTask, id: "u1", status: "completed", unpicked: true, book_name: "星海远征" },
+        { ...baseTask, id: "u2", status: "imported", book_name: "已取不算" },
+      ],
+      heartbeat: { running: 0, queued: 0 },
+      badge: 1,
+    });
+    renderPage();
+    await waitFor(() => expect(screen.getByText("星海远征")).toBeInTheDocument());
+    await waitFor(() =>
+      expect(JSON.parse(localStorage.getItem("tools_badge_seen_v1") ?? "[]")).toEqual(["u1"]),
+    );
+  });
+});

@@ -175,7 +175,7 @@ async def list_tasks(db: AsyncSession, user_id: str) -> list[dict]:
         ahead = 0
         if r.status == "queued":
             ahead = sum(1 for q in queued_seqs if q < r.queue_seq)
-        status, _book_id, book_missing = _effective_build(r, live)
+        status, book_id, book_missing = _effective_build(r, live)
         out.append(
             {
                 "id": r.id,
@@ -191,6 +191,13 @@ async def list_tasks(db: AsyncSession, user_id: str) -> list[dict]:
                 "product_count": len(json.loads(r.products_json or "{}")),
                 "error": _first_error(r),
                 "book_missing": book_missing,
+                # 已完成未取（引导口径，同路由 badge 的 done_unpicked）：没建书、没导出才算；
+                # 「看过不再引导」由前端本地账折算（toolsBadgeSeen），后端不存已看状态
+                "unpicked": (
+                    status in ("completed", "import_failed")
+                    and book_id is None
+                    and r.exported_at is None
+                ),
                 # 建书阶段摘要（c-deconstruct-import-async）：清单行子状态与轮询判据都读它
                 "import": _import_view(r),
             }

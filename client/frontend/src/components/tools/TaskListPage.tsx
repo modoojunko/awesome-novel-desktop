@@ -1,7 +1,9 @@
 // 任务清单页（c-deconstruct-book 5.3）：纯清单多行（六类状态），点行进详情。
-import { useState } from "react";
+// c-tools-badge-seen：进清单＝看过，已完成未取任务当场消账（顶栏徽标不再引导这批）。
+import { useEffect, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { useDeconstructTasks } from "../../hooks/useDeconstructTasks";
+import { markTasksSeen } from "../../lib/toolsBadgeSeen";
 import { parseServerTime } from "../../lib/serverTime";
 import { deleteDeconstructTask, type DeconstructTaskSummary } from "../../lib/deconstructApi";
 
@@ -58,6 +60,15 @@ export default function TaskListPage() {
   const [removeErr, setRemoveErr] = useState("");
 
   const tasks = data?.tasks ?? [];
+
+  // 进清单＝看过：已完成未取任务当场消账（顶栏徽标不再引导这批；新任务完成＝新 id 会重亮）
+  const unpickedKey = tasks
+    .filter((t) => t.unpicked)
+    .map((t) => t.id)
+    .join("|");
+  useEffect(() => {
+    if (unpickedKey) markTasksSeen(unpickedKey.split("|"));
+  }, [unpickedKey]);
 
   const remove = async (id: string) => {
     try {
