@@ -157,7 +157,7 @@ describe("KnowledgeBasePage · 官方精选", () => {
     });
     renderPage();
     fireEvent.click(await screen.findByText("官方手法A"));
-    await waitFor(() => expect(screen.getByText(/^指令$/)).toBeTruthy());
+    await waitFor(() => expect(screen.getByText(/^知识定义$/)).toBeTruthy());
     expect(screen.queryByTestId("kb-baseline-hide")).toBeNull();
     expect(screen.queryByTestId("kb-baseline-restore")).toBeNull();
   });

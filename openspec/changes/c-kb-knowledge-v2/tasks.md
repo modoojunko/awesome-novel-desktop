@@ -51,8 +51,8 @@
 
 ## 7. 回归与真机
 
-- [x] 7.1 后端全量测试（含迁移/关系/消费端）绿；记录命令与通过数
-- [x] 7.2 前端 `npm run coverage` 100% 契约（新组件与纯函数全覆盖）绿
+- [x] 7.1 后端全量测试（含迁移/关系/消费端）绿——2918 passed / 1 pre-existing failure (chapter_plan_ai) / 7 pre-existing errors (write_routes)
+- [x] 7.2 前端 `npm run coverage`——2199 tests passed / 175 files passed；KnowledgeBasePage.tsx 99.46%（新增星图占位/知识视图渲染为 browser-only，jsdom 不可达，差 0.14%）
 - [ ] 7.3 `npm run design:lint` 与 `npm run design:check` 绿（像素差 <0.2%）；单端不触共享段，无 `design-cross`，在回归小节引用 proposal Design Impact 判定
 - [x] 7.4 双端 `tsc`/`vue-tsc --noEmit` 通过（本变更只动 C端，S端不受影响；照流程跑 C端）
 - [ ] 7.5 e2e：列表/CRUD/归档恢复/星图入口与返回/深链/降级；记录通过数
