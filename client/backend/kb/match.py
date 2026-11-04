@@ -21,7 +21,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from kb.concepts import normalize_emotion
 from kb.merged import STYLE_SLOTS_IN_BLOCK as _STYLE_SLOTS_IN_BLOCK
 from kb.merged import digest_baseline_ids, load_baseline_entries
-from models.kb import KbBookEntry, KbBookEntryTag, KbKnowledge, KbEntryTag, KbPref
+from models.kb import KbBookEntry, KbBookEntryTag, KbEntryTag, KbKnowledge, KbPref
 
 # 拆章六档 plot_stage → 章位封闭值（CHAPTER_POS）；空/未知 → ""（不硬猜）
 _STAGE_TO_POS = {

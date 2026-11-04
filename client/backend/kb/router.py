@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import json
-from typing import Any
+from typing import Annotated, Any
 
 from fastapi import APIRouter, Body, Depends, HTTPException
 from fastapi.responses import JSONResponse
@@ -1100,8 +1100,9 @@ async def list_instances_api(
     user: Annotated[dict, Depends(_user)],
     db: Annotated[AsyncSession, Depends(get_db)],
 ):
-    from models.kb import KbKnowledgeInstance
     from sqlalchemy import select
+
+    from models.kb import KbKnowledgeInstance
 
     rows = (await db.execute(
         select(KbKnowledgeInstance)

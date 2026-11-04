@@ -1321,8 +1321,8 @@ async def _restore_config(db, user_id: str, config_data: dict) -> dict:
         from kb.service import rebuild_tag_index
         from models.kb import (
             KbConcept,
-            KbKnowledge,
             KbEntryMerge,
+            KbKnowledge,
             KbLibrary,
             KbLibraryItem,
             KbOrganizeFeedback,

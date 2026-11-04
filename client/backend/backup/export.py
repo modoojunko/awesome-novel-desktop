@@ -674,10 +674,10 @@ async def _kb_account_section(db, user_id: str) -> tuple[dict, list[dict]]:
     from models.kb import (
         KbBaselineOverlay,
         KbConcept,
-        KbKnowledge,
         KbEntryBlob,
         KbEntryMerge,
         KbEntryTag,
+        KbKnowledge,
         KbLibrary,
         KbLibraryItem,
         KbOrganizeFeedback,

@@ -23,8 +23,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from models.kb import (
     KbBookEntry,
     KbBookEntryTag,
-    KbKnowledge,
     KbEntryTag,
+    KbKnowledge,
     KbLibrary,
     KbPref,
 )
