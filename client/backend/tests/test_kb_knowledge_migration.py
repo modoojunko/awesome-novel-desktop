@@ -82,8 +82,9 @@ def test_迁移_DDL幂等_实例生成():
 
 
 def test_归档映射_约束():
-    from kb.knowledge_migration import migrate_kb_knowledge_v2
     import sqlalchemy.exc
+
+    from kb.knowledge_migration import migrate_kb_knowledge_v2
 
     suffix = uuid.uuid4().hex[:8]
     uid = f"kbv2wl-{suffix}"
