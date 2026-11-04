@@ -48,6 +48,11 @@ const ENTRY: KbEntry = {
   concept_id: "悬疑:角色设定",
   title: "刘望津",
   instruction: "漂亮热情的农村出身姑娘，能识怪字、有阴阳眼。",
+  definition: "角色设定条目的一般性定义：造角色的方法。",
+  when_text: "新角色出场前；人物关系翻转时",
+  version: 1,
+  origin: "manual",
+  archived_at: null,
   payload: {
     archetype: "刘望津",
     persona: "漂亮热情的农村出身姑娘。",
@@ -133,7 +138,9 @@ describe("KnowledgeBasePage 详情抽屉", () => {
     expect(screen.getByText("custom_note")).toBeTruthy();
     expect(screen.getByText("字段字典未收录的键")).toBeTruthy();
     // 其余四段照旧；证据＝章锚、小说名住「源自小说」专行
-    expect(screen.getByText("指令")).toBeTruthy();
+    expect(screen.getByText("知识定义")).toBeTruthy();
+    expect(screen.getByText(/分类：类别/)).toBeTruthy();
+    expect(screen.getAllByText(/实例/).length).toBeGreaterThan(0);
     expect(screen.getByText("证据")).toBeTruthy();
     expect(screen.getByText("第9章")).toBeTruthy();
     expect(screen.getByText("源自小说")).toBeTruthy();

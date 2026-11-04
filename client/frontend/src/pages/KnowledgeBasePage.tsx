@@ -1,9 +1,8 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useSearchParams } from "react-router-dom";
 import { kbApi, type KbEntry, type KbGenreCount, type KbLibrary } from "@/lib/kbApi";
+import StarSeaPanel from "@/components/tools/StarSeaPanel";
 import { kbFieldLabel, kbValueLabel } from "@/lib/kbFieldLabels";
-import KbGraph from "@/components/tools/KbGraph";
-import KbEntryGraph from "@/components/tools/KbEntryGraphView";
 import KbOrganizePanel from "@/components/tools/KbOrganizePanel";
 import KbEntryRelations from "@/components/tools/KbEntryRelations";
 import KbEntryAvatar from "@/components/tools/KbEntryAvatar";
@@ -75,7 +74,7 @@ export default function KnowledgeBasePage() {
   const [manualGenre, setManualGenre] = useState("");
   const [manualError, setManualError] = useState("");
   const [showMoreGenres, setShowMoreGenres] = useState(false);
-  const [view, setView] = useState<"list" | "graph" | "entries">("list");
+  const [view, setView] = useState<"list" | "starsea">("list");
   const [showOrganize, setShowOrganize] = useState(false);
   const [opBusy, setOpBusy] = useState(false);
   const [syncBusy, setSyncBusy] = useState(false);
@@ -253,21 +252,19 @@ export default function KnowledgeBasePage() {
             知识整理
           </button>
           <div className="flex items-center gap-1 rounded-lg border border-[var(--border)] bg-[var(--surface)] p-0.5">
-            {(["list", "graph", "entries"] as const).map((v) => (
+            {(["list", "starsea"] as const).map((v) => (
               <button
                 key={v}
                 onClick={() => setView(v)}
                 className={`rounded-md px-3 py-1.5 text-[12px] ${view === v ? "bg-[var(--accent-soft)] font-medium text-[var(--accent)]" : "text-[var(--muted)] hover:text-[var(--fg)]"}`}
               >
-                {v === "list" ? "列表" : v === "graph" ? "图谱" : "条目图"}
+                {v === "list" ? "列表" : "星图"}
               </button>
             ))}
           </div>
         </div>
       </div>
 
-      {view === "graph" && <KbGraph />}
-        {view === "entries" && <KbEntryGraph genre={genre !== "全部题材" ? genre : ""} />}
         {showOrganize && (
           <KbOrganizePanel
             genre={genre !== "全部题材" ? genre : "玄幻"}
@@ -275,7 +272,7 @@ export default function KnowledgeBasePage() {
             onChanged={() => { void loadEntries(); void loadLibraries(); }}
           />
         )}
-        <div className="flex gap-6" style={{ display: view === "graph" ? "none" : undefined }}>
+        <div className="flex gap-6" style={{ display: view === "list" ? undefined : "none" }}>
           {/* 左栏 */}
           <aside className="w-52 flex-none pt-4">
             <p className="mb-2 font-mono text-[9.5px] tracking-[0.14em] text-[var(--muted)]">题材</p>
@@ -503,6 +500,8 @@ export default function KnowledgeBasePage() {
           </div>
         </div>
 
+      {view === "starsea" && <StarSeaPanel genre={genre !== "全部题材" ? genre : ""} />}
+
       {/* 手录表单 */}
       {showManual && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
@@ -554,11 +553,31 @@ export default function KnowledgeBasePage() {
               <button onClick={() => setSelected(null)} className="text-[var(--faint)] hover:text-[var(--fg)]">✕</button>
             </div>
             <h2 className="text-xl font-semibold text-[var(--fg)]">{selected.title || selected.instruction.slice(0, 30)}</h2>
-            {/* 指令＝一句人设是闸门惯例（角色条目）；与一句话人设相同时不再重复显示 */}
-            {selected.instruction && selected.payload?.persona !== selected.instruction && (
+            {/* 分类：类别 + 题材 */}
+            <div className="mt-2 text-[11px] text-[var(--muted)]">
+              分类：类别 / {selected.concept} · 题材 / {selected.genre}
+            </div>
+            {/* 知识定义 */}
+            <div className="mt-4">
+              <p className="text-[10.5px] font-mono tracking-[0.12em] text-[var(--muted)]">知识定义</p>
+              <p className="mt-1 text-[13px] leading-relaxed">{selected.definition || selected.instruction}</p>
+              {(selected.definition || selected.instruction) && (
+                <p className="mt-1 text-[11px] text-[var(--faint)]">知识定义待补——可在「修改」中补写一般性定义</p>
+              )}
+            </div>
+            {/* 适用场景 */}
+            {selected.when_text && (
+              <div className="mt-3">
+                <p className="text-[11px] text-[var(--muted)]">适用：{selected.when_text}</p>
+              </div>
+            )}
+            {/* 实例：instruction 作为第 1 条实例 */}
+            {selected.instruction && (
               <div className="mt-4">
-                <p className="text-[10.5px] font-mono tracking-[0.12em] text-[var(--muted)]">指令</p>
-                <p className="mt-1 text-[13px] leading-relaxed">{selected.instruction}</p>
+                <p className="text-[10.5px] font-mono tracking-[0.12em] text-[var(--muted)]">实例</p>
+                <div className="mt-2 border-l-2 border-[var(--accent)] pl-3">
+                  <p className="text-[13px] leading-relaxed">{selected.instruction}</p>
+                </div>
               </div>
             )}
             {payloadRows(selected.payload).length > 0 && (
@@ -598,7 +617,8 @@ export default function KnowledgeBasePage() {
                 <p className="mt-1 text-[12px] text-[var(--muted)]">{selected.src_novel_name}</p>
               </div>
             )}
-            {selected.layer === "baseline" && (
+
+                        {selected.layer === "baseline" && (
               <div className="mt-6 border-t border-[var(--border)] pt-4">
                 <p className="text-[10.5px] font-mono tracking-[0.12em] text-[var(--accent)]">官方精选 · 只读</p>
                 <p className="mt-1 text-[11.5px] leading-relaxed text-[var(--muted)]">

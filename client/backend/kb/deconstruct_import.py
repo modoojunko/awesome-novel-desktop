@@ -29,7 +29,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from kb.concepts import emotion_phrase, normalize_scene
 from kb.payloads import validate_payload
-from models.kb import KbEntry
+from models.kb import KbKnowledge
 
 _WS_RE = re.compile(r"\s+")
 # 行首结构标记（# - * > · 或整段【…】）：写法块结构消毒同口径——
@@ -128,13 +128,13 @@ def _mk_entry(
     evidence: str = "",
     evidence_json: dict | None = None,
     when_json: dict | None = None,
-) -> KbEntry | None:
+) -> KbKnowledge | None:
     """构造条目；payload 不合契约返回 None（由调用方记 warning）。"""
     try:
         clean_payload = validate_payload(concept, payload)
     except ValueError:
         return None
-    return KbEntry(
+    return KbKnowledge(
         user_id=user_id,
         genre=genre,
         concept=concept,
@@ -170,13 +170,13 @@ def map_deconstruct_products(
     products: dict,
     *,
     src_ref: str | None = None,
-) -> tuple[list[KbEntry], list[str]]:
+) -> tuple[list[KbKnowledge], list[str]]:
     """拆书产物 → 知识条目列表。返回 (entries, warnings)。
 
     src_ref：幂等来源键，默认 task_id；批量脚本传内容指纹，使同一本书重拆后
     再收录仍是同一批条目（src_key 序号稳定，重复项跳过不重复写）。
     """
-    entries: list[KbEntry] = []
+    entries: list[KbKnowledge] = []
     warnings: list[str] = []
     ref = src_ref or task_id
     seq = 0
@@ -466,10 +466,10 @@ async def collect_task_to_kb(
         refs = {src_ref or str(task.id)}
         if src_ref:
             refs.add(str(task.id))
-        stmt = select(KbEntry.src_key).where(
-            KbEntry.user_id == user_id,
-            KbEntry.src_ref.in_(refs),
-            KbEntry.src_key.in_([e.src_key for e in entries]),
+        stmt = select(KbKnowledge.src_key).where(
+            KbKnowledge.user_id == user_id,
+            KbKnowledge.src_ref.in_(refs),
+            KbKnowledge.src_key.in_([e.src_key for e in entries]),
         )
         existing_keys = set((await db.execute(stmt)).scalars().all())
 

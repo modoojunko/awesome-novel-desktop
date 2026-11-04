@@ -1,0 +1,636 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>知识条目 · 参考 Obsidian 建模 · 原型 · ai-novel C端</title>
+<!-- 知识条目 CRUD 原型 v2（2026-11-04）——参考 Obsidian 的知识建模：
+     一条知识＝一个知识单元：标题 + 知识属性（type/status/created/aliases/sources）+ 正文（定义/关联知识/证据链）。
+     列表 → 详情＝知识视图；新建/修改＝知识编辑器；删除只归档（可恢复）；官方条目只给存副本/隐藏。 -->
+<style>
+  :root{
+    --bg: oklch(98% 0.004 240);
+    --surface: oklch(100% 0 0);
+    --fg: oklch(20% 0.02 240);
+    --muted: oklch(50% 0.018 240);
+    --border: oklch(90% 0.006 240);
+    --accent: oklch(48% 0.11 170);
+    --accent-strong: oklch(41% 0.10 170);
+    --accent-soft: color-mix(in oklch, var(--accent) 12%, transparent);
+    --ok: oklch(52% 0.11 155);
+    --warn: oklch(50% 0.13 75);
+    --err: oklch(50% 0.17 25);
+    --err-soft: color-mix(in oklch, var(--err) 12%, transparent);
+    --fg-soft: color-mix(in oklch, var(--fg) 5%, transparent);
+    --faint: color-mix(in oklch, var(--muted) 68%, transparent);
+    --on-accent: oklch(100% 0 0);
+    --shadow-card: 0 1px 2px color-mix(in oklch, var(--fg) 5%, transparent), 0 12px 32px -12px color-mix(in oklch, var(--fg) 14%, transparent);
+    --font-display: 'Noto Serif SC', 'Songti SC', 'STSong', 'Iowan Old Style', Georgia, serif;
+    --font-body: 'Noto Sans SC', -apple-system, BlinkMacSystemFont, 'PingFang SC', 'Hiragino Sans GB', 'Microsoft YaHei', system-ui, sans-serif;
+    --font-mono: ui-monospace, 'SF Mono', Menlo, 'JetBrains Mono', monospace;
+    --radius: 10px;
+    --radius-lg: 16px;
+    /* 原型内别名（对齐 base.css，不再用暖纸色） */
+    --paper: var(--bg);
+    --card: var(--surface);
+    --ink: var(--fg);
+    --line: var(--border);
+    --line2: var(--fg-soft);
+    --danger: var(--err);
+    --link: var(--accent);
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{background:var(--paper);color:var(--ink);font:14px/1.55 var(--font-body)}
+  .top{background:var(--paper);border-bottom:1px solid var(--line)}
+  .top1{display:flex;align-items:center;gap:14px;padding:8px 20px;border-bottom:1px solid var(--border);font-size:12px;color:var(--muted)}
+  .proto{font-size:10px;letter-spacing:.12em;border:1px solid var(--border);border-radius:4px;padding:1px 6px;color:var(--faint)}
+  .crumb{font-size:13px;color:var(--muted)}
+  .tabs{display:flex;gap:6px;margin-left:8px}
+  .tabs span{padding:5px 12px;border-radius:999px;border:1px solid var(--border);background:var(--surface);color:var(--muted)}
+  .tabs span.on{background:var(--accent);border-color:var(--accent);color:var(--surface)}
+  .note{margin-left:auto;font-size:11px;color:var(--faint)}
+  .top2{display:flex;align-items:center;gap:18px;padding:0 24px;height:40px;font-size:13px;color:var(--muted)}
+  .logo{font-weight:700;color:var(--accent);margin-right:6px}
+  .top2 .on{color:var(--accent);font-weight:600}
+  .page{max-width:1280px;margin:0 auto;padding:22px 24px 80px}
+  .page-crumb{font-size:11px;color:var(--faint);letter-spacing:.08em}
+  .head{display:flex;align-items:flex-start;justify-content:space-between;gap:20px;margin-bottom:20px}
+  .head h1{font-family:var(--font-display);font-size:34px;font-weight:600;margin:8px 0 6px}
+  .head .sub{font-size:12.5px;color:var(--muted)}
+  .head-actions{display:flex;align-items:center;gap:8px;padding-top:26px}
+  .btn{display:inline-flex;align-items:center;justify-content:center;gap:7px;height:34px;padding:0 15px;border:1px solid transparent;border-radius:var(--radius);background:var(--surface);color:var(--fg);font-size:13.5px;font-weight:500;cursor:pointer;transition:background .15s ease,border-color .15s ease}
+  .btn:hover{border-color:var(--border);color:var(--ink)}
+  .btn.primary{background:var(--accent);border-color:var(--accent);color:var(--on-accent)}
+  .btn.primary:hover{background:var(--accent-strong);color:var(--on-accent)}
+  .btn.ghost{border-color:transparent;background:transparent;color:var(--muted);padding:0 8px}
+  .btn.danger{color:var(--danger);border-color:color-mix(in oklch, var(--err) 30%, transparent)}
+  .btn.danger:hover{background:var(--err-soft)}
+  .cols{display:flex;gap:32px}
+  .genres{width:150px;flex:none}
+  .lab{font-size:10px;letter-spacing:.14em;color:var(--faint);margin-bottom:8px}
+  .g{display:flex;justify-content:space-between;padding:6px 10px;border-radius:7px;font-size:13px;color:var(--muted);cursor:pointer}
+  .g b{font-weight:400;font-size:10px;color:var(--faint)}
+  .g.on{background:var(--accent-soft);color:var(--accent);font-weight:600}
+  .tip{margin-top:18px;font-size:10.5px;line-height:1.6;color:var(--faint)}
+  .main{flex:1;min-width:0}
+  .strip{display:flex;align-items:center;justify-content:space-between;border-bottom:1px solid var(--line);padding-bottom:8px}
+  .strip b{font-size:12px;color:var(--ink);margin-left:4px}
+  .switch{display:flex;border:1px solid var(--line);border-radius:7px;overflow:hidden}
+  .switch button{border:0;background:var(--surface);padding:4px 12px;font-size:12px;color:var(--muted);cursor:pointer}
+  .switch button.on{background:var(--accent);color:var(--surface)}
+  .concepts{display:flex;flex-wrap:wrap;gap:6px;align-items:center;padding:10px 0;border-bottom:1px solid var(--line2)}
+  .concepts button{border:1px solid var(--line);background:var(--surface);border-radius:7px;padding:4px 11px;font-size:12px;color:var(--muted);cursor:pointer}
+  .concepts button.on{background:var(--accent-soft);border-color:color-mix(in oklch, var(--accent) 30%, transparent);color:var(--accent);font-weight:600}
+  .concepts button.off{opacity:.45;cursor:not-allowed}
+  .toolbar{display:flex;gap:10px;padding:10px 0;border-bottom:1px solid var(--line)}
+  .toolbar input{flex:1;border:1px solid var(--line);border-radius:7px;padding:7px 10px;font-size:12px;background:var(--surface);color:var(--ink)}
+  .toolbar .sel{display:inline-flex;align-items:center;padding:0 12px;border:1px solid var(--line);border-radius:7px;font-size:12px;color:var(--muted);background:var(--surface)}
+  .rows{padding-top:4px}
+  .row{display:grid;grid-template-columns:56px 1.25fr 70px 50px 2.2fr 1.25fr 90px;gap:10px;align-items:center;padding:10px 4px;border-bottom:1px solid var(--line2);font-size:12px;color:var(--muted);cursor:pointer}
+  .row:hover{background:var(--fg-soft)}
+  .id{font-family:ui-monospace,Menlo,monospace;font-size:10px;color:var(--faint)}
+  .rtitle{font-weight:600;color:var(--ink)}
+  .tag{justify-self:start;font-size:10.5px;padding:2px 7px;border-radius:4px;background:var(--fg-soft);color:var(--muted)}
+  .genre{color:var(--muted);font-size:11px}
+  .one{color:var(--muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .src{color:var(--faint);font-size:10.5px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .rowact{display:flex;gap:6px;justify-content:flex-end}
+  .mini{border:1px solid color-mix(in oklch, var(--accent) 30%, transparent);background:var(--surface);color:var(--accent);font-size:11px;padding:3px 8px;border-radius:6px;cursor:pointer}
+  .mini:hover{background:var(--accent-soft)}
+  .empty{padding:60px 20px;text-align:center;color:var(--muted)}
+  .empty p{margin-bottom:14px}
+
+  /* 抽屉 */
+  .drawer{position:fixed;top:0;right:0;height:100vh;width:500px;background:var(--surface);border-left:1px solid var(--line);box-shadow:-18px 0 50px rgba(20,30,28,.16);z-index:80;transform:translateX(100%);transition:transform .32s cubic-bezier(.16,1,.3,1);display:flex;flex-direction:column}
+  .drawer.open{transform:translateX(0)}
+  .drawer.wide{width:600px}
+  .d-head{padding:22px 28px 12px;border-bottom:1px solid var(--line2)}
+  .d-meta{display:flex;align-items:center;justify-content:space-between;font-family:ui-monospace,Menlo,monospace;font-size:9.5px;letter-spacing:.08em;color:var(--faint)}
+  .d-title{font-family:var(--font-display);font-size:26px;font-weight:600;margin-top:8px;color:var(--ink)}
+  .d-sub{font-size:11.5px;color:var(--muted);margin-top:4px;white-space:pre-line;line-height:1.6}
+  .x{border:0;background:transparent;font-size:20px;color:var(--faint);cursor:pointer}
+  .x:hover{color:var(--ink)}
+  .d-body{flex:1;overflow:auto;padding:16px 28px 24px}
+  .d-foot{padding:14px 28px 22px;border-top:1px solid var(--line2);display:flex;gap:8px;flex-wrap:wrap}
+  .d-foot .grow{flex:1}
+
+  /* Obsidian 式知识属性 */
+  .props{border:1px solid var(--line2);border-radius:10px;background:var(--surface);padding:6px 4px;margin:6px 0 8px}
+  .prow{display:flex;align-items:center;gap:10px;min-height:32px;padding:4px 10px;border-radius:6px}
+  .prow + .prow{border-top:1px solid var(--fg-soft)}
+  .prow .pkey{width:96px;flex:none;font-size:12px;color:var(--muted)}
+  .prow .pval{flex:1;font-size:12.5px;color:var(--ink);min-width:0}
+  .prow .pval.mono{font-family:ui-monospace,Menlo,monospace;font-size:11.5px;color:var(--muted)}
+  .prow .pdel{border:0;background:transparent;color:var(--border);font-size:14px;cursor:pointer}
+  .prow .pdel:hover{color:var(--danger)}
+  .chip{display:inline-block;padding:2px 8px;border-radius:5px;background:var(--fg-soft);color:var(--muted);font-size:11px;margin-right:4px}
+  .link{color:var(--link);text-decoration:none;border-bottom:1px solid rgba(107,91,210,.25);cursor:pointer}
+  .link:hover{border-bottom-color:var(--link)}
+  .addprop{border:0;background:transparent;color:var(--faint);font-size:11.5px;padding:6px 10px;cursor:pointer}
+  .addprop:hover{color:var(--accent)}
+
+  /* 知识正文 */
+  .note-h{font-family:var(--font-display);font-size:18px;font-weight:600;margin:22px 0 8px;color:var(--ink)}
+  .note-p{font-size:13px;line-height:1.75;color:var(--ink);white-space:pre-wrap}
+  .note-sub{font-size:11.5px;color:var(--muted);margin-top:5px}
+  .note-quote{background:var(--fg-soft);border-left:2px solid var(--border);border-radius:0 7px 7px 0;padding:8px 12px;font-size:12.5px;line-height:1.7;color:var(--muted);margin-top:6px}
+  .backlink{display:flex;align-items:center;gap:8px;padding:5px 0;font-size:12.5px}
+  .backlink .same{font-size:10.5px;color:var(--faint)}
+  .srcrow{display:flex;align-items:center;gap:6px;padding:3px 0;font-size:12.5px}
+
+  /* 编辑器 */
+  .ed-label{font-size:11.5px;color:var(--muted);margin-top:6px}
+  .ed-label em{color:var(--danger);font-style:normal;margin-left:3px}
+  .ed-title{width:100%;border:0;border-bottom:1px solid var(--line);background:transparent;font-family:var(--font-display);font-size:24px;font-weight:600;color:var(--ink);padding:4px 2px 8px;outline:none}
+  .ed-title::placeholder{color:var(--border)}
+  .inst{border:1px solid var(--border);border-radius:var(--radius);padding:12px;margin-bottom:10px;background:var(--surface)}
+  .inst-head{display:flex;align-items:center;justify-content:space-between;margin-bottom:8px;font-size:11.5px;color:var(--muted)}
+  .inst-ops{display:flex;gap:4px}
+  .icon-op{width:24px;height:24px;border:1px solid var(--border);border-radius:6px;background:var(--surface);color:var(--muted);cursor:pointer;line-height:1}
+  .icon-op:hover{color:var(--fg);border-color:var(--fg)}
+  .inst-bar{display:flex;align-items:center;justify-content:space-between}
+  .inst-count{font-family:var(--font-mono);font-size:10.5px;color:var(--faint)}
+  .inst .btn{margin-top:2px}
+  .inst-card{border-left:2px solid var(--border);padding:2px 0 2px 12px;margin-top:8px}
+  .ed-sec{display:flex;align-items:center;gap:8px;margin:22px 0 8px;font-size:10.5px;letter-spacing:.12em;color:var(--accent);font-weight:600}
+  .ed-sec::after{content:"";flex:1;height:1px;background:var(--line2)}
+  .field{margin-bottom:12px}
+  .field label{display:block;font-size:11.5px;color:var(--muted);margin-bottom:5px}
+  .field label em{color:var(--danger);font-style:normal;margin-left:3px}
+  .field input,.field textarea,.field select{width:100%;border:1px solid var(--line);border-radius:8px;background:var(--surface);padding:8px 10px;font-size:13px;color:var(--ink);font-family:inherit}
+  .field textarea{resize:vertical;line-height:1.65}
+  .field .hint{font-size:10.5px;color:var(--faint);margin-top:4px;display:flex;justify-content:space-between}
+  .field .err{font-size:11.5px;color:var(--danger);margin-top:4px;display:none}
+  .field.bad input,.field.bad textarea,.field.bad select{border-color:var(--err)}
+  .field.bad .err{display:block}
+  .chips{display:flex;flex-wrap:wrap;gap:6px}
+  .chips button{border:1px solid var(--line);background:var(--surface);border-radius:7px;padding:5px 12px;font-size:12px;color:var(--muted);cursor:pointer}
+  .chips button.on{background:var(--accent-soft);border-color:color-mix(in oklch, var(--accent) 30%, transparent);color:var(--accent);font-weight:600}
+  .chips button.off{opacity:.45;cursor:not-allowed}
+  .two{display:flex;gap:10px}
+  .two > *{flex:1}
+  .form-foot{display:flex;gap:8px;justify-content:flex-end;padding:14px 28px 22px;border-top:1px solid var(--line2)}
+  .toast{position:fixed;right:24px;bottom:24px;transform:translateY(20px);background:var(--fg);color:var(--on-accent);font-size:12px;padding:9px 16px;border-radius:999px;opacity:0;transition:.25s;z-index:120;pointer-events:none}
+  .toast.show{opacity:1;transform:translateY(0)}
+  .mask{position:fixed;inset:0;background:rgba(30,38,35,.32);z-index:100;display:none;align-items:center;justify-content:center}
+  .mask.show{display:flex}
+  .modal{width:400px;background:var(--surface);border-radius:12px;border:1px solid var(--line);box-shadow:0 24px 60px rgba(20,30,28,.25);padding:22px 24px}
+  .modal h3{font-size:16px;margin-bottom:8px}
+  .modal p{font-size:12.5px;line-height:1.7;color:var(--muted);margin-bottom:16px}
+  .modal .m-actions{display:flex;justify-content:flex-end;gap:8px}
+</style>
+</head>
+<body>
+  <div class="top">
+    <div class="top1">
+      <span class="proto">PROTO</span><span class="crumb">写作知识库 · 2026-11-04</span>
+      <nav class="tabs"><span class="on">◉ 知识库</span><span>◉ 库</span><span>◉ 条目</span><span>◉ 书内</span><span>◉ 星图</span></nav>
+      <span class="note">演示数据</span>
+    </div>
+    <div class="top2"><span class="logo">✎ 爱小说</span><span>我的作品</span><span class="on">写作工具</span><span>模型配置</span></div>
+  </div>
+
+  <div class="page">
+    <div class="page-crumb">写作工具 · 知识库</div>
+    <div class="head">
+      <div>
+        <h1>知识库</h1>
+        <p class="sub">每条知识都有自己的属性：类型、状态、别名、来源；正文写清它怎么用、连着谁、从哪来。</p>
+      </div>
+      <div class="head-actions">
+        <button class="btn ghost" onclick="openArchived()">已归档 <span id="archived-count">0</span></button>
+        <button class="btn primary" onclick="openEditor('create')">+ 新建知识</button>
+      </div>
+    </div>
+    <div class="cols">
+      <aside class="genres">
+        <p class="lab">题材</p>
+        <div class="g on" onclick="setGenre('全部题材', this)"><span>全部</span><b id="g-all">0</b></div>
+        <div class="g" onclick="setGenre('科幻', this)"><span>科幻</span><b id="g-科幻">0</b></div>
+        <div class="g" onclick="setGenre('都市', this)"><span>都市</span><b id="g-都市">0</b></div>
+        <div class="g" onclick="setGenre('仙侠', this)"><span>仙侠</span><b id="g-仙侠">0</b></div>
+        <div class="g" onclick="setGenre('悬疑', this)"><span>悬疑</span><b id="g-悬疑">0</b></div>
+        <p class="tip">拆书时按题材归档；一本书只用一个题材的库。</p>
+      </aside>
+      <main class="main">
+        <div class="strip">
+          <p class="lab" style="margin:0">全部知识 <b id="count">0</b></p>
+          <div class="switch"><button class="on">列表</button><button onclick="toast('星图在另一个页签里，这里不演示')">星图</button></div>
+        </div>
+        <div class="concepts">
+          <button class="on" onclick="setConcept('全部', this)">全部</button>
+          <button onclick="setConcept('文风', this)">文风</button>
+          <button onclick="setConcept('文笔', this)">文笔</button>
+          <button onclick="setConcept('世界设定', this)">世界设定</button>
+          <button onclick="setConcept('角色设定', this)">角色设定</button>
+          <button onclick="setConcept('手法', this)">手法</button>
+          <button class="off">情节 · 即将上线</button>
+        </div>
+        <div class="toolbar">
+          <input id="q" placeholder="搜标题、定义、来源书名" oninput="renderRows()" />
+          <span class="sel">全部来源</span>
+        </div>
+        <div class="rows" id="rows"></div>
+      </main>
+    </div>
+  </div>
+
+  <!-- 知识详情抽屉 -->
+  <aside class="drawer" id="detail">
+    <div class="d-head">
+      <div class="d-meta"><span id="d-meta"></span><button class="x" onclick="closeDetail()">×</button></div>
+      <div class="d-title" id="d-title"></div>
+      <div class="d-sub" id="d-sub"></div>
+    </div>
+    <div class="d-body" id="d-body"></div>
+    <div class="d-foot" id="d-foot"></div>
+  </aside>
+
+  <!-- 知识编辑器抽屉 -->
+  <aside class="drawer wide" id="editor">
+    <div class="d-head">
+      <div class="d-meta"><span id="e-mode">新建知识</span><button class="x" onclick="closeEditor()">×</button></div>
+      <div class="d-title" style="font-size:18px;margin-top:6px">知识属性与正文</div>
+    </div>
+    <div class="d-body">
+      <p class="ed-label">知识名<em>*</em></p>
+      <input class="ed-title" id="in-title" maxlength="40" placeholder="例如：剑修三境" />
+      <p class="field err" id="err-title" style="display:none">给这个知识起个名字</p>
+
+      <div class="ed-sec">分类</div>
+      <div class="props" style="border:0;background:transparent;padding:0">
+        <div class="prow">
+          <span class="pkey">题材</span>
+          <span class="pval">
+            <select id="in-genre" style="width:100%;border:1px solid var(--line);border-radius:7px;padding:6px 8px;background:var(--surface)">
+              <option value="">选一个题材</option><option>科幻</option><option>都市</option><option>仙侠</option><option>悬疑</option>
+            </select>
+          </span>
+        </div>
+        <div class="prow">
+          <span class="pkey">类别</span>
+          <span class="pval">
+            <div class="chips" id="concept-chips"></div>
+            <p class="hint" id="concept-desc" style="font-size:10.5px;color:var(--faint);margin-top:4px">选一个类别，这里会显示它的说明</p>
+          </span>
+        </div>
+      </div>
+
+      <div class="ed-sec">知识定义</div>
+      <div class="field" id="f-definition">
+        <label>这个知识在说什么<em>*</em></label>
+        <textarea id="in-definition" rows="3" placeholder="一句话说清知识本身，例如：叙述者以什么身份、用什么声音讲故事。"></textarea>
+        <p class="err">把知识定义写下来</p>
+      </div>
+      <div class="field"><label>什么时候用得上</label><input id="in-when" placeholder="例如：开卷定调、换视角时复核" /></div>
+
+      <div class="ed-sec">实例</div>
+      <div id="inst-list"></div>
+      <div class="inst-bar"><span class="inst-count" id="inst-count">0/20</span><button class="addprop" id="inst-add" onclick="addInstance()">+ 添加实例</button></div>
+
+      <div class="ed-sec">其他字段</div>
+      <div class="props" style="border:0;background:transparent;padding:0">
+        <div class="prow">
+          <span class="pkey">状态</span>
+          <span class="pval">
+            <select id="in-status" style="width:160px;border:1px solid var(--line);border-radius:7px;padding:6px 8px;background:var(--surface)">
+              <option>成形</option><option>草稿</option><option>待补</option>
+            </select>
+          </span>
+        </div>
+        <div class="prow"><span class="pkey">版本</span><span class="pval mono" id="e-version">—</span></div>
+        <div class="prow"><span class="pkey">创建</span><span class="pval mono" id="e-created">保存时生成</span></div>
+        <div class="prow"><span class="pkey">更新</span><span class="pval mono" id="e-updated">保存时生成</span></div>
+        <div class="prow">
+          <span class="pkey">别名</span>
+          <span class="pval"><input id="in-aliases" placeholder="别名，用顿号分隔，例如：三境、破境三阶" style="width:100%;border:1px solid var(--line);border-radius:7px;padding:6px 8px;background:var(--surface)" /></span>
+        </div>
+        <button class="addprop" onclick="toast('自定义字段：先记下，等真机上再接进字段表')">+ 添加字段</button>
+      </div>
+
+      <div class="ed-sec">关联知识</div>
+      <div class="field"><label>它和哪条知识有关</label><input id="in-rel" placeholder="写另一条知识的标题，例如：落魄天才" /><p class="hint">之后在星图里会长成一条连线。</p></div>
+
+    </div>
+    <div class="form-foot">
+      <button class="btn" onclick="closeEditor()">取消</button>
+      <button class="btn primary" onclick="saveEditor()">保存</button>
+    </div>
+  </aside>
+
+  <div class="mask" id="confirm">
+    <div class="modal">
+      <h3 id="m-title">归档这条知识？</h3>
+      <p id="m-text">归档后不会出现在列表里，但可以在「已归档」里找回来。写新书时也不会再取用。</p>
+      <div class="m-actions">
+        <button class="btn" onclick="closeConfirm()">取消</button>
+        <button class="btn primary" id="m-ok" onclick="confirmDelete()">归档</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="toast" id="toast"></div>
+
+<script>
+  const CONCEPTS = ['文风', '文笔', '世界设定', '角色设定', '手法', '情节'];
+  const CONCEPT_DESC = { 文风:'这本书的整体声音', 文笔:'具体句子的写法', 世界设定:'舞台、力量、势力、铁律', 角色设定:'造角色的方法，成品在角色库', 手法:'写每一章时的场面打法', 情节:'事件怎么推进' };
+  let notes = [
+    { id:'KB-010', title:'叙事身份', concept:'文风', genre:'科幻', status:'成形', created:'2026-11-04', aliases:'叙事者、说话的人', instruction:'冷峻克制，句子短，少形容词。', when:'开卷定调；换视角时复核', example:'门开的时候，风先进来。', negative:'形容词堆到三层，读者先累。', evidence:'“那不是雨声，是整座城在往后退。”', srcKind:'拆书', book:'星海拾遗', chapter:'14', rel:'对白不写「说道」', relSame:2, layer:'user', archived:false },
+    { id:'KB-011', title:'对白不写「说道」', concept:'文笔', genre:'科幻', status:'成形', created:'2026-11-03', aliases:'直接贴话', instruction:'话直接贴在动作后面，不堆小动作。', when:'对话段落', example:'他把杯子一放：“行。”', negative:'他说道：“行。”', evidence:'“行。”他把杯子一放。', srcKind:'拆书', book:'星海拾遗', chapter:'12', rel:'叙事身份', relSame:1, layer:'user', archived:false },
+    { id:'KB-012', title:'打斗先给结果', concept:'文笔', genre:'科幻', status:'草稿', created:'2026-11-02', aliases:'', instruction:'先给结果，再补过程；环境只写与人物有关的两样。', when:'打斗开场', example:'刀已经架在脖子上。', negative:'从起手式写起，一路报招式。', evidence:'', srcKind:'拆书', book:'星海拾遗', chapter:'8', rel:'', relSame:0, layer:'user', archived:false },
+    { id:'KB-016', title:'剑修三境', concept:'世界设定', genre:'科幻', status:'成形', created:'2026-10-30', aliases:'三境、破境三阶', instruction:'炼气、凝脉、照神；破境先破旧物。', when:'设定第一次露面前', example:'他捏碎了跟了十年的旧剑。', negative:'', evidence:'“破境那天，他把旧剑埋在山门后。”', srcKind:'拆书', book:'星海拾遗', chapter:'3', rel:'落魄天才', relSame:2, layer:'baseline', archived:false },
+    { id:'KB-021', title:'落魄天才', concept:'角色设定', genre:'科幻', status:'成形', created:'2026-10-28', aliases:'跌落的主角', instruction:'曾经的第一，跌落之后表面散漫。', when:'新角色出场前', example:'他把最后一笔钱买了酒。', negative:'', evidence:'“他记得所有人的名字，唯独不记得自己怕什么。”', srcKind:'拆书', book:'星海拾遗', chapter:'27', rel:'先果后因', relSame:1, layer:'user', archived:false },
+    { id:'KB-001', title:'先果后因', concept:'手法', genre:'科幻', status:'成形', created:'2026-10-26', aliases:'倒叙开场', instruction:'先写结果，再倒回去拆折。', when:'卷末收线', example:'第三章丢的钥匙，第十七章开了死者的门。', negative:'顺叙到底，悬念全漏。', evidence:'“信是三天前寄出的，可写信的人昨天才死。”', srcKind:'拆书', book:'星海拾遗', chapter:'12', rel:'叙事身份', relSame:3, layer:'user', archived:false },
+    { id:'KB-002', title:'声音打点', concept:'手法', genre:'科幻', status:'待补', created:'2026-10-25', aliases:'', instruction:'每一招落一个声响。', when:'打斗段落', example:'剑出鞘，嗡的一声。', negative:'', evidence:'', srcKind:'拆书', book:'星海拾遗', chapter:'20', rel:'', relSame:0, layer:'user', archived:false },
+    { id:'KB-023', title:'招牌扬名', concept:'情节', genre:'科幻', status:'草稿', created:'2026-10-24', aliases:'', instruction:'报名被轻视 → 初战藏拙 → 复赛通籍 → 扬名。', when:'卷末收线', example:'', negative:'', evidence:'', srcKind:'拆书', book:'星海拾遗', chapter:'', rel:'', relSame:0, layer:'user', archived:false }
+  ];
+  const KNOWLEDGE_DEF = {
+    'KB-010': '叙述者以什么身份、用什么声音讲这个故事：人称、语体、和读者的距离。',
+    'KB-011': '对白的提示语怎么省，才能让话自己站出来。',
+    'KB-012': '打斗段落的叙述顺序：先给结果还是先给过程。',
+    'KB-016': '修真境界怎么分层：每一境的名称、门槛和代价。',
+    'KB-021': '跌落型主角怎么立：曾经的顶点和现在的壳。',
+    'KB-001': '结构与信息的先后：先给结果还是先给原因。',
+    'KB-002': '动作场面的听觉标记怎么用。',
+    'KB-023': '扬名线的节拍：被轻视、藏拙、通籍、扬名。'
+  };
+  notes.forEach(n => {
+    if (n.version == null) n.version = 1;
+    if (!n.updated) n.updated = n.created || '2026-11-04 00:00';
+    if (!n.definition) n.definition = KNOWLEDGE_DEF[n.id] || '';
+    if (!n.instances) n.instances = [{ text: n.instruction || '', book: n.book || '', chapter: n.chapter || '', quote: n.evidence || '' }];
+  });
+  let genre = '全部题材', concept = '全部', archivedOnly = false;
+  let selectedId = null, editingId = null, formConcept = '', srcKind = '拆书';
+
+  const $ = (id) => document.getElementById(id);
+  const toastEl = $('toast');
+  let toastTimer = 0;
+  function toast(msg) {
+    toastEl.textContent = msg;
+    toastEl.classList.add('show');
+    clearTimeout(toastTimer);
+    toastTimer = setTimeout(() => toastEl.classList.remove('show'), 2200);
+  }
+  function nowText() {
+    const d = new Date();
+    const p = (x) => String(x).padStart(2, '0');
+    return d.getFullYear() + '-' + p(d.getMonth() + 1) + '-' + p(d.getDate()) + ' ' + p(d.getHours()) + ':' + p(d.getMinutes());
+  }
+  function esc(s) { return String(s == null ? '' : s).replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c])); }
+  function find(id) { return notes.find(n => n.id === id); }
+
+  function visible() {
+    const q = $('q').value.trim().toLowerCase();
+    return notes.filter(n => {
+      if (archivedOnly ? !n.archived : n.archived) return false;
+      if (genre !== '全部题材' && n.genre !== genre) return false;
+      if (concept !== '全部' && n.concept !== concept) return false;
+      if (q && !(n.title + n.instruction + n.book).toLowerCase().includes(q)) return false;
+      return true;
+    });
+  }
+
+  function renderRows() {
+    const list = visible();
+    $('count').textContent = list.length;
+    $('archived-count').textContent = notes.filter(n => n.archived).length;
+    $('g-all').textContent = notes.filter(n => !n.archived).length;
+    ['科幻','都市','仙侠','悬疑'].forEach(g => {
+      const el = $('g-' + g);
+      if (el) el.textContent = notes.filter(n => !n.archived && n.genre === g).length;
+    });
+    if (!list.length) {
+      $('rows').innerHTML = '<div class="empty"><p>' + (archivedOnly ? '还没有归档的知识。' : '这个筛选下还没有知识。') + '</p>' +
+        (archivedOnly ? '' : '<button class="btn primary" onclick="openEditor(\'create\')">+ 新建一张</button>') + '</div>';
+      return;
+    }
+    $('rows').innerHTML = list.map(n =>
+      '<div class="row" onclick="openDetail(\'' + n.id + '\')">' +
+        '<span class="id">' + esc(n.id) + '</span>' +
+        '<span class="rtitle">' + esc(n.title) + '</span>' +
+        '<span class="tag">' + esc(n.concept) + '</span>' +
+        '<span class="genre">' + esc(n.genre) + '</span>' +
+        '<span class="one">' + esc(n.instruction) + '</span>' +
+        '<span class="src">' + (n.srcKind === '拆书' ? '拆书《' + esc(n.book) + '》' : '手录') + '</span>' +
+        '<span class="rowact">' + (archivedOnly
+          ? '<button class="mini" onclick="event.stopPropagation(); restoreNote(\'' + n.id + '\')">恢复</button>'
+          : '<button class="mini" onclick="event.stopPropagation(); openEditor(\'edit\',\'' + n.id + '\')">修改</button>') + '</span>' +
+      '</div>'
+    ).join('');
+  }
+  function setGenre(g, el) { genre = g; document.querySelectorAll('.g').forEach(x => x.classList.remove('on')); if (el) el.classList.add('on'); renderRows(); }
+  function setConcept(c, el) { concept = c; document.querySelectorAll('.concepts button').forEach(x => x.classList.remove('on')); if (el) el.classList.add('on'); renderRows(); }
+  function openArchived() { archivedOnly = true; renderRows(); toast('已在看「已归档」；点条目可以恢复'); }
+  function restoreNote(id) { const n = find(id); if (!n) return; n.archived = false; archivedOnly = false; renderRows(); toast('已恢复到列表'); }
+
+  /* 详情＝Obsidian 式知识视图 */
+  function openDetail(id) {
+    const n = find(id);
+    if (!n) return;
+    selectedId = id;
+    $('d-meta').textContent = n.id + ' · ' + n.concept + ' · ' + n.genre;
+    $('d-title').textContent = n.title;
+    $('d-sub').textContent = '分类：类别 / ' + n.concept + ' · 题材 / ' + n.genre + '\n类别说明：' + (CONCEPT_DESC[n.concept] || '');
+    const inst = n.instances || [];
+    const allSources = [...new Set(inst.map(i => i.book ? '《' + i.book + '》' + (i.chapter ? ' 第 ' + i.chapter + ' 章' : '') : '手录'))];
+    const sourcesHtml = allSources.length ? allSources.map(x => '<span class="link">' + esc(x) + '</span>').join('<br>') : '<span style="color:var(--border)">—</span>';
+    $('d-body').innerHTML =
+      '<div class="note-h" style="margin-top:2px">知识定义</div><p class="note-p">' + esc(n.definition || '') + '</p>' +
+      (n.when ? '<p class="note-sub">适用：' + esc(n.when) + '</p>' : '') +
+      '<div class="note-h">实例</div>' +
+      (inst.length
+        ? inst.map(i =>
+            '<div class="inst-card">' +
+              '<p class="note-p">' + esc(i.text || '') + '</p>' +
+              (i.book ? '<p class="note-sub">《' + esc(i.book) + '》' + (i.chapter ? ' 第 ' + esc(i.chapter) + ' 章' : '') + '</p>' : '') +
+              (i.quote ? '<div class="note-quote">' + esc(i.quote) + '</div>' : '') +
+            '</div>'
+          ).join('')
+        : '<p class="note-sub">还没有实例</p>') +
+      '<div class="note-h">其他字段</div>' +
+      '<div class="props">' +
+        '<div class="prow"><span class="pkey">状态</span><span class="pval">' + esc(n.status) + '</span></div>' +
+        '<div class="prow"><span class="pkey">版本</span><span class="pval mono">v' + esc(n.version || 1) + '</span></div>' +
+        '<div class="prow"><span class="pkey">创建</span><span class="pval mono">' + esc(n.created) + '</span></div>' +
+        '<div class="prow"><span class="pkey">更新</span><span class="pval mono">' + esc(n.updated || n.created) + '</span></div>' +
+        '<div class="prow"><span class="pkey">别名</span><span class="pval">' + (n.aliases ? n.aliases.split(/[、,，]/).map(a => '<span class="chip">' + esc(a.trim()) + '</span>').join('') : '<span style="color:var(--border)">—</span>') + '</span></div>' +
+        '<div class="prow"><span class="pkey">来源</span><span class="pval">' + sourcesHtml + '</span></div>' +
+        '<button class="addprop" onclick="toast(\'自定义属性：先记下，等真机上再接进属性表\')">+ 添加字段</button>' +
+      '</div>' +
+      '<div class="note-h">关联知识</div>' +
+      (n.rel
+        ? '<div class="backlink"><span class="link" onclick="jumpTo(\'' + esc(n.rel) + '\')">' + esc(n.rel) + '</span><span class="same">同源 ' + (n.relSame || 1) + ' 篇</span></div>'
+        : '<p class="note-sub">还没有关联知识</p>') +
+      '<div class="note-h">证据链</div>' +
+      (allSources.length ? allSources.map(x => '<div class="srcrow"><span class="link">' + esc(x) + '</span></div>').join('') : '<p class="note-sub">还没有来源</p>');
+    const foot = $('d-foot');
+    if (n.layer === 'baseline') {
+      foot.innerHTML = '<button class="btn" onclick="toast(\'已存为我的副本，可以改了\')">存为我的副本</button>' +
+        '<button class="btn" onclick="toast(\'已隐藏，可在「已隐藏」里恢复\')">隐藏这条</button>' +
+        '<span class="grow"></span><button class="btn" onclick="closeDetail()">关闭</button>';
+    } else {
+      foot.innerHTML = '<button class="btn primary" onclick="openEditor(\'edit\',\'' + n.id + '\')">修改</button>' +
+        '<button class="btn danger" onclick="askDelete(\'' + n.id + '\')">删除</button>' +
+        '<span class="grow"></span><button class="btn" onclick="closeDetail()">关闭</button>';
+    }
+    $('detail').classList.add('open');
+  }
+  function closeDetail() { $('detail').classList.remove('open'); selectedId = null; }
+  function jumpTo(title) {
+    const target = notes.find(x => x.title === title);
+    if (target) openDetail(target.id);
+    else toast('没找到「' + title + '」这条知识');
+  }
+
+  let pendingDelete = null;
+  function askDelete(id) {
+    pendingDelete = id;
+    const n = find(id);
+    $('m-title').textContent = '归档「' + n.title + '」？';
+    $('m-text').textContent = '归档后不会出现在列表里，但可以在「已归档」里找回来。写新书时也不会再取用这条知识。';
+    $('confirm').classList.add('show');
+  }
+  function closeConfirm() { $('confirm').classList.remove('show'); pendingDelete = null; }
+  function confirmDelete() {
+    const n = find(pendingDelete);
+    if (n) n.archived = true;
+    closeConfirm(); closeDetail(); renderRows();
+    toast('已归档；点右上角「已归档」可以恢复');
+  }
+
+  /* 编辑器 */
+  function renderConceptChips() {
+    $('concept-chips').innerHTML = CONCEPTS.map(c =>
+      '<button type="button" class="' + (c === formConcept ? 'on' : '') + (c === '情节' ? ' off' : '') + '" ' +
+      (c === '情节' ? 'disabled' : '') + ' onclick="pickConcept(\'' + c + '\')">' + c + (c === '情节' ? ' · 即将上线' : '') + '</button>'
+    ).join('');
+  }
+  function pickConcept(c) {
+    formConcept = c;
+    renderConceptChips();
+    const d = $('concept-desc');
+    if (d) d.textContent = c && CONCEPT_DESC[c] ? c + ' · ' + CONCEPT_DESC[c] : '选一个类别，这里会显示它的说明';
+  }
+  function renderInstances(list) {
+    $('inst-list').innerHTML = list.map((i, idx) =>
+      '<div class="inst" data-i="' + idx + '">' +
+        '<div class="inst-head"><span class="inst-no">实例 ' + (idx + 1) + '</span>' +
+          '<span class="inst-ops">' +
+            (idx > 0 ? '<button type="button" class="icon-op" onclick="moveInstance(this,-1)" title="上移">↑</button>' : '') +
+            (idx < list.length - 1 ? '<button type="button" class="icon-op" onclick="moveInstance(this,1)" title="下移">↓</button>' : '') +
+            '<button type="button" class="icon-op" onclick="removeInstance(this)" title="删除这个实例">×</button>' +
+          '</span>' +
+        '</div>' +
+        '<div class="field"><label>这个实例怎么写</label><textarea class="in-inst-text" rows="2" placeholder="例如：冷峻克制，句子短，少形容词。">' + esc(i.text || '') + '</textarea></div>' +
+        '<div class="field"><label>出处</label><div class="two"><input class="in-inst-book" placeholder="书名" value="' + esc(i.book || '') + '" /><input class="in-inst-chapter" placeholder="第几章" value="' + esc(i.chapter || '') + '" /></div></div>' +
+        '<div class="field"><label>原文摘句</label><textarea class="in-inst-quote" rows="2" placeholder="书里支撑这个实例的原句（可选）">' + esc(i.quote || '') + '</textarea></div>' +
+      '</div>'
+    ).join('');
+    const add = $('inst-add');
+    if (add) add.style.display = list.length >= 20 ? 'none' : '';
+    const cnt = $('inst-count');
+    if (cnt) cnt.textContent = list.length + '/20';
+  }
+  function moveInstance(btn, dir) {
+    const list = readInstances();
+    const idx = [...document.querySelectorAll('#inst-list .inst')].indexOf(btn.closest('.inst'));
+    const j = idx + dir;
+    if (i_out(idx, j, list)) return;
+    const t = list[idx]; list[idx] = list[j]; list[j] = t;
+    renderInstances(list);
+  }
+  function i_out(a, b, arr) { return a < 0 || b < 0 || a >= arr.length || b >= arr.length; }
+  function readInstances() {
+    return [...document.querySelectorAll('#inst-list .inst')].map(row => ({
+      text: row.querySelector('.in-inst-text').value.trim(),
+      book: row.querySelector('.in-inst-book').value.trim(),
+      chapter: row.querySelector('.in-inst-chapter').value.trim(),
+      quote: row.querySelector('.in-inst-quote').value.trim(),
+    }));
+  }
+  function addInstance() { const list = readInstances(); list.push({ text: '', book: '', chapter: '', quote: '' }); renderInstances(list); }
+  function removeInstance(btn) { const row = btn.closest('.inst'); if (row) row.remove(); }
+
+  function openEditor(mode, id) {
+    editingId = mode === 'edit' ? id : null;
+    const n = editingId ? find(editingId) : null;
+    formConcept = n ? n.concept : '';
+    $('e-mode').textContent = n ? '修改知识' : '新建知识';
+    $('in-title').value = n ? n.title : '';
+    $('in-genre').value = n ? n.genre : (genre !== '全部题材' ? genre : '');
+    $('in-status').value = n ? n.status : '成形';
+    $('in-aliases').value = n ? n.aliases : '';
+    $('e-version').textContent = n ? 'v' + (n.version || 1) : '保存时生成';
+    $('e-created').textContent = n ? n.created : '保存时生成';
+    $('e-updated').textContent = n ? (n.updated || n.created) : '保存时生成';
+    $('in-definition').value = n ? (n.definition || '') : '';
+    $('in-when').value = n ? n.when : '';
+    $('in-rel').value = n ? n.rel : '';
+    renderConceptChips();
+    const cdesc = $('concept-desc');
+    if (cdesc) cdesc.textContent = formConcept && CONCEPT_DESC[formConcept] ? formConcept + ' · ' + CONCEPT_DESC[formConcept] : '选一个类别，这里会显示它的说明';
+    renderInstances(n && n.instances && n.instances.length ? n.instances : [{ text: '', book: '', chapter: '', quote: '' }]);
+    document.querySelectorAll('#editor .field').forEach(f => f.classList.remove('bad'));
+    $('err-title').style.display = 'none';
+    $('editor').classList.add('open');
+  }
+  function closeEditor() { $('editor').classList.remove('open'); editingId = null; if (selectedId) openDetail(selectedId); }
+
+  function saveEditor() {
+    const genreOk = !!$('in-genre').value;
+    const titleOk = !!$('in-title').value.trim();
+    const conceptOk = !!formConcept;
+    const defOk = !!$('in-definition').value.trim();
+    $('in-genre').closest('.prow').style.outline = genreOk ? 'none' : '1px solid var(--err)';
+    $('err-title').style.display = titleOk ? 'none' : 'block';
+    $('f-definition').classList.toggle('bad', !defOk);
+    $('concept-chips').style.outline = conceptOk ? 'none' : '1px solid var(--err)';
+    if (!genreOk) { toast('先选一个题材'); return; }
+    if (!titleOk) { toast('给这个知识起个名字'); return; }
+    if (!conceptOk) { toast('选一个类别'); return; }
+    if (!defOk) { toast('把知识定义写下来'); return; }
+
+    const instances = readInstances().filter(i => i.text || i.book || i.quote);
+    const first = instances[0] || { text: '', book: '', chapter: '', quote: '' };
+    const data = {
+      title: $('in-title').value.trim(),
+      genre: $('in-genre').value,
+      concept: formConcept,
+      status: $('in-status').value,
+      aliases: $('in-aliases').value.trim(),
+      definition: $('in-definition').value.trim(),
+      when: $('in-when').value.trim(),
+      rel: $('in-rel').value.trim(),
+      instances,
+      instruction: first.text,
+      book: first.book,
+      chapter: first.chapter,
+      evidence: first.quote,
+    };
+    const now = nowText();
+    if (editingId) {
+      const cur = find(editingId);
+      data.version = (cur.version || 1) + 1;
+      data.updated = now;
+      Object.assign(cur, data);
+      const id = editingId;
+      $('editor').classList.remove('open');
+      editingId = null;
+      renderRows(); openDetail(id);
+      toast('已保存');
+    } else {
+      const n = notes.filter(x => x.id.startsWith('KB-')).length + 1;
+      const id = 'KB-' + String(n).padStart(3, '0');
+      notes.unshift(Object.assign({ id, version: 1, created: now, updated: now, relSame: 0, layer: 'user', archived: false }, data));
+      $('editor').classList.remove('open');
+      renderRows(); openDetail(id);
+      toast('已新建；之后在星图里会连到它所属的类别');
+    }
+  }
+
+  renderRows();
+  renderConceptChips();
+</script>
+</body>
+</html>

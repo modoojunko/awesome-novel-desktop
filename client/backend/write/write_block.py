@@ -35,7 +35,7 @@ from models.chapter import Chapter, ChapterCharacter
 from models.kb import (
     KbBookBinding,
     KbBookEntry,
-    KbEntry,
+    KbKnowledge,
     KbLibrary,
     KbMatchItem,
     KbMatchRun,
@@ -232,7 +232,7 @@ async def _load_run_items(
     miss = [i for i in ids if i not in entries]
     if miss:
         for e in (
-            await db.execute(select(KbEntry).where(KbEntry.id.in_(miss)))
+            await db.execute(select(KbKnowledge).where(KbKnowledge.id.in_(miss)))
         ).scalars():
             entries[e.id] = e
         miss = [i for i in ids if i not in entries]

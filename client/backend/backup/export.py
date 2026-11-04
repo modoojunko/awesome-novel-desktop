@@ -674,7 +674,7 @@ async def _kb_account_section(db, user_id: str) -> tuple[dict, list[dict]]:
     from models.kb import (
         KbBaselineOverlay,
         KbConcept,
-        KbEntry,
+        KbKnowledge,
         KbEntryBlob,
         KbEntryMerge,
         KbEntryTag,
@@ -700,7 +700,7 @@ async def _kb_account_section(db, user_id: str) -> tuple[dict, list[dict]]:
 
     sections = {}
     for name, model in (
-        ("entries", KbEntry), ("concepts", KbConcept), ("entry_tags", KbEntryTag),
+        ("entries", KbKnowledge), ("concepts", KbConcept), ("entry_tags", KbEntryTag),
         ("relations", KbRelation), ("organize_runs", KbOrganizeRun),
         ("organize_findings", KbOrganizeFinding),
         ("organize_feedback", KbOrganizeFeedback),
@@ -783,10 +783,10 @@ async def config_preview(db, user_id: str) -> dict:
         return f"{key[:3]}{'*' * 8}{key[-4:]}" if len(key) > 8 else "*" * len(key)
 
     rows = (await db.scalars(select(ApiConfig).where(ApiConfig.user_id == user.id))).all()
-    from models.kb import KbBaselineOverlay, KbEntry, KbLibrary
+    from models.kb import KbBaselineOverlay, KbKnowledge, KbLibrary
 
     kb_entries_n = (
-        await db.scalars(select(func.count(KbEntry.id)).where(KbEntry.user_id == user.id))
+        await db.scalars(select(func.count(KbKnowledge.id)).where(KbKnowledge.user_id == user.id))
     ).first() or 0
     kb_libs_n = (
         await db.scalars(select(func.count(KbLibrary.id)).where(KbLibrary.user_id == user.id))

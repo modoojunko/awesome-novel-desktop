@@ -5,13 +5,15 @@ from __future__ import annotations
 import json
 from typing import Any
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Body, Depends, HTTPException
+from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from auth_local.deps import get_current_user
 from db import get_db
+from kb import service as knowledge_service
 from kb.concepts import CONCEPTS, THEMES
 from kb.migrate_library import ensure_legacy_migrated
 from kb.service import (
@@ -1063,3 +1065,71 @@ async def book_scope_diff_api(
         "ok": True,
         "data": {"new_count": int(new_count or 0), "declined": declined},
     }
+
+
+# ── 知识 v2：归档/恢复/实例（c-kb-knowledge-v2）─────────────────────────
+
+
+@router.post("/entries/{entry_id}/archive")
+async def archive_entry_api(
+    entry_id: str,
+    user: Annotated[dict, Depends(_user)],
+    db: Annotated[AsyncSession, Depends(get_db)],
+):
+    ok = await knowledge_service.archive_knowledge(db, user_id=_user(user), entry_id=entry_id)
+    if not ok:
+        return JSONResponse(status_code=404, content={"ok": False, "error": "知识不存在或已归档"})
+    return {"ok": True, "entry_id": entry_id}
+
+
+@router.post("/entries/{entry_id}/restore")
+async def restore_entry_api(
+    entry_id: str,
+    user: Annotated[dict, Depends(_user)],
+    db: Annotated[AsyncSession, Depends(get_db)],
+):
+    ok = await knowledge_service.restore_knowledge(db, user_id=_user(user), entry_id=entry_id)
+    if not ok:
+        return JSONResponse(status_code=404, content={"ok": False, "error": "知识不存在或未归档"})
+    return {"ok": True, "entry_id": entry_id}
+
+
+@router.get("/entries/{entry_id}/instances")
+async def list_instances_api(
+    entry_id: str,
+    user: Annotated[dict, Depends(_user)],
+    db: Annotated[AsyncSession, Depends(get_db)],
+):
+    from models.kb import KbKnowledgeInstance
+    from sqlalchemy import select
+
+    rows = (await db.execute(
+        select(KbKnowledgeInstance)
+        .where(KbKnowledgeInstance.knowledge_id == entry_id)
+        .order_by(KbKnowledgeInstance.sort)
+    )).scalars().all()
+    return {"ok": True, "instances": [
+        {"id": r.id, "text": r.text, "source_kind": r.source_kind,
+         "source_novel": r.source_novel, "source_chapter": r.source_chapter,
+         "quote": r.quote, "sort": r.sort}
+        for r in rows
+    ]}
+
+
+@router.post("/entries/{entry_id}/instances")
+async def add_instance_api(
+    entry_id: str,
+    user: Annotated[dict, Depends(_user)],
+    db: Annotated[AsyncSession, Depends(get_db)],
+    body: dict[str, Any] = Body(...),
+):
+    inst = await knowledge_service.add_instance(
+        db, knowledge_id=entry_id,
+        text=body.get("text", ""),
+        source_kind=body.get("source_kind", "拆书"),
+        source_novel=body.get("source_novel", ""),
+        source_chapter=body.get("source_chapter", ""),
+        quote=body.get("quote", ""),
+        sort=body.get("sort", 0),
+    )
+    return {"ok": True, "instance": {"id": inst.id, "text": inst.text}}

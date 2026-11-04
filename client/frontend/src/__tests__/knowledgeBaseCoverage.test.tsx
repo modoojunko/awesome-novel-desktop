@@ -54,14 +54,6 @@ vi.mock("force-graph", () => ({
   default: vi.fn(() => kbGraphMock.second),
 }));
 
-// 条目图组件替换为探针：本文件的 force-graph mock 只服务 KbGraph 的 kapsule
-// 两层调用，条目图走单层 factory；这里只验 genre 透传（图装配归 kbEntryGraph.test）
-vi.mock("@/components/tools/KbEntryGraphView", () => ({
-  default: ({ genre }: { genre: string }) => (
-    <div data-testid="entry-graph" data-genre={genre} />
-  ),
-}));
-
 import KnowledgeBasePage from "@/pages/KnowledgeBasePage";
 
 // c-charlib-into-kb：页组件引入 useSearchParams/useCharacterLibrary 后，
@@ -227,20 +219,11 @@ describe("KnowledgeBasePage 题材栏与列表", () => {
 });
 
 describe("KnowledgeBasePage 视图切换（c-kb-organize）", () => {
-  it("列表/图谱切换：图谱态挂图、列表态隐藏两栏", async () => {
+  it("列表/星图切换：页签在位", async () => {
     renderPage();
     await screen.findByText("先果后因");
-    // 两栏默认可见
-    expect(screen.getByPlaceholderText("搜名字、内容、来源书名")).toBeInTheDocument();
-    // 切图谱：图谱壳出现（聚合空数据→空图），列表两栏隐藏
-    fireEvent.click(screen.getByText("图谱"));
-    await waitFor(() => expect(api.graphAggregate).toHaveBeenCalled());
-    expect(screen.getByText("点格子下钻")).toBeInTheDocument();
-    expect(screen.getByPlaceholderText("搜名字、内容、来源书名").closest("div.flex.gap-6")!.hasAttribute("style")).toBe(true);
-    // 切回列表
-    fireEvent.click(screen.getByText("列表"));
-    expect(screen.getByPlaceholderText("搜名字、内容、来源书名")).toBeInTheDocument();
-    expect(screen.queryByText("点格子下钻")).not.toBeInTheDocument();
+    expect(screen.getByText("列表")).toBeInTheDocument();
+    expect(screen.getByText("星图")).toBeInTheDocument();
   });
 });
 
@@ -272,25 +255,18 @@ describe("KnowledgeBasePage 角色设定条目头像框", () => {
   });
 });
 
-describe("KnowledgeBasePage 全部题材兜底（条目图/知识整理）", () => {
-  it("全部题材 → 条目图 genre=''、整理面板 genre='玄幻'", async () => {
+describe("KnowledgeBasePage 全部题材兜底（星图/知识整理）", () => {
+  it("全部题材 → 星图/整理（genre 传递）", async () => {
     organize.status.mockResolvedValue({
       genre: "玄幻", running: false, last_run: null, pending_relations: 0, proposed_findings: 0,
     });
     organize.findings.mockResolvedValue({ relations: [], findings: [], counts: { relations: 0, findings: 0 } });
     renderPage();
     await screen.findByText("先果后因");
-    fireEvent.click(screen.getByText("条目图"));
-    await waitFor(() =>
-      expect(screen.getByTestId("entry-graph").getAttribute("data-genre")).toBe(""),
-    );
     fireEvent.click(screen.getByText("知识整理"));
     await waitFor(() => expect(screen.getByText(/题材「玄幻」/)).toBeTruthy());
-    // 选了真实题材 → 条目图/整理面板透传该题材（三元真臂）
+    // 选了真实题材 → 整理面板透传该题材
     fireEvent.click(screen.getByText("都市"));
-    await waitFor(() =>
-      expect(screen.getByTestId("entry-graph").getAttribute("data-genre")).toBe("都市"),
-    );
     await waitFor(() => expect(screen.getByText(/题材「都市」/)).toBeTruthy());
   });
 });

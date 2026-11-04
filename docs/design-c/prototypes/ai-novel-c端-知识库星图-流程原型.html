@@ -1,0 +1,3932 @@
+<!DOCTYPE html>
+<!-- ═══════════════════════════════════════════════════════════════════════
+  知识库 · 星海模式 · 原型（ai-novel C端）
+  定位：替换「图谱 / 条目图」两个页签，只保留一个写作知识星海视图。
+  基座：okf-galaxy-visualizer（MIT，cabezondigital/okf-galaxy-visualizer）
+       单文件 src/public/index.html，Three.js 0.160 + 3d-force-graph 1.73.3（CDN）。
+       本原型只换数据源与 HUD 文案，星系/轨道/星尘/连线渲染均为基座原样。
+  数据：内置写作知识演示数据（4 题材 × 6 概念，43 条条目），形状对齐
+       /kb/graph/entries；真机由接口替换 buildStarSeaData()。
+  演示交互：自动旋转 / 连线粒子 / 亮度 / 轨道速度 / 星体大小 / 题材筛选与聚焦 /
+       搜索 / 点星出条目抽屉 / 回到全景 / H 收起界面。无任何真实网络调用。
+═══════════════════════════════════════════════════════════════════════ -->
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <title>知识库 · 列表 → 星图 · 流程原型 · ai-novel C端</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <script src="https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/3d-force-graph@1.73.3/dist/3d-force-graph.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/marked@12.0.2/marked.min.js"></script>
+  <style>
+    :root {
+      --bg: #000000;
+      --card-bg: rgba(6, 10, 18, 0.82);
+      --border: rgba(255, 255, 255, 0.08);
+      --accent-gold: #fbbf24;
+      --accent-cyan: #38bdf8;
+      --accent-pink: #f43f5e;
+      --accent-emerald: #22c55e;
+      --accent-violet: #c084fc;
+      --text: #f8fafc;
+      --text-muted: #94a3b8;
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; }
+    body { background: #000000; color: var(--text); overflow: hidden; height: 100vh; width: 100vw; display: flex; flex-direction: column; user-select: none; }
+    #3d-graph { cursor: grab; }
+    #3d-graph.grabbing { cursor: grabbing; }
+    
+    /* Top Bar: Ultra Minimal & Sleek */
+    header {
+      background: rgba(0, 0, 0, 0.65);
+      backdrop-filter: blur(16px);
+      border-bottom: 1px solid var(--border);
+      padding: 10px 24px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      z-index: 20;
+      transition: transform 0.35s cubic-bezier(0.16, 1, 0.3, 1), opacity 0.35s ease;
+    }
+    body.hud-hidden header {
+      transform: translateY(-120%);
+      opacity: 0;
+      pointer-events: none;
+    }
+    .brand { display: flex; align-items: center; gap: 10px; }
+    .brand-title { font-size: 1.1rem; font-weight: 700; letter-spacing: 0.5px; background: linear-gradient(135deg, #ffffff, #38bdf8); -webkit-background-clip: text; -webkit-text-fill-color: transparent; }
+    .badge { font-size: 0.68rem; text-transform: uppercase; letter-spacing: 1px; padding: 2px 7px; border-radius: 4px; background: rgba(56, 189, 248, 0.12); color: var(--accent-cyan); font-weight: 700; }
+
+    /* Mode Switcher: 3D Spherical Cortex vs 3D Galaxy */
+    .mode-selector {
+      display: flex;
+      align-items: center;
+      background: rgba(255, 255, 255, 0.04);
+      border: 1px solid rgba(255, 255, 255, 0.1);
+      border-radius: 20px;
+      padding: 2px;
+      gap: 3px;
+      margin-left: 6px;
+    }
+    .mode-btn {
+      background: transparent;
+      border: 1px solid transparent;
+      color: #94a3b8;
+      padding: 4px 11px;
+      border-radius: 16px;
+      font-size: 0.72rem;
+      font-weight: 600;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      gap: 5px;
+      transition: all 0.22s cubic-bezier(0.16, 1, 0.3, 1);
+    }
+    .mode-btn:hover {
+      color: #f8fafc;
+      background: rgba(255, 255, 255, 0.06);
+    }
+    .mode-btn.active {
+      background: linear-gradient(135deg, rgba(56, 189, 248, 0.2), rgba(192, 132, 252, 0.22));
+      color: #ffffff;
+      border-color: rgba(56, 189, 248, 0.45);
+      box-shadow: 0 0 12px rgba(56, 189, 248, 0.25);
+    }
+    .mode-btn.active .mode-icon {
+      filter: drop-shadow(0 0 6px var(--accent-cyan));
+    }
+
+    /* Mode Selector: Low (Default Cloud Mode) vs Full */
+    .data-mode-capsule {
+      display: flex;
+      align-items: center;
+      background: rgba(15, 23, 42, 0.75);
+      backdrop-filter: blur(14px);
+      border: 1px solid rgba(56, 189, 248, 0.28);
+      border-radius: 20px;
+      padding: 2px;
+      box-shadow: 0 4px 18px rgba(0, 0, 0, 0.45);
+    }
+    .data-mode-btn {
+      background: transparent;
+      border: 1px solid transparent;
+      color: #94a3b8;
+      padding: 4px 11px;
+      border-radius: 16px;
+      font-size: 0.72rem;
+      font-weight: 600;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      gap: 5px;
+      transition: all 0.22s cubic-bezier(0.16, 1, 0.3, 1);
+    }
+    .data-mode-btn:hover {
+      color: #f8fafc;
+      background: rgba(255, 255, 255, 0.08);
+    }
+    .data-mode-btn.active {
+      background: linear-gradient(135deg, rgba(56, 189, 248, 0.28), rgba(16, 185, 129, 0.24));
+      color: #38bdf8;
+      box-shadow: 0 0 12px rgba(56, 189, 248, 0.35);
+      border-color: rgba(56, 189, 248, 0.45);
+    }
+    .data-mode-btn#btn-mode-full.active {
+      background: linear-gradient(135deg, rgba(168, 85, 247, 0.28), rgba(59, 130, 246, 0.24));
+      color: #c084fc;
+      border-color: rgba(192, 132, 252, 0.45);
+      box-shadow: 0 0 12px rgba(192, 132, 252, 0.35);
+    }
+
+    /* Cloud Density Slider Capsule */
+    .cloud-density-capsule {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      background: rgba(15, 23, 42, 0.75);
+      backdrop-filter: blur(14px);
+      border: 1px solid rgba(56, 189, 248, 0.28);
+      border-radius: 20px;
+      padding: 3px 12px;
+      box-shadow: 0 4px 18px rgba(0, 0, 0, 0.45);
+      transition: all 0.3s ease;
+    }
+    .cloud-density-capsule.hidden {
+      display: none !important;
+    }
+    .cloud-icon { font-size: 0.82rem; }
+    .cloud-label {
+      font-size: 0.7rem;
+      font-weight: 600;
+      color: #94a3b8;
+      user-select: none;
+    }
+    .cloud-slider {
+      width: 80px;
+      height: 4px;
+      -webkit-appearance: none;
+      background: rgba(255, 255, 255, 0.15);
+      border-radius: 2px;
+      outline: none;
+      cursor: pointer;
+    }
+    .cloud-slider::-webkit-slider-thumb {
+      -webkit-appearance: none;
+      width: 12px;
+      height: 12px;
+      border-radius: 50%;
+      background: var(--accent-cyan);
+      box-shadow: 0 0 8px var(--accent-cyan);
+      cursor: pointer;
+      transition: transform 0.15s;
+    }
+    .cloud-slider::-webkit-slider-thumb:hover {
+      transform: scale(1.25);
+    }
+    .cloud-val {
+      font-size: 0.72rem;
+      font-weight: 700;
+      color: var(--accent-cyan);
+      min-width: 24px;
+      font-variant-numeric: tabular-nums;
+      user-select: none;
+    }
+
+    .stats-bar { display: flex; gap: 14px; align-items: center; }
+    .stat-pill { font-size: 0.76rem; color: var(--text-muted); display: flex; align-items: center; gap: 6px; cursor: pointer; padding: 4px 8px; border-radius: 6px; transition: background 0.2s; }
+    .stat-pill:hover { background: rgba(255,255,255,0.06); color: #fff; }
+    /* Scalable Dynamic Taxonomy Dropdown */
+    
+    /* Checkbox for Layer Toggling */
+    .layer-check {
+      width: 15px;
+      height: 15px;
+      border-radius: 4px;
+      border: 1px solid rgba(255, 255, 255, 0.35);
+      background: transparent;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 0.62rem;
+      color: #000;
+      font-weight: 900;
+      margin-left: 8px;
+      transition: all 0.2s;
+    }
+    .layer-check.checked {
+      background: var(--accent-cyan);
+      border-color: var(--accent-cyan);
+      color: #000;
+    }
+
+    /* Refresh Graph Button */
+    .learn-btn {
+      background: rgba(34, 197, 94, 0.12);
+      border: 1px solid rgba(34, 197, 94, 0.32);
+      color: #4ade80;
+      padding: 5px 12px;
+      border-radius: 20px;
+      font-size: 0.74rem;
+      font-weight: 600;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      transition: all 0.2s;
+    }
+    .learn-btn:hover {
+      background: rgba(34, 197, 94, 0.24);
+      border-color: #22c55e;
+      box-shadow: 0 0 10px rgba(34, 197, 94, 0.3);
+      color: #fff;
+    }
+    .learn-btn:disabled {
+      opacity: 0.5;
+      cursor: not-allowed;
+    }
+
+    /* Notification Toast */
+    #brain-toast {
+      position: fixed;
+      top: 64px;
+      left: 50%;
+      transform: translateX(-50%);
+      background: rgba(6, 12, 22, 0.94);
+      border: 1px solid rgba(56, 189, 248, 0.4);
+      box-shadow: 0 12px 35px rgba(0, 0, 0, 0.85);
+      color: #f8fafc;
+      padding: 8px 18px;
+      border-radius: 20px;
+      font-size: 0.78rem;
+      z-index: 100;
+      display: none;
+      backdrop-filter: blur(20px);
+      transition: opacity 0.3s;
+    }
+
+    .taxonomy-dropdown-wrapper { position: relative; }
+    .taxonomy-btn {
+      background: rgba(255, 255, 255, 0.06);
+      backdrop-filter: blur(12px);
+      border: 1px solid rgba(255, 255, 255, 0.12);
+      color: var(--text);
+      padding: 6px 14px;
+      border-radius: 20px;
+      font-size: 0.78rem;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      transition: all 0.2s;
+    }
+    .taxonomy-btn:hover { background: rgba(255, 255, 255, 0.1); border-color: var(--accent-cyan); }
+    .badge-count {
+      background: rgba(56, 189, 248, 0.18);
+      color: var(--accent-cyan);
+      font-weight: 700;
+      padding: 1px 7px;
+      border-radius: 10px;
+      font-size: 0.7rem;
+    }
+    .chevron { font-size: 0.65rem; color: var(--text-muted); transition: transform 0.2s; }
+    .taxonomy-menu {
+      position: absolute;
+      top: calc(100% + 8px);
+      left: 0;
+      min-width: 240px;
+      background: rgba(6, 10, 20, 0.96);
+      backdrop-filter: blur(28px);
+      border: 1px solid rgba(255, 255, 255, 0.12);
+      border-radius: 12px;
+      padding: 8px 0;
+      box-shadow: 0 16px 40px rgba(0, 0, 0, 0.85);
+      display: none;
+      z-index: 50;
+    }
+    .taxonomy-menu.open { display: block; }
+    .tax-item {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 8px 16px;
+      font-size: 0.78rem;
+      color: #cbd5e1;
+      cursor: pointer;
+      transition: background 0.18s;
+    }
+    .tax-item:hover { background: rgba(56, 189, 248, 0.12); color: #fff; }
+    .tax-color-dot {
+      width: 11px;
+      height: 11px;
+      min-width: 11px;
+      border-radius: 50%;
+      display: inline-block;
+      flex-shrink: 0;
+      transition: transform 0.18s ease;
+    }
+    .tax-item:hover .tax-color-dot {
+      transform: scale(1.35);
+    }
+    .tax-color-badge {
+      font-size: 0.65rem;
+      font-weight: 600;
+      padding: 2px 6px;
+      border-radius: 5px;
+      letter-spacing: 0.5px;
+      font-family: monospace;
+      white-space: nowrap;
+    }
+    .tax-locate-btn {
+      background: rgba(255, 255, 255, 0.08);
+      border: 1px solid rgba(255, 255, 255, 0.18);
+      color: #cbd5e1;
+      font-size: 0.75rem;
+      padding: 2px 7px;
+      border-radius: 6px;
+      cursor: pointer;
+      transition: all 0.15s ease;
+      white-space: nowrap;
+      display: flex;
+      align-items: center;
+      gap: 3px;
+    }
+    .tax-locate-btn:hover {
+      background: rgba(56, 189, 248, 0.3);
+      border-color: #38bdf8;
+      color: #fff;
+      transform: scale(1.15);
+    }
+
+    
+    .tax-name { flex: 1; }
+    .tax-num {
+      font-size: 0.72rem;
+      background: rgba(255, 255, 255, 0.08);
+      padding: 2px 7px;
+      border-radius: 10px;
+      color: #94a3b8;
+    }
+    .tax-divider { height: 1px; background: rgba(255, 255, 255, 0.08); margin: 6px 0; }
+    .dot-pulse {
+      width: 7px;
+      height: 7px;
+      border-radius: 50%;
+      background: var(--accent-cyan);
+      box-shadow: 0 0 10px var(--accent-cyan);
+      display: inline-block;
+      animation: pulseGlow 2s infinite ease-in-out;
+    }
+    @keyframes pulseGlow {
+      0%, 100% { opacity: 0.6; transform: scale(1); }
+      50% { opacity: 1; transform: scale(1.3); }
+    }
+    .master-pill {
+      font-size: 0.78rem;
+      color: #cbd5e1;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      background: rgba(255, 255, 255, 0.04);
+      padding: 6px 14px;
+      border-radius: 20px;
+      border: 1px solid rgba(255, 255, 255, 0.08);
+    }
+
+    .dot { width: 7px; height: 7px; border-radius: 50%; display: inline-block; }
+    .dot.gold { background: var(--accent-gold); box-shadow: 0 0 8px var(--accent-gold); }
+    .dot.cyan { background: var(--accent-cyan); box-shadow: 0 0 8px var(--accent-cyan); }
+    .dot.pink { background: var(--accent-pink); box-shadow: 0 0 8px var(--accent-pink); }
+    .dot.emerald { background: var(--accent-emerald); box-shadow: 0 0 8px var(--accent-emerald); }
+    .dot.violet { background: var(--accent-violet); box-shadow: 0 0 8px var(--accent-violet); }
+
+    .search-input {
+      background: rgba(255, 255, 255, 0.05);
+      border: 1px solid var(--border);
+      color: #fff;
+      padding: 5px 12px;
+      border-radius: 20px;
+      font-size: 0.8rem;
+      outline: none;
+      width: 180px;
+      transition: all 0.25s;
+    }
+    .search-input:focus { border-color: var(--accent-cyan); width: 220px; background: rgba(255,255,255,0.08); }
+
+    #main-container { flex: 1; position: relative; overflow: hidden; background: #000000; }
+    #3d-graph { width: 100%; height: 100%; }
+
+    /* =========================================
+       SEMITRANSPARENT MINI-SPHERE TRACKBALL HUD
+       ========================================= */
+    .mini-sphere-hud {
+      position: absolute;
+      bottom: 28px;
+      left: 28px;
+      z-index: 15;
+      display: flex;
+      align-items: center;
+      gap: 14px;
+      background: transparent;
+      transition: all 0.35s cubic-bezier(0.16, 1, 0.3, 1);
+    }
+    .hud-controls-group {
+      display: flex;
+      align-items: center;
+      gap: 14px;
+      transition: all 0.35s cubic-bezier(0.16, 1, 0.3, 1);
+      transform-origin: left center;
+      overflow: hidden;
+      max-width: 1400px;
+      opacity: 1;
+    }
+    body.hud-hidden .hud-controls-group {
+      opacity: 0;
+      transform: translateX(-35px) scale(0.92);
+      pointer-events: none;
+      max-width: 0;
+      gap: 0;
+      margin: 0;
+      padding: 0;
+    }
+    .hud-toggle-btn {
+      background: rgba(10, 15, 26, 0.55);
+      backdrop-filter: blur(14px);
+      border: 1px solid rgba(255, 255, 255, 0.1);
+      padding: 7px 14px;
+      border-radius: 20px;
+      font-size: 0.72rem;
+      font-weight: 600;
+      color: var(--text-muted);
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      box-shadow: 0 4px 16px rgba(0, 0, 0, 0.4);
+      transition: all 0.25s cubic-bezier(0.16, 1, 0.3, 1);
+      white-space: nowrap;
+      user-select: none;
+    }
+    .hud-toggle-btn:hover {
+      border-color: rgba(56, 189, 248, 0.4);
+      color: #ffffff;
+      background: rgba(56, 189, 248, 0.12);
+      box-shadow: 0 0 16px rgba(56, 189, 248, 0.25);
+    }
+    body.hud-hidden .hud-toggle-btn {
+      background: rgba(15, 23, 42, 0.85);
+      border-color: rgba(56, 189, 248, 0.5);
+      color: var(--accent-cyan);
+      box-shadow: 0 0 20px rgba(56, 189, 248, 0.35);
+    }
+
+    /* The glowing 3D glass mini-sphere */
+    .glass-orb {
+      position: relative;
+      width: 84px;
+      height: 84px;
+      border-radius: 50%;
+      background: radial-gradient(circle at 35% 35%, rgba(255, 255, 255, 0.18), rgba(56, 189, 248, 0.06) 50%, rgba(5, 10, 20, 0.75) 90%);
+      backdrop-filter: blur(16px);
+      border: 1px solid rgba(255, 255, 255, 0.14);
+      box-shadow: 0 8px 30px rgba(0, 0, 0, 0.7), inset 0 0 16px rgba(56, 189, 248, 0.22);
+      cursor: grab;
+      transition: box-shadow 0.3s;
+    }
+    .glass-orb:active { cursor: grabbing; box-shadow: 0 8px 30px rgba(0, 0, 0, 0.7), inset 0 0 24px rgba(56, 189, 248, 0.4); }
+
+    /* Subtle directional arrows on the sphere */
+    .orb-arrow {
+      position: absolute;
+      width: 22px;
+      height: 22px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      color: rgba(255, 255, 255, 0.6);
+      font-size: 0.72rem;
+      cursor: pointer;
+      transition: all 0.2s;
+    }
+    .orb-arrow:hover { color: var(--accent-cyan); text-shadow: 0 0 8px var(--accent-cyan); }
+    .orb-arrow.up { top: 2px; left: 31px; }
+    .orb-arrow.down { bottom: 2px; left: 31px; }
+    .orb-arrow.left { top: 31px; left: 2px; }
+    .orb-arrow.right { top: 31px; right: 2px; }
+    
+    /* Center pivot of the mini-sphere */
+    .orb-center {
+      position: absolute;
+      top: 36px;
+      left: 36px;
+      width: 12px;
+      height: 12px;
+      border-radius: 50%;
+      background: rgba(56, 189, 248, 0.6);
+      box-shadow: 0 0 10px var(--accent-cyan);
+      cursor: pointer;
+      transition: all 0.2s;
+    }
+    .orb-center:hover { transform: scale(1.3); background: #fff; box-shadow: 0 0 14px #fff; }
+
+    /* Subtle Minimalist Zoom Control */
+    .subtle-zoom-bar {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 6px;
+      background: rgba(10, 15, 26, 0.45);
+      backdrop-filter: blur(12px);
+      border: 1px solid rgba(255, 255, 255, 0.08);
+      padding: 8px 6px;
+      border-radius: 20px;
+    }
+    .zoom-btn {
+      background: none;
+      border: none;
+      color: var(--text-muted);
+      font-size: 0.95rem;
+      cursor: pointer;
+      line-height: 1;
+      width: 20px;
+      height: 20px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      border-radius: 50%;
+      transition: all 0.2s;
+    }
+    .zoom-btn:hover { color: #fff; background: rgba(255,255,255,0.1); }
+    
+    .zoom-track {
+      width: 3px;
+      height: 38px;
+      background: rgba(255, 255, 255, 0.1);
+      border-radius: 2px;
+      position: relative;
+    }
+    .zoom-pip {
+      position: absolute;
+      left: -2px;
+      top: 14px;
+      width: 7px;
+      height: 7px;
+      border-radius: 50%;
+      background: var(--accent-cyan);
+      box-shadow: 0 0 6px var(--accent-cyan);
+    }
+
+    /* Auto-Rotate Glass Pill */
+    .auto-rotate-pill {
+      background: rgba(10, 15, 26, 0.5);
+      backdrop-filter: blur(12px);
+      border: 1px solid rgba(255, 255, 255, 0.08);
+      padding: 6px 12px;
+      border-radius: 20px;
+      font-size: 0.72rem;
+      color: var(--text-muted);
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      transition: all 0.2s;
+    }
+    .auto-rotate-pill:hover { border-color: rgba(56, 189, 248, 0.4); color: #fff; }
+    .auto-rotate-pill.active { color: var(--accent-cyan); border-color: rgba(56, 189, 248, 0.4); background: rgba(56, 189, 248, 0.08); }
+
+    /* Particle Density Pill (High/Low) */
+    .particle-density-pill {
+      background: rgba(10, 15, 26, 0.5);
+      backdrop-filter: blur(12px);
+      border: 1px solid rgba(255, 255, 255, 0.08);
+      padding: 6px 12px;
+      border-radius: 20px;
+      font-size: 0.72rem;
+      color: var(--text-muted);
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      transition: all 0.2s;
+      user-select: none;
+    }
+    .particle-density-pill:hover { border-color: rgba(56, 189, 248, 0.4); color: #fff; }
+    .particle-density-pill.high { color: var(--accent-cyan); border-color: rgba(56, 189, 248, 0.4); background: rgba(56, 189, 248, 0.08); }
+
+    /* Inspection Drawer */
+    #drawer {
+      width: 390px;
+      background: rgba(4, 7, 14, 0.92);
+      backdrop-filter: blur(30px);
+      border-left: 1px solid var(--border);
+      padding: 24px;
+      overflow-y: auto;
+      transform: translateX(100%);
+      transition: transform 0.35s cubic-bezier(0.16, 1, 0.3, 1);
+      position: absolute;
+      right: 0;
+      top: 0;
+      bottom: 0;
+      z-index: 30;
+      display: flex;
+      flex-direction: column;
+      gap: 16px;
+      box-shadow: -15px 0 40px rgba(0,0,0,0.85);
+    }
+    #drawer.open { transform: translateX(0); }
+
+    .drawer-header { display: flex; justify-content: space-between; align-items: flex-start; }
+    .close-btn { background: none; border: none; color: var(--text-muted); font-size: 1.5rem; cursor: pointer; }
+    .close-btn:hover { color: #fff; }
+
+    .node-type-tag { font-size: 0.7rem; text-transform: uppercase; font-weight: 700; padding: 3px 9px; border-radius: 4px; display: inline-block; letter-spacing: 0.5px; }
+    .node-title { font-size: 1.15rem; font-weight: 700; margin-top: 8px; color: #fff; line-height: 1.35; }
+    .node-tags { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 6px; }
+    .tag { font-size: 0.68rem; color: var(--text-muted); background: rgba(255,255,255,0.06); padding: 2px 8px; border-radius: 4px; }
+    
+    .content-box {
+      background: rgba(0,0,0,0.55);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 14px 16px;
+      font-size: 0.84rem;
+      line-height: 1.65;
+      color: #cbd5e1;
+      word-break: break-word;
+      max-height: 380px;
+      overflow-y: auto;
+    }
+    .content-box p { margin-bottom: 10px; }
+    .content-box p:last-child { margin-bottom: 0; }
+    .content-box ul, .content-box ol { padding-left: 0; margin: 8px 0; list-style: none; }
+    .content-box li { position: relative; padding-left: 18px; margin-bottom: 8px; line-height: 1.5; }
+    .content-box li::before { content: "•"; position: absolute; left: 4px; color: var(--accent-cyan); font-weight: bold; }
+    .content-box strong { color: #ffffff; font-weight: 600; }
+    .content-box code {
+      background: rgba(255, 255, 255, 0.08);
+      color: #38bdf8;
+      border: 1px solid rgba(56, 189, 248, 0.2);
+      padding: 2px 6px;
+      border-radius: 4px;
+      font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+      font-size: 0.82em;
+    }
+    .content-box h1, .content-box h2, .content-box h3, .content-box h4 {
+      color: #ffffff;
+      font-size: 0.95rem;
+      font-weight: 700;
+      margin: 14px 0 8px 0;
+      padding-bottom: 4px;
+      border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+    }
+    .content-box h1:first-child, .content-box h2:first-child, .content-box h3:first-child { margin-top: 0; }
+    .inline-wikilink {
+      color: #38bdf8;
+      border-bottom: 1px dashed rgba(56, 189, 248, 0.5);
+      cursor: pointer;
+      font-weight: 500;
+      transition: color 0.15s, border-color 0.15s;
+    }
+    .inline-wikilink:hover { color: #7dd3fc; border-bottom-color: #7dd3fc; }
+    .preview-img { width: 100%; border-radius: 8px; border: 1px solid var(--border); margin-bottom: 12px; }
+
+    .wikilinks-list { display: flex; flex-direction: column; gap: 6px; }
+    .wikilink-item { font-size: 0.8rem; color: var(--accent-cyan); background: rgba(56, 189, 248, 0.08); padding: 6px 10px; border-radius: 6px; text-decoration: none; border: 1px solid rgba(56, 189, 248, 0.15); cursor: pointer; transition: all 0.2s; }
+    .wikilink-item:hover { background: rgba(56, 189, 248, 0.2); border-color: var(--accent-cyan); }
+  
+    /* Line Brightness Glass Capsule Slider */
+    .line-brightness-hud {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      background: rgba(10, 15, 26, 0.55);
+      backdrop-filter: blur(14px);
+      border: 1px solid rgba(255, 255, 255, 0.1);
+      padding: 6px 12px;
+      border-radius: 20px;
+      box-shadow: 0 4px 16px rgba(0, 0, 0, 0.4);
+      transition: all 0.2s;
+    }
+    .line-brightness-hud:hover {
+      border-color: rgba(56, 189, 248, 0.35);
+      box-shadow: 0 4px 20px rgba(56, 189, 248, 0.15);
+    }
+    .brightness-icon {
+      font-size: 0.8rem;
+      color: var(--accent-cyan);
+      filter: drop-shadow(0 0 6px var(--accent-cyan));
+      user-select: none;
+    }
+    .brightness-slider {
+      -webkit-appearance: none;
+      appearance: none;
+      width: 78px;
+      height: 4px;
+      border-radius: 2px;
+      background: rgba(255, 255, 255, 0.18);
+      outline: none;
+      cursor: pointer;
+      transition: background 0.2s;
+    }
+    .brightness-slider:hover {
+      background: rgba(255, 255, 255, 0.3);
+    }
+    .brightness-slider::-webkit-slider-thumb {
+      -webkit-appearance: none;
+      appearance: none;
+      width: 12px;
+      height: 12px;
+      border-radius: 50%;
+      background: var(--accent-cyan);
+      box-shadow: 0 0 8px var(--accent-cyan);
+      cursor: pointer;
+      transition: transform 0.15s;
+    }
+    .brightness-slider::-webkit-slider-thumb:hover {
+      transform: scale(1.25);
+    }
+    .brightness-val {
+      font-size: 0.7rem;
+      font-weight: 600;
+      color: var(--text-muted);
+      font-variant-numeric: tabular-nums;
+      min-width: 32px;
+      user-select: none;
+    }
+
+    /* 星海面包屑 */
+    .sea-breadcrumb { position: absolute; top: 64px; left: 24px; z-index: 15; display: none; gap: 6px; align-items: center; padding: 6px 12px; border-radius: 999px; background: rgba(6,10,18,.72); border: 1px solid rgba(255,255,255,.08); backdrop-filter: blur(10px); font-size: .76rem; color: #94a3b8; }
+    .sea-breadcrumb.show { display: flex; }
+    .sea-breadcrumb .crumb.clickable { cursor: pointer; color: #cbd5e1; }
+    .sea-breadcrumb .crumb.clickable:hover { color: #fff; text-decoration: underline; }
+    .sea-breadcrumb .crumb:last-child { color: #f8fafc; font-weight: 600; }
+    .sea-breadcrumb .sep { color: #475569; }
+    .kb-chips { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 10px; }
+    .kb-chip { padding: 3px 9px; border-radius: 999px; border: 1px solid; font-size: .72rem; cursor: pointer; background: rgba(255,255,255,.03); }
+    .kb-chip:hover { background: rgba(255,255,255,.09); }
+    /* 知识库四段式详情 */
+    .kb-sec { margin-top: 18px; }
+    .kb-sec h4 { font-size: .72rem; letter-spacing: .12em; color: var(--text-muted); margin-bottom: 8px; font-weight: 600; }
+    .kb-text { font-size: .86rem; line-height: 1.65; color: #e2e8f0; }
+    .kb-sub { margin-top: 6px; font-size: .74rem; color: #94a3b8; }
+    .kb-dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: 6px; vertical-align: 1px; }
+    .kb-quote { margin: 8px 0 0; padding: 8px 10px; border-left: 2px solid rgba(255,255,255,.22); background: rgba(255,255,255,.035); border-radius: 0 6px 6px 0; font-size: .8rem; line-height: 1.6; color: #cbd5e1; }
+    .kb-rel { padding: 8px 10px; margin-bottom: 6px; border: 1px solid rgba(255,255,255,.08); border-radius: 8px; background: rgba(255,255,255,.03); cursor: pointer; }
+    .kb-rel:hover { background: rgba(56,189,248,.08); border-color: rgba(56,189,248,.35); }
+    .kb-rel-type { font-size: .72rem; font-weight: 700; margin-right: 6px; }
+    .kb-rel-name { font-size: .82rem; color: #f1f5f9; }
+    .kb-rel-dir { float: right; color: #64748b; font-size: .75rem; }
+    .kb-rel-note { margin-top: 4px; font-size: .72rem; line-height: 1.5; color: #94a3b8; }
+    /* ═══ 整合外壳：嵌进现有知识库界面（令牌与 base.css 同源） ═══ */
+    #proto-chrome, #sea-breadcrumb, #drawer {
+      --ui-bg: oklch(98% 0.004 240);
+      --ui-surface: oklch(100% 0 0);
+      --ui-fg: oklch(20% 0.02 240);
+      --ui-muted: oklch(50% 0.018 240);
+      --ui-faint: color-mix(in oklch, oklch(50% 0.018 240) 68%, transparent);
+      --ui-border: oklch(90% 0.006 240);
+      --ui-accent: oklch(48% 0.11 170);
+      --ui-accent-strong: oklch(41% 0.10 170);
+      --ui-accent-soft: color-mix(in oklch, oklch(48% 0.11 170) 12%, transparent);
+      --ui-soft: color-mix(in oklch, oklch(20% 0.02 240) 5%, transparent);
+      --font-display: 'Noto Serif SC', 'Songti SC', 'STSong', 'Iowan Old Style', Georgia, serif;
+      --font-body: 'Noto Sans SC', -apple-system, BlinkMacSystemFont, 'PingFang SC', 'Hiragino Sans GB', 'Microsoft YaHei', system-ui, sans-serif;
+    }
+    body { background: var(--ui-bg); color: var(--ui-fg); font-family: var(--font-body); }
+    #proto-chrome { flex: none; background: var(--ui-bg); border-bottom: 1px solid var(--ui-border); }
+    .pc-bar1 { display: flex; align-items: center; gap: 14px; padding: 8px 20px; border-bottom: 1px solid var(--ui-border); font-size: 12px; color: var(--ui-muted); }
+    .pc-proto { font-size: 10px; letter-spacing: .12em; border: 1px solid var(--ui-muted); border-radius: 4px; padding: 1px 6px; color: var(--ui-faint); }
+    .pc-crumb { font-size: 13px; color: var(--ui-muted); }
+    .pc-tabs { display: flex; gap: 6px; margin-left: 8px; }
+    .pc-tabs span { padding: 5px 12px; border-radius: 999px; border: 1px solid var(--ui-border); background: var(--ui-surface); color: var(--ui-muted); }
+    .pc-tabs span.on { background: var(--ui-accent); border-color: var(--ui-accent); color: var(--ui-surface); }
+    .pc-note { margin-left: auto; font-size: 11px; color: var(--ui-faint); }
+    .pc-bar2 { display: flex; align-items: center; gap: 18px; padding: 0 24px; height: 40px; font-size: 13px; color: var(--ui-muted); }
+    .pc-logo { font-weight: 700; color: var(--ui-accent); margin-right: 6px; }
+    .pc-bar2 .on { color: var(--ui-accent); font-weight: 600; }
+    #main-container { margin: 0 24px 24px; border-radius: 14px; border: 1px solid #2c3433; box-shadow: 0 18px 50px rgba(20,30,28,.25); background: #04060b; }
+    #main-container > header { position: absolute; top: 0; left: 0; right: 0; z-index: 20; background: linear-gradient(180deg, rgba(0,0,0,.72), rgba(0,0,0,0)); border-bottom: 0; padding: 10px 18px; }
+    #main-container > header .brand-title { font-size: 1rem; }
+    #sea-breadcrumb { position: absolute; top: 150px; left: 42px; z-index: 22; }
+    /* 抽屉改浅色，复用现有详情抽屉的语言 */
+    #drawer { position: fixed; top: 0; right: 0; height: 100vh; width: 460px; z-index: 80;
+      background: var(--ui-surface); border-left: 1px solid var(--ui-border); box-shadow: -18px 0 50px rgba(20,30,28,.18); color: var(--ui-fg); padding: 26px 28px; }
+    #drawer .node-title { color: var(--ui-fg); }
+    #drawer .node-type-tag { background: var(--ui-accent-soft) !important; }
+    #drawer .tag { background: var(--ui-soft); color: var(--ui-muted); }
+    #drawer .kb-sec h4 { color: var(--ui-muted); }
+    #drawer .kb-text { color: var(--ui-fg); }
+    #drawer .kb-sub { color: var(--ui-muted); }
+    #drawer .kb-quote { background: var(--ui-soft); color: var(--ui-muted); border-left-color: #c9c0ae; }
+    #drawer .kb-rel { background: var(--ui-surface); border-color: var(--ui-border); }
+    #drawer .kb-rel:hover { background: var(--ui-accent-soft); border-color: var(--ui-accent); }
+    #drawer .kb-rel-name { color: var(--ui-fg); }
+    #drawer .kb-rel-note { color: var(--ui-muted); }
+    #drawer .kb-chip { background: var(--ui-surface); }
+    #drawer .close-btn { color: var(--ui-muted); }
+    /* 图例 */
+    #proto-legend { position: absolute; right: 16px; bottom: 16px; z-index: 18; display: flex; gap: 10px;
+      padding: 8px 12px; border-radius: 10px; background: rgba(6,10,18,.72); border: 1px solid rgba(255,255,255,.09);
+      font-size: 11px; color: #cbd5e1; }
+    #proto-legend i { width: 8px; height: 8px; border-radius: 50%; display: inline-block; margin-right: 4px; }
+    /* ═══ 列表 → 星图 流程层 ═══ */
+    #kb-list {
+      --ui-bg: oklch(98% 0.004 240);
+      --ui-surface: oklch(100% 0 0);
+      --ui-fg: oklch(20% 0.02 240);
+      --ui-muted: oklch(50% 0.018 240);
+      --ui-faint: color-mix(in oklch, oklch(50% 0.018 240) 68%, transparent);
+      --ui-border: oklch(90% 0.006 240);
+      --ui-accent: oklch(48% 0.11 170);
+      --ui-accent-strong: oklch(41% 0.10 170);
+      --ui-accent-soft: color-mix(in oklch, oklch(48% 0.11 170) 12%, transparent);
+      --ui-soft: color-mix(in oklch, oklch(20% 0.02 240) 5%, transparent);
+      --font-display: 'Noto Serif SC', 'Songti SC', 'STSong', Georgia, serif;
+      --font-body: 'Noto Sans SC', -apple-system, BlinkMacSystemFont, 'PingFang SC', 'Hiragino Sans GB', 'Microsoft YaHei', system-ui, sans-serif;
+      position: fixed; inset: 0; z-index: 70; overflow: auto; background: var(--ui-bg); color: var(--ui-fg); font-family: var(--font-body);
+    }
+    #kb-list.hidden { display: none; }
+    .kl-top { background: var(--ui-bg); border-bottom: 1px solid var(--ui-border); }
+    .kl-top1 { display: flex; align-items: center; gap: 14px; padding: 8px 20px; border-bottom: 1px solid var(--ui-border); font-size: 12px; color: var(--ui-muted); }
+    .kl-proto { font-size: 10px; letter-spacing: .12em; border: 1px solid var(--ui-muted); border-radius: 4px; padding: 1px 6px; color: var(--ui-faint); }
+    .kl-crumb { font-size: 13px; color: var(--ui-muted); }
+    .kl-tabs { display: flex; gap: 6px; margin-left: 8px; }
+    .kl-tabs span { padding: 5px 12px; border-radius: 999px; border: 1px solid var(--ui-border); background: var(--ui-surface); color: var(--ui-muted); cursor: pointer; }
+    .kl-tabs span.on { background: var(--ui-accent); border-color: var(--ui-accent); color: var(--ui-surface); }
+    .kl-note { margin-left: auto; font-size: 11px; color: var(--ui-faint); }
+    .kl-top2 { display: flex; align-items: center; gap: 18px; padding: 0 24px; height: 40px; font-size: 13px; color: var(--ui-muted); }
+    .kl-logo { font-weight: 700; color: var(--ui-accent); margin-right: 6px; }
+    .kl-top2 .on { color: var(--ui-accent); font-weight: 600; }
+    .kl-page { max-width: 1280px; margin: 0 auto; padding: 20px 24px 60px; }
+    .kl-crumb2 { font-size: 11px; color: var(--ui-faint); letter-spacing: .08em; }
+    .kl-page h1 { font-family: "Songti SC", "Noto Serif SC", serif; font-size: 34px; font-weight: 600; margin: 8px 0 6px; color: var(--ui-fg); }
+    .kl-sub { font-size: 12.5px; color: var(--ui-muted); margin-bottom: 22px; }
+    .kl-cols { display: flex; gap: 32px; }
+    .kl-genres { width: 150px; flex: none; }
+    .kl-lab, .kl-lab2 { font-size: 10px; letter-spacing: .14em; color: var(--ui-faint); margin: 0 0 8px; }
+    .kl-g { display: flex; align-items: center; justify-content: space-between; padding: 6px 10px; border-radius: 7px; font-size: 13px; color: var(--ui-muted); cursor: pointer; }
+    .kl-g b { font-weight: 400; font-size: 10px; color: var(--ui-faint); }
+    .kl-g.on { background: var(--ui-accent-soft); color: var(--ui-accent); font-weight: 600; }
+    .kl-tip { margin-top: 18px; font-size: 10.5px; line-height: 1.6; color: var(--ui-faint); }
+    .kl-main { flex: 1; min-width: 0; }
+    .kl-strip { display: flex; align-items: center; justify-content: space-between; border-bottom: 1px solid var(--ui-border); padding-bottom: 8px; }
+    .kl-lab2 b { font-size: 12px; color: var(--ui-fg); margin-left: 4px; }
+    .kl-switch { display: flex; border: 1px solid var(--ui-border); border-radius: 7px; overflow: hidden; }
+    .kl-switch button { border: 0; background: var(--ui-surface); padding: 4px 12px; font-size: 12px; color: var(--ui-muted); cursor: pointer; }
+    .kl-switch button.on { background: var(--ui-accent); color: var(--ui-surface); }
+    .kl-concepts { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; padding: 10px 0; border-bottom: 1px solid var(--ui-border); }
+    .kl-concepts button { border: 1px solid var(--ui-border); background: var(--ui-surface); border-radius: 7px; padding: 4px 11px; font-size: 12px; color: var(--ui-muted); cursor: pointer; }
+    .kl-concepts button.on { background: var(--ui-accent-soft); border-color: color-mix(in oklch, var(--ui-accent) 30%, transparent); color: var(--ui-accent); font-weight: 600; }
+    .kl-concepts button.off { opacity: .45; cursor: not-allowed; }
+    .kl-concepts .kl-star-link { margin-left: auto; border: 0; background: transparent; color: var(--ui-accent); font-size: 12px; padding: 4px 0; }
+    .kl-concepts .kl-star-link:hover { text-decoration: underline; }
+    .kl-toolbar { display: flex; gap: 10px; padding: 10px 0; border-bottom: 1px solid var(--ui-border); }
+    .kl-toolbar input { flex: 1; border: 1px solid var(--ui-border); border-radius: 7px; padding: 7px 10px; font-size: 12px; background: var(--ui-surface); color: var(--ui-fg); }
+    .kl-filter { display: inline-flex; align-items: center; padding: 0 12px; border: 1px solid var(--ui-border); border-radius: 7px; font-size: 12px; color: var(--ui-muted); background: var(--ui-surface); }
+    .kl-rows { padding-top: 4px; }
+    .kl-row { display: grid; grid-template-columns: 54px 1.2fr 64px 46px 2.2fr 1.2fr 44px; gap: 10px; align-items: center; padding: 9px 4px; border-bottom: 1px solid var(--ui-soft); font-size: 12px; color: var(--ui-muted); cursor: default; }
+    .kl-row:hover { background: var(--ui-soft); }
+    .kl-id { font-family: ui-monospace, Menlo, monospace; font-size: 10px; color: var(--ui-faint); }
+    .kl-rtitle { font-weight: 600; color: var(--ui-fg); }
+    .kl-tag { justify-self: start; font-size: 10.5px; padding: 2px 7px; border-radius: 4px; background: var(--ui-soft); color: var(--ui-muted); }
+    .kl-genre { color: var(--ui-muted); font-size: 11px; }
+    .kl-one { color: var(--ui-muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .kl-src { color: var(--ui-faint); font-size: 10.5px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .kl-mini { border: 1px solid color-mix(in oklch, var(--ui-accent) 30%, transparent); background: var(--ui-surface); color: var(--ui-accent); font-size: 11px; padding: 3px 8px; border-radius: 6px; cursor: pointer; }
+    .kl-mini:hover { background: var(--ui-accent-soft); }
+    .sea-back { display: inline-flex; align-items: center; border: 1px solid rgba(255,255,255,.18); background: rgba(255,255,255,.06); color: #cbd5e1; font-size: 12px; padding: 4px 10px; border-radius: 7px; cursor: pointer; }
+    .sea-back:hover { color: var(--ui-surface); border-color: rgba(255,255,255,.4); }
+  </style>
+</head>
+<body>
+<div id="kb-list">
+  <div class="kl-top">
+    <div class="kl-top1">
+      <span class="kl-proto">PROTO</span>
+      <span class="kl-crumb">写作知识库 · 2026-11-04</span>
+      <nav class="kl-tabs">
+        <span class="on">◉ 知识库</span><span>◉ 库</span><span>◉ 条目</span><span>◉ 书内</span>
+        <span onclick="openStar('','')">◉ 星图</span>
+      </nav>
+      <span class="kl-note">演示书《星海拾遗》数据为演示数据</span>
+    </div>
+    <div class="kl-top2"><span class="kl-logo">✎ 爱小说</span><span>我的作品</span><span class="on">写作工具</span><span>模型配置</span></div>
+  </div>
+  <div class="kl-page">
+    <div class="kl-crumb2">写作工具 · 知识库</div>
+    <h1>知识库</h1>
+    <p class="kl-sub">按题材收好的写作档案：文风、文笔、世界设定、角色设定、手法，都在一个题材里。</p>
+    <div class="kl-cols">
+      <aside class="kl-genres">
+        <p class="kl-lab">题材</p>
+        <div class="kl-g on"><span>全部</span><b>28</b></div>
+        <div class="kl-g"><span>科幻</span><b>14</b></div>
+        <div class="kl-g"><span>都市</span><b>12</b></div>
+        <div class="kl-g"><span>仙侠</span><b>13</b></div>
+        <div class="kl-g"><span>悬疑</span><b>13</b></div>
+        <p class="kl-tip">拆书时按题材归档；一本书只用一个题材的库。</p>
+      </aside>
+      <main class="kl-main">
+        <div class="kl-strip">
+          <p class="kl-lab2">全部条目 <b>52</b></p>
+          <div class="kl-switch">
+            <button class="on">列表</button>
+            <button onclick="openStar('科幻','')">星图</button>
+          </div>
+        </div>
+        <div class="kl-concepts">
+          <button class="on">全部</button><button>文风</button><button>文笔</button>
+          <button>世界设定</button><button>角色设定</button><button>手法</button>
+          <button class="off">情节 · 即将上线</button>
+          <button class="kl-star-link" onclick="openStar('科幻','文风')">在星图里看这个概念 →</button>
+        </div>
+        <div class="kl-toolbar">
+          <input placeholder="搜标题、内容、来源书名" />
+          <span class="kl-filter">全部来源</span>
+        </div>
+        <div class="kl-rows">
+          <div class="kl-row">
+            <span class="kl-id">KB-010</span>
+            <span class="kl-rtitle">叙事身份</span>
+            <span class="kl-tag">文风</span>
+            <span class="kl-genre">科幻</span>
+            <span class="kl-one">冷峻克制，句子短，少形容词。</span>
+            <span class="kl-src">拆书《星海拾遗》</span>
+            <button class="kl-mini" onclick="openStar('科幻','文风')" title="在星图里看这个概念">星图</button>
+          </div>
+          <div class="kl-row">
+            <span class="kl-id">KB-011</span>
+            <span class="kl-rtitle">对白不写「说道」</span>
+            <span class="kl-tag">文笔</span>
+            <span class="kl-genre">科幻</span>
+            <span class="kl-one">话直接贴在动作后面，不堆小动作。</span>
+            <span class="kl-src">拆书《星海拾遗》第 12 章</span>
+            <button class="kl-mini" onclick="openStar('科幻','文笔')" title="在星图里看这个概念">星图</button>
+          </div>
+          <div class="kl-row">
+            <span class="kl-id">KB-012</span>
+            <span class="kl-rtitle">打斗先给结果</span>
+            <span class="kl-tag">文笔</span>
+            <span class="kl-genre">科幻</span>
+            <span class="kl-one">先给结果，再补过程；环境只写与人物有关的两样。</span>
+            <span class="kl-src">拆书《星海拾遗》第 8 章</span>
+            <button class="kl-mini" onclick="openStar('科幻','文笔')" title="在星图里看这个概念">星图</button>
+          </div>
+          <div class="kl-row">
+            <span class="kl-id">KB-016</span>
+            <span class="kl-rtitle">剑修三境</span>
+            <span class="kl-tag">世界设定</span>
+            <span class="kl-genre">科幻</span>
+            <span class="kl-one">炼气、凝脉、照神；破境先破旧物。</span>
+            <span class="kl-src">拆书《星海拾遗》第 3 章</span>
+            <button class="kl-mini" onclick="openStar('科幻','世界设定')" title="在星图里看这个概念">星图</button>
+          </div>
+          <div class="kl-row">
+            <span class="kl-id">KB-021</span>
+            <span class="kl-rtitle">落魄天才</span>
+            <span class="kl-tag">角色设定</span>
+            <span class="kl-genre">科幻</span>
+            <span class="kl-one">曾经的第一，跌落之后表面散漫。</span>
+            <span class="kl-src">拆书《星海拾遗》第 27 章</span>
+            <button class="kl-mini" onclick="openStar('科幻','角色设定')" title="在星图里看这个概念">星图</button>
+          </div>
+          <div class="kl-row">
+            <span class="kl-id">KB-001</span>
+            <span class="kl-rtitle">先果后因</span>
+            <span class="kl-tag">手法</span>
+            <span class="kl-genre">科幻</span>
+            <span class="kl-one">先写结果，再倒回去拆折。</span>
+            <span class="kl-src">拆书《星海拾遗》第 12 章</span>
+            <button class="kl-mini" onclick="openStar('科幻','手法')" title="在星图里看这个概念">星图</button>
+          </div>
+          <div class="kl-row">
+            <span class="kl-id">KB-002</span>
+            <span class="kl-rtitle">声音打点</span>
+            <span class="kl-tag">手法</span>
+            <span class="kl-genre">科幻</span>
+            <span class="kl-one">每一招落一个声响。</span>
+            <span class="kl-src">拆书《星海拾遗》第 20 章</span>
+            <button class="kl-mini" onclick="openStar('科幻','手法')" title="在星图里看这个概念">星图</button>
+          </div>
+          <div class="kl-row">
+            <span class="kl-id">KB-023</span>
+            <span class="kl-rtitle">招牌扬名</span>
+            <span class="kl-tag">情节</span>
+            <span class="kl-genre">科幻</span>
+            <span class="kl-one">报名被轻视 → 初战藏拙 → 复赛通籍 → 扬名。</span>
+            <span class="kl-src">拆书《星海拾遗》章结构</span>
+            <button class="kl-mini" onclick="openStar('科幻','情节')" title="在星图里看这个概念">星图</button>
+          </div>
+        </div>
+      </main>
+    </div>
+  </div>
+</div>
+
+<div id="proto-chrome">
+  <div class="pc-bar1">
+    <span class="pc-proto">PROTO</span>
+    <span class="pc-crumb">写作知识库 · 2026-11-04</span>
+    <nav class="pc-tabs"><span>◉ 知识库</span><span>◉ 库</span><span>◉ 条目</span><span>◉ 书内</span><span class="on">◉ 星图</span></nav>
+    <span class="pc-note">演示书《星海拾遗》数据为演示数据</span>
+  </div>
+  <div class="pc-bar2"><span class="pc-logo">✎ 爱小说</span><span>我的作品</span><span class="on">写作工具</span><span>模型配置</span></div>
+</div>
+
+
+  <div id="sea-breadcrumb" class="sea-breadcrumb"></div>
+
+  <header>
+    <div class="brand">
+      <button class="sea-back" onclick="backToList()">← 列表</button>
+      <div class="brand-title">✦ 写作知识星海</div>
+      <div class="badge">星海模式 · 原型</div>
+    </div>
+            <div class="stats-bar">
+      <div class="master-pill">
+        <span class="dot-pulse"></span>
+        <span id="vault-pill-text">星点 <strong id="stat-total-nodes" style="color: #fff">0</strong> 条 · 关联 <strong id="stat-total-edges" style="color: var(--accent-cyan)">0</strong> 条</span>
+      </div>
+
+      <!-- Scalable Dynamic Taxonomy Dropdown with Checkbox Layers -->
+      <div class="taxonomy-dropdown-wrapper">
+        <button class="taxonomy-btn" id="taxonomy-btn" onclick="toggleTaxonomyMenu(event)">
+          <span style="color: var(--accent-cyan)">◈</span>
+          <span>题材</span>
+          <span class="badge-count" id="tax-count">0</span>
+          <span class="chevron">▾</span>
+        </button>
+        <div class="taxonomy-menu" id="taxonomy-menu">
+          <!-- Populated dynamically with checkboxes -->
+        </div>
+      </div>
+
+      <!-- Executive Action: Refresh Graph -->
+      <button class="learn-btn" onclick="resetCamera()" title="回到全景视角">
+        <span>◎</span>
+        <span>回到全景</span>
+      </button>
+
+      <input type="text" id="search-box" class="search-input" placeholder="🔍 搜索条目或题材…" oninput="onSearch(this.value)" />
+    </div>
+    <div id="brain-toast"></div>
+  </header>
+
+  <div id="main-container">
+    <div id="3d-graph"></div>
+
+    <!-- SEMITRANSPARENT MINI-SPHERE ROTATION & SUBTLE ZOOM HUD -->
+    <div class="mini-sphere-hud" id="mini-sphere-hud">
+      <div class="hud-controls-group" id="hud-controls-group">
+        <!-- Mini Glass Orb with Chevrons -->
+        <div class="glass-orb" id="glass-orb" title="Drag orb to rotate 3D graph in any direction">
+          <div class="orb-arrow up" onclick="rotateSphere(0, -0.22)" title="Tilt Up">▲</div>
+          <div class="orb-arrow down" onclick="rotateSphere(0, 0.22)" title="Tilt Down">▼</div>
+          <div class="orb-arrow left" onclick="rotateSphere(0.22, 0)" title="Rotate Left">◀</div>
+          <div class="orb-arrow right" onclick="rotateSphere(-0.22, 0)" title="Rotate Right">▶</div>
+          <div class="orb-center" onclick="resetCamera()" title="Click para centrar vista"></div>
+        </div>
+
+        <!-- Subtle Slim Zoom Bar -->
+        <div class="subtle-zoom-bar">
+          <button class="zoom-btn" onclick="zoomCamera(0.85)" title="Zoom In">+</button>
+          <div class="zoom-track"><div class="zoom-pip"></div></div>
+          <button class="zoom-btn" onclick="zoomCamera(1.18)" title="Zoom Out">−</button>
+        </div>
+
+        <!-- Line Brightness Slider Capsule in Left Hub -->
+        <div class="line-brightness-hud" title="Adjust line and synapse brightness">
+          <span class="brightness-icon" title="Line Brightness">✨</span>
+          <input 
+            type="range" 
+            id="link-brightness-slider" 
+            class="brightness-slider" 
+            min="0.2" 
+            max="2.5" 
+            step="0.05" 
+            value="1.0" 
+            oninput="onLinkBrightnessChange(this.value)"
+          />
+          <span id="brightness-val-text" class="brightness-val">100%</span>
+        </div>
+
+        <!-- Orbital Speed Slider Capsule in Left Hub -->
+        <div class="line-brightness-hud" title="Orbital speed & auto-rotation (0x = Pause)">
+          <span class="brightness-icon" title="Orbital Speed">⏱️</span>
+          <input 
+            type="range" 
+            id="orbital-speed-slider" 
+            class="brightness-slider" 
+            min="0" 
+            max="3.0" 
+            step="0.1" 
+            value="1.0" 
+            oninput="onOrbitalSpeedChange(this.value)"
+          />
+          <span id="speed-val-text" class="brightness-val">1.0x</span>
+        </div>
+
+        <!-- Node Size Slider Capsule in Left Hub -->
+        <div class="line-brightness-hud" title="Adjust node and planet scale (Suns / Subnodes)">
+          <span class="brightness-icon" title="Node Size">🪐</span>
+          <input 
+            type="range" 
+            id="node-size-slider" 
+            class="brightness-slider" 
+            min="0.3" 
+            max="2.5" 
+            step="0.05" 
+            value="1.0" 
+            oninput="onNodeSizeChange(this.value)"
+          />
+          <span id="nodesize-val-text" class="brightness-val">1.0x</span>
+        </div>
+
+        <div id="auto-rotate-pill" class="auto-rotate-pill active" onclick="toggleRotate()">
+          <span>✦</span> 自动旋转
+        </div>
+        <div id="particle-density-pill" class="particle-density-pill" onclick="toggleParticleDensity()" title="Toggle particle density: High (1/3 links) or Low (1/10 links)">
+          <span>⚡</span> <span id="particle-density-label">连线粒子：低</span>
+        </div>
+      </div>
+
+      <!-- Toggle HUD Button -->
+      <button id="hud-toggle-btn" class="hud-toggle-btn" onclick="toggleHud()" title="Hide interface & controls (Hotkey: H)">
+        <span class="hud-toggle-icon">👁️</span>
+        <span class="hud-toggle-label">收起界面</span>
+      </button>
+    </div>
+
+    <!-- Inspection Drawer -->
+    <div id="proto-legend">
+    <span><i style="background:#7c9ef5"></i>文风</span>
+    <span><i style="background:#f5b87c"></i>文笔</span>
+    <span><i style="background:#9ef57c"></i>世界设定</span>
+    <span><i style="background:#f57c9e"></i>角色设定</span>
+    <span><i style="background:#7cf5d0"></i>手法</span>
+    <span><i style="background:#c77cf5"></i>情节</span>
+  </div>
+
+  <aside id="drawer">
+      <div class="drawer-header">
+        <div>
+          <span id="drawer-group" class="node-type-tag">题材</span>
+          <h2 id="drawer-title" class="node-title">条目</h2>
+          <div id="drawer-tags" class="node-tags"></div>
+        </div>
+        <button class="close-btn" onclick="closeDrawer()">&times;</button>
+      </div>
+
+      <div id="drawer-body"></div>
+    </aside>
+  </div>
+
+  <script>
+    (function () {
+      var panel = document.getElementById('main-container');
+      var hdr = document.querySelector('header');
+      if (panel && hdr && !panel.contains(hdr)) panel.insertBefore(hdr, panel.firstChild);
+    })();
+  </script>
+  <script>
+    let graphData = { nodes: [], edges: [] };
+    let graphInstance = null;
+    let autoRotate = true;
+
+    let isNodeBeingDragged = false;
+    let physicsFreezeTimer = null;
+
+    /**
+     * Motor de congelamiento cinético (Option B - Smart Physics Cooldown):
+     * Permite que la simulación D3 organice y estabilice el grafo inicialmente (~3.8-4.2s)
+     * y luego congela el cálculo continuo de fuerzas D3 (alphaDecay alto, alphaTarget 0).
+     * Esto reduce el uso de CPU de ~90% a ~1-2%, manteniendo la cámara orbital Three.js
+     * y las animaciones a 60 FPS ultra fluidos.
+     * Durante el arrastre de nodos, las físicas se despiertan suavemente y vuelven a congelarse al soltar.
+     */
+    function schedulePhysicsFreeze(delayMs = 3800) {
+      if (physicsFreezeTimer) clearTimeout(physicsFreezeTimer);
+      physicsFreezeTimer = setTimeout(() => {
+        if (graphInstance) {
+          console.log('❄️ [OKF Perf Engine] D3 physics frozen (CPU -> ~1-2%). 3D camera and orbits maintain 60 FPS.');
+          graphInstance.d3AlphaTarget?.(0);
+          graphInstance.d3AlphaDecay(0.08);
+        }
+      }, delayMs);
+    }
+
+    let linkBrightness = parseFloat(localStorage.getItem('okf_link_brightness') || '1.0');
+    let orbitalSpeedMultiplier = parseFloat(localStorage.getItem('okf_orbital_speed') || '1.0');
+    let particleDensityHigh = localStorage.getItem('okf_particle_density') === 'high';
+    // Initialize particle density pill state on load
+    requestAnimationFrame(() => {
+      const pdPill = document.getElementById('particle-density-pill');
+      const pdLabel = document.getElementById('particle-density-label');
+      if (pdPill) pdPill.classList.toggle('high', particleDensityHigh);
+      if (pdLabel) pdLabel.textContent = particleDensityHigh ? '连线粒子：高' : '连线粒子：低';
+    });
+
+    function onOrbitalSpeedChange(val) {
+      orbitalSpeedMultiplier = parseFloat(val);
+      const textEl = document.getElementById('speed-val-text');
+      if (textEl) {
+        textEl.innerText = orbitalSpeedMultiplier === 0 ? '0.0x' : orbitalSpeedMultiplier.toFixed(1) + 'x';
+      }
+      localStorage.setItem('okf_orbital_speed', val);
+      if (graphInstance) {
+        graphInstance.linkDirectionalParticleSpeed(link => (link.isStructural ? 0.0025 : 0.005) * orbitalSpeedMultiplier);
+      }
+    }
+
+    function onLinkBrightnessChange(val) {
+      linkBrightness = parseFloat(val);
+      const textEl = document.getElementById('brightness-val-text');
+      if (textEl) {
+        textEl.innerText = Math.round(linkBrightness * 100) + '%';
+      }
+      localStorage.setItem('okf_link_brightness', val);
+
+      if (graphInstance) {
+        graphInstance.linkColor(graphInstance.linkColor());
+      }
+
+      if (window.__clusterOrbitGroups) {
+        Object.values(window.__clusterOrbitGroups).forEach(group => {
+          group.traverse(child => {
+            if (child.isLine && child.material) {
+              child.material.opacity = Math.max(0.04, Math.min(0.85, 0.22 * linkBrightness));
+              child.material.needsUpdate = true;
+            }
+          });
+        });
+      }
+    }
+
+    let nodeScaleMultiplier = parseFloat(localStorage.getItem('okf_node_scale') || '1.0');
+
+    function onNodeSizeChange(val) {
+      nodeScaleMultiplier = parseFloat(val);
+      const textEl = document.getElementById('nodesize-val-text');
+      if (textEl) {
+        textEl.innerText = nodeScaleMultiplier.toFixed(2) + 'x';
+      }
+      localStorage.setItem('okf_node_scale', val);
+
+      const nodes = window.__cachedAllNodes || ((graphInstance && graphInstance.graphData && graphInstance.graphData().nodes) || (graphData && graphData.nodes) || []);
+      for (let i = 0; i < nodes.length; i++) {
+        const n = nodes[i];
+        if (n.__threeObj) {
+          n.__threeObj.scale.set(nodeScaleMultiplier, nodeScaleMultiplier, nodeScaleMultiplier);
+        }
+      }
+    }
+
+    function toggleHud() {
+      const isHidden = document.body.classList.toggle('hud-hidden');
+      localStorage.setItem('okf_hud_hidden', isHidden ? 'true' : 'false');
+      updateHudToggleState();
+    }
+
+    function updateHudToggleState() {
+      const isHidden = document.body.classList.contains('hud-hidden');
+      const label = document.querySelector('.hud-toggle-label');
+      const btn = document.getElementById('hud-toggle-btn');
+      if (label) label.textContent = isHidden ? '显示界面' : '收起界面';
+      if (btn) btn.title = isHidden ? 'Show controls & UI (Hotkey: H)' : 'Hide controls & UI (Hotkey: H)';
+    }
+
+    window.addEventListener('keydown', (e) => {
+      if (e.target && (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA')) return;
+      if (e.key === 'h' || e.key === 'H') {
+        toggleHud();
+      }
+    });
+
+    let currentMode = 'galaxy'; // 'galaxy' | 'spherical'
+    let currentSphereRadius = 240;
+    const SPHERE_RADIUS = 270;
+
+    // Centros de los 8 Sistemas Solares en el espacio 3D (Constelación Cósmica Equilibrada)
+    const GALAXY_CLUSTERS = {
+      contacts: { x: 0, y: 170, z: 0 },
+      contact: { x: 0, y: 170, z: 0 },
+
+      projects: { x: 130, y: 95, z: -80 },
+      project: { x: 130, y: 95, z: -80 },
+
+      tools: { x: -130, y: 95, z: -80 },
+      tool: { x: -130, y: 95, z: -80 },
+
+      emails: { x: -180, y: -15, z: 60 },
+      email: { x: -180, y: -15, z: 60 },
+
+      events: { x: 180, y: -15, z: 60 },
+      event: { x: 180, y: -15, z: 60 },
+
+      photos: { x: 0, y: -30, z: -175 },
+      photo: { x: 0, y: -30, z: -175 },
+
+      expenses: { x: 0, y: -70, z: 155 },
+      expense: { x: 0, y: -70, z: 155 },
+
+      learnings: { x: 0, y: -165, z: 20 },
+      learning: { x: 0, y: -165, z: 20 }
+    };
+
+        const SOLAR_ORBIT_RADII = [26, 38, 50, 62, 74, 86];
+
+    function setupGalaxyParameters(nodes) {
+      if (!nodes || !nodes.length) return;
+      // Separar: roots principales (no sub-planetas), sub-planetas, y hojas
+      const mainRoots = nodes.filter(n => n.isRoot && !n.isSubPlanet);
+      const subPlanets = nodes.filter(n => n.isSubPlanet);
+      const N = Math.max(mainRoots.length, 1);
+
+      // Distribución celestial dinámica para N sistemas (escala automáticamente desde 3 hasta 50+ sistemas)
+      const goldenAngle = Math.PI * (3 - Math.sqrt(5)); // ~137.5 grados (Golden Spiral 3D)
+      const dynamicGalaxyRadius = Math.max(300, 205 + Math.sqrt(N) * 46);
+
+      // Posicionar roots principales (igual que antes)
+      mainRoots.forEach((rn, idx) => {
+        let anchor = null;
+        if (N <= 8 && GALAXY_CLUSTERS[rn.group]) {
+          anchor = GALAXY_CLUSTERS[rn.group];
+        } else {
+          // 单一大星系：题材坐落在 4 条旋臂上（XZ 平面，轻微起伏）
+          const arms = 4;
+          const arm = idx % arms;
+          const theta = (arm / arms) * Math.PI * 2 + 0.45 + idx * 0.18;
+          const radius = dynamicGalaxyRadius * (0.92 + (idx % 2) * 0.12);
+          anchor = {
+            x: Math.cos(theta) * radius,
+            y: (idx % 2 === 0 ? 10 : -10),
+            z: Math.sin(theta) * radius
+          };
+        }
+        rn.starTargetX = anchor.x;
+        rn.starTargetY = anchor.y;
+        rn.starTargetZ = anchor.z;
+      });
+
+      // Construir mapa de roots por grupo para lookup
+      const rootsByGroup = {};
+      mainRoots.forEach(rn => { rootsByGroup[rn.group] = rn; });
+
+      // Posicionar sub-planetas orbitando su root padre a radio cercano (~55-70)
+      const subPlanetsByParent = {};
+      subPlanets.forEach(sp => {
+        const parentGroup = sp.group; // emails, invoices
+        if (!subPlanetsByParent[parentGroup]) subPlanetsByParent[parentGroup] = [];
+        subPlanetsByParent[parentGroup].push(sp);
+      });
+
+      Object.entries(subPlanetsByParent).forEach(([parentGroup, sps]) => {
+        const parentRoot = rootsByGroup[parentGroup];
+        if (!parentRoot) return;
+        const subOrbitRadius = 55 + sps.length * 8; // Radio orbital de sub-planetas respecto a su root
+
+        sps.forEach((sp, idx) => {
+          const angle = (idx / Math.max(sps.length, 1)) * Math.PI * 2 + 0.3;
+          const tiltY = 0;
+          sp.starTargetX = (parentRoot.starTargetX || 0) + Math.cos(angle) * subOrbitRadius;
+          sp.starTargetY = (parentRoot.starTargetY || 0) + tiltY;
+          sp.starTargetZ = (parentRoot.starTargetZ || 0) + Math.sin(angle) * subOrbitRadius;
+          // Dar al sub-planeta una órbita lenta alrededor de su root
+          sp.subPlanetOrbit = {
+            radius: subOrbitRadius,
+            currentAngle: angle,
+            orbitSpeed: 0.005, // rad/s（约 0.29°/s）
+            tiltY: tiltY,
+            parentGroup: parentGroup
+          };
+        });
+      });
+
+      // Construir mapa de sub-planetas por ID para lookup rápido
+      const subPlanetMap = {};
+      subPlanets.forEach(sp => { subPlanetMap[sp.id] = sp; });
+      window.__subPlanetMap = subPlanetMap;
+
+      // Identificar los nodos hoja y su centro orbital correcto
+      const groupChildren = {};
+      nodes.filter(n => !n.isRoot && !n.isSubPlanet).forEach(n => {
+        // Si tiene subGroup, orbita el sub-planeta; si no, orbita el root de su grupo
+        const orbitCenter = n.subGroup ? `subplanet_${n.group}_${n.subGroup}` : `root_${n.group}`;
+        if (!groupChildren[orbitCenter]) groupChildren[orbitCenter] = [];
+        groupChildren[orbitCenter].push(n);
+      });
+
+      window.__systemRingRadii = {};
+
+      // Distribuir hojas sobre anillos orbitales Keplerianos alrededor de su centro (root o sub-planeta)
+      Object.entries(groupChildren).forEach(([centerId, children]) => {
+        const total = children.length;
+        const numRings = Math.min(16, Math.max(5, Math.ceil(Math.sqrt(total) * 1.5)));
+        // Sub-planetas tienen órbitas más compactas (max 85) que los roots directos (max 125)
+        const isSubPlanetOrbit = centerId.startsWith('subplanet_');
+        const maxR = isSubPlanetOrbit ? Math.min(85, 40 + Math.sqrt(total) * 5) : Math.min(125, 68 + Math.sqrt(total) * 4.5);
+        const minR = isSubPlanetOrbit ? 16 : 24;
+        const ringRadii = [];
+        for (let rIdx = 0; rIdx < numRings; rIdx++) {
+          ringRadii.push(minR + (rIdx / Math.max(numRings - 1, 1)) * (maxR - minR));
+        }
+        window.__systemRingRadii[centerId] = ringRadii;
+
+        children.forEach((child, i) => {
+          const ringIdx = i % ringRadii.length;
+          const r = ringRadii[ringIdx];
+          const rx = 0;
+          const rz = 0;
+          const baseAngle = (i / Math.max(total, 1)) * Math.PI * 2 + (ringIdx * 1.35) + (i * 0.35);
+
+          child.solarOrbit = {
+            radius: r,
+            rx: rx,
+            rz: rz,
+            currentAngle: baseAngle,
+            orbitSpeed: 0.0087 / Math.sqrt(r / (isSubPlanetOrbit ? 16 : 24))
+          };
+          // Guardar referencia al centro orbital del nodo hoja
+          child.__orbitCenterId = centerId;
+        });
+      });
+    }
+
+    function switchVisualizationMode(mode, force = false) {
+      if (currentMode === mode && !force) return;
+      currentMode = mode;
+      localStorage.setItem('okf_viz_mode', mode);
+      window.location.hash = mode;
+
+      const sphereBtn = document.getElementById('mode-spherical-btn');
+      const galaxyBtn = document.getElementById('mode-galaxy-btn');
+      if (sphereBtn) sphereBtn.classList.toggle('active', mode === 'spherical');
+      if (galaxyBtn) galaxyBtn.classList.toggle('active', mode === 'galaxy');
+
+      const nodes = (graphInstance && graphInstance.graphData()) ? graphInstance.graphData().nodes : [];
+      const goldenRatio = (1 + Math.sqrt(5)) / 2;
+
+      // Frenar instantáneamente cualquier inercia errática previa y liberar anclajes
+      nodes.forEach(n => {
+        n.vx = 0;
+        n.vy = 0;
+        n.vz = 0;
+        n.fx = undefined;
+        n.fy = undefined;
+        n.fz = undefined;
+      });
+
+      if (mode === 'galaxy') {
+        showToast('🌌 星海模式：点题材看设定，点设定看条目');
+        setupGalaxyParameters(nodes);
+
+        const rootsMap = new Map();
+        const subPlanetsInitMap = new Map();
+        nodes.filter(n => n.isRoot).forEach(rn => {
+          if (rn.isSubPlanet) {
+            subPlanetsInitMap.set(rn.id, rn);
+          } else {
+            rootsMap.set(rn.group, rn);
+            rootsMap.set(rn.group + 's', rn);
+            if (rn.group && rn.group.endsWith('s')) rootsMap.set(rn.group.slice(0, -1), rn);
+          }
+          rn.x = rn.starTargetX || 0;
+          rn.y = rn.starTargetY || 0;
+          rn.z = rn.starTargetZ || 0;
+          rn.vx = 0; rn.vy = 0; rn.vz = 0;
+        });
+
+        // Posicionar cada planeta en su órbita concéntrica correspondiente alrededor de su Sol (o sub-planeta)
+        nodes.filter(n => !n.isRoot).forEach(child => {
+          let star = null;
+          if (child.__orbitCenterId && child.__orbitCenterId.startsWith('subplanet_')) {
+            star = subPlanetsInitMap.get(child.__orbitCenterId);
+          }
+          if (!star) star = rootsMap.get(child.group) || rootsMap.get(child.group + 's') || (child.group && child.group.endsWith('s') && rootsMap.get(child.group.slice(0, -1)));
+          if (star && child.solarOrbit) {
+            const ang = child.solarOrbit.currentAngle;
+            const r = child.solarOrbit.radius;
+            const lx0 = Math.cos(ang) * r;
+            const lz0 = Math.sin(ang) * r;
+            const rx = child.solarOrbit.rx || 0;
+            const rz = child.solarOrbit.rz || 0;
+            const y1 = -lz0 * Math.sin(rx);
+            const z1 = lz0 * Math.cos(rx);
+            const lx = lx0 * Math.cos(rz) - y1 * Math.sin(rz);
+            const ly = lx0 * Math.sin(rz) + y1 * Math.cos(rz);
+            const lz = z1;
+            child.x = star.x + lx;
+            child.y = star.y + ly;
+            child.z = star.z + lz;
+            child.vx = 0; child.vy = 0; child.vz = 0;
+          }
+        });
+
+        if (window.__galaxyOrbitsMasterGroup) {
+          window.__galaxyOrbitsMasterGroup.visible = true;
+        }
+
+        if (graphInstance && graphInstance.d3Force('charge')) {
+          graphInstance.d3Force('charge').strength(0);
+        }
+        if (graphInstance && graphInstance.d3Force('link')) {
+          graphInstance.d3Force('link').strength(0);
+        }
+      } else {
+        showToast('🌐 星脑模式');
+
+        if (window.__galaxyOrbitsMasterGroup) {
+          window.__galaxyOrbitsMasterGroup.visible = false;
+        }
+
+        // Restauración limpia e inmediata sobre la corteza esférica de Fibonacci
+        const roots = nodes.filter(n => n.isRoot);
+        const nonRoots = nodes.filter(n => !n.isRoot);
+
+        roots.forEach((rn, idx) => {
+          const angle = (idx / Math.max(roots.length, 1)) * 2 * Math.PI;
+          rn.x = currentSphereRadius * Math.cos(angle);
+          rn.y = (idx % 2 === 0 ? 30 : -30);
+          rn.z = currentSphereRadius * Math.sin(angle);
+          rn.vx = 0; rn.vy = 0; rn.vz = 0;
+        });
+
+        nonRoots.forEach((node, i) => {
+          const theta = 2 * Math.PI * i / goldenRatio;
+          const phi = Math.acos(1 - 2 * (i + 0.5) / Math.max(nonRoots.length, 1));
+          node.x = currentSphereRadius * Math.sin(phi) * Math.cos(theta);
+          node.y = currentSphereRadius * Math.cos(phi);
+          node.z = currentSphereRadius * Math.sin(phi) * Math.sin(theta);
+          node.vx = 0; node.vy = 0; node.vz = 0;
+        });
+
+        if (graphInstance && graphInstance.d3Force('charge')) {
+          graphInstance.d3Force('charge').strength(-90).distanceMax(380);
+        }
+        if (graphInstance && graphInstance.d3Force('link')) {
+          graphInstance.d3Force('link')
+            .distance(l => l.isStructural ? 70 : 120)
+            .strength(0.04);
+        }
+      }
+
+      if (graphInstance) {
+        if (mode === 'galaxy') {
+          graphInstance.d3AlphaDecay(0.02);
+          graphInstance.d3VelocityDecay(0.18);
+        } else {
+          graphInstance.d3AlphaDecay(0.025);
+          graphInstance.d3VelocityDecay(0.35);
+        }
+        schedulePhysicsFreeze(4000);
+
+        // Re-evaluar curvas de enlaces dinámicamente según el modo seleccionado
+        graphInstance.linkCurvature(graphInstance.linkCurvature());
+        graphInstance.linkCurveRotation(graphInstance.linkCurveRotation());
+        graphInstance.linkColor(graphInstance.linkColor());
+
+        try {
+          graphInstance.d3ReheatSimulation();
+        } catch (e) {
+          console.warn('Reheat simulation:', e);
+        }
+      }
+    }
+
+    // Cache static radial glow textures once to ensure high performance
+    function buildGlowTexture(colorHex) {
+      const canvas = document.createElement('canvas');
+      canvas.width = 128;
+      canvas.height = 128;
+      const ctx = canvas.getContext('2d');
+
+      const gradient = ctx.createRadialGradient(64, 64, 0, 64, 64, 64);
+      gradient.addColorStop(0, '#ffffff');
+      gradient.addColorStop(0.2, colorHex);
+      gradient.addColorStop(0.55, colorHex);
+      // Extraemos RGB para desvanecer al mismo color pero con alpha 0 (evita bordes negros por interpolación premultiplicada)
+      let r = 255, g = 255, b = 255;
+      if (colorHex.startsWith('#')) {
+        const hex = colorHex.replace('#', '');
+        if (hex.length === 6) {
+          r = parseInt(hex.substring(0, 2), 16);
+          g = parseInt(hex.substring(2, 4), 16);
+          b = parseInt(hex.substring(4, 6), 16);
+        }
+      }
+      gradient.addColorStop(1, `rgba(${r}, ${g}, ${b}, 0)`);
+
+      ctx.beginPath();
+      ctx.arc(64, 64, 64, 0, Math.PI * 2);
+      ctx.fillStyle = gradient;
+      ctx.fill();
+
+      const texture = new THREE.CanvasTexture(canvas);
+      texture.needsUpdate = true;
+      return texture;
+    }
+
+    const GLOW_TEXTURES = {};
+
+    function getGlowTexture(colorHex) {
+      if (!GLOW_TEXTURES[colorHex]) {
+        const tex = buildGlowTexture(colorHex);
+        tex.premultiplyAlpha = false;
+        tex.needsUpdate = true;
+        GLOW_TEXTURES[colorHex] = tex;
+      }
+      return GLOW_TEXTURES[colorHex];
+    }
+
+    
+    function createRootLabelSprite(text, colorHex) {
+      const canvas = document.createElement('canvas');
+      canvas.width = 440;
+      canvas.height = 84;
+      const ctx = canvas.getContext('2d');
+
+      ctx.fillStyle = 'rgba(6, 10, 20, 0.82)';
+      ctx.strokeStyle = colorHex;
+      ctx.lineWidth = 1.2;
+      ctx.beginPath();
+      ctx.roundRect(8, 8, 424, 68, 14);
+      ctx.fill();
+      ctx.stroke();
+
+      ctx.font = 'Bold 40px -apple-system, BlinkMacSystemFont, sans-serif';
+      ctx.fillStyle = '#f8fafc';
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.shadowColor = colorHex;
+      ctx.shadowBlur = 5;
+      ctx.fillText(text, 220, 44);
+
+      const texture = new THREE.CanvasTexture(canvas);
+      texture.generateMipmaps = false;
+      texture.minFilter = THREE.LinearFilter;
+      const spriteMaterial = new THREE.SpriteMaterial({ map: texture, transparent: true, opacity: 0.92, depthWrite: false, blending: THREE.NormalBlending });
+      const sprite = new THREE.Sprite(spriteMaterial);
+      sprite.scale.set(55, 10.5, 1);
+      return sprite;
+    }
+
+    function createLabelSprite(text, colorHex) {
+      const canvas = document.createElement('canvas');
+      canvas.width = 768;
+      canvas.height = 150;
+      const ctx = canvas.getContext('2d');
+
+      // High-DPI Crisp Glass Pill Badge
+      ctx.fillStyle = 'rgba(6, 10, 20, 0.90)';
+      ctx.strokeStyle = colorHex || 'rgba(56, 189, 248, 0.65)';
+      ctx.lineWidth = 3;
+      ctx.beginPath();
+      ctx.roundRect(9, 9, 750, 132, 27);
+      ctx.fill();
+      ctx.stroke();
+
+      ctx.font = 'bold 54px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif';
+      ctx.fillStyle = '#ffffff';
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.shadowColor = '#000000';
+      ctx.shadowBlur = 8;
+      
+      const cleanText = text.replace(/^\[\[|\]\]$/g, '').trim();
+      const display = cleanText.length > 13 ? cleanText.substring(0, 12) + '…' : cleanText;
+      ctx.fillText(display, 384, 75);
+
+      const texture = new THREE.CanvasTexture(canvas);
+      texture.generateMipmaps = false;
+      texture.minFilter = THREE.LinearFilter;
+      texture.magFilter = THREE.LinearFilter;
+
+      const spriteMaterial = new THREE.SpriteMaterial({
+        map: texture,
+        transparent: true,
+        opacity: 0.85,
+        depthWrite: false,
+        blending: THREE.NormalBlending
+      });
+      const sprite = new THREE.Sprite(spriteMaterial);
+      sprite.scale.set(34, 6.6, 1);
+      sprite.visible = false;
+      return sprite;
+    }
+
+    
+    function toggleTaxonomyMenu(e) {
+      if (e) e.stopPropagation();
+      const menu = document.getElementById("taxonomy-menu");
+      if (menu) menu.classList.toggle("open");
+    }
+
+    window.addEventListener("click", (e) => {
+      if (!e.target.closest(".taxonomy-dropdown-wrapper")) {
+        const menu = document.getElementById("taxonomy-menu");
+        if (menu) menu.classList.remove("open");
+      }
+    });
+
+    
+    // Active Layers State (all enabled by default)
+    let activeLayers = {
+      contact: true,
+      event: true,
+      email: true,
+      photo: true,
+      learning: true
+    };
+
+    function showToast(msg, duration = 3500) {
+      const toast = document.getElementById("brain-toast");
+      if (!toast) return;
+      toast.innerText = msg;
+      toast.style.display = "block";
+      toast.style.opacity = "1";
+      setTimeout(() => {
+        toast.style.opacity = "0";
+        setTimeout(() => toast.style.display = "none", 300);
+      }, duration);
+    }
+
+    async function triggerForcedLearning() {
+      const btn = document.getElementById("learn-btn");
+      const orig = btn.innerHTML;
+      btn.disabled = true;
+      btn.innerHTML = "<span>⏳</span> <span>Re-indexing...</span>";
+      showToast("🧠 Re-indexing vault and synthesizing graph...");
+
+      try {
+        const res = await fetch("/consolidate-daily-memory", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ date: new Date().toISOString().split("T")[0] })
+        });
+        const json = await res.json();
+        if (json.success) {
+          showToast("✅ Aprendizaje consolidado: +" + (json.result.eventsSettled || 0) + " eventos, +" + (json.result.contactsUpdated || 0) + " contactos");
+          await initGraph(true);
+        } else {
+          showToast("⚠️ Fallo en consolidación: " + (json.error || "Error desconocido"));
+        }
+      } catch (e) {
+        showToast("⚠️ Error de conexión con el servidor");
+      } finally {
+        btn.disabled = false;
+        btn.innerHTML = orig;
+      }
+    }
+
+    function toggleLayer(group, e) {
+      if (e) e.stopPropagation();
+      activeLayers[group] = !activeLayers[group];
+      updateFilteredGraph();
+      renderTaxonomyMenu(graphData);
+    }
+
+    function setAllLayers(state) {
+      Object.keys(activeLayers).forEach(k => activeLayers[k] = state);
+      updateFilteredGraph();
+      renderTaxonomyMenu(graphData);
+    }
+
+    // Dynamic Sphere Radius calculation based on visible node density
+    function computeSphereRadius(count) {
+      return Math.max(160, Math.min(290, 135 + Math.sqrt(Math.max(count, 6)) * 12.0));
+    }
+
+    function updateFilteredGraph() {
+      if (!graphInstance || !graphData.nodes) return;
+
+      const filteredNodes = graphData.nodes.filter(n => {
+        const g = n.genre || n.group || "otros";
+        return activeLayers[g] !== false;
+      });
+
+      const activeIds = new Set(filteredNodes.map(n => n.id));
+      const filteredLinks = (graphData.edges || [])
+        .filter(e => activeIds.has(e.source) && activeIds.has(e.target))
+        .map(e => ({
+          source: e.source,
+          target: e.target,
+          label: e.label,
+          isStructural: !!e.isStructural
+        }));
+
+      // Update sphere shell radius dynamically
+      currentSphereRadius = computeSphereRadius(filteredNodes.length);
+      if (currentMode === 'galaxy') {
+        setupGalaxyParameters(filteredNodes);
+      }
+
+      graphInstance.graphData({ nodes: filteredNodes, links: filteredLinks });
+
+      // Update counters
+      document.getElementById("stat-total-nodes").innerText = filteredNodes.length;
+      document.getElementById("stat-total-edges").innerText = filteredLinks.length;
+    }
+
+    // Dynamic Category Colors and Labels Resolution
+    function getGroupColor(g, nodes) {
+      const lowerG = (g || '').toLowerCase();
+      // 1. 题材成员色
+      const member = (nodes || []).find(n => (n.genre || '').toLowerCase() === lowerG && n.color);
+      if (member && member.color) return member.color;
+
+      // 3. Curated chromatic palette
+      const canon = {
+        contacts: '#fbbf24',
+        contact: '#fbbf24',
+        events: '#38bdf8',
+        event: '#38bdf8',
+        emails: '#c084fc',
+        email: '#c084fc',
+        photos: '#f43f5e',
+        photo: '#f43f5e',
+        learnings: '#10b981',
+        learning: '#10b981',
+        projects: '#6366f1',
+        project: '#6366f1',
+        tools: '#06b6d4',
+        tool: '#06b6d4',
+        expenses: '#eab308',
+        expense: '#eab308',
+        concepts: '#38bdf8',
+        concept: '#38bdf8',
+        architecture: '#c084fc',
+        research: '#f43f5e',
+        venue: '#06b6d4',
+        entity: '#fbbf24',
+        otros: '#94a3b8'
+      };
+      return canon[lowerG] || '#38bdf8';
+    }
+
+    function getGroupLabel(g) {
+      const lowerG = (g || '').toLowerCase();
+      const labels = {
+        contacts: 'Contactos VIP',
+        contact: 'Contactos VIP',
+        events: 'Eventos y Agenda',
+        event: 'Eventos y Agenda',
+        emails: 'Correos Indexados',
+        email: 'Correos Indexados',
+        photos: 'Looks y Estilismo',
+        photo: 'Looks y Estilismo',
+        learnings: 'OKF Aprendizajes',
+        learning: 'OKF Aprendizajes',
+        projects: 'Proyectos Estratégicos',
+        project: 'Proyectos Estratégicos',
+        tools: 'Herramientas (Tools)',
+        tool: 'Herramientas (Tools)',
+        expenses: 'Gastos y Facturas',
+        expense: 'Gastos y Facturas',
+        concepts: 'Conceptos Clave',
+        concept: 'Conceptos Clave',
+        architecture: 'Arquitectura',
+        research: 'Investigación',
+        venue: 'Sedes y Espacios',
+        entity: 'Entidades',
+        otros: 'Otras Entidades'
+      };
+      return labels[lowerG] || g;
+    }
+
+    // 🎯 Locate cluster and fly 3D camera
+    function locateGroup(group, e) {
+      if (e) e.stopPropagation();
+      if (!graphData || !graphData.nodes) return;
+
+      activeLayers[group] = true;
+      updateFilteredGraph();
+      renderTaxonomyMenu(graphData);
+
+      const lowerG = group.toLowerCase();
+      const rootNode = graphData.nodes.find(n => (n.genre || '').toLowerCase() === lowerG);
+
+      if (rootNode) {
+        focusNode(rootNode);
+        const color = getGroupColor(group, graphData.nodes);
+        const label = getGroupLabel(group);
+        showToast(`🎯 聚焦题材：${label}`);
+      } else {
+        showToast(`⚠️ 没有找到题材：${group}`);
+      }
+    }
+
+    function renderTaxonomyMenu(data) {
+      const groupCounts = {};
+      (data.nodes || []).forEach(n => {
+        if (n.isRoot && !n.isSubPlanet) return;
+        const g = n.genre || n.group || 'otros';
+        if (activeLayers[g] === undefined) activeLayers[g] = true;
+        groupCounts[g] = (groupCounts[g] || 0) + (n.isSubPlanet ? (n.count || 0) : 1);
+      });
+
+      const menu = document.getElementById('taxonomy-menu');
+      const countBadge = document.getElementById('tax-count');
+      
+      const groups = Object.keys(groupCounts);
+      const activeCount = groups.filter(g => activeLayers[g]).length;
+      if (countBadge) countBadge.innerText = activeCount + '/' + groups.length;
+
+      let menuHtml = '<div style="display:flex; justify-content:space-between; padding:4px 14px; font-size:0.7rem; color:var(--text-muted);">' +
+        '<span style="cursor:pointer; text-decoration:underline;" onclick="setAllLayers(true)">显示全部</span>' +
+        '<span style="cursor:pointer; text-decoration:underline;" onclick="setAllLayers(false)">隐藏全部</span>' +
+      '</div>' +
+      '<div class="tax-divider"></div>';
+
+      
+      groups.forEach(g => {
+        const color = getGroupColor(g, data.nodes);
+        const label = getGroupLabel(g);
+        const count = groupCounts[g];
+        const isChecked = activeLayers[g] !== false;
+
+        menuHtml += `<div class="tax-item" onclick="toggleLayer('${g}', event)">` +
+          `<span class="tax-color-dot" style="background: ${color}; box-shadow: 0 0 10px ${color}, inset 0 0 2px #fff;"></span>` +
+          `<span class="tax-name">${label}</span>` +
+          `<span class="tax-color-badge" style="background: ${color}22; border: 1px solid ${color}66; color: ${color};">${color}</span>` +
+          `<span class="tax-num">${count}</span>` +
+          `<button class="tax-locate-btn" onclick="locateGroup('${g}', event)" title="聚焦这个题材">🎯</button>` +
+          `<span class="layer-check ${isChecked ? 'checked' : ''}">${isChecked ? '✓' : ''}</span>` +
+        `</div>`;
+
+
+      });
+
+      if (menu) menu.innerHTML = menuHtml;
+    }
+
+    let currentDataMode = 'full'; // 原型固定 full（无 vault 规模分档）
+    let currentCloudDensity = 100; // DEFAULT: 100 (1 a 100 nodos de nube estelar)
+    let cloudDensityDebounce = null;
+
+    // 单一大星系的中央核球：一团密集星点（不是单个光球）
+    function addGalacticCore(scene) {
+      if (!scene || window.__galacticCore) return;
+      const COUNT = 4200;
+      const positions = new Float32Array(COUNT * 3);
+      const colors = new Float32Array(COUNT * 3);
+      const warm = new THREE.Color(0xffe6bd);
+      const gold = new THREE.Color(0xffbf72);
+      const tmp = new THREE.Color();
+      for (let i = 0; i < COUNT; i++) {
+        const r = 58 * Math.pow(Math.random(), 1.55);
+        const theta = Math.random() * Math.PI * 2;
+        const cosPhi = Math.random() * 2 - 1;
+        const sinPhi = Math.sqrt(Math.max(0, 1 - cosPhi * cosPhi));
+        positions[i * 3] = r * sinPhi * Math.cos(theta);
+        positions[i * 3 + 1] = r * cosPhi * 0.55;
+        positions[i * 3 + 2] = r * sinPhi * Math.sin(theta);
+        tmp.copy(warm).lerp(gold, Math.random());
+        const bright = 0.5 + Math.random() * 0.5;
+        colors[i * 3] = tmp.r * bright;
+        colors[i * 3 + 1] = tmp.g * bright;
+        colors[i * 3 + 2] = tmp.b * bright;
+      }
+      const geo = new THREE.BufferGeometry();
+      geo.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+      geo.setAttribute('color', new THREE.BufferAttribute(colors, 3));
+      const mat = new THREE.PointsMaterial({
+        size: 2.0, sizeAttenuation: true, vertexColors: true,
+        transparent: true, opacity: 0.95, depthWrite: false,
+        blending: THREE.AdditiveBlending
+      });
+      const g = new THREE.Group();
+      g.add(new THREE.Points(geo, mat));
+      const label = createRootLabelSprite('写作知识星海', '#ffe6bd');
+      label.position.set(0, 58, 0);
+      label.scale.set(58, 12, 1); window.__galacticCoreLabel = label;
+      g.add(label);
+      scene.add(g);
+      window.__galacticCore = g;
+    }
+    function addSpiralArms(scene) {
+      if (!scene || window.__spiralArms) return;
+      const COUNT = 9000;
+      const positions = new Float32Array(COUNT * 3);
+      const colors = new Float32Array(COUNT * 3);
+      const inner = new THREE.Color(0xffd9a8);
+      const outer = new THREE.Color(0x6ea8ff);
+      const tmp = new THREE.Color();
+      const gauss = () => (Math.random() + Math.random() + Math.random() - 1.5) / 1.5;
+      for (let i = 0; i < COUNT; i++) {
+        const arm = i % 4;
+        const t = Math.pow(Math.random(), 0.55);
+        const radius = 55 + t * 600;
+        const theta = (arm / 4) * Math.PI * 2 + t * 2.6 + (Math.random() - 0.5) * 0.22;
+        const spread = 14 + t * 46;
+        positions[i * 3] = Math.cos(theta) * radius + gauss() * spread;
+        positions[i * 3 + 1] = gauss() * (10 + t * 14);
+        positions[i * 3 + 2] = Math.sin(theta) * radius + gauss() * spread;
+        tmp.copy(inner).lerp(outer, Math.min(1, t * 1.2));
+        const bright = 0.55 + Math.random() * 0.45;
+        colors[i * 3] = tmp.r * bright;
+        colors[i * 3 + 1] = tmp.g * bright;
+        colors[i * 3 + 2] = tmp.b * bright;
+      }
+      const geo = new THREE.BufferGeometry();
+      geo.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+      geo.setAttribute('color', new THREE.BufferAttribute(colors, 3));
+      const mat = new THREE.PointsMaterial({
+        size: 1.5, sizeAttenuation: true, vertexColors: true,
+        transparent: true, opacity: 0.55, depthWrite: false,
+        blending: THREE.AdditiveBlending
+      });
+      const points = new THREE.Points(geo, mat);
+      scene.add(points);
+      window.__spiralArms = points;
+    }
+
+    function updateCentralNebulaCloud(scene, density = 100, isLowMode = true) {
+      if (!scene) return;
+      if (window.__centralNebulaCloud) {
+        scene.remove(window.__centralNebulaCloud);
+        if (window.__centralNebulaCloud.geometry) window.__centralNebulaCloud.geometry.dispose();
+        if (window.__centralNebulaCloud.material) window.__centralNebulaCloud.material.dispose();
+        window.__centralNebulaCloud = null;
+      }
+      if (!isLowMode) return;
+
+      const particleCount = Math.min(1500, Math.max(100, density * 15));
+      const positions = new Float32Array(particleCount * 3);
+      const colors = new Float32Array(particleCount * 3);
+
+      const palette = [
+        new THREE.Color(0x38bdf8), // Cyan
+        new THREE.Color(0x818cf8), // Indigo
+        new THREE.Color(0xc084fc), // Purple
+        new THREE.Color(0x34d399), // Emerald
+        new THREE.Color(0xffffff)  // Bright White
+      ];
+
+      for (let i = 0; i < particleCount; i++) {
+        const radius = 25 + Math.pow(Math.random(), 2.2) * 170;
+        const theta = Math.random() * Math.PI * 2;
+        const phi = Math.acos(2 * Math.random() - 1);
+
+        positions[i * 3] = radius * Math.sin(phi) * Math.cos(theta);
+        positions[i * 3 + 1] = (radius * Math.sin(phi) * Math.sin(theta)) * 0.42;
+        positions[i * 3 + 2] = radius * Math.cos(phi);
+
+        const c = palette[Math.floor(Math.random() * palette.length)];
+        colors[i * 3] = c.r;
+        colors[i * 3 + 1] = c.g;
+        colors[i * 3 + 2] = c.b;
+      }
+
+      const geometry = new THREE.BufferGeometry();
+      geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+      geometry.setAttribute('color', new THREE.BufferAttribute(colors, 3));
+
+      const material = new THREE.PointsMaterial({
+        size: 2.4,
+        vertexColors: true,
+        transparent: true,
+        opacity: 0.4,
+        blending: THREE.AdditiveBlending,
+        depthWrite: false
+      });
+
+      const cloud = new THREE.Points(geometry, material);
+      cloud.name = "centralNebulaCloud";
+      scene.add(cloud);
+      window.__centralNebulaCloud = cloud;
+    }
+
+    function applyGraphDataUpdate(data) {
+      graphData = data;
+      const isLow = currentDataMode === 'low';
+      const totalVault = (data.stats && data.stats.totalVaultNodes) || (isLow ? '3,447' : data.nodes.length);
+      const statNodes = document.getElementById('stat-total-nodes');
+      const statEdges = document.getElementById('stat-total-edges');
+      if (statNodes) {
+        statNodes.innerHTML = isLow 
+          ? `${data.nodes.length} <span style="font-size: 0.65rem; color: #38bdf8; font-weight: normal;">/ ${totalVault} 个</span>`
+          : `${data.nodes.length} <span style="font-size: 0.65rem; color: #a78bfa; font-weight: normal;">个</span>`;
+      }
+      if (statEdges) statEdges.innerText = (data.stats && data.stats.totalEdges) || data.edges.length;
+
+      cachedRootNodes = data.nodes.filter(n => n.isRoot);
+      if (currentMode === 'galaxy') {
+        setupGalaxyParameters(data.nodes);
+      }
+
+      const validNodeIds = new Set((data.nodes || []).map(n => n.id));
+      const formattedLinks = (data.edges || [])
+        .filter(e => {
+          const s = (e.source && e.source.id) || e.source;
+          const t = (e.target && e.target.id) || e.target;
+          return validNodeIds.has(s) && validNodeIds.has(t);
+        })
+        .map(e => ({
+          source: (e.source && e.source.id) || e.source,
+          target: (e.target && e.target.id) || e.target,
+          label: e.label,
+          isStructural: !!e.isStructural
+        }));
+
+      graphInstance.graphData({ nodes: data.nodes, links: formattedLinks });
+      updateCentralNebulaCloud(graphInstance.scene(), currentCloudDensity, currentDataMode === 'low');
+      renderTaxonomyMenu(data);
+    }
+
+    async function switchDataMode(mode) {
+      if (currentDataMode === mode) return;
+      currentDataMode = mode;
+
+      const btnLow = document.getElementById('btn-mode-low');
+      const btnFull = document.getElementById('btn-mode-full');
+      const cloudCapsule = document.getElementById('cloud-density-capsule');
+
+      if (mode === 'low') {
+        if (btnLow) btnLow.classList.add('active');
+        if (btnFull) btnFull.classList.remove('active');
+        if (cloudCapsule) cloudCapsule.classList.remove('hidden');
+        showToast(`⚡ Modo Low (Nube: ${currentCloudDensity} nodos)...`);
+      } else {
+        if (btnLow) btnLow.classList.remove('active');
+        if (btnFull) btnFull.classList.add('active');
+        if (cloudCapsule) cloudCapsule.classList.add('hidden');
+        showToast(`🚀 Modo Full (Cargando todo el vault)...`);
+      }
+
+      await initGraph();
+    }
+
+    function onCloudDensityChange(val) {
+      const num = Math.min(100, Math.max(1, parseInt(val, 10) || 100));
+      currentCloudDensity = num;
+      const label = document.getElementById('cloud-density-text');
+      if (label) label.innerText = num;
+
+      clearTimeout(cloudDensityDebounce);
+      cloudDensityDebounce = setTimeout(async () => {
+        await initGraph();
+      }, 160);
+    }
+
+
+    // ═══ 原型演示数据：写作知识（题材星系 × 六概念星星）═══════════════════
+    // 形状对齐真机 /kb/graph/entries：六概念为星团（isRoot），条目为星、题材为色、六类关系为边
+    // 承载 okf 场景的「恒星星系＋轨道」机制。真机接入时由 buildStarSeaData 换成
+    // 接口数据即可，场景代码零改动。
+    const STAR_GENRES = [
+      { name: '科幻', summary: '冷色星团：硬设定、太空场景与科技伦理。',
+        entries: [
+          ['硬科幻的冷感文风', '文风'], ['科技名词的克制插入', '文风'],
+          ['太空歌剧的宏大场面', '文笔'], ['赛博朋克的霓虹质感', '文笔'], ['末世废土的灰调描写', '文笔'],
+          ['中外科幻术语统一', '世界设定'], ['外星文明的沟通设计', '世界设定'],
+          ['黑暗森林式的基调', '情节'], ['科技伦理的两难设置', '情节'],
+          ['飞船战斗的节奏控制', '手法'], ['时间循环的结构手法', '手法'], ['硬设定软着陆', '手法'],
+          ['群像叙事的视角分配', '角色设定'], ['科学家主角的执念弧线', '角色设定'],
+        ] },
+      { name: '都市', summary: '暖色星团：都市情感、职场与日常的镜头感。',
+        entries: [
+          ['都市言情的松弛语感', '文风'], ['社交媒体的时代语汇', '文风'],
+          ['职场对话的克制笔法', '文笔'], ['日常场景的镜头感', '文笔'],
+          ['都市异能的力量体系', '世界设定'], ['都市异能的代价表', '世界设定'],
+          ['原生家庭的情绪闭环', '情节'], ['都市悬疑的氛围铺垫', '情节'],
+          ['快节奏爽点的密度', '手法'], ['婚礼场景的群像调度', '手法'],
+          ['霸总人设的细节反差', '角色设定'], ['配角群像的说话习惯', '角色设定'],
+        ] },
+      { name: '仙侠', summary: '紫色星团：古典语感、境界体系与仙门权力。',
+        entries: [
+          ['古典仙侠的雅言文风', '文风'], ['仙侠旁白的留白', '文风'],
+          ['仙侠世界的山海意象', '文笔'], ['剑修招式的画面感', '文笔'],
+          ['修真境界的层级命名', '世界设定'], ['法宝体系的设计规则', '世界设定'], ['仙门门派的权力结构', '世界设定'],
+          ['师徒情的克制表达', '情节'], ['飞升结局的情绪落点', '情节'],
+          ['渡劫场面的节奏', '手法'], ['秘境探索的悬念铺设', '手法'],
+          ['反派宗门的动机合理', '角色设定'], ['师尊与徒弟的立场差', '角色设定'],
+        ] },
+      { name: '悬疑', summary: '青色星团：线索公平、信息遮蔽与反转回收。',
+        entries: [
+          ['冷叙述者的不可靠口吻', '文风'], ['卷首语的悬念钩子', '文风'],
+          ['冷硬派的对白质感', '文笔'], ['凶案现场的五感描写', '文笔'],
+          ['社会派悬疑的现实肌理', '世界设定'], ['小镇封闭空间的人际网', '世界设定'],
+          ['双线并行的悬念节奏', '情节'], ['反转前的伏笔回收', '情节'], ['结局的余味设计', '情节'],
+          ['本格推理的线索公平', '手法'], ['叙诡的信息遮蔽', '手法'], ['密室手法的可解性', '手法'],
+          ['嫌疑人群像的区分度', '角色设定'],
+        ] },
+    ];
+    const CONCEPTS = ['文风', '文笔', '世界设定', '角色设定', '手法', '情节'];
+    // 概念级关系：只取 D6 概念相容矩阵允许的跨概念对与方向（手法 → 文风/文笔/世界设定/角色设定）
+    const CONCEPT_EDGES = [
+      ['手法', '文风', 'applies_to'],
+      ['手法', '文笔', 'applies_to'],
+      ['手法', '世界设定', 'depends_on'],
+      ['手法', '角色设定', 'depends_on'],
+      ['手法', '文风', 'derived_from'],
+      ['手法', '文笔', 'contradicts'],
+    ];
+    const CONCEPT_DESC = {
+      '文风': '这本书的整体声音', '文笔': '具体句子的写法',
+      '世界设定': '舞台、力量、势力、铁律', '角色设定': '造角色的方法，成品在角色库',
+      '手法': '写每一章时的场面打法', '情节': '事件怎么推进（即将上线）',
+    };
+    const CONCEPT_COLORS = {
+      '文风': '#7c9ef5', '文笔': '#f5b87c', '世界设定': '#9ef57c',
+      '角色设定': '#f57c9e', '手法': '#7cf5d0', '情节': '#c77cf5',
+    };
+    const CONCEPT_SUMMARY = {
+      '文风': '先定人称和语体，再让所有场景描写跟着同一个声音走。',
+      '文笔': '短句推进、长句收束，形容词只留最必要的那一个。',
+      '世界设定': '边界、代价、谁能用——三件事写清楚，设定才立得住。',
+      '角色设定': '先给他想要的东西，再给他不肯说出口的话。',
+      '手法': '先摆目标，再排三拍，最后留一个钩子。',
+      '情节': '前文埋因，后文付果；靠因果推进，不靠巧合。',
+    };
+    const GENRE_COLORS = { '科幻': '#38bdf8', '都市': '#fbbf24', '仙侠': '#c084fc', '悬疑': '#34d399' };
+    const REL_TYPES = ['refines', 'contradicts', 'depends_on', 'instance_of', 'derived_from', 'applies_to'];
+    const REL_LABELS = {
+      refines: '细化', contradicts: '相冲', depends_on: '依赖',
+      instance_of: '属于', derived_from: '源自', applies_to: '适用于',
+    };
+    const REL_COLORS = { refines: '#7c9ef5', contradicts: '#f57c7c', depends_on: '#f5b87c', instance_of: '#9ef57c', derived_from: '#c77cf5', applies_to: '#7cf5d0' };
+    // 概念解读 / 适用 / 正例 / 原文摘句（原型文案；真机从 kb_concepts.definition 与条目 evidence 聚合）
+    const CONCEPT_COPY = {
+      '文风': {
+        when: '开卷前定调；同一场景换视角时复核',
+        example: '门开的时候，风先进来，把桌上的稿纸翻得哗哗响。',
+        quotes: ['“那不是雨声，是整座城在往后退。”', '“他说话很慢，像每个字都要先掂一掂。”'],
+        instruction: t => `把叙述声音统一到「${t}」这一路：先定人称和语体，再让场景描写跟着走。`,
+      },
+      '文笔': {
+        when: '落笔改稿时逐句过；对话与动作段落优先',
+        example: '他没回头，只把杯子往桌沿推了推。',
+        quotes: ['“他把烟按灭，像按灭一句没说完的话。”', '“雨下得很密，伞面像一面被敲响的鼓。”'],
+        instruction: t => `句子的手感照「${t}」来：短句推进，长句收束，形容词只留最必要的那一个。`,
+      },
+      '世界设定': {
+        when: '设定第一次露面前；力量升级或换地图时',
+        example: '灵力不是无限的——每借一次，少活三天。',
+        quotes: ['“宗门每十年开一次山门，只收九个。”', '“城墙外没有风，连雨都落不进来。”'],
+        instruction: t => `把「${t}」写成能核对的规则：边界、代价、谁能用，三件事缺一不可。`,
+      },
+      '角色设定': {
+        when: '新角色出场前；人物关系翻转时',
+        example: '她笑着说没事，手指却把衣角绞出了褶。',
+        quotes: ['“他记得所有人的名字，唯独不记得自己怕什么。”', '“她笑着，可手一直没离开门把。”'],
+        instruction: t => `用「${t}」造人：先给他想要的东西，再给他不肯说出口的话。`,
+      },
+      '手法': {
+        when: '章纲排场面时；本章需要提速或压节奏时',
+        example: '先让两人谈崩，再让第三人推门进来，最后留一句没说完的话。',
+        quotes: ['“她推开门，屋里三个人同时抬头。”', '“他数到第七下，灯灭了。”'],
+        instruction: t => `写「${t}」时先摆目标，再排三拍，最后留一个钩子。`,
+      },
+      '情节': {
+        when: '卷末收线时；读者预判过强时',
+        example: '第三章丢的那把钥匙，第十七章开了死者的门。',
+        quotes: ['“信是三天前寄出的，可写信的人昨天才死。”', '“第三章丢的那把钥匙，第十七章开了死者的门。”'],
+        instruction: t => `「${t}」靠因果推进而不是巧合：前文埋因，后文付果。`,
+      },
+    };
+    // 出处：按题材给拆书来源（书名 + 章）
+    const SOURCES = {
+      '科幻': [['星海拾遗', 14], ['星海拾遗', 3], ['长夜行', 27]],
+      '都市': [['晚风便利店', 8], ['晚风便利店', 21], ['城里的光', 12]],
+      '仙侠': [['青崖问道', 6], ['青崖问道', 19], ['山海旧盟', 33]],
+      '悬疑': [['雾中来信', 5], ['雾中来信', 17], ['第十三封', 9]],
+    };
+
+    // 星图节点＝概念（不再是条目案例）；条目不进星图，只作为概念的实例、出处与原文
+    function buildStarSeaData() {
+      const nodes = [];
+      const edges = [];
+      const byConcept = {};
+      STAR_GENRES.forEach(g => {
+        nodes.push({
+          id: `root_${g.name}`, label: g.name, group: g.name, color: GENRE_COLORS[g.name],
+          isRoot: true, tags: ['题材'], description: g.summary,
+          summary: `**${g.name}题材**\n\n${g.summary}`,
+        });
+        g.entries.forEach(([title, concept], i) => {
+          const copy = CONCEPT_COPY[concept];
+          const [book, chapter] = SOURCES[g.name][i % 3];
+          (byConcept[concept] = byConcept[concept] || []).push({
+            genre: g.name, title, concept,
+            instruction: copy.instruction(title), when: copy.when, example: copy.example,
+            evidence: copy.quotes[i % copy.quotes.length],
+            src_novel_name: book, src_chapter: chapter,
+          });
+        });
+      });
+      STAR_GENRES.forEach(g => {
+        CONCEPTS.forEach(concept => {
+          const all = (byConcept[concept] || []).filter(x => x.genre === g.name);
+          nodes.push({
+            id: `subplanet_${g.name}_${concept}`,
+            label: concept, group: g.name, subGroup: concept, concept,
+            isRoot: true, isSubPlanet: true, color: CONCEPT_COLORS[concept],
+            count: all.length, definition: CONCEPT_DESC[concept],
+            instances: all, tags: ['设定'],
+          });
+          edges.push({ source: `root_${g.name}`, target: `subplanet_${g.name}_${concept}`, isStructural: true });
+        });
+      });
+      // 概念关系：同一题材内按矩阵允许的方向连（手法 → 文风/文笔/世界设定/角色设定）
+      STAR_GENRES.forEach(g => {
+        CONCEPT_EDGES.forEach(([a, b, rel]) => {
+          const note = rel === 'applies_to'
+            ? `${a}的写法落在${b}的场面上`
+            : rel === 'depends_on'
+              ? `${a}要先立住${b}`
+              : rel === 'derived_from'
+                ? `${a}与${b}同源，从同一条原文里拆出`
+                : `${a}与${b}同时用会打架，按场景取一`;
+          edges.push({
+            source: `subplanet_${g.name}_${a}`, target: `subplanet_${g.name}_${b}`,
+            rel_type: rel, label: REL_LABELS[rel], note, confidence: 0.82,
+            evidence: '概念相容矩阵（D6）允许的概念对',
+          });
+        });
+      });
+      return { nodes, edges, stats: { totalNodes: nodes.length, totalEdges: edges.length } };
+    }
+
+    async function initGraph(forceRefresh = false) {
+      try {
+        // 原型：不联网，内置写作知识演示数据（真机接 /kb/graph/entries）
+        const data = buildStarSeaData();
+
+        // Si ya existe la instancia, aplicar datos y salir
+        if (graphInstance) {
+          applyGraphDataUpdate(data);
+          return;
+        }
+
+        // Distribuir los nodos aleatoriamente al inicio para evitar la aglomeración en el centro 0,0,0
+        (data.nodes || []).forEach(n => {
+          if (!n.x && !n.y && !n.z) {
+             const r = 200 + Math.random() * 200;
+             const theta = Math.random() * 2 * Math.PI;
+             const phi = Math.acos(2 * Math.random() - 1);
+             n.x = r * Math.sin(phi) * Math.cos(theta);
+             n.y = r * Math.sin(phi) * Math.sin(theta);
+             n.z = r * Math.cos(phi);
+          }
+        });
+        graphData = data;
+        console.log('Graph data received:', data.stats);
+
+        // Update stats
+        const isLow = currentDataMode === 'low';
+        const totalVault = (data.stats && data.stats.totalVaultNodes) || (isLow ? '3,447' : data.nodes.length);
+        const statNodes = document.getElementById('stat-total-nodes');
+        const statEdges = document.getElementById('stat-total-edges');
+        if (statNodes) {
+          statNodes.innerHTML = isLow 
+            ? `${data.nodes.length} <span style="font-size: 0.65rem; color: #38bdf8; font-weight: normal;">/ ${totalVault} 个</span>`
+            : `${data.nodes.length} <span style="font-size: 0.65rem; color: #a78bfa; font-weight: normal;">个</span>`;
+        }
+        if (statEdges) statEdges.innerText = (data.stats && data.stats.totalEdges) || data.edges.length;
+        renderTaxonomyMenu(data);
+
+        const colorMap = {
+          contact: '#fbbf24',
+          contacts: '#fbbf24',
+          event: '#38bdf8',
+          events: '#38bdf8',
+          email: '#c084fc',
+          emails: '#c084fc',
+          photo: '#f43f5e',
+          photos: '#f43f5e',
+          learning: '#10b981',
+          learnings: '#10b981',
+          concept: '#38bdf8',
+          concepts: '#38bdf8',
+          project: '#6366f1',
+          projects: '#6366f1',
+          architecture: '#c084fc',
+          research: '#f43f5e',
+          tool: '#06b6d4',
+          tools: '#06b6d4',
+          invoice: '#f59e0b',
+          invoices: '#f59e0b',
+          odoo_invoice: '#f59e0b',
+          expense: '#eab308',
+          expenses: '#eab308'
+        };
+
+        // Calcular grado / peso y potencia para cada nodo
+        const nodeDegreeMap = new Map();
+        (data.edges || []).forEach(e => {
+          const s = (e.source && e.source.id) || e.source;
+          const t = (e.target && e.target.id) || e.target;
+          nodeDegreeMap.set(s, (nodeDegreeMap.get(s) || 0) + 1);
+          nodeDegreeMap.set(t, (nodeDegreeMap.get(t) || 0) + 1);
+        });
+
+        const validNodeIds = new Set((data.nodes || []).map(n => n.id));
+        const formattedLinks = (data.edges || [])
+          .filter(e => {
+            const s = (e.source && e.source.id) || e.source;
+            const t = (e.target && e.target.id) || e.target;
+            return validNodeIds.has(s) && validNodeIds.has(t);
+          })
+          .map(e => ({
+            source: (e.source && e.source.id) || e.source,
+            target: (e.target && e.target.id) || e.target,
+            label: e.label,
+            isStructural: !!e.isStructural
+          }));
+
+        const elem = document.getElementById('3d-graph');
+        graphInstance = ForceGraph3D()(elem)
+          .graphData({ nodes: data.nodes, links: formattedLinks })
+          .backgroundColor('#000000')
+          .nodeId('id')
+          .nodeVisibility(node => {
+            if (searchActive) return matchingNodeIds.has(node.id);
+            return true;
+          })
+          .nodeColor(node => {
+            const baseColor = colorMap[node.group] || node.color || '#38bdf8';
+            if (!searchActive) return baseColor;
+            if (node.__searchMatch) return '#ffffff'; // Destello blanco incandescente para coincidencias
+            if (node.__searchConnected) return baseColor; // Conexiones en su color normal
+            return 'rgba(30, 41, 59, 0.18)'; // Atenuado en penumbra para nodos no relacionados
+          })
+          .nodeThreeObject(node => {
+            const group = new THREE.Group();
+            const nodeColor = colorMap[node.group] || node.color || '#38bdf8';
+            const isRoot = !!node.isRoot;
+            const degree = nodeDegreeMap.get(node.id) || 1;
+
+            if (isRoot) {
+              // ==============================================================
+              // 🌟 SOL LUMINOSO Y RADIANTE (Efecto Incandescente y Translúcido)
+              // ==============================================================
+              // 1. Núcleo Blanco Incandescente (Fusión nuclear interior brillante)
+              const innerCoreGeo = new THREE.SphereGeometry(1.6, 24, 18);
+              const innerCoreMat = new THREE.MeshBasicMaterial({
+                color: 0xffffff,
+                transparent: true,
+                opacity: 0.95
+              , depthWrite: false });
+              const innerCoreMesh = new THREE.Mesh(innerCoreGeo, innerCoreMat);
+              group.add(innerCoreMesh);
+
+              // 2. Manto de Plasma Translúcido con Color de Clúster (Atmósfera estelar aditiva)
+              const plasmaGeo = new THREE.SphereGeometry(3.2, 32, 24);
+              const plasmaMat = new THREE.MeshBasicMaterial({
+                color: nodeColor,
+                transparent: true,
+                opacity: 0.65,
+                blending: THREE.AdditiveBlending
+              , depthWrite: false });
+              const plasmaMesh = new THREE.Mesh(plasmaGeo, plasmaMat);
+              group.add(plasmaMesh);
+
+              // 3. Corona Radiante Focalizada (Halo cercano)
+              const glowTex = getGlowTexture(nodeColor);
+              const coronaMat = new THREE.SpriteMaterial({
+                map: glowTex,
+                transparent: true,
+                blending: THREE.AdditiveBlending,
+                opacity: 0.88
+              , depthWrite: false });
+              const coronaSprite = new THREE.Sprite(coronaMat);
+              coronaSprite.scale.set(13, 13, 1);
+              group.add(coronaSprite);
+
+              // 4. Halo Exterior de Dispersión Lumínica (Suave resplandor cósmico)
+              const flareMat = new THREE.SpriteMaterial({
+                map: glowTex,
+                transparent: true,
+                blending: THREE.AdditiveBlending,
+                opacity: 0.38
+              , depthWrite: false });
+              const flareSprite = new THREE.Sprite(flareMat);
+              flareSprite.scale.set(24, 24, 1);
+              node.__stellarFlare = flareSprite;
+              group.add(flareSprite);
+
+              // 5. Etiqueta del Sol
+              const rootSprite = createRootLabelSprite(node.label, nodeColor);
+              if (node.isSubPlanet) {
+                rootSprite.position.set(0, 5.2, 0);
+                rootSprite.scale.set(50, 9.5, 1);
+              } else {
+                rootSprite.position.set(0, 12, 0);
+              }
+              node.__labelSprite = rootSprite;
+              group.add(rootSprite);
+
+            } else {
+              // ==============================================================
+              // 🪐 SUBNODOS PLANETARIOS (Delicados y nítidos)
+              // ==============================================================
+              const powerLevel = Math.min(10, degree + Math.round((node.size || 20) / 10));
+              const baseSize = Math.max(0.7, Math.min(1.35, 0.65 + Math.log2(powerLevel + 1) * 0.18));
+
+              const sphereGeo = new THREE.SphereGeometry(baseSize, 24, 18);
+              const sphereMat = new THREE.MeshBasicMaterial({ color: nodeColor });
+              const coreMesh = new THREE.Mesh(sphereGeo, sphereMat);
+              group.add(coreMesh);
+
+              // 🎯 HIT AREA GENEROSA INVISIBLE: Multiplica el área de click por 100 para que sea comodísimo clickar
+              const hitGeo = new THREE.SphereGeometry(Math.max(6.5, baseSize * 4.5), 12, 10);
+              const hitMat = new THREE.MeshBasicMaterial({
+                transparent: true,
+                opacity: 0.0001,
+                depthWrite: false
+              });
+              const hitMesh = new THREE.Mesh(hitGeo, hitMat);
+              group.add(hitMesh);
+
+              const glowTex = getGlowTexture(nodeColor);
+              const glowMat = new THREE.SpriteMaterial({
+                map: glowTex,
+                transparent: true,
+                blending: THREE.AdditiveBlending,
+                opacity: 0.25 + Math.min(powerLevel, 5) * 0.02
+              , depthWrite: false });
+              const glowSprite = new THREE.Sprite(glowMat);
+              const glowScale = baseSize * 1.6;
+              glowSprite.scale.set(glowScale, glowScale, 1);
+              node.__glowSprite = glowSprite;
+              group.add(glowSprite);
+
+              const labelSprite = createLabelSprite(node.label, nodeColor);
+              labelSprite.position.set(0, baseSize + 2.8, 0);
+              node.__labelSprite = labelSprite;
+              group.add(labelSprite);
+            }
+
+            const rootScale = (isRoot && node.isSubPlanet) ? nodeScaleMultiplier * (0.52 + Math.min(0.3, (node.count || 0) * 0.06)) : nodeScaleMultiplier;
+            group.scale.set(rootScale, rootScale, rootScale);
+            node.__threeObj = group;
+            return group;
+          })
+          // SPLINES CURVILÍNEOS 3D: Arcos espaciales continuos, suaves y majestuosos
+          .linkCurvature(link => {
+            if (currentMode === 'galaxy') {
+              return link.isStructural ? 0.35 : 0.55;
+            }
+            return link.isStructural ? 0.28 : 0.48;
+          })
+          .linkCurveRotation(link => {
+            const sId = (link.source && (link.source.id || link.source)) || '';
+            const tId = (link.target && (link.target.id || link.target)) || '';
+            let hash = 0;
+            for (let i = 0; i < sId.length; i++) hash = (hash * 31 + sId.charCodeAt(i)) & 0xffffffff;
+            for (let i = 0; i < tId.length; i++) hash = (hash * 31 + tId.charCodeAt(i)) & 0xffffffff;
+            return ((Math.abs(hash) % 1000) / 1000) * Math.PI * 2;
+          })
+          .linkResolution(6)
+          // Enlaces Duros (Troncales Padre) vs Enlaces de Relación (Wikilinks claramente visibles)
+          .linkVisibility(link => {
+            if (searchActive) {
+              const sId = (link.source && link.source.id) || link.source;
+              const tId = (link.target && link.target.id) || link.target;
+              return matchingNodeIds.has(sId) && matchingNodeIds.has(tId);
+            }
+            return true;
+          })
+          .linkColor(link => {
+            if (searchActive) return '#38bdf8';
+            const alpha = link.isStructural ? Math.min(0.65, 0.38 * linkBrightness) : Math.min(0.70, 0.45 * linkBrightness);
+            return link.isStructural ? ('rgba(255, 255, 255, ' + alpha.toFixed(3) + ')') : ('rgba(56, 189, 248, ' + alpha.toFixed(3) + ')');
+          })
+          .linkWidth(link => link.isStructural ? 1.2 : 0.85)
+          .linkDirectionalParticles(link => {
+            if (orbitalSpeedMultiplier === 0) return 0;
+            if (searchActive) {
+              const sId = (link.source && link.source.id) || link.source;
+              const tId = (link.target && link.target.id) || link.target;
+              if (!matchingNodeIds.has(sId) || !matchingNodeIds.has(tId)) return 0;
+            }
+            if (link.isStructural) {
+              // Densidad de partículas: High = 1 de cada 3, Low = 1 de cada 10
+              const divisor = particleDensityHigh ? 3 : 10;
+              if (graphData.nodes.length > 30) {
+                 const tIdStr = String((link.target && link.target.id) || link.target);
+                 let hash = 0;
+                 for (let i = 0; i < tIdStr.length; i++) hash = (hash + tIdStr.charCodeAt(i)) % divisor;
+                 return (hash === 0) ? 2 : 0;
+              }
+              return 2;
+            }
+            if (focusedNodeId && (link.source.id === focusedNodeId || link.target.id === focusedNodeId)) return 1;
+            return 0;
+          })
+          .linkDirectionalParticleSpeed(link => (link.isStructural ? 0.0025 : 0.005) * orbitalSpeedMultiplier)
+          .linkDirectionalParticleWidth(link => link.isStructural ? 2.0 : 1.3)
+          .linkDirectionalParticleColor(link => link.isStructural ? '#ffffff' : '#38bdf8')
+          .onNodeClick(node => handleSeaClick(node))
+          .onNodeHover((node, prevNode) => {
+            const container = document.getElementById('3d-graph');
+            if (container) {
+              container.style.cursor = node ? 'pointer' : 'grab';
+            }
+
+            // Destacar nodo sobrevolado y mostrar su nombre inmediatamente
+            if (node && node.__labelSprite) {
+              node.__labelSprite.visible = true;
+              node.__labelSprite.material.opacity = 1.0;
+              node.__labelSprite.scale.set(30, 5.7, 1);
+              if (node.__glowSprite) node.__glowSprite.scale.set(5.5, 5.5, 1);
+            }
+            if (prevNode && prevNode !== node && prevNode.__labelSprite) {
+              prevNode.__labelSprite.scale.set(34, 6.6, 1);
+            }
+          })
+          .onNodeDrag((node, translate) => {
+            isNodeBeingDragged = true;
+            if (physicsFreezeTimer) clearTimeout(physicsFreezeTimer);
+            if (graphInstance) {
+              // Reactivar físicas suaves localmente durante el arrastre (deformación elástica de enlaces conectados)
+              graphInstance.d3AlphaDecay(0.02);
+              graphInstance.d3AlphaTarget?.(0.14);
+            }
+            if (!node) return;
+            if (node.isRoot) {
+              node.__isDraggingRoot = true;
+              autoRotate = false;
+              const pill = document.getElementById('auto-rotate-pill');
+              if (pill) pill.classList.remove('active');
+            }
+          })
+          .onNodeDragEnd(node => {
+            setTimeout(() => { isNodeBeingDragged = false; }, 50);
+            if (graphInstance) {
+              // Se detiene la inyección de energía y se programa el congelamiento tras 1.2s de relajación
+              graphInstance.d3AlphaTarget?.(0);
+              schedulePhysicsFreeze(1200);
+            }
+            if (node && node.isRoot) {
+              node.__isDraggingRoot = false;
+              // Release fixed pin so it elastically returns to the spherical shell
+              setTimeout(() => {
+                node.fx = undefined;
+                node.fy = undefined;
+                node.fz = undefined;
+              }, 120);
+            }
+          });
+
+        // 1. Initial 3D Spherical Distribution (Fibonacci Sphere Algorithm)
+        const totalN = data.nodes.length;
+        const goldenRatio = (1 + Math.sqrt(5)) / 2;
+        let currentSphereRadius = computeSphereRadius(data.nodes.length);
+        const SPHERE_SHELL_R = currentSphereRadius;
+
+        // Place root nodes evenly around the equator
+        const rootNodesList = data.nodes.filter(n => n.isRoot);
+        rootNodesList.forEach((rn, idx) => {
+          const angle = (idx / rootNodesList.length) * 2 * Math.PI;
+          rn.x = SPHERE_SHELL_R * Math.cos(angle);
+          rn.y = (idx % 2 === 0 ? 30 : -30);
+          rn.z = SPHERE_SHELL_R * Math.sin(angle);
+        });
+
+        // Place all other nodes along the Fibonacci spherical shell
+        const nonRootNodes = data.nodes.filter(n => !n.isRoot);
+        nonRootNodes.forEach((node, i) => {
+          const theta = 2 * Math.PI * i / goldenRatio;
+          const phi = Math.acos(1 - 2 * (i + 0.5) / nonRootNodes.length);
+          node.x = SPHERE_SHELL_R * Math.sin(phi) * Math.cos(theta);
+          node.y = SPHERE_SHELL_R * Math.cos(phi);
+          node.z = SPHERE_SHELL_R * Math.sin(phi) * Math.sin(theta);
+        });
+
+        // Pre-compute galaxy coordinates and orbital parameters
+        setupGalaxyParameters(data.nodes);
+        window.__cachedAllNodes = data.nodes;
+        cachedRootNodes = data.nodes.filter(n => n.isRoot && !n.isSubPlanet);
+
+        // 2. Dual Physics Engine: 3D Spherical Cortex vs 3D Galaxy (Stars & Planets)
+        let lastOrbitTs = 0;
+        graphInstance.d3Force('brain_physics', () => {
+          const orbitNow = performance.now();
+          const orbitDt = lastOrbitTs ? Math.min(0.1, (orbitNow - lastOrbitTs) / 1000) : 0;
+          lastOrbitTs = orbitNow;
+          const nodes = graphInstance.graphData().nodes;
+
+          // Identify dragged roots and collect all roots
+          const draggedRootsMap = new Map();
+          const allRootsMap = new Map();
+          const allSubPlanetsMap = new Map(); // Sub-planetas por ID
+          for (let i = 0; i < nodes.length; i++) {
+            const n = nodes[i];
+            if (n.isRoot) {
+              if (n.isSubPlanet) {
+                // Sub-planeta: registrar por ID para que los hijos lo encuentren
+                allSubPlanetsMap.set(n.id, n);
+              } else {
+                // Root principal
+                allRootsMap.set(n.group, n);
+                allRootsMap.set(n.group + 's', n);
+                if (n.group && n.group.endsWith('s')) allRootsMap.set(n.group.slice(0, -1), n);
+              }
+              if (n.__isDraggingRoot) {
+                draggedRootsMap.set(n.group, n);
+              }
+            }
+          }
+
+          if (currentMode === 'galaxy') {
+            // Repulsión Gravitatoria Inter-Estelar (Garantiza separación e impide colisión entre N sistemas)
+            if (cachedRootNodes && cachedRootNodes.length > 1) {
+              for (let a = 0; a < cachedRootNodes.length; a++) {
+                for (let b = a + 1; b < cachedRootNodes.length; b++) {
+                  const ra = cachedRootNodes[a];
+                  const rb = cachedRootNodes[b];
+                  const dx = ra.x - rb.x;
+                  const dy = ra.y - rb.y;
+                  const dz = ra.z - rb.z;
+                  const dist = Math.sqrt(dx * dx + dy * dy + dz * dz) || 1;
+                  const minSafeDist = 270;
+                  if (dist < minSafeDist) {
+                    const push = (minSafeDist - dist) * 0.06;
+                    const nx = dx / dist; const ny = dy / dist; const nz = dz / dist;
+                    if (!ra.__isDraggingRoot) { ra.x += nx * push; ra.y += ny * push; ra.z += nz * push; }
+                    if (!rb.__isDraggingRoot) { rb.x -= nx * push; rb.y -= ny * push; rb.z -= nz * push; }
+                  }
+                }
+              }
+            }
+            // ==========================================
+            // 🌌 3D GALAXY: SISTEMAS SOLARES (SOL, ÓRBITAS Y PLANETAS)
+            // ==========================================
+            for (let i = 0; i < nodes.length; i++) {
+              const n = nodes[i];
+
+              if (n.isRoot) {
+                // ⭐ SOL / ESTRELLA CENTRAL o 🪐 SUB-PLANETA (Resplandor pulsante vivo)
+                if (n.__stellarFlare) {
+                  const pulseSpeed = Math.max(0.05, orbitalSpeedMultiplier);
+                  const pulseAmplitude = n.isSubPlanet ? 0.06 : 0.09;
+                  const pulseSize = n.isSubPlanet ? 16 : 24;
+                  const pulse = 1.0 + Math.sin(Date.now() * 0.0022 * pulseSpeed + i * 1.4) * pulseAmplitude;
+                  n.__stellarFlare.scale.set(pulseSize * pulse, pulseSize * pulse, 1);
+                }
+                if (!n.__isDraggingRoot) {
+                  if (n.isSubPlanet && n.subPlanetOrbit) {
+                    // 🌙 SUB-PLANETA: orbitar su root padre con rotación suave
+                    const parentRoot = allRootsMap.get(n.group);
+                    if (parentRoot) {
+                      n.subPlanetOrbit.currentAngle += (n.subPlanetOrbit.orbitSpeed || 0.005) * orbitalSpeedMultiplier * orbitDt;
+                      const spAng = n.subPlanetOrbit.currentAngle;
+                      const spR = n.subPlanetOrbit.radius;
+                      const tiltY = n.subPlanetOrbit.tiltY || 0;
+                      const targetX = parentRoot.x + Math.cos(spAng) * spR;
+                      const targetY = parentRoot.y + tiltY;
+                      const targetZ = parentRoot.z + Math.sin(spAng) * spR;
+                      n.x += (targetX - n.x) * 0.15;
+                      n.y += (targetY - n.y) * 0.15;
+                      n.z += (targetZ - n.z) * 0.15;
+                      // Actualizar starTarget dinámicamente para que los hijos lo sigan
+                      n.starTargetX = n.x;
+                      n.starTargetY = n.y;
+                      n.starTargetZ = n.z;
+                    }
+                  } else {
+                    // ⭐ ROOT PRINCIPAL: anclar a su posición galáctica fija
+                    const center = (n.starTargetX !== undefined && n.starTargetY !== undefined && n.starTargetZ !== undefined)
+                      ? { x: n.starTargetX, y: n.starTargetY, z: n.starTargetZ }
+                      : (GALAXY_CLUSTERS[n.group] || 
+                         GALAXY_CLUSTERS[n.group + 's'] || 
+                         (n.group && n.group.endsWith('s') ? GALAXY_CLUSTERS[n.group.slice(0, -1)] : null) || 
+                         { x: Math.cos((i + 1) * 1.25) * 160, y: Math.sin((i + 1) * 0.8) * 60, z: Math.sin((i + 1) * 1.5) * 160 });
+                    n.x += (center.x - n.x) * 0.12;
+                    n.y += (center.y - n.y) * 0.12;
+                    n.z += (center.z - n.z) * 0.12;
+                  }
+                  n.vx = 0; n.vy = 0; n.vz = 0;
+                }
+              } else {
+                // 🪐 PLANETA EN ÓRBITA KEPLERIANA PURA (Cero temblores, rotación perpetua fluida)
+                // Resolver centro orbital: sub-planeta si tiene __orbitCenterId, si no el root del grupo
+                let star = null;
+                if (n.__orbitCenterId && n.__orbitCenterId.startsWith('subplanet_')) {
+                  star = allSubPlanetsMap.get(n.__orbitCenterId);
+                }
+                if (!star) star = allRootsMap.get(n.group);
+                if (!star) continue;
+
+                if (!n.solarOrbit) {
+                  // Generar órbita por defecto si no existía
+                  const r = SOLAR_ORBIT_RADII[(i % SOLAR_ORBIT_RADII.length)] || 40;
+                  n.solarOrbit = {
+                    radius: r,
+                    rx: 0.1,
+                    rz: 0.1,
+                    currentAngle: (i * 1.2),
+                    orbitSpeed: 0.006 / Math.sqrt(r / 26)
+                  };
+                }
+
+                // Avance orbital armónico continuo y constante
+                n.solarOrbit.currentAngle += (n.solarOrbit.orbitSpeed || 0.006) * orbitalSpeedMultiplier * orbitDt;
+                const ang = n.solarOrbit.currentAngle;
+                const r = n.solarOrbit.radius;
+
+                const lx0 = Math.cos(ang) * r;
+                const lz0 = Math.sin(ang) * r;
+                const rx = n.solarOrbit.rx || 0;
+                const rz = n.solarOrbit.rz || 0;
+                const y1 = -lz0 * Math.sin(rx);
+                const z1 = lz0 * Math.cos(rx);
+                const lx = lx0 * Math.cos(rz) - y1 * Math.sin(rz);
+                const ly = lx0 * Math.sin(rz) + y1 * Math.cos(rz);
+                const lz = z1;
+
+                // Posición matemática exacta sobre el anillo de su Sol (inmune a interferencias de fuerzas D3)
+                n.x = star.x + lx;
+                n.y = star.y + ly;
+                n.z = star.z + lz;
+                n.vx = 0;
+                n.vy = 0;
+                n.vz = 0;
+              }
+            }
+          } else {
+            // ==========================================
+            // 🌐 3D SPHERICAL CORTEX PHYSICS (Fibonacci Shell)
+            // ==========================================
+            for (let i = 0; i < nodes.length; i++) {
+              const n = nodes[i];
+              const x = n.x || 0.001;
+              const y = n.y || 0.001;
+              const z = n.z || 0.001;
+              const d = Math.sqrt(x*x + y*y + z*z) || 1;
+
+              const isThisRootDragged = n.isRoot && n.__isDraggingRoot;
+              const isChildOfDraggedRoot = !n.isRoot && draggedRootsMap.has(n.group);
+
+              if (isChildOfDraggedRoot) {
+                // Despegue elástico siguiendo a la raíz
+                const rootNode = draggedRootsMap.get(n.group);
+                const dx = rootNode.x - n.x;
+                const dy = rootNode.y - n.y;
+                const dz = rootNode.z - n.z;
+
+                const pullStrength = 0.042;
+                n.vx = (n.vx || 0) + dx * pullStrength;
+                n.vy = (n.vy || 0) + dy * pullStrength;
+                n.vz = (n.vz || 0) + dz * pullStrength;
+
+                n.vx *= 0.92;
+                n.vy *= 0.92;
+                n.vz *= 0.92;
+              } else if (isThisRootDragged) {
+                // Raíz bajo arrastre manual
+              } else {
+                // Envoltura normal sobre la corteza esférica
+                const delta = (currentSphereRadius - d) * 0.08;
+                n.vx = (n.vx || 0) + (x / d) * delta;
+                n.vy = (n.vy || 0) + (y / d) * delta;
+                n.vz = (n.vz || 0) + (z / d) * delta;
+              }
+            }
+          }
+        });
+
+        // D3 Force Link & Charge: En modo Galaxia apagadas para 0 consumo CPU innecesario
+        const isGalaxyInitial = (currentMode === 'galaxy');
+        if (graphInstance.d3Force('charge')) {
+          graphInstance.d3Force('charge').strength(isGalaxyInitial ? 0 : -90).distanceMax(380);
+        }
+        if (graphInstance.d3Force('link')) {
+          graphInstance.d3Force('link').distance(l => l.isStructural ? 70 : 120).strength(isGalaxyInitial ? 0 : 0.04);
+        }
+
+        // Center Hologram
+        const scene = graphInstance.scene();
+        const coreCanvas = document.createElement('canvas');
+        coreCanvas.width = 512;
+        coreCanvas.height = 256;
+        const coreCtx = coreCanvas.getContext('2d');
+        coreCtx.font = 'Bold 44px -apple-system, sans-serif';
+        coreCtx.fillStyle = 'rgba(255, 255, 255, 0.45)';
+        coreCtx.textAlign = 'center';
+        coreCtx.textBaseline = 'middle';
+        /* 中央标题由核球标签承担（去掉星云里的旧标题，避免重名） */
+        coreCtx.font = '20px -apple-system, sans-serif';
+        coreCtx.fillStyle = 'rgba(56, 189, 248, 0.55)';
+        coreCtx.fillText(data.stats.totalNodes + ' 个星点 · ' + data.edges.length + ' 条关联', 256, 145);
+
+        const coreTexture = new THREE.CanvasTexture(coreCanvas);
+        const coreSpriteMat = new THREE.SpriteMaterial({ map: coreTexture, transparent: true, opacity: 0.7 , depthWrite: false });
+        const centerSprite = new THREE.Sprite(coreSpriteMat);
+        centerSprite.scale.set(100, 50, 1);
+        scene.add(centerSprite);
+
+        // Starfield particles
+        const starsGeo = new THREE.BufferGeometry();
+        const starCount = 800;
+        const starPositions = new Float32Array(starCount * 3);
+        for(let i=0; i<starCount*3; i++) {
+          starPositions[i] = (Math.random() - 0.5) * 2600;
+        }
+        starsGeo.setAttribute('position', new THREE.BufferAttribute(starPositions, 3));
+        const starsMat = new THREE.PointsMaterial({ color: 0x475569, size: 1.2, transparent: true, opacity: 0.35 });
+        scene.add(new THREE.Points(starsGeo, starsMat));
+        addSpiralArms(scene);
+        addGalacticCore(scene);
+
+                // Anillos orbitales de alambre 3D (Armillary Wireframe Spheres per Solar System)
+        const galaxyOrbitsMasterGroup = new THREE.Group();
+        window.__galaxyOrbitsMasterGroup = galaxyOrbitsMasterGroup;
+        const clusterOrbitGroups = {};
+        window.__clusterOrbitGroups = clusterOrbitGroups;
+
+        const roots = data.nodes.filter(n => n.isRoot && !n.isSubPlanet);
+        const rootCount = Math.max(roots.length, 1);
+
+        roots.forEach(rn => {
+          const grpHolder = new THREE.Group();
+          let hexColor = 0x38bdf8;
+          if (rn.color) {
+            try { hexColor = parseInt(rn.color.replace('#', '0x'), 16); } catch(e){}
+          }
+
+          const radii = (window.__systemRingRadii && (window.__systemRingRadii[rn.group] || window.__systemRingRadii[rn.id])) || SOLAR_ORBIT_RADII;
+
+          radii.forEach((r, idx) => {
+            const pts = [];
+            const segments = 64;
+            for (let s = 0; s <= segments; s++) {
+              const angle = (s / segments) * Math.PI * 2;
+              pts.push(new THREE.Vector3(Math.cos(angle) * r, 0, Math.sin(angle) * r));
+            }
+            const ringGeo = new THREE.BufferGeometry().setFromPoints(pts);
+            const ringMat = new THREE.LineBasicMaterial({
+              color: hexColor,
+              transparent: true,
+              opacity: 0.22,
+              blending: THREE.AdditiveBlending
+            });
+            const ringLine = new THREE.LineLoop(ringGeo, ringMat);
+            ringLine.rotation.x = 0;
+            ringLine.rotation.z = 0;
+            grpHolder.add(ringLine);
+          });
+
+          clusterOrbitGroups[rn.group] = grpHolder;
+          clusterOrbitGroups[rn.id] = grpHolder;
+          galaxyOrbitsMasterGroup.add(grpHolder);
+        });
+        galaxyOrbitsMasterGroup.visible = (currentMode === 'galaxy');
+        scene.add(galaxyOrbitsMasterGroup);
+
+        // Nube estelar cósmica para Modo Low alrededor del núcleo central
+        updateCentralNebulaCloud(scene, currentCloudDensity, currentDataMode === 'low');
+
+        const renderer = graphInstance.renderer();
+        if (renderer) {
+          renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
+        }
+
+        // Auto-rotation & Pure Trackball Controls
+        if (currentMode === "galaxy") { 
+          graphInstance.d3AlphaDecay(0.02); 
+          graphInstance.d3VelocityDecay(0.18); 
+        }
+        schedulePhysicsFreeze(4200);
+        const controls = graphInstance.controls();
+        if (controls) {
+          controls.autoRotate = false;
+          controls.enableRotate = false; // Desactivado para que no pelee con el control gestual de esfera 3D
+          controls.enablePan = false;
+          controls.enableZoom = false;   // Manejado con suavidad cinemática por nuestro wheel listener
+        }
+
+        // Initial camera framing
+        graphInstance.cameraPosition({ z: 620 });
+
+        // Setup Drag Interaction on the Glass Mini-Sphere Orb
+        setupGlassOrbDrag();
+
+      } catch (err) {
+        console.error('Failed to init 3D graph:', err);
+      }
+    }
+
+    // Smooth Cinematic Camera Rig with Physical Inertia & Volumetric Fly-To Targets
+    let targetRadius = 950;
+    let currentRadius = 660;
+    let targetTheta = 0;
+    let currentTheta = 0;
+    let targetPhi = 1.02;
+    let currentPhi = 1.02;
+
+    const targetLookAt = new THREE.Vector3(0, 0, 0);
+    const currentLookAt = new THREE.Vector3(0, 0, 0);
+    let focusedNodeId = null;
+
+    function applyCameraPosition() {
+      if (!graphInstance) return;
+      const cam = graphInstance.camera();
+      if (!cam) return;
+
+      // Suave vuelo cinematográfico hacia el objetivo (nodo enfocado o centro)
+      currentLookAt.lerp(targetLookAt, 0.075);
+
+      const cx = currentLookAt.x + currentRadius * Math.sin(currentPhi) * Math.sin(currentTheta);
+      const cy = currentLookAt.y + currentRadius * Math.cos(currentPhi);
+      const cz = currentLookAt.z + currentRadius * Math.sin(currentPhi) * Math.cos(currentTheta);
+
+      cam.position.set(cx, cy, cz);
+      cam.lookAt(currentLookAt);
+
+      const controls = graphInstance.controls();
+      if (controls) {
+        controls.target.copy(currentLookAt);
+      }
+    }
+
+    // Cache for root nodes to avoid creating arrays inside 60FPS tick()
+    let cachedRootNodes = [];
+    let lodFrameCounter = 0;
+
+    // Proximity LOD: Labels fade in when zooming in / approaching any node (root or subnode)
+    // Optimizado: Distancia al cuadrado (evita Math.sqrt innecesarios) y throttled a cada 2 frames
+    function updateLabelLOD() {
+      if (!graphInstance) return;
+      lodFrameCounter++;
+      if (lodFrameCounter % 2 !== 0 && !searchActive) return;
+
+      const cam = graphInstance.camera();
+      if (!cam) return;
+      const camPos = cam.position;
+      const nodes = window.__cachedAllNodes || ((graphInstance && graphInstance.graphData && graphInstance.graphData().nodes) || (graphData && graphData.nodes) || []);
+
+      for (let i = 0; i < nodes.length; i++) {
+        const n = nodes[i];
+        const sprite = n.__labelSprite;
+        if (!sprite) continue;
+
+        if (n.isRoot) {
+          if (!sprite.visible) sprite.visible = true;
+          if (sprite.material.opacity !== 0.95) sprite.material.opacity = 0.95;
+          continue;
+        }
+
+        // Si hay búsqueda activa o es el nodo enfocado, mantener visible
+        if (n.__searchMatch || n.id === focusedNodeId) {
+          if (!sprite.visible) sprite.visible = true;
+          if (sprite.material.opacity !== 1.0) sprite.material.opacity = 1.0;
+          continue;
+        }
+        if (searchActive && !n.__searchMatch) {
+          const isRelated = matchingNodeIds.has(n.id);
+          if (!isRelated) {
+            if (sprite.visible) {
+              sprite.visible = false;
+              sprite.material.opacity = 0;
+            }
+            continue;
+          } else {
+             // Keep it visible but slightly dimmed as set in onSearch
+             if (!sprite.visible) sprite.visible = true;
+             continue;
+          }
+        }
+
+        const dx = (n.x || 0) - camPos.x;
+        const dy = (n.y || 0) - camPos.y;
+        const dz = (n.z || 0) - camPos.z;
+        const distSq = dx * dx + dy * dy + dz * dz;
+
+        // Rango de visibilidad ampliado: 580^2 = 336400
+        if (distSq < 336400) {
+          const dist = Math.sqrt(distSq);
+          const alpha = Math.max(0, Math.min(0.95, (580 - dist) / 220));
+          sprite.material.opacity = alpha;
+          sprite.visible = alpha > 0.04;
+        } else {
+          if (sprite.visible) {
+            sprite.visible = false;
+            sprite.material.opacity = 0;
+          }
+        }
+      }
+    }
+
+    // 60 FPS Smooth Render Loop with Gentle Auto-Giro, Silky Inertia and Proximity Labels
+    function startSmoothCameraLoop() {
+      let lastFrameTs = 0;
+      function tick(ts) {
+        requestAnimationFrame(tick);
+        if (!graphInstance) return;
+        const dt = lastFrameTs ? Math.min(0.1, (ts - lastFrameTs) / 1000) : 0;
+        lastFrameTs = ts;
+
+        // 慢速自动旋转：0.5°/s（按时间积分，不受 60/120Hz 帧率影响）
+        if (autoRotate && orbitalSpeedMultiplier > 0) {
+          targetTheta += 0.0087 * orbitalSpeedMultiplier * dt;
+        }
+        // 镜头拉近看概念时，中央核球标题隐去，避免一屏大金字
+        if (window.__galacticCoreLabel) {
+          window.__galacticCoreLabel.visible = currentRadius > 420;
+        }
+
+        // Smooth physical interpolation (Lerp factor 0.065 for luxurious ease-in/ease-out)
+        currentTheta += (targetTheta - currentTheta) * 0.065;
+        currentPhi += (targetPhi - currentPhi) * 0.065;
+        currentRadius += (targetRadius - currentRadius) * 0.065;
+
+        applyCameraPosition();
+        updateLabelLOD();
+
+        // Actualizar posición de los anillos orbitales siguiendo a sus Soles (cero asignación de memoria en tick)
+        if (window.__galaxyOrbitsMasterGroup) {
+          window.__galaxyOrbitsMasterGroup.visible = (currentMode === 'galaxy');
+          if (currentMode === 'galaxy' && cachedRootNodes.length > 0) {
+            for (let i = 0; i < cachedRootNodes.length; i++) {
+              const rn = cachedRootNodes[i];
+              const holder = window.__clusterOrbitGroups && (window.__clusterOrbitGroups[rn.group] || window.__clusterOrbitGroups[rn.id]);
+              if (holder) {
+                holder.position.set(rn.x || 0, rn.y || 0, rn.z || 0);
+              }
+            }
+          }
+        }
+
+        // Rotación estelar fluida de la nube nebulosa central
+        if (window.__centralNebulaCloud) {
+          const mult = (typeof orbitalSpeedMultiplier !== 'undefined') ? orbitalSpeedMultiplier : 1.0;
+          window.__centralNebulaCloud.rotation.y += 0.004 * mult * dt;
+          window.__centralNebulaCloud.rotation.x += 0.002 * mult * dt;
+        }
+      }
+      requestAnimationFrame(tick);
+    }
+    startSmoothCameraLoop();
+
+    
+    // Native Mousewheel and Trackpad Scroll Gestures Support
+    window.addEventListener('wheel', (e) => {
+      // Smooth exponential zoom factor based on scroll direction
+      const factor = e.deltaY > 0 ? 1.08 : 0.92;
+      targetRadius = Math.max(160, Math.min(1800, targetRadius * factor));
+    }, { passive: true });
+
+    // Unified 3D Virtual Trackball & Globe Rotation
+    // Rota la esfera exactamente en la dirección del gesto como si le pasaras la mano por encima a una bola 3D
+    function rotateSphere(yawDelta, pitchDelta) {
+      targetTheta += yawDelta;
+      targetPhi += pitchDelta;
+      // Evitar que la cámara se invierta en los polos exactos
+      targetPhi = Math.max(0.10, Math.min(Math.PI - 0.10, targetPhi));
+    }
+
+    // isNodeBeingDragged ya está inicializado globalmente arriba
+    isNodeBeingDragged = false;
+
+    function setupGlassOrbDrag() {
+      const graphContainer = document.getElementById('3d-graph');
+      const orb = document.getElementById('glass-orb');
+      let isDragging = false;
+      let prevX = 0;
+      let prevY = 0;
+      let velX = 0;
+      let velY = 0;
+
+      function startDrag(clientX, clientY) {
+        if (isNodeBeingDragged) return;
+        isDragging = true;
+        prevX = clientX;
+        prevY = clientY;
+        velX = 0;
+        velY = 0;
+        if (graphContainer) graphContainer.classList.add('grabbing');
+      }
+
+      function updateDrag(clientX, clientY) {
+        if (!isDragging) return;
+        const dx = clientX - prevX;
+        const dy = clientY - prevY;
+        prevX = clientX;
+        prevY = clientY;
+
+        velX = dx;
+        velY = dy;
+
+        // FÍSICA DE BOLA 3D:
+        // Arrastrar hacia arriba (dy < 0) -> la esfera rueda hacia arriba (pitchDelta > 0)
+        // Arrastrar hacia abajo (dy > 0) -> la esfera rueda hacia abajo (pitchDelta < 0)
+        // Arrastrar hacia la derecha (dx > 0) -> la esfera gira a la derecha (yawDelta < 0)
+        // Arrastrar hacia la izquierda (dx < 0) -> la esfera gira a la izquierda (yawDelta > 0)
+        const sensitivity = 0.0042;
+        const yawDelta = -dx * sensitivity;
+        const pitchDelta = -dy * sensitivity;
+
+        rotateSphere(yawDelta, pitchDelta);
+      }
+
+      function endDrag() {
+        if (!isDragging) return;
+        isDragging = false;
+        if (graphContainer) graphContainer.classList.remove('grabbing');
+
+        // Suave inercia física de despedida
+        if (Math.abs(velX) > 1 || Math.abs(velY) > 1) {
+          rotateSphere(-velX * 0.003, -velY * 0.003);
+        }
+      }
+
+      // 1. Drag en el Canvas 3D principal
+      if (graphContainer) {
+        graphContainer.addEventListener('mousedown', (e) => {
+          // Si hace clic con botón secundario o en interfaz, ignorar
+          if (e.button !== 0) return;
+          startDrag(e.clientX, e.clientY);
+        });
+      }
+
+      // 2. Drag en el mini orbe HUD
+      if (orb) {
+        orb.addEventListener('mousedown', (e) => {
+          if (e.target.classList.contains('orb-arrow') || e.target.classList.contains('orb-center')) return;
+          startDrag(e.clientX, e.clientY);
+        });
+      }
+
+      // 3. Listeners globales para arrastre continuo incluso al salir del canvas
+      window.addEventListener('mousemove', (e) => {
+        updateDrag(e.clientX, e.clientY);
+      });
+
+      window.addEventListener('mouseup', () => {
+        endDrag();
+      });
+
+      // 4. Soporte táctil y gestures
+      if (graphContainer) {
+        graphContainer.addEventListener('touchstart', (e) => {
+          if (e.touches.length === 1) {
+            startDrag(e.touches[0].clientX, e.touches[0].clientY);
+          }
+        }, { passive: true });
+
+        window.addEventListener('touchmove', (e) => {
+          if (e.touches.length === 1) {
+            updateDrag(e.touches[0].clientX, e.touches[0].clientY);
+          }
+        }, { passive: true });
+
+        window.addEventListener('touchend', () => {
+          endDrag();
+        });
+      }
+    }
+
+    function zoomCamera(scaleFactor) {
+      targetRadius = Math.max(340, Math.min(1300, targetRadius * scaleFactor));
+    }
+
+    function toggleRotate() {
+      autoRotate = !autoRotate;
+      const pill = document.getElementById('auto-rotate-pill');
+      if (pill) pill.classList.toggle('active', autoRotate);
+    }
+
+    function toggleParticleDensity() {
+      particleDensityHigh = !particleDensityHigh;
+      localStorage.setItem('okf_particle_density', particleDensityHigh ? 'high' : 'low');
+      const pill = document.getElementById('particle-density-pill');
+      const label = document.getElementById('particle-density-label');
+      if (pill) pill.classList.toggle('high', particleDensityHigh);
+      if (label) label.textContent = particleDensityHigh ? '连线粒子：高' : '连线粒子：低';
+      // Force re-render of particles
+      if (graphInstance) {
+        const divisor = particleDensityHigh ? 3 : 10;
+        graphInstance.linkDirectionalParticles(link => {
+          if (orbitalSpeedMultiplier === 0) return 0;
+          if (link.isStructural) {
+            if (graphData.nodes.length > 30) {
+              const tIdStr = String((link.target && link.target.id) || link.target);
+              let hash = 0;
+              for (let i = 0; i < tIdStr.length; i++) hash = (hash + tIdStr.charCodeAt(i)) % divisor;
+              return (hash === 0) ? 2 : 0;
+            }
+            return 2;
+          }
+          if (focusedNodeId && (link.source.id === focusedNodeId || link.target.id === focusedNodeId)) return 1;
+          return 0;
+        });
+      }
+    }
+
+    function resetCamera() {
+      focusedNodeId = null;
+      targetLookAt.set(0, 0, 0);
+      targetRadius = 950;
+      targetPhi = 1.02;
+      closeDrawer();
+      const searchInput = document.getElementById('search-input');
+      if (!searchInput || !searchInput.value.trim()) {
+        clearSearchSpotlight();
+      } else {
+        onSearch(searchInput.value);
+      }
+    }
+
+    // 逐层展开：星海（中心）→ 题材 → 设定 → 条目
+    const expandedGenres = new Set();
+    const expandedCells = new Set();
+    function seaVisible(n) {
+      // 星图：有多少层就显示多少层，不靠点击展开
+      return true;
+    }
+    function applySeaVisibility() {
+      if (!graphInstance) return;
+      graphInstance.nodeVisibility(n => {
+        if (searchActive) return matchingNodeIds.has(n.id);
+        return seaVisible(n);
+      });
+      graphInstance.linkVisibility(l => {
+        const sId = (l.source && l.source.id) || l.source;
+        const tId = (l.target && l.target.id) || l.target;
+        if (searchActive) return matchingNodeIds.has(sId) && matchingNodeIds.has(tId);
+        const sn = graphData.nodes.find(n => n.id === sId);
+        const tn = graphData.nodes.find(n => n.id === tId);
+        return !!sn && !!tn && seaVisible(sn) && seaVisible(tn);
+      });
+    }
+    function handleSeaClick(node) {
+      // 全层常显：点题材/概念只聚焦并看详情，不收起任何层
+      focusNode(node);
+    }
+    function expandCell(genre, concept) {
+      expandedGenres.add(genre);
+      expandedCells.add(genre + '|' + concept);
+      applySeaVisibility();
+      focusById(`subplanet_${genre}_${concept}`);
+    }
+    function expandAllSea() {
+      STAR_GENRES.forEach(g => {
+        expandedGenres.add(g.name);
+        CONCEPTS.forEach(c => expandedCells.add(g.name + '|' + c));
+      });
+      applySeaVisibility();
+      resetCamera();
+      showToast('✦ 已展开全部题材与设定');
+    }
+    function collapseSea() {
+      expandedGenres.clear();
+      expandedCells.clear();
+      applySeaVisibility();
+      closeDrawer();
+      updateBreadcrumb(null);
+      resetCamera();
+    }
+    function focusById(id) {
+      const n = graphData.nodes.find(x => x.id === id);
+      if (n) focusNode(n);
+    }
+    function updateBreadcrumb(node) {
+      const el = document.getElementById('sea-breadcrumb');
+      if (!el) return;
+      if (!node) { el.innerHTML = ''; el.classList.remove('show'); return; }
+      const crumbs = [{ label: '星海', act: 'collapseSea()' }];
+      if (node.isRoot && !node.isSubPlanet) {
+        crumbs.push({ label: node.label });
+      } else if (node.isRoot && node.isSubPlanet) {
+        crumbs.push({ label: node.group, act: `focusById('root_${node.group}')` });
+        crumbs.push({ label: node.label });
+      } else {
+        crumbs.push({ label: node.genre, act: `focusById('root_${node.genre}')` });
+        crumbs.push({ label: node.concept, act: `focusById('subplanet_${node.genre}_${node.concept}')` });
+        crumbs.push({ label: node.label });
+      }
+      el.innerHTML = crumbs.map((c, i) =>
+        (i ? '<span class="sep">/</span>' : '') +
+        `<span class="crumb${c.act ? ' clickable' : ''}"${c.act ? ` onclick="${c.act}"` : ''}>${c.label}</span>`
+      ).join('');
+      el.classList.add('show');
+    }
+
+    function focusNode(node) {
+      if (!node) return;
+      focusedNodeId = node.id;
+      
+      // 🚀 VUELO CINEMATOGRÁFICO DE LA CÁMARA AL NODO
+      targetLookAt.set(node.x || 0, node.y || 0, node.z || 0);
+      targetRadius = node.isRoot ? (node.isSubPlanet ? 190 : 300) : 150; // 按层级取景
+      
+      // Auto-rotar pausa temporalmente para contemplar el nodo enfocado
+      autoRotate = false;
+      const pill = document.getElementById('auto-rotate-pill');
+      if (pill) pill.classList.remove('active');
+
+      // Hacer visible y destacar la etiqueta del nodo enfocado
+      if (node.__labelSprite) {
+        node.__labelSprite.visible = true;
+        node.__labelSprite.material.opacity = 1.0;
+        node.__labelSprite.scale.set(32, 6.1, 1);
+      }
+
+      updateBreadcrumb(node);
+      openDrawer(node);
+    }
+
+    function renderMarkdownToHtml(markdownText) {
+      if (!markdownText) return '<p style="color: var(--text-muted);">Sin contenido adicional.</p>';
+      
+      let text = markdownText.replace(/^---[\s\S]*?---\s*/, '');
+      
+      // Transform inline [[wikilinks]] into interactive spans
+      text = text.replace(/\[\[([^\]|]+)(?:\|([^\]]+))?\]\]/g, (match, target, alias) => {
+        const display = (alias || target).trim();
+        const safeTarget = target.trim().replace(/"/g, '&quot;');
+        return `<span class="inline-wikilink" data-target="${safeTarget}" onclick="selectByLabel(this.dataset.target)">🔗 ${display}</span>`;
+      });
+
+      if (typeof marked !== 'undefined' && marked.parse) {
+        try {
+          return marked.parse(text);
+        } catch(e) {
+          console.warn('marked parse error:', e);
+        }
+      }
+
+      // Fallback formatting
+      return text
+        .replace(/`([^`]+)`/g, '<code>$1</code>')
+        .replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>')
+        .replace(/\*([^*]+)\*/g, '<em>$1</em>')
+        .replace(/^- (.*)$/gm, '<li>$1</li>')
+        .replace(/(<li>.*<\/li>)/s, '<ul>$1</ul>')
+        .replace(/\n\n/g, '<br><br>');
+    }
+
+    function selectByLabel(targetLabel) {
+      if (!targetLabel) return;
+      const cleanTarget = targetLabel.toLowerCase().replace(/^\[\[|\]\]$/g, '').trim();
+      const match = graphData.nodes.find(n => 
+        n.label.toLowerCase() === cleanTarget || 
+        n.id.toLowerCase() === cleanTarget ||
+        n.label.toLowerCase().includes(cleanTarget)
+      );
+      if (match) {
+        focusNode(match);
+      }
+    }
+
+    function esc(s) {
+      return String(s == null ? '' : s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+    }
+
+    // 关系说明按「谁看这条」拼：出边说这条怎么用对方，入边说对方怎么用这条
+    function relNote(e, other, out) {
+      const t = other || '另一条';
+      const map = {
+        refines: [() => `把「${t}」的用法收窄到这个场面。`, () => `「${t}」把这条的用法收窄到具体场面。`],
+        contradicts: [() => `和「${t}」同时用会打架，按场景取一。`, () => `「${t}」和这条会打架，按场景取一。`],
+        depends_on: [() => `先立住「${t}」，这条才成立。`, () => `「${t}」要等这条立住才成立。`],
+        instance_of: [() => `是「${t}」这类做法的一个具体例子。`, () => `「${t}」是这类做法的一个具体例子。`],
+        derived_from: [() => `和「${t}」从同一条原文里拆出来。`, () => `「${t}」和这条从同一条原文里拆出来。`],
+        applies_to: [() => `这条落在「${t}」的场面上。`, () => `「${t}」落在这一条的场面上。`],
+      };
+      const pair = map[e.rel_type];
+      return pair ? pair[out ? 0 : 1]() : (e.note || '');
+    }
+
+    // 条目详情四段式：概念 → 关系 → 总结 → 出处（顺序＝知识库读一条知识的路径）
+    function openDrawer(node) {
+      const drawer = document.getElementById('drawer');
+      const tagEl = document.getElementById('drawer-group');
+      const conceptColor = CONCEPT_COLORS[node.concept] || node.color;
+      tagEl.innerText = node.isRoot ? (node.isSubPlanet ? '设定' : '题材') : (node.concept || '条目');
+      tagEl.style.backgroundColor = conceptColor + '22';
+      tagEl.style.color = conceptColor;
+      tagEl.style.border = '1px solid ' + conceptColor;
+
+      document.getElementById('drawer-title').innerText = node.label || '';
+      const tagsContainer = document.getElementById('drawer-tags');
+      tagsContainer.innerHTML = (node.tags || []).map(t => '<span class="tag">#' + esc(t) + '</span>').join('');
+
+      const body = document.getElementById('drawer-body');
+      if (node.isRoot && !node.isSubPlanet) {
+        const cells = CONCEPTS.map(c => {
+          const sp = graphData.nodes.find(n => n.id === `subplanet_${node.group}_${c}`);
+          return { concept: c, count: sp ? sp.count : 0 };
+        }).filter(x => x.count > 0);
+        const total = graphData.nodes.filter(n => !n.isRoot && n.genre === node.group).length;
+        body.innerHTML =
+          '<section class="kb-sec"><h4>题材</h4>' +
+            '<p class="kb-text">' + esc(node.description || '') + '</p>' +
+            '<p class="kb-sub">' + cells.length + ' 个设定 · ' + total + ' 条写作知识</p>' +
+            '<div class="kb-chips">' + cells.map(x =>
+              `<span class="kb-chip" style="border-color:${CONCEPT_COLORS[x.concept]}66;color:${CONCEPT_COLORS[x.concept]}" onclick="focusById('subplanet_${node.group}_${x.concept}')">${x.concept} ${x.count}</span>`
+            ).join('') + '</div>' +
+          '</section>';
+        drawer.classList.add('open');
+        return;
+      }
+      if (node.isRoot && node.isSubPlanet) {
+        const instances = node.instances || [];
+        const rels = graphData.edges
+          .filter(e => (e.source === node.id || e.target === node.id) && e.rel_type)
+          .map(e => {
+            const otherId = e.source === node.id ? e.target : e.source;
+            const other = graphData.nodes.find(n => n.id === otherId);
+            return { e, other, out: e.source === node.id };
+          })
+          .filter(r => r.other);
+        const relHtml = rels.length
+          ? rels.map(r =>
+              '<div class="kb-rel" data-id="' + esc(r.other.id) + '" onclick="selectById(this.dataset.id)">' +
+                '<span class="kb-rel-type" style="color:' + (REL_COLORS[r.e.rel_type] || '#7c9ef5') + '">' + esc(r.e.label || r.e.rel_type) + '</span>' +
+                '<span class="kb-rel-name">' + esc(r.other.label) + '</span>' +
+                '<span class="kb-rel-dir">' + (r.out ? '指向' : '来自') + '</span>' +
+                '<div class="kb-rel-note">' + esc(r.e.note || '') + ' · 置信度 ' + Math.round((r.e.confidence || 0) * 100) + '%</div>' +
+              '</div>'
+            ).join('')
+          : '<p class="kb-sub">这个概念还没有与其他概念建立关系</p>';
+        const sources = [...new Set(instances.map(x => `《${x.src_novel_name}》第 ${x.src_chapter} 章`))];
+        const quotes = [...new Set(instances.map(x => x.evidence))].slice(0, 2);
+        const instHtml = instances.length
+          ? instances.map(x =>
+              '<div class="kb-rel">' +
+                '<span class="kb-rel-name">' + esc(x.title) + '</span>' +
+                '<div class="kb-rel-note">' + esc(x.instruction) + '</div>' +
+              '</div>'
+            ).join('')
+          : '<p class="kb-sub">这个概念下还没有条目</p>';
+        body.innerHTML =
+          '<section class="kb-sec"><h4>解读</h4>' +
+            '<p class="kb-text"><span class="kb-dot" style="background:' + conceptColor + '"></span>' +
+              esc(node.concept) + ' · ' + esc(node.definition || '') + '</p>' +
+            '<p class="kb-sub">题材：' + esc(node.group) + ' · ' + instances.length + ' 条实例</p>' +
+          '</section>' +
+          '<section class="kb-sec"><h4>关系</h4>' + relHtml + '</section>' +
+          '<section class="kb-sec"><h4>总结</h4>' +
+            '<p class="kb-text">' + esc(CONCEPT_SUMMARY[node.concept] || '') + '</p>' +
+            '<p class="kb-sub">适用：' + esc((CONCEPT_COPY[node.concept] || {}).when || '') + '</p>' +
+          '</section>' +
+          '<section class="kb-sec"><h4>出处</h4>' +
+            (sources.length ? sources.map(x => '<p class="kb-text">' + esc(x) + '</p>').join('') : '<p class="kb-sub">暂无出处</p>') +
+          '</section>' +
+          '<section class="kb-sec"><h4>原文</h4>' +
+            (quotes.length ? quotes.map(q => '<blockquote class="kb-quote">' + esc(q) + '</blockquote>').join('') : '<p class="kb-sub">暂无原文摘句</p>') +
+          '</section>' +
+          '<section class="kb-sec"><h4>实例</h4>' + instHtml + '</section>';
+        drawer.classList.add('open');
+        return;
+      }
+
+      // 关系：kb_relations 六类（细化/相冲/依赖/属于/源自/适用于）
+      const rels = graphData.edges
+        .filter(e => e.source === node.id || e.target === node.id)
+        .map(e => {
+          const otherId = e.source === node.id ? e.target : e.source;
+          const other = graphData.nodes.find(n => n.id === otherId);
+          return { e, other, out: e.source === node.id, dir: e.source === node.id ? '指向' : '来自' };
+        })
+        .filter(r => r.other);
+      const relHtml = rels.length
+        ? rels.map(r =>
+            '<div class="kb-rel" data-id="' + esc(r.other.id) + '" onclick="selectById(this.dataset.id)">' +
+              '<span class="kb-rel-type" style="color:' + (REL_COLORS[r.e.rel_type] || '#7c9ef5') + '">' + esc(r.e.label || r.e.rel_type) + '</span>' +
+              '<span class="kb-rel-name">' + esc(r.other.label) + '</span>' +
+              '<span class="kb-rel-dir">' + r.dir + '</span>' +
+              '<div class="kb-rel-note">' + esc(relNote(r.e, r.other.label, r.out)) + ' · 置信度 ' + Math.round((r.e.confidence || 0) * 100) + '%</div>' +
+            '</div>'
+          ).join('')
+        : '<p class="kb-sub">还没有关联条目</p>';
+
+      body.innerHTML =
+        '<section class="kb-sec"><h4>概念</h4>' +
+          '<p class="kb-text"><span class="kb-dot" style="background:' + conceptColor + '"></span>' +
+            esc(node.concept) + ' · ' + esc(CONCEPT_DESC[node.concept] || '') + '</p>' +
+          '<p class="kb-sub">题材：' + esc(node.genre) + '</p>' +
+        '</section>' +
+        '<section class="kb-sec"><h4>关系</h4>' + relHtml + '</section>' +
+        '<section class="kb-sec"><h4>总结</h4>' +
+          '<p class="kb-text">' + esc(node.instruction) + '</p>' +
+          '<p class="kb-sub">适用：' + esc(node.when) + '</p>' +
+          '<blockquote class="kb-quote">正例：' + esc(node.example) + '</blockquote>' +
+        '</section>' +
+        '<section class="kb-sec"><h4>出处</h4>' +
+          '<p class="kb-text">《' + esc(node.src_novel_name) + '》第 ' + esc(node.src_chapter) + ' 章</p>' +
+          '<blockquote class="kb-quote">' + esc(node.evidence) + '</blockquote>' +
+          '<p class="kb-sub">来源：' + esc(node.src_kind) + '</p>' +
+        '</section>';
+
+      drawer.classList.add('open');
+    }
+
+    function selectById(nodeId) {
+      const target = graphData.nodes.find(n => n.id === nodeId);
+      if (target) focusNode(target);
+    }
+
+    function closeDrawer() {
+      document.getElementById('drawer').classList.remove('open');
+    }
+
+    let searchActive = false;
+    let matchingNodeIds = new Set();
+
+    function clearSearchSpotlight() {
+      searchActive = false;
+      matchingNodeIds.clear();
+      const nodes = window.__cachedAllNodes || ((graphInstance && graphInstance.graphData && graphInstance.graphData().nodes) || (graphData && graphData.nodes) || []);
+      nodes.forEach(n => {
+        n.__searchMatch = false;
+        n.__searchConnected = false;
+        if (n.__threeObj) {
+          n.__threeObj.visible = true;
+        }
+        if (n.__labelSprite && !n.isRoot) {
+          n.__labelSprite.scale.set(34, 6.6, 1);
+          n.__labelSprite.visible = false;
+        }
+      });
+      if (window.__clusterOrbitGroups) {
+        Object.values(window.__clusterOrbitGroups).forEach(grpObj => {
+          grpObj.visible = true;
+        });
+      }
+      if (graphInstance) {
+        applySeaVisibility();
+        graphInstance.nodeColor(node => {
+          if (searchActive) {
+            if (node.__searchMatch) return '#38bdf8';
+            if (matchingNodeIds.has(node.id)) return 'rgba(56, 189, 248, 0.4)';
+            return 'rgba(30, 41, 59, 0.18)';
+          }
+          const colorMap = { contacts: '#fbbf24', events: '#38bdf8', photos: '#f43f5e', learnings: '#10b981', emails: '#c084fc', projects: '#6366f1', tools: '#06b6d4', invoices: '#f59e0b' };
+          return colorMap[node.group] || node.color || '#38bdf8';
+        });
+        graphInstance.linkColor(link => {
+          if (searchActive) return '#38bdf8';
+          const alpha = link.isStructural ? Math.min(0.65, 0.38 * linkBrightness) : Math.min(0.70, 0.45 * linkBrightness);
+          return link.isStructural ? ('rgba(255, 255, 255, ' + alpha.toFixed(3) + ')') : ('rgba(56, 189, 248, ' + alpha.toFixed(3) + ')');
+        });
+        graphInstance.linkDirectionalParticles(link => {
+          if (orbitalSpeedMultiplier === 0) return 0;
+          if (searchActive) {
+            const sId = (link.source && link.source.id) || link.source;
+            const tId = (link.target && link.target.id) || link.target;
+            if (!matchingNodeIds.has(sId) || !matchingNodeIds.has(tId)) return 0;
+          }
+          if (link.isStructural) {
+            if (graphData.nodes.length > 30) {
+               const tIdStr = String((link.target && link.target.id) || link.target);
+               let hash = 0;
+               for (let i = 0; i < tIdStr.length; i++) hash = (hash + tIdStr.charCodeAt(i)) % 10;
+               if (hash !== 0) return 0;
+            }
+            return 2;
+          }
+          return 0;
+        });
+      }
+    }
+
+    function onSearch(query) {
+      const q = (query || '').trim().toLowerCase();
+      if (!q) {
+        clearSearchSpotlight();
+        return;
+      }
+
+      searchActive = true;
+      matchingNodeIds.clear();
+
+      const nodes = window.__cachedAllNodes || ((graphInstance && graphInstance.graphData && graphInstance.graphData().nodes) || (graphData && graphData.nodes) || []);
+      const edges = (graphInstance && graphInstance.graphData && graphInstance.graphData().links) || (graphData && graphData.edges) || [];
+
+      // 1. Identificar coincidencias directas
+      const directMatchSet = new Set();
+      const directMatches = [];
+      nodes.forEach(n => {
+        const match = !!(
+          (n.label && n.label.toLowerCase().includes(q)) ||
+          (n.tags && n.tags.some(t => (t || '').toLowerCase().includes(q))) ||
+          (n.summary && n.summary.toLowerCase().includes(q)) ||
+          (n.id && n.id.toLowerCase().includes(q))
+        );
+        n.__searchMatch = match;
+        if (match) {
+          directMatchSet.add(n.id);
+          matchingNodeIds.add(n.id);
+          directMatches.push(n);
+        }
+      });
+
+      // 2. Mantener visibles los nodos raíz para que no queden "puntos flotando"
+      matchingNodeIds.add("root_cortex");
+      directMatches.forEach(n => {
+         if (n.group) {
+             matchingNodeIds.add(`root_${n.group}`);
+             if (n.group.endsWith('s')) matchingNodeIds.add(`root_${n.group.slice(0, -1)}`);
+             else matchingNodeIds.add(`root_${n.group}s`);
+         }
+      });
+
+      // 3. Incluir relaciones directas entre nodos coincidentes
+      edges.forEach(e => {
+        const sId = (e.source && e.source.id) || e.source;
+        const tId = (e.target && e.target.id) || e.target;
+        
+        // Always include the link if either end is a direct match, UNLESS the other end is a root node that wasn't added above
+        if (directMatchSet.has(sId)) {
+          if (!tId.startsWith('root_') || matchingNodeIds.has(tId)) matchingNodeIds.add(tId);
+        }
+        if (directMatchSet.has(tId)) {
+          if (!sId.startsWith('root_') || matchingNodeIds.has(sId)) matchingNodeIds.add(sId);
+        }
+      });
+
+      console.log('Search for:', q);
+      console.log('matchingNodeIds contains:', Array.from(matchingNodeIds));
+      
+      // 3. OCULTAR TODOS LOS NODOS Y SUBNODOS SIN RELACIÓN
+      nodes.forEach(n => {
+        const isRelated = matchingNodeIds.has(n.id);
+        n.__searchConnected = isRelated && !n.__searchMatch;
+
+        // El motor nativo manejará la visibilidad del nodo (n.__threeObj)
+
+        if (n.__labelSprite) {
+          if (n.__searchMatch) {
+            n.__labelSprite.visible = true;
+            n.__labelSprite.material.opacity = 1.0;
+            n.__labelSprite.scale.set(32, 6.1, 1);
+          } else if (isRelated) {
+            n.__labelSprite.visible = true;
+            n.__labelSprite.material.opacity = 0.85;
+          } else {
+            n.__labelSprite.visible = false;
+            n.__labelSprite.material.opacity = 0;
+          }
+        }
+      });
+
+      // 4. Ocultar anillos de órbita de clústeres no relacionados
+      if (window.__clusterOrbitGroups) {
+        Object.entries(window.__clusterOrbitGroups).forEach(([grp, grpObj]) => {
+          const hasVisibleInGroup = nodes.some(n => n.group === grp && matchingNodeIds.has(n.id));
+          grpObj.visible = hasVisibleInGroup;
+        });
+      }
+
+      // 5. Volar la cámara hacia el nodo encontrado principal
+      if (directMatches.length > 0) {
+        const best = directMatches[0];
+        targetLookAt.set(best.x || 0, best.y || 0, best.z || 0);
+        targetRadius = Math.max(180, Math.min(320, 240));
+        showToast('🔍 找到 ' + directMatches.length + ' 条');
+      } else {
+        showToast('⚠️ 没找到："' + q + '"');
+      }
+
+      // 6. Refrescar colores de links y partículas
+      if (graphInstance) {
+        applySeaVisibility();
+        graphInstance.nodeColor(node => {
+          if (searchActive) {
+            if (node.__searchMatch) return '#38bdf8';
+            if (matchingNodeIds.has(node.id)) return 'rgba(56, 189, 248, 0.4)';
+            return 'rgba(30, 41, 59, 0.18)';
+          }
+          const colorMap = { contacts: '#fbbf24', events: '#38bdf8', photos: '#f43f5e', learnings: '#10b981', emails: '#c084fc', projects: '#6366f1', tools: '#06b6d4', invoices: '#f59e0b' };
+          return colorMap[node.group] || node.color || '#38bdf8';
+        });
+        graphInstance.linkColor(link => {
+          if (searchActive) return '#38bdf8';
+          const alpha = link.isStructural ? Math.min(0.65, 0.38 * linkBrightness) : Math.min(0.70, 0.45 * linkBrightness);
+          return link.isStructural ? ('rgba(255, 255, 255, ' + alpha.toFixed(3) + ')') : ('rgba(56, 189, 248, ' + alpha.toFixed(3) + ')');
+        });
+        graphInstance.linkDirectionalParticles(link => {
+          if (orbitalSpeedMultiplier === 0) return 0;
+          if (searchActive) {
+            const sId = (link.source && link.source.id) || link.source;
+            const tId = (link.target && link.target.id) || link.target;
+            if (!matchingNodeIds.has(sId) || !matchingNodeIds.has(tId)) return 0;
+          }
+          if (link.isStructural) {
+            if (graphData.nodes.length > 30) {
+               const tIdStr = String((link.target && link.target.id) || link.target);
+               let hash = 0;
+               for (let i = 0; i < tIdStr.length; i++) hash = (hash + tIdStr.charCodeAt(i)) % 10;
+               if (hash !== 0) return 0;
+            }
+            return 2;
+          }
+          return 0;
+        });
+      }
+    }
+
+
+    function filterGroup(group) {
+      const menu = document.getElementById("taxonomy-menu");
+      if (menu) menu.classList.remove("open");
+
+      if (group === "all") {
+        resetCamera();
+        return;
+      }
+
+      const match = graphData.nodes.find(n => n.group === group);
+      if (match) focusNode(match);
+    }
+
+    async function startApp() {
+      // Sync initial slider values from localStorage
+      const speedSlider = document.getElementById('orbital-speed-slider');
+      const speedText = document.getElementById('speed-val-text');
+      if (speedSlider) speedSlider.value = orbitalSpeedMultiplier;
+      if (speedText) speedText.innerText = orbitalSpeedMultiplier === 0 ? '0.0x' : orbitalSpeedMultiplier.toFixed(1) + 'x';
+
+      const brightSlider = document.getElementById('link-brightness-slider');
+      const brightText = document.getElementById('brightness-val-text');
+      if (brightSlider) brightSlider.value = linkBrightness;
+      if (brightText) brightText.innerText = Math.round(linkBrightness * 100) + '%';
+
+      const nodeSlider = document.getElementById('node-size-slider');
+      const nodeText = document.getElementById('nodesize-val-text');
+      if (nodeSlider) nodeSlider.value = nodeScaleMultiplier;
+      if (nodeText) nodeText.innerText = nodeScaleMultiplier.toFixed(2) + 'x';
+
+      if (localStorage.getItem('okf_hud_hidden') === 'true') {
+        document.body.classList.add('hud-hidden');
+      }
+      updateHudToggleState();
+
+      await initGraph();
+      // Restaurar modo: Detectar hash o localStorage
+      const hashMode = (window.location.hash.includes('cortex') || window.location.hash.includes('spherical')) ? 'spherical' : (window.location.hash.includes('galaxy') ? 'galaxy' : null);
+      const savedMode = hashMode || localStorage.getItem('okf_viz_mode') || 'galaxy';
+      if (savedMode === 'spherical') {
+        setTimeout(() => switchVisualizationMode('spherical', true), 120);
+      } else {
+        setTimeout(() => switchVisualizationMode('galaxy', true), 120);
+      }
+      setTimeout(() => {
+        STAR_GENRES.forEach(g => {
+          expandedGenres.add(g.name);
+          CONCEPTS.forEach(c => expandedCells.add(g.name + '|' + c));
+        });
+        applySeaVisibility();
+      }, 700);
+      if (window.location.hash.includes('zoom=close')) {
+        targetRadius = 360;
+        currentRadius = 360;
+      }
+    }
+
+    // Initialize once DOM is ready or immediately if already loaded
+    if (document.readyState === 'loading') {
+      document.addEventListener('DOMContentLoaded', startApp);
+    } else {
+      startApp();
+    }
+  </script>
+
+  <script>
+    // 列表 → 星图：带题材/概念进入，星图聚焦对应概念并打开详情；可返回列表
+    function openStar(genre, concept) {
+      var list = document.getElementById('kb-list');
+      if (list) list.classList.add('hidden');
+      var hash = '#/starsea/' + encodeURIComponent(genre || '') + '/' + encodeURIComponent(concept || '');
+      try { history.replaceState(null, '', hash); } catch (e) {}
+      setTimeout(function () {
+        if (typeof graphData === 'undefined') return;
+        if (concept) {
+          var id = 'subplanet_' + genre + '_' + concept;
+          var n = graphData.nodes.find(function (x) { return x.id === id; });
+          if (n && typeof focusNode === 'function') focusNode(n);
+        } else if (genre) {
+          var rn = graphData.nodes.find(function (x) { return x.id === 'root_' + genre; });
+          if (rn && typeof focusNode === 'function') focusNode(rn);
+        } else if (typeof resetCamera === 'function') {
+          resetCamera();
+        }
+      }, 260);
+    }
+    function backToList() {
+      if (typeof closeDrawer === 'function') closeDrawer();
+      var list = document.getElementById('kb-list');
+      if (list) list.classList.remove('hidden');
+      try { history.replaceState(null, '', '#/list'); } catch (e) {}
+    }
+    // 星图页顶栏的「知识库」页签＝返回列表（不用另加一个返回按钮）
+    document.querySelectorAll('#proto-chrome .pc-tabs span').forEach(function (el) {
+      if (el.textContent.indexOf('知识库') >= 0) {
+        el.style.cursor = 'pointer';
+        el.addEventListener('click', backToList);
+      }
+    });
+    window.addEventListener('load', function () {
+      var m = location.hash.match(/^#\/starsea\/([^/]*)\/([^/]*)/);
+      if (m) {
+        var g = decodeURIComponent(m[1] || '');
+        var c = decodeURIComponent(m[2] || '');
+        setTimeout(function () { openStar(g, c); }, 1200);
+      }
+    });
+  </script>
+</body>
+</html>
