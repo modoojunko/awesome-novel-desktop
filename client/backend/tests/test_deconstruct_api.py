@@ -549,6 +549,60 @@ def test_badge_clears_after_folder_export(client):
     assert client.get("/api/deconstruct/tasks").json()["badge"] == before - 1
 
 
+def test_task_list_unpicked_flag(client):
+    """清单行带 unpicked（前端「看过不再引导」折算用，c-tools-badge-seen）：
+    完成/建书失败且没建书没导出＝True；建过书、导出过、进行中＝False。"""
+    from datetime import UTC, datetime
+
+    from deconstruct.service import next_queue_seq, source_path_of
+
+    async def _mk(task_id, *, status="completed", book_id=None, exported=False):
+        async with async_session() as s:
+            s.add(
+                DeconstructJob(
+                    id=task_id,
+                    user_id=_UID,
+                    status=status,
+                    queue_seq=await next_queue_seq(s),
+                    book_name="星海远征",
+                    source_path=source_path_of(task_id),
+                    encoding="utf-8",
+                    api_config_id="cfg-1",
+                    ai_model="qwen3-max",
+                    book_id=book_id,
+                    exported_at=datetime.now(UTC).replace(tzinfo=None) if exported else None,
+                    products_json=json.dumps({}),
+                )
+            )
+            await s.commit()
+
+    _run(_mk("dec-unp-done"))
+    _run(_mk("dec-unp-exp", exported=True))
+
+    async def _mk_live_book(book_id):
+        from models.project import Novel
+
+        async with async_session() as s:
+            s.add(
+                Novel(id=book_id, user_id=_UID, name="已取之书", slug="taken",
+                      root_path="/tmp/taken")
+            )
+            await s.commit()
+
+    _run(_mk_live_book("bk-live"))
+    _run(_mk("dec-unp-book", book_id="bk-live"))
+    _run(_mk("dec-unp-deadbook", book_id="bk-gone"))  # 书已删：幂等键校正回落待选（c-import-stale-book）
+    _run(_mk("dec-unp-fail", status="import_failed"))
+    _run(_mk("dec-unp-run", status="running"))
+    tasks = {t["id"]: t for t in client.get("/api/deconstruct/tasks").json()["tasks"]}
+    assert tasks["dec-unp-done"]["unpicked"] is True
+    assert tasks["dec-unp-exp"]["unpicked"] is False  # 导出过＝已取
+    assert tasks["dec-unp-book"]["unpicked"] is False  # 建过书（书还在）＝已取
+    assert tasks["dec-unp-deadbook"]["unpicked"] is True  # 书被删＝产物悬空，引导重亮
+    assert tasks["dec-unp-fail"]["unpicked"] is True  # 建书失败需要处理，仍引导
+    assert tasks["dec-unp-run"]["unpicked"] is False  # 进行中不归 unpicked 管徽标照计
+
+
 def test_queued_ahead_ignores_cancelled_gaps(client):
     """排队位次按仍在排队的行计数，取消留洞不虚高（评审 P3）。"""
     _mk_queued("dec-qa-1")

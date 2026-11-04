@@ -48,6 +48,9 @@ export interface DeconstructTaskSummary {
   queued_ahead: number;
   product_count: number;
   error: string;
+  /** 已完成未取（没建书没导出，后端同 badge 口径）：顶栏徽标引导用，
+   *  「看过不再引导」由前端本地账折算（toolsBadgeSeen） */
+  unpicked?: boolean;
   import?: DeconstructImportState | null;
 }
 

@@ -24,6 +24,7 @@ import {
   type LibraryCandidateItem,
 } from "../../lib/deconstructApi";
 import { serverTimeMs } from "../../lib/serverTime";
+import { markTasksSeen } from "../../lib/toolsBadgeSeen";
 import { queryKeys } from "../../lib/queryKeys";
 import {
   cancelDeconstructTask,
@@ -196,6 +197,11 @@ export default function TaskDetailPage() {
   useEffect(() => {
     if (task && task.status !== "failed" && task.status !== "cancelled") setResuming(false);
   }, [task?.status]);
+
+  // 进详情＝看过：该任务从顶栏引导消账（c-tools-badge-seen，本地账 toolsBadgeSeen）
+  useEffect(() => {
+    if (task?.id) markTasksSeen([task.id]);
+  }, [task?.id]);
 
   // 失败面板可原地换模型才取模型清单（懒加载一次；取失败＝空表回落 /config 链接）
   const switchable =

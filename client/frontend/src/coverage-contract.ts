@@ -33,6 +33,8 @@ export const COVERAGE_CONTRACT_FILES = [
   "src/components/tools/TaskListPage.tsx",
   "src/components/tools/CreateTaskPage.tsx",
   "src/components/tools/TaskDetailPage.tsx",
+  // c-tools-badge-seen（顶栏徽标「看过不再引导」本地账）
+  "src/lib/toolsBadgeSeen.ts",
   // 批 0（#417/#418 交付触及的 5 个文件）
   "src/lib/api.ts",
   "src/lib/nodeTitle.ts",

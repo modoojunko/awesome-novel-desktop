@@ -153,6 +153,8 @@ async def list_tasks(
     return {
         "tasks": tasks,
         "heartbeat": {"running": 1 if running else 0, "queued": queued, "importing": importing},
+        # 总账口径保留（兼容旧消费方）；顶栏徽标改由前端按 tasks[].unpicked＋本地「已看过」
+        # 折算（c-tools-badge-seen）：看过任务清单/详情后，已完成未取不再引导
         "badge": (1 if running else 0) + queued + importing + done_unpicked,
     }
 

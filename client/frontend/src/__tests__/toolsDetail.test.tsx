@@ -1642,3 +1642,18 @@ describe("幂等键失效（c-import-stale-book）", () => {
     expect(screen.queryByText("原建书已删除")).not.toBeInTheDocument();
   });
 });
+
+// ── 顶栏徽标「进详情＝看过」消账（c-tools-badge-seen）────────────────────
+
+describe("TaskDetailPage 看过消账", () => {
+  it("详情加载即把该任务记入本地已看账", async () => {
+    localStorage.clear();
+    seedMax();
+    state.get.mockResolvedValue(detailOf("completed"));
+    renderPage();
+    await waitFor(() => expect(screen.getByText("星海远征")).toBeInTheDocument());
+    await waitFor(() =>
+      expect(JSON.parse(localStorage.getItem("tools_badge_seen_v1") ?? "[]")).toEqual(["t2"]),
+    );
+  });
+});
