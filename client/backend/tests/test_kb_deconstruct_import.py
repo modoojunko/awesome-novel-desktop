@@ -21,7 +21,7 @@ from kb.deconstruct_import import (
     map_deconstruct_products,
 )
 from kb.payloads import validate_payload
-from models.kb import KbEntry, KbEntryTag, KbLibrary
+from models.kb import KbEntry, KbEntryTag, KbKnowledge, KbLibrary
 
 PRODUCTS = {
     "genre": {"file": "题材.md", "data": {"genre": "灵异志怪", "tags": ["灵异"]}},
@@ -358,3 +358,47 @@ def test_taboo_text_fits_payload_limit_after_prefix():
     payload = json.loads(entries[0].payload_json)
     assert len(payload["rule"]) <= 160
     assert entries[0].instruction.startswith("忌用·")
+
+
+def test_collect_creates_first_instance_immediately():
+    """知识 v2：收录即落第 1 条实例，不等启动迁移；迁移再跑不重复。"""
+    from kb.knowledge_migration import populate_kb_instances_v1
+    from models.kb import KbKnowledgeInstance
+
+    uid = f"kb-inst-{uuid.uuid4()}"
+    task = SimpleNamespace(
+        id=f"task-{uuid.uuid4()}",
+        user_id=uid,
+        products_json=json.dumps(PRODUCTS, ensure_ascii=False),
+        book_name="13路末班车",
+    )
+    first = _collect(uid, task)
+    assert first["collected"] > 0
+
+    async def _instances():
+        async with async_session() as db:
+            rows = (
+                await db.execute(
+                    sel(KbKnowledgeInstance)
+                    .join(KbKnowledge, KbKnowledge.id == KbKnowledgeInstance.knowledge_id)
+                    .where(KbKnowledge.user_id == uid)
+                )
+            ).scalars().all()
+            return rows
+
+    rows = asyncio.run(_instances())
+    assert len(rows) == first["collected"], "收录当下每条知识应有 1 条实例"
+    inst = rows[0]
+    assert inst.source_kind == "拆书"
+    assert inst.source_novel == "13路末班车"
+    assert inst.text, "实例文本不应为空"
+
+    # 启动迁移再跑：已有实例的知识跳过（幂等，不产生第二条）
+    async def _populate():
+        async with async_session() as db:
+            return await populate_kb_instances_v1(db)
+
+    before = len(rows)
+    asyncio.run(_populate())
+    rows2 = asyncio.run(_instances())
+    assert len(rows2) == before, "迁移不得给已有实例的知识重复补实例"

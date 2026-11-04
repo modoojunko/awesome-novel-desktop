@@ -29,7 +29,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from kb.concepts import emotion_phrase, normalize_scene
 from kb.payloads import validate_payload
-from models.kb import KbKnowledge
+from models.kb import KbKnowledge, KbKnowledgeInstance
 
 _WS_RE = re.compile(r"\s+")
 # 行首结构标记（# - * > · 或整段【…】）：写法块结构消毒同口径——
@@ -478,6 +478,16 @@ async def collect_task_to_kb(
         db.add(entry)
         await db.flush()
         await ensure_default_library(db, user_id, entry.genre, entry.concept)
+        # 知识 v2：收录即落第 1 条实例（文本=指令、来源=拆书＋书名、quote=证据/例），
+        # 不必等启动迁移补——否则收录后要重启一次，星图/抽屉里实例才可见。
+        # 启动迁移对已有实例的知识跳过，两侧幂等不冲突。
+        db.add(KbKnowledgeInstance(
+            knowledge_id=entry.id,
+            text=entry.instruction,
+            source_kind="拆书" if entry.src_kind == "deconstruct" else "手录",
+            source_novel=str(getattr(task, "book_name", "") or ""),
+            quote=str(entry.evidence or entry.example or "")[:500],
+        ))
         # 标签物化（选择器短名单读 kb_entry_tags；手录路径由 create_entry 做，
         # 拆书收录是同一条消费链，不物化会让这批条目进不了候选）
         await _materialize_tags(
