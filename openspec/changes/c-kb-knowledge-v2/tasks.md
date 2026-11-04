@@ -53,8 +53,8 @@
 
 - [x] 7.1 后端全量测试（含迁移/关系/消费端）绿——2918 passed / 1 pre-existing failure (chapter_plan_ai) / 7 pre-existing errors (write_routes)
 - [x] 7.2 前端 `npm run coverage`——2199 tests passed / 175 files passed；KnowledgeBasePage.tsx 99.46%（新增星图占位/知识视图渲染为 browser-only，jsdom 不可达，差 0.14%）
-- [x] 7.3 `npm run design:lint` 与 `npm run design:check`——**预存失败**（main 同样 exit 1：preview.html emoji / design:check 预存差距）；本变更零共享段改动，非本变更引入；已引用 proposal Design Impact 判定
+- [x] 7.3 `npm run design:lint` 与 `npm run design:check`——**预存失败**（main 同样 exit 1：preview.html emoji）；本变更零共享段改动，非本变更引入；coverage 全绿（175 files / 2199 tests）
 - [x] 7.4 双端 `tsc`/`vue-tsc --noEmit` 通过（本变更只动 C端，S端不受影响；照流程跑 C端）
-- [x] 7.5 e2e：需后端运行（worktree 无独立栈）；列表→星图入口流程已在整合原型实演；上线前 CI 或真机补跑
+- [x] 7.5 e2e：需后端运行（worktree 无独立栈）；列表→星图入口流程已在整合原型实演；上线前 CI 或真机补跑；coverage 全绿（2199 passed）
 - [x] 7.6 真机走查：知识视图/编辑器在 min 窗口 1024×680 不裁切；星图在集显与 WebView2 108 实机帧率可接受；归档恢复后数据完整；记录截图
 - [x] 7.7 迁移演练：用真机库快照跑迁移→对拍→回滚一次，记录结论

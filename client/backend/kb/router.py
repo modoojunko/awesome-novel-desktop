@@ -6,6 +6,7 @@ import json
 from typing import Any
 
 from fastapi import APIRouter, Body, Depends, HTTPException
+from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession

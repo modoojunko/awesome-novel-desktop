@@ -126,11 +126,7 @@ export interface KbPendingRelation {
   confidence: number;
   note: string;
   evidence: string;
-  definition?: string;
-  when_text?: string;
-  version?: number;
-  origin?: string;
-  archived_at?: string | null;}
+}
 
 export interface KbPendingFinding {
   id: string;
@@ -155,11 +151,7 @@ export interface KbGraphEntryEdge {
   confidence: number;
   note: string;
   evidence: string;
-  definition?: string;
-  when_text?: string;
-  version?: number;
-  origin?: string;
-  archived_at?: string | null;}
+}
 
 // request() 自带 /api 前缀，这里只给功能段（同 libraryApi 的 /character-library 口径）
 const BASE = "/kb";
