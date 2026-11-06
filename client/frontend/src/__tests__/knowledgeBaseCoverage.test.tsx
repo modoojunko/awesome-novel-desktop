@@ -278,7 +278,7 @@ describe("KnowledgeBasePage 全部题材兜底（星图/知识整理）", () => 
 
 describe("KnowledgeBasePage 手录表单", () => {
   it("素材行抽屉：提示卡＋删除确认真删（c-kb-summarize）", async () => {
-    const mat: KbEntry = { ...entry(), id: "kbentry-mat", title: "素材条目", origin: "material", instruction: "素材原文。" };
+    const mat = { ...entry(), id: "kbentry-mat", title: "素材条目", origin: "material", instruction: "素材原文。" };
     api.entries.mockResolvedValue({ entries: [entry(), mat], next_cursor: "" });
     renderPage();
     await waitFor(() => expect(screen.getByText("素材条目")).toBeTruthy());
@@ -295,7 +295,7 @@ describe("KnowledgeBasePage 手录表单", () => {
   });
 
   it("素材删除失败臂：opNote 提示（c-kb-summarize）", async () => {
-    const mat: KbEntry = { ...entry(), id: "kbentry-mat2", title: "素材条目二", origin: "material", instruction: "素材原文。" };
+    const mat = { ...entry(), id: "kbentry-mat2", title: "素材条目二", origin: "material", instruction: "素材原文。" };
     api.entries.mockResolvedValue({ entries: [mat], next_cursor: "" });
     api.deleteEntry.mockRejectedValueOnce(new Error("删除失败"));
     renderPage();
