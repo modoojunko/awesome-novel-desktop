@@ -13,7 +13,7 @@
 - [x] 2.2 幂等 DDL：`kb_entries` ALTER TABLE 加四列（列在即跳）＋`CREATE TABLE IF NOT EXISTS kb_knowledge_instances`＋实例索引；类别/状态/关系白名单、禁自环、active 唯一由应用层闸门校验（tasks 3.3/3.7，不落 SQLite CHECK）；验证：空库跑两遍不报错
 - [x] 2.3 迁移脚本：`kb_entries` 就地升级（id 不变、`instruction` 落 `kb_knowledge_instances` 第 1 条实例、evidence/example→原文摘句、definition 置空待补）＋`kb_relations` 原样沿用；验证：迁移单测覆盖「知识+1 实例」「关系不断」「重跑幂等」
 - [x] 2.4 迁移演练对拍：迁移不搬存量行（回滚＝代码版本回退，不依赖独立备份件）；用真机库快照实跑迁移，行数/实例数对拍；验证：对拍 0 差异（演练记录见 7.7）
-- [x] 2.5 旧表只读与后续删除计划：迁移后 `kb_entries`/`kb_relations` 置只读保留一版；验证：写入被拒/无代码写入
+- [x] 2.5 旧表后续处理：原地升级下 `kb_entries`/`kb_relations` 即现役主表（无「迁移后置只读」一节）；`kb_relations` 表名沿用不迁移
 
 ## 3. 后端服务与消费端
 

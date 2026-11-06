@@ -925,6 +925,8 @@ async def entry_relations_api(
     """
     from kb.organize import entry_relations
 
+    if status not in ("all", "active"):
+        raise HTTPException(422, "status 只支持 all / active")
     data = await entry_relations(
         db, user_id=_user(user), entry_id=entry_id, status=status
     )
