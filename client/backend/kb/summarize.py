@@ -23,7 +23,7 @@ from models.kb import KbEntry, KbKnowledgeInstance
 AUTO_MATERIAL_THRESHOLD = 5  # 素材积压自动触发阈值（题内）
 
 async def ensure_kb_summarize(db: AsyncSession) -> dict[str, int]:
-    """幂等 DDL：总结 runs/候选两表＋kb_entries.parent_id 列（知识树，c-kb-summarize 批E）。"""
+    """幂等 DDL：总结 runs 表＋kb_entries.parent_id 列（知识树，c-kb-summarize 批E）。"""
     added = 0
     cols = [r[1] for r in (await db.execute(_t("PRAGMA table_info(kb_entries)"))).fetchall()]
     if "parent_id" not in cols:
@@ -89,14 +89,27 @@ async def run_summarize(
     """
     await ensure_kb_summarize(db)
 
-    # 单飞：同题材 running 即跳过
-    running = (
+    # 单飞：同题材 30 分钟内的 running 即跳过；超时孤儿（进程中途死掉）置 error 回收
+    stale = (
         await db.execute(_t(
-            "SELECT id FROM kb_summarize_runs WHERE user_id=:u AND genre=:g AND status='running'"
+            "SELECT id FROM kb_summarize_runs WHERE user_id=:u AND genre=:g "
+            "AND status='running' AND created_at < datetime('now', '-30 minutes')"
+        ), {"u": user_id, "g": genre})
+    ).all()
+    for (rid,) in stale:
+        await db.execute(_t(
+            "UPDATE kb_summarize_runs SET status='error', error='stale running reclaimed' WHERE id=:i"
+        ), {"i": rid})
+    live = (
+        await db.execute(_t(
+            "SELECT id FROM kb_summarize_runs WHERE user_id=:u AND genre=:g "
+            "AND status='running' AND created_at >= datetime('now', '-30 minutes')"
         ), {"u": user_id, "g": genre})
     ).first()
-    if running is not None:
+    if live is not None:
+        await db.commit()
         return None, "running"
+    await db.commit()
 
     materials = (
         await db.execute(
@@ -234,7 +247,12 @@ async def _llm_candidates(
     valid_concepts = {"文风", "文笔", "世界设定", "角色设定", "手法"}
     mat_ids = {m.id for m in materials}
     try:
-        data = json.loads(text or "{}")
+        # 剥 ```json 围栏（haiku 高频跑偏，不剥即 bad json 全损）
+        cleaned = (text or "").strip()
+        if cleaned.startswith("```"):
+            cleaned = cleaned.removeprefix("```json").removeprefix("```")
+            cleaned = cleaned.removesuffix("```").strip()
+        data = json.loads(cleaned or "{}")
         cands = data.get("candidates") or []
         out: list[dict] = []
         for c in cands if isinstance(cands, list) else []:

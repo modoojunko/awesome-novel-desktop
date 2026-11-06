@@ -266,7 +266,12 @@ async def _llm_candidates(
     except Exception as e:  # noqa: BLE001 — 调用失败不阻断（run error）
         return [], f"llm: {e}"
     try:
-        data = json.loads(text or "{}")
+        # 剥 ```json 围栏（haiku 高频跑偏，不剥即 bad json 全损）
+        _cleaned = (text or "").strip()
+        if _cleaned.startswith("```"):
+            _cleaned = _cleaned.removeprefix("```json").removeprefix("```")
+            _cleaned = _cleaned.removesuffix("```").strip()
+        data = json.loads(_cleaned or "{}")
         cands = data.get("candidates") or []
         return (cands if isinstance(cands, list) else []), None
     except ValueError:
@@ -1053,7 +1058,8 @@ async def graph_entries(db: AsyncSession, *, user_id: str, genre: str) -> dict:
 
     pending 关系、merged 条目、merged_into（独立表）SHALL NOT 出现。
     """
-    conds = [KbEntry.user_id == user_id, KbEntry.concept != "情节", KbEntry.status == ACTIVE]
+    conds = [KbEntry.user_id == user_id, KbEntry.concept != "情节",
+                KbEntry.origin != "material", KbEntry.status == ACTIVE]
     if genre:
         conds.append(KbEntry.genre == genre)
     nodes = (

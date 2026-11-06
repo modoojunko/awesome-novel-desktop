@@ -83,9 +83,14 @@ export default function StarSeaPanel({ genre }: { genre: string }) {
     return { nodes, links };
   }, [genre, expanded]);
 
+  const graphRef = useRef<Record<string, (...args: unknown[]) => unknown> | null>(null);
+  const dataRef = useRef(buildGraph);
+  dataRef.current = buildGraph;
+
+  // 首次（或 genre 变化）：实例化 ForceGraph3D 一次；expanded 变化只走下方增量更新，
+  // 不拆实例——否则力导向从头模拟、缩放平移视角全丢。
   useEffect(() => {
     let alive = true;
-    let graph: Record<string, (...args: unknown[]) => unknown> | null = null;
 
     (async () => {
       try {
@@ -97,8 +102,8 @@ export default function StarSeaPanel({ genre }: { genre: string }) {
         const ForceGraph3D = ForceGraph3DRaw as any;
         if (!alive || !boxRef.current) return;
         const el = boxRef.current;
-        const { nodes, links } = await buildGraph();
-        graph = ForceGraph3D()(el)
+        const { nodes, links } = await dataRef.current();
+        const graph = ForceGraph3D()(el)
           .backgroundColor("#020408")
           .nodeId("id")
           .nodeLabel("label")
@@ -110,14 +115,15 @@ export default function StarSeaPanel({ genre }: { genre: string }) {
           .onNodeClick((node: any) => {
             const sn = node as StarNode;
             if (sn.folded) {
-              // 折叠星：展开该子树
+              // 折叠星：展开该子树（expanded 变化 → 下面的增量 effect 接管）
               setExpanded((prev) => new Set(prev).add(sn.id));
               return;
             }
             if (sn.kind === "root") return;
             setSelected(sn);
           });
-        graph!.graphData({ nodes, links });
+        graph.graphData({ nodes, links });
+        graphRef.current = graph as Record<string, (...args: unknown[]) => unknown>;
       } catch {
         if (alive) setError("WebGL 不可用，星图无法渲染。可回到列表继续编辑知识。");
       }
@@ -125,9 +131,24 @@ export default function StarSeaPanel({ genre }: { genre: string }) {
 
     return () => {
       alive = false;
+      graphRef.current = null;
       if (boxRef.current) boxRef.current.innerHTML = "";
     };
-  }, [buildGraph]);
+  }, [genre]);
+
+  // 折叠展开：增量 graphData（不重建实例、不丢视口）
+  useEffect(() => {
+    const graph = graphRef.current;
+    if (!graph) return;
+    let alive = true;
+    (async () => {
+      const { nodes, links } = await dataRef.current();
+      if (alive && graph) graph.graphData({ nodes, links });
+    })();
+    return () => {
+      alive = false;
+    };
+  }, [expanded]);
 
   if (error) {
     return (

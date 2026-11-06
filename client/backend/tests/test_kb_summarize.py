@@ -3,6 +3,7 @@
 import asyncio
 import uuid
 
+from sqlalchemy import select
 from sqlalchemy import select as sel
 from sqlalchemy import text as _t
 
@@ -281,3 +282,109 @@ class TestSummarizePipeline:
                 return await _maybe_auto_summarize(db, user_id=uid2)
         assert _run(_go2()) == ["都市"]
         assert _run(_go2()) == []
+
+
+def _shared_mk(tag):
+    return f"kbsm-{tag}-{uuid.uuid4().hex[:8]}"
+
+
+class TestLlmCandidatesParsing:
+    """_llm_candidates 真 JSON 解析分支（评审缺口）：围栏/坏 JSON/非 list/越界过滤。"""
+
+    def _mk(self, tag):
+        return _shared_mk(tag)
+
+    def _seed_materials(self, uid, genre, n, concept="文风"):
+        async def _go():
+            async with async_session() as db:
+                rows = []
+                for i in range(n):
+                    e = KbEntry(
+                        user_id=uid, genre=genre, concept=concept,
+                        concept_id=f"{genre}:{concept}", title=f"素材{i}",
+                        payload_json="{}", instruction=f"素材原文{i}。",
+                        origin="material", status="active", rev=1,
+                        src_kind="manual", src_ref="", src_key=f"k{i}",
+                    )
+                    db.add(e)
+                    rows.append(e)
+                await db.commit()
+                return [e.id for e in rows]
+        return _run(_go())
+
+    def _materials(self, uid):
+        async def _go():
+            async with async_session() as db:
+                return (
+                    await db.execute(
+                        select(KbEntry).where(
+                            KbEntry.user_id == uid, KbEntry.origin == "material"
+                        )
+                    )
+                ).scalars().all()
+        return _run(_go())
+
+    def test_围栏包裹_剥后可解析(self, monkeypatch):
+        uid = self._mk("fence")
+        _run(_seed_user(uid))
+        self._seed_materials(uid, "玄幻", 1)
+
+        from kb.summarize import _llm_candidates
+
+        async def _material_rows():
+            async with async_session() as db:
+                return (await db.execute(sel(KbEntry).where(KbEntry.user_id == uid))).scalars().all()
+        mats = _run(_material_rows())
+        real_id = mats[0].id
+        body = '{"candidates": [{"title": "短句", "definition": "d", "concept": "文风", "parent": "ROOT", "material_ids": ["' + real_id + '"]}]}'
+
+        async def _fake_client(user_id):
+            class _R:
+                async def chat(self, **kw):
+                    return '```json\n' + body + '\n```'
+            return _R()
+        monkeypatch.setattr("ai_client.get_ai_client_for_user", _fake_client)
+        cands, err = _run(_llm_candidates(uid, "玄幻", mats, [], set()))
+        assert err is None and len(cands) == 1, f"围栏 JSON 应剥后解析：{err} {cands}"
+
+    def test_坏json_全损报错(self, monkeypatch):
+        uid = self._mk("bad")
+        _run(_seed_user(uid))
+        self._seed_materials(uid, "玄幻", 1)
+
+        async def _fake_client(user_id):
+            class _R:
+                async def chat(self, **kw):
+                    return "经过分析，这些素材不值得提炼"  # 散文跑偏
+            return _R()
+        monkeypatch.setattr("ai_client.get_ai_client_for_user", _fake_client)
+
+        from kb.summarize import _llm_candidates
+
+        async def _material_rows():
+            async with async_session() as db:
+                return (await db.execute(sel(KbEntry).where(KbEntry.user_id == uid))).scalars().all()
+        mats = _run(_material_rows())
+        cands, err = _run(_llm_candidates(uid, "玄幻", mats, [], set()))
+        assert cands == [] and err == "llm: bad json"
+
+    def test_越界素材id被滤_非list容错(self, monkeypatch):
+        uid = self._mk("oob")
+        _run(_seed_user(uid))
+        self._seed_materials(uid, "玄幻", 1)
+
+        async def _fake_client(user_id):
+            class _R:
+                async def chat(self, **kw):
+                    return '{"candidates": "not-a-list", "x": 1}'
+            return _R()
+        monkeypatch.setattr("ai_client.get_ai_client_for_user", _fake_client)
+
+        from kb.summarize import _llm_candidates
+
+        async def _material_rows():
+            async with async_session() as db:
+                return (await db.execute(sel(KbEntry).where(KbEntry.user_id == uid))).scalars().all()
+        mats = _run(_material_rows())
+        cands, err = _run(_llm_candidates(uid, "玄幻", mats, [], set()))
+        assert cands == [] and err is None

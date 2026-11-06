@@ -1237,6 +1237,11 @@ async def graph_tree_api(
     ).all()
 
     by_id = {e.id: e for e in rows}
+    # 孤儿重挂：parent 行不在集内（被归档/删除）的知识重挂概念根——子树不随父消失
+    for e in rows:
+        pid = e.parent_id or ""
+        if pid and pid not in by_id:
+            e.parent_id = ""
     children: dict[str | None, list] = {}
     for e in rows:
         children.setdefault(e.parent_id or None, []).append(e)

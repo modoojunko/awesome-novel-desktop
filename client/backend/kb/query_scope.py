@@ -12,4 +12,4 @@ from models.kb import KbEntry
 
 def visible_knowledge_filter() -> ColumnElement[bool]:
     """知识可见性谓词：排除素材行。消费端一律引用本 helper，不得散落字面量。"""
-    return KbEntry.origin != "material"  # noqa: RETURN_TYPE - sqlalchemy 组合表达式
+    return KbEntry.origin != "material"
