@@ -16,6 +16,7 @@ from db import get_db
 from kb import service as knowledge_service
 from kb.concepts import CONCEPTS, THEMES
 from kb.migrate_library import ensure_legacy_migrated
+from kb.query_scope import visible_knowledge_filter
 from kb.service import (
     create_entry,
     delete_entry,
@@ -260,6 +261,7 @@ async def create_entry_api(
         negative_example=body.negative_example,
         when_json=body.when_json,
         src_kind="manual",
+        as_material=True,
     )
     # 失败统一看 entry is None（service 的情节拒收/payload/闸门臂 error 恒 None，
     # 错误明细在 gate.errors——真机 500 实锤后修正的接法）
@@ -392,7 +394,7 @@ async def graph_aggregate_api(
         await db.execute(
             select(KbEntry.genre, KbEntry.concept, func.count(KbEntry.id)).where(
                 KbEntry.user_id == uid, KbEntry.status == "active"
-            ).group_by(KbEntry.genre, KbEntry.concept)
+            ).where(visible_knowledge_filter()).group_by(KbEntry.genre, KbEntry.concept)
         )
     ).all()
     cells: dict[tuple[str, str], int] = {(g, c): int(n) for g, c, n in rows}
@@ -428,7 +430,9 @@ async def graph_cell_api(
 ):
     """下钻：一个格子里的条目节点（悬停邻域高亮在前端；条目—格子边前端补）。"""
     uid = _user(user)
-    entries, _cursor = await list_entries(db, user_id=uid, genre=genre, concept=concept, limit=100)
+    entries, _cursor = await list_entries(
+        db, user_id=uid, genre=genre, concept=concept, limit=100, include_material=False,
+    )
     nodes = [
         {
             "id": e.id,
@@ -1148,3 +1152,168 @@ async def add_instance_api(
         sort=body.get("sort", 0),
     )
     return {"ok": True, "instance": {"id": inst.id, "text": inst.text}}
+
+
+# ─── 知识总结（c-kb-summarize）：素材 → 候选知识点 → 确认制采纳 ──────────
+
+
+class SummarizeRunRequest(BaseModel):
+    genre: str
+
+
+@router.post("/summarize/run")
+async def summarize_run_api(
+    body: SummarizeRunRequest,
+    user: dict = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    from kb.summarize import run_summarize
+
+    genre = (body.genre or "").strip()
+    if not genre:
+        raise HTTPException(422, detail="总结需要题材")
+    summary, error = await run_summarize(
+        db, user_id=_user(user), genre=genre, trigger="manual", llm=True
+    )
+    if summary is None and error == "running":
+        return {"ok": True, "data": {"skipped": True, "message": "该题材正在总结中"}}
+    if error:
+        return JSONResponse(status_code=503, content={"ok": False, "detail": error})
+    return {"ok": True, "data": {**summary, "genre": genre}}
+
+
+@router.get("/summarize/status")
+async def summarize_status_api(
+    user: dict = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    from kb.summarize import material_stats, pending_candidates
+
+    uid = _user(user)
+    stats = await material_stats(db, user_id=uid)
+    pending = await pending_candidates(db, user_id=uid)
+    return {
+        "ok": True,
+        "data": {
+            "materials_by_genre": stats,
+            "pending_count": len(pending),
+            "threshold": 5,
+        },
+    }
+
+
+@router.get("/summarize/candidates")
+async def summarize_candidates_api(
+    genre: str = "",
+    user: dict = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    from kb.summarize import pending_candidates
+
+    rows = await pending_candidates(db, user_id=_user(user), genre=genre)
+    return {"ok": True, "data": {"candidates": rows}}
+
+
+@router.post("/summarize/candidates/{candidate_id}/adopt")
+async def summarize_adopt_api(
+    candidate_id: str,
+    user: dict = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    from kb.summarize import adopt_candidate
+
+    ok, message = await adopt_candidate(db, user_id=_user(user), candidate_id=candidate_id)
+    if not ok and message == "not_found":
+        raise HTTPException(404, "候选不存在")
+    if not ok:
+        return JSONResponse(status_code=409, content={"ok": False, "detail": message})
+    return {"ok": True, "data": {"message": "已采纳，知识已生成"}}
+
+
+@router.post("/summarize/candidates/{candidate_id}/dismiss")
+async def summarize_dismiss_api(
+    candidate_id: str,
+    user: dict = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    from kb.summarize import dismiss_candidate
+
+    ok = await dismiss_candidate(db, user_id=_user(user), candidate_id=candidate_id)
+    if not ok:
+        raise HTTPException(404, "候选不存在")
+    return {"ok": True, "data": {"message": "已忽略"}}
+
+
+@router.get("/graph/tree")
+async def graph_tree_api(
+    genre: str = "",
+    user: dict = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """知识树装配（c-kb-summarize 批E）：概念根 → 知识枝干（parent_id 逐层）＋六类关联边。
+
+    素材行不进树；层级无上限（前端折叠是展示策略）；关联边只走既有六类关系。
+    """
+    from models.kb import KbRelation
+
+    uid = _user(user)
+    conds = [
+        KbEntry.user_id == uid,
+        KbEntry.status == "active",
+        KbEntry.concept != "情节",
+        visible_knowledge_filter(),
+    ]
+    if genre:
+        conds.append(KbEntry.genre == genre)
+    rows = (
+        await db.execute(
+            select(KbEntry).where(*conds).order_by(KbEntry.id)
+        )
+    ).scalars().all()
+    rel_rows = (
+        await db.execute(
+            select(KbRelation.from_id, KbRelation.to_id, KbRelation.rel_type).where(
+                KbRelation.user_id == uid,
+                KbRelation.status == "active",
+                KbRelation.rel_type.in_(("refines", "contradicts", "depends_on", "instance_of", "derived_from", "applies_to")),
+            )
+        )
+    ).all()
+
+    by_id = {e.id: e for e in rows}
+    children: dict[str | None, list] = {}
+    for e in rows:
+        children.setdefault(e.parent_id or None, []).append(e)
+    # 概念根：parent_id 为空的行按 concept 分组
+    roots = []
+    root_groups: dict[tuple[str, str], list] = {}
+    for e in children.get(None, []):
+        root_groups.setdefault((e.genre, e.concept), []).append(e)
+
+    def _node(e) -> dict:
+        kids = [_node(k) for k in children.get(e.id, [])]
+        return {
+            "id": e.id,
+            "kind": "knowledge",
+            "title": e.title or (e.instruction or "")[:20],
+            "concept": e.concept,
+            "genre": e.genre,
+            "definition": (getattr(e, "definition", "") or "")[:60],
+            "children": kids,
+        }
+
+    for (g, c), items in sorted(root_groups.items()):
+        roots.append({
+            "id": f"root:{g or '_general'}:{c}",
+            "kind": "root",
+            "genre": g or "",
+            "concept": c,
+            "children": [_node(x) for x in items],
+        })
+    # 关联边（两端都在树内的才输出）
+    edges = [
+        {"source": f, "target": t, "rel_type": rt}
+        for f, t, rt in rel_rows
+        if f in by_id and t in by_id
+    ]
+    return {"ok": True, "data": {"roots": roots, "rel_edges": edges}}

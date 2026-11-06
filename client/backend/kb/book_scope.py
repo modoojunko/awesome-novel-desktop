@@ -20,6 +20,7 @@ from sqlalchemy import func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from kb.query_scope import visible_knowledge_filter
 from models.kb import (
     KbBookEntry,
     KbBookEntryTag,
@@ -49,6 +50,7 @@ async def load_import_state(
                 KbKnowledge.user_id == user_id,
                 KbKnowledge.status == "active",
                 (KbKnowledge.genre == genre) | (KbKnowledge.genre == ""),
+                visible_knowledge_filter(),
             )
         )
     ).scalars().all()

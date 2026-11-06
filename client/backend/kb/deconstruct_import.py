@@ -29,7 +29,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from kb.concepts import emotion_phrase, normalize_scene
 from kb.payloads import validate_payload
-from models.kb import KbKnowledge, KbKnowledgeInstance
+from models.kb import KbKnowledge
 
 _WS_RE = re.compile(r"\s+")
 # 行首结构标记（# - * > · 或整段【…】）：写法块结构消毒同口径——
@@ -423,11 +423,6 @@ async def collect_task_to_kb(
     返回 {collected, skipped, total_mapped, warnings, genre}；
     产物为空抛 ValueError（端点转 422，脚本按失败记账）。
     """
-    from kb.service import (  # noqa: PLC2701 — 同包内标签物化单源
-        _materialize_tags,
-        ensure_default_library,
-    )
-
     try:
         products = json.loads(getattr(task, "products_json", "") or "{}")
     except ValueError:
@@ -462,27 +457,11 @@ async def collect_task_to_kb(
 
     new_entries = [e for e in entries if e.src_key not in existing_keys]
     for entry in new_entries:
+        # c-kb-summarize：收录落素材行（origin='material'）——产物卡是事实记录，
+        # 经总结采纳才成为知识。不物化标签、不长默认库（素材不进选择器/星图）。
+        entry.origin = "material"
         db.add(entry)
         await db.flush()
-        await ensure_default_library(db, user_id, entry.genre, entry.concept)
-        # 知识 v2：收录即落第 1 条实例（文本=指令、来源=拆书＋书名、quote=证据/例），
-        # 不必等启动迁移补——否则收录后要重启一次，星图/抽屉里实例才可见。
-        # 启动迁移对已有实例的知识跳过，两侧幂等不冲突。
-        db.add(KbKnowledgeInstance(
-            knowledge_id=entry.id,
-            text=entry.instruction,
-            source_kind="拆书" if entry.src_kind == "deconstruct" else "手录",
-            source_novel=str(getattr(task, "book_name", "") or ""),
-            quote=str(entry.evidence or entry.example or "")[:500],
-        ))
-        # 标签物化（选择器短名单读 kb_entry_tags；手录路径由 create_entry 做，
-        # 拆书收录是同一条消费链，不物化会让这批条目进不了候选）
-        await _materialize_tags(
-            db,
-            entry,
-            json.loads(entry.payload_json or "{}"),
-            json.loads(entry.when_json or "{}"),
-        )
     await db.commit()
 
     return {

@@ -257,6 +257,29 @@ async def lifespan(app: FastAPI):
     except Exception as _e:  # noqa: BLE001 — 失败不挡启动（下次启动重试）
         _log.warning("kb organize startup failed: %s", _e)
 
+    # ── 知识总结启动钩（c-kb-summarize）：ensure 两表＋parent_id 列＋素材积压 ≥5 自动总结 ──
+    try:
+        from kb.summarize import ensure_kb_summarize, maybe_auto_summarize
+
+        async with async_session() as _sm_db:
+            await ensure_kb_summarize(_sm_db)
+        # 用户段：本地单机＝当前账号（main lifespan 的既有用户解析口径与整理启动钩一致时
+        # 直接复用；此处按本地单账号语义取 config 用户 id）
+        _sm_uid = None
+        try:
+            from auth_local.service import get_local_config
+
+            _cfg = get_local_config()
+            _sm_uid = (_cfg.get("username") or "") or None
+        except Exception:  # noqa: BLE001 — 无配置即无账号，跳过自动总结
+            _sm_uid = None
+        if _sm_uid:
+            _sm = await maybe_auto_summarize(user_id=_sm_uid)
+            if _sm:
+                _log.info("kb summarize auto triggered: genres=%s", _sm)
+    except Exception as _e:  # noqa: BLE001 — 失败不挡启动（下次启动重试）
+        _log.warning("kb summarize startup failed: %s", _e)
+
     # ── 预置题材播种（#453 重写 lifespan 时被误删，2026-09-21 补回）──────────
     # 两个都是幂等（只插缺失、不覆盖用户改动）；缺了它们**新建库的题材目录是空的**：
     # GET /genres/candidates 返回空 → 题材面板的预置词条 PUT 会 400「未知的候选词汇」，

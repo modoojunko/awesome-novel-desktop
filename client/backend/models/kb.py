@@ -102,6 +102,8 @@ class KbEntry(Base):
     version: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
     origin: Mapped[str] = mapped_column(String(20), nullable=False, default="manual")
     archived_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    # ── 知识树（c-kb-summarize）：parent 挂父知识 id，'' ＝挂概念根；枝干无限嵌套 ──
+    parent_id: Mapped[str] = mapped_column(String(36), nullable=False, default="")
     src_kind: Mapped[str] = mapped_column(String(20), nullable=False, default="manual")
     src_ref: Mapped[str] = mapped_column(String(80), nullable=False, default="")
     src_key: Mapped[str] = mapped_column(String(80), nullable=False, default="")

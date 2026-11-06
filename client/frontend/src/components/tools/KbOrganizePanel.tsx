@@ -17,13 +17,32 @@ interface Props {
   onChanged?: () => void;
 }
 
+interface SummarizeCandidate {
+  id: string;
+  genre: string;
+  concept: string;
+  proposed_title: string;
+  proposed_definition: string;
+  materials: { id: string; title: string; available: boolean }[];
+}
+
 export default function KbOrganizePanel({ genre, onClose, onChanged }: Props) {
   const [status, setStatus] = useState<Awaited<ReturnType<typeof kbApi.organize.status>> | null>(null);
+  const [cands, setCands] = useState<SummarizeCandidate[]>([]);
   const [relations, setRelations] = useState<KbPendingRelation[]>([]);
   const [findings, setFindings] = useState<KbPendingFinding[]>([]);
   const [busy, setBusy] = useState(false);
   const [notice, setNotice] = useState<{ tone: "info" | "ok" | "warn" | "err"; text: string } | null>(null);
   const [running, setRunning] = useState(false);
+
+  const loadCands = useCallback(async () => {
+    try {
+      const r = await kbApi.summarize.candidates(genre);
+      setCands(r.candidates);
+    } catch {
+      setCands([]);
+    }
+  }, [genre]);
 
   const load = useCallback(async () => {
     setBusy(true);
@@ -41,7 +60,8 @@ export default function KbOrganizePanel({ genre, onClose, onChanged }: Props) {
 
   useEffect(() => {
     void load();
-  }, [load]);
+    void loadCands();
+  }, [load, loadCands]);
 
   const doRun = async () => {
     setRunning(true);
@@ -113,7 +133,80 @@ export default function KbOrganizePanel({ genre, onClose, onChanged }: Props) {
           {running ? "整理中…" : "立即整理"}
         </button>
 
-        {/* 待确认清单 */}
+        {/* 知识总结（c-kb-summarize）：素材 → 候选知识点 → 确认采纳 */}
+        <button
+          onClick={async () => {
+            setBusy(true);
+            setNotice({ tone: "info", text: "总结中——把素材提炼成候选知识点…" });
+            try {
+              const r = await kbApi.summarize.run(genre);
+              if (r.skipped) {
+                setNotice({ tone: "warn", text: r.message || "正在总结中" });
+              } else {
+                setNotice({ tone: "ok", text: `总结完成：提炼候选知识点 ${r.candidates} 个（素材 ${r.collected} 条）` });
+              }
+              await loadCands();
+              onChanged?.();
+            } catch (e: unknown) {
+              setNotice({ tone: "err", text: (e as { message?: string }).message || "总结失败" });
+            } finally {
+              setBusy(false);
+            }
+          }}
+          disabled={busy}
+          className="mt-3 rounded-md border border-[var(--accent)] px-3 py-1.5 text-[12px] text-[var(--accent)] hover:bg-[var(--accent-soft)] disabled:opacity-50"
+        >
+          总结知识点
+        </button>
+        <div className="mt-3">
+          <p className="font-mono text-[10px] tracking-[0.14em] text-[var(--muted)]">候选知识点（待确认）</p>
+          {cands.length === 0 ? (
+            <p className="mt-1 text-[12px] text-[var(--muted)]">没有待确认的知识点。</p>
+          ) : (
+            <ul className="mt-1 space-y-1">
+              {cands.map((c) => (
+                <li key={c.id} className="rounded-md border border-[var(--border)] px-3 py-2 text-[12px]">
+                  <span className="font-medium">{c.proposed_title}</span>
+                  <span className="ml-1 text-[var(--muted)]">· {c.concept}</span>
+                  <p className="mt-0.5 leading-relaxed">{c.proposed_definition}</p>
+                  <p className="mt-0.5 text-[11px] text-[var(--faint)]">
+                    来自素材：{c.materials.map((m) => m.title).join("、")}
+                  </p>
+                  <div className="mt-1 flex gap-2">
+                    <button
+                      onClick={async () => {
+                        try {
+                          const r = await kbApi.summarize.adopt(c.id);
+                          setNotice({ tone: "ok", text: r.message || "已采纳" });
+                        } catch (e: unknown) {
+                          setNotice({ tone: "err", text: (e as { message?: string }).message || "采纳失败" });
+                        }
+                        await loadCands();
+                        onChanged?.();
+                      }}
+                      className="rounded-md border border-[var(--accent)] px-2 py-0.5 text-[11px] text-[var(--accent)]"
+                    >
+                      采纳为知识
+                    </button>
+                    <button
+                      onClick={async () => {
+                        try {
+                          await kbApi.summarize.dismiss(c.id);
+                        } catch { /* 忽略失败静默（清单刷新即回真态） */ }
+                        await loadCands();
+                      }}
+                      className="rounded-md border border-[var(--border)] px-2 py-0.5 text-[11px] text-[var(--muted)]"
+                    >
+                      忽略
+                    </button>
+                  </div>
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
+
+        {/* 待确认关系 */}
         <div className="mt-4">
           <p className="font-mono text-[10px] tracking-[0.14em] text-[var(--muted)]">待确认关系</p>
           {relations.length === 0 ? (

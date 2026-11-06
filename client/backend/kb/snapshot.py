@@ -17,6 +17,7 @@ from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from filesystem.storage import get_storage
+from kb.query_scope import visible_knowledge_filter
 from models.kb import KbBookBinding, KbEntry, KbLibrary, KbLibraryItem
 
 # 文风 payload 槽位 → style 白名单键（STYLE_WRITE_KEYS 消费端真实键）；pov 无消费键，跳过
@@ -68,6 +69,7 @@ async def library_base_entries(db: AsyncSession, lib: KbLibrary) -> list[KbEntry
                         KbEntry.genre == lib.genre,
                         KbEntry.concept == lib.concept,
                         KbEntry.status == "active",
+                        visible_knowledge_filter(),
                     )
                     .order_by(KbEntry.created_at, KbEntry.id)
                 )
@@ -415,6 +417,7 @@ async def binding_status(db: AsyncSession, binding: KbBookBinding) -> dict[str, 
                         KbEntry.genre == lib.genre,
                         KbEntry.concept == lib.concept,
                         KbEntry.status == "active",
+                        visible_knowledge_filter(),
                     )
                 )
             )
