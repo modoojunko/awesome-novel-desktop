@@ -614,11 +614,19 @@ export default function KnowledgeBasePage() {
                   setSelected(local);
                   return;
                 }
+<<<<<<< HEAD
                 // 对端不在当前筛选列表（跨题材/类别）：拉详情兜底；不可达给一句提示
                 void kbApi
                   .entry(id)
                   .then((d) => setSelected(d))
                   .catch(() => setOpNote("这条关联的知识暂时打不开，稍后再试"));
+=======
+                // 对端不在当前筛选列表（跨题材/类别）：拉详情兜底；不可达则原地不动
+                void kbApi
+                  .entry(id)
+                  .then((d) => setSelected(d))
+                  .catch(() => undefined);
+>>>>>>> c3c18384 (feat(kb): 知识视图「关联知识」只读段——接通采纳关系的展示链路（c-kb-relations-view）)
               }}
             />
             {selected.evidence && (
