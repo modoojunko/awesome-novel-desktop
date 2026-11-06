@@ -122,7 +122,7 @@ def test_genre_from_products_normalizes_catalog_name():
 
 def test_maps_real_product_shapes_into_five_concepts():
     entries, warnings = _map(genre="志怪/民俗灵异")
-    assert warnings == []
+    assert warnings == ["原文示范段 1 条不入库（逐字原文，版权红线）"]  # 原文示范段不收
     by_concept: dict[str, list[KbEntry]] = {}
     for entry in entries:
         by_concept.setdefault(entry.concept, []).append(entry)
@@ -137,8 +137,8 @@ def test_maps_real_product_shapes_into_five_concepts():
 
     # 手法：techniques 1 + borrowable 1 + avoid 1 + reader_needs 1
     assert len(by_concept["手法"]) == 4
-    # 文风：role 1 + 示范段 1；文笔：rules 1 + craft 1 + taboo 1
-    assert len(by_concept["文风"]) == 2
+    # 文风：role 1（原文示范段不收）；文笔：rules 1 + craft 1 + taboo 1
+    assert len(by_concept["文风"]) == 1
     assert len(by_concept["文笔"]) == 3
     # 世界：stage + no_power + power + cost + history + factions + constraints + extra
     assert len(by_concept["世界设定"]) == 8

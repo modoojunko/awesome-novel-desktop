@@ -37,7 +37,6 @@ _WS_RE = re.compile(r"\s+")
 _LEAD_MARK_RE = re.compile(r"^(?:[-*#>·]+|【[^】]*】)\s*")
 
 _MAX_CHARACTERS = 10
-_MAX_STYLE_SAMPLES = 6
 # world.extra 是书内道具/零散设定（一条 60+ 个）：限量收，避免批量灌库时道具淹没分区事实
 _MAX_WORLD_EXTRA = 20
 
@@ -285,24 +284,12 @@ def map_deconstruct_products(
             instruction=role, evidence="文风蒸馏·叙事身份",
         )
 
-    samples = (
-        style.get("examples") or style.get("samples") or style.get("style_samples") or []
-    )
-    for i, sample in enumerate(_items(samples)[:_MAX_STYLE_SAMPLES]):
-        if isinstance(sample, dict):
-            text = str(sample.get("example") or sample.get("text") or sample.get("sample") or "")
-            evidence, ev_json = _ev(sample.get("evidence_ch") or "")
-        else:
-            text, evidence, ev_json = str(sample or ""), "文风蒸馏·示范段", {}
-        text = text.strip()[:500]
-        if not text:
-            continue
-        add(
-            "style.sample", "文风", f"示范段 {i + 1}",
-            {"slot": "sample", "sample": text},
-            instruction=text, example=text,
-            evidence=evidence or "文风蒸馏·示范段", evidence_json=ev_json,
-        )
+    # 原文示范段＝逐字原文：按 2026-11-04 真机反馈不进知识库（版权红线＋作家阅读噪音），
+    # 与内容仓批量工具同口径；只计数并进 warnings。写作侧的文风示范由拆书产物的
+    # style_samples（书内设定 style_samples 键）承接，不经知识库。
+    n_samples = len(_items(style.get("examples") or style.get("samples") or style.get("style_samples") or []))
+    if n_samples:
+        warnings.append(f"原文示范段 {n_samples} 条不入库（逐字原文，版权红线）")
 
     # ─── 文笔（规则 / 写法 / 忌用）───
     for section, prefix, slot, label in (
