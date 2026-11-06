@@ -1181,7 +1181,7 @@ async def summarize_run_api(
     if not genre:
         raise HTTPException(422, detail="总结需要题材")
     summary, error = await run_summarize(
-        db, user_id=_user(user), genre=genre, trigger="manual", llm=True
+        db, user_id=_user(user), genre=genre, trigger="manual"
     )
     if summary is None and error == "running":
         return {"ok": True, "data": {"skipped": True, "message": "该题材正在总结中"}}
