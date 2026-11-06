@@ -560,8 +560,9 @@ export default function KnowledgeBasePage() {
             {/* 知识定义 */}
             <div className="mt-4">
               <p className="text-[10.5px] font-mono tracking-[0.12em] text-[var(--muted)]">知识定义</p>
-              <p className="mt-1 text-[13px] leading-relaxed">{selected.definition || selected.instruction}</p>
-              {(selected.definition || selected.instruction) && (
+              {selected.definition ? (
+                <p className="mt-1 text-[13px] leading-relaxed">{selected.definition}</p>
+              ) : (
                 <p className="mt-1 text-[11px] text-[var(--faint)]">知识定义待补——可在「修改」中补写一般性定义</p>
               )}
             </div>

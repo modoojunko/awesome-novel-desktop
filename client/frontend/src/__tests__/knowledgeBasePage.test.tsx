@@ -224,6 +224,18 @@ describe("KnowledgeBasePage 详情抽屉", () => {
     await waitFor(() => expect(screen.getByRole("heading", { name: "外部对端" })).toBeTruthy());
   });
 
+  it("定义空不拿实例文本冒充（c-kb-relations-view 顺手修）：只显示待补提示", async () => {
+    const noDef: KbEntry = { ...ENTRY, id: "kbentry-nodef", title: "无定义条目", definition: "", instruction: "先写结果，再倒回去拆折。" };
+    api.entries.mockResolvedValue({ entries: [noDef], next_cursor: "" });
+    renderPage();
+    await waitFor(() => expect(screen.getByText("无定义条目")).toBeTruthy());
+    fireEvent.click(screen.getByText("无定义条目"));
+    await waitFor(() => expect(screen.getByText(/知识定义待补/)).toBeTruthy());
+    // 实例文本不得出现在「知识定义」段冒充定义（定义段只允许待补提示）
+    const defSection = screen.getByText("知识定义").parentElement!;
+    expect(defSection.textContent).not.toContain("先写结果");
+  });
+
   it("视图切换臂：列表/星图 setView 可点", async () => {
     renderPage();
     await waitFor(() => expect(screen.getByText("刘望津")).toBeTruthy());
