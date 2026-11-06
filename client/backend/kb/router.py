@@ -909,13 +909,19 @@ async def organize_relation_reject_api(
 @router.get("/entries/{entry_id}/relations")
 async def entry_relations_api(
     entry_id: str,
+    status: str = "all",
     user: dict = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    """条目详情的关系列表（active＋pending；merged 条目附合并指向）。"""
+    """条目详情的关系列表（active＋pending；merged 条目附合并指向）。
+
+    ?status=active 只回生效关系（c-kb-relations-view 知识视图段）。
+    """
     from kb.organize import entry_relations
 
-    data = await entry_relations(db, user_id=_user(user), entry_id=entry_id)
+    data = await entry_relations(
+        db, user_id=_user(user), entry_id=entry_id, status=status
+    )
     if data.get("error"):
         raise HTTPException(404, "Entry not found")
     return {"ok": True, "data": data}

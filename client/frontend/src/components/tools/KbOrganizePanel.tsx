@@ -2,21 +2,13 @@
 // （pending 关系：生效/否决/这条不对；四类建议：采纳/忽略）。作家确认制。
 import { useCallback, useEffect, useState } from "react";
 import { kbApi, type KbPendingFinding, type KbPendingRelation } from "@/lib/kbApi";
+import { REL_TYPE_LABELS as REL_LABEL } from "@/lib/kbRelations";
 
 const KIND_LABEL: Record<KbPendingFinding["kind"], string> = {
   merge: "疑似重复",
   reclass: "概念放错",
   subconcept: "子概念提案",
   quality: "待清理",
-};
-
-const REL_LABEL: Record<string, string> = {
-  refines: "细化",
-  contradicts: "相冲",
-  depends_on: "依赖",
-  instance_of: "属于",
-  derived_from: "源自",
-  applies_to: "适用于",
 };
 
 interface Props {

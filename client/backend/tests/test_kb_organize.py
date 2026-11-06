@@ -829,3 +829,85 @@ class TestOrganizeEndpoints:
         with TestClient(app) as c:
             r = c.get("/api/kb/organize/findings")
             assert r.status_code in (401, 403)
+
+class TestEntryRelationsView:
+    """entry_relations status 入参＋死链剔除（c-kb-relations-view）：知识视图段取数口径。"""
+
+    def _mk(self, tag: str) -> str:
+        return f"relv-{tag}-{uuid.uuid4().hex[:8]}"
+
+    def test_active过滤_双向_对端名_默认all含pending(self):
+        uid = self._mk("both")
+        _run(_seed_user(uid))
+        entries = _run(_seed_entries(uid, [
+            {"concept": "手法", "genre": "玄幻", "instruction": "钩子开场。"},
+            {"concept": "文风", "genre": "玄幻", "instruction": "句子要短。"},
+            {"concept": "手法", "genre": "玄幻", "instruction": "先果后因。"},
+        ]))
+        a, b, c = list(entries.keys())
+        titles = {k: v.title for k, v in entries.items()}
+
+        async def _seed_rels():
+            async with async_session() as db:
+                db.add(KbRelation(user_id=uid, from_id=a, to_id=b,
+                                  rel_type="applies_to", status="active", source="ai"))
+                db.add(KbRelation(user_id=uid, from_id=c, to_id=a,
+                                  rel_type="derived_from", status="active", source="ai"))
+                db.add(KbRelation(user_id=uid, from_id=a, to_id=b,
+                                  rel_type="depends_on", status="pending", source="ai"))
+                await db.commit()
+        _run(_seed_rels())
+
+        from kb.organize import entry_relations
+
+        async def _go_active():
+            async with async_session() as db:
+                return await entry_relations(db, user_id=uid, entry_id=a, status="active")
+
+        async def _go_all():
+            async with async_session() as db:
+                return await entry_relations(db, user_id=uid, entry_id=a)
+
+        rows = _run(_go_active())["relations"]
+        assert len(rows) == 2, f"pending 须被滤掉：{rows}"
+        out_row = next(r for r in rows if r["direction"] == "out")
+        in_row = next(r for r in rows if r["direction"] == "in")
+        assert out_row["other_id"] == b and out_row["other_title"] == titles[b]
+        assert in_row["other_id"] == c and in_row["other_title"] == titles[c]
+        assert len(_run(_go_all())["relations"]) == 3  # 默认 all 含 pending（行为不变）
+
+    def test_死链剔除_归档对端与缺失对端(self):
+        uid = self._mk("dead")
+        _run(_seed_user(uid))
+        entries = _run(_seed_entries(uid, [
+            {"concept": "手法", "genre": "玄幻", "instruction": "钩子开场。"},
+            {"concept": "文风", "genre": "玄幻", "instruction": "句子要短。"},
+        ]))
+        a, live = list(entries.keys())
+        ghost = self._mk("ghost")  # 指向不存在条目
+        archived_id = self._mk("arch")  # status=archived：get_entry 不可达口径
+
+        async def _seed_rels():
+            async with async_session() as db:
+                db.add(KbRelation(user_id=uid, from_id=a, to_id=live,
+                                  rel_type="applies_to", status="active", source="ai"))
+                db.add(KbRelation(user_id=uid, from_id=a, to_id=ghost,
+                                  rel_type="depends_on", status="active", source="ai"))
+                db.add(KbEntry(
+                    id=archived_id, user_id=uid, title="已归档条目", genre="玄幻",
+                    concept="文风", instruction="已归档。", status="archived", rev=1,
+                ))
+                db.add(KbRelation(user_id=uid, from_id=a, to_id=archived_id,
+                                  rel_type="derived_from", status="active", source="ai"))
+                await db.commit()
+        _run(_seed_rels())
+
+        from kb.organize import entry_relations
+
+        async def _go():
+            async with async_session() as db:
+                return await entry_relations(db, user_id=uid, entry_id=a, status="active")
+
+        rows = _run(_go())["relations"]
+        assert len(rows) == 1, f"归档/缺失对端须剔除：{rows}"
+        assert rows[0]["other_id"] == live

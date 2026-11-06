@@ -19,11 +19,28 @@ const api = vi.hoisted(() => ({
   entries: vi.fn(),
   libraries: vi.fn(),
   genres: vi.fn(),
+  entry: vi.fn(),
+  entryRelations: vi.fn(),
+  relationFeedback: vi.fn(),
 }));
 
 vi.mock("@/lib/kbApi", async (orig) => {
   const actual = await orig<typeof import("@/lib/kbApi")>();
-  return { ...actual, kbApi: { ...actual.kbApi, entries: api.entries, libraries: api.libraries, genres: api.genres } };
+  return {
+    ...actual,
+    kbApi: {
+      ...actual.kbApi,
+      entries: api.entries,
+      entry: api.entry,
+      libraries: api.libraries,
+      genres: api.genres,
+      organize: {
+        ...actual.kbApi.organize,
+        entryRelations: api.entryRelations,
+        relationFeedback: api.relationFeedback,
+      },
+    },
+  };
 });
 
 import KnowledgeBasePage, { payloadRows } from "@/pages/KnowledgeBasePage";
@@ -80,6 +97,8 @@ beforeEach(() => {
   api.entries.mockResolvedValue({ entries: [ENTRY], next_cursor: "" });
   api.libraries.mockResolvedValue([]);
   api.genres.mockResolvedValue([]);
+  api.entryRelations.mockResolvedValue({ relations: [], merged_into: null });
+  api.entry.mockResolvedValue({ ...ENTRY, id: "kbentry-external", title: "外部对端" });
 });
 
 afterEach(() => {
@@ -160,6 +179,58 @@ describe("KnowledgeBasePage 详情抽屉", () => {
     expect(screen.getByText("一句话人设")).toBeTruthy();
     // 列表卡片同渲染该句 → 多命中按存在性断言
     expect(screen.getAllByText("漂亮热情的农村出身姑娘。").length).toBeGreaterThan(0);
+  });
+
+  it("关联知识段（c-kb-relations-view）：active 行句式渲染＋点跳切对端", async () => {
+    const entryB: KbEntry = { ...ENTRY, id: "kbentry-0002", title: "李耀", definition: "对端条目定义。" };
+    api.entries.mockResolvedValue({ entries: [ENTRY, entryB], next_cursor: "" });
+    api.entryRelations.mockResolvedValue({
+      relations: [
+        { id: "r1", rel_type: "applies_to", status: "active", direction: "out",
+          other_id: "kbentry-0002", other_title: "李耀", confidence: 1, note: "", evidence: "" },
+        { id: "r2", rel_type: "derived_from", status: "pending", direction: "in",
+          other_id: "kbentry-0002", other_title: "李耀", confidence: 0.5, note: "", evidence: "" },
+      ],
+      merged_into: null,
+    });
+    renderPage();
+    await waitFor(() => expect(screen.getByText("刘望津")).toBeTruthy());
+    fireEvent.click(screen.getByText("刘望津"));
+    await waitFor(() => expect(screen.getByText(/关联知识 · 来自知识整理/)).toBeTruthy());
+    // 出向句式；pending 行不出
+    expect(screen.getByText(/适用于 李耀/)).toBeTruthy();
+    expect(screen.queryByText(/李耀 源自本知识/)).toBeNull();
+    expect(api.entryRelations).toHaveBeenCalledWith("kbentry-0001", { status: "active" });
+    // 点跳对端（B 在列表内→走 selected 切换），抽屉切到对端（标题两处：列表＋抽屉）
+    fireEvent.click(screen.getByText(/适用于 李耀/));
+    await waitFor(() => expect(screen.getAllByText("李耀").length).toBeGreaterThanOrEqual(2));
+  });
+
+  it("点跳对端不在列表：拉详情兜底切换", async () => {
+    api.entryRelations.mockResolvedValue({
+      relations: [
+        { id: "rx", rel_type: "derived_from", status: "active", direction: "in",
+          other_id: "kbentry-external", other_title: "外部对端", confidence: 1, note: "", evidence: "" },
+      ],
+      merged_into: null,
+    });
+    renderPage();
+    await waitFor(() => expect(screen.getByText("刘望津")).toBeTruthy());
+    fireEvent.click(screen.getByText("刘望津"));
+    await waitFor(() => expect(screen.getByText(/外部对端 源自本知识/)).toBeTruthy());
+    fireEvent.click(screen.getByText(/外部对端 源自本知识/));
+    await waitFor(() => expect(api.entry).toHaveBeenCalledWith("kbentry-external"));
+    // 兜底详情落到抽屉标题（列表无此行，唯一的 h2）
+    await waitFor(() => expect(screen.getByRole("heading", { name: "外部对端" })).toBeTruthy());
+  });
+
+  it("视图切换臂：列表/星图 setView 可点", async () => {
+    renderPage();
+    await waitFor(() => expect(screen.getByText("刘望津")).toBeTruthy());
+    fireEvent.click(screen.getByText("星图"));
+    await waitFor(() => expect(screen.getByText("列表")).toBeTruthy());
+    fireEvent.click(screen.getByText("列表"));
+    await waitFor(() => expect(screen.getByText("刘望津")).toBeTruthy());
   });
 
   it("关闭抽屉后字段段退场", async () => {

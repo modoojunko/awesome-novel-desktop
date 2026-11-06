@@ -605,6 +605,21 @@ export default function KnowledgeBasePage() {
                 <p className="mt-1 text-[13px]">{selected.negative_example}</p>
               </div>
             )}
+            <KbEntryRelations
+              entryId={selected.id}
+              onOpenKnowledge={(id) => {
+                const local = entries.find((x) => x.id === id);
+                if (local) {
+                  setSelected(local);
+                  return;
+                }
+                // 对端不在当前筛选列表（跨题材/类别）：拉详情兜底；不可达则原地不动
+                void kbApi
+                  .entry(id)
+                  .then((d) => setSelected(d))
+                  .catch(() => undefined);
+              }}
+            />
             {selected.evidence && (
               <div className="mt-4">
                 <p className="text-[10.5px] font-mono tracking-[0.12em] text-[var(--muted)]">证据</p>
