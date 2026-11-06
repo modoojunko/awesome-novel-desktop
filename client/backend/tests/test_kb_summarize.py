@@ -4,13 +4,12 @@ import asyncio
 import json
 import uuid
 
-from sqlalchemy import select
 from sqlalchemy import select as sel
 from sqlalchemy import text as _t
 
 from db import async_session
 from kb.service import create_entry, delete_entry, list_entries
-from models.kb import KbEntry, KbKnowledgeInstance
+from models.kb import KbEntry
 from models.user import User
 
 
@@ -28,22 +27,24 @@ async def _seed_user(uid: str):
         await db.commit()
 
 
+
+
 class TestMaterialEntry:
     """批A：手录落素材态。"""
 
+    def _mk(self, tag):
+        return f"kbsm-{tag}-{uuid.uuid4().hex[:8]}"
+
     def test_手录素材_不装载槽位_不物化标签(self):
-        uid = _mk("mat")
-        _run(_seed_user(uid))
+        uid = self._mk("mat")
+        _seed_user(uid)
 
         async def _go():
             async with async_session() as db:
-                entry, gate, error = await create_entry(
+                entry, _gate, _err = await create_entry(
                     db, user_id=uid, genre="玄幻", concept="文风",
-                    instruction="句子要短，少形容词。",
-                    payload={}, as_material=True,
+                    instruction="句子要短。", payload={}, as_material=True,
                 )
-                assert entry is not None, f"{gate.errors} {error}"
-                # 无标签物化、无默认库：kb_entry_tags 无该行
                 from models.kb import KbEntryTag
                 tags = (await db.execute(sel(KbEntryTag).where(KbEntryTag.entry_id == entry.id))).scalars().all()
                 return entry, tags
@@ -53,8 +54,8 @@ class TestMaterialEntry:
         assert tags == []
 
     def test_素材必须有类别归组(self):
-        uid = _mk("nocat")
-        _run(_seed_user(uid))
+        uid = self._mk("nocat")
+        _seed_user(uid)
 
         async def _go():
             async with async_session() as db:
@@ -62,12 +63,12 @@ class TestMaterialEntry:
                     db, user_id=uid, genre="玄幻", concept="",
                     instruction="x", payload={}, as_material=True,
                 )
-        entry, gate, _error = _run(_go())
+        entry, gate, _err = _run(_go())
         assert entry is None and gate.errors, "素材缺类别归组应被拒（明细在 gate.errors）"
 
     def test_列表含素材_排除参数滤掉(self):
-        uid = _mk("list")
-        _run(_seed_user(uid))
+        uid = self._mk("list")
+        _seed_user(uid)
 
         async def _seed_both():
             async with async_session() as db:
@@ -77,7 +78,7 @@ class TestMaterialEntry:
                 kb, _g2, _e2 = await create_entry(
                     db, user_id=uid, genre="玄幻", concept="文风",
                     instruction="句子要短。", payload={},
-                    definition="短句文风的一般性定义。")
+                    definition="短句文风的一般性定义。", as_knowledge=True)
                 await db.commit()
                 return mat.id, kb.id
         mat_id, kb_id = _run(_seed_both())
@@ -92,8 +93,8 @@ class TestMaterialEntry:
         assert mat_id not in without_mat and kb_id in without_mat
 
     def test_素材删除真删_知识删除归档(self):
-        uid = _mk("del")
-        _run(_seed_user(uid))
+        uid = self._mk("del")
+        _seed_user(uid)
 
         async def _seed():
             async with async_session() as db:
@@ -102,7 +103,7 @@ class TestMaterialEntry:
                     instruction="素材句。", payload={}, as_material=True)
                 kb, _g2, _e2 = await create_entry(
                     db, user_id=uid, genre="玄幻", concept="文风",
-                    instruction="句子要短。", payload={}, definition="定义。")
+                    instruction="句子要短。", payload={}, definition="定义。", as_knowledge=True)
                 await db.commit()
                 return mat.id, kb.id
         mat_id, kb_id = _run(_seed())
@@ -123,276 +124,8 @@ class TestMaterialEntry:
         assert kb_status == "archived", "知识行应归档"
 
 
-
-class TestSummarizePipeline:
-    """批B：总结管线（定期任务自动整理——知识直接生效，无确认制）。"""
-
-    def _mk(self, tag):
-        return f"kbsm-{tag}-{uuid.uuid4().hex[:8]}"
-
-    def _seed_materials(self, uid, genre, n, concept="文风"):
-        async def _go():
-            async with async_session() as db:
-                rows = []
-                for i in range(n):
-                    e = KbEntry(
-                        user_id=uid, genre=genre, concept=concept,
-                        concept_id=f"{genre}:{concept}", title=f"素材{i}",
-                        payload_json="{}", instruction=f"素材原文{i}。",
-                        origin="material", status="active", rev=1,
-                        src_kind="manual", src_ref="", src_key=f"k{i}",
-                    )
-                    db.add(e)
-                    rows.append(e)
-                await db.commit()
-                return [e.id for e in rows]
-        return _run(_go())
-
-    def test_跑一次_done_单飞_无素材不落runs(self):
-        uid = self._mk("run")
-        _run(_seed_user(uid))
-        self._seed_materials(uid, "玄幻", 2)
-
-        from kb.summarize import run_summarize
-
-        async def _go(llm):
-            async with async_session() as db:
-                return await run_summarize(db, user_id=uid, genre="玄幻", trigger="manual", llm=llm)
-        summary, err = _run(_go(llm=False))
-        assert err == "" and summary["knowledge"] == 0 and summary["collected"] == 2
-
-        # 单飞：插一行 running → 再触发返回 running
-        async def _insert_running():
-            async with async_session() as db:
-                await db.execute(_t(
-                    "INSERT INTO kb_summarize_runs (id, user_id, genre, status, trigger) "
-                    "VALUES ('r-running', :u, '玄幻', 'running', 'manual')"), {"u": uid})
-                await db.commit()
-        _run(_insert_running())
-        summary2, err2 = _run(_go(llm=False))
-        assert summary2 is None and err2 == "running"
-
-    def test_三闸_非法素材id_空标题_坏parent_自动归根_直接建知识(self, monkeypatch):
-        uid = self._mk("valid")
-        _run(_seed_user(uid))
-        ids = self._seed_materials(uid, "玄幻", 2)
-        good_id = ids[0]
-
-        async def _fake_llm(user_id, genre, materials, existing_lines, existing_ids):
-            return [
-                {"title": "短句控节奏", "definition": "用短句控制叙事节奏。", "concept": "文风",
-                 "parent": "ROOT", "material_ids": [good_id]},
-                {"title": "非法素材引用", "definition": "x", "concept": "文风",
-                 "parent": "ROOT", "material_ids": ["not-exists"]},
-                {"title": "", "definition": "x", "concept": "文风",
-                 "parent": "ROOT", "material_ids": [good_id]},
-                {"title": "挂不存在父", "definition": "x", "concept": "文风",
-                 "parent": "ghost-parent", "material_ids": [ids[1]]},
-            ], None
-        monkeypatch.setattr("kb.summarize._llm_candidates", _fake_llm)
-
-        from kb.summarize import run_summarize
-
-        async def _go():
-            async with async_session() as db:
-                return await run_summarize(db, user_id=uid, genre="玄幻", trigger="auto", llm=True)
-        summary, err = _run(_go())
-        assert err == "" and summary["knowledge"] == 2, "非法素材引用与空标题簇被滤"
-
-        async def _check():
-            async with async_session() as db:
-                rows = (await db.execute(_t(
-                    "SELECT title, origin, parent_id FROM kb_entries WHERE user_id=:u AND origin='summary'"),
-                    {"u": uid})).mappings().all()
-                inst = (await db.execute(_t(
-                    "SELECT count(*) FROM kb_knowledge_instances ki "
-                    "JOIN kb_entries e ON e.id = ki.knowledge_id WHERE e.user_id=:u AND e.origin='summary'"),
-                    {"u": uid})).scalar()
-                return {r["title"]: (r["origin"], r["parent_id"]) for r in rows}, inst
-        kb, inst_n = _run(_check())
-        assert set(kb) == {"短句控节奏", "挂不存在父"}
-        assert all(o == "summary" and p == "" for o, p in kb.values())
-        assert inst_n == 2
-
-    def test_自动建知识_转实例_归档素材_素材用尽不建空知识(self, monkeypatch):
-        uid = self._mk("adopt")
-        _run(_seed_user(uid))
-        ids = self._seed_materials(uid, "玄幻", 1)
-
-        async def _fake_llm(user_id, genre, materials, existing_lines, existing_ids):
-            out = [{"title": "短句控节奏", "definition": "用短句控制叙事节奏。", "concept": "文风",
-                    "parent": "ROOT", "material_ids": [ids[0]]}]
-            if getattr(_fake_llm, "second", False):
-                out.append({"title": "等价候选", "definition": "x", "concept": "文风",
-                            "parent": "ROOT", "material_ids": [ids[0]]})  # 素材已用尽
-            _fake_llm.second = True
-            return out, None
-        monkeypatch.setattr("kb.summarize._llm_candidates", _fake_llm)
-
-        from kb.summarize import run_summarize
-
-        async def _go():
-            async with async_session() as db:
-                return await run_summarize(db, user_id=uid, genre="玄幻", trigger="auto", llm=True)
-        r1, _ = _run(_go())
-        assert r1["knowledge"] == 1
-
-        async def _check():
-            async with async_session() as db:
-                kb = (await db.execute(_t(
-                    "SELECT id, definition, origin FROM kb_entries WHERE user_id=:u AND origin='summary'"),
-                    {"u": uid})).mappings().first()
-                inst = (await db.execute(_t(
-                    "SELECT count(*) FROM kb_knowledge_instances WHERE knowledge_id=:k"),
-                    {"k": kb["id"]})).scalar()
-                mat = await db.get(KbEntry, ids[0])
-                return kb["definition"], inst, mat.status
-        definition, inst_n, mat_status = _run(_check())
-        assert definition == "用短句控制叙事节奏。"
-        assert inst_n == 1
-        assert mat_status == "archived"
-
-        # 第二轮：素材已被用尽 → 不建空知识
-        r2, _ = _run(_go())
-        assert r2["knowledge"] == 0, "素材用尽的簇不建空知识"
-
-    def test_积压阈值与定期兜底自动触发(self, monkeypatch):
-        uid = self._mk("auto")
-        _run(_seed_user(uid))
-        self._seed_materials(uid, "玄幻", 5)
-
-        async def _fake_llm(user_id, genre, materials, existing_lines, existing_ids):
-            return [], None
-        monkeypatch.setattr("kb.summarize._llm_candidates", _fake_llm)
-
-        from kb.summarize import _maybe_auto_summarize
-
-        async def _go():
-            async with async_session() as db:
-                return await _maybe_auto_summarize(db, user_id=uid)
-        assert _run(_go()) == ["玄幻"]
-        # 素材未消耗（fake 无候选）→ 积压恒 ≥5 → 阈值口径下持续触发（正确）；
-        # 定期去重（7 天内不重复）由 4 条场景覆盖（阈值未达时才查定期）
-
-        # 4 条题材：无运行记录＝定期兜底视为超期 → 首轮也整理；跑完后 7 天内不重复
-        uid2 = self._mk("auto4")
-        _run(_seed_user(uid2))
-        self._seed_materials(uid2, "都市", 4)
-        async def _go2():
-            async with async_session() as db:
-                return await _maybe_auto_summarize(db, user_id=uid2)
-        assert _run(_go2()) == ["都市"]
-        assert _run(_go2()) == []
-
-
-def _shared_mk(tag):
-    return f"kbsm-{tag}-{uuid.uuid4().hex[:8]}"
-
-
-class TestLlmCandidatesParsing:
-    """_llm_candidates 真 JSON 解析分支（评审缺口）：围栏/坏 JSON/非 list/越界过滤。"""
-
-    def _mk(self, tag):
-        return _shared_mk(tag)
-
-    def _seed_materials(self, uid, genre, n, concept="文风"):
-        async def _go():
-            async with async_session() as db:
-                rows = []
-                for i in range(n):
-                    e = KbEntry(
-                        user_id=uid, genre=genre, concept=concept,
-                        concept_id=f"{genre}:{concept}", title=f"素材{i}",
-                        payload_json="{}", instruction=f"素材原文{i}。",
-                        origin="material", status="active", rev=1,
-                        src_kind="manual", src_ref="", src_key=f"k{i}",
-                    )
-                    db.add(e)
-                    rows.append(e)
-                await db.commit()
-                return [e.id for e in rows]
-        return _run(_go())
-
-    def _materials(self, uid):
-        async def _go():
-            async with async_session() as db:
-                return (
-                    await db.execute(
-                        select(KbEntry).where(
-                            KbEntry.user_id == uid, KbEntry.origin == "material"
-                        )
-                    )
-                ).scalars().all()
-        return _run(_go())
-
-    def test_围栏包裹_剥后可解析(self, monkeypatch):
-        uid = self._mk("fence")
-        _run(_seed_user(uid))
-        self._seed_materials(uid, "玄幻", 1)
-
-        from kb.summarize import _llm_candidates
-
-        async def _material_rows():
-            async with async_session() as db:
-                return (await db.execute(sel(KbEntry).where(KbEntry.user_id == uid))).scalars().all()
-        mats = _run(_material_rows())
-        real_id = mats[0].id
-        body = '{"candidates": [{"title": "短句", "definition": "d", "concept": "文风", "parent": "ROOT", "material_ids": ["' + real_id + '"]}]}'
-
-        async def _fake_client(user_id):
-            class _R:
-                async def chat(self, **kw):
-                    return '```json\n' + body + '\n```'
-            return _R()
-        monkeypatch.setattr("ai_client.get_ai_client_for_user", _fake_client)
-        cands, err = _run(_llm_candidates(uid, "玄幻", mats, [], set()))
-        assert err is None and len(cands) == 1, f"围栏 JSON 应剥后解析：{err} {cands}"
-
-    def test_坏json_全损报错(self, monkeypatch):
-        uid = self._mk("bad")
-        _run(_seed_user(uid))
-        self._seed_materials(uid, "玄幻", 1)
-
-        async def _fake_client(user_id):
-            class _R:
-                async def chat(self, **kw):
-                    return "经过分析，这些素材不值得提炼"  # 散文跑偏
-            return _R()
-        monkeypatch.setattr("ai_client.get_ai_client_for_user", _fake_client)
-
-        from kb.summarize import _llm_candidates
-
-        async def _material_rows():
-            async with async_session() as db:
-                return (await db.execute(sel(KbEntry).where(KbEntry.user_id == uid))).scalars().all()
-        mats = _run(_material_rows())
-        cands, err = _run(_llm_candidates(uid, "玄幻", mats, [], set()))
-        assert cands == [] and err == "llm: bad json"
-
-    def test_越界素材id被滤_非list容错(self, monkeypatch):
-        uid = self._mk("oob")
-        _run(_seed_user(uid))
-        self._seed_materials(uid, "玄幻", 1)
-
-        async def _fake_client(user_id):
-            class _R:
-                async def chat(self, **kw):
-                    return '{"candidates": "not-a-list", "x": 1}'
-            return _R()
-        monkeypatch.setattr("ai_client.get_ai_client_for_user", _fake_client)
-
-        from kb.summarize import _llm_candidates
-
-        async def _material_rows():
-            async with async_session() as db:
-                return (await db.execute(sel(KbEntry).where(KbEntry.user_id == uid))).scalars().all()
-        mats = _run(_material_rows())
-        cands, err = _run(_llm_candidates(uid, "玄幻", mats, [], set()))
-        assert cands == [] and err is None
-
-
-class TestSingleflightAndDirectCreate:
-    """遗留收口：单飞部分唯一索引兜底＋编辑器直建知识通道（as_knowledge）。"""
+class TestCodeBucketedTree:
+    """代码识别层次（boss 口径）：concept → 槽位 → 知识点，素材转实例。"""
 
     def _mk(self, tag):
         return f"kbsm-{tag}-{uuid.uuid4().hex[:8]}"
@@ -400,15 +133,22 @@ class TestSingleflightAndDirectCreate:
     def _seed_user(self, uid):
         return _seed_user(uid)
 
-    def _seed_materials(self, uid, genre, n, concept="文风"):
+    def _seed_materials(self, uid, genre="玄幻", n=3):
         async def _go():
             async with async_session() as db:
                 rows = []
+                specs = [
+                    ("角色设定", {"role": "主角", "gender": "男"}, "何沉舟小传"),
+                    ("角色设定", {"role": "配角", "gender": "女"}, "马望津小传"),
+                    ("文风", {"slot": "rule", "rule": "句子要短"}, "句子要短。"),
+                ]
                 for i in range(n):
+                    concept, payload, inst = specs[i % len(specs)]
                     e = KbEntry(
                         user_id=uid, genre=genre, concept=concept,
                         concept_id=f"{genre}:{concept}", title=f"素材{i}",
-                        payload_json="{}", instruction=f"素材原文{i}。",
+                        payload_json=json.dumps(payload, ensure_ascii=False),
+                        instruction=inst,
                         origin="material", status="active", rev=1,
                         src_kind="manual", src_ref="", src_key=f"k{i}",
                     )
@@ -418,31 +158,95 @@ class TestSingleflightAndDirectCreate:
                 return [e.id for e in rows]
         return _run(_go())
 
-    def test_单飞并发撞索引收敛为running(self):
-        uid = self._mk("sf")
-        _run(_seed_user(uid))
-        self._seed_materials(uid, "玄幻", 1)
-        from kb.summarize import ensure_kb_summarize, run_summarize
+    def test_两级分桶_建树(self):
+        uid = self._mk("tree")
+        _seed_user(uid)
+        self._seed_materials(uid)
 
-        async def _claim_running():
-            # 模拟并发对手已抢先占住 running 行
-            async with async_session() as db:
-                await ensure_kb_summarize(db)
-                await db.execute(_t(
-                    "INSERT INTO kb_summarize_runs (id, user_id, genre, status, trigger) "
-                    "VALUES ('r-occupied', :u, '玄幻', 'running', 'manual')"), {"u": uid})
-                await db.commit()
-        _run(_claim_running())
+        from kb.summarize import run_summarize
 
         async def _go():
             async with async_session() as db:
-                return await run_summarize(db, user_id=uid, genre="玄幻", trigger="manual", llm=False)
+                return await run_summarize(db, user_id=uid, genre="玄幻", trigger="auto")
+        r, err = _run(_go())
+        assert err == "" and r["knowledge"] == 3, f"3 桶 3 知识点：{r} {err}"
+
+        async def _check():
+            async with async_session() as db:
+                rows = (await db.execute(_t(
+                    "SELECT title, parent_id FROM kb_entries "
+                    "WHERE user_id=:u AND origin='summary'"), {"u": uid})).mappings().all()
+                insts = (await db.execute(_t(
+                    "SELECT i.text, e.title AS ktitle FROM kb_knowledge_instances i "
+                    "JOIN kb_entries e ON e.id = i.knowledge_id "
+                    "WHERE e.user_id=:u"), {"u": uid})).mappings().all()
+                return rows, insts
+        rows, insts = _run(_check())
+        titles = {r["title"] for r in rows}
+        assert titles == {"主角", "配角", "规则"}, f"槽位值即知识点名：{titles}"
+        assert all(r["parent_id"] == "" for r in rows), "两级树：知识点挂概念根"
+        assert len(insts) == 3, f"每素材一条实例：{len(insts)}"
+
+    def test_二次跑_素材已归档_零新建(self):
+        uid = self._mk("idem")
+        _seed_user(uid)
+        self._seed_materials(uid)
+
+        from kb.summarize import run_summarize
+
+        async def _go():
+            async with async_session() as db:
+                return await run_summarize(db, user_id=uid, genre="玄幻", trigger="manual")
+        r1, _ = _run(_go())
+        assert r1["knowledge"] >= 1
+        r2, _ = _run(_go())
+        assert r2["collected"] == 0, "素材已归档，二次跑零收集"
+
+    def test_单飞_running_挡住并发(self):
+        uid = self._mk("sf")
+        _seed_user(uid)
+        self._seed_materials(uid)
+
+        from kb.summarize import run_summarize
+
+        async def _insert_running():
+            async with async_session() as db:
+                await db.execute(_t(
+                    "INSERT INTO kb_summarize_runs (id, user_id, genre, status, trigger) "
+                    "VALUES ('r-live', :u, '玄幻', 'running', 'manual')"), {"u": uid})
+                await db.commit()
+        _run(_insert_running())
+
+        async def _go():
+            async with async_session() as db:
+                return await run_summarize(db, user_id=uid, genre="玄幻", trigger="manual")
         summary, err = _run(_go())
-        assert summary is None and err == "running", "对手占位时触发须收敛为 running"
+        assert summary is None and err == "running"
+
+    def test_积压阈值与定期兜底触发(self):
+        uid = self._mk("auto")
+        _seed_user(uid)
+        self._seed_materials(uid, n=5)
+
+        from kb.summarize import _maybe_auto_summarize
+
+        async def _go():
+            async with async_session() as db:
+                return await _maybe_auto_summarize(db, user_id=uid)
+        assert _run(_go()) == ["玄幻"]
+        # 定期兜底：无运行记录视为超期——首次有素材即触发；跑完后 7 天内冷却不重复
+        uid2 = self._mk("auto4")
+        _seed_user(uid2)
+        self._seed_materials(uid2, n=4)
+        async def _go2():
+            async with async_session() as db:
+                return await _maybe_auto_summarize(db, user_id=uid2)
+        assert _run(_go2()) == ["玄幻"]
+        assert _run(_go2()) == []
 
     def test_直建知识通道_as_knowledge_带定义(self):
         uid = self._mk("direct")
-        _run(_seed_user(uid))
+        _seed_user(uid)
 
         async def _go():
             async with async_session() as db:
@@ -455,219 +259,6 @@ class TestSingleflightAndDirectCreate:
                 return entry
         entry = _run(_go())
         assert entry is not None
-        assert entry.origin == "manual"  # 直建知识走知识路径（origin 不落 material）
+        assert entry.origin == "manual"
         assert entry.definition == "短句文风的一般性定义。"
         assert entry.status == "active"
-
-
-class TestSchemaLayer:
-    """schema 层（c-kb-summarize 字段元数据）：候选带 schema/字段值抽取/落库。"""
-
-    def _mk(self, tag):
-        return f"kbsm-{tag}-{uuid.uuid4().hex[:8]}"
-
-    def _seed_materials(self, uid, genre, n, concept="角色设定"):
-        async def _go():
-            async with async_session() as db:
-                rows = []
-                for i in range(n):
-                    e = KbEntry(
-                        user_id=uid, genre=genre, concept=concept,
-                        concept_id=f"{genre}:{concept}", title=f"素材{i}",
-                        payload_json=json.dumps({"身份": f"身份{i}", "性格": f"性格{i}"}, ensure_ascii=False),
-                        instruction=f"角色素材{i}的塑造方式。",
-                        origin="material", status="active", rev=1,
-                        src_kind="manual", src_ref="", src_key=f"k{i}",
-                    )
-                    db.add(e)
-                    rows.append(e)
-                await db.commit()
-                return [e.id for e in rows]
-        return _run(_go())
-
-    def test_采纳落schema与实例字段值(self, monkeypatch):
-        uid = self._mk("sch")
-        _run(_seed_user(uid))
-        ids = self._seed_materials(uid, "玄幻", 2)
-
-        async def _fake_llm(user_id, genre, materials, existing_lines, existing_ids):
-            schema = [{"name": "身份反差", "desc": "日常身份与异常处境的落差"},
-                      {"name": "性格底色", "desc": "核心性格与说话方式"}]
-            items = {
-                ids[0]: {"身份反差": "市井司机 vs 十年冤魂案", "性格底色": "嘴贫胆小却重情义", "编造字段": "不该出现"},
-                ids[1]: {"身份反差": "队长 vs 隐瞒旧事", "性格底色": "老奸巨猾嘴硬心软"},
-            }
-            return [{"title": "小人物卷入", "definition": "让普通小人物被动卷入超常事件。", "concept": "角色设定",
-                     "parent": "ROOT", "schema": schema, "material_ids": ids, "items": items}], None
-        monkeypatch.setattr("kb.summarize._llm_candidates", _fake_llm)
-
-        from kb.summarize import run_summarize
-
-        async def _go():
-            async with async_session() as db:
-                return await run_summarize(db, user_id=uid, genre="玄幻", trigger="auto", llm=True)
-        r, _ = _run(_go())
-        assert r["knowledge"] == 1
-
-        async def _check():
-            async with async_session() as db:
-                kb = (await db.execute(_t(
-                    "SELECT id, schema_json FROM kb_entries WHERE user_id=:u AND origin='summary'"),
-                    {"u": uid})).mappings().first()
-                inst = (await db.execute(_t(
-                    "SELECT fields_json FROM kb_knowledge_instances WHERE knowledge_id=:k ORDER BY sort"),
-                    {"k": kb["id"]})).mappings().all()
-                return json.loads(kb["schema_json"]), [json.loads(x["fields_json"]) for x in inst]
-        schema, inst_fields = _run(_check())
-        assert [s["name"] for s in schema] == ["身份反差", "性格底色"]
-        # schema 白名单外的「编造字段」被滤
-        assert "编造字段" not in inst_fields[0]
-        assert inst_fields[0]["性格底色"] == "嘴贫胆小却重情义"
-        assert inst_fields[1]["身份反差"] == "队长 vs 隐瞒旧事"
-
-    def test_空schema落默认要点臂(self, monkeypatch):
-        uid = self._mk("schd")
-        _run(_seed_user(uid))
-        self._seed_materials(uid, "玄幻", 1)
-
-        async def _fake_llm(user_id, genre, materials, existing_lines, existing_ids):
-            return [{"title": "无schema簇", "definition": "d", "concept": "手法",
-                     "parent": "ROOT", "material_ids": [m.id for m in materials],
-                     "items": [{"material_id": m.id, "fields": {}} for m in materials]}], None
-        monkeypatch.setattr("kb.summarize._llm_candidates", _fake_llm)
-
-        from kb.summarize import run_summarize
-
-        async def _go():
-            async with async_session() as db:
-                return await run_summarize(db, user_id=uid, genre="玄幻", trigger="auto", llm=True)
-        _run(_go())
-        async def _check():
-            async with async_session() as db:
-                kb = (await db.execute(_t(
-                    "SELECT id, schema_json FROM kb_entries WHERE user_id=:u AND origin='summary'"),
-                    {"u": uid})).mappings().first()
-                run_err = (await db.execute(_t(
-                    "SELECT status, error, knowledge_created FROM kb_summarize_runs WHERE user_id=:u"),
-                    {"u": uid})).mappings().first()
-                assert kb is not None, f"知识点未建：run={dict(run_err) if run_err else None}"
-                return json.loads(kb["schema_json"])
-        schema = _run(_check())
-        assert schema == [{"name": "要点", "desc": "这条写法的要点"}]
-
-
-class TestAttachAndAbstract:
-    """归属既有知识转实例＋同批候选抽象父级（boss 口径：素材归属已有知识不新建；
-    两个或多个知识在总结中抽象出父级知识——树向上长）。"""
-
-    def _mk(self, tag):
-        return f"kbsm-{tag}-{uuid.uuid4().hex[:8]}"
-
-    def _seed_user(self, uid):
-        return _seed_user(uid)
-
-    def _seed_materials(self, uid, genre, n, concept="文风"):
-        async def _go():
-            async with async_session() as db:
-                rows = []
-                for i in range(n):
-                    e = KbEntry(
-                        user_id=uid, genre=genre, concept=concept,
-                        concept_id=f"{genre}:{concept}", title=f"素材{i}",
-                        payload_json="{}", instruction=f"素材原文{i}。",
-                        origin="material", status="active", rev=1,
-                        src_kind="manual", src_ref="", src_key=f"k{i}",
-                    )
-                    db.add(e)
-                    rows.append(e)
-                await db.commit()
-                return [e.id for e in rows]
-        return _run(_go())
-
-    def test_素材归属既有知识_转实例不新建(self):
-        uid = self._mk("attach")
-        _run(_seed_user(uid))
-        async def _seed_kb():
-            async with async_session() as db:
-                db.add(KbEntry(
-                    user_id=uid, genre="玄幻", concept="角色设定", concept_id="玄幻:角色设定",
-                    title="主角", payload_json="{}", instruction="",
-                    schema_json=json.dumps([{"name": "身份反差", "desc": "落差"}, {"name": "性格底色", "desc": "底色"}]),
-                    origin="summary", status="active", version=1, rev=1,
-                ))
-                await db.commit()
-                return (await db.execute(sel(KbEntry).where(KbEntry.title == "主角"))).scalar().id
-        kid = _run(_seed_kb())
-        ids = self._seed_materials(uid, "玄幻", 1)
-
-        async def _fake_llm(user_id, genre, materials, existing_lines, existing_ids):
-            return [{"attach_to_knowledge_id": kid, "material_ids": ids,
-                     "items": {ids[0]: {"身份反差": "市井司机 vs 冤魂案"}}}], None
-        # 用 pytest monkeypatch fixture 更稳——此处直接 monkeypatch 模块函数
-        import kb.summarize as S
-        orig = S._llm_candidates
-        S._llm_candidates = _fake_llm
-        try:
-            async def _go():
-                async with async_session() as db:
-                    return await S.run_summarize(db, user_id=uid, genre="玄幻", trigger="auto", llm=True)
-            r, err = _run(_go())
-            assert err == "" and r["attached"] == 1 and r["knowledge"] == 0, f"{r} {err}"
-
-            async def _check():
-                async with async_session() as db:
-                    inst = (await db.execute(sel(KbKnowledgeInstance).where(
-                        KbKnowledgeInstance.knowledge_id == kid))).scalars().all()
-                    m = await db.get(KbEntry, ids[0])
-                    new_kb = (await db.execute(sel(KbEntry).where(
-                        KbEntry.user_id == uid, KbEntry.origin == "summary",
-                        KbEntry.id != kid))).scalars().all()
-                    import json as _j
-                    return (len(inst), m.status,
-                            _j.loads(inst[0].fields_json).get("身份反差"), len(new_kb))
-            inst_n, mat_status, fvalue, new_kb_n = _run(_check())
-            assert inst_n == 1 and mat_status == "archived"
-            assert fvalue == "市井司机 vs 冤魂案", "fields 按既有知识 schema 白名单过滤"
-            assert new_kb_n == 0, "归属既有知识不新建知识行"
-        finally:
-            S._llm_candidates = orig
-
-    def test_同批候选互引_抽象出父级知识(self):
-        uid = self._mk("abstract")
-        _run(_seed_user(uid))
-        ids = self._seed_materials(uid, "玄幻", 2)
-
-        async def _fake_llm(user_id, genre, materials, existing_lines, existing_ids):
-            # 两个新知识点同属「人物塑造」→ 抽象出父知识点 n0，子簇 parent=n0
-            return [
-                {"ref": "n0", "title": "人物塑造", "definition": "把人物写立体的方法论。", "concept": "角色设定",
-                 "parent": "ROOT", "schema": [{"name": "要点", "desc": "要点"}],
-                 "material_ids": [], "items": {}},
-                {"ref": "n1", "title": "主角", "definition": "主角的塑造要点。", "concept": "角色设定",
-                 "parent": "n0", "schema": [{"name": "要点", "desc": "要点"}],
-                 "material_ids": [ids[0]], "items": {ids[0]: {"要点": "嘴贫胆小重情义"}}},
-                {"ref": "n2", "title": "配角", "definition": "配角的塑造要点。", "concept": "角色设定",
-                 "parent": "n0", "schema": [{"name": "要点", "desc": "要点"}],
-                 "material_ids": [ids[1]], "items": {ids[1]: {"要点": "老奸巨猾嘴硬心软"}}},
-            ], None
-        import kb.summarize as S
-        orig = S._llm_candidates
-        S._llm_candidates = _fake_llm
-        try:
-            async def _go():
-                async with async_session() as db:
-                    return await S.run_summarize(db, user_id=uid, genre="玄幻", trigger="auto", llm=True)
-            r, err = _run(_go())
-            assert err == "" and r["knowledge"] == 3, f"{r} {err}"
-
-            async def _check():
-                async with async_session() as db:
-                    rows = (await db.execute(sel(KbEntry.title, KbEntry.parent_id).where(
-                        KbEntry.user_id == uid, KbEntry.origin == "summary"))).all()
-                    return {r[0]: r[1] for r in rows}, {r[1]: r[0] for r in rows if r[0] == "人物塑造"}
-            tree, _ps_map = _run(_check())
-            # 父「人物塑造」挂概念根（parent 空）；「主角」「配角」的 parent 指向它
-            assert tree["人物塑造"] == "", "父级挂概念根"
-            assert tree["主角"] == tree["配角"] != "", "两子知识点挂同一父级"
-        finally:
-            S._llm_candidates = orig

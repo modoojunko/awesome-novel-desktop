@@ -1,12 +1,14 @@
-"""知识总结管线（c-kb-summarize）：实例素材 → 大模型定期自动整理 → 知识直接生效。
+"""知识整理管线（c-kb-summarize）：素材 → 代码识别层次 → 知识树直接生效。
 
-模型口径（boss 2026-11-06）：实例是事实层（素材 origin='material'），知识是总结层
-（origin='summary'），图谱由总结生成——知识树（parent_id 无限嵌套）＋六类关联。
+层次由**代码确定性识别**（boss 拍板：不由 LLM 识别层次）——两级分桶：
+  L1 类别（kb_entries.concept）
+  L2 槽位（payload 分组键值：角色=role[主角/配角/反派]、文风文笔=slot[叙事身份/规则/
+      写法/忌用…]、世界设定=part[舞台/力量规则/代价/历史]；手法单桶「写法」）
+每个槽位桶＝一个知识点（origin='summary'，schema_json＝桶内 payload 键并集），
+桶内素材全部转该知识实例（fields＝素材属性格与 schema 对齐的键值）后归档。
+知识点定义首版为模板文案；LLM 打磨（更贴切命名/定义）挂账增强。
 
-流程：素材按题材×类别分桶 → LLM 提炼知识点（名称/定义/层级归属/素材归组，管线层
-三闸校验）→ **直接建知识＋素材转实例＋素材行归档**（无确认制——定期任务自动整理，
-boss 拍板；兜底＝总结产的知识按普通知识管理，作家可改可删）。
-运行独立落 kb_summarize_runs，同题材单飞；模板缺失 fail-soft 记 error。
+运行独立落 kb_summarize_runs，同题材单飞（partial unique index 兜底）。
 触发：素材积压 ≥阈值启动期自动 / 整理面板手动 / 定期（>7 天且有素材随启动钩）。
 """
 
@@ -106,12 +108,15 @@ async def run_summarize(
     user_id: str,
     genre: str,
     trigger: str,
-    llm: bool = True,
 ) -> tuple[dict | None, str]:
-    """总结一个题材：分桶素材 → LLM 提炼候选 → pending 清单。
+    """总结一个题材：**代码识别层次**（类别 → 槽位 → 知识点），LLM 不参与分层。
 
+    层次树由确定性分桶构建：
+      L1 类别（kb_entries.concept）
+      L2 槽位（payload 的 role/slot/part 键值——「主角」「配角」「叙事身份」「规则」…）
+    每个槽位桶＝一个知识点（origin=summary），桶内素材全部转该知识的实例（fields
+    取素材 payload 属性格与 schema 字段名对齐后的键值），素材行归档。
     返回 (摘要 dict, error)；单飞命中返回 (None, "running")。
-    llm=False 供测试走确定性路径（跳过 LLM，零候选直接 done）。
     """
     await ensure_kb_summarize(db)
 
@@ -164,84 +169,80 @@ async def run_summarize(
         await db.rollback()
         return None, "running"
 
-    # 既有知识清单（层级归属用）
-    existing = (
-        await db.execute(
-            select(KbEntry.id, KbEntry.title).where(
-                KbEntry.user_id == user_id,
-                KbEntry.status == "active",
-                KbEntry.origin != "material",
-                KbEntry.genre == genre,
-            ).order_by(KbEntry.id)
-        )
-    ).all()
-    existing_lines = [f"{eid}|{title or ''}" for eid, title in existing]
-    existing_ids = {eid for eid, _ in existing}
-
-    error = ""
-    candidates: list[dict] = []
-    if llm and materials:
-        candidates, error = await _llm_candidates(
-            user_id, genre, materials, existing_lines, existing_ids
-        )
-        error = error or ""
-
-    # 自动整理两段式（boss 口径）：素材归属已有知识→直接转该知识实例（不新建）；
-    # 新维度→建新知识点（可挂既有 parent，或同批候选互引抽象出父级知识——树向上长）。
-    # 兜底＝总结产的知识按普通知识管理：作家可修改可归档。
     created = 0
-    attached = 0
-    used_material_ids: set[str] = set()
-    valid_concepts = {"文风", "文笔", "世界设定", "角色设定", "手法"}
-    mat_ids = {m.id for m in materials}
-    mats_by_id = {m.id: m for m in materials}
-
-    def _clean_schema(c):
-        out = []
-        for s in (c.get("schema") or []):
-            if isinstance(s, dict) and str(s.get("name", "")).strip():
-                out.append({"name": str(s["name"]).strip()[:20],
-                            "desc": str(s.get("desc", "")).strip()[:80]})
-        return out[:6] or [{"name": "要点", "desc": "这条写法的要点"}]
-
-    def _instance_rows(mids, schema_names, items_by_mid):
-        """素材 → 实例行（fields 按知识 schema 白名单过滤，编造字段不落库）。"""
-        rows = []
-        for sort, mid in enumerate(mids):
-            m = mats_by_id[mid]
-            raw = items_by_mid.get(mid, {})
-            fields = {str(k)[:20]: str(v).strip()[:200]
-                      for k, v in (raw.items() if isinstance(raw, dict) else [])
-                      if k in schema_names and str(v).strip()}
-            rows.append((m, sort, fields))
-        return rows
-
     try:
-        # ── 第一段：素材归属已有知识 → 直接转该知识的实例（不新建知识）──
-        for c in candidates:
-            attach_id = str(c.get("attach_to_knowledge_id") or "")
-            if not attach_id or attach_id not in existing_ids:
-                continue
-            mids = [m for m in (c.get("material_ids") or []) if m in mat_ids and m not in used_material_ids]
-            if not mids:
-                continue
-            k_row = (await db.execute(
-                select(KbEntry.schema_json).where(KbEntry.id == attach_id)
-            )).scalar()
+        # ── 代码识别层次：concept → 槽位键值 两级分桶 ──
+        # 槽位键表（类别 → payload 分组键；None＝单桶）：
+        #   角色设定 payload.role（主角/配角/反派）
+        #   文风/文笔 payload.slot（叙事身份/规则/写法/忌用…）
+        #   世界设定 payload.part（舞台/力量规则…）
+        #   手法：无槽位，单桶
+        SLOT_KEY = {"角色设定": "role", "文风": "slot", "文笔": "slot", "世界设定": "part"}
+
+        def _payload_of(m):
             try:
-                k_schema = json.loads(k_row or "[]")
+                p = json.loads(m.payload_json or "{}")
+                return p if isinstance(p, dict) else {}
             except ValueError:
-                k_schema = []
-            schema_names = {s.get("name") for s in k_schema if isinstance(s, dict) and s.get("name")}
-            raw_items = c.get("items") if isinstance(c.get("items"), dict) else {}
-            for sort, mid in enumerate(mids):
-                m = mats_by_id[mid]
-                raw = raw_items.get(mid, {})
-                fields = {str(k)[:20]: str(v).strip()[:200]
-                          for k, v in (raw.items() if isinstance(raw, dict) else [])
-                          if (not schema_names or str(k) in schema_names) and str(v).strip()}
+                return {}
+
+        def _slot_label(concept, slot_value):
+            """槽位值 → 知识点名（作家语言）。"""
+            named = {"主角": "主角", "配角": "配角", "反派": "反派"}
+            if concept == "角色设定" and slot_value in named:
+                return named[slot_value]
+            slot_cn = {
+                "role": "叙事身份", "rule": "规则", "craft": "写法",
+                "sample": "示范", "examples": "示范", "taboo": "忌用",
+                "stage": "舞台", "power": "力量与规则", "no_power": "无力量设定",
+                "cost": "代价", "history": "历史沿革",
+            }
+            return slot_cn.get(slot_value, slot_value or "写法")
+
+        buckets: dict[tuple[str, str], list] = {}
+        for m in materials:
+            p = _payload_of(m)
+            slot_key = SLOT_KEY.get(m.concept)
+            slot_value = str(p.get(slot_key)).strip() if slot_key else ""
+            if not slot_value:
+                slot_value = "写法" if m.concept == "手法" else "通用"
+            buckets.setdefault((m.concept, slot_value), []).append(m)
+
+        # schema 字段元数据＝桶内素材 payload 键的并集（代码可算，无需 LLM）；
+        # 系统键与空值键排除。字段 desc 由前端字段字典（kbFieldLabels）补作家语言。
+        SKIP_KEYS = {"id", "user_id", "archetype"}
+
+        for (concept, slot_value), bucket in sorted(buckets.items()):
+            key_set: dict[str, None] = {}
+            for m in bucket:
+                for k in _payload_of(m):
+                    if k not in SKIP_KEYS and k not in key_set:
+                        key_set[k] = None
+            schema_fields = [{"name": k, "desc": ""} for k in key_set]
+
+            label = _slot_label(concept, slot_value)
+            kid = uuid.uuid4().hex
+            db.add(KbEntry(
+                id=kid,
+                user_id=user_id,
+                genre=genre,
+                concept=concept,
+                concept_id=f"{genre}:{concept}",
+                title=label,
+                payload_json="{}",
+                instruction="",
+                definition=f"{genre}题材下「{label}」维度的写法案例集，共 {len(bucket)} 条实例。",
+                schema_json=json.dumps(schema_fields, ensure_ascii=False),
+                origin="summary",
+                status="active",
+                version=1,
+                parent_id="",
+            ))
+            for sort, m in enumerate(bucket):
+                fields = {k: str(v)[:200] for k, v in _payload_of(m).items()
+                          if k in key_set and str(v).strip()}
                 db.add(KbKnowledgeInstance(
-                    knowledge_id=attach_id,
+                    knowledge_id=kid,
                     text=m.instruction or "",
                     source_kind="拆书" if m.src_kind == "deconstruct" else "手录",
                     source_novel=m.src_novel_name or "",
@@ -249,86 +250,8 @@ async def run_summarize(
                     fields_json=json.dumps(fields, ensure_ascii=False),
                     sort=sort,
                 ))
-                m.status = "archived"
-                used_material_ids.add(mid)
-                attached += 1
-
-        # ── 第二段：新知识点（两轮拓扑：parent 引用同批候选时后建——同批互引抽象父级）──
-        # 父级抽象簇（无素材但被子簇引用）是合法结构节点——随子簇建立
-        referenced_refs = {str(c.get("parent") or "") for c in candidates
-                           if not c.get("attach_to_knowledge_id")}
-        pending_new = []
-        ref_to_id: dict[str, str] = {}
-        for c in candidates:
-            if c.get("attach_to_knowledge_id"):
-                continue  # attach 类已在第一段消化
-            mids = [m for m in (c.get("material_ids") or []) if m in mat_ids and m not in used_material_ids]
-            is_structure_node = bool(str(c.get("ref") or "")) and str(c.get("ref")) in referenced_refs
-            if (not mids and not is_structure_node) or not (c.get("title") or "").strip():
-                continue
-            concept = c.get("concept") if c.get("concept") in valid_concepts else "手法"
-            c_schema = _clean_schema(c)
-            schema_names = {s["name"] for s in c_schema}
-            c_items = c.get("items") if isinstance(c.get("items"), dict) else {}
-            pending_new.append({
-                "ref": str(c.get("ref") or "")[:40],
-                "title": c["title"].strip()[:40],
-                "concept": concept,
-                "definition": (c.get("definition") or "").strip()[:500],
-                "c_schema": c_schema,
-                "schema_names": schema_names,
-                "c_items": c_items,
-                "mids": mids,
-                "parent_raw": c.get("parent", "ROOT"),
-            })
-
-        # 两轮拓扑：第一轮建 parent=ROOT/既有知识；第二轮建 parent 指向同批新知识
-        for _round in (1, 2):
-            deferred: list[dict] = []
-            for p in pending_new:
-                praw = p["parent_raw"]
-                if praw in ref_to_id:
-                    if _round == 1:
-                        deferred.append(p)  # 父在本批：第二轮建
-                        continue
-                    parent = ref_to_id[praw]
-                elif praw in existing_ids:
-                    parent = praw
-                else:
-                    parent = ""  # ROOT/非法落概念根
-                kid = uuid.uuid4().hex
-                if p["ref"]:
-                    ref_to_id[p["ref"]] = kid
-                db.add(KbEntry(
-                    id=kid,
-                    user_id=user_id,
-                    genre=genre,
-                    concept=p["concept"],
-                    concept_id=f"{genre}:{p['concept']}",
-                    title=p["title"],
-                    payload_json="{}",
-                    instruction="",
-                    definition=p["definition"],
-                    schema_json=json.dumps(p["c_schema"], ensure_ascii=False),
-                    origin="summary",
-                    status="active",
-                    version=1,
-                    parent_id=parent,
-                ))
-                for sort, (m, _s, fields) in enumerate(_instance_rows(p["mids"], p["schema_names"], p["c_items"])):
-                    db.add(KbKnowledgeInstance(
-                        knowledge_id=kid,
-                        text=m.instruction or "",
-                        source_kind="拆书" if m.src_kind == "deconstruct" else "手录",
-                        source_novel=m.src_novel_name or "",
-                        quote=(m.evidence or "")[:500],
-                        fields_json=json.dumps(fields, ensure_ascii=False),
-                        sort=sort,
-                    ))
-                    m.status = "archived"
-                    used_material_ids.add(m.id)
-                created += 1
-            pending_new = deferred
+                m.status = "archived"  # 素材行归档（审计可回溯）
+            created += 1
     except Exception as exc:  # noqa: BLE001 — 中途异常回滚半截写入，run 置 error 不留 running 孤儿
         await db.rollback()
         await db.execute(
@@ -338,116 +261,13 @@ async def run_summarize(
         await db.commit()
         return {"collected": len(materials), "knowledge": 0}, f"pipeline: {exc}"
 
-    status = "error" if error else "completed"
+    status = "completed"
     await db.execute(
-        _t(
-            "UPDATE kb_summarize_runs SET status=:s, knowledge_created=:n, error=:e WHERE id=:i"
-        ),
-        {"s": status, "n": created + attached, "e": error, "i": run_id},
+        _t("UPDATE kb_summarize_runs SET status=:s, knowledge_created=:n, error=:e WHERE id=:i"),
+        {"s": status, "n": created, "e": "", "i": run_id},
     )
     await db.commit()
-    return {"collected": len(materials), "knowledge": created, "attached": attached}, error
-
-
-async def _llm_candidates(
-    user_id: str, genre: str, materials: list, existing_lines: list[str], existing_ids: set[str]
-) -> tuple[list[dict], str | None]:
-    """调 kb_summarize 模板提炼候选。返回 (候选列表, error)。"""
-    try:
-        from ai_client import get_ai_client_for_user
-        from prompts import load_layers
-
-        system, prompt = load_layers("kb_summarize")
-    except Exception as e:  # noqa: BLE001 — 模板缺失 fail-soft（同 kb_organize 先例）
-        return [], f"prompt_pack: {e}"
-
-    lines = [
-        f"{m.id}|{m.concept}|{(m.title or '')[:24]}|{(m.instruction or '')[:120]}"
-        for m in materials
-    ]
-    usage: dict = {}
-    try:
-        client = await get_ai_client_for_user(user_id)
-        text = await client.chat(
-            model="haiku",
-            system=system.format(genre=genre),
-            messages=[{"role": "user", "content": prompt.format(
-                genre=genre, materials="\n".join(lines), existing="\n".join(existing_lines) or "（无）",
-            )}],
-            max_tokens=3000,
-            usage=usage,
-            operation="kb_summarize",
-        )
-    except Exception as e:  # noqa: BLE001
-        return [], f"llm: {e}"
-
-    valid_concepts = {"文风", "文笔", "世界设定", "角色设定", "手法"}
-    mat_ids = {m.id for m in materials}
-    try:
-        # 剥 ```json 围栏（haiku 高频跑偏，不剥即 bad json 全损）；散文包裹用首尾花括号兜底
-        cleaned = (text or "").strip()
-        if cleaned.startswith("```"):
-            cleaned = cleaned.removeprefix("```json").removeprefix("```")
-            cleaned = cleaned.removesuffix("```").strip()
-        if not cleaned.startswith("{"):
-            b, e = cleaned.find("{"), cleaned.rfind("}")
-            if b >= 0 and e > b:
-                cleaned = cleaned[b:e + 1]
-        data = json.loads(cleaned or "{}")
-        if not isinstance(data, dict):
-            return [], "llm: bad json"
-        cands = data.get("candidates") or []
-        out: list[dict] = []
-        for c in cands if isinstance(cands, list) else []:
-            if not isinstance(c, dict):
-                continue
-            mids = [m for m in (c.get("material_ids") or []) if m in mat_ids]
-            if not mids or not (c.get("title") or "").strip():
-                continue  # 素材归属须属本桶、标题非空
-            # 字段 schema 与实例字段值（c-kb-summarize schema 层）
-            schema = [
-                {"name": str(s.get("name", "")).strip()[:20],
-                 "desc": str(s.get("desc", "")).strip()[:80]}
-                for s in (c.get("schema") or [])
-                if isinstance(s, dict) and str(s.get("name", "")).strip()
-            ][:6]
-            if not schema:
-                schema = [{"name": "要点", "desc": "这条写法的要点"}]
-            schema_names = {s["name"] for s in schema}
-            items: dict[str, dict[str, str]] = {}
-            for it in (c.get("items") or []):
-                if not isinstance(it, dict) or it.get("material_id") not in mat_ids:
-                    continue
-                fields = {
-                    str(k)[:20]: str(v).strip()[:200]
-                    for k, v in (it.get("fields") or {}).items()
-                    if str(k) in schema_names and str(v).strip()
-                }
-                items[it["material_id"]] = fields
-            parent = c.get("parent", "ROOT")
-            out.append({
-                "title": c["title"].strip()[:40],
-                "definition": (c.get("definition") or "").strip()[:500],
-                "concept": c.get("concept") if c.get("concept") in valid_concepts else "手法",
-                "parent": parent if parent in existing_ids else "",
-                "material_ids": mids,
-                "schema": schema,
-                "items": items,
-            })
-        return out, None
-    except ValueError:
-        return [], "llm: bad json"
-
-
-async def maybe_auto_summarize(*, user_id: str) -> list[str]:
-    """启动钩：素材积压 ≥ 阈值的题材各自动总结一次（llm=True；失败静默）。
-
-    自开 session（同 organize startup 钩先例，lifespan 直接 await）。
-    """
-    from db import async_session
-
-    async with async_session() as db:
-        return await _maybe_auto_summarize(db, user_id=user_id)
+    return {"collected": len(materials), "knowledge": created}, ""
 
 
 async def _last_run_older_than_days(
@@ -481,6 +301,7 @@ async def _last_run_older_than_days(
 
 
 async def _maybe_auto_summarize(db: AsyncSession, *, user_id: str) -> list[str]:
+    await ensure_kb_summarize(db)
     stats = await material_stats(db, user_id=user_id)
     triggered: list[str] = []
     for genre, n in sorted(stats.items()):
@@ -492,7 +313,7 @@ async def _maybe_auto_summarize(db: AsyncSession, *, user_id: str) -> list[str]:
         if not due:
             continue
         try:
-            _run, err = await run_summarize(db, user_id=user_id, genre=genre, trigger="auto", llm=True)
+            _run, err = await run_summarize(db, user_id=user_id, genre=genre, trigger="auto")
             if err not in ("", "running"):
                 continue
             triggered.append(genre)
