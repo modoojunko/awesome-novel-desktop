@@ -73,6 +73,8 @@ export default function KnowledgeBasePage() {
   const [manualText, setManualText] = useState("");
   const [manualGenre, setManualGenre] = useState("");
   const [manualError, setManualError] = useState("");
+  const [manualNote, setManualNote] = useState("");
+  const [manualConcept, setManualConcept] = useState("手法");
   const [showMoreGenres, setShowMoreGenres] = useState(false);
   const [view, setView] = useState<"list" | "starsea">("list");
   const [showOrganize, setShowOrganize] = useState(false);
@@ -211,6 +213,23 @@ export default function KnowledgeBasePage() {
     }
   };
 
+  const handleDeleteMaterial = async () => {
+    if (!selected || selected.origin !== "material" || opBusy) return;
+    setOpBusy(true);
+    setOpNote("");
+    try {
+      await kbApi.deleteEntry(selected.id);
+      setSelected(null);
+      loadEntries();
+      loadLibraries();
+      kbApi.genres().then(setGenreCounts).catch(() => {});
+    } catch (e: unknown) {
+      setOpNote((e as { message?: string }).message || "删除失败");
+    } finally {
+      setOpBusy(false);
+    }
+  };
+
   const handleManual = async () => {
     setManualError("");
     /* v8 ignore start -- 手录表单校验三臂：空文本/空题材由表单交互覆盖（真机段） */
@@ -220,11 +239,11 @@ export default function KnowledgeBasePage() {
     try {
       await kbApi.createEntry({
         genre: manualGenre,
-        concept: "",
+        concept: manualConcept,
         instruction: manualText,
       });
       setManualText("");
-      setShowManual(false);
+      setManualNote("素材已收录，总结后成为知识点");
       loadEntries();
       loadLibraries();
       kbApi.genres().then(setGenreCounts).catch(() => {});
@@ -429,6 +448,9 @@ export default function KnowledgeBasePage() {
                     <span className="min-w-0 flex-1">
                       <span className="font-mono text-[9.5px] tracking-[0.1em] text-[var(--faint)]">
                         {e.id.slice(0, 8)} · {e.concept} · {e.genre}
+                        {e.origin === "material" && (
+                          <span className="ml-1.5 rounded-full border border-[var(--border)] px-1.5 py-px text-[9px] tracking-[0.08em] text-[var(--muted)]">素材</span>
+                        )}
                       </span>
                       <span className="mt-0.5 block text-[14px] font-medium text-[var(--fg)]">{e.title || e.instruction.slice(0, 30)}</span>
                       <span className="mt-0.5 block text-[12px] text-[var(--muted)]">{e.instruction.slice(0, 60)}</span>
@@ -510,6 +532,7 @@ export default function KnowledgeBasePage() {
             <div className="mb-3">
               <label className="mb-1 block text-[12px] text-[var(--muted)]">题材 *</label>
               <select
+                aria-label="题材"
                 value={manualGenre}
                 onChange={(e) => setManualGenre(e.target.value)}
                 className="w-full rounded-lg border border-[var(--border)] bg-[var(--surface)] px-3 py-2 text-[13px]"
@@ -517,6 +540,19 @@ export default function KnowledgeBasePage() {
                 <option value="">选一个</option>
                 {genreCounts.map((g) => (
                   <option key={g.key ?? g.name} value={g.key ?? g.name}>{g.name}</option>
+                ))}
+              </select>
+            </div>
+            <div className="mb-3">
+              <label className="mb-1 block text-[12px] text-[var(--muted)]">类别（总结归组用）*</label>
+              <select
+                aria-label="类别"
+                value={manualConcept}
+                onChange={(e) => setManualConcept(e.target.value)}
+                className="w-full rounded-lg border border-[var(--border)] bg-[var(--surface)] px-3 py-2 text-[13px]"
+              >
+                {["手法", "文风", "文笔", "世界设定", "角色设定"].map((c) => (
+                  <option key={c} value={c}>{c}</option>
                 ))}
               </select>
             </div>
@@ -533,8 +569,11 @@ export default function KnowledgeBasePage() {
               <p className="mt-1 text-right text-[10px] text-[var(--faint)]">{manualText.length}/240</p>
             </div>
             {manualError && <p className="mb-3 text-[12px] text-red-500">{manualError}</p>}
+            {manualNote && (
+              <p className="mb-3 text-[12px] text-[var(--accent)]">{manualNote}</p>
+            )}
             <div className="flex justify-end gap-2">
-              <button onClick={() => setShowManual(false)} className="rounded-lg border border-[var(--border)] px-4 py-2 text-[13px]">取消</button>
+              <button onClick={() => { setShowManual(false); setManualNote(""); }} className="rounded-lg border border-[var(--border)] px-4 py-2 text-[13px]">取消</button>
               <button onClick={handleManual} className="rounded-lg bg-[var(--accent)] px-4 py-2 text-[13px] font-medium text-[var(--on-accent)] hover:bg-[var(--accent-strong)]">保存</button>
             </div>
           </div>
@@ -557,6 +596,24 @@ export default function KnowledgeBasePage() {
             <div className="mt-2 text-[11px] text-[var(--muted)]">
               分类：类别 / {selected.concept} · 题材 / {selected.genre}
             </div>
+            {selected.origin === "material" && (
+              <div className="mt-4 rounded-lg border border-[var(--border)] bg-[var(--surface)] p-3">
+                <p className="text-[11px] text-[var(--muted)]">
+                  这是素材——记录的原始写法案例，经「知识整理 → 总结知识点」提炼后成为知识点。
+                </p>
+                <button
+                  disabled={opBusy}
+                  onClick={() => {
+                    if (window.confirm("删除这条素材？删除后不可恢复。")) {
+                      void handleDeleteMaterial();
+                    }
+                  }}
+                  className="mt-2 rounded-lg border border-[var(--border)] px-3 py-1.5 text-[12px] text-[var(--muted)] hover:text-red-500 disabled:opacity-50"
+                >
+                  删除素材
+                </button>
+              </div>
+            )}
             {/* 知识定义 */}
             <div className="mt-4">
               <p className="text-[10.5px] font-mono tracking-[0.12em] text-[var(--muted)]">知识定义</p>
@@ -606,6 +663,9 @@ export default function KnowledgeBasePage() {
                 <p className="mt-1 text-[13px]">{selected.negative_example}</p>
               </div>
             )}
+            {opNote && (
+              <p className="mt-2 text-[11.5px] text-[var(--muted)]">{opNote}</p>
+            )}
             <KbEntryRelations
               entryId={selected.id}
               onOpenKnowledge={(id) => {
@@ -614,11 +674,19 @@ export default function KnowledgeBasePage() {
                   setSelected(local);
                   return;
                 }
+<<<<<<< HEAD
                 // 对端不在当前筛选列表（跨题材/类别）：拉详情兜底；不可达给一句提示
                 void kbApi
                   .entry(id)
                   .then((d) => setSelected(d))
                   .catch(() => setOpNote("这条关联的知识暂时打不开，稍后再试"));
+=======
+                // 对端不在当前筛选列表（跨题材/类别）：拉详情兜底；不可达则原地不动
+                void kbApi
+                  .entry(id)
+                  .then((d) => setSelected(d))
+                  .catch(() => undefined);
+>>>>>>> c3c18384 (feat(kb): 知识视图「关联知识」只读段——接通采纳关系的展示链路（c-kb-relations-view）)
               }}
             />
             {selected.evidence && (

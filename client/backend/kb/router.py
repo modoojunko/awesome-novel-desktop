@@ -16,6 +16,7 @@ from db import get_db
 from kb import service as knowledge_service
 from kb.concepts import CONCEPTS, THEMES
 from kb.migrate_library import ensure_legacy_migrated
+from kb.query_scope import visible_knowledge_filter
 from kb.service import (
     create_entry,
     delete_entry,
@@ -238,6 +239,9 @@ class CreateEntryRequest(BaseModel):
     example: str = ""
     negative_example: str = ""
     when_json: dict[str, Any] = {}
+    # c-kb-summarize：默认落素材态；编辑器直建知识（修正场景）显式置 true
+    as_knowledge: bool = False
+    definition: str = ""
 
 
 @router.post("/entries")
@@ -260,6 +264,9 @@ async def create_entry_api(
         negative_example=body.negative_example,
         when_json=body.when_json,
         src_kind="manual",
+        definition=body.definition,
+        as_material=not body.as_knowledge,
+        as_knowledge=body.as_knowledge,
     )
     # 失败统一看 entry is None（service 的情节拒收/payload/闸门臂 error 恒 None，
     # 错误明细在 gate.errors——真机 500 实锤后修正的接法）
@@ -332,6 +339,7 @@ async def list_libraries_api(
                         KbEntry.genre == l.genre,
                         KbEntry.concept == l.concept,
                         KbEntry.status == "active",
+                        visible_knowledge_filter(),
                     )
                 )
             ).scalar_one()
@@ -392,7 +400,7 @@ async def graph_aggregate_api(
         await db.execute(
             select(KbEntry.genre, KbEntry.concept, func.count(KbEntry.id)).where(
                 KbEntry.user_id == uid, KbEntry.status == "active"
-            ).group_by(KbEntry.genre, KbEntry.concept)
+            ).where(visible_knowledge_filter()).group_by(KbEntry.genre, KbEntry.concept)
         )
     ).all()
     cells: dict[tuple[str, str], int] = {(g, c): int(n) for g, c, n in rows}
@@ -428,7 +436,9 @@ async def graph_cell_api(
 ):
     """下钻：一个格子里的条目节点（悬停邻域高亮在前端；条目—格子边前端补）。"""
     uid = _user(user)
-    entries, _cursor = await list_entries(db, user_id=uid, genre=genre, concept=concept, limit=100)
+    entries, _cursor = await list_entries(
+        db, user_id=uid, genre=genre, concept=concept, limit=100, include_material=False,
+    )
     nodes = [
         {
             "id": e.id,
@@ -1148,3 +1158,129 @@ async def add_instance_api(
         sort=body.get("sort", 0),
     )
     return {"ok": True, "instance": {"id": inst.id, "text": inst.text}}
+
+
+# ─── 知识总结（c-kb-summarize）：定期任务自动整理，知识直接生效 ──────────
+
+
+class SummarizeRunRequest(BaseModel):
+    genre: str
+
+
+@router.post("/summarize/run")
+async def summarize_run_api(
+    body: SummarizeRunRequest,
+    user: dict = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    from kb.summarize import run_summarize
+
+    genre = (body.genre or "").strip()
+    if not genre:
+        raise HTTPException(422, detail="总结需要题材")
+    summary, error = await run_summarize(
+        db, user_id=_user(user), genre=genre, trigger="manual", llm=True
+    )
+    if summary is None and error == "running":
+        return {"ok": True, "data": {"skipped": True, "message": "该题材正在总结中"}}
+    if error:
+        return JSONResponse(status_code=503, content={"ok": False, "detail": error})
+    return {"ok": True, "data": {**summary, "genre": genre}}
+
+
+@router.get("/summarize/status")
+async def summarize_status_api(
+    user: dict = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    from kb.summarize import material_stats
+
+    uid = _user(user)
+    stats = await material_stats(db, user_id=uid)
+    return {
+        "ok": True,
+        "data": {
+            "materials_by_genre": stats,
+            "threshold": 5,
+        },
+    }
+
+
+@router.get("/graph/tree")
+async def graph_tree_api(
+    genre: str = "",
+    user: dict = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """知识树装配（c-kb-summarize 批E）：概念根 → 知识枝干（parent_id 逐层）＋六类关联边。
+
+    素材行不进树；层级无上限（前端折叠是展示策略）；关联边只走既有六类关系。
+    """
+    from models.kb import KbRelation
+
+    uid = _user(user)
+    conds = [
+        KbEntry.user_id == uid,
+        KbEntry.status == "active",
+        KbEntry.concept != "情节",
+        visible_knowledge_filter(),
+    ]
+    if genre:
+        conds.append(KbEntry.genre == genre)
+    rows = (
+        await db.execute(
+            select(KbEntry).where(*conds).order_by(KbEntry.id)
+        )
+    ).scalars().all()
+    rel_rows = (
+        await db.execute(
+            select(KbRelation.from_id, KbRelation.to_id, KbRelation.rel_type).where(
+                KbRelation.user_id == uid,
+                KbRelation.status == "active",
+                KbRelation.rel_type.in_(("refines", "contradicts", "depends_on", "instance_of", "derived_from", "applies_to")),
+            )
+        )
+    ).all()
+
+    by_id = {e.id: e for e in rows}
+    # 孤儿重挂：parent 行不在集内（被归档/删除）的知识重挂概念根——子树不随父消失
+    for e in rows:
+        pid = e.parent_id or ""
+        if pid and pid not in by_id:
+            e.parent_id = ""
+    children: dict[str | None, list] = {}
+    for e in rows:
+        children.setdefault(e.parent_id or None, []).append(e)
+    # 概念根：parent_id 为空的行按 concept 分组
+    roots = []
+    root_groups: dict[tuple[str, str], list] = {}
+    for e in children.get(None, []):
+        root_groups.setdefault((e.genre, e.concept), []).append(e)
+
+    def _node(e) -> dict:
+        kids = [_node(k) for k in children.get(e.id, [])]
+        return {
+            "id": e.id,
+            "kind": "knowledge",
+            "title": e.title or (e.instruction or "")[:20],
+            "concept": e.concept,
+            "genre": e.genre,
+            "definition": (getattr(e, "definition", "") or "")[:60],
+            "children": kids,
+        }
+
+    for (g, c), items in sorted(root_groups.items()):
+        roots.append({
+            "id": f"root:{g or '_general'}:{c}",
+            "kind": "root",
+            "genre": g or "",
+            "concept": c,
+            "children": [_node(x) for x in items],
+        })
+    # 关联边（两端都在树内的才输出）
+    edges = [
+        {"source": f, "target": t, "rel_type": rt}
+        for f, t, rt in rel_rows
+        if f in by_id and t in by_id
+    ]
+    return {"ok": True, "data": {"roots": roots, "rel_edges": edges}}

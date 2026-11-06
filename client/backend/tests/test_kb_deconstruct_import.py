@@ -261,8 +261,17 @@ def test_collect_is_idempotent_and_materializes_tags_and_libraries():
 
     entry_count, tag_count, libraries = asyncio.run(_counts())
     assert entry_count == first["collected"]
-    assert tag_count > 0  # 不物化标签＝这批条目进不了选择器短名单
-    assert ("志怪/民俗灵异", "手法") in libraries
+
+    async def _origin_check():
+        async with async_session() as db:
+            rows = (
+                await db.execute(sel(KbEntry).where(KbEntry.user_id == uid))
+            ).scalars().all()
+            return {e.origin for e in rows}
+    # c-kb-summarize：收录落素材行——不物化标签、不长默认库（素材不进选择器/星图）
+    assert asyncio.run(_origin_check()) == {"material"}
+    assert tag_count == 0
+    assert ("志怪/民俗灵异", "手法") not in libraries
 
 
 def test_collect_genre_override_and_src_ref():
@@ -360,9 +369,9 @@ def test_taboo_text_fits_payload_limit_after_prefix():
     assert entries[0].instruction.startswith("忌用·")
 
 
-def test_collect_creates_first_instance_immediately():
-    """知识 v2：收录即落第 1 条实例，不等启动迁移；迁移再跑不重复。"""
-    from kb.knowledge_migration import populate_kb_instances_v1
+def test_collect_lands_material_not_knowledge_instances():
+    """c-kb-summarize：收录落素材行（origin=material），不再建知识＋实例——
+    实例与知识由总结管线采纳时产生（替代 81c59fbe「收录即建实例」口径）。"""
     from models.kb import KbKnowledgeInstance
 
     uid = f"kb-inst-{uuid.uuid4()}"
@@ -375,30 +384,20 @@ def test_collect_creates_first_instance_immediately():
     first = _collect(uid, task)
     assert first["collected"] > 0
 
-    async def _instances():
+    async def _check():
         async with async_session() as db:
-            rows = (
+            inst_rows = (
                 await db.execute(
                     sel(KbKnowledgeInstance)
                     .join(KbKnowledge, KbKnowledge.id == KbKnowledgeInstance.knowledge_id)
                     .where(KbKnowledge.user_id == uid)
                 )
             ).scalars().all()
-            return rows
+            entries = (
+                await db.execute(sel(KbKnowledge).where(KbKnowledge.user_id == uid))
+            ).scalars().all()
+            return len(inst_rows), {e.origin for e in entries}
 
-    rows = asyncio.run(_instances())
-    assert len(rows) == first["collected"], "收录当下每条知识应有 1 条实例"
-    inst = rows[0]
-    assert inst.source_kind == "拆书"
-    assert inst.source_novel == "13路末班车"
-    assert inst.text, "实例文本不应为空"
-
-    # 启动迁移再跑：已有实例的知识跳过（幂等，不产生第二条）
-    async def _populate():
-        async with async_session() as db:
-            return await populate_kb_instances_v1(db)
-
-    before = len(rows)
-    asyncio.run(_populate())
-    rows2 = asyncio.run(_instances())
-    assert len(rows2) == before, "迁移不得给已有实例的知识重复补实例"
+    inst_count, origins = asyncio.run(_check())
+    assert inst_count == 0, "收录 SHALL NOT 建实例——实例由总结采纳产生"
+    assert origins == {"material"}, "收录产物全部落素材态"

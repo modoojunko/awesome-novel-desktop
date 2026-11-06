@@ -42,9 +42,50 @@ async def create_entry(
     src_novel_name: str = "",
     original_texts: list[str] | None = None,
     definition: str = "",
+    as_material: bool = False,
+    as_knowledge: bool = False,
 ) -> tuple[KbEntry | None, GateResult, dict | None]:
     """入库一条知识：闸门→payload 校验→标签物化→默认库生成。
-    返回 (entry, gate_result, error_dict)。error_dict 非 None 表示入库失败。"""
+    返回 (entry, gate_result, error_dict)。error_dict 非 None 表示入库失败。
+
+    as_material=True 走素材态（c-kb-summarize）：落 origin='material' 的事实记录，
+    跳过 payload 装载/校验与知识闸门、不物化标签、不长默认库（素材不进选择器）。
+    """
+
+    # 素材态（c-kb-summarize）：事实记录直落，不做概念推断、不装载槽位、
+    # 不过知识闸门、不物化标签、不长默认库——素材经总结采纳才成为知识。
+    # 类别是归组信号，SHALL 由录入侧显式给出（表单选择），不静默推断。
+    if as_material and not as_knowledge:
+        if not concept or concept not in (
+            "文风", "文笔", "世界设定", "角色设定", "手法", "情节"
+        ):
+            return None, GateResult(ok=False, errors={"concept": "素材需要类别归组"}), None
+        if genre and genre not in THEMES:
+            genre = ""  # 未定题材
+        if not title:
+            title = (instruction or "")[:40].rstrip("。，、；：")
+        entry = KbEntry(
+            user_id=user_id,
+            genre=genre,
+            concept=concept,
+            concept_id=concept_id or f"{genre}:{concept}",
+            title=title,
+            payload_json="{}",
+            instruction=instruction,
+            evidence=evidence,
+            evidence_json=json.dumps(evidence_json or {}, ensure_ascii=False),
+            src_kind=src_kind,
+            src_ref=src_ref,
+            src_key=src_key,
+            src_novel_name=src_novel_name,
+            origin="material",
+            status="active",
+            rev=1,
+        )
+        db.add(entry)
+        await db.flush()
+        await db.commit()
+        return entry, GateResult(ok=True, errors={}), None
 
     # 概念推断（如果未指定）
     if not concept or concept not in (
@@ -317,10 +358,18 @@ async def update_entry(
 
 
 async def delete_entry(db: AsyncSession, *, user_id: str, entry_id: str) -> bool:
-    """删条目＝软删（status=archived；列表/快照/全局图均只出 active）。"""
+    """删条目＝软删（status=archived；列表/快照/全局图均只出 active）。
+
+    素材行（origin='material'，c-kb-summarize）＝真删：素材未经总结采纳无消费
+    价值，归档行只会成为噪声（有确认弹窗在录入侧把门）。
+    """
     e = await get_entry(db, user_id=user_id, entry_id=entry_id)
     if not e:
         return False
+    if getattr(e, "origin", "") == "material":
+        await db.delete(e)
+        await db.commit()
+        return True
     e.status = "archived"
     e.rev += 1
     await db.commit()
@@ -345,12 +394,15 @@ async def list_entries(
     q: str = "",
     cursor: str = "",
     limit: int = 30,
+    include_material: bool = True,
 ) -> tuple[list, str]:
     """条目列表——merged 视图游标分页。返回 (entries, next_cursor)。
 
     merged 域（c-kb-baseline 批B）：基线段（已排 hide、edit 副本已套）∪ 用户条目。
     两段各按 id 游标取页后在 Python 归并（基线 ≤1000 行、单页有界），
     保证跨表分页不重不漏。来源筛选："官方精选" 只取基线；手录/拆书 只取用户条目。
+    include_material=False 排除素材行（origin='material'，c-kb-summarize）——
+    知识列表是素材展示面默认含；星图下钻等消费端传 False。
     """
     from kb.merged import load_baseline_entries, load_hidden_entries
 
@@ -385,6 +437,10 @@ async def list_entries(
         KbEntry.user_id == user_id,
         KbEntry.status == "active",
     )
+    if not include_material:
+        from kb.query_scope import visible_knowledge_filter
+
+        stmt = stmt.where(visible_knowledge_filter())
     if g:
         stmt = stmt.where(KbEntry.genre == g)
     if c:

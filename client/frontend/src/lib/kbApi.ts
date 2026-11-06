@@ -345,6 +345,20 @@ export const kbApi = {
         request(`${BASE}/entries/${entryId}/relations${opts?.status ? `?status=${opts.status}` : ""}`),
       ),
   },
+  summarize: {
+    run: (genre: string) =>
+      unwrap<{ collected: number; knowledge: number; genre: string; skipped?: boolean; message?: string }>(
+        request(`${BASE}/summarize/run`, { method: "POST", body: JSON.stringify({ genre }), headers: { "Content-Type": "application/json" } }),
+      ),
+    status: () =>
+      unwrap<{ materials_by_genre: Record<string, number>; threshold: number }>(
+        request(`${BASE}/summarize/status`),
+      ),
+  },
+  graphTree: (genre: string) =>
+    unwrap<{ roots: { id: string; kind: string; genre: string; concept: string; children: unknown[] }[]; rel_edges: { source: string; target: string; rel_type: string }[] }>(
+      request(`${BASE}/graph/tree?genre=${encodeURIComponent(genre)}`),
+    ),
   /** 有用/没用回写（c-kb-write-block 批D）：账号级权重，可重复调用＝可改口 */
   pref: (entryId: string, useful: boolean) =>
     unwrap<{ entry_id: string; adopt_count: number; drop_count: number; useful_rate: number }>(
