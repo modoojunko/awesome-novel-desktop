@@ -1103,20 +1103,23 @@ async def graph_entries(db: AsyncSession, *, user_id: str, genre: str) -> dict:
 
 
 async def entry_relations(
-    db: AsyncSession, *, user_id: str, entry_id: str
+    db: AsyncSession, *, user_id: str, entry_id: str, status: str = "all"
 ) -> dict:
     """条目详情的关系列表：active＋pending 中两端含该条目的关系（含对方标题）。
 
+    status="active" 只回生效关系（c-kb-relations-view 知识视图段用）。
+    对端缺失或对端已归档（status=archived，点跳不可达）的关系行剔除——视图段点跳永不落 404。
     merged 条目的追溯（kb_entry_merges 指向）随返回（merged_into 段）。
     """
     e = await db.get(KbEntry, entry_id)
     if e is None or e.user_id != user_id:
         return {"error": "not_found"}
+    wanted_statuses = (ACTIVE,) if status == "active" else (ACTIVE, PENDING)
     rel_rows = (
         await db.execute(
             select(KbRelation).where(
                 KbRelation.user_id == user_id,
-                KbRelation.status.in_((ACTIVE, PENDING)),
+                KbRelation.status.in_(wanted_statuses),
                 KbRelation.rel_type.in_(REL_TYPES),
             )
         )
@@ -1125,12 +1128,18 @@ async def entry_relations(
     other_ids = sorted(
         {r.from_id if r.from_id != entry_id else r.to_id for r in mine}
     )
-    titles: dict[str, str] = {}
+    others: dict[str, KbEntry] = {}
     if other_ids:
         for o in (
             await db.execute(select(KbEntry).where(KbEntry.id.in_(other_ids)))
         ).scalars():
-            titles[o.id] = o.title
+            others[o.id] = o
+    # 死链剔除：对端行缺失（备份恢复孤儿端点）或对端已归档（点跳 404 口径）
+    mine = [
+        r for r in mine
+        if (o := others.get(r.from_id if r.from_id != entry_id else r.to_id))
+        is not None and o.status != "archived"
+    ]
     relations = [
         {
             "id": r.id,
@@ -1138,10 +1147,9 @@ async def entry_relations(
             "status": r.status,
             "direction": "out" if r.from_id == entry_id else "in",
             "other_id": r.from_id if r.from_id != entry_id else r.to_id,
-            "other_title": titles.get(
-                r.from_id if r.from_id != entry_id else r.to_id,
-                r.from_id if r.from_id != entry_id else r.to_id,
-            ),
+            "other_title": others[
+                r.from_id if r.from_id != entry_id else r.to_id
+            ].title,
             "confidence": r.confidence,
             "note": r.note,
             "evidence": r.evidence,

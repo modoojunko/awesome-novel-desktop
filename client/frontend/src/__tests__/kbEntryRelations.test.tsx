@@ -1,4 +1,4 @@
-// 条目关系段测试（c-kb-organize 批D）：清单渲染/merged 追溯/这条不对反馈/空态隐藏。
+// 知识视图「关联知识」段测试（c-kb-relations-view）：active 过滤/按类句式/点跳/这条不对/merged/空态。
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 
@@ -18,8 +18,10 @@ const RELS = {
   relations: [
     { id: "rel-1", rel_type: "applies_to", status: "active", direction: "out",
       other_id: "w1", other_title: "短句文风", confidence: 0.9, note: "打斗适用", evidence: "第3章" },
-    { id: "rel-2", rel_type: "depends_on", status: "pending", direction: "in",
+    { id: "rel-2", rel_type: "depends_on", status: "active", direction: "in",
       other_id: "w2", other_title: "世界观铁律", confidence: 0.7, note: "", evidence: "" },
+    { id: "rel-3", rel_type: "derived_from", status: "pending", direction: "out",
+      other_id: "w3", other_title: "待确认条目", confidence: 0.6, note: "", evidence: "" },
   ],
   merged_into: null,
 };
@@ -35,12 +37,49 @@ afterEach(() => {
 });
 
 describe("KbEntryRelations", () => {
-  it("清单渲染（含待确认标记）", async () => {
+  it("只显示 active（pending 过滤）且按类定制句式", async () => {
     render(<KbEntryRelations entryId="e1" />);
-    await waitFor(() => expect(screen.getByText(/短句文风/)).toBeTruthy());
-    expect(screen.getByText(/世界观铁律/)).toBeTruthy();
-    expect(screen.getByText(/待确认/)).toBeTruthy();
+    await waitFor(() => expect(screen.getByText(/适用于 短句文风/)).toBeTruthy());
+    // 入向 depends_on：「对端 依赖本知识」
+    expect(screen.getByText(/世界观铁律 依赖本知识/)).toBeTruthy();
+    // pending 行不出现
+    expect(screen.queryByText(/待确认条目/)).toBeNull();
+    expect(screen.queryByText(/待确认/)).toBeNull();
     expect(screen.getAllByText("这条不对").length).toBe(2);
+    // 取数带 status=active
+    await waitFor(() => expect(api.entryRelations).toHaveBeenCalledWith("e1", { status: "active" }));
+  });
+
+  it("出向六类句式逐类正确", async () => {
+    api.entryRelations.mockResolvedValue({
+      relations: [
+        { id: "r1", rel_type: "applies_to", status: "active", direction: "out", other_id: "o1", other_title: "甲", confidence: 1, note: "", evidence: "" },
+        { id: "r2", rel_type: "derived_from", status: "active", direction: "out", other_id: "o2", other_title: "乙", confidence: 1, note: "", evidence: "" },
+        { id: "r3", rel_type: "instance_of", status: "active", direction: "out", other_id: "o3", other_title: "丙", confidence: 1, note: "", evidence: "" },
+        { id: "r4", rel_type: "depends_on", status: "active", direction: "out", other_id: "o4", other_title: "丁", confidence: 1, note: "", evidence: "" },
+        { id: "r5", rel_type: "contradicts", status: "active", direction: "out", other_id: "o5", other_title: "戊", confidence: 1, note: "", evidence: "" },
+        { id: "r6", rel_type: "refines", status: "active", direction: "out", other_id: "o6", other_title: "己", confidence: 1, note: "", evidence: "" },
+      ],
+      merged_into: null,
+    });
+    render(<KbEntryRelations entryId="e1" />);
+    await waitFor(() => expect(screen.getByText(/适用于 甲/)).toBeTruthy());
+    expect(screen.getByText(/源自 乙/)).toBeTruthy();
+    expect(screen.getByText(/属于 丙/)).toBeTruthy();
+    expect(screen.getByText(/依赖 丁/)).toBeTruthy();
+    expect(screen.getByText(/与 戊 相冲/)).toBeTruthy();
+    expect(screen.getByText(/细化 己/)).toBeTruthy();
+  });
+
+  it("点跳回调带对端 id；不传回调保持纯文本", async () => {
+    const onOpen = vi.fn();
+    render(<KbEntryRelations entryId="e1" onOpenKnowledge={onOpen} />);
+    await waitFor(() => expect(screen.getByText(/适用于 短句文风/)).toBeTruthy());
+    fireEvent.click(screen.getByText(/适用于 短句文风/));
+    expect(onOpen).toHaveBeenCalledWith("w1");
+    cleanup();
+    render(<KbEntryRelations entryId="e1" />);
+    await waitFor(() => expect(screen.getByText(/适用于 短句文风/)).toBeTruthy());
   });
 
   it("这条不对调反馈并提示", async () => {

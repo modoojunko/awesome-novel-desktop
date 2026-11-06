@@ -560,8 +560,9 @@ export default function KnowledgeBasePage() {
             {/* 知识定义 */}
             <div className="mt-4">
               <p className="text-[10.5px] font-mono tracking-[0.12em] text-[var(--muted)]">知识定义</p>
-              <p className="mt-1 text-[13px] leading-relaxed">{selected.definition || selected.instruction}</p>
-              {(selected.definition || selected.instruction) && (
+              {selected.definition ? (
+                <p className="mt-1 text-[13px] leading-relaxed">{selected.definition}</p>
+              ) : (
                 <p className="mt-1 text-[11px] text-[var(--faint)]">知识定义待补——可在「修改」中补写一般性定义</p>
               )}
             </div>
@@ -605,6 +606,21 @@ export default function KnowledgeBasePage() {
                 <p className="mt-1 text-[13px]">{selected.negative_example}</p>
               </div>
             )}
+            <KbEntryRelations
+              entryId={selected.id}
+              onOpenKnowledge={(id) => {
+                const local = entries.find((x) => x.id === id);
+                if (local) {
+                  setSelected(local);
+                  return;
+                }
+                // 对端不在当前筛选列表（跨题材/类别）：拉详情兜底；不可达给一句提示
+                void kbApi
+                  .entry(id)
+                  .then((d) => setSelected(d))
+                  .catch(() => setOpNote("这条关联的知识暂时打不开，稍后再试"));
+              }}
+            />
             {selected.evidence && (
               <div className="mt-4">
                 <p className="text-[10.5px] font-mono tracking-[0.12em] text-[var(--muted)]">证据</p>

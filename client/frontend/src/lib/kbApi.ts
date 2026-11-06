@@ -340,9 +340,9 @@ export const kbApi = {
         request(`${BASE}/graph/entries?genre=${encodeURIComponent(genre)}`),
       ),
 
-    entryRelations: (entryId: string) =>
+    entryRelations: (entryId: string, opts?: { status?: "all" | "active" }) =>
       unwrap<{ relations: { id: string; rel_type: string; status: string; direction: string; other_id: string; other_title: string; confidence: number; note: string; evidence: string }[]; merged_into: null | { surviving_id: string; title: string } }>(
-        request(`${BASE}/entries/${entryId}/relations`),
+        request(`${BASE}/entries/${entryId}/relations${opts?.status ? `?status=${opts.status}` : ""}`),
       ),
   },
   /** 有用/没用回写（c-kb-write-block 批D）：账号级权重，可重复调用＝可改口 */

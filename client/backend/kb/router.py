@@ -56,6 +56,12 @@ def _entry_dict(e: KbEntry, *, has_avatar: bool = False) -> dict[str, Any]:
         "concept_id": e.concept_id,
         "title": e.title,
         "instruction": e.instruction,
+        # 知识 v2 四列（c-kb-knowledge-v2）：视图「知识定义」段与其他字段依赖；
+        # 基线 MergedEntry 无这些属性时 getattr 兜底
+        "definition": getattr(e, "definition", ""),
+        "version": getattr(e, "version", 1),
+        "origin": getattr(e, "origin", "manual"),
+        "archived_at": _iso(getattr(e, "archived_at", None)),
         "payload": json.loads(e.payload_json),
         "example": e.example,
         "negative_example": e.negative_example,
@@ -909,13 +915,21 @@ async def organize_relation_reject_api(
 @router.get("/entries/{entry_id}/relations")
 async def entry_relations_api(
     entry_id: str,
+    status: str = "all",
     user: dict = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    """条目详情的关系列表（active＋pending；merged 条目附合并指向）。"""
+    """条目详情的关系列表（active＋pending；merged 条目附合并指向）。
+
+    ?status=active 只回生效关系（c-kb-relations-view 知识视图段）。
+    """
     from kb.organize import entry_relations
 
-    data = await entry_relations(db, user_id=_user(user), entry_id=entry_id)
+    if status not in ("all", "active"):
+        raise HTTPException(422, "status 只支持 all / active")
+    data = await entry_relations(
+        db, user_id=_user(user), entry_id=entry_id, status=status
+    )
     if data.get("error"):
         raise HTTPException(404, "Entry not found")
     return {"ok": True, "data": data}
