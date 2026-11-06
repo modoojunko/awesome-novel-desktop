@@ -34,6 +34,18 @@ async def ensure_kb_summarize(db: AsyncSession) -> dict[str, int]:
             "ALTER TABLE kb_entries ADD COLUMN parent_id TEXT NOT NULL DEFAULT ''"
         ))
         added += 1
+    # 知识字段元数据（c-kb-summarize schema 层）：知识点带字段定义，实例按 schema 存字段值
+    if "schema_json" not in cols:
+        await db.execute(_t(
+            "ALTER TABLE kb_entries ADD COLUMN schema_json TEXT NOT NULL DEFAULT '[]'"
+        ))
+        added += 1
+    inst_cols = [r[1] for r in (await db.execute(_t("PRAGMA table_info(kb_knowledge_instances)"))).fetchall()]
+    if inst_cols and "fields_json" not in inst_cols:
+        await db.execute(_t(
+            "ALTER TABLE kb_knowledge_instances ADD COLUMN fields_json TEXT NOT NULL DEFAULT '{}'"
+        ))
+        added += 1
     await db.execute(_t("""CREATE TABLE IF NOT EXISTS kb_summarize_runs (
         id TEXT PRIMARY KEY,
         user_id TEXT NOT NULL,
@@ -191,6 +203,16 @@ async def run_summarize(
             concept = c.get("concept") if c.get("concept") in valid_concepts else "手法"
             parent = c.get("parent", "ROOT")
             parent = parent if parent in existing_ids else ""
+            # 字段 schema 清洗（管线层校验）：schema 名非空去重 ≤6 个；空则落默认「要点」；
+            # 实例 fields 按 schema 白名单过滤（编造字段不落库）
+            c_schema = []
+            for s in (c.get("schema") or []):
+                if isinstance(s, dict) and str(s.get("name", "")).strip():
+                    c_schema.append({"name": str(s["name"]).strip()[:20],
+                                     "desc": str(s.get("desc", "")).strip()[:80]})
+            c_schema = c_schema[:6] or [{"name": "要点", "desc": "这条写法的要点"}]
+            schema_names = {s["name"] for s in c_schema}
+            c_items = c.get("items") if isinstance(c.get("items"), dict) else {}
 
             kid = uuid.uuid4().hex
             db.add(KbEntry(
@@ -203,6 +225,7 @@ async def run_summarize(
                 payload_json="{}",
                 instruction="",
                 definition=(c.get("definition") or "").strip()[:500],
+                schema_json=json.dumps(c_schema, ensure_ascii=False),
                 origin="summary",
                 status="active",
                 version=1,
@@ -216,6 +239,11 @@ async def run_summarize(
                     source_kind="拆书" if m.src_kind == "deconstruct" else "手录",
                     source_novel=m.src_novel_name or "",
                     quote=(m.evidence or "")[:500],
+                    fields_json=json.dumps(
+                        {k: str(v)[:200] for k, v in c_items.get(mid, {}).items()
+                         if k in schema_names and str(v).strip()},
+                        ensure_ascii=False,
+                    ),
                     sort=sort,
                 ))
                 m.status = "archived"  # 素材行归档（审计可回溯）
@@ -276,12 +304,18 @@ async def _llm_candidates(
     valid_concepts = {"文风", "文笔", "世界设定", "角色设定", "手法"}
     mat_ids = {m.id for m in materials}
     try:
-        # 剥 ```json 围栏（haiku 高频跑偏，不剥即 bad json 全损）
+        # 剥 ```json 围栏（haiku 高频跑偏，不剥即 bad json 全损）；散文包裹用首尾花括号兜底
         cleaned = (text or "").strip()
         if cleaned.startswith("```"):
             cleaned = cleaned.removeprefix("```json").removeprefix("```")
             cleaned = cleaned.removesuffix("```").strip()
+        if not cleaned.startswith("{"):
+            b, e = cleaned.find("{"), cleaned.rfind("}")
+            if b >= 0 and e > b:
+                cleaned = cleaned[b:e + 1]
         data = json.loads(cleaned or "{}")
+        if not isinstance(data, dict):
+            return [], "llm: bad json"
         cands = data.get("candidates") or []
         out: list[dict] = []
         for c in cands if isinstance(cands, list) else []:
@@ -290,6 +324,26 @@ async def _llm_candidates(
             mids = [m for m in (c.get("material_ids") or []) if m in mat_ids]
             if not mids or not (c.get("title") or "").strip():
                 continue  # 素材归属须属本桶、标题非空
+            # 字段 schema 与实例字段值（c-kb-summarize schema 层）
+            schema = [
+                {"name": str(s.get("name", "")).strip()[:20],
+                 "desc": str(s.get("desc", "")).strip()[:80]}
+                for s in (c.get("schema") or [])
+                if isinstance(s, dict) and str(s.get("name", "")).strip()
+            ][:6]
+            if not schema:
+                schema = [{"name": "要点", "desc": "这条写法的要点"}]
+            schema_names = {s["name"] for s in schema}
+            items: dict[str, dict[str, str]] = {}
+            for it in (c.get("items") or []):
+                if not isinstance(it, dict) or it.get("material_id") not in mat_ids:
+                    continue
+                fields = {
+                    str(k)[:20]: str(v).strip()[:200]
+                    for k, v in (it.get("fields") or {}).items()
+                    if str(k) in schema_names and str(v).strip()
+                }
+                items[it["material_id"]] = fields
             parent = c.get("parent", "ROOT")
             out.append({
                 "title": c["title"].strip()[:40],
@@ -297,13 +351,12 @@ async def _llm_candidates(
                 "concept": c.get("concept") if c.get("concept") in valid_concepts else "手法",
                 "parent": parent if parent in existing_ids else "",
                 "material_ids": mids,
+                "schema": schema,
+                "items": items,
             })
         return out, None
     except ValueError:
         return [], "llm: bad json"
-
-
-# ─── 候选清单与采纳/忽略 ────────────────────────────────────────────────
 
 
 async def maybe_auto_summarize(*, user_id: str) -> list[str]:

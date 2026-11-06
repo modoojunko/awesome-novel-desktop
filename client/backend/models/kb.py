@@ -104,6 +104,8 @@ class KbEntry(Base):
     archived_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     # ── 知识树（c-kb-summarize）：parent 挂父知识 id，'' ＝挂概念根；枝干无限嵌套 ──
     parent_id: Mapped[str] = mapped_column(String(36), nullable=False, default="")
+    # ── 知识字段元数据（c-kb-summarize schema 层）：[{name, desc}]，实例按其存 fields_json ──
+    schema_json: Mapped[str] = mapped_column(Text, nullable=False, default="[]")
     src_kind: Mapped[str] = mapped_column(String(20), nullable=False, default="manual")
     src_ref: Mapped[str] = mapped_column(String(80), nullable=False, default="")
     src_key: Mapped[str] = mapped_column(String(80), nullable=False, default="")
@@ -151,6 +153,8 @@ class KbKnowledgeInstance(Base):
     source_novel: Mapped[str] = mapped_column(String(100), nullable=False, default="")
     source_chapter: Mapped[str] = mapped_column(String(40), nullable=False, default="")
     quote: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    # 实例按知识 schema 的字段值（{字段名: 值}，c-kb-summarize schema 层）
+    fields_json: Mapped[str] = mapped_column(Text, nullable=False, default="{}")
     sort: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     created_at: Mapped[datetime] = mapped_column(
         DateTime, nullable=False, server_default=func.now()

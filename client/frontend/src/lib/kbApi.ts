@@ -16,6 +16,7 @@ export interface KbEntry {
   when: Record<string, string>;
   evidence: string;
   definition?: string;
+  schema_json?: string;
   when_text?: string;
   version?: number;
   origin?: string;
@@ -258,7 +259,7 @@ export const kbApi = {
     ),
   /** 实例列表 */
   listInstances: (entryId: string) =>
-    unwrap<{ ok: boolean; instances: { id: string; text: string; source_kind: string; source_novel: string; source_chapter: string; quote: string; sort: number }[] }>(
+    unwrap<{ ok: boolean; instances: { id: string; text: string; source_kind: string; source_novel: string; source_chapter: string; quote: string; fields_json: string; sort: number }[] }>(
       request(`${BASE}/entries/${entryId}/instances`),
     ),
   /** 添加实例 */

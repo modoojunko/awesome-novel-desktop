@@ -19,6 +19,7 @@ const api = vi.hoisted(() => ({
   libraries: vi.fn(),
   createEntry: vi.fn(),
   deleteEntry: vi.fn(),
+  listInstances: vi.fn(),
   entry: vi.fn(),
   graphAggregate: vi.fn(),
   graphCell: vi.fn(),
@@ -116,6 +117,8 @@ beforeEach(() => {
   api.entries.mockResolvedValue({ entries: [entry()], next_cursor: "" });
   api.createEntry.mockResolvedValue(entry());
   api.deleteEntry.mockResolvedValue({ deleted: "x" });
+  api.listInstances = api.listInstances || vi.fn();
+  api.listInstances.mockResolvedValue({ ok: true, instances: [] });
 });
 
 beforeEach(() => {
@@ -284,14 +287,61 @@ describe("KnowledgeBasePage 手录表单", () => {
     await waitFor(() => expect(screen.getByText("素材条目")).toBeTruthy());
     fireEvent.click(screen.getByText("素材条目"));
     await waitFor(() => expect(screen.getByText(/这是素材——/)).toBeTruthy());
-    expect(screen.getByText("删除素材")).toBeTruthy();
+    expect(screen.getByTestId("kb-material-delete")).toBeTruthy();
     const confirmSpy = vi.spyOn(window, "confirm").mockReturnValue(false);
-    fireEvent.click(screen.getByText("删除素材"));
+    fireEvent.click(screen.getByTestId("kb-material-delete"));
     expect(api.deleteEntry).not.toHaveBeenCalled();
     confirmSpy.mockReturnValue(true);
-    fireEvent.click(screen.getByText("删除素材"));
+    fireEvent.click(screen.getByTestId("kb-material-delete"));
     await waitFor(() => expect(api.deleteEntry).toHaveBeenCalledWith("kbentry-mat"));
     confirmSpy.mockRestore();
+  });
+
+  it("字段 schema 段与实例群按 fields 渲染（c-kb-summarize schema 层）", async () => {
+    api.entries.mockResolvedValue({
+      entries: [{
+        ...entry(),
+        id: "kbentry-schema",
+        title: "小人物卷入",
+        definition: "让普通小人物被动卷入超常事件。",
+        schema_json: JSON.stringify([
+          { name: "身份反差", desc: "日常身份与异常处境的落差" },
+          { name: "性格底色", desc: "核心性格与说话方式" },
+        ]),
+      }],
+      next_cursor: "",
+    });
+    api.listInstances = api.listInstances || vi.fn();
+    api.listInstances.mockResolvedValue({
+      ok: true,
+      instances: [
+        { id: "i1", text: "市井司机卷入冤魂案", source_kind: "拆书", source_novel: "13路末班车", source_chapter: "第1章", quote: "", fields_json: JSON.stringify({ 身份反差: "市井司机 vs 十年冤魂案", 性格底色: "嘴贫胆小却重情义" }), sort: 0 },
+        { id: "i2", text: "无字段的实例", source_kind: "手录", source_novel: "", source_chapter: "", quote: "", fields_json: "{}", sort: 1 },
+      ],
+    });
+    renderPage();
+    await waitFor(() => expect(screen.getByText("小人物卷入")).toBeTruthy());
+    fireEvent.click(screen.getByText("小人物卷入"));
+    await waitFor(() => expect(screen.getByText("字段 schema")).toBeTruthy());
+    expect(screen.getByText(/日常身份与异常处境的落差/)).toBeTruthy();
+    expect(screen.getByText("实例群")).toBeTruthy();
+    expect(screen.getByText("市井司机卷入冤魂案")).toBeTruthy();
+    expect(screen.getByText(/身份反差：/)).toBeTruthy();
+    expect(screen.getByText(/嘴贫胆小却重情义/)).toBeTruthy();
+    expect(screen.getByText(/源自小说：13路末班车/)).toBeTruthy();
+  });
+
+  it("schema 为空不渲染字段段（c-kb-summarize）", async () => {
+    const noSchema = { ...entry(), id: "kbentry-noschema", title: "无schema条目", schema_json: "[]" };
+    api.entries.mockResolvedValue({ entries: [noSchema], next_cursor: "" });
+    renderPage();
+    await waitFor(() => expect(screen.getByText("无schema条目")).toBeTruthy());
+    fireEvent.click(screen.getByText("无schema条目"));
+    await waitFor(() => expect(screen.getByText("知识定义")).toBeTruthy());
+    // schema 为空：字段 schema 段不渲染；素材提示卡与实例群（无素材/无实例）也不出
+    expect(screen.queryByText("字段 schema")).toBeNull();
+    expect(screen.queryByText(/这是素材——/)).toBeNull();
+    expect(screen.queryByText("实例群")).toBeNull();
   });
 
   it("素材删除失败臂：opNote 提示（c-kb-summarize）", async () => {
@@ -301,10 +351,10 @@ describe("KnowledgeBasePage 手录表单", () => {
     renderPage();
     await waitFor(() => expect(screen.getByText("素材条目二")).toBeTruthy());
     fireEvent.click(screen.getByText("素材条目二"));
-    await waitFor(() => expect(screen.getByText("删除素材")).toBeTruthy());
+    await waitFor(() => expect(screen.getByTestId("kb-material-delete")).toBeTruthy());
     const spy = vi.spyOn(window, "confirm").mockReturnValue(true);
-    fireEvent.click(screen.getByText("删除素材"));
-    await waitFor(() => expect(screen.getByText(/删除失败/)).toBeTruthy());
+    fireEvent.click(screen.getByTestId("kb-material-delete"));
+    await waitFor(() => expect(screen.getAllByText(/删除失败/).length).toBeGreaterThan(0));
     spy.mockRestore();
   });
 

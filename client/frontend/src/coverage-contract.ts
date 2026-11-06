@@ -96,4 +96,6 @@ export const COVERAGE_CONTRACT_FILES = [
   "src/lib/kbRelations.ts",
   "src/components/tools/KbOrganizePanel.tsx",
   "src/components/tools/KbEntryRelations.tsx",
+  // c-kb-summarize（素材提示卡：素材态提示＋删除入口，自包含 confirm）
+  "src/components/tools/KbMaterialCard.tsx",
 ] as const;

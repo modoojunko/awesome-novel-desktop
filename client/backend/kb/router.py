@@ -60,6 +60,8 @@ def _entry_dict(e: KbEntry, *, has_avatar: bool = False) -> dict[str, Any]:
         # 知识 v2 四列（c-kb-knowledge-v2）：视图「知识定义」段与其他字段依赖；
         # 基线 MergedEntry 无这些属性时 getattr 兜底
         "definition": getattr(e, "definition", ""),
+        # 知识字段元数据（c-kb-summarize schema 层）：前端知识卡按其渲染字段段
+        "schema_json": getattr(e, "schema_json", "[]"),
         "version": getattr(e, "version", 1),
         "origin": getattr(e, "origin", "manual"),
         "archived_at": _iso(getattr(e, "archived_at", None)),
@@ -1136,7 +1138,7 @@ async def list_instances_api(
     return {"ok": True, "instances": [
         {"id": r.id, "text": r.text, "source_kind": r.source_kind,
          "source_novel": r.source_novel, "source_chapter": r.source_chapter,
-         "quote": r.quote, "sort": r.sort}
+         "quote": r.quote, "fields_json": r.fields_json, "sort": r.sort}
         for r in rows
     ]}
 

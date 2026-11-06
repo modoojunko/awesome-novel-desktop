@@ -1,0 +1,15 @@
+{
+  "server_api_base": "https://www.awesomenovel.com/api",
+  "server_api_fallback": "https://novel-s-server-297265-7-1468883265.sh.run.tcloudbase.com/api",
+  "public_server_api": "https://www.awesomenovel.com/api",
+  "portal_url": "https://www.awesomenovel.com",
+  "client_version": "0.46.0",
+  "client_update_url": "https://www.awesomenovel.com/download/latest.json",
+  "client_update_url_fallback": "https://ai-novel-test-d1ghsr86ra814c12c-1468883265.tcloudbaseapp.com/download/latest.json",
+  "pack_pubkeys": "{\"pack-k1\":\"UaJFasM5PBIB3Tg1o03cjG6Opeq5CaKtPv2ooLyNPPM=\"}",
+  "update_pubkeys": "{\"update-k1\":\"Ktq81Y4Qf9cPapmfbLw2h4SGGo1E72X3HaGUxOBU/EU=\"}",
+  "components": {
+    "db_filename": "novel-v0.45.1.db",
+    "backup_format_version": 9
+  }
+}

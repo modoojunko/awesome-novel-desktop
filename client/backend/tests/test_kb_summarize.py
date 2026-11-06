@@ -1,6 +1,7 @@
 """知识总结管线测试（c-kb-summarize 批A：素材态/过滤收口/删除；批B：管线）。"""
 
 import asyncio
+import json
 import uuid
 
 from sqlalchemy import select
@@ -457,3 +458,99 @@ class TestSingleflightAndDirectCreate:
         assert entry.origin == "manual"  # 直建知识走知识路径（origin 不落 material）
         assert entry.definition == "短句文风的一般性定义。"
         assert entry.status == "active"
+
+
+class TestSchemaLayer:
+    """schema 层（c-kb-summarize 字段元数据）：候选带 schema/字段值抽取/落库。"""
+
+    def _mk(self, tag):
+        return f"kbsm-{tag}-{uuid.uuid4().hex[:8]}"
+
+    def _seed_materials(self, uid, genre, n, concept="角色设定"):
+        async def _go():
+            async with async_session() as db:
+                rows = []
+                for i in range(n):
+                    e = KbEntry(
+                        user_id=uid, genre=genre, concept=concept,
+                        concept_id=f"{genre}:{concept}", title=f"素材{i}",
+                        payload_json=json.dumps({"身份": f"身份{i}", "性格": f"性格{i}"}, ensure_ascii=False),
+                        instruction=f"角色素材{i}的塑造方式。",
+                        origin="material", status="active", rev=1,
+                        src_kind="manual", src_ref="", src_key=f"k{i}",
+                    )
+                    db.add(e)
+                    rows.append(e)
+                await db.commit()
+                return [e.id for e in rows]
+        return _run(_go())
+
+    def test_采纳落schema与实例字段值(self, monkeypatch):
+        uid = self._mk("sch")
+        _run(_seed_user(uid))
+        ids = self._seed_materials(uid, "玄幻", 2)
+
+        async def _fake_llm(user_id, genre, materials, existing_lines, existing_ids):
+            schema = [{"name": "身份反差", "desc": "日常身份与异常处境的落差"},
+                      {"name": "性格底色", "desc": "核心性格与说话方式"}]
+            items = {
+                ids[0]: {"身份反差": "市井司机 vs 十年冤魂案", "性格底色": "嘴贫胆小却重情义", "编造字段": "不该出现"},
+                ids[1]: {"身份反差": "队长 vs 隐瞒旧事", "性格底色": "老奸巨猾嘴硬心软"},
+            }
+            return [{"title": "小人物卷入", "definition": "让普通小人物被动卷入超常事件。", "concept": "角色设定",
+                     "parent": "ROOT", "schema": schema, "material_ids": ids, "items": items}], None
+        monkeypatch.setattr("kb.summarize._llm_candidates", _fake_llm)
+
+        from kb.summarize import run_summarize
+
+        async def _go():
+            async with async_session() as db:
+                return await run_summarize(db, user_id=uid, genre="玄幻", trigger="auto", llm=True)
+        r, _ = _run(_go())
+        assert r["knowledge"] == 1
+
+        async def _check():
+            async with async_session() as db:
+                kb = (await db.execute(_t(
+                    "SELECT id, schema_json FROM kb_entries WHERE user_id=:u AND origin='summary'"),
+                    {"u": uid})).mappings().first()
+                inst = (await db.execute(_t(
+                    "SELECT fields_json FROM kb_knowledge_instances WHERE knowledge_id=:k ORDER BY sort"),
+                    {"k": kb["id"]})).mappings().all()
+                return json.loads(kb["schema_json"]), [json.loads(x["fields_json"]) for x in inst]
+        schema, inst_fields = _run(_check())
+        assert [s["name"] for s in schema] == ["身份反差", "性格底色"]
+        # schema 白名单外的「编造字段」被滤
+        assert "编造字段" not in inst_fields[0]
+        assert inst_fields[0]["性格底色"] == "嘴贫胆小却重情义"
+        assert inst_fields[1]["身份反差"] == "队长 vs 隐瞒旧事"
+
+    def test_空schema落默认要点臂(self, monkeypatch):
+        uid = self._mk("schd")
+        _run(_seed_user(uid))
+        self._seed_materials(uid, "玄幻", 1)
+
+        async def _fake_llm(user_id, genre, materials, existing_lines, existing_ids):
+            return [{"title": "无schema簇", "definition": "d", "concept": "手法",
+                     "parent": "ROOT", "material_ids": [m.id for m in materials],
+                     "items": [{"material_id": m.id, "fields": {}} for m in materials]}], None
+        monkeypatch.setattr("kb.summarize._llm_candidates", _fake_llm)
+
+        from kb.summarize import run_summarize
+
+        async def _go():
+            async with async_session() as db:
+                return await run_summarize(db, user_id=uid, genre="玄幻", trigger="auto", llm=True)
+        _run(_go())
+        async def _check():
+            async with async_session() as db:
+                kb = (await db.execute(_t(
+                    "SELECT id, schema_json FROM kb_entries WHERE user_id=:u AND origin='summary'"),
+                    {"u": uid})).mappings().first()
+                run_err = (await db.execute(_t(
+                    "SELECT status, error, knowledge_created FROM kb_summarize_runs WHERE user_id=:u"),
+                    {"u": uid})).mappings().first()
+                assert kb is not None, f"知识点未建：run={dict(run_err) if run_err else None}"
+                return json.loads(kb["schema_json"])
+        schema = _run(_check())
+        assert schema == [{"name": "要点", "desc": "这条写法的要点"}]
