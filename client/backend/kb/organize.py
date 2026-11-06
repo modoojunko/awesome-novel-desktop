@@ -20,6 +20,7 @@ from sqlalchemy import delete, func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from kb.query_scope import visible_knowledge_filter
 from models.kb import (
     KbConcept,
     KbEntry,
@@ -1059,7 +1060,7 @@ async def graph_entries(db: AsyncSession, *, user_id: str, genre: str) -> dict:
     pending 关系、merged 条目、merged_into（独立表）SHALL NOT 出现。
     """
     conds = [KbEntry.user_id == user_id, KbEntry.concept != "情节",
-                KbEntry.origin != "material", KbEntry.status == ACTIVE]
+                visible_knowledge_filter(), KbEntry.status == ACTIVE]
     if genre:
         conds.append(KbEntry.genre == genre)
     nodes = (

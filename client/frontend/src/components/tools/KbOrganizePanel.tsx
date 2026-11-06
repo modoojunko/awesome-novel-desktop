@@ -114,6 +114,30 @@ export default function KbOrganizePanel({ genre, onClose, onChanged }: Props) {
         </button>
 
         {/* 知识总结（c-kb-summarize）：定期任务自动整理，知识直接生效进库进星图 */}
+        <button
+          onClick={async () => {
+            setBusy(true);
+            setNotice({ tone: "info", text: "总结中——把素材提炼成知识点，直接进知识库…" });
+            try {
+              const r = await kbApi.summarize.run(genre);
+              if (r.skipped) {
+                setNotice({ tone: "warn", text: r.message || "正在总结中" });
+              } else {
+                setNotice({ tone: "ok", text: `整理完成：从 ${r.collected} 条素材提炼出 ${r.knowledge} 个知识点，已进知识库` });
+              }
+              onChanged?.();
+            } catch (e: unknown) {
+              setNotice({ tone: "err", text: (e as { message?: string }).message || "总结失败" });
+            } finally {
+              setBusy(false);
+            }
+          }}
+          disabled={busy}
+          className="mt-3 rounded-md border border-[var(--accent)] px-3 py-1.5 text-[12px] text-[var(--accent)] hover:bg-[var(--accent-soft)] disabled:opacity-50"
+        >
+          总结知识点
+        </button>
+
         {/* 待确认关系 */}
         <div className="mt-4">
           <p className="font-mono text-[10px] tracking-[0.14em] text-[var(--muted)]">待确认关系</p>

@@ -213,6 +213,23 @@ export default function KnowledgeBasePage() {
     }
   };
 
+  const handleDeleteMaterial = async () => {
+    if (!selected || selected.origin !== "material" || opBusy) return;
+    setOpBusy(true);
+    setOpNote("");
+    try {
+      await kbApi.deleteEntry(selected.id);
+      setSelected(null);
+      loadEntries();
+      loadLibraries();
+      kbApi.genres().then(setGenreCounts).catch(() => {});
+    } catch (e: unknown) {
+      setOpNote((e as { message?: string }).message || "删除失败");
+    } finally {
+      setOpBusy(false);
+    }
+  };
+
   const handleManual = async () => {
     setManualError("");
     /* v8 ignore start -- 手录表单校验三臂：空文本/空题材由表单交互覆盖（真机段） */
@@ -579,6 +596,24 @@ export default function KnowledgeBasePage() {
             <div className="mt-2 text-[11px] text-[var(--muted)]">
               分类：类别 / {selected.concept} · 题材 / {selected.genre}
             </div>
+            {selected.origin === "material" && (
+              <div className="mt-4 rounded-lg border border-[var(--border)] bg-[var(--surface)] p-3">
+                <p className="text-[11px] text-[var(--muted)]">
+                  这是素材——记录的原始写法案例，经「知识整理 → 总结知识点」提炼后成为知识点。
+                </p>
+                <button
+                  disabled={opBusy}
+                  onClick={() => {
+                    if (window.confirm("删除这条素材？删除后不可恢复。")) {
+                      void handleDeleteMaterial();
+                    }
+                  }}
+                  className="mt-2 rounded-lg border border-[var(--border)] px-3 py-1.5 text-[12px] text-[var(--muted)] hover:text-red-500 disabled:opacity-50"
+                >
+                  删除素材
+                </button>
+              </div>
+            )}
             {/* 知识定义 */}
             <div className="mt-4">
               <p className="text-[10.5px] font-mono tracking-[0.12em] text-[var(--muted)]">知识定义</p>
@@ -627,6 +662,9 @@ export default function KnowledgeBasePage() {
                 <p className="text-[10.5px] font-mono tracking-[0.12em] text-[var(--muted)]">反例</p>
                 <p className="mt-1 text-[13px]">{selected.negative_example}</p>
               </div>
+            )}
+            {opNote && (
+              <p className="mt-2 text-[11.5px] text-[var(--muted)]">{opNote}</p>
             )}
             <KbEntryRelations
               entryId={selected.id}

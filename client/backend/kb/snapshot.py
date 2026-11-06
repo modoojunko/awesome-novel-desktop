@@ -91,8 +91,12 @@ async def library_base_entries(db: AsyncSession, lib: KbLibrary) -> list[KbEntry
             list(
                 (
                     await db.execute(
-                        select(KbEntry)
-                        .where(KbEntry.id.in_(item_ids), KbEntry.status == "active")
+            select(KbEntry)
+                        .where(
+                            KbEntry.id.in_(item_ids),
+                            KbEntry.status == "active",
+                            visible_knowledge_filter(),
+                        )
                         .order_by(KbEntry.created_at, KbEntry.id)
                     )
                 )

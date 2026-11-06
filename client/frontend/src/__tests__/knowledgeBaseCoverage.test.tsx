@@ -18,12 +18,16 @@ const api = vi.hoisted(() => ({
   entries: vi.fn(),
   libraries: vi.fn(),
   createEntry: vi.fn(),
+  deleteEntry: vi.fn(),
+  entry: vi.fn(),
   graphAggregate: vi.fn(),
   graphCell: vi.fn(),
 }));
 
 const organize = vi.hoisted(() => ({
   graphEntries: vi.fn(),
+  entryRelations: vi.fn(),
+  relationFeedback: vi.fn(),
   status: vi.fn(),
   findings: vi.fn(),
 }));
@@ -111,6 +115,7 @@ beforeEach(() => {
   ]);
   api.entries.mockResolvedValue({ entries: [entry()], next_cursor: "" });
   api.createEntry.mockResolvedValue(entry());
+  api.deleteEntry.mockResolvedValue({ deleted: "x" });
 });
 
 beforeEach(() => {
@@ -272,6 +277,55 @@ describe("KnowledgeBasePage 全部题材兜底（星图/知识整理）", () => 
 });
 
 describe("KnowledgeBasePage 手录表单", () => {
+  it("素材行抽屉：提示卡＋删除确认真删（c-kb-summarize）", async () => {
+    const mat: KbEntry = { ...entry(), id: "kbentry-mat", title: "素材条目", origin: "material", instruction: "素材原文。" };
+    api.entries.mockResolvedValue({ entries: [entry(), mat], next_cursor: "" });
+    renderPage();
+    await waitFor(() => expect(screen.getByText("素材条目")).toBeTruthy());
+    fireEvent.click(screen.getByText("素材条目"));
+    await waitFor(() => expect(screen.getByText(/这是素材——/)).toBeTruthy());
+    expect(screen.getByText("删除素材")).toBeTruthy();
+    const confirmSpy = vi.spyOn(window, "confirm").mockReturnValue(false);
+    fireEvent.click(screen.getByText("删除素材"));
+    expect(api.deleteEntry).not.toHaveBeenCalled();
+    confirmSpy.mockReturnValue(true);
+    fireEvent.click(screen.getByText("删除素材"));
+    await waitFor(() => expect(api.deleteEntry).toHaveBeenCalledWith("kbentry-mat"));
+    confirmSpy.mockRestore();
+  });
+
+  it("素材删除失败臂：opNote 提示（c-kb-summarize）", async () => {
+    const mat: KbEntry = { ...entry(), id: "kbentry-mat2", title: "素材条目二", origin: "material", instruction: "素材原文。" };
+    api.entries.mockResolvedValue({ entries: [mat], next_cursor: "" });
+    api.deleteEntry.mockRejectedValueOnce(new Error("删除失败"));
+    renderPage();
+    await waitFor(() => expect(screen.getByText("素材条目二")).toBeTruthy());
+    fireEvent.click(screen.getByText("素材条目二"));
+    await waitFor(() => expect(screen.getByText("删除素材")).toBeTruthy());
+    const spy = vi.spyOn(window, "confirm").mockReturnValue(true);
+    fireEvent.click(screen.getByText("删除素材"));
+    await waitFor(() => expect(screen.getByText(/删除失败/)).toBeTruthy());
+    spy.mockRestore();
+  });
+
+  it("点跳兜底失败臂：对端拉详情失败给提示（c-kb-relations-view）", async () => {
+    organize.entryRelations.mockResolvedValue({
+      relations: [
+        { id: "rel-x", rel_type: "applies_to", status: "active", direction: "out",
+          other_id: "kbentry-external-oops", other_title: "外部对端", confidence: 1, note: "", evidence: "" },
+      ],
+      merged_into: null,
+    });
+    api.entry.mockRejectedValueOnce(new Error("net"));
+    renderPage();
+    await waitFor(() => expect(screen.getByText("先果后因")).toBeTruthy());
+    fireEvent.click(screen.getByText("先果后因"));
+    await waitFor(() => expect(screen.getByText(/关联知识 · 来自知识整理/)).toBeTruthy());
+    const relButton = screen.getByText(/适用于 外部对端/).closest("button");
+    fireEvent.click(relButton!);
+    await waitFor(() => expect(screen.getByText(/暂时打不开/)).toBeTruthy());
+  });
+
   async function openManual() {
     api.entries.mockResolvedValue({ entries: [], next_cursor: "" });
     renderPage();

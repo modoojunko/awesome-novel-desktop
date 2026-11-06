@@ -181,45 +181,54 @@ async def run_summarize(
     valid_concepts = {"文风", "文笔", "世界设定", "角色设定", "手法"}
     mat_ids = {m.id for m in materials}
     mats_by_id = {m.id: m for m in materials}
-    for c in candidates:
-        # 管线层三闸：素材归组须属本桶且未被本轮先行知识用掉、标题非空、
-        # concept 白名单、parent 白名单（非法落概念根）
-        mids = [m for m in (c.get("material_ids") or []) if m in mat_ids and m not in used_material_ids]
-        if not mids or not (c.get("title") or "").strip():
-            continue
-        concept = c.get("concept") if c.get("concept") in valid_concepts else "手法"
-        parent = c.get("parent", "ROOT")
-        parent = parent if parent in existing_ids else ""
+    try:
+        for c in candidates:
+            # 管线层三闸：素材归组须属本桶且未被本轮先行知识用掉、标题非空、
+            # concept 白名单、parent 白名单（非法落概念根）
+            mids = [m for m in (c.get("material_ids") or []) if m in mat_ids and m not in used_material_ids]
+            if not mids or not (c.get("title") or "").strip():
+                continue
+            concept = c.get("concept") if c.get("concept") in valid_concepts else "手法"
+            parent = c.get("parent", "ROOT")
+            parent = parent if parent in existing_ids else ""
 
-        kid = uuid.uuid4().hex
-        db.add(KbEntry(
-            id=kid,
-            user_id=user_id,
-            genre=genre,
-            concept=concept,
-            concept_id=f"{genre}:{concept}",
-            title=c["title"].strip()[:40],
-            payload_json="{}",
-            instruction="",
-            definition=(c.get("definition") or "").strip()[:500],
-            origin="summary",
-            status="active",
-            version=1,
-            parent_id=parent,
-        ))
-        for sort, mid in enumerate(mids):
-            m = mats_by_id[mid]
-            db.add(KbKnowledgeInstance(
-                knowledge_id=kid,
-                text=m.instruction or "",
-                source_kind="拆书" if m.src_kind == "deconstruct" else "手录",
-                source_novel=m.src_novel_name or "",
-                quote=(m.evidence or "")[:500],
-                sort=sort,
+            kid = uuid.uuid4().hex
+            db.add(KbEntry(
+                id=kid,
+                user_id=user_id,
+                genre=genre,
+                concept=concept,
+                concept_id=f"{genre}:{concept}",
+                title=c["title"].strip()[:40],
+                payload_json="{}",
+                instruction="",
+                definition=(c.get("definition") or "").strip()[:500],
+                origin="summary",
+                status="active",
+                version=1,
+                parent_id=parent,
             ))
-            m.status = "archived"  # 素材行归档（审计可回溯）
-            used_material_ids.add(mid)
-        created += 1
+            for sort, mid in enumerate(mids):
+                m = mats_by_id[mid]
+                db.add(KbKnowledgeInstance(
+                    knowledge_id=kid,
+                    text=m.instruction or "",
+                    source_kind="拆书" if m.src_kind == "deconstruct" else "手录",
+                    source_novel=m.src_novel_name or "",
+                    quote=(m.evidence or "")[:500],
+                    sort=sort,
+                ))
+                m.status = "archived"  # 素材行归档（审计可回溯）
+                used_material_ids.add(mid)
+            created += 1
+    except Exception as exc:  # noqa: BLE001 — 中途异常回滚半截写入，run 置 error 不留 running 孤儿
+        await db.rollback()
+        await db.execute(
+            _t("UPDATE kb_summarize_runs SET status='error', error=:e WHERE id=:i"),
+            {"e": f"pipeline: {exc}", "i": run_id},
+        )
+        await db.commit()
+        return {"collected": len(materials), "knowledge": 0}, f"pipeline: {exc}"
 
     status = "error" if error else "completed"
     await db.execute(
@@ -342,7 +351,11 @@ async def _maybe_auto_summarize(db: AsyncSession, *, user_id: str) -> list[str]:
     stats = await material_stats(db, user_id=user_id)
     triggered: list[str] = []
     for genre, n in sorted(stats.items()):
-        due = n >= AUTO_MATERIAL_THRESHOLD or await _last_run_older_than_days(db, user_id=user_id, genre=genre, days=7)
+        # 触发口径：积压 ≥阈值 或 距上次总结超期；但 7 天内有过 completed（含零候选
+        # 合法空转）则冷却不重跑——防止「无可提炼」题材每次启动白调一次模型
+        older = await _last_run_older_than_days(db, user_id=user_id, genre=genre, days=7)
+        recent_completed = not older
+        due = (n >= AUTO_MATERIAL_THRESHOLD and not recent_completed) or older
         if not due:
             continue
         try:
