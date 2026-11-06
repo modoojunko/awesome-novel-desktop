@@ -259,20 +259,11 @@ async def lifespan(app: FastAPI):
 
     # ── 知识总结启动钩（c-kb-summarize）：ensure 两表＋parent_id 列＋素材积压 ≥5 自动总结 ──
     try:
-        from kb.summarize import ensure_kb_summarize, maybe_auto_summarize
+        from auth_local.service import get_local_config
+        from kb.summarize import maybe_auto_summarize
 
-        async with async_session() as _sm_db:
-            await ensure_kb_summarize(_sm_db)
-        # 用户段：本地单机＝当前账号（main lifespan 的既有用户解析口径与整理启动钩一致时
-        # 直接复用；此处按本地单账号语义取 config 用户 id）
-        _sm_uid = None
-        try:
-            from auth_local.service import get_local_config
-
-            _cfg = get_local_config()
-            _sm_uid = (_cfg.get("username") or "") or None
-        except Exception:  # noqa: BLE001 — 无配置即无账号，跳过自动总结
-            _sm_uid = None
+        _cfg = get_local_config()
+        _sm_uid = (_cfg.get("username") or "") or None
         if _sm_uid:
             _sm = await maybe_auto_summarize(user_id=_sm_uid)
             if _sm:

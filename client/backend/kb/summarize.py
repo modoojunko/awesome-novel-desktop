@@ -192,10 +192,15 @@ async def run_summarize(
             if concept == "角色设定" and slot_value in named:
                 return named[slot_value]
             slot_cn = {
-                "role": "叙事身份", "rule": "规则", "craft": "写法",
-                "sample": "示范", "examples": "示范", "taboo": "忌用",
-                "stage": "舞台", "power": "力量与规则", "no_power": "无力量设定",
-                "cost": "代价", "history": "历史沿革",
+                # 文风 slot（payloads.StylePayload）
+                "role": "叙事身份", "tone": "语调", "pov": "叙事视角",
+                "register": "语域", "sample": "示范",
+                # 文笔 slot（CraftPayload）
+                "rule": "规则", "craft": "写法", "banned_word": "忌用词", "tic": "口癖",
+                # 世界 part（WorldPayload）
+                "stage": "舞台", "power": "力量与规则", "cost": "代价",
+                "factions": "势力", "history": "历史沿革", "extra": "其他",
+                "constraint": "约束",
             }
             return slot_cn.get(slot_value, slot_value or "写法")
 
@@ -210,7 +215,7 @@ async def run_summarize(
 
         # schema 字段元数据＝桶内素材 payload 键的并集（代码可算，无需 LLM）；
         # 系统键与空值键排除。字段 desc 由前端字段字典（kbFieldLabels）补作家语言。
-        SKIP_KEYS = {"id", "user_id", "archetype"}
+        SKIP_KEYS = {"id", "user_id", "archetype", "slot", "part", "role"}
 
         for (concept, slot_value), bucket in sorted(buckets.items()):
             key_set: dict[str, None] = {}
@@ -239,8 +244,14 @@ async def run_summarize(
                 parent_id="",
             ))
             for sort, m in enumerate(bucket):
-                fields = {k: str(v)[:200] for k, v in _payload_of(m).items()
-                          if k in key_set and str(v).strip()}
+                def _field_val(v):
+                    if v is None:
+                        return ""
+                    if isinstance(v, str):
+                        return v.strip()[:200]
+                    return json.dumps(v, ensure_ascii=False)[:200]
+                fields = {k: _field_val(v) for k, v in _payload_of(m).items()
+                          if k not in SKIP_KEYS and _field_val(v)}
                 db.add(KbKnowledgeInstance(
                     knowledge_id=kid,
                     text=m.instruction or "",
@@ -284,9 +295,6 @@ async def _last_run_older_than_days(
             {"u": user_id, "g": genre},
         )
     ).first()
-    import os as _os
-    if _os.environ.get("KBSM_DEBUG"):
-        print("DEBUG last_run row:", repr(tuple(row) if row else None))
     if row is None:
         return True
     from datetime import UTC, datetime, timedelta
@@ -300,16 +308,36 @@ async def _last_run_older_than_days(
         return True
 
 
+async def maybe_auto_summarize(*, user_id: str) -> list[str]:
+    """启动钩入口（自开 session，同 organize startup 钩先例）。"""
+    from db import async_session
+
+    async with async_session() as db:
+        return await _maybe_auto_summarize(db, user_id=user_id)
+
+
 async def _maybe_auto_summarize(db: AsyncSession, *, user_id: str) -> list[str]:
     await ensure_kb_summarize(db)
     stats = await material_stats(db, user_id=user_id)
     triggered: list[str] = []
     for genre, n in sorted(stats.items()):
-        # 触发口径：积压 ≥阈值 或 距上次总结超期；但 7 天内有过 completed（含零候选
-        # 合法空转）则冷却不重跑——防止「无可提炼」题材每次启动白调一次模型
+        # 触发口径：积压 ≥阈值 或 距上次总结超期。冷却只在「素材数无增量」时生效——
+        # 新素材落库（count 超过上次 run 的 materials_scanned）立即再跑，不白等 7 天
+        run_row = (
+            await db.execute(
+                _t(
+                    "SELECT materials_scanned, created_at FROM kb_summarize_runs "
+                    "WHERE user_id=:u AND genre=:g AND status='completed' "
+                    "ORDER BY created_at DESC LIMIT 1"
+                ),
+                {"u": user_id, "g": genre},
+            )
+        ).first()
         older = await _last_run_older_than_days(db, user_id=user_id, genre=genre, days=7)
         recent_completed = not older
-        due = (n >= AUTO_MATERIAL_THRESHOLD and not recent_completed) or older
+        due = n >= AUTO_MATERIAL_THRESHOLD or older
+        if due and recent_completed and run_row is not None and n <= (run_row[0] or 0):
+            due = False  # 素材无增量，冷却生效
         if not due:
             continue
         try:

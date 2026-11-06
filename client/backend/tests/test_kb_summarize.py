@@ -37,7 +37,7 @@ class TestMaterialEntry:
 
     def test_手录素材_不装载槽位_不物化标签(self):
         uid = self._mk("mat")
-        _seed_user(uid)
+        _run(_seed_user(uid))
 
         async def _go():
             async with async_session() as db:
@@ -55,7 +55,7 @@ class TestMaterialEntry:
 
     def test_素材必须有类别归组(self):
         uid = self._mk("nocat")
-        _seed_user(uid)
+        _run(_seed_user(uid))
 
         async def _go():
             async with async_session() as db:
@@ -68,7 +68,7 @@ class TestMaterialEntry:
 
     def test_列表含素材_排除参数滤掉(self):
         uid = self._mk("list")
-        _seed_user(uid)
+        _run(_seed_user(uid))
 
         async def _seed_both():
             async with async_session() as db:
@@ -94,7 +94,7 @@ class TestMaterialEntry:
 
     def test_素材删除真删_知识删除归档(self):
         uid = self._mk("del")
-        _seed_user(uid)
+        _run(_seed_user(uid))
 
         async def _seed():
             async with async_session() as db:
@@ -160,7 +160,7 @@ class TestCodeBucketedTree:
 
     def test_两级分桶_建树(self):
         uid = self._mk("tree")
-        _seed_user(uid)
+        _run(_seed_user(uid))
         self._seed_materials(uid)
 
         from kb.summarize import run_summarize
@@ -189,7 +189,7 @@ class TestCodeBucketedTree:
 
     def test_二次跑_素材已归档_零新建(self):
         uid = self._mk("idem")
-        _seed_user(uid)
+        _run(_seed_user(uid))
         self._seed_materials(uid)
 
         from kb.summarize import run_summarize
@@ -204,7 +204,7 @@ class TestCodeBucketedTree:
 
     def test_单飞_running_挡住并发(self):
         uid = self._mk("sf")
-        _seed_user(uid)
+        _run(_seed_user(uid))
         self._seed_materials(uid)
 
         from kb.summarize import run_summarize
@@ -225,7 +225,7 @@ class TestCodeBucketedTree:
 
     def test_积压阈值与定期兜底触发(self):
         uid = self._mk("auto")
-        _seed_user(uid)
+        _run(_seed_user(uid))
         self._seed_materials(uid, n=5)
 
         from kb.summarize import _maybe_auto_summarize
@@ -246,7 +246,7 @@ class TestCodeBucketedTree:
 
     def test_直建知识通道_as_knowledge_带定义(self):
         uid = self._mk("direct")
-        _seed_user(uid)
+        _run(_seed_user(uid))
 
         async def _go():
             async with async_session() as db:
