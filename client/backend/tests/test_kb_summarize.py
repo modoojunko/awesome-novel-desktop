@@ -123,7 +123,7 @@ class TestMaterialEntry:
 
 
 class TestSummarizePipeline:
-    """批B：总结管线（runs/候选/校验/采纳/忽略/单飞/自动触发）。"""
+    """批B：总结管线（定期任务自动整理——知识直接生效，无确认制）。"""
 
     def _mk(self, tag):
         return f"kbsm-{tag}-{uuid.uuid4().hex[:8]}"
@@ -131,7 +131,7 @@ class TestSummarizePipeline:
     def _seed_materials(self, uid, genre, n, concept="文风"):
         async def _go():
             async with async_session() as db:
-                ids = []
+                rows = []
                 for i in range(n):
                     e = KbEntry(
                         user_id=uid, genre=genre, concept=concept,
@@ -141,12 +141,12 @@ class TestSummarizePipeline:
                         src_kind="manual", src_ref="", src_key=f"k{i}",
                     )
                     db.add(e)
-                    ids.append(e)
+                    rows.append(e)
                 await db.commit()
-                return [e.id for e in ids]
+                return [e.id for e in rows]
         return _run(_go())
 
-    def test_跑一次_done_零候选_单飞_素材不足不跑(self):
+    def test_跑一次_done_单飞_无素材不落runs(self):
         uid = self._mk("run")
         _run(_seed_user(uid))
         self._seed_materials(uid, "玄幻", 2)
@@ -157,7 +157,7 @@ class TestSummarizePipeline:
             async with async_session() as db:
                 return await run_summarize(db, user_id=uid, genre="玄幻", trigger="manual", llm=llm)
         summary, err = _run(_go(llm=False))
-        assert err == "" and summary["candidates"] == 0 and summary["collected"] == 2
+        assert err == "" and summary["knowledge"] == 0 and summary["collected"] == 2
 
         # 单飞：插一行 running → 再触发返回 running
         async def _insert_running():
@@ -166,16 +166,11 @@ class TestSummarizePipeline:
                     "INSERT INTO kb_summarize_runs (id, user_id, genre, status, trigger) "
                     "VALUES ('r-running', :u, '玄幻', 'running', 'manual')"), {"u": uid})
                 await db.commit()
-        from sqlalchemy import text as _t
         _run(_insert_running())
         summary2, err2 = _run(_go(llm=False))
         assert summary2 is None and err2 == "running"
 
-        # 无素材题材：不跑（collected=0 且不落 runs？落 runs 前即返）
-        summary3, err3 = _run(_go(llm=False))
-        assert summary3 is None and err3 == "running"  # 仍被 running 单飞挡住
-
-    def test_候选校验_非法素材id与parent被滤(self, monkeypatch):
+    def test_三闸_非法素材id_空标题_坏parent_自动归根_直接建知识(self, monkeypatch):
         uid = self._mk("valid")
         _run(_seed_user(uid))
         ids = self._seed_materials(uid, "玄幻", 2)
@@ -198,65 +193,52 @@ class TestSummarizePipeline:
 
         async def _go():
             async with async_session() as db:
-                return await run_summarize(db, user_id=uid, genre="玄幻", trigger="manual", llm=True)
+                return await run_summarize(db, user_id=uid, genre="玄幻", trigger="auto", llm=True)
         summary, err = _run(_go())
-        assert err == "" and summary["candidates"] == 2, "非法素材引用与空标题候选被滤"
+        assert err == "" and summary["knowledge"] == 2, "非法素材引用与空标题簇被滤"
 
-        async def _pending():
+        async def _check():
             async with async_session() as db:
                 rows = (await db.execute(_t(
-                    "SELECT proposed_title, parent_knowledge_id FROM kb_summarize_candidates "
-                    "WHERE user_id=:u AND status='pending'"), {"u": uid})).mappings().all()
-                return {r["proposed_title"]: r["parent_knowledge_id"] for r in rows}
-        pend = _run(_pending())
-        print("DEBUG pend:", pend)
-        async def _all_rows():
-            async with async_session() as db:
-                rows = (await db.execute(_t(
-                    "SELECT user_id, proposed_title, status FROM kb_summarize_candidates"))).mappings().all()
-                runs = (await db.execute(_t(
-                    "SELECT user_id, genre, status, candidates_created, error FROM kb_summarize_runs"))).mappings().all()
-                return [dict(r) for r in rows], [dict(r) for r in runs]
-        all_rows, all_runs = _run(_all_rows())
-        print("DEBUG all_candidates:", all_rows)
-        print("DEBUG all_runs:", all_runs)
-        assert pend["短句控节奏"] == ""  # ROOT 落空
-        assert pend["挂不存在父"] == ""  # 非法 parent 落空（概念根）
+                    "SELECT title, origin, parent_id FROM kb_entries WHERE user_id=:u AND origin='summary'"),
+                    {"u": uid})).mappings().all()
+                inst = (await db.execute(_t(
+                    "SELECT count(*) FROM kb_knowledge_instances ki "
+                    "JOIN kb_entries e ON e.id = ki.knowledge_id WHERE e.user_id=:u AND e.origin='summary'"),
+                    {"u": uid})).scalar()
+                return {r["title"]: (r["origin"], r["parent_id"]) for r in rows}, inst
+        kb, inst_n = _run(_check())
+        assert set(kb) == {"短句控节奏", "挂不存在父"}
+        assert all(o == "summary" and p == "" for o, p in kb.values())
+        assert inst_n == 2
 
-    def test_采纳_转实例_归档素材_素材用尽拒(self, monkeypatch):
+    def test_自动建知识_转实例_归档素材_素材用尽不建空知识(self, monkeypatch):
         uid = self._mk("adopt")
         _run(_seed_user(uid))
         ids = self._seed_materials(uid, "玄幻", 1)
 
         async def _fake_llm(user_id, genre, materials, existing_lines, existing_ids):
-            return [{"title": "短句控节奏", "definition": "用短句控制叙事节奏。", "concept": "文风",
-                     "parent": "ROOT", "material_ids": ids}], None
+            out = [{"title": "短句控节奏", "definition": "用短句控制叙事节奏。", "concept": "文风",
+                    "parent": "ROOT", "material_ids": [ids[0]]}]
+            if getattr(_fake_llm, "second", False):
+                out.append({"title": "等价候选", "definition": "x", "concept": "文风",
+                            "parent": "ROOT", "material_ids": [ids[0]]})  # 素材已用尽
+            _fake_llm.second = True
+            return out, None
         monkeypatch.setattr("kb.summarize._llm_candidates", _fake_llm)
 
-        from kb.summarize import adopt_candidate, run_summarize
+        from kb.summarize import run_summarize
 
-        async def _run_summ():
+        async def _go():
             async with async_session() as db:
-                return await run_summarize(db, user_id=uid, genre="玄幻", trigger="manual", llm=True)
-        _run(_run_summ())
-
-        async def _pending_id():
-            async with async_session() as db:
-                return (await db.execute(_t(
-                    "SELECT id FROM kb_summarize_candidates WHERE user_id=:u AND status='pending'"),
-                    {"u": uid})).scalar()
-        cid = _run(_pending_id())
-
-        async def _adopt(adopt_id):
-            async with async_session() as db:
-                return await adopt_candidate(db, user_id=uid, candidate_id=adopt_id)
-        ok, msg = _run(_adopt(cid))
-        assert ok is True, msg
+                return await run_summarize(db, user_id=uid, genre="玄幻", trigger="auto", llm=True)
+        r1, _ = _run(_go())
+        assert r1["knowledge"] == 1
 
         async def _check():
             async with async_session() as db:
                 kb = (await db.execute(_t(
-                    "SELECT id, definition, origin, parent_id FROM kb_entries WHERE user_id=:u AND origin='summary'"),
+                    "SELECT id, definition, origin FROM kb_entries WHERE user_id=:u AND origin='summary'"),
                     {"u": uid})).mappings().first()
                 inst = (await db.execute(_t(
                     "SELECT count(*) FROM kb_knowledge_instances WHERE knowledge_id=:k"),
@@ -268,60 +250,11 @@ class TestSummarizePipeline:
         assert inst_n == 1
         assert mat_status == "archived"
 
-        # 素材已用尽：新建等价候选再采纳 → no_materials + dismissed
-        async def _insert_dup():
-            async with async_session() as db:
-                await db.execute(_t(
-                    "INSERT INTO kb_summarize_candidates (id, run_id, user_id, genre, concept, "
-                    "proposed_title, proposed_definition, material_ids, status) "
-                    "VALUES ('c-dup', 'r-x', :u, '玄幻', '文风', '等价候选', 'x', :m, 'pending')"),
-                    {"u": uid, "m": f'["{ids[0]}"]'})
-                await db.commit()
-        _run(_insert_dup())
-        async def _peek():
-            async with async_session() as db:
-                rows = (await db.execute(_t(
-                    "SELECT id, status FROM kb_summarize_candidates WHERE user_id=:u"),
-                    {"u": uid})).mappings().all()
-                return [dict(r) for r in rows]
-        print("DEBUG candidates:", _run(_peek()))
-        ok2, msg2 = _run(_adopt("c-dup"))
-        assert ok2 is False and msg2 == "no_materials"
+        # 第二轮：素材已被用尽 → 不建空知识
+        r2, _ = _run(_go())
+        assert r2["knowledge"] == 0, "素材用尽的簇不建空知识"
 
-    def test_忽略候选(self, monkeypatch):
-        uid = self._mk("dismiss")
-        _run(_seed_user(uid))
-        self._seed_materials(uid, "玄幻", 1)
-
-        async def _fake_llm(user_id, genre, materials, existing_lines, existing_ids):
-            return [{"title": "t", "definition": "d", "concept": "文风",
-                     "parent": "ROOT", "material_ids": [m.id for m in materials]}], None
-        monkeypatch.setattr("kb.summarize._llm_candidates", _fake_llm)
-
-        from kb.summarize import dismiss_candidate, run_summarize
-
-        async def _summ():
-            async with async_session() as db:
-                return await run_summarize(db, user_id=uid, genre="玄幻", trigger="manual", llm=True)
-        _run(_summ())
-        async def _pending_id():
-            async with async_session() as db:
-                return (await db.execute(_t(
-                    "SELECT id FROM kb_summarize_candidates WHERE user_id=:u AND status='pending'"),
-                    {"u": uid})).scalar()
-        cid = _run(_pending_id())
-        async def _dismiss():
-            async with async_session() as db:
-                return await dismiss_candidate(db, user_id=uid, candidate_id=cid)
-        assert _run(_dismiss()) is True
-        async def _pending_n():
-            async with async_session() as db:
-                return (await db.execute(_t(
-                    "SELECT count(*) FROM kb_summarize_candidates WHERE user_id=:u AND status='pending'"),
-                    {"u": uid})).scalar()
-        assert _run(_pending_n()) == 0
-
-    def test_积压阈值自动触发(self, monkeypatch):
+    def test_积压阈值与定期兜底自动触发(self, monkeypatch):
         uid = self._mk("auto")
         _run(_seed_user(uid))
         self._seed_materials(uid, "玄幻", 5)
@@ -335,13 +268,16 @@ class TestSummarizePipeline:
         async def _go():
             async with async_session() as db:
                 return await _maybe_auto_summarize(db, user_id=uid)
-        triggered = _run(_go())
-        assert triggered == ["玄幻"]
-        # 4 条不触发
+        assert _run(_go()) == ["玄幻"]
+        # 素材未消耗（fake 无候选）→ 积压恒 ≥5 → 阈值口径下持续触发（正确）；
+        # 定期去重（7 天内不重复）由 4 条场景覆盖（阈值未达时才查定期）
+
+        # 4 条题材：无运行记录＝定期兜底视为超期 → 首轮也整理；跑完后 7 天内不重复
         uid2 = self._mk("auto4")
         _run(_seed_user(uid2))
         self._seed_materials(uid2, "都市", 4)
         async def _go2():
             async with async_session() as db:
                 return await _maybe_auto_summarize(db, user_id=uid2)
+        assert _run(_go2()) == ["都市"]
         assert _run(_go2()) == []

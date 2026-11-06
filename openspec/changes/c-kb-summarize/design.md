@@ -30,15 +30,15 @@
 
 ### D2 总结运行独立落表 `kb_summarize_runs`（ensure DDL 通道建）
 
-不混入 `kb_organize_runs`（语义是关系整理）。字段：id/user_id/genre/status(running/done/error)/materials_scanned/candidates_created/error/created_at。候选落 `kb_summarize_candidates`：id/run_id/genre/concept/proposed_title/proposed_definition/material_ids(json)/status(pending/adopted/dismissed)/created_at。同 genre 单飞（running 存在即跳过，同整理 singleflight 口径）。
+不混入 `kb_organize_runs`（语义是关系整理）。字段：id/user_id/genre/status(running/completed/error)/trigger/materials_scanned/knowledge_created/error/created_at。同 genre 单飞（running 存在即跳过，同整理 singleflight 口径）。
 
 ### D3 聚类确定性，提炼交 LLM
 
 聚类在应用层：按 `genre+concept` 分桶（素材行已有归组），桶内素材全量给 LLM。提示词 `kb_summarize.prompt` 输出 JSON 候选数组（proposed_title/proposed_definition/material_ids），应用层校验：material_ids 必须属于本桶、标题非空、定义长度闸（≤500 字同示范段闸先例）。LLM 失败/模板缺失 → run 记 error fail-soft，不阻断知识库其他功能。
 
-### D4 确认制采纳，不自动生效
+### D4 定期任务自动整理，知识直接生效（boss 拍板 2026-11-06：无确认制）
 
-候选 pending 清单进整理面板（复用 pending 关系清单交互先例）：采纳＝建知识行（`origin='summary'`、`status='active'`、`version=1`）＋素材转实例＋素材行归档；忽略＝dismissed（同候选不重复提出）。同一素材被多个候选引用时以先采纳者为准，后采纳的候选自动剔除已用素材 id（应用层校验）。
+LLM 提炼的候选知识**直接建行生效**（`origin='summary'`＋素材转实例＋素材行归档），不设作家采纳环节——「定期有任务调用大模型进行知识整理」。同一素材被多簇引用时先到先得（管线层剔除已用素材 id，素材用尽的簇不建空知识）。兜底＝总结产的知识按普通知识管理：作家可修改、可归档（删除链路已有）。触发：素材积压 ≥阈值启动期自动、距上次总结 >7 天且有素材的定期兜底、整理面板手动。
 
 ### D5 触发：手动＋积压自动
 

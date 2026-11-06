@@ -1154,7 +1154,7 @@ async def add_instance_api(
     return {"ok": True, "instance": {"id": inst.id, "text": inst.text}}
 
 
-# ─── 知识总结（c-kb-summarize）：素材 → 候选知识点 → 确认制采纳 ──────────
+# ─── 知识总结（c-kb-summarize）：定期任务自动整理，知识直接生效 ──────────
 
 
 class SummarizeRunRequest(BaseModel):
@@ -1187,61 +1187,17 @@ async def summarize_status_api(
     user: dict = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    from kb.summarize import material_stats, pending_candidates
+    from kb.summarize import material_stats
 
     uid = _user(user)
     stats = await material_stats(db, user_id=uid)
-    pending = await pending_candidates(db, user_id=uid)
     return {
         "ok": True,
         "data": {
             "materials_by_genre": stats,
-            "pending_count": len(pending),
             "threshold": 5,
         },
     }
-
-
-@router.get("/summarize/candidates")
-async def summarize_candidates_api(
-    genre: str = "",
-    user: dict = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db),
-):
-    from kb.summarize import pending_candidates
-
-    rows = await pending_candidates(db, user_id=_user(user), genre=genre)
-    return {"ok": True, "data": {"candidates": rows}}
-
-
-@router.post("/summarize/candidates/{candidate_id}/adopt")
-async def summarize_adopt_api(
-    candidate_id: str,
-    user: dict = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db),
-):
-    from kb.summarize import adopt_candidate
-
-    ok, message = await adopt_candidate(db, user_id=_user(user), candidate_id=candidate_id)
-    if not ok and message == "not_found":
-        raise HTTPException(404, "候选不存在")
-    if not ok:
-        return JSONResponse(status_code=409, content={"ok": False, "detail": message})
-    return {"ok": True, "data": {"message": "已采纳，知识已生成"}}
-
-
-@router.post("/summarize/candidates/{candidate_id}/dismiss")
-async def summarize_dismiss_api(
-    candidate_id: str,
-    user: dict = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db),
-):
-    from kb.summarize import dismiss_candidate
-
-    ok = await dismiss_candidate(db, user_id=_user(user), candidate_id=candidate_id)
-    if not ok:
-        raise HTTPException(404, "候选不存在")
-    return {"ok": True, "data": {"message": "已忽略"}}
 
 
 @router.get("/graph/tree")

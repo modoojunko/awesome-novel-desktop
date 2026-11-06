@@ -1,11 +1,13 @@
-"""知识总结管线（c-kb-summarize）：实例素材 → 大模型提炼候选知识 → 确认制采纳。
+"""知识总结管线（c-kb-summarize）：实例素材 → 大模型定期自动整理 → 知识直接生效。
 
 模型口径（boss 2026-11-06）：实例是事实层（素材 origin='material'），知识是总结层
 （origin='summary'），图谱由总结生成——知识树（parent_id 无限嵌套）＋六类关联。
 
-流程：素材按题材×类别分桶 → LLM 提炼候选（名称/定义/层级归属/素材归组）→
-候选 pending 清单 → 作家逐条采纳（建知识＋素材转实例＋素材行归档）或忽略。
+流程：素材按题材×类别分桶 → LLM 提炼知识点（名称/定义/层级归属/素材归组，管线层
+三闸校验）→ **直接建知识＋素材转实例＋素材行归档**（无确认制——定期任务自动整理，
+boss 拍板；兜底＝总结产的知识按普通知识管理，作家可改可删）。
 运行独立落 kb_summarize_runs，同题材单飞；模板缺失 fail-soft 记 error。
+触发：素材积压 ≥阈值启动期自动 / 整理面板手动 / 定期（>7 天且有素材随启动钩）。
 """
 
 from __future__ import annotations
@@ -36,27 +38,10 @@ async def ensure_kb_summarize(db: AsyncSession) -> dict[str, int]:
         status TEXT NOT NULL DEFAULT 'running',
         trigger TEXT NOT NULL DEFAULT '',
         materials_scanned INTEGER NOT NULL DEFAULT 0,
-        candidates_created INTEGER NOT NULL DEFAULT 0,
+        knowledge_created INTEGER NOT NULL DEFAULT 0,
         error TEXT NOT NULL DEFAULT '',
         created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
     )"""))
-    await db.execute(_t("""CREATE TABLE IF NOT EXISTS kb_summarize_candidates (
-        id TEXT PRIMARY KEY,
-        run_id TEXT NOT NULL,
-        user_id TEXT NOT NULL,
-        genre TEXT NOT NULL DEFAULT '',
-        concept TEXT NOT NULL DEFAULT '',
-        proposed_title TEXT NOT NULL DEFAULT '',
-        proposed_definition TEXT NOT NULL DEFAULT '',
-        parent_knowledge_id TEXT NOT NULL DEFAULT '',
-        material_ids TEXT NOT NULL DEFAULT '[]',
-        status TEXT NOT NULL DEFAULT 'pending',
-        created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
-    )"""))
-    await db.execute(_t(
-        "CREATE INDEX IF NOT EXISTS ix_kb_summarize_candidates_user "
-        "ON kb_summarize_candidates (user_id, status)"
-    ))
     await db.commit()
     return {"ddl": added}
 
@@ -125,7 +110,7 @@ async def run_summarize(
         )
     ).scalars().all()
     if not materials:
-        return {"collected": 0, "candidates": 0}, ""
+        return {"collected": 0, "knowledge": 0}, ""
 
     run_id = uuid.uuid4().hex
     await db.execute(_t(
@@ -156,45 +141,62 @@ async def run_summarize(
         )
         error = error or ""
 
+    # 直接建知识（无确认制——定期任务自动整理，boss 拍板；兜底＝总结产的知识按
+    # 普通知识管理：作家可修改可归档）。
     created = 0
+    used_material_ids: set[str] = set()
     valid_concepts = {"文风", "文笔", "世界设定", "角色设定", "手法"}
     mat_ids = {m.id for m in materials}
+    mats_by_id = {m.id: m for m in materials}
     for c in candidates:
-        # 管线层三闸（不依赖传输层自觉）：素材归组须属本桶、标题非空、concept 白名单、
-        # parent 白名单（非法落概念根）
-        mids = [m for m in (c.get("material_ids") or []) if m in mat_ids]
+        # 管线层三闸：素材归组须属本桶且未被本轮先行知识用掉、标题非空、
+        # concept 白名单、parent 白名单（非法落概念根）
+        mids = [m for m in (c.get("material_ids") or []) if m in mat_ids and m not in used_material_ids]
         if not mids or not (c.get("title") or "").strip():
             continue
         concept = c.get("concept") if c.get("concept") in valid_concepts else "手法"
         parent = c.get("parent", "ROOT")
         parent = parent if parent in existing_ids else ""
-        await db.execute(
-            _t(
-                "INSERT INTO kb_summarize_candidates "
-                "(id, run_id, user_id, genre, concept, proposed_title, proposed_definition, "
-                "parent_knowledge_id, material_ids, status) "
-                "VALUES (:i, :r, :u, :g, :c, :t, :d, :p, :m, 'pending')"
-            ),
-            {
-                "i": uuid.uuid4().hex, "r": run_id, "u": user_id, "g": genre,
-                "c": concept[:12],
-                "t": c["title"].strip()[:40],
-                "d": (c.get("definition") or "").strip()[:500],
-                "p": parent,
-                "m": json.dumps(mids, ensure_ascii=False),
-            },
-        )
+
+        kid = uuid.uuid4().hex
+        db.add(KbEntry(
+            id=kid,
+            user_id=user_id,
+            genre=genre,
+            concept=concept,
+            concept_id=f"{genre}:{concept}",
+            title=c["title"].strip()[:40],
+            payload_json="{}",
+            instruction="",
+            definition=(c.get("definition") or "").strip()[:500],
+            origin="summary",
+            status="active",
+            version=1,
+            parent_id=parent,
+        ))
+        for sort, mid in enumerate(mids):
+            m = mats_by_id[mid]
+            db.add(KbKnowledgeInstance(
+                knowledge_id=kid,
+                text=m.instruction or "",
+                source_kind="拆书" if m.src_kind == "deconstruct" else "手录",
+                source_novel=m.src_novel_name or "",
+                quote=(m.evidence or "")[:500],
+                sort=sort,
+            ))
+            m.status = "archived"  # 素材行归档（审计可回溯）
+            used_material_ids.add(mid)
         created += 1
 
     status = "error" if error else "completed"
     await db.execute(
         _t(
-            "UPDATE kb_summarize_runs SET status=:s, candidates_created=:n, error=:e WHERE id=:i"
+            "UPDATE kb_summarize_runs SET status=:s, knowledge_created=:n, error=:e WHERE id=:i"
         ),
         {"s": status, "n": created, "e": error, "i": run_id},
     )
     await db.commit()
-    return {"collected": len(materials), "candidates": created}, error
+    return {"collected": len(materials), "knowledge": created}, error
 
 
 async def _llm_candidates(
@@ -257,134 +259,6 @@ async def _llm_candidates(
 # ─── 候选清单与采纳/忽略 ────────────────────────────────────────────────
 
 
-async def pending_candidates(db: AsyncSession, *, user_id: str, genre: str = "") -> list[dict]:
-    sql = (
-        "SELECT id, genre, concept, proposed_title, proposed_definition, "
-        "parent_knowledge_id, material_ids, created_at FROM kb_summarize_candidates "
-        "WHERE user_id=:u AND status='pending'"
-    )
-    params: dict = {"u": user_id}
-    if genre:
-        sql += " AND genre=:g"
-        params["g"] = genre
-    sql += " ORDER BY created_at, id"
-    rows = (await db.execute(_t(sql), params)).mappings().all()
-    out = []
-    for r in rows:
-        mids = json.loads(r["material_ids"] or "[]")
-        titles = {}
-        if mids:
-            mat_rows = (
-                await db.execute(
-                    select(KbEntry.id, KbEntry.title).where(KbEntry.id.in_(mids))
-                )
-            ).all()
-            titles = {eid: t or "" for eid, t in mat_rows}
-        out.append({
-            "id": r["id"], "genre": r["genre"], "concept": r["concept"],
-            "proposed_title": r["proposed_title"],
-            "proposed_definition": r["proposed_definition"],
-            "parent_knowledge_id": r["parent_knowledge_id"],
-            "materials": [
-                {"id": m, "title": titles.get(m, m), "available": m in titles} for m in mids
-            ],
-        })
-    return out
-
-
-async def adopt_candidate(
-    db: AsyncSession, *, user_id: str, candidate_id: str
-) -> tuple[bool, str]:
-    """采纳候选：建知识（origin=summary）＋素材转实例＋素材行归档＋候选 adopted。
-
-    素材已被先前采纳用尽的候选拒绝采纳（提示已无素材）。
-    """
-    await ensure_kb_summarize(db)
-    row = (
-        await db.execute(
-            _t("SELECT * FROM kb_summarize_candidates WHERE id=:i AND user_id=:u AND status='pending'"),
-            {"i": candidate_id, "u": user_id},
-        )
-    ).mappings().first()
-    if row is None:
-        return False, "not_found"
-
-    mids = json.loads(row["material_ids"] or "[]")
-    mats = (
-        await db.execute(
-            select(KbEntry).where(
-                KbEntry.id.in_(mids),
-                KbEntry.user_id == user_id,
-                KbEntry.origin == "material",
-                KbEntry.status == "active",
-            ).order_by(KbEntry.id)
-        )
-    ).scalars().all()
-    if not mats:
-        await db.execute(_t("UPDATE kb_summarize_candidates SET status='dismissed' WHERE id=:i"),
-                   {"i": candidate_id})
-        await db.commit()
-        return False, "no_materials"
-
-    genre = row["genre"]
-    concept = row["concept"] or mats[0].concept
-    parent = row["parent_knowledge_id"] or ""
-    if parent:
-        p_row = (
-            await db.execute(
-                select(KbEntry).where(
-                    KbEntry.id == parent, KbEntry.user_id == user_id,
-                    KbEntry.origin != "material", KbEntry.status == "active",
-                )
-            )
-        ).scalar_one_or_none()
-        if p_row is None:
-            parent = ""  # 父知识已不可达：落概念根
-
-    kid = uuid.uuid4().hex
-    db.add(KbEntry(
-        id=kid,
-        user_id=user_id,
-        genre=genre,
-        concept=concept,
-        concept_id=f"{genre}:{concept}",
-        title=row["proposed_title"] or "未命名知识",
-        payload_json="{}",
-        instruction="",
-        definition=row["proposed_definition"] or "",
-        origin="summary",
-        status="active",
-        version=1,
-        parent_id=parent,
-    ))
-    for sort, m in enumerate(mats):
-        db.add(KbKnowledgeInstance(
-            knowledge_id=kid,
-            text=m.instruction or "",
-            source_kind="拆书" if m.src_kind == "deconstruct" else "手录",
-            source_novel=m.src_novel_name or "",
-            quote=(m.evidence or "")[:500],
-            sort=sort,
-        ))
-        m.status = "archived"  # 素材行归档（审计可回溯）
-    await db.execute(_t("UPDATE kb_summarize_candidates SET status='adopted' WHERE id=:i"),
-               {"i": candidate_id})
-    await db.commit()
-    return True, ""
-
-
-async def dismiss_candidate(
-    db: AsyncSession, *, user_id: str, candidate_id: str
-) -> bool:
-    await ensure_kb_summarize(db)
-    await db.execute(
-        _t("UPDATE kb_summarize_candidates SET status='dismissed' WHERE id=:i AND user_id=:u AND status='pending'"),
-        {"i": candidate_id, "u": user_id},
-    )
-    await db.commit()
-    return True
-
-
 async def maybe_auto_summarize(*, user_id: str) -> list[str]:
     """启动钩：素材积压 ≥ 阈值的题材各自动总结一次（llm=True；失败静默）。
 
@@ -396,11 +270,42 @@ async def maybe_auto_summarize(*, user_id: str) -> list[str]:
         return await _maybe_auto_summarize(db, user_id=user_id)
 
 
+async def _last_run_older_than_days(
+    db: AsyncSession, *, user_id: str, genre: str, days: int
+) -> bool:
+    """该题材距上次总结是否超过 days 天（无运行记录＝视为超期，定期兜底触发）。"""
+    row = (
+        await db.execute(
+            _t(
+                "SELECT created_at FROM kb_summarize_runs "
+                "WHERE user_id=:u AND genre=:g AND status='completed' "
+                "ORDER BY created_at DESC LIMIT 1"
+            ),
+            {"u": user_id, "g": genre},
+        )
+    ).first()
+    import os as _os
+    if _os.environ.get("KBSM_DEBUG"):
+        print("DEBUG last_run row:", repr(tuple(row) if row else None))
+    if row is None:
+        return True
+    from datetime import UTC, datetime, timedelta
+
+    try:
+        last = datetime.fromisoformat(str(row[0]))
+        if last.tzinfo is None:
+            last = last.replace(tzinfo=UTC)
+        return datetime.now(UTC) - last > timedelta(days=days)
+    except ValueError:
+        return True
+
+
 async def _maybe_auto_summarize(db: AsyncSession, *, user_id: str) -> list[str]:
     stats = await material_stats(db, user_id=user_id)
     triggered: list[str] = []
     for genre, n in sorted(stats.items()):
-        if n < AUTO_MATERIAL_THRESHOLD:
+        due = n >= AUTO_MATERIAL_THRESHOLD or await _last_run_older_than_days(db, user_id=user_id, genre=genre, days=7)
+        if not due:
             continue
         try:
             _run, err = await run_summarize(db, user_id=user_id, genre=genre, trigger="auto", llm=True)

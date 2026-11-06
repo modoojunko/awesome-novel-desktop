@@ -347,24 +347,12 @@ export const kbApi = {
   },
   summarize: {
     run: (genre: string) =>
-      unwrap<{ collected: number; candidates: number; genre: string; skipped?: boolean; message?: string }>(
+      unwrap<{ collected: number; knowledge: number; genre: string; skipped?: boolean; message?: string }>(
         request(`${BASE}/summarize/run`, { method: "POST", body: JSON.stringify({ genre }), headers: { "Content-Type": "application/json" } }),
       ),
     status: () =>
-      unwrap<{ materials_by_genre: Record<string, number>; pending_count: number; threshold: number }>(
+      unwrap<{ materials_by_genre: Record<string, number>; threshold: number }>(
         request(`${BASE}/summarize/status`),
-      ),
-    candidates: (genre?: string) =>
-      unwrap<{ candidates: { id: string; genre: string; concept: string; proposed_title: string; proposed_definition: string; materials: { id: string; title: string; available: boolean }[] }[] }>(
-        request(`${BASE}/summarize/candidates${genre ? `?genre=${encodeURIComponent(genre)}` : ""}`),
-      ),
-    adopt: (id: string) =>
-      unwrap<{ message: string }>(
-        request(`${BASE}/summarize/candidates/${id}/adopt`, { method: "POST" }),
-      ),
-    dismiss: (id: string) =>
-      unwrap<{ message: string }>(
-        request(`${BASE}/summarize/candidates/${id}/dismiss`, { method: "POST" }),
       ),
   },
   graphTree: (genre: string) =>
