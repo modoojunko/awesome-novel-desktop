@@ -4,14 +4,14 @@
 
 `kb_entries` 是知识主表（v2：`definition/version/origin/archived_at` 四列＋`kb_knowledge_instances` 1:N 实例表）；手录（`create_entry` 手录默认装载把一句话塞概念默认槽位）与拆书收录（`collect_task_to_kb` 建知识＋第 1 条实例）都直接产知识行；AI 整理（`run_organize`）只产关系与建议；提示词仓 sibling `awesome-novel-prompts/prompts/` 平铺 `.prompt` 文件（`kb_organize` 先例：缺失 fail-soft 记 error 不阻断）。
 
-约束：SQLite 无 alembic（DDL 走启动期 ensure 通道，`ensure_kb_knowledge_v2` 先例）；整理面板已有候选确认先例（pending 关系采纳/否决）；单用户桌面。
+约束：SQLite 无 alembic（DDL 走启动期 ensure 通道，`ensure_kb_knowledge_v2` 先例）；整理面板已有运行提示先例（pending 关系采纳/否决在整理链路内）；单用户桌面。
 
 ## Goals / Non-Goals
 
 **Goals:**
 - 录入两链路（手录/拆书收录）改产素材行（`origin='material'`）
-- 总结管线：聚类素材 → LLM 提炼候选知识 → 确认制采纳 → 建知识（`origin='summary'`）＋素材转实例
-- 消费端一致排除素材行；整理面板接总结入口与候选清单
+- 总结管线：聚类素材 → LLM 提炼知识点 → 直接建知识（`origin='summary'`，无确认制）＋素材转实例
+- 消费端一致排除素材行；整理面板接「总结知识点」入口与运行提示
 - 存量知识行豁免（不回扫）
 
 **Non-Goals:**
@@ -64,9 +64,9 @@ LLM 提炼的候选知识**直接建行生效**（`origin='summary'`＋素材转
 
 ## Risks / Trade-offs
 
-- **LLM 总结质量**：确认制兜底（候选不采纳不生效）；提示词模板随提示词包迭代
+- **LLM 总结质量**：管线层三闸（素材归桶/标题非空/概念与层级白名单）拦坏产出；总结产的知识按普通知识可改可删；提示词模板随提示词包迭代
 - **素材行被误删**：删除素材＝真删（无消费价值）；确认弹窗文案写明
-- **候选与存量知识撞名**：首版不查重（存量豁免口径下，撞名由作家采纳时肉眼判）；合并建议链路后续可吃撞名对
+- **候选与存量知识撞名**：首版不查重（自动整理口径下撞名由作家在列表中肉眼判，可删可改）；合并建议链路后续可吃撞名对
 - **拆书收录「即时可见」口径变化**：收录后立即可见的是素材行（列表带标）；v2 spec「收录后星图即时可见」场景随本 change MODIFIED（星图吃知识行，素材不进星图——总结采纳后进）
 
 ## Migration Plan
