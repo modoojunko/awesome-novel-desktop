@@ -56,6 +56,12 @@ def _entry_dict(e: KbEntry, *, has_avatar: bool = False) -> dict[str, Any]:
         "concept_id": e.concept_id,
         "title": e.title,
         "instruction": e.instruction,
+        # 知识 v2 四列（c-kb-knowledge-v2）：视图「知识定义」段与其他字段依赖；
+        # 基线 MergedEntry 无这些属性时 getattr 兜底
+        "definition": getattr(e, "definition", ""),
+        "version": getattr(e, "version", 1),
+        "origin": getattr(e, "origin", "manual"),
+        "archived_at": _iso(getattr(e, "archived_at", None)),
         "payload": json.loads(e.payload_json),
         "example": e.example,
         "negative_example": e.negative_example,

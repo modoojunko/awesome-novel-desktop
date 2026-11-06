@@ -911,3 +911,30 @@ class TestEntryRelationsView:
         rows = _run(_go())["relations"]
         assert len(rows) == 1, f"归档/缺失对端须剔除：{rows}"
         assert rows[0]["other_id"] == live
+
+
+class TestEntryDictV2Columns:
+    """_entry_dict 带 v2 四列（c-kb-relations-view 顺手补）：列表/详情不漏 definition。"""
+
+    def test_序列化含_v2四列(self):
+        uid = f"v2col-{uuid.uuid4().hex[:8]}"
+        _run(_seed_user(uid))
+        entries = _run(_seed_entries(uid, [
+            {"concept": "手法", "genre": "玄幻", "instruction": "钩子开场。"},
+        ]))
+        eid = next(iter(entries))
+        async def _set_and_read():
+            from sqlalchemy import text as _t
+            async with async_session() as db:
+                await db.execute(_t("UPDATE kb_entries SET definition = :d, version = 3, origin = 'manual' WHERE id = :i"),
+                                 {"d": "一般性定义文本。", "i": eid})
+                await db.commit()
+            from kb.router import _entry_dict
+            async with async_session() as db:
+                e = await db.get(KbEntry, eid)
+                return _entry_dict(e)
+        d = _run(_set_and_read())
+        assert d["definition"] == "一般性定义文本。"
+        assert d["version"] == 3
+        assert d["origin"] == "manual"
+        assert d["archived_at"] == ""
