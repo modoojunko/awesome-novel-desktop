@@ -217,20 +217,6 @@ async def lifespan(app: FastAPI):
     except Exception as _e:  # noqa: BLE001 — 搬迁失败不挡启动
         _log.warning("library blob migration failed: %s", _e)
 
-    # ── 知识 v2 迁移（c-kb-knowledge-v2）：kb_entries/kb_relations → 知识/实例/关系三表 ──
-    try:
-        from kb.knowledge_migration import migrate_kb_knowledge_v1
-
-        _kvm = await migrate_kb_knowledge_v1()
-        if _kvm.get("knowledge") or _kvm.get("relations"):
-            _log.info(
-                "kb knowledge v2: knowledge=%(knowledge)s instances=%(instances)s "
-                "relations=%(relations)s backed_up=%(backed_up)s",
-                _kvm,
-            )
-    except Exception as _e:  # noqa: BLE001 — 迁移失败不挡启动（下次启动重试）
-        _log.warning("kb knowledge v2 migration failed: %s", _e)
-
     # ── 知识 v2 迁移（c-kb-knowledge-v2）：kb_entries 加列＋实例表 ──
     try:
         from kb.knowledge_migration import migrate_kb_knowledge_v2
