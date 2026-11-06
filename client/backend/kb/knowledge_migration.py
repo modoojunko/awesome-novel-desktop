@@ -62,8 +62,8 @@ async def populate_kb_instances_v1(db) -> dict[str, int]:
         iid = str(uuid.uuid4())
         await db.execute(text("""
             INSERT INTO kb_knowledge_instances
-                (id, knowledge_id, text, source_kind, source_novel, source_chapter, quote, sort)
-            VALUES (:id, :kid, :text, :sk, :novel, '', :quote, 0)
+                (id, knowledge_id, text, source_kind, source_novel, source_chapter, quote, fields_json, sort)
+            VALUES (:id, :kid, :text, :sk, :novel, '', :quote, '{}', 0)
         """), {"id": iid, "kid": eid, "text": inst_text, "sk": source, "novel": novel or "",
                "quote": quote or ""})
         created += 1

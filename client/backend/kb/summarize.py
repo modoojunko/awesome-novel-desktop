@@ -186,69 +186,149 @@ async def run_summarize(
         )
         error = error or ""
 
-    # 直接建知识（无确认制——定期任务自动整理，boss 拍板；兜底＝总结产的知识按
-    # 普通知识管理：作家可修改可归档）。
+    # 自动整理两段式（boss 口径）：素材归属已有知识→直接转该知识实例（不新建）；
+    # 新维度→建新知识点（可挂既有 parent，或同批候选互引抽象出父级知识——树向上长）。
+    # 兜底＝总结产的知识按普通知识管理：作家可修改可归档。
     created = 0
+    attached = 0
     used_material_ids: set[str] = set()
     valid_concepts = {"文风", "文笔", "世界设定", "角色设定", "手法"}
     mat_ids = {m.id for m in materials}
     mats_by_id = {m.id: m for m in materials}
-    try:
-        for c in candidates:
-            # 管线层三闸：素材归组须属本桶且未被本轮先行知识用掉、标题非空、
-            # concept 白名单、parent 白名单（非法落概念根）
-            mids = [m for m in (c.get("material_ids") or []) if m in mat_ids and m not in used_material_ids]
-            if not mids or not (c.get("title") or "").strip():
-                continue
-            concept = c.get("concept") if c.get("concept") in valid_concepts else "手法"
-            parent = c.get("parent", "ROOT")
-            parent = parent if parent in existing_ids else ""
-            # 字段 schema 清洗（管线层校验）：schema 名非空去重 ≤6 个；空则落默认「要点」；
-            # 实例 fields 按 schema 白名单过滤（编造字段不落库）
-            c_schema = []
-            for s in (c.get("schema") or []):
-                if isinstance(s, dict) and str(s.get("name", "")).strip():
-                    c_schema.append({"name": str(s["name"]).strip()[:20],
-                                     "desc": str(s.get("desc", "")).strip()[:80]})
-            c_schema = c_schema[:6] or [{"name": "要点", "desc": "这条写法的要点"}]
-            schema_names = {s["name"] for s in c_schema}
-            c_items = c.get("items") if isinstance(c.get("items"), dict) else {}
 
-            kid = uuid.uuid4().hex
-            db.add(KbEntry(
-                id=kid,
-                user_id=user_id,
-                genre=genre,
-                concept=concept,
-                concept_id=f"{genre}:{concept}",
-                title=c["title"].strip()[:40],
-                payload_json="{}",
-                instruction="",
-                definition=(c.get("definition") or "").strip()[:500],
-                schema_json=json.dumps(c_schema, ensure_ascii=False),
-                origin="summary",
-                status="active",
-                version=1,
-                parent_id=parent,
-            ))
+    def _clean_schema(c):
+        out = []
+        for s in (c.get("schema") or []):
+            if isinstance(s, dict) and str(s.get("name", "")).strip():
+                out.append({"name": str(s["name"]).strip()[:20],
+                            "desc": str(s.get("desc", "")).strip()[:80]})
+        return out[:6] or [{"name": "要点", "desc": "这条写法的要点"}]
+
+    def _instance_rows(mids, schema_names, items_by_mid):
+        """素材 → 实例行（fields 按知识 schema 白名单过滤，编造字段不落库）。"""
+        rows = []
+        for sort, mid in enumerate(mids):
+            m = mats_by_id[mid]
+            raw = items_by_mid.get(mid, {})
+            fields = {str(k)[:20]: str(v).strip()[:200]
+                      for k, v in (raw.items() if isinstance(raw, dict) else [])
+                      if k in schema_names and str(v).strip()}
+            rows.append((m, sort, fields))
+        return rows
+
+    try:
+        # ── 第一段：素材归属已有知识 → 直接转该知识的实例（不新建知识）──
+        for c in candidates:
+            attach_id = str(c.get("attach_to_knowledge_id") or "")
+            if not attach_id or attach_id not in existing_ids:
+                continue
+            mids = [m for m in (c.get("material_ids") or []) if m in mat_ids and m not in used_material_ids]
+            if not mids:
+                continue
+            k_row = (await db.execute(
+                select(KbEntry.schema_json).where(KbEntry.id == attach_id)
+            )).scalar()
+            try:
+                k_schema = json.loads(k_row or "[]")
+            except ValueError:
+                k_schema = []
+            schema_names = {s.get("name") for s in k_schema if isinstance(s, dict) and s.get("name")}
+            raw_items = c.get("items") if isinstance(c.get("items"), dict) else {}
             for sort, mid in enumerate(mids):
                 m = mats_by_id[mid]
+                raw = raw_items.get(mid, {})
+                fields = {str(k)[:20]: str(v).strip()[:200]
+                          for k, v in (raw.items() if isinstance(raw, dict) else [])
+                          if (not schema_names or str(k) in schema_names) and str(v).strip()}
                 db.add(KbKnowledgeInstance(
-                    knowledge_id=kid,
+                    knowledge_id=attach_id,
                     text=m.instruction or "",
                     source_kind="拆书" if m.src_kind == "deconstruct" else "手录",
                     source_novel=m.src_novel_name or "",
                     quote=(m.evidence or "")[:500],
-                    fields_json=json.dumps(
-                        {k: str(v)[:200] for k, v in c_items.get(mid, {}).items()
-                         if k in schema_names and str(v).strip()},
-                        ensure_ascii=False,
-                    ),
+                    fields_json=json.dumps(fields, ensure_ascii=False),
                     sort=sort,
                 ))
-                m.status = "archived"  # 素材行归档（审计可回溯）
+                m.status = "archived"
                 used_material_ids.add(mid)
-            created += 1
+                attached += 1
+
+        # ── 第二段：新知识点（两轮拓扑：parent 引用同批候选时后建——同批互引抽象父级）──
+        # 父级抽象簇（无素材但被子簇引用）是合法结构节点——随子簇建立
+        referenced_refs = {str(c.get("parent") or "") for c in candidates
+                           if not c.get("attach_to_knowledge_id")}
+        pending_new = []
+        ref_to_id: dict[str, str] = {}
+        for c in candidates:
+            if c.get("attach_to_knowledge_id"):
+                continue  # attach 类已在第一段消化
+            mids = [m for m in (c.get("material_ids") or []) if m in mat_ids and m not in used_material_ids]
+            is_structure_node = bool(str(c.get("ref") or "")) and str(c.get("ref")) in referenced_refs
+            if (not mids and not is_structure_node) or not (c.get("title") or "").strip():
+                continue
+            concept = c.get("concept") if c.get("concept") in valid_concepts else "手法"
+            c_schema = _clean_schema(c)
+            schema_names = {s["name"] for s in c_schema}
+            c_items = c.get("items") if isinstance(c.get("items"), dict) else {}
+            pending_new.append({
+                "ref": str(c.get("ref") or "")[:40],
+                "title": c["title"].strip()[:40],
+                "concept": concept,
+                "definition": (c.get("definition") or "").strip()[:500],
+                "c_schema": c_schema,
+                "schema_names": schema_names,
+                "c_items": c_items,
+                "mids": mids,
+                "parent_raw": c.get("parent", "ROOT"),
+            })
+
+        # 两轮拓扑：第一轮建 parent=ROOT/既有知识；第二轮建 parent 指向同批新知识
+        for _round in (1, 2):
+            deferred: list[dict] = []
+            for p in pending_new:
+                praw = p["parent_raw"]
+                if praw in ref_to_id:
+                    if _round == 1:
+                        deferred.append(p)  # 父在本批：第二轮建
+                        continue
+                    parent = ref_to_id[praw]
+                elif praw in existing_ids:
+                    parent = praw
+                else:
+                    parent = ""  # ROOT/非法落概念根
+                kid = uuid.uuid4().hex
+                if p["ref"]:
+                    ref_to_id[p["ref"]] = kid
+                db.add(KbEntry(
+                    id=kid,
+                    user_id=user_id,
+                    genre=genre,
+                    concept=p["concept"],
+                    concept_id=f"{genre}:{p['concept']}",
+                    title=p["title"],
+                    payload_json="{}",
+                    instruction="",
+                    definition=p["definition"],
+                    schema_json=json.dumps(p["c_schema"], ensure_ascii=False),
+                    origin="summary",
+                    status="active",
+                    version=1,
+                    parent_id=parent,
+                ))
+                for sort, (m, _s, fields) in enumerate(_instance_rows(p["mids"], p["schema_names"], p["c_items"])):
+                    db.add(KbKnowledgeInstance(
+                        knowledge_id=kid,
+                        text=m.instruction or "",
+                        source_kind="拆书" if m.src_kind == "deconstruct" else "手录",
+                        source_novel=m.src_novel_name or "",
+                        quote=(m.evidence or "")[:500],
+                        fields_json=json.dumps(fields, ensure_ascii=False),
+                        sort=sort,
+                    ))
+                    m.status = "archived"
+                    used_material_ids.add(m.id)
+                created += 1
+            pending_new = deferred
     except Exception as exc:  # noqa: BLE001 — 中途异常回滚半截写入，run 置 error 不留 running 孤儿
         await db.rollback()
         await db.execute(
@@ -263,10 +343,10 @@ async def run_summarize(
         _t(
             "UPDATE kb_summarize_runs SET status=:s, knowledge_created=:n, error=:e WHERE id=:i"
         ),
-        {"s": status, "n": created, "e": error, "i": run_id},
+        {"s": status, "n": created + attached, "e": error, "i": run_id},
     )
     await db.commit()
-    return {"collected": len(materials), "knowledge": created}, error
+    return {"collected": len(materials), "knowledge": created, "attached": attached}, error
 
 
 async def _llm_candidates(
