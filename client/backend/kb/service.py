@@ -43,6 +43,7 @@ async def create_entry(
     original_texts: list[str] | None = None,
     definition: str = "",
     as_material: bool = False,
+    as_knowledge: bool = False,
 ) -> tuple[KbEntry | None, GateResult, dict | None]:
     """入库一条知识：闸门→payload 校验→标签物化→默认库生成。
     返回 (entry, gate_result, error_dict)。error_dict 非 None 表示入库失败。
@@ -54,7 +55,7 @@ async def create_entry(
     # 素材态（c-kb-summarize）：事实记录直落，不做概念推断、不装载槽位、
     # 不过知识闸门、不物化标签、不长默认库——素材经总结采纳才成为知识。
     # 类别是归组信号，SHALL 由录入侧显式给出（表单选择），不静默推断。
-    if as_material:
+    if as_material and not as_knowledge:
         if not concept or concept not in (
             "文风", "文笔", "世界设定", "角色设定", "手法", "情节"
         ):

@@ -13,6 +13,7 @@ boss 拍板；兜底＝总结产的知识按普通知识管理，作家可改可
 from __future__ import annotations
 
 import json
+import logging
 import uuid
 
 from sqlalchemy import func, select
@@ -21,6 +22,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from models.kb import KbEntry, KbKnowledgeInstance
 
 AUTO_MATERIAL_THRESHOLD = 5  # 素材积压自动触发阈值（题内）
+
+_log = logging.getLogger("uvicorn.error")
 
 async def ensure_kb_summarize(db: AsyncSession) -> dict[str, int]:
     """幂等 DDL：总结 runs 表＋kb_entries.parent_id 列（知识树，c-kb-summarize 批E）。"""
@@ -42,6 +45,16 @@ async def ensure_kb_summarize(db: AsyncSession) -> dict[str, int]:
         error TEXT NOT NULL DEFAULT '',
         created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
     )"""))
+    # 单飞竞态兜底（评审 P2）：同题材同时只允许一行 running——
+    # 建索引前只把超时孤儿清成 error（30 分钟前；活跃 running 不动）
+    await db.execute(_t(
+        "UPDATE kb_summarize_runs SET status='error', error='stale running reclaimed' "
+        "WHERE status='running' AND created_at < datetime('now', '-30 minutes')"
+    ))
+    await db.execute(_t(
+        "CREATE UNIQUE INDEX IF NOT EXISTS ux_kb_summarize_runs_singleflight "
+        "ON kb_summarize_runs (user_id, genre) WHERE status='running'"
+    ))
     await db.commit()
     return {"ddl": added}
 
@@ -64,6 +77,7 @@ async def material_stats(db: AsyncSession, *, user_id: str) -> dict[str, int]:
                 KbEntry.user_id == user_id,
                 KbEntry.status == "active",
                 KbEntry.origin == "material",
+                KbEntry.concept != "情节",  # 情节消费链未建，素材恒积压不触发
             )
             .group_by(KbEntry.genre)
         )
@@ -126,11 +140,17 @@ async def run_summarize(
         return {"collected": 0, "knowledge": 0}, ""
 
     run_id = uuid.uuid4().hex
-    await db.execute(_t(
-        "INSERT INTO kb_summarize_runs (id, user_id, genre, status, trigger, materials_scanned) "
-        "VALUES (:i, :u, :g, 'running', :t, :n)"
-    ), {"i": run_id, "u": user_id, "g": genre, "t": trigger, "n": len(materials)})
-    await db.commit()
+    try:
+        await db.execute(_t(
+            "INSERT INTO kb_summarize_runs (id, user_id, genre, status, trigger, materials_scanned) "
+            "VALUES (:i, :u, :g, 'running', :t, :n)"
+        ), {"i": run_id, "u": user_id, "g": genre, "t": trigger, "n": len(materials)})
+        await db.commit()
+    except Exception as exc:  # noqa: BLE001 — 部分唯一索引兜底：并发双击/重放在此收敛为 running
+        if "ux_kb_summarize_runs_singleflight" not in str(exc):
+            _log.warning("kb summarize run claim failed: %s", exc)
+        await db.rollback()
+        return None, "running"
 
     # 既有知识清单（层级归属用）
     existing = (

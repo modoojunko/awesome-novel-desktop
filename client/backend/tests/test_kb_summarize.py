@@ -388,3 +388,72 @@ class TestLlmCandidatesParsing:
         mats = _run(_material_rows())
         cands, err = _run(_llm_candidates(uid, "玄幻", mats, [], set()))
         assert cands == [] and err is None
+
+
+class TestSingleflightAndDirectCreate:
+    """遗留收口：单飞部分唯一索引兜底＋编辑器直建知识通道（as_knowledge）。"""
+
+    def _mk(self, tag):
+        return f"kbsm-{tag}-{uuid.uuid4().hex[:8]}"
+
+    def _seed_user(self, uid):
+        return _seed_user(uid)
+
+    def _seed_materials(self, uid, genre, n, concept="文风"):
+        async def _go():
+            async with async_session() as db:
+                rows = []
+                for i in range(n):
+                    e = KbEntry(
+                        user_id=uid, genre=genre, concept=concept,
+                        concept_id=f"{genre}:{concept}", title=f"素材{i}",
+                        payload_json="{}", instruction=f"素材原文{i}。",
+                        origin="material", status="active", rev=1,
+                        src_kind="manual", src_ref="", src_key=f"k{i}",
+                    )
+                    db.add(e)
+                    rows.append(e)
+                await db.commit()
+                return [e.id for e in rows]
+        return _run(_go())
+
+    def test_单飞并发撞索引收敛为running(self):
+        uid = self._mk("sf")
+        _run(_seed_user(uid))
+        self._seed_materials(uid, "玄幻", 1)
+        from kb.summarize import ensure_kb_summarize, run_summarize
+
+        async def _claim_running():
+            # 模拟并发对手已抢先占住 running 行
+            async with async_session() as db:
+                await ensure_kb_summarize(db)
+                await db.execute(_t(
+                    "INSERT INTO kb_summarize_runs (id, user_id, genre, status, trigger) "
+                    "VALUES ('r-occupied', :u, '玄幻', 'running', 'manual')"), {"u": uid})
+                await db.commit()
+        _run(_claim_running())
+
+        async def _go():
+            async with async_session() as db:
+                return await run_summarize(db, user_id=uid, genre="玄幻", trigger="manual", llm=False)
+        summary, err = _run(_go())
+        assert summary is None and err == "running", "对手占位时触发须收敛为 running"
+
+    def test_直建知识通道_as_knowledge_带定义(self):
+        uid = self._mk("direct")
+        _run(_seed_user(uid))
+
+        async def _go():
+            async with async_session() as db:
+                entry, _gate, _err = await create_entry(
+                    db, user_id=uid, genre="玄幻", concept="文风",
+                    instruction="句子要短。", payload={},
+                    definition="短句文风的一般性定义。",
+                    as_knowledge=True,
+                )
+                return entry
+        entry = _run(_go())
+        assert entry is not None
+        assert entry.origin == "manual"  # 直建知识走知识路径（origin 不落 material）
+        assert entry.definition == "短句文风的一般性定义。"
+        assert entry.status == "active"

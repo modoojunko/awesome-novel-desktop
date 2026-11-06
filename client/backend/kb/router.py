@@ -239,6 +239,9 @@ class CreateEntryRequest(BaseModel):
     example: str = ""
     negative_example: str = ""
     when_json: dict[str, Any] = {}
+    # c-kb-summarize：默认落素材态；编辑器直建知识（修正场景）显式置 true
+    as_knowledge: bool = False
+    definition: str = ""
 
 
 @router.post("/entries")
@@ -261,7 +264,9 @@ async def create_entry_api(
         negative_example=body.negative_example,
         when_json=body.when_json,
         src_kind="manual",
-        as_material=True,
+        definition=body.definition,
+        as_material=not body.as_knowledge,
+        as_knowledge=body.as_knowledge,
     )
     # 失败统一看 entry is None（service 的情节拒收/payload/闸门臂 error 恒 None，
     # 错误明细在 gate.errors——真机 500 实锤后修正的接法）
@@ -334,6 +339,7 @@ async def list_libraries_api(
                         KbEntry.genre == l.genre,
                         KbEntry.concept == l.concept,
                         KbEntry.status == "active",
+                        visible_knowledge_filter(),
                     )
                 )
             ).scalar_one()
