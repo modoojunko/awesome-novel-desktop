@@ -17,12 +17,21 @@ from __future__ import annotations
 
 import json
 import logging
+import re
 
+from sqlalchemy import bindparam
 from sqlalchemy import text as _t
 
 logger = logging.getLogger(__name__)
 
 _MARKER_PREFIX = "kb.reconcile:"
+
+_TRIAL_SUFFIX = re.compile(r"-前\d+章$")
+
+
+def _norm_book(name: str) -> str:
+    """书名归一：剥试拆后缀（斩神-前30章 → 斩神）——试拆与全本同书收敛。"""
+    return _TRIAL_SUFFIX.sub("", str(name or "").strip())
 
 
 async def reconcile_deconstruct_versions(*, user_id: str) -> dict:
@@ -42,34 +51,35 @@ async def _reconcile_on(db, *, user_id: str) -> dict:
     from kb.summarize import run_summarize
     from models.deconstruct import DeconstructJob
 
-    books = (
+    # 书名归一分组（斩神-前30章 与 斩神 同组）——归一在 Python 侧（SQLite 无正则 REPLACE）
+    raw_books = (
         await db.execute(
             _t(
                 "SELECT DISTINCT src_novel_name FROM kb_entries "
                 "WHERE user_id=:u AND origin='material' AND src_kind='deconstruct' "
                 "AND src_novel_name != '' "
-                # 存量素材书名恒空（c-kb-collect-dims 前收录）——经任务行反查书名并入
                 "UNION SELECT DISTINCT j.book_name FROM kb_entries e "
                 "JOIN deconstruct_jobs j ON j.id=e.src_ref "
                 "WHERE e.user_id=:u AND e.origin='material' AND e.src_kind='deconstruct' "
-                "AND e.src_novel_name='' AND j.book_name!=''"
+                "AND (e.src_novel_name='' OR e.src_novel_name LIKE '%前_%章') AND j.book_name!=''"
             ),
             {"u": user_id},
         )
     ).scalars().all()
+    books = sorted({_norm_book(b) for b in raw_books})
     result: dict[str, str] = {}
     for book in books:
         # canonical＝已完成任务中章数最大（并列取新）
         jobs = (
             await db.execute(
                 _t(
-                    "SELECT id, chapter_count, products_json FROM deconstruct_jobs "
-                    "WHERE book_name=:b AND status IN ('completed','imported') "
+                    "SELECT id, chapter_count, products_json, book_name FROM deconstruct_jobs "
+                    "WHERE status IN ('completed','imported') "
                     "ORDER BY chapter_count DESC, created_at DESC"
-                ),
-                {"b": book},
+                )
             )
         ).fetchall()
+        jobs = [j for j in jobs if _norm_book(j[3]) == book]
         if not jobs:
             result[book] = "no_job"  # 指纹收录等无任务行的书不动
             continue
@@ -86,15 +96,17 @@ async def _reconcile_on(db, *, user_id: str) -> dict:
             continue
 
         # ── 拆除：该书素材 + 转生实例（text=instruction 匹配）+ 空知识点 ──
+        group_refs = [j[0] for j in jobs]
+        group_names = {j[3] for j in jobs} | {book}
         mats = (
             await db.execute(
                 _t(
                     "SELECT e.id, e.instruction, e.genre FROM kb_entries e "
                     "WHERE e.user_id=:u AND e.origin='material' AND e.src_kind='deconstruct' "
-                    "AND (e.src_novel_name=:b OR e.src_ref IN "
-                    "(SELECT id FROM deconstruct_jobs WHERE book_name=:b))"
-                ),
-                {"u": user_id, "b": book},
+                    "AND (e.src_novel_name IN :names OR e.src_ref IN :refs)"
+                ).bindparams(bindparam("names", expanding=True),
+                             bindparam("refs", expanding=True)),
+                {"u": user_id, "names": sorted(group_names), "refs": group_refs},
             )
         ).fetchall()
         instructions = [m[1] for m in mats if m[1]]
@@ -104,10 +116,10 @@ async def _reconcile_on(db, *, user_id: str) -> dict:
         await db.execute(
             _t(
                 "DELETE FROM kb_entries WHERE user_id=:u AND origin='material' "
-                "AND src_kind='deconstruct' AND (src_novel_name=:b OR src_ref IN "
-                "(SELECT id FROM deconstruct_jobs WHERE book_name=:b))"
-            ),
-            {"u": user_id, "b": book},
+                "AND src_kind='deconstruct' AND (src_novel_name IN :names OR src_ref IN :refs)"
+            ).bindparams(bindparam("names", expanding=True),
+                         bindparam("refs", expanding=True)),
+            {"u": user_id, "names": sorted(group_names), "refs": group_refs},
         )
         # 因拆除变空的总结知识点（同题材他书共用者有实例，保留）
         for g in genres:

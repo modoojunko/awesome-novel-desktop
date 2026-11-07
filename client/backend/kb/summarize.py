@@ -265,7 +265,9 @@ async def run_summarize(
                     text=m.instruction or "",
                     source_kind="拆书" if m.src_kind == "deconstruct" else "手录",
                     source_novel=m.src_novel_name or "",
-                    quote=(m.evidence or "")[:500],
+                    # 出处行：章证据列即章号；例证（原文例句）进摘句——「没有案例」补源
+                    source_chapter=(m.evidence or "")[:40],
+                    quote=(m.example or "")[:500],
                     fields_json=json.dumps(fields, ensure_ascii=False),
                     sort=sort,
                 ))

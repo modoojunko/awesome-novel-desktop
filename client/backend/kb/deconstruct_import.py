@@ -291,9 +291,23 @@ def map_deconstruct_products(
     if n_samples:
         warnings.append(f"原文示范段 {n_samples} 条不入库（逐字原文，版权红线）")
 
-    # ─── 文笔（规则 / 写法 / 忌用）───
+    # ─── 文风（场景规则：一条规则一条实例——boss 2026-11-07 承接表）───
+    # rules 原落文笔（旧口径）；「战斗短句」「悲喜交替」这类场景规则是文风的声音侧面
+    for i, item in enumerate(_items(style.get("rules"))):
+        name = _text_of(item, "name", "title", limit=40)
+        how = _text_of(item, "how", "rule", "craft", "content", limit=240)
+        text = _line(f"{name}：{how}" if name and how else (how or name), 500)
+        if not text:
+            continue
+        evidence, ev_json = _ev(item.get("evidence_ch") if isinstance(item, dict) else "")
+        add(
+            "style.rule", "文风", name or f"场景规则 {i + 1}",
+            {"slot": "rule", "text": text},
+            instruction=text, evidence=evidence, evidence_json=ev_json,
+        )
+
+    # ─── 文笔（写法 / 忌用）───
     for section, prefix, slot, label in (
-        ("rules", "craft.rule", "rule", "规则"),
         ("craft", "craft.craft", "craft", "写法"),
     ):
         for i, item in enumerate(_items(style.get(section))):
