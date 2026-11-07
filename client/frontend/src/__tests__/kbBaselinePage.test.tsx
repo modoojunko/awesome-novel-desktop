@@ -218,6 +218,16 @@ describe("KnowledgeBasePage · 官方精选", () => {
     await waitFor(() => expect(api.clearBaselineOverride).toHaveBeenCalledWith("b1"));
   });
 
+  it("官方精选＋筛选后空态卡（裸注释上屏回归钉：注释必须隐形）", async () => {
+    api.entries.mockResolvedValue({ entries: [], next_cursor: "" });
+    renderPage();
+    fireEvent.click(screen.getByTestId("kb-src-官方精选"));
+    fireEvent.change(screen.getByPlaceholderText("搜名字、内容、来源书名"), { target: { value: "不存在的词" } });
+    await waitFor(() => expect(screen.getByText("当前筛选下没有官方精选条目。")).toBeTruthy());
+    // 裸写 /* */ 注释在 JSX 里会当正文上屏（真机 2026-11-07 实锤）——回归钉
+    expect(screen.queryByText(/v8 ignore/)).toBeNull();
+  });
+
   it("同步失败提示「同步没成功」而不是「没有新版本」", async () => {
     api.entries.mockResolvedValue({ entries: [], next_cursor: "" });
     api.baselineSync.mockResolvedValueOnce({ status: "failed" });
