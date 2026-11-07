@@ -24,7 +24,8 @@ from sqlalchemy import text as _t
 
 logger = logging.getLogger(__name__)
 
-_MARKER_PREFIX = "kb.reconcile:"
+# v2：书名归一＋场景规则归文风＋转生带章号例证——语义变更，标记升版强制重收敛一次
+_MARKER_PREFIX = "kb.reconcile:v2:"
 
 _TRIAL_SUFFIX = re.compile(r"-前\d+章$")
 
