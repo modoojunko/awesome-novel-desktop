@@ -775,12 +775,18 @@ export default function KnowledgeBasePage() {
                 <div className="mt-4">
                   <p className="text-[10.5px] font-mono tracking-[0.12em] text-[var(--muted)]">字段 schema</p>
                   <div className="mt-1 space-y-0.5">
-                    {schemaRows.map((s) => (
-                      <p key={s.name} className="text-[12px]">
-                        <span className="font-medium text-[var(--fg)]">{s.name}</span>
-                        <span className="text-[var(--muted)]"> · {s.desc}</span>
-                      </p>
-                    ))}
+                    {schemaRows.map((s) => {
+                      // 字段名走中文字典；总结侧 desc 恒空（留待后端补作家语言）——
+                      // 空说明不渲染悬空「·」（真机 2026-11-07 实锤）
+                      const label = kbFieldLabel(selected.concept, s.name);
+                      const desc = (s.desc || "").trim();
+                      return (
+                        <p key={s.name} className="text-[12px]">
+                          <span className="font-medium text-[var(--fg)]">{label}</span>
+                          {desc && <span className="text-[var(--muted)]"> · {desc}</span>}
+                        </p>
+                      );
+                    })}
                   </div>
                 </div>
               );

@@ -368,6 +368,9 @@ describe("KnowledgeBasePage 手录表单", () => {
     await waitFor(() => expect(api.entry).toHaveBeenCalledWith("kbentry-schema"));
     await waitFor(() => expect(screen.getByText("字段 schema")).toBeTruthy());
     expect(screen.getByText(/日常身份与异常处境的落差/)).toBeTruthy();
+    // schema 字段名走中文字典；desc 空＝悬空「·」不渲染（真机 2026-11-07 实锤）
+    expect(screen.queryByText(/^persona ·/)).toBeNull();
+    expect(screen.getAllByText("身份反差").length).toBeGreaterThan(0);
     await screen.findByText("实例群"); // 实例群段随 listInstances 异步回填
     expect(screen.getByText("市井司机卷入冤魂案")).toBeTruthy();
     expect(screen.getByText(/身份反差：/)).toBeTruthy();
