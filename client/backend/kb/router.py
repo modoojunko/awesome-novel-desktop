@@ -1099,8 +1099,8 @@ async def book_scope_diff_api(
 @router.post("/entries/{entry_id}/archive")
 async def archive_entry_api(
     entry_id: str,
-    user: Annotated[dict, Depends(_user)],
     db: Annotated[AsyncSession, Depends(get_db)],
+    user: dict = Depends(get_current_user),
 ):
     ok = await knowledge_service.archive_knowledge(db, user_id=_user(user), entry_id=entry_id)
     if not ok:
@@ -1111,8 +1111,8 @@ async def archive_entry_api(
 @router.post("/entries/{entry_id}/restore")
 async def restore_entry_api(
     entry_id: str,
-    user: Annotated[dict, Depends(_user)],
     db: Annotated[AsyncSession, Depends(get_db)],
+    user: dict = Depends(get_current_user),
 ):
     ok = await knowledge_service.restore_knowledge(db, user_id=_user(user), entry_id=entry_id)
     if not ok:
@@ -1123,8 +1123,8 @@ async def restore_entry_api(
 @router.get("/entries/{entry_id}/instances")
 async def list_instances_api(
     entry_id: str,
-    user: Annotated[dict, Depends(_user)],
     db: Annotated[AsyncSession, Depends(get_db)],
+    user: dict = Depends(get_current_user),
 ):
     from sqlalchemy import select
 
@@ -1135,19 +1135,19 @@ async def list_instances_api(
         .where(KbKnowledgeInstance.knowledge_id == entry_id)
         .order_by(KbKnowledgeInstance.sort)
     )).scalars().all()
-    return {"ok": True, "instances": [
+    return {"ok": True, "data": {"instances": [
         {"id": r.id, "text": r.text, "source_kind": r.source_kind,
          "source_novel": r.source_novel, "source_chapter": r.source_chapter,
          "quote": r.quote, "fields_json": r.fields_json, "sort": r.sort}
         for r in rows
-    ]}
+    ]}}
 
 
 @router.post("/entries/{entry_id}/instances")
 async def add_instance_api(
     entry_id: str,
-    user: Annotated[dict, Depends(_user)],
     db: Annotated[AsyncSession, Depends(get_db)],
+    user: dict = Depends(get_current_user),
     body: dict[str, Any] = Body(...),
 ):
     inst = await knowledge_service.add_instance(

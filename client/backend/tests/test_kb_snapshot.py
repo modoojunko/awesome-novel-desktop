@@ -474,6 +474,52 @@ def test_条目编辑删除_全链路():
         app.dependency_overrides.clear()
 
 
+def test_实例群与归档恢复_路由可用_不再422():
+    """真机实锤回归钉（2026-11-07）：四处路由误用 Depends(_user)——_user 的
+    dict 参数被 FastAPI 当必填请求体，实例群 GET/加实例 POST/归档/恢复全部
+    422「缺 body」，抽屉实例群自上线起不可用。修＝Depends(get_current_user)。"""
+    from fastapi.testclient import TestClient
+
+    from auth_local.middleware import get_current_user
+    from main import app
+
+    seed = _run(_seed())
+    app.dependency_overrides[get_current_user] = lambda: {"id": seed["uid"]}
+    try:
+        with TestClient(app) as c:
+            # 建一条知识（知识态手录）
+            r = c.post("/api/kb/entries", json={
+                "genre": "都市", "concept": "手法",
+                "instruction": "先给果再补因。",
+                "payload": {"instruction": "先给果再补因。", "scene": "日常"},
+                "as_knowledge": True,
+            })
+            assert r.status_code == 200, r.text
+            eid = r.json()["data"]["id"]
+
+            # 实例群 GET：200＋data 信封（前端 unwrap 单源；旧病＝带凭据也 422 缺 body）
+            r = c.get(f"/api/kb/entries/{eid}/instances")
+            assert r.status_code == 200, r.text
+            assert r.json() == {"ok": True, "data": {"instances": []}}
+
+            # 加实例 POST：200
+            r = c.post(f"/api/kb/entries/{eid}/instances", json={"text": "何沉舟胆小多疑。"})
+            assert r.status_code == 200, r.text
+
+            # 实例群回读：1 条
+            r = c.get(f"/api/kb/entries/{eid}/instances")
+            insts = r.json()["data"]["instances"]
+            assert len(insts) == 1 and insts[0]["text"] == "何沉舟胆小多疑。"
+
+            # 归档/恢复 POST：200（旧病同 422）
+            r = c.post(f"/api/kb/entries/{eid}/archive")
+            assert r.status_code == 200, r.text
+            r = c.post(f"/api/kb/entries/{eid}/restore")
+            assert r.status_code == 200, r.text
+    finally:
+        app.dependency_overrides.clear()
+
+
 def test_手录落素材态_情节可收录_不装载payload():
     """素材态口径钉（2026-11-07 重写：旧「手录 payload 免填装载＋情节拒收 422」口径已被
     c-kb-summarize 素材态取代——POST /api/kb/entries 默认 as_material，总结采纳才成知识）。"""
