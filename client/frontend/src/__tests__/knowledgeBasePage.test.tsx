@@ -22,6 +22,7 @@ const api = vi.hoisted(() => ({
   entry: vi.fn(),
   entryRelations: vi.fn(),
   relationFeedback: vi.fn(),
+  instancesFlat: vi.fn(),
 }));
 
 vi.mock("@/lib/kbApi", async (orig) => {
@@ -34,6 +35,7 @@ vi.mock("@/lib/kbApi", async (orig) => {
       entry: api.entry,
       libraries: api.libraries,
       genres: api.genres,
+      instancesFlat: api.instancesFlat,
       organize: {
         ...actual.kbApi.organize,
         entryRelations: api.entryRelations,
@@ -99,7 +101,15 @@ beforeEach(() => {
   api.genres.mockResolvedValue([]);
   api.entryRelations.mockResolvedValue({ relations: [], merged_into: null });
   api.entry.mockResolvedValue({ ...ENTRY, id: "kbentry-external", title: "外部对端" });
+  // 实例行列表（c-kb-instance-list）：默认空集；知识行用例走官方精选回退臂
+  api.instancesFlat.mockResolvedValue({ ok: true, rows: [] });
 });
+
+// 知识行列表退居回退臂（c-kb-instance-list）：需要条目行的用例先切「官方精选」
+async function openFallbackArm() {
+  fireEvent.click(screen.getByTestId("kb-src-官方精选"));
+  await screen.findByText("刘望津");
+}
 
 afterEach(() => {
   cleanup();
@@ -135,7 +145,7 @@ describe("payloadRows（通用载荷平铺）", () => {
 describe("KnowledgeBasePage 详情抽屉", () => {
   it("点开条目：字段以中文标签逐格渲染（迁移卡属性全可见）", async () => {
     renderPage();
-    await waitFor(() => expect(screen.getByText("刘望津")).toBeTruthy());
+    await openFallbackArm();
     fireEvent.click(screen.getByText("刘望津"));
     await waitFor(() => expect(screen.getByText("字段")).toBeTruthy());
     // 中文标签（通用字典），不露英文字段名
@@ -172,7 +182,7 @@ describe("KnowledgeBasePage 详情抽屉", () => {
       next_cursor: "",
     });
     renderPage();
-    await waitFor(() => expect(screen.getByText("刘望津")).toBeTruthy());
+    await openFallbackArm();
     fireEvent.click(screen.getByText("刘望津"));
     await waitFor(() => expect(screen.getByText("字段")).toBeTruthy());
     expect(screen.queryByText("指令")).toBeNull();
@@ -194,7 +204,7 @@ describe("KnowledgeBasePage 详情抽屉", () => {
       merged_into: null,
     });
     renderPage();
-    await waitFor(() => expect(screen.getByText("刘望津")).toBeTruthy());
+    await openFallbackArm();
     fireEvent.click(screen.getByText("刘望津"));
     await waitFor(() => expect(screen.getByText(/关联知识 · 来自知识整理/)).toBeTruthy());
     // 出向句式；pending 行不出
@@ -215,7 +225,7 @@ describe("KnowledgeBasePage 详情抽屉", () => {
       merged_into: null,
     });
     renderPage();
-    await waitFor(() => expect(screen.getByText("刘望津")).toBeTruthy());
+    await openFallbackArm();
     fireEvent.click(screen.getByText("刘望津"));
     await waitFor(() => expect(screen.getByText(/外部对端 源自本知识/)).toBeTruthy());
     fireEvent.click(screen.getByText(/外部对端 源自本知识/));
@@ -228,7 +238,8 @@ describe("KnowledgeBasePage 详情抽屉", () => {
     const noDef: KbEntry = { ...ENTRY, id: "kbentry-nodef", title: "无定义条目", definition: "", instruction: "先写结果，再倒回去拆折。" };
     api.entries.mockResolvedValue({ entries: [noDef], next_cursor: "" });
     renderPage();
-    await waitFor(() => expect(screen.getByText("无定义条目")).toBeTruthy());
+    fireEvent.click(screen.getByTestId("kb-src-官方精选"));
+    await screen.findByText("无定义条目");
     fireEvent.click(screen.getByText("无定义条目"));
     await waitFor(() => expect(screen.getByText(/知识定义待补/)).toBeTruthy());
     // 实例文本不得出现在「知识定义」段冒充定义（定义段只允许待补提示）
@@ -238,7 +249,7 @@ describe("KnowledgeBasePage 详情抽屉", () => {
 
   it("视图切换臂：列表/星图 setView 可点", async () => {
     renderPage();
-    await waitFor(() => expect(screen.getByText("刘望津")).toBeTruthy());
+    await openFallbackArm();
     fireEvent.click(screen.getByText("星图"));
     await waitFor(() => expect(screen.getByText("列表")).toBeTruthy());
     fireEvent.click(screen.getByText("列表"));
@@ -247,7 +258,7 @@ describe("KnowledgeBasePage 详情抽屉", () => {
 
   it("关闭抽屉后字段段退场", async () => {
     renderPage();
-    await waitFor(() => expect(screen.getByText("刘望津")).toBeTruthy());
+    await openFallbackArm();
     fireEvent.click(screen.getByText("刘望津"));
     await waitFor(() => expect(screen.getByText("字段")).toBeTruthy());
     fireEvent.click(screen.getByText("✕"));

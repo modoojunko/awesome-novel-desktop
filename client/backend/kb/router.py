@@ -1162,6 +1162,21 @@ async def add_instance_api(
     return {"ok": True, "instance": {"id": inst.id, "text": inst.text}}
 
 
+@router.get("/instances")
+async def list_instances_flat_api(
+    genre: str = "",
+    concept: str = "",
+    q: str = "",
+    user: dict = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """跨知识实例行列表（c-kb-instance-list）——全量返回，无游标/分页字段。"""
+    rows = await knowledge_service.list_instances_flat(
+        db, user_id=_user(user), genre=genre, concept=concept, q=q,
+    )
+    return {"ok": True, "data": {"rows": rows}}
+
+
 # ─── 知识总结（c-kb-summarize）：定期任务自动整理，知识直接生效 ──────────
 
 
