@@ -568,6 +568,9 @@ export default function KnowledgeBasePage() {
                     )}
                   </div>
                   <p className="text-[14px] leading-relaxed text-[var(--fg)]">
+                    {r.row_kind === "instance" && r.name && (
+                      <span className="font-semibold">{r.name}：</span>
+                    )}
                     {r.text}
                     {r.quote && <span className="text-[var(--muted)]">——{r.quote}</span>}
                   </p>
@@ -777,6 +780,9 @@ export default function KnowledgeBasePage() {
                 </span>
               ))}
             </div>
+            {selectedInstance.row_kind === "instance" && selectedInstance.name && (
+              <h2 className="text-[17px] font-semibold text-[var(--fg)]">{selectedInstance.name}</h2>
+            )}
             <h2 className="text-[15px] font-medium leading-relaxed text-[var(--fg)]">
               {selectedInstance.text}
               {selectedInstance.quote && (
