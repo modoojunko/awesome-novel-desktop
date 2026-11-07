@@ -24,7 +24,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from deconstruct.cards import split_plot_evidence
 from models.character_library import CharacterLibrary
-from models.kb import KbEntry, KbKnowledgeInstance
+from models.kb import KbEntry, KbEntryTag, KbKnowledgeInstance
 
 logger = logging.getLogger(__name__)
 
@@ -284,7 +284,7 @@ async def _normalize_legacy_genres_on(db: AsyncSession, *, user_id: str) -> int:
     return fixed
 
 
-def _strip_anchors_deep(value: Any) -> Any:
+def strip_anchors_deep(value: Any) -> Any:
     """标量剥锚；列表逐项剥并弃空项（剥后只剩锚的别名项不落）；其余透传。"""
     if isinstance(value, str):
         return strip_chapter_anchor(value)
@@ -331,7 +331,7 @@ async def _repair_chapter_anchors_on(db: AsyncSession, *, user_id: str) -> int:
             continue
         if not isinstance(fields, dict):
             continue
-        cleaned = {k: _strip_anchors_deep(v) for k, v in fields.items()}
+        cleaned = {k: strip_anchors_deep(v) for k, v in fields.items()}
         cleaned = {k: v for k, v in cleaned.items() if v or not fields.get(k)}  # 剥空的键不落
         if cleaned != fields:
             inst.fields_json = json.dumps(cleaned, ensure_ascii=False)
@@ -352,10 +352,25 @@ async def _repair_chapter_anchors_on(db: AsyncSession, *, user_id: str) -> int:
             continue
         if not isinstance(payload, dict):
             continue
-        cleaned = {k: _strip_anchors_deep(v) for k, v in payload.items()}
+        cleaned = {k: strip_anchors_deep(v) for k, v in payload.items()}
         cleaned = {k: v for k, v in cleaned.items() if v or not payload.get(k)}  # 剥空的键不落
         if cleaned != payload:
             entry.payload_json = json.dumps(cleaned, ensure_ascii=False)
+            fixed += 1
+    # 物化标签投影同步（评审 P3）：payload 剥了、标签不剥＝两套账——
+    # kb/match 按 (dim, value) 消费投影，锚值标签与净值数据从此对不上
+    tags = (
+        await db.scalars(
+            select(KbEntryTag).where(
+                KbEntryTag.user_id == user_id,
+                KbEntryTag.value.like("%（%"),
+            )
+        )
+    ).all()
+    for tag in tags:
+        cleaned = strip_chapter_anchor(tag.value)
+        if cleaned != tag.value:
+            tag.value = cleaned
             fixed += 1
     if fixed:
         await db.commit()
