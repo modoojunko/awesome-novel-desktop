@@ -346,6 +346,7 @@ describe("KnowledgeBasePage 手录表单", () => {
       schema_json: JSON.stringify([
         { name: "身份反差", desc: "日常身份与异常处境的落差" },
         { name: "性格底色", desc: "核心性格与说话方式" },
+        { name: "how", desc: "" }, // desc 空 → 回退字段说明单源
       ]),
     });
     api.listInstances = api.listInstances || vi.fn();
@@ -364,6 +365,8 @@ describe("KnowledgeBasePage 手录表单", () => {
     await waitFor(() => expect(api.entry).toHaveBeenCalledWith("kbentry-schema"));
     await waitFor(() => expect(screen.getByText("字段 schema")).toBeTruthy());
     expect(screen.getByText(/日常身份与异常处境的落差/)).toBeTruthy();
+    // desc 空的字段回退字段说明单源（kbFieldDesc）——不再悬空无名说明
+    expect(screen.getByText(/· 具体怎么写/)).toBeTruthy();
     // schema 字段名走中文字典；desc 空＝悬空「·」不渲染（真机 2026-11-07 实锤）
     expect(screen.queryByText(/^persona ·/)).toBeNull();
     expect(screen.getAllByText("身份反差").length).toBeGreaterThan(0);
