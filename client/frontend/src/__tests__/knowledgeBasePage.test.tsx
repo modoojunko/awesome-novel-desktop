@@ -100,7 +100,7 @@ beforeEach(() => {
   api.libraries.mockResolvedValue([]);
   api.genres.mockResolvedValue([]);
   api.entryRelations.mockResolvedValue({ relations: [], merged_into: null });
-  api.entry.mockResolvedValue({ ...ENTRY, id: "kbentry-external", title: "外部对端" });
+  api.entry.mockResolvedValue(ENTRY); // 行点击取详情＝列表同款；外部对端用例自设
   // 实例行列表（c-kb-instance-list）：默认空集；知识行用例走官方精选回退臂
   api.instancesFlat.mockResolvedValue({ ok: true, rows: [] });
 });
@@ -108,7 +108,7 @@ beforeEach(() => {
 // 知识行列表退居回退臂（c-kb-instance-list）：需要条目行的用例先切「官方精选」
 async function openFallbackArm() {
   fireEvent.click(screen.getByTestId("kb-src-官方精选"));
-  await screen.findByText("刘望津");
+  await screen.findByText(/刘望津/);
 }
 
 afterEach(() => {
@@ -146,7 +146,7 @@ describe("KnowledgeBasePage 详情抽屉", () => {
   it("点开条目：字段以中文标签逐格渲染（迁移卡属性全可见）", async () => {
     renderPage();
     await openFallbackArm();
-    fireEvent.click(screen.getByText("刘望津"));
+    fireEvent.click(screen.getAllByText(/刘望津/)[0]);
     await waitFor(() => expect(screen.getByText("字段")).toBeTruthy());
     // 中文标签（通用字典），不露英文字段名
     expect(screen.getByText("性别")).toBeTruthy();
@@ -183,7 +183,7 @@ describe("KnowledgeBasePage 详情抽屉", () => {
     });
     renderPage();
     await openFallbackArm();
-    fireEvent.click(screen.getByText("刘望津"));
+    fireEvent.click(screen.getAllByText(/刘望津/)[0]);
     await waitFor(() => expect(screen.getByText("字段")).toBeTruthy());
     expect(screen.queryByText("指令")).toBeNull();
     expect(screen.getByText("一句话人设")).toBeTruthy();
@@ -205,7 +205,7 @@ describe("KnowledgeBasePage 详情抽屉", () => {
     });
     renderPage();
     await openFallbackArm();
-    fireEvent.click(screen.getByText("刘望津"));
+    fireEvent.click(screen.getAllByText(/刘望津/)[0]);
     await waitFor(() => expect(screen.getByText(/关联知识 · 来自知识整理/)).toBeTruthy());
     // 出向句式；pending 行不出
     expect(screen.getByText(/适用于 李耀/)).toBeTruthy();
@@ -213,10 +213,11 @@ describe("KnowledgeBasePage 详情抽屉", () => {
     expect(api.entryRelations).toHaveBeenCalledWith("kbentry-0001", { status: "active" });
     // 点跳对端（B 在列表内→走 selected 切换），抽屉切到对端（标题两处：列表＋抽屉）
     fireEvent.click(screen.getByText(/适用于 李耀/));
-    await waitFor(() => expect(screen.getAllByText("李耀").length).toBeGreaterThanOrEqual(2));
+    await waitFor(() => expect(screen.getByRole("heading", { name: /李耀/ })).toBeTruthy());
   });
 
   it("点跳对端不在列表：拉详情兜底切换", async () => {
+    api.entry.mockResolvedValue({ ...ENTRY, id: "kbentry-external", title: "外部对端" });
     api.entryRelations.mockResolvedValue({
       relations: [
         { id: "rx", rel_type: "derived_from", status: "active", direction: "in",
@@ -226,7 +227,7 @@ describe("KnowledgeBasePage 详情抽屉", () => {
     });
     renderPage();
     await openFallbackArm();
-    fireEvent.click(screen.getByText("刘望津"));
+    fireEvent.click(screen.getAllByText(/刘望津/)[0]);
     await waitFor(() => expect(screen.getByText(/外部对端 源自本知识/)).toBeTruthy());
     fireEvent.click(screen.getByText(/外部对端 源自本知识/));
     await waitFor(() => expect(api.entry).toHaveBeenCalledWith("kbentry-external"));
@@ -237,10 +238,11 @@ describe("KnowledgeBasePage 详情抽屉", () => {
   it("定义空不拿实例文本冒充（c-kb-relations-view 顺手修）：只显示待补提示", async () => {
     const noDef: KbEntry = { ...ENTRY, id: "kbentry-nodef", title: "无定义条目", definition: "", instruction: "先写结果，再倒回去拆折。" };
     api.entries.mockResolvedValue({ entries: [noDef], next_cursor: "" });
+    api.entry.mockResolvedValue(noDef);
     renderPage();
     fireEvent.click(screen.getByTestId("kb-src-官方精选"));
-    await screen.findByText("无定义条目");
-    fireEvent.click(screen.getByText("无定义条目"));
+    await screen.findByText(/无定义条目/);
+    fireEvent.click(screen.getByText(/无定义条目/));
     await waitFor(() => expect(screen.getByText(/知识定义待补/)).toBeTruthy());
     // 实例文本不得出现在「知识定义」段冒充定义（定义段只允许待补提示）
     const defSection = screen.getByText("知识定义").parentElement!;
@@ -253,13 +255,13 @@ describe("KnowledgeBasePage 详情抽屉", () => {
     fireEvent.click(screen.getByText("星图"));
     await waitFor(() => expect(screen.getByText("列表")).toBeTruthy());
     fireEvent.click(screen.getByText("列表"));
-    await waitFor(() => expect(screen.getByText("刘望津")).toBeTruthy());
+    await waitFor(() => expect(screen.getAllByText(/刘望津/).length).toBeGreaterThan(0));
   });
 
   it("关闭抽屉后字段段退场", async () => {
     renderPage();
     await openFallbackArm();
-    fireEvent.click(screen.getByText("刘望津"));
+    fireEvent.click(screen.getAllByText(/刘望津/)[0]);
     await waitFor(() => expect(screen.getByText("字段")).toBeTruthy());
     fireEvent.click(screen.getByText("✕"));
     await waitFor(() => expect(screen.queryByText("字段")).toBeNull());
@@ -278,8 +280,8 @@ describe("角色设定页签同构（c-kb-view-unify：档案柜视图退役）"
     renderPage(<KnowledgeBasePage />, { route: "/tools/kb?concept=角色设定" });
     await waitFor(() => expect(screen.getByTestId("kb-count-line")).toBeTruthy());
     fireEvent.click(screen.getByTestId("kb-src-官方精选"));
-    await waitFor(() => expect(screen.getByText("刘望津")).toBeTruthy());
-    expect(screen.getByText("1 条")).toBeTruthy();
+    await waitFor(() => expect(screen.getAllByText(/刘望津/).length).toBeGreaterThan(0));
+    expect(screen.getByTestId("kb-count-line").textContent).toContain("共 1 条实例");
   });
 
   it("非法 ?concept= 落「全部」", async () => {

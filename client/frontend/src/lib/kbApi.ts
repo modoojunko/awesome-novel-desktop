@@ -176,8 +176,8 @@ interface KbInstanceFlatRowBase {
   quote: string;
   source_novel: string;
   source_chapter: string;
-  /** 后端归一为「拆书/手录」两个界面值 */
-  src_kind: "拆书" | "手录";
+  /** 来源标：我的收录＝拆书/手录（后端归一）；官方臂前端映射＝官方精选/已隐藏 */
+  src_kind: "拆书" | "手录" | "官方精选" | "已隐藏";
   created_at: string;
 }
 
@@ -187,6 +187,8 @@ export interface KbInstanceRow extends KbInstanceFlatRowBase {
   fields_json: string;
   /** 实例名：角色实例＝角色名；其余概念空串（前端以正文兜底） */
   name: string;
+  /** 官方基线条目（前端映射行）：无归属链，点行开详情抽屉（隐藏/副本动作在那边） */
+  official?: boolean;
 }
 
 export interface KbMaterialRow extends KbInstanceFlatRowBase {
@@ -216,13 +218,14 @@ export const kbApi = {
     return unwrap<{ ok: boolean; rows: KbInstanceFlatRow[] }>(request(`${BASE}/instances?${sp}`));
   },
 
-  entries: (params: { genre?: string; concept?: string; src?: string; q?: string; cursor?: string }) => {
+  entries: (params: { genre?: string; concept?: string; src?: string; q?: string; cursor?: string; limit?: number }) => {
     const sp = new URLSearchParams();
     if (params.genre) sp.set("genre", params.genre);
     if (params.concept) sp.set("concept", params.concept);
     if (params.src) sp.set("src", params.src);
     if (params.q) sp.set("q", params.q);
     if (params.cursor) sp.set("cursor", params.cursor);
+    if (params.limit) sp.set("limit", String(params.limit));
     return unwrap<{ entries: KbEntry[]; next_cursor: string }>(request(`${BASE}/entries?${sp}`));
   },
 
