@@ -362,6 +362,35 @@ async def _repair_chapter_anchors_on(db: AsyncSession, *, user_id: str) -> int:
     return fixed
 
 
+async def purge_instances_on_materials(*, user_id: str) -> int:
+    """清挂错位的自指实例：实例挂「素材行」头上（knowledge_id 指向 origin=material）。
+
+    病形＝旧版「素材归属既有知识直接转实例」把素材自身当目标知识，每素材自指一条
+    （实锤 136 条，1:1 对应归档素材）。素材行不是知识（visible_knowledge_filter 口径），
+    这些实例在任何读面都不可达（实例行列表 JOIN 排除素材知识、素材卡不渲染实例群）——
+    纯垃圾却污染实例计数。修＝整批删除；查无即返（自熄）。
+    失败不抛。**自开短会话**（同 normalize_legacy_genres）。
+    """
+    try:
+        from db import async_session
+
+        async with async_session() as db:
+            res = await db.execute(
+                _t(
+                    "DELETE FROM kb_knowledge_instances WHERE knowledge_id IN "
+                    "(SELECT id FROM kb_entries WHERE user_id = :u AND origin = 'material')"
+                ),
+                {"u": user_id},
+            )
+            n = res.rowcount
+            if n:
+                await db.commit()
+            return n
+    except Exception:  # noqa: BLE001 — 读面永不因自愈失败红
+        logger.warning("event=kb.purge_instances_on_materials.fail user=%s", user_id, exc_info=True)
+        return 0
+
+
 async def ensure_legacy_migrated(db: AsyncSession, *, user_id: str) -> None:
     """老版库卡一次性搬入知识库（c-kb-library-once-migration）。
 
@@ -376,13 +405,14 @@ async def ensure_legacy_migrated(db: AsyncSession, *, user_id: str) -> None:
 
     先跑 repair_character_evidence（老映射把小说名写进证据列的存量换轨）：
     独立于 stamped 短路——备份恢复回的旧形状条目不经迁移入口，也要能被修。
-    同位再跑 normalize_legacy_genres / repair_chapter_anchors（2026-11-07 走查
-    实锤的两桩存量沉积，见各函数 docstring），同为幂等自熄、独立于 stamped。
+    同位再跑 normalize_legacy_genres / repair_chapter_anchors / purge_instances_on_materials
+    （2026-11-07 走查实锤的三桩存量沉积，见各函数 docstring），同为幂等自熄、独立于 stamped。
     """
     try:
         await repair_character_evidence(db, user_id=user_id)
         await normalize_legacy_genres(user_id=user_id)
         await repair_chapter_anchors(user_id=user_id)
+        await purge_instances_on_materials(user_id=user_id)
         has_legacy = (
             await db.execute(
                 select(CharacterLibrary.id)

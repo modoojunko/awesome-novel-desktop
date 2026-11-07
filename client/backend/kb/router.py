@@ -1171,6 +1171,9 @@ async def list_instances_flat_api(
     db: AsyncSession = Depends(get_db),
 ):
     """跨知识实例行列表（c-kb-instance-list）——全量返回，无游标/分页字段。"""
+    # 迁移/自愈挂点：实例臂是新列表 UI 的主查询（实例臂不发 /entries）——读面自愈
+    # （迁移＋题材归一＋章锚剥除＋素材自指实例清理）必须在此可达，否则永不触发
+    await ensure_legacy_migrated(db, user_id=_user(user))
     rows = await knowledge_service.list_instances_flat(
         db, user_id=_user(user), genre=genre, concept=concept, q=q,
     )

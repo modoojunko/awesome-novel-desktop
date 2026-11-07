@@ -17,6 +17,7 @@ from db import async_session
 from kb.migrate_library import (
     ensure_legacy_migrated,
     normalize_legacy_genres,
+    purge_instances_on_materials,
     repair_chapter_anchors,
 )
 from kb.summarize import run_summarize
@@ -152,6 +153,31 @@ class TestRepairChapterAnchors:
         assert payload["aliases"] == ["鬼面人", "怪物（泛指）"], "列表逐项剥、泛指保留"
         assert payload["plot"] == "断头不死，鬼面消融凝固"
 
+    def test_素材自指实例清掉_正常实例保留(self):
+        uid = _mk("purge")
+        _run(_seed_user(uid))
+        kid = _run(_mk_entry(uid, genre="都市", title="反派"))          # 正常知识
+        mat_id = _run(_mk_entry(uid, genre="都市", origin="material"))  # 素材行
+        good_iid, bad_iid = uuid.uuid4().hex, uuid.uuid4().hex
+
+        async def _mk_insts():
+            async with async_session() as db:
+                db.add(KbKnowledgeInstance(id=good_iid, knowledge_id=kid, text="正常实例。"))
+                db.add(KbKnowledgeInstance(id=bad_iid, knowledge_id=mat_id, text="自指垃圾。"))
+                await db.commit()
+        _run(_mk_insts())
+
+        async def _go():
+            return await purge_instances_on_materials(user_id=uid)
+        assert _run(_go()) == 1
+
+        async def _check():
+            async with async_session() as db:
+                return (await db.get(KbKnowledgeInstance, good_iid)) is not None, \
+                       (await db.get(KbKnowledgeInstance, bad_iid)) is None
+        good_ok, bad_gone = _run(_check())
+        assert good_ok and bad_gone
+
     def test_无病形自熄(self):
         uid = _mk("anc2")
         _run(_seed_user(uid))
@@ -168,12 +194,23 @@ class TestEnsureHook:
         _run(_seed_user(uid))
         eid = _run(_mk_entry(uid, genre="灵异志怪"))  # 无 legacy 行也照跑（独立于 stamped 短路）
 
+        mat_id = _run(_mk_entry(uid, genre="灵异志怪", origin="material"))
+        bad_iid = uuid.uuid4().hex
+
+        async def _mk_bad():
+            async with async_session() as db:
+                db.add(KbKnowledgeInstance(id=bad_iid, knowledge_id=mat_id, text="自指垃圾。"))
+                await db.commit()
+        _run(_mk_bad())
+
         async def _go():
             async with async_session() as db:
                 await ensure_legacy_migrated(db, user_id=uid)  # 钩自带 db 参（迁移仍用调用方会话）
                 e = await db.get(KbEntry, eid)
-                return e.genre
-        assert _run(_go()) == "志怪/民俗灵异"
+                bad = await db.get(KbKnowledgeInstance, bad_iid)
+                return e.genre, bad is None
+        genre, bad_gone = _run(_go())
+        assert genre == "志怪/民俗灵异" and bad_gone, "归一＋自指清理同钩齐跑"
 
 
 class TestSummarize接链:
