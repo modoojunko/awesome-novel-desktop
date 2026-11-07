@@ -125,6 +125,45 @@ class TestEngine:
         assert "other_key" not in rows, "污染键不得迁入"
         assert rows.get("schema_id") != "old_fp_should_not_migrate"
 
+    def test_m7_summarize_runs_planned_and_copied(self, sandbox):
+        """M7：raw-DDL 表 kb_summarize_runs ORM 化后——计划面认得、行照搬。
+
+        真机 2026-11-07 实锤：纯 raw-DDL 表不在 Base.metadata，被误标
+        table_retired 整段跳过，版本迁移弹「kb_summarize_runs 未能迁移」。
+        """
+        root, active = sandbox
+        _old_gen0(root)
+        conn = sqlite3.connect(root / "novel.db")
+        conn.execute(
+            "CREATE TABLE kb_summarize_runs ("
+            "id TEXT PRIMARY KEY, user_id TEXT NOT NULL, genre TEXT NOT NULL DEFAULT '', "
+            "status TEXT NOT NULL DEFAULT 'running', trigger TEXT NOT NULL DEFAULT '', "
+            "materials_scanned INTEGER NOT NULL DEFAULT 0, knowledge_created INTEGER NOT NULL DEFAULT 0, "
+            "error TEXT NOT NULL DEFAULT '', created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP)"
+        )
+        conn.execute(
+            "INSERT INTO kb_summarize_runs (id, user_id, genre, status, trigger, materials_scanned, knowledge_created, error, created_at) "
+            "VALUES ('r1','u1','玄幻','completed','manual',5,3,'','2026-11-01 00:00:00')"
+        )
+        conn.execute(
+            "INSERT INTO kb_summarize_runs (id, user_id, genre, status, trigger, materials_scanned, knowledge_created, error, created_at) "
+            "VALUES ('r2','u1','玄幻','error','auto',0,0,'boom','2026-11-02 00:00:00')"
+        )
+        conn.commit()
+        conn.close()
+        rep = run_migration(root, "novel.db", active)
+        assert rep["status"] == "ok"
+        assert not any(s["table"] == "kb_summarize_runs" for s in rep["tables_skipped"]), \
+            "不再误标 table_retired"
+        seg = next(t for t in rep["tables"] if t["table"] == "kb_summarize_runs")
+        assert seg["rows_source"] == 2 and seg["rows_inserted"] == 2
+        con = sqlite3.connect(f"file:{active}?mode=ro", uri=True)
+        try:
+            n = con.execute("SELECT COUNT(*) FROM kb_summarize_runs").fetchone()[0]
+        finally:
+            con.close()
+        assert n == 2
+
     def test_m6_table_with_notnull_blocker_skipped(self, sandbox, monkeypatch):
         """M6：目标有 NOT NULL 无默认列的表 → 整表跳过进报告。"""
         root, active = sandbox

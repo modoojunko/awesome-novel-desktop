@@ -618,3 +618,28 @@ class KbBookEntryTag(Base):
     user_id: Mapped[str] = mapped_column(String(36), nullable=False)
     dim: Mapped[str] = mapped_column(String(20), nullable=False)
     value: Mapped[str] = mapped_column(String(80), nullable=False)
+
+
+class KbSummarizeRun(Base):
+    """总结运行台账（c-kb-summarize；表由 summarize.ensure raw-DDL 建管）。
+
+    ORM 化的唯一动机＝迁移引擎计划面：build_plan 只认 Base.metadata 里的表，
+    纯 raw-DDL 表会被误标 table_retired 整段跳过（真机 2026-11-07 实锤：版本迁移
+    弹「kb_summarize_runs 未能迁移」）。列与 ensure DDL 逐一同构（TEXT→String
+    亲和不变）；单飞 partial unique index 仍归 ensure DDL 管（CREATE UNIQUE INDEX
+    IF NOT EXISTS），模型不重复声明。
+    """
+
+    __tablename__ = "kb_summarize_runs"
+
+    # server_default 逐列对齐 ensure DDL——claim 的 INSERT 是显式列名直插，
+    # 不经 ORM Python default；create_all 建的表缺 DDL DEFAULT 会炸 NOT NULL
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid)
+    user_id: Mapped[str] = mapped_column(String(36), nullable=False)
+    genre: Mapped[str] = mapped_column(String(40), nullable=False, server_default="")
+    status: Mapped[str] = mapped_column(String(12), nullable=False, server_default="running")
+    trigger: Mapped[str] = mapped_column(String(20), nullable=False, server_default="")
+    materials_scanned: Mapped[int] = mapped_column(Integer, nullable=False, server_default="0")
+    knowledge_created: Mapped[int] = mapped_column(Integer, nullable=False, server_default="0")
+    error: Mapped[str] = mapped_column(Text, nullable=False, server_default="")
+    created_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, server_default=func.now())
