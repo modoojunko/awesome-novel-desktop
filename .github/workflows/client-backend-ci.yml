@@ -49,4 +49,6 @@ jobs:
         run: ruff check --extend-select F811,F821,F841 .
       - name: Test
         # 不再用 || 掩盖 —— pytest 失败必须让 CI 红
-        run: python -m pytest tests/ -q --timeout=30
+        # -m "not perf"（boss 拍板 2026-11-07）：十万级压测只在本地跑（pytest -m perf），
+        # CI runner 磁盘慢必撞 --timeout=30（实锤 42320098417 在 54% 处连环 30s 超时）
+        run: python -m pytest tests/ -q --timeout=30 -m "not perf"
