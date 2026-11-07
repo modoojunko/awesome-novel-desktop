@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useSearchParams } from "react-router-dom";
-import { kbApi, type KbEntry, type KbGenreCount, type KbInstanceFlatRow, type KbLibrary } from "@/lib/kbApi";
+import { kbApi, type KbEntry, type KbGenreCount, type KbInstanceFlatRow } from "@/lib/kbApi";
 import StarSeaPanel from "@/components/tools/StarSeaPanel";
 import { kbFieldLabel, kbValueLabel } from "@/lib/kbFieldLabels";
 import KbOrganizePanel from "@/components/tools/KbOrganizePanel";
@@ -65,7 +65,6 @@ export default function KnowledgeBasePage() {
   const [src, setSrc] = useState("全部");
   const [q, setQ] = useState("");
   const [entries, setEntries] = useState<KbEntry[]>([]);
-  const [libraries, setLibraries] = useState<KbLibrary[]>([]);
   const [genreCounts, setGenreCounts] = useState<KbGenreCount[]>([]);
   const [cursor, setCursor] = useState("");
   const [loading, setLoading] = useState(false);
@@ -135,13 +134,6 @@ export default function KnowledgeBasePage() {
     } finally { setFlatLoading(false); }
   }, [genre, concept, q]);
 
-  const loadLibraries = useCallback(async () => {
-    // 视角模式下库分组卡隐藏，库列表零消费不发（D4 门控）
-    if (viewMode) return;
-    const r = await kbApi.libraries(genre !== "全部题材" ? genre : undefined);
-    setLibraries(r);
-  }, [genre, viewMode]);
-
   // 实例臂客户端过滤与排序（数据全量在内存）：来源（拆书/手录）按行 src_kind、
   // 「跨题材通用」档只留 genre==='' 行；名称排序按所属知识名、素材行恒排末位
   const visibleRows = useMemo(() => {
@@ -184,9 +176,8 @@ export default function KnowledgeBasePage() {
   // 删素材/手录/基线操作后的当前臂刷新
   const reloadCurrent = useCallback(async () => {
     if (instanceArm) { await loadFlat(); } else { await loadEntries(); }
-    loadLibraries();
     kbApi.genres().then(setGenreCounts).catch(() => {});
-  }, [instanceArm, loadFlat, loadEntries, loadLibraries]);
+  }, [instanceArm, loadFlat, loadEntries]);
 
   useEffect(() => {
     kbApi.genres().then(setGenreCounts).catch(() => {});
@@ -205,9 +196,8 @@ export default function KnowledgeBasePage() {
       setCursor("");
       void loadFlat();
     } else { void loadEntries(); }
-    loadLibraries();
     // instanceArm 随 src 切臂；两臂各取各的数据源（实例臂不跑 entries 主查询）
-  }, [instanceArm, genre, concept, src, q, loadFlat, loadEntries, loadLibraries]);
+  }, [instanceArm, genre, concept, src, q, loadFlat, loadEntries]);
 
   const visibleGenres = useMemo(() => {
     const filled = genreCounts.filter((g) => g.count > 0);
@@ -217,16 +207,6 @@ export default function KnowledgeBasePage() {
 
   const moreCount = genreCounts.filter((g) => g.count > 0).length - visibleGenres.length;
   const showFoldToggle = moreCount > 0 || showMoreGenres;
-  const groups = useMemo(() => {
-    const map = new Map<string, KbLibrary[]>();
-    libraries.forEach((l) => {
-      const key = l.genre || "跨题材通用";
-      if (!map.has(key)) map.set(key, []);
-      map.get(key)!.push(l);
-    });
-    return [...map.entries()];
-  }, [libraries]);
-
   /* 官方精选只读操作面（c-kb-baseline 批B）：隐藏＝白名单外记录；恢复官方版＝删副本。
      原件永不修改，失败静默（刷新后状态即真相）。 */
   // 只有「无筛选」时官方精选空集才等价于「没同步下来」（有筛选＝该筛选下没有）
@@ -301,7 +281,7 @@ export default function KnowledgeBasePage() {
         setInstRows(r.instances.map((x) => ({
           id: x.id,
           text: x.text,
-          fields: (() => { try { return JSON.parse(x.fields_json || "{}") as Record<string, string>; } catch { return {}; } })(),
+          fields: (() => { try { return JSON.parse(x.fields_json || "{}") as Record<string, string>; } catch /* v8 ignore next — 畸形 fields_json UI 不可达（后端恒合法 JSON） */ { return {}; } })(),
           source_novel: x.source_novel,
         })));
       })
@@ -310,7 +290,9 @@ export default function KnowledgeBasePage() {
   }, [selected]);
 
   const handleDeleteMaterial = async () => {
+    /* v8 ignore start -- 双保险早退：删除钮只挂在素材抽屉上（真机连点防护），UI 面走不到该早退 */
     if (!selected || selected.origin !== "material" || opBusy) return;
+    /* v8 ignore stop */
     setOpBusy(true);
     setOpNote("");
     try {
@@ -380,7 +362,7 @@ export default function KnowledgeBasePage() {
           <KbOrganizePanel
             genre={genre !== "全部题材" ? genre : "玄幻"}
             onClose={() => setShowOrganize(false)}
-            onChanged={() => { void loadEntries(); void loadLibraries(); }}
+            onChanged={() => { void loadEntries(); }}
           />
         )}
         <div className="flex gap-6" style={{ display: view === "list" ? undefined : "none" }}>
@@ -457,42 +439,8 @@ export default function KnowledgeBasePage() {
               ))}
             </div>
 
-            {/* 库分组：标题行＋库卡（c-kb-snapshot 库卡亮相）；视角模式下退位（D4） */}
-            {!viewMode && groups.length > 0 && (
-              <div className="mb-4 space-y-5">
-                {groups.map(([gname, libs]) => (
-                  <div key={gname}>
-                    <div className="mb-2 font-mono text-[10px] tracking-[0.12em] text-[var(--muted)]">
-                      {gname} · {libs.length} 个库
-                    </div>
-                    <div className="grid grid-cols-2 gap-2 xl:grid-cols-3">
-                      {libs.map((l) => (
-                        <div
-                          key={l.id}
-                          className="rounded-xl border border-[var(--border)] bg-[var(--surface)] px-4 py-3"
-                        >
-                          <div className="flex items-center justify-between gap-2">
-                            <span className="truncate text-[13px] font-medium text-[var(--fg)]">{l.name}</span>
-                            {l.bound_in_book ? (
-                              <span className="flex-none rounded-full bg-[var(--accent-soft)] px-2 py-0.5 font-mono text-[9.5px] text-[var(--accent)]">
-                                本书已启用
-                              </span>
-                            ) : null}
-                          </div>
-                          {l.purpose ? (
-                            <p className="mt-1 line-clamp-2 text-[11.5px] leading-relaxed text-[var(--muted)]">{l.purpose}</p>
-                          ) : null}
-                          <div className="mt-2 flex gap-3 font-mono text-[10px] text-[var(--faint)]">
-                            <span>{l.entry_count ?? 0} 条</span>
-                            {(l.bound_novels ?? 0) > 0 && <span>{l.bound_novels} 本书在用</span>}
-                          </div>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                ))}
-              </div>
-            )}
+            {/* 库分组卡已按原型退役（boss 2026-11-07）：知识库页不再展示选择器库——
+                 库本体与绑定链路仍在（选择器/建书消费），仅本页展示面移除 */}
 
             {/* 来源筛选（c-kb-baseline 批B）：官方精选可单独过滤 */}
             <div className="mb-3 flex flex-wrap gap-1.5">
@@ -821,7 +769,7 @@ export default function KnowledgeBasePage() {
             {/* 字段 schema（c-kb-summarize）：知识点的字段元数据 */}
             {(() => {
               let schemaRows: { name: string; desc: string }[] = [];
-              try { schemaRows = JSON.parse(selected.schema_json || "[]"); } catch { schemaRows = []; }
+              try { schemaRows = JSON.parse(selected.schema_json || "[]"); } catch /* v8 ignore next — 畸形 schema_json UI 不可达（后端恒合法 JSON） */ { schemaRows = []; }
               if (!Array.isArray(schemaRows) || schemaRows.length === 0) return null;
               return (
                 <div className="mt-4">
