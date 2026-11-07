@@ -496,6 +496,11 @@ async def ensure_legacy_migrated(db: AsyncSession, *, user_id: str) -> None:
         await repair_chapter_anchors(user_id=user_id)
         await purge_instances_on_materials(user_id=user_id)
         await backfill_instance_names(user_id=user_id)
+        # 拆书版本收敛（c-kb-collect-dims）：同书以全本为准重收＋四维扩收；
+        # 自开会话、幂等（app_meta 标记）、失败不抛——首触达一次性重建，量大稍慢
+        from kb.version_reconcile import reconcile_deconstruct_versions
+
+        await reconcile_deconstruct_versions(user_id=user_id)
         has_legacy = (
             await db.execute(
                 select(CharacterLibrary.id)
