@@ -610,6 +610,10 @@ describe("实例行列表（c-kb-instance-list）", () => {
     await waitFor(() => expect(api.entry).toHaveBeenCalledWith("kkkkkkkk-0000-0000-0000-000000000002"));
     fireEvent.click(screen.getAllByText("✕").at(-1)!);
     await waitFor(() => expect(screen.queryByText("知识点抽屉")).toBeNull());
+    // Space 键同 Enter（键盘可达双键）
+    fireEvent.keyDown(screen.getAllByTestId("kb-inst-row")[0], { key: " " });
+    await waitFor(() => expect(screen.getAllByText("嘴贫胆小却重情义。").length).toBeGreaterThan(0));
+    fireEvent.click(screen.getByTestId("kb-inst-drawer-close"));
     // 遮罩点击关实例抽屉
     fireEvent.keyDown(screen.getAllByTestId("kb-inst-row")[0], { key: "Enter" });
     await screen.findByText("写法细节");
@@ -621,7 +625,7 @@ describe("实例行列表（c-kb-instance-list）", () => {
       rows: [
         flatRow({ id: "inst-bare", quote: "", source_novel: "", source_chapter: "", created_at: "", fields_json: "{}" }),
         flatRow({ id: "inst-novelonly", quote: "", source_novel: "旧城书", source_chapter: "", created_at: "", fields_json: "{}" }),
-        flatRow({ id: "inst-nogenre", genre: "", quote: "", source_novel: "", source_chapter: "", created_at: "", fields_json: "{}" }),
+        flatRow({ id: "inst-nogenre", genre: "", knowledge_title: "", quote: "", source_novel: "", source_chapter: "", created_at: "", fields_json: "{}" }),
       ],
     });
     // 触发重取（筛选变化）让新 mock 生效
@@ -639,6 +643,7 @@ describe("实例行列表（c-kb-instance-list）", () => {
     fireEvent.click(screen.getAllByTestId("kb-inst-row")[2]);
     await screen.findByTestId("kb-inst-drawer-close");
     expect(screen.getByTestId("kb-inst-drawer-close").parentElement!.textContent).toContain("跨题材通用");
+    expect(screen.getByText("未归属")).toBeTruthy(); // knowledge_title 空 → 归属行兜底
     fireEvent.click(screen.getByTestId("kb-inst-drawer-close"));
     // 无出处整段不渲染
     fireEvent.click(screen.getAllByTestId("kb-inst-row")[0]);
@@ -646,6 +651,50 @@ describe("实例行列表（c-kb-instance-list）", () => {
     expect(screen.queryByText("出处")).toBeNull(); // 无出处整段不渲染
     fireEvent.click(screen.getByTestId("kb-inst-drawer-close"));
     await waitFor(() => expect(screen.queryByTestId("kb-inst-drawer-close")).toBeNull());
+  });
+
+  it("只有官方内容的题材：我的实例空 → 官方行兜底（玄幻实锤路径）", async () => {
+    api.genres.mockResolvedValue([...SEVEN_GENRES, { name: "玄幻", count: 21 }]);
+    api.instancesFlat.mockResolvedValue({ ok: true, rows: [] }); // 我的实例全空
+    const official = entry({ genre: "玄幻", concept: "手法", title: "开篇·先给麻烦", instruction: "都市开篇第一行就抛出麻烦。" });
+    api.entries.mockResolvedValue({ entries: [official], next_cursor: "" });
+    renderPage();
+    // 初始（全部题材）我的实例空 → 记一条空态（不触发官方兜底）
+    await screen.findByText("记一条");
+    // 点玄幻：官方行兜底上屏——行有名字与来源标、计数一致、点行开抽屉
+    fireEvent.click(screen.getByText("玄幻"));
+    const row = await screen.findByTestId("kb-inst-row");
+    expect(row.textContent).toContain("开篇·先给麻烦");
+    expect(row.textContent).toContain("官方精选");
+    expect(screen.getByTestId("kb-count-line").textContent).toContain("共 1 条实例");
+    expect(screen.queryByText("记一条")).toBeNull();
+    fireEvent.click(row);
+    await waitFor(() => expect(api.entry).toHaveBeenCalledWith(official.id));
+    // 名称排序臂：官方兜底多行时按名字排
+    const oB = entry({ genre: "玄幻", concept: "手法", title: "报名·后置一拍", instruction: "先让人看见出手再听见名头。" });
+    api.entries.mockResolvedValue({ entries: [official, oB], next_cursor: "" });
+    fireEvent.click(screen.getAllByText("全部")[0]); // 复位题材再切回玄幻触发重取
+    fireEvent.click(await screen.findByText("玄幻"));
+    await waitFor(() => expect(screen.getAllByTestId("kb-inst-row").length).toBe(2));
+    fireEvent.change(screen.getByRole("combobox", { name: "排序" }), { target: { value: "name" } });
+    const sorted = screen.getAllByTestId("kb-inst-row");
+    expect(sorted[0].textContent).toContain("报名·后置一拍"); // 报 < 开
+
+    fireEvent.change(screen.getByRole("combobox", { name: "排序" }), { target: { value: "name" } });
+    await waitFor(() => expect(screen.getAllByTestId("kb-inst-row").length).toBeGreaterThan(0));
+    // concept 过滤参数带上（题材+类别组合）
+    fireEvent.click(screen.getByTitle("写每一章时的场面打法"));
+    await waitFor(() => expect(api.entries.mock.calls.some((c) => c[0]?.src === "官方精选" && c[0]?.concept === "手法")).toBe(true));
+  });
+
+  it("只有官方内容的题材：官方拉取失败 → 不兜底（清空筛选空态照旧）", async () => {
+    api.genres.mockResolvedValue([...SEVEN_GENRES, { name: "玄幻", count: 21 }]);
+    api.instancesFlat.mockResolvedValue({ ok: true, rows: [] });
+    api.entries.mockRejectedValue(new Error("net"));
+    renderPage();
+    fireEvent.click(await screen.findByText("玄幻"));
+    await waitFor(() => expect(api.entries.mock.calls.some((c) => c[0]?.src === "官方精选")).toBe(true));
+    await screen.findByTestId("kb-flat-empty"); // 无命中空态（题材非全部题材）
   });
 
   it("取数失败静默空列表；在途不渲染空态卡", async () => {

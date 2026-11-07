@@ -98,7 +98,6 @@ export default function KnowledgeBasePage() {
   const [q, setQ] = useState("");
   const [entries, setEntries] = useState<KbEntry[]>([]);
   const [genreCounts, setGenreCounts] = useState<KbGenreCount[]>([]);
-  const [cursor, setCursor] = useState("");
   const [loading, setLoading] = useState(false);
   // 实例行列表（c-kb-instance-list）：实例侧来源的数据源；官方精选/已隐藏两臂回知识行列表
   const [flatRows, setFlatRows] = useState<KbInstanceFlatRow[]>([]);
@@ -132,7 +131,7 @@ export default function KnowledgeBasePage() {
   const srcIsFallback = src === "官方精选" || src === "已隐藏";
   const instanceArm = !srcIsFallback;
 
-  const loadEntries = useCallback(async (cursorId = "") => {
+  const loadEntries = useCallback(async () => {
     setLoading(true);
     try {
       const sp = new URLSearchParams();
@@ -140,12 +139,10 @@ export default function KnowledgeBasePage() {
       if (concept !== "全部") sp.set("concept", concept);
       if (src !== "全部") sp.set("src", src);
       if (q) sp.set("q", q);
-      if (cursorId) sp.set("cursor", cursorId);
       // 回退臂（官方精选/已隐藏）一页取齐——统一行视图无「加载更多」，页不必切
       if (!instanceArm) sp.set("limit", "200");
       const r = await kbApi.entries(Object.fromEntries(sp));
-      setEntries((prev) => cursorId ? [...prev, ...r.entries] : r.entries);
-      setCursor(r.next_cursor);
+      setEntries(r.entries);
     } finally { setLoading(false); }
   }, [genre, concept, src, q, instanceArm]);
 
@@ -172,27 +169,53 @@ export default function KnowledgeBasePage() {
   // 「跨题材通用」档只留 genre==='' 行；名称排序按所属知识名、素材行恒排末位
   // 回退臂（官方精选/已隐藏）条目同映射为实例行（官方条目也是实例——boss 模型
   // 口径 2026-11-07：知识库所有维度都是实例行；分层只是查看方式）
+  // 官方条目 → 统一实例行（官方条目也是实例；回退臂与「点开只有官方内容的题材」共用）
+  const mapOfficialRows = useCallback((list: KbEntry[]): KbInstanceFlatRow[] => list.map((e) => ({
+    row_kind: "instance" as const,
+    id: e.id,
+    knowledge_id: e.id,
+    knowledge_title: e.title || e.instruction.slice(0, 20),
+    chain: [] as KbChainSeg[],
+    genre: e.genre,
+    concept: e.concept,
+    text: e.instruction,
+    quote: "",
+    source_novel: e.src_novel_name || "",
+    source_chapter: "",
+    src_kind: "官方精选" as const,
+    created_at: e.created_at || "",
+    fields_json: "{}",
+    name: e.title || "",
+    official: true,
+  })), []);
+
+  // 只有官方内容的题材（玄幻等）：选了具体题材且我的实例为空 → 拉官方条目兜底显示
+  // （侧栏计数含官方，列表不兜底会出现「计数 21、点开全空」——真机 2026-11-07 实锤）
+  const [officialRows, setOfficialRows] = useState<KbInstanceFlatRow[]>([]);
+  useEffect(() => {
+    if (!instanceArm || genre === "全部题材") { setOfficialRows([]); return; }
+    let alive = true;
+    (async () => {
+      try {
+        const sp = new URLSearchParams();
+        sp.set("src", "官方精选");
+        sp.set("genre", genre);
+        if (concept !== "全部") sp.set("concept", concept);
+        if (q) sp.set("q", q);
+        sp.set("limit", "200");
+        const r = await kbApi.entries(Object.fromEntries(sp));
+        if (!alive) /* v8 ignore next — 卸载竞态臂（cleanup 后返包） */ return;
+        setOfficialRows(mapOfficialRows(r.entries));
+      } catch { if (alive) setOfficialRows([]); }
+    })();
+    return () => { alive = false; };
+  }, [instanceArm, genre, concept, q, mapOfficialRows]);
+
   const visibleRows = useMemo(() => {
     if (!instanceArm) {
-      // 官方精选/已隐藏：entries（基线层）→ 实例行形状；分页游标在此臂仍加载更多
-      return entries.map((e) => ({
-        row_kind: "instance" as const,
-        id: e.id,
-        knowledge_id: e.id,
-        knowledge_title: e.title || e.instruction.slice(0, 20),
-        chain: [] as KbChainSeg[],
-        genre: e.genre,
-        concept: e.concept,
-        text: e.instruction,
-        quote: "",
-        source_novel: e.src_novel_name || "",
-        source_chapter: "",
-        src_kind: (src === "已隐藏" ? "已隐藏" : "官方精选") as "官方精选" | "已隐藏",
-        created_at: e.created_at || "",
-        fields_json: "{}",
-        name: e.title || "",
-        official: true,
-      }));
+      // 官方精选/已隐藏：entries（基线层）→ 统一实例行
+      const kind = src === "已隐藏" ? "已隐藏" : "官方精选";
+      return mapOfficialRows(entries).map((r) => ({ ...r, src_kind: kind as "官方精选" | "已隐藏" }));
     }
     let rows = flatRows;
     if (src === "拆书") rows = rows.filter((r) => r.src_kind === "拆书");
@@ -205,8 +228,14 @@ export default function KnowledgeBasePage() {
         return a.knowledge_title.localeCompare(b.knowledge_title, "zh");
       });
     }
+    // 我的实例为空（该题材只有官方内容）→ 官方行兜底（玄幻 21 实锤路径）
+    if (src === "全部" && rows.length === 0 && officialRows.length > 0) {
+      return sort === "name"
+        ? [...officialRows].sort((a, b) => (a.knowledge_title || "").localeCompare(b.knowledge_title || "", "zh"))
+        : officialRows;
+    }
     return rows;
-  }, [instanceArm, entries, flatRows, src, genre, sort]);
+  }, [instanceArm, entries, flatRows, src, genre, sort, officialRows]);
 
   // 计数行分类分布（与 N 同口径：含待归属素材行）
   const conceptBreakdown = useMemo(() => {
@@ -251,7 +280,6 @@ export default function KnowledgeBasePage() {
     if (instanceArm) {
       // 实例臂不消费知识行——清掉旧臂残留，防抽屉「关联知识」本地查找命中过期快照
       setEntries([]);
-      setCursor("");
       void loadFlat();
     } else { void loadEntries(); }
     // instanceArm 随 src 切臂；两臂各取各的数据源（实例臂不跑 entries 主查询）
