@@ -521,7 +521,7 @@ describe("实例行列表（c-kb-instance-list）", () => {
     api.instancesFlat.mockResolvedValue({
       ok: true,
       rows: [
-        flatRow(),
+        flatRow({ name: "何沉舟" }),
         flatRow({
           row_kind: "material", id: "inst-mat", knowledge_id: "", knowledge_title: "", chain: [],
           text: "夜雨转场的素材句", quote: "", source_novel: "", source_chapter: "", src_kind: "手录",
@@ -539,7 +539,8 @@ describe("实例行列表（c-kb-instance-list）", () => {
     expect(screen.getByTestId("kb-count-line").textContent).toContain("共 3 条实例");
     expect(screen.getByTestId("kb-count-line").textContent).toContain("手法 3");
     // 归属链：知识级 accent 可点（kb-chain-seg×2，末段＝所属知识点），题材段是非链接文字
-    const row = screen.getByTestId("kb-inst-row");
+    const row = screen.getAllByTestId("kb-inst-row")[0];
+    expect(row.textContent).toContain("何沉舟："); // 实例名置前（角色实例有名字）
     expect(row.textContent).toContain("都市"); // 题材段
     expect(row.textContent).toContain("场面手法");
     expect(row.textContent).toContain("开篇钩子");
@@ -570,19 +571,21 @@ describe("实例行列表（c-kb-instance-list）", () => {
     api.instancesFlat.mockResolvedValue({
       ok: true,
       rows: [
-        flatRow({ fields_json: JSON.stringify({ persona: "嘴贫胆小却重情义。", aliases: ["我", "小李"] }) }),
+        flatRow({ name: "何沉舟", fields_json: JSON.stringify({ archetype: "何沉舟", persona: "嘴贫胆小却重情义。", aliases: ["我", "小李"] }) }),
         flatRow({ row_kind: "material", id: "inst-mat2", knowledge_id: "", knowledge_title: "", chain: [], text: "素材句", src_kind: "手录", source_novel: "", source_chapter: "", quote: "" }),
       ],
     });
     api.entry.mockResolvedValue({ ...entry(), title: "知识点抽屉" });
     renderPage();
     await screen.findByTestId("kb-inst-row");
-    // 实例行本体 → 实例详情（不发 entry）：归属是属性行，字段值中文化＋repr 顿号连
+    // 实例行本体 → 实例详情（不发 entry）：实例名标题＋归属属性行＋字段中文化
     fireEvent.click(screen.getByTestId("kb-inst-row"));
     await waitFor(() => expect(api.entry).not.toHaveBeenCalled());
+    expect(screen.getAllByText("何沉舟").length).toBeGreaterThan(0); // 实例名＝角色名（列表行＋抽屉标题＋名字字段）
     expect(screen.getByText("嘴贫胆小却重情义。")).toBeTruthy();
     expect(screen.getByText("我、小李")).toBeTruthy(); // repr 列表顿号连
     expect(screen.getByText("一句话人设")).toBeTruthy(); // 字段名中文字典
+    expect(screen.getAllByText("名字").length).toBeGreaterThan(0); // archetype 字段中文字典
     // 归属属性行点知识点 → entry(knowledge_id) 开知识抽屉（抽屉容器内的归属按钮）
     fireEvent.click(screen.getAllByText("开篇钩子").at(-1)!);
     await waitFor(() => expect(api.entry).toHaveBeenCalledWith("kkkkkkkk-0000-0000-0000-000000000001"));

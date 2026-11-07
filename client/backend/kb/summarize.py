@@ -216,7 +216,9 @@ async def run_summarize(
 
         # schema 字段元数据＝桶内素材 payload 键的并集（代码可算，无需 LLM）；
         # 系统键与空值键排除。字段 desc 由前端字段字典（kbFieldLabels）补作家语言。
-        SKIP_KEYS = {"id", "user_id", "archetype", "slot", "part", "role"}
+        # archetype（角色名）不再跳过——实例要有实例名（boss 2026-11-07：角色实例
+        # 的名字就是角色名）；slot/part 仍跳（分桶键不进字段）
+        SKIP_KEYS = {"id", "user_id", "slot", "part", "role"}
 
         for (concept, slot_value), bucket in sorted(buckets.items()):
             key_set: dict[str, None] = {}

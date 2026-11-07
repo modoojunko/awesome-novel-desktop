@@ -185,6 +185,8 @@ export interface KbInstanceRow extends KbInstanceFlatRowBase {
   row_kind: "instance";
   /** 实例字段值（{字段名: 值} 的 JSON 串）——实例详情抽屉直接渲染，不重取 */
   fields_json: string;
+  /** 实例名：角色实例＝角色名；其余概念空串（前端以正文兜底） */
+  name: string;
 }
 
 export interface KbMaterialRow extends KbInstanceFlatRowBase {

@@ -406,6 +406,72 @@ async def purge_instances_on_materials(*, user_id: str) -> int:
         return 0
 
 
+async def backfill_instance_names(*, user_id: str) -> int:
+    """存量角色实例补名字：角色实例的「名字」（archetype）被旧版总结跳过未进字段。
+
+    病形＝角色设定实例 fields_json 无 archetype，实例无名。修＝按 instruction
+    与归档素材一一对应（summarize 转生时 text=素材 instruction 原样复制），
+    回查素材卡 archetype 回填进 fields_json。查无病形即返（自熄）；
+    失败不抛。**自开短会话**（同 normalize_legacy_genres）。
+    """
+    try:
+        from db import async_session
+
+        async with async_session() as db:
+            insts = (
+                await db.execute(
+                    select(KbKnowledgeInstance)
+                    .join(KbEntry, KbEntry.id == KbKnowledgeInstance.knowledge_id)
+                    .where(
+                        KbEntry.user_id == user_id,
+                        KbEntry.concept == "角色设定",
+                        ~KbKnowledgeInstance.fields_json.like('%"archetype"%'),
+                    )
+                )
+            ).scalars().all()
+            if not insts:
+                return 0
+            mats = (
+                await db.scalars(
+                    select(KbEntry).where(
+                        KbEntry.user_id == user_id,
+                        KbEntry.concept == "角色设定",
+                        KbEntry.origin == "material",
+                        KbEntry.status == "archived",
+                        KbEntry.payload_json.like('%"archetype"%'),
+                    )
+                )
+            ).all()
+            by_instruction = {}
+            for m in mats:
+                try:
+                    p = json.loads(m.payload_json or "{}")
+                except ValueError:
+                    continue
+                name = str(p.get("archetype") or "").strip()
+                if name:
+                    by_instruction[m.instruction] = name
+            fixed = 0
+            for inst in insts:
+                name = by_instruction.get(inst.text)
+                if not name:
+                    continue
+                try:
+                    fields = json.loads(inst.fields_json or "{}")
+                except ValueError:
+                    fields = {}
+                if isinstance(fields, dict) and not fields.get("archetype"):
+                    fields["archetype"] = name
+                    inst.fields_json = json.dumps(fields, ensure_ascii=False)
+                    fixed += 1
+            if fixed:
+                await db.commit()
+            return fixed
+    except Exception:  # noqa: BLE001 — 读面永不因自愈失败红
+        logger.warning("event=kb.backfill_instance_names.fail user=%s", user_id, exc_info=True)
+        return 0
+
+
 async def ensure_legacy_migrated(db: AsyncSession, *, user_id: str) -> None:
     """老版库卡一次性搬入知识库（c-kb-library-once-migration）。
 
@@ -420,14 +486,16 @@ async def ensure_legacy_migrated(db: AsyncSession, *, user_id: str) -> None:
 
     先跑 repair_character_evidence（老映射把小说名写进证据列的存量换轨）：
     独立于 stamped 短路——备份恢复回的旧形状条目不经迁移入口，也要能被修。
-    同位再跑 normalize_legacy_genres / repair_chapter_anchors / purge_instances_on_materials
-    （2026-11-07 走查实锤的三桩存量沉积，见各函数 docstring），同为幂等自熄、独立于 stamped。
+    同位再跑 normalize_legacy_genres / repair_chapter_anchors / purge_instances_on_materials /
+    backfill_instance_names（2026-11-07 走查实锤的存量沉积，见各函数 docstring），
+    同为幂等自熄、独立于 stamped。
     """
     try:
         await repair_character_evidence(db, user_id=user_id)
         await normalize_legacy_genres(user_id=user_id)
         await repair_chapter_anchors(user_id=user_id)
         await purge_instances_on_materials(user_id=user_id)
+        await backfill_instance_names(user_id=user_id)
         has_legacy = (
             await db.execute(
                 select(CharacterLibrary.id)

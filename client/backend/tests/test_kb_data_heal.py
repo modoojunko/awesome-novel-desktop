@@ -15,6 +15,7 @@ from sqlalchemy import text as _t
 
 from db import async_session
 from kb.migrate_library import (
+    backfill_instance_names,
     ensure_legacy_migrated,
     normalize_legacy_genres,
     purge_instances_on_materials,
@@ -189,6 +190,44 @@ class TestRepairChapterAnchors:
                        (await db.get(KbKnowledgeInstance, bad_iid)) is None
         good_ok, bad_gone = _run(_check())
         assert good_ok and bad_gone
+
+    def test_角色实例补名字_按instruction回查素材(self):
+        uid = _mk("name")
+        _run(_seed_user(uid))
+        mat_id = _run(_mk_entry(
+            uid, genre="志怪/民俗灵异", origin="material",
+            payload={"archetype": "何沉舟", "persona": "嘴贫胆小却重情义。"},
+        ))
+        async def _archive_mat():
+            async with async_session() as db:
+                m = await db.get(KbEntry, mat_id)
+                m.instruction = "嘴贫胆小却重情义。"  # summarize 转生时 text=素材 instruction
+                m.status = "archived"  # summarize 归档口径
+                await db.commit()
+        _run(_archive_mat())
+        iid = uuid.uuid4().hex
+
+        async def _mk_inst():
+            async with async_session() as db:
+                db.add(KbKnowledgeInstance(
+                    id=iid, knowledge_id=mat_id, text="嘴贫胆小却重情义。",  # text=素材 instruction 原样
+                    fields_json=json.dumps({"persona": "嘴贫胆小却重情义。"}),  # 无 archetype=病形
+                ))
+                await db.commit()
+        _run(_mk_inst())
+
+        async def _go():
+            async with async_session() as db:
+                return await backfill_instance_names(user_id=uid)
+        assert _run(_go()) == 1
+
+        async def _check():
+            async with async_session() as db:
+                i = await db.get(KbKnowledgeInstance, iid)
+                return json.loads(i.fields_json)
+        fields = _run(_check())
+        assert fields["archetype"] == "何沉舟", "名字回填进字段"
+        assert fields["persona"] == "嘴贫胆小却重情义。"
 
     def test_无病形自熄(self):
         uid = _mk("anc2")
