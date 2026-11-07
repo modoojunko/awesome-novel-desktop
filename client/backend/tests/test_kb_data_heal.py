@@ -69,8 +69,7 @@ class TestNormalizeLegacyGenres:
         _run(_mk_tag(uid, drift_id, "genre", "灵异志怪"))
 
         async def _go():
-            async with async_session() as db:
-                return await normalize_legacy_genres(db, user_id=uid)
+            return await normalize_legacy_genres(user_id=uid)
         fixed = _run(_go())
         assert fixed == 1, f"只应改写漂移词一条：{fixed}"
 
@@ -103,14 +102,12 @@ class TestNormalizeLegacyGenres:
         _run(normalize_legacy_genres_hack(uid))
 
         async def _go():
-            async with async_session() as db:
-                return await normalize_legacy_genres(db, user_id=uid)
+            return await normalize_legacy_genres(user_id=uid)
         assert _run(_go()) == 0
 
 
 async def normalize_legacy_genres_hack(uid: str):
-    async with async_session() as db:
-        return await normalize_legacy_genres(db, user_id=uid)
+    return await normalize_legacy_genres(user_id=uid)
 
 
 class TestRepairChapterAnchors:
@@ -139,8 +136,7 @@ class TestRepairChapterAnchors:
         ))
 
         async def _go():
-            async with async_session() as db:
-                return await repair_chapter_anchors(db, user_id=uid)
+            return await repair_chapter_anchors(user_id=uid)
         fixed = _run(_go())
         assert fixed == 2, f"实例＋素材两行都该洗：{fixed}"
 
@@ -162,8 +158,7 @@ class TestRepairChapterAnchors:
         _run(_mk_entry(uid, genre="都市", origin="material", payload={"plot": "雨夜大战。"}))
 
         async def _go():
-            async with async_session() as db:
-                return await repair_chapter_anchors(db, user_id=uid)
+            return await repair_chapter_anchors(user_id=uid)
         assert _run(_go()) == 0
 
 
@@ -175,7 +170,7 @@ class TestEnsureHook:
 
         async def _go():
             async with async_session() as db:
-                await ensure_legacy_migrated(db, user_id=uid)
+                await ensure_legacy_migrated(db, user_id=uid)  # 钩自带 db 参（迁移仍用调用方会话）
                 e = await db.get(KbEntry, eid)
                 return e.genre
         assert _run(_go()) == "志怪/民俗灵异"
