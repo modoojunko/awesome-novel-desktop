@@ -60,7 +60,8 @@ vi.mock("force-graph", () => ({
   default: vi.fn(() => kbGraphMock.second),
 }));
 
-import KnowledgeBasePage from "@/pages/KnowledgeBasePage";
+import KnowledgeBasePage, { fieldsOf, prettyFieldValue } from "@/pages/KnowledgeBasePage";
+import type { KbInstanceFlatRow } from "@/lib/kbApi";
 
 // c-charlib-into-kb：页组件引入 useSearchParams/useCharacterLibrary 后，
 // 渲染必须挂 Router＋QueryClient 上下文（既有裸渲染统一走这里）。
@@ -342,7 +343,10 @@ describe("KnowledgeBasePage 手录表单", () => {
     // 抽屉改从实例行进入（c-kb-instance-list）：点行 → entry(knowledge_id)
     api.instancesFlat.mockResolvedValue({
       ok: true,
-      rows: [flatRow({ knowledge_id: "kbentry-schema", knowledge_title: "小人物卷入" })],
+      rows: [flatRow({
+        knowledge_id: "kbentry-schema", knowledge_title: "小人物卷入",
+        fields_json: JSON.stringify({ persona: "市井司机卷入冤魂案" }),
+      })],
     });
     api.entry.mockResolvedValue({
       ...entry(),
@@ -364,7 +368,9 @@ describe("KnowledgeBasePage 手录表单", () => {
     });
     renderPage();
     await waitFor(() => expect(screen.getByTestId("kb-inst-row")).toBeTruthy());
-    fireEvent.click(screen.getByTestId("kb-inst-row"));
+    fireEvent.click(screen.getByTestId("kb-inst-row")); // 实例详情
+    // 归属属性行点知识点 → 知识抽屉（schema 段住那边）
+    fireEvent.click(screen.getAllByText("小人物卷入").at(-1)!);
     await waitFor(() => expect(api.entry).toHaveBeenCalledWith("kbentry-schema"));
     await waitFor(() => expect(screen.getByText("字段 schema")).toBeTruthy());
     expect(screen.getByText(/日常身份与异常处境的落差/)).toBeTruthy();
@@ -381,12 +387,13 @@ describe("KnowledgeBasePage 手录表单", () => {
   it("schema 为空不渲染字段段（c-kb-summarize）", async () => {
     api.instancesFlat.mockResolvedValue({
       ok: true,
-      rows: [flatRow({ id: "inst-noschema", knowledge_id: "kbentry-noschema", knowledge_title: "无schema条目", quote: "", source_novel: "", source_chapter: "" })],
+      rows: [flatRow({ id: "inst-noschema", knowledge_id: "kbentry-noschema", knowledge_title: "无schema条目", quote: "", source_novel: "", source_chapter: "", fields_json: "{}" })],
     });
     api.entry.mockResolvedValue({ ...entry(), id: "kbentry-noschema", title: "无schema条目", schema_json: "not-json[" });
     renderPage();
     await waitFor(() => expect(screen.getByTestId("kb-inst-row")).toBeTruthy());
     fireEvent.click(screen.getByTestId("kb-inst-row"));
+    fireEvent.click(screen.getAllByText("无schema条目").at(-1)!); // 归属属性行跳知识抽屉
     await waitFor(() => expect(screen.getByText("知识定义")).toBeTruthy());
     // schema 为空：字段 schema 段不渲染；素材提示卡与实例群（无素材/无实例）也不出
     expect(screen.queryByText("字段 schema")).toBeNull();
@@ -426,7 +433,8 @@ describe("KnowledgeBasePage 手录表单", () => {
       .mockRejectedValueOnce(new Error("net"));
     renderPage();
     await waitFor(() => expect(screen.getByTestId("kb-inst-row")).toBeTruthy());
-    fireEvent.click(screen.getByTestId("kb-inst-row"));
+    fireEvent.click(screen.getByTestId("kb-inst-row")); // 实例详情
+    fireEvent.click(screen.getAllByText("开篇钩子").at(-1)!); // 归属跳知识抽屉
     await waitFor(() => expect(screen.getByText(/关联知识 · 来自知识整理/)).toBeTruthy());
     const relButton = screen.getByText(/适用于 外部对端/).closest("button");
     fireEvent.click(relButton!);
@@ -482,6 +490,32 @@ describe("KnowledgeBasePage 手录表单", () => {
   });
 });
 
+describe("实例字段渲染器（prettyFieldValue/fieldsOf）", () => {
+  it("repr 列表顿号连、JSON 列表、纯文本、空值、坏形原样", () => {
+    expect(prettyFieldValue("['我', '小李']")).toBe("我、小李");
+    expect(prettyFieldValue('["甲","乙"]')).toBe("甲、乙");
+    expect(prettyFieldValue("雨夜大战。")).toBe("雨夜大战。");
+    expect(prettyFieldValue("")).toBe("");
+    expect(prettyFieldValue("[broken")).toBe("[broken");
+    expect(prettyFieldValue('"带引号的原文"')).toBe("带引号的原文");
+    expect(prettyFieldValue("123")).toBe("123");
+    // fields_json 本身是数组形（畸形但合法 JSON）→ 返空
+    const arrRow = flatRow({ fields_json: "[1,2]" }) as unknown as KbInstanceFlatRow;
+    expect(fieldsOf(arrRow)).toEqual([]);
+  });
+
+  it("fieldsOf：中文字典标签、空值键不落、畸形返空、素材行返空", () => {
+    const row = flatRow({
+      fields_json: JSON.stringify({ persona: "嘴贫。", aliases: "['我']", empty: "" }),
+    }) as unknown as KbInstanceFlatRow;
+    expect(fieldsOf(row)).toEqual([["一句话人设", "嘴贫。"], ["别名", "我"]]);
+    const bad = flatRow({ fields_json: "not-json{" }) as unknown as KbInstanceFlatRow;
+    expect(fieldsOf(bad)).toEqual([]);
+    const mat = flatRow({ row_kind: "material", fields_json: "{}" }) as unknown as KbInstanceFlatRow;
+    expect(fieldsOf(mat)).toEqual([]);
+  });
+});
+
 describe("实例行列表（c-kb-instance-list）", () => {
   it("行渲染：归属链（题材段非链接＋知识级可点）、标签、出处行、收录日期与来源标", async () => {
     api.instancesFlat.mockResolvedValue({
@@ -532,21 +566,30 @@ describe("实例行列表（c-kb-instance-list）", () => {
     expect(container).toBeTruthy();
   });
 
-  it("点行交互：实例行 entry(knowledge_id)、素材行 entry(行 id)、链上级 entry(链 id)", async () => {
+  it("点行交互：实例行开实例详情（归属是属性行，可跳知识点）；素材行/链上级走 entry", async () => {
     api.instancesFlat.mockResolvedValue({
       ok: true,
-      rows: [flatRow(), flatRow({ row_kind: "material", id: "inst-mat2", knowledge_id: "", knowledge_title: "", chain: [], text: "素材句", src_kind: "手录", source_novel: "", source_chapter: "", quote: "" })],
+      rows: [
+        flatRow({ fields_json: JSON.stringify({ persona: "嘴贫胆小却重情义。", aliases: ["我", "小李"] }) }),
+        flatRow({ row_kind: "material", id: "inst-mat2", knowledge_id: "", knowledge_title: "", chain: [], text: "素材句", src_kind: "手录", source_novel: "", source_chapter: "", quote: "" }),
+      ],
     });
-    api.entry.mockResolvedValue({ ...entry(), title: "抽屉标题" });
+    api.entry.mockResolvedValue({ ...entry(), title: "知识点抽屉" });
     renderPage();
     await screen.findByTestId("kb-inst-row");
-    // 实例行本体 → 所属知识点
+    // 实例行本体 → 实例详情（不发 entry）：归属是属性行，字段值中文化＋repr 顿号连
     fireEvent.click(screen.getByTestId("kb-inst-row"));
+    await waitFor(() => expect(api.entry).not.toHaveBeenCalled());
+    expect(screen.getByText("嘴贫胆小却重情义。")).toBeTruthy();
+    expect(screen.getByText("我、小李")).toBeTruthy(); // repr 列表顿号连
+    expect(screen.getByText("一句话人设")).toBeTruthy(); // 字段名中文字典
+    // 归属属性行点知识点 → entry(knowledge_id) 开知识抽屉（抽屉容器内的归属按钮）
+    fireEvent.click(screen.getAllByText("开篇钩子").at(-1)!);
     await waitFor(() => expect(api.entry).toHaveBeenCalledWith("kkkkkkkk-0000-0000-0000-000000000001"));
-    await waitFor(() => expect(screen.getByRole("heading", { name: "抽屉标题" })).toBeTruthy());
+    await waitFor(() => expect(screen.getByRole("heading", { name: "知识点抽屉" })).toBeTruthy());
     fireEvent.click(screen.getByText("✕"));
-    await waitFor(() => expect(screen.queryByRole("heading", { name: "抽屉标题" })).toBeNull());
-    // 素材行 → 行 id
+    await waitFor(() => expect(screen.queryByRole("heading", { name: "知识点抽屉" })).toBeNull());
+    // 素材行 → 行 id（素材态抽屉）
     fireEvent.click(screen.getByTestId("kb-material-row"));
     await waitFor(() => expect(api.entry).toHaveBeenCalledWith("inst-mat2"));
     fireEvent.click(screen.getByText("✕"));
@@ -558,10 +601,24 @@ describe("实例行列表（c-kb-instance-list）", () => {
     api.entry.mockRejectedValueOnce(new Error("net"));
     fireEvent.click(screen.getByTestId("kb-material-row"));
     await waitFor(() => expect(screen.getByTestId("kb-open-error").textContent).toContain("暂时打不开"));
-    // 键盘可达：行 role=button，Enter 打开抽屉（评审 P3 修复钉）
-    api.entry.mockResolvedValueOnce({ ...entry(), title: "键盘标题" });
+    // 键盘可达：行 role=button，Enter 打开实例详情
     fireEvent.keyDown(screen.getAllByTestId("kb-inst-row")[0], { key: "Enter" });
-    await waitFor(() => expect(screen.getByRole("heading", { name: "键盘标题" })).toBeTruthy());
+    await waitFor(() => expect(screen.getAllByText("嘴贫胆小却重情义。").length).toBeGreaterThan(0));
+    // 实例抽屉 ✕ 关闭
+    fireEvent.click(screen.getByTestId("kb-inst-drawer-close"));
+    await waitFor(() => expect(screen.queryByText("写法细节")).toBeNull());
+    // 重开 → 抽屉内链级（场面手法）→ 链 id（跳知识抽屉，实例抽屉自动让位）
+    fireEvent.keyDown(screen.getAllByTestId("kb-inst-row")[0], { key: "Enter" });
+    await screen.findByText("写法细节");
+    fireEvent.click(screen.getByTestId("kb-drawer-chain-seg"));
+    await waitFor(() => expect(api.entry).toHaveBeenCalledWith("kkkkkkkk-0000-0000-0000-000000000002"));
+    fireEvent.click(screen.getAllByText("✕").at(-1)!);
+    await waitFor(() => expect(screen.queryByText("知识点抽屉")).toBeNull());
+    // 遮罩点击关实例抽屉
+    fireEvent.keyDown(screen.getAllByTestId("kb-inst-row")[0], { key: "Enter" });
+    await screen.findByText("写法细节");
+    fireEvent.click(document.querySelector(".bg-black\\/50")!);
+    await waitFor(() => expect(screen.queryByText("写法细节")).toBeNull());
   });
 
   it("取数失败静默空列表；在途不渲染空态卡", async () => {
