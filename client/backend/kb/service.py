@@ -686,6 +686,8 @@ async def list_instances_flat(
             "source_chapter": inst.source_chapter,
             "src_kind": _src_label(inst.source_kind),
             "created_at": inst.created_at,
+            # 实例详情抽屉直接渲染字段值（行即详情，不重取）
+            "fields_json": inst.fields_json,
         })
     for m in mat_rows:
         rows.append({

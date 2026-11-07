@@ -27,6 +27,40 @@ function conceptFromQuery(v: string | null): string {
 /** 通用载荷平铺（概念无关，规格「条目详情抽屉：字段…」实现）：有值键按存储序出
  * (键, 展示串)；数组顿号连、对象/数组元素套对象走紧凑 JSON、空值跳过；标量值
  * 走 kbValueLabel（枚举值/布尔转中文）。 */
+/** 实例字段值渲染：repr 列表顿号连（总结历史产物有单引号形态）；其余原样。 */
+export function prettyFieldValue(raw: string): string {
+  const t = (raw || "").trim();
+  if (!t) return "";
+  try {
+    const j = JSON.parse(t);
+    if (Array.isArray(j)) return j.map(String).join("、");
+    if (typeof j === "string") return j;
+    return t;
+  } catch { /* 非 JSON 原样 */ }
+  if (t.startsWith("[") && t.endsWith("]")) {
+    try {
+      const a = JSON.parse(t.replace(/'/g, '"'));
+      if (Array.isArray(a)) return a.map(String).join("、");
+    } catch { /* repr 解析失败原样 */ }
+  }
+  return t;
+}
+
+/** 实例 → 有值字段 (中文标签, 渲染值)；fields_json 畸形返空。 */
+export function fieldsOf(row: KbInstanceFlatRow): [string, string][] {
+  if (row.row_kind !== "instance") return [];
+  let fields: Record<string, unknown> = {};
+  try { fields = JSON.parse(row.fields_json || "{}") ?? {}; } catch { fields = {}; }
+  if (typeof fields !== "object" || Array.isArray(fields)) return [];
+  const out: [string, string][] = [];
+  for (const [k, v] of Object.entries(fields)) {
+    const rendered = typeof v === "string" ? prettyFieldValue(v) : Array.isArray(v) ? v.map(String).join("、") : String(v);
+    if (!rendered) continue;
+    out.push([kbFieldLabel(row.concept, k), rendered]);
+  }
+  return out;
+}
+
 export function payloadRows(payload: Record<string, unknown>): [string, string][] {
   const rows: [string, string][] = [];
   for (const [k, v] of Object.entries(payload)) {
@@ -73,6 +107,8 @@ export default function KnowledgeBasePage() {
   const [flatLoading, setFlatLoading] = useState(false);
   const [sort, setSort] = useState<"recent" | "name">("recent");
   const [selected, setSelected] = useState<KbEntry | null>(null);
+  // 实例详情（boss 2026-11-07 拍板：知识库看的是每条实例具体详情，归属知识点是它的属性）
+  const [selectedInstance, setSelectedInstance] = useState<KbInstanceFlatRow | null>(null);
   const [showManual, setShowManual] = useState(false);
   const [manualText, setManualText] = useState("");
   const [manualGenre, setManualGenre] = useState("");
@@ -164,6 +200,7 @@ export default function KnowledgeBasePage() {
     try {
       const d = await kbApi.entry(id);
       setSelected(d);
+      setSelectedInstance(null);
       setEditDraft(false);
       setOpNote("");
       setOpenError("");
@@ -496,7 +533,10 @@ export default function KnowledgeBasePage() {
             </div>
             <div>
               {visibleRows.map((r) => {
-                const openRow = () => { void openKnowledgeById(r.row_kind === "material" ? r.id : r.knowledge_id); };
+                const openRow = () => {
+                  if (r.row_kind === "material") { void openKnowledgeById(r.id); return; }
+                  setSelectedInstance(r);  // 实例详情＝主角；归属知识点是详情里的属性行
+                };
                 return (
                 <div
                   key={`${r.row_kind}-${r.id}`}
@@ -708,6 +748,70 @@ export default function KnowledgeBasePage() {
         </div>
       )}
 
+      {/* 实例详情抽屉（boss 2026-11-07：每条实例具体详情，归属知识点是属性行） */}
+      {selectedInstance && (
+        <div className="fixed inset-0 z-50">
+          <div className="absolute inset-0 bg-black/50" onClick={() => setSelectedInstance(null)} />
+          <div className="absolute right-0 top-0 h-full w-96 border-l border-[var(--border)] bg-[var(--surface)] p-6 shadow-xl overflow-y-auto">
+            <div className="mb-3 flex items-center justify-between">
+              <span className="font-mono text-[9.5px] tracking-[0.1em] text-[var(--faint)]">
+                {selectedInstance.concept} · {selectedInstance.genre || "跨题材通用"}
+              </span>
+              <button data-testid="kb-inst-drawer-close" onClick={() => setSelectedInstance(null)} className="text-[var(--faint)] hover:text-[var(--fg)]">✕</button>
+            </div>
+            {/* 归属属性行：知识点可点跳知识抽屉（定义/全量实例在那边） */}
+            <div className="mb-3 text-[12px] text-[var(--muted)]">
+              归属：{" "}
+              <button
+                onClick={() => { void openKnowledgeById(selectedInstance.knowledge_id); }}
+                className="text-[var(--accent)] underline underline-offset-2 hover:text-[var(--accent-strong)]"
+              >{selectedInstance.knowledge_title || "未归属"}</button>
+              {selectedInstance.chain.slice(0, -1).map((seg) => (
+                <span key={seg.id}>
+                  {" ← "}
+                  <button
+                    data-testid="kb-drawer-chain-seg"
+                    onClick={(ev) => { ev.stopPropagation(); void openKnowledgeById(seg.id); }}
+                    className="text-[var(--accent)] underline underline-offset-2 hover:text-[var(--accent-strong)]"
+                  >{seg.title}</button>
+                </span>
+              ))}
+            </div>
+            <h2 className="text-[15px] font-medium leading-relaxed text-[var(--fg)]">
+              {selectedInstance.text}
+              {selectedInstance.quote && (
+                <span className="text-[var(--muted)]">——{selectedInstance.quote}</span>
+              )}
+            </h2>
+            {fieldsOf(selectedInstance).length > 0 && (
+              <div className="mt-4">
+                <p className="text-[10.5px] font-mono tracking-[0.12em] text-[var(--muted)]">写法细节</p>
+                <dl className="mt-1 space-y-1.5">
+                  {fieldsOf(selectedInstance).map(([label, value]) => (
+                    <div key={label}>
+                      <dt className="text-[10.5px] font-mono tracking-[0.12em] text-[var(--muted)]">{label}</dt>
+                      <dd className="whitespace-pre-wrap text-[12.5px] leading-relaxed text-[var(--fg)]">{value}</dd>
+                    </div>
+                  ))}
+                </dl>
+              </div>
+            )}
+            {(selectedInstance.source_novel || selectedInstance.source_chapter) && (
+              <div className="mt-4">
+                <p className="text-[10.5px] font-mono tracking-[0.12em] text-[var(--muted)]">出处</p>
+                <p className="mt-1 text-[12px] text-[var(--muted)]">
+                  源自：{selectedInstance.source_novel}{selectedInstance.source_novel && selectedInstance.source_chapter ? " · " : ""}{selectedInstance.source_chapter}
+                </p>
+              </div>
+            )}
+            <p className="mt-4 text-right text-[11px] text-[var(--muted)]">
+              {selectedInstance.created_at ? selectedInstance.created_at.slice(0, 10) : ""} 收录{" "}
+              <span className="ml-1 text-[var(--faint)]">{selectedInstance.src_kind}</span>
+            </p>
+          </div>
+        </div>
+      )}
+
       {/* 详情抽屉 */}
       {selected && (
         <div className="fixed inset-0 z-50">
@@ -733,7 +837,7 @@ export default function KnowledgeBasePage() {
                       <p className="leading-relaxed">{r.text}</p>
                       {Object.entries(r.fields).filter(([, v]) => v).map(([k, v]) => (
                         <p key={k} className="mt-0.5 text-[11px] text-[var(--muted)]">
-                          <span className="text-[var(--faint)]">{k}：</span>{v}
+                          <span className="text-[var(--faint)]">{kbFieldLabel(selected.concept, k)}：</span>{prettyFieldValue(v)}
                         </p>
                       ))}
                       {r.source_novel && (
