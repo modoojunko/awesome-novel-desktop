@@ -91,6 +91,8 @@ export default function KnowledgeBasePage() {
   const [editDraft, setEditDraft] = useState(false);
   const [draft, setDraft] = useState("");
   const [opNote, setOpNote] = useState("");
+  // 实例臂点行取数失败的列表区提示（独立于 opNote——那是回退臂抽屉操作文案，不得跨臂滞留）
+  const [openError, setOpenError] = useState("");
 
   const loadEntries = useCallback(async (cursorId = "") => {
     setLoading(true);
@@ -118,6 +120,7 @@ export default function KnowledgeBasePage() {
 
   const loadFlat = useCallback(async () => {
     setFlatLoading(true);
+    setOpenError(""); // 重取即清——旧失败提示不跨筛选滞留
     try {
       const sp = new URLSearchParams();
       // 「跨题材通用」档（genre=''）不发参数——由前端按行过滤（现 /entries 链路该档是
@@ -171,9 +174,10 @@ export default function KnowledgeBasePage() {
       setSelected(d);
       setEditDraft(false);
       setOpNote("");
+      setOpenError("");
     } catch {
       // 抽屉没开成——提示须落在列表区才可见（opNote 在抽屉内的渲染面此时不可达）
-      setOpNote("这条知识暂时打不开，稍后再试");
+      setOpenError("这条知识暂时打不开，稍后再试");
     }
   }, []);
 
@@ -195,7 +199,12 @@ export default function KnowledgeBasePage() {
   }, []);
 
   useEffect(() => {
-    if (instanceArm) { void loadFlat(); } else { void loadEntries(); }
+    if (instanceArm) {
+      // 实例臂不消费知识行——清掉旧臂残留，防抽屉「关联知识」本地查找命中过期快照
+      setEntries([]);
+      setCursor("");
+      void loadFlat();
+    } else { void loadEntries(); }
     loadLibraries();
     // instanceArm 随 src 切臂；两臂各取各的数据源（实例臂不跑 entries 主查询）
   }, [instanceArm, genre, concept, src, q, loadFlat, loadEntries, loadLibraries]);
@@ -517,8 +526,8 @@ export default function KnowledgeBasePage() {
             {/* 列表主体（视角模式下退位）：实例臂 = 实例行列表（c-kb-instance-list）；官方精选/已隐藏 = 知识行列表 */}
             {!viewMode && (instanceArm ? (<>
             {/* 计数行＋排序：N 与分类分布同口径（含待归属素材行） */}
-            {!selected && opNote && (
-              <p data-testid="kb-open-error" className="mb-2 text-[12px] text-[var(--muted)]">{opNote}</p>
+            {!selected && openError && (
+              <p data-testid="kb-open-error" className="mb-2 text-[12px] text-[var(--muted)]">{openError}</p>
             )}
             <div className="mb-2 flex items-center justify-between gap-3">
               <span className="text-sm text-[var(--muted)]" data-testid="kb-count-line">
@@ -538,11 +547,16 @@ export default function KnowledgeBasePage() {
               </select>
             </div>
             <div>
-              {visibleRows.map((r) => (
+              {visibleRows.map((r) => {
+                const openRow = () => { void openKnowledgeById(r.row_kind === "material" ? r.id : r.knowledge_id); };
+                return (
                 <div
                   key={`${r.row_kind}-${r.id}`}
                   data-testid={r.row_kind === "material" ? "kb-material-row" : "kb-inst-row"}
-                  onClick={() => { void openKnowledgeById(r.row_kind === "material" ? r.id : r.knowledge_id); }}
+                  role="button"
+                  tabIndex={0}
+                  onClick={openRow}
+                  onKeyDown={(ev) => { if (ev.key === "Enter" || ev.key === " ") { ev.preventDefault(); openRow(); } }}
                   className="cursor-pointer border-b border-[var(--border)] px-1 py-3.5 hover:bg-[var(--fg-soft)]"
                 >
                   {/* 归属链：题材段非链接文字，知识各级 accent 可点下钻 */}
@@ -579,7 +593,8 @@ export default function KnowledgeBasePage() {
                     {r.created_at ? r.created_at.slice(0, 10) : ""} 收录 <span className="ml-1 text-[var(--faint)]">{r.src_kind}</span>
                   </p>
                 </div>
-              ))}
+                );
+              })}
               {/* 空态：零内容题材＝记一条；筛选无命中＝清空筛选出口 */}
               {!visibleRows.length && !flatLoading && (noFilters && src === "全部" ? (
                 <div className="rounded-lg border border-dashed border-[var(--border)] p-6 text-center">

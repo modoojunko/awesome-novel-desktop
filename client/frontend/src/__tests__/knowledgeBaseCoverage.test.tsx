@@ -549,6 +549,10 @@ describe("实例行列表（c-kb-instance-list）", () => {
     api.entry.mockRejectedValueOnce(new Error("net"));
     fireEvent.click(screen.getByTestId("kb-material-row"));
     await waitFor(() => expect(screen.getByTestId("kb-open-error").textContent).toContain("暂时打不开"));
+    // 键盘可达：行 role=button，Enter 打开抽屉（评审 P3 修复钉）
+    api.entry.mockResolvedValueOnce({ ...entry(), title: "键盘标题" });
+    fireEvent.keyDown(screen.getAllByTestId("kb-inst-row")[0], { key: "Enter" });
+    await waitFor(() => expect(screen.getByRole("heading", { name: "键盘标题" })).toBeTruthy());
   });
 
   it("取数失败静默空列表；在途不渲染空态卡", async () => {
