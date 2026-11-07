@@ -629,13 +629,13 @@ export default function KnowledgeBasePage() {
                   >重新同步</button>
                 </div>
               )}
-              /* v8 ignore start -- 空态卡臂：jsdom mock 组合下事件路径不可达（真机走查覆盖） */
+              {/* 官方精选＋筛选后的空态卡（有测试覆盖，无需 v8 ignore——
+                  原先裸写的注释在 JSX 里被当成正文渲染上屏，真机 2026-11-07 实锤） */}
               {!entries.length && !loading && src === "官方精选" && !noFilters && (
                 <div className="rounded-lg border border-dashed border-[var(--border)] p-6 text-center">
                   <p className="text-[13px] text-[var(--muted)]">当前筛选下没有官方精选条目。</p>
                 </div>
               )}
-              /* v8 ignore stop */
               {/* v8 ignore start -- 空态卡臂：jsdom mock 组合下事件路径不可达（真机走查覆盖） */}
               {!entries.length && !loading && src === "已隐藏" && (
                 <div className="rounded-lg border border-dashed border-[var(--border)] p-6 text-center">
