@@ -367,6 +367,9 @@ async def list_cards(db: AsyncSession, user_id: str) -> dict:
                 KbEntry.user_id == user_id,
                 KbEntry.concept == CONCEPT,
                 KbEntry.status == "active",
+                # 总结生成的知识点（origin='summary'，title=主角/配角/反派）不是角色卡
+                # ——真机 2026-11-07 实锤：混进人物档案致 80=74 卡+6 知识点
+                KbEntry.origin != "summary",
             )
             .order_by(KbEntry.created_at, KbEntry.id)
         )

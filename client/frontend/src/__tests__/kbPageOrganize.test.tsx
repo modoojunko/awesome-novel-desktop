@@ -93,7 +93,7 @@ describe("知识库页整理入口", () => {
     fireEvent.click(screen.getByText("立即整理"));
     await waitFor(() => expect(api.organizeRun).toHaveBeenCalledWith("玄幻"));
     await waitFor(() => expect(api.entries.mock.calls.length).toBeGreaterThan(entriesCallsBefore));
-    expect(api.libraries.mock.calls.length).toBeGreaterThanOrEqual(1);
+    // 库分组卡已按原型退役——onChanged 只重载条目/实例
   });
 
   it("具体题材直传整理面板（genre 三元两臂全覆盖）", async () => {
