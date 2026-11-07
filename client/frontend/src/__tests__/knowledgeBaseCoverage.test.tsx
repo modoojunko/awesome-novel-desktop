@@ -123,6 +123,8 @@ beforeEach(() => {
   api.listInstances.mockResolvedValue({ ok: true, instances: [] });
   // 实例行列表（c-kb-instance-list）：默认空集——实例臂空态走「记一条」卡
   api.instancesFlat.mockResolvedValue({ ok: true, rows: [] });
+  // 统一行点行取详情：默认回列表同款条目（失败臂用例自设 Once 拒绝）
+  api.entry.mockResolvedValue(entry());
 });
 
 // 实例行 fixture（c-kb-instance-list 行形状：row_kind 判别＋后端拼好的 chain；
@@ -163,19 +165,14 @@ describe("KnowledgeBasePage 题材栏与列表", () => {
   it("题材>5 折叠/展开、库分组标题、加载更多追加、详情抽屉开关", async () => {
     // 分页链先于挂载：首屏带 cursor 出「加载更多」，第二页收口。
     // 第二页条目三无（无标题/无指令/无例证）：标题与预览双兜底臂＋抽屉空字段臂
-    api.entries
-      .mockResolvedValueOnce({ entries: [entry()], next_cursor: "cur2" })
-      .mockResolvedValueOnce({
-        entries: [entry({ id: "bbbbbbbb-0000-0000-0000-000000000002", title: "", instruction: "", example: "", negative_example: "", evidence: "" })],
-        next_cursor: "",
-      });
+    api.entries.mockResolvedValue({ entries: [entry()], next_cursor: "" });
     const { container } = renderPage();
     // 知识行列表退居回退臂（c-kb-instance-list）：切「官方精选」后本用例的条目行为生效
     fireEvent.click(screen.getByTestId("kb-src-官方精选"));
-    await screen.findByText("先果后因");
+    await screen.findByText(/先果后因/);
     // 首屏：visibleGenres 截 5（末世/废土 藏起），0 计数题材只露前两个
     await screen.findByText("更多题材 (2)");
-    expect(screen.getByText("都市")).toBeInTheDocument();
+    expect(screen.getAllByText("都市").length).toBeGreaterThan(0);
     expect(screen.queryByText("末世/废土")).not.toBeInTheDocument();
     expect(screen.getByText("游戏文")).toBeInTheDocument();
     // 库分组卡已按原型退役（boss 2026-11-07）：知识库页不再展示选择器库
@@ -188,26 +185,17 @@ describe("KnowledgeBasePage 题材栏与列表", () => {
     fireEvent.click(screen.getByText("收起"));
     expect(await screen.findByText("更多题材 (2)")).toBeInTheDocument();
     expect(screen.queryByText("末世/废土")).not.toBeInTheDocument();
-    // 列表分页：第二页空标题走 instruction 截断兜底，无 cursor 后按钮消失
-    fireEvent.click(await screen.findByText("加载更多"));
-    await waitFor(() => expect(api.entries).toHaveBeenCalledTimes(2));
-    expect(api.entries.mock.calls[1][0].cursor).toBe("cur2");
-    await screen.findByText(/bbbbbbbb/); // 第二页条目已追加（头行 id 前缀，插值拆节点用正则）
-    // 三无条目详情：无指令/正例/反例/证据（假臂），标题兜底空
-    fireEvent.click(screen.getAllByText(/bbbbbbbb/)[0]); // 列表头（抽屉头同文案）
-    await screen.findByText("✕"); // 抽屉已开
-    expect(screen.queryByText("指令")).not.toBeInTheDocument();
-    fireEvent.click(screen.getByText("✕"));
-    expect(screen.queryByText("加载更多")).not.toBeInTheDocument();
-    // 详情抽屉：全字段 + ✕ 关
-    fireEvent.click(screen.getByText("先果后因"));
-    expect(screen.getByText("正例")).toBeInTheDocument();
+    // 统一行点开 → 详情抽屉全字段 + ✕ 关（统一实例行全臂同构）
+    const row = await screen.findByTestId("kb-inst-row");
+    expect(row.textContent).toContain("先果后因");
+    fireEvent.click(row);
+    await screen.findByText("正例");
     expect(screen.getByText("反例")).toBeInTheDocument();
     expect(screen.getByText("证据")).toBeInTheDocument();
     fireEvent.click(screen.getByText("✕"));
     await waitFor(() => expect(screen.queryByText("正例")).not.toBeInTheDocument());
     // 背景遮罩点击关抽屉
-    fireEvent.click(screen.getByText("先果后因"));
+    fireEvent.click(screen.getByTestId("kb-inst-row"));
     await screen.findByText("正例");
     fireEvent.click(container.querySelector(".bg-black\\/50")!);
     await waitFor(() => expect(screen.queryByText("正例")).not.toBeInTheDocument());
@@ -238,11 +226,13 @@ describe("KnowledgeBasePage 题材栏与列表", () => {
     fireEvent.click(screen.getByText("更多题材 (2)"));
     fireEvent.click(screen.getByText("美食"));
     await waitFor(() => expect(api.instancesFlat.mock.calls.at(-1)![0].genre).toBe("美食"));
-    // 回退臂（官方精选）：entries 筛选参数照旧口径
+    // 官方臂（统一实例行）：entries 带 concept＋一页取齐 limit
     fireEvent.click(screen.getByTestId("kb-src-官方精选"));
-    await screen.findByText("先果后因");
+    await screen.findByTestId("kb-count-line");
+    expect(screen.getByTestId("kb-count-line").textContent).toContain("共 1 条实例");
     fireEvent.click(screen.getByTitle("写每一章时的场面打法"));
     await waitFor(() => expect(api.entries.mock.calls.at(-1)![0].concept).toBe("手法"));
+    expect(api.entries.mock.calls.at(-1)![0].limit).toBe("200"); // URLSearchParams 序列化
   });
 
   it("genres 接口失败静默（catch 臂），列表照常", async () => {
@@ -262,7 +252,7 @@ describe("KnowledgeBasePage 视图切换（c-kb-organize）", () => {
   });
 });
 
-describe("KnowledgeBasePage 角色设定条目头像框", () => {
+describe.skip("KnowledgeBasePage 角色设定条目头像框（统一实例行退役——头像不再行内渲染）", () => {
   it("角色设定条目出姓氏占位（无字节），其他概念不出头像框", async () => {
     api.entries.mockResolvedValue({
       entries: [
@@ -367,8 +357,8 @@ describe("KnowledgeBasePage 手录表单", () => {
       ],
     });
     renderPage();
-    await waitFor(() => expect(screen.getByTestId("kb-inst-row")).toBeTruthy());
-    fireEvent.click(screen.getByTestId("kb-inst-row")); // 实例详情
+    await waitFor(() => expect(screen.getAllByTestId("kb-inst-row").length).toBeGreaterThan(0));
+    fireEvent.click(screen.getAllByTestId("kb-inst-row")[0]); // 实例详情
     // 归属属性行点知识点 → 知识抽屉（schema 段住那边）
     fireEvent.click(screen.getAllByText("小人物卷入").at(-1)!);
     await waitFor(() => expect(api.entry).toHaveBeenCalledWith("kbentry-schema"));
@@ -391,8 +381,8 @@ describe("KnowledgeBasePage 手录表单", () => {
     });
     api.entry.mockResolvedValue({ ...entry(), id: "kbentry-noschema", title: "无schema条目", schema_json: "not-json[" });
     renderPage();
-    await waitFor(() => expect(screen.getByTestId("kb-inst-row")).toBeTruthy());
-    fireEvent.click(screen.getByTestId("kb-inst-row"));
+    await waitFor(() => expect(screen.getAllByTestId("kb-inst-row").length).toBeGreaterThan(0));
+    fireEvent.click(screen.getAllByTestId("kb-inst-row")[0]);
     fireEvent.click(screen.getAllByText("无schema条目").at(-1)!); // 归属属性行跳知识抽屉
     await waitFor(() => expect(screen.getByText("知识定义")).toBeTruthy());
     // schema 为空：字段 schema 段不渲染；素材提示卡与实例群（无素材/无实例）也不出
@@ -432,8 +422,8 @@ describe("KnowledgeBasePage 手录表单", () => {
       .mockResolvedValueOnce({ ...entry(), id: "kkkkkkkk-0000-0000-0000-000000000001", title: "开篇钩子" })
       .mockRejectedValueOnce(new Error("net"));
     renderPage();
-    await waitFor(() => expect(screen.getByTestId("kb-inst-row")).toBeTruthy());
-    fireEvent.click(screen.getByTestId("kb-inst-row")); // 实例详情
+    await waitFor(() => expect(screen.getAllByTestId("kb-inst-row").length).toBeGreaterThan(0));
+    fireEvent.click(screen.getAllByTestId("kb-inst-row")[0]); // 实例详情
     fireEvent.click(screen.getAllByText("开篇钩子").at(-1)!); // 归属跳知识抽屉
     await waitFor(() => expect(screen.getByText(/关联知识 · 来自知识整理/)).toBeTruthy());
     const relButton = screen.getByText(/适用于 外部对端/).closest("button");
@@ -625,14 +615,30 @@ describe("实例行列表（c-kb-instance-list）", () => {
     // 变体：无出处＋空日期的实例行——抽屉出处段整段不渲染、日期留空
     api.instancesFlat.mockResolvedValue({
       ok: true,
-      rows: [flatRow({ id: "inst-bare", quote: "", source_novel: "", source_chapter: "", created_at: "", fields_json: "{}" })],
+      rows: [
+        flatRow({ id: "inst-bare", quote: "", source_novel: "", source_chapter: "", created_at: "", fields_json: "{}" }),
+        flatRow({ id: "inst-novelonly", quote: "", source_novel: "旧城书", source_chapter: "", created_at: "", fields_json: "{}" }),
+        flatRow({ id: "inst-nogenre", genre: "", quote: "", source_novel: "", source_chapter: "", created_at: "", fields_json: "{}" }),
+      ],
     });
     // 触发重取（筛选变化）让新 mock 生效
     fireEvent.change(screen.getByPlaceholderText("搜名字、内容、来源书名"), { target: { value: "裸行" } });
     await waitFor(() => expect(api.instancesFlat.mock.calls.at(-1)![0].q).toBe("裸行"));
-    await waitFor(() => expect(screen.getAllByTestId("kb-inst-row")).toHaveLength(1));
-    expect(screen.getByTestId("kb-inst-row").textContent).not.toContain("源自：");
-    fireEvent.click(screen.getByTestId("kb-inst-row"));
+    await waitFor(() => expect(screen.getAllByTestId("kb-inst-row")).toHaveLength(3));
+    expect(screen.getAllByTestId("kb-inst-row")[0].textContent).not.toContain("源自：");
+    // 只有书名无章号：出处段渲染、无「 · 」
+    fireEvent.click(screen.getAllByTestId("kb-inst-row")[1]);
+    await screen.findByTestId("kb-inst-drawer-close");
+    expect(screen.getAllByText(/源自：旧城书/).length).toBeGreaterThan(0);
+    expect(screen.queryByText(/源自：旧城书 · /)).toBeNull(); // 无章号不拼「 · 」
+    fireEvent.click(screen.getByTestId("kb-inst-drawer-close"));
+    // 跨题材通用行（genre=''）：抽屉头行显示「跨题材通用」
+    fireEvent.click(screen.getAllByTestId("kb-inst-row")[2]);
+    await screen.findByTestId("kb-inst-drawer-close");
+    expect(screen.getByTestId("kb-inst-drawer-close").parentElement!.textContent).toContain("跨题材通用");
+    fireEvent.click(screen.getByTestId("kb-inst-drawer-close"));
+    // 无出处整段不渲染
+    fireEvent.click(screen.getAllByTestId("kb-inst-row")[0]);
     await screen.findByTestId("kb-inst-drawer-close");
     expect(screen.queryByText("出处")).toBeNull(); // 无出处整段不渲染
     fireEvent.click(screen.getByTestId("kb-inst-drawer-close"));

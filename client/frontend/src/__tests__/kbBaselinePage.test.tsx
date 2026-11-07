@@ -23,6 +23,7 @@ const api = vi.hoisted(() => ({
   baselineStatus: vi.fn(),
   baselineSync: vi.fn(),
   instancesFlat: vi.fn(),
+  entry: vi.fn(),
 }));
 
 vi.mock("@/lib/kbApi", async (orig) => {
@@ -40,6 +41,7 @@ vi.mock("@/lib/kbApi", async (orig) => {
       baselineStatus: api.baselineStatus,
       baselineSync: api.baselineSync,
       instancesFlat: api.instancesFlat,
+      entry: api.entry,
     },
   };
 });
@@ -90,6 +92,11 @@ beforeEach(() => {
   api.baselineSync.mockResolvedValue({ status: "synced", version: 1 });
   // 实例行列表（c-kb-instance-list）：基线用例一律走官方精选回退臂，实例臂空集
   api.instancesFlat.mockResolvedValue({ ok: true, rows: [] });
+  // 统一行点行 → entry(id) 开详情抽屉（回退臂行不再携带全量 KbEntry）
+  api.entry.mockImplementation(async (id: string) => {
+    const all = await (api.entries.mock.results.at(-1)?.value as Promise<{ entries: typeof BASE_ENTRY[] }> | undefined);
+    return all?.entries.find((e) => e.id === id) ?? BASE_ENTRY;
+  });
 });
 
 afterEach(() => {
@@ -109,22 +116,45 @@ describe("KnowledgeBasePage · 官方精选", () => {
     });
   });
 
-  it("基线条目显示「官方精选」徽章；副本＋官方新版双徽章", async () => {
+  it("无正文官方条目：抽屉「实例」段不渲染（空 instruction 臂）", async () => {
+    api.entries.mockResolvedValue({ entries: [{ ...BASE_ENTRY, title: "只有标题", instruction: "" }], next_cursor: "" });
+    api.entry.mockResolvedValue({ ...BASE_ENTRY, title: "只有标题", instruction: "" });
+    renderPage();
+    fireEvent.click(screen.getByTestId("kb-src-官方精选"));
+    fireEvent.click(await screen.findByTestId("kb-inst-row"));
+    await screen.findByTestId("kb-baseline-hide"); // 抽屉已开
+    expect(screen.queryByText("实例", { exact: true })).toBeNull();
+  });
+
+  it("无标题官方条目：行与抽屉标题走正文兜底", async () => {
+    api.entries.mockResolvedValue({ entries: [{ ...BASE_ENTRY, title: "" }], next_cursor: "" });
+    renderPage();
+    fireEvent.click(screen.getByTestId("kb-src-官方精选"));
+    const row = await screen.findByTestId("kb-inst-row");
+    expect(row.textContent).toContain("交手先守后攻"); // 行正文＝方法句
+    fireEvent.click(row);
+    await waitFor(() => expect(screen.getByRole("heading", { name: /交手先守后攻/ })).toBeTruthy());
+  });
+
+  it("官方条目统一实例行渲染；点行抽屉见只读面（副本/新版提示在抽屉）", async () => {
     api.entries.mockResolvedValue({
       entries: [{ ...BASE_ENTRY, overlaid: true, official_update: true }],
       next_cursor: "",
     });
     renderPage();
-    fireEvent.click(screen.getByTestId("kb-src-官方精选")); // 知识行退居回退臂（c-kb-instance-list）
-    await waitFor(() => expect(screen.getByText("官方精选")).toBeTruthy());
-    expect(screen.getByText("我的副本")).toBeTruthy();
-    expect(screen.getByText("官方有新版")).toBeTruthy();
+    fireEvent.click(screen.getByTestId("kb-src-官方精选"));
+    const row = await screen.findByTestId("kb-inst-row");
+    expect(row.textContent).toContain("官方手法A");
+    expect(row.textContent).toContain("官方精选"); // 统一实例行的来源标
+    fireEvent.click(row);
+    await waitFor(() => expect(screen.getByText("官方精选 · 只读")).toBeTruthy());
+    await waitFor(() => expect(screen.getByText(/官方已更新这条/)).toBeTruthy());
   });
 
   it("抽屉里隐藏这条 → PUT hide 并刷新列表", async () => {
     renderPage();
     fireEvent.click(screen.getByTestId("kb-src-官方精选")); // 知识行退居回退臂（c-kb-instance-list）
-    const row = await screen.findByText("官方手法A");
+    const row = await screen.findByText(/官方手法A/);
     fireEvent.click(row);
     const hide = await screen.findByTestId("kb-baseline-hide");
     api.genres.mockRejectedValueOnce(new Error("g")); // 计数刷新失败静默（catch 臂）
@@ -142,7 +172,7 @@ describe("KnowledgeBasePage · 官方精选", () => {
     });
     renderPage();
     fireEvent.click(screen.getByTestId("kb-src-官方精选")); // 知识行退居回退臂（c-kb-instance-list）
-    fireEvent.click(await screen.findByText("官方手法A"));
+    fireEvent.click(await screen.findByText(/官方手法A/));
     fireEvent.click(await screen.findByTestId("kb-baseline-restore"));
     await waitFor(() => expect(api.clearBaselineOverride).toHaveBeenCalledWith("b1"));
   });
@@ -151,7 +181,7 @@ describe("KnowledgeBasePage · 官方精选", () => {
     api.baselineOverride.mockRejectedValueOnce(new Error("network"));
     renderPage();
     fireEvent.click(screen.getByTestId("kb-src-官方精选")); // 知识行退居回退臂（c-kb-instance-list）
-    fireEvent.click(await screen.findByText("官方手法A"));
+    fireEvent.click(await screen.findByText(/官方手法A/));
     fireEvent.click(await screen.findByTestId("kb-baseline-hide"));
     await waitFor(() => expect(api.baselineOverride).toHaveBeenCalled());
     // 失败不清选中、不抛：按钮恢复可用，可再点一次
@@ -166,7 +196,7 @@ describe("KnowledgeBasePage · 官方精选", () => {
     });
     renderPage();
     fireEvent.click(screen.getByTestId("kb-src-官方精选")); // 知识行退居回退臂（c-kb-instance-list）
-    fireEvent.click(await screen.findByText("官方手法A"));
+    fireEvent.click(await screen.findByText(/官方手法A/));
     await waitFor(() => expect(screen.getByText(/^知识定义$/)).toBeTruthy());
     expect(screen.queryByTestId("kb-baseline-hide")).toBeNull();
     expect(screen.queryByTestId("kb-baseline-restore")).toBeNull();
@@ -213,7 +243,7 @@ describe("KnowledgeBasePage · 官方精选", () => {
       expect(calls.some((c) => c.src === "已隐藏")).toBe(true);
     });
     await waitFor(() => expect(screen.getAllByText("已隐藏").length).toBeGreaterThan(1)); // 筛选钮＋行徽章
-    fireEvent.click(await screen.findByText("官方手法A"));
+    fireEvent.click(await screen.findByText(/官方手法A/));
     fireEvent.click(await screen.findByTestId("kb-baseline-unhide"));
     await waitFor(() => expect(api.clearBaselineOverride).toHaveBeenCalledWith("b1"));
   });
@@ -243,7 +273,7 @@ describe("KnowledgeBasePage · 官方精选", () => {
     api.baselineOverride.mockResolvedValue({ entry_id: "b1", action: "edit" });
     renderPage();
     fireEvent.click(screen.getByTestId("kb-src-官方精选")); // 知识行退居回退臂（c-kb-instance-list）
-    fireEvent.click(await screen.findByText("官方手法A"));
+    fireEvent.click(await screen.findByText(/官方手法A/));
 
     // 展开：草稿预填官方原文（用户从「看到的这条」开始改，不是从空白）
     fireEvent.click(await screen.findByTestId("kb-baseline-edit"));
@@ -278,7 +308,7 @@ describe("KnowledgeBasePage · 官方精选", () => {
     );
     renderPage();
     fireEvent.click(screen.getByTestId("kb-src-官方精选")); // 知识行退居回退臂（c-kb-instance-list）
-    fireEvent.click(await screen.findByText("官方手法A"));
+    fireEvent.click(await screen.findByText(/官方手法A/));
     fireEvent.click(await screen.findByTestId("kb-baseline-edit"));
     fireEvent.click(screen.getByTestId("kb-baseline-save"));
     await waitFor(() => {
