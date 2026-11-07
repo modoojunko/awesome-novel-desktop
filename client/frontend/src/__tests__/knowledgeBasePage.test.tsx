@@ -266,30 +266,26 @@ describe("KnowledgeBasePage 详情抽屉", () => {
   });
 });
 
-describe("角色设定视角（c-charlib-into-kb）", () => {
-  it("?concept=角色设定 深链落位：档案柜视图体在位，通用列表退位", async () => {
+describe("角色设定页签同构（c-kb-view-unify：档案柜视图退役）", () => {
+  it("?concept=角色设定 深链落位：与其余页签同构的实例行列表", async () => {
     renderPage(<KnowledgeBasePage />, { route: "/tools/kb?concept=角色设定" });
-    await waitFor(() => expect(screen.getByTestId("char-instance-view")).toBeTruthy());
-    // 通用列表退位：条数行不出现（entries 有 1 条，若未退位会渲染「1 条」）
-    expect(screen.queryByText("1 条")).toBeNull();
-    // 库分组与通用搜索退位
-    expect(screen.queryByTestId("kb-baseline-sync")).toBeNull();
+    // 档案柜视图退役；统一计数行在位（实例臂）
+    await waitFor(() => expect(screen.getByTestId("kb-count-line")).toBeTruthy());
+    expect(screen.queryByTestId("char-instance-view")).toBeNull();
   });
 
-  it("来源切「官方精选」→ 通用列表回位（仍带角色设定概念过滤）", async () => {
+  it("来源切「官方精选」→ 知识行回退臂（仍带角色设定概念过滤）", async () => {
     renderPage(<KnowledgeBasePage />, { route: "/tools/kb?concept=角色设定" });
-    await waitFor(() => expect(screen.getByTestId("char-instance-view")).toBeTruthy());
+    await waitFor(() => expect(screen.getByTestId("kb-count-line")).toBeTruthy());
     fireEvent.click(screen.getByTestId("kb-src-官方精选"));
-    await waitFor(() => expect(screen.queryByTestId("char-instance-view")).toBeNull());
-    // 官方精选臂下通用列表在位：条目行照常出
     await waitFor(() => expect(screen.getByText("刘望津")).toBeTruthy());
     expect(screen.getByText("1 条")).toBeTruthy();
   });
 
-  it("非法 ?concept= 落「全部」，不进视角", async () => {
+  it("非法 ?concept= 落「全部」", async () => {
     renderPage(<KnowledgeBasePage />, { route: "/tools/kb?concept=不存在" });
     await waitFor(() => expect(screen.getByTestId("kb-src-官方精选")).toBeTruthy());
-    expect(screen.queryByTestId("char-instance-view")).toBeNull();
+    expect(screen.getByTestId("kb-count-line")).toBeTruthy();
   });
 });
 

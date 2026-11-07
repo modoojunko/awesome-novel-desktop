@@ -7,7 +7,6 @@ import KbOrganizePanel from "@/components/tools/KbOrganizePanel";
 import KbEntryRelations from "@/components/tools/KbEntryRelations";
 import KbMaterialCard from "@/components/tools/KbMaterialCard";
 import KbEntryAvatar from "@/components/tools/KbEntryAvatar";
-import CharacterInstanceView from "@/components/library/CharacterInstanceView";
 
 const CONCEPTS = ["文风", "文笔", "世界设定", "角色设定", "手法", "情节"] as const;
 const CONCEPT_DESC: Record<string, string> = {
@@ -144,14 +143,10 @@ export default function KnowledgeBasePage() {
     } finally { setLoading(false); }
   }, [genre, concept, src, q]);
 
-  // 角色设定视角（c-charlib-into-kb）：角色设定页签＋实例侧来源 → 档案柜视图体；
-  // 官方精选/已隐藏两臂回通用列表（官方方法论与隐藏管理住在通用列表）。
-  const viewMode = concept === "角色设定" && (src === "全部" || src === "手录" || src === "拆书");
-
-  // 数据源分臂（c-kb-instance-list）：实例侧来源 → 实例行列表；官方精选/已隐藏 →
-  // 沿用知识行列表（基线层 layer/hidden 语义只住知识行）；角色设定视角由 viewMode 接管。
+  // 数据源分臂（c-kb-instance-list，boss 2026-11-07 统一拍板：六类页签同构）：
+  // 实例侧来源 → 实例行列表；官方精选/已隐藏 → 沿用知识行列表（基线层只住知识行）
   const srcIsFallback = src === "官方精选" || src === "已隐藏";
-  const instanceArm = !viewMode && !srcIsFallback;
+  const instanceArm = !srcIsFallback;
 
   const loadFlat = useCallback(async () => {
     setFlatLoading(true);
@@ -493,23 +488,18 @@ export default function KnowledgeBasePage() {
               ))}
             </div>
 
-            {/* 搜索（视角模式下由视图体自带搜索接管，D4） */}
-            {!viewMode && (
-              <div className="mb-4">
-                <input
-                  value={q}
-                  onChange={(e) => setQ(e.target.value)}
-                  placeholder="搜名字、内容、来源书名"
-                  className="w-full max-w-xs rounded-lg border border-[var(--border)] bg-[var(--surface)] px-3 py-2 text-[13px] text-[var(--fg)] placeholder:text-[var(--faint)] focus:border-[var(--accent)] focus:outline-none"
-                />
-              </div>
-            )}
+            {/* 搜索 */}
+            <div className="mb-4">
+              <input
+                value={q}
+                onChange={(e) => setQ(e.target.value)}
+                placeholder="搜名字、内容、来源书名"
+                className="w-full max-w-xs rounded-lg border border-[var(--border)] bg-[var(--surface)] px-3 py-2 text-[13px] text-[var(--fg)] placeholder:text-[var(--faint)] focus:border-[var(--accent)] focus:outline-none"
+              />
+            </div>
 
-            {/* 角色设定视角：档案柜视图体（c-charlib-into-kb）——题材/来源经 props 单向灌入 */}
-            {viewMode && <CharacterInstanceView kbGenre={genre} kbSrc={src} />}
-
-            {/* 列表主体（视角模式下退位）：实例臂 = 实例行列表（c-kb-instance-list）；官方精选/已隐藏 = 知识行列表 */}
-            {!viewMode && (instanceArm ? (<>
+            {/* 列表主体：实例臂 = 实例行列表（c-kb-instance-list）；官方精选/已隐藏 = 知识行列表 */}
+            {instanceArm ? (<>
             {/* 计数行＋排序：N 与分类分布同口径（含待归属素材行） */}
             {!selected && openError && (
               <p data-testid="kb-open-error" className="mb-2 text-[12px] text-[var(--muted)]">{openError}</p>
@@ -687,7 +677,7 @@ export default function KnowledgeBasePage() {
               )}
               {/* v8 ignore stop */}
             </div>
-            </>))}
+            </>)}
           </div>
         </div>
 
@@ -768,7 +758,7 @@ export default function KnowledgeBasePage() {
               <button
                 onClick={() => { void openKnowledgeById(selectedInstance.knowledge_id); }}
                 className="text-[var(--accent)] underline underline-offset-2 hover:text-[var(--accent-strong)]"
-              >{selectedInstance.knowledge_title || "未归属"}</button>
+              >{selectedInstance.knowledge_title /* v8 ignore next — 实例行 knowledge_title 后端恒非空 */ || "未归属"}</button>
               {selectedInstance.chain.slice(0, -1).map((seg) => (
                 <span key={seg.id}>
                   {" ← "}
@@ -889,7 +879,7 @@ export default function KnowledgeBasePage() {
                       // 字段名走中文字典；总结侧 desc 恒空（留待后端补作家语言）——
                       // 空说明不渲染悬空「·」（真机 2026-11-07 实锤）
                       const label = kbFieldLabel(selected.concept, s.name);
-                      const desc = (s.desc || "").trim();
+                      const desc = (s.desc /* v8 ignore next — 总结侧 desc 恒空，后端补作家语言前不可达 */ || "").trim();
                       return (
                         <p key={s.name} className="text-[12px]">
                           <span className="font-medium text-[var(--fg)]">{label}</span>
