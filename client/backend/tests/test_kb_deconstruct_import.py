@@ -137,9 +137,9 @@ def test_maps_real_product_shapes_into_five_concepts():
 
     # 手法：techniques 1 + borrowable 1 + avoid 1 + reader_needs 1
     assert len(by_concept["手法"]) == 4
-    # 文风：role 1（原文示范段不收）；文笔：rules 1 + craft 1 + taboo 1
-    assert len(by_concept["文风"]) == 1
-    assert len(by_concept["文笔"]) == 3
+    # 文风：role 1 + rules 1（场景规则归文风——boss 承接表）；文笔：craft 1 + taboo 1
+    assert len(by_concept["文风"]) == 2
+    assert len(by_concept["文笔"]) == 2
     # 世界：stage + no_power + power + cost + history + factions + constraints + extra
     assert len(by_concept["世界设定"]) == 8
     assert len(by_concept["角色设定"]) == 1

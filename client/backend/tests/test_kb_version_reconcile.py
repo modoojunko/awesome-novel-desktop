@@ -97,7 +97,8 @@ class TestReconcile:
         technique = {"name": "不可靠叙述开篇", "emotion_chain": "好奇→怀疑",
                      "repro_steps": ["先立异象", "再自我否认"], "evidence_ch": "第1章", "confidence": "high"}
         # 试拆（30 章，旧版只收角色）先收；全本（100 章，四维）不手动收——由收敛重收
-        old_job = _run(_mk_job(uid, "斩神", 30, _products([old_char])))
+        # 试拆名带后缀（真机病灶：斩神-前30章 与 斩神 曾被当两本书）
+        old_job = _run(_mk_job(uid, "斩神-前30章", 30, _products([old_char])))
         _run(_collect(uid, old_job))
         _run(_mk_job(uid, "斩神", 100, _products(new_chars, style_rule=style_rule, technique=technique)))
 

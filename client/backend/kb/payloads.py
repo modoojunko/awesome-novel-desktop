@@ -13,7 +13,9 @@ class StylePayload(BaseModel):
 
     model_config = {"extra": "forbid"}
 
-    slot: Literal["role", "tone", "pov", "register", "sample"]
+    # rule＝拆书场景规则（boss 2026-11-07 承接表：一条场景规则一条文风实例，
+    # 如「战斗短句」），text 承载「名字：怎么写」
+    slot: Literal["role", "tone", "pov", "register", "sample", "rule"]
     role: str | None = Field(None, max_length=120)
     text: str | None = Field(None, max_length=500)
     sample: str | None = Field(None, max_length=500)
