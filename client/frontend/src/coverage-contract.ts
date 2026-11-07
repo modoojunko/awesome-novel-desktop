@@ -20,7 +20,6 @@ export const COVERAGE_CONTRACT_FILES = [
   // c-character-library + c-charlib-into-kb（角色实例视图：视图体进知识库/编辑弹窗/选书/书内导入/收录/API/hook/样式）
   "src/lib/libraryApi.ts",
   "src/hooks/useCharacterLibrary.ts",
-  "src/components/library/CharacterInstanceView.tsx",
   "src/components/library/CardEditorModal.tsx",
   "src/components/library/UseInNovelModal.tsx",
   "src/components/library/ImportFromLibraryModal.tsx",

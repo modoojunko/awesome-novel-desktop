@@ -622,6 +622,21 @@ describe("实例行列表（c-kb-instance-list）", () => {
     await screen.findByText("写法细节");
     fireEvent.click(document.querySelector(".bg-black\\/50")!);
     await waitFor(() => expect(screen.queryByText("写法细节")).toBeNull());
+    // 变体：无出处＋空日期的实例行——抽屉出处段整段不渲染、日期留空
+    api.instancesFlat.mockResolvedValue({
+      ok: true,
+      rows: [flatRow({ id: "inst-bare", quote: "", source_novel: "", source_chapter: "", created_at: "", fields_json: "{}" })],
+    });
+    // 触发重取（筛选变化）让新 mock 生效
+    fireEvent.change(screen.getByPlaceholderText("搜名字、内容、来源书名"), { target: { value: "裸行" } });
+    await waitFor(() => expect(api.instancesFlat.mock.calls.at(-1)![0].q).toBe("裸行"));
+    await waitFor(() => expect(screen.getAllByTestId("kb-inst-row")).toHaveLength(1));
+    expect(screen.getByTestId("kb-inst-row").textContent).not.toContain("源自：");
+    fireEvent.click(screen.getByTestId("kb-inst-row"));
+    await screen.findByTestId("kb-inst-drawer-close");
+    expect(screen.queryByText("出处")).toBeNull(); // 无出处整段不渲染
+    fireEvent.click(screen.getByTestId("kb-inst-drawer-close"));
+    await waitFor(() => expect(screen.queryByTestId("kb-inst-drawer-close")).toBeNull());
   });
 
   it("取数失败静默空列表；在途不渲染空态卡", async () => {
