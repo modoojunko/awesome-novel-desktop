@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useSearchParams } from "react-router-dom";
-import { kbApi, type KbEntry, type KbGenreCount, type KbLibrary } from "@/lib/kbApi";
+import { kbApi, type KbEntry, type KbGenreCount, type KbInstanceFlatRow, type KbLibrary } from "@/lib/kbApi";
 import StarSeaPanel from "@/components/tools/StarSeaPanel";
 import { kbFieldLabel, kbValueLabel } from "@/lib/kbFieldLabels";
 import KbOrganizePanel from "@/components/tools/KbOrganizePanel";
@@ -69,6 +69,10 @@ export default function KnowledgeBasePage() {
   const [genreCounts, setGenreCounts] = useState<KbGenreCount[]>([]);
   const [cursor, setCursor] = useState("");
   const [loading, setLoading] = useState(false);
+  // 实例行列表（c-kb-instance-list）：实例侧来源的数据源；官方精选/已隐藏两臂回知识行列表
+  const [flatRows, setFlatRows] = useState<KbInstanceFlatRow[]>([]);
+  const [flatLoading, setFlatLoading] = useState(false);
+  const [sort, setSort] = useState<"recent" | "name">("recent");
   const [selected, setSelected] = useState<KbEntry | null>(null);
   const [showManual, setShowManual] = useState(false);
   const [manualText, setManualText] = useState("");
@@ -87,6 +91,8 @@ export default function KnowledgeBasePage() {
   const [editDraft, setEditDraft] = useState(false);
   const [draft, setDraft] = useState("");
   const [opNote, setOpNote] = useState("");
+  // 实例臂点行取数失败的列表区提示（独立于 opNote——那是回退臂抽屉操作文案，不得跨臂滞留）
+  const [openError, setOpenError] = useState("");
 
   const loadEntries = useCallback(async (cursorId = "") => {
     setLoading(true);
@@ -107,12 +113,80 @@ export default function KnowledgeBasePage() {
   // 官方精选/已隐藏两臂回通用列表（官方方法论与隐藏管理住在通用列表）。
   const viewMode = concept === "角色设定" && (src === "全部" || src === "手录" || src === "拆书");
 
+  // 数据源分臂（c-kb-instance-list）：实例侧来源 → 实例行列表；官方精选/已隐藏 →
+  // 沿用知识行列表（基线层 layer/hidden 语义只住知识行）；角色设定视角由 viewMode 接管。
+  const srcIsFallback = src === "官方精选" || src === "已隐藏";
+  const instanceArm = !viewMode && !srcIsFallback;
+
+  const loadFlat = useCallback(async () => {
+    setFlatLoading(true);
+    setOpenError(""); // 重取即清——旧失败提示不跨筛选滞留
+    try {
+      const sp = new URLSearchParams();
+      // 「跨题材通用」档（genre=''）不发参数——由前端按行过滤（现 /entries 链路该档是
+      // no-op，不照抄）；genre/concept/q 过滤语义与 list_entries 同口径
+      if (genre !== "全部题材" && genre !== "") sp.set("genre", genre);
+      if (concept !== "全部") sp.set("concept", concept);
+      if (q) sp.set("q", q);
+      const r = await kbApi.instancesFlat(Object.fromEntries(sp));
+      setFlatRows(r.rows);
+    } catch {
+      setFlatRows([]);
+    } finally { setFlatLoading(false); }
+  }, [genre, concept, q]);
+
   const loadLibraries = useCallback(async () => {
     // 视角模式下库分组卡隐藏，库列表零消费不发（D4 门控）
     if (viewMode) return;
     const r = await kbApi.libraries(genre !== "全部题材" ? genre : undefined);
     setLibraries(r);
   }, [genre, viewMode]);
+
+  // 实例臂客户端过滤与排序（数据全量在内存）：来源（拆书/手录）按行 src_kind、
+  // 「跨题材通用」档只留 genre==='' 行；名称排序按所属知识名、素材行恒排末位
+  const visibleRows = useMemo(() => {
+    let rows = flatRows;
+    if (src === "拆书") rows = rows.filter((r) => r.src_kind === "拆书");
+    else if (src === "手录") rows = rows.filter((r) => r.src_kind === "手录");
+    if (genre === "") rows = rows.filter((r) => r.genre === "");
+    if (sort === "name") {
+      rows = [...rows].sort((a, b) => {
+        if (!a.knowledge_title) return 1;
+        if (!b.knowledge_title) return -1;
+        return a.knowledge_title.localeCompare(b.knowledge_title, "zh");
+      });
+    }
+    return rows;
+  }, [flatRows, src, genre, sort]);
+
+  // 计数行分类分布（与 N 同口径：含待归属素材行）
+  const conceptBreakdown = useMemo(() => {
+    const m = new Map<string, number>();
+    visibleRows.forEach((r) => m.set(r.concept, (m.get(r.concept) ?? 0) + 1));
+    return [...m.entries()];
+  }, [visibleRows]);
+
+  // 点行/点链取数（c-kb-instance-list D5）：行 id 不一概是 kb_entries id——
+  // 实例行用 knowledge_id、素材行与链上级用行/链 id；统一走 entry() 兜底路径
+  const openKnowledgeById = useCallback(async (id: string) => {
+    try {
+      const d = await kbApi.entry(id);
+      setSelected(d);
+      setEditDraft(false);
+      setOpNote("");
+      setOpenError("");
+    } catch {
+      // 抽屉没开成——提示须落在列表区才可见（opNote 在抽屉内的渲染面此时不可达）
+      setOpenError("这条知识暂时打不开，稍后再试");
+    }
+  }, []);
+
+  // 删素材/手录/基线操作后的当前臂刷新
+  const reloadCurrent = useCallback(async () => {
+    if (instanceArm) { await loadFlat(); } else { await loadEntries(); }
+    loadLibraries();
+    kbApi.genres().then(setGenreCounts).catch(() => {});
+  }, [instanceArm, loadFlat, loadEntries, loadLibraries]);
 
   useEffect(() => {
     kbApi.genres().then(setGenreCounts).catch(() => {});
@@ -125,9 +199,15 @@ export default function KnowledgeBasePage() {
   }, []);
 
   useEffect(() => {
-    loadEntries();
+    if (instanceArm) {
+      // 实例臂不消费知识行——清掉旧臂残留，防抽屉「关联知识」本地查找命中过期快照
+      setEntries([]);
+      setCursor("");
+      void loadFlat();
+    } else { void loadEntries(); }
     loadLibraries();
-  }, [genre, concept, src, q]);
+    // instanceArm 随 src 切臂；两臂各取各的数据源（实例臂不跑 entries 主查询）
+  }, [instanceArm, genre, concept, src, q, loadFlat, loadEntries, loadLibraries]);
 
   const visibleGenres = useMemo(() => {
     const filled = genreCounts.filter((g) => g.count > 0);
@@ -161,8 +241,7 @@ export default function KnowledgeBasePage() {
       if (action === "hide") await kbApi.baselineOverride(entry.id, "hide");
       else await kbApi.clearBaselineOverride(entry.id);
       setSelected(null);
-      await loadEntries();
-      kbApi.genres().then(setGenreCounts).catch(() => {});
+      await reloadCurrent();
     } catch { /* 静默：下一次列表刷新即真实状态 */ }
     finally { setOpBusy(false); }
   };
@@ -179,8 +258,7 @@ export default function KnowledgeBasePage() {
       await kbApi.baselineOverride(entry.id, "edit", draft);
       setSelected(null);
       setEditDraft(false);
-      await loadEntries();
-      kbApi.genres().then(setGenreCounts).catch(() => {});
+      await reloadCurrent();
     } catch (e: unknown) {
       // 后端 422 的 message＝第一条闸门原因（api.ts 不变量），原样给用户
       const err = e as { message?: string };
@@ -206,8 +284,7 @@ export default function KnowledgeBasePage() {
               ? "同步没成功，稍后再试"
               : "暂时取不到官方精选",
       );
-      await loadEntries();
-      kbApi.genres().then(setGenreCounts).catch(() => {});
+      await reloadCurrent();
     } catch {
       setSyncNote("同步没成功，稍后再试");
     } finally {
@@ -239,9 +316,7 @@ export default function KnowledgeBasePage() {
     try {
       await kbApi.deleteEntry(selected.id);
       setSelected(null);
-      loadEntries();
-      loadLibraries();
-      kbApi.genres().then(setGenreCounts).catch(() => {});
+      await reloadCurrent();
     } catch (e: unknown) {
       setOpNote((e as { message?: string }).message || "删除失败");
     } finally {
@@ -263,9 +338,7 @@ export default function KnowledgeBasePage() {
       });
       setManualText("");
       setManualNote("素材已收录，总结后成为知识点");
-      loadEntries();
-      loadLibraries();
-      kbApi.genres().then(setGenreCounts).catch(() => {});
+      await reloadCurrent();
     } catch (e: unknown) {
       // ApiError：422 的 message = 后端第一条闸门错误（api.ts 不变量：4xx message 恒非空）
       const err = e as { message?: string };
@@ -319,7 +392,7 @@ export default function KnowledgeBasePage() {
                 onClick={() => setGenre("全部题材")}
                 className={`flex w-full items-center justify-between rounded-md px-3 py-1.5 text-[13px] ${genre === "全部题材" ? "bg-[var(--accent-soft)] font-medium text-[var(--accent)]" : "text-[var(--muted)] hover:text-[var(--fg)]"}`}
               >
-                <span>全部</span><span className="font-mono text-[10px] opacity-70">{entries.length}</span>
+                <span>全部</span><span className="font-mono text-[10px] opacity-70">{instanceArm ? visibleRows.length : entries.length}</span>
               </button>
               {visibleGenres.map((g) => (
                 <button
@@ -450,8 +523,99 @@ export default function KnowledgeBasePage() {
             {/* 角色设定视角：档案柜视图体（c-charlib-into-kb）——题材/来源经 props 单向灌入 */}
             {viewMode && <CharacterInstanceView kbGenre={genre} kbSrc={src} />}
 
-            {/* 条目列表（视角模式下退位） */}
-            {!viewMode && (<>
+            {/* 列表主体（视角模式下退位）：实例臂 = 实例行列表（c-kb-instance-list）；官方精选/已隐藏 = 知识行列表 */}
+            {!viewMode && (instanceArm ? (<>
+            {/* 计数行＋排序：N 与分类分布同口径（含待归属素材行） */}
+            {!selected && openError && (
+              <p data-testid="kb-open-error" className="mb-2 text-[12px] text-[var(--muted)]">{openError}</p>
+            )}
+            <div className="mb-2 flex items-center justify-between gap-3">
+              <span className="text-sm text-[var(--muted)]" data-testid="kb-count-line">
+                共 <b className="font-medium text-[var(--fg)]">{visibleRows.length}</b> 条实例
+                {conceptBreakdown.map(([c, n]) => (
+                  <span key={c} className="ml-2 text-[12px] text-[var(--faint)]">· {c} {n}</span>
+                ))}
+              </span>
+              <select
+                aria-label="排序"
+                value={sort}
+                onChange={(e) => setSort(e.target.value as "recent" | "name")}
+                className="h-7 rounded-md border border-[var(--border)] bg-[var(--surface)] px-2 text-[12px] text-[var(--fg)]"
+              >
+                <option value="recent">最近收录</option>
+                <option value="name">名称</option>
+              </select>
+            </div>
+            <div>
+              {visibleRows.map((r) => {
+                const openRow = () => { void openKnowledgeById(r.row_kind === "material" ? r.id : r.knowledge_id); };
+                return (
+                <div
+                  key={`${r.row_kind}-${r.id}`}
+                  data-testid={r.row_kind === "material" ? "kb-material-row" : "kb-inst-row"}
+                  role="button"
+                  tabIndex={0}
+                  onClick={openRow}
+                  onKeyDown={(ev) => { if (ev.key === "Enter" || ev.key === " ") { ev.preventDefault(); openRow(); } }}
+                  className="cursor-pointer border-b border-[var(--border)] px-1 py-3.5 hover:bg-[var(--fg-soft)]"
+                >
+                  {/* 归属链：题材段非链接文字，知识各级 accent 可点下钻 */}
+                  <div className="mb-1 flex flex-wrap items-center text-[11px]">
+                    <span className="text-[var(--muted)]">{r.genre || "跨题材通用"}</span>
+                    {r.chain.map((seg) => (
+                      <span key={seg.id} className="flex items-center">
+                        <span className="mx-1.5 text-[var(--faint)]">→</span>
+                        <button
+                          data-testid="kb-chain-seg"
+                          onClick={(ev) => { ev.stopPropagation(); void openKnowledgeById(seg.id); }}
+                          className="text-[var(--accent)] underline underline-offset-2 hover:text-[var(--accent-strong)]"
+                        >{seg.title}</button>
+                      </span>
+                    ))}
+                  </div>
+                  <div className="mb-1 flex flex-wrap gap-1.5">
+                    <span className="rounded-full bg-[var(--accent-soft)] px-2 py-px text-[10.5px] text-[var(--accent)]">{r.concept}</span>
+                    {r.row_kind === "material" && (
+                      <span data-testid="kb-row-material-badge" className="rounded-full border border-[var(--border)] px-2 py-px text-[10.5px] text-[var(--muted)]">待归属素材</span>
+                    )}
+                  </div>
+                  <p className="text-[14px] leading-relaxed text-[var(--fg)]">
+                    {r.text}
+                    {r.quote && <span className="text-[var(--muted)]">——{r.quote}</span>}
+                  </p>
+                  {/* 出处行按值渲染：空片段不渲染、整行无值不渲染出处行 */}
+                  {(r.source_novel || r.source_chapter) && (
+                    <p className="mt-1 text-[11px] text-[var(--faint)]">
+                      源自：{r.source_novel}{r.source_novel && r.source_chapter ? " · " : ""}{r.source_chapter}
+                    </p>
+                  )}
+                  <p className="mt-1 text-right text-[11px] text-[var(--muted)]">
+                    {r.created_at ? r.created_at.slice(0, 10) : ""} 收录 <span className="ml-1 text-[var(--faint)]">{r.src_kind}</span>
+                  </p>
+                </div>
+                );
+              })}
+              {/* 空态：零内容题材＝记一条；筛选无命中＝清空筛选出口 */}
+              {!visibleRows.length && !flatLoading && (noFilters && src === "全部" ? (
+                <div className="rounded-lg border border-dashed border-[var(--border)] p-6 text-center">
+                  <p className="text-[13px] text-[var(--muted)]">还没有条目——先拆书或手录，写法到位后这里会长出来。</p>
+                  <button
+                    onClick={() => setShowManual(true)}
+                    className="mt-3 rounded-lg bg-[var(--accent)] px-4 py-2 text-[13px] font-medium text-[var(--on-accent)] hover:bg-[var(--accent-strong)]"
+                  >记一条</button>
+                </div>
+              ) : (
+                <div data-testid="kb-flat-empty" className="rounded-lg border border-dashed border-[var(--border)] p-6 text-center">
+                  <p className="text-[13px] text-[var(--muted)]">当前筛选下没有写法。</p>
+                  <button
+                    data-testid="kb-clear-filters"
+                    onClick={() => { setQ(""); setConcept("全部"); setSrc("全部"); setGenre("全部题材"); }}
+                    className="mt-3 rounded-lg border border-[var(--accent)] px-4 py-2 text-[13px] text-[var(--accent)] hover:bg-[var(--accent-soft)]"
+                  >清空筛选</button>
+                </div>
+              ))}
+            </div>
+            </>) : (<>
             <div className="mb-2 flex items-center justify-between">
               <span className="text-sm font-medium">{entries.length} 条</span>
             </div>
@@ -531,17 +695,8 @@ export default function KnowledgeBasePage() {
                 </div>
               )}
               {/* v8 ignore stop */}
-              {!entries.length && !loading && src !== "官方精选" && src !== "已隐藏" && (
-                <div className="rounded-lg border border-dashed border-[var(--border)] p-6 text-center">
-                  <p className="text-[13px] text-[var(--muted)]">还没有条目——先拆书或手录，写法到位后这里会长出来。</p>
-                  <button
-                    onClick={() => setShowManual(true)}
-                    className="mt-3 rounded-lg bg-[var(--accent)] px-4 py-2 text-[13px] font-medium text-[var(--on-accent)] hover:bg-[var(--accent-strong)]"
-                  >记一条</button>
-                </div>
-              )}
             </div>
-            </>)}
+            </>))}
           </div>
         </div>
 

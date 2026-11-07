@@ -157,6 +157,40 @@ export interface KbGraphEntryEdge {
 // request() 自带 /api 前缀，这里只给功能段（同 libraryApi 的 /character-library 口径）
 const BASE = "/kb";
 
+// ── 跨知识实例行（c-kb-instance-list）：row_kind 判别联合，归属链由后端拼好 ──
+
+export interface KbChainSeg {
+  id: string;
+  title: string;
+}
+
+/** 行公共形状：material 行的 knowledge_id/knowledge_title/chain 为空值。 */
+interface KbInstanceFlatRowBase {
+  id: string;
+  knowledge_id: string;
+  knowledge_title: string;
+  chain: KbChainSeg[];
+  genre: string;
+  concept: string;
+  text: string;
+  quote: string;
+  source_novel: string;
+  source_chapter: string;
+  /** 后端归一为「拆书/手录」两个界面值 */
+  src_kind: "拆书" | "手录";
+  created_at: string;
+}
+
+export interface KbInstanceRow extends KbInstanceFlatRowBase {
+  row_kind: "instance";
+}
+
+export interface KbMaterialRow extends KbInstanceFlatRowBase {
+  row_kind: "material";
+}
+
+export type KbInstanceFlatRow = KbInstanceRow | KbMaterialRow;
+
 // 后端各端点统一 {ok: true, data: ...} 信封（同 libraryApi 口径）
 async function unwrap<T>(p: Promise<unknown>): Promise<T> {
   const r = (await p) as { data?: T };
@@ -167,6 +201,16 @@ async function unwrap<T>(p: Promise<unknown>): Promise<T> {
 export const kbApi = {
   genres: () =>
     unwrap<KbGenreCount[]>(request(`${BASE}/genres`)),
+
+  // ── 跨知识实例行列表（c-kb-instance-list）──
+
+  instancesFlat: (params: { genre?: string; concept?: string; q?: string }) => {
+    const sp = new URLSearchParams();
+    if (params.genre) sp.set("genre", params.genre);
+    if (params.concept) sp.set("concept", params.concept);
+    if (params.q) sp.set("q", params.q);
+    return unwrap<{ ok: boolean; rows: KbInstanceFlatRow[] }>(request(`${BASE}/instances?${sp}`));
+  },
 
   entries: (params: { genre?: string; concept?: string; src?: string; q?: string; cursor?: string }) => {
     const sp = new URLSearchParams();

@@ -278,8 +278,9 @@ async def resolve_user(explicit: str) -> str:
         username = str(get_local_config().get("username") or "").strip()
     if not username:
         raise SystemExit("拿不到登录用户名：用 --user 指定（应用里登录过的账号名）。")
-    from db import engine as _dbg_engine
     from sqlalchemy import text as _t
+
+    from db import engine as _dbg_engine
     async with _dbg_engine.connect() as _c:
         for _r in (await _c.execute(_t("PRAGMA database_list"))).fetchall():
             print(f"[dbg] attached {_r[2]}", flush=True)

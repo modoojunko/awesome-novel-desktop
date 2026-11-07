@@ -575,6 +575,138 @@ async def add_instance(
     return inst
 
 
+async def list_instances_flat(
+    db: AsyncSession, *, user_id: str,
+    genre: str = "", concept: str = "", q: str = "",
+) -> list[dict]:
+    """跨知识实例行列表（c-kb-instance-list）——全量返回，无分页。
+
+    每行一个实例：知识点实例（kb_knowledge_instances JOIN kb_entries）∪
+    待归属素材行（kb_entries origin='material'）。行形状：
+    row_kind 判别（instance/material）、chain 由后端沿 parent_id 逐级上溯拼好
+    （题材段不入链，孤儿/断链/不可达跳级）、src_kind 归一为「拆书/手录」。
+
+    过滤边界（评审钉死，tests/test_kb.py 逐条对应）：
+    - 实例行：知识行 origin != 'material' AND status='active' AND archived_at IS NULL
+      （归档只写 archived_at 不动 status；排除素材行防脏数据以知识行身份混入）
+    - 素材行：status='active' AND origin='material' AND concept != '情节'（情节永不归属）
+    - genre/concept '' = 不过滤（与 list_entries 同口径；「跨题材通用」档由前端过滤）
+    - q：LIKE，实例行覆盖 text/quote/source_novel＋所属知识名，
+      素材行覆盖 instruction/evidence/src_novel_name
+    """
+    from kb.query_scope import visible_knowledge_filter
+
+    g = genre if genre and genre != "全部题材" else ""
+    c = concept if concept and concept != "全部" else ""
+    qs = (q or "").strip()
+    like = f"%{qs}%" if qs else ""
+
+    kstmt = (
+        select(KbKnowledgeInstance, KbEntry)
+        .join(KbEntry, KbEntry.id == KbKnowledgeInstance.knowledge_id)
+        .where(
+            KbEntry.user_id == user_id,
+            visible_knowledge_filter(),
+            KbEntry.status == "active",
+            KbEntry.archived_at.is_(None),
+        )
+    )
+    if g:
+        kstmt = kstmt.where(KbEntry.genre == g)
+    if c:
+        kstmt = kstmt.where(KbEntry.concept == c)
+    if like:
+        kstmt = kstmt.where(
+            KbKnowledgeInstance.text.contains(qs)
+            | KbKnowledgeInstance.quote.contains(qs)
+            | KbKnowledgeInstance.source_novel.contains(qs)
+            | KbEntry.title.contains(qs)
+        )
+    inst_rows = (await db.execute(kstmt)).all()
+
+    mstmt = select(KbEntry).where(
+        KbEntry.user_id == user_id,
+        KbEntry.status == "active",
+        KbEntry.origin == "material",
+        KbEntry.concept != "情节",
+    )
+    if g:
+        mstmt = mstmt.where(KbEntry.genre == g)
+    if c:
+        mstmt = mstmt.where(KbEntry.concept == c)
+    if like:
+        mstmt = mstmt.where(
+            KbEntry.instruction.contains(qs)
+            | KbEntry.evidence.contains(qs)
+            | KbEntry.src_novel_name.contains(qs)
+        )
+    mat_rows = (await db.execute(mstmt)).scalars().all()
+
+    # chain 预载映射：本 user、active、未归档的知识行（素材行不入映射）
+    nodes = (await db.execute(
+        select(KbEntry.id, KbEntry.title, KbEntry.parent_id).where(
+            KbEntry.user_id == user_id,
+            visible_knowledge_filter(),
+            KbEntry.status == "active",
+            KbEntry.archived_at.is_(None),
+        )
+    )).all()
+    node_map = {n.id: (n.title, n.parent_id) for n in nodes}
+
+    def _chain(kid: str) -> list[dict]:
+        chain: list[dict] = []
+        seen: set[str] = set()
+        cur = kid
+        while cur and cur in node_map and cur not in seen:
+            seen.add(cur)
+            title, parent = node_map[cur]
+            chain.append({"id": cur, "title": title})
+            cur = parent
+        chain.reverse()  # 顶层父在前，末段＝所属知识点
+        return chain
+
+    def _src_label(raw: str) -> str:
+        return "手录" if raw in ("手录", "manual") else "拆书"
+
+    from datetime import datetime
+
+    rows: list[dict] = []
+    for inst, e in inst_rows:
+        rows.append({
+            "row_kind": "instance",
+            "id": inst.id,
+            "knowledge_id": e.id,
+            "knowledge_title": e.title,
+            "chain": _chain(e.id),
+            "genre": e.genre,
+            "concept": e.concept,
+            "text": inst.text,
+            "quote": inst.quote,
+            "source_novel": inst.source_novel,
+            "source_chapter": inst.source_chapter,
+            "src_kind": _src_label(inst.source_kind),
+            "created_at": inst.created_at,
+        })
+    for m in mat_rows:
+        rows.append({
+            "row_kind": "material",
+            "id": m.id,
+            "knowledge_id": "",
+            "knowledge_title": "",
+            "chain": [],
+            "genre": m.genre,
+            "concept": m.concept,
+            "text": m.instruction,
+            "quote": m.evidence,
+            "source_novel": m.src_novel_name,
+            "source_chapter": "",
+            "src_kind": _src_label(m.src_kind),
+            "created_at": m.created_at,
+        })
+    rows.sort(key=lambda r: r["created_at"] or datetime.min, reverse=True)
+    return rows
+
+
 # ── 知识 v2：别名检索＋版本快照（c-kb-knowledge-v2 任务 3.4）────────────
 
 

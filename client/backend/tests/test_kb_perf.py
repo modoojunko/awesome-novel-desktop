@@ -2,6 +2,9 @@
 
 10 万行 sqlite 实测口径（宽松阈值为防抖动的回归闸，非基准跑分）；
 行用 Core 批插（绕过 ORM 逐条 flush），隔离 user 不污染他测。
+
+perf 标记（boss 拍板 2026-11-07）：压测只在本地跑（`pytest -m perf`），
+CI 摘除（`-m "not perf"`）——CI runner 磁盘慢 3×，十万级插行必撞 --timeout=30。
 """
 
 import asyncio
@@ -10,6 +13,8 @@ import uuid
 
 import pytest
 from sqlalchemy import insert
+
+pytestmark = pytest.mark.perf
 
 from db import async_session
 from models.kb import KbEntry, KbEntryTag
