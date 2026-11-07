@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { useSearchParams } from "react-router-dom";
 import { kbApi, type KbChainSeg, type KbEntry, type KbGenreCount, type KbInstanceFlatRow } from "@/lib/kbApi";
 import StarSeaPanel from "@/components/tools/StarSeaPanel";
-import { kbFieldLabel, kbValueLabel } from "@/lib/kbFieldLabels";
+import { kbFieldDesc, kbFieldLabel, kbValueLabel } from "@/lib/kbFieldLabels";
 import KbOrganizePanel from "@/components/tools/KbOrganizePanel";
 import KbEntryRelations from "@/components/tools/KbEntryRelations";
 import KbMaterialCard from "@/components/tools/KbMaterialCard";
@@ -853,7 +853,9 @@ export default function KnowledgeBasePage() {
                       // 字段名走中文字典；总结侧 desc 恒空（留待后端补作家语言）——
                       // 空说明不渲染悬空「·」（真机 2026-11-07 实锤）
                       const label = kbFieldLabel(selected.concept, s.name);
-                      const desc = (s.desc || /* v8 ignore next — 总结侧 desc 恒空，后端补作家语言前不可达 */ "").trim();
+                      // desc 空时回退字段说明单源（kbFieldDesc）——总结侧不写 desc，
+                      // 作家语言由前端字典统一供（c-kb-field-labels 同源机制）
+                      const desc = (s.desc || kbFieldDesc(s.name)).trim();
                       return (
                         <p key={s.name} className="text-[12px]">
                           <span className="font-medium text-[var(--fg)]">{label}</span>

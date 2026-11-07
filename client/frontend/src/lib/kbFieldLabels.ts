@@ -41,6 +41,44 @@ const SHARED_LABELS: Record<string, string> = {
   scene: "适用场面",
   emotion: "情绪",
   steps: "步骤",
+  // 拆书产物跨维度通用键（boss 2026-11-07 定稿：固定骨架＋开放内容）
+  name: "名字",
+  need: "读者需求",
+  how: "怎么写",
+  evidence_ch: "章证据",
+  confidence: "可信度",
+  transferable: "适用范围",
+  emotion_chain: "情绪链",
+  repro_steps: "复现步骤",
+  swappable: "可替换",
+  no_copy: "不可抄",
+  example: "例证",
+  note: "注记",
+  // look/speech 由角色域同源表供（外貌标签/语感口音），不在此重复定义
+};
+
+/** 字段说明（作家语言一句话）——schema 段 desc 空时的回退单源。
+ *  与标签同表维护：标签管「叫什么」，说明管「是什么」。未收录返空串（不渲染）。 */
+const FIELD_DESCS: Record<string, string> = {
+  archetype: "这个实例叫什么——角色实例就是角色名",
+  persona: "一句话立住的形象",
+  aliases: "书中被叫过的其他称呼",
+  role: "在故事里担任的位置",
+  look: "长相与体貌特征",
+  speech: "说话的方式与口音习惯",
+  background: "来历与身份",
+  plot: "在书里走过的事件线",
+  need: "这条写法满足读者的什么期待",
+  how: "具体怎么写",
+  evidence_ch: "出自原书哪几章",
+  confidence: "拆书判断的可信程度",
+  transferable: "挪到别的书还能不能用",
+  emotion_chain: "读者情绪被怎样一步步带着走",
+  repro_steps: "照着复现的步骤",
+  swappable: "换题材时可以替换的部分",
+  no_copy: "不能照抄的原书专属内容",
+  example: "原书里的例证",
+  note: "补充说明",
 };
 
 // 角色档案八格 / 认知十一格：角色域同源标签并入（id 冲突以本表先到为准）
@@ -57,6 +95,11 @@ for (const layer of COG_LAYERS) {
 const CONCEPT_LABELS: Record<string, Record<string, string>> = {
   文风: { role: "声音角色" },
 };
+
+/** 字段说明（作家语言）：schema 段 desc 空时的回退；未收录返空串。 */
+export function kbFieldDesc(key: string): string {
+  return FIELD_DESCS[key] ?? "";
+}
 
 /** 字段值的中文标签（按字段名查枚举）；布尔一律 是/否；未收录回退原值。 */
 const VALUE_LABELS: Record<string, Record<string, string>> = {
@@ -84,6 +127,7 @@ const VALUE_LABELS: Record<string, Record<string, string>> = {
     constraint: "世界铁律",
   },
   tic_severity: { high: "高", medium: "中", low: "低" },
+  confidence: { high: "高", mid: "中", low: "低" },
 };
 
 /** payload 键 → 中文标签；未知键回退原键。 */
