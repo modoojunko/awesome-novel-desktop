@@ -217,8 +217,7 @@ class TestRepairChapterAnchors:
         _run(_mk_inst())
 
         async def _go():
-            async with async_session() as db:
-                return await backfill_instance_names(user_id=uid)
+            return await backfill_instance_names(user_id=uid)
         assert _run(_go()) == 1
 
         async def _check():
