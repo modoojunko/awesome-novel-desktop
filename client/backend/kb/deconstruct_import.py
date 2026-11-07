@@ -460,6 +460,9 @@ async def collect_task_to_kb(
         # c-kb-summarize：收录落素材行（origin='material'）——产物卡是事实记录，
         # 经总结采纳才成为知识。不物化标签、不长默认库（素材不进选择器/星图）。
         entry.origin = "material"
+        # 出处书名（c-kb-collect-dims）：此前恒空致实例出处行结构性无值——
+        # 落任务书名，素材/转生实例的「源自：书名」从此有源
+        entry.src_novel_name = str(getattr(task, "book_name", "") or "")[:100]
         db.add(entry)
         await db.flush()
     await db.commit()
