@@ -15,14 +15,16 @@ from __future__ import annotations
 
 import json
 import logging
+import re
 from typing import Any
 
 from sqlalchemy import select
+from sqlalchemy import text as _t
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from deconstruct.cards import split_plot_evidence
 from models.character_library import CharacterLibrary
-from models.kb import KbEntry
+from models.kb import KbEntry, KbKnowledgeInstance
 
 logger = logging.getLogger(__name__)
 
@@ -212,6 +214,154 @@ async def repair_character_evidence(db: AsyncSession, *, user_id: str) -> int:
         return 0
 
 
+# ── 存量数据自愈（2026-11-07 走查实锤，c-kb-instance-list 真机库）─────────────
+
+# 嵌套感知的章锚：cards._PLOT_ANCHOR_RE 只认简单尾锚「（第N章）」，拆书 LLM 产物
+# 实锤带嵌套尾锚「（第6章（提及逃脱）/第24章（正面出场））」（鬼面王案）——这里扩
+# 一层括号嵌套：尾括号组内含「第N章」字样即整组算锚，全局替换。「（泛指）」等
+# 不含章号的括号不动。预览页粘尾互逆的简单形仍归 cards.split_plot_evidence 同址维护。
+_KB_CHAPTER_ANCHOR_RE = re.compile(
+    r"（(?=[^（）]*第[\d零一二三四五六七八九十百]+章)[^（）]*(?:（[^（）]*）[^（）]*)*）"
+)
+
+
+def strip_chapter_anchor(value: str) -> str:
+    """剥字符串内的章节锚（含嵌套形，全局替换）；无锚原样返回。"""
+    return _KB_CHAPTER_ANCHOR_RE.sub("", str(value or "")).strip()
+
+
+async def normalize_legacy_genres(*, user_id: str) -> int:
+    """存量题材归一自愈：词表外写法归一到目录名。
+
+    病形＝老角色库时代的录入漂移在迁移镜像里原样沉积（实锤「灵异志怪」35 条 ↔
+    目录「志怪/民俗灵异」39 条分家，题材栏两棵树、过滤/tag 投影分家）。修＝
+    normalize_theme 归一（组件匹配专为此造），连 concept_id（{genre}:{concept}）
+    与物化 genre 标签同步改写；normalize_theme 归不动的词（→空串）不动。
+    查无病形即返（自熄）；返回改写条数。失败不抛（读面永不因自愈失败红）。
+    **自开短会话**（maybe_auto_summarize 先例）：与调用方读请求的事务彻底解耦，
+    撞锁（busy_timeout 内拿不到）即本轮放弃、下次读面重试——绝不纠缠调用方事务。
+    """
+    try:
+        from db import async_session
+
+        async with async_session() as db:
+            return await _normalize_legacy_genres_on(db, user_id=user_id)
+    except Exception:  # noqa: BLE001 — 读面永不因自愈失败红
+        logger.warning("event=kb.normalize_legacy_genres.fail user=%s", user_id, exc_info=True)
+        return 0
+
+
+async def _normalize_legacy_genres_on(db: AsyncSession, *, user_id: str) -> int:
+    from genres.theme_catalog import normalize_theme
+    from kb.concepts import THEMES
+
+    rows = (
+        await db.execute(select(KbEntry.genre).where(KbEntry.user_id == user_id).distinct())
+    ).all()
+    drift = {
+        g
+        for (g,) in rows
+        if g and g not in THEMES and (norm := normalize_theme(g)) and norm != g
+    }
+    fixed = 0
+    for old in drift:
+        new = normalize_theme(old)
+        res = await db.execute(
+            _t(
+                "UPDATE kb_entries SET genre = :new, "
+                "concept_id = :new || substr(concept_id, :cut) "
+                "WHERE user_id = :u AND genre = :old"
+            ),
+            {"new": new, "cut": len(old) + 1, "u": user_id, "old": old},
+        )
+        fixed += res.rowcount
+        await db.execute(
+            _t("UPDATE kb_entry_tags SET value = :new WHERE user_id = :u AND dim = 'genre' AND value = :old"),
+            {"new": new, "u": user_id, "old": old},
+        )
+    if fixed:
+        await db.commit()
+    return fixed
+
+
+def _strip_anchors_deep(value: Any) -> Any:
+    """标量剥锚；列表逐项剥并弃空项（剥后只剩锚的别名项不落）；其余透传。"""
+    if isinstance(value, str):
+        return strip_chapter_anchor(value)
+    if isinstance(value, list):
+        out = [strip_chapter_anchor(x) if isinstance(x, str) else x for x in value]
+        return [x for x in out if x] if all(isinstance(x, str) for x in out) else out
+    return value
+
+
+async def repair_chapter_anchors(*, user_id: str) -> int:
+    """存量章锚自愈：拆书素材卡 payload 与由其转生的实例 fields_json。
+
+    病形＝拆书 LLM 产物把「（第N章…）」回查锚带进 payload 字段（实锤 aliases
+    「鬼面人（第26章）」＋plot 嵌套尾锚），条目可见面三源自愈（#1019）不覆盖
+    summarize 转生链与已归档素材（读面碰不到归档行）——这里兜底洗两处；
+    summarize 造实例的接链另行在 _field_val 落（新账不再进来）。
+    查无病形即返（自熄）；返回清洗条数。失败不抛（读面永不因自愈失败红）。
+    **自开短会话**（同 normalize_legacy_genres）：与调用方事务解耦，撞锁即弃、
+    下次读面重试。
+    """
+    try:
+        from db import async_session
+
+        async with async_session() as db:
+            return await _repair_chapter_anchors_on(db, user_id=user_id)
+    except Exception:  # noqa: BLE001 — 读面永不因自愈失败红
+        logger.warning("event=kb.repair_chapter_anchors.fail user=%s", user_id, exc_info=True)
+        return 0
+
+
+async def _repair_chapter_anchors_on(db: AsyncSession, *, user_id: str) -> int:
+    fixed = 0
+    insts = (
+        await db.execute(
+            select(KbKnowledgeInstance)
+            .join(KbEntry, KbEntry.id == KbKnowledgeInstance.knowledge_id)
+            .where(KbEntry.user_id == user_id, KbKnowledgeInstance.fields_json.like("%（%"))
+        )
+    ).scalars().all()
+    for inst in insts:
+        try:
+            fields = json.loads(inst.fields_json or "{}")
+        except ValueError:
+            continue
+        if not isinstance(fields, dict):
+            continue
+        cleaned = {k: _strip_anchors_deep(v) for k, v in fields.items()}
+        cleaned = {k: v for k, v in cleaned.items() if v or not fields.get(k)}  # 剥空的键不落
+        if cleaned != fields:
+            inst.fields_json = json.dumps(cleaned, ensure_ascii=False)
+            fixed += 1
+    mats = (
+        await db.scalars(
+            select(KbEntry).where(
+                KbEntry.user_id == user_id,
+                KbEntry.origin == "material",
+                KbEntry.payload_json.like("%（%"),
+            )
+        )
+    ).all()
+    for entry in mats:
+        try:
+            payload = json.loads(entry.payload_json or "{}")
+        except ValueError:
+            continue
+        if not isinstance(payload, dict):
+            continue
+        cleaned = {k: _strip_anchors_deep(v) for k, v in payload.items()}
+        cleaned = {k: v for k, v in cleaned.items() if v or not payload.get(k)}  # 剥空的键不落
+        if cleaned != payload:
+            entry.payload_json = json.dumps(cleaned, ensure_ascii=False)
+            fixed += 1
+    if fixed:
+        await db.commit()
+    return fixed
+
+
 async def ensure_legacy_migrated(db: AsyncSession, *, user_id: str) -> None:
     """老版库卡一次性搬入知识库（c-kb-library-once-migration）。
 
@@ -226,9 +376,13 @@ async def ensure_legacy_migrated(db: AsyncSession, *, user_id: str) -> None:
 
     先跑 repair_character_evidence（老映射把小说名写进证据列的存量换轨）：
     独立于 stamped 短路——备份恢复回的旧形状条目不经迁移入口，也要能被修。
+    同位再跑 normalize_legacy_genres / repair_chapter_anchors（2026-11-07 走查
+    实锤的两桩存量沉积，见各函数 docstring），同为幂等自熄、独立于 stamped。
     """
     try:
         await repair_character_evidence(db, user_id=user_id)
+        await normalize_legacy_genres(user_id=user_id)
+        await repair_chapter_anchors(user_id=user_id)
         has_legacy = (
             await db.execute(
                 select(CharacterLibrary.id)
