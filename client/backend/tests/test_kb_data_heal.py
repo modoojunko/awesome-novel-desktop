@@ -135,11 +135,15 @@ class TestRepairChapterAnchors:
             payload={"aliases": ["鬼面人（第26章）", "怪物（泛指）"],
                      "plot": "断头不死，鬼面消融凝固（第6章（提及逃脱）/第24章（正面出场））"},
         ))
+        # 物化投影同病（评审 P3）：payload 剥了、alias 标签不剥＝两套账
+        _run(_mk_tag(uid, mat_id, "alias", "鬼面人（第26章）"))
+        _run(_mk_tag(uid, mat_id, "alias", "无头鬼面王（第28章）"))
+        _run(_mk_tag(uid, mat_id, "alias", "怪物（泛指）"))
 
         async def _go():
             return await repair_chapter_anchors(user_id=uid)
         fixed = _run(_go())
-        assert fixed == 2, f"实例＋素材两行都该洗：{fixed}"
+        assert fixed == 4, f"实例＋素材＋两条锚标签都该洗：{fixed}"
 
         async def _check():
             async with async_session() as db:
@@ -152,6 +156,14 @@ class TestRepairChapterAnchors:
         assert fields["persona"] == "体型庞大、凶残狡诈。"
         assert payload["aliases"] == ["鬼面人", "怪物（泛指）"], "列表逐项剥、泛指保留"
         assert payload["plot"] == "断头不死，鬼面消融凝固"
+
+        async def _tags():
+            async with async_session() as db:
+                return (await db.execute(_t(
+                    "SELECT value FROM kb_entry_tags WHERE user_id=:u AND dim='alias' ORDER BY value"),
+                    {"u": uid})).scalars().all()
+        assert sorted(_run(_tags())) == sorted(["鬼面人", "怪物（泛指）", "无头鬼面王"]), \
+            "标签投影同步剥锚"
 
     def test_素材自指实例清掉_正常实例保留(self):
         uid = _mk("purge")
@@ -224,7 +236,7 @@ class TestSummarize接链:
                 m = await db.get(KbEntry, mat_id)
                 m.payload_json = json.dumps({
                     "archetype": "鬼面王",
-                    "aliases": ["鬼面人（第26章）", "怪物（泛指）"],
+                    "aliases": ["鬼面人（第26章）", "（第28章）", "怪物（泛指）"],
                     "plot": "鬼面消融凝固（第6章（提及逃脱）/第24章（正面出场））",
                 }, ensure_ascii=False)
                 await db.commit()
@@ -246,4 +258,5 @@ class TestSummarize接链:
         fields = _run(_check())
         assert "（第" not in json.dumps(fields, ensure_ascii=False), fields
         assert fields["aliases"] == '["鬼面人", "怪物（泛指）"]', fields["aliases"]
+        assert "（第28章）" not in fields["aliases"], "整项纯锚剥空项不落（评审 P3）"
         assert fields["plot"] == "鬼面消融凝固"

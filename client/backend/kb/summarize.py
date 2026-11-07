@@ -21,7 +21,7 @@ import uuid
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from kb.migrate_library import strip_chapter_anchor
+from kb.migrate_library import strip_anchors_deep
 from models.kb import KbEntry, KbKnowledgeInstance
 
 AUTO_MATERIAL_THRESHOLD = 5  # 素材积压自动触发阈值（题内）
@@ -248,13 +248,13 @@ async def run_summarize(
                 def _field_val(v):
                     # 章锚剥除接链（2026-11-07 鬼面王案）：拆书素材 payload 的字段值
                     # 可能带「（第N章…）」回查锚（含嵌套形）——实例是可见面，转生即剥；
-                    # 锚信息仍留素材卡 payload（repair_chapter_anchors 口径同源）
+                    # 剥空项不落（与 repair_chapter_anchors 的 strip_anchors_deep 同口径，
+                    # 评审 P3：整项纯锚的别名不残 ""）；锚信息仍留素材卡 payload
                     if v is None:
                         return ""
+                    v = strip_anchors_deep(v)
                     if isinstance(v, str):
-                        return strip_chapter_anchor(v)[:200]
-                    if isinstance(v, list):
-                        v = [strip_chapter_anchor(x) if isinstance(x, str) else x for x in v]
+                        return v[:200]
                     return json.dumps(v, ensure_ascii=False)[:200]
                 fields = {k: _field_val(v) for k, v in _payload_of(m).items()
                           if k not in SKIP_KEYS and _field_val(v)}
