@@ -189,6 +189,50 @@ class TestCodeBucketedTree:
         assert by_title["主角"]["parent_id"] == "" and by_title["配角"]["parent_id"] == "", "角色知识点仍挂概念根"
         assert len(insts) == 3, f"每素材一条实例：{len(insts)}"
 
+    def test_世界槽位_译名错位仍挂树(self):
+        # 世界 power/extra 案（2026-11-08）：素材槽位原始值 power 经 _slot_label
+        # 单译「力量与规则」，与节点标题「力量体系与规矩」（二次翻译）错位——
+        # 槽位查不中树也不得掉出树自建，须按拼装标签重查并挂「世界」父级
+        uid = self._mk("world")
+        _run(_seed_user(uid))
+
+        async def _seed():
+            async with async_session() as db:
+                for i, (part, inst) in enumerate([
+                    ("power", "灵气复苏后武者分九品。"),
+                    ("extra", "城西钟楼每到午夜自鸣。"),
+                ]):
+                    db.add(KbEntry(
+                        user_id=uid, genre="都市", concept="世界设定",
+                        concept_id="都市:世界设定", title=f"世界素材{i}",
+                        payload_json=json.dumps({"part": part}, ensure_ascii=False),
+                        instruction=inst,
+                        origin="material", status="active", rev=1,
+                        src_kind="manual", src_ref="", src_key=f"w{i}",
+                    ))
+                await db.commit()
+        _run(_seed())
+
+        from kb.summarize import run_summarize
+
+        async def _go():
+            async with async_session() as db:
+                return await run_summarize(db, user_id=uid, genre="都市", trigger="auto")
+        r, err = _run(_go())
+        assert err == "" and r["knowledge"] == 2, f"两桶两知识点：{r} {err}"
+
+        async def _check():
+            async with async_session() as db:
+                rows = (await db.execute(_t(
+                    "SELECT id, title, parent_id FROM kb_entries "
+                    "WHERE user_id=:u AND origin='summary' AND concept='世界设定'"), {"u": uid})).mappings().all()
+                return {r["title"]: r for r in rows}
+        kp = _run(_check())
+        assert set(kp) == {"世界", "力量体系与规矩", "更多世界细节"}, f"树形标题随发版树：{set(kp)}"
+        assert kp["世界"]["parent_id"] == "", "世界根挂题材根"
+        assert kp["力量体系与规矩"]["parent_id"] == kp["世界"]["id"], "力量挂「世界」父级"
+        assert kp["更多世界细节"]["parent_id"] == kp["世界"]["id"], "补充设定挂「世界」父级"
+
     def test_二次跑_素材已归档_零新建(self):
         uid = self._mk("idem")
         _run(_seed_user(uid))

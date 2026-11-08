@@ -167,6 +167,9 @@ _WORLD_CONF_RE = None  # 延迟初始化（避免模块加载期正则编译开�
 import re as _re
 
 _WORLD_CONF_RE = _re.compile(r"[（(；;]\s*confidence[:：]\s*(high|mid|low)\s*[）)]?")
+# 拆书产物「原文未明确」哨兵片段——与证据列哨兵同口径（c-kb-char-evidence 判例）
+_WORLD_VAGUE_RE = _re.compile(r"[，,；;（(]\s*[^，,。；;（）()]{0,8}原文未明确\s*[）)?]?")
+
 _WORLD_EV_RE = _re.compile(
     r"（(?=[^（）]*第[\d零一二三四五六七八九十百、，,；;\s～\-—至/]+章)[^（）]*(?:（[^（）]*）[^（）]*)*）"
 )
@@ -440,7 +443,7 @@ def map_deconstruct_products(
         拆书产物常把章证据与可信度粘在正文尾（「（第41章；confidence:mid）」）——
         先剥出再分立落字段，正文保持干净案例；名字独立（势力名/事件名/规则名）。
         """
-        raw = _line(content, 340)
+        raw = _WORLD_VAGUE_RE.sub("", _line(content, 340)).rstrip("，,；; ").strip()
         # 先剥完整章证据锚（「（第41章；confidence:mid）」整体一组——先剥可信度会吞掉
         # 锚的闭括号导致锚解不开），再剥游离的可信度 token
         # 章证据锚：全文任意位置的闭形全部剥出（真机实锤锚常嵌在句中而非仅尾），

@@ -297,7 +297,18 @@ async def run_summarize(
                 kp_definition = f"{genre}·{kp_title}——{node_definition}已收 {len(bucket)} 条实例。"
             else:
                 label = _slot_label(concept, slot_value)
-                kp_definition = f"{genre}·{label}——{_slot_desc(concept, slot_value)}。已收 {len(bucket)} 条实例。"
+                # 拼装标签对齐发版树（世界 power/extra 案 2026-11-08）：单译标签可能与
+                # 节点标题错位（力量与规则 →二次翻译→ 力量体系与规矩）——按拼装结果
+                # 重查一次发版树，命中即并入树路径（定义/父级随发版树）
+                found2 = node_for(concept, label) if label != slot_value else None
+                if found2:
+                    node_key, node = found2
+                    kp_title = node["title"]
+                    node_definition = node["definition"]
+                    label = kp_title
+                    kp_definition = f"{genre}·{kp_title}——{node_definition}已收 {len(bucket)} 条实例。"
+                else:
+                    kp_definition = f"{genre}·{label}——{_slot_desc(concept, slot_value)}。已收 {len(bucket)} 条实例。"
 
             async def _materialize(genre: str, concept: str, title: str, definition: str, parent_id: str) -> str:
                 """懒物化发版节点：复用同题材×类别×标题行，缺则建（带发版定义）。"""
