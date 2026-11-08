@@ -174,7 +174,7 @@ class TestCodeBucketedTree:
         async def _check():
             async with async_session() as db:
                 rows = (await db.execute(_t(
-                    "SELECT title, parent_id FROM kb_entries "
+                    "SELECT id, title, parent_id FROM kb_entries "
                     "WHERE user_id=:u AND origin='summary'"), {"u": uid})).mappings().all()
                 insts = (await db.execute(_t(
                     "SELECT i.text, e.title AS ktitle FROM kb_knowledge_instances i "
@@ -183,8 +183,11 @@ class TestCodeBucketedTree:
                 return rows, insts
         rows, insts = _run(_check())
         titles = {r["title"] for r in rows}
-        assert titles == {"主角", "配角", "声音招式"}, f"槽位标签即知识点名（大白话升格）：{titles}"
-        assert all(r["parent_id"] == "" for r in rows), "两级树：知识点挂概念根"
+        # 风格维度四级树（boss 2026-11-08）：题材 → 笔法 → 写作视角 → 实例
+        by_title = {r["title"]: r for r in rows}
+        assert by_title["声音招式"]["parent_id"] == by_title["笔法"]["id"], "声音招式挂「笔法」父级"
+        assert by_title["笔法"]["parent_id"] == "", "笔法挂题材根"
+        assert by_title["主角"]["parent_id"] == "" and by_title["配角"]["parent_id"] == "", "角色知识点仍挂概念根"
         assert len(insts) == 3, f"每素材一条实例：{len(insts)}"
 
     def test_二次跑_素材已归档_零新建(self):

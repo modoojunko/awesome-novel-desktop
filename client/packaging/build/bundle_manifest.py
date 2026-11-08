@@ -53,6 +53,9 @@ HIDDEN_IMPORTS: tuple[str, ...] = (
 DATAS: tuple[tuple[str, str], ...] = (
     ("client/frontend/dist", "frontend"),
     ("client/backend/reference", "reference"),
+    # 发版知识树数据（boss 2026-11-08：知识是数据不是代码）——taxonomy.py 运行时按
+    # __file__/data 定位读取；改树＝改 kb/data/taxonomy.json 随版本走
+    ("client/backend/kb/data", "kb/data"),
     # 拆书图谱查看器模板＋vendor（c-graph-net-cytoscape）：render.py 运行时按 __file__/assets
     # 定位读取。v0.38 及之前缺此条目——安装包内无 graph_viewer.html，带图谱导出会 400（既有缺口，
     # 本次补上并加打包冒烟断言）。
