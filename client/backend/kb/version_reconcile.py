@@ -15,6 +15,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 import re
@@ -24,9 +25,18 @@ from sqlalchemy import text as _t
 
 logger = logging.getLogger(__name__)
 
-# v4：世界残形锚（缺右括号「（第115、116章。」）补开形剥出——v3 闭形剥不动 81/168 条
+# v5：锚正则类补分隔符（第9、56、57章 多章形 v4 闭形仍剥不动——168 中 81 条的真正根因）
+# ＋裸串条目无名化＋锚全文任意位置剥出；v6 起含并发单飞锁
 # 每次映射/总结语义变更都升版强制重收敛一次
-_MARKER_PREFIX = "kb.reconcile:v4:"
+_MARKER_PREFIX = "kb.reconcile:v5:"
+
+# 进程内单飞（真机 2026-11-08 实锤：页面加载＋探针并发命中 /kb/instances → 双收敛并发
+# 写同书同键 → UNIQUE 撞键整轮失败）——后跑者等锁，醒来时标记已落即快路返回
+_USER_LOCKS: dict[str, asyncio.Lock] = {}
+
+
+def _user_lock(user_id: str) -> asyncio.Lock:
+    return _USER_LOCKS.setdefault(user_id, asyncio.Lock())
 
 _TRIAL_SUFFIX = re.compile(r"-前\d+章$")
 
@@ -41,7 +51,7 @@ async def reconcile_deconstruct_versions(*, user_id: str) -> dict:
     try:
         from db import async_session
 
-        async with async_session() as db:
+        async with _user_lock(user_id), async_session() as db:
             return await _reconcile_on(db, user_id=user_id)
     except Exception:  # noqa: BLE001 — 读面永不因自愈失败红
         logger.warning("event=kb.reconcile_versions.fail user=%s", user_id, exc_info=True)
@@ -152,13 +162,17 @@ async def _reconcile_on(db, *, user_id: str) -> dict:
             except Exception as exc:  # noqa: BLE001 — 单书失败不拖垮整体
                 logger.warning("event=kb.reconcile_versions.book_fail book=%s err=%s", book, exc)
                 status = "collect_fail"
-        await db.execute(
-            _t(
-                "INSERT OR REPLACE INTO app_meta (key, value) VALUES (:k, :v)"
-            ),
-            {"k": _MARKER_PREFIX + book, "v": canonical_id},
-        )
-        await db.commit()
+                # 失败会话带着未决事务——先回滚再走标记写入；失败不落 canonical 标记
+                # （下次触达整书重试，不把半成品钉成「已完成」）
+                await db.rollback()
+        if status != "collect_fail":
+            await db.execute(
+                _t(
+                    "INSERT OR REPLACE INTO app_meta (key, value) VALUES (:k, :v)"
+                ),
+                {"k": _MARKER_PREFIX + book, "v": canonical_id},
+            )
+            await db.commit()
         result[book] = status
     return result
 

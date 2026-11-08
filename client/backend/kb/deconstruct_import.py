@@ -168,7 +168,7 @@ import re as _re
 
 _WORLD_CONF_RE = _re.compile(r"[（(；;]\s*confidence[:：]\s*(high|mid|low)\s*[）)]?")
 _WORLD_EV_RE = _re.compile(
-    r"（(?=[^（）]*第[\d零一二三四五六七八九十百]+章)[^（）]*(?:（[^（）]*）[^（）]*)*）"
+    r"（(?=[^（）]*第[\d零一二三四五六七八九十百、，,；;\s～\-—至/]+章)[^（）]*(?:（[^（）]*）[^（）]*)*）"
 )
 # 产物还有一种「缺右括号」的残形：正文以「（第115、116、117、118章。」结尾（真机 13路 实锤，
 # 81/168 条世界实例粘这种尾巴）——闭形剥不动，补开形（吞到串尾）
@@ -367,21 +367,18 @@ def map_deconstruct_products(
         拆书产物常把章证据与可信度粘在正文尾（「（第41章；confidence:mid）」）——
         先剥出再分立落字段，正文保持干净案例；名字独立（势力名/事件名/规则名）。
         """
-        from kb.migrate_library import strip_chapter_anchor
-
         raw = _line(content, 340)
         # 先剥完整章证据锚（「（第41章；confidence:mid）」整体一组——先剥可信度会吞掉
         # 锚的闭括号导致锚解不开），再剥游离的可信度 token
-        ev_anchor = ""
-        m_ev = _WORLD_EV_RE.search(raw)
-        if m_ev:
-            ev_anchor = m_ev.group(0)[1:-1]
-            raw = strip_chapter_anchor(raw)
-        else:
-            m_open = _WORLD_EV_OPEN_RE.search(raw)
-            if m_open:
-                ev_anchor = m_open.group(0)[1:].rstrip("。；;").strip()
-                raw = raw[: m_open.start()].rstrip("；;").strip()
+        # 章证据锚：全文任意位置的闭形全部剥出（真机实锤锚常嵌在句中而非仅尾），
+        # 另补缺右括号的尾形
+        ev_parts = [m.group(0)[1:-1] for m in _WORLD_EV_RE.finditer(raw)]
+        raw = _WORLD_EV_RE.sub("", raw)
+        m_open = _WORLD_EV_OPEN_RE.search(raw)
+        if m_open:
+            ev_parts.append(m_open.group(0)[1:].rstrip("。；;").strip())
+            raw = raw[: m_open.start()].rstrip("；;").strip()
+        ev_anchor = "；".join(p for p in ev_parts if p)
         conf = ""
         m_conf = _WORLD_CONF_RE.search(raw)
         if m_conf:
@@ -424,8 +421,10 @@ def map_deconstruct_products(
         ("constraint", "constraints", True),
     ):
         for item in _items(world.get(key)):
-            name = _text_of(item, "name", "title", "key", limit=60)
-            body = _text_of(item, "rule", "note", "content", "value", limit=280)
+            # 裸串条目（constraints 常见）无名字——整串即内容（锚剥出在 add_world）；
+            # 名字只在 dict 形取（否则名字带上锚像「月球…（第2章）」当标题）
+            name = _text_of(item, "name", "title", "key", limit=60) if isinstance(item, dict) else ""
+            body = _text_of(item, "rule", "note", "content", "value", limit=280) if isinstance(item, dict) else _text_of(item, limit=280)
             if not body and not name:
                 continue
             evidence, _ = _ev(item.get("evidence_ch") if isinstance(item, dict) else "")
