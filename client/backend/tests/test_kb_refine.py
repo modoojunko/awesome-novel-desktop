@@ -442,7 +442,7 @@ class TestRefineReview:
             async def _go():
                 async with async_session() as db:
                     return await run_refine(db, user_id=uid, genre="都市", llm=True)
-            r, err = _run(_go())
+            r, _err = _run(_go())
         finally:
             refine_mod._llm_refine = orig
         assert r["moved"] == 1 and r["kept"] == 0, r
