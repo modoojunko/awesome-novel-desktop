@@ -170,6 +170,11 @@ _WORLD_CONF_RE = _re.compile(r"[（(；;]\s*confidence[:：]\s*(high|mid|low)\s*
 _WORLD_EV_RE = _re.compile(
     r"（(?=[^（）]*第[\d零一二三四五六七八九十百]+章)[^（）]*(?:（[^（）]*）[^（）]*)*）"
 )
+# 产物还有一种「缺右括号」的残形：正文以「（第115、116、117、118章。」结尾（真机 13路 实锤，
+# 81/168 条世界实例粘这种尾巴）——闭形剥不动，补开形（吞到串尾）
+_WORLD_EV_OPEN_RE = _re.compile(
+    r"（第[\d零一二三四五六七八九十百、，,；;\s～\-—至/]+[^（）]*$"
+)
 
 
 def map_deconstruct_products(
@@ -372,6 +377,11 @@ def map_deconstruct_products(
         if m_ev:
             ev_anchor = m_ev.group(0)[1:-1]
             raw = strip_chapter_anchor(raw)
+        else:
+            m_open = _WORLD_EV_OPEN_RE.search(raw)
+            if m_open:
+                ev_anchor = m_open.group(0)[1:].rstrip("。；;").strip()
+                raw = raw[: m_open.start()].rstrip("；;").strip()
         conf = ""
         m_conf = _WORLD_CONF_RE.search(raw)
         if m_conf:
