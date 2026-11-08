@@ -176,8 +176,8 @@ interface KbInstanceFlatRowBase {
   quote: string;
   source_novel: string;
   source_chapter: string;
-  /** 来源标：我的收录＝拆书/手录（后端归一）；官方臂前端映射＝官方精选/已隐藏 */
-  src_kind: "拆书" | "手录" | "官方精选" | "已隐藏";
+  /** 来源标：我的收录＝拆书/手录（后端归一）；官方＝内容仓分发的普通来源（无特权） */
+  src_kind: "拆书" | "手录" | "官方";
   created_at: string;
 }
 

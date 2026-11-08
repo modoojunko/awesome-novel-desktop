@@ -116,7 +116,8 @@ beforeEach(() => {
     { id: "l2", genre: "都市", concept: "文风", name: "文风库", purpose: "", contract: "snapshot", enabled: true, bound_novels: 0 }, // 缺 entry_count 走 ?? 0 臂
     { id: "l3", genre: "", concept: "文笔", name: "文笔库", purpose: "通用句子的写法", contract: "snapshot", enabled: true, entry_count: 0 },
   ]);
-  api.entries.mockResolvedValue({ entries: [entry()], next_cursor: "" });
+  // 官方来源常取并入单列表（2026-11-08 无特权拍板）——默认空集，官方用例自设
+  api.entries.mockResolvedValue({ entries: [], next_cursor: "" });
   api.createEntry.mockResolvedValue(entry());
   api.deleteEntry.mockResolvedValue({ deleted: "x" });
   api.listInstances = api.listInstances || vi.fn();
@@ -167,8 +168,7 @@ describe("KnowledgeBasePage 题材栏与列表", () => {
     // 第二页条目三无（无标题/无指令/无例证）：标题与预览双兜底臂＋抽屉空字段臂
     api.entries.mockResolvedValue({ entries: [entry()], next_cursor: "" });
     const { container } = renderPage();
-    // 知识行列表退居回退臂（c-kb-instance-list）：切「官方精选」后本用例的条目行为生效
-    fireEvent.click(screen.getByTestId("kb-src-官方精选"));
+    // 官方条目默认并入单列表（无特权臂）
     await screen.findByText(/先果后因/);
     // 首屏：visibleGenres 截 5（末世/废土 藏起），0 计数题材只露前两个
     await screen.findByText("更多题材 (2)");
@@ -197,13 +197,12 @@ describe("KnowledgeBasePage 题材栏与列表", () => {
     // 背景遮罩点击关抽屉
     fireEvent.click(screen.getByTestId("kb-inst-row"));
     await screen.findByText("正例");
-    fireEvent.click(container.querySelector(".bg-black\\/50")!);
+    fireEvent.click(document.querySelector(".bg-black\\/50")!);
     await waitFor(() => expect(screen.queryByText("正例")).not.toBeInTheDocument());
   });
 
   it("概念页签切换带 concept 参数、题材切换带 genre、搜索带 q、情节页签禁用", async () => {
     renderPage();
-    // 实例臂（c-kb-instance-list）：筛选参数由 instancesFlat 承接
     await screen.findByTestId("kb-count-line");
     // 概念页签 → 手法
     fireEvent.click(screen.getByTitle("写每一章时的场面打法"));
@@ -226,13 +225,12 @@ describe("KnowledgeBasePage 题材栏与列表", () => {
     fireEvent.click(screen.getByText("更多题材 (2)"));
     fireEvent.click(screen.getByText("美食"));
     await waitFor(() => expect(api.instancesFlat.mock.calls.at(-1)![0].genre).toBe("美食"));
-    // 官方臂（统一实例行）：entries 带 concept＋一页取齐 limit
-    fireEvent.click(screen.getByTestId("kb-src-官方精选"));
-    await screen.findByTestId("kb-count-line");
-    expect(screen.getByTestId("kb-count-line").textContent).toContain("共 1 条实例");
-    fireEvent.click(screen.getByTitle("写每一章时的场面打法"));
-    await waitFor(() => expect(api.entries.mock.calls.at(-1)![0].concept).toBe("手法"));
-    expect(api.entries.mock.calls.at(-1)![0].limit).toBe("200"); // URLSearchParams 序列化
+    // 官方来源过滤：官方/我的实例各占一臂，切「官方」只剩官方行
+    api.entries.mockResolvedValue({ entries: [entry()], next_cursor: "" });
+    await waitFor(() => expect(api.entries).toHaveBeenCalled());
+    fireEvent.click(screen.getByTestId("kb-src-官方"));
+    await waitFor(() => expect(screen.getAllByTestId("kb-inst-row")).toHaveLength(1));
+    expect(screen.getAllByTestId("kb-inst-row")[0].textContent).toContain("先果后因");
   });
 
   it("genres 接口失败静默（catch 臂），列表照常", async () => {
@@ -280,8 +278,6 @@ describe.skip("KnowledgeBasePage 角色设定条目头像框（统一实例行�
       next_cursor: "",
     });
     renderPage();
-    // 头像框住在回退臂知识行（c-kb-instance-list）：切「官方精选」出条目列表
-    fireEvent.click(screen.getByTestId("kb-src-官方精选"));
     await screen.findByText("刘望津");
     const frames = screen.getAllByTestId("kb-entry-avatar-fallback");
     expect(frames).toHaveLength(1); // 只有角色设定条目有头像框
@@ -659,22 +655,19 @@ describe("实例行列表（c-kb-instance-list）", () => {
     const official = entry({ genre: "玄幻", concept: "手法", title: "开篇·先给麻烦", instruction: "都市开篇第一行就抛出麻烦。" });
     api.entries.mockResolvedValue({ entries: [official], next_cursor: "" });
     renderPage();
-    // 初始（全部题材）我的实例空 → 记一条空态（不触发官方兜底）
-    await screen.findByText("记一条");
-    // 点玄幻：官方行兜底上屏——行有名字与来源标、计数一致、点行开抽屉
-    fireEvent.click(screen.getByText("玄幻"));
+    // 合并单列表：玄幻只有官方内容——官方行直接在默认列表（无特权臂、无需切题材）
     const row = await screen.findByTestId("kb-inst-row");
     expect(row.textContent).toContain("开篇·先给麻烦");
-    expect(row.textContent).toContain("官方精选");
+    expect(row.textContent).toContain("官方"); // 来源标
     expect(screen.getByTestId("kb-count-line").textContent).toContain("共 1 条实例");
     expect(screen.queryByText("记一条")).toBeNull();
     fireEvent.click(row);
     await waitFor(() => expect(api.entry).toHaveBeenCalledWith(official.id));
-    // 名称排序臂：官方兜底多行时按名字排
+    // 多行官方按名字排
     const oB = entry({ genre: "玄幻", concept: "手法", title: "报名·后置一拍", instruction: "先让人看见出手再听见名头。" });
     api.entries.mockResolvedValue({ entries: [official, oB], next_cursor: "" });
-    fireEvent.click(screen.getAllByText("全部")[0]); // 复位题材再切回玄幻触发重取
-    fireEvent.click(await screen.findByText("玄幻"));
+    fireEvent.change(screen.getByPlaceholderText("搜名字、内容、来源书名"), { target: { value: "官方" } });
+    fireEvent.change(screen.getByPlaceholderText("搜名字、内容、来源书名"), { target: { value: "" } });
     await waitFor(() => expect(screen.getAllByTestId("kb-inst-row").length).toBe(2));
     fireEvent.change(screen.getByRole("combobox", { name: "排序" }), { target: { value: "name" } });
     const sorted = screen.getAllByTestId("kb-inst-row");
@@ -682,7 +675,7 @@ describe("实例行列表（c-kb-instance-list）", () => {
 
     fireEvent.change(screen.getByRole("combobox", { name: "排序" }), { target: { value: "name" } });
     await waitFor(() => expect(screen.getAllByTestId("kb-inst-row").length).toBeGreaterThan(0));
-    // concept 过滤参数带上（题材+类别组合）
+    // concept 过滤参数带上（官方取数随类别联动）
     fireEvent.click(screen.getByTitle("写每一章时的场面打法"));
     await waitFor(() => expect(api.entries.mock.calls.some((c) => c[0]?.src === "官方精选" && c[0]?.concept === "手法")).toBe(true));
   });
@@ -752,8 +745,6 @@ describe("实例行列表（c-kb-instance-list）", () => {
     expect(screen.getByTestId("kb-count-line").textContent).toContain("共 2 条实例");
     fireEvent.click(screen.getByTestId("kb-src-拆书"));
     await waitFor(() => expect(screen.getAllByTestId(/kb-(inst|material)-row/)).toHaveLength(1));
-    fireEvent.click(screen.getByTestId("kb-src-官方精选"));
-    // 回到全部来源的实例臂——直接点「全部来源」
     fireEvent.click(screen.getByTestId("kb-src-全部"));
     await waitFor(() => expect(screen.getAllByTestId(/kb-(inst|material)-row/)).toHaveLength(3));
     // 「跨题材通用」档：只留 genre==='' 的素材行
