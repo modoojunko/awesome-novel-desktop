@@ -189,6 +189,20 @@ def test_world_metadata_stripped_from_content_into_fields():
     assert row.instruction == "夜半不出警：怀远路派出所内部规矩。"
 
 
+def test_world_open_anchor_without_closing_paren_stripped():
+    """残形锚（缺右括号「（第115、116章。」吞尾剥出）——真机 13路 81/168 条实锤。"""
+    import copy
+    products = copy.deepcopy(PRODUCTS)
+    products["world"]["data"]["constraints"] = [{
+        "name": "寡妇庙禁地",
+        "note": "村中禁地，寡妇在此上吊。（第115、116、117、118章。",
+    }]
+    entries, _ = map_deconstruct_products("u", "t", "都市", products)
+    row = next(e for e in entries if e.concept == "世界设定" and "寡妇庙" in e.title)
+    payload = json.loads(row.payload_json)
+    assert payload["content"] == "村中禁地，寡妇在此上吊。", payload["content"]
+    assert "第115" in payload["evidence_ch"]
+
 def test_character_payload_keeps_persona_and_aliases():
     entries, _ = _map()
     char = next(e for e in entries if e.concept == "角色设定")

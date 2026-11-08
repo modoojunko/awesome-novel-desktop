@@ -24,9 +24,9 @@ from sqlalchemy import text as _t
 
 logger = logging.getLogger(__name__)
 
-# v3：世界条目结构化字段＋元数据剥出正文＋知识点真定义（boss 2026-11-08「定义空/命名不合规」）——
+# v4：世界残形锚（缺右括号「（第115、116章。」）补开形剥出——v3 闭形剥不动 81/168 条
 # 每次映射/总结语义变更都升版强制重收敛一次
-_MARKER_PREFIX = "kb.reconcile:v3:"
+_MARKER_PREFIX = "kb.reconcile:v4:"
 
 _TRIAL_SUFFIX = re.compile(r"-前\d+章$")
 
