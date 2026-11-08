@@ -105,9 +105,8 @@ beforeEach(() => {
   api.instancesFlat.mockResolvedValue({ ok: true, rows: [] });
 });
 
-// 知识行列表退居回退臂（c-kb-instance-list）：需要条目行的用例先切「官方精选」
+// 官方条目默认并入单列表（2026-11-08 无特权臂）——直接等待行上屏
 async function openFallbackArm() {
-  fireEvent.click(screen.getByTestId("kb-src-官方精选"));
   await screen.findByText(/刘望津/);
 }
 
@@ -240,7 +239,7 @@ describe("KnowledgeBasePage 详情抽屉", () => {
     api.entries.mockResolvedValue({ entries: [noDef], next_cursor: "" });
     api.entry.mockResolvedValue(noDef);
     renderPage();
-    fireEvent.click(screen.getByTestId("kb-src-官方精选"));
+    fireEvent.click(screen.getByTestId("kb-src-官方"));
     await screen.findByText(/无定义条目/);
     fireEvent.click(screen.getByText(/无定义条目/));
     await waitFor(() => expect(screen.getByText(/知识定义待补/)).toBeTruthy());
@@ -279,14 +278,14 @@ describe("角色设定页签同构（c-kb-view-unify：档案柜视图退役）"
   it("来源切「官方精选」→ 知识行回退臂（仍带角色设定概念过滤）", async () => {
     renderPage(<KnowledgeBasePage />, { route: "/tools/kb?concept=角色设定" });
     await waitFor(() => expect(screen.getByTestId("kb-count-line")).toBeTruthy());
-    fireEvent.click(screen.getByTestId("kb-src-官方精选"));
+    fireEvent.click(screen.getByTestId("kb-src-官方"));
     await waitFor(() => expect(screen.getAllByText(/刘望津/).length).toBeGreaterThan(0));
     expect(screen.getByTestId("kb-count-line").textContent).toContain("共 1 条实例");
   });
 
   it("非法 ?concept= 落「全部」", async () => {
     renderPage(<KnowledgeBasePage />, { route: "/tools/kb?concept=不存在" });
-    await waitFor(() => expect(screen.getByTestId("kb-src-官方精选")).toBeTruthy());
+    await waitFor(() => expect(screen.getByTestId("kb-src-官方")).toBeTruthy());
     expect(screen.getByTestId("kb-count-line")).toBeTruthy();
   });
 });

@@ -104,219 +104,44 @@ afterEach(() => {
   vi.clearAllMocks();
 });
 
-describe("KnowledgeBasePage · 官方精选", () => {
-  it("来源筛选「官方精选」透传 src 参数", async () => {
+describe("KnowledgeBasePage · 官方来源（合并单列表，无特权臂——boss 2026-11-08）", () => {
+  it("官方条目默认并入单列表：统一行形态＋来源标＋点行开知识弹窗", async () => {
+    api.entries.mockResolvedValue({ entries: [BASE_ENTRY], next_cursor: "" });
+    api.entry.mockResolvedValue(BASE_ENTRY);
     renderPage();
-    fireEvent.click(screen.getByTestId("kb-src-官方精选")); // 知识行退居回退臂（c-kb-instance-list）
-    await waitFor(() => expect(api.entries).toHaveBeenCalled());
-    fireEvent.click(screen.getByTestId("kb-src-官方精选"));
-    await waitFor(() => {
-      const calls = api.entries.mock.calls.map((c) => c[0] as { src?: string });
-      expect(calls.some((c) => c.src === "官方精选")).toBe(true);
-    });
-  });
-
-  it("无正文官方条目：抽屉「实例」段不渲染（空 instruction 臂）", async () => {
-    api.entries.mockResolvedValue({ entries: [{ ...BASE_ENTRY, title: "只有标题", instruction: "" }], next_cursor: "" });
-    api.entry.mockResolvedValue({ ...BASE_ENTRY, title: "只有标题", instruction: "" });
-    renderPage();
-    fireEvent.click(screen.getByTestId("kb-src-官方精选"));
-    fireEvent.click(await screen.findByTestId("kb-inst-row"));
-    await screen.findByTestId("kb-baseline-hide"); // 抽屉已开
-    expect(screen.queryByText("实例", { exact: true })).toBeNull();
-  });
-
-  it("无标题官方条目：行与抽屉标题走正文兜底", async () => {
-    api.entries.mockResolvedValue({ entries: [{ ...BASE_ENTRY, title: "" }], next_cursor: "" });
-    renderPage();
-    fireEvent.click(screen.getByTestId("kb-src-官方精选"));
     const row = await screen.findByTestId("kb-inst-row");
-    expect(row.textContent).toContain("交手先守后攻"); // 行正文＝方法句
+    expect(row.textContent).toContain("官方手法A");
+    expect(row.textContent).toContain("官方"); // 来源标
+    expect(screen.getByTestId("kb-count-line").textContent).toContain("共 1 条实例");
+    fireEvent.click(row);
+    await waitFor(() => expect(api.entry).toHaveBeenCalledWith("b1"));
+    await waitFor(() => expect(screen.getByText("知识定义")).toBeTruthy()); // 知识弹窗（无特殊只读段）
+    expect(screen.queryByText("官方精选 · 只读")).toBeNull();
+  });
+
+  it("来源切「官方」：只剩官方行；切回「全部来源」合并", async () => {
+    api.entries.mockResolvedValue({ entries: [BASE_ENTRY], next_cursor: "" });
+    renderPage();
+    await screen.findByText(/官方手法A/);
+    fireEvent.click(screen.getByTestId("kb-src-官方"));
+    await waitFor(() => expect(screen.getAllByTestId("kb-inst-row")).toHaveLength(1));
+    fireEvent.click(screen.getByTestId("kb-src-全部"));
+    await waitFor(() => expect(screen.getAllByTestId("kb-inst-row").length).toBeGreaterThanOrEqual(1));
+  });
+
+  it("无正文官方条目：行与弹窗标题走正文兜底", async () => {
+    api.entries.mockResolvedValue({ entries: [{ ...BASE_ENTRY, title: "" }], next_cursor: "" });
+    api.entry.mockResolvedValue({ ...BASE_ENTRY, title: "" });
+    renderPage();
+    const row = await screen.findByTestId("kb-inst-row");
+    expect(row.textContent).toContain("交手先守后攻");
     fireEvent.click(row);
     await waitFor(() => expect(screen.getByRole("heading", { name: /交手先守后攻/ })).toBeTruthy());
   });
 
-  it("官方条目统一实例行渲染；点行抽屉见只读面（副本/新版提示在抽屉）", async () => {
-    api.entries.mockResolvedValue({
-      entries: [{ ...BASE_ENTRY, overlaid: true, official_update: true }],
-      next_cursor: "",
-    });
+  it("旧路由跳知识库", () => {
+    // 深链行为保留（App 层测试钉过，此处只验页挂载不炸）
     renderPage();
-    fireEvent.click(screen.getByTestId("kb-src-官方精选"));
-    const row = await screen.findByTestId("kb-inst-row");
-    expect(row.textContent).toContain("官方手法A");
-    expect(row.textContent).toContain("官方精选"); // 统一实例行的来源标
-    fireEvent.click(row);
-    await waitFor(() => expect(screen.getByText("官方精选 · 只读")).toBeTruthy());
-    await waitFor(() => expect(screen.getByText(/官方已更新这条/)).toBeTruthy());
-  });
-
-  it("抽屉里隐藏这条 → PUT hide 并刷新列表", async () => {
-    renderPage();
-    fireEvent.click(screen.getByTestId("kb-src-官方精选")); // 知识行退居回退臂（c-kb-instance-list）
-    const row = await screen.findByText(/官方手法A/);
-    fireEvent.click(row);
-    const hide = await screen.findByTestId("kb-baseline-hide");
-    api.genres.mockRejectedValueOnce(new Error("g")); // 计数刷新失败静默（catch 臂）
-    fireEvent.click(hide);
-    await waitFor(() => {
-      expect(api.baselineOverride).toHaveBeenCalledWith("b1", "hide");
-    });
-    await waitFor(() => expect(api.entries.mock.calls.length).toBeGreaterThan(1));
-  });
-
-  it("有副本时显示「恢复官方版」→ DELETE 覆盖记录", async () => {
-    api.entries.mockResolvedValue({
-      entries: [{ ...BASE_ENTRY, overlaid: true }],
-      next_cursor: "",
-    });
-    renderPage();
-    fireEvent.click(screen.getByTestId("kb-src-官方精选")); // 知识行退居回退臂（c-kb-instance-list）
-    fireEvent.click(await screen.findByText(/官方手法A/));
-    fireEvent.click(await screen.findByTestId("kb-baseline-restore"));
-    await waitFor(() => expect(api.clearBaselineOverride).toHaveBeenCalledWith("b1"));
-  });
-
-  it("操作失败静默：抽屉不崩，可重试", async () => {
-    api.baselineOverride.mockRejectedValueOnce(new Error("network"));
-    renderPage();
-    fireEvent.click(screen.getByTestId("kb-src-官方精选")); // 知识行退居回退臂（c-kb-instance-list）
-    fireEvent.click(await screen.findByText(/官方手法A/));
-    fireEvent.click(await screen.findByTestId("kb-baseline-hide"));
-    await waitFor(() => expect(api.baselineOverride).toHaveBeenCalled());
-    // 失败不清选中、不抛：按钮恢复可用，可再点一次
-    const btn = await screen.findByTestId("kb-baseline-hide");
-    expect((btn as HTMLButtonElement).disabled).toBe(false);
-  });
-
-  it("用户条目不出只读操作面", async () => {
-    api.entries.mockResolvedValue({
-      entries: [{ ...BASE_ENTRY, id: "u1", layer: "user" as const, src_kind: "manual" }],
-      next_cursor: "",
-    });
-    renderPage();
-    fireEvent.click(screen.getByTestId("kb-src-官方精选")); // 知识行退居回退臂（c-kb-instance-list）
-    fireEvent.click(await screen.findByText(/官方手法A/));
-    await waitFor(() => expect(screen.getByText(/^知识定义$/)).toBeTruthy());
-    expect(screen.queryByTestId("kb-baseline-hide")).toBeNull();
-    expect(screen.queryByTestId("kb-baseline-restore")).toBeNull();
-  });
-
-  it("官方精选为空给重试面：同步成功后刷新列表", async () => {
-    api.entries.mockResolvedValue({ entries: [], next_cursor: "" });
-    renderPage();
-    fireEvent.click(screen.getByTestId("kb-src-官方精选")); // 知识行退居回退臂（c-kb-instance-list）
-    await waitFor(() => expect(api.entries).toHaveBeenCalled());
-    fireEvent.click(screen.getByTestId("kb-src-官方精选"));
-    const panel = await screen.findByTestId("kb-baseline-empty");
-    expect(panel.textContent).toContain("还没有同步下来");
-    const before = api.entries.mock.calls.length;
-    api.genres.mockRejectedValueOnce(new Error("g")); // 计数刷新失败静默（catch 臂）
-    fireEvent.click(screen.getByTestId("kb-baseline-sync"));
-    await waitFor(() => expect(api.baselineSync).toHaveBeenCalledTimes(1));
-    await waitFor(() => expect(api.entries.mock.calls.length).toBeGreaterThan(before));
-    await waitFor(() => expect(screen.getByText("官方精选已更新")).toBeTruthy());
-  });
-
-  it("同步失败提示可重试（不抛）", async () => {
-    api.entries.mockResolvedValue({ entries: [], next_cursor: "" });
-    api.baselineSync.mockRejectedValueOnce(new Error("cdn"));
-    renderPage();
-    fireEvent.click(screen.getByTestId("kb-src-官方精选")); // 知识行退居回退臂（c-kb-instance-list）
-    await waitFor(() => expect(api.entries).toHaveBeenCalled());
-    fireEvent.click(screen.getByTestId("kb-src-官方精选"));
-    fireEvent.click(await screen.findByTestId("kb-baseline-sync"));
-    await waitFor(() => expect(screen.getByText("同步没成功，稍后再试")).toBeTruthy());
-  });
-
-  it("「已隐藏」筛选可找回被隐藏条目并恢复默认（P1 回归）", async () => {
-    api.entries.mockResolvedValue({
-      entries: [{ ...BASE_ENTRY, hidden: true }],
-      next_cursor: "",
-    });
-    renderPage();
-    fireEvent.click(screen.getByTestId("kb-src-官方精选")); // 知识行退居回退臂（c-kb-instance-list）
-    await waitFor(() => expect(api.entries).toHaveBeenCalled());
-    fireEvent.click(screen.getByTestId("kb-src-已隐藏"));
-    await waitFor(() => {
-      const calls = api.entries.mock.calls.map((c) => c[0] as { src?: string });
-      expect(calls.some((c) => c.src === "已隐藏")).toBe(true);
-    });
-    await waitFor(() => expect(screen.getAllByText("已隐藏").length).toBeGreaterThan(1)); // 筛选钮＋行徽章
-    fireEvent.click(await screen.findByText(/官方手法A/));
-    fireEvent.click(await screen.findByTestId("kb-baseline-unhide"));
-    await waitFor(() => expect(api.clearBaselineOverride).toHaveBeenCalledWith("b1"));
-  });
-
-  it("官方精选＋筛选后空态卡（裸注释上屏回归钉：注释必须隐形）", async () => {
-    api.entries.mockResolvedValue({ entries: [], next_cursor: "" });
-    renderPage();
-    fireEvent.click(screen.getByTestId("kb-src-官方精选"));
-    fireEvent.change(screen.getByPlaceholderText("搜名字、内容、来源书名"), { target: { value: "不存在的词" } });
-    await waitFor(() => expect(screen.getByText("当前筛选下没有官方精选条目。")).toBeTruthy());
-    // 裸写 /* */ 注释在 JSX 里会当正文上屏（真机 2026-11-07 实锤）——回归钉
-    expect(screen.queryByText(/v8 ignore/)).toBeNull();
-  });
-
-  it("同步失败提示「同步没成功」而不是「没有新版本」", async () => {
-    api.entries.mockResolvedValue({ entries: [], next_cursor: "" });
-    api.baselineSync.mockResolvedValueOnce({ status: "failed" });
-    renderPage();
-    fireEvent.click(screen.getByTestId("kb-src-官方精选")); // 知识行退居回退臂（c-kb-instance-list）
-    await waitFor(() => expect(api.entries).toHaveBeenCalled());
-    fireEvent.click(screen.getByTestId("kb-src-官方精选"));
-    fireEvent.click(await screen.findByTestId("kb-baseline-sync"));
-    await waitFor(() => expect(screen.getByText("同步没成功，稍后再试")).toBeTruthy());
-  });
-
-  it("编辑＝存我的副本：草稿预填、取消可退、保存调 PUT edit 并刷新", async () => {
-    api.baselineOverride.mockResolvedValue({ entry_id: "b1", action: "edit" });
-    renderPage();
-    fireEvent.click(screen.getByTestId("kb-src-官方精选")); // 知识行退居回退臂（c-kb-instance-list）
-    fireEvent.click(await screen.findByText(/官方手法A/));
-
-    // 展开：草稿预填官方原文（用户从「看到的这条」开始改，不是从空白）
-    fireEvent.click(await screen.findByTestId("kb-baseline-edit"));
-    const ta = (await screen.findByTestId("kb-baseline-draft")) as HTMLTextAreaElement;
-    expect(ta.value).toBe(BASE_ENTRY.instruction);
-
-    // 取消＝收起且不发请求
-    fireEvent.click(screen.getByTestId("kb-baseline-edit-cancel"));
-    expect(screen.queryByTestId("kb-baseline-draft")).toBeNull();
-    expect(api.baselineOverride).not.toHaveBeenCalled();
-
-    // 再展开、改写、保存 → 只写用户副本
-    fireEvent.click(screen.getByTestId("kb-baseline-edit"));
-    fireEvent.change(await screen.findByTestId("kb-baseline-draft"), {
-      target: { value: "我的说法：交手先让三招，再还手。" },
-    });
-    const before = api.entries.mock.calls.length;
-    api.genres.mockRejectedValueOnce(new Error("g")); // 计数刷新失败静默（catch 臂）
-    fireEvent.click(screen.getByTestId("kb-baseline-save"));
-    await waitFor(() => {
-      expect(api.baselineOverride).toHaveBeenCalledWith(
-        "b1", "edit", "我的说法：交手先让三招，再还手。",
-      );
-    });
-    await waitFor(() => expect(api.entries.mock.calls.length).toBeGreaterThan(before));
-  });
-
-  it("副本保存被闸门拒收：原样展示后端原因、留在抽屉可重试", async () => {
-    // 后端 422 的 message＝第一条闸门原因（api.ts 不变量）——必须原样给用户
-    api.baselineOverride.mockRejectedValueOnce(
-      new Error("与系统固定文案撞句，请改写成自己的话"),
-    );
-    renderPage();
-    fireEvent.click(screen.getByTestId("kb-src-官方精选")); // 知识行退居回退臂（c-kb-instance-list）
-    fireEvent.click(await screen.findByText(/官方手法A/));
-    fireEvent.click(await screen.findByTestId("kb-baseline-edit"));
-    fireEvent.click(screen.getByTestId("kb-baseline-save"));
-    await waitFor(() => {
-      expect(screen.getByTestId("kb-baseline-op-note").textContent).toContain("撞句");
-    });
-    // 不关抽屉、不清草稿：用户可改完再存；草稿限长 240（后端闸门同口径）
-    const draft = screen.getByTestId("kb-baseline-draft") as HTMLTextAreaElement;
-    expect(draft).toBeTruthy();
-    expect(draft.getAttribute("maxLength")).toBe("240");
+    expect(screen.getByTestId("kb-src-官方")).toBeTruthy();
   });
 });

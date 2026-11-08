@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { createPortal } from "react-dom";
 import { useSearchParams } from "react-router-dom";
 import { kbApi, type KbChainSeg, type KbEntry, type KbGenreCount, type KbInstanceFlatRow } from "@/lib/kbApi";
 import StarSeaPanel from "@/components/tools/StarSeaPanel";
@@ -78,14 +79,14 @@ export function payloadRows(payload: Record<string, unknown>): [string, string][
   return rows;
 }
 
-// 来源筛选（c-kb-baseline 批B）：官方精选＝只读基线层；手录/拆书＝用户条目
+// 来源筛选（boss 2026-11-08：我们自己就是官方——官方内容即普通来源，无特权臂）：
+// 全部＝我的实例＋官方合并；官方/拆书/手录＝按来源过滤。已隐藏臂退役（后端 hide 覆盖层保留，
+// 同步不再复活已归档条目——分发机制不因界面统一而变）
 const SOURCE_FILTERS = [
   { key: "全部", label: "全部来源" },
-  { key: "官方精选", label: "官方精选" },
-  { key: "手录", label: "手录" },
+  { key: "官方", label: "官方" },
   { key: "拆书", label: "拆书" },
-  // 隐藏可逆：这里回读 hide 白名单，恢复默认的唯一入口
-  { key: "已隐藏", label: "已隐藏" },
+  { key: "手录", label: "手录" },
 ] as const;
 
 export default function KnowledgeBasePage() {
@@ -98,7 +99,6 @@ export default function KnowledgeBasePage() {
   const [q, setQ] = useState("");
   const [entries, setEntries] = useState<KbEntry[]>([]);
   const [genreCounts, setGenreCounts] = useState<KbGenreCount[]>([]);
-  const [loading, setLoading] = useState(false);
   // 实例行列表（c-kb-instance-list）：实例侧来源的数据源；官方精选/已隐藏两臂回知识行列表
   const [flatRows, setFlatRows] = useState<KbInstanceFlatRow[]>([]);
   const [flatLoading, setFlatLoading] = useState(false);
@@ -117,34 +117,24 @@ export default function KnowledgeBasePage() {
   const [view, setView] = useState<"list" | "starsea">("list");
   const [showOrganize, setShowOrganize] = useState(false);
   const [opBusy, setOpBusy] = useState(false);
-  const [syncBusy, setSyncBusy] = useState(false);
-  const [syncNote, setSyncNote] = useState("");
-  // 「存为我的副本」（写时复制）：官方原件不动，编辑结果落用户层
-  const [editDraft, setEditDraft] = useState(false);
-  const [draft, setDraft] = useState("");
   const [opNote, setOpNote] = useState("");
   // 实例臂点行取数失败的列表区提示（独立于 opNote——那是回退臂抽屉操作文案，不得跨臂滞留）
   const [openError, setOpenError] = useState("");
 
-  // 数据源分臂（boss 2026-11-07 统一拍板：六类页签同构；官方条目也是实例）：
-  // 实例侧来源 → 实例行列表；官方精选/已隐藏 → 基线条目映射为统一实例行
-  const srcIsFallback = src === "官方精选" || src === "已隐藏";
-  const instanceArm = !srcIsFallback;
-
-  const loadEntries = useCallback(async () => {
-    setLoading(true);
+  // 官方条目常取（boss 2026-11-08：无特权臂——官方与自有实例合并单列表）；
+  // 原始 KbEntry 留存供抽屉「关联知识」本地查找与映射
+  const loadOfficial = useCallback(async () => {
     try {
       const sp = new URLSearchParams();
+      sp.set("src", "官方精选");
       if (genre !== "全部题材") sp.set("genre", genre);
       if (concept !== "全部") sp.set("concept", concept);
-      if (src !== "全部") sp.set("src", src);
       if (q) sp.set("q", q);
-      // 回退臂（官方精选/已隐藏）一页取齐——统一行视图无「加载更多」，页不必切
-      if (!instanceArm) sp.set("limit", "200");
+      sp.set("limit", "200");
       const r = await kbApi.entries(Object.fromEntries(sp));
       setEntries(r.entries);
-    } finally { setLoading(false); }
-  }, [genre, concept, src, q, instanceArm]);
+    } catch { setEntries([]); }
+  }, [genre, concept, q]);
 
 
 
@@ -169,7 +159,7 @@ export default function KnowledgeBasePage() {
   // 「跨题材通用」档只留 genre==='' 行；名称排序按所属知识名、素材行恒排末位
   // 回退臂（官方精选/已隐藏）条目同映射为实例行（官方条目也是实例——boss 模型
   // 口径 2026-11-07：知识库所有维度都是实例行；分层只是查看方式）
-  // 官方条目 → 统一实例行（官方条目也是实例；回退臂与「点开只有官方内容的题材」共用）
+  // 官方条目 → 统一实例行（官方即普通来源——无特权臂、无特殊抽屉段）
   const mapOfficialRows = useCallback((list: KbEntry[]): KbInstanceFlatRow[] => list.map((e) => ({
     row_kind: "instance" as const,
     id: e.id,
@@ -182,44 +172,21 @@ export default function KnowledgeBasePage() {
     quote: "",
     source_novel: e.src_novel_name || "",
     source_chapter: "",
-    src_kind: "官方精选" as const,
+    src_kind: "官方" as const,
     created_at: e.created_at || "",
     fields_json: "{}",
     name: e.title || "",
     official: true,
   })), []);
+  const officialRows = useMemo(() => mapOfficialRows(entries), [entries, mapOfficialRows]);
 
-  // 只有官方内容的题材（玄幻等）：选了具体题材且我的实例为空 → 拉官方条目兜底显示
-  // （侧栏计数含官方，列表不兜底会出现「计数 21、点开全空」——真机 2026-11-07 实锤）
-  const [officialRows, setOfficialRows] = useState<KbInstanceFlatRow[]>([]);
-  useEffect(() => {
-    if (!instanceArm || genre === "全部题材") { setOfficialRows([]); return; }
-    let alive = true;
-    (async () => {
-      try {
-        const sp = new URLSearchParams();
-        sp.set("src", "官方精选");
-        sp.set("genre", genre);
-        if (concept !== "全部") sp.set("concept", concept);
-        if (q) sp.set("q", q);
-        sp.set("limit", "200");
-        const r = await kbApi.entries(Object.fromEntries(sp));
-        if (!alive) /* v8 ignore next — 卸载竞态臂（cleanup 后返包） */ return;
-        setOfficialRows(mapOfficialRows(r.entries));
-      } catch { if (alive) setOfficialRows([]); }
-    })();
-    return () => { alive = false; };
-  }, [instanceArm, genre, concept, q, mapOfficialRows]);
-
+  // 单列表合并：全部来源＝我的实例＋官方；官方/拆书/手录＝按来源过滤
   const visibleRows = useMemo(() => {
-    if (!instanceArm) {
-      // 官方精选/已隐藏：entries（基线层）→ 统一实例行
-      const kind = src === "已隐藏" ? "已隐藏" : "官方精选";
-      return mapOfficialRows(entries).map((r) => ({ ...r, src_kind: kind as "官方精选" | "已隐藏" }));
-    }
-    let rows = flatRows;
-    if (src === "拆书") rows = rows.filter((r) => r.src_kind === "拆书");
-    else if (src === "手录") rows = rows.filter((r) => r.src_kind === "手录");
+    let rows: KbInstanceFlatRow[];
+    if (src === "官方") rows = officialRows;
+    else if (src === "拆书") rows = flatRows.filter((r) => r.src_kind === "拆书");
+    else if (src === "手录") rows = flatRows.filter((r) => r.src_kind === "手录");
+    else rows = [...flatRows, ...officialRows];
     if (genre === "") rows = rows.filter((r) => r.genre === "");
     if (sort === "name") {
       rows = [...rows].sort((a, b) => {
@@ -228,14 +195,8 @@ export default function KnowledgeBasePage() {
         return a.knowledge_title.localeCompare(b.knowledge_title, "zh");
       });
     }
-    // 我的实例为空（该题材只有官方内容）→ 官方行兜底（玄幻 21 实锤路径）
-    if (src === "全部" && rows.length === 0 && officialRows.length > 0) {
-      return sort === "name"
-        ? [...officialRows].sort((a, b) => (a.knowledge_title || "").localeCompare(b.knowledge_title || "", "zh"))
-        : officialRows;
-    }
     return rows;
-  }, [instanceArm, entries, flatRows, src, genre, sort, officialRows]);
+  }, [officialRows, flatRows, src, genre, sort]);
 
   // 计数行分类分布（与 N 同口径：含待归属素材行）
   const conceptBreakdown = useMemo(() => {
@@ -251,7 +212,6 @@ export default function KnowledgeBasePage() {
       const d = await kbApi.entry(id);
       setSelected(d);
       setSelectedInstance(null);
-      setEditDraft(false);
       setOpNote("");
       setOpenError("");
     } catch {
@@ -262,9 +222,9 @@ export default function KnowledgeBasePage() {
 
   // 删素材/手录/基线操作后的当前臂刷新
   const reloadCurrent = useCallback(async () => {
-    if (instanceArm) { await loadFlat(); } else { await loadEntries(); }
+    await Promise.all([loadFlat(), loadOfficial()]);
     kbApi.genres().then(setGenreCounts).catch(() => {});
-  }, [instanceArm, loadFlat, loadEntries]);
+  }, [loadFlat, loadOfficial]);
 
   useEffect(() => {
     kbApi.genres().then(setGenreCounts).catch(() => {});
@@ -277,13 +237,9 @@ export default function KnowledgeBasePage() {
   }, []);
 
   useEffect(() => {
-    if (instanceArm) {
-      // 实例臂不消费知识行——清掉旧臂残留，防抽屉「关联知识」本地查找命中过期快照
-      setEntries([]);
-      void loadFlat();
-    } else { void loadEntries(); }
-    // instanceArm 随 src 切臂；两臂各取各的数据源（实例臂不跑 entries 主查询）
-  }, [instanceArm, genre, concept, src, q, loadFlat, loadEntries]);
+    void loadFlat();
+    void loadOfficial();
+  }, [genre, concept, src, q, loadFlat, loadOfficial]);
 
   const visibleGenres = useMemo(() => {
     const filled = genreCounts.filter((g) => g.count > 0);
@@ -293,70 +249,6 @@ export default function KnowledgeBasePage() {
 
   const moreCount = genreCounts.filter((g) => g.count > 0).length - visibleGenres.length;
   const showFoldToggle = moreCount > 0 || showMoreGenres;
-  /* 官方精选只读操作面（c-kb-baseline 批B）：隐藏＝白名单外记录；恢复官方版＝删副本。
-     原件永不修改，失败静默（刷新后状态即真相）。 */
-  // 只有「无筛选」时官方精选空集才等价于「没同步下来」（有筛选＝该筛选下没有）
-  const noFilters = genre === "全部题材" && concept === "全部" && !q.trim();
-
-  const handleBaselineOp = async (entry: KbEntry, action: "hide" | "clear") => {
-    /* v8 ignore start -- 双保险：按钮同时 disabled，UI 面走不到该早退（真机连点防护） */
-    if (opBusy) return;
-    /* v8 ignore stop */
-    setOpBusy(true);
-    try {
-      if (action === "hide") await kbApi.baselineOverride(entry.id, "hide");
-      else await kbApi.clearBaselineOverride(entry.id);
-      setSelected(null);
-      await reloadCurrent();
-    } catch { /* 静默：下一次列表刷新即真实状态 */ }
-    finally { setOpBusy(false); }
-  };
-
-  /* 编辑基线条目＝存一份用户副本（写时复制）：官方原件 SHALL NOT 被改动；
-     过 C 端同一套入库闸门，失败把后端提示原样给用户。 */
-  const handleBaselineEdit = async (entry: KbEntry) => {
-    /* v8 ignore start -- 双保险：按钮同时 disabled，UI 面走不到该早退（真机连点防护） */
-    if (opBusy) return;
-    /* v8 ignore stop */
-    setOpBusy(true);
-    setOpNote("");
-    try {
-      await kbApi.baselineOverride(entry.id, "edit", draft);
-      setSelected(null);
-      setEditDraft(false);
-      await reloadCurrent();
-    } catch (e: unknown) {
-      // 后端 422 的 message＝第一条闸门原因（api.ts 不变量），原样给用户
-      const err = e as { message?: string };
-      setOpNote(err.message || "没存上——检查字数与格式后再试");
-    } finally { setOpBusy(false); }
-  };
-
-  /* 官方精选未就绪的重试面（c-kb-baseline：启动补偿失败可手动重试，幂等） */
-  const handleBaselineSync = async () => {
-    /* v8 ignore start -- 双保险：按钮同时 disabled，UI 面走不到该早退 */
-    if (syncBusy) return;
-    /* v8 ignore stop */
-    setSyncBusy(true);
-    setSyncNote("");
-    try {
-      const r = await kbApi.baselineSync();
-      setSyncNote(
-        r.status === "synced"
-          ? "官方精选已更新"
-          : r.status === "current"
-            ? "已经是最新版本"
-            : r.status === "failed"
-              ? "同步没成功，稍后再试"
-              : "暂时取不到官方精选",
-      );
-      await reloadCurrent();
-    } catch {
-      setSyncNote("同步没成功，稍后再试");
-    } finally {
-      setSyncBusy(false);
-    }
-  };
 
   useEffect(() => {
     if (!selected) { setInstRows([]); return; }
@@ -448,7 +340,7 @@ export default function KnowledgeBasePage() {
           <KbOrganizePanel
             genre={genre !== "全部题材" ? genre : "玄幻"}
             onClose={() => setShowOrganize(false)}
-            onChanged={() => { void loadEntries(); }}
+            onChanged={() => { void reloadCurrent(); }}
           />
         )}
         <div className="flex gap-6" style={{ display: view === "list" ? undefined : "none" }}>
@@ -460,7 +352,7 @@ export default function KnowledgeBasePage() {
                 onClick={() => setGenre("全部题材")}
                 className={`flex w-full items-center justify-between rounded-md px-3 py-1.5 text-[13px] ${genre === "全部题材" ? "bg-[var(--accent-soft)] font-medium text-[var(--accent)]" : "text-[var(--muted)] hover:text-[var(--fg)]"}`}
               >
-                <span>全部</span><span className="font-mono text-[10px] opacity-70">{instanceArm ? visibleRows.length : entries.length}</span>
+                <span>全部</span><span className="font-mono text-[10px] opacity-70">{visibleRows.length}</span>
               </button>
               {visibleGenres.map((g) => (
                 <button
@@ -528,7 +420,7 @@ export default function KnowledgeBasePage() {
             {/* 库分组卡已按原型退役（boss 2026-11-07）：知识库页不再展示选择器库——
                  库本体与绑定链路仍在（选择器/建书消费），仅本页展示面移除 */}
 
-            {/* 来源筛选（c-kb-baseline 批B）：官方精选可单独过滤 */}
+            {/* 来源筛选：官方即普通来源（boss 2026-11-08 无特权拍板） */}
             <div className="mb-3 flex flex-wrap gap-1.5">
               {SOURCE_FILTERS.map((s) => (
                 <button
@@ -634,7 +526,7 @@ export default function KnowledgeBasePage() {
                 );
               })}
               {/* 实例臂空态：零内容题材＝记一条；筛选无命中＝清空筛选出口 */}
-              {instanceArm && !visibleRows.length && !flatLoading && (noFilters && src === "全部" ? (
+              {!visibleRows.length && !flatLoading && (genre === "全部题材" && concept === "全部" && !q.trim() && src === "全部" ? (
                 <div className="rounded-lg border border-dashed border-[var(--border)] p-6 text-center">
                   <p className="text-[13px] text-[var(--muted)]">还没有条目——先拆书或手录，写法到位后这里会长出来。</p>
                   <button
@@ -653,32 +545,6 @@ export default function KnowledgeBasePage() {
                 </div>
               ))}
             </div>
-              {/* 官方精选空态：未同步给重试面 */}
-              {!visibleRows.length && !loading && src === "官方精选" && noFilters && (
-                <div data-testid="kb-baseline-empty" className="rounded-lg border border-dashed border-[var(--border)] p-6 text-center">
-                  <p className="text-[13px] text-[var(--muted)]">官方精选还没有同步下来。</p>
-                  {syncNote && <p className="mt-1 text-[12px] text-[var(--muted)]">{syncNote}</p>}
-                  <button
-                    data-testid="kb-baseline-sync"
-                    disabled={syncBusy}
-                    onClick={() => { void handleBaselineSync(); }}
-                    className="mt-3 rounded-lg border border-[var(--accent)] px-4 py-2 text-[13px] text-[var(--accent)] hover:bg-[var(--accent-soft)] disabled:opacity-50"
-                  >重新同步</button>
-                </div>
-              )}
-              {/* 官方精选＋筛选后的空态卡（有测试覆盖；原先裸写的注释曾当正文上屏） */}
-              {!visibleRows.length && !loading && src === "官方精选" && !noFilters && (
-                <div className="rounded-lg border border-dashed border-[var(--border)] p-6 text-center">
-                  <p className="text-[13px] text-[var(--muted)]">当前筛选下没有官方精选条目。</p>
-                </div>
-              )}
-              {/* v8 ignore start -- 空态卡臂：jsdom mock 组合下事件路径不可达（真机走查覆盖） */}
-              {!visibleRows.length && !loading && src === "已隐藏" && (
-                <div className="rounded-lg border border-dashed border-[var(--border)] p-6 text-center">
-                  <p className="text-[13px] text-[var(--muted)]">没有隐藏的官方精选条目。</p>
-                </div>
-              )}
-              {/* v8 ignore stop */}
             </>
           </div>
         </div>
@@ -743,11 +609,12 @@ export default function KnowledgeBasePage() {
         </div>
       )}
 
-      {/* 实例详情抽屉（boss 2026-11-07：每条实例具体详情，归属知识点是属性行） */}
-      {selectedInstance && (
-        <div className="fixed inset-0 z-50">
+      {/* 实例详情弹窗（boss 2026-11-08：抽屉滚动后锚位漂移，改居中弹窗；portal 挂
+          body——路由转场 transform 劫持 fixed 的 containing block） */}
+      {selectedInstance && createPortal(
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-6">
           <div className="absolute inset-0 bg-black/50" onClick={() => setSelectedInstance(null)} />
-          <div className="absolute right-0 top-0 h-full w-96 border-l border-[var(--border)] bg-[var(--surface)] p-6 shadow-xl overflow-y-auto">
+          <div data-testid="kb-inst-modal" className="relative w-[560px] max-w-full max-h-[82vh] overflow-y-auto rounded-xl border border-[var(--border)] bg-[var(--surface)] p-6 shadow-2xl">
             <div className="mb-3 flex items-center justify-between">
               <span className="font-mono text-[9.5px] tracking-[0.1em] text-[var(--faint)]">
                 {selectedInstance.concept} · {selectedInstance.genre || "跨题材通用"}
@@ -807,14 +674,15 @@ export default function KnowledgeBasePage() {
               <span className="ml-1 text-[var(--faint)]">{selectedInstance.src_kind}</span>
             </p>
           </div>
-        </div>
+        </div>,
+        document.body,
       )}
 
-      {/* 详情抽屉 */}
-      {selected && (
-        <div className="fixed inset-0 z-50">
+      {/* 知识详情弹窗（2026-11-08 与实例详情同改：居中弹窗＋portal 挂 body） */}
+      {selected && createPortal(
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-6">
           <div className="absolute inset-0 bg-black/50" onClick={() => setSelected(null)} />
-          <div className="absolute right-0 top-0 h-full w-96 border-l border-[var(--border)] bg-[var(--surface)] p-6 shadow-xl overflow-y-auto">
+          <div data-testid="kb-know-modal" className="relative w-[560px] max-w-full max-h-[82vh] overflow-y-auto rounded-xl border border-[var(--border)] bg-[var(--surface)] p-6 shadow-2xl">
             <div className="mb-4 flex items-center justify-between">
               <span className="font-mono text-[9.5px] tracking-[0.1em] text-[var(--faint)]">
                 {selected.id.slice(0, 8)} · {selected.concept} · {selected.genre}
@@ -960,108 +828,9 @@ export default function KnowledgeBasePage() {
               </div>
             )}
 
-                        {selected.layer === "baseline" && (
-              <div className="mt-6 border-t border-[var(--border)] pt-4">
-                <p className="text-[10.5px] font-mono tracking-[0.12em] text-[var(--accent)]">官方精选 · 只读</p>
-                <p className="mt-1 text-[11.5px] leading-relaxed text-[var(--muted)]">
-                  官方条目不能删除；想改就存一份你的副本（官方原件不变）。隐藏后可在「已隐藏」里恢复。
-                </p>
-                {/* v8 ignore start -- official_update 臂随基线同步数据出现，jsdom 组合不可达 */}
-                {selected.official_update && (
-                  <p className="mt-2 text-[11.5px] leading-relaxed text-[var(--accent)]">
-                    官方已更新这条，当前显示的是你的副本，可恢复官方版。
-                  </p>
-                )}
-                {/* v8 ignore stop */}
-                {!selected.hidden && (
-                  <div className="mt-3">
-                    {!editDraft ? (
-                      <button
-                        data-testid="kb-baseline-edit"
-                        disabled={opBusy}
-                        onClick={() => {
-                          setEditDraft(true);
-                          setDraft(selected.instruction);
-                          setOpNote("");
-                        }}
-                        className="rounded-lg border border-[var(--border)] px-3 py-1.5 text-[12px] text-[var(--muted)] hover:text-[var(--fg)] disabled:opacity-50"
-                      >
-                        存为我的副本
-                      </button>
-                    ) : (
-                      <div className="space-y-2">
-                        <textarea
-                          data-testid="kb-baseline-draft"
-                          value={draft}
-                          onChange={(ev) => setDraft(ev.target.value)}
-                          rows={4}
-                          maxLength={240}
-                          className="w-full rounded-lg border border-[var(--border)] bg-[var(--surface)] p-2 text-[12.5px] leading-relaxed text-[var(--fg)]"
-                        />
-                        <p className="text-right font-mono text-[10px] text-[var(--faint)]">
-                          {draft.length}/240
-                        </p>
-                        <div className="flex gap-2">
-                          <button
-                            data-testid="kb-baseline-save"
-                            disabled={opBusy}
-                            onClick={() => { void handleBaselineEdit(selected); }}
-                            className="rounded-lg border border-[var(--accent)] px-3 py-1.5 text-[12px] text-[var(--accent)] hover:bg-[var(--accent-soft)] disabled:opacity-50"
-                          >
-                            保存副本
-                          </button>
-                          <button
-                            data-testid="kb-baseline-edit-cancel"
-                            disabled={opBusy}
-                            onClick={() => { setEditDraft(false); setOpNote(""); }}
-                            className="rounded-lg border border-[var(--border)] px-3 py-1.5 text-[12px] text-[var(--muted)] hover:text-[var(--fg)] disabled:opacity-50"
-                          >
-                            取消
-                          </button>
-                        </div>
-                        {opNote && (
-                          <p data-testid="kb-baseline-op-note" className="text-[11.5px] text-[var(--muted)]">
-                            {opNote}
-                          </p>
-                        )}
-                      </div>
-                    )}
                   </div>
-                )}
-                <div className="mt-3">
-                  {selected.hidden ? (
-                    <button
-                      data-testid="kb-baseline-unhide"
-                      disabled={opBusy}
-                      onClick={() => { void handleBaselineOp(selected, "clear"); }}
-                      className="rounded-lg border border-[var(--accent)] px-3 py-1.5 text-[12px] text-[var(--accent)] hover:bg-[var(--accent-soft)] disabled:opacity-50"
-                    >
-                      恢复默认
-                    </button>
-                  ) : selected.overlaid ? (
-                    <button
-                      data-testid="kb-baseline-restore"
-                      disabled={opBusy}
-                      onClick={() => { void handleBaselineOp(selected, "clear"); }}
-                      className="rounded-lg border border-[var(--accent)] px-3 py-1.5 text-[12px] text-[var(--accent)] hover:bg-[var(--accent-soft)] disabled:opacity-50"
-                    >
-                      恢复官方版
-                    </button>
-                  ) : (
-                    <button
-                      data-testid="kb-baseline-hide"
-                      disabled={opBusy}
-                      onClick={() => { void handleBaselineOp(selected, "hide"); }}
-                      className="rounded-lg border border-[var(--border)] px-3 py-1.5 text-[12px] text-[var(--muted)] hover:text-[var(--fg)] disabled:opacity-50"
-                    >
-                      隐藏这条
-                    </button>
-                  )}
-                </div>
-              </div>
-            )}
-          </div>
-        </div>
+        </div>,
+        document.body,
       )}
     </main>
   );
