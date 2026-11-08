@@ -27,8 +27,9 @@ logger = logging.getLogger(__name__)
 
 # v5：锚正则类补分隔符（第9、56、57章 多章形 v4 闭形仍剥不动——168 中 81 条的真正根因）
 # ＋裸串条目无名化＋锚全文任意位置剥出；v6 起含并发单飞锁
+# v12：世界分区挂树（world_root＋power/extra 译名错位护栏）＋「原文未明确」哨兵剥除
 # 每次映射/总结语义变更都升版强制重收敛一次
-_MARKER_PREFIX = "kb.reconcile:v11:"
+_MARKER_PREFIX = "kb.reconcile:v12:"
 
 # 进程内单飞（真机 2026-11-08 实锤：页面加载＋探针并发命中 /kb/instances → 双收敛并发
 # 写同书同键 → UNIQUE 撞键整轮失败）——后跑者等锁，醒来时标记已落即快路返回
