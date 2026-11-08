@@ -182,7 +182,6 @@ class TestCodeBucketedTree:
                     "WHERE e.user_id=:u"), {"u": uid})).mappings().all()
                 return rows, insts
         rows, insts = _run(_check())
-        titles = {r["title"] for r in rows}
         # 风格维度四级树（boss 2026-11-08）：题材 → 笔法 → 写作视角 → 实例
         by_title = {r["title"]: r for r in rows}
         assert by_title["声音招式"]["parent_id"] == by_title["笔法"]["id"], "声音招式挂「笔法」父级"
