@@ -183,7 +183,7 @@ class TestCodeBucketedTree:
                 return rows, insts
         rows, insts = _run(_check())
         titles = {r["title"] for r in rows}
-        assert titles == {"主角", "配角", "规则"}, f"槽位值即知识点名：{titles}"
+        assert titles == {"主角", "配角", "声音招式"}, f"槽位标签即知识点名（大白话升格）：{titles}"
         assert all(r["parent_id"] == "" for r in rows), "两级树：知识点挂概念根"
         assert len(insts) == 3, f"每素材一条实例：{len(insts)}"
 

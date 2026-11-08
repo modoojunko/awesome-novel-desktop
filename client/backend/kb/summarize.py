@@ -203,6 +203,16 @@ async def run_summarize(
                 "factions": "势力", "history": "历史沿革", "extra": "补充设定",
                 "constraint": "约束",
             }
+            plain = {
+                ("手法", "写法"): "场面打法",
+                ("文笔", "写法"): "笔法招式",
+                ("文笔", "规则"): "句法规矩与忌用",
+                ("文风", "规则"): "声音招式",
+                ("世界设定", "补充设定"): "更多世界细节",
+                ("世界设定", "力量与规则"): "力量体系与规矩",
+            }
+            if (concept, slot_value) in plain:
+                return plain[(concept, slot_value)]
             return slot_cn.get(slot_value, slot_value or "写法")
 
         def _slot_desc(concept: str, slot_value: str) -> str:
@@ -212,6 +222,15 @@ async def run_summarize(
                     return "场面打法与读者体验设计——一条打法一条实例"
                 if concept == "文笔":
                     return "句法层面的具体笔法——一条笔法一条实例"
+            if slot_value == "场面打法":
+                return "写每一章时的场面打法与读者体验设计——一条打法一条实例"
+            if slot_value == "规则":
+                if concept == "文风":
+                    return "这本书的声音招式——一条场景规则一条实例（战斗短句、悲喜交替这类）"
+                if concept == "文笔":
+                    return "句子层面的写法规矩与忌用"
+            if slot_value == "核心":
+                return "故事核心位置的角色"
             return SLOT_DESC.get(slot_value, "同类写法实例的集合")
 
         # 知识点定义＝这个知识点是什么（作家语言一句话）——模板句「XX维度的写法案例集」
@@ -243,7 +262,8 @@ async def run_summarize(
             slot_value = str(p.get(slot_key)).strip() if slot_key else ""
             if not slot_value:
                 slot_value = "写法" if m.concept == "手法" else "通用"
-            buckets.setdefault((m.concept, slot_value), []).append(m)
+            # 桶键＝槽位标签（slot_cn）：手法 fallback「写法」与文笔 craft 同标签归同桶
+            buckets.setdefault((m.concept, _slot_label(m.concept, slot_value)), []).append(m)
 
         # schema 字段元数据＝桶内素材 payload 键的并集（代码可算，无需 LLM）；
         # 系统键与空值键排除。字段 desc 由前端字段字典（kbFieldLabels）补作家语言。
@@ -264,23 +284,43 @@ async def run_summarize(
             schema_fields = [{"name": k, "desc": ""} for k in key_set]
 
             label = _slot_label(concept, slot_value)
-            kid = uuid.uuid4().hex
-            db.add(KbEntry(
-                id=kid,
-                user_id=user_id,
-                genre=genre,
-                concept=concept,
-                concept_id=f"{genre}:{concept}",
-                title=label,
-                payload_json="{}",
-                instruction="",
-                definition=f"{genre}·{label}——{_slot_desc(concept, slot_value)}。已收 {len(bucket)} 条实例。",
-                schema_json=json.dumps(schema_fields, ensure_ascii=False),
-                origin="summary",
-                status="active",
-                version=1,
-                parent_id="",
-            ))
+            # 复用既有知识点（同题材×类别×标题）：多本书先后重建不再各长一套重名知识点
+            # （真机实锤：斩神/749 顺序收敛后「都市·写法 ×2」「都市·配角 ×2」全部成对）
+            existing_kp = (await db.scalars(
+                select(KbEntry).where(
+                    KbEntry.user_id == user_id,
+                    KbEntry.genre == genre,
+                    KbEntry.concept == concept,
+                    KbEntry.origin == "summary",
+                    KbEntry.title == label,
+                ).limit(1)
+            )).first()
+            fresh_kp = existing_kp is None
+            if fresh_kp:
+                kid = uuid.uuid4().hex
+            else:
+                kid = existing_kp.id
+            kp_definition = f"{genre}·{label}——{_slot_desc(concept, slot_value)}。已收 {len(bucket)} 条实例。"
+            if fresh_kp:
+                db.add(KbEntry(
+                    id=kid,
+                    user_id=user_id,
+                    genre=genre,
+                    concept=concept,
+                    concept_id=f"{genre}:{concept}",
+                    title=label,
+                    payload_json="{}",
+                    instruction="",
+                    definition=kp_definition,
+                    schema_json=json.dumps(schema_fields, ensure_ascii=False),
+                    origin="summary",
+                    status="active",
+                    version=1,
+                    parent_id="",
+                ))
+            else:
+                # 复用也刷新定义：旧知识点可能带模板兜底句/陈旧计数（真机实锤「定义缺失」）
+                existing_kp.definition = kp_definition
             for sort, m in enumerate(bucket):
                 def _field_val(v):
                     # 章锚剥除接链（2026-11-07 鬼面王案）：拆书素材 payload 的字段值
