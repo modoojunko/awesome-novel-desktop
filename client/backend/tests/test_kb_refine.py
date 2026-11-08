@@ -10,6 +10,7 @@
 import asyncio
 import json
 import uuid
+from datetime import datetime
 
 from sqlalchemy import text as _t
 
@@ -484,3 +485,72 @@ class TestRefineReview:
         fp = compute_schema_fingerprint(Base.metadata)
         assert fp, fp
         assert "kb_refine_tasks" in Base.metadata.tables
+
+
+class TestRefineReReview:
+    """复检整改钉（2026-11-09）：fresh 库时间列非空＋碰撞映射。"""
+
+    def test_fresh库建任务_created_at非空_排序可用(self):
+        """ORM 镜像时间列 DateTime+func.now()——fresh 库 create_all 建表后
+        INSERT 不含 created_at 也落数据库默认时间（复检 P2：恒空串排序 NaN）。"""
+        from datetime import datetime
+
+        from kb.refine_task import create_task, list_tasks
+
+        uid = _mk("fresh")
+        _run(_seed_user(uid))
+
+        async def _mk_task():
+            async with async_session() as db:
+                t, err = await create_task(db, user_id=uid, genre="都市")
+                return t, err
+        task, err = _run(_mk_task())
+        assert err == ""
+        assert (task.get("created_at") or "").strip() != "", task  # 非空串
+        # 可按时间排序（datetime 对象/ISO 串都能 parse）——不炸即过
+        v = task.get("created_at")
+        assert isinstance(v, (str, datetime)), v
+
+    def test_key碰撞_第二提案实例挂改写后节点不误挂首个(self):
+        uid = _mk("collide")
+        _run(_seed_user(uid))
+        _run(_seed_staged(uid, "都市", [
+            {"text": "材料甲：蓄力三息再爆发。", "ch": "第1章", "fields": {}},
+            {"text": "材料乙：借力打力卸劲。", "ch": "第2章", "fields": {}},
+        ]))
+
+        async def _fake_llm(user_id, genre, tree, items):
+            # 两个提案都自编 n1（碰撞）——材料乙归第二个提案（改写后 n1x2）
+            return {"moves": [],
+                    "new_nodes": [
+                        {"key": "n1", "parent": "tech_fallback", "title": "蓄力打法",
+                         "definition": "先蓄后发的场面写法。", "concept": "手法",
+                         "fields": [{"name": "蓄力拍", "desc": "d"}],
+                         "instances": [items[0].split("|")[0]]},
+                        {"key": "n1", "parent": "tech_fallback", "title": "卸劲打法",
+                         "definition": "借力打力的场面写法。", "concept": "手法",
+                         "fields": [{"name": "卸劲拍", "desc": "d"}],
+                         "instances": [items[1].split("|")[0]]},
+                    ]}
+
+        orig = refine_mod._llm_refine
+        refine_mod._llm_refine = _fake_llm
+        try:
+            async def _go():
+                async with async_session() as db:
+                    return await run_refine(db, user_id=uid, genre="都市", llm=True)
+            r, _err = _run(_go())
+        finally:
+            refine_mod._llm_refine = orig
+        assert r["moved"] == 2 and r["nodes_created"] == 2, r
+
+        async def _check():
+            async with async_session() as db:
+                return (await db.execute(_t(
+                    "SELECT e.title, i.text FROM kb_knowledge_instances i "
+                    "JOIN kb_entries e ON e.id=i.knowledge_id "
+                    "WHERE e.user_id=:u AND e.concept='手法'"), {"u": uid})).fetchall()
+        rows = _run(_check())
+        by_inst = {text: title for title, text in rows}
+        assert by_inst.get("材料甲：蓄力三息再爆发。") == "蓄力打法", rows
+        assert by_inst.get("材料乙：借力打力卸劲。") == "卸劲打法", rows  # 不误挂首个

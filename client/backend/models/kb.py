@@ -654,7 +654,9 @@ class KbRefineTask(Base):
 
     __tablename__ = "kb_refine_tasks"
 
-    # server_default 逐列对齐 ensure DDL（INSERT 显式列名直插不经 Python default）
+    # server_default 逐列对齐 ensure DDL（INSERT 显式列名直插不经 Python default）；
+    # 时间列照 KbSummarizeRun 先例 DateTime+func.now()——String(32)+"" 会让 fresh 库
+    # create_all 建出 DEFAULT ''，INSERT 不含该列时恒空串（评审 P2：排序 NaN 沉底）
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid)
     user_id: Mapped[str] = mapped_column(String(36), nullable=False)
     genre: Mapped[str] = mapped_column(String(40), nullable=False, server_default="")
@@ -663,6 +665,6 @@ class KbRefineTask(Base):
     current_step: Mapped[str] = mapped_column(Text, nullable=False, server_default="")
     timeline_json: Mapped[str] = mapped_column(Text, nullable=False, server_default="[]")
     result_json: Mapped[str] = mapped_column(Text, nullable=False, server_default="{}")
-    created_at: Mapped[str] = mapped_column(String(32), nullable=False, server_default="")
-    updated_at: Mapped[str] = mapped_column(String(32), nullable=False, server_default="")
+    created_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, server_default=func.now())
 

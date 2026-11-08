@@ -143,6 +143,7 @@ async def _refine_on(db: AsyncSession, *, user_id: str, genre: str, llm: bool) -
     new_kid: dict[str, str] = {}      # 提案 key → 新行 id
     new_tpl: dict[str, list[dict]] = {}
     created = 0
+    built: list[tuple[dict, str]] = []  # (提案, 改写后 key)——fallback 与建行同序对应
     for prop in plan["new_nodes"]:
         if created >= MAX_NEW_NODES:
             break
@@ -171,12 +172,15 @@ async def _refine_on(db: AsyncSession, *, user_id: str, genre: str, llm: bool) -
             continue
         created += 1
         raw_key = str(prop.get("key") or "").strip()
-        # LLM 自编 key 碰撞（两个提案都叫 n1）＝后者改写 pkey，先建行不丢（评审 P3）
+        # LLM 自编 key 碰撞（两个提案都叫 n1）＝后者改写 pkey，先建行不丢（评审 P3）。
+        # 注意方向：前者保留原 key，改写的只是后者——映射按 prop 对应（built 列表），
+        # 不做 raw_key 全局重定向（会把前者的实例也拽到后者，复检钉实锤过）
         pkey = raw_key or f"n{created}"
         while pkey in new_kid:
-            pkey = f"{pkey or 'n'}x{created}"
+            pkey = f"{pkey}x{created}"
         new_kid[pkey] = kid
         new_tpl[pkey] = [{"name": f.get("name", ""), "desc": f.get("desc", "")} for f in fields_prop]
+        built.append((prop, pkey))
 
     # ② 归类计划：id 校验＋目标锚定（发版树 key 或本轮新节点 key）
     claims: list[tuple[KbKnowledgeInstance, str, str, dict, str]] = []  # (实例, kid, 模板, LLM格值, 目标名)
@@ -184,15 +188,11 @@ async def _refine_on(db: AsyncSession, *, user_id: str, genre: str, llm: bool) -
     # 提案新节点 instances 通道：契约「instances 只是汇总」——汇总 id 也归到新节点
     # （LLM 只填 instances 不重复填 moves 时兜底；评审 P2：死通道会让提炼空转）
     instance_fallback: dict[str, tuple[str, list[dict], str]] = {}  # iid -> (kid, tpl, 目标名)
-    for prop in plan["new_nodes"]:
-        if not isinstance(prop, dict):
-            continue
-        raw_key = str(prop.get("key") or "").strip()
-        match_key = next((k for k, v in ((k, str(prop.get("key") or "")) for k in [raw_key]) if v), raw_key)
-        _kid = new_kid.get(match_key)
+    for prop, pkey in built:
+        _kid = new_kid.get(pkey)
         if not _kid:
             continue
-        _tpl = new_tpl.get(match_key) or []
+        _tpl = new_tpl.get(pkey) or []
         _title = str(prop.get("title") or "")
         for iid in (prop.get("instances") or []):
             iid_s = str(iid)
@@ -214,8 +214,8 @@ async def _refine_on(db: AsyncSession, *, user_id: str, genre: str, llm: bool) -
             elif to in new_kid:
                 tpl = new_tpl[to]
                 kid = new_kid[to]
-                target = next((str(p.get("title") or "") for p in plan["new_nodes"]
-                               if isinstance(p, dict) and str(p.get("key") or "") == to), to)
+                target = next((str(p.get("title") or "") for p in built
+                               if p[1] == to), to)
             else:
                 continue  # 归属目标不存在——留守其他
         except Exception as exc:  # noqa: BLE001 — 单条失败不拖垮整轮

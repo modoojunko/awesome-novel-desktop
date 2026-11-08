@@ -7,8 +7,11 @@
 1. 归类进树 —— kb.refine.run_refine（其他 → 树／长新节点）
 2. 梳理关系 —— kb.organize.run_organize（细化/矛盾/依赖）
 
-存储＝raw DDL（不进 ORM metadata——同版本串试验期加表必踩 schema 指纹
-mismatch 改名活库，mac-local-build 判例）；状态机 queued→running→completed/failed。
+存储＝raw DDL 建管＋ORM 镜像（models.kb.KbRefineTask，KbSummarizeRun 先例）：
+镜像的唯一动机＝迁移引擎计划面认得这张表（build_plan 只认 Base.metadata，
+纯 raw-DDL 表会被误标 table_retired 整段跳过）；schema 指纹代价已知
+（mac-local-build 判例：同版本串试验期动 metadata 必踩 mismatch，装机按配方回填）。
+状态机 queued→running→completed/failed。
 """
 
 from __future__ import annotations
