@@ -200,10 +200,41 @@ async def run_summarize(
                 "rule": "规则", "craft": "写法", "banned_word": "忌用词", "tic": "口癖",
                 # 世界 part（WorldPayload）
                 "stage": "舞台", "power": "力量与规则", "cost": "代价",
-                "factions": "势力", "history": "历史沿革", "extra": "其他",
+                "factions": "势力", "history": "历史沿革", "extra": "补充设定",
                 "constraint": "约束",
             }
             return slot_cn.get(slot_value, slot_value or "写法")
+
+        def _slot_desc(concept: str, slot_value: str) -> str:
+            """知识点定义（作家语言一句话）——模板句无信息量（真机 2026-11-08「定义空」实锤）。"""
+            if slot_value == "写法":
+                if concept == "手法":
+                    return "场面打法与读者体验设计——一条打法一条实例"
+                if concept == "文笔":
+                    return "句法层面的具体笔法——一条笔法一条实例"
+            return SLOT_DESC.get(slot_value, "同类写法实例的集合")
+
+        # 知识点定义＝这个知识点是什么（作家语言一句话）——模板句「XX维度的写法案例集」
+        # 无信息量（真机 2026-11-08 实锤「定义空」）；按槽位给真定义，未收录回落通用句
+        SLOT_DESC = {
+            # 角色
+            "主角": "书里担主角位置的角色实例——一人一条，含人设/背景/剧情线",
+            "配角": "书里担配角位置的角色实例",
+            "反派": "书里担反派位置的角色实例",
+            # 世界 part
+            "舞台": "故事发生在哪、地理与时代底盘的设定实例",
+            "力量与规则": "这个世界的能力体系与运行规矩——一条规矩一条实例",
+            "代价": "使用力量要付出什么——一条代价一条实例",
+            "历史沿革": "世界过去发生过的大事——一条事件一条实例",
+            "势力": "世界里的组织与阵营——一势力一条实例",
+            "约束": "这个世界铁律级的硬约束——一条一条实例",
+            "补充设定": "舞台/力量/势力之外的零散世界细节",
+            # 文风
+            "叙事身份": "这本书用什么声音讲故事（人称/视角/语感）",
+            "规则": "这本书的声音侧面与场景写法规则——一条规则一条实例",
+            # 文笔/手法共用槽位值「写法」——按概念消歧见 _slot_desc（下方）
+            "写法": "同类写法实例的集合——一条一条实际案例",
+        }
 
         buckets: dict[tuple[str, str], list] = {}
         for m in materials:
@@ -239,7 +270,7 @@ async def run_summarize(
                 title=label,
                 payload_json="{}",
                 instruction="",
-                definition=f"{genre}题材下「{label}」维度的写法案例集，共 {len(bucket)} 条实例。",
+                definition=f"{genre}·{label}——{_slot_desc(concept, slot_value)}。已收 {len(bucket)} 条实例。",
                 schema_json=json.dumps(schema_fields, ensure_ascii=False),
                 origin="summary",
                 status="active",
