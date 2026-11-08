@@ -333,8 +333,18 @@ async def run_summarize(
                     if isinstance(v, str):
                         return v[:200]
                     return json.dumps(v, ensure_ascii=False)[:200]
-                fields = {k: _field_val(v) for k, v in _payload_of(m).items()
-                          if k not in SKIP_KEYS and _field_val(v)}
+                # 字段不重复正文：载体槽位键（craft/rule/text）与 name/how 都已嵌在
+                # 实例正文里（「名字：怎么写」）——再出字段行＝同一内容弹窗里填两遍
+                # （真机 2026-11-08 实锤）；只留正文之外的结构化值（章证据/可信度等）
+                _inst_text = (m.instruction or "").strip()
+                fields = {}
+                for k, v in _payload_of(m).items():
+                    if k in SKIP_KEYS:
+                        continue
+                    fv = _field_val(v)
+                    if not fv or (fv in _inst_text):
+                        continue
+                    fields[k] = fv
                 db.add(KbKnowledgeInstance(
                     knowledge_id=kid,
                     text=m.instruction or "",
