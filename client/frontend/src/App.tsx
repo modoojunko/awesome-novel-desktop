@@ -10,6 +10,7 @@ import KnowledgeBasePage from "@/pages/KnowledgeBasePage";
 import TaskListPage from "@/components/tools/TaskListPage";
 import CreateTaskPage from "@/components/tools/CreateTaskPage";
 import TaskDetailPage from "@/components/tools/TaskDetailPage";
+import RefineTaskDetailPage from "@/components/tools/RefineTaskDetailPage";
 import MemberBlockPrompt from "@/components/novel/license/MemberBlockPrompt";
 import PromptPackModal from "@/components/novel/license/PromptPackModal";
 import AuthGuard from "@/components/auth/AuthGuard";
@@ -84,6 +85,14 @@ export default function App() {
             element={
               <Authed>
                 <TaskDetailPage />
+              </Authed>
+            }
+          />
+          <Route
+            path="/tools/refine/:id"
+            element={
+              <Authed>
+                <RefineTaskDetailPage />
               </Authed>
             }
           />

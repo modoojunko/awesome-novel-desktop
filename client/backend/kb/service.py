@@ -668,14 +668,11 @@ async def list_instances_flat(
     def _src_label(raw: str) -> str:
         return "手录" if raw in ("手录", "manual") else "拆书"
 
-    def _instance_name(fields_json: str) -> str:
-        """实例名：角色实例＝角色名（archetype）；解析失败/缺失返空串。"""
-        try:
-            fields = json.loads(fields_json or "{}")
-        except ValueError:
-            return ""
-        if isinstance(fields, dict):
-            return str(fields.get("archetype") or "").strip()
+    def _instance_name(text: str) -> str:
+        """实例名：正文「实例名：一句话」的头段（角色名/锚名/打法名）；无名头返空。"""
+        idx = (text or "").find("：")
+        if 0 < idx <= 40:
+            return text[:idx].strip()
         return ""
 
     from datetime import datetime
@@ -698,8 +695,10 @@ async def list_instances_flat(
             "created_at": inst.created_at,
             # 实例详情抽屉直接渲染字段值（行即详情，不重取）
             "fields_json": inst.fields_json,
-            # 实例名：角色实例＝角色名（archetype）；其余概念暂无身份格，空串由前端兜底
-            "name": _instance_name(inst.fields_json),
+            # 知识点的字段模板（[{name,desc}]）——实例详情按模板序渲染（知识对象定义格）
+            "knowledge_schema_json": e.schema_json or "[]",
+            # 实例名：正文「实例名：一句话」的头段（模板落格后 archetype 不再进格）
+            "name": _instance_name(inst.text),
         })
     for m in mat_rows:
         rows.append({

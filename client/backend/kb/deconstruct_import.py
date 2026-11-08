@@ -272,6 +272,20 @@ def map_deconstruct_products(
             payload["steps"] = steps
         if emotion:
             payload["emotion"] = emotion
+        conf = str(item.get("confidence") or "").strip()
+        if conf in ("high", "mid", "low"):
+            payload["confidence"] = conf
+        # 打法类型（知识树 v2 场面打法分家）：归一到五类，未收录/看不清不落→兜底桶
+        _kind_norm = {
+            "大招": "大招", "大招打法": "大招", "终局": "大招",
+            "体术": "体术", "体术打法": "体术", "肉搏": "体术", "武技": "体术",
+            "兵器": "兵器", "兵器打法": "兵器", "武器": "兵器",
+            "异能": "异能", "异能打法": "异能", "法术": "异能", "超能力": "异能",
+            "群战": "群战", "群战打法": "群战", "混战": "群战",
+        }
+        raw_kind = _kind_norm.get(str(item.get("kind") or "").strip())
+        if raw_kind:
+            payload["kind"] = raw_kind
         evidence, ev_json = _ev(item.get("evidence_ch"), item.get("example") or "")
         # when 是「适用范围」不是记录字段：模型没给场面就不写，保持全章适用；
         # 硬填「日常」会让条目在打斗/对峙/无场景信号章全部落选（_match_score 丢弃 m<=0）。
@@ -293,27 +307,34 @@ def map_deconstruct_products(
         text = _text_of(item, "item", "content", "text", limit=240)
         if not text:
             continue
+        # 证据串拼原文例（评审 P2：与主卡同语义）；老产物无 example 回落 note
         evidence, ev_json = _ev(
             item.get("evidence_ch") if isinstance(item, dict) else "",
-            item.get("note") if isinstance(item, dict) else "",
+            (item.get("example") or item.get("note")) if isinstance(item, dict) else "",
         )
         add(
             "technique", "手法", text, {"instruction": text, "scene": "日常"},
-            instruction=text, evidence=evidence, evidence_json=ev_json,
+            instruction=text,
+            # boss 2026-11-08：每个手法都要有原文案例——可借鉴套路也带 example
+            example=str(item.get("example") or "") if isinstance(item, dict) else "",
+            evidence=evidence, evidence_json=ev_json,
         )
 
     for item in _items(tech.get("avoid")):
         text = _text_of(item, "item", "content", "text", limit=200)
         if not text:
             continue
+        # 证据串拼原文例（评审 P2：与主卡同语义）；老产物无 example 回落 note
         evidence, ev_json = _ev(
             item.get("evidence_ch") if isinstance(item, dict) else "",
-            item.get("note") if isinstance(item, dict) else "",
+            (item.get("example") or item.get("note")) if isinstance(item, dict) else "",
         )
         add(
             "technique", "手法", f"避免：{text}",
             {"instruction": _line(f"避免：{text}", 240), "negative": text, "scene": "日常"},
             instruction=f"避免：{text}", negative_example=text,
+            # 不建议模仿的原文案例（新契约 example；老产物 note 里的原文表现不混入）
+            example=str(item.get("example") or "") if isinstance(item, dict) else "",
             evidence=evidence, evidence_json=ev_json,
         )
 
@@ -327,7 +348,11 @@ def map_deconstruct_products(
             "technique", "手法", f"读者需求：{need}" if need else how,
             {"instruction": how, "scene": "日常"},
             instruction=how,
-            example=str(item.get("transferable") or "") if isinstance(item, dict) else "",
+            # 原文案例优先；老产物 example 缺位回落 transferable（不回归）
+            example=str(
+                (item.get("example") or item.get("transferable") or "")
+                if isinstance(item, dict) else ""
+            ),
             evidence=evidence, evidence_json=ev_json,
         )
 
@@ -540,6 +565,9 @@ def map_deconstruct_products(
         role = _line(item.get("role"), 10)
         if role:
             payload["role"] = role
+        conf = str(item.get("confidence") or "").strip()
+        if conf in ("high", "mid", "low"):
+            payload["confidence"] = conf
         persona = payload.get("persona") or name
         # 证据＝产物 evidence_ch（章号口径同其他节）；「原文未明确」哨兵不过 _ev
         # （否则包成「第原文未明确章」），置空＝抽屉不出证据节；裸产物 plot 无粘尾

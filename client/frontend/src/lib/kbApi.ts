@@ -185,7 +185,9 @@ export interface KbInstanceRow extends KbInstanceFlatRowBase {
   row_kind: "instance";
   /** 实例字段值（{字段名: 值} 的 JSON 串）——实例详情抽屉直接渲染，不重取 */
   fields_json: string;
-  /** 实例名：角色实例＝角色名；其余概念空串（前端以正文兜底） */
+  /** 所属知识点的字段模板（[{name,desc}] JSON 串）——详情按模板序渲染（知识对象定义格）；官方映射行无 */
+  knowledge_schema_json?: string;
+  /** 实例名：正文「实例名：一句话」的头段；无名头空串（前端以正文兜底） */
   name: string;
   /** 官方基线条目（前端映射行）：无归属链，点行开详情抽屉（隐藏/副本动作在那边） */
   official?: boolean;
@@ -196,6 +198,37 @@ export interface KbMaterialRow extends KbInstanceFlatRowBase {
 }
 
 export type KbInstanceFlatRow = KbInstanceRow | KbMaterialRow;
+
+/** 知识提炼任务（与拆书任务同清单；状态机 queued→running→completed/failed） */
+export interface RefineTaskStep {
+  key: string;
+  title: string;
+  detail: string;
+  time: string;
+}
+export interface RefineTaskResult {
+  staged: number;
+  moved: number;
+  nodes_created: number;
+  relations: number;
+  kept: number;
+  details?: {
+    moves?: { from_text: string; to: string }[];
+    new_nodes?: { title: string; parent_title: string; definition: string; fields: string[] }[];
+  };
+  organize_error?: string;
+}
+export interface RefineTaskRow {
+  id: string;
+  genre: string;
+  status: "queued" | "running" | "completed" | "failed";
+  error: string;
+  current_step: string;
+  timeline: RefineTaskStep[];
+  result: RefineTaskResult;
+  created_at: string;
+  updated_at: string;
+}
 
 // 后端各端点统一 {ok: true, data: ...} 信封（同 libraryApi 口径）
 async function unwrap<T>(p: Promise<unknown>): Promise<T> {
@@ -406,6 +439,25 @@ export const kbApi = {
       unwrap<{ materials_by_genre: Record<string, number>; threshold: number }>(
         request(`${BASE}/summarize/status`),
       ),
+  },
+  refine: {
+    run: (genre: string) =>
+      unwrap<{ staged: number; moved: number; nodes_created: number; kept: number; genre: string; skipped?: boolean; message?: string }>(
+        request(`${BASE}/refine/run`, { method: "POST", body: JSON.stringify({ genre }), headers: { "Content-Type": "application/json" } }),
+      ),
+  },
+  /** 知识提炼任务（原型定稿 2026-11-08）：归任务清单，提炼＋关系梳理一炉 */
+  refineTasks: {
+    create: (genre: string) =>
+      unwrap<RefineTaskRow>(
+        request(`${BASE}/refine/tasks`, { method: "POST", body: JSON.stringify({ genre }), headers: { "Content-Type": "application/json" } }),
+      ),
+    list: () =>
+      unwrap<{ tasks: RefineTaskRow[] }>(request(`${BASE}/refine/tasks`)),
+    get: (id: string) =>
+      unwrap<RefineTaskRow>(request(`${BASE}/refine/tasks/${encodeURIComponent(id)}`)),
+    delete: (id: string) =>
+      unwrap<unknown>(request(`${BASE}/refine/tasks/${encodeURIComponent(id)}`, { method: "DELETE" })),
   },
   graphTree: (genre: string) =>
     unwrap<{ roots: { id: string; kind: string; genre: string; concept: string; children: unknown[] }[]; rel_edges: { source: string; target: string; rel_type: string }[] }>(

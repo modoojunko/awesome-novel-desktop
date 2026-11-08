@@ -33,6 +33,7 @@ PRODUCTS = {
                 {
                     "need": "在庸常生活里体验可控的恐怖",
                     "how": "把公交夜班、面馆等日常场景作为灵异舞台",
+                    "example": "夜班车过水库，李耀盯着水面看了很久才踩油门",
                     "evidence_ch": "第2章",
                     "transferable": "都市题材通用",
                 }
@@ -46,13 +47,16 @@ PRODUCTS = {
                     "no_copy": "原作的司机—水库组合不可照搬",
                     "example": "先给补助再补一句是个夜班",
                     "evidence_ch": "第1章",
+                    "confidence": "high",
                 }
             ],
             "borrowable": [
-                {"item": "以日常场景作为灵异舞台", "evidence_ch": "第2章", "note": ""}
+                {"item": "以日常场景作为灵异舞台", "evidence_ch": "第2章", "note": "",
+                 "example": "面馆老板擦杯子时说今晚别接末班车"}
             ],
             "avoid": [
-                {"item": "中段密集使用同一句式", "evidence_ch": "第98章", "note": "死法疲劳"}
+                {"item": "中段密集使用同一句式", "evidence_ch": "第98章", "note": "死法疲劳",
+                 "example": "连用三次『今晚的月亮像盘子』"}
             ],
         },
     },
@@ -153,8 +157,36 @@ def test_technique_payload_carries_steps_and_evidence():
     payload = json.loads(tech.payload_json)
     assert payload["scene"] == "日常"
     assert payload["steps"] == ["先抛补助诱人", "再补一句是个夜班"]
+    assert payload["confidence"] == "high"
     assert "第1章" in tech.evidence
     assert tech.negative_example.startswith("原作的司机")
+
+
+def test_technique_every_entry_carries_example():
+    """boss 2026-11-08：每个手法都要求要有原文的案例——四族条目全带 example。"""
+    entries, _ = _map()
+    techs = [e for e in entries if e.concept == "手法"]
+    assert len(techs) == 4
+    assert all(e.example.strip() for e in techs), [
+        (e.title, e.example) for e in techs if not e.example.strip()
+    ]
+    # 读者需求：新契约 example 优先于 transferable
+    need = next(e for e in techs if e.title.startswith("读者需求"))
+    assert "水库" in need.example and need.example != "都市题材通用"
+    # 评审 P2：证据串与主卡同语义——quote 源是原文例，不是 note 理由
+    bor = next(e for e in techs if e.title == "以日常场景作为灵异舞台")
+    assert "面馆老板" in bor.evidence
+    avo = next(e for e in techs if e.title.startswith("避免："))
+    assert "月亮像盘子" in avo.evidence
+
+
+def test_reader_needs_example_falls_back_to_transferable():
+    """老产物（无 example）读者需求回落 transferable，不回归。"""
+    old = json.loads(json.dumps(PRODUCTS))
+    del old["techniques"]["data"]["reader_needs"][0]["example"]
+    entries, _ = _map(products=old)
+    need = next(e for e in entries if e.concept == "手法" and e.title.startswith("读者需求"))
+    assert need.example == "都市题材通用"
 
 
 def test_world_constraints_use_singular_part_and_hard_flag():

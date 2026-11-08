@@ -134,6 +134,8 @@ class CharacterPayload(BaseModel):
     # 知识侧标注
     relation_slot: str | None = Field(None, max_length=80)
     arc: str | None = Field(None, max_length=160)
+    # 拆书可信度（2026-11-08 与四维同口径——产物里有、此前收集时丢）
+    confidence: Literal["high", "mid", "low"] | None = None
 
 
 # ─── 手法 ────────────────────────────────────────────────
@@ -147,6 +149,11 @@ class TechniquePayload(BaseModel):
     scene: str = Field(..., max_length=20)
     emotion: str | None = Field(None, max_length=20)
     steps: list[str] | None = Field(None, max_length=5)
+    # 2026-11-08 与文风/文笔/世界同口径：拆书可信度随实例走（此前产物里有、收集时丢）
+    confidence: Literal["high", "mid", "low"] | None = None
+    # 打法类型（boss 2026-11-08 知识树 v2：场面打法分家——拆书照树拆自报归属；
+    # 收集端归一后才落，未知类型在收集侧剔除落兜底桶）
+    kind: Literal["大招", "体术", "兵器", "异能", "群战"] | None = None
 
 
 # ─── 情节（P1 占位，本期拒收） ──────────────────────────

@@ -1,24 +1,959 @@
 {
-  "$comment": "发版知识树（boss 2026-11-08 拍板：知识的层次与定义＝数据，随 C 端发版分发；实际案例由拆书输出；定期总结任务按 slot_map 建立归属）。nodes: key → {concept, title, definition, parent}；slot_map: \"类别|槽位值\" → 节点 key。改树＝改这份数据随版本走，不动代码。",
+  "$comment": "发版知识树 v2（boss 2026-11-08 拍板：单根一棵树，知识点先行建模随 C 端发版分发；拆书照模板出实例自报归属，实例按节点 schema 落格）。节点＝{concept,title,definition,parent,fields}；fields＝字段模板（像数据库 schema）：name 格名 / desc 说明 / type text|enum / enum 值域 / from 从拆书产物 payload 取值的键（首取非空） / join 多键拼接符 / transform 值转换（conf_label: high→高 mid→中 low→低；hard_label: true→铁律级 false→普通） / required 必填（拆书产物缺失则该格留空）。from=[] 表示暂无自动来源（手录/整理可填）。固定列不进格：正文（名字：一句话）、原文案例、章证据、出处书。改树＝改这份数据随版本走，不动代码。",
   "nodes": {
-    "craft_root": { "concept": "文笔", "title": "笔法", "definition": "这本书怎么落笔：声音、句法与场面写法的总纲。", "parent": "" },
-    "style_role": { "concept": "文风", "title": "叙事身份", "definition": "这本书用什么声音讲故事（人称/视角/语感）——一书一条。", "parent": "craft_root" },
-    "style_rules": { "concept": "文风", "title": "声音招式", "definition": "这本书的声音招式——一条场景规则一条实例（战斗短句、悲喜交替这类）。", "parent": "craft_root" },
-    "craft_craft": { "concept": "文笔", "title": "笔法招式", "definition": "句法层面的具体笔法——一条笔法一条实例（具象比喻、拟声造压这类）。", "parent": "craft_root" },
-    "craft_rule": { "concept": "文笔", "title": "句法规矩与忌用", "definition": "句子层面的写法规矩与忌用——一条规矩或一条忌用一条实例。", "parent": "craft_root" },
-    "tech_fallback": { "concept": "手法", "title": "场面打法", "definition": "写每一章时的场面打法与读者体验设计——一条打法一条实例。", "parent": "" },
-    "world_root": { "concept": "世界设定", "title": "世界", "definition": "这个故事的世界本身：舞台、力量、势力与它的过去。", "parent": "" },
-    "world_stage": { "concept": "世界设定", "title": "舞台", "definition": "故事发生在哪、地理与时代底盘的设定实例。", "parent": "world_root" },
-    "world_power": { "concept": "世界设定", "title": "力量体系与规矩", "definition": "这个世界的能力体系与运行规矩——一条规矩一条实例。", "parent": "world_root" },
-    "world_cost": { "concept": "世界设定", "title": "代价", "definition": "使用力量要付出什么——一条代价一条实例。", "parent": "world_root" },
-    "world_history": { "concept": "世界设定", "title": "历史沿革", "definition": "世界过去发生过的大事——一条事件一条实例。", "parent": "world_root" },
-    "world_factions": { "concept": "世界设定", "title": "势力", "definition": "世界里的组织与阵营——一势力一条实例。", "parent": "world_root" },
-    "world_constraint": { "concept": "世界设定", "title": "约束", "definition": "这个世界铁律级的硬约束——一条一条实例。", "parent": "world_root" },
-    "world_extra": { "concept": "世界设定", "title": "更多世界细节", "definition": "舞台/力量/势力之外的零散世界细节。", "parent": "world_root" },
-    "char_protagonist": { "concept": "角色设定", "title": "主角", "definition": "书里担主角位置的角色实例——一人一条，含人设/背景/剧情线。", "parent": "" },
-    "char_supporting": { "concept": "角色设定", "title": "配角", "definition": "书里担配角位置的角色实例。", "parent": "" },
-    "char_antagonist": { "concept": "角色设定", "title": "反派", "definition": "书里担反派位置的角色实例。", "parent": "" },
-    "char_core": { "concept": "角色设定", "title": "核心", "definition": "故事核心位置的角色。", "parent": "" }
+    "kb_root": {
+      "concept": "",
+      "title": "写作知识",
+      "definition": "这本书学到的写法与设定知识——全树根。",
+      "parent": "",
+      "fields": []
+    },
+    "craft_root": {
+      "concept": "文笔",
+      "title": "笔法",
+      "definition": "这本书怎么落笔：声音、句法与场面写法的总纲。",
+      "parent": "kb_root",
+      "fields": []
+    },
+    "style_role": {
+      "concept": "文风",
+      "title": "叙事身份",
+      "definition": "这本书用什么声音讲故事（人称/视角/语感）——一书一条。",
+      "parent": "craft_root",
+      "fields": [
+        {
+          "name": "可信度",
+          "desc": "拆书时判定的可信程度",
+          "type": "enum",
+          "enum": [
+            "高",
+            "中",
+            "低"
+          ],
+          "from": [
+            "confidence"
+          ],
+          "transform": "conf_label"
+        }
+      ]
+    },
+    "style_rules": {
+      "concept": "文风",
+      "title": "声音招式",
+      "definition": "这本书的声音招式——一条场景规则一条实例（战斗短句、悲喜交替这类）。",
+      "parent": "craft_root",
+      "fields": [
+        {
+          "name": "可信度",
+          "desc": "拆书时判定的可信程度",
+          "type": "enum",
+          "enum": [
+            "高",
+            "中",
+            "低"
+          ],
+          "from": [
+            "confidence"
+          ],
+          "transform": "conf_label"
+        }
+      ]
+    },
+    "craft_craft": {
+      "concept": "文笔",
+      "title": "笔法招式",
+      "definition": "句法层面的具体笔法——一条笔法一条实例（具象比喻、拟声造压这类）。",
+      "parent": "craft_root",
+      "fields": [
+        {
+          "name": "可信度",
+          "desc": "拆书时判定的可信程度",
+          "type": "enum",
+          "enum": [
+            "高",
+            "中",
+            "低"
+          ],
+          "from": [
+            "confidence"
+          ],
+          "transform": "conf_label"
+        }
+      ]
+    },
+    "craft_rule": {
+      "concept": "文笔",
+      "title": "句法规矩与忌用",
+      "definition": "句子层面的写法规矩与忌用——一条规矩或一条忌用一条实例。",
+      "parent": "craft_root",
+      "fields": [
+        {
+          "name": "替代写法",
+          "desc": "犯了忌之后换成什么写法",
+          "type": "text",
+          "from": [
+            "banned_alt"
+          ]
+        },
+        {
+          "name": "严重度",
+          "desc": "这个口癖/忌用有多伤",
+          "type": "enum",
+          "enum": [
+            "高",
+            "中",
+            "低"
+          ],
+          "from": [
+            "tic_severity"
+          ],
+          "transform": "sev_label"
+        },
+        {
+          "name": "可信度",
+          "desc": "拆书时判定的可信程度",
+          "type": "enum",
+          "enum": [
+            "高",
+            "中",
+            "低"
+          ],
+          "from": [
+            "confidence"
+          ],
+          "transform": "conf_label"
+        }
+      ]
+    },
+    "tech_fallback": {
+      "concept": "手法",
+      "title": "场面打法",
+      "definition": "写每一章时的场面打法——按打法类型分家，一条打法一条实例。",
+      "parent": "craft_root",
+      "fields": []
+    },
+    "world_root": {
+      "concept": "世界设定",
+      "title": "世界",
+      "definition": "这个故事的世界本身：舞台、力量、势力与它的过去。",
+      "parent": "kb_root",
+      "fields": []
+    },
+    "world_stage": {
+      "concept": "世界设定",
+      "title": "舞台",
+      "definition": "故事发生在哪、地理与时代底盘的设定实例。",
+      "parent": "world_root",
+      "fields": [
+        {
+          "name": "硬度",
+          "desc": "是不是铁律级的设定",
+          "type": "enum",
+          "enum": [
+            "铁律级",
+            "普通"
+          ],
+          "from": [
+            "hard"
+          ],
+          "transform": "hard_label"
+        },
+        {
+          "name": "可信度",
+          "desc": "拆书时判定的可信程度",
+          "type": "enum",
+          "enum": [
+            "高",
+            "中",
+            "低"
+          ],
+          "from": [
+            "confidence"
+          ],
+          "transform": "conf_label"
+        }
+      ]
+    },
+    "world_power": {
+      "concept": "世界设定",
+      "title": "力量体系与规矩",
+      "definition": "这个世界的能力体系与运行规矩——一条规矩一条实例。",
+      "parent": "world_root",
+      "fields": [
+        {
+          "name": "硬度",
+          "desc": "是不是铁律级的设定",
+          "type": "enum",
+          "enum": [
+            "铁律级",
+            "普通"
+          ],
+          "from": [
+            "hard"
+          ],
+          "transform": "hard_label"
+        },
+        {
+          "name": "可信度",
+          "desc": "拆书时判定的可信程度",
+          "type": "enum",
+          "enum": [
+            "高",
+            "中",
+            "低"
+          ],
+          "from": [
+            "confidence"
+          ],
+          "transform": "conf_label"
+        }
+      ]
+    },
+    "world_cost": {
+      "concept": "世界设定",
+      "title": "代价",
+      "definition": "使用力量要付出什么——一条代价一条实例。",
+      "parent": "world_root",
+      "fields": [
+        {
+          "name": "硬度",
+          "desc": "是不是铁律级的设定",
+          "type": "enum",
+          "enum": [
+            "铁律级",
+            "普通"
+          ],
+          "from": [
+            "hard"
+          ],
+          "transform": "hard_label"
+        },
+        {
+          "name": "可信度",
+          "desc": "拆书时判定的可信程度",
+          "type": "enum",
+          "enum": [
+            "高",
+            "中",
+            "低"
+          ],
+          "from": [
+            "confidence"
+          ],
+          "transform": "conf_label"
+        }
+      ]
+    },
+    "world_history": {
+      "concept": "世界设定",
+      "title": "历史沿革",
+      "definition": "世界过去发生过的大事——一条事件一条实例。",
+      "parent": "world_root",
+      "fields": [
+        {
+          "name": "硬度",
+          "desc": "是不是铁律级的设定",
+          "type": "enum",
+          "enum": [
+            "铁律级",
+            "普通"
+          ],
+          "from": [
+            "hard"
+          ],
+          "transform": "hard_label"
+        },
+        {
+          "name": "可信度",
+          "desc": "拆书时判定的可信程度",
+          "type": "enum",
+          "enum": [
+            "高",
+            "中",
+            "低"
+          ],
+          "from": [
+            "confidence"
+          ],
+          "transform": "conf_label"
+        }
+      ]
+    },
+    "world_factions": {
+      "concept": "世界设定",
+      "title": "势力",
+      "definition": "世界里的组织与阵营——一势力一条实例。",
+      "parent": "world_root",
+      "fields": [
+        {
+          "name": "硬度",
+          "desc": "是不是铁律级的设定",
+          "type": "enum",
+          "enum": [
+            "铁律级",
+            "普通"
+          ],
+          "from": [
+            "hard"
+          ],
+          "transform": "hard_label"
+        },
+        {
+          "name": "可信度",
+          "desc": "拆书时判定的可信程度",
+          "type": "enum",
+          "enum": [
+            "高",
+            "中",
+            "低"
+          ],
+          "from": [
+            "confidence"
+          ],
+          "transform": "conf_label"
+        }
+      ]
+    },
+    "world_constraint": {
+      "concept": "世界设定",
+      "title": "约束",
+      "definition": "这个世界铁律级的硬约束——一条一条实例。",
+      "parent": "world_root",
+      "fields": [
+        {
+          "name": "硬度",
+          "desc": "是不是铁律级的设定",
+          "type": "enum",
+          "enum": [
+            "铁律级",
+            "普通"
+          ],
+          "from": [
+            "hard"
+          ],
+          "transform": "hard_label"
+        },
+        {
+          "name": "可信度",
+          "desc": "拆书时判定的可信程度",
+          "type": "enum",
+          "enum": [
+            "高",
+            "中",
+            "低"
+          ],
+          "from": [
+            "confidence"
+          ],
+          "transform": "conf_label"
+        }
+      ]
+    },
+    "world_extra": {
+      "concept": "世界设定",
+      "title": "更多世界细节",
+      "definition": "舞台/力量/势力之外的零散世界细节。",
+      "parent": "world_root",
+      "fields": [
+        {
+          "name": "硬度",
+          "desc": "是不是铁律级的设定",
+          "type": "enum",
+          "enum": [
+            "铁律级",
+            "普通"
+          ],
+          "from": [
+            "hard"
+          ],
+          "transform": "hard_label"
+        },
+        {
+          "name": "可信度",
+          "desc": "拆书时判定的可信程度",
+          "type": "enum",
+          "enum": [
+            "高",
+            "中",
+            "低"
+          ],
+          "from": [
+            "confidence"
+          ],
+          "transform": "conf_label"
+        }
+      ]
+    },
+    "char_root": {
+      "concept": "角色设定",
+      "title": "角色",
+      "definition": "书里的人物——按位置分家，一人一条。",
+      "parent": "kb_root",
+      "fields": []
+    },
+    "char_protagonist": {
+      "concept": "角色设定",
+      "title": "主角",
+      "definition": "书里担主角位置的角色实例——一人一条，含人设/背景/剧情线。",
+      "parent": "char_root",
+      "fields": [
+        {
+          "name": "基本信息",
+          "desc": "性别、年纪、种族等基本盘",
+          "type": "text",
+          "from": [
+            "gender",
+            "age",
+            "race"
+          ],
+          "join": "·"
+        },
+        {
+          "name": "别名",
+          "desc": "书里对这个角色的其他称呼",
+          "type": "text",
+          "from": [
+            "aliases"
+          ],
+          "join": "、"
+        },
+        {
+          "name": "外貌与声音",
+          "desc": "长什么样、说话什么味道",
+          "type": "text",
+          "from": [
+            "look",
+            "speech"
+          ],
+          "join": "；"
+        },
+        {
+          "name": "背景来历",
+          "desc": "从哪来、经历过什么",
+          "type": "text",
+          "from": [
+            "background"
+          ]
+        },
+        {
+          "name": "剧情牵扯",
+          "desc": "在主线里经历了什么、怎么变",
+          "type": "text",
+          "from": [
+            "plot"
+          ]
+        },
+        {
+          "name": "阵营",
+          "desc": "站在哪一方",
+          "type": "text",
+          "from": [
+            "faction"
+          ]
+        },
+        {
+          "name": "关系网",
+          "desc": "和谁是什么关系（暂无自动来源，手录/整理补）",
+          "type": "text",
+          "from": []
+        },
+        {
+          "name": "可信度",
+          "desc": "拆书时判定的可信程度",
+          "type": "enum",
+          "enum": [
+            "高",
+            "中",
+            "低"
+          ],
+          "from": [
+            "confidence"
+          ],
+          "transform": "conf_label"
+        }
+      ]
+    },
+    "char_supporting": {
+      "concept": "角色设定",
+      "title": "配角",
+      "definition": "书里担配角位置的角色实例。",
+      "parent": "char_root",
+      "fields": [
+        {
+          "name": "基本信息",
+          "desc": "性别、年纪、种族等基本盘",
+          "type": "text",
+          "from": [
+            "gender",
+            "age",
+            "race"
+          ],
+          "join": "·"
+        },
+        {
+          "name": "别名",
+          "desc": "书里对这个角色的其他称呼",
+          "type": "text",
+          "from": [
+            "aliases"
+          ],
+          "join": "、"
+        },
+        {
+          "name": "外貌与声音",
+          "desc": "长什么样、说话什么味道",
+          "type": "text",
+          "from": [
+            "look",
+            "speech"
+          ],
+          "join": "；"
+        },
+        {
+          "name": "背景来历",
+          "desc": "从哪来、经历过什么",
+          "type": "text",
+          "from": [
+            "background"
+          ]
+        },
+        {
+          "name": "剧情牵扯",
+          "desc": "在主线里经历了什么、怎么变",
+          "type": "text",
+          "from": [
+            "plot"
+          ]
+        },
+        {
+          "name": "阵营",
+          "desc": "站在哪一方",
+          "type": "text",
+          "from": [
+            "faction"
+          ]
+        },
+        {
+          "name": "关系网",
+          "desc": "和谁是什么关系（暂无自动来源，手录/整理补）",
+          "type": "text",
+          "from": []
+        },
+        {
+          "name": "可信度",
+          "desc": "拆书时判定的可信程度",
+          "type": "enum",
+          "enum": [
+            "高",
+            "中",
+            "低"
+          ],
+          "from": [
+            "confidence"
+          ],
+          "transform": "conf_label"
+        }
+      ]
+    },
+    "char_antagonist": {
+      "concept": "角色设定",
+      "title": "反派",
+      "definition": "书里担反派位置的角色实例。",
+      "parent": "char_root",
+      "fields": [
+        {
+          "name": "基本信息",
+          "desc": "性别、年纪、种族等基本盘",
+          "type": "text",
+          "from": [
+            "gender",
+            "age",
+            "race"
+          ],
+          "join": "·"
+        },
+        {
+          "name": "别名",
+          "desc": "书里对这个角色的其他称呼",
+          "type": "text",
+          "from": [
+            "aliases"
+          ],
+          "join": "、"
+        },
+        {
+          "name": "外貌与声音",
+          "desc": "长什么样、说话什么味道",
+          "type": "text",
+          "from": [
+            "look",
+            "speech"
+          ],
+          "join": "；"
+        },
+        {
+          "name": "背景来历",
+          "desc": "从哪来、经历过什么",
+          "type": "text",
+          "from": [
+            "background"
+          ]
+        },
+        {
+          "name": "剧情牵扯",
+          "desc": "在主线里经历了什么、怎么变",
+          "type": "text",
+          "from": [
+            "plot"
+          ]
+        },
+        {
+          "name": "阵营",
+          "desc": "站在哪一方",
+          "type": "text",
+          "from": [
+            "faction"
+          ]
+        },
+        {
+          "name": "关系网",
+          "desc": "和谁是什么关系（暂无自动来源，手录/整理补）",
+          "type": "text",
+          "from": []
+        },
+        {
+          "name": "可信度",
+          "desc": "拆书时判定的可信程度",
+          "type": "enum",
+          "enum": [
+            "高",
+            "中",
+            "低"
+          ],
+          "from": [
+            "confidence"
+          ],
+          "transform": "conf_label"
+        }
+      ]
+    },
+    "char_core": {
+      "concept": "角色设定",
+      "title": "核心",
+      "definition": "故事核心位置的角色。",
+      "parent": "char_root",
+      "fields": [
+        {
+          "name": "基本信息",
+          "desc": "性别、年纪、种族等基本盘",
+          "type": "text",
+          "from": [
+            "gender",
+            "age",
+            "race"
+          ],
+          "join": "·"
+        },
+        {
+          "name": "别名",
+          "desc": "书里对这个角色的其他称呼",
+          "type": "text",
+          "from": [
+            "aliases"
+          ],
+          "join": "、"
+        },
+        {
+          "name": "外貌与声音",
+          "desc": "长什么样、说话什么味道",
+          "type": "text",
+          "from": [
+            "look",
+            "speech"
+          ],
+          "join": "；"
+        },
+        {
+          "name": "背景来历",
+          "desc": "从哪来、经历过什么",
+          "type": "text",
+          "from": [
+            "background"
+          ]
+        },
+        {
+          "name": "剧情牵扯",
+          "desc": "在主线里经历了什么、怎么变",
+          "type": "text",
+          "from": [
+            "plot"
+          ]
+        },
+        {
+          "name": "阵营",
+          "desc": "站在哪一方",
+          "type": "text",
+          "from": [
+            "faction"
+          ]
+        },
+        {
+          "name": "关系网",
+          "desc": "和谁是什么关系（暂无自动来源，手录/整理补）",
+          "type": "text",
+          "from": []
+        },
+        {
+          "name": "可信度",
+          "desc": "拆书时判定的可信程度",
+          "type": "enum",
+          "enum": [
+            "高",
+            "中",
+            "低"
+          ],
+          "from": [
+            "confidence"
+          ],
+          "transform": "conf_label"
+        }
+      ]
+    },
+    "tech_finisher": {
+      "concept": "手法",
+      "title": "大招打法",
+      "definition": "终局级大招怎么打——蓄力、爆发、代价呈现——一条打法一条实例。",
+      "parent": "tech_fallback",
+      "fields": [
+        {
+          "name": "适用场面",
+          "desc": "这条打法用在什么场面",
+          "type": "text",
+          "from": [
+            "scene"
+          ]
+        },
+        {
+          "name": "情绪链",
+          "desc": "想让读者经历什么情绪（如 放松—意外—不安）",
+          "type": "text",
+          "from": [
+            "emotion"
+          ]
+        },
+        {
+          "name": "可信度",
+          "desc": "拆书时判定的可信程度",
+          "type": "enum",
+          "enum": [
+            "高",
+            "中",
+            "低"
+          ],
+          "from": [
+            "confidence"
+          ],
+          "transform": "conf_label"
+        }
+      ]
+    },
+    "tech_body": {
+      "concept": "手法",
+      "title": "体术打法",
+      "definition": "贴身肉搏与武技对拼的场面写法——一条打法一条实例。",
+      "parent": "tech_fallback",
+      "fields": [
+        {
+          "name": "适用场面",
+          "desc": "这条打法用在什么场面",
+          "type": "text",
+          "from": [
+            "scene"
+          ]
+        },
+        {
+          "name": "情绪链",
+          "desc": "想让读者经历什么情绪（如 放松—意外—不安）",
+          "type": "text",
+          "from": [
+            "emotion"
+          ]
+        },
+        {
+          "name": "可信度",
+          "desc": "拆书时判定的可信程度",
+          "type": "enum",
+          "enum": [
+            "高",
+            "中",
+            "低"
+          ],
+          "from": [
+            "confidence"
+          ],
+          "transform": "conf_label"
+        }
+      ]
+    },
+    "tech_weapon": {
+      "concept": "手法",
+      "title": "兵器打法",
+      "definition": "兵器交手的场面写法——一条打法一条实例。",
+      "parent": "tech_fallback",
+      "fields": [
+        {
+          "name": "适用场面",
+          "desc": "这条打法用在什么场面",
+          "type": "text",
+          "from": [
+            "scene"
+          ]
+        },
+        {
+          "name": "情绪链",
+          "desc": "想让读者经历什么情绪（如 放松—意外—不安）",
+          "type": "text",
+          "from": [
+            "emotion"
+          ]
+        },
+        {
+          "name": "可信度",
+          "desc": "拆书时判定的可信程度",
+          "type": "enum",
+          "enum": [
+            "高",
+            "中",
+            "低"
+          ],
+          "from": [
+            "confidence"
+          ],
+          "transform": "conf_label"
+        }
+      ]
+    },
+    "tech_power": {
+      "concept": "手法",
+      "title": "异能打法",
+      "definition": "超常能力对拼的场面写法——一条打法一条实例。",
+      "parent": "tech_fallback",
+      "fields": [
+        {
+          "name": "适用场面",
+          "desc": "这条打法用在什么场面",
+          "type": "text",
+          "from": [
+            "scene"
+          ]
+        },
+        {
+          "name": "情绪链",
+          "desc": "想让读者经历什么情绪（如 放松—意外—不安）",
+          "type": "text",
+          "from": [
+            "emotion"
+          ]
+        },
+        {
+          "name": "可信度",
+          "desc": "拆书时判定的可信程度",
+          "type": "enum",
+          "enum": [
+            "高",
+            "中",
+            "低"
+          ],
+          "from": [
+            "confidence"
+          ],
+          "transform": "conf_label"
+        }
+      ]
+    },
+    "tech_group": {
+      "concept": "手法",
+      "title": "群战打法",
+      "definition": "多方混战的场面调度写法——一条打法一条实例。",
+      "parent": "tech_fallback",
+      "fields": [
+        {
+          "name": "适用场面",
+          "desc": "这条打法用在什么场面",
+          "type": "text",
+          "from": [
+            "scene"
+          ]
+        },
+        {
+          "name": "情绪链",
+          "desc": "想让读者经历什么情绪（如 放松—意外—不安）",
+          "type": "text",
+          "from": [
+            "emotion"
+          ]
+        },
+        {
+          "name": "可信度",
+          "desc": "拆书时判定的可信程度",
+          "type": "enum",
+          "enum": [
+            "高",
+            "中",
+            "低"
+          ],
+          "from": [
+            "confidence"
+          ],
+          "transform": "conf_label"
+        }
+      ]
+    },
+    "tech_more": {
+      "concept": "手法",
+      "title": "更多场面打法",
+      "definition": "上面装不下的场面打法（兜底）。",
+      "parent": "tech_fallback",
+      "fields": [
+        {
+          "name": "适用场面",
+          "desc": "这条打法用在什么场面",
+          "type": "text",
+          "from": [
+            "scene"
+          ]
+        },
+        {
+          "name": "情绪链",
+          "desc": "想让读者经历什么情绪（如 放松—意外—不安）",
+          "type": "text",
+          "from": [
+            "emotion"
+          ]
+        },
+        {
+          "name": "可信度",
+          "desc": "拆书时判定的可信程度",
+          "type": "enum",
+          "enum": [
+            "高",
+            "中",
+            "低"
+          ],
+          "from": [
+            "confidence"
+          ],
+          "transform": "conf_label"
+        }
+      ]
+    },
+    "kb_other": {
+      "concept": "",
+      "title": "其他",
+      "definition": "拆书直接输出的原始材料暂存——提炼任务从这里把知识归类进树；树上没有的知识由提炼识别并长出新节点。",
+      "parent": "kb_root",
+      "fields": []
+    }
   },
   "slot_map": {
     "文风|role": "style_role",
@@ -29,9 +964,9 @@
     "文笔|写法": "craft_craft",
     "文笔|rule": "craft_rule",
     "文笔|规则": "craft_rule",
-    "手法|": "tech_fallback",
-    "手法|写法": "tech_fallback",
-    "手法|场面打法": "tech_fallback",
+    "手法|": "tech_more",
+    "手法|写法": "tech_more",
+    "手法|场面打法": "tech_more",
     "世界设定|stage": "world_stage",
     "世界设定|power": "world_power",
     "世界设定|cost": "world_cost",
@@ -39,11 +974,19 @@
     "世界设定|factions": "world_factions",
     "世界设定|constraint": "world_constraint",
     "世界设定|extra": "world_extra",
-    "世界设定|力量与规则": "world_power",
-    "世界设定|补充设定": "world_extra",
     "角色设定|主角": "char_protagonist",
     "角色设定|配角": "char_supporting",
     "角色设定|反派": "char_antagonist",
-    "角色设定|核心": "char_core"
+    "角色设定|核心": "char_core",
+    "手法|大招": "tech_finisher",
+    "手法|大招打法": "tech_finisher",
+    "手法|体术": "tech_body",
+    "手法|体术打法": "tech_body",
+    "手法|兵器": "tech_weapon",
+    "手法|兵器打法": "tech_weapon",
+    "手法|异能": "tech_power",
+    "手法|异能打法": "tech_power",
+    "手法|群战": "tech_group",
+    "手法|群战打法": "tech_group"
   }
 }

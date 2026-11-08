@@ -1,4 +1,5 @@
-// 知识库页「知识整理」入口接线测试（c-kb-organize 批D）：按钮开面板/genre 传递/关闭回调。
+// 知识库页「知识提炼」入口接线测试（原型定稿 2026-11-08）：
+// 单按钮 → 确认弹窗 → 开始提炼建任务 → toast；「知识整理」独立入口退役。
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
@@ -17,10 +18,8 @@ const api = vi.hoisted(() => ({
   genres: vi.fn(),
   entries: vi.fn(),
   libraries: vi.fn(),
-  concepts: vi.fn(),
-  organizeStatus: vi.fn(),
-  organizeFindings: vi.fn(),
-  organizeRun: vi.fn(),
+  instancesFlat: vi.fn(),
+  refineCreate: vi.fn(),
 }));
 
 vi.mock("@/lib/kbApi", async (orig) => {
@@ -32,29 +31,17 @@ vi.mock("@/lib/kbApi", async (orig) => {
       genres: api.genres,
       entries: api.entries,
       libraries: api.libraries,
-      concepts: api.concepts,
-      organize: {
-        status: api.organizeStatus,
-        findings: api.organizeFindings,
-        run: api.organizeRun,
-        adoptFinding: vi.fn(), ignoreFinding: vi.fn(),
-        adoptRelation: vi.fn(), rejectRelation: vi.fn(),
-        relationFeedback: vi.fn(), graphEntries: vi.fn().mockResolvedValue({ nodes: [], edges: [], edge_count: 0, edge_truncated: 0, genre: "" }),
+      instancesFlat: api.instancesFlat,
+      refineTasks: {
+        ...actual.kbApi.refineTasks,
+        create: api.refineCreate,
       },
     },
   };
 });
 
-vi.mock("force-graph", () => ({ default: vi.fn(() => {
-  const inst: Record<string, ReturnType<typeof vi.fn>> = {};
-  for (const k of ["graphData", "nodeColor", "nodeLabel", "nodeVal", "linkColor", "linkWidth", "nodeId", "onLinkClick", "width", "height", "zoomToFit"]) inst[k] = vi.fn().mockReturnValue(inst);
-  return inst;
-}) }));
-
 import KnowledgeBasePage from "@/pages/KnowledgeBasePage";
 
-// c-charlib-into-kb：页组件引入 useSearchParams/useCharacterLibrary 后，
-// 渲染必须挂 Router＋QueryClient 上下文（既有裸渲染统一走这里）。
 function renderPage(ui: React.ReactElement = <KnowledgeBasePage />, opts: { route?: string } = {}) {
   const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   return render(
@@ -64,17 +51,12 @@ function renderPage(ui: React.ReactElement = <KnowledgeBasePage />, opts: { rout
   );
 }
 
-
 beforeEach(() => {
   libApi.listLibrary.mockResolvedValue({ count: 0, items: [] });
   api.genres.mockResolvedValue([{ name: "玄幻", count: 1 }]);
   api.entries.mockResolvedValue({ entries: [], next_cursor: "" });
   api.libraries.mockResolvedValue([]);
-  api.concepts.mockResolvedValue({ concepts: [], themes: [] });
-  api.organizeStatus.mockResolvedValue({
-    genre: "玄幻", running: false, last_run: null, pending_relations: 0, proposed_findings: 0,
-  });
-  api.organizeFindings.mockResolvedValue({ relations: [], findings: [], counts: { relations: 0, findings: 0 } });
+  api.instancesFlat.mockResolvedValue({ ok: true, rows: [] });
 });
 
 afterEach(() => {
@@ -82,41 +64,43 @@ afterEach(() => {
   vi.clearAllMocks();
 });
 
-describe("知识库页整理入口", () => {
-  it("面板整理完成触发 onChanged（重载列表/库）", async () => {
-    api.organizeRun.mockResolvedValue({ status: "completed", relations_added: 2 });
+describe("知识库页知识提炼入口（单按钮＋确认弹窗＋任务化）", () => {
+  it("点按钮开确认弹窗（两步说明在案），确认建任务＋toast，不自动跳页", async () => {
+    api.refineCreate.mockResolvedValue({ id: "t1", genre: "玄幻", status: "queued" });
     renderPage();
-    await waitFor(() => expect(screen.getByText("知识整理")).toBeTruthy());
-    const entriesCallsBefore = api.entries.mock.calls.length;
-    fireEvent.click(screen.getByText("知识整理"));
-    await waitFor(() => expect(screen.getByTestId("kb-organize-panel")).toBeTruthy());
-    fireEvent.click(screen.getByText("立即整理"));
-    await waitFor(() => expect(api.organizeRun).toHaveBeenCalledWith("玄幻"));
-    await waitFor(() => expect(api.entries.mock.calls.length).toBeGreaterThan(entriesCallsBefore));
-    // 库分组卡已按原型退役——onChanged 只重载条目/实例
+    await waitFor(() => expect(screen.getByTestId("kb-refine-btn")).toBeTruthy());
+    // 旧「知识整理」入口退役
+    expect(screen.queryByText("知识整理")).toBeNull();
+    fireEvent.click(screen.getByTestId("kb-refine-btn"));
+    await waitFor(() => expect(screen.getByTestId("kb-refine-modal")).toBeTruthy());
+    // 两步说明在案
+    expect(screen.getByText("归类进树")).toBeTruthy();
+    expect(screen.getByText("梳理关系")).toBeTruthy();
+    fireEvent.click(screen.getByTestId("kb-refine-start"));
+    await waitFor(() => expect(api.refineCreate).toHaveBeenCalledWith(""));
+    await waitFor(() => expect(screen.getByTestId("kb-toast")).toBeTruthy());
+    expect(screen.getByText("知识提炼任务已开始")).toBeTruthy();
+    expect(screen.queryByTestId("kb-refine-modal")).toBeNull();
   });
 
-  it("具体题材直传整理面板（genre 三元两臂全覆盖）", async () => {
+  it("全部题材臂：空串题材直传（genre 三元两臂）", async () => {
+    api.refineCreate.mockResolvedValue({ id: "t2", genre: "", status: "queued" });
     renderPage();
-    await waitFor(() => expect(screen.getByText("知识整理")).toBeTruthy());
-    // 左栏点具体题材 → genre="玄幻" → 直传臂
-    const genreBtn = screen.getAllByRole("button").find((b) => b.textContent === "玄幻"
-      && !b.textContent.includes("整理"));
-    if (genreBtn) fireEvent.click(genreBtn);
-    await waitFor(() => expect(screen.getByText("知识整理")).toBeTruthy());
-    fireEvent.click(screen.getByText("知识整理"));
-    await waitFor(() => expect(screen.getByTestId("kb-organize-panel")).toBeTruthy());
-    expect(api.organizeStatus).toHaveBeenCalledWith("玄幻");
-    fireEvent.click(screen.getByLabelText("关闭"));
+    await waitFor(() => expect(screen.getByTestId("kb-refine-btn")).toBeTruthy());
+    fireEvent.click(screen.getByTestId("kb-refine-btn"));
+    await waitFor(() => expect(screen.getByTestId("kb-refine-modal")).toBeTruthy());
+    fireEvent.click(screen.getByTestId("kb-refine-start"));
+    await waitFor(() => expect(api.refineCreate).toHaveBeenCalledWith(""));
   });
 
-  it("按钮开整理面板（默认题材兜底玄幻）并关闭", async () => {
+  it("重复任务被拒（409 语义）→ 弹窗收起给提示，不弹 toast", async () => {
+    api.refineCreate.mockRejectedValue(new Error("该题材已有进行中的知识提炼任务"));
     renderPage();
-    await waitFor(() => expect(screen.getByText("知识整理")).toBeTruthy());
-    fireEvent.click(screen.getByText("知识整理"));
-    await waitFor(() => expect(screen.getByTestId("kb-organize-panel")).toBeTruthy());
-    expect(api.organizeStatus).toHaveBeenCalledWith("玄幻");
-    fireEvent.click(screen.getByLabelText("关闭"));
-    expect(screen.queryByTestId("kb-organize-panel")).toBeNull();
+    await waitFor(() => expect(screen.getByTestId("kb-refine-btn")).toBeTruthy());
+    fireEvent.click(screen.getByTestId("kb-refine-btn"));
+    await waitFor(() => expect(screen.getByTestId("kb-refine-modal")).toBeTruthy());
+    fireEvent.click(screen.getByTestId("kb-refine-start"));
+    await waitFor(() => expect(screen.queryByTestId("kb-refine-modal")).toBeNull());
+    expect(screen.queryByTestId("kb-toast")).toBeNull();
   });
 });

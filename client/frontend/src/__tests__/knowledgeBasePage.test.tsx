@@ -248,10 +248,10 @@ describe("KnowledgeBasePage 详情抽屉", () => {
     expect(defSection.textContent).not.toContain("先写结果");
   });
 
-  it("视图切换臂：列表/星图 setView 可点", async () => {
+  it("视图切换臂：列表/树 setView 可点", async () => {
     renderPage();
     await openFallbackArm();
-    fireEvent.click(screen.getByText("星图"));
+    fireEvent.click(screen.getByText("树"));
     await waitFor(() => expect(screen.getByText("列表")).toBeTruthy());
     fireEvent.click(screen.getByText("列表"));
     await waitFor(() => expect(screen.getAllByText(/刘望津/).length).toBeGreaterThan(0));

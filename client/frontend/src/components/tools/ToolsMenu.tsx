@@ -4,6 +4,7 @@ import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { useNavigate } from "react-router-dom";
 import { isActiveTask, useDeconstructTasks } from "../../hooks/useDeconstructTasks";
+import { isActiveRefine, useRefineTasks } from "../../hooks/useRefineTasks";
 import { useSeenTaskIds } from "../../lib/toolsBadgeSeen";
 
 /** 徽标口径（c-tools-badge-seen）：进行中/排队/建书中恒计（后台心跳）；已完成未取只在
@@ -12,9 +13,14 @@ export function useToolsBadge(): number {
   const { data } = useDeconstructTasks();
   const tasks = data?.tasks ?? [];
   const seen = useSeenTaskIds();
+  const { data: refineData } = useRefineTasks();
+  const refineTasks = refineData?.tasks ?? [];
   return (
     tasks.filter((t) => isActiveTask(t.status)).length +
-    tasks.filter((t) => t.unpicked && !seen.has(t.id)).length
+    tasks.filter((t) => t.unpicked && !seen.has(t.id)).length +
+    // 知识提炼任务同口径：进行中恒计，已完成未看过才计（原型定稿 2026-11-08）
+    refineTasks.filter((t) => isActiveRefine(t.status)).length +
+    refineTasks.filter((t) => (t.status === "completed" || t.status === "failed") && !seen.has(t.id)).length
   );
 }
 

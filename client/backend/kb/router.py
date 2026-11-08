@@ -1226,6 +1226,97 @@ async def summarize_status_api(
     }
 
 
+# ─── 知识提炼（c-kb-refine）：「其他」暂存原始材料 → 归类进树／长新节点 ──
+
+
+class RefineRunRequest(BaseModel):
+    genre: str
+
+
+@router.post("/refine/run")
+async def refine_run_api(
+    body: RefineRunRequest,
+    user: dict = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    from kb.refine import run_refine
+
+    genre = (body.genre or "").strip()
+    if not genre:
+        raise HTTPException(422, detail="提炼需要题材")
+    summary, error = await run_refine(db, user_id=_user(user), genre=genre, llm=True)
+    if summary is None and error == "running":
+        return {"ok": True, "data": {"skipped": True, "message": "该题材正在提炼中"}}
+    if error:
+        return JSONResponse(status_code=503, content={"ok": False, "detail": error})
+    return {"ok": True, "data": {**summary, "genre": genre}}
+
+
+# ─── 知识提炼任务（原型定稿 2026-11-08）：任务归任务清单，提炼＋关系梳理一炉 ──
+
+
+class RefineTaskCreateRequest(BaseModel):
+    genre: str
+
+
+@router.post("/refine/tasks")
+async def refine_task_create_api(
+    body: RefineTaskCreateRequest,
+    user: dict = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """建知识提炼任务（queued）并投递后台执行；同题材未完成任务在跑则拒。"""
+    from kb.refine_task import create_task, schedule
+
+    genre = (body.genre or "").strip()
+    if not genre:
+        raise HTTPException(422, detail="提炼需要题材")
+    task, error = await create_task(db, user_id=_user(user), genre=genre)
+    if task is None:
+        return JSONResponse(status_code=409, content={"ok": False, "detail": error})
+    schedule(task["id"], user_id=_user(user), genre=genre)
+    return {"ok": True, "data": task}
+
+
+@router.get("/refine/tasks")
+async def refine_task_list_api(
+    user: dict = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    from kb.refine_task import list_tasks
+
+    rows = await list_tasks(db, user_id=_user(user))
+    return {"ok": True, "data": {"tasks": rows}}
+
+
+@router.get("/refine/tasks/{task_id}")
+async def refine_task_get_api(
+    task_id: str,
+    user: dict = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    from kb.refine_task import get_task
+
+    task = await get_task(db, user_id=_user(user), task_id=task_id)
+    if task is None:
+        raise HTTPException(404, detail="任务不存在")
+    return {"ok": True, "data": task}
+
+
+@router.delete("/refine/tasks/{task_id}")
+async def refine_task_delete_api(
+    task_id: str,
+    user: dict = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    from kb.refine_task import delete_task
+
+    error = await delete_task(db, user_id=_user(user), task_id=task_id)
+    if error:
+        return JSONResponse(status_code=409, content={"ok": False, "detail": error})
+    return {"ok": True}
+
+
 @router.get("/graph/tree")
 async def graph_tree_api(
     genre: str = "",
@@ -1268,14 +1359,12 @@ async def graph_tree_api(
         pid = e.parent_id or ""
         if pid and pid not in by_id:
             e.parent_id = ""
-    children: dict[str | None, list] = {}
-    for e in rows:
-        children.setdefault(e.parent_id or None, []).append(e)
-    # 概念根：parent_id 为空的行按 concept 分组
-    roots = []
-    root_groups: dict[tuple[str, str], list] = {}
-    for e in children.get(None, []):
-        root_groups.setdefault((e.genre, e.concept), []).append(e)
+
+    def _clean_def(e) -> str:
+        """definition 剥「题材·标题——」前缀（懒物化落库时拼的，树面只留纯定义）。"""
+        d = (getattr(e, "definition", "") or "")
+        prefix = f"{e.genre}·{e.title}——"
+        return d[len(prefix):] if prefix and d.startswith(prefix) else d
 
     def _node(e) -> dict:
         kids = [_node(k) for k in children.get(e.id, [])]
@@ -1285,18 +1374,55 @@ async def graph_tree_api(
             "title": e.title or (e.instruction or "")[:20],
             "concept": e.concept,
             "genre": e.genre,
-            "definition": (getattr(e, "definition", "") or "")[:60],
+            "definition": _clean_def(e)[:60],
             "children": kids,
         }
 
-    for (g, c), items in sorted(root_groups.items()):
-        roots.append({
-            "id": f"root:{g or '_general'}:{c}",
-            "kind": "root",
-            "genre": g or "",
-            "concept": c,
-            "children": [_node(x) for x in items],
-        })
+    children: dict[str | None, list] = {}
+    for e in rows:
+        children.setdefault(e.parent_id or None, []).append(e)
+
+    # 单根装配（boss 2026-11-08 截图定罪：旧概念根装配把迁移镜像老知识行平铺在
+    # 树根层、概念根无标题还飘游离箭头）——唯一根＝「写作知识」根行；孤儿
+    # （parent_id 空且非根行，如老角色库迁移行）不进树（列表臂仍可见）；
+    # 同级按发版树文件序排（笔法→世界→角色→其他），未收录标题排尾。
+    root_row = next((e for e in rows if not e.parent_id and e.title == "写作知识"), None)
+    roots = []
+    if root_row is not None:
+        from kb.taxonomy import nodes as taxonomy_nodes
+
+        # 注意：nodes() 是 key→节点 dict；序要取节点的 title（行上没有 key）
+        tax_order = {n.get("title", ""): i for i, n in enumerate(taxonomy_nodes().values())}
+
+        def _sort_key(e):
+            return (0, tax_order.get(e.title, len(tax_order)), e.title)
+
+        def _build(e) -> dict:
+            kids = sorted(children.get(e.id, []), key=_sort_key)
+            return {
+                "id": e.id,
+                "kind": "knowledge",
+                "title": e.title or (e.instruction or "")[:20],
+                "concept": e.concept,
+                "genre": e.genre,
+                "definition": _clean_def(e)[:60],
+                "children": [_build(k) for k in kids],
+            }
+
+        roots.append(_build(root_row))
+    else:
+        # 老库未重洗（无根行）——回落旧概念根装配（不炸）
+        root_groups: dict[tuple[str, str], list] = {}
+        for e in children.get(None, []):
+            root_groups.setdefault((e.genre, e.concept), []).append(e)
+        for (g, c), items in sorted(root_groups.items()):
+            roots.append({
+                "id": f"root:{g or '_general'}:{c}",
+                "kind": "root",
+                "genre": g or "",
+                "concept": c,
+                "children": [_node(x) for x in items],
+            })
     # 关联边（两端都在树内的才输出）
     edges = [
         {"source": f, "target": t, "rel_type": rt}
