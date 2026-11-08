@@ -398,8 +398,6 @@ async def run_summarize(
                 for k in _payload_of(m):
                     if k not in SKIP_KEYS and k not in key_set:
                         key_set[k] = None
-            schema_fields = [{"name": k, "desc": ""} for k in key_set]
-
             # 发版知识树（boss 2026-11-08：层次与定义随 C 端发布，案例拆书输出，
             # 总结只做归属）——(类别, 槽位值) 查 kb.taxonomy；命中即用发版标题/定义/父级，
             # 未收录回落既有标签/描述拼装（用户新槽位不炸）
@@ -419,7 +417,6 @@ async def run_summarize(
                 kp_title = node["title"]
                 node_definition = node["definition"]
                 label = kp_title
-                kp_definition = f"{genre}·{kp_title}——{node_definition}已收 {len(bucket)} 条实例。"
             else:
                 label = _slot_label(concept, slot_value)
                 # 拼装标签对齐发版树（世界 power/extra 案 2026-11-08）：单译标签可能与
@@ -431,9 +428,6 @@ async def run_summarize(
                     kp_title = node["title"]
                     node_definition = node["definition"]
                     label = kp_title
-                    kp_definition = f"{genre}·{kp_title}——{node_definition}已收 {len(bucket)} 条实例。"
-                else:
-                    kp_definition = f"{genre}·{label}——{_slot_desc(concept, slot_value)}。已收 {len(bucket)} 条实例。"
 
             async def _materialize(genre: str, concept: str, title: str, definition: str, parent_id: str, schema_json: str = "[]") -> str:
                 """懒物化发版节点：复用同题材×类别×标题行，缺则建（带发版定义与字段模板）。"""
