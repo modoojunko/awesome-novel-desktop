@@ -162,6 +162,16 @@ def genre_from_products(products: dict) -> str:
     return normalize_theme(str(data.get("genre") or "").strip())
 
 
+# 世界正文里粘尾的元数据：可信度 token 与章证据锚（剥出分立落字段，正文保持干净案例）
+_WORLD_CONF_RE = None  # 延迟初始化（避免模块加载期正则编译开销？量小直接编）
+import re as _re
+
+_WORLD_CONF_RE = _re.compile(r"[（(；;]\s*confidence[:：]\s*(high|mid|low)\s*[）)]?")
+_WORLD_EV_RE = _re.compile(
+    r"（(?=[^（）]*第[\d零一二三四五六七八九十百]+章)[^（）]*(?:（[^（）]*）[^（）]*)*）"
+)
+
+
 def map_deconstruct_products(
     user_id: str,
     task_id: str,
@@ -346,16 +356,51 @@ def map_deconstruct_products(
     world = _data(products.get("world"))
 
     def add_world(part: str, title: str, content: str, *, hard: bool = False,
-                  evidence: str = "") -> None:
-        content = _line(content, 300)
-        if not content:
+                  evidence: str = "", name: str = "") -> None:
+        """世界条目＝结构化字段（boss 2026-11-08：内容是实际案例、元数据分立）。
+
+        拆书产物常把章证据与可信度粘在正文尾（「（第41章；confidence:mid）」）——
+        先剥出再分立落字段，正文保持干净案例；名字独立（势力名/事件名/规则名）。
+        """
+        from kb.migrate_library import strip_chapter_anchor
+
+        raw = _line(content, 340)
+        # 先剥完整章证据锚（「（第41章；confidence:mid）」整体一组——先剥可信度会吞掉
+        # 锚的闭括号导致锚解不开），再剥游离的可信度 token
+        ev_anchor = ""
+        m_ev = _WORLD_EV_RE.search(raw)
+        if m_ev:
+            ev_anchor = m_ev.group(0)[1:-1]
+            raw = strip_chapter_anchor(raw)
+        conf = ""
+        m_conf = _WORLD_CONF_RE.search(raw)
+        if m_conf:
+            conf = m_conf.group(1)
+            raw = _WORLD_CONF_RE.sub("", raw)
+        if not conf and ev_anchor:
+            # 可信度常嵌在锚内（「第41章；confidence:mid」）——从锚里提，锚串留纯章号
+            m_c2 = _WORLD_CONF_RE.search(ev_anchor)
+            if m_c2:
+                conf = m_c2.group(1)
+                ev_anchor = _WORLD_CONF_RE.sub("", ev_anchor).rstrip("；;").strip()
+        raw = raw.rstrip("；;").strip()
+        if not raw:
             return
+        content = _line(raw, 300)
+        ch_evidence = _line(f"{ev_anchor}；{evidence}".strip("；"), 60) if (ev_anchor or evidence) else ""
         payload = {"part": part, "content": content}
+        if name:
+            payload["name"] = _line(name, 60)
+        if ch_evidence:
+            payload["evidence_ch"] = ch_evidence
+        if conf:
+            payload["confidence"] = conf
         if hard:
             payload["hard"] = True
+        instruction = _line(f"{name}：{content}" if name else content, 320)
         add(
-            f"world.{part}", "世界设定", title or content, payload,
-            instruction=content, evidence=evidence or f"拆书·世界设定·{part}",
+            f"world.{part}", "世界设定", name or title or content, payload,
+            instruction=instruction, evidence=ch_evidence,
         )
 
     add_world("stage", "舞台", _text_of(world.get("stage"), "content", "text", limit=300))
@@ -374,9 +419,8 @@ def map_deconstruct_products(
             if not body and not name:
                 continue
             evidence, _ = _ev(item.get("evidence_ch") if isinstance(item, dict) else "")
-            content = f"{name}：{body}" if name and body else (body or name)
-            add_world(part, name or f"{part} {len(entries) + 1}", content,
-                      hard=hard, evidence=evidence)
+            add_world(part, name or f"{part} {len(entries) + 1}", body or name,
+                      hard=hard, evidence=evidence, name=name)
 
     for item in _items(world.get("extra"))[:_MAX_WORLD_EXTRA]:
         key = _text_of(item, "key", "name", limit=60)

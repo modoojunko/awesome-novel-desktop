@@ -57,13 +57,21 @@ class CraftPayload(BaseModel):
 
 # ─── 世界设定 ────────────────────────────────────────────
 class WorldPayload(BaseModel):
-    """一个分区的一条事实。消费端键：world V2 8 键（no_power 不开放）。"""
+    """一个分区的一条事实。消费端键：world V2 8 键（no_power 不开放）。
+
+    2026-11-08 结构化扩展（boss「内容=实际案例、字段分立」拍板）：name＝条目名
+    （势力名/事件名/规则名），evidence_ch＝章证据，confidence＝拆书可信度——
+    此前这三样粘在 content 正文尾（「（第41章；confidence:mid）」）。
+    """
 
     model_config = {"extra": "forbid"}
 
     part: Literal["stage", "power", "cost", "factions", "history", "extra", "constraint"]
     content: str = Field(..., max_length=300)
     hard: bool = False
+    name: str | None = Field(None, max_length=60)
+    evidence_ch: str | None = Field(None, max_length=60)
+    confidence: Literal["high", "mid", "low"] | None = None
 
 
 # ─── 角色设定 ────────────────────────────────────────────

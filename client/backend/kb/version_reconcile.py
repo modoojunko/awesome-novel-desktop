@@ -24,8 +24,9 @@ from sqlalchemy import text as _t
 
 logger = logging.getLogger(__name__)
 
-# v2：书名归一＋场景规则归文风＋转生带章号例证——语义变更，标记升版强制重收敛一次
-_MARKER_PREFIX = "kb.reconcile:v2:"
+# v3：世界条目结构化字段＋元数据剥出正文＋知识点真定义（boss 2026-11-08「定义空/命名不合规」）——
+# 每次映射/总结语义变更都升版强制重收敛一次
+_MARKER_PREFIX = "kb.reconcile:v3:"
 
 _TRIAL_SUFFIX = re.compile(r"-前\d+章$")
 

@@ -163,9 +163,30 @@ def test_world_constraints_use_singular_part_and_hard_flag():
     payload = json.loads(hard.payload_json)
     assert payload["part"] == "constraint"
     assert payload["hard"] is True
+    # 2026-11-08 结构化：名字/内容分立（title=name、instruction=名字：内容）
+    assert payload["name"] == "天黑锁门"
+    assert payload["content"] == "活物在外过夜必死"
+    assert hard.instruction == "天黑锁门：活物在外过夜必死。"  # _mk_entry 句末收口补句号
     # 兜底分区名不会被写成非法的 constraints
     worlds = [json.loads(e.payload_json) for e in entries if e.concept == "世界设定"]
     assert all(w["part"] != "constraints" for w in worlds)
+
+def test_world_metadata_stripped_from_content_into_fields():
+    """正文粘尾的章证据/可信度剥出分立（「（第41章；confidence:mid）」实锤）。"""
+    import copy
+    products = copy.deepcopy(PRODUCTS)
+    products["world"]["data"]["constraints"] = [{
+        "name": "夜半不出警",
+        "note": "怀远路派出所内部规矩。（第41章；confidence:mid）",
+    }]
+    entries, _ = map_deconstruct_products("u", "t", "都市", products)
+    row = next(e for e in entries if e.concept == "世界设定" and "夜半不出警" in e.title)
+    payload = json.loads(row.payload_json)
+    assert payload["content"] == "怀远路派出所内部规矩。", payload["content"]
+    assert "第" not in payload["content"] and "confidence" not in payload["content"]
+    assert payload["evidence_ch"] == "第41章"  # 锚内可信度提出后留纯章号
+    assert payload["confidence"] == "mid"
+    assert row.instruction == "夜半不出警：怀远路派出所内部规矩。"
 
 
 def test_character_payload_keeps_persona_and_aliases():
