@@ -1386,7 +1386,9 @@ async def graph_tree_api(
     # 树根层、概念根无标题还飘游离箭头）——唯一根＝「写作知识」根行；孤儿
     # （parent_id 空且非根行，如老角色库迁移行）不进树（列表臂仍可见）；
     # 同级按发版树文件序排（笔法→世界→角色→其他），未收录标题排尾。
-    root_row = next((e for e in rows if not e.parent_id and e.title == "写作知识"), None)
+    # 谓词补 concept==""——根行是懒物化的 summary 行（concept 恒空串）；
+    # 手录/改名行撞「写作知识」标题时 concept 必属六类，不会顶替真根（评审 P2）
+    root_row = next((e for e in rows if not e.parent_id and e.title == "写作知识" and e.concept == ""), None)
     roots = []
     if root_row is not None:
         from kb.taxonomy import nodes as taxonomy_nodes

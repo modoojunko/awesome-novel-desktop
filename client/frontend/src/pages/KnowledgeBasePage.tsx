@@ -136,6 +136,8 @@ export default function KnowledgeBasePage() {
   // 知识提炼（原型定稿 2026-11-08）：单按钮 → 确认弹窗 → 任务进任务清单后台执行
   const [showRefineConfirm, setShowRefineConfirm] = useState(false);
   const [refineBusy, setRefineBusy] = useState(false);
+  // 「全部题材」页签下提炼需要先选题材（后端按题材建任务；评审 P2：空串必 422）
+  const [refineGenre, setRefineGenre] = useState("");
   const [toast, setToast] = useState<{ text: string; link?: { label: string; to: string } } | null>(null);
   const navigate = useNavigate();
   // 实例臂点行取数失败的列表区提示（独立于 opNote——那是回退臂抽屉操作文案，不得跨臂滞留）
@@ -290,9 +292,11 @@ export default function KnowledgeBasePage() {
 
   const startRefineTask = async () => {
     if (refineBusy) return;
+    const g = genre === "全部题材" ? refineGenre : genre;
+    if (!g) return;
     setRefineBusy(true);
     try {
-      await kbApi.refineTasks.create(genre === "全部题材" ? "" : genre);
+      await kbApi.refineTasks.create(g);
       setShowRefineConfirm(false);
       setToast({ text: "知识提炼任务已开始", link: { label: "查看任务", to: "/tools" } });
       /* v8 ignore next -- 定时消 toast 臂（jsdom 计时器时序，链接点击臂已测） */
@@ -364,15 +368,22 @@ export default function KnowledgeBasePage() {
             知识提炼
           </button>
           <div className="flex items-center gap-1 rounded-lg border border-[var(--border)] bg-[var(--surface)] p-0.5">
-            {(["list", "tree"] as const).map((v) => (
-              <button
-                key={v}
-                onClick={() => setView(v)}
-                className={`rounded-md px-3 py-1.5 text-[12px] ${view === v ? "bg-[var(--accent-soft)] font-medium text-[var(--accent)]" : "text-[var(--muted)] hover:text-[var(--fg)]"}`}
-              >
-                {v === "list" ? "列表" : "树"}
-              </button>
-            ))}
+            {(["list", "tree"] as const).map((v) => {
+              // 树按题材装配（单根行按题材物化）——「全部题材」切树会随机只见一个题材
+              //（评审 P1），禁切并提示（评审 P1-3：树视图强制选题材）
+              const treeBlocked = v === "tree" && genre === "全部题材";
+              return (
+                <button
+                  key={v}
+                  disabled={treeBlocked}
+                  title={treeBlocked ? "选一个题材后看知识树" : undefined}
+                  onClick={() => setView(v)}
+                  className={`rounded-md px-3 py-1.5 text-[12px] disabled:cursor-not-allowed disabled:opacity-40 ${view === v ? "bg-[var(--accent-soft)] font-medium text-[var(--accent)]" : "text-[var(--muted)] hover:text-[var(--fg)]"}`}
+                >
+                  {v === "list" ? "列表" : "树"}
+                </button>
+              );
+            })}
           </div>
         </div>
       </div>
@@ -391,6 +402,21 @@ export default function KnowledgeBasePage() {
                 </div>
                 <button onClick={() => setShowRefineConfirm(false)} className="text-[var(--faint)] hover:text-[var(--fg)]">✕</button>
               </div>
+              {genre === "全部题材" && (
+                <div className="mt-3 flex items-center gap-2" data-testid="kb-refine-genre-pick">
+                  <span className="text-[12px] text-[var(--muted)]">提炼题材</span>
+                  <select
+                    value={refineGenre}
+                    onChange={(e) => setRefineGenre(e.target.value)}
+                    className="h-8 rounded-md border border-[var(--border)] bg-[var(--surface)] px-2 text-[12.5px] text-[var(--fg)]"
+                  >
+                    <option value="">选一个题材…</option>
+                    {genreCounts.filter((x) => x.count > 0).map((x) => (
+                      <option key={x.name} value={x.name}>{x.name}</option>
+                    ))}
+                  </select>
+                </div>
+              )}
               <div className="mt-4 rounded-xl border border-[var(--border)] p-4">
                 <div className="flex gap-3">
                   <span className="grid h-6 w-6 flex-none place-items-center rounded-full bg-[var(--accent-soft)] text-[12px] font-semibold text-[var(--accent)]">1</span>
@@ -419,7 +445,7 @@ export default function KnowledgeBasePage() {
                 <button className="rounded-md border border-[var(--border)] px-3 py-1.5 text-[12px] text-[var(--muted)] hover:text-[var(--fg)]" onClick={() => setShowRefineConfirm(false)}>暂不</button>
                 <button
                   data-testid="kb-refine-start"
-                  disabled={refineBusy}
+                  disabled={refineBusy || (genre === "全部题材" && !refineGenre)}
                   onClick={() => void startRefineTask()}
                   className="rounded-md bg-[var(--accent)] px-4 py-1.5 text-[12px] font-medium text-[var(--on-accent)] hover:bg-[var(--accent-strong)] disabled:opacity-50"
                 >

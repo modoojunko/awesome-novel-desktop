@@ -383,3 +383,104 @@ class TestRefineTask:
             async with async_session() as db:
                 return await get_task(db, user_id=uid, task_id=tid)
         return _run(_go())
+
+
+class TestRefineReview:
+    """评审整改钉（2026-11-09）：instances 兜底/moves 去重/重启回收/ORM 镜像。"""
+
+    def test_instances兜底_LLM只填汇总不填moves也归位(self):
+        uid = _mk("fb")
+        _run(_seed_user(uid))
+        _run(_seed_staged(uid, "都市", [{"text": "对峙攻心：言语压人先夺势。", "ch": "第5章",
+                                         "fields": {}}]))
+
+        async def _fake_llm(user_id, genre, tree, items):
+            iid = items[0].split("|")[0]
+            # 守规矩 LLM：新节点提案只填 instances、不重复填 moves（契约语义）
+            return {"moves": [],
+                    "new_nodes": [{"key": "n1", "parent": "tech_fallback",
+                                   "title": "心理博弈打法", "definition": "对峙攻心的场面写法。",
+                                   "concept": "手法",
+                                   "fields": [{"name": "博弈点", "desc": "双方在争什么"}],
+                                   "instances": [iid]}]}
+
+        orig = refine_mod._llm_refine
+        refine_mod._llm_refine = _fake_llm
+        try:
+            async def _go():
+                async with async_session() as db:
+                    return await run_refine(db, user_id=uid, genre="都市", llm=True)
+            r, _err = _run(_go())
+        finally:
+            refine_mod._llm_refine = orig
+        assert _err == "" and r["moved"] == 1 and r["kept"] == 0, (r, _err)
+
+        async def _check():
+            async with async_session() as db:
+                return (await db.execute(_t(
+                    "SELECT i.fields_json FROM kb_knowledge_instances i "
+                    "JOIN kb_entries e ON e.id=i.knowledge_id WHERE e.title='心理博弈打法' "
+                    "AND e.user_id=:u"), {"u": uid})).mappings().all()
+        rows = _run(_check())
+        assert len(rows) == 1, rows
+
+    def test_moves重复id只归一次_kept不为负(self):
+        uid = _mk("dup")
+        _run(_seed_user(uid))
+        _run(_seed_staged(uid, "都市", [{"text": "擂台先立规矩再开打。", "ch": "第3章",
+                                         "fields": {"scene": "战斗", "confidence": "high"}}]))
+
+        async def _fake_llm(user_id, genre, tree, items):
+            iid = items[0].split("|")[0]
+            return {"moves": [{"id": iid, "to": "tech_finisher", "fields": {}},
+                              {"id": iid, "to": "tech_more", "fields": {}}],
+                    "new_nodes": []}
+
+        orig = refine_mod._llm_refine
+        refine_mod._llm_refine = _fake_llm
+        try:
+            async def _go():
+                async with async_session() as db:
+                    return await run_refine(db, user_id=uid, genre="都市", llm=True)
+            r, err = _run(_go())
+        finally:
+            refine_mod._llm_refine = orig
+        assert r["moved"] == 1 and r["kept"] == 0, r
+
+    def test_重启回收_queued_running全落failed_单飞解锁(self):
+        from kb.refine_task import _set, create_task, sweep_stale_on_boot
+
+        uid = _mk("sweep")
+        _run(_seed_user(uid))
+        async def _mk_task():
+            async with async_session() as db:
+                return await create_task(db, user_id=uid, genre="都市")
+        task, err = _run(_mk_task())
+        assert err == ""
+        # 模拟重启前的 running
+        async def _running():
+            async with async_session() as db:
+                await _set(db, task["id"], status="running", current_step="归类进树")
+        _run(_running())
+
+        n = _run(sweep_stale_on_boot())
+        assert n >= 1, n
+        async def _check():
+            from kb.refine_task import get_task
+            async with async_session() as db:
+                return await get_task(db, user_id=uid, task_id=task["id"])
+        done = _run(_check())
+        assert done["status"] == "failed" and "重启" in done["error"], done
+        # 单飞解锁：可以再建
+        async def _again():
+            async with async_session() as db:
+                return await create_task(db, user_id=uid, genre="都市")
+        t2, e2 = _run(_again())
+        assert e2 == "" and t2 is not None, (e2, t2)
+
+    def test_ORM镜像进metadata_迁移计划面认得(self):
+        from db_lifecycle import compute_schema_fingerprint
+        from models.kb import Base
+        fp = compute_schema_fingerprint(Base.metadata)
+        assert fp, fp
+        assert "kb_refine_tasks" in Base.metadata.tables

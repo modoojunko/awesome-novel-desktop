@@ -80,24 +80,16 @@ describe("知识库页知识提炼入口（单按钮＋确认弹窗＋任务化�
     expect(screen.queryByText("知识整理")).toBeNull();
     fireEvent.click(screen.getByTestId("kb-refine-btn"));
     await waitFor(() => expect(screen.getByTestId("kb-refine-modal")).toBeTruthy());
-    // 两步说明在案
+    // 两步说明在案；全部题材页签先选题材（评审 P2：空串后端必 422）
     expect(screen.getByText("归类进树")).toBeTruthy();
     expect(screen.getByText("梳理关系")).toBeTruthy();
+    expect((screen.getByTestId("kb-refine-start") as HTMLButtonElement).disabled).toBe(true);
+    fireEvent.change(screen.getByTestId("kb-refine-genre-pick").querySelector("select")!, { target: { value: "玄幻" } });
     fireEvent.click(screen.getByTestId("kb-refine-start"));
-    await waitFor(() => expect(api.refineCreate).toHaveBeenCalledWith(""));
+    await waitFor(() => expect(api.refineCreate).toHaveBeenCalledWith("玄幻"));
     await waitFor(() => expect(screen.getByTestId("kb-toast")).toBeTruthy());
     expect(screen.getByText("知识提炼任务已开始")).toBeTruthy();
     expect(screen.queryByTestId("kb-refine-modal")).toBeNull();
-  });
-
-  it("全部题材臂：空串题材直传（genre 三元两臂）", async () => {
-    api.refineCreate.mockResolvedValue({ id: "t2", genre: "", status: "queued" });
-    renderPage();
-    await waitFor(() => expect(screen.getByTestId("kb-refine-btn")).toBeTruthy());
-    fireEvent.click(screen.getByTestId("kb-refine-btn"));
-    await waitFor(() => expect(screen.getByTestId("kb-refine-modal")).toBeTruthy());
-    fireEvent.click(screen.getByTestId("kb-refine-start"));
-    await waitFor(() => expect(api.refineCreate).toHaveBeenCalledWith(""));
   });
 
   it("弹窗关闭两臂：✕ 与「暂不」都收弹窗不建任务", async () => {
@@ -124,9 +116,10 @@ describe("知识库页知识提炼入口（单按钮＋确认弹窗＋任务化�
     await waitFor(() => expect(screen.getByTestId("kb-refine-btn")).toBeTruthy());
     fireEvent.click(screen.getByTestId("kb-refine-btn"));
     await waitFor(() => expect(screen.getByTestId("kb-refine-modal")).toBeTruthy());
+    fireEvent.change(screen.getByTestId("kb-refine-genre-pick").querySelector("select")!, { target: { value: "玄幻" } });
     fireEvent.click(screen.getByTestId("kb-refine-start"));
     await waitFor(() => expect((screen.getByTestId("kb-refine-start") as HTMLButtonElement).disabled).toBe(true));
-    resolveCreate({ id: "t9", genre: "", status: "queued" });
+    resolveCreate({ id: "t9", genre: "玄幻", status: "queued" });
     await waitFor(() => expect(screen.queryByTestId("kb-refine-modal")).toBeNull());
   });
 
@@ -136,6 +129,7 @@ describe("知识库页知识提炼入口（单按钮＋确认弹窗＋任务化�
     await waitFor(() => expect(screen.getByTestId("kb-refine-btn")).toBeTruthy());
     fireEvent.click(screen.getByTestId("kb-refine-btn"));
     await waitFor(() => expect(screen.getByTestId("kb-refine-modal")).toBeTruthy());
+    fireEvent.change(screen.getByTestId("kb-refine-genre-pick").querySelector("select")!, { target: { value: "玄幻" } });
     fireEvent.click(screen.getByTestId("kb-refine-start"));
     await waitFor(() => expect(screen.getByTestId("kb-toast")).toBeTruthy());
     // 链接点击＝跳 /tools（MemoryRouter 内导航，知识库页卸载）
@@ -149,6 +143,7 @@ describe("知识库页知识提炼入口（单按钮＋确认弹窗＋任务化�
     await waitFor(() => expect(screen.getByTestId("kb-refine-btn")).toBeTruthy());
     fireEvent.click(screen.getByTestId("kb-refine-btn"));
     await waitFor(() => expect(screen.getByTestId("kb-refine-modal")).toBeTruthy());
+    fireEvent.change(screen.getByTestId("kb-refine-genre-pick").querySelector("select")!, { target: { value: "玄幻" } });
     fireEvent.click(screen.getByTestId("kb-refine-start"));
     await waitFor(() => expect(screen.queryByTestId("kb-refine-modal")).toBeNull());
     expect(screen.queryByTestId("kb-toast")).toBeNull();
@@ -198,6 +193,10 @@ describe("知识库页覆盖率契约补臂（提炼弹窗 kicker／树抽屉点
     });
     api.instancesFlat.mockResolvedValue({ ok: true, rows: [instRow("i9", "k9", "他推门进来，风铃响了一声。")] });
     renderPage();
+    await waitFor(() => expect(screen.getByTestId("kb-refine-btn")).toBeTruthy());
+    // 树视图要求选题材（评审 P1-3：全部题材禁切树）
+    const gBtn = screen.getAllByRole("button").find((b) => (b.textContent || "").includes("玄幻"));
+    fireEvent.click(gBtn!);
     await waitFor(() => expect(screen.getByTestId("kb-refine-btn")).toBeTruthy());
     fireEvent.click(screen.getByText("树"));
     await waitFor(() => expect(screen.getByTestId("kb-tree-panel")).toBeTruthy());

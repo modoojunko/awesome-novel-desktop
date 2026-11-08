@@ -214,6 +214,31 @@ async def _run(db: AsyncSession, fn, **kwargs):
     return await fn(db, **kwargs)
 
 
+# 进程内持有执行体引用——asyncio 对裸 task 只持弱引用（官方文档明示可能被 GC
+# 中途消失），丢引用＝任务无声蒸发且行状态卡 running（评审 P1）
+_RUNNING: set[asyncio.Task] = set()
+
+
 def schedule(task_id: str, *, user_id: str, genre: str) -> None:
     """投递后台执行（FastAPI 事件循环内调用）。"""
-    asyncio.get_event_loop().create_task(execute_task(task_id, user_id=user_id, genre=genre))
+    task = asyncio.get_event_loop().create_task(execute_task(task_id, user_id=user_id, genre=genre))
+    _RUNNING.add(task)
+    task.add_done_callback(_RUNNING.discard)
+
+
+async def sweep_stale_on_boot() -> int:
+    """启动回收：queued/running 全部落 failed（应用重启＝执行体必死，asyncio
+    task 不跨进程）。不回收则该题材永久 409 锁死（评审 P1）。"""
+    from db import async_session
+
+    n = 0
+    async with async_session() as db:
+        await ensure_ddl(db)
+        rows = (await db.execute(_t(
+            "SELECT id FROM kb_refine_tasks WHERE status IN ('queued','running')"
+        ))).scalars().all()
+        for tid in rows:
+            await _set(db, tid, status="failed", current_step="",
+                       error="应用重启中断，材料原样留在「其他」；重新提炼即可")
+            n += 1
+    return n

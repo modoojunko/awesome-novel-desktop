@@ -293,6 +293,18 @@ async def lifespan(app: FastAPI):
 
         logging.getLogger("uvicorn.error").warning("Genre vocab seed failed: %s", e)
 
+    # ── 知识提炼任务 stale 回收（评审 P1：进程重启把 queued/running 卡死＝题材永久 409）──
+    # 应用重启＝上次的执行体必死（asyncio task 不跨进程），启动时统一落 failed；
+    # 「应用重启中断」是诚实账（材料原样留在「其他」，重提即可）。
+    try:
+        from kb.refine_task import sweep_stale_on_boot
+
+        await sweep_stale_on_boot()
+    except Exception as e:  # noqa: BLE001 —— 回收失败不阻断启动（下次启动重试）
+        import logging
+
+        logging.getLogger("uvicorn.error").warning("Refine task sweep failed: %s", e)
+
     # ── 当前库打戳：schema 指纹 ＋ 本机版本/组件快照（库自证来源） ───────────
     await stamp_current_library(_schema_fp)
 

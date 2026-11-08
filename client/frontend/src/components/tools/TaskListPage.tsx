@@ -72,10 +72,11 @@ export default function TaskListPage() {
   ].sort((a, b) => b.at - a.at);
 
   // 进清单＝看过：已完成未取任务当场消账（顶栏徽标不再引导这批；新任务完成＝新 id 会重亮）
-  const unpickedKey = tasks
-    .filter((t) => t.unpicked)
-    .map((t) => t.id)
-    .join("|");
+  // 知识提炼任务同口径（评审 P2：只标拆书 id 时提炼徽标永久亮）
+  const unpickedKey = [
+    ...tasks.filter((t) => t.unpicked).map((t) => t.id),
+    ...refineTasks.filter((t) => t.status === "completed" || t.status === "failed").map((t) => t.id),
+  ].join("|");
   useEffect(() => {
     if (unpickedKey) markTasksSeen(unpickedKey.split("|"));
   }, [unpickedKey]);

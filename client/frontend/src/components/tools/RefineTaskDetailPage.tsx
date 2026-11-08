@@ -3,6 +3,7 @@
 import { useEffect } from "react";
 import { Link, useParams } from "react-router-dom";
 import { kbApi, type RefineTaskRow } from "../../lib/kbApi";
+import { markTasksSeen } from "../../lib/toolsBadgeSeen";
 import { useQuery } from "@tanstack/react-query";
 
 const PILL: Record<RefineTaskRow["status"], { label: string; cls: string }> = {
@@ -25,6 +26,10 @@ export default function RefineTaskDetailPage() {
   useEffect(() => {
     if (data && (data.status === "completed" || data.status === "failed")) refetch();
   }, [data?.status, refetch]);
+  // 看过详情＝消账（与拆书详情页同口径；评审 P2：不看清单页时徽标也能灭）
+  useEffect(() => {
+    if (data && (data.status === "completed" || data.status === "failed")) markTasksSeen([data.id]);
+  }, [data?.id, data?.status]);
 
   if (!data) {
     return (

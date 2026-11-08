@@ -287,18 +287,19 @@ describe.skip("KnowledgeBasePage 角色设定条目头像框（统一实例行�
 });
 
 describe("KnowledgeBasePage 全部题材兜底（树/知识整理）", () => {
-  it("全部题材 → 树/整理（genre 传递）", async () => {
+  it("全部题材禁切树 → 选题材后树在位（genre 传递）", async () => {
     organize.status.mockResolvedValue({
       genre: "玄幻", running: false, last_run: null, pending_relations: 0, proposed_findings: 0,
     });
     organize.findings.mockResolvedValue({ relations: [], findings: [], counts: { relations: 0, findings: 0 } });
     renderPage();
     await screen.findByTestId("kb-count-line");
-    // 整理入口退役（原型定稿 2026-11-08）——只验树/整理 genre 传递中的树臂
-    fireEvent.click(screen.getByText("树"));
-    await waitFor(() => expect(screen.getByTestId("kb-tree-panel")).toBeTruthy());
-    // 选了真实题材 → 整理面板透传该题材
+    // 全部题材禁切树（评审 P1-3：跨题材随机只见一题材）
+    expect((screen.getByText("树") as HTMLButtonElement).disabled).toBe(true);
+    // 选了真实题材 → 树页签可用且树面板在位
     fireEvent.click(screen.getByText("都市"));
+    await waitFor(() => expect((screen.getByText("树") as HTMLButtonElement).disabled).toBe(false));
+    fireEvent.click(screen.getByText("树"));
     await waitFor(() => expect(screen.getByTestId("kb-tree-panel")).toBeTruthy());
   });
 });

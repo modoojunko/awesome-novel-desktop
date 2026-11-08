@@ -85,7 +85,7 @@ async def _llm_refine(user_id: str, genre: str, tree: str, items: list[str]) -> 
         model="haiku",
         system=system.format(genre=genre),
         messages=[{"role": "user", "content": user_tpl.format(genre=genre, tree=tree, items="\n".join(items))}],
-        max_tokens=4000,
+        max_tokens=8000,
         usage=usage,
         operation="kb_refine",
     )
@@ -137,6 +137,7 @@ async def _refine_on(db: AsyncSession, *, user_id: str, genre: str, llm: bool) -
         return None, f"llm: {exc}"
 
     staged_ids = {s.id for s in staged}
+    staged_map_all = {x.id: x for x in staged}
 
     # ① 新节点（护栏内）——先有节点后有实例，方向单向；父锚必须落在发版树已有节点
     new_kid: dict[str, str] = {}      # 提案 key → 新行 id
@@ -169,19 +170,41 @@ async def _refine_on(db: AsyncSession, *, user_id: str, genre: str, llm: bool) -
             logger.warning("event=kb.refine.node_fail title=%s err=%s", title, exc)
             continue
         created += 1
-        pkey = str(prop.get("key") or f"n{created}")
+        raw_key = str(prop.get("key") or "").strip()
+        # LLM 自编 key 碰撞（两个提案都叫 n1）＝后者改写 pkey，先建行不丢（评审 P3）
+        pkey = raw_key or f"n{created}"
+        while pkey in new_kid:
+            pkey = f"{pkey or 'n'}x{created}"
         new_kid[pkey] = kid
         new_tpl[pkey] = [{"name": f.get("name", ""), "desc": f.get("desc", "")} for f in fields_prop]
 
     # ② 归类计划：id 校验＋目标锚定（发版树 key 或本轮新节点 key）
     claims: list[tuple[KbKnowledgeInstance, str, str, dict, str]] = []  # (实例, kid, 模板, LLM格值, 目标名)
+    claimed_ids: set[str] = set()  # moves 重复 id 去重（评审 P3：二连挂会 kept 负数）
+    # 提案新节点 instances 通道：契约「instances 只是汇总」——汇总 id 也归到新节点
+    # （LLM 只填 instances 不重复填 moves 时兜底；评审 P2：死通道会让提炼空转）
+    instance_fallback: dict[str, tuple[str, list[dict], str]] = {}  # iid -> (kid, tpl, 目标名)
+    for prop in plan["new_nodes"]:
+        if not isinstance(prop, dict):
+            continue
+        raw_key = str(prop.get("key") or "").strip()
+        match_key = next((k for k, v in ((k, str(prop.get("key") or "")) for k in [raw_key]) if v), raw_key)
+        _kid = new_kid.get(match_key)
+        if not _kid:
+            continue
+        _tpl = new_tpl.get(match_key) or []
+        _title = str(prop.get("title") or "")
+        for iid in (prop.get("instances") or []):
+            iid_s = str(iid)
+            if iid_s in staged_ids:
+                instance_fallback[iid_s] = (_kid, _tpl, _title)
     for mv in plan["moves"]:
         if not isinstance(mv, dict):
             continue
         iid = str(mv.get("id") or "")
         to = str(mv.get("to") or "")
         llm_fields = mv.get("fields") if isinstance(mv.get("fields"), dict) else {}
-        if iid not in staged_ids:
+        if iid not in staged_ids or iid in claimed_ids:
             continue
         try:
             if to in taxonomy_nodes():
@@ -198,9 +221,15 @@ async def _refine_on(db: AsyncSession, *, user_id: str, genre: str, llm: bool) -
         except Exception as exc:  # noqa: BLE001 — 单条失败不拖垮整轮
             logger.warning("event=kb.refine.move_fail id=%s err=%s", iid, exc)
             continue
-        staged_map = {s.id: s for s in staged}
-        claims.append((staged_map[iid], kid, tpl,
+        claimed_ids.add(iid)
+        claims.append((staged_map_all[iid], kid, tpl,
                        {str(k): str(v)[:200] for k, v in llm_fields.items()}, target))
+    # instances 兜底：moves 没覆盖到的提案 instances（每 iid 只一次）
+    for iid, (kid, tpl, title) in instance_fallback.items():
+        if iid in claimed_ids:
+            continue
+        claimed_ids.add(iid)
+        claims.append((staged_map_all[iid], kid, tpl, {}, title))
 
     # ③ 写库：移动实例＋重落格
     #    发版树目标＝模板重映射原始键（确定性）＋LLM 补模板缺口格；
