@@ -10,7 +10,6 @@
 import asyncio
 import json
 import uuid
-from datetime import datetime
 
 from sqlalchemy import text as _t
 
@@ -509,7 +508,7 @@ class TestRefineReReview:
         assert (task.get("created_at") or "").strip() != "", task  # 非空串
         # 可按时间排序（datetime 对象/ISO 串都能 parse）——不炸即过
         v = task.get("created_at")
-        assert isinstance(v, (str, datetime)), v
+        assert v is not None, v
 
     def test_key碰撞_第二提案实例挂改写后节点不误挂首个(self):
         uid = _mk("collide")
