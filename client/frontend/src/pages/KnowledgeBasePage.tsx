@@ -112,7 +112,7 @@ export default function KnowledgeBasePage() {
   const [manualError, setManualError] = useState("");
   const [manualNote, setManualNote] = useState("");
   const [manualConcept, setManualConcept] = useState("手法");
-  const [instRows, setInstRows] = useState<{ id: string; text: string; fields: Record<string, string>; source_novel: string }[]>([]);
+  const [instRows, setInstRows] = useState<{ id: string; text: string; fields: Record<string, string>; source_novel: string; quote: string }[]>([]);
   const [showMoreGenres, setShowMoreGenres] = useState(false);
   const [view, setView] = useState<"list" | "starsea">("list");
   const [showOrganize, setShowOrganize] = useState(false);
@@ -261,6 +261,7 @@ export default function KnowledgeBasePage() {
           text: x.text,
           fields: (() => { try { return JSON.parse(x.fields_json || "{}") as Record<string, string>; } catch /* v8 ignore next — 畸形 fields_json UI 不可达（后端恒合法 JSON） */ { return {}; } })(),
           source_novel: x.source_novel,
+          quote: x.quote || "",
         })));
       })
       .catch(() => { if (alive) setInstRows([]); });
@@ -701,6 +702,9 @@ export default function KnowledgeBasePage() {
                   {instRows.map((r) => (
                     <li key={r.id} className="rounded-md border border-[var(--border)] px-2.5 py-1.5 text-[12px]">
                       <p className="leading-relaxed">{r.text}</p>
+                      {r.quote && (
+                        <p className="mt-0.5 border-l-2 border-[var(--accent)] pl-2 text-[11.5px] text-[var(--muted)]">{r.quote}</p>
+                      )}
                       {Object.entries(r.fields).filter(([, v]) => v).map(([k, v]) => (
                         <p key={k} className="mt-0.5 text-[11px] text-[var(--muted)]">
                           <span className="text-[var(--faint)]">{kbFieldLabel(selected.concept, k)}：</span>{prettyFieldValue(v)}
