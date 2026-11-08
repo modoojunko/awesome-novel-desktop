@@ -295,6 +295,7 @@ export default function KnowledgeBasePage() {
       await kbApi.refineTasks.create(genre === "全部题材" ? "" : genre);
       setShowRefineConfirm(false);
       setToast({ text: "知识提炼任务已开始", link: { label: "查看任务", to: "/tools" } });
+      /* v8 ignore next -- 定时消 toast 臂（jsdom 计时器时序，链接点击臂已测） */
       window.setTimeout(() => setToast(null), 5200);
       await reloadCurrent();
     } catch (e) {
