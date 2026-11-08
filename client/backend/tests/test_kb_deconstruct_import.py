@@ -171,6 +171,30 @@ def test_world_constraints_use_singular_part_and_hard_flag():
     worlds = [json.loads(e.payload_json) for e in entries if e.concept == "世界设定"]
     assert all(w["part"] != "constraints" for w in worlds)
 
+def test_style_rules_and_craft_structured_fields():
+    """文风规则/文笔写法：name/how/章证据/可信度分立（boss 2026-11-08「数据不行」拍板）。"""
+    import copy
+    products = copy.deepcopy(PRODUCTS)
+    products["style"]["data"]["rules"] = [{
+        "name": "战斗短句", "how": "战斗场面短句连发。（第76、198章；confidence:high）",
+    }]
+    products["style"]["data"]["craft"] = [{
+        "name": "具象比喻", "how": "用现实物象比喻超常事物。（第377章；confidence:mid）",
+    }]
+    entries, _ = map_deconstruct_products("u", "t", "都市", products)
+    rule = next(e for e in entries if e.concept == "文风" and e.title == "战斗短句")
+    rp = json.loads(rule.payload_json)
+    assert rp["name"] == "战斗短句"
+    assert rp["how"] == "战斗场面短句连发。", rp["how"]  # 正文净化：锚与可信度剥出
+    assert rp["evidence_ch"] == "第76、198章"
+    assert rp["confidence"] == "high"
+    craft = next(e for e in entries if e.concept == "文笔" and e.title == "具象比喻")
+    cp = json.loads(craft.payload_json)
+    assert cp["name"] == "具象比喻"
+    assert cp["how"] == "用现实物象比喻超常事物。"
+    assert cp["evidence_ch"] == "第377章"
+    assert cp["confidence"] == "mid"
+
 def test_world_metadata_stripped_from_content_into_fields():
     """正文粘尾的章证据/可信度剥出分立（「（第41章；confidence:mid）」实锤）。"""
     import copy

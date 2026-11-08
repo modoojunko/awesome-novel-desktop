@@ -249,7 +249,11 @@ async def run_summarize(
         # 系统键与空值键排除。字段 desc 由前端字段字典（kbFieldLabels）补作家语言。
         # archetype（角色名）不再跳过——实例要有实例名（boss 2026-11-07：角色实例
         # 的名字就是角色名）；slot/part 仍跳（分桶键不进字段）
-        SKIP_KEYS = {"id", "user_id", "slot", "part", "role"}
+        # 分桶键不进实例字段；role 仅角色设定的分桶键跳（文风的「声音角色」字段要留）
+        skip = {"id", "user_id", "slot", "part"}
+        if m.concept == "角色设定":
+            skip.add("role")
+        SKIP_KEYS = skip
 
         for (concept, slot_value), bucket in sorted(buckets.items()):
             key_set: dict[str, None] = {}

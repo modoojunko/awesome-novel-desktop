@@ -177,6 +177,44 @@ _WORLD_EV_OPEN_RE = _re.compile(
 )
 
 
+def _clean_style_text(text: str) -> tuple[str, str, str]:
+    """文风/文笔正文净化：剥粘尾章证据锚与可信度（世界同源正则）。
+
+    返回 (净文, 章证据, 可信度)——剥出的元数据由调用方挂进 payload 字段。
+    """
+    raw = _line(text, 340)
+    ev_parts = [mm.group(0)[1:-1] for mm in _WORLD_EV_RE.finditer(raw)]
+    raw = _WORLD_EV_RE.sub("", raw)
+    m_open = _WORLD_EV_OPEN_RE.search(raw)
+    if m_open:
+        ev_parts.append(m_open.group(0)[1:].rstrip("。；;").strip())
+        raw = raw[: m_open.start()].rstrip("；;").strip()
+    conf = ""
+    m_conf = _WORLD_CONF_RE.search(raw)
+    if m_conf:
+        conf = m_conf.group(1)
+        raw = _WORLD_CONF_RE.sub("", raw)
+    ev = "；".join(p for p in ev_parts if p)
+    if not conf and ev:
+        m_c2 = _WORLD_CONF_RE.search(ev)
+        if m_c2:
+            conf = m_c2.group(1)
+            ev = _WORLD_CONF_RE.sub("", ev).rstrip("；;").strip()
+    return raw.rstrip("；;").strip(), ev, conf
+
+
+def _attach_style_meta(payload: dict, item: object) -> None:
+    """把产物条目（或正文剥出）的章证据/可信度挂进 payload 字段。"""
+    if not isinstance(item, dict):
+        return
+    ch = _line(str(item.get("evidence_ch") or "").strip(), 60)
+    if ch:
+        payload.setdefault("evidence_ch", ch)
+    conf = str(item.get("confidence") or "").strip()
+    if conf in ("high", "mid", "low"):
+        payload.setdefault("confidence", conf)
+
+
 def map_deconstruct_products(
     user_id: str,
     task_id: str,
@@ -307,52 +345,87 @@ def map_deconstruct_products(
         warnings.append(f"原文示范段 {n_samples} 条不入库（逐字原文，版权红线）")
 
     # ─── 文风（场景规则：一条规则一条实例——boss 2026-11-07 承接表）───
-    # rules 原落文笔（旧口径）；「战斗短句」「悲喜交替」这类场景规则是文风的声音侧面
+    # rules 原落文笔（旧口径）；「战斗短句」「悲喜交替」这类场景规则是文风的声音侧面。
+    # 2026-11-08 结构化：name/how/章证据/可信度分立（正文粘尾元数据与世界同剥）
     for i, item in enumerate(_items(style.get("rules"))):
         name = _text_of(item, "name", "title", limit=40)
-        how = _text_of(item, "how", "rule", "craft", "content", limit=240)
+        how, ev_ext, conf_ext = _clean_style_text(_text_of(item, "how", "rule", "craft", "content", limit=280))
         text = _line(f"{name}：{how}" if name and how else (how or name), 500)
         if not text:
             continue
+        payload = {"slot": "rule", "text": text}
+        if name:
+            payload["name"] = name
+        if how:
+            payload["how"] = how
+        if ev_ext:
+            payload["evidence_ch"] = ev_ext
+        if conf_ext:
+            payload["confidence"] = conf_ext
+        _attach_style_meta(payload, item)
         evidence, ev_json = _ev(item.get("evidence_ch") if isinstance(item, dict) else "")
+        if payload.get("evidence_ch") and not evidence:
+            evidence = payload["evidence_ch"]
         add(
             "style.rule", "文风", name or f"场景规则 {i + 1}",
-            {"slot": "rule", "text": text},
+            payload,
             instruction=text, evidence=evidence, evidence_json=ev_json,
         )
 
-    # ─── 文笔（写法 / 忌用）───
+    # ─── 文笔（写法 / 忌用）── 2026-11-08 结构化：name/how/章证据/可信度分立
     for section, prefix, slot, label in (
         ("craft", "craft.craft", "craft", "写法"),
     ):
         for i, item in enumerate(_items(style.get(section))):
             name = _text_of(item, "name", "title", limit=40)
-            how = _text_of(item, "how", "rule", "craft", "content", limit=160)
+            how, ev_ext, conf_ext = _clean_style_text(_text_of(item, "how", "rule", "craft", "content", limit=200))
             text = _line(f"{name}：{how}" if name and how else (how or name), 160)
             if not text:
                 continue
+            payload = {"slot": slot, slot: text}
+            if name:
+                payload["name"] = name
+            if how:
+                payload["how"] = _line(how, 160)
+            if ev_ext:
+                payload["evidence_ch"] = ev_ext
+            if conf_ext:
+                payload["confidence"] = conf_ext
+            _attach_style_meta(payload, item)
             evidence, ev_json = _ev(item.get("evidence_ch") if isinstance(item, dict) else "")
+            if payload.get("evidence_ch") and not evidence:
+                evidence = payload["evidence_ch"]
             add(
                 prefix, "文笔", name or f"{label} {i + 1}",
-                {"slot": slot, slot: text},
+                payload,
                 instruction=text, evidence=evidence, evidence_json=ev_json,
             )
 
     for i, item in enumerate(_items(style.get("taboo"))):
         name = _text_of(item, "name", "title", limit=40)
-        how = _text_of(item, "how", "rule", "content", limit=140)
+        how, ev_ext, conf_ext = _clean_style_text(_text_of(item, "how", "rule", "content", limit=140))
         text = _line(f"{name}：{how}" if name and how else (how or name), 160)
         if not text:
             continue
         # name 实数据常自带「忌」（忌书面长句）；已带就不再叠「忌用·」，否则读成病句。
-        # 前缀必须参与长度截断：CraftPayload.rule 上限 160，前缀后再超会被 payload
-        # 校验整条丢掉（静默消失）。
         if not text.startswith("忌"):
             text = _line(f"忌用·{text}", 160)
+        payload = {"slot": "rule", "rule": text}
+        if name:
+            payload["name"] = name
+        if how:
+            payload["how"] = _line(how, 140)
+        if ev_ext:
+            payload["evidence_ch"] = ev_ext
+        if conf_ext:
+            payload["confidence"] = conf_ext
+        _attach_style_meta(payload, item)
         evidence, ev_json = _ev(item.get("evidence_ch") if isinstance(item, dict) else "")
+        if payload.get("evidence_ch") and not evidence:
+            evidence = payload["evidence_ch"]
         add(
             "craft.taboo", "文笔", name or f"忌用 {i + 1}",
-            {"slot": "rule", "rule": text},
+            payload,
             instruction=text, negative_example=f"{name}：{how}".strip("："),
             evidence=evidence, evidence_json=ev_json,
         )

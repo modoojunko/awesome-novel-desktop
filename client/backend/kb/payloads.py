@@ -20,6 +20,11 @@ class StylePayload(BaseModel):
     text: str | None = Field(None, max_length=500)
     sample: str | None = Field(None, max_length=500)
     sample_note: str | None = Field(None, max_length=80)
+    # rule 槽结构化（2026-11-08 与世界同拍板：名字/内容/章证据/可信度分立，不挤一团）
+    name: str | None = Field(None, max_length=60)
+    how: str | None = Field(None, max_length=300)
+    evidence_ch: str | None = Field(None, max_length=60)
+    confidence: Literal["high", "mid", "low"] | None = None
 
     @model_validator(mode="after")
     def check_slot_fields(self):
@@ -45,6 +50,11 @@ class CraftPayload(BaseModel):
     banned_alt: str | None = Field(None, max_length=50)
     tic_pattern: str | None = Field(None, max_length=200)
     tic_severity: Literal["high", "medium", "low"] | None = None
+    # 结构化（2026-11-08 与世界同拍板：名字/内容/章证据/可信度分立）
+    name: str | None = Field(None, max_length=60)
+    how: str | None = Field(None, max_length=300)
+    evidence_ch: str | None = Field(None, max_length=60)
+    confidence: Literal["high", "mid", "low"] | None = None
 
     @model_validator(mode="after")
     def check_slot_fields(self):
