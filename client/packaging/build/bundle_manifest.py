@@ -46,6 +46,7 @@ HIDDEN_IMPORTS: tuple[str, ...] = (
     "novel_deconstruct_sdk", "novel_deconstruct_sdk.mapping",
     "novel_deconstruct_sdk.payloads", "novel_deconstruct_sdk.concepts",
     "novel_deconstruct_sdk.taxonomy", "novel_deconstruct_sdk.textclean",
+    "novel_deconstruct_sdk.theme_catalog",
     "PIL.Image", "PIL.ImageOps", "PIL.WebPImagePlugin",
     "PIL.JpegImagePlugin", "PIL.PngImagePlugin",
 )

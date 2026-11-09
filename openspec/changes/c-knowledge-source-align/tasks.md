@@ -40,7 +40,7 @@
 
 ## 6. C 端仓：树数据文件（两行）
 
-- [ ] 6.1 kb/data/taxonomy.json slot_map 补「文风|tone→style_role」「文笔|tic→craft_rule」（与 2.3 同内容）
+- [x] 6.1 kb/data/taxonomy.json slot_map 补「文风|tone→style_role」「文笔|tic→craft_rule」（与 2.3 同内容）
 - [ ] 6.2 kb 相关测试回归（树挂靠/总结/提炼全钉）
 
 ## 7. 回归
