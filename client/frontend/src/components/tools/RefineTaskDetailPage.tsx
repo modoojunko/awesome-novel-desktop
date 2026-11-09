@@ -86,7 +86,7 @@ export default function RefineTaskDetailPage() {
               {cancelBusy ? "取消中…" : "取消任务"}
             </button>
           )}
-          <Link className="btn btn-primary btn-sm" to="/knowledge?view=tree" data-testid="refine-to-tree">
+          <Link className="btn btn-primary btn-sm" to="/tools/kb?view=tree" data-testid="refine-to-tree">
             去知识树看变化
           </Link>
         </div>

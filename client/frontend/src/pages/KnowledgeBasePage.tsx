@@ -111,6 +111,8 @@ export default function KnowledgeBasePage() {
   // ?concept= 深链（c-charlib-into-kb）：/tools/characters 重定向落位用；消费后即清，
   // URL 回到干净态（页签选择本身不进 URL，刷新回「全部」是预期）。
   const [concept, setConcept] = useState(() => conceptFromQuery(searchParams.get("concept")));
+  // 视图支持 ?view=tree 直达（提炼任务详情「去知识树看变化」跳转；评审 2026-11-09）
+  const [view, setView] = useState<"list" | "tree">(() => (searchParams.get("view") === "tree" ? "tree" : "list"));
   const [src, setSrc] = useState("全部");
   const [q, setQ] = useState("");
   const [entries, setEntries] = useState<KbEntry[]>([]);
@@ -130,7 +132,6 @@ export default function KnowledgeBasePage() {
   const [manualConcept, setManualConcept] = useState("手法");
   const [instRows, setInstRows] = useState<{ id: string; text: string; fields: Record<string, string>; source_novel: string; quote: string }[]>([]);
   const [showMoreGenres, setShowMoreGenres] = useState(false);
-  const [view, setView] = useState<"list" | "tree">("list");
   const [opBusy, setOpBusy] = useState(false);
   const [opNote, setOpNote] = useState("");
   // 知识提炼（原型定稿 2026-11-08）：单按钮 → 确认弹窗 → 任务进任务清单后台执行
