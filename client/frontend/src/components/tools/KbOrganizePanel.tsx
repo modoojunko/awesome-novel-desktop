@@ -113,7 +113,7 @@ export default function KbOrganizePanel({ genre, onClose, onChanged }: Props) {
           {running ? "整理中…" : "立即整理"}
         </button>
 
-        {/* 知识总结（c-kb-summarize）：定期任务自动整理，知识直接生效进库进星图 */}
+        {/* 知识总结（c-kb-summarize）：定期任务自动整理，知识直接生效进库进树 */}
         <button
           onClick={async () => {
             setBusy(true);

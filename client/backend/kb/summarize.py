@@ -80,6 +80,122 @@ def _t(sql: str):
     return text(sql)
 
 
+# ── 发版树字段模板落格（boss 2026-11-08：知识对象定义实例的格，实例按格填值）──
+# 模板住 taxonomy.json 节点 fields（type/enum/from/join/transform）；这里只做
+# 取值与转换：from 首取非空 → 逐值剥章锚 → 转换/拼接 → 不重复正文才落格。
+def _conf_label(v) -> str:
+    return {"high": "高", "mid": "中", "low": "低"}.get(str(v).strip().lower(), "")
+
+
+def _sev_label(v) -> str:
+    return {"high": "高", "medium": "中", "low": "低"}.get(str(v).strip().lower(), "")
+
+
+def _hard_label(v) -> str:
+    s = "true" if v is True else ("false" if v is False else str(v).strip().lower())
+    if s in ("true", "1"):
+        return "铁律级"
+    if s in ("false", "0", ""):
+        return "普通"
+    return ""
+
+
+_TRANSFORMS = {"conf_label": _conf_label, "hard_label": _hard_label, "sev_label": _sev_label}
+
+
+async def materialize_node_row(
+    db: AsyncSession, *, user_id: str, genre: str,
+    concept: str, title: str, definition: str, parent_id: str, schema_json: str = "[]",
+) -> str:
+    """懒物化一个知识点行：复用同题材×类别×标题行，缺则建（带发版定义/模板/父级）。
+
+    总结桶归属与提炼任务（kb/refine）共用——树上的节点行只有这一个入口。
+    """
+    row = (await db.scalars(
+        select(KbEntry).where(
+            KbEntry.user_id == user_id,
+            KbEntry.genre == genre,
+            KbEntry.concept == concept,
+            KbEntry.origin == "summary",
+            KbEntry.title == title,
+        ).limit(1)
+    )).first()
+    if row is None:
+        row = KbEntry(
+            id=uuid.uuid4().hex,
+            user_id=user_id,
+            genre=genre,
+            concept=concept,
+            concept_id=f"{genre}:{concept}",
+            title=title,
+            payload_json="{}",
+            instruction="",
+            definition=f"{genre}·{title}——{definition}",
+            schema_json=schema_json,
+            origin="summary",
+            status="active",
+            version=1,
+            parent_id=parent_id,
+        )
+        db.add(row)
+    else:
+        row.definition = f"{genre}·{title}——{definition}"
+        row.parent_id = parent_id
+        row.schema_json = schema_json
+    return row.id
+
+
+async def materialize_tree_chain(db: AsyncSession, *, user_id: str, genre: str, node_key: str) -> str:
+    """沿发版树父链物化到 node_key 自身，返回该节点行 id（提炼任务挂树用）。"""
+    from kb.taxonomy import nodes as taxonomy_nodes
+    from kb.taxonomy import parent_chain
+
+    parent_id = ""
+    for ck in parent_chain(node_key):  # 顶层在前
+        pn = taxonomy_nodes()[ck]
+        parent_id = await materialize_node_row(
+            db, user_id=user_id, genre=genre, concept=pn["concept"],
+            title=pn["title"], definition=pn["definition"], parent_id=parent_id,
+        )
+    n = taxonomy_nodes()[node_key]
+    return await materialize_node_row(
+        db, user_id=user_id, genre=genre, concept=n["concept"],
+        title=n["title"], definition=n["definition"], parent_id=parent_id,
+        schema_json=json.dumps(
+            [{"name": f["name"], "desc": f.get("desc", "")} for f in (n.get("fields") or [])],
+            ensure_ascii=False,
+        ),
+    )
+
+
+def _fields_by_template(template: list[dict], payload: dict, inst_text: str) -> dict[str, str]:
+    """按知识点模板落格：{格名: 值}；格值取不到不落（空格不渲染）。"""
+    fields: dict[str, str] = {}
+    for slot in template:
+        raw_parts: list[str] = []
+        for src in slot.get("from") or []:
+            v = payload.get(src)
+            if v is None or (isinstance(v, str) and not v.strip()):
+                continue
+            if isinstance(v, list):
+                parts = [strip_anchors_deep(x) for x in v]
+                raw_parts.append(slot.get("join", "；").join(str(p).strip() for p in parts if str(p).strip()))
+            elif v is True or v is False:
+                raw_parts.append("true" if v else "false")
+            else:
+                raw_parts.append(str(strip_anchors_deep(str(v))).strip())
+        if not raw_parts:
+            continue
+        tr = _TRANSFORMS.get(slot.get("transform") or "")
+        vals = [v for v in ((tr(p) if tr else p) for p in raw_parts) if v]
+        if not vals:
+            continue
+        fv = slot.get("join", "；").join(vals)[:200]
+        if fv and fv not in inst_text:
+            fields[slot["name"]] = fv
+    return fields
+
+
 # ─── 素材统计 ────────────────────────────────────────────────────────────
 
 
@@ -178,7 +294,8 @@ async def run_summarize(
         #   文风/文笔 payload.slot（叙事身份/规则/写法/忌用…）
         #   世界设定 payload.part（舞台/力量规则…）
         #   手法：无槽位，单桶
-        SLOT_KEY = {"角色设定": "role", "文风": "slot", "文笔": "slot", "世界设定": "part"}
+        SLOT_KEY = {"角色设定": "role", "文风": "slot", "文笔": "slot", "世界设定": "part",
+                    "手法": "kind"}
 
         def _payload_of(m):
             try:
@@ -281,8 +398,6 @@ async def run_summarize(
                 for k in _payload_of(m):
                     if k not in SKIP_KEYS and k not in key_set:
                         key_set[k] = None
-            schema_fields = [{"name": k, "desc": ""} for k in key_set]
-
             # 发版知识树（boss 2026-11-08：层次与定义随 C 端发布，案例拆书输出，
             # 总结只做归属）——(类别, 槽位值) 查 kb.taxonomy；命中即用发版标题/定义/父级，
             # 未收录回落既有标签/描述拼装（用户新槽位不炸）
@@ -290,11 +405,18 @@ async def run_summarize(
 
             found = node_for(concept, slot_value)
             node_key, node = (found if found else (None, None))
+            # 字段模板：命中发版树即用树上的格（知识对象定义实例的格）；
+            # 未收录槽位回落键并集（schema_fields 旧路径，用户新槽位不炸）
+            # _tpl_full＝完整模板（含 from/transform，落格用）；tpl_fields＝剥壳版（存 schema_json）
+            _tpl_full = (node or {}).get("fields") or []
+            tpl_fields = [
+                {"name": f["name"], "desc": f.get("desc", "")}
+                for f in _tpl_full
+            ]
             if node:
                 kp_title = node["title"]
                 node_definition = node["definition"]
                 label = kp_title
-                kp_definition = f"{genre}·{kp_title}——{node_definition}已收 {len(bucket)} 条实例。"
             else:
                 label = _slot_label(concept, slot_value)
                 # 拼装标签对齐发版树（世界 power/extra 案 2026-11-08）：单译标签可能与
@@ -306,43 +428,14 @@ async def run_summarize(
                     kp_title = node["title"]
                     node_definition = node["definition"]
                     label = kp_title
-                    kp_definition = f"{genre}·{kp_title}——{node_definition}已收 {len(bucket)} 条实例。"
-                else:
-                    kp_definition = f"{genre}·{label}——{_slot_desc(concept, slot_value)}。已收 {len(bucket)} 条实例。"
 
-            async def _materialize(genre: str, concept: str, title: str, definition: str, parent_id: str) -> str:
-                """懒物化发版节点：复用同题材×类别×标题行，缺则建（带发版定义）。"""
-                row = (await db.scalars(
-                    select(KbEntry).where(
-                        KbEntry.user_id == user_id,
-                        KbEntry.genre == genre,
-                        KbEntry.concept == concept,
-                        KbEntry.origin == "summary",
-                        KbEntry.title == title,
-                    ).limit(1)
-                )).first()
-                if row is None:
-                    row = KbEntry(
-                        id=uuid.uuid4().hex,
-                        user_id=user_id,
-                        genre=genre,
-                        concept=concept,
-                        concept_id=f"{genre}:{concept}",
-                        title=title,
-                        payload_json="{}",
-                        instruction="",
-                        definition=f"{genre}·{title}——{definition}",
-                        schema_json="[]",
-                        origin="summary",
-                        status="active",
-                        version=1,
-                        parent_id=parent_id,
-                    )
-                    db.add(row)
-                else:
-                    row.definition = f"{genre}·{title}——{definition}"
-                    row.parent_id = parent_id
-                return row.id
+            async def _materialize(genre: str, concept: str, title: str, definition: str, parent_id: str, schema_json: str = "[]") -> str:
+                """懒物化发版节点：复用同题材×类别×标题行，缺则建（带发版定义与字段模板）。"""
+                return await materialize_node_row(
+                    db, user_id=user_id, genre=genre, concept=concept,
+                    title=title, definition=definition, parent_id=parent_id,
+                    schema_json=schema_json,
+                )
 
             # 父链逐级向上物化（发版树数据链；根父为空＝挂题材根）
             from kb.taxonomy import nodes as taxonomy_nodes
@@ -353,42 +446,23 @@ async def run_summarize(
                 for ck in parent_chain(node_key):  # 顶层在前
                     pn = taxonomy_nodes()[ck]
                     parent_id = await _materialize(genre, pn["concept"], pn["title"], pn["definition"], parent_id)
-
-            # 当前节点：命中发版树即物化/复用（带发版定义与父级）；未命中沿用旧拼装
-            if node:
-                kid = await _materialize(genre, concept, kp_title, node_definition, parent_id)
             else:
-                existing_kp = (await db.scalars(
-                    select(KbEntry).where(
-                        KbEntry.user_id == user_id,
-                        KbEntry.genre == genre,
-                        KbEntry.concept == concept,
-                        KbEntry.origin == "summary",
-                        KbEntry.title == label,
-                    ).limit(1)
-                )).first()
-                if existing_kp is None:
-                    kid = uuid.uuid4().hex
-                    db.add(KbEntry(
-                        id=kid,
-                        user_id=user_id,
-                        genre=genre,
-                        concept=concept,
-                        concept_id=f"{genre}:{concept}",
-                        title=label,
-                        payload_json="{}",
-                        instruction="",
-                        definition=kp_definition,
-                        schema_json=json.dumps(schema_fields, ensure_ascii=False),
-                        origin="summary",
-                        status="active",
-                        version=1,
-                        parent_id="",
-                    ))
-                else:
-                    kid = existing_kp.id
-                    existing_kp.definition = kp_definition
-                    existing_kp.parent_id = ""
+                # 其他路径也要根行（其他挂写作知识根下）
+                parent_id = await _materialize(
+                    genre, "", "写作知识", "这本书学到的写法与设定知识——全树根。", "")
+
+            # 当前节点：命中发版树即物化/复用（带发版定义、字段模板与父级）；
+            # 未命中＝落「其他」暂存节点（boss 2026-11-08：树上没有的不临时造，
+            # 原始材料进其他，提炼任务从这里归类/长新节点）
+            if node:
+                kid = await _materialize(genre, concept, kp_title, node_definition, parent_id,
+                                         json.dumps(tpl_fields, ensure_ascii=False))
+            else:
+                kid = await _materialize(
+                    genre, "", "其他",
+                    "拆书直接输出的原始材料暂存——提炼任务从这里把知识归类进树；树上没有的知识由提炼识别并长出新节点。",
+                    parent_id, "",
+                )
             for sort, m in enumerate(bucket):
                 def _field_val(v):
                     # 章锚剥除接链（2026-11-07 鬼面王案）：拆书素材 payload 的字段值
@@ -405,17 +479,32 @@ async def run_summarize(
                 # 实例正文里（「名字：怎么写」）——再出字段行＝同一内容弹窗里填两遍
                 # （真机 2026-11-08 实锤）；只留正文之外的结构化值（章证据/可信度等）
                 _inst_text = (m.instruction or "").strip()
-                fields = {}
-                for k, v in _payload_of(m).items():
-                    if k in SKIP_KEYS:
-                        continue
-                    fv = _field_val(v)
-                    if not fv or (fv in _inst_text):
-                        continue
-                    fields[k] = fv
+                # 正文统一「实例名：一句话」：素材 title＝实例名（角色名/锚名/打法名），
+                # instruction 已带名头的不再补；title 与知识名同串的（叙事身份）也不补
+                inst_title = (m.title or "").strip()
+                inst_body = _inst_text
+                if inst_title and inst_body and not inst_body.startswith(inst_title) and inst_title != label:
+                    inst_text_out = f"{inst_title}：{inst_body}"
+                else:
+                    inst_text_out = inst_body or inst_title
+                _inst_text = inst_text_out
+                _tpl = _tpl_full or None
+                if _tpl:
+                    # 命中发版树：按知识对象的模板落格（格名/值域/来源全在树上）——
+                    # 模板外的产物键不进实例（原型字段不再裸出）
+                    fields = _fields_by_template(_tpl, _payload_of(m), _inst_text)
+                else:
+                    fields = {}
+                    for k, v in _payload_of(m).items():
+                        if k in SKIP_KEYS:
+                            continue
+                        fv = _field_val(v)
+                        if not fv or (fv in _inst_text):
+                            continue
+                        fields[k] = fv
                 db.add(KbKnowledgeInstance(
                     knowledge_id=kid,
-                    text=m.instruction or "",
+                    text=inst_text_out,
                     source_kind="拆书" if m.src_kind == "deconstruct" else "手录",
                     source_novel=m.src_novel_name or "",
                     # 出处行：章证据列即章号；例证（原文例句）进摘句——「没有案例」补源

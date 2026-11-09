@@ -1,10 +1,9 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { createPortal } from "react-dom";
-import { useSearchParams } from "react-router-dom";
+import { useNavigate, useSearchParams } from "react-router-dom";
 import { kbApi, type KbChainSeg, type KbEntry, type KbGenreCount, type KbInstanceFlatRow } from "@/lib/kbApi";
-import StarSeaPanel from "@/components/tools/StarSeaPanel";
+import KnowledgeTreePanel from "@/components/tools/KnowledgeTreePanel";
 import { kbFieldDesc, kbFieldLabel, kbValueLabel } from "@/lib/kbFieldLabels";
-import KbOrganizePanel from "@/components/tools/KbOrganizePanel";
 import KbEntryRelations from "@/components/tools/KbEntryRelations";
 import KbMaterialCard from "@/components/tools/KbMaterialCard";
 
@@ -45,15 +44,32 @@ export function prettyFieldValue(raw: string): string {
   return t;
 }
 
-/** 实例 → 有值字段 (中文标签, 渲染值)；fields_json 畸形返空。 */
+/** 实例 → 有值字段 (标签, 渲染值)；fields_json 畸形返空。
+ *  渲染序：所属知识点的字段模板序（知识对象定义实例的格）在前，
+ *  模板没有的键退概念字典兜底；两处都没有的按原序尾随。 */
 export function fieldsOf(row: KbInstanceFlatRow): [string, string][] {
   if (row.row_kind !== "instance") return [];
   let fields: Record<string, unknown> = {};
   try { fields = JSON.parse(row.fields_json || "{}") ?? {}; } catch { fields = {}; }
   if (typeof fields !== "object" || Array.isArray(fields)) return [];
+  const render = (v: unknown) => (typeof v === "string" ? prettyFieldValue(v) : Array.isArray(v) ? v.map(String).join("、") : String(v));
   const out: [string, string][] = [];
+  const used = new Set<string>();
+  let schema: { name?: unknown; desc?: unknown }[] = [];
+  try { schema = JSON.parse(row.knowledge_schema_json || "[]") ?? []; } catch { schema = []; }
+  if (Array.isArray(schema)) {
+    for (const s of schema) {
+      const slotName = typeof s?.name === "string" ? s.name : "";
+      if (!slotName || !(slotName in fields)) continue;
+      const rendered = render(fields[slotName]);
+      if (!rendered) continue;
+      used.add(slotName);
+      out.push([slotName, rendered]);
+    }
+  }
   for (const [k, v] of Object.entries(fields)) {
-    const rendered = typeof v === "string" ? prettyFieldValue(v) : Array.isArray(v) ? v.map(String).join("、") : String(v);
+    if (used.has(k)) continue;
+    const rendered = render(v);
     if (!rendered) continue;
     out.push([kbFieldLabel(row.concept, k), rendered]);
   }
@@ -114,10 +130,16 @@ export default function KnowledgeBasePage() {
   const [manualConcept, setManualConcept] = useState("手法");
   const [instRows, setInstRows] = useState<{ id: string; text: string; fields: Record<string, string>; source_novel: string; quote: string }[]>([]);
   const [showMoreGenres, setShowMoreGenres] = useState(false);
-  const [view, setView] = useState<"list" | "starsea">("list");
-  const [showOrganize, setShowOrganize] = useState(false);
+  const [view, setView] = useState<"list" | "tree">("list");
   const [opBusy, setOpBusy] = useState(false);
   const [opNote, setOpNote] = useState("");
+  // 知识提炼（原型定稿 2026-11-08）：单按钮 → 确认弹窗 → 任务进任务清单后台执行
+  const [showRefineConfirm, setShowRefineConfirm] = useState(false);
+  const [refineBusy, setRefineBusy] = useState(false);
+  // 「全部题材」页签下提炼需要先选题材（后端按题材建任务；评审 P2：空串必 422）
+  const [refineGenre, setRefineGenre] = useState("");
+  const [toast, setToast] = useState<{ text: string; link?: { label: string; to: string } } | null>(null);
+  const navigate = useNavigate();
   // 实例臂点行取数失败的列表区提示（独立于 opNote——那是回退臂抽屉操作文案，不得跨臂滞留）
   const [openError, setOpenError] = useState("");
 
@@ -268,6 +290,26 @@ export default function KnowledgeBasePage() {
     return () => { alive = false; };
   }, [selected]);
 
+  const startRefineTask = async () => {
+    if (refineBusy) return;
+    const g = genre === "全部题材" ? refineGenre : genre;
+    if (!g) return;
+    setRefineBusy(true);
+    try {
+      await kbApi.refineTasks.create(g);
+      setShowRefineConfirm(false);
+      setToast({ text: "知识提炼任务已开始", link: { label: "查看任务", to: "/tools" } });
+      /* v8 ignore next -- 定时消 toast 臂（jsdom 计时器时序，链接点击臂已测） */
+      window.setTimeout(() => setToast(null), 5200);
+      await reloadCurrent();
+    } catch (e) {
+      setShowRefineConfirm(false);
+      setOpenError(e instanceof Error ? e.message : "任务创建失败，稍后再试");
+    } finally {
+      setRefineBusy(false);
+    }
+  };
+
   const handleDeleteMaterial = async () => {
     /* v8 ignore start -- 双保险早退：删除钮只挂在素材抽屉上（真机连点防护），UI 面走不到该早退 */
     if (!selected || selected.origin !== "material" || opBusy) return;
@@ -318,31 +360,107 @@ export default function KnowledgeBasePage() {
         </div>
         <div className="flex flex-none items-center gap-2">
           <button
-            onClick={() => setShowOrganize(true)}
-            className="rounded-md border border-[var(--accent)] px-3 py-1.5 text-[12px] text-[var(--accent)] hover:bg-[var(--accent-soft)]"
+            data-testid="kb-refine-btn"
+            disabled={refineBusy}
+            onClick={() => setShowRefineConfirm(true)}
+            className="rounded-md border border-[var(--accent)] px-3 py-1.5 text-[12px] text-[var(--accent)] hover:bg-[var(--accent-soft)] disabled:opacity-50"
           >
-            知识整理
+            知识提炼
           </button>
           <div className="flex items-center gap-1 rounded-lg border border-[var(--border)] bg-[var(--surface)] p-0.5">
-            {(["list", "starsea"] as const).map((v) => (
+            {(["list", "tree"] as const).map((v) => (
               <button
                 key={v}
                 onClick={() => setView(v)}
                 className={`rounded-md px-3 py-1.5 text-[12px] ${view === v ? "bg-[var(--accent-soft)] font-medium text-[var(--accent)]" : "text-[var(--muted)] hover:text-[var(--fg)]"}`}
               >
-                {v === "list" ? "列表" : "星图"}
+                {v === "list" ? "列表" : "树"}
               </button>
             ))}
           </div>
         </div>
       </div>
 
-        {showOrganize && (
-          <KbOrganizePanel
-            genre={genre !== "全部题材" ? genre : "玄幻"}
-            onClose={() => setShowOrganize(false)}
-            onChanged={() => { void reloadCurrent(); }}
-          />
+        {showRefineConfirm && createPortal(
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-6">
+            <div className="absolute inset-0 bg-black/50" onClick={() => setShowRefineConfirm(false)} />
+            <div data-testid="kb-refine-modal" className="relative w-[520px] max-w-full max-h-[86vh] overflow-y-auto rounded-2xl border border-[var(--border)] bg-[var(--surface)] p-6 shadow-2xl">
+              <div className="flex items-start justify-between gap-3">
+                <div>
+                  <p className="font-mono text-[10px] tracking-[0.12em] text-[var(--faint)]">
+                    {genre === "全部题材" ? "全部题材 · 知识库" : `${genre} · 知识库`}
+                  </p>
+                  <h2 className="mt-1 font-[var(--font-display)] text-xl font-semibold text-[var(--fg)]">知识提炼</h2>
+                  <p className="mt-1 text-[12.5px] text-[var(--muted)]">接下来 AI 会做两件事，确认后开始。</p>
+                </div>
+                <button onClick={() => setShowRefineConfirm(false)} className="text-[var(--faint)] hover:text-[var(--fg)]">✕</button>
+              </div>
+              {genre === "全部题材" && (
+                <div className="mt-3 flex items-center gap-2" data-testid="kb-refine-genre-pick">
+                  <span className="text-[12px] text-[var(--muted)]">提炼题材</span>
+                  <select
+                    value={refineGenre}
+                    onChange={(e) => setRefineGenre(e.target.value)}
+                    className="h-8 rounded-md border border-[var(--border)] bg-[var(--surface)] px-2 text-[12.5px] text-[var(--fg)]"
+                  >
+                    <option value="">选一个题材…</option>
+                    {genreCounts.filter((x) => x.count > 0).map((x) => (
+                      <option key={x.name} value={x.name}>{x.name}</option>
+                    ))}
+                  </select>
+                </div>
+              )}
+              <div className="mt-4 rounded-xl border border-[var(--border)] p-4">
+                <div className="flex gap-3">
+                  <span className="grid h-6 w-6 flex-none place-items-center rounded-full bg-[var(--accent-soft)] text-[12px] font-semibold text-[var(--accent)]">1</span>
+                  <div>
+                    <h3 className="text-[13.5px] font-semibold text-[var(--fg)]">归类进树</h3>
+                    <p className="mt-0.5 text-[12.5px] leading-relaxed text-[var(--muted)]">
+                      「其他」暂存的原始材料逐条归类：对得上知识点的挂进去、按知识点的格子填好；树上没有的，AI 会<b className="text-[var(--fg)]">提案新知识点自动挂树</b>（这一轮最多长 3 个）。
+                    </p>
+                  </div>
+                </div>
+                <div className="mt-3 flex gap-3">
+                  <span className="grid h-6 w-6 flex-none place-items-center rounded-full bg-[var(--accent-soft)] text-[12px] font-semibold text-[var(--accent)]">2</span>
+                  <div>
+                    <h3 className="text-[13.5px] font-semibold text-[var(--fg)]">梳理关系</h3>
+                    <p className="mt-0.5 text-[12.5px] leading-relaxed text-[var(--muted)]">
+                      在已归位的知识之间找关系：<b className="text-[var(--fg)]">细化</b>（这条笔法是那条的具体做法）、<b className="text-[var(--fg)]">矛盾</b>（两条规矩打架）、<b className="text-[var(--fg)]">依赖</b>（用这个手法得先懂那个设定）。
+                    </p>
+                  </div>
+                </div>
+              </div>
+              <p className="mt-3 rounded-lg bg-[var(--fg-soft)] px-3 py-2 text-[11.5px] leading-relaxed text-[var(--muted)]">
+                任务进「任务清单」后台执行，随时来看进度；AI 做完之前不动你现有的知识，留守材料留在「其他」。
+              </p>
+              <div className="mt-5 flex items-center justify-end gap-3">
+                <span className="mr-auto text-[11.5px] text-[var(--faint)]">预计 1–2 分钟</span>
+                <button className="rounded-md border border-[var(--border)] px-3 py-1.5 text-[12px] text-[var(--muted)] hover:text-[var(--fg)]" onClick={() => setShowRefineConfirm(false)}>暂不</button>
+                <button
+                  data-testid="kb-refine-start"
+                  disabled={refineBusy || (genre === "全部题材" && !refineGenre)}
+                  onClick={() => void startRefineTask()}
+                  className="rounded-md bg-[var(--accent)] px-4 py-1.5 text-[12px] font-medium text-[var(--on-accent)] hover:bg-[var(--accent-strong)] disabled:opacity-50"
+                >
+                  {refineBusy ? "任务创建中…" : "开始提炼"}
+                </button>
+              </div>
+            </div>
+          </div>,
+          document.body,
+        )}
+        {toast && createPortal(
+          <div data-testid="kb-toast" className="fixed left-1/2 top-14 z-[70] flex -translate-x-1/2 items-center gap-3 rounded-lg bg-[var(--fg)] px-4 py-2.5 text-[12.5px] text-[var(--surface)] shadow-2xl">
+            <span>{toast.text}</span>
+            {toast.link && (
+              <button
+                className="underline underline-offset-2"
+                style={{ color: "var(--accent-soft)" }}
+                onClick={() => { const to = toast.link?.to; setToast(null); if (to) navigate(to); }}
+              >{toast.link.label}</button>
+            )}
+          </div>,
+          document.body,
         )}
         <div className="flex gap-6" style={{ display: view === "list" ? undefined : "none" }}>
           {/* 左栏 */}
@@ -550,9 +668,13 @@ export default function KnowledgeBasePage() {
           </div>
         </div>
 
-      {/* v8 ignore start -- 星图画布 WebGL 渲染，jsdom 不可达（降级臂另有测试） */}
-      {view === "starsea" && <StarSeaPanel genre={genre !== "全部题材" ? genre : ""} />}
-      {/* v8 ignore stop */}
+      {/* 树视图（boss 2026-11-08：界面要能看到知识树——层级知识点＋实例挂点下） */}
+      {view === "tree" && (
+        <KnowledgeTreePanel
+          genre={genre !== "全部题材" ? genre : ""}
+          onSelectInstance={(row) => setSelectedInstance(row)}
+        />
+      )}
 
       {/* 手录表单 */}
       {showManual && (

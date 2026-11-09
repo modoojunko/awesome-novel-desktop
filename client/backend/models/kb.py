@@ -643,3 +643,28 @@ class KbSummarizeRun(Base):
     knowledge_created: Mapped[int] = mapped_column(Integer, nullable=False, server_default="0")
     error: Mapped[str] = mapped_column(Text, nullable=False, server_default="")
     created_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, server_default=func.now())
+
+class KbRefineTask(Base):
+    """知识提炼任务台账（c-kb-refine-task；表由 refine_task.ensure raw-DDL 建管）。
+
+    ORM 化动机＝迁移引擎计划面（同 KbSummarizeRun 先例：build_plan 只认
+    Base.metadata，纯 raw-DDL 表会被误标 table_retired 整段跳过——评审 P1 实锤
+    同款事故前科）。列与 refine_task.ensure DDL 逐一同构（TEXT→String 亲和不变）。
+    """
+
+    __tablename__ = "kb_refine_tasks"
+
+    # server_default 逐列对齐 ensure DDL（INSERT 显式列名直插不经 Python default）；
+    # 时间列照 KbSummarizeRun 先例 DateTime+func.now()——String(32)+"" 会让 fresh 库
+    # create_all 建出 DEFAULT ''，INSERT 不含该列时恒空串（评审 P2：排序 NaN 沉底）
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid)
+    user_id: Mapped[str] = mapped_column(String(36), nullable=False)
+    genre: Mapped[str] = mapped_column(String(40), nullable=False, server_default="")
+    status: Mapped[str] = mapped_column(String(12), nullable=False, server_default="queued")
+    error: Mapped[str] = mapped_column(Text, nullable=False, server_default="")
+    current_step: Mapped[str] = mapped_column(Text, nullable=False, server_default="")
+    timeline_json: Mapped[str] = mapped_column(Text, nullable=False, server_default="[]")
+    result_json: Mapped[str] = mapped_column(Text, nullable=False, server_default="{}")
+    created_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, server_default=func.now())
+

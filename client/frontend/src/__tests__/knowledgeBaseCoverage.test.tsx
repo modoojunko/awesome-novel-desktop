@@ -242,11 +242,11 @@ describe("KnowledgeBasePage 题材栏与列表", () => {
 });
 
 describe("KnowledgeBasePage 视图切换（c-kb-organize）", () => {
-  it("列表/星图切换：页签在位", async () => {
+  it("列表/树切换：页签在位", async () => {
     renderPage();
     await screen.findByTestId("kb-count-line");
     expect(screen.getByText("列表")).toBeInTheDocument();
-    expect(screen.getByText("星图")).toBeInTheDocument();
+    expect(screen.getByText("树")).toBeInTheDocument();
   });
 });
 
@@ -286,19 +286,20 @@ describe.skip("KnowledgeBasePage 角色设定条目头像框（统一实例行�
   });
 });
 
-describe("KnowledgeBasePage 全部题材兜底（星图/知识整理）", () => {
-  it("全部题材 → 星图/整理（genre 传递）", async () => {
+describe("KnowledgeBasePage 全部题材兜底（树/知识整理）", () => {
+  it("全部题材切树 → 总根下题材层（boss 2026-11-09：题材分开各自的树）", async () => {
     organize.status.mockResolvedValue({
       genre: "玄幻", running: false, last_run: null, pending_relations: 0, proposed_findings: 0,
     });
     organize.findings.mockResolvedValue({ relations: [], findings: [], counts: { relations: 0, findings: 0 } });
     renderPage();
     await screen.findByTestId("kb-count-line");
-    fireEvent.click(screen.getByText("知识整理"));
-    await waitFor(() => expect(screen.getByText(/题材「玄幻」/)).toBeTruthy());
-    // 选了真实题材 → 整理面板透传该题材
+    // 全部题材可切树：总根「写作知识」→ 题材层 → 各自的树
+    fireEvent.click(screen.getByText("树"));
+    await waitFor(() => expect(screen.getByTestId("kb-tree-panel")).toBeTruthy());
+    // 选了真实题材 → 树面板仍在（单题材树）
     fireEvent.click(screen.getByText("都市"));
-    await waitFor(() => expect(screen.getByText(/题材「都市」/)).toBeTruthy());
+    await waitFor(() => expect(screen.getByTestId("kb-tree-panel")).toBeTruthy());
   });
 });
 

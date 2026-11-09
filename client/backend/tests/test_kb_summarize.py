@@ -182,12 +182,72 @@ class TestCodeBucketedTree:
                     "WHERE e.user_id=:u"), {"u": uid})).mappings().all()
                 return rows, insts
         rows, insts = _run(_check())
-        # 风格维度四级树（boss 2026-11-08）：题材 → 笔法 → 写作视角 → 实例
+        # 单根一棵树（boss 2026-11-08）：写作知识 → 笔法 → 叙事身份/声音招式…
+        # 写作知识 → 角色 → 主角/配角…
         by_title = {r["title"]: r for r in rows}
         assert by_title["声音招式"]["parent_id"] == by_title["笔法"]["id"], "声音招式挂「笔法」父级"
-        assert by_title["笔法"]["parent_id"] == "", "笔法挂题材根"
-        assert by_title["主角"]["parent_id"] == "" and by_title["配角"]["parent_id"] == "", "角色知识点仍挂概念根"
+        assert by_title["笔法"]["parent_id"] == by_title["写作知识"]["id"], "笔法挂根「写作知识」"
+        assert by_title["写作知识"]["parent_id"] == "", "根无父级"
+        assert by_title["主角"]["parent_id"] == by_title["角色"]["id"], "主角挂「角色」枝干"
+        assert by_title["角色"]["parent_id"] == by_title["写作知识"]["id"], "角色挂根"
         assert len(insts) == 3, f"每素材一条实例：{len(insts)}"
+
+    def test_手法实例_原文案例章证据可信度随行(self):
+        """boss 2026-11-08「每个手法都要有原文案例」：素材 example/evidence/confidence
+        → 实例 quote/source_chapter/fields.confidence 三样齐。"""
+        uid = self._mk("techq")
+        _run(self._seed_user(uid))
+
+        async def _seed():
+            async with async_session() as db:
+                e = KbEntry(
+                    user_id=uid, genre="都市", concept="手法",
+                    concept_id="都市:手法", title="信息差强派任务",
+                    payload_json=json.dumps({"instruction": "开会起哄逼主角接夜班",
+                                             "scene": "日常", "confidence": "high",
+                                             "kind": "大招"},
+                                            ensure_ascii=False),
+                    instruction="开会起哄逼主角接夜班",
+                    example="众人推脱，先抛补助诱人，再补一句『是个夜班』",
+                    evidence="第1章",
+                    origin="material", status="active", rev=1,
+                    src_kind="deconstruct", src_ref="j1", src_key="t0",
+                )
+                db.add(e)
+                await db.commit()
+                return e.id
+        _run(_seed())
+
+        from kb.summarize import run_summarize
+
+        async def _go():
+            async with async_session() as db:
+                return await run_summarize(db, user_id=uid, genre="都市", trigger="manual")
+        r, err = _run(_go())
+        assert err == "" and r["knowledge"] >= 1, f"{r} {err}"
+
+        async def _inst():
+            async with async_session() as db:
+                return (await db.execute(_t(
+                    "SELECT i.text, i.quote, i.source_chapter, i.fields_json, "
+                    "e2.title AS kp_title, p.title AS parent_title, gp.title AS grand_title "
+                    "FROM kb_knowledge_instances i "
+                    "JOIN kb_entries e2 ON e2.id=i.knowledge_id "
+                    "LEFT JOIN kb_entries p ON p.id=e2.parent_id "
+                    "LEFT JOIN kb_entries gp ON gp.id=p.parent_id "
+                    "WHERE e2.user_id=:u AND e2.concept='手法'"), {"u": uid})).mappings().all()
+        insts = _run(_inst())
+        assert len(insts) == 1, insts
+        inst = insts[0]
+        assert inst["quote"] == "众人推脱，先抛补助诱人，再补一句『是个夜班』", inst["quote"]
+        assert inst["source_chapter"] == "第1章", inst["source_chapter"]
+        # 按知识对象模板落格：格名＝树上的「可信度」，值转换成中文枚举；
+        # 拆书自报打法类型（kind）→ 挂「大招打法」子节点（父链 场面打法→笔法→写作知识）
+        fields = json.loads(inst["fields_json"])
+        assert fields.get("可信度") == "高", fields
+        assert fields.get("适用场面") == "日常", fields
+        assert inst["kp_title"] == "大招打法" and inst["parent_title"] == "场面打法", inst
+        assert inst["grand_title"] == "笔法", inst
 
     def test_世界槽位_译名错位仍挂树(self):
         # 世界 power/extra 案（2026-11-08）：素材槽位原始值 power 经 _slot_label
@@ -229,7 +289,6 @@ class TestCodeBucketedTree:
                 return {r["title"]: r for r in rows}
         kp = _run(_check())
         assert set(kp) == {"世界", "力量体系与规矩", "更多世界细节"}, f"树形标题随发版树：{set(kp)}"
-        assert kp["世界"]["parent_id"] == "", "世界根挂题材根"
         assert kp["力量体系与规矩"]["parent_id"] == kp["世界"]["id"], "力量挂「世界」父级"
         assert kp["更多世界细节"]["parent_id"] == kp["世界"]["id"], "补充设定挂「世界」父级"
 
