@@ -715,12 +715,15 @@ jobs:
           echo "生产指针未动（用户无感）；验收通过后跑「C端 更新灰度晋升（staging → 生产）」作业推进生产"
 
       # ── 托管旧版本清理：发布校验全绿后，按版本语义序只保留最近 2 个版本目录 ──
-      # 每版净增约 70MB 且托管无生命周期机制；旧版本无任何引用入口（latest.json / 落地页直链 /
-      # notes.html 都只指当前版），历史版本获取由官网版本化 notes.html 直链承接（仓库已私有，
-      # 无 GitHub Release）。latest.json（生产 download/latest.json 与灰度 download/staging/
-      # latest.json）永不在删除路径；dry-run 预览先行；从未上过托管的 tag（如本地遗留 tag）
-      # 报错降级为 warning；清理失败不阻塞发版（发布已成功，下个版本自动重试）。本步骤不设
-      # if: always()——发布或校验失败时旧版本目录是当时唯一可下载来源，绝不能先删后建。
+      # 每版净增约 70MB 且托管无生命周期机制；历史版本获取由官网版本化 notes.html 直链承接
+      # （仓库已私有，无 GitHub Release）。latest.json（生产 download/latest.json 与灰度
+      # download/staging/latest.json）文件本身永不在删除路径；但两份指针各自指向的版本目录
+      # 同样不可删——灰度晋升（client-update-promote）后生产指针会长期落后于最新 tag，落后
+      # 超过保留数时被指向的目录恰在「keep last 2」之外（2026-11-09 实挂 v0.44.4：生产指针
+      # 仍指 0.44.4 而目录被 keep-2 清掉，官网下载与全体生产用户更新链全部落到 SPA 兜底假
+      # 200）。dry-run 预览先行；从未上过托管的 tag（如本地遗留 tag）报错降级为 warning；
+      # 清理失败不阻塞发版（发布已成功，下个版本自动重试）。本步骤不设 if: always()——
+      # 发布或校验失败时旧版本目录是当时唯一可下载来源，绝不能先删后建。
       - name: Prune old hosting versions (keep last 2)
         # 2026-10-31 实证（v0.44.2/v0.44.3）：旧版本目录各 ~70-100MB，`tcb hosting delete --dir`
         # 既无确认跳过也无超时，两次都在这步挂 70+ 分钟、一个目录都没删掉，最后只能人工取消 run。
@@ -734,6 +737,28 @@ jobs:
           KEEP=2
           # checkout 不保证 tag 对象齐全（见本 job 顶部 checkout#290 注释），显式补取
           git fetch origin 'refs/tags/v*:refs/tags/v*' --force
+          # 指针保护集：生产/灰度 latest.json 各自指向的版本目录不可删（2026-11-09 v0.44.4
+          # 实挂的根修）。fail-closed：任一指针取不到（网络失败/HTTP 非 2xx/JSON 无 version
+          # 键）→ 本轮清理整体跳过（warning＋exit 0，下个版本自动重试）——清理可重试，误删
+          # 不可逆；两份指针取齐才准进删除循环。不做「部分保护」：staging 指针今天恰好恒等
+          # 最新 tag 是巧合不是契约。
+          PROTECT_MISS=""
+          curl -sf "https://www.awesomenovel.com/download/latest.json?cb=$RANDOM" -o /tmp/prod-latest.json || PROTECT_MISS=1
+          curl -sf "https://www.awesomenovel.com/download/staging/latest.json?cb=$RANDOM" -o /tmp/staging-latest.json || PROTECT_MISS=1
+          PROTECTED="$(python3 - <<'PY'
+          import json
+          vers = set()
+          for p in ("/tmp/prod-latest.json", "/tmp/staging-latest.json"):
+              with open(p, encoding="utf-8") as f:
+                  vers.add("v" + json.load(f)["version"])
+          print(" ".join(sorted(vers)))
+          PY
+          )" || PROTECT_MISS=1
+          if [ -n "$PROTECT_MISS" ]; then
+            echo "::warning::生产/灰度指针未取齐（取不到或解析失败），本轮清理整体跳过——宁漏删勿误删，下个版本自动重试"
+            exit 0
+          fi
+          echo "指针保护集（不可删）：$PROTECTED"
           # 版本语义序（v0.13 > v0.4），勿用时间序——v0.9 / v0.11 会错排
           OLD_TAGS="$(git tag -l 'v*' --sort=-v:refname | tail -n +$((KEEP+1)))"
           if [ -z "$OLD_TAGS" ]; then
@@ -744,6 +769,12 @@ jobs:
           echo "$OLD_TAGS"
           while IFS= read -r TAG; do
             VER="${TAG#v}"
+            case " $PROTECTED " in
+              *" $TAG "*)
+                echo "跳过 download/v$VER/——被生产/灰度 latest.json 指针引用，不清理"
+                continue
+                ;;
+            esac
             echo "--- 预览 download/v$VER/ ---"
             timeout 60 tcb hosting delete "download/v$VER" --dir --dry-run -e "$TCB_ENV_ID" || true
             if timeout 120 tcb hosting delete "download/v$VER" --dir -e "$TCB_ENV_ID"; then
