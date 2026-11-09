@@ -1,4 +1,5 @@
 import json
+import os
 
 from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import StreamingResponse
@@ -32,11 +33,27 @@ router = APIRouter(
 )
 
 # 正文级生成的守卫与输出预算（c-prose-generation-headroom）：深度思考模型
-# （MiniMax M3 实测 effort=low 思考 >90s，llm.log 90.034s 判死行）按「思考＋正文」
-# 合计给足——守卫只封顶「健康流式但迟迟无正文」的畸形态，真挂死仍由相邻事件
-# 间隔 read 上限（120s）兜底；预算按实际用量计费，未用不产生成本。
-# 判定类短调用不在此列，维持 ai_client 默认 90 秒。
-PROSE_FIRST_CONTENT_TIMEOUT = 600.0
+# 按「思考＋正文」合计给足——守卫只封顶「健康流式但迟迟无正文」的畸形态，
+# 真挂死仍由相邻事件间隔 read 上限（120s）兜底；预算按实际用量计费，未用不
+# 产生成本。判定类短调用不在此列，维持 ai_client 默认 90 秒。
+# 上限 600→1800（c-prose-first-content-1800）：思考代际更迭快，600 秒系
+# MiniMax M3 era 标定已不够用——PROSE_MAX_TOKENS 是思考＋正文合计预算，慢端点
+# （20~30 tok/s）光思考烧满 32K 即需 18~27 分钟，600 秒会掐掉本来能跑完的
+# 健康流；1800 秒覆盖到预算自然截断，个别更慢端点由 env 显式放大。
+def _env_first_content_timeout() -> float:
+    """守卫上限 env 覆盖（PROSE_FIRST_CONTENT_TIMEOUT，秒）——解析失败/非正值回默认（fail-soft，DECONSTRUCT_CAPS 同款）。"""
+    raw = os.environ.get("PROSE_FIRST_CONTENT_TIMEOUT", "").strip()
+    if raw:
+        try:
+            value = float(raw)
+            if value > 0:
+                return value
+        except ValueError:
+            pass
+    return 1800.0
+
+
+PROSE_FIRST_CONTENT_TIMEOUT = _env_first_content_timeout()
 PROSE_MAX_TOKENS = 32768
 
 
