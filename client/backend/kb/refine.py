@@ -24,7 +24,7 @@ logger = logging.getLogger(__name__)
 
 # 护栏（boss 拍板「能识别并添加」——添加要有闸）
 MAX_NEW_NODES = 3
-MAX_BATCH = 30
+MAX_BATCH = 20
 
 # 概念白名单（新节点的 concept 必须落在五维内）
 _CONCEPTS = {"手法", "文风", "文笔", "世界设定", "角色设定"}
@@ -92,13 +92,34 @@ async def _llm_refine(user_id: str, genre: str, tree: str, items: list[str]) -> 
     cleaned = (raw or "").strip()
     if cleaned.startswith("```"):
         cleaned = cleaned.removeprefix("```json").removeprefix("```").removesuffix("```").strip()
-    data = json.loads(cleaned or "{}")
+    data = _loads_or_salvage(cleaned or "{}")
     if not isinstance(data, dict):
         raise TypeError("llm: bad shape")
     return {
         "moves": data.get("moves") if isinstance(data.get("moves"), list) else [],
         "new_nodes": data.get("new_nodes") if isinstance(data.get("new_nodes"), list) else [],
     }
+
+
+def _loads_or_salvage(text: str):
+    """LLM JSON 容错解析：直接 loads → 截断 salvage（真机 2026-11-09 实锤
+    「Expecting ',' delimiter char 4427」＝输出腰斩）——截到最后一个完整 '}'，
+    补全 moves/new_nodes 收括号再 loads； salvage 丢的只是尾部残条，前面保全。"""
+    try:
+        return json.loads(text)
+    except ValueError:
+        pass
+    cut = text.rfind("}")
+    while cut > 0:
+        cand = text[: cut + 1]
+        # 补全外层收口：candidates 截断处一般是 moves/new_nodes 数组内——补 ]}
+        for tail in ("]}", "}}"):
+            try:
+                return json.loads(cand + tail)
+            except ValueError:
+                continue
+        cut = text.rfind("}", 0, cut)
+    raise ValueError("llm: bad json (salvage failed)")
 
 
 async def run_refine(db: AsyncSession, *, user_id: str, genre: str, llm: bool = True) -> tuple[dict | None, str]:

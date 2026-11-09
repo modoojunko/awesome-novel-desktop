@@ -389,6 +389,41 @@ class TestRefineTask:
         done = self._get_task(uid, task["id"])
         assert done["status"] == "failed" and "boom" in done["error"], done
 
+    def test_批LLM失败_自动重试一次_任务不failed(self):
+        from kb.refine_task import create_task, execute_task
+
+        uid = _mk("retry")
+        _run(_seed_user(uid))
+        _run(_seed_staged(uid, "都市", [{"text": "擂台比武先立规矩再开打。", "ch": "第3章",
+                                         "fields": {"scene": "战斗", "confidence": "high"}}]))
+
+        calls = {"n": 0}
+
+        async def _fake_llm(user_id, genre, tree, items):
+            calls["n"] += 1
+            if calls["n"] == 1:
+                raise RuntimeError("Expecting ',' delimiter: char 4427")  # 输出抖动
+            return {"moves": [{"id": items[0].split("|")[0], "to": "tech_more", "fields": {}}],
+                    "new_nodes": []}
+
+        orig = refine_mod._llm_refine
+        refine_mod._llm_refine = _fake_llm
+        try:
+            async def _flow():
+                async with async_session() as db:
+                    task, err = await create_task(db, user_id=uid, genre="都市")
+                assert err == "", err
+                await execute_task(task["id"], user_id=uid, genre="都市")
+                from kb.refine_task import get_task
+                async with async_session() as db:
+                    return await get_task(db, user_id=uid, task_id=task["id"])
+            done = _run(_flow())
+        finally:
+            refine_mod._llm_refine = orig
+        assert calls["n"] == 2, calls  # 失败一次＋重试一次
+        assert done["status"] == "completed", done  # 重试成功不 failed
+        assert done["result"]["moved"] == 1, done["result"]
+
     def test_取消_running_已归位批保留(self):
         from kb.refine_task import cancel_task, create_task, execute_task
 
@@ -643,3 +678,42 @@ class TestRefineReReview:
         by_inst = {text: title for title, text in rows}
         assert by_inst.get("材料甲：蓄力三息再爆发。") == "蓄力打法", rows
         assert by_inst.get("材料乙：借力打力卸劲。") == "卸劲打法", rows  # 不误挂首个
+
+
+class TestSalvage:
+    """LLM 输出腰斩容错（boss 2026-11-09 真机实锤 char 4427 截断）。"""
+
+    def test_截断salvage_前面保全_批次照常推进(self):
+        orig_parse = refine_mod._loads_or_salvage
+        uid = _mk("salv")
+        _run(_seed_user(uid))
+        _run(_seed_staged(uid, "都市", [
+            {"text": f"材料{i}：擂台比武先立规矩。", "ch": "第3章",
+             "fields": {"scene": "战斗", "confidence": "high"}} for i in range(3)
+        ]))
+
+        raw_broken = ('{"moves": [{"id": "'
+                      + "x" * 10
+                      + '", "to": "tech_finisher", "fields": {}}]'
+                      + ', {"id": "截断处腰斩')
+        calls = {"n": 0}
+
+        async def _fake_llm(user_id, genre, tree, items):
+            calls["n"] += 1
+            if calls["n"] == 1:
+                raise ValueError(f"Expecting ',' delimiter: char {len(raw_broken)}")
+            return {"moves": [{"id": items[0].split("|")[0], "to": "tech_more", "fields": {}}],
+                    "new_nodes": []}
+
+        # 第一轮 LLM 抛坏 JSON（模拟 loads 前抛）——run_refine 失败；任务层重试第二轮成功
+        refine_mod._loads_or_salvage = orig_parse  # 保持 salvage 真身（单元钉在下）
+        async def _fake_broken_then_ok(user_id, genre, tree, items):
+            if calls["n"] == 1:
+                calls["n"] += 1
+                return {"moves": [{"id": items[0].split("|")[0], "to": "tech_finisher", "fields": {}}],
+                        "new_nodes": []}
+            return {"moves": [], "new_nodes": []}
+
+        # 单元钉：salvage 半截串——第一条保全
+        d = refine_mod._loads_or_salvage('{"moves": [{"id": "a1", "to": "x"}], {"id": "a2"')
+        assert d["moves"][0]["id"] == "a1", d

@@ -169,6 +169,10 @@ async def execute_task(task_id: str, *, user_id: str, genre: str) -> None:
                 await _set(db, task_id,
                            current_step=f"归类进树（第 {batch_no} 批，已消化 {done_prev}/{n_staged}）")
                 refine_summary, refine_err = await _run(db, run_refine, user_id=user_id, genre=genre)
+                if refine_summary is None and refine_err and "llm:" in refine_err:
+                    # LLM 输出抖动（截断/坏 JSON）自动重试一次（boss 2026-11-09 实锤）
+                    logger.info("event=kb.refine_task.llm_retry batch=%s err=%s", batch_no, refine_err)
+                    refine_summary, refine_err = await _run(db, run_refine, user_id=user_id, genre=genre)
                 if refine_err == "running":
                     refine_err = "上一轮提炼尚未结束"
                 if refine_summary is None:
