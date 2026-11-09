@@ -36,9 +36,10 @@ class _FakeResp:
 class _FakeAsyncClient:
     script: ClassVar[list] = []
     calls: ClassVar[list] = []
+    inits: ClassVar[list] = []  # 每次构造的 kwargs（IPv4 回退断言用）
 
     def __init__(self, **kw):
-        pass
+        type(self).inits.append(kw)
 
     async def __aenter__(self):
         return self
@@ -64,6 +65,7 @@ class _FakeAsyncClient:
 def fake_http(monkeypatch):
     _FakeAsyncClient.script = []
     _FakeAsyncClient.calls = []
+    _FakeAsyncClient.inits = []
     monkeypatch.setattr(
         conn_mod.httpx, "AsyncClient", lambda **kw: _FakeAsyncClient(**kw)
     )
@@ -74,6 +76,7 @@ def fake_http(monkeypatch):
 def zhuque_http(monkeypatch):
     _FakeAsyncClient.script = []
     _FakeAsyncClient.calls = []
+    _FakeAsyncClient.inits = []
     monkeypatch.setattr(
         zhuque_mod.httpx, "AsyncClient", lambda **kw: _FakeAsyncClient(**kw)
     )
@@ -324,3 +327,73 @@ def test_zhuque_non_json_200_controlled_and_logged(zhuque_http, cap_zhuque):
     assert len(records) == 1
     assert "result=bad_response" in records[0].getMessage()
     assert "status=200" in records[0].getMessage()
+
+
+# ── IPv6 黑洞兜底（c-zhuque-ipv6-fallback，2026-11-09 真机案）────────────────
+
+
+def test_zhuque_connect_timeout_falls_back_to_ipv4(zhuque_http, cap_zhuque):
+    """首连 connect 超时（v6 黑洞）→ 强制 IPv4 重试接通：业务成功、恰一行
+    result=ok 行尾 fallback=ipv4；第二次构造携带 transport、首次没有。"""
+    zhuque_http.script = [
+        httpx.ConnectTimeout("connect timed out"),  # 首连（系统解析 v6 优先）
+        _FakeResp(200, {"status": "success", "labels": []}),  # v4 回退
+    ]
+    out = _run_async(zhuque_mod.classify("正文", "zk-SECRET"))
+    assert out["status"] == "success"
+    assert len(zhuque_http.calls) == 2, "首连失败后恰好回退重试一次"
+    assert len(zhuque_http.inits) == 2
+    assert "transport" not in zhuque_http.inits[0], "首连不带专用 transport"
+    assert zhuque_http.inits[1].get("transport") is not None, "回退强制 IPv4 transport"
+    records = _zhuque_lines(cap_zhuque)
+    assert len(records) == 1, "回退不改「每调用恰一行」契约"
+    line = records[0].getMessage()
+    assert "result=ok" in line and "fallback=ipv4" in line
+    assert records[0].levelno == logging.INFO
+
+
+def test_zhuque_fallback_second_failure_keeps_mapping(zhuque_http, cap_zhuque):
+    """回退请求再失败＝对外与单次失败同语义（status=0 timeout 映射不变），
+    恰一行、fallback=ipv4 照标——回退不产生第二行也不吞错。"""
+    zhuque_http.script = [
+        httpx.ConnectError("network unreachable"),
+        httpx.ReadTimeout("read timed out"),
+    ]
+    with pytest.raises(ZhuqueUpstreamError) as ei:
+        _run_async(zhuque_mod.classify("正文", "zk"))
+    assert ei.value.status == 0
+    assert "超时" in ei.value.message
+    records = _zhuque_lines(cap_zhuque)
+    assert len(records) == 1
+    line = records[0].getMessage()
+    assert "status=0" in line and "result=timeout" in line
+    assert "fallback=ipv4" in line
+    assert records[0].levelno == logging.WARNING
+
+
+def test_zhuque_read_timeout_does_not_fall_back(zhuque_http, cap_zhuque):
+    """读超时＝网关推理慢，换地址族无意义——不回退（恰一次请求）、行无 fallback 标记。"""
+    zhuque_http.script = [httpx.ReadTimeout("read timed out")]
+    with pytest.raises(ZhuqueUpstreamError):
+        _run_async(zhuque_mod.classify("正文", "zk"))
+    assert len(zhuque_http.calls) == 1, "读超时不触发 IPv4 回退"
+    line = _zhuque_lines(cap_zhuque)[-1].getMessage()
+    assert "result=timeout" in line
+    assert "fallback=" not in line
+
+
+def test_zhuque_fallback_mapped_error_keeps_marker(zhuque_http, cap_zhuque):
+    """回退接通但上游按状态码映射失败（真机验证案形状：v6 挂满 → v4 接通 → 401）：
+    留痕行带上游真实状态码与 result=auth_error，fallback=ipv4 照标。"""
+    zhuque_http.script = [
+        httpx.ConnectTimeout("connect timed out"),
+        _FakeResp(401, {"error": {"message": "bad key"}}),
+    ]
+    with pytest.raises(ZhuqueUpstreamError) as ei:
+        _run_async(zhuque_mod.classify("正文", "zk-SECRET"))
+    assert ei.value.status == 401
+    records = _zhuque_lines(cap_zhuque)
+    assert len(records) == 1
+    line = records[0].getMessage()
+    assert "status=401" in line and "result=auth_error" in line
+    assert "fallback=ipv4" in line
