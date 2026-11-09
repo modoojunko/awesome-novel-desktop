@@ -410,6 +410,12 @@ async def _replace_layer(
                 "payload_json": json.dumps(payload, ensure_ascii=False),
                 "scope": "scene" if when else "base",
                 "slot": str(payload.get("slot") or ""),
+                # v2 条目级字段（c-knowledge-source-align）：基线投影 C 端知识对象形状
+                "example": str(e.get("example") or "")[:500],
+                "evidence_ch": str(e.get("evidence_ch") or "")[:80],
+                "confidence": str(e.get("confidence") or ""),
+                "kind": str(e.get("kind") or "")[:20],
+                "node_key": str(e.get("node_key") or "")[:60],
                 "content_sha256": content_sha(instruction),
                 "published_at": published_at,
             }

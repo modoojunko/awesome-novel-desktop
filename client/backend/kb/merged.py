@@ -43,6 +43,11 @@ class MergedEntry:
     negative_example: str = ""
     evidence: str = ""
     evidence_json: str = "{}"
+    # v2 条目级字段（c-knowledge-source-align：基线投影知识对象形状）
+    evidence_ch: str = ""
+    confidence: str = ""
+    kind: str = ""
+    node_key: str = ""
     status: str = "active"
     rev: int = 1
     src_kind: str = "baseline"
@@ -83,6 +88,20 @@ def _to_merged(
             text = overlay.content.strip()
             overlaid = True
         base_sha = overlay.base_content_sha256 or ""
+    # v2 条目级字段投影（c-knowledge-source-align）：基线表新列优先，
+    # 无列历史行回落 payload_json 内同义键（向前兼容 v2 包）
+    _payload_text = row.payload_json or "{}"
+    try:
+        _pj = json.loads(_payload_text) if isinstance(_payload_text, str) else {}
+    except ValueError:
+        _pj = {}
+    if not isinstance(_pj, dict):
+        _pj = {}
+    example = (getattr(row, "example", "") or "") or str(_pj.get("example") or "")
+    evidence_ch = (getattr(row, "evidence_ch", "") or "") or str(_pj.get("evidence_ch") or "")
+    confidence = (getattr(row, "confidence", "") or "") or str(_pj.get("confidence") or "")
+    kind = (getattr(row, "kind", "") or "") or str(_pj.get("kind") or "")
+    node_key = (getattr(row, "node_key", "") or "") or str(_pj.get("node_key") or "")
     return MergedEntry(
         id=row.entry_id,
         user_id=user_id,
@@ -93,6 +112,11 @@ def _to_merged(
         instruction=text,
         when_json=row.when_json or "{}",
         payload_json=row.payload_json or "{}",
+        example=example,
+        evidence=evidence_ch,
+        confidence=confidence,
+        kind=kind,
+        node_key=node_key,
         created_at=row.published_at,
         updated_at=row.published_at,
         src_key=row.src_key,

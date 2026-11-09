@@ -564,6 +564,13 @@ class KbBaselineEntry(Base):
     instruction: Mapped[str] = mapped_column(Text, nullable=False, default="")
     when_json: Mapped[str] = mapped_column(Text, nullable=False, default="{}")
     payload_json: Mapped[str] = mapped_column(Text, nullable=False, default="{}")
+    # v2 条目级字段（c-knowledge-source-align：基线投影 C 端知识对象形状——
+    # 例句/章证据/可信度/kind/树归属，随包 v2 条目同步落列）
+    example: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    evidence_ch: Mapped[str] = mapped_column(String(80), nullable=False, default="")
+    confidence: Mapped[str] = mapped_column(String(12), nullable=False, default="")
+    kind: Mapped[str] = mapped_column(String(20), nullable=False, default="")
+    node_key: Mapped[str] = mapped_column(String(60), nullable=False, default="")
     content_sha256: Mapped[str] = mapped_column(String(64), nullable=False, default="")
     published_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
 
