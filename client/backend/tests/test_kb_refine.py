@@ -492,9 +492,7 @@ class TestRefineReReview:
     def test_fresh库建任务_created_at非空_排序可用(self):
         """ORM 镜像时间列 DateTime+func.now()——fresh 库 create_all 建表后
         INSERT 不含 created_at 也落数据库默认时间（复检 P2：恒空串排序 NaN）。"""
-        from datetime import datetime
-
-        from kb.refine_task import create_task, list_tasks
+        from kb.refine_task import create_task
 
         uid = _mk("fresh")
         _run(_seed_user(uid))
