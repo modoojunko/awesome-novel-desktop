@@ -987,6 +987,8 @@
     "手法|异能": "tech_power",
     "手法|异能打法": "tech_power",
     "手法|群战": "tech_group",
-    "手法|群战打法": "tech_group"
+    "手法|群战打法": "tech_group",
+    "文风|tone": "style_role",
+    "文笔|tic": "craft_rule"
   }
 }

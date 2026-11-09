@@ -214,7 +214,24 @@ def check_gates(
 # tests/fixtures/kb_baseline_gate_cases.json）。返回 None＝合格，否则返回
 # 稳定错误码（前端/CI 只按码展示，不解析文案）。
 _SRC_KEY_RE = re.compile(r"^baseline:[^:\s]+:[^:\s]+$")
-_BASELINE_CONCEPTS = ("手法", "文风", "文笔")
+_BASELINE_CONCEPTS = ("手法", "文风", "文笔", "世界设定", "角色设定")
+
+# 基线 payload 键面（v2；c-knowledge-source-align——与内容仓 tools/validate.py
+# _PAYLOAD_KEYS 同源同批改，parity 钉逐条对拍）
+_BASELINE_PAYLOAD_KEYS = {
+    "手法": {"instruction", "scene", "emotion", "steps", "negative", "confidence",
+             "kind", "name", "how", "example", "evidence_ch", "slot"},
+    "文风": {"slot", "text", "role", "name", "how", "confidence", "example",
+             "evidence_ch"},
+    "文笔": {"slot", "craft", "rule", "banned", "banned_alt", "tic_pattern",
+             "tic_severity", "name", "how", "confidence", "example",
+             "evidence_ch"},
+    "世界设定": {"part", "content", "hard", "name", "confidence", "example",
+                "evidence_ch"},
+    "角色设定": {"archetype", "persona", "aliases", "role", "kind", "gender",
+                 "age", "race", "faction", "look", "speech", "background",
+                 "plot", "confidence"},
+}
 _WHEN_KEYS = ("scene", "emotion", "chapter_pos")
 
 
@@ -264,6 +281,26 @@ def check_baseline_entry(e: object) -> str | None:
         return "payload_slot_missing"
     if concept in ("文风", "文笔") and not str(payload.get("slot") or "").strip():
         return "payload_slot_missing"
+    # v2 键面硬闸（c-knowledge-source-align）：键面外即整条跳过（value 等 v1 键名）
+    allowed = _BASELINE_PAYLOAD_KEYS.get(concept)
+    if allowed is not None and any(k not in allowed for k in payload):
+        return "payload_key_invalid"
+    # v2 条目级字段（example/evidence_ch 长度；confidence 值域；kind/node_key 形状）
+    ex = e.get("example")
+    if ex is not None and (not isinstance(ex, str) or len(ex) > 500):
+        return "example_invalid"
+    ev = e.get("evidence_ch")
+    if ev is not None and (not isinstance(ev, str) or len(ev) > 80):
+        return "evidence_ch_invalid"
+    conf = e.get("confidence")
+    if conf is not None and conf not in ("high", "mid", "low"):
+        return "confidence_invalid"
+    kind = e.get("kind")
+    if kind is not None and (not isinstance(kind, str) or not kind.strip() or len(kind) > 20):
+        return "kind_invalid"
+    nk = e.get("node_key")
+    if nk is not None and (not isinstance(nk, str) or len(nk) > 60):
+        return "node_key_invalid"
 
     when = e.get("when")
     if when is None:

@@ -58,7 +58,7 @@ import bundle_manifest as _manifest
 
 a = Analysis(
     ['pywebview_app.py'],  # 与 build.spec 同目录
-    pathex=[str(root_dir), str(backend_dir)],
+    pathex=[str(root_dir), str(backend_dir), str(backend_dir / "vendor_sdk")],
     binaries=[],
     datas=[
         # AI 提示词模板**不再随包**（c-prompt-pack-client 硬切，2026-10-05 拍板）：

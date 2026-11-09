@@ -117,6 +117,12 @@ def build(out_dir: Path) -> Path:
 
     for m in M.HIDDEN_IMPORTS:
         cmd.append(f"--include-module={m}")
+    # 拆书 SDK 一期（c-knowledge-source-align）：仓内包目录整体编译——include-module
+    # 需要源码定位，运行期 sys.path 注入对 Nuitka 编译期无效，插件目录是正解
+    sdk_dir = REPO / "client" / "backend" / "vendor_sdk" / "novel_deconstruct_sdk"
+    if not sdk_dir.is_dir():
+        _fail(f"SDK 目录缺失：{sdk_dir}")
+    cmd.append(f"--include-plugin-directory={sdk_dir}")
     for m in M.EXCLUDED_IMPORTS:
         cmd.append(f"--nofollow-import-to={m}")
     for src, dest in M.DATAS:

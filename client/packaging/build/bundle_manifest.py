@@ -41,6 +41,12 @@ HIDDEN_IMPORTS: tuple[str, ...] = (
     # 图像资产/生成（c-cover-avatar + c-image-generation）：上传裁剪与生成调度
     "image_assets", "image_assets.router", "image_assets.service",
     "image_assets.adapters", "image_assets.generation", "image_assets.dispatcher",
+    # 拆书 SDK 一期（c-knowledge-source-align）：映射/校验/树索引被 kb.deconstruct_import
+    # 薄壳 sys.path 注入式引用——静态不可达，须显式列出
+    "novel_deconstruct_sdk", "novel_deconstruct_sdk.mapping",
+    "novel_deconstruct_sdk.payloads", "novel_deconstruct_sdk.concepts",
+    "novel_deconstruct_sdk.taxonomy", "novel_deconstruct_sdk.textclean",
+    "novel_deconstruct_sdk.theme_catalog",
     "PIL.Image", "PIL.ImageOps", "PIL.WebPImagePlugin",
     "PIL.JpegImagePlugin", "PIL.PngImagePlugin",
 )

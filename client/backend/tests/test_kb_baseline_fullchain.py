@@ -156,13 +156,16 @@ def test_全链_构建发布同步出块(monkeypatch):
 
         r = asyncio.run(bl.sync_baseline())
         assert r["status"] == "synced", r
-        assert r["entries"] == expected
+        # v2 内容源（714 条真实拆书）经 C 端 gates 诚实过滤：echo/结构重语言条目
+        # 整条跳过——entries ≤ 包内数且非零（有收有跳＝闸在工作）
+        assert 0 < r["entries"] <= expected, (r["entries"], expected)
         assert r["version"] == 1
 
         async def _check():
             async with async_session() as db:
                 n = len((await db.execute(select(KbBaselineEntry))).scalars().all())
-                assert n == expected
+                # gates 诚实过滤：落库数＝收下数（≤包内数且非零），跳过条不落库
+                assert n == r["entries"] and 0 < n <= expected, (n, expected)
                 rows = await load_baseline_entries(db, user_id="fullchain-user", genre="玄幻")
                 assert rows, "merged 域应能取到玄幻基线"
                 assert rows[0].layer == "baseline" and rows[0].src_key.startswith("baseline:")
