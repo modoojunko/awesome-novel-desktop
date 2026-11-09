@@ -738,26 +738,27 @@ jobs:
           # checkout 不保证 tag 对象齐全（见本 job 顶部 checkout#290 注释），显式补取
           git fetch origin 'refs/tags/v*:refs/tags/v*' --force
           # 指针保护集：生产/灰度 latest.json 各自指向的版本目录不可删（2026-11-09 v0.44.4
-          # 实挂的根修）。两份指针都取不到时保护集为空、维持原行为并告警——清理失败可重试，
-          # 误删不可逆；宁漏删勿误删。
-          curl -sf "https://www.awesomenovel.com/download/latest.json?cb=$RANDOM" -o /tmp/prod-latest.json || true
-          curl -sf "https://www.awesomenovel.com/download/staging/latest.json?cb=$RANDOM" -o /tmp/staging-latest.json || true
+          # 实挂的根修）。fail-closed：任一指针取不到（网络失败/HTTP 非 2xx/JSON 无 version
+          # 键）→ 本轮清理整体跳过（warning＋exit 0，下个版本自动重试）——清理可重试，误删
+          # 不可逆；两份指针取齐才准进删除循环。不做「部分保护」：staging 指针今天恰好恒等
+          # 最新 tag 是巧合不是契约。
+          PROTECT_MISS=""
+          curl -sf "https://www.awesomenovel.com/download/latest.json?cb=$RANDOM" -o /tmp/prod-latest.json || PROTECT_MISS=1
+          curl -sf "https://www.awesomenovel.com/download/staging/latest.json?cb=$RANDOM" -o /tmp/staging-latest.json || PROTECT_MISS=1
           PROTECTED="$(python3 - <<'PY'
           import json
           vers = set()
           for p in ("/tmp/prod-latest.json", "/tmp/staging-latest.json"):
-              try:
-                  with open(p, encoding="utf-8") as f:
-                      vers.add("v" + json.load(f)["version"])
-              except Exception:
-                  pass
+              with open(p, encoding="utf-8") as f:
+                  vers.add("v" + json.load(f)["version"])
           print(" ".join(sorted(vers)))
           PY
-          )" || PROTECTED=""
-          if [ -z "$PROTECTED" ]; then
-            echo "::warning::两份 latest.json 指针均未取到，本次清理无指针保护（宁漏删勿误删，建议人工核对后重跑）"
+          )" || PROTECT_MISS=1
+          if [ -n "$PROTECT_MISS" ]; then
+            echo "::warning::生产/灰度指针未取齐（取不到或解析失败），本轮清理整体跳过——宁漏删勿误删，下个版本自动重试"
+            exit 0
           fi
-          echo "指针保护集（不可删）：${PROTECTED:-<空>}"
+          echo "指针保护集（不可删）：$PROTECTED"
           # 版本语义序（v0.13 > v0.4），勿用时间序——v0.9 / v0.11 会错排
           OLD_TAGS="$(git tag -l 'v*' --sort=-v:refname | tail -n +$((KEEP+1)))"
           if [ -z "$OLD_TAGS" ]; then
