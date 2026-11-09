@@ -1388,9 +1388,11 @@ async def graph_tree_api(
     # 同级按发版树文件序排（笔法→世界→角色→其他），未收录标题排尾。
     # 谓词补 concept==""——根行是懒物化的 summary 行（concept 恒空串）；
     # 手录/改名行撞「写作知识」标题时 concept 必属六类，不会顶替真根（评审 P2）
-    root_row = next((e for e in rows if not e.parent_id and e.title == "写作知识" and e.concept == ""), None)
+    # 谓词补 concept==""——根行是懒物化的 summary 行（concept 恒空串）；
+    # 手录/改名行撞「写作知识」标题时 concept 必属六类，不会顶替真根（评审 P2）
+    root_rows = [e for e in rows if not e.parent_id and e.title == "写作知识" and e.concept == ""]
     roots = []
-    if root_row is not None:
+    if root_rows:
         from kb.taxonomy import nodes as taxonomy_nodes
 
         # 注意：nodes() 是 key→节点 dict；序要取节点的 title（行上没有 key）
@@ -1411,7 +1413,35 @@ async def graph_tree_api(
                 "children": [_build(k) for k in kids],
             }
 
-        roots.append(_build(root_row))
+        if genre:
+            # 选定题材：该题材自己的树（写作知识 → 笔法/世界/角色/其他）
+            root_row = root_rows[0]
+            roots.append(_build(root_row))
+        else:
+            # 全部题材（boss 2026-11-09：写作知识下就是题材分开各自的树）——
+            # 总根「写作知识」→ 题材层（虚拟节点，只管开合）→ 各题材自己的树；
+            # 树上看得见题材，不再随机只见一棵
+            genre_nodes = []
+            for rr in sorted(root_rows, key=lambda e: e.genre):
+                subtree = _build(rr)
+                genre_nodes.append({
+                    "id": f"genre:{rr.genre or '_general'}",
+                    "kind": "genre",
+                    "title": rr.genre or "通用",
+                    "concept": "",
+                    "genre": rr.genre,
+                    "definition": "",
+                    "children": subtree["children"],
+                })
+            roots.append({
+                "id": "kb-all",
+                "kind": "root",
+                "title": "写作知识",
+                "concept": "",
+                "genre": "",
+                "definition": "按题材分开的各自的树",
+                "children": genre_nodes,
+            })
     else:
         # 老库未重洗（无根行）——回落旧概念根装配（不炸）
         root_groups: dict[tuple[str, str], list] = {}

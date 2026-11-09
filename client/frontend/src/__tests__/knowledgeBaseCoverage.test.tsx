@@ -287,19 +287,18 @@ describe.skip("KnowledgeBasePage 角色设定条目头像框（统一实例行�
 });
 
 describe("KnowledgeBasePage 全部题材兜底（树/知识整理）", () => {
-  it("全部题材禁切树 → 选题材后树在位（genre 传递）", async () => {
+  it("全部题材切树 → 总根下题材层（boss 2026-11-09：题材分开各自的树）", async () => {
     organize.status.mockResolvedValue({
       genre: "玄幻", running: false, last_run: null, pending_relations: 0, proposed_findings: 0,
     });
     organize.findings.mockResolvedValue({ relations: [], findings: [], counts: { relations: 0, findings: 0 } });
     renderPage();
     await screen.findByTestId("kb-count-line");
-    // 全部题材禁切树（评审 P1-3：跨题材随机只见一题材）
-    expect((screen.getByText("树") as HTMLButtonElement).disabled).toBe(true);
-    // 选了真实题材 → 树页签可用且树面板在位
-    fireEvent.click(screen.getByText("都市"));
-    await waitFor(() => expect((screen.getByText("树") as HTMLButtonElement).disabled).toBe(false));
+    // 全部题材可切树：总根「写作知识」→ 题材层 → 各自的树
     fireEvent.click(screen.getByText("树"));
+    await waitFor(() => expect(screen.getByTestId("kb-tree-panel")).toBeTruthy());
+    // 选了真实题材 → 树面板仍在（单题材树）
+    fireEvent.click(screen.getByText("都市"));
     await waitFor(() => expect(screen.getByTestId("kb-tree-panel")).toBeTruthy());
   });
 });

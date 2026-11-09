@@ -109,3 +109,50 @@ class TestTreeAssembly:
         # 概念根兜底：kind=root 的组在，老知识挂组下
         assert len(data["roots"]) == 1 and data["roots"][0]["kind"] == "root"
         assert data["roots"][0]["children"][0]["title"] == "老知识"
+
+
+class TestAllGenreTree:
+    """全部题材装配（boss 2026-11-09：写作知识下就是题材分开各自的树）。"""
+
+    def test_全部题材_总根下题材层各自成树(self):
+        uid = _mk("all")
+        _run(_seed_user(uid))
+
+        async def _seed():
+            for g in ("都市", "志怪/民俗灵异"):
+                root = await _seed_row(uid, g, "写作知识", concept="")
+                await _seed_row(uid, g, "笔法", parent_id=root, concept="文笔")
+                await _seed_row(uid, g, "其他", parent_id=root, concept="")
+        _run(_seed())
+
+        async def _call():
+            async with async_session() as db:
+                return await graph_tree_api(genre="", user={"id": uid}, db=db)
+        data = _run(_call())["data"]
+        assert len(data["roots"]) == 1, "总根唯一"
+        top = data["roots"][0]
+        assert top["title"] == "写作知识" and top["kind"] == "root"
+        # 题材层：按题材名排序的两棵各自的树
+        genres = [c["title"] for c in top["children"]]
+        assert genres == sorted(genres) and set(genres) == {"都市", "志怪/民俗灵异"}, genres  # 题材层按名排序（locale 序不定，断言集合）
+        assert all(c["kind"] == "genre" for c in top["children"])
+        # 题材下是各自枝干（不再有第二层「写作知识」）
+        for gn in top["children"]:
+            titles = [k["title"] for k in gn["children"]]
+            assert "写作知识" not in titles, titles
+            assert "笔法" in titles, titles
+
+    def test_选定题材_仍是单棵题材树(self):
+        uid = _mk("one")
+        _run(_seed_user(uid))
+        root = _run(_seed_row(uid, "都市", "写作知识", concept=""))
+        _run(_seed_row(uid, "都市", "笔法", parent_id=root, concept="文笔"))
+
+        async def _call():
+            async with async_session() as db:
+                return await graph_tree_api(genre="都市", user={"id": uid}, db=db)
+        data = _run(_call())["data"]
+        assert len(data["roots"]) == 1
+        top = data["roots"][0]
+        assert top["title"] == "写作知识" and top["genre"] == "都市"
+        assert [k["title"] for k in top["children"]] == ["笔法"]

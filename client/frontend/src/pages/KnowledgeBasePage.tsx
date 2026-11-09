@@ -368,22 +368,15 @@ export default function KnowledgeBasePage() {
             知识提炼
           </button>
           <div className="flex items-center gap-1 rounded-lg border border-[var(--border)] bg-[var(--surface)] p-0.5">
-            {(["list", "tree"] as const).map((v) => {
-              // 树按题材装配（单根行按题材物化）——「全部题材」切树会随机只见一个题材
-              //（评审 P1），禁切并提示（评审 P1-3：树视图强制选题材）
-              const treeBlocked = v === "tree" && genre === "全部题材";
-              return (
-                <button
-                  key={v}
-                  disabled={treeBlocked}
-                  title={treeBlocked ? "选一个题材后看知识树" : undefined}
-                  onClick={() => setView(v)}
-                  className={`rounded-md px-3 py-1.5 text-[12px] disabled:cursor-not-allowed disabled:opacity-40 ${view === v ? "bg-[var(--accent-soft)] font-medium text-[var(--accent)]" : "text-[var(--muted)] hover:text-[var(--fg)]"}`}
-                >
-                  {v === "list" ? "列表" : "树"}
-                </button>
-              );
-            })}
+            {(["list", "tree"] as const).map((v) => (
+              <button
+                key={v}
+                onClick={() => setView(v)}
+                className={`rounded-md px-3 py-1.5 text-[12px] ${view === v ? "bg-[var(--accent-soft)] font-medium text-[var(--accent)]" : "text-[var(--muted)] hover:text-[var(--fg)]"}`}
+              >
+                {v === "list" ? "列表" : "树"}
+              </button>
+            ))}
           </div>
         </div>
       </div>
