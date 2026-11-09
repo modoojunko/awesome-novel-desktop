@@ -30,7 +30,7 @@
     "instruction": "旁白保持冷峻，句子短促，情绪只从物件变化里露出来。",
     "payload": {
      "slot": "tone",
-     "value": "冷峻"
+     "text": "冷峻"
     },
     "when": {
      "scene": "文戏",
