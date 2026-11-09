@@ -96,7 +96,11 @@ export default function RefineTaskDetailPage() {
       <section className="detail-sec">
         <h2>执行过程</h2>
         <div className="tk-list" data-testid="refine-timeline" style={{ border: "1px solid var(--border)", borderRadius: 16, padding: "6px 18px", background: "var(--surface)" }}>
-          {(t.timeline ?? []).length === 0 && <p className="sub">排队等待，轮到自动开跑…</p>}
+          {(t.timeline ?? []).length === 0 && (
+            <p className="sub">
+              {t.status === "queued" ? "排队等待，轮到自动开跑…" : "执行记录为空——重新提炼即可"}
+            </p>
+          )}
           {(t.timeline ?? []).map((s) => (
             <div key={s.key} style={{ display: "flex", gap: 12, padding: "10px 0", borderBottom: "1px solid var(--border)" }}>
               <span style={{ flex: "none", width: 10, height: 10, borderRadius: 999, marginTop: 7, background: "var(--accent)" }} />

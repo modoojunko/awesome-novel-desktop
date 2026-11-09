@@ -309,7 +309,13 @@ async def sweep_stale_on_boot() -> int:
             "SELECT id FROM kb_refine_tasks WHERE status IN ('queued','running')"
         ))).scalars().all()
         for tid in rows:
-            await _set(db, tid, status="failed", current_step="",
-                       error="应用重启中断，材料原样留在「其他」；重新提炼即可")
+            timeline = json.dumps([{
+                "key": "cancel", "title": "已取消（应用重启）",
+                "detail": "应用重启中断了这次提炼，材料原样留在「其他」；重新提炼即可",
+                "time": _now(),
+            }], ensure_ascii=False)
+            await _set(db, tid, status="failed", current_step="已取消",
+                       error="应用重启中断，材料原样留在「其他」；重新提炼即可",
+                       timeline_json=timeline)
             n += 1
     return n
