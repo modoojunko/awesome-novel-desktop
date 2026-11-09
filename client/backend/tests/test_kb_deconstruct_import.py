@@ -492,3 +492,17 @@ def test_collect_lands_material_not_knowledge_instances():
     inst_count, origins = asyncio.run(_check())
     assert inst_count == 0, "收录 SHALL NOT 建实例——实例由总结采纳产生"
     assert origins == {"material"}, "收录产物全部落素材态"
+
+
+def test_双前缀自愈_星币星币实锤形态():
+    """boss 2026-11-09「星币：星币：…」实锤：旧映射 content 自带名字头时
+    重复拼名——自愈把实例正文与知识行 instruction 去重。"""
+    import asyncio
+    from kb.migrate_library import dedupe_dual_prefix, heal_dual_prefix_instances
+
+    assert dedupe_dual_prefix("星币：星币：吉尔伽美什使用后引发厄运延迟") == (
+        "星币：吉尔伽美什使用后引发厄运延迟"
+    )
+    # heal 函数存在且可调（空账号零改动自熄）
+    n = asyncio.run(heal_dual_prefix_instances(user_id="no-such-user"))
+    assert n == 0

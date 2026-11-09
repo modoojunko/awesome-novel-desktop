@@ -230,6 +230,20 @@ def strip_chapter_anchor(value: str) -> str:
     return _KB_CHAPTER_ANCHOR_RE.sub("", str(value or "")).strip()
 
 
+# 双前缀（boss 2026-11-09「星币：星币：…」实锤）：拆书产物 content 自带名字头、
+# 收集拼接又加一遍——「X：X：正文」→「X：正文」（循环收三连以上）
+_DUAL_PREFIX_RE = re.compile(r"^([^：\n]{1,24})：\1(?=：)")
+
+
+def dedupe_dual_prefix(text: str) -> str:
+    prev = None
+    t = str(text or "")
+    while t != prev:
+        prev = t
+        t = _DUAL_PREFIX_RE.sub(r"\1", t)
+    return t
+
+
 async def normalize_legacy_genres(*, user_id: str) -> int:
     """存量题材归一自愈：词表外写法归一到目录名。
 
@@ -313,6 +327,41 @@ async def repair_chapter_anchors(*, user_id: str) -> int:
     except Exception:  # noqa: BLE001 — 读面永不因自愈失败红
         logger.warning("event=kb.repair_chapter_anchors.fail user=%s", user_id, exc_info=True)
         return 0
+
+
+async def heal_dual_prefix_instances(*, user_id: str) -> int:
+    """存量实例正文双前缀自愈：拆书旧映射产物「X：X：正文」→「X：正文」。
+
+    生成点＝旧收集映射 content 已带名字头时重复拼名（SDK 拼接去重后新账不再进）；
+    存量读面自愈（同 repair_chapter_anchors 先例：自开短会话、查无即返、失败不抛）。
+    """
+    try:
+        from db import async_session
+
+        async with async_session() as db:
+            return await _heal_dual_prefix_on(db, user_id=user_id)
+    except Exception:  # noqa: BLE001 — 读面永不因自愈失败红
+        logger.warning("event=kb.heal_dual_prefix.fail user=%s", user_id, exc_info=True)
+        return 0
+
+
+async def _heal_dual_prefix_on(db: AsyncSession, *, user_id: str) -> int:
+    pat = re.compile(r"^([^：\n]{1,24})：\1(?=：)")
+    fixed = 0
+    insts = (
+        await db.execute(
+            select(KbKnowledgeInstance).join(
+                KbEntry, KbEntry.id == KbKnowledgeInstance.knowledge_id
+            ).where(KbEntry.user_id == user_id)
+        )
+    ).scalars().all()
+    for inst in insts:
+        t = inst.text or ""
+        new = pat.sub(lambda m: m.group(1) + "：", t)
+        if new != t:
+            inst.text = new
+            fixed += 1
+    return fixed
 
 
 async def _repair_chapter_anchors_on(db: AsyncSession, *, user_id: str) -> int:
@@ -488,10 +537,12 @@ async def ensure_legacy_migrated(db: AsyncSession, *, user_id: str) -> None:
     独立于 stamped 短路——备份恢复回的旧形状条目不经迁移入口，也要能被修。
     同位再跑 normalize_legacy_genres / repair_chapter_anchors / purge_instances_on_materials /
     backfill_instance_names（2026-11-07 走查实锤的存量沉积，见各函数 docstring），
-    同为幂等自熄、独立于 stamped。
+    同为幂等自熄、独立于 stamped。再跑 heal_dual_prefix_instances（2026-11-09
+    「星币：星币：」双前缀存量自愈，c-knowledge-source-align）。
     """
     try:
         await repair_character_evidence(db, user_id=user_id)
+        await heal_dual_prefix_instances(user_id=user_id)
         await normalize_legacy_genres(user_id=user_id)
         await repair_chapter_anchors(user_id=user_id)
         await purge_instances_on_materials(user_id=user_id)

@@ -517,7 +517,12 @@ def map_deconstruct_products(
             payload["confidence"] = conf
         if hard:
             payload["hard"] = True
-        instruction = _line(f"{name}：{content}" if name else content, 320)
+        # content 已带「name：」前缀时不重复加（boss 2026-11-09「星币：星币：」实锤：
+        # 拆书 LLM 产物 content 自带名字头，拼接变成双前缀）
+        instruction = _line(
+            content if (name and content.startswith(name + "：")) else (f"{name}：{content}" if name else content),
+            320,
+        )
         add(
             f"world.{part}", "世界设定", name or title or content, payload,
             instruction=instruction, evidence=ch_evidence,
