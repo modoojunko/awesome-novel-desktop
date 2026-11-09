@@ -1304,6 +1304,21 @@ async def refine_task_get_api(
     return {"ok": True, "data": task}
 
 
+@router.post("/refine/tasks/{task_id}/cancel")
+async def refine_task_cancel_api(
+    task_id: str,
+    user: dict = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """取消 queued/running 任务：已归位的批保留，剩余留守其他。"""
+    from kb.refine_task import cancel_task
+
+    task, error = await cancel_task(db, user_id=_user(user), task_id=task_id)
+    if task is None:
+        return JSONResponse(status_code=409, content={"ok": False, "detail": error})
+    return {"ok": True, "data": task}
+
+
 @router.delete("/refine/tasks/{task_id}")
 async def refine_task_delete_api(
     task_id: str,

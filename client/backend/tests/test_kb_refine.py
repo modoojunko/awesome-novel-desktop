@@ -125,7 +125,12 @@ class TestRefine:
         _run(_seed_user(uid))
         self._seed(uid)
 
+        calls = {"n": 0}
+
         async def _fake_llm(user_id, genre, tree, items):
+            calls["n"] += 1
+            if calls["n"] > 1:
+                return {"moves": [], "new_nodes": []}  # 第二批零进展——批循环终止
             assert "tech_finisher" in tree, "树清单要给到 LLM"
             return {"moves": [{"id": items[0].split("|")[0], "to": "tech_finisher",
                                "fields": {"情绪链": "蓄力—爆发—代价"}},
@@ -301,7 +306,12 @@ class TestRefineTask:
              "fields": {"scene": "战斗", "confidence": "mid"}},
         ]))
 
+        _llm_calls = {"n": 0}
+
         async def _fake_llm(user_id, genre, tree, items):
+            _llm_calls["n"] += 1
+            if _llm_calls["n"] > 1:
+                return {"moves": [], "new_nodes": []}  # 第二批零进展——批循环终止
             return {"moves": [{"id": items[0].split("|")[0], "to": "tech_finisher", "fields": {}}],
                     "new_nodes": [{"key": "n1", "parent": "tech_fallback", "title": "心理博弈打法",
                                    "definition": "对峙攻心的场面写法。", "concept": "手法",
@@ -336,7 +346,9 @@ class TestRefineTask:
         assert done["result"]["details"]["new_nodes"][0]["parent_title"] == "场面打法"
         assert done["result"]["details"]["moves"][0]["to"] == "大招打法"
         keys = [s["key"] for s in done["timeline"]]
-        assert keys == ["read", "classify", "grow", "relate", "done"], keys
+        # 批循环（boss 2026-11-09：批级进度）——classify 按批出现，收尾 grow/relate/done
+        assert keys[0] == "read" and keys.count("classify") >= 1, keys
+        assert keys[-3:] == ["grow", "relate", "done"], keys
 
         # 重复建任务被单飞拒（任务已 completed 不占running——可再建，验列表）
         async def _again():
@@ -377,12 +389,92 @@ class TestRefineTask:
         done = self._get_task(uid, task["id"])
         assert done["status"] == "failed" and "boom" in done["error"], done
 
+    def test_取消_running_已归位批保留(self):
+        from kb.refine_task import cancel_task, create_task, execute_task
+
+        uid = _mk("cancel")
+        _run(_seed_user(uid))
+        _run(_seed_staged(uid, "都市", [
+            {"text": f"材料{i}：擂台比武先立规矩。", "ch": "第3章",
+             "fields": {"scene": "战斗", "confidence": "high"}} for i in range(3)
+        ]))
+
+        async def _fake_llm(user_id, genre, tree, items):
+            # 每次调用慢一点——给 cancel 留窗口
+            await asyncio.sleep(0.15)
+            return {"moves": [{"id": items[0].split("|")[0], "to": "tech_finisher", "fields": {}}],
+                    "new_nodes": []}
+
+        orig = refine_mod._llm_refine
+        refine_mod._llm_refine = _fake_llm
+        try:
+            async def _flow():
+                async with async_session() as db:
+                    task, err = await create_task(db, user_id=uid, genre="都市")
+                assert err == "", err
+                # 手动投递（模拟 schedule——同 loop 内持有引用）
+                t = asyncio.get_running_loop().create_task(
+                    execute_task(task["id"], user_id=uid, genre="都市"))
+                from kb.refine_task import _RUNNING
+                _RUNNING[task["id"]] = t
+                # 等 running
+                import time as _t
+                deadline = _t.time() + 3
+                while _t.time() < deadline:
+                    done = await self._aget_task(uid, task["id"])
+                    if done["status"] == "running":
+                        break
+                    await asyncio.sleep(0.05)
+                assert done["status"] == "running", done["status"]
+
+                async with async_session() as db:
+                    row, cerr = await cancel_task(db, user_id=uid, task_id=task["id"])
+                assert row is not None, cerr
+                # 终态落 cancelled（执行体 CancelledError 落账）
+                deadline = _t.time() + 5
+                while _t.time() < deadline:
+                    done = await self._aget_task(uid, task["id"])
+                    if done["status"] in ("cancelled", "completed", "failed"):
+                        break
+                    await asyncio.sleep(0.05)
+                assert done["status"] == "cancelled", done["status"]
+                return True
+            ok = _run(_flow())
+            assert ok
+        finally:
+            refine_mod._llm_refine = orig
+
+    def test_取消_queued_直接落cancelled(self):
+        from kb.refine_task import cancel_task, create_task
+
+        uid = _mk("cancelq")
+        _run(_seed_user(uid))
+
+        async def _mk_task():
+            async with async_session() as db:
+                return await create_task(db, user_id=uid, genre="都市")
+        task, _e = _run(_mk_task())
+
+        async def _cancel():
+            async with async_session() as db:
+                return await cancel_task(db, user_id=uid, task_id=task["id"])
+        row, cerr = _run(_cancel())
+        assert cerr == "" and row["status"] == "cancelled", (cerr, row)
+        # 再取消＝已结束
+        row2, err2 = _run(_cancel())
+        assert row2 is None and "已结束" in err2, (row2, err2)
+
     def _get_task(self, uid, tid):
         from kb.refine_task import get_task
         async def _go():
             async with async_session() as db:
                 return await get_task(db, user_id=uid, task_id=tid)
         return _run(_go())
+
+    async def _aget_task(self, uid, tid):
+        from kb.refine_task import get_task
+        async with async_session() as db:
+            return await get_task(db, user_id=uid, task_id=tid)
 
 
 class TestRefineReview:

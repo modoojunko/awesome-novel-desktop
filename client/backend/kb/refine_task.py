@@ -153,24 +153,46 @@ async def execute_task(task_id: str, *, user_id: str, genre: str) -> None:
             timeline[-1]["detail"] = f"取到 {n_staged} 条待提炼材料"
             await _set(db, task_id, timeline_json=json.dumps(timeline, ensure_ascii=False))
 
-            # ── 1. 归类进树 ──
+            # ── 1. 归类进树（批循环：每批 ≤30 条，批批刷进度——boss 2026-11-09
+            #    「看不到具体每个文件怎么提炼的流程状态」）──
             await _set(db, task_id, current_step="归类进树")
-            refine_summary, refine_err = (await _run(db, run_refine, user_id=user_id, genre=genre))
-            if refine_err == "running":
-                refine_err = "上一轮提炼尚未结束"
-            if refine_summary is None:
-                timeline.append(_step("classify", "归类进树", f"失败：{refine_err}"))
-                await _set(db, task_id, status="failed", error=f"refine: {refine_err}",
-                           timeline_json=json.dumps(timeline, ensure_ascii=False))
-                return
-            timeline.append(_step("classify", "归类进树",
-                                  f"{refine_summary['moved']} 条挂进知识点；撑不起的留守「其他」"))
-            await _set(db, task_id, timeline_json=json.dumps(timeline, ensure_ascii=False))
+            total_moved = 0
+            total_created = 0
+            total_staged = 0
+            total_kept = 0
+            details = {"moves": [], "new_nodes": []}
+            organize_error = ""
+            batch_no = 0
+            while True:
+                batch_no += 1
+                done_prev = total_moved + total_kept
+                await _set(db, task_id,
+                           current_step=f"归类进树（第 {batch_no} 批，已消化 {done_prev}/{n_staged}）")
+                refine_summary, refine_err = await _run(db, run_refine, user_id=user_id, genre=genre)
+                if refine_err == "running":
+                    refine_err = "上一轮提炼尚未结束"
+                if refine_summary is None:
+                    timeline.append(_step("classify", "归类进树", f"失败：{refine_err}"))
+                    await _set(db, task_id, status="failed", error=f"refine: {refine_err}",
+                               timeline_json=json.dumps(timeline, ensure_ascii=False))
+                    return
+                total_moved += refine_summary["moved"]
+                total_created += refine_summary["nodes_created"]
+                total_staged += refine_summary["staged"]
+                total_kept += refine_summary["kept"]
+                d = refine_summary.get("details") or {}
+                details["moves"] = (details["moves"] + d.get("moves", []))[:40]
+                details["new_nodes"] = (details["new_nodes"] + d.get("new_nodes", []))[:9]
+                timeline.append(_step(
+                    "classify", f"归类进树 · 第 {batch_no} 批",
+                    f"{refine_summary['moved']} 条挂进知识点；留守 {refine_summary['kept']} 条"))
+                await _set(db, task_id, timeline_json=json.dumps(timeline, ensure_ascii=False))
+                if refine_summary["staged"] == 0 or refine_summary["moved"] == 0:
+                    break  # 本批清空或零进展（LLM 全留守）——不再空转
 
             # ── 2. 长出新知识点 ──
-            created = refine_summary["nodes_created"]
-            detail = refine_summary.get("details") or {}
-            new_nodes = detail.get("new_nodes") or []
+            created = total_created
+            new_nodes = details.get("new_nodes") or []
             if created:
                 names = "、".join(n.get("title", "") for n in new_nodes[:3])
                 await _set(db, task_id, current_step=f"长出新知识点（{names}）")
@@ -184,24 +206,39 @@ async def execute_task(task_id: str, *, user_id: str, genre: str) -> None:
             relations = run.relations_added if run is not None and not org_err else 0
             if org_err and org_err != "running":
                 logger.warning("event=kb.refine_task.organize_fail err=%s", org_err)
+                organize_error = org_err
             timeline.append(_step("relate", "梳理关系", f"找出 {relations} 条关系（细化/矛盾/依赖）"))
             await _set(db, task_id, timeline_json=json.dumps(timeline, ensure_ascii=False))
 
             # ── 完成 ──
-            kept = refine_summary["kept"]
-            timeline.append(_step("done", "完成", f"{kept} 条材料撑不起知识，留守「其他」"))
+            timeline.append(_step("done", "完成", f"{total_kept} 条材料撑不起知识，留守「其他」"))
             result = {
-                "staged": refine_summary["staged"],
-                "moved": refine_summary["moved"],
+                "staged": total_staged,
+                "moved": total_moved,
                 "nodes_created": created,
                 "relations": relations,
-                "kept": kept,
-                "details": detail,
-                "organize_error": org_err or "",
+                "kept": total_kept,
+                "details": details,
+                "organize_error": organize_error,
             }
             await _set(db, task_id, status="completed", current_step="已完成",
                        timeline_json=json.dumps(timeline, ensure_ascii=False),
                        result_json=json.dumps(result, ensure_ascii=False))
+    except asyncio.CancelledError:
+        # 取消（boss 2026-11-09：可取消）——已 commit 的批保留，剩余留守其他
+        logger.info("event=kb.refine_task.cancelled task=%s", task_id)
+        try:
+            async with async_session() as db:
+                await ensure_ddl(db)
+                row = await _row_dict(db, task_id)
+                timeline = row.get("timeline") if row else []
+                timeline = timeline if isinstance(timeline, list) else []
+                timeline.append(_step("cancel", "已取消",
+                                      "已归位的批保留，剩余材料留守「其他」"))
+                await _set(db, task_id, status="cancelled", current_step="已取消",
+                           timeline_json=json.dumps(timeline, ensure_ascii=False))
+        except Exception:  # noqa: BLE001 — 落账失败仅记日志
+            logger.warning("event=kb.refine_task.cancel_finalize_fail task=%s", task_id)
     except Exception as exc:  # noqa: BLE001 — 任务失败落账不炸进程
         logger.warning("event=kb.refine_task.fail task=%s err=%s", task_id, exc, exc_info=True)
         try:
@@ -218,15 +255,42 @@ async def _run(db: AsyncSession, fn, **kwargs):
 
 
 # 进程内持有执行体引用——asyncio 对裸 task 只持弱引用（官方文档明示可能被 GC
-# 中途消失），丢引用＝任务无声蒸发且行状态卡 running（评审 P1）
-_RUNNING: set[asyncio.Task] = set()
+# 中途消失），丢引用＝任务无声蒸发且行状态卡 running（评审 P1）；
+# task_id→Task 映射供取消接口定位执行体（boss 2026-11-09：提炼可取消）
+_RUNNING: dict[str, asyncio.Task] = {}
 
 
 def schedule(task_id: str, *, user_id: str, genre: str) -> None:
     """投递后台执行（FastAPI 事件循环内调用）。"""
     task = asyncio.get_event_loop().create_task(execute_task(task_id, user_id=user_id, genre=genre))
-    _RUNNING.add(task)
-    task.add_done_callback(_RUNNING.discard)
+    _RUNNING[task_id] = task
+    task.add_done_callback(lambda _t, tid=task_id: _RUNNING.pop(tid, None))
+
+
+async def cancel_task(db: AsyncSession, *, user_id: str, task_id: str) -> tuple[dict | None, str]:
+    """取消 queued/running 任务：已归位的批保留（commit 过），剩余留守其他。
+
+    queued＝直接落 cancelled；running＝cancel 执行体（CancelledError 落账）。
+    """
+    row = await _row_dict(db, task_id)
+    if row is None or row.get("user_id") != user_id:
+        return None, "任务不存在"
+    if row.get("status") not in ("queued", "running"):
+        return None, "任务已结束，无需取消"
+    if row.get("status") == "queued":
+        timeline = [_step("cancel", "已取消", "排队中即取消，材料原样留守「其他」")]
+        await _set(db, task_id, status="cancelled", current_step="已取消",
+                   timeline_json=json.dumps(timeline, ensure_ascii=False))
+    else:
+        task = _RUNNING.get(task_id)
+        if task is None:
+            # 执行体已不在（进程重启 sweep 兜底前窗口）——直接落 cancelled
+            timeline = [_step("cancel", "已取消", "执行体已结束，材料留守「其他」")]
+            await _set(db, task_id, status="cancelled", current_step="已取消",
+                       timeline_json=json.dumps(timeline, ensure_ascii=False))
+        else:
+            task.cancel()  # execute_task 捕 CancelledError 落 cancelled 账
+    return await _row_dict(db, task_id), ""
 
 
 async def sweep_stale_on_boot() -> int:
