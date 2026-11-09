@@ -132,9 +132,9 @@ class TestAllGenreTree:
         assert len(data["roots"]) == 1, "总根唯一"
         top = data["roots"][0]
         assert top["title"] == "写作知识" and top["kind"] == "root"
-        # 题材层：按题材名排序的两棵各自的树
+        # 题材层：THEMES 同源序（都市在目录前段，志怪靠后——与左栏一致）
         genres = [c["title"] for c in top["children"]]
-        assert genres == sorted(genres) and set(genres) == {"都市", "志怪/民俗灵异"}, genres  # 题材层按名排序（locale 序不定，断言集合）
+        assert genres == ["都市", "志怪/民俗灵异"], genres
         assert all(c["kind"] == "genre" for c in top["children"])
         # 题材下是各自枝干（不再有第二层「写作知识」）
         for gn in top["children"]:
@@ -156,3 +156,27 @@ class TestAllGenreTree:
         top = data["roots"][0]
         assert top["title"] == "写作知识" and top["genre"] == "都市"
         assert [k["title"] for k in top["children"]] == ["笔法"]
+
+
+class TestOrphanGenreTree:
+    """无根行题材（手录先行未总结）在全部题材视图的合成（三检 P2）。"""
+
+    def test_手录先行题材_全部题材视图合成概念根树(self):
+        uid = _mk("orphan")
+        _run(_seed_user(uid))
+        # 有根行的题材
+        root = _run(_seed_row(uid, "都市", "写作知识", concept=""))
+        _run(_seed_row(uid, "都市", "笔法", parent_id=root, concept="文笔"))
+        # 无根行题材：只手录了知识行（concept 必属六类）
+        _run(_seed_row(uid, "玄幻", "老手录知识", concept="手法", origin="manual"))
+
+        async def _call():
+            async with async_session() as db:
+                return await graph_tree_api(genre="", user={"id": uid}, db=db)
+        data = _run(_call())["data"]
+        top = data["roots"][0]
+        genres = {c["title"]: c for c in top["children"]}
+        assert set(genres) == {"都市", "玄幻"}, set(genres)
+        # 玄幻合成节点：概念根树在（手录知识挂「手法」概念根），不再缺席
+        xu = genres["玄幻"]
+        assert [k["title"] for k in xu["children"]] == ["老手录知识"], xu["children"]

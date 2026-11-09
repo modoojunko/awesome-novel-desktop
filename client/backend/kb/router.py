@@ -13,6 +13,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from auth_local.deps import get_current_user
 from db import get_db
+from genres.theme_catalog import THEME_NAMES
 from kb import service as knowledge_service
 from kb.concepts import CONCEPTS, THEMES
 from kb.migrate_library import ensure_legacy_migrated
@@ -1388,8 +1389,6 @@ async def graph_tree_api(
     # 同级按发版树文件序排（笔法→世界→角色→其他），未收录标题排尾。
     # 谓词补 concept==""——根行是懒物化的 summary 行（concept 恒空串）；
     # 手录/改名行撞「写作知识」标题时 concept 必属六类，不会顶替真根（评审 P2）
-    # 谓词补 concept==""——根行是懒物化的 summary 行（concept 恒空串）；
-    # 手录/改名行撞「写作知识」标题时 concept 必属六类，不会顶替真根（评审 P2）
     root_rows = [e for e in rows if not e.parent_id and e.title == "写作知识" and e.concept == ""]
     roots = []
     if root_rows:
@@ -1421,9 +1420,13 @@ async def graph_tree_api(
             # 全部题材（boss 2026-11-09：写作知识下就是题材分开各自的树）——
             # 总根「写作知识」→ 题材层（虚拟节点，只管开合）→ 各题材自己的树；
             # 树上看得见题材，不再随机只见一棵
+            # 题材层按左栏 THEMES 同源定序（码点序会把「都市」排末位，评审 P2）
+            theme_order = {name: i for i, name in enumerate(THEME_NAMES)}
             genre_nodes = []
-            for rr in sorted(root_rows, key=lambda e: e.genre):
+            seen_genres: set[str] = set()
+            for rr in sorted(root_rows, key=lambda e: theme_order.get(e.genre, len(theme_order))):
                 subtree = _build(rr)
+                seen_genres.add(rr.genre)
                 genre_nodes.append({
                     "id": f"genre:{rr.genre or '_general'}",
                     "kind": "genre",
@@ -1432,6 +1435,26 @@ async def graph_tree_api(
                     "genre": rr.genre,
                     "definition": "",
                     "children": subtree["children"],
+                })
+            # 无根行题材（手录先行、未跑过总结）也合成虚拟题材节点——概念根树搬
+            # 回落分支装配；否则该题材知识在全部题材视图整树缺席而单题材视图
+            # 可见，自相矛盾（评审 P2）
+            orphan_genres = sorted({e.genre for e in rows if e.genre and e.genre not in seen_genres},
+                                   key=lambda g: theme_order.get(g, len(theme_order)))
+            for g in orphan_genres:
+                g_rows = [e for e in rows if e.genre == g]
+                g_children_map: dict[str | None, list] = {}
+                for e in g_rows:
+                    g_children_map.setdefault(e.parent_id or None, []).append(e)
+                g_roots = [e for e in g_children_map.get(None, []) if e.concept]
+                genre_nodes.append({
+                    "id": f"genre:{g}",
+                    "kind": "genre",
+                    "title": g,
+                    "concept": "",
+                    "genre": g,
+                    "definition": "",
+                    "children": [_node(x) for x in sorted(g_roots, key=lambda e: (e.concept, e.title))],
                 })
             roots.append({
                 "id": "kb-all",

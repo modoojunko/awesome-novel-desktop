@@ -123,3 +123,44 @@ describe("KnowledgeTreePanel", () => {
     await waitFor(() => expect(screen.getByText(/还没有知识点/)).toBeTruthy());
   });
 });
+
+
+describe("KnowledgeTreePanel 题材层（boss 2026-11-09：写作知识下题材分开各自的树）", () => {
+  const GENRE_TREE = {
+    ok: true,
+    roots: [
+      {
+        id: "kb-all", kind: "root", title: "写作知识", concept: "", genre: "",
+        definition: "按题材分开的各自的树", children: [
+          {
+            id: "genre:都市", kind: "genre", title: "都市", concept: "", genre: "都市",
+            definition: "", children: [
+              { id: "k1", kind: "knowledge", title: "笔法", concept: "文笔", genre: "都市", definition: "", children: [] },
+            ],
+          },
+          {
+            id: "genre:玄幻", kind: "genre", title: "玄幻", concept: "", genre: "玄幻",
+            definition: "", children: [
+              { id: "k2", kind: "knowledge", title: "世界", concept: "世界设定", genre: "玄幻", definition: "", children: [] },
+            ],
+          },
+        ],
+      },
+    ],
+    rel_edges: [],
+  };
+
+  it("题材层渲染：总根下题材标题可见（默认展开前两层），题材下枝干收起", async () => {
+    api.graphTree.mockResolvedValue(GENRE_TREE);
+    api.instancesFlat.mockResolvedValue({ ok: true, rows: [] });
+    render(<KnowledgeTreePanel genre="" />);
+    await waitFor(() => expect(screen.getByTestId("kb-tree-panel")).toBeTruthy());
+    // 总根＋题材层可见
+    expect(screen.getByText("写作知识")).toBeTruthy();
+    expect(screen.getByText("都市")).toBeTruthy();
+    expect(screen.getByText("玄幻")).toBeTruthy();
+    // 题材层默认展开 → 题材下枝干直接可见
+    expect(screen.getByText("笔法")).toBeTruthy();
+    expect(screen.getByText("世界")).toBeTruthy();
+  });
+});
