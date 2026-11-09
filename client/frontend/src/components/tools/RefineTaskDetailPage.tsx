@@ -2,25 +2,45 @@
 // 与拆书任务详情同骨架（返回清单＋页头＋分区）；进行中 3s 轮询。
 import { useEffect } from "react";
 import { Link, useParams } from "react-router-dom";
+import { useState } from "react";
 import { kbApi, type RefineTaskRow } from "../../lib/kbApi";
 import { markTasksSeen } from "../../lib/toolsBadgeSeen";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 
 const PILL: Record<RefineTaskRow["status"], { label: string; cls: string }> = {
   queued: { label: "排队中", cls: "pill pill-warn" },
   running: { label: "提炼中", cls: "pill pill-accent" },
   completed: { label: "已完成", cls: "pill pill-ok" },
   failed: { label: "已失败", cls: "pill pill-err" },
+  cancelled: { label: "已取消", cls: "pill" },
 };
 
 export default function RefineTaskDetailPage() {
   const { id } = useParams<{ id: string }>();
+  const qc = useQueryClient();
+  const [cancelBusy, setCancelBusy] = useState(false);
+  const [cancelErr, setCancelErr] = useState("");
   const { data, refetch } = useQuery({
     queryKey: ["refine-task", id],
     queryFn: () => kbApi.refineTasks.get(id!),
     enabled: !!id,
-    refetchInterval: (q) => (q.state.data && q.state.data.status !== "completed" && q.state.data.status !== "failed" ? 3000 : false),
+    refetchInterval: (q) => (q.state.data && q.state.data.status !== "completed" && q.state.data.status !== "failed" && q.state.data.status !== "cancelled" ? 3000 : false),
   });
+
+  const doCancel = async () => {
+    if (!id || cancelBusy) return;
+    setCancelBusy(true);
+    setCancelErr("");
+    try {
+      await kbApi.refineTasks.cancel(id);
+      await refetch();
+      void qc.invalidateQueries({ queryKey: ["refine-tasks"] });
+    } catch (e) {
+      setCancelErr(e instanceof Error ? e.message : "取消失败，稍后再试");
+    } finally {
+      setCancelBusy(false);
+    }
+  };
 
   // 任务从进行中转终态时刷一次任务清单徽标（下一挂载自然取新）
   useEffect(() => {
@@ -55,10 +75,22 @@ export default function RefineTaskDetailPage() {
           </p>
         </div>
         <div className="actions">
+          {(t.status === "running" || t.status === "queued") && (
+            <button
+              className="btn btn-secondary btn-sm"
+              style={{ color: "var(--err)" }}
+              disabled={cancelBusy}
+              data-testid="refine-cancel"
+              onClick={() => void doCancel()}
+            >
+              {cancelBusy ? "取消中…" : "取消任务"}
+            </button>
+          )}
           <Link className="btn btn-primary btn-sm" to="/knowledge?view=tree" data-testid="refine-to-tree">
             去知识树看变化
           </Link>
         </div>
+        {cancelErr && <p className="sub" style={{ color: "var(--err)" }}>{cancelErr}</p>}
       </div>
 
       <section className="detail-sec">

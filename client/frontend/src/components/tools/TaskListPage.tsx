@@ -205,6 +205,7 @@ function refinePill(status: RefineTaskRow["status"]): { label: string; cls: stri
   if (status === "running") return { label: "提炼中", cls: "pill pill-accent" };
   if (status === "queued") return { label: "排队中", cls: "pill pill-warn" };
   if (status === "completed") return { label: "已完成", cls: "pill pill-ok" };
+  if (status === "cancelled") return { label: "已取消", cls: "pill" };
   return { label: "已失败", cls: "pill pill-err" };
 }
 
@@ -212,6 +213,7 @@ function refineSummary(t: RefineTaskRow): string {
   if (t.status === "queued") return "排队等待，轮到自动开跑";
   if (t.status === "running") return t.current_step || "提炼在后台进行，可以离开，回来接着看";
   if (t.status === "failed") return t.error || "提炼失败，材料原样留在「其他」";
+  if (t.status === "cancelled") return "已取消——已归位的批保留，剩余材料留守「其他」";
   const r = t.result;
   if (!r) return "已完成";
   return `归位 ${r.moved} 条 · 新知识点 ${r.nodes_created} 个 · 新关系 ${r.relations} 条 · 留守 ${r.kept} 条`;

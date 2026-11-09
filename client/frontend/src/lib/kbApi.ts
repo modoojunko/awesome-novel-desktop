@@ -221,7 +221,7 @@ export interface RefineTaskResult {
 export interface RefineTaskRow {
   id: string;
   genre: string;
-  status: "queued" | "running" | "completed" | "failed";
+  status: "queued" | "running" | "completed" | "failed" | "cancelled";
   error: string;
   current_step: string;
   timeline: RefineTaskStep[];
@@ -456,6 +456,8 @@ export const kbApi = {
       unwrap<{ tasks: RefineTaskRow[] }>(request(`${BASE}/refine/tasks`)),
     get: (id: string) =>
       unwrap<RefineTaskRow>(request(`${BASE}/refine/tasks/${encodeURIComponent(id)}`)),
+    cancel: (id: string) =>
+      unwrap<RefineTaskRow>(request(`${BASE}/refine/tasks/${encodeURIComponent(id)}/cancel`, { method: "POST" })),
     delete: (id: string) =>
       unwrap<unknown>(request(`${BASE}/refine/tasks/${encodeURIComponent(id)}`, { method: "DELETE" })),
   },
