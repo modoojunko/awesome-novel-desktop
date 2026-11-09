@@ -4,6 +4,8 @@
   放宽 600s、max_tokens 32768（思考＋正文合计；llm.log 90.034s 判死行实证）
 - 内联思考剥离同构扩展到 anthropic 路径：思考关断时端点把 `<think>` 内联进
   text_delta（用户原始泄漏形态）；`<think>` 段不算首字、不撤守卫
+- c-prose-first-content-1800：守卫 600→1800（思考代际更迭，600 会掐掉慢端点
+  烧满 32K 合计预算前能跑完的健康流）；env PROSE_FIRST_CONTENT_TIMEOUT 可放大
 """
 
 import asyncio
@@ -12,11 +14,23 @@ import types
 from ai_client import AIClient, AIThinkingTimeoutError
 
 
-def test_prose_call_site_headroom_constants():
-    from write.router import PROSE_FIRST_CONTENT_TIMEOUT, PROSE_MAX_TOKENS
+def test_prose_call_site_headroom_constants(monkeypatch):
+    from write import router as write_router
 
-    assert PROSE_FIRST_CONTENT_TIMEOUT == 600.0
-    assert PROSE_MAX_TOKENS == 32768
+    # 默认 1800：env 未设/垃圾值/非正值均回默认（fail-soft）——防误回 90/600
+    monkeypatch.delenv("PROSE_FIRST_CONTENT_TIMEOUT", raising=False)
+    assert write_router._env_first_content_timeout() == 1800.0
+    # 常量钉同值（import 时 env 未设的常态；进程级显式设 env 跑测试者自行负责）
+    assert write_router.PROSE_FIRST_CONTENT_TIMEOUT == 1800.0
+    # env 显式放大生效
+    monkeypatch.setenv("PROSE_FIRST_CONTENT_TIMEOUT", "2400")
+    assert write_router._env_first_content_timeout() == 2400.0
+    monkeypatch.setenv("PROSE_FIRST_CONTENT_TIMEOUT", "abc")
+    assert write_router._env_first_content_timeout() == 1800.0
+    monkeypatch.setenv("PROSE_FIRST_CONTENT_TIMEOUT", "-5")
+    assert write_router._env_first_content_timeout() == 1800.0
+    # 输出预算钉死（思考＋正文合计，防误回 8192）
+    assert write_router.PROSE_MAX_TOKENS == 32768
 
 
 # ── anthropic 流式：内联剥离＋守卫口径 ─────────────────────────────────
