@@ -8,7 +8,7 @@ from pathlib import Path
 SDK_DIR = Path(__file__).resolve().parent.parent / "vendor_sdk"
 sys.path.insert(0, str(SDK_DIR))
 
-import novel_deconstruct_sdk as sdk  # noqa: E402
+import novel_deconstruct_sdk as sdk  # noqa: E402, I001 — SDK 依赖 sys.path 注入，排序后置是有意行为
 
 
 PRODUCTS = {
