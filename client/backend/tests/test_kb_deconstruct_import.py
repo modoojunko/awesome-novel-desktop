@@ -497,8 +497,10 @@ def test_collect_lands_material_not_knowledge_instances():
 def test_双前缀自愈_星币星币实锤形态():
     """boss 2026-11-09「星币：星币：…」实锤：旧映射 content 自带名字头时
     重复拼名——自愈把实例正文与知识行 instruction 去重。"""
-    import asyncio
-    from kb.migrate_library import dedupe_dual_prefix, heal_dual_prefix_instances
+    from kb.migrate_library import (  # noqa: I001 — 函数内导入（I001 豁免域）
+        dedupe_dual_prefix,
+        heal_dual_prefix_instances,
+    )
 
     assert dedupe_dual_prefix("星币：星币：吉尔伽美什使用后引发厄运延迟") == (
         "星币：吉尔伽美什使用后引发厄运延迟"
