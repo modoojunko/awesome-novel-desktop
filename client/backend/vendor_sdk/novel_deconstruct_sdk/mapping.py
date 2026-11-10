@@ -464,7 +464,8 @@ def map_deconstruct_products(
         if conf_ext:
             payload["confidence"] = conf_ext
         _attach_style_meta(payload, item)
-        evidence, ev_json = _ev(item.get("evidence_ch") if isinstance(item, dict) else "")
+        _it = item if isinstance(item, dict) else {}
+        evidence, ev_json = _ev(_it.get("evidence_ch") or "", _it.get("quote") or "")
         if payload.get("evidence_ch") and not evidence:
             evidence = payload["evidence_ch"]
         add(

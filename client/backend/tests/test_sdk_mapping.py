@@ -68,3 +68,47 @@ def test_sdk_零树口径_空索引node_for返None():
     assert idx.is_empty()
     assert idx.node_for("手法", "大招") is None
     assert idx.parent_chain("tech_more") == []
+
+
+STYLE_QUOTE_PRODUCTS = {
+    "style": {
+        "file": "文风.md",
+        "data": {
+            "role": "第三人称限知",
+            "rules": [
+                # ① quote 进 evidence_json.quotes，loc 取条目章证据
+                {"name": "短句对话", "how": "对峙用短句", "quote": "把刀放下。",
+                 "evidence_ch": "第17章", "confidence": "high"},
+                # ③ 无 quote → 无 quotes 键，evidence 走 evidence_ch 兜底
+                {"name": "长句铺陈", "how": "铺垫用长句", "evidence_ch": "第18章"},
+                # ⑤ 字符串型 rule（非 dict）不炸
+                "裸串规则原样成条",
+            ],
+            # ② craft 无 evidence_ch → quotes[0].loc 空串；④ quote >200 截到 200
+            "craft": [{"name": "感官堆叠", "how": "叠加声味触", "quote": "q" * 300,
+                       "confidence": "mid"}],
+        },
+    },
+}
+
+
+def test_sdk_文风文笔_quote接入evidence():
+    """例句口径翻案（boss 2026-11-10）：rules/craft/taboo 的 item.quote 进
+    evidence_json.quotes 随条目走；无 quote 不产 quotes 键；异常形状不炸。"""
+    entries, warnings = sdk.map_deconstruct_products("u1", "t1", "志怪/民俗灵异", STYLE_QUOTE_PRODUCTS)
+    assert warnings == [], warnings
+    by_title = {e.title: e for e in entries}
+
+    rule = json.loads(by_title["短句对话"].evidence_json or "{}")
+    assert rule.get("quotes") == [{"loc": "第17章", "text": "把刀放下。"}], rule
+    assert "把刀放下。" in by_title["短句对话"].evidence
+
+    assert "quotes" not in json.loads(by_title["长句铺陈"].evidence_json or "{}")
+    assert "第18章" in by_title["长句铺陈"].evidence  # evidence_ch 兜底不丢
+
+    craft = json.loads(by_title["感官堆叠"].evidence_json or "{}")
+    q0 = craft["quotes"][0]
+    assert q0["loc"] == "" and q0["text"] == "q" * 200, q0  # 无章号＋截 200
+
+    assert any(e.title == "裸串规则原样成条" or e.title.startswith("场景规则")
+               for e in entries), [e.title for e in entries]
