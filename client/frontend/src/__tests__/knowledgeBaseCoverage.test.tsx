@@ -22,6 +22,7 @@ const api = vi.hoisted(() => ({
   listInstances: vi.fn(),
   entry: vi.fn(),
   instancesFlat: vi.fn(),
+  baselineProbe: vi.fn(),
   graphAggregate: vi.fn(),
   graphCell: vi.fn(),
 }));

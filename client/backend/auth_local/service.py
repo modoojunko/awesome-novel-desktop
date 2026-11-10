@@ -658,6 +658,13 @@ async def browser_auth(silent: bool = False) -> dict:
                 maybe_after_auth()
             except Exception:  # noqa: S110 —— 写作能力包同步绝不阻塞登录
                 pass
+            # 官方知识基线：层缺失时静默补装（c-kb-baseline-update-ux；已装零外呼）
+            try:
+                from kb.baseline import maybe_sync
+
+                maybe_sync()
+            except Exception:  # noqa: S110 —— 基线补装绝不阻塞登录
+                pass
             return {
                 "code": 0,
                 "data": {

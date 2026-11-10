@@ -13,6 +13,7 @@ import TaskDetailPage from "@/components/tools/TaskDetailPage";
 import RefineTaskDetailPage from "@/components/tools/RefineTaskDetailPage";
 import MemberBlockPrompt from "@/components/novel/license/MemberBlockPrompt";
 import PromptPackModal from "@/components/novel/license/PromptPackModal";
+import KnowledgeSyncModal from "@/components/kb/KnowledgeSyncModal";
 import AuthGuard from "@/components/auth/AuthGuard";
 import { isLoggedIn } from "@/lib/auth";
 
@@ -131,6 +132,8 @@ export default function App() {
       <MemberBlockPrompt />
       {/* 写作能力引导弹窗（c-prompt-pack-onboard-modal）：壳层单点，pack-modal:open 事件开启 */}
       <PromptPackModal />
+      {/* 官方知识更新弹窗（c-kb-baseline-update-ux）：壳层单点，kb-sync-modal:open 事件开启 */}
+      <KnowledgeSyncModal />
     </ClientShell>
   );
 }

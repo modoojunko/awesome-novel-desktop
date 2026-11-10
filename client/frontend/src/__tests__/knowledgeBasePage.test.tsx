@@ -23,6 +23,7 @@ const api = vi.hoisted(() => ({
   entryRelations: vi.fn(),
   relationFeedback: vi.fn(),
   instancesFlat: vi.fn(),
+  baselineProbe: vi.fn(),
 }));
 
 vi.mock("@/lib/kbApi", async (orig) => {
@@ -36,6 +37,7 @@ vi.mock("@/lib/kbApi", async (orig) => {
       libraries: api.libraries,
       genres: api.genres,
       instancesFlat: api.instancesFlat,
+      baselineProbe: api.baselineProbe,
       organize: {
         ...actual.kbApi.organize,
         entryRelations: api.entryRelations,
@@ -45,7 +47,7 @@ vi.mock("@/lib/kbApi", async (orig) => {
   };
 });
 
-import KnowledgeBasePage, { payloadRows } from "@/pages/KnowledgeBasePage";
+import KnowledgeBasePage, { fieldsOf, payloadRows } from "@/pages/KnowledgeBasePage";
 import type { KbEntry } from "@/lib/kbApi";
 
 // c-charlib-into-kb：页组件引入 useSearchParams/useCharacterLibrary 后，
@@ -103,6 +105,9 @@ beforeEach(() => {
   api.entry.mockResolvedValue(ENTRY); // 行点击取详情＝列表同款；外部对端用例自设
   // 实例行列表（c-kb-instance-list）：默认空集；知识行用例走官方精选回退臂
   api.instancesFlat.mockResolvedValue({ ok: true, rows: [] });
+  // 官方知识探测（c-kb-baseline-update-ux）：默认同版静默
+  api.baselineProbe.mockResolvedValue({ installed: 3, latest: 3, update_available: false });
+  window.localStorage.removeItem("kb-sync-dismissed");
 });
 
 // 官方条目默认并入单列表（2026-11-08 无特权臂）——直接等待行上屏
@@ -305,5 +310,142 @@ describe("旧地址重定向（c-charlib-into-kb）", () => {
       </MemoryRouter>,
     );
     expect(screen.getByTestId("loc").textContent).toBe("/tools/kb?concept=角色设定");
+  });
+});
+
+describe("官方知识更新探测（c-kb-baseline-update-ux）", () => {
+  function watchKbSyncEvents() {
+    const seen: Record<string, unknown>[] = [];
+    const on = (e: Event) => seen.push((e as CustomEvent).detail);
+    window.addEventListener("kb-sync-modal:open", on);
+    return { seen, off: () => window.removeEventListener("kb-sync-modal:open", on) };
+  }
+
+  it("有新版且未锚压制→自动弹更新窗；页头入口带版本号", async () => {
+    const { clearDialogQueue } = await import("@/lib/dialogQueue");
+    const { resetKbProbeState } = await import("@/lib/kbProbe");
+    clearDialogQueue();
+    resetKbProbeState();
+    api.baselineProbe.mockResolvedValue({ installed: 3, latest: 4, update_available: true });
+    const w = watchKbSyncEvents();
+    try {
+      renderPage();
+      await waitFor(() => expect(w.seen.length).toBe(1));
+      expect(w.seen[0]).toEqual({ mode: "update", from: 3, to: 4 });
+      expect((screen.getByTestId("kb-baseline-entry").textContent ?? "")).toContain("v3");
+    } finally {
+      w.off();
+    }
+  });
+
+  it("同版静默不弹；「暂不更新」锚压制同版自动弹（手动入口不受影响）", async () => {
+    const { clearDialogQueue } = await import("@/lib/dialogQueue");
+    const { resetKbProbeState } = await import("@/lib/kbProbe");
+    clearDialogQueue();
+    resetKbProbeState();
+    const w = watchKbSyncEvents();
+    try {
+      renderPage();
+      await waitFor(() => expect(api.baselineProbe).toHaveBeenCalled());
+      expect(w.seen.length).toBe(0); // 同版静默
+
+      cleanup();
+      window.localStorage.setItem("kb-sync-dismissed", JSON.stringify({ updateVersion: "4" }));
+      api.baselineProbe.mockResolvedValue({ installed: 3, latest: 4, update_available: true });
+      renderPage();
+      await waitFor(() => expect(api.baselineProbe).toHaveBeenCalledTimes(2));
+      expect(w.seen.length).toBe(0); // 锚压制：同版不重弹
+
+      // 手动入口不受锚影响
+      fireEvent.click(screen.getByTestId("kb-baseline-entry"));
+      expect(w.seen.length).toBe(1);
+      expect(w.seen[0]).toEqual({ mode: "manual" });
+    } finally {
+      w.off();
+    }
+  });
+  it("探测失败静默不弹；未装（installed=0）入口不带版本号仍可点", async () => {
+    const { clearDialogQueue } = await import("@/lib/dialogQueue");
+    const { resetKbProbeState } = await import("@/lib/kbProbe");
+    clearDialogQueue();
+    resetKbProbeState();
+    const w = watchKbSyncEvents();
+    try {
+      api.baselineProbe.mockRejectedValue(new Error("cdn"));
+      renderPage();
+      await waitFor(() => expect(api.baselineProbe).toHaveBeenCalled());
+      expect(w.seen.length).toBe(0); // 探测失败＝无更新静默
+      const label = screen.getByTestId("kb-baseline-entry").textContent ?? "";
+      expect(label).not.toContain("v");
+
+      // 未装态（installed=0）入口显示无版本号；update_available 仍自动弹（补装语义）
+      cleanup();
+      api.baselineProbe.mockResolvedValue({ installed: 0, latest: 4, update_available: true });
+      renderPage();
+      await waitFor(() => expect(w.seen.length).toBe(1));
+      expect((screen.getByTestId("kb-baseline-entry").textContent ?? "")).not.toContain("v");
+    } finally {
+      w.off();
+    }
+  });
+});
+
+describe("fieldsOf（实例字段：知识点模板序在前）", () => {
+  it("模板序命中在前、剩余键尾随；畸形 JSON 兜底", () => {
+    const row = {
+      row_kind: "instance",
+      fields_json: JSON.stringify({ b: "第二条", a: "第一条", c: ["丙", "丁"] }),
+      knowledge_schema_json: JSON.stringify([
+        { name: "c", desc: "丙格" },
+        { name: "a", desc: "甲格" },
+        { name: "zzz" }, // 模板键不在 fields：跳过
+      ]),
+    } as unknown as Parameters<typeof fieldsOf>[0];
+    const rows = fieldsOf(row);
+    // 模板序在前（c、a），剩余键按存储序尾随（b）
+    expect(rows.map(([k]) => k)).toEqual(["c", "a", "b"]);
+    expect(rows[0]).toEqual(["c", "丙、丁"]);
+
+    // 非 instance 行返空；畸形 JSON 走兜底不炸
+    expect(fieldsOf({ row_kind: "material" } as never)).toEqual([]);
+    const bad = { row_kind: "instance", fields_json: "{oops", knowledge_schema_json: "[}" } as never;
+    expect(fieldsOf(bad)).toEqual([]);
+  });
+});
+
+describe("官方知识探测在途槽与提炼失败兜底（c-kb-baseline-update-ux 补臂）", () => {
+  it("探测槽被占（StrictMode 双挂载第二臂）：挂载不再发探测", async () => {
+    const { claimKbProbe, releaseKbProbe, resetKbProbeState } = await import("@/lib/kbProbe");
+    resetKbProbeState();
+    expect(claimKbProbe()).toBe(true); // 模拟首挂载在途
+    try {
+      renderPage();
+      await screen.findByText(/刘望津/);
+      expect(api.baselineProbe).not.toHaveBeenCalled();
+    } finally {
+      releaseKbProbe();
+    }
+  });
+
+  it("知识提炼创建失败：弹窗收起并落列表区提示", async () => {
+    const { resetKbProbeState } = await import("@/lib/kbProbe");
+    resetKbProbeState();
+    api.genres.mockResolvedValue([{ name: "玄幻", count: 5 }]);
+    const refineMock = vi.fn().mockRejectedValue(new Error("模型额度不足"));
+    const kbApiMod = await import("@/lib/kbApi");
+    const orig = kbApiMod.kbApi.refineTasks;
+    kbApiMod.kbApi.refineTasks = { ...orig, create: refineMock } as typeof orig;
+    try {
+      renderPage();
+      await screen.findByText(/刘望津/);
+      fireEvent.click(await screen.findByTestId("kb-refine-btn"));
+      // 「全部题材」须先选题材（后端按题材建任务）
+      const pick = await screen.findByTestId("kb-refine-genre-pick");
+      fireEvent.change(pick.querySelector("select")!, { target: { value: "玄幻" } });
+      fireEvent.click(await screen.findByTestId("kb-refine-start"));
+      await waitFor(() => expect(screen.getByText(/模型额度不足/)).toBeTruthy());
+    } finally {
+      kbApiMod.kbApi.refineTasks = orig;
+    }
   });
 });

@@ -2,6 +2,14 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { createPortal } from "react-dom";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { kbApi, type KbChainSeg, type KbEntry, type KbGenreCount, type KbInstanceFlatRow } from "@/lib/kbApi";
+import {
+  claimKbProbe,
+  getLastKbProbe,
+  openKbSyncModal,
+  readKbDismissal,
+  releaseKbProbe,
+  setLastKbProbe,
+} from "@/lib/kbProbe";
 import KnowledgeTreePanel from "@/components/tools/KnowledgeTreePanel";
 import { kbFieldDesc, kbFieldLabel, kbValueLabel } from "@/lib/kbFieldLabels";
 import KbEntryRelations from "@/components/tools/KbEntryRelations";
@@ -143,6 +151,30 @@ export default function KnowledgeBasePage() {
   const navigate = useNavigate();
   // 实例臂点行取数失败的列表区提示（独立于 opNote——那是回退臂抽屉操作文案，不得跨臂滞留）
   const [openError, setOpenError] = useState("");
+  // 官方知识探测结果（c-kb-baseline-update-ux）：页头入口显示版本号；
+  // null＝本页尚未探测过（入口仍可点，弹窗内自查）
+  const [kbProbe, setKbProbe] = useState(getLastKbProbe());
+
+  // 官方知识更新探测（c-kb-baseline-update-ux）：进页静默探测一次（照书架
+  // 提示词探测先例，claim 去重）；有新版且未被「暂不更新」锚压制→自动弹
+  // 更新窗；其余（无更新/探测失败）全静默。
+  useEffect(() => {
+    if (!claimKbProbe()) return;
+    void (async () => {
+      try {
+        const p = await kbApi.baselineProbe();
+        setLastKbProbe(p);
+        setKbProbe(p);
+        if (p.update_available && readKbDismissal().updateVersion !== String(p.latest)) {
+          openKbSyncModal({ mode: "update", from: p.installed, to: p.latest });
+        }
+      } catch {
+        /* 探测失败＝无更新静默 */
+      } finally {
+        releaseKbProbe();
+      }
+    })();
+  }, []);
 
   // 官方条目常取（boss 2026-11-08：无特权臂——官方与自有实例合并单列表）；
   // 原始 KbEntry 留存供抽屉「关联知识」本地查找与映射
@@ -360,6 +392,13 @@ export default function KnowledgeBasePage() {
           <p className="sub">存的是拆书拆出的好写法和自己踩过的经验，写新书时能用上。</p>
         </div>
         <div className="flex flex-none items-center gap-2">
+          <button
+            data-testid="kb-baseline-entry"
+            onClick={() => openKbSyncModal({ mode: "manual" })}
+            className="rounded-md border border-[var(--border)] px-3 py-1.5 text-[12px] text-[var(--muted)] hover:text-[var(--fg)]"
+          >
+            官方知识{kbProbe?.installed ? ` v${kbProbe.installed}` : ""}
+          </button>
           <button
             data-testid="kb-refine-btn"
             disabled={refineBusy}

@@ -122,6 +122,16 @@ async def baseline_status_api(
     }
 
 
+@router.get("/baseline/probe")
+async def baseline_probe_api(
+    user: dict = Depends(get_current_user),
+):
+    """官方知识版本探测（照 prompt-pack /probe 口径）：只读探测，不触发同步。"""
+    from kb.baseline import probe_latest
+
+    return {"ok": True, "data": await probe_latest()}
+
+
 @router.post("/baseline/sync")
 async def baseline_sync_api(
     user: dict = Depends(get_current_user),
