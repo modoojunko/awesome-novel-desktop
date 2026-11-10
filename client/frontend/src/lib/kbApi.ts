@@ -490,6 +490,12 @@ export const kbApi = {
   baselineStatus: () =>
     unwrap<{ version: number; entries: number }>(request(`${BASE}/baseline/status`)),
 
+  /** 官方知识版本探测（c-kb-baseline-update-ux）：只读探测，不触发同步 */
+  baselineProbe: () =>
+    unwrap<{ installed: number; latest: number; update_available: boolean; reason?: string }>(
+      request(`${BASE}/baseline/probe`),
+    ),
+
   baselineSync: () =>
     unwrap<{ status: string; version?: number; reason?: string }>(
       request(`${BASE}/baseline/sync`, { method: "POST" }),

@@ -23,6 +23,7 @@ const api = vi.hoisted(() => ({
   baselineStatus: vi.fn(),
   baselineSync: vi.fn(),
   instancesFlat: vi.fn(),
+  baselineProbe: vi.fn(),
   entry: vi.fn(),
 }));
 
@@ -41,6 +42,7 @@ vi.mock("@/lib/kbApi", async (orig) => {
       baselineStatus: api.baselineStatus,
       baselineSync: api.baselineSync,
       instancesFlat: api.instancesFlat,
+      baselineProbe: api.baselineProbe,
       entry: api.entry,
     },
   };

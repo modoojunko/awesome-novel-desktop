@@ -279,6 +279,80 @@ async def _sync_with_logging() -> None:
         logger.info("event=kb_baseline_sync %s", json.dumps(result, ensure_ascii=False))
 
 
+def maybe_sync() -> None:
+    """登录/校验成功钩子（照 prompt_pack.maybe_after_auth 同构）：缺层才补、已装零外呼。
+
+    早退检查放后台任务体内（登录路径零阻塞）：本地已有版本且层非空 → 不发任何
+    网络请求即退；层空/从未同步 → 跑一次同步（静默失败、下次钩子再试）。
+    `KB_BASELINE_SYNC=0` 与 `schedule_sync` 共闸（测试态不联网）。
+    """
+    import asyncio
+    import os
+
+    if (os.environ.get("KB_BASELINE_SYNC") or "").strip() == "0":
+        return
+    try:
+        loop = asyncio.get_running_loop()
+    except RuntimeError:
+        return
+    loop.create_task(_maybe_sync_task())
+
+
+async def _maybe_sync_task() -> None:
+    if await _already_installed():
+        return
+    await _sync_with_logging()
+
+
+async def _already_installed() -> bool:
+    """已装判定＝app_meta 有版本号且基线层非空（迁移带回后层空也会补同步）。"""
+    from sqlalchemy import select
+
+    from db import async_session
+
+    try:
+        async with async_session() as db:
+            if await _current_version() <= 0:
+                return False
+            r = await db.execute(select(KbBaselineEntry.entry_id).limit(1))
+            return r.first() is not None
+    except Exception:  # noqa: BLE001 —— 判定失败按「未装」处理，交给同步幂等兜底
+        return False
+
+
+async def probe_latest() -> dict:
+    """只读探测 CDN 最新版本（照 prompt-pack /probe：探测不触发同步）。
+
+    返回 {installed, latest, update_available}；CDN 不可达/验签失败 →
+    update_available=False + reason（不抛错、不打扰）。
+    """
+    import asyncio
+
+    import httpx
+
+    from manifest_crypto import verify_manifest
+
+    installed = await _current_version()
+    keys = _trust_keys()
+    if not keys:
+        return {"installed": installed, "latest": 0, "update_available": False, "reason": "not_configured"}
+    async with httpx.AsyncClient() as client:
+        for candidate in _cdn_bases():
+            latest_url = _derive(candidate, "latest.json")
+            # DNS 解析是同步调用：丢线程，别让慢解析卡住事件循环
+            if not await asyncio.to_thread(_validate_outbound, latest_url):
+                continue
+            probe = await _fetch_json(client, latest_url)
+            if probe is not None and verify_manifest(probe, keys):
+                latest = int(probe.get("version") or 0)
+                return {
+                    "installed": installed,
+                    "latest": latest,
+                    "update_available": bool(latest and latest != installed),
+                }
+        return {"installed": installed, "latest": 0, "update_available": False, "reason": "latest_invalid"}
+
+
 async def sync_baseline(db: AsyncSession | None = None) -> dict:
     """同步入口（幂等）。返回 {status: synced|current|skipped|failed, ...}。"""
     global _syncing
