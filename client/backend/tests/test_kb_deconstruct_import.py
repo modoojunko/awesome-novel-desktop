@@ -126,7 +126,7 @@ def test_genre_from_products_normalizes_catalog_name():
 
 def test_maps_real_product_shapes_into_five_concepts():
     entries, warnings = _map(genre="志怪/民俗灵异")
-    assert warnings == ["原文示范段 1 条不入库（逐字原文，版权红线）"]  # 原文示范段不收
+    assert warnings == ["独立示范段 1 条不入库（无条目挂靠；例句随条目 quote 走）"]  # 独立示范段不收；例句随条目 quote 走（boss 2026-11-10 翻案）
     by_concept: dict[str, list[KbEntry]] = {}
     for entry in entries:
         by_concept.setdefault(entry.concept, []).append(entry)
