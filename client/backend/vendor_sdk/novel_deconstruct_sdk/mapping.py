@@ -377,12 +377,14 @@ def map_deconstruct_products(
             instruction=role, evidence="文风蒸馏·叙事身份",
         )
 
-    # 原文示范段＝逐字原文：按 2026-11-04 真机反馈不进知识库（版权红线＋作家阅读噪音），
-    # 与内容仓批量工具同口径；只计数并进 warnings。写作侧的文风示范由拆书产物的
-    # style_samples（书内设定 style_samples 键）承接，不经知识库。
+    # 逐字例句口径（boss 2026-11-10 翻案）：条目主体仍是写法提炼，原文只作短例证
+    # 附件——rules/craft 条目自带 quote 时经 _ev 进 evidence_json（短引 ≤200 字，
+    # 挂在条目上随条目走，知识树「原文案例」列消费）；独立的 style.examples 整段
+    # 示范数组仍不直接入库（无条目挂靠），只计数进 warnings。写作侧文风示范
+    # 照旧由 style_samples（书内设定键）承接。
     n_samples = len(_items(style.get("examples") or style.get("samples") or style.get("style_samples") or []))
     if n_samples:
-        warnings.append(f"原文示范段 {n_samples} 条不入库（逐字原文，版权红线）")
+        warnings.append(f"独立示范段 {n_samples} 条不入库（无条目挂靠；例句随条目 quote 走）")
 
     # ─── 文风（场景规则：一条规则一条实例——boss 2026-11-07 承接表）───
     # rules 原落文笔（旧口径）；「战斗短句」「悲喜交替」这类场景规则是文风的声音侧面。
@@ -403,7 +405,8 @@ def map_deconstruct_products(
         if conf_ext:
             payload["confidence"] = conf_ext
         _attach_style_meta(payload, item)
-        evidence, ev_json = _ev(item.get("evidence_ch") if isinstance(item, dict) else "")
+        _it = item if isinstance(item, dict) else {}
+        evidence, ev_json = _ev(_it.get("evidence_ch") or "", _it.get("quote") or "")
         if payload.get("evidence_ch") and not evidence:
             evidence = payload["evidence_ch"]
         add(
@@ -432,7 +435,8 @@ def map_deconstruct_products(
             if conf_ext:
                 payload["confidence"] = conf_ext
             _attach_style_meta(payload, item)
-            evidence, ev_json = _ev(item.get("evidence_ch") if isinstance(item, dict) else "")
+            _it = item if isinstance(item, dict) else {}
+            evidence, ev_json = _ev(_it.get("evidence_ch") or "", _it.get("quote") or "")
             if payload.get("evidence_ch") and not evidence:
                 evidence = payload["evidence_ch"]
             add(
