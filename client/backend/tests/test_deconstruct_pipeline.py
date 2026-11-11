@@ -984,3 +984,25 @@ def test_l1_merge_ops_get_long_read_timeout():
     captured.clear()
     _run(pipeline._chat_json(_C(), "m", "s", "u", "deconstruct_place"))
     assert captured.get("timeout") is None
+
+
+def test_card_frag_角色维度带认知线索装箱():
+    """c-cog-clue-stage：认知十一格原料在卡片 cognition 节，必须与 characters
+    同片送给角色归并层（否则被维度过滤）；无认知线索保持旧数组形态。"""
+    from deconstruct.pipeline import _card_frag
+
+    card = {
+        "no": 3,
+        "characters": [{"name": "梁教授", "role": "主角"}],
+        "cognition": [{"who": "梁教授", "field": "w5", "clue": "不知道自己早已被盯上"}],
+    }
+    frag = _card_frag("3", card, "characters")
+    assert '"characters"' in frag and '"cognition"' in frag, frag
+    import json as _json
+    payload = _json.loads(frag.split("】", 1)[1])
+    assert payload["characters"][0]["name"] == "梁教授"
+    assert payload["cognition"][0]["field"] == "w5"
+
+    old = _card_frag("4", {"characters": [{"name": "包斩"}]}, "characters")
+    assert old == "【第4章】[{\"name\": \"包斩\"}]", old
+    assert _card_frag("5", {"cognition": [{"who": "x"}]}, "characters") == ""

@@ -443,12 +443,22 @@ def _quote_corpus(chapters: list[dict]) -> str:
 
 
 def _card_frag(no: str, card: dict, dim: str) -> str:
-    """单卡某维度 → 一行碎片（空维度不给行）。structure 契约为数组，dict 容错包装。"""
+    """单卡某维度 → 一行碎片（空维度不给行）。structure 契约为数组，dict 容错包装。
+
+    角色维度特殊装箱（c-cog-clue-stage）：认知十一格的原料在卡片的 cognition 节
+    （逐章人物认知线索），必须与 characters 同片送给角色归并层——单独数组会被
+    维度过滤掉。碎片形如 {"characters":[…],"cognition":[…]}；无认知线索时保持
+    旧数组形态。
+    """
     items = card.get(dim)
     if isinstance(items, dict):
         items = [items]
     if not items:
         return ""
+    if dim == "characters":
+        cog = card.get("cognition")
+        if isinstance(cog, list) and cog:
+            return f"【第{no}章】{json.dumps({'characters': items, 'cognition': cog}, ensure_ascii=False)}"
     return f"【第{no}章】{json.dumps(items, ensure_ascii=False)}"
 
 
