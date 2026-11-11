@@ -635,6 +635,11 @@ def map_deconstruct_products(
         conf = str(item.get("confidence") or "").strip()
         if conf in ("high", "mid", "low"):
             payload["confidence"] = conf
+        # 逐字段原句证据（boss 2026-11-11）：{字段: 原句} 原样随 payload 走；
+        # 哨兵值与空值在 payload 校验器里过滤
+        fq = item.get("field_quotes")
+        if isinstance(fq, dict) and fq:
+            payload["field_quotes"] = fq
         persona = payload.get("persona") or name
         # 证据＝产物 evidence_ch（章号口径同其他节）；「原文未明确」哨兵不过 _ev
         # （否则包成「第原文未明确章」），置空＝抽屉不出证据节；裸产物 plot 无粘尾

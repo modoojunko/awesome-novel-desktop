@@ -57,8 +57,10 @@ export function prettyFieldValue(raw: string): string {
  *  模板没有的键退概念字典兜底；两处都没有的按原序尾随。
  *  与实例正文同值的字段不重复显示（boss 2026-11-11 真机实锤：官方条目 payload
  *  历史上带「名字：怎么写」拼装份，详情页 实例/内容/怎么写 三字段同值——
- *  SDK 已停写拼装份，此处句末归一兜底挡存量包与残存形态）。 */
-export function fieldsOf(row: KbInstanceFlatRow): [string, string][] {
+ *  SDK 已停写拼装份，此处句末归一兜底挡存量包与残存形态）。
+ *  角色卡逐字段原句证据（payload.field_quotes）：有则作为第三元挂在字段行上，
+ *  不单独成行（字段名与档案八格同名）；字段无可核原句时如实不显示。 */
+export function fieldsOf(row: KbInstanceFlatRow): [string, string, string?][] {
   if (row.row_kind !== "instance") return [];
   let fields: Record<string, unknown> = {};
   try { fields = JSON.parse(row.fields_json || "{}") ?? {}; } catch { fields = {}; }
@@ -66,8 +68,18 @@ export function fieldsOf(row: KbInstanceFlatRow): [string, string][] {
   const render = (v: unknown) => (typeof v === "string" ? prettyFieldValue(v) : Array.isArray(v) ? v.map(String).join("、") : String(v));
   const norm = (s: string) => s.trim().replace(/。+$/, "");
   const bodyNorm = norm(row.text || "");
-  const out: [string, string][] = [];
+  const out: [string, string, string?][] = [];
   const used = new Set<string>();
+  // 逐字段原句证据（boss 2026-11-11）：{字段: 原句}；不是可渲染字段本身
+  const fqRaw = (fields as Record<string, unknown>).field_quotes;
+  const fieldQuotes: Record<string, string> = {};
+  if (fqRaw && typeof fqRaw === "object" && !Array.isArray(fqRaw)) {
+    for (const [k, v] of Object.entries(fqRaw as Record<string, unknown>)) {
+      if (typeof v === "string" && v.trim()) fieldQuotes[k] = v.trim();
+    }
+  }
+  const withQuote = (name: string, label: string, value: string): [string, string, string?] =>
+    fieldQuotes[name] ? [label, value, fieldQuotes[name]] : [label, value];
   let schema: { name?: unknown; desc?: unknown }[] = [];
   try { schema = JSON.parse(row.knowledge_schema_json || "[]") ?? []; } catch { schema = []; }
   if (Array.isArray(schema)) {
@@ -78,15 +90,16 @@ export function fieldsOf(row: KbInstanceFlatRow): [string, string][] {
       if (!rendered) continue;
       used.add(slotName);
       if (bodyNorm !== "" && norm(rendered) === bodyNorm) continue;
-      out.push([slotName, rendered]);
+      out.push(withQuote(slotName, slotName, rendered));
     }
   }
   for (const [k, v] of Object.entries(fields)) {
     if (used.has(k)) continue;
+    if (k === "field_quotes") continue;
     const rendered = render(v);
     if (!rendered) continue;
     if (bodyNorm !== "" && norm(rendered) === bodyNorm) continue;
-    out.push([kbFieldLabel(row.concept, k), rendered]);
+    out.push(withQuote(k, kbFieldLabel(row.concept, k), rendered));
   }
   return out;
 }
@@ -822,10 +835,15 @@ export default function KnowledgeBasePage() {
               <div className="mt-4">
                 <p className="text-[10.5px] font-mono tracking-[0.12em] text-[var(--muted)]">写法细节</p>
                 <dl className="mt-1 space-y-1.5">
-                  {fieldsOf(selectedInstance).map(([label, value]) => (
+                  {fieldsOf(selectedInstance).map(([label, value, quote]) => (
                     <div key={label}>
                       <dt className="text-[10.5px] font-mono tracking-[0.12em] text-[var(--muted)]">{label}</dt>
                       <dd className="whitespace-pre-wrap text-[12.5px] leading-relaxed text-[var(--fg)]">{value}</dd>
+                      {quote && (
+                        <dd className="mt-1 whitespace-pre-wrap border-l-2 border-[var(--border)] pl-2 text-[11.5px] leading-relaxed text-[var(--muted)]">
+                          原句：{quote}
+                        </dd>
+                      )}
                     </div>
                   ))}
                 </dl>
