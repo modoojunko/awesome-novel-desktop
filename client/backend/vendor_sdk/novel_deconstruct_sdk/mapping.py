@@ -81,6 +81,26 @@ def _line(text, limit: int) -> str:
     return t[:limit]
 
 
+_QUOTE_SENTINEL = "原文未明确"
+
+
+def _quote_of(text, limit: int) -> str:
+    """例句取值：_qline＋哨兵归零——模型用「原文未明确」占位时不得当例句进库
+    （真机实锤：世界历史/势力条目整片写该占位，前端示例列会显示占位串）。"""
+    q = _qline(text, limit)
+    return "" if q.strip(" 。；;") == _QUOTE_SENTINEL else q
+
+
+def _qline(text, limit: int) -> str:
+    """例句单行化：只做空白归一与截断——**不剥行首结构标记**。
+
+    _line 的 `_LEAD_MARK_RE` 会把开头的【…】当结构标记剥掉；例句整条就是
+    【系统播报】形态时会被剥成空串（真机实锤：世界/力量类 quote 成片丢失）。
+    原文方括号是内容的一部分，例句通道必须原样保留。
+    """
+    return _WS_RE.sub(" ", str(text or "")).strip()[:limit]
+
+
 def _sentence(text: str, limit: int) -> str:
     """知识文案第一要求是念得通顺：超长按分句标点收尾，不留悬空分隔符，句末补句号。
 
@@ -116,7 +136,7 @@ def _text_of(item, *keys: str, limit: int = 300) -> str:
 def _ev(chapter, quote: str = "", limit: int = 500) -> tuple[str, dict]:
     """证据串＋证据 JSON（章号原样保留；quote 截断）。"""
     chapter = _line(chapter, 80)
-    quote = _line(quote, 200)
+    quote = _quote_of(quote, 200)
     # evidence_ch 在真机产物里本身就是「第1章」「第2、6章」；只有裸章号才补包装
     head = chapter if chapter.startswith("第") else (f"第{chapter}章" if chapter else "")
     evidence = f"{head} {quote}".strip()[:limit]
@@ -544,7 +564,7 @@ def map_deconstruct_products(
         )
         # 逐字例句（boss 2026-11-11）：世界条目也必须有原书段落作证——quote 进
         # evidence_json.quotes（前端/基线 example 列消费），长度与章证据口径同其他维度
-        q_text = _line(quote, 200)
+        q_text = _quote_of(quote, 200)
         ev_json = {"quotes": [{"loc": ch_evidence.split("；")[0] if ch_evidence else "", "text": q_text}]} if q_text else {}
         add(
             f"world.{part}", "世界设定", name or title or content, payload,
@@ -555,9 +575,9 @@ def map_deconstruct_products(
     _stage = world.get("stage")
     _no_power = world.get("no_power")
     add_world("stage", "舞台", _text_of(_stage, "content", "text", limit=300),
-              quote=_text_of(_stage, "quote", limit=200) if isinstance(_stage, dict) else "")
+              quote=_quote_of(_stage.get("quote"), 200) if isinstance(_stage, dict) else "")
     add_world("power", "力量/规则", _text_of(_no_power, "content", "text", limit=300),
-              quote=_text_of(_no_power, "quote", limit=200) if isinstance(_no_power, dict) else "")
+              quote=_quote_of(_no_power.get("quote"), 200) if isinstance(_no_power, dict) else "")
 
     for part, key, hard in (
         ("power", "power", False),
@@ -576,7 +596,7 @@ def map_deconstruct_products(
             evidence, _ = _ev(item.get("evidence_ch") if isinstance(item, dict) else "")
             add_world(part, name or f"{part} {len(entries) + 1}", body or name,
                       hard=hard, evidence=evidence, name=name,
-                      quote=_text_of(item, "quote", limit=200) if isinstance(item, dict) else "")
+                      quote=_quote_of(item.get("quote"), 200) if isinstance(item, dict) else "")
 
     for item in _items(world.get("extra"))[:_MAX_WORLD_EXTRA]:
         key = _text_of(item, "key", "name", limit=60)
@@ -585,7 +605,7 @@ def map_deconstruct_products(
             continue
         content = f"{key}：{value}" if key and value else (value or key)
         add_world("extra", key or "补充", content,
-                  quote=_text_of(item, "quote", limit=200) if isinstance(item, dict) else "")
+                  quote=_quote_of(item.get("quote"), 200) if isinstance(item, dict) else "")
 
     # ─── 角色设定（原型＋档案八格）───
     characters = _data(products.get("characters"))
@@ -621,7 +641,7 @@ def map_deconstruct_products(
         raw_ch = str(item.get("evidence_ch") or "").strip()
         # 逐字例句（boss 2026-11-11）：人物卡的 quote 随条目走——角色值必须有原书
         # 段落作证；「原文未明确」哨兵不过 _ev（否则包成「第原文未明确章」）
-        quote = _line(_text_of(item, "quote"), 200)
+        quote = _quote_of(item.get("quote"), 200)
         evidence, ev_json = (
             ("", {}) if (not raw_ch or raw_ch == "原文未明确") else _ev(raw_ch, quote)
         )

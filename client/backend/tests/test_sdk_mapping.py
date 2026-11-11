@@ -175,3 +175,26 @@ def test_sdk_角色与世界_quote接入evidence():
 
     ch = json.loads(by_title["童姚"].evidence_json or "{}")
     assert ch.get("quotes") == [{"loc": "第1章", "text": "童姚不敢耽误，立刻冲了上去。"}], ch
+
+
+def test_sdk_例句方括号原样保留():
+    """【系统播报】形态的原句不能被 _line 的结构标记剥除吃掉（真机实锤：
+    世界/力量类 quote 成片丢失）。例句通道走 _qline，方括号原样保留。"""
+    products = {"world": {"data": {"power": [
+        {"name": "身份代码", "rule": "编号被人知晓后命运被掌控",
+         "quote": "【如果身份代码被人知道会怎样？】【您的命运就会被得知编号的人掌控……】"},
+    ]}}}
+    entries, _ = sdk.map_deconstruct_products("u1", "t1", "悬疑", products)
+    e = next(x for x in entries if x.title == "身份代码")
+    q = json.loads(e.evidence_json)["quotes"][0]["text"]
+    assert q.startswith("【如果身份代码被人知道会怎样？】"), q
+
+
+def test_sdk_例句哨兵归零():
+    """「原文未明确」是占位不是例句——不得进 evidence quotes（否则示例列露出占位串）。"""
+    products = {"world": {"data": {"history": [
+        {"name": "旧案", "note": "第2章，旧案", "quote": "原文未明确"},
+    ]}}}
+    entries, _ = sdk.map_deconstruct_products("u1", "t1", "悬疑", products)
+    e = next(x for x in entries if x.title == "旧案")
+    assert "quotes" not in json.loads(e.evidence_json or "{}")
