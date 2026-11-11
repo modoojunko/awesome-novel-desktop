@@ -210,6 +210,15 @@ def _clean_style_text(text: str) -> tuple[str, str, str]:
     return raw.rstrip("；;").strip(), ev, conf
 
 
+def _strip_name_head(name: str, how: str) -> str:
+    """how 自带「名字：」头时剥掉——拼装份（instruction/结构化键）只此一处，
+    不与 how 重复（真机实锤「温柔说狠话：温柔说狠话：…」「副本等级：副本等级：…」
+    双前缀；与世界 add_world 的同名守卫同拍板）。"""
+    if name and how and how.startswith(name + "："):
+        return how[len(name) + 1:].strip()
+    return how
+
+
 def _attach_style_meta(payload: dict, item: object) -> None:
     """把产物条目（或正文剥出）的章证据/可信度挂进 payload 字段。"""
     if not isinstance(item, dict):
@@ -389,13 +398,15 @@ def map_deconstruct_products(
     # ─── 文风（场景规则：一条规则一条实例——boss 2026-11-07 承接表）───
     # rules 原落文笔（旧口径）；「战斗短句」「悲喜交替」这类场景规则是文风的声音侧面。
     # 2026-11-08 结构化：name/how/章证据/可信度分立（正文粘尾元数据与世界同剥）
+    # 2026-11-11 去冗余：payload 不再写拼装 text（=「名字：怎么写」第三份拷贝，
+    # 真机实锤详情页 实例/内容/怎么写 三字段同值）；正文组合只留 instruction 一处
     for i, item in enumerate(_items(style.get("rules"))):
         name = _text_of(item, "name", "title", limit=40)
-        how, ev_ext, conf_ext = _clean_style_text(_text_of(item, "how", "rule", "craft", "content", limit=280))
+        how, ev_ext, conf_ext = _clean_style_text(_strip_name_head(name, _text_of(item, "how", "rule", "craft", "content", limit=280)))
         text = _line(f"{name}：{how}" if name and how else (how or name), 500)
         if not text:
             continue
-        payload = {"slot": "rule", "text": text}
+        payload = {"slot": "rule"}
         if name:
             payload["name"] = name
         if how:
@@ -421,7 +432,7 @@ def map_deconstruct_products(
     ):
         for i, item in enumerate(_items(style.get(section))):
             name = _text_of(item, "name", "title", limit=40)
-            how, ev_ext, conf_ext = _clean_style_text(_text_of(item, "how", "rule", "craft", "content", limit=200))
+            how, ev_ext, conf_ext = _clean_style_text(_strip_name_head(name, _text_of(item, "how", "rule", "craft", "content", limit=200)))
             text = _line(f"{name}：{how}" if name and how else (how or name), 160)
             if not text:
                 continue
@@ -447,7 +458,7 @@ def map_deconstruct_products(
 
     for i, item in enumerate(_items(style.get("taboo"))):
         name = _text_of(item, "name", "title", limit=40)
-        how, ev_ext, conf_ext = _clean_style_text(_text_of(item, "how", "rule", "content", limit=140))
+        how, ev_ext, conf_ext = _clean_style_text(_strip_name_head(name, _text_of(item, "how", "rule", "content", limit=140)))
         text = _line(f"{name}：{how}" if name and how else (how or name), 160)
         if not text:
             continue
@@ -513,6 +524,13 @@ def map_deconstruct_products(
             return
         content = _line(raw, 300)
         ch_evidence = _line(f"{ev_anchor}；{evidence}".strip("；"), 60) if (ev_anchor or evidence) else ""
+        # 2026-11-11 去冗余：content 只装纯案例（自带「名字：」头时剥出，while 防
+        # extra 路径 key：value 二次拼叠加层）——拼装份只留 instruction 一处
+        # （真机实锤详情页 实例/内容 同值双显）；头基准 name or title（extra 无 name）
+        head = name or title
+        if head:
+            while content.startswith(head + "："):
+                content = _line(content[len(head) + 1:].strip(), 300)
         payload = {"part": part, "content": content}
         if name:
             payload["name"] = _line(name, 60)
@@ -522,11 +540,7 @@ def map_deconstruct_products(
             payload["confidence"] = conf
         if hard:
             payload["hard"] = True
-        # content 已带「name：」前缀时不重复加（boss 2026-11-09「星币：星币：」实锤：
-        # 拆书 LLM 产物 content 自带名字头，拼接变成双前缀）
-        instruction = _line(
-            content if (name and content.startswith(name + "：")) else (f"{name}：{content}" if name else content),
-            320,
+        instruction = _line(f"{head}：{content}" if head else content, 320,
         )
         add(
             f"world.{part}", "世界设定", name or title or content, payload,
