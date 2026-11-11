@@ -490,7 +490,7 @@ def map_deconstruct_products(
     world = _data(products.get("world"))
 
     def add_world(part: str, title: str, content: str, *, hard: bool = False,
-                  evidence: str = "", name: str = "") -> None:
+                  evidence: str = "", name: str = "", quote: str = "") -> None:
         """世界条目＝结构化字段（boss 2026-11-08：内容是实际案例、元数据分立）。
 
         拆书产物常把章证据与可信度粘在正文尾（「（第41章；confidence:mid）」）——
@@ -542,13 +542,22 @@ def map_deconstruct_products(
             payload["hard"] = True
         instruction = _line(f"{head}：{content}" if head else content, 320,
         )
+        # 逐字例句（boss 2026-11-11）：世界条目也必须有原书段落作证——quote 进
+        # evidence_json.quotes（前端/基线 example 列消费），长度与章证据口径同其他维度
+        q_text = _line(quote, 200)
+        ev_json = {"quotes": [{"loc": ch_evidence.split("；")[0] if ch_evidence else "", "text": q_text}]} if q_text else {}
         add(
             f"world.{part}", "世界设定", name or title or content, payload,
-            instruction=instruction, evidence=ch_evidence,
+            instruction=instruction, evidence=ch_evidence, evidence_json=ev_json,
         )
 
-    add_world("stage", "舞台", _text_of(world.get("stage"), "content", "text", limit=300))
-    add_world("power", "力量/规则", _text_of(world.get("no_power"), "content", "text", limit=300))
+    # quote 只从 dict 形取（_text_of 对裸串原样返回——裸串 stage 会把正文误当 quote）
+    _stage = world.get("stage")
+    _no_power = world.get("no_power")
+    add_world("stage", "舞台", _text_of(_stage, "content", "text", limit=300),
+              quote=_text_of(_stage, "quote", limit=200) if isinstance(_stage, dict) else "")
+    add_world("power", "力量/规则", _text_of(_no_power, "content", "text", limit=300),
+              quote=_text_of(_no_power, "quote", limit=200) if isinstance(_no_power, dict) else "")
 
     for part, key, hard in (
         ("power", "power", False),
@@ -566,7 +575,8 @@ def map_deconstruct_products(
                 continue
             evidence, _ = _ev(item.get("evidence_ch") if isinstance(item, dict) else "")
             add_world(part, name or f"{part} {len(entries) + 1}", body or name,
-                      hard=hard, evidence=evidence, name=name)
+                      hard=hard, evidence=evidence, name=name,
+                      quote=_text_of(item, "quote", limit=200) if isinstance(item, dict) else "")
 
     for item in _items(world.get("extra"))[:_MAX_WORLD_EXTRA]:
         key = _text_of(item, "key", "name", limit=60)
@@ -574,7 +584,8 @@ def map_deconstruct_products(
         if not key and not value:
             continue
         content = f"{key}：{value}" if key and value else (value or key)
-        add_world("extra", key or "补充", content)
+        add_world("extra", key or "补充", content,
+                  quote=_text_of(item, "quote", limit=200) if isinstance(item, dict) else "")
 
     # ─── 角色设定（原型＋档案八格）───
     characters = _data(products.get("characters"))
@@ -608,7 +619,12 @@ def map_deconstruct_products(
         # 证据＝产物 evidence_ch（章号口径同其他节）；「原文未明确」哨兵不过 _ev
         # （否则包成「第原文未明确章」），置空＝抽屉不出证据节；裸产物 plot 无粘尾
         raw_ch = str(item.get("evidence_ch") or "").strip()
-        evidence, ev_json = ("", {}) if not raw_ch or raw_ch == "原文未明确" else _ev(raw_ch)
+        # 逐字例句（boss 2026-11-11）：人物卡的 quote 随条目走——角色值必须有原书
+        # 段落作证；「原文未明确」哨兵不过 _ev（否则包成「第原文未明确章」）
+        quote = _line(_text_of(item, "quote"), 200)
+        evidence, ev_json = (
+            ("", {}) if (not raw_ch or raw_ch == "原文未明确") else _ev(raw_ch, quote)
+        )
         add(
             "character", "角色设定", name, payload,
             instruction=persona, evidence=evidence, evidence_json=ev_json,
