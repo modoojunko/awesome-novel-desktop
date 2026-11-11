@@ -54,13 +54,18 @@ export function prettyFieldValue(raw: string): string {
 
 /** 实例 → 有值字段 (标签, 渲染值)；fields_json 畸形返空。
  *  渲染序：所属知识点的字段模板序（知识对象定义实例的格）在前，
- *  模板没有的键退概念字典兜底；两处都没有的按原序尾随。 */
+ *  模板没有的键退概念字典兜底；两处都没有的按原序尾随。
+ *  与实例正文同值的字段不重复显示（boss 2026-11-11 真机实锤：官方条目 payload
+ *  历史上带「名字：怎么写」拼装份，详情页 实例/内容/怎么写 三字段同值——
+ *  SDK 已停写拼装份，此处句末归一兜底挡存量包与残存形态）。 */
 export function fieldsOf(row: KbInstanceFlatRow): [string, string][] {
   if (row.row_kind !== "instance") return [];
   let fields: Record<string, unknown> = {};
   try { fields = JSON.parse(row.fields_json || "{}") ?? {}; } catch { fields = {}; }
   if (typeof fields !== "object" || Array.isArray(fields)) return [];
   const render = (v: unknown) => (typeof v === "string" ? prettyFieldValue(v) : Array.isArray(v) ? v.map(String).join("、") : String(v));
+  const norm = (s: string) => s.trim().replace(/。+$/, "");
+  const bodyNorm = norm(row.text || "");
   const out: [string, string][] = [];
   const used = new Set<string>();
   let schema: { name?: unknown; desc?: unknown }[] = [];
@@ -72,6 +77,7 @@ export function fieldsOf(row: KbInstanceFlatRow): [string, string][] {
       const rendered = render(fields[slotName]);
       if (!rendered) continue;
       used.add(slotName);
+      if (bodyNorm !== "" && norm(rendered) === bodyNorm) continue;
       out.push([slotName, rendered]);
     }
   }
@@ -79,6 +85,7 @@ export function fieldsOf(row: KbInstanceFlatRow): [string, string][] {
     if (used.has(k)) continue;
     const rendered = render(v);
     if (!rendered) continue;
+    if (bodyNorm !== "" && norm(rendered) === bodyNorm) continue;
     out.push([kbFieldLabel(row.concept, k), rendered]);
   }
   return out;

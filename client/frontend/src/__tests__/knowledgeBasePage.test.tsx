@@ -411,6 +411,34 @@ describe("fieldsOf（实例字段：知识点模板序在前）", () => {
     const bad = { row_kind: "instance", fields_json: "{oops", knowledge_schema_json: "[}" } as never;
     expect(fieldsOf(bad)).toEqual([]);
   });
+
+  it("与实例正文同值（句末归一）的字段不重复显示——官方条目拼装份防线", () => {
+    const row = {
+      row_kind: "instance",
+      text: "吐槽穿插：惊悚推进中插入主角内心吐槽或黑色幽默独白，调节节奏并强化爽感。",
+      fields_json: JSON.stringify({
+        slot: "rule",
+        text: "吐槽穿插：惊悚推进中插入主角内心吐槽或黑色幽默独白，调节节奏并强化爽感", // 同值（历史拼装份，差句号）
+        name: "吐槽穿插", // 前缀子串：不是同值，保留
+        how: "惊悚推进中插入主角内心吐槽或黑色幽默独白，调节节奏并强化爽感", // 子串：保留
+        scene: "日常",
+      }),
+    } as unknown as Parameters<typeof fieldsOf>[0];
+    const rows = fieldsOf(row).map(([label, value]) => [label, value] as const);
+    // 拼装份（text，与正文同值差句号）被句末归一跳过；渲染输出为中文标签
+    expect(rows.map(([label]) => label)).toEqual(["槽位", "名字", "怎么写", "适用场面"]);
+    expect(rows.map(([, v]) => v)).not.toContain("吐槽穿插：惊悚推进中插入主角内心吐槽或黑色幽默独白，调节节奏并强化爽感");
+  });
+
+  it("模板序循环的同值字段同样跳过（schema 循环同防线）", () => {
+    const row = {
+      row_kind: "instance",
+      text: "正文一句话。",
+      fields_json: JSON.stringify({ a: "正文一句话", b: "别的格" }),
+      knowledge_schema_json: JSON.stringify([{ name: "a", desc: "甲格" }, { name: "b", desc: "乙格" }]),
+    } as unknown as Parameters<typeof fieldsOf>[0];
+    expect(fieldsOf(row).map(([label]) => label)).toEqual(["b"]);
+  });
 });
 
 describe("官方知识探测在途槽与提炼失败兜底（c-kb-baseline-update-ux 补臂）", () => {
