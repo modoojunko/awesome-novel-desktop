@@ -250,7 +250,6 @@ def _derive(base: str, name: str) -> str:
 
 
 async def _fetch_json(client, url: str) -> dict | None:
-    import httpx
 
     try:
         r = await client.get(url, timeout=_FETCH_TIMEOUT, follow_redirects=False)
@@ -263,7 +262,6 @@ async def _fetch_json(client, url: str) -> dict | None:
 
 
 async def _fetch_bytes(client, url: str) -> bytes | None:
-    import httpx
 
     try:
         r = await client.get(url, timeout=_FETCH_TIMEOUT, follow_redirects=False)
@@ -499,10 +497,9 @@ async def _sync_inner() -> dict:
                 "status": "skipped", "reason": "older_than_installed",
                 "installed": receipt_version, "latest": version,
             }
-        if receipt_version == version:
-            if _cached_file_ok(version, sha) is not None:
-                return {"status": "current", "version": version}
-            # 同版本缓存损坏/丢失 → 修复重下（不 return current）
+        if receipt_version == version and _cached_file_ok(version, sha) is not None:
+            return {"status": "current", "version": version}
+        # 同版本缓存损坏/丢失 → 走到下面的修复重下（不 return current）
 
         tree_url = _derive(base, f"v{version}/taxonomy.json")
         if not await asyncio.to_thread(_validate_outbound, tree_url):

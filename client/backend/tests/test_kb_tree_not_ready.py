@@ -8,7 +8,6 @@ API 用例走真 TestClient：config.json 写本地会话（middleware 同款口
 import asyncio
 import os
 from datetime import UTC, datetime, timedelta
-from pathlib import Path
 
 import pytest
 from fastapi.testclient import TestClient

@@ -9,10 +9,10 @@
 import base64
 import hashlib
 import json
-from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
-from cryptography.hazmat.primitives.serialization import Encoding, PublicFormat
 
+from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey as _K
+from cryptography.hazmat.primitives.serialization import Encoding, PublicFormat
 
 _ed_key = Ed25519PrivateKey.from_private_bytes(bytes(range(32)))
 _TEST_PRIV = base64.b64encode(bytes(range(32))).decode()
@@ -21,7 +21,6 @@ _TEST_PUBKEYS = {_TEST_KID: _ed_key.public_key().public_bytes(Encoding.Raw, Publ
 _BASE = "http://127.0.0.1:1/knowledge/tree"
 
 # 夹具树字节（与内容仓 taxonomy/taxonomy.json 同一份——conftest 播种同一文件）
-import os
 from pathlib import Path
 
 _FIXTURE_TREE = Path(__file__).resolve().parent / "fixtures" / "taxonomy" / "taxonomy.json"
@@ -215,7 +214,7 @@ def test_主域死_兜底域可用(tree_env, monkeypatch):
 
 
 def test_无信任钥_skipped(tree_env, monkeypatch):
-    monkeypatch.setattr(tree_sync, "_trust_keys", lambda: {})
+    monkeypatch.setattr(tree_sync, "_trust_keys", dict)
     r = _run(tree_sync.sync_tree())
     assert r["status"] == "skipped" and r["reason"] == "not_configured"
 
