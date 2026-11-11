@@ -619,10 +619,13 @@ def map_deconstruct_products(
         if not name:
             continue
         payload: dict = {"archetype": name}
+        # 认知十一格（boss 2026-11-11：拆书角色要能直接填满新书角色卡）——
+        # 与档案格同款透传；空值不落键（建卡侧按空格提示，不写占位串）
         for key in ("persona", "gender", "age", "race", "faction", "look",
-                    "speech", "background", "plot"):
+                    "speech", "background", "plot",
+                    "w1", "w5", "s1", "s5", "v1", "p2", "p6", "p3", "p4", "b1", "e3"):
             value = _text_of(item.get(key), "value", "text", limit=300)
-            if value:
+            if value and value.strip(" 。；;") != "原文未明确":
                 payload[key] = value
         aliases = [
             _line(a, 50) for a in _items(item.get("aliases")) if _line(a, 50)
