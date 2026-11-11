@@ -213,3 +213,18 @@ def test_sdk_角色字段级证据_passthrough与键面过滤():
     e = next(x for x in entries if x.title == "梁教授")
     payload = json.loads(e.payload_json)
     assert payload["field_quotes"] == {"look": "他总穿那件洗得发白的旧夹克。"}, payload
+
+
+def test_sdk_角色认知十一格透传与占位过滤():
+    """boss 2026-11-11：拆书角色要能填满新书角色卡——认知十一格随 payload 走；
+    「原文未明确」占位不落键（不把占位串写进卡）。"""
+    cog = {k: f"{k}的认知值" for k in ("w1","w5","s1","s5","v1","p2","p6","p3","p4","b1","e3")}
+    cog["s5"] = "原文未明确"
+    products = {"characters": {"data": {"characters": [{
+        "name": "梁教授", "role": "主角", "persona": "坐轮椅的老刑警", **cog,
+        "evidence_ch": "第1章",
+    }]}}}
+    entries, _ = sdk.map_deconstruct_products("u1", "t1", "悬疑", products)
+    payload = json.loads(next(x for x in entries if x.title == "梁教授").payload_json)
+    assert payload["w1"] == "w1的认知值" and payload["e3"] == "e3的认知值"
+    assert "s5" not in payload  # 占位串不落键
