@@ -203,6 +203,17 @@ async def persist_package(db, user_id: str, paths: list[str], include_config: bo
                 logger.info("event=kb_revocation_after_restore %s", rv)
     except Exception as e:  # noqa: BLE001 — 清理失败不破坏恢复结果
         logger.warning("event=kb_revocation_after_restore_failed error=%s", e)
+    # v0.47.5：旧备份可能带回三本书的用户拆书「世界/角色」，恢复后强制重扫。
+    try:
+        from kb.revocation import hooks_enabled
+        from kb.world_char_purge import apply_world_char_purge
+
+        if hooks_enabled():
+            wc = await apply_world_char_purge(db=db, force=True)
+            if wc.get("status") == "purged":
+                logger.info("event=kb_world_char_after_restore %s", wc)
+    except Exception as e:  # noqa: BLE001 — 清理失败不破坏恢复结果
+        logger.warning("event=kb_world_char_after_restore_failed error=%s", e)
     # 逐书容错提示（伏笔章引用解析失败等）并进总 warnings——「置 NULL＋warning
     # 计数、不丢行」的契约要能在恢复摘要里看到
     book_level = [w for r in results for w in r.get("warnings", [])]
