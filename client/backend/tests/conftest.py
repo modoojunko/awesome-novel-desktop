@@ -220,6 +220,10 @@ if "openai" not in sys.modules:
 # 覆盖这两个变量（engine 模块级缓存，第一个 import 者生效），维持现状。
 _TMP_DATA_ROOT = tempfile.mkdtemp(prefix="ai-novel-test-data-")
 os.environ["DATA_ROOT"] = _TMP_DATA_ROOT
+# 官方基线撤回（2026-11-11 合规）：TestClient 的 lifespan/读面钩子在共享测试库上
+# 真跑会清掉其它 KB 用例的基线种子。测试默认关钩子；撤回逻辑本身由
+# test_kb_revocation 直接调 apply_revocations 覆盖。
+os.environ["KB_REVOCATION"] = "0"
 # backend-logging：测试进程一律关闭文件日志（main.py 顶部 setup_logging 幂等
 # 调用会随任意测试导入 main 触发）——否则 pytest 向 DATA_ROOT/logs 刷文件。
 # 需要真实文件日志的用例用 daily_file_log fixture 临时开启并完整还原。

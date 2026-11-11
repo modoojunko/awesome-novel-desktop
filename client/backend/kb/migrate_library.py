@@ -541,6 +541,11 @@ async def ensure_legacy_migrated(db: AsyncSession, *, user_id: str) -> None:
     「星币：星币：」双前缀存量自愈，c-knowledge-source-align）。
     """
     try:
+        # 官方基线撤回（2026-11-11 版权合规）：读面兜底，进程内成功后零成本；
+        # carry/备份恢复的强制重扫在各自钩子里，不依赖本入口。
+        from kb.revocation import revoke_official_baseline
+
+        await revoke_official_baseline()
         await repair_character_evidence(db, user_id=user_id)
         await heal_dual_prefix_instances(user_id=user_id)
         await normalize_legacy_genres(user_id=user_id)
