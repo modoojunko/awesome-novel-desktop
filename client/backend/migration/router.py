@@ -705,6 +705,15 @@ async def _record_completion(source_filename: str, report: dict) -> None:
                     rv.get("status"), rv)
     except Exception as e:  # noqa: BLE001 — 清理失败不阻断迁移完成记录
         logger.warning("event=kb_revocation_after_carry_failed error=%s", e)
+    # v0.47.5：carry 完成后清三本书的用户拆书「世界/角色」（同源合规）。
+    try:
+        from kb.world_char_purge import purge_withdrawn_world_char
+
+        wc = await purge_withdrawn_world_char(force=True)
+        logger.info("event=kb_world_char_after_carry status=%s counts=%s",
+                    wc.get("status"), wc)
+    except Exception as e:  # noqa: BLE001 — 清理失败不阻断迁移完成记录
+        logger.warning("event=kb_world_char_after_carry_failed error=%s", e)
     # carry 完成后才回填旧导入书：启动期空库不落 marker，不能等下一次重启。
     try:
         from novels.import_backfill import backfill_import_origin_v1

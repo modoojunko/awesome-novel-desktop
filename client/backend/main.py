@@ -248,6 +248,16 @@ async def lifespan(app: FastAPI):
     except Exception as _e:  # noqa: BLE001 — 清理失败不挡启动
         _log.warning("kb baseline revocation failed: %s", _e)
 
+    # ── v0.47.5：撤回三本书的用户拆书「世界设定/角色设定」（同源合规） ──
+    try:
+        from kb.world_char_purge import purge_withdrawn_world_char
+
+        _wc = await purge_withdrawn_world_char()
+        if _wc.get("status") == "purged":
+            _log.info("kb world/char purged: %s", _wc)
+    except Exception as _e:  # noqa: BLE001 — 清理失败不挡启动
+        _log.warning("kb world/char purge failed: %s", _e)
+
     # ── 基线知识包同步（c-kb-baseline 批A）：启动补偿，纯 CDN 不要求登录态；
     #    后台任务执行不挡启动，失败静默可重试（未就绪＝写法块不出现） ──
     try:
