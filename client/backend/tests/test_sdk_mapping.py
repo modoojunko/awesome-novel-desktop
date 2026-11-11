@@ -112,3 +112,34 @@ def test_sdk_文风文笔_quote接入evidence():
 
     assert any(e.title == "裸串规则原样成条" or e.title.startswith("场景规则")
                for e in entries), [e.title for e in entries]
+
+
+def test_sdk_去冗余_拼装份与名字头():
+    """2026-11-11 真机实锤：详情页 实例/内容/怎么写 三字段同值（payload 拼装份
+    text 第三份拷贝）＋「温柔说狠话：温柔说狠话：」双前缀——rules payload 停写
+    拼装份、how/content 自带名字头剥除。"""
+    products = {
+        "style": {"file": "文风.md", "data": {"rules": [
+            {"name": "温柔说狠话", "how": "温柔说狠话：对话用礼貌温柔的语气包裹狠辣内容",
+             "evidence_ch": "第3章", "confidence": "high"},
+        ]}},
+        "world": {"file": "世界.md", "data": {"extra": [
+            # extra 路径 key：value 拼装会叠两层名字头——while 剥到纯案例
+            {"key": "琥珀遗体", "value": "琥珀遗体：树脂封装遗体可高价出售",
+             "evidence_ch": "第34章"},
+        ]}},
+    }
+    entries, warnings = sdk.map_deconstruct_products("u1", "t1", "志怪/民俗灵异", products)
+    assert warnings == [], warnings
+
+    rule = next(e for e in entries if e.title == "温柔说狠话")
+    payload = json.loads(rule.payload_json)
+    assert "text" not in payload, payload  # 拼装份不落 payload
+    assert payload["how"] == "对话用礼貌温柔的语气包裹狠辣内容", payload  # 名字头剥除
+    assert rule.instruction.rstrip("。") == "温柔说狠话：对话用礼貌温柔的语气包裹狠辣内容", rule.instruction
+    assert "温柔说狠话：温柔说狠话" not in rule.instruction
+
+    world = next(e for e in entries if e.concept == "世界设定")
+    wp = json.loads(world.payload_json)
+    assert wp["content"] == "树脂封装遗体可高价出售", wp  # content 纯案例（双层头剥净）
+    assert world.instruction.rstrip("。") == "琥珀遗体：树脂封装遗体可高价出售", world.instruction
