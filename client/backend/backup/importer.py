@@ -5,6 +5,7 @@
 """
 
 import json
+import logging
 import re
 import uuid
 import zipfile
@@ -16,6 +17,8 @@ from sqlalchemy import select, update
 
 from backup.format import FORMAT_VERSION, belongs_to_ref
 from config import book_root
+
+logger = logging.getLogger(__name__)
 
 
 def _parse_dt(value) -> datetime | None:
@@ -189,6 +192,17 @@ async def persist_package(db, user_id: str, paths: list[str], include_config: bo
     )
     # 收尾提交：配置恢复（含 config-only 包）与挂回在此确定落库
     await db.commit()
+    # 旧备份可能带回官方基线派生知识：恢复后强制重扫（版权合规），只清官方来源，
+    # 用户拆书/原创不受影响。失败只留痕，不破坏已完成的恢复结果。
+    try:
+        from kb.revocation import apply_revocations, hooks_enabled
+
+        if hooks_enabled():
+            rv = await apply_revocations(db=db, force=True)
+            if rv.get("status") == "revoked":
+                logger.info("event=kb_revocation_after_restore %s", rv)
+    except Exception as e:  # noqa: BLE001 — 清理失败不破坏恢复结果
+        logger.warning("event=kb_revocation_after_restore_failed error=%s", e)
     # 逐书容错提示（伏笔章引用解析失败等）并进总 warnings——「置 NULL＋warning
     # 计数、不丢行」的契约要能在恢复摘要里看到
     book_level = [w for r in results for w in r.get("warnings", [])]

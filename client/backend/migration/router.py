@@ -695,6 +695,16 @@ async def _record_completion(source_filename: str, report: dict) -> None:
         "fk_violations": len(fk) if isinstance(fk, list) else fk,
     })
     await _set_app_meta(HISTORY_KEY, json.dumps(history[-HISTORY_LIMIT:], ensure_ascii=False))
+    # carry 完成后清官方基线派生知识（版权合规）：新版本 DB 启动时是空的，
+    # 旧库刚搬进来——不能等下一次重启。失败只留痕，boot/读面会重试。
+    try:
+        from kb.revocation import revoke_official_baseline
+
+        rv = await revoke_official_baseline(force=True)
+        logger.info("event=kb_revocation_after_carry status=%s counts=%s",
+                    rv.get("status"), rv)
+    except Exception as e:  # noqa: BLE001 — 清理失败不阻断迁移完成记录
+        logger.warning("event=kb_revocation_after_carry_failed error=%s", e)
     # carry 完成后才回填旧导入书：启动期空库不落 marker，不能等下一次重启。
     try:
         from novels.import_backfill import backfill_import_origin_v1

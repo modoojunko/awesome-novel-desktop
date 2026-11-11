@@ -330,8 +330,11 @@ async def probe_latest() -> dict:
 
     import httpx
 
+    from kb.revocation import is_retired
     from manifest_crypto import verify_manifest
 
+    if await is_retired():
+        return {"installed": 0, "latest": 0, "update_available": False, "reason": "retired"}
     installed = await _current_version()
     keys = _trust_keys()
     if not keys:
@@ -356,6 +359,10 @@ async def probe_latest() -> dict:
 async def sync_baseline(db: AsyncSession | None = None) -> dict:
     """同步入口（幂等）。返回 {status: synced|current|skipped|failed, ...}。"""
     global _syncing
+    from kb.revocation import is_retired
+
+    if await is_retired(db):
+        return {"status": "skipped", "reason": "retired"}
     if _syncing:
         return {"status": "skipped", "reason": "syncing"}
     _syncing = True
@@ -373,8 +380,11 @@ async def _sync_impl(db: AsyncSession | None) -> dict:
 
     import httpx
 
+    from kb.revocation import is_retired
     from manifest_crypto import verify_manifest
 
+    if await is_retired(db):
+        return {"status": "skipped", "reason": "retired"}
     keys = _trust_keys()
     if not keys:
         return {"status": "skipped", "reason": "not_configured"}
