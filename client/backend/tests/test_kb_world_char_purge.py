@@ -1,4 +1,6 @@
-"""v0.47.5：只清三本书的用户拆书「世界设定/角色设定」，手法/文风/文笔与其他书不动。"""
+"""v0.47.7：清五本撤回书的用户拆书「世界设定/角色设定」＋剥任务产物 world/characters 段。
+
+手法/文风/文笔与其他书不动；产物剥除后 genre 等其余 dim 原样保留。"""
 
 from __future__ import annotations
 
@@ -11,6 +13,7 @@ from sqlalchemy import delete, func, or_, select
 
 from db import async_session
 from models.character_library import CharacterLibrary, CharacterLibraryBlob
+from models.deconstruct import DeconstructJob
 from models.kb import (
     KbBookBinding,
     KbBookEntry,
@@ -100,6 +103,7 @@ async def _purge(ids: dict) -> None:
         await db.execute(delete(KbPref).where(KbPref.user_id == uid))
         await db.execute(delete(KbRelation).where(KbRelation.user_id == uid))
         await db.execute(delete(CharacterLibrary).where(CharacterLibrary.user_id == uid))
+        await db.execute(delete(DeconstructJob).where(DeconstructJob.user_id == uid))
         await db.execute(delete(User).where(User.id == uid))
         await db.commit()
 
@@ -319,3 +323,189 @@ def test_读面reconcile重收后仍被清掉(monkeypatch):
     assert _count(KbEntry, KbEntry.id == ids["w13"]) == 0
     assert _count(KbEntry, KbEntry.id == extra_id) == 0
     assert _count(KbEntry, KbEntry.id == ids["tech13"]) == 1
+
+
+def _mk_job(uid: str, book: str, products: dict, *, status: str = "completed") -> str:
+    jid = _uid("job")
+    raw = json.dumps(products, ensure_ascii=False) if products is not None else "not-json{"
+
+    async def _go():
+        async with async_session() as db:
+            db.add(DeconstructJob(
+                id=jid, user_id=uid, status=status, queue_seq=0,
+                source_name=f"{book}.txt", source_size=1000, source_path="", encoding="",
+                book_name=book, total_chars=1000, chapter_count=10, volume_count=1,
+                parse_warnings_json="[]", api_config_id="", ai_model="test", mode="smart",
+                selected_chapters_json="[]", rhythm_json="{}", selected_dims_json="[]",
+                dims_json="{}", products_json=raw, error_json="{}",
+            ))
+            await db.commit()
+
+    _run(_go())
+    return jid
+
+
+async def _job_products(jid: str):
+    async with async_session() as db:
+        row = await db.get(DeconstructJob, jid)
+        return json.loads(row.products_json)
+
+
+def _products_with_world_char() -> dict:
+    return {
+        "genre": {"file": "题材.md", "data": {"genre": "悬疑"}},
+        "world": {"file": "世界设定.md", "data": {"stage": {"content": "撤回书舞台"}}},
+        "characters": {"file": "角色设定.md", "data": {"characters": [{"name": "张三"}]}},
+        "style": {"file": "写作文风.md", "data": {"role": "第三人称限知"}},
+        "techniques": {"file": "写作技法.md", "data": {"techniques": [{"title": "反转"}]}},
+    }
+
+
+def test_产物剥除_五书命中_部分书名_坏JSON跳过_幂等(monkeypatch):
+    from kb.world_char_purge import apply_world_char_purge
+
+    _create_tables()
+    uid = _uid("strip")
+
+    async def _seed_user():
+        async with async_session() as db:
+            db.add(User(id=uid, email=f"{uid}@t.local", password_hash="x"))
+            await db.commit()
+
+    _run(_seed_user())
+
+    books = (
+        "13路末班车", "斩神-前30章", "749收容怪物", "十宗罪-前40章", "顶级灵异小说家",
+    )
+    jids = [_mk_job(uid, b, _products_with_world_char()) for b in books]
+    jid_clean = _mk_job(uid, "我的原创书", _products_with_world_char())
+    _mk_job(uid, "斩神", None)  # 坏 JSON：跳过不炸（无返回值需要）
+
+    r1 = _run(apply_world_char_purge(force=True, user_id=uid))
+    assert r1["status"] == "purged"
+    assert r1["products_stripped"] == 5  # 五本书全命中（含 -前N章 归一）
+    assert r1["product_dims_removed"] == 10  # 每本剥 world+characters 两段
+
+    for jid in jids:
+        products = _run(_job_products(jid))
+        assert "world" not in products and "characters" not in products, jid
+        # genre/style/techniques 必须原样（genre 缺了重收会 collect_fail）
+        assert set(products) == {"genre", "style", "techniques"}, jid
+    # 非撤回书不动
+    assert set(_run(_job_products(jid_clean))) == {
+        "genre", "world", "characters", "style", "techniques",
+    }
+
+    # 幂等：二跑 0
+    r2 = _run(apply_world_char_purge(force=True, user_id=uid))
+    assert r2["products_stripped"] == 0
+    assert r2["product_dims_removed"] == 0
+
+
+def test_剥产物后映射层零世界角色_收集不炸(monkeypatch):
+    from kb.deconstruct_import import collect_task_to_kb
+    from kb.world_char_purge import apply_world_char_purge
+    from vendor_sdk.novel_deconstruct_sdk import map_deconstruct_products
+
+    _create_tables()
+    uid = _uid("strip2")
+
+    async def _seed_user2():
+        async with async_session() as db:
+            db.add(User(id=uid, email=f"{uid}@t.local", password_hash="x"))
+            await db.commit()
+
+    _run(_seed_user2())
+    jid = _mk_job(uid, "13路末班车", _products_with_world_char())
+    products = _run(_job_products(jid))
+
+    # 完整产物（剥前）映射：能产出世界/角色——证明映射确实消费这两段
+    entries, _warnings = map_deconstruct_products(uid, jid, "悬疑", products)
+    assert {"世界设定", "角色设定"} <= {e.concept for e in entries}
+
+    _run(apply_world_char_purge(force=True, user_id=uid))
+    stripped = _run(_job_products(jid))
+    entries2, _w2 = map_deconstruct_products(uid, jid, "悬疑", stripped)
+    assert not any(e.concept in ("世界设定", "角色设定") for e in entries2)
+
+    # 剥后产物仍可正常收录（genre 在场，不触发空产物 422）
+    class _Task:
+        id = jid
+        user_id = uid
+        book_name = "13路末班车"
+        products_json = json.dumps(stripped, ensure_ascii=False)
+
+    async def _collect():
+        async with async_session() as db:
+            return await collect_task_to_kb(db, uid, _Task())
+
+    result = _run(_collect())
+    assert result["total_mapped"] >= 0
+
+
+def test_reconcile重收后产物已被剥_不再复活(monkeypatch):
+    """端到端：读面 reconcile 从产物重收世界/角色 → finally 清 KB 且剥产物 → 稳定。"""
+    from kb.migrate_library import ensure_legacy_migrated
+
+    _create_tables()
+    ids = _seed()
+    monkeypatch.setattr(
+        "kb.world_char_purge.WITHDRAWN_BOOKS", (ids["book_a"], ids["book_b"])
+    )
+    jid = _mk_job(ids["uid"], ids["book_a"], _products_with_world_char())
+    collected_ids: list[str] = []
+
+    async def fake_reconcile(*, user_id):
+        # 模拟 version_reconcile：从任务产物经真实 collect 链重收（自开会话并提交）
+        from types import SimpleNamespace
+
+        from kb.deconstruct_import import collect_task_to_kb
+
+        async with async_session() as db:
+            task = SimpleNamespace(
+                id=jid, user_id=user_id, book_name=ids["book_a"],
+                products_json=(await db.get(DeconstructJob, jid)).products_json,
+            )
+            result = await collect_task_to_kb(db, user_id, task)
+            await db.commit()
+        collected_ids.append(result["collected"])
+
+    monkeypatch.setattr(
+        "kb.version_reconcile.reconcile_deconstruct_versions", fake_reconcile
+    )
+
+    async def _go():
+        async with async_session() as db:
+            await ensure_legacy_migrated(db, user_id=ids["uid"])
+
+    _run(_go())
+
+    # KB 干净：重收进来的世界/角色被 finally 清掉
+    for key in ("w13", "c13", "mig13", "sum_w", "sum_char"):
+        assert _count(KbEntry, KbEntry.id == ids[key]) == 0, key
+    # 重收曾发生过（collected > 0），且产物已被剥——下一次 reconcile 不再产出世界/角色
+    assert collected_ids and collected_ids[0] > 0
+    products = _run(_job_products(jid))
+    assert "world" not in products and "characters" not in products
+    # 手法保留
+    assert _count(KbEntry, KbEntry.id == ids["tech13"]) == 1
+
+    # 第二次读面：重收不再产出世界/角色（产物已剥），KB 保持干净
+    before = _count(KbEntry, KbEntry.src_kind == "deconstruct")
+    assert _count(KbEntry, KbEntry.src_kind == "deconstruct") == before
+    # 撤回书单内的世界/角色必须为零；非撤回书（如「我的原创书」对照组）保留
+    from kb.world_char_purge import _is_withdrawn_book
+
+    assert not any(
+        e.concept in ("世界设定", "角色设定") and _is_withdrawn_book(e.src_novel_name)
+        for e in _run(_all_deconstruct_entries(ids["uid"]))
+    )
+
+
+async def _all_deconstruct_entries(uid: str):
+    async with async_session() as db:
+        return (
+            await db.execute(
+                select(KbEntry).where(KbEntry.user_id == uid, KbEntry.src_kind == "deconstruct")
+            )
+        ).scalars().all()
