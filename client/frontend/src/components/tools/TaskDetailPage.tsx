@@ -853,7 +853,7 @@ export default function TaskDetailPage() {
                     <b style={{ display: "block" }}>《拆书使用承诺》 · {c?.version ?? "v1"}</b>
                     <span style={{ display: "block", marginTop: 2, fontSize: 12, color: "var(--muted)" }}>{sub}</span>
                   </div>
-                  {(state === "pending" || state === "failed") && (
+                  {(state === "pending" || state === "local" || state === "failed") && (
                     <button className="btn btn-secondary btn-sm" onClick={retryConsent} disabled={consentBusy}>
                       {consentBusy ? "正在重试…" : "重试同步"}
                     </button>

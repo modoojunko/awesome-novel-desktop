@@ -66,6 +66,10 @@
   `loop.call_soon_threadsafe(task.cancel)` 取消，不再吊住线程/事件循环。
 - **创建页**：承诺读取失败显示「重试读取」；`loadConsent` 可复用。
 - **法律 README**：注记更新为 S端 v2026.12/v2026.13 且拆书条款已合并。
+- **local 自愈**：`sync_pending` 重试集合加入 `local`（S端 404 降级）；任务详情 `local` 态也给
+  「重试同步」；S端 上线后 10 分钟内自动转 `synced`。
+- **恢复幂等**：`_restore_from_server` 捕获唯一键冲突，回滚后返回已存在行，不再 500。
+- **导出默认值**：`export_products(consent_synced=False)` 改为保守默认，只有导出端点传真实同步状态。
 
 ## 灰度观察
 

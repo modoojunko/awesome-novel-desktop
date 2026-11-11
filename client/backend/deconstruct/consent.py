@@ -141,8 +141,18 @@ async def _restore_from_server(db, user_id: str) -> DeconstructConsent | None:
         server_ts=server_ts,
         sync_state="synced",
     )
+    from sqlalchemy.exc import IntegrityError
+
     db.add(row)
-    await db.commit()
+    try:
+        await db.commit()
+    except IntegrityError:
+        # 并发恢复（两个窗口同时 GET）撞唯一键：回滚后返回已存在行，恢复也幂等
+        await db.rollback()
+        existing = await _current(db, user_id)
+        if existing is not None:
+            return existing
+        raise
     await db.refresh(row)
     log.info("event=deconstruct_consent.restored user=%s", user_id)
     return row
@@ -245,7 +255,7 @@ async def sync_pending() -> int:
     current = _current_username()
     async with async_session() as db:
         stmt = select(DeconstructConsent).where(
-            DeconstructConsent.sync_state.in_(["pending", "login", "failed"])
+            DeconstructConsent.sync_state.in_(["pending", "login", "local", "failed"])
         )
         if current:
             stmt = stmt.where(DeconstructConsent.user_id == current)

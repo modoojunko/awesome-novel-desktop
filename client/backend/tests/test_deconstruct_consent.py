@@ -293,3 +293,40 @@ def test_sync_skips_other_account(monkeypatch):
             assert row.sync_state == "pending"
 
     _run(_check())
+
+def test_sync_pending_retries_local(monkeypatch):
+    """S端 未上线降级（local）也要重试；上线后自动转 synced（spec 场景）。"""
+    _patch_server(monkeypatch, {"code": 0, "data": {"server_ts": "2026-11-11T10:00:00"}})
+
+    async def _go():
+        async with async_session() as s:
+            await consent.sign(s, _UID)
+            row = await consent._current(s, _UID)
+            row.sync_state = "local"
+            await s.commit()
+        assert await consent.sync_pending() == 1
+        async with async_session() as s:
+            row = await consent._current(s, _UID)
+            assert row.sync_state == "synced"
+            assert row.server_ts is not None
+
+    _run(_go())
+
+
+def test_restore_is_idempotent_on_unique_conflict(monkeypatch):
+    """并发恢复撞唯一键：捕获后返回已存在行，不 500。"""
+    _patch_get(monkeypatch, [{
+        "version": consent.CONSENT_VERSION,
+        "agreement_text_sha256": consent.CONSENT_TEXT_SHA256,
+        "server_ts": "2026-11-11T10:00:00",
+    }])
+
+    async def _go():
+        async with async_session() as s:
+            await consent.sign(s, _UID)
+            existing = await consent._current(s, _UID)
+            row = await consent._restore_from_server(s, _UID)
+            assert row is not None and row.id == existing.id
+            assert (await consent._current(s, _UID)).id == existing.id
+
+    _run(_go())

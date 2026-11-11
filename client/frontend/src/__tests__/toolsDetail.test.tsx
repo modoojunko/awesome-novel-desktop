@@ -1718,4 +1718,19 @@ describe("合规（c-deconstruct-compliance-guard）", () => {
     expect(row.textContent).toContain("来源：自己买的 · 作者：某作者");
     expect(row.textContent).toContain("原文已清理，产物仍可用");
   });
+
+  it("本机签署态（local）也给重试同步出口", async () => {
+    const base = detailOf("completed");
+    state.get.mockResolvedValue({
+      ...base,
+      consent: {
+        ...(base as { consent: Record<string, unknown> }).consent,
+        sync_state: "local",
+        can_build: true,
+      },
+    });
+    renderPage();
+    await waitFor(() => expect(screen.getByText("本机签署")).toBeInTheDocument());
+    expect(screen.getByText("重试同步")).toBeInTheDocument();
+  });
 });

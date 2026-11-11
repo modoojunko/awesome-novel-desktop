@@ -643,7 +643,7 @@ def export_products(
     selected_files: list[str],
     graph: dict | None = None,
     *,
-    consent_synced: bool = True,
+    consent_synced: bool = False,
 ) -> dict:
     """导出到本地文件夹：勾中 md＋图谱三件套（固定附带）＋README＋`导出清单.json`。
 
