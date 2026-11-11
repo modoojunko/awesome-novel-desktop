@@ -33,8 +33,8 @@ _TECHNIQUES = {
 def test_evidence_keys_contract():
     """证据键单源：只承担「证明结论」职责，全部维度一视同仁剥除。"""
     assert EVIDENCE_KEYS == frozenset(
-        {"evidence_ch", "confidence", "note", "quote", "raw", "promise_note"}
-    )  # promise_note＝genre 的逐章卖点依据账，同为证据不入作家 md
+        {"evidence_ch", "confidence", "note", "quote", "raw", "promise_note", "examples"}
+    )  # promise_note＝genre 的逐章卖点依据账，examples＝原文短例，同为证据不入作家 md
 
 
 def test_render_md_strips_evidence_and_humanizes_lists():
@@ -149,9 +149,13 @@ def test_md_map_renders_from_data_and_falls_back_to_stored_md():
         "nofile": {"data": {"intro": "缺文件名不出"}},
     }
     mds = md_map_from_products(products, "书名", "第1-9章")
-    assert mds["简介.md"] == render_md("简介", {"intro": "新渲染。"}, "书名", "第1-9章")
+    from deconstruct.mdrender import with_ai_notice
+
+    assert mds["简介.md"] == with_ai_notice(
+        render_md("简介", {"intro": "新渲染。"}, "书名", "第1-9章")
+    )
     assert "证据章节" not in mds["简介.md"], "现渲染口径，存储 md 不被读"
-    assert mds["旧.md"] == "只有存量 md", "缺 data 回退存量 md 兜底"
+    assert mds["旧.md"] == with_ai_notice("只有存量 md"), "缺 data 回退存量 md 兜底"
     assert set(mds) == {"简介.md", "旧.md"}
 
 

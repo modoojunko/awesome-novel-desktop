@@ -215,6 +215,21 @@ def test_sdk_角色字段级证据_passthrough与键面过滤():
     assert payload["field_quotes"] == {"look": "他总穿那件洗得发白的旧夹克。"}, payload
 
 
+def test_sdk_角色原句证据每卡累计上限500():
+    """每卡原句累计 ≤500 字（c-deconstruct-compliance-guard）：超限截断，不拒收整卡。"""
+    quotes = {k: "字" * 120 for k in ("persona", "gender", "age", "race", "faction", "look")}
+    products = {"characters": {"data": {"characters": [{
+        "name": "梁教授", "role": "主角", "persona": "坐轮椅的老刑警",
+        "field_quotes": quotes, "evidence_ch": "第1章",
+    }]}}}
+    entries, _ = sdk.map_deconstruct_products("u1", "t1", "悬疑", products)
+    payload = json.loads(next(x for x in entries if x.title == "梁教授").payload_json)
+    fq = payload["field_quotes"]
+    assert sum(len(v) for v in fq.values()) == 500
+    assert fq["faction"] == "字" * 20  # 前四格 480，第五格只留 20；再往后丢弃
+    assert "look" not in fq
+
+
 def test_sdk_角色认知十一格透传与占位过滤():
     """boss 2026-11-11：拆书角色要能填满新书角色卡——认知十一格随 payload 走；
     「原文未明确」占位不落键（不把占位串写进卡）。"""

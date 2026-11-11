@@ -1,5 +1,5 @@
 import uuid
-from datetime import datetime
+from datetime import UTC, datetime
 
 from sqlalchemy import (
     DateTime,
@@ -96,9 +96,67 @@ class DeconstructJob(Base):
     # low=思考·低、inherit=跟随模型配置。拆书是结构化抽取，默认关——思考与输出共用
     # max_tokens，burn 预算是截断/空响应的放大器（真机实证）
     thinking_mode: Mapped[str] = mapped_column(String(12), nullable=False, default="off")
+    # ── 合规（c-deconstruct-compliance-guard）：来源登记与本机台账，不上传 ──
+    # 来源类型：owned/self_written/public_domain/authorized/other
+    rights_basis: Mapped[str] = mapped_column(
+        String(20), nullable=False, default="", server_default=""
+    )
+    source_author: Mapped[str] = mapped_column(
+        String(100), nullable=False, default="", server_default=""
+    )
+    source_sha256: Mapped[str] = mapped_column(
+        String(64), nullable=False, default="", server_default=""
+    )
+    # 签署快照（用户级承诺的版本与时间；签一次对所有任务生效）
+    consent_version: Mapped[str] = mapped_column(
+        String(64), nullable=False, default="", server_default=""
+    )
+    consent_signed_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    # 原文清理时点（终态后 7 天 sweep；删任务立即清）
+    source_purged_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    # 建书前确认（发布前改名、改写）
+    build_ack_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    build_ack_version: Mapped[str] = mapped_column(
+        String(64), nullable=False, default="", server_default=""
+    )
     created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
     started_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     finished_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+
+
+class DeconstructConsent(Base):
+    """拆书使用承诺签署记录（c-deconstruct-compliance-guard）——用户级、一次性。
+
+    服务端只存"谁/哪版/什么时间"；本机多存同步状态与重试账，便于任务页展示
+    「已签署/待同步/待登录/本机签署」。`(user_id, agreement_version)` 唯一。
+    """
+
+    __tablename__ = "deconstruct_consents"
+    __table_args__ = (
+        UniqueConstraint(
+            "user_id", "agreement_version",
+            name="uq_deconstruct_consents_user_version",
+        ),
+    )
+
+    id: Mapped[str] = mapped_column(
+        String(36), primary_key=True, default=lambda: str(uuid.uuid4())
+    )
+    user_id: Mapped[str] = mapped_column(String(36), nullable=False, index=True)
+    agreement_version: Mapped[str] = mapped_column(String(64), nullable=False)
+    agreement_text_sha256: Mapped[str] = mapped_column(String(64), nullable=False)
+    signed_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, default=lambda: datetime.now(UTC).replace(tzinfo=None))
+    server_ts: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    # pending / synced / login / local / failed
+    sync_state: Mapped[str] = mapped_column(
+        String(12), nullable=False, default="pending", server_default="pending"
+    )
+    attempts: Mapped[int] = mapped_column(Integer, nullable=False, default=0, server_default="0")
+    last_error: Mapped[str] = mapped_column(
+        String(300), nullable=False, default="", server_default=""
+    )
+    last_attempt_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
 
 
 class DeconstructUnit(Base):

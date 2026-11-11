@@ -629,6 +629,24 @@ input, textarea, select { font: inherit; }
       <button class="btn btn-ghost" data-state-go="list"><i data-ico="back"></i>返回任务清单</button>
     </div>
 
+    <!-- v9 合规：拆书使用承诺（一次性签署；服务端只存谁／哪版／什么时间） -->
+    <div class="fcard" data-od-id="consent-card" style="margin-bottom:14px">
+      <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
+        <span class="pill pill-ok" data-consent-pill="signed"><i data-ico="check"></i>已签署</span>
+        <span class="pill pill-warn" data-consent-pill="unsigned" hidden>未签署</span>
+        <div class="fs-tx" style="flex:1;min-width:240px">
+          <b data-consent-title style="display:block">《拆书使用承诺》 · v1</b>
+          <span data-consent-sub style="display:block;margin-top:2px">2026-11-11 签署 · 换设备不用重签</span>
+        </div>
+        <button class="btn btn-secondary btn-sm" data-open-modal="consent" data-od-id="btn-open-consent">查看承诺</button>
+        <button class="btn btn-primary btn-sm" data-open-modal="consent" data-od-id="btn-sign-consent" hidden>阅读并签署</button>
+      </div>
+      <div class="tk-chips" data-od-id="consent-sw" style="margin:10px 0 0">
+        <button class="chip on" data-consent-go="signed">已签署态</button>
+        <button class="chip" data-consent-go="unsigned">未签署态</button>
+      </div>
+    </div>
+
     <!-- 已配置模型：拆解模型选择（参照生成正文 ModelField/ModelPicker：按配置分组、仅本次生效） -->
     <div class="field" data-od-id="model-field">
       <label>拆解模型 <span style="font-size:11.5px;color:var(--muted)">仅本任务生效，不改模型配置默认</span></label>
@@ -718,6 +736,21 @@ input, textarea, select { font: inherit; }
         <label for="bk-name">书名（取自文件名，可改）</label>
         <input class="input" id="bk-name" value="山河故人" data-od-id="parse-bookname">
       </div>
+      <div class="field" style="margin:14px 0 0;max-width:340px">
+        <label for="src-basis">这本书从哪来</label>
+        <select class="input" id="src-basis" data-od-id="source-basis">
+          <option selected>自己买的</option>
+          <option>自己写的</option>
+          <option>公版书</option>
+          <option>作者授权</option>
+          <option>其他</option>
+        </select>
+        <p class="f-hint" style="font-size:11.5px;color:var(--muted);margin:6px 0 0">自己留个底：知道来源，后面查得清。不会上传到服务器。</p>
+      </div>
+      <div class="field" style="margin:10px 0 0;max-width:340px">
+        <label for="src-author">作者（选填）</label>
+        <input class="input" id="src-author" placeholder="不知道可以不填" data-od-id="source-author">
+      </div>
       <div class="dim-group" style="margin:0 0 2px">解析结果 · 本地解析秒级完成、不消耗模型额度——字数/章节/分卷由此而来（v8 回应用户批注）</div>
       <div class="fc-meta" data-od-id="parse-stats">
         <div class="fc-stat"><b>28.1 万</b><span>字数</span></div>
@@ -745,9 +778,10 @@ input, textarea, select { font: inherit; }
       <b>创建后进清单排队：</b>一次只跑一个任务，轮到自动开跑；可以关掉页面去做别的，
       完成后回「任务清单」取结果。28.1 万字约需 15–30 分钟（视模型速度，消耗按你的 Key 计价，量级约等于几十次日常 AI 写作）。<br>
       <b>输出三铁律：</b>硬事实回指章节号、结论标可信度、原文没写的标「原文未明确」——不编。<br>
-      <b>隐私与版权：</b>正文与书名将发送到你配置的模型服务商；拆解他人作品仅限个人学习研究，产物再发布可能构成侵权。
+      <b>签署承诺后：</b>这本书你有权使用；拆出来的内容只给自己写作用，不发布、不售卖；正文会发给你选的模型服务商。换设备不用重签。
     </div>
 
+      <p class="hint" data-consent-block-hint hidden style="margin:0 0 8px">先签署上面的《拆书使用承诺》，再创建任务。</p>
       <div style="display:flex;gap:8px;margin-top:18px">
         <button class="btn btn-primary" data-state-go="list" data-od-id="btn-submit-task"><i data-ico="spark"></i>创建任务（进队列排队）</button>
         <button class="btn btn-secondary" data-state-go="list">取消</button>
@@ -824,6 +858,29 @@ input, textarea, select { font: inherit; }
       <div>
         <b>拆解完成 · 10 份 Markdown 已生成到结果目录</b>
         <span>产物随应用数据在本机永久保留；删除任务行将连带清除其结果目录</span>
+      </div>
+    </div>
+
+    <!-- v9 合规：签署状态行（建书硬门、导出软门；四态原型演示） -->
+    <div class="fcard" data-od-id="done-consent" style="margin-bottom:18px">
+      <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
+        <span class="pill pill-ok" data-attest-pill="signed"><i data-ico="check"></i>已签署</span>
+        <span class="pill pill-warn" data-attest-pill="pending" hidden><i data-ico="spinner" class="spin"></i>待同步</span>
+        <span class="pill pill-err" data-attest-pill="login" hidden>待登录</span>
+        <span class="pill" data-attest-pill="local" hidden>本机签署</span>
+        <div class="fs-tx" style="flex:1;min-width:220px">
+          <b data-attest-title style="display:block">《拆书使用承诺》 · v1</b>
+          <span data-attest-sub style="display:block;margin-top:2px">2026-11-11 签署 · 建书与导出按此承诺处理</span>
+        </div>
+        <button class="btn btn-secondary btn-sm" data-od-id="btn-attest-retry" hidden>重试同步</button>
+        <button class="btn btn-secondary btn-sm" data-od-id="btn-attest-login" hidden>去登录</button>
+        <button class="btn btn-ghost btn-sm" data-open-modal="consent" data-od-id="btn-done-consent">查看承诺</button>
+      </div>
+      <div class="tk-chips" data-od-id="attest-sw" style="margin:10px 0 0">
+        <button class="chip on" data-attest-go="signed">已签署</button>
+        <button class="chip" data-attest-go="pending">待同步</button>
+        <button class="chip" data-attest-go="login">待登录</button>
+        <button class="chip" data-attest-go="local">本机签署</button>
       </div>
     </div>
 
@@ -1083,6 +1140,34 @@ input, textarea, select { font: inherit; }
   <span class="sb-ver" data-od-id="status-version">v0.33.0</span>
 </footer>
 
+<!-- ⑤ 拆书使用承诺（首次拆书签署；已签署时只看全文） -->
+<div class="scrim" id="scrim-consent" hidden></div>
+<div class="modal" id="modal-consent" role="dialog" aria-modal="true" aria-label="拆书使用承诺" hidden>
+  <div class="mcard" data-od-id="consent-modal">
+    <div class="mcard-head">
+      <span class="mh">拆书使用承诺 · v1</span>
+      <button class="icon-btn x" data-close-modal="consent" aria-label="关闭"><i data-ico="close"></i></button>
+    </div>
+    <div class="mcard-body">
+      <p style="margin:0 0 10px;font-size:13px;color:var(--muted)">拆书是给你自己学写法用的。签之前，请确认三件事：</p>
+      <ol style="margin:0 0 14px;padding-left:20px;font-size:13px;line-height:1.8">
+        <li>这本书我有权使用——自己买的、自己写的，或作者授权。</li>
+        <li>拆出来的内容只给自己写作用，不发布、不售卖。</li>
+        <li>我知道正文会发给我选的模型服务商处理。</li>
+      </ol>
+      <div id="consent-agree-row" style="display:flex;gap:8px;align-items:flex-start;font-size:13px">
+        <input type="checkbox" id="consent-check" data-od-id="consent-check" style="margin-top:3px">
+        <label for="consent-check">我已阅读并同意《拆书使用承诺》</label>
+      </div>
+      <p id="consent-view-note" hidden style="margin:0;font-size:12px;color:var(--muted)">你已于 2026-11-11 签署本版本。换设备不用重签，版本升级时会再请你确认。</p>
+    </div>
+    <div class="mcard-foot">
+      <button class="btn btn-secondary" data-close-modal="consent">稍后再说</button>
+      <button class="btn btn-primary" id="consent-submit" data-close-modal="consent" data-toast="已签署《拆书使用承诺》，换设备不用重签" disabled data-od-id="consent-submit">同意并继续</button>
+    </div>
+  </div>
+</div>
+
 <!-- ⑤ 出口二选一（弹窗态；state=exit 时随完成详情打开） -->
 <div class="scrim" id="scrim-exit" hidden></div>
 <div class="modal" id="modal-exit" role="dialog" aria-modal="true" aria-label="选择产物去向" hidden>
@@ -1111,6 +1196,27 @@ input, textarea, select { font: inherit; }
       </div>
       <div class="ex-sum" data-od-id="exit-sum">
         将创建新书《星海远征》，写入所选 8/10 项。建书在后台进行，本页确认后立即关闭。
+      </div>
+
+      <!-- v9 合规：建书前确认（未勾不可建书；书名沿用原书给 warn） -->
+      <div id="build-guard" data-od-id="build-guard" style="margin-top:12px;padding:12px;border:1px solid var(--border);border-radius:10px">
+        <div style="display:flex;gap:8px;align-items:flex-start;font-size:13px">
+          <input type="checkbox" id="build-ack" data-od-id="build-ack" style="margin-top:3px">
+          <label for="build-ack">发布前我会改名、改写，不让新书跟原著太像</label>
+        </div>
+        <p style="margin:8px 0 0;font-size:12px;color:var(--warn)">角色名、别名和世界设定会原样带进新书。新书书名沿用《星海远征》——发布前记得换一个。</p>
+      </div>
+
+      <!-- v9 合规：承诺未存证时的建书阻塞（弹窗内给可点击出口） -->
+      <div class="notice warn" id="build-block" data-od-id="build-block" hidden style="margin-top:12px">
+        <span class="nt"><b id="build-block-title">承诺还没存到账号</b><span id="build-block-sub">先完成存证再建书；重试同步不影响已拆好的产物。</span></span>
+        <button class="btn btn-secondary btn-sm" id="build-block-action" data-od-id="build-block-action" data-toast="正在重试同步…">重试同步</button>
+      </div>
+
+      <!-- v9 合规：未取得服务端存证时的导出软门（原型示意，用「未存证时」标签说明） -->
+      <div class="notice" id="export-softgate" style="border-style:dashed;margin-top:12px" data-od-id="export-softgate" hidden>
+        <span class="pill pill-warn" style="flex:none">未存证时</span>
+        <span class="nt"><b>本机导出，承诺未取得服务端存证</b><span>导出照常进行；联网后到任务详情点「重试同步」即可补齐。</span></span>
       </div>
     </div>
     <div class="mcard-foot">
@@ -1260,9 +1366,35 @@ input, textarea, select { font: inherit; }
     });
   });
 
-  /* ── 出口二选一：单选联动摘要与确认钮 ── */
+  /* ── 出口二选一：单选联动摘要与确认钮（v9 合规门：建书确认／存证状态／导出软门）── */
   var sum = document.querySelector('[data-od-id="exit-sum"]');
   var confirmBtn = document.querySelector('[data-od-id="exit-confirm"]');
+  var buildGuard = document.getElementById("build-guard");
+  var buildAck = document.getElementById("build-ack");
+  var softGate = document.getElementById("export-softgate");
+  var attestAllowsBuild = true;
+  var attestState = "signed";
+  function syncExitGuards() {
+    var bookOpt = document.querySelector('[data-exit-opt="book"]');
+    var isBook = bookOpt ? bookOpt.classList.contains("on") : true;
+    if (buildGuard) buildGuard.hidden = !isBook;
+    if (softGate) softGate.hidden = isBook;
+    var block = document.getElementById("build-block");
+    if (block) {
+      block.hidden = !(isBook && !attestAllowsBuild);
+      var title = document.getElementById("build-block-title");
+      var sub = document.getElementById("build-block-sub");
+      var action = document.getElementById("build-block-action");
+      var login = attestState === "login";
+      if (title) title.textContent = login ? "登录状态失效，承诺还没存到账号" : "承诺还没存到账号";
+      if (sub) sub.textContent = login
+        ? "重新登录后会自动同步，再回来建书；产物都还在。"
+        : "先重试同步再建书；重试不影响已拆好的产物。";
+      if (action) action.textContent = login ? "去登录" : "重试同步";
+    }
+    var ok = isBook ? !!(buildAck && buildAck.checked && attestAllowsBuild) : true;
+    if (confirmBtn) confirmBtn.disabled = !ok;
+  }
   document.querySelectorAll("[data-exit-opt]").forEach(function (b) {
     b.addEventListener("click", function () {
       document.querySelectorAll("[data-exit-opt]").forEach(function (x) { x.classList.remove("on"); });
@@ -1278,9 +1410,12 @@ input, textarea, select { font: inherit; }
         confirmBtn.setAttribute("data-toast", "已导出到所选文件夹");
       }
       confirmBtn.querySelectorAll("i[data-ico]").forEach(render);
+      syncExitGuards();
       if (fdRefresh) fdRefresh();
     });
   });
+  if (buildAck) buildAck.addEventListener("change", syncExitGuards);
+  syncExitGuards();
 
   /* ── 壳层 v6：更新提示条可关；头像胶囊开合演示（面板本稿不展开）── */
   var stripBtn = document.getElementById("strip-dismiss");
@@ -1308,7 +1443,90 @@ input, textarea, select { font: inherit; }
     });
   })();
 
-  /* ── 拆解模型选择（v7.1）：按配置分组下拉，选中回填触发钮 ── */
+  /* ── v9 合规：拆书使用承诺（创建页双态 + 签署弹窗）── */
+  (function () {
+    var check = document.getElementById("consent-check");
+    var submit = document.getElementById("consent-submit");
+    var agreeRow = document.getElementById("consent-agree-row");
+    var viewNote = document.getElementById("consent-view-note");
+    var viewBtn = document.querySelector('[data-od-id="btn-open-consent"]');
+    var signBtn = document.querySelector('[data-od-id="btn-sign-consent"]');
+    function setMode(mode) {
+      var view = mode === "view";
+      if (agreeRow) agreeRow.hidden = view;
+      if (viewNote) viewNote.hidden = !view;
+      if (submit) submit.hidden = view;
+    }
+    function setConsent(signed) {
+      document.querySelectorAll("[data-consent-go]").forEach(function (b) {
+        b.classList.toggle("on", b.getAttribute("data-consent-go") === (signed ? "signed" : "unsigned"));
+      });
+      document.querySelectorAll('[data-consent-pill="signed"]').forEach(function (el) { el.hidden = !signed; });
+      document.querySelectorAll('[data-consent-pill="unsigned"]').forEach(function (el) { el.hidden = signed; });
+      if (viewBtn) viewBtn.hidden = !signed;
+      if (signBtn) signBtn.hidden = signed;
+      var title = document.querySelector("[data-consent-title]");
+      var sub = document.querySelector("[data-consent-sub]");
+      if (title) title.textContent = signed ? "《拆书使用承诺》 · v1" : "《拆书使用承诺》 · v1（还没签）";
+      if (sub) sub.textContent = signed ? "2026-11-11 签署 · 换设备不用重签" : "签一次就好；之后每次拆书只显示已签署";
+      var task = document.querySelector('[data-od-id="btn-submit-task"]');
+      if (task) {
+        task.disabled = !signed;
+        task.title = signed ? "" : "先签署《拆书使用承诺》";
+      }
+      var blockHint = document.querySelector("[data-consent-block-hint]");
+      if (blockHint) blockHint.hidden = signed;
+    }
+    document.querySelectorAll("[data-consent-go]").forEach(function (b) {
+      b.addEventListener("click", function () { setConsent(b.getAttribute("data-consent-go") === "signed"); });
+    });
+    if (check && submit) check.addEventListener("change", function () { submit.disabled = !check.checked; });
+    if (viewBtn) viewBtn.addEventListener("click", function () { setMode("view"); });
+    if (signBtn) signBtn.addEventListener("click", function () { setMode("sign"); });
+    var doneView = document.querySelector('[data-od-id="btn-done-consent"]');
+    if (doneView) doneView.addEventListener("click", function () { setMode("view"); });
+    if (submit) submit.addEventListener("click", function () {
+      setConsent(true);
+      check.checked = false;
+      submit.disabled = true;
+    });
+    setConsent(true);
+    setMode("sign");
+  })();
+
+  /* ── v9 合规：任务详情签署状态（四态原型演示；建书硬门联动）── */
+  (function () {
+    var states = {
+      signed: { title: "《拆书使用承诺》 · v1", sub: "2026-11-11 签署 · 建书与导出按此承诺处理", build: true, retry: false, login: false },
+      pending: { title: "《拆书使用承诺》 · v1", sub: "已在本机签署，正等服务端存证 · 联网后自动重试", build: false, retry: true, login: false },
+      login: { title: "《拆书使用承诺》 · v1", sub: "登录状态失效，签署还没存到账号 · 重新登录后再试", build: false, retry: false, login: true },
+      local: { title: "《拆书使用承诺》 · v1", sub: "服务端暂未开通存证 · 已按本机签署处理，不影响导出", build: true, retry: false, login: false }
+    };
+    function setAttest(key) {
+      var st = states[key] || states.signed;
+      document.querySelectorAll("[data-attest-go]").forEach(function (b) {
+        b.classList.toggle("on", b.getAttribute("data-attest-go") === key);
+      });
+      document.querySelectorAll("[data-attest-pill]").forEach(function (el) {
+        el.hidden = el.getAttribute("data-attest-pill") !== key;
+      });
+      var title = document.querySelector("[data-attest-title]");
+      var sub = document.querySelector("[data-attest-sub]");
+      if (title) title.textContent = st.title;
+      if (sub) sub.textContent = st.sub;
+      var retry = document.querySelector('[data-od-id="btn-attest-retry"]');
+      var login = document.querySelector('[data-od-id="btn-attest-login"]');
+      if (retry) retry.hidden = !st.retry;
+      if (login) login.hidden = !st.login;
+      attestAllowsBuild = st.build;
+      attestState = key;
+      if (typeof syncExitGuards === "function") syncExitGuards();
+    }
+    document.querySelectorAll("[data-attest-go]").forEach(function (b) {
+      b.addEventListener("click", function () { setAttest(b.getAttribute("data-attest-go")); });
+    });
+    setAttest("signed");
+  })();
   (function () {
     var pick = document.getElementById("model-picker");
     var panel = document.getElementById("model-panel");

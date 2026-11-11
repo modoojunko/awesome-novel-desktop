@@ -8,6 +8,7 @@ import json
 import os
 import re
 import tempfile
+from datetime import UTC, datetime
 
 import pytest
 
@@ -77,6 +78,41 @@ def _db():
     yield
 
 
+async def _seed_consent():
+    """本文件专注拆书业务：统一给测试用户一条已同步的承诺签署记录。"""
+    from sqlalchemy import select
+
+    from deconstruct.consent import CONSENT_TEXT_SHA256, CONSENT_VERSION
+    from models.deconstruct import DeconstructConsent
+
+    async with async_session() as s:
+        row = (
+            await s.scalars(
+                select(DeconstructConsent).where(
+                    DeconstructConsent.user_id == _UID,
+                    DeconstructConsent.agreement_version == CONSENT_VERSION,
+                )
+            )
+        ).first()
+        if row is None:
+            s.add(
+                DeconstructConsent(
+                    user_id=_UID,
+                    agreement_version=CONSENT_VERSION,
+                    agreement_text_sha256=CONSENT_TEXT_SHA256,
+                    signed_at=datetime.now(UTC).replace(tzinfo=None),
+                    sync_state="synced",
+                )
+            )
+            await s.commit()
+
+
+@pytest.fixture(autouse=True)
+def _consent_synced():
+    _run(_seed_consent())
+    yield
+
+
 @pytest.fixture
 def client():
     c = TestClient(app)
@@ -128,6 +164,16 @@ def _import_runs_sync(client, monkeypatch):
     orig_get = client.get
 
     def post(url, *args, **kwargs):
+        if url.endswith("/api/deconstruct/tasks"):
+            data = kwargs.get("data")
+            if isinstance(data, dict) and "rights_basis" not in data:
+                kwargs["data"] = {**data, "rights_basis": "owned"}
+        if url.endswith("/import-book"):
+            body = kwargs.get("json")
+            if isinstance(body, dict):
+                kwargs["json"] = {**body, "build_ack": True}
+            elif body is None:
+                kwargs["json"] = {"build_ack": True}
         resp = orig_post(url, *args, **kwargs)
         # 只有「新受理」（202 语义：status=importing）才需要驱动执行体；幂等 200 原样返回
         if (
@@ -394,7 +440,10 @@ def test_get_product_content_and_unknown_404(client):
     assert r.status_code == 200, r.text
     body = r.json()
     assert body["filename"] == "简介.md"
-    assert body["content"] == "# 简介\n\n林晚在渡口。"
+    from deconstruct.mdrender import AI_NOTICE
+
+    assert body["content"].startswith("# 简介\n\n林晚在渡口。")
+    assert AI_NOTICE in body["content"]
     assert client.get("/api/deconstruct/tasks/dec-prev-1/products/不存在.md").status_code == 404
     assert client.get("/api/deconstruct/tasks/dec-prev-1/products/..%2Fsource.txt").status_code == 404
 
@@ -499,7 +548,9 @@ def test_export_writes_selected_and_readme(client):
     written = sorted(os.listdir(dest))
     assert written == ["README.md", "世界设定.md", "导出清单.json", "简介.md"]  # 未勾选的伏笔不导出；清单随包
     with open(os.path.join(dest, "README.md"), encoding="utf-8") as f:
-        assert "正文C" not in f.read()
+        readme = f.read()
+    assert "正文C" not in readme
+    assert "未取得服务端存证" not in readme
 
 
 def test_export_rejects_empty_selection(client):
@@ -1951,3 +2002,45 @@ def test_task_view_without_live_books_unchanged():
 
     v = task_view(_T())
     assert v["status"] == "imported" and v["book_id"] == "b1" and v["book_missing"] is False
+
+def _set_consent_state(state: str) -> None:
+    async def _go():
+        from sqlalchemy import update
+
+        from deconstruct.consent import CONSENT_VERSION
+        from models.deconstruct import DeconstructConsent
+
+        async with async_session() as s:
+            await s.execute(
+                update(DeconstructConsent)
+                .where(
+                    DeconstructConsent.user_id == _UID,
+                    DeconstructConsent.agreement_version == CONSENT_VERSION,
+                )
+                .values(sync_state=state)
+            )
+            await s.commit()
+
+    _run(_go())
+
+
+def test_export_soft_gate_when_consent_pending(client):
+    """承诺未存证仍可本机导出，但 README/清单必须留痕。"""
+    _mk_completed(
+        "dec-exp-soft",
+        {"intro": _product("intro", "简介.md", {"intro": "x"}, "# 简介\n\nx。")},
+    )
+    _set_consent_state("pending")
+    try:
+        dest = tempfile.mkdtemp(prefix="dec-export-soft-")
+        r = client.post(
+            "/api/deconstruct/tasks/dec-exp-soft/export",
+            json={"dest_dir": dest, "files": ["简介.md"]},
+        )
+        assert r.status_code == 200, r.text
+        with open(os.path.join(dest, "README.md"), encoding="utf-8") as f:
+            assert "未取得服务端存证" in f.read()
+        with open(os.path.join(dest, "导出清单.json"), encoding="utf-8") as f:
+            assert json.load(f)["consent_synced"] is False
+    finally:
+        _set_consent_state("synced")

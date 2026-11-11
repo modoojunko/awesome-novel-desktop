@@ -9,11 +9,27 @@ const state = vi.hoisted(() => ({
   fetchOpts: vi.fn(),
   probe: vi.fn(),
   create: vi.fn(),
+  consent: vi.fn(),
+  signConsent: vi.fn(),
 }));
+const SIGNED_CONSENT = {
+  version: "deconstruct-consent-v1",
+  text: "拆书是给你自己学写法用的。",
+  text_sha256: "a".repeat(64),
+  signed: true,
+  signed_at: "2026-11-11T10:00:00",
+  server_ts: "2026-11-11T10:00:01",
+  sync_state: "synced",
+  can_build: true,
+  can_export: true,
+  last_error: "",
+};
 vi.mock("@/lib/deconstructApi", () => ({
   fetchModelOptions: state.fetchOpts,
   probeModel: state.probe,
   createDeconstructTask: state.create,
+  getDeconstructConsent: state.consent,
+  signDeconstructConsent: state.signConsent,
   DECONSTRUCT_DIMS: [
     { key: "intro", name: "简介", file: "简介.md", setting: true },
     { key: "world", name: "世界设定", file: "世界设定.md", setting: true },
@@ -58,6 +74,8 @@ function seedPro() {
 
 beforeEach(() => {
   seedPro();
+  state.consent.mockResolvedValue(SIGNED_CONSENT);
+  state.signConsent.mockResolvedValue(SIGNED_CONSENT);
 });
 
 afterEach(() => {
@@ -588,5 +606,15 @@ describe("CreateTaskPage", () => {
     fireEvent.click(screen.getByText(/创建任务（进队列排队）/));
     await waitFor(() => expect(state.create).toHaveBeenCalled());
     expect(state.create.mock.calls.at(-1)?.[1].mode).toBe("smart");
+  });
+
+  it("承诺状态读取失败可重试", async () => {
+    state.fetchOpts.mockResolvedValue([]);
+    state.consent.mockRejectedValueOnce(new Error("net")).mockResolvedValueOnce(SIGNED_CONSENT);
+    renderPage();
+    await waitFor(() => expect(screen.getByText("重试读取")).toBeInTheDocument());
+    fireEvent.click(screen.getByText("重试读取"));
+    await waitFor(() => expect(screen.getByText("已签署")).toBeInTheDocument());
+    expect(screen.queryByText("重试读取")).not.toBeInTheDocument();
   });
 });

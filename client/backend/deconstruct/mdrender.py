@@ -19,8 +19,21 @@ from models.deconstruct import DIMENSIONS
 
 # 条目级证据字段黑名单：只承担「证明这条结论」职责，永不进作家 md
 EVIDENCE_KEYS: frozenset[str] = frozenset(
-    {"evidence_ch", "confidence", "note", "quote", "raw", "promise_note"}
+    {"evidence_ch", "confidence", "note", "quote", "raw", "promise_note", "examples"}
 )
+
+# 导出/预览统一声明（c-deconstruct-compliance-guard）：显式标识，重复渲染不叠加。
+AI_NOTICE = (
+    "> 本文件由 AI 辅助生成，仅供个人学习与创作参考；"
+    "原书版权归原作者所有，请勿转载或商用。"
+)
+
+
+def with_ai_notice(text: str) -> str:
+    """给作家 md 追加 AI 辅助生成声明；已含则不重复追加。"""
+    if AI_NOTICE in text:
+        return text
+    return text.rstrip() + "\n\n" + AI_NOTICE + "\n"
 
 # 产物 JSON 键 → 作家中文标签（渲染层单源；未登记的键回退原键展示）
 _MD_LABELS: dict[str, str] = {
@@ -247,7 +260,9 @@ def md_map_from_products(products_raw: dict, book_name: str, covered: str) -> di
             continue
         data = obj.get("data")
         if isinstance(data, dict) and data:
-            out[obj["file"]] = render_md(_DIM_NAMES.get(dim, dim), data, book_name, covered)
+            out[obj["file"]] = with_ai_notice(
+                render_md(_DIM_NAMES.get(dim, dim), data, book_name, covered)
+            )
         else:
-            out[obj["file"]] = obj.get("md", "")
+            out[obj["file"]] = with_ai_notice(obj.get("md", ""))
     return out

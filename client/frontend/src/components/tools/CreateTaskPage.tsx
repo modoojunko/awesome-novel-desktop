@@ -1,6 +1,6 @@
 // 创建任务页（c-deconstruct-book 5.4）：双子态（未选文件/已选·解析完成）——
 // 解析在选文件时本地完成（秒级、不耗额度）；模型选择仅本任务生效；探针门过才解禁创建。
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import UpgradeModal from "@/components/novel/UpgradeModal";
 import { useFeature } from "@/hooks/useTier";
@@ -8,7 +8,10 @@ import {
   createDeconstructTask,
   DECONSTRUCT_DIMS,
   fetchModelOptions,
+  getDeconstructConsent,
   probeModel,
+  signDeconstructConsent,
+  type DeconstructConsentStatus,
   type ModelOption,
 } from "../../lib/deconstructApi";
 import {
@@ -151,7 +154,26 @@ export default function CreateTaskPage() {
   const [riskAck, setRiskAck] = useState(false);
   const [parseErr, setParseErr] = useState("");
   const [showExample, setShowExample] = useState(false);
+  const [consent, setConsent] = useState<DeconstructConsentStatus | null>(null);
+  const [consentErr, setConsentErr] = useState("");
+  const [consentOpen, setConsentOpen] = useState(false);
+  const [consentView, setConsentView] = useState(false);
+  const [consentChecked, setConsentChecked] = useState(false);
+  const [consentBusy, setConsentBusy] = useState(false);
+  const [sourceBasis, setSourceBasis] = useState("owned");
+  const [sourceAuthor, setSourceAuthor] = useState("");
   const inputRef = useRef<HTMLInputElement>(null);
+
+  const loadConsent = useCallback(() => {
+    setConsentErr("");
+    void getDeconstructConsent()
+      .then(setConsent)
+      .catch((e: Error) => setConsentErr(e.message || "承诺状态读取失败"));
+  }, []);
+
+  useEffect(() => {
+    loadConsent();
+  }, [loadConsent]);
 
   useEffect(() => {
     void fetchModelOptions()
@@ -221,6 +243,7 @@ export default function CreateTaskPage() {
     probeOk === true &&
     !probing &&
     !submitting &&
+    consent?.signed === true &&
     (verdict?.level !== "risk" || riskAck);
 
   const pickFile = (f: File | null) => {
@@ -237,6 +260,28 @@ export default function CreateTaskPage() {
           setVerdict(structureVerdict({ chapterChars: p.chapterChars, totalChars: p.totalChars }));
         })
         .catch((err: Error) => setParseErr(err.message));
+    }
+  };
+
+  const openConsent = (view: boolean) => {
+    setConsentView(view);
+    setConsentChecked(false);
+    setConsentErr("");
+    setConsentOpen(true);
+  };
+
+  const doSignConsent = async () => {
+    setConsentBusy(true);
+    setConsentErr("");
+    try {
+      const next = await signDeconstructConsent();
+      setConsent(next);
+      setConsentOpen(false);
+      setConsentChecked(false);
+    } catch (e) {
+      setConsentErr(e instanceof Error ? e.message : "签署失败");
+    } finally {
+      setConsentBusy(false);
     }
   };
 
@@ -259,6 +304,8 @@ export default function CreateTaskPage() {
         selectedDims: selected,
         thinking,
         mode,
+        rightsBasis: sourceBasis,
+        sourceAuthor,
       });
       /* v8 ignore next */
       navigate(`/tools/deconstruct/${result.id}`);
@@ -289,6 +336,56 @@ export default function CreateTaskPage() {
         <Link className="btn btn-ghost" to="/tools">
           返回任务清单
         </Link>
+      </div>
+
+      {/* 拆书使用承诺（c-deconstruct-compliance-guard）：一次性签署，服务端只存签署事实 */}
+      <div className="fcard" data-od-id="consent-card" style={{ marginBottom: 14 }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
+          {consent?.signed ? (
+            <span className="pill pill-ok"><i data-ico="check" />已签署</span>
+          ) : (
+            <span className="pill pill-warn">未签署</span>
+          )}
+          <div style={{ flex: 1, minWidth: 240 }}>
+            <b style={{ display: "block" }}>《拆书使用承诺》 · {consent?.version ?? "v1"}</b>
+            <span style={{ display: "block", marginTop: 2, fontSize: 12, color: "var(--muted)" }}>
+              {consent?.signed
+                ? `${(consent.signed_at ?? "").slice(0, 10)} 签署 · 换设备不用重签`
+                : "签一次就好；之后每次拆书只显示已签署"}
+            </span>
+          </div>
+          <button
+            type="button"
+            className="btn btn-secondary btn-sm"
+            data-od-id="btn-open-consent"
+            disabled={!consent}
+            onClick={() => openConsent(true)}
+          >
+            查看承诺
+          </button>
+          {!consent?.signed && (
+            <button
+              type="button"
+              className="btn btn-primary btn-sm"
+              data-od-id="btn-sign-consent"
+              disabled={!consent}
+              onClick={() => openConsent(false)}
+            >
+              阅读并签署
+            </button>
+          )}
+          {consentErr && !consent && (
+            <button
+              type="button"
+              className="btn btn-secondary btn-sm"
+              data-od-id="btn-retry-consent-load"
+              onClick={loadConsent}
+            >
+              重试读取
+            </button>
+          )}
+        </div>
+        {consentErr && !consentOpen && <p className="f-err" style={{ margin: "8px 0 0" }}>{consentErr}</p>}
       </div>
 
       {/* 拆解模型：已配置才出现（仅本任务生效，不改配置默认）；未配置引导去配置 */}
@@ -455,6 +552,36 @@ export default function CreateTaskPage() {
                 data-od-id="parse-bookname"
               />
             </div>
+            <div className="field" style={{ margin: "14px 0 0", maxWidth: 340 }}>
+              <label htmlFor="src-basis">这本书从哪来</label>
+              <select
+                id="src-basis"
+                className="input"
+                data-od-id="source-basis"
+                value={sourceBasis}
+                onChange={(e) => setSourceBasis(e.target.value)}
+              >
+                <option value="owned">自己买的</option>
+                <option value="self_written">自己写的</option>
+                <option value="public_domain">公版书</option>
+                <option value="authorized">作者授权</option>
+                <option value="other">其他</option>
+              </select>
+              <p className="f-hint" style={{ fontSize: 11.5, color: "var(--muted)", margin: "6px 0 0" }}>
+                自己留个底：知道来源，后面查得清。不会上传到服务器。
+              </p>
+            </div>
+            <div className="field" style={{ margin: "10px 0 0", maxWidth: 340 }}>
+              <label htmlFor="src-author">作者（选填）</label>
+              <input
+                id="src-author"
+                className="input"
+                data-od-id="source-author"
+                value={sourceAuthor}
+                onChange={(e) => setSourceAuthor(e.target.value)}
+                placeholder="不知道可以不填"
+              />
+            </div>
           </div>
 
           {verdict && verdict.level !== "ok" && (
@@ -582,7 +709,7 @@ export default function CreateTaskPage() {
             <br />
             <b>输出三铁律：</b>硬事实回指章节号、结论标可信度、原文没写的标「原文未明确」——不编。
             <br />
-            <b>隐私与版权：</b>正文与书名将发送到你配置的模型服务商；拆解他人作品仅限个人学习研究，产物再发布可能构成侵权。
+            <b>签署承诺后：</b>这本书你有权使用；拆出来的内容只给自己写作用，不发布、不售卖；正文会发给你选的模型服务商。换设备不用重签。
           </div>
 
           {submitErr && (
@@ -601,6 +728,11 @@ export default function CreateTaskPage() {
             </div>
           )}
 
+          {!consent?.signed && (
+            <p className="hint" style={{ margin: "0 0 8px" }}>
+              先签署上面的《拆书使用承诺》，再创建任务。
+            </p>
+          )}
           <div style={{ display: "flex", gap: 8, marginTop: 18 }}>
             <button
               className="btn btn-primary"
@@ -619,6 +751,70 @@ export default function CreateTaskPage() {
             </Link>
           </div>
         </div>
+      )}
+
+      {consentOpen && (
+        <>
+          <div className="scrim show" onClick={() => setConsentOpen(false)} />
+          <div className="modal show" role="dialog" aria-modal="true" data-od-id="consent-modal">
+            <div className="mcard">
+              <div className="mcard-head">
+                <span className="mh">拆书使用承诺 · {consent?.version ?? "v1"}</span>
+                <button
+                  type="button"
+                  className="icon-btn"
+                  aria-label="关闭"
+                  onClick={() => setConsentOpen(false)}
+                >
+                  ✕
+                </button>
+              </div>
+              <div className="mcard-body">
+                <pre
+                  style={{
+                    margin: 0,
+                    whiteSpace: "pre-wrap",
+                    fontFamily: "inherit",
+                    fontSize: 13,
+                    lineHeight: 1.8,
+                    color: "var(--fg)",
+                  }}
+                >
+                  {consent?.text ?? ""}
+                </pre>
+                {!consentView && (
+                  <label style={{ display: "flex", gap: 8, alignItems: "flex-start", marginTop: 14, fontSize: 13 }}>
+                    <input
+                      type="checkbox"
+                      data-od-id="consent-check"
+                      checked={consentChecked}
+                      onChange={(e) => setConsentChecked(e.target.checked)}
+                      style={{ marginTop: 3 }}
+                    />
+                    <span>我已阅读并同意《拆书使用承诺》</span>
+                  </label>
+                )}
+                {consentErr && <p className="f-err" style={{ margin: "8px 0 0" }}>{consentErr}</p>}
+              </div>
+              <div className="mcard-foot">
+                <button type="button" className="btn btn-secondary" onClick={() => setConsentOpen(false)}>
+                  {consentView ? "关闭" : "稍后再说"}
+                </button>
+                {!consentView && (
+                  <button
+                    type="button"
+                    className="btn btn-primary"
+                    data-od-id="consent-submit"
+                    disabled={!consentChecked || consentBusy}
+                    onClick={() => void doSignConsent()}
+                  >
+                    {consentBusy ? "正在签署…" : "同意并继续"}
+                  </button>
+                )}
+              </div>
+            </div>
+          </div>
+        </>
       )}
       <UpgradeModal
         open={tierModalOpen}

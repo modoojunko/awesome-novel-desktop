@@ -5,6 +5,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 import shutil
@@ -19,6 +20,7 @@ from auth_local.deps import ai_feature, require_ai_access
 from auth_local.middleware import get_current_user
 from db import get_db
 from deconstruct import apply, imports, service
+from deconstruct import consent as consent_service
 from deconstruct.mdrender import evidence_report
 from deconstruct.textparse import (
     MAX_SOURCE_BYTES,
@@ -42,6 +44,35 @@ def _require(task, user: dict):
         raise HTTPException(404, "任务不存在")  # 不泄露他人任务存在性
 
 
+@router.get("/consent")
+async def get_consent(
+    user: dict = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """拆书使用承诺状态：版本、全文、签署时间、同步状态、能否建书/导出。
+
+    restore=True：本机无记录时从 S端 取回（换设备/重装），仅页面加载走这条。
+    """
+    return await consent_service.get_status(db, _user_id(user), restore=True)
+
+
+@router.post("/consent")
+async def sign_consent(
+    user: dict = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """签署承诺（幂等）：本机先记，后台同步；不阻塞请求。"""
+    return await consent_service.sign(db, _user_id(user))
+
+
+@router.post("/consent/retry")
+async def retry_consent(
+    user: dict = Depends(get_current_user),
+):
+    """手动重试同步；立即返回当前状态，前端轮询刷新。"""
+    return await consent_service.retry(_user_id(user))
+
+
 @router.post("/tasks")
 @ai_feature("deconstruct")
 async def create_task(
@@ -52,6 +83,8 @@ async def create_task(
     selected_dims: str = Form("[]"),
     thinking: str = Form("off"),
     mode: str = Form("smart"),
+    rights_basis: str = Form(""),
+    source_author: str = Form(""),
     user: dict = Depends(get_current_user),
     _gate: bool = Depends(require_ai_access),
     db: AsyncSession = Depends(get_db),
@@ -60,6 +93,14 @@ async def create_task(
     import asyncio
     import uuid as _uuid
 
+    basis = (rights_basis or "").strip()
+    if basis not in ("owned", "self_written", "public_domain", "authorized", "other"):
+        raise HTTPException(400, "请先选择这本书的来源")
+    cstatus = await consent_service.get_status(db, _user_id(user))
+    if not cstatus["signed"]:
+        raise HTTPException(409, "请先签署《拆书使用承诺》")
+
+    hasher = hashlib.sha256()
     os.makedirs(service.STAGING_ROOT, exist_ok=True)
     part_path = os.path.join(service.STAGING_ROOT, f"upload-{_uuid.uuid4().hex}.part")
     size = 0
@@ -72,6 +113,7 @@ async def create_task(
                     too_big = True
                     break
                 f.write(chunk)
+                hasher.update(chunk)
         if too_big:
             raise HTTPException(400, "文件超过 50MB 上限，请拆分后重试")
         with open(part_path, "rb") as f:
@@ -106,6 +148,14 @@ async def create_task(
             graph_caps_flag=caps,
             thinking_mode=service.normalize_thinking_mode(thinking),
             mode=("smart" if mode == "smart" else "full"),
+            rights_basis=basis,
+            source_author=source_author,
+            source_sha256=hasher.hexdigest(),
+            consent_version=cstatus["version"],
+            consent_signed_at=(
+                datetime.fromisoformat(cstatus["signed_at"])
+                if cstatus.get("signed_at") else None
+            ),
         )
         os.replace(part_path, task.source_path)  # 上传即落盘契约：排队不依赖浏览器 File
     finally:
@@ -171,7 +221,12 @@ async def get_task(
     monitor = await service.monitor_view(task)  # 运行监控账（c-deconstruct-monitor，终态 None）
     # 幂等键读时校正（c-import-stale-book）：书被删后详情不再显示「已建书」死链
     live = await service.live_book_ids(db, [task.book_id])
-    return {**service.task_view(task, live_books=live), "stats": stats, "monitor": monitor}
+    return {
+        **service.task_view(task, live_books=live),
+        "stats": stats,
+        "monitor": monitor,
+        "consent": await consent_service.get_status(db, _user_id(user)),
+    }
 
 
 @router.get("/tasks/{task_id}/products/{filename}")
@@ -383,10 +438,25 @@ async def import_book(
     if task.status not in ("completed", "import_failed"):
         raise HTTPException(409, "任务未完成，无法建书")
 
+    # ①.5 合规门（c-deconstruct-compliance-guard）：建书前必须已确认，且承诺已存证
+    if not (isinstance(body, dict) and body.get("build_ack") is True):
+        raise HTTPException(409, "建书前请先确认：发布前会改名、改写")
+    cstatus = await consent_service.get_status(db, _user_id(user))
+    if not cstatus["can_build"]:
+        raise HTTPException(409, "承诺还没存到账号，先重试同步或重新登录")
+    task.build_ack_at = datetime.now(UTC).replace(tzinfo=None)
+    task.build_ack_version = cstatus["version"]
+    await db.commit()
+
     # ② 满额在受理时就拦（不烧一次精炼）；写入前执行体还会再查一次防并发越限
     reject = await project_quota_reject(db, _user_id(user))
     if reject:
         raise HTTPException(403, reject)
+
+    raw_name = body.get("book_name") if isinstance(body, dict) else None
+    if isinstance(raw_name, str) and raw_name.strip():
+        task.book_name = raw_name.strip()[:255]
+        await db.commit()
 
     raw_items = body.get("items") if isinstance(body, dict) else None
     items = imports.normalize_items(raw_items)
@@ -465,8 +535,12 @@ async def export_task(
             graph_err = str(state["graph_error"])
         elif isinstance(state.get("graph"), dict):
             graph = state["graph"]
+    cstatus = await consent_service.get_status(db, _user_id(user))
     try:
-        result = apply.export_products(task, dest, files, graph=graph)
+        result = apply.export_products(
+            task, dest, files, graph=graph,
+            consent_synced=cstatus["sync_state"] == "synced",
+        )
     except OSError as e:
         raise HTTPException(400, f"导出失败：{e.strerror or e}") from e
     result["graph_error"] = graph_err

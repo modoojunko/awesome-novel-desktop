@@ -123,8 +123,32 @@ export interface DeconstructTaskDetail {
   import?: DeconstructImportState | null;
   /** 幂等键指向的书已删/不存在（c-import-stale-book）：状态已回落 completed */
   book_missing?: boolean;
+  /** 合规（c-deconstruct-compliance-guard）：来源登记与签署快照（本机台账） */
+  rights_basis?: string;
+  source_author?: string;
+  source_sha256?: string;
+  consent_version?: string;
+  consent_signed_at?: string | null;
+  source_purged_at?: string | null;
+  build_ack_at?: string | null;
+  build_ack_version?: string;
+  consent?: DeconstructConsentStatus;
   created_at: string | null;
   finished_at: string | null;
+}
+
+/** 拆书使用承诺状态（GET/POST /api/deconstruct/consent）。 */
+export interface DeconstructConsentStatus {
+  version: string;
+  text: string;
+  text_sha256: string;
+  signed: boolean;
+  signed_at: string | null;
+  server_ts: string | null;
+  sync_state: "unsigned" | "pending" | "synced" | "login" | "local" | "failed";
+  can_build: boolean;
+  can_export: boolean;
+  last_error: string;
 }
 
 /** 运行监控账（c-deconstruct-monitor）：单元账只读聚合——在途＋归并批进度＋近 5 分钟
@@ -282,10 +306,15 @@ export interface ImportBookAlready {
 export async function importBookFromTask(
   id: string,
   items?: string[],
+  opts?: { buildAck?: boolean; bookName?: string },
 ): Promise<ImportBookAccepted | ImportBookAlready> {
   return request(`/deconstruct/tasks/${id}/import-book`, {
     method: "POST",
-    body: JSON.stringify(items ? { items } : {}),
+    body: JSON.stringify({
+      ...(items ? { items } : {}),
+      ...(opts?.buildAck ? { build_ack: true } : {}),
+      ...(opts?.bookName ? { book_name: opts.bookName } : {}),
+    }),
   });
 }
 
@@ -331,6 +360,11 @@ export async function createDeconstructTask(
     thinking?: string;
     /** 拆解模式（c-deconstruct-knowledge）：smart=智能拆书（默认）/ full=全书拆 */
     mode?: string;
+    /** 来源类型（c-deconstruct-compliance-guard）：owned/self_written/public_domain/authorized/other；
+     *  省略时按 owned（老调用方/测试兼容；UI 恒显式传） */
+    rightsBasis?: string;
+    /** 作者（选填；只留本机台账，不上传） */
+    sourceAuthor?: string;
   },
 ): Promise<CreateTaskResult> {
   const formData = new FormData();
@@ -340,6 +374,8 @@ export async function createDeconstructTask(
   formData.append("ai_model", opts.model);
   formData.append("selected_dims", JSON.stringify(opts.selectedDims));
   if (opts.thinking) formData.append("thinking", opts.thinking);
+  formData.append("rights_basis", opts.rightsBasis ?? "owned");
+  if (opts.sourceAuthor) formData.append("source_author", opts.sourceAuthor);
   const res = await fetch("/api/deconstruct/tasks", {
     method: "POST",
     body: formData,
@@ -356,6 +392,21 @@ export async function createDeconstructTask(
     /* v8 ignore stop */
   }
   return res.json();
+}
+
+/** 拆书使用承诺：读取状态（含全文与哈希）。 */
+export async function getDeconstructConsent(): Promise<DeconstructConsentStatus> {
+  return request<DeconstructConsentStatus>("/deconstruct/consent");
+}
+
+/** 签署承诺（幂等）——本机先记，后台同步。 */
+export async function signDeconstructConsent(): Promise<DeconstructConsentStatus> {
+  return request<DeconstructConsentStatus>("/deconstruct/consent", { method: "POST" });
+}
+
+/** 手动重试同步（建书前的硬门出口）。 */
+export async function retryDeconstructConsent(): Promise<DeconstructConsentStatus> {
+  return request<DeconstructConsentStatus>("/deconstruct/consent/retry", { method: "POST" });
 }
 
 export interface ModelOption {

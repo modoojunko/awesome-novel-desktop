@@ -143,13 +143,22 @@ class CharacterPayload(BaseModel):
     def _clamp_field_quotes(cls, v: dict[str, str] | None) -> dict[str, str] | None:
         if v is None:
             return None
-        allowed = {"persona", "gender", "age", "race", "faction", "look",
-                   "speech", "background", "plot"}
-        out = {
-            str(k): str(vv).strip()[:120]
-            for k, vv in v.items()
-            if str(k) in allowed and str(vv).strip()
-        }
+        allowed = ("persona", "gender", "age", "race", "faction", "look",
+                   "speech", "background", "plot")
+        out: dict[str, str] = {}
+        total = 0
+        for key in allowed:
+            if key not in v:
+                continue
+            text = str(v[key]).strip()
+            if not text:
+                continue
+            remain = 500 - total
+            if remain <= 0:
+                break
+            text = text[: min(120, remain)]
+            out[key] = text
+            total += len(text)
         return out or None
 
     # 拆书可信度（2026-11-08 与四维同口径——产物里有、此前收集时丢）

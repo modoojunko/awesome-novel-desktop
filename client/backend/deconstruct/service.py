@@ -105,6 +105,11 @@ async def create_task(
     thinking_mode: str = "off",
     mode: str = "smart",
     status: str = "queued",
+    rights_basis: str = "",
+    source_author: str = "",
+    source_sha256: str = "",
+    consent_version: str = "",
+    consent_signed_at=None,
 ) -> DeconstructJob:
     """建任务行。status 默认 queued 进应用内 FIFO；
 
@@ -133,6 +138,11 @@ async def create_task(
         selected_dims_json=json.dumps(selected_dims, ensure_ascii=False),
         mode=("smart" if mode == "smart" else "full"),
         thinking_mode=normalize_thinking_mode(thinking_mode),
+        rights_basis=rights_basis[:20],
+        source_author=(source_author or "")[:100],
+        source_sha256=source_sha256[:64],
+        consent_version=consent_version[:64],
+        consent_signed_at=consent_signed_at,
         dims_json=json.dumps(
             {
                 "caps_graph": graph_caps_flag,  # 能力戳：判点在创建时（导出只认行内戳）
@@ -416,6 +426,23 @@ def task_view(task: DeconstructJob, *, live_books: set[str] | None = None) -> di
         "book_id": book_id,
         "book_missing": book_missing,
         "import": _import_view(task),
+        "rights_basis": getattr(task, "rights_basis", ""),
+        "source_author": getattr(task, "source_author", ""),
+        "source_sha256": getattr(task, "source_sha256", ""),
+        "consent_version": getattr(task, "consent_version", ""),
+        "consent_signed_at": (
+            task.consent_signed_at.isoformat()
+            if getattr(task, "consent_signed_at", None) else None
+        ),
+        "source_purged_at": (
+            task.source_purged_at.isoformat()
+            if getattr(task, "source_purged_at", None) else None
+        ),
+        "build_ack_at": (
+            task.build_ack_at.isoformat()
+            if getattr(task, "build_ack_at", None) else None
+        ),
+        "build_ack_version": getattr(task, "build_ack_version", ""),
         "created_at": task.created_at.isoformat() if task.created_at else None,
         "finished_at": task.finished_at.isoformat() if task.finished_at else None,
     }

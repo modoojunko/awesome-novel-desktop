@@ -36,6 +36,7 @@ import {
   getDeconstructProduct,
   getDeconstructTask,
   importBookFromTask,
+  retryDeconstructConsent,
   probeModel,
   resumeDeconstructTask,
   retryUploadDeconstructTask,
@@ -87,6 +88,14 @@ export function importStepState(
 const RESULT_READY = new Set(["completed", "importing", "imported", "import_failed"]);
 /** 可原地换模型的失败归因：瞬时故障＋内容审核（病根在模型本身，换一个就好）；
  *  auth/config/route 病根在配置（Key/地址/模型名），出口仍指模型配置页。 */
+const RIGHTS_BASIS_LABEL: Record<string, string> = {
+  owned: "自己买的",
+  self_written: "自己写的",
+  public_domain: "公版书",
+  authorized: "作者授权",
+  other: "其他",
+};
+
 const SWITCHABLE_KINDS = ["provider_unavailable", "stalled", "timeout", "rate_limit", "content_filter"];
 
 /** 原地换模型出口（c-deconstruct-inline-model-switch）：可选模型 ≥2 才出泡泡触发位
@@ -182,21 +191,42 @@ export default function TaskDetailPage() {
   // 才取一次，失败/空回落 /config 链接）；stagedModel＝泡泡里选定待续拆携带的新模型对。
   const [modelOptions, setModelOptions] = useState<ModelOption[] | null>(null);
   const [stagedModel, setStagedModel] = useState<ModelOption | null>(null);
+  // 合规（c-deconstruct-compliance-guard）：建书确认与书名、承诺同步重试
+  const [buildAck, setBuildAck] = useState(false);
+  const [buildName, setBuildName] = useState("");
+  const [consentBusy, setConsentBusy] = useState(false);
+  const consentPollTimers = useRef<number[]>([]);
 
   const { data: task, error: taskErr } = useQuery({
     queryKey: queryKeys.deconstructTask(id),
     queryFn: () => getDeconstructTask(id),
     enabled: !!id,
     refetchInterval: (query) => {
-      const s = (query.state.data as DeconstructTaskDetail | undefined)?.status;
-      // 建书中也要刷（否则「已运行 N 秒」冻住、状态永不翻到已建书）
-      return s && isActiveTask(s) ? 1500 : false;
+      const d = query.state.data as DeconstructTaskDetail | undefined;
+      // 建书中也要刷（否则「已运行 N 秒」冻住、状态永不翻到已建书）；
+      // 承诺待同步时同频轮询，重试后状态自动翻面
+      return (d?.status && isActiveTask(d.status)) || d?.consent?.sync_state === "pending"
+        ? 1500
+        : false;
     },
   });
 
   useEffect(() => {
     if (task && task.status !== "failed" && task.status !== "cancelled") setResuming(false);
   }, [task?.status]);
+
+  useEffect(() => () => {
+    for (const id of consentPollTimers.current) window.clearTimeout(id);
+    consentPollTimers.current = [];
+  }, []);
+
+  useEffect(() => {
+    if (exitOpen && task) {
+      setBuildName(task.book_name);
+      setBuildAck(false);
+      setExitErr("");
+    }
+  }, [exitOpen, task?.id, task?.book_name]);
 
   // 进详情＝看过：该任务从顶栏引导消账（c-tools-badge-seen，本地账 toolsBadgeSeen）
   useEffect(() => {
@@ -400,11 +430,22 @@ export default function TaskDetailPage() {
       return;
     }
     if (exitOpt === "book") {
+      if (!buildAck) {
+        setExitErr("先勾选「发布前会改名、改写」再建书");
+        return;
+      }
+      if (!task.consent?.can_build) {
+        setExitErr("承诺还没存到账号，先重试同步或重新登录");
+        return;
+      }
       void (async () => {
         setBusy(true);
         setExitErr("");
         try {
-          const r = await importBookFromTask(task.id, bookItems);
+          const r = await importBookFromTask(task.id, bookItems, {
+            buildAck: true,
+            bookName: buildName.trim() || task.book_name,
+          });
           setExitOpen(false);
           toast.info(
             r.status === "importing"
@@ -461,7 +502,7 @@ export default function TaskDetailPage() {
     setImportBusy(true);
     try {
       // 不传勾选：后端沿用上一次那份（spec：重试 SHALL 沿用同一份勾选）
-      await importBookFromTask(task.id);
+      await importBookFromTask(task.id, undefined, { buildAck: true });
       toast.info("已重新开始建书，可以离开");
       void queryClient.invalidateQueries({ queryKey: queryKeys.deconstructTask(task.id) });
       void queryClient.invalidateQueries({ queryKey: queryKeys.deconstructTasks });
@@ -470,6 +511,22 @@ export default function TaskDetailPage() {
     } finally {
       setImportBusy(false);
     }
+  };
+
+  const retryConsent = () => {
+    setConsentBusy(true);
+    void retryDeconstructConsent()
+      .then(() => {
+        void queryClient.invalidateQueries({ queryKey: queryKeys.deconstructTask(task.id) });
+        // 冷启动可能几十秒：多点几次刷新，避免重试后界面停在旧状态
+        for (const delay of [2000, 5000, 10000]) {
+          consentPollTimers.current.push(window.setTimeout(() => {
+            void queryClient.invalidateQueries({ queryKey: queryKeys.deconstructTask(task.id) });
+          }, delay));
+        }
+      })
+      .catch((e) => toast.error(e instanceof Error ? e.message : "重试同步失败"))
+      .finally(() => setConsentBusy(false));
   };
 
   return (
@@ -486,6 +543,11 @@ export default function TaskDetailPage() {
             {task.chapter_count > 0 && `${task.chapter_count} 章 · `}
             {/* v8 ignore stop */}
             模型 {task.ai_model}
+          </p>
+          <p className="sub" data-od-id="task-source" data-testid="task-source">
+            来源：{RIGHTS_BASIS_LABEL[task.rights_basis ?? ""] ?? "未登记"}
+            {" · "}作者：{task.source_author || "未填写"}
+            {task.source_purged_at ? " · 原文已清理，产物仍可用" : ""}
           </p>
         </div>
         {/* v8 ignore start — 未知状态防御回落（畸形数据才触发） */}
@@ -773,6 +835,46 @@ export default function TaskDetailPage() {
               <span>产物随应用数据在本机永久保留；删除任务行将连带清除其结果目录</span>
             </div>
           </div>
+
+          {(() => {
+            const c = task.consent;
+            const state = c?.sync_state ?? "unsigned";
+            const pill =
+              state === "synced" ? <span className="pill pill-ok"><i data-ico="check" />已签署</span>
+              : state === "pending" ? <span className="pill pill-warn"><i data-ico="spinner" className="spin" />待同步</span>
+              : state === "login" ? <span className="pill pill-err">待登录</span>
+              : state === "local" ? <span className="pill">本机签署</span>
+              : state === "failed" ? <span className="pill pill-err">签署失败</span>
+              : <span className="pill pill-warn">未签署</span>;
+            const sub =
+              state === "synced" ? `${(c?.signed_at ?? "").slice(0, 10)} 签署 · 建书与导出按此承诺处理`
+              : state === "pending" ? "已在本机签署，正等服务端存证 · 建书前需要完成同步"
+              : state === "login" ? "登录状态失效，签署还没存到账号 · 重新登录后再试"
+              : state === "local" ? "服务端暂未开通存证 · 已按本机签署处理，不影响导出"
+              : state === "failed" ? (c?.last_error || "服务端拒收，请升级客户端后重试")
+              : "先签署《拆书使用承诺》再建书";
+            return (
+              <div className="fcard" data-od-id="done-consent" style={{ marginBottom: 14 }}>
+                <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
+                  {pill}
+                  <div style={{ flex: 1, minWidth: 220 }}>
+                    <b style={{ display: "block" }}>《拆书使用承诺》 · {c?.version ?? "v1"}</b>
+                    <span style={{ display: "block", marginTop: 2, fontSize: 12, color: "var(--muted)" }}>{sub}</span>
+                  </div>
+                  {(state === "pending" || state === "local" || state === "failed") && (
+                    <button className="btn btn-secondary btn-sm" onClick={retryConsent} disabled={consentBusy}>
+                      {consentBusy ? "正在重试…" : "重试同步"}
+                    </button>
+                  )}
+                  {state === "login" && (
+                    <button className="btn btn-secondary btn-sm" onClick={() => navigate("/login")}>
+                      去登录
+                    </button>
+                  )}
+                </div>
+              </div>
+            );
+          })()}
           {graph.state === "error" ? (
             <div className="notice" data-od-id="graph-error" style={{ marginBottom: 18 }}>
               <span className="nt">
@@ -1272,13 +1374,69 @@ export default function TaskDetailPage() {
                         </span>
                       </label>
                     ))}
+                    <div className="field" style={{ marginTop: 12 }}>
+                      <label htmlFor="build-name">新书书名</label>
+                      <input
+                        id="build-name"
+                        className="input"
+                        data-od-id="build-name"
+                        value={buildName}
+                        onChange={(e) => setBuildName(e.target.value)}
+                      />
+                      {buildName.trim() === task.book_name && (
+                        <p className="f-hint" style={{ margin: "6px 0 0", color: "var(--warn)" }}>
+                          和原书同名，发布前记得换一个。
+                        </p>
+                      )}
+                    </div>
+                    <label style={{ display: "flex", gap: 8, alignItems: "flex-start", marginTop: 12, fontSize: 13 }}>
+                      <input
+                        type="checkbox"
+                        data-od-id="build-ack"
+                        checked={buildAck}
+                        onChange={(e) => setBuildAck(e.target.checked)}
+                        style={{ marginTop: 3 }}
+                      />
+                      <span>发布前我会改名、改写，不让新书跟原著太像</span>
+                    </label>
+                    <p className="f-hint" style={{ margin: "6px 0 0", color: "var(--warn)" }}>
+                      角色名、别名和世界设定会原样带进新书。
+                    </p>
+                    {!task.consent?.can_build && (
+                      <div className="notice warn" style={{ marginTop: 12 }} data-od-id="build-consent-block">
+                        <span className="nt">
+                          <b>{task.consent?.sync_state === "login" ? "登录状态失效，承诺还没存到账号" : "承诺还没存到账号"}</b>
+                          <span>
+                            {task.consent?.sync_state === "login"
+                              ? "重新登录后会自动同步，再回来建书；产物都还在。"
+                              : "先重试同步再建书；重试不影响已拆好的产物。"}
+                          </span>
+                        </span>
+                        {task.consent?.sync_state === "login" ? (
+                          <button className="btn btn-secondary btn-sm" onClick={() => navigate("/login")}>去登录</button>
+                        ) : (
+                          <button className="btn btn-secondary btn-sm" onClick={retryConsent} disabled={consentBusy}>
+                            {consentBusy ? "正在重试…" : "重试同步"}
+                          </button>
+                        )}
+                      </div>
+                    )}
                   </div>
                 )}
                 <div className="ex-sum" data-od-id="exit-sum">
                   {exitOpt === "book"
-                    ? `将创建新书《${task.book_name}》，写入勾选的 ${bookItems.length}/${DECONSTRUCT_DIMS.length} 项（未勾的不写入）。`
+                    ? `将创建新书《${buildName.trim() || task.book_name}》，写入勾选的 ${bookItems.length}/${DECONSTRUCT_DIMS.length} 项（未勾的不写入）。`
                     : `将导出所选 ${selectedFiles.length} 份产物（＋README 目录页）到选择的文件夹。`}
                 </div>
+                {exitOpt === "files" && task.consent?.sync_state !== "synced" && (
+                  <div className="notice" style={{ borderStyle: "dashed", marginTop: 12 }} data-od-id="export-softgate">
+                    <span className="pill pill-warn" style={{ flex: "none" }}>未存证时</span>
+                    <span className="nt">
+                      <b>本机导出，承诺未取得服务端存证</b>
+                      <span>导出照常进行；联网后到任务详情点「重试同步」即可补齐。</span>
+                    </span>
+                  </div>
+                )}
                 {exitErr && (
                   <p className="f-err" role="alert" style={{ marginTop: 8 }}>
                     {exitErr}
@@ -1292,7 +1450,10 @@ export default function TaskDetailPage() {
                 <button
                   className="btn btn-primary"
                   data-od-id="exit-confirm"
-                  disabled={busy}
+                  disabled={
+                    busy ||
+                    (exitOpt === "book" && (!buildAck || !task.consent?.can_build))
+                  }
                   onClick={doExit}
                 >
                   {exitOpt === "book" ? "就建这本书" : "选择文件夹并导出"}

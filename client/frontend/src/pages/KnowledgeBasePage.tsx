@@ -152,6 +152,11 @@ export default function KnowledgeBasePage() {
   const [selected, setSelected] = useState<KbEntry | null>(null);
   // 实例详情（boss 2026-11-07 拍板：知识库看的是每条实例具体详情，归属知识点是它的属性）
   const [selectedInstance, setSelectedInstance] = useState<KbInstanceFlatRow | null>(null);
+  // 原句证据默认折叠（c-deconstruct-compliance-guard）：按字段名展开，换实例复位
+  const [quoteOpen, setQuoteOpen] = useState<Set<string>>(new Set());
+  useEffect(() => {
+    setQuoteOpen(new Set());
+  }, [selectedInstance?.id]);
   const [showManual, setShowManual] = useState(false);
   const [manualText, setManualText] = useState("");
   const [manualGenre, setManualGenre] = useState("");
@@ -840,8 +845,26 @@ export default function KnowledgeBasePage() {
                       <dt className="text-[10.5px] font-mono tracking-[0.12em] text-[var(--muted)]">{label}</dt>
                       <dd className="whitespace-pre-wrap text-[12.5px] leading-relaxed text-[var(--fg)]">{value}</dd>
                       {quote && (
-                        <dd className="mt-1 whitespace-pre-wrap border-l-2 border-[var(--border)] pl-2 text-[11.5px] leading-relaxed text-[var(--muted)]">
-                          原句：{quote}
+                        <dd className="mt-1">
+                          <button
+                            type="button"
+                            className="text-[10.5px] text-[var(--muted)] underline-offset-2 hover:underline"
+                            onClick={() =>
+                              setQuoteOpen((prev) => {
+                                const next = new Set(prev);
+                                if (next.has(label)) next.delete(label);
+                                else next.add(label);
+                                return next;
+                              })
+                            }
+                          >
+                            {quoteOpen.has(label) ? "收起" : "看原句"}
+                          </button>
+                          {quoteOpen.has(label) && (
+                            <p className="mt-1 whitespace-pre-wrap border-l-2 border-[var(--border)] pl-2 text-[11.5px] leading-relaxed text-[var(--muted)]">
+                              原句：{quote}
+                            </p>
+                          )}
                         </dd>
                       )}
                     </div>
