@@ -50,6 +50,16 @@ def _iso(value: datetime | None) -> str | None:
     return value.isoformat() if value else None
 
 
+def _current_username() -> str:
+    """本机当前登录账号（config.json）；未登录/读取失败返回空串。"""
+    try:
+        from auth_local.service import load_or_create_config
+
+        return str(load_or_create_config().get("username") or "")
+    except Exception:  # noqa: BLE001 — 读配置失败按未登录处理
+        return ""
+
+
 def view(row: DeconstructConsent | None) -> dict:
     state = row.sync_state if row is not None else "unsigned"
     return {
@@ -80,8 +90,62 @@ async def _current(db, user_id: str) -> DeconstructConsent | None:
     ).first()
 
 
-async def get_status(db, user_id: str) -> dict:
-    return view(await _current(db, user_id))
+async def get_status(db, user_id: str, *, restore: bool = False) -> dict:
+    """本地承诺状态；restore=True 时本机无记录则从 S端 取回（换设备/重装）。
+
+    只在 GET /consent（页面加载）走 restore：网络不可达时最多等一次 S端 调用，
+    不阻塞创建/详情等热路径。
+    """
+    row = await _current(db, user_id)
+    if row is None and restore:
+        row = await _restore_from_server(db, user_id)
+    return view(row)
+
+
+async def _restore_from_server(db, user_id: str) -> DeconstructConsent | None:
+    """从 S端 GET 取回当前版本的签署记录；版本与文本哈希都匹配才回填。
+
+    S端 只返回版本/哈希/时间（不返回作品信息）；哈希不匹配＝文本已变但版本
+    未升，按未签署处理，要求重新确认。
+    """
+    from auth_local.service import call_server_api
+
+    resp = await call_server_api("deconstruct/consents", method="GET", with_token=True)
+    if resp.get("code") != 0:
+        return None
+    data = resp.get("data") if isinstance(resp.get("data"), dict) else {}
+    items = data.get("items") if isinstance(data, dict) else []
+    if not isinstance(items, list):
+        return None
+    match = next(
+        (
+            item for item in items
+            if isinstance(item, dict)
+            and item.get("version") == CONSENT_VERSION
+            and item.get("agreement_text_sha256") == CONSENT_TEXT_SHA256
+        ),
+        None,
+    )
+    if match is None:
+        return None
+    raw_ts = match.get("server_ts")
+    try:
+        server_ts = datetime.fromisoformat(str(raw_ts)) if raw_ts else None
+    except ValueError:
+        server_ts = None
+    row = DeconstructConsent(
+        user_id=user_id,
+        agreement_version=CONSENT_VERSION,
+        agreement_text_sha256=CONSENT_TEXT_SHA256,
+        signed_at=server_ts or _now(),
+        server_ts=server_ts,
+        sync_state="synced",
+    )
+    db.add(row)
+    await db.commit()
+    await db.refresh(row)
+    log.info("event=deconstruct_consent.restored user=%s", user_id)
+    return row
 
 
 async def sign(db, user_id: str) -> dict:
@@ -122,6 +186,14 @@ async def sync(user_id: str) -> dict:
     async with _sync_lock, async_session() as db:
             row = await _current(db, user_id)
             if row is None or row.sync_state == "synced":
+                return view(row)
+            current = _current_username()
+            if current != user_id:
+                # 未登录，或本机残留其他账号的签署行：不能用当前令牌替它上报
+                log.info(
+                    "event=deconstruct_consent.sync_skipped user=%s current=%s",
+                    user_id, current,
+                )
                 return view(row)
             from auth_local.service import call_server_api
 
@@ -170,16 +242,14 @@ async def sync(user_id: str) -> dict:
 
 async def sync_pending() -> int:
     """启动/定时补偿：把所有未同步的签署再试一遍。返回尝试条数。"""
+    current = _current_username()
     async with async_session() as db:
-        rows = (
-            await db.scalars(
-                select(DeconstructConsent).where(
-                    DeconstructConsent.sync_state.in_(
-                        ["pending", "login", "failed"]
-                    )
-                )
-            )
-        ).all()
+        stmt = select(DeconstructConsent).where(
+            DeconstructConsent.sync_state.in_(["pending", "login", "failed"])
+        )
+        if current:
+            stmt = stmt.where(DeconstructConsent.user_id == current)
+        rows = (await db.scalars(stmt)).all()
         user_ids = [r.user_id for r in rows]
     for uid in user_ids:
         try:

@@ -638,7 +638,12 @@ def _load_manifest(path: str) -> dict:
 
 
 def export_products(
-    task: DeconstructJob, dest_dir: str, selected_files: list[str], graph: dict | None = None
+    task: DeconstructJob,
+    dest_dir: str,
+    selected_files: list[str],
+    graph: dict | None = None,
+    *,
+    consent_synced: bool = True,
 ) -> dict:
     """导出到本地文件夹：勾中 md＋图谱三件套（固定附带）＋README＋`导出清单.json`。
 
@@ -675,11 +680,13 @@ def export_products(
 
     from deconstruct.mdrender import AI_NOTICE
 
-    readme = [
-        "# 拆书产物目录",
-        "",
-        AI_NOTICE,
-        "",
+    readme = ["# 拆书产物目录", "", AI_NOTICE, ""]
+    if not consent_synced:
+        readme += [
+            "> 本机导出，承诺未取得服务端存证。联网后回任务详情点「重试同步」即可补齐。",
+            "",
+        ]
+    readme += [
         f"书名：{task.book_name}",
         "",
         "## Markdown 产物（可勾选）",
@@ -742,7 +749,7 @@ def export_products(
         "generator": "AwesomeNovel",
         "source_book": task.book_name,
         "notice": AI_NOTICE,
-        "consent_synced": bool(getattr(task, "consent_signed_at", None)),
+        "consent_synced": bool(consent_synced),
         "files": {name: _sha256(text) for name, text in payload.items()},
     }
     with open(manifest_path, "w", encoding="utf-8") as f:

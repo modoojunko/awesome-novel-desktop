@@ -23,6 +23,8 @@ _started = False
 _lock = threading.Lock()
 _thread: threading.Thread | None = None
 _stop = threading.Event()
+_loop_ref: asyncio.AbstractEventLoop | None = None
+_consent_task: asyncio.Task | None = None
 
 
 def start_dispatcher() -> None:
@@ -42,6 +44,13 @@ def stop_dispatcher() -> None:
     停不掉已起的线程——集成级取消测试用完必须收线，否则常驻轮询会抢跑
     后续测试模块在共享库上造的 queued 任务。生产不调用。"""
     _stop.set()
+    # 承诺补偿循环是常驻 task，不取消会把线程的事件循环一直吊着（join 超时后仍活）
+    task, loop = _consent_task, _loop_ref
+    if task is not None and loop is not None:
+        try:
+            loop.call_soon_threadsafe(task.cancel)
+        except RuntimeError:
+            pass  # 循环已关（正常退出）
 
 
 def _thread_main() -> None:
@@ -60,10 +69,12 @@ async def _loop() -> None:
         log.exception("event=deconstruct_sweep_failed")
 
     # 承诺同步补偿（c-deconstruct-compliance-guard）：启动即试，之后每 10 分钟
+    global _loop_ref, _consent_task
     try:
         from deconstruct import consent
 
-        asyncio.create_task(consent.retry_loop())
+        _loop_ref = asyncio.get_running_loop()
+        _consent_task = asyncio.create_task(consent.retry_loop())
     except Exception:  # noqa: BLE001 — 补偿失败不阻调度
         log.exception("event=deconstruct_consent_retry_start_failed")
     while not _stop.is_set():

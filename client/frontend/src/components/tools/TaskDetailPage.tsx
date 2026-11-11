@@ -88,6 +88,14 @@ export function importStepState(
 const RESULT_READY = new Set(["completed", "importing", "imported", "import_failed"]);
 /** 可原地换模型的失败归因：瞬时故障＋内容审核（病根在模型本身，换一个就好）；
  *  auth/config/route 病根在配置（Key/地址/模型名），出口仍指模型配置页。 */
+const RIGHTS_BASIS_LABEL: Record<string, string> = {
+  owned: "自己买的",
+  self_written: "自己写的",
+  public_domain: "公版书",
+  authorized: "作者授权",
+  other: "其他",
+};
+
 const SWITCHABLE_KINDS = ["provider_unavailable", "stalled", "timeout", "rate_limit", "content_filter"];
 
 /** 原地换模型出口（c-deconstruct-inline-model-switch）：可选模型 ≥2 才出泡泡触发位
@@ -207,8 +215,12 @@ export default function TaskDetailPage() {
   }, [task?.status]);
 
   useEffect(() => {
-    if (exitOpen && task) setBuildName(task.book_name);
-  }, [exitOpen, task?.book_name]);
+    if (exitOpen && task) {
+      setBuildName(task.book_name);
+      setBuildAck(false);
+      setExitErr("");
+    }
+  }, [exitOpen, task?.id, task?.book_name]);
 
   // 进详情＝看过：该任务从顶栏引导消账（c-tools-badge-seen，本地账 toolsBadgeSeen）
   useEffect(() => {
@@ -523,6 +535,11 @@ export default function TaskDetailPage() {
             {task.chapter_count > 0 && `${task.chapter_count} 章 · `}
             {/* v8 ignore stop */}
             模型 {task.ai_model}
+          </p>
+          <p className="sub" data-od-id="task-source" data-testid="task-source">
+            来源：{RIGHTS_BASIS_LABEL[task.rights_basis ?? ""] ?? "未登记"}
+            {" · "}作者：{task.source_author || "未填写"}
+            {task.source_purged_at ? " · 原文已清理，产物仍可用" : ""}
           </p>
         </div>
         {/* v8 ignore start — 未知状态防御回落（畸形数据才触发） */}

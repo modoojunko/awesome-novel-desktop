@@ -1,6 +1,6 @@
 // 创建任务页（c-deconstruct-book 5.4）：双子态（未选文件/已选·解析完成）——
 // 解析在选文件时本地完成（秒级、不耗额度）；模型选择仅本任务生效；探针门过才解禁创建。
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import UpgradeModal from "@/components/novel/UpgradeModal";
 import { useFeature } from "@/hooks/useTier";
@@ -164,11 +164,16 @@ export default function CreateTaskPage() {
   const [sourceAuthor, setSourceAuthor] = useState("");
   const inputRef = useRef<HTMLInputElement>(null);
 
-  useEffect(() => {
+  const loadConsent = useCallback(() => {
+    setConsentErr("");
     void getDeconstructConsent()
       .then(setConsent)
       .catch((e: Error) => setConsentErr(e.message || "承诺状态读取失败"));
   }, []);
+
+  useEffect(() => {
+    loadConsent();
+  }, [loadConsent]);
 
   useEffect(() => {
     void fetchModelOptions()
@@ -367,6 +372,16 @@ export default function CreateTaskPage() {
               onClick={() => openConsent(false)}
             >
               阅读并签署
+            </button>
+          )}
+          {consentErr && !consent && (
+            <button
+              type="button"
+              className="btn btn-secondary btn-sm"
+              data-od-id="btn-retry-consent-load"
+              onClick={loadConsent}
+            >
+              重试读取
             </button>
           )}
         </div>

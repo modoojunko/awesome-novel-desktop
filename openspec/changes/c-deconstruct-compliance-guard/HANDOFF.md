@@ -34,7 +34,7 @@
 
 | 项 | 结果 |
 |---|---|
-| C端后端 `pytest tests/ -q -m "not perf"` | 3037 passed / 2 failed；2 条为内容仓工作树被清空导致的 `test_kb_baseline_fullchain` 与 `test_kb_baseline_gate_parity`（与本 change 无关）；本次新增 consent 5 条、建书门 3 条、SDK 上限 1 条、mdrender 2 条均通过 |
+| C端后端 `pytest tests/ -q -m "not perf"` | 3042 passed / 2 failed；2 条为内容仓工作树被清空导致的 `test_kb_baseline_fullchain` 与 `test_kb_baseline_gate_parity`（与本 change 无关）；本次新增 consent 5 条、建书门 3 条、SDK 上限 1 条、mdrender 2 条均通过 |
 | C端前端 `npx vitest run --coverage` | 175 文件 / 2210 通过 / 1 跳过；四项覆盖率阈值通过 |
 | C端 `npx tsc --noEmit` | 通过 |
 | C端 `npm run build` | 通过（仅 chunk >500KB 提示） |
@@ -50,6 +50,22 @@
 2. **e2e**（C端 6.3）：签署三态、未签署建书被挡、导出标识的 Playwright 用例待补；本机未起 e2e 栈。
 3. **design:check**：需先清 `preview.html` 的存量 emoji 红（本 change 范围外）并起 :5174 dev server；拆书屏不在 parity 基线。
 4. **C端 docs/legal 快照**：本地 v2026.08 已落后 S端 线上 v2026.11/v2026.12；后续应从 S端 回灌一次，避免双源漂移。
+
+## Review 修复（2026-11-11 二轮）
+
+- **跨设备恢复**：`consent.get_status(restore=True)` 在本机无记录时调 S端 GET；S端 GET 增返
+  `agreement_text_sha256`，版本与哈希都匹配才回填本地 `synced` 行；哈希不符按未签署处理。
+- **多账号冒名同步**：`sync()` 严格比对当前 config username 与行 `user_id`；不一致跳过；
+  `sync_pending` 只选当前账号的行。测试改为验证「其他账号行保持 pending、attempts=0」。
+- **建书确认**：打开出口弹窗时重置 `buildAck`/`buildName`/`exitErr`，确认不再跨弹窗复用。
+- **任务详情来源行**：页头新增「来源：… · 作者：…」；`source_purged_at` 存在时追加
+  「原文已清理，产物仍可用」（全状态可见，不再只在完成态）。
+- **导出软门**：`export_products(consent_synced=...)` 由导出端点查真实同步状态传入；
+  未存证时 README 顶部写「本机导出，承诺未取得服务端存证」，清单 `consent_synced` 用真值。
+- **dispatcher 收线**：保存 `retry_loop` task 句柄，`stop_dispatcher` 经
+  `loop.call_soon_threadsafe(task.cancel)` 取消，不再吊住线程/事件循环。
+- **创建页**：承诺读取失败显示「重试读取」；`loadConsent` 可复用。
+- **法律 README**：注记更新为 S端 v2026.12/v2026.13 且拆书条款已合并。
 
 ## 灰度观察
 

@@ -607,4 +607,14 @@ describe("CreateTaskPage", () => {
     await waitFor(() => expect(state.create).toHaveBeenCalled());
     expect(state.create.mock.calls.at(-1)?.[1].mode).toBe("smart");
   });
+
+  it("承诺状态读取失败可重试", async () => {
+    state.fetchOpts.mockResolvedValue([]);
+    state.consent.mockRejectedValueOnce(new Error("net")).mockResolvedValueOnce(SIGNED_CONSENT);
+    renderPage();
+    await waitFor(() => expect(screen.getByText("重试读取")).toBeInTheDocument());
+    fireEvent.click(screen.getByText("重试读取"));
+    await waitFor(() => expect(screen.getByText("已签署")).toBeInTheDocument());
+    expect(screen.queryByText("重试读取")).not.toBeInTheDocument();
+  });
 });

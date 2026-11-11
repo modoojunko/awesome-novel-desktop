@@ -49,8 +49,11 @@ async def get_consent(
     user: dict = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    """拆书使用承诺状态：版本、全文、签署时间、同步状态、能否建书/导出。"""
-    return await consent_service.get_status(db, _user_id(user))
+    """拆书使用承诺状态：版本、全文、签署时间、同步状态、能否建书/导出。
+
+    restore=True：本机无记录时从 S端 取回（换设备/重装），仅页面加载走这条。
+    """
+    return await consent_service.get_status(db, _user_id(user), restore=True)
 
 
 @router.post("/consent")
@@ -532,8 +535,12 @@ async def export_task(
             graph_err = str(state["graph_error"])
         elif isinstance(state.get("graph"), dict):
             graph = state["graph"]
+    cstatus = await consent_service.get_status(db, _user_id(user))
     try:
-        result = apply.export_products(task, dest, files, graph=graph)
+        result = apply.export_products(
+            task, dest, files, graph=graph,
+            consent_synced=cstatus["sync_state"] == "synced",
+        )
     except OSError as e:
         raise HTTPException(400, f"导出失败：{e.strerror or e}") from e
     result["graph_error"] = graph_err

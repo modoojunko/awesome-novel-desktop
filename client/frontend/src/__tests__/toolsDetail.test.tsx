@@ -1687,3 +1687,35 @@ describe("TaskDetailPage 看过消账", () => {
     );
   });
 });
+
+describe("合规（c-deconstruct-compliance-guard）", () => {
+  it("建书确认勾选在重开出口时复位", async () => {
+    state.get.mockResolvedValue(detailOf("completed"));
+    renderPage();
+    await waitFor(() => expect(screen.getByText("选择去向")).toBeInTheDocument());
+    fireEvent.click(screen.getByText("选择去向"));
+    ackBuild();
+    const box = screen.getByLabelText("发布前我会改名、改写，不让新书跟原著太像") as HTMLInputElement;
+    expect(box.checked).toBe(true);
+    fireEvent.click(screen.getByText("稍后再说"));
+    fireEvent.click(screen.getByText("选择去向"));
+    await waitFor(() =>
+      expect(
+        (screen.getByLabelText("发布前我会改名、改写，不让新书跟原著太像") as HTMLInputElement).checked,
+      ).toBe(false),
+    );
+    expect(screen.getByText("就建这本书")).toBeDisabled();
+  });
+
+  it("任务详情显示来源类型/作者与原文清理提示", async () => {
+    state.get.mockResolvedValue(detailOf("completed", {
+      rights_basis: "owned",
+      source_author: "某作者",
+      source_purged_at: "2026-11-11T00:00:00",
+    }));
+    renderPage();
+    const row = await screen.findByTestId("task-source");
+    expect(row.textContent).toContain("来源：自己买的 · 作者：某作者");
+    expect(row.textContent).toContain("原文已清理，产物仍可用");
+  });
+});

@@ -62,6 +62,13 @@ def _clean_rows():
 
 
 @pytest.fixture(autouse=True)
+def _as_current_user(monkeypatch):
+    import auth_local.service as svc
+
+    monkeypatch.setattr(svc, "load_or_create_config", lambda: {"username": _UID})
+
+
+@pytest.fixture(autouse=True)
 def _no_background_sync(monkeypatch):
     """测试里显式调 sync；不额外起后台 task（避免跨事件循环的连接告警）。"""
     monkeypatch.setattr(consent, "_schedule_sync", lambda user_id: None)
@@ -74,6 +81,18 @@ def _patch_server(monkeypatch, response: dict):
         assert with_token is True
         assert set(json_body or {}) == {"agreement_version", "agreement_text_sha256"}
         return response
+
+    import auth_local.service as svc
+
+    monkeypatch.setattr(svc, "call_server_api", fake)
+
+
+def _patch_get(monkeypatch, items: list[dict] | None):
+    async def fake(endpoint, method="GET", params=None, json_body=None, with_token=False):
+        assert endpoint == "deconstruct/consents"
+        assert method == "GET"
+        assert with_token is True
+        return {"code": 0, "data": {"items": items or []}}
 
     import auth_local.service as svc
 
@@ -142,14 +161,18 @@ def test_sync_maps_401_404_400_and_network(monkeypatch):
     _run(_go())
 
 
-def test_sync_pending_processes_all(monkeypatch):
+def test_sync_pending_only_current_user(monkeypatch):
+    """补偿只同步当前账号；本机残留的其他账号行保持 pending，不得冒名上报。"""
     _patch_server(monkeypatch, {"code": 0, "data": {"server_ts": "2026-11-11T10:00:00"}})
 
     async def _go():
         async with async_session() as s:
             await consent.sign(s, _UID)
             await consent.sign(s, "consent-user-2")
-        assert await consent.sync_pending() == 2
+        assert await consent.sync_pending() == 1
+        async with async_session() as s:
+            other = await consent._current(s, "consent-user-2")
+            assert other.sync_state == "pending" and other.attempts == 0
 
     _run(_go())
 
@@ -211,3 +234,62 @@ def test_consent_text_matches_legal_doc():
     body = body.split("\n本承诺构成《用户服务协议》的一部分。")[0].strip()
     assert body == consent.CONSENT_TEXT
     assert hashlib.sha256(body.encode("utf-8")).hexdigest() == consent.CONSENT_TEXT_SHA256
+
+def test_get_status_restores_from_server(monkeypatch):
+    """换设备/重装：本机无记录时从 S端 GET 取回（版本+哈希都匹配）。"""
+    _patch_get(monkeypatch, [{
+        "version": consent.CONSENT_VERSION,
+        "agreement_text_sha256": consent.CONSENT_TEXT_SHA256,
+        "server_ts": "2026-11-11T10:00:00",
+    }])
+
+    async def _go():
+        async with async_session() as s:
+            status = await consent.get_status(s, _UID, restore=True)
+            assert status["signed"] is True
+            assert status["sync_state"] == "synced"
+            assert status["server_ts"] == "2026-11-11T10:00:00"
+            row = await consent._current(s, _UID)
+            assert row is not None and row.server_ts is not None
+
+    _run(_go())
+
+
+def test_get_status_does_not_restore_hash_mismatch(monkeypatch):
+    """同版本但文本哈希不同（文本改了未升版本）：不回填，按未签署要求重签。"""
+    _patch_get(monkeypatch, [{
+        "version": consent.CONSENT_VERSION,
+        "agreement_text_sha256": "b" * 64,
+        "server_ts": "2026-11-11T10:00:00",
+    }])
+
+    async def _go():
+        async with async_session() as s:
+            status = await consent.get_status(s, _UID, restore=True)
+            assert status["signed"] is False
+
+    _run(_go())
+
+
+def test_sync_skips_other_account(monkeypatch):
+    """本机残留 A 账号的签署行时，不能用 B 账号的令牌替 A 上报。"""
+    _patch_server(monkeypatch, {"code": 0, "data": {"server_ts": "2026-11-11T10:00:00"}})
+
+    async def _seed():
+        async with async_session() as s:
+            await consent.sign(s, _UID)
+
+    _run(_seed())
+    import auth_local.service as svc
+
+    monkeypatch.setattr(svc, "load_or_create_config", lambda: {"username": "other-user"})
+    view = _run(consent.sync(_UID))
+    assert view["sync_state"] == "pending"
+
+    async def _check():
+        async with async_session() as s:
+            row = await consent._current(s, _UID)
+            assert row.attempts == 0  # 未发请求
+            assert row.sync_state == "pending"
+
+    _run(_check())

@@ -41,7 +41,7 @@
 
 ## 6. 测试
 
-- [x] 6.1 后端单测：承诺版本/哈希校验、签署五态、幂等、401/404、TTL、建书硬门、导出标识、`field_quotes` 截断；验收＝3037 passed；2 条基线红为内容仓工作树被清空（`test_kb_baseline_fullchain`/`test_kb_baseline_gate_parity`），与本 change 无关
+- [x] 6.1 后端单测：承诺版本/哈希校验、签署五态、幂等、401/404、TTL、建书硬门、导出标识、`field_quotes` 截断；验收＝3042 passed；2 条基线红为内容仓工作树被清空（`test_kb_baseline_fullchain`/`test_kb_baseline_gate_parity`），与本 change 无关
 - [x] 6.2 前端单测：创建页三态、签署状态行、建书确认、知识库折叠；验收＝`cd client/frontend && npx vitest run --coverage` 四项 100% 阈值通过
 - [ ] 6.3 e2e：签署（未签→签→待同步→重试→已签署）、已签署跨设备复用、未签署建书被挡、导出 md 带标识；验收＝相关 Playwright 用例通过
 - [x] 6.4 覆盖率契约：把新增分支登记进 `src/coverage-contract.ts`（若为页面级新文件）；验收＝coverage 门禁绿
@@ -51,7 +51,7 @@
 - [x] 7.1 `cd client/frontend && npm run design:lint`；验收＝本 change 文件零违规；唯一红为 `docs/design-c/prototypes/preview.html:1` 的存量 ⚠（未改该文件）
 - [ ] 7.2 `cd client/frontend && npm run design:check`；验收＝parity 屏像素差 <0.2%（拆书屏不在基线，记录实际输出）
 - [x] 7.3 `cd client/frontend && npx tsc --noEmit` 与 `npm run build`；验收＝零错误（仅 chunk >500KB 提示）
-- [x] 7.4 `cd client/backend && python -m pytest tests/ -q -m "not perf"`；验收＝3037 passed / 2 基线红（内容仓空，见 6.1）
+- [x] 7.4 `cd client/backend && python -m pytest tests/ -q -m "not perf"`；验收＝3042 passed / 2 基线红（内容仓空，见 6.1）
 - [x] 7.5 触共享段判定：本 change 不触碰 `base.css` 令牌与 pill/notice/sk/panel/f-err 家族，不跑 `design-cross`；验收＝在回归记录引用 proposal Design Impact 的判定依据
 - [ ] 7.6 e2e 相关套件重跑；验收＝无新增红、无残留测试数据（`npm run e2e:sweep:dry` 干净）
 

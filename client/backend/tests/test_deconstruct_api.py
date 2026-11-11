@@ -548,7 +548,9 @@ def test_export_writes_selected_and_readme(client):
     written = sorted(os.listdir(dest))
     assert written == ["README.md", "世界设定.md", "导出清单.json", "简介.md"]  # 未勾选的伏笔不导出；清单随包
     with open(os.path.join(dest, "README.md"), encoding="utf-8") as f:
-        assert "正文C" not in f.read()
+        readme = f.read()
+    assert "正文C" not in readme
+    assert "未取得服务端存证" not in readme
 
 
 def test_export_rejects_empty_selection(client):
@@ -2000,3 +2002,45 @@ def test_task_view_without_live_books_unchanged():
 
     v = task_view(_T())
     assert v["status"] == "imported" and v["book_id"] == "b1" and v["book_missing"] is False
+
+def _set_consent_state(state: str) -> None:
+    async def _go():
+        from sqlalchemy import update
+
+        from deconstruct.consent import CONSENT_VERSION
+        from models.deconstruct import DeconstructConsent
+
+        async with async_session() as s:
+            await s.execute(
+                update(DeconstructConsent)
+                .where(
+                    DeconstructConsent.user_id == _UID,
+                    DeconstructConsent.agreement_version == CONSENT_VERSION,
+                )
+                .values(sync_state=state)
+            )
+            await s.commit()
+
+    _run(_go())
+
+
+def test_export_soft_gate_when_consent_pending(client):
+    """承诺未存证仍可本机导出，但 README/清单必须留痕。"""
+    _mk_completed(
+        "dec-exp-soft",
+        {"intro": _product("intro", "简介.md", {"intro": "x"}, "# 简介\n\nx。")},
+    )
+    _set_consent_state("pending")
+    try:
+        dest = tempfile.mkdtemp(prefix="dec-export-soft-")
+        r = client.post(
+            "/api/deconstruct/tasks/dec-exp-soft/export",
+            json={"dest_dir": dest, "files": ["简介.md"]},
+        )
+        assert r.status_code == 200, r.text
+        with open(os.path.join(dest, "README.md"), encoding="utf-8") as f:
+            assert "未取得服务端存证" in f.read()
+        with open(os.path.join(dest, "导出清单.json"), encoding="utf-8") as f:
+            assert json.load(f)["consent_synced"] is False
+    finally:
+        _set_consent_state("synced")
