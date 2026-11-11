@@ -279,8 +279,6 @@ def verify_tree_pointer(latest: dict, pubkeys: dict[str, bytes]) -> bool:
     """tree_publish.py 的 latest 签名：对 ``{version,taxonomy_sha256,size}``
     ``json.dumps(sort_keys=True)``（默认分隔符）做 Ed25519 验签；kid 必须在
     信任集内。兼容可选的紧凑/全指针变体（未来发布器迁移时按序尝试）。"""
-    import hashlib as _hashlib
-
     signature = str(latest.get("signature") or "")
     kid = str(latest.get("signer_key_id") or "")
     key = pubkeys.get(kid)
@@ -302,12 +300,11 @@ def verify_tree_pointer(latest: dict, pubkeys: dict[str, bytes]) -> bool:
                 sort_keys=True, separators=(",", ":"),
             ),
         ]
-        for body in candidates:
-            if verify_with_key(key, sig, body.encode("utf-8")):
-                return True
-        del _hashlib
     except (ValueError, TypeError, KeyError):
         return False
+    for body in candidates:
+        if verify_with_key(key, sig, body.encode("utf-8")):
+            return True
     return False
 
 
