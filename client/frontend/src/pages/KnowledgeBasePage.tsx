@@ -76,8 +76,8 @@ export function fieldsOf(row: KbInstanceFlatRow): [string, string][] {
       if (!slotName || !(slotName in fields)) continue;
       const rendered = render(fields[slotName]);
       if (!rendered) continue;
-      if (bodyNorm !== "" && norm(rendered) === bodyNorm) continue;
       used.add(slotName);
+      if (bodyNorm !== "" && norm(rendered) === bodyNorm) continue;
       out.push([slotName, rendered]);
     }
   }

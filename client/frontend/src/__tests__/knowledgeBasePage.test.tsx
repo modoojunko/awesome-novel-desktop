@@ -429,6 +429,16 @@ describe("fieldsOf（实例字段：知识点模板序在前）", () => {
     expect(rows.map(([label]) => label)).toEqual(["槽位", "名字", "怎么写", "适用场面"]);
     expect(rows.map(([, v]) => v)).not.toContain("吐槽穿插：惊悚推进中插入主角内心吐槽或黑色幽默独白，调节节奏并强化爽感");
   });
+
+  it("模板序循环的同值字段同样跳过（schema 循环同防线）", () => {
+    const row = {
+      row_kind: "instance",
+      text: "正文一句话。",
+      fields_json: JSON.stringify({ a: "正文一句话", b: "别的格" }),
+      knowledge_schema_json: JSON.stringify([{ name: "a", desc: "甲格" }, { name: "b", desc: "乙格" }]),
+    } as unknown as Parameters<typeof fieldsOf>[0];
+    expect(fieldsOf(row).map(([label]) => label)).toEqual(["b"]);
+  });
 });
 
 describe("官方知识探测在途槽与提炼失败兜底（c-kb-baseline-update-ux 补臂）", () => {
