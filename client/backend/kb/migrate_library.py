@@ -544,10 +544,8 @@ async def ensure_legacy_migrated(db: AsyncSession, *, user_id: str) -> None:
         # 官方基线撤回（2026-11-11 版权合规）：读面兜底，进程内成功后零成本；
         # carry/备份恢复的强制重扫在各自钩子里，不依赖本入口。
         from kb.revocation import revoke_official_baseline
-        from kb.world_char_purge import purge_withdrawn_world_char
 
         await revoke_official_baseline()
-        await purge_withdrawn_world_char()
         await repair_character_evidence(db, user_id=user_id)
         await heal_dual_prefix_instances(user_id=user_id)
         await normalize_legacy_genres(user_id=user_id)
@@ -583,3 +581,19 @@ async def ensure_legacy_migrated(db: AsyncSession, *, user_id: str) -> None:
         await migrate_character_library(db, user_id=user_id)
     except Exception:  # noqa: BLE001 — 读面永不因迁移失败红
         logger.warning("event=kb.ensure_legacy_migrated.fail user=%s", user_id, exc_info=True)
+    finally:
+        # v0.47.5 把清理放在 reconcile 之前，结果被 reconcile 重新收回来；
+        # v0.47.6 移到读面末尾：reconcile/migrate 之后按用户再清一次。
+        # 先结束本会话事务，再开新会话扫——避免 SQLite 读快照看不到 reconcile 的提交。
+        try:
+            await db.commit()
+        except Exception:  # noqa: BLE001
+            await db.rollback()
+        try:
+            from kb.world_char_purge import apply_world_char_purge
+
+            await apply_world_char_purge(force=True, user_id=user_id)
+        except Exception:  # noqa: BLE001 — 清理失败不盖住读面结果
+            logger.warning(
+                "event=kb.world_char_purge.after_read user=%s", user_id, exc_info=True
+            )
