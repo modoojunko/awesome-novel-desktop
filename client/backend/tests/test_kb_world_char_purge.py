@@ -282,3 +282,40 @@ def test_只清三本书的世界角色_其他全留且幂等(monkeypatch):
     assert r2["entries_deleted"] == 0
     assert r2["library_cards_deleted"] == 0
     assert _count(KbEntry, KbEntry.id == ids["tech13"]) == 1
+
+
+def test_读面reconcile重收后仍被清掉(monkeypatch):
+    """v0.47.5 回归：reconcile 在读面把拆书条目重新收回，清理必须在它之后。"""
+    from kb.migrate_library import ensure_legacy_migrated
+
+    _create_tables()
+    ids = _seed()
+    monkeypatch.setattr(
+        "kb.world_char_purge.WITHDRAWN_BOOKS", (ids["book_a"], ids["book_b"])
+    )
+    extra_id = _uid("recollected")
+
+    async def fake_reconcile(*, user_id):  # noqa: ARG001
+        # 模拟 version_reconcile 从 deconstruct 任务重新收条目（自开会话并提交）
+        async with async_session() as db:
+            db.add(KbEntry(
+                id=extra_id, user_id=ids["uid"], genre="悬疑", concept="世界设定",
+                title="reconcile 重新收回的", instruction="reconcile 重新收回的正文",
+                status="active", rev=1, src_kind="deconstruct", origin="material",
+                src_ref="task-x", src_key="world.stage:9", src_novel_name=ids["book_a"],
+            ))
+            await db.commit()
+
+    monkeypatch.setattr(
+        "kb.version_reconcile.reconcile_deconstruct_versions", fake_reconcile
+    )
+
+    async def _go():
+        async with async_session() as db:
+            await ensure_legacy_migrated(db, user_id=ids["uid"])
+
+    _run(_go())
+
+    assert _count(KbEntry, KbEntry.id == ids["w13"]) == 0
+    assert _count(KbEntry, KbEntry.id == extra_id) == 0
+    assert _count(KbEntry, KbEntry.id == ids["tech13"]) == 1

@@ -461,10 +461,11 @@ def test_证据自愈_病形换轨_自熄():
 
 def test_证据自愈_读面触达即修():
     uid = f"kbrep-{uuid.uuid4().hex[:8]}"
+    # 非撤回书名：13路末班车在 v0.47.6 读面清理书单内，会被删而不是自愈
     _seed_kb_rows(uid, [
         {"concept": "角色设定", "title": "甲",
          "payload": {"archetype": "甲", "plot": "装傻半生。（第11章）"},
-         "evidence": "13路末班车", "src_novel_name": "13路末班车"},
+         "evidence": "剑照山河", "src_novel_name": "剑照山河"},
     ])
 
     async def _go():
