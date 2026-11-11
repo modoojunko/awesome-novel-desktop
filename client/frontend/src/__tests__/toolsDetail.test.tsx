@@ -20,6 +20,7 @@ const state = vi.hoisted(() => ({
   modelOpts: vi.fn(),
   candidates: vi.fn(),
   toLibrary: vi.fn(),
+  retryConsent: vi.fn(),
 }));
 const toastState = vi.hoisted(() => ({ info: vi.fn(), success: vi.fn(), error: vi.fn() }));
 vi.mock("@/lib/toast", () => ({ toast: toastState }));
@@ -38,6 +39,7 @@ vi.mock("@/lib/deconstructApi", () => ({
   fetchModelOptions: state.modelOpts,
   getLibraryCandidates: state.candidates,
   toLibrary: state.toLibrary,
+  retryDeconstructConsent: state.retryConsent,
   DECONSTRUCT_DIMS: [
     { key: "intro", name: "简介", file: "简介.md", setting: true },
     { key: "world", name: "世界设定", file: "世界设定.md", setting: true },
@@ -78,11 +80,28 @@ function detailOf(status: string, over: Record<string, unknown> = {}) {
       { filename: "写作技法.md", size: 300, dim: "写作技法" },
     ],
     error: "",
+    consent: {
+      version: "deconstruct-consent-v1",
+      text: "拆书是给你自己学写法用的。",
+      text_sha256: "a".repeat(64),
+      signed: true,
+      signed_at: "2026-11-11T10:00:00",
+      server_ts: "2026-11-11T10:00:01",
+      sync_state: "synced",
+      can_build: true,
+      can_export: true,
+      last_error: "",
+    },
     book_id: null,
     created_at: null,
     finished_at: null,
     ...over,
   };
+}
+
+function ackBuild() {
+  const box = screen.getByLabelText("发布前我会改名、改写，不让新书跟原著太像");
+  if (!(box as HTMLInputElement).checked) fireEvent.click(box);
 }
 
 function renderPage() {
@@ -134,6 +153,7 @@ describe("TaskDetailPage", () => {
     fireEvent.click(screen.getByText("选择去向"));
     await waitFor(() => expect(screen.getByText("就建这本书")).toBeInTheDocument());
     // 默认选中建书：未升级 MAX → 确认弹 MAX 升级，不调建书
+    ackBuild();
     fireEvent.click(screen.getByText("就建这本书"));
     await waitFor(() =>
       expect(screen.getByText("升级 MAX · 解锁剧情推演与文风蒸馏")).toBeInTheDocument(),
@@ -177,6 +197,7 @@ describe("TaskDetailPage", () => {
     await waitFor(() => expect(screen.getByText("选择去向")).toBeInTheDocument());
     fireEvent.click(screen.getByText("选择去向"));
     await waitFor(() => expect(screen.getByText("就建这本书")).toBeInTheDocument());
+    ackBuild();
     fireEvent.click(screen.getByText("就建这本书"));
     await waitFor(() => expect(state.importBook).toHaveBeenCalledOnce());
     await waitFor(() => expect(screen.queryByText(/稍后再说/)).not.toBeInTheDocument());
@@ -257,6 +278,7 @@ describe("TaskDetailPage", () => {
     renderPage();
     await waitFor(() => expect(screen.getByText("选择去向")).toBeInTheDocument());
     fireEvent.click(screen.getByText("选择去向"));
+    ackBuild();
     fireEvent.click(screen.getByText("就建这本书"));
     await waitFor(() => expect(screen.getByText(/书数已达套餐上限/)).toBeInTheDocument());
   });
@@ -267,6 +289,7 @@ describe("TaskDetailPage", () => {
     renderPage();
     await waitFor(() => expect(screen.getByText("选择去向")).toBeInTheDocument());
     fireEvent.click(screen.getByText("选择去向"));
+    ackBuild();
     fireEvent.click(screen.getByText("就建这本书"));
     await waitFor(() => expect(screen.getByText(/书数已达套餐上限/)).toBeInTheDocument());
   });
@@ -883,6 +906,7 @@ describe("建书勾选导入", () => {
     // 取消「简介」
     fireEvent.click(document.querySelector('[data-od-id="bi-intro"]') as HTMLInputElement);
     expect(screen.getByText(/写入勾选的 2\/3 项/)).toBeInTheDocument();
+    ackBuild();
     fireEvent.click(screen.getByText("就建这本书"));
     await waitFor(() => expect(state.importBook).toHaveBeenCalledOnce());
     const items = state.importBook.mock.calls[0][1] as string[];
@@ -1287,6 +1311,7 @@ describe("建书异步阶段", () => {
     renderPage();
     await waitFor(() => expect(screen.getByText("选择去向")).toBeInTheDocument());
     fireEvent.click(screen.getByText("选择去向"));
+    ackBuild();
     fireEvent.click(screen.getByText("就建这本书"));
 
     await waitFor(() => expect(state.importBook).toHaveBeenCalledOnce());
@@ -1309,6 +1334,7 @@ describe("建书异步阶段", () => {
     renderPage();
     await waitFor(() => expect(screen.getByText("选择去向")).toBeInTheDocument());
     fireEvent.click(screen.getByText("选择去向"));
+    ackBuild();
     fireEvent.click(screen.getByText("就建这本书"));
 
     await waitFor(() =>
@@ -1324,6 +1350,7 @@ describe("建书异步阶段", () => {
     renderPage();
     await waitFor(() => expect(screen.getByText("选择去向")).toBeInTheDocument());
     fireEvent.click(screen.getByText("选择去向"));
+    ackBuild();
     fireEvent.click(screen.getByText("就建这本书"));
 
     await waitFor(() =>
@@ -1463,7 +1490,9 @@ describe("建书三态的交互臂（覆盖率补齐）", () => {
     renderPage();
     await waitFor(() => expect(screen.getByText("重试建书")).toBeInTheDocument());
     fireEvent.click(screen.getByText("重试建书"));
-    await waitFor(() => expect(state.importBook).toHaveBeenCalledWith("t2"));
+    await waitFor(() =>
+      expect(state.importBook).toHaveBeenCalledWith("t2", undefined, { buildAck: true }),
+    );
     expect(toastState.info).toHaveBeenCalledWith(expect.stringContaining("重新开始建书"));
 
     fireEvent.click(screen.getByText("存本地文件夹 / 收进知识库"));
@@ -1581,6 +1610,7 @@ describe("建书阶段的剩余分支（覆盖率收口）", () => {
     renderPage();
     await waitFor(() => expect(screen.getByText("选择去向")).toBeInTheDocument());
     fireEvent.click(screen.getByText("选择去向"));
+    ackBuild();
     fireEvent.click(screen.getByText("就建这本书"));
     await waitFor(() => expect(screen.getByText("建书失败")).toBeInTheDocument());
   });

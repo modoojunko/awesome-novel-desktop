@@ -673,7 +673,17 @@ def export_products(
         payload.update(trio)
         graph_files = list(trio)
 
-    readme = ["# 拆书产物目录", "", f"书名：{task.book_name}", "", "## Markdown 产物（可勾选）"]
+    from deconstruct.mdrender import AI_NOTICE
+
+    readme = [
+        "# 拆书产物目录",
+        "",
+        AI_NOTICE,
+        "",
+        f"书名：{task.book_name}",
+        "",
+        "## Markdown 产物（可勾选）",
+    ]
     readme += [f"- {fn}" for fn in sorted(products)]
     if graph is not None:
         readme += ["", "## 知识图谱（固定附带，不参与勾选）"]
@@ -728,6 +738,11 @@ def export_products(
         "book": task.book_name,
         "contract": "deconstruct-graph/6" if graph is not None else "document-only",
         "exported_at": datetime.now(UTC).replace(tzinfo=None).isoformat(),
+        "ai_generated": True,
+        "generator": "AwesomeNovel",
+        "source_book": task.book_name,
+        "notice": AI_NOTICE,
+        "consent_synced": bool(getattr(task, "consent_signed_at", None)),
         "files": {name: _sha256(text) for name, text in payload.items()},
     }
     with open(manifest_path, "w", encoding="utf-8") as f:
@@ -738,4 +753,5 @@ def export_products(
         "readme": "README.md",
         "dest": dest_dir,
         "backups": backups,
+        "ai_notice": AI_NOTICE,
     }

@@ -430,6 +430,44 @@ describe("fieldsOf（实例字段：知识点模板序在前）", () => {
     expect(rows.map(([, v]) => v)).not.toContain("吐槽穿插：惊悚推进中插入主角内心吐槽或黑色幽默独白，调节节奏并强化爽感");
   });
 
+  it("原句默认折叠：点「看原句」展开、点「收起」还原", async () => {
+    api.instancesFlat.mockResolvedValue({
+      ok: true,
+      rows: [
+        {
+          row_kind: "instance",
+          id: "inst-q1",
+          knowledge_id: "k1",
+          knowledge_title: "刘望津",
+          chain: [],
+          genre: "悬疑",
+          concept: "角色设定",
+          text: "漂亮热情的农村出身姑娘。",
+          quote: "",
+          source_novel: "某书",
+          source_chapter: "第1章",
+          src_kind: "拆书",
+          created_at: "2026-11-11T00:00:00",
+          name: "刘望津",
+          fields_json: JSON.stringify({
+            persona: "漂亮热情、能识怪字。",
+            field_quotes: { persona: "她总穿那件洗得发白的旧夹克。" },
+          }),
+          knowledge_schema_json: JSON.stringify([{ name: "persona", desc: "" }]),
+        },
+      ],
+    });
+    renderPage();
+    await waitFor(() => expect(api.instancesFlat).toHaveBeenCalled());
+    fireEvent.click((await screen.findAllByTestId("kb-inst-row"))[0]);
+    await waitFor(() => expect(screen.getByText("看原句")).toBeTruthy());
+    expect(screen.queryByText(/她总穿那件洗得发白的旧夹克/)).toBeNull();
+    fireEvent.click(screen.getByText("看原句"));
+    expect(screen.getByText(/她总穿那件洗得发白的旧夹克/)).toBeTruthy();
+    fireEvent.click(screen.getByText("收起"));
+    expect(screen.queryByText(/她总穿那件洗得发白的旧夹克/)).toBeNull();
+  });
+
   it("角色卡逐字段原句：有原句的格带第三元、field_quotes 本身不成行", () => {
     const row = {
       row_kind: "instance",

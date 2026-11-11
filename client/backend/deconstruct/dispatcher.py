@@ -58,6 +58,14 @@ async def _loop() -> None:
         await startup_sweep()
     except Exception:  # noqa: BLE001 — sweep 失败不阻调度
         log.exception("event=deconstruct_sweep_failed")
+
+    # 承诺同步补偿（c-deconstruct-compliance-guard）：启动即试，之后每 10 分钟
+    try:
+        from deconstruct import consent
+
+        asyncio.create_task(consent.retry_loop())
+    except Exception:  # noqa: BLE001 — 补偿失败不阻调度
+        log.exception("event=deconstruct_consent_retry_start_failed")
     while not _stop.is_set():
         try:
             task_id = await _pick_next()

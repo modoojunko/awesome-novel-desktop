@@ -1587,6 +1587,46 @@ async def list_queued_ids() -> list[str]:
         return list(rows)
 
 
+SOURCE_TTL_DAYS = 7
+
+
+async def purge_expired_sources(now=None) -> int:
+    """原文 TTL（c-deconstruct-compliance-guard）：终态后保留 7 天，到期删任务目录。
+
+    结果目录/预览/导出/建书只读产物 JSON，清理不影响这些出口；失败任务续拆
+    在原目录消失后走既有 need_reupload 路径。删任务仍由路由立即清理。
+    """
+    import shutil
+    from datetime import UTC, datetime, timedelta
+
+    now = now or datetime.now(UTC).replace(tzinfo=None)
+    cutoff = now - timedelta(days=SOURCE_TTL_DAYS)
+    terminal = ("completed", "failed", "cancelled", "imported", "import_failed", "need_reupload")
+    async with async_session() as session:
+        rows = (
+            await session.scalars(
+                select(DeconstructJob).where(
+                    DeconstructJob.status.in_(terminal),
+                    DeconstructJob.source_path != "",
+                    DeconstructJob.source_purged_at.is_(None),
+                )
+            )
+        ).all()
+        purged = 0
+        for r in rows:
+            ts = r.finished_at or r.created_at
+            if ts is None or ts > cutoff:
+                continue
+            folder = os.path.dirname(r.source_path)
+            if folder and os.path.isdir(folder):
+                shutil.rmtree(folder, ignore_errors=True)
+            r.source_purged_at = now
+            purged += 1
+        if purged:
+            await session.commit()
+    return purged
+
+
 async def startup_sweep() -> None:
     """启动恢复（照 dossier sweep 先例）：running 且无线程→failed(interrupted)；
     queued 缺源→need_reupload；有源 queued 保持位次（dispatcher 会接手）。"""
@@ -1617,3 +1657,11 @@ async def startup_sweep() -> None:
     from deconstruct import imports
 
     await imports.sweep()
+
+    # 原文 TTL 清理（c-deconstruct-compliance-guard）：终态满 7 天的任务目录删除
+    try:
+        purged = await purge_expired_sources()
+        if purged:
+            _log.info("event=deconstruct_source_purged count=%s", purged)
+    except Exception:  # noqa: BLE001 — 清理失败不阻启动（下轮再试）
+        _log.exception("event=deconstruct_source_purge_failed")

@@ -14,6 +14,9 @@ import {
   getDeconstructEvidence,
   getDeconstructProduct,
   getDeconstructTask,
+  getDeconstructConsent,
+  signDeconstructConsent,
+  retryDeconstructConsent,
   cancelImportBook,
   importBookFromTask,
   listDeconstructTasks,
@@ -35,6 +38,19 @@ beforeEach(() => state.fetch.mockReset());
 afterEach(() => vi.restoreAllMocks());
 
 describe("deconstructApi", () => {
+  it("consent 三端点：读、签、重试都走 /api/deconstruct/consent", async () => {
+    state.fetch.mockResolvedValueOnce(jsonResponse(200, { signed: true, version: "v1" }));
+    expect((await getDeconstructConsent()).signed).toBe(true);
+    state.fetch.mockResolvedValueOnce(jsonResponse(200, { signed: true }));
+    await signDeconstructConsent();
+    state.fetch.mockResolvedValueOnce(jsonResponse(200, { signed: true }));
+    await retryDeconstructConsent();
+    const urls = state.fetch.mock.calls.map((c) => String(c[0]));
+    expect(urls[0]).toContain("/api/deconstruct/consent");
+    expect(urls[1]).toContain("/api/deconstruct/consent");
+    expect(urls[2]).toContain("/api/deconstruct/consent/retry");
+  });
+
   it("listDeconstructTasks 走 request JSON", async () => {
     state.fetch.mockResolvedValue(jsonResponse(200, { tasks: [], heartbeat: { running: 0, queued: 0 }, badge: 0 }));
     expect((await listDeconstructTasks()).badge).toBe(0);

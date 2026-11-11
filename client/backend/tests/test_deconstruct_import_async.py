@@ -9,6 +9,7 @@ import contextlib
 import json
 import os
 import tempfile
+from datetime import UTC, datetime
 
 import pytest
 
@@ -90,6 +91,54 @@ def client():
     yield c
     app.dependency_overrides.clear()
     c.__exit__(None, None, None)
+
+
+async def _seed_consent():
+    """本文件专注建书状态机：统一给测试用户一条已同步的承诺签署记录。"""
+    from sqlalchemy import select
+
+    from deconstruct.consent import CONSENT_TEXT_SHA256, CONSENT_VERSION
+    from models.deconstruct import DeconstructConsent
+
+    async with async_session() as s:
+        row = (
+            await s.scalars(
+                select(DeconstructConsent).where(
+                    DeconstructConsent.user_id == _UID,
+                    DeconstructConsent.agreement_version == CONSENT_VERSION,
+                )
+            )
+        ).first()
+        if row is None:
+            s.add(
+                DeconstructConsent(
+                    user_id=_UID,
+                    agreement_version=CONSENT_VERSION,
+                    agreement_text_sha256=CONSENT_TEXT_SHA256,
+                    signed_at=datetime.now(UTC).replace(tzinfo=None),
+                    sync_state="synced",
+                )
+            )
+            await s.commit()
+
+
+@pytest.fixture(autouse=True)
+def _consent_and_build_ack(client, monkeypatch):
+    """建书硬门的前置：已签署＋已确认。测试只关心建书语义，不重复演合规交互。"""
+    _run(_seed_consent())
+    orig = client.post
+
+    def post(url, *args, **kwargs):
+        if url.endswith("/import-book"):
+            body = kwargs.get("json")
+            if isinstance(body, dict):
+                kwargs["json"] = {**body, "build_ack": True}
+            elif body is None:
+                kwargs["json"] = {"build_ack": True}
+        return orig(url, *args, **kwargs)
+
+    monkeypatch.setattr(client, "post", post, raising=False)
+    yield
 
 
 def _product(dim: str, file: str, data: dict) -> dict:
@@ -784,3 +833,62 @@ def test_quota_reject_never_calls_condense(client, monkeypatch):
     assert "最多创建" in r.json()["detail"]
     assert calls["condense"] == 0
     assert _get("imp-quota-403")["status"] == "completed"  # 没进入建书态
+
+
+def _set_consent_state(state: str) -> None:
+    async def _go():
+        from sqlalchemy import update
+
+        from models.deconstruct import DeconstructConsent
+
+        async with async_session() as s:
+            await s.execute(
+                update(DeconstructConsent)
+                .where(DeconstructConsent.user_id == _UID)
+                .values(sync_state=state)
+            )
+            await s.commit()
+
+    _run(_go())
+
+
+def test_build_requires_build_ack(client):
+    """建书硬门（c-deconstruct-compliance-guard）：未勾确认不进入受理。"""
+    _mk("imp-ack")
+    r = client.request(
+        "POST", "/api/deconstruct/tasks/imp-ack/import-book", json={}
+    )
+    assert r.status_code == 409
+    assert "确认" in r.json()["detail"]
+
+
+def test_build_blocked_when_consent_not_synced(client):
+    """承诺未存证（待同步/待登录）时建书挡回，导出不受影响。"""
+    _mk("imp-consent-pending")
+    _set_consent_state("pending")
+    try:
+        r = client.post(
+            "/api/deconstruct/tasks/imp-consent-pending/import-book", json={}
+        )
+        assert r.status_code == 409
+        assert "存证" in r.json()["detail"] or "同步" in r.json()["detail"]
+    finally:
+        _set_consent_state("synced")
+
+
+def test_build_uses_requested_book_name(client):
+    """建书书名可编辑（spec 建书前的合规确认）：请求里的书名落到任务与新书。"""
+    _mk("imp-name")
+    r = client.post(
+        "/api/deconstruct/tasks/imp-name/import-book",
+        json={"items": ["intro"], "book_name": "改名后的书"},
+    )
+    assert r.status_code == 202, r.text
+    _drive("imp-name")
+
+    async def _name():
+        async with async_session() as s:
+            row = await s.get(DeconstructJob, "imp-name")
+            return row.book_name
+
+    assert _run(_name()) == "改名后的书"
