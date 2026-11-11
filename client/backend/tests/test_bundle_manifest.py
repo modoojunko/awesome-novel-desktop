@@ -55,6 +55,15 @@ def test_datas_sources_exist_and_no_prompts():
     assert "prompts" not in joined, "提示词模板禁止回清单（CDN 加密包硬切，c-prompt-pack-client）"
 
 
+def test_no_bundled_taxonomy():
+    """c-kb-tree-cdn：知识树是 CDN 数据，包内零 taxonomy（与 prompts 同款门禁）。"""
+    m = _manifest()
+    assert "kb/data" not in {dest for _src, dest in m.DATAS}, "kb/data 禁止回清单"
+    assert not (BACKEND / "kb" / "data" / "taxonomy.json").exists(), (
+        "包内 taxonomy.json 必须删除——树只从 knowledge/tree 获取（kb.tree_sync）"
+    )
+
+
 def test_both_engines_consume_manifest():
     m = _manifest()
     for engine in ("build.spec", "build_nuitka.py"):

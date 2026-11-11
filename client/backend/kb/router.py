@@ -1416,7 +1416,14 @@ async def graph_tree_api(
     # 手录/改名行撞「写作知识」标题时 concept 必属六类，不会顶替真根（评审 P2）
     root_rows = [e for e in rows if not e.parent_id and e.title == "写作知识" and e.concept == ""]
     roots = []
-    if root_rows:
+    # c-kb-tree-cdn：树是 CDN 数据——未同步/损坏时排序降级为标题序，
+    # 旧 DB 根行（用户数据）仍可展示，不 500。
+    from kb.taxonomy import is_ready as taxonomy_ready
+    from kb.tree_sync import tree_state
+
+    tree_meta = tree_state()
+    tax_order: dict[str, int] = {}
+    if root_rows and taxonomy_ready():
         from kb.taxonomy import nodes as taxonomy_nodes
 
         # 注意：nodes() 是 key→节点 dict；序要取节点的 title（行上没有 key）
@@ -1509,4 +1516,28 @@ async def graph_tree_api(
         for f, t, rt in rel_rows
         if f in by_id and t in by_id
     ]
-    return {"ok": True, "data": {"roots": roots, "rel_edges": edges}}
+    return {"ok": True, "data": {"roots": roots, "rel_edges": edges, "tree": tree_meta}}
+
+
+# ─── 知识树同步（c-kb-tree-cdn）：树是 CDN 数据，端点只做诊断/手动触发 ──
+
+
+@router.get("/tree/sync-status")
+async def tree_sync_status_api(user: dict = Depends(get_current_user)):
+    from kb.tree_sync import tree_state
+
+    return {"ok": True, "data": tree_state()}
+
+
+@router.get("/tree/probe")
+async def tree_probe_api(user: dict = Depends(get_current_user)):
+    from kb.tree_sync import probe_latest
+
+    return {"ok": True, "data": await probe_latest()}
+
+
+@router.post("/tree/sync")
+async def tree_sync_api(user: dict = Depends(get_current_user)):
+    from kb.tree_sync import sync_tree
+
+    return {"ok": True, "data": await sync_tree()}

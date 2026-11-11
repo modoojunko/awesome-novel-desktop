@@ -139,6 +139,11 @@ async def _refine_on(db: AsyncSession, *, user_id: str, genre: str, llm: bool) -
     )
     from kb.taxonomy import nodes as taxonomy_nodes
 
+    # c-kb-tree-cdn：树未同步＝没有锚点可挂——明确失败（不再"成功但 0 步"空转，
+    # refine_task 会把非 llm 错误直接置 failed，不重试）
+    if not taxonomy_nodes():
+        return None, "tree_not_ready"
+
     other, staged = await _stage_rows(db, user_id, genre)
     if other is None or not staged:
         return {"staged": 0, "moved": 0, "nodes_created": 0, "kept": 0}, ""

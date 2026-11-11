@@ -23,6 +23,7 @@ const api = vi.hoisted(() => ({
   entry: vi.fn(),
   instancesFlat: vi.fn(),
   baselineProbe: vi.fn(),
+  treeSyncStatus: vi.fn(),
   graphAggregate: vi.fn(),
   graphCell: vi.fn(),
 }));
@@ -125,6 +126,8 @@ beforeEach(() => {
   api.listInstances.mockResolvedValue({ ok: true, instances: [] });
   // 实例行列表（c-kb-instance-list）：默认空集——实例臂空态走「记一条」卡
   api.instancesFlat.mockResolvedValue({ ok: true, rows: [] });
+  // 知识树同步状态（c-kb-tree-cdn）：默认已就绪，未同步臂用例自设
+  api.treeSyncStatus.mockResolvedValue({ ready: true, version: 2, taxonomy_sha256: "", path: "" });
   // 统一行点行取详情：默认回列表同款条目（失败臂用例自设 Once 拒绝）
   api.entry.mockResolvedValue(entry());
 });

@@ -179,6 +179,17 @@ export default function KnowledgeBasePage() {
   // 官方知识探测结果（c-kb-baseline-update-ux）：页头入口显示版本号；
   // null＝本页尚未探测过（入口仍可点，弹窗内自查）
   const [kbProbe, setKbProbe] = useState(getLastKbProbe());
+  // c-kb-tree-cdn：知识树同步状态（null=未探测；false=未同步，提炼禁用）
+  const [treeReady, setTreeReady] = useState<boolean | null>(null);
+
+  // 树同步状态只拉一次（设备级，不随题材/页签变）；失败静默＝按可用渲染（后端自会拒绝）
+  useEffect(() => {
+    let alive = true;
+    kbApi.treeSyncStatus()
+      .then((s) => { if (alive) setTreeReady(s.ready); })
+      .catch(() => { /* 探测失败不打扰；后端 tree_not_ready 兜底 */ });
+    return () => { alive = false; };
+  }, []);
 
   // 官方知识更新探测（c-kb-baseline-update-ux）：进页静默探测一次（照书架
   // 提示词探测先例，claim 去重）；有新版且未被「暂不更新」锚压制→自动弹
@@ -426,7 +437,8 @@ export default function KnowledgeBasePage() {
           </button>
           <button
             data-testid="kb-refine-btn"
-            disabled={refineBusy}
+            disabled={refineBusy || treeReady === false}
+            title={treeReady === false ? "知识树还没从 CDN 同步下来，联网重启后自动同步" : undefined}
             onClick={() => setShowRefineConfirm(true)}
             className="rounded-md border border-[var(--accent)] px-3 py-1.5 text-[12px] text-[var(--accent)] hover:bg-[var(--accent-soft)] disabled:opacity-50"
           >
