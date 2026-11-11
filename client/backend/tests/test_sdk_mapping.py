@@ -198,3 +198,18 @@ def test_sdk_例句哨兵归零():
     entries, _ = sdk.map_deconstruct_products("u1", "t1", "悬疑", products)
     e = next(x for x in entries if x.title == "旧案")
     assert "quotes" not in json.loads(e.evidence_json or "{}")
+
+
+def test_sdk_角色字段级证据_passthrough与键面过滤():
+    """boss 2026-11-11：角色卡每格原句——field_quotes 原样进 payload，
+    非档案字段的键与空值被过滤。"""
+    products = {"characters": {"data": {"characters": [{
+        "name": "梁教授", "role": "主角", "persona": "坐轮椅的老刑警",
+        "look": "总穿旧夹克",
+        "field_quotes": {"look": "他总穿那件洗得发白的旧夹克。", "bogus": "不该出现", "speech": "  "},
+        "evidence_ch": "第1章",
+    }]}}}
+    entries, _ = sdk.map_deconstruct_products("u1", "t1", "悬疑", products)
+    e = next(x for x in entries if x.title == "梁教授")
+    payload = json.loads(e.payload_json)
+    assert payload["field_quotes"] == {"look": "他总穿那件洗得发白的旧夹克。"}, payload

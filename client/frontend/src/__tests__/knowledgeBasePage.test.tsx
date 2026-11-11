@@ -430,6 +430,25 @@ describe("fieldsOf（实例字段：知识点模板序在前）", () => {
     expect(rows.map(([, v]) => v)).not.toContain("吐槽穿插：惊悚推进中插入主角内心吐槽或黑色幽默独白，调节节奏并强化爽感");
   });
 
+  it("角色卡逐字段原句：有原句的格带第三元、field_quotes 本身不成行", () => {
+    const row = {
+      row_kind: "instance",
+      concept: "角色设定",
+      text: "沉默寡言的老法医",
+      fields_json: JSON.stringify({
+        persona: "沉默寡言的老法医",
+        look: "总穿一件旧夹克",
+        field_quotes: { look: "他总穿那件洗得发白的旧夹克。", speech: "凶手把一个人锯成了麻将。" },
+      }),
+    } as unknown as Parameters<typeof fieldsOf>[0];
+    const rows = fieldsOf(row);
+    expect(rows.map(([label]) => label)).not.toContain("field_quotes");
+    const look = rows.find(([label]) => label === "外貌标签");
+    expect(look?.[2]).toBe("他总穿那件洗得发白的旧夹克。");
+    // 无对应字段值的原句不单独出行（speech 未抽到值 → 不出行）
+    expect(rows.map(([label]) => label)).not.toContain("语感口音");
+  });
+
   it("模板序循环的同值字段同样跳过（schema 循环同防线）", () => {
     const row = {
       row_kind: "instance",
