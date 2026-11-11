@@ -267,6 +267,15 @@ async def lifespan(app: FastAPI):
     except Exception as _e:  # noqa: BLE001 — 挂接失败不挡启动
         _log.warning("kb baseline sync schedule failed: %s", _e)
 
+    # ── 知识树同步（c-kb-tree-cdn）：树是 CDN 数据不是包内资产——启动补偿拉
+    #    knowledge/tree；KB_TREE_SYNC=0 关；失败静默（空树＝总结/提炼明确不可用） ──
+    try:
+        from kb.tree_sync import schedule_sync as schedule_tree_sync
+
+        schedule_tree_sync()
+    except Exception as _e:  # noqa: BLE001 — 挂接失败不挡启动
+        _log.warning("kb tree sync schedule failed: %s", _e)
+
     # ── 知识整理启动钩（c-kb-organize）：僵尸 running sweep＋runs 保留＋>7 天题材整理 ──
     try:
         from kb.organize import startup_sweep_and_maybe_run

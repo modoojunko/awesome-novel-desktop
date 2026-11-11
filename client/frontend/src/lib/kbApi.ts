@@ -462,8 +462,18 @@ export const kbApi = {
       unwrap<unknown>(request(`${BASE}/refine/tasks/${encodeURIComponent(id)}`, { method: "DELETE" })),
   },
   graphTree: (genre: string) =>
-    unwrap<{ roots: { id: string; kind: string; genre: string; concept: string; children: unknown[] }[]; rel_edges: { source: string; target: string; rel_type: string }[] }>(
+    unwrap<{
+      roots: { id: string; kind: string; genre: string; concept: string; children: unknown[] }[];
+      rel_edges: { source: string; target: string; rel_type: string }[];
+      /** c-kb-tree-cdn：知识树同步状态（未同步＝ready:false，总结/提炼不可用） */
+      tree: { ready: boolean; version: number; taxonomy_sha256: string; path: string };
+    }>(
       request(`${BASE}/graph/tree?genre=${encodeURIComponent(genre)}`),
+    ),
+  /** 知识树同步状态（c-kb-tree-cdn）：ready/version/缓存路径 */
+  treeSyncStatus: () =>
+    unwrap<{ ready: boolean; version: number; taxonomy_sha256: string; path: string }>(
+      request(`${BASE}/tree/sync-status`),
     ),
   /** 有用/没用回写（c-kb-write-block 批D）：账号级权重，可重复调用＝可改口 */
   pref: (entryId: string, useful: boolean) =>

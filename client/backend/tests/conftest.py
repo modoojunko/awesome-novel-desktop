@@ -6,6 +6,7 @@ import os
 import sys
 import tempfile
 import types
+from pathlib import Path
 
 import pytest
 from sqlalchemy import text
@@ -239,6 +240,16 @@ os.environ.setdefault("DECONSTRUCT_BACKOFF_SCALE", "0")
 # c-kb-baseline：TestClient 会跑 lifespan → 启动补偿会真联网并抢共享 SQLite 写锁
 # （CI 实锤 database is locked）。测试默认关掉；要同步的用例直接调 sync_baseline()
 os.environ.setdefault("KB_BASELINE_SYNC", "0")
+# c-kb-tree-cdn：知识树同步同理——TestClient lifespan 不许真联网拉树；
+# 要同步的用例直接调 sync_tree()（fake CDN 由该用例自备）
+os.environ.setdefault("KB_TREE_SYNC", "0")
+# c-kb-tree-cdn：树是 CDN 数据不是包内资产——包内已无 taxonomy；测试用夹具树
+# （=内容仓 taxonomy/taxonomy.json 同一份）经 KB_TAXONOMY_PATH 播种真实加载器，
+# 内容依赖测试（summarize/refine/tree 装配）保持原断言不变
+os.environ.setdefault(
+    "KB_TAXONOMY_PATH",
+    str(Path(__file__).resolve().parent / "fixtures" / "taxonomy" / "taxonomy.json"),
+)
 from schema_version import active_db_filename as _active_db_filename
 
 os.environ["DATABASE_URL"] = (

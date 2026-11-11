@@ -24,6 +24,7 @@ const api = vi.hoisted(() => ({
   relationFeedback: vi.fn(),
   instancesFlat: vi.fn(),
   baselineProbe: vi.fn(),
+  treeSyncStatus: vi.fn(),
 }));
 
 vi.mock("@/lib/kbApi", async (orig) => {
@@ -38,6 +39,7 @@ vi.mock("@/lib/kbApi", async (orig) => {
       genres: api.genres,
       instancesFlat: api.instancesFlat,
       baselineProbe: api.baselineProbe,
+      treeSyncStatus: api.treeSyncStatus,
       organize: {
         ...actual.kbApi.organize,
         entryRelations: api.entryRelations,
@@ -107,6 +109,9 @@ beforeEach(() => {
   api.instancesFlat.mockResolvedValue({ ok: true, rows: [] });
   // 官方知识探测（c-kb-baseline-update-ux）：默认同版静默
   api.baselineProbe.mockResolvedValue({ installed: 3, latest: 3, update_available: false });
+  // 知识树同步状态（c-kb-tree-cdn）：默认已就绪（未同步臂用例自设）
+  api.treeSyncStatus = api.treeSyncStatus || vi.fn();
+  api.treeSyncStatus.mockResolvedValue({ ready: true, version: 2, taxonomy_sha256: "", path: "" });
   window.localStorage.removeItem("kb-sync-dismissed");
 });
 

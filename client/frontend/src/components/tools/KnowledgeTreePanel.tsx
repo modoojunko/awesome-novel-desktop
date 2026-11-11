@@ -24,6 +24,7 @@ export default function KnowledgeTreePanel({
   const [roots, setRoots] = useState<TreeNode[]>([]);
   const [rows, setRows] = useState<KbInstanceRow[]>([]);
   const [loading, setLoading] = useState(false);
+  const [treeReady, setTreeReady] = useState<boolean | null>(null);
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
   const [drawerNode, setDrawerNode] = useState<TreeNode | null>(null);
 
@@ -38,6 +39,7 @@ export default function KnowledgeTreePanel({
         ]);
         if (!alive) return;
         setRoots(tree.roots as unknown as TreeNode[]);
+        setTreeReady(tree.tree?.ready ?? null);
         setRows(flat.rows.filter((x): x is KbInstanceRow => x.row_kind === "instance"));
         // 默认展开到第二层（根＋枝干可见，叶子收起）
         const init = new Set<string>();
@@ -121,11 +123,24 @@ export default function KnowledgeTreePanel({
     return <div data-testid="kb-tree-panel" className="p-6 text-[12px] text-[var(--muted)]">树装载中…</div>;
   }
   if (!roots.length) {
+    // c-kb-tree-cdn：树未同步 ≠ 没有知识点——口径分开说，别误导用户去收录
+    if (treeReady === false) {
+      return (
+        <div data-testid="kb-tree-panel" data-tree-ready="false" className="p-6 text-[12px] text-[var(--muted)]">
+          知识树还没从 CDN 同步下来——联网重启应用后会自动同步；同步前「知识提炼」「知识总结」暂不可用。
+        </div>
+      );
+    }
     return <div data-testid="kb-tree-panel" className="p-6 text-[12px] text-[var(--muted)]">这个题材还没有知识点——收录拆书或点「知识提炼」会长出来。</div>;
   }
   return (
     <>
       <div data-testid="kb-tree-panel" className="mx-auto max-w-4xl px-6 py-4">
+        {treeReady === false && (
+          <p data-testid="kb-tree-degraded" className="mb-2 text-[11px] text-[var(--muted)]">
+            知识树未同步：现有知识点按默认顺序展示；联网重启后恢复层次与「知识提炼」。
+          </p>
+        )}
         {roots.map((r) => renderNode(r, 0, []))}
       </div>
       {drawerNode && (

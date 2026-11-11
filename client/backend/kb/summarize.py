@@ -235,6 +235,13 @@ async def run_summarize(
     取素材 payload 属性格与 schema 字段名对齐后的键值），素材行归档。
     返回 (摘要 dict, error)；单飞命中返回 (None, "running")。
     """
+    from kb.taxonomy import is_ready as taxonomy_ready
+
+    # c-kb-tree-cdn：树是 CDN 数据不是本地资产——未同步＝没有层次可挂，
+    # 明确拒绝（不再回落硬编码「写作知识→其他」造本地知识）。
+    if not taxonomy_ready():
+        return None, "tree_not_ready"
+
     await ensure_kb_summarize(db)
 
     # 单飞：同题材 30 分钟内的 running 即跳过；超时孤儿（进程中途死掉）置 error 回收
@@ -569,6 +576,11 @@ async def maybe_auto_summarize(*, user_id: str) -> list[str]:
 
 
 async def _maybe_auto_summarize(db: AsyncSession, *, user_id: str) -> list[str]:
+    from kb.taxonomy import is_ready as taxonomy_ready
+
+    # c-kb-tree-cdn：树未同步＝没有层次可挂，自动钩整体跳过（run_summarize 也会拒）
+    if not taxonomy_ready():
+        return []
     await ensure_kb_summarize(db)
     stats = await material_stats(db, user_id=user_id)
     triggered: list[str] = []
