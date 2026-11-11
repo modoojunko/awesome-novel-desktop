@@ -134,6 +134,24 @@ class CharacterPayload(BaseModel):
     # 知识侧标注
     relation_slot: str | None = Field(None, max_length=80)
     arc: str | None = Field(None, max_length=160)
+    # 逐字段原句证据（boss 2026-11-11）：{字段名: 该字段的原书例句}——角色卡每格
+    # 都要能看出「有原句/原文未明确」；键面限档案八格＋persona，值逐条 clamp 120
+    field_quotes: dict[str, str] | None = None
+
+    @field_validator("field_quotes")
+    @classmethod
+    def _clamp_field_quotes(cls, v: dict[str, str] | None) -> dict[str, str] | None:
+        if v is None:
+            return None
+        allowed = {"persona", "gender", "age", "race", "faction", "look",
+                   "speech", "background", "plot"}
+        out = {
+            str(k): str(vv).strip()[:120]
+            for k, vv in v.items()
+            if str(k) in allowed and str(vv).strip()
+        }
+        return out or None
+
     # 拆书可信度（2026-11-08 与四维同口径——产物里有、此前收集时丢）
     confidence: Literal["high", "mid", "low"] | None = None
 
