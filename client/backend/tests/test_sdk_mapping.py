@@ -143,3 +143,35 @@ def test_sdk_去冗余_拼装份与名字头():
     wp = json.loads(world.payload_json)
     assert wp["content"] == "树脂封装遗体可高价出售", wp  # content 纯案例（双层头剥净）
     assert world.instruction.rstrip("。") == "琥珀遗体：树脂封装遗体可高价出售", world.instruction
+
+
+def test_sdk_角色与世界_quote接入evidence():
+    """boss 2026-11-11：角色/世界设定必须有原书段落作证——quote 进
+    evidence_json.quotes 随条目走（基线 example 列消费）；裸串 stage 不误取。"""
+    products = {
+        "world": {"file": "世界.md", "data": {
+            "stage": {"content": "狂欢游戏场各副本", "quote": "玩家被随机投入各副本。"},
+            "factions": [{"name": "主神空间", "note": "控制玩家的幕后势力（第2章）", "quote": "你们的积分由主神结算。"}],
+            "extra": [{"key": "琥珀遗体", "value": "树脂封装遗体可高价出售", "quote": "琥珀里的遗体卖出天价。"}],
+        }},
+        "characters": {"file": "角色.md", "data": {"characters": [{
+            "name": "童姚", "role": "主角", "persona": "冷静果断的玩家",
+            "quote": "童姚不敢耽误，立刻冲了上去。", "evidence_ch": "第1章",
+        }]}},
+    }
+    entries, warnings = sdk.map_deconstruct_products("u1", "t1", "志怪/民俗灵异", products)
+    assert warnings == [], warnings
+    by_title = {e.title: e for e in entries}
+
+    stage = json.loads(by_title["舞台"].evidence_json or "{}")
+    assert stage.get("quotes") == [{"loc": "", "text": "玩家被随机投入各副本。"}], stage
+
+    fac = json.loads(by_title["主神空间"].evidence_json or "{}")
+    assert fac["quotes"][0]["text"] == "你们的积分由主神结算。", fac
+    assert fac["quotes"][0]["loc"] == "第2章", fac  # 章锚从内容括号剥出
+
+    amber = json.loads(by_title["琥珀遗体"].evidence_json or "{}")
+    assert amber["quotes"][0]["text"] == "琥珀里的遗体卖出天价。", amber
+
+    ch = json.loads(by_title["童姚"].evidence_json or "{}")
+    assert ch.get("quotes") == [{"loc": "第1章", "text": "童姚不敢耽误，立刻冲了上去。"}], ch
