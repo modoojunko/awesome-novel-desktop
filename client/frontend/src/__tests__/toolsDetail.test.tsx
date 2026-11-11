@@ -1731,6 +1731,9 @@ describe("合规（c-deconstruct-compliance-guard）", () => {
     });
     renderPage();
     await waitFor(() => expect(screen.getByText("本机签署")).toBeInTheDocument());
-    expect(screen.getByText("重试同步")).toBeInTheDocument();
+    state.retryConsent.mockResolvedValue({});
+    fireEvent.click(screen.getByText("重试同步"));
+    await waitFor(() => expect(state.retryConsent).toHaveBeenCalled());
+    cleanup();  // 清掉重试后的 2s/5s/10s 轮询定时器，避免跨用例 act 警告
   });
 });

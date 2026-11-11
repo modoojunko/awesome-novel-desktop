@@ -195,6 +195,7 @@ export default function TaskDetailPage() {
   const [buildAck, setBuildAck] = useState(false);
   const [buildName, setBuildName] = useState("");
   const [consentBusy, setConsentBusy] = useState(false);
+  const consentPollTimers = useRef<number[]>([]);
 
   const { data: task, error: taskErr } = useQuery({
     queryKey: queryKeys.deconstructTask(id),
@@ -213,6 +214,11 @@ export default function TaskDetailPage() {
   useEffect(() => {
     if (task && task.status !== "failed" && task.status !== "cancelled") setResuming(false);
   }, [task?.status]);
+
+  useEffect(() => () => {
+    for (const id of consentPollTimers.current) window.clearTimeout(id);
+    consentPollTimers.current = [];
+  }, []);
 
   useEffect(() => {
     if (exitOpen && task) {
@@ -512,10 +518,12 @@ export default function TaskDetailPage() {
     void retryDeconstructConsent()
       .then(() => {
         void queryClient.invalidateQueries({ queryKey: queryKeys.deconstructTask(task.id) });
-        window.setTimeout(
-          () => void queryClient.invalidateQueries({ queryKey: queryKeys.deconstructTask(task.id) }),
-          2000,
-        );
+        // 冷启动可能几十秒：多点几次刷新，避免重试后界面停在旧状态
+        for (const delay of [2000, 5000, 10000]) {
+          consentPollTimers.current.push(window.setTimeout(() => {
+            void queryClient.invalidateQueries({ queryKey: queryKeys.deconstructTask(task.id) });
+          }, delay));
+        }
       })
       .catch((e) => toast.error(e instanceof Error ? e.message : "重试同步失败"))
       .finally(() => setConsentBusy(false));

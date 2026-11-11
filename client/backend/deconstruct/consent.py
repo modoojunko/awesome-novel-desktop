@@ -36,6 +36,10 @@ CONSENT_TEXT = (
 
 CONSENT_TEXT_SHA256 = hashlib.sha256(CONSENT_TEXT.encode("utf-8")).hexdigest()
 
+# 换设备恢复的短超时：S端 冷启动可到 60s，但页面加载不能等那么久；
+# 超时按未签署返回，用户本机签署后由后台 sync 幂等补齐。
+RESTORE_TIMEOUT_SECONDS = 8
+
 # 建书硬门：synced 或 local（S端 未上线降级）才允许；pending/login/failed 挡住。
 BUILD_ALLOWED_STATES = frozenset({"synced", "local"})
 
@@ -110,7 +114,14 @@ async def _restore_from_server(db, user_id: str) -> DeconstructConsent | None:
     """
     from auth_local.service import call_server_api
 
-    resp = await call_server_api("deconstruct/consents", method="GET", with_token=True)
+    try:
+        resp = await asyncio.wait_for(
+            call_server_api("deconstruct/consents", method="GET", with_token=True),
+            timeout=RESTORE_TIMEOUT_SECONDS,
+        )
+    except TimeoutError:
+        log.info("event=deconstruct_consent.restore_timeout user=%s", user_id)
+        return None
     if resp.get("code") != 0:
         return None
     data = resp.get("data") if isinstance(resp.get("data"), dict) else {}

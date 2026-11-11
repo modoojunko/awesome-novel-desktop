@@ -330,3 +330,20 @@ def test_restore_is_idempotent_on_unique_conflict(monkeypatch):
             assert (await consent._current(s, _UID)).id == existing.id
 
     _run(_go())
+
+def test_restore_timeout_returns_unsigned(monkeypatch):
+    """恢复短超时：S端 冷启动不能把创建页卡 60 秒，超时按未签署返回。"""
+    import auth_local.service as svc
+
+    async def slow(*args, **kwargs):
+        await asyncio.sleep(0.05)
+        return {"code": 0, "data": {"items": []}}
+
+    monkeypatch.setattr(svc, "call_server_api", slow)
+    monkeypatch.setattr(consent, "RESTORE_TIMEOUT_SECONDS", 0.01)
+
+    async def _go():
+        async with async_session() as s:
+            assert (await consent.get_status(s, _UID, restore=True))["signed"] is False
+
+    _run(_go())

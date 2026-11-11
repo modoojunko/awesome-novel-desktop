@@ -70,6 +70,9 @@
   「重试同步」；S端 上线后 10 分钟内自动转 `synced`。
 - **恢复幂等**：`_restore_from_server` 捕获唯一键冲突，回滚后返回已存在行，不再 500。
 - **导出默认值**：`export_products(consent_synced=False)` 改为保守默认，只有导出端点传真实同步状态。
+- **恢复短超时**：换设备恢复用 `asyncio.wait_for(..., RESTORE_TIMEOUT_SECONDS=8)`，冷启动超时按
+  未签署返回，不再把创建页卡 60 秒；本机签署后由后台 sync 幂等补齐。
+- **重试轮询**：`local/pending/failed` 点「重试同步」后按 2s/5s/10s 再刷三次，卸载时清定时器。
 
 ## 灰度观察
 
