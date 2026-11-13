@@ -494,10 +494,10 @@ def test_reconcile重收后产物已被剥_不再复活(monkeypatch):
     before = _count(KbEntry, KbEntry.src_kind == "deconstruct")
     assert _count(KbEntry, KbEntry.src_kind == "deconstruct") == before
     # 撤回书单内的世界/角色必须为零；非撤回书（如「我的原创书」对照组）保留
-    from kb.world_char_purge import _is_withdrawn_book
+    from kb.world_char_purge import is_withdrawn_book
 
     assert not any(
-        e.concept in ("世界设定", "角色设定") and _is_withdrawn_book(e.src_novel_name)
+        e.concept in ("世界设定", "角色设定") and is_withdrawn_book(e.src_novel_name)
         for e in _run(_all_deconstruct_entries(ids["uid"]))
     )
 

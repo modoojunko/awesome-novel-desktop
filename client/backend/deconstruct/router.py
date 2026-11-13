@@ -44,6 +44,21 @@ def _require(task, user: dict):
         raise HTTPException(404, "任务不存在")  # 不泄露他人任务存在性
 
 
+def _require_not_withdrawn(task) -> None:
+    """撤回书闸（版权合规 2026-11-13）：五本撤回书的任务禁止再产出。
+
+    建书/收录角色卡/收录知识库三个出口共用——产物拔根（kb/world_char_purge
+    剥 products 的 world/characters 段）只断了重收 resurrect，这三条手动出口
+    仍能把同源派生内容写进新书设定/知识库/角色库，必须在入口拦下。
+    """
+    from kb.world_char_purge import is_withdrawn_book
+
+    if is_withdrawn_book(getattr(task, "book_name", "")):
+        raise HTTPException(
+            403, "该书因版权合规已撤回，无法建书或收录其拆书产物"
+        )
+
+
 @router.get("/consent")
 async def get_consent(
     user: dict = Depends(get_current_user),
@@ -390,6 +405,7 @@ async def import_book(
 
     task = await service.get_task(db, task_id, _user_id(user))
     _require(task, user)
+    _require_not_withdrawn(task)
     if not task.api_config_id:
         raise HTTPException(409, "任务缺模型信息")
 
@@ -609,6 +625,7 @@ async def to_library(
 
     task = await service.get_task(db, task_id, _user_id(user))
     _require(task, user)
+    _require_not_withdrawn(task)
     if task.status not in service.RESULT_READY:
         raise HTTPException(409, "任务未完成，无法收录")
     try:
@@ -655,6 +672,7 @@ async def collect_to_kb(
 
     task = await service.get_task(db, task_id, _user_id(user))
     _require(task, user)
+    _require_not_withdrawn(task)
     if task.status != "completed":
         raise HTTPException(409, "任务未完成，无法收录")
 

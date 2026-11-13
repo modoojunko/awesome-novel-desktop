@@ -97,10 +97,10 @@ class TestReconcile:
         technique = {"name": "不可靠叙述开篇", "emotion_chain": "好奇→怀疑",
                      "repro_steps": ["先立异象", "再自我否认"], "evidence_ch": "第1章", "confidence": "high"}
         # 试拆（30 章，旧版只收角色）先收；全本（100 章，四维）不手动收——由收敛重收
-        # 试拆名带后缀（真机病灶：斩神-前30章 与 斩神 曾被当两本书）
-        old_job = _run(_mk_job(uid, "斩神-前30章", 30, _products([old_char])))
+        # 试拆名带后缀（真机病灶：试拆带 -前N章 后缀 曾被当两本书；书名用非撤回书——斩神 在 2026-11 撤回书单内被 reconcile 跳过）
+        old_job = _run(_mk_job(uid, "星轨-前30章", 30, _products([old_char])))
         _run(_collect(uid, old_job))
-        _run(_mk_job(uid, "斩神", 100, _products(new_chars, style_rule=style_rule, technique=technique)))
+        _run(_mk_job(uid, "星轨", 100, _products(new_chars, style_rule=style_rule, technique=technique)))
 
         before = _run(_counts(uid))
         assert before["mats"] == 1 and before["dims"].get("角色设定") == 1, before
@@ -112,7 +112,7 @@ class TestReconcile:
         _run(_go())  # 试拆版先总结（旧实例在库）
 
         r = _run(reconcile_deconstruct_versions(user_id=uid))
-        assert r.get("斩神") == "rebuilt", r
+        assert r.get("星轨") == "rebuilt", r
 
         after = _run(_counts(uid))
         # 四维素材经总结归档 → active 素材清零；实例来自全本（角色+文风规则+手法）
@@ -132,7 +132,7 @@ class TestReconcile:
 
         # 幂等：二跑 current 零改写
         r2 = _run(reconcile_deconstruct_versions(user_id=uid))
-        assert r2.get("斩神") == "current", r2
+        assert r2.get("星轨") == "current", r2
         assert _run(_counts(uid)) == after
 
     def test_共用知识点_单书拆除不误删(self):
