@@ -73,10 +73,11 @@ WORLD_CHAR_CONCEPTS = ("世界设定", "角色设定")
 STRIP_PRODUCT_DIMS = ("world", "characters")
 
 
-def _is_withdrawn_book(name: str) -> bool:
+def is_withdrawn_book(name: str) -> bool:
     """书名归一后命中撤回书单（斩神-前30章 → 斩神 → 命中）。
 
     每次从 WITHDRAWN_BOOKS 活值构建集合：测试 monkeypatch 书单即时生效。
+    对外公开——拆书出口闸（建书/收录）与 reconcile 跳过同用此单源。
     """
     from kb.version_reconcile import _norm_book
 
@@ -118,12 +119,12 @@ async def plan_world_char_purge(db, *, user_id: str | None = None) -> dict[str, 
             ).scalars().all()
             # 空节点（无实例）＝纯分类壳，直接删；有实例的只在全部来自撤回书单时删，
             # 混合来源的保留，避免误伤其他书。
-            if not books or all(_is_withdrawn_book(b or "") for b in books):
+            if not books or all(is_withdrawn_book(b or "") for b in books):
                 entry_ids.add(row.id)
             continue
         if (
             row.src_kind in ("deconstruct", "character_library_migration")
-            and _is_withdrawn_book(row.src_novel_name or "")
+            and is_withdrawn_book(row.src_novel_name or "")
         ):
             entry_ids.add(row.id)
 
@@ -160,7 +161,7 @@ async def plan_world_char_purge(db, *, user_id: str | None = None) -> dict[str, 
         )
     ).all()
     product_job_ids = [
-        row.id for row in job_rows if _is_withdrawn_book(row.book_name)
+        row.id for row in job_rows if is_withdrawn_book(row.book_name)
     ]
 
     counts = {

@@ -81,6 +81,12 @@ async def _reconcile_on(db, *, user_id: str) -> dict:
         )
     ).scalars().all()
     books = sorted({_norm_book(b) for b in raw_books})
+    # 撤回书跳过（版权合规 2026-11-13）：五本撤回书的手法/文风/文笔按拍板保留，
+    # 但 reconcile 的 teardown→全量重收会把产物里的世界/角色也收回来（再靠
+    # world_char_purge 清一遍）。直接不参与收敛——保留面原样不动，省一轮白忙。
+    from kb.world_char_purge import is_withdrawn_book
+
+    books = [b for b in books if not is_withdrawn_book(b)]
     result: dict[str, str] = {}
     for book in books:
         # canonical＝已完成任务中章数最大（并列取新）
