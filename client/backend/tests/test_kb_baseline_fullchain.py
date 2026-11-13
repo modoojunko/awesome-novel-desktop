@@ -42,6 +42,11 @@ def _content_repo() -> Path | None:
     cand.append(Path(__file__).resolve().parents[4] / "awesome-novel-knowledge")
     for p in cand:
         if p and (p / "tools" / "build.py").is_file():
+            # 2026-11-11 撤回硬闸（WITHDRAWN.md）：真实仓处于撤回态时 build 拒真打
+            # 包、在途条目也无仓内侧车——全链测试退回内联打包分支（自含、恒绿）；
+            # 将来删除 WITHDRAWN.md 重建后，真实仓分支自动恢复。
+            if (p / "WITHDRAWN.md").is_file():
+                continue
             return p
     return None
 

@@ -161,5 +161,5 @@ class TestConceptRegistry:
     def test_六概念封闭(self):
         assert len(CONCEPTS) == 6
 
-    def test_题材21类(self):
-        assert len(THEMES) == 21
+    def test_题材36类(self):
+        assert len(THEMES) == 36

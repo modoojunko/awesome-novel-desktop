@@ -387,20 +387,18 @@ def _vocab_lines(kind: str) -> str:
 
 
 async def _genre_vocab_names() -> str:
-    """题材库词表（每行一个展示名）——genre 维度 L1 注入 {genre_vocab}，让题材
+    """题材词表（每行一个展示名）——genre 维度 L1 注入 {genre_vocab}，让题材
     从词表逐字选词（对齐书架题材胶囊），词表外模型自行降 low。查询失败给空串
-    （模板分支回退自由词，不阻塞拆书）。"""
+    （模板分支回退自由词，不阻塞拆书）。
+
+    c-theme-catalog-36 根修：注入源＝**题材目录封闭大类**（`genres.theme_catalog`
+    ——词表与落位校验同一份）。此前读 DB `genres` 表预设，两份词表早已漂移
+    （「现实情感」等目录外词被模型选中后条目只能落「未定」，2026-11-13 拆书
+    批量实测），故改读目录。"""
     try:
-        from sqlalchemy import select
+        from genres.theme_catalog import THEME_NAMES
 
-        from db import async_session
-        from models.genre import Genre
-
-        async with async_session() as db:
-            names = (
-                await db.scalars(select(Genre.name).order_by(Genre.name))
-            ).all()
-        return "\n".join(str(n).strip() for n in names if str(n).strip())
+        return "\n".join(THEME_NAMES)
     except Exception:  # noqa: BLE001 — 词表拿不到不挡拆书
         return ""
 
