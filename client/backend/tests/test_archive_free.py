@@ -174,7 +174,10 @@ class TestFreeArchive:
 
         r3 = client.get(f"/api/novels/{pid}/archives/{filename}")
         assert r3.status_code == 200, r3.text
-        assert r3.json()["content"] == LONG_TEXT
+        # 出口带 AI 生成显式标识：正文原样在前，标识追加在后
+        _served = r3.json()["content"]
+        assert _served.startswith(LONG_TEXT)
+        assert "AI 辅助生成" in _served
 
     def test_new_book_settings_phase_archive_no_500(self, client):
         # N9：新书（settings 阶段）免费归档 —— tier_phase_transition force，不抛 ValueError
@@ -267,4 +270,7 @@ class TestFreeArchive:
 
         r5 = client.get(f"/api/novels/{pid}/archives/{written}")
         assert r5.status_code == 200, f"列表有、打不开：{written} → {r5.status_code}"
-        assert r5.json()["content"] == LONG_TEXT
+        # 出口带 AI 生成显式标识（标识办法第四条）：正文原样在前，标识追加在后
+        _served = r5.json()["content"]
+        assert _served.startswith(LONG_TEXT)
+        assert "AI 辅助生成" in _served
