@@ -10,8 +10,8 @@ import {
 // 题材目录（genre-signup-redesign 6.16/6.17）：
 // 每项都要有解读与案例；子类可选，缺子类时展示名就是大类本身。
 describe("题材目录", () => {
-  it("21 个大类，每个都有解读与至少一个子类", () => {
-    expect(THEMES).toHaveLength(21);
+  it("36 个大类，每个都有解读与至少一个子类", () => {
+    expect(THEMES).toHaveLength(36);
     for (const t of THEMES) {
       expect(t.desc.trim()).not.toBe("");
       expect(t.subTypes.length).toBeGreaterThan(0);

@@ -151,7 +151,8 @@ class TestThemeCatalogParity:
     def test_validation_helpers_agree_on_membership(self):
         from genres.theme_catalog import THEME_NAMES, sub_type_names, sub_types_of
 
-        assert len(THEME_NAMES) == 21
+        # 2026-11-13 大扩（c-theme-catalog-36）：21 → 36 类（女频 9＋男频 5＋中性 1）
+        assert len(THEME_NAMES) == 36
         assert sub_type_names("仙侠/修真") == [
             "古典仙侠",
             "凡人流",

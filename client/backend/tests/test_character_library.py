@@ -126,7 +126,8 @@ class TestCrud:
 
     def test_genre_must_be_in_book_theme_catalog(self, client):
         c, _ = client
-        r = c.post("/api/character-library", json=_card_body(genre="武侠"))
+        # 「武侠」在 c-theme-catalog-36 大扩后已是目录内大类，改用目录外词当反例
+        r = c.post("/api/character-library", json=_card_body(genre="克苏鲁"))
         assert r.status_code == 400
         assert r.json()["detail"]["code"] == "invalid_genre"
         # 目录内大类（含历史自由文本可归一的）通过；空＝未分题材
@@ -389,7 +390,8 @@ class TestGenreAlignment:
         assert normalize_theme("都市") == "都市"
         assert normalize_theme("古装玄幻") == "玄幻"  # 包含命中
         assert normalize_theme("仙侠") == "仙侠/修真"  # 反向包含
-        assert normalize_theme("武侠") == ""  # 目录外→未分题材
+        assert normalize_theme("武侠") == "武侠"  # c-theme-catalog-36 大扩后目录内
+        assert normalize_theme("克苏鲁") == ""  # 目录外→未分题材
         assert normalize_theme("") == ""
 
     def test_collect_inherits_book_theme(self, client):

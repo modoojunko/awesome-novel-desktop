@@ -211,7 +211,7 @@ describe("GenreSettingForm · 六格", () => {
     fireEvent.click(trigger);
     const panel = container.querySelector('[data-od-id="theme-panel"]')!;
     const themeRow = panel.querySelector('[data-od-id="theme-row"]')!;
-    expect(themeRow.querySelectorAll(".sel-item")).toHaveLength(21);
+    expect(themeRow.querySelectorAll(".sel-item")).toHaveLength(36);
 
     // 点左列大类＝**只浏览**：右列换成它的子类，字段值不动
     //（回归：原来点一下即选中 → 用户报「配置过的题材老是自动变成玄幻」）
