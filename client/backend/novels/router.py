@@ -709,10 +709,17 @@ async def _dump_project_snapshot(zf, db, project) -> None:
     def _yaml(name: str, data: dict) -> None:
         zf.writestr(name, yaml.safe_dump(data, allow_unicode=True, sort_keys=False))
 
+    from ai_label import AI_NOTICE
+
     zf.writestr(
         "project.json",
-        json.dumps(novel_to_dict(project), ensure_ascii=False, indent=2),
+        json.dumps(
+            {**novel_to_dict(project), "ai_notice": AI_NOTICE},
+            ensure_ascii=False, indent=2,
+        ),
     )
+    # AI 生成显式标识（标识办法第四条）：包内固定声明文件，显眼且机器可查
+    zf.writestr("AI-GENERATED.txt", AI_NOTICE + "\n")
 
     # 设定（KV 表）→ settings yaml 树
     storage = get_storage()

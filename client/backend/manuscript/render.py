@@ -59,6 +59,8 @@ def _prose_lines(prose: str) -> list[str]:
 
 
 def render_md(m: Manuscript) -> str:
+    from ai_label import with_ai_notice
+
     out: list[str] = [f"# {m.title}", ""]
     for vol in m.volumes:
         out += [f"## {_label('卷', vol.no, vol.title)}", ""]
@@ -66,10 +68,13 @@ def render_md(m: Manuscript) -> str:
             out += [f"### {_label('章', ch.no, ch.title)}", ""]
             for ln in _prose_lines(ch.prose):
                 out += [ln, ""]
-    return "\n".join(out).rstrip() + "\n"
+    # AI 生成显式标识（标识办法第四条；导出面统一，ai_label 单源）
+    return with_ai_notice("\n".join(out).rstrip() + "\n")
 
 
 def render_txt(m: Manuscript) -> str:
+    from ai_label import with_ai_notice
+
     out: list[str] = [m.title, ""]
     for vol in m.volumes:
         out += [f"◇ {_label('卷', vol.no, vol.title)}", ""]
@@ -77,7 +82,8 @@ def render_txt(m: Manuscript) -> str:
             out += [_label("章", ch.no, ch.title), ""]
             for ln in _prose_lines(ch.prose):
                 out += [f"　　{ln}", ""]
-    return "\n".join(out).rstrip() + "\n"
+    # AI 生成显式标识（标识办法第四条；导出面统一，ai_label 单源）
+    return with_ai_notice("\n".join(out).rstrip() + "\n")
 
 
 def render_docx(m: Manuscript) -> bytes:
@@ -96,6 +102,10 @@ def render_docx(m: Manuscript) -> bytes:
             document.add_heading(_label("章", ch.no, ch.title), level=2)
             for ln in _prose_lines(ch.prose):
                 document.add_paragraph(ln)
+    # AI 生成显式标识（标识办法第四条）：尾段声明，幂等由「每次全新文档」保证
+    from ai_label import AI_NOTICE
+
+    document.add_paragraph(AI_NOTICE)
     buf = io.BytesIO()
     document.save(buf)
     return buf.getvalue()

@@ -172,4 +172,7 @@ async def get_archive(
     row = await db.scalar(stmt)
     if row is None or _archive_filename(ref, row.title) != filename:
         raise HTTPException(404, "Archive not found")
-    return {"filename": filename, "content": row.content}
+    # AI 生成显式标识（标识办法第四条）：出口追加，库内原文不动
+    from ai_label import with_ai_notice
+
+    return {"filename": filename, "content": with_ai_notice(row.content)}
