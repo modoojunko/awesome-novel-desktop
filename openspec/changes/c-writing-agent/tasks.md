@@ -48,15 +48,15 @@
 - [x] 5.5 chat/ 八组件：ChatDock/ChatStream/ChatMessage/ChatComposer/CapabilityChips/AssistantFab/ChatGenerating/TraceFolded（tokens 全取 base.css 真值）
 - [x] 5.6 布局改造步③：Rail→ChatDock 替换（注册表先接 volume/idle 两页；未覆盖分支 Rail 兜底）
 - [x] 5.7 布局改造步④：守卫统一（chatStreaming 并入 goTab 确认与树锁定 onClickCapture）；e2e 流中切页签拦截
-- [ ] 5.8 布局改造步⑤：窄屏 AssistantFab＋抽屉（原型交互移植）；e2e 窄屏场景
+- [x] 5.8 布局改造步⑤：窄屏 AssistantFab＋抽屉（原型交互移植）；e2e 窄屏场景
 - [x] 5.9 cards/ 六卡组件（struct/text/report/pick/gate/回执撤销）＋ChatArtifactCard 分发＋查看提示词（prompt-panel 档位规则）
 - [x] 5.10 lib/chatRegistry.tsx：页面注册制接口＋volume/idle 注册落地（开场白/chips/context/actions 映射既有写回链）
 
 ## 6. 批F · 全页面注册与旧行收编（≈12 人日）
 
 - [x] 6.1 设定域 7 面板注册（chars 最重：CharsAiRail 三行收编＋「从简介立主角」＋footNote 免费声明并入 GateCard）
-- [ ] 6.2 工作台章级 6 页签注册（og 五能力＋正文生成＋朱雀 chips；状态遥测迁 ChatDock 头部状态槽＋useRailStats）
-- [ ] 6.3 知识库/预览页注册（预览最低配置＝问答＋读工具）
+- [x] 6.2 工作台章级 6 页签注册（og 五能力＋正文生成＋朱雀 chips；状态遥测迁 ChatDock 头部状态槽＋useRailStats）
+- [x] 6.3 知识库/预览页注册（预览最低配置＝问答＋读工具）
 - [x] 6.4 旧 AI 行退役：Rail/AiAssistPanel/VolumeAssistPanel/AiWriterAssistant 调用点按页收编移除；PromptPackCard 随迁 ChatDock 壳内
 - [x] 6.5 写回信号链逐注册点核验（refresh/refetchTree/goOutlineSeq/pacingRefreshSeq/setRailData）＋actions 单测钉每条信号
 - [x] 6.6 e2e/ai-assist.spec.ts 改写为 ChatDock 锚点版；coverage-contract.ts 登记全部新文件
@@ -68,6 +68,7 @@
 - [x] 7.3 注入回归（书内文本嵌指令不执行）＋越界拒答用例＋硬地板全档位用例
 - [x] 7.4 全量 npm run test（后端 pytest＋前端 vitest --coverage）＋design:lint＋parity 过
 - [x] 7.5 真机走查清单落盘（docs/design-c/drafts/…真机走查清单.md）——真机执行待 boss 上手（A–D 四段矩阵）
+- [x] 6.2b 章级收编形态（批F-2 落地）：dock 常驻＋AiAssistPanel 整体收进折叠「章节工具面板」（内部状态全保活＝六类检测/朱雀四态/遥测行零回归），chips 一键展开——能力等价收编，rail-assist 断言原样保留
 - [ ] 7.6 openspec sync＋归档随实现 PR（openspec-archive-in-implementation-pr 惯例）
 
 ## 里程碑口径
