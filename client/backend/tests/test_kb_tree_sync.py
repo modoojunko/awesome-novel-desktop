@@ -89,7 +89,12 @@ def _run(coro):
 
 async def _fetch_none(client, url):
     """探测必空桩：verdict 由 _validate_outbound 桩控制，fetch 恒 None。"""
-    return None
+    return
+
+
+async def _fetch_unsigned(client, url):
+    """取到包但验签不过的形态：latest 有载荷、无有效签名。"""
+    return {"version": 5}
 
 
 import pytest  # noqa: E402
@@ -322,3 +327,11 @@ def test_fakeip环境同步失败记proxy_fake_ip(tree_env, monkeypatch):
     monkeypatch.setattr(tree_sync, "_fetch_json", _fetch_none)
     r = _run(tree_sync.sync_tree())
     assert r["status"] == "failed" and r["reason"] == "proxy_fake_ip"
+
+
+def test_fakeip环境验签失败不误记proxy_fake_ip(tree_env, monkeypatch):
+    """fake-ip 环境下 fetch 成功但验签不过＝CDN 内容问题：维持 latest_invalid。"""
+    monkeypatch.setattr(tree_sync, "_validate_outbound", lambda url: (True, "fakeip"))
+    monkeypatch.setattr(tree_sync, "_fetch_json", _fetch_unsigned)
+    r = _run(tree_sync.sync_tree())
+    assert r["status"] == "failed" and r["reason"] == "latest_invalid"

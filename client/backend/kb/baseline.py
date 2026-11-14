@@ -23,10 +23,9 @@ from urllib.parse import urlparse
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+import outbound_guard
 from models.app_meta import AppMeta
 from models.kb import KbBaselineEntry, KbBaselineOverlay, KbBaselineTag
-
-import outbound_guard
 
 logger = logging.getLogger(__name__)
 
@@ -326,6 +325,7 @@ async def probe_latest() -> dict:
         return {"installed": installed, "latest": 0, "update_available": False, "reason": "not_configured"}
     async with httpx.AsyncClient() as client:
         verdicts: list[str] = []
+        verified_bad = False  # 有候选取到包但验签不过＝内容问题，不得误记代理环境
         for candidate in _cdn_bases():
             latest_url = _derive(candidate, "latest.json")
             # DNS 解析是同步调用：丢线程，别让慢解析卡住事件循环
@@ -341,7 +341,9 @@ async def probe_latest() -> dict:
                     "latest": latest,
                     "update_available": bool(latest and latest != installed),
                 }
-        reason = "proxy_fake_ip" if "fakeip" in verdicts else "latest_invalid"
+            if probe is not None:
+                verified_bad = True
+        reason = "proxy_fake_ip" if "fakeip" in verdicts and not verified_bad else "latest_invalid"
         return {"installed": installed, "latest": 0, "update_available": False, "reason": reason}
 
 
@@ -383,6 +385,7 @@ async def _sync_impl(db: AsyncSession | None) -> dict:
         base = ""
         latest = None
         sync_verdicts: list[str] = []
+        verified_bad = False  # 有候选取到包但验签不过＝内容问题，不得误记代理环境
         for candidate in _cdn_bases():
             latest_url = _derive(candidate, "latest.json")
             # DNS 解析是同步调用：丢线程，别让慢解析卡住整个事件循环（启动期尤甚）
@@ -394,8 +397,10 @@ async def _sync_impl(db: AsyncSession | None) -> dict:
             if probe is not None and verify_manifest(probe, keys):
                 base, latest = candidate, probe
                 break
+            if probe is not None:
+                verified_bad = True
         if latest is None:
-            reason = "proxy_fake_ip" if "fakeip" in sync_verdicts else "latest_invalid"
+            reason = "proxy_fake_ip" if "fakeip" in sync_verdicts and not verified_bad else "latest_invalid"
             return {"status": "failed", "reason": reason}
         version = int(latest.get("version") or 0)
         current = await _current_version()

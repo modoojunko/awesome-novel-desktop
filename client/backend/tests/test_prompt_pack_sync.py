@@ -787,7 +787,7 @@ def test_fakeip环境失败记proxy_fake_ip(env, cdn, monkeypatch):
     _base, cdn_root = cdn
     sk, pub = _keypair()
     _publish(cdn_root, "5", {"free": ("k-free-5", os.urandom(32))}, TPL, sk, "test-kid")
-    pp, sync_mod = _wire(env, monkeypatch, sk, pub, lambda kid, ver: (None, -1))
+    _pp, sync_mod = _wire(env, monkeypatch, sk, pub, lambda kid, ver: (None, -1))
     monkeypatch.setattr(sync_mod, "_validate_outbound", lambda url: (True, "fakeip"))
     monkeypatch.setattr(sync_mod, "_fetch_json", lambda c, u: None)
     st = sync_mod.sync_once(local_tier="free")
@@ -799,7 +799,7 @@ def test_blocked解析仍记cdn_unreachable(env, cdn, monkeypatch):
     _base, cdn_root = cdn
     sk, pub = _keypair()
     _publish(cdn_root, "5", {"free": ("k-free-5", os.urandom(32))}, TPL, sk, "test-kid")
-    pp, sync_mod = _wire(env, monkeypatch, sk, pub, lambda kid, ver: (None, -1))
+    _pp, sync_mod = _wire(env, monkeypatch, sk, pub, lambda kid, ver: (None, -1))
     monkeypatch.setattr(sync_mod, "_validate_outbound", lambda url: (False, "blocked"))
     monkeypatch.setattr(sync_mod, "_fetch_json", lambda c, u: None)
     st = sync_mod.sync_once(local_tier="free")

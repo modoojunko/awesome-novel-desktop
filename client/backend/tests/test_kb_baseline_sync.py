@@ -38,7 +38,12 @@ def _run(coro):
 
 async def _fetch_none(client, url):
     """探测必空桩：verdict 由 _validate_outbound 桩控制，fetch 恒 None。"""
-    return None
+    return
+
+
+async def _fetch_unsigned(client, url):
+    """取到包但验签不过的形态：latest 有载荷、无有效签名。"""
+    return {"version": 5}
 
 
 
@@ -931,5 +936,16 @@ def test_blocked解析仍记latest_invalid(sync_env, monkeypatch):
 
     monkeypatch.setattr(bl, "_validate_outbound", lambda url: (False, "blocked"))
     monkeypatch.setattr(bl, "_fetch_json", _fetch_none)
+    r = _run(bl.sync_baseline())
+    assert r["status"] == "failed" and r["reason"] == "latest_invalid"
+
+
+def test_fakeip环境验签失败不误记proxy_fake_ip(sync_env, monkeypatch):
+    """fake-ip 环境下 fetch 成功但验签不过＝CDN 内容问题：维持 latest_invalid，
+    不出「代理接管网络」的误导指路。"""
+    from kb import baseline as bl
+
+    monkeypatch.setattr(bl, "_validate_outbound", lambda url: (True, "fakeip"))
+    monkeypatch.setattr(bl, "_fetch_json", _fetch_unsigned)
     r = _run(bl.sync_baseline())
     assert r["status"] == "failed" and r["reason"] == "latest_invalid"

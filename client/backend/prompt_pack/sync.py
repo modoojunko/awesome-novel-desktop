@@ -25,7 +25,6 @@ from __future__ import annotations
 import asyncio
 import base64
 import hashlib
-import ipaddress
 import json
 import logging
 import os
@@ -37,8 +36,8 @@ from urllib.parse import urlparse
 
 import httpx
 
-from http_client import build_sync_client
 import outbound_guard
+from http_client import build_sync_client
 from prompt_pack import (
     STAGING_PREFIX,
     clear_receipt,

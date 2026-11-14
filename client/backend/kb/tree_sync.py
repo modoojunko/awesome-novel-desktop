@@ -454,6 +454,7 @@ async def _sync_inner() -> dict:
         latest = None
         base = ""
         verdicts: list[str] = []
+        verified_bad = False  # 有候选取到包但验签不过＝内容问题，不得误记代理环境
         for candidate in _cdn_bases():
             latest_url = _derive(candidate, "latest.json")
             ok, verdict = await asyncio.to_thread(_validate_outbound, latest_url)
@@ -464,8 +465,10 @@ async def _sync_inner() -> dict:
             if probe is not None and verify_tree_pointer(probe, keys):
                 base, latest = candidate, probe
                 break
+            if probe is not None:
+                verified_bad = True
         if latest is None:
-            reason = "proxy_fake_ip" if "fakeip" in verdicts else "latest_invalid"
+            reason = "proxy_fake_ip" if "fakeip" in verdicts and not verified_bad else "latest_invalid"
             return {"status": "failed", "reason": reason}
         try:
             version = int(latest.get("version") or 0)
@@ -522,6 +525,7 @@ async def probe_latest() -> dict:
                 "update_available": False, "reason": "not_configured"}
     async with httpx.AsyncClient() as client:
         probe_verdicts: list[str] = []
+        verified_bad = False  # 有候选取到包但验签不过＝内容问题，不得误记代理环境
         for candidate in _cdn_bases():
             url = _derive(candidate, "latest.json")
             ok, verdict = await asyncio.to_thread(_validate_outbound, url)
@@ -539,7 +543,9 @@ async def probe_latest() -> dict:
                     "update_available": bool(version and version != installed),
                     "reason": "",
                 }
-    reason = "proxy_fake_ip" if "fakeip" in probe_verdicts else "latest_invalid"
+            if probe is not None:
+                verified_bad = True
+    reason = "proxy_fake_ip" if "fakeip" in probe_verdicts and not verified_bad else "latest_invalid"
     return {"installed": installed, "latest": 0,
             "update_available": False, "reason": reason}
 
