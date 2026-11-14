@@ -338,6 +338,26 @@ def strip_inline_think(text: str) -> str:
     return s.feed(text) + s.finish()
 
 
+# ── 会话内 API 调用归集（c-writing-agent 反馈流：思考/工具/模型调用全可见）────
+# contextvar 让同一任务（loop → run_tool → 草稿核心 client.chat）内的 provider
+# 调用自归集；循环侧 begin/drain 成对使用——无人收集时零开销（不 append）。
+_API_CALLS_CV: contextvars.ContextVar[list[dict] | None] = contextvars.ContextVar(
+    "ai_api_calls", default=None
+)
+
+
+def api_calls_begin() -> None:
+    """开启本任务内的 API 调用归集（循环每个工具步前调用）。"""
+    _API_CALLS_CV.set([])
+
+
+def api_calls_drain() -> list[dict]:
+    """取走并清空自 begin 以来的调用记录（op/model/耗时/tokens/成败）。"""
+    buf = _API_CALLS_CV.get()
+    _API_CALLS_CV.set(None)
+    return list(buf) if buf else []
+
+
 class AIClient:
     """Provider-agnostic AI client.
 
@@ -469,6 +489,18 @@ class AIClient:
         （含拒参重开）、thinking_chars＝思考增量字符数；思考全文不落日志。
         """
         duration_ms = (time.perf_counter() - start) * 1000
+        _calls = _API_CALLS_CV.get()
+        if _calls is not None:
+            _calls.append(
+                {
+                    "op": operation or "-",
+                    "model": model,
+                    "ms": int(duration_ms),
+                    "tokens_in": int(tokens_in or 0),
+                    "tokens_out": int(tokens_out or 0),
+                    "ok": error is None,
+                }
+            )
         op = operation or "-"
         mdl = model or self._model or "-"
         vendor = getattr(self, "_vendor", "") or "-"  # c-llm-call-log 身份字段

@@ -30,7 +30,7 @@ const PRO_FEATURES: FeatureKey[] = [
   "deconstruct",
 ];
 
-const MAX_FEATURES: FeatureKey[] = ["ai-plot", "style-quant", "deconstruct-import"];
+const MAX_FEATURES: FeatureKey[] = ["ai-plot", "style-quant", "deconstruct-import", "assistant-diverge"];
 
 describe("档位名与锁文案单源（c-rail-tier-badge）", () => {
   it("tierLabel 是档位名唯一来源；upgradeHintOf 与它同源（徽标不会与行内 hint 说两套）", () => {

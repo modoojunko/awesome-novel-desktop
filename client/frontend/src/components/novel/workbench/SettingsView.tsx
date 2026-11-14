@@ -100,6 +100,8 @@ function BadgeIcon({ ok }: { ok?: boolean }) {
 export interface SettingsViewProps {
   projectId: string;
   initialPanel?: string;
+  /** 当前面板上抛（c-writing-agent：右栏 dock 的每页注册制 scope） */
+  onPanelChange?: (panel: string) => void;
   /** 页签回默认主页：值变化＝把面板拨回默认项（第一项「题材」）；脏表单由外壳先确认 */
   homeSeq?: number;
   settingsStatus: Record<string, boolean> | null;
@@ -129,9 +131,12 @@ function normalizePanel(v: string | undefined): string {
 
 export default function SettingsView({
   projectId, initialPanel, homeSeq, settingsStatus, confirmedStatus, charStale, confirmSetting,
-  onRefreshConfirmState, onDirtyChange, onGoWrite, novelName,
+  onRefreshConfirmState, onDirtyChange, onGoWrite, novelName, onPanelChange,
 }: SettingsViewProps) {
   const [panel, setPanel] = useState(() => normalizePanel(initialPanel));
+  useEffect(() => {
+    onPanelChange?.(panel);
+  }, [panel, onPanelChange]);
   /** 改动回执（用户 2026-09-10）：三面板里"一键改变内容"的动作在脚部留一条 + 一步撤销。 */
   const [receipt, setReceipt] = useState<ChangeReceiptState | null>(null);
   const handleReceiptChange = useCallback((r: ChangeReceiptState | null) => setReceipt(r), []);

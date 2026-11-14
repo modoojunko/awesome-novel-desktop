@@ -4,6 +4,12 @@
  * 新增交付批时只改这里；目录完整性由契约测试把守（api-config 目录不能漏文件）。
  */
 export const COVERAGE_CONTRACT_FILES = [
+  // c-writing-agent（右栏对话写作 agent：SSE 客户端/run 模型状态机/每页注册制/ChatDock）
+  "src/lib/chatApi.ts",
+  "src/hooks/useChatSession.ts",
+  "src/lib/chatRegistry.ts",
+  "src/components/novel/chat/ChatDock.tsx",
+  "src/components/novel/chat/chat.css",
   // c-chapter-plan-ai（卷下拆章：拆章弹窗/状态机/API 契约）
   "src/lib/chapterPlanApi.ts",
   "src/hooks/useChapterPlan.ts",

@@ -10,6 +10,9 @@ import SettingsView from "@/components/novel/workbench/SettingsView";
 import PreviewView from "@/components/novel/workbench/PreviewView";
 import ManuscriptDownloadModal from "@/components/novel/workbench/ManuscriptDownloadModal";
 import Rail, { type RailChapterData } from "@/components/novel/workbench/Rail";
+import ChatDock from "@/components/novel/chat/ChatDock";
+import PersonaModal from "@/components/novel/chat/PersonaModal";
+import ProfileModal from "@/components/novel/chat/ProfileModal";
 import { VolumePlanModal } from "@/components/novel/workbench/VolumePlanModal";
 import { PickCardsModal } from "@/components/novel/workbench/PickCardsModal";
 import type { VolumePlanCard } from "@/lib/volumePlanApi";
@@ -167,6 +170,35 @@ export default function NovelWorkspace() {
   // ── AI ref 链：正文编辑器实例 + 状态（右栏 AI 工具与中栏共用） ─────────
   const proseRef = useRef<ProseHandle | null>(null);
   const [aiState, setAIState] = useState<ProseAIState>(INITIAL_PROSE_AI_STATE);
+  // c-writing-agent：助手流式存活（并入树锁定/切页守卫；与正文流式互斥语义一致）
+  const [chatStreaming, setChatStreaming] = useState(false);
+  const chatStreamingRef = useRef(false);
+  const [settingsPanel, setSettingsPanel] = useState<string | undefined>(undefined);
+  // 章级工具面板折叠态（c-writing-agent 收编形态：默认折叠，chips/summary 展开）
+  const [toolboxOpen, setToolboxOpen] = useState(false);
+  // 窄屏抽屉开关（步⑤：≤840px 时右栏变抽屉，FAB 唤出；桌面恒开）
+  const [assistantOpen, setAssistantOpen] = useState(true); // 桌面恒开；窄屏由 sync 纠正
+  const [assistantNarrow, setAssistantNarrow] = useState(false);
+  useEffect(() => {
+    // 视口同步（挂载即跑一次——setViewportSize 在挂载前的场景不会补发 resize 事件）
+    const sync = () => {
+      const w = window.innerWidth;
+      setAssistantNarrow(w <= 840);
+      // 桌面恒开；进窄屏收起抽屉（FAB 唤出），回桌面恢复常开
+      setAssistantOpen(w > 840);
+    };
+    sync();
+    window.addEventListener("resize", sync);
+    return () => window.removeEventListener("resize", sync);
+  }, []);
+  const dockPage =
+    view === "advanced-settings"
+      ? "初始设定"
+      : view === "archives"
+        ? "预览"
+        : chapterRef
+          ? "工作台 · 章节"
+          : "工作台 · 卷纲";
 
   // ── 页签回默认主页（c-write-home-rail-anchor）：三个 modnav 页签都是「回该页默认落点」──
   //   写作＝书主页（清选中）；设定＝默认面板（第一项「题材」）；预览＝全书首章。
@@ -210,14 +242,14 @@ export default function NovelWorkspace() {
       // 写作 → 书主页：卷纲脏 / 正文 AI 流式中先确认
       if (!guardedLeave()) return;
       if (
-        aiState.streaming &&
-        !window.confirm("AI 正在生成正文，回书主页会中断这次生成。确定继续吗？")
+        (aiState.streaming || chatStreamingRef.current) &&
+        !window.confirm("AI 正在生成——回书主页会中断这次生成。确定继续吗？")
       )
         return;
       clearSelection();
       setView("workbench");
     },
-    [view, setView, guardedLeave, clearSelection, aiState.streaming],
+    [view, setView, guardedLeave, clearSelection, aiState.streaming, chatStreamingRef.current],
   );
 
   // ── 右栏本章进度数据（ChapterWorkspace 实时上抛；含 target 编辑器） ────
@@ -330,6 +362,9 @@ export default function NovelWorkspace() {
 
   // ── 顶栏「本书偏好」：账户面板入口项（原全局 Navbar 挂点随行头归一迁入） ──
   const [showBookPrefs, setShowBookPrefs] = useState(false);
+  // 助手人格/作家画像（c-writing-agent，boss 拍板 2026-11-15：入口收控制中心）
+  const [showPersona, setShowPersona] = useState(false);
+  const [showProfile, setShowProfile] = useState(false);
 
   // ── 顶栏主线定位（行头归一，book.html updateBarHere 同口径）：
   //    续写口径（用户拍板 09-16）＝「上次写到的章」优先（本机 last_write 会话），
@@ -991,7 +1026,23 @@ export default function NovelWorkspace() {
         <div className="bar-here" data-od-id="current-position">
           {hereBar}
         </div>
-        {isLoggedIn() && <AcctMenu onBookPrefs={() => setShowBookPrefs(true)} />}
+        {isLoggedIn() && (
+          <AcctMenu
+            onBookPrefs={() => setShowBookPrefs(true)}
+            onAssistantPersona={() => setShowPersona(true)}
+            onWriterProfile={() => setShowProfile(true)}
+          />
+        )}
+        <PersonaModal
+          open={showPersona && !!projectId}
+          projectId={projectId ?? ""}
+          onClose={() => setShowPersona(false)}
+        />
+        <ProfileModal
+          open={showProfile && !!projectId}
+          projectId={projectId ?? ""}
+          onClose={() => setShowProfile(false)}
+        />
         <BookPrefsModal
           open={showBookPrefs && !!projectId}
           onClose={() => setShowBookPrefs(false)}
@@ -1051,16 +1102,18 @@ export default function NovelWorkspace() {
         <span className="spacer" />
         <span className="side">{sideText}</span>
       </nav>
+      <div className="wb-split">
+        <div className="wb-main">
 
       {/* 写作：three-col 常驻挂载（.view.on 切换，正文脏状态/流式现场不丢） */}
       <div className={`view three-col${view === "workbench" ? " on" : ""}`}>
         {/* 生成中树锁定（c-prose-stream-guard）：捕获层拦一切树内点击（切章/切卷/
             行内新建改名删除都会摧毁流式现场），置灰＋title 指路「停止」；出口＝页签行徽章上的「停止」 */}
         <aside
-          className={`col-tree${volumes.length === 0 ? " empty-book" : ""}${aiState.streaming ? " ai-lock" : ""}`}
-          title={aiState.streaming ? "生成中 · 点「停止」后再切换" : undefined}
+          className={`col-tree${volumes.length === 0 ? " empty-book" : ""}${aiState.streaming || chatStreaming ? " ai-lock" : ""}`}
+          title={aiState.streaming || chatStreaming ? "生成中 · 点「停止」后再切换" : undefined}
           onClickCapture={(e) => {
-            if (!aiState.streaming) return;
+            if (!aiState.streaming && !chatStreaming) return;
             const t = e.target as HTMLElement;
             if (!t.closest("button, .vol-head, .ch")) return;
             e.preventDefault();
@@ -1309,33 +1362,6 @@ export default function NovelWorkspace() {
           )}
         </main>
 
-        <aside className="col-ai">
-          <Rail
-            mode={chapterRef ? "chapter" : "volume"}
-            projectId={projectId}
-            isPro={isPro}
-            onUpgrade={onUpgrade}
-            proseRef={proseRef}
-            aiState={aiState}
-            data={
-              chapterRef
-                ? railData
-                  ? { ...railData, staleDownstream }
-                  : undefined
-                : undefined
-            }
-            volumeData={volumeRailData}
-            railIdle={railIdle}
-            genreLabel={genreLabel}
-            onPlanVolume={openPlanVolume}
-            onSplitAi={() => openChapterPlan("ai")}
-            onGoOutline={() => setGoOutlineSeq((n) => n + 1)}
-            onPacingChanged={handlePacingChanged}
-            onSelectVolume={handleSelectVolume}
-            autoCheckSeq={autoCheck.seq}
-            onAiWrite={() => requestAi({ kind: "write" })}
-          />
-        </aside>
       </div>
 
       {/* 设定：two-col（SettingsView 复刻 #viewSettings） */}
@@ -1343,6 +1369,7 @@ export default function NovelWorkspace() {
         <SettingsView
           projectId={projectId}
           initialPanel={wb.viewPayload?.panel as string | undefined}
+          onPanelChange={setSettingsPanel}
           /** 重复点「设定」回默认面板的信号（页签回默认主页） */
           homeSeq={settingsHomeSeq}
           settingsStatus={settingsStatus}
@@ -1367,6 +1394,95 @@ export default function NovelWorkspace() {
           onDownload={() => setShowDownload(true)}
         />
       )}
+      </div>
+
+        <aside
+          className={`col-ai${assistantOpen ? " as-open" : ""}${assistantNarrow ? " as-drawer" : ""}`}
+        >
+          <ChatDock
+            projectId={projectId}
+            page={dockPage}
+            scope={{
+              view,
+              chapterRef,
+              volumeSelId,
+              emptyBook: volumes.length === 0,
+              settingPanel: settingsPanel,
+              chapterTab: railData?.tab,
+            }}
+            onStreamingChange={(v) => {
+              chatStreamingRef.current = v;
+              setChatStreaming(v);
+            }}
+            onUpgrade={onUpgrade}
+            onCloseDrawer={assistantNarrow ? () => setAssistantOpen(false) : undefined}
+            onOpenAction={(action) => {
+              // 富交互入口走既有链（spec：对话不吞弹窗）——生成正文=AiModal 写流；
+              // 章级六类入口经 railData 回调分派到 ChapterWorkspace 既有弹窗/检测流
+              // （回调随 onRailData 上抛，零新写回路径）
+              if (action === "ai_write") requestAi({ kind: "write" });
+              // 章节工具面板（六类检测/遥测行收编形态）：展开折叠面板
+              if (action === "chapter_toolbox") setToolboxOpen(true);
+              const rd = railData;
+              if (action === "plot_draw") rd?.onPlotDraw?.();
+              if (action === "cast_review") rd?.onCastReview?.();
+              if (action === "simulate") rd?.onSimulate?.();
+              if (action === "fill_gaps") rd?.onFillGaps?.();
+              if (action === "conflict_check") rd?.onAiCheck?.("volume_conflict");
+              if (action === "renwei") proseRef.current?.openRenweiCheck?.();
+              if (action === "seam") proseRef.current?.openSeamWizard?.();
+            }}
+          />
+          {/* 章级工具面板（c-writing-agent 收编形态）：AiAssistPanel 全量保活（六类
+              检测/朱雀四态/遥测行零回归），默认折叠、chips 一键展开——能力等价收编。
+              只在写作视图＋选中章出现（真机走查判例 2026-11-15：曾只看 chapterRef，
+              设定页带着章选择也渲染，穿帮） */}
+          {view === "workbench" && chapterRef && (
+            <details className="ch-toolbox" open={toolboxOpen}>
+              <summary data-testid="ch-toolbox-summary">章节工具面板</summary>
+              <Rail
+                mode="chapter"
+                projectId={projectId}
+                isPro={isPro}
+                onUpgrade={onUpgrade}
+                proseRef={proseRef}
+                aiState={aiState}
+                data={railData ? { ...railData, staleDownstream } : undefined}
+                volumeData={volumeRailData}
+                railIdle={railIdle}
+                genreLabel={genreLabel}
+                onPlanVolume={openPlanVolume}
+                onSplitAi={() => openChapterPlan("ai")}
+                onGoOutline={() => setGoOutlineSeq((n) => n + 1)}
+                onPacingChanged={handlePacingChanged}
+                onSelectVolume={handleSelectVolume}
+                autoCheckSeq={autoCheck.seq}
+                onAiWrite={() => requestAi({ kind: "write" })}
+              />
+            </details>
+          )}
+        </aside>
+      </div>
+        {assistantNarrow && !assistantOpen && (
+          <button
+            type="button"
+            className="assistant-fab"
+            data-testid="assistant-fab"
+            aria-label="打开写作助手"
+            onClick={() => setAssistantOpen(true)}
+          >
+            助
+          </button>
+        )}
+        {assistantNarrow && assistantOpen && (
+          <button
+            type="button"
+            className="as-backdrop"
+            data-testid="assistant-backdrop"
+            aria-label="关闭写作助手"
+            onClick={() => setAssistantOpen(false)}
+          />
+        )}
 
       {/* 下载成稿（manuscript-download）：弹层在壳层，跨视图轮询保活 */}
       <ManuscriptDownloadModal
