@@ -1,6 +1,8 @@
 // PersonaModal——助手人格查看/编辑（顶栏控制中心入口，boss 拍板 2026-11-15）。
 // 四字段（后端 REQUIRED_FIELDS 同源）：名字/性格人设/说话规矩/能力边界；
 // 保存 fail-loud（缺字段 422 回显）；恢复默认＝删用户覆盖（回提示词包/内置）。
+// 视觉＝OD 设计稿 assistant-persona.html（项目 c-b771）落地：单列表单、
+// 字段名与提示分行、边框内距聚焦态、foot 左提示右按钮。
 
 import { useCallback, useEffect, useState } from "react";
 
@@ -12,10 +14,10 @@ import {
 } from "@/lib/chatApi";
 
 const FIELDS: { key: string; name: string; hint: string; rows: number }[] = [
-  { key: "name", name: "名字", hint: "怎么称呼这个搭档", rows: 1 },
-  { key: "persona", name: "性格人设", hint: "它是个什么样的搭档——直接、温和、毒舌都行", rows: 2 },
-  { key: "voice_rules", name: "说话规矩", hint: "短句还是长句、口语还是书面、要不要客套", rows: 2 },
-  { key: "fence_rules", name: "能力边界", hint: "只做这本书和知识库内的事——边界怎么跟作家说", rows: 3 },
+  { key: "name", name: "名字", hint: "怎么称呼这个搭档，也决定对话里的自称。", rows: 1 },
+  { key: "persona", name: "性格人设", hint: "它是个什么样的搭档——直接、温和、毒舌都行。", rows: 2 },
+  { key: "voice_rules", name: "说话规矩", hint: "短句还是长句、口语还是书面，给建议要不要说理由。", rows: 2 },
+  { key: "fence_rules", name: "能力边界", hint: "只做这本书和知识库内的事——边界怎么跟作家说。", rows: 3 },
 ];
 
 export default function PersonaModal({
@@ -80,33 +82,69 @@ export default function PersonaModal({
   }, [projectId, load]);
 
   return (
-    <Modal open={open} onClose={onClose} title="助手人格">
-      <div className="profile-modal" data-testid="persona-modal">
-        <p className="pm-hint">
-          这是你的写作搭档的人设——它按这个性格跟你说话、帮你干活。
-          {customized ? "当前是你的自定义版本。" : "当前是默认版本。"}
-        </p>
+    <Modal
+      open={open}
+      onClose={onClose}
+      title="助手人格"
+      width={600}
+      afterTitle={
+        <span className={`pm-state${customized ? " is-custom" : ""}`} data-testid="persona-state">
+          {customized ? "当前：自定义版本" : "当前：默认版本"}
+        </span>
+      }
+      footer={
+        <div className="pm-foot">
+          <div className="pm-foot-note">
+            {notice ? (
+              <p className="pm-notice" data-testid="persona-notice">
+                {notice}
+              </p>
+            ) : (
+              <p>填好后保存，下一句话开始生效。</p>
+            )}
+          </div>
+          <div className="pm-btns">
+            <button type="button" className="cd-btn" disabled={busy} onClick={() => void reset()}>
+              恢复默认
+            </button>
+            <button
+              type="button"
+              className="cd-btn primary"
+              disabled={busy}
+              onClick={() => void save()}
+            >
+              保存人格
+            </button>
+          </div>
+        </div>
+      }
+    >
+      <div className="persona-modal" data-testid="persona-modal">
+        <p className="pm-sub">告诉助手它是谁、怎么说话、什么不做。</p>
         {FIELDS.map((f) => (
-          <div key={f.key} className="pm-section">
-            <b>{f.name}</b>
-            <span className="pm-hint-s">{f.hint}</span>
-            <textarea
-              rows={f.rows}
-              value={identity[f.key] ?? ""}
-              onChange={(e) => setIdentity((d) => ({ ...d, [f.key]: e.target.value }))}
-              data-testid={`persona-${f.key}`}
-            />
+          <div key={f.key} className="pm-field">
+            <label htmlFor={`persona-${f.key}`}>{f.name}</label>
+            <span className="pm-help">{f.hint}</span>
+            {f.rows === 1 ? (
+              <input
+                id={`persona-${f.key}`}
+                value={identity[f.key] ?? ""}
+                placeholder="怎么称呼这个搭档"
+                onChange={(e) => setIdentity((d) => ({ ...d, [f.key]: e.target.value }))}
+                data-testid={`persona-${f.key}`}
+              />
+            ) : (
+              <textarea
+                id={`persona-${f.key}`}
+                rows={f.rows}
+                value={identity[f.key] ?? ""}
+                onChange={(e) => setIdentity((d) => ({ ...d, [f.key]: e.target.value }))}
+                data-testid={`persona-${f.key}`}
+              />
+            )}
           </div>
         ))}
-        <div className="pm-acts">
-          <button type="button" className="cd-btn primary" disabled={busy} onClick={() => void save()}>
-            保存人格
-          </button>
-          <button type="button" className="cd-btn" disabled={busy} onClick={() => void reset()}>
-            恢复默认
-          </button>
-        </div>
-        {notice && <p className="pm-notice">{notice}</p>}
+        <p className="pm-assure">人格只在写作助手里生效，不会改写已有正文。</p>
       </div>
     </Modal>
   );

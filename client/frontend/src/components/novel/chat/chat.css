@@ -420,3 +420,40 @@
 .chatdock-close:hover {
   color: var(--fg);
 }
+
+/* ─── PersonaModal（助手人格）：OD 设计稿 assistant-persona.html 落地（2026-11-15）──
+    单列表单：字段名加粗在上、灰提示语随下、输入框边框＋内距＋聚焦 ring；
+    foot 分隔线＋左提示右按钮；标题右状态徽标（默认/自定义版本）。 */
+.pm-sub { margin: 0 0 14px; font-size: 12.5px; color: var(--muted); }
+.pm-field { display: flex; flex-direction: column; min-width: 0; margin-bottom: 14px; }
+.pm-field label {
+  font-size: 12.5px; font-weight: 600; line-height: 1.5;
+  letter-spacing: .01em; color: var(--fg);
+}
+.pm-help { font-size: 11.5px; line-height: 1.7; color: var(--muted); margin: 2px 0 6px; }
+.pm-field textarea, .pm-field input {
+  width: 100%; border: 1px solid var(--border); border-radius: 9px;
+  background: var(--surface, #fff); color: inherit;
+  font: inherit; font-size: 13.5px; line-height: 1.7;
+  padding: 8px 11px; resize: vertical;
+  transition: border-color .15s ease, box-shadow .15s ease;
+}
+.pm-field textarea:focus, .pm-field input:focus {
+  outline: none; border-color: var(--accent);
+  box-shadow: 0 0 0 3px rgba(15, 107, 88, .14);
+}
+.pm-state {
+  display: inline-flex; align-items: center;
+  padding: 3px 9px; border-radius: 999px;
+  background: rgba(0, 0, 0, .06); color: var(--muted); font-size: 11px;
+  margin-left: 8px; white-space: nowrap;
+}
+.pm-state.is-custom { background: rgba(15, 107, 88, .12); color: var(--accent); }
+.pm-assure { margin: 2px 0 0; font-size: 11px; color: var(--muted); }
+.pm-foot {
+  display: flex; align-items: center; justify-content: space-between; gap: 10px;
+  border-top: 1px solid var(--border); padding-top: 12px; width: 100%;
+}
+.pm-foot-note { font-size: 11.5px; color: var(--muted); min-width: 0; }
+.pm-foot-note .pm-notice { margin: 0; }
+.pm-btns { display: flex; gap: 8px; margin-left: auto; flex: none; }
