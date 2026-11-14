@@ -196,6 +196,55 @@ export function streamAssistantChat(
   return () => controller.abort();
 }
 
+/** 助手人格（顶栏控制中心入口；作家可查看/编辑/恢复默认——boss 拍板 2026-11-15）。 */
+export interface AssistantPersona {
+  identity: Record<string, string>;
+  customized: boolean;
+}
+
+export async function loadAssistantPersona(
+  projectId: string,
+): Promise<AssistantPersona> {
+  const r = await fetch(`${API_BASE}/novels/${projectId}/assistant/persona`, {
+    headers: { Authorization: `Bearer ${getToken()}` },
+  });
+  if (r.status === 401) {
+    handleAuthExpiry();
+    throw new Error("登录状态已失效，请重新登录");
+  }
+  if (!r.ok) throw new Error(detailMessage((await r.json().catch(() => null))?.detail, "人格读取失败"));
+  return await r.json();
+}
+
+export async function updateAssistantPersona(
+  projectId: string,
+  identity: Record<string, string>,
+): Promise<AssistantPersona> {
+  const r = await fetch(`${API_BASE}/novels/${projectId}/assistant/persona`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json", Authorization: `Bearer ${getToken()}` },
+    body: JSON.stringify({ identity }),
+  });
+  if (r.status === 401) {
+    handleAuthExpiry();
+    throw new Error("登录状态已失效，请重新登录");
+  }
+  if (!r.ok) throw new Error(detailMessage((await r.json().catch(() => null))?.detail, "人格保存失败"));
+  return await r.json();
+}
+
+export async function clearAssistantPersona(projectId: string): Promise<void> {
+  const r = await fetch(`${API_BASE}/novels/${projectId}/assistant/persona`, {
+    method: "DELETE",
+    headers: { Authorization: `Bearer ${getToken()}` },
+  });
+  if (r.status === 401) {
+    handleAuthExpiry();
+    throw new Error("登录状态已失效，请重新登录");
+  }
+  if (!r.ok) throw new Error(detailMessage((await r.json().catch(() => null))?.detail, "恢复默认失败"));
+}
+
 export async function loadWriterProfile(
   projectId: string,
 ): Promise<{ sections: Record<string, unknown>; paused: boolean }> {

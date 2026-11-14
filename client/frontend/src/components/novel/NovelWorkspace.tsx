@@ -11,6 +11,8 @@ import PreviewView from "@/components/novel/workbench/PreviewView";
 import ManuscriptDownloadModal from "@/components/novel/workbench/ManuscriptDownloadModal";
 import Rail, { type RailChapterData } from "@/components/novel/workbench/Rail";
 import ChatDock from "@/components/novel/chat/ChatDock";
+import PersonaModal from "@/components/novel/chat/PersonaModal";
+import ProfileModal from "@/components/novel/chat/ProfileModal";
 import { VolumePlanModal } from "@/components/novel/workbench/VolumePlanModal";
 import { PickCardsModal } from "@/components/novel/workbench/PickCardsModal";
 import type { VolumePlanCard } from "@/lib/volumePlanApi";
@@ -360,6 +362,9 @@ export default function NovelWorkspace() {
 
   // ── 顶栏「本书偏好」：账户面板入口项（原全局 Navbar 挂点随行头归一迁入） ──
   const [showBookPrefs, setShowBookPrefs] = useState(false);
+  // 助手人格/作家画像（c-writing-agent，boss 拍板 2026-11-15：入口收控制中心）
+  const [showPersona, setShowPersona] = useState(false);
+  const [showProfile, setShowProfile] = useState(false);
 
   // ── 顶栏主线定位（行头归一，book.html updateBarHere 同口径）：
   //    续写口径（用户拍板 09-16）＝「上次写到的章」优先（本机 last_write 会话），
@@ -1021,7 +1026,23 @@ export default function NovelWorkspace() {
         <div className="bar-here" data-od-id="current-position">
           {hereBar}
         </div>
-        {isLoggedIn() && <AcctMenu onBookPrefs={() => setShowBookPrefs(true)} />}
+        {isLoggedIn() && (
+          <AcctMenu
+            onBookPrefs={() => setShowBookPrefs(true)}
+            onAssistantPersona={() => setShowPersona(true)}
+            onWriterProfile={() => setShowProfile(true)}
+          />
+        )}
+        <PersonaModal
+          open={showPersona && !!projectId}
+          projectId={projectId ?? ""}
+          onClose={() => setShowPersona(false)}
+        />
+        <ProfileModal
+          open={showProfile && !!projectId}
+          projectId={projectId ?? ""}
+          onClose={() => setShowProfile(false)}
+        />
         <BookPrefsModal
           open={showBookPrefs && !!projectId}
           onClose={() => setShowBookPrefs(false)}

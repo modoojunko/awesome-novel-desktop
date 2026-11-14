@@ -85,7 +85,7 @@ async def _stream_chat(
         return
 
     # ── 组装 ────────────────────────────────────────────────────────────────
-    identity = await identity_mod.load_identity()
+    identity = await identity_mod.load_identity_for_user(db, user["id"])
     brief = await build_book_brief(project, db)
     system = build_system_prompt(
         identity_mod.identity_system_section(identity), brief
@@ -667,6 +667,68 @@ async def adopt_assistant_message(
     if target.status != "adopted":
         await session_store.update_message_status(db, target.id, status="adopted")
     return {"ok": True, "cardId": card_id}
+
+
+@router.get("/persona")
+async def get_assistant_persona(
+    project_id: str,
+    user: dict = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """助手人格查看（顶栏控制中心入口）：返回当前生效人格＋是否自定义覆盖。"""
+    project = await get_novel(db, project_id, user["id"])
+    if not project:
+        raise HTTPException(404, "Project not found")
+    custom = await identity_mod.load_persona(db, user["id"])
+    if custom:
+        try:
+            identity = identity_mod.validate_identity(custom)
+            return {"identity": identity, "customized": True}
+        except (RuntimeError, TypeError):
+            pass  # 覆盖残缺：照常回落展示生效人格
+    return {"identity": await identity_mod.load_identity(), "customized": False}
+
+
+@router.put("/persona")
+async def update_assistant_persona(
+    project_id: str,
+    request: Request,
+    user: dict = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """助手人格编辑（作家自定义搭档人设；四字段必需齐全，fail-loud 校验）。"""
+    project = await get_novel(db, project_id, user["id"])
+    if not project:
+        raise HTTPException(404, "Project not found")
+    body: dict[str, Any] = {}
+    try:
+        raw = await request.json()
+        if isinstance(raw, dict):
+            body = raw
+    except (ValueError, UnicodeDecodeError):
+        body = {}
+    identity_raw = body.get("identity")
+    if not isinstance(identity_raw, dict):
+        raise HTTPException(422, "identity 必填（对象）")
+    try:
+        saved = await identity_mod.save_persona(db, user["id"], identity_raw)
+    except (RuntimeError, TypeError) as e:
+        raise HTTPException(422, f"人格字段不完整：{e}") from e
+    return {"ok": True, "identity": saved, "customized": True}
+
+
+@router.delete("/persona")
+async def reset_assistant_persona(
+    project_id: str,
+    user: dict = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """助手人格恢复默认（删除用户覆盖 → 回到提示词包/内置兜底）。"""
+    project = await get_novel(db, project_id, user["id"])
+    if not project:
+        raise HTTPException(404, "Project not found")
+    await identity_mod.clear_persona(db, user["id"])
+    return {"ok": True, "customized": False}
 
 
 @router.get("/profile")

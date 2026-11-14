@@ -13,7 +13,11 @@ from __future__ import annotations
 
 import json
 import logging
+from datetime import datetime
 from typing import Any
+
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
 
 logger = logging.getLogger(__name__)
 
@@ -79,3 +83,67 @@ def identity_system_section(identity: dict[str, str]) -> str:
         f"说话规矩：{identity['voice_rules']}\n"
         f"能力与纪律边界：{identity['fence_rules']}"
     )
+
+
+# -- 用户人格覆盖（c-writing-agent：顶栏控制中心可查看/编辑/恢复默认）──────────
+
+
+async def load_persona(db: AsyncSession, user_id: str) -> dict[str, str] | None:
+    """用户自定义人格（None＝无覆盖——走提示词包/内置兜底）。坏 JSON 视同无覆盖。"""
+    from models.assistant import AssistantPersona
+
+    row = (
+        await db.scalars(select(AssistantPersona).where(AssistantPersona.user_id == user_id))
+    ).first()
+    if row is None:
+        return None
+    try:
+        data = json.loads(row.identity_json or "{}")
+    except json.JSONDecodeError:
+        return None
+    if not isinstance(data, dict) or not data:
+        return None
+    return {str(k): str(v) for k, v in data.items()}
+
+
+async def save_persona(db: AsyncSession, user_id: str, raw: Any) -> dict[str, str]:
+    """保存用户人格（validate_identity fail-loud；字段集必需齐全）。"""
+    from models.assistant import AssistantPersona
+
+    identity = validate_identity(raw)
+    row = (
+        await db.scalars(select(AssistantPersona).where(AssistantPersona.user_id == user_id))
+    ).first()
+    if row is None:
+        row = AssistantPersona(user_id=user_id, identity_json="{}", updated_at="")
+        db.add(row)
+    row.identity_json = json.dumps(identity, ensure_ascii=False)
+    row.updated_at = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    await db.commit()
+    await db.refresh(row)
+    return identity
+
+
+async def clear_persona(db: AsyncSession, user_id: str) -> None:
+    """恢复默认（删除覆盖 → 回到提示词包/内置）。"""
+    from models.assistant import AssistantPersona
+
+    row = (
+        await db.scalars(select(AssistantPersona).where(AssistantPersona.user_id == user_id))
+    ).first()
+    if row is not None:
+        await db.delete(row)
+        await db.commit()
+
+
+async def load_identity_for_user(db: AsyncSession, user_id: str) -> dict[str, str]:
+    """人格解析链（优先级：用户覆盖 > 提示词包 > 内置兜底）。
+
+    覆盖残缺（历史脏数据）→ 记一行警告后照常回落，SHALL NOT 拒载。"""
+    persona = await load_persona(db, user_id)
+    if persona:
+        try:
+            return validate_identity(persona)
+        except (RuntimeError, TypeError) as e:
+            logger.warning("assistant persona override invalid, falling back: %s", e)
+    return await load_identity()

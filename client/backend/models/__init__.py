@@ -71,6 +71,7 @@ from models.user import User
 from models.volume import Volume
 from models.assistant import (
     AssistantMessage,
+    AssistantPersona,
     AssistantSession,
     WriterProfile,
     WriterProfileEvent,
@@ -148,6 +149,7 @@ __all__ = [
     "User",
     "Volume",
     "AssistantMessage",
+    "AssistantPersona",
     "AssistantSession",
     "WriterProfile",
     "WriterProfileEvent",

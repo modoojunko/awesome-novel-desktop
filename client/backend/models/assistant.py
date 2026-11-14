@@ -82,3 +82,16 @@ class WriterProfileEvent(Base):
     kind: Mapped[str] = mapped_column(String(24), nullable=False)
     payload_json: Mapped[str] = mapped_column(Text, nullable=False, default="{}")
     created_at: Mapped[str] = mapped_column(String(32), nullable=False, default="")
+
+class AssistantPersona(Base):
+    """助手人格的用户覆盖（c-writing-agent：顶栏控制中心可查看/编辑/恢复默认）。
+
+    None＝无覆盖（走提示词包 assistant_identity / 内置兜底）；有值＝四字段
+    结构化人格（name/persona/voice_rules/fence_rules，fail-loud 校验后落库）。
+    """
+
+    __tablename__ = "assistant_personas"
+
+    user_id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    identity_json: Mapped[str] = mapped_column(Text, nullable=False, default="{}")
+    updated_at: Mapped[str] = mapped_column(String(32), nullable=False, default="")
