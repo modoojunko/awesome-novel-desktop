@@ -364,13 +364,11 @@ describe("空书起手链（c-0vol0ch-empty-state）", () => {
     await waitFor(() => expect(screen.getByTestId("volume-plan-modal")).toBeDefined());
     expect(screen.queryByTestId("pick-modal")).toBeNull();
     fireEvent.click(screen.getByRole("button", { name: /先不规划/ }));
-    // 右栏（c-writing-agent 卷页收编）：旧抽卡入口退役，铺卷走对话——chip 发指令进
-    // 对话流，agent 出产物卡（过目采纳才写回），SHALL NOT 再弹 pick-modal
+    // 规划台属设定域（既有行为：打开即切设定视图）——dock 的 scope 跟随视图换装
+    // （spec §每页注册制能力盘）；旧抽卡入口随卷页收编退役，铺卷走对话出产物卡
+    expect(screen.getByTestId("chat-chip-draft_arc")).toBeTruthy();
+    expect(screen.queryByTestId("chat-chip-draft_volume_expand")).toBeNull();
     expect(screen.queryByTestId("plan-first-volume")).toBeNull();
-    fireEvent.click(screen.getByTestId("chat-chip-draft_volume_expand"));
-    await waitFor(() =>
-      expect(screen.getByTestId("chat-stream").textContent).toContain("帮我铺这一卷的卷纲"),
-    );
     expect(screen.queryByTestId("pick-modal")).toBeNull();
   });
 

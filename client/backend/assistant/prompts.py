@@ -34,11 +34,33 @@ action=final：收口，reply 是给作家的完整回答。
 意图含糊就先把问题问清（action=final，reply=澄清问题）。"""
 
 
+def _layer_or_none(name: str, **values: str) -> str | None:
+    """提示词包 system 段优先（批D 接线）；缺包/空段返回 None（调用方用内置兜底稿）。"""
+    try:
+        from prompt.context import render_template
+        from prompts import load_layers
+
+        system, _user = load_layers(name)
+        if not system.strip():
+            return None
+        return render_template(system, **values)
+    except Exception:  # noqa: BLE001——缺包路径静默回落内置（BLE001 豁免）
+        return None
+
+
 def build_system_prompt(identity_section: str, book_brief: str) -> str:
     """L1 系统前缀：身份（identity 结构化字段集，批C）＋围栏＋协议＋书级 brief。
 
-    逐段稳定（前缀缓存）。identity_section 由 identity.identity_system_section 生成；
-    IDENTITY_TEXT 保留为身份缺包兜底稿的最后防线（identity.load_identity 内部消化）。"""
+    逐段稳定（前缀缓存）。包在位时 system 壳/动作协议走 assistant_system/
+    assistant_act 模板（批D）；缺包回落内置兜底稿（IDENTITY_TEXT/ACT_PROTOCOL）。"""
+    system_shell = _layer_or_none(
+        "assistant_system",
+        identity_section=identity_section or IDENTITY_TEXT,
+        book_brief=book_brief,
+    )
+    act = _layer_or_none("assistant_act", tool_catalog=tool_catalog_text()) or ACT_PROTOCOL
+    if system_shell:
+        return system_shell + "\n\n" + act
     parts = [
         identity_section or IDENTITY_TEXT,
         "",
@@ -46,6 +68,6 @@ def build_system_prompt(identity_section: str, book_brief: str) -> str:
         book_brief,
         "",
         "── 动作协议 ──",
-        ACT_PROTOCOL,
+        act,
     ]
     return "\n".join(p for p in parts if p)

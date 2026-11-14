@@ -64,9 +64,14 @@
 .modnav .side { font-size: 12px; color: var(--muted); }
 
 /* ─── 视图容器 ─────────────────────────────────────────── */
+/* c-writing-agent 批F 步①②：三视图共用壳层右栏——wb-split 行布局包住各视图分支，
+   aside.col-ai 提到壳层常驻（设定/预览也有 dock）；three-col 网格只剩 tree+main */
+.wb-split { flex: 1; min-height: 0; display: flex; }
+.wb-split .wb-main { flex: 1; min-width: 0; display: flex; }
+.wb-split > .col-ai { width: 300px; flex: none; }
 .view { flex: 1; min-height: 0; display: none; }
 .view.on { display: block; }
-.view.on.three-col { display: grid; grid-template-columns: var(--col-left) 1fr 300px; }
+.view.on.three-col { display: grid; grid-template-columns: var(--col-left) 1fr; }
 @media (max-width: 1024px) { .wb { --col-left: 230px; } .view.on.three-col .col-progress, .view.on.three-col .col-ai { display: none; } }
 @media (max-width: 900px) { .wb { --col-left: 210px; } }
 @media (max-width: 860px) {

@@ -171,6 +171,7 @@ export default function NovelWorkspace() {
   // c-writing-agent：助手流式存活（并入树锁定/切页守卫；与正文流式互斥语义一致）
   const [chatStreaming, setChatStreaming] = useState(false);
   const chatStreamingRef = useRef(false);
+  const [settingsPanel, setSettingsPanel] = useState<string | undefined>(undefined);
 
   // ── 页签回默认主页（c-write-home-rail-anchor）：三个 modnav 页签都是「回该页默认落点」──
   //   写作＝书主页（清选中）；设定＝默认面板（第一项「题材」）；预览＝全书首章。
@@ -1055,6 +1056,8 @@ export default function NovelWorkspace() {
         <span className="spacer" />
         <span className="side">{sideText}</span>
       </nav>
+      <div className="wb-split">
+        <div className="wb-main">
 
       {/* 写作：three-col 常驻挂载（.view.on 切换，正文脏状态/流式现场不丢） */}
       <div className={`view three-col${view === "workbench" ? " on" : ""}`}>
@@ -1313,6 +1316,42 @@ export default function NovelWorkspace() {
           )}
         </main>
 
+      </div>
+
+      {/* 设定：two-col（SettingsView 复刻 #viewSettings） */}
+      {view === "advanced-settings" && (
+        <SettingsView
+          projectId={projectId}
+          initialPanel={wb.viewPayload?.panel as string | undefined}
+          onPanelChange={setSettingsPanel}
+          /** 重复点「设定」回默认面板的信号（页签回默认主页） */
+          homeSeq={settingsHomeSeq}
+          settingsStatus={settingsStatus}
+          confirmedStatus={confirmedStatus}
+          charStale={charStale}
+          onRefreshConfirmState={refreshCharStale}
+          confirmSetting={handleConfirmSetting}
+          onDirtyChange={handleSettingsDirty}
+          onGoWrite={() => goTab("workbench")}
+          novelName={project?.name ?? ""}
+        />
+      )}
+      {/* 预览：三栏阅读器（preview-reader，c-preview-reader） */}
+      {view === "archives" && (
+        <PreviewView
+          projectId={projectId}
+          volumes={volumes}
+          /** 定档一律首章：不继承写作页当前章（页签回默认主页）；重复点「预览」回首章 */
+          homeSeq={previewHomeSeq}
+          onRefresh={handleArchivesRefresh}
+          onGoWrite={() => goTab("workbench")}
+          onDownload={() => setShowDownload(true)}
+        />
+      )}
+
+        </div>
+      </div>
+
         <aside className="col-ai">
           {chapterRef ? (
           <Rail
@@ -1345,10 +1384,11 @@ export default function NovelWorkspace() {
               projectId={projectId}
               page="工作台 · 卷纲"
               scope={{
-                view: "workbench",
-                chapterRef: null,
+                view,
+                chapterRef,
                 volumeSelId,
                 emptyBook: volumes.length === 0,
+                settingPanel: settingsPanel,
               }}
               onStreamingChange={(v) => {
                 chatStreamingRef.current = v;
@@ -1358,37 +1398,6 @@ export default function NovelWorkspace() {
             />
           )}
         </aside>
-      </div>
-
-      {/* 设定：two-col（SettingsView 复刻 #viewSettings） */}
-      {view === "advanced-settings" && (
-        <SettingsView
-          projectId={projectId}
-          initialPanel={wb.viewPayload?.panel as string | undefined}
-          /** 重复点「设定」回默认面板的信号（页签回默认主页） */
-          homeSeq={settingsHomeSeq}
-          settingsStatus={settingsStatus}
-          confirmedStatus={confirmedStatus}
-          charStale={charStale}
-          onRefreshConfirmState={refreshCharStale}
-          confirmSetting={handleConfirmSetting}
-          onDirtyChange={handleSettingsDirty}
-          onGoWrite={() => goTab("workbench")}
-          novelName={project?.name ?? ""}
-        />
-      )}
-      {/* 预览：三栏阅读器（preview-reader，c-preview-reader） */}
-      {view === "archives" && (
-        <PreviewView
-          projectId={projectId}
-          volumes={volumes}
-          /** 定档一律首章：不继承写作页当前章（页签回默认主页）；重复点「预览」回首章 */
-          homeSeq={previewHomeSeq}
-          onRefresh={handleArchivesRefresh}
-          onGoWrite={() => goTab("workbench")}
-          onDownload={() => setShowDownload(true)}
-        />
-      )}
 
       {/* 下载成稿（manuscript-download）：弹层在壳层，跨视图轮询保活 */}
       <ManuscriptDownloadModal
