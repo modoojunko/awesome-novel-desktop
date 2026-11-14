@@ -473,3 +473,11 @@
   white-space: pre-wrap; word-break: break-word; color: var(--muted);
 }
 .cd-step-api { color: var(--muted); font-size: 11px; }
+
+/* 卷纲草案卡字段化正文（boss 截图判例：裸 JSON 不可接受） */
+.cd-draft-row { margin: 6px 0; }
+.cd-draft-row b {
+  display: block; font-size: 11px; font-weight: 600;
+  color: var(--muted); margin-bottom: 1px;
+}
+.cd-draft-row span { font-size: 12.5px; line-height: 1.65; word-break: break-word; }

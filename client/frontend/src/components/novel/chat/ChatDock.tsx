@@ -95,6 +95,33 @@ function CardBody({ kind, payload }: { kind: string; payload: unknown }) {
       </div>
     );
   }
+  // 卷纲草稿（draft_volume_expand 卡）：字段化渲染，禁裸 JSON
+  if (data.draft && typeof data.draft === "object") {
+    const d = data.draft as Record<string, unknown>;
+    const rows: [string, unknown][] = [
+      ["卷名", d.name],
+      ["主旨", d.summary],
+      ["核心冲突", d.conflict],
+      ["卷末", d.ending],
+      ["对手线", d.antagonist_line],
+      ["章节目标", d.chapter_target],
+    ];
+    return (
+      <div className="cd-draft">
+        {rows
+          .filter(([, v]) => v != null && String(v).trim())
+          .map(([k, v]) => (
+            <div key={k} className="cd-draft-row">
+              <b>{k}</b>
+              <span>{String(v)}</span>
+            </div>
+          ))}
+        {Array.isArray(d.plants) && d.plants.length > 0 && (
+          <p className="cd-dim">埋设 {d.plants.length} 条 · 揭示 {Array.isArray(d.reveals) ? d.reveals.length : 0} 条</p>
+        )}
+      </div>
+    );
+  }
   // text/其余：分段正文
   const diff = data.diff as { one_liner?: string[] } | undefined;
   if (Array.isArray(diff?.one_liner)) {

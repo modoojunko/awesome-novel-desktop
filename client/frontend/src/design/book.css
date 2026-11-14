@@ -68,7 +68,8 @@
    aside.col-ai 提到壳层常驻（设定/预览也有 dock）；three-col 网格只剩 tree+main */
 .wb-split { flex: 1; min-height: 0; display: flex; }
 .wb-split .wb-main { flex: 1; min-width: 0; display: flex; }
-.wb-split > .col-ai { width: 300px; flex: none; }
+/* 原型口径（c-b771 --col-ai）：clamp(300px, 28vw, 400px)——300 死值比原型窄 25% */
+.wb-split > .col-ai { width: clamp(300px, 28vw, 400px); flex: none; }
 .view { flex: 1; min-height: 0; display: none; }
 .view.on { display: block; }
 .view.on.three-col { display: grid; grid-template-columns: var(--col-left) 1fr; }
