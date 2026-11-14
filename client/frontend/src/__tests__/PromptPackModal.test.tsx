@@ -416,3 +416,18 @@ describe("PromptPackModal 认证失败出口（c-pack-auth-selfheal）", () => {
     expect(screen.queryByTestId("pack-go-login")).toBeNull();
   });
 });
+
+describe("失败原因细分（c-proxy-fakeip-compat）", () => {
+  it("proxy_fake_ip：失败态呈现代理 TUN 指路文案，重试出口保留", async () => {
+    apiGet.mockResolvedValue({ phase: "failed", reason: "proxy_fake_ip", step: "" });
+    render(<PromptPackModal />);
+    openPack({ mode: "install" });
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(1100);
+    });
+    const note = screen.getByTestId("pack-fail-note").textContent ?? "";
+    expect(note).toContain("TUN 模式");
+    expect(note).toContain("白名单");
+    expect(screen.getByTestId("pack-retry")).toBeTruthy();
+  });
+});

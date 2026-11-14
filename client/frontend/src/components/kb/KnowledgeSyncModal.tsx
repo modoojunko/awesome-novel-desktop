@@ -29,6 +29,8 @@ export default function KnowledgeSyncModal() {
   const [toVersion, setToVersion] = useState(0);
   const [checking, setChecking] = useState(false);
   const [doneVersion, setDoneVersion] = useState(0);
+  // 失败原因→文案细分（c-proxy-fakeip-compat）：代理 TUN 接管网络的失败给指路文案
+  const [failReason, setFailReason] = useState("");
   // running 守卫镜像：onOpen 闭包读它（读 state 会拿到订阅时的旧值）
   const runningRef = useRef(false);
   runningRef.current = stage === "running";
@@ -39,6 +41,7 @@ export default function KnowledgeSyncModal() {
       const r = await kbApi.baselineSync();
       const version = r.version ?? toVersion;
       if (r.status === "failed") {
+        setFailReason(r.reason ?? "");
         setStage("failed");
         return;
       }
@@ -53,6 +56,7 @@ export default function KnowledgeSyncModal() {
         update_available: false,
       });
     } catch {
+      setFailReason("");
       setStage("failed");
     }
   }, [toVersion]);
@@ -189,7 +193,9 @@ export default function KnowledgeSyncModal() {
       )}
       {stage === "failed" && (
         <p className="pm-warn" data-testid="kb-sync-fail-note">
-          网络或服务暂时不可用，稍后可以再试；已有的知识不受影响。
+          {failReason === "proxy_fake_ip"
+            ? "代理软件的 TUN 模式接管了网络：请关闭 TUN 模式，或将本站域名加入代理软件的白名单，再点「再试一次」；已有的知识不受影响。"
+            : "网络或服务暂时不可用，稍后可以再试；已有的知识不受影响。"}
         </p>
       )}
       {stage === "idle" && (

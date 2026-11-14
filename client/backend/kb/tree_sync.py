@@ -22,13 +22,13 @@ from __future__ import annotations
 
 import base64
 import hashlib
-import ipaddress
 import json
 import logging
 import os
-import socket
 from pathlib import Path
 from urllib.parse import urlparse
+
+import outbound_guard
 
 logger = logging.getLogger(__name__)
 
@@ -216,31 +216,16 @@ def _trust_keys() -> dict[str, bytes]:
         return {}
 
 
-def _validate_outbound(url: str) -> bool:
-    """https＋可信域（空 allowlist 直接拒）＋解析结果全公网。"""
-    try:
-        p = urlparse(url)
-        host = (p.hostname or "").lower()
-        if p.scheme == "https":
-            pass
-        elif p.scheme == "http" and host in ("127.0.0.1", "localhost"):
-            pass  # 本地测试
-        else:
-            return False
-        trusted = _trusted_hosts()
-        if not trusted or host not in trusted:
-            return False
-        infos = socket.getaddrinfo(p.hostname, 443, proto=socket.IPPROTO_TCP)
-    except (OSError, ValueError):
-        return False
-    for info in infos:
-        try:
-            ip = ipaddress.ip_address(info[4][0])
-        except ValueError:
-            return False
-        if not ip.is_global and host not in ("127.0.0.1", "localhost"):
-            return False
-    return True
+def _validate_outbound(url: str) -> tuple[bool, str]:
+    """出站校验单源（outbound_guard）：返回 (放行, verdict)。
+
+    https＋可信域（空 allowlist 直接拒）＋解析判定；http＋环回宿主为本地测试
+    逃生口（旧语义逐字保持）。verdict ∈ ok／fakeip（TUN 代理 fake-ip DNS 全命中，
+    放行）／blocked——fake-ip 环境下的获取失败由调用方记 proxy_fake_ip。
+    """
+    return outbound_guard.validate_outbound(
+        url, _trusted_hosts(), allow_dev_loopback=True, trusted_required=True,
+    )
 
 
 def _derive(base: str, name: str) -> str:
@@ -468,16 +453,23 @@ async def _sync_inner() -> dict:
     async with httpx.AsyncClient() as client:
         latest = None
         base = ""
+        verdicts: list[str] = []
+        verified_bad = False  # 有候选取到包但验签不过＝内容问题，不得误记代理环境
         for candidate in _cdn_bases():
             latest_url = _derive(candidate, "latest.json")
-            if not await asyncio.to_thread(_validate_outbound, latest_url):
+            ok, verdict = await asyncio.to_thread(_validate_outbound, latest_url)
+            verdicts.append(verdict)
+            if not ok:
                 continue
             probe = await _fetch_json(client, latest_url)
             if probe is not None and verify_tree_pointer(probe, keys):
                 base, latest = candidate, probe
                 break
+            if probe is not None:
+                verified_bad = True
         if latest is None:
-            return {"status": "failed", "reason": "latest_invalid"}
+            reason = "proxy_fake_ip" if "fakeip" in verdicts and not verified_bad else "latest_invalid"
+            return {"status": "failed", "reason": reason}
         try:
             version = int(latest.get("version") or 0)
         except (TypeError, ValueError):
@@ -499,7 +491,8 @@ async def _sync_inner() -> dict:
         # 同版本缓存损坏/丢失 → 走到下面的修复重下（不 return current）
 
         tree_url = _derive(base, f"v{version}/taxonomy.json")
-        if not await asyncio.to_thread(_validate_outbound, tree_url):
+        tree_ok, _v = await asyncio.to_thread(_validate_outbound, tree_url)
+        if not tree_ok:
             return {"status": "failed", "reason": "unsafe_url"}
         raw = await _fetch_bytes(client, tree_url)
         if raw is None:
@@ -531,9 +524,13 @@ async def probe_latest() -> dict:
         return {"installed": installed, "latest": 0,
                 "update_available": False, "reason": "not_configured"}
     async with httpx.AsyncClient() as client:
+        probe_verdicts: list[str] = []
+        verified_bad = False  # 有候选取到包但验签不过＝内容问题，不得误记代理环境
         for candidate in _cdn_bases():
             url = _derive(candidate, "latest.json")
-            if not await asyncio.to_thread(_validate_outbound, url):
+            ok, verdict = await asyncio.to_thread(_validate_outbound, url)
+            probe_verdicts.append(verdict)
+            if not ok:
                 continue
             probe = await _fetch_json(client, url)
             if probe is not None and verify_tree_pointer(probe, keys):
@@ -546,8 +543,11 @@ async def probe_latest() -> dict:
                     "update_available": bool(version and version != installed),
                     "reason": "",
                 }
+            if probe is not None:
+                verified_bad = True
+    reason = "proxy_fake_ip" if "fakeip" in probe_verdicts and not verified_bad else "latest_invalid"
     return {"installed": installed, "latest": 0,
-            "update_available": False, "reason": "latest_invalid"}
+            "update_available": False, "reason": reason}
 
 
 def _reload_taxonomy() -> None:
