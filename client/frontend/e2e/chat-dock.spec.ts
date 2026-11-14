@@ -635,8 +635,10 @@ test.describe("chat-dock 界面测试（c-writing-agent 批G）", () => {
     });
     await page.reload();
     await expect(page.getByTestId("chat-dock")).toBeVisible();
-    // 树中点章 → 章级模式
+    // 树中点章 → 章级模式；朱雀在正文页签（chips 随章内页签换装）——先切正文
     await page.locator(".col-tree .ch").first().click();
+    await expect(page.getByTestId("chat-chip-draft_chapter_split")).toBeVisible({ timeout: 8000 });
+    await page.getByRole("tab", { name: /正文/ }).click();
     await expect(page.getByTestId("chat-chip-zhuque")).toBeVisible({ timeout: 8000 });
     // 朱雀 chip = 展开保活工具面板（朱雀行一键可达）
     await page.getByTestId("chat-chip-zhuque").click();

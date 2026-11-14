@@ -53,7 +53,18 @@ describe("chatRegistry 每页注册制", () => {
       "seam",
       "zhuque",
     ];
-    for (const key of registrationsForTest().flatMap((r) => r.chips().map((c) => c.key))) {
+    const TABS = ["og", "prose", "settings", "relations", "hooks", "actions", "style"];
+    for (const key of registrationsForTest().flatMap((r) =>
+      TABS.flatMap((chapterTab) =>
+        r.chips({
+          view: "workbench",
+          chapterRef: "vol-1-ch-1",
+          volumeSelId: null,
+          emptyBook: false,
+          chapterTab,
+        }).map((c) => c.key),
+      ),
+    )) {
       expect(whitelist).toContain(key);
     }
   });

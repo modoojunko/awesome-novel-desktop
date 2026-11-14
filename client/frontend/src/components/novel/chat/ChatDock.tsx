@@ -325,7 +325,7 @@ export default function ChatDock({
   );
 
   const sendDisabled = !input.trim() || state.runActive;
-  const chips: ChatChip[] = registration ? registration.chips() : [];
+  const chips: ChatChip[] = registration ? registration.chips(scope) : [];
   // 生成中面板的工具步取本 run 文本气泡（review 判例：曾取末条消息——卡片追加后
   // 步骤列表会闪空）
   let runSteps: ChatMessage["steps"] = [];
@@ -357,6 +357,11 @@ export default function ChatDock({
         <span className="chatdock-sub">每本书一个会话 · 跨页面连续</span>
       </div>
 
+      {chips.length === 0 && registration && (
+        <div className="chatdock-nochips" data-testid="chat-nochips">
+          本页不接入助手。
+        </div>
+      )}
       {chips.length > 0 && (
         <div className="chatdock-chips" data-testid="chat-chips">
           {chips.map((c) => (

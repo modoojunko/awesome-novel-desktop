@@ -29,6 +29,9 @@ export interface ChatPageScope {
   emptyBook: boolean;
   /** 设定面板名（SettingsView 当前面板；advanced-settings 时有值） */
   settingPanel?: string;
+  /** 章内页签键（ChapterWorkspace chTab：og|prose|settings|relations|hooks|actions|style；
+   *  railData.tab 上抛——章级 chips 据此换装，原型 PAGES 每页一套的口径） */
+  chapterTab?: string;
 }
 
 export interface ChatPageRegistration {
@@ -37,7 +40,7 @@ export interface ChatPageRegistration {
   match(s: ChatPageScope): boolean;
   /** 开场白（状态感知）；null＝不开口 */
   greeting(s: ChatPageScope): string | null;
-  chips(): ChatChip[];
+  chips(s: ChatPageScope): ChatChip[];
 }
 
 /** 一期 chips 白名单（与后端 TOOL_REGISTRY 对齐的对话入口子集；发散 MAX）。 */
@@ -94,21 +97,36 @@ const REGISTRATIONS: ChatPageRegistration[] = [
     label: "工作台 · 章节",
     match: (s) => s.view === "workbench" && !!s.chapterRef,
     greeting: () => null, // 章级页签深 chips 批F-2b；此处保持安静不打断写作
-    chips: () => [
-      { key: "draft_chapter_split", label: "拆下一章", command: "照卷纲拆下一章。" },
-      { key: "draft_chapter_plot", label: "本章剧情", command: "给本章出三版剧情清单。" },
-      { key: "check_consistency", label: "体检", command: "给本章做一次体检。" },
-      { key: "ai_write", label: "生成正文", command: "", open: "ai_write", feature: "ai-generate" },
-      // 六类深度入口（批F-3）：open 型经宿主 railData 回调分派到 ChapterWorkspace 既有弹窗/检测流
-      { key: "plot_draw", label: "剧情抽卡", command: "", open: "plot_draw" },
-      { key: "cast_review", label: "人物盘点", command: "", open: "cast_review" },
-      { key: "simulate", label: "剧情推演", command: "", open: "simulate", feature: "ai-plot" },
-      { key: "fill_gaps", label: "补全缺失", command: "", open: "fill_gaps" },
-      { key: "conflict_check", label: "冲突检测", command: "", open: "conflict_check" },
-      { key: "renwei", label: "人味检测", command: "", open: "renwei" },
-      { key: "seam", label: "接上一章", command: "", open: "seam" },
-      { key: "zhuque", label: "朱雀检测", command: "", open: "chapter_toolbox", feature: "ai-detect" },
-    ],
+    // 随章内页签换装（原型 PAGES 口径：每页一套；boss 指正 2026-11-15——曾 11 颗全堆一起）
+    // og=章纲（规划/盘点类）｜prose=正文（写/检测类）｜其余页签按语义各取
+    chips: (s) => {
+      const byTab: Record<string, ChatChip[]> = {
+        og: [
+          { key: "draft_chapter_split", label: "拆下一章", command: "照卷纲拆下一章。" },
+          { key: "draft_chapter_plot", label: "本章剧情", command: "给本章出三版剧情清单。" },
+          { key: "check_consistency", label: "体检", command: "给本章做一次体检。" },
+          { key: "simulate", label: "剧情推演", command: "", open: "simulate", feature: "ai-plot" },
+          { key: "plot_draw", label: "剧情抽卡", command: "", open: "plot_draw" },
+          { key: "cast_review", label: "人物盘点", command: "", open: "cast_review" },
+          { key: "fill_gaps", label: "补全缺失", command: "", open: "fill_gaps" },
+        ],
+        prose: [
+          { key: "ai_write", label: "生成正文", command: "", open: "ai_write", feature: "ai-generate" },
+          { key: "renwei", label: "人味检测", command: "", open: "renwei" },
+          { key: "seam", label: "接上一章", command: "", open: "seam" },
+          { key: "zhuque", label: "朱雀检测", command: "", open: "chapter_toolbox", feature: "ai-detect" },
+        ],
+        settings: [
+          { key: "check_consistency", label: "体检", command: "给本章做一次体检。" },
+          { key: "cast_review", label: "人物盘点", command: "", open: "cast_review" },
+        ],
+        style: [{ key: "renwei", label: "人味检测", command: "", open: "renwei" }],
+        relations: [{ key: "cast_review", label: "人物盘点", command: "", open: "cast_review" }],
+        hooks: [{ key: "check_consistency", label: "体检", command: "给本章做一次体检。" }],
+        actions: [],
+      };
+      return byTab[s.chapterTab ?? "og"] ?? byTab.og;
+    },
   },
   {
     id: "archives.preview",
@@ -139,12 +157,26 @@ export function matchRegistration(scope: ChatPageScope): ChatPageRegistration | 
   return null;
 }
 
-/** 启动校验（fail loud）：chips 的 key 必须在白名单内——注册了工具清单外的能力即报错。 */
+/** 启动校验（fail loud）：chips 的 key 必须在白名单内——注册了工具清单外的能力即报错。
+ *  章级注册按页签全组扫（chips 随章内页签换装，漏扫一签即漏检一签）。 */
+const CHAPTER_TAB_SWEEP = ["og", "prose", "settings", "relations", "hooks", "actions", "style"];
+
 export function validateRegistrations(): void {
   for (const r of REGISTRATIONS) {
-    for (const chip of r.chips()) {
+    const scopes = (
+      r.id === "workbench.chapter" ? CHAPTER_TAB_SWEEP : [undefined]
+    ).map((chapterTab) => ({
+      view: "workbench" as const,
+      chapterRef: "vol-1-ch-1",
+      volumeSelId: null,
+      emptyBook: false,
+      chapterTab,
+    }));
+    for (const scope of scopes) {
+    for (const chip of r.chips(scope)) {
       if (!(CHIP_KEYS as readonly string[]).includes(chip.key)) {
         throw new Error(`[chatRegistry] 页面 ${r.id} 注册了未登记的能力：${chip.key}`);
+      }
       }
     }
   }

@@ -1408,6 +1408,7 @@ export default function NovelWorkspace() {
               volumeSelId,
               emptyBook: volumes.length === 0,
               settingPanel: settingsPanel,
+              chapterTab: railData?.tab,
             }}
             onStreamingChange={(v) => {
               chatStreamingRef.current = v;

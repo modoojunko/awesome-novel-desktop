@@ -457,3 +457,9 @@
 .pm-foot-note { font-size: 11.5px; color: var(--muted); min-width: 0; }
 .pm-foot-note .pm-notice { margin: 0; }
 .pm-btns { display: flex; gap: 8px; margin-left: auto; flex: none; }
+
+/* 章级无能力页签（操作页签等）：原型 PAGES「本页不接入助手」口径 */
+.chatdock-nochips {
+  padding: 8px 12px; font-size: 11.5px; color: var(--muted);
+  border-bottom: 1px solid var(--border);
+}
