@@ -493,6 +493,10 @@ describe("写作视图常驻挂载：切到设定编辑器不卸载（点「写�
     );
     expect(threeColClass()).not.toContain("on");
     expect(document.querySelector(".editor")?.textContent).toBe("我在专注写作");
+    // 布局钉（真机走查判例 2026-11-15）：章级工具面板只在写作视图＋选中章渲染——
+    // 曾只看 chapterRef，设定页带着章选择也穿帮渲染；桌面端 dock 头部无「×」（恒开）
+    expect(document.querySelector(".ch-toolbox")).toBeNull();
+    expect(document.querySelector(".chatdock-close")).toBeNull();
   });
 });
 

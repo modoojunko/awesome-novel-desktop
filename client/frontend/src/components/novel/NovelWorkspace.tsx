@@ -1393,7 +1393,7 @@ export default function NovelWorkspace() {
               setChatStreaming(v);
             }}
             onUpgrade={onUpgrade}
-            onCloseDrawer={() => setAssistantOpen(false)}
+            onCloseDrawer={assistantNarrow ? () => setAssistantOpen(false) : undefined}
             onOpenAction={(action) => {
               // 富交互入口走既有链（spec：对话不吞弹窗）——生成正文=AiModal 写流；
               // 章级六类入口经 railData 回调分派到 ChapterWorkspace 既有弹窗/检测流
@@ -1412,8 +1412,10 @@ export default function NovelWorkspace() {
             }}
           />
           {/* 章级工具面板（c-writing-agent 收编形态）：AiAssistPanel 全量保活（六类
-              检测/朱雀四态/遥测行零回归），默认折叠、chips 一键展开——能力等价收编 */}
-          {chapterRef && (
+              检测/朱雀四态/遥测行零回归），默认折叠、chips 一键展开——能力等价收编。
+              只在写作视图＋选中章出现（真机走查判例 2026-11-15：曾只看 chapterRef，
+              设定页带着章选择也渲染，穿帮） */}
+          {view === "workbench" && chapterRef && (
             <details className="ch-toolbox" open={toolboxOpen}>
               <summary data-testid="ch-toolbox-summary">章节工具面板</summary>
               <Rail
