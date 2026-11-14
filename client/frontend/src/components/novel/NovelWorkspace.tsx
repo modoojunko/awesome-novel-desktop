@@ -1378,27 +1378,51 @@ export default function NovelWorkspace() {
         <aside
           className={`col-ai${assistantOpen ? " as-open" : ""}${assistantNarrow ? " as-drawer" : ""}`}
         >
-          <ChatDock
-            projectId={projectId}
-            page={dockPage}
-            scope={{
-              view,
-              chapterRef,
-              volumeSelId,
-              emptyBook: volumes.length === 0,
-              settingPanel: settingsPanel,
-            }}
-            onStreamingChange={(v) => {
-              chatStreamingRef.current = v;
-              setChatStreaming(v);
-            }}
-            onUpgrade={onUpgrade}
-            onCloseDrawer={() => setAssistantOpen(false)}
-            onOpenAction={(action) => {
-              // 富交互入口走既有链（spec：对话不吞弹窗）——生成正文=AiModal 写流
-              if (action === "ai_write") requestAi({ kind: "write" });
-            }}
-          />
+          {chapterRef ? (
+            /* 章级深度收编挂账批F-3（抽卡/盘点/推演/朱雀/人味/案头六类的信号总线）——
+               过渡期保留 Rail 保证能力零回归；卷页/设定/预览已由 ChatDock 常驻 */
+            <Rail
+              mode="chapter"
+              projectId={projectId}
+              isPro={isPro}
+              onUpgrade={onUpgrade}
+              proseRef={proseRef}
+              aiState={aiState}
+              data={railData ? { ...railData, staleDownstream } : undefined}
+              volumeData={volumeRailData}
+              railIdle={railIdle}
+              genreLabel={genreLabel}
+              onPlanVolume={openPlanVolume}
+              onSplitAi={() => openChapterPlan("ai")}
+              onGoOutline={() => setGoOutlineSeq((n) => n + 1)}
+              onPacingChanged={handlePacingChanged}
+              onSelectVolume={handleSelectVolume}
+              autoCheckSeq={autoCheck.seq}
+              onAiWrite={() => requestAi({ kind: "write" })}
+            />
+          ) : (
+            <ChatDock
+              projectId={projectId}
+              page={dockPage}
+              scope={{
+                view,
+                chapterRef: null,
+                volumeSelId,
+                emptyBook: volumes.length === 0,
+                settingPanel: settingsPanel,
+              }}
+              onStreamingChange={(v) => {
+                chatStreamingRef.current = v;
+                setChatStreaming(v);
+              }}
+              onUpgrade={onUpgrade}
+              onCloseDrawer={() => setAssistantOpen(false)}
+              onOpenAction={(action) => {
+                // 富交互入口走既有链（spec：对话不吞弹窗）——生成正文=AiModal 写流
+                if (action === "ai_write") requestAi({ kind: "write" });
+              }}
+            />
+          )}
         </aside>
         {assistantNarrow && !assistantOpen && (
           <button

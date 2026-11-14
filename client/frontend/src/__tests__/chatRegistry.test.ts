@@ -12,10 +12,10 @@ describe("chatRegistry 每页注册制", () => {
     );
   });
 
-  it("章级模式无注册（批F 收编前回落旧 Rail）", () => {
+  it("章级模式命中章级注册（批F-2 收编落地）", () => {
     expect(
-      matchRegistration({ view: "workbench", chapterRef: "vol-1-ch-1", volumeSelId: null, emptyBook: false }),
-    ).toBeNull();
+      matchRegistration({ view: "workbench", chapterRef: "vol-1-ch-1", volumeSelId: null, emptyBook: false })?.id,
+    ).toBe("workbench.chapter");
   });
 
   it("设定·角色面板命中专属注册", () => {
@@ -42,6 +42,8 @@ describe("chatRegistry 每页注册制", () => {
       "draft_names",
       "diverge_character_group",
       "diverge_plot_branches",
+      "ai_write",
+      "kb_search",
     ];
     for (const key of registrationsForTest().flatMap((r) => r.chips().map((c) => c.key))) {
       expect(whitelist).toContain(key);

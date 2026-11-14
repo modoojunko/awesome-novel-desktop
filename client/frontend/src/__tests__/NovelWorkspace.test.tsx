@@ -412,9 +412,8 @@ describe("免费态：选中章 → 章对象工作台", () => {
     fireEvent.click(screen.getByRole("tab", { name: /^正文/ }));
     await waitFor(() => expect(document.querySelector(".editor")).toBeTruthy());
     expect(screen.queryByRole("button", { name: "AI 生成正文" })).toBeNull();
-    // 右栏免费 locked 卡 + 规划中（章模式三卡）
-    expect(document.querySelector(".col-ai .rail-assist.locked")).toBeTruthy(); // 免费态整卡锁定
-    // 卡头角标＝当前档位（不再写死 PRO）；套餐文案已不进卡头
+    // 右栏免费 locked 卡 + 规划中（章模式三卡）——章级收编挂账批F-3，过渡期保留 Rail
+    expect(document.querySelector(".col-ai .rail-assist.locked")).toBeTruthy();
     expect(screen.getAllByTestId("plan-badge")[0].textContent).toBe("免费版");
     expect(screen.queryByText(/你的 PRO 已包含|未解锁 · 开通后本书 AI 即可用/)).toBeNull();
   });
@@ -621,10 +620,9 @@ describe("PRO 态：徽标 + phase-status + AI 入口", () => {
     fireEvent.click(screen.getByRole("tab", { name: /^正文/ }));
     // AI 入口唯一化右栏（2026-09-20）：章 body 无「AI 生成正文」按钮，
     // 右栏 AI 助手卡有「生成正文」（data-testid=ai-write-btn）＋真实工具卡
+    // （章级收编挂账批F-3：过渡期 Rail 保留，右栏断言不变）
     expect(screen.queryByRole("button", { name: "AI 生成正文" })).toBeNull();
     const rail = document.querySelector(".col-ai") as HTMLElement;
-    expect(within(rail).getByTestId("ai-write-btn")).toBeDefined();
-    // 顶栏 bar-here 也有「续写」CTA（行头归一），右栏工具卡断言限定右栏范围
     expect(within(rail).getByTestId("ai-write-btn")).toBeDefined();
     // c-renwei-check：去AI味改写链退役（向导与选区单发均缺席）；检测入口＝人味检测
     expect(within(rail).queryByTestId("ai-polish-wizard")).toBeNull();
@@ -1230,8 +1228,8 @@ describe("重新生成确认门禁（c-prose-regen-replace）", () => {
     renderWorkspace("monthly");
     await selectFirstChapter();
     fireEvent.click(screen.getByRole("tab", { name: /^正文/ }));
-    // ai-write-btn 只在 railData 上抛后渲染＝门禁判定的字数已就绪
-    fireEvent.click(await screen.findByTestId("ai-write-btn"));
+    // dock「生成正文」chip 常驻（requestAi 内部自判字数门禁→regen-confirm/ai-confirm）
+    fireEvent.click(screen.getByTestId("ai-write-btn"));
     expect(await screen.findByTestId("regen-confirm")).toBeTruthy();
     expect(screen.queryByTestId("ai-confirm")).toBeNull();
     const dlg = screen.getByTestId("regen-confirm").closest(
@@ -1246,7 +1244,7 @@ describe("重新生成确认门禁（c-prose-regen-replace）", () => {
     renderWorkspace("monthly");
     await selectFirstChapter();
     fireEvent.click(screen.getByRole("tab", { name: /^正文/ }));
-    fireEvent.click(await screen.findByTestId("ai-write-btn"));
+    fireEvent.click(screen.getByTestId("ai-write-btn"));
     const dlg = (await screen.findByTestId("regen-confirm")).closest(
       "[role='dialog']",
     ) as HTMLElement;
@@ -1267,7 +1265,7 @@ describe("重新生成确认门禁（c-prose-regen-replace）", () => {
     renderWorkspace("monthly");
     await selectFirstChapter();
     fireEvent.click(screen.getByRole("tab", { name: /^正文/ }));
-    fireEvent.click(await screen.findByTestId("ai-write-btn"));
+    fireEvent.click(screen.getByTestId("ai-write-btn"));
     expect(await screen.findByTestId("ai-confirm")).toBeTruthy();
     expect(screen.queryByTestId("regen-confirm")).toBeNull();
   });
