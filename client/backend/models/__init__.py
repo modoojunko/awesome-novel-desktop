@@ -69,6 +69,12 @@ from models.reconcile import ChapterReconcile
 from models.token_log import TokenLog
 from models.user import User
 from models.volume import Volume
+from models.assistant import (
+    AssistantMessage,
+    AssistantSession,
+    WriterProfile,
+    WriterProfileEvent,
+)
 from models.zhuque import ZhuqueResultArchive
 
 __all__ = [
@@ -141,5 +147,9 @@ __all__ = [
     "TokenLog",
     "User",
     "Volume",
+    "AssistantMessage",
+    "AssistantSession",
+    "WriterProfile",
+    "WriterProfileEvent",
     "ZhuqueResultArchive",
 ]
