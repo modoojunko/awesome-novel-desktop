@@ -44,6 +44,13 @@ describe("chatRegistry 每页注册制", () => {
       "diverge_plot_branches",
       "ai_write",
       "kb_search",
+      "plot_draw",
+      "cast_review",
+      "simulate",
+      "fill_gaps",
+      "conflict_check",
+      "renwei",
+      "seam",
     ];
     for (const key of registrationsForTest().flatMap((r) => r.chips().map((c) => c.key))) {
       expect(whitelist).toContain(key);

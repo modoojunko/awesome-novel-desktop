@@ -1397,10 +1397,20 @@ export default function NovelWorkspace() {
             onUpgrade={onUpgrade}
             onCloseDrawer={() => setAssistantOpen(false)}
             onOpenAction={(action) => {
-              // 富交互入口走既有链（spec：对话不吞弹窗）——生成正文=AiModal 写流
+              // 富交互入口走既有链（spec：对话不吞弹窗）——生成正文=AiModal 写流；
+              // 章级六类入口经 railData 回调分派到 ChapterWorkspace 既有弹窗/检测流
+              // （回调随 onRailData 上抛，零新写回路径）
               if (action === "ai_write") requestAi({ kind: "write" });
               // 章节工具面板（六类检测/遥测行收编形态）：展开折叠面板
               if (action === "chapter_toolbox") setToolboxOpen(true);
+              const rd = railData;
+              if (action === "plot_draw") rd?.onPlotDraw?.();
+              if (action === "cast_review") rd?.onCastReview?.();
+              if (action === "simulate") rd?.onSimulate?.();
+              if (action === "fill_gaps") rd?.onFillGaps?.();
+              if (action === "conflict_check") rd?.onAiCheck?.("volume_conflict");
+              if (action === "renwei") proseRef.current?.openRenweiCheck?.();
+              if (action === "seam") proseRef.current?.openSeamWizard?.();
             }}
           />
           {/* 章级工具面板（c-writing-agent 收编形态）：AiAssistPanel 全量保活（六类

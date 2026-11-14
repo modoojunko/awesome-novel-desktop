@@ -53,6 +53,13 @@ const CHIP_KEYS = [
   "diverge_plot_branches",
   "ai_write",
   "kb_search",
+  "plot_draw",
+  "cast_review",
+  "simulate",
+  "fill_gaps",
+  "conflict_check",
+  "renwei",
+  "seam",
 ] as const;
 
 const REGISTRATIONS: ChatPageRegistration[] = [
@@ -91,6 +98,14 @@ const REGISTRATIONS: ChatPageRegistration[] = [
       { key: "draft_chapter_plot", label: "本章剧情", command: "给本章出三版剧情清单。" },
       { key: "check_consistency", label: "体检", command: "给本章做一次体检。" },
       { key: "ai_write", label: "生成正文", command: "", open: "ai_write", feature: "ai-generate" },
+      // 六类深度入口（批F-3）：open 型经宿主 railData 回调分派到 ChapterWorkspace 既有弹窗/检测流
+      { key: "plot_draw", label: "剧情抽卡", command: "", open: "plot_draw" },
+      { key: "cast_review", label: "人物盘点", command: "", open: "cast_review" },
+      { key: "simulate", label: "剧情推演", command: "", open: "simulate", feature: "ai-plot" },
+      { key: "fill_gaps", label: "补全缺失", command: "", open: "fill_gaps" },
+      { key: "conflict_check", label: "冲突检测", command: "", open: "conflict_check" },
+      { key: "renwei", label: "人味检测", command: "", open: "renwei" },
+      { key: "seam", label: "接上一章", command: "", open: "seam" },
     ],
   },
   {

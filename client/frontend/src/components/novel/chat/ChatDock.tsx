@@ -15,8 +15,9 @@ import {
 } from "@/lib/chatApi";
 import { api } from "@/lib/api";
 import { matchRegistration, type ChatChip, type ChatPageScope } from "@/lib/chatRegistry";
-import type { FeatureKey } from "@/lib/features";
 import type { LandingView } from "@/lib/novelStage";
+import { useFeature } from "@/hooks/useTier";
+import type { FeatureKey } from "@/lib/features";
 import { useChatSession, type ChatMessage } from "@/hooks/useChatSession";
 import "./chat.css";
 
@@ -130,6 +131,22 @@ export default function ChatDock({
   const streamRef = useRef(false);
   const greetedPageRef = useRef<string | null>(null);
   const streamBoxRef = useRef<HTMLDivElement | null>(null);
+  const fPlan = useFeature("ai-plan");
+  const fGen = useFeature("ai-generate");
+  const fPlot = useFeature("ai-plot");
+  const fDiv = useFeature("assistant-diverge");
+  const fFields = useFeature("settings-ai-fields");
+  const featureEnabled = (key?: FeatureKey): boolean | undefined => {
+    if (!key) return undefined;
+    switch (key) {
+      case "ai-plan": return fPlan;
+      case "ai-generate": return fGen;
+      case "ai-plot": return fPlot;
+      case "assistant-diverge": return fDiv;
+      case "settings-ai-fields": return fFields;
+      default: return undefined;
+    }
+  };
   const registration = useMemo(() => matchRegistration(scope), [scope]);
 
   // 历史回看（projectId 就绪才拉；重开即续聊——转写即状态）
@@ -337,7 +354,15 @@ export default function ChatDock({
               disabled={c.disabled}
               title={c.hint}
               data-testid={`chat-chip-${c.key}`}
-              onClick={() => (c.open ? onOpenAction?.(c.open) : send(c.command))}
+              onClick={() => {
+                const enabled = featureEnabled(c.feature ?? undefined);
+                if (enabled === false) {
+                  onUpgrade?.(c.feature);
+                  return;
+                }
+                if (c.open) onOpenAction?.(c.open);
+                else send(c.command);
+              }}
             >
               {c.label}
             </button>
