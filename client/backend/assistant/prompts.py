@@ -34,7 +34,18 @@ action=final：收口，reply 是给作家的完整回答。
 意图含糊就先把问题问清（action=final，reply=澄清问题）。"""
 
 
-def build_system_prompt(book_brief: str) -> str:
-    """L1 系统前缀：身份＋围栏＋协议＋书级 brief。逐段稳定（前缀缓存）。"""
-    parts = [IDENTITY_TEXT, "", "── 书情 ──", book_brief, "", "── 动作协议 ──", ACT_PROTOCOL]
+def build_system_prompt(identity_section: str, book_brief: str) -> str:
+    """L1 系统前缀：身份（identity 结构化字段集，批C）＋围栏＋协议＋书级 brief。
+
+    逐段稳定（前缀缓存）。identity_section 由 identity.identity_system_section 生成；
+    IDENTITY_TEXT 保留为身份缺包兜底稿的最后防线（identity.load_identity 内部消化）。"""
+    parts = [
+        identity_section or IDENTITY_TEXT,
+        "",
+        "── 书情 ──",
+        book_brief,
+        "",
+        "── 动作协议 ──",
+        ACT_PROTOCOL,
+    ]
     return "\n".join(p for p in parts if p)

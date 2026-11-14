@@ -310,7 +310,57 @@ TOOL_REGISTRY: tuple[Tool, ...] = (
 # 在本行之后导入避免环； Capability 围栏不变——清单仍只含书内/知识库域）
 from assistant.tools_cards import CARD_TOOLS  # noqa: E402
 
-TOOL_REGISTRY: tuple[Tool, ...] = TOOL_REGISTRY + CARD_TOOLS
+# ── 画像工具（agent 私有；openwriter memory 模式：零审批、透明告知、可暂停）────
+
+
+async def _profile_read(ctx: ToolContext) -> ToolResult:
+    from assistant.profile import load_sections
+    from db import async_session
+
+    async with async_session() as session:
+        sections = await load_sections(session, ctx.user_id)
+    if not sections:
+        return ToolResult(ok=True, summary="（画像还是空的——聊得多了我会自己记。）")
+    return ToolResult(
+        ok=True, summary="作家画像：" + _clip(json.dumps(sections, ensure_ascii=False), 600)
+    )
+
+
+async def _profile_update(
+    ctx: ToolContext, updates: dict[str, Any], novel_id: str = ""
+) -> ToolResult:
+    """写画像（不弹授权卡；透明告知在返回摘要里；敏感类目带先问提示）。"""
+    from assistant.profile import update_sections
+    from db import async_session
+
+    async with async_session() as session:
+        result = await update_sections(
+            session, user_id=ctx.user_id, novel_id=novel_id or ctx.novel_id, updates=updates or {}
+        )
+    return ToolResult(ok=bool(result.get("ok")), summary=str(result.get("notice", "")), meta=result)
+
+
+PROFILE_TOOLS: tuple[Tool, ...] = (
+    Tool(
+        name="profile_read",
+        kind="read",
+        args_hint="{}",
+        description="读作家画像（口味/雷点/节奏/文风）。起草前先读它，别踩雷点。",
+        fn=_profile_read,
+    ),
+    Tool(
+        name="profile_update",
+        kind="read",  # 画像更新不弹授权卡（拍板⑤）；透明告知在工具结果里
+        args_hint='{"updates": {"pet_peeves": ["讨厌圣母心主角"], "naming": {"双名": true}}}',
+        description=(
+            "记住作家的口味/雷点/习惯进画像（越用越懂作家）。写入时透明告知作家；"
+            "敏感信息先问再记。"
+        ),
+        fn=_profile_update,
+    ),
+)
+
+TOOL_REGISTRY: tuple[Tool, ...] = TOOL_REGISTRY + CARD_TOOLS + PROFILE_TOOLS
 
 _TOOLS_BY_NAME: dict[str, Tool] = {t.name: t for t in TOOL_REGISTRY}
 

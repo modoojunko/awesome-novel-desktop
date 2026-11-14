@@ -20,11 +20,12 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import StreamingResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from assistant import identity as identity_mod
 from assistant import session_store, write_gate
 from assistant.context import append_page_note, build_book_brief, build_page_note
 from assistant.loop import AgentLoop, LoopConfig
 from assistant.prompts import build_system_prompt
-from assistant.tools import ToolContext
+from assistant.tools import ToolContext, _clip
 from auth_local.deps import ai_access_granted
 from auth_local.middleware import get_current_user
 from db import get_db
@@ -78,11 +79,26 @@ async def _stream_chat(
         return
 
     # ── 组装 ────────────────────────────────────────────────────────────────
+    identity = await identity_mod.load_identity()
     brief = await build_book_brief(project, db)
-    system = build_system_prompt(brief)
+    system = build_system_prompt(
+        identity_mod.identity_system_section(identity), brief
+    )
     rows = await session_store.load_messages(db, session.id)
     transcript = _history_transcript(rows)
     note = build_page_note(page)
+    # L2 画像注入（批C 3.3）：口味/雷点裁一段拼进页面注入——起草/发散先懂作家
+    try:
+        from assistant.profile import load_sections
+
+        sections = await load_sections(db, user["id"])
+        if sections:
+            note = (
+                (note + " " if note else "")
+                + f"［作家画像（体谅口味、避开雷点）：{_clip(json.dumps(sections, ensure_ascii=False), 400)}］"
+            )
+    except Exception:  # noqa: BLE001——画像缺席不致命（BLE001 豁免）
+        pass
     if note:
         transcript = append_page_note(transcript, note)
 
@@ -349,6 +365,42 @@ async def _stream_chat(
     if page:
         await session_store.touch_session(db, session.id, page_cursor=page)
 
+    # ── 定期总结画像（批C 3.4）：非阻塞后台任务，失败静默（autotitle 模式）────
+    import asyncio
+
+    asyncio.create_task(_profile_summary_task(user["id"], project.id))
+
+
+async def _profile_summary_task(user_id: str, novel_id: str) -> None:
+    """画像定期总结的后台任务体（自有会话＋自有客户端；永不冒泡成会话错误）。"""
+    import logging
+
+    try:
+        from ai_client import get_ai_client_for_novel
+        from assistant import profile
+        from db import async_session
+
+        async with async_session() as s:
+            client = await get_ai_client_for_novel(novel_id)
+
+            async def _complete(system: str, user_text: str) -> str:
+                return await client.chat(
+                    model="haiku",
+                    system=system,
+                    messages=[{"role": "user", "content": user_text}],
+                    max_tokens=1024,
+                    operation="assistant_profile_summary",
+                )
+
+            result = await profile.maybe_summarize(
+                s, user_id=user_id, novel_id=novel_id, complete_fn=_complete
+            )
+            logging.getLogger(__name__).info(
+                "assistant profile summarize: %s", result
+            )
+    except Exception as e:  # noqa: BLE001——静默（总结失败不影响任何会话）
+        logging.getLogger(__name__).info("assistant profile summarize skipped: %s", e)
+
 
 @router.post("/chat")
 async def assistant_chat(
@@ -587,3 +639,84 @@ async def undo_assistant_write(
         },
     )
     return {"ok": True, "entity": entity, "restored": previous}
+
+
+@router.get("/profile")
+async def get_writer_profile(
+    project_id: str,
+    user: dict = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """画像查看（四条件之一：可查看/可编辑/可清空/可暂停——本端点族承载）。"""
+    from assistant.profile import get_or_create_profile
+
+    project = await get_novel(db, project_id, user["id"])
+    if not project:
+        raise HTTPException(404, "Project not found")
+    row = await get_or_create_profile(db, user["id"])
+    return {
+        "sections": json.loads(row.sections_json or "{}"),
+        "paused": bool(row.paused),
+        "updatedAt": row.updated_at,
+    }
+
+
+@router.post("/profile/update")
+async def update_writer_profile(
+    project_id: str,
+    request: Request,
+    user: dict = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """画像手填/编辑（作家自己改；与 agent 写入同一条 update_sections 链）。"""
+    body: dict[str, Any] = {}
+    try:
+        raw = await request.json()
+        if isinstance(raw, dict):
+            body = raw
+    except (ValueError, UnicodeDecodeError):
+        body = {}
+    updates = body.get("updates")
+    if not isinstance(updates, dict) or not updates:
+        raise HTTPException(422, "updates 必填")
+    from assistant.profile import update_sections
+
+    result = await update_sections(
+        db, user_id=user["id"], novel_id=project_id, updates=updates, kind="manual"
+    )
+    return result
+
+
+@router.post("/profile/clear")
+async def clear_writer_profile(
+    project_id: str,
+    user: dict = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """一键清空画像（可清空是画像四条件之一）。"""
+    from assistant.profile import clear_profile
+
+    await clear_profile(db, user["id"])
+    return {"ok": True}
+
+
+@router.post("/profile/pause")
+async def pause_writer_profile(
+    project_id: str,
+    request: Request,
+    user: dict = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """「暂停画像学习」开关（即时生效；已有内容保留）。body {"paused": bool}"""
+    body: dict[str, Any] = {}
+    try:
+        raw = await request.json()
+        if isinstance(raw, dict):
+            body = raw
+    except (ValueError, UnicodeDecodeError):
+        body = {}
+    paused = bool(body.get("paused"))
+    from assistant.profile import set_paused
+
+    await set_paused(db, user["id"], paused)
+    return {"ok": True, "paused": paused}
