@@ -60,6 +60,7 @@ const CHIP_KEYS = [
   "conflict_check",
   "renwei",
   "seam",
+  "zhuque",
 ] as const;
 
 const REGISTRATIONS: ChatPageRegistration[] = [
@@ -106,6 +107,7 @@ const REGISTRATIONS: ChatPageRegistration[] = [
       { key: "conflict_check", label: "冲突检测", command: "", open: "conflict_check" },
       { key: "renwei", label: "人味检测", command: "", open: "renwei" },
       { key: "seam", label: "接上一章", command: "", open: "seam" },
+      { key: "zhuque", label: "朱雀检测", command: "", open: "chapter_toolbox", feature: "ai-detect" },
     ],
   },
   {

@@ -597,6 +597,28 @@ test.describe("chat-dock 界面测试（c-writing-agent 批G）", () => {
     await restore();
   });
 
+  test("⑮朱雀入口：chip 展开工具面板一键可达", async ({ page }) => {
+    const { restore, token } = await setupSession(page, "max");
+    const id = await seedBook(page, token, `e2e-agt-zq-${Date.now()}`);
+    // 落一章并选中（章级注册生效前提）
+    await fetch(`${ORIGIN}/api/novels/${id}/volumes/vol-1/chapters`, {
+      method: "POST",
+      headers: authHeaders(token),
+      body: JSON.stringify({ title: "渡口" }),
+    });
+    await page.reload();
+    await expect(page.getByTestId("chat-dock")).toBeVisible();
+    // 树中点章 → 章级模式
+    await page.locator(".col-tree .ch").first().click();
+    await expect(page.getByTestId("chat-chip-zhuque")).toBeVisible({ timeout: 8000 });
+    // 朱雀 chip = 展开保活工具面板（朱雀行一键可达）
+    await page.getByTestId("chat-chip-zhuque").click();
+    await expect(page.getByTestId("ch-toolbox-summary")).toBeVisible();
+    // 工具面板展开＝朱雀/人味/案头行一键可达（行级深检留真机走查 D 段）
+    await expect(page.getByText("章节工具面板")).toBeVisible();
+    await restore();
+  });
+
   test("⑭窄屏：FAB 唤出抽屉＋关闭收起", async ({ page }) => {
     const { restore, token } = await setupSession(page, "max");
     await seedBook(page, token, `e2e-agt-narrow-${Date.now()}`);
