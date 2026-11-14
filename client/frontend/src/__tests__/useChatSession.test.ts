@@ -117,6 +117,25 @@ describe("useChatSession reducer（run 模型）", () => {
     state = chatReducer(state, { type: "thinking_flush", text: "先读设定\n再起草" });
     expect(state.thinkingText).toBe("先读设定\n再起草");
   });
+  it("review 钉：run_end 思考回挂本 run 气泡（收口后可回看，实时面板清零）", () => {
+    state = chatReducer(state, { type: "run_start", runId: "r1" });
+    state = chatReducer(state, { type: "thinking_flush", text: "先读设定，再起草" });
+    state = chatReducer(state, { type: "run_end" });
+    expect(state.runActive).toBe(false);
+    expect(state.thinkingText).toBe("");
+    const bubble = state.messages.find((m) => m.kind === "text" && m.role === "assistant")!;
+    expect(bubble.thinking).toBe("先读设定，再起草");
+  });
+
+  it("review 钉：step_end 透传 apiCalls（模型调用随步可见）", () => {
+    state = chatReducer(state, { type: "run_start", runId: "r1" });
+    const apiCalls = [{ op: "draft_expand", model: "glm-5.3", ms: 820, ok: true }];
+    state = chatReducer(state, {
+      type: "step_end", runId: "r1", stepId: "s1", tool: "draft_volume_expand",
+      resultNote: "出卡", apiCalls,
+    });
+    expect(state.messages.at(-1)!.steps[0].apiCalls).toEqual(apiCalls);
+  });
 
   it("授权卡：pending → resolved 只改同一 gateId", () => {
     state = chatReducer(state, {
@@ -150,3 +169,4 @@ describe("useChatSession reducer（run 模型）", () => {
     expect(state.messages).toHaveLength(0);
   });
 });
+

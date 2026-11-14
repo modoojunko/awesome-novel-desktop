@@ -498,18 +498,37 @@ export default function ChatDock({
             <div key={m.id} className={`cd-msg ${isUser ? "user" : "assistant"}`}>
               <div className="cd-bubble">{m.text}</div>
               {/* TraceFolded（批E TraceFolded 组件语义内联）：run 收口后工具步折叠可回看 */}
-              {m.steps.length > 0 && (
+              {(m.steps.length > 0 || m.thinking) && (
                 <details className="cd-trace" data-testid="chat-trace">
                   <summary>
-                    运行轨迹（{m.steps.length} 步：{m.steps.map((s) => s.tool).join("、")}）
+                    运行轨迹
+                    {m.steps.length > 0 &&
+                      `（${m.steps.length} 步：${m.steps.map((s) => s.tool).join("、")}）`}
+                    {m.thinking && m.steps.length === 0 && "（思考过程）"}
                   </summary>
+                  {m.thinking && (
+                    <div className="cd-trace-think" data-testid="chat-trace-think">
+                      <b>思考过程</b>
+                      <pre>{_clip(m.thinking, 2000)}</pre>
+                    </div>
+                  )}
                   <ul>
-                    {m.steps.map((s) => (
-                      <li key={s.stepId}>
-                        <b>{s.tool}</b>
-                        {s.resultNote ? ` — ${s.resultNote}` : ""}
-                      </li>
-                    ))}
+                    {m.steps.map((s) => {
+                      const modelCalls = (s.apiCalls ?? []).length;
+                      return (
+                        <li key={s.stepId}>
+                          <b>{s.tool}</b>
+                          {s.resultNote ? ` — ${s.resultNote}` : ""}
+                          {modelCalls > 0 && (
+                            <span className="cd-step-api">
+                              {" "}
+                              · 调用模型 ×{modelCalls}
+                              {`（${(s.apiCalls ?? []).map((a) => a.op).join("、")}）`}
+                            </span>
+                          )}
+                        </li>
+                      );
+                    })}
                   </ul>
                 </details>
               )}
@@ -537,6 +556,9 @@ export default function ChatDock({
                 <li key={s.stepId}>
                   <b>{s.tool}</b>
                   {s.resultNote ? ` — ${_clip(s.resultNote, 80)}` : "（进行中）"}
+                  {(s.apiCalls ?? []).length > 0 && (
+                    <span className="cd-step-api"> · 调用模型 ×{(s.apiCalls ?? []).length}</span>
+                  )}
                 </li>
               ))}
             </ul>

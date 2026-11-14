@@ -24,7 +24,7 @@ from collections.abc import AsyncIterator, Awaitable, Callable
 from dataclasses import dataclass, field
 from typing import Any
 
-from ai_client import AIThinkingTimeoutError, AITimeoutError
+from ai_client import AIThinkingTimeoutError, AITimeoutError, api_calls_begin, api_calls_drain
 from assistant import compact as compact_mod
 from assistant.actions import parse_action
 from assistant.context import build_outbound_window
@@ -262,7 +262,11 @@ class AgentLoop:
                     "tool": action.tool,
                     "label": action.thought[:80],
                 }
+                # API 调用归集（c-writing-agent 反馈流：本步内工具核心的模型调用
+                # 全部可见——coding agent 口径，boss 拍板 2026-11-15）
+                api_calls_begin()
                 result = await run_tool(self.tool_ctx, action.tool, action.args)
+                api_calls = api_calls_drain()
                 note = " ".join(result.summary.split())[:220]
                 step_end: dict[str, Any] = {
                     "type": "step_end",
@@ -271,6 +275,8 @@ class AgentLoop:
                     "tool": action.tool,
                     "resultNote": note,
                 }
+                if api_calls:
+                    step_end["apiCalls"] = api_calls
                 # 写类工具携带写入日志（撤销数据源：entity/fields/previous）
                 write_log = result.meta.get("write_log")
                 if write_log:

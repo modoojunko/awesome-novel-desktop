@@ -25,7 +25,9 @@ export interface ChatMessage {
   gateHumanOnly?: boolean;
   gateState?: "pending" | "approved" | "denied" | "expired";
   // 轨迹（TraceFolded 数据源：真实工具步）
-  steps: { stepId: string; tool: string; resultNote: string }[];
+  steps: { stepId: string; tool: string; resultNote: string; apiCalls?: { op: string; model: string; ms: number; ok: boolean }[] }[];
+  /** 本轮思考全文（run 收口后折叠回看——coding agent 口径） */
+  thinking?: string;
   error?: string;
 }
 
@@ -46,7 +48,14 @@ type Action =
   | { type: "thinking"; text: string }
   | { type: "thinking_flush"; text: string }
   | { type: "step_start"; runId: string; stepId: string; tool: string }
-  | { type: "step_end"; runId: string; stepId: string; tool: string; resultNote: string }
+  | {
+      type: "step_end";
+      runId: string;
+      stepId: string;
+      tool: string;
+      resultNote: string;
+      apiCalls?: { op: string; model: string; ms: number; ok: boolean }[];
+    }
   | { type: "narration"; runId: string; text: string }
   | { type: "artifact"; runId: string; cardId: string; kind: string; payload: unknown }
   | { type: "permission_required"; runId: string; gateId: string; preview: unknown; humanOnly: boolean }
@@ -124,8 +133,14 @@ export function chatReducer(state: ChatState, action: Action): ChatState {
         thinkingText: "",
         messages: [...state.messages, newAssistantMessage(action.runId)],
       };
-    case "run_end":
-      return { ...state, runActive: false, thinkingText: "" };
+    case "run_end": {
+      // 思考回挂到本 run 气泡（coding agent 口径：收口后仍可展开回看），再清实时面板
+      const thinking = state.thinkingText;
+      const messages = thinking
+        ? updateRunBubble(state.messages, "", (m) => ({ ...m, thinking }))
+        : state.messages;
+      return { ...state, runActive: false, thinkingText: "", messages };
+    }
     case "thinking":
       return { ...state, thinkingText: state.thinkingText + (action.text ?? "") };
     case "thinking_flush":
@@ -153,11 +168,15 @@ export function chatReducer(state: ChatState, action: Action): ChatState {
         ...state,
         messages: updateRunBubble(state.messages, action.runId, (m) => {
           const exists = m.steps.some((s) => s.stepId === action.stepId);
+          const entry = {
+            stepId: action.stepId,
+            tool: action.tool,
+            resultNote: action.resultNote,
+            apiCalls: action.apiCalls,
+          };
           const steps = exists
-            ? m.steps.map((s) =>
-                s.stepId === action.stepId ? { ...s, tool: action.tool, resultNote: action.resultNote } : s,
-              )
-            : [...m.steps, { stepId: action.stepId, tool: action.tool, resultNote: action.resultNote }];
+            ? m.steps.map((s) => (s.stepId === action.stepId ? { ...s, ...entry } : s))
+            : [...m.steps, entry];
           return { ...m, steps };
         }),
       };
@@ -300,6 +319,10 @@ export function useChatSession() {
         dispatch({ type: "run_start", runId: event.runId || "" });
         break;
       case "run_end":
+        // 先冲掉节流缓冲里残留的思考增量，再收口（回挂不丢尾）
+        if (thinkingBufRef.current) {
+          dispatch({ type: "thinking_flush", text: thinkingBufRef.current });
+        }
         dispatch({ type: "run_end" });
         break;
       case "thinking": {
@@ -326,6 +349,7 @@ export function useChatSession() {
           stepId: event.stepId || "",
           tool: event.tool || "",
           resultNote: String(event.resultNote ?? ""),
+          apiCalls: event.apiCalls,
         });
         break;
       case "narration":

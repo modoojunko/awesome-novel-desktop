@@ -294,6 +294,7 @@ async def _stream_chat(
                     "stepId": event.get("stepId"),
                     "runId": event.get("runId"),
                     "writeLog": event.get("writeLog"),  # 撤销数据源（previous 值）
+                    "apiCalls": event.get("apiCalls"),  # 本步模型调用记录（反馈流可见）
                 },
             )
         elif etype == "permission_required":

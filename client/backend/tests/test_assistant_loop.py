@@ -5,7 +5,12 @@
 步数耗尽收尾／compact 触发持久化。护栏常量在 loop 模块级，测试用 config 覆盖。
 """
 
+import logging
+import time
+
 import pytest
+
+import ai_client as ai_client_mod
 
 from assistant import loop as loop_mod
 from assistant.loop import AgentLoop, LoopConfig
@@ -219,3 +224,34 @@ async def test_generator_close_is_clean():
     assert first["type"] == "run_start"
     # 主动关闭——修复前此处抛 RuntimeError("async generator ignored GeneratorExit")
     await agen.aclose()
+
+@pytest.mark.asyncio
+async def test_step_end_carries_api_calls(monkeypatch):
+    """boss 拍板 2026-11-15：反馈流像 coding agent——本步内的模型 API 调用
+    （归集器记录）随 step_end.apiCalls 全量可见；读类无模型调用则不带。"""
+    async def fake_run_tool(ctx, name, args):
+        # 工具核心不自行 begin/drain——loop 已 begin，同任务内 _log_call 自归集
+        class _C:
+            logger = logging.getLogger("t")
+            _base_url = "https://e.com/v1"
+
+        ai_client_mod.AIClient._log_call(
+            _C(), "draft_expand", "glm-5.3", time.perf_counter(), tokens_in=9, tokens_out=4
+        )
+        from assistant.tools import ToolResult
+
+        return ToolResult(ok=True, summary="出卡")
+
+    fake = Tool(name="draft_volume_expand", kind="card", args_hint="{}", description="d", fn=fake_run_tool)
+    monkeypatch.setattr(loop_mod, "get_tool", lambda n: fake)
+    monkeypatch.setattr(loop_mod, "run_tool", fake_run_tool)
+
+    client = FakeClient([_tool("draft_volume_expand", {}), _final("好")])
+    loop = AgentLoop(client=client, system="sys", transcript=[], tool_ctx=None, config=LoopConfig(max_steps=4))
+    events = [e async for e in loop.run("铺一下")]
+
+    step_end = next(e for e in events if e["type"] == "step_end")
+    calls = step_end.get("apiCalls")
+    assert calls and calls[0]["op"] == "draft_expand" and calls[0]["ok"] is True
+    assert calls[0]["tokens_in"] == 9 and calls[0]["tokens_out"] == 4
+

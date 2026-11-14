@@ -463,3 +463,13 @@
   padding: 8px 12px; font-size: 11.5px; color: var(--muted);
   border-bottom: 1px solid var(--border);
 }
+
+/* 反馈流 coding-agent 口径（boss 拍板 2026-11-15）：思考回看＋每步模型调用 */
+.cd-trace-think { margin: 6px 0; }
+.cd-trace-think b { font-size: 11px; color: var(--muted); }
+.cd-trace-think pre {
+  margin: 4px 0 0; padding: 8px 10px; border-radius: 8px;
+  background: rgba(0, 0, 0, .04); font-size: 11px; line-height: 1.7;
+  white-space: pre-wrap; word-break: break-word; color: var(--muted);
+}
+.cd-step-api { color: var(--muted); font-size: 11px; }

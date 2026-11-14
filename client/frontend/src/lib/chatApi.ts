@@ -28,6 +28,8 @@ export type AgentEvent = {
   tool?: string;
   label?: string;
   resultNote?: string;
+  /** 本步内模型 API 调用记录（coding agent 反馈口径，boss 拍板 2026-11-15） */
+  apiCalls?: { op: string; model: string; ms: number; tokens_in: number; tokens_out: number; ok: boolean }[];
   text?: string;
   cardId?: string;
   kind?: string;
