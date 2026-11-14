@@ -16,6 +16,7 @@ from __future__ import annotations
 import json
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
+from typing import Any
 
 # 转写预算（write/chapter_writer.py 判例同风格：按中文字符预算，不按 token）
 READ_CHAPTER_BUDGET_CHARS = 1500
@@ -190,6 +191,75 @@ async def _read_progress(ctx: ToolContext) -> ToolResult:
     return ToolResult(ok=True, summary=summary)
 
 
+# ── 写类工具（kind="write"，经 write_gate 授权梯度；走既有写服务，校验链原样生效）──
+
+# 卷字段白名单（VolumeUpdate 字段交集；写前记 previous 供撤销）
+VOLUME_FIELD_WHITELIST = (
+    "title",
+    "summary",
+    "core_conflict",
+    "ending",
+    "chapter_target",
+    "antagonist_type",
+    "antagonist_line",
+)
+
+
+async def _write_volume_fields(ctx: ToolContext, ref: str, fields: dict[str, Any]) -> ToolResult:
+    """改一卷的字段（白名单内）。走 volumes.service.update_volume 既有校验链；
+    写前抓 previous 值进 write_log（撤销=按 previous 回写）。"""
+    from db import async_session
+    from novels.service import get_novel
+    from volumes.schemas import VolumeUpdate
+    from volumes.service import update_volume
+
+    clean_ref = str(ref or "").strip()
+    if not clean_ref.startswith("vol-"):
+        clean_ref = f"vol-{clean_ref}"
+    fields = fields or {}
+    bad = [k for k in fields if k not in VOLUME_FIELD_WHITELIST]
+    if bad:
+        return ToolResult(
+            ok=False, summary=f"字段不在白名单：{bad}（可写：{list(VOLUME_FIELD_WHITELIST)}）"
+        )
+    if not fields:
+        return ToolResult(ok=False, summary="没有给出要写的字段。")
+
+    async with async_session() as session:
+        project = await get_novel(session, ctx.novel_id, ctx.user_id)
+        if project is None:
+            return ToolResult(ok=False, summary="书不存在或不属于当前作家。")
+        from repositories import volume_repo
+
+        vol_no = int(clean_ref.replace("vol-", ""))
+        vol = await volume_repo.get_by_volume_no(session, project.id, vol_no)
+        if vol is None:
+            return ToolResult(ok=False, summary=f"卷不存在：{clean_ref}")
+        previous = {k: getattr(vol, k, None) for k in fields}
+        body = VolumeUpdate(**fields)
+        await update_volume(session, project, clean_ref, body)
+    return ToolResult(
+        ok=True,
+        summary=f"已写入 {clean_ref}：{'、'.join(fields)}",
+        meta={
+            "write_log": {
+                "entity": f"volume:{clean_ref}",
+                "fields": fields,
+                "previous": _jsonable(previous),
+            }
+        },
+    )
+
+
+def _jsonable(value: Any) -> Any:
+    """SQL 标量→JSON 安全（Decimal/datetime 等 str 化）。"""
+    try:
+        json.dumps(value, ensure_ascii=False)
+        return value
+    except (TypeError, ValueError):
+        return str(value)
+
+
 # ── 注册表（封闭清单；扩展只准书内/知识库域，见能力围栏）─────────────────────
 
 TOOL_REGISTRY: tuple[Tool, ...] = (
@@ -222,6 +292,17 @@ TOOL_REGISTRY: tuple[Tool, ...] = (
         kind="read",
         args_hint="{}",
         description="读写作进度与当前 frontier 章。",
+    ),
+    Tool(
+        name="write_volume_fields",
+        kind="write",
+        args_hint='{"ref": "vol-1", "fields": {"summary": "…", "ending": "…"}}',
+        description=(
+            "改一卷的字段（可写：title/summary/core_conflict/ending/chapter_target/"
+            "antagonist_type/antagonist_line）。受作家授权梯度管控；写入后有回执可撤销。"
+        ),
+        feature_key="ai-plan",
+        fn=_write_volume_fields,
     ),
 )
 

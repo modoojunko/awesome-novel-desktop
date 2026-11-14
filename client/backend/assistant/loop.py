@@ -100,8 +100,9 @@ class AgentLoop:
         tool_ctx: ToolContext,
         compaction_state: Any = None,
         config: LoopConfig | None = None,
-        # 批A 传 None；批B 接 write_gate——返回 None=放行，dict=gate 事件
-        gate_fn: Callable[[str, dict], Awaitable[dict | None]] | None = None,
+        # 批A 传 None；批B 接 write_gate——返回 None=放行；返回事件列表（末项含
+        # approved 布尔）＝先逐个下发再按批准与否继续/拒绝
+        gate_fn: Callable[[str, dict], Awaitable[list[dict] | None]] | None = None,
         # compact 状态持久化回调（session_store.save_compaction_state 适配）
         on_compaction: Callable[[Any], Awaitable[None]] | None = None,
         # 每步用量回调（router 注入 record_usage 适配，短事务）
@@ -229,18 +230,22 @@ class AgentLoop:
                     }
                     break
 
-                # 授权梯度（批B write_gate；批A 读类无闸）
+                # 授权梯度（write_gate）：gate_fn 返回 None＝放行；返回事件列表＝
+                # 先逐个下发（授权卡/升级卡），末项 gate_result.approved 决定是否执行。
+                # denied 时只给 agent 非诊断性拒绝语（完整理由仅在授权卡上给作家）。
                 if self.gate_fn is not None:
-                    gate = await self.gate_fn(action.tool, action.args)
-                    if gate is not None:
-                        yield gate
-                        self.transcript.append(
-                            {
-                                "role": "user",
-                                "content": f"[system] 工具 {action.tool} 被作家拒绝或需要授权，未执行。",
-                            }
-                        )
-                        continue
+                    gate_events = await self.gate_fn(action.tool, action.args)
+                    if gate_events:
+                        for ge in gate_events:
+                            yield ge
+                        last = gate_events[-1]
+                        if not last.get("approved", False):
+                            refusal = last.get("refusal") or "作家没有授权这个操作，我先不做了。"
+                            self.transcript.append(
+                                {"role": "user", "content": f"[system] {refusal}"}
+                            )
+                            yield {"type": "narration", "text": refusal}
+                            continue
 
                 self.result.tool_calls += 1
                 yield {
@@ -252,13 +257,18 @@ class AgentLoop:
                 }
                 result = await run_tool(self.tool_ctx, action.tool, action.args)
                 note = " ".join(result.summary.split())[:220]
-                yield {
+                step_end: dict[str, Any] = {
                     "type": "step_end",
                     "runId": run_id,
                     "stepId": f"{run_id}-{step_no}",
                     "tool": action.tool,
                     "resultNote": note,
                 }
+                # 写类工具携带写入日志（撤销数据源：entity/fields/previous）
+                write_log = result.meta.get("write_log")
+                if write_log:
+                    step_end["writeLog"] = write_log
+                yield step_end
                 self.result.trace.append(
                     {"tool": action.tool, "ok": result.ok, "note": note}
                 )
