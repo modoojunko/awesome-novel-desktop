@@ -134,12 +134,42 @@ async def _stream_chat(
     tier = str(grants.get("tier") or write_gate.TIER_CONFIRM_EACH)
 
     async def _gate_fn(tool_name: str, args: dict[str, Any]) -> list[dict[str, Any]] | None:
-        """写类工具：判定→停车弹授权卡（批准后继续）；档位放行→None。
-        生成/读类：None（生成类自己的档位闸在执行端 ai_access_granted）。"""
+        """工具闸统一入口：
+        - 读类：放行（登录即可）；
+        - 产卡类：档位闸（ai-plan 系 PRO / assistant-diverge MAX）——无权出升级
+          引导事件（不停车），有权放行执行；
+        - 写类：档位闸 ＋ write_gate 三档梯度（停车弹授权卡）。"""
         from assistant.tools import get_tool
 
         tool = get_tool(tool_name)
-        if tool is None or tool.kind != "write":
+        if tool is None or tool.kind == "read":
+            return None
+
+        # 档位闸（产卡/写类都有 feature_key；发散=max，干活=pro 系）
+        tier_required = {"ai-plan": "pro", "settings-ai-fields": "standard"}.get(
+            tool.feature_key, "pro"
+        )
+        if tool.feature_key and not ai_access_granted(tool.feature_key):
+            upgrade_copy = {
+                "assistant-diverge": (
+                    "发散造人是 MAX 档的能力。升级后告诉我大概剧情，"
+                    "我就能自己添人添事给你出草案。"
+                ),
+            }.get(
+                tool.feature_key,
+                "这个要 PRO 档才能让我动手。升级后我就能自己干活了。",
+            )
+            return [
+                {
+                    "type": "gate",
+                    "feature": tool.feature_key,
+                    "tier_required": "max" if tool.feature_key == "assistant-diverge" else tier_required,
+                    "approved": False,
+                    "refusal": upgrade_copy,
+                }
+            ]
+
+        if tool.kind != "write":
             return None
 
         # 干活档位闸（PRO 起）：无权 → 升级引导事件（不停车）
@@ -270,6 +300,23 @@ async def _stream_chat(
                     }
                 },
                 card_kind="gate",
+            )
+        elif etype == "artifact":
+            # 产物卡持久化（对话流回看；adopted 状态由采纳端点推进）
+            await session_store.append_message(
+                db,
+                session.id,
+                novel_id=project.id,
+                role="assistant",
+                content="",
+                page=page,
+                payload={
+                    "card": event.get("payload") or {},
+                    "cardId": event.get("cardId"),
+                    "runId": event.get("runId"),
+                },
+                card_kind=str(event.get("kind", "text")),
+                status="done",
             )
         elif etype == "error":
             final_status = "error"

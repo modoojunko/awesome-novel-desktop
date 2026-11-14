@@ -269,6 +269,15 @@ class AgentLoop:
                 if write_log:
                     step_end["writeLog"] = write_log
                 yield step_end
+                # 产卡工具：产物卡作为独立事件下发（一次 run 可多张；可立即过目采纳）
+                if result.card:
+                    yield {
+                        "type": "artifact",
+                        "runId": run_id,
+                        "cardId": f"{run_id}-{step_no}",
+                        "kind": str(result.card.get("kind", "text")),
+                        "payload": result.card.get("payload"),
+                    }
                 self.result.trace.append(
                     {"tool": action.tool, "ok": result.ok, "note": note}
                 )

@@ -574,6 +574,19 @@ async def ai_volume_options(
     project = await get_novel(db, project_id, user["id"])
     if not project:
         raise HTTPException(404, "Novel not found")
+    return await volume_options_core(db, project, body=body, user=user)
+
+
+async def volume_options_core(
+    db: AsyncSession,
+    project,
+    *,
+    body: PlanLineBody,
+    user: dict,
+) -> dict:
+    """3 套走法生成核心（路由准入后调用；c-writing-agent 工具同源复用）。
+
+    准入：书存在（路由）；主线非空 422 在本函数内以 HTTPException 表达。"""
     author_line = (body.line or "").strip()
     mat = await _book_material(db, project, with_hooks=False, author_line=author_line)
     if not mat["fullstory"] and not any(mat["ending"].values()):
@@ -724,6 +737,17 @@ async def ai_volume_expand(
     project = await get_novel(db, project_id, user["id"])
     if not project:
         raise HTTPException(404, "Novel not found")
+    return await volume_expand_core(db, project, body=body, user=user)
+
+
+async def volume_expand_core(
+    db: AsyncSession,
+    project,
+    *,
+    body: ExpandBody,
+    user: dict,
+) -> dict:
+    """一句铺成卷纲草稿生成核心（路由准入后调用；c-writing-agent 工具同源复用）。"""
     line = (body.line or "").strip()
     if not line:
         raise HTTPException(422, "先写一句这一卷想看什么——走向由你定，AI 只铺结构")
@@ -853,6 +877,23 @@ async def ai_volume_check(
     vol = await volume_repo.get_by_volume_no(db, project.id, vol_no)
     if vol is None:
         raise HTTPException(404, "Volume not found")
+    return await volume_check_core(db, project, ref=ref, vol_no=vol_no, vol=vol, user=user)
+
+
+
+
+async def volume_check_core(
+    db: AsyncSession,
+    project,
+    *,
+    ref: str,
+    vol_no: int,
+    vol,
+    user: dict,
+) -> dict:
+    """卷级体检生成核心（路由准入后调用；c-writing-agent 工具同源复用）。"""
+    from volumes.service import get_volume
+
     detail = await get_volume(db, project, ref)
     prev = await resolve_prev_ending(db, project, vol_no)
     mat = await _book_material(db, project, with_hooks=True)

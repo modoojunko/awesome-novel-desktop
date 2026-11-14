@@ -241,6 +241,27 @@ async def ai_plot_draw(
         body.word_target if body.word_target is not None else row.word_target,
         default=effective_chapter_word_target(book_prefs),
     )
+    return await plot_draw_core(
+        db, project, row=row, entry=entry, global_ch=global_ch,
+        position=position, word_target=word_target, mat=mat, user=user,
+    )
+
+
+async def plot_draw_core(
+    db: AsyncSession,
+    project,
+    *,
+    row,
+    entry,
+    global_ch: int,
+    position: str,
+    word_target: int,
+    mat: dict,
+    user: dict,
+) -> dict:
+    """三版剧情清单生成核心（路由准入后调用；c-writing-agent 工具同源复用）。
+
+    准入（章存在/概要·挑战·落点三要素齐备/素材装配/字数目标钳制）留在路由层。"""
     _sys_t, _usr_t = load_layers("chapter_plot_draw")
     system = _sys_t
     material_user = _render(

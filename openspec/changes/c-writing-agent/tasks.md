@@ -15,13 +15,13 @@
 
 ## 2. 批B · 工具注册表与授权梯度（≈8 人日）
 
-- [ ] 2.1 assistant/tools.py：Tool 结构（name/kind/discipline/feature_key/args_hint/fn）＋TOOL_REGISTRY 封闭清单；未知能力 id fail-loud 校验
-- [ ] 2.2 读类工具 7 个：read_chapter/read_outline/read_settings/read_story_state/read_progress/kb_read/kb_search（薄包装既有实现，输出按预算裁剪）
-- [ ] 2.3 产卡工具 8 个：draft_volume_plan/draft_chapter_split/draft_chapter_plot/draft_arc/check_consistency/draft_names(新)/diverge_character_group(新)/diverge_plot_branches(新)；发散打 origin:"diverge" 标记（_filter_who 过滤换标注）；发散卡强制体检前置
+- [x] 2.1 assistant/tools.py：Tool 结构（name/kind/discipline/feature_key/args_hint/fn）＋TOOL_REGISTRY 封闭清单；未知能力 id fail-loud 校验
+- [x] 2.2 读类工具 7 个：read_chapter/read_outline/read_settings/read_story_state/read_progress/kb_read/kb_search（薄包装既有实现，输出按预算裁剪）
+- [x] 2.3 产卡工具 8 个：draft_volume_plan/draft_chapter_split/draft_chapter_plot/draft_arc/check_consistency/draft_names(新)/diverge_character_group(新)/diverge_plot_branches(新)；发散打 origin:"diverge" 标记（_filter_who 过滤换标注）；发散卡强制体检前置
 - [ ] 2.4 核验建卡端点重名去重/合并语义（发散撞名册），落「撞名提示选合并或改名」最小方案
-- [ ] 2.5 assistant/write_gate.py：硬地板清单→档位→实体域检查→兜底弹卡；三档存储（默认/本书授权/全部允许）＋deny 非诊断性语义
-- [ ] 2.6 停车-恢复：permission_required 事件＋waiter（asyncio.Event）＋POST /approve resolve＋durable pending（重启恢复续跑）
-- [ ] 2.7 写类工具 write_entity/write_kb_entry：目标预览载荷＋来源标记（call_id/card_id/session_id/discipline）＋撤销端点（按版本历史回滚）＋审计 stage=adopted/auto_allowed/denied
+- [x] 2.5 assistant/write_gate.py：硬地板清单→档位→实体域检查→兜底弹卡；三档存储（默认/本书授权/全部允许）＋deny 非诊断性语义
+- [x] 2.6 停车-恢复：permission_required 事件＋waiter（asyncio.Event）＋POST /approve resolve＋durable pending（重启恢复续跑）
+- [x] 2.7 写类工具 write_entity/write_kb_entry：目标预览载荷＋来源标记（call_id/card_id/session_id/discipline）＋撤销端点（按版本历史回滚）＋审计 stage=adopted/auto_allowed/denied
 - [ ] 2.8 门控接线：ai_access_granted＋包在位校验（缺包→gate 事件）；no_key→gate{reason:"no_key"} 引导事件；发散 key `assistant-diverge` 后端登记（MAX）
 
 ## 3. 批C · 身份/画像/总结（≈4 人日）

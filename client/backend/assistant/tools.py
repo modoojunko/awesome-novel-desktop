@@ -306,6 +306,12 @@ TOOL_REGISTRY: tuple[Tool, ...] = (
     ),
 )
 
+# 产卡工具并入封闭清单（tools_cards 复用本模块的 Tool/ToolContext/ToolResult，
+# 在本行之后导入避免环； Capability 围栏不变——清单仍只含书内/知识库域）
+from assistant.tools_cards import CARD_TOOLS  # noqa: E402
+
+TOOL_REGISTRY: tuple[Tool, ...] = TOOL_REGISTRY + CARD_TOOLS
+
 _TOOLS_BY_NAME: dict[str, Tool] = {t.name: t for t in TOOL_REGISTRY}
 
 
