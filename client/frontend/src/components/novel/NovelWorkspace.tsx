@@ -172,6 +172,8 @@ export default function NovelWorkspace() {
   const [chatStreaming, setChatStreaming] = useState(false);
   const chatStreamingRef = useRef(false);
   const [settingsPanel, setSettingsPanel] = useState<string | undefined>(undefined);
+  // 章级工具面板折叠态（c-writing-agent 收编形态：默认折叠，chips/summary 展开）
+  const [toolboxOpen, setToolboxOpen] = useState(false);
   // 窄屏抽屉开关（步⑤：≤840px 时右栏变抽屉，FAB 唤出；桌面恒开）
   const [assistantOpen, setAssistantOpen] = useState(true); // 桌面恒开；窄屏由 sync 纠正
   const [assistantNarrow, setAssistantNarrow] = useState(false);
@@ -1378,50 +1380,54 @@ export default function NovelWorkspace() {
         <aside
           className={`col-ai${assistantOpen ? " as-open" : ""}${assistantNarrow ? " as-drawer" : ""}`}
         >
-          {chapterRef ? (
-            /* 章级深度收编挂账批F-3（抽卡/盘点/推演/朱雀/人味/案头六类的信号总线）——
-               过渡期保留 Rail 保证能力零回归；卷页/设定/预览已由 ChatDock 常驻 */
-            <Rail
-              mode="chapter"
-              projectId={projectId}
-              isPro={isPro}
-              onUpgrade={onUpgrade}
-              proseRef={proseRef}
-              aiState={aiState}
-              data={railData ? { ...railData, staleDownstream } : undefined}
-              volumeData={volumeRailData}
-              railIdle={railIdle}
-              genreLabel={genreLabel}
-              onPlanVolume={openPlanVolume}
-              onSplitAi={() => openChapterPlan("ai")}
-              onGoOutline={() => setGoOutlineSeq((n) => n + 1)}
-              onPacingChanged={handlePacingChanged}
-              onSelectVolume={handleSelectVolume}
-              autoCheckSeq={autoCheck.seq}
-              onAiWrite={() => requestAi({ kind: "write" })}
-            />
-          ) : (
-            <ChatDock
-              projectId={projectId}
-              page={dockPage}
-              scope={{
-                view,
-                chapterRef: null,
-                volumeSelId,
-                emptyBook: volumes.length === 0,
-                settingPanel: settingsPanel,
-              }}
-              onStreamingChange={(v) => {
-                chatStreamingRef.current = v;
-                setChatStreaming(v);
-              }}
-              onUpgrade={onUpgrade}
-              onCloseDrawer={() => setAssistantOpen(false)}
-              onOpenAction={(action) => {
-                // 富交互入口走既有链（spec：对话不吞弹窗）——生成正文=AiModal 写流
-                if (action === "ai_write") requestAi({ kind: "write" });
-              }}
-            />
+          <ChatDock
+            projectId={projectId}
+            page={dockPage}
+            scope={{
+              view,
+              chapterRef,
+              volumeSelId,
+              emptyBook: volumes.length === 0,
+              settingPanel: settingsPanel,
+            }}
+            onStreamingChange={(v) => {
+              chatStreamingRef.current = v;
+              setChatStreaming(v);
+            }}
+            onUpgrade={onUpgrade}
+            onCloseDrawer={() => setAssistantOpen(false)}
+            onOpenAction={(action) => {
+              // 富交互入口走既有链（spec：对话不吞弹窗）——生成正文=AiModal 写流
+              if (action === "ai_write") requestAi({ kind: "write" });
+              // 章节工具面板（六类检测/遥测行收编形态）：展开折叠面板
+              if (action === "chapter_toolbox") setToolboxOpen(true);
+            }}
+          />
+          {/* 章级工具面板（c-writing-agent 收编形态）：AiAssistPanel 全量保活（六类
+              检测/朱雀四态/遥测行零回归），默认折叠、chips 一键展开——能力等价收编 */}
+          {chapterRef && (
+            <details className="ch-toolbox" open={toolboxOpen}>
+              <summary data-testid="ch-toolbox-summary">章节工具面板</summary>
+              <Rail
+                mode="chapter"
+                projectId={projectId}
+                isPro={isPro}
+                onUpgrade={onUpgrade}
+                proseRef={proseRef}
+                aiState={aiState}
+                data={railData ? { ...railData, staleDownstream } : undefined}
+                volumeData={volumeRailData}
+                railIdle={railIdle}
+                genreLabel={genreLabel}
+                onPlanVolume={openPlanVolume}
+                onSplitAi={() => openChapterPlan("ai")}
+                onGoOutline={() => setGoOutlineSeq((n) => n + 1)}
+                onPacingChanged={handlePacingChanged}
+                onSelectVolume={handleSelectVolume}
+                autoCheckSeq={autoCheck.seq}
+                onAiWrite={() => requestAi({ kind: "write" })}
+              />
+            </details>
           )}
         </aside>
         {assistantNarrow && !assistantOpen && (
