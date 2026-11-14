@@ -26,7 +26,7 @@ const V2_PRO = [
   "image-generate",
 ] as const;
 
-const V2_MAX = [...V2_PRO, "deconstruct-import", "ai-plot", "style-quant"] as const;
+const V2_MAX = [...V2_PRO, "deconstruct-import", "ai-plot", "style-quant", "assistant-diverge"] as const;
 
 export const TIER_FEATURES: Record<string, string[]> = {
   free: [],
