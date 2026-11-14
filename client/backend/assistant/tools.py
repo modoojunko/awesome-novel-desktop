@@ -112,9 +112,8 @@ async def _read_settings(ctx: ToolContext, area: str = "cast") -> ToolResult:
     """书内设定分区读取：premise（主线）/world（世界）/cast（名册）/hooks（伏笔）。"""
     area = str(area or "cast").strip()
     if area == "cast":
-        from characters.character_service import list_characters
-
         from db import async_session
+        from settings.character_service import list_characters
 
         async with async_session() as session:
             data = await list_characters(session, ctx.novel_id)
@@ -268,30 +267,35 @@ TOOL_REGISTRY: tuple[Tool, ...] = (
         kind="read",
         args_hint='{"chapter_ref": "第1章 或 ref"}',
         description="读一章的章纲与正文（截断到预算）。回答涉及具体章节内容前先调它。",
+        fn=_read_chapter,
     ),
     Tool(
         name="read_outline",
         kind="read",
         args_hint='{"scope": "volume|chapter", "ref": "卷号或章 ref（可空）"}',
         description="读卷纲（六段文本）或章纲。",
+        fn=_read_outline,
     ),
     Tool(
         name="read_settings",
         kind="read",
         args_hint='{"area": "premise|world|cast|hooks"}',
         description="读书内设定分区：主线前提/世界与铁律/角色名册/在途伏笔。",
+        fn=_read_settings,
     ),
     Tool(
         name="read_story_state",
         kind="read",
         args_hint='{"upto_chapter_ref": "章 ref（可空＝全部）"}',
         description="读截至某章的累计设定/关系/物品/知识变化。",
+        fn=_read_story_state,
     ),
     Tool(
         name="read_progress",
         kind="read",
         args_hint="{}",
         description="读写作进度与当前 frontier 章。",
+        fn=_read_progress,
     ),
     Tool(
         name="write_volume_fields",
@@ -361,6 +365,11 @@ PROFILE_TOOLS: tuple[Tool, ...] = (
 )
 
 TOOL_REGISTRY: tuple[Tool, ...] = TOOL_REGISTRY + CARD_TOOLS + PROFILE_TOOLS
+
+# 知识库工具并入（能力围栏拍板④：书内＋知识库读写改同级合法域）
+from assistant.tools_kb import KB_TOOLS  # noqa: E402
+
+TOOL_REGISTRY: tuple[Tool, ...] = TOOL_REGISTRY + KB_TOOLS
 
 _TOOLS_BY_NAME: dict[str, Tool] = {t.name: t for t in TOOL_REGISTRY}
 

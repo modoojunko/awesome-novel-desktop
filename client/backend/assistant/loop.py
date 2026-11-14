@@ -177,6 +177,10 @@ class AgentLoop:
                     except (AITimeoutError, AIThinkingTimeoutError) as e:
                         stream_error = f"这一步想得太久（{e}）"
                         break
+                    except Exception as e:  # noqa: BLE001——模型连接失败等也以 error 事件收尾，
+                        # SHALL NOT 静默断流（c-prose-stream-silent-hang 同口径）
+                        stream_error = f"模型调用失败：{e}"
+                        break
 
                     action = parse_action(full_text)
                     if action.kind == "degraded" and attempt < retry_left:

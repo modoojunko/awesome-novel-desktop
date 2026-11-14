@@ -12,6 +12,8 @@ services:
     container_name: e2e-iso-client-backend
     ports: !override
       - "8001:8000"
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
   client-frontend:
     container_name: e2e-iso-client-frontend
     ports: !override

@@ -13,6 +13,7 @@ import {
   setPermissionTier,
   streamAssistantChat,
 } from "@/lib/chatApi";
+import { api } from "@/lib/api";
 import { matchRegistration, type ChatChip, type ChatPageScope } from "@/lib/chatRegistry";
 import type { FeatureKey } from "@/lib/features";
 import { useChatSession, type ChatMessage } from "@/hooks/useChatSession";
@@ -124,8 +125,9 @@ export default function ChatDock({
   const streamBoxRef = useRef<HTMLDivElement | null>(null);
   const registration = useMemo(() => matchRegistration(scope), [scope]);
 
-  // 历史回看（一次；重开即续聊——转写即状态）
+  // 历史回看（projectId 就绪才拉；重开即续聊——转写即状态）
   useEffect(() => {
+    if (!projectId) return; // 路由参数未就绪的空串帧不发请求（批F 修正：空 id 命中曾让历史误空）
     let cancelled = false;
     void loadAssistantSession(projectId)
       .then((s) => {
@@ -225,13 +227,47 @@ export default function ChatDock({
     registerAdoptNotifier?.(adoptNotifier);
   }, [registerAdoptNotifier, adoptNotifier]);
 
+  /** 卷纲草稿采纳：payload.draft → PUT 既有卷端点（VolumeUpdate 校验链），回执落流。 */
+  const adoptVolumeDraft = useCallback(
+    async (cardId: string, payload: Record<string, unknown>) => {
+      const draft = payload.draft as Record<string, unknown> | undefined;
+      const volNo = payload.vol_no as number | undefined;
+      if (!draft || volNo == null) return;
+      try {
+        await api.put(`/novels/${projectId}/volumes/vol-${volNo}`, {
+          title: draft.name,
+          summary: draft.summary,
+          core_conflict: draft.conflict,
+          ending: draft.ending,
+          chapter_target: draft.chapter_target,
+          antagonist_type: draft.antagonist_type,
+          antagonist_line: draft.antagonist_line,
+        });
+        dispatch({ type: "adopt_card", cardId });
+        dispatch({
+          type: "gate",
+          text: `已写入第 ${volNo} 卷的卷纲要点，可继续改。`,
+        });
+      } catch (e) {
+        dispatch({ type: "error", message: (e as Error)?.message || "写入失败" });
+      }
+    },
+    [projectId, dispatch],
+  );
+
+  const stopRun = useCallback(() => {
+    abortRef.current?.();
+    dispatch({ type: "run_end" });
+    streamRef.current = false;
+  }, [dispatch]);
+
   const send = useCallback(
     (text: string) => {
       const trimmed = text.trim();
       if (!trimmed || streamRef.current) return;
       streamRef.current = true;
       dispatch({ type: "user_send", id: newSendId(), text: trimmed, page });
-      streamAssistantChat(
+      const abort = streamAssistantChat(
         projectId,
         { message: trimmed, page },
         {
@@ -245,9 +281,8 @@ export default function ChatDock({
           },
         },
       );
+      abortRef.current = abort;
       inputSet("");
-      // abort 保留已产出（前端 abort 语义）；停止入口＝run 结束前再点输入框旁 ✕
-      abortRef.current = () => streamRef.current && undefined;
     },
     [projectId, page, dispatch, onEvent, newSendId],
   );
@@ -375,7 +410,18 @@ export default function ChatDock({
                   <CardBody kind={m.cardKind ?? "text"} payload={m.cardPayload} />
                   {m.cardStatus === "draft" && (
                     <div className="cd-card-foot">
-                      <span className="cd-dim">初稿——觉得哪里要改，直接说；或点「换一版」。</span>
+                      {m.cardKind === "text" &&
+                        (m.cardPayload as Record<string, unknown> | undefined)?.draft != null && (
+                          <button
+                            type="button"
+                            className="cd-btn primary"
+                            data-testid="chat-adopt"
+                            onClick={() => void adoptVolumeDraft(m.cardId!, (m.cardPayload ?? {}) as Record<string, unknown>)}
+                          >
+                            采纳 · 写入
+                          </button>
+                        )}
+                      <span className="cd-dim">初稿——觉得哪里要改，直接说。</span>
                     </div>
                   )}
                 </div>
@@ -386,6 +432,22 @@ export default function ChatDock({
           return (
             <div key={m.id} className={`cd-msg ${isUser ? "user" : "assistant"}`}>
               <div className="cd-bubble">{m.text}</div>
+              {/* TraceFolded（批E TraceFolded 组件语义内联）：run 收口后工具步折叠可回看 */}
+              {m.steps.length > 0 && (
+                <details className="cd-trace" data-testid="chat-trace">
+                  <summary>
+                    运行轨迹（{m.steps.length} 步：{m.steps.map((s) => s.tool).join("、")}）
+                  </summary>
+                  <ul>
+                    {m.steps.map((s) => (
+                      <li key={s.stepId}>
+                        <b>{s.tool}</b>
+                        {s.resultNote ? ` — ${s.resultNote}` : ""}
+                      </li>
+                    ))}
+                  </ul>
+                </details>
+              )}
             </div>
           );
         })}
@@ -393,7 +455,12 @@ export default function ChatDock({
         {state.runActive && (
           <div className="cd-generating" data-testid="chat-generating">
             <div className="cd-gen-bar" />
-            <span>AI 想着… {secs}s</span>
+            <span>
+              AI 想着… {secs}s{" "}
+              <button type="button" className="cd-reset" data-testid="chat-stop" onClick={stopRun}>
+                停止
+              </button>
+            </span>
             {state.thinkingText && (
               <details className="cd-think">
                 <summary>思考过程</summary>

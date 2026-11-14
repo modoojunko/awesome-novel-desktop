@@ -68,8 +68,7 @@ async def _draft_volume_plan(
     """三套本卷可行走法（text 卡；不落库）。"""
     from db import async_session
     from novels.service import get_novel
-    from volumes.ai_plan import volume_options_core
-    from volumes.schemas import PlanLineBody
+    from volumes.ai_plan import PlanLineBody, volume_options_core
 
     body = PlanLineBody(
         line=line or "",
@@ -100,8 +99,7 @@ async def _draft_volume_expand(ctx: ToolContext, line: str, vol_no: int | None =
     """一句铺成本卷卷纲草稿（text 卡；不落库）。"""
     from db import async_session
     from novels.service import get_novel
-    from volumes.ai_plan import volume_expand_core
-    from volumes.schemas import ExpandBody
+    from volumes.ai_plan import ExpandBody, volume_expand_core
 
     body = ExpandBody(line=line or "", vol_no=vol_no)
     async with async_session() as db:
