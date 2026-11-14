@@ -69,7 +69,7 @@
 - [x] 7.4 全量 npm run test（后端 pytest＋前端 vitest --coverage）＋design:lint＋parity 过
 - [x] 7.5 真机走查清单落盘（docs/design-c/drafts/…真机走查清单.md）——真机执行待 boss 上手（A–D 四段矩阵）
 - [x] 6.2b 章级收编形态（批F-2/批F-3 两步落地）：dock 常驻＋六类深度入口 open chips 落地（剧情抽卡/人物盘点/剧情推演[ai-plot]/补全缺失/冲突检测/人味检测/接上一章——经 railData 既有回调分派到 ChapterWorkspace 弹窗/检测流）；AiAssistPanel 全量保活于折叠「章节工具面板」（遥测行零回归）；Rail 章级不再渲染（收编完成）
-- [ ] 7.6 openspec sync＋归档随实现 PR（openspec-archive-in-implementation-pr 惯例）
+- [x] 7.6 openspec sync＋归档随实现 PR（openspec-archive-in-implementation-pr 惯例）
 
 ## 里程碑口径
 
