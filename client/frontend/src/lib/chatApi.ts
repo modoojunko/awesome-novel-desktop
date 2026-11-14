@@ -187,3 +187,52 @@ export function streamAssistantChat(
     });
   return () => controller.abort();
 }
+
+export async function loadWriterProfile(
+  projectId: string,
+): Promise<{ sections: Record<string, unknown>; paused: boolean }> {
+  const r = await fetch(`${API_BASE}/novels/${projectId}/assistant/profile`, {
+    headers: { Authorization: `Bearer ${getToken()}` },
+  });
+  if (r.status === 401) {
+    handleAuthExpiry();
+    throw new Error("登录状态已失效，请重新登录");
+  }
+  if (!r.ok) throw new Error(detailMessage((await r.json().catch(() => null))?.detail, "画像读取失败"));
+  return await r.json();
+}
+
+export async function updateWriterProfile(
+  projectId: string,
+  updates: Record<string, unknown>,
+): Promise<void> {
+  await apiJsonWithAuth(`${API_BASE}/novels/${projectId}/assistant/profile/update`, {
+    updates,
+  });
+}
+
+export async function clearWriterProfile(projectId: string): Promise<void> {
+  await apiJsonWithAuth(`${API_BASE}/novels/${projectId}/assistant/profile/clear`, {});
+}
+
+export async function pauseWriterProfile(
+  projectId: string,
+  paused: boolean,
+): Promise<void> {
+  await apiJsonWithAuth(`${API_BASE}/novels/${projectId}/assistant/profile/pause`, {
+    paused,
+  });
+}
+
+async function apiJsonWithAuth(url: string, data: unknown): Promise<void> {
+  const r = await fetch(url, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", Authorization: `Bearer ${getToken()}` },
+    body: JSON.stringify(data),
+  });
+  if (r.status === 401) {
+    handleAuthExpiry();
+    throw new Error("登录状态已失效，请重新登录");
+  }
+  if (!r.ok) throw new Error(detailMessage((await r.json().catch(() => null))?.detail, "操作失败"));
+}

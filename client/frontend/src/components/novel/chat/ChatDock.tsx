@@ -20,6 +20,7 @@ import { useFeature } from "@/hooks/useTier";
 import type { FeatureKey } from "@/lib/features";
 import { useChatSession, type ChatMessage } from "@/hooks/useChatSession";
 import "./chat.css";
+import ProfileModal from "./ProfileModal";
 
 interface ChatDockProps {
   projectId: string;
@@ -32,6 +33,8 @@ interface ChatDockProps {
   onCloseDrawer?: () => void;
   /** 富交互入口（open chip）：宿主开既有弹窗（AiModal/抽卡/推演） */
   onOpenAction?: (action: string) => void;
+  /** 窄屏抽屉：关闭抽屉（仅抽屉态由宿主注入） */
+  onProfileOpen?: () => void;
   /** 采纳写回后由宿主调用（卡片置「已采纳」） */
   registerAdoptNotifier?: (fn: (cardId: string) => void) => void;
 }
@@ -123,9 +126,11 @@ export default function ChatDock({
   onCloseDrawer,
   onOpenAction,
   registerAdoptNotifier,
+  onProfileOpen,
 }: ChatDockProps) {
   const { state, dispatch, onEvent, newSendId } = useChatSession();
   const [input, inputSet] = useState("");
+  const [profileOpen, setProfileOpen] = useState(false);
   const [secs, setSecs] = useState(0);
   const abortRef = useRef<(() => void) | null>(null);
   const streamRef = useRef(false);
@@ -547,6 +552,9 @@ export default function ChatDock({
           发送
         </button>
       </div>
+      {profileOpen && (
+        <ProfileModal projectId={projectId} open onClose={() => setProfileOpen(false)} />
+      )}
       <div className="chatdock-foot">
         <button
           type="button"
@@ -558,6 +566,14 @@ export default function ChatDock({
           }}
         >
           清空会话
+        </button>
+        <button
+          type="button"
+          className="cd-reset"
+          data-testid="profile-open"
+          onClick={() => setProfileOpen(true)}
+        >
+          作家画像
         </button>
         {onUpgrade && <button type="button" className="cd-reset" onClick={() => onUpgrade?.()}>查看档位</button>}
         <span className="cd-dim">只做这本书和你的知识库内的事——其他的我没能力做。</span>
