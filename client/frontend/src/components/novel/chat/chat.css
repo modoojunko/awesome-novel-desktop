@@ -1,0 +1,356 @@
+/* ChatDock 样式（c-writing-agent 批E）。令牌全取 design/base.css 真值，
+   禁自造色值（design:lint 约束）。 */
+
+.chatdock {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+  font-size: 13px;
+}
+
+.chatdock-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 12px 8px;
+  border-bottom: 1px solid var(--border);
+  flex-wrap: wrap;
+}
+
+.chatdock-avatar {
+  width: 26px;
+  height: 26px;
+  border-radius: 999px;
+  background: var(--accent-soft);
+  color: var(--accent);
+  display: inline-grid;
+  place-items: center;
+  font-weight: 600;
+  flex: none;
+}
+
+.chatdock-ctx {
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: var(--accent-soft);
+  color: var(--accent);
+  font-size: 11px;
+}
+
+.chatdock-sub {
+  color: var(--muted);
+  font-size: 11px;
+  width: 100%;
+}
+
+.chatdock-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--border);
+}
+
+.chatchip {
+  padding: 4px 10px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--surface);
+  color: var(--fg);
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.chatchip:hover:not(:disabled) {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+}
+
+.chatchip:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.chatdock-tierhint {
+  font-size: 11px;
+  color: var(--muted);
+  align-self: center;
+}
+
+.chatdock-stream {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.cd-msg {
+  display: flex;
+  flex-direction: column;
+}
+
+.cd-msg.user {
+  align-items: flex-end;
+}
+
+.cd-msg.user .cd-bubble {
+  background: var(--accent-soft);
+  color: var(--fg);
+}
+
+.cd-msg.error .cd-bubble {
+  background: color-mix(in oklch, var(--err) 12%, transparent);
+  color: var(--err);
+}
+
+.cd-bubble {
+  max-width: 92%;
+  padding: 8px 12px;
+  border-radius: 10px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.cd-divider {
+  text-align: center;
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.cd-trace-line {
+  font-size: 11px;
+  color: var(--muted);
+  border-top: 1px dashed var(--border);
+  padding-top: 6px;
+}
+
+.cd-card {
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--surface);
+  overflow: hidden;
+  max-width: 100%;
+}
+
+.cd-card-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--border);
+  background: var(--accent-soft);
+}
+
+.cd-badge {
+  padding: 1px 8px;
+  border-radius: 999px;
+  font-size: 11px;
+  background: color-mix(in oklch, var(--fg) 6%, transparent);
+  color: var(--muted);
+  margin-left: 6px;
+}
+
+.cd-badge.ok {
+  background: color-mix(in oklch, var(--ok) 14%, transparent);
+  color: var(--ok);
+}
+
+.cd-card-foot {
+  padding: 8px 12px;
+  border-top: 1px solid var(--border);
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  font-size: 12px;
+}
+
+.cd-preview {
+  margin: 0;
+  padding: 10px 12px;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  white-space: pre-wrap;
+  word-break: break-word;
+  max-height: 180px;
+  overflow-y: auto;
+}
+
+.cd-btn {
+  padding: 5px 12px;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  background: var(--surface);
+  color: var(--fg);
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.cd-btn.primary {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: var(--on-accent);
+}
+
+.cd-btn.primary:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.cd-lines {
+  margin: 0;
+  padding: 10px 12px 10px 26px;
+  display: grid;
+  gap: 6px;
+}
+
+.cd-pre {
+  margin: 0;
+  padding: 10px 12px;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.cd-dim {
+  color: var(--muted);
+}
+
+.cd-report-g {
+  padding: 8px 12px;
+}
+
+.cd-report-g ul {
+  margin: 4px 0 0;
+  padding-left: 18px;
+}
+
+.cd-st-warn {
+  color: var(--warn, oklch(60% 0.12 80));
+}
+
+.cd-st-err,
+.cd-st-error {
+  color: var(--err);
+}
+
+.cd-pick {
+  margin: 0;
+  padding: 10px 12px 10px 26px;
+  display: grid;
+  gap: 6px;
+}
+
+.cd-char {
+  padding: 8px 12px;
+  border-bottom: 1px dashed var(--border);
+}
+
+.cd-char p {
+  margin: 4px 0 0;
+}
+
+.cd-anchor {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.cd-generating {
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 10px 12px;
+  display: grid;
+  gap: 8px;
+}
+
+.cd-gen-bar {
+  height: 3px;
+  border-radius: 999px;
+  background: var(--accent-soft);
+  position: relative;
+  overflow: hidden;
+}
+
+.cd-gen-bar::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  width: 40%;
+  border-radius: 999px;
+  background: var(--accent);
+  animation: cd-slide 1.2s ease-in-out infinite;
+}
+
+@keyframes cd-slide {
+  from { transform: translateX(-100%); }
+  to { transform: translateX(250%); }
+}
+
+.cd-think summary {
+  cursor: pointer;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.cd-think pre {
+  margin: 6px 0 0;
+  white-space: pre-wrap;
+  word-break: break-word;
+  font-size: 11px;
+  color: var(--muted);
+  max-height: 160px;
+  overflow-y: auto;
+}
+
+.cd-steps {
+  margin: 0;
+  padding: 0 0 0 16px;
+  display: grid;
+  gap: 4px;
+  font-size: 12px;
+}
+
+.chatdock-composer {
+  display: flex;
+  gap: 8px;
+  padding: 10px 12px;
+  border-top: 1px solid var(--border);
+}
+
+.chatdock-composer input {
+  flex: 1;
+  min-width: 0;
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface);
+  color: var(--fg);
+  font: inherit;
+}
+
+.chatdock-foot {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  padding: 6px 12px 10px;
+  font-size: 11px;
+  color: var(--muted);
+}
+
+.cd-reset {
+  border: 0;
+  background: none;
+  color: var(--muted);
+  font: inherit;
+  font-size: 11px;
+  cursor: pointer;
+  text-decoration: underline;
+  padding: 0;
+}

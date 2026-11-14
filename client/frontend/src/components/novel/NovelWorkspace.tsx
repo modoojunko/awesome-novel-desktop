@@ -10,6 +10,7 @@ import SettingsView from "@/components/novel/workbench/SettingsView";
 import PreviewView from "@/components/novel/workbench/PreviewView";
 import ManuscriptDownloadModal from "@/components/novel/workbench/ManuscriptDownloadModal";
 import Rail, { type RailChapterData } from "@/components/novel/workbench/Rail";
+import ChatDock from "@/components/novel/chat/ChatDock";
 import { VolumePlanModal } from "@/components/novel/workbench/VolumePlanModal";
 import { PickCardsModal } from "@/components/novel/workbench/PickCardsModal";
 import type { VolumePlanCard } from "@/lib/volumePlanApi";
@@ -167,6 +168,9 @@ export default function NovelWorkspace() {
   // ── AI ref 链：正文编辑器实例 + 状态（右栏 AI 工具与中栏共用） ─────────
   const proseRef = useRef<ProseHandle | null>(null);
   const [aiState, setAIState] = useState<ProseAIState>(INITIAL_PROSE_AI_STATE);
+  // c-writing-agent：助手流式存活（并入树锁定/切页守卫；与正文流式互斥语义一致）
+  const [chatStreaming, setChatStreaming] = useState(false);
+  const chatStreamingRef = useRef(false);
 
   // ── 页签回默认主页（c-write-home-rail-anchor）：三个 modnav 页签都是「回该页默认落点」──
   //   写作＝书主页（清选中）；设定＝默认面板（第一项「题材」）；预览＝全书首章。
@@ -210,14 +214,14 @@ export default function NovelWorkspace() {
       // 写作 → 书主页：卷纲脏 / 正文 AI 流式中先确认
       if (!guardedLeave()) return;
       if (
-        aiState.streaming &&
-        !window.confirm("AI 正在生成正文，回书主页会中断这次生成。确定继续吗？")
+        (aiState.streaming || chatStreamingRef.current) &&
+        !window.confirm("AI 正在生成——回书主页会中断这次生成。确定继续吗？")
       )
         return;
       clearSelection();
       setView("workbench");
     },
-    [view, setView, guardedLeave, clearSelection, aiState.streaming],
+    [view, setView, guardedLeave, clearSelection, aiState.streaming, chatStreamingRef.current],
   );
 
   // ── 右栏本章进度数据（ChapterWorkspace 实时上抛；含 target 编辑器） ────
@@ -1057,10 +1061,10 @@ export default function NovelWorkspace() {
         {/* 生成中树锁定（c-prose-stream-guard）：捕获层拦一切树内点击（切章/切卷/
             行内新建改名删除都会摧毁流式现场），置灰＋title 指路「停止」；出口＝页签行徽章上的「停止」 */}
         <aside
-          className={`col-tree${volumes.length === 0 ? " empty-book" : ""}${aiState.streaming ? " ai-lock" : ""}`}
-          title={aiState.streaming ? "生成中 · 点「停止」后再切换" : undefined}
+          className={`col-tree${volumes.length === 0 ? " empty-book" : ""}${aiState.streaming || chatStreaming ? " ai-lock" : ""}`}
+          title={aiState.streaming || chatStreaming ? "生成中 · 点「停止」后再切换" : undefined}
           onClickCapture={(e) => {
-            if (!aiState.streaming) return;
+            if (!aiState.streaming && !chatStreaming) return;
             const t = e.target as HTMLElement;
             if (!t.closest("button, .vol-head, .ch")) return;
             e.preventDefault();
@@ -1310,6 +1314,7 @@ export default function NovelWorkspace() {
         </main>
 
         <aside className="col-ai">
+          {chapterRef ? (
           <Rail
             mode={chapterRef ? "chapter" : "volume"}
             projectId={projectId}
@@ -1335,6 +1340,23 @@ export default function NovelWorkspace() {
             autoCheckSeq={autoCheck.seq}
             onAiWrite={() => requestAi({ kind: "write" })}
           />
+          ) : (
+            <ChatDock
+              projectId={projectId}
+              page="工作台 · 卷纲"
+              scope={{
+                view: "workbench",
+                chapterRef: null,
+                volumeSelId,
+                emptyBook: volumes.length === 0,
+              }}
+              onStreamingChange={(v) => {
+                chatStreamingRef.current = v;
+                setChatStreaming(v);
+              }}
+              onUpgrade={onUpgrade}
+            />
+          )}
         </aside>
       </div>
 

@@ -245,14 +245,17 @@ describe("默认落写作视图（免费）", () => {
     // 空书态两处起手入口（中栏 CTA + 左栏底部）＝新增一卷 ×2 / 新增一章 ×2
     expect(document.querySelectorAll(".e-empty .be-acts .btn").length).toBe(2);
     expect(document.querySelector(".col-tree.empty-book .tree-add")).toBeTruthy();
-    // 右栏「未选中」态（volume-plan-ai 空书）：规划第一卷入口＋分卷依据；四格统计退役
-    expect(document.querySelector(".col-ai .plan-badge")).toBeTruthy(); // AI 助手卡（全局 ra-* 布局）
-    expect(screen.getByTestId("plan-first-volume")).toBeDefined();
-    expect(screen.getByTestId("plan-basis")).toBeDefined();
+    // 右栏（c-writing-agent 卷页收编）：ChatDock 常驻——开场白状态感知＋能力盘 chips；
+    // 旧 volume-idle Rail 卡（plan-badge/plan-first-volume/plan-basis）随之退役
+    expect(document.querySelector('.col-ai [data-testid="chat-dock"]')).toBeTruthy();
+    expect(screen.getByText("第一卷还空着，说说你的目标，我来铺。")).toBeVisible();
+    expect(screen.getByTestId("chat-chip-draft_volume_expand")).toBeTruthy();
+    expect(screen.getByTestId("chat-chip-draft_chapter_split")).toBeTruthy();
+    expect(screen.queryByTestId("plan-first-volume")).toBeNull();
+    expect(screen.queryByTestId("plan-basis")).toBeNull();
     expect(screen.queryByTestId("idle-rail-stats")).toBeNull();
     expect(document.querySelector(".col-ai .rail-stats")).toBeNull();
-    // 常驻挂载态不占章 AI 面板（右栏只有分卷规划卡一张 AI 助手卡）
-    expect(document.querySelectorAll(".col-ai .rail-assist").length).toBe(1);
+    expect(document.querySelectorAll(".col-ai .rail-assist").length).toBe(0);
     // 应用栏（行头归一）：书名在顶栏；免费标识收敛到账户档位徽（未登录不渲染，e2e 断言）
     expect(screen.getAllByText("测试小说").length).toBeGreaterThan(0);
     expect(screen.queryByText(/免费模式 · 写作功能完整/)).toBeNull();
@@ -361,9 +364,14 @@ describe("空书起手链（c-0vol0ch-empty-state）", () => {
     await waitFor(() => expect(screen.getByTestId("volume-plan-modal")).toBeDefined());
     expect(screen.queryByTestId("pick-modal")).toBeNull();
     fireEvent.click(screen.getByRole("button", { name: /先不规划/ }));
-    // 右栏 AI 入口：PRO 档＝三选一抽卡
-    fireEvent.click(screen.getByTestId("plan-first-volume"));
-    await waitFor(() => expect(screen.getByTestId("pick-modal")).toBeDefined());
+    // 右栏（c-writing-agent 卷页收编）：旧抽卡入口退役，铺卷走对话——chip 发指令进
+    // 对话流，agent 出产物卡（过目采纳才写回），SHALL NOT 再弹 pick-modal
+    expect(screen.queryByTestId("plan-first-volume")).toBeNull();
+    fireEvent.click(screen.getByTestId("chat-chip-draft_volume_expand"));
+    await waitFor(() =>
+      expect(screen.getByTestId("chat-stream").textContent).toContain("帮我铺这一卷的卷纲"),
+    );
+    expect(screen.queryByTestId("pick-modal")).toBeNull();
   });
 
   it("入口埋点：三处「＋ 新增一卷」记 plan_entry_open{tier}", async () => {
