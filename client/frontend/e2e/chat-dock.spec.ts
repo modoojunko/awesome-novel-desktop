@@ -171,11 +171,10 @@ test.beforeAll(async () => {
           const msgs = parsed.messages ?? [];
           prompt = msgs.map((m: { content: string }) => m.content).join("\n");
           const users = msgs.filter((m: { role: string }) => m.role === "user");
-          // L2 注入（页面/画像）随消息同行为尾部［…］段——分支判定取作家实际
-          // 指令行（剥尾注），注入词（如页名「卷纲」）不得误触工具分支
-          userText = String(users.at(-1)?.content ?? "")
-            .replace(/(\n［[^］]*］)+$/g, "")
-            .trim();
+          // L2 注入（页面/画像）随消息同行、画像段以空格拼在页面段后——分支判定
+          // 取作家实际指令行：从首个换行方括号段起整体截断（页名「卷纲」/画像词
+          // 都不得误触工具分支）
+          userText = String(users.at(-1)?.content ?? "").split("\n［")[0].trim();
           wantStream = Boolean(parsed.stream);
         } catch {
           /* 非 JSON 忽略 */

@@ -59,28 +59,14 @@ async def build_book_brief(novel: Any, db: Any) -> str:
 
 
 def build_page_note(page: str, focus: dict[str, Any] | None = None) -> str:
-    """L2 页面级注入文本（附加到末条 user 消息）。注册制页面提供 focus 明细；
-    批A 仅有页面名。"""
+    """L2 页面级注入文本（随当前消息尾随行进提示词，router 负责 消息\\n注入 的拼装）。
+    注册制页面提供 focus 明细；批A 仅有页面名。"""
     if not page:
         return ""
     parts = [f"［当前页面：{page}］"]
     if focus:
         parts.append(f"［聚焦对象：{focus.get('label', '')}］")
     return " ".join(p for p in parts if p.strip())
-
-
-def append_page_note(messages: list[dict[str, str]], note: str) -> list[dict[str, str]]:
-    """把 L2 注入拼到末条 user 消息尾部（不中插 system——openwriter 稳定性/活性分离）。"""
-    if not note:
-        return messages
-    out = [dict(m) for m in messages]
-    for i in range(len(out) - 1, -1, -1):
-        if out[i].get("role") == "user":
-            out[i]["content"] = f"{out[i].get('content', '')}\n{note}".strip()
-            break
-    else:
-        out.append({"role": "user", "content": note})
-    return out
 
 
 def build_outbound_window(
