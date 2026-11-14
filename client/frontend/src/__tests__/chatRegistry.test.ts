@@ -51,6 +51,7 @@ describe("chatRegistry 每页注册制", () => {
       "conflict_check",
       "renwei",
       "seam",
+      "zhuque",
     ];
     for (const key of registrationsForTest().flatMap((r) => r.chips().map((c) => c.key))) {
       expect(whitelist).toContain(key);
