@@ -36,6 +36,12 @@ def _run(coro):
     return asyncio.run(coro)
 
 
+async def _fetch_none(client, url):
+    """探测必空桩：verdict 由 _validate_outbound 桩控制，fetch 恒 None。"""
+    return None
+
+
+
 def _entry(src_key: str, title: str = "条目", *, instruction: str | None = None,
            genre: str = "玄幻", when: dict | None = None, concept: str = "手法",
            payload: dict | None = None) -> dict:
@@ -171,7 +177,7 @@ def sync_env(monkeypatch):
 
     monkeypatch.setattr(bl, "_TRUST_PUBKEYS", _TEST_PUBKEYS)
     monkeypatch.setattr(bl, "_cdn_base", lambda: _BASE)
-    monkeypatch.setattr(bl, "_validate_outbound", lambda url: True)
+    monkeypatch.setattr(bl, "_validate_outbound", lambda url: (True, "ok"))
     monkeypatch.setattr(bl, "_fetch_json", _CDN.get_json)
     monkeypatch.setattr(bl, "_fetch_bytes", _CDN.get_bytes)
 
@@ -903,3 +909,27 @@ def test_再次下架_已提升副本原地更新不重复(sync_env):
             await db.commit()
 
     _run(_cleanup())
+
+
+# ── fake-ip 代理环境失败细分（c-proxy-fakeip-compat）────────────────────────
+
+
+def test_fakeip环境同步失败记proxy_fake_ip(sync_env, monkeypatch):
+    """TUN fake-ip（解析全落 198.18.0.0/15，放行但代理节点不通）→ 失败原因
+    proxy_fake_ip，与 latest_invalid 可区分——弹窗据此呈现代理指路文案。"""
+    from kb import baseline as bl
+
+    monkeypatch.setattr(bl, "_validate_outbound", lambda url: (True, "fakeip"))
+    monkeypatch.setattr(bl, "_fetch_json", _fetch_none)
+    r = _run(bl.sync_baseline())
+    assert r["status"] == "failed" and r["reason"] == "proxy_fake_ip"
+
+
+def test_blocked解析仍记latest_invalid(sync_env, monkeypatch):
+    """混合/私网解析（verdict=blocked）维持既有失败原因，行为不变。"""
+    from kb import baseline as bl
+
+    monkeypatch.setattr(bl, "_validate_outbound", lambda url: (False, "blocked"))
+    monkeypatch.setattr(bl, "_fetch_json", _fetch_none)
+    r = _run(bl.sync_baseline())
+    assert r["status"] == "failed" and r["reason"] == "latest_invalid"

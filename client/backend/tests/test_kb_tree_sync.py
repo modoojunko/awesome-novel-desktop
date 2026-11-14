@@ -87,6 +87,11 @@ def _run(coro):
     return asyncio.run(coro)
 
 
+async def _fetch_none(client, url):
+    """探测必空桩：verdict 由 _validate_outbound 桩控制，fetch 恒 None。"""
+    return None
+
+
 import pytest  # noqa: E402
 
 from kb import taxonomy as taxonomy_mod  # noqa: E402
@@ -98,7 +103,7 @@ def tree_env(tmp_path, monkeypatch):
     monkeypatch.setenv("DATA_ROOT", str(tmp_path / "data"))
     monkeypatch.setattr(tree_sync, "_TRUST_PUBKEYS", _TEST_PUBKEYS)
     monkeypatch.setattr(tree_sync, "_cdn_bases", lambda: [_BASE])
-    monkeypatch.setattr(tree_sync, "_validate_outbound", lambda url: True)
+    monkeypatch.setattr(tree_sync, "_validate_outbound", lambda url: (True, "ok"))
     monkeypatch.setattr(tree_sync, "_fetch_json", _CDN.get_json)
     monkeypatch.setattr(tree_sync, "_fetch_bytes", _CDN.get_bytes)
     taxonomy_mod.reload()
@@ -305,3 +310,15 @@ def test_receipt缺_可从meta恢复(tree_env):
     tree_sync.receipt_path().unlink()
     path = tree_sync.cached_tree_path()
     assert path and Path(path).read_bytes() == _TREE_RAW, "receipt 缺失应从 v*/meta.json 恢复"
+
+
+# ── fake-ip 代理环境失败细分（c-proxy-fakeip-compat）────────────────────────
+
+
+def test_fakeip环境同步失败记proxy_fake_ip(tree_env, monkeypatch):
+    """TUN fake-ip（解析全落 198.18.0.0/15，放行但代理节点不通）→ 失败原因
+    proxy_fake_ip，与 latest_invalid 可区分。"""
+    monkeypatch.setattr(tree_sync, "_validate_outbound", lambda url: (True, "fakeip"))
+    monkeypatch.setattr(tree_sync, "_fetch_json", _fetch_none)
+    r = _run(tree_sync.sync_tree())
+    assert r["status"] == "failed" and r["reason"] == "proxy_fake_ip"

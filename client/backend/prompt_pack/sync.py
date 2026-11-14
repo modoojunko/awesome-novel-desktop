@@ -31,7 +31,6 @@ import logging
 import os
 import re
 import shutil
-import socket
 import threading
 import time
 from urllib.parse import urlparse
@@ -39,6 +38,7 @@ from urllib.parse import urlparse
 import httpx
 
 from http_client import build_sync_client
+import outbound_guard
 from prompt_pack import (
     STAGING_PREFIX,
     clear_receipt,
@@ -166,32 +166,14 @@ def _trusted_hosts() -> set[str]:
     return {h for h in (urlparse(u).hostname for u in _candidate_urls()) if h}
 
 
-def _validate_outbound(url: str) -> bool:
-    """仅 https＋可信域＋解析结果全公网。同步实现——本函数只在 daemon 线程跑，
-    不占用 uvicorn 事件循环（update_check 的异步版约束不适用于此）。"""
-    try:
-        p = urlparse(url)
-        if p.scheme != "https" or not p.hostname:
-            return False
-        host = p.hostname.lower()
-        if host not in _trusted_hosts():
-            return False
-        try:
-            if not ipaddress.ip_address(host).is_global:
-                return False
-        except ValueError:
-            pass
-        infos = socket.getaddrinfo(p.hostname, 443, proto=socket.IPPROTO_TCP)
-    except (OSError, ValueError):
-        return False
-    for info in infos:
-        try:
-            ip = ipaddress.ip_address(info[4][0])
-        except ValueError:
-            return False
-        if not ip.is_global:
-            return False
-    return True
+def _validate_outbound(url: str) -> tuple[bool, str]:
+    """出站校验单源（outbound_guard）：返回 (放行, verdict)。
+
+    verdict ∈ ok／fakeip（TUN 代理 fake-ip DNS 全命中，放行）／blocked。同步实现——
+    本函数只在 daemon 线程跑，不占用 uvicorn 事件循环（update_check 的异步版约束
+    不适用于此）。fake-ip 环境下的获取失败由调用方据 verdict 记 proxy_fake_ip。
+    """
+    return outbound_guard.validate_outbound(url, _trusted_hosts())
 
 
 def _derive(url: str, path: str) -> str:
@@ -269,7 +251,7 @@ def _decrypt_bundle(bin_bytes: bytes, cek: bytes) -> dict:
 
 
 def _fetch_json(client: httpx.Client, url: str) -> dict | None:
-    if not _validate_outbound(url):
+    if not _validate_outbound(url)[0]:
         return None
     try:
         r = client.get(url)
@@ -282,7 +264,7 @@ def _fetch_json(client: httpx.Client, url: str) -> dict | None:
 
 
 def _fetch_bytes(client: httpx.Client, url: str) -> bytes | None:
-    if not _validate_outbound(url):
+    if not _validate_outbound(url)[0]:
         return None
     try:
         with client.stream("GET", url) as r:
@@ -524,18 +506,26 @@ def sync_once(
     intact = _installed_pack_intact(receipt)
 
     with build_sync_client(timeout=_FETCH_TIMEOUT, follow_redirects=False) as client:
+        verdicts: list[str] = []
         if _latest is not None:
             latest, latest_url = _latest
         else:
             latest = None
             latest_url = ""
             for url in _candidate_urls():
+                ok, verdict = _validate_outbound(url)
+                verdicts.append(verdict)
+                if not ok:
+                    continue
                 latest = _fetch_json(client, url)
                 if latest:
                     latest_url = url
                     break
         if not latest:
-            _set_state("failed", reason="cdn_unreachable")
+            # fake-ip 代理环境（解析全落 fake-ip 段）下的失败单独记因——前端弹窗
+            # 据此呈现代理指路文案，与普通 cdn_unreachable 可区分
+            reason = "proxy_fake_ip" if "fakeip" in verdicts else "cdn_unreachable"
+            _set_state("failed", reason=reason)
             return get_status()
 
         # 信任链前置（2026-10-05 评审 P1）：latest 的控制字段（min_client_version/

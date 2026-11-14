@@ -442,3 +442,68 @@ describe("覆盖补齐（边界臂）", () => {
   });
 
 });
+
+describe("网络失败提示语义（c-proxy-fakeip-compat）", () => {
+  const browserAuthOnly = () =>
+    requestMock.mockImplementation(async (path: string) => {
+      if (path === "/auth/browser-auth") return { code: 0, data: { auth_url: "https://portal.example.com/oauth" } };
+      throw new Error("网络连接失败，请重试"); // 无 status＝网络层失败（未得到业务应答）
+    });
+
+  it("轮询尾态网络失败：超时给网络指引而非「请在浏览器中完成登录」", async () => {
+    vi.useFakeTimers();
+    vi.stubGlobal("open", vi.fn());
+    browserAuthOnly();
+    renderPage();
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(0);
+    });
+    fireEvent.click(screen.getByText("打开浏览器登录"));
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(2000 * 62);
+    });
+    expect(screen.getByText(/连不上云端服务/)).toBeTruthy();
+    expect(screen.queryByText(/授权超时/)).toBeNull();
+  });
+
+  it("重新检测遇网络失败：给网络指引，出口保留", async () => {
+    browserAuthOnly();
+    vi.stubGlobal("open", vi.fn());
+    vi.useFakeTimers();
+    renderPage();
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(0);
+    });
+    fireEvent.click(screen.getByText("打开浏览器登录"));
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(2000 * 62);
+    });
+    fireEvent.click(screen.getByText("重新检测"));
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(10);
+    });
+    expect(screen.getByText(/连不上云端服务/)).toBeTruthy();
+    expect(screen.getByText("重新检测")).toBeTruthy();
+  });
+
+  it("轮询中途网络失败后恢复：netFail 不残留，照常登录成功", async () => {
+    vi.useFakeTimers();
+    vi.stubGlobal("open", vi.fn());
+    let calls = 0;
+    requestMock.mockImplementation(async (path: string) => {
+      if (path === "/auth/browser-auth") return { code: 0, data: { auth_url: "https://portal.example.com/oauth" } };
+      calls += 1;
+      if (calls <= 3) throw new Error("网络连接失败，请重试");
+      return okAuth({ token: "tok-net" });
+    });
+    renderPage();
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(0);
+    });
+    fireEvent.click(screen.getByText("打开浏览器登录"));
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(2000 * 10);
+    });
+    expect(localStorage.getItem("auth_token")).toBe("tok-net");
+  });
+});

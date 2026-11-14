@@ -136,7 +136,7 @@ TPL = {"write_chapter": "<<system>>\n你是助手\n<<user>>\n写"}
 
 def _wire(env, monkeypatch, sk, pub_b64, exchange):
     _, pp, sync_mod, _ = env
-    monkeypatch.setattr(sync_mod, "_validate_outbound", lambda url: True)
+    monkeypatch.setattr(sync_mod, "_validate_outbound", lambda url: (True, "ok"))
     monkeypatch.setenv("CLIENT_PACK_PUBKEYS", json.dumps({"test-kid": pub_b64}))
     monkeypatch.setattr(sync_mod, "_exchange_cek", exchange)
     return pp, sync_mod
@@ -292,7 +292,7 @@ def test_sync_already_latest_is_ready(env, cdn, monkeypatch):
 def test_sync_no_keys_skips(env, cdn, monkeypatch):
     _base, _cdn_root = cdn
     _, _pp, sync_mod, _ = env
-    monkeypatch.setattr(sync_mod, "_validate_outbound", lambda url: True)
+    monkeypatch.setattr(sync_mod, "_validate_outbound", lambda url: (True, "ok"))
     monkeypatch.delenv("CLIENT_PACK_PUBKEYS", raising=False)
     st = sync_mod.sync_once(local_tier="free")
     assert st["phase"] in ("missing", "failed")  # 不假装成功
@@ -419,7 +419,7 @@ def test_sync_404_refetches_latest_and_retries_once(env, cdn, monkeypatch):
     _publish(cdn_root, "7", {"free": ("k-free-7", cek)}, TPL, sk, "test-kid")  # 磁盘上已是 v7
 
     _, _, sync_mod, _ = env
-    monkeypatch.setattr(sync_mod, "_validate_outbound", lambda url: True)
+    monkeypatch.setattr(sync_mod, "_validate_outbound", lambda url: (True, "ok"))
     monkeypatch.setenv("CLIENT_PACK_PUBKEYS", json.dumps({"test-kid": pub}))
 
     def exchange(kid, ver):
@@ -776,3 +776,31 @@ def test_trigger_sync_pending_consumed_until_empty(env, monkeypatch):
         _time.sleep(0.01)
     assert calls == ["free", "pro", "max"]
     assert sync_mod._pending_tier is None
+
+
+# ── fake-ip 代理环境失败细分（c-proxy-fakeip-compat）────────────────────────
+
+
+def test_fakeip环境失败记proxy_fake_ip(env, cdn, monkeypatch):
+    """TUN fake-ip（解析全落 198.18.0.0/15，放行但代理节点不通）→ 失败原因
+    proxy_fake_ip，与 cdn_unreachable 可区分——弹窗据此呈现代理指路文案。"""
+    _base, cdn_root = cdn
+    sk, pub = _keypair()
+    _publish(cdn_root, "5", {"free": ("k-free-5", os.urandom(32))}, TPL, sk, "test-kid")
+    pp, sync_mod = _wire(env, monkeypatch, sk, pub, lambda kid, ver: (None, -1))
+    monkeypatch.setattr(sync_mod, "_validate_outbound", lambda url: (True, "fakeip"))
+    monkeypatch.setattr(sync_mod, "_fetch_json", lambda c, u: None)
+    st = sync_mod.sync_once(local_tier="free")
+    assert st["phase"] == "failed" and st["reason"] == "proxy_fake_ip"
+
+
+def test_blocked解析仍记cdn_unreachable(env, cdn, monkeypatch):
+    """混合/私网解析（verdict=blocked）维持既有失败原因，行为不变。"""
+    _base, cdn_root = cdn
+    sk, pub = _keypair()
+    _publish(cdn_root, "5", {"free": ("k-free-5", os.urandom(32))}, TPL, sk, "test-kid")
+    pp, sync_mod = _wire(env, monkeypatch, sk, pub, lambda kid, ver: (None, -1))
+    monkeypatch.setattr(sync_mod, "_validate_outbound", lambda url: (False, "blocked"))
+    monkeypatch.setattr(sync_mod, "_fetch_json", lambda c, u: None)
+    st = sync_mod.sync_once(local_tier="free")
+    assert st["phase"] == "failed" and st["reason"] == "cdn_unreachable"

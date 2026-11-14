@@ -1094,3 +1094,26 @@ def test_refresh_response_carries_channel(monkeypatch, tmp_path):
     r = _run(uc.refresh_update_check())
     assert r["channel"] == "staging"
     assert r["has_update"] is True
+
+
+# ── fake-ip 代理环境放行（c-proxy-fakeip-compat）────────────────────────────
+
+
+def test_fakeip解析_放行(monkeypatch):
+    """TUN 代理 fake-ip DNS（198.18.0.0/15 全命中）放行：连接交代理按域名转发。"""
+    monkeypatch.setattr(
+        uc.socket, "getaddrinfo",
+        lambda host, port, *a, **k: [(2, 1, 6, "", ("198.18.0.7", port))],
+    )
+    assert _run(uc._validate_outbound_url(MAIN_URL)) is True
+
+
+def test_fakeip混合解析_仍拒(monkeypatch):
+    """fake-ip 段混真实私网地址＝混合解析，保守拒绝（DNS rebinding 形态）。"""
+    monkeypatch.setattr(
+        uc.socket, "getaddrinfo",
+        lambda host, port, *a, **k: [
+            (2, 1, 6, "", ("198.18.0.7", port)), (2, 1, 6, "", ("192.168.1.5", port)),
+        ],
+    )
+    assert _run(uc._validate_outbound_url(MAIN_URL)) is False

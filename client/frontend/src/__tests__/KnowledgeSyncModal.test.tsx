@@ -112,3 +112,26 @@ describe("KnowledgeSyncModal（c-kb-baseline-update-ux）", () => {
     await waitFor(() => expect(screen.getByText("官方知识已更新")).toBeTruthy());
   });
 });
+
+describe("失败原因细分（c-proxy-fakeip-compat）", () => {
+  it("reason=proxy_fake_ip：失败态给代理 TUN 指路文案", async () => {
+    syncMock.mockResolvedValue({ status: "failed", reason: "proxy_fake_ip" });
+    render(<KnowledgeSyncModal />);
+    openKbSync({ mode: "update", from: 3, to: 4 });
+    fireEvent.click(screen.getByTestId("kb-sync-confirm"));
+    await waitFor(() => expect(screen.getByText("更新没有完成")).toBeTruthy());
+    const note = screen.getByTestId("kb-sync-fail-note").textContent ?? "";
+    expect(note).toContain("TUN 模式");
+    expect(note).toContain("白名单");
+    expect(screen.getByTestId("kb-sync-retry")).toBeTruthy();
+  });
+
+  it("其他失败 reason：维持既有网络文案", async () => {
+    syncMock.mockResolvedValue({ status: "failed", reason: "manifest_invalid" });
+    render(<KnowledgeSyncModal />);
+    openKbSync({ mode: "update", from: 3, to: 4 });
+    fireEvent.click(screen.getByTestId("kb-sync-confirm"));
+    await waitFor(() => expect(screen.getByText("更新没有完成")).toBeTruthy());
+    expect(screen.getByTestId("kb-sync-fail-note").textContent).toContain("稍后可以再试");
+  });
+});

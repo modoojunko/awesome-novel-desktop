@@ -17,12 +17,11 @@
 
 import asyncio
 import hashlib
-import ipaddress
 import json
 import logging
 import os
 import shutil
-import socket
+import socket  # noqa: F401 —— 测试桩面：tests 经 uc.socket 全局桩 getaddrinfo（与 outbound_guard 共用同一模块对象）
 import sys
 import threading
 import time
@@ -34,6 +33,7 @@ from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
 import manifest_crypto
+import outbound_guard
 import update_channel
 from build_info import get_build_info
 from config import DATA_ROOT
@@ -96,39 +96,19 @@ def _trusted_hosts() -> set[str]:
 
 
 async def _validate_outbound_url(url: str) -> bool:
-    """仅 https + 可信域 + 解析结果全为公网地址；任一不满足即拒绝。
+    """仅 https + 可信域 + 解析判定放行（outbound_guard 单源）。
 
-    DNS 解析走事件循环的 getaddrinfo（内部线程池）——本端点与整个 SPA 共享
-    同一 uvicorn 事件循环，同步 socket.getaddrinfo 会在解析器挂起时把应用
-    整体冻结到 DNS 超时，绝不可同步调用。
+    DNS 解析丢线程池（to_thread 与旧 loop.getaddrinfo 同执行器）——本端点与整个
+    SPA 共享同一 uvicorn 事件循环，同步解析会冻结应用，绝不可在循环上直呼。
+    verdict ≠ ok 时留痕（fakeip＝TUN 代理接管、blocked＝拒绝），供诊断。
     """
-    try:
-        p = urlparse(url)
-        if p.scheme != "https" or not p.hostname:
-            return False
-        host = p.hostname.lower()
-        if host not in _trusted_hosts():
-            return False
-        # host 本身是 IP 字面量的情况：非公网直接拒
-        try:
-            literal = ipaddress.ip_address(host)
-            if not literal.is_global:
-                return False
-        except ValueError:
-            pass
-        loop = asyncio.get_running_loop()
-        infos = await loop.getaddrinfo(p.hostname, 443, proto=socket.IPPROTO_TCP)
-    except (OSError, ValueError):
-        return False
-    for info in infos:
-        try:
-            ip = ipaddress.ip_address(info[4][0])
-        except ValueError:
-            return False
-        # is_global=False 覆盖环回/私网/链路本地/保留地址
-        if not ip.is_global:
-            return False
-    return True
+    ok, verdict = await asyncio.to_thread(
+        outbound_guard.validate_outbound, url, _trusted_hosts()
+    )
+    if verdict != "ok":
+        logger.info("event=update_outbound verdict=%s host=%s",
+                    verdict, urlparse(url).hostname or "?")
+    return ok
 
 
 def _has_newer(latest: str, current: str) -> bool:
@@ -311,28 +291,12 @@ def _set_auto_state(state: str, version: str, error: str = "",
 
 
 def _validate_outbound_url_sync(url: str) -> bool:
-    """线程版出站校验：与 async 版同规则（https＋可信域＋解析结果全公网）。
+    """线程版出站校验：与 async 版同规则（outbound_guard 单源）。
 
-    评审 P2-7：async 版走事件循环线程池解析是为防 DNS 冻共享循环；下载线程里
-    同步解析只阻塞自己，不构成冻结面。
+    评审 P2-7：下载线程里同步解析只阻塞自己，不构成冻结面。
     """
-    try:
-        p = urlparse(url)
-        if p.scheme != "https" or not p.hostname:
-            return False
-        if p.hostname.lower() not in _trusted_hosts():
-            return False
-        infos = socket.getaddrinfo(p.hostname, 443, proto=socket.IPPROTO_TCP)
-    except (OSError, ValueError):
-        return False
-    for info in infos:
-        try:
-            ip = ipaddress.ip_address(info[4][0])
-        except ValueError:
-            return False
-        if not ip.is_global:
-            return False
-    return True
+    ok, _verdict = outbound_guard.validate_outbound(url, _trusted_hosts())
+    return ok
 
 
 def _download_worker(version: str, platform: dict, epoch: int) -> None:
