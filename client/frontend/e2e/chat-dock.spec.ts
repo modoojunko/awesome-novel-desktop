@@ -597,7 +597,37 @@ test.describe("chat-dock 界面测试（c-writing-agent 批G）", () => {
     await restore();
   });
 
-  test("⑭窄屏（≤840px 抽屉形态）", async ({ page }) => {
-    test.skip(true, "批F-2 步⑤：窄屏 FAB/抽屉未落地（原型交互移植挂账）");
+  test("⑭窄屏：FAB 唤出抽屉＋关闭收起", async ({ page }) => {
+    const { restore, token } = await setupSession(page, "max");
+    await seedBook(page, token, `e2e-agt-narrow-${Date.now()}`);
+    await page.setViewportSize({ width: 800, height: 720 });
+    // 抽屉默认收起：dock 不可见（visibility hidden），FAB 在
+    const probe = await page.evaluate(() => {
+      const fabEl = document.querySelector('[data-testid="assistant-fab"]');
+      const st = fabEl ? getComputedStyle(fabEl) : null;
+      return {
+        innerWidth: window.innerWidth,
+        fab: !!fabEl,
+        fabVisible: !!st && st.display !== "none" && st.visibility !== "hidden",
+        asideClass: document.querySelector("aside.col-ai")?.className ?? null,
+      };
+    });
+    console.log("PROBE14", JSON.stringify(probe));
+    await expect(page.getByTestId("assistant-fab")).toBeVisible();
+    await expect(page.getByTestId("chat-dock")).toBeHidden();
+    // FAB 唤出 → dock 可见＋关闭钮收起
+    await page.getByTestId("assistant-fab").click();
+    await expect(page.getByTestId("chat-dock")).toBeVisible();
+    await expect(page.getByTestId("chat-drawer-close")).toBeVisible();
+    await page.getByTestId("chat-drawer-close").click();
+    await page.waitForTimeout(400);
+    const probe2 = await page.evaluate(() => ({
+      asideClass: document.querySelector("aside.col-ai")?.className ?? null,
+      innerWidth: window.innerWidth,
+      dockVisible: (() => { const el = document.querySelector('[data-testid="chat-dock"]'); if (!el) return false; const st = getComputedStyle(el); return st.display !== "none" && st.visibility !== "hidden"; })(),
+    }));
+    console.log("PROBE14C", JSON.stringify(probe2));
+    await expect(page.getByTestId("chat-dock")).toBeHidden();
+    await restore();
   });
 });

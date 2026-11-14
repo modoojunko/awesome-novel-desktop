@@ -172,6 +172,29 @@ export default function NovelWorkspace() {
   const [chatStreaming, setChatStreaming] = useState(false);
   const chatStreamingRef = useRef(false);
   const [settingsPanel, setSettingsPanel] = useState<string | undefined>(undefined);
+  // 窄屏抽屉开关（步⑤：≤840px 时右栏变抽屉，FAB 唤出；桌面恒开）
+  const [assistantOpen, setAssistantOpen] = useState(true); // 桌面恒开；窄屏由 sync 纠正
+  const [assistantNarrow, setAssistantNarrow] = useState(false);
+  useEffect(() => {
+    // 视口同步（挂载即跑一次——setViewportSize 在挂载前的场景不会补发 resize 事件）
+    const sync = () => {
+      const w = window.innerWidth;
+      setAssistantNarrow(w <= 840);
+      // 桌面恒开；进窄屏收起抽屉（FAB 唤出），回桌面恢复常开
+      setAssistantOpen(w > 840);
+    };
+    sync();
+    window.addEventListener("resize", sync);
+    return () => window.removeEventListener("resize", sync);
+  }, []);
+  const dockPage =
+    view === "advanced-settings"
+      ? "初始设定"
+      : view === "archives"
+        ? "预览"
+        : chapterRef
+          ? "工作台 · 章节"
+          : "工作台 · 卷纲";
 
   // ── 页签回默认主页（c-write-home-rail-anchor）：三个 modnav 页签都是「回该页默认落点」──
   //   写作＝书主页（清选中）；设定＝默认面板（第一项「题材」）；预览＝全书首章。
@@ -1352,52 +1375,51 @@ export default function NovelWorkspace() {
         </div>
       </div>
 
-        <aside className="col-ai">
-          {chapterRef ? (
-          <Rail
-            mode={chapterRef ? "chapter" : "volume"}
+        <aside
+          className={`col-ai${assistantOpen ? " as-open" : ""}${assistantNarrow ? " as-drawer" : ""}`}
+        >
+          <ChatDock
             projectId={projectId}
-            isPro={isPro}
+            page={dockPage}
+            scope={{
+              view,
+              chapterRef,
+              volumeSelId,
+              emptyBook: volumes.length === 0,
+              settingPanel: settingsPanel,
+            }}
+            onStreamingChange={(v) => {
+              chatStreamingRef.current = v;
+              setChatStreaming(v);
+            }}
             onUpgrade={onUpgrade}
-            proseRef={proseRef}
-            aiState={aiState}
-            data={
-              chapterRef
-                ? railData
-                  ? { ...railData, staleDownstream }
-                  : undefined
-                : undefined
-            }
-            volumeData={volumeRailData}
-            railIdle={railIdle}
-            genreLabel={genreLabel}
-            onPlanVolume={openPlanVolume}
-            onSplitAi={() => openChapterPlan("ai")}
-            onGoOutline={() => setGoOutlineSeq((n) => n + 1)}
-            onPacingChanged={handlePacingChanged}
-            onSelectVolume={handleSelectVolume}
-            autoCheckSeq={autoCheck.seq}
-            onAiWrite={() => requestAi({ kind: "write" })}
+            onCloseDrawer={() => setAssistantOpen(false)}
+            onOpenAction={(action) => {
+              // 富交互入口走既有链（spec：对话不吞弹窗）——生成正文=AiModal 写流
+              if (action === "ai_write") requestAi({ kind: "write" });
+            }}
           />
-          ) : (
-            <ChatDock
-              projectId={projectId}
-              page="工作台 · 卷纲"
-              scope={{
-                view,
-                chapterRef,
-                volumeSelId,
-                emptyBook: volumes.length === 0,
-                settingPanel: settingsPanel,
-              }}
-              onStreamingChange={(v) => {
-                chatStreamingRef.current = v;
-                setChatStreaming(v);
-              }}
-              onUpgrade={onUpgrade}
-            />
-          )}
         </aside>
+        {assistantNarrow && !assistantOpen && (
+          <button
+            type="button"
+            className="assistant-fab"
+            data-testid="assistant-fab"
+            aria-label="打开写作助手"
+            onClick={() => setAssistantOpen(true)}
+          >
+            助
+          </button>
+        )}
+        {assistantNarrow && assistantOpen && (
+          <button
+            type="button"
+            className="as-backdrop"
+            data-testid="assistant-backdrop"
+            aria-label="关闭写作助手"
+            onClick={() => setAssistantOpen(false)}
+          />
+        )}
 
       {/* 下载成稿（manuscript-download）：弹层在壳层，跨视图轮询保活 */}
       <ManuscriptDownloadModal

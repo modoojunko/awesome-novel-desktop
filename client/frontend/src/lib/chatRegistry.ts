@@ -11,6 +11,8 @@ export interface ChatChip {
   label: string;
   /** 点 chip 发进对话的指令（带上下文的指令进对话，不是直接执行） */
   command: string;
+  /** 富交互入口（AiModal/抽卡/推演等既有弹窗）：点 chip 由宿主开弹窗，不发指令 */
+  open?: string;
   /** 行级门控（features.ts key；无＝免费可用/读类） */
   feature?: FeatureKey;
   /** 前置条件不满足置灰＋hint（由宿主按页面状态计算） */
@@ -19,7 +21,8 @@ export interface ChatChip {
 }
 
 export interface ChatPageScope {
-  view: "workbench" | "advanced-settings" | "archives";
+  /** 与 novelStage.LandingView 同构（从宿主直接传） */
+  view: import("@/lib/novelStage").LandingView;
   chapterRef: string | null;
   volumeSelId: string | null;
   /** 空书（零卷零章）判定——开场白据此换口吻 */
@@ -38,6 +41,7 @@ export interface ChatPageRegistration {
 }
 
 /** 一期 chips 白名单（与后端 TOOL_REGISTRY 对齐的对话入口子集；发散 MAX）。 */
+// open 型 chip（宿主开既有弹窗/入口）与 command 型（agent 工具）同单源
 const CHIP_KEYS = [
   "draft_volume_expand",
   "draft_chapter_split",
@@ -47,6 +51,8 @@ const CHIP_KEYS = [
   "draft_names",
   "diverge_character_group",
   "diverge_plot_branches",
+  "ai_write",
+  "kb_search",
 ] as const;
 
 const REGISTRATIONS: ChatPageRegistration[] = [
@@ -73,6 +79,27 @@ const REGISTRATIONS: ChatPageRegistration[] = [
     chips: () => [
       { key: "draft_arc", label: "起草主线", command: "帮我起草主线。" },
       { key: "check_consistency", label: "一致性体检", command: "做一次一致性体检。" },
+    ],
+  },
+  {
+    id: "workbench.chapter",
+    label: "工作台 · 章节",
+    match: (s) => s.view === "workbench" && !!s.chapterRef,
+    greeting: () => null, // 章级页签深 chips 批F-2b；此处保持安静不打断写作
+    chips: () => [
+      { key: "draft_chapter_split", label: "拆下一章", command: "照卷纲拆下一章。" },
+      { key: "draft_chapter_plot", label: "本章剧情", command: "给本章出三版剧情清单。" },
+      { key: "check_consistency", label: "体检", command: "给本章做一次体检。" },
+      { key: "ai_write", label: "生成正文", command: "", open: "ai_write", feature: "ai-generate" },
+    ],
+  },
+  {
+    id: "archives.preview",
+    label: "预览",
+    match: (s) => s.view === "archives",
+    greeting: () => null,
+    chips: () => [
+      { key: "kb_search", label: "查知识库", command: "在知识库里查一下相关的条目。" },
     ],
   },
   {

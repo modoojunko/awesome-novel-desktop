@@ -16,6 +16,7 @@ import {
 import { api } from "@/lib/api";
 import { matchRegistration, type ChatChip, type ChatPageScope } from "@/lib/chatRegistry";
 import type { FeatureKey } from "@/lib/features";
+import type { LandingView } from "@/lib/novelStage";
 import { useChatSession, type ChatMessage } from "@/hooks/useChatSession";
 import "./chat.css";
 
@@ -26,6 +27,10 @@ interface ChatDockProps {
   /** 会话存活性上抛：宿主并入树锁定/切页守卫 */
   onStreamingChange?: (streaming: boolean) => void;
   onUpgrade?: (feature?: FeatureKey) => void;
+  /** 窄屏抽屉：关闭抽屉（仅抽屉态由宿主注入） */
+  onCloseDrawer?: () => void;
+  /** 富交互入口（open chip）：宿主开既有弹窗（AiModal/抽卡/推演） */
+  onOpenAction?: (action: string) => void;
   /** 采纳写回后由宿主调用（卡片置「已采纳」） */
   registerAdoptNotifier?: (fn: (cardId: string) => void) => void;
 }
@@ -114,6 +119,8 @@ export default function ChatDock({
   scope,
   onStreamingChange,
   onUpgrade,
+  onCloseDrawer,
+  onOpenAction,
   registerAdoptNotifier,
 }: ChatDockProps) {
   const { state, dispatch, onEvent, newSendId } = useChatSession();
@@ -305,6 +312,17 @@ export default function ChatDock({
       <div className="chatdock-head">
         <span className="chatdock-avatar">助</span>
         <b>写作助手</b>
+        {onCloseDrawer && (
+          <button
+            type="button"
+            className="chatdock-close"
+            data-testid="chat-drawer-close"
+            aria-label="关闭助手"
+            onClick={onCloseDrawer}
+          >
+            ✕
+          </button>
+        )}
         <span className="chatdock-ctx">你在：{registration?.label ?? page}</span>
         <span className="chatdock-sub">每本书一个会话 · 跨页面连续</span>
       </div>
@@ -319,7 +337,7 @@ export default function ChatDock({
               disabled={c.disabled}
               title={c.hint}
               data-testid={`chat-chip-${c.key}`}
-              onClick={() => send(c.command)}
+              onClick={() => (c.open ? onOpenAction?.(c.open) : send(c.command))}
             >
               {c.label}
             </button>
