@@ -22,7 +22,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from assistant import identity as identity_mod
 from assistant import session_store, write_gate
-from assistant.context import append_page_note, build_book_brief, build_page_note
+from assistant.context import build_book_brief, build_page_note
 from assistant.loop import AgentLoop, LoopConfig
 from assistant.prompts import build_system_prompt
 from assistant.tools import ToolContext, _clip
@@ -40,11 +40,16 @@ def _sse(event: dict[str, Any]) -> str:
     return f"data: {json.dumps(event, ensure_ascii=False)}\n\n"
 
 
-def _history_transcript(rows: list[Any]) -> list[dict[str, str]]:
+def _history_transcript(rows: list[Any], exclude_message_id: str = "") -> list[dict[str, str]]:
     """持久化消息 → 循环转写（只取 user/assistant 文本行；工具/事件行不进转写——
-    需要细节时 agent 用 read_* 重读，与 compact「细节优先牺牲」口径一致）。"""
+    需要细节时 agent 用 read_* 重读，与 compact「细节优先牺牲」口径一致）。
+
+    exclude_message_id＝本轮刚落库的那条用户消息：loop.run() 会把 user_input 再
+    append 一次，不排除就双注入模型窗口（review 判例 2026-11-14）。"""
     out: list[dict[str, str]] = []
     for m in rows:
+        if exclude_message_id and m.id == exclude_message_id:
+            continue
         if m.role in ("user", "assistant") and m.content:
             out.append({"role": m.role, "content": m.content})
     return out
@@ -57,6 +62,7 @@ async def _stream_chat(
     session: AssistantSession,
     message: str,
     page: str,
+    user_message_id: str = "",
 ) -> AsyncIterator[str]:
     """SSE generator：no-key 引导 → 组装 → 循环 → 逐步落盘。"""
 
@@ -85,7 +91,7 @@ async def _stream_chat(
         identity_mod.identity_system_section(identity), brief
     )
     rows = await session_store.load_messages(db, session.id)
-    transcript = _history_transcript(rows)
+    transcript = _history_transcript(rows, exclude_message_id=user_message_id)
     note = build_page_note(page)
     # L2 画像注入（批C 3.3）：口味/雷点裁一段拼进页面注入——起草/发散先懂作家
     try:
@@ -99,8 +105,9 @@ async def _stream_chat(
             )
     except Exception:  # noqa: BLE001——画像缺席不致命（BLE001 豁免）
         pass
-    if note:
-        transcript = append_page_note(transcript, note)
+    # L2 注入随当前消息进提示词（不落库不进 UI）——历史已排除当前消息
+    # （_history_transcript），旧「拼到末条 user 行」锚点不复存在
+    message_for_model = f"{message}\n{note}" if note else message
 
     try:
         from ai_client import get_ai_client_for_novel
@@ -128,6 +135,11 @@ async def _stream_chat(
     # client.resolve("haiku") 落到本书绑定模型（AIClient.resolve 单源）
     used_model = client.resolve("haiku")
     compaction_state = await session_store.load_compaction_state(db, session)
+    # 跨轮重映射（compact.py remap_boundary）：持久化边界是轮内转写的裸索引，下一轮
+    # 转写由落库投影重建、构成不同——先映射回本列表再进循环（映射不上则作废重建）
+    from assistant.compact import remap_boundary
+
+    compaction_state = remap_boundary(compaction_state, transcript)
 
     async def _on_compaction(state: Any) -> None:
         await session_store.save_compaction_state(db, session.id, state)
@@ -187,21 +199,6 @@ async def _stream_chat(
 
         if tool.kind != "write":
             return None
-
-        # 干活档位闸（PRO 起）：无权 → 升级引导事件（不停车）
-        if tool.feature_key and not ai_access_granted(tool.feature_key):
-            return [
-                {
-                    "type": "gate",
-                    "feature": tool.feature_key,
-                    "tier_required": "pro",
-                    "approved": False,
-                    "refusal": (
-                        "直接动手改需要 PRO 档。你可以在授权卡里手动改，"
-                        "或者去「查看档位」升级后让我来。"
-                    ),
-                }
-            ]
 
         decision = write_gate.evaluate(tool_name, args, tier=tier)
         if decision.allowed:
@@ -280,7 +277,7 @@ async def _stream_chat(
     reply_parts: list[str] = []
     final_status = "done"
 
-    async for event in loop.run(message):
+    async for event in loop.run(message_for_model):
         etype = event.get("type")
         if etype == "narration":
             reply_parts.append(str(event.get("text", "")))
@@ -432,7 +429,7 @@ async def assistant_chat(
     session = await session_store.get_or_create_session(
         db, user_id=user["id"], novel_id=project.id
     )
-    await session_store.append_message(
+    user_row = await session_store.append_message(
         db,
         session.id,
         novel_id=project.id,
@@ -442,7 +439,7 @@ async def assistant_chat(
     )
 
     return StreamingResponse(
-        _stream_chat(db, project, user, session, message, page),
+        _stream_chat(db, project, user, session, message, page, user_message_id=user_row.id),
         media_type="text/event-stream",
         headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
     )
@@ -639,6 +636,37 @@ async def undo_assistant_write(
         },
     )
     return {"ok": True, "entity": entity, "restored": previous}
+
+
+@router.post("/messages/{card_id}/adopt")
+async def adopt_assistant_message(
+    project_id: str,
+    card_id: str,
+    user: dict = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """产物卡采纳回执落库（重开书后「已采纳」徽标与 stale 防护不丢——review P3）。
+
+    按 payload.cardId（run_id-step_no，全局唯一）定位本会话的产物卡行；幂等。"""
+    project = await get_novel(db, project_id, user["id"])
+    if not project:
+        raise HTTPException(404, "Project not found")
+    session = await session_store.get_or_create_session(
+        db, user_id=user["id"], novel_id=project.id
+    )
+    rows = await session_store.load_messages(db, session.id, heal=False)
+    target = None
+    for m in rows:
+        if not m.card_kind or m.card_kind == "gate":
+            continue
+        payload = json.loads(m.payload_json or "{}")
+        if str(payload.get("cardId") or "") == card_id:
+            target = m
+    if target is None:
+        raise HTTPException(404, "产物卡不存在或不属于本书会话。")
+    if target.status != "adopted":
+        await session_store.update_message_status(db, target.id, status="adopted")
+    return {"ok": True, "cardId": card_id}
 
 
 @router.get("/profile")

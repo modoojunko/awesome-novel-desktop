@@ -7,6 +7,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import {
+  adoptAssistantMessage,
   approveGate,
   loadAssistantSession,
   resetAssistantSession,
@@ -174,7 +175,7 @@ export default function ChatDock({
               cardKind: m.cardKind as ChatMessage["cardKind"],
               cardId: String((m.payload as { cardId?: string })?.cardId ?? m.id),
               cardPayload: card,
-              cardStatus: "draft" as const,
+              cardStatus: (m.status === "adopted" ? "adopted" : "draft") as ChatMessage["cardStatus"],
               steps: [],
             };
           }
@@ -273,6 +274,8 @@ export default function ChatDock({
           antagonist_line: draft.antagonist_line,
         });
         dispatch({ type: "adopt_card", cardId });
+        // 采纳回执落库（best-effort）：重开书后「已采纳」徽标与 stale 防护不丢
+        void adoptAssistantMessage(projectId, cardId).catch(() => {});
         dispatch({
           type: "gate",
           text: `已写入第 ${volNo} 卷的卷纲要点，可继续改。`,
@@ -328,6 +331,16 @@ export default function ChatDock({
 
   const sendDisabled = !input.trim() || state.runActive;
   const chips: ChatChip[] = registration ? registration.chips() : [];
+  // 生成中面板的工具步取本 run 文本气泡（review 判例：曾取末条消息——卡片追加后
+  // 步骤列表会闪空）
+  let runSteps: ChatMessage["steps"] = [];
+  for (let i = state.messages.length - 1; i >= 0; i--) {
+    const m = state.messages[i];
+    if (m.kind === "text" && m.role === "assistant") {
+      runSteps = m.steps;
+      break;
+    }
+  }
 
   return (
     <div className="chatdock" data-testid="chat-dock">
@@ -456,7 +469,7 @@ export default function ChatDock({
                     {m.cardStatus === "stale" && <span className="cd-badge">旧版</span>}
                   </div>
                   <CardBody kind={m.cardKind ?? "text"} payload={m.cardPayload} />
-                  {m.cardStatus === "draft" && (
+                  {(m.cardStatus === "draft" || m.cardStatus === "stale") && (
                     <div className="cd-card-foot">
                       {m.cardKind === "text" &&
                         (m.cardPayload as Record<string, unknown> | undefined)?.draft != null && (
@@ -469,7 +482,11 @@ export default function ChatDock({
                             采纳 · 写入
                           </button>
                         )}
-                      <span className="cd-dim">初稿——觉得哪里要改，直接说。</span>
+                      {m.cardStatus === "stale" ? (
+                        <span className="cd-dim">已有一版采纳过——点采纳就换成这一版。</span>
+                      ) : (
+                        <span className="cd-dim">初稿——觉得哪里要改，直接说。</span>
+                      )}
                     </div>
                   )}
                 </div>
@@ -516,7 +533,7 @@ export default function ChatDock({
               </details>
             )}
             <ul className="cd-steps">
-              {state.messages.at(-1)?.steps.map((s) => (
+              {runSteps.map((s) => (
                 <li key={s.stepId}>
                   <b>{s.tool}</b>
                   {s.resultNote ? ` — ${_clip(s.resultNote, 80)}` : "（进行中）"}

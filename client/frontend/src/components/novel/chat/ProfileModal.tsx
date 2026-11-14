@@ -72,6 +72,8 @@ export default function ProfileModal({
   );
 
   const saveDrafts = useCallback(async () => {
+    // 列表分区（命名口味/雷点）按行拆列表——直存整段字符串会被后端 agent 的
+    // list 更新整体替换（review 判例 2026-11-14：曾绕过本函数直存原文）
     const updates: Record<string, unknown> = {};
     for (const s of SECTIONS) {
       const text = drafts[s.key];
@@ -82,8 +84,12 @@ export default function ProfileModal({
         updates[s.key] = textToList(text);
       }
     }
+    if (Object.keys(updates).length === 0) {
+      setNotice("没有改动。");
+      return;
+    }
     await save(updates);
-  }, [drafts, save, load]);
+  }, [drafts, save]);
 
   const clearAll = useCallback(async () => {
     setBusy(true);
@@ -145,16 +151,7 @@ export default function ProfileModal({
             className="cd-btn primary"
             disabled={busy}
             onClick={() => {
-              const updates: Record<string, unknown> = {};
-              for (const s of SECTIONS) {
-                const v = drafts[s.key];
-                if (v !== undefined) updates[s.key] = v;
-              }
-              if (Object.keys(updates).length === 0) {
-                setNotice("没有改动。");
-                return;
-              }
-              void save(updates);
+              void saveDrafts();
             }}
           >
             保存画像

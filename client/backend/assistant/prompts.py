@@ -30,7 +30,7 @@ ACT_PROTOCOL = f"""每一步你只输出一个 JSON 对象，不要输出任何�
 action=tool：调一次工具，结果会作为下一条消息给你。
 action=final：收口，reply 是给作家的完整回答。
 工具清单（封闭集，禁止编造清单外的工具）：
-{tool_catalog_text}
+{tool_catalog_text()}
 意图含糊就先把问题问清（action=final，reply=澄清问题）。"""
 
 

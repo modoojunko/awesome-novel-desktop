@@ -129,6 +129,9 @@ class AgentLoop:
         yield {"type": "run_start", "runId": run_id}
         started = time.monotonic()
         error_message = ""
+        # 消费端断开（aclose/GeneratorExit）标记：关闭期间 finally 不得再 yield
+        # ——否则 RuntimeError("async generator ignored GeneratorExit")
+        closed = False
 
         try:
             for step_no in range(1, self.cfg.max_steps + 1):
@@ -301,15 +304,19 @@ class AgentLoop:
                     tail = "这一轮的步数用完了。已完成的部分都在上面，需要继续可以直接吩咐。"
                     self.result.final_reply = tail
                     yield {"type": "narration", "text": tail}
+        except GeneratorExit:
+            closed = True
+            raise
         finally:
-            yield {
-                "type": "run_end",
-                "runId": run_id,
-                "steps": self.result.steps,
-                "toolCalls": self.result.tool_calls,
-                "degraded": self.result.degraded,
-                "error": error_message,
-            }
+            if not closed:
+                yield {
+                    "type": "run_end",
+                    "runId": run_id,
+                    "steps": self.result.steps,
+                    "toolCalls": self.result.tool_calls,
+                    "degraded": self.result.degraded,
+                    "error": error_message,
+                }
 
     # -- compact ----------------------------------------------------------------
     async def _maybe_compact(self) -> None:

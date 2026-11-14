@@ -200,3 +200,22 @@ async def test_compaction_triggered_and_persisted(monkeypatch):
     assert "state" in saved
     assert saved["state"].summary_text == "这是压缩后的摘要。"
     assert events[0]["type"] == "run_start"
+
+
+@pytest.mark.asyncio
+async def test_generator_close_is_clean():
+    """消费端中途断开（aclose，review 判例 2026-11-14）：finally 不得在
+    GeneratorExit 期间再 yield（否则 RuntimeError ignored-GeneratorExit）。"""
+    client = FakeClient([_final("好。")])
+    loop = AgentLoop(
+        client=client,
+        system="sys",
+        transcript=[],
+        tool_ctx=None,
+        config=LoopConfig(max_steps=4),
+    )
+    agen = loop.run("读到一半就关")
+    first = await agen.asend(None)
+    assert first["type"] == "run_start"
+    # 主动关闭——修复前此处抛 RuntimeError("async generator ignored GeneratorExit")
+    await agen.aclose()

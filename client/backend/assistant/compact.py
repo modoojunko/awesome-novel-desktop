@@ -553,6 +553,57 @@ def apply_to_outbound(
     return head + messages[boundary:]
 
 
+def _norm(text: Any) -> str:
+    return " ".join(str(text or "").split())
+
+
+def remap_boundary(
+    state: CompactionState | None, messages: list[dict[str, Any]]
+) -> CompactionState | None:
+    """跨轮重映射（review 判例 2026-11-14：boundary_index 是「轮内转写」的索引，而
+    下一轮转写由 assistant_messages 重建——原始动作 JSON 行与 [tool result] 观察行
+    不落库，列表构成不同，裸索引会切在任意语义点或越界静默失效）。
+
+    定位锚＝span 内最后一条 user 消息（state.user_messages 最新条；用户消息逐字
+    落库、永不改写）：在新列表中找它的最后一次出现，边界挪到其后那条 assistant
+    回复之后（该回复可能不在 span 内——保守多留，绝不泄漏已摘要内容到 verbatim 尾
+    之外）。找不到锚（转写重置等）→ 返回 None 作废状态，compaction 会在下个判定点
+    重建（代价一次 summarizer，正确性恢复）。轮内追加只发生在列表尾部，索引稳定。
+    """
+    if state is None:
+        return None
+    if not state.user_messages or not messages:
+        return None
+    anchors = [_norm(u) for u in state.user_messages if _norm(u)]
+    if not anchors:
+        return None
+    positions: dict[str, int] = {}
+    for i, m in enumerate(messages):
+        if m.get("role") == "user":
+            positions[_norm(m.get("content"))] = i
+    hit = -1
+    for anchor in reversed(anchors):
+        if anchor in positions:
+            hit = positions[anchor]
+            break
+    if hit < 0:
+        return None
+    # 边界＝锚 user 消息其后那条 assistant 回复之后（没有回复行则贴列表尾）
+    boundary = hit + 2 if hit + 2 <= len(messages) else len(messages)
+    if boundary <= 0:
+        return None
+    return CompactionState(
+        boundary_index=boundary,
+        summary_text=state.summary_text,
+        working_state=state.working_state,
+        user_messages=list(state.user_messages),
+        user_messages_dropped=state.user_messages_dropped,
+        created_at=state.created_at,
+        model_used=state.model_used,
+        trimmed=state.trimmed,
+    )
+
+
 # -- overflow detection -------------------------------------------------------
 
 _OVERFLOW_MARKERS = (

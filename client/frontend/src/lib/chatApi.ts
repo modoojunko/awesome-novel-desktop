@@ -93,6 +93,14 @@ export async function resetAssistantSession(projectId: string): Promise<void> {
   if (!r.ok) throw new Error(detailMessage((await r.json().catch(() => null))?.detail, "重置失败"));
 }
 
+/** 产物卡采纳回执落库（重开书后「已采纳」徽标与 stale 防护不丢）。 */
+export async function adoptAssistantMessage(projectId: string, cardId: string): Promise<void> {
+  await apiJsonWithAuth(
+    `${API_BASE}/novels/${projectId}/assistant/messages/${encodeURIComponent(cardId)}/adopt`,
+    {},
+  );
+}
+
 export async function approveGate(
   projectId: string,
   gateId: string,

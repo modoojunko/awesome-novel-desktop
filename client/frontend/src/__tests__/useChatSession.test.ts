@@ -52,16 +52,70 @@ describe("useChatSession reducer（run 模型）", () => {
     expect(state.messages.at(-1)!.text).toBe("第一段\n第二段");
   });
 
-  it("artifact 幂等：同 cardId 不重复；已有已采纳卡时新卡标 stale", () => {
+  it("review 钉：卡片之后的事件仍落本 run 文本气泡（收口不吞、轨迹不丢）", () => {
     state = chatReducer(state, { type: "run_start", runId: "r1" });
-    state = chatReducer(state, { type: "artifact", runId: "r1", cardId: "c1", kind: "text", payload: { a: 1 } });
-    state = chatReducer(state, { type: "artifact", runId: "r1", cardId: "c1", kind: "text", payload: { a: 1 } });
+    state = chatReducer(state, { type: "step_end", runId: "r1", stepId: "s1", tool: "read_outline", resultNote: "读了" });
+    state = chatReducer(state, {
+      type: "artifact", runId: "r1", cardId: "c1", kind: "text",
+      payload: { draft: { name: "卷一" }, vol_no: 1 },
+    });
+    // 卡片在末条；其后 narration/step 必须落回 run 气泡，而不是被吞进卡片
+    state = chatReducer(state, { type: "narration", runId: "r1", text: "草案在卡里，过目后采纳。" });
+    state = chatReducer(state, { type: "step_end", runId: "r1", stepId: "s2", tool: "write_volume_fields", resultNote: "已写入" });
+    const bubble = state.messages.find((m) => m.kind === "text" && m.role === "assistant")!;
+    expect(bubble.text).toBe("草案在卡里，过目后采纳。");
+    expect(bubble.steps.map((s) => s.stepId)).toEqual(["s1", "s2"]);
+    const card = state.messages.find((m) => m.kind === "card")!;
+    expect(card.text).toBe(""); // 卡片不被污染
+  });
+
+  it("artifact 幂等：同 cardId 不重复；同目标已有已采纳卡时新卡标 stale", () => {
+    state = chatReducer(state, { type: "run_start", runId: "r1" });
+    state = chatReducer(state, {
+      type: "artifact", runId: "r1", cardId: "c1", kind: "text",
+      payload: { draft: { name: "卷一" }, vol_no: 1 },
+    });
+    state = chatReducer(state, {
+      type: "artifact", runId: "r1", cardId: "c1", kind: "text",
+      payload: { draft: { name: "卷一" }, vol_no: 1 },
+    });
     expect(state.messages.filter((m) => m.kind === "card")).toHaveLength(1);
     state = chatReducer(state, { type: "adopt_card", cardId: "c1" });
-    state = chatReducer(state, { type: "artifact", runId: "r1", cardId: "c2", kind: "text", payload: { a: 2 } });
+    state = chatReducer(state, {
+      type: "artifact", runId: "r1", cardId: "c2", kind: "text",
+      payload: { draft: { name: "卷一v2" }, vol_no: 1 },
+    });
     const cards = state.messages.filter((m) => m.kind === "card");
-    expect(cards[0].cardStatus).toBe("adopted");
+    expect(cards[0].cardStatus).toBe("adopted"); // 旧卡保留已采纳徽标
     expect(cards[1].cardStatus).toBe("stale");
+    // stale 卡可再采纳（walkthrough B2「再采纳第二版」＝替换写回）
+    state = chatReducer(state, { type: "adopt_card", cardId: "c2" });
+    expect(cards[0].cardStatus).toBe("adopted");
+    expect(state.messages.filter((m) => m.kind === "card")[1].cardStatus).toBe("adopted");
+  });
+
+  it("review 钉：stale 只判同目标——不同卷的新卡照常 draft 可采纳", () => {
+    state = chatReducer(state, { type: "run_start", runId: "r1" });
+    state = chatReducer(state, {
+      type: "artifact", runId: "r1", cardId: "c1", kind: "text",
+      payload: { draft: { name: "卷一" }, vol_no: 1 },
+    });
+    state = chatReducer(state, { type: "adopt_card", cardId: "c1" });
+    state = chatReducer(state, {
+      type: "artifact", runId: "r1", cardId: "c2", kind: "text",
+      payload: { draft: { name: "卷二" }, vol_no: 2 },
+    });
+    expect(state.messages.filter((m) => m.kind === "card")[1].cardStatus).toBe("draft");
+    // 体检报告（不可采纳卡种）也不受已采纳卷纲影响
+    state = chatReducer(state, { type: "artifact", runId: "r1", cardId: "c3", kind: "report", payload: { report: [] } });
+    expect(state.messages.filter((m) => m.kind === "card")[2].cardStatus).toBe("draft");
+  });
+
+  it("thinking_flush 整段替换（节流通道：ref 攒量、低频刷入 state）", () => {
+    state = chatReducer(state, { type: "run_start", runId: "r1" });
+    state = chatReducer(state, { type: "thinking", text: "直连增量仍可用" });
+    state = chatReducer(state, { type: "thinking_flush", text: "先读设定\n再起草" });
+    expect(state.thinkingText).toBe("先读设定\n再起草");
   });
 
   it("授权卡：pending → resolved 只改同一 gateId", () => {

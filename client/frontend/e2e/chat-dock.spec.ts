@@ -171,7 +171,11 @@ test.beforeAll(async () => {
           const msgs = parsed.messages ?? [];
           prompt = msgs.map((m: { content: string }) => m.content).join("\n");
           const users = msgs.filter((m: { role: string }) => m.role === "user");
-          userText = String(users.at(-1)?.content ?? "");
+          // L2 注入（页面/画像）随消息同行为尾部［…］段——分支判定取作家实际
+          // 指令行（剥尾注），注入词（如页名「卷纲」）不得误触工具分支
+          userText = String(users.at(-1)?.content ?? "")
+            .replace(/(\n［[^］]*］)+$/g, "")
+            .trim();
           wantStream = Boolean(parsed.stream);
         } catch {
           /* 非 JSON 忽略 */
@@ -406,6 +410,11 @@ test.describe("chat-dock 界面测试（c-writing-agent 批G）", () => {
     await sendViaDock(page, "帮我铺这一卷的卷纲。");
     // 真循环：工具步（draft_volume_expand）→ 产物卡
     await expect(page.getByTestId("chat-card-text").first()).toBeVisible({ timeout: 30000 });
+    // review 钉（2026-11-14）：卡片之后的收口回复必须落在文本气泡可见——
+    // 曾被吞进卡片 text（卡片渲染分支不显示）整轮静默
+    await expect(
+      page.getByText("结合刚才查到的信息，给你答复：草案已经出来，过目采纳就行。"),
+    ).toBeVisible({ timeout: 15000 });
     // 采纳 · 写入 → PUT /volumes/vol-1 真实落库
     await page.getByTestId("chat-adopt").click();
     await expect(page.getByText("已写入第 1 卷的卷纲要点，可继续改。")).toBeVisible();
@@ -416,10 +425,24 @@ test.describe("chat-dock 界面测试（c-writing-agent 批G）", () => {
     expect(volText).toContain("逃出船坞");
     expect(volText).toContain("补给站·撤离名单");
     await expect(page.locator(".cd-badge.ok").first()).toBeVisible();
+    // 采纳回执落库（POST /assistant/messages/{cardId}/adopt）：重开书后徽标不丢
+    await expect
+      .poll(async () => {
+        const s = await fetch(`${ORIGIN}/api/novels/${id}/assistant/session`, {
+          headers: authHeaders(token),
+        });
+        const body = await s.json();
+        const msgs = body.messages ?? [];
+        return msgs.filter(
+          (m: { cardKind?: string; status?: string }) =>
+            m.cardKind && m.cardKind !== "gate" && m.status === "adopted",
+        ).length;
+      })
+      .toBeGreaterThan(0);
     await restore();
   });
 
-  test("③采纳后新卡标 stale（不静默覆盖）", async ({ page }) => {
+  test("③同目标新卡标 stale＋stale 可再采纳（第二版替换写回）", async ({ page }) => {
     const { restore, token } = await setupSession(page, "max");
     await seedBook(page, token, `e2e-agt-stale-${Date.now()}`);
     await sendViaDock(page, "帮我铺这一卷的卷纲。");
@@ -428,6 +451,11 @@ test.describe("chat-dock 界面测试（c-writing-agent 批G）", () => {
     await sendViaDock(page, "再铺一版。");
     await expect(page.getByText("旧版")).toBeVisible({ timeout: 30000 });
     await expect(page.locator(".cd-badge.ok").first()).toBeVisible();
+    // review 钉（2026-11-14）：stale 卡不再是无按钮死端——再采纳＝替换写回，
+    // 新旧两卡都带「已采纳 ✓」（旧采纳不被静默覆盖）
+    await page.getByTestId("chat-adopt").last().click();
+    await expect(page.getByText("已写入第 1 卷的卷纲要点，可继续改。").nth(1)).toBeVisible();
+    await expect(page.locator(".cd-badge.ok")).toHaveCount(2);
     await restore();
   });
 

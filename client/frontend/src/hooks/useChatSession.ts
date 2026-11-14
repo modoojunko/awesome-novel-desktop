@@ -44,6 +44,7 @@ type Action =
   | { type: "run_start"; runId: string }
   | { type: "run_end" }
   | { type: "thinking"; text: string }
+  | { type: "thinking_flush"; text: string }
   | { type: "step_start"; runId: string; stepId: string; tool: string }
   | { type: "step_end"; runId: string; stepId: string; tool: string; resultNote: string }
   | { type: "narration"; runId: string; text: string }
@@ -63,15 +64,46 @@ function newAssistantMessage(runId: string | undefined): ChatMessage {
   return { id: nextId("am"), role: "assistant", kind: "text", text: "", runId, steps: [] };
 }
 
-function updateLastAssistant(
+/**
+ * 当前 run 的文本气泡（run_start 创建、带 runId；历史回看的气泡无 runId 不算）。
+ * review 判例 2026-11-14：曾用「无条件改末条消息」——卡片/授权卡/错误行追加后，
+ * 其后的 narration 被吞进卡片 text（渲染分支不显示）、后续 step 轨迹挂上卡片丢失。
+ * 事件永远落回本 run 的文本气泡；找不到（理论不可达）时新开一条兜底。
+ */
+function runBubbleIndex(messages: ChatMessage[]): number {
+  for (let i = messages.length - 1; i >= 0; i--) {
+    const m = messages[i];
+    if (m.kind === "text" && m.role === "assistant" && m.runId != null) return i;
+  }
+  return -1;
+}
+
+function updateRunBubble(
   messages: ChatMessage[],
+  runId: string,
   fn: (m: ChatMessage) => ChatMessage,
 ): ChatMessage[] {
-  if (messages.length === 0) return messages;
+  const i = runBubbleIndex(messages);
+  if (i < 0) {
+    return [...messages, newAssistantMessage(runId)];
+  }
   const out = messages.slice();
-  const i = out.length - 1;
   out[i] = fn(out[i]);
   return out;
+}
+
+/**
+ * 产物卡目标键（同目标才判 stale——review 判例 2026-11-14：曾按「任意 adopted 卡」
+ * 判，跨目标的新卡也被打成旧版且无采纳路径，「过目采纳」循环一次即死）。
+ * 走向/卷纲草稿按卷锚定；体检按卷 ref；命名/发散回落卡种。
+ */
+function cardTargetKey(kind: string, payload: unknown): string {
+  const d = (payload ?? {}) as Record<string, unknown>;
+  if (d.vol_no != null) return `vol-${d.vol_no}`;
+  if (typeof d.ref === "string" && d.ref) return d.ref;
+  if (typeof d.entry_id === "string" && d.entry_id) return d.entry_id;
+  if (typeof d.chapter_ref === "string" && d.chapter_ref) return d.chapter_ref;
+  return kind;
 }
 
 export function chatReducer(state: ChatState, action: Action): ChatState {
@@ -96,11 +128,13 @@ export function chatReducer(state: ChatState, action: Action): ChatState {
       return { ...state, runActive: false, thinkingText: "" };
     case "thinking":
       return { ...state, thinkingText: state.thinkingText + (action.text ?? "") };
+    case "thinking_flush":
+      return { ...state, thinkingText: action.text };
     case "step_start": {
-      // 进行中的工具步在末条 assistant 消息的 steps 里点亮（幂等：同 stepId 不重复）
+      // 进行中的工具步点亮进本 run 气泡的 steps（幂等：同 stepId 不重复）
       return {
         ...state,
-        messages: updateLastAssistant(state.messages, (m) =>
+        messages: updateRunBubble(state.messages, action.runId, (m) =>
           m.steps.some((s) => s.stepId === action.stepId)
             ? m
             : {
@@ -117,7 +151,7 @@ export function chatReducer(state: ChatState, action: Action): ChatState {
       // 乱序容错：step_end 晚于 step_start（或单独到达）都收敛到同一 stepId 行
       return {
         ...state,
-        messages: updateLastAssistant(state.messages, (m) => {
+        messages: updateRunBubble(state.messages, action.runId, (m) => {
           const exists = m.steps.some((s) => s.stepId === action.stepId);
           const steps = exists
             ? m.steps.map((s) =>
@@ -131,7 +165,7 @@ export function chatReducer(state: ChatState, action: Action): ChatState {
     case "narration":
       return {
         ...state,
-        messages: updateLastAssistant(state.messages, (m) => ({
+        messages: updateRunBubble(state.messages, action.runId, (m) => ({
           ...m,
           text: m.text ? `${m.text}\n${action.text}` : action.text,
         })),
@@ -147,9 +181,15 @@ export function chatReducer(state: ChatState, action: Action): ChatState {
         out[existingIdx] = { ...out[existingIdx], cardPayload: action.payload };
         return { ...state, messages: out };
       }
-      // 同目标已有 adopted 卡 → 新卡标 stale（不静默覆盖已采纳版本）
-      const hasAdopted = state.messages.some(
-        (m) => m.kind === "card" && m.cardStatus === "adopted",
+      // 同目标已有 adopted 卡 → 新卡到货即标 stale「旧版」（不静默覆盖已采纳版本；
+      // stale 卡仍可再采纳——walkthrough B2「再采纳第二版」，采纳后新旧两卡都带 ✓）
+      const targetKey = cardTargetKey(action.kind, action.payload);
+      const hasAdoptedSameTarget = state.messages.some(
+        (m) =>
+          m.kind === "card" &&
+          m.cardStatus === "adopted" &&
+          m.cardKind === (action.kind as ChatMessage["cardKind"]) &&
+          cardTargetKey(m.cardKind ?? "text", m.cardPayload) === targetKey,
       );
       return {
         ...state,
@@ -164,7 +204,7 @@ export function chatReducer(state: ChatState, action: Action): ChatState {
             cardKind: (action.kind as ChatMessage["cardKind"]) || "text",
             cardId,
             cardPayload: action.payload,
-            cardStatus: hasAdopted ? "stale" : "draft",
+            cardStatus: hasAdoptedSameTarget ? "stale" : "draft",
             steps: [],
           },
         ],
@@ -206,10 +246,13 @@ export function chatReducer(state: ChatState, action: Action): ChatState {
         ],
       };
     case "adopt_card":
+      // stale 也可采纳（再采纳第二版＝替换写回；旧卡保留「已采纳」徽标不回退）
       return {
         ...state,
         messages: state.messages.map((m) =>
-          m.kind === "card" && m.cardId === action.cardId && m.cardStatus === "draft"
+          m.kind === "card" &&
+          m.cardId === action.cardId &&
+          (m.cardStatus === "draft" || m.cardStatus === "stale")
             ? { ...m, cardStatus: "adopted" }
             : m,
         ),
@@ -220,7 +263,7 @@ export function chatReducer(state: ChatState, action: Action): ChatState {
         runActive: false,
         error: action.message,
         messages: state.messages.some((m) => m.kind === "error")
-          ? updateLastAssistant(state.messages, (m) => ({ ...m }))
+          ? state.messages
           : [
               ...state.messages,
               { id: nextId("err"), role: "system", kind: "error", text: action.message, steps: [] },
@@ -243,18 +286,31 @@ export function useChatSession() {
     error: "",
   });
   const sendIdRef = useRef(nextId("send"));
+  // 思考增量：全量攒 ref，≤300ms 一次 flush 进 state（review 判例 2026-11-14：
+  // 曾逐块 dispatch——思考型模型 4 分钟流式下整列表高频重渲染会卡）
+  const thinkingBufRef = useRef("");
+  const lastThinkFlushRef = useRef(0);
+  const THINKING_FLUSH_MS = 300;
 
   const onEvent = useCallback((event: AgentEvent) => {
     switch (event.type) {
       case "run_start":
+        thinkingBufRef.current = "";
+        lastThinkFlushRef.current = 0;
         dispatch({ type: "run_start", runId: event.runId || "" });
         break;
       case "run_end":
         dispatch({ type: "run_end" });
         break;
-      case "thinking":
-        dispatch({ type: "thinking", text: String(event.text ?? "") });
+      case "thinking": {
+        thinkingBufRef.current += String(event.text ?? "");
+        const now = Date.now();
+        if (now - lastThinkFlushRef.current >= THINKING_FLUSH_MS) {
+          lastThinkFlushRef.current = now;
+          dispatch({ type: "thinking_flush", text: thinkingBufRef.current });
+        }
         break;
+      }
       case "step_start":
         dispatch({
           type: "step_start",

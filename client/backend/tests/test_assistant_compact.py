@@ -89,3 +89,72 @@ def test_context_overflow_detection():
     assert c.is_context_overflow(RuntimeError("This model's maximum context length is 8192 tokens"))
     assert c.is_context_overflow(RuntimeError("prompt is too long: 300000 tokens > 200000"))
     assert not c.is_context_overflow(RuntimeError("connection reset"))
+
+
+# -- 跨轮重映射（review 判例 2026-11-14）---------------------------------------
+# boundary_index 是「轮内转写」的裸索引；下一轮转写由 assistant_messages 重建
+# （原始动作 JSON 与 [tool result] 行不落库），构成不同——必须重映射，否则
+# apply_to_outbound 切在任意语义点或越界静默失效。
+
+
+def test_remap_boundary_lands_after_anchor_reply():
+    # 轮内转写：动作 JSON 行 + 观察行（不落库的形态）
+    in_run = [
+        _msg("user", "帮我铺这一卷"),
+        _msg("assistant", '{"thought": "干", "action": "tool", "tool": "read_outline"}'),
+        _msg("user", "[tool result] 第1卷…"),
+        _msg("assistant", '{"action": "final", "reply": "铺好了。"}'),
+        _msg("user", "再铺一版"),
+        _msg("assistant", "第二版铺好了。"),
+    ]
+    state = c.CompactionState(
+        boundary_index=4,
+        summary_text="作家要铺卷纲。",
+        working_state="",
+        user_messages=["帮我铺这一卷"],
+    )
+    # 下一轮重建转写：只有 user + 最终叙述行（落库投影）
+    rebuilt = [
+        _msg("user", "帮我铺这一卷"),
+        _msg("assistant", "铺好了。"),
+        _msg("user", "再铺一版"),
+    ]
+    remapped = c.remap_boundary(state, rebuilt)
+    assert remapped is not None
+    # 锚 user（「帮我铺这一卷」）在 0 → 边界挪到其后回复之后＝2
+    assert remapped.boundary_index == 2
+    outbound = c.apply_to_outbound(rebuilt, remapped)
+    assert "compacted-history" in outbound[0]["content"]
+    assert outbound[-1] == rebuilt[-1]
+
+
+def test_remap_boundary_current_turn_user_anchor():
+    # 锚＝当前轮的用户消息（compaction 发生在轮内，user 已进 span）：
+    # 边界挪到其回复之后，本轮叙述保守保留在 verbatim 尾
+    rebuilt = [_msg("user", "帮我铺这一卷"), _msg("assistant", "铺好了。")]
+    state = c.CompactionState(
+        boundary_index=9,
+        summary_text="摘要",
+        working_state="",
+        user_messages=["帮我铺这一卷"],
+    )
+    remapped = c.remap_boundary(state, rebuilt)
+    assert remapped is not None
+    assert remapped.boundary_index == len(rebuilt)
+
+
+def test_remap_boundary_unmatchable_state_discarded():
+    rebuilt = [_msg("user", "新会话的问题"), _msg("assistant", "答")]
+    state = c.CompactionState(
+        boundary_index=5,
+        summary_text="摘要",
+        working_state="",
+        user_messages=["已被重置清掉的旧消息"],
+    )
+    assert c.remap_boundary(state, rebuilt) is None
+
+
+def test_remap_boundary_none_passthrough():
+    assert c.remap_boundary(None, [_msg("user", "q")]) is None
+    state = c.CompactionState(boundary_index=1, summary_text="", working_state="", user_messages=[])
+    assert c.remap_boundary(state, [_msg("user", "q")]) is None
