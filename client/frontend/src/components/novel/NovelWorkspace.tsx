@@ -1373,8 +1373,6 @@ export default function NovelWorkspace() {
           onDownload={() => setShowDownload(true)}
         />
       )}
-
-        </div>
       </div>
 
         <aside
@@ -1440,6 +1438,7 @@ export default function NovelWorkspace() {
             </details>
           )}
         </aside>
+      </div>
         {assistantNarrow && !assistantOpen && (
           <button
             type="button"

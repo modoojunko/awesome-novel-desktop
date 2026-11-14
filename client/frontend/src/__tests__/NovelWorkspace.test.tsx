@@ -248,6 +248,9 @@ describe("默认落写作视图（免费）", () => {
     // 右栏（c-writing-agent 卷页收编）：ChatDock 常驻——开场白状态感知＋能力盘 chips；
     // 旧 volume-idle Rail 卡（plan-badge/plan-first-volume/plan-basis）随之退役
     expect(document.querySelector('.col-ai [data-testid="chat-dock"]')).toBeTruthy();
+    // 布局钉（真机走查判例 2026-11-15：aside 曾掉出 .wb-split——dock 整宽掉底，
+    // class 断言全绿仍错版；右侧 300px 栏＝aside 必须是 .wb-split 直接子元素）
+    expect(document.querySelector(".wb-split > .col-ai > [data-testid='chat-dock']")).toBeTruthy();
     expect(screen.getByText("第一卷还空着，说说你的目标，我来铺。")).toBeVisible();
     expect(screen.getByTestId("chat-chip-draft_volume_expand")).toBeTruthy();
     expect(screen.getByTestId("chat-chip-draft_chapter_split")).toBeTruthy();
