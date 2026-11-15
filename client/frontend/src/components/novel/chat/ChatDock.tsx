@@ -277,7 +277,7 @@ export default function ChatDock({
     void loadAssistantSession(projectId, threadKey)
       .then((s) => {
         if (cancelled || s.messages.length === 0) return;
-        const messages = s.messages.map((m) => {
+        const mapped = s.messages.map((m): ChatMessage | null => {
           const card = (m.payload as { card?: unknown } | undefined)?.card;
           const auth = (m.payload as { authorization_card?: Record<string, unknown> } | undefined)
             ?.authorization_card;
@@ -308,6 +308,7 @@ export default function ChatDock({
             };
           }
           if (m.role === "tool") {
+            if (!m.content?.trim()) return null as unknown as (typeof messages)[number]; // 空结果行不进轨迹
             return { id: m.id, role: "system" as const, kind: "trace" as const, text: m.content, steps: [] };
           }
           if (m.role === "user" || (m.role === "assistant" && m.content)) {
@@ -322,12 +323,27 @@ export default function ChatDock({
               ts: Number.isFinite(ts) ? ts : undefined,
             };
           }
+          if (m.role === "event" && !m.content?.trim()) {
+            return null as unknown as (typeof messages)[number]; // 空 event 行不进轨迹
+          }
           return { id: m.id, role: "system" as const, kind: "trace" as const, text: m.content, steps: [] };
         });
+        const messages = mapped.filter((m): m is ChatMessage => m != null);
         if (s.context?.window) setCtxWindow(s.context.window);
         const g = (s.grants ?? {}) as { tier?: string };
         if (g.tier) setTierState(g.tier);
-        dispatch({ type: "load_history", thread: threadKey, messages });
+        // 连续工具/事件行合并为一条折叠轨迹（boss 走查判例 2026-11-15：历史回放
+        // 曾把工具结果铺成裸文本行——与 live 的折叠形态不一致）
+        const merged: typeof messages = [];
+        for (const m of messages) {
+          const prev = merged[merged.length - 1];
+          if (m.kind === "trace" && prev && prev.kind === "trace") {
+            prev.text = `${prev.text}\n${m.text}`;
+            continue;
+          }
+          merged.push(m);
+        }
+        dispatch({ type: "load_history", thread: threadKey, messages: merged });
       })
       .catch(() => {/* 首次失败静默——发消息时会再暴露 */});
     return () => {
@@ -590,10 +606,16 @@ export default function ChatDock({
             );
           }
           if (m.kind === "trace") {
+            const lines = (m.text ?? "").split("\n").filter(Boolean);
             return (
-              <div key={m.id} className="cd-trace-line">
-                {m.text}
-              </div>
+              <details key={m.id} className="cd-trace" data-testid="chat-trace-history">
+                <summary>运行轨迹（{lines.length} 步）</summary>
+                <ul>
+                  {lines.map((l, i) => (
+                    <li key={i}>{l}</li>
+                  ))}
+                </ul>
+              </details>
             );
           }
           if (m.kind === "gate") {
