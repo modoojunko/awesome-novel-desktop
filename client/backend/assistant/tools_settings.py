@@ -204,7 +204,116 @@ def _make_og_fill_tool() -> Tool:
 
 
 OG_FILL_TOOL = _make_og_fill_tool()
+
+
+# ── 创建角色（boss 拍板 2026-11-15）：访谈→拿稳→确认卡→确认后才建卡──────────
+# 必需要素评估在工具侧（不是模型自觉）：缺一项就返回追问清单，agent 继续访谈；
+# 齐了才出草案确认卡（confirmed=False），作家点确认后前端调建卡 API 落卡。
+
+_CHAR_REQUIRED = ("identity", "relation", "function")  # 身份背景/与现有角色关系/剧情功能
+_CHAR_LABELS = {
+    "name": "名字",
+    "gender_age": "性别与年龄",
+    "identity": "身份背景",
+    "relation": "与现有角色的关系",
+    "function": "剧情功能",
+    "personality": "性格特质",
+}
+
+
+async def _cast_names(ctx: ToolContext) -> list[str]:
+    from assistant.tools import _read_settings
+
+    res = await _read_settings(ctx, area="cast")
+    names = []
+    for line in (res.summary or "").split("\n"):
+        line = line.lstrip("- ")
+        if "（" in line:
+            names.append(line.split("（")[0].strip())
+        elif line:
+            names.append(line.strip())
+    return names
+
+
+async def _draft_character(
+    ctx: ToolContext,
+    fields: dict[str, Any] | None = None,
+) -> ToolResult:
+    """创建角色·评估与草案（两态）：
+    - 必需要素没拿齐 → 返回追问清单（agent 转问作家，继续访谈）
+    - 拿齐 → 校验＋撞名检查 → 出草案确认卡（confirmed=False；作家点确认才建卡）"""
+    fields = {k: str(v).strip() for k, v in (fields or {}).items() if str(v or "").strip()}
+    names = await _cast_names(ctx)
+
+    missing = [k for k in _CHAR_REQUIRED if not fields.get(k)]
+    if missing:
+        labels = "、".join(_CHAR_LABELS.get(k, k) for k in missing)
+        have = {k: v for k, v in fields.items() if v}
+        return ToolResult(
+            ok=True,
+            summary=(
+                f"创建角色还缺：{labels}。"
+                + (f"已记下：{'、'.join(f'{_CHAR_LABELS.get(k, k)}={v}' for k, v in have.items())}。" if have else "")
+                + "逐项问作家，别一次全问。"
+            ),
+            meta={
+                "char_intake": {"missing": missing, "collected": have},
+                "_display": {"stage": "intake"},
+            },
+        )
+
+    name = fields.get("name") or ""
+    collide = name in names
+    if collide:
+        return ToolResult(
+            ok=False,
+            summary=f"名字「{name}」和现有角色撞了——换个名字再出草案。",
+        )
+
+    draft = {
+        "name": name or "（待定）",
+        "gender_age": fields.get("gender_age", ""),
+        "identity": fields["identity"],
+        "relation": fields["relation"],
+        "function": fields["function"],
+        "personality": fields.get("personality", ""),
+    }
+    summary = (
+        f"角色草案拿稳了：{draft['name']}（{draft['gender_age']}）——"
+        f"{_clip(draft['identity'], 120)}。推确认卡给作家。"
+    )
+    return ToolResult(
+        ok=True,
+        summary=summary,
+        card={
+            "kind": "text",
+            "payload": {"character_draft": draft, "confirmed": False, "collide_check": "ok"},
+        },
+    )
+
+
+def _make_draft_character_tool() -> Tool:
+    async def _fn(ctx: ToolContext, fields: dict[str, Any] | None = None) -> ToolResult:
+        return await _draft_character(ctx, fields)
+
+    return Tool(
+        name="draft_character",
+        kind="card",
+        feature_key="settings-ai-fields",
+        args_hint='{"fields": {"name": "", "gender_age": "", "identity": "", "relation": "", "function": "", "personality": ""}}',
+        description=(
+            "创建角色·评估与草案。作家想新建角色时调用：传入已收集的 fields，"
+            "工具评估必需要素（身份背景/与现有角色关系/剧情功能必填）——没拿齐会返回"
+            "追问清单（逐项问作家，别一次全问）；拿齐才出草案确认卡，作家点确认后才真正建卡。"
+        ),
+        fn=_fn,
+        risk_level="low",  # 只出草案卡不落库——建卡执行在作家确认之后（前端采纳）
+    )
+
+
+DRAFT_CHARACTER_TOOL = _make_draft_character_tool()
 SETTINGS_FIELD_TOOLS: tuple[Tool, ...] = (
+    DRAFT_CHARACTER_TOOL,
     OG_FILL_TOOL,
     _make_genre_tool("core_promise", "题材·主要看什么：给几个核心看点候选（勾选采纳）"),
     _make_genre_tool("forbidden_list", "题材·绝对禁止：这本书绝不出现什么（红线清单候选）"),

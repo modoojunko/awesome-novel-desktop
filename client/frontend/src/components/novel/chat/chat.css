@@ -645,3 +645,6 @@
 
 /* 设定字段 AI 卡（value/result 结构化） */
 .cd-settings { white-space: pre-wrap; font-size: 12.5px; line-height: 1.7; word-break: break-word; }
+
+/* 角色草案确认卡：确认钮行 */
+.cd-char-confirm { display: flex; align-items: center; gap: 10px; margin-top: 10px; }

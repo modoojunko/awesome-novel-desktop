@@ -96,6 +96,31 @@ function CardBody({ kind, payload }: { kind: string; payload: unknown }) {
       </div>
     );
   }
+  // 角色草案确认卡（draft_character）：字段化＋确认·建卡（作家点确认才调建卡）
+  if (data.character_draft) {
+    const d = data.character_draft as Record<string, string>;
+    const rows: [string, string][] = [
+      ["名字", d.name ?? ""],
+      ["性别年龄", d.gender_age ?? ""],
+      ["身份背景", d.identity ?? ""],
+      ["与现有角色关系", d.relation ?? ""],
+      ["剧情功能", d.function ?? ""],
+      ["性格特质", d.personality ?? ""],
+    ];
+    return (
+      <div className="cd-draft" data-testid="char-draft-card">
+        {rows
+          .filter(([, v]) => v)
+          .map(([k, v]) => (
+            <div key={k} className="cd-draft-row">
+              <b>{k}</b>
+              <span>{v}</span>
+            </div>
+          ))}
+
+      </div>
+    );
+  }
   // 章纲补全卡（settings_og_fill）：fills 逐项字段化
   if (data.fills && typeof data.fills === "object") {
     const fills = data.fills as Record<string, unknown>;
@@ -265,6 +290,7 @@ export default function ChatDock({
   /** 脚部 ？帮助浮层（非模态：外点/Esc/再点关闭——boss 拍板 2026-11-15 长文收进 ？） */
   const [helpOpen, setHelpOpen] = useState(false);
   const helpAnchorRef = useRef<HTMLDivElement | null>(null);
+  const [confirmBusy, setConfirmBusy] = useState(false);
   /** 授权档位芯片（ZCode composer 同款——当前档常显＋下拉切换，boss 拍板 2026-11-15） */
   const [tier, setTierState] = useState("confirm_each");
   const [modeOpen, setModeOpen] = useState(false);
@@ -443,6 +469,33 @@ export default function ChatDock({
       document.removeEventListener("keydown", onKey);
     };
   }, [helpOpen, modeOpen]);
+
+  /** 角色草案确认：作家点确认 → POST /characters 既有建卡链 → 回执＋已建徽标 */
+  const confirmCharacter = useCallback(
+    async (cardId: string, payload: Record<string, unknown>) => {
+      const draft = payload.character_draft as Record<string, string> | undefined;
+      if (!draft) return;
+      setConfirmBusy(true);
+      try {
+        await api.post(`/novels/${projectId}/characters`, {
+          name: draft.name,
+          role: "配角",
+          persona: [draft.gender_age, draft.identity, draft.relation, draft.function]
+            .filter(Boolean)
+            .join("。"),
+        });
+        dispatch({ type: "adopt_card", cardId });
+        // 建卡回执落库（best-effort）：重开书后「已建卡 ✓」徽标不丢、确认钮不复活（防重复建卡）
+        void adoptAssistantMessage(projectId, cardId).catch(() => {});
+        dispatch({ type: "gate", thread: threadKey, text: `「${draft.name}」已建卡——角色库和名册里都能看到。` });
+      } catch (e) {
+        dispatch({ type: "error", thread: threadKey, message: (e as Error)?.message || "建卡失败" });
+      } finally {
+        setConfirmBusy(false);
+      }
+    },
+    [projectId, threadKey, dispatch],
+  );
 
   const adoptNotifier = useCallback(
     (cardId: string) => dispatch({ type: "adopt_card", cardId }),
@@ -710,15 +763,29 @@ export default function ChatDock({
             );
           }
           if (m.kind === "card") {
+            const isCharDraft = !!(m.cardPayload as Record<string, unknown> | undefined)?.character_draft;
             return (
               <div key={m.id} className="cd-msg assistant">
                 <div className="cd-card" data-testid={`chat-card-${m.cardKind}`}>
                   <div className="cd-card-head">
-                    <b>{CARD_TITLES[m.cardKind ?? "text"] ?? "草案"}</b>
-                    {m.cardStatus === "adopted" && <span className="cd-badge ok">已采纳 ✓</span>}
-                    {m.cardStatus === "stale" && <span className="cd-badge">旧版</span>}
+                    <b>{isCharDraft ? "角色草案" : CARD_TITLES[m.cardKind ?? "text"] ?? "草案"}</b>
+                    {m.cardStatus === "adopted" && <span className="cd-badge ok">已建卡 ✓</span>}
                   </div>
                   <CardBody kind={m.cardKind ?? "text"} payload={m.cardPayload} />
+                  {isCharDraft && (m.cardStatus === "draft" || m.cardStatus === "stale") && (
+                    <div className="cd-card-foot">
+                      <button
+                        type="button"
+                        className="cd-btn primary"
+                        data-testid="char-confirm"
+                        disabled={confirmBusy}
+                        onClick={() => void confirmCharacter(m.cardId!, (m.cardPayload ?? {}) as Record<string, string>)}
+                      >
+                        确认 · 建卡
+                      </button>
+                      <span className="cd-dim">确认后写入角色名册。</span>
+                    </div>
+                  )}
                   {(m.cardStatus === "draft" || m.cardStatus === "stale") && (
                     <div className="cd-card-foot">
                       {m.cardKind === "text" &&
