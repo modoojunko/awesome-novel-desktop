@@ -31,6 +31,8 @@ class ToolContext:
     root_path: str
     user_id: str
     page: str = ""
+    # 聚焦对象 ref（章视图当前章——「这章」的锚；router 从消息 focus 注入）
+    focus_ref: str = ""
 
 
 @dataclass
@@ -52,6 +54,9 @@ class Tool:
     discipline: str = "anchored"  # anchored | divergent
     feature_key: str = ""  # 读类空串；对齐 frontend/src/lib/features.ts
     fn: Callable[..., Awaitable[ToolResult]] | None = None
+    # 调度元数据（openworker _parallel_safe 同款）：low=只读低风险可并行，
+    # 写类/发散类串行保序（boss 拍板 2026-11-15 调度对齐 openworker）
+    risk_level: str = "high"
 
 
 # ── 读类工具实现（全部薄包装既有实现；工具自开自关短会话）─────────────────
@@ -274,6 +279,7 @@ TOOL_REGISTRY: tuple[Tool, ...] = (
     Tool(
         name="read_chapter",
         kind="read",
+        risk_level="low",
         args_hint='{"chapter_ref": "第1章 或 ref"}',
         description="读一章的章纲与正文（截断到预算）。回答涉及具体章节内容前先调它。",
         fn=_read_chapter,
@@ -281,6 +287,7 @@ TOOL_REGISTRY: tuple[Tool, ...] = (
     Tool(
         name="read_outline",
         kind="read",
+        risk_level="low",
         args_hint='{"scope": "volume|chapter", "ref": "卷号或章 ref（可空）"}',
         description="读卷纲（六段文本）或章纲。",
         fn=_read_outline,
@@ -288,6 +295,7 @@ TOOL_REGISTRY: tuple[Tool, ...] = (
     Tool(
         name="read_settings",
         kind="read",
+        risk_level="low",
         args_hint='{"area": "premise|world|cast|hooks"}',
         description="读书内设定分区：主线前提/世界与铁律/角色名册/在途伏笔。",
         fn=_read_settings,
@@ -295,6 +303,7 @@ TOOL_REGISTRY: tuple[Tool, ...] = (
     Tool(
         name="read_story_state",
         kind="read",
+        risk_level="low",
         args_hint='{"upto_chapter_ref": "章 ref（可空＝全部）"}',
         description="读截至某章的累计设定/关系/物品/知识变化。",
         fn=_read_story_state,
@@ -302,6 +311,7 @@ TOOL_REGISTRY: tuple[Tool, ...] = (
     Tool(
         name="read_progress",
         kind="read",
+        risk_level="low",
         args_hint="{}",
         description="读写作进度与当前 frontier 章。",
         fn=_read_progress,
@@ -357,13 +367,15 @@ PROFILE_TOOLS: tuple[Tool, ...] = (
     Tool(
         name="profile_read",
         kind="read",
+        risk_level="low",
         args_hint="{}",
         description="读作家画像（口味/雷点/节奏/文风）。起草前先读它，别踩雷点。",
         fn=_profile_read,
     ),
     Tool(
         name="profile_update",
-        kind="read",  # 画像更新不弹授权卡（拍板⑤）；透明告知在工具结果里
+        kind="read",
+        risk_level="high",  # 写画像（非只读）——串行保序；不弹授权卡（拍板⑤）
         args_hint='{"updates": {"pet_peeves": ["讨厌圣母心主角"], "naming": {"双名": true}}}',
         description=(
             "记住作家的口味/雷点/习惯进画像（越用越懂作家）。写入时透明告知作家；"

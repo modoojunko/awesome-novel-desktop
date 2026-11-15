@@ -242,7 +242,11 @@ async def _stream_chat(
         return
 
     tool_ctx = ToolContext(
-        novel_id=project.id, root_path=project.root_path, user_id=user["id"], page=page
+        novel_id=project.id,
+        root_path=project.root_path,
+        user_id=user["id"],
+        page=page,
+        focus_ref=(body_focus or {}).get("ref", ""),
     )
     # 记账必须记真实模型（test_ai_prompt_and_boundary 护栏：符号别名不得落账）——
     # client.resolve("haiku") 落到本书绑定模型（AIClient.resolve 单源）

@@ -64,6 +64,7 @@ const CHIP_KEYS = [
   "renwei",
   "seam",
   "zhuque",
+  "settings_og_fill",
 ] as const;
 
 const REGISTRATIONS: ChatPageRegistration[] = [
@@ -108,7 +109,7 @@ const REGISTRATIONS: ChatPageRegistration[] = [
           { key: "simulate", label: "剧情推演", command: "", open: "simulate", feature: "ai-plot" },
           { key: "plot_draw", label: "剧情抽卡", command: "", open: "plot_draw" },
           { key: "cast_review", label: "人物盘点", command: "", open: "cast_review" },
-          { key: "fill_gaps", label: "补全缺失", command: "", open: "fill_gaps" },
+          { key: "settings_og_fill", label: "补全缺失", command: "帮我补全这一章章纲缺失的字段。" },
         ],
         prose: [
           { key: "ai_write", label: "生成正文", command: "", open: "ai_write", feature: "ai-generate" },

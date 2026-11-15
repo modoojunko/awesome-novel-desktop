@@ -17,6 +17,7 @@ story/character_agent.py:261）。不进 job_runner——全局单飞槽会被 8
 
 from __future__ import annotations
 
+import asyncio
 import os
 import time
 import uuid
@@ -258,6 +259,9 @@ class AgentLoop:
                 # API 调用归集（c-writing-agent 反馈流：本步内工具核心的模型调用
                 # 全部可见——coding agent 口径，boss 拍板 2026-11-15）
                 api_calls_begin()
+
+                # 调度（openworker _handle_tool_calls 同款）：单步单工具——文本协议
+                # 一次只产一个动作，无并行批可凑；risk_level 元数据留给多动作演进
                 result = await run_tool(self.tool_ctx, action.tool, action.args)
                 api_calls = api_calls_drain()
                 note = " ".join(result.summary.split())[:220]
@@ -288,7 +292,9 @@ class AgentLoop:
                     {"tool": action.tool, "ok": result.ok, "note": note}
                 )
                 # 观察写回转写：assistant 消息带 _tool 元数据（compact 抽取用），
-                # tool 结果作为 user 观察行进窗口（文本协议的 ReAct 惯例）
+                # tool 结果作为 user 观察行进窗口（文本协议的 ReAct 惯例）。
+                # apiCalls 只进 step_end 事件（前端轨迹卡）——SHALL NOT 回填模型
+                # 历史（openwriter _display 侧车同款：反馈流元数据 agent 不可见）
                 self.transcript[-1]["_tool"] = {
                     "name": action.tool,
                     "args": action.args,

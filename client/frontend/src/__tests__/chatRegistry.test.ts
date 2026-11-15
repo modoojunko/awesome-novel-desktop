@@ -52,6 +52,7 @@ describe("chatRegistry 每页注册制", () => {
       "renwei",
       "seam",
       "zhuque",
+      "settings_og_fill",
     ];
     const TABS = ["og", "prose", "settings", "relations", "hooks", "actions", "style"];
     for (const key of registrationsForTest().flatMap((r) =>

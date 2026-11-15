@@ -96,6 +96,25 @@ function CardBody({ kind, payload }: { kind: string; payload: unknown }) {
       </div>
     );
   }
+  // 章纲补全卡（settings_og_fill）：fills 逐项字段化
+  if (data.fills && typeof data.fills === "object") {
+    const fills = data.fills as Record<string, unknown>;
+    const LABELS: Record<string, string> = {
+      summary: "一句话概要", characters: "出场角色", changes: "必须完成的变化",
+      prohibitions: "必须维持悬念", mood: "阶段",
+    };
+    return (
+      <div className="cd-draft">
+        {Object.entries(fills).map(([k, v]) => (
+          <div key={k} className="cd-draft-row">
+            <b>{LABELS[k] ?? k}</b>
+            <span>{typeof v === "string" ? v : JSON.stringify(v)}</span>
+          </div>
+        ))}
+        <p className="cd-dim">产物不落库——到章纲表单核对后采纳保存。</p>
+      </div>
+    );
+  }
   // 设定字段 AI 卡（settings_* 工具）：value/result 结构化渲染，禁裸 JSON
   if (data.value != null || data.result != null) {
     const body = data.value != null ? data.value : data.result;

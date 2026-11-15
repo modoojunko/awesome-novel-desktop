@@ -135,7 +135,77 @@ def _make_genre_tool(field: str, desc: str) -> Tool:
     )
 
 
+
+
+# ── 章纲补全缺失（#5 样板：agent 识别→直调 fill-gaps 核→产物卡）──────────────
+
+_FILLABLE = ("summary", "characters", "changes", "prohibitions", "mood")
+_GAP_LABELS = {
+    "summary": "一句话概要",
+    "characters": "出场角色",
+    "changes": "必须完成的变化",
+    "prohibitions": "必须维持悬念",
+    "mood": "阶段",
+}
+
+
+async def _settings_og_fill(ctx: ToolContext, chapter_ref: str) -> ToolResult:
+    """补全章纲缺失字段（openwriter fill-gaps 核直调；产物不落库，作家过目后
+    在章纲表单采纳——写回走前端既有保存链）。"""
+    if not await _project_ok(ctx):
+        return ToolResult(ok=False, summary="书不存在或不属于当前作家。")
+    from chapters.ai_draft import fill_outline_gaps, _FILLABLE_KEYS
+
+    async with async_session() as db:
+        body = {"missing": list(_FILLABLE_KEYS)}
+        try:
+            result = await fill_outline_gaps(
+                ctx.novel_id, chapter_ref, body,
+                {"id": ctx.user_id}, True, True, db,
+            )
+        except HTTPException as e:
+            return ToolResult(ok=False, summary=str(e.detail))
+    fills = result.get("fills") or {}
+    if not fills:
+        return ToolResult(ok=True, summary=f"{chapter_ref} 章纲五项齐全，没有要补的。")
+    lines = [f"{_GAP_LABELS.get(k, k)}：{_clip(str(v), 160)}" for k, v in fills.items()]
+    return ToolResult(
+        ok=True,
+        summary=f"{chapter_ref} 补了 {len(fills)} 项：{_clip('；'.join(lines), 400)}（过目后在章纲表单采纳）",
+        card={"kind": "text", "payload": {"chapter_ref": chapter_ref, "fills": fills}},
+    )
+
+
+def _make_og_fill_tool() -> Tool:
+    async def _fn(ctx: ToolContext, chapter_ref: str = "") -> ToolResult:
+        # 章锚：作家给章 ref 就用；没给则用聚焦对象/当前 frontier
+        from chapters.frontier import frontier_info
+        from db import async_session
+
+        ref = (chapter_ref or "").strip() or (ctx.focus_ref or "").strip()
+        if not ref:
+            async with async_session() as db:
+                info = await frontier_info(db, ctx.novel_id)
+            fr = info.get("frontier") or {}
+            ref = str(fr.get("ref") or "")
+        if not ref:
+            return ToolResult(ok=False, summary="定位不到章——给我章号或章名。")
+        return await _settings_og_fill(ctx, ref)
+
+    return Tool(
+        name="settings_og_fill",
+        kind="card",
+        feature_key="settings-ai-fields",
+        args_hint='{"chapter_ref": "vol-1-ch-7（可空＝当前章）"}',
+        description="章纲补全缺失：查本章章纲五项（概要/角色/变化/悬念/阶段）缺什么，AI 补候选（不落库，过目后采纳）",
+        fn=_fn,
+        risk_level="low",
+    )
+
+
+OG_FILL_TOOL = _make_og_fill_tool()
 SETTINGS_FIELD_TOOLS: tuple[Tool, ...] = (
+    OG_FILL_TOOL,
     _make_genre_tool("core_promise", "题材·主要看什么：给几个核心看点候选（勾选采纳）"),
     _make_genre_tool("forbidden_list", "题材·绝对禁止：这本书绝不出现什么（红线清单候选）"),
     _make_genre_tool("cost_ratio", "题材·吃苦指数：主角得到好处要付多大代价（代价配比建议）"),
