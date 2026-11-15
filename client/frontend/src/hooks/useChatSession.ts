@@ -1,11 +1,20 @@
-// useChatSession——助手对话状态机（c-writing-agent 批E）。
-// run 模型：消息统一 {id, role, kind, runId?}；事件按 runId/stepId/cardId 幂等
-// upsert（乱序/重复容错——reducer 直测重点）；abort 保留已产卡与轨迹。
+// useChatSession——助手对话状态机（c-writing-agent 批E；2026-11-15 线程化）。
+// 会话按页面话题分线程（boss 拍板：每页签一个对话——章纲聊章纲、正文聊正文，
+// 切页自动切换、切回接续）：消息统一 {id, role, kind, runId?} 按 thread 分桶，
+// 事件按 runId/stepId/cardId 幂等 upsert；run 事件落在发起线程（切走也不串桶）；
+// abort 保留已产卡与轨迹；run 收口思考回挂本线程气泡。
 
 import { useCallback, useMemo, useReducer, useRef } from "react";
 import type { AgentEvent } from "@/lib/chatApi";
 
 export type ChatMessageKind = "text" | "card" | "trace" | "divider" | "gate" | "auth" | "error";
+
+export interface StepApiCall {
+  op: string;
+  model: string;
+  ms: number;
+  ok: boolean;
+}
 
 export interface ChatMessage {
   id: string;
@@ -25,45 +34,62 @@ export interface ChatMessage {
   gateHumanOnly?: boolean;
   gateState?: "pending" | "approved" | "denied" | "expired";
   // 轨迹（TraceFolded 数据源：真实工具步）
-  steps: { stepId: string; tool: string; resultNote: string; apiCalls?: { op: string; model: string; ms: number; ok: boolean }[] }[];
+  steps: { stepId: string; tool: string; resultNote: string; apiCalls?: StepApiCall[] }[];
   /** 本轮思考全文（run 收口后折叠回看——coding agent 口径） */
   thinking?: string;
   error?: string;
 }
 
 export interface ChatState {
-  messages: ChatMessage[];
+  /** 会话线程桶：threadKey → 消息列表（每页签一个对话） */
+  threads: Record<string, ChatMessage[]>;
+  /** 当前展示线程 */
+  activeThread: string;
   /** 一次 run 的进行态：正在流式（步骤逐行点亮） */
   runActive: boolean;
-  /** 思考面板实时内容（全量在 ref，逐字进 DOM 会卡——组件侧节流取用） */
+  /** 思考面板实时内容（节流 flush） */
   thinkingText: string;
-  /** 已等秒数（组件侧计时器渲染，状态机只存起点标记） */
   error: string;
 }
 
 type Action =
-  | { type: "user_send"; id: string; text: string; page: string }
-  | { type: "run_start"; runId: string }
-  | { type: "run_end" }
+  | { type: "user_send"; thread: string; id: string; text: string; page: string }
+  | { type: "load_history"; thread: string; messages: ChatMessage[] }
+  | { type: "clear_thread"; thread: string }
+  | { type: "run_start"; thread: string; runId: string }
+  | { type: "run_end"; thread: string }
   | { type: "thinking"; text: string }
   | { type: "thinking_flush"; text: string }
-  | { type: "step_start"; runId: string; stepId: string; tool: string }
+  | {
+      type: "step_start";
+      thread: string;
+      runId: string;
+      stepId: string;
+      tool: string;
+    }
   | {
       type: "step_end";
+      thread: string;
       runId: string;
       stepId: string;
       tool: string;
       resultNote: string;
-      apiCalls?: { op: string; model: string; ms: number; ok: boolean }[];
+      apiCalls?: StepApiCall[];
     }
-  | { type: "narration"; runId: string; text: string }
-  | { type: "artifact"; runId: string; cardId: string; kind: string; payload: unknown }
-  | { type: "permission_required"; runId: string; gateId: string; preview: unknown; humanOnly: boolean }
-  | { type: "gate"; text: string }
+  | { type: "narration"; thread: string; runId: string; text: string }
+  | { type: "artifact"; thread: string; runId: string; cardId: string; kind: string; payload: unknown }
+  | {
+      type: "permission_required";
+      thread: string;
+      runId: string;
+      gateId: string;
+      preview: unknown;
+      humanOnly: boolean;
+    }
+  | { type: "gate"; thread: string; text: string }
   | { type: "gate_resolved"; gateId: string; approved: boolean }
   | { type: "adopt_card"; cardId: string }
-  | { type: "error"; message: string }
-  | { type: "load_history"; messages: ChatMessage[] }
+  | { type: "error"; thread?: string; message: string }
   | { type: "reset" };
 
 let seq = 0;
@@ -73,12 +99,8 @@ function newAssistantMessage(runId: string | undefined): ChatMessage {
   return { id: nextId("am"), role: "assistant", kind: "text", text: "", runId, steps: [] };
 }
 
-/**
- * 当前 run 的文本气泡（run_start 创建、带 runId；历史回看的气泡无 runId 不算）。
- * review 判例 2026-11-14：曾用「无条件改末条消息」——卡片/授权卡/错误行追加后，
- * 其后的 narration 被吞进卡片 text（渲染分支不显示）、后续 step 轨迹挂上卡片丢失。
- * 事件永远落回本 run 的文本气泡；找不到（理论不可达）时新开一条兜底。
- */
+/** 当前 run 的文本气泡（run_start 创建、带 runId；历史回看的气泡无 runId 不算）。
+ *  事件永远落回本 run 的文本气泡；找不到（理论不可达）时新开一条兜底。 */
 function runBubbleIndex(messages: ChatMessage[]): number {
   for (let i = messages.length - 1; i >= 0; i--) {
     const m = messages[i];
@@ -101,11 +123,7 @@ function updateRunBubble(
   return out;
 }
 
-/**
- * 产物卡目标键（同目标才判 stale——review 判例 2026-11-14：曾按「任意 adopted 卡」
- * 判，跨目标的新卡也被打成旧版且无采纳路径，「过目采纳」循环一次即死）。
- * 走向/卷纲草稿按卷锚定；体检按卷 ref；命名/发散回落卡种。
- */
+/** 产物卡目标键（同目标才判 stale）。 */
 function cardTargetKey(kind: string, payload: unknown): string {
   const d = (payload ?? {}) as Record<string, unknown>;
   if (d.vol_no != null) return `vol-${d.vol_no}`;
@@ -115,31 +133,40 @@ function cardTargetKey(kind: string, payload: unknown): string {
   return kind;
 }
 
+/** 线程桶内的 run 作用域更新（桶不存在时新建）。 */
+function withThread(
+  state: ChatState,
+  thread: string,
+  fn: (messages: ChatMessage[]) => ChatMessage[],
+): ChatState {
+  const bucket = state.threads[thread] ?? [];
+  return { ...state, threads: { ...state.threads, [thread]: fn(bucket) } };
+}
+
 export function chatReducer(state: ChatState, action: Action): ChatState {
   switch (action.type) {
     case "user_send":
-      return {
-        ...state,
-        messages: [
-          ...state.messages,
-          { id: action.id, role: "user", kind: "text", text: action.text, page: action.page, steps: [] },
-        ],
-        error: "",
-      };
+      return withThread({ ...state, error: "" }, action.thread, (bucket) => [
+        ...bucket,
+        { id: action.id, role: "user", kind: "text", text: action.text, page: action.page, steps: [] },
+      ]);
+    case "load_history":
+      return { ...state, threads: { ...state.threads, [action.thread]: action.messages } };
+    case "clear_thread":
+      return { ...state, threads: { ...state.threads, [action.thread]: [] } };
     case "run_start":
-      return {
-        ...state,
-        runActive: true,
-        thinkingText: "",
-        messages: [...state.messages, newAssistantMessage(action.runId)],
-      };
+      return withThread({ ...state, runActive: true, thinkingText: "" }, action.thread, (bucket) => [
+        ...bucket,
+        newAssistantMessage(action.runId),
+      ]);
     case "run_end": {
-      // 思考回挂到本 run 气泡（coding agent 口径：收口后仍可展开回看），再清实时面板
+      // 思考回挂到发起线程的本 run 气泡（coding agent 口径：收口后仍可展开回看）
       const thinking = state.thinkingText;
-      const messages = thinking
-        ? updateRunBubble(state.messages, "", (m) => ({ ...m, thinking }))
-        : state.messages;
-      return { ...state, runActive: false, thinkingText: "", messages };
+      return withThread(
+        { ...state, runActive: false, thinkingText: "" },
+        action.thread,
+        (bucket) => (thinking ? updateRunBubble(bucket, "", (m) => ({ ...m, thinking })) : bucket),
+      );
     }
     case "thinking":
       return { ...state, thinkingText: state.thinkingText + (action.text ?? "") };
@@ -147,9 +174,8 @@ export function chatReducer(state: ChatState, action: Action): ChatState {
       return { ...state, thinkingText: action.text };
     case "step_start": {
       // 进行中的工具步点亮进本 run 气泡的 steps（幂等：同 stepId 不重复）
-      return {
-        ...state,
-        messages: updateRunBubble(state.messages, action.runId, (m) =>
+      return withThread(state, action.thread, (bucket) =>
+        updateRunBubble(bucket, action.runId, (m) =>
           m.steps.some((s) => s.stepId === action.stepId)
             ? m
             : {
@@ -160,13 +186,12 @@ export function chatReducer(state: ChatState, action: Action): ChatState {
                 ],
               },
         ),
-      };
+      );
     }
     case "step_end": {
       // 乱序容错：step_end 晚于 step_start（或单独到达）都收敛到同一 stepId 行
-      return {
-        ...state,
-        messages: updateRunBubble(state.messages, action.runId, (m) => {
+      return withThread(state, action.thread, (bucket) =>
+        updateRunBubble(bucket, action.runId, (m) => {
           const exists = m.steps.some((s) => s.stepId === action.stepId);
           const entry = {
             stepId: action.stepId,
@@ -179,41 +204,36 @@ export function chatReducer(state: ChatState, action: Action): ChatState {
             : [...m.steps, entry];
           return { ...m, steps };
         }),
-      };
+      );
     }
     case "narration":
-      return {
-        ...state,
-        messages: updateRunBubble(state.messages, action.runId, (m) => ({
+      return withThread(state, action.thread, (bucket) =>
+        updateRunBubble(bucket, action.runId, (m) => ({
           ...m,
           text: m.text ? `${m.text}\n${action.text}` : action.text,
         })),
-      };
+      );
     case "artifact": {
       const cardId = action.cardId || nextId("card");
-      // 同 cardId 幂等（重复/晚到事件 upsert 同一张卡）
-      const existingIdx = state.messages.findIndex(
-        (m) => m.kind === "card" && m.cardId === cardId,
-      );
-      if (existingIdx >= 0) {
-        const out = state.messages.slice();
-        out[existingIdx] = { ...out[existingIdx], cardPayload: action.payload };
-        return { ...state, messages: out };
-      }
-      // 同目标已有 adopted 卡 → 新卡到货即标 stale「旧版」（不静默覆盖已采纳版本；
-      // stale 卡仍可再采纳——walkthrough B2「再采纳第二版」，采纳后新旧两卡都带 ✓）
-      const targetKey = cardTargetKey(action.kind, action.payload);
-      const hasAdoptedSameTarget = state.messages.some(
-        (m) =>
-          m.kind === "card" &&
-          m.cardStatus === "adopted" &&
-          m.cardKind === (action.kind as ChatMessage["cardKind"]) &&
-          cardTargetKey(m.cardKind ?? "text", m.cardPayload) === targetKey,
-      );
-      return {
-        ...state,
-        messages: [
-          ...state.messages,
+      return withThread(state, action.thread, (bucket) => {
+        // 同 cardId 幂等（重复/晚到事件 upsert 同一张卡）
+        const existingIdx = bucket.findIndex((m) => m.kind === "card" && m.cardId === cardId);
+        if (existingIdx >= 0) {
+          const out = bucket.slice();
+          out[existingIdx] = { ...out[existingIdx], cardPayload: action.payload };
+          return out;
+        }
+        // 同目标已有 adopted 卡 → 新卡到货即标 stale「旧版」（stale 卡仍可再采纳）
+        const targetKey = cardTargetKey(action.kind, action.payload);
+        const hasAdoptedSameTarget = bucket.some(
+          (m) =>
+            m.kind === "card" &&
+            m.cardStatus === "adopted" &&
+            m.cardKind === (action.kind as ChatMessage["cardKind"]) &&
+            cardTargetKey(m.cardKind ?? "text", m.cardPayload) === targetKey,
+        );
+        return [
+          ...bucket,
           {
             id: nextId("cm"),
             role: "assistant",
@@ -226,54 +246,59 @@ export function chatReducer(state: ChatState, action: Action): ChatState {
             cardStatus: hasAdoptedSameTarget ? "stale" : "draft",
             steps: [],
           },
-        ],
-      };
+        ];
+      });
     }
     case "permission_required":
-      return {
-        ...state,
-        messages: [
-          ...state.messages,
-          {
-            id: nextId("gm"),
-            role: "system",
-            kind: "auth",
-            text: "",
-            gateId: action.gateId,
-            gatePreview: action.preview,
-            gateHumanOnly: action.humanOnly,
-            gateState: "pending",
-            steps: [],
-          },
-        ],
-      };
+      return withThread(state, action.thread, (bucket) => [
+        ...bucket,
+        {
+          id: nextId("gm"),
+          role: "system",
+          kind: "auth",
+          text: "",
+          gateId: action.gateId,
+          gatePreview: action.preview,
+          gateHumanOnly: action.humanOnly,
+          gateState: "pending",
+          steps: [],
+        },
+      ]);
     case "gate_resolved":
+      // 授权批复跨线程可达（卡可能停在任意线程）
       return {
         ...state,
-        messages: state.messages.map((m) =>
-          m.kind === "auth" && m.gateId === action.gateId && m.gateState === "pending"
-            ? { ...m, gateState: action.approved ? "approved" : "denied" }
-            : m,
+        threads: Object.fromEntries(
+          Object.entries(state.threads).map(([k, bucket]) => [
+            k,
+            bucket.map((m) =>
+              m.kind === "auth" && m.gateId === action.gateId && m.gateState === "pending"
+                ? { ...m, gateState: action.approved ? "approved" : "denied" }
+                : m,
+            ),
+          ]),
         ),
       };
     case "gate":
-      return {
-        ...state,
-        messages: [
-          ...state.messages,
-          { id: nextId("gm"), role: "system", kind: "gate", text: action.text, steps: [] },
-        ],
-      };
+      return withThread(state, action.thread, (bucket) => [
+        ...bucket,
+        { id: nextId("gm"), role: "system", kind: "gate", text: action.text, steps: [] },
+      ]);
     case "adopt_card":
-      // stale 也可采纳（再采纳第二版＝替换写回；旧卡保留「已采纳」徽标不回退）
+      // stale 也可采纳（再采纳第二版＝替换写回）；卡在任意线程都可置已采纳
       return {
         ...state,
-        messages: state.messages.map((m) =>
-          m.kind === "card" &&
-          m.cardId === action.cardId &&
-          (m.cardStatus === "draft" || m.cardStatus === "stale")
-            ? { ...m, cardStatus: "adopted" }
-            : m,
+        threads: Object.fromEntries(
+          Object.entries(state.threads).map(([k, bucket]) => [
+            k,
+            bucket.map((m) =>
+              m.kind === "card" &&
+              m.cardId === action.cardId &&
+              (m.cardStatus === "draft" || m.cardStatus === "stale")
+                ? { ...m, cardStatus: "adopted" }
+                : m,
+            ),
+          ]),
         ),
       };
     case "error":
@@ -281,17 +306,25 @@ export function chatReducer(state: ChatState, action: Action): ChatState {
         ...state,
         runActive: false,
         error: action.message,
-        messages: state.messages.some((m) => m.kind === "error")
-          ? state.messages
-          : [
-              ...state.messages,
-              { id: nextId("err"), role: "system", kind: "error", text: action.message, steps: [] },
-            ],
+        threads: action.thread
+          ? withThread(state, action.thread, (bucket) =>
+              bucket.some((m) => m.kind === "error")
+                ? bucket
+                : [
+                    ...bucket,
+                    { id: nextId("err"), role: "system", kind: "error", text: action.message, steps: [] },
+                  ],
+            ).threads
+          : state.threads,
       };
-    case "load_history":
-      return { ...state, messages: action.messages, runActive: false };
     case "reset":
-      return { messages: [], runActive: false, thinkingText: "", error: "" };
+      return {
+        threads: {},
+        activeThread: state.activeThread,
+        runActive: false,
+        thinkingText: "",
+        error: "",
+      };
     default:
       return state;
   }
@@ -299,7 +332,8 @@ export function chatReducer(state: ChatState, action: Action): ChatState {
 
 export function useChatSession() {
   const [state, dispatch] = useReducer(chatReducer, {
-    messages: [],
+    threads: {},
+    activeThread: "",
     runActive: false,
     thinkingText: "",
     error: "",
@@ -311,20 +345,22 @@ export function useChatSession() {
   const lastThinkFlushRef = useRef(0);
   const THINKING_FLUSH_MS = 300;
 
-  const onEvent = useCallback((event: AgentEvent) => {
+  /** onEvent(event, thread)：run 作用域事件落在发起线程（切走页签也不串桶）。 */
+  const onEvent = useCallback((event: AgentEvent, thread = "") => {
     switch (event.type) {
       case "run_start":
         thinkingBufRef.current = "";
         lastThinkFlushRef.current = 0;
-        dispatch({ type: "run_start", runId: event.runId || "" });
+        dispatch({ type: "run_start", thread, runId: event.runId || "" });
         break;
-      case "run_end":
+      case "run_end": {
         // 先冲掉节流缓冲里残留的思考增量，再收口（回挂不丢尾）
         if (thinkingBufRef.current) {
           dispatch({ type: "thinking_flush", text: thinkingBufRef.current });
         }
-        dispatch({ type: "run_end" });
+        dispatch({ type: "run_end", thread });
         break;
+      }
       case "thinking": {
         thinkingBufRef.current += String(event.text ?? "");
         const now = Date.now();
@@ -337,6 +373,7 @@ export function useChatSession() {
       case "step_start":
         dispatch({
           type: "step_start",
+          thread,
           runId: event.runId || "",
           stepId: event.stepId || "",
           tool: event.tool || "",
@@ -345,6 +382,7 @@ export function useChatSession() {
       case "step_end":
         dispatch({
           type: "step_end",
+          thread,
           runId: event.runId || "",
           stepId: event.stepId || "",
           tool: event.tool || "",
@@ -353,11 +391,17 @@ export function useChatSession() {
         });
         break;
       case "narration":
-        dispatch({ type: "narration", runId: event.runId || "", text: String(event.text ?? "") });
+        dispatch({
+          type: "narration",
+          thread,
+          runId: event.runId || "",
+          text: String(event.text ?? ""),
+        });
         break;
       case "artifact":
         dispatch({
           type: "artifact",
+          thread,
           runId: event.runId || "",
           cardId: event.cardId || "",
           kind: event.kind || "text",
@@ -367,6 +411,7 @@ export function useChatSession() {
       case "permission_required":
         dispatch({
           type: "permission_required",
+          thread,
           runId: event.runId || "",
           gateId: event.gateId || "",
           preview: event.preview,
@@ -374,7 +419,11 @@ export function useChatSession() {
         });
         break;
       case "gate":
-        dispatch({ type: "gate", text: String(event.refusal || event.message || "需要升级档位。") });
+        dispatch({
+          type: "gate",
+          thread,
+          text: String(event.refusal || event.message || "需要升级档位。"),
+        });
         break;
       case "gate_result":
         dispatch({
@@ -384,7 +433,7 @@ export function useChatSession() {
         });
         break;
       case "error":
-        dispatch({ type: "error", message: String(event.message || "出错了") });
+        dispatch({ type: "error", thread, message: String(event.message || "出错了") });
         break;
       default:
         break;

@@ -46,7 +46,13 @@ async def test_append_message_seq_monotonic_and_heal():
         assert pending.seq == m1.seq + 1
 
         rows = await ss.load_messages(db, session.id)
-        # 悬挂 streaming 自愈为 error，崩前内容保留
+        # 刚创建的 streaming 行＝活跃 run（线程切换 GET 命中常态），不误标
+        live = next(r for r in rows if r.id == pending.id)
+        assert live.status == "streaming"
+        # 把行改老（超墙钟宽限）→ 自愈为 error，崩前内容保留
+        live.created_at = "2020-01-01 00:00:00"
+        await db.commit()
+        rows = await ss.load_messages(db, session.id)
         healed = next(r for r in rows if r.id == pending.id)
         assert healed.status == "error"
         assert healed.content == "写到一半"

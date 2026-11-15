@@ -15,7 +15,7 @@ import {
   streamAssistantChat,
 } from "@/lib/chatApi";
 import { api } from "@/lib/api";
-import { matchRegistration, type ChatChip, type ChatPageScope } from "@/lib/chatRegistry";
+import { matchRegistration, threadKeyOf, type ChatChip, type ChatPageScope } from "@/lib/chatRegistry";
 import type { LandingView } from "@/lib/novelStage";
 import { useFeature } from "@/hooks/useTier";
 import type { FeatureKey } from "@/lib/features";
@@ -153,6 +153,8 @@ export default function ChatDock({
   registerAdoptNotifier,
 }: ChatDockProps) {
   const { state, dispatch, onEvent, newSendId } = useChatSession();
+  const threadKey = threadKeyOf(scope);
+  const messages = state.threads[threadKey] ?? [];
   const [input, inputSet] = useState("");
   const [secs, setSecs] = useState(0);
   const abortRef = useRef<(() => void) | null>(null);
@@ -177,11 +179,11 @@ export default function ChatDock({
   };
   const registration = useMemo(() => matchRegistration(scope), [scope]);
 
-  // 历史回看（projectId 就绪才拉；重开即续聊——转写即状态）
+  // 历史回看（projectId 就绪才拉；随线程切换——每页签一个对话，切回接续）
   useEffect(() => {
     if (!projectId) return; // 路由参数未就绪的空串帧不发请求（批F 修正：空 id 命中曾让历史误空）
     let cancelled = false;
-    void loadAssistantSession(projectId)
+    void loadAssistantSession(projectId, threadKey)
       .then((s) => {
         if (cancelled || s.messages.length === 0) return;
         const messages = s.messages.map((m) => {
@@ -229,26 +231,27 @@ export default function ChatDock({
           }
           return { id: m.id, role: "system" as const, kind: "trace" as const, text: m.content, steps: [] };
         });
-        dispatch({ type: "load_history", messages });
+        dispatch({ type: "load_history", thread: threadKey, messages });
       })
       .catch(() => {/* 首次失败静默——发消息时会再暴露 */});
     return () => {
       cancelled = true;
     };
-  }, [projectId, dispatch]);
+  }, [projectId, threadKey, dispatch]);
 
-  // 开场白：会话内首见该页投递一次（spec §每页注册制）
+  // 开场白：线程内首见投递一次（每页签一个对话——空线程给状态感知开场白）
   useEffect(() => {
-    if (!registration || state.messages.length > 0) return;
+    if (!registration || messages.length > 0) return;
     const greeting = registration.greeting(scope);
-    if (greeting && greetedPageRef.current !== registration.id) {
-      greetedPageRef.current = registration.id;
+    if (greeting && greetedPageRef.current !== threadKey) {
+      greetedPageRef.current = threadKey;
       dispatch({
         type: "gate",
+        thread: threadKey,
         text: greeting,
       });
     }
-  }, [registration, scope, state.messages.length, dispatch]);
+  }, [registration, scope, threadKey, messages.length, dispatch]);
 
   // 流式存活上抛（宿主并入树锁定守卫）
   useEffect(() => {
@@ -259,7 +262,7 @@ export default function ChatDock({
   useEffect(() => {
     const box = streamBoxRef.current;
     if (box) box.scrollTop = box.scrollHeight;
-  }, [state.messages, state.thinkingText]);
+  }, [messages, state.thinkingText]);
 
   // 计秒（生成中态）
   useEffect(() => {
@@ -300,34 +303,36 @@ export default function ChatDock({
         void adoptAssistantMessage(projectId, cardId).catch(() => {});
         dispatch({
           type: "gate",
+          thread: threadKey,
           text: `已写入第 ${volNo} 卷的卷纲要点，可继续改。`,
         });
       } catch (e) {
         dispatch({ type: "error", message: (e as Error)?.message || "写入失败" });
       }
     },
-    [projectId, dispatch],
+    [projectId, threadKey, dispatch],
   );
 
   const stopRun = useCallback(() => {
     abortRef.current?.();
-    dispatch({ type: "run_end" });
+    dispatch({ type: "run_end", thread: threadKey });
     streamRef.current = false;
-  }, [dispatch]);
+  }, [threadKey, dispatch]);
 
   const send = useCallback(
     (text: string) => {
       const trimmed = text.trim();
       if (!trimmed || streamRef.current) return;
       streamRef.current = true;
-      dispatch({ type: "user_send", id: newSendId(), text: trimmed, page });
+      dispatch({ type: "user_send", thread: threadKey, id: newSendId(), text: trimmed, page });
       const abort = streamAssistantChat(
         projectId,
-        { message: trimmed, page },
+        { message: trimmed, page, thread: threadKey },
         {
-          onEvent,
+          // run 事件绑定发起线程：切走页签后事件仍落到原线程桶（切回接续）
+          onEvent: (e) => onEvent(e, threadKey),
           onError: (msg) => {
-            dispatch({ type: "error", message: msg });
+            dispatch({ type: "error", thread: threadKey, message: msg });
             streamRef.current = false;
           },
           onDone: () => {
@@ -338,17 +343,17 @@ export default function ChatDock({
       abortRef.current = abort;
       inputSet("");
     },
-    [projectId, page, dispatch, onEvent, newSendId],
+    [projectId, page, threadKey, dispatch, onEvent, newSendId],
   );
 
   const approve = useCallback(
     (gateId: string, decision: "approved" | "denied") => {
       dispatch({ type: "gate_resolved", gateId, approved: decision === "approved" });
       void approveGate(projectId, gateId, decision).catch((e: Error) =>
-        dispatch({ type: "gate", text: e.message }),
+        dispatch({ type: "gate", thread: threadKey, text: e.message }),
       );
     },
-    [projectId, dispatch],
+    [projectId, threadKey, dispatch],
   );
 
   const sendDisabled = !input.trim() || state.runActive;
@@ -356,8 +361,8 @@ export default function ChatDock({
   // 生成中面板的工具步取本 run 文本气泡（review 判例：曾取末条消息——卡片追加后
   // 步骤列表会闪空）
   let runSteps: ChatMessage["steps"] = [];
-  for (let i = state.messages.length - 1; i >= 0; i--) {
-    const m = state.messages[i];
+  for (let i = messages.length - 1; i >= 0; i--) {
+    const m = messages[i];
     if (m.kind === "text" && m.role === "assistant") {
       runSteps = m.steps;
       break;
@@ -381,7 +386,7 @@ export default function ChatDock({
           </button>
         )}
         <span className="chatdock-ctx">你在：{registration?.label ?? page}</span>
-        <span className="chatdock-sub">每本书一个会话 · 跨页面连续</span>
+        <span className="chatdock-sub">每页一个会话 · 切回接着聊</span>
       </div>
 
       {chips.length === 0 && registration && (
@@ -417,7 +422,7 @@ export default function ChatDock({
       )}
 
       <div className="chatdock-stream" ref={streamBoxRef} data-testid="chat-stream">
-        {state.messages.map((m) => {
+        {messages.map((m) => {
           if (m.kind === "divider") {
             return (
               <div key={m.id} className="cd-divider">
@@ -591,7 +596,7 @@ export default function ChatDock({
             </ul>
           </div>
         )}
-        {state.error && !state.messages.some((m) => m.kind === "error") && (
+        {state.error && !messages.some((m) => m.kind === "error") && (
           <div className="cd-msg error">
             <div className="cd-bubble">{state.error}</div>
           </div>
@@ -623,9 +628,11 @@ export default function ChatDock({
           type="button"
           className="cd-reset"
           onClick={() => {
-            void resetAssistantSession(projectId)
-              .then(() => dispatch({ type: "reset" }))
-              .catch(() => dispatch({ type: "gate", text: "重置失败，稍后再试。" }));
+            void resetAssistantSession(projectId, threadKey)
+              .then(() => dispatch({ type: "clear_thread", thread: threadKey }))
+              .catch(() =>
+                dispatch({ type: "gate", thread: threadKey, text: "重置失败，稍后再试。" }),
+              );
           }}
         >
           清空会话

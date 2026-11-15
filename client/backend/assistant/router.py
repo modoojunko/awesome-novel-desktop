@@ -18,6 +18,7 @@ from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import StreamingResponse
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from assistant import identity as identity_mod
@@ -420,6 +421,7 @@ async def assistant_chat(
         body = {}
     message = str(body.get("message") or "").strip()
     page = str(body.get("page") or "").strip()[:64]
+    thread = session_store.sanitize_thread_key(body.get("thread"))
     if not message:
         raise HTTPException(422, "message 不能为空")
 
@@ -428,7 +430,7 @@ async def assistant_chat(
         raise HTTPException(404, "Project not found")
 
     session = await session_store.get_or_create_session(
-        db, user_id=user["id"], novel_id=project.id
+        db, user_id=user["id"], novel_id=project.id, thread_key=thread
     )
     user_row = await session_store.append_message(
         db,
@@ -449,15 +451,17 @@ async def assistant_chat(
 @router.get("/session")
 async def get_assistant_session(
     project_id: str,
+    thread: str = "",
     user: dict = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    """会话回看：messages 按 seq 全量（含状态），会话元数据带授权档位与 compact 有无。"""
+    """会话回看（按线程）：messages 按 seq 全量（含状态），元数据带授权档位与 compact 有无。"""
     project = await get_novel(db, project_id, user["id"])
     if not project:
         raise HTTPException(404, "Project not found")
     session = await session_store.get_or_create_session(
-        db, user_id=user["id"], novel_id=project.id
+        db, user_id=user["id"], novel_id=project.id,
+        thread_key=session_store.sanitize_thread_key(thread),
     )
     rows = await session_store.load_messages(db, session.id)
     return {
@@ -485,14 +489,23 @@ async def get_assistant_session(
 @router.post("/session/reset")
 async def reset_assistant_session(
     project_id: str,
+    request: Request,
     user: dict = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
     project = await get_novel(db, project_id, user["id"])
     if not project:
         raise HTTPException(404, "Project not found")
+    body: dict[str, Any] = {}
+    try:
+        raw = await request.json()
+        if isinstance(raw, dict):
+            body = raw
+    except (ValueError, UnicodeDecodeError):
+        body = {}
     session = await session_store.get_or_create_session(
-        db, user_id=user["id"], novel_id=project.id
+        db, user_id=user["id"], novel_id=project.id,
+        thread_key=session_store.sanitize_thread_key(body.get("thread")),
     )
     await session_store.reset_session(db, session.id)
     return {"ok": True}
@@ -555,12 +568,26 @@ async def set_permission_tier(
     tier = str(body.get("tier") or "")
     if tier not in KNOWN_TIERS:
         raise HTTPException(422, f"tier 必须是 {list(KNOWN_TIERS)} 之一")
-    session = await session_store.get_or_create_session(
-        db, user_id=user["id"], novel_id=project.id
-    )
-    grants = json.loads(session.grants_json or "{}")
-    grants["tier"] = tier
-    await session_store.touch_session(db, session.id, grants=grants)
+    # 授权档位书级语义（boss 拍板：切页签/线程不重置授权）——更新本书全部线程
+    rows = (
+        await db.scalars(
+            select(AssistantSession).where(
+                AssistantSession.user_id == user["id"],
+                AssistantSession.novel_id == project.id,
+            )
+        )
+    ).all()
+    for row in rows:
+        grants = json.loads(row.grants_json or "{}")
+        grants["tier"] = tier
+        row.grants_json = json.dumps(grants, ensure_ascii=False)
+        row.updated_at = session_store._now()
+    if not rows:
+        await session_store.get_or_create_session(
+            db, user_id=user["id"], novel_id=project.id,
+            thread_key=session_store.sanitize_thread_key(body.get("thread")),
+        )
+    await db.commit()
     return {"ok": True, "tier": tier}
 
 
@@ -579,9 +606,6 @@ async def undo_assistant_write(
     project = await get_novel(db, project_id, user["id"])
     if not project:
         raise HTTPException(404, "Project not found")
-    session = await session_store.get_or_create_session(
-        db, user_id=user["id"], novel_id=project.id
-    )
     body: dict[str, Any] = {}
     try:
         raw = await request.json()
@@ -593,8 +617,17 @@ async def undo_assistant_write(
     if not message_id:
         raise HTTPException(422, "messageId 必填")
 
-    rows = await session_store.load_messages(db, session.id, heal=False)
-    target = next((m for m in rows if m.id == message_id), None)
+    # 跨线程找消息（写入可能发生在任意页签线程；归属由 novel_id+书主权保证）
+    from models.assistant import AssistantMessage
+
+    target = (
+        await db.scalars(
+            select(AssistantMessage).where(
+                AssistantMessage.novel_id == project.id,
+                AssistantMessage.id == message_id,
+            )
+        )
+    ).first()
     if target is None:
         raise HTTPException(404, "消息不存在或不属于本书会话")
     payload = json.loads(target.payload_json or "{}")
@@ -652,14 +685,19 @@ async def adopt_assistant_message(
     project = await get_novel(db, project_id, user["id"])
     if not project:
         raise HTTPException(404, "Project not found")
-    session = await session_store.get_or_create_session(
-        db, user_id=user["id"], novel_id=project.id
-    )
-    rows = await session_store.load_messages(db, session.id, heal=False)
+    # 跨线程找产物卡（卡可能在任意页签线程产生）
+    from models.assistant import AssistantMessage
+
+    rows = (
+        await db.scalars(
+            select(AssistantMessage).where(
+                AssistantMessage.novel_id == project.id,
+                AssistantMessage.card_kind.not_in(("", "gate")),
+            )
+        )
+    ).all()
     target = None
     for m in rows:
-        if not m.card_kind or m.card_kind == "gate":
-            continue
         payload = json.loads(m.payload_json or "{}")
         if str(payload.get("cardId") or "") == card_id:
             target = m

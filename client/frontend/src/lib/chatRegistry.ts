@@ -185,3 +185,16 @@ export function validateRegistrations(): void {
 export function registrationsForTest(): readonly ChatPageRegistration[] {
   return REGISTRATIONS;
 }
+
+/** 会话线程键（每页签一个对话——boss 拍板 2026-11-15）：章内页签各一线程、
+ *  设定面板各一线程、卷纲/预览各一线程；服务端按 (user, book, thread) 存。 */
+export function threadKeyOf(s: ChatPageScope): string {
+  if (s.view === "workbench") {
+    return s.chapterRef ? `ch:${s.chapterTab ?? "og"}` : "vol";
+  }
+  if (s.view === "advanced-settings") {
+    return `set:${s.settingPanel ?? "default"}`;
+  }
+  if (s.view === "archives") return "preview";
+  return `v:${s.view}`;
+}

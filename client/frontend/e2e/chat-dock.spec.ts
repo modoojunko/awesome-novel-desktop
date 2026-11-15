@@ -373,7 +373,7 @@ function EXPAND_DRAFT_PAYLOAD() {
 /** 脚本化 assistant/chat＋空 session（调用序按脚本轮转；写回链不拦）。 */
 async function mockChat(page: Page, script: string[][]) {
   let call = 0;
-  await page.route("**/api/novels/*/assistant/session", (r) =>
+  await page.route("**/api/novels/*/assistant/session*", (r) =>
     r.fulfill({ json: { sessionId: "s-e2e", pageCursor: "", grants: {}, messages: [] } }),
   );
   await page.route("**/api/novels/*/assistant/chat", async (r) => {
@@ -427,7 +427,7 @@ test.describe("chat-dock 界面测试（c-writing-agent 批G）", () => {
     // 采纳回执落库（POST /assistant/messages/{cardId}/adopt）：重开书后徽标不丢
     await expect
       .poll(async () => {
-        const s = await fetch(`${ORIGIN}/api/novels/${id}/assistant/session`, {
+        const s = await fetch(`${ORIGIN}/api/novels/${id}/assistant/session?thread=vol`, {
           headers: authHeaders(token),
         });
         const body = await s.json();
@@ -478,14 +478,17 @@ test.describe("chat-dock 界面测试（c-writing-agent 批G）", () => {
     await restore();
   });
 
-  test("⑤跨页对话保留（设定↔写作常驻）", async ({ page }) => {
+  test("⑤线程会话：每页签一个对话——切页分离、切回接续（boss 拍板 2026-11-15）", async ({ page }) => {
     const { restore, token } = await setupSession(page, "max");
     await seedBook(page, token, `e2e-agt-keep-${Date.now()}`);
     await mockChat(page, [[runStart("r1"), narration("记住这句话。"), runEnd("r1")]]);
     await sendViaDock(page, "说句话我看看");
     await expect(page.getByText("记住这句话。")).toBeVisible();
+    // 切到设定：另一个线程——看不到写作线程的消息
     await page.locator(".mtab", { hasText: "设定" }).click();
     await expect(page.getByTestId("chat-dock")).toBeVisible();
+    await expect(page.getByText("记住这句话。")).toBeHidden();
+    // 切回写作：原线程接续
     await page.locator(".mtab", { hasText: "写作" }).click();
     await expect(page.getByText("记住这句话。")).toBeVisible();
     await restore();
@@ -494,7 +497,7 @@ test.describe("chat-dock 界面测试（c-writing-agent 批G）", () => {
   test("⑥流中断错误卡（无终态按失败收尾）", async ({ page }) => {
     const { restore, token } = await setupSession(page, "max");
     await seedBook(page, token, `e2e-agt-cut-${Date.now()}`);
-    await page.route("**/api/novels/*/assistant/session", (r) =>
+    await page.route("**/api/novels/*/assistant/session*", (r) =>
       r.fulfill({ json: { sessionId: "s", pageCursor: "", grants: {}, messages: [] } }),
     );
     await page.route("**/api/novels/*/assistant/chat", (r) =>
@@ -614,7 +617,7 @@ test.describe("chat-dock 界面测试（c-writing-agent 批G）", () => {
       createdAt: "",
     }));
     await mockChat(page, []);
-    await page.route("**/api/novels/*/assistant/session", (r) =>
+    await page.route("**/api/novels/*/assistant/session*", (r) =>
       r.fulfill({ json: { sessionId: "s", pageCursor: "", grants: {}, messages: history } }),
     );
     await page.reload();

@@ -71,8 +71,10 @@ export interface AssistantSessionMessage {
 
 export async function loadAssistantSession(
   projectId: string,
+  thread = "",
 ): Promise<{ sessionId: string; pageCursor: string; grants: Record<string, unknown>; messages: AssistantSessionMessage[] }> {
-  const r = await fetch(`${API_BASE}/novels/${projectId}/assistant/session`, {
+  const q = thread ? `?thread=${encodeURIComponent(thread)}` : "";
+  const r = await fetch(`${API_BASE}/novels/${projectId}/assistant/session${q}`, {
     headers: { Authorization: `Bearer ${getToken()}` },
   });
   if (r.status === 401) {
@@ -83,10 +85,11 @@ export async function loadAssistantSession(
   return await r.json();
 }
 
-export async function resetAssistantSession(projectId: string): Promise<void> {
+export async function resetAssistantSession(projectId: string, thread = ""): Promise<void> {
   const r = await fetch(`${API_BASE}/novels/${projectId}/assistant/session/reset`, {
     method: "POST",
-    headers: { Authorization: `Bearer ${getToken()}` },
+    headers: { "Content-Type": "application/json", Authorization: `Bearer ${getToken()}` },
+    body: JSON.stringify({ thread }),
   });
   if (r.status === 401) {
     handleAuthExpiry();
@@ -139,7 +142,7 @@ export async function setPermissionTier(
  */
 export function streamAssistantChat(
   projectId: string,
-  body: { message: string; page: string },
+  body: { message: string; page: string; thread?: string },
   handlers: AssistantStreamHandlers,
 ): () => void {
   const controller = new AbortController();

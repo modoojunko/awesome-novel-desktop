@@ -58,26 +58,50 @@ def _load_json(raw: str | None, default: Any) -> Any:
     return value
 
 
+# 会话线程键白名单（前端按页面/页签生成；服务端防御性校验）
+_SAFE_THREAD_KEY = re.compile(r"\A[A-Za-z0-9:_-]{0,64}\Z")
+
+
+def sanitize_thread_key(raw: str | None) -> str:
+    return raw if isinstance(raw, str) and _SAFE_THREAD_KEY.match(raw) else ""
+
+
 async def get_or_create_session(
-    db: AsyncSession, *, user_id: str, novel_id: str
+    db: AsyncSession, *, user_id: str, novel_id: str, thread_key: str = ""
 ) -> AssistantSession:
-    """每书一会话（UNIQUE user_id+novel_id）；不存在则建空会话。"""
+    """每书每页签一个会话线程（UNIQUE user_id+novel_id+thread_key）；不存在则建。
+
+    新线程继承本书最近线程的授权档位（grants 书级语义——boss 拍板：切页签
+    不重置授权）。"""
     row = (
         await db.scalars(
             select(AssistantSession).where(
                 AssistantSession.user_id == user_id,
                 AssistantSession.novel_id == novel_id,
+                AssistantSession.thread_key == thread_key,
             )
         )
     ).first()
     if row is not None:
         return row
+    prev = (
+        await db.scalars(
+            select(AssistantSession)
+            .where(
+                AssistantSession.user_id == user_id,
+                AssistantSession.novel_id == novel_id,
+            )
+            .order_by(AssistantSession.updated_at.desc())
+            .limit(1)
+        )
+    ).first()
     row = AssistantSession(
         id=new_session_id(),
         user_id=user_id,
         novel_id=novel_id,
+        thread_key=thread_key,
         page_cursor="",
-        grants_json="{}",
+        grants_json=prev.grants_json if prev is not None else "{}",
         compaction_json="{}",
         created_at=_now(),
         updated_at=_now(),
@@ -105,10 +129,22 @@ async def load_session(
     return row
 
 
+# 自愈宽限＝单回合墙钟（loop ASSISTANT_TURN_DEADLINE 同源；env fail-soft）＋余量。
+# 线程化后作家会切走再切回——活跃 run 的 streaming 行被 GET 命中是常态，
+# 只有超过墙钟仍未收口的行才算真悬挂（误标活跃 run 会把「被打断」盖在真回复上）。
+def _heal_grace_seconds() -> float:
+    import os
+
+    try:
+        return float(os.environ.get("ASSISTANT_TURN_DEADLINE", "600")) + 30
+    except (TypeError, ValueError):
+        return 630
+
+
 async def load_messages(
     db: AsyncSession, session_id: str, *, heal: bool = True
 ) -> list[AssistantMessage]:
-    """按 seq 有序取全量消息；自愈：悬挂的 streaming 行收尾为 error（崩前内容保留）。"""
+    """按 seq 有序取全量消息；自愈：超墙钟仍悬挂的 streaming 行收尾为 error（崩前内容保留）。"""
     rows = (
         await db.scalars(
             select(AssistantMessage)
@@ -117,12 +153,23 @@ async def load_messages(
         )
     ).all()
     if heal:
+        grace = _heal_grace_seconds()
+        now = datetime.now()
+        changed = False
         for m in rows:
-            if m.status == "streaming":
-                m.status = "error"
-                if not m.content:
-                    m.content = "（这一轮没有完成——上次中途被打断了。）"
-        if any(m.status == "error" for m in rows):
+            if m.status != "streaming":
+                continue
+            try:
+                age = now - datetime.strptime(m.created_at, "%Y-%m-%d %H:%M:%S")
+            except (TypeError, ValueError):
+                age = None
+            if age is not None and age.total_seconds() <= grace:
+                continue  # 活跃 run（线程切换后 GET 命中），不误标
+            m.status = "error"
+            if not m.content:
+                m.content = "（这一轮没有完成——上次中途被打断了。）"
+            changed = True
+        if changed:
             await db.commit()
     return list(rows)
 

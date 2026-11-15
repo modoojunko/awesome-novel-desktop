@@ -3,7 +3,7 @@
 四张表全部走 create_all 路径（本地库每版本一个文件、启动期 Base.metadata.create_all，
 代内 DDL 已退役）——零迁移代码。
 
-- assistant_sessions   每书一个会话（UNIQUE user_id+novel_id），携带授权档位 grants 与
+- assistant_sessions   每书每页签一个会话线程（UNIQUE user_id+novel_id+thread_key），携带授权档位 grants 与
                        compact 状态（openwriter conversations.py 的 sessions.grants/compaction
                        双列模式，conversations.py:111）
 - assistant_messages   消息与步级事件（seq 会话内序号；card_kind 非空＝产物卡；
@@ -24,6 +24,9 @@ class AssistantSession(Base):
     id: Mapped[str] = mapped_column(String(36), primary_key=True)
     user_id: Mapped[str] = mapped_column(String(64), nullable=False)
     novel_id: Mapped[str] = mapped_column(String(36), nullable=False)
+    # 会话线程键（c-writing-agent：每页签一个会话——章纲/正文等章内页签、
+    # 设定面板、预览各自独立对话；空串＝书级兜底线程。boss 拍板 2026-11-15）
+    thread_key: Mapped[str] = mapped_column(String(64), nullable=False, default="")
     # 最近所在页面（跨页面续聊定位；「——切换到卷纲——」分隔标记依据）
     page_cursor: Mapped[str] = mapped_column(String(64), nullable=False, default="")
     # 授权梯度 grants：{"tier": "confirm_each"|"allow_book"|"allow_all"}（c-writing-agent 设计）
@@ -33,7 +36,9 @@ class AssistantSession(Base):
     created_at: Mapped[str] = mapped_column(String(32), nullable=False, default="")
     updated_at: Mapped[str] = mapped_column(String(32), nullable=False, default="")
 
-    __table_args__ = (UniqueConstraint("user_id", "novel_id", name="uq_assistant_session_book"),)
+    __table_args__ = (
+        UniqueConstraint("user_id", "novel_id", "thread_key", name="uq_assistant_session_thread"),
+    )
 
 
 class AssistantMessage(Base):
