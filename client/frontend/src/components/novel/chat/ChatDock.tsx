@@ -166,7 +166,15 @@ function ClampedText({ text }: { text: string }) {
 // hover 复制条（移植自 OpenWorker Transcript.tsx BubbleMeta，MIT）：零高度绝对
 // 定位挂在气泡下缘——hover 显形不推移布局；复制成功才打勾（WebKit 静默拒绝
 // 不谎报成功）。
-function CopyStrip({ text, align }: { text: string; align: "left" | "right" }) {
+function CopyStrip({
+  text,
+  align,
+  ts,
+}: {
+  text: string;
+  align: "left" | "right";
+  ts?: number;
+}) {
   const [copied, setCopied] = useState(false);
   const copy = () => {
     navigator.clipboard
@@ -177,9 +185,17 @@ function CopyStrip({ text, align }: { text: string; align: "left" | "right" }) {
       })
       .catch(() => {});
   };
+  const when =
+    ts != null
+      ? new Date(ts * 1000).toLocaleTimeString("zh-CN", {
+          hour: "2-digit",
+          minute: "2-digit",
+        })
+      : null;
   return (
     <div className="cd-copy-strip">
       <div className={`cd-copy ${align === "right" ? "right" : "left"}`}>
+        {when && <span className="cd-copy-time">{when}</span>}
         <button
           type="button"
           className="cd-copy-btn"
@@ -290,6 +306,7 @@ export default function ChatDock({
             return { id: m.id, role: "system" as const, kind: "trace" as const, text: m.content, steps: [] };
           }
           if (m.role === "user" || (m.role === "assistant" && m.content)) {
+            const ts = m.createdAt ? Math.floor(new Date(m.createdAt.replace(" ", "T")).getTime() / 1000) : undefined;
             return {
               id: m.id,
               role: m.role as "user" | "assistant",
@@ -297,6 +314,7 @@ export default function ChatDock({
               text: m.content,
               page: m.page,
               steps: [],
+              ts: Number.isFinite(ts) ? ts : undefined,
             };
           }
           return { id: m.id, role: "system" as const, kind: "trace" as const, text: m.content, steps: [] };
@@ -620,7 +638,7 @@ export default function ChatDock({
             <div key={m.id} className={`cd-msg ${isUser ? "user" : "assistant"}`}>
               <div className={`cd-bubble${isUser ? "" : " md"}`}>
                 {isUser ? <ClampedText text={m.text} /> : <ChatMarkdown text={m.text} />}
-                <CopyStrip text={m.text} align={isUser ? "right" : "left"} />
+                <CopyStrip text={m.text} align={isUser ? "right" : "left"} ts={m.ts} />
               </div>
               {/* TraceFolded（批E TraceFolded 组件语义内联）：run 收口后工具步折叠可回看 */}
               {(m.steps.length > 0 || m.thinking) && (

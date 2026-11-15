@@ -37,6 +37,8 @@ export interface ChatMessage {
   steps: { stepId: string; tool: string; resultNote: string; apiCalls?: StepApiCall[] }[];
   /** 本轮思考全文（run 收口后折叠回看——coding agent 口径） */
   thinking?: string;
+  /** 消息时间（unix 秒；hover 元信息显示——openwriter BubbleMeta 同款） */
+  ts?: number;
   error?: string;
 }
 
@@ -148,7 +150,15 @@ export function chatReducer(state: ChatState, action: Action): ChatState {
     case "user_send":
       return withThread({ ...state, error: "" }, action.thread, (bucket) => [
         ...bucket,
-        { id: action.id, role: "user", kind: "text", text: action.text, page: action.page, steps: [] },
+        {
+          id: action.id,
+          role: "user",
+          kind: "text",
+          text: action.text,
+          page: action.page,
+          steps: [],
+          ts: Math.floor(Date.now() / 1000),
+        },
       ]);
     case "load_history":
       return { ...state, threads: { ...state.threads, [action.thread]: action.messages } };
@@ -157,7 +167,7 @@ export function chatReducer(state: ChatState, action: Action): ChatState {
     case "run_start":
       return withThread({ ...state, runActive: true, thinkingText: "" }, action.thread, (bucket) => [
         ...bucket,
-        newAssistantMessage(action.runId),
+        { ...newAssistantMessage(action.runId), ts: Math.floor(Date.now() / 1000) },
       ]);
     case "run_end": {
       // 思考回挂到发起线程的本 run 气泡（coding agent 口径：收口后仍可展开回看）
