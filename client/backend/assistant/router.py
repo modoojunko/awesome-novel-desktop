@@ -390,27 +390,69 @@ async def _stream_chat(
     reply_parts: list[str] = []
     final_status = "done"
 
-    async for event in loop.run(message_for_model):
-        etype = event.get("type")
-        if etype == "narration":
-            reply_parts.append(str(event.get("text", "")))
-        elif etype == "step_end":
-            await session_store.append_message(
-                db,
-                session.id,
-                novel_id=project.id,
-                role="tool",
-                content=str(event.get("resultNote", "")),
-                page=page,
-                payload={
-                    "tool": event.get("tool"),
-                    "stepId": event.get("stepId"),
-                    "runId": event.get("runId"),
-                    "writeLog": event.get("writeLog"),  # 撤销数据源（previous 值）
-                    "apiCalls": event.get("apiCalls"),  # 本步模型调用记录（反馈流可见）
-                },
-            )
-        elif etype == "permission_required":
+    try:
+        async for event in loop.run(message_for_model):
+            etype = event.get("type")
+            if etype == "narration":
+                reply_parts.append(str(event.get("text", "")))
+            elif etype == "step_end":
+                await session_store.append_message(
+                    db,
+                    session.id,
+                    novel_id=project.id,
+                    role="tool",
+                    content=str(event.get("resultNote", "")),
+                    page=page,
+                    payload={
+                        "tool": event.get("tool"),
+                        "stepId": event.get("stepId"),
+                        "runId": event.get("runId"),
+                        "writeLog": event.get("writeLog"),  # 撤销数据源（previous 值）
+                        "apiCalls": event.get("apiCalls"),  # 本步模型调用记录（反馈流可见）
+                    },
+                )
+            elif etype == "permission_required":
+                await session_store.append_message(
+                    db,
+                    session.id,
+                    novel_id=project.id,
+                    role="event",
+                    content="",
+                    page=page,
+                    payload={
+                        "authorization_card": {
+                            "gateId": event.get("gateId"),
+                            "preview": event.get("preview"),
+                            "humanOnly": event.get("humanOnly"),
+                            "reason": event.get("reason"),
+                        }
+                    },
+                    card_kind="gate",
+                )
+            elif etype == "artifact":
+                # 产物卡持久化（对话流回看；adopted 状态由采纳端点推进）
+                await session_store.append_message(
+                    db,
+                    session.id,
+                    novel_id=project.id,
+                    role="assistant",
+                    content="",
+                    page=page,
+                    payload={
+                        "card": event.get("payload") or {},
+                        "cardId": event.get("cardId"),
+                        "runId": event.get("runId"),
+                    },
+                    card_kind=str(event.get("kind", "text")),
+                    status="done",
+                )
+            elif etype == "error":
+                final_status = "error"
+            if etype == "thinking":
+                continue  # 思考增量不落盘（会话回看不需要逐字思考；轨迹在 tool 行）
+            yield _sse(event)
+
+        if loop.result.tokens_in or loop.result.tokens_out:
             await session_store.append_message(
                 db,
                 session.id,
@@ -419,62 +461,27 @@ async def _stream_chat(
                 content="",
                 page=page,
                 payload={
-                    "authorization_card": {
-                        "gateId": event.get("gateId"),
-                        "preview": event.get("preview"),
-                        "humanOnly": event.get("humanOnly"),
-                        "reason": event.get("reason"),
+                    "usage": {
+                        "tokens_in": loop.result.tokens_in,
+                        "tokens_out": loop.result.tokens_out,
                     }
                 },
-                card_kind="gate",
             )
-        elif etype == "artifact":
-            # 产物卡持久化（对话流回看；adopted 状态由采纳端点推进）
-            await session_store.append_message(
-                db,
-                session.id,
-                novel_id=project.id,
-                role="assistant",
-                content="",
-                page=page,
-                payload={
-                    "card": event.get("payload") or {},
-                    "cardId": event.get("cardId"),
-                    "runId": event.get("runId"),
-                },
-                card_kind=str(event.get("kind", "text")),
-                status="done",
-            )
-        elif etype == "error":
-            final_status = "error"
-        if etype == "thinking":
-            continue  # 思考增量不落盘（会话回看不需要逐字思考；轨迹在 tool 行）
-        yield _sse(event)
-
-    full_reply = "\n".join(p for p in reply_parts if p)
-    await session_store.update_message_status(
-        db,
-        pending_assistant.id,
-        status=final_status,
-        content=full_reply or pending_assistant.content,
-    )
-    if loop.result.tokens_in or loop.result.tokens_out:
-        await session_store.append_message(
+        if page:
+            await session_store.touch_session(db, session.id, page_cursor=page)
+    finally:
+        # 收尾落库（openwriter INTERRUPTED 同款）：停止/断开/正常收口都把已达内容
+        # 定稿——不留 streaming 悬行，也不丢半截
+        full_reply = "\n".join(p for p in reply_parts if p)
+        content = full_reply or pending_assistant.content
+        if final_status == "done" and not content:
+            content = "（停止时这一轮还没有产出文字。）"
+        await session_store.update_message_status(
             db,
-            session.id,
-            novel_id=project.id,
-            role="event",
-            content="",
-            page=page,
-            payload={
-                "usage": {
-                    "tokens_in": loop.result.tokens_in,
-                    "tokens_out": loop.result.tokens_out,
-                }
-            },
+            pending_assistant.id,
+            status=final_status,
+            content=content,
         )
-    if page:
-        await session_store.touch_session(db, session.id, page_cursor=page)
 
     # ── 定期总结画像（批C 3.4）：非阻塞后台任务，失败静默（autotitle 模式）────
     import asyncio
@@ -545,6 +552,59 @@ async def assistant_chat(
         db, user_id=user["id"], novel_id=project.id, thread_key=thread
     )
 
+    # /mode（openworker 对齐）：即时切授权档位；裸 /mode 报当前档
+    mode_names = {
+        "confirm_each": "每写必确认（默认）",
+        "allow_book": "本书内自动放行",
+        "allow_all": "全部自动放行",
+    }
+    if message == "/mode":
+        grants_now = json.loads(session.grants_json or "{}")
+        cur = str(grants_now.get("tier") or "confirm_each")
+        reply = (
+            f"当前授权：{mode_names.get(cur, cur)}。"
+            "切换：/mode confirm（每写必确认）｜/mode book（本书放行）｜/mode all（全部放行）。"
+        )
+        return StreamingResponse(
+            _stream_command_reply(db, project, user, session, page, reply),
+            media_type="text/event-stream",
+            headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+        )
+    if message.startswith("/mode "):
+        arg = message.split(None, 1)[1].strip().lower()
+        arg_map = {
+            "confirm": "confirm_each", "each": "confirm_each", "confirm_each": "confirm_each",
+            "book": "allow_book", "allow_book": "allow_book",
+            "all": "allow_all", "allow_all": "allow_all",
+        }
+        if arg not in arg_map:
+            reply = "没这个档位——/mode confirm（每写必确认）｜/mode book（本书放行）｜/mode all（全部放行）。"
+            return StreamingResponse(
+                _stream_command_reply(db, project, user, session, page, reply),
+                media_type="text/event-stream",
+                headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+            )
+        tier = arg_map[arg]
+        rows_mode = (
+            await db.scalars(
+                select(AssistantSession).where(
+                    AssistantSession.user_id == user["id"],
+                    AssistantSession.novel_id == project.id,
+                )
+            )
+        ).all()
+        for row_m in rows_mode:
+            g = json.loads(row_m.grants_json or "{}")
+            g["tier"] = tier
+            row_m.grants_json = json.dumps(g, ensure_ascii=False)
+            row_m.updated_at = session_store._now()
+        await db.commit()
+        reply = f"授权已切到「{mode_names[tier]}」——对这本书的所有页签生效。"
+        return StreamingResponse(
+            _stream_command_reply(db, project, user, session, page, reply),
+            media_type="text/event-stream",
+            headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+        )
     # 斜杠命令（coding agent 命令行习惯，boss 拍板 2026-11-15）：命令本身不进对话历史
     if message == "/new":
         await session_store.reset_session(db, session.id)

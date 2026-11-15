@@ -728,6 +728,13 @@ export default function ChatDock({
                   <span>上下文紧张时用，保留要点。</span>
                 </div>
               </div>
+              <div className="cd-help-cmd">
+                <code>/mode</code>
+                <div>
+                  <b>切授权</b>
+                  <span>/mode confirm｜book｜all——每写必确认/本书放行/全部放行。</span>
+                </div>
+              </div>
               <p className="cd-help-note">
                 <i aria-hidden="true" />
                 <span>上下文到 80% 时，我会提醒你压缩。</span>
