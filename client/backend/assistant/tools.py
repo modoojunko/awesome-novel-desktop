@@ -49,14 +49,72 @@ class ToolResult:
 class Tool:
     name: str
     kind: str  # read | card | write
-    args_hint: str  # 进协议模板的入参说明（封闭字段名清单）
     description: str  # 模型侧契约（工具描述=契约；发散类写明「可新增、须标记」）
+    # 参数 JSON Schema（c-agent-harness ToolSpec：native FC 下发供应商；text 协议
+    # 模板的 args_hint 由本 schema 派生——单一参数源，勿再手写两份）
+    parameters: dict | None = None
+    args_hint: str = ""  # 派生缓存：__post_init__ 自 parameters 生成（入参示例）
     discipline: str = "anchored"  # anchored | divergent
     feature_key: str = ""  # 读类空串；对齐 frontend/src/lib/features.ts
     fn: Callable[..., Awaitable[ToolResult]] | None = None
     # 调度元数据（openworker _parallel_safe 同款）：low=只读低风险可并行，
     # 写类/发散类串行保序（boss 拍板 2026-11-15 调度对齐 openworker）
     risk_level: str = "high"
+
+    def __post_init__(self) -> None:
+        if not self.args_hint:
+            self.args_hint = _args_hint_from_schema(self.parameters)
+
+    def openai_spec(self) -> dict:
+        """native FC 下发形态（tasks 3.1）：openai 兼容 tools 数组元素。"""
+        return {
+            "type": "function",
+            "function": {
+                "name": self.name,
+                "description": self.description,
+                "parameters": self.parameters
+                or {"type": "object", "properties": {}},
+            },
+        }
+
+
+_TYPE_HINTS = {
+    "string": "字符串",
+    "integer": "整数",
+    "number": "数字",
+    "boolean": "布尔",
+    "array": "数组",
+}
+
+
+def _hint_of(prop: dict) -> str:
+    """单属性→入参示例文案：description 优先，枚举平铺，类型兜底。"""
+    if prop.get("description"):
+        return str(prop["description"])
+    if prop.get("enum"):
+        return "|".join(str(v) for v in prop["enum"])
+    return _TYPE_HINTS.get(str(prop.get("type")), "值")
+
+
+def _args_hint_from_schema(schema: dict | None) -> str:
+    """JSON Schema → text 协议模板的入参示例串（嵌套对象展开一层）。"""
+    if not schema:
+        return "{}"
+    props = schema.get("properties") or {}
+    if not props:
+        return "{}"
+    parts: list[str] = []
+    for key, spec in props.items():
+        spec = spec if isinstance(spec, dict) else {}
+        if spec.get("type") == "object" and spec.get("properties"):
+            inner = ", ".join(
+                f'"{ik}": "{_hint_of(ispec if isinstance(ispec, dict) else {})}"'
+                for ik, ispec in spec["properties"].items()
+            )
+            parts.append(f'"{key}": {{{inner}}}')
+        else:
+            parts.append(f'"{key}": "{_hint_of(spec)}"')
+    return "{" + ", ".join(parts) + "}"
 
 
 # ── 读类工具实现（全部薄包装既有实现；工具自开自关短会话）─────────────────
@@ -280,7 +338,13 @@ TOOL_REGISTRY: tuple[Tool, ...] = (
         name="read_chapter",
         kind="read",
         risk_level="low",
-        args_hint='{"chapter_ref": "第1章 或 ref"}',
+        parameters={
+            "type": "object",
+            "properties": {
+                "chapter_ref": {"type": "string", "description": "第1章 或 ref"},
+            },
+            "required": ["chapter_ref"],
+        },
         description="读一章的章纲与正文（截断到预算）。回答涉及具体章节内容前先调它。",
         fn=_read_chapter,
     ),
@@ -288,7 +352,14 @@ TOOL_REGISTRY: tuple[Tool, ...] = (
         name="read_outline",
         kind="read",
         risk_level="low",
-        args_hint='{"scope": "volume|chapter", "ref": "卷号或章 ref（可空）"}',
+        parameters={
+            "type": "object",
+            "properties": {
+                "scope": {"type": "string", "enum": ["volume", "chapter"]},
+                "ref": {"type": "string", "description": "卷号或章 ref（可空）"},
+            },
+            "required": ["scope"],
+        },
         description="读卷纲（六段文本）或章纲。",
         fn=_read_outline,
     ),
@@ -296,7 +367,16 @@ TOOL_REGISTRY: tuple[Tool, ...] = (
         name="read_settings",
         kind="read",
         risk_level="low",
-        args_hint='{"area": "premise|world|cast|hooks"}',
+        parameters={
+            "type": "object",
+            "properties": {
+                "area": {
+                    "type": "string",
+                    "enum": ["premise", "world", "cast", "hooks"],
+                },
+            },
+            "required": ["area"],
+        },
         description="读书内设定分区：主线前提/世界与铁律/角色名册/在途伏笔。",
         fn=_read_settings,
     ),
@@ -304,7 +384,12 @@ TOOL_REGISTRY: tuple[Tool, ...] = (
         name="read_story_state",
         kind="read",
         risk_level="low",
-        args_hint='{"upto_chapter_ref": "章 ref（可空＝全部）"}',
+        parameters={
+            "type": "object",
+            "properties": {
+                "upto_chapter_ref": {"type": "string", "description": "章 ref（可空＝全部）"},
+            },
+        },
         description="读截至某章的累计设定/关系/物品/知识变化。",
         fn=_read_story_state,
     ),
@@ -312,14 +397,33 @@ TOOL_REGISTRY: tuple[Tool, ...] = (
         name="read_progress",
         kind="read",
         risk_level="low",
-        args_hint="{}",
+        parameters={"type": "object", "properties": {}},
         description="读写作进度与当前 frontier 章。",
         fn=_read_progress,
     ),
     Tool(
         name="write_volume_fields",
         kind="write",
-        args_hint='{"ref": "vol-1", "fields": {"summary": "…", "ending": "…"}}',
+        parameters={
+            "type": "object",
+            "properties": {
+                "ref": {"type": "string", "description": "卷 ref，如 vol-1"},
+                "fields": {
+                    "type": "object",
+                    "description": "要改的字段与值（可写字段见描述）",
+                    "properties": {
+                        "title": {"type": "string"},
+                        "summary": {"type": "string"},
+                        "core_conflict": {"type": "string"},
+                        "ending": {"type": "string"},
+                        "chapter_target": {"type": "integer"},
+                        "antagonist_type": {"type": "string"},
+                        "antagonist_line": {"type": "string"},
+                    },
+                },
+            },
+            "required": ["ref", "fields"],
+        },
         description=(
             "改一卷的字段（可写：title/summary/core_conflict/ending/chapter_target/"
             "antagonist_type/antagonist_line）。受作家授权梯度管控；写入后有回执可撤销。"
@@ -368,7 +472,7 @@ PROFILE_TOOLS: tuple[Tool, ...] = (
         name="profile_read",
         kind="read",
         risk_level="low",
-        args_hint="{}",
+        parameters={"type": "object", "properties": {}},
         description="读作家画像（口味/雷点/节奏/文风）。起草前先读它，别踩雷点。",
         fn=_profile_read,
     ),
@@ -376,7 +480,20 @@ PROFILE_TOOLS: tuple[Tool, ...] = (
         name="profile_update",
         kind="read",
         risk_level="high",  # 写画像（非只读）——串行保序；不弹授权卡（拍板⑤）
-        args_hint='{"updates": {"pet_peeves": ["讨厌圣母心主角"], "naming": {"双名": true}}}',
+        parameters={
+            "type": "object",
+            "properties": {
+                "updates": {
+                    "type": "object",
+                    "description": "要记住的画像字段与值（pet_peeves 雷点/naming 命名口味/节奏/文风等）",
+                    "properties": {
+                        "pet_peeves": {"type": "array", "items": {"type": "string"}},
+                        "naming": {"type": "object"},
+                    },
+                },
+            },
+            "required": ["updates"],
+        },
         description=(
             "记住作家的口味/雷点/习惯进画像（越用越懂作家）。写入时透明告知作家；"
             "敏感信息先问再记。"

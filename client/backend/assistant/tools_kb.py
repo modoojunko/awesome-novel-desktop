@@ -141,14 +141,27 @@ KB_TOOLS: tuple[Tool, ...] = (
     Tool(
         name="kb_search",
         kind="read",
-        args_hint='{"q": "关键词", "genre": "", "concept": ""}',
+        parameters={
+            "type": "object",
+            "properties": {
+                "q": {"type": "string", "description": "关键词"},
+                "genre": {"type": "string", "description": "题材（可空）"},
+                "concept": {"type": "string", "description": "概念（可空）"},
+            },
+        },
         description="检索作家的知识库条目（按关键词/题材/概念；只读）。",
         fn=_kb_search,
     ),
     Tool(
         name="kb_read",
         kind="read",
-        args_hint='{"entry_id": "条目 id"}',
+        parameters={
+            "type": "object",
+            "properties": {
+                "entry_id": {"type": "string", "description": "条目 id"},
+            },
+            "required": ["entry_id"],
+        },
         description="读一条知识库条目全文（只读）。",
         fn=_kb_read,
     ),
@@ -156,7 +169,17 @@ KB_TOOLS: tuple[Tool, ...] = (
         name="kb_create_entry",
         kind="write",
         feature_key="ai-plan",
-        args_hint='{"genre": "题材", "concept": "概念", "title": "标题", "payload": {...}, "instruction": ""}',
+        parameters={
+            "type": "object",
+            "properties": {
+                "genre": {"type": "string", "description": "题材"},
+                "concept": {"type": "string", "description": "概念"},
+                "title": {"type": "string", "description": "标题"},
+                "payload": {"type": "object", "description": "条目内容（对象）"},
+                "instruction": {"type": "string", "description": "补充说明（可空）"},
+            },
+            "required": ["genre", "concept", "title", "payload"],
+        },
         description="新建知识库条目（受作家授权梯度管控；写入后有回执可撤销）。",
         fn=_kb_create_entry,
     ),
@@ -164,7 +187,22 @@ KB_TOOLS: tuple[Tool, ...] = (
         name="kb_update_entry",
         kind="write",
         feature_key="ai-plan",
-        args_hint='{"entry_id": "条目 id", "fields": {"title": …, "instruction": …, "payload": {...}}}',
+        parameters={
+            "type": "object",
+            "properties": {
+                "entry_id": {"type": "string", "description": "条目 id"},
+                "fields": {
+                    "type": "object",
+                    "description": "要改的字段",
+                    "properties": {
+                        "title": {"type": "string"},
+                        "instruction": {"type": "string"},
+                        "payload": {"type": "object"},
+                    },
+                },
+            },
+            "required": ["entry_id", "fields"],
+        },
         description="改知识库条目（受作家授权梯度管控；既有闸门校验原样生效；写入后有回执可撤销）。",
         fn=_kb_update_entry,
     ),

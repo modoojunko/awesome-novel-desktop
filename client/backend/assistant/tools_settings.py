@@ -112,7 +112,7 @@ def _make_hooks_tool(action: str, desc: str) -> Tool:
         name=f"settings_hooks_{action}",
         kind="card",
         feature_key="settings-ai-fields",
-        args_hint="{}",
+        parameters={"type": "object", "properties": {}},
         description=desc,
         fn=_fn,
     )
@@ -129,7 +129,7 @@ def _make_genre_tool(field: str, desc: str) -> Tool:
         name=f"settings_genre_{field}",
         kind="card",
         feature_key="settings-ai-fields",
-        args_hint="{}",
+        parameters={"type": "object", "properties": {}},
         description=desc,
         fn=_fn,
     )
@@ -196,7 +196,12 @@ def _make_og_fill_tool() -> Tool:
         name="settings_og_fill",
         kind="card",
         feature_key="settings-ai-fields",
-        args_hint='{"chapter_ref": "vol-1-ch-7（可空＝当前章）"}',
+        parameters={
+            "type": "object",
+            "properties": {
+                "chapter_ref": {"type": "string", "description": "章 ref，如 vol-1-ch-7（可空＝当前章）"},
+            },
+        },
         description="章纲补全缺失：查本章章纲五项（概要/角色/变化/悬念/阶段）缺什么，AI 补候选（不落库，过目后采纳）",
         fn=_fn,
         risk_level="low",
@@ -300,7 +305,24 @@ def _make_draft_character_tool() -> Tool:
         name="draft_character",
         kind="card",
         feature_key="settings-ai-fields",
-        args_hint='{"fields": {"name": "", "gender_age": "", "identity": "", "relation": "", "function": "", "personality": ""}}',
+        parameters={
+            "type": "object",
+            "properties": {
+                "fields": {
+                    "type": "object",
+                    "description": "已收集的角色要素（缺什么传什么，工具评估必需要素）",
+                    "properties": {
+                        "name": {"type": "string", "description": "名字"},
+                        "gender_age": {"type": "string", "description": "性别与年龄"},
+                        "identity": {"type": "string", "description": "身份背景"},
+                        "relation": {"type": "string", "description": "与现有角色的关系"},
+                        "function": {"type": "string", "description": "剧情功能"},
+                        "personality": {"type": "string", "description": "性格特质"},
+                    },
+                },
+            },
+            "required": ["fields"],
+        },
         description=(
             "创建角色·评估与草案。作家想新建角色时调用：传入已收集的 fields，"
             "工具评估必需要素（身份背景/与现有角色关系/剧情功能必填）——没拿齐会返回"
@@ -325,7 +347,17 @@ SETTINGS_FIELD_TOOLS: tuple[Tool, ...] = (
         name="settings_intro",
         kind="card",
         feature_key="settings-ai-fields",
-        args_hint='{"action": "draft|check"}',
+        parameters={
+            "type": "object",
+            "properties": {
+                "action": {
+                    "type": "string",
+                    "enum": ["draft", "check"],
+                    "description": "draft 起草候选 / check 体检",
+                },
+            },
+            "required": ["action"],
+        },
         description="简介 AI：draft 按三问起草候选；check 体检简介是否只有设定没钩子",
         fn=_settings_intro,
     ),

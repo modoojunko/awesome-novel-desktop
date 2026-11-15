@@ -392,7 +392,16 @@ CARD_TOOLS: tuple[Tool, ...] = (
         name="draft_volume_plan",
         kind="card",
         feature_key="ai-plan",
-        args_hint='{"line": "想看什么", "conflict": "", "ending": "", "vol_no": null}',
+        parameters={
+            "type": "object",
+            "properties": {
+                "line": {"type": "string", "description": "想看什么"},
+                "conflict": {"type": "string", "description": "核心冲突（可空）"},
+                "ending": {"type": "string", "description": "结局方向（可空）"},
+                "vol_no": {"type": "integer", "description": "卷号（可空＝当前卷）"},
+            },
+            "required": ["line"],
+        },
         description="出 3 套本卷可行走法（互斥、忠于设定；不落库，过目采纳）。",
         fn=_draft_volume_plan,
     ),
@@ -400,7 +409,14 @@ CARD_TOOLS: tuple[Tool, ...] = (
         name="draft_volume_expand",
         kind="card",
         feature_key="ai-plan",
-        args_hint='{"line": "这一卷的目标/重点事件", "vol_no": null}',
+        parameters={
+            "type": "object",
+            "properties": {
+                "line": {"type": "string", "description": "这一卷的目标/重点事件"},
+                "vol_no": {"type": "integer", "description": "卷号（可空＝当前卷）"},
+            },
+            "required": ["line"],
+        },
         description="把一句目标铺成本卷卷纲草稿（不落库，过目采纳）。",
         fn=_draft_volume_expand,
     ),
@@ -408,7 +424,7 @@ CARD_TOOLS: tuple[Tool, ...] = (
         name="draft_chapter_split",
         kind="card",
         feature_key="ai-plan",
-        args_hint="{}",
+        parameters={"type": "object", "properties": {}},
         description="照卷纲拆下一章：3 个互斥剧情方向（不落库，过目采纳）。",
         fn=_draft_chapter_split,
     ),
@@ -416,7 +432,13 @@ CARD_TOOLS: tuple[Tool, ...] = (
         name="draft_chapter_plot",
         kind="card",
         feature_key="ai-plan",
-        args_hint='{"chapter_ref": "vol-1-ch-2"}',
+        parameters={
+            "type": "object",
+            "properties": {
+                "chapter_ref": {"type": "string", "description": "章 ref，如 vol-1-ch-2"},
+            },
+            "required": ["chapter_ref"],
+        },
         description="本章 3 版剧情清单（不落库，过目采纳）。",
         fn=_draft_chapter_plot,
     ),
@@ -424,7 +446,18 @@ CARD_TOOLS: tuple[Tool, ...] = (
         name="draft_arc",
         kind="card",
         feature_key="settings-ai-fields",
-        args_hint='{"action": "draft|calibrate|check|tone", "input": "散想法"}',
+        parameters={
+            "type": "object",
+            "properties": {
+                "action": {
+                    "type": "string",
+                    "enum": ["draft", "calibrate", "check", "tone"],
+                    "description": "draft 起草主线 / calibrate 结局校准 / check 主线体检 / tone 基调建议",
+                },
+                "input": {"type": "string", "description": "散想法（可空）"},
+            },
+            "required": ["action"],
+        },
         description="主线四能力：起草主线/结局校准/主线体检/基调建议。",
         fn=_draft_arc,
     ),
@@ -432,7 +465,12 @@ CARD_TOOLS: tuple[Tool, ...] = (
         name="check_consistency",
         kind="card",
         feature_key="ai-plan",
-        args_hint='{"ref": "vol-1（可空＝当前卷）"}',
+        parameters={
+            "type": "object",
+            "properties": {
+                "ref": {"type": "string", "description": "卷 ref，如 vol-1（可空＝当前卷）"},
+            },
+        },
         description="卷级一致性体检：对主线/对设定/对节奏/对已写内容（只读报告）。",
         fn=_check_consistency,
     ),
@@ -440,7 +478,14 @@ CARD_TOOLS: tuple[Tool, ...] = (
         name="draft_names",
         kind="card",
         feature_key="ai-plan",
-        args_hint='{"kind": "主角", "context": "角色语境（可空）"}',
+        parameters={
+            "type": "object",
+            "properties": {
+                "kind": {"type": "string", "description": "角色类型，如 主角"},
+                "context": {"type": "string", "description": "角色语境（可空）"},
+            },
+            "required": ["kind"],
+        },
         description="出 3 个命名候选（选中的才采纳）。",
         fn=_draft_names,
     ),
@@ -449,7 +494,14 @@ CARD_TOOLS: tuple[Tool, ...] = (
         kind="card",
         discipline="divergent",
         feature_key="assistant-diverge",
-        args_hint='{"premise": "大概剧情", "count": 2}',
+        parameters={
+            "type": "object",
+            "properties": {
+                "premise": {"type": "string", "description": "大概剧情"},
+                "count": {"type": "integer", "description": "派生人数（默认 2）"},
+            },
+            "required": ["premise"],
+        },
         description=(
             "发散：从大概剧情派生新角色组（可添人；每个角色带派生锚点与发散标记；"
             "过目采纳才建卡）。仅当作家明示「大胆/帮我造人」时使用。"
@@ -461,7 +513,14 @@ CARD_TOOLS: tuple[Tool, ...] = (
         kind="card",
         discipline="divergent",
         feature_key="assistant-diverge",
-        args_hint='{"current_direction": "当前走向", "count": 3}',
+        parameters={
+            "type": "object",
+            "properties": {
+                "current_direction": {"type": "string", "description": "当前走向"},
+                "count": {"type": "integer", "description": "支线条数（默认 3）"},
+            },
+            "required": ["current_direction"],
+        },
         description=(
             "发散：从当前走向派生候选支线（可添事；每条带派生锚点；"
             "过目采纳才落）。仅当作家明示「发散/多给几条路」时使用。"

@@ -55,3 +55,49 @@ def test_write_surface_is_fenced():
 def test_get_tool_strips_whitespace():
     assert get_tool("  read_progress  ") is not None
     assert get_tool("不存在的工具") is None
+
+
+# ── ToolSpec schema 守卫（c-agent-harness tasks 2.4）─────────────────────────
+
+
+def _schema_props(schema: dict | None) -> dict:
+    assert isinstance(schema, dict), "parameters 必须是 JSON Schema 对象"
+    assert schema.get("type") == "object", "parameters.type 必须 object"
+    props = schema.get("properties")
+    assert isinstance(props, dict), "parameters.properties 必须是对象"
+    req = schema.get("required") or []
+    unknown = set(req) - set(props)
+    assert not unknown, f"required 引用了未声明的属性：{unknown}"
+    return props
+
+
+def test_every_tool_has_valid_json_schema():
+    for t in TOOL_REGISTRY:
+        props = _schema_props(t.parameters)
+        for key, spec in props.items():
+            assert isinstance(spec, dict), f"{t.name}.{key} 属性定义必须是对象"
+            assert "type" in spec or "description" in spec, f"{t.name}.{key} 缺 type/description"
+            if spec.get("type") == "object":
+                assert isinstance(spec.get("properties", {}), dict), f"{t.name}.{key} 嵌套对象 properties 必须是对象"
+
+
+def test_args_hint_derived_from_schema():
+    # 单一参数源：args_hint 自 schema 派生——键集合须与 properties 一致
+    for t in TOOL_REGISTRY:
+        props = _schema_props(t.parameters)
+        if not props:
+            assert t.args_hint == "{}", f"{t.name} 空参数 schema 的 args_hint 应为 {{}}"
+            continue
+        assert t.args_hint.startswith("{") and t.args_hint.endswith("}"), t.name
+        for key in props:
+            assert f'"{key}"' in t.args_hint, f"{t.name} args_hint 缺属性 {key}：{t.args_hint}"
+
+
+def test_openai_spec_shape():
+    for t in TOOL_REGISTRY:
+        spec = t.openai_spec()
+        assert spec["type"] == "function"
+        fn = spec["function"]
+        assert fn["name"] == t.name
+        assert fn["description"] == t.description
+        assert fn["parameters"]["type"] == "object"

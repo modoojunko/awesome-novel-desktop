@@ -2,15 +2,15 @@
 
 ## 1. spike：GLM 原生 function calling 服从度
 
-- [ ] 1.1 独立 spike 脚本：GLM 原生 FC 三场景实测（单工具调用/多步串联/参数含中文与长文本）
-- [ ] 1.2 spike 结论进本 change design.md 附录（通过→native 全量；部分服从→记录边界进能力矩阵；不通过→text 主路径，harness 层保留待供应商修复）
+- [x] 1.1 独立 spike 脚本：GLM 原生 FC 三场景实测（单工具调用/多步串联/参数含中文与长文本）
+- [x] 1.2 spike 结论进本 change design.md 附录（通过→native 全量；部分服从→记录边界进能力矩阵；不通过→text 主路径，harness 层保留待供应商修复）
 
 ## 2. ToolSpec 标准化
 
-- [ ] 2.1 Tool dataclass 增 parameters（JSON Schema dict）；risk_level 已有（复用）
-- [ ] 2.2 29 工具迁移出 parameters schema（读类 5＋写类＋产卡 9＋发散 2＋kb 4＋画像 2＋设定 7）
-- [ ] 2.3 args_hint 由 schema 派生生成（text 协议模板引用不变）
-- [ ] 2.4 registry 守卫测试增 schema 必填断言（每工具 parameters 为合法 JSON Schema object）
+- [x] 2.1 Tool dataclass 增 parameters（JSON Schema dict）；risk_level 已有（复用）
+- [x] 2.2 29 工具迁移出 parameters schema（读类 5＋写类＋产卡 9＋发散 2＋kb 4＋画像 2＋设定 7）
+- [x] 2.3 args_hint 由 schema 派生生成（text 协议模板引用不变）
+- [x] 2.4 registry 守卫测试增 schema 必填断言（每工具 parameters 为合法 JSON Schema object）
 
 ## 3. 供应商适配层
 
