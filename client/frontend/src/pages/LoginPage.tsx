@@ -9,6 +9,10 @@ import UpgradeGate from '@/components/auth/UpgradeGate';
 import OfflineExportModal from '@/components/OfflineExportModal';
 import { api } from '@/lib/api';
 
+// 网络不可达指引（c-proxy-fakeip-compat）：与「尚未检测到登录」区分——代理 TUN
+// 接管网络时检测链路不通，提示用户处理网络而非反复去浏览器登录
+const NET_ERR_HINT = '连不上云端服务：请检查网络；如使用代理软件，建议关闭其 TUN 模式后重新检测';
+
 export default function LoginPage() {
   const navigate = useNavigate();
   const [loading, setLoading] = useState(false);
@@ -67,8 +71,12 @@ export default function LoginPage() {
         navigate('/novels', { replace: true });
         return true;
       }
-    } catch {
-      // S端 不可用或未登录（code=-1 绝不升级卡——防误闸，场景二由显式错误触发）
+    } catch (e) {
+      // S端 不可用或未登录（code=-1 绝不升级卡——防误闸，场景二由显式错误触发）。
+      // c-proxy-fakeip-compat：网络层失败（无 status＝未得到业务应答）以 'network'
+      // 哨兵区分——轮询中等同未登录静默；轮询结束/手动复查据此给网络指引文案，
+      // 不再误导为「请在浏览器中完成登录」。
+      if ((e as Error & { status?: number })?.status === undefined) return 'network';
     }
     return false;
   }, [navigate, refreshStatus, showToast]);
@@ -159,6 +167,7 @@ export default function LoginPage() {
       cancelledRef.current = false;
       pollingRef.current = true;
       let ok = false;
+      let netFail = false;
       try {
         // 前端轮询 check-auth 直到授权成功；每轮检查取消标记
         for (let i = 0; i < 60; i++) {
@@ -167,13 +176,15 @@ export default function LoginPage() {
           if (cancelledRef.current) break;
           const checked = await checkAuthorized('登录成功');
           if (checked === 'outdated') return;
+          if (checked === 'network') { netFail = true; continue; }
           if (checked) { ok = true; break; }
+          netFail = false;
         }
       } finally {
         pollingRef.current = false;
       }
       if (!ok && !cancelledRef.current) {
-        setError('授权超时，请在浏览器中完成登录，或点击「重新检测」');
+        setError(netFail ? NET_ERR_HINT : '授权超时，请在浏览器中完成登录，或点击「重新检测」');
       }
     } catch {
       setError('登录失败');
@@ -188,7 +199,8 @@ export default function LoginPage() {
     setError('');
     try {
       const ok = await checkAuthorized('登录成功');
-      if (!ok) setError('尚未检测到登录，请确认浏览器已完成后重试');
+      if (ok === 'network') setError(NET_ERR_HINT);
+      else if (!ok) setError('尚未检测到登录，请确认浏览器已完成后重试');
     } finally {
       setLoading(false);
     }

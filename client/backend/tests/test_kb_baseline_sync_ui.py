@@ -90,7 +90,7 @@ def sync_env(monkeypatch):
     monkeypatch.setattr(bl, "_TRUST_PUBKEYS", _TEST_PUBKEYS)
     monkeypatch.setattr(bl, "_cdn_base", lambda: _BASE)
     monkeypatch.setattr(bl, "_cdn_bases", lambda: [_BASE])
-    monkeypatch.setattr(bl, "_validate_outbound", lambda url: True)
+    monkeypatch.setattr(bl, "_validate_outbound", lambda url: (True, "ok"))
     monkeypatch.setattr(bl, "_fetch_json", _CDN.get_json)
     monkeypatch.setattr(bl, "_fetch_bytes", lambda *a, **kw: _FAKE_BYTES_HOLDER["fn"](*a, **kw))
 

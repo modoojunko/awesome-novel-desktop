@@ -46,6 +46,7 @@ const STEP_LABELS = ["检查版本", "下载能力包", "校验安装"] as const
  * auth 为完整独立句：认证类失败重试不会好，失败态对其不拼「随时可以重试」后缀。 */
 const FAIL_NOTES: Record<string, string> = {
   cdn_unreachable: "网络暂时连不上，稍后可以重试。",
+  proxy_fake_ip: "代理软件的 TUN 模式接管了网络：请关闭 TUN 模式，或将本站域名加入代理软件的白名单，然后重新获取。",
   download: "下载没有完成（网络或服务暂时不可用）。",
   key_retired: "服务端已发布新版，重试会自动获取。",
   install: "安装没有完成，可以重试。",
