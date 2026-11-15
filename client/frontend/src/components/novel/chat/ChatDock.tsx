@@ -505,7 +505,47 @@ export default function ChatDock({
           </button>
         )}
         <span className="chatdock-ctx">你在：{registration?.label ?? page}</span>
-        <span className="chatdock-sub">每页一个会话 · 切回接着聊</span>
+        <div className="chatdock-sub-row">
+          <span className="chatdock-sub">每页一个会话 · 切回接着聊</span>
+          <div className="cd-mode-anchor cd-mode-head" ref={modeAnchorRef}>
+            <button
+              type="button"
+              className="cd-mode-chip"
+              data-testid="mode-chip"
+              aria-expanded={modeOpen}
+              onClick={() => setModeOpen((v) => !v)}
+              title="授权模式：AI 写回前要不要先问你"
+            >
+              <span className="cd-mode-dot" aria-hidden />
+              {TIER_LABEL[tier] ?? tier}
+              <span className="cd-mode-caret" aria-hidden>▾</span>
+            </button>
+            {modeOpen && (
+              <div className="cd-mode-pop" data-testid="mode-pop" role="menu">
+                <p className="cd-mode-head">授权模式</p>
+                {Object.entries(TIER_LABEL).map(([key, label]) => (
+                  <button
+                    key={key}
+                    type="button"
+                    role="menuitemradio"
+                    aria-checked={tier === key}
+                    className={`cd-mode-item${tier === key ? " on" : ""}`}
+                    data-testid={`mode-item-${key}`}
+                    onClick={() => {
+                      setModeOpen(false);
+                      setTierState(key);
+                      setPermissionTier(projectId, key as "confirm_each" | "allow_book" | "allow_all")
+                        .catch(() => dispatch({ type: "gate", thread: threadKey, text: "档位切换失败，稍后再试。" }));
+                    }}
+                  >
+                    <span className="cd-mode-check" aria-hidden>{tier === key ? "✓" : ""}</span>
+                    {label}
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
+        </div>
       </div>
 
       {chips.length === 0 && registration && (
@@ -773,44 +813,6 @@ export default function ChatDock({
           >
             ?
           </button>
-        </div>
-        <div className="cd-mode-anchor" ref={modeAnchorRef}>
-          <button
-            type="button"
-            className="cd-mode-chip"
-            data-testid="mode-chip"
-            aria-expanded={modeOpen}
-            onClick={() => setModeOpen((v) => !v)}
-            title="授权模式：AI 写回前要不要先问你"
-          >
-            <span className="cd-mode-dot" aria-hidden />
-            {TIER_LABEL[tier] ?? tier}
-            <span className="cd-mode-caret" aria-hidden>▾</span>
-          </button>
-          {modeOpen && (
-            <div className="cd-mode-pop" data-testid="mode-pop" role="menu">
-              <p className="cd-mode-head">授权模式</p>
-              {Object.entries(TIER_LABEL).map(([key, label]) => (
-                <button
-                  key={key}
-                  type="button"
-                  role="menuitemradio"
-                  aria-checked={tier === key}
-                  className={`cd-mode-item${tier === key ? " on" : ""}`}
-                  data-testid={`mode-item-${key}`}
-                  onClick={() => {
-                    setModeOpen(false);
-                    setTierState(key);
-                    setPermissionTier(projectId, key as "confirm_each" | "allow_book" | "allow_all")
-                      .catch(() => dispatch({ type: "gate", thread: threadKey, text: "档位切换失败，稍后再试。" }));
-                  }}
-                >
-                  <span className="cd-mode-check" aria-hidden>{tier === key ? "✓" : ""}</span>
-                  {label}
-                </button>
-              ))}
-            </div>
-          )}
         </div>
         <input
           value={input}

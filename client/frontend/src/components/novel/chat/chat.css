@@ -605,17 +605,22 @@
 
 /* 授权模式芯片（ZCode composer 同款，boss 拍板 2026-11-15）：当前档常显＋上拉菜单 */
 .cd-mode-anchor { position: relative; display: grid; place-items: center; }
+.chatdock-sub-row {
+  display: flex; align-items: center; justify-content: space-between;
+  width: 100%; padding: 0 12px 8px;
+}
 .cd-mode-chip {
   display: inline-flex; align-items: center; gap: 4px;
   border: 0; background: none; cursor: pointer;
   font-size: 11px; font-weight: 600; color: var(--accent);
   padding: 3px 6px; border-radius: 8px; white-space: nowrap;
 }
+.cd-mode-head .cd-mode-chip { padding: 2px 4px; }
 .cd-mode-chip:hover { background: var(--accent-soft, rgba(15, 107, 88, .1)); }
 .cd-mode-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--accent); }
 .cd-mode-caret { font-size: 9px; opacity: .7; }
 .cd-mode-pop {
-  position: absolute; left: -8px; bottom: calc(100% + 8px);
+  position: absolute; right: 0; top: calc(100% + 8px);
   min-width: 190px; padding: 8px;
   background: var(--surface, #fff);
   border: 1px solid var(--border); border-radius: 12px;
@@ -623,10 +628,10 @@
   z-index: 30;
 }
 .cd-mode-pop::after {
-  content: ""; position: absolute; left: 14px; bottom: -5px;
+  content: ""; position: absolute; right: 12px; top: -5px;
   width: 9px; height: 9px; background: var(--surface, #fff);
   border-right: 1px solid var(--border); border-bottom: 1px solid var(--border);
-  transform: rotate(45deg);
+  transform: rotate(225deg);
 }
 .cd-mode-head { margin: 2px 6px 6px; font-size: 10.5px; color: var(--muted); }
 .cd-mode-item {
