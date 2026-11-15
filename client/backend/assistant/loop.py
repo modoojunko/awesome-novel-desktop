@@ -9,7 +9,7 @@ story/character_agent.py:261）。不进 job_runner——全局单飞槽会被 8
   tool：emit step_start→执行→step_end（结果摘要）→观察写回转写；
   degraded：纠错重试一次，仍败则降级纯 chat 收口（degraded 记入结果）。
 
-护栏：MAX_STEPS=8 / MAX_TOOL_CALLS=10 / 回合墙钟 600s / 单步 first_content_timeout=90s
+护栏：回合墙钟（默认 1800s，env 可覆盖）＋作家停止钮——SHALL NOT 设步数/工具次数上限（boss 拍板 2026-11-15，coding agent 口径）；单步 first_content_timeout=90s
 （env fail-soft，判例 write/router.py:43-53）。compact：每步前按估算 tokens 判定
 （compaction.should_compact），build 失败降级 trim_state，状态经 on_compaction 持久化。
 转写即状态：step/tool_result 由调用方逐步落 assistant_messages，崩溃留下完整轨迹。
@@ -48,9 +48,7 @@ def _env_int(name: str, default: int) -> int:
         return default
 
 
-MAX_STEPS = _env_int("ASSISTANT_MAX_STEPS", 8)
-MAX_TOOL_CALLS = _env_int("ASSISTANT_MAX_TOOL_CALLS", 10)
-WALL_CLOCK_SECONDS = _env_float("ASSISTANT_TURN_DEADLINE", 600.0)
+WALL_CLOCK_SECONDS = _env_float("ASSISTANT_TURN_DEADLINE", 1800.0)
 STEP_FIRST_CONTENT_TIMEOUT = _env_float("ASSISTANT_STEP_FIRST_CONTENT_TIMEOUT", 90.0)
 STEP_MAX_TOKENS = _env_int("ASSISTANT_STEP_MAX_TOKENS", 2048)
 
@@ -66,8 +64,6 @@ _UNKNOWN_TOOL_FALLBACK = (
 
 @dataclass
 class LoopConfig:
-    max_steps: int = MAX_STEPS
-    max_tool_calls: int = MAX_TOOL_CALLS
     wall_clock: float = WALL_CLOCK_SECONDS
     step_timeout: float = STEP_FIRST_CONTENT_TIMEOUT
     step_max_tokens: int = STEP_MAX_TOKENS
@@ -134,13 +130,15 @@ class AgentLoop:
         closed = False
 
         try:
-            for step_no in range(1, self.cfg.max_steps + 1):
+            step_no = 0
+            while True:
                 if time.monotonic() - started > self.cfg.wall_clock:
                     yield {
                         "type": "narration",
                         "text": "这一轮跑得太久了，我先停在这里——已经产出的内容都在上面。",
                     }
                     break
+                step_no += 1
                 self.result.steps = step_no
 
                 # ── compact 判定（估算 tokens ≥ 触发线才做；build 失败降级 trim）──
@@ -230,13 +228,6 @@ class AgentLoop:
                     yield {"type": "narration", "text": fallback}
                     break
 
-                if self.result.tool_calls >= self.cfg.max_tool_calls:
-                    yield {
-                        "type": "narration",
-                        "text": "这轮的工具调用次数到顶了，我先把已有的结果交给你。",
-                    }
-                    break
-
                 # 授权梯度（write_gate）：gate_fn 返回 None＝放行；返回事件列表＝
                 # 先逐个下发（授权卡/升级卡），末项 gate_result.approved 决定是否执行。
                 # denied 时只给 agent 非诊断性拒绝语（完整理由仅在授权卡上给作家）。
@@ -304,12 +295,6 @@ class AgentLoop:
                 self.transcript.append(
                     {"role": "user", "content": f"[tool result] {result.summary}"}
                 )
-            else:
-                # 步数耗尽仍未收口：明确收尾话术，已产出卡保留
-                if not self.result.final_reply:
-                    tail = "这一轮的步数用完了。已完成的部分都在上面，需要继续可以直接吩咐。"
-                    self.result.final_reply = tail
-                    yield {"type": "narration", "text": tail}
         except GeneratorExit:
             closed = True
             raise

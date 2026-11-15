@@ -67,7 +67,7 @@ async def test_final_reply_path():
         system="sys",
         transcript=[{"role": "user", "content": "帮我看看主线"}],
         tool_ctx=None,
-        config=LoopConfig(max_steps=4),
+        config=LoopConfig(),
     )
     events = [e async for e in loop.run("帮我看看主线")]
     kinds = [e["type"] for e in events]
@@ -101,7 +101,7 @@ async def test_tool_step_path_with_trace_and_observation(monkeypatch):
         system="sys",
         transcript=[],
         tool_ctx=None,
-        config=LoopConfig(max_steps=4),
+        config=LoopConfig(),
     )
     events = [e async for e in loop.run("写到哪了？")]
     kinds = [e["type"] for e in events]
@@ -127,7 +127,7 @@ async def test_unknown_tool_falls_back_to_final():
         system="sys",
         transcript=[],
         tool_ctx=None,
-        config=LoopConfig(max_steps=4),
+        config=LoopConfig(),
     )
     events = [e async for e in loop.run("炸了它")]
     # 工具箱里没有 → 按收口降级，不假装调过
@@ -145,7 +145,7 @@ async def test_degraded_after_retry(monkeypatch):
         system="sys",
         transcript=[],
         tool_ctx=None,
-        config=LoopConfig(max_steps=4),
+        config=LoopConfig(),
     )
     events = [e async for e in loop.run("随便说点什么")]
     assert loop.result.degraded is True
@@ -155,26 +155,31 @@ async def test_degraded_after_retry(monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_max_steps_exhaustion_tail(monkeypatch):
+async def test_wall_clock_tail(monkeypatch):
+    """boss 拍板 2026-11-15：SHALL NOT 设步数/工具次数上限——护栏只剩墙钟
+    （到点明确收尾话术、已产出卡保留）＋作家停止钮。"""
     async def fake_run_tool(ctx, name, args):
+        import asyncio as _asyncio
+
+        await _asyncio.sleep(0.01)  # 每步 10ms——墙钟必然在脚本耗尽前截停
         return ToolResult(ok=True, summary="ok")
 
     fake = Tool(name="read_progress", kind="read", args_hint="{}", description="读进度", fn=fake_run_tool)
     monkeypatch.setattr(loop_mod, "get_tool", lambda n: fake)
     monkeypatch.setattr(loop_mod, "run_tool", fake_run_tool)
 
-    client = FakeClient([_tool("read_progress", {})] * 5)  # 每步都是工具动作
+    client = FakeClient([_tool("read_progress", {})] * 200)  # 每步都是工具动作——靠墙钟截停
     loop = AgentLoop(
         client=client,
         system="sys",
         transcript=[],
         tool_ctx=None,
-        config=LoopConfig(max_steps=3, max_tool_calls=99),
+        config=LoopConfig(wall_clock=0.15),
     )
     events = [e async for e in loop.run("一直读下去")]
-    tail = next(e for e in events if e["type"] == "narration" and "步数用完" in e.get("text", ""))
+    tail = next(e for e in events if e["type"] == "narration" and "跑得太久" in e.get("text", ""))
     assert tail
-    assert loop.result.steps == 3
+    assert loop.result.steps > 3  # 不设步数上限——步数只到墙钟为止
     assert kinds_last(events) == "run_end"
 
 
@@ -197,7 +202,7 @@ async def test_compaction_triggered_and_persisted(monkeypatch):
         system="sys",
         transcript=[{"role": "user", "content": "历史一"}, {"role": "assistant", "content": "历史一答"}],
         tool_ctx=None,
-        config=LoopConfig(max_steps=4),
+        config=LoopConfig(),
         on_compaction=on_compaction,
         context_window=10,  # 窗口极小→触发线极低→边界落在首轮之后
     )
@@ -217,7 +222,7 @@ async def test_generator_close_is_clean():
         system="sys",
         transcript=[],
         tool_ctx=None,
-        config=LoopConfig(max_steps=4),
+        config=LoopConfig(),
     )
     agen = loop.run("读到一半就关")
     first = await agen.asend(None)
@@ -247,7 +252,7 @@ async def test_step_end_carries_api_calls(monkeypatch):
     monkeypatch.setattr(loop_mod, "run_tool", fake_run_tool)
 
     client = FakeClient([_tool("draft_volume_expand", {}), _final("好")])
-    loop = AgentLoop(client=client, system="sys", transcript=[], tool_ctx=None, config=LoopConfig(max_steps=4))
+    loop = AgentLoop(client=client, system="sys", transcript=[], tool_ctx=None, config=LoopConfig())
     events = [e async for e in loop.run("铺一下")]
 
     step_end = next(e for e in events if e["type"] == "step_end")
