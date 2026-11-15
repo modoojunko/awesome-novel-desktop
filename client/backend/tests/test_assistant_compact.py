@@ -99,7 +99,7 @@ def test_context_overflow_detection():
 
 def test_remap_boundary_lands_after_anchor_reply():
     # 轮内转写：动作 JSON 行 + 观察行（不落库的形态）
-    in_run = [
+    _in_run_unused = [
         _msg("user", "帮我铺这一卷"),
         _msg("assistant", '{"thought": "干", "action": "tool", "tool": "read_outline"}'),
         _msg("user", "[tool result] 第1卷…"),

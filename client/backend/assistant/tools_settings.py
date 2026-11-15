@@ -154,7 +154,7 @@ async def _settings_og_fill(ctx: ToolContext, chapter_ref: str) -> ToolResult:
     在章纲表单采纳——写回走前端既有保存链）。"""
     if not await _project_ok(ctx):
         return ToolResult(ok=False, summary="书不存在或不属于当前作家。")
-    from chapters.ai_draft import fill_outline_gaps, _FILLABLE_KEYS
+    from chapters.ai_draft import _FILLABLE_KEYS, fill_outline_gaps
 
     async with async_session() as db:
         body = {"missing": list(_FILLABLE_KEYS)}

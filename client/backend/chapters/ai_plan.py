@@ -750,7 +750,7 @@ async def chapter_directions_core(
         # 出卡必然脱离全书设定，且排除清单缺席会让重试卡再撞对拍被二次丢弃。
         logger.info(
             "chapter_directions retry attempt=%d/%d cause=%s novel=%s vol=%s ch=%d",
-            attempts + 1, MAX_ATTEMPTS, cause, project.id, vol_no, ch_no,
+            attempts + 1, MAX_ATTEMPTS, cause, project.id, vol, ch_no,
         )
         raw, _u = await _generate(
             project, retry_system, user_msg,

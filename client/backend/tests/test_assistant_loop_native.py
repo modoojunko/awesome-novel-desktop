@@ -10,8 +10,6 @@ import json
 
 import pytest
 
-import ai_client as ai_client_mod
-
 from assistant import loop as loop_mod
 from assistant.loop import AgentLoop, LoopConfig
 from assistant.tools import Tool, ToolResult
@@ -196,7 +194,6 @@ async def test_routing_force_overrides(monkeypatch):
     """env 强制路由（tasks 4.1）：ASSISTANT_HARNESS=native 把文本客户端抬进
     native；=text 把 native 客户端压回 text。"""
     monkeypatch.setenv("ASSISTANT_HARNESS", "native")
-    plain = loop_mod.FakeClient if hasattr(loop_mod, "FakeClient") else None
     client = _PlainClient()
     loop = AgentLoop(client=client, system="s", transcript=[], tool_ctx=None, config=LoopConfig())
     assert loop.harness == "native"

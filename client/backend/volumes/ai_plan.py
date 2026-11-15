@@ -868,7 +868,6 @@ async def ai_volume_check(
     db: AsyncSession = Depends(get_db),
 ):
     """卷级验证：对主线／对设定／对节奏／对已写内容（只读、不拦、不代笔；过档位门后可重复）。"""
-    from volumes.service import get_volume
 
     project = await get_novel(db, project_id, user["id"])
     if not project:
@@ -892,6 +891,7 @@ async def volume_check_core(
     user: dict,
 ) -> dict:
     """卷级体检生成核心（路由准入后调用；c-writing-agent 工具同源复用）。"""
+
     from volumes.service import get_volume
 
     detail = await get_volume(db, project, ref)

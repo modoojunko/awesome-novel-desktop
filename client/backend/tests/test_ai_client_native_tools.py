@@ -8,12 +8,9 @@
 """
 
 import asyncio
-import json
-
-import pytest
 
 import ai_client as ai_client_module
-from ai_client import AIClient, StreamEvent
+from ai_client import AIClient
 
 TOOL_SPEC = [
     {
@@ -130,7 +127,7 @@ def test_chat_stream_passes_tools_and_aggregates(monkeypatch):
     assert call["id"] == "call_1"
     assert call["name"] == "read_chapter"
     assert call["arguments"] == {"chapter_ref": "vol-1-ch-7"}
-    done = [e for e in events if e.is_done][0]
+    done = next(e for e in events if e.is_done)
     assert done.finish_reason == "tool_calls"
     # 思考与工具调用并行流出（spike 口径）
     assert any(e.thinking for e in events)
@@ -152,7 +149,7 @@ def test_chat_stream_bad_json_keeps_args_raw(monkeypatch):
     events = _run_async(
         _collect(c.chat_stream(model="m", system="", messages=[], tools=TOOL_SPEC))
     )
-    call = [e for e in events if e.tool_calls][0].tool_calls[0]
+    call = next(e for e in events if e.tool_calls).tool_calls[0]
     assert call["arguments"] is None
     assert call["args_raw"] == '{"chapter_ref": '
 
@@ -199,7 +196,8 @@ def test_chat_nonstream_tool_calls_into_meta():
     response = type("R", (), {"choices": [choice], "usage": usage})()
 
     class _Recorder2:
-        kwargs: dict = {}
+        def __init__(self) -> None:
+            self.kwargs: dict = {}
 
         async def _create(self, **kwargs):
             self.kwargs = kwargs

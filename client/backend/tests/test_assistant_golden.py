@@ -10,12 +10,14 @@ FakeClient 按 stub 标记回动作 JSON（模拟服从度良好的模型）；�
 """
 
 import json
+from pathlib import Path
+
 import pytest
 
 from assistant.loop import AgentLoop, LoopConfig
-from assistant.tools import TOOL_REGISTRY, Tool, ToolResult
+from assistant.tools import TOOL_REGISTRY, ToolResult
 
-GOLDEN = json.load(open("tests/golden/assistant_golden_v0.json"))["cases"]
+GOLDEN = json.loads(Path("tests/golden/assistant_golden_v0.json").read_text(encoding="utf-8"))["cases"]
 
 # 指令关键词 → 工具名（与 e2e stub 同款分支语义）
 KEYWORD_TOOL = [

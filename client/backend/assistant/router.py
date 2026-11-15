@@ -22,9 +22,9 @@ from fastapi.responses import StreamingResponse
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from assistant import compact as compact_mod
 from assistant import identity as identity_mod
 from assistant import session_store, write_gate
-from assistant import compact as compact_mod
 from assistant.context import build_book_brief, build_outbound_window, build_page_note
 from assistant.loop import AgentLoop, LoopConfig
 from assistant.prompts import build_system_prompt
@@ -96,8 +96,14 @@ async def _stream_compact(
     from ai_client import get_ai_client_for_novel
     from assistant.compact import (
         build_state as compact_build,
+    )
+    from assistant.compact import (
         estimate_tokens as est_tokens,
+    )
+    from assistant.compact import (
         remap_boundary,
+    )
+    from assistant.compact import (
         trim_state as compact_trim,
     )
 
@@ -105,7 +111,7 @@ async def _stream_compact(
     transcript = _history_transcript(rows)
     prior = await session_store.load_compaction_state(db, session)
     prior = remap_boundary(prior, transcript)
-    messages, tokens_est = build_outbound_window(transcript, compaction_state=prior)
+    _messages, tokens_est = build_outbound_window(transcript, compaction_state=prior)
 
     if tokens_est < 2_000:
         reply = "这一页的对话还很短，不用压缩。"
@@ -483,7 +489,6 @@ async def _stream_chat(
         async with async_session() as drv_db:
             try:
                 async for event in loop.run(message_for_model):
-                    etype = event.get("type")
                     await _consume(drv_db, event)
                     # thinking 照发 SSE（dock 实时思考回看，run_end 时前端收进
                     # run 气泡）；落盘分支不匹配 thinking——回看不存逐字思考
@@ -913,7 +918,7 @@ async def undo_assistant_write(
     payload["undone"] = True
     await session_store.append_message(
         db,
-        session.id,
+        target.session_id,
         novel_id=project.id,
         role="event",
         content="",

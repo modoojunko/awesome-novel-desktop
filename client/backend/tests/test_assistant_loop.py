@@ -11,7 +11,6 @@ import time
 import pytest
 
 import ai_client as ai_client_mod
-
 from assistant import loop as loop_mod
 from assistant.loop import AgentLoop, LoopConfig
 from assistant.tools import Tool, ToolResult

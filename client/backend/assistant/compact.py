@@ -589,7 +589,7 @@ def remap_boundary(
     if hit < 0:
         return None
     # 边界＝锚 user 消息其后那条 assistant 回复之后（没有回复行则贴列表尾）
-    boundary = hit + 2 if hit + 2 <= len(messages) else len(messages)
+    boundary = min(hit + 2, len(messages))
     if boundary <= 0:
         return None
     # native 形态护栏（c-agent-harness 4.2）：assistant(tool_calls) 与其 role=tool

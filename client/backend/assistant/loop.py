@@ -25,7 +25,12 @@ from collections.abc import AsyncIterator, Awaitable, Callable
 from dataclasses import dataclass, field
 from typing import Any
 
-from ai_client import AIThinkingTimeoutError, AITimeoutError, api_calls_begin, api_calls_drain
+from ai_client import (
+    AIThinkingTimeoutError,
+    AITimeoutError,
+    api_calls_begin,
+    api_calls_drain,
+)
 from assistant import compact as compact_mod
 from assistant.actions import parse_action
 from assistant.context import build_outbound_window

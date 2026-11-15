@@ -33,6 +33,7 @@ from archive.dossier_router import router as dossier_router
 from archive.reconcile_router import router as reconcile_router
 from archive.router import archives_router
 from archive.router import router as archive_router
+from assistant.router import router as assistant_router
 
 # License 本地验证
 from auth_local.router import router as auth_local_router
@@ -77,7 +78,6 @@ from workflow.router import router as workflow_router
 from write.ai_check import router as ai_check_router
 from write.plot_sim import router as plot_sim_router
 from write.prompt_sources import router as prompt_sources_router
-from assistant.router import router as assistant_router
 from write.router import router as write_router
 from write.router import scan_router as write_scan_router
 from write.seam_refill import router as seam_refill_router
