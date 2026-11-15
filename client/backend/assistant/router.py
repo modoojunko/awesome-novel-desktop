@@ -65,7 +65,9 @@ async def _stream_command_reply(
     page: str,
     reply: str,
 ) -> AsyncIterator[str]:
-    """斜杠命令的轻回复流（narration＋run_end 收口；前端 sawTerminal 依赖终态）。"""
+    """斜杠命令的轻回复流（run_start＋narration＋run_end——前端气泡定位靠
+    run 生命周期，缺 run_start 会把回执挂错位置/挂到旧回执上）。"""
+    yield _sse({"type": "run_start", "runId": "cmd"})
     await session_store.append_message(
         db, session.id, novel_id=project.id, role="assistant",
         content=reply, page=page,
