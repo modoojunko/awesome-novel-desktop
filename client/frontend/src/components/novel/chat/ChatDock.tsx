@@ -9,6 +9,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { formatWan } from "@/lib/chatApi";
 import {
   adoptAssistantMessage,
+  setPermissionTier,
   approveGate,
   loadAssistantSession,
   streamAssistantChat,
@@ -227,6 +228,10 @@ export default function ChatDock({
   /** 脚部 ？帮助浮层（非模态：外点/Esc/再点关闭——boss 拍板 2026-11-15 长文收进 ？） */
   const [helpOpen, setHelpOpen] = useState(false);
   const helpAnchorRef = useRef<HTMLDivElement | null>(null);
+  /** 授权档位芯片（ZCode composer 同款——当前档常显＋下拉切换，boss 拍板 2026-11-15） */
+  const [tier, setTierState] = useState("confirm_each");
+  const [modeOpen, setModeOpen] = useState(false);
+  const modeAnchorRef = useRef<HTMLDivElement | null>(null);
   // 本地实时估算（与后端 estimate_tokens 同口径：序列化字符/4）
   const ctxEst = useMemo(() => {
     let chars = 0;
@@ -320,6 +325,8 @@ export default function ChatDock({
           return { id: m.id, role: "system" as const, kind: "trace" as const, text: m.content, steps: [] };
         });
         if (s.context?.window) setCtxWindow(s.context.window);
+        const g = (s.grants ?? {}) as { tier?: string };
+        if (g.tier) setTierState(g.tier);
         dispatch({ type: "load_history", thread: threadKey, messages });
       })
       .catch(() => {/* 首次失败静默——发消息时会再暴露 */});
@@ -365,12 +372,16 @@ export default function ChatDock({
 
   // ？浮层：外点/Esc 关闭（非模态，不遮全屏）
   useEffect(() => {
-    if (!helpOpen) return;
+    if (!helpOpen && !modeOpen) return;
     const onDown = (e: MouseEvent) => {
-      if (!helpAnchorRef.current?.contains(e.target as Node)) setHelpOpen(false);
+      if (helpOpen && !helpAnchorRef.current?.contains(e.target as Node)) setHelpOpen(false);
+      if (modeOpen && !modeAnchorRef.current?.contains(e.target as Node)) setModeOpen(false);
     };
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") setHelpOpen(false);
+      if (e.key === "Escape") {
+        setHelpOpen(false);
+        setModeOpen(false);
+      }
     };
     document.addEventListener("mousedown", onDown);
     document.addEventListener("keydown", onKey);
@@ -378,7 +389,7 @@ export default function ChatDock({
       document.removeEventListener("mousedown", onDown);
       document.removeEventListener("keydown", onKey);
     };
-  }, [helpOpen]);
+  }, [helpOpen, modeOpen]);
 
   const adoptNotifier = useCallback(
     (cardId: string) => dispatch({ type: "adopt_card", cardId }),
@@ -746,13 +757,6 @@ export default function ChatDock({
                   <span>上下文紧张时用，保留要点。</span>
                 </div>
               </div>
-              <div className="cd-help-cmd">
-                <code>/mode</code>
-                <div>
-                  <b>切授权</b>
-                  <span>/mode confirm｜book｜all——每写必确认/本书放行/全部放行。</span>
-                </div>
-              </div>
               <p className="cd-help-note">
                 <i aria-hidden="true" />
                 <span>上下文到 80% 时，我会提醒你压缩。</span>
@@ -769,6 +773,44 @@ export default function ChatDock({
           >
             ?
           </button>
+        </div>
+        <div className="cd-mode-anchor" ref={modeAnchorRef}>
+          <button
+            type="button"
+            className="cd-mode-chip"
+            data-testid="mode-chip"
+            aria-expanded={modeOpen}
+            onClick={() => setModeOpen((v) => !v)}
+            title="授权模式：AI 写回前要不要先问你"
+          >
+            <span className="cd-mode-dot" aria-hidden />
+            {TIER_LABEL[tier] ?? tier}
+            <span className="cd-mode-caret" aria-hidden>▾</span>
+          </button>
+          {modeOpen && (
+            <div className="cd-mode-pop" data-testid="mode-pop" role="menu">
+              <p className="cd-mode-head">授权模式</p>
+              {Object.entries(TIER_LABEL).map(([key, label]) => (
+                <button
+                  key={key}
+                  type="button"
+                  role="menuitemradio"
+                  aria-checked={tier === key}
+                  className={`cd-mode-item${tier === key ? " on" : ""}`}
+                  data-testid={`mode-item-${key}`}
+                  onClick={() => {
+                    setModeOpen(false);
+                    setTierState(key);
+                    setPermissionTier(projectId, key as "confirm_each" | "allow_book" | "allow_all")
+                      .catch(() => dispatch({ type: "gate", thread: threadKey, text: "档位切换失败，稍后再试。" }));
+                  }}
+                >
+                  <span className="cd-mode-check" aria-hidden>{tier === key ? "✓" : ""}</span>
+                  {label}
+                </button>
+              ))}
+            </div>
+          )}
         </div>
         <input
           value={input}
@@ -793,6 +835,12 @@ export default function ChatDock({
     </div>
   );
 }
+
+const TIER_LABEL: Record<string, string> = {
+  confirm_each: "每写必确认",
+  allow_book: "本书内放行",
+  allow_all: "全部放行",
+};
 
 const CARD_TITLES: Record<string, string> = {
   struct: "草案卡",
