@@ -62,3 +62,13 @@ SSE 词表零增删：run_start/step_start/step_end/thinking/narration/artifact/
 ## Open Questions
 
 - openrouter 兼容系供应商（openai-compat 自配 Key）原生 FC 支持度参差——能力矩阵初版按 vendor 白名单（glm/openai/anthropic 已知支持；其余默认 text）
+
+## 附录：spike 实测结论（2026-11-16，走查栈真 GLM，tasks 1.1/1.2 收口）
+
+- 端点：`open.bigmodel.cn/api/coding/paas/v4`（openai 兼容）＋ `glm-5.3-flash`，`tools` 参数原生支持
+- ①单工具调用 **PASS**：finish=tool_calls；中文参数（书名「血夜三案」/题材「西式奇幻」）无编码问题；arguments 合法 JSON
+- ②多步串联 **PASS**：工具结果回填后连续 2 次调用后自然收口（finish=stop＋正文答案）
+- ③中文长文本参数 **PASS**：429 字中文正文完整保真传入 content 参数（截断/转义零损伤）
+- **判定：三场景全过→native 全量可切**（无部分服从边界需记录）
+- 实现注意：①`reasoning_content` 与 `tool_calls` 并行流出（思考流 145~1323 字/轮）——native 分支须把 reasoning 映射成 thinking 事件（D4 既有口径）；②流式增量按 index 聚合 tool_calls（name/arguments 分片拼接）；③finish_reason 原生语义（tool_calls/stop）可直接当步边界
+- spike 脚本：`/tmp/fc_spike.py`（docker cp 进走查容器跑；GLM 配置自走查库 api_configs 行＋app_meta fernet_key 解密）
