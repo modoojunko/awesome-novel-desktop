@@ -141,8 +141,10 @@ class AgentLoop:
                 step_no += 1
                 self.result.steps = step_no
 
-                # ── compact 判定（估算 tokens ≥ 触发线才做；build 失败降级 trim）──
-                await self._maybe_compact()
+                # ── compact 判定（估算 tokens ≥ 触发线才做；失败重试一次降 trim）──
+                notice = await self._maybe_compact()
+                if notice:
+                    yield {"type": "narration", "text": notice}
 
                 # ── 一步：流式调用（thinking 实时透传；正文增量攒全量）─────────
                 action, retry_left, stream_error = None, 1, ""
@@ -310,13 +312,20 @@ class AgentLoop:
                 }
 
     # -- compact ----------------------------------------------------------------
-    async def _maybe_compact(self) -> None:
+    async def _maybe_compact(self) -> str:
+        """自动压缩（openworker engine._compact_now 同口径）：keep 只留触发线的
+        KEEP_RECENT_FRACTION 份；summarizer 失败重试一次再降级裁剪。返回作家可见
+        回执（视图没变＝空串，不空发）。"""
         messages, tokens_est = build_outbound_window(
             self.transcript, compaction_state=self.compaction_state
         )
         if not compact_mod.should_compact(tokens_est, self.context_window):
-            return
+            return ""
         prior = self.compaction_state
+        keep = int(
+            compact_mod.KEEP_RECENT_FRACTION
+            * compact_mod.trigger_tokens(self.context_window)
+        )
 
         async def _complete(system: str, user_text: str) -> str:
             return await self.client.chat(
@@ -327,20 +336,35 @@ class AgentLoop:
                 operation="assistant_compact",
             )
 
-        try:
-            state = await compact_mod.build_state(
+        async def _build():
+            return await compact_mod.build_state(
                 messages,
                 complete_fn=_complete,
-                keep_tokens=compact_mod.trigger_tokens(self.context_window),
+                keep_tokens=keep,
                 prior=prior,
                 model_used=self.cfg.model_alias,
             )
-            if state is None:
-                return
-        except Exception:  # 压缩失败降级裁最旧（含上下文溢出 400；BLE001 豁免）
+
+        state = None
+        failed = False
+        for _attempt in range(2):  # 首试＋无条件单次重试（openworker 同款）
+            try:
+                state = await _build()
+                failed = False
+                break
+            except Exception:  # 含上下文溢出 400；BLE001 豁免
+                failed = True
+        if state is not None:
+            self.compaction_state = state
+            if self.on_compaction is not None:
+                await self.on_compaction(state)
+            return "上下文快满了，我把更早的对话收进了摘要——细节需要时会自动重读。"
+        if failed:
             state = compact_mod.trim_state(messages, prior=prior)
             if state is None:
-                return
-        self.compaction_state = state
-        if self.on_compaction is not None:
-            await self.on_compaction(state)
+                return ""
+            self.compaction_state = state
+            if self.on_compaction is not None:
+                await self.on_compaction(state)
+            return "摘要没压成，我把最旧的轮次裁掉了——需要更早的细节会自动重读。"
+        return ""

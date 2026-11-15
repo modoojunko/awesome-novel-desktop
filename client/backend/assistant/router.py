@@ -112,6 +112,10 @@ async def _stream_compact(
 
     client = await get_ai_client_for_novel(project.id)
     model_used = client.resolve("haiku")
+    # openworker engine._compact_now 同口径：keep 只留触发线的 KEEP_RECENT_FRACTION 份
+    keep = int(
+        compact_mod.KEEP_RECENT_FRACTION * compact_mod.trigger_tokens(None)
+    )
 
     async def _complete(system: str, user_text: str) -> str:
         return await client.chat(
@@ -120,35 +124,45 @@ async def _stream_compact(
             max_tokens=3_000, operation="assistant_compact_manual",
         )
 
-    try:
-        state = await compact_build(
+    async def _build():
+        return await compact_build(
             transcript, complete_fn=_complete,
-            keep_tokens=compact_mod.trigger_tokens(None), prior=prior,
-            model_used=model_used,
+            keep_tokens=keep, prior=prior, model_used=model_used,
         )
+
+    state = None
+    failed = False
+    for _attempt in range(2):  # 首试＋无条件单次重试（openworker 同款）
+        try:
+            state = await _build()
+            failed = False
+            break
+        except Exception:  # noqa: BLE001——压缩失败降级裁剪（与自动压缩同政策）
+            failed = True
+    if state is not None:
+        await session_store.save_compaction_state(db, session.id, state)
+        after = est_tokens(
+            [
+                {"role": m.get("role"), "content": str(m.get("content", ""))}
+                for m in compact_mod.apply_to_outbound(transcript, state)
+                if m.get("role") in ("user", "assistant")
+            ]
+        )
+        reply = (
+            f"已压缩——更早的轮次收进了摘要，上下文从约 {tokens_est // 1000}K 降到约 {after // 1000}K。"
+            "早前的细节需要时会自动重读。"
+        )
+        return _stream_command_reply(db, project, user, session, page, reply)
+    if failed:
+        # openworker 口径：重试仍败→裁剪最旧（摘要不可用也要让上下文回落）
+        state = compact_trim(transcript, prior=prior)
         if state is None:
             reply = "这一页的对话还很短，不用压缩。"
             return _stream_command_reply(db, project, user, session, page, reply)
-        how = "摘要压缩"
-    except Exception:  # noqa: BLE001——压缩失败降级裁剪（与自动压缩同政策）
-        state = compact_trim(transcript, prior=prior)
-        if state is None:
-            reply = "这次压缩没成功——会话还在，稍后再试一次。"
-            return _stream_command_reply(db, project, user, session, page, reply)
-        how = "裁剪最旧"
-
-    after = est_tokens(
-        [
-            {"role": m.get("role"), "content": str(m.get("content", ""))}
-            for m in compact_mod.apply_to_outbound(transcript, state)
-            if m.get("role") in ("user", "assistant")
-        ]
-    )
-    await session_store.save_compaction_state(db, session.id, state)
-    reply = (
-        f"已压缩（{how}）——会话上下文从约 {tokens_est // 1000}K tokens 降到约 {after // 1000}K，"
-        "早前的细节需要时会自动重读。"
-    )
+        await session_store.save_compaction_state(db, session.id, state)
+        reply = "摘要没压成，我把最旧的轮次裁掉了——需要更早的细节会自动重读。"
+        return _stream_command_reply(db, project, user, session, page, reply)
+    reply = "这一页的对话还很短，不用压缩。"
     return _stream_command_reply(db, project, user, session, page, reply)
 
 
