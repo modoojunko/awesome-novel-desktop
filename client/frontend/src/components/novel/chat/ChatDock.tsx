@@ -19,6 +19,7 @@ import type { LandingView } from "@/lib/novelStage";
 import { useFeature } from "@/hooks/useTier";
 import type { FeatureKey } from "@/lib/features";
 import { useChatSession, type ChatMessage } from "@/hooks/useChatSession";
+import ChatMarkdown from "./ChatMarkdown";
 import "./chat.css";
 
 interface ChatDockProps {
@@ -139,6 +140,57 @@ function CardBody({ kind, payload }: { kind: string; payload: unknown }) {
 function _clip(text: string, budget: number): string {
   if (text.length <= budget) return text;
   return `${text.slice(0, budget - 1)}…`;
+}
+
+// 长文折叠（移植自 OpenWorker Transcript.tsx ClampedUserText，MIT）：作家长粘贴
+// 会吞掉对话记录——超 1200 字截断＋展开/收起钮，全文仍完整发给模型。
+const USER_CLAMP_CHARS = 1200;
+
+function ClampedText({ text }: { text: string }) {
+  const [open, setOpen] = useState(false);
+  if (text.length <= USER_CLAMP_CHARS) return <>{text}</>;
+  return (
+    <>
+      {open ? text : text.slice(0, USER_CLAMP_CHARS).trimEnd() + "…"}
+      <button
+        type="button"
+        className="cd-clamp-toggle"
+        onClick={() => setOpen((o) => !o)}
+      >
+        {open ? "收起" : "展开全文"}
+      </button>
+    </>
+  );
+}
+
+// hover 复制条（移植自 OpenWorker Transcript.tsx BubbleMeta，MIT）：零高度绝对
+// 定位挂在气泡下缘——hover 显形不推移布局；复制成功才打勾（WebKit 静默拒绝
+// 不谎报成功）。
+function CopyStrip({ text, align }: { text: string; align: "left" | "right" }) {
+  const [copied, setCopied] = useState(false);
+  const copy = () => {
+    navigator.clipboard
+      ?.writeText(text)
+      .then(() => {
+        setCopied(true);
+        window.setTimeout(() => setCopied(false), 1200);
+      })
+      .catch(() => {});
+  };
+  return (
+    <div className="cd-copy-strip">
+      <div className={`cd-copy ${align === "right" ? "right" : "left"}`}>
+        <button
+          type="button"
+          className="cd-copy-btn"
+          data-testid={copied ? undefined : "chat-copy"}
+          onClick={copy}
+        >
+          {copied ? "已复制 ✓" : "复制"}
+        </button>
+      </div>
+    </div>
+  );
 }
 
 export default function ChatDock({
@@ -564,7 +616,10 @@ export default function ChatDock({
           const isUser = m.role === "user";
           return (
             <div key={m.id} className={`cd-msg ${isUser ? "user" : "assistant"}`}>
-              <div className="cd-bubble">{m.text}</div>
+              <div className={`cd-bubble${isUser ? "" : " md"}`}>
+                {isUser ? <ClampedText text={m.text} /> : <ChatMarkdown text={m.text} />}
+                <CopyStrip text={m.text} align={isUser ? "right" : "left"} />
+              </div>
               {/* TraceFolded（批E TraceFolded 组件语义内联）：run 收口后工具步折叠可回看 */}
               {(m.steps.length > 0 || m.thinking) && (
                 <details className="cd-trace" data-testid="chat-trace">
