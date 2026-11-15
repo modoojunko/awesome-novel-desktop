@@ -643,11 +643,14 @@ test.describe("chat-dock 界面测试（c-writing-agent 批G）", () => {
     await expect(page.getByTestId("chat-chip-draft_chapter_split")).toBeVisible({ timeout: 8000 });
     await page.getByRole("tab", { name: /正文/ }).click();
     await expect(page.getByTestId("chat-chip-zhuque")).toBeVisible({ timeout: 8000 });
-    // 朱雀 chip = 展开保活工具面板（朱雀行一键可达）
+    // 朱雀 chip 直达检测（工具面板退役——chip 即入口）：拦截送检请求为证
+    let zqHits = 0;
+    await page.route("**/zhuque-check", (r) => {
+      zqHits += 1;
+      r.fulfill({ status: 400, contentType: "application/json", body: JSON.stringify({ detail: "先写正文" }) });
+    });
     await page.getByTestId("chat-chip-zhuque").click();
-    await expect(page.getByTestId("ch-toolbox-summary")).toBeVisible();
-    // 工具面板展开＝朱雀/人味/案头行一键可达（行级深检留真机走查 D 段）
-    await expect(page.getByText("章节工具面板")).toBeVisible();
+    await expect.poll(() => zqHits).toBeGreaterThan(0);
     await restore();
   });
 

@@ -10,8 +10,6 @@ import {
   adoptAssistantMessage,
   approveGate,
   loadAssistantSession,
-  resetAssistantSession,
-  setPermissionTier,
   streamAssistantChat,
 } from "@/lib/chatApi";
 import { api } from "@/lib/api";
@@ -624,21 +622,8 @@ export default function ChatDock({
         </button>
       </div>
       <div className="chatdock-foot">
-        <button
-          type="button"
-          className="cd-reset"
-          onClick={() => {
-            void resetAssistantSession(projectId, threadKey)
-              .then(() => dispatch({ type: "clear_thread", thread: threadKey }))
-              .catch(() =>
-                dispatch({ type: "gate", thread: threadKey, text: "重置失败，稍后再试。" }),
-              );
-          }}
-        >
-          清空会话
-        </button>
-        {onUpgrade && <button type="button" className="cd-reset" onClick={() => onUpgrade?.()}>查看档位</button>}
         <span className="cd-dim">只做这本书和你的知识库内的事——其他的我没能力做。</span>
+        <span className="cd-dim cd-cmds">「/new」开新对话 ·「/compact」压缩历史</span>
       </div>
     </div>
   );
@@ -657,8 +642,3 @@ function inputPlaceholder(page: string): string {
   return "想改哪里、要写什么，直接说…";
 }
 
-function setPermissionTierStub(): void {
-  // 档位设置入口在设置页（writer profile 面板，批F）；此处保留引用防 tree-shake
-  void setPermissionTier;
-}
-void setPermissionTierStub;

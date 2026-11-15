@@ -23,7 +23,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from assistant import identity as identity_mod
 from assistant import session_store, write_gate
-from assistant.context import build_book_brief, build_page_note
+from assistant import compact as compact_mod
+from assistant.context import build_book_brief, build_outbound_window, build_page_note
 from assistant.loop import AgentLoop, LoopConfig
 from assistant.prompts import build_system_prompt
 from assistant.tools import ToolContext, _clip
@@ -54,6 +55,92 @@ def _history_transcript(rows: list[Any], exclude_message_id: str = "") -> list[d
         if m.role in ("user", "assistant") and m.content:
             out.append({"role": m.role, "content": m.content})
     return out
+
+
+async def _stream_command_reply(
+    db: AsyncSession,
+    project: Novel,
+    user: dict,
+    session: AssistantSession,
+    page: str,
+    reply: str,
+) -> AsyncIterator[str]:
+    """斜杠命令的轻回复流（narration＋run_end 收口；前端 sawTerminal 依赖终态）。"""
+    await session_store.append_message(
+        db, session.id, novel_id=project.id, role="assistant",
+        content=reply, page=page,
+    )
+    yield _sse({"type": "narration", "text": reply})
+    yield _sse({"type": "run_end", "runId": "cmd", "steps": 0, "toolCalls": 0,
+                "degraded": False, "error": ""})
+
+
+async def _stream_compact(
+    db: AsyncSession,
+    project: Novel,
+    user: dict,
+    session: AssistantSession,
+    page: str,
+) -> AsyncIterator[str]:
+    """「/compact」手动压缩：无条件走 build_state（阈值闸旁路），失败降级 trim。"""
+    from ai_client import get_ai_client_for_novel
+    from assistant.compact import (
+        build_state as compact_build,
+        estimate_tokens as est_tokens,
+        remap_boundary,
+        trim_state as compact_trim,
+    )
+
+    rows = await session_store.load_messages(db, session.id)
+    transcript = _history_transcript(rows)
+    prior = await session_store.load_compaction_state(db, session)
+    prior = remap_boundary(prior, transcript)
+    messages, tokens_est = build_outbound_window(transcript, compaction_state=prior)
+
+    if tokens_est < 2_000:
+        reply = "这一页的对话还很短，不用压缩。"
+        return _stream_command_reply(db, project, user, session, page, reply)
+
+    client = await get_ai_client_for_novel(project.id)
+    model_used = client.resolve("haiku")
+
+    async def _complete(system: str, user_text: str) -> str:
+        return await client.chat(
+            model="haiku", system=system,
+            messages=[{"role": "user", "content": user_text}],
+            max_tokens=3_000, operation="assistant_compact_manual",
+        )
+
+    try:
+        state = await compact_build(
+            transcript, complete_fn=_complete,
+            keep_tokens=compact_mod.trigger_tokens(None), prior=prior,
+            model_used=model_used,
+        )
+        if state is None:
+            reply = "这一页的对话还很短，不用压缩。"
+            return _stream_command_reply(db, project, user, session, page, reply)
+        how = "摘要压缩"
+    except Exception:  # noqa: BLE001——压缩失败降级裁剪（与自动压缩同政策）
+        state = compact_trim(transcript, prior=prior)
+        if state is None:
+            reply = "这次压缩没成功——会话还在，稍后再试一次。"
+            return _stream_command_reply(db, project, user, session, page, reply)
+        how = "裁剪最旧"
+
+    after = est_tokens(
+        [
+            {"role": m.get("role"), "content": str(m.get("content", ""))}
+            for m in compact_mod.apply_to_outbound(transcript, state)
+            if m.get("role") in ("user", "assistant")
+        ]
+    )
+    await session_store.save_compaction_state(db, session.id, state)
+    reply = (
+        f"已压缩（{how}）——会话上下文从约 {tokens_est // 1000}K tokens 降到约 {after // 1000}K，"
+        "早前的细节需要时会自动重读。"
+    )
+    return _stream_command_reply(db, project, user, session, page, reply)
 
 
 async def _stream_chat(
@@ -432,6 +519,25 @@ async def assistant_chat(
     session = await session_store.get_or_create_session(
         db, user_id=user["id"], novel_id=project.id, thread_key=thread
     )
+
+    # 斜杠命令（coding agent 命令行习惯，boss 拍板 2026-11-15）：命令本身不进对话历史
+    if message == "/new":
+        await session_store.reset_session(db, session.id)
+        return StreamingResponse(
+            _stream_command_reply(
+                db, project, user, session, page,
+                "已开新对话——之前的内容都清掉了，想从哪儿说起？",
+            ),
+            media_type="text/event-stream",
+            headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+        )
+    if message == "/compact":
+        return StreamingResponse(
+            await _stream_compact(db, project, user, session, page),
+            media_type="text/event-stream",
+            headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+        )
+
     user_row = await session_store.append_message(
         db,
         session.id,

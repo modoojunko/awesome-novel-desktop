@@ -9,7 +9,7 @@ import ChapterWorkspace from "@/components/novel/workbench/ChapterWorkspace";
 import SettingsView from "@/components/novel/workbench/SettingsView";
 import PreviewView from "@/components/novel/workbench/PreviewView";
 import ManuscriptDownloadModal from "@/components/novel/workbench/ManuscriptDownloadModal";
-import Rail, { type RailChapterData } from "@/components/novel/workbench/Rail";
+import type { RailChapterData } from "@/components/novel/workbench/Rail";
 import ChatDock from "@/components/novel/chat/ChatDock";
 import PersonaModal from "@/components/novel/chat/PersonaModal";
 import ProfileModal from "@/components/novel/chat/ProfileModal";
@@ -23,6 +23,7 @@ import type { VolumeExpandDraft } from "@/lib/volumePlanApi";
 import type { ModelSelection } from "@/types/api-config";
 import { AiModal, RegenConfirmModal } from "@/components/novel/workbench/modals";
 import UpgradeModal from "@/components/novel/UpgradeModal";
+import { runZhuqueCheck } from "@/hooks/useZhuqueCheck";
 import AcctMenu from "@/components/AcctMenu";
 import UpdateNotice from "@/components/UpdateNotice";
 import ExpiryNoticeBar from "@/components/ExpiryNoticeBar";
@@ -174,8 +175,6 @@ export default function NovelWorkspace() {
   const [chatStreaming, setChatStreaming] = useState(false);
   const chatStreamingRef = useRef(false);
   const [settingsPanel, setSettingsPanel] = useState<string | undefined>(undefined);
-  // 章级工具面板折叠态（c-writing-agent 收编形态：默认折叠，chips/summary 展开）
-  const [toolboxOpen, setToolboxOpen] = useState(false);
   // 窄屏抽屉开关（步⑤：≤840px 时右栏变抽屉，FAB 唤出；桌面恒开）
   const [assistantOpen, setAssistantOpen] = useState(true); // 桌面恒开；窄屏由 sync 纠正
   const [assistantNarrow, setAssistantNarrow] = useState(false);
@@ -1421,8 +1420,8 @@ export default function NovelWorkspace() {
               // 章级六类入口经 railData 回调分派到 ChapterWorkspace 既有弹窗/检测流
               // （回调随 onRailData 上抛，零新写回路径）
               if (action === "ai_write") requestAi({ kind: "write" });
-              // 章节工具面板（六类检测/遥测行收编形态）：展开折叠面板
-              if (action === "chapter_toolbox") setToolboxOpen(true);
+              // 朱雀检测直达（工具面板退役后 chip 即入口；权益/Key 分流在 hook 内）
+              if (action === "zhuque" && chapterRef) void runZhuqueCheck(projectId, chapterRef);
               const rd = railData;
               if (action === "plot_draw") rd?.onPlotDraw?.();
               if (action === "cast_review") rd?.onCastReview?.();
@@ -1433,34 +1432,6 @@ export default function NovelWorkspace() {
               if (action === "seam") proseRef.current?.openSeamWizard?.();
             }}
           />
-          {/* 章级工具面板（c-writing-agent 收编形态）：AiAssistPanel 全量保活（六类
-              检测/朱雀四态/遥测行零回归），默认折叠、chips 一键展开——能力等价收编。
-              只在写作视图＋选中章出现（真机走查判例 2026-11-15：曾只看 chapterRef，
-              设定页带着章选择也渲染，穿帮） */}
-          {view === "workbench" && chapterRef && (
-            <details className="ch-toolbox" open={toolboxOpen}>
-              <summary data-testid="ch-toolbox-summary">章节工具面板</summary>
-              <Rail
-                mode="chapter"
-                projectId={projectId}
-                isPro={isPro}
-                onUpgrade={onUpgrade}
-                proseRef={proseRef}
-                aiState={aiState}
-                data={railData ? { ...railData, staleDownstream } : undefined}
-                volumeData={volumeRailData}
-                railIdle={railIdle}
-                genreLabel={genreLabel}
-                onPlanVolume={openPlanVolume}
-                onSplitAi={() => openChapterPlan("ai")}
-                onGoOutline={() => setGoOutlineSeq((n) => n + 1)}
-                onPacingChanged={handlePacingChanged}
-                onSelectVolume={handleSelectVolume}
-                autoCheckSeq={autoCheck.seq}
-                onAiWrite={() => requestAi({ kind: "write" })}
-              />
-            </details>
-          )}
         </aside>
       </div>
         {assistantNarrow && !assistantOpen && (

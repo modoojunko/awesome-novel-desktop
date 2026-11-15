@@ -114,7 +114,14 @@ const REGISTRATIONS: ChatPageRegistration[] = [
           { key: "ai_write", label: "生成正文", command: "", open: "ai_write", feature: "ai-generate" },
           { key: "renwei", label: "人味检测", command: "", open: "renwei" },
           { key: "seam", label: "接上一章", command: "", open: "seam" },
-          { key: "zhuque", label: "朱雀检测", command: "", open: "chapter_toolbox", feature: "ai-detect" },
+          {
+            key: "zhuque",
+            label: "朱雀检测",
+            command: "",
+            open: "zhuque",
+            feature: "ai-detect",
+            hint: "整章送腾讯朱雀测 AI 味；Key 在「模型配置 → 朱雀」配置",
+          },
         ],
         settings: [
           { key: "check_consistency", label: "体检", command: "给本章做一次体检。" },

@@ -481,3 +481,6 @@
   color: var(--muted); margin-bottom: 1px;
 }
 .cd-draft-row span { font-size: 12.5px; line-height: 1.65; word-break: break-word; }
+
+/* 脚部命令提示（coding agent 命令行习惯） */
+.cd-cmds { margin-left: auto; flex: none; }
