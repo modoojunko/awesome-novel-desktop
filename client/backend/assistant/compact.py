@@ -592,6 +592,11 @@ def remap_boundary(
     boundary = hit + 2 if hit + 2 <= len(messages) else len(messages)
     if boundary <= 0:
         return None
+    # native 形态护栏（c-agent-harness 4.2）：assistant(tool_calls) 与其 role=tool
+    # 结果行同生共死——边界落在 tool 行上＝尾段开头是孤儿 tool 消息（API 400）。
+    # 推进到最近的非 tool 行（多调用批次逐行越过）。
+    while boundary < len(messages) and messages[boundary].get("role") == "tool":
+        boundary += 1
     return CompactionState(
         boundary_index=boundary,
         summary_text=state.summary_text,

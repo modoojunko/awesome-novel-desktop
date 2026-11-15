@@ -74,9 +74,28 @@ def build_outbound_window(
     *,
     compaction_state: Any,
     keep_tokens: int | None = None,
-) -> tuple[list[dict[str, str]], int]:
-    """L3：转写 → 外发窗口（compact 应用）＋返回估算 tokens（供下一步触发判定）。"""
+    native: bool = False,
+) -> tuple[list[dict[str, Any]], int]:
+    """L3：转写 → 外发窗口（compact 应用）＋返回估算 tokens（供下一步触发判定）。
+
+    native=True（c-agent-harness tasks 4.2）：保留 openai 原生形态——assistant 的
+    tool_calls 与 role=tool 结果行原样携带（API 校验链必需）；文本协议口径不变
+    （只留 user/assistant 的 role+content）。
+    """
     outbound = apply_to_outbound(transcript, compaction_state)
+    if native:
+        clean: list[dict[str, Any]] = []
+        for m in outbound:
+            role = str(m.get("role"))
+            if role not in ("user", "assistant", "tool"):
+                continue
+            entry: dict[str, Any] = {"role": role, "content": m.get("content") or ""}
+            if role == "assistant" and m.get("tool_calls"):
+                entry["tool_calls"] = m["tool_calls"]
+            if role == "tool":
+                entry["tool_call_id"] = str(m.get("tool_call_id") or "")
+            clean.append(entry)
+        return clean, _estimate_tokens(clean)
     clean = [
         {"role": str(m.get("role")), "content": str(m.get("content", ""))}
         for m in outbound
