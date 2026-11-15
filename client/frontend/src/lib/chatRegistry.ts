@@ -148,11 +148,34 @@ const REGISTRATIONS: ChatPageRegistration[] = [
     id: "settings.default",
     label: "初始设定",
     match: (s) => s.view === "advanced-settings",
-    greeting: () => null, // 具体面板注册未覆盖时不主动开口（批F 逐面板补）
-    chips: () => [
-      { key: "draft_arc", label: "AI 填 · 起草主线", command: "帮我起草主线。" },
-      { key: "check_consistency", label: "主线自检", command: "做一次主线自检。" },
-    ],
+    greeting: () => null,
+    // 设定卡收编（boss 拍板 2026-11-15）：16 行 AI 能力走 agent——chips 发
+    // 自然语言，agent 识别调对应工具，产物卡回对话过目（写回走前端采纳）
+    chips: (s) => {
+      const byPanel: Record<string, ChatChip[]> = {
+        genre: [
+          { key: "settings_genre_core_promise", label: "AI 填 · 主要看什么", command: "给我几个「主要看什么」的核心看点候选。" },
+          { key: "settings_genre_forbidden_list", label: "AI 填 · 绝对禁止", command: "这本书绝不出现什么？给我红线清单候选。" },
+          { key: "settings_genre_cost_ratio", label: "AI 填 · 吃苦指数", command: "主角得到好处要付多大代价？给吃苦指数建议。" },
+          { key: "settings_genre_battlefield", label: "AI 填 · 本小说斗什么", command: "全书主要斗的是什么？给对抗物候选。" },
+        ],
+        intro: [
+          { key: "settings_intro", label: "AI 起草简介", command: "按三问帮我起草简介，出三条候选。" },
+        ],
+        foreshadow: [
+          { key: "settings_hooks_draft", label: "起草伏笔", command: "按我的简介＋题材＋世界，起草几条伏笔候选，配收束章。" },
+          { key: "settings_hooks_check", label: "埋坑体检", command: "扫一遍活跃伏笔和已写章纲，埋了没还的点名。" },
+        ],
+        arc: [
+          { key: "draft_arc", label: "AI 填 · 起草主线", command: "帮我起草主线。" },
+          { key: "check_consistency", label: "主线自检", command: "做一次主线自检。" },
+        ],
+      };
+      return byPanel[s.settingPanel ?? ""] ?? [
+        { key: "draft_arc", label: "AI 填 · 起草主线", command: "帮我起草主线。" },
+        { key: "check_consistency", label: "主线自检", command: "做一次主线自检。" },
+      ];
+    },
   },
 ];
 

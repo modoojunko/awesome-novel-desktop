@@ -642,3 +642,6 @@
 .cd-mode-item:hover { background: rgba(0, 0, 0, .05); }
 .cd-mode-item.on { color: var(--accent); font-weight: 600; }
 .cd-mode-check { width: 12px; flex: none; text-align: center; font-size: 11px; }
+
+/* 设定字段 AI 卡（value/result 结构化） */
+.cd-settings { white-space: pre-wrap; font-size: 12.5px; line-height: 1.7; word-break: break-word; }

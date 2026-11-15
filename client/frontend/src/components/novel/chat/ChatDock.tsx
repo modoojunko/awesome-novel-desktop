@@ -96,6 +96,24 @@ function CardBody({ kind, payload }: { kind: string; payload: unknown }) {
       </div>
     );
   }
+  // 设定字段 AI 卡（settings_* 工具）：value/result 结构化渲染，禁裸 JSON
+  if (data.value != null || data.result != null) {
+    const body = data.value != null ? data.value : data.result;
+    const render = (v: unknown): string => {
+      if (v == null) return "";
+      if (typeof v === "string") return v;
+      try {
+        return JSON.stringify(
+          v,
+          (k, vv) => (typeof vv === "string" ? vv : vv),
+          1,
+        ).slice(0, 900);
+      } catch {
+        return String(v);
+      }
+    };
+    return <div className="cd-md cd-settings">{render(body)}</div>;
+  }
   // 卷纲草稿（draft_volume_expand 卡）：字段化渲染，禁裸 JSON
   if (data.draft && typeof data.draft === "object") {
     const d = data.draft as Record<string, unknown>;

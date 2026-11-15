@@ -380,6 +380,12 @@ from assistant.tools_kb import KB_TOOLS  # noqa: E402
 
 TOOL_REGISTRY: tuple[Tool, ...] = TOOL_REGISTRY + KB_TOOLS
 
+# 设定字段 AI 工具并入（boss 拍板 2026-11-15：设定卡 16 行能力走 agent——
+# agent 识别任务→调工具→产物卡回对话；写回仍由作家过目后在前端完成）
+from assistant.tools_settings import SETTINGS_FIELD_TOOLS  # noqa: E402
+
+TOOL_REGISTRY: tuple[Tool, ...] = TOOL_REGISTRY + SETTINGS_FIELD_TOOLS
+
 _TOOLS_BY_NAME: dict[str, Tool] = {t.name: t for t in TOOL_REGISTRY}
 
 

@@ -368,8 +368,9 @@ describe("空书起手链（c-0vol0ch-empty-state）", () => {
     expect(screen.queryByTestId("pick-modal")).toBeNull();
     fireEvent.click(screen.getByRole("button", { name: /先不规划/ }));
     // 规划台属设定域（既有行为：打开即切设定视图）——dock 的 scope 跟随视图换装
-    // （spec §每页注册制能力盘）；旧抽卡入口随卷页收编退役，铺卷走对话出产物卡
-    expect(screen.getByTestId("chat-chip-draft_arc")).toBeTruthy();
+    // （spec §每页注册制能力盘）；旧抽卡入口随卷页收编退役，铺卷走对话出产物卡。
+    // 设定卡收编（boss 拍板 2026-11-15）：chips 按面板换装——空书落题材面板＝genre 组
+    expect(screen.getByTestId("chat-chip-settings_genre_core_promise")).toBeTruthy();
     expect(screen.queryByTestId("chat-chip-draft_volume_expand")).toBeNull();
     expect(screen.queryByTestId("plan-first-volume")).toBeNull();
     expect(screen.queryByTestId("pick-modal")).toBeNull();
