@@ -156,6 +156,9 @@ export default function ChatDock({
   const messages = state.threads[threadKey] ?? [];
   /** 上下文窗口（/session 下发；缺省 128k——compact DEFAULT_CONTEXT_WINDOW 同值） */
   const [ctxWindow, setCtxWindow] = useState(128_000);
+  /** 脚部 ？帮助浮层（非模态：外点/Esc/再点关闭——boss 拍板 2026-11-15 长文收进 ？） */
+  const [helpOpen, setHelpOpen] = useState(false);
+  const helpAnchorRef = useRef<HTMLDivElement | null>(null);
   // 本地实时估算（与后端 estimate_tokens 同口径：序列化字符/4）
   const ctxEst = useMemo(() => {
     let chars = 0;
@@ -289,6 +292,23 @@ export default function ChatDock({
     const t = setInterval(() => setSecs((s) => s + 1), 1000);
     return () => clearInterval(t);
   }, [state.runActive]);
+
+  // ？浮层：外点/Esc 关闭（非模态，不遮全屏）
+  useEffect(() => {
+    if (!helpOpen) return;
+    const onDown = (e: MouseEvent) => {
+      if (!helpAnchorRef.current?.contains(e.target as Node)) setHelpOpen(false);
+    };
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setHelpOpen(false);
+    };
+    document.addEventListener("mousedown", onDown);
+    document.addEventListener("keydown", onKey);
+    return () => {
+      document.removeEventListener("mousedown", onDown);
+      document.removeEventListener("keydown", onKey);
+    };
+  }, [helpOpen]);
 
   const adoptNotifier = useCallback(
     (cardId: string) => dispatch({ type: "adopt_card", cardId }),
@@ -651,8 +671,43 @@ export default function ChatDock({
         </button>
       </div>
       <div className="chatdock-foot">
-        <span className="cd-dim">只做这本书和你的知识库内的事——其他的我没能力做。</span>
-        <span className="cd-dim cd-cmds">「/new」开新对话 ·「/compact」压缩历史</span>
+        <div className="cd-help-anchor" ref={helpAnchorRef}>
+          {helpOpen && (
+            <section className="cd-help-pop" data-testid="dock-help-pop" aria-label="助手须知">
+              <h2 className="cd-help-title">助手须知</h2>
+              <p className="cd-help-fence">我只做这本书和你的知识库内的事。其他的，我做不了。</p>
+              <div className="cd-help-divider" aria-hidden="true" />
+              <div className="cd-help-cmd">
+                <code>/new</code>
+                <div>
+                  <b>开新对话</b>
+                  <span>清空当前页签，从头开始。</span>
+                </div>
+              </div>
+              <div className="cd-help-cmd">
+                <code>/compact</code>
+                <div>
+                  <b>压缩会话历史</b>
+                  <span>上下文紧张时用，保留要点。</span>
+                </div>
+              </div>
+              <p className="cd-help-note">
+                <i aria-hidden="true" />
+                <span>上下文到 80% 时，我会提醒你压缩。</span>
+              </p>
+            </section>
+          )}
+          <button
+            type="button"
+            className={`cd-help-btn${helpOpen ? " on" : ""}`}
+            data-testid="dock-help-btn"
+            aria-label="查看助手须知"
+            aria-expanded={helpOpen}
+            onClick={() => setHelpOpen((v) => !v)}
+          >
+            ?
+          </button>
+        </div>
       </div>
     </div>
   );

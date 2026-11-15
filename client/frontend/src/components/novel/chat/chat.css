@@ -498,3 +498,52 @@
 .cd-ctx.hot .cd-ctx-fill { background: #c2703d; }
 .cd-ctx-label { flex: none; font-size: 10.5px; color: var(--muted); white-space: nowrap; }
 .cd-ctx.hot .cd-ctx-label { color: #c2703d; }
+
+/* 脚部 ？帮助（OD 设计稿 assistant-dock-help.html 落地，2026-11-15）：
+   长文收进 ？气泡，非模态上弹、外点/Esc/再点关闭 */
+.cd-help-anchor { position: relative; }
+.cd-help-btn {
+  width: 20px; height: 20px; border-radius: 50%;
+  display: grid; place-items: center;
+  border: 1px solid var(--border); background: var(--surface); color: var(--muted);
+  font-size: 11px; font-weight: 600; line-height: 1;
+  cursor: pointer; padding: 0; position: relative;
+}
+.cd-help-btn::after { content: ""; position: absolute; inset: -6px; border-radius: 50%; }
+.cd-help-btn:hover { border-color: var(--accent); color: var(--accent); }
+.cd-help-btn.on {
+  background: var(--accent); border-color: var(--accent-strong);
+  color: var(--on-accent, #fff);
+}
+.cd-help-pop {
+  position: absolute; left: -10px; bottom: calc(100% + 9px);
+  width: min(280px, calc(100vw - 40px));
+  padding: 14px;
+  background: var(--surface, #fff);
+  border: 1px solid var(--border); border-radius: 12px;
+  box-shadow: 0 16px 34px -22px rgba(0, 0, 0, .42), 0 2px 6px rgba(0, 0, 0, .06);
+  z-index: 30;
+}
+.cd-help-pop::after {
+  content: ""; position: absolute; left: 16px; bottom: -5px;
+  width: 9px; height: 9px; background: var(--surface, #fff);
+  border-right: 1px solid var(--border); border-bottom: 1px solid var(--border);
+  transform: rotate(45deg);
+}
+.cd-help-title { margin: 0 0 6px; font-size: 12.5px; font-weight: 600; color: var(--fg); }
+.cd-help-fence { margin: 0; font-size: 12px; line-height: 1.7; color: var(--muted); }
+.cd-help-divider { height: 1px; background: var(--border); margin: 10px 0; }
+.cd-help-cmd { display: flex; align-items: flex-start; gap: 8px; margin: 8px 0; }
+.cd-help-cmd code {
+  flex: none; font-family: var(--font-mono, monospace); font-size: 10.5px;
+  padding: 2px 7px; border-radius: 6px;
+  background: rgba(0, 0, 0, .05); color: var(--muted);
+}
+.cd-help-cmd b { display: block; font-size: 12px; color: var(--fg); }
+.cd-help-cmd span { font-size: 11px; color: var(--muted); line-height: 1.5; }
+.cd-help-note { margin: 10px 0 0; display: flex; gap: 6px; align-items: center; }
+.cd-help-note i {
+  flex: none; width: 5px; height: 5px; border-radius: 50%;
+  background: var(--accent);
+}
+.cd-help-note span { font-size: 11px; color: var(--muted); }
