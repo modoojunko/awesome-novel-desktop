@@ -335,15 +335,6 @@
   font: inherit;
 }
 
-.chatdock-foot {
-  display: flex;
-  gap: 10px;
-  align-items: center;
-  padding: 6px 12px 10px;
-  font-size: 11px;
-  color: var(--muted);
-}
-
 .cd-reset {
   border: 0;
   background: none;
@@ -501,12 +492,12 @@
 
 /* 脚部 ？帮助（OD 设计稿 assistant-dock-help.html 落地，2026-11-15）：
    长文收进 ？气泡，非模态上弹、外点/Esc/再点关闭 */
-.cd-help-anchor { position: relative; }
+.cd-help-anchor { position: relative; display: grid; place-items: center; }
 .cd-help-btn {
-  width: 20px; height: 20px; border-radius: 50%;
+  width: 22px; height: 22px; border-radius: 50%;
   display: grid; place-items: center;
   border: 1px solid var(--border); background: var(--surface); color: var(--muted);
-  font-size: 11px; font-weight: 600; line-height: 1;
+  font-size: 12px; font-weight: 600; line-height: 1;
   cursor: pointer; padding: 0; position: relative;
 }
 .cd-help-btn::after { content: ""; position: absolute; inset: -6px; border-radius: 50%; }
@@ -516,7 +507,7 @@
   color: var(--on-accent, #fff);
 }
 .cd-help-pop {
-  position: absolute; left: -10px; bottom: calc(100% + 9px);
+  position: absolute; left: -6px; bottom: calc(100% + 9px);
   width: min(280px, calc(100vw - 40px));
   padding: 14px;
   background: var(--surface, #fff);

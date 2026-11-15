@@ -651,27 +651,7 @@ export default function ChatDock({
         </div>
       )}
       <div className="chatdock-composer">
-        <input
-          value={input}
-          placeholder={inputPlaceholder(page)}
-          data-testid="chat-input"
-          onChange={(e) => inputSet(e.target.value)}
-          onKeyDown={(e) => {
-            if (e.key === "Enter" && !sendDisabled) send(input);
-          }}
-        />
-        <button
-          type="button"
-          className="cd-btn primary"
-          data-testid="chat-send"
-          disabled={sendDisabled}
-          onClick={() => send(input)}
-        >
-          发送
-        </button>
-      </div>
-      <div className="chatdock-foot">
-        <div className="cd-help-anchor" ref={helpAnchorRef}>
+        <div className="cd-help-anchor">
           {helpOpen && (
             <section className="cd-help-pop" data-testid="dock-help-pop" aria-label="助手须知">
               <h2 className="cd-help-title">助手须知</h2>
@@ -708,7 +688,26 @@ export default function ChatDock({
             ?
           </button>
         </div>
+        <input
+          value={input}
+          placeholder={inputPlaceholder(page)}
+          data-testid="chat-input"
+          onChange={(e) => inputSet(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === "Enter" && !sendDisabled) send(input);
+          }}
+        />
+        <button
+          type="button"
+          className="cd-btn primary"
+          data-testid="chat-send"
+          disabled={sendDisabled}
+          onClick={() => send(input)}
+        >
+          发送
+        </button>
       </div>
+
     </div>
   );
 }
