@@ -69,10 +69,22 @@ export interface AssistantSessionMessage {
   createdAt: string;
 }
 
+export interface AssistantContextUsage {
+  estTokens: number;
+  window: number;
+  pct: number;
+}
+
 export async function loadAssistantSession(
   projectId: string,
   thread = "",
-): Promise<{ sessionId: string; pageCursor: string; grants: Record<string, unknown>; messages: AssistantSessionMessage[] }> {
+): Promise<{
+  sessionId: string;
+  pageCursor: string;
+  grants: Record<string, unknown>;
+  context?: AssistantContextUsage;
+  messages: AssistantSessionMessage[];
+}> {
   const q = thread ? `?thread=${encodeURIComponent(thread)}` : "";
   const r = await fetch(`${API_BASE}/novels/${projectId}/assistant/session${q}`, {
     headers: { Authorization: `Bearer ${getToken()}` },
@@ -297,4 +309,13 @@ async function apiJsonWithAuth(url: string, data: unknown): Promise<void> {
     throw new Error("登录状态已失效，请重新登录");
   }
   if (!r.ok) throw new Error(detailMessage((await r.json().catch(() => null))?.detail, "操作失败"));
+}
+
+/** 上下文容量：tokens → 「万」口语刻度（128000 → 「12.8万」；9999 → 「9999」）。 */
+export function formatWan(n: number): string {
+  if (n >= 10000) {
+    const v = (n / 10000).toFixed(1).replace(/\.0$/, "");
+    return `${v}万`;
+  }
+  return String(Math.max(0, Math.round(n)));
 }

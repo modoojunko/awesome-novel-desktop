@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { streamAssistantChat } from "@/lib/chatApi";
+import { formatWan, streamAssistantChat } from "@/lib/chatApi";
 
 // SSE 流解析契约（沿用 prose-stream 测试口径：mock ReadableStream）
 function sseResponse(lines: string[]): Response {
@@ -98,3 +98,14 @@ describe("chatApi streamAssistantChat", () => {
     expect(onError).toHaveBeenCalledWith(expect.stringContaining("message 不能为空"));
   });
 });
+
+describe("formatWan（上下文容量口语刻度）", () => {
+  it("≥1万 → 万刻度一位小数（整数位不带 .0）；<1万 → 原数", () => {
+    expect(formatWan(128000)).toBe("12.8万");
+    expect(formatWan(588000)).toBe("58.8万");
+    expect(formatWan(1000000)).toBe("100万");
+    expect(formatWan(9999)).toBe("9999");
+    expect(formatWan(0)).toBe("0");
+  });
+});
+

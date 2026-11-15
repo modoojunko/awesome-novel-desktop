@@ -570,11 +570,24 @@ async def get_assistant_session(
         thread_key=session_store.sanitize_thread_key(thread),
     )
     rows = await session_store.load_messages(db, session.id)
+    # 上下文容量（coding agent 口径，boss 拍板 2026-11-15）：外发窗口估算 vs 窗口
+    from assistant.compact import DEFAULT_CONTEXT_WINDOW
+
+    _msgs, tokens_est = build_outbound_window(
+        _history_transcript(rows),
+        compaction_state=await session_store.load_compaction_state(db, session),
+    )
+    context = {
+        "estTokens": tokens_est,
+        "window": DEFAULT_CONTEXT_WINDOW,
+        "pct": round(tokens_est / DEFAULT_CONTEXT_WINDOW * 100, 1),
+    }
     return {
         "sessionId": session.id,
         "pageCursor": session.page_cursor,
         "grants": json.loads(session.grants_json or "{}"),
         "compacted": bool(session.compaction_json and session.compaction_json != "{}"),
+        "context": context,
         "messages": [
             {
                 "id": m.id,

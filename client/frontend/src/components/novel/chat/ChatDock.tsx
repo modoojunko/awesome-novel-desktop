@@ -6,6 +6,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
+import { formatWan } from "@/lib/chatApi";
 import {
   adoptAssistantMessage,
   approveGate,
@@ -153,6 +154,22 @@ export default function ChatDock({
   const { state, dispatch, onEvent, newSendId } = useChatSession();
   const threadKey = threadKeyOf(scope);
   const messages = state.threads[threadKey] ?? [];
+  /** 上下文窗口（/session 下发；缺省 128k——compact DEFAULT_CONTEXT_WINDOW 同值） */
+  const [ctxWindow, setCtxWindow] = useState(128_000);
+  // 本地实时估算（与后端 estimate_tokens 同口径：序列化字符/4）
+  const ctxEst = useMemo(() => {
+    let chars = 0;
+    for (const m of messages) {
+      chars += (m.text?.length ?? 0) + (m.thinking?.length ?? 0);
+      for (const st of m.steps) chars += st.resultNote?.length ?? 0;
+      if (m.kind === "card" && m.cardPayload != null) {
+        try { chars += JSON.stringify(m.cardPayload).length; } catch { /* ignore */ }
+      }
+    }
+    return Math.round(chars / 4);
+  }, [messages]);
+  const ctxPct = Math.min(100, Math.round((ctxEst / ctxWindow) * 1000) / 10);
+  const ctxHot = ctxPct >= 80;
   const [input, inputSet] = useState("");
   const [secs, setSecs] = useState(0);
   const abortRef = useRef<(() => void) | null>(null);
@@ -229,6 +246,7 @@ export default function ChatDock({
           }
           return { id: m.id, role: "system" as const, kind: "trace" as const, text: m.content, steps: [] };
         });
+        if (s.context?.window) setCtxWindow(s.context.window);
         dispatch({ type: "load_history", thread: threadKey, messages });
       })
       .catch(() => {/* 首次失败静默——发消息时会再暴露 */});
@@ -601,6 +619,17 @@ export default function ChatDock({
         )}
       </div>
 
+      {messages.length > 0 && (
+        <div className={`cd-ctx${ctxHot ? " hot" : ""}`} data-testid="ctx-meter">
+          <div className="cd-ctx-bar">
+            <div className="cd-ctx-fill" style={{ width: `${Math.min(100, ctxPct)}%` }} />
+          </div>
+          <span className="cd-ctx-label">
+            上下文 {formatWan(ctxEst)}/{formatWan(ctxWindow)}（{ctxPct}%）
+            {ctxHot && " · 建议输入 /compact 压缩"}
+          </span>
+        </div>
+      )}
       <div className="chatdock-composer">
         <input
           value={input}

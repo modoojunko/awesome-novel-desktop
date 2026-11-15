@@ -484,3 +484,17 @@
 
 /* 脚部命令提示（coding agent 命令行习惯） */
 .cd-cmds { margin-left: auto; flex: none; }
+
+/* 上下文容量（coding agent 口径，boss 拍板 2026-11-15）：细条＋口语刻度 */
+.cd-ctx {
+  flex: none; padding: 6px 12px 0;
+  display: flex; align-items: center; gap: 8px;
+}
+.cd-ctx-bar {
+  flex: 1; height: 4px; border-radius: 999px;
+  background: rgba(0, 0, 0, .08); overflow: hidden;
+}
+.cd-ctx-fill { height: 100%; border-radius: 999px; background: var(--accent); transition: width .3s ease; }
+.cd-ctx.hot .cd-ctx-fill { background: #c2703d; }
+.cd-ctx-label { flex: none; font-size: 10.5px; color: var(--muted); white-space: nowrap; }
+.cd-ctx.hot .cd-ctx-label { color: #c2703d; }
