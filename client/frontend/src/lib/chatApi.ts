@@ -13,6 +13,7 @@ const API_BASE = `${getApiBaseUrl()}/api`;
 export type AgentEvent = {
   type:
     | "run_start"
+    | "clear"
     | "step_start"
     | "step_end"
     | "thinking"

@@ -64,9 +64,16 @@ async def _stream_command_reply(
     session: AssistantSession,
     page: str,
     reply: str,
+    *,
+    clear: bool = False,
 ) -> AsyncIterator[str]:
     """斜杠命令的轻回复流（run_start＋narration＋run_end——前端气泡定位靠
-    run 生命周期，缺 run_start 会把回执挂错位置/挂到旧回执上）。"""
+    run 生命周期，缺 run_start 会把回执挂错位置/挂到旧回执上）。
+
+    clear=True（/new）：先发 clear 事件——前端清空当前线程视图（服务端已清，
+    视图必须跟着清，否则作家看到「说清了却还在」）。"""
+    if clear:
+        yield _sse({"type": "clear"})
     yield _sse({"type": "run_start", "runId": "cmd"})
     await session_store.append_message(
         db, session.id, novel_id=project.id, role="assistant",
@@ -531,6 +538,7 @@ async def assistant_chat(
             _stream_command_reply(
                 db, project, user, session, page,
                 "已开新对话——之前的内容都清掉了，想从哪儿说起？",
+                clear=True,
             ),
             media_type="text/event-stream",
             headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},

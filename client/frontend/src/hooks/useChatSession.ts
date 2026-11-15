@@ -348,6 +348,10 @@ export function useChatSession() {
   /** onEvent(event, thread)：run 作用域事件落在发起线程（切走页签也不串桶）。 */
   const onEvent = useCallback((event: AgentEvent, thread = "") => {
     switch (event.type) {
+      case "clear":
+        // /new：服务端已清库，前端视图同步清（旧气泡不残留——boss 走查判例）
+        dispatch({ type: "clear_thread", thread });
+        break;
       case "run_start":
         thinkingBufRef.current = "";
         lastThinkFlushRef.current = 0;
