@@ -151,6 +151,7 @@ async def _stream_chat(
     message: str,
     page: str,
     user_message_id: str = "",
+    body_focus: dict[str, Any] | None = None,
 ) -> AsyncIterator[str]:
     """SSE generator：no-key 引导 → 组装 → 循环 → 逐步落盘。"""
 
@@ -180,7 +181,8 @@ async def _stream_chat(
     )
     rows = await session_store.load_messages(db, session.id)
     transcript = _history_transcript(rows, exclude_message_id=user_message_id)
-    note = build_page_note(page)
+    # 聚焦对象（作家说「这章/这一卷」的锚）：前端随消息带 focus={ref}
+    note = build_page_note(page, body_focus if isinstance(body_focus, dict) else None)
     # L2 画像注入（批C 3.3）：口味/雷点裁一段拼进页面注入——起草/发散先懂作家
     try:
         from assistant.profile import load_sections
@@ -538,6 +540,9 @@ async def assistant_chat(
             headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
         )
 
+    body_focus = body.get("focus")
+    if not isinstance(body_focus, dict):
+        body_focus = None
     user_row = await session_store.append_message(
         db,
         session.id,
@@ -548,7 +553,10 @@ async def assistant_chat(
     )
 
     return StreamingResponse(
-        _stream_chat(db, project, user, session, message, page, user_message_id=user_row.id),
+        _stream_chat(
+            db, project, user, session, message, page,
+            user_message_id=user_row.id, body_focus=body_focus,
+        ),
         media_type="text/event-stream",
         headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
     )

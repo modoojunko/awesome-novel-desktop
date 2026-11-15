@@ -413,9 +413,11 @@ export default function ChatDock({
       if (!trimmed || streamRef.current) return;
       streamRef.current = true;
       dispatch({ type: "user_send", thread: threadKey, id: newSendId(), text: trimmed, page });
+      // 聚焦对象随行（「这章/这一卷」的锚）：章视图带当前章 ref
+      const focus = scope.chapterRef ? { ref: scope.chapterRef } : undefined;
       const abort = streamAssistantChat(
         projectId,
-        { message: trimmed, page, thread: threadKey },
+        { message: trimmed, page, thread: threadKey, focus },
         {
           // run 事件绑定发起线程：切走页签后事件仍落到原线程桶（切回接续）
           onEvent: (e) => onEvent(e, threadKey),

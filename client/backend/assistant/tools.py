@@ -69,14 +69,16 @@ async def _read_chapter(ctx: ToolContext, chapter_ref: str) -> ToolResult:
     data = await load_chapter(ctx.root_path, str(chapter_ref or "").strip())
     if not data:
         return ToolResult(ok=False, summary=f"章节 {chapter_ref} 不存在或为空。")
+    # 字段对齐 assemble_chapter 实际键（review 判例 2026-11-15：曾读 content——
+    # 真键是顶层 prose（outline 本就正确），模型被喂「正文未写」假象）
     title = str(data.get("title") or "")
     outline = str(data.get("outline") or "")
-    content = str(data.get("content") or "")
+    prose = str(data.get("prose") or "")
     lines = [f"《{title}》（{chapter_ref}）"]
     if outline:
         lines.append(f"章纲：{_clip(outline, 300)}")
-    if content:
-        lines.append(f"正文：{_clip(content, READ_CHAPTER_BUDGET_CHARS)}")
+    if prose:
+        lines.append(f"正文：{_clip(prose, READ_CHAPTER_BUDGET_CHARS)}")
     else:
         lines.append("（正文未写）")
     return ToolResult(ok=True, summary="\n".join(lines))
@@ -180,12 +182,19 @@ async def _read_progress(ctx: ToolContext) -> ToolResult:
 
     async with async_session() as session:
         info = await frontier_info(session, ctx.novel_id)
-    chapters = info.get("chapters")
-    if isinstance(chapters, list) and not chapters:
+    chapters = info.get("chapters") or []
+    if not chapters:
         return ToolResult(ok=True, summary="（空书：还没有任何章节）")
+    # frontier 细节在 info["frontier"]（review 判例 2026-11-15：曾读顶层 ref——
+    # 恒 None，模型被喂「frontier 章：None」误判书是空的）
+    fr = info.get("frontier") or {}
+    prose = sum(1 for ch in chapters if ch.get("has_prose"))
+    archived = sum(1 for ch in chapters if ch.get("archived"))
+    state = fr.get("state") or ("pending" if fr.get("pending") else "draft")
     summary = (
-        f"frontier 章：{info.get('ref')}（第 {info.get('global_no')} 章）"
-        f"｜状态：{info.get('state')}｜可写：{info.get('writable')}"
+        f"frontier 章：{fr.get('ref')}（全书第 {fr.get('global_no')} 章）"
+        f"｜状态：{state}｜可写：{fr.get('writable')}｜正文：{fr.get('ref') and ('已写' if fr.get('has_prose') else '未写')}"
+        f"｜全书 {len(chapters)} 章（已归档 {archived}、有正文 {prose}）"
     )
     return ToolResult(ok=True, summary=summary)
 

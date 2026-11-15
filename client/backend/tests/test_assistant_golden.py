@@ -95,7 +95,7 @@ async def test_golden_routes_to_expected_tool(case, monkeypatch):
         system="system-with-动作协议-and-tool-catalog",
         transcript=[{"role": "user", "content": case["input"]}],
         tool_ctx=None,
-        config=LoopConfig(max_steps=4),
+        config=LoopConfig(),
     )
     events = [e async for e in loop.run(case["input"])]
     assert executed == [case["expect_tool"]], f"G{case['id']} 期望 {case['expect_tool']}，实际 {executed}"
@@ -123,7 +123,7 @@ async def test_golden_out_of_scope_and_chat(case, monkeypatch):
         system="system-with-动作协议",
         transcript=[{"role": "user", "content": case["input"]}],
         tool_ctx=None,
-        config=LoopConfig(max_steps=3),
+        config=LoopConfig(),
     )
     events = [e async for e in loop.run(case["input"])]
     assert tool_calls == [], "书外/注入请求不得触发任何工具"
