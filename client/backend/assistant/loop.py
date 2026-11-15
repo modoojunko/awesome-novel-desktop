@@ -148,7 +148,9 @@ class AgentLoop:
         try:
             async for ev in inner:
                 yield ev
-        except GeneratorExit:
+        except (GeneratorExit, asyncio.CancelledError):
+            # 消费端关闭/任务取消同口径：关闭态不发 run_end（finally-yield 撞取消
+            # 会把生成器挂进「ignored GeneratorExit」险境）；落库由调用方收尾
             closed = True
             raise
         finally:

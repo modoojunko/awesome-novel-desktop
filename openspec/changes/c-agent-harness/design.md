@@ -72,3 +72,16 @@ SSE 词表零增删：run_start/step_start/step_end/thinking/narration/artifact/
 - **判定：三场景全过→native 全量可切**（无部分服从边界需记录）
 - 实现注意：①`reasoning_content` 与 `tool_calls` 并行流出（思考流 145~1323 字/轮）——native 分支须把 reasoning 映射成 thinking 事件（D4 既有口径）；②流式增量按 index 聚合 tool_calls（name/arguments 分片拼接）；③finish_reason 原生语义（tool_calls/stop）可直接当步边界
 - spike 脚本：`/tmp/fc_spike.py`（docker cp 进走查容器跑；GLM 配置自走查库 api_configs 行＋app_meta fernet_key 解密）
+
+## 附录二：走查清单收口实录（2026-11-16，tasks 6.1-6.4）
+
+- **6.1 真 GLM native 全链 ✓**：read_progress→read_chapter 两步原生 tool_calls 驱动＋settings_og_fill 的 apiCalls 全可见（op/model/ms/tokens/ok）＋思考回看 41 个 thinking 事件到 SSE；书绑 GLM 临时切换实测后还原
+- **6.2 降级路径 ✓**：走查书实际绑定 deepseek-v4.1-flash（opencode 网关，vendor 白名单外）——同一批指令全程文本协议路径行为一致（步/叙述/产物卡/收口），降级即默认路径真机长跑
+- **6.3 停止/断开 ✓**：断开 6s→25s 内定稿落库（占位文案＋已产出 tool 行保留）——**定诊并根修两处**：①router 消费挪自管 drive task（starlette 1.9 断开既不迭代也不关闭 SSE 生成器→streaming 悬行）；②drive 用自有短会话（请求级 db 随断开即死，后台定稿拿到死会话）；loop.run 补 CancelledError 对称处理
+- **6.4 dock 回归 ✓**：chat-dock e2e 14/15（唯一挂＝③stale 二版标注，stash 实证 2026-11-15 前存量，非本 change 回归，挂账）
+
+### 定诊判例（走查清单期间三连）
+
+1. **GLM 顶层 reasoning_effort 吞思考流**：`{"thinking":{enabled}, "reasoning_effort":low}` 扁平形态被 coding 端点静默吞 reasoning_content（不报错、工具照常）；嵌套 `{"thinking":{enabled, reasoning_effort}}` 才照常流。探针矩阵四形态对照定诊；**vendor 分叉修复**（glm 嵌套/方舟等保持 2026-10-24 实证扁平）；FORCED「关」路径保持扁平（吞流恰好贴合最接近关语义）
+2. **router thinking 从批 A 起就没发 SSE**：`if etype == "thinking": continue` 把实时思考回看全灭（前端整套 thinkingText 渲染是死路）——改照发 SSE、落盘分支本就不匹配
+3. **openai-compat 白名单误纳**：通用自配兜底 vendor 形态未知，桩模型文本动作 JSON 被当自然收口直灌 narration（e2e 全链 5 用例全灭）——白名单收缩到实测验证 vendor（glm/openai），fail-safe 钉子入库

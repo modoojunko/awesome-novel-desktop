@@ -56,8 +56,9 @@ _THINKING_DISABLED = {"type": "disabled"}
 _CHAT_TIMEOUT = httpx.Timeout(connect=10.0, read=90.0, write=30.0, pool=10.0)
 
 # 原生 function calling vendor 白名单（c-agent-harness tasks 3.2；spike 实证 glm；
-# 未知 vendor 默认 text 降级——能力矩阵 fail-safe 口径见 supports_native_tools）
-_NATIVE_TOOLS_VENDORS = {"glm", "openai", "openai-compat"}
+# 未知 vendor（含 openai-compat 通用自配兜底——桩模型/兼容网关形态未知）默认
+# text 降级——能力矩阵 fail-safe 口径见 supports_native_tools）
+_NATIVE_TOOLS_VENDORS = {"glm", "openai"}
 _STREAM_READ_TIMEOUT = 120.0
 
 # 流式首字守卫（c-prose-thinking-timeout）：开思考后「思考」与正文共用 max_tokens
@@ -561,6 +562,10 @@ class AIClient:
         """按配置构造思考参数（c-thinking-config，原「默认关思考」语义的推广）。
 
         开＝thinking:{type:enabled}＋reasoning_effort（GLM-5.3 契约顶层参数）；
+        **vendor 分叉（2026-11-16）**：GLM 的 openai 兼容端点（coding/paas）实测
+        顶层 reasoning_effort 会**静默吞掉** reasoning_content 流（不报错、工具
+        调用照常）——档位嵌套进 thinking{} 才照常流出（探针矩阵四形态对照）；
+        方舟等 vendor 扁平形态为 2026-10-24 真机 200 实证的原样形态，不动。
         关（默认）＝_off_thinking_params。base 级进程记忆分级：UNSPORTED（连思考
         参数字段都不认）→ 什么都不发；FORCED（disabled 被**值级**打回，GLM-5.3
         实锤）→「关」以 enabled＋low 替代（GLM 迁移指引口径），替代再被拒则升级
@@ -584,10 +589,14 @@ class AIClient:
             return {}
         # getattr 兜底：`__new__` 直装的测试实例可无此属性（与 _vendor 同款约定）
         if getattr(self, "_thinking_enabled", False):
-            return {
-                "thinking": {"type": "enabled"},
-                "reasoning_effort": getattr(self, "_thinking_effort", "low") or "low",
-            }
+            effort = getattr(self, "_thinking_effort", "low") or "low"
+            if str(getattr(self, "_vendor", "") or "").strip().lower() == "glm":
+                # GLM coding 端点实测（2026-11-16，探针矩阵四形态对照）：顶层
+                # reasoning_effort 被静默吞思考流（不报错、工具照常）——档位
+                # 嵌套进 thinking{} 才照常流出 reasoning_content。方舟等 vendor
+                # 的扁平形态为 2026-10-24 真机 200 实证的原样形态，不动。
+                return {"thinking": {"type": "enabled", "reasoning_effort": effort}}
+            return {"thinking": {"type": "enabled"}, "reasoning_effort": effort}
         return self._off_thinking_params()
 
     def _off_thinking_params(self) -> dict[str, Any]:

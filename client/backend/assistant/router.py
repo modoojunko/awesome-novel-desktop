@@ -12,6 +12,7 @@ error 事件收尾，不得静默 200 空流。用量按步落账（record_usage
 
 from __future__ import annotations
 
+import asyncio
 import json
 from collections.abc import AsyncIterator
 from typing import Any
@@ -394,102 +395,141 @@ async def _stream_chat(
     reply_parts: list[str] = []
     final_status = "done"
 
-    try:
-        async for event in loop.run(message_for_model):
-            etype = event.get("type")
-            if etype == "narration":
-                reply_parts.append(str(event.get("text", "")))
-            elif etype == "step_end":
-                await session_store.append_message(
-                    db,
-                    session.id,
-                    novel_id=project.id,
-                    role="tool",
-                    content=str(event.get("resultNote", "")),
-                    page=page,
-                    payload={
-                        "tool": event.get("tool"),
-                        "stepId": event.get("stepId"),
-                        "runId": event.get("runId"),
-                        "writeLog": event.get("writeLog"),  # 撤销数据源（previous 值）
-                        "apiCalls": event.get("apiCalls"),  # 本步模型调用记录（反馈流可见）
-                    },
-                )
-            elif etype == "permission_required":
-                await session_store.append_message(
-                    db,
-                    session.id,
-                    novel_id=project.id,
-                    role="event",
-                    content="",
-                    page=page,
-                    payload={
-                        "authorization_card": {
-                            "gateId": event.get("gateId"),
-                            "preview": event.get("preview"),
-                            "humanOnly": event.get("humanOnly"),
-                            "reason": event.get("reason"),
-                        }
-                    },
-                    card_kind="gate",
-                )
-            elif etype == "artifact":
-                # 产物卡持久化（对话流回看；adopted 状态由采纳端点推进）
-                await session_store.append_message(
-                    db,
-                    session.id,
-                    novel_id=project.id,
-                    role="assistant",
-                    content="",
-                    page=page,
-                    payload={
-                        "card": event.get("payload") or {},
-                        "cardId": event.get("cardId"),
-                        "runId": event.get("runId"),
-                    },
-                    card_kind=str(event.get("kind", "text")),
-                    status="done",
-                )
-            elif etype == "error":
-                final_status = "error"
-            if etype == "thinking":
-                continue  # 思考增量不落盘（会话回看不需要逐字思考；轨迹在 tool 行）
-            yield _sse(event)
+    async def _consume(drv_db: AsyncSession, event: dict[str, Any]) -> None:
+        """落盘分支（消费副作用）：narration 攒回执、tool/授权卡/产物卡落行。
 
-        if loop.result.tokens_in or loop.result.tokens_out:
+        用 drive 自有会话——请求级 db 随断开即被依赖清理关闭，断开后继续落库
+        的会话必须自持（判例：读面写库自开短会话）。"""
+        nonlocal final_status
+        etype = event.get("type")
+        if etype == "narration":
+            reply_parts.append(str(event.get("text", "")))
+        elif etype == "step_end":
             await session_store.append_message(
-                db,
+                drv_db,
+                session.id,
+                novel_id=project.id,
+                role="tool",
+                content=str(event.get("resultNote", "")),
+                page=page,
+                payload={
+                    "tool": event.get("tool"),
+                    "stepId": event.get("stepId"),
+                    "runId": event.get("runId"),
+                    "writeLog": event.get("writeLog"),  # 撤销数据源（previous 值）
+                    "apiCalls": event.get("apiCalls"),  # 本步模型调用记录（反馈流可见）
+                },
+            )
+        elif etype == "permission_required":
+            await session_store.append_message(
+                drv_db,
                 session.id,
                 novel_id=project.id,
                 role="event",
                 content="",
                 page=page,
                 payload={
-                    "usage": {
-                        "tokens_in": loop.result.tokens_in,
-                        "tokens_out": loop.result.tokens_out,
+                    "authorization_card": {
+                        "gateId": event.get("gateId"),
+                        "preview": event.get("preview"),
+                        "humanOnly": event.get("human_only"),
+                        "reason": event.get("reason"),
                     }
                 },
+                card_kind="gate",
             )
-        if page:
-            await session_store.touch_session(db, session.id, page_cursor=page)
-    finally:
-        # 收尾落库（openwriter INTERRUPTED 同款）：停止/断开/正常收口都把已达内容
-        # 定稿——不留 streaming 悬行，也不丢半截
+        elif etype == "artifact":
+            # 产物卡持久化（对话流回看；adopted 状态由采纳端点推进）
+            await session_store.append_message(
+                drv_db,
+                session.id,
+                novel_id=project.id,
+                role="assistant",
+                content="",
+                page=page,
+                payload={
+                    "card": event.get("payload") or {},
+                    "cardId": event.get("cardId"),
+                    "runId": event.get("runId"),
+                },
+                card_kind=str(event.get("kind", "text")),
+                status="done",
+            )
+        elif etype == "error":
+            final_status = "error"
+
+    async def _finalize(drv_db: AsyncSession) -> None:
+        """收尾落库（openwriter INTERRUPTED 同款）：停止/断开/正常收口都把已达
+        内容定稿——不留 streaming 悬行，也不丢半截。会话自持（断开后仍要落）。"""
         full_reply = "\n".join(p for p in reply_parts if p)
         content = full_reply or pending_assistant.content
         if final_status == "done" and not content:
             content = "（停止时这一轮还没有产出文字。）"
         await session_store.update_message_status(
-            db,
+            drv_db,
             pending_assistant.id,
             status=final_status,
             content=content,
         )
 
-    # ── 定期总结画像（批C 3.4）：非阻塞后台任务，失败静默（autotitle 模式）────
-    import asyncio
+    async def _drive() -> None:
+        """自管消费任务（c-agent-harness 6.3 断连定诊）：循环消费＋落盘挪进独立
+        task——断开时框架可能既不迭代也不关闭 SSE 生成器（starlette 1.9 实测
+        streaming 悬行），消费挂 task 后由本任务自己的 finally 兜底定稿，任何
+        出口（正常收口/被关停/被框架遗弃后跑完）都不丢尾。会话自持：请求级 db
+        随断开即被依赖清理关闭，断开后继续落库必须用自有短会话。"""
+        from db import async_session
 
+        async with async_session() as drv_db:
+            try:
+                async for event in loop.run(message_for_model):
+                    etype = event.get("type")
+                    await _consume(drv_db, event)
+                    # thinking 照发 SSE（dock 实时思考回看，run_end 时前端收进
+                    # run 气泡）；落盘分支不匹配 thinking——回看不存逐字思考
+                    await queue.put(event)
+                if loop.result.tokens_in or loop.result.tokens_out:
+                    await session_store.append_message(
+                        drv_db,
+                        session.id,
+                        novel_id=project.id,
+                        role="event",
+                        content="",
+                        page=page,
+                        payload={
+                            "usage": {
+                                "tokens_in": loop.result.tokens_in,
+                                "tokens_out": loop.result.tokens_out,
+                            }
+                        },
+                    )
+                if page:
+                    await session_store.touch_session(drv_db, session.id, page_cursor=page)
+                await queue.put(_STOP)  # 正常收口：消费端见哨兵即退（body 出口）
+            finally:
+                # 直接 await（任务取消只交付一次，finally 内 await 可完成）；
+                # 会话在 async with 内、定稿完成后才关——次序安全
+                await _finalize(drv_db)
+
+    queue: asyncio.Queue = asyncio.Queue()
+    _STOP: dict[str, Any] = {"__stop__": True}
+    drive_task = asyncio.create_task(_drive())
+
+    try:
+        while True:
+            event = await queue.get()
+            if event is _STOP:
+                break
+            yield _sse(event)
+    finally:
+        # 消费端退出（正常/被关停）：收尸 drive task——其 shielded finally 落定稿
+        drive_task.cancel()
+        try:
+            await asyncio.shield(drive_task)
+        except (asyncio.CancelledError, Exception):  # noqa: BLE001——收尸路径，吞一切
+            pass
+
+    # ── 定期总结画像（批C 3.4）：非阻塞后台任务，失败静默（autotitle 模式）────
     asyncio.create_task(_profile_summary_task(user["id"], project.id))
 
 

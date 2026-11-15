@@ -129,3 +129,95 @@ async def test_golden_out_of_scope_and_chat(case, monkeypatch):
     assert tool_calls == [], "书外/注入请求不得触发任何工具"
     assert loop.result.final_reply  # 收口有话（含「没能力做」或正常闲聊答复）
     assert events[-1]["type"] == "run_end"
+
+
+# ── native 口径（c-agent-harness tasks 5.3：stub 直返结构化 tool_calls，
+#    语义等价复验——同一批黄金指令在 native 分支下行为不变量逐条对齐）────────
+
+
+class ScriptedNativeClient:
+    """native stub：命中关键词→直返结构化 tool_calls；次轮/未命中→纯文本收口。"""
+
+    def __init__(self, keyword: str, tool: str):
+        self.keyword = keyword
+        self.tool = tool
+        self.calls = 0
+
+    def supports_native_tools(self) -> bool:
+        return True
+
+    async def chat_stream(self, **kwargs):
+        from ai_client import StreamEvent
+
+        self.calls += 1
+        prompt = kwargs.get("messages", [{}])[-1].get("content", "") + " " + (kwargs.get("system") or "")
+        if self.calls > 1:
+            yield StreamEvent(text="给你答复。", is_done=True, tokens=8, tokens_in=12)
+        elif self.keyword in prompt:
+            yield StreamEvent(
+                tool_calls=[
+                    {"id": "call_1", "name": self.tool, "arguments": {}, "args_raw": "{}"}
+                ]
+            )
+            yield StreamEvent(text="", is_done=True, tokens=8, tokens_in=12)
+        else:
+            yield StreamEvent(text="收到。", is_done=True, tokens=8, tokens_in=12)
+
+    async def chat(self, **kwargs):
+        return "{}"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "case",
+    _TOOL_CASES,
+    ids=[f"native-{c['id']}" for c in _TOOL_CASES],
+)
+async def test_golden_native_routes_to_expected_tool(case, monkeypatch):
+    """native 口径：书内指令 → 结构化 tool_calls 命中期望工具（且只调一次）。"""
+    keyword = next((k for k, t in KEYWORD_TOOL if k in case["input"]), case["stub"])
+    executed: list[str] = []
+
+    async def fake_run_tool(ctx, name, args):
+        executed.append(name)
+        return ToolResult(ok=True, summary="（工具结果占位）")
+
+    fake = next(t for t in TOOL_REGISTRY if t.name == case["expect_tool"])
+    monkeypatch.setattr("assistant.loop.run_tool", fake_run_tool)
+    monkeypatch.setattr("assistant.loop.get_tool", lambda n: fake if n == case["expect_tool"] else None)
+
+    client = ScriptedNativeClient(keyword, case["expect_tool"])
+    loop = AgentLoop(
+        client=client,
+        system="system-with-tool-catalog",
+        transcript=[{"role": "user", "content": case["input"]}],
+        tool_ctx=None,
+        config=LoopConfig(),
+    )
+    assert loop.harness == "native"
+    events = [e async for e in loop.run(case["input"])]
+    assert executed == [case["expect_tool"]], f"G{case['id']} 期望 {case['expect_tool']}，实际 {executed}"
+    assert events[-1]["type"] == "run_end"
+    assert loop.result.degraded is False
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "case",
+    [c for c in GOLDEN if c.get("expect") in ("out_of_scope", "final_no_tool")],
+    ids=[f"native-{c['id']}" for c in GOLDEN if c.get("expect") in ("out_of_scope", "final_no_tool")],
+)
+async def test_golden_native_out_of_scope_and_chat(case):
+    """native 口径：书外/注入/闲聊 → stub 不产 tool_calls，循环自然收口不冒充。"""
+    client = ScriptedNativeClient("", "")
+    loop = AgentLoop(
+        client=client,
+        system="system-with-tool-catalog",
+        transcript=[{"role": "user", "content": case["input"]}],
+        tool_ctx=None,
+        config=LoopConfig(),
+    )
+    events = [e async for e in loop.run(case["input"])]
+    assert loop.result.tool_calls == 0, "书外/注入请求不得触发任何工具"
+    assert loop.result.final_reply
+    assert events[-1]["type"] == "run_end"

@@ -30,13 +30,13 @@
 
 - [x] 5.1 FakeClient native 形态（返回结构化 tool_calls）
 - [x] 5.2 loop 核心行为双模式参数化（多步串联/未知工具收口/压缩触发/停止落库/GeneratorExit 干净关闭）
-- [ ] 5.3 golden 13 例 native 口径（stub 直返 tool_calls）＋text 口径保留
+- [x] 5.3 golden 13 例 native 口径（stub 直返 tool_calls）＋text 口径保留
 - [x] 5.4 路由测试：能力矩阵→模式选择；降级自动切换
 - [x] 5.5 registry 守卫迁移后全绿（schema 断言＋封闭清单不变）
 
 ## 6. 走查栈真机验证
 
-- [ ] 6.1 真 GLM native 全链：多步读写（read_progress→draft→产物卡）＋思考回看＋apiCalls 可见
-- [ ] 6.2 降级路径实测（强制 text 模式复跑同指令，行为一致）
-- [ ] 6.3 停止钮/断网中断：半截落库＋INTERRUPTED 语义
-- [ ] 6.4 dock 全功能回归（chips/授权芯片/容量条/？帮助/线程会话零回归）
+- [x] 6.1 真 GLM native 全链：多步读写（read_progress→draft→产物卡）＋思考回看＋apiCalls 可见
+- [x] 6.2 降级路径实测（强制 text 模式复跑同指令，行为一致）
+- [x] 6.3 停止钮/断网中断：半截落库＋INTERRUPTED 语义
+- [x] 6.4 dock 全功能回归（chips/授权芯片/容量条/？帮助/线程会话零回归）——14/15；唯一挂＝③stale 二版标注（2026-11-15 前存量，stash 实证与本 change 无关，挂账随走查修）

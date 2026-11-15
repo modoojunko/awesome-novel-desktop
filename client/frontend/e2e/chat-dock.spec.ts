@@ -622,7 +622,8 @@ test.describe("chat-dock 界面测试（c-writing-agent 批G）", () => {
     );
     await page.reload();
     await expect(page.getByTestId("chat-dock")).toBeVisible();
-    await expect(page.getByText("第38问", { exact: true })).toBeVisible({ timeout: 10000 });
+    // CopyStrip（openwriter 移植）让气泡 textContent 带「复制」字样——禁用 exact
+    await expect(page.getByText("第38问")).toBeVisible({ timeout: 10000 });
     await expect(page.getByText("第39答")).toBeVisible();
     await restore();
   });
