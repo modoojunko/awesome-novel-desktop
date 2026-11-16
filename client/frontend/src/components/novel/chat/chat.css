@@ -799,3 +799,11 @@
   min-height: 0;
   height: 100%;
 }
+
+/* Aui2Dock 高度链：aside.col-ai → .chatdock.aui2 → ChatAnywhere 逐级封顶 */
+aside.col-ai:not(.as-drawer) {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  overflow: hidden;
+}
