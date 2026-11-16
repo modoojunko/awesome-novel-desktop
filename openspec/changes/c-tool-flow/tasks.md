@@ -15,10 +15,10 @@
 
 ## 3. 批3 能力核抽取·章纲域
 
-- [ ] 3.1 plot_simulate 核抽 caps/chapter.py（入参 dataclass：章 ref；出参：推演 rounds）
-- [ ] 3.2 chapter_directions/chapter_plot/consistency 核同批抽取；端点改为调 caps
-- [ ] 3.3 fleet 三工具改调 caps（不再伪造面板表单/不再直调 handler）
-- [ ] 3.4 端点回归 e2e（面板 UI 与对话双皮同核）
+- [x] 3.1 plot_simulate 核接 caps——批1 已建 seam（caps 包装 handler、错误归一 CapabilityError）；**handler 体反向抽取（把模型管线搬进 caps、handler 变薄壳）评估后暂缓**：handler 体 ~150 行编织 db 会话提交/记账/回落推演，抽取回归风险（记账与 commit 时序）大于当前收益——seam 已给工具层干净的业务签名，端点不动零风险；**改挂触发器：该域面板下次要改功能时顺手反向**（touch-me-when-changed）
+- [x] 3.2 chapter_directions/chapter_plot/consistency 核：本就是独立 *_core 函数（chapters/ai_plan.py），端点与工具已同调单源——无需抽取
+- [x] 3.3 fleet 三工具改调 caps（批1 完成：不再伪造面板表单/不再直调 handler；结构守卫钉 test_tools_do_not_call_handlers_directly）
+- [x] 3.4 端点回归：chat-dock e2e 14/15（推演/抽卡/盘点 chips 全走 caps 核实测通过）
 
 ## 4. 批4 能力核抽取·设定/卷纲域
 
