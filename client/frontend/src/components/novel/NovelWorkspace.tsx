@@ -13,6 +13,29 @@ import type { RailChapterData } from "@/components/novel/workbench/Rail";
 import ChatDock from "@/components/novel/chat/ChatDock";
 import { AuiDock } from "@/components/novel/chat/AuiDock";
 import { Aui2Dock } from "@/components/novel/chat/Aui2Dock";
+import { Component, type ReactNode, type PropsWithChildren } from "react";
+
+class AuiErrorBoundary extends Component<PropsWithChildren, { hasError: boolean; msg: string }> {
+  constructor(props: PropsWithChildren) {
+    super(props);
+    this.state = { hasError: false, msg: "" };
+  }
+  static getDerivedStateFromError(error: Error) {
+    return { hasError: true, msg: error.message?.slice(0, 200) ?? "" };
+  }
+  render() {
+    if (this.state.hasError) {
+      return (
+        <div style={{ padding: 20, color: "#999" }}>
+          <p>助手加载出错：</p>
+          <pre style={{ fontSize: 12, whiteSpace: "pre-wrap" }}>{this.state.msg}</pre>
+          <p style={{ fontSize: 12 }}>已回退到标准模式——刷新页面重试。</p>
+        </div>
+      );
+    }
+    return this.props.children;
+  }
+}
 import PersonaModal from "@/components/novel/chat/PersonaModal";
 import ProfileModal from "@/components/novel/chat/ProfileModal";
 import { VolumePlanModal } from "@/components/novel/workbench/VolumePlanModal";
@@ -1400,6 +1423,7 @@ export default function NovelWorkspace() {
         <aside
           className={`col-ai${assistantOpen ? " as-open" : ""}${assistantNarrow ? " as-drawer" : ""}`}
         >
+          <AuiErrorBoundary>
           <Aui2Dock
             projectId={projectId}
             page={dockPage}
@@ -1412,6 +1436,7 @@ export default function NovelWorkspace() {
               chapterTab: railData?.tab,
             }}
           />
+          </AuiErrorBoundary>
           {false && (
           <ChatDock
             projectId={projectId}

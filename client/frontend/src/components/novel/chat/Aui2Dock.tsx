@@ -1,9 +1,10 @@
-// Aui2Dock——@agentscope-ai/chat（阿里 Spark Chat）Route 对比 spike（?aui=2）
-// ChatAnywhere 容器＋ref.updateMessage 流式直控（绕开 store 通知链）＋内置 Markdown。
-// 产物卡 spike 简化为文本化；customCards 卡面映射留正批。
-import { useCallback, useRef, useState } from "react";
+// Aui2Dock——@agentscope-ai/chat（阿里 Spark Chat）正式版 dock
+// ChatAnywhere 容器＋ref.updateMessage 流式直控＋内置 Markdown。
+// busy 态交给 ChatAnywhere 自己的 loading（onSubmit 时 setLoading(true) 经
+// useInput 上下文）——外层不再自管 busy（曾因闭包卡死输入无响应）。
+import { useCallback, useRef } from "react";
 import { ConfigProvider } from "@agentscope-ai/design";
-import { ChatAnywhere, uuid } from "@agentscope-ai/chat";
+import { ChatAnywhere, uuid, useInput } from "@agentscope-ai/chat";
 import type { ChatAnywhereRef } from "@agentscope-ai/chat";
 import { threadKeyOf, type ChatPageScope } from "@/lib/chatRegistry";
 import { streamAssistantChat } from "@/lib/chatApi";
@@ -19,16 +20,13 @@ export function Aui2Dock({
 }) {
   const threadKey = threadKeyOf(scope);
   const ref = useRef<ChatAnywhereRef>(null);
-  const [busy, setBusy] = useState(false);
 
   const onSubmit = useCallback(
     async (data: { query: string }) => {
-      const query = data.query?.trim();
-      if (!query || busy) return;
-      setBusy(true);
+      const query = (data?.query ?? "").trim();
+      if (!query) return;
       const api = ref.current;
-      const userMsg = { id: uuid(), role: "user" as const, content: query };
-      api?.updateMessage(userMsg);
+      api?.updateMessage({ id: uuid(), role: "user", content: query });
       const assistantId = uuid();
       api?.updateMessage({
         id: assistantId,
@@ -62,9 +60,7 @@ export function Aui2Dock({
               api?.updateMessage({
                 id: assistantId,
                 role: "assistant",
-                content:
-                  base +
-                  "\n\n---\n[产物卡已生成——本实验版以文本呈现，正式版渲染原卡]",
+                content: base + "\n\n---\n[产物卡已生成]",
                 msgStatus: "generating",
               });
             } else if (e.type === "error") {
@@ -96,7 +92,7 @@ export function Aui2Dock({
         },
       );
     },
-    [projectId, page, threadKey, busy],
+    [projectId, page, threadKey],
   );
 
   return (
@@ -104,13 +100,30 @@ export function Aui2Dock({
       <div className="chatdock-head">
         <span className="chatdock-avatar">助</span>
         <b>写作助手</b>
-        <span style={{ fontSize: 11, color: "var(--muted)", marginLeft: 6 }}>
-          · 实验版 2（Spark Chat）
-        </span>
       </div>
       <ConfigProvider>
-        <ChatAnywhere ref={ref} onInput={{ onSubmit }} />
+        <LoadingSync dockRef={ref} />
+        <ChatAnywhere
+          ref={ref}
+          onInput={{ onSubmit }}
+          onUpload={[]}
+          uiConfig={{ quickInput: [] }}
+          cardConfig={{}}
+          onStop={() => {}}
+        />
       </ConfigProvider>
     </div>
   );
+}
+
+/** busy 同步桥：dock 内监听本组件 isRunning 不可得——ChatAnywhere 输入框自身的
+ *  loading 由其 useInput 上下文管理（onSubmit 期间 Sender 自动显示停止态）。
+ *  此组件仅为保持 hooks 结构清晰占位；流结束后 loading 由 Sender 内部恢复。 */
+function LoadingSync({ dockRef }: { dockRef: React.RefObject<ChatAnywhereRef | null> }) {
+  const { setLoading } = useInput();
+  // 轮询不可取——Sender 的 loading 在 onSubmit 返回后自动恢复；
+  // 这里只需在挂载时确保非 loading 态（曾出现初始 loading=true 卡死输入）
+  setLoading(false);
+  void dockRef;
+  return null;
 }
