@@ -167,7 +167,8 @@ async def test_wall_clock_tail(monkeypatch):
     monkeypatch.setattr(loop_mod, "get_tool", lambda n: fake)
     monkeypatch.setattr(loop_mod, "run_tool", fake_run_tool)
 
-    client = FakeClient([_tool("read_progress", {})] * 200)  # 每步都是工具动作——靠墙钟截停
+    # 异参序列（去重守卫会拦同参连调——墙钟用例要每步真执行，每步 10ms×200）
+    client = FakeClient([_tool("read_progress", {"n": i}) for i in range(200)])
     loop = AgentLoop(
         client=client,
         system="sys",

@@ -125,7 +125,7 @@ async def test_native_multi_call_batch(monkeypatch):
     _fake_tool(monkeypatch, summary="ok结果")
     client = FakeNativeClient(
         [
-            ("", [_tc(0, "read_progress", {}), _tc(1, "read_progress", {})]),
+            ("", [_tc(0, "read_progress", {"n": 1}), _tc(1, "read_progress", {"n": 2})]),
             ("两处都看过了。", []),
         ]
     )
@@ -234,9 +234,9 @@ async def test_native_wall_clock_tail(monkeypatch):
     monkeypatch.setattr(loop_mod, "run_tool", slow_tool)
     client = FakeNativeClient(
         [
-            ("", [_tc(0, "read_progress", {})]),
-            ("", [_tc(1, "read_progress", {})]),
-            ("", [_tc(2, "read_progress", {})]),
+            ("", [_tc(0, "read_progress", {"n": 1})]),
+            ("", [_tc(1, "read_progress", {"n": 2})]),
+            ("", [_tc(2, "read_progress", {"n": 3})]),
         ]
     )
     loop = AgentLoop(

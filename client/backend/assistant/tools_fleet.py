@@ -136,20 +136,32 @@ async def _draw_plot_cards(ctx: ToolContext, extra: str = "") -> ToolResult:
     ref = await _resolve_chapter_ref(ctx, "")
     if not ref:
         return ToolResult(ok=False, summary="定位不到章——给我章号或章名。")
-    from chapters.ai_cast import CastDrawBody, cast_ai_draw
+    from chapters.ai_cast import CastDrawBody, CastExcludeItem, cast_ai_draw
     from db import async_session
 
+    # 重抽排除：本 run 内上次抽出的卡名进 exclude——同章纲再抽不再复读同一批
+    prev_names = [str(n) for n in (ctx.scratch.get("draw_names") or [])]
+    body = CastDrawBody(
+        extra=str(extra or "")[:200],
+        exclude=[CastExcludeItem(name=n) for n in prev_names][:9],
+    )
     async with async_session() as db:
         try:
             result = await cast_ai_draw(
-                ctx.novel_id, ref, CastDrawBody(extra=str(extra or "")[:200]),
+                ctx.novel_id, ref, body,
                 {"id": ctx.user_id}, True, True, db,
             )
         except HTTPException as e:
             return ToolResult(ok=False, summary=str(e.detail))
+    drawn = [str((c or {}).get("name") or "") for c in (result.get("cards") or []) if isinstance(c, dict)]
+    if drawn:
+        ctx.scratch["draw_names"] = (prev_names + drawn)[-9:]
     return ToolResult(
         ok=True,
-        summary="三张剧情提案卡已抽：互斥、照章纲门槛出的（不落库，过目挑选）。",
+        summary=(
+            f"三张提案卡已抽并在上面产物卡里交付（互斥、照章纲门槛出）。"
+            f"本轮抽卡完成——直接给作家讲卡面收口；{('作家明示「再抽」才会重抽，重抽会避开：' + '、'.join(prev_names)) if prev_names else '作家明示「再抽」才重抽'}。"
+        ),
         card={"kind": "text", "payload": {"action": "draw", "chapter_ref": ref, "draft": _fmt_draw(result)}},
     )
 
@@ -205,7 +217,7 @@ def _make_fleet_tools() -> tuple[Tool, ...]:
                     "extra": {"type": "string", "description": "想偏重的方向或补充要求（可空）"},
                 },
             },
-            description="剧情抽卡：一次抽 3 张互斥剧情提案卡（不落库；重抽＝再调一次）。",
+            description="剧情抽卡：一次抽 3 张互斥剧情提案卡（不落库）。抽完即收口——仅当作家明示「再抽」时才再调一次。",
             fn=_draw_plot_cards,
         ),
         Tool(

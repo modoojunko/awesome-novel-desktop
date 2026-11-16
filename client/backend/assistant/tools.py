@@ -37,6 +37,8 @@ class ToolContext:
     focus_ref: str = ""
     # 页签线程（c-agent-fleet：每页签独立流程——工具声明面/域纪律按此收敛）
     thread: str = ""
+    # 本 run 私有暂存（抽卡排除上次卡名等跨调用协作；随请求生灭）
+    scratch: dict = field(default_factory=dict)
 
 
 @dataclass

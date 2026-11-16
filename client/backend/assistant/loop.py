@@ -177,6 +177,19 @@ class AgentLoop:
 
     # -- 共用小件（两模式同构，tasks 4.3）───────────────────────────────────
 
+    def _duplicate_call(self, tool: str, args: dict) -> bool:
+        """连续同工具同参数去重（openworker 重复调用劝退口径）：模型自触发
+        的原地重跑（抽卡连抽等）→ 劝退并回喂；作家明示重抽由新一轮承载。"""
+        import json as _json
+
+        try:
+            key = _json.dumps({"t": tool, "a": args or {}}, ensure_ascii=False, sort_keys=True)
+        except (TypeError, ValueError):
+            key = f"{tool}:{sorted(args or {})}"
+        dup = key == getattr(self, "_last_call_key", None)
+        self._last_call_key = key
+        return dup
+
     def _allowed_tools(self) -> set[str] | None:
         """本线程可声明的工具集；None＝不收窄（thread 空＝旧调用/测试/兜底路径）。
 
@@ -375,6 +388,13 @@ class AgentLoop:
                 yield {"type": "narration", "text": guidance}
                 break
 
+            # 连续同工具同参数＝模型原地重跑（抽卡连抽类）——劝退回喂不执行
+            if self._duplicate_call(action.tool, action.args):
+                notice = "这一步和上一步完全相同（同工具同参数），产物已经交付——直接收口，或换一个做法。"
+                self.transcript.append({"role": "user", "content": f"[system] {notice}"})
+                yield {"type": "narration", "text": notice}
+                continue
+
             # 授权梯度＋执行（_emit_step 共用件）
             denied_refusal = None
             step_result = None
@@ -572,6 +592,16 @@ class AgentLoop:
                 if not isinstance(args, dict):
                     # 坏 JSON 抢救失败按空参执行（宁空勿假——文本协议同口径）
                     args = {}
+
+                if self._duplicate_call(name, args):
+                    self.transcript.append(
+                        {
+                            "role": "tool",
+                            "tool_call_id": call_id,
+                            "content": "这一步和上一步完全相同（同工具同参数），产物已经交付——直接收口，或换一个做法。",
+                        }
+                    )
+                    continue
 
                 tool = get_tool(name)
                 if tool is None or (allowed is not None and name not in allowed):

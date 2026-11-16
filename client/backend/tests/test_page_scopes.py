@@ -255,3 +255,26 @@ def test_chips_agent_tools_declared_in_their_threads():
         for tool in tools:
             assert tool in registry, f"chip 引用了注册表外工具：{thread} {tool}"
             assert tool in declared, f"页签 {thread} 的 chip 工具 {tool} 未在该线程域内声明——chip 会吃到域外引导"
+
+
+@pytest.mark.asyncio
+async def test_consecutive_duplicate_call_blocked(monkeypatch):
+    """连续同工具同参数＝模型原地重跑劝退（抽卡连抽类）：第二次不执行，
+    回喂去重话术；异参调用不受影响。"""
+    executed = _fake_tool(monkeypatch, {"read_progress"})
+    client = _ScriptedClient(
+        [
+            ("", [_tc(0, "read_progress", {"n": 1}), _tc(1, "read_progress", {"n": 1})]),
+            ("都看完了。", []),
+        ]
+    )
+    loop = AgentLoop(
+        client=client, system="sys",
+        transcript=[], tool_ctx=None, config=LoopConfig(), harness="native",
+    )
+    loop.tool_ctx = type("Ctx", (), {"thread": "vol"})()
+    events = [e async for e in loop.run("hi")]
+    assert executed == ["read_progress"], "同参重复调用只执行第一次"
+    assert loop.result.tool_calls == 1
+    dup_row = next(m for m in loop.transcript if m.get("role") == "tool" and "完全相同" in str(m.get("content")))
+    assert loop.result.final_reply == "都看完了。"
