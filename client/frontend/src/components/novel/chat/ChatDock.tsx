@@ -43,7 +43,7 @@ function isSentimentAuth(m: ChatMessage): boolean {
 }
 
 /** 产物卡体：按 cardKind 渲染 payload 摘要（struct/text/report/pick/gate）。 */
-function CardBody({ kind, payload }: { kind: string; payload: unknown }) {
+export function CardBody({ kind, payload }: { kind: string; payload: unknown }) {
   const data = (payload ?? {}) as Record<string, unknown>;
   if (kind === "report") {
     const groups = (data.report as { name: string; items: { status: string; text: string }[] }[] | undefined) ?? [];
