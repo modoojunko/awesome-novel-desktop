@@ -81,6 +81,7 @@ type Action =
       domain?: string;
     }
   | { type: "narration"; thread: string; runId: string; text: string }
+  | { type: "narration_delta"; thread: string; runId: string; text: string }
   | { type: "artifact"; thread: string; runId: string; cardId: string; kind: string; payload: unknown }
   | {
       type: "permission_required";
@@ -224,6 +225,14 @@ export function chatReducer(state: ChatState, action: Action): ChatState {
         }),
       );
     }
+    case "narration_delta":
+      // 逐字流式（boss 拍板根治「不是流式」）：delta 拼进本 run 气泡文本
+      return withThread(state, action.thread, (bucket) =>
+        updateRunBubble(bucket, action.runId, (m) => ({
+          ...m,
+          text: (m.text ?? "") + (action.text ?? ""),
+        })),
+      );
     case "narration":
       return withThread(state, action.thread, (bucket) =>
         updateRunBubble(bucket, action.runId, (m) => ({
@@ -412,6 +421,14 @@ export function useChatSession() {
           resultNote: String(event.resultNote ?? ""),
           apiCalls: event.apiCalls,
           domain: event.domain,
+        });
+        break;
+      case "narration_delta":
+        dispatch({
+          type: "narration_delta",
+          thread,
+          runId: event.runId || "",
+          text: String(event.text ?? ""),
         });
         break;
       case "narration":

@@ -412,6 +412,7 @@ class AgentLoop:
                             yield {"type": "thinking", "text": ev.thinking}
                         if ev.text:
                             full_text += ev.text
+                            yield {"type": "narration_delta", "text": ev.text}
                         if ev.is_done:
                             self.result.tokens_in += ev.tokens_in
                             self.result.tokens_out += ev.tokens
@@ -451,7 +452,8 @@ class AgentLoop:
             if action.kind == "final":
                 self.result.final_reply = action.reply
                 self.result.degraded = False
-                if action.reply:
+                # 正文已按 narration_delta 逐段发出——只落终态；delta 全空时兜底
+                if action.reply and not full_text.strip():
                     yield {"type": "narration", "text": action.reply}
                 break
 

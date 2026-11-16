@@ -72,7 +72,7 @@ async def test_final_reply_path():
     kinds = [e["type"] for e in events]
     assert kinds[0] == "run_start"
     assert "thinking" in kinds
-    assert "narration" in kinds
+    assert "narration_delta" in kinds
     assert kinds[-1] == "run_end"
     assert loop.result.final_reply == "主线还差一句结局。"
     assert loop.result.degraded is False

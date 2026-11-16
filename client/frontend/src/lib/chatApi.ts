@@ -18,6 +18,7 @@ export type AgentEvent = {
     | "step_end"
     | "thinking"
     | "narration"
+    | "narration_delta"
     | "artifact"
     | "permission_required"
     | "gate"
