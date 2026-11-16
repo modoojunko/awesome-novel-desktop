@@ -1437,7 +1437,7 @@ export default function NovelWorkspace() {
             }}
           />
           </AuiErrorBoundary>
-          {false && (
+          {new URLSearchParams(window.location.search).get("aui") === "0" && (
           <ChatDock
             projectId={projectId}
             page={dockPage}

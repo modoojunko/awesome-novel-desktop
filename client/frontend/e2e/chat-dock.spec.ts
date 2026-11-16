@@ -25,6 +25,7 @@ import { entitlementFor } from "./tier-features";
 
 const S_API = process.env.E2E_S_API || "http://127.0.0.1:19001/api/web";
 const ORIGIN = process.env.E2E_BASE_URL || "http://localhost:5176";
+const pageUrl = (hash: string) => `${ORIGIN}/?aui=0#${hash}`;
 const CONFIG_PATH = path.join(
   process.env.E2E_CLIENT_DATA || path.join(process.cwd(), "..", "..", "docker-data-e2e", "client"),
   "config.json",
@@ -336,7 +337,7 @@ async function seedBook(page: Page, token: string, name: string): Promise<string
     body: JSON.stringify({ title: "第一卷" }),
   });
   expect(v.ok).toBeTruthy();
-  await page.goto(`${ORIGIN}/#/novel/${id}`);
+  await page.goto(pageUrl(`/novel/${id}`));
   await page.locator(".mtab", { hasText: "写作" }).click();
   await expect(page.getByTestId("chat-dock")).toBeVisible();
   return id;
@@ -351,7 +352,7 @@ async function seedEmptyBook(page: Page, token: string): Promise<string> {
   const body = await r.json();
   const id = (body.data?.id ?? body.id) as string;
   expect(id).toBeTruthy();
-  await page.goto(`${ORIGIN}/#/novel/${id}`);
+  await page.goto(pageUrl(`/novel/${id}`));
   await page.locator(".mtab", { hasText: "写作" }).click();
   await expect(page.getByTestId("chat-dock")).toBeVisible();
   return id;
