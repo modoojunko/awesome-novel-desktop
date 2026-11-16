@@ -34,7 +34,7 @@ export interface ChatMessage {
   gateHumanOnly?: boolean;
   gateState?: "pending" | "approved" | "denied" | "expired";
   // 轨迹（TraceFolded 数据源：真实工具步）
-  steps: { stepId: string; tool: string; resultNote: string; apiCalls?: StepApiCall[] }[];
+  steps: { stepId: string; tool: string; resultNote: string; apiCalls?: StepApiCall[]; domain?: string }[];
   /** 本轮思考全文（run 收口后折叠回看——coding agent 口径） */
   thinking?: string;
   /** 消息时间（unix 秒；hover 元信息显示——openwriter BubbleMeta 同款） */
@@ -68,6 +68,7 @@ type Action =
       runId: string;
       stepId: string;
       tool: string;
+      domain?: string;
     }
   | {
       type: "step_end";
@@ -77,6 +78,7 @@ type Action =
       tool: string;
       resultNote: string;
       apiCalls?: StepApiCall[];
+      domain?: string;
     }
   | { type: "narration"; thread: string; runId: string; text: string }
   | { type: "artifact"; thread: string; runId: string; cardId: string; kind: string; payload: unknown }
@@ -192,7 +194,12 @@ export function chatReducer(state: ChatState, action: Action): ChatState {
                 ...m,
                 steps: [
                   ...m.steps.filter((s) => s.stepId !== action.stepId),
-                  { stepId: action.stepId, tool: action.tool, resultNote: "" },
+                  {
+                    stepId: action.stepId,
+                    tool: action.tool,
+                    resultNote: "",
+                    domain: action.domain,
+                  },
                 ],
               },
         ),
@@ -208,6 +215,7 @@ export function chatReducer(state: ChatState, action: Action): ChatState {
             tool: action.tool,
             resultNote: action.resultNote,
             apiCalls: action.apiCalls,
+            domain: action.domain,
           };
           const steps = exists
             ? m.steps.map((s) => (s.stepId === action.stepId ? { ...s, ...entry } : s))
@@ -391,6 +399,7 @@ export function useChatSession() {
           runId: event.runId || "",
           stepId: event.stepId || "",
           tool: event.tool || "",
+          domain: event.domain,
         });
         break;
       case "step_end":
@@ -402,6 +411,7 @@ export function useChatSession() {
           tool: event.tool || "",
           resultNote: String(event.resultNote ?? ""),
           apiCalls: event.apiCalls,
+          domain: event.domain,
         });
         break;
       case "narration":

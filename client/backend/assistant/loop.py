@@ -34,6 +34,7 @@ from ai_client import (
 from assistant import compact as compact_mod
 from assistant.actions import parse_action
 from assistant.context import build_outbound_window
+from assistant.scopes import domain_label_of_thread, out_of_scope_guidance, tools_for_thread
 from assistant.tools import ToolContext, get_tool, run_tool
 
 
@@ -173,6 +174,16 @@ class AgentLoop:
 
     # -- 共用小件（两模式同构，tasks 4.3）───────────────────────────────────
 
+    def _allowed_tools(self) -> set[str] | None:
+        """本线程可声明的工具集；None＝不收窄（thread 空＝旧调用/测试/兜底路径）。
+
+        页签独立流程（c-agent-fleet）：真实请求恒带 thread——按域收窄声明与执行。"""
+        ctx = self.tool_ctx
+        thread = str(getattr(ctx, "thread", "") or "") if ctx is not None else ""
+        if not thread:
+            return None
+        return tools_for_thread(thread)
+
     def _wall_clock_left(self, started: float) -> bool:
         return time.monotonic() - started <= self.cfg.wall_clock
 
@@ -205,13 +216,19 @@ class AgentLoop:
                     yield ("denied", last.get("refusal") or "作家没有授权这个操作，我先不做了。")
                     return
         self.result.tool_calls += 1
-        yield ("event", {
+        from assistant.scopes import tool_domain
+
+        domain = tool_domain(tool_name)
+        step_start: dict[str, Any] = {
             "type": "step_start",
             "runId": run_id,
             "stepId": f"{run_id}-{step_no}",
             "tool": tool_name,
             "label": label[:80],
-        })
+        }
+        if domain:
+            step_start["domain"] = domain
+        yield ("event", step_start)
         # API 调用归集（c-writing-agent 反馈流：本步内工具核心的模型调用全部可见
         # ——coding agent 口径，boss 拍板 2026-11-15）
         api_calls_begin()
@@ -225,6 +242,11 @@ class AgentLoop:
             "tool": tool_name,
             "resultNote": note,
         }
+        from assistant.scopes import tool_domain
+
+        domain = tool_domain(tool_name)
+        if domain:
+            step_end["domain"] = domain
         if api_calls:
             step_end["apiCalls"] = api_calls
         write_log = result.meta.get("write_log")
@@ -341,6 +363,14 @@ class AgentLoop:
                 yield {"type": "narration", "text": fallback}
                 break
 
+            # 域外工具＝页签独立流程（c-agent-fleet）：不执行，引导切对应页签
+            allowed = self._allowed_tools()
+            if allowed is not None and action.tool not in allowed:
+                guidance = out_of_scope_guidance(action.tool, str(getattr(self.tool_ctx, "thread", "") or ""))
+                self.result.final_reply = guidance
+                yield {"type": "narration", "text": guidance}
+                break
+
             # 授权梯度＋执行（_emit_step 共用件）
             denied_refusal = None
             step_result = None
@@ -440,7 +470,12 @@ class AgentLoop:
     async def _run_native(self, run_id: str, started: float) -> AsyncIterator[dict[str, Any]]:
         from assistant.tools import TOOL_REGISTRY
 
-        schemas = [t.openai_spec() for t in TOOL_REGISTRY]
+        allowed = self._allowed_tools()
+        schemas = [
+            t.openai_spec()
+            for t in TOOL_REGISTRY
+            if allowed is None or t.name in allowed
+        ]
         step_no = 0
         while True:
             if not self._wall_clock_left(started):
@@ -535,17 +570,22 @@ class AgentLoop:
                     args = {}
 
                 tool = get_tool(name)
-                if tool is None:
-                    # native 口径：tool 结果行回喂错误让模型自纠（文本协议＝收口
-                    # 降级；native 按协议语义回填结果行，由模型决定重试或收口）
+                if tool is None or (allowed is not None and name not in allowed):
+                    # native 口径：tool 结果行回喂让模型自纠。未知工具与域外工具
+                    # 分话术：域外＝页签独立流程引导（c-agent-fleet）
+                    guidance = (
+                        out_of_scope_guidance(name, str(getattr(self.tool_ctx, "thread", "") or ""))
+                        if tool is not None
+                        else (
+                            f"工具 {name} 不在工具箱里——从可用工具清单里选一个"
+                            "真实存在的再试，或直接回复作家。"
+                        )
+                    )
                     self.transcript.append(
                         {
                             "role": "tool",
                             "tool_call_id": call_id,
-                            "content": (
-                                f"工具 {name} 不在工具箱里——从可用工具清单里选一个"
-                                "真实存在的再试，或直接回复作家。"
-                            ),
+                            "content": guidance,
                         }
                     )
                     continue

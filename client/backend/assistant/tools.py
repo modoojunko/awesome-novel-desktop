@@ -18,6 +18,8 @@ from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
 from typing import Any
 
+from assistant.scopes import tools_for_thread
+
 # 转写预算（write/chapter_writer.py 判例同风格：按中文字符预算，不按 token）
 READ_CHAPTER_BUDGET_CHARS = 1500
 READ_SETTINGS_BUDGET_CHARS = 800
@@ -33,6 +35,8 @@ class ToolContext:
     page: str = ""
     # 聚焦对象 ref（章视图当前章——「这章」的锚；router 从消息 focus 注入）
     focus_ref: str = ""
+    # 页签线程（c-agent-fleet：每页签独立流程——工具声明面/域纪律按此收敛）
+    thread: str = ""
 
 
 @dataclass
@@ -522,10 +526,16 @@ def get_tool(name: str) -> Tool | None:
     return _TOOLS_BY_NAME.get(str(name or "").strip())
 
 
-def tool_catalog_text() -> str:
-    """进动作协议 system 段的工具清单文本（封闭集——协议模板引用它）。"""
+def tool_catalog_text(thread: str = "") -> str:
+    """进动作协议 system 段的工具清单文本（封闭集——协议模板引用它）。
+
+    thread 非空＝按页签域收窄（c-agent-fleet：每页签独立流程——共享读＋域内
+    清单）；空＝全量（兼容旧调用与启动校验路径）。"""
+    allowed = tools_for_thread(thread) if thread else None
     lines = []
     for t in TOOL_REGISTRY:
+        if allowed is not None and t.name not in allowed:
+            continue
         gate = f"（{t.feature_key}）" if t.feature_key else ""
         lines.append(f"- {t.name}{gate}：{t.description} 入参示例：{t.args_hint}")
     return "\n".join(lines)

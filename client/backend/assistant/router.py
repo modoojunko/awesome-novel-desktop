@@ -182,6 +182,7 @@ async def _stream_chat(
     page: str,
     user_message_id: str = "",
     body_focus: dict[str, Any] | None = None,
+    thread: str = "",
 ) -> AsyncIterator[str]:
     """SSE generator：no-key 引导 → 组装 → 循环 → 逐步落盘。"""
 
@@ -206,8 +207,14 @@ async def _stream_chat(
     # ── 组装 ────────────────────────────────────────────────────────────────
     identity = await identity_mod.load_identity_for_user(db, user["id"])
     brief = await build_book_brief(project, db)
+    from assistant.scopes import discipline_of_thread
+
+    thread = session_store.sanitize_thread_key(thread)
     system = build_system_prompt(
-        identity_mod.identity_system_section(identity), brief
+        identity_mod.identity_system_section(identity),
+        brief,
+        thread=thread,
+        domain_discipline=discipline_of_thread(thread),
     )
     rows = await session_store.load_messages(db, session.id)
     transcript = _history_transcript(rows, exclude_message_id=user_message_id)
@@ -254,6 +261,7 @@ async def _stream_chat(
         user_id=user["id"],
         page=page,
         focus_ref=(body_focus or {}).get("ref", ""),
+        thread=thread,
     )
     # 记账必须记真实模型（test_ai_prompt_and_boundary 护栏：符号别名不得落账）——
     # client.resolve("haiku") 落到本书绑定模型（AIClient.resolve 单源）
@@ -689,6 +697,7 @@ async def assistant_chat(
         _stream_chat(
             db, project, user, session, message, page,
             user_message_id=user_row.id, body_focus=body_focus,
+            thread=thread,
         ),
         media_type="text/event-stream",
         headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},

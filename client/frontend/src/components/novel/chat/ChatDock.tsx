@@ -821,6 +821,8 @@ export default function ChatDock({
               {(m.steps.length > 0 || m.thinking) && (
                 <details className="cd-trace" data-testid="chat-trace">
                   <summary>
+                    {m.steps.find((s) => s.domain)?.domain &&
+                      `${m.steps.find((s) => s.domain)!.domain}助手 · `}
                     运行轨迹
                     {m.steps.length > 0 &&
                       `（${m.steps.length} 步：${m.steps.map((s) => s.tool).join("、")}）`}
