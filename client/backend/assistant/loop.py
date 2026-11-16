@@ -452,8 +452,7 @@ class AgentLoop:
             if action.kind == "final":
                 self.result.final_reply = action.reply
                 self.result.degraded = False
-                # 正文已按 narration_delta 逐段发出——只落终态；delta 全空时兜底
-                if action.reply and not full_text.strip():
+                if action.reply:
                     yield {"type": "narration", "text": action.reply}
                 break
 
