@@ -1400,25 +1400,19 @@ export default function NovelWorkspace() {
         <aside
           className={`col-ai${assistantOpen ? " as-open" : ""}${assistantNarrow ? " as-drawer" : ""}`}
         >
-          {new URLSearchParams(window.location.search).get("aui") === "2" ? (
-            <Aui2Dock projectId={projectId} page={dockPage} scope={{
+          <Aui2Dock
+            projectId={projectId}
+            page={dockPage}
+            scope={{
               view,
               chapterRef,
               volumeSelId,
               emptyBook: volumes.length === 0,
               settingPanel: settingsPanel,
               chapterTab: railData?.tab,
-            }} />
-          ) : new URLSearchParams(window.location.search).get("aui") === "1" ? (
-            <AuiDock projectId={projectId} page={dockPage} scope={{
-              view,
-              chapterRef,
-              volumeSelId,
-              emptyBook: volumes.length === 0,
-              settingPanel: settingsPanel,
-              chapterTab: railData?.tab,
-            }} />
-          ) : (
+            }}
+          />
+          {false && (
           <ChatDock
             projectId={projectId}
             page={dockPage}
