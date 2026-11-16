@@ -807,3 +807,21 @@ aside.col-ai:not(.as-drawer) {
   min-height: 0;
   overflow: hidden;
 }
+
+/* Aui2Dock chips：换行布局＋横向滚动兜底（防撑爆右栏） */
+.chatdock.aui2 .chatdock-chips {
+  flex: none;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  padding: 8px 10px;
+  overflow-x: hidden;
+  max-height: 96px;
+  overflow-y: auto;
+}
+.chatdock.aui2 .chatdock-chips .chatchip {
+  flex: none;
+  white-space: nowrap;
+  font-size: 12px;
+  padding: 4px 10px;
+}
