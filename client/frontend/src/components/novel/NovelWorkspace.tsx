@@ -11,6 +11,7 @@ import PreviewView from "@/components/novel/workbench/PreviewView";
 import ManuscriptDownloadModal from "@/components/novel/workbench/ManuscriptDownloadModal";
 import type { RailChapterData } from "@/components/novel/workbench/Rail";
 import ChatDock from "@/components/novel/chat/ChatDock";
+import { AuiDock } from "@/components/novel/chat/AuiDock";
 import PersonaModal from "@/components/novel/chat/PersonaModal";
 import ProfileModal from "@/components/novel/chat/ProfileModal";
 import { VolumePlanModal } from "@/components/novel/workbench/VolumePlanModal";
@@ -1398,6 +1399,16 @@ export default function NovelWorkspace() {
         <aside
           className={`col-ai${assistantOpen ? " as-open" : ""}${assistantNarrow ? " as-drawer" : ""}`}
         >
+          {new URLSearchParams(window.location.search).get("aui") === "1" ? (
+            <AuiDock projectId={projectId} page={dockPage} scope={{
+              view,
+              chapterRef,
+              volumeSelId,
+              emptyBook: volumes.length === 0,
+              settingPanel: settingsPanel,
+              chapterTab: railData?.tab,
+            }} />
+          ) : (
           <ChatDock
             projectId={projectId}
             page={dockPage}
@@ -1432,6 +1443,7 @@ export default function NovelWorkspace() {
               if (action === "seam") proseRef.current?.openSeamWizard?.();
             }}
           />
+          )}
         </aside>
       </div>
         {assistantNarrow && !assistantOpen && (
