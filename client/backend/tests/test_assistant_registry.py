@@ -31,7 +31,7 @@ def test_card_tools_have_feature_gate():
     cards = [t for t in TOOL_REGISTRY if t.kind == "card"]
     assert cards, "产卡类工具不应为空"
     for t in cards:
-        assert t.feature_key in ("ai-plan", "settings-ai-fields", "assistant-diverge", "ai-generate"), t.name
+        assert t.feature_key in ("ai-plan", "settings-ai-fields", "assistant-diverge", "ai-generate", "ai-plot"), t.name
 
 
 def test_divergent_discipline_only_on_diverge_tools():

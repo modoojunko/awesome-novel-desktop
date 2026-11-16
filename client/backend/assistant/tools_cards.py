@@ -528,3 +528,141 @@ CARD_TOOLS: tuple[Tool, ...] = (
         fn=_diverge_plot_branches,
     ),
 )
+
+
+
+# ── 章内三面板收编（c-agent-fleet：推演/抽卡/盘点走 agent 对话——boss 拍板
+#    「调用架构要走 agent」；核直调同仓实现，Depends 占位按位传）─────────────
+
+
+async def _resolve_chapter_ref(ctx: ToolContext, chapter_ref: str) -> str:
+    """章锚三回落：显式 ref > 聚焦对象 > frontier（settings_og_fill 同款）。"""
+    from chapters.frontier import frontier_info
+    from db import async_session
+
+    ref = (chapter_ref or "").strip() or (ctx.focus_ref or "").strip()
+    if not ref:
+        async with async_session() as db:
+            info = await frontier_info(db, ctx.novel_id)
+        fr = info.get("frontier") or {}
+        ref = str(fr.get("ref") or "")
+    return ref
+
+
+async def _simulate_plot(ctx: ToolContext, chapter_ref: str = "") -> ToolResult:
+    from assistant.tools_settings import _project_ok
+
+    if not await _project_ok(ctx):
+        return ToolResult(ok=False, summary="书不存在或不属于当前作家。")
+    ref = await _resolve_chapter_ref(ctx, chapter_ref)
+    if not ref:
+        return ToolResult(ok=False, summary="定位不到章——给我章号或章名。")
+    from db import async_session
+    from write.plot_sim import plot_simulate
+
+    async with async_session() as db:
+        try:
+            result = await plot_simulate(
+                ctx.novel_id, ref, {"id": ctx.user_id}, True, True, db,
+            )
+        except HTTPException as e:
+            return ToolResult(ok=False, summary=str(e.detail))
+    return ToolResult(
+        ok=True,
+        summary=f"剧情推演完成：{_clip(str(result)[:300])}（推演是参考，采纳你说了算）",
+        card={"kind": "text", "payload": {"action": "simulate", "chapter_ref": ref, "result": result}},
+    )
+
+
+async def _draw_plot_cards(ctx: ToolContext, extra: str = "") -> ToolResult:
+    from assistant.tools_settings import _project_ok
+
+    if not await _project_ok(ctx):
+        return ToolResult(ok=False, summary="书不存在或不属于当前作家。")
+    ref = await _resolve_chapter_ref(ctx, "")
+    if not ref:
+        return ToolResult(ok=False, summary="定位不到章——给我章号或章名。")
+    from chapters.ai_cast import CastDrawBody, cast_ai_draw
+    from db import async_session
+
+    async with async_session() as db:
+        try:
+            result = await cast_ai_draw(
+                ctx.novel_id, ref, CastDrawBody(extra=str(extra or "")[:200]),
+                {"id": ctx.user_id}, True, True, db,
+            )
+        except HTTPException as e:
+            return ToolResult(ok=False, summary=str(e.detail))
+    return ToolResult(
+        ok=True,
+        summary="三张剧情提案卡已抽：互斥、照章纲门槛出的（不落库，过目挑选）。",
+        card={"kind": "text", "payload": {"action": "draw", "chapter_ref": ref, "result": result}},
+    )
+
+
+async def _review_cast(ctx: ToolContext) -> ToolResult:
+    from assistant.tools_settings import _project_ok
+
+    if not await _project_ok(ctx):
+        return ToolResult(ok=False, summary="书不存在或不属于当前作家。")
+    ref = await _resolve_chapter_ref(ctx, "")
+    if not ref:
+        return ToolResult(ok=False, summary="定位不到章——给我章号或章名。")
+    from chapters.ai_cast import CastReviewBody, cast_ai_review
+    from db import async_session
+
+    async with async_session() as db:
+        try:
+            result = await cast_ai_review(
+                ctx.novel_id, ref, CastReviewBody(),
+                {"id": ctx.user_id}, True, True, db,
+            )
+        except HTTPException as e:
+            return ToolResult(ok=False, summary=str(e.detail))
+    return ToolResult(
+        ok=True,
+        summary="人物盘点完成：逐段对照章纲与正文，只读不落库（零新增是常态输出）。",
+        card={"kind": "text", "payload": {"action": "review", "chapter_ref": ref, "result": result}},
+    )
+
+
+def _make_fleet_tools() -> tuple[Tool, ...]:
+    return (
+        Tool(
+            name="simulate_plot",
+            kind="card",
+            feature_key="ai-plot",
+            parameters={
+                "type": "object",
+                "properties": {
+                    "chapter_ref": {"type": "string", "description": "章 ref（可空＝聚焦章）"},
+                },
+            },
+            description="剧情推演：按本章章纲与已写内容推演后续走向（不落库，过目采纳）。",
+            fn=_simulate_plot,
+        ),
+        Tool(
+            name="draw_plot_cards",
+            kind="card",
+            feature_key="ai-plan",
+            parameters={
+                "type": "object",
+                "properties": {
+                    "extra": {"type": "string", "description": "想偏重的方向或补充要求（可空）"},
+                },
+            },
+            description="剧情抽卡：一次抽 3 张互斥剧情提案卡（不落库；重抽＝再调一次）。",
+            fn=_draw_plot_cards,
+        ),
+        Tool(
+            name="review_cast",
+            kind="card",
+            feature_key="ai-plan",
+            parameters={"type": "object", "properties": {}},
+            description="人物盘点：逐段对照章纲与正文盘点出场角色（只读报告；零新增是常态输出）。",
+            fn=_review_cast,
+        ),
+    )
+
+
+FLEET_TOOLS: tuple[Tool, ...] = _make_fleet_tools()

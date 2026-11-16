@@ -36,6 +36,9 @@ _DOMAIN_TOOLS: dict[str, dict[str, frozenset[str]]] = {
                 "settings_og_fill",
                 "check_consistency",
                 "draft_names",
+                "simulate_plot",
+                "draw_plot_cards",
+                "review_cast",
             }
         ),
     },

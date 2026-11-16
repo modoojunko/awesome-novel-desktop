@@ -519,6 +519,11 @@ from assistant.tools_settings import SETTINGS_FIELD_TOOLS  # noqa: E402
 
 TOOL_REGISTRY: tuple[Tool, ...] = TOOL_REGISTRY + SETTINGS_FIELD_TOOLS
 
+# 章内三面板收编（c-agent-fleet：推演/抽卡/盘点走 agent 对话——boss 拍板）
+from assistant.tools_cards import FLEET_TOOLS  # noqa: E402
+
+TOOL_REGISTRY: tuple[Tool, ...] = TOOL_REGISTRY + FLEET_TOOLS
+
 _TOOLS_BY_NAME: dict[str, Tool] = {t.name: t for t in TOOL_REGISTRY}
 
 

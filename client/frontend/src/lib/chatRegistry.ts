@@ -65,6 +65,9 @@ const CHIP_KEYS = [
   "seam",
   "zhuque",
   "settings_og_fill",
+  "simulate_plot",
+  "draw_plot_cards",
+  "review_cast",
 ] as const;
 
 const REGISTRATIONS: ChatPageRegistration[] = [
@@ -106,9 +109,9 @@ const REGISTRATIONS: ChatPageRegistration[] = [
           { key: "draft_chapter_split", label: "拆下一章", command: "照卷纲拆下一章。" },
           { key: "draft_chapter_plot", label: "本章剧情", command: "给本章出三版剧情清单。" },
           { key: "check_consistency", label: "体检", command: "给本章做一次体检。" },
-          { key: "simulate", label: "剧情推演", command: "", open: "simulate", feature: "ai-plot" },
-          { key: "plot_draw", label: "剧情抽卡", command: "", open: "plot_draw" },
-          { key: "cast_review", label: "人物盘点", command: "", open: "cast_review" },
+          { key: "simulate_plot", label: "剧情推演", command: "给我这一章做剧情推演。" },
+          { key: "draw_plot_cards", label: "剧情抽卡", command: "给我抽三张剧情提案卡。" },
+          { key: "review_cast", label: "人物盘点", command: "给本章做一次人物盘点。" },
           { key: "settings_og_fill", label: "补全缺失", command: "帮我补全这一章章纲缺失的字段。" },
         ],
         prose: [
