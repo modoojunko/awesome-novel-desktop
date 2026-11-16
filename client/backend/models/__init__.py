@@ -1,6 +1,13 @@
 from models.api_config import ApiConfig
 from models.app_meta import AppMeta
 from models.archive import Archive, ChapterPrompt
+from models.assistant import (
+    AssistantMessage,
+    AssistantPersona,
+    AssistantSession,
+    WriterProfile,
+    WriterProfileEvent,
+)
 from models.audit_log import ProjectModelAuditLog
 from models.chapter import (
     Chapter,
@@ -75,6 +82,9 @@ __all__ = [
     "ApiConfig",
     "AppMeta",
     "Archive",
+    "AssistantMessage",
+    "AssistantPersona",
+    "AssistantSession",
     "BookImageSettings",
     "Chapter",
     "ChapterCharacter",
@@ -141,5 +151,7 @@ __all__ = [
     "TokenLog",
     "User",
     "Volume",
+    "WriterProfile",
+    "WriterProfileEvent",
     "ZhuqueResultArchive",
 ]

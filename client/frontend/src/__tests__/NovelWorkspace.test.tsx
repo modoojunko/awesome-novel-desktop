@@ -245,14 +245,20 @@ describe("默认落写作视图（免费）", () => {
     // 空书态两处起手入口（中栏 CTA + 左栏底部）＝新增一卷 ×2 / 新增一章 ×2
     expect(document.querySelectorAll(".e-empty .be-acts .btn").length).toBe(2);
     expect(document.querySelector(".col-tree.empty-book .tree-add")).toBeTruthy();
-    // 右栏「未选中」态（volume-plan-ai 空书）：规划第一卷入口＋分卷依据；四格统计退役
-    expect(document.querySelector(".col-ai .plan-badge")).toBeTruthy(); // AI 助手卡（全局 ra-* 布局）
-    expect(screen.getByTestId("plan-first-volume")).toBeDefined();
-    expect(screen.getByTestId("plan-basis")).toBeDefined();
+    // 右栏（c-writing-agent 卷页收编）：ChatDock 常驻——开场白状态感知＋能力盘 chips；
+    // 旧 volume-idle Rail 卡（plan-badge/plan-first-volume/plan-basis）随之退役
+    expect(document.querySelector('.col-ai [data-testid="chat-dock"]')).toBeTruthy();
+    // 布局钉（真机走查判例 2026-11-15：aside 曾掉出 .wb-split——dock 整宽掉底，
+    // class 断言全绿仍错版；右侧 300px 栏＝aside 必须是 .wb-split 直接子元素）
+    expect(document.querySelector(".wb-split > .col-ai > [data-testid='chat-dock']")).toBeTruthy();
+    expect(screen.getByText("第一卷还空着，说说你的目标，我来铺。")).toBeVisible();
+    expect(screen.getByTestId("chat-chip-draft_volume_expand")).toBeTruthy();
+    expect(screen.getByTestId("chat-chip-draft_chapter_split")).toBeTruthy();
+    expect(screen.queryByTestId("plan-first-volume")).toBeNull();
+    expect(screen.queryByTestId("plan-basis")).toBeNull();
     expect(screen.queryByTestId("idle-rail-stats")).toBeNull();
     expect(document.querySelector(".col-ai .rail-stats")).toBeNull();
-    // 常驻挂载态不占章 AI 面板（右栏只有分卷规划卡一张 AI 助手卡）
-    expect(document.querySelectorAll(".col-ai .rail-assist").length).toBe(1);
+    expect(document.querySelectorAll(".col-ai .rail-assist").length).toBe(0);
     // 应用栏（行头归一）：书名在顶栏；免费标识收敛到账户档位徽（未登录不渲染，e2e 断言）
     expect(screen.getAllByText("测试小说").length).toBeGreaterThan(0);
     expect(screen.queryByText(/免费模式 · 写作功能完整/)).toBeNull();
@@ -361,9 +367,13 @@ describe("空书起手链（c-0vol0ch-empty-state）", () => {
     await waitFor(() => expect(screen.getByTestId("volume-plan-modal")).toBeDefined());
     expect(screen.queryByTestId("pick-modal")).toBeNull();
     fireEvent.click(screen.getByRole("button", { name: /先不规划/ }));
-    // 右栏 AI 入口：PRO 档＝三选一抽卡
-    fireEvent.click(screen.getByTestId("plan-first-volume"));
-    await waitFor(() => expect(screen.getByTestId("pick-modal")).toBeDefined());
+    // 规划台属设定域（既有行为：打开即切设定视图）——dock 的 scope 跟随视图换装
+    // （spec §每页注册制能力盘）；旧抽卡入口随卷页收编退役，铺卷走对话出产物卡。
+    // 设定卡收编（boss 拍板 2026-11-15）：chips 按面板换装——空书落题材面板＝genre 组
+    expect(screen.getByTestId("chat-chip-settings_genre_core_promise")).toBeTruthy();
+    expect(screen.queryByTestId("chat-chip-draft_volume_expand")).toBeNull();
+    expect(screen.queryByTestId("plan-first-volume")).toBeNull();
+    expect(screen.queryByTestId("pick-modal")).toBeNull();
   });
 
   it("入口埋点：三处「＋ 新增一卷」记 plan_entry_open{tier}", async () => {
@@ -406,10 +416,11 @@ describe("免费态：选中章 → 章对象工作台", () => {
     fireEvent.click(screen.getByRole("tab", { name: /^正文/ }));
     await waitFor(() => expect(document.querySelector(".editor")).toBeTruthy());
     expect(screen.queryByRole("button", { name: "AI 生成正文" })).toBeNull();
-    // 右栏免费 locked 卡 + 规划中（章模式三卡）
-    expect(document.querySelector(".col-ai .rail-assist.locked")).toBeTruthy(); // 免费态整卡锁定
-    // 卡头角标＝当前档位（不再写死 PRO）；套餐文案已不进卡头
-    expect(screen.getAllByTestId("plan-badge")[0].textContent).toBe("免费版");
+    // 右栏 dock 锚（工具面板退役，boss 拍板 2026-11-15）：生成正文 chip 在位＋档位提示行；
+    // 免费档生成走点击升级引导（useFeature 分流），Rail locked 卡退役
+    expect(document.querySelector('.col-ai [data-testid="chat-chip-ai_write"]')).toBeTruthy();
+    expect(screen.getByText(/发散类需 MAX · 起草类需 PRO/)).toBeTruthy();
+    expect(document.querySelector(".col-ai .rail-assist")).toBeNull();
     expect(screen.queryByText(/你的 PRO 已包含|未解锁 · 开通后本书 AI 即可用/)).toBeNull();
   });
 });
@@ -485,6 +496,11 @@ describe("写作视图常驻挂载：切到设定编辑器不卸载（点「写�
     );
     expect(threeColClass()).not.toContain("on");
     expect(document.querySelector(".editor")?.textContent).toBe("我在专注写作");
+    // 退役钉（boss 拍板 2026-11-15）：章节工具面板与 dock chips 重复——全状态退役；
+    // 桌面端 dock 头部无「×」（恒开）
+    expect(document.querySelector(".ch-toolbox")).toBeNull();
+    expect(document.querySelector("[data-testid='ch-toolbox-summary']")).toBeNull();
+    expect(document.querySelector(".chatdock-close")).toBeNull();
   });
 });
 
@@ -584,7 +600,7 @@ describe("页签回默认主页（c-write-home-rail-anchor）", () => {
     // 生成正文入口在正文页签面板（c-prose-write-entry：右栏常驻工具卡退役）
     fireEvent.click(screen.getByRole("tab", { name: /^正文/ }));
     // 右栏「生成正文」→ AiModal 确认 → 流式开始（@/lib/ai 的 streamChapterWrite 已桩为挂起）
-    fireEvent.click(screen.getByTestId("ai-write-btn"));
+    fireEvent.click(screen.getByTestId("chat-chip-ai_write"));
     fireEvent.click(await screen.findByTestId("ai-confirm"));
 
     const confirmSpy = vi.spyOn(window, "confirm").mockReturnValue(false);
@@ -614,16 +630,14 @@ describe("PRO 态：徽标 + phase-status + AI 入口", () => {
     await selectFirstChapter();
     fireEvent.click(screen.getByRole("tab", { name: /^正文/ }));
     // AI 入口唯一化右栏（2026-09-20）：章 body 无「AI 生成正文」按钮，
-    // 右栏 AI 助手卡有「生成正文」（data-testid=ai-write-btn）＋真实工具卡
+    // 右栏 dock 锚：生成正文 chip（正文页签）＋人味检测 chip；Rail 卡全退役
     expect(screen.queryByRole("button", { name: "AI 生成正文" })).toBeNull();
     const rail = document.querySelector(".col-ai") as HTMLElement;
-    expect(within(rail).getByTestId("ai-write-btn")).toBeDefined();
-    // 顶栏 bar-here 也有「续写」CTA（行头归一），右栏工具卡断言限定右栏范围
-    expect(within(rail).getByTestId("ai-write-btn")).toBeDefined();
-    // c-renwei-check：去AI味改写链退役（向导与选区单发均缺席）；检测入口＝人味检测
+    expect(within(rail).getByTestId("chat-chip-ai_write")).toBeDefined();
+    expect(within(rail).getByTestId("chat-chip-renwei")).toBeDefined();
+    // c-renwei-check：去AI味改写链退役（向导与选区单发均缺席）
     expect(within(rail).queryByTestId("ai-polish-wizard")).toBeNull();
     expect(within(rail).queryByTestId("ai-polish")).toBeNull();
-    expect(within(rail).getByTestId("rail-renwei-check")).toBeDefined();
     expect(within(rail).queryByText(/^场景扩写$/)).toBeNull();
   });
 });
@@ -809,7 +823,7 @@ describe("正文生成中的现场保护（c-prose-stream-guard）", () => {
     renderWorkspace("monthly");
     await selectFirstChapter();
     fireEvent.click(screen.getByRole("tab", { name: /^正文/ }));
-    fireEvent.click(screen.getByTestId("ai-write-btn"));
+    fireEvent.click(screen.getByTestId("chat-chip-ai_write"));
     fireEvent.click(await screen.findByTestId("ai-confirm"));
     await waitFor(() => expect(writeMock).toHaveBeenCalled());
   }
@@ -842,7 +856,7 @@ describe("正文生成中的现场保护（c-prose-stream-guard）", () => {
       captured = cbs;
       return new AbortController();
     }) as unknown as typeof streamChapterWrite);
-    fireEvent.click(screen.getByTestId("ai-write-btn"));
+    fireEvent.click(screen.getByTestId("chat-chip-ai_write"));
     fireEvent.click(await screen.findByTestId("ai-confirm"));
     await waitFor(() => expect(captured).toBeTruthy());
 
@@ -880,7 +894,7 @@ describe("正文生成中的现场保护（c-prose-stream-guard）", () => {
       captured = cbs;
       return new AbortController();
     }) as unknown as typeof streamChapterWrite);
-    fireEvent.click(screen.getByTestId("ai-write-btn"));
+    fireEvent.click(screen.getByTestId("chat-chip-ai_write"));
     await screen.findByTestId("ai-confirm");
 
     // 先装假时钟再点确认：秒表 interval 随 effect 在假时钟下创建（先前注册的
@@ -945,7 +959,7 @@ describe("正文生成中的现场保护（c-prose-stream-guard）", () => {
       captured = cbs;
       return new AbortController();
     }) as unknown as typeof streamChapterWrite);
-    fireEvent.click(screen.getByTestId("ai-write-btn"));
+    fireEvent.click(screen.getByTestId("chat-chip-ai_write"));
     fireEvent.click(await screen.findByTestId("ai-confirm"));
     await waitFor(() => expect(captured).toBeTruthy());
     captured!.onChunk("雨落在铁皮屋顶上，像一场迟到的道歉。");
@@ -1224,8 +1238,8 @@ describe("重新生成确认门禁（c-prose-regen-replace）", () => {
     renderWorkspace("monthly");
     await selectFirstChapter();
     fireEvent.click(screen.getByRole("tab", { name: /^正文/ }));
-    // ai-write-btn 只在 railData 上抛后渲染＝门禁判定的字数已就绪
-    fireEvent.click(await screen.findByTestId("ai-write-btn"));
+    // dock「生成正文」chip 常驻（requestAi 内部自判字数门禁→regen-confirm/ai-confirm）
+    fireEvent.click(screen.getByTestId("chat-chip-ai_write"));
     expect(await screen.findByTestId("regen-confirm")).toBeTruthy();
     expect(screen.queryByTestId("ai-confirm")).toBeNull();
     const dlg = screen.getByTestId("regen-confirm").closest(
@@ -1240,7 +1254,7 @@ describe("重新生成确认门禁（c-prose-regen-replace）", () => {
     renderWorkspace("monthly");
     await selectFirstChapter();
     fireEvent.click(screen.getByRole("tab", { name: /^正文/ }));
-    fireEvent.click(await screen.findByTestId("ai-write-btn"));
+    fireEvent.click(screen.getByTestId("chat-chip-ai_write"));
     const dlg = (await screen.findByTestId("regen-confirm")).closest(
       "[role='dialog']",
     ) as HTMLElement;
@@ -1248,7 +1262,7 @@ describe("重新生成确认门禁（c-prose-regen-replace）", () => {
     await waitFor(() => expect(screen.queryByTestId("regen-confirm")).toBeNull());
     expect(screen.queryByTestId("ai-confirm")).toBeNull();
     // 再点入口仍能走完整链（无一次性锁死）
-    fireEvent.click(screen.getByTestId("ai-write-btn"));
+    fireEvent.click(screen.getByTestId("chat-chip-ai_write"));
     fireEvent.click(await screen.findByTestId("regen-confirm"));
     expect(await screen.findByTestId("ai-confirm")).toBeTruthy();
     // AiModal 提示行为替换口径（c-prose-regen-replace）
@@ -1261,7 +1275,7 @@ describe("重新生成确认门禁（c-prose-regen-replace）", () => {
     renderWorkspace("monthly");
     await selectFirstChapter();
     fireEvent.click(screen.getByRole("tab", { name: /^正文/ }));
-    fireEvent.click(await screen.findByTestId("ai-write-btn"));
+    fireEvent.click(screen.getByTestId("chat-chip-ai_write"));
     expect(await screen.findByTestId("ai-confirm")).toBeTruthy();
     expect(screen.queryByTestId("regen-confirm")).toBeNull();
   });

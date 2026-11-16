@@ -33,6 +33,7 @@ from archive.dossier_router import router as dossier_router
 from archive.reconcile_router import router as reconcile_router
 from archive.router import archives_router
 from archive.router import router as archive_router
+from assistant.router import router as assistant_router
 
 # License 本地验证
 from auth_local.router import router as auth_local_router
@@ -620,6 +621,7 @@ app.include_router(chapter_cast_router)  # 章域 AI：人物盘点/提案抽卡
 app.include_router(prompt_router)
 app.include_router(prompt_book_router)  # 书级批量：prompt-summary（提示词总览 N+1 收口）
 app.include_router(write_router)
+app.include_router(assistant_router)  # c-writing-agent：右栏对话写作 agent（批A 读类先行）
 app.include_router(write_scan_router)  # 章前缀 AI 味检查（c-deai-wizard）
 app.include_router(ai_check_router)
 app.include_router(seam_refill_router)

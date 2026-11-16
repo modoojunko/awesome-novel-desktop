@@ -23,14 +23,23 @@ function brandTitle(): Plugin {
 export default defineConfig({
   plugins: [react(), brandTitle()],
   base: "./",
+  // deps 缓存目录换道（判例 2026-11-15）：npm 升级 react 后 ?v= hash 未变，浏览器
+  // immutable 缓存里的旧 chunk 毒杀页面——换路径强制缓存 miss（旧 .vite 可删）
+  cacheDir: "node_modules/.vite2",
   resolve: {
     alias: { "@": path.resolve(__dirname, "./src") },
+    // 双 react 副本收敛（c-writing-agent 加 react-markdown 后气泡白屏判例）：
+    // hooks dispatcher null = 组件链上出现第二个 react 实例
+    dedupe: ["react", "react-dom"],
   },
   build: {
     outDir: "dist",
     assetsDir: "assets",
   },
   server: {
+    // dev 全程 no-store：deps chunk 内容变更（npm 升级/重优化）而 ?v= hash 未变时，
+    // 浏览器 immutable 缓存会喂旧 chunk（react 19 毒缓存判例 2026-11-15）
+    headers: { "Cache-Control": "no-store" },
     port: 5173,
     proxy: {
       "/api": {

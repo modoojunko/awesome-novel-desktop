@@ -3,16 +3,22 @@
   "version": 2,
   "free_baseline": {
     "features": [],
-    "limits": { "max_projects": 1 }
+    "limits": {
+      "max_projects": 1
+    }
   },
   "tiers": {
     "none": {
       "features": [],
-      "limits": { "max_projects": 1 }
+      "limits": {
+        "max_projects": 1
+      }
     },
     "free": {
       "features": [],
-      "limits": { "max_projects": 1 }
+      "limits": {
+        "max_projects": 1
+      }
     },
     "standard": {
       "features": [
@@ -23,7 +29,9 @@
         "outline-advanced-fields",
         "ai-model"
       ],
-      "limits": { "max_projects": 3 }
+      "limits": {
+        "max_projects": 3
+      }
     },
     "pro": {
       "features": [
@@ -39,7 +47,9 @@
         "deconstruct",
         "image-generate"
       ],
-      "limits": { "max_projects": null }
+      "limits": {
+        "max_projects": null
+      }
     },
     "max": {
       "features": [
@@ -56,9 +66,12 @@
         "deconstruct-import",
         "image-generate",
         "ai-plot",
-        "style-quant"
+        "style-quant",
+        "assistant-diverge"
       ],
-      "limits": { "max_projects": null }
+      "limits": {
+        "max_projects": null
+      }
     },
     "trial": {
       "features": [
@@ -74,7 +87,9 @@
         "deconstruct",
         "image-generate"
       ],
-      "limits": { "max_projects": null }
+      "limits": {
+        "max_projects": null
+      }
     }
   }
 }

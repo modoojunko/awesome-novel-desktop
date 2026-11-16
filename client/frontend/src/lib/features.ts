@@ -34,6 +34,7 @@ export type FeatureKey =
   | "ai-model"
   | "ai-detect"
   | "ai-plot"
+  | "assistant-diverge"
   | "image-generate"
   | "deconstruct"
   | "deconstruct-import";
@@ -68,6 +69,8 @@ export const FEATURES: Record<FeatureKey, { minTier: TierKey }> = {
   "image-generate": { minTier: "pro" },
   // MAX：剧情推演＋文风蒸馏（去AI味加工已随 c-renwei-check 退役）
   "ai-plot": { minTier: "max" },
+  // c-writing-agent：发散起草（添人添事）MAX（boss 拍板 2026-11-14）
+  "assistant-diverge": { minTier: "max" },
   "style-quant": { minTier: "max" },
   // 拆书/导入（c-deconstruct-tier，2026-10-23 拍板）：正文导入免费；
   // AI 拆书＋产物查看＋导出 markdown 归 PRO（trial 同权）；拆书产物一键建书归 MAX（trial 不含）

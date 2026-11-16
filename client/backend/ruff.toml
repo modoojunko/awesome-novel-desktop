@@ -24,6 +24,7 @@ ignore = ["B008", "ASYNC230", "RUF100", "DTZ"]
 "projects/*.py" = ["BLE001", "S110"]
 "novels/*.py" = ["BLE001", "S110", "S112"]
 "workflow/*.py" = ["BLE001", "S110"]
+"assistant/*.py" = ["BLE001", "S110"]  # c-writing-agent：循环/工具失败不炸对话，作为结果回填
 # genres/*：story.yaml 缺失/损坏不阻断题材读取（注入要与简介同族读文件）
 "genres/*.py" = ["BLE001", "S110"]
 # scripts/release_json_*：stdout reconfigure 的兜底——pytest 捕获器/非标准 stdout

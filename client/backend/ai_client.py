@@ -8,6 +8,7 @@ import contextvars
 import inspect
 import json
 import logging
+import os
 import time
 from collections.abc import AsyncIterator
 from dataclasses import dataclass
@@ -53,6 +54,11 @@ _THINKING_DISABLED = {"type": "disabled"}
 # 生成上限；流式 read 是「相邻事件间隔」上限而非总时长，长文持续出 chunk
 # 不受影响，供应商挂起 120s 内判死。max_retries=1 收敛最坏等待 ≈3 分钟。
 _CHAT_TIMEOUT = httpx.Timeout(connect=10.0, read=90.0, write=30.0, pool=10.0)
+
+# 原生 function calling vendor 白名单（c-agent-harness tasks 3.2；spike 实证 glm；
+# 未知 vendor（含 openai-compat 通用自配兜底——桩模型/兼容网关形态未知）默认
+# text 降级——能力矩阵 fail-safe 口径见 supports_native_tools）
+_NATIVE_TOOLS_VENDORS = {"glm", "openai"}
 _STREAM_READ_TIMEOUT = 120.0
 
 # 流式首字守卫（c-prose-thinking-timeout）：开思考后「思考」与正文共用 max_tokens
@@ -199,6 +205,11 @@ class StreamEvent:
     # anthropic=message_delta.delta.stop_reason；length＝输出预算耗尽截断，
     # 供「撞预算截断」与「模型自愿写短」分桶；供应商未回传＝空串（unknown 桶）
     finish_reason: str = ""
+    # 原生 function calling（c-agent-harness tasks 3.1）：chat_stream(tools=…)
+    # 时供应商返回的结构化调用——按流内 index 聚合完成（name/arguments 分片
+    # 拼接、arguments 已解析为 dict；解析失败保留 args_raw）。文本协议路径
+    # 恒 None，调用方按 falsy 天然忽略。
+    tool_calls: list[dict] | None = None
     error: str = ""
 
 
@@ -338,6 +349,26 @@ def strip_inline_think(text: str) -> str:
     return s.feed(text) + s.finish()
 
 
+# ── 会话内 API 调用归集（c-writing-agent 反馈流：思考/工具/模型调用全可见）────
+# contextvar 让同一任务（loop → run_tool → 草稿核心 client.chat）内的 provider
+# 调用自归集；循环侧 begin/drain 成对使用——无人收集时零开销（不 append）。
+_API_CALLS_CV: contextvars.ContextVar[list[dict] | None] = contextvars.ContextVar(
+    "ai_api_calls", default=None
+)
+
+
+def api_calls_begin() -> None:
+    """开启本任务内的 API 调用归集（循环每个工具步前调用）。"""
+    _API_CALLS_CV.set([])
+
+
+def api_calls_drain() -> list[dict]:
+    """取走并清空自 begin 以来的调用记录（op/model/耗时/tokens/成败）。"""
+    buf = _API_CALLS_CV.get()
+    _API_CALLS_CV.set(None)
+    return list(buf) if buf else []
+
+
 class AIClient:
     """Provider-agnostic AI client.
 
@@ -469,6 +500,18 @@ class AIClient:
         （含拒参重开）、thinking_chars＝思考增量字符数；思考全文不落日志。
         """
         duration_ms = (time.perf_counter() - start) * 1000
+        _calls = _API_CALLS_CV.get()
+        if _calls is not None:
+            _calls.append(
+                {
+                    "op": operation or "-",
+                    "model": model,
+                    "ms": int(duration_ms),
+                    "tokens_in": int(tokens_in or 0),
+                    "tokens_out": int(tokens_out or 0),
+                    "ok": error is None,
+                }
+            )
         op = operation or "-"
         mdl = model or self._model or "-"
         vendor = getattr(self, "_vendor", "") or "-"  # c-llm-call-log 身份字段
@@ -519,6 +562,10 @@ class AIClient:
         """按配置构造思考参数（c-thinking-config，原「默认关思考」语义的推广）。
 
         开＝thinking:{type:enabled}＋reasoning_effort（GLM-5.3 契约顶层参数）；
+        **vendor 分叉（2026-11-16）**：GLM 的 openai 兼容端点（coding/paas）实测
+        顶层 reasoning_effort 会**静默吞掉** reasoning_content 流（不报错、工具
+        调用照常）——档位嵌套进 thinking{} 才照常流出（探针矩阵四形态对照）；
+        方舟等 vendor 扁平形态为 2026-10-24 真机 200 实证的原样形态，不动。
         关（默认）＝_off_thinking_params。base 级进程记忆分级：UNSPORTED（连思考
         参数字段都不认）→ 什么都不发；FORCED（disabled 被**值级**打回，GLM-5.3
         实锤）→「关」以 enabled＋low 替代（GLM 迁移指引口径），替代再被拒则升级
@@ -542,10 +589,14 @@ class AIClient:
             return {}
         # getattr 兜底：`__new__` 直装的测试实例可无此属性（与 _vendor 同款约定）
         if getattr(self, "_thinking_enabled", False):
-            return {
-                "thinking": {"type": "enabled"},
-                "reasoning_effort": getattr(self, "_thinking_effort", "low") or "low",
-            }
+            effort = getattr(self, "_thinking_effort", "low") or "low"
+            if str(getattr(self, "_vendor", "") or "").strip().lower() == "glm":
+                # GLM coding 端点实测（2026-11-16，探针矩阵四形态对照）：顶层
+                # reasoning_effort 被静默吞思考流（不报错、工具照常）——档位
+                # 嵌套进 thinking{} 才照常流出 reasoning_content。方舟等 vendor
+                # 的扁平形态为 2026-10-24 真机 200 实证的原样形态，不动。
+                return {"thinking": {"type": "enabled", "reasoning_effort": effort}}
+            return {"thinking": {"type": "enabled"}, "reasoning_effort": effort}
         return self._off_thinking_params()
 
     def _off_thinking_params(self) -> dict[str, Any]:
@@ -679,6 +730,24 @@ class AIClient:
             return self._model
         return model_name
 
+    def supports_native_tools(self, model: str = "") -> bool:
+        """供应商能力矩阵（c-agent-harness tasks 3.2）：原生 function calling 走 native。
+
+        spike 实证（2026-11-16，design.md 附录）：glm openai 兼容端点 tools 原生
+        三场景全过。白名单口径：openai 协议端点＋vendor 白名单（glm/openai）；
+        anthropic 协议端点的 native FC 是 tool_use 块形态（本 change 不做）；
+        未知 vendor 默认 False＝降级文本协议（fail-safe）。
+        env ASSISTANT_HARNESS=native|text 可强制（tasks 4.1 路由用）。
+        """
+        env = (os.environ.get("ASSISTANT_HARNESS") or "").strip().lower()
+        if env == "native":
+            return True
+        if env == "text":
+            return False
+        if self._provider != "openai":
+            return False
+        return str(self._vendor or "").strip().lower() in _NATIVE_TOOLS_VENDORS
+
     async def chat(
         self,
         model: str,
@@ -771,6 +840,23 @@ class AIClient:
                 tokens_out=(usage or {}).get("tokens_out", 0),
                 attempt=attempt,
             )
+            # 原生 FC 非流式出口（c-agent-harness tasks 3.3）：调用面扩展——
+            # 响应带 tool_calls 时进 meta（返回值类型 str 不变，既有调用方零感知；
+            # arguments 解析失败保留 args_raw，与流式通道同口径）
+            if meta is not None:
+                tc_list = getattr(choices[0].message, "tool_calls", None)
+                if tc_list:
+                    calls = []
+                    for tc in tc_list:
+                        raw = tc.function.arguments or ""
+                        item = {"id": tc.id, "name": tc.function.name,
+                                "arguments": None, "args_raw": raw}
+                        try:
+                            item["arguments"] = json.loads(raw or "{}")
+                        except ValueError:
+                            pass
+                        calls.append(item)
+                    meta["tool_calls"] = calls
             # 内联思考剥离（c-inline-think-strip）：非 `<think>` 前缀形态原样返回
             return strip_inline_think(choices[0].message.content or "")
         else:
@@ -864,6 +950,7 @@ class AIClient:
         max_tokens: int = 4096,
         operation: str = "",
         first_content_timeout: float | None = None,
+        tools: list[dict[str, Any]] | None = None,
         **kwargs: Any,
     ) -> AsyncIterator[StreamEvent]:
         """Streaming chat. Yields StreamEvent with text, is_done, tokens.
@@ -872,6 +959,10 @@ class AIClient:
         first_content_timeout: 首个正文 delta 前的总时长上限（秒；None/0＝不设，
         openai/anthropic 两分支同构实现）——超时抛 AIThinkingTimeoutError，供
         「思考太久即失败」（c-prose-thinking-timeout）。
+        tools: 原生 function calling 工具表（c-agent-harness tasks 3.1，openai
+        兼容分支；openai_spec() 形态数组）——模型返回结构化 tool_calls 时按
+        流内 index 聚合后以独立 StreamEvent(tool_calls=…) 产出（is_done 之前）；
+        思考（reasoning_content）与工具调用并行流出，两通道互不挤占。
         """
         model = self.resolve(model)
         start = time.perf_counter()
@@ -887,6 +978,10 @@ class AIClient:
             for m in messages:
                 openai_messages.append({"role": m["role"], "content": m["content"]})
             extra = self._openai_thinking_extra(kwargs)
+            # 原生 FC（c-agent-harness 3.1）：tools 只进 openai 兼容分支；
+            # anthropic 协议分支不支持（能力矩阵判 text）——此处按 falsy 忽略
+            if not tools:
+                tools = None
             try:
                 try:
                     stream = await self._client.chat.completions.create(
@@ -896,6 +991,7 @@ class AIClient:
                         stream=True,
                         extra_body=extra,
                         timeout=_to_sdk_timeout("openai", _stream_timeout()),
+                        tools=tools,
                         **kwargs,
                     )
                 except Exception as e:  # noqa: BLE001 — 端点不认思考参数时去参重开一次流（开流前）
@@ -913,6 +1009,7 @@ class AIClient:
                         stream=True,
                         extra_body=extra,
                         timeout=_to_sdk_timeout("openai", _stream_timeout()),
+                        tools=tools,
                         **kwargs,
                     )
                 done_out, done_in = 0, 0
@@ -935,6 +1032,8 @@ class AIClient:
                 # c-thinking-display：滑窗外增量经 stripper.thinking 透出为
                 # 思考事件（排空后复用列表对象，零额外分配）
                 stripper = _InlineThinkStripper()
+                # 原生 FC 聚合槽（c-agent-harness 3.1）：index→{id,name,args}
+                pending_tc: dict[int, dict[str, str]] = {}
                 async for chunk in stream:
                     if first_deadline is not None and time.monotonic() >= first_deadline:
                         raise AIThinkingTimeoutError(time.monotonic() - first_started)
@@ -957,6 +1056,20 @@ class AIClient:
                         saw_thinking = True
                         thinking_chars += len(rc)
                         yield StreamEvent(thinking=rc)
+                    # 原生 FC 聚合（spike 实证：name/arguments 按 index 分片流出；
+                    # 思考流与工具调用并行——reasoning 已先行透出，不在此处理）
+                    if delta and getattr(delta, "tool_calls", None):
+                        for tc in delta.tool_calls:
+                            slot = pending_tc.setdefault(
+                                tc.index, {"id": "", "name": "", "args": ""}
+                            )
+                            if tc.id:
+                                slot["id"] += tc.id
+                            if tc.function is not None:
+                                if tc.function.name:
+                                    slot["name"] += tc.function.name
+                                if tc.function.arguments:
+                                    slot["args"] += tc.function.arguments
                     if delta and delta.content:
                         prose = stripper.feed(delta.content)
                         # 内联 <think> 剥离段滑窗外增量 → 思考事件（含中段
@@ -979,6 +1092,24 @@ class AIClient:
                         first_text_at = time.perf_counter()
                     first_deadline = None
                     yield StreamEvent(text=tail)
+                # 原生 FC 收口（is_done 前独立事件）：arguments 解析为 dict，
+                # 解析失败保留 args_raw 供上层抢救—— native 分支按 done 语义执行
+                if pending_tc:
+                    calls: list[dict] = []
+                    for idx in sorted(pending_tc):
+                        slot = pending_tc[idx]
+                        item: dict[str, Any] = {
+                            "id": slot["id"],
+                            "name": slot["name"],
+                            "arguments": None,
+                            "args_raw": slot["args"],
+                        }
+                        try:
+                            item["arguments"] = json.loads(slot["args"] or "{}")
+                        except ValueError:
+                            pass
+                        calls.append(item)
+                    yield StreamEvent(tool_calls=calls)
                 self._log_call(
                     operation, model, start, tokens_in=done_in, tokens_out=done_out,
                     thinking_ms=(

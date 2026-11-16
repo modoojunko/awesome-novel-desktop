@@ -698,6 +698,23 @@ async def ai_chapter_directions(
     mat = await _chapter_material(db, project, vol, ch_no)
     # 重抽排除（D21）：已出批的轴＋一句话；中性禁令入素材，服务端同轴相似丢卡
     exclude = [(i.axis.strip(), i.line.strip()) for i in body.exclude if i.axis.strip() and i.line.strip()][:9]
+    return await chapter_directions_core(db, project, vol=vol, ch_no=ch_no, mat=mat, exclude=exclude, user=user)
+
+
+async def chapter_directions_core(
+    db: AsyncSession,
+    project,
+    *,
+    vol,
+    ch_no: int,
+    mat: dict,
+    exclude: list[tuple[str, str]],
+    user: dict,
+) -> dict:
+    """三方向卡生成核心（路由准入后调用；c-writing-agent 工具同源复用）。
+
+    准入（卷存在/卷纲三项非空/下一章号/素材装配/排除清单解析）留在路由层；
+    本函数只做生成＋清洗＋重试阶梯＋卡面装配，返回响应 dict（ok/degraded 分支）。"""
     _sys_t, _usr_t = load_layers("chapter_split")
     system = _render(
         _sys_t,
@@ -733,7 +750,7 @@ async def ai_chapter_directions(
         # 出卡必然脱离全书设定，且排除清单缺席会让重试卡再撞对拍被二次丢弃。
         logger.info(
             "chapter_directions retry attempt=%d/%d cause=%s novel=%s vol=%s ch=%d",
-            attempts + 1, MAX_ATTEMPTS, cause, project.id, vol_no, ch_no,
+            attempts + 1, MAX_ATTEMPTS, cause, project.id, vol, ch_no,
         )
         raw, _u = await _generate(
             project, retry_system, user_msg,

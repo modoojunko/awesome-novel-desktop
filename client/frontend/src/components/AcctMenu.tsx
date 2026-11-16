@@ -52,9 +52,15 @@ function channelTag(channel?: string): string {
 
 export default function AcctMenu({
   onBookPrefs,
+  onAssistantPersona,
+  onWriterProfile,
 }: {
   /** 工作台语境注入：面板「本书偏好」项回调（打开本书偏好弹窗） */
   onBookPrefs?: () => void;
+  /** 工作台语境注入：助手人格查看/编辑（c-writing-agent，boss 拍板 2026-11-15 入控制中心） */
+  onAssistantPersona?: () => void;
+  /** 工作台语境注入：作家画像查看/编辑（入口从 dock 脚部收敛到控制中心） */
+  onWriterProfile?: () => void;
 }) {
   const navigate = useNavigate();
   const tier = useTier();
@@ -362,6 +368,37 @@ export default function AcctMenu({
               <Ico d={P.tune} sw={1.7} />
               本书偏好
               <span className="am-hint">字号 · 行距 · 归档</span>
+            </button>
+          )}
+
+          {onAssistantPersona && (
+            <button
+              className="am-item"
+              role="menuitem"
+              data-od-id="acct-menu-assistant-persona"
+              onClick={() => {
+                close();
+                onAssistantPersona();
+              }}
+            >
+              <Ico d={P.spark} sw={1.7} />
+              助手人格
+              <span className="am-hint">搭档的性格 · 说话规矩</span>
+            </button>
+          )}
+          {onWriterProfile && (
+            <button
+              className="am-item"
+              role="menuitem"
+              data-od-id="acct-menu-writer-profile"
+              onClick={() => {
+                close();
+                onWriterProfile();
+              }}
+            >
+              <Ico d={P.star} sw={1.7} />
+              作家画像
+              <span className="am-hint">口味 · 雷点 · 节奏</span>
             </button>
           )}
 

@@ -721,3 +721,67 @@ class TestAnthropicCacheAccounting:
             c.chat(model="haiku", system="", messages=[{"role": "user", "content": "x"}], usage=usage)
         )
         assert usage["tokens_in"] == 500
+
+
+class TestThinkingShapeVendorSplit:
+    """GLM 嵌套档位 vs 其余 vendor 扁平（2026-11-16 coding 端点实测：顶层
+    reasoning_effort 静默吞 reasoning_content 流——agent 循环思考回看全灭根因）。"""
+
+    def test_glm_enabled_nests_effort(self):
+        c = AIClient(
+            api_key="sk-x", base_url="https://open.bigmodel.cn/api/coding/paas/v4",
+            model="glm-5.3-flash", vendor="glm",
+            thinking_enabled=True, thinking_effort="low",
+        )
+        params = c._thinking_params()
+        assert params == {"thinking": {"type": "enabled", "reasoning_effort": "low"}}
+        assert "reasoning_effort" not in {k for k in params if k != "thinking"}
+
+    def test_glm_paas_v4_same_nesting(self):
+        c = AIClient(
+            api_key="sk-x", base_url="https://open.bigmodel.cn/api/paas/v4",
+            model="glm-5.3-flashx", vendor="glm",
+            thinking_enabled=True, thinking_effort="high",
+        )
+        assert c._thinking_params() == {"thinking": {"type": "enabled", "reasoning_effort": "high"}}
+
+    def test_non_glm_keeps_flat_shape(self):
+        c = AIClient(
+            api_key="sk-x", base_url="https://ark.cn-beijing.volces.com/api/v3",
+            model="doubao-seed-2-1-lite-260915", vendor="doubao",
+            thinking_enabled=True, thinking_effort="low",
+        )
+        assert c._thinking_params() == {"thinking": {"type": "enabled"}, "reasoning_effort": "low"}
+
+    def test_openai_compat_generic_vendor_not_native(self):
+        """openai-compat＝通用自配兜底 vendor（形态未知）——必须降级 text（
+        2026-11-16 e2e 实锤：白名单误纳 → 桩模型文本动作 JSON 被当自然收口，
+        全链工具步全灭）。fail-safe 口径：白名单只收实测验证过的 vendor。"""
+        c = AIClient(
+            api_key="sk-x", base_url="https://stub.example/v1",
+            model="stub-model", vendor="openai-compat",
+        )
+        assert c.supports_native_tools() is False
+
+    def test_unknown_vendor_keeps_flat_shape(self):
+        c = AIClient(
+            api_key="sk-x", base_url="https://api.example.com/v1",
+            model="m", thinking_enabled=True, thinking_effort="low",
+        )
+        assert c._thinking_params() == {"thinking": {"type": "enabled"}, "reasoning_effort": "low"}
+
+    def test_forced_off_path_stays_flat(self):
+        """「关」的替代形态（FORCED＝enabled＋low）保持扁平——扁平吞流恰好贴合
+        「最接近关」的语义；升级口径不变。"""
+        mod = __import__("ai_client", fromlist=["_THINKING_FORCED_BASES"])
+        base = "https://glm.example/v4"
+        mod._THINKING_FORCED_BASES.add(base)
+        try:
+            c = AIClient(
+                api_key="sk-x", base_url=base,
+                model="glm-5.3", vendor="glm",
+                thinking_enabled=False, thinking_effort="low",
+            )
+            assert c._thinking_params() == {"thinking": {"type": "enabled"}, "reasoning_effort": "low"}
+        finally:
+            mod._THINKING_FORCED_BASES.discard(base)
