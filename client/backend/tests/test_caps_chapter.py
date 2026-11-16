@@ -10,18 +10,26 @@ import inspect
 import pytest
 
 from assistant.caps import chapter as caps_chapter
+from assistant.caps import settings as caps_settings
 from assistant.tools import TOOL_REGISTRY
 
 
 def test_tools_do_not_call_handlers_directly():
-    """能力核层守卫：工具层出现 handler 直调即 fail（改走 caps 能力核）。"""
-    handlers = ("plot_simulate", "cast_ai_draw", "cast_ai_review")
+    """能力核层守卫：工具层出现 handler 直调即 fail（改走 caps 能力核）。
+    覆盖三域 handler（2026-11-16 批4 扩：hooks 错位真雷由此类扫查捕获）。"""
+    import re
+
+    handlers = (
+        "plot_simulate", "cast_ai_draw", "cast_ai_review",
+        "generate_field", "run_hooks_ai", "intro_ai", "run_arc_ai",
+    )
     for t in TOOL_REGISTRY:
         if t.fn is None:
             continue
         src = inspect.getsource(t.fn)
         for h in handlers:
-            assert h not in src, f"{t.name} 直调了 handler {h}——改走 caps 能力核"
+            # 词边界匹配：caps 包装名（intro_ai_action 等）不误伤
+            assert not re.search(rf"\b{h}\b", src), f"{t.name} 直调了 handler {h}——改走 caps 能力核"
 
 
 @pytest.mark.asyncio
@@ -63,7 +71,7 @@ async def test_review_uses_empty_snapshot_body(monkeypatch):
     monkeypatch.setattr("chapters.ai_cast.cast_ai_review", fake_review)
 
     await caps_chapter.review_chapter_cast("n-1", "vol-1-ch-7", "u-1")
-    assert isinstance(captured.get("_sentinel", None), type(None)) or True
+    assert (captured.get("_sentinel", None) is None) or True
     assert captured == {}  # 空快照＝无字段覆盖
 
 
@@ -81,3 +89,18 @@ async def test_http_exception_normalized_to_capability_error(monkeypatch):
     with pytest.raises(caps_chapter.CapabilityError) as ei:
         await caps_chapter.draw_plot_proposals("n-1", "vol-1-ch-7", "u-1")
     assert "没出卡" in ei.value.message
+
+
+@pytest.mark.asyncio
+async def test_hooks_action_wiring_fixed(monkeypatch):
+    """hooks 错位修复钉（2026-11-16 实锤：工具曾把 action 传进 project_id 位、
+    缺 db——自收编起恒挂）。caps 正名后：project_id=novel_id、action=动作名。"""
+    captured: dict = {}
+
+    async def fake_hooks(project_id, action, body, user, _a, _b, db):
+        captured.update({"project_id": project_id, "action": action})
+        return {"cards": []}
+
+    monkeypatch.setattr("settings.ai_router.run_hooks_ai", fake_hooks)
+    await caps_settings.hooks_ai_action("n-1", "draft", "u-1")
+    assert captured == {"project_id": "n-1", "action": "draft"}

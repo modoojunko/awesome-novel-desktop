@@ -230,29 +230,17 @@ async def _draft_chapter_plot(ctx: ToolContext, chapter_ref: str) -> ToolResult:
 
 async def _draft_arc(ctx: ToolContext, action: str = "draft", input: str = "") -> ToolResult:
     """主线四能力（draft/calibrate/check/tone；draft/text 卡、check/report 卡）。"""
-    from db import async_session
-    from novels.service import get_novel
-    from settings.ai_router import run_arc_ai
+    from assistant.caps.settings import CapabilityError, arc_ai_action
 
     action = str(action or "draft").strip()
     if action not in ("draft", "calibrate", "check", "tone"):
         return ToolResult(ok=False, summary=f"未知主线动作：{action}")
-    async with async_session() as db:
-        project = await get_novel(db, ctx.novel_id, ctx.user_id)
-        if project is None:
-            return ToolResult(ok=False, summary="书不存在或不属于当前作家。")
-        try:
-            result = await run_arc_ai(
-                project_id=ctx.novel_id,
-                action=action,
-                body={"input": str(input or "")},
-                user={"id": ctx.user_id},
-                _=True,
-                __=True,
-                db=db,
-            )
-        except HTTPException as e:
-            return ToolResult(ok=False, summary=str(e.detail))
+    try:
+        result = await arc_ai_action(
+            ctx.novel_id, action, ctx.user_id, input_text=str(input or "")
+        )
+    except CapabilityError as e:
+        return ToolResult(ok=False, summary=e.message)
     kind = "report" if action == "check" else "text"
     return _tool_result_from_card(kind, result, f"主线 {action} 完成（过目后采纳）。")
 

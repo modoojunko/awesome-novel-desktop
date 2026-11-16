@@ -7,7 +7,6 @@ draft 卡（禁裸 JSON 上对话——boss 红线「对话框不要出现程序
 
 from __future__ import annotations
 
-
 from assistant.tools import Tool, ToolContext, ToolResult
 
 # ── 章内三面板收编（c-agent-fleet：推演/抽卡/盘点走 agent 对话——boss 拍板

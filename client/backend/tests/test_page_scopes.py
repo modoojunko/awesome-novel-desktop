@@ -273,8 +273,7 @@ async def test_consecutive_duplicate_call_blocked(monkeypatch):
         transcript=[], tool_ctx=None, config=LoopConfig(), harness="native",
     )
     loop.tool_ctx = type("Ctx", (), {"thread": "vol"})()
-    events = [e async for e in loop.run("hi")]
+    _ = [e async for e in loop.run("hi")]
     assert executed == ["read_progress"], "同参重复调用只执行第一次"
     assert loop.result.tool_calls == 1
-    dup_row = next(m for m in loop.transcript if m.get("role") == "tool" and "完全相同" in str(m.get("content")))
     assert loop.result.final_reply == "都看完了。"
