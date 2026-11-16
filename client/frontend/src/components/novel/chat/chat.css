@@ -792,12 +792,17 @@
   flex: 1;
   min-height: 0;
 }
-/* ChatAnywhere 内部容器撑满 */
-.chatdock.aui2 [class*="chatanywhere"],
-.chatdock.aui2 [class*="chat-anywhere"] {
+/* ChatAnywhere 内部容器撑满（类名形如 <hash>-chat-anywhere-layout） */
+.chatdock.aui2 [class$="-chat-anywhere-layout"] {
   flex: 1;
   min-height: 0;
-  height: 100%;
+}
+/* 兜底：ConfigProvider 直系容器也撑满 */
+.chatdock.aui2 .chatdock-chips + * {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
 }
 
 /* Aui2Dock 高度链：aside.col-ai → .chatdock.aui2 → ChatAnywhere 逐级封顶 */
