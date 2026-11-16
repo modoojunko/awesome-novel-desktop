@@ -57,12 +57,38 @@ _DOMAIN_TOOLS: dict[str, dict[str, frozenset[str]]] = {
                 "settings_hooks_check",
                 "settings_intro",
                 "draft_arc",
+                "check_consistency",
                 "draft_names",
                 "diverge_character_group",
                 "kb_create_entry",
                 "kb_update_entry",
             }
         ),
+    },
+    "ch:settings": {
+        "domain": "设定",
+        "label": "设定助手",
+        "tools": frozenset({"check_consistency"}),
+    },
+    "ch:relations": {
+        "domain": "关系",
+        "label": "关系助手",
+        "tools": frozenset({"check_consistency"}),
+    },
+    "ch:hooks": {
+        "domain": "伏笔",
+        "label": "伏笔助手",
+        "tools": frozenset({"check_consistency"}),
+    },
+    "ch:actions": {
+        "domain": "操作",
+        "label": "操作助手",
+        "tools": frozenset(),
+    },
+    "ch:style": {
+        "domain": "文风",
+        "label": "文风助手",
+        "tools": frozenset({"check_consistency"}),
     },
     "vol": {
         "domain": "卷纲",

@@ -165,8 +165,9 @@ async def test_in_scope_tool_executes_and_labels_domain(monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_shared_read_has_no_domain_label(monkeypatch):
-    """共享读不带域标签（缺字段＝向后兼容增项口径）。"""
+async def test_shared_read_carries_thread_domain(monkeypatch):
+    """域标签＝当前线程域（轨迹即本页签助手的流程——共享读也随页签标域）；
+    thread 空＝不标（旧调用/兜底路径向后兼容口径）。"""
     _fake_tool(monkeypatch, {"read_progress"})
     client = _ScriptedClient(
         [
@@ -181,7 +182,18 @@ async def test_shared_read_has_no_domain_label(monkeypatch):
     loop.tool_ctx = type("Ctx", (), {"thread": "set:default"})()
     events = [e async for e in loop.run("进度")]
     step_start = next(e for e in events if e["type"] == "step_start")
-    assert "domain" not in step_start
+    assert step_start.get("domain") == "设定"
+    # thread 空＝无域标签（旧路径兼容）
+    client2 = _ScriptedClient(
+        [("", [_tc(0, "read_progress", {})]), ("好。", [])]
+    )
+    loop2 = AgentLoop(
+        client=client2, system="sys",
+        transcript=[], tool_ctx=None, config=LoopConfig(), harness="native",
+    )
+    events2 = [e async for e in loop2.run("进度")]
+    step_start2 = next(e for e in events2 if e["type"] == "step_start")
+    assert "domain" not in step_start2
 
 
 @pytest.mark.asyncio
@@ -213,3 +225,33 @@ async def test_two_threads_concurrent_isolated(monkeypatch):
 
     await asyncio.gather(run_one("A", "ch:og"), run_one("B", "set:default"))
     assert results == {"A": "答A", "B": "答B"}
+
+
+def test_chips_agent_tools_declared_in_their_threads():
+    """chips↔域对照回归钉（2026-11-16 实锤：check_consistency 出现在 5 个页签
+    chips 里但域映射只配了 og/vol——体检 chip 断）。前端 chatRegistry 的
+    agent 工具 chip→thread 表镜像于此；前端动作类 chip（open 面板）不在表内。"""
+    # 镜像 chatRegistry.ts byTab/byPanel（agent 工具 key only）
+    chip_tools_by_thread = {
+        "ch:og": ["draft_chapter_split", "draft_chapter_plot", "check_consistency", "settings_og_fill"],
+        "ch:settings": ["check_consistency"],
+        "ch:relations": ["check_consistency"],
+        "ch:hooks": ["check_consistency"],
+        "ch:style": ["check_consistency"],
+        "ch:actions": [],
+        "ch:prose": [],
+        "vol": ["draft_volume_expand", "draft_chapter_split", "check_consistency"],
+        "set:chars": ["draft_arc", "check_consistency"],
+        "set:genre": ["settings_genre_core_promise", "settings_genre_forbidden_list",
+                      "settings_genre_cost_ratio", "settings_genre_battlefield"],
+        "set:intro": ["settings_intro"],
+        "set:foreshadow": ["settings_hooks_draft", "settings_hooks_check"],
+        "set:arc": ["draft_arc", "check_consistency"],
+        "preview": [],
+    }
+    registry = {t.name for t in TOOL_REGISTRY}
+    for thread, tools in chip_tools_by_thread.items():
+        declared = tools_for_thread(thread)
+        for tool in tools:
+            assert tool in registry, f"chip 引用了注册表外工具：{thread} {tool}"
+            assert tool in declared, f"页签 {thread} 的 chip 工具 {tool} 未在该线程域内声明——chip 会吃到域外引导"

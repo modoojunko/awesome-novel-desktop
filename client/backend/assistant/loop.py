@@ -216,9 +216,10 @@ class AgentLoop:
                     yield ("denied", last.get("refusal") or "作家没有授权这个操作，我先不做了。")
                     return
         self.result.tool_calls += 1
-        from assistant.scopes import tool_domain
+        from assistant.scopes import domain_of_thread
 
-        domain = tool_domain(tool_name)
+        # 域标签取当前线程域（check_consistency 等多域归属工具按工具首属域会标错页签）
+        domain = domain_of_thread(str(getattr(self.tool_ctx, "thread", "") or ""))
         step_start: dict[str, Any] = {
             "type": "step_start",
             "runId": run_id,
@@ -242,9 +243,9 @@ class AgentLoop:
             "tool": tool_name,
             "resultNote": note,
         }
-        from assistant.scopes import tool_domain
+        from assistant.scopes import domain_of_thread
 
-        domain = tool_domain(tool_name)
+        domain = domain_of_thread(str(getattr(self.tool_ctx, "thread", "") or ""))
         if domain:
             step_end["domain"] = domain
         if api_calls:
