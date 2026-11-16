@@ -183,6 +183,7 @@ async def _stream_chat(
     user_message_id: str = "",
     body_focus: dict[str, Any] | None = None,
     thread: str = "",
+    tool_hint: dict[str, Any] | None = None,
 ) -> AsyncIterator[str]:
     """SSE generator：no-key 引导 → 组装 → 循环 → 逐步落盘。"""
 
@@ -496,7 +497,7 @@ async def _stream_chat(
 
         async with async_session() as drv_db:
             try:
-                async for event in loop.run(message_for_model):
+                async for event in loop.run(message_for_model, prime=tool_hint):
                     await _consume(drv_db, event)
                     # thinking 照发 SSE（dock 实时思考回看，run_end 时前端收进
                     # run 气泡）；落盘分支不匹配 thinking——回看不存逐字思考
@@ -693,11 +694,14 @@ async def assistant_chat(
         page=page,
     )
 
+    tool_hint = body.get("tool_hint")
+    if not (isinstance(tool_hint, dict) and isinstance(tool_hint.get("tool"), str) and tool_hint.get("tool").strip()):
+        tool_hint = None
     return StreamingResponse(
         _stream_chat(
             db, project, user, session, message, page,
             user_message_id=user_row.id, body_focus=body_focus,
-            thread=thread,
+            thread=thread, tool_hint=tool_hint,
         ),
         media_type="text/event-stream",
         headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},

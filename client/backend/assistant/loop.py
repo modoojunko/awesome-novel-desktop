@@ -142,7 +142,14 @@ class AgentLoop:
         self.result = LoopResult()
 
     # -- 对外主入口 ------------------------------------------------------------
-    async def run(self, user_input: str) -> AsyncIterator[dict[str, Any]]:
+    async def run(
+        self,
+        user_input: str,
+        prime: dict[str, Any] | None = None,
+    ) -> AsyncIterator[dict[str, Any]]:
+        """prime＝chips 结构化触发（c-tool-flow 批2）：{tool, args} 首步确定性
+        执行（域校验/授权/去重照走），结果回填后模型接管——作家意图不再依赖
+        固定话术被模型猜中。None＝纯 agentic（自由输入）。"""
         run_id = uuid.uuid4().hex[:12]
         self.result = LoopResult()
         self.transcript.append({"role": "user", "content": user_input})
@@ -152,6 +159,12 @@ class AgentLoop:
         # 消费端断开（aclose/GeneratorExit）标记：关闭期间 finally 不得再 yield
         # ——否则 RuntimeError("async generator ignored GeneratorExit")
         closed = False
+
+        prime_tool = str((prime or {}).get("tool") or "").strip()
+        prime_args = (prime or {}).get("args") if isinstance((prime or {}).get("args"), dict) else {}
+        if prime_tool:
+            async for ev in self._prime_step(run_id, started, prime_tool, prime_args or {}):
+                yield ev
 
         inner = self._run_native(run_id, started) if self.harness == "native" else self._run_text(run_id, started)
         try:
@@ -174,6 +187,84 @@ class AgentLoop:
                     "degraded": self.result.degraded,
                     "error": error_message,
                 }
+
+    # -- 首步结构化触发（c-tool-flow 批2）──────────────────────────────────
+
+    async def _prime_step(
+        self, run_id: str, started: float, tool_name: str, args: dict[str, Any]
+    ) -> AsyncIterator[dict[str, Any]]:
+        """chips tool_hint 首步确定性执行：域校验/授权/去重守卫全程照走；
+        结果按 harness 形态回填转写后模型接管（第二步起为普通模型回合）。"""
+        if not self._wall_clock_left(started):
+            yield self._wall_clock_message()
+            return
+        self.result.steps = 1
+
+        from assistant.scopes import out_of_scope_guidance
+
+        allowed = self._allowed_tools()
+        if allowed is not None and tool_name not in allowed:
+            guidance = out_of_scope_guidance(
+                tool_name, str(getattr(self.tool_ctx, "thread", "") or "")
+            )
+            self.transcript.append({"role": "user", "content": f"[system] {guidance}"})
+            yield {"type": "narration", "text": guidance}
+            return
+        if get_tool(tool_name) is None:
+            unavailable = f"工具 {tool_name} 不可用。"
+            self.transcript.append({"role": "user", "content": f"[system] {unavailable}"})
+            yield {"type": "narration", "text": unavailable}
+            return
+
+        denied_refusal = None
+        step_result = None
+        async for kind, payload in self._emit_step(run_id, 1, tool_name, "", args):
+            if kind == "event":
+                yield payload
+            elif kind == "denied":
+                denied_refusal = payload
+            elif kind == "result":
+                step_result = payload
+
+        summary = (step_result.summary if step_result else "") or "（没有产出。）"
+        if denied_refusal:
+            summary = f"[denied] {denied_refusal}"
+        if self.harness == "native":
+            self.transcript.append(
+                {
+                    "role": "assistant",
+                    "content": "",
+                    "tool_calls": [
+                        {
+                            "id": f"{run_id}-prime",
+                            "type": "function",
+                            "function": {"name": tool_name, "arguments": "{}"},
+                        }
+                    ],
+                }
+            )
+            self.transcript.append(
+                {"role": "tool", "tool_call_id": f"{run_id}-prime", "content": summary}
+            )
+        else:
+            self.transcript.append(
+                {
+                    "role": "assistant",
+                    "content": "",
+                    "_tool": {
+                        "name": tool_name,
+                        "args": args,
+                        "result": " ".join(summary.split())[:220],
+                    },
+                }
+            )
+            self.transcript.append({"role": "user", "content": f"[tool result] {summary}"})
+        self.transcript.append(
+            {
+                "role": "user",
+                "content": "[system] 首步已按作家的点选执行完成——基于以上结果直接回应作家。",
+            }
+        )
 
     # -- 共用小件（两模式同构，tasks 4.3）───────────────────────────────────
 

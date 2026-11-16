@@ -9,6 +9,18 @@
   - discipline: anchored（锚定设定）| divergent（可添人添事，产物打标）
   - feature_key: 档位 key（读类为空串；card/write 系对齐 frontend features.ts）
   - fn: async (ctx: ToolContext, **args) -> ToolResult；工具自开自关短会话（循环体不持事务）
+
+执行契约（c-tool-flow 批1，对齐 openworker 工具体系）：
+  1. dict 契约——fn 内失败不 raise 穿透：run_tool 兜异常归一为 ToolResult(ok=False)
+     （引擎侧永不见裸异常）；fn 自身可抛 CapabilityError 之类领域错误，同样被兜。
+  2. 职责分离——summary 给模型（含「已交付＋任务完成」收口语义，生成类必带）；
+     card.payload 给人看（产物一律人话 draft/结构化键，禁裸 JSON 上对话）。
+  3. `_display` 侧车——payload 上 `_display` 键＝只给人看的元数据（模型不可见），
+     apiCalls/计数类迁此键（openworker _record_result 同款语义）。
+  4. 权限不在注册表——write_gate 由 loop 逐调用应用（openworker PermissionEngine
+     同款分层）；域校验/去重守卫同为循环层职责，工具本体不含。
+  5. 能力核单源——大模型管线抽 caps/<域>.py 纯能力函数（业务语义入参、结构化出参），
+     HTTP 端点（面板）与工具同调一层；工具层禁止直调路由 handler（守卫测试钉）。
 """
 
 from __future__ import annotations

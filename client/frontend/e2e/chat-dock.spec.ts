@@ -254,6 +254,14 @@ async function registerAndLogin() {
   return { token: body.data.token as string, username: name };
 }
 
+// 原子写（tmp+rename）：virtiofs 上 writeFileSync 会被容器侧读到截断中间态
+// （后端 get_local_config JSONDecodeError→500，e2e seed 挂）——rename 原子可见
+function atomicWriteJson(path: string, text: string) {
+  const tmp = `${path}.tmp-${process.pid}-${Math.random().toString(36).slice(2, 8)}`;
+  fs.writeFileSync(tmp, text);
+  fs.renameSync(tmp, path);
+}
+
 async function writeOAuthSession(t: string, u: string, tier = "max") {
   const original = fs.readFileSync(CONFIG_PATH, "utf-8");
   const cfg = JSON.parse(original);
@@ -264,9 +272,8 @@ async function writeOAuthSession(t: string, u: string, tier = "max") {
   delete cfg.expires_at;
   cfg.last_login_at = new Date().toISOString();
   cfg.pc_hash = randomUUID().replace(/-/g, "");
-  const mine = JSON.stringify(cfg, null, 2);
-  fs.writeFileSync(CONFIG_PATH, mine);
-  return () => fs.writeFileSync(CONFIG_PATH, original);
+  atomicWriteJson(CONFIG_PATH, JSON.stringify(cfg, null, 2));
+  return () => atomicWriteJson(CONFIG_PATH, original);
 }
 
 async function setupSession(page: Page, tier = "max") {

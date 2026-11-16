@@ -667,7 +667,7 @@ export default function ChatDock({
   }, [threadKey, dispatch]);
 
   const send = useCallback(
-    (text: string) => {
+    (text: string, toolHint?: { tool: string; args: Record<string, unknown> }) => {
       const trimmed = text.trim();
       if (!trimmed || streamRef.current) return;
       streamRef.current = true;
@@ -676,7 +676,7 @@ export default function ChatDock({
       const focus = scope.chapterRef ? { ref: scope.chapterRef } : undefined;
       const abort = streamAssistantChat(
         projectId,
-        { message: trimmed, page, thread: threadKey, focus },
+        { message: trimmed, page, thread: threadKey, focus, tool_hint: toolHint },
         {
           // run 事件绑定发起线程：切走页签后事件仍落到原线程桶（切回接续）
           onEvent: (e) => onEvent(e, threadKey),
@@ -800,7 +800,7 @@ export default function ChatDock({
                   return;
                 }
                 if (c.open) onOpenAction?.(c.open);
-                else send(c.command);
+                else send(c.command, { tool: c.key, args: {} });
               }}
             >
               {c.label}

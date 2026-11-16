@@ -156,7 +156,13 @@ export async function setPermissionTier(
  */
 export function streamAssistantChat(
   projectId: string,
-  body: { message: string; page: string; thread?: string; focus?: { ref: string } },
+  body: {
+    message: string;
+    page: string;
+    thread?: string;
+    focus?: { ref: string };
+    tool_hint?: { tool: string; args: Record<string, unknown> };
+  },
   handlers: AssistantStreamHandlers,
 ): () => void {
   const controller = new AbortController();

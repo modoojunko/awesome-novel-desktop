@@ -20,6 +20,10 @@ def get_local_config() -> dict:
                 return json.load(f)
     except OSError:
         pass
+    except json.JSONDecodeError:
+        # config.json 被并发写方观察到截断中间态（e2e/还原脚本非原子写＋
+        # virtiofs 可见性时差）——按未登录处理而非 500（2026-11-16 e2e 实锤）
+        return {}
     return {}
 
 

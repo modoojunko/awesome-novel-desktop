@@ -7,7 +7,6 @@ draft 卡（禁裸 JSON 上对话——boss 红线「对话框不要出现程序
 
 from __future__ import annotations
 
-from fastapi import HTTPException
 
 from assistant.tools import Tool, ToolContext, ToolResult
 
@@ -111,16 +110,12 @@ async def _simulate_plot(ctx: ToolContext, chapter_ref: str = "") -> ToolResult:
     ref = await _resolve_chapter_ref(ctx, chapter_ref)
     if not ref:
         return ToolResult(ok=False, summary="定位不到章——给我章号或章名。")
-    from db import async_session
-    from write.plot_sim import plot_simulate
+    from assistant.caps.chapter import CapabilityError, simulate_chapter
 
-    async with async_session() as db:
-        try:
-            result = await plot_simulate(
-                ctx.novel_id, ref, {"id": ctx.user_id}, True, True, db,
-            )
-        except HTTPException as e:
-            return ToolResult(ok=False, summary=str(e.detail))
+    try:
+        result = await simulate_chapter(ctx.novel_id, ref, ctx.user_id)
+    except CapabilityError as e:
+        return ToolResult(ok=False, summary=e.message)
     return ToolResult(
         ok=True,
         summary="剧情推演完成：进出场＋逐拍走向都出来了（推演是参考，采纳你说了算）。",
@@ -136,23 +131,17 @@ async def _draw_plot_cards(ctx: ToolContext, extra: str = "") -> ToolResult:
     ref = await _resolve_chapter_ref(ctx, "")
     if not ref:
         return ToolResult(ok=False, summary="定位不到章——给我章号或章名。")
-    from chapters.ai_cast import CastDrawBody, CastExcludeItem, cast_ai_draw
-    from db import async_session
+    from assistant.caps.chapter import CapabilityError, draw_plot_proposals
 
     # 重抽排除：本 run 内上次抽出的卡名进 exclude——同章纲再抽不再复读同一批
     prev_names = [str(n) for n in (ctx.scratch.get("draw_names") or [])]
-    body = CastDrawBody(
-        extra=str(extra or "")[:200],
-        exclude=[CastExcludeItem(name=n) for n in prev_names][:9],
-    )
-    async with async_session() as db:
-        try:
-            result = await cast_ai_draw(
-                ctx.novel_id, ref, body,
-                {"id": ctx.user_id}, True, True, db,
-            )
-        except HTTPException as e:
-            return ToolResult(ok=False, summary=str(e.detail))
+    try:
+        result = await draw_plot_proposals(
+            ctx.novel_id, ref, ctx.user_id,
+            exclude_names=prev_names, extra=str(extra or "")[:200],
+        )
+    except CapabilityError as e:
+        return ToolResult(ok=False, summary=e.message)
     drawn = [str((c or {}).get("name") or "") for c in (result.get("cards") or []) if isinstance(c, dict)]
     if drawn:
         ctx.scratch["draw_names"] = (prev_names + drawn)[-9:]
@@ -174,17 +163,12 @@ async def _review_cast(ctx: ToolContext) -> ToolResult:
     ref = await _resolve_chapter_ref(ctx, "")
     if not ref:
         return ToolResult(ok=False, summary="定位不到章——给我章号或章名。")
-    from chapters.ai_cast import CastReviewBody, cast_ai_review
-    from db import async_session
+    from assistant.caps.chapter import CapabilityError, review_chapter_cast
 
-    async with async_session() as db:
-        try:
-            result = await cast_ai_review(
-                ctx.novel_id, ref, CastReviewBody(),
-                {"id": ctx.user_id}, True, True, db,
-            )
-        except HTTPException as e:
-            return ToolResult(ok=False, summary=str(e.detail))
+    try:
+        result = await review_chapter_cast(ctx.novel_id, ref, ctx.user_id)
+    except CapabilityError as e:
+        return ToolResult(ok=False, summary=e.message)
     return ToolResult(
         ok=True,
         summary="人物盘点完成：逐段对照章纲与正文，只读不落库（零新增是常态输出）。",
