@@ -196,6 +196,10 @@ function CardBody({ kind, payload }: { kind: string; payload: unknown }) {
       </ol>
     );
   }
+  // 人话 draft（收编工具产卡：推演/抽卡/盘点）——禁裸 JSON 上对话（boss 红线）
+  if (typeof data.draft === "string" && data.draft.trim()) {
+    return <p className="cd-pre">{_clip(data.draft, 1200)}</p>;
+  }
   const text = typeof payload === "string" ? payload : JSON.stringify(payload);
   return <p className="cd-pre">{_clip(text, 900)}</p>;
 }
@@ -789,7 +793,7 @@ export default function ChatDock({
                   {(m.cardStatus === "draft" || m.cardStatus === "stale") && (
                     <div className="cd-card-foot">
                       {m.cardKind === "text" &&
-                        (m.cardPayload as Record<string, unknown> | undefined)?.draft != null && (
+                        typeof (m.cardPayload as Record<string, unknown> | undefined)?.draft === "object" && (
                           <button
                             type="button"
                             className="cd-btn primary"
