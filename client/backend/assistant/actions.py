@@ -22,6 +22,25 @@ ACTION_VERBS = ("tool", "final")
 
 _REPLY_FALLBACK = "（我这一步没想明白，先直接回答：\n{snippet}）"
 
+# 混排输出（人话夹协议 JSON）里的 reply 字段抽取——降级时优先给作家看内容，
+# 而不是把协议原文糊到对话框（boss 红线 2026-11-16：截图实锤协议 JSON 上屏）
+_REPLY_IN_TEXT = __import__("re").compile(r'"reply"\s*:\s*"((?:[^"\\]|\\.)*)"')
+
+
+def _human_reply_from_raw(raw: str) -> str | None:
+    """从混排文本里抽协议 JSON 的 reply 字段人话；没有则 None。"""
+    m = _REPLY_IN_TEXT.search(raw or "")
+    if not m:
+        return None
+    import json as _json
+
+    try:
+        v = _json.loads(f'"{m.group(1)}"')
+        out = str(v).strip()
+        return out or None
+    except Exception:  # noqa: BLE001——转义失败按没有处理
+        return None
+
 
 @dataclass
 class Action:
@@ -144,7 +163,14 @@ def parse_action(text: str) -> Action:
     parsed = _extract_json(raw)
 
     if parsed is None:
-        snippet = " ".join(raw.split())[:220]
+        # 混排输出：人话夹协议 JSON——先抽 reply 给作家看内容（模型其实回答了，
+        # 只是格式没服从）；标记 degraded 供遥测
+        human = _human_reply_from_raw(raw)
+        if human:
+            return Action(kind="final", reply=human, raw=raw, degraded=True)
+        import re as _re
+
+        snippet = _re.sub(r"\{[^{}]{0,600}\}", "（格式乱的一段已略）", " ".join(raw.split()))[:220]
         return Action(
             kind="degraded",
             reply=_REPLY_FALLBACK.format(snippet=snippet or "（空输出）"),

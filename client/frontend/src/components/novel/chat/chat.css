@@ -648,3 +648,96 @@
 
 /* 角色草案确认卡：确认钮行 */
 .cd-char-confirm { display: flex; align-items: center; gap: 10px; margin-top: 10px; }
+
+/* ── openworker GUI 对齐（boss 拍板 2026-11-16「对话框的样式参考 openworker」）──
+   参照 surfaces/gui/src/styles.css：用户气泡＝软 accent 底＋墨色字（非实色白字）；
+   助手＝无框正文 1.6 行距；轨迹＝圆角披露＋逐行状态点；转写 20px 呼吸间距。── */
+
+/* 触发层容器：加大左右呼吸（右缘曾贴边裁字）＋页签间距 */
+.chatdock .chatdock-stream {
+  padding: 14px 16px 10px;
+  gap: 14px;
+}
+.chatdock .cd-msg {
+  margin: 5px 0;
+}
+.chatdock .cd-msg + .cd-msg {
+  margin-top: 14px;
+}
+
+/* 用户气泡：软 accent 底＋墨色字（hiw-bub.user 同款），右留 4px 不贴边 */
+.chatdock .cd-msg.user .cd-bubble {
+  background: color-mix(in oklch, var(--accent) 14%, transparent);
+  color: var(--ink, var(--text, #1a1a1a));
+  border: 1px solid color-mix(in oklch, var(--accent) 26%, transparent);
+  border-radius: 12px;
+  margin-right: 4px;
+  font-weight: 500;
+}
+.chatdock .cd-msg.user .cd-bubble .cd-copy-btn,
+.chatdock .cd-msg.user .cd-bubble .cd-clamp-toggle {
+  color: inherit;
+}
+
+/* 助手正文：无框直排 1.6 行距（bubble-assistant 同款），去盒子内边距 */
+.chatdock .cd-msg.assistant .cd-bubble .cd-pre {
+  padding: 0;
+  line-height: 1.6;
+  font-size: 13.5px;
+}
+
+/* 轨迹披露：圆角卡＋summary 中字＋逐行状态点（turn-step 同款） */
+.chatdock .cd-trace,
+.chatdock details[data-testid="chat-trace-history"],
+.chatdock details[data-testid="chat-trace"] {
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: transparent;
+  padding: 4px 8px;
+  margin: 6px 0;
+}
+.chatdock details > summary {
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--muted);
+  cursor: pointer;
+  list-style: none;
+}
+.chatdock details > summary::before {
+  content: "▸ ";
+  color: var(--muted);
+}
+.chatdock details[open] > summary::before {
+  content: "▾ ";
+}
+.chatdock details > summary:hover {
+  color: var(--ink, var(--text, #1a1a1a));
+}
+.chatdock details ul {
+  list-style: none;
+  margin: 4px 0 2px;
+  padding: 0;
+}
+.chatdock details li {
+  position: relative;
+  padding: 2px 0 2px 16px;
+  font-size: 12px;
+  color: var(--muted);
+  border-radius: 6px;
+}
+.chatdock details li::before {
+  content: "●";
+  position: absolute;
+  left: 2px;
+  top: 2px;
+  font-size: 9px;
+  color: var(--ok, #2e7d5b);
+}
+.chatdock details li:hover {
+  background: color-mix(in oklch, var(--accent) 7%, transparent);
+}
+
+/* 系统占位/插述（中断标记等）：弱化为细字弱色，不占助手正文位 */
+.chatdock .cd-msg.assistant .cd-bubble .cd-pre:only-child {
+  color: var(--ink, var(--text, #1a1a1a));
+}
