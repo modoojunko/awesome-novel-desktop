@@ -794,8 +794,9 @@
 }
 /* ChatAnywhere 内部容器撑满（类名形如 <hash>-chat-anywhere-layout） */
 .chatdock.aui2 [class$="-chat-anywhere-layout"] {
-  flex: 1;
-  min-height: 0;
+  flex: 1 !important;
+  min-height: 0 !important;
+  height: auto !important;
 }
 /* 兜底：ConfigProvider 直系容器也撑满 */
 .chatdock.aui2 .chatdock-chips + * {
