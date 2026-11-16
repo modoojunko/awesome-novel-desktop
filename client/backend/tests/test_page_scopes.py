@@ -13,8 +13,8 @@ import pytest
 from assistant import loop as loop_mod
 from assistant.loop import AgentLoop, LoopConfig
 from assistant.scopes import (
-    domain_label_of_thread,
     discipline_of_thread,
+    domain_label_of_thread,
     tools_for_thread,
     validate_scopes,
 )
@@ -220,7 +220,7 @@ async def test_two_threads_concurrent_isolated(monkeypatch):
             config=LoopConfig(), harness="native",
         )
         loop.tool_ctx = type("Ctx", (), {"thread": thread})()
-        events = [e async for e in loop.run(f"问{tag}")]
+        _ = [e async for e in loop.run(f"问{tag}")]
         results[tag] = loop.result.final_reply
 
     await asyncio.gather(run_one("A", "ch:og"), run_one("B", "set:default"))

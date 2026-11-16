@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from fastapi import HTTPException
 
-from assistant.tools import Tool, ToolContext, ToolResult, _clip
+from assistant.tools import Tool, ToolContext, ToolResult
 
 # ── 章内三面板收编（c-agent-fleet：推演/抽卡/盘点走 agent 对话——boss 拍板
 #    「调用架构要走 agent」；核直调同仓实现，Depends 占位按位传）─────────────

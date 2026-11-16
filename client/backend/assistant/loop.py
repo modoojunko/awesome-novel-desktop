@@ -34,7 +34,10 @@ from ai_client import (
 from assistant import compact as compact_mod
 from assistant.actions import parse_action
 from assistant.context import build_outbound_window
-from assistant.scopes import domain_label_of_thread, out_of_scope_guidance, tools_for_thread
+from assistant.scopes import (
+    out_of_scope_guidance,
+    tools_for_thread,
+)
 from assistant.tools import ToolContext, get_tool, run_tool
 
 
