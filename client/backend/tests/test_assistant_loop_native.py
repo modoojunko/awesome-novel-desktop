@@ -322,3 +322,44 @@ async def test_native_compact_trigger_keeps_native_shapes(monkeypatch):
     assert kinds.count("step_end") == 1
     assert kinds[-1] == "run_end"
     assert loop.result.final_reply == "看完了，主线还稳。"
+
+
+@pytest.mark.asyncio
+async def test_native_cancel_no_orphan_tool_calls(monkeypatch):
+    """停止打断多工具步：未执行的剩余 tool_calls 必须补 tool-error 结果行——
+    回喂形态不含孤儿（openai 校验链拒孤儿；openworker _interrupted_tool 同款语义）。"""
+    import asyncio as _asyncio
+
+    cancel_event = _asyncio.Event()
+
+    async def fake_run_tool(ctx, name, args):
+        if name == "read_progress":
+            cancel_event.set()  # 第一个工具执行时作家点停止
+        from assistant.tools import ToolResult
+
+        return ToolResult(ok=True, summary="ok")
+
+    fake = Tool(name="read_progress", kind="read", args_hint="{}", description="d", fn=fake_run_tool)
+    monkeypatch.setattr(loop_mod, "get_tool", lambda n: fake if n == "read_progress" else None)
+    monkeypatch.setattr(loop_mod, "run_tool", fake_run_tool)
+
+    client = FakeNativeClient([
+        ("先读进度和章纲。", [
+            _tc(0, "read_progress", {}),
+            _tc(1, "read_outline", {}),
+        ]),
+    ])
+    loop = AgentLoop(
+        client=client, system="sys", transcript=[], tool_ctx=None,
+        config=LoopConfig(), cancel_event=cancel_event,
+    )
+    async for _e in loop.run("跑两个工具"):
+        pass
+    assert loop.result.interrupted is True
+    # 转写回喂形态：assistant.tool_calls 的每个 id 都有配对的 role=tool 结果行
+    calls = [t for t in loop.transcript if t.get("tool_calls")]
+    results = [t for t in loop.transcript if t.get("role") == "tool"]
+    call_ids = [c["id"] for row in calls for c in row["tool_calls"]]
+    result_ids = [r["tool_call_id"] for r in results]
+    assert set(call_ids) == set(result_ids), f"孤儿 tool_calls: {set(call_ids) - set(result_ids)}"
+    assert any("已停止" in r["content"] for r in results)

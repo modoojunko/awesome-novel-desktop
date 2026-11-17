@@ -755,7 +755,24 @@ class AgentLoop:
 
             for idx, tc in enumerate(native_calls):
                 if not self._wall_clock_left(started):
+                    # 孤儿 tool_calls 防线：未执行的剩余调用补 tool-error 结果行
+                    # （openai 校验链拒孤儿——openworker _interrupted_tool 同款语义）
+                    for j in range(idx, len(native_calls)):
+                        self.transcript.append(
+                            {"role": "tool", "tool_call_id": call_rows[j]["id"],
+                             "content": "已停止——这一步没有执行。"}
+                        )
                     yield self._wall_clock_message()
+                    return
+                if self._cancelled():
+                    # 停止/打断：剩余调用补 tool-error 结果行，历史不留孤儿
+                    self.result.interrupted = True
+                    for j in range(idx, len(native_calls)):
+                        self.transcript.append(
+                            {"role": "tool", "tool_call_id": call_rows[j]["id"],
+                             "content": "已停止——这一步没有执行。"}
+                        )
+                    yield {"type": "narration", "text": _CANCEL_NOTICE}
                     return
                 call_id = call_rows[idx]["id"]
                 name = tc.get("name") or ""
