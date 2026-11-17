@@ -7,7 +7,7 @@
 
 from types import SimpleNamespace
 
-from assistant.router import _history_transcript
+from assistant.router import _history_transcript, _resume_gap_note
 
 
 def _row(id: str, role: str, content: str, card_kind: str = ""):
@@ -51,3 +51,46 @@ def test_history_transcript_drops_tool_event_and_empty_rows():
         {"role": "user", "content": "问"},
         {"role": "assistant", "content": "答"},
     ]
+
+
+# ── 记忆时序（c-agent-chat-memory 批8：跨天标记＋恢复聚焦） ─────────────
+
+
+def _row_ts(id: str, role: str, content: str, created_at: str):
+    return SimpleNamespace(
+        id=id, role=role, content=content, card_kind="",
+        payload_json="{}", created_at=created_at,
+    )
+
+
+def test_history_transcript_inserts_day_gap_marker():
+    rows = [
+        _row_ts("m1", "user", "昨天的话", "2026-11-17 10:00:00"),
+        _row_ts("m2", "assistant", "昨天的答", "2026-11-17 10:01:00"),
+        _row_ts("m3", "user", "今天的话", "2026-11-18 09:30:00"),
+    ]
+    out = _history_transcript(rows)
+    assert len(out) == 4
+    assert "[system] ── 时间跳到 11 月 18 日 ──" == out[2]["content"]
+    assert out[3] == {"role": "user", "content": "今天的话"}
+
+
+def test_history_transcript_same_day_no_marker():
+    rows = [
+        _row_ts("m1", "user", "上午的话", "2026-11-17 10:00:00"),
+        _row_ts("m2", "assistant", "下午的话", "2026-11-17 15:00:00"),
+    ]
+    out = _history_transcript(rows)
+    assert len(out) == 2
+    assert not any("[system]" in o["content"] for o in out)
+
+
+def test_resume_gap_note_thresholds():
+    from datetime import datetime, timedelta
+    now = datetime.now()
+    old_rows = [_row_ts("m1", "user", "昨天的事", (now - timedelta(hours=30)).strftime("%Y-%m-%d %H:%M:%S"))]
+    note = _resume_gap_note(old_rows)
+    assert "1 天" in note and "聚焦" in note
+    fresh_rows = [_row_ts("m2", "user", "刚刚", (now - timedelta(hours=1)).strftime("%Y-%m-%d %H:%M:%S"))]
+    assert _resume_gap_note(fresh_rows) == ""
+    assert _resume_gap_note([]) == ""

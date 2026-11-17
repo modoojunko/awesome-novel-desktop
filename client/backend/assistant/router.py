@@ -52,14 +52,60 @@ def _history_transcript(rows: list[Any], exclude_message_id: str = "") -> list[d
     需要细节时 agent 用 read_* 重读，与 compact「细节优先牺牲」口径一致）。
 
     exclude_message_id＝本轮刚落库的那条用户消息：loop.run() 会把 user_input 再
-    append 一次，不排除就双注入模型窗口（review 判例 2026-11-14）。"""
+    append 一次，不排除就双注入模型窗口（review 判例 2026-11-14）。
+
+    跨天时间标记（c-agent-chat-memory 批8 记忆时序）：相邻消息跨日时插一条
+    「[system] ── 时间跳到 M 月 D 日 ──」标记行——模型由此看出「这是几天前的话」，
+    聚焦作家当前这条消息，不把昨日的任务指令翻出来当今日事项（openworker/
+    coding agent 的会话时序口径）。"""
     out: list[dict[str, str]] = []
+    last_day: str = ""
     for m in rows:
         if exclude_message_id and m.id == exclude_message_id:
             continue
         if m.role in ("user", "assistant") and m.content:
+            day = str(getattr(m, "created_at", "") or "")[:10]
+            if day and last_day and day != last_day:
+                out.append({
+                    "role": "assistant",
+                    "content": f"[system] ── 时间跳到 {day[5:10].replace('-', ' 月 ')} 日 ──",
+                })
+            if day:
+                last_day = day
             out.append({"role": m.role, "content": m.content})
     return out
+
+
+def _resume_gap_note(rows: list[Any], *, threshold_hours: float = 6.0) -> str:
+    """恢复聚焦提示：距上次对话超过阈值（默认 6h）时，给本轮注入一行聚焦提示——
+    「聚焦本次新指令；此前未完的事只在作家提起时跟进」——模型不把历史任务
+    翻出来主动汇报（openworker 恢复会话的聚焦口径）。无历史/未超阈值 → 空串。"""
+    last_ts = ""
+    for m in rows:
+        ts = str(getattr(m, "created_at", "") or "")
+        if ts:
+            last_ts = ts  # rows 按 seq 有序——取最后一条带时间的
+    if not last_ts:
+        return ""
+    try:
+        from datetime import datetime as _dt
+
+        last = _dt.strptime(last_ts, "%Y-%m-%d %H:%M:%S")
+        gap_hours = (_dt.now() - last).total_seconds() / 3600
+    except (ValueError, TypeError):
+        return ""
+    if gap_hours < threshold_hours:
+        return ""
+    if gap_hours < 24:
+        gap_text = f"{int(gap_hours)} 个小时"
+    elif gap_hours < 24 * 30:
+        gap_text = f"{int(gap_hours // 24)} 天"
+    else:
+        gap_text = f"{int(gap_hours // (24 * 30))} 个月"
+    return (
+        f"（距上次对话已隔 {gap_text}。聚焦作家本次这条消息；"
+        "此前未完的事只在作家提起时才跟进，不主动翻旧账。）"
+    )
 
 
 async def _stream_command_reply(
@@ -246,6 +292,11 @@ async def _stream_chat(
             )
     except Exception:  # noqa: BLE001——画像缺席不致命（BLE001 豁免）
         pass
+    # 恢复聚焦（c-agent-chat-memory 批8 记忆时序）：隔了较久回来 → 提醒模型
+    # 聚焦本次新指令，不把历史任务翻出来主动汇报
+    gap_note = _resume_gap_note(rows)
+    if gap_note:
+        note = (note + " " if note else "") + gap_note
     # L2 注入随当前消息进提示词（不落库不进 UI）——历史已排除当前消息
     # （_history_transcript），旧「拼到末条 user 行」锚点不复存在
     message_for_model = f"{message}\n{note}" if note else message
