@@ -1,6 +1,6 @@
 // VolumeWorkspace（c-volume-view-storyline）：四页签卷视图。
 //   卷纲两态（六分组/必填/清空通道）、进度线（互斥计数＋frontier 定位）、
-//   本卷章节台账（ghost 汇总＋新增门控）、页签切换回落、右栏卷语境上抛。
+//   本卷章节台账（ghost 汇总＋常驻新增入口）、页签切换回落、右栏卷语境上抛。
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import VolumeWorkspace, {
@@ -15,7 +15,14 @@ const apiState = vi.hoisted(() => ({
   request: vi.fn(),
 }));
 
-vi.mock("@/lib/api", () => ({ api: apiState, request: apiState.request }));
+const toastState = vi.hoisted(() => ({ success: vi.fn(), error: vi.fn() }));
+
+vi.mock("@/lib/api", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/api")>();
+  return { ...actual, api: apiState, request: apiState.request };
+});
+
+vi.mock("@/lib/toast", () => ({ toast: toastState }));
 
 vi.mock("@/hooks/useWorkbench", () => ({
   useWorkbench: vi.fn(),
@@ -233,12 +240,12 @@ describe("VolumeWorkspace 卷视图", () => {
     expect(onGo).not.toHaveBeenCalled(); // 挂载方传 vi.fn 于 renderVol；此处仅断言行可点
   });
 
-  it("写作位在另一卷 → 不出现新增入口，显示说明", async () => {
+  it("写作位在另一卷 → 新增入口照常出现（撤门禁，c-chapter-volume-gate-retire）", async () => {
     mockApi({ frontierVol: 2 });
     renderVol();
     fireEvent.click(await screen.findByRole("tab", { name: "章节" }));
-    expect(await screen.findByText(/新增章节排在主线末端/)).toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: /在本卷新增一章/ })).toBeNull();
+    expect(await screen.findByRole("button", { name: /在本卷新增一章/ })).toBeInTheDocument();
+    expect(screen.queryByText(/新增章节排在主线末端/)).toBeNull();
   });
 
   it("换卷回落「卷纲」页签＋右栏卷语境随页签上抛、卸载清空", async () => {
@@ -304,14 +311,49 @@ describe("拆章入口迁本卷章节页签（c-split-to-chapters-tab）", () =>
     expect(screen.queryByTestId("volume-split-blocked")).toBeNull();
   });
 
-  it("末端门禁：写作位在后面的卷 → 拆章置灰＋提示段随迁", async () => {
+  it("末端门禁退役：写作位在后面的卷 → 拆章照常可点（c-chapter-volume-gate-retire）", async () => {
     mockApi({ frontierVol: 2 });
-    renderVol();
+    const onSplitManual = vi.fn();
+    render(
+      <VolumeWorkspace
+        projectId="p1"
+        volumeRef="vol-1"
+        wb={wb}
+        onGoChapter={vi.fn()}
+        onVolumeMutated={vi.fn()}
+        onDirtyChange={vi.fn()}
+        onRailData={vi.fn()}
+        onSplitManual={onSplitManual}
+        onEditChapter={() => {}}
+      />,
+    );
     fireEvent.click(await screen.findByRole("tab", { name: "章节" }));
     const split = (await screen.findByTestId("volume-split-manual")) as HTMLButtonElement;
-    expect(split.disabled).toBe(true);
-    expect(split.title).toContain("还没轮到");
-    expect(screen.getByTestId("volume-split-blocked")).toHaveTextContent("先去第2卷拆章");
+    expect(split.disabled).toBe(false);
+    expect(screen.queryByTestId("volume-split-blocked")).toBeNull();
+    fireEvent.click(split);
+    expect(onSplitManual).toHaveBeenCalled();
+  });
+
+  it("建章失败透出后端原因（4xx detail 原文；网络失败回落兜底）", async () => {
+    renderVol();
+    fireEvent.click(await screen.findByRole("tab", { name: "章节" }));
+    fireEvent.click(await screen.findByRole("button", { name: /在本卷新增一章/ }));
+    fireEvent.change(screen.getByPlaceholderText("章节标题（必填）"), {
+      target: { value: "第三章" },
+    });
+    // 4xx：透出后端中文 detail
+    apiState.post.mockRejectedValueOnce(
+      Object.assign(new Error("章数超出当前套餐上限"), { status: 409 }),
+    );
+    fireEvent.click(screen.getByRole("button", { name: "确定" }));
+    await waitFor(() =>
+      expect(toastState.error).toHaveBeenCalledWith("章数超出当前套餐上限"),
+    );
+    // 网络层失败（无 status）：回落兜底文案
+    apiState.post.mockRejectedValueOnce(new TypeError("Failed to fetch"));
+    fireEvent.click(screen.getByRole("button", { name: "确定" }));
+    await waitFor(() => expect(toastState.error).toHaveBeenLastCalledWith("创建章失败"));
   });
 
   it("卷纲零章空态：新文案带「本卷章节」出口，点击切页签", async () => {

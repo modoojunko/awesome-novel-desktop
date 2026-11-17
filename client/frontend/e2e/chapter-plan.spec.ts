@@ -485,12 +485,12 @@ test("重拆整卷：盘点确认 → 拟定章清空、卷纲保留、可重新
   }
 });
 
-test("非末端卷：拆章两入口置灰并指向写作位所在卷", async ({ page, request }) => {
+test("撤门禁：写作位在后面的卷，旧卷拆章照常排上（c-chapter-volume-gate-retire）", async ({ page, request }) => {
   const { restore, token } = await setupSession(page);
   try {
     const pid = await createNovelWithVolume(page, `拆章末端${Date.now() % 100000}`);
     await page.route("**/next-chapter-anchor", (r) => r.fulfill({ json: { ok: true, text: "起点", source: "首卷" } }));
-    // 用产品接口垫第 2 卷并在那里排一章 → 写作位落到第 2 卷
+    // 用产品接口垫第 2 卷并在那里排一章 → 写作位落到第 2 卷（旧版此态两入口置灰）
     const H = { Authorization: `Bearer ${token}` };
     const v2 = await request.post(`${ORIGIN}/api/novels/${pid}/volumes`, {
       headers: H,
@@ -507,15 +507,22 @@ test("非末端卷：拆章两入口置灰并指向写作位所在卷", async ({
       data: { title: "第2卷第一章", plot: "她抵近母港" },
     });
     expect(ch.ok()).toBeTruthy();
-    // 回第 1 卷卷纲：两个入口都置灰
+    // 回第 1 卷：手写入口照常可用、卷序拦截段消失（右栏 AI 行已随写作助手改版退役，
+    // 其拦截断言不在此钉——本用例只钉中栏真 UI）
     await page.reload();
     await page.getByRole("button", { name: /^写作/ }).click();
     await page.locator(".vol-head .vt").first().click();
     await goChaptersTab(page);
-    await expect(page.getByTestId("volume-split-manual")).toBeDisabled();
-    await expect(page.getByTestId("volume-split-blocked")).toContainText("写作位在第2卷");
-    await expect(page.getByTestId("volume-split-ai")).toBeDisabled();
-    await expect(page.getByTestId("volume-split-ai-blocked")).toContainText("先去那一卷拆章");
+    await expect(page.getByTestId("volume-split-manual")).toBeEnabled();
+    await expect(page.getByTestId("volume-split-blocked")).toHaveCount(0);
+    await page.getByTestId("volume-split-manual").click();
+    await page.getByTestId("d-title").fill("第一卷补一章");
+    await page.getByTestId("split-adopt").click();
+    await expect(page.getByTestId("chapter-landing-card")).toContainText("第一卷补一章", { timeout: 10000 });
+    // 新章排在第 1 卷末尾并成为新写作位
+    const fr = await request.get(`${ORIGIN}/api/novels/${pid}/frontier`, { headers: H });
+    expect(fr.ok()).toBeTruthy();
+    expect((await fr.json())["frontier"]["ref"]).toBe("vol-1-ch-1");
   } finally {
     await restore();
   }

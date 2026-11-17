@@ -180,10 +180,6 @@ function VolumeVerifyPanel({
   const [error, setError] = useState("");
   const volRef = `vol-${data.volume}`;
   const tab = data.tab;
-  // 主线末端门禁（c-chapter-plan-ai，与中栏「拆下一章」同判据）
-  const frontierVol = data.frontierVol;
-  // 只挡「写作位之前的卷」（与中栏同判据；见 VolumeWorkspace 注释）
-  const splitBlocked = frontierVol != null && data.volume < frontierVol;
   // 卷纲空门槛（c-chapter-plan-ai）：主旨/冲突/卷末任一为空——与后端 422 同键；
   // 入口已迁本卷章节页签，拦截前置呈现在右栏（「去补卷纲」出口），后端 422 兜底。
   const outlineIncomplete =
@@ -441,26 +437,22 @@ function VolumeVerifyPanel({
           ? [{
               key: "split",
               name: "拆下一章（AI）",
-              desc: splitBlocked
-                ? `写作位在第${frontierVol}卷——这一卷还没轮到`
-                : outlineIncomplete
-                  ? "卷纲关键项还没填——先补卷纲"
-                  : "按卷纲拆出下一章的三方向卡（标准起）",
+              desc: outlineIncomplete
+                ? "卷纲关键项还没填——先补卷纲"
+                : "按卷纲拆出下一章的三方向卡（标准起）",
               onClick: () => {
-                /* v8 ignore start -- 防御分支：!aiPlan／splitBlocked／outlineIncomplete 任一为真时
-                   该行同一渲染里必被 disabled（按钮吞 click），真实 UI 只能走三关全过→onSplitAi 一条路 */
+                /* v8 ignore start -- 防御分支：!aiPlan／outlineIncomplete 任一为真时
+                   该行同一渲染里必被 disabled（按钮吞 click），真实 UI 只能走两关全过→onSplitAi 一条路 */
                 if (!aiPlan) onUpgrade("ai-plan");
-                else if (!splitBlocked && !outlineIncomplete) onSplitAi();
+                else if (!outlineIncomplete) onSplitAi();
                 /* v8 ignore stop */
               },
-              disabled: checking || splitBlocked || !aiPlan || outlineIncomplete,
+              disabled: checking || !aiPlan || outlineIncomplete,
               hint: !aiPlan
                 ? upgradeHintOf("ai-plan")
-                : splitBlocked
-                  ? `写作位在第${frontierVol}卷`
-                  : outlineIncomplete
-                    ? "先补卷纲"
-                    : undefined,
+                : outlineIncomplete
+                  ? "先补卷纲"
+                  : undefined,
               testid: "volume-split-ai",
             }]
           : []),
@@ -555,11 +547,6 @@ function VolumeVerifyPanel({
           >
             升级套餐
           </button>
-        </p>
-      )}
-      {tab === "chapters" && aiPlan && splitBlocked && (
-        <p className="none" data-testid="volume-split-ai-blocked">
-          写作位在第{frontierVol}卷——先去那一卷拆章
         </p>
       )}
       {tab === "chapters" && aiPlan && outlineIncomplete && (

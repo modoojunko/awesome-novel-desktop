@@ -83,21 +83,9 @@ async def create_chapter(
     if vol is None:
         raise HTTPException(404, "Volume not found")
 
-    # 主线末端门禁（c-chapter-plan-ai，与「在本卷新增一章」同一判据）：新章只能排在
-    # 写作位所在卷**及其之后**——否则会插进主线中段（frontier 排队模型下永远轮不到写）。
-    # 前端两个入口同判据置灰；这里是绕过 UI 时的兜底。
-    from chapters.frontier import frontier_info
-
-    front = (await frontier_info(db, project.id))["frontier"]
-    # 主线末端门禁：只挡「写作位**之前**的卷」——那才会插进主线中段（frontier 排队模型下
-    # 永远轮不到写）。写作位所在卷及其之后的卷都可拆：上一卷写完后要开新卷的第一拆，
-    # 此时 frontier 的「全归档待写占位」仍落在旧卷（_next_ref 同卷续号），严格等值会把它堵死。
-    if front is not None and vol.volume_no < front["volume_no"]:
-        raise HTTPException(
-            409,
-            f"写作位在第{front['volume_no']}卷——这一卷还没轮到，"
-            f"先去第{front['volume_no']}卷拆章",
-        )
+    # 建章放行（c-chapter-volume-gate-retire 撤掉主线末端门禁）：建章＝排到该卷末尾
+    # （卷内 MAX+1），任何卷都可用——先建卷后写章不因卷序被拦（章和卷的规则不冲突）。
+    # 目标卷之前的章已全部归档时新章即成为新写作位；排队约束只在写正文侧（is_writable）。
 
     chapter_no = await chapter_repo.max_chapter_no(db, project.id, vol.id) + 1
     ref = f"vol-{vol.volume_no}-ch-{chapter_no}"
