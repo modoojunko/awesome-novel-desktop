@@ -215,6 +215,32 @@ describe("AuiErrorBoundary 崩溃兜底", () => {
   });
 });
 
+describe("系统提示类 gate（no_key 引导）", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    chatApiState.loadAssistantSession.mockResolvedValue(sess());
+    chatApiState.stopAssistantRun.mockResolvedValue(undefined);
+  });
+
+  it("no_key gate 渲染引导语话术，SHALL NOT 渲染成空授权卡", async () => {
+    render(<Aui2Dock projectId="p1" page="工作台 · 卷纲" scope={SCOPE} />);
+    await screen.findByTestId("aui2-dock");
+    const sse = captureStream();
+    fireEvent.click(screen.getByTestId("aui2-chip-draft_volume_expand"));
+    await waitFor(() => expect(chatApiState.streamAssistantChat).toHaveBeenCalled());
+    sse.drive({
+      type: "gate",
+      reason: "no_key",
+      message: "这本书还没绑定 AI 模型——到设定 · AI 模型配置绑一次就能开跑。",
+    });
+    await waitFor(() =>
+      expect(screen.getByText(/这本书还没绑定 AI 模型/)).toBeTruthy(),
+    );
+    // 无 gateId 无 preview：不渲染授权卡（空 {} 卡是 2026-11-17 实锤回归）
+    expect(screen.queryByTestId("aui2-auth-card")).toBeNull();
+  });
+});
+
 describe("停止/打断（openworker 语义）", () => {
   beforeEach(() => {
     vi.clearAllMocks();

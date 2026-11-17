@@ -802,7 +802,17 @@ export function Aui2Dock({
                 cards: [{ code: "artifact", data: cardData }],
               });
             } else if (e.type === "gate") {
-              // 无 gateId 的 gate 事件＝权益引导（不停车）：引导语按助手话术呈现
+              // 系统提示类 gate（no_key/client_error——无 gateId 带 message）：
+              // 引导语按助手话术呈现，SHALL NOT 兜进授权卡渲染成空预览卡
+              if (!e.gateId && !e.refusal && (e.message || e.reason)) {
+                threadUp({
+                  id: `sys-${assistantId}`,
+                  role: "assistant",
+                  content: String(e.message ?? e.reason ?? ""),
+                });
+                return;
+              }
+              // 权益引导（无 gateId 的 gate 事件）：引导语按助手话术呈现
               if (e.refusal && !e.gateId) {
                 threadUp({
                   id: `up-${assistantId}`,
