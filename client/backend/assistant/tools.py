@@ -736,7 +736,210 @@ VERSIONS_TOOLS: tuple[Tool, ...] = (
         fn=_read_chapter_versions,
     ),
 )
-TOOL_REGISTRY: tuple[Tool, ...] = TOOL_REGISTRY + VERSIONS_TOOLS + MEMORY_TOOLS
+TOOL_REGISTRY: tuple[Tool, ...] = TOOL_REGISTRY + VERSIONS_TOOLS
+
+
+# ── 结构管理动作（c-agent-tools-expand：写类走授权梯度）──────────────
+async def _confirm_chapter(ctx, chapter_ref: str = ""):
+    from assistant.caps.chapter import confirm_chapter_cap
+
+    ref = str(chapter_ref or "").strip()
+    if not ref:
+        return _struct_fail("告诉我章号（例：vol-1-ch-7）。")
+    result = await confirm_chapter_cap(ctx.novel_id, ref, ctx.user_id)
+    warnings = result.get("warnings") or []
+    extra = f"门槛提醒：{'、'.join(warnings)}" if warnings else "门槛已满足。"
+    return _struct_ok(f"已确认《{ref}》的章纲。{extra}")
+
+
+async def _unconfirm_chapter(ctx, chapter_ref: str = ""):
+    from assistant.caps.chapter import unconfirm_chapter_cap
+
+    ref = str(chapter_ref or "").strip()
+    if not ref:
+        return _struct_fail("告诉我章号。")
+    await unconfirm_chapter_cap(ctx.novel_id, ref, ctx.user_id)
+    return _struct_ok(f"《{ref}》的章纲确认已撤回，回到草稿态，改完可以再确认。")
+
+
+async def _archive_chapter(ctx, chapter_ref: str = ""):
+    from assistant.caps.chapter import archive_chapter_cap
+
+    ref = str(chapter_ref or "").strip()
+    if not ref:
+        return _struct_fail("告诉我章号。")
+    result = await archive_chapter_cap(ctx.novel_id, ref, ctx.user_id)
+    note = "已归档。" if result.get("status") == "archived" else "已受理归档。"
+    return _struct_ok(f"《{ref}》{note}")
+
+
+async def _unarchive_chapter(ctx, chapter_ref: str = ""):
+    from assistant.caps.chapter import unarchive_chapter_cap
+
+    ref = str(chapter_ref or "").strip()
+    if not ref:
+        return _struct_fail("告诉我章号。")
+    await unarchive_chapter_cap(ctx.novel_id, ref, ctx.user_id)
+    return _struct_ok(f"《{ref}》已恢复为可编辑态。")
+
+
+async def _add_volume(ctx, title: str = ""):
+    from assistant.caps.chapter import add_volume_cap
+
+    result = await add_volume_cap(ctx.novel_id, ctx.user_id, str(title or "").strip())
+    vol = result.get("volume") or {}
+    return _struct_ok(f"已新建 {vol.get('title') or '新卷'}，可以开始铺这一卷了。")
+
+
+async def _add_chapter(ctx, volume_ref: str = "vol-1", title: str = ""):
+    from assistant.caps.chapter import add_chapter_cap
+
+    result = await add_chapter_cap(ctx.novel_id, ctx.user_id, str(volume_ref or "vol-1"), str(title or "").strip())
+    ref = result.get("ref") or ""
+    return _struct_ok(f"已排上新章 {ref}，可以直接去写正文。")
+
+
+# ── 世界观三件（读/产卡类，不写回）────────────────────────────────────
+
+
+async def _draft_worldbuilding(ctx, topic: str = "", shape: str = "text", current: str = ""):
+    from assistant.caps.world import draft_world_cap
+
+    if not str(topic or "").strip():
+        return _struct_fail("告诉我要素名（力量体系/代价/历史/势力/铁律……）。")
+    result = await draft_world_cap(
+        ctx.novel_id, ctx.user_id,
+        {"topic": str(topic).strip(), "shape": str(shape or "text"), "current": str(current or "")},
+    )
+    draft = result.get("draft") or result.get("content") or result
+    text = draft if isinstance(draft, str) else _json_dump(draft)
+    return _struct_card("text", {"topic": str(topic).strip(), "draft": text, "origin": "divergent"})
+
+
+async def _check_worldbuilding(ctx):
+    from assistant.caps.world import check_world_cap
+
+    result = await check_world_cap(ctx.novel_id, ctx.user_id, {})
+    items = result.get("items") or result.get("checks") or []
+    return _struct_card("report", {"report": [{"name": "世界观一致性", "items": _as_check_items(items)}]})
+
+
+async def _lore_suggest(ctx):
+    from assistant.caps.world import lore_suggest_cap
+
+    result = await lore_suggest_cap(ctx.novel_id, ctx.user_id, {})
+    lore = result.get("lore") or result.get("suggestions") or []
+    return _struct_card("pick", {"candidates": _as_candidates(lore)})
+
+
+def _json_dump(v):
+    import json as _json
+
+    return _json.dumps(v, ensure_ascii=False)
+
+
+def _as_check_items(items):
+    out = []
+    if isinstance(items, list):
+        for it in items:
+            if isinstance(it, dict):
+                status = str(it.get("status") or it.get("level") or "warn")
+                out.append({"status": status, "text": str(it.get("text") or it.get("msg") or it)})
+            else:
+                out.append({"status": "warn", "text": str(it)})
+    return out
+
+
+def _as_candidates(lore):
+    out = []
+    if isinstance(lore, list):
+        for it in lore:
+            if isinstance(it, dict):
+                out.append({"name": str(it.get("name") or it.get("title") or "候选"),
+                            "rationale": str(it.get("rationale") or it.get("summary") or it.get("text") or "")})
+            else:
+                out.append({"name": str(it)[:20], "rationale": str(it)})
+    return out
+
+# ── fn 绑定（延迟到模块底——工具函数已全量定义）────────────────────────
+
+_confirm_chapter_fn = _confirm_chapter
+_unconfirm_chapter_fn = _unconfirm_chapter
+_archive_chapter_fn = _archive_chapter
+_unarchive_chapter_fn = _unarchive_chapter
+_add_volume_fn = _add_volume
+_add_chapter_fn = _add_chapter
+_draft_worldbuilding_fn = _draft_worldbuilding
+_check_worldbuilding_fn = _check_worldbuilding
+_lore_suggest_fn = _lore_suggest
+
+
+STRUCTURE_TOOLS: tuple = (
+    Tool(
+        name="confirm_chapter", kind="write", risk_level="high",
+        parameters={"type": "object", "properties": {"chapter_ref": {"type": "string", "description": "章 ref（例：vol-1-ch-7）"}}, "required": ["chapter_ref"]},
+        description="确认一章的章纲（作家说「确认章纲」类要求时代办）。授权卡批复后执行。",
+        fn=_confirm_chapter_fn,
+    ),
+    Tool(
+        name="unconfirm_chapter", kind="write", risk_level="high",
+        parameters={"type": "object", "properties": {"chapter_ref": {"type": "string", "description": "章 ref"}}, "required": ["chapter_ref"]},
+        description="撤回一章的章纲确认（回到草稿态，改完可再确认）。", fn=_unconfirm_chapter_fn,
+    ),
+    Tool(
+        name="archive_chapter", kind="write", risk_level="high",
+        parameters={"type": "object", "properties": {"chapter_ref": {"type": "string", "description": "章 ref"}}, "required": ["chapter_ref"]},
+        description="归档一章（有正文的章才能归档；归档后进已归档列表）。", fn=_archive_chapter_fn,
+    ),
+    Tool(
+        name="unarchive_chapter", kind="write", risk_level="high",
+        parameters={"type": "object", "properties": {"chapter_ref": {"type": "string", "description": "章 ref"}}, "required": ["chapter_ref"]},
+        description="取消一章的归档（恢复为可编辑态）。", fn=_unarchive_chapter_fn,
+    ),
+    Tool(
+        name="add_volume", kind="write", risk_level="high",
+        parameters={"type": "object", "properties": {"title": {"type": "string", "description": "卷名（可空，服务端兜底「第N卷」）"}}, "required": []},
+        description="新建一卷（作家说「开新卷/新增一卷」类要求时代办）。", fn=_add_volume_fn,
+    ),
+    Tool(
+        name="add_chapter", kind="write", risk_level="high",
+        parameters={"type": "object", "properties": {"volume_ref": {"type": "string", "description": "卷 ref（例：vol-1；缺省 vol-1）"}, "title": {"type": "string", "description": "章名（可空）"}}, "required": []},
+        description="新增一章（排到指定卷的下一章）。", fn=_add_chapter_fn,
+    ),
+)
+
+WORLD_TOOLS: tuple = (
+    Tool(
+        name="draft_worldbuilding", kind="card", risk_level="high", feature_key="settings-ai-fields",
+        parameters={"type": "object", "properties": {"topic": {"type": "string", "description": "世界要素名（力量体系/代价/历史/势力/铁律……任意）"}, "shape": {"type": "string", "enum": ["text", "kv", "faction"], "description": "落格形状"}, "current": {"type": "string", "description": "当前格已有文字（半稿也算，模板在其上补全不推翻）"}}, "required": ["topic"]},
+        description="按主题起草世界观候选（一段话/条目/势力行）。设定·世界观语境用；产物过目采纳。", fn=_draft_worldbuilding_fn,
+    ),
+    Tool(
+        name="check_worldbuilding", kind="card", risk_level="high", feature_key="settings-ai-fields",
+        parameters={"type": "object", "properties": {}},
+        description="世界观一致性体检：简介×题材×世界三方对照，逐项三态只提醒不拦。", fn=_check_worldbuilding_fn,
+    ),
+    Tool(
+        name="lore_suggest", kind="card", risk_level="high", feature_key="settings-ai-fields",
+        parameters={"type": "object", "properties": {}},
+        description="从已归档章提世界观要素建议（传说/设定候选，不落库，采纳走面板）。", fn=_lore_suggest_fn,
+    ),
+)
+
+
+
+def _struct_fail(msg: str):
+    return ToolResult(ok=False, summary=msg)
+
+
+def _struct_ok(msg: str):
+    return ToolResult(ok=True, summary=msg)
+
+
+def _struct_card(kind: str, payload: dict):
+    return ToolResult(ok=True, summary="已出卡，过目后采纳。", card={"kind": kind, "payload": payload})
+
+TOOL_REGISTRY: tuple[Tool, ...] = TOOL_REGISTRY + STRUCTURE_TOOLS + WORLD_TOOLS + MEMORY_TOOLS
 
 _TOOLS_BY_NAME: dict[str, Tool] = {t.name: t for t in TOOL_REGISTRY}
 

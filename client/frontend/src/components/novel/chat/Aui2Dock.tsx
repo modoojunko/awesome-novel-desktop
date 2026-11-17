@@ -801,6 +801,25 @@ export function Aui2Dock({
                 msgStatus: "finished",
                 cards: [{ code: "artifact", data: cardData }],
               });
+            } else if (e.type === "permission_required") {
+              // 写授权卡（write_gate 停车）：gateId/preview/humanOnly 全在事件顶层
+              threadUp({
+                id: String(e.gateId ?? uuid()),
+                role: "assistant",
+                content: "",
+                msgStatus: "finished",
+                cards: [
+                  {
+                    code: "gate",
+                    data: {
+                      gateId: String(e.gateId ?? ""),
+                      preview: e.preview ?? {},
+                      humanOnly: Boolean(e.humanOnly),
+                      projectId,
+                    },
+                  },
+                ],
+              });
             } else if (e.type === "gate") {
               // 系统提示类 gate（no_key/client_error——无 gateId 带 message）：
               // 引导语按助手话术呈现，SHALL NOT 兜进授权卡渲染成空预览卡

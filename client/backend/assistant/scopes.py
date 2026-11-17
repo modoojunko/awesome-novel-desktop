@@ -27,6 +27,10 @@ _SHARED_TOOLS = frozenset(
         "forget_book_memory",
         "remember_decision",
         "read_chapter_versions",
+        # 结构管理动作（c-agent-tools-expand）：书级操作全域共享
+        "confirm_chapter", "unconfirm_chapter",
+        "archive_chapter", "unarchive_chapter",
+        "add_volume", "add_chapter",
     }
 )
 
@@ -63,6 +67,7 @@ _DOMAIN_TOOLS: dict[str, dict[str, frozenset[str]]] = {
                 "settings_genre_cost_ratio",
                 "settings_genre_battlefield",
                 "settings_hooks_draft",
+                "draft_worldbuilding", "check_worldbuilding", "lore_suggest",
                 "settings_hooks_check",
                 "settings_intro",
                 "draft_arc",

@@ -241,6 +241,32 @@ describe("系统提示类 gate（no_key 引导）", () => {
   });
 });
 
+describe("写授权卡（permission_required 事件）", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    chatApiState.loadAssistantSession.mockResolvedValue(sess());
+    chatApiState.approveGate.mockResolvedValue({ ok: true });
+  });
+
+  it("permission_required 事件渲染授权卡（含预览与批复按钮）", async () => {
+    render(<Aui2Dock projectId="p1" page="工作台 · 卷纲" scope={SCOPE} />);
+    await screen.findByTestId("aui2-dock");
+    const sse = captureStream();
+    fireEvent.click(screen.getByTestId("aui2-chip-draft_volume_expand"));
+    await waitFor(() => expect(chatApiState.streamAssistantChat).toHaveBeenCalled());
+    sse.drive({
+      type: "permission_required",
+      gateId: "g9",
+      preview: { tool: "confirm_chapter", args: { chapter_ref: "vol-1-ch-7" } },
+      humanOnly: false,
+    });
+    await screen.findByTestId("aui2-gate-approve");
+    // 事件数据完整进卡（preview 可见＝作家批前看得见改什么）；点击批复链路由 e2e 钉
+    expect(screen.getByText(/confirm_chapter/)).toBeTruthy();
+    expect(screen.getByText(/vol-1-ch-7/)).toBeTruthy();
+  });
+});
+
 describe("停止/打断（openworker 语义）", () => {
   beforeEach(() => {
     vi.clearAllMocks();

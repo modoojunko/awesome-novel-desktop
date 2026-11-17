@@ -95,3 +95,92 @@ async def review_chapter_cast(
         raise
     except Exception as e:  # noqa: BLE001
         raise _cap_error_from_http(e) from e
+
+
+# ── 结构管理动作（c-agent-tools-expand：route 函数直调——状态机守卫在路由内）──
+
+
+async def confirm_chapter_cap(novel_id: str, chapter_ref: str, user_id: str) -> dict:
+    from chapters.router import confirm_chapter as _route
+    from db import async_session
+
+    try:
+        async with async_session() as db:
+            return await _route(novel_id, chapter_ref, {"id": user_id}, db)
+    except CapabilityError:
+        raise
+    except Exception as e:  # noqa: BLE001——HTTPException 归一
+        raise _cap_error_from_http(e) from e
+
+
+async def unconfirm_chapter_cap(novel_id: str, chapter_ref: str, user_id: str) -> dict:
+    from chapters.router import unconfirm_chapter as _route
+    from db import async_session
+
+    try:
+        async with async_session() as db:
+            return await _route(novel_id, chapter_ref, {"id": user_id}, db)
+    except CapabilityError:
+        raise
+    except Exception as e:  # noqa: BLE001
+        raise _cap_error_from_http(e) from e
+
+
+async def archive_chapter_cap(novel_id: str, chapter_ref: str, user_id: str) -> dict:
+    from archive.router import archive as _route
+    from db import async_session
+
+    try:
+        async with async_session() as db:
+            return await _route(novel_id, chapter_ref, {}, {"id": user_id}, db)
+    except CapabilityError:
+        raise
+    except Exception as e:  # noqa: BLE001
+        raise _cap_error_from_http(e) from e
+
+
+async def unarchive_chapter_cap(novel_id: str, chapter_ref: str, user_id: str) -> dict:
+    from chapters.router import unarchive_chapter as _route
+    from db import async_session
+
+    try:
+        async with async_session() as db:
+            return await _route(novel_id, chapter_ref, {"id": user_id}, db)
+    except CapabilityError:
+        raise
+    except Exception as e:  # noqa: BLE001
+        raise _cap_error_from_http(e) from e
+
+
+async def add_volume_cap(novel_id: str, user_id: str, title: str = "") -> dict:
+    from db import async_session
+    from novels.service import get_novel
+    from volumes.service import create_volume
+
+    try:
+        async with async_session() as db:
+            project = await get_novel(db, novel_id, user_id)
+            if project is None:
+                raise CapabilityError("书不存在。")
+            return await create_volume(db, project, title=title)
+    except CapabilityError:
+        raise
+    except Exception as e:  # noqa: BLE001
+        raise _cap_error_from_http(e) from e
+
+
+async def add_chapter_cap(novel_id: str, user_id: str, volume_ref: str, title: str = "") -> dict:
+    from chapters.service import create_chapter
+    from db import async_session
+    from novels.service import get_novel
+
+    try:
+        async with async_session() as db:
+            project = await get_novel(db, novel_id, user_id)
+            if project is None:
+                raise CapabilityError("书不存在。")
+            return await create_chapter(db, project, volume_ref, title)
+    except CapabilityError:
+        raise
+    except Exception as e:  # noqa: BLE001
+        raise _cap_error_from_http(e) from e
