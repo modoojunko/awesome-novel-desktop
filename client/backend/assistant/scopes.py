@@ -27,6 +27,7 @@ _SHARED_TOOLS = frozenset(
         "forget_book_memory",
         "remember_decision",
         "read_chapter_versions",
+        "read_book_structure",
         # 结构管理动作（c-agent-tools-expand）：书级操作全域共享
         "confirm_chapter", "unconfirm_chapter",
         "archive_chapter", "unarchive_chapter",

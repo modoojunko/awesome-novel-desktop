@@ -939,6 +939,72 @@ def _struct_ok(msg: str):
 def _struct_card(kind: str, payload: dict):
     return ToolResult(ok=True, summary="已出卡，过目后采纳。", card={"kind": kind, "payload": payload})
 
+# 书结构总览读工具并入（零内容元数据——agent 不拉全文也能答进度/状态问题）
+from assistant.tools import Tool as _ToolCls  # noqa: E402
+
+
+async def _read_book_structure(ctx: ToolContext) -> ToolResult:
+    """全书卷章结构总览（零内容——只有元数据：标题/状态/字数/归档/章纲确认）。
+
+    作家问「写到哪了/第几章有多少字/哪些章还没归档/每卷什么状态」时调它，
+    不需要逐章 read_chapter 拉 full text 烧 token。"""
+    from sqlalchemy import select
+
+    from db import async_session
+    from models.chapter import Chapter
+    from models.volume import Volume
+
+    _STATUS_ZH = {"draft": "草稿", "confirmed": "章纲已确认", "archived": "已归档"}
+    _OUTLINE_ZH = {"unfilled": "未填", "in_progress": "写中", "confirmed": "已确认", "draft": "草稿"}
+
+    async with async_session() as session:
+        vols = (
+            await session.scalars(
+                select(Volume).where(Volume.project_id == ctx.novel_id).order_by(Volume.volume_no)
+            )
+        ).all()
+        chs = (
+            await session.scalars(
+                select(Chapter)
+                .where(Chapter.project_id == ctx.novel_id, Chapter.ghost_of.is_(None))
+                .order_by(Chapter.volume_id, Chapter.chapter_no)
+            )
+        ).all()
+
+    vol_by_id = {v.id: v for v in vols}
+    lines = [f"全书 {len(vols)} 卷 {len(chs)} 章："]
+    for v in vols:
+        vol_chs = [c for c in chs if c.volume_id == v.id]
+        archived = sum(1 for c in vol_chs if c.status == "archived")
+        words = sum(c.word_count for c in vol_chs)
+        lines.append(
+            f"第 {v.volume_no} 卷《{v.title}》：{len(vol_chs)} 章（已归档 {archived}）、共 {words} 字"
+        )
+    for c in chs:
+        st = _STATUS_ZH.get(c.status, c.status)
+        ol = _OUTLINE_ZH.get(c.outline_status, c.outline_status)
+        vol = vol_by_id.get(c.volume_id)
+        vn = vol.volume_no if vol else "?"
+        wc = f"{c.word_count} 字" if c.word_count else "空"
+        lines.append(f"- {c.ref}《{c.title}》{st}·{wc}·章纲{ol}")
+    return ToolResult(ok=True, summary="\n".join(lines))
+
+BOOK_STRUCTURE_TOOLS: tuple[Tool, ...] = (
+    _ToolCls(
+        name="read_book_structure",
+        kind="read",
+        risk_level="low",
+        parameters={"type": "object", "properties": {}},
+        description=(
+            "读全书卷章结构总览（零内容元数据：每卷章数/归档数/字数；"
+            "每章标题/状态/字数/章纲确认态）。作家问「写到哪了/第几章多少字/"
+            "哪些章还没归档/卷一什么状态」类问题时调它——不用逐章 read_chapter。"
+        ),
+        fn=_read_book_structure,
+    ),
+)
+TOOL_REGISTRY: tuple[Tool, ...] = TOOL_REGISTRY + BOOK_STRUCTURE_TOOLS
+
 TOOL_REGISTRY: tuple[Tool, ...] = TOOL_REGISTRY + STRUCTURE_TOOLS + WORLD_TOOLS + MEMORY_TOOLS
 
 _TOOLS_BY_NAME: dict[str, Tool] = {t.name: t for t in TOOL_REGISTRY}
@@ -974,3 +1040,8 @@ async def run_tool(ctx: ToolContext, name: str, args: dict) -> ToolResult:
         return ToolResult(ok=False, summary=f"参数不匹配：{e}")
     except Exception as e:  # 工具失败不炸循环，作为结果回填（BLE001 豁免）
         return ToolResult(ok=False, summary=f"工具执行失败：{e}")
+
+
+# ── 书结构总览读工具（c-agent-tools-expand 批9 续：agent 不拉全文也能答进度/状态问题）──
+
+
