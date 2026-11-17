@@ -51,6 +51,8 @@ export type AgentEvent = {
   steps?: number;
   toolCalls?: number;
   degraded?: boolean;
+  /** run_end 携带本轮写操作 effects（NovelWorkspace 按域刷新） */
+  effects?: { action: string; domain: string; target?: string; description?: string }[];
 };
 
 export interface AssistantStreamHandlers {

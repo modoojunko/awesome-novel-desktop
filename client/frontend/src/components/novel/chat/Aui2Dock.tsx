@@ -347,6 +347,7 @@ export function Aui2Dock({
   onCloseDrawer,
   onOpenAction,
   onStreamingChange,
+  onEffects,
 }: {
   projectId: string;
   page: string;
@@ -359,6 +360,8 @@ export function Aui2Dock({
   onOpenAction?: (action: string) => void;
   /** 流式存活上抛（宿主并入树锁定守卫——ChatDock 同款契约） */
   onStreamingChange?: (v: boolean) => void;
+  /** agent 写操作后的前端效果回调（NovelWorkspace 按域刷新数据） */
+  onEffects?: (effects: { action: string; domain: string; target?: string }[]) => void;
 }) {
   const threadKey = threadKeyOf(scope);
   const apiRef = useRef<ChatAnywhereRef | null>(null);
@@ -376,6 +379,8 @@ export function Aui2Dock({
   const modeAnchorRef = useRef<HTMLDivElement | null>(null);
   /** 流式中止（本地兜底 abort——主路径是 stop 端点协同取消，保收口回执落库） */
   const abortRef = useRef<(() => void) | null>(null);
+  /** agent 写操作 effects 缓存（run_end 携带，onDone 时回调宿主） */
+  const pendingEffectsRef = useRef<{ action: string; domain: string; target?: string }[]>([]);
   /** 停止当前 run（服务端协同取消优先；端点失败回落本地断流） */
   const stopRun = useCallback(() => {
     const localAbort = abortRef.current;
@@ -766,6 +771,11 @@ export function Aui2Dock({
                 msgStatus: "generating",
               });
               upsertTrace(traceId, (d) => ({ ...d, steps: [...d.steps, `${tool} ✓${note}`] }));
+            } else if (e.type === "run_end") {
+              // run_end 携带本轮写操作 effects → 缓存待 onDone 回调宿主
+              if (Array.isArray(e.effects)) {
+                pendingEffectsRef.current = e.effects;
+              }
             } else if (e.type === "clear") {
               // /new：服务端已清，前端同步清屏（命令与旧对话都不留）
               mirrorRef.current.set(threadKeyRef.current, []);
@@ -907,11 +917,16 @@ export function Aui2Dock({
             setStreaming(false);
             onStreamingChange?.(false);
             abortRef.current = null;
+            // agent 写操作 effects 回调宿主（NovelWorkspace 按域刷新）
+            if (pendingEffectsRef.current.length > 0 && onEffects) {
+              onEffects(pendingEffectsRef.current);
+              pendingEffectsRef.current = [];
+            }
           },
         },
       );
     },
-    [projectId, page, scope.chapterRef, threadUp, upsertTrace, onStreamingChange],
+    [projectId, page, scope.chapterRef, upsertTrace, onStreamingChange, onEffects],
   );
 
   const ctxPct = ctx ? Math.min(100, ctx.pct) : 0;

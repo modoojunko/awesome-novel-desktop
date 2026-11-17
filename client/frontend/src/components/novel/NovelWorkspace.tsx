@@ -1433,6 +1433,14 @@ export default function NovelWorkspace() {
               chatStreamingRef.current = v;
               setChatStreaming(v);
             }}
+            onEffects={(effects) => {
+              // agent 写操作后的前端刷新——按域刷新已有数据
+              for (const e of effects) {
+                if (e.domain === "chapters" || e.domain === "volumes") {
+                  refreshCharStale();
+                }
+              }
+            }}
           />
           </AuiErrorBoundary>
         </aside>

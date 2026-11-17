@@ -78,6 +78,8 @@ class Tool:
     # 调度元数据（openworker _parallel_safe 同款）：low=只读低风险可并行，
     # 写类/发散类串行保序（boss 拍板 2026-11-15 调度对齐 openworker）
     risk_level: str = "high"
+    # Effect 声明（c-agent-effects）：写类工具执行成功后告知前端刷新哪个数据域
+    effect_domain: str = ""  # chapters|volumes|settings|characters|hooks|""(不触发刷新)
 
     def __post_init__(self) -> None:
         if not self.args_hint:
@@ -876,33 +878,33 @@ _lore_suggest_fn = _lore_suggest
 
 STRUCTURE_TOOLS: tuple = (
     Tool(
-        name="confirm_chapter", kind="write", risk_level="high",
+        name="confirm_chapter", kind="write", risk_level="high", effect_domain="chapters",
         parameters={"type": "object", "properties": {"chapter_ref": {"type": "string", "description": "章 ref（例：vol-1-ch-7）"}}, "required": ["chapter_ref"]},
         description="确认一章的章纲（作家说「确认章纲」类要求时代办）。授权卡批复后执行。",
         fn=_confirm_chapter_fn,
     ),
     Tool(
-        name="unconfirm_chapter", kind="write", risk_level="high",
+        name="unconfirm_chapter", kind="write", risk_level="high", effect_domain="chapters",
         parameters={"type": "object", "properties": {"chapter_ref": {"type": "string", "description": "章 ref"}}, "required": ["chapter_ref"]},
         description="撤回一章的章纲确认（回到草稿态，改完可再确认）。", fn=_unconfirm_chapter_fn,
     ),
     Tool(
-        name="archive_chapter", kind="write", risk_level="high",
+        name="archive_chapter", kind="write", risk_level="high", effect_domain="chapters",
         parameters={"type": "object", "properties": {"chapter_ref": {"type": "string", "description": "章 ref"}}, "required": ["chapter_ref"]},
         description="归档一章（有正文的章才能归档；归档后进已归档列表）。", fn=_archive_chapter_fn,
     ),
     Tool(
-        name="unarchive_chapter", kind="write", risk_level="high",
+        name="unarchive_chapter", kind="write", risk_level="high", effect_domain="chapters",
         parameters={"type": "object", "properties": {"chapter_ref": {"type": "string", "description": "章 ref"}}, "required": ["chapter_ref"]},
         description="取消一章的归档（恢复为可编辑态）。", fn=_unarchive_chapter_fn,
     ),
     Tool(
-        name="add_volume", kind="write", risk_level="high",
+        name="add_volume", kind="write", risk_level="high", effect_domain="volumes",
         parameters={"type": "object", "properties": {"title": {"type": "string", "description": "卷名（可空，服务端兜底「第N卷」）"}}, "required": []},
         description="新建一卷（作家说「开新卷/新增一卷」类要求时代办）。", fn=_add_volume_fn,
     ),
     Tool(
-        name="add_chapter", kind="write", risk_level="high",
+        name="add_chapter", kind="write", risk_level="high", effect_domain="chapters",
         parameters={"type": "object", "properties": {"volume_ref": {"type": "string", "description": "卷 ref（例：vol-1；缺省 vol-1）"}, "title": {"type": "string", "description": "章名（可空）"}}, "required": []},
         description="新增一章（排到指定卷的下一章）。", fn=_add_chapter_fn,
     ),

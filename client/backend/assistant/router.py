@@ -595,6 +595,9 @@ async def _stream_chat(
                     await _consume(drv_db, event)
                     # thinking 照发 SSE（dock 实时思考回看，run_end 时前端收进
                     # run 气泡）；落盘分支不匹配 thinking——回看不存逐字思考
+                    # Effect 注入（c-agent-effects）：run_end 携带本轮写操作 effects
+                    if event.get("type") == "run_end" and run_effects:
+                        event["effects"] = list(run_effects)
                     await queue.put(event)
                 if loop.result.tokens_in or loop.result.tokens_out:
                     await session_store.append_message(
