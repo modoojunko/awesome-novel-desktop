@@ -28,6 +28,7 @@ import {
   approveGate,
   setPermissionTier,
   adoptAssistantMessage,
+  stopAssistantRun,
 } from "@/lib/chatApi";
 import { CardBody, _clip } from "./CardBody";
 // chat.css 的唯一入口曾随 ChatDock 退役被带走（dock 全程裸奔＝抽屉/芯片/卡面全无样式）
@@ -373,8 +374,13 @@ export function Aui2Dock({
   const tierRef = useRef<Tier>("confirm_each");
   const [modeOpen, setModeOpen] = useState(false);
   const modeAnchorRef = useRef<HTMLDivElement | null>(null);
-  /** 流式中止（ChatAnywhere 停止钮 → 断流保底：已产出保留） */
+  /** 流式中止（本地兜底 abort——主路径是 stop 端点协同取消，保收口回执落库） */
   const abortRef = useRef<(() => void) | null>(null);
+  /** 停止当前 run（服务端协同取消优先；端点失败回落本地断流） */
+  const stopRun = useCallback(() => {
+    const localAbort = abortRef.current;
+    stopAssistantRun(projectId, threadKeyRef.current).catch(() => localAbort?.());
+  }, [projectId]);
   /** 流式中（chat-stop 显隐；与 onStreamingChange 同源） */
   const [streaming, setStreaming] = useState(false);
   /** 容量估算（chars/4 同后端口径；装载时以服务端 estTokens 播种） */
@@ -908,12 +914,7 @@ export function Aui2Dock({
               className="cd-btn"
               data-testid="chat-stop"
               title="停止生成（已产出保留）"
-              onClick={() => {
-                abortRef.current?.();
-                setStreaming(false);
-                onStreamingChange?.(false);
-                abortRef.current = null;
-              }}
+              onClick={() => stopRun()}
             >
               停止
             </button>
@@ -998,12 +999,7 @@ export function Aui2Dock({
             onUpload={[]}
             uiConfig={{ quickInput: [] }}
             cardConfig={CARD_REGISTRY}
-            onStop={() => {
-              abortRef.current?.();
-              setStreaming(false);
-              onStreamingChange?.(false);
-              abortRef.current = null;
-            }}
+            onStop={() => stopRun()}
           />
         </DockCtx.Provider>
       </ConfigProvider>

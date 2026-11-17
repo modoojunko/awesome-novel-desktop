@@ -150,6 +150,20 @@ export async function setPermissionTier(
   if (!r.ok) throw new Error(detailMessage((await r.json().catch(() => null))?.detail, "档位设置失败"));
 }
 
+/** 停止当前线程的在跑 run（服务端协同取消——已产出保留；openworker 停止语义）。 */
+export async function stopAssistantRun(projectId: string, thread: string): Promise<void> {
+  const r = await fetch(`${API_BASE}/novels/${projectId}/assistant/stop`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", Authorization: `Bearer ${getToken()}` },
+    body: JSON.stringify({ thread }),
+  });
+  if (r.status === 401) {
+    handleAuthExpiry();
+    throw new Error("登录状态已失效，请重新登录");
+  }
+  if (!r.ok) throw new Error(detailMessage((await r.json().catch(() => null))?.detail, "停止失败"));
+}
+
 /**
  * 助手对话流：POST /assistant/chat（SSE）。返回 abort 函数（中断＝已产出保留）。
  * 终态口径：run_end｜error 见过才算干净结束；两者皆无＝服务端异常中止，按失败收尾

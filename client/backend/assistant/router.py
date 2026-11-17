@@ -13,6 +13,10 @@ error 事件收尾，不得静默 200 空流。用量按步落账（record_usage
 from __future__ import annotations
 
 import asyncio
+
+# 活跃 run 注册表（c-agent-chat-memory 批8 停止/打断）：key = f"{session_id}:{thread}"，
+# 值 = 该 run 的协同取消事件。stop 路由/新消息打断置位，循环在检查点自收口
+_ACTIVE_RUNS: dict[str, asyncio.Event] = {}
 import json
 from collections.abc import AsyncIterator
 from typing import Any
@@ -382,7 +386,30 @@ async def _stream_chat(
                 "reason": decision.reason,
             }
         ]
-        approved = await write_gate.PARKING.wait(gate_id) == "approved"
+        # 停车等待与取消赛跑：停止/打断到达时不再傻等 300s 批复（openworker 同款）
+        wait_task = asyncio.ensure_future(write_gate.PARKING.wait(gate_id))
+        cancel_wait = (
+            asyncio.ensure_future(cancel_event.wait())
+            if cancel_event is not None
+            else None
+        )
+        pending_set = {wait_task, *([cancel_wait] if cancel_wait else [])}
+        try:
+            _done, _ = await asyncio.wait(pending_set, return_when=asyncio.FIRST_COMPLETED)
+        finally:
+            if cancel_wait is not None and not cancel_wait.done():
+                cancel_wait.cancel()
+        if cancel_wait is not None and cancel_wait.done() and not wait_task.done():
+            write_gate.PARKING.discard(gate_id)
+            return events + [
+                {
+                    "type": "gate_result",
+                    "gateId": gate_id,
+                    "approved": False,
+                    "refusal": "已停止——这一步没有执行。",
+                }
+            ]
+        approved = wait_task.result() == "approved"
         write_gate.PARKING.discard(gate_id)
         events.append(
             {
@@ -394,6 +421,12 @@ async def _stream_chat(
         )
         return events
 
+    # 协同取消（停止/打断/断连即停——openworker 语义）：每会话线程一个取消事件，
+    # stop 路由/新消息打断/断连收尸都只置位，循环在最近检查点自己收口（工具与
+    # 落库链照常收尾，已产出保留）
+    run_key = f"{session.id}:{thread}"
+    cancel_event = asyncio.Event()
+
     loop = AgentLoop(
         client=client,
         system=system,
@@ -404,6 +437,7 @@ async def _stream_chat(
         on_compaction=_on_compaction,
         on_usage=_on_usage,
         gate_fn=_gate_fn,
+        cancel_event=cancel_event,
     )
 
     # ── 逐步落盘＋SSE 下发 ─────────────────────────────────────────────────
@@ -536,6 +570,7 @@ async def _stream_chat(
 
     queue: asyncio.Queue = asyncio.Queue()
     _STOP: dict[str, Any] = {"__stop__": True}
+    _ACTIVE_RUNS[run_key] = cancel_event
     drive_task = asyncio.create_task(_drive())
 
     try:
@@ -545,12 +580,16 @@ async def _stream_chat(
                 break
             yield _sse(event)
     finally:
+        # 断连/关停即停（尽力语义——starlette 可能不回调，stop 路由是主路径）：
+        # 置位协同取消，循环在最近检查点自收口；正常收口时 drive 已结束，置位无害
+        cancel_event.set()
         # 消费端退出（正常/被关停）：收尸 drive task——其 shielded finally 落定稿
         drive_task.cancel()
         try:
             await asyncio.shield(drive_task)
         except (asyncio.CancelledError, Exception):  # noqa: BLE001——收尸路径，吞一切
             pass
+        _ACTIVE_RUNS.pop(run_key, None)
 
     # ── 定期总结画像（批C 3.4）：非阻塞后台任务，失败静默（autotitle 模式）────
     asyncio.create_task(_profile_summary_task(user["id"], project.id))
@@ -587,6 +626,42 @@ async def _profile_summary_task(user_id: str, novel_id: str) -> None:
         logging.getLogger(__name__).info("assistant profile summarize skipped: %s", e)
 
 
+@router.post("/stop")
+async def assistant_stop(
+    project_id: str,
+    request: Request,
+    user: dict = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """停止当前线程的在跑 run（协同取消——已产出保留，openworker 停止语义）。
+
+    无在跑 run 时幂等返回 stopped=false。"""
+    body: dict[str, Any] = {}
+    try:
+        raw = await request.json()
+        if isinstance(raw, dict):
+            body = raw
+    except (ValueError, UnicodeDecodeError):
+        body = {}
+    thread = session_store.sanitize_thread_key(body.get("thread"))
+    project = await get_novel(db, project_id, user["id"])
+    if not project:
+        raise HTTPException(404, "Project not found")
+    session = await session_store.get_or_create_session(
+        db, user_id=user["id"], novel_id=project.id, thread_key=thread
+    )
+    run_key = f"{session.id}:{thread}"
+    ev = _ACTIVE_RUNS.get(run_key)
+    if ev is None:
+        return {"ok": True, "stopped": False}
+    ev.set()
+    for _ in range(20):
+        if run_key not in _ACTIVE_RUNS:
+            break
+        await asyncio.sleep(0.1)
+    return {"ok": True, "stopped": True}
+
+
 @router.post("/chat")
 async def assistant_chat(
     project_id: str,
@@ -618,6 +693,18 @@ async def assistant_chat(
     session = await session_store.get_or_create_session(
         db, user_id=user["id"], novel_id=project.id, thread_key=thread
     )
+    # ── 打断（openworker 语义）：同线程上一轮在跑 → 置位取消并等它收口（≤4s）──
+    run_key = f"{session.id}:{thread}"
+    prev_event = _ACTIVE_RUNS.get(run_key)
+    if prev_event is not None:
+        prev_event.set()
+        for _ in range(20):
+            if run_key not in _ACTIVE_RUNS:
+                break
+            await asyncio.sleep(0.2)
+        else:
+            raise HTTPException(409, "上一轮还在收尾，稍候一拍再发")
+
 
     # /mode（openworker 对齐）：即时切授权档位；裸 /mode 报当前档
     mode_names = {

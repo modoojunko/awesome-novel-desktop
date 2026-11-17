@@ -355,3 +355,114 @@ async def test_legacy_pure_json_leaks_nothing_as_delta():
             deltas.append(e["text"])
     assert deltas == []
     assert loop.result.final_reply == "旧协议整段交付。"
+
+
+class _InfiniteStreamClient:
+    """永不收口的流式假客户端（取消语义测试用）。"""
+
+    def __init__(self) -> None:
+        self.chunks = 0
+
+    async def chat_stream(self, **kwargs):
+        from ai_client import StreamEvent
+
+        while True:
+            self.chunks += 1
+            yield StreamEvent(text=f"第{self.chunks}片。")
+            await __import__("asyncio").sleep(0.01)
+
+    async def chat(self, **kwargs):
+        return "压缩摘要"
+
+
+@pytest.mark.asyncio
+async def test_cancel_event_stops_run_mid_stream():
+    """停止/打断协同取消：事件置位后循环在最近 chunk 检查点收口——
+    收口话术照发、interrupted 标记为真、run_end 正常落（已产出保留）。"""
+    import asyncio as _asyncio
+
+    cancel_event = _asyncio.Event()
+    client = _InfiniteStreamClient()
+    loop = AgentLoop(
+        client=client,
+        system="sys",
+        transcript=[{"role": "user", "content": "一直说下去"}],
+        tool_ctx=None,
+        config=LoopConfig(),
+        cancel_event=cancel_event,
+    )
+    kinds: list[str] = []
+    async for e in loop.run("一直说下去"):
+        kinds.append(e["type"])
+        if client.chunks >= 3:
+            cancel_event.set()
+    assert "narration" in kinds
+    assert kinds[-1] == "run_end"
+    assert loop.result.interrupted is True
+    assert client.chunks < 50  # 没有跑飞
+
+
+@pytest.mark.asyncio
+async def test_no_cancel_event_runs_normally():
+    """未置位取消＝行为与旧口径一致（final 收口、interrupted 恒 False）。"""
+    loop = AgentLoop(
+        client=FakeClient([_final("正常收口。")]),
+        system="sys",
+        transcript=[{"role": "user", "content": "答我"}],
+        tool_ctx=None,
+        config=LoopConfig(),
+    )
+    async for _ in loop.run("答我"):
+        pass
+    assert loop.result.interrupted is False
+    assert loop.result.final_reply == "正常收口。"
+
+
+class _SlowFirstChunkClient:
+    """首 chunk 前长等待（慢 TTFB 桩——停止必须打断等待本身）。"""
+
+    def __init__(self) -> None:
+        self.chunks = 0
+
+    async def chat_stream(self, **kwargs):
+        import asyncio as _a
+
+        from ai_client import StreamEvent
+
+        await _a.sleep(3)  # 慢桩窗口
+        self.chunks += 1
+        yield StreamEvent(text="第一片。")
+        while True:
+            self.chunks += 1
+            yield StreamEvent(text="后续片。")
+            await _a.sleep(0.01)
+
+    async def chat(self, **kwargs):
+        return "压缩摘要"
+
+
+@pytest.mark.asyncio
+async def test_cancel_interrupts_slow_ttfb_wait():
+    """停止打断「等模型首 chunk」的等待本身——3s 慢桩窗口内收口（<1.5s）。"""
+    import asyncio as _asyncio2
+    import time as _time
+
+    cancel_event = _asyncio2.Event()
+    loop = AgentLoop(
+        client=_SlowFirstChunkClient(),
+        system="sys",
+        transcript=[{"role": "user", "content": "慢慢来"}],
+        tool_ctx=None,
+        config=LoopConfig(),
+        cancel_event=cancel_event,
+    )
+    t0 = _time.monotonic()
+    kinds: list[str] = []
+    async for e in loop.run("慢慢来"):
+        kinds.append(e["type"])
+        if not cancel_event.is_set():
+            cancel_event.set()  # 首个事件（run_start）后立即停止
+    elapsed = _time.monotonic() - t0
+    assert elapsed < 1.5, f"停止未打断慢等待（{elapsed:.2f}s）"
+    assert "narration" in kinds
+    assert loop.result.interrupted is True

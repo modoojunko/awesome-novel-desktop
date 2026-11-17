@@ -33,6 +33,9 @@ from ai_client import (
 )
 from assistant import compact as compact_mod
 from assistant.actions import parse_action, stream_slice
+
+# 停止/打断的收口话术（openworker 同款语义：已产出保留，随时可以继续）
+_CANCEL_NOTICE = "好，先停在这里。已产出的内容都保留着，想继续随时说。"
 from assistant.context import build_outbound_window
 from assistant.scopes import (
     out_of_scope_guidance,
@@ -84,6 +87,9 @@ class LoopConfig:
 class LoopResult:
     final_reply: str = ""
     degraded: bool = False
+    # 协同取消（c-agent-chat-memory 批8 停止/打断）：作家停止/新消息打断/断连
+    # 触发 cancel_event 后，循环在最近检查点收口——已产出保留，收口话术见 _CANCEL_NOTICE
+    interrupted: bool = False
     steps: int = 0
     tool_calls: int = 0
     tokens_in: int = 0
@@ -113,6 +119,9 @@ class AgentLoop:
         on_compaction: Callable[[Any], Awaitable[None]] | None = None,
         # 每步用量回调（router 注入 record_usage 适配，短事务）
         on_usage: Callable[[int, int], Awaitable[None]] | None = None,
+        # 协同取消（停止/打断/断连）：置位后循环在最近检查点收口（步界＋模型流
+        # chunk 级＋gate 停车等待）——不硬杀任务，工具与落库链照常收尾
+        cancel_event: asyncio.Event | None = None,
         context_window: int | None = None,
         # c-agent-harness tasks 4.1："" = 自动路由（client.supports_native_tools，
         # env ASSISTANT_HARNESS 可强制）；"native"/"text" 显式钉死。文本协议分支
@@ -124,6 +133,7 @@ class AgentLoop:
         self.transcript = transcript
         self.tool_ctx = tool_ctx
         self.compaction_state = compaction_state
+        self.cancel_event = cancel_event
         self.cfg = config or LoopConfig()
         self.gate_fn = gate_fn
         self.on_compaction = on_compaction
@@ -142,6 +152,31 @@ class AgentLoop:
         self.result = LoopResult()
 
     # -- 对外主入口 ------------------------------------------------------------
+    def _cancelled(self) -> bool:
+        return bool(self.cancel_event is not None and self.cancel_event.is_set())
+
+    def _cancel_notice_event(self) -> dict[str, Any]:
+        """停止/打断收口：话术＋标记（已产出保留，镜像/落库照常走完）"""
+        self.result.interrupted = True
+        return {"type": "narration", "text": _CANCEL_NOTICE}
+
+    async def _interruptible(self, stream: AsyncIterator[Any]) -> AsyncIterator[Any]:
+        """模型流的可打断包装：等 chunk 与等取消赛跑（150ms 轮询）——慢 TTFB/长
+        思考等待中点停止也即时生效（openworker 停止语义；裸 async-for 会被首
+        chunk 前的等待卡死，检查点根本没机会跑——e2e 慢桩实锤）。"""
+        get_next = asyncio.ensure_future(stream.__anext__())
+        while True:
+            if self._cancelled():
+                get_next.cancel()
+                return
+            done, _ = await asyncio.wait({get_next}, timeout=0.15)
+            if done:
+                try:
+                    yield get_next.result()
+                except StopAsyncIteration:
+                    return
+                get_next = asyncio.ensure_future(stream.__anext__())
+
     async def run(
         self,
         user_input: str,
@@ -322,6 +357,10 @@ class AgentLoop:
                 if not last.get("approved", False):
                     yield ("denied", last.get("refusal") or "作家没有授权这个操作，我先不做了。")
                     return
+        if self._cancelled():
+            # 停止/打断在 gate 等待后到达：不执行工具，直接收口（步界检查点接力）
+            yield ("denied", "已停止——这一步没有执行。")
+            return
         self.result.tool_calls += 1
         from assistant.scopes import domain_of_thread
 
@@ -380,6 +419,9 @@ class AgentLoop:
             if not self._wall_clock_left(started):
                 yield self._wall_clock_message()
                 break
+            if self._cancelled():
+                yield self._cancel_notice_event()
+                break
             step_no += 1
             self.result.steps = step_no
 
@@ -394,6 +436,7 @@ class AgentLoop:
             messages, _ = build_outbound_window(
                 self.transcript, compaction_state=self.compaction_state
             )
+            cancelled_hit = False
             for attempt in range(1 + retry_left):
                 full_text = ""
                 streamed_upto, frozen = 0, False
@@ -408,6 +451,10 @@ class AgentLoop:
                     ):
                         if ev.error:
                             stream_error = ev.error
+                            break
+                        if self._cancelled():
+                            # chunk 级取消（逐字流式下停止即时生效——不等整段）
+                            cancelled_hit = True
                             break
                         if ev.thinking:
                             yield {"type": "thinking", "text": ev.thinking}
@@ -431,7 +478,7 @@ class AgentLoop:
                             self.result.tokens_out += ev.tokens
                             if self.on_usage is not None:
                                 await self.on_usage(ev.tokens_in, ev.tokens)
-                    if stream_error:
+                    if cancelled_hit:
                         break
                 except (AITimeoutError, AIThinkingTimeoutError) as e:
                     stream_error = f"这一步想得太久（{e}）"
@@ -449,6 +496,12 @@ class AgentLoop:
                         {"role": "user", "content": _RETRY_NUDGE},
                     ]
                     continue
+                break
+
+            # 停止/打断收口（while 层）：attempt 内 break 跳到这里——已产出保留
+            if cancelled_hit:
+                self.result.interrupted = True
+                yield {"type": "narration", "text": _CANCEL_NOTICE}
                 break
 
             if stream_error:
@@ -611,6 +664,9 @@ class AgentLoop:
             if not self._wall_clock_left(started):
                 yield self._wall_clock_message()
                 break
+            if self._cancelled():
+                yield self._cancel_notice_event()
+                break
             step_no += 1
             self.result.steps = step_no
 
@@ -626,18 +682,24 @@ class AgentLoop:
             full_text = ""
             native_calls: list[dict] = []
             stream_error = ""
+            cancelled_hit = False
             try:
-                async for ev in self.client.chat_stream(
-                    model=self.cfg.model_alias,
-                    system=self.system,
-                    messages=messages,
-                    max_tokens=self.cfg.step_max_tokens,
-                    operation="assistant_step",
-                    first_content_timeout=self.cfg.step_timeout,
-                    tools=schemas,
+                async for ev in self._interruptible(
+                    self.client.chat_stream(
+                        model=self.cfg.model_alias,
+                        system=self.system,
+                        messages=messages,
+                        max_tokens=self.cfg.step_max_tokens,
+                        operation="assistant_step",
+                        first_content_timeout=self.cfg.step_timeout,
+                        tools=schemas,
+                    )
                 ):
                     if ev.error:
                         stream_error = ev.error
+                        break
+                    if self._cancelled():
+                        cancelled_hit = True
                         break
                     if ev.thinking:
                         yield {"type": "thinking", "text": ev.thinking}
@@ -656,6 +718,9 @@ class AgentLoop:
                 stream_error = f"模型调用失败：{e}"
             if stream_error:
                 yield {"type": "error", "message": stream_error}
+                break
+            if cancelled_hit:
+                yield self._cancel_notice_event()
                 break
 
             if not native_calls:

@@ -11,6 +11,7 @@ const chatApiState = vi.hoisted(() => ({
   streamAssistantChat: vi.fn(),
   approveGate: vi.fn(),
   setPermissionTier: vi.fn(),
+  stopAssistantRun: vi.fn(),
 }));
 
 vi.mock("@/lib/chatApi", async (importOriginal) => {
@@ -21,6 +22,7 @@ vi.mock("@/lib/chatApi", async (importOriginal) => {
     streamAssistantChat: chatApiState.streamAssistantChat,
     approveGate: chatApiState.approveGate,
     setPermissionTier: chatApiState.setPermissionTier,
+    stopAssistantRun: chatApiState.stopAssistantRun,
   };
 });
 
@@ -210,5 +212,31 @@ describe("AuiErrorBoundary 崩溃兜底", () => {
     fireEvent.click(screen.getByTestId("aui2-error-retry"));
     await waitFor(() => expect(screen.getByTestId("child-ok")).toBeTruthy());
     expect(screen.queryByTestId("aui2-error-boundary")).toBeNull();
+  });
+});
+
+describe("停止/打断（openworker 语义）", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    chatApiState.loadAssistantSession.mockResolvedValue(sess());
+    chatApiState.setPermissionTier.mockResolvedValue(undefined);
+    chatApiState.approveGate.mockResolvedValue({ ok: true });
+  });
+
+  it("停止钮点击走 stop 端点（协同取消主路径，不本地断流）", async () => {
+    chatApiState.stopAssistantRun.mockResolvedValue(undefined);
+    render(<Aui2Dock projectId="p1" page="工作台 · 卷纲" scope={SCOPE} />);
+    await screen.findByTestId("aui2-dock");
+    const sse = captureStream();
+    fireEvent.click(screen.getByTestId("aui2-chip-draft_volume_expand"));
+    await waitFor(() => expect(chatApiState.streamAssistantChat).toHaveBeenCalled());
+    const stopBtn = await screen.findByTestId("chat-stop");
+    fireEvent.click(stopBtn);
+    await waitFor(() =>
+      expect(chatApiState.stopAssistantRun).toHaveBeenCalledWith("p1", expect.any(String)),
+    );
+    // 服务端协同取消 → 流收口 → 停止钮退场（本地 abort 不触发）
+    sse.done();
+    await waitFor(() => expect(screen.queryByTestId("chat-stop")).toBeNull());
   });
 });
