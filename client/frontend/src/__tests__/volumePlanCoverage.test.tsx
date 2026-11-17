@@ -29,7 +29,7 @@ function seedTierPlan() {
 // ---------------------------------------------------------------------------
 // 「卷纲规划」族覆盖率补齐（VolumePlanModal / VolumeAssistPanel / useVolumePlan /
 // PickCardsModal）。每条用例断言真实用户可见行为：恢复批次不重抽、台账缺口文案、
-// 未知页签回落、写作位门禁、体检降级兜底等——不凑数、不改源码。
+// 未知页签回落、撤门禁后的拆章行、体检降级兜底等——不凑数、不改源码。
 // ---------------------------------------------------------------------------
 
 const apiState = vi.hoisted(() => ({
@@ -479,14 +479,13 @@ describe("VolumeAssistPanel 分卷依据台账", () => {
 const railData = (
   tab: string,
   detailExtra: Record<string, unknown> = {},
-  frontierVol?: number | null,
+  _frontierVol?: number | null,
 ): VolumeRailData =>
   ({
     volume: 2,
     title: "借命",
     tab,
     detail: { chapters: [], ...detailExtra },
-    frontierVol,
   }) as unknown as VolumeRailData;
 
 const OK_REPORT = {
@@ -571,32 +570,27 @@ describe("VolumeAssistPanel 验证面板补齐", () => {
     );
   });
 
-  it("写作位门禁：本卷在写作位之前 → 拆章行禁用＋拦截段，desc/hint 都点名写作位", async () => {
+  it("撤门禁：本卷在写作位之前（含写作位卷为空卷）→ 拆章行照常可点（c-chapter-volume-gate-retire）", async () => {
     const { onSplitAi, onUpgrade } = renderPanel({
       data: railData("chapters", { summary: "主旨", core_conflict: "冲突", ending: "卷末" }, 3),
       autoCheckSeq: 1,
     });
     await waitFor(() => expect(screen.getByTestId("volume-check-report")).toBeDefined());
-    expect(screen.getByTestId("volume-split-ai-blocked").textContent).toContain(
-      "写作位在第3卷——先去那一卷拆章",
-    );
+    expect(screen.queryByTestId("volume-split-ai-blocked")).toBeNull();
     const split = screen.getByTestId("volume-split-ai") as HTMLButtonElement;
-    expect(split.disabled).toBe(true);
-    expect(split.textContent).toContain("这一卷还没轮到"); // desc
-    expect(split.querySelector(".ra-hint")?.textContent).toBe("写作位在第3卷"); // hint
-    // 禁用行点击是 no-op：既不拆章也不升级
+    expect(split.disabled).toBe(false);
+    expect(split.textContent).toContain("按卷纲拆出下一章的三方向卡"); // desc 不再点名写作位
     fireEvent.click(split);
-    expect(onSplitAi).not.toHaveBeenCalled();
+    await waitFor(() => expect(onSplitAi).toHaveBeenCalled());
     expect(onUpgrade).not.toHaveBeenCalled();
   });
 
-  it("写作位就是本卷 → 不拦：拆章行可点（frontier 比较照常参与判断）", async () => {
+  it("写作位就是本卷 → 拆章行可点（回归：不因门禁误伤本卷）", async () => {
     const { onSplitAi } = renderPanel({
       data: railData("chapters", { summary: "主旨", core_conflict: "冲突", ending: "卷末" }, 2),
       autoCheckSeq: 1,
     });
     await waitFor(() => expect(screen.getByTestId("volume-check-report")).toBeDefined());
-    expect(screen.queryByTestId("volume-split-ai-blocked")).toBeNull();
     const split = screen.getByTestId("volume-split-ai") as HTMLButtonElement;
     expect(split.disabled).toBe(false);
     fireEvent.click(split);

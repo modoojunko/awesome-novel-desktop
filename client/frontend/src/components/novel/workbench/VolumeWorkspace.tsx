@@ -3,7 +3,7 @@
  *  角色关系/伏笔＝卷域投影（截至本卷末，只读）。右栏卷语境经 onRailData 上抛
  *  （与章模式 onRailData 同构；卸载即清空防残留）。 */
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { api } from "@/lib/api";
+import { api, errMessage } from "@/lib/api";
 import { toast } from "@/lib/toast";
 import { nodeLabel } from "@/lib/nodeTitle";
 import type { UseWorkbenchReturn } from "@/hooks/useWorkbench";
@@ -33,8 +33,6 @@ export interface VolumeRailData {
   title: string;
   tab: VolumeTab;
   detail: VolumeDetail;
-  /** 主线写作位所在卷号（c-chapter-plan-ai 末端门禁；null＝全书无章） */
-  frontierVol: number | null;
   /** 节奏页签是否在编辑态（c-volume-pacing：右栏三行让位，防采纳覆盖草稿） */
   pacingEditing?: boolean;
 }
@@ -245,14 +243,13 @@ export default function VolumeWorkspace({
         title: nodeLabel("卷", detail.volume, detail.title),
         tab,
         detail,
-        frontierVol: frontier ? frontier.vol : null,
         pacingEditing,
       });
     } else {
       onRailData(null);
     }
     return () => onRailData(null);
-  }, [detail, tab, frontier, pacingEditing, onRailData]);
+  }, [detail, tab, pacingEditing, onRailData]);
 
   // 回填执行：进场/展开依据只读（不占表单步骤），其余按段序 160ms/段
   useEffect(() => {
@@ -425,7 +422,6 @@ export default function VolumeWorkspace({
                 projectId={projectId}
                 volumeRef={volumeRef}
                 detail={detail}
-                frontier={frontier}
                 wb={wb}
                 onGoChapter={onGoChapter}
                 onSplitManual={onSplitManual}
@@ -823,7 +819,6 @@ function ChapterLedgerPane({
   projectId,
   volumeRef,
   detail,
-  frontier,
   wb,
   onGoChapter,
   onSplitManual,
@@ -832,7 +827,6 @@ function ChapterLedgerPane({
   projectId: string;
   volumeRef: string;
   detail: VolumeDetail;
-  frontier: { vol: number; ch: number; gno?: number } | null;
   wb: UseWorkbenchReturn;
   onGoChapter: (ref: string) => void;
   /** 「拆下一章」手写四段（c-chapter-plan-ai；全档；入口自卷纲页签迁入） */
@@ -859,18 +853,14 @@ function ChapterLedgerPane({
       setAdding(false);
       onMutated();
       wb.refresh();
-    } catch {
-      toast.error("创建章失败");
+    } catch (e) {
+      // 后端 4xx 的 detail 是可行动中文，透出原文（c-chapter-volume-gate-retire：
+      // 不再以笼统「创建章失败」吞掉原因）；网络层失败回落兜底
+      toast.error(errMessage(e, "创建章失败"));
     } finally {
       setBusy(false);
     }
   };
-
-  const canAdd = frontier != null && frontier.vol === detail.volume;
-  // 主线末端门禁（c-chapter-plan-ai）：只挡「写作位之前的卷」（那才会插进主线中段）；
-  // 写作位所在卷及其之后的卷都可拆——上一卷写完后开新卷第一拆时，frontier 的全归档
-  // 待写占位仍落在旧卷，严格等值会把它堵死。（与右栏「拆下一章（AI）」同判据）
-  const splitBlocked = frontier != null && detail.volume < frontier.vol;
 
   return (
     <>
@@ -880,23 +870,13 @@ function ChapterLedgerPane({
           <button
             className="btn btn-secondary btn-sm"
             data-testid="volume-split-manual"
-            disabled={splitBlocked}
-            title={
-              splitBlocked
-                ? `写作位在第${frontier!.vol}卷——这一卷还没轮到`
-                : "手写这一章的关键剧情（四段），排上后再补章纲"
-            }
+            title="手写这一章的关键剧情（四段），排上后再补章纲"
             onClick={onSplitManual}
           >
             拆下一章
           </button>
         </span>
       </p>
-      {splitBlocked && (
-        <p className="hint" data-testid="volume-split-blocked">
-          写作位在第{frontier!.vol}卷——这一卷还没轮到，先去第{frontier!.vol}卷拆章。
-        </p>
-      )}
       {detail.chapters.length === 0 ? (
         <p className="vempty">这一卷还没有章节。</p>
       ) : (
@@ -942,44 +922,40 @@ function ChapterLedgerPane({
           旧稿支线 {detail.ghost_count} 章 · 已脱离主线，不计入本书设定
         </p>
       )}
-      {canAdd ? (
-        adding ? (
-          <div className="vol-addrow">
-            <input
-              className="input"
-              autoFocus
-              placeholder="章节标题（必填）"
-              value={title}
-              disabled={busy}
-              onChange={(e) => setTitle(e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key === "Enter") void create();
-                if (e.key === "Escape") setAdding(false);
-              }}
-            />
-            <button className="btn btn-primary btn-sm" disabled={busy} onClick={() => void create()}>
-              确定
-            </button>
-            <button
-              className="btn btn-ghost btn-sm"
-              disabled={busy}
-              onClick={() => setAdding(false)}
-            >
-              取消
-            </button>
-          </div>
-        ) : (
-          <div className="edit-bar">
-            <button className="btn btn-secondary btn-sm" onClick={() => setAdding(true)}>
-              <PlusIcon /> 在本卷新增一章
-            </button>
-            <span className="note">
-              只起标题，剧情后补——按四段关键剧情拆章用上方「拆下一章」
-            </span>
-          </div>
-        )
+      {adding ? (
+        <div className="vol-addrow">
+          <input
+            className="input"
+            autoFocus
+            placeholder="章节标题（必填）"
+            value={title}
+            disabled={busy}
+            onChange={(e) => setTitle(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") void create();
+              if (e.key === "Escape") setAdding(false);
+            }}
+          />
+          <button className="btn btn-primary btn-sm" disabled={busy} onClick={() => void create()}>
+            确定
+          </button>
+          <button
+            className="btn btn-ghost btn-sm"
+            disabled={busy}
+            onClick={() => setAdding(false)}
+          >
+            取消
+          </button>
+        </div>
       ) : (
-        <p className="hint">新增章节排在主线末端；这一卷要等前面写到这里。</p>
+        <div className="edit-bar">
+          <button className="btn btn-secondary btn-sm" onClick={() => setAdding(true)}>
+            <PlusIcon /> 在本卷新增一章
+          </button>
+          <span className="note">
+            只起标题，剧情后补——按四段关键剧情拆章用上方「拆下一章」
+          </span>
+        </div>
       )}
     </>
   );

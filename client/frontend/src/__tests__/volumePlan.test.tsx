@@ -1437,7 +1437,7 @@ describe("右栏节奏三行（c-volume-pacing）", () => {
   it("节奏页签：三行呈现，卷纲两行（体检/重新规划）让位", async () => {
     renderPanel({ data: {
       volume: 1, volumeRef: "vol-1", title: "血酬", tab: "pacing",
-      detail: { chapters: [] } as unknown as VolumeDetail, frontierVol: null,
+      detail: { chapters: [] } as unknown as VolumeDetail,
     } });
     expect(await screen.findByTestId("pacing-plan-btn")).toBeInTheDocument();
     expect(screen.getByTestId("pacing-tailor-btn")).toBeInTheDocument();
@@ -1450,7 +1450,7 @@ describe("右栏节奏三行（c-volume-pacing）", () => {
     const { onUpgrade } = renderPanel(
       { data: {
           volume: 1, volumeRef: "vol-1", title: "血酬", tab: "pacing",
-          detail: { chapters: [] } as unknown as VolumeDetail, frontierVol: null,
+          detail: { chapters: [] } as unknown as VolumeDetail,
       }, onPacingChanged: vi.fn() },
       { free: true },
     );
@@ -1464,7 +1464,7 @@ describe("右栏节奏三行（c-volume-pacing）", () => {
   it("编辑态右栏让位：三行换一行「正在编辑节奏」提示（防采纳覆盖草稿）", async () => {
     renderPanel({ data: {
       volume: 1, volumeRef: "vol-1", title: "血酬", tab: "pacing",
-      detail: { chapters: [] } as unknown as VolumeDetail, frontierVol: null,
+      detail: { chapters: [] } as unknown as VolumeDetail,
       pacingEditing: true,
     } });
     expect(await screen.findByTestId("pacing-editing-hint")).toBeInTheDocument();
@@ -1477,7 +1477,7 @@ describe("右栏节奏三行（c-volume-pacing）", () => {
     const onPacingChanged = vi.fn();
     renderPanel({ data: {
       volume: 1, volumeRef: "vol-1", title: "血酬", tab: "pacing",
-      detail: { chapters: [] } as unknown as VolumeDetail, frontierVol: null,
+      detail: { chapters: [] } as unknown as VolumeDetail,
     }, onPacingChanged });
     const planBtn = await screen.findByTestId("pacing-plan-btn");
     fireEvent.click(planBtn);
@@ -1509,7 +1509,7 @@ describe("右栏节奏三行（c-volume-pacing）", () => {
     });
     renderPanel({ data: {
       volume: 1, volumeRef: "vol-1", title: "血酬", tab: "pacing",
-      detail: { chapters: [] } as unknown as VolumeDetail, frontierVol: null,
+      detail: { chapters: [] } as unknown as VolumeDetail,
     } });
     fireEvent.click(await screen.findByTestId("pacing-plan-btn"));
     await waitFor(() => expect(screen.queryByTestId("pacing-plan-adopt")).not.toBeNull());
@@ -1533,7 +1533,7 @@ describe("右栏节奏三行（c-volume-pacing）", () => {
     });
     renderPanel({ data: {
       volume: 1, volumeRef: "vol-1", title: "血酬", tab: "pacing",
-      detail: { chapters: [] } as unknown as VolumeDetail, frontierVol: null,
+      detail: { chapters: [] } as unknown as VolumeDetail,
     } });
     fireEvent.click(await screen.findByTestId("pacing-polish-btn"));
     await waitFor(() => expect(pacingState.polish).toHaveBeenCalled());
@@ -1550,7 +1550,7 @@ describe("右栏节奏三行（c-volume-pacing）", () => {
     pacingState.plan.mockResolvedValue({ ok: true, degraded: true, notes: [], text: "模型没给出分段" });
     renderPanel({ data: {
       volume: 1, volumeRef: "vol-1", title: "血酬", tab: "pacing",
-      detail: { chapters: [] } as unknown as VolumeDetail, frontierVol: null,
+      detail: { chapters: [] } as unknown as VolumeDetail,
     } });
     fireEvent.click(await screen.findByTestId("pacing-plan-btn"));
     expect(await screen.findByText("模型没给出分段")).toBeInTheDocument();
@@ -1561,7 +1561,7 @@ describe("右栏节奏三行（c-volume-pacing）", () => {
     pacingState.plan.mockResolvedValue({ ok: true, degraded: false, notes: [], text: "" });
     renderPanel({ data: {
       volume: 1, volumeRef: "vol-1", title: "血酬", tab: "pacing",
-      detail: { chapters: [] } as unknown as VolumeDetail, frontierVol: null,
+      detail: { chapters: [] } as unknown as VolumeDetail,
     } });
     fireEvent.click(await screen.findByTestId("pacing-plan-btn"));
     expect(await screen.findByText("排段没出可用结果，请重试")).toBeInTheDocument();
@@ -1571,7 +1571,7 @@ describe("右栏节奏三行（c-volume-pacing）", () => {
     pacingState.plan.mockRejectedValue(new Error("排段服务 502"));
     renderPanel({ data: {
       volume: 1, volumeRef: "vol-1", title: "血酬", tab: "pacing",
-      detail: { chapters: [] } as unknown as VolumeDetail, frontierVol: null,
+      detail: { chapters: [] } as unknown as VolumeDetail,
     } });
     fireEvent.click(await screen.findByTestId("pacing-plan-btn"));
     expect(await screen.findByText("排段服务 502")).toBeInTheDocument();
@@ -1586,7 +1586,7 @@ describe("右栏节奏三行（c-volume-pacing）", () => {
     });
     renderPanel({ data: {
       volume: 1, volumeRef: "vol-1", title: "血酬", tab: "pacing",
-      detail: { chapters: [] } as unknown as VolumeDetail, frontierVol: null,
+      detail: { chapters: [] } as unknown as VolumeDetail,
     }, onPacingChanged });
     fireEvent.click(await screen.findByTestId("pacing-tailor-btn"));
     expect(await screen.findByText("按悬疑调的")).toBeInTheDocument();
@@ -1602,7 +1602,7 @@ describe("右栏节奏三行（c-volume-pacing）", () => {
     pacingState.tailor.mockResolvedValueOnce({ ok: true, degraded: true, config: null, note: "套路没调出来" });
     renderPanel({ data: {
       volume: 1, volumeRef: "vol-1", title: "血酬", tab: "pacing",
-      detail: { chapters: [] } as unknown as VolumeDetail, frontierVol: null,
+      detail: { chapters: [] } as unknown as VolumeDetail,
     } });
     fireEvent.click(await screen.findByTestId("pacing-tailor-btn"));
     expect(await screen.findByText("套路没调出来")).toBeInTheDocument();
@@ -1616,7 +1616,7 @@ describe("右栏节奏三行（c-volume-pacing）", () => {
     pacingState.tailor.mockRejectedValue(new Error("调套路 502"));
     renderPanel({ data: {
       volume: 1, volumeRef: "vol-1", title: "血酬", tab: "pacing",
-      detail: { chapters: [] } as unknown as VolumeDetail, frontierVol: null,
+      detail: { chapters: [] } as unknown as VolumeDetail,
     } });
     fireEvent.click(await screen.findByTestId("pacing-tailor-btn"));
     expect(await screen.findByText("调套路 502")).toBeInTheDocument();
@@ -1627,7 +1627,7 @@ describe("右栏节奏三行（c-volume-pacing）", () => {
       book_default: null, plan: null, presets: [], theme: "", sub_genre: "" });
     renderPanel({ data: {
       volume: 1, volumeRef: "vol-1", title: "血酬", tab: "pacing",
-      detail: { chapters: [] } as unknown as VolumeDetail, frontierVol: null,
+      detail: { chapters: [] } as unknown as VolumeDetail,
     } });
     fireEvent.click(await screen.findByTestId("pacing-polish-btn"));
     expect(await screen.findByText("先在节奏页签保存节奏配置，再润说明")).toBeInTheDocument();
@@ -1638,7 +1638,7 @@ describe("右栏节奏三行（c-volume-pacing）", () => {
     const onPacingChanged = vi.fn();
     renderPanel({ data: {
       volume: 1, volumeRef: "vol-1", title: "血酬", tab: "pacing",
-      detail: { chapters: [] } as unknown as VolumeDetail, frontierVol: null,
+      detail: { chapters: [] } as unknown as VolumeDetail,
     }, onPacingChanged });
     fireEvent.click(await screen.findByTestId("pacing-polish-btn"));
     expect(await screen.findByText("1. 遇麻烦：顺过的说明。")).toBeInTheDocument();
@@ -1652,7 +1652,7 @@ describe("右栏节奏三行（c-volume-pacing）", () => {
     pacingState.polish.mockRejectedValue(new Error("润说明 502"));
     renderPanel({ data: {
       volume: 1, volumeRef: "vol-1", title: "血酬", tab: "pacing",
-      detail: { chapters: [] } as unknown as VolumeDetail, frontierVol: null,
+      detail: { chapters: [] } as unknown as VolumeDetail,
     } });
     fireEvent.click(await screen.findByTestId("pacing-polish-btn"));
     expect(await screen.findByText("润说明 502")).toBeInTheDocument();
@@ -1661,7 +1661,7 @@ describe("右栏节奏三行（c-volume-pacing）", () => {
   it("采纳排段：无卷配置时用预填配置置「已排」", async () => {
     renderPanel({ data: {
       volume: 1, volumeRef: "vol-1", title: "血酬", tab: "pacing",
-      detail: { chapters: [] } as unknown as VolumeDetail, frontierVol: null,
+      detail: { chapters: [] } as unknown as VolumeDetail,
     } });
     fireEvent.click(await screen.findByTestId("pacing-plan-btn"));
     await screen.findByTestId("pacing-plan-adopt");
@@ -1678,7 +1678,7 @@ describe("右栏节奏三行（c-volume-pacing）", () => {
   it("采纳排段：卷配置与预填都没有 → 提示，不落库", async () => {
     renderPanel({ data: {
       volume: 1, volumeRef: "vol-1", title: "血酬", tab: "pacing",
-      detail: { chapters: [] } as unknown as VolumeDetail, frontierVol: null,
+      detail: { chapters: [] } as unknown as VolumeDetail,
     } });
     fireEvent.click(await screen.findByTestId("pacing-plan-btn"));
     await screen.findByTestId("pacing-plan-adopt");
@@ -1692,7 +1692,7 @@ describe("右栏节奏三行（c-volume-pacing）", () => {
   it("采纳润说明：配置已消失 → 提示，不落库", async () => {
     renderPanel({ data: {
       volume: 1, volumeRef: "vol-1", title: "血酬", tab: "pacing",
-      detail: { chapters: [] } as unknown as VolumeDetail, frontierVol: null,
+      detail: { chapters: [] } as unknown as VolumeDetail,
     } });
     fireEvent.click(await screen.findByTestId("pacing-polish-btn"));
     await screen.findByTestId("pacing-polish-adopt");
@@ -1707,7 +1707,7 @@ describe("右栏节奏三行（c-volume-pacing）", () => {
     pacingState.plan.mockRejectedValue({});
     renderPanel({ data: {
       volume: 1, volumeRef: "vol-1", title: "血酬", tab: "pacing",
-      detail: { chapters: [] } as unknown as VolumeDetail, frontierVol: null,
+      detail: { chapters: [] } as unknown as VolumeDetail,
     } });
     fireEvent.click(await screen.findByTestId("pacing-plan-btn"));
     expect(await screen.findByText("排段失败，请重试")).toBeInTheDocument();
@@ -1717,7 +1717,7 @@ describe("右栏节奏三行（c-volume-pacing）", () => {
     pacingState.tailor.mockRejectedValue({});
     renderPanel({ data: {
       volume: 1, volumeRef: "vol-1", title: "血酬", tab: "pacing",
-      detail: { chapters: [] } as unknown as VolumeDetail, frontierVol: null,
+      detail: { chapters: [] } as unknown as VolumeDetail,
     } });
     fireEvent.click(await screen.findByTestId("pacing-tailor-btn"));
     expect(await screen.findByText("调套路失败，请重试")).toBeInTheDocument();
@@ -1727,7 +1727,7 @@ describe("右栏节奏三行（c-volume-pacing）", () => {
     pacingState.polish.mockRejectedValue({});
     renderPanel({ data: {
       volume: 1, volumeRef: "vol-1", title: "血酬", tab: "pacing",
-      detail: { chapters: [] } as unknown as VolumeDetail, frontierVol: null,
+      detail: { chapters: [] } as unknown as VolumeDetail,
     } });
     fireEvent.click(await screen.findByTestId("pacing-polish-btn"));
     expect(await screen.findByText("润说明失败，请重试")).toBeInTheDocument();

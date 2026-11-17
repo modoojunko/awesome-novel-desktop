@@ -347,20 +347,44 @@ def _seed_multi(client, vols: list[tuple[int, list[dict]]]) -> str:
 
 
 class TestVolumeGuards:
-    def test_frontier_gate_blocks_earlier_volume(self, client):
-        """主线末端门禁：写作位在第 2 卷时第 1 卷不许排新章（409 且给出口）。"""
+    def test_all_archived_earlier_volume_create_ok(self, client):
+        """建章放行（撤主线末端门禁）：写作位之后的卷有拟定章，旧卷仍可续排；
+        新章排到旧卷末尾并成为新写作位。"""
         pid = _seed_multi(client, [
             (1, [{"no": 1, "status": "archived", "prose": "写完了"}]),
             (2, [{"no": 1, "status": "outline"}]),
         ])
-        r = client.post(f"/api/novels/{pid}/volumes/vol-1/chapters", json={"title": "插队章"})
-        assert r.status_code == 409, r.text
-        assert "写作位在第2卷" in r.json()["detail"]
+        r = client.post(f"/api/novels/{pid}/volumes/vol-1/chapters", json={"title": "续写章"})
+        assert r.status_code in (200, 201), r.text
+        assert r.json()["ref"] == "vol-1-ch-2"
+        # 新章是首个未归档章 → 新写作位
+        front = client.get(f"/api/novels/{pid}/frontier").json()["frontier"]
+        assert front["ref"] == "vol-1-ch-2"
         # 写作位所在卷及其之后照常
         r2 = client.post(f"/api/novels/{pid}/volumes/vol-2/chapters", json={"title": "正常章"})
         assert r2.status_code in (200, 201), r2.text
 
-    def test_frontier_gate_allows_empty_volume_after(self, client):
+    def test_all_archived_with_empty_later_volume(self, client):
+        """用户实测回归（c-chapter-volume-gate-retire）：拆书预建的第 2 卷是空卷，
+        第 1 卷全部归档后旧卷建章不再 409——旧版会报「写作位在第2卷」。"""
+        pid = _seed_multi(client, [
+            (1, [
+                {"no": 1, "status": "archived", "prose": "写完了"},
+                {"no": 2, "status": "archived", "prose": "也写完了"},
+            ]),
+            (2, []),  # 拆书建书预建的空卷
+        ])
+        # 建章前：全归档占位落在最后的空卷
+        front = client.get(f"/api/novels/{pid}/frontier").json()["frontier"]
+        assert front["ref"] == "vol-2-ch-1"
+        r = client.post(f"/api/novels/{pid}/volumes/vol-1/chapters", json={"title": "第三章"})
+        assert r.status_code in (200, 201), r.text
+        assert r.json()["ref"] == "vol-1-ch-3"
+        # 新章即写作位（占位不再停在空卷挡路）
+        front = client.get(f"/api/novels/{pid}/frontier").json()["frontier"]
+        assert front["ref"] == "vol-1-ch-3"
+
+    def test_zero_chapter_book_create_ok(self, client):
         """全书零章（frontier 为 null）时不设门——第一卷照常可排。"""
         pid = _seed(client)
         r = client.post(f"/api/novels/{pid}/volumes/vol-1/chapters", json={"title": "第一章"})
