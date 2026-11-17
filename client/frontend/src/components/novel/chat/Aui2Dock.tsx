@@ -463,6 +463,7 @@ export function Aui2Dock({
   // 历史接续：切线程时——已装载线程重放本地镜像（live 内容不丢）；首见线程服务端
   // 装载灌镜像（工具/事件行折叠 trace 卡；页面变化插切换标记；授权卡过期回显）
   useEffect(() => {
+    if (!projectId) return; // 无书态（书架/过渡帧）：不发 session 请求（404 噪音）
     estCharsRef.current = 0;
     setCtx(null);
     let cancelled = false;
