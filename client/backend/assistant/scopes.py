@@ -26,6 +26,7 @@ _SHARED_TOOLS = frozenset(
         "remember_book_memory",
         "forget_book_memory",
         "remember_decision",
+        "read_chapter_versions",
     }
 )
 

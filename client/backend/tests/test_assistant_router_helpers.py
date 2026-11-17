@@ -7,6 +7,8 @@
 
 from types import SimpleNamespace
 
+import pytest
+
 from assistant.router import _history_transcript, _resume_gap_note
 
 
@@ -94,3 +96,28 @@ def test_resume_gap_note_thresholds():
     fresh_rows = [_row_ts("m2", "user", "刚刚", (now - timedelta(hours=1)).strftime("%Y-%m-%d %H:%M:%S"))]
     assert _resume_gap_note(fresh_rows) == ""
     assert _resume_gap_note([]) == ""
+
+
+@pytest.mark.asyncio
+async def test_read_progress_summary_is_human(monkeypatch):
+    """read_progress 摘要人话口径（boss 走查 2026-11-17：frontier/draft 内部词禁出模型口）。"""
+    import chapters.frontier as _fr
+
+    async def _fake_frontier(db, novel_id):
+        return {
+            "chapters": [
+                {"ref": f"vol-1-ch-{i}", "has_prose": True, "archived": i < 6}
+                for i in range(1, 8)
+            ],
+            "frontier": {"ref": "vol-1-ch-7", "global_no": 7, "state": "draft",
+                         "has_prose": True, "writable": True},
+        }
+
+    monkeypatch.setattr(_fr, "frontier_info", _fake_frontier)
+    from assistant.tools import ToolContext, run_tool
+
+    r = await run_tool(ToolContext(novel_id="n", root_path="", user_id="u"), "read_progress", {})
+    assert "frontier" not in r.summary
+    assert "draft" not in r.summary
+    assert "全书 7 章" in r.summary and "已归档 5" in r.summary
+    assert "第 7 章" in r.summary and "草稿" in r.summary

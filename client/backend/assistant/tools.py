@@ -271,11 +271,13 @@ async def _read_progress(ctx: ToolContext) -> ToolResult:
     fr = info.get("frontier") or {}
     prose = sum(1 for ch in chapters if ch.get("has_prose"))
     archived = sum(1 for ch in chapters if ch.get("archived"))
-    state = fr.get("state") or ("pending" if fr.get("pending") else "draft")
+    # 人话口径（boss 走查 2026-11-17：「frontier 阶段」这类内部词禁出模型口）
+    state_zh = {"draft": "草稿", "pending": "待写", "confirmed": "章纲已确认", "archived": "已归档"}
+    state = state_zh.get(str(fr.get("state") or ""), "写作中")
+    prose_note = "正文已写" if fr.get("has_prose") else "正文还没写"
     summary = (
-        f"frontier 章：{fr.get('ref')}（全书第 {fr.get('global_no')} 章）"
-        f"｜状态：{state}｜可写：{fr.get('writable')}｜正文：{fr.get('ref') and ('已写' if fr.get('has_prose') else '未写')}"
-        f"｜全书 {len(chapters)} 章（已归档 {archived}、有正文 {prose}）"
+        f"全书 {len(chapters)} 章（已归档 {archived}、有正文 {prose}）；"
+        f"当前写到 第 {fr.get('global_no')} 章（{state}，{prose_note}，可以继续写）"
     )
     return ToolResult(ok=True, summary=summary)
 
@@ -539,6 +541,53 @@ from assistant.tools_fleet import FLEET_TOOLS  # noqa: E402
 TOOL_REGISTRY: tuple[Tool, ...] = TOOL_REGISTRY + FLEET_TOOLS
 
 
+# ── 章节版本历史读工具（c-agent-chat-memory 批9：页面有、agent 摸不到的 API 收编）──
+
+
+async def _read_chapter_versions(ctx: ToolContext, chapter_ref: str = "") -> ToolResult:
+    """读一章的版本历史（版本数＋最新版本字数）——作家问「写过几版」时答得出来。"""
+    import datetime as _dt
+
+    from models.chapters import Chapter, ChapterVersion
+    from sqlalchemy import select as sa_select
+
+    from db import async_session
+    from models.project import Novel
+
+    ref = str(chapter_ref or "").strip()
+    if not ref:
+        return ToolResult(ok=False, summary="告诉我章号（例：vol-1-ch-7）。")
+    async with async_session() as session:
+        rows = (
+            await session.scalars(
+                sa_select(ChapterVersion)
+                .join(Chapter, Chapter.id == ChapterVersion.chapter_id)
+                .join(Novel, Novel.id == Chapter.project_id)
+                .where(Novel.id == ctx.novel_id, Chapter.ref == ref)
+                .order_by(ChapterVersion.version.desc())
+            )
+        ).all()
+    if not rows:
+        return ToolResult(ok=True, summary=f"《{ref}》还没有版本历史（版本在改稿时自动留存）。")
+    import json as _json
+
+    words_list = []
+    for r in rows:
+        try:
+            words_list.append(len(str(_json.loads(r.snapshot or "{}").get("prose", ""))))
+        except Exception:  # noqa: BLE001
+            words_list.append(0)
+    times = [
+        _dt.datetime.fromtimestamp(r.version / 1000).strftime("%m-%d %H:%M")
+        if r.version > 10**12
+        else str(r.version)
+        for r in rows
+    ]
+    lines = [f"共 {len(rows)} 个版本（新→旧）："]
+    lines += [f"- {t}（约 {w} 字）" for t, w in zip(times, words_list)]
+    return ToolResult(ok=True, summary="\n".join(lines[:6]))
+
+
 # ── 书级记忆工具（c-agent-chat-memory 批4：四层记忆 scope 的「按书」新增层）──
 # agent 自主维护的自身记忆（写作规矩）与项目决策留痕；profile_update 同款：
 # kind="read"＝结构性免授权（只影响后续提示词，不碰书稿，不进写回梯度），
@@ -667,7 +716,27 @@ MEMORY_TOOLS: tuple[Tool, ...] = (
     ),
 )
 
-TOOL_REGISTRY: tuple[Tool, ...] = TOOL_REGISTRY + MEMORY_TOOLS
+# 章节版本历史读工具并入（批9：版本历史页面有、agent 摸不到——收编）
+VERSIONS_TOOLS: tuple[Tool, ...] = (
+    Tool(
+        name="read_chapter_versions",
+        kind="read",
+        risk_level="low",
+        parameters={
+            "type": "object",
+            "properties": {
+                "chapter_ref": {"type": "string", "description": "章 ref（例：vol-1-ch-7）"},
+            },
+            "required": ["chapter_ref"],
+        },
+        description=(
+            "读一章的版本历史（改稿自动留存的版本数＋最新一版字数）。"
+            "作家问「写过几版/之前那版还在吗」时先调它。"
+        ),
+        fn=_read_chapter_versions,
+    ),
+)
+TOOL_REGISTRY: tuple[Tool, ...] = TOOL_REGISTRY + VERSIONS_TOOLS + MEMORY_TOOLS
 
 _TOOLS_BY_NAME: dict[str, Tool] = {t.name: t for t in TOOL_REGISTRY}
 
