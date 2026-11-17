@@ -32,7 +32,7 @@ from ai_client import (
     api_calls_drain,
 )
 from assistant import compact as compact_mod
-from assistant.actions import parse_action
+from assistant.actions import parse_action, stream_slice
 from assistant.context import build_outbound_window
 from assistant.scopes import (
     out_of_scope_guidance,
@@ -396,6 +396,7 @@ class AgentLoop:
             )
             for attempt in range(1 + retry_left):
                 full_text = ""
+                streamed_upto, frozen = 0, False
                 try:
                     async for ev in self.client.chat_stream(
                         model=self.cfg.model_alias,
@@ -412,7 +413,19 @@ class AgentLoop:
                             yield {"type": "thinking", "text": ev.thinking}
                         if ev.text:
                             full_text += ev.text
-                            yield {"type": "narration_delta", "text": ev.text}
+                            # 哨兵分节流式（c-agent-chat-memory 批2）：叙述正文字节
+                            # 直通 delta；哨兵/JSON 嫌疑处冻结静默攒——裸 JSON 永不
+                            # 外漏（deepseek 回归钉）。切分规则收在 stream_slice 纯函数。
+                            if not frozen:
+                                old_upto = streamed_upto
+                                streamed_upto, frozen = stream_slice(
+                                    full_text, streamed_upto, frozen
+                                )
+                                if streamed_upto > old_upto:
+                                    yield {
+                                        "type": "narration_delta",
+                                        "text": full_text[old_upto:streamed_upto],
+                                    }
                         if ev.is_done:
                             self.result.tokens_in += ev.tokens_in
                             self.result.tokens_out += ev.tokens
@@ -451,7 +464,8 @@ class AgentLoop:
             # ── 分派 ────────────────────────────────────────────────────
             if action.kind == "final":
                 self.result.final_reply = action.reply
-                self.result.degraded = False
+                # degraded 遥测随动作透传（v2 纯文本兜底＝final 但协议未服从）
+                self.result.degraded = bool(action.degraded)
                 if action.reply:
                     yield {"type": "narration", "text": action.reply}
                 break

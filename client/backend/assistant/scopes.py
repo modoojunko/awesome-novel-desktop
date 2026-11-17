@@ -21,6 +21,11 @@ _SHARED_TOOLS = frozenset(
         "kb_search",
         "kb_read",
         "draft_character",
+        # 书级记忆（c-agent-chat-memory 批4）：记忆是书级跨页签资产，全页签域共享
+        "recall_book_memory",
+        "remember_book_memory",
+        "forget_book_memory",
+        "remember_decision",
     }
 )
 

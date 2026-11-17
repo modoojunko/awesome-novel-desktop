@@ -1,10 +1,63 @@
-"""动作协议解析测试（c-writing-agent 批A 1.4）。
+"""动作协议解析测试（c-writing-agent 批A 1.4；c-agent-chat-memory 升 v2 哨兵分节）。
 
-三级兜底口径：严格 json → 修复（中文标点/尾逗号/单引号/字面量）→ 抢救
-（代码围栏/首尾花括号截取）→ 降级 degraded（reply 取文本前段）。
+v2 口径：叙述正文＋===ACT=== 哨兵＋动作 JSON（reply 字段退役）。
+兼容链：v2 哨兵分节 → 旧版单 JSON → 纯文本兜底（无哨兵非 JSON＝模型直接回答，
+整段按 final 交付，degraded 供遥测）。
 """
 
-from assistant.actions import parse_action
+from assistant.actions import ACT_SENTINEL, parse_action, stream_slice
+
+# ── v2 哨兵分节 ──────────────────────────────────────────────────
+
+
+def test_v2_sentinel_tool_action():
+    raw = (
+        "我先看看这本书的设定再答。\n"
+        f"{ACT_SENTINEL}\n"
+        '{"action": "tool", "tool": "read_settings", "args": {"area": "premise"}}'
+    )
+    a = parse_action(raw)
+    assert a.kind == "tool"
+    assert a.tool == "read_settings"
+    assert a.args == {"area": "premise"}
+    assert a.reply == "我先看看这本书的设定再答。"
+    assert a.degraded is False
+
+
+def test_v2_sentinel_final_action():
+    raw = f"主线还差一句收束，我建议在海边收。{ACT_SENTINEL}\n" + '{"action": "final"}'
+    a = parse_action(raw)
+    assert a.kind == "final"
+    assert a.reply == "主线还差一句收束，我建议在海边收。"
+    assert a.degraded is False
+
+
+def test_v2_sentinel_garbage_tail_with_narration_is_final():
+    # 尾部 JSON 烂了但有正文——正文完整交付（自愿收口），不拦作家内容
+    raw = f"这章节奏没问题。{ACT_SENTINEL}\n不是json的一段"
+    a = parse_action(raw)
+    assert a.kind == "final"
+    assert "这章节奏没问题" in a.reply
+    assert a.degraded is True
+
+
+def test_v2_sentinel_garbage_tail_with_stray_prose_keeps_content():
+    # 哨兵误触发、哨兵后还有散文——内容不丢，并入回答
+    raw = f"前半句。{ACT_SENTINEL}\n后半句散文。"
+    a = parse_action(raw)
+    assert a.kind == "final"
+    assert "前半句" in a.reply and "后半句散文" in a.reply
+
+
+def test_v2_sentinel_only_no_narration_tool():
+    raw = f"{ACT_SENTINEL}\n" + '{"action": "tool", "tool": "read_outline", "args": {}}'
+    a = parse_action(raw)
+    assert a.kind == "tool"
+    assert a.tool == "read_outline"
+    assert a.reply == ""
+
+
+# ── 旧版单 JSON 兼容（提示词包未升级时模型仍走旧格式） ─────────────
 
 
 def test_strict_tool_action():
@@ -70,11 +123,14 @@ def test_tool_without_name_with_reply_becomes_final():
     assert a.reply == "做不了。"
 
 
-def test_garbage_degrades_with_snippet_reply():
+# ── 纯文本兜底（无哨兵非 JSON＝模型直接回答） ─────────────────────
+
+
+def test_plain_text_is_final_narration():
+    # v2 语义翻转：纯文本＝模型自愿收口的回答，整段交付（不再包降级外壳）
     raw = "今天天气不错，我们聊聊人生吧。"
     a = parse_action(raw)
-    assert a.kind == "degraded"
-    assert a.degraded is True
+    assert a.kind == "final"
     assert "今天天气不错" in a.reply
 
 
@@ -82,3 +138,44 @@ def test_empty_degrades():
     a = parse_action("")
     assert a.kind == "degraded"
     assert a.degraded is True
+
+
+# ── stream_slice（流式切分纯函数） ────────────────────────────────
+
+
+def test_stream_slice_legacy_json_freezes_at_zero():
+    # 旧版纯 JSON：首字符 { → 一字不发、冻结（批次交付，同旧口径）
+    pos, frozen = stream_slice('{"thought": "收口"', 0, False)
+    assert pos == 0 and frozen is True
+
+
+def test_stream_slice_streams_before_sentinel():
+    buf = "叙述正文足够长才能越过扣尾窗口继续流式。"
+    pos, frozen = stream_slice(buf, 0, False)
+    # 无哨兵无花括号：发到 len-扣尾（哨兵跨 chunk 扣留）
+    assert 0 < pos < len(buf) and frozen is False
+
+
+def test_stream_slice_freezes_at_sentinel():
+    buf = f"正文前半。{ACT_SENTINEL}" + '{"action": "final"}'
+    pos, frozen = stream_slice(buf, 0, False)
+    assert pos == len("正文前半。") and frozen is True
+
+
+def test_stream_slice_freezes_at_inline_brace():
+    # 叙述后混入 JSON/围栏（旧版抢救形态）→ 从 { 处冻结
+    buf = "好的，我来看一下。\n{\"thought\""
+    pos, frozen = stream_slice(buf, 0, False)
+    assert pos == buf.find("{") and frozen is True
+
+
+def test_stream_slice_frozen_is_terminal():
+    pos, frozen = stream_slice("更多文本", 5, True)
+    assert pos == 5 and frozen is True
+
+
+def test_stream_slice_emitted_only_advances():
+    buf = "一二三四五六七八九十"
+    p1, _ = stream_slice(buf, 0, False)
+    p2, _ = stream_slice(buf + "更多", p1, False)
+    assert p2 > p1

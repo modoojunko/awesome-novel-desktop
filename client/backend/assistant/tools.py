@@ -538,6 +538,136 @@ from assistant.tools_fleet import FLEET_TOOLS  # noqa: E402
 
 TOOL_REGISTRY: tuple[Tool, ...] = TOOL_REGISTRY + FLEET_TOOLS
 
+
+# ── 书级记忆工具（c-agent-chat-memory 批4：四层记忆 scope 的「按书」新增层）──
+# agent 自主维护的自身记忆（写作规矩）与项目决策留痕；profile_update 同款：
+# kind="read"＝结构性免授权（只影响后续提示词，不碰书稿，不进写回梯度），
+# risk_level="high"＝串行保序。
+
+async def _memory_recall(ctx: ToolContext) -> ToolResult:
+    """读本书我记下的全部写作规矩与项目决定（自证口径）。"""
+    from assistant.memory import list_decisions, list_memories
+    from db import async_session
+
+    async with async_session() as session:
+        memories = await list_memories(session, ctx.novel_id)
+        decisions = await list_decisions(session, ctx.novel_id)
+    if not memories and not decisions:
+        return ToolResult(ok=True, summary="（这本书我还没记下什么规矩或决定。）")
+    lines = [f"- 记忆：{m.content}" for m in memories]
+    lines += [
+        f"- 决定：{d.decision}" + (f"（理由：{d.reason}）" if d.reason else "")
+        for d in decisions
+    ]
+    return ToolResult(ok=True, summary="这本书我记着：\n" + "\n".join(lines[:20]))
+
+
+async def _memory_remember(ctx: ToolContext, content: str, memory_id: str = "") -> ToolResult:
+    """记/改一条本书写作规矩（透明告知一句随返回摘要给作家）。"""
+    from assistant.memory import upsert_memory
+    from db import async_session
+
+    async with async_session() as session:
+        row = await upsert_memory(session, ctx.novel_id, content, memory_id or None)
+    verb = "更新了" if memory_id else "记下了"
+    return ToolResult(ok=True, summary=f"{verb}一条规矩：「{row.content[:60]}」。之后我都按这个来。")
+
+
+async def _memory_forget(ctx: ToolContext, memory_id: str) -> ToolResult:
+    """删一条本书写作规矩。"""
+    from assistant.memory import delete_memory
+    from db import async_session
+
+    async with async_session() as session:
+        removed = await delete_memory(session, ctx.novel_id, memory_id)
+    if not removed:
+        return ToolResult(ok=False, summary="这条规矩没找到（可能已经删过了）。")
+    return ToolResult(ok=True, summary="好，这条规矩我不再记着了。")
+
+
+async def _memory_decide(ctx: ToolContext, decision: str, reason: str = "") -> ToolResult:
+    """留痕一条项目决定（否了什么/定了什么＋理由；按时间倒序注入）。"""
+    from assistant.memory import add_decision
+    from db import async_session
+
+    async with async_session() as session:
+        await add_decision(session, ctx.novel_id, decision, reason)
+    extra = f"理由也记了：{reason[:40]}。" if reason else ""
+    return ToolResult(ok=True, summary=f"这个决定我记下了：「{decision[:60]}」。{extra}")
+
+
+MEMORY_TOOLS: tuple[Tool, ...] = (
+    Tool(
+        name="recall_book_memory",
+        kind="read",
+        risk_level="low",
+        parameters={"type": "object", "properties": {}},
+        description=(
+            "读这本书我记下的全部写作规矩与项目决定。作家问「你记了什么/定了什么」"
+            "或拿不准本书约定时先调它，如实回答。"
+        ),
+        fn=_memory_recall,
+    ),
+    Tool(
+        name="remember_book_memory",
+        kind="read",
+        risk_level="high",  # 写记忆（非只读）——串行保序；不弹授权卡（免授权层）
+        parameters={
+            "type": "object",
+            "properties": {
+                "content": {
+                    "type": "string",
+                    "description": "要长期记住的写作规矩或特化知识（如：全程第一人称；结尾留钩子）",
+                },
+                "memory_id": {
+                    "type": "string",
+                    "description": "要修改的已有记忆 id（来自 recall；空＝新增）",
+                },
+            },
+            "required": ["content"],
+        },
+        description=(
+            "作家说「记住……」「以后都……」类要求时，把规矩记到这本书上（增改皆此工具）。"
+            "写入后透明告知一句。只记项目级约定，不记书稿内容本身。"
+        ),
+        fn=_memory_remember,
+    ),
+    Tool(
+        name="forget_book_memory",
+        kind="read",
+        risk_level="high",
+        parameters={
+            "type": "object",
+            "properties": {
+                "memory_id": {"type": "string", "description": "要删除的记忆 id（来自 recall）"},
+            },
+            "required": ["memory_id"],
+        },
+        description="作家要求忘掉某条规矩时删除对应记忆（先 recall 拿 id）。",
+        fn=_memory_forget,
+    ),
+    Tool(
+        name="remember_decision",
+        kind="read",
+        risk_level="high",
+        parameters={
+            "type": "object",
+            "properties": {
+                "decision": {"type": "string", "description": "方向性结论（否了什么方向/定了什么调子）"},
+                "reason": {"type": "string", "description": "理由（可空）"},
+            },
+            "required": ["decision"],
+        },
+        description=(
+            "作家明确拍板或否决某个方向时留痕（带理由更好），之后同类建议不再重复。"
+            "写入后透明告知一句。"
+        ),
+        fn=_memory_decide,
+    ),
+)
+
+TOOL_REGISTRY: tuple[Tool, ...] = TOOL_REGISTRY + MEMORY_TOOLS
+
 _TOOLS_BY_NAME: dict[str, Tool] = {t.name: t for t in TOOL_REGISTRY}
 
 

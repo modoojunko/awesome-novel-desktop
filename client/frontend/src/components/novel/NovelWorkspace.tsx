@@ -10,32 +10,10 @@ import SettingsView from "@/components/novel/workbench/SettingsView";
 import PreviewView from "@/components/novel/workbench/PreviewView";
 import ManuscriptDownloadModal from "@/components/novel/workbench/ManuscriptDownloadModal";
 import type { RailChapterData } from "@/components/novel/workbench/Rail";
-import ChatDock from "@/components/novel/chat/ChatDock";
-import { AuiDock } from "@/components/novel/chat/AuiDock";
 import { Aui2Dock } from "@/components/novel/chat/Aui2Dock";
+import { AuiErrorBoundary } from "@/components/novel/chat/AuiErrorBoundary";
 import { Component, type ReactNode, type PropsWithChildren } from "react";
 
-class AuiErrorBoundary extends Component<PropsWithChildren, { hasError: boolean; msg: string }> {
-  constructor(props: PropsWithChildren) {
-    super(props);
-    this.state = { hasError: false, msg: "" };
-  }
-  static getDerivedStateFromError(error: Error) {
-    return { hasError: true, msg: error.message?.slice(0, 200) ?? "" };
-  }
-  render() {
-    if (this.state.hasError) {
-      return (
-        <div style={{ padding: 20, color: "#999" }}>
-          <p>助手加载出错：</p>
-          <pre style={{ fontSize: 12, whiteSpace: "pre-wrap" }}>{this.state.msg}</pre>
-          <p style={{ fontSize: 12 }}>已回退到标准模式——刷新页面重试。</p>
-        </div>
-      );
-    }
-    return this.props.children;
-  }
-}
 import PersonaModal from "@/components/novel/chat/PersonaModal";
 import ProfileModal from "@/components/novel/chat/ProfileModal";
 import { VolumePlanModal } from "@/components/novel/workbench/VolumePlanModal";
@@ -1435,32 +1413,11 @@ export default function NovelWorkspace() {
               settingPanel: settingsPanel,
               chapterTab: railData?.tab,
             }}
-          />
-          </AuiErrorBoundary>
-          {new URLSearchParams(window.location.search).get("aui") === "0" && (
-          <ChatDock
-            projectId={projectId}
-            page={dockPage}
-            scope={{
-              view,
-              chapterRef,
-              volumeSelId,
-              emptyBook: volumes.length === 0,
-              settingPanel: settingsPanel,
-              chapterTab: railData?.tab,
-            }}
-            onStreamingChange={(v) => {
-              chatStreamingRef.current = v;
-              setChatStreaming(v);
-            }}
             onUpgrade={onUpgrade}
             onCloseDrawer={assistantNarrow ? () => setAssistantOpen(false) : undefined}
             onOpenAction={(action) => {
-              // 富交互入口走既有链（spec：对话不吞弹窗）——生成正文=AiModal 写流；
-              // 章级六类入口经 railData 回调分派到 ChapterWorkspace 既有弹窗/检测流
-              // （回调随 onRailData 上抛，零新写回路径）
+              // 富交互入口走既有链（spec：对话不吞弹窗）——与 ChatDock 同款分派
               if (action === "ai_write") requestAi({ kind: "write" });
-              // 朱雀检测直达（工具面板退役后 chip 即入口；权益/Key 分流在 hook 内）
               if (action === "zhuque" && chapterRef) void runZhuqueCheck(projectId, chapterRef);
               const rd = railData;
               if (action === "plot_draw") rd?.onPlotDraw?.();
@@ -1471,8 +1428,13 @@ export default function NovelWorkspace() {
               if (action === "renwei") proseRef.current?.openRenweiCheck?.();
               if (action === "seam") proseRef.current?.openSeamWizard?.();
             }}
+            onStreamingChange={(v) => {
+              // 流式存活上抛（树锁定守卫；Aui2 契约与 ChatDock 同款）
+              chatStreamingRef.current = v;
+              setChatStreaming(v);
+            }}
           />
-          )}
+          </AuiErrorBoundary>
         </aside>
       </div>
         {assistantNarrow && !assistantOpen && (

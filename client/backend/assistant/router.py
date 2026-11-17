@@ -208,6 +208,14 @@ async def _stream_chat(
     # ── 组装 ────────────────────────────────────────────────────────────────
     identity = await identity_mod.load_identity_for_user(db, user["id"])
     brief = await build_book_brief(project, db)
+    # 书级记忆段（c-agent-chat-memory 批4）：agent 记忆＋项目决策，按书装载
+    # 全页签生效；空书空段（前缀缓存友好）。缺席不致命（fail-soft）。
+    try:
+        from assistant.memory import load_book_memory_section
+
+        memory_section = await load_book_memory_section(db, str(project.id))
+    except Exception:  # noqa: BLE001——记忆缺席不致命（BLE001 豁免）
+        memory_section = ""
     from assistant.scopes import discipline_of_thread
 
     thread = session_store.sanitize_thread_key(thread)
@@ -216,6 +224,7 @@ async def _stream_chat(
         brief,
         thread=thread,
         domain_discipline=discipline_of_thread(thread),
+        memory_section=memory_section,
     )
     rows = await session_store.load_messages(db, session.id)
     transcript = _history_transcript(rows, exclude_message_id=user_message_id)

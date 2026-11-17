@@ -72,7 +72,8 @@ async def test_final_reply_path():
     kinds = [e["type"] for e in events]
     assert kinds[0] == "run_start"
     assert "thinking" in kinds
-    assert "narration_delta" in kinds
+    # 旧版单 JSON 输出（本测试的 fake 脚本）＝批次交付，无 delta（哨兵流式另钉）
+    assert "narration_delta" not in kinds
     assert kinds[-1] == "run_end"
     assert loop.result.final_reply == "主线还差一句结局。"
     assert loop.result.degraded is False
@@ -136,9 +137,31 @@ async def test_unknown_tool_falls_back_to_final():
 
 
 @pytest.mark.asyncio
+async def test_plain_text_finalizes_without_retry(monkeypatch):
+    """v2 语义：无哨兵非 JSON＝模型直接回答，整段按 final 交付（不重试、
+    不包降级外壳）；degraded 遥测标记协议未服从。"""
+    client = FakeClient(["这不是JSON，是闲聊。"])
+    loop = AgentLoop(
+        client=client,
+        system="sys",
+        transcript=[],
+        tool_ctx=None,
+        config=LoopConfig(),
+    )
+    events = [e async for e in loop.run("随便说点什么")]
+    assert loop.result.degraded is True
+    assert loop.result.final_reply == "这不是JSON，是闲聊。"
+    assert any(e["type"] == "narration" for e in events)
+    # 纯文本即收口——纠错重试不再触发（一次模型调用）
+    assert len(client.calls) == 1
+
+
+@pytest.mark.asyncio
 async def test_degraded_after_retry(monkeypatch):
-    # 两步都是坏输出：第一步触发纠错重试，第二步仍坏 → degraded 收口
-    client = FakeClient(["这不是JSON，是闲聊。", "还是闲聊。"])
+    """坏输出重试链仍在：哨兵＋烂尾部且无正文（真协议服从失败）→ 纠错重试
+    一次，仍坏 → degraded 收口。"""
+    bad = "===ACT===\n不是json"
+    client = FakeClient([bad, "还是坏输出"])
     loop = AgentLoop(
         client=client,
         system="sys",
@@ -260,3 +283,75 @@ async def test_step_end_carries_api_calls(monkeypatch):
     assert calls and calls[0]["op"] == "draft_expand" and calls[0]["ok"] is True
     assert calls[0]["tokens_in"] == 9 and calls[0]["tokens_out"] == 4
 
+
+
+# ── 哨兵分节流式（c-agent-chat-memory 批2） ─────────────────────────
+
+
+class _ChunkedClient:
+    """逐小片吐文本的假客户端（模拟 token 级流）。"""
+
+    def __init__(self, full: str, chunk: int = 3):
+        self._full = full
+        self._chunk = chunk
+        self.calls = 0
+
+    async def chat_stream(self, **kwargs):
+        from ai_client import StreamEvent
+
+        s = self._full
+        for i in range(0, len(s), self._chunk):
+            yield StreamEvent(text=s[i : i + self._chunk])
+        yield StreamEvent(text="", is_done=True, tokens=10, tokens_in=20)
+
+    async def chat(self, **kwargs):
+        return "压缩摘要"
+
+
+@pytest.mark.asyncio
+async def test_sentinel_streaming_deltas_are_narration_only():
+    """哨兵前逐片直通；哨兵与动作 JSON 永不出现在任何 narration_delta。"""
+    full = (
+        "我先讲两句给你听。\n第二行也在流式。\n"
+        "===ACT===\n"
+        '{"action": "final"}'
+    )
+    loop = AgentLoop(
+        client=_ChunkedClient(full),
+        system="sys",
+        transcript=[{"role": "user", "content": "答我"}],
+        tool_ctx=None,
+        config=LoopConfig(),
+    )
+    deltas = []
+    async for e in loop.run("答我"):
+        if e["type"] == "narration_delta":
+            deltas.append(e["text"])
+    joined = "".join(deltas)
+    assert "===ACT===" not in joined
+    assert '"action"' not in joined
+    assert joined.startswith("我先讲两句给你听。")
+
+
+@pytest.mark.asyncio
+async def test_legacy_pure_json_leaks_nothing_as_delta():
+    """旧版纯 JSON 输出（提示词包未升级）：一字 delta 不漏（批次交付同旧口径）。"""
+    import json as _json
+
+    full = _json.dumps(
+        {"thought": "收口", "action": "final", "reply": "旧协议整段交付。"},
+        ensure_ascii=False,
+    )
+    loop = AgentLoop(
+        client=_ChunkedClient(full),
+        system="sys",
+        transcript=[{"role": "user", "content": "答我"}],
+        tool_ctx=None,
+        config=LoopConfig(),
+    )
+    deltas = []
+    async for e in loop.run("答我"):
+        if e["type"] == "narration_delta":
+            deltas.append(e["text"])
+    assert deltas == []
+    assert loop.result.final_reply == "旧协议整段交付。"
