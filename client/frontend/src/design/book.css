@@ -223,7 +223,10 @@
 .ch.sel .dot-empty { background: color-mix(in oklch, var(--accent) 45%, transparent); }
 .ch .dot-warn { width: 6px; height: 6px; border-radius: 50%; background: var(--warn); flex: none; }
 .ch .dot-ok { width: 6px; height: 6px; border-radius: 50%; background: var(--ok); flex: none; }
-.arch-tag { display: inline-flex; align-items: center; padding: 1px 7px; border-radius: 999px; background: var(--fg-soft); color: var(--muted); font-size: 10.5px; flex: none; letter-spacing: 0.02em; }
+/* 章行状态 chip 禁压缩（c-tree-stale-chip-overlap）：.ch 定高 32px + align center，
+   chip 若被 flex 压到 min-content 会一字一行竖排溢出行外，盖住上下行（形似莫名菜单）。
+   标题 .ct 有 overflow:hidden 可吸收挤压，chip 恒保单行。 */
+.arch-tag { display: inline-flex; align-items: center; padding: 1px 7px; border-radius: 999px; background: var(--fg-soft); color: var(--muted); font-size: 10.5px; flex: none; white-space: nowrap; letter-spacing: 0.02em; }
 .ch.sel .arch-tag { background: color-mix(in oklch, var(--accent) 10%, transparent); color: var(--accent); }
 /* .badge 清零声明原为反制 daisyUI 同名类；daisyUI 已退役，保留作为无害防御 */
 .wb .badge { display: inline-flex; align-items: center; gap: 4px; padding: 2px 8px; border-radius: 999px; font-size: 10.5px; flex: none; border: 0; background: none; text-transform: none; }
@@ -1622,7 +1625,8 @@ body.focus .editor-wrap { padding-inline: 8vw; }
 
 
 /* ─── chapter-rewrite：基于旧设定角标与重写确认（storyline applyRewrite 口径） ── */
-.tag-stale { display: inline-flex; align-items: center; padding: 1px 7px; border: 1px dashed color-mix(in oklch, var(--fg) 45%, transparent); border-radius: 999px; font-size: 11px; color: var(--fg); }
+/* flex:none + nowrap：禁被章行 flex 压缩（同 .arch-tag，c-tree-stale-chip-overlap） */
+.tag-stale { display: inline-flex; align-items: center; padding: 1px 7px; border: 1px dashed color-mix(in oklch, var(--fg) 45%, transparent); border-radius: 999px; font-size: 11px; color: var(--fg); flex: none; white-space: nowrap; }
 .rw-lead { margin: 0 0 10px; font-size: 13px; color: var(--muted); }
 .rw-list { margin: 0; padding: 0; list-style: none; display: flex; flex-direction: column; gap: 8px; }
 .rw-list li { display: grid; grid-template-columns: 48px minmax(0, 1fr); gap: 10px; font-size: 13px; }
