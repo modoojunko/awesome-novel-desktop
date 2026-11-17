@@ -615,9 +615,14 @@ async def _stream_chat(
                     await session_store.touch_session(drv_db, session.id, page_cursor=page)
                 await queue.put(_STOP)  # 正常收口：消费端见哨兵即退（body 出口）
             finally:
-                # 直接 await（任务取消只交付一次，finally 内 await 可完成）；
-                # 会话在 async with 内、定稿完成后才关——次序安全
-                await _finalize(drv_db)
+                # 收尾落库加盾（2026-11-17 竞态根修）：消费端收到 STOP 会立刻
+                # cancel 本任务——取消正好落在 _finalize 的 await 上＝落库被
+                # 打断，streaming 行悬挂、下轮被自愈盖「中途被打断」。shield
+                # +独立 task 让定稿在取消后仍独立完成。
+                try:
+                    await asyncio.shield(asyncio.ensure_future(_finalize(drv_db)))
+                except (asyncio.CancelledError, Exception):  # noqa: BLE001——定稿失败不炸收尾
+                    pass
 
     queue: asyncio.Queue = asyncio.Queue()
     _STOP: dict[str, Any] = {"__stop__": True}
@@ -634,12 +639,17 @@ async def _stream_chat(
         # 断连/关停即停（尽力语义——starlette 可能不回调，stop 路由是主路径）：
         # 置位协同取消，循环在最近检查点自收口；正常收口时 drive 已结束，置位无害
         cancel_event.set()
-        # 消费端退出（正常/被关停）：收尸 drive task——其 shielded finally 落定稿
-        drive_task.cancel()
-        try:
-            await asyncio.shield(drive_task)
-        except (asyncio.CancelledError, Exception):  # noqa: BLE001——收尸路径，吞一切
-            pass
+        # 限时等待 drive 自然收口（含落库定稿）——急杀会把 _finalize 的
+        # 落库打断（streaming 悬行→自愈盖「中途被打断」，2026-11-17 实锤）
+        if not drive_task.done():
+            try:
+                await asyncio.wait_for(asyncio.shield(drive_task), timeout=8)
+            except (TimeoutError, asyncio.CancelledError, Exception):  # noqa: BLE001
+                drive_task.cancel()
+                try:
+                    await asyncio.shield(drive_task)
+                except (asyncio.CancelledError, Exception):  # noqa: BLE001——兜底吞一切
+                    pass
         _ACTIVE_RUNS.pop(run_key, None)
 
     # ── 定期总结画像（批C 3.4）：非阻塞后台任务，失败静默（autotitle 模式）────
