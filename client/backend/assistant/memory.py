@@ -17,6 +17,7 @@ append-only 全量留痕——**永不截断**。注入分层：预算内最近�
 
 from __future__ import annotations
 
+import asyncio
 import json
 import re
 import uuid
@@ -265,13 +266,26 @@ async def migrate_book_decisions() -> dict[str, int]:
     from db import async_session
 
     out = {"migrated": 0, "skipped": 0}
-    async with async_session() as db:
-        rows = (
-            await db.execute(
-                select(BookDecision).order_by(BookDecision.created_at, BookDecision.id)
+
+    async def _read_legacy():
+        async with async_session() as db:
+            rows = (
+                await db.execute(
+                    select(BookDecision).order_by(BookDecision.created_at, BookDecision.id)
+                )
             )
-        )
-        legacy = list(rows.scalars())
+            return list(rows.scalars())
+
+    # 锁竞争退避重试（CI 实锤）——读幂等＋文件追加按 id 幂等，重试安全
+    legacy = []
+    for i in range(4):
+        try:
+            legacy = await _read_legacy()
+            break
+        except Exception as e:  # noqa: BLE001——重试判定：SQLite 锁竞争
+            if "database is locked" not in str(e).lower() or i == 3:
+                raise
+            await asyncio.sleep(1.5 * (i + 1))
     seen: set[str] = set()
     paths: dict[str, Path] = {}
     for row in legacy:
