@@ -664,10 +664,15 @@ async def _memory_recall_decisions(
     rows = await list_decisions(ctx.novel_id)
     q = (query or "").strip().lower()
     if q:
+        # 分词 AND 匹配（走查实锤：模型会拿「血族 弱点」这类带空格的多词查询——
+        # 整串子串匹配必 miss）；每个词都命中才算（决策＋理由合看）
+        terms = [t for t in q.split() if t]
         rows = [
             d
             for d in rows
-            if q in (d.decision or "").lower() or q in (d.reason or "").lower()
+            if all(
+                t in f"{d.decision} {d.reason}".lower() for t in terms
+            )
         ]
     total = len(rows)
     rows = rows[: max(1, min(int(limit or 20), 50))]

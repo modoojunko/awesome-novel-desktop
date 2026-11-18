@@ -115,12 +115,16 @@ def test_layered_injection_memory_section_untouched():
 @pytest.mark.asyncio
 async def test_recall_decisions_tool_hit_miss_and_trim():
     ctx = ToolContext(novel_id="n_recall", root_path="/tmp", user_id="u", page="ch:og")
-    await mem.add_decision("n_recall", "半年前拍板主角不能飞", "世界观代价体系")
+    await mem.add_decision("n_recall", "半年前拍板：血族主角不能飞", "世界观代价体系")
     await mem.add_decision("n_recall", "文风冷硬不圣母", "作家口味")
     r = await run_tool(ctx, "recall_decisions", {"query": "飞"})
-    assert r.ok and "主角不能飞" in r.summary and "文风冷硬" not in r.summary
+    assert r.ok and "血族主角不能飞" in r.summary and "文风冷硬" not in r.summary
     r2 = await run_tool(ctx, "recall_decisions", {})
     assert r2.ok and "共 2 条" in r2.summary
+    r_multi = await run_tool(ctx, "recall_decisions", {"query": "血族 飞"})  # 分词 AND：两词都命中
+    assert r_multi.ok and "血族主角不能飞" in r_multi.summary
+    r_none = await run_tool(ctx, "recall_decisions", {"query": "血族 不存在的词"})
+    assert r_none.ok and "没有含" in r_none.summary  # AND 语义：一词不中即不命中
     r3 = await run_tool(ctx, "recall_decisions", {"query": "不存在的词"})
     assert r3.ok and "没有含" in r3.summary
 
