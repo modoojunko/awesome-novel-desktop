@@ -252,10 +252,12 @@ def _iter_novel_files(novel_id: str) -> list[Path]:
 
 
 def _load_meta_obj(path: Path) -> dict[str, Any] | None:
-    """只读文件头部找 meta 行（前 2KB 足够——meta 是首行）。"""
+    """读首行找 meta 行。整行读取——meta 内嵌 compaction（summary_text 3000 tokens
+    级），可超 2KB；截断读取会让 JSON 解析失败、线程被误判为新会话建重复文件
+    （审查 P1 实锤：2500 字摘要 → meta 7785 字节 → 历史搁浅）。"""
     try:
         with path.open("r", encoding="utf-8") as f:
-            head = f.readline(2048)
+            head = f.readline()
     except (OSError, UnicodeDecodeError):
         return None
     try:
