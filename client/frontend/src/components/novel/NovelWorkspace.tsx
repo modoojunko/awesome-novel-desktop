@@ -322,6 +322,16 @@ export default function NovelWorkspace() {
   // 助手导航信号（c-agent-nav）：agent switch_tab → 中途真实切章节页签。
   // aiWriteSignal 同款计数器模式；tab 目标与 seq 分开存（seq 触发、tab 定目标）。
   const [chatNav, setChatNav] = useState<{ seq: number; tab: string }>({ seq: 0, tab: "" });
+  // 面板「让助手办」分派（c-agent-panel-consolidate）：面板按钮 → dock 自动发指令
+  // （autoAsk 计数器信号；seq 消费一次即提交，与手输同链零闸绕过）
+  const [autoAsk, setAutoAsk] = useState<{ seq: number; message: string }>({ seq: 0, message: "" });
+  const askAssistant = useCallback((message: string) => {
+    setAssistantOpen(true); // 窄屏抽屉态拉起
+    setAutoAsk((n) => ({ seq: n.seq + 1, message }));
+  }, []);
+  // 采纳写回后的面板刷新（dirty 守卫在 onEffects 分派侧）；提示条状态给 SettingsView
+  const [settingsRefreshSeq, setSettingsRefreshSeq] = useState(0);
+  const [settingsRefreshNote, setSettingsRefreshNote] = useState(false);
   // 提示词落库信号（c-prompt-tab-retire）：弹窗存稿后右栏提示词状态行刷新
   const [promptSavedSignal, setPromptSavedSignal] = useState(0);
 
@@ -1387,6 +1397,10 @@ export default function NovelWorkspace() {
           onDirtyChange={handleSettingsDirty}
           onGoWrite={() => goTab("workbench")}
           novelName={project?.name ?? ""}
+          onAskAssistant={askAssistant}
+          refreshSeq={settingsRefreshSeq}
+          refreshNote={settingsRefreshNote}
+          onRefreshNoteSeen={() => setSettingsRefreshNote(false)}
         />
       )}
       {/* 预览：三栏阅读器（preview-reader，c-preview-reader） */}
@@ -1444,6 +1458,15 @@ export default function NovelWorkspace() {
                 if (e.domain === "chapters" || e.domain === "volumes") {
                   refreshCharStale();
                 }
+                // settings 域（c-agent-panel-consolidate 采纳写回）：dirty 守卫——
+                // 面板有未保存修改不重载（保作家版本），干净则重载显新内容
+                if (e.domain === "settings" && view === "advanced-settings") {
+                  if (settingsDirtyRef.current) {
+                    setSettingsRefreshNote(true);
+                  } else {
+                    setSettingsRefreshSeq((n) => n + 1);
+                  }
+                }
               }
             }}
             onEffect={(ef) => {
@@ -1454,6 +1477,7 @@ export default function NovelWorkspace() {
               if (view !== "workbench" || !chapterRef) return;
               setChatNav((n) => ({ seq: n.seq + 1, tab: ef.target as string }));
             }}
+            autoAsk={autoAsk}
           />
           </AuiErrorBoundary>
         </aside>

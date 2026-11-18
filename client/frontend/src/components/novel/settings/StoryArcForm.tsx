@@ -28,15 +28,26 @@ import { useStoryArc, type ArcCtl, type ArcData } from "./useStoryArc";
 export type { ArcData } from "./useStoryArc";
 
 export type ArcAiAction = "draft" | "calibrate" | "check" | "tone";
+/** 收编指令（c-agent-panel-consolidate）：面板按钮/dock chips 同一文案源 */
+export const ARC_ASK_COMMANDS: Record<ArcAiAction, string> = {
+  draft: "帮我起草主线。",
+  calibrate: "对照主线，帮我校准「结局是什么」三问的建议。",
+  check: "做一次主线自检。",
+  tone: "给「合上书那一刻的感觉」一句建议——贴本书题材基调。",
+};
 
 export interface ArcFormHandle extends SettingSaveHandle {
   /** 运行 AI 能力（右栏三行 / 行内 tone 共用）；有缓存时只开弹窗不再发请求。 */
   runAi: (action: ArcAiAction) => Promise<void>;
+  /** 面板「让助手办」分派（c-agent-panel-consolidate）：消息直发 dock */
+  onAskAssistant?: (message: string) => void;
   /** 是否有 AI 结果在展示（供右栏行描述态） */
   hasAiSink: () => boolean;
 }
 
 interface Props {
+  /** 面板「让助手办」分派（c-agent-panel-consolidate）：消息直发 dock */
+  onAskAssistant?: (message: string) => void;
   projectId: string;
   onDirtyChange?: (dirty: boolean) => void;
   onReceiptChange?: (r: ChangeReceiptState | null) => void;
@@ -45,7 +56,7 @@ interface Props {
 }
 
 const StoryArcForm = forwardRef<ArcFormHandle, Props>(function StoryArcForm(
-  { projectId, onDirtyChange, onReceiptChange, ctl: external },
+  { projectId, onDirtyChange, onReceiptChange, ctl: external, onAskAssistant },
   ref,
 ) {
   const own = useStoryArc(projectId, !external, onDirtyChange);
@@ -252,6 +263,13 @@ const StoryArcForm = forwardRef<ArcFormHandle, Props>(function StoryArcForm(
 
   const runAi = useCallback(
     async (action: ArcAiAction) => {
+      // 收编（c-agent-panel-consolidate）：四动作全部走对话——面板只分派，
+      // 生成与过目采纳在对话卡；旧弹窗机器退役前保持编译（休眠）
+      const command = ARC_ASK_COMMANDS[action];
+      if (command && onAskAssistant) {
+        onAskAssistant(command);
+        return;
+      }
       if (aiBusyRef.current) return; // 在途互斥：行内 tone 与 rail 三行共用
       if (cards[action]) {
         openCached(action); // 重开＝展示缓存，不重复生成（D9）
@@ -259,7 +277,7 @@ const StoryArcForm = forwardRef<ArcFormHandle, Props>(function StoryArcForm(
       }
       await runRequest(action);
     },
-    [cards, openCached, runRequest],
+    [cards, openCached, runRequest, onAskAssistant],
   );
 
   if (c.loading) {

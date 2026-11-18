@@ -38,17 +38,22 @@ function renderPanel(initial: unknown = {}) {
   });
   const ref = createRef<GenreHandle>();
   const receipts: Array<{ text: string; undo: () => void } | null> = [];
+  /** 「让助手办」分派捕获（c-agent-panel-consolidate：面板只组指令发 dock） */
+  const asks: string[] = [];
   const utils = render(
     <GenreSettingForm
       ref={ref}
       projectId="p1"
       settingKey="genre"
+      onAskAssistant={(m) => asks.push(m)}
       onReceiptChange={(r) => receipts.push(r)}
     />,
   );
   /** 当前回执（最后一次上报；null＝已清）。 */
   const receipt = () => receipts[receipts.length - 1] ?? null;
-  return { ref, receipt, ...utils };
+  /** 最后一次分派给 dock 的指令。 */
+  const lastAsk = () => asks[asks.length - 1] ?? null;
+  return { ref, receipt, lastAsk, ...utils };
 }
 
 describe("GenreSettingForm · 六格", () => {
@@ -417,254 +422,36 @@ describe("GenreSettingForm · 全书默认节奏块（c-volume-pacing）", () =>
   });
 });
 
-describe("GenreSettingForm · 五行 AI", () => {
+describe("GenreSettingForm · 五行 AI（收编：让助手办）", () => {
   beforeEach(() => {
     apiState.get.mockReset();
     apiState.put.mockReset();
-    apiState.put.mockResolvedValue({ ok: true });
     aiState.genreAi.mockReset();
-    toastState.success.mockClear();
-    toastState.info.mockClear();
-    toastState.error.mockClear();
   });
 
-  /** 弹窗 footer 的「关闭」键（头部 X 的 aria-label 同名，取 DOM 序最后一个＝footer）。 */
-  function footerClose() {
-    const btns = screen.getAllByRole("button", { name: "关闭" });
-    return btns[btns.length - 1];
-  }
-
-  it("core_promise：出卡确认弹窗，采纳写回 value + note（确认即关弹窗）", async () => {
-    aiState.genreAi.mockResolvedValue({
-      value: { value: "以弱破强的痛快", note: "读者要看到弱者翻盘" },
-    });
-    const { ref, container } = renderPanel();
+  it("四格 runAi 分派 dock 指令（单一文案源=chips 表），不再出弹窗", async () => {
+    const { ref, lastAsk, container } = renderPanel();
     await waitFor(() => expect(container.querySelectorAll(".mod")).toHaveLength(5));
 
     await act(async () => ref.current!.runAi("core_promise"));
-
-    const card = screen.getByTestId("genre-ai-card");
-    expect(screen.getByText("AI 填 · 主要看什么")).toBeTruthy();
-    expect(screen.getByRole("dialog")).toBeTruthy();
-    expect(aiState.genreAi).toHaveBeenCalledWith(
-      "core_promise",
-      expect.objectContaining({ title: "" }),
-      "p1",
-    );
-    // 未采纳前不写回
-    expect((container.querySelector('[data-od-id="m1-input"]') as HTMLTextAreaElement).value)
-      .toBe("");
-
-    fireEvent.click(screen.getByTestId("ai-card-adopt"));
-    await waitFor(() => expect(screen.queryByTestId("genre-ai-card")).toBeNull());
-    expect((container.querySelector('[data-od-id="m1-input"]') as HTMLTextAreaElement).value)
-      .toBe("读者要看到弱者翻盘");
-    expect(container.textContent).toContain("标签：以弱破强的痛快");
-    expect(toastState.success).toHaveBeenCalled();
-  });
-
-  it("02 多看点：卡内 PointChooser 勾选式采纳（单选＝标签+句子；footer 不出确认键）", async () => {
-    aiState.genreAi.mockResolvedValue({
-      value: [
-        { value: "以弱破强的痛快", note: "读者要看到弱者用脑子翻盘" },
-        { value: "绝处逢生的紧张", note: "读者想看一次次死里逃生" },
-      ],
-    });
-    const { ref, container } = renderPanel();
-    await waitFor(() => expect(container.querySelectorAll(".mod")).toHaveLength(5));
-
-    // 右栏「多给几个看点」→ runAi(field, {multi:true}) → 卡内多条候选
-    await act(async () => {
-      await ref.current!.runAi("core_promise", { multi: true });
-    });
-    const card = screen.getByTestId("genre-ai-card");
-    const multi = card.querySelector('[data-od-id="multi-points"]')!;
-    expect(multi.querySelectorAll('[data-od-id^="multi-pick-"]')).toHaveLength(2);
-    // 勾选卡：footer 不出 ai-card-adopt（采纳在勾选器内置键）
-    expect(screen.queryByTestId("ai-card-adopt")).toBeNull();
-
-    // 单选第二条 → 标签＝该条 value、主框＝该条 note
-    fireEvent.click(multi.querySelector('[data-od-id="multi-pick-1"]')!);
-    fireEvent.click(screen.getByRole("button", { name: "采纳勾选的这条" }));
-    await waitFor(() => expect(screen.queryByTestId("genre-ai-card")).toBeNull());
-    expect((container.querySelector('[data-od-id="m1-input"]') as HTMLTextAreaElement).value)
-      .toBe("读者想看一次次死里逃生");
-    expect(container.textContent).toContain("标签：绝处逢生的紧张");
-  });
-
-  it("02 多看点：多选＝拼句子且不设单一标签（作家也可一条不勾自己写）", async () => {
-    aiState.genreAi.mockResolvedValue({
-      value: [
-        { value: "以弱破强的痛快", note: "读者要看到弱者用脑子翻盘" },
-        { value: "绝处逢生的紧张", note: "读者想看一次次死里逃生" },
-      ],
-    });
-    const { ref, container } = renderPanel();
-    await waitFor(() => expect(container.querySelectorAll(".mod")).toHaveLength(5));
-    await act(async () => {
-      await ref.current!.runAi("core_promise", { multi: true });
-    });
-
-    const multi = screen.getByTestId("genre-ai-card").querySelector('[data-od-id="multi-points"]')!;
-    fireEvent.click(multi.querySelector('[data-od-id="multi-pick-0"]')!);
-    fireEvent.click(multi.querySelector('[data-od-id="multi-pick-1"]')!);
-    // 按钮文案随勾选数变化 → 明确"这一次会落几条"
-    fireEvent.click(screen.getByRole("button", { name: "采纳勾选的 2 条" }));
-
-    const box = container.querySelector('[data-od-id="m1-input"]') as HTMLTextAreaElement;
-    await waitFor(() => expect(box.value).toBe("读者要看到弱者用脑子翻盘；读者想看一次次死里逃生"));
-    // 单一标签表达不了多个看点 → 多选时不写标签（作者想留标签就只勾一条）
-    expect(container.textContent).not.toContain("标签：以弱破强的痛快");
-  });
-
-  it("cost_ratio：采纳后滑块与浮例句同步", async () => {
-    aiState.genreAi.mockResolvedValue({ value: 9 });
-    const { ref, container } = renderPanel();
-    await waitFor(() => expect(container.querySelectorAll(".mod")).toHaveLength(5));
-
+    expect(lastAsk()).toBe("给我几个「主要看什么」的核心看点候选。");
+    await act(async () => ref.current!.runAi("forbidden_list"));
+    expect(lastAsk()).toBe("这本书绝不出现什么？给我红线清单候选。");
     await act(async () => ref.current!.runAi("cost_ratio"));
-    expect(screen.getByText(/建议 9 分/)).toBeTruthy();
-    expect(screen.getByTestId("genre-ai-card")).toBeTruthy();
-
-    fireEvent.click(screen.getByTestId("ai-card-adopt"));
-    await waitFor(() => expect(screen.queryByTestId("genre-ai-card")).toBeNull());
-    expect(screen.getByText("9 分 → 以命作祭，才封得住那扇门")).toBeTruthy();
-  });
-
-  it("03 绝对禁止：tagId 显示中文标签，绝不把英文 slug 甩给作者", async () => {
-    // 用户 2026-09-10 反馈「AI 建议给出来的是英文」——AI 返回的是 tagId（正确），
-    // 03 结果区漏了 tagId→label 映射（05 有），原样打出 forbidden:no-free-powerup。
-    aiState.genreAi.mockResolvedValue({
-      value: [
-        { tagId: "forbidden:no-free-powerup" },
-        { tagId: "forbidden:no-villain-idiot" },
-        { text: "禁主角靠灵根觉醒翻盘" },
-      ],
-    });
-    const { ref, container } = renderPanel();
-    await waitFor(() => expect(container.querySelectorAll(".mod")).toHaveLength(5));
-
-    await act(async () => {
-      await ref.current!.runAi("forbidden_list");
-    });
-    const body = screen.getByTestId("genre-ai-card").textContent!;
-    expect(body).toContain("禁白捡神器");
-    expect(body).toContain("禁反派降智");
-    expect(body).toContain("禁主角靠灵根觉醒翻盘"); // 自定义中文原样
-    expect(body).not.toContain("forbidden:"); // 英文 slug 一个都不许露
-
-    // 采纳仍落 tagId（存储契约不变），界面胶囊显示中文
-    fireEvent.click(screen.getByTestId("ai-card-adopt"));
-    await waitFor(() => expect(container.querySelector('[data-forbid="forbidden:no-free-powerup"]')).toBeTruthy());
-    expect(container.textContent).toContain("禁白捡神器");
-  });
-
-  it("03 近似容错：模型写岔的 id（少写/多写一个词）也显示中文", async () => {
-    // 实测坑：模型把 forbidden:no-deus-ex-machina 写成 forbidden:no-deus-machina，
-    // 后端曾把它当「自定义文本」存下来 → 界面显示英文 slug（用户 2026-09-10 反馈）。
-    aiState.genreAi.mockResolvedValue({
-      value: [
-        { tagId: "forbidden:no-deus-machina" }, // 少写 ex
-        { tagId: "forbidden:no-villain-idiot" },
-      ],
-    });
-    const { ref } = renderPanel();
-    await waitFor(() => expect(screen.getByText("主要看什么")).toBeTruthy());
-    await act(async () => {
-      await ref.current!.runAi("forbidden_list");
-    });
-    const body = screen.getByTestId("genre-ai-card").textContent!;
-    expect(body).toContain("禁天降外援");
-    expect(body).not.toContain("forbidden:");
-  });
-
-  it("battlefield：候选 tagId 采纳后落成已选胶囊", async () => {
-    aiState.genreAi.mockResolvedValue({
-      value: [{ tagId: "battlefield:resources" }, { text: "街口那条巷子" }],
-    });
-    const { ref, container } = renderPanel();
-    await waitFor(() => expect(container.querySelectorAll(".mod")).toHaveLength(5));
-
+    expect(lastAsk()).toBe("主角得到好处要付多大代价？给吃苦指数建议。");
     await act(async () => ref.current!.runAi("battlefield"));
-    await waitFor(() => expect(screen.getByTestId("genre-ai-card")).toBeTruthy());
-    fireEvent.click(screen.getByTestId("ai-card-adopt"));
-
-    expect(container.querySelector('[data-bf="battlefield:resources"]')?.className).toContain("on");
-    expect(screen.getByText("街口那条巷子 ×")).toBeTruthy();
+    expect(lastAsk()).toBe("全书主要斗的是什么？给对抗物候选。");
+    // 旧弹窗路径退役：不出确认卡、不直调生成核
+    expect(screen.queryByTestId("genre-ai-card")).toBeNull();
+    expect(aiState.genreAi).not.toHaveBeenCalled();
   });
 
-  it("失败不落卡：无既有结果时关弹窗＋toast 分流提示", async () => {
-    aiState.genreAi.mockRejectedValue({ reason: "missing_model" });
-    const { ref, container } = renderPanel();
+  it("未知 key 不分派（守卫）", async () => {
+    const { ref, lastAsk, container } = renderPanel();
     await waitFor(() => expect(container.querySelectorAll(".mod")).toHaveLength(5));
-
-    await act(async () => ref.current!.runAi("battlefield"));
-    expect(toastState.info).toHaveBeenCalledWith("先在本书选择模型");
-    await waitFor(() => expect(screen.queryByTestId("genre-ai-card")).toBeNull());
-    expect(container.querySelector('[data-od-id="genre-ai-sink-battlefield"]')).toBeNull();
-    expect(screen.queryByTestId("ai-card-adopt")).toBeNull();
-  });
-
-  it("关闭即弃：打开→关闭，格值不变、弹窗无残留", async () => {
-    aiState.genreAi.mockResolvedValue({
-      value: { value: "候选看点", note: "候选说明" },
-    });
-    const { ref, container } = renderPanel();
-    await waitFor(() => expect(container.querySelectorAll(".mod")).toHaveLength(5));
-
-    await act(async () => ref.current!.runAi("core_promise"));
-    await waitFor(() => expect(screen.getByTestId("genre-ai-card")).toBeTruthy());
-    fireEvent.click(footerClose());
-    await waitFor(() => expect(screen.queryByTestId("genre-ai-card")).toBeNull());
-    expect((container.querySelector('[data-od-id="m1-input"]') as HTMLTextAreaElement).value)
-      .toBe("");
-    expect(container.textContent).not.toContain("标签：候选看点");
-    expect(toastState.success).not.toHaveBeenCalled();
-  });
-
-  it("缓存重开：同一格再点＝重开弹窗展示缓存，不再发请求（D9）", async () => {
-    aiState.genreAi.mockResolvedValue({ value: 9 });
-    const { ref, container } = renderPanel();
-    await waitFor(() => expect(container.querySelectorAll(".mod")).toHaveLength(5));
-
-    await act(async () => ref.current!.runAi("cost_ratio"));
-    fireEvent.click(screen.getByTestId("ai-card-adopt"));
-    await waitFor(() => expect(screen.queryByTestId("genre-ai-card")).toBeNull());
-    expect(screen.getByText("9 分 → 以命作祭，才封得住那扇门")).toBeTruthy(); // 已写回
-    expect(aiState.genreAi).toHaveBeenCalledTimes(1);
-
-    await act(async () => ref.current!.runAi("cost_ratio")); // 再点同一行
-    await waitFor(() =>
-      expect(document.querySelector('[data-od-id="ai-card-cache"]')).toBeTruthy(),
-    );
-    expect(screen.getByText(/上次生成结果/)).toBeTruthy();
-    expect(screen.getByText(/建议 9 分/)).toBeTruthy();
-    expect(aiState.genreAi).toHaveBeenCalledTimes(1); // 缓存命中，无新请求
-  });
-
-  it("换一个：重新发请求、版数徽标 +1（第 N 版）；换成新候选采纳覆盖", async () => {
-    aiState.genreAi
-      .mockResolvedValueOnce({ value: [{ text: "第一版战场" }] })
-      .mockResolvedValueOnce({ value: [{ text: "第二版战场" }] });
-    const { ref, container } = renderPanel();
-    await waitFor(() => expect(container.querySelectorAll(".mod")).toHaveLength(5));
-
-    await act(async () => ref.current!.runAi("battlefield"));
-    await waitFor(() => expect(screen.getByText(/第一版战场/)).toBeTruthy());
-    expect(screen.getByText("第 1 版")).toBeTruthy();
-
-    await act(async () => {
-      fireEvent.click(screen.getByTestId("ai-card-regen"));
-    });
-    await waitFor(() => expect(screen.getByText(/第二版战场/)).toBeTruthy());
-    expect(screen.queryByText(/第一版战场/)).toBeNull();
-    expect(screen.getByText("第 2 版")).toBeTruthy();
-    expect(aiState.genreAi).toHaveBeenCalledTimes(2);
-
-    fireEvent.click(screen.getByTestId("ai-card-adopt"));
-    // 旧候选没被写回；新候选（自定义文本）落成胶囊
-    expect(container.querySelector('[data-bf="battlefield:resources"]')?.className).not.toContain("on");
-    expect(container.textContent).toContain("第二版战场");
+    await act(async () => (ref.current as unknown as { runAi: (f: string) => Promise<void> }).runAi("nope"));
+    expect(lastAsk()).toBeNull();
+    expect(container.querySelectorAll(".mod")).toHaveLength(5);
   });
 });
 
@@ -906,23 +693,4 @@ describe("GenreSettingForm · 改动回执 + 撤销", () => {
     expect(receipt()).toBeNull();
   });
 
-  it("AI 采纳覆盖这段 → 回执报字数，撤销写回改前两个字", async () => {
-    aiState.genreAi.mockResolvedValue({
-      value: { value: "以弱破强的痛快", note: "读者要看到弱者用脑子翻盘" },
-    });
-    const { ref, receipt, container } = renderPanel({ promise_note: "旧的一句" });
-    await waitFor(() => expect(container.querySelectorAll(".mod")).toHaveLength(5));
-
-    await act(async () => ref.current!.runAi("core_promise"));
-    fireEvent.click(screen.getByRole("button", { name: "采纳 · 覆盖" }));
-
-    expect(receipt()?.text).toContain("已采纳 AI 建议，覆盖「主要看什么」");
-    expect(receipt()?.text).toContain("4 字 → 12 字");
-    receipt()!.undo();
-    await waitFor(() =>
-      expect((container.querySelector('[data-od-id="m1-input"]') as HTMLTextAreaElement).value)
-        .toBe("旧的一句"),
-    );
-    expect(container.textContent).not.toContain("标签：以弱破强的痛快");
-  });
 });

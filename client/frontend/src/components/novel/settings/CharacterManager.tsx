@@ -59,6 +59,8 @@ interface Props {
   /** 整项确认门禁缺口（c-chars-confirm-scope）：列表载入成功后上报，未载入/载入失败报 null
    *  （页脚据此回落通用提示，不冒充「书里没有主角」） */
   onGateHintChange?: (hint: CharGateHint | null) => void;
+  /** 面板「让助手办」分派（c-agent-panel-consolidate）：消息直发 dock */
+  onAskAssistant?: (message: string) => void;
   /** 面板数据刷新＝确认存档可能过期（c-chars-stale-reconfirm）：请父层重取确认存档状态。
    *  挂载（进入面板）、单卡保存落库、增删合并后都会走到这里。 */
   onRefreshConfirmState?: () => void;
@@ -127,7 +129,7 @@ const CharacterManager = forwardRef<CharacterSaveHandle, Props>(function Charact
 ) {
   const {
     projectId, onDirtyChange, onCtxChange, onEmptyChange, onHasCardsChange, introReady,
-    aiState, onBlocked, onGateHintChange, onRefreshConfirmState,
+    aiState, onBlocked, onGateHintChange, onRefreshConfirmState, onAskAssistant,
   } = props;
   const [list, setList] = useState<CharacterCard[]>([]);
   const [gate, setGate] = useState<{ ok: boolean; no_protagonist: boolean; confirmed: boolean }>({
@@ -364,6 +366,16 @@ const CharacterManager = forwardRef<CharacterSaveHandle, Props>(function Charact
       setVersions({});
     },
     runAi: async (key: string) => {
+      // 收编前置（c-agent-panel-consolidate）：draftAll/check 走对话（产物卡回对话，
+      // 角色卡「确认 · 建卡」写回走 dock 采纳）；bootstrap 从简介立主角保留面板流
+      if (onAskAssistant && (key === "draftAll" || key === "check")) {
+        onAskAssistant(
+          key === "draftAll"
+            ? "按现有角色和主线，出一个新角色草案。"
+            : "给角色做一次一致性体检——对照设定和已写内容点名对不上。",
+        );
+        return;
+      }
       if (aiBusyRef.current) return;
       if (key === "bootstrap") {
         // 从简介立主角：允许无卡（空态）触发；主角待立时带当前卡 id（出稿只补空格）。

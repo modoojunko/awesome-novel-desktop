@@ -818,6 +818,15 @@ async def _draft_worldbuilding(ctx, topic: str = "", shape: str = "text", curren
         {"topic": str(topic).strip(), "shape": str(shape or "text"), "current": str(current or "")},
     )
     draft = result.get("draft") or result.get("content") or result
+    if isinstance(draft, str):
+        # 生成核偶发把 {value: 文本} 再包一层 JSON 串（真机实锤）——剥回纯文本，
+        # 卡面可读、采纳写回不会把 JSON 串存进世界字段（c-agent-panel-consolidate）
+        try:
+            inner = json.loads(draft)
+            if isinstance(inner, dict):
+                draft = inner.get("value") or inner.get("draft") or inner.get("text") or draft
+        except (ValueError, TypeError):
+            pass
     text = draft if isinstance(draft, str) else _json_dump(draft)
     return _struct_card("text", {"topic": str(topic).strip(), "draft": text, "origin": "divergent"})
 
