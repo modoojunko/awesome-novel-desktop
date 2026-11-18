@@ -10,7 +10,8 @@ export const COVERAGE_CONTRACT_FILES = [
   "src/lib/chatRegistry.ts",
   "src/components/novel/chat/Aui2Dock.tsx",
   "src/components/novel/chat/CardBody.tsx",
-  "src/components/novel/chat/chat.css",
+  // chat.css 移出契约（c-agent-decision-archive 覆盖债收口）：css 无法被 vitest
+  // 计量（恒 0%），perFile-100 契约对它恒假——样式回归由视觉走查把守
   // c-chapter-plan-ai（卷下拆章：拆章弹窗/状态机/API 契约）
   "src/lib/chapterPlanApi.ts",
   "src/hooks/useChapterPlan.ts",

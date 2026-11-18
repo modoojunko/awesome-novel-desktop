@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 
 import { parseChapterRef } from "@/lib/chapterRef";
-import { api } from "@/lib/api";
+import { api, errMessage } from "@/lib/api";
 import { toast } from "@/lib/toast";
 import { useProject } from "@/hooks/useProject";
 import type { TreeNode } from "@/components/novel/StructureTree";
@@ -435,8 +435,10 @@ export function useWorkbench(): UseWorkbenchReturn {
         const ref = (result.chapter_ref as string) || `${volRef}-ch-${nextCh}`;
         focusNode(ref);
         return ref;
-      } catch {
-        toast.error("创建章失败");
+      } catch (e) {
+        // 后端 4xx 的 detail 是可行动中文，透出原文（c-chapter-volume-gate-retire）；
+        // 网络层失败回落兜底
+        toast.error(errMessage(e, "创建章失败"));
         return null;
       } finally {
         creatingRef.current = false;

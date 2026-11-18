@@ -174,6 +174,19 @@ async def lifespan(app: FastAPI):
     except Exception as _e:  # noqa: BLE001 — 迁移失败不挡启动（下次启动重试）
         _log.warning("assistant session migration failed: %s", _e)
 
+    # ── 决策档案迁移：book_decisions 存量 → decisions/ 目录 JSONL（c-agent-decision-archive）──
+    try:
+        from assistant.memory import migrate_book_decisions
+
+        _dmig = await migrate_book_decisions()
+        if _dmig.get("migrated"):
+            _log.info(
+                "book decision migration: migrated=%s skipped=%s",
+                _dmig.get("migrated"), _dmig.get("skipped"),
+            )
+    except Exception as _e:  # noqa: BLE001 — 迁移失败不挡启动（下次启动重试）
+        _log.warning("book decision migration failed: %s", _e)
+
     # ── 旧导入书回填（c-import-direct）：只补 origin/import_kind，不改 status ──
     try:
         from novels.import_backfill import backfill_import_origin_v1

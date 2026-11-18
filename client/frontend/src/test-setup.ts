@@ -7,3 +7,37 @@ import { afterEach } from "vitest";
 afterEach(() => {
   clearDialogQueue();
 });
+
+// prosemirror 几何查询在 jsdom 不存在（CI 实锤 unhandled error：正文编辑器异步
+// scrollIntoView 落在测试收口后——target.getClientRects is not a function）。
+// 补零矩形：几何调用方（singleRect）取 [0] 继续走，数值无意义但形状成立。
+const zeroRects = () =>
+  [{ top: 0, right: 0, bottom: 0, left: 0, width: 0, height: 0, x: 0, y: 0 }] as unknown as DOMRectList;
+// prosemirror 的 target 可能落在原型链任意一层（Element/Text/Document/CharacterData
+// /Window）——中间层若自定义同名属性会遮蔽 Node.prototype 的补丁，霰弹式全链打上。
+// 无条件覆盖：部分 jsdom 版本在原型上放 truthy 占位（非函数），守卫会让补丁跳过。
+const withRects = (proto: unknown) => {
+  (proto as { getClientRects?: () => DOMRectList }).getClientRects = zeroRects;
+};
+for (const proto of [
+  Element?.prototype,
+  HTMLElement?.prototype,
+  Text?.prototype,
+  CharacterData?.prototype,
+  Document?.prototype,
+  Node?.prototype,
+  window,
+  globalThis,
+]) {
+  if (proto) withRects(proto);
+}
+// ★真正的 target：prosemirror textRange() 返回 DOM Range——jsdom 无排版引擎，
+// Range 的 getClientRects/getBoundingClientRect 都不存在（上面原型补丁罩不住）
+if (typeof Range !== "undefined") {
+  const rangeProto = Range.prototype as unknown as {
+    getClientRects: () => DOMRectList;
+    getBoundingClientRect: () => DOMRect;
+  };
+  rangeProto.getClientRects = zeroRects;
+  rangeProto.getBoundingClientRect = () => zeroRects()[0];
+}

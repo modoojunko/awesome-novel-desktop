@@ -15,13 +15,12 @@ export function useToolsBadge(): number {
   const seen = useSeenTaskIds();
   const { data: refineData } = useRefineTasks();
   const refineTasks = refineData?.tasks ?? [];
-  return (
-    tasks.filter((t) => isActiveTask(t.status)).length +
-    tasks.filter((t) => t.unpicked && !seen.has(t.id)).length +
-    // 知识提炼任务同口径：进行中恒计，已完成未看过才计（原型定稿 2026-11-08）
-    refineTasks.filter((t) => isActiveRefine(t.status)).length +
-    refineTasks.filter((t) => (t.status === "completed" || t.status === "failed") && !seen.has(t.id)).length
-  );
+  // 知识提炼任务同口径：进行中恒计，已完成未看过才计（原型定稿 2026-11-08）。
+  // 单行独立语句（v8 行归因：多行表达式的中段行永不记语句——覆盖债收口口径）
+  const refineActive = refineTasks.filter((t) => isActiveRefine(t.status)).length;
+  const refineUnseen = refineTasks.filter((t) => (t.status === "completed" || t.status === "failed") && !seen.has(t.id)).length;
+  const deconstructCount = tasks.filter((t) => isActiveTask(t.status)).length + tasks.filter((t) => t.unpicked && !seen.has(t.id)).length;
+  return deconstructCount + refineActive + refineUnseen;
 }
 
 export default function ToolsMenu() {

@@ -43,20 +43,19 @@ async def test_memory_scoped_by_novel():
 
 @pytest.mark.asyncio
 async def test_decision_append_and_recency_order():
-    async with async_session() as db:
-        d1 = await memory_mod.add_decision(db, "n_dec", "否决主角黑化", reason="调子不符")
-        d2 = await memory_mod.add_decision(db, "n_dec", "定了海边收尾")
-        assert d1.reason == "调子不符" and d2.decision == "定了海边收尾"
-        rows = await memory_mod.list_decisions(db, "n_dec")
-        # 倒序：最近在前
-        assert rows[0].decision == "定了海边收尾" and rows[-1].decision == "否决主角黑化"
+    # 决策走文件档案（c-agent-decision-archive）——不再需要 DB 会话
+    d1 = await memory_mod.add_decision("n_dec", "否决主角黑化", reason="调子不符")
+    d2 = await memory_mod.add_decision("n_dec", "定了海边收尾")
+    assert d1.reason == "调子不符" and d2.decision == "定了海边收尾"
+    rows = await memory_mod.list_decisions("n_dec")
+    # 倒序：最近在前
+    assert rows[0].decision == "定了海边收尾" and rows[-1].decision == "否决主角黑化"
 
 
 @pytest.mark.asyncio
 async def test_decision_empty_rejected():
-    async with async_session() as db:
-        with pytest.raises(ValueError):
-            await memory_mod.add_decision(db, "n_dec", "")
+    with pytest.raises(ValueError):
+        await memory_mod.add_decision("n_dec", "")
 
 
 def test_render_section_empty_returns_empty_string():
@@ -76,9 +75,12 @@ def test_render_section_capacity_keeps_recent_decisions():
     ]
     text = memory_mod.render_memory_section(memories, decisions)
     assert text.startswith("── 这本书我们定下的规矩与决定 ──")
-    # 预算护栏：记忆段不超预算太多（逐条保留）；决策只留最近若干条
-    assert "决定0" not in text  # 最旧的被截断
-    assert "决定39" in text  # 最新的保留
+    # 分层注入（c-agent-decision-archive）：最新的全文保留；最旧的降级索引不消失
+    # ——「超限静默截断」旧行为退役（半年前的决定不再被预算挤掉）
+    assert "决定39" in text  # 最新的全文在
+    assert "更早的决定（索引）" in text
+    assert "[t0] 决定0" in text  # 最旧的以索引行留名（日期＋首句）——不再静默丢弃
+    # 尾注（另有 N 条在档）只在索引预算也溢出时出现，专测见 test_assistant_decision_archive
 
 
 def test_render_section_decision_reason_appended():
@@ -104,11 +106,13 @@ async def test_delete_book_memory_cascades_zero_orphans():
     async with async_session() as db:
         for i in range(3):
             await memory_mod.upsert_memory(db, "n_del", f"规矩{i}")
-        await memory_mod.add_decision(db, "n_del", "决定A")
-        await memory_mod.add_decision(db, "n_del", "决定B")
+        await memory_mod.add_decision("n_del", "决定A")
+        await memory_mod.add_decision("n_del", "决定B")
         await memory_mod.delete_book_memory(db, "n_del")
         assert await memory_mod.list_memories(db, "n_del") == []
-        assert await memory_mod.list_decisions(db, "n_del") == []
+        assert await memory_mod.list_decisions("n_del") == []
+        # 决策档案文件一并移除（零孤儿——c-agent-decision-archive）
+        assert not memory_mod._decisions_path("n_del").exists()
 
 
 # ── 记忆工具（批4.5：run_tool 全链＋免授权结构＋透明话术） ──────────────
