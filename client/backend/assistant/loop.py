@@ -388,6 +388,7 @@ class AgentLoop:
             "stepId": f"{run_id}-{step_no}",
             "tool": tool_name,
             "resultNote": note,
+            "ok": result.ok,  # effect 收集口径：只对成功的写步触发前端刷新（router._consume）
         }
         from assistant.scopes import domain_of_thread
 

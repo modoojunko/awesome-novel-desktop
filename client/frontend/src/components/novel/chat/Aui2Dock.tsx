@@ -16,6 +16,7 @@ import {
   useRef,
   useState,
 } from "react";
+import { useNavigate } from "react-router-dom";
 import { ConfigProvider } from "@agentscope-ai/design";
 import { ChatAnywhere, uuid } from "@agentscope-ai/chat";
 import type { ChatAnywhereRef } from "@agentscope-ai/chat";
@@ -298,11 +299,31 @@ function ErrorCard({ data }: { data: { message: string } }) {
   );
 }
 
+/** 系统引导动作卡（code="sys_action"）——no_key 等系统 gate 的可点击出口
+ *  （action: config_model → 模型配置页；2026-11-18 boss 走查口径：引导要给出口） */
+function SysActionCard({ data }: { data: { action?: string; label?: string } }) {
+  const navigate = useNavigate();
+  const target = data.action === "config_model" || !data.action ? "/config" : null;
+  if (!target) return null;
+  return (
+    <div className="cd-msg" data-testid="chat-sys-action">
+      <button
+        type="button"
+        className="cd-btn primary"
+        onClick={() => navigate(target)}
+      >
+        {data.label || "去处理"}
+      </button>
+    </div>
+  );
+}
+
 const CARD_REGISTRY = {
   artifact: ArtifactCard,
   gate: GateCard,
   trace: TraceCard,
   error: ErrorCard,
+  sys_action: SysActionCard,
 };
 
 type ArtifactCardData = {
@@ -834,10 +855,21 @@ export function Aui2Dock({
               // 系统提示类 gate（no_key/client_error——无 gateId 带 message）：
               // 引导语按助手话术呈现，SHALL NOT 兜进授权卡渲染成空预览卡
               if (!e.gateId && !e.refusal && (e.message || e.reason)) {
+                const action = String((e as Record<string, unknown>).action ?? "");
                 threadUp({
                   id: `sys-${assistantId}`,
                   role: "assistant",
                   content: String(e.message ?? e.reason ?? ""),
+                  ...(action
+                    ? {
+                        cards: [
+                          {
+                            code: "sys_action",
+                            data: { action, label: "去配模型" },
+                          },
+                        ],
+                      }
+                    : {}),
                 });
                 return;
               }

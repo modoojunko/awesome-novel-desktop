@@ -13,6 +13,7 @@ error 事件收尾，不得静默 200 空流。用量按步落账（record_usage
 from __future__ import annotations
 
 import asyncio
+import logging
 
 # 活跃 run 注册表（c-agent-chat-memory 批8 停止/打断）：key = f"{session_id}:{thread}"，
 # 值 = 该 run 的协同取消事件。stop 路由/新消息打断置位，循环在检查点自收口
@@ -32,13 +33,15 @@ from assistant import session_store, write_gate
 from assistant.context import build_book_brief, build_outbound_window, build_page_note
 from assistant.loop import AgentLoop, LoopConfig
 from assistant.prompts import build_system_prompt
-from assistant.tools import ToolContext, _clip
+from assistant.tools import ToolContext, _clip, get_tool
 from auth_local.deps import ai_access_granted
 from auth_local.middleware import get_current_user
 from db import get_db
 from models.assistant import AssistantSession
 from models.project import Novel
 from novels.service import get_novel
+
+_log = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/novels/{project_id}/assistant", tags=["assistant"])
 
@@ -241,8 +244,12 @@ async def _stream_chat(
     from ai_state import user_has_ai_key
 
     if not await user_has_ai_key(db, user["id"]):
+        # 走完整 run 生命周期（run_start→gate→run_end）——前端无终态会判死出
+        # 「连接中断」假错误（2026-11-18 boss 走查实锤）；补救语句带可点击出口
+        # （action: config_model → 前端导航到设定·AI 模型配置，§13 口径）
         guide = "还没配模型的钥匙——去「模型配置」加一个，我就能开工了。"
-        yield _sse({"type": "gate", "reason": "no_key", "message": guide})
+        yield _sse({"type": "run_start", "runId": "nokey"})
+        yield _sse({"type": "gate", "reason": "no_key", "message": guide, "action": "config_model"})
         await session_store.append_message(
             db,
             session.id,
@@ -250,9 +257,10 @@ async def _stream_chat(
             role="assistant",
             content=guide,
             page=page,
-            payload={"gate": "no_key"},
+            payload={"gate": "no_key", "action": "config_model"},
             card_kind="gate",
         )
+        yield _sse({"type": "run_end", "runId": "nokey", "steps": 0, "toolCalls": 0, "degraded": False, "error": ""})
         return
 
     # ── 组装 ────────────────────────────────────────────────────────────────
@@ -503,6 +511,10 @@ async def _stream_chat(
     )
     reply_parts: list[str] = []
     final_status = "done"
+    # Effect 收集（c-agent-effects）：本 run 内成功写步的刷新指令，run_end 注入。
+    # 2026-11-18 boss 走查实锤：只写消费不写收集＝NameError 在 _drive 里炸掉
+    # → _STOP 永不入队 → SSE 永挂（前端「进行中」卡死）。收集与消费必须同侧成对。
+    run_effects: list[dict[str, Any]] = []
 
     async def _consume(drv_db: AsyncSession, event: dict[str, Any]) -> None:
         """落盘分支（消费副作用）：narration 攒回执、tool/授权卡/产物卡落行。
@@ -529,6 +541,15 @@ async def _stream_chat(
                     "apiCalls": event.get("apiCalls"),  # 本步模型调用记录（反馈流可见）
                 },
             )
+            # Effect 收集：注册表声明了 effect_domain 且本步成功才触发前端刷新
+            # （失败写不改数据，刷新＝假反馈）。读/卡类工具 effect_domain 为空。
+            tool_meta = get_tool(str(event.get("tool") or ""))
+            if event.get("ok") and tool_meta is not None and tool_meta.effect_domain:
+                run_effects.append({
+                    "action": "refresh",
+                    "domain": tool_meta.effect_domain,
+                    "description": str(event.get("resultNote", ""))[:120],
+                })
         elif etype == "permission_required":
             await session_store.append_message(
                 drv_db,
@@ -616,8 +637,17 @@ async def _stream_chat(
                     )
                 if page:
                     await session_store.touch_session(drv_db, session.id, page_cursor=page)
-                await queue.put(_STOP)  # 正常收口：消费端见哨兵即退（body 出口）
+            except asyncio.CancelledError:
+                raise  # 消费端取消＝正常收口路径，交 finally 落库
+            except Exception:  # noqa: BLE001——drive 崩溃必须显式收口（2026-11-18 实锤：
+                # _drive 静默死亡→_STOP 永不入队→SSE 永挂「进行中」卡死＋零遥测）
+                _log.exception("assistant run drive crashed (session=%s)", session.id)
+                try:
+                    await queue.put({"type": "error", "message": "这一轮处理出了问题，已产出的内容都保留着——重发即可继续。"})
+                except Exception:  # noqa: BLE001——连 error 事件都发不出时仍要走 finally 收口
+                    pass
             finally:
+                await queue.put(_STOP)  # 恒收口：任何出口消费端都见哨兵即退（body 出口）
                 # 收尾落库加盾（2026-11-17 竞态根修）：消费端收到 STOP 会立刻
                 # cancel 本任务——取消正好落在 _finalize 的 await 上＝落库被
                 # 打断，streaming 行悬挂、下轮被自愈盖「中途被打断」。shield
