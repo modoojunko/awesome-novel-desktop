@@ -21,7 +21,16 @@ const WHITELIST = new Set([
   "CC-BY-4.0",
   "MPL-2.0",
   "PSF-2.0",
+  "0BSD",
+  "Unlicense",
 ]);
+
+// 老式元数据覆盖（人工核实后的实际许可证——package.json 缺 license 字段或用
+// licenses 数组老格式，lock 读不出）：@agentscope-ai/chat 引入的传递依赖
+const PACKAGE_LICENSE_OVERRIDES = {
+  "node_modules/format": "MIT",
+  "node_modules/khroma": "MIT",
+};
 
 const lock = JSON.parse(readFileSync(new URL("../package-lock.json", import.meta.url), "utf-8"));
 
@@ -29,7 +38,7 @@ const lock = JSON.parse(readFileSync(new URL("../package-lock.json", import.meta
 function tokenize(license) {
   return license
     .split(/\s+(?:AND|OR)\s+|\s*,\s*/i)
-    .map((t) => t.trim())
+    .map((t) => t.trim().replace(/^\(+/, "").replace(/\)+$/, "").trim())
     .filter(Boolean);
 }
 
@@ -37,7 +46,7 @@ const violations = [];
 for (const [key, entry] of Object.entries(lock.packages ?? {})) {
   // 根条目（key 为空串）无 license 字段——跳过
   if (key === "") continue;
-  const lic = entry.license;
+  const lic = PACKAGE_LICENSE_OVERRIDES[key] ?? entry.license;
   if (lic == null || typeof lic !== "string" || !lic.trim()) {
     violations.push(`${key || "<root>"}: license 缺失（${JSON.stringify(lic)}）`);
     continue;
