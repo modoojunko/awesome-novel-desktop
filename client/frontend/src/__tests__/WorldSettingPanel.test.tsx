@@ -171,7 +171,7 @@ describe("WorldSettingPanel", () => {
     await act(async () => { await ref.current!.runAi("constraints"); });
     // 出卡：结果进弹窗（world-ai-card），采纳 · 合并写回
     expect(screen.getByTestId("world-ai-card")).toBeTruthy();
-    expect(screen.getByText("AI 填 · 世界铁律")).toBeTruthy();
+    expect(screen.getByText("让助手办 · 世界铁律")).toBeTruthy();
     fireEvent.click(screen.getByTestId("ai-card-adopt"));
     await waitFor(() => expect(screen.queryByTestId("world-ai-card")).toBeNull());
     expect(screen.getByDisplayValue("不可推翻的事")).toBeTruthy();

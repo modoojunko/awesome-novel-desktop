@@ -273,7 +273,7 @@ describe("采纳与撤销（拍板②）", () => {
     const undo = mockToast.success.mock.calls.at(-1)![1].action;
     act(() => undo.onClick());
     expect(mockToast.info).toHaveBeenCalledWith(
-      expect.stringContaining("已恢复到 AI 填写前的列表"),
+      expect.stringContaining("已恢复到这批剧情写入前的列表"),
     );
     // 只回滚 plots：中栏剧情行回旧内容，其它格子不动（概要还在）
     await waitFor(() =>

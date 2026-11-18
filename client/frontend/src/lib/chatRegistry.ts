@@ -175,24 +175,29 @@ const REGISTRATIONS: ChatPageRegistration[] = [
   },
 ];
 
+/** 世界五格三字动宾标签（搭/立/标/列/钉——boss 拍板口径） */
+const WORLD_CHIP_LABELS: Record<string, string> = {
+  stage: "搭舞台", power: "立体系", cost: "标代价", factions: "列势力", constraints: "钉铁律",
+};
+
 /** 设定面板 chips 单一文案源（c-agent-panel-consolidate）：面板「让助手办」按钮
  *  与 dock chips 读同一份——按钮文案===chips 文案有钉子守着。 */
 export const SETTINGS_PANEL_CHIPS: Record<string, ChatChip[]> = {
   genre: [
-    { key: "settings_genre_core_promise", label: "AI 填 · 主要看什么", command: "给我几个「主要看什么」的核心看点候选。" },
-    { key: "settings_genre_forbidden_list", label: "AI 填 · 绝对禁止", command: "这本书绝不出现什么？给我红线清单候选。" },
-    { key: "settings_genre_cost_ratio", label: "AI 填 · 吃苦指数", command: "主角得到好处要付多大代价？给吃苦指数建议。" },
-    { key: "settings_genre_battlefield", label: "AI 填 · 本小说斗什么", command: "全书主要斗的是什么？给对抗物候选。" },
+    { key: "settings_genre_core_promise", label: "出爽点", command: "给我几个「主要看什么」的核心看点候选。" },
+    { key: "settings_genre_forbidden_list", label: "划红线", command: "这本书绝不出现什么？给我红线清单候选。" },
+    { key: "settings_genre_cost_ratio", label: "掂掂代价", command: "主角得到好处要付多大代价？给吃苦指数建议。" },
+    { key: "settings_genre_battlefield", label: "定对手", command: "全书主要斗的是什么？给对抗物候选。" },
   ],
   intro: [
-    { key: "settings_intro", label: "AI 起草简介", command: "按三问帮我起草简介，出三条候选。" },
+    { key: "settings_intro", label: "起草简介", command: "按三问帮我起草简介，出三条候选。" },
   ],
   foreshadow: [
     { key: "settings_hooks_draft", label: "起草伏笔", command: "按我的简介＋题材＋世界，起草几条伏笔候选，配收束章。" },
     { key: "settings_hooks_check", label: "埋坑体检", command: "扫一遍活跃伏笔和已写章纲，埋了没还的点名。" },
   ],
   arc: [
-    { key: "draft_arc", label: "AI 填 · 起草主线", command: "帮我起草主线。" },
+    { key: "draft_arc", label: "起草主线", command: "帮我起草主线。" },
     { key: "check_consistency", label: "主线自检", command: "做一次主线自检。" },
   ],
   world: (
@@ -202,18 +207,18 @@ export const SETTINGS_PANEL_CHIPS: Record<string, ChatChip[]> = {
     }) as Array<[string, string]>
   ).map(([key, label]) => ({
     key: "draft_worldbuilding",
-    label: `AI 填 · ${label}`,
+    label: WORLD_CHIP_LABELS[key as string] ?? `起草${label}`,
     command: `帮我起草世界观的「${label}」要素候选。`,
     args: { topic: label },
   })),
   chars: [
-    { key: "draft_character", label: "出稿 · 定向角色", command: "按现有角色和主线，出一个新角色草案。" },
-    { key: "diverge_character_group", label: "出稿 · 发散一群", command: "发散一群角色草案给我挑。" },
-    { key: "draft_names", label: "起名", command: "给我出几个角色名候选。" },
+    { key: "draft_character", label: "捏个角色", command: "按现有角色和主线，出一个新角色草案。" },
+    { key: "diverge_character_group", label: "来群角色", command: "发散一群角色草案给我挑。" },
+    { key: "draft_names", label: "起名字", command: "给我出几个角色名候选。" },
     { key: "check_consistency", label: "一致性体检", command: "做一次一致性体检。" },
   ],
   default: [
-    { key: "draft_arc", label: "AI 填 · 起草主线", command: "帮我起草主线。" },
+    { key: "draft_arc", label: "起草主线", command: "帮我起草主线。" },
     { key: "check_consistency", label: "主线自检", command: "做一次主线自检。" },
   ],
 };

@@ -132,7 +132,7 @@ const StoryArcForm = forwardRef<ArcFormHandle, Props>(function StoryArcForm(
         let entry: AiCardState;
         if (action === "draft") {
           entry = {
-            label: "AI 填 · 起草主线",
+            label: "让助手办 · 起草主线",
             kind: "struct",
             adoptText: "采纳 · 覆盖全景与结局",
             node: (
@@ -148,7 +148,7 @@ const StoryArcForm = forwardRef<ArcFormHandle, Props>(function StoryArcForm(
               // revert 只回滚本采纳写过的字段（全景＋结局三问），不动作者其余手写
               const before = arcRef.current;
               adoptWithReceipt(
-                "已采纳「AI 起草主线」，全景和结局都写进来了，可改",
+                "已采纳「起草主线」，全景和结局都写进来了，可改",
                 () => c.patch({
                   fullstory: String(v.fullstory ?? ""),
                   ending: {
@@ -164,7 +164,7 @@ const StoryArcForm = forwardRef<ArcFormHandle, Props>(function StoryArcForm(
           };
         } else if (action === "calibrate") {
           entry = {
-            label: "AI 填 · 结局校准",
+            label: "让助手办 · 结局校准",
             kind: "struct",
             adoptText: "采纳 · 覆盖结局三问",
             node: (
@@ -217,13 +217,13 @@ const StoryArcForm = forwardRef<ArcFormHandle, Props>(function StoryArcForm(
         } else {
           // tone：行内基调建议
           entry = {
-            label: "AI 填 · 结局基调",
+            label: "让助手办 · 结局基调",
             kind: "text",
             node: <p style={{ margin: "4px 0" }}>{String(v.tone ?? "")}</p>,
             adopt: v.tone ? () => {
               const beforeTone = arcRef.current.ending.tone; // 采纳时刻基准
               adoptWithReceipt(
-                "已采纳「AI 填 · 结局基调」，可改",
+                "已采纳「结局基调」，可改",
                 () => c.patch({ ending: { ...arcRef.current.ending, tone: String(v.tone) } }),
                 () => c.patch({ ending: { ...arcRef.current.ending, tone: beforeTone } }),
               );
@@ -365,7 +365,7 @@ const StoryArcForm = forwardRef<ArcFormHandle, Props>(function StoryArcForm(
                 onClick={() => void runAi("tone")}
                 title="让 AI 按你的题材给个建议，采不采纳你说了算"
               >
-                {aiRunning === "tone" ? "AI 想着…" : "AI 帮我填"}
+                {aiRunning === "tone" ? "助手想着…" : "让助手办"}
               </button>
             </div>
             <input

@@ -1339,7 +1339,7 @@ const HooksSettingForm = forwardRef<HooksPanelHandle, Props>(function HooksSetti
         card={
           cardAction === "h1" && draftSinks
             ? {
-                label: "AI 填 · 起草伏笔（勾选后采纳）",
+                label: "让助手办 · 起草伏笔（勾选后采纳）",
                 kind: "pick",
                 adoptText: "采纳所选 · 加入活跃",
                 cached: cardCached,
@@ -1377,7 +1377,7 @@ const HooksSettingForm = forwardRef<HooksPanelHandle, Props>(function HooksSetti
               }
             : cardAction === "h2" && payoffSink
               ? {
-                  label: `AI 填 · 拟收束方案（对 ${payoffSink.code} 生效）`,
+                  label: `让助手办 · 拟收束方案（对 ${payoffSink.code} 生效）`,
                   kind: "struct",
                   cached: cardCached,
                   node: (

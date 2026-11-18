@@ -764,7 +764,7 @@ const WorldSettingPanel = forwardRef<WorldPanelHandle, WorldPanelProps>(function
         card={
           cardKey && cards[cardKey]
             ? {
-                label: `AI 填 · ${SINK_TOPIC[cardKey] ?? cardKey}`,
+                label: `让助手办 · ${SINK_TOPIC[cardKey] ?? cardKey}`,
                 kind: cards[cardKey]!.kind,
                 adoptText: cardKey === "constraints" || cardKey === "factions" ? "采纳 · 合并" : "采纳 · 覆盖",
                 cached: cards[cardKey]!.cached,

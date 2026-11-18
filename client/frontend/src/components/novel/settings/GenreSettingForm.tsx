@@ -70,10 +70,10 @@ export const GENRE_AI_FIELDS: GenreAiField[] = [
 
 /** 五行 AI 的字段 → 结果区标题（原型 ZONE_LABEL 同文案）。 */
 const AI_LABEL: Record<GenreAiField, string> = {
-  core_promise: "AI 填 · 主要看什么",
-  forbidden_list: "AI 填 · 绝对禁止",
-  cost_ratio: "AI 填 · 吃苦指数",
-  battlefield: "AI 填 · 本小说斗什么",
+  core_promise: "出爽点",
+  forbidden_list: "划红线",
+  cost_ratio: "掂掂代价",
+  battlefield: "定对手",
 };
 
 // ── 契约数据形态 ─────────────────────────────────────────────────────────
