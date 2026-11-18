@@ -26,6 +26,7 @@ function renderIntro(synopsis = "") {
   apiState.fetchStory.mockResolvedValue({ synopsis });
   return render(
     <SettingsView
+      onAskAssistant={vi.fn()}
       projectId="p1"
       initialPanel="intro"
       settingsStatus={{}}

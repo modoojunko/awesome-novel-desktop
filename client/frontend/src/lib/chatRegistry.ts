@@ -11,6 +11,9 @@ export interface ChatChip {
   label: string;
   /** 点 chip 发进对话的指令（带上下文的指令进对话，不是直接执行） */
   command: string;
+  /** 结构化触发参数（c-tool-flow 批2 tool_hint）：点击时随指令 prime 首步——
+   *  flash 弱模型从话术猜参数不可靠（实锤 draft_worldbuilding 空参被校验打回） */
+  args?: Record<string, unknown>;
   /** 富交互入口（AiModal/抽卡/推演等既有弹窗）：点 chip 由宿主开弹窗，不发指令 */
   open?: string;
   /** 行级门控（features.ts key；无＝免费可用/读类） */
@@ -68,6 +71,16 @@ const CHIP_KEYS = [
   "simulate_plot",
   "draw_plot_cards",
   "review_cast",
+  // 设定面板收编 chips（c-agent-panel-consolidate）：既有 16 行 keys 补登记＋新缺
+  "settings_genre_core_promise",
+  "settings_genre_forbidden_list",
+  "settings_genre_cost_ratio",
+  "settings_genre_battlefield",
+  "settings_intro",
+  "settings_hooks_draft",
+  "settings_hooks_check",
+  "draft_worldbuilding",
+  "draft_character",
 ] as const;
 
 const REGISTRATIONS: ChatPageRegistration[] = [
@@ -155,33 +168,66 @@ const REGISTRATIONS: ChatPageRegistration[] = [
     greeting: () => null,
     // 设定卡收编（boss 拍板 2026-11-15）：16 行 AI 能力走 agent——chips 发
     // 自然语言，agent 识别调对应工具，产物卡回对话过目（写回走前端采纳）
-    chips: (s) => {
-      const byPanel: Record<string, ChatChip[]> = {
-        genre: [
-          { key: "settings_genre_core_promise", label: "AI 填 · 主要看什么", command: "给我几个「主要看什么」的核心看点候选。" },
-          { key: "settings_genre_forbidden_list", label: "AI 填 · 绝对禁止", command: "这本书绝不出现什么？给我红线清单候选。" },
-          { key: "settings_genre_cost_ratio", label: "AI 填 · 吃苦指数", command: "主角得到好处要付多大代价？给吃苦指数建议。" },
-          { key: "settings_genre_battlefield", label: "AI 填 · 本小说斗什么", command: "全书主要斗的是什么？给对抗物候选。" },
-        ],
-        intro: [
-          { key: "settings_intro", label: "AI 起草简介", command: "按三问帮我起草简介，出三条候选。" },
-        ],
-        foreshadow: [
-          { key: "settings_hooks_draft", label: "起草伏笔", command: "按我的简介＋题材＋世界，起草几条伏笔候选，配收束章。" },
-          { key: "settings_hooks_check", label: "埋坑体检", command: "扫一遍活跃伏笔和已写章纲，埋了没还的点名。" },
-        ],
-        arc: [
-          { key: "draft_arc", label: "AI 填 · 起草主线", command: "帮我起草主线。" },
-          { key: "check_consistency", label: "主线自检", command: "做一次主线自检。" },
-        ],
-      };
-      return byPanel[s.settingPanel ?? ""] ?? [
-        { key: "draft_arc", label: "AI 填 · 起草主线", command: "帮我起草主线。" },
-        { key: "check_consistency", label: "主线自检", command: "做一次主线自检。" },
-      ];
-    },
+    // c-agent-panel-consolidate：byPanel 上提为模块级 SETTINGS_PANEL_CHIPS 单一
+    // 文案源——面板「让助手办」按钮从 settingsPanelCommand 读同一份，禁抄第二份
+    chips: (s) =>
+      SETTINGS_PANEL_CHIPS[s.settingPanel ?? ""] ?? SETTINGS_PANEL_CHIPS.default,
   },
 ];
+
+/** 世界五格三字动宾标签（搭/立/标/列/钉——boss 拍板口径） */
+const WORLD_CHIP_LABELS: Record<string, string> = {
+  stage: "搭舞台", power: "立体系", cost: "标代价", factions: "列势力", constraints: "钉铁律",
+};
+
+/** 设定面板 chips 单一文案源（c-agent-panel-consolidate）：面板「让助手办」按钮
+ *  与 dock chips 读同一份——按钮文案===chips 文案有钉子守着。 */
+export const SETTINGS_PANEL_CHIPS: Record<string, ChatChip[]> = {
+  genre: [
+    { key: "settings_genre_core_promise", label: "出爽点", command: "给我几个「主要看什么」的核心看点候选。" },
+    { key: "settings_genre_forbidden_list", label: "划红线", command: "这本书绝不出现什么？给我红线清单候选。" },
+    { key: "settings_genre_cost_ratio", label: "掂掂代价", command: "主角得到好处要付多大代价？给吃苦指数建议。" },
+    { key: "settings_genre_battlefield", label: "定对手", command: "全书主要斗的是什么？给对抗物候选。" },
+  ],
+  intro: [
+    { key: "settings_intro", label: "起草简介", command: "按三问帮我起草简介，出三条候选。" },
+  ],
+  foreshadow: [
+    { key: "settings_hooks_draft", label: "起草伏笔", command: "按我的简介＋题材＋世界，起草几条伏笔候选，配收束章。" },
+    { key: "settings_hooks_check", label: "埋坑体检", command: "扫一遍活跃伏笔和已写章纲，埋了没还的点名。" },
+  ],
+  arc: [
+    { key: "draft_arc", label: "起草主线", command: "帮我起草主线。" },
+    { key: "check_consistency", label: "主线自检", command: "做一次主线自检。" },
+  ],
+  world: (
+    Object.entries({
+      stage: "世界舞台", power: "力量体系", cost: "力量的代价",
+      factions: "势力", constraints: "世界铁律",
+    }) as Array<[string, string]>
+  ).map(([key, label]) => ({
+    key: "draft_worldbuilding",
+    label: WORLD_CHIP_LABELS[key as string] ?? `起草${label}`,
+    command: `帮我起草世界观的「${label}」要素候选。`,
+    args: { topic: label },
+  })),
+  chars: [
+    { key: "draft_character", label: "捏个角色", command: "按现有角色和主线，出一个新角色草案。" },
+    { key: "diverge_character_group", label: "来群角色", command: "发散一群角色草案给我挑。" },
+    { key: "draft_names", label: "起名字", command: "给我出几个角色名候选。" },
+    { key: "check_consistency", label: "一致性体检", command: "做一次一致性体检。" },
+  ],
+  default: [
+    { key: "draft_arc", label: "起草主线", command: "帮我起草主线。" },
+    { key: "check_consistency", label: "主线自检", command: "做一次主线自检。" },
+  ],
+};
+
+/** 面板「让助手办」按钮的单一声源：从设定面板 chips 表读指令文案。 */
+export function settingsPanelCommand(panel: string, key: string): string {
+  const chips = SETTINGS_PANEL_CHIPS[panel] ?? [];
+  return chips.find((c) => c.key === key)?.command ?? "";
+}
 
 /** 取当前页注册（按序首个 match；无匹配返回 null——宿主回落旧面板）。 */
 export function matchRegistration(scope: ChatPageScope): ChatPageRegistration | null {
@@ -192,26 +238,31 @@ export function matchRegistration(scope: ChatPageScope): ChatPageRegistration | 
 }
 
 /** 启动校验（fail loud）：chips 的 key 必须在白名单内——注册了工具清单外的能力即报错。
- *  章级注册按页签全组扫（chips 随章内页签换装，漏扫一签即漏检一签）。 */
+ *  章级注册按页签全组扫（chips 随章内页签换装，漏扫一签即漏检一签）；
+ *  设定级注册按面板全组扫（c-agent-panel-consolidate：收编面板 chips 全量过闸——
+ *  此前只扫 fallback，面板组 chips 逃在校验外）。 */
 const CHAPTER_TAB_SWEEP = ["og", "prose", "settings", "relations", "hooks", "actions", "style"];
+const SETTINGS_PANEL_SWEEP = ["genre", "intro", "foreshadow", "arc", "world", "chars", "default"];
 
-export function validateRegistrations(
-  regs: ChatPageRegistration[] = REGISTRATIONS,
-  whitelist: readonly string[] = CHIP_KEYS,
-): void {
-  for (const r of regs) {
+export function validateRegistrations(): void {
+  for (const r of REGISTRATIONS) {
     const scopes = (
-      r.id === "workbench.chapter" ? CHAPTER_TAB_SWEEP : [undefined]
-    ).map((chapterTab) => ({
+      r.id === "workbench.chapter"
+        ? CHAPTER_TAB_SWEEP
+        : r.id === "settings.default"
+          ? SETTINGS_PANEL_SWEEP
+          : [undefined]
+    ).map((v) => ({
       view: "workbench" as const,
       chapterRef: "vol-1-ch-1",
       volumeSelId: null,
       emptyBook: false,
-      chapterTab,
+      chapterTab: r.id === "workbench.chapter" ? v : undefined,
+      settingPanel: r.id === "settings.default" ? v : undefined,
     }));
     for (const scope of scopes) {
     for (const chip of r.chips(scope)) {
-      if (!(whitelist as readonly string[]).includes(chip.key)) {
+      if (!(CHIP_KEYS as readonly string[]).includes(chip.key)) {
         throw new Error(`[chatRegistry] 页面 ${r.id} 注册了未登记的能力：${chip.key}`);
       }
       }

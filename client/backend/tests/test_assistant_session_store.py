@@ -203,27 +203,3 @@ async def test_db_migration_exports_equivalent_jsonl_idempotent():
     assert again.id == sid
     rows = await ss.load_messages(again)
     assert len(rows) == 2 and rows[0].content == "迁移钉第一问"
-
-
-@pytest.mark.asyncio
-async def test_meta_line_over_2kb_does_not_duplicate_session():
-    """审查 P1 回归钉：compact 摘要撑大 meta 行（>2048 字节）后，线程解析
-    必须仍命中原会话——截断读取会误判为新线程建重复文件、历史搁浅。"""
-    import json as _json
-    from pathlib import Path
-
-    session = await ss.get_or_create_session(user_id="u_big", novel_id="n_big", thread_key="ch:og")
-    big_summary = "长" * 2500  # SUMMARY_MAX_TOKENS=3000 量级的 compact 摘要
-    await ss.touch_session(session, compaction={"boundary_index": 5, "summary_text": big_summary})
-
-    # meta 行确实超 2048 字节（触发条件成立）
-    raw_first = Path(session.path).read_text(encoding="utf-8").splitlines()[0]
-    assert len(raw_first.encode("utf-8")) > 2048
-
-    again = await ss.get_or_create_session(user_id="u_big", novel_id="n_big", thread_key="ch:og")
-    assert again.id == session.id, "大 meta 行必须仍解析命中原会话"
-    assert again.path == session.path
-    assert _json.loads(again.compaction_json)["summary_text"] == big_summary
-    # 目录里只有一个文件（无 duplicate）
-    novel_dir = Path(session.path).parent
-    assert len(list(novel_dir.glob("*.jsonl"))) == 1

@@ -60,18 +60,22 @@ type MirrorEntry = {
 
 type CardMsg = { code: string; data: unknown };
 
-/** dock 写入上下文：卡面组件（在 ChatAnywhere 树内渲染）用它翻卡面态/发回执 */
+/** dock 写入上下文：卡面组件（在 ChatAnywhere 树内渲染）用它翻卡面态/发回执/
+ *  写回后按域请宿主刷新（c-agent-panel-consolidate） */
 const DockCtx = createContext<{
   apiRef: { current: ChatAnywhereRef | null };
   up: (entry: MirrorEntry) => void;
   /** 采纳账登记（同目标新卡到货判 stale 的依据） */
   markAdopted: (cardId: string) => void;
+  /** 采纳写回后的域刷新上抛（宿主走 dirty 守卫再重载面板） */
+  refreshDomain?: (domain: "settings" | "chapters") => void;
 } | null>(null);
 
 /** 产物卡（cardConfig 注册：code="artifact"）——复用既有 CardBody，视觉零变化；
- *  卷纲草案卡带「采纳 · 写入」（PUT volumes 真实落库＋采纳回执落库＋流内回执），
+ *  「采纳 · 写入」按卡种写回（c-agent-panel-consolidate）：卷纲草案 PUT volumes／
+ *  settings 字段卡 GET+merge+PUT settings/<stype>／世界观卡（文本格）merge world／
+ *  角色草案卡建卡＋写 name/persona（其余字段在卡上照着补）。
  *  adopted 翻已建卡徽标、同目标新卡把旧卡标 stale。 */
-
 
 function ArtifactCard(props: { data: ArtifactCardData; id?: string }) {
   const { data, id } = props;
@@ -83,23 +87,29 @@ function ArtifactCard(props: { data: ArtifactCardData; id?: string }) {
     data.kind === "text" &&
     typeof (payload.draft as Record<string, unknown> | undefined) === "object" &&
     payload.vol_no != null;
+  // 可写回卡种判定（c-agent-panel-consolidate）：settings 字段卡／世界观文本格卡／角色草案卡
+  const isSettingsField = payload.stype != null && payload.field != null && payload.value != null;
+  const isWorldCard =
+    data.kind === "text" && payload.topic != null && payload.draft != null && payload.vol_no == null;
+  const isCharacterDraft = payload.character_draft != null;
+  const adoptable = isVolumeDraft || isSettingsField || isWorldCard || isCharacterDraft;
 
   const adopt = async () => {
-    const draft = payload.draft as Record<string, unknown>;
-    const volNo = payload.vol_no as number;
     if (!id || !data.projectId || !ctx) return;
     setBusy(true);
     try {
-      const { api } = await import("@/lib/api");
-      await api.put(`/novels/${data.projectId}/volumes/vol-${volNo}`, {
-        title: draft.name,
-        summary: draft.summary,
-        core_conflict: draft.conflict,
-        ending: draft.ending,
-        chapter_target: draft.chapter_target,
-        antagonist_type: draft.antagonist_type,
-        antagonist_line: draft.antagonist_line,
-      });
+      let receipt: string;
+      if (isVolumeDraft) {
+        receipt = await writeBackVolume(data.projectId, payload);
+      } else if (isSettingsField) {
+        receipt = await writeBackSettingsField(data.projectId, payload);
+      } else if (isWorldCard) {
+        receipt = await writeBackWorld(data.projectId, payload);
+      } else if (isCharacterDraft) {
+        receipt = await writeBackCharacter(data.projectId, payload);
+      } else {
+        throw new Error("这张卡没有对应的写入动作——按卡面提示回面板操作。");
+      }
       ctx.markAdopted(id);
       if (data.cardId) {
         // 采纳回执落库（best-effort×3 退避）：事件到前端可能早于服务端 append 落卡
@@ -117,7 +127,9 @@ function ArtifactCard(props: { data: ArtifactCardData; id?: string }) {
         })();
       }
       ctx.up({ id, role: "assistant", content: "", msgStatus: "finished", cards: [{ code: "artifact", data: { ...data, status: "adopted" } }] });
-      ctx.up({ id: `rcpt-${id}`, role: "assistant", content: `已写入第 ${volNo} 卷的卷纲要点，可继续改。` });
+      // 写回后按域刷新（c-agent-panel-consolidate）：settings 域走宿主 dirty 守卫
+      ctx.refreshDomain?.(isSettingsField || isWorldCard ? "settings" : "chapters");
+      ctx.up({ id: `rcpt-${id}`, role: "assistant", content: receipt });
     } catch (e) {
       ctx.up({
         id: `err-${id}`,
@@ -141,7 +153,7 @@ function ArtifactCard(props: { data: ArtifactCardData; id?: string }) {
       <CardBody kind={data.kind} payload={payload} />
       {(status === "draft" || status === "stale") && (
         <div className="cd-card-foot">
-          {isVolumeDraft && (
+          {adoptable && (
             <button
               type="button"
               className="cd-btn primary"
@@ -378,6 +390,7 @@ export function Aui2Dock({
   onStreamingChange,
   onEffects,
   onEffect,
+  autoAsk,
 }: {
   projectId: string;
   page: string;
@@ -394,6 +407,9 @@ export function Aui2Dock({
   onEffects?: (effects: { action: string; domain: string; target?: string }[]) => void;
   /** 单条即时 effect（c-agent-nav：navigate 中途翻页——活体事件，不入镜像不落库） */
   onEffect?: (effect: { action: string; domain: string; target?: string; description?: string }) => void;
+  /** 面板「让助手办」命令式触发（c-agent-panel-consolidate）：seq 变更即自动
+   *  提交 message——与手输同一条 submit 链，键校验/域校验/授权梯度零绕过 */
+  autoAsk?: { seq: number; message: string };
 }) {
   const threadKey = threadKeyOf(scope);
   const apiRef = useRef<ChatAnywhereRef | null>(null);
@@ -456,11 +472,20 @@ export function Aui2Dock({
     });
   }, []);
 
-  /** dock 上下文（卡面组件翻态/发回执走同一 upsert；采纳账同步登记） */
+  /** dock 上下文（卡面组件翻态/发回执走同一 upsert；采纳账同步登记；写回后域刷新） */
   const markAdopted = useCallback((cardId: string) => {
     adoptedTargetsRef.current.add(cardId);
   }, []);
-  const dockCtx = useMemo(() => ({ apiRef, up: threadUp, markAdopted }), [threadUp, markAdopted]);
+  const refreshDomain = useCallback(
+    (domain: "settings" | "chapters") => {
+      onEffects?.([{ action: "refresh", domain }]);
+    },
+    [onEffects],
+  );
+  const dockCtx = useMemo(
+    () => ({ apiRef, up: threadUp, markAdopted, refreshDomain }),
+    [threadUp, markAdopted, refreshDomain],
+  );
 
   /** trace 卡：本地账累计（同帧多次事件不丢步）＋镜像 upsert */
   const upsertTrace = useCallback(
@@ -981,6 +1006,17 @@ export function Aui2Dock({
     [projectId, page, scope.chapterRef, upsertTrace, onStreamingChange, onEffects, onEffect],
   );
 
+  // 面板「让助手办」自动提交（c-agent-panel-consolidate）：seq 消费一次即记账
+  // （防 effect 重跑重发）；与手输同一条 onSubmit 链——键校验/域校验/授权梯度零绕过
+  const autoAskSeqRef = useRef(0);
+  useEffect(() => {
+    const seq = autoAsk?.seq ?? 0;
+    const message = (autoAsk?.message ?? "").trim();
+    if (!seq || seq === autoAskSeqRef.current || !message) return;
+    autoAskSeqRef.current = seq;
+    void onSubmit({ query: message });
+  }, [autoAsk, onSubmit]);
+
   const ctxPct = ctx ? Math.min(100, ctx.pct) : 0;
   const ctxHot = ctxPct >= 80;
 
@@ -1068,7 +1104,7 @@ export function Aui2Dock({
                   }
                   if (c.open) onOpenAction?.(c.open);
                   else {
-                    pendingHintRef.current = { tool: c.key, args: {} };
+                    pendingHintRef.current = { tool: c.key, args: c.args ?? {} };
                     void onSubmit({ query: c.command });
                   }
                 }}

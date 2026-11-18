@@ -69,6 +69,8 @@ interface Props {
   onBlocked?: (reason: AiState) => void;
   /** 该项是否已确认（confirmedStatus.hooks）——徽标「已确认」系与内容有变降级的判据 */
   confirmed?: boolean;
+  /** 面板「让助手办」分派（c-agent-panel-consolidate）：消息直发 dock */
+  onAskAssistant?: (message: string) => void;
 }
 
 export interface HooksPanelHandle extends SettingSaveHandle {
@@ -179,7 +181,7 @@ function fingerprint(items: HookEntry[]): string {
 }
 
 const HooksSettingForm = forwardRef<HooksPanelHandle, Props>(function HooksSettingForm(
-  { projectId, onDirtyChange, onSaveStateChange, onPanelState, onCtxChange, aiState, onBlocked, confirmed = false },
+  { projectId, onDirtyChange, onSaveStateChange, onPanelState, onCtxChange, aiState, onBlocked, confirmed = false, onAskAssistant },
   ref,
 ) {
   const [loading, setLoading] = useState(true);
@@ -616,11 +618,21 @@ const HooksSettingForm = forwardRef<HooksPanelHandle, Props>(function HooksSetti
         setAiRunning(null);
       }
     },
-    [projectId, draftSinks, payoffSink, auditSinks, checkSink],
+    [projectId, draftSinks, payoffSink, auditSinks, checkSink, onAskAssistant],
   );
 
   const runAi = useCallback(
     async (key: string) => {
+      // 收编前置（c-agent-panel-consolidate）：h1 起草/h3 体检走对话——面板只分派，
+      // 候选卡回对话过目（hooks 条目回填作家按卡手动贴回，面板语义本如此）
+      if (onAskAssistant && (key === "h1" || key === "h3")) {
+        const { settingsPanelCommand } = await import("@/lib/chatRegistry");
+        const command = settingsPanelCommand("foreshadow", key === "h1" ? "settings_hooks_draft" : "settings_hooks_check");
+        if (command) {
+          onAskAssistant(command);
+          return;
+        }
+      }
       if (aiBusyRef.current) return; // 已有在途请求：忽略重复触发
       if (key !== "h1" && key !== "h2" && key !== "h3" && key !== "h4") return;
       const hasCache =
@@ -1327,7 +1339,7 @@ const HooksSettingForm = forwardRef<HooksPanelHandle, Props>(function HooksSetti
         card={
           cardAction === "h1" && draftSinks
             ? {
-                label: "AI 填 · 起草伏笔（勾选后采纳）",
+                label: "让助手办 · 起草伏笔（勾选后采纳）",
                 kind: "pick",
                 adoptText: "采纳所选 · 加入活跃",
                 cached: cardCached,
@@ -1365,7 +1377,7 @@ const HooksSettingForm = forwardRef<HooksPanelHandle, Props>(function HooksSetti
               }
             : cardAction === "h2" && payoffSink
               ? {
-                  label: `AI 填 · 拟收束方案（对 ${payoffSink.code} 生效）`,
+                  label: `让助手办 · 拟收束方案（对 ${payoffSink.code} 生效）`,
                   kind: "struct",
                   cached: cardCached,
                   node: (

@@ -26,9 +26,7 @@ function genericValue(v: unknown): string {
   try {
     return JSON.stringify(v).slice(0, 120);
   } catch {
-    /* v8 ignore start -- 防御分支：payload 恒为 JSON round-trip（API 产物），循环引用不可达 */
     return String(v);
-    /* v8 ignore stop */
   }
 }
 

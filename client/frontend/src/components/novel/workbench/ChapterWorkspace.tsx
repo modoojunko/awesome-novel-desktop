@@ -706,7 +706,7 @@ const [ogForm, setOgForm] = useState<OgForm>(EMPTY_OG_FORM);
     killPlotReceipt();
     // 只回滚 plots（函数式，别的格子不碰）；借 3s 自动保存回写（design.md 既定口径）
     setOgForm((f) => ({ ...f, plots: r.prev.slice() }));
-    toast.info("已恢复到 AI 填写前的列表");
+    toast.info("已恢复到这批剧情写入前的列表");
   }, [killPlotReceipt]);
 
   // 存量稿章改剧情软提示（拍板⑥；c-retire-prompt-polish 后出口指向「刷新提示词」）：

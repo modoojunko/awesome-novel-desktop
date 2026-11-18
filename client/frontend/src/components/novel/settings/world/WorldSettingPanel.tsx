@@ -126,6 +126,8 @@ type WorldSinkKey = "stage" | "power" | "cost" | "factions" | "constraints";
 
 export interface WorldPanelProps {
   projectId: string;
+  /** 面板「让助手办」分派（c-agent-panel-consolidate）：消息直发 dock */
+  onAskAssistant?: (message: string) => void;
   onDirtyChange?: (dirty: boolean) => void;
   onReceiptChange?: (r: ChangeReceiptState | null) => void;
   /** 体检修复行跳转出口：简介/题材的缺口要去对应面板补 */
@@ -140,7 +142,7 @@ export interface WorldPanelHandle extends SettingSaveHandle {
 }
 
 const WorldSettingPanel = forwardRef<WorldPanelHandle, WorldPanelProps>(function WorldSettingPanel(
-  { projectId, onDirtyChange, onReceiptChange, onGotoPanel, onNoPowerChange },
+  { projectId, onAskAssistant, onDirtyChange, onReceiptChange, onGotoPanel, onNoPowerChange },
   ref,
 ) {
   const [world, setWorld] = useState<WorldData>(EMPTY);
@@ -423,6 +425,21 @@ const WorldSettingPanel = forwardRef<WorldPanelHandle, WorldPanelProps>(function
   };
 
   const runAi = async (key: WorldAiField | "check"): Promise<void> => {
+    // 收编前置（c-agent-panel-consolidate）：五格起草与体检全部走对话——格底稿
+    // 80 字随行（c-world-draft-input 的 current 语义由消息承载）；旧弹窗机器休眠
+    if (onAskAssistant) {
+      const label = SINK_TOPIC[key as WorldSinkKey] ?? "";
+      if (label) {
+        const current = currentTextOf(key as WorldSinkKey, dataRef.current);
+        const ctxText = current ? `（当前格底稿：${current.slice(0, 80)}）` : "";
+        onAskAssistant(`帮我起草世界观的「${label}」要素候选。${ctxText}`);
+        return;
+      }
+      if (key === "check") {
+        onAskAssistant("给世界观做一次一致性体检——对照简介、题材和已有设定点名冲突。");
+        return;
+      }
+    }
     if (busyRef.current) return;
     const hasCache = key === "check" ? !!checkRef.current : !!cards[key as WorldSinkKey];
     if (hasCache) {
@@ -747,7 +764,7 @@ const WorldSettingPanel = forwardRef<WorldPanelHandle, WorldPanelProps>(function
         card={
           cardKey && cards[cardKey]
             ? {
-                label: `AI 填 · ${SINK_TOPIC[cardKey] ?? cardKey}`,
+                label: `让助手办 · ${SINK_TOPIC[cardKey] ?? cardKey}`,
                 kind: cards[cardKey]!.kind,
                 adoptText: cardKey === "constraints" || cardKey === "factions" ? "采纳 · 合并" : "采纳 · 覆盖",
                 cached: cards[cardKey]!.cached,

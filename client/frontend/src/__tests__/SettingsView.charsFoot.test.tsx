@@ -62,6 +62,7 @@ function renderChars(
 ) {
   return render(
     <SettingsView
+      onAskAssistant={vi.fn()}
       projectId="p1"
       initialPanel="characters"
       settingsStatus={{ characters: true }}
@@ -178,6 +179,7 @@ describe("角色面板 · 主按钮按保存模型分派", () => {
     const confirmSetting = vi.fn().mockResolvedValue(true);
     render(
       <SettingsView
+      onAskAssistant={vi.fn()}
         projectId="p1"
         initialPanel="characters"
         settingsStatus={{ characters: true }}

@@ -8,6 +8,8 @@
 route 层（SSE effect 事件下发/不入库）在 test_assistant_chat_stream_http.py。
 """
 
+import json
+
 import pytest
 
 from assistant.router import nav_prime_hint
@@ -138,3 +140,25 @@ def test_ch_discipline_carries_switch_tab_rule():
     assert "switch_tab" in d
     assert "不许只用话术说切了" in d
     assert "switch_tab" not in discipline_of_thread("vol")
+
+
+@pytest.mark.asyncio
+async def test_world_card_draft_peels_dict_and_json_string():
+    """世界卡 draft 三态剥壳钉（走查实锤：dict 形态漏剥＝产物卡裸 JSON）。"""
+    from unittest.mock import AsyncMock
+
+
+    ctx = ToolContext(novel_id="n", root_path="/tmp", user_id="u", page="settings", thread="set:default")
+
+    async def _cap(result):
+        with __import__("unittest").mock.patch(
+            "assistant.caps.world.draft_world_cap", AsyncMock(return_value=result)
+        ):
+            return await run_tool(ctx, "draft_worldbuilding", {"topic": "力量体系"})
+
+    r1 = await _cap({"draft": {"value": "血源共鸣", "note": "x"}})
+    assert r1.card["payload"]["draft"] == "血源共鸣"  # dict 形态（走查实锤漏剥）
+    r2 = await _cap({"draft": json.dumps({"value": "文本B"})})
+    assert r2.card["payload"]["draft"] == "文本B"  # 字符串单层
+    r3 = await _cap({"draft": "纯文本草稿"})
+    assert r3.card["payload"]["draft"] == "纯文本草稿"  # 纯文本原样

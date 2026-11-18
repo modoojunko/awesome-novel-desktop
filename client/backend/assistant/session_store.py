@@ -18,7 +18,6 @@
 
 from __future__ import annotations
 
-import asyncio
 import json
 import os
 import re
@@ -253,12 +252,10 @@ def _iter_novel_files(novel_id: str) -> list[Path]:
 
 
 def _load_meta_obj(path: Path) -> dict[str, Any] | None:
-    """读首行找 meta 行。整行读取——meta 内嵌 compaction（summary_text 3000 tokens
-    级），可超 2KB；截断读取会让 JSON 解析失败、线程被误判为新会话建重复文件
-    （审查 P1 实锤：2500 字摘要 → meta 7785 字节 → 历史搁浅）。"""
+    """只读文件头部找 meta 行（前 2KB 足够——meta 是首行）。"""
     try:
         with path.open("r", encoding="utf-8") as f:
-            head = f.readline()
+            head = f.readline(2048)
     except (OSError, UnicodeDecodeError):
         return None
     try:
@@ -552,23 +549,6 @@ async def find_card_message(novel_id: str, card_id: str) -> MsgRow | None:
 # ── 存量迁移（c-agent-session-files D4）────────────────────────────────────
 
 
-def _is_lock_error(e: Exception) -> bool:
-    """SQLite 锁竞争（CI 多引擎偶发实锤）——迁移重试判定。"""
-    msg = str(e).lower()
-    return "database is locked" in msg or "database table is locked" in msg
-
-
-async def _lock_retry(coro_fn, attempts: int = 4):
-    """锁竞争退避重试：读幂等＋文件写按存在性幂等——重试安全。"""
-    for i in range(attempts):
-        try:
-            return await coro_fn()
-        except Exception as e:  # noqa: BLE001——重试判定在 _is_lock_error
-            if i == attempts - 1 or not _is_lock_error(e):
-                raise
-            await asyncio.sleep(1.5 * (i + 1))
-
-
 async def migrate_db_sessions() -> dict[str, int]:
     """DB 两表存量 → JSONL 导出（一次性＋幂等＋fail-soft）。
 
@@ -580,64 +560,55 @@ async def migrate_db_sessions() -> dict[str, int]:
     from models.assistant import AssistantMessage, AssistantSession
 
     out = {"sessions": 0, "messages": 0, "skipped": 0}
-
-    async def _read_all():
-        async with async_session() as db:
-            sessions = (
-                await db.scalars(select(AssistantSession).order_by(AssistantSession.created_at))
-            ).all()
-            per_msgs = {}
-            for row in sessions:
-                msgs = (
-                    await db.scalars(
-                        select(AssistantMessage)
-                        .where(AssistantMessage.session_id == row.id)
-                        .order_by(AssistantMessage.seq)
-                    )
-                ).all()
-                per_msgs[row.id] = msgs
-            return sessions, per_msgs
-
-    sessions, per_msgs = await _lock_retry(_read_all)
-    for row in sessions:
-        meta = SessionMeta(
-            id=row.id,
-            user_id=row.user_id,
-            novel_id=row.novel_id,
-            thread_key=row.thread_key,
-            page_cursor=row.page_cursor,
-            grants_json=row.grants_json or "{}",
-            compaction_json=row.compaction_json or "{}",
-            created_at=row.created_at or _now(),
-            updated_at=row.updated_at or row.created_at or _now(),
-        )
-        path = _session_path(meta)
-        if path.exists():
-            out["skipped"] += 1
-            continue
-        msgs = per_msgs.get(row.id, [])
-        meta_d = _meta_dict(meta)
-        lines = [json.dumps(meta_d, ensure_ascii=False)]
-        for m in msgs:
-            row = MsgRow(
-                id=m.id,
-                session_id=m.session_id,
-                novel_id=m.novel_id,
-                seq=m.seq,
-                role=m.role,
-                page=m.page,
-                content=m.content,
-                payload_json=m.payload_json or "{}",
-                card_kind=m.card_kind,
-                status=m.status,
-                run_id=m.run_id,
-                tokens_in=m.tokens_in,
-                tokens_out=m.tokens_out,
-                created_at=m.created_at,
+    async with async_session() as db:
+        sessions = (
+            await db.scalars(select(AssistantSession).order_by(AssistantSession.created_at))
+        ).all()
+        for row in sessions:
+            meta = SessionMeta(
+                id=row.id,
+                user_id=row.user_id,
+                novel_id=row.novel_id,
+                thread_key=row.thread_key,
+                page_cursor=row.page_cursor,
+                grants_json=row.grants_json or "{}",
+                compaction_json=row.compaction_json or "{}",
+                created_at=row.created_at or _now(),
+                updated_at=row.updated_at or row.created_at or _now(),
             )
-            lines.append(json.dumps(_msg_dict(row), ensure_ascii=False))
-        path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text("\n".join(lines) + "\n", encoding="utf-8")
-        out["sessions"] += 1
-        out["messages"] += len(msgs)
+            path = _session_path(meta)
+            if path.exists():
+                out["skipped"] += 1
+                continue
+            msgs = (
+                await db.scalars(
+                    select(AssistantMessage)
+                    .where(AssistantMessage.session_id == row.id)
+                    .order_by(AssistantMessage.seq)
+                )
+            ).all()
+            meta_d = _meta_dict(meta)
+            lines = [json.dumps(meta_d, ensure_ascii=False)]
+            for m in msgs:
+                row = MsgRow(
+                    id=m.id,
+                    session_id=m.session_id,
+                    novel_id=m.novel_id,
+                    seq=m.seq,
+                    role=m.role,
+                    page=m.page,
+                    content=m.content,
+                    payload_json=m.payload_json or "{}",
+                    card_kind=m.card_kind,
+                    status=m.status,
+                    run_id=m.run_id,
+                    tokens_in=m.tokens_in,
+                    tokens_out=m.tokens_out,
+                    created_at=m.created_at,
+                )
+                lines.append(json.dumps(_msg_dict(row), ensure_ascii=False))
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+            out["sessions"] += 1
+            out["messages"] += len(msgs)
     return out

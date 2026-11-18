@@ -117,6 +117,12 @@ export interface SettingsViewProps {
   onGoWrite?: () => void;
   /** 本书书名——简介 AI 入参 title 的来源（tasks 3.5 钉死）。 */
   novelName?: string;
+  /** 面板「让助手办」分派（c-agent-panel-consolidate）：消息直发 dock */
+  onAskAssistant: (message: string) => void;
+  /** 采纳写回后的面板刷新信号（dirty 守卫在宿主侧——干净才递增）；note＝有未保存修改未刷新 */
+  refreshSeq?: number;
+  refreshNote?: boolean;
+  onRefreshNoteSeen?: () => void;
 }
 
 /** 旧面板键 → 新面板键（外部 jump 载荷兼容）；默认＝设定首项「题材」（c-genre-first-order） */
@@ -132,6 +138,7 @@ function normalizePanel(v: string | undefined): string {
 export default function SettingsView({
   projectId, initialPanel, homeSeq, settingsStatus, confirmedStatus, charStale, confirmSetting,
   onRefreshConfirmState, onDirtyChange, onGoWrite, novelName, onPanelChange,
+  onAskAssistant, refreshSeq = 0, refreshNote = false, onRefreshNoteSeen,
 }: SettingsViewProps) {
   const [panel, setPanel] = useState(() => normalizePanel(initialPanel));
   useEffect(() => {
@@ -147,6 +154,14 @@ export default function SettingsView({
   useEffect(() => setReceipt(null), [panel]);
   const [dirty, setDirty] = useState(false);
   const [busy, setBusy] = useState(false);
+  // 采纳写回提示（c-agent-panel-consolidate）：面板有未保存修改时宿主不重载——
+  // 这里把「没帮你刷新」如实说一句（一次性，看过即清）
+  useEffect(() => {
+    if (refreshNote) {
+      toast.info("采纳已写进书里——这页有没保存的修改，先保存再切走就能对上。");
+      onRefreshNoteSeen?.();
+    }
+  }, [refreshNote, onRefreshNoteSeen]);
 
   // ── 题材知识导入征询（c-kb-book-scope 弹窗二选一）──────────────────────
   // 题材定稿后（或进入已有题材的书）差异 >0 且作家没选过「我自己设定」→ 自动弹。
@@ -929,7 +944,10 @@ export default function SettingsView({
           </div>
           <p className="desc">{panelDesc}</p>
 
+          {/* 采纳写回刷新（c-agent-panel-consolidate）：key 重挂＝面板重载取新数据
+              （dirty 守卫在宿主侧——只递增说明面板干净）＋未刷新提示条 */}
           <div
+            key={`panel-${panel}-${refreshSeq}`}
             className={panel === "chars" || panel === "foreshadow" ? "sub-wrap" : undefined}
           >
             {panel === "genre" && (
@@ -940,6 +958,7 @@ export default function SettingsView({
                 ref={genreRef}
                 projectId={projectId}
                 settingKey="genre"
+                onAskAssistant={onAskAssistant}
                 onDirtyChange={handleDirtyChange}
                 onReceiptChange={handleReceiptChange}
                 novelName={novelName}
@@ -969,6 +988,7 @@ export default function SettingsView({
                 }}
                 projectId={projectId}
                 ctl={arcCtl}
+                onAskAssistant={onAskAssistant}
                 onReceiptChange={handleReceiptChange}
               />
             )}
@@ -979,6 +999,7 @@ export default function SettingsView({
                 <WorldSettingPanel
                   ref={worldRef}
                   projectId={projectId}
+                  onAskAssistant={onAskAssistant}
                   onDirtyChange={handleDirtyChange}
                   onReceiptChange={handleReceiptChange}
                   onGotoPanel={(k) => handleSelect(k)}
@@ -1012,6 +1033,7 @@ export default function SettingsView({
                 }}
                 projectId={projectId}
                 settingKey="hooks"
+                onAskAssistant={onAskAssistant}
                 onDirtyChange={handleDirtyChange}
                 onSaveStateChange={setHookSaveState}
                 onPanelState={setHookPanelState}
@@ -1025,6 +1047,7 @@ export default function SettingsView({
               <CharacterManager
                 ref={formRef}
                 projectId={projectId}
+                onAskAssistant={onAskAssistant}
                 onDirtyChange={handleDirtyChange}
                 onCtxChange={setCharCtx}
                 onEmptyChange={setCharEmpty}

@@ -20,7 +20,8 @@ import { toast } from "@/lib/toast";
 import { Ico, P } from "@/components/icons";
 import { useDirtyState } from "@/hooks/useDirtyState";
 import { genreAi, aiBlockReason, type GenreAiField } from "@/lib/ai";
-import AiCardModal, { type AiCardState } from "./AiCardModal";
+import { settingsPanelCommand } from "@/lib/chatRegistry";
+import AiCardModal, { type AiCardState } from "./AiCardModal"; // 休眠：收编后仅「换一个」等旧路径残留，清理挂 c-agent-panel-consolidate 收尾
 import { RestoreHint, useChangeReceipt } from "./ChangeReceipt";
 import { type SettingSaveHandle } from "./FormField";
 import {
@@ -41,6 +42,8 @@ interface GenreSettingFormProps {
   projectId: string;
   settingKey: string;
   onDirtyChange?: (dirty: boolean) => void;
+  /** 面板「让助手办」分派（c-agent-panel-consolidate）：消息直发 dock */
+  onAskAssistant?: (message: string) => void;
   /** 改动回执（一键改变内容类动作在脚部留一条 + 一步撤销；用户 2026-09-10 拍板）。 */
   onReceiptChange?: (r: import("./ChangeReceipt").ChangeReceiptState | null) => void;
   /** 本书书名——题材 AI 入参 title 的来源。 */
@@ -67,10 +70,10 @@ export const GENRE_AI_FIELDS: GenreAiField[] = [
 
 /** 五行 AI 的字段 → 结果区标题（原型 ZONE_LABEL 同文案）。 */
 const AI_LABEL: Record<GenreAiField, string> = {
-  core_promise: "AI 填 · 主要看什么",
-  forbidden_list: "AI 填 · 绝对禁止",
-  cost_ratio: "AI 填 · 吃苦指数",
-  battlefield: "AI 填 · 本小说斗什么",
+  core_promise: "出爽点",
+  forbidden_list: "划红线",
+  cost_ratio: "掂掂代价",
+  battlefield: "定对手",
 };
 
 // ── 契约数据形态 ─────────────────────────────────────────────────────────
@@ -260,7 +263,7 @@ function PointChooser({
 // ── Main ─────────────────────────────────────────────────────────────────
 
 const GenreSettingForm = forwardRef<GenreHandle, GenreSettingFormProps>(function GenreSettingForm(
-  { projectId, settingKey, onDirtyChange, onReceiptChange, novelName, onSaved },
+  { projectId, settingKey, onDirtyChange, onReceiptChange, novelName, onSaved, onAskAssistant },
   ref,
 ) {
   const [loading, setLoading] = useState(true);
@@ -905,16 +908,15 @@ const GenreSettingForm = forwardRef<GenreHandle, GenreSettingFormProps>(function
     [data, novelName, projectId, patch, recordChange, closeCard, cards, cand.forbidden, cand.battlefield],
   );
 
+  // 收编（c-agent-panel-consolidate）：「AI 填」改「让助手办」——面板只组指令，
+  // 生成与过目采纳全在对话卡（adopt 写回 settings，本面板刷新走宿主 refreshSeq）
   const runAi = useCallback(
-    async (field: GenreAiField, opts?: { multi?: boolean }) => {
-      if (aiBusyRef.current) return; // 已有在途请求：忽略重复触发
-      if (cards[field]) {
-        openCached(field); // 重开＝展示缓存，不重复生成（D9）
-        return;
-      }
-      await runRequest(field, opts);
+    async (field: GenreAiField, _opts?: { multi?: boolean }) => {
+      const command = settingsPanelCommand("genre", `settings_genre_${field}`);
+      if (!command) return;
+      onAskAssistant?.(command);
     },
-    [cards, openCached, runRequest],
+    [onAskAssistant],
   );
 
   // 题材保存后重取节奏建议：后端 suggested_key 按已保存 story.yaml 题材算，
