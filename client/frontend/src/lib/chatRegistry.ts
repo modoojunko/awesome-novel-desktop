@@ -244,8 +244,8 @@ export function matchRegistration(scope: ChatPageScope): ChatPageRegistration | 
 const CHAPTER_TAB_SWEEP = ["og", "prose", "settings", "relations", "hooks", "actions", "style"];
 const SETTINGS_PANEL_SWEEP = ["genre", "intro", "foreshadow", "arc", "world", "chars", "default"];
 
-export function validateRegistrations(): void {
-  for (const r of REGISTRATIONS) {
+export function validateRegistrations(regs: readonly ChatPageRegistration[] = REGISTRATIONS): void {
+  for (const r of regs) {
     const scopes = (
       r.id === "workbench.chapter"
         ? CHAPTER_TAB_SWEEP
