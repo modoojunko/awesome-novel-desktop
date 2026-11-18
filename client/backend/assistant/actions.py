@@ -34,7 +34,7 @@ _REPLY_FALLBACK = "（我这一步没想明白，先直接回答：\n{snippet}�
 
 # 混排输出（人话夹协议 JSON）里的 reply 字段抽取——降级时优先给作家看内容，
 # 而不是把协议原文糊到对话框（boss 红线 2026-11-16：截图实锤协议 JSON 上屏）
-_REPLY_IN_TEXT = __import__("re").compile(r'"reply"\s*:\s*"((?:[^"\\]|\\.)*)"')
+_REPLY_IN_TEXT = re.compile(r'"reply"\s*:\s*"((?:[^"\\]|\\.)*)"')
 
 
 def _human_reply_from_raw(raw: str) -> str | None:
