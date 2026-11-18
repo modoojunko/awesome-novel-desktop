@@ -159,6 +159,21 @@ async def lifespan(app: FastAPI):
 
         logging.getLogger("uvicorn.error").warning("Failed to create tables: %s", e)
 
+    # ── 助手会话迁移：DB 两表存量 → sessions/ 目录 JSONL（c-agent-session-files）──
+    # 一次性＋幂等（目标文件存在跳过）＋fail-soft（失败不挡启动，下次重试）；
+    # DB 行保留归档（代码不再读写），回滚＝git revert 零数据风险。
+    try:
+        from assistant.session_store import migrate_db_sessions
+
+        _mig = await migrate_db_sessions()
+        if _mig.get("sessions"):
+            _log.info(
+                "assistant session migration: sessions=%s messages=%s skipped=%s",
+                _mig.get("sessions"), _mig.get("messages"), _mig.get("skipped"),
+            )
+    except Exception as _e:  # noqa: BLE001 — 迁移失败不挡启动（下次启动重试）
+        _log.warning("assistant session migration failed: %s", _e)
+
     # ── 旧导入书回填（c-import-direct）：只补 origin/import_kind，不改 status ──
     try:
         from novels.import_backfill import backfill_import_origin_v1

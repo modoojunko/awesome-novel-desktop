@@ -53,7 +53,6 @@ from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import StreamingResponse
-from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from assistant import compact as compact_mod
@@ -66,7 +65,6 @@ from assistant.tools import ToolContext, _clip, get_tool
 from auth_local.deps import ai_access_granted
 from auth_local.middleware import get_current_user
 from db import get_db
-from models.assistant import AssistantSession
 from models.project import Novel
 from novels.service import get_novel
 
@@ -141,10 +139,9 @@ def _resume_gap_note(rows: list[Any], *, threshold_hours: float = 6.0) -> str:
 
 
 async def _stream_command_reply(
-    db: AsyncSession,
     project: Novel,
     user: dict,
-    session: AssistantSession,
+    session: session_store.SessionMeta,
     page: str,
     reply: str,
     *,
@@ -159,7 +156,7 @@ async def _stream_command_reply(
         yield _sse({"type": "clear"})
     yield _sse({"type": "run_start", "runId": "cmd"})
     await session_store.append_message(
-        db, session.id, novel_id=project.id, role="assistant",
+        session, role="assistant",
         content=reply, page=page,
     )
     yield _sse({"type": "narration", "text": reply})
@@ -168,10 +165,9 @@ async def _stream_command_reply(
 
 
 async def _stream_compact(
-    db: AsyncSession,
     project: Novel,
     user: dict,
-    session: AssistantSession,
+    session: session_store.SessionMeta,
     page: str,
 ) -> AsyncIterator[str]:
     """「/compact」手动压缩：无条件走 build_state（阈值闸旁路），失败降级 trim。"""
@@ -189,15 +185,15 @@ async def _stream_compact(
         trim_state as compact_trim,
     )
 
-    rows = await session_store.load_messages(db, session.id)
+    rows = await session_store.load_messages(session)
     transcript = _history_transcript(rows)
-    prior = await session_store.load_compaction_state(db, session)
+    prior = await session_store.load_compaction_state(session)
     prior = remap_boundary(prior, transcript)
     _messages, tokens_est = build_outbound_window(transcript, compaction_state=prior)
 
     if tokens_est < 2_000:
         reply = "这一页的对话还很短，不用压缩。"
-        return _stream_command_reply(db, project, user, session, page, reply)
+        return _stream_command_reply(project, user, session, page, reply)
 
     client = await get_ai_client_for_novel(project.id)
     model_used = client.resolve("haiku")
@@ -229,7 +225,7 @@ async def _stream_compact(
         except Exception:  # noqa: BLE001——压缩失败降级裁剪（与自动压缩同政策）
             failed = True
     if state is not None:
-        await session_store.save_compaction_state(db, session.id, state)
+        await session_store.save_compaction_state(session, state)
         after = est_tokens(
             [
                 {"role": m.get("role"), "content": str(m.get("content", ""))}
@@ -241,25 +237,25 @@ async def _stream_compact(
             f"已压缩——更早的轮次收进了摘要，上下文从约 {tokens_est // 1000}K 降到约 {after // 1000}K。"
             "早前的细节需要时会自动重读。"
         )
-        return _stream_command_reply(db, project, user, session, page, reply)
+        return _stream_command_reply(project, user, session, page, reply)
     if failed:
         # openworker 口径：重试仍败→裁剪最旧（摘要不可用也要让上下文回落）
         state = compact_trim(transcript, prior=prior)
         if state is None:
             reply = "这一页的对话还很短，不用压缩。"
-            return _stream_command_reply(db, project, user, session, page, reply)
-        await session_store.save_compaction_state(db, session.id, state)
+            return _stream_command_reply(project, user, session, page, reply)
+        await session_store.save_compaction_state(session, state)
         reply = "摘要没压成，我把最旧的轮次裁掉了——需要更早的细节会自动重读。"
-        return _stream_command_reply(db, project, user, session, page, reply)
+        return _stream_command_reply(project, user, session, page, reply)
     reply = "这一页的对话还很短，不用压缩。"
-    return _stream_command_reply(db, project, user, session, page, reply)
+    return _stream_command_reply(project, user, session, page, reply)
 
 
 async def _stream_chat(
     db: AsyncSession,
     project: Novel,
     user: dict,
-    session: AssistantSession,
+    session: session_store.SessionMeta,
     message: str,
     page: str,
     user_message_id: str = "",
@@ -280,9 +276,7 @@ async def _stream_chat(
         yield _sse({"type": "run_start", "runId": "nokey"})
         yield _sse({"type": "gate", "reason": "no_key", "message": guide, "action": "config_model"})
         await session_store.append_message(
-            db,
-            session.id,
-            novel_id=project.id,
+            session,
             role="assistant",
             content=guide,
             page=page,
@@ -313,7 +307,7 @@ async def _stream_chat(
         domain_discipline=discipline_of_thread(thread),
         memory_section=memory_section,
     )
-    rows = await session_store.load_messages(db, session.id)
+    rows = await session_store.load_messages(session)
     transcript = _history_transcript(rows, exclude_message_id=user_message_id)
     # 聚焦对象（作家说「这章/这一卷」的锚）：前端随消息带 focus={ref}
     note = build_page_note(page, body_focus if isinstance(body_focus, dict) else None)
@@ -358,9 +352,7 @@ async def _stream_chat(
         msg = f"模型的钥匙配了但用不了：{e}"
         yield _sse({"type": "gate", "reason": "client_error", "message": msg})
         await session_store.append_message(
-            db,
-            session.id,
-            novel_id=project.id,
+            session,
             role="assistant",
             content=msg,
             page=page,
@@ -380,7 +372,7 @@ async def _stream_chat(
     # 记账必须记真实模型（test_ai_prompt_and_boundary 护栏：符号别名不得落账）——
     # client.resolve("haiku") 落到本书绑定模型（AIClient.resolve 单源）
     used_model = client.resolve("haiku")
-    compaction_state = await session_store.load_compaction_state(db, session)
+    compaction_state = await session_store.load_compaction_state(session)
     # 跨轮重映射（compact.py remap_boundary）：持久化边界是轮内转写的裸索引，下一轮
     # 转写由落库投影重建、构成不同——先映射回本列表再进循环（映射不上则作废重建）
     from assistant.compact import remap_boundary
@@ -388,7 +380,7 @@ async def _stream_chat(
     compaction_state = remap_boundary(compaction_state, transcript)
 
     async def _on_compaction(state: Any) -> None:
-        await session_store.save_compaction_state(db, session.id, state)
+        await session_store.save_compaction_state(session, state)
 
     async def _on_usage(tokens_in: int, tokens_out: int) -> None:
         from api_configs.usage import record_usage
@@ -462,9 +454,7 @@ async def _stream_chat(
         # 停车：发授权卡，等作家批复（超时/关应用＝未批；待决记录已持久化可审计）
         gate_id = write_gate.PARKING.register()
         await session_store.append_message(
-            db,
-            session.id,
-            novel_id=project.id,
+            session,
             role="event",
             page=page,
             payload={
@@ -542,9 +532,7 @@ async def _stream_chat(
 
     # ── 逐步落盘＋SSE 下发 ─────────────────────────────────────────────────
     pending_assistant = await session_store.append_message(
-        db,
-        session.id,
-        novel_id=project.id,
+        session,
         role="assistant",
         content="",
         page=page,
@@ -557,13 +545,13 @@ async def _stream_chat(
     # → _STOP 永不入队 → SSE 永挂（前端「进行中」卡死）。收集与消费必须同侧成对。
     run_effects: list[dict[str, Any]] = []
 
-    async def _consume(drv_db: AsyncSession, event: dict[str, Any]) -> list[dict[str, Any]]:
+    async def _consume(event: dict[str, Any]) -> list[dict[str, Any]]:
         """落盘分支（消费副作用）：narration 攒回执、tool/授权卡/产物卡落行。
         返回本事件衍生的即时 SSE 事件（c-agent-nav navigate effect），由 _drive
         紧随本事件按序入队。
 
-        用 drive 自有会话——请求级 db 随断开即被依赖清理关闭，断开后继续落库
-        的会话必须自持（判例：读面写库自开短会话）。"""
+        文件后端（c-agent-session-files）：落盘自持文件路径，不再需要 DB 会话
+        （旧判例「drive 自有短会话」随载体退役）。"""
         nonlocal final_status
         etype = event.get("type")
         if etype == "narration":
@@ -571,9 +559,7 @@ async def _stream_chat(
             return []
         if etype == "step_end":
             await session_store.append_message(
-                drv_db,
-                session.id,
-                novel_id=project.id,
+                session,
                 role="tool",
                 content=str(event.get("resultNote", "")),
                 page=page,
@@ -607,9 +593,7 @@ async def _stream_chat(
             return []
         if etype == "permission_required":
             await session_store.append_message(
-                drv_db,
-                session.id,
-                novel_id=project.id,
+                session,
                 role="event",
                 content="",
                 page=page,
@@ -626,9 +610,7 @@ async def _stream_chat(
         elif etype == "artifact":
             # 产物卡持久化（对话流回看；adopted 状态由采纳端点推进）
             await session_store.append_message(
-                drv_db,
-                session.id,
-                novel_id=project.id,
+                session,
                 role="assistant",
                 content="",
                 page=page,
@@ -644,16 +626,15 @@ async def _stream_chat(
             final_status = "error"
         return []
 
-    async def _finalize(drv_db: AsyncSession) -> None:
-        """收尾落库（openwriter INTERRUPTED 同款）：停止/断开/正常收口都把已达
-        内容定稿——不留 streaming 悬行，也不丢半截。会话自持（断开后仍要落）。"""
+    async def _finalize() -> None:
+        """收尾落盘（openwriter INTERRUPTED 同款）：停止/断开/正常收口都把已达
+        内容定稿——不留 streaming 悬行，也不丢半截。文件自持，断开照常落。"""
         full_reply = "\n".join(p for p in reply_parts if p)
         content = full_reply or pending_assistant.content
         if final_status == "done" and not content:
             content = "（停止时这一轮还没有产出文字。）"
         await session_store.update_message_status(
-            drv_db,
-            pending_assistant.id,
+            pending_assistant,
             status=final_status,
             content=content,
         )
@@ -662,60 +643,55 @@ async def _stream_chat(
         """自管消费任务（c-agent-harness 6.3 断连定诊）：循环消费＋落盘挪进独立
         task——断开时框架可能既不迭代也不关闭 SSE 生成器（starlette 1.9 实测
         streaming 悬行），消费挂 task 后由本任务自己的 finally 兜底定稿，任何
-        出口（正常收口/被关停/被框架遗弃后跑完）都不丢尾。会话自持：请求级 db
-        随断开即被依赖清理关闭，断开后继续落库必须用自有短会话。"""
-        from db import async_session
-
-        async with async_session() as drv_db:
+        出口（正常收口/被关停/被框架遗弃后跑完）都不丢尾。落盘走文件后端
+        （c-agent-session-files）：自持文件路径，断开照常落。"""
+        try:
+            async for event in loop.run(message_for_model, prime=tool_hint):
+                immediate = await _consume(event)
+                # thinking 照发 SSE（dock 实时思考回看，run_end 时前端收进
+                # run 气泡）；落盘分支不匹配 thinking——回看不存逐字思考
+                # Effect 注入（c-agent-effects）：run_end 携带本轮写操作 effects
+                if event.get("type") == "run_end" and run_effects:
+                    event["effects"] = list(run_effects)
+                await queue.put(event)
+                for extra in immediate:
+                    # 即时衍生事件（c-agent-nav navigate effect）：紧随本事件
+                    # 按序下发——step_end（轨迹行）→ effect（页面翻）
+                    await queue.put(extra)
+            if loop.result.tokens_in or loop.result.tokens_out:
+                await session_store.append_message(
+                    session,
+                    role="event",
+                    content="",
+                    page=page,
+                    payload={
+                        "usage": {
+                            "tokens_in": loop.result.tokens_in,
+                            "tokens_out": loop.result.tokens_out,
+                        }
+                    },
+                )
+            if page:
+                await session_store.touch_session(session, page_cursor=page)
+        except asyncio.CancelledError:
+            raise  # 消费端取消＝正常收口路径，交 finally 落库
+        except Exception:  # noqa: BLE001——drive 崩溃必须显式收口（2026-11-18 实锤：
+            # _drive 静默死亡→_STOP 永不入队→SSE 永挂「进行中」卡死＋零遥测）
+            _log.exception("assistant run drive crashed (session=%s)", session.id)
             try:
-                async for event in loop.run(message_for_model, prime=tool_hint):
-                    immediate = await _consume(drv_db, event)
-                    # thinking 照发 SSE（dock 实时思考回看，run_end 时前端收进
-                    # run 气泡）；落盘分支不匹配 thinking——回看不存逐字思考
-                    # Effect 注入（c-agent-effects）：run_end 携带本轮写操作 effects
-                    if event.get("type") == "run_end" and run_effects:
-                        event["effects"] = list(run_effects)
-                    await queue.put(event)
-                    for extra in immediate:
-                        # 即时衍生事件（c-agent-nav navigate effect）：紧随本事件
-                        # 按序下发——step_end（轨迹行）→ effect（页面翻）
-                        await queue.put(extra)
-                if loop.result.tokens_in or loop.result.tokens_out:
-                    await session_store.append_message(
-                        drv_db,
-                        session.id,
-                        novel_id=project.id,
-                        role="event",
-                        content="",
-                        page=page,
-                        payload={
-                            "usage": {
-                                "tokens_in": loop.result.tokens_in,
-                                "tokens_out": loop.result.tokens_out,
-                            }
-                        },
-                    )
-                if page:
-                    await session_store.touch_session(drv_db, session.id, page_cursor=page)
-            except asyncio.CancelledError:
-                raise  # 消费端取消＝正常收口路径，交 finally 落库
-            except Exception:  # noqa: BLE001——drive 崩溃必须显式收口（2026-11-18 实锤：
-                # _drive 静默死亡→_STOP 永不入队→SSE 永挂「进行中」卡死＋零遥测）
-                _log.exception("assistant run drive crashed (session=%s)", session.id)
-                try:
-                    await queue.put({"type": "error", "message": "这一轮处理出了问题，已产出的内容都保留着——重发即可继续。"})
-                except Exception:  # noqa: BLE001——连 error 事件都发不出时仍要走 finally 收口
-                    pass
-            finally:
-                await queue.put(_STOP)  # 恒收口：任何出口消费端都见哨兵即退（body 出口）
-                # 收尾落库加盾（2026-11-17 竞态根修）：消费端收到 STOP 会立刻
-                # cancel 本任务——取消正好落在 _finalize 的 await 上＝落库被
-                # 打断，streaming 行悬挂、下轮被自愈盖「中途被打断」。shield
-                # +独立 task 让定稿在取消后仍独立完成。
-                try:
-                    await asyncio.shield(asyncio.ensure_future(_finalize(drv_db)))
-                except (asyncio.CancelledError, Exception):  # noqa: BLE001——定稿失败不炸收尾
-                    pass
+                await queue.put({"type": "error", "message": "这一轮处理出了问题，已产出的内容都保留着——重发即可继续。"})
+            except Exception:  # noqa: BLE001——连 error 事件都发不出时仍要走 finally 收口
+                pass
+        finally:
+            await queue.put(_STOP)  # 恒收口：任何出口消费端都见哨兵即退（body 出口）
+            # 收尾落盘加盾（2026-11-17 竞态根修）：消费端收到 STOP 会立刻
+            # cancel 本任务——取消正好落在 _finalize 的 await 上＝落盘被
+            # 打断，streaming 行悬挂、下轮被自愈盖「中途被打断」。shield
+            # +独立 task 让定稿在取消后仍独立完成。
+            try:
+                await asyncio.shield(asyncio.ensure_future(_finalize()))
+            except (asyncio.CancelledError, Exception):  # noqa: BLE001——定稿失败不炸收尾
+                pass
 
     queue: asyncio.Queue = asyncio.Queue()
     _STOP: dict[str, Any] = {"__stop__": True}
@@ -802,7 +778,7 @@ async def assistant_stop(
     if not project:
         raise HTTPException(404, "Project not found")
     session = await session_store.get_or_create_session(
-        db, user_id=user["id"], novel_id=project.id, thread_key=thread
+        user_id=user["id"], novel_id=project.id, thread_key=thread
     )
     run_key = f"{session.id}:{thread}"
     ev = _ACTIVE_RUNS.get(run_key)
@@ -845,7 +821,7 @@ async def assistant_chat(
         raise HTTPException(404, "Project not found")
 
     session = await session_store.get_or_create_session(
-        db, user_id=user["id"], novel_id=project.id, thread_key=thread
+        user_id=user["id"], novel_id=project.id, thread_key=thread
     )
     # ── 打断（openworker 语义）：同线程上一轮在跑 → 置位取消并等它收口（≤4s）──
     run_key = f"{session.id}:{thread}"
@@ -874,7 +850,7 @@ async def assistant_chat(
             "切换：/mode confirm（每写必确认）｜/mode book（本书放行）｜/mode all（全部放行）。"
         )
         return StreamingResponse(
-            _stream_command_reply(db, project, user, session, page, reply),
+            _stream_command_reply(project, user, session, page, reply),
             media_type="text/event-stream",
             headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
         )
@@ -888,37 +864,31 @@ async def assistant_chat(
         if arg not in arg_map:
             reply = "没这个档位——/mode confirm（每写必确认）｜/mode book（本书放行）｜/mode all（全部放行）。"
             return StreamingResponse(
-                _stream_command_reply(db, project, user, session, page, reply),
+                _stream_command_reply(project, user, session, page, reply),
                 media_type="text/event-stream",
                 headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
             )
         tier = arg_map[arg]
-        rows_mode = (
-            await db.scalars(
-                select(AssistantSession).where(
-                    AssistantSession.user_id == user["id"],
-                    AssistantSession.novel_id == project.id,
-                )
-            )
-        ).all()
-        for row_m in rows_mode:
-            g = json.loads(row_m.grants_json or "{}")
+        # 文件后端（c-agent-session-files）：本书全部会话文件的 grants 统一改写
+        for meta_m in await session_store.iter_novel_sessions(project.id):
+            if meta_m.user_id != user["id"]:
+                continue
+            g = json.loads(meta_m.grants_json or "{}")
             g["tier"] = tier
-            row_m.grants_json = json.dumps(g, ensure_ascii=False)
-            row_m.updated_at = session_store._now()
-        await db.commit()
+            await session_store.touch_session(meta_m, grants=g)
         reply = f"授权已切到「{mode_names[tier]}」——对这本书的所有页签生效。"
         return StreamingResponse(
-            _stream_command_reply(db, project, user, session, page, reply),
+            _stream_command_reply(project, user, session, page, reply),
             media_type="text/event-stream",
             headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
         )
     # 斜杠命令（coding agent 命令行习惯，boss 拍板 2026-11-15）：命令本身不进对话历史
     if message == "/new":
-        await session_store.reset_session(db, session.id)
+        # /new 对齐 coding agent：新开会话文件（旧文件留档）——session 重绑新文件
+        session = await session_store.reset_session(session)
         return StreamingResponse(
             _stream_command_reply(
-                db, project, user, session, page,
+                project, user, session, page,
                 "已开新对话——之前的内容都清掉了，想从哪儿说起？",
                 clear=True,
             ),
@@ -927,7 +897,7 @@ async def assistant_chat(
         )
     if message == "/compact":
         return StreamingResponse(
-            await _stream_compact(db, project, user, session, page),
+            await _stream_compact(project, user, session, page),
             media_type="text/event-stream",
             headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
         )
@@ -936,9 +906,7 @@ async def assistant_chat(
     if not isinstance(body_focus, dict):
         body_focus = None
     user_row = await session_store.append_message(
-        db,
-        session.id,
-        novel_id=project.id,
+        session,
         role="user",
         content=message,
         page=page,
@@ -970,16 +938,16 @@ async def get_assistant_session(
     if not project:
         raise HTTPException(404, "Project not found")
     session = await session_store.get_or_create_session(
-        db, user_id=user["id"], novel_id=project.id,
+        user_id=user["id"], novel_id=project.id,
         thread_key=session_store.sanitize_thread_key(thread),
     )
-    rows = await session_store.load_messages(db, session.id)
+    rows = await session_store.load_messages(session)
     # 上下文容量（coding agent 口径，boss 拍板 2026-11-15）：外发窗口估算 vs 窗口
     from assistant.compact import DEFAULT_CONTEXT_WINDOW
 
     _msgs, tokens_est = build_outbound_window(
         _history_transcript(rows),
-        compaction_state=await session_store.load_compaction_state(db, session),
+        compaction_state=await session_store.load_compaction_state(session),
     )
     context = {
         "estTokens": tokens_est,
@@ -1027,10 +995,10 @@ async def reset_assistant_session(
     except (ValueError, UnicodeDecodeError):
         body = {}
     session = await session_store.get_or_create_session(
-        db, user_id=user["id"], novel_id=project.id,
+        user_id=user["id"], novel_id=project.id,
         thread_key=session_store.sanitize_thread_key(body.get("thread")),
     )
-    await session_store.reset_session(db, session.id)
+    await session_store.reset_session(session)
     return {"ok": True}
 
 
@@ -1091,26 +1059,21 @@ async def set_permission_tier(
     tier = str(body.get("tier") or "")
     if tier not in KNOWN_TIERS:
         raise HTTPException(422, f"tier 必须是 {list(KNOWN_TIERS)} 之一")
-    # 授权档位书级语义（boss 拍板：切页签/线程不重置授权）——更新本书全部线程
-    rows = (
-        await db.scalars(
-            select(AssistantSession).where(
-                AssistantSession.user_id == user["id"],
-                AssistantSession.novel_id == project.id,
-            )
-        )
-    ).all()
-    for row in rows:
-        grants = json.loads(row.grants_json or "{}")
+    # 授权档位书级语义（boss 拍板：切页签/线程不重置授权）——更新本书全部会话文件
+    metas = [
+        m
+        for m in await session_store.iter_novel_sessions(project.id)
+        if m.user_id == user["id"]
+    ]
+    for meta_m in metas:
+        grants = json.loads(meta_m.grants_json or "{}")
         grants["tier"] = tier
-        row.grants_json = json.dumps(grants, ensure_ascii=False)
-        row.updated_at = session_store._now()
-    if not rows:
+        await session_store.touch_session(meta_m, grants=grants)
+    if not metas:
         await session_store.get_or_create_session(
-            db, user_id=user["id"], novel_id=project.id,
+            user_id=user["id"], novel_id=project.id,
             thread_key=session_store.sanitize_thread_key(body.get("thread")),
         )
-    await db.commit()
     return {"ok": True, "tier": tier}
 
 
@@ -1141,16 +1104,7 @@ async def undo_assistant_write(
         raise HTTPException(422, "messageId 必填")
 
     # 跨线程找消息（写入可能发生在任意页签线程；归属由 novel_id+书主权保证）
-    from models.assistant import AssistantMessage
-
-    target = (
-        await db.scalars(
-            select(AssistantMessage).where(
-                AssistantMessage.novel_id == project.id,
-                AssistantMessage.id == message_id,
-            )
-        )
-    ).first()
+    target = await session_store.find_message(project.id, message_id)
     if target is None:
         raise HTTPException(404, "消息不存在或不属于本书会话")
     payload = json.loads(target.payload_json or "{}")
@@ -1179,19 +1133,19 @@ async def undo_assistant_write(
         )
 
     payload["undone"] = True
-    await session_store.append_message(
-        db,
-        target.session_id,
-        novel_id=project.id,
-        role="event",
-        content="",
-        page=target.page,
-        payload={
-            "undo_of": message_id,
-            "entity": entity,
-            "restored": previous,
-        },
-    )
+    undo_meta = await session_store.meta_from_path(target.path)
+    if undo_meta is not None:
+        await session_store.append_message(
+            undo_meta,
+            role="event",
+            content="",
+            page=target.page,
+            payload={
+                "undo_of": message_id,
+                "entity": entity,
+                "restored": previous,
+            },
+        )
     return {"ok": True, "entity": entity, "restored": previous}
 
 
@@ -1208,26 +1162,12 @@ async def adopt_assistant_message(
     project = await get_novel(db, project_id, user["id"])
     if not project:
         raise HTTPException(404, "Project not found")
-    # 跨线程找产物卡（卡可能在任意页签线程产生）
-    from models.assistant import AssistantMessage
-
-    rows = (
-        await db.scalars(
-            select(AssistantMessage).where(
-                AssistantMessage.novel_id == project.id,
-                AssistantMessage.card_kind.not_in(("", "gate")),
-            )
-        )
-    ).all()
-    target = None
-    for m in rows:
-        payload = json.loads(m.payload_json or "{}")
-        if str(payload.get("cardId") or "") == card_id:
-            target = m
+    # 跨线程找产物卡（卡可能在任意页签线程产生）——文件后端扫书目录
+    target = await session_store.find_card_message(project.id, card_id)
     if target is None:
         raise HTTPException(404, "产物卡不存在或不属于本书会话。")
     if target.status != "adopted":
-        await session_store.update_message_status(db, target.id, status="adopted")
+        await session_store.update_message_status(target, status="adopted")
     return {"ok": True, "cardId": card_id}
 
 
