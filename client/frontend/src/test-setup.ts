@@ -19,4 +19,3 @@ const zeroRects = () =>
 const withRects = (o: unknown) => (o as unknown as { getClientRects: () => DOMRectList });
 withRects(Node.prototype).getClientRects = zeroRects;
 withRects(window).getClientRects = zeroRects;
-}
