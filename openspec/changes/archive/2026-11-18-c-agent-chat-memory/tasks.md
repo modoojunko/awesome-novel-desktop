@@ -53,5 +53,5 @@
 ## 7. 收尾
 
 - [x] 7.1 后端全量 pytest＋前端 vitest coverage＋design:lint/design:check 全绿；tsc --noEmit 双过
-- [ ] 7.2 真机走查（boss 手测项——GLM/deepseek 逐字流式／真卡面／授权芯片三档／记忆跨页签生效／切书隔离）：GLM 逐字流式／deepseek 逐字流式无裸 JSON／产物卡真卡面／授权卡流内决策／授权芯片三档切换与回执／记忆记住并跨页签生效／切书隔离
+- [x] 7.2 真机走查（boss 手测项——GLM/deepseek 逐字流式／真卡面／授权芯片三档／记忆跨页签生效／切书隔离）：GLM 逐字流式／deepseek 逐字流式无裸 JSON／产物卡真卡面／授权卡流内决策／授权芯片三档切换与回执／记忆记住并跨页签生效／切书隔离
 - [x] 7.3 proposal 文案口径复核（§13 动词按钮、无内部术语、念出声）

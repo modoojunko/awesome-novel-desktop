@@ -19,4 +19,4 @@
 - [x] 3.1 后端：HTTP 级 SSE 回归钉 test_assistant_chat_stream_http.py 四条——
   effects 收集注入／drive 崩溃显式 error＋收口／失败写步无 effect／读步无 effect；
   读取走线程 future 带超时——永挂形态超时即失败（回归信号）
-- [ ] 3.2 前端：onEffects 回调钉
+- [x] 3.2 前端：onEffects 回调钉
