@@ -10,7 +10,8 @@ route 层（SSE effect 事件下发/不入库）在 test_assistant_chat_stream_h
 
 import pytest
 
-from assistant.scopes import tools_for_thread
+from assistant.router import nav_prime_hint
+from assistant.scopes import discipline_of_thread, tools_for_thread
 from assistant.tools import ToolContext, get_tool, run_tool
 
 CH_THREADS = ["ch:og", "ch:prose", "ch:settings", "ch:relations", "ch:hooks", "ch:actions", "ch:style"]
@@ -110,3 +111,30 @@ async def test_loop_step_end_carries_args_for_effect_target(monkeypatch):
     assert step_end["tool"] == "switch_tab"
     assert step_end["ok"] is True
     assert step_end["args"] == {"tab": "prose"}
+
+
+def test_nav_prime_hint_hits_switch_intents():
+    """走查实锤补刀钉：窄意图 prime——flash 长历史服从 0/3 的结构兜底。"""
+    assert nav_prime_hint("ch:og", "把页面切到正文") == {"tool": "switch_tab", "args": {"tab": "prose"}}
+    assert nav_prime_hint("ch:prose", "切换到章纲") == {"tool": "switch_tab", "args": {"tab": "og"}}
+    assert nav_prime_hint("ch:og", "看看伏笔") == {"tool": "switch_tab", "args": {"tab": "hooks"}}
+    assert nav_prime_hint("ch:og", "切到文风") == {"tool": "switch_tab", "args": {"tab": "style"}}
+
+
+def test_nav_prime_hint_guards():
+    """守卫面：同页签不 prime／显式 tool_hint 优先／域外不 prime／意图外不 prime。"""
+    assert nav_prime_hint("ch:prose", "把页面切到正文") is None  # 已在正文
+    assert nav_prime_hint("ch:og", "把页面切到正文", {"tool": "read_chapter", "args": {}}) == {
+        "tool": "read_chapter", "args": {}
+    }
+    assert nav_prime_hint("vol", "把页面切到正文") is None  # 域外工具不可见
+    assert nav_prime_hint("ch:og", "续写正文") is None  # 意图外不命中
+    assert nav_prime_hint("ch:og", "帮我看看第七章") is None
+
+
+def test_ch_discipline_carries_switch_tab_rule():
+    """域纪律补刀钉：章节页签纪律含 switch_tab 强制调用口径；卷纲纪律不含。"""
+    d = discipline_of_thread("ch:og")
+    assert "switch_tab" in d
+    assert "不许只用话术说切了" in d
+    assert "switch_tab" not in discipline_of_thread("vol")

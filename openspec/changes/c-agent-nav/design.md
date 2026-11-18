@@ -102,6 +102,19 @@ kind=read：_gate_fn 恒放行；test_assistant_registry 既有围栏钉
 零迁移：新工具＋新事件类型均为增量；老客户端（不发 effect 事件的包）不受影响；
 前端旧包收到未知 SSE 类型按既有「非 JSON 行跳过/未知类型忽略」口径安全降级。
 
+### D9：页签真值注入（走查实锤补刀 2026-11-18 复测）
+
+thread 后缀即当前页签，服务端是唯一真值源——不注入，flash 就信被污染的历史
+（「页签已经在正文了」幻觉，复测 0/3 服从）。_stream_chat 在 note 里追加
+「［当前页签：X］」。
+
+### D10：导航意图 prime（走查实锤补刀）
+
+纪律口号治不动 flash（补刀后仍 0/3）。窄正则命中「切/换/跳到 X」「看看 X」→
+prime switch_tab 首步（chips tool_hint 同款确定性机制，模型只管事后叙述）。
+守卫：显式 tool_hint 优先／域外 None／同页签 None（真值注入兜住）／意图外
+None。读类零风险，误命中代价＝一次无副作用翻页。纯函数 nav_prime_hint 可钉。
+
 ## Open Questions
 
 <!-- 无：boss 已拍板方案 A＋中途翻页＋工具名 switch_tab（2026-11-18） -->

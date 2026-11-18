@@ -14,10 +14,39 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import re
 
 # 活跃 run 注册表（c-agent-chat-memory 批8 停止/打断）：key = f"{session_id}:{thread}"，
 # 值 = 该 run 的协同取消事件。stop 路由/新消息打断置位，循环在检查点自收口
 _ACTIVE_RUNS: dict[str, asyncio.Event] = {}
+
+# 页签真值/导航意图（c-agent-nav 走查实锤）：thread 后缀 ↔ 页签中文名；窄意图正则
+# 只吃「切/换/跳到 X」「看看 X」两类，意图外消息一个字都不多管——歧义交给模型问
+_THREAD_TAB_ZH = {
+    "og": "章纲", "prose": "正文", "settings": "设定", "relations": "角色关系",
+    "hooks": "伏笔", "actions": "操作", "style": "文风",
+}
+_NAV_TAB_KEY = {v: k for k, v in _THREAD_TAB_ZH.items()}
+_NAV_INTENT_RE = re.compile(
+    r"(?:把页面|页面|页签)?(?:切|换|跳)(?:到|去|至)\s*(正文|章纲|设定|文风|角色关系|伏笔|操作)"
+    r"|(?:看看|看一下|看下)\s*(正文|章纲|设定|文风|角色关系|伏笔|操作)"
+)
+
+
+def nav_prime_hint(thread: str, message: str, existing: dict | None = None) -> dict | None:
+    """导航意图 → switch_tab prime（c-agent-nav 走查实锤补刀）。
+
+    窄正则命中「切到X／看看X」且目标≠当前页签才 prime；显式 tool_hint 优先；
+    域外（非 ch:*）恒 None（工具不可见域模型本就无从调用）。纯函数——钉子好写。"""
+    if existing is not None or not (thread or "").strip().startswith("ch:"):
+        return existing
+    m = _NAV_INTENT_RE.search(message or "")
+    if not m:
+        return None
+    target_tab = _NAV_TAB_KEY.get(next((g for g in m.groups() if g), ""), "")
+    if not target_tab or target_tab == thread.split(":", 1)[1]:
+        return None
+    return {"tool": "switch_tab", "args": {"tab": target_tab}}
 import json
 from collections.abc import AsyncIterator
 from typing import Any
@@ -305,9 +334,21 @@ async def _stream_chat(
     gap_note = _resume_gap_note(rows)
     if gap_note:
         note = (note + " " if note else "") + gap_note
+    # 页签真值注入（c-agent-nav 走查实锤）：thread 即当前页签，服务端是唯一真值源
+    # ——不注入模型就信被污染的历史（「页签已经在正文了」幻觉实锤 0/3 服从）
+    _cur_tab = _THREAD_TAB_ZH.get(thread.split(":", 1)[1], "") if thread.startswith("ch:") else ""
+    if _cur_tab:
+        note = (note + " " if note else "") + f"［当前页签：{_cur_tab}］"
     # L2 注入随当前消息进提示词（不落库不进 UI）——历史已排除当前消息
     # （_history_transcript），旧「拼到末条 user 行」锚点不复存在
     message_for_model = f"{message}\n{note}" if note else message
+
+    # 导航意图 prime（c-agent-nav 走查实锤）：flash 长历史服从 0/3——「切到X」类
+    # 窄意图直接 prime switch_tab 首步（chips tool_hint 同款确定性机制，模型只管
+    # 事后叙述）。仅章节域内（switch_tab 可见域）、目标≠当前页签才 prime；同页签
+    # 请求由页签真值注入兜住（模型如实回答「已在正文」）。读类零风险，误命中代价
+    # ＝一次无副作用翻页。
+    tool_hint = nav_prime_hint(thread, message, tool_hint)
 
     try:
         from ai_client import get_ai_client_for_novel

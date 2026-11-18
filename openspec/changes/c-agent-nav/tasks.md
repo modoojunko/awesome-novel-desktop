@@ -7,6 +7,14 @@
 - [ ] 1.3 loop.py：_emit_step 的 step_end 增加 args 字段
 - [ ] 1.4 router.py：_consume 生成 effect（ok＋effect_domain；action=effect_action，target=args[effect_target_from]）；navigate 即时发独立 SSE effect 事件（不入库不进落盘分支）；refresh 维持 run_end 汇总
 
+- [x] 1.5 域纪律补刀（走查实锤）：ch:* 线程纪律追加「切页签必须调 switch_tab」——
+  flash 长历史会话学旧话术不调工具（浏览器实测服从 2/4），无需发提示词包
+
+- [x] 1.6 页签真值注入（复测实锤 0/3）：note 追加「［当前页签：X］」——thread 后缀即真值
+- [x] 1.7 导航意图 prime（纪律口号治不动 flash）：nav_prime_hint 纯函数（窄正则
+  切/换/跳到X＋看看X → switch_tab prime；显式 hint 优先/域外 None/同页签 None/
+  意图外 None）＋钉四条；composer 自然语「把页面切到正文」确定性真切
+
 ## 2. 前端：effect 事件透传＋真实切页签
 
 - [ ] 2.1 chatApi.ts：AgentEvent 增 "effect" 事件类型与 AgentEffect 形状（action/domain/target/description）

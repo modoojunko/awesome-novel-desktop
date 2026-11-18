@@ -206,9 +206,19 @@ PAGE_DISCIPLINE: dict[str, str] = {
 
 
 def discipline_of_thread(thread: str) -> str:
-    """本线程的域纪律分节（默认域＝空串——只走共享读，无专属纪律）。"""
+    """本线程的域纪律分节（默认域＝空串——只走共享读，无专属纪律）。
+    章节7页签统一追加导航纪律（c-agent-nav 走查补刀）：flash 长历史会话里
+    学旧话术不调工具（实测服从 2/4）——切页签必须真调 switch_tab。"""
     domain = domain_of_thread(thread)
-    return PAGE_DISCIPLINE.get(domain, "")
+    text = PAGE_DISCIPLINE.get(domain, "")
+    if (thread or "").strip().startswith("ch:"):
+        nav = (
+            "页签切换：作家想看别的页签（章纲/正文/设定/角色关系/伏笔/操作/文风）时，"
+            "必须调 switch_tab 工具真切——不许只用话术说切了，也不许因为历史里回过"
+            "「已切换」就不再调。"
+        )
+        text = f"{text}\n{nav}" if text else nav
+    return text
 
 
 def validate_scopes(registry_names: set[str]) -> list[str]:
