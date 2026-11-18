@@ -26,6 +26,7 @@
 - [ ] 3.5c 角色草案卡（payload.character_draft）：dock 卡挂「确认 · 建卡」→ 角色建卡 API（旧 ChatDock 动作平移）
 - [ ] 3.5d 写回后刷新信号：settings 域无未保存修改→面板重载；dirty→不重载＋对话内提示（dirty 保护，effects 设计 §评审关注点 2 同款）
 
+- [x] 3.5f 世界卡 draft dict 形态剥壳（boss 走查实锤「产物里面是json」：dict 形态漏剥）＋三态剥壳钉；复点 chip 复测卡面纯文本
 - [x] 3.5e chips 结构化触发补 args（真机实锤：flash 从话术猜 draft_worldbuilding
   空参被校验打回＋shape 猜错 400 自纠一次）——ChatChip.args 随点击进 tool_hint prime；
   世界卡 draft 双层 JSON 剥壳（后端剥一层＋前端采纳兜一层）
