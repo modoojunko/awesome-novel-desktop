@@ -606,7 +606,7 @@ async def _memory_recall(ctx: ToolContext) -> ToolResult:
 
     async with async_session() as session:
         memories = await list_memories(session, ctx.novel_id)
-        decisions = await list_decisions(session, ctx.novel_id)
+    decisions = await list_decisions(ctx.novel_id)
     if not memories and not decisions:
         return ToolResult(ok=True, summary="（这本书我还没记下什么规矩或决定。）")
     lines = [f"- 记忆：{m.content}" for m in memories]
@@ -641,14 +641,45 @@ async def _memory_forget(ctx: ToolContext, memory_id: str) -> ToolResult:
 
 
 async def _memory_decide(ctx: ToolContext, decision: str, reason: str = "") -> ToolResult:
-    """留痕一条项目决定（否了什么/定了什么＋理由；按时间倒序注入）。"""
+    """留痕一条项目决定（否了什么/定了什么＋理由；决策档案 append-only）。"""
     from assistant.memory import add_decision
-    from db import async_session
 
-    async with async_session() as session:
-        await add_decision(session, ctx.novel_id, decision, reason)
+    row = await add_decision(ctx.novel_id, decision, reason)
     extra = f"理由也记了：{reason[:40]}。" if reason else ""
-    return ToolResult(ok=True, summary=f"这个决定我记下了：「{decision[:60]}」。{extra}")
+    return ToolResult(
+        ok=True,
+        summary=f"这个决定我记下了：「{row.decision[:60]}」。{extra}",
+        meta={"decision_id": row.id},
+    )
+
+
+async def _memory_recall_decisions(
+    ctx: ToolContext, query: str = "", limit: int = 20
+) -> ToolResult:
+    """查历史决定档案（c-agent-decision-archive）：子串过滤＋条数上限＋单条裁剪。
+
+    注入段的索引层是「日期＋一句话」——agent 看到相关索引就调这里拉全文。"""
+    from assistant.memory import list_decisions
+
+    rows = await list_decisions(ctx.novel_id)
+    q = (query or "").strip().lower()
+    if q:
+        rows = [
+            d
+            for d in rows
+            if q in (d.decision or "").lower() or q in (d.reason or "").lower()
+        ]
+    total = len(rows)
+    rows = rows[: max(1, min(int(limit or 20), 50))]
+    if not rows:
+        hint = f"没有含「{query}」的决定。" if q else "这本书还没有留痕的项目决定。"
+        return ToolResult(ok=True, summary=hint + "有新口径我随时帮你记下。")
+    lines = []
+    for d in rows:
+        extra = f"（理由：{d.reason[:80]}）" if d.reason else ""
+        lines.append(f"- [{(d.created_at or '')[:10]}] {d.decision[:160]}{extra}")
+    head = f"共 {total} 条" + (f"，含「{query}」的如下（前 {len(lines)} 条）：" if q else "：")
+    return ToolResult(ok=True, summary=head + "\n" + "\n".join(lines))
 
 
 MEMORY_TOOLS: tuple[Tool, ...] = (
@@ -719,6 +750,25 @@ MEMORY_TOOLS: tuple[Tool, ...] = (
             "写入后透明告知一句。"
         ),
         fn=_memory_decide,
+    ),
+    Tool(
+        name="recall_decisions",
+        kind="read",
+        risk_level="low",
+        parameters={
+            "type": "object",
+            "properties": {
+                "query": {"type": "string", "description": "关键词（按决定/理由子串过滤；空＝最近的）"},
+                "limit": {"type": "integer", "description": "最多返回条数（默认 20）"},
+            },
+            "required": [],
+        },
+        description=(
+            "查这本书的历史项目决定档案（含很久以前的）。作家提起旧决定/旧口径"
+            "（「之前不是说…」「上次定的…」）或注入段索引里那条相关时调它拉全文，"
+            "如实按档案回答，不凭印象编。"
+        ),
+        fn=_memory_recall_decisions,
     ),
 )
 
