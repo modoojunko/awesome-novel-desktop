@@ -17,6 +17,12 @@ import {
   useState,
 } from "react";
 import { useNavigate } from "react-router-dom";
+import {
+  writeBackCharacter,
+  writeBackSettingsField,
+  writeBackVolume,
+  writeBackWorld,
+} from "@/lib/dockWriteBack";
 import { ConfigProvider } from "@agentscope-ai/design";
 import { ChatAnywhere, uuid } from "@agentscope-ai/chat";
 import type { ChatAnywhereRef } from "@agentscope-ai/chat";
@@ -65,6 +71,8 @@ const DockCtx = createContext<{
 /** 产物卡（cardConfig 注册：code="artifact"）——复用既有 CardBody，视觉零变化；
  *  卷纲草案卡带「采纳 · 写入」（PUT volumes 真实落库＋采纳回执落库＋流内回执），
  *  adopted 翻已建卡徽标、同目标新卡把旧卡标 stale。 */
+
+
 function ArtifactCard(props: { data: ArtifactCardData; id?: string }) {
   const { data, id } = props;
   const ctx = useContext(DockCtx);

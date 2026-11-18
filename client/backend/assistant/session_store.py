@@ -24,7 +24,7 @@ import os
 import re
 import uuid
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
@@ -50,7 +50,8 @@ def new_message_id() -> str:
 
 
 def _now() -> str:
-    return datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    # 时区纪律（CLAUDE.md）：存储一律 naive UTC——裸 datetime.now() 依赖容器时区
+    return datetime.now(UTC).replace(tzinfo=None).strftime("%Y-%m-%d %H:%M:%S")
 
 
 def _load_json(raw: str | None, default: Any) -> Any:
@@ -359,7 +360,7 @@ async def load_messages(session: SessionMeta, *, heal: bool = True) -> list[MsgR
     rows.sort(key=lambda m: m.seq)
     if heal:
         grace = _heal_grace_seconds()
-        now = datetime.now()
+        now = datetime.now(UTC).replace(tzinfo=None)
         changed = False
         for m in rows:
             if m.status != "streaming":
