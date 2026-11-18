@@ -195,8 +195,11 @@ export function matchRegistration(scope: ChatPageScope): ChatPageRegistration | 
  *  章级注册按页签全组扫（chips 随章内页签换装，漏扫一签即漏检一签）。 */
 const CHAPTER_TAB_SWEEP = ["og", "prose", "settings", "relations", "hooks", "actions", "style"];
 
-export function validateRegistrations(): void {
-  for (const r of REGISTRATIONS) {
+export function validateRegistrations(
+  regs: ChatPageRegistration[] = REGISTRATIONS,
+  whitelist: readonly string[] = CHIP_KEYS,
+): void {
+  for (const r of regs) {
     const scopes = (
       r.id === "workbench.chapter" ? CHAPTER_TAB_SWEEP : [undefined]
     ).map((chapterTab) => ({
@@ -208,7 +211,7 @@ export function validateRegistrations(): void {
     }));
     for (const scope of scopes) {
     for (const chip of r.chips(scope)) {
-      if (!(CHIP_KEYS as readonly string[]).includes(chip.key)) {
+      if (!(whitelist as readonly string[]).includes(chip.key)) {
         throw new Error(`[chatRegistry] 页面 ${r.id} 注册了未登记的能力：${chip.key}`);
       }
       }
