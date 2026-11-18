@@ -43,20 +43,19 @@ async def test_memory_scoped_by_novel():
 
 @pytest.mark.asyncio
 async def test_decision_append_and_recency_order():
-    async with async_session() as db:
-        d1 = await memory_mod.add_decision("n_dec", "否决主角黑化", reason="调子不符")
-        d2 = await memory_mod.add_decision("n_dec", "定了海边收尾")
-        assert d1.reason == "调子不符" and d2.decision == "定了海边收尾"
-        rows = await memory_mod.list_decisions("n_dec")
-        # 倒序：最近在前
-        assert rows[0].decision == "定了海边收尾" and rows[-1].decision == "否决主角黑化"
+    # 决策走文件档案（c-agent-decision-archive）——不再需要 DB 会话
+    d1 = await memory_mod.add_decision("n_dec", "否决主角黑化", reason="调子不符")
+    d2 = await memory_mod.add_decision("n_dec", "定了海边收尾")
+    assert d1.reason == "调子不符" and d2.decision == "定了海边收尾"
+    rows = await memory_mod.list_decisions("n_dec")
+    # 倒序：最近在前
+    assert rows[0].decision == "定了海边收尾" and rows[-1].decision == "否决主角黑化"
 
 
 @pytest.mark.asyncio
 async def test_decision_empty_rejected():
-    async with async_session() as db:
-        with pytest.raises(ValueError):
-            await memory_mod.add_decision("n_dec", "")
+    with pytest.raises(ValueError):
+        await memory_mod.add_decision("n_dec", "")
 
 
 def test_render_section_empty_returns_empty_string():
