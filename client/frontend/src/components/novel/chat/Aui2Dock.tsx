@@ -17,6 +17,12 @@ import {
   useState,
 } from "react";
 import { useNavigate } from "react-router-dom";
+import {
+  writeBackCharacter,
+  writeBackSettingsField,
+  writeBackVolume,
+  writeBackWorld,
+} from "@/lib/dockWriteBack";
 import { ConfigProvider } from "@agentscope-ai/design";
 import { ChatAnywhere, uuid } from "@agentscope-ai/chat";
 import type { ChatAnywhereRef } from "@agentscope-ai/chat";
@@ -70,88 +76,6 @@ const DockCtx = createContext<{
  *  settings 字段卡 GET+merge+PUT settings/<stype>／世界观卡（文本格）merge world／
  *  角色草案卡建卡＋写 name/persona（其余字段在卡上照着补）。
  *  adopted 翻已建卡徽标、同目标新卡把旧卡标 stale。 */
-
-// 世界观文本格 sink（factions/constraints 是条目数组——文本草稿不直写，回执引导手动贴）
-const WORLD_TEXT_SINKS = new Set(["stage", "power", "cost"]);
-
-function worldTopicWritable(topic: string): boolean {
-  return WORLD_TEXT_SINKS.has(topic);
-}
-
-async function writeBackVolume(projectId: string, payload: Record<string, unknown>): Promise<string> {
-  const draft = payload.draft as Record<string, unknown>;
-  const volNo = payload.vol_no as number;
-  const { api } = await import("@/lib/api");
-  await api.put(`/novels/${projectId}/volumes/vol-${volNo}`, {
-    title: draft.name,
-    summary: draft.summary,
-    core_conflict: draft.conflict,
-    ending: draft.ending,
-    chapter_target: draft.chapter_target,
-    antagonist_type: draft.antagonist_type,
-    antagonist_line: draft.antagonist_line,
-  });
-  return `已写入第 ${volNo} 卷的卷纲要点，可继续改。`;
-}
-
-async function writeBackSettingsField(projectId: string, payload: Record<string, unknown>): Promise<string> {
-  const stype = String(payload.stype ?? "");
-  const field = String(payload.field ?? "");
-  if (!stype || !field || payload.value == null) {
-    throw new Error("这张卡没带写入位置（stype/field 缺失）——回面板手动贴一下。");
-  }
-  const { api } = await import("@/lib/api");
-  const cur = (await api.get(`/novels/${projectId}/settings/${stype}`)) as Record<string, unknown> | null;
-  const data = { ...(cur ?? {}) };
-  data[field] = payload.value;
-  await api.put(`/novels/${projectId}/settings/${stype}`, data);
-  return "已写进设定并保存——切回面板就能看到（面板有未保存修改时保持你的版本）。";
-}
-
-async function writeBackWorld(projectId: string, payload: Record<string, unknown>): Promise<string> {
-  const topic = String(payload.topic ?? "");
-  const draft = String(payload.draft ?? "").trim();
-  if (!topic || !draft) {
-    throw new Error("这张卡没带写入位置（topic/draft 缺失）——回面板手动贴一下。");
-  }
-  if (!worldTopicWritable(topic)) {
-    throw new Error(`「${topic}」是条目格，草稿是散文形态——照着卡在面板上贴成条目更稳。`);
-  }
-  const { api } = await import("@/lib/api");
-  const cur = (await api.get(`/novels/${projectId}/settings/world`)) as Record<string, unknown> | null;
-  const data = { ...(cur ?? {}) };
-  // 生成端偶发双层 JSON 串（后端已剥一层，这里再兜一次）——存纯文本
-  let text = draft;
-  try {
-    const inner = JSON.parse(draft);
-    if (inner && typeof inner === "object" && typeof (inner as { value?: unknown }).value === "string") {
-      text = String((inner as { value: unknown }).value);
-    }
-  } catch {
-    /* 非 JSON 串原样写 */
-  }
-  data[topic] = text;
-  await api.put(`/novels/${projectId}/settings/world`, data);
-  return "已写进世界设定并保存——切回面板就能看到。";
-}
-
-async function writeBackCharacter(projectId: string, payload: Record<string, unknown>): Promise<string> {
-  const d = payload.character_draft as Record<string, unknown> | undefined;
-  if (!d || typeof d !== "object") {
-    throw new Error("这张卡没带角色草案。");
-  }
-  const { charactersApi } = await import("@/lib/charactersApi");
-  const name = String(d.name ?? "");
-  const created = await charactersApi.create(projectId, name, { role: "配角" });
-  const personality = String(d.personality ?? "").trim();
-  if (personality) {
-    await charactersApi.patch(projectId, created.id, "persona", personality, 0);
-  }
-  const rest = [d.gender_age, d.identity, d.relation, d.function].filter((x) => String(x ?? "").trim());
-  return rest.length
-    ? `新角色「${name || created.id}」已建卡：名字和人设写进去了；性别年龄/身份/关系/功能这几格在卡上照着补。`
-    : `新角色「${name || created.id}」已建卡。`;
-}
 
 function ArtifactCard(props: { data: ArtifactCardData; id?: string }) {
   const { data, id } = props;
