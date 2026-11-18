@@ -80,6 +80,10 @@ class Tool:
     risk_level: str = "high"
     # Effect 声明（c-agent-effects）：写类工具执行成功后告知前端刷新哪个数据域
     effect_domain: str = ""  # chapters|volumes|settings|characters|hooks|""(不触发刷新)
+    # Effect 动作与 target 来源（c-agent-nav）：navigate 类前端动作声明动作名＋从哪个
+    # 入参取 target（例：switch_tab 声明 navigate/ui/tab）；refresh 类用默认值零声明
+    effect_action: str = "refresh"  # refresh|navigate
+    effect_target_from: str = ""  # 入参键名（空＝无 target）
 
     def __post_init__(self) -> None:
         if not self.args_hint:
@@ -973,7 +977,6 @@ async def _read_book_structure(ctx: ToolContext) -> ToolResult:
             )
         ).all()
 
-    vol_by_id = {v.id: v for v in vols}
     lines = [f"全书 {len(vols)} 卷 {len(chs)} 章："]
     for v in vols:
         vol_chs = [c for c in chs if c.volume_id == v.id]
@@ -985,8 +988,6 @@ async def _read_book_structure(ctx: ToolContext) -> ToolResult:
     for c in chs:
         st = _STATUS_ZH.get(c.status, c.status)
         ol = _OUTLINE_ZH.get(c.outline_status, c.outline_status)
-        vol = vol_by_id.get(c.volume_id)
-        vn = vol.volume_no if vol else "?"
         wc = f"{c.word_count} 字" if c.word_count else "空"
         lines.append(f"- {c.ref}《{c.title}》{st}·{wc}·章纲{ol}")
     return ToolResult(ok=True, summary="\n".join(lines))
@@ -1006,6 +1007,49 @@ BOOK_STRUCTURE_TOOLS: tuple[Tool, ...] = (
     ),
 )
 TOOL_REGISTRY: tuple[Tool, ...] = TOOL_REGISTRY + BOOK_STRUCTURE_TOOLS
+
+
+# ── 页签切换（c-agent-nav）：服务端只做白名单校验＋发 navigate effect（前端真实
+# 切页签）；kind=read 免授权；域封闭＝七章节页签域可见（scopes._DOMAIN_TOOLS），
+# 卷纲/设定/预览/默认域不见此工具。话术契约进 description——调用前话术用进行时
+# （「我切过去」），SHALL NOT 预告「已切」：切成没切成由系统做。
+
+_TAB_ZH = {
+    "og": "章纲",
+    "prose": "正文",
+    "settings": "设定",
+    "relations": "角色关系",
+    "hooks": "伏笔",
+    "actions": "操作",
+    "style": "文风",
+}
+
+
+async def _switch_tab(ctx, tab: str = ""):
+    tab = str(tab or "").strip()
+    if tab not in _TAB_ZH:
+        opts = "、".join(f"{k}（{v}）" for k, v in _TAB_ZH.items())
+        return ToolResult(ok=False, summary=f"没有「{tab or '（空）'}」这个页签——可选的是：{opts}。")
+    thread = str(getattr(ctx, "thread", "") or "")
+    if not thread.startswith("ch:"):
+        return ToolResult(ok=False, summary="这里不是章节页——打开左侧某一章后，我再帮你切页签。")
+    return ToolResult(ok=True, summary=f"已切到{_TAB_ZH[tab]}页签。")
+
+
+NAV_TOOLS: tuple[Tool, ...] = (
+    Tool(
+        name="switch_tab", kind="read", risk_level="low",
+        effect_action="navigate", effect_domain="ui", effect_target_from="tab",
+        parameters={"type": "object", "properties": {"tab": {"type": "string", "enum": list(_TAB_ZH), "description": "目标页签：og=章纲、prose=正文、settings=设定、relations=角色关系、hooks=伏笔、actions=操作、style=文风"}}, "required": ["tab"]},
+        description=(
+            "切换作家正在看的章节页签（作家说「切到正文/给我看章纲」类要求时调）。"
+            "调用前的话术用进行时（「我切过去」），不要说「已切」——切换由系统执行。"
+            "只在当前这一章的页签间切换；跨章、跨大页签（写作/设定/预览）做不到就直说。"
+        ),
+        fn=_switch_tab,
+    ),
+)
+TOOL_REGISTRY: tuple[Tool, ...] = TOOL_REGISTRY + NAV_TOOLS
 
 TOOL_REGISTRY: tuple[Tool, ...] = TOOL_REGISTRY + STRUCTURE_TOOLS + WORLD_TOOLS + MEMORY_TOOLS
 

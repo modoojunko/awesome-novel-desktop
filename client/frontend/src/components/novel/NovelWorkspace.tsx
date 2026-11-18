@@ -319,6 +319,9 @@ export default function NovelWorkspace() {
   const [showRegenConfirm, setShowRegenConfirm] = useState(false);
   // 生成已启动的信号（计数器）：ChapterWorkspace 收到即切正文页签 + 聚焦（真 bug #2）
   const [aiWriteSignal, setAiWriteSignal] = useState(0);
+  // 助手导航信号（c-agent-nav）：agent switch_tab → 中途真实切章节页签。
+  // aiWriteSignal 同款计数器模式；tab 目标与 seq 分开存（seq 触发、tab 定目标）。
+  const [chatNav, setChatNav] = useState<{ seq: number; tab: string }>({ seq: 0, tab: "" });
   // 提示词落库信号（c-prompt-tab-retire）：弹窗存稿后右栏提示词状态行刷新
   const [promptSavedSignal, setPromptSavedSignal] = useState(0);
 
@@ -1211,6 +1214,8 @@ export default function NovelWorkspace() {
               onRevert={onRevert}
               onTreeRefresh={refresh}
               aiWriteSignal={aiWriteSignal}
+              chatNavSeq={chatNav.seq}
+              chatNavTab={chatNav.tab}
               promptSavedSignal={promptSavedSignal}
               onOpenAiModal={() => requestAi({ kind: "write" }, { skipRegenConfirm: true })}
             />
@@ -1440,6 +1445,14 @@ export default function NovelWorkspace() {
                   refreshCharStale();
                 }
               }
+            }}
+            onEffect={(ef) => {
+              // agent 导航（c-agent-nav）：switch_tab → 中途真实切章节页签。
+              // 守卫＝章节工作台内（作家已切走则静默忽略——窄竞态设计口径）；
+              // 与手点页签同语义（不拦脏表单），dock 线程随 scope.chapterTab 重绑
+              if (ef.action !== "navigate" || ef.domain !== "ui" || !ef.target) return;
+              if (view !== "workbench" || !chapterRef) return;
+              setChatNav((n) => ({ seq: n.seq + 1, tab: ef.target as string }));
             }}
           />
           </AuiErrorBoundary>

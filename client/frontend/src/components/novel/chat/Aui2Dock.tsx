@@ -369,6 +369,7 @@ export function Aui2Dock({
   onOpenAction,
   onStreamingChange,
   onEffects,
+  onEffect,
 }: {
   projectId: string;
   page: string;
@@ -383,6 +384,8 @@ export function Aui2Dock({
   onStreamingChange?: (v: boolean) => void;
   /** agent 写操作后的前端效果回调（NovelWorkspace 按域刷新数据） */
   onEffects?: (effects: { action: string; domain: string; target?: string }[]) => void;
+  /** 单条即时 effect（c-agent-nav：navigate 中途翻页——活体事件，不入镜像不落库） */
+  onEffect?: (effect: { action: string; domain: string; target?: string; description?: string }) => void;
 }) {
   const threadKey = threadKeyOf(scope);
   const apiRef = useRef<ChatAnywhereRef | null>(null);
@@ -797,6 +800,15 @@ export function Aui2Dock({
               if (Array.isArray(e.effects)) {
                 pendingEffectsRef.current = e.effects;
               }
+            } else if (e.type === "effect") {
+              // 即时 effect（c-agent-nav：navigate 中途翻页）——直接回调宿主；
+              // 不进镜像不落库（活体事件，历史回放不 teleport）
+              onEffect?.({
+                action: String(e.action ?? ""),
+                domain: String(e.domain ?? ""),
+                target: e.target == null ? undefined : String(e.target),
+                description: e.description == null ? undefined : String(e.description),
+              });
             } else if (e.type === "clear") {
               // /new：服务端已清，前端同步清屏（命令与旧对话都不留）
               mirrorRef.current.set(threadKeyRef.current, []);
@@ -958,7 +970,7 @@ export function Aui2Dock({
         },
       );
     },
-    [projectId, page, scope.chapterRef, upsertTrace, onStreamingChange, onEffects],
+    [projectId, page, scope.chapterRef, upsertTrace, onStreamingChange, onEffects, onEffect],
   );
 
   const ctxPct = ctx ? Math.min(100, ctx.pct) : 0;

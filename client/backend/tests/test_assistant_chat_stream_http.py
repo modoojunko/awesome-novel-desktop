@@ -221,3 +221,66 @@ def test_read_only_step_no_effect(monkeypatch):
     run_end = [e for e in events if e.get("type") == "run_end"]
     assert len(run_end) == 1
     assert not run_end[0].get("effects"), f"读步不应带 effects：{run_end[0]}"
+
+
+def test_navigate_effect_emitted_immediately_and_not_persisted(monkeypatch):
+    """c-agent-nav 钉：switch_tab 成功步 → effect 事件即时下发（紧随 step_end）
+    ＋run_end 不带 effects（导航不进收尾汇总）＋不入库（回放安全）。"""
+    bid = _mk_book()
+    _patch_loop(monkeypatch, [
+        {"type": "run_start", "runId": "nx1"},
+        {
+            "type": "step_end",
+            "runId": "nx1",
+            "stepId": "nx1-1",
+            "tool": "switch_tab",
+            "resultNote": "已切到正文页签。",
+            "ok": True,
+            "args": {"tab": "prose"},
+        },
+        {"type": "narration", "text": "我切过去了，你看正文。"},
+        {"type": "run_end", "runId": "nx1", "steps": 1, "toolCalls": 1, "degraded": False, "error": ""},
+    ])
+    events = _read_sse(bid, "把页面切到正文")
+    types = [e.get("type") for e in events]
+    assert "effect" in types, f"SSE 缺 effect 事件：{types}"
+    effect = next(e for e in events if e.get("type") == "effect")
+    assert effect["action"] == "navigate"
+    assert effect["domain"] == "ui"
+    assert effect["target"] == "prose"
+    # 即时性：effect 在 run_end 之前到达
+    assert types.index("effect") < types.index("run_end")
+    # 紧随 step_end（中途翻页——顺序契约）
+    assert types.index("effect") == types.index("step_end") + 1
+    # run_end 不携带 effects（navigate 不进收尾汇总）
+    run_end = next(e for e in events if e.get("type") == "run_end")
+    assert not run_end.get("effects"), f"navigate 不应进 run_end effects：{run_end}"
+    # 不入库：会话回看无 navigate 载荷（回放安全）
+    r = client.get(
+        f"/api/novels/{bid}/assistant/session?thread=ch:og",
+        headers={"Authorization": "Bearer tok-chathttp"},
+    )
+    assert r.status_code == 200
+    payloads = [m.get("payload") or {} for m in r.json().get("messages", [])]
+    assert all(p.get("action") != "navigate" for p in payloads)
+
+
+def test_failed_switch_tab_no_effect(monkeypatch):
+    """失败 switch_tab（坏页签 ok=False）→ 无 effect 事件——模型如实转告。"""
+    bid = _mk_book()
+    _patch_loop(monkeypatch, [
+        {"type": "run_start", "runId": "bx1"},
+        {
+            "type": "step_end",
+            "runId": "bx1",
+            "stepId": "bx1-1",
+            "tool": "switch_tab",
+            "resultNote": "没有「nope」这个页签——可选的是：og（章纲）、prose（正文）。",
+            "ok": False,
+            "args": {"tab": "nope"},
+        },
+        {"type": "narration", "text": "这个页签我不认识，可以从章纲、正文这些里挑。"},
+        {"type": "run_end", "runId": "bx1", "steps": 1, "toolCalls": 1, "degraded": False, "error": ""},
+    ])
+    events = _read_sse(bid, "切到不存在的页")
+    assert all(e.get("type") != "effect" for e in events), events

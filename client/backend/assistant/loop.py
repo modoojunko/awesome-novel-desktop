@@ -389,6 +389,7 @@ class AgentLoop:
             "tool": tool_name,
             "resultNote": note,
             "ok": result.ok,  # effect 收集口径：只对成功的写步触发前端刷新（router._consume）
+            "args": args,  # effect target 来源（c-agent-nav：effect_target_from 指入参键）
         }
         from assistant.scopes import domain_of_thread
 

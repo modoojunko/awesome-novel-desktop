@@ -516,8 +516,10 @@ async def _stream_chat(
     # → _STOP 永不入队 → SSE 永挂（前端「进行中」卡死）。收集与消费必须同侧成对。
     run_effects: list[dict[str, Any]] = []
 
-    async def _consume(drv_db: AsyncSession, event: dict[str, Any]) -> None:
+    async def _consume(drv_db: AsyncSession, event: dict[str, Any]) -> list[dict[str, Any]]:
         """落盘分支（消费副作用）：narration 攒回执、tool/授权卡/产物卡落行。
+        返回本事件衍生的即时 SSE 事件（c-agent-nav navigate effect），由 _drive
+        紧随本事件按序入队。
 
         用 drive 自有会话——请求级 db 随断开即被依赖清理关闭，断开后继续落库
         的会话必须自持（判例：读面写库自开短会话）。"""
@@ -525,7 +527,8 @@ async def _stream_chat(
         etype = event.get("type")
         if etype == "narration":
             reply_parts.append(str(event.get("text", "")))
-        elif etype == "step_end":
+            return []
+        if etype == "step_end":
             await session_store.append_message(
                 drv_db,
                 session.id,
@@ -541,16 +544,27 @@ async def _stream_chat(
                     "apiCalls": event.get("apiCalls"),  # 本步模型调用记录（反馈流可见）
                 },
             )
-            # Effect 收集：注册表声明了 effect_domain 且本步成功才触发前端刷新
-            # （失败写不改数据，刷新＝假反馈）。读/卡类工具 effect_domain 为空。
+            # Effect 生成（c-agent-effects 收集＋c-agent-nav v2）：注册表声明了
+            # effect_domain 且本步成功才触发（失败写不改数据，反馈＝假）。
+            # navigate＝前端动作 → 即时事件紧随 step_end（中途翻页），不入
+            # run_effects（不落库不进收尾汇总——历史回放不 teleport）；
+            # refresh＝数据域刷新 → 维持 run_end 批量（写步常连发，批量省抖动）。
             tool_meta = get_tool(str(event.get("tool") or ""))
             if event.get("ok") and tool_meta is not None and tool_meta.effect_domain:
-                run_effects.append({
-                    "action": "refresh",
+                action = str(getattr(tool_meta, "effect_action", "") or "refresh")
+                effect: dict[str, Any] = {
+                    "action": action,
                     "domain": tool_meta.effect_domain,
                     "description": str(event.get("resultNote", ""))[:120],
-                })
-        elif etype == "permission_required":
+                }
+                target_key = str(getattr(tool_meta, "effect_target_from", "") or "")
+                if target_key and isinstance(event.get("args"), dict):
+                    effect["target"] = str(event["args"].get(target_key) or "")
+                if action == "navigate":
+                    return [{"type": "effect", **effect}]
+                run_effects.append(effect)
+            return []
+        if etype == "permission_required":
             await session_store.append_message(
                 drv_db,
                 session.id,
@@ -587,6 +601,7 @@ async def _stream_chat(
             )
         elif etype == "error":
             final_status = "error"
+        return []
 
     async def _finalize(drv_db: AsyncSession) -> None:
         """收尾落库（openwriter INTERRUPTED 同款）：停止/断开/正常收口都把已达
@@ -613,13 +628,17 @@ async def _stream_chat(
         async with async_session() as drv_db:
             try:
                 async for event in loop.run(message_for_model, prime=tool_hint):
-                    await _consume(drv_db, event)
+                    immediate = await _consume(drv_db, event)
                     # thinking 照发 SSE（dock 实时思考回看，run_end 时前端收进
                     # run 气泡）；落盘分支不匹配 thinking——回看不存逐字思考
                     # Effect 注入（c-agent-effects）：run_end 携带本轮写操作 effects
                     if event.get("type") == "run_end" and run_effects:
                         event["effects"] = list(run_effects)
                     await queue.put(event)
+                    for extra in immediate:
+                        # 即时衍生事件（c-agent-nav navigate effect）：紧随本事件
+                        # 按序下发——step_end（轨迹行）→ effect（页面翻）
+                        await queue.put(extra)
                 if loop.result.tokens_in or loop.result.tokens_out:
                     await session_store.append_message(
                         drv_db,

@@ -50,13 +50,14 @@ _DOMAIN_TOOLS: dict[str, dict[str, frozenset[str]]] = {
                 "simulate_plot",
                 "draw_plot_cards",
                 "review_cast",
+                "switch_tab",  # 页签切换（c-agent-nav）：章节七页签域内可见，共享集不加
             }
         ),
     },
     "ch:prose": {
         "domain": "正文",
         "label": "正文助手",
-        "tools": frozenset(),  # 正文页以读为流程；生成走既有写作流不占对话
+        "tools": frozenset({"switch_tab"}),  # 正文页以读为流程；生成走既有写作流不占对话
     },
     "set:": {
         "domain": "设定",
@@ -83,27 +84,27 @@ _DOMAIN_TOOLS: dict[str, dict[str, frozenset[str]]] = {
     "ch:settings": {
         "domain": "设定",
         "label": "设定助手",
-        "tools": frozenset({"check_consistency"}),
+        "tools": frozenset({"check_consistency", "switch_tab"}),
     },
     "ch:relations": {
         "domain": "关系",
         "label": "关系助手",
-        "tools": frozenset({"check_consistency"}),
+        "tools": frozenset({"check_consistency", "switch_tab"}),
     },
     "ch:hooks": {
         "domain": "伏笔",
         "label": "伏笔助手",
-        "tools": frozenset({"check_consistency"}),
+        "tools": frozenset({"check_consistency", "switch_tab"}),
     },
     "ch:actions": {
         "domain": "操作",
         "label": "操作助手",
-        "tools": frozenset(),
+        "tools": frozenset({"switch_tab"}),
     },
     "ch:style": {
         "domain": "文风",
         "label": "文风助手",
-        "tools": frozenset({"check_consistency"}),
+        "tools": frozenset({"check_consistency", "switch_tab"}),
     },
     "vol": {
         "domain": "卷纲",
