@@ -26,6 +26,7 @@ _SHARED_TOOLS = frozenset(
         "remember_book_memory",
         "forget_book_memory",
         "remember_decision",
+        "recall_decisions",  # 决策档案召回（c-agent-decision-archive）：跨页签共享读
         "read_chapter_versions",
         "read_book_structure",
         # 结构管理动作（c-agent-tools-expand）：书级操作全域共享
