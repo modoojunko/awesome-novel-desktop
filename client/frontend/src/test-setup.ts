@@ -31,3 +31,13 @@ for (const proto of [
 ]) {
   if (proto) withRects(proto);
 }
+// ★真正的 target：prosemirror textRange() 返回 DOM Range——jsdom 无排版引擎，
+// Range 的 getClientRects/getBoundingClientRect 都不存在（上面原型补丁罩不住）
+if (typeof Range !== "undefined") {
+  const rangeProto = Range.prototype as unknown as {
+    getClientRects: () => DOMRectList;
+    getBoundingClientRect: () => DOMRect;
+  };
+  rangeProto.getClientRects = zeroRects;
+  rangeProto.getBoundingClientRect = () => zeroRects()[0];
+}
