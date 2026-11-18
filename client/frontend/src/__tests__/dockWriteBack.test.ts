@@ -59,6 +59,32 @@ describe("settings 字段卡写回", () => {
     expect(putBody.cost_ratio).toBe(7);
   });
 
+  it("core_promise 多看点数组：core_promise 置空、note 拼接（镜像面板多选语义）", async () => {
+    apiState.get.mockResolvedValue({ core_promise: "", promise_note: "旧的句子", forbidden_list: [] });
+    await writeBackSettingsField(P, {
+      stype: "genre", field: "core_promise",
+      value: [
+        { value: "以弱破强", note: "弱者翻盘" },
+        { value: "绝处逢生", note: "死里逃生" },
+      ],
+    });
+    const putBody = apiState.put.mock.calls[0][1] as Record<string, unknown>;
+    expect(putBody.core_promise).toBe("");
+    expect(putBody.promise_note).toContain("弱者翻盘");
+    expect(putBody.promise_note).toContain("死里逃生");
+    expect(putBody.forbidden_list).toEqual([]);
+  });
+
+  it("单条 dict 无 note：不洗掉既有 promise_note", async () => {
+    apiState.get.mockResolvedValue({ core_promise: "", promise_note: "作家已有的一段话" });
+    await writeBackSettingsField(P, {
+      stype: "genre", field: "core_promise", value: { value: "以弱破强" },
+    });
+    const putBody = apiState.put.mock.calls[0][1] as Record<string, unknown>;
+    expect(putBody.core_promise).toBe("以弱破强");
+    expect(putBody.promise_note).toBe("作家已有的一段话");
+  });
+
   it("缺 stype/field/value 拒写", async () => {
     await expect(writeBackSettingsField(P, { stype: "genre", field: "", value: 1 })).rejects.toThrow("写入位置");
     expect(apiState.put).not.toHaveBeenCalled();

@@ -7,6 +7,7 @@
 
 import json
 import os
+from pathlib import Path
 
 import pytest
 
@@ -63,6 +64,32 @@ async def test_append_message_seq_monotonic_and_heal():
     assert healed.status == "error"
     assert healed.content == "写到一半"
     assert [r.seq for r in rows] == sorted(r.seq for r in rows)
+
+
+@pytest.mark.asyncio
+async def test_heal_tz_transition_negative_age(tmp_path):
+    """时区过渡钉（c-agent-session-files TZ 收口）：created_at 呈「未来」（旧本地
+    时区串 × 新 UTC now）＝负年龄 → 按超龄收尾，不误判活跃 run 永挂。"""
+    session = await ss.get_or_create_session(user_id="u_tz", novel_id="n_tz")
+    from datetime import datetime, timedelta
+
+    future = (datetime.now() + timedelta(hours=8)).strftime("%Y-%m-%d %H:%M:%S")
+    pending = await ss.append_message(
+        session, role="assistant", content="半截", status="streaming",
+    )
+    # 手工把 created_at 改到「未来」并直接落盘（模拟旧时区写入的行）
+    p_jsonl = Path(pending.path)
+    lines = p_jsonl.read_text(encoding="utf-8").splitlines()
+    out = []
+    for line in lines:
+        o = json.loads(line)
+        if o.get("id") == pending.id:
+            o["created_at"] = future
+        out.append(json.dumps(o, ensure_ascii=False))
+    p_jsonl.write_text("\n".join(out) + "\n", encoding="utf-8")
+    rows = await ss.load_messages(session)
+    healed = next(r for r in rows if r.id == pending.id)
+    assert healed.status == "error", "负年龄行应按超龄收尾"
 
 
 @pytest.mark.asyncio
