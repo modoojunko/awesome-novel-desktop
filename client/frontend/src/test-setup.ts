@@ -13,12 +13,10 @@ afterEach(() => {
 // 补零矩形：几何调用方（singleRect）取 [0] 继续走，数值无意义但形状成立。
 const zeroRects = () =>
   [{ top: 0, right: 0, bottom: 0, left: 0, width: 0, height: 0, x: 0, y: 0 }] as unknown as DOMRectList;
-// prosemirror 的 target 可能是 Element／Text 节点／Document／Window——统一在原型链
-// 根部（Node.prototype 罩住 Element/Text/Document）＋window 实例补零矩形
+// prosemirror 的 target 可能是 Element／Text 节点／Document／Window——统一补零矩形。
+// 无条件覆盖：部分 jsdom 版本在原型上放 truthy 占位（非函数），守卫会让补丁跳过
+// （CI 实锤「target.getClientRects is not a function」在守卫版下复现）。
 const withRects = (o: unknown) => (o as unknown as { getClientRects: () => DOMRectList });
-if (typeof Node !== "undefined" && !(Node.prototype as unknown as { getClientRects?: unknown }).getClientRects) {
-  withRects(Node.prototype).getClientRects = zeroRects;
-}
-if (typeof window !== "undefined" && !(window as unknown as { getClientRects?: unknown }).getClientRects) {
-  withRects(window).getClientRects = zeroRects;
+withRects(Node.prototype).getClientRects = zeroRects;
+withRects(window).getClientRects = zeroRects;
 }
