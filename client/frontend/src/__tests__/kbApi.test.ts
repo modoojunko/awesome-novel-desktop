@@ -2,7 +2,11 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { kbApi } from "@/lib/kbApi";
 
-const { bind, bindings, createEntry, deleteEntry, entries, entry, genres, libraries, syncBinding, unbind, concepts, updateEntry, usePrototype, graphAggregate, graphCell, pref, baselineOverride, clearBaselineOverride, baselineStatus, baselineSync, bookScopeImport, bookScopeDiff, bookScopeDecline } = kbApi;
+const {
+  bind, bindings, createEntry, deleteEntry, entries, entry, genres, libraries, syncBinding, unbind, concepts, updateEntry, usePrototype, graphAggregate, graphCell, pref, baselineOverride, clearBaselineOverride, baselineStatus, baselineSync, bookScopeImport, bookScopeDiff, bookScopeDecline,
+  instancesFlat, archiveEntry, restoreEntry, listInstances, addInstance,
+  organize, summarize, refine, refineTasks, graphTree, treeSyncStatus, baselineProbe,
+} = kbApi;
 
 const fetchMock = vi.fn();
 
@@ -366,5 +370,96 @@ describe("kbApi", () => {
       const init = fetchMock.mock.calls[0][1] as RequestInit;
       expect((init.headers as Record<string, string>).Authorization).toBeUndefined();
     });
+  });
+});
+
+
+describe("kbApi 未覆盖方法契约扫描（c-agent-decision-archive 覆盖债）", () => {
+  it("instancesFlat：参数拼接（genre/concept/q）", async () => {
+    fetchMock.mockReturnValueOnce(json({ rows: [{ id: "i1" }] }));
+    const out = await instancesFlat({ genre: "都市", concept: "金手指", q: "半蹲" });
+    expect(out.rows[0].id).toBe("i1");
+    const url = decodeURIComponent(String(fetchMock.mock.calls[0][0]));
+    expect(url).toContain("/api/kb/instances?");
+    expect(url).toContain("genre=都市");
+    expect(url).toContain("concept=金手指");
+    expect(url).toContain("q=半蹲");
+  });
+
+  it("entries：全参数拼接＋游标", async () => {
+    fetchMock.mockReturnValueOnce(json({ entries: [{ id: "e1" }], next_cursor: "c2" }));
+    const out = await entries({ genre: "玄幻", src: "拆书", cursor: "c1", limit: 20 });
+    expect(out.next_cursor).toBe("c2");
+    const url = decodeURIComponent(String(fetchMock.mock.calls[0][0]));
+    expect(url).toContain("cursor=c1");
+    expect(url).toContain("limit=20");
+    expect(url).toContain("src=拆书");
+  });
+
+  it("entry：按 id 取单条", async () => {
+    fetchMock.mockReturnValueOnce(json({ id: "e9", title: "条目" }));
+    const out = await entry("e9");
+    expect(out.id).toBe("e9");
+    expect(String(fetchMock.mock.calls[0][0])).toContain("/api/kb/entries/e9");
+  });
+
+  it("归档/恢复/实例行三件", async () => {
+    fetchMock.mockReturnValue(json({ ok: true, entry_id: "e1" }));
+    await archiveEntry("e1");
+    await restoreEntry("e1");
+    expect(fetchMock.mock.calls[0][0]).toContain("/entries/e1/archive");
+    expect(String(fetchMock.mock.calls[1][0])).toContain("/entries/e1/restore");
+    fetchMock.mockReturnValueOnce(json({ ok: true, instances: [{ id: "i", text: "t", source_kind: "", source_novel: "", source_chapter: "", quote: "", fields_json: "{}", sort: 1 }] }));
+    const inst = await listInstances("e1");
+    expect(inst.instances).toHaveLength(1);
+    fetchMock.mockReturnValueOnce(json({ ok: true, instance: { id: "i2", text: "x" } }));
+    await addInstance("e1", { text: "x", sort: 2 });
+    expect(String(fetchMock.mock.calls.at(-1)![0])).toContain("/entries/e1/instances");
+  });
+
+  it("organize 全组（run/status/findings/adopt/ignore/relation 四件/graphEntries/entryRelations）", async () => {
+    fetchMock.mockReturnValue(json({ ok: true }));
+    await organize.run("玄幻");
+    await organize.run("玄幻", true);
+    expect(String(fetchMock.mock.calls[0][0])).toContain("/organize/run");
+    await organize.status("玄幻");
+    await organize.findings("玄幻");
+    await organize.adoptFinding("f1");
+    await organize.ignoreFinding("f2");
+    await organize.adoptRelation("r1");
+    await organize.rejectRelation("r2");
+    await organize.relationFeedback("r3");
+    await organize.graphEntries("玄幻");
+    await organize.entryRelations("e1", { status: "all" });
+    const urls = fetchMock.mock.calls.map((c) => String(c[0]));
+    expect(urls.filter((u) => u.includes("/organize/")).length).toBeGreaterThanOrEqual(6);
+    expect(urls.some((u) => u.includes("/relations/r1/adopt"))).toBe(true);
+  });
+
+  it("summarize/refine/refineTasks 全组", async () => {
+    fetchMock.mockReturnValue(json({ ok: true }));
+    await summarize.run("玄幻");
+    await summarize.status("玄幻");
+    await refine.run("玄幻");
+    await refineTasks.create("玄幻");
+    await refineTasks.list();
+    await refineTasks.get("t1");
+    await refineTasks.cancel("t1");
+    await refineTasks.delete("t1");
+    const urls = fetchMock.mock.calls.map((c) => String(c[0]));
+    expect(urls.some((u) => u.includes("/summarize/run"))).toBe(true);
+    expect(urls.some((u) => u.includes("/refine/run"))).toBe(true);
+    expect(urls.some((u) => u.includes("/refine/tasks/t1/cancel"))).toBe(true);
+  });
+
+  it("graphTree/treeSyncStatus/baselineProbe", async () => {
+    fetchMock.mockReturnValue(json({ ok: true }));
+    await graphTree("玄幻");
+    await treeSyncStatus();
+    await baselineProbe();
+    const urls = fetchMock.mock.calls.map((c) => String(c[0]));
+    expect(urls.some((u) => u.includes("graph"))).toBe(true);
+    expect(urls.some((u) => u.includes("tree-sync") || u.includes("tree"))).toBe(true);
+    expect(urls.some((u) => u.includes("probe"))).toBe(true);
   });
 });

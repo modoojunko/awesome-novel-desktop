@@ -997,3 +997,22 @@ describe("AcctMenu 检查更新·渠道后缀（c-update-staging-channel）", ()
     expect(toastState.success).toHaveBeenLastCalledWith("已是最新版本 v0.40");
   });
 });
+
+
+describe("AcctMenu 助手入口（c-agent 决策线覆盖债）", () => {
+  it("助手人格/作家画像菜单项：点击回调＋收起", async () => {
+    const { default: AcctMenu } = await import("@/components/AcctMenu");
+    const { useTier } = await import("@/hooks/useTier");
+    vi.mocked(useTier).mockReturnValue(tierState());
+    const onAssistantPersona = vi.fn();
+    const onWriterProfile = vi.fn();
+    mount(<AcctMenu onAssistantPersona={onAssistantPersona} onWriterProfile={onWriterProfile} />);
+    fireEvent.click(document.querySelector('[data-od-id="acct-trigger"]') as HTMLElement);
+    fireEvent.click(await screen.findByRole("menuitem", { name: /助手人格/ }));
+    expect(onAssistantPersona).toHaveBeenCalledTimes(1);
+    // close() 已收起面板——第二次点击前重开触发钮
+    fireEvent.click(document.querySelector('[data-od-id="acct-trigger"]') as HTMLElement);
+    fireEvent.click(await screen.findByRole("menuitem", { name: /作家画像/ }));
+    expect(onWriterProfile).toHaveBeenCalledTimes(1);
+  });
+});

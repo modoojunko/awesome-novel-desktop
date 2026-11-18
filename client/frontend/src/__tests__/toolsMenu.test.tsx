@@ -15,8 +15,9 @@ vi.mock("@/lib/deconstructApi", () => ({
 import ToolsMenu from "@/components/tools/ToolsMenu";
 import TaskListPage from "@/components/tools/TaskListPage";
 
-function renderMenu() {
+function renderMenu(refineTasks?: { id: string; status: string }[]) {
   const qc = new QueryClient();
+  if (refineTasks) qc.setQueryData(["refine-tasks"], { tasks: refineTasks });
   return render(
     <QueryClientProvider client={qc}>
       <MemoryRouter>
