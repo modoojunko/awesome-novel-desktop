@@ -41,17 +41,27 @@ export async function writeBackSettingsField(
   const cur = (await api.get(`/novels/${projectId}/settings/${stype}`)) as Record<string, unknown> | null;
   const data = { ...(cur ?? {}) };
   // core_promise 特例（review P2）：生成核出 {value, note}——value→短标签字段、
-  // note→promise_note（面板同款映射，GenRormSettingForm 250 行同构）；其余字段原样直写
+  // note→promise_note（面板同款映射，GenreSettingForm 250 行同构）；其余字段原样直写
   // （forbidden_list/battlefield 为归一化数组、cost_ratio 为数值——形状即契约）。
+  // 多看点数组（复测 P2 补刀）：镜像面板多选语义——core_promise 置空、note 拼接各条，
+  // 不把数组塞进字符串字段（toString＝[object Object] 污染）。
   let merged: Record<string, unknown> = { [field]: payload.value };
-  if (
-    field === "core_promise" &&
-    payload.value != null &&
-    typeof payload.value === "object" &&
-    !Array.isArray(payload.value)
-  ) {
-    const v = payload.value as Record<string, unknown>;
-    merged = { core_promise: String(v.value ?? ""), promise_note: String(v.note ?? "") };
+  if (field === "core_promise" && payload.value != null) {
+    const v = payload.value;
+    if (Array.isArray(v)) {
+      const notes = v
+        .map((item) => {
+          const it = item as Record<string, unknown>;
+          return String(it.note || it.value || "").trim();
+        })
+        .filter(Boolean);
+      merged = { core_promise: "", promise_note: notes.join("\n") };
+    } else if (typeof v === "object") {
+      const one = v as Record<string, unknown>;
+      const note = String(one.note ?? "").trim();
+      merged = { core_promise: String(one.value ?? "") };
+      if (note) merged.promise_note = note; // 空 note 不洗掉既有 promise_note
+    }
   }
   for (const [k, v] of Object.entries(merged)) {
     data[k] = v;

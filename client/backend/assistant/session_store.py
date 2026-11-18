@@ -369,7 +369,11 @@ async def load_messages(session: SessionMeta, *, heal: bool = True) -> list[MsgR
                 age = now - datetime.strptime(m.created_at, "%Y-%m-%d %H:%M:%S")
             except (TypeError, ValueError):
                 age = None
-            if age is not None and age.total_seconds() <= grace:
+            # 负年龄＝时区切换过渡窗（旧行按本地时区写入，切 UTC 后呈「未来」）——
+            # 同钟面不可能真未来，按超龄收尾（过渡期悬挂行不多挂 8 小时）
+            if age is None or age.total_seconds() < 0 or age.total_seconds() > grace:
+                pass  # 超龄/无效 → 走收尾
+            else:
                 continue  # 活跃 run（线程切换后 GET 命中），不误标
             m.status = "error"
             if not m.content:
