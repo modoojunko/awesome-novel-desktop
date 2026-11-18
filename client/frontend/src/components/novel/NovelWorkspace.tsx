@@ -10,7 +10,10 @@ import SettingsView from "@/components/novel/workbench/SettingsView";
 import PreviewView from "@/components/novel/workbench/PreviewView";
 import ManuscriptDownloadModal from "@/components/novel/workbench/ManuscriptDownloadModal";
 import type { RailChapterData } from "@/components/novel/workbench/Rail";
-import ChatDock from "@/components/novel/chat/ChatDock";
+import { Aui2Dock } from "@/components/novel/chat/Aui2Dock";
+import { AuiErrorBoundary } from "@/components/novel/chat/AuiErrorBoundary";
+import { Component, type ReactNode, type PropsWithChildren } from "react";
+
 import PersonaModal from "@/components/novel/chat/PersonaModal";
 import ProfileModal from "@/components/novel/chat/ProfileModal";
 import { VolumePlanModal } from "@/components/novel/workbench/VolumePlanModal";
@@ -316,6 +319,9 @@ export default function NovelWorkspace() {
   const [showRegenConfirm, setShowRegenConfirm] = useState(false);
   // 生成已启动的信号（计数器）：ChapterWorkspace 收到即切正文页签 + 聚焦（真 bug #2）
   const [aiWriteSignal, setAiWriteSignal] = useState(0);
+  // 助手导航信号（c-agent-nav）：agent switch_tab → 中途真实切章节页签。
+  // aiWriteSignal 同款计数器模式；tab 目标与 seq 分开存（seq 触发、tab 定目标）。
+  const [chatNav, setChatNav] = useState<{ seq: number; tab: string }>({ seq: 0, tab: "" });
   // 提示词落库信号（c-prompt-tab-retire）：弹窗存稿后右栏提示词状态行刷新
   const [promptSavedSignal, setPromptSavedSignal] = useState(0);
 
@@ -1208,6 +1214,8 @@ export default function NovelWorkspace() {
               onRevert={onRevert}
               onTreeRefresh={refresh}
               aiWriteSignal={aiWriteSignal}
+              chatNavSeq={chatNav.seq}
+              chatNavTab={chatNav.tab}
               promptSavedSignal={promptSavedSignal}
               onOpenAiModal={() => requestAi({ kind: "write" }, { skipRegenConfirm: true })}
             />
@@ -1398,7 +1406,8 @@ export default function NovelWorkspace() {
         <aside
           className={`col-ai${assistantOpen ? " as-open" : ""}${assistantNarrow ? " as-drawer" : ""}`}
         >
-          <ChatDock
+          <AuiErrorBoundary>
+          <Aui2Dock
             projectId={projectId}
             page={dockPage}
             scope={{
@@ -1409,18 +1418,11 @@ export default function NovelWorkspace() {
               settingPanel: settingsPanel,
               chapterTab: railData?.tab,
             }}
-            onStreamingChange={(v) => {
-              chatStreamingRef.current = v;
-              setChatStreaming(v);
-            }}
             onUpgrade={onUpgrade}
             onCloseDrawer={assistantNarrow ? () => setAssistantOpen(false) : undefined}
             onOpenAction={(action) => {
-              // 富交互入口走既有链（spec：对话不吞弹窗）——生成正文=AiModal 写流；
-              // 章级六类入口经 railData 回调分派到 ChapterWorkspace 既有弹窗/检测流
-              // （回调随 onRailData 上抛，零新写回路径）
+              // 富交互入口走既有链（spec：对话不吞弹窗）——与 ChatDock 同款分派
               if (action === "ai_write") requestAi({ kind: "write" });
-              // 朱雀检测直达（工具面板退役后 chip 即入口；权益/Key 分流在 hook 内）
               if (action === "zhuque" && chapterRef) void runZhuqueCheck(projectId, chapterRef);
               const rd = railData;
               if (action === "plot_draw") rd?.onPlotDraw?.();
@@ -1431,7 +1433,29 @@ export default function NovelWorkspace() {
               if (action === "renwei") proseRef.current?.openRenweiCheck?.();
               if (action === "seam") proseRef.current?.openSeamWizard?.();
             }}
+            onStreamingChange={(v) => {
+              // 流式存活上抛（树锁定守卫；Aui2 契约与 ChatDock 同款）
+              chatStreamingRef.current = v;
+              setChatStreaming(v);
+            }}
+            onEffects={(effects) => {
+              // agent 写操作后的前端刷新——按域刷新已有数据
+              for (const e of effects) {
+                if (e.domain === "chapters" || e.domain === "volumes") {
+                  refreshCharStale();
+                }
+              }
+            }}
+            onEffect={(ef) => {
+              // agent 导航（c-agent-nav）：switch_tab → 中途真实切章节页签。
+              // 守卫＝章节工作台内（作家已切走则静默忽略——窄竞态设计口径）；
+              // 与手点页签同语义（不拦脏表单），dock 线程随 scope.chapterTab 重绑
+              if (ef.action !== "navigate" || ef.domain !== "ui" || !ef.target) return;
+              if (view !== "workbench" || !chapterRef) return;
+              setChatNav((n) => ({ seq: n.seq + 1, tab: ef.target as string }));
+            }}
           />
+          </AuiErrorBoundary>
         </aside>
       </div>
         {assistantNarrow && !assistantOpen && (

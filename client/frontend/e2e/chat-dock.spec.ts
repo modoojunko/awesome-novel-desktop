@@ -1,4 +1,5 @@
 import fs from "fs";
+import { execSync } from "node:child_process";
 import http from "http";
 import path from "path";
 import { randomUUID } from "crypto";
@@ -25,6 +26,7 @@ import { entitlementFor } from "./tier-features";
 
 const S_API = process.env.E2E_S_API || "http://127.0.0.1:19001/api/web";
 const ORIGIN = process.env.E2E_BASE_URL || "http://localhost:5176";
+const pageUrl = (hash: string) => `${ORIGIN}/#${hash}`;
 const CONFIG_PATH = path.join(
   process.env.E2E_CLIENT_DATA || path.join(process.cwd(), "..", "..", "docker-data-e2e", "client"),
   "config.json",
@@ -254,8 +256,70 @@ async function registerAndLogin() {
   return { token: body.data.token as string, username: name };
 }
 
+// 原子写（tmp+rename）：virtiofs 上 writeFileSync 会被容器侧读到截断中间态
+// （后端 get_local_config JSONDecodeError→500，e2e seed 挂）——rename 原子可见
+/** config.json 一律从容器内写（Docker Desktop virtiofs 判例：宿主侧写入的截断/
+ *  半写在容器侧延迟可见——rename 换 inode 与就地覆写都撞过）。docker 不可达
+ *  （非容器栈）时回落宿主就地写＋fsync。 */
+const CONTAINER_NAME = process.env.E2E_CLIENT_CONTAINER || "e2e-iso-client-backend";
+function containerWriteConfig(jsonText: string) {
+  try {
+    // 走 stdin 管道（零 shell 引号面——JSON 里的引号经 argv 曾被打碎）
+    execSync(
+      `docker exec -i ${CONTAINER_NAME} python3 -c "import sys; open('/app/data/config.json','w').write(sys.stdin.read())"`,
+      { input: jsonText, stdio: ["pipe", "pipe", "pipe"], timeout: 10000 },
+    );
+    return;
+  } catch {
+    /* docker 不可达——回落宿主写 */
+  }
+  const fd = fs.openSync(CONFIG_PATH, "r+");
+  fs.ftruncateSync(fd, 0);
+  fs.writeFileSync(fd, jsonText);
+  fs.fsyncSync(fd);
+  fs.closeSync(fd);
+}
+
+function atomicWriteJson(path: string, text: string) {
+  // virtiofs 判例（demo-stack-virtiofs-wal-orphan 同族）：rename 换 inode 在
+  // Docker Desktop bind mount 上偶发旧读——e2e 的 config 写入改就地覆写＋fsync，
+  // 容器侧次轮读必见新 token（原子性在此场景让位于可见性）。
+  const fd = fs.openSync(path, "r+");
+  fs.ftruncateSync(fd, 0); // 截尾：新串比旧串短时残留字节会让容器读出 Extra data
+  fs.writeFileSync(fd, text);
+  fs.fsyncSync(fd);
+  fs.closeSync(fd);
+}
+
+/** 等 config.json 在容器侧可读出期望 token。⚠ 只用 docker exec 读——绝不打真
+ *  check-auth：它对陌生 pc_hash 会走「会话失效→清凭据」链，把刚写好的 config
+ *  清空（2026-11-17 实锤：轮询 check-auth = 自毁会话，全测 401）。 */
+function containerReadToken(): string {
+  try {
+    return execSync(
+      `docker exec ${CONTAINER_NAME} python3 -c "import json;print(json.load(open('/app/data/config.json')).get('token',''))"`,
+      { encoding: "utf8", stdio: ["pipe", "pipe", "pipe"], timeout: 10000 },
+    ).trim();
+  } catch {
+    return "";
+  }
+}
+async function waitConfigVisible(expected: string, tries = 20) {
+  for (let i = 0; i < tries; i += 1) {
+    if (containerReadToken() === expected) return;
+    await new Promise((r) => setTimeout(r, 100));
+  }
+  throw new Error("config.json 未在容器侧可见（读取回读超时）");
+}
+
 async function writeOAuthSession(t: string, u: string, tier = "max") {
   const original = fs.readFileSync(CONFIG_PATH, "utf-8");
+  let originalToken = "";
+  try {
+    originalToken = String((JSON.parse(original) as { token?: string }).token ?? "");
+  } catch {
+    /* 残骸视为空会话 */
+  }
   const cfg = JSON.parse(original);
   cfg.token = t;
   cfg.username = u;
@@ -264,9 +328,13 @@ async function writeOAuthSession(t: string, u: string, tier = "max") {
   delete cfg.expires_at;
   cfg.last_login_at = new Date().toISOString();
   cfg.pc_hash = randomUUID().replace(/-/g, "");
-  const mine = JSON.stringify(cfg, null, 2);
-  fs.writeFileSync(CONFIG_PATH, mine);
-  return () => fs.writeFileSync(CONFIG_PATH, original);
+  containerWriteConfig(JSON.stringify(cfg, null, 2));
+  await waitConfigVisible(t);
+  return async () => {
+    containerWriteConfig(original);
+    // restore 后等容器看见旧值（下一测 setup 重写后会再等新值）
+    await waitConfigVisible(originalToken).catch(() => {});
+  };
 }
 
 async function setupSession(page: Page, tier = "max") {
@@ -329,9 +397,9 @@ async function seedBook(page: Page, token: string, name: string): Promise<string
     body: JSON.stringify({ title: "第一卷" }),
   });
   expect(v.ok).toBeTruthy();
-  await page.goto(`${ORIGIN}/#/novel/${id}`);
+  await page.goto(pageUrl(`/novel/${id}`));
   await page.locator(".mtab", { hasText: "写作" }).click();
-  await expect(page.getByTestId("chat-dock")).toBeVisible();
+  await expect(page.getByTestId("aui2-dock")).toBeVisible();
   return id;
 }
 
@@ -344,15 +412,17 @@ async function seedEmptyBook(page: Page, token: string): Promise<string> {
   const body = await r.json();
   const id = (body.data?.id ?? body.id) as string;
   expect(id).toBeTruthy();
-  await page.goto(`${ORIGIN}/#/novel/${id}`);
+  await page.goto(pageUrl(`/novel/${id}`));
   await page.locator(".mtab", { hasText: "写作" }).click();
-  await expect(page.getByTestId("chat-dock")).toBeVisible();
+  await expect(page.getByTestId("aui2-dock")).toBeVisible();
   return id;
 }
 
 async function sendViaDock(page: Page, text: string) {
-  await page.getByTestId("chat-input").fill(text);
-  await page.getByTestId("chat-send").click();
+  // ChatAnywhere 内部 Sender：dock 内唯一 textarea，Enter 提交（自研输入/发送钮已退役）
+  const box = page.getByTestId("aui2-dock").getByRole("textbox");
+  await box.fill(text);
+  await box.press("Enter");
 }
 
 // ── 契约场景桩（脚本化 SSE／错误／历史）────────────────────────────────────
@@ -391,7 +461,7 @@ test.describe("chat-dock 界面测试（c-writing-agent 批G）", () => {
     const { restore, token } = await setupSession(page, "max");
     await seedEmptyBook(page, token);
     await expect(page.getByText("第一卷还空着，说说你的目标，我来铺。")).toBeVisible();
-    await expect(page.getByTestId("chat-chip-draft_volume_expand")).toBeVisible();
+    await expect(page.getByTestId("aui2-chip-draft_volume_expand")).toBeVisible();
     await restore();
   });
 
@@ -486,7 +556,7 @@ test.describe("chat-dock 界面测试（c-writing-agent 批G）", () => {
     await expect(page.getByText("记住这句话。")).toBeVisible();
     // 切到设定：另一个线程——看不到写作线程的消息
     await page.locator(".mtab", { hasText: "设定" }).click();
-    await expect(page.getByTestId("chat-dock")).toBeVisible();
+    await expect(page.getByTestId("aui2-dock")).toBeVisible();
     await expect(page.getByText("记住这句话。")).toBeHidden();
     // 切回写作：原线程接续
     await page.locator(".mtab", { hasText: "写作" }).click();
@@ -621,7 +691,7 @@ test.describe("chat-dock 界面测试（c-writing-agent 批G）", () => {
       r.fulfill({ json: { sessionId: "s", pageCursor: "", grants: {}, messages: history } }),
     );
     await page.reload();
-    await expect(page.getByTestId("chat-dock")).toBeVisible();
+    await expect(page.getByTestId("aui2-dock")).toBeVisible();
     // CopyStrip（openwriter 移植）让气泡 textContent 带「复制」字样——禁用 exact
     await expect(page.getByText("第38问")).toBeVisible({ timeout: 10000 });
     await expect(page.getByText("第39答")).toBeVisible();
@@ -638,19 +708,19 @@ test.describe("chat-dock 界面测试（c-writing-agent 批G）", () => {
       body: JSON.stringify({ title: "渡口" }),
     });
     await page.reload();
-    await expect(page.getByTestId("chat-dock")).toBeVisible();
+    await expect(page.getByTestId("aui2-dock")).toBeVisible();
     // 树中点章 → 章级模式；朱雀在正文页签（chips 随章内页签换装）——先切正文
     await page.locator(".col-tree .ch").first().click();
-    await expect(page.getByTestId("chat-chip-draft_chapter_split")).toBeVisible({ timeout: 8000 });
+    await expect(page.getByTestId("aui2-chip-draft_chapter_split")).toBeVisible({ timeout: 8000 });
     await page.getByRole("tab", { name: /正文/ }).click();
-    await expect(page.getByTestId("chat-chip-zhuque")).toBeVisible({ timeout: 8000 });
+    await expect(page.getByTestId("aui2-chip-zhuque")).toBeVisible({ timeout: 8000 });
     // 朱雀 chip 直达检测（工具面板退役——chip 即入口）：拦截送检请求为证
     let zqHits = 0;
     await page.route("**/zhuque-check", (r) => {
       zqHits += 1;
       r.fulfill({ status: 400, contentType: "application/json", body: JSON.stringify({ detail: "先写正文" }) });
     });
-    await page.getByTestId("chat-chip-zhuque").click();
+    await page.getByTestId("aui2-chip-zhuque").click();
     await expect.poll(() => zqHits).toBeGreaterThan(0);
     await restore();
   });
@@ -672,20 +742,20 @@ test.describe("chat-dock 界面测试（c-writing-agent 批G）", () => {
     });
     console.log("PROBE14", JSON.stringify(probe));
     await expect(page.getByTestId("assistant-fab")).toBeVisible();
-    await expect(page.getByTestId("chat-dock")).toBeHidden();
+    await expect(page.getByTestId("aui2-dock")).toBeHidden();
     // FAB 唤出 → dock 可见＋关闭钮收起
     await page.getByTestId("assistant-fab").click();
-    await expect(page.getByTestId("chat-dock")).toBeVisible();
+    await expect(page.getByTestId("aui2-dock")).toBeVisible();
     await expect(page.getByTestId("chat-drawer-close")).toBeVisible();
     await page.getByTestId("chat-drawer-close").click();
     await page.waitForTimeout(400);
     const probe2 = await page.evaluate(() => ({
       asideClass: document.querySelector("aside.col-ai")?.className ?? null,
       innerWidth: window.innerWidth,
-      dockVisible: (() => { const el = document.querySelector('[data-testid="chat-dock"]'); if (!el) return false; const st = getComputedStyle(el); return st.display !== "none" && st.visibility !== "hidden"; })(),
+      dockVisible: (() => { const el = document.querySelector('[data-testid="aui2-dock"]'); if (!el) return false; const st = getComputedStyle(el); return st.display !== "none" && st.visibility !== "hidden"; })(),
     }));
     console.log("PROBE14C", JSON.stringify(probe2));
-    await expect(page.getByTestId("chat-dock")).toBeHidden();
+    await expect(page.getByTestId("aui2-dock")).toBeHidden();
     await restore();
   });
 });

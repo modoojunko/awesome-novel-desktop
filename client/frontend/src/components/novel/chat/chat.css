@@ -648,3 +648,200 @@
 
 /* 角色草案确认卡：确认钮行 */
 .cd-char-confirm { display: flex; align-items: center; gap: 10px; margin-top: 10px; }
+
+/* ── openworker GUI 对齐（boss 拍板 2026-11-16「对话框的样式参考 openworker」）──
+   参照 surfaces/gui/src/styles.css：用户气泡＝软 accent 底＋墨色字（非实色白字）；
+   助手＝无框正文 1.6 行距；轨迹＝圆角披露＋逐行状态点；转写 20px 呼吸间距。── */
+
+/* 触发层容器：加大左右呼吸（右缘曾贴边裁字）＋页签间距 */
+.chatdock .chatdock-stream {
+  padding: 14px 16px 10px;
+  gap: 14px;
+}
+.chatdock .cd-msg {
+  margin: 5px 0;
+}
+.chatdock .cd-msg + .cd-msg {
+  margin-top: 14px;
+}
+
+/* 用户气泡：软 accent 底＋墨色字（hiw-bub.user 同款），右留 4px 不贴边 */
+.chatdock .cd-msg.user .cd-bubble {
+  background: color-mix(in oklch, var(--accent) 14%, transparent);
+  color: var(--ink, var(--text, #1a1a1a));
+  border: 1px solid color-mix(in oklch, var(--accent) 26%, transparent);
+  border-radius: 12px;
+  margin-right: 4px;
+  font-weight: 500;
+}
+.chatdock .cd-msg.user .cd-bubble .cd-copy-btn,
+.chatdock .cd-msg.user .cd-bubble .cd-clamp-toggle {
+  color: inherit;
+}
+
+/* 助手正文：无框直排 1.6 行距（bubble-assistant 同款），去盒子内边距 */
+.chatdock .cd-msg.assistant .cd-bubble .cd-pre {
+  padding: 0;
+  line-height: 1.6;
+  font-size: 13.5px;
+}
+
+/* 轨迹披露：圆角卡＋summary 中字＋逐行状态点（turn-step 同款） */
+.chatdock .cd-trace,
+.chatdock details[data-testid="chat-trace-history"],
+.chatdock details[data-testid="chat-trace"] {
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: transparent;
+  padding: 4px 8px;
+  margin: 6px 0;
+}
+.chatdock details > summary {
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--muted);
+  cursor: pointer;
+  list-style: none;
+}
+.chatdock details > summary::before {
+  content: "▸ ";
+  color: var(--muted);
+}
+.chatdock details[open] > summary::before {
+  content: "▾ ";
+}
+.chatdock details > summary:hover {
+  color: var(--ink, var(--text, #1a1a1a));
+}
+.chatdock details ul {
+  list-style: none;
+  margin: 4px 0 2px;
+  padding: 0;
+}
+.chatdock details li {
+  position: relative;
+  padding: 2px 0 2px 16px;
+  font-size: 12px;
+  color: var(--muted);
+  border-radius: 6px;
+}
+.chatdock details li::before {
+  content: "●";
+  position: absolute;
+  left: 2px;
+  top: 2px;
+  font-size: 9px;
+  color: var(--ok, #2e7d5b);
+}
+.chatdock details li:hover {
+  background: color-mix(in oklch, var(--accent) 7%, transparent);
+}
+
+/* 系统占位/插述（中断标记等）：弱化为细字弱色，不占助手正文位 */
+.chatdock .cd-msg.assistant .cd-bubble .cd-pre:only-child {
+  color: var(--ink, var(--text, #1a1a1a));
+}
+
+/* ── AuiDock（assistant-ui spike）最小样式 ── */
+.aui-stream { display: flex; flex-direction: column; }
+.aui-viewport { flex: 1; overflow-y: auto; padding: 6px 2px; }
+.aui-msg { margin: 10px 0; }
+.aui-user { display: flex; justify-content: flex-end; }
+.aui-user-text {
+  max-width: 78%;
+  background: color-mix(in oklch, var(--accent) 14%, transparent);
+  border: 1px solid color-mix(in oklch, var(--accent) 26%, transparent);
+  border-radius: 12px;
+  padding: 8px 12px;
+  font-weight: 500;
+}
+.aui-assistant .aui-text { line-height: 1.6; font-size: 13.5px; white-space: pre-wrap; }
+.aui-reasoning { font-size: 12px; color: var(--muted); opacity: .8; margin-bottom: 6px; }
+.aui-tool {
+  font-size: 12px; color: var(--muted);
+  padding: 2px 0 2px 14px; position: relative;
+}
+.aui-tool::before { content: "●"; position: absolute; left: 2px; font-size: 9px; color: var(--ok, #2e7d5b); }
+.aui-tool-result { color: var(--faint, #999); }
+.aui-empty { color: var(--muted); font-size: 12px; text-align: center; padding: 20px 0; }
+
+/* AuiDock 文本排版微件 */
+.aui-gap { height: 10px; }
+.aui-li { padding-left: 14px; text-indent: -14px; }
+
+
+/* ── Aui2Dock（@agentscope-ai/chat ChatAnywhere）布局 ── */
+.chatdock.aui2 {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  overflow: hidden;
+}
+.chatdock.aui2 .chatdock-head {
+  flex: none;
+  padding: 10px 14px;
+  border-bottom: 1px solid var(--border);
+}
+.chatdock.aui2 > div:not(.chatdock-head) {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+.chatdock.aui2 .chatdock-head + div > * {
+  flex: 1;
+  min-height: 0;
+}
+/* ChatAnywhere 内部容器撑满（类名形如 <hash>-chat-anywhere-layout） */
+.chatdock.aui2 [class$="-chat-anywhere-layout"] {
+  flex: 1 !important;
+  min-height: 0 !important;
+  height: auto !important;
+}
+/* 兜底：ConfigProvider 直系容器也撑满（排除容量条——它不参与抢高度） */
+.chatdock.aui2 .chatdock-chips + * {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+.chatdock.aui2 .cd-ctx.cd-ctx {  /* 双类提权压过 >div:not 兜底的 (0,3,1)；cd-ctx 在 ant-app 包裹层内 */
+  flex: none;
+}
+/* ChatAnywhere 消息列表 wrapper 撑满 sender 上方空间（缺省不带高度——列表
+   内容溢出贴底、空态 welcome 占满全高，dock 内出现大段留白＝boss 截图实锤） */
+.chatdock.aui2 .ant-bubble-list-wrapper {
+  flex: 1;
+  min-height: 0;
+}
+/* 空态 welcome 区与注入历史并存会叠布局（boss 截图实锤）——dock 场景禁用
+   welcome：历史/开场白由 dock 自己渲染（greetIfEmpty），ChatAnywhere 只管消息流 */
+.chatdock.aui2 [class*="-chat-anywhere-chat-welcome"] {
+  display: none !important;
+}
+
+/* Aui2Dock 高度链：aside.col-ai → .chatdock.aui2 → ChatAnywhere 逐级封顶 */
+aside.col-ai:not(.as-drawer) {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  overflow: hidden;
+}
+
+/* Aui2Dock chips：换行布局＋横向滚动兜底（防撑爆右栏） */
+.chatdock.aui2 .chatdock-chips {
+  flex: none;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  padding: 8px 10px;
+  overflow-x: hidden;
+  max-height: 96px;
+  overflow-y: auto;
+}
+.chatdock.aui2 .chatdock-chips .chatchip {
+  flex: none;
+  white-space: nowrap;
+  font-size: 12px;
+  padding: 4px 10px;
+}

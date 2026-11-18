@@ -65,6 +65,9 @@ const CHIP_KEYS = [
   "seam",
   "zhuque",
   "settings_og_fill",
+  "simulate_plot",
+  "draw_plot_cards",
+  "review_cast",
 ] as const;
 
 const REGISTRATIONS: ChatPageRegistration[] = [
@@ -106,9 +109,9 @@ const REGISTRATIONS: ChatPageRegistration[] = [
           { key: "draft_chapter_split", label: "拆下一章", command: "照卷纲拆下一章。" },
           { key: "draft_chapter_plot", label: "本章剧情", command: "给本章出三版剧情清单。" },
           { key: "check_consistency", label: "体检", command: "给本章做一次体检。" },
-          { key: "simulate", label: "剧情推演", command: "", open: "simulate", feature: "ai-plot" },
-          { key: "plot_draw", label: "剧情抽卡", command: "", open: "plot_draw" },
-          { key: "cast_review", label: "人物盘点", command: "", open: "cast_review" },
+          { key: "simulate_plot", label: "剧情推演", command: "给我这一章做剧情推演。" },
+          { key: "draw_plot_cards", label: "剧情抽卡", command: "给我抽三张剧情提案卡。" },
+          { key: "review_cast", label: "人物盘点", command: "给本章做一次人物盘点。" },
           { key: "settings_og_fill", label: "补全缺失", command: "帮我补全这一章章纲缺失的字段。" },
         ],
         prose: [
@@ -192,8 +195,11 @@ export function matchRegistration(scope: ChatPageScope): ChatPageRegistration | 
  *  章级注册按页签全组扫（chips 随章内页签换装，漏扫一签即漏检一签）。 */
 const CHAPTER_TAB_SWEEP = ["og", "prose", "settings", "relations", "hooks", "actions", "style"];
 
-export function validateRegistrations(): void {
-  for (const r of REGISTRATIONS) {
+export function validateRegistrations(
+  regs: ChatPageRegistration[] = REGISTRATIONS,
+  whitelist: readonly string[] = CHIP_KEYS,
+): void {
+  for (const r of regs) {
     const scopes = (
       r.id === "workbench.chapter" ? CHAPTER_TAB_SWEEP : [undefined]
     ).map((chapterTab) => ({
@@ -205,7 +211,7 @@ export function validateRegistrations(): void {
     }));
     for (const scope of scopes) {
     for (const chip of r.chips(scope)) {
-      if (!(CHIP_KEYS as readonly string[]).includes(chip.key)) {
+      if (!(whitelist as readonly string[]).includes(chip.key)) {
         throw new Error(`[chatRegistry] 页面 ${r.id} 注册了未登记的能力：${chip.key}`);
       }
       }

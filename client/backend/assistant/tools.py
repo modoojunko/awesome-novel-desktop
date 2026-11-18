@@ -9,6 +9,18 @@
   - discipline: anchored（锚定设定）| divergent（可添人添事，产物打标）
   - feature_key: 档位 key（读类为空串；card/write 系对齐 frontend features.ts）
   - fn: async (ctx: ToolContext, **args) -> ToolResult；工具自开自关短会话（循环体不持事务）
+
+执行契约（c-tool-flow 批1，对齐 openworker 工具体系）：
+  1. dict 契约——fn 内失败不 raise 穿透：run_tool 兜异常归一为 ToolResult(ok=False)
+     （引擎侧永不见裸异常）；fn 自身可抛 CapabilityError 之类领域错误，同样被兜。
+  2. 职责分离——summary 给模型（含「已交付＋任务完成」收口语义，生成类必带）；
+     card.payload 给人看（产物一律人话 draft/结构化键，禁裸 JSON 上对话）。
+  3. `_display` 侧车——payload 上 `_display` 键＝只给人看的元数据（模型不可见），
+     apiCalls/计数类迁此键（openworker _record_result 同款语义）。
+  4. 权限不在注册表——write_gate 由 loop 逐调用应用（openworker PermissionEngine
+     同款分层）；域校验/去重守卫同为循环层职责，工具本体不含。
+  5. 能力核单源——大模型管线抽 caps/<域>.py 纯能力函数（业务语义入参、结构化出参），
+     HTTP 端点（面板）与工具同调一层；工具层禁止直调路由 handler（守卫测试钉）。
 """
 
 from __future__ import annotations
@@ -17,6 +29,8 @@ import json
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
 from typing import Any
+
+from assistant.scopes import tools_for_thread
 
 # 转写预算（write/chapter_writer.py 判例同风格：按中文字符预算，不按 token）
 READ_CHAPTER_BUDGET_CHARS = 1500
@@ -33,6 +47,10 @@ class ToolContext:
     page: str = ""
     # 聚焦对象 ref（章视图当前章——「这章」的锚；router 从消息 focus 注入）
     focus_ref: str = ""
+    # 页签线程（c-agent-fleet：每页签独立流程——工具声明面/域纪律按此收敛）
+    thread: str = ""
+    # 本 run 私有暂存（抽卡排除上次卡名等跨调用协作；随请求生灭）
+    scratch: dict = field(default_factory=dict)
 
 
 @dataclass
@@ -60,6 +78,12 @@ class Tool:
     # 调度元数据（openworker _parallel_safe 同款）：low=只读低风险可并行，
     # 写类/发散类串行保序（boss 拍板 2026-11-15 调度对齐 openworker）
     risk_level: str = "high"
+    # Effect 声明（c-agent-effects）：写类工具执行成功后告知前端刷新哪个数据域
+    effect_domain: str = ""  # chapters|volumes|settings|characters|hooks|""(不触发刷新)
+    # Effect 动作与 target 来源（c-agent-nav）：navigate 类前端动作声明动作名＋从哪个
+    # 入参取 target（例：switch_tab 声明 navigate/ui/tab）；refresh 类用默认值零声明
+    effect_action: str = "refresh"  # refresh|navigate
+    effect_target_from: str = ""  # 入参键名（空＝无 target）
 
     def __post_init__(self) -> None:
         if not self.args_hint:
@@ -253,11 +277,13 @@ async def _read_progress(ctx: ToolContext) -> ToolResult:
     fr = info.get("frontier") or {}
     prose = sum(1 for ch in chapters if ch.get("has_prose"))
     archived = sum(1 for ch in chapters if ch.get("archived"))
-    state = fr.get("state") or ("pending" if fr.get("pending") else "draft")
+    # 人话口径（boss 走查 2026-11-17：「frontier 阶段」这类内部词禁出模型口）
+    state_zh = {"draft": "草稿", "pending": "待写", "confirmed": "章纲已确认", "archived": "已归档"}
+    state = state_zh.get(str(fr.get("state") or ""), "写作中")
+    prose_note = "正文已写" if fr.get("has_prose") else "正文还没写"
     summary = (
-        f"frontier 章：{fr.get('ref')}（全书第 {fr.get('global_no')} 章）"
-        f"｜状态：{state}｜可写：{fr.get('writable')}｜正文：{fr.get('ref') and ('已写' if fr.get('has_prose') else '未写')}"
-        f"｜全书 {len(chapters)} 章（已归档 {archived}、有正文 {prose}）"
+        f"全书 {len(chapters)} 章（已归档 {archived}、有正文 {prose}）；"
+        f"当前写到 第 {fr.get('global_no')} 章（{state}，{prose_note}，可以继续写）"
     )
     return ToolResult(ok=True, summary=summary)
 
@@ -515,6 +541,573 @@ from assistant.tools_settings import SETTINGS_FIELD_TOOLS  # noqa: E402
 
 TOOL_REGISTRY: tuple[Tool, ...] = TOOL_REGISTRY + SETTINGS_FIELD_TOOLS
 
+# 章内三面板收编（c-agent-fleet：推演/抽卡/盘点走 agent 对话——boss 拍板）
+from assistant.tools_fleet import FLEET_TOOLS  # noqa: E402
+
+TOOL_REGISTRY: tuple[Tool, ...] = TOOL_REGISTRY + FLEET_TOOLS
+
+
+# ── 章节版本历史读工具（c-agent-chat-memory 批9：页面有、agent 摸不到的 API 收编）──
+
+
+async def _read_chapter_versions(ctx: ToolContext, chapter_ref: str = "") -> ToolResult:
+    """读一章的版本历史（版本数＋最新版本字数）——作家问「写过几版」时答得出来。"""
+    import datetime as _dt
+
+    from models.chapters import Chapter, ChapterVersion
+    from sqlalchemy import select as sa_select
+
+    from db import async_session
+    from models.project import Novel
+
+    ref = str(chapter_ref or "").strip()
+    if not ref:
+        return ToolResult(ok=False, summary="告诉我章号（例：vol-1-ch-7）。")
+    async with async_session() as session:
+        rows = (
+            await session.scalars(
+                sa_select(ChapterVersion)
+                .join(Chapter, Chapter.id == ChapterVersion.chapter_id)
+                .join(Novel, Novel.id == Chapter.project_id)
+                .where(Novel.id == ctx.novel_id, Chapter.ref == ref)
+                .order_by(ChapterVersion.version.desc())
+            )
+        ).all()
+    if not rows:
+        return ToolResult(ok=True, summary=f"《{ref}》还没有版本历史（版本在改稿时自动留存）。")
+    import json as _json
+
+    words_list = []
+    for r in rows:
+        try:
+            words_list.append(len(str(_json.loads(r.snapshot or "{}").get("prose", ""))))
+        except Exception:  # noqa: BLE001
+            words_list.append(0)
+    times = [
+        _dt.datetime.fromtimestamp(r.version / 1000).strftime("%m-%d %H:%M")
+        if r.version > 10**12
+        else str(r.version)
+        for r in rows
+    ]
+    lines = [f"共 {len(rows)} 个版本（新→旧）："]
+    lines += [f"- {t}（约 {w} 字）" for t, w in zip(times, words_list)]
+    return ToolResult(ok=True, summary="\n".join(lines[:6]))
+
+
+# ── 书级记忆工具（c-agent-chat-memory 批4：四层记忆 scope 的「按书」新增层）──
+# agent 自主维护的自身记忆（写作规矩）与项目决策留痕；profile_update 同款：
+# kind="read"＝结构性免授权（只影响后续提示词，不碰书稿，不进写回梯度），
+# risk_level="high"＝串行保序。
+
+async def _memory_recall(ctx: ToolContext) -> ToolResult:
+    """读本书我记下的全部写作规矩与项目决定（自证口径）。"""
+    from assistant.memory import list_decisions, list_memories
+    from db import async_session
+
+    async with async_session() as session:
+        memories = await list_memories(session, ctx.novel_id)
+    decisions = await list_decisions(ctx.novel_id)
+    if not memories and not decisions:
+        return ToolResult(ok=True, summary="（这本书我还没记下什么规矩或决定。）")
+    lines = [f"- 记忆：{m.content}" for m in memories]
+    lines += [
+        f"- 决定：{d.decision}" + (f"（理由：{d.reason}）" if d.reason else "")
+        for d in decisions
+    ]
+    return ToolResult(ok=True, summary="这本书我记着：\n" + "\n".join(lines[:20]))
+
+
+async def _memory_remember(ctx: ToolContext, content: str, memory_id: str = "") -> ToolResult:
+    """记/改一条本书写作规矩（透明告知一句随返回摘要给作家）。"""
+    from assistant.memory import upsert_memory
+    from db import async_session
+
+    async with async_session() as session:
+        row = await upsert_memory(session, ctx.novel_id, content, memory_id or None)
+    verb = "更新了" if memory_id else "记下了"
+    return ToolResult(ok=True, summary=f"{verb}一条规矩：「{row.content[:60]}」。之后我都按这个来。")
+
+
+async def _memory_forget(ctx: ToolContext, memory_id: str) -> ToolResult:
+    """删一条本书写作规矩。"""
+    from assistant.memory import delete_memory
+    from db import async_session
+
+    async with async_session() as session:
+        removed = await delete_memory(session, ctx.novel_id, memory_id)
+    if not removed:
+        return ToolResult(ok=False, summary="这条规矩没找到（可能已经删过了）。")
+    return ToolResult(ok=True, summary="好，这条规矩我不再记着了。")
+
+
+async def _memory_decide(ctx: ToolContext, decision: str, reason: str = "") -> ToolResult:
+    """留痕一条项目决定（否了什么/定了什么＋理由；决策档案 append-only）。"""
+    from assistant.memory import add_decision
+
+    row = await add_decision(ctx.novel_id, decision, reason)
+    extra = f"理由也记了：{reason[:40]}。" if reason else ""
+    return ToolResult(
+        ok=True,
+        summary=f"这个决定我记下了：「{row.decision[:60]}」。{extra}",
+        meta={"decision_id": row.id},
+    )
+
+
+async def _memory_recall_decisions(
+    ctx: ToolContext, query: str = "", limit: int = 20
+) -> ToolResult:
+    """查历史决定档案（c-agent-decision-archive）：子串过滤＋条数上限＋单条裁剪。
+
+    注入段的索引层是「日期＋一句话」——agent 看到相关索引就调这里拉全文。"""
+    from assistant.memory import list_decisions
+
+    rows = await list_decisions(ctx.novel_id)
+    q = (query or "").strip().lower()
+    if q:
+        # 分词 AND 匹配（走查实锤：模型会拿「血族 弱点」这类带空格的多词查询——
+        # 整串子串匹配必 miss）；每个词都命中才算（决策＋理由合看）
+        terms = [t for t in q.split() if t]
+        rows = [
+            d
+            for d in rows
+            if all(
+                t in f"{d.decision} {d.reason}".lower() for t in terms
+            )
+        ]
+    total = len(rows)
+    rows = rows[: max(1, min(int(limit or 20), 50))]
+    if not rows:
+        hint = f"没有含「{query}」的决定。" if q else "这本书还没有留痕的项目决定。"
+        return ToolResult(ok=True, summary=hint + "有新口径我随时帮你记下。")
+    lines = []
+    for d in rows:
+        extra = f"（理由：{d.reason[:80]}）" if d.reason else ""
+        lines.append(f"- [{(d.created_at or '')[:10]}] {d.decision[:160]}{extra}")
+    head = f"共 {total} 条" + (f"，含「{query}」的如下（前 {len(lines)} 条）：" if q else "：")
+    return ToolResult(ok=True, summary=head + "\n" + "\n".join(lines))
+
+
+MEMORY_TOOLS: tuple[Tool, ...] = (
+    Tool(
+        name="recall_book_memory",
+        kind="read",
+        risk_level="low",
+        parameters={"type": "object", "properties": {}},
+        description=(
+            "读这本书我记下的全部写作规矩与项目决定。作家问「你记了什么/定了什么」"
+            "或拿不准本书约定时先调它，如实回答。"
+        ),
+        fn=_memory_recall,
+    ),
+    Tool(
+        name="remember_book_memory",
+        kind="read",
+        risk_level="high",  # 写记忆（非只读）——串行保序；不弹授权卡（免授权层）
+        parameters={
+            "type": "object",
+            "properties": {
+                "content": {
+                    "type": "string",
+                    "description": "要长期记住的写作规矩或特化知识（如：全程第一人称；结尾留钩子）",
+                },
+                "memory_id": {
+                    "type": "string",
+                    "description": "要修改的已有记忆 id（来自 recall；空＝新增）",
+                },
+            },
+            "required": ["content"],
+        },
+        description=(
+            "作家说「记住……」「以后都……」类要求时，把规矩记到这本书上（增改皆此工具）。"
+            "写入后透明告知一句。只记长期成立的约定（视角/禁忌/手法这类），"
+            "一次性任务指令不进记忆——任务活在当前会话里。"
+        ),
+        fn=_memory_remember,
+    ),
+    Tool(
+        name="forget_book_memory",
+        kind="read",
+        risk_level="high",
+        parameters={
+            "type": "object",
+            "properties": {
+                "memory_id": {"type": "string", "description": "要删除的记忆 id（来自 recall）"},
+            },
+            "required": ["memory_id"],
+        },
+        description="作家要求忘掉某条规矩时删除对应记忆（先 recall 拿 id）。",
+        fn=_memory_forget,
+    ),
+    Tool(
+        name="remember_decision",
+        kind="read",
+        risk_level="high",
+        parameters={
+            "type": "object",
+            "properties": {
+                "decision": {"type": "string", "description": "方向性结论（否了什么方向/定了什么调子）"},
+                "reason": {"type": "string", "description": "理由（可空）"},
+            },
+            "required": ["decision"],
+        },
+        description=(
+            "作家明确拍板或否决某个方向时留痕（带理由更好），之后同类建议不再重复。"
+            "写入后透明告知一句。"
+        ),
+        fn=_memory_decide,
+    ),
+    Tool(
+        name="recall_decisions",
+        kind="read",
+        risk_level="low",
+        parameters={
+            "type": "object",
+            "properties": {
+                "query": {"type": "string", "description": "关键词（按决定/理由子串过滤；空＝最近的）"},
+                "limit": {"type": "integer", "description": "最多返回条数（默认 20）"},
+            },
+            "required": [],
+        },
+        description=(
+            "查这本书的历史项目决定档案（含很久以前的）。作家提起旧决定/旧口径"
+            "（「之前不是说…」「上次定的…」）或注入段索引里那条相关时调它拉全文，"
+            "如实按档案回答，不凭印象编。"
+        ),
+        fn=_memory_recall_decisions,
+    ),
+)
+
+# 章节版本历史读工具并入（批9：版本历史页面有、agent 摸不到——收编）
+VERSIONS_TOOLS: tuple[Tool, ...] = (
+    Tool(
+        name="read_chapter_versions",
+        kind="read",
+        risk_level="low",
+        parameters={
+            "type": "object",
+            "properties": {
+                "chapter_ref": {"type": "string", "description": "章 ref（例：vol-1-ch-7）"},
+            },
+            "required": ["chapter_ref"],
+        },
+        description=(
+            "读一章的版本历史（改稿自动留存的版本数＋最新一版字数）。"
+            "作家问「写过几版/之前那版还在吗」时先调它。"
+        ),
+        fn=_read_chapter_versions,
+    ),
+)
+TOOL_REGISTRY: tuple[Tool, ...] = TOOL_REGISTRY + VERSIONS_TOOLS
+
+
+# ── 结构管理动作（c-agent-tools-expand：写类走授权梯度）──────────────
+async def _confirm_chapter(ctx, chapter_ref: str = ""):
+    from assistant.caps.chapter import confirm_chapter_cap
+
+    ref = str(chapter_ref or "").strip()
+    if not ref:
+        return _struct_fail("告诉我章号（例：vol-1-ch-7）。")
+    result = await confirm_chapter_cap(ctx.novel_id, ref, ctx.user_id)
+    warnings = result.get("warnings") or []
+    extra = f"门槛提醒：{'、'.join(warnings)}" if warnings else "门槛已满足。"
+    return _struct_ok(f"已确认《{ref}》的章纲。{extra}")
+
+
+async def _unconfirm_chapter(ctx, chapter_ref: str = ""):
+    from assistant.caps.chapter import unconfirm_chapter_cap
+
+    ref = str(chapter_ref or "").strip()
+    if not ref:
+        return _struct_fail("告诉我章号。")
+    await unconfirm_chapter_cap(ctx.novel_id, ref, ctx.user_id)
+    return _struct_ok(f"《{ref}》的章纲确认已撤回，回到草稿态，改完可以再确认。")
+
+
+async def _archive_chapter(ctx, chapter_ref: str = ""):
+    from assistant.caps.chapter import archive_chapter_cap
+
+    ref = str(chapter_ref or "").strip()
+    if not ref:
+        return _struct_fail("告诉我章号。")
+    result = await archive_chapter_cap(ctx.novel_id, ref, ctx.user_id)
+    note = "已归档。" if result.get("status") == "archived" else "已受理归档。"
+    return _struct_ok(f"《{ref}》{note}")
+
+
+async def _unarchive_chapter(ctx, chapter_ref: str = ""):
+    from assistant.caps.chapter import unarchive_chapter_cap
+
+    ref = str(chapter_ref or "").strip()
+    if not ref:
+        return _struct_fail("告诉我章号。")
+    await unarchive_chapter_cap(ctx.novel_id, ref, ctx.user_id)
+    return _struct_ok(f"《{ref}》已恢复为可编辑态。")
+
+
+async def _add_volume(ctx, title: str = ""):
+    from assistant.caps.chapter import add_volume_cap
+
+    result = await add_volume_cap(ctx.novel_id, ctx.user_id, str(title or "").strip())
+    vol = result.get("volume") or {}
+    return _struct_ok(f"已新建 {vol.get('title') or '新卷'}，可以开始铺这一卷了。")
+
+
+async def _add_chapter(ctx, volume_ref: str = "vol-1", title: str = ""):
+    from assistant.caps.chapter import add_chapter_cap
+
+    result = await add_chapter_cap(ctx.novel_id, ctx.user_id, str(volume_ref or "vol-1"), str(title or "").strip())
+    ref = result.get("ref") or ""
+    return _struct_ok(f"已排上新章 {ref}，可以直接去写正文。")
+
+
+# ── 世界观三件（读/产卡类，不写回）────────────────────────────────────
+
+
+async def _draft_worldbuilding(ctx, topic: str = "", shape: str = "text", current: str = ""):
+    from assistant.caps.world import draft_world_cap
+
+    if not str(topic or "").strip():
+        return _struct_fail("告诉我要素名（力量体系/代价/历史/势力/铁律……）。")
+    result = await draft_world_cap(
+        ctx.novel_id, ctx.user_id,
+        {"topic": str(topic).strip(), "shape": str(shape or "text"), "current": str(current or "")},
+    )
+    draft = result.get("draft") or result.get("content") or result
+    text = draft if isinstance(draft, str) else _json_dump(draft)
+    return _struct_card("text", {"topic": str(topic).strip(), "draft": text, "origin": "divergent"})
+
+
+async def _check_worldbuilding(ctx):
+    from assistant.caps.world import check_world_cap
+
+    result = await check_world_cap(ctx.novel_id, ctx.user_id, {})
+    items = result.get("items") or result.get("checks") or []
+    return _struct_card("report", {"report": [{"name": "世界观一致性", "items": _as_check_items(items)}]})
+
+
+async def _lore_suggest(ctx):
+    from assistant.caps.world import lore_suggest_cap
+
+    result = await lore_suggest_cap(ctx.novel_id, ctx.user_id, {})
+    lore = result.get("lore") or result.get("suggestions") or []
+    return _struct_card("pick", {"candidates": _as_candidates(lore)})
+
+
+def _json_dump(v):
+    import json as _json
+
+    return _json.dumps(v, ensure_ascii=False)
+
+
+def _as_check_items(items):
+    out = []
+    if isinstance(items, list):
+        for it in items:
+            if isinstance(it, dict):
+                status = str(it.get("status") or it.get("level") or "warn")
+                out.append({"status": status, "text": str(it.get("text") or it.get("msg") or it)})
+            else:
+                out.append({"status": "warn", "text": str(it)})
+    return out
+
+
+def _as_candidates(lore):
+    out = []
+    if isinstance(lore, list):
+        for it in lore:
+            if isinstance(it, dict):
+                out.append({"name": str(it.get("name") or it.get("title") or "候选"),
+                            "rationale": str(it.get("rationale") or it.get("summary") or it.get("text") or "")})
+            else:
+                out.append({"name": str(it)[:20], "rationale": str(it)})
+    return out
+
+# ── fn 绑定（延迟到模块底——工具函数已全量定义）────────────────────────
+
+_confirm_chapter_fn = _confirm_chapter
+_unconfirm_chapter_fn = _unconfirm_chapter
+_archive_chapter_fn = _archive_chapter
+_unarchive_chapter_fn = _unarchive_chapter
+_add_volume_fn = _add_volume
+_add_chapter_fn = _add_chapter
+_draft_worldbuilding_fn = _draft_worldbuilding
+_check_worldbuilding_fn = _check_worldbuilding
+_lore_suggest_fn = _lore_suggest
+
+
+STRUCTURE_TOOLS: tuple = (
+    Tool(
+        name="confirm_chapter", kind="write", risk_level="high", effect_domain="chapters",
+        parameters={"type": "object", "properties": {"chapter_ref": {"type": "string", "description": "章 ref（例：vol-1-ch-7）"}}, "required": ["chapter_ref"]},
+        description="确认一章的章纲（作家说「确认章纲」类要求时代办）。授权卡批复后执行。",
+        fn=_confirm_chapter_fn,
+    ),
+    Tool(
+        name="unconfirm_chapter", kind="write", risk_level="high", effect_domain="chapters",
+        parameters={"type": "object", "properties": {"chapter_ref": {"type": "string", "description": "章 ref"}}, "required": ["chapter_ref"]},
+        description="撤回一章的章纲确认（回到草稿态，改完可再确认）。", fn=_unconfirm_chapter_fn,
+    ),
+    Tool(
+        name="archive_chapter", kind="write", risk_level="high", effect_domain="chapters",
+        parameters={"type": "object", "properties": {"chapter_ref": {"type": "string", "description": "章 ref"}}, "required": ["chapter_ref"]},
+        description="归档一章（有正文的章才能归档；归档后进已归档列表）。", fn=_archive_chapter_fn,
+    ),
+    Tool(
+        name="unarchive_chapter", kind="write", risk_level="high", effect_domain="chapters",
+        parameters={"type": "object", "properties": {"chapter_ref": {"type": "string", "description": "章 ref"}}, "required": ["chapter_ref"]},
+        description="取消一章的归档（恢复为可编辑态）。", fn=_unarchive_chapter_fn,
+    ),
+    Tool(
+        name="add_volume", kind="write", risk_level="high", effect_domain="volumes",
+        parameters={"type": "object", "properties": {"title": {"type": "string", "description": "卷名（可空，服务端兜底「第N卷」）"}}, "required": []},
+        description="新建一卷（作家说「开新卷/新增一卷」类要求时代办）。", fn=_add_volume_fn,
+    ),
+    Tool(
+        name="add_chapter", kind="write", risk_level="high", effect_domain="chapters",
+        parameters={"type": "object", "properties": {"volume_ref": {"type": "string", "description": "卷 ref（例：vol-1；缺省 vol-1）"}, "title": {"type": "string", "description": "章名（可空）"}}, "required": []},
+        description="新增一章（排到指定卷的下一章）。", fn=_add_chapter_fn,
+    ),
+)
+
+WORLD_TOOLS: tuple = (
+    Tool(
+        name="draft_worldbuilding", kind="card", risk_level="high", feature_key="settings-ai-fields",
+        parameters={"type": "object", "properties": {"topic": {"type": "string", "description": "世界要素名（力量体系/代价/历史/势力/铁律……任意）"}, "shape": {"type": "string", "enum": ["text", "kv", "faction"], "description": "落格形状"}, "current": {"type": "string", "description": "当前格已有文字（半稿也算，模板在其上补全不推翻）"}}, "required": ["topic"]},
+        description="按主题起草世界观候选（一段话/条目/势力行）。设定·世界观语境用；产物过目采纳。", fn=_draft_worldbuilding_fn,
+    ),
+    Tool(
+        name="check_worldbuilding", kind="card", risk_level="high", feature_key="settings-ai-fields",
+        parameters={"type": "object", "properties": {}},
+        description="世界观一致性体检：简介×题材×世界三方对照，逐项三态只提醒不拦。", fn=_check_worldbuilding_fn,
+    ),
+    Tool(
+        name="lore_suggest", kind="card", risk_level="high", feature_key="settings-ai-fields",
+        parameters={"type": "object", "properties": {}},
+        description="从已归档章提世界观要素建议（传说/设定候选，不落库，采纳走面板）。", fn=_lore_suggest_fn,
+    ),
+)
+
+
+
+def _struct_fail(msg: str):
+    return ToolResult(ok=False, summary=msg)
+
+
+def _struct_ok(msg: str):
+    return ToolResult(ok=True, summary=msg)
+
+
+def _struct_card(kind: str, payload: dict):
+    return ToolResult(ok=True, summary="已出卡，过目后采纳。", card={"kind": kind, "payload": payload})
+
+# 书结构总览读工具并入（零内容元数据——agent 不拉全文也能答进度/状态问题）
+from assistant.tools import Tool as _ToolCls  # noqa: E402
+
+
+async def _read_book_structure(ctx: ToolContext) -> ToolResult:
+    """全书卷章结构总览（零内容——只有元数据：标题/状态/字数/归档/章纲确认）。
+
+    作家问「写到哪了/第几章有多少字/哪些章还没归档/每卷什么状态」时调它，
+    不需要逐章 read_chapter 拉 full text 烧 token。"""
+    from sqlalchemy import select
+
+    from db import async_session
+    from models.chapter import Chapter
+    from models.volume import Volume
+
+    _STATUS_ZH = {"draft": "草稿", "confirmed": "章纲已确认", "archived": "已归档"}
+    _OUTLINE_ZH = {"unfilled": "未填", "in_progress": "写中", "confirmed": "已确认", "draft": "草稿"}
+
+    async with async_session() as session:
+        vols = (
+            await session.scalars(
+                select(Volume).where(Volume.project_id == ctx.novel_id).order_by(Volume.volume_no)
+            )
+        ).all()
+        chs = (
+            await session.scalars(
+                select(Chapter)
+                .where(Chapter.project_id == ctx.novel_id, Chapter.ghost_of.is_(None))
+                .order_by(Chapter.volume_id, Chapter.chapter_no)
+            )
+        ).all()
+
+    lines = [f"全书 {len(vols)} 卷 {len(chs)} 章："]
+    for v in vols:
+        vol_chs = [c for c in chs if c.volume_id == v.id]
+        archived = sum(1 for c in vol_chs if c.status == "archived")
+        words = sum(c.word_count for c in vol_chs)
+        lines.append(
+            f"第 {v.volume_no} 卷《{v.title}》：{len(vol_chs)} 章（已归档 {archived}）、共 {words} 字"
+        )
+    for c in chs:
+        st = _STATUS_ZH.get(c.status, c.status)
+        ol = _OUTLINE_ZH.get(c.outline_status, c.outline_status)
+        wc = f"{c.word_count} 字" if c.word_count else "空"
+        lines.append(f"- {c.ref}《{c.title}》{st}·{wc}·章纲{ol}")
+    return ToolResult(ok=True, summary="\n".join(lines))
+
+BOOK_STRUCTURE_TOOLS: tuple[Tool, ...] = (
+    _ToolCls(
+        name="read_book_structure",
+        kind="read",
+        risk_level="low",
+        parameters={"type": "object", "properties": {}},
+        description=(
+            "读全书卷章结构总览（零内容元数据：每卷章数/归档数/字数；"
+            "每章标题/状态/字数/章纲确认态）。作家问「写到哪了/第几章多少字/"
+            "哪些章还没归档/卷一什么状态」类问题时调它——不用逐章 read_chapter。"
+        ),
+        fn=_read_book_structure,
+    ),
+)
+TOOL_REGISTRY: tuple[Tool, ...] = TOOL_REGISTRY + BOOK_STRUCTURE_TOOLS
+
+
+# ── 页签切换（c-agent-nav）：服务端只做白名单校验＋发 navigate effect（前端真实
+# 切页签）；kind=read 免授权；域封闭＝七章节页签域可见（scopes._DOMAIN_TOOLS），
+# 卷纲/设定/预览/默认域不见此工具。话术契约进 description——调用前话术用进行时
+# （「我切过去」），SHALL NOT 预告「已切」：切成没切成由系统做。
+
+_TAB_ZH = {
+    "og": "章纲",
+    "prose": "正文",
+    "settings": "设定",
+    "relations": "角色关系",
+    "hooks": "伏笔",
+    "actions": "操作",
+    "style": "文风",
+}
+
+
+async def _switch_tab(ctx, tab: str = ""):
+    tab = str(tab or "").strip()
+    if tab not in _TAB_ZH:
+        opts = "、".join(f"{k}（{v}）" for k, v in _TAB_ZH.items())
+        return ToolResult(ok=False, summary=f"没有「{tab or '（空）'}」这个页签——可选的是：{opts}。")
+    thread = str(getattr(ctx, "thread", "") or "")
+    if not thread.startswith("ch:"):
+        return ToolResult(ok=False, summary="这里不是章节页——打开左侧某一章后，我再帮你切页签。")
+    return ToolResult(ok=True, summary=f"已切到{_TAB_ZH[tab]}页签。")
+
+
+NAV_TOOLS: tuple[Tool, ...] = (
+    Tool(
+        name="switch_tab", kind="read", risk_level="low",
+        effect_action="navigate", effect_domain="ui", effect_target_from="tab",
+        parameters={"type": "object", "properties": {"tab": {"type": "string", "enum": list(_TAB_ZH), "description": "目标页签：og=章纲、prose=正文、settings=设定、relations=角色关系、hooks=伏笔、actions=操作、style=文风"}}, "required": ["tab"]},
+        description=(
+            "切换作家正在看的章节页签（作家说「切到正文/给我看章纲」类要求时调）。"
+            "调用前的话术用进行时（「我切过去」），不要说「已切」——切换由系统执行。"
+            "只在当前这一章的页签间切换；跨章、跨大页签（写作/设定/预览）做不到就直说。"
+        ),
+        fn=_switch_tab,
+    ),
+)
+TOOL_REGISTRY: tuple[Tool, ...] = TOOL_REGISTRY + NAV_TOOLS
+
+TOOL_REGISTRY: tuple[Tool, ...] = TOOL_REGISTRY + STRUCTURE_TOOLS + WORLD_TOOLS + MEMORY_TOOLS
+
 _TOOLS_BY_NAME: dict[str, Tool] = {t.name: t for t in TOOL_REGISTRY}
 
 
@@ -522,10 +1115,16 @@ def get_tool(name: str) -> Tool | None:
     return _TOOLS_BY_NAME.get(str(name or "").strip())
 
 
-def tool_catalog_text() -> str:
-    """进动作协议 system 段的工具清单文本（封闭集——协议模板引用它）。"""
+def tool_catalog_text(thread: str = "") -> str:
+    """进动作协议 system 段的工具清单文本（封闭集——协议模板引用它）。
+
+    thread 非空＝按页签域收窄（c-agent-fleet：每页签独立流程——共享读＋域内
+    清单）；空＝全量（兼容旧调用与启动校验路径）。"""
+    allowed = tools_for_thread(thread) if thread else None
     lines = []
     for t in TOOL_REGISTRY:
+        if allowed is not None and t.name not in allowed:
+            continue
         gate = f"（{t.feature_key}）" if t.feature_key else ""
         lines.append(f"- {t.name}{gate}：{t.description} 入参示例：{t.args_hint}")
     return "\n".join(lines)
@@ -542,3 +1141,8 @@ async def run_tool(ctx: ToolContext, name: str, args: dict) -> ToolResult:
         return ToolResult(ok=False, summary=f"参数不匹配：{e}")
     except Exception as e:  # 工具失败不炸循环，作为结果回填（BLE001 豁免）
         return ToolResult(ok=False, summary=f"工具执行失败：{e}")
+
+
+# ── 书结构总览读工具（c-agent-tools-expand 批9 续：agent 不拉全文也能答进度/状态问题）──
+
+

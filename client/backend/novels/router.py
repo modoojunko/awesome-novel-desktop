@@ -660,6 +660,9 @@ async def delete(
         raise HTTPException(404, "Novel not found")
     from image_assets.service import delete_assets_for_novel
     await delete_assets_for_novel(db, user["id"], project.id)
+    # 书级 agent 记忆与项目决策随书级联清（c-agent-chat-memory 批3；零孤儿）
+    from assistant.memory import delete_book_memory
+    await delete_book_memory(db, str(project.id))
     await delete_project(db, project)
     return {"ok": True}
 

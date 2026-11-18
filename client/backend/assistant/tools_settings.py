@@ -20,7 +20,6 @@ from fastapi import HTTPException
 from assistant.tools import Tool, ToolContext, ToolResult
 from db import async_session
 from novels.service import get_novel
-from settings.ai_router import generate_field
 
 
 def _clip(text: str, budget: int) -> str:
@@ -44,15 +43,12 @@ async def _settings_field(
     """万能量：单字段生成核（generate_field 直调——与 HTTP 端点同核同提示词）。"""
     if not await _project_ok(ctx):
         return ToolResult(ok=False, summary="书不存在或不属于当前作家。")
-    async with async_session() as db:
-        body = {"context": {}}
-        try:
-            result = await generate_field(
-                ctx.novel_id, stype, field, body,
-                {"id": ctx.user_id}, True, True, db,
-            )
-        except HTTPException as e:
-            return ToolResult(ok=False, summary=str(e.detail))
+    from assistant.caps.settings import CapabilityError, generate_settings_field
+
+    try:
+        result = await generate_settings_field(ctx.novel_id, stype, field, ctx.user_id)
+    except CapabilityError as e:
+        return ToolResult(ok=False, summary=e.message)
     value = result.get("value")
     payload = {"stype": stype, "field": field, "value": value}
     head_text = (
@@ -66,46 +62,47 @@ async def _settings_field(
 
 
 async def _settings_intro(ctx: ToolContext, action: str) -> ToolResult:
-    """简介 AI 核（/ai/intro/{action} 的 run_intro_ai_action 直调）。"""
+    """简介 AI 核（caps.settings.intro_ai_action——与面板端点同核）。"""
     if not await _project_ok(ctx):
         return ToolResult(ok=False, summary="书不存在或不属于当前作家。")
-    from settings.ai_router import intro_ai
+    from assistant.caps.settings import CapabilityError, intro_ai_action
 
-    async with async_session() as db:
-        try:
-            result = await intro_ai(
-                ctx.novel_id, action, {},
-                {"id": ctx.user_id}, True, True, db,
-            )
-        except HTTPException as e:
-            return ToolResult(ok=False, summary=str(e.detail))
+    try:
+        result = await intro_ai_action(ctx.novel_id, action, ctx.user_id)
+    except CapabilityError as e:
+        return ToolResult(ok=False, summary=e.message)
     head = "简介体检完成" if action == "check" else "简介候选已出"
     payload = {"action": action, "result": result}
     return ToolResult(
         ok=True,
-        summary=f"{head}：{_clip(str(result)[:400])}（过目后填回简介栏）",
+        summary=f"{head}：{_clip(str(result), 400)}（过目后填回简介栏）",
         card={"kind": "text", "payload": payload},
     )
 
 
 def _make_hooks_tool(action: str, desc: str) -> Tool:
-    async def _fn(ctx: ToolContext) -> ToolResult:
+    async def _fn(ctx: ToolContext, **_model_extra: Any) -> ToolResult:
         if not await _project_ok(ctx):
             return ToolResult(ok=False, summary="书不存在或不属于当前作家。")
-        from settings.ai_router import run_hooks_ai
+        from assistant.caps.settings import CapabilityError, hooks_ai_action
 
-        async with async_session() as db:
-            try:
-                result = await run_hooks_ai(
-                    action, {},
-                    {"id": ctx.user_id}, True, True, db,
-                )
-            except HTTPException as e:
-                return ToolResult(ok=False, summary=str(e.detail))
+        try:
+            result = await hooks_ai_action(ctx.novel_id, action, ctx.user_id)
+        except CapabilityError as e:
+            return ToolResult(ok=False, summary=e.message)
+
+        # 人话卡面：候选逐条（description 优先），禁 str(dict) 上对话（boss 红线）
+        lines: list[str] = []
+        for i, c in enumerate(result.get("candidates") or [], 1):
+            if not isinstance(c, dict):
+                continue
+            head = str(c.get("label") or c.get("name") or f"候选{i}")
+            lines.append(f"{head} · {c.get('description') or c.get('synopsis') or ''}".strip())
+        draft = "\n".join(x for x in lines if x.strip()) or _clip(str(result), 600)
         return ToolResult(
             ok=True,
-            summary=f"伏笔 AI（{action}）完成：{_clip(str(result)[:300])}（过目后填回伏笔面板）",
-            card={"kind": "text", "payload": result},
+            summary=f"伏笔 AI（{action}）完成：{_clip(str(result), 300)}（候选过目后填回伏笔面板）",
+            card={"kind": "text", "payload": {"action": action, "draft": draft}},
         )
 
     return Tool(
@@ -120,7 +117,7 @@ def _make_hooks_tool(action: str, desc: str) -> Tool:
 
 # 题材四问（generate_field 直调；genre field 白名单见 _GENRE_PROMPTS）
 def _make_genre_tool(field: str, desc: str) -> Tool:
-    async def _fn(ctx: ToolContext) -> ToolResult:
+    async def _fn(ctx: ToolContext, **_model_extra: Any) -> ToolResult:
         return await _settings_field(
             ctx, "genre", field, desc.split("：")[0].replace("题材·", "")
         )

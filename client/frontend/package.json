@@ -20,14 +20,18 @@
     "check:inline-colors": "node scripts/check-inline-colors.mjs"
   },
   "dependencies": {
+    "@agentscope-ai/chat": "1.1.72",
+    "@agentscope-ai/design": "1.0.32",
     "@tanstack/react-query": "^5.103.2",
     "@tiptap/extensions": "^3.31.3",
     "@tiptap/pm": "^3.31.3",
     "@tiptap/react": "^3.31.3",
     "@tiptap/starter-kit": "^3.31.3",
     "3d-force-graph": "^1.80.1",
+    "antd": "5.27.6",
     "diff": "^9.0.0",
     "force-graph": "^1.52.0",
+    "lucide-react": "1.73.0",
     "react": "^19.1.0",
     "react-dom": "^19.1.0",
     "react-router-dom": "^7.6.0",

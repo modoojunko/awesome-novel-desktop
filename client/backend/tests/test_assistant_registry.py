@@ -31,7 +31,7 @@ def test_card_tools_have_feature_gate():
     cards = [t for t in TOOL_REGISTRY if t.kind == "card"]
     assert cards, "产卡类工具不应为空"
     for t in cards:
-        assert t.feature_key in ("ai-plan", "settings-ai-fields", "assistant-diverge", "ai-generate"), t.name
+        assert t.feature_key in ("ai-plan", "settings-ai-fields", "assistant-diverge", "ai-generate", "ai-plot"), t.name
 
 
 def test_divergent_discipline_only_on_diverge_tools():
@@ -44,7 +44,13 @@ def test_divergent_discipline_only_on_diverge_tools():
 
 def test_write_surface_is_fenced():
     writes = [t for t in TOOL_REGISTRY if t.kind == "write"]
-    allowed = {"write_volume_fields", "kb_create_entry", "kb_update_entry"}
+    allowed = {
+        "write_volume_fields", "kb_create_entry", "kb_update_entry",
+        # 结构管理动作（c-agent-tools-expand）：写类走授权梯度，默认每写必确认
+        "confirm_chapter", "unconfirm_chapter",
+        "archive_chapter", "unarchive_chapter",
+        "add_volume", "add_chapter",
+    }
     names = {t.name for t in writes}
     assert names <= allowed, f"写面越界：{names - allowed}"
     # 硬地板结构性缺席：删全书/批量删章/改档位永不注册

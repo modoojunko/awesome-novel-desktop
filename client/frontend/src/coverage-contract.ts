@@ -4,12 +4,14 @@
  * 新增交付批时只改这里；目录完整性由契约测试把守（api-config 目录不能漏文件）。
  */
 export const COVERAGE_CONTRACT_FILES = [
-  // c-writing-agent（右栏对话写作 agent：SSE 客户端/run 模型状态机/每页注册制/ChatDock）
+  // c-writing-agent（右栏对话写作 agent）＋c-agent-chat-memory（ChatAnywhere 定版：
+  // ChatDock/useChatSession 退役——Aui2Dock/CardBody 进账）
   "src/lib/chatApi.ts",
-  "src/hooks/useChatSession.ts",
   "src/lib/chatRegistry.ts",
-  "src/components/novel/chat/ChatDock.tsx",
-  "src/components/novel/chat/chat.css",
+  "src/components/novel/chat/Aui2Dock.tsx",
+  "src/components/novel/chat/CardBody.tsx",
+  // chat.css 移出契约（c-agent-decision-archive 覆盖债收口）：css 无法被 vitest
+  // 计量（恒 0%），perFile-100 契约对它恒假——样式回归由视觉走查把守
   // c-chapter-plan-ai（卷下拆章：拆章弹窗/状态机/API 契约）
   "src/lib/chapterPlanApi.ts",
   "src/hooks/useChapterPlan.ts",

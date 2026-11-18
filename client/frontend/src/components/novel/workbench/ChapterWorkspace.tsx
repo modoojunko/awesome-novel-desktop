@@ -130,6 +130,9 @@ interface ChapterWorkspaceProps {
   onRailData: (data: RailChapterData | null) => void;
   /** 生成启动信号（计数器递增）：切正文页签 + 聚焦（真 bug #2） */
   aiWriteSignal: number;
+  /** 助手导航信号（c-agent-nav）：agent switch_tab → 真实切页签（seq 递增触发、tab 定目标；缺省＝无信号） */
+  chatNavSeq?: number;
+  chatNavTab?: string;
   /** 提示词落库信号（c-prompt-tab-retire）：弹窗存稿后右栏提示词状态行刷新 */
   promptSavedSignal?: number;
   /** 续写恢复信号（顶栏 CTA）：n 递增触发，落正文页签并滚回上次位置 */
@@ -159,6 +162,8 @@ export default function ChapterWorkspace({
   bookWords,
   onRailData,
   aiWriteSignal,
+  chatNavSeq,
+  chatNavTab,
   promptSavedSignal,
   resumeSignal,
   onWriteProgress,
@@ -340,6 +345,15 @@ export default function ChapterWorkspace({
     const t = setTimeout(() => proseRef.current?.focus(), 60);
     return () => clearTimeout(t);
   }, [aiWriteSignal, proseRef]);
+
+  // 助手导航信号（c-agent-nav）：agent switch_tab → 真实切页签（与手点页签同
+  // 语义——不进编辑态不聚焦，只翻页）；tab 七值白名单防御性校验，坏值忽略
+  useEffect(() => {
+    if (!chatNavSeq || !chatNavTab) return;
+    const valid: ChTabKey[] = ["og", "prose", "settings", "relations", "hooks", "actions", "style"];
+    if (!(valid as string[]).includes(chatNavTab)) return;
+    setChTab(chatNavTab as ChTabKey);
+  }, [chatNavSeq, chatNavTab]);
 
   // 续写恢复信号（顶栏 CTA）：落正文页签 + 进编辑态（续写＝写作意图），
   // 滚动位置由 ProsePane 按 resumeScroll 恢复

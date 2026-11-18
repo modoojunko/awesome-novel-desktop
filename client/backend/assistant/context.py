@@ -24,6 +24,10 @@ BOOK_BRIEF_BUDGET_CHARS = 300
 WINDOW_BUDGET_CHARS = 120_000
 
 
+# 章节状态中文映射（brief/进度面向作家，禁内部词——frontier/draft 不出模型口）
+_STATE_ZH = {"draft": "草稿", "pending": "待写", "confirmed": "章纲已确认", "archived": "已归档"}
+
+
 async def build_book_brief(novel: Any, db: Any) -> str:
     """≤300 字书级 brief：书名/题材/进度（frontier）。失败降级为仅书名。"""
     from chapters.frontier import frontier_info
@@ -45,8 +49,12 @@ async def build_book_brief(novel: Any, db: Any) -> str:
         info = await frontier_info(db, novel.id)
         chapters = info.get("chapters")
         if isinstance(chapters, list) and chapters:
+            archived = sum(1 for ch in chapters if ch.get("archived"))
+            fr = info.get("frontier") or {}
+            state = _STATE_ZH.get(str(fr.get("state") or ""), "写作中")
             lines.append(
-                f"进度：frontier 章 {info.get('ref')}（第 {info.get('global_no')} 章，{info.get('state')}）"
+                f"进度：全书 {len(chapters)} 章（已归档 {archived}）；"
+                f"当前写到 第 {fr.get('global_no')} 章（{state}）"
             )
         else:
             lines.append("进度：空书（还没有章节）")
@@ -65,7 +73,10 @@ def build_page_note(page: str, focus: dict[str, Any] | None = None) -> str:
         return ""
     parts = [f"［当前页面：{page}］"]
     if focus:
-        parts.append(f"［聚焦对象：{focus.get('label', '')}］")
+        # label 缺省回退 ref——不输出空的「聚焦对象：」（模型会照学「聚焦是空的」）
+        label = str(focus.get("label") or focus.get("ref") or "").strip()
+        if label:
+            parts.append(f"［聚焦对象：{label}］")
     return " ".join(p for p in parts if p.strip())
 
 

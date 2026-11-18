@@ -32,8 +32,15 @@ from ai_client import (
     api_calls_drain,
 )
 from assistant import compact as compact_mod
-from assistant.actions import parse_action
+from assistant.actions import parse_action, stream_slice
+
+# 停止/打断的收口话术（openworker 同款语义：已产出保留，随时可以继续）
+_CANCEL_NOTICE = "好，先停在这里。已产出的内容都保留着，想继续随时说。"
 from assistant.context import build_outbound_window
+from assistant.scopes import (
+    out_of_scope_guidance,
+    tools_for_thread,
+)
 from assistant.tools import ToolContext, get_tool, run_tool
 
 
@@ -80,6 +87,9 @@ class LoopConfig:
 class LoopResult:
     final_reply: str = ""
     degraded: bool = False
+    # 协同取消（c-agent-chat-memory 批8 停止/打断）：作家停止/新消息打断/断连
+    # 触发 cancel_event 后，循环在最近检查点收口——已产出保留，收口话术见 _CANCEL_NOTICE
+    interrupted: bool = False
     steps: int = 0
     tool_calls: int = 0
     tokens_in: int = 0
@@ -109,6 +119,9 @@ class AgentLoop:
         on_compaction: Callable[[Any], Awaitable[None]] | None = None,
         # 每步用量回调（router 注入 record_usage 适配，短事务）
         on_usage: Callable[[int, int], Awaitable[None]] | None = None,
+        # 协同取消（停止/打断/断连）：置位后循环在最近检查点收口（步界＋模型流
+        # chunk 级＋gate 停车等待）——不硬杀任务，工具与落库链照常收尾
+        cancel_event: asyncio.Event | None = None,
         context_window: int | None = None,
         # c-agent-harness tasks 4.1："" = 自动路由（client.supports_native_tools，
         # env ASSISTANT_HARNESS 可强制）；"native"/"text" 显式钉死。文本协议分支
@@ -120,6 +133,7 @@ class AgentLoop:
         self.transcript = transcript
         self.tool_ctx = tool_ctx
         self.compaction_state = compaction_state
+        self.cancel_event = cancel_event
         self.cfg = config or LoopConfig()
         self.gate_fn = gate_fn
         self.on_compaction = on_compaction
@@ -138,7 +152,39 @@ class AgentLoop:
         self.result = LoopResult()
 
     # -- 对外主入口 ------------------------------------------------------------
-    async def run(self, user_input: str) -> AsyncIterator[dict[str, Any]]:
+    def _cancelled(self) -> bool:
+        return bool(self.cancel_event is not None and self.cancel_event.is_set())
+
+    def _cancel_notice_event(self) -> dict[str, Any]:
+        """停止/打断收口：话术＋标记（已产出保留，镜像/落库照常走完）"""
+        self.result.interrupted = True
+        return {"type": "narration", "text": _CANCEL_NOTICE}
+
+    async def _interruptible(self, stream: AsyncIterator[Any]) -> AsyncIterator[Any]:
+        """模型流的可打断包装：等 chunk 与等取消赛跑（150ms 轮询）——慢 TTFB/长
+        思考等待中点停止也即时生效（openworker 停止语义；裸 async-for 会被首
+        chunk 前的等待卡死，检查点根本没机会跑——e2e 慢桩实锤）。"""
+        get_next = asyncio.ensure_future(stream.__anext__())
+        while True:
+            if self._cancelled():
+                get_next.cancel()
+                return
+            done, _ = await asyncio.wait({get_next}, timeout=0.15)
+            if done:
+                try:
+                    yield get_next.result()
+                except StopAsyncIteration:
+                    return
+                get_next = asyncio.ensure_future(stream.__anext__())
+
+    async def run(
+        self,
+        user_input: str,
+        prime: dict[str, Any] | None = None,
+    ) -> AsyncIterator[dict[str, Any]]:
+        """prime＝chips 结构化触发（c-tool-flow 批2）：{tool, args} 首步确定性
+        执行（域校验/授权/去重照走），结果回填后模型接管——作家意图不再依赖
+        固定话术被模型猜中。None＝纯 agentic（自由输入）。"""
         run_id = uuid.uuid4().hex[:12]
         self.result = LoopResult()
         self.transcript.append({"role": "user", "content": user_input})
@@ -148,6 +194,12 @@ class AgentLoop:
         # 消费端断开（aclose/GeneratorExit）标记：关闭期间 finally 不得再 yield
         # ——否则 RuntimeError("async generator ignored GeneratorExit")
         closed = False
+
+        prime_tool = str((prime or {}).get("tool") or "").strip()
+        prime_args = (prime or {}).get("args") if isinstance((prime or {}).get("args"), dict) else {}
+        if prime_tool:
+            async for ev in self._prime_step(run_id, started, prime_tool, prime_args or {}):
+                yield ev
 
         inner = self._run_native(run_id, started) if self.harness == "native" else self._run_text(run_id, started)
         try:
@@ -171,7 +223,108 @@ class AgentLoop:
                     "error": error_message,
                 }
 
+    # -- 首步结构化触发（c-tool-flow 批2）──────────────────────────────────
+
+    async def _prime_step(
+        self, run_id: str, started: float, tool_name: str, args: dict[str, Any]
+    ) -> AsyncIterator[dict[str, Any]]:
+        """chips tool_hint 首步确定性执行：域校验/授权/去重守卫全程照走；
+        结果按 harness 形态回填转写后模型接管（第二步起为普通模型回合）。"""
+        if not self._wall_clock_left(started):
+            yield self._wall_clock_message()
+            return
+        self.result.steps = 1
+
+        from assistant.scopes import out_of_scope_guidance
+
+        allowed = self._allowed_tools()
+        if allowed is not None and tool_name not in allowed:
+            guidance = out_of_scope_guidance(
+                tool_name, str(getattr(self.tool_ctx, "thread", "") or "")
+            )
+            self.transcript.append({"role": "user", "content": f"[system] {guidance}"})
+            yield {"type": "narration", "text": guidance}
+            return
+        if get_tool(tool_name) is None:
+            unavailable = f"工具 {tool_name} 不可用。"
+            self.transcript.append({"role": "user", "content": f"[system] {unavailable}"})
+            yield {"type": "narration", "text": unavailable}
+            return
+
+        denied_refusal = None
+        step_result = None
+        async for kind, payload in self._emit_step(run_id, 1, tool_name, "", args):
+            if kind == "event":
+                yield payload
+            elif kind == "denied":
+                denied_refusal = payload
+            elif kind == "result":
+                step_result = payload
+
+        summary = (step_result.summary if step_result else "") or "（没有产出。）"
+        if denied_refusal:
+            summary = f"[denied] {denied_refusal}"
+        if self.harness == "native":
+            self.transcript.append(
+                {
+                    "role": "assistant",
+                    "content": "",
+                    "tool_calls": [
+                        {
+                            "id": f"{run_id}-prime",
+                            "type": "function",
+                            "function": {"name": tool_name, "arguments": "{}"},
+                        }
+                    ],
+                }
+            )
+            self.transcript.append(
+                {"role": "tool", "tool_call_id": f"{run_id}-prime", "content": summary}
+            )
+        else:
+            self.transcript.append(
+                {
+                    "role": "assistant",
+                    "content": "",
+                    "_tool": {
+                        "name": tool_name,
+                        "args": args,
+                        "result": " ".join(summary.split())[:220],
+                    },
+                }
+            )
+            self.transcript.append({"role": "user", "content": f"[tool result] {summary}"})
+        self.transcript.append(
+            {
+                "role": "user",
+                "content": "[system] 首步已按作家的点选执行完成——基于以上结果直接回应作家。",
+            }
+        )
+
     # -- 共用小件（两模式同构，tasks 4.3）───────────────────────────────────
+
+    def _duplicate_call(self, tool: str, args: dict) -> bool:
+        """连续同工具同参数去重（openworker 重复调用劝退口径）：模型自触发
+        的原地重跑（抽卡连抽等）→ 劝退并回喂；作家明示重抽由新一轮承载。"""
+        import json as _json
+
+        try:
+            key = _json.dumps({"t": tool, "a": args or {}}, ensure_ascii=False, sort_keys=True)
+        except (TypeError, ValueError):
+            key = f"{tool}:{sorted(args or {})}"
+        dup = key == getattr(self, "_last_call_key", None)
+        self._last_call_key = key
+        return dup
+
+    def _allowed_tools(self) -> set[str] | None:
+        """本线程可声明的工具集；None＝不收窄（thread 空＝旧调用/测试/兜底路径）。
+
+        页签独立流程（c-agent-fleet）：真实请求恒带 thread——按域收窄声明与执行。"""
+        ctx = self.tool_ctx
+        thread = str(getattr(ctx, "thread", "") or "") if ctx is not None else ""
+        if not thread:
+            return None
+        return tools_for_thread(thread)
 
     def _wall_clock_left(self, started: float) -> bool:
         return time.monotonic() - started <= self.cfg.wall_clock
@@ -204,14 +357,25 @@ class AgentLoop:
                 if not last.get("approved", False):
                     yield ("denied", last.get("refusal") or "作家没有授权这个操作，我先不做了。")
                     return
+        if self._cancelled():
+            # 停止/打断在 gate 等待后到达：不执行工具，直接收口（步界检查点接力）
+            yield ("denied", "已停止——这一步没有执行。")
+            return
         self.result.tool_calls += 1
-        yield ("event", {
+        from assistant.scopes import domain_of_thread
+
+        # 域标签取当前线程域（check_consistency 等多域归属工具按工具首属域会标错页签）
+        domain = domain_of_thread(str(getattr(self.tool_ctx, "thread", "") or ""))
+        step_start: dict[str, Any] = {
             "type": "step_start",
             "runId": run_id,
             "stepId": f"{run_id}-{step_no}",
             "tool": tool_name,
             "label": label[:80],
-        })
+        }
+        if domain:
+            step_start["domain"] = domain
+        yield ("event", step_start)
         # API 调用归集（c-writing-agent 反馈流：本步内工具核心的模型调用全部可见
         # ——coding agent 口径，boss 拍板 2026-11-15）
         api_calls_begin()
@@ -224,7 +388,14 @@ class AgentLoop:
             "stepId": f"{run_id}-{step_no}",
             "tool": tool_name,
             "resultNote": note,
+            "ok": result.ok,  # effect 收集口径：只对成功的写步触发前端刷新（router._consume）
+            "args": args,  # effect target 来源（c-agent-nav：effect_target_from 指入参键）
         }
+        from assistant.scopes import domain_of_thread
+
+        domain = domain_of_thread(str(getattr(self.tool_ctx, "thread", "") or ""))
+        if domain:
+            step_end["domain"] = domain
         if api_calls:
             step_end["apiCalls"] = api_calls
         write_log = result.meta.get("write_log")
@@ -250,6 +421,9 @@ class AgentLoop:
             if not self._wall_clock_left(started):
                 yield self._wall_clock_message()
                 break
+            if self._cancelled():
+                yield self._cancel_notice_event()
+                break
             step_no += 1
             self.result.steps = step_no
 
@@ -264,8 +438,10 @@ class AgentLoop:
             messages, _ = build_outbound_window(
                 self.transcript, compaction_state=self.compaction_state
             )
+            cancelled_hit = False
             for attempt in range(1 + retry_left):
                 full_text = ""
+                streamed_upto, frozen = 0, False
                 try:
                     async for ev in self.client.chat_stream(
                         model=self.cfg.model_alias,
@@ -278,16 +454,33 @@ class AgentLoop:
                         if ev.error:
                             stream_error = ev.error
                             break
+                        if self._cancelled():
+                            # chunk 级取消（逐字流式下停止即时生效——不等整段）
+                            cancelled_hit = True
+                            break
                         if ev.thinking:
                             yield {"type": "thinking", "text": ev.thinking}
                         if ev.text:
                             full_text += ev.text
+                            # 哨兵分节流式（c-agent-chat-memory 批2）：叙述正文字节
+                            # 直通 delta；哨兵/JSON 嫌疑处冻结静默攒——裸 JSON 永不
+                            # 外漏（deepseek 回归钉）。切分规则收在 stream_slice 纯函数。
+                            if not frozen:
+                                old_upto = streamed_upto
+                                streamed_upto, frozen = stream_slice(
+                                    full_text, streamed_upto, frozen
+                                )
+                                if streamed_upto > old_upto:
+                                    yield {
+                                        "type": "narration_delta",
+                                        "text": full_text[old_upto:streamed_upto],
+                                    }
                         if ev.is_done:
                             self.result.tokens_in += ev.tokens_in
                             self.result.tokens_out += ev.tokens
                             if self.on_usage is not None:
                                 await self.on_usage(ev.tokens_in, ev.tokens)
-                    if stream_error:
+                    if cancelled_hit:
                         break
                 except (AITimeoutError, AIThinkingTimeoutError) as e:
                     stream_error = f"这一步想得太久（{e}）"
@@ -307,6 +500,12 @@ class AgentLoop:
                     continue
                 break
 
+            # 停止/打断收口（while 层）：attempt 内 break 跳到这里——已产出保留
+            if cancelled_hit:
+                self.result.interrupted = True
+                yield {"type": "narration", "text": _CANCEL_NOTICE}
+                break
+
             if stream_error:
                 yield {"type": "error", "message": stream_error}
                 break
@@ -320,7 +519,8 @@ class AgentLoop:
             # ── 分派 ────────────────────────────────────────────────────
             if action.kind == "final":
                 self.result.final_reply = action.reply
-                self.result.degraded = False
+                # degraded 遥测随动作透传（v2 纯文本兜底＝final 但协议未服从）
+                self.result.degraded = bool(action.degraded)
                 if action.reply:
                     yield {"type": "narration", "text": action.reply}
                 break
@@ -340,6 +540,21 @@ class AgentLoop:
                 self.result.final_reply = fallback
                 yield {"type": "narration", "text": fallback}
                 break
+
+            # 域外工具＝页签独立流程（c-agent-fleet）：不执行，引导切对应页签
+            allowed = self._allowed_tools()
+            if allowed is not None and action.tool not in allowed:
+                guidance = out_of_scope_guidance(action.tool, str(getattr(self.tool_ctx, "thread", "") or ""))
+                self.result.final_reply = guidance
+                yield {"type": "narration", "text": guidance}
+                break
+
+            # 连续同工具同参数＝模型原地重跑（抽卡连抽类）——劝退回喂不执行
+            if self._duplicate_call(action.tool, action.args):
+                notice = "这一步和上一步完全相同（同工具同参数），产物已经交付——直接收口，或换一个做法。"
+                self.transcript.append({"role": "user", "content": f"[system] {notice}"})
+                yield {"type": "narration", "text": notice}
+                continue
 
             # 授权梯度＋执行（_emit_step 共用件）
             denied_refusal = None
@@ -440,11 +655,19 @@ class AgentLoop:
     async def _run_native(self, run_id: str, started: float) -> AsyncIterator[dict[str, Any]]:
         from assistant.tools import TOOL_REGISTRY
 
-        schemas = [t.openai_spec() for t in TOOL_REGISTRY]
+        allowed = self._allowed_tools()
+        schemas = [
+            t.openai_spec()
+            for t in TOOL_REGISTRY
+            if allowed is None or t.name in allowed
+        ]
         step_no = 0
         while True:
             if not self._wall_clock_left(started):
                 yield self._wall_clock_message()
+                break
+            if self._cancelled():
+                yield self._cancel_notice_event()
                 break
             step_no += 1
             self.result.steps = step_no
@@ -461,18 +684,24 @@ class AgentLoop:
             full_text = ""
             native_calls: list[dict] = []
             stream_error = ""
+            cancelled_hit = False
             try:
-                async for ev in self.client.chat_stream(
-                    model=self.cfg.model_alias,
-                    system=self.system,
-                    messages=messages,
-                    max_tokens=self.cfg.step_max_tokens,
-                    operation="assistant_step",
-                    first_content_timeout=self.cfg.step_timeout,
-                    tools=schemas,
+                async for ev in self._interruptible(
+                    self.client.chat_stream(
+                        model=self.cfg.model_alias,
+                        system=self.system,
+                        messages=messages,
+                        max_tokens=self.cfg.step_max_tokens,
+                        operation="assistant_step",
+                        first_content_timeout=self.cfg.step_timeout,
+                        tools=schemas,
+                    )
                 ):
                     if ev.error:
                         stream_error = ev.error
+                        break
+                    if self._cancelled():
+                        cancelled_hit = True
                         break
                     if ev.thinking:
                         yield {"type": "thinking", "text": ev.thinking}
@@ -491,6 +720,9 @@ class AgentLoop:
                 stream_error = f"模型调用失败：{e}"
             if stream_error:
                 yield {"type": "error", "message": stream_error}
+                break
+            if cancelled_hit:
+                yield self._cancel_notice_event()
                 break
 
             if not native_calls:
@@ -525,7 +757,24 @@ class AgentLoop:
 
             for idx, tc in enumerate(native_calls):
                 if not self._wall_clock_left(started):
+                    # 孤儿 tool_calls 防线：未执行的剩余调用补 tool-error 结果行
+                    # （openai 校验链拒孤儿——openworker _interrupted_tool 同款语义）
+                    for j in range(idx, len(native_calls)):
+                        self.transcript.append(
+                            {"role": "tool", "tool_call_id": call_rows[j]["id"],
+                             "content": "已停止——这一步没有执行。"}
+                        )
                     yield self._wall_clock_message()
+                    return
+                if self._cancelled():
+                    # 停止/打断：剩余调用补 tool-error 结果行，历史不留孤儿
+                    self.result.interrupted = True
+                    for j in range(idx, len(native_calls)):
+                        self.transcript.append(
+                            {"role": "tool", "tool_call_id": call_rows[j]["id"],
+                             "content": "已停止——这一步没有执行。"}
+                        )
+                    yield {"type": "narration", "text": _CANCEL_NOTICE}
                     return
                 call_id = call_rows[idx]["id"]
                 name = tc.get("name") or ""
@@ -534,18 +783,33 @@ class AgentLoop:
                     # 坏 JSON 抢救失败按空参执行（宁空勿假——文本协议同口径）
                     args = {}
 
-                tool = get_tool(name)
-                if tool is None:
-                    # native 口径：tool 结果行回喂错误让模型自纠（文本协议＝收口
-                    # 降级；native 按协议语义回填结果行，由模型决定重试或收口）
+                if self._duplicate_call(name, args):
                     self.transcript.append(
                         {
                             "role": "tool",
                             "tool_call_id": call_id,
-                            "content": (
-                                f"工具 {name} 不在工具箱里——从可用工具清单里选一个"
-                                "真实存在的再试，或直接回复作家。"
-                            ),
+                            "content": "这一步和上一步完全相同（同工具同参数），产物已经交付——直接收口，或换一个做法。",
+                        }
+                    )
+                    continue
+
+                tool = get_tool(name)
+                if tool is None or (allowed is not None and name not in allowed):
+                    # native 口径：tool 结果行回喂让模型自纠。未知工具与域外工具
+                    # 分话术：域外＝页签独立流程引导（c-agent-fleet）
+                    guidance = (
+                        out_of_scope_guidance(name, str(getattr(self.tool_ctx, "thread", "") or ""))
+                        if tool is not None
+                        else (
+                            f"工具 {name} 不在工具箱里——从可用工具清单里选一个"
+                            "真实存在的再试，或直接回复作家。"
+                        )
+                    )
+                    self.transcript.append(
+                        {
+                            "role": "tool",
+                            "tool_call_id": call_id,
+                            "content": guidance,
                         }
                     )
                     continue

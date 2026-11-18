@@ -18,15 +18,18 @@ export type AgentEvent = {
     | "step_end"
     | "thinking"
     | "narration"
+    | "narration_delta"
     | "artifact"
     | "permission_required"
     | "gate"
     | "gate_result"
     | "run_end"
+    | "effect"
     | "error";
   runId?: string;
   stepId?: string;
   tool?: string;
+  domain?: string;
   label?: string;
   resultNote?: string;
   /** 本步内模型 API 调用记录（coding agent 反馈口径，boss 拍板 2026-11-15） */
@@ -49,6 +52,12 @@ export type AgentEvent = {
   steps?: number;
   toolCalls?: number;
   degraded?: boolean;
+  /** run_end 携带本轮写操作 effects（NovelWorkspace 按域刷新） */
+  effects?: { action: string; domain: string; target?: string; description?: string }[];
+  /** 单条即时 effect 事件（c-agent-nav：navigate 中途翻页，不等 run_end） */
+  action?: string;
+  target?: string;
+  description?: string;
 };
 
 export interface AssistantStreamHandlers {
@@ -148,6 +157,20 @@ export async function setPermissionTier(
   if (!r.ok) throw new Error(detailMessage((await r.json().catch(() => null))?.detail, "档位设置失败"));
 }
 
+/** 停止当前线程的在跑 run（服务端协同取消——已产出保留；openworker 停止语义）。 */
+export async function stopAssistantRun(projectId: string, thread: string): Promise<void> {
+  const r = await fetch(`${API_BASE}/novels/${projectId}/assistant/stop`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", Authorization: `Bearer ${getToken()}` },
+    body: JSON.stringify({ thread }),
+  });
+  if (r.status === 401) {
+    handleAuthExpiry();
+    throw new Error("登录状态已失效，请重新登录");
+  }
+  if (!r.ok) throw new Error(detailMessage((await r.json().catch(() => null))?.detail, "停止失败"));
+}
+
 /**
  * 助手对话流：POST /assistant/chat（SSE）。返回 abort 函数（中断＝已产出保留）。
  * 终态口径：run_end｜error 见过才算干净结束；两者皆无＝服务端异常中止，按失败收尾
@@ -155,7 +178,13 @@ export async function setPermissionTier(
  */
 export function streamAssistantChat(
   projectId: string,
-  body: { message: string; page: string; thread?: string; focus?: { ref: string } },
+  body: {
+    message: string;
+    page: string;
+    thread?: string;
+    focus?: { ref: string };
+    tool_hint?: { tool: string; args: Record<string, unknown> };
+  },
   handlers: AssistantStreamHandlers,
 ): () => void {
   const controller = new AbortController();

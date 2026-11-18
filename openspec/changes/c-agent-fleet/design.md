@@ -1,61 +1,56 @@
-# c-agent-fleet 设计：总调度＋域 agent 舰队
+# c-agent-fleet（改型）设计：每页签独立对话
 
 ## Context
 
-一期单体 agent（一份身份定义＋30 工具全量＋按页注入）已走查可用。boss 拍板升级为舰队：AI 助手＝总调度 agent（唯一对话入口），每个 tab 对应一个域 agent（设定/卷纲/章纲/正文…），会话形态＝**全部先进总调度**（每条消息先分类再委派，作家感知单对话）。实施次序＝c-agent-harness（native FC）先落地，fleet 在原生 tool_calls 上叠加。
+boss 拍板三独立（2026-11-16）：每 tab 独立上下文／独立对话记录／独立流程。现状底数：线程级隔离已上线（会话 UNIQUE user+book+thread_key、消息/压缩态按线程、跨线程并发无锁），流程层未隔离（全 tab 下发 30 工具＋同一纪律）。实测单 agent 每轮开销 5-6K tok（窗口 ~5%），30 工具在注意力安全线内——**否决真多 agent＋总调度委派**（恒定分类税＋召回重派＋嵌套循环工程面），改型为单执行体＋每页签独立流程。原多 agent 降级为升级触发器（proposal Non-Goals）。
 
 ## Goals / Non-Goals
 
-- Goals：总调度路由（分类→委派→收口）；AgentSpec 封闭注册（persona＋工具子域）；委派嵌套循环与纪律继承；事件带 agent 身份标签
-- Non-Goals：不做作家可见的域 agent 独立会话（单对话感知）；不做域间自由对话（域 agent 互不直连，经总调度）；不增删能力围栏清单；不改线程模型与授权梯度语义
+- Goals：thread→域映射与工具声明收窄（域外引导）；域纪律分节注入（身份单源派生）；轨迹域标签；线程独立性条款化＋守卫测试
+- Non-Goals：多 agent／委派嵌套循环（升级触发器见 proposal）；不改线程模型；不增删注册表；不动 write_gate/压缩口径
 
 ## 架构决策
 
-### D1：总调度＝路由器＋承接者，无域写工具
-总调度持有：全域**读**工具＋委派工具（delegate_agent，native tool_calls）＋画像/人格工具。**域写工具（generate_field/写回/建卡执行类）不出现在总调度 tool_scope**——写操作物理上只能经委派到域 agent 执行。分类错域可召回：总调度对委派结果不满意时（域 agent 返回 not-my-domain），换域重派或自答。
+### D1：域身份＝thread 前缀，不是新路由层
+thread 已是精确页签身份（ch:{tab}｜set:{panel}｜vol｜preview），前端 `page` 参数粗粒度（「工作台·章节」不分 og/prose）——**不再加路由字段**，后端按 thread 前缀解析域。映射：
 
-### D2：AgentSpec 封闭注册表
-```python
-@dataclass
-class AgentSpec:
-    name: str            # orchestrator / settings / volume / outline / prose
-    title: str           # 总调度 / 设定助手 / 卷纲助手 / 章纲助手 / 正文助手
-    persona: str         # 域 persona（自身份定义派生段＋域专属纪律段）
-    domain_hint: str     # 给总调度的委派判据（管什么/不管什么）
-    tool_scope: set[str] # 全量注册表的子集（读工具共享＋域写工具本域）
-```
-- 注册表封闭校验：tool_scope ⊆ registry、orchestrator.tool_scope 不含任何域写工具、每域至少一写工具（否则域无意义）
-- 域 persona 自身份定义派生：身份定义（提示词包）仍是单源，域 persona = 身份定义＋域纪律段；身份定义更新时域 persona 自动跟随（不做两份独立维护）
+| thread 前缀 | 域 | 域内工具（＋全域共享读） |
+|---|---|---|
+| ch:og | 章纲 | draft_chapter_plot / draft_chapter_split / settings_og_fill / check_consistency / draft_names |
+| ch:prose | 正文 | read_story_state（正文页以读为流程；生成走既有写作流不占对话） |
+| set:* | 设定 | settings_genre_* / settings_hooks_* / settings_intro / draft_arc / draft_names / diverge_character_group / draft_chapter_plot?（否——剧情清单归章纲）|
+| vol | 卷纲 | draft_volume_plan / draft_volume_expand / write_volume_fields / check_consistency / draft_names / draft_arc / diverge_plot_branches / diverge_character_group / draft_chapter_split |
+| preview | 预览 | 只读全域 |
+| 其余（v:* 等） | 默认＝全域共享读 |
 
-### D3：委派＝原生 tool_calls＋内嵌循环
-总调度循环里 `delegate_agent(agent, task, context)` 为一工具步：内嵌跑域 agent 循环（同 AgentLoop，harness=native 分支），域循环的步事件加 `agent` 标签原样流入 SSE；域循环结束返回结构化结果（summary＋cards）给总调度。纪律继承：
-- **墙钟**：单回合墙钟由总调度持有（600→1800s 不变），委派消耗共享预算；委派前检查剩余预算，不足直接拒派并收口
-- **停止**：作家停止穿透域循环（GeneratorExit 干净关闭，半截落库语义不变）
-- **授权梯度**：域循环内写工具照常过 write_gate，gate 事件透传（作家看到的是域 agent 在请求授权）
-- **压缩**：域循环转写独立、用后即弃（不写线程）；线程压缩仍按现有总调度会话口径
+全域共享读：read_progress / read_settings / read_outline / read_chapter / read_story_state / profile_read / profile_update / kb_search / kb_read / draft_character（角色草案三段式跨域合法——设定对话和任何页签都可能建角色）。启动校验：每个工具恰属一个域内清单或共享集，**漏配 fail loud**。
 
-### D4：事件契约增项（向后兼容）
-step_start/step_end/TraceFolded 增 `agent` 字段（orchestrator 缺省省略）；dock 轨迹组标域身份（「设定助手 · 2 步」），气泡署名保持「AI 助手」不拆对话。文本协议降级路径下 fleet 退化为总调度自答＋转域指引（委派不可用），事件不带 agent 标签——dock 对缺省字段零依赖。
+### D2：收窄的是声明＋执行视图，注册表不动
+native 分支：`schemas = [t.openai_spec() for t in tools_for_page(thread)]`；text 分支：协议模板目录行按同集合过滤。执行层：get_tool 仍查全表，但**域外工具调用按未授权处理**——native 回喂 tool 结果行「这是 XX 域能力，请切到对应页签」；text 走既有未知工具降级路径（话术换域外引导）。写作核心（正文生成/章纲生成等既有流）不经对话 agent，不受影响。
 
-### D5：tab 上下文＝路由先验，不是路由器
-当前 tab（threadKey 的 scope）作为强先验注入总调度（「作家正在设定页」），但分类仍由总调度做——设定页问正文，委派正文域而非硬拒。线程仍按 tab 分（现有模型不动），跨 tab 的任务上下文经委派参数（context）传递。
+### D3：域纪律分节——自身份定义派生＋常量分节起步
+`PAGE_DISCIPLINE: dict[域, str]` 常量起步（章纲节奏档位/正文人味红线/设定口径一致/卷纲六段口径），拼在系统提示词尾部；提示词包管线后续接管分节文案（batch 外挂账）。身份单源原则：分节只含域纪律，身份/语气仍单源。
+
+### D4：轨迹域标签（事件增项，向后兼容）
+step_start/step_end/trace 行增 `domain` 字段（「章纲」「卷纲」…；共享读类＝空省略）。dock 轨迹组标「章纲助手 · N 步」；气泡署名不变。缺字段旧客户端零依赖。
+
+### D5：线程独立性条款化（把已有实现升格为 MUST＋守卫）
+会话 UNIQUE(user,book,thread)、消息/压缩态按线程存取、跨线程并发无全局锁——守卫测试钉死（两线程并发 run 互不串写）。同线程双发由前端 runActive 挡（后端不加锁，挂账注释）。
 
 ## Risks / Trade-offs
 
-- 委派嵌套一层就够（域 agent SHALL NOT 再委派——总调度唯一）；预算切分错了表现是「域 agent 干一半被墙钟掐」，靠委派前预算检查兜底
-- 分类错误率靠域 domain_hint 判据＋召回重派兜底；一期域少（4 域）分类风险低
-- 文本协议降级下 fleet 能力退化（无委派）——走查场景覆盖指引话术
+- 域映射漏配＝功能突然「没了」——启动校验 fail loud＋e2e chips→工具对照表
+- 域外引导话术生硬——提示词包可调，走查验收
+- 严格隔离牺牲跨域直答（设定页问章纲→引导切页签）——boss 拍板「独立流程」的直意；体验反例出现再评估 D2 的引导白名单
 
 ## Migration Plan
 
-1. AgentSpec＋域注册表落地（orchestrator/settings/volume/outline/prose 五域起步）
-2. 总调度提示词＋delegate_agent 工具（native tool_calls 形态）
-3. AgentLoop 委派分支（内嵌循环＋事件标签＋纪律继承）
-4. 事件契约增项＋dock 身份标签呈现
-5. 测试（路由/委派/越域写拒绝/预算切分/停止穿透）
-6. 走查栈真 GLM 验证（跨域接力/授权透传/轨迹标签）
+1. scopes.py：thread→域映射＋tools_for_thread＋启动校验＋测试
+2. loop：native/text 双分支按线程声明收窄＋域外回喂引导
+3. prompts：PAGE_DISCIPLINE 分节注入
+4. 事件 domain 字段＋dock 轨迹标签
+5. 线程并发守卫测试＋走查验证
 
 ## Open Questions
 
-- 拆书/知识/画像等是否单独成域（一期先并入总调度直答，域多了再拆）
-- 委派任务的进度可见粒度（域循环内步骤全透传 vs 只报里程碑）——走查定
+- 关系/伏笔/文风/操作四个章内页签当前 chips 多为前端动作（朱雀/润色/接缝），是否需要空域显式注册——实现时按 registry 对表，缺省落「默认＝全域共享读」

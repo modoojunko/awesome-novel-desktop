@@ -1,6 +1,6 @@
-"""Assistant 表模型（c-writing-agent 批A）。
+"""Assistant 表模型（c-writing-agent 批A；c-agent-chat-memory 增书记忆两表）。
 
-四张表全部走 create_all 路径（本地库每版本一个文件、启动期 Base.metadata.create_all，
+六张表全部走 create_all 路径（本地库每版本一个文件、启动期 Base.metadata.create_all，
 代内 DDL 已退役）——零迁移代码。
 
 - assistant_sessions   每书每页签一个会话线程（UNIQUE user_id+novel_id+thread_key），携带授权档位 grants 与
@@ -10,6 +10,8 @@
                        payload_json 结构化载荷；status=streaming|done|error|adopted）
 - writer_profile       作家画像（作家级跨书一份；sections_json 分区：命名口味/雷点/节奏/文风）
 - writer_profile_events 画像行为事件源（采纳/拒绝/修改/对话收集），定期总结的数据源
+- book_agent_memory    书级 agent 记忆（AI 自身写作规矩按书一份；随书应用层级联删）
+- book_decisions       书级项目决策（方向性结论按时间留痕；随书应用层级联删）
 """
 
 from sqlalchemy import Boolean, String, Text, UniqueConstraint
@@ -100,3 +102,39 @@ class AssistantPersona(Base):
     user_id: Mapped[str] = mapped_column(String(64), primary_key=True)
     identity_json: Mapped[str] = mapped_column(Text, nullable=False, default="{}")
     updated_at: Mapped[str] = mapped_column(String(32), nullable=False, default="")
+
+
+class BookAgentMemory(Base):
+    """书级 agent 记忆（c-agent-chat-memory：四层记忆 scope 的「按书」新增层）。
+
+    AI 助手自身对一本书积累的写作规矩与特化知识（叙事视角/禁忌/结尾手法等
+    项目级约定）——等价 agent.md 按书一份。助手经记忆工具自主增改删；注入
+    L1 系统提示词（身份→人格→书记忆→围栏→协议→域纪律）。生命周期随书：
+    删书时应用层级联清理（novels/router.py delete → memory.delete_book_memory，
+    image_assets 先例同款；表无 DB 级 FK——本模块惯例 novel_id 裸列＋索引）。
+    """
+
+    __tablename__ = "book_agent_memory"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    novel_id: Mapped[str] = mapped_column(String(36), nullable=False, index=True)
+    content: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    created_at: Mapped[str] = mapped_column(String(32), nullable=False, default="")
+    updated_at: Mapped[str] = mapped_column(String(32), nullable=False, default="")
+
+
+class BookDecision(Base):
+    """书级项目决策（c-agent-chat-memory：协作方向性结论按书按时间留痕）。
+
+    作家否决的方向/拍板的调子/关键修改理由——助手经 remember_decision 追加，
+    按时间倒序注入（超容量从最旧截断）。生命周期同 book_agent_memory（随书
+    删；应用层级联）。
+    """
+
+    __tablename__ = "book_decisions"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    novel_id: Mapped[str] = mapped_column(String(36), nullable=False, index=True)
+    decision: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    reason: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    created_at: Mapped[str] = mapped_column(String(32), nullable=False, default="")

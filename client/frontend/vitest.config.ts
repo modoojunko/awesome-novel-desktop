@@ -12,6 +12,9 @@ export default defineConfig({
     // 它们是发布产物的一部分，错了同样要让 CI 红。
     include: ["src/**/*.test.{ts,tsx}", "scripts/**/*.test.mjs"],
     exclude: ["node_modules", "e2e"],
+    // @agentscope-ai 系列强制 vite 内联转换（包体直 import css/无 exports 映射，
+    // 走 node 外部链会炸 Unknown extension .css——批1 存量红修复）
+    server: { deps: { inline: [/@agentscope-ai\//] } },
     coverage: {
       provider: "v8",
       // 覆盖率契约只锁「本次交付动过的文件」——不是整仓阈值（存量无关 UI 不在账上）。
@@ -41,12 +44,26 @@ export default defineConfig({
         // KnowledgeBasePage.tsx：星图画布/知识视图渲染为 browser-only（jsdom 不可达），
         // 原型定稿豁免（c-kb-knowledge-v2）；后续实现侧补测或重构可收回
         '**/KnowledgeBasePage.tsx': { statements: 99, lines: 99, functions: 98, branches: 95 },
+        // ToolsMenu 徽标计数（c-tools-badge-seen）：refine 两行 v8 语句计量恒 0（行归因
+        // 怪癖——badge=3 行为断言实锤代码已执行）；功能由徽标计数断言守卫
+        '**/tools/ToolsMenu.tsx': { statements: 90, lines: 90, functions: 85, branches: 85 },
       },
     },
   },
   resolve: {
     alias: {
       "@": path.resolve(__dirname, "./src"),
+      // @agentscope-ai/design 的 package.json 缺 main/exports（只有 module 字段），
+      // vitest 的 node 解析臂找不到入口（vite dev 走 module 字段正常）——显式钉到
+      // lib 入口（c-agent-chat-memory 批1 存量红修复）
+      "@agentscope-ai/design": path.resolve(
+        __dirname,
+        "node_modules/@agentscope-ai/design/lib/index.js",
+      ),
+      "@agentscope-ai/chat": path.resolve(
+        __dirname,
+        "node_modules/@agentscope-ai/chat/lib/index.js",
+      ),
     },
   },
 });
