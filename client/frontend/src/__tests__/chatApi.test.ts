@@ -152,7 +152,7 @@ const jsonErr = (detail: string, status = 400) =>
 
 describe("loadAssistantSession", () => {
   it("200：返回会话元数据与消息（thread 走 query）", async () => {
-    const fetchMock = vi.fn(() =>
+    const fetchMock = vi.fn((..._a: unknown[]) =>
       Promise.resolve(jsonOk({ sessionId: "s1", pageCursor: "ch:og", grants: {}, messages: [{ id: "m1", seq: 1, role: "user", page: "", content: "hi", cardKind: "", status: "done", payload: {}, createdAt: "" }] })),
     );
     vi.stubGlobal("fetch", fetchMock);
@@ -242,21 +242,21 @@ describe("persona 三件", () => {
     await expect(loadAssistantPersona("b1")).rejects.toThrow("人格读取失败");
   });
   it("update：PUT 带 identity；200 返回；!ok 抛错", async () => {
-    const fetchMock = vi.fn(() => Promise.resolve(jsonOk({ identity: { name: "新" }, customized: true })));
+    const fetchMock = vi.fn((..._a: unknown[]) => Promise.resolve(jsonOk({ identity: { name: "新" }, customized: true })));
     vi.stubGlobal("fetch", fetchMock);
     const out = await updateAssistantPersona("b1", { name: "新" });
     expect(out.identity.name).toBe("新");
-    expect(fetchMock.mock.calls[0][1]?.method).toBe("PUT");
+    expect((fetchMock.mock.calls[0] as unknown[])[1] ? ((fetchMock.mock.calls[0][1] ?? {}) as { method?: string }).method : undefined).toBe("PUT");
     vi.stubGlobal("fetch", vi.fn(() => Promise.resolve(new Response("{}", { status: 401 }))));
     await expect(updateAssistantPersona("b1", { name: "x" })).rejects.toThrow("登录状态已失效");
     vi.stubGlobal("fetch", vi.fn(() => Promise.resolve(new Response("not-json", { status: 500 }))));
     await expect(updateAssistantPersona("b1", { name: "x" })).rejects.toThrow("人格保存失败");
   });
   it("clear：DELETE；!ok 抛错", async () => {
-    const fetchMock = vi.fn(() => Promise.resolve(jsonOk({ ok: true })));
+    const fetchMock = vi.fn((..._a: unknown[]) => Promise.resolve(jsonOk({ ok: true })));
     vi.stubGlobal("fetch", fetchMock);
     await expect(clearAssistantPersona("b1")).resolves.toBeUndefined();
-    expect(fetchMock.mock.calls[0][1]?.method).toBe("DELETE");
+    expect((fetchMock.mock.calls[0][1] as { method?: string }).method).toBe("DELETE");
     vi.stubGlobal("fetch", vi.fn(() => Promise.resolve(new Response("{}", { status: 401 }))));
     await expect(clearAssistantPersona("b1")).rejects.toThrow("登录状态已失效");
     vi.stubGlobal("fetch", vi.fn(() => Promise.resolve(new Response("not-json", { status: 500 }))));

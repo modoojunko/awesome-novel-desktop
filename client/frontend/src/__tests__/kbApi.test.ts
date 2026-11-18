@@ -439,7 +439,7 @@ describe("kbApi 未覆盖方法契约扫描（c-agent-decision-archive 覆盖债
   it("summarize/refine/refineTasks 全组", async () => {
     fetchMock.mockReturnValue(json({ ok: true }));
     await summarize.run("玄幻");
-    await summarize.status("玄幻");
+    await summarize.status();
     await refine.run("玄幻");
     await refineTasks.create("玄幻");
     await refineTasks.list();
