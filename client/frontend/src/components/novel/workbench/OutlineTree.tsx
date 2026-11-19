@@ -7,6 +7,7 @@
 // c-tree-batch-confirm-retire：树底「确认全部已填章节」退役——章纲确认只走章纲页签「确认章纲」。
 import { useEffect, useRef, useState } from "react";
 import { Ico, P } from "@/components/icons";
+import { useWorkbenchBooting } from "./DataEnter";
 import { DeleteConfirmModal } from "./modals";
 import { request } from "@/lib/api";
 import { toast } from "@/lib/toast";
@@ -71,13 +72,16 @@ export default function OutlineTree({
     });
   }, [volumes, expandedIds, onToggle]);
 
-  // 数据首到淡入（data-enter，index.css）：树从空到有卷的那一刻整体轻淡入一次；
-  // revealed 恒真不回退——之后增删卷/后台刷新不重放动画
-  const [treeRevealed, setTreeRevealed] = useState(false);
+  // 数据首到淡入（data-enter，index.css）＋boot 闸（DataEnter.tsx）：树从空到有卷
+  // 的那一刻整体轻淡入一次；但首到若发生在进书 boot 窗口内＝并进 page-enter
+  // 单波、永不重放（"none"）——否则 boot 翻转会给已可见的树二次加类闪烁。
+  // "pending"=还没等到数据；"on"=boot 后首到，播淡入；"none"=boot 内首到，不播。
+  const booting = useWorkbenchBooting();
+  const [treeFx, setTreeFx] = useState<"pending" | "on" | "none">("pending");
   useEffect(() => {
-    if (treeRevealed || volumes.length === 0) return;
-    setTreeRevealed(true);
-  }, [treeRevealed, volumes.length]);
+    if (treeFx !== "pending" || volumes.length === 0) return;
+    setTreeFx(booting ? "none" : "on");
+  }, [treeFx, volumes.length, booting]);
 
   useEffect(() => {
     if (inlineAddVol) inlineInputRef.current?.focus();
@@ -200,7 +204,7 @@ export default function OutlineTree({
         </button>
       </div>
 
-      <div className={`tree${treeRevealed ? " data-enter" : ""}`}>
+      <div className={`tree${treeFx === "on" ? " data-enter" : ""}`}>
         {volumes.map((v) => {
           const no = volNo(v.name);
           const open = expandedIds.has(v.name);
