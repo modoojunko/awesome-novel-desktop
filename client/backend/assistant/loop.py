@@ -522,13 +522,31 @@ class AgentLoop:
                 # degraded 遥测随动作透传（v2 纯文本兜底＝final 但协议未服从）
                 self.result.degraded = bool(action.degraded)
                 if action.reply:
+                    # 扣尾/冻结窗补发（c-agent-narration-tail-loss）：stream_slice
+                    # 的哨兵扣尾窗与 {/``` 冻结区不进 delta，而 dock 对整段
+                    # narration 见 seenDelta 一律去重 ⇒ 显示缺尾（实锤：会话存档
+                    # 完整、界面缺「你说走哪条，我跟着动。」尾 8 字）。已流过部分
+                    # delta 时把未流尾巴补发；零流式的批次交付不动（整段照发，
+                    # dock 无 seenDelta 照常追加——旧契约不变）。
+                    if 0 < streamed_upto < len(action.reply):
+                        yield {
+                            "type": "narration_delta",
+                            "text": action.reply[streamed_upto:],
+                        }
                     yield {"type": "narration", "text": action.reply}
                 break
 
             if action.kind == "degraded":
                 self.result.final_reply = action.reply
                 self.result.degraded = True
-                yield {"type": "narration", "text": action.reply}
+                if action.reply:
+                    # 同上：已流过 delta 时补发未流尾巴（degraded 兜底同口径）
+                    if 0 < streamed_upto < len(action.reply):
+                        yield {
+                            "type": "narration_delta",
+                            "text": action.reply[streamed_upto:],
+                        }
+                    yield {"type": "narration", "text": action.reply}
                 break
 
             # tool：未知工具按 final 降级（护栏；不假装调过）
