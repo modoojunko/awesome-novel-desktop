@@ -184,6 +184,8 @@ export function streamAssistantChat(
     thread?: string;
     focus?: { ref: string };
     tool_hint?: { tool: string; args: Record<string, unknown> };
+    /** 页面未保存标记（c-agent-page-ops）：只进模型提示词（界面零渲染） */
+    page_state?: { unsaved: string[] };
   },
   handlers: AssistantStreamHandlers,
 ): () => void {

@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Link, useParams } from "react-router-dom";
+import { Link, useNavigate, useParams } from "react-router-dom";
 import { api } from "@/lib/api";
 import ProContainer from "@/components/novel/ProContainer";
 import OnboardingCard from "@/components/novel/OnboardingCard";
@@ -92,9 +92,15 @@ export default function NovelWorkspace() {
     settingsDone, settingsStatus, confirmedStatus, charStale, confirmSetting, refreshCharStale,
   } = useOnboarding(projectId, []);
 
+  const navigate = useNavigate();
+  // agent 写后的章树/章数据刷新信号（c-agent-page-ops：chapters 域 effect 消费）
+  const [chatRefreshSeq, setChatRefreshSeq] = useState(0);
   const settingsDirtyRef = useRef(false);
+  // dirty 镜像 state（ref 供守卫读，state 供页面态上行 pageUnsaved）
+  const [settingsDirty, setSettingsDirty] = useState(false);
   const handleSettingsDirty = useCallback((v: boolean) => {
     settingsDirtyRef.current = v;
+    setSettingsDirty(v);
   }, []);
 
   // 设定确认后刷新 PRO phase-status（ProPhaseSurface 常驻于 ProContainer）
@@ -119,8 +125,10 @@ export default function NovelWorkspace() {
     volumeDirtyRef.current = false;
     return true;
   }, []);
+  const [volumeDirty, setVolumeDirty] = useState(false);
   const handleVolumeDirty = useCallback((dirty: boolean) => {
     volumeDirtyRef.current = dirty;
+    setVolumeDirty(dirty);
   }, []);
   const handleChapterJump = useCallback(
     (ref: string) => {
@@ -1223,6 +1231,7 @@ export default function NovelWorkspace() {
               onRailData={setRailData}
               onWriteProgress={setLastWrite}
               resumeSignal={resumeSignal ?? undefined}
+              chatRefreshSeq={chatRefreshSeq}
               onRevert={onRevert}
               onTreeRefresh={refresh}
               aiWriteSignal={aiWriteSignal}
@@ -1434,6 +1443,11 @@ export default function NovelWorkspace() {
               settingPanel: settingsPanel,
               chapterTab: railData?.tab,
             }}
+                        pageUnsaved={[
+              ...(settingsDirty && view === "advanced-settings" ? ["设定面板"] : []),
+              ...(volumeDirty ? ["卷纲"] : []),
+              ...(railData?.dirty ?? []),
+            ]}
             onUpgrade={onUpgrade}
             onCloseDrawer={assistantNarrow ? () => setAssistantOpen(false) : undefined}
             onOpenAction={(action) => {
@@ -1460,6 +1474,11 @@ export default function NovelWorkspace() {
                 if (e.domain === "chapters" || e.domain === "volumes") {
                   refreshCharStale();
                 }
+                // 字段级写落库后的章数据刷新（c-agent-page-ops）：ChapterWorkspace
+                // 以 seq 消费（isDirty 守卫，不覆盖作家未保存内容）
+                if (e.domain === "chapters") {
+                  setChatRefreshSeq((n) => n + 1);
+                }
                 // settings 域（c-agent-panel-consolidate 采纳写回）：dirty 守卫——
                 // 面板有未保存修改不重载（保作家版本），干净则重载显新内容
                 if (e.domain === "settings" && view === "advanced-settings") {
@@ -1472,12 +1491,47 @@ export default function NovelWorkspace() {
               }
             }}
             onEffect={(ef) => {
-              // agent 导航（c-agent-nav）：switch_tab → 中途真实切章节页签。
-              // 守卫＝章节工作台内（作家已切走则静默忽略——窄竞态设计口径）；
-              // 与手点页签同语义（不拦脏表单），dock 线程随 scope.chapterTab 重绑
+              // agent 导航：switch_tab＝章内页签（c-agent-nav 既有口径，守卫＝
+              // 章节工作台内）；navigate＝跨视图/跨章（c-agent-page-ops）——
+              // target「view[:章ref[:页签]]」，dirty 守卫照手点同语义。
               if (ef.action !== "navigate" || ef.domain !== "ui" || !ef.target) return;
-              if (view !== "workbench" || !chapterRef) return;
-              setChatNav((n) => ({ seq: n.seq + 1, tab: ef.target as string }));
+              const target = String(ef.target);
+              const TAB_KEYS = new Set([
+                "og", "prose", "settings", "relations", "hooks", "actions", "style",
+              ]);
+              if (TAB_KEYS.has(target)) {
+                if (view !== "workbench" || !chapterRef) return;
+                setChatNav((n) => ({ seq: n.seq + 1, tab: target }));
+                return;
+              }
+              const parts = target.split(":").filter(Boolean);
+              const v = parts[0];
+              if (v === "novels") {
+                if (!guardedLeave()) return;
+                navigate("/novels");
+                return;
+              }
+              if (v === "settings") {
+                goTab("advanced-settings");
+                return;
+              }
+              if (v === "preview") {
+                goTab("archives");
+                return;
+              }
+              if (v === "workbench") {
+                const ref = parts[1];
+                const tab = parts[2];
+                if (ref) {
+                  if (!guardedLeave()) return;
+                  focusNode(ref);
+                } else if (view !== "workbench") {
+                  goTab("workbench");
+                }
+                if (tab) {
+                  setChatNav((n) => ({ seq: n.seq + 1, tab }));
+                }
+              }
             }}
             autoAsk={autoAsk}
           />

@@ -15,6 +15,7 @@ import {
   useMemo,
   useRef,
   useState,
+  type ReactNode,
 } from "react";
 import { useNavigate } from "react-router-dom";
 import {
@@ -25,6 +26,16 @@ import {
 } from "@/lib/dockWriteBack";
 import { ConfigProvider } from "@agentscope-ai/design";
 import { ChatAnywhere, uuid } from "@agentscope-ai/chat";
+import { Sender } from "@agentscope-ai/chat";
+// 库自带模式选择器（Sender.ModeSelect 挂件）：OpenWorker Composer 权限选择器的阿里实现
+const ModeSelect = Sender.ModeSelect as unknown as React.ComponentType<{
+  options: { value: string; icon?: ReactNode; label?: ReactNode; selectedLabel?: ReactNode; tooltip?: ReactNode }[];
+  value: string;
+  desc?: ReactNode;
+  closeTip?: ReactNode;
+  style?: React.CSSProperties;
+  onChange: (value: string) => void;
+}>;
 import type { ChatAnywhereRef } from "@agentscope-ai/chat";
 import { threadKeyOf, matchRegistration, type ChatPageScope } from "@/lib/chatRegistry";
 import type { FeatureKey } from "@/lib/features";
@@ -43,11 +54,34 @@ import { conversationToMarkdown } from "@/lib/chatCopy";
 import "./chat.css";
 
 /** 授权档位（write_gate 三档；硬地板不受档位影响由后端保证） */
+// 授权两层（c-agent-page-ops）：确认/自动；allow_all 存量值行为本等价，前端映射为自动档
 const TIER_LABEL: Record<string, string> = {
   confirm_each: "每写必确认",
-  allow_book: "本书内放行",
-  allow_all: "全部放行",
+  allow_book: "自动执行·本书内",
 };
+// 输入框区授权选择器（OpenWorker Composer 权限选择器形态，阿里件＝Sender/ModeSelect）
+const AUTH_OPTIONS: {
+  value: string;
+  icon: ReactNode;
+  label: string;
+  selectedLabel: string;
+  tooltip: string;
+}[] = [
+  {
+    value: "confirm_each",
+    icon: <span aria-hidden>🛡️</span>,
+    label: "每写必确认",
+    selectedLabel: "每写必确认",
+    tooltip: "每次写入前弹授权卡，你允许了才执行",
+  },
+  {
+    value: "allow_book",
+    icon: <span aria-hidden>⚡</span>,
+    label: "自动执行·本书内",
+    selectedLabel: "自动执行·本书内",
+    tooltip: "写入不再逐次询问；归档等危险操作仍会弹卡确认",
+  },
+];
 type Tier = keyof typeof TIER_LABEL;
 
 type MirrorEntry = {
@@ -231,7 +265,37 @@ function GateCard(props: { data: GateCardData; id?: string }) {
       <div className="cd-card-head">
         <b>{data.humanOnly ? "需要你确认" : "授权写入"}</b>
       </div>
-      <pre className="cd-preview">{JSON.stringify(data.preview, null, 1)}</pre>
+      {/* 字段级前后对比（c-agent-page-ops）：写工具 preview 带 changes 时渲染
+          人话行（OpenWorker ApprovalCard permissionLines 同思路）；旧形状走 pre */}
+      {(() => {
+        const pv = data.preview as
+          | {
+              changes?: {
+                field?: string;
+                label?: string;
+                before?: unknown;
+                after?: unknown;
+              }[];
+            }
+          | undefined;
+        if (pv && Array.isArray(pv.changes) && pv.changes.length > 0) {
+          return (
+            <div className="cd-preview cd-preview-fields" data-testid="gate-preview-fields">
+              {pv.changes.map((c, i) => (
+                <div className="cd-preview-field" key={`${c.field ?? c.label ?? i}`}>
+                  <b>{c.label || c.field}</b>
+                  <span className="cd-before">{String(c.before ?? "") || "（空）"}</span>
+                  <span className="cd-sep" aria-hidden>
+                    →
+                  </span>
+                  <span className="cd-after">{String(c.after ?? "") || "（空）"}</span>
+                </div>
+              ))}
+            </div>
+          );
+        }
+        return <pre className="cd-preview">{JSON.stringify(data.preview, null, 1)}</pre>;
+      })()}
       {data.expired ? (
         <div className="cd-dim" style={{ padding: "6px 10px" }}>
           这张授权单已过期——重新说一声要做的事，我再请你确认。
@@ -396,6 +460,7 @@ export function Aui2Dock({
   onStreamingChange,
   onEffects,
   onEffect,
+  pageUnsaved,
   autoAsk,
 }: {
   projectId: string;
@@ -413,6 +478,8 @@ export function Aui2Dock({
   onEffects?: (effects: { action: string; domain: string; target?: string }[]) => void;
   /** 单条即时 effect（c-agent-nav：navigate 中途翻页——活体事件，不入镜像不落库） */
   onEffect?: (effect: { action: string; domain: string; target?: string; description?: string }) => void;
+  /** 页面未保存标记（c-agent-page-ops）：随消息上行进提示词（界面零渲染） */
+  pageUnsaved?: string[];
   /** 面板「让助手办」命令式触发（c-agent-panel-consolidate）：seq 变更即自动
    *  提交 message——与手输同一条 submit 链，键校验/域校验/授权梯度零绕过 */
   autoAsk?: { seq: number; message: string };
@@ -429,8 +496,7 @@ export function Aui2Dock({
   /** 授权档位芯片（会话级 grants；切换即时生效＋持久化，失败回滚上一档） */
   const [tier, setTierState] = useState<Tier>("confirm_each");
   const tierRef = useRef<Tier>("confirm_each");
-  const [modeOpen, setModeOpen] = useState(false);
-  const modeAnchorRef = useRef<HTMLDivElement | null>(null);
+  const [authOpen, setAuthOpen] = useState(false); // ModeSelect 展开选项行（✕＝展开）
   /** 流式中止（本地兜底 abort——主路径是 stop 端点协同取消，保收口回执落库） */
   const abortRef = useRef<(() => void) | null>(null);
   /** agent 写操作 effects 缓存（run_end 携带，onDone 时回调宿主） */
@@ -752,7 +818,8 @@ export function Aui2Dock({
           if (serverCount === 0 && bucket.every((e) => e.id.startsWith("greet-"))) greet();
           mirrorRef.current.set(threadKey, bucket);
           loadedThreadsRef.current.add(threadKey);
-          const t = String((sess.grants as { tier?: string } | undefined)?.tier ?? "confirm_each");
+          const raw = String((sess.grants as { tier?: string } | undefined)?.tier ?? "confirm_each");
+          const t = raw === "allow_all" ? "allow_book" : raw; // 存量「全部放行」≡自动档
           if (t in TIER_LABEL) {
             setTierState(t as Tier);
             tierRef.current = t as Tier;
@@ -774,14 +841,16 @@ export function Aui2Dock({
     };
   }, [projectId, threadKey, threadUp]);
 
-  // 授权下拉外点收起（ChatDock 同款守卫）
+  // 选项行外点/Esc 收起（ChatDock 同款守卫；authbar 容器内点击不收）
   useEffect(() => {
-    if (!modeOpen) return;
+    if (!authOpen) return;
     const onDown = (e: MouseEvent) => {
-      if (!modeAnchorRef.current?.contains(e.target as Node)) setModeOpen(false);
+      const bar = document.querySelector("[data-testid='aui2-authbar']");
+      if (bar?.contains(e.target as Node)) return;
+      setAuthOpen(false);
     };
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") setModeOpen(false);
+      if (e.key === "Escape") setAuthOpen(false);
     };
     document.addEventListener("mousedown", onDown);
     document.addEventListener("keydown", onKey);
@@ -789,12 +858,12 @@ export function Aui2Dock({
       document.removeEventListener("mousedown", onDown);
       document.removeEventListener("keydown", onKey);
     };
-  }, [modeOpen]);
+  }, [authOpen]);
 
   const switchTier = useCallback(
     (next: Tier) => {
       const prev = tierRef.current;
-      setModeOpen(false);
+      setAuthOpen(false);
       setTierState(next);
       tierRef.current = next;
       setPermissionTier(projectId, next as "confirm_each" | "allow_book" | "allow_all").catch(() => {
@@ -833,6 +902,7 @@ export function Aui2Dock({
           page,
           thread: threadKeyRef.current,
           focus: scope.chapterRef ? { ref: scope.chapterRef } : undefined,
+          page_state: pageUnsaved?.length ? { unsaved: pageUnsaved } : undefined,
           tool_hint: pendingHint ?? undefined,
         },
         {
@@ -1106,21 +1176,7 @@ export function Aui2Dock({
       <div className="chatdock-head">
         <span className="chatdock-avatar">助</span>
         <b>写作助手</b>
-        <div className="cd-mode-anchor cd-mode-head" ref={modeAnchorRef}>
-          <button
-            type="button"
-            className="cd-mode-chip"
-            data-testid="aui2-mode-chip"
-            aria-expanded={modeOpen}
-            title="授权模式：AI 写回前要不要先问你"
-            onClick={() => setModeOpen((v) => !v)}
-          >
-            <span className="cd-mode-dot" aria-hidden />
-            {TIER_LABEL[tier] ?? tier}
-            <span className="cd-mode-caret" aria-hidden>
-              ▾
-            </span>
-          </button>
+        <div className="cd-mode-head">
           <button
             type="button"
             className="cd-btn"
@@ -1151,27 +1207,6 @@ export function Aui2Dock({
             >
               收起
             </button>
-          )}
-          {modeOpen && (
-            <div className="cd-mode-pop" data-testid="aui2-mode-pop" role="menu">
-              <p className="cd-mode-head">授权模式</p>
-              {(Object.entries(TIER_LABEL) as [Tier, string][]).map(([key, label]) => (
-                <button
-                  key={key}
-                  type="button"
-                  role="menuitemradio"
-                  aria-checked={tier === key}
-                  className={`cd-mode-item${tier === key ? " on" : ""}`}
-                  data-testid={`aui2-mode-item-${key}`}
-                  onClick={() => switchTier(key)}
-                >
-                  <span className="cd-mode-check" aria-hidden>
-                    {tier === key ? "✓" : ""}
-                  </span>
-                  {label}
-                </button>
-              ))}
-            </div>
           )}
         </div>
       </div>
@@ -1215,6 +1250,25 @@ export function Aui2Dock({
               </span>
             </div>
           )}
+          {/* 授权模式选择器进输入框区（c-agent-page-ops；OpenWorker Composer
+              权限选择器形态，阿里件＝Sender/ModeSelect）：显示态＝当前档名，
+              ✕ 展开选项行，选完回显示态。 */}
+          <div className="cd-authbar" data-testid="aui2-authbar">
+            <ModeSelect
+              options={AUTH_OPTIONS}
+              value={authOpen ? "" : tier}
+              desc="授权模式"
+              closeTip="切换授权模式"
+              onChange={(v) => {
+                if (!v) {
+                  setAuthOpen(true);
+                  return;
+                }
+                setAuthOpen(false);
+                switchTier(v as Tier);
+              }}
+            />
+          </div>
           <ChatAnywhere
             ref={apiRef}
             onInput={{ onSubmit }}
