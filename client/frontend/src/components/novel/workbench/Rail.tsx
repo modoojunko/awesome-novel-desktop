@@ -20,6 +20,8 @@ import { runReconcile } from "@/lib/reconcileApi";
 import type { WriteBlockPayload } from "@/lib/ai";
 
 export interface RailChapterData {
+  /** 未保存标记（c-agent-page-ops）：随 railData 上行进助手提示词 */
+  dirty?: string[];
   wordCount: number;
   targetWords: number;
   setTargetWords: (n: number) => void;

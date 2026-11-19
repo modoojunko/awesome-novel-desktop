@@ -84,6 +84,10 @@ class Tool:
     # 入参取 target（例：switch_tab 声明 navigate/ui/tab）；refresh 类用默认值零声明
     effect_action: str = "refresh"  # refresh|navigate
     effect_target_from: str = ""  # 入参键名（空＝无 target）
+    # 授权卡 preview 增强（c-agent-page-ops）：可选钩子（args→dict）。写工具用它
+    # 读现值构造「字段：写入前→写入后」对比（比默认 {"tool","args"} 裸形状可读）；
+    # 缺省走 write_gate._preview 默认形状。
+    preview_builder: Callable[[dict], Awaitable[dict] | dict] | None = None
 
     def __post_init__(self) -> None:
         if not self.args_hint:
@@ -1120,6 +1124,25 @@ async def _switch_tab(ctx, tab: str = ""):
     return ToolResult(ok=True, summary=f"已切到{_TAB_ZH[tab]}页签。")
 
 
+async def _navigate(ctx, target: str = ""):
+    target = str(target or "").strip()
+    parts = [p for p in target.split(":") if p]
+    _VIEW_ZH = {"novels": "书架", "workbench": "写作工作台", "settings": "设定面板", "preview": "预览"}
+    if not parts or parts[0] not in _VIEW_ZH:
+        opts = "、".join(f"{k}（{v}）" for k, v in _VIEW_ZH.items())
+        return ToolResult(
+            ok=False,
+            summary=f"目标不认识——格式：视图，或 视图:章ref[:页签]。视图可选：{opts}。",
+        )
+    view = parts[0]
+    if len(parts) > 1 and view != "workbench":
+        return ToolResult(ok=False, summary="章定位只在写作工作台里支持——target 写成 workbench:章ref[:页签]。")
+    if len(parts) > 2 and parts[2] not in _TAB_ZH:
+        opts = "、".join(_TAB_ZH)
+        return ToolResult(ok=False, summary=f"没有「{parts[2]}」这个页签——可选的是：{opts}。")
+    return ToolResult(ok=True, summary=f"已切到{_VIEW_ZH[view]}" + ("（系统执行跳转）。"))
+
+
 NAV_TOOLS: tuple[Tool, ...] = (
     Tool(
         name="switch_tab", kind="read", risk_level="low",
@@ -1132,16 +1155,39 @@ NAV_TOOLS: tuple[Tool, ...] = (
         ),
         fn=_switch_tab,
     ),
+    # 跨视图/跨章导航（c-agent-page-ops）：switch_tab 的泛化——大视图切换＋打开
+    # 任意章任意页签。target 编码「view[:chapter_ref[:tab]]」，前端 onEffect 解析
+    # （dirty 守卫照手点语义）。kind=read 免授权；_SHARED_TOOLS 全域可见。
+    Tool(
+        name="navigate", kind="read", risk_level="low",
+        effect_action="navigate", effect_domain="ui", effect_target_from="target",
+        parameters={
+            "type": "object",
+            "properties": {
+                "target": {
+                    "type": "string",
+                    "description": (
+                        "目标位置编码：view 或 view:章ref[:页签]。"
+                        "view=novels(书架)|workbench(写作)|settings(设定)|preview(预览)；"
+                        "章 ref 形如 vol-1-ch-3；页签=og|prose|settings|relations|hooks|actions|style。"
+                        "例：workbench:vol-1-ch-3:prose（打开第3卷第3章的正文）、settings（设定面板）。"
+                    ),
+                }
+            },
+            "required": ["target"],
+        },
+        description=(
+            "跳转到指定页面（作家说「打开第3章正文/去设定面板/回书架」类要求时调）。"
+            "调用前的话术用进行时（「我切过去」），不要说「已切」——切换由系统执行。"
+            "页面有未保存修改时系统会照手点语义拦截，作家确认后才走。"
+        ),
+        fn=_navigate,
+    ),
 )
 TOOL_REGISTRY: tuple[Tool, ...] = TOOL_REGISTRY + NAV_TOOLS
 
 TOOL_REGISTRY: tuple[Tool, ...] = TOOL_REGISTRY + STRUCTURE_TOOLS + WORLD_TOOLS + MEMORY_TOOLS
 
-_TOOLS_BY_NAME: dict[str, Tool] = {t.name: t for t in TOOL_REGISTRY}
-
-
-def get_tool(name: str) -> Tool | None:
-    return _TOOLS_BY_NAME.get(str(name or "").strip())
 
 
 def tool_catalog_text(thread: str = "") -> str:
@@ -1175,3 +1221,169 @@ async def run_tool(ctx: ToolContext, name: str, args: dict) -> ToolResult:
 # ── 书结构总览读工具（c-agent-tools-expand 批9 续：agent 不拉全文也能答进度/状态问题）──
 
 
+
+# ── 字段级页面写（c-agent-page-ops）：作家字段级写改，全过 write_gate 授权策略 ──
+# 形态：读现值→构造字段前后对比 preview（确认档弹卡逐字段可见）→caps 落库
+# （patch-gates/merge，未提及字段零触碰）→write_log 进撤销数据源。均无 feature_key
+# （作家改自己的字段不吃付费闸，同结构工具惯例）。effect：写后域刷新（dirty 守卫
+# 在前端）。
+
+async def _preview_write_chapter_fields(args: dict, project):
+    """授权卡 preview：读现值构造「字段：写入前→写入后」。失败回落默认形状。"""
+    from sqlalchemy import select
+
+    from chapters.store import load_chapter
+    from db import async_session
+    from models.project import Novel
+
+    if project is None:
+        return {}
+    ref = str(args.get("chapter_ref") or "")
+    fields = args.get("fields") if isinstance(args.get("fields"), dict) else {}
+    if not ref or not fields:
+        return {}
+    async with async_session() as db:
+        project_row = (
+            await db.scalars(select(Novel).where(Novel.id == project.id))
+        ).first()
+    if project_row is None:
+        return {}
+    current = await load_chapter(project_row.root_path, ref)
+    if not current:
+        return {}
+    from assistant.caps.chapter import (
+        CHAPTER_FIELD_WRITE_KEYS,
+        _chapter_prev_value,
+    )
+
+    changes = []
+    for key, value in fields.items():
+        if key not in CHAPTER_FIELD_WRITE_KEYS:
+            continue
+        changes.append(
+            {
+                "field": key,
+                "label": CHAPTER_FIELD_WRITE_KEYS[key],
+                "before": _chapter_prev_value(current, key),
+                "after": value,
+            }
+        )
+    return {"tool": "write_chapter_fields", "entity": f"chapter:{ref}", "changes": changes}
+
+
+async def _preview_write_settings_field(args: dict, project):
+    """授权卡 preview：读现值构造字段前后对比。失败回落默认形状。"""
+    if project is None:
+        return {}
+    from assistant.caps.settings import read_settings_field
+
+    stype = str(args.get("stype") or "")
+    field = str(args.get("field") or "")
+    value = args.get("value")
+    if not stype or not field:
+        return {}
+    try:
+        before = await read_settings_field(project.id, stype, field, "")
+    except Exception:  # noqa: BLE001——读不到现值就只给 after（闸不受影响）
+        before = ""
+    return {
+        "tool": "write_settings_field",
+        "entity": f"settings:{stype}:{field}",
+        "changes": [{"field": field, "before": before, "after": value}],
+    }
+
+
+async def _write_chapter_fields(ctx, chapter_ref: str = "", fields: dict | None = None):
+    from assistant.caps.chapter import write_chapter_fields_cap
+
+    ref = str(chapter_ref or "").strip()
+    if not ref:
+        return ToolResult(ok=False, summary="没说要写哪一章——带上章 ref（如 vol-1-ch-3）。")
+    if not isinstance(fields, dict) or not fields:
+        return ToolResult(ok=False, summary="没有要写的字段。")
+    res = await write_chapter_fields_cap(ctx.novel_id, ref, ctx.user_id, fields)
+    labels = "、".join(res.get("labels") or [])
+    return ToolResult(
+        ok=True,
+        summary=f"已写入：{labels}（{ref}）。",
+        meta={"write_log": {"entity": res["entity"], "changes": res["changes"]}},
+    )
+
+
+async def _write_settings_field(ctx, stype: str = "", field: str = "", value=None):
+    from assistant.caps.settings import write_settings_field_cap
+
+    st = str(stype or "").strip()
+    fd = str(field or "").strip()
+    if not st or not fd:
+        return ToolResult(ok=False, summary="没说要写哪个面板的哪个字段。")
+    res = await write_settings_field_cap(ctx.novel_id, st, fd, value, ctx.user_id)
+    label = {"genre": {"core_promise": "主线·核心承诺", "forbidden_list": "题材·禁忌", "cost_ratio": "题材·代价设定", "battlefield": "题材·战场"},
+             "story": {"synopsis": "简介"},
+             "world": {k: f"世界观·{k}" for k in ("no_power", "stage", "power", "cost", "history", "factions", "constraints", "extra")}}
+    shown = label.get(st, {}).get(fd, fd)
+    return ToolResult(
+        ok=True,
+        summary=f"已写入：{shown}。",
+        meta={"write_log": {"entity": res["entity"], "changes": [{"field": fd, "before": res["before"], "after": res["after"]}]}},
+    )
+
+
+PAGE_OPS_TOOLS: tuple[Tool, ...] = (
+    Tool(
+        name="write_chapter_fields", kind="write", risk_level="high",
+        effect_domain="chapters",
+        parameters={
+            "type": "object",
+            "properties": {
+                "chapter_ref": {"type": "string", "description": "章 ref，如 vol-1-ch-3"},
+                "fields": {
+                    "type": "object",
+                    "description": (
+                        "要写的章纲字段与值（只写给出的键，其余不动）：summary=概要、"
+                        "characters=出场角色(字符串数组)、challenge=碰到的挑战、plot_stage=阶段、"
+                        "ladder_exit=章末落点、plot_items=剧情条目(字符串数组)、"
+                        "required_changes=必须完成的变化(字符串数组)、prohibitions=禁则(字符串数组)、"
+                        "primary_mood=主情绪、word_target=目标字数(数字)。"
+                    ),
+                },
+            },
+            "required": ["chapter_ref", "fields"],
+        },
+        description=(
+            "写/改某一章的章纲字段（概要、挑战、落点、主情绪等；逐字段 patch，未提及的不动）。"
+            "写操作：确认档先弹授权卡给你过目字段前后，自动档直接落库并带回执。"
+            "作家没明确要写就别调。"
+        ),
+        fn=_write_chapter_fields,
+        preview_builder=_preview_write_chapter_fields,
+    ),
+    Tool(
+        name="write_settings_field", kind="write", risk_level="high",
+        effect_domain="settings",
+        parameters={
+            "type": "object",
+            "properties": {
+                "stype": {"type": "string", "enum": ["genre", "story", "world"], "description": "面板：genre=题材四格、story=简介、world=世界观条目"},
+                "field": {"type": "string", "description": "字段名：genre→core_promise/forbidden_list/cost_ratio/battlefield；story→synopsis；world→no_power/stage/power/cost/history/factions/constraints/extra"},
+                "value": {"description": "字段新值（文本；genre.cost_ratio 为 1-10 数字）"},
+            },
+            "required": ["stype", "field", "value"],
+        },
+        description=(
+            "写/改设定面板的某个字段（题材四格、简介、世界观条目；单字段合并写，其余不动）。"
+            "写操作：确认档先弹授权卡给你过目字段前后，自动档直接落库并带回执。"
+            "作家没明确要写就别调。"
+        ),
+        fn=_write_settings_field,
+        preview_builder=_preview_write_settings_field,
+    ),
+)
+TOOL_REGISTRY: tuple[Tool, ...] = TOOL_REGISTRY + PAGE_OPS_TOOLS
+
+
+_TOOLS_BY_NAME: dict[str, Tool] = {t.name: t for t in TOOL_REGISTRY}
+
+
+def get_tool(name: str) -> Tool | None:
+    return _TOOLS_BY_NAME.get(str(name or "").strip())

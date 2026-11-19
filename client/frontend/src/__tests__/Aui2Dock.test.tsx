@@ -68,29 +68,46 @@ beforeEach(() => {
   chatApiState.approveGate.mockResolvedValue({ ok: true });
 });
 
-describe("Aui2Dock 授权模式芯片", () => {
-  it("常显当前档位并可下拉切换（切档调 setPermissionTier）", async () => {
-    chatApiState.loadAssistantSession.mockResolvedValue(sess([], { tier: "allow_book" }));
-    render(<Aui2Dock projectId="p1" page="工作台 · 卷纲" scope={SCOPE} />);
-    const chip = await screen.findByTestId("aui2-mode-chip");
-    await waitFor(() => expect(chip.textContent).toContain("本书内放行"));
-    fireEvent.click(chip);
-    fireEvent.click(screen.getByTestId("aui2-mode-item-confirm_each"));
-    await waitFor(() =>
-      expect(chatApiState.setPermissionTier).toHaveBeenCalledWith("p1", "confirm_each"),
+describe("Aui2Dock 授权模式选择器（两层；输入框区 ModeSelect）", () => {
+  /** ModeSelect 选项行常驻 DOM（CSS 收起）——按类名＋文案定位选项 pill */
+  function optionEl(text: string): HTMLElement {
+    const els = Array.from(
+      document.querySelectorAll<HTMLElement>("[class*='sender-mode-select-option']"),
+    ).filter((el) => !el.className.includes("options")); // 排除容器（容器无 onClick）
+    const hit = els.find((el) => el.textContent?.includes(text));
+    if (!hit) throw new Error(`选项不存在：${text}`);
+    return hit;
+  }
+  function displayLabel(): string {
+    return (
+      document.querySelector("[class*='sender-mode-select-display-label']")?.textContent ?? ""
     );
-    await waitFor(() => expect(chip.textContent).toContain("每写必确认"));
+  }
+
+  it("常显当前档位；点选项切档调 setPermissionTier（allow_all 存量映射为自动档）", async () => {
+    chatApiState.loadAssistantSession.mockResolvedValue(sess([], { tier: "allow_all" }));
+    render(<Aui2Dock projectId="p1" page="工作台 · 卷纲" scope={SCOPE} />);
+    await screen.findByTestId("aui2-authbar");
+    // 存量 allow_all 映射为自动档显示（会话装载异步——放宽等待窗）
+    await waitFor(() => expect(displayLabel()).toContain("自动执行·本书内"), { timeout: 3000 });
+    // 点确认档选项 → 两层切档落 setPermissionTier
+    fireEvent.click(optionEl("每写必确认"));
+    await waitFor(
+      () => expect(chatApiState.setPermissionTier).toHaveBeenCalledWith("p1", "confirm_each"),
+      { timeout: 3000 },
+    );
+    await waitFor(() => expect(displayLabel()).toContain("每写必确认"), { timeout: 3000 });
   });
 
-  it("切档失败回滚到上一档（芯片还原）", async () => {
+  it("切档失败回滚到上一档（显示态还原）", async () => {
     chatApiState.setPermissionTier.mockRejectedValue(new Error("网络挂了"));
     render(<Aui2Dock projectId="p1" page="工作台 · 卷纲" scope={SCOPE} />);
-    const chip = await screen.findByTestId("aui2-mode-chip");
-    fireEvent.click(chip);
-    fireEvent.click(screen.getByTestId("aui2-mode-item-allow_all"));
-    await waitFor(() => expect(chatApiState.setPermissionTier).toHaveBeenCalled());
-    await waitFor(() => expect(chip.textContent).not.toContain("全部放行"));
-    expect(chip.textContent).toContain("每写必确认");
+    await screen.findByTestId("aui2-authbar");
+    await waitFor(() => expect(displayLabel()).toContain("每写必确认"), { timeout: 3000 });
+    fireEvent.click(optionEl("自动执行·本书内"));
+    await waitFor(() => expect(chatApiState.setPermissionTier).toHaveBeenCalled(), { timeout: 3000 });
+    // 失败回滚：显示态还原确认档
+    await waitFor(() => expect(displayLabel()).toContain("每写必确认"), { timeout: 3000 });
   });
 });
 
@@ -283,7 +300,8 @@ describe("写授权卡（permission_required 事件）", () => {
     });
     await screen.findByTestId("aui2-gate-approve");
     // 事件数据完整进卡（preview 可见＝作家批前看得见改什么）；点击批复链路由 e2e 钉
-    expect(screen.getByText(/confirm_chapter/)).toBeTruthy();
+    // coverage 负载下渲染批次慢于按钮挂载（CI 实锤）——findBy 自带重试
+    await screen.findByText(/confirm_chapter/);
     expect(screen.getByText(/vol-1-ch-7/)).toBeTruthy();
   });
 });
@@ -474,5 +492,38 @@ describe("Aui2Dock 流式过覆盖对账（c-agent-narration-tail-loss）", () =
     const body = document.body.textContent || "";
     const hits = body.split("你说走哪条").length - 1;
     expect(hits).toBe(1);
+  });
+});
+
+describe("Aui2Dock GateCard 字段级前后对比（c-agent-page-ops）", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    chatApiState.loadAssistantSession.mockResolvedValue(sess());
+    chatApiState.setPermissionTier.mockResolvedValue(undefined);
+    chatApiState.approveGate.mockResolvedValue({ ok: true });
+  });
+
+  it("preview 带 changes 时渲染字段前后人话行（旧形状走 JSON pre 分支）", async () => {
+    render(<Aui2Dock projectId="p1" page="工作台 · 卷纲" scope={SCOPE} />);
+    await screen.findByTestId("aui2-dock");
+    const sse = captureStream();
+    fireEvent.click(screen.getByTestId("aui2-chip-draft_volume_expand"));
+    await waitFor(() => expect(chatApiState.streamAssistantChat).toHaveBeenCalled());
+    sse.drive({
+      type: "permission_required",
+      gateId: "g9",
+      preview: {
+        tool: "write_chapter_fields",
+        entity: "chapter:vol-1-ch-7",
+        changes: [{ field: "challenge", label: "碰到的挑战", before: "旧挑战", after: "新挑战" }],
+      },
+      humanOnly: false,
+      reason: "",
+    });
+    await waitFor(() => expect(screen.getByTestId("gate-preview-fields")).toBeTruthy());
+    const fields = screen.getByTestId("gate-preview-fields");
+    expect(fields.textContent).toContain("碰到的挑战");
+    expect(fields.textContent).toContain("旧挑战");
+    expect(fields.textContent).toContain("新挑战");
   });
 });

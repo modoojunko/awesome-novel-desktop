@@ -50,6 +50,8 @@ def test_write_surface_is_fenced():
         "confirm_chapter", "unconfirm_chapter",
         "archive_chapter", "unarchive_chapter",
         "add_volume", "add_chapter",
+        # 字段级页面写（c-agent-page-ops）：全过 write_gate 两层授权
+        "write_chapter_fields", "write_settings_field",
     }
     names = {t.name for t in writes}
     assert names <= allowed, f"写面越界：{names - allowed}"

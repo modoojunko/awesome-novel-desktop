@@ -29,6 +29,7 @@ _SHARED_TOOLS = frozenset(
         "recall_decisions",  # 决策档案召回（c-agent-decision-archive）：跨页签共享读
         "read_chapter_versions",
         "read_book_structure",
+        "navigate",  # 跨视图/跨章跳转（c-agent-page-ops）：read 类免授权全域可及
         # 结构管理动作（c-agent-tools-expand）：书级操作全域共享
         "confirm_chapter", "unconfirm_chapter",
         "archive_chapter", "unarchive_chapter",
@@ -45,6 +46,7 @@ _DOMAIN_TOOLS: dict[str, dict[str, frozenset[str]]] = {
             {
                 "draft_chapter_plot",
                 "draft_chapter_split",
+                "write_chapter_fields",  # 章纲字段级写（c-agent-page-ops，kind=write 过授权闸）
                 "settings_og_fill",
                 "check_consistency",
                 "draft_names",
@@ -79,6 +81,7 @@ _DOMAIN_TOOLS: dict[str, dict[str, frozenset[str]]] = {
                 "diverge_character_group",
                 "kb_create_entry",
                 "kb_update_entry",
+                "write_settings_field",  # 设定字段级写（c-agent-page-ops，kind=write 过授权闸）
             }
         ),
     },

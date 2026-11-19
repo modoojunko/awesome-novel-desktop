@@ -260,6 +260,7 @@ async def _stream_chat(
     page: str,
     user_message_id: str = "",
     body_focus: dict[str, Any] | None = None,
+    page_unsaved: list[str] | None = None,
     thread: str = "",
     tool_hint: dict[str, Any] | None = None,
 ) -> AsyncIterator[str]:
@@ -311,6 +312,13 @@ async def _stream_chat(
     transcript = _history_transcript(rows, exclude_message_id=user_message_id)
     # 聚焦对象（作家说「这章/这一卷」的锚）：前端随消息带 focus={ref}
     note = build_page_note(page, body_focus if isinstance(body_focus, dict) else None)
+    # 页面状态随行（c-agent-page-ops）：未保存标记只进模型提示词——写改前知悉，
+    # 不静默覆盖作家未保存内容（界面零渲染）。
+    if page_unsaved:
+        note = (
+            (note + " " if note else "")
+            + f"［未保存：{'、'.join(page_unsaved)}——写改该页前先提醒作家，避免覆盖其未保存内容］"
+        )
     # L2 画像注入（批C 3.3）：口味/雷点裁一段拼进页面注入——起草/发散先懂作家
     try:
         from assistant.profile import load_sections
@@ -452,6 +460,19 @@ async def _stream_chat(
             ]
 
         # 停车：发授权卡，等作家批复（超时/关应用＝未批；待决记录已持久化可审计）
+        # preview 增强（c-agent-page-ops）：写工具可挂 preview_builder（读现值构造
+        # 「字段：写入前→写入后」对比）；失败回落默认形状（闸不受影响）。
+        preview = decision.preview
+        builder = getattr(tool, "preview_builder", None)
+        if decision.needs_user and builder is not None:
+            try:
+                built = builder(args)
+                if asyncio.iscoroutine(built):
+                    built = await built
+                if isinstance(built, dict) and built:
+                    preview = built
+            except Exception:  # noqa: BLE001——preview 失败不阻断闸
+                preview = decision.preview
         gate_id = write_gate.PARKING.register()
         await session_store.append_message(
             session,
@@ -461,7 +482,7 @@ async def _stream_chat(
                 "pending_gate": {
                     "gate_id": gate_id,
                     "tool": tool_name,
-                    "preview": decision.preview,
+                    "preview": preview,
                     "human_only": decision.human_only,
                 }
             },
@@ -471,7 +492,7 @@ async def _stream_chat(
             {
                 "type": "permission_required",
                 "gateId": gate_id,
-                "preview": decision.preview,
+                "preview": preview,
                 "humanOnly": decision.human_only,
                 "reason": decision.reason,
             }
@@ -836,33 +857,36 @@ async def assistant_chat(
             raise HTTPException(409, "上一轮还在收尾，稍候一拍再发")
 
 
-    # /mode（openworker 对齐）：即时切授权档位；裸 /mode 报当前档
-    mode_names = {
+    # /auth（c-agent-page-ops）：授权专用命令——即时切两层档位；裸 /auth 报当前档。
+    # /mode 不承载授权（boss 拍板 2026-11-19：单独搞一个）；两层＝确认/自动
+    # （allow_all 行为本等价 allow_book——存量值前端与命令侧都映射为自动档）。
+    auth_names = {
         "confirm_each": "每写必确认（默认）",
-        "allow_book": "本书内自动放行",
-        "allow_all": "全部自动放行",
+        "allow_book": "自动执行·本书内",
     }
-    if message == "/mode":
+    if message == "/auth":
         grants_now = json.loads(session.grants_json or "{}")
-        cur = str(grants_now.get("tier") or "confirm_each")
+        cur_raw = str(grants_now.get("tier") or "confirm_each")
+        cur = "allow_book" if cur_raw == "allow_all" else cur_raw
         reply = (
-            f"当前授权：{mode_names.get(cur, cur)}。"
-            "切换：/mode confirm（每写必确认）｜/mode book（本书放行）｜/mode all（全部放行）。"
+            f"当前授权：{auth_names.get(cur, cur)}。"
+            "切换：/auth 确认（每写必确认）｜/auth 自动（自动执行·本书内）。"
         )
         return StreamingResponse(
             _stream_command_reply(project, user, session, page, reply),
             media_type="text/event-stream",
             headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
         )
-    if message.startswith("/mode "):
+    if message.startswith("/auth "):
         arg = message.split(None, 1)[1].strip().lower()
         arg_map = {
             "confirm": "confirm_each", "each": "confirm_each", "confirm_each": "confirm_each",
-            "book": "allow_book", "allow_book": "allow_book",
-            "all": "allow_all", "allow_all": "allow_all",
+            "确认": "confirm_each", "每写必确认": "confirm_each",
+            "auto": "allow_book", "book": "allow_book", "allow_book": "allow_book",
+            "自动": "allow_book", "自动执行": "allow_book",
         }
         if arg not in arg_map:
-            reply = "没这个档位——/mode confirm（每写必确认）｜/mode book（本书放行）｜/mode all（全部放行）。"
+            reply = "没这个档位——/auth 确认（每写必确认）｜/auth 自动（自动执行·本书内）。"
             return StreamingResponse(
                 _stream_command_reply(project, user, session, page, reply),
                 media_type="text/event-stream",
@@ -876,7 +900,7 @@ async def assistant_chat(
             g = json.loads(meta_m.grants_json or "{}")
             g["tier"] = tier
             await session_store.touch_session(meta_m, grants=g)
-        reply = f"授权已切到「{mode_names[tier]}」——对这本书的所有页签生效。"
+        reply = f"授权已切到「{auth_names[tier]}」——对这本书的所有页签生效。"
         return StreamingResponse(
             _stream_command_reply(project, user, session, page, reply),
             media_type="text/event-stream",
@@ -905,6 +929,13 @@ async def assistant_chat(
     body_focus = body.get("focus")
     if not isinstance(body_focus, dict):
         body_focus = None
+    # 页面状态随行（c-agent-page-ops）：前端未保存标记上行，只进模型提示词
+    body_page_state = body.get("page_state")
+    page_unsaved = (
+        [str(x) for x in body_page_state.get("unsaved", [])]
+        if isinstance(body_page_state, dict) and isinstance(body_page_state.get("unsaved"), list)
+        else []
+    )
     user_row = await session_store.append_message(
         session,
         role="user",
@@ -919,6 +950,7 @@ async def assistant_chat(
         _stream_chat(
             db, project, user, session, message, page,
             user_message_id=user_row.id, body_focus=body_focus,
+            page_unsaved=page_unsaved,
             thread=thread, tool_hint=tool_hint,
         ),
         media_type="text/event-stream",

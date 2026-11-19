@@ -134,6 +134,8 @@ interface ChapterWorkspaceProps {
   /** 助手导航信号（c-agent-nav）：agent switch_tab → 真实切页签（seq 递增触发、tab 定目标；缺省＝无信号） */
   chatNavSeq?: number;
   chatNavTab?: string;
+  /** agent 字段级写后的章数据刷新信号（c-agent-page-ops）：seq 递增触发 reload（isDirty 守卫不覆盖作家未保存内容） */
+  chatRefreshSeq?: number;
   /** 提示词落库信号（c-prompt-tab-retire）：弹窗存稿后右栏提示词状态行刷新 */
   promptSavedSignal?: number;
   /** 续写恢复信号（顶栏 CTA）：n 递增触发，落正文页签并滚回上次位置 */
@@ -165,6 +167,7 @@ export default function ChapterWorkspace({
   aiWriteSignal,
   chatNavSeq,
   chatNavTab,
+  chatRefreshSeq,
   promptSavedSignal,
   resumeSignal,
   onWriteProgress,
@@ -355,6 +358,17 @@ export default function ChapterWorkspace({
     if (!(valid as string[]).includes(chatNavTab)) return;
     setChTab(chatNavTab as ChTabKey);
   }, [chatNavSeq, chatNavTab]);
+
+  // agent 字段级写后的章数据刷新（c-agent-page-ops）：干净则 reload 取新值，
+  // 作家有未保存修改则不覆盖——toast 提醒手动刷新（与手写 Autosave 同一保护）
+  useEffect(() => {
+    if (!chatRefreshSeq) return;
+    if (store.isDirty) {
+      toast.info("助手刚更新了这一章的字段——这页有你的未保存修改，刷新已被拦下。");
+      return;
+    }
+    void store.reload();
+  }, [chatRefreshSeq]);
 
   // 续写恢复信号（顶栏 CTA）：落正文页签 + 进编辑态（续写＝写作意图），
   // 滚动位置由 ProsePane 按 resumeScroll 恢复
@@ -1169,7 +1183,8 @@ const [ogForm, setOgForm] = useState<OgForm>(EMPTY_OG_FORM);
     const castLines = ogForm.chars.split("\n").filter((x) => x.trim());
     const wtParsed = parseInt(ogForm.wt, 10);
     onRailDataRef.current({
-      wordCount,
+      
+      dirty: [ogEditing ? "章纲编辑中" : "", saveState === "unsaved" ? "正文未保存" : "", saveState === "autosaving" ? "正文保存中" : ""].filter(Boolean),wordCount,
       targetWords,
       setTargetWords,
       archived,

@@ -990,7 +990,7 @@ describe("正文生成中的现场保护（c-prose-stream-guard）", () => {
     fireEvent.click(screen.getByRole("button", { name: /^写作/ }));
     expect(confirmSpy).toHaveBeenCalledTimes(1);
     confirmSpy.mockRestore();
-  });
+  }, 15000); // coverage 负载下整链超 5s（CI 实锤）——本地多次全绿
 });
 
 // ---------------------------------------------------------------------------
