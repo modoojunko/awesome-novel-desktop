@@ -281,16 +281,23 @@ function GateCard(props: { data: GateCardData; id?: string }) {
         if (pv && Array.isArray(pv.changes) && pv.changes.length > 0) {
           return (
             <div className="cd-preview cd-preview-fields" data-testid="gate-preview-fields">
-              {pv.changes.map((c, i) => (
-                <div className="cd-preview-field" key={`${c.field ?? c.label ?? i}`}>
-                  <b>{c.label || c.field}</b>
-                  <span className="cd-before">{String(c.before ?? "") || "（空）"}</span>
-                  <span className="cd-sep" aria-hidden>
-                    →
-                  </span>
-                  <span className="cd-after">{String(c.after ?? "") || "（空）"}</span>
-                </div>
-              ))}
+              {pv.changes.map((c, i) => {
+                // 长值截断（review P3）：超 80 字撑卡——预览只求可判断，不求全文
+                const clip = (v: unknown) => {
+                  const t = String(v ?? "").trim();
+                  return t === "" ? "（空）" : t.length > 80 ? `${t.slice(0, 80)}…` : t;
+                };
+                return (
+                  <div className="cd-preview-field" key={`${c.field ?? c.label ?? i}`}>
+                    <b>{c.label || c.field}</b>
+                    <span className="cd-before">{clip(c.before)}</span>
+                    <span className="cd-sep" aria-hidden>
+                      →
+                    </span>
+                    <span className="cd-after">{clip(c.after)}</span>
+                  </div>
+                );
+              })}
             </div>
           );
         }
@@ -1154,7 +1161,7 @@ export function Aui2Dock({
         },
       );
     },
-    [projectId, page, scope.chapterRef, upsertTrace, onStreamingChange, onEffects, onEffect],
+    [projectId, page, scope.chapterRef, pageUnsaved, upsertTrace, onStreamingChange, onEffects, onEffect],
   );
 
   // 面板「让助手办」自动提交（c-agent-panel-consolidate）：seq 消费一次即记账

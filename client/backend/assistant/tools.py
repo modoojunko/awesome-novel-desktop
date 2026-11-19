@@ -1140,6 +1140,24 @@ async def _navigate(ctx, target: str = ""):
     if len(parts) > 2 and parts[2] not in _TAB_ZH:
         opts = "、".join(_TAB_ZH)
         return ToolResult(ok=False, summary=f"没有「{parts[2]}」这个页签——可选的是：{opts}。")
+    # 章存在性校验（review P3）：格式合法≠章存在——不存在的 ref 会让前端选到空
+    if len(parts) > 1:
+        from sqlalchemy import select
+
+        from db import async_session
+        from models.chapter import Chapter
+        from models.project import Novel
+
+        async with async_session() as db:
+            row = (
+                await db.scalars(
+                    select(Chapter)
+                    .join(Novel, Novel.id == Chapter.project_id)
+                    .where(Novel.id == ctx.novel_id, Chapter.ref == parts[1])
+                )
+            ).first()
+        if row is None:
+            return ToolResult(ok=False, summary=f"没有「{parts[1]}」这一章——确认一下章号再试。")
     return ToolResult(ok=True, summary=f"已切到{_VIEW_ZH[view]}" + ("（系统执行跳转）。"))
 
 

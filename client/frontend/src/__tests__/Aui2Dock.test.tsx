@@ -527,3 +527,35 @@ describe("Aui2Dock GateCard 字段级前后对比（c-agent-page-ops）", () => 
     expect(fields.textContent).toContain("新挑战");
   });
 });
+
+describe("Aui2Dock pageUnsaved 上行时效（c-agent-page-ops review P1）", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    chatApiState.loadAssistantSession.mockResolvedValue(sess());
+    chatApiState.setPermissionTier.mockResolvedValue(undefined);
+    chatApiState.approveGate.mockResolvedValue({ ok: true });
+  });
+
+  it("pageUnsaved 变更后随下一条消息上行（旧闭包会把 dirty 快照留在装载时刻）", async () => {
+    const { rerender } = render(
+      <Aui2Dock projectId="p1" page="工作台 · 卷纲" scope={SCOPE} pageUnsaved={[]} />,
+    );
+    await screen.findByTestId("aui2-dock");
+    const sse = captureStream();
+    rerender(
+      <Aui2Dock
+        projectId="p1"
+        page="工作台 · 卷纲"
+        scope={SCOPE}
+        pageUnsaved={["设定面板"]}
+      />,
+    );
+    fireEvent.click(screen.getByTestId("aui2-chip-draft_volume_expand"));
+    await waitFor(() => expect(chatApiState.streamAssistantChat).toHaveBeenCalled());
+    const body = chatApiState.streamAssistantChat.mock.calls[0][1] as {
+      page_state?: { unsaved: string[] };
+    };
+    expect(body.page_state?.unsaved).toEqual(["设定面板"]);
+    void sse;
+  });
+});

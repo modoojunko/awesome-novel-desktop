@@ -1508,6 +1508,16 @@ export default function NovelWorkspace() {
               const v = parts[0];
               if (v === "novels") {
                 if (!guardedLeave()) return;
+                // 设定未保存守卫与手点 goTab 同口径（c-agent-page-ops review P2：
+                // 缺守卫＝agent 一句「回书架」静默丢设定未保存修改）
+                if (settingsDirtyRef.current) {
+                  const ok = window.confirm(
+                    "当前设定有未保存的修改，离开将丢失这些修改。确定继续吗？",
+                  );
+                  if (!ok) return;
+                  settingsDirtyRef.current = false;
+                  setSettingsDirty(false);
+                }
                 navigate("/novels");
                 return;
               }
