@@ -278,11 +278,14 @@ export type TraceCardData = {
   steps: string[];
   /** 生成中＝展开；收口后折叠（回看不丢） */
   live: boolean;
+  /** 回放去重计数（boss 拍板 2026-11-19）：同签名历史轨迹合并为一张「同样步骤 ×N」，
+   *  每轮问答读一遍当前章会攒出成排 1 步卡，回看一张就够。实时运行不计数。 */
+  count?: number;
 };
 
 /** 思考与轨迹卡（cardConfig 注册：code="trace"）——生成中实时展开，收口折叠回看 */
 function TraceCard({ data }: { data: TraceCardData }) {
-  const { thinking, steps, live } = data;
+  const { thinking, steps, live, count } = data;
   const hasBody = Boolean(thinking.trim() || steps.length);
   if (!hasBody) return null;
   const names = [...new Set(steps.map((x) => x.split(" ")[0]))].join("、");
@@ -291,7 +294,9 @@ function TraceCard({ data }: { data: TraceCardData }) {
       <summary>
         {live
           ? "思考与轨迹（进行中）"
-          : `运行轨迹（${steps.length} 步${names ? `：${names}` : ""}）`}
+          : count && count > 1
+            ? `运行轨迹（同样步骤 ×${count}：${names}）`
+            : `运行轨迹（${steps.length} 步${names ? `：${names}` : ""}）`}
       </summary>
       {thinking.trim() && <pre>{_clip(thinking, 2000)}</pre>}
       {steps.length > 0 && (
@@ -616,6 +621,8 @@ export function Aui2Dock({
           let serverCount = 0;
           let lastPage = "";
           let pendingTrace: { id: string; data: TraceCardData } | null = null;
+          // 回放去重账（签名→首张卡）：同签名轨迹合并计数，不另起新卡
+          const traceSigs = new Map<string, { id: string; data: TraceCardData }>();
           const pushEntry = (e: MirrorEntry) => {
             const i = bucket.findIndex((x) => x.id === e.id);
             if (i >= 0) bucket[i] = { ...bucket[i], ...e };
@@ -630,16 +637,36 @@ export function Aui2Dock({
             });
           };
           const flushTrace = () => {
-            if (pendingTrace) {
+            if (!pendingTrace) return;
+            const data: TraceCardData = { ...pendingTrace.data, live: false };
+            const sig = data.steps.join("\n");
+            const seen = traceSigs.get(sig);
+            if (seen) {
+              // 计数必须回写签名账：不回写则每次 bump 都从首卡 count=1 起算，永远 ×2
+              const nextData: TraceCardData = {
+                ...seen.data,
+                count: (seen.data.count ?? 1) + 1,
+                live: false,
+              };
+              traceSigs.set(sig, { id: seen.id, data: nextData });
+              pushEntry({
+                id: seen.id,
+                role: "assistant",
+                content: "",
+                msgStatus: "finished",
+                cards: [{ code: "trace", data: nextData }],
+              });
+            } else {
+              traceSigs.set(sig, { id: pendingTrace.id, data });
               pushEntry({
                 id: pendingTrace.id,
                 role: "assistant",
                 content: "",
                 msgStatus: "finished",
-                cards: [{ code: "trace", data: { ...pendingTrace.data, live: false } }],
+                cards: [{ code: "trace", data }],
               });
-              pendingTrace = null;
             }
+            pendingTrace = null;
           };
           for (const m of sess.messages ?? []) {
             // 页面切换标记：相邻消息 page 变化即插一行（spec：流内落切换标记）
