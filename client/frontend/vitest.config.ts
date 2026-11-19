@@ -29,6 +29,8 @@ export default defineConfig({
       //   VolumeAssistPanel 7（拆章行/节奏三行的防御 onClick——行必 disabled，React 吞 disabled click；
       //     节奏编辑态空 handler（恒 disabled）；节奏采纳二函数的 kind 守卫（按钮只在对应预览块渲染））
       //   PickCardsModal 1（确认时选中的卡必在 plans 里（选中与批次同生命周期）→ `if (card)` 恒真）
+      //   Aui2Dock 1（c-chat-copy 复制倒计时重排行——执行由「已复制 ✓」文案断言实锤
+      //     （后一行 setState 在其后），v8 行归因怪癖计量恒 0）
       // 每条注释都写了不可达理由；若相关可达性前提被改（如 LoginPage 移除 disabled/setError），须复核。
       // KbEntryGraphView 5（mount effect 的 `await import("force-graph")` 在 jsdom 挂起，后段不可达；
       //   装配链提取 lib/kbEntryGraph.ts 直测锁——该文件 v8 ignore 标注整体不生效，故以 lib 锁替代组件行锁）

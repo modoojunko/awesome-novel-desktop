@@ -1363,6 +1363,48 @@ def _without_baked_env(env: dict) -> dict:
     return {k: v for k, v in env.items() if k not in _BAKED_ENV_KEYS}
 
 
+def restore_macos_context_menu() -> str:
+    """mac 右键菜单恢复（c-chat-copy）：pywebview 的 cocoa 实现在非 debug 态把
+    上下文菜单整个清空（webview/platforms/cocoa.py willOpenMenu_withEvent_ →
+    removeAllItems）——WebView 里选中文字后右键无任何菜单，复制入口断绝；
+    Cmd+C 虽有壳层 keyDown 兜底，但无可见入口用户无从知晓。
+
+    做法：运行时替换该回调——清空后装配标准编辑项（剪切/拷贝/粘贴/全选），
+    nil-target action 由 AppKit 沿 responder 链路由到 WKWebView 自身（壳层
+    keyDown 的 responder.copy_ 实证该链路通）。非 darwin / 平台模块缺失 /
+    类结构不符 → 原样跳过零副作用；返回值由调用方落 startup.log 留痕
+    （'ok' / 'skip: 原因' / 'fail: traceback'）。
+    """
+    if sys.platform != "darwin":
+        return "skip: not darwin"
+    try:
+        from webview.platforms import cocoa  # 平台模块仅 darwin 可导入（Linux CI 无 AppKit）
+        import AppKit
+    except Exception:
+        return "skip: cocoa module unavailable"
+    try:
+        if getattr(cocoa.BrowserView, "WebKitHost", None) is None:
+            return "skip: WebKitHost not found"
+
+        def _will_open_menu(self, menu, event):  # noqa: ARG001 — ObjC 回调签名
+            menu.removeAllItems()
+            # macOS 简体中文系统菜单标准词；action 走 responder 链，无选中时为无害 no-op
+            for title, action, key in (
+                ("剪切", "cut:", "x"),
+                ("拷贝", "copy:", "c"),
+                ("粘贴", "paste:", "v"),
+                ("全选", "selectAll:", "a"),
+            ):
+                menu.addItem_(
+                    AppKit.NSMenuItem.alloc().initWithTitle_action_keyEquivalent_(title, action, key)
+                )
+
+        cocoa.BrowserView.WebKitHost.willOpenMenu_withEvent_ = _will_open_menu
+        return "ok"
+    except Exception:
+        return "fail:\n" + traceback.format_exc()
+
+
 def main():
     """主入口"""
     runtime_dir = get_runtime_dir()
@@ -1490,6 +1532,9 @@ def main():
         daemon=True,
     ).start()
 
+    # mac 右键菜单恢复（c-chat-copy）：pywebview 非 debug 态清空右键菜单——复制入口
+    # 断绝。必须在 start() 前打补丁（cocoa 平台模块由 start 时序导入，此刻已在 sys.modules）。
+    log_line(runtime_dir, "context-menu patch: " + restore_macos_context_menu())
     try:
         webview.start(debug=False)
     except Exception:

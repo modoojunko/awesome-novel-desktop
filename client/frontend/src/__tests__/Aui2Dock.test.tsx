@@ -292,3 +292,59 @@ describe("停止/打断（openworker 语义）", () => {
     await waitFor(() => expect(screen.queryByTestId("chat-stop")).toBeNull());
   });
 });
+
+describe("Aui2Dock 复制对话（c-chat-copy）", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    chatApiState.loadAssistantSession.mockResolvedValue(sess());
+    chatApiState.setPermissionTier.mockResolvedValue(undefined);
+    chatApiState.approveGate.mockResolvedValue({ ok: true });
+    Object.defineProperty(navigator, "clipboard", {
+      value: { writeText: vi.fn().mockResolvedValue(undefined) },
+      configurable: true,
+    });
+  });
+
+  it("点击复制：当前会话全量消息拼 Markdown 进剪贴板，按钮翻「已复制 ✓」", async () => {
+    chatApiState.loadAssistantSession.mockResolvedValue(
+      sess([
+        { id: "m1", role: "user", content: "帮我铺卷", page: "volume" },
+        { id: "m2", role: "assistant", content: "铺好了。", page: "volume" },
+      ]),
+    );
+    render(<Aui2Dock projectId="p1" page="工作台 · 卷纲" scope={SCOPE} />);
+    await waitFor(() => expect(screen.getByText("铺好了。")).toBeTruthy());
+    fireEvent.click(screen.getByTestId("chat-copy-all"));
+    await waitFor(() =>
+      expect(navigator.clipboard.writeText).toHaveBeenCalledWith("**我**\n\n帮我铺卷\n\n**助手**\n\n铺好了。"),
+    );
+    await waitFor(() => expect(screen.getByTestId("chat-copy-all").textContent).toContain("已复制"));
+    // 连点：上一轮倒计时被清掉重排（copyResetRef 分支），文案保持已复制
+    fireEvent.click(screen.getByTestId("chat-copy-all"));
+    await waitFor(() => expect(navigator.clipboard.writeText).toHaveBeenCalledTimes(2));
+    expect(screen.getByTestId("chat-copy-all").textContent).toContain("已复制");
+  });
+
+  it("空会话不写剪贴板（无可用行），按钮文案不动", async () => {
+    render(<Aui2Dock projectId="p1" page="工作台 · 卷纲" scope={SCOPE} />);
+    await screen.findByTestId("aui2-dock");
+    fireEvent.click(screen.getByTestId("chat-copy-all"));
+    await waitFor(() => expect(screen.getByTestId("chat-copy-all").textContent).toContain("复制对话"));
+    expect(navigator.clipboard.writeText).not.toHaveBeenCalled();
+  });
+
+  it("剪贴板不可写静默还原（不弹错不打断），文案还原", async () => {
+    chatApiState.loadAssistantSession.mockResolvedValue(
+      sess([{ id: "m1", role: "user", content: "帮我铺卷", page: "volume" }]),
+    );
+    render(<Aui2Dock projectId="p1" page="工作台 · 卷纲" scope={SCOPE} />);
+    await waitFor(() => expect(screen.getByText("帮我铺卷")).toBeTruthy());
+    (navigator.clipboard.writeText as ReturnType<typeof vi.fn>).mockRejectedValueOnce(
+      new Error("blocked"),
+    );
+    fireEvent.click(screen.getByTestId("chat-copy-all"));
+    await waitFor(() => expect(navigator.clipboard.writeText).toHaveBeenCalled());
+    expect(screen.getByTestId("chat-copy-all").textContent).toContain("复制对话");
+    expect(screen.getByTestId("chat-copy-all").textContent).not.toContain("已复制");
+  });
+});
