@@ -413,15 +413,46 @@ def test_navigate_declares_navigate_effect():
     assert tool.effect_target_from == "target"
 
 
-def test_navigate_tool_target_validation():
+def test_navigate_tool_target_validation(monkeypatch):
+    """target 校验＋章存在性（review P3）：格式合法≠章存在。"""
+    import db as db_mod
     from assistant.tools import ToolContext, get_tool
+
+    class _Row:
+        pass
+
+    class _FakeScalars:
+        def __init__(self, obj):
+            self._o = obj
+
+        def first(self):
+            return self._o
+
+    class _FakeSession:
+        def __init__(self, obj):
+            self._o = obj
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *a):
+            return False
+
+        async def scalars(self, stmt):
+            return _FakeScalars(self._o)
 
     tool = get_tool("navigate")
     ctx = ToolContext(novel_id="n", root_path="/r", user_id="u")
+    # 章存在：全链放行
+    monkeypatch.setattr(db_mod, "async_session", lambda: _FakeSession(_Row()))
     ok = _run(tool.fn(ctx, "settings"))
     assert ok.ok and "设定面板" in ok.summary
     ok = _run(tool.fn(ctx, "workbench:vol-1-ch-3:prose"))
     assert ok.ok
+    # 章不存在：人话拒绝（review P3 前会选到空）
+    monkeypatch.setattr(db_mod, "async_session", lambda: _FakeSession(None))
+    missing = _run(tool.fn(ctx, "workbench:vol-1-ch-99:prose"))
+    assert not missing.ok and "没有「vol-1-ch-99」这一章" in missing.summary
     bad_view = _run(tool.fn(ctx, "胡写"))
     assert not bad_view.ok and "目标不认识" in bad_view.summary
     bad_ref = _run(tool.fn(ctx, "settings:vol-1-ch-3"))
