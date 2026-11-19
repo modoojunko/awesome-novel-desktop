@@ -466,3 +466,31 @@ async def test_cancel_interrupts_slow_ttfb_wait():
     assert elapsed < 1.5, f"停止未打断慢等待（{elapsed:.2f}s）"
     assert "narration" in kinds
     assert loop.result.interrupted is True
+
+
+@pytest.mark.asyncio
+async def test_final_streamed_tail_completion_delta():
+    """收口尾巴补发（c-agent-narration-tail-loss）：stream_slice 在 `{` 冻结，
+    扣尾窗不进 delta；收口时未流部分 MUST 补发 delta——否则 dock（seenDelta
+    去重吞整段 narration）显示缺尾（实锤：存档完整、界面缺尾 8 字）。"""
+    narration = (
+        "就一个卡点：第 7 章到底算完了没。正文 4,199 字、未归档。"
+        "示例含 { 花括号冻结点，尾巴你说走哪条，我跟着动。"
+    )
+    full = narration + "\n===ACT===\n" + _final(narration)
+    client = FakeClient([full])
+    loop = AgentLoop(
+        client=client,
+        system="sys",
+        transcript=[{"role": "user", "content": "现在我要做什么"}],
+        tool_ctx=None,
+        config=LoopConfig(),
+    )
+    events = [e async for e in loop.run("现在我要做什么")]
+    deltas = "".join(e["text"] for e in events if e["type"] == "narration_delta")
+    narrations = [e["text"] for e in events if e["type"] == "narration"]
+    # 冻结点在叙述体内的 `{`——流式 delta 停在冻结点；收口补发未流尾巴到整段
+    assert deltas == narration, f"delta 拼接应等于完整叙述：{deltas!r}"
+    # 整段 narration 事件照发（协议兼容；dock 去重口径不变）
+    assert narration in narrations
+    assert loop.result.final_reply == narration

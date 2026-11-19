@@ -473,8 +473,8 @@ export function Aui2Dock({
   const loadedThreadsRef = useRef<Set<string>>(new Set());
   /** trace 卡本地账（按 traceId 累计——避免 getMessage 读回的丢更新） */
   const traceBufRef = useRef<Map<string, TraceCardData>>(new Map());
-  /** 本 run 是否走过 delta 流（narration 兜底的去重依据） */
-  const seenDeltaRef = useRef<Set<string>>(new Set());
+  /** 当前 delta 段已流文本（narration 收口按内容前缀对账补尾——缺尾修复） */
+  const deltaTailRef = useRef<string>("");
 
   /** 线程镜像 upsert＝唯一写路径（镜像与画面同源不漂移） */
   const threadUp = useCallback((entry: MirrorEntry) => {
@@ -816,7 +816,7 @@ export function Aui2Dock({
             const base = cur?.content ?? "";
             if (e.type === "narration_delta") {
               const chunk = String(e.text ?? "");
-              seenDeltaRef.current.add(assistantId);
+              deltaTailRef.current += chunk;
               estCharsRef.current += chunk.length;
               threadUp({
                 id: assistantId,
@@ -825,10 +825,38 @@ export function Aui2Dock({
                 msgStatus: "generating",
               });
             } else if (e.type === "narration") {
-              // 整段 narration：delta 路径的正文已增量送达（seenDelta）→ 不重拼；
-              // 无 delta（协议批次路径）→ 追加（步轨迹行已占 base 也不能吞收口回复）
+              // 整段 narration 与 delta 段按内容前缀对账（缺尾修复
+              // c-agent-narration-tail-loss）：整段覆盖已流 delta 时只补未流
+              // 尾巴（旧口径 seenDelta 整段跳过会把扣尾/冻结窗尾巴吞掉——生产
+              // 实锤显示缺「你说走哪条，我跟着动。」尾 8 字）；非覆盖＝新段
+              // （工具步叙述/降级兜底）按 \n\n 追加；零流式批次交付同此径。
               const chunk = String(e.text ?? "");
-              if (!seenDeltaRef.current.has(assistantId)) {
+              const tail = deltaTailRef.current;
+              const tailTrim = tail.replace(/\s+$/, "");
+              let suffix = "";
+              let covered = false;
+              if (tail && chunk.startsWith(tail)) {
+                // 欠覆盖：整段比已流 delta 长——补未流尾巴
+                suffix = chunk.slice(tail.length);
+                covered = true;
+              } else if (tail && (chunk === tailTrim || (tailTrim && chunk.startsWith(tailTrim)))) {
+                // 过覆盖（哨兵前换行进过 delta）：已流内容已含整段——只收敛不追加
+                suffix = chunk.startsWith(tailTrim) ? chunk.slice(tailTrim.length) : "";
+                covered = true;
+              }
+              if (covered) {
+                deltaTailRef.current = chunk;
+                if (suffix) {
+                  estCharsRef.current += suffix.length;
+                  threadUp({
+                    id: assistantId,
+                    role: "assistant",
+                    content: base + suffix,
+                    msgStatus: "generating",
+                  });
+                }
+              } else {
+                deltaTailRef.current = "";
                 estCharsRef.current += chunk.length;
                 const sep = base ? "\n\n" : "";
                 threadUp({

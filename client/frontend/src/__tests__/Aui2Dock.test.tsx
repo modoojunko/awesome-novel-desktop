@@ -135,11 +135,9 @@ describe("Aui2Dock 流式契约", () => {
     fireEvent.click(screen.getByTestId("aui2-chip-draft_volume_expand"));
     await waitFor(() => expect(chatApiState.streamAssistantChat).toHaveBeenCalled());
     sse.drive({ type: "thinking", text: "我先想想主线…" });
-    let trace!: HTMLElement;
-    await waitFor(() => {
-      trace = screen.getByTestId("chat-trace");
-      expect(trace.textContent).toContain("我先想想主线…");
-    });
+    // coverage 负载下 trace 卡挂载慢于 waitFor 窗口（CI 实锤）——findBy 自带重试
+    const trace = await screen.findByTestId("chat-trace");
+    expect(trace.textContent).toContain("我先想想主线…");
     expect(trace.textContent).toContain("进行中");
     // 收口折叠
     sse.done();
@@ -387,5 +385,71 @@ describe("Aui2Dock tool_hint 一次性（c-agent-writing-flow-context）", () =>
     };
     expect(second.message).toContain("规划下一章");
     expect(second.tool_hint).toBeUndefined();
+  });
+});
+
+describe("Aui2Dock 流式缺尾复现（c-agent-narration-tail-loss）", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    chatApiState.loadAssistantSession.mockResolvedValue(sess());
+    chatApiState.setPermissionTier.mockResolvedValue(undefined);
+    chatApiState.approveGate.mockResolvedValue({ ok: true });
+  });
+
+  it("delta 欠覆盖时收口整段 narration 不得丢尾（生产实锤：显示缺 8 字尾）", async () => {
+    const REPLY = "就一个卡点：第 7 章到底算完了没。正文 4,199 字、未归档。你说走哪条，我跟着动。";
+    render(<Aui2Dock projectId="p1" page="工作台 · 卷纲" scope={SCOPE} />);
+    await screen.findByTestId("aui2-dock");
+    const sse = captureStream();
+    fireEvent.click(screen.getByTestId("aui2-chip-draft_volume_expand"));
+    await waitFor(() => expect(chatApiState.streamAssistantChat).toHaveBeenCalled());
+    // 生产几何：delta 只流到「你说走」（欠覆盖），随后整段 narration 携带完整文本
+    sse.drive({ type: "narration_delta", text: REPLY.slice(0, REPLY.length - 8) });
+    sse.drive({ type: "narration", text: REPLY });
+    sse.drive({ type: "run_end", runId: "r1", steps: 1, toolCalls: 0, degraded: false, error: "" });
+    sse.done();
+    await waitFor(() =>
+      expect(chatApiState.streamAssistantChat.mock.calls.length > 0).toBeTruthy(),
+    );
+    // 渲染面（ChatAnywhere 消息 store）应含完整叙述
+    const api = (chatApiState as unknown as {
+      __lastUpdate?: { content: string };
+    });
+    void api;
+    await waitFor(() => {
+      const store = (
+        screen.getByTestId("aui2-dock").ownerDocument
+          ? document.body.textContent
+          : ""
+      ) as string;
+      expect(store).toContain("你说走哪条，我跟着动。");
+    });
+  });
+});
+
+describe("Aui2Dock 流式过覆盖对账（c-agent-narration-tail-loss）", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    chatApiState.loadAssistantSession.mockResolvedValue(sess());
+    chatApiState.setPermissionTier.mockResolvedValue(undefined);
+    chatApiState.approveGate.mockResolvedValue({ ok: true });
+  });
+
+  it("delta 过覆盖（哨兵前换行）时整段 narration 不重挂——文本不翻倍", async () => {
+    const REPLY = "就一个卡点：第 7 章到底算完了没。你说走哪条，我跟着动。";
+    render(<Aui2Dock projectId="p1" page="工作台 · 卷纲" scope={SCOPE} />);
+    await screen.findByTestId("aui2-dock");
+    const sse = captureStream();
+    fireEvent.click(screen.getByTestId("aui2-chip-draft_volume_expand"));
+    await waitFor(() => expect(chatApiState.streamAssistantChat).toHaveBeenCalled());
+    // 生产几何：delta 覆盖到哨兵前（含换行——过覆盖），整段 narration＝纯叙述
+    sse.drive({ type: "narration_delta", text: REPLY + "\n" });
+    sse.drive({ type: "narration", text: REPLY });
+    sse.drive({ type: "run_end", runId: "r2", steps: 1, toolCalls: 0, degraded: false, error: "" });
+    sse.done();
+    await waitFor(() => expect(screen.queryByTestId("chat-stop")).toBeNull());
+    const body = document.body.textContent || "";
+    const hits = body.split("你说走哪条").length - 1;
+    expect(hits).toBe(1);
   });
 });
