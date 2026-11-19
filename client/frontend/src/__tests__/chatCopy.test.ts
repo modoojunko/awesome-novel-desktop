@@ -23,6 +23,16 @@ describe("conversationToMarkdown", () => {
     expect(md).toBe("**我**\n\n继续");
   });
 
+  it("跳过页面切换分隔标记（role 是 assistant 但非助手发言）", () => {
+    const md = conversationToMarkdown([
+      { role: "user", content: "帮我铺卷" },
+      { role: "assistant", content: "铺好了。" },
+      { role: "assistant", content: "—— 切换到章节 ——" },
+      { role: "user", content: "继续" },
+    ]);
+    expect(md).toBe("**我**\n\n帮我铺卷\n\n**助手**\n\n铺好了。\n\n**我**\n\n继续");
+  });
+
   it("正文首尾空白裁边；content 缺省/null 视为空", () => {
     const md = conversationToMarkdown([
       { role: "user", content: "\n  两端空白  \n" },

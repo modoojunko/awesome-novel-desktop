@@ -12,9 +12,10 @@ pywebview 的 cocoa 实现在非 debug 态把上下文菜单整个清空（willO
 5. 替换失败（类冻结等异常）→ 'fail:' 带 traceback，绝不炸启动链。
 
 pywebview_app.py 带模块级 import webview——与 test_packaging_shell_startup 同款
-stub 加载；webview.platforms / AppKit 均 fake 注入 sys.modules（dev venv 里
-pyobjc 真模块存在，不能让真 NSMenuItem 参与断言；Linux CI 两者皆缺，必须
-stub 才可复现 ok 路径）。
+stub 加载（loader 必须自带守卫：pywebview 不在 backend requirements，单跑本
+文件/字母序变动时不能指望别的文件先塞过 stub）；webview.platforms / AppKit
+均 fake 注入 sys.modules（dev venv 里 pyobjc 真模块存在，不能让真 NSMenuItem
+参与断言；Linux CI 两者皆缺，必须 stub 才可复现 ok 路径）。
 """
 from __future__ import annotations
 
@@ -31,6 +32,13 @@ SHELL_PATH = Path(__file__).resolve().parents[2] / "packaging" / "build" / "pywe
 
 def _load_shell_module():
     """以 stub 的 webview 模块加载壳层源码（不触发任何 GUI 初始化）。"""
+    if "webview" not in sys.modules:
+        stub = types.ModuleType("webview")
+        stub.screens = []
+        stub.FOLDER_DIALOG = "folder"
+        stub.SAVE_DIALOG = "save"
+        stub.OPEN_DIALOG = "open"
+        sys.modules["webview"] = stub
     spec = importlib.util.spec_from_file_location("pywebview_app_under_test_cm", SHELL_PATH)
     assert spec and spec.loader
     module = importlib.util.module_from_spec(spec)

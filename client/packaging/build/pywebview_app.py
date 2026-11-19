@@ -1533,7 +1533,9 @@ def main():
     ).start()
 
     # mac 右键菜单恢复（c-chat-copy）：pywebview 非 debug 态清空右键菜单——复制入口
-    # 断绝。必须在 start() 前打补丁（cocoa 平台模块由 start 时序导入，此刻已在 sys.modules）。
+    # 断绝。必须在 start() 前打补丁：cocoa 平台模块此刻多半还没进 sys.modules
+    # （pywebview 只急导 webview.guilib，platforms.cocoa 由 start 内 initialize() 才导），
+    # 补丁自己的 import 完成首导并落缓存，start 随后拿到同一模块对象——类属性替换即生效。
     log_line(runtime_dir, "context-menu patch: " + restore_macos_context_menu())
     try:
         webview.start(debug=False)
