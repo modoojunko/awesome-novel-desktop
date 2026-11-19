@@ -38,6 +38,7 @@ import {
   stopAssistantRun,
 } from "@/lib/chatApi";
 import { CardBody, _clip } from "./CardBody";
+import { conversationToMarkdown } from "@/lib/chatCopy";
 // chat.css 的唯一入口曾随 ChatDock 退役被带走（dock 全程裸奔＝抽屉/芯片/卡面全无样式）
 import "./chat.css";
 
@@ -436,6 +437,27 @@ export function Aui2Dock({
   }, [projectId]);
   /** 流式中（chat-stop 显隐；与 onStreamingChange 同源） */
   const [streaming, setStreaming] = useState(false);
+  /** 复制对话反馈（c-chat-copy）：「已复制 ✓」驻留 1.6s 后还原；写不进剪贴板
+   *  静默还原（AiCardModal 提示词复制同款口径）。倒计时挂 handler 内——卸载后
+   *  setState 为 React 18 安全 no-op，无需 effect 清理。 */
+  const [copiedAll, setCopiedAll] = useState(false);
+  const copyResetRef = useRef<number | null>(null);
+  /** 复制整段对话（c-chat-copy）：ChatAnywhere ref 拿当前会话全量消息 →
+   *  纯函数拼 Markdown → 剪贴板。trace 卡/空回执不进（chatCopy 口径）。 */
+  const copyConversation = async () => {
+    const md = conversationToMarkdown(apiRef.current!.getMessages());
+    if (!md) return;
+    try {
+      await navigator.clipboard.writeText(md);
+      if (copyResetRef.current != null) window.clearTimeout(copyResetRef.current);
+      // v8 行归因怪癖：执行由「已复制 ✓」文案断言实锤（454 行在 453 行之后），计量恒 0
+      /* v8 ignore next */
+      copyResetRef.current = window.setTimeout(() => setCopiedAll(false), 1600);
+      setCopiedAll(true);
+    } catch {
+      /* 剪贴板不可写静默还原：不弹错不打断 */
+    }
+  };
   /** 容量估算（chars/4 同后端口径；装载时以服务端 estTokens 播种） */
   const estCharsRef = useRef(0);
   const [ctx, setCtx] = useState<{ estTokens: number; window: number; pct: number } | null>(null);
@@ -1039,6 +1061,15 @@ export function Aui2Dock({
             <span className="cd-mode-caret" aria-hidden>
               ▾
             </span>
+          </button>
+          <button
+            type="button"
+            className="cd-btn"
+            data-testid="chat-copy-all"
+            title="把整段对话复制成 Markdown（也可拖选后右键/Cmd+C 复制片段）"
+            onClick={() => void copyConversation()}
+          >
+            {copiedAll ? "已复制 ✓" : "复制对话"}
           </button>
           {streaming && (
             <button
