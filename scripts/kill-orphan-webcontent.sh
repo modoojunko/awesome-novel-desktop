@@ -38,7 +38,14 @@ while read -r pid cpu; do
   printf '%s pid=%s cpu=%s%% (ppid=1, no TCP)\n' "$verb" "$pid" "$cpu"
   found=$((found + 1))
   if [ "$FORCE" = 1 ]; then
-    kill -TERM "$pid"
+    # 竞态容忍：判据确认到 kill 之间进程可能自然退出；失败不中断后续处置
+    # （失败原因由 kill 自身 stderr 透出，如 Operation not permitted）
+    kill -TERM "$pid" || true
+    sleep 1
+    if ps -p "$pid" > /dev/null 2>&1; then
+      echo "  pid=$pid survived TERM, escalating to KILL"
+      kill -KILL "$pid" || true
+    fi
   fi
 done < <(ps -eo pid=,ppid=,%cpu=,comm= | awk -v pat="$PATTERN" -v th="$THRESHOLD" \
   '$2 == 1 && $4 ~ pat && $3 + 0 > th {print $1, $3}')
