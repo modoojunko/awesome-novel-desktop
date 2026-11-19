@@ -118,6 +118,29 @@ describe("Aui2Dock 历史装载与折叠", () => {
     expect(trace[0].textContent).toContain("运行轨迹（2 步：draft_volume_expand、read_outline）");
   });
 
+  it("回放去重：同签名轨迹合并为一张「同样步骤 ×N」卡（不再成排 1 步卡）", async () => {
+    const readNote = "《短刃震颤引血族》（vol-1-ch-7）";
+    chatApiState.loadAssistantSession.mockResolvedValue(
+      sess([
+        { id: "t1", role: "user", content: "第 7 章怎么样", page: "chapter" },
+        { id: "t2", role: "tool", content: readNote, page: "chapter" },
+        { id: "t3", role: "assistant", content: "节奏不错。", page: "chapter" },
+        { id: "t4", role: "user", content: "继续", page: "chapter" },
+        { id: "t5", role: "tool", content: readNote, page: "chapter" },
+        { id: "t6", role: "assistant", content: "接着写。", page: "chapter" },
+        { id: "t7", role: "user", content: "再看看", page: "chapter" },
+        { id: "t8", role: "tool", content: readNote, page: "chapter" },
+        { id: "t9", role: "assistant", content: "还是那章。", page: "chapter" },
+      ]),
+    );
+    render(<Aui2Dock projectId="p1" page="工作台 · 章节" scope={SCOPE} />);
+    await waitFor(() => expect(screen.getByText("还是那章。")).toBeTruthy());
+    const traces = screen.getAllByTestId("chat-trace");
+    expect(traces.length).toBe(1);
+    expect(traces[0].textContent).toContain("同样步骤 ×3");
+    expect(traces[0].textContent).toContain("vol-1-ch-7");
+  });
+
   it("空线程给状态感知开场白（workbench 卷纲＋非空书）", async () => {
     render(<Aui2Dock projectId="p1" page="工作台 · 卷纲" scope={SCOPE} />);
     await waitFor(() =>
