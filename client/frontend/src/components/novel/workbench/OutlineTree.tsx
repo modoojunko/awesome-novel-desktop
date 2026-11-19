@@ -71,6 +71,14 @@ export default function OutlineTree({
     });
   }, [volumes, expandedIds, onToggle]);
 
+  // 数据首到淡入（data-enter，index.css）：树从空到有卷的那一刻整体轻淡入一次；
+  // revealed 恒真不回退——之后增删卷/后台刷新不重放动画
+  const [treeRevealed, setTreeRevealed] = useState(false);
+  useEffect(() => {
+    if (treeRevealed || volumes.length === 0) return;
+    setTreeRevealed(true);
+  }, [treeRevealed, volumes.length]);
+
   useEffect(() => {
     if (inlineAddVol) inlineInputRef.current?.focus();
   }, [inlineAddVol]);
@@ -192,7 +200,7 @@ export default function OutlineTree({
         </button>
       </div>
 
-      <div className="tree">
+      <div className={`tree${treeRevealed ? " data-enter" : ""}`}>
         {volumes.map((v) => {
           const no = volNo(v.name);
           const open = expandedIds.has(v.name);

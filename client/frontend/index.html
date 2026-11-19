@@ -4,8 +4,43 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Awesome Novel — 爱小说，AI 辅助长篇小说写作</title>
+    <style>
+      /* ── 内联启动画面（延续壳层 loading.html 视觉，boot-splash 无缝衔接）──
+         痛点：壳层启动页跳转应用页后，JS bundle 解析＋React 挂载完成前窗口是纯白
+         （打包态冷启动一到几秒、零反馈）。此画面纯 HTML+CSS、解析即渲染，不依赖
+         JS；React 首帧提交后由 main.tsx 加 .boot-splash--out 淡出移除。
+         品牌名占位符由 vite brandInject 插件在构建期/开发期注入
+         （brand/brand.json 单源）。视觉必须与壳层 LOADING_HTML_TEMPLATE 逐项对齐
+         （渐变/转圈/字号/配色），改一处须同步另一处。 */
+      #boot-splash {
+        position: fixed; inset: 0; z-index: 9999;
+        background: linear-gradient(135deg, #1a1a2e 0%, #16213e 50%, #0f3460 100%);
+        display: flex; justify-content: center; align-items: center;
+        flex-direction: column; color: #e0e0e0;
+        font-family: -apple-system, sans-serif;
+        /* 纯装饰层：恒不拦截指针——淡出完成前 e2e/用户的点击照常穿透 */
+        pointer-events: none;
+        user-select: none; -webkit-user-select: none;
+        transition: opacity 0.45s ease;
+      }
+      #boot-splash.boot-splash--out { opacity: 0; pointer-events: none; }
+      .boot-spinner {
+        width: 64px; height: 64px; border: 4px solid rgba(255,255,255,0.1);
+        border-top-color: #64b5f6; border-radius: 50%;
+        animation: boot-spin 1s linear infinite; margin-bottom: 24px;
+      }
+      @keyframes boot-spin { to { transform: rotate(360deg); } }
+      .boot-title { font-size: 24px; font-weight: 600; margin-bottom: 8px; }
+      .boot-sub { font-size: 14px; color: #888; animation: boot-pulse 2s ease-in-out infinite; }
+      @keyframes boot-pulse { 50% { opacity: 0.4; } }
+    </style>
   </head>
   <body>
+    <div id="boot-splash" aria-hidden="true">
+      <div class="boot-spinner"></div>
+      <div class="boot-title">__BRAND_NAME__</div>
+      <div class="boot-sub">正在启动…</div>
+    </div>
     <div id="root"></div>
     <script src="/env.js"></script>
     <script type="module" src="/src/main.tsx"></script>

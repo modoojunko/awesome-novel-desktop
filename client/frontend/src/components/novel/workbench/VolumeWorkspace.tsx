@@ -337,7 +337,8 @@ export default function VolumeWorkspace({
     detail?.chapters.filter((c) => c.archived).length ?? 0;
 
   return (
-    <div className="col-panel vol-shell">
+    // data-enter（index.css）：卷视图随选中卷挂载，挂载即轻淡入；卷间切换不重挂不重放
+    <div className="col-panel vol-shell data-enter">
         {loading ? (
           <p className="desc">卷视图加载中…</p>
         ) : error || !detail ? (

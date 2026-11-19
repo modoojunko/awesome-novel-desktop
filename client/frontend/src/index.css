@@ -39,6 +39,27 @@ body,
   animation: page-fade-in 0.4s cubic-bezier(0.22, 1, 0.36, 1) both;
 }
 
+/* ── 数据落位淡入（workbench 数据到达/区块挂载）──
+   痛点：工作台框架先出、章树/设定/正文数据到达瞬间生硬突现（2026-11-19 boss 拍板
+   「数据轻淡入」）。比 page-enter 短且浅（250ms/6px），同族曲线；挂载触发——
+   已渲染元素中途加类会闪一下可见内容，故只用于「随数据新挂载」或
+   「空→满」的容器（见 OutlineTree 首到淡入）。后台刷新走 remount 才重放。 */
+@keyframes data-fade-in {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  to {
+    opacity: 1;
+    /* 同 page-fade-in：不保留末帧 transform，防劫持 fixed 后代的 containing block */
+    transform: none;
+  }
+}
+
+.data-enter {
+  animation: data-fade-in 0.25s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
 /* ── 全局更新提示条（client-update-notify）──
    挂载（c-update-strip-below-appbar）：常规屏在 ClientShell 顶栏（Navbar）之下、
    页面内容之上；书内态由 NovelWorkspace 挂其应用栏之下——提示条不推移顶栏。
