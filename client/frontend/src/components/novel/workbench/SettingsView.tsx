@@ -945,10 +945,16 @@ export default function SettingsView({
           <p className="desc">{panelDesc}</p>
 
           {/* 采纳写回刷新（c-agent-panel-consolidate）：key 重挂＝面板重载取新数据
-              （dirty 守卫在宿主侧——只递增说明面板干净）＋未刷新提示条 */}
+              （dirty 守卫在宿主侧——只递增说明面板干净）＋未刷新提示条
+              data-enter（index.css）：面板重挂即轻淡入——进入设定页/切换面板/
+              采纳写回刷新三个「内容出现」时刻共用同一过渡 */}
           <div
             key={`panel-${panel}-${refreshSeq}`}
-            className={panel === "chars" || panel === "foreshadow" ? "sub-wrap" : undefined}
+            className={
+              panel === "chars" || panel === "foreshadow"
+                ? "data-enter sub-wrap"
+                : "data-enter"
+            }
           >
             {panel === "genre" && (
               <>

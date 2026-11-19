@@ -25,3 +25,15 @@ ReactDOM.createRoot(document.getElementById("root")!).render(
     </QueryClientProvider>
   </React.StrictMode>
 );
+
+// 启动画面淡出（index.html 内联 #boot-splash，视觉延续壳层 loading.html）：
+// React 首帧提交后（下一帧）开始淡出，露出界面随 page-enter 浮起；
+// 600ms 兜底移除节点（transition 450ms），React 未挂载（bundle 加载失败）时
+// 画面停留转圈——比白屏好，且壳层装载看门狗仍兜底。
+function dismissBootSplash() {
+  const el = document.getElementById("boot-splash");
+  if (!el) return;
+  el.classList.add("boot-splash--out");
+  window.setTimeout(() => el.remove(), 600);
+}
+requestAnimationFrame(dismissBootSplash);

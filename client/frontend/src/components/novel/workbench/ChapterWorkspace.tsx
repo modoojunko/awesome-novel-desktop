@@ -1265,7 +1265,9 @@ const [ogForm, setOgForm] = useState<OgForm>(EMPTY_OG_FORM);
           : { cls: "save-state saved", text: "已自动保存" };
 
   return (
-    <div className="col-editor">
+    // data-enter（index.css）：本组件随选中章挂载（书内进写作页/从卷视图切回章视图），
+    // 挂载即轻淡入；章间切换不重挂、不重放
+    <div className="col-editor data-enter">
       <header className="e-head e-head-row">
         <div className="e-head-main">
           {/* 密度重排（c-workbench-density）：卷名 kicker 退役（左树承载卷归属）；
