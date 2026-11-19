@@ -24,10 +24,6 @@ BOOK_BRIEF_BUDGET_CHARS = 300
 WINDOW_BUDGET_CHARS = 120_000
 
 
-# 章节状态中文映射（brief/进度面向作家，禁内部词——frontier/draft 不出模型口）
-_STATE_ZH = {"draft": "草稿", "pending": "待写", "confirmed": "章纲已确认", "archived": "已归档"}
-
-
 async def build_book_brief(novel: Any, db: Any) -> str:
     """≤300 字书级 brief：书名/题材/进度（frontier）。失败降级为仅书名。"""
     from chapters.frontier import frontier_info
@@ -51,11 +47,19 @@ async def build_book_brief(novel: Any, db: Any) -> str:
         if isinstance(chapters, list) and chapters:
             archived = sum(1 for ch in chapters if ch.get("archived"))
             fr = info.get("frontier") or {}
-            state = _STATE_ZH.get(str(fr.get("state") or ""), "写作中")
-            lines.append(
-                f"进度：全书 {len(chapters)} 章（已归档 {archived}）；"
-                f"当前写到 第 {fr.get('global_no')} 章（{state}）"
-            )
+            # 三态真值（c-agent-writing-flow-context）：「草稿」一词掩盖「已写完未归档」
+            # 与「没写」的差异——事故实锤模型据此锚死当前章。按 state 说真话，含字数。
+            state = str(fr.get("state") or "")
+            if state == "draft":
+                progress = (
+                    f"第 {fr.get('global_no')} 章 正文已写 "
+                    f"{int(fr.get('word_count') or 0):,} 字·未归档"
+                )
+            elif state == "planned":
+                progress = f"第 {fr.get('global_no')} 章 已排定·正文未写·未归档"
+            else:  # pending 占位：主线全部归档
+                progress = f"各章均已归档；下一章 第 {fr.get('global_no')} 章（待拆纲）"
+            lines.append(f"进度：全书 {len(chapters)} 章（已归档 {archived}）；{progress}")
         else:
             lines.append("进度：空书（还没有章节）")
     except Exception:  # noqa: BLE001

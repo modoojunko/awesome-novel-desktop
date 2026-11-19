@@ -348,3 +348,44 @@ describe("Aui2Dock 复制对话（c-chat-copy）", () => {
     expect(screen.getByTestId("chat-copy-all").textContent).not.toContain("已复制");
   });
 });
+
+describe("Aui2Dock tool_hint 一次性（c-agent-writing-flow-context）", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    chatApiState.loadAssistantSession.mockResolvedValue(sess());
+    chatApiState.setPermissionTier.mockResolvedValue(undefined);
+    chatApiState.approveGate.mockResolvedValue({ ok: true });
+  });
+
+  it("chip 触发只对紧随那条消息携带 hint；后续自由文本不重放旧工具", async () => {
+    const { rerender } = render(
+      <Aui2Dock projectId="p1" page="工作台 · 卷纲" scope={SCOPE} />,
+    );
+    await screen.findByTestId("aui2-dock");
+    const sse = captureStream();
+    // 第一次：chip 触发（铺这一卷）→ tool_hint 随本次发送携带
+    fireEvent.click(screen.getByTestId("aui2-chip-draft_volume_expand"));
+    await waitFor(() => expect(chatApiState.streamAssistantChat).toHaveBeenCalledTimes(1));
+    expect(chatApiState.streamAssistantChat.mock.calls[0][1]).toMatchObject({
+      tool_hint: { tool: "draft_volume_expand" },
+    });
+    sse.done();
+    await waitFor(() => expect(screen.queryByTestId("chat-stop")).toBeNull());
+    // 第二次：自由文本（autoAsk 同条 onSubmit 链）→ 读走即清，旧 hint 不得重放
+    rerender(
+      <Aui2Dock
+        projectId="p1"
+        page="工作台 · 卷纲"
+        scope={SCOPE}
+        autoAsk={{ seq: 1, message: "规划下一章" }}
+      />,
+    );
+    await waitFor(() => expect(chatApiState.streamAssistantChat).toHaveBeenCalledTimes(2));
+    const second = chatApiState.streamAssistantChat.mock.calls[1][1] as {
+      message?: string;
+      tool_hint?: unknown;
+    };
+    expect(second.message).toContain("规划下一章");
+    expect(second.tool_hint).toBeUndefined();
+  });
+});
