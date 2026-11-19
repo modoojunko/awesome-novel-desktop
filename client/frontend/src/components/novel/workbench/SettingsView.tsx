@@ -13,6 +13,7 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, forwardRef, useImperativeHandle } from "react";
 import { api } from "@/lib/api";
 import ImportNotice from "./ImportNotice";
+import { DataEnter } from "./DataEnter";
 import { toast } from "@/lib/toast";
 import { useDirtyState } from "@/hooks/useDirtyState";
 import { type SettingSaveHandle } from "@/components/novel/settings/FormField";
@@ -946,15 +947,11 @@ export default function SettingsView({
 
           {/* 采纳写回刷新（c-agent-panel-consolidate）：key 重挂＝面板重载取新数据
               （dirty 守卫在宿主侧——只递增说明面板干净）＋未刷新提示条
-              data-enter（index.css）：面板重挂即轻淡入——进入设定页/切换面板/
-              采纳写回刷新三个「内容出现」时刻共用同一过渡 */}
-          <div
+              DataEnter（workbench/DataEnter.tsx）：面板重挂即轻淡入——切换面板/
+              采纳写回刷新照常过渡；进书 boot 窗口内的首次挂载并进 page-enter 单波 */}
+          <DataEnter
             key={`panel-${panel}-${refreshSeq}`}
-            className={
-              panel === "chars" || panel === "foreshadow"
-                ? "data-enter sub-wrap"
-                : "data-enter"
-            }
+            className={panel === "chars" || panel === "foreshadow" ? "sub-wrap" : undefined}
           >
             {panel === "genre" && (
               <>
@@ -1074,7 +1071,7 @@ export default function SettingsView({
                 onReceiptChange={handleReceiptChange}
               />
             )}
-          </div>
+          </DataEnter>
 
           <div className="panel-foot">
             {/* 伏笔空表：warnline 取代 note（常驻信号，非 toast；门禁的提示性预检口径） */}

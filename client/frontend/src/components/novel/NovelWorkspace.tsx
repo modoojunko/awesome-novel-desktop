@@ -11,6 +11,7 @@ import PreviewView from "@/components/novel/workbench/PreviewView";
 import ManuscriptDownloadModal from "@/components/novel/workbench/ManuscriptDownloadModal";
 import type { RailChapterData } from "@/components/novel/workbench/Rail";
 import { Aui2Dock } from "@/components/novel/chat/Aui2Dock";
+import { WorkbenchBootProvider } from "@/components/novel/workbench/DataEnter";
 import { AuiErrorBoundary } from "@/components/novel/chat/AuiErrorBoundary";
 import { Component, type ReactNode, type PropsWithChildren } from "react";
 
@@ -1002,6 +1003,7 @@ export default function NovelWorkspace() {
 
   return (
     <div className="wb">
+      <WorkbenchBootProvider>
       {/* 应用栏（行头归一，storyline.html 口径）：logo 即返回 · 书名 · 题材 · 当前主线 · 账户 */}
       <header className="appbar appbar-wb">
         <Link className="logo" to="/novels" title="返回我的小说" data-od-id="appbar-logo">
@@ -1605,6 +1607,7 @@ export default function NovelWorkspace() {
           />
         </>
       )}
+      </WorkbenchBootProvider>
     </div>
   );
 }

@@ -6,6 +6,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { api, errMessage } from "@/lib/api";
 import { toast } from "@/lib/toast";
 import { nodeLabel } from "@/lib/nodeTitle";
+import { DataEnter } from "./DataEnter";
 import type { UseWorkbenchReturn } from "@/hooks/useWorkbench";
 import type { VolumeExpandDraft } from "@/lib/volumePlanApi";
 import { beatOf } from "@/lib/volumePacing";
@@ -337,8 +338,9 @@ export default function VolumeWorkspace({
     detail?.chapters.filter((c) => c.archived).length ?? 0;
 
   return (
-    // data-enter（index.css）：卷视图随选中卷挂载，挂载即轻淡入；卷间切换不重挂不重放
-    <div className="col-panel vol-shell data-enter">
+    // DataEnter（workbench/DataEnter.tsx）：卷视图随选中卷挂载；进书 boot 窗口内
+    // 挂载＝并进 page-enter 单波不淡入，窗口后挂载＝轻淡入；卷间切换不重挂不重放
+    <DataEnter className="col-panel vol-shell">
         {loading ? (
           <p className="desc">卷视图加载中…</p>
         ) : error || !detail ? (
@@ -451,7 +453,7 @@ export default function VolumeWorkspace({
           ).length
         }
       />
-    </div>
+    </DataEnter>
   );
 }
 

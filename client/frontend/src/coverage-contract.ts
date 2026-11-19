@@ -4,6 +4,9 @@
  * 新增交付批时只改这里；目录完整性由契约测试把守（api-config 目录不能漏文件）。
  */
 export const COVERAGE_CONTRACT_FILES = [
+  // 打开书单波直达（boot 闸＋挂载期淡入包装，2026-11-19）：boot 窗口内挂载不播
+  // data-enter 并进 page-enter 单波，翻转不回溯加类（冻结语义）
+  "src/components/novel/workbench/DataEnter.tsx",
   // c-writing-agent（右栏对话写作 agent）＋c-agent-chat-memory（ChatAnywhere 定版：
   // ChatDock/useChatSession 退役——Aui2Dock/CardBody 进账）
   "src/lib/chatApi.ts",
