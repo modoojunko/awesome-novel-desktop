@@ -277,13 +277,27 @@ async def _read_progress(ctx: ToolContext) -> ToolResult:
     fr = info.get("frontier") or {}
     prose = sum(1 for ch in chapters if ch.get("has_prose"))
     archived = sum(1 for ch in chapters if ch.get("archived"))
-    # 人话口径（boss 走查 2026-11-17：「frontier 阶段」这类内部词禁出模型口）
-    state_zh = {"draft": "草稿", "pending": "待写", "confirmed": "章纲已确认", "archived": "已归档"}
-    state = state_zh.get(str(fr.get("state") or ""), "写作中")
-    prose_note = "正文已写" if fr.get("has_prose") else "正文还没写"
+    # 三态真值（c-agent-writing-flow-context）：「草稿」一词掩盖「已写完未归档」与
+    # 「没写」的差异——事故实锤模型据此锚死当前章。人话口径（boss 走查 2026-11-17：
+    # 内部词禁出模型口）。一次调用给全「下一章落点」决策依据。
+    head = f"全书 {len(chapters)} 章（已归档 {archived}、有正文 {prose}）"
+    state = str(fr.get("state") or "")
+    if state == "pending":  # 占位：主线全部归档——frontier 自己就是下一章
+        return ToolResult(
+            ok=True,
+            summary=(
+                f"{head}；各章均已归档，"
+                f"下一章是 第 {fr.get('global_no')} 章（待拆纲，可以开写）"
+            ),
+        )
+    if state == "planned":
+        state_note = "已排定·正文未写·未归档，可以开写"
+    else:  # draft：有正文未归档
+        state_note = f"正文已写 {int(fr.get('word_count') or 0):,} 字·未归档，可以继续写"
+    next_ch = int(fr.get("global_no") or 0) + 1
     summary = (
-        f"全书 {len(chapters)} 章（已归档 {archived}、有正文 {prose}）；"
-        f"当前写到 第 {fr.get('global_no')} 章（{state}，{prose_note}，可以继续写）"
+        f"{head}；当前写到 第 {fr.get('global_no')} 章（{state_note}）；"
+        f"再往后是 第 {next_ch} 章（还没建）"
     )
     return ToolResult(ok=True, summary=summary)
 
@@ -424,7 +438,10 @@ TOOL_REGISTRY: tuple[Tool, ...] = (
         kind="read",
         risk_level="low",
         parameters={"type": "object", "properties": {}},
-        description="读写作进度与当前 frontier 章。",
+        description=(
+            "作家写到哪里了（各章归档/正文进度真值）。"
+            "「下一章／继续写／规划」类请求拿不准落点时先查这个。"
+        ),
         fn=_read_progress,
     ),
     Tool(

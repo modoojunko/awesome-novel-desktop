@@ -795,6 +795,10 @@ export function Aui2Dock({
 
       setStreaming(true);
       onStreamingChange?.(true);
+      // hint 一次性（c-agent-writing-flow-context）：spec 语义＝「tool_hint 随下一次
+      // 发送携带」（assistant-chat-ui）——读走即清，不得随后续消息重放强制执行旧工具。
+      const pendingHint = pendingHintRef.current;
+      pendingHintRef.current = null;
       abortRef.current = streamAssistantChat(
         projectId,
         {
@@ -802,7 +806,7 @@ export function Aui2Dock({
           page,
           thread: threadKeyRef.current,
           focus: scope.chapterRef ? { ref: scope.chapterRef } : undefined,
-          tool_hint: pendingHintRef.current ?? undefined,
+          tool_hint: pendingHint ?? undefined,
         },
         {
           onEvent: (e) => {

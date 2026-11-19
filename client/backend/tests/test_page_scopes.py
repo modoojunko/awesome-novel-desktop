@@ -52,7 +52,10 @@ def test_discipline_per_thread():
     assert discipline_of_thread("ch:prose").startswith("正文纪律")
     assert discipline_of_thread("vol").startswith("卷纲纪律")
     assert discipline_of_thread("set:x").startswith("设定纪律")
-    assert discipline_of_thread("") == ""
+    # 默认域＝仅全局背景段（c-agent-writing-flow-context：背景全域注入，域纪律仍随域）
+    from assistant.scopes import WORKFLOW_BACKGROUND
+
+    assert discipline_of_thread("") == WORKFLOW_BACKGROUND
     from assistant.prompts import build_system_prompt
 
     og_sys = build_system_prompt("身份", "书情", thread="ch:og",
@@ -62,6 +65,25 @@ def test_discipline_per_thread():
     assert "章纲纪律" in og_sys and "章纲纪律" not in prose_sys
     assert "正文纪律" in prose_sys and "人味红线" in prose_sys
     assert "身份" in og_sys  # 共享身份段不变
+
+
+def test_workflow_background_in_every_thread():
+    """写作流程背景段全域注入（c-agent-writing-flow-context）：概念＋能力指针＋判断启发。
+
+    事故实锤（2026-11-19）：模型不知「归档＝本章完结信号」，对已写完未归档的前沿章
+    锚死「下一章」。背景段给概念与 read_progress 指针，行为决策留给模型（boss 拍板：
+    不铸硬闸、不搞窄正则 prime）。"""
+    from assistant.scopes import WORKFLOW_BACKGROUND, discipline_of_thread
+
+    # 关键语义钉：归档＝完结信号；拿不准先查进度——启发式，非强制脚本
+    assert "归档是「这一章完结」的唯一信号" in WORKFLOW_BACKGROUND
+    assert "read_progress" in WORKFLOW_BACKGROUND
+    assert "拿不准就先调 read_progress" in WORKFLOW_BACKGROUND
+    # 全域可及（含默认域）：写作流程是书级背景，不随页签缺席
+    for t in ("ch:og", "ch:prose", "vol", "set:x", "preview", ""):
+        assert "写作流程背景" in discipline_of_thread(t), t
+    # 字节稳定：常量单源，重复拼装不漂移
+    assert discipline_of_thread("ch:og").count("写作流程背景") == 1
 
 
 class _ScriptedClient:

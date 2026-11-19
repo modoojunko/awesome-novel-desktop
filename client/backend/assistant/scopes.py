@@ -206,12 +206,28 @@ PAGE_DISCIPLINE: dict[str, str] = {
 }
 
 
+# 写作流程背景（c-agent-writing-flow-context）：书级全局背景段——概念＋能力指针＋
+# 判断启发，不是行为脚本（boss 拍板 2026-11-19：模型自主判断查不查进度，不铸硬闸、
+# 不搞窄正则 prime）。静态字节稳定（前缀缓存判例 write/router.py:191-193）；
+# 尾拼注入，提示词包在位与否都生效。
+WORKFLOW_BACKGROUND = (
+    "写作流程背景：一章的生命周期＝拆方向→确认章纲→写正文→归档；"
+    "归档是「这一章完结」的唯一信号，未归档的章都算进行中。"
+    "作家说「下一章／继续／规划」时，落点取决于前沿章的进度与作家意图："
+    "前沿章已写完未归档时，作家多半指再下一根，也可能还没打算归档——"
+    "拿不准就先调 read_progress 对齐进度真值，再决定接话、还是先提醒作家把当前章收尾。"
+)
+
+
 def discipline_of_thread(thread: str) -> str:
     """本线程的域纪律分节（默认域＝空串——只走共享读，无专属纪律）。
     章节7页签统一追加导航纪律（c-agent-nav 走查补刀）：flash 长历史会话里
-    学旧话术不调工具（实测服从 2/4）——切页签必须真调 switch_tab。"""
+    学旧话术不调工具（实测服从 2/4）——切页签必须真调 switch_tab。
+    书级全局追加写作流程背景（c-agent-writing-flow-context）：事故实锤模型不知
+    「归档＝完结信号」而锚死当前章——给背景与真值，行为决策留给模型。"""
     domain = domain_of_thread(thread)
     text = PAGE_DISCIPLINE.get(domain, "")
+    text = f"{text}\n{WORKFLOW_BACKGROUND}" if text else WORKFLOW_BACKGROUND
     if (thread or "").strip().startswith("ch:"):
         nav = (
             "页签切换：作家想看别的页签（章纲/正文/设定/角色关系/伏笔/操作/文风）时，"
