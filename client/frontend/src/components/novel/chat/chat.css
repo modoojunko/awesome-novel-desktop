@@ -603,45 +603,13 @@
 /* hover 元信息：时间戳（openwriter BubbleMeta 同款） */
 .cd-copy-time { color: var(--muted); opacity: .8; }
 
-/* 授权模式芯片（ZCode composer 同款，boss 拍板 2026-11-15）：当前档常显＋上拉菜单 */
-.cd-mode-anchor { position: relative; display: grid; place-items: center; }
+/* 授权模式选择器（c-agent-page-ops）：两层档位 pill 进输入框底栏（ZCode 同位） */
+
 .chatdock-sub-row {
   display: flex; align-items: center; justify-content: space-between;
   width: 100%; padding: 0 12px 8px;
 }
-.cd-mode-chip {
-  display: inline-flex; align-items: center; gap: 4px;
-  border: 0; background: none; cursor: pointer;
-  font-size: 11px; font-weight: 600; color: var(--accent);
-  padding: 3px 6px; border-radius: 8px; white-space: nowrap;
-}
-.cd-mode-head .cd-mode-chip { padding: 2px 4px; }
-.cd-mode-chip:hover { background: var(--accent-soft, rgba(15, 107, 88, .1)); }
-.cd-mode-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--accent); }
-.cd-mode-caret { font-size: 9px; opacity: .7; }
-.cd-mode-pop {
-  position: absolute; right: 0; top: calc(100% + 8px);
-  min-width: 190px; padding: 8px;
-  background: var(--surface, #fff);
-  border: 1px solid var(--border); border-radius: 12px;
-  box-shadow: 0 16px 34px -22px rgba(0, 0, 0, .42), 0 2px 6px rgba(0, 0, 0, .06);
-  z-index: 30;
-}
-.cd-mode-pop::after {
-  content: ""; position: absolute; right: 12px; top: -5px;
-  width: 9px; height: 9px; background: var(--surface, #fff);
-  border-right: 1px solid var(--border); border-bottom: 1px solid var(--border);
-  transform: rotate(225deg);
-}
 .cd-mode-head { margin: 2px 6px 6px; font-size: 10.5px; color: var(--muted); }
-.cd-mode-item {
-  display: flex; align-items: center; gap: 6px; width: 100%;
-  border: 0; background: none; cursor: pointer; text-align: left;
-  font-size: 12.5px; color: var(--fg); padding: 6px 8px; border-radius: 8px;
-}
-.cd-mode-item:hover { background: rgba(0, 0, 0, .05); }
-.cd-mode-item.on { color: var(--accent); font-weight: 600; }
-.cd-mode-check { width: 12px; flex: none; text-align: center; font-size: 11px; }
 
 /* 设定字段 AI 卡（value/result 结构化） */
 .cd-settings { white-space: pre-wrap; font-size: 12.5px; line-height: 1.7; word-break: break-word; }
@@ -845,3 +813,30 @@ aside.col-ai:not(.as-drawer) {
   font-size: 12px;
   padding: 4px 10px;
 }
+
+/* ── 授权模式选择器（c-agent-page-ops）：输入框底栏 pill＋向上弹两档 ── */
+.cd-authwrap { position: relative; }
+.cd-auth-pill {
+  display: inline-flex; align-items: center; gap: 6px;
+  padding: 4px 10px; border: none; background: transparent;
+  border-radius: 999px; font-size: 12px; color: #4a5a4d; cursor: pointer;
+}
+.cd-auth-pill:hover { background: rgba(0, 0, 0, 0.06); }
+.cd-auth-ico { font-size: 13px; line-height: 1; }
+.cd-auth-caret { font-size: 10px; opacity: 0.7; }
+.cd-auth-menu {
+  position: absolute; bottom: calc(100% + 8px); left: 0; width: 300px;
+  background: #fff; border: 1px solid rgba(0, 0, 0, 0.1); border-radius: 12px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.14); padding: 6px; z-index: 60;
+}
+.cd-auth-item {
+  display: flex; gap: 10px; width: 100%; text-align: left;
+  padding: 8px 10px; border: none; background: transparent;
+  border-radius: 8px; cursor: pointer; align-items: flex-start;
+}
+.cd-auth-item:hover { background: rgba(0, 0, 0, 0.05); }
+.cd-auth-item.on { background: rgba(16, 107, 82, 0.09); }
+.cd-auth-main { display: flex; flex-direction: column; gap: 2px; }
+.cd-auth-label { font-size: 13px; color: #23302a; }
+.cd-auth-item.on .cd-auth-label { font-weight: 600; color: #0f6b52; }
+.cd-auth-desc { font-size: 11px; color: #8a948c; line-height: 1.4; }
