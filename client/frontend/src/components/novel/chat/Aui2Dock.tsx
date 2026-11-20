@@ -18,6 +18,7 @@ import {
   type ReactNode,
 } from "react";
 import { useNavigate } from "react-router-dom";
+import { createPortal } from "react-dom";
 import {
   writeBackCharacter,
   writeBackSettingsField,
@@ -495,6 +496,9 @@ export function Aui2Dock({
   const tierRef = useRef<Tier>("confirm_each");
   const [authOpen, setAuthOpen] = useState(false); // 授权菜单展开态（输入框底栏 pill）
   const authWrapRef = useRef<HTMLDivElement | null>(null);
+  const authMenuRef = useRef<HTMLDivElement | null>(null);
+  // 弹层落点（portal 到 body：sender-content 有 overflow:hidden，内联绝对定位会被裁切）
+  const [authMenuPos, setAuthMenuPos] = useState<{ left: number; bottom: number } | null>(null);
   /** 流式中止（本地兜底 abort——主路径是 stop 端点协同取消，保收口回执落库） */
   const abortRef = useRef<(() => void) | null>(null);
   /** agent 写操作 effects 缓存（run_end 携带，onDone 时回调宿主） */
@@ -843,17 +847,22 @@ export function Aui2Dock({
   useEffect(() => {
     if (!authOpen) return;
     const onDown = (e: MouseEvent) => {
-      if (authWrapRef.current?.contains(e.target as Node)) return;
+      const t = e.target as Node;
+      if (authWrapRef.current?.contains(t)) return;
+      if (authMenuRef.current?.contains(t)) return; // portal 菜单在 body 下，须单独守护
       setAuthOpen(false);
     };
+    const onResize = () => setAuthOpen(false); // 落点按打开时坐标算——窗口变化即收
     const onKey = (e: KeyboardEvent) => {
       if (e.key === "Escape") setAuthOpen(false);
     };
     document.addEventListener("mousedown", onDown);
     document.addEventListener("keydown", onKey);
+    window.addEventListener("resize", onResize);
     return () => {
       document.removeEventListener("mousedown", onDown);
       document.removeEventListener("keydown", onKey);
+      window.removeEventListener("resize", onResize);
     };
   }, [authOpen]);
 
@@ -1265,8 +1274,20 @@ export function Aui2Dock({
                     data-testid="aui2-auth-pill"
                     aria-haspopup="menu"
                     aria-expanded={authOpen}
-                    title="授权模式：AI 写回前要不要先问你"
-                    onClick={() => setAuthOpen((v) => !v)}
+                    aria-label="授权模式"
+                    onClick={() => {
+                      if (authOpen) {
+                        setAuthOpen(false);
+                        return;
+                      }
+                      const r = authWrapRef.current?.getBoundingClientRect();
+                      if (!r) return;
+                      setAuthMenuPos({
+                        left: r.left,
+                        bottom: window.innerHeight - r.top + 8,
+                      });
+                      setAuthOpen(true);
+                    }}
                   >
                     <span className="cd-auth-ico" aria-hidden>
                       {tier === "allow_book" ? "⚡" : "🛡️"}
@@ -1276,40 +1297,6 @@ export function Aui2Dock({
                       ▾
                     </span>
                   </button>
-                  {authOpen && (
-                    <div
-                      className="cd-auth-menu"
-                      role="menu"
-                      data-testid="aui2-auth-menu"
-                    >
-                      {AUTH_OPTIONS.map((o) => (
-                        <button
-                          key={o.value}
-                          type="button"
-                          role="menuitemradio"
-                          aria-checked={tier === o.value}
-                          className={`cd-auth-item${tier === o.value ? " on" : ""}`}
-                          data-testid={`aui2-auth-item-${o.value}`}
-                          title={o.tooltip}
-                          onClick={() => {
-                            switchTier(o.value as Tier);
-                            setAuthOpen(false);
-                          }}
-                        >
-                          <span className="cd-auth-ico" aria-hidden>
-                            {o.icon}
-                          </span>
-                          <span className="cd-auth-main">
-                            <span className="cd-auth-label">
-                              {o.label}
-                              {tier === o.value ? " ✓" : ""}
-                            </span>
-                            <span className="cd-auth-desc">{o.tooltip}</span>
-                          </span>
-                        </button>
-                      ))}
-                    </div>
-                  )}
                 </div>
               ),
             }}
@@ -1320,6 +1307,44 @@ export function Aui2Dock({
           />
         </DockCtx.Provider>
       </ConfigProvider>
+      {authOpen &&
+        authMenuPos &&
+        createPortal(
+          <div
+            className="cd-auth-menu"
+            role="menu"
+            data-testid="aui2-auth-menu"
+            ref={authMenuRef}
+            style={{ left: authMenuPos.left, bottom: authMenuPos.bottom }}
+          >
+            {AUTH_OPTIONS.map((o) => (
+              <button
+                key={o.value}
+                type="button"
+                role="menuitemradio"
+                aria-checked={tier === o.value}
+                className={`cd-auth-item${tier === o.value ? " on" : ""}`}
+                data-testid={`aui2-auth-item-${o.value}`}
+                onClick={() => {
+                  switchTier(o.value as Tier);
+                  setAuthOpen(false);
+                }}
+              >
+                <span className="cd-auth-ico" aria-hidden>
+                  {o.icon}
+                </span>
+                <span className="cd-auth-main">
+                  <span className="cd-auth-label">
+                    {o.label}
+                    {tier === o.value ? " ✓" : ""}
+                  </span>
+                  <span className="cd-auth-desc">{o.tooltip}</span>
+                </span>
+              </button>
+            ))}
+          </div>,
+          document.body,
+        )}
     </div>
   );
 }
