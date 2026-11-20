@@ -263,6 +263,56 @@ async def _sync_with_logging() -> None:
         logger.info("event=kb_baseline_sync %s", json.dumps(result, ensure_ascii=False))
 
 
+# ── 会话内周期复查（c-kb-baseline-periodic-recheck）────────────────────
+# 桌面应用常驻时不必等下次启动才吃到 CDN 新版：启动补偿之外按小时复查。
+# 复用 sync_baseline() 的 _syncing 单飞与 KB_BASELINE_SYNC=0 测试闸；静默不弹窗。
+# 失败缩短到分钟级重试（启动期网络抖动/代理环境常见），成功或跳过后回常规周期。
+RECHECK_INTERVAL = 3600.0
+RECHECK_RETRY_INTERVAL = 300.0
+
+_recheck_task = None  # 持引用防 GC；同进程只挂一个
+
+
+def _next_recheck_delay(result: dict) -> float:
+    """失败＝短间隔重试；其余（synced/current/skipped）＝常规周期。"""
+    return RECHECK_RETRY_INTERVAL if result.get("status") == "failed" else RECHECK_INTERVAL
+
+
+def schedule_periodic_recheck() -> None:
+    """启动挂接：会话内周期复查（`KB_BASELINE_SYNC=0` 与启动补偿同闸）。"""
+    import asyncio
+    import os
+
+    global _recheck_task
+
+    if (os.environ.get("KB_BASELINE_SYNC") or "").strip() == "0":
+        return
+    try:
+        loop = asyncio.get_running_loop()
+    except RuntimeError:
+        return
+    if _recheck_task is not None and not _recheck_task.done():
+        return
+    _recheck_task = loop.create_task(_recheck_loop())
+
+
+async def _recheck_loop() -> None:
+    import asyncio
+
+    # 首跳用短间隔：给启动补偿留收尾时间，启动同步失败也能在分钟级兜住；
+    # 之后按结果回到常规周期或失败重试间隔。
+    delay = RECHECK_RETRY_INTERVAL
+    while True:
+        await asyncio.sleep(delay)
+        result = await sync_baseline()
+        # current 每小时刷一行没有信息量；只在真正同步/失败时留痕
+        if result.get("status") in ("synced", "failed"):
+            logger.info(
+                "event=kb_baseline_recheck %s", json.dumps(result, ensure_ascii=False)
+            )
+        delay = _next_recheck_delay(result)
+
+
 def maybe_sync() -> None:
     """登录/校验成功钩子（照 prompt_pack.maybe_after_auth 同构）：缺层才补、已装零外呼。
 

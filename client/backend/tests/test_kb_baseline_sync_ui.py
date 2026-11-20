@@ -216,6 +216,102 @@ def test_maybe_sync_测试闸_短路(sync_env, monkeypatch):
     assert _CDN.hits == [] and _layer_count() == 0
 
 
+# ─── 会话内周期复查（c-kb-baseline-periodic-recheck） ──────────────────
+
+
+def test_周期复查_失败缩短间隔其余常规(sync_env):
+    assert sync_env._next_recheck_delay({"status": "failed"}) == sync_env.RECHECK_RETRY_INTERVAL
+    for status in ("synced", "current", "skipped"):
+        assert sync_env._next_recheck_delay({"status": status}) == sync_env.RECHECK_INTERVAL
+
+
+def test_周期复查_测试闸短路不挂任务(sync_env, monkeypatch):
+    monkeypatch.setenv("KB_BASELINE_SYNC", "0")
+    monkeypatch.setattr(sync_env, "_recheck_task", None)
+
+    async def _go():
+        sync_env.schedule_periodic_recheck()
+        assert sync_env._recheck_task is None
+
+    asyncio.run(_go())
+
+
+def test_周期复查_重复挂接单实例(sync_env, monkeypatch):
+    monkeypatch.setenv("KB_BASELINE_SYNC", "1")
+    monkeypatch.setattr(sync_env, "_recheck_task", None)
+
+    async def _go():
+        sync_env.schedule_periodic_recheck()
+        first = sync_env._recheck_task
+        assert first is not None
+        sync_env.schedule_periodic_recheck()
+        assert sync_env._recheck_task is first  # 不叠加第二个任务
+        first.cancel()
+
+    asyncio.run(_go())
+
+
+def test_周期复查_到点自动同步新版(sync_env, monkeypatch):
+    """常驻期间无需重启/开知识库页：到点自己把 CDN 新版落层。"""
+    monkeypatch.setenv("KB_BASELINE_SYNC", "1")
+    monkeypatch.setattr(sync_env, "_recheck_task", None)
+    monkeypatch.setattr(sync_env, "RECHECK_INTERVAL", 0.05)
+    monkeypatch.setattr(sync_env, "RECHECK_RETRY_INTERVAL", 0.05)
+    _sync(sync_env, 1, [_entry("baseline:玄幻:a")])
+    _publish(2, [_entry("baseline:玄幻:a"), _entry("baseline:玄幻:b")])
+
+    async def _go():
+        async def _count():
+            async with async_session() as db:
+                return len((await db.execute(sel(KbBaselineEntry))).scalars().all())
+
+        sync_env.schedule_periodic_recheck()
+        for _ in range(80):
+            await asyncio.sleep(0.02)
+            if await _count() == 2:
+                break
+        sync_env._recheck_task.cancel()
+        assert await _count() == 2
+
+    asyncio.run(_go())
+
+
+def test_周期复查_失败保持旧层并继续重试(sync_env, monkeypatch):
+    monkeypatch.setenv("KB_BASELINE_SYNC", "1")
+    monkeypatch.setattr(sync_env, "_recheck_task", None)
+    monkeypatch.setattr(sync_env, "RECHECK_INTERVAL", 0.05)
+    monkeypatch.setattr(sync_env, "RECHECK_RETRY_INTERVAL", 0.05)
+    _sync(sync_env, 1, [_entry("baseline:玄幻:a")])
+    _CDN.latest = None  # 下一跳必失败
+
+    async def _go():
+        async def _count():
+            async with async_session() as db:
+                return len((await db.execute(sel(KbBaselineEntry))).scalars().all())
+
+        sync_env.schedule_periodic_recheck()
+        await asyncio.sleep(0.12)  # 至少一跳失败
+        assert await _count() == 1  # 失败保持旧层
+        _publish(2, [_entry("baseline:玄幻:a"), _entry("baseline:玄幻:b")])
+        for _ in range(80):
+            await asyncio.sleep(0.02)
+            if await _count() == 2:
+                break
+        sync_env._recheck_task.cancel()
+        assert await _count() == 2  # 短间隔重试把新版追了回来
+
+    asyncio.run(_go())
+
+
+def test_lifespan_挂载周期复查():
+    """源级钉（轻量）：启动补偿之后并排挂会话内周期复查。"""
+    from pathlib import Path
+
+    src = (Path(__file__).resolve().parents[1] / "main.py").read_text(encoding="utf-8")
+    assert "from kb.baseline import schedule_periodic_recheck" in src
+    assert src.index("schedule_sync()") < src.index("schedule_periodic_recheck()")
+
+
 # ─── 登录钩子挂点（源级钉：挂载在 browser_auth 成功段） ────────────────
 
 

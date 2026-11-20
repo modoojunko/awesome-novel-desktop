@@ -39,6 +39,23 @@ export default function KnowledgeSyncModal() {
     setStage("running");
     try {
       const r = await kbApi.baselineSync();
+      if (r.status === "skipped") {
+        // 跳过不是成功（后台同步在途/格式代际不兼容/已撤回）：按原因说人话，
+        // 记版本锚防同版反复弹，然后关窗——不能落到「已更新」态谎报。
+        const note =
+          r.reason === "syncing"
+            ? "后台正在更新，稍后会自动完成。"
+            : r.reason === "format_newer"
+              ? "这份知识要用新版客户端才能装上；本机的官方知识保持现状。"
+              : "这次没有可更新的内容。";
+        toast.info(note);
+        writeKbUpdateDismissed(toVersion);
+        // 先退 running 再关窗：退出动画期若收到新的开启事件，running 守卫不会把它吞掉
+        setStage("idle");
+        setOpen(false);
+        finishDialog("kb-sync");
+        return;
+      }
       const version = r.version ?? toVersion;
       if (r.status === "failed") {
         setFailReason(r.reason ?? "");
