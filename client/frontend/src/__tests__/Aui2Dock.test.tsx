@@ -68,49 +68,48 @@ beforeEach(() => {
   chatApiState.approveGate.mockResolvedValue({ ok: true });
 });
 
-describe("Aui2Dock 授权模式选择器（两层；输入框区 ModeSelect）", () => {
-  /** ModeSelect 选项行常驻 DOM（CSS 收起）——按类名＋文案定位选项 pill */
-  function optionEl(text: string): HTMLElement {
+describe("Aui2Dock 授权模式选择器（两层；输入框底栏 pill）", () => {
+  /** 弹层条目（authOpen 时渲染）——按 testid 定位 */
+  function menuItem(text: string): HTMLElement {
     const els = Array.from(
-      document.querySelectorAll<HTMLElement>("[class*='sender-mode-select-option']"),
-    ).filter((el) => !el.className.includes("options")); // 排除容器（容器无 onClick）
+      document.querySelectorAll("[data-testid^='aui2-auth-item-']"),
+    ) as HTMLElement[];
     const hit = els.find((el) => el.textContent?.includes(text));
-    if (!hit) throw new Error(`选项不存在：${text}`);
+    if (!hit) throw new Error(`授权选项不存在：${text}`);
     return hit;
   }
-  function displayLabel(): string {
-    return (
-      document.querySelector("[class*='sender-mode-select-display-label']")?.textContent ?? ""
-    );
+  function pill(): HTMLElement {
+    return screen.getByTestId("aui2-auth-pill");
   }
 
-  it("常显当前档位；点选项切档调 setPermissionTier（allow_all 存量映射为自动档）", async () => {
+  it("pill 常显当前档位（allow_all 存量映射为自动档）；点开弹层选确认档", async () => {
     chatApiState.loadAssistantSession.mockResolvedValue(sess([], { tier: "allow_all" }));
     render(<Aui2Dock projectId="p1" page="工作台 · 卷纲" scope={SCOPE} />);
     await screen.findByTestId("aui2-authbar");
-    // 存量 allow_all 映射为自动档显示（会话装载异步——放宽等待窗）
-    await waitFor(() => expect(displayLabel()).toContain("自动执行·本书内"), { timeout: 3000 });
-    // 点确认档选项 → 两层切档落 setPermissionTier
-    fireEvent.click(optionEl("每写必确认"));
+    // 存量 allow_all 映射为自动档显示
+    await waitFor(() => expect(pill().textContent).toContain("自动执行·本书内"), { timeout: 3000 });
+    // 点开弹层 → 选确认档
+    fireEvent.click(pill());
+    fireEvent.click(menuItem("每写必确认"));
     await waitFor(
       () => expect(chatApiState.setPermissionTier).toHaveBeenCalledWith("p1", "confirm_each"),
       { timeout: 3000 },
     );
-    await waitFor(() => expect(displayLabel()).toContain("每写必确认"), { timeout: 3000 });
+    await waitFor(() => expect(pill().textContent).toContain("每写必确认"), { timeout: 3000 });
   });
 
-  it("切档失败回滚到上一档（显示态还原）", async () => {
+  it("切档失败回滚到上一档（pill 还原）", async () => {
     chatApiState.setPermissionTier.mockRejectedValue(new Error("网络挂了"));
     render(<Aui2Dock projectId="p1" page="工作台 · 卷纲" scope={SCOPE} />);
     await screen.findByTestId("aui2-authbar");
-    await waitFor(() => expect(displayLabel()).toContain("每写必确认"), { timeout: 3000 });
-    fireEvent.click(optionEl("自动执行·本书内"));
+    await waitFor(() => expect(pill().textContent).toContain("每写必确认"), { timeout: 3000 });
+    fireEvent.click(pill());
+    fireEvent.click(menuItem("自动执行·本书内"));
     await waitFor(() => expect(chatApiState.setPermissionTier).toHaveBeenCalled(), { timeout: 3000 });
-    // 失败回滚：显示态还原确认档
-    await waitFor(() => expect(displayLabel()).toContain("每写必确认"), { timeout: 3000 });
+    // 失败回滚：pill 还原确认档
+    await waitFor(() => expect(pill().textContent).toContain("每写必确认"), { timeout: 3000 });
   });
 });
-
 describe("Aui2Dock 历史装载与折叠", () => {
   it("user/assistant 行渲染；连续工具行折叠为一条 trace 卡；页面变化插切换标记", async () => {
     chatApiState.loadAssistantSession.mockResolvedValue(

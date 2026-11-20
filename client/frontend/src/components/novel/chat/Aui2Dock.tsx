@@ -26,16 +26,6 @@ import {
 } from "@/lib/dockWriteBack";
 import { ConfigProvider } from "@agentscope-ai/design";
 import { ChatAnywhere, uuid } from "@agentscope-ai/chat";
-import { Sender } from "@agentscope-ai/chat";
-// 库自带模式选择器（Sender.ModeSelect 挂件）：OpenWorker Composer 权限选择器的阿里实现
-const ModeSelect = Sender.ModeSelect as unknown as React.ComponentType<{
-  options: { value: string; icon?: ReactNode; label?: ReactNode; selectedLabel?: ReactNode; tooltip?: ReactNode }[];
-  value: string;
-  desc?: ReactNode;
-  closeTip?: ReactNode;
-  style?: React.CSSProperties;
-  onChange: (value: string) => void;
-}>;
 import type { ChatAnywhereRef } from "@agentscope-ai/chat";
 import { threadKeyOf, matchRegistration, type ChatPageScope } from "@/lib/chatRegistry";
 import type { FeatureKey } from "@/lib/features";
@@ -503,7 +493,8 @@ export function Aui2Dock({
   /** 授权档位芯片（会话级 grants；切换即时生效＋持久化，失败回滚上一档） */
   const [tier, setTierState] = useState<Tier>("confirm_each");
   const tierRef = useRef<Tier>("confirm_each");
-  const [authOpen, setAuthOpen] = useState(false); // ModeSelect 展开选项行（✕＝展开）
+  const [authOpen, setAuthOpen] = useState(false); // 授权菜单展开态（输入框底栏 pill）
+  const authWrapRef = useRef<HTMLDivElement | null>(null);
   /** 流式中止（本地兜底 abort——主路径是 stop 端点协同取消，保收口回执落库） */
   const abortRef = useRef<(() => void) | null>(null);
   /** agent 写操作 effects 缓存（run_end 携带，onDone 时回调宿主） */
@@ -852,8 +843,7 @@ export function Aui2Dock({
   useEffect(() => {
     if (!authOpen) return;
     const onDown = (e: MouseEvent) => {
-      const bar = document.querySelector("[data-testid='aui2-authbar']");
-      if (bar?.contains(e.target as Node)) return;
+      if (authWrapRef.current?.contains(e.target as Node)) return;
       setAuthOpen(false);
     };
     const onKey = (e: KeyboardEvent) => {
@@ -1257,28 +1247,72 @@ export function Aui2Dock({
               </span>
             </div>
           )}
-          {/* 授权模式选择器进输入框区（c-agent-page-ops；OpenWorker Composer
-              权限选择器形态，阿里件＝Sender/ModeSelect）：显示态＝当前档名，
-              ✕ 展开选项行，选完回显示态。 */}
-          <div className="cd-authbar" data-testid="aui2-authbar">
-            <ModeSelect
-              options={AUTH_OPTIONS}
-              value={authOpen ? "" : tier}
-              desc="授权模式"
-              closeTip="切换授权模式"
-              onChange={(v) => {
-                if (!v) {
-                  setAuthOpen(true);
-                  return;
-                }
-                setAuthOpen(false);
-                switchTier(v as Tier);
-              }}
-            />
-          </div>
           <ChatAnywhere
             ref={apiRef}
-            onInput={{ onSubmit }}
+            onInput={{
+              onSubmit,
+              // 授权模式选择器进输入框底栏（c-agent-page-ops review 整改：ZCode
+              // 位置——pill 命名当前档，点开向上弹两档；写改照授权策略过闸）
+              footer: (
+                <div
+                  className="cd-authwrap"
+                  ref={authWrapRef}
+                  data-testid="aui2-authbar"
+                >
+                  <button
+                    type="button"
+                    className="cd-auth-pill"
+                    data-testid="aui2-auth-pill"
+                    aria-haspopup="menu"
+                    aria-expanded={authOpen}
+                    title="授权模式：AI 写回前要不要先问你"
+                    onClick={() => setAuthOpen((v) => !v)}
+                  >
+                    <span className="cd-auth-ico" aria-hidden>
+                      {tier === "allow_book" ? "⚡" : "🛡️"}
+                    </span>
+                    {TIER_LABEL[tier] ?? tier}
+                    <span className="cd-auth-caret" aria-hidden>
+                      ▾
+                    </span>
+                  </button>
+                  {authOpen && (
+                    <div
+                      className="cd-auth-menu"
+                      role="menu"
+                      data-testid="aui2-auth-menu"
+                    >
+                      {AUTH_OPTIONS.map((o) => (
+                        <button
+                          key={o.value}
+                          type="button"
+                          role="menuitemradio"
+                          aria-checked={tier === o.value}
+                          className={`cd-auth-item${tier === o.value ? " on" : ""}`}
+                          data-testid={`aui2-auth-item-${o.value}`}
+                          title={o.tooltip}
+                          onClick={() => {
+                            switchTier(o.value as Tier);
+                            setAuthOpen(false);
+                          }}
+                        >
+                          <span className="cd-auth-ico" aria-hidden>
+                            {o.icon}
+                          </span>
+                          <span className="cd-auth-main">
+                            <span className="cd-auth-label">
+                              {o.label}
+                              {tier === o.value ? " ✓" : ""}
+                            </span>
+                            <span className="cd-auth-desc">{o.tooltip}</span>
+                          </span>
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              ),
+            }}
             onUpload={[]}
             uiConfig={{ quickInput: [] }}
             cardConfig={CARD_REGISTRY}
