@@ -824,10 +824,12 @@ aside.col-ai:not(.as-drawer) {
 .cd-auth-pill:hover { background: rgba(0, 0, 0, 0.06); }
 .cd-auth-ico { font-size: 13px; line-height: 1; }
 .cd-auth-caret { font-size: 10px; opacity: 0.7; }
+/* 弹层 portal 到 body（sender-content 有 overflow:hidden，内联绝对定位会被裁切）：
+   坐标由打开时 pill 的 getBoundingClientRect 算出（fixed） */
 .cd-auth-menu {
-  position: absolute; bottom: calc(100% + 8px); left: 0; width: 300px;
+  position: fixed; width: 300px;
   background: #fff; border: 1px solid rgba(0, 0, 0, 0.1); border-radius: 12px;
-  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.14); padding: 6px; z-index: 60;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.14); padding: 6px; z-index: 1000;
 }
 .cd-auth-item {
   display: flex; gap: 10px; width: 100%; text-align: left;
