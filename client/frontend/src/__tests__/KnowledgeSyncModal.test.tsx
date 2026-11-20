@@ -113,6 +113,55 @@ describe("KnowledgeSyncModal（c-kb-baseline-update-ux）", () => {
   });
 });
 
+describe("同步跳过结果诚实反馈（c-kb-baseline-periodic-recheck）", () => {
+  beforeEach(() => {
+    window.localStorage.removeItem("kb-sync-dismissed");
+    toastState.info.mockClear();
+    toastState.success.mockClear();
+  });
+  afterEach(cleanup);
+
+  it("后台同步在途（skipped/syncing）：不谎报成功，info 说明＋关窗＋记版本锚", async () => {
+    syncMock.mockResolvedValue({ status: "skipped", reason: "syncing" });
+    render(<KnowledgeSyncModal />);
+    openKbSync({ mode: "update", from: 3, to: 4 });
+    fireEvent.click(screen.getByTestId("kb-sync-confirm"));
+    await waitFor(() =>
+      expect(toastState.info).toHaveBeenCalledWith("后台正在更新，稍后会自动完成。"),
+    );
+    expect(toastState.success).not.toHaveBeenCalled();
+    expect(screen.queryByTestId("kb-sync-done")).toBeNull();
+    expect(readKbDismissal().updateVersion).toBe("4");
+    await waitFor(() => expect(screen.queryByText("官方知识有更新")).toBeNull());
+  });
+
+  it("格式代际不兼容（skipped/format_newer）：说明需要新版客户端，不谎报成功", async () => {
+    syncMock.mockResolvedValue({ status: "skipped", reason: "format_newer" });
+    render(<KnowledgeSyncModal />);
+    openKbSync({ mode: "update", from: 3, to: 4 });
+    fireEvent.click(screen.getByTestId("kb-sync-confirm"));
+    await waitFor(() =>
+      expect(toastState.info).toHaveBeenCalledWith(
+        "这份知识要用新版客户端才能装上；本机的官方知识保持现状。",
+      ),
+    );
+    expect(toastState.success).not.toHaveBeenCalled();
+    expect(screen.queryByTestId("kb-sync-done")).toBeNull();
+    expect(readKbDismissal().updateVersion).toBe("4");
+  });
+
+  it("其他跳过原因：给「没有可更新的内容」，不落到成功态", async () => {
+    syncMock.mockResolvedValue({ status: "skipped", reason: "retired" });
+    render(<KnowledgeSyncModal />);
+    openKbSync({ mode: "update", from: 3, to: 4 });
+    fireEvent.click(screen.getByTestId("kb-sync-confirm"));
+    await waitFor(() =>
+      expect(toastState.info).toHaveBeenCalledWith("这次没有可更新的内容。"),
+    );
+    expect(toastState.success).not.toHaveBeenCalled();
+  });
+});
+
 describe("失败原因细分（c-proxy-fakeip-compat）", () => {
   it("reason=proxy_fake_ip：失败态给代理 TUN 指路文案", async () => {
     syncMock.mockResolvedValue({ status: "failed", reason: "proxy_fake_ip" });

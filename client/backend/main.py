@@ -296,6 +296,15 @@ async def lifespan(app: FastAPI):
     except Exception as _e:  # noqa: BLE001 — 挂接失败不挡启动
         _log.warning("kb baseline sync schedule failed: %s", _e)
 
+    # ── 基线知识包会话内周期复查（c-kb-baseline-periodic-recheck）：常驻应用
+    #    不必等下次启动才吃到 CDN 新版；静默，失败分钟级重试，同测试闸 ──
+    try:
+        from kb.baseline import schedule_periodic_recheck
+
+        schedule_periodic_recheck()
+    except Exception as _e:  # noqa: BLE001 — 挂接失败不挡启动
+        _log.warning("kb baseline periodic recheck schedule failed: %s", _e)
+
     # ── 知识树同步（c-kb-tree-cdn）：树是 CDN 数据不是包内资产——启动补偿拉
     #    knowledge/tree；KB_TREE_SYNC=0 关；失败静默（空树＝总结/提炼明确不可用） ──
     try:
