@@ -725,11 +725,17 @@ jobs:
       # 清理失败不阻塞发版（发布已成功，下个版本自动重试）。本步骤不设 if: always()——
       # 发布或校验失败时旧版本目录是当时唯一可下载来源，绝不能先删后建。
       - name: Prune old hosting versions (keep last 2)
-        # 2026-10-31 实证（v0.44.2/v0.44.3）：旧版本目录各 ~70-100MB，`tcb hosting delete --dir`
-        # 既无确认跳过也无超时，两次都在这步挂 70+ 分钟、一个目录都没删掉，最后只能人工取消 run。
-        # 这里给单条删除与整步各加一层上界：单条超时按失败处理（走既有 warning 分支，不判红），
-        # 整步超时兜底 15 分钟；发布产物与指针早已在更早的步骤落定，清理失败不影响发布。
+        # 2026-11-20 根修（连续五版收尾红）：原实现「按 tag 全量试删」——仓库有 69 个
+        # v* tag，其中真实存在托管目录的只有个位数，但每个不存在目录也要付一次 CLI
+        # 冷启动＋API 往返（CI 实测 15–30s/次）；67 项 ≈ 20+ 分钟，必然撞上步超时
+        # （v0.48.1 撞 15 分钟步限、v0.48.0 撞 60 分钟 job 限）→ 收尾把整个发版 run
+        # 标红，而发布产物与指针早在更早步骤就落定了。
+        # 改为「先拉一次清单，再按真实目录删」：`tcb hosting list download --json`
+        # 一次拿到全部 key，与待删 tag 集合求交，迭代数＝真实目录数（秒级完成）。
+        # 另加 --yes（CI 无 TTY 免确认）与整步 continue-on-error：清理永远不连坐
+        # 发版（这是本步原本就声明的语义，此前被步超时打破）。
         timeout-minutes: 15
+        continue-on-error: true
         env:
           TCB_API_KEY: ${{ secrets.TCB_API_KEY }}
           TCB_ENV_ID: ${{ vars.TCB_ENV_ID }}
@@ -740,8 +746,7 @@ jobs:
           # 指针保护集：生产/灰度 latest.json 各自指向的版本目录不可删（2026-11-09 v0.44.4
           # 实挂的根修）。fail-closed：任一指针取不到（网络失败/HTTP 非 2xx/JSON 无 version
           # 键）→ 本轮清理整体跳过（warning＋exit 0，下个版本自动重试）——清理可重试，误删
-          # 不可逆；两份指针取齐才准进删除循环。不做「部分保护」：staging 指针今天恰好恒等
-          # 最新 tag 是巧合不是契约。
+          # 不可逆；两份指针取齐才准进删除循环。
           PROTECT_MISS=""
           curl -sf "https://www.awesomenovel.com/download/latest.json?cb=$RANDOM" -o /tmp/prod-latest.json || PROTECT_MISS=1
           curl -sf "https://www.awesomenovel.com/download/staging/latest.json?cb=$RANDOM" -o /tmp/staging-latest.json || PROTECT_MISS=1
@@ -759,31 +764,45 @@ jobs:
             exit 0
           fi
           echo "指针保护集（不可删）：$PROTECTED"
-          # 版本语义序（v0.13 > v0.4），勿用时间序——v0.9 / v0.11 会错排
-          OLD_TAGS="$(git tag -l 'v*' --sort=-v:refname | tail -n +$((KEEP+1)))"
-          if [ -z "$OLD_TAGS" ]; then
-            echo "保留集内已无更老版本，无需清理"
-            exit 0
-          fi
-          echo "保留最近 $KEEP 个版本，待删集合："
-          echo "$OLD_TAGS"
-          while IFS= read -r TAG; do
-            VER="${TAG#v}"
-            case " $PROTECTED " in
-              *" $TAG "*)
-                echo "跳过 download/v$VER/——被生产/灰度 latest.json 指针引用，不清理"
+          # 保留集＝最新 KEEP 个 tag ∪ 指针保护集（版本语义序：v0.13 > v0.4，勿用时间序）
+          KEEP_TAGS="$(git tag -l 'v*' --sort=-v:refname | head -n "$KEEP" | tr '\n' ' ')"
+          echo "保留集（最新 $KEEP 个）：$KEEP_TAGS"
+          # 托管现存版本目录（一次 API 拉全量，替代「按 tag 逐个试删」的 N 次冷启动）。
+          # 以「现存目录」为迭代面而非 tag 表：托管里存在无 tag 的孤儿目录（本地构建
+          # 上传过 v0.46/v0.47 等），按 tag 驱动永远清不掉它们。
+          command -v tcb >/dev/null 2>&1 || npm install -g @cloudbase/cli >/dev/null
+          tcb login --cloudbase-api-key "$TCB_API_KEY" -e "$TCB_ENV_ID" >/dev/null
+          tcb hosting list download -e "$TCB_ENV_ID" --json > /tmp/hosting-download.json
+          EXISTING="$(python3 - <<'PY'
+          import json, re
+          with open("/tmp/hosting-download.json", encoding="utf-8") as f:
+              data = json.load(f).get("data") or []
+          dirs = sorted({
+              m.group(1)
+              for item in data
+              if (m := re.match(r"^download/(v[^/]+)/", str(item.get("key", ""))))
+          })
+          print(" ".join(dirs))
+          PY
+          )"
+          echo "托管现存版本目录：${EXISTING:-（无）}"
+          DELETED=0
+          for VER in $EXISTING; do
+            case " $KEEP_TAGS $PROTECTED " in
+              *" $VER "*)
+                echo "跳过 download/$VER/——在保留集或被指针引用"
                 continue
                 ;;
             esac
-            echo "--- 预览 download/v$VER/ ---"
-            timeout 60 tcb hosting delete "download/v$VER" --dir --dry-run -e "$TCB_ENV_ID" || true
-            if timeout 120 tcb hosting delete "download/v$VER" --dir -e "$TCB_ENV_ID"; then
-              echo "已删除 download/v$VER/"
+            echo "--- 删除 download/$VER/ ---"
+            if timeout 180 tcb hosting delete "download/$VER" --dir --yes -e "$TCB_ENV_ID"; then
+              echo "已删除 download/$VER/"
+              DELETED=$((DELETED+1))
             else
-              echo "::warning::清理 download/v$VER 失败或超时（可能从未上过托管），已跳过"
+              echo "::warning::清理 download/$VER 失败或超时，已跳过"
             fi
-          done <<< "$OLD_TAGS"
-          echo "旧版本清理完成（保留最近 $KEEP 个版本）"
+          done
+          echo "旧版本清理完成（保留最新 $KEEP 个；本轮实删 ${DELETED} 个目录）"
 
   # ── silent-upgrade lab 渠道（仅本实验分支，dispatch 触发才部署）──────────────
   # 把双平台安装包与 lab latest.json（带 platforms url/sha256/size）部署到静态托管
