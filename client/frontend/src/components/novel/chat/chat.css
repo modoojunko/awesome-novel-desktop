@@ -207,6 +207,7 @@
   max-height: 220px;
   overflow-y: auto;
   font-size: 12px;
+  text-align: left;
 }
 
 .cd-preview-field {
@@ -252,6 +253,7 @@
   font-size: 12px;
   line-height: 1.6;
   color: var(--fg);
+  text-align: left;
 }
 
 /* 未知形状才收进折叠——作家面前不摊裸 JSON */
@@ -259,6 +261,7 @@
   padding: 8px 12px;
   font-size: 12px;
   color: var(--muted);
+  text-align: left;
 }
 
 .cd-raw > summary {
