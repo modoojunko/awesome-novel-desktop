@@ -33,7 +33,12 @@ from ai_client import (
     api_calls_drain,
 )
 from assistant import compact as compact_mod
-from assistant.actions import parse_action, stream_slice
+from assistant.actions import (
+    ACT_SENTINEL,
+    parse_action,
+    protocol_shape_at,
+    stream_slice,
+)
 
 # 停止/打断的收口话术（openworker 同款语义：已产出保留，随时可以继续）
 _CANCEL_NOTICE = "好，先停在这里。已产出的内容都保留着，想继续随时说。"
@@ -69,9 +74,23 @@ STEP_FIRST_CONTENT_TIMEOUT = _env_float("ASSISTANT_STEP_FIRST_CONTENT_TIMEOUT", 
 STEP_MAX_TOKENS = _env_int("ASSISTANT_STEP_MAX_TOKENS", 4096)
 
 _RETRY_NUDGE = (
-    "你上一步的输出不是合法的动作 JSON。只输出一个 JSON 对象，不要输出任何其他文字："
-    '{"thought": "…", "action": "tool"或"final", "tool": "工具名", "args": {}, "reply": "给作家的话"}'
+    "你上一步的输出格式不对。按这个格式重来：先用普通文字说给作家看（可以为空），"
+    "然后单独一行输出 ===ACT===，紧跟一个 JSON 对象："
+    '{"action": "tool"或"final", "tool": "工具名", "args": {}}。不要输出任何其他东西。'
 )
+
+_PROTOCOL_FAIL_REPLY = "（刚才那一步没走通，我先停住。你再说一句，我重来。）"
+
+
+def _finalize_plan(plan: dict | None, failed: bool) -> dict | None:
+    """收口安全网：残留「在做」按收口结果降级，避免计划永远卡在进行中。"""
+    if not isinstance(plan, dict):
+        return None
+    items = [dict(x) for x in (plan.get("items") or []) if isinstance(x, dict)]
+    for it in items:
+        if it.get("status") == "active":
+            it["status"] = "failed" if failed else "pending"
+    return {**plan, "items": items}
 
 _UNKNOWN_TOOL_FALLBACK = (
     "（我伸手去拿的工具不在我的工具箱里，这步作废。{reply}）"
@@ -107,6 +126,8 @@ class LoopResult:
     error: str = ""
     # 工具轨迹（TraceFolded 数据源；只含真实发生的工具步）
     trace: list[dict] = field(default_factory=list)
+    # 任务计划快照（c-agent-action-contract；update_plan 产物，随 run_end 下发）
+    plan: dict | None = None
 
 
 class AgentLoop:
@@ -235,14 +256,32 @@ class AgentLoop:
             # 消费端断开时显式关停内层生成器（其体内无 finally-yield，干净关闭）
             await inner.aclose()
             if not closed:
-                yield {
+                final_plan = _finalize_plan(
+                    self.result.plan, bool(error_message or self.result.error)
+                )
+                if final_plan is not None:
+                    self.result.plan = final_plan
+                incomplete = (
+                    sum(
+                        1
+                        for it in (final_plan or {}).get("items", [])
+                        if it.get("status") != "done"
+                    )
+                    if final_plan
+                    else 0
+                )
+                payload = {
                     "type": "run_end",
                     "runId": run_id,
                     "steps": self.result.steps,
                     "toolCalls": self.result.tool_calls,
                     "degraded": self.result.degraded,
                     "error": error_message,
+                    "planIncomplete": incomplete,
                 }
+                if final_plan is not None:
+                    payload["plan"] = final_plan
+                yield payload
 
     # -- 首步结构化触发（c-tool-flow 批2）──────────────────────────────────
 
@@ -525,11 +564,23 @@ class AgentLoop:
                     stream_error = f"模型调用失败：{e}"
                     break
 
-                action = parse_action(full_text)
-                if action.kind == "degraded" and attempt < retry_left:
-                    # 纠错重试一次（协议服从度兜底）
+                action = parse_action(
+                    full_text, tool_exists=lambda n: get_tool(n) is not None
+                )
+                if action.kind in ("degraded", "protocol_error") and attempt < retry_left:
+                    # 纠错重试一次（协议服从度兜底）：回喂清理后的文本，
+                    # SHALL NOT 回声坏片段（2026-11-21 真机：坏片段写回历史后
+                    # 模型下一轮开始为自己的坏输出道歉重跑）。
+                    clean = (
+                        action.reply.strip()
+                        if action.kind == "protocol_error"
+                        else full_text
+                    )
                     messages = messages + [
-                        {"role": "assistant", "content": full_text},
+                        {
+                            "role": "assistant",
+                            "content": clean or "（上一步只有格式坏掉的片段，没有可读正文）",
+                        },
                         {"role": "user", "content": _RETRY_NUDGE},
                     ]
                     continue
@@ -547,11 +598,38 @@ class AgentLoop:
             if action is None:  # 理论不可达（parse 恒返回 Action）
                 break
 
+            # 坏协议原文不入转写：protocol_error 与无哨兵裸片段都只留清理后的人话
+            if action.kind == "protocol_error" or (
+                ACT_SENTINEL not in full_text
+                and protocol_shape_at(full_text) >= 0
+            ):
+                stored_text = action.reply.strip()
+            else:
+                stored_text = full_text
             self.transcript.append(
-                {"role": "assistant", "content": full_text}
+                {
+                    "role": "assistant",
+                    "content": stored_text or "（这一步没有产出可读正文。）",
+                }
             )
 
             # ── 分派 ────────────────────────────────────────────────────
+            if action.kind == "protocol_error":
+                # 协议坏且重试已用尽：只交付清理后的人话；坏片段不上屏、不落历史
+                reply = action.reply.strip()
+                self.result.final_reply = reply or _PROTOCOL_FAIL_REPLY
+                self.result.degraded = True
+                if reply:
+                    if 0 < streamed_upto < len(reply):
+                        yield {
+                            "type": "narration_delta",
+                            "text": reply[streamed_upto:],
+                        }
+                    yield {"type": "narration", "text": reply}
+                else:
+                    yield {"type": "narration", "text": _PROTOCOL_FAIL_REPLY}
+                break
+
             if action.kind == "final":
                 self.result.final_reply = action.reply
                 # degraded 遥测随动作透传（v2 纯文本兜底＝final 但协议未服从）
@@ -638,6 +716,13 @@ class AgentLoop:
                 )
                 yield {"type": "narration", "text": denied_refusal}
                 continue
+
+            # 计划快照随工具步实时下发（c-agent-action-contract）：只改会话状态
+            if step_result is not None and isinstance(step_result.meta, dict):
+                plan = step_result.meta.get("plan")
+                if isinstance(plan, dict):
+                    self.result.plan = plan
+                    yield {"type": "plan", "plan": plan, "runId": run_id}
 
             # 观察写回转写：assistant 消息带 _tool 元数据（compact 抽取用），
             # tool 结果作为 user 观察行进窗口（文本协议的 ReAct 惯例）。
@@ -918,6 +1003,13 @@ class AgentLoop:
                     )
                     yield {"type": "narration", "text": denied_refusal}
                     continue
+
+                # 计划快照随工具步实时下发（与 text 分支同构）
+                if step_result is not None and isinstance(step_result.meta, dict):
+                    plan = step_result.meta.get("plan")
+                    if isinstance(plan, dict):
+                        self.result.plan = plan
+                        yield {"type": "plan", "plan": plan, "runId": run_id}
 
                 # tool 结果行回填（openai 协议形态；摘要全文进窗口供模型观察——
                 # native 转写以 tool_calls/tool 行为元数据，compact 原生认识）

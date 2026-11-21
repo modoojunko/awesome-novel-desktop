@@ -16,6 +16,7 @@
 
 import os
 import tempfile
+import time
 from concurrent.futures import ThreadPoolExecutor
 from datetime import UTC, datetime
 
@@ -127,6 +128,13 @@ def _patch_loop(monkeypatch, events, crash_after: int | None = None, client_fact
         })
         yielded = 0
         for ev in events:
+            if (
+                isinstance(ev, dict)
+                and ev.get("type") == "plan"
+                and isinstance(ev.get("plan"), dict)
+            ):
+                # 与真实循环一致：plan 事件同步记进 result（断连收口要用）
+                self.result.plan = ev["plan"]
             if crash_after is not None and yielded >= crash_after:
                 raise RuntimeError("boom——桩注入的 drive 崩溃")
             yielded += 1
@@ -628,3 +636,90 @@ def test_router_sets_latest_reminder_for_deepseek(monkeypatch):
     assert re.match(
         r"^\d{4}-\d{2}-\d{2},星期[一二三四五六日],,App,中文$", reminder
     ), reminder
+
+
+def test_plan_events_persist_and_latest_wins(monkeypatch):
+    """计划事件走真实 route/queue/落盘：SSE 下发＋会话回看取最新快照。"""
+    bid = _mk_book()
+    plan_live = {
+        "id": "pl1",
+        "items": [
+            {"id": "a", "title": "主线前提", "status": "done"},
+            {"id": "b", "title": "主角陆沉", "status": "active"},
+        ],
+        "updatedAt": "2026-11-21T10:00:00+08:00",
+    }
+    plan_final = {
+        "id": "pl1",
+        "items": [
+            {"id": "a", "title": "主线前提", "status": "done"},
+            {"id": "b", "title": "主角陆沉", "status": "pending"},
+        ],
+        "updatedAt": "2026-11-21T10:00:01+08:00",
+    }
+    _patch_loop(
+        monkeypatch,
+        [
+            {"type": "run_start", "runId": "fx2"},
+            {"type": "plan", "plan": plan_live, "runId": "fx2"},
+            {"type": "narration", "text": "计划列好了，第一件做完了。"},
+            {
+                "type": "run_end",
+                "runId": "fx2",
+                "steps": 0,
+                "toolCalls": 0,
+                "degraded": False,
+                "error": "",
+                "plan": plan_final,
+                "planIncomplete": 1,
+            },
+        ],
+    )
+    events = _read_sse(bid, "三件事")
+    plans = [e for e in events if e.get("type") == "plan"]
+    assert len(plans) == 1 and plans[0]["plan"]["id"] == "pl1"
+    r = client.get(
+        f"/api/novels/{bid}/assistant/session?thread=ch:og",
+        headers={"Authorization": "Bearer tok-chathttp"},
+    )
+    assert r.status_code == 200
+    rows = [m for m in r.json().get("messages", []) if m.get("cardKind") == "plan"]
+    assert rows, "计划快照必须逐步落盘"
+    latest = rows[-1]["payload"]["plan"]
+    assert latest["items"][1]["status"] == "pending"
+    assert rows[-1]["role"] == "event" and rows[-1]["content"] == ""
+
+
+def test_disconnect_finalizes_plan_snapshot(monkeypatch):
+    """断连/停止没有 run_end：_finalize 补最终快照，active 降为 pending。"""
+    bid = _mk_book()
+    live = {
+        "id": "pl3",
+        "items": [{"id": "a", "title": "主线前提", "status": "active"}],
+        "updatedAt": "2026-11-21T10:00:00+08:00",
+    }
+    _patch_loop(
+        monkeypatch,
+        [
+            {"type": "run_start", "runId": "dc1"},
+            {"type": "plan", "plan": live, "runId": "dc1"},
+            {"type": "narration", "text": "我先做这一件。"},
+            # 故意不发 run_end——模拟断连/停止收口
+        ],
+    )
+    _read_sse(bid, "做一下")
+    deadline = time.time() + 3
+    latest = None
+    while time.time() < deadline:
+        r = client.get(
+            f"/api/novels/{bid}/assistant/session?thread=ch:og",
+            headers={"Authorization": "Bearer tok-chathttp"},
+        )
+        rows = [m for m in r.json().get("messages", []) if m.get("cardKind") == "plan"]
+        if rows:
+            latest = rows[-1]["payload"]["plan"]
+            if latest["items"][0]["status"] == "pending":
+                break
+        time.sleep(0.05)
+    assert latest is not None, "断连也必须留下计划快照"
+    assert latest["items"][0]["status"] == "pending"

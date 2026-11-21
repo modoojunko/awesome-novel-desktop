@@ -30,6 +30,7 @@ _SHARED_TOOLS = frozenset(
         "read_chapter_versions",
         "read_book_structure",
         "navigate",  # 跨视图/跨章跳转（c-agent-page-ops）：read 类免授权全域可及
+        "update_plan",  # 任务计划（c-agent-action-contract）：会话状态，全域共享
         # 结构管理动作（c-agent-tools-expand）：书级操作全域共享
         "confirm_chapter", "unconfirm_chapter",
         "archive_chapter", "unarchive_chapter",

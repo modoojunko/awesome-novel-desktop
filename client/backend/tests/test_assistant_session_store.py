@@ -35,6 +35,35 @@ async def test_get_or_create_session_unique_per_book():
 
 
 @pytest.mark.asyncio
+async def test_latest_plan_snapshot_roundtrip():
+    """计划快照按最近一条恢复（c-agent-action-contract）。"""
+    session = await ss.get_or_create_session(user_id="u_plan", novel_id="n_plan")
+    p1 = {
+        "id": "p1",
+        "items": [{"id": "a", "title": "主线前提", "status": "done"}],
+        "updatedAt": "2026-11-21T10:00:00+08:00",
+    }
+    p2 = {
+        "id": "p1",
+        "items": [
+            {"id": "a", "title": "主线前提", "status": "done"},
+            {"id": "b", "title": "主角陆沉", "status": "pending"},
+        ],
+        "updatedAt": "2026-11-21T10:01:00+08:00",
+    }
+    await ss.append_message(
+        session, role="event", content="", payload={"plan": p1}, card_kind="plan"
+    )
+    await ss.append_message(session, role="user", content="继续")
+    await ss.append_message(
+        session, role="event", content="", payload={"plan": p2}, card_kind="plan"
+    )
+    rows = await ss.load_messages(session)
+    assert ss.latest_plan(rows) == p2
+    assert len(ss.latest_plan(rows)["items"]) == 2
+
+
+@pytest.mark.asyncio
 async def test_append_message_seq_monotonic_and_heal():
     session = await ss.get_or_create_session(user_id="u_seq", novel_id="n_seq")
     m1 = await ss.append_message(session, role="user", content="第一问", page="volume")

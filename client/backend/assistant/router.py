@@ -64,7 +64,7 @@ from assistant.context import (
     build_page_note,
     latest_reminder_text,
 )
-from assistant.loop import AgentLoop, LoopConfig
+from assistant.loop import AgentLoop, LoopConfig, _finalize_plan
 from assistant.prompts import build_system_prompt
 from assistant.tools import ToolContext, _clip, get_tool
 from auth_local.deps import ai_access_granted
@@ -397,6 +397,7 @@ async def _stream_chat(
         )
         return
 
+    prior_plan = session_store.latest_plan(rows)
     tool_ctx = ToolContext(
         novel_id=project.id,
         root_path=project.root_path,
@@ -404,6 +405,7 @@ async def _stream_chat(
         page=page,
         focus_ref=(body_focus or {}).get("ref", ""),
         thread=thread,
+        scratch={"plan": prior_plan} if prior_plan else {},
     )
     # 记账必须记真实模型（test_ai_prompt_and_boundary 护栏：符号别名不得落账）——
     # client.resolve("haiku") 落到本书绑定模型（AIClient.resolve 单源）
@@ -623,6 +625,29 @@ async def _stream_chat(
         if etype == "narration":
             reply_parts.append(str(event.get("text", "")))
             return []
+        if etype == "plan" and isinstance(event.get("plan"), dict):
+            # 计划快照逐步落盘（c-agent-action-contract）：append-only，
+            # 恢复按最近一条；旧前端对空 content event 行天然跳过
+            await session_store.append_message(
+                session,
+                role="event",
+                content="",
+                page=page,
+                payload={"plan": event.get("plan")},
+                card_kind="plan",
+            )
+            return []
+        if etype == "run_end" and isinstance(event.get("plan"), dict):
+            # 收口安全网后的最终快照（active 已降级）也要落盘
+            await session_store.append_message(
+                session,
+                role="event",
+                content="",
+                page=page,
+                payload={"plan": event.get("plan")},
+                card_kind="plan",
+            )
+            return []
         if etype == "thinking":
             chunk = str(event.get("text") or "")
             if chunk:
@@ -751,6 +776,20 @@ async def _stream_chat(
             if item.get("kind") == "tool" and item.get("running"):
                 item["running"] = False
                 item["interrupted"] = True
+        # 断连/停止也补一条最终计划快照：残留 active 降级，避免重开会话
+        # 看到「在做」却没有任何 run 在跑（正常收口已在 run_end 落过，去重）
+        final_plan = _finalize_plan(
+            loop.result.plan, failed=(final_status == "error")
+        )
+        if final_plan is not None and final_plan != loop.result.plan:
+            await session_store.append_message(
+                session,
+                role="event",
+                content="",
+                page=page,
+                payload={"plan": final_plan},
+                card_kind="plan",
+            )
         await session_store.update_message_status(
             pending_assistant,
             status=final_status,

@@ -179,3 +179,92 @@ def test_stream_slice_emitted_only_advances():
     p1, _ = stream_slice(buf, 0, False)
     p2, _ = stream_slice(buf + "更多", p1, False)
     assert p2 > p1
+
+
+# ── 协议形状裸片段（c-agent-action-contract）─────────────────────
+
+
+def _tool_exists(name: str) -> bool:
+    return name in {"draft_arc", "read_settings"}
+
+
+def test_no_sentinel_fragment_without_narration_is_protocol_error():
+    raw = '"action": "draft_arc", "tool": "", "args": {}}'
+    a = parse_action(raw)
+    assert a.kind == "protocol_error"
+    assert a.reply == ""
+
+
+def test_no_sentinel_fragment_with_narration_keeps_prefix():
+    raw = '抱歉，上面那行格式错了。\n"action": "draft_arc", "tool": "", "args": {}}'
+    a = parse_action(raw, tool_exists=_tool_exists)
+    assert a.kind == "tool"
+    assert a.tool == "draft_arc"
+    assert a.reply == "抱歉，上面那行格式错了。"
+    assert a.args == {}
+
+
+def test_no_sentinel_fragment_unknown_tool_is_protocol_error():
+    raw = '先这样。\n"action": "not_a_tool", "args": {}}'
+    a = parse_action(raw, tool_exists=_tool_exists)
+    assert a.kind == "protocol_error"
+    assert a.reply == "先这样。"
+
+
+def test_sentinel_action_slot_tool_name_is_repaired():
+    raw = (
+        f"我起草主线。{ACT_SENTINEL}\n"
+        '{"action": "draft_arc", "args": {"action": "draft", "input": "素材"}}'
+    )
+    a = parse_action(raw, tool_exists=_tool_exists)
+    assert a.kind == "tool"
+    assert a.tool == "draft_arc"
+    assert a.args == {"action": "draft", "input": "素材"}
+    assert a.reply == "我起草主线。"
+
+
+def test_sentinel_invalid_action_is_protocol_error_not_final():
+    raw = f"我这就去写。{ACT_SENTINEL}\n" + '{"action": "write_prose", "args": {}}'
+    a = parse_action(raw)
+    assert a.kind == "protocol_error"
+    assert a.reply == "我这就去写。"
+
+
+def test_sentinel_protocol_shaped_garbage_tail_is_protocol_error():
+    raw = f"前半句。{ACT_SENTINEL}\n" + '"action": "draft_arc", "args": {}}'
+    a = parse_action(raw, tool_exists=_tool_exists)
+    assert a.kind == "tool"
+    assert a.tool == "draft_arc"
+
+
+def test_stream_slice_freezes_at_protocol_fragment():
+    buf = '抱歉，上面那行写错了。\n"action": "draft_arc", "args": {}}'
+    pos, frozen = stream_slice(buf, 0, False)
+    assert pos == buf.find('"action"') and frozen is True
+
+
+def test_stream_slice_freezes_at_fragment_from_first_char():
+    buf = '"action": "draft_arc", "args": {}}'
+    pos, frozen = stream_slice(buf, 0, False)
+    assert pos == 0 and frozen is True
+
+
+def test_wrapped_legacy_json_after_narration_still_parses():
+    raw = (
+        "我先把卷纲读出来再回答。\n"
+        '{"action": "tool", "tool": "read_settings", "args": {"area": "premise"}}'
+    )
+    a = parse_action(raw, tool_exists=_tool_exists)
+    assert a.kind == "tool"
+    assert a.tool == "read_settings"
+    assert a.reply == "我先把卷纲读出来再回答。"
+
+
+def test_code_fence_prefix_is_stripped_from_narration():
+    raw = (
+        "好的，我来看一下。\n```json\n"
+        '{"action": "tool", "tool": "read_settings", "args": {}}'
+    )
+    a = parse_action(raw, tool_exists=_tool_exists)
+    assert a.kind == "tool"
+    assert a.reply == "好的，我来看一下。"

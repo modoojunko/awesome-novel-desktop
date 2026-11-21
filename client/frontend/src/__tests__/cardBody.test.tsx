@@ -171,3 +171,14 @@ describe("CardBody 渲染分支", () => {
     expect(container.querySelector(".cd-pre")?.textContent).toBe("   ");
   });
 });
+
+describe("CardBody 写法约束回显（c-agent-action-contract）", () => {
+  it("通用兜底：constraints_used 显示为「写法约束」", () => {
+    renderBody("text", {
+      result: { constraints_used: ["真谛前期不点，中期撕开", "冷硬短句"] },
+    });
+    expect(screen.getByText("写法约束")).toBeTruthy();
+    expect(screen.getByText(/真谛前期不点/)).toBeTruthy();
+    expect(screen.getByText(/冷硬短句/)).toBeTruthy();
+  });
+});

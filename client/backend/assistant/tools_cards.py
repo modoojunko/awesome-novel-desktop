@@ -228,21 +228,57 @@ async def _draft_chapter_plot(ctx: ToolContext, chapter_ref: str) -> ToolResult:
     )
 
 
-async def _draft_arc(ctx: ToolContext, action: str = "draft", input: str = "") -> ToolResult:
-    """主线四能力（draft/calibrate/check/tone；draft/text 卡、check/report 卡）。"""
+def _constraint_lines(raw: str) -> list[str]:
+    lines = [ln.strip(" -•\t") for ln in str(raw or "").splitlines()]
+    lines = [ln for ln in lines if ln]
+    return lines or [str(raw).strip()]
+
+
+async def _draft_arc(
+    ctx: ToolContext,
+    action: str = "draft",
+    material: str = "",
+    constraints: str = "",
+    input: str = "",
+) -> ToolResult:
+    """主线四能力（draft/calibrate/check/tone；draft/text 卡、check/report 卡）。
+
+    material＝故事素材；constraints＝写法约束（只影响怎么写，不是故事内容）；
+    input＝旧调用兼容别名（material 为空时回落）。"""
     from assistant.caps.settings import CapabilityError, arc_ai_action
 
     action = str(action or "draft").strip()
     if action not in ("draft", "calibrate", "check", "tone"):
         return ToolResult(ok=False, summary=f"未知主线动作：{action}")
+    material_text = str(material or input or "")
+    constraints_text = str(constraints or "")
     try:
         result = await arc_ai_action(
-            ctx.novel_id, action, ctx.user_id, input_text=str(input or "")
+            ctx.novel_id,
+            action,
+            ctx.user_id,
+            input_text=material_text,
+            constraints=constraints_text,
         )
     except CapabilityError as e:
         return ToolResult(ok=False, summary=e.message)
+    if (
+        constraints_text.strip()
+        and action != "check"
+        and isinstance(result.get("value"), dict)
+    ):
+        # 卡面回显本次写法约束（作家核对「按哪条校准」）；只入 payload 显示，
+        # 不参与主线写回（主线卡本无采纳写回路径）
+        value = dict(result["value"])
+        value["constraints_used"] = _constraint_lines(constraints_text)
+        result = {**result, "value": value}
     kind = "report" if action == "check" else "text"
-    return _tool_result_from_card(kind, result, f"主线 {action} 完成（过目后采纳）。")
+    summary = {
+        "check": "主线体检结果已出（只读，没动书里的内容）。",
+        "calibrate": "主线校准建议已出（还没写进书里；到主线面板核对后填写）。",
+        "tone": "基调建议已出（还没写进书里；到主线面板核对后填写）。",
+    }.get(action, "主线草稿已出（还没写进书里；到主线面板核对后填写）。")
+    return _tool_result_from_card(kind, result, summary)
 
 
 async def _check_consistency(ctx: ToolContext, ref: str = "") -> ToolResult:
@@ -442,11 +478,25 @@ CARD_TOOLS: tuple[Tool, ...] = (
                     "enum": ["draft", "calibrate", "check", "tone"],
                     "description": "draft 起草主线 / calibrate 结局校准 / check 主线体检 / tone 基调建议",
                 },
-                "input": {"type": "string", "description": "散想法（可空）"},
+                "material": {
+                    "type": "string",
+                    "description": "故事素材（设定/人物/世界观等要写进故事的内容，可空）",
+                },
+                "constraints": {
+                    "type": "string",
+                    "description": "写法约束（主题、节奏、文风、披露时机等，只影响怎么写，不是故事内容）",
+                },
+                "input": {
+                    "type": "string",
+                    "description": "旧调用兼容别名：material 为空时当素材用（新调用别用）",
+                },
             },
             "required": ["action"],
         },
-        description="主线四能力：起草主线/结局校准/主线体检/基调建议。",
+        description=(
+            "主线四能力：起草主线/结局校准/主线体检/基调建议。"
+            "故事素材放 material，写法约束放 constraints（别混在一起）。"
+        ),
         fn=_draft_arc,
     ),
     Tool(
