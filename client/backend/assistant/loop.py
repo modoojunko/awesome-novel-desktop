@@ -134,6 +134,10 @@ class AgentLoop:
         harness: str = "",
     ) -> None:
         self.client = client
+        # native 工具历史回传能力（c-agent-native-tool-history）：DeepSeek 带 tools
+        # 时历史 reasoning_content 必须完整回传；其它 vendor 不附加未知字段
+        _echo = getattr(client, "requires_reasoning_echo", None)
+        self._reasoning_echo = bool(_echo()) if callable(_echo) else False
         self.system = system
         self.transcript = transcript
         self.tool_ctx = tool_ctx
@@ -706,6 +710,7 @@ class AgentLoop:
                 self.transcript, compaction_state=self.compaction_state, native=True
             )
             full_text = ""
+            step_reasoning = ""
             native_calls: list[dict] = []
             stream_error = ""
             cancelled_hit = False
@@ -729,6 +734,7 @@ class AgentLoop:
                         cancelled_hit = True
                         break
                     if ev.thinking:
+                        step_reasoning += ev.thinking
                         yield {"type": "thinking", "text": ev.thinking}
                     if ev.text:
                         full_text += ev.text
@@ -752,7 +758,10 @@ class AgentLoop:
 
             if not native_calls:
                 # 无工具调用＝模型自然收口（openai 协议 stop 语义）
-                self.transcript.append({"role": "assistant", "content": full_text})
+                final_row: dict[str, Any] = {"role": "assistant", "content": full_text}
+                if self._reasoning_echo and step_reasoning:
+                    final_row["reasoning_content"] = step_reasoning
+                self.transcript.append(final_row)
                 self.result.final_reply = full_text
                 self.result.degraded = False
                 if full_text:
@@ -774,7 +783,16 @@ class AgentLoop:
                     }
                 )
             self.transcript.append(
-                {"role": "assistant", "content": full_text or "", "tool_calls": call_rows}
+                {
+                    "role": "assistant",
+                    "content": full_text or "",
+                    "tool_calls": call_rows,
+                    **(
+                        {"reasoning_content": step_reasoning}
+                        if self._reasoning_echo and step_reasoning
+                        else {}
+                    ),
+                }
             )
             # 随行的正文叙述照常透出（coding agent 口径：边说边做）
             if full_text:

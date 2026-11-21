@@ -748,6 +748,38 @@ class AIClient:
             return False
         return str(self._vendor or "").strip().lower() in _NATIVE_TOOLS_VENDORS
 
+    def requires_reasoning_echo(self) -> bool:
+        """原生 tools 历史是否必须回传 reasoning_content（c-agent-native-tool-history）。
+
+        DeepSeek 官方文档：请求带 tools 时，历史 assistant 的 reasoning_content
+        必须完整回传（即使该轮未实际调用工具），漏回传返回 400。其它 OpenAI 兼容
+        vendor 未声明该要求——发送未知字段有被端点拒绝的风险，故只对 DeepSeek 开。
+        anthropic 协议的 thinking 走签名 block，不在此口径。
+        """
+        return (
+            getattr(self, "_provider", "") == "openai"
+            and str(getattr(self, "_vendor", "") or "").strip().lower() == "deepseek"
+        )
+
+    @staticmethod
+    def _openai_message(m: dict[str, Any], *, echo_reasoning: bool) -> dict[str, Any]:
+        """openai 消息组包：保留工具历史字段（native 多步循环必需）。
+
+        - assistant(tool_calls) 与 tool(tool_call_id) 原样保留（OpenAI 协议校验链）
+        - reasoning_content 仅在能力位允许时保留（DeepSeek 带 tools 的历史回传要求）
+        """
+        entry: dict[str, Any] = {
+            "role": str(m.get("role") or "user"),
+            "content": m.get("content") or "",
+        }
+        if m.get("tool_calls"):
+            entry["tool_calls"] = m["tool_calls"]
+        if m.get("tool_call_id"):
+            entry["tool_call_id"] = m["tool_call_id"]
+        if echo_reasoning and m.get("reasoning_content"):
+            entry["reasoning_content"] = m["reasoning_content"]
+        return entry
+
     async def chat(
         self,
         model: str,
@@ -946,7 +978,7 @@ class AIClient:
         self,
         model: str,
         system: str,
-        messages: list[dict[str, str]],
+        messages: list[dict[str, Any]],
         max_tokens: int = 4096,
         operation: str = "",
         first_content_timeout: float | None = None,
@@ -975,8 +1007,11 @@ class AIClient:
             openai_messages: list[dict[str, Any]] = []
             if system:
                 openai_messages.append({"role": "system", "content": system})
+            echo_reasoning = self.requires_reasoning_echo()
             for m in messages:
-                openai_messages.append({"role": m["role"], "content": m["content"]})
+                openai_messages.append(
+                    self._openai_message(m, echo_reasoning=echo_reasoning)
+                )
             extra = self._openai_thinking_extra(kwargs)
             # 原生 FC（c-agent-harness 3.1）：tools 只进 openai 兼容分支；
             # anthropic 协议分支不支持（能力矩阵判 text）——此处按 falsy 忽略
