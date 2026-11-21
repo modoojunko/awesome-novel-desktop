@@ -96,12 +96,12 @@ class _FakeStreamOpenAI:
         self._completions.create = lambda **kw: recorder._create(**kw)
 
 
-def _make_client(monkeypatch, chunks):
+def _make_client(monkeypatch, chunks, vendor: str = "glm"):
     fake = _FakeStreamOpenAI()
     recorder = _StreamRecorder(chunks)
     fake.set_script(recorder)
     monkeypatch.setattr(ai_client_module, "AsyncOpenAI", lambda **kw: fake)
-    c = AIClient(api_key="sk-x", base_url="https://x/v1", model="m", vendor="glm")
+    c = AIClient(api_key="sk-x", base_url="https://x/v1", model="m", vendor=vendor)
     return c, recorder
 
 
@@ -234,3 +234,67 @@ def test_chat_nonstream_tool_calls_into_meta():
     assert rec.kwargs.get("tools") == TOOL_SPEC
     assert meta["tool_calls"][0]["name"] == "read_progress"
     assert meta["tool_calls"][0]["arguments"] == {}
+
+
+_TOOL_CALL_ROW = {
+    "id": "call_1",
+    "type": "function",
+    "function": {"name": "read_chapter", "arguments": "{}"},
+}
+_TOOL_HISTORY = [
+    {"role": "user", "content": "hi"},
+    {
+        "role": "assistant",
+        "content": "",
+        "reasoning_content": "想",
+        "tool_calls": [_TOOL_CALL_ROW],
+    },
+    {"role": "tool", "tool_call_id": "call_1", "content": "结果"},
+]
+_STOP_CHUNKS = [_chunk(_delta(content="ok")), _chunk(_delta(), finish_reason="stop")]
+
+
+def test_chat_stream_preserves_tool_history_for_deepseek(monkeypatch):
+    """c-agent-native-tool-history：DeepSeek 带 tools 的历史必须完整回传
+    tool_calls/tool_call_id/reasoning_content（官方文档：漏回传 400）。"""
+    c, rec = _make_client(monkeypatch, _STOP_CHUNKS, vendor="deepseek")
+    _run_async(
+        _collect(
+            c.chat_stream(
+                model="m", system="", messages=_TOOL_HISTORY, tools=TOOL_SPEC
+            )
+        )
+    )
+    sent = rec.kwargs["messages"]
+    assert sent[1]["tool_calls"] == [_TOOL_CALL_ROW]
+    assert sent[1]["reasoning_content"] == "想"
+    assert sent[2]["tool_call_id"] == "call_1"
+
+
+def test_chat_stream_keeps_tool_history_without_reasoning_for_other_vendors(monkeypatch):
+    """非 DeepSeek：工具历史照常保留，不附加 reasoning_content（未知字段风险）。"""
+    c, rec = _make_client(monkeypatch, _STOP_CHUNKS, vendor="glm")
+    _run_async(
+        _collect(
+            c.chat_stream(
+                model="m", system="", messages=_TOOL_HISTORY, tools=TOOL_SPEC
+            )
+        )
+    )
+    sent = rec.kwargs["messages"]
+    assert sent[1]["tool_calls"] == [_TOOL_CALL_ROW]
+    assert "reasoning_content" not in sent[1]
+    assert sent[2]["tool_call_id"] == "call_1"
+
+
+def test_requires_reasoning_echo_matrix():
+    assert AIClient(
+        api_key="k", base_url="https://x/v1", model="m", vendor="deepseek"
+    ).requires_reasoning_echo() is True
+    assert AIClient(
+        api_key="k", base_url="https://x/v1", model="m", vendor="glm"
+    ).requires_reasoning_echo() is False
+    assert AIClient(
+        api_key="k", base_url="https://x/anthropic", model="m",
+        api_format="anthropic", vendor="deepseek",
+    ).requires_reasoning_echo() is False

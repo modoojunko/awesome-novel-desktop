@@ -107,6 +107,10 @@ def build_outbound_window(
             entry: dict[str, Any] = {"role": role, "content": m.get("content") or ""}
             if role == "assistant" and m.get("tool_calls"):
                 entry["tool_calls"] = m["tool_calls"]
+            if role == "assistant" and m.get("reasoning_content"):
+                # DeepSeek 带 tools 的历史回传要求（c-agent-native-tool-history）：
+                # 存在才带；文本协议分支不读该字段，零影响。
+                entry["reasoning_content"] = m["reasoning_content"]
             if role == "tool":
                 entry["tool_call_id"] = str(m.get("tool_call_id") or "")
             clean.append(entry)
