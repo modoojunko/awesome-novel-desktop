@@ -103,17 +103,25 @@ class _FakeClient:
 
 
 def _patch_loop(monkeypatch, events, crash_after: int | None = None):
-    """替换 AgentLoop.run 为脚本化事件流；crash_after=N 表示第 N 个事件后抛。"""
+    """替换 AgentLoop.run 为脚本化事件流；crash_after=N 表示第 N 个事件后抛。
+
+    返回 client 构造调用账（project_id/kwargs）——按次模型覆盖对断言用。
+    """
     import ai_state
     import assistant.router as router_mod
 
-    async def _fake_get_client(project_id):
+    client_calls: list[dict] = []
+    run_calls: list[dict] = []
+
+    async def _fake_get_client(project_id, **kwargs):
+        client_calls.append({"project_id": project_id, **kwargs})
         return _FakeClient()
 
     async def _fake_has_key(db, user_id):
         return True
 
     async def _fake_run(self, user_input, prime=None):
+        run_calls.append({"thinking": getattr(self.cfg, "thinking", None)})
         yielded = 0
         for ev in events:
             if crash_after is not None and yielded >= crash_after:
@@ -129,17 +137,21 @@ def _patch_loop(monkeypatch, events, crash_after: int | None = None):
     monkeypatch.setattr(ai_client, "get_ai_client_for_novel", _fake_get_client)
     monkeypatch.setattr(ai_state, "user_has_ai_key", _fake_has_key)
     monkeypatch.setattr(router_mod.AgentLoop, "run", _fake_run)
+    return {"clients": client_calls, "runs": run_calls}
 
 
-def _read_sse(bid: str, message: str) -> list[dict]:
+def _read_sse(bid: str, message: str, body_extra: dict | None = None) -> list[dict]:
     """带超时读取 SSE 全流——永挂形态超时即失败（回归信号）。"""
 
     def _consume() -> list[dict]:
         out: list[dict] = []
+        body = {"message": message, "page": "ch:og", "thread": "ch:og"}
+        if body_extra:
+            body.update(body_extra)
         with client.stream(
             "POST",
             f"/api/novels/{bid}/assistant/chat",
-            json={"message": message, "page": "ch:og", "thread": "ch:og"},
+            json=body,
             headers={"Authorization": "Bearer tok-chathttp"},
         ) as resp:
             assert resp.status_code == 200, resp.status_code
@@ -432,3 +444,117 @@ def test_tool_step_narration_persisted(monkeypatch):
     joined = "\n".join(contents)
     assert "我先看一眼设定。" in joined, joined
     assert "设定是空的，我来搭。" in joined, joined
+
+
+def test_chat_body_model_override_and_thinking_passthrough(monkeypatch):
+    """c-agent-thinking-bubbles：body 的按次模型覆盖对与深度思考开关要真的进
+    客户端构造与 LoopConfig——底栏控件不是摆设。"""
+    bid = _mk_book()
+    rec = _patch_loop(monkeypatch, [
+        {"type": "run_start", "runId": "ov1"},
+        {"type": "narration", "text": "好。"},
+        {"type": "run_end", "runId": "ov1", "steps": 0, "toolCalls": 0, "degraded": False, "error": ""},
+    ])
+    _read_sse(
+        bid,
+        "用这个模型答",
+        {"api_config_id": "cfg-x", "model": "m-y", "thinking": True},
+    )
+    assert rec["clients"][0] == {
+        "project_id": bid,
+        "api_config_id": "cfg-x",
+        "model": "m-y",
+    }
+    assert rec["runs"][0]["thinking"] == {"type": "enabled"}
+
+    # 关思考：显式 disabled 进 LoopConfig
+    bid2 = _mk_book()
+    rec2 = _patch_loop(monkeypatch, [
+        {"type": "run_start", "runId": "ov2"},
+        {"type": "narration", "text": "好。"},
+        {"type": "run_end", "runId": "ov2", "steps": 0, "toolCalls": 0, "degraded": False, "error": ""},
+    ])
+    _read_sse(bid2, "别想了", {"thinking": False})
+    assert rec2["clients"][0] == {"project_id": bid2}
+    assert rec2["runs"][0]["thinking"] == {"type": "disabled"}
+
+    # 缺省：沿用 API 配置（不传覆盖）
+    bid3 = _mk_book()
+    rec3 = _patch_loop(monkeypatch, [
+        {"type": "run_start", "runId": "ov3"},
+        {"type": "narration", "text": "好。"},
+        {"type": "run_end", "runId": "ov3", "steps": 0, "toolCalls": 0, "degraded": False, "error": ""},
+    ])
+    _read_sse(bid3, "默认就好")
+    assert rec3["clients"][0] == {"project_id": bid3}
+    assert rec3["runs"][0]["thinking"] is None
+
+
+def test_process_persisted_and_replayed_in_order(monkeypatch):
+    """思考与工具过程按发生顺序并入 assistant 行 payload.process——重开书回看
+    要能原样复原（不再是「只发 SSE、回看就丢」）。"""
+    bid = _mk_book()
+    _patch_loop(monkeypatch, [
+        {"type": "run_start", "runId": "pc1"},
+        {"type": "thinking", "text": "先看看主线"},
+        {"type": "step_start", "runId": "pc1", "stepId": "pc1-1", "tool": "read_settings", "label": "先读主线设定"},
+        {
+            "type": "step_end",
+            "runId": "pc1",
+            "stepId": "pc1-1",
+            "tool": "read_settings",
+            "resultNote": "主线还没有内容",
+            "ok": True,
+            "apiCalls": [{"op": "assistant_step", "model": "m", "ms": 12, "tokens_in": 1, "tokens_out": 2, "ok": True}],
+        },
+        {"type": "thinking", "text": "再顺手看看卷纲"},
+        {"type": "narration", "text": "看完了。"},
+        {"type": "run_end", "runId": "pc1", "steps": 1, "toolCalls": 1, "degraded": False, "error": ""},
+    ])
+    _read_sse(bid, "看看主线")
+
+    r = client.get(
+        f"/api/novels/{bid}/assistant/session?thread=ch:og",
+        headers={"Authorization": "Bearer tok-chathttp"},
+    )
+    assert r.status_code == 200
+    rows = r.json().get("messages", [])
+    assistant = next(m for m in rows if m["role"] == "assistant" and m["content"] == "看完了。")
+    process = assistant["payload"]["process"]
+    assert [item["kind"] for item in process] == ["thinking", "tool", "thinking"]
+    assert process[0]["text"] == "先看看主线"
+    assert process[1] == {
+        "kind": "tool",
+        "stepId": "pc1-1",
+        "tool": "read_settings",
+        "running": False,
+        "note": "主线还没有内容",
+        "ok": True,
+        "label": "先读主线设定",
+        "apiCalls": [{"op": "assistant_step", "model": "m", "ms": 12, "tokens_in": 1, "tokens_out": 2, "ok": True}],
+    }
+    assert process[2]["text"] == "再顺手看看卷纲"
+
+
+def test_unfinished_step_marked_interrupted_on_finalize(monkeypatch):
+    """步已开始但没等到 step_end（停止/断连）→ 落盘标 interrupted，回看如实。"""
+    bid = _mk_book()
+    _patch_loop(
+        monkeypatch,
+        [
+            {"type": "run_start", "runId": "ic1"},
+            {"type": "step_start", "runId": "ic1", "stepId": "ic1-1", "tool": "draft_volume_expand"},
+        ],
+        crash_after=2,
+    )
+    events = _read_sse(bid, "铺一下")
+    assert any(e.get("type") == "error" for e in events), events
+
+    r = client.get(
+        f"/api/novels/{bid}/assistant/session?thread=ch:og",
+        headers={"Authorization": "Bearer tok-chathttp"},
+    )
+    assistant = next(m for m in r.json()["messages"] if m["role"] == "assistant")
+    item = assistant["payload"]["process"][0]
+    assert item["kind"] == "tool"
+    assert item["running"] is False and item["interrupted"] is True

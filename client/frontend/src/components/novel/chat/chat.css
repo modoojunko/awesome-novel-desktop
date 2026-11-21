@@ -654,6 +654,105 @@
   font-size: 13.5px;
 }
 
+/* 输入底栏控制条（c-agent-thinking-bubbles）：模型 / 深度思考 / 授权同排 */
+.cd-footbar {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  flex-wrap: wrap;
+  min-width: 0;
+}
+.cd-footbar .mp-wrap { width: auto; }
+/* 三控件同排（dock 窄）：统一收紧内边距/字号，模型名给 105px 上限 */
+.cd-footbar .cd-auth-pill {
+  padding: 3px 6px;
+  gap: 4px;
+  font-size: 11.5px;
+}
+.cd-footbar .cd-model-pill { max-width: 112px; padding: 3px 4px; font-size: 11px; }
+.cd-model-pill > svg {
+  flex: none;
+  width: 9px;
+  height: 9px;
+  color: var(--muted);
+}
+.cd-model-pill .mt-name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.cd-think-pill { gap: 5px; }
+.cd-think-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 999px;
+  background: color-mix(in oklch, var(--fg) 22%, transparent);
+}
+.cd-think-pill.on .cd-think-dot {
+  background: var(--accent);
+  box-shadow: 0 0 0 3px color-mix(in oklch, var(--accent) 14%, transparent);
+}
+
+/* 过程泡泡（思考/工具各一张 OperateCard）：默认单行，点开看全文/详情 */
+.cd-proc-card {
+  width: 100%;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  margin: 4px 0;
+  overflow: hidden;
+  background: var(--surface);
+}
+.cd-proc-card > div { width: 100%; }
+/* 单行头：标题不参与挤压截断（「思…」实锤），摘要吃剩余宽度 */
+.cd-proc-card [class*="operate-card-header-title"] {
+  flex: 0 0 auto;
+  width: max-content;
+  max-width: 58%;
+}
+.cd-proc-card [class*="operate-card-header-description"] {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+/* 库内箭头默认只在 hover 出现；过程卡要常显折叠提示 */
+.cd-proc-card [class*="operate-card-header-arrow"] { opacity: 1; }
+.cd-proc-think {
+  padding: 0 0 2px;
+  font-size: 12px;
+  line-height: 20px;
+  color: var(--muted);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  max-height: 260px;
+  overflow-y: auto;
+}
+.cd-proc-detail {
+  padding: 2px 0 4px;
+  font-size: 12px;
+  color: var(--muted);
+}
+.cd-proc-line {
+  display: flex;
+  gap: 6px;
+  padding: 2px 0;
+  line-height: 1.6;
+}
+.cd-proc-line b {
+  flex: none;
+  font-weight: 600;
+  color: var(--muted);
+}
+.cd-proc-line span {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.cd-proc-json {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  line-height: 1.6;
+  white-space: pre-wrap;
+}
+
 /* 轨迹披露：圆角卡＋summary 中字＋逐行状态点（turn-step 同款） */
 .chatdock .cd-trace,
 .chatdock details[data-testid="chat-trace-history"],
@@ -777,9 +876,13 @@
   flex: none;
 }
 /* ChatAnywhere 消息列表 wrapper 撑满 sender 上方空间（缺省不带高度——列表
-   内容溢出贴底、空态 welcome 占满全高，dock 内出现大段留白＝boss 截图实锤） */
+   内容溢出贴底、空态 welcome 占满全高，dock 内出现大段留白＝boss 截图实锤）
+   ⚠ 库会给 wrapper 写内联 `height:0px; flex:0 1 0%`——无 !important 会被内联压过：
+   空会话（无历史也无开场白）列表塌成 0 高，输入框被顶到 dock 最上方、下方留白
+   半屏（11-21 实锤 sender y=357 / 底部空 506px）。!important 才能吃满剩余空间，
+   让输入框默认贴底（消息仍顶对齐、内部滚动不变）。 */
 .chatdock.aui2 .ant-bubble-list-wrapper {
-  flex: 1;
+  flex: 1 1 auto !important;
   min-height: 0;
 }
 /* 空态 welcome 区与注入历史并存会叠布局（boss 截图实锤）——dock 场景禁用

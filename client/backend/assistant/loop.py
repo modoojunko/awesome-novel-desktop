@@ -64,7 +64,9 @@ def _env_int(name: str, default: int) -> int:
 
 WALL_CLOCK_SECONDS = _env_float("ASSISTANT_TURN_DEADLINE", 1800.0)
 STEP_FIRST_CONTENT_TIMEOUT = _env_float("ASSISTANT_STEP_FIRST_CONTENT_TIMEOUT", 90.0)
-STEP_MAX_TOKENS = _env_int("ASSISTANT_STEP_MAX_TOKENS", 2048)
+# 4096：默认开思考后 reasoning 与动作 JSON 共用 max_tokens——2048 可能被思考吃掉
+# 导致 JSON 截断（c-agent-thinking-bubbles）。env 仍可收紧。
+STEP_MAX_TOKENS = _env_int("ASSISTANT_STEP_MAX_TOKENS", 4096)
 
 _RETRY_NUDGE = (
     "你上一步的输出不是合法的动作 JSON。只输出一个 JSON 对象，不要输出任何其他文字："
@@ -82,6 +84,9 @@ class LoopConfig:
     step_timeout: float = STEP_FIRST_CONTENT_TIMEOUT
     step_max_tokens: int = STEP_MAX_TOKENS
     model_alias: str = "haiku"  # resolve() 落到本书绑定模型（业务层不传字面模型名）
+    # 思考覆盖（c-agent-thinking-bubbles）：None＝沿用 API 配置；dict＝显式按次
+    # {"type": "enabled"} / {"type": "disabled"}（显式传时配置强度不搭车）
+    thinking: dict[str, Any] | None = None
 
 
 @dataclass
@@ -137,6 +142,10 @@ class AgentLoop:
         harness: str = "",
     ) -> None:
         self.client = client
+        # native 工具历史回传能力（c-agent-native-tool-history）：DeepSeek 带 tools
+        # 时历史 reasoning_content 必须完整回传；其它 vendor 不附加未知字段
+        _echo = getattr(client, "requires_reasoning_echo", None)
+        self._reasoning_echo = bool(_echo()) if callable(_echo) else False
         self.system = system
         self.transcript = transcript
         self.tool_ctx = tool_ctx
@@ -469,6 +478,7 @@ class AgentLoop:
                         max_tokens=self.cfg.step_max_tokens,
                         operation="assistant_step",
                         first_content_timeout=self.cfg.step_timeout,
+                        **({"thinking": self.cfg.thinking} if self.cfg.thinking else {}),
                     ):
                         if ev.error:
                             stream_error = ev.error
@@ -730,6 +740,7 @@ class AgentLoop:
                 self.transcript, compaction_state=self.compaction_state, native=True
             )
             full_text = ""
+            step_reasoning = ""
             native_calls: list[dict] = []
             stream_error = ""
             cancelled_hit = False
@@ -743,6 +754,7 @@ class AgentLoop:
                         operation="assistant_step",
                         first_content_timeout=self.cfg.step_timeout,
                         tools=schemas,
+                        **({"thinking": self.cfg.thinking} if self.cfg.thinking else {}),
                     )
                 ):
                     if ev.error:
@@ -752,6 +764,7 @@ class AgentLoop:
                         cancelled_hit = True
                         break
                     if ev.thinking:
+                        step_reasoning += ev.thinking
                         yield {"type": "thinking", "text": ev.thinking}
                     if ev.text:
                         full_text += ev.text
@@ -775,7 +788,10 @@ class AgentLoop:
 
             if not native_calls:
                 # 无工具调用＝模型自然收口（openai 协议 stop 语义）
-                self.transcript.append({"role": "assistant", "content": full_text})
+                final_row: dict[str, Any] = {"role": "assistant", "content": full_text}
+                if self._reasoning_echo and step_reasoning:
+                    final_row["reasoning_content"] = step_reasoning
+                self.transcript.append(final_row)
                 self.result.final_reply = full_text
                 self.result.degraded = False
                 if full_text:
@@ -797,7 +813,16 @@ class AgentLoop:
                     }
                 )
             self.transcript.append(
-                {"role": "assistant", "content": full_text or "", "tool_calls": call_rows}
+                {
+                    "role": "assistant",
+                    "content": full_text or "",
+                    "tool_calls": call_rows,
+                    **(
+                        {"reasoning_content": step_reasoning}
+                        if self._reasoning_echo and step_reasoning
+                        else {}
+                    ),
+                }
             )
             # 随行的正文叙述照常透出（coding agent 口径：边说边做）
             if full_text:

@@ -433,9 +433,17 @@ async def append_message(
 
 
 async def update_message_status(
-    message: MsgRow, *, status: str, content: str | None = None
+    message: MsgRow,
+    *,
+    status: str,
+    content: str | None = None,
+    payload: dict | None = None,
 ) -> None:
-    """改一行状态（收尾 streaming／采纳回执）：整段重写——append-only 例外。"""
+    """改一行状态（收尾 streaming／采纳回执）：整段重写——append-only 例外。
+
+    payload 非 None 时浅合并进该行既有 payload（c-agent-thinking-bubbles：
+    收尾把本轮 process 思考/工具轨迹挂到 assistant 行上，回看原样复原）。
+    """
     path = Path(message.path)
     meta_d, msg_objs = _parse_file(path)
     if meta_d is None:
@@ -447,6 +455,12 @@ async def update_message_status(
         m.status = status
         if content is not None:
             m.content = content
+        if payload is not None:
+            merged = _load_json(m.payload_json, {})
+            if not isinstance(merged, dict):
+                merged = {}
+            merged.update(payload)
+            m.payload_json = json.dumps(merged, ensure_ascii=False)
     _dump_file(path, meta_d, [_msg_dict(m) for m in rows])
 
 

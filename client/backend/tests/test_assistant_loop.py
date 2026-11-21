@@ -30,7 +30,11 @@ class FakeClient:
         text = self.step_outputs.pop(0) if self.step_outputs else (
             '{"thought": "收口", "action": "final", "reply": "先到这里。"}'
         )
-        self.calls.append({"messages": kwargs.get("messages")})
+        self.calls.append({
+            "messages": kwargs.get("messages"),
+            "thinking": kwargs.get("thinking"),
+            "max_tokens": kwargs.get("max_tokens"),
+        })
         # 思考先行一步，正文一条事件交付
         yield StreamEvent(thinking="我在想……")
         yield StreamEvent(text=text, is_done=True, tokens=10, tokens_in=20)
@@ -80,6 +84,25 @@ async def test_final_reply_path():
     # 转写追加了 user 输入与 assistant 输出
     assert loop.transcript[0]["role"] == "user"
     assert loop.transcript[-1]["role"] == "assistant"
+
+
+@pytest.mark.asyncio
+async def test_thinking_override_reaches_chat_stream():
+    """c-agent-thinking-bubbles：底栏深度思考开关要透传到模型调用。
+
+    None＝沿用配置；enabled/disabled＝显式按次覆盖（压过 API 配置）。
+    """
+    for override in (None, {"type": "enabled"}, {"type": "disabled"}):
+        client = FakeClient([_final("好。")])
+        loop = AgentLoop(
+            client=client,
+            system="sys",
+            transcript=[{"role": "user", "content": "说句话"}],
+            tool_ctx=None,
+            config=LoopConfig(thinking=override),
+        )
+        _ = [e async for e in loop.run("说句话")]
+        assert client.calls[0]["thinking"] == override
 
 
 @pytest.mark.asyncio

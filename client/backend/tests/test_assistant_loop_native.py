@@ -18,12 +18,16 @@ from assistant.tools import Tool, ToolResult
 class FakeNativeClient:
     """脚本化 native 客户端：每轮 = (正文, [tool_calls])；supports_native_tools=True。"""
 
-    def __init__(self, turns: list[tuple[str, list[dict]]]):
+    def __init__(self, turns: list[tuple[str, list[dict]]], echo_reasoning: bool = False):
         self.turns = list(turns)
         self.calls: list[dict] = []
+        self.echo_reasoning = echo_reasoning
 
     def supports_native_tools(self) -> bool:
         return True
+
+    def requires_reasoning_echo(self) -> bool:
+        return self.echo_reasoning
 
     async def chat_stream(self, **kwargs):
         from ai_client import StreamEvent
@@ -407,3 +411,57 @@ async def test_native_cancel_no_orphan_tool_calls(monkeypatch):
     result_ids = [r["tool_call_id"] for r in results]
     assert set(call_ids) == set(result_ids), f"孤儿 tool_calls: {set(call_ids) - set(result_ids)}"
     assert any("已停止" in r["content"] for r in results)
+
+
+@pytest.mark.asyncio
+async def test_native_reasoning_echo_on_tool_history(monkeypatch):
+    """c-agent-native-tool-history：DeepSeek 带 tools 时历史 assistant 行必须带
+    reasoning_content（工具调用行＋最终收口行都带），否则真实端点 400。"""
+    _fake_tool(monkeypatch)
+    client = FakeNativeClient(
+        [
+            ("我先看进度。", [_tc(0, "read_progress", {})]),
+            ("书还在第1章。", []),
+        ],
+        echo_reasoning=True,
+    )
+    loop = AgentLoop(
+        client=client, system="sys", transcript=[], tool_ctx=None, config=LoopConfig()
+    )
+    _ = [e async for e in loop.run("看看进度")]
+
+    # 第二步请求：assistant(tool_calls) 带 reasoning_content，tool 行带 tool_call_id
+    sent = client.calls[1]["messages"]
+    asst = next(m for m in sent if m.get("role") == "assistant" and m.get("tool_calls"))
+    assert asst["reasoning_content"] == "嗯"
+    assert asst["tool_calls"][0]["id"] == "call_0"
+    tool_row = next(m for m in sent if m.get("role") == "tool")
+    assert tool_row["tool_call_id"] == "call_0"
+
+    # 最终收口行也带（下一轮带 tools 继续对话时要用）
+    final = loop.transcript[-1]
+    assert final["role"] == "assistant"
+    assert final["reasoning_content"] == "嗯"
+
+
+@pytest.mark.asyncio
+async def test_native_reasoning_not_echoed_for_other_vendors(monkeypatch):
+    """非 DeepSeek：工具历史字段照常保留，但不附加 reasoning_content（未知字段风险）。"""
+    _fake_tool(monkeypatch)
+    client = FakeNativeClient(
+        [
+            ("我先看进度。", [_tc(0, "read_progress", {})]),
+            ("书还在第1章。", []),
+        ],
+        echo_reasoning=False,
+    )
+    loop = AgentLoop(
+        client=client, system="sys", transcript=[], tool_ctx=None, config=LoopConfig()
+    )
+    _ = [e async for e in loop.run("看看进度")]
+
+    sent = client.calls[1]["messages"]
+    assert all("reasoning_content" not in m for m in sent)
+    asst = next(m for m in sent if m.get("role") == "assistant" and m.get("tool_calls"))
+    assert asst["tool_calls"][0]["id"] == "call_0"
+    assert all("reasoning_content" not in row for row in loop.transcript)
