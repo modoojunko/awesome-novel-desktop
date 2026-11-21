@@ -30,6 +30,7 @@ from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
 from typing import Any
 
+from assistant.caps.settings import SETTINGS_FIELD_WRITE, SETTINGS_PANEL_ZH
 from assistant.scopes import tools_for_thread
 
 # 转写预算（write/chapter_writer.py 判例同风格：按中文字符预算，不按 token）
@@ -63,6 +64,14 @@ class ToolResult:
     meta: dict = field(default_factory=dict)
 
 
+class PreviewRejected(Exception):
+    """授权卡 preview 发现入参本身不合法（字段名不存在等）。
+
+    与「读现值失败」不同：这里不该弹卡让作家看到一张写不成的授权单——router
+    拦下后作为拒绝语回喂模型，让它改对参数再来（不执行、不落库）。
+    """
+
+
 @dataclass
 class Tool:
     name: str
@@ -84,10 +93,10 @@ class Tool:
     # 入参取 target（例：switch_tab 声明 navigate/ui/tab）；refresh 类用默认值零声明
     effect_action: str = "refresh"  # refresh|navigate
     effect_target_from: str = ""  # 入参键名（空＝无 target）
-    # 授权卡 preview 增强（c-agent-page-ops）：可选钩子（args→dict）。写工具用它
-    # 读现值构造「字段：写入前→写入后」对比（比默认 {"tool","args"} 裸形状可读）；
-    # 缺省走 write_gate._preview 默认形状。
-    preview_builder: Callable[[dict], Awaitable[dict] | dict] | None = None
+    # 授权卡 preview 增强（c-agent-page-ops）：可选钩子（args, project→dict）。写工具
+    # 用它读现值构造「字段：写入前→写入后」对比（比默认 {"tool","args"} 裸形状可读）；
+    # 缺省走 write_gate._preview（人话摘要）；参数不合法时抛 PreviewRejected 不弹卡。
+    preview_builder: Callable[..., Awaitable[dict] | dict] | None = None
 
     def __post_init__(self) -> None:
         if not self.args_hint:
@@ -1278,18 +1287,32 @@ async def run_tool(ctx: ToolContext, name: str, args: dict) -> ToolResult:
 # 在前端）。
 
 async def _preview_write_chapter_fields(args: dict, project):
-    """授权卡 preview：读现值构造「字段：写入前→写入后」。失败回落默认形状。"""
+    """授权卡 preview：读现值构造「字段：写入前→写入后」。
+
+    章不存在/字段名不在白名单→PreviewRejected（不弹卡，回喂模型改对再来）；
+    读现值阶段的其余失败回落默认形状。
+    """
     from sqlalchemy import select
 
+    from assistant.caps.chapter import CHAPTER_FIELD_WRITE_KEYS, _chapter_prev_value
     from chapters.store import load_chapter
     from db import async_session
     from models.project import Novel
 
-    if project is None:
-        return {}
     ref = str(args.get("chapter_ref") or "")
     fields = args.get("fields") if isinstance(args.get("fields"), dict) else {}
-    if not ref or not fields:
+    if not ref:
+        raise PreviewRejected("没说要改哪一章，这一步先不写（章 ref 如 vol-1-ch-3）。")
+    if not fields:
+        raise PreviewRejected("没说要改这一章的哪些字段，这一步先不写。")
+    unknown = [k for k in fields if k not in CHAPTER_FIELD_WRITE_KEYS]
+    if unknown:
+        raise PreviewRejected(
+            f"章纲里没有这些字段：{'、'.join(map(str, unknown))}，这一步先不写。能写的是："
+            + "、".join(CHAPTER_FIELD_WRITE_KEYS.values())
+            + "。"
+        )
+    if project is None:
         return {}
     async with async_session() as db:
         project_row = (
@@ -1299,16 +1322,10 @@ async def _preview_write_chapter_fields(args: dict, project):
         return {}
     current = await load_chapter(project_row.root_path, ref)
     if not current:
-        return {}
-    from assistant.caps.chapter import (
-        CHAPTER_FIELD_WRITE_KEYS,
-        _chapter_prev_value,
-    )
+        raise PreviewRejected(f"没找到 {ref} 这一章——先确认章 ref 再来。")
 
     changes = []
     for key, value in fields.items():
-        if key not in CHAPTER_FIELD_WRITE_KEYS:
-            continue
         changes.append(
             {
                 "field": key,
@@ -1321,24 +1338,43 @@ async def _preview_write_chapter_fields(args: dict, project):
 
 
 async def _preview_write_settings_field(args: dict, project):
-    """授权卡 preview：读现值构造字段前后对比。失败回落默认形状。"""
-    if project is None:
-        return {}
+    """授权卡 preview：读现值构造字段前后对比。
+
+    参数本身不合法（面板/字段名不存在）→ PreviewRejected：router 不弹卡，把可选
+    字段回喂模型改对再来——作家不该看到一张写不成的授权单（2026-11-21 实锤：
+    story.premise 弹卡裸 JSON）。读现值失败才回落（闸不受影响）。
+    """
     from assistant.caps.settings import read_settings_field
 
     stype = str(args.get("stype") or "")
     field = str(args.get("field") or "")
     value = args.get("value")
     if not stype or not field:
-        return {}
-    try:
-        before = await read_settings_field(project.id, stype, field, "")
-    except Exception:  # noqa: BLE001——读不到现值就只给 after（闸不受影响）
-        before = ""
+        raise PreviewRejected("没说要写哪个面板的哪个字段，这一步先不写。")
+    panel = SETTINGS_PANEL_ZH.get(stype)
+    if panel is None:
+        raise PreviewRejected(
+            f"没有「{stype}」这个设定面板，这一步先不写。设定页只有："
+            + "、".join(f"{zh}（{key}）" for key, zh in SETTINGS_PANEL_ZH.items())
+            + "。"
+        )
+    label = SETTINGS_FIELD_WRITE[stype].get(field)
+    if label is None:
+        raise PreviewRejected(
+            f"{panel}面板里没有「{field}」这个字段，这一步先不写。这一页能写的是："
+            + "、".join(f"{zh}（{key}）" for key, zh in SETTINGS_FIELD_WRITE[stype].items())
+            + "。"
+        )
+    before = ""
+    if project is not None:
+        try:
+            before = await read_settings_field(project.id, stype, field, "")
+        except Exception:  # noqa: BLE001——读不到现值就只给 after（闸不受影响）
+            before = ""
     return {
         "tool": "write_settings_field",
         "entity": f"settings:{stype}:{field}",
-        "changes": [{"field": field, "before": before, "after": value}],
+        "changes": [{"field": field, "label": label, "before": before, "after": value}],
     }
 
 
@@ -1367,13 +1403,12 @@ async def _write_settings_field(ctx, stype: str = "", field: str = "", value=Non
     if not st or not fd:
         return ToolResult(ok=False, summary="没说要写哪个面板的哪个字段。")
     res = await write_settings_field_cap(ctx.novel_id, st, fd, value, ctx.user_id)
-    label = {"genre": {"core_promise": "主线·核心承诺", "forbidden_list": "题材·禁忌", "cost_ratio": "题材·代价设定", "battlefield": "题材·战场"},
-             "story": {"synopsis": "简介"},
-             "world": {k: f"世界观·{k}" for k in ("no_power", "stage", "power", "cost", "history", "factions", "constraints", "extra")}}
-    shown = label.get(st, {}).get(fd, fd)
+    panel = SETTINGS_PANEL_ZH.get(st, st)
+    shown = SETTINGS_FIELD_WRITE.get(st, {}).get(fd, fd)
+    where = shown if shown == panel else f"{panel} · {shown}"
     return ToolResult(
         ok=True,
-        summary=f"已写入：{shown}。",
+        summary=f"已写入：{where}。",
         meta={"write_log": {"entity": res["entity"], "changes": [{"field": fd, "before": res["before"], "after": res["after"]}]}},
     )
 
@@ -1414,7 +1449,13 @@ PAGE_OPS_TOOLS: tuple[Tool, ...] = (
             "type": "object",
             "properties": {
                 "stype": {"type": "string", "enum": ["genre", "story", "world"], "description": "面板：genre=题材四格、story=简介、world=世界观条目"},
-                "field": {"type": "string", "description": "字段名：genre→core_promise/forbidden_list/cost_ratio/battlefield；story→synopsis；world→no_power/stage/power/cost/history/factions/constraints/extra"},
+                "field": {
+                    "type": "string",
+                    "enum": [
+                        k for fields in SETTINGS_FIELD_WRITE.values() for k in fields
+                    ],
+                    "description": "字段名（必须与 stype 匹配）：genre→core_promise/forbidden_list/cost_ratio/battlefield；story→synopsis；world→no_power/stage/power/cost/history/factions/constraints/extra。没有 premise——简介用 story.synopsis。",
+                },
                 "value": {"description": "字段新值（文本；genre.cost_ratio 为 1-10 数字）"},
             },
             "required": ["stype", "field", "value"],

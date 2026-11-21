@@ -60,6 +60,52 @@ def test_write_surface_is_fenced():
     assert not (names & forbidden), f"硬地板操作不得进入工具清单：{names & forbidden}"
 
 
+def test_write_tools_have_human_preview_summary():
+    """写类授权卡必须有人话摘要——作家看不懂裸 JSON（2026-11-21 实锤）。
+
+    preview_builder 之外的兜底形状由 write_gate._preview 生成；新增写工具漏挂
+    中文动作名时，卡面会退回 {"tool","args"} 裸 JSON，本钉子拦住。"""
+    from assistant.write_gate import _preview
+
+    missing = [
+        t.name
+        for t in TOOL_REGISTRY
+        if t.kind == "write"
+        and not _preview(t.name, {"chapter_ref": "vol-1-ch-2"}).get("summary")
+    ]
+    assert missing == [], f"授权卡缺人话摘要的写工具：{missing}"
+
+
+def test_preview_builders_match_router_contract():
+    """preview_builder 契约＝(args, project)——router 按两参调用（review P2 整改）。
+
+    曾按 builder(args) 单参调，TypeError 被 _build_gate_preview 兜底吞掉→字段
+    对比链整体失效、作家看裸 JSON。这里绕过兜底直接按契约调一遍：签名漂移
+    当场 TypeError 红，不静默回落。约定：builder 须容忍 project=None（当「读
+    不到现值」短路，两个现 builder 均如此），测试因此免 DB。"""
+    import asyncio
+
+    sample = {
+        "chapter_ref": "vol-1-ch-1",
+        "fields": {"summary": "x"},
+        "stype": "story",
+        "field": "synopsis",
+        "value": "x",
+    }
+    broken = []
+    for t in TOOL_REGISTRY:
+        if t.preview_builder is None:
+            continue
+        try:
+            out = t.preview_builder(sample, None)
+        except TypeError as e:
+            broken.append(f"{t.name}: {e}")
+            continue
+        if asyncio.iscoroutine(out):
+            out.close()  # 只验签名不执行——副作用路径由 router helper 测试钉
+    assert broken == [], f"preview_builder 契约漂移（须为 (args, project)）：{broken}"
+
+
 def test_get_tool_strips_whitespace():
     assert get_tool("  read_progress  ") is not None
     assert get_tool("不存在的工具") is None

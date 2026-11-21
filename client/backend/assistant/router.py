@@ -66,7 +66,7 @@ from assistant.context import (
 )
 from assistant.loop import AgentLoop, LoopConfig, _finalize_plan
 from assistant.prompts import build_system_prompt
-from assistant.tools import ToolContext, _clip, get_tool
+from assistant.tools import PreviewRejected, ToolContext, _clip, get_tool
 from auth_local.deps import ai_access_granted
 from auth_local.middleware import get_current_user
 from db import get_db
@@ -80,6 +80,27 @@ router = APIRouter(prefix="/api/novels/{project_id}/assistant", tags=["assistant
 
 def _sse(event: dict[str, Any]) -> str:
     return f"data: {json.dumps(event, ensure_ascii=False)}\n\n"
+
+
+async def _build_gate_preview(tool: Any, args: dict[str, Any], project: Any, fallback: dict) -> dict:
+    """授权卡 preview 装配（c-agent-page-ops 增强的接线点）。
+
+    preview_builder 契约是 (args, project)——project 供 builder 读本书现值；曾按
+    单参数调用，TypeError 被兜底吞掉后作家看到的是写工具裸 JSON（2026-11-21
+    实锤）。PreviewRejected 向上抛（router 不弹卡，回喂模型改参数）；其余失败
+    回落 write_gate 默认形状（闸不受影响）。"""
+    builder = getattr(tool, "preview_builder", None)
+    if builder is None:
+        return fallback
+    try:
+        built = builder(args, project)
+        if asyncio.iscoroutine(built):
+            built = await built
+    except PreviewRejected:
+        raise
+    except Exception:  # noqa: BLE001——preview 失败不阻断闸
+        return fallback
+    return built if isinstance(built, dict) and built else fallback
 
 
 def _history_transcript(rows: list[Any], exclude_message_id: str = "") -> list[dict[str, str]]:
@@ -510,18 +531,21 @@ async def _stream_chat(
 
         # 停车：发授权卡，等作家批复（超时/关应用＝未批；待决记录已持久化可审计）
         # preview 增强（c-agent-page-ops）：写工具可挂 preview_builder（读现值构造
-        # 「字段：写入前→写入后」对比）；失败回落默认形状（闸不受影响）。
-        preview = decision.preview
-        builder = getattr(tool, "preview_builder", None)
-        if decision.needs_user and builder is not None:
-            try:
-                built = builder(args)
-                if asyncio.iscoroutine(built):
-                    built = await built
-                if isinstance(built, dict) and built:
-                    preview = built
-            except Exception:  # noqa: BLE001——preview 失败不阻断闸
-                preview = decision.preview
+        # 「字段：写入前→写入后」对比）。参数本身不合法（字段名不存在）不弹卡——
+        # 回喂模型改对再来，作家不看写不成的授权单。
+        try:
+            preview = await _build_gate_preview(tool, args, project, decision.preview)
+        except PreviewRejected as e:
+            # 异步闸契约：只能 yield＋裸 return（带值 return 在 async generator 里
+            # 是 SyntaxError——#1105 改造后合并曾踩，review P1 实编译实锤）。
+            # 裸 gate_result：loop 末项 approved=False 即拒，不发卡不等批复。
+            yield {
+                "type": "gate_result",
+                "gateId": "",
+                "approved": False,
+                "refusal": str(e),
+            }
+            return
         gate_id = write_gate.PARKING.register()
         await session_store.append_message(
             session,

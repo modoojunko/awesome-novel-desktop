@@ -23,6 +23,7 @@ payload.pending_gate、status=streaming）——重启后未决卡标记过期�
 from __future__ import annotations
 
 import asyncio
+import re
 import uuid
 from dataclasses import dataclass, field
 from typing import Any
@@ -85,8 +86,60 @@ def evaluate(tool_name: str, args: dict[str, Any] | None, *, tier: str) -> GateD
 
 
 def _preview(tool_name: str, args: dict[str, Any]) -> dict[str, Any]:
-    """授权卡的写入范围预览（实体/字段/新值）。"""
-    return {"tool": tool_name, "args": args}
+    """授权卡的写入范围预览：人话摘要（动作＋目标）＋原始参数（调试兜底）。
+
+    作家看的是 summary；args 仅供历史回放/排障。工具建了 preview_builder 时
+    router 会用 richer 的字段前后对比覆盖本形状（见 _build_gate_preview）。"""
+    action = _TOOL_ZH.get(tool_name, "")
+    target = _preview_target(args)
+    preview: dict[str, Any] = {"tool": tool_name, "args": args}
+    if action:
+        preview["summary"] = f"{action}：{target}" if target else action
+    return preview
+
+
+# 写工具 → 作家读得懂的动作名（授权卡 summary；不覆盖全部旧协议工具名）
+_TOOL_ZH: dict[str, str] = {
+    "confirm_chapter": "确认章纲",
+    "unconfirm_chapter": "撤回章纲确认",
+    "archive_chapter": "归档这一章",
+    "unarchive_chapter": "取消归档",
+    "add_volume": "新建一卷",
+    "add_chapter": "新增一章",
+    "write_volume_fields": "改卷纲",
+    "write_chapter_fields": "改章纲",
+    "write_settings_field": "改设定",
+    "kb_create_entry": "新建知识库条目",
+    "kb_update_entry": "改知识库条目",
+    "delete_book": "删掉这本书",
+    "batch_delete_chapters": "批量删章",
+    "overwrite_confirmed_setting": "覆盖已确认的设定",
+    "set_permission_tier": "改授权档位",
+}
+
+# vol-3-ch-7 → 第 3 卷 · 第 7 章（卡面上不出现内部 ref；认不出就原样回显）
+_REF_RE = re.compile(r"^vol-(\d+)(?:-ch-(\d+))?$")
+
+
+def _human_ref(ref: Any) -> str:
+    text = str(ref or "").strip()
+    m = _REF_RE.match(text)
+    if not m:
+        return text
+    vol, ch = m.group(1), m.group(2)
+    return f"第 {vol} 卷 · 第 {ch} 章" if ch else f"第 {vol} 卷"
+
+
+def _preview_target(args: dict[str, Any]) -> str:
+    """从常见目标参数拼人话（章/卷 ref ＋ 标题）。"""
+    parts: list[str] = []
+    ref = args.get("chapter_ref") or args.get("ref") or args.get("volume_ref")
+    if ref:
+        parts.append(_human_ref(ref))
+    title = args.get("title") or args.get("name")
+    if title:
+        parts.append(f"《{title}》")
+    return " ".join(parts)
 
 
 class ApprovalParking:

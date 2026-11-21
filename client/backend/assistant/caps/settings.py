@@ -107,6 +107,7 @@ async def arc_ai_action(
 # ── 字段级写（c-agent-page-ops）：agent 字段写＝读现值→合并→走既有服务链 ──
 # 粒度：单字段。白名单外的 stype/field 一律 CapabilityError（不静默扩权）。
 
+# 字段 → 作家看得懂的标签（授权卡/回执共用；键名是内部契约，绝不上卡面）
 SETTINGS_FIELD_WRITE: dict[str, dict[str, str]] = {
     "genre": {
         "core_promise": "核心承诺",
@@ -115,9 +116,23 @@ SETTINGS_FIELD_WRITE: dict[str, dict[str, str]] = {
         "battlefield": "战场",
     },
     "story": {"synopsis": "简介"},
-    "world": {k: k for k in (
-        "no_power", "stage", "power", "cost", "history", "factions", "constraints", "extra",
-    )},
+    "world": {
+        "no_power": "现实向开关",
+        "stage": "世界舞台",
+        "power": "力量体系",
+        "cost": "力量的代价",
+        "history": "历史与旧账",
+        "factions": "势力",
+        "constraints": "世界铁律",
+        "extra": "更多世界细节",
+    },
+}
+
+# 面板名（同设定页左栏：题材 / 简介 / 世界）
+SETTINGS_PANEL_ZH: dict[str, str] = {
+    "genre": "题材",
+    "story": "简介",
+    "world": "世界",
 }
 
 

@@ -326,3 +326,82 @@ def test_outbound_window_inserts_reminder_before_last_user():
 
     plain, _ = build_outbound_window(transcript, compaction_state=None)
     assert all(m["role"] != "latest_reminder" for m in plain)
+
+
+# ── 授权卡 preview 装配（2026-11-21 实锤：builder 少传 project → TypeError 被吞
+#    → 作家看到写工具裸 JSON）────────────────────────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_gate_preview_passes_project_to_builder(monkeypatch):
+    """preview_builder 契约是 (args, project)；漏传 project 曾让整条对比链失效。"""
+    import assistant.caps.settings as caps_settings
+    from assistant.router import _build_gate_preview
+    from assistant.tools import get_tool
+
+    async def _fake_read(novel_id: str, stype: str, field: str, user_id: str) -> str:
+        assert (novel_id, stype, field) == ("n1", "story", "synopsis")
+        return "旧简介"
+
+    monkeypatch.setattr(caps_settings, "read_settings_field", _fake_read)
+    tool = get_tool("write_settings_field")
+    assert tool is not None
+    pv = await _build_gate_preview(
+        tool,
+        {"stype": "story", "field": "synopsis", "value": "新简介"},
+        SimpleNamespace(id="n1"),
+        {"tool": "write_settings_field", "summary": "改设定"},
+    )
+    assert pv["changes"] == [
+        {"field": "synopsis", "label": "简介", "before": "旧简介", "after": "新简介"}
+    ]
+
+
+@pytest.mark.asyncio
+async def test_gate_preview_rejects_unknown_setting_field():
+    """字段名不存在→不弹卡（PreviewRejected），回喂模型可选字段改对再来。"""
+    from assistant.router import _build_gate_preview
+    from assistant.tools import PreviewRejected, get_tool
+
+    with pytest.raises(PreviewRejected) as ei:
+        await _build_gate_preview(
+            get_tool("write_settings_field"),
+            {"stype": "story", "field": "premise", "value": "长文"},
+            SimpleNamespace(id="n1"),
+            {},
+        )
+    msg = str(ei.value)
+    assert "premise" in msg
+    assert "synopsis" in msg and "简介" in msg
+
+
+@pytest.mark.asyncio
+async def test_gate_preview_falls_back_when_builder_fails_or_missing():
+    """读现值之外的意外失败仍走兜底（闸不受影响）；无 builder 直接用兜底。"""
+    from assistant.router import _build_gate_preview
+
+    def _boom(args, project):
+        raise RuntimeError("db down")
+
+    fallback = {"tool": "write_settings_field", "summary": "改设定"}
+    assert await _build_gate_preview(
+        SimpleNamespace(preview_builder=_boom), {}, None, fallback
+    ) == fallback
+    assert await _build_gate_preview(SimpleNamespace(), {}, None, fallback) == fallback
+
+
+@pytest.mark.asyncio
+async def test_gate_preview_rejects_unknown_chapter_field():
+    """章纲字段名不在白名单同样不弹卡（回喂可用字段名，模型自纠）。"""
+    from assistant.router import _build_gate_preview
+    from assistant.tools import PreviewRejected, get_tool
+
+    with pytest.raises(PreviewRejected) as ei:
+        await _build_gate_preview(
+            get_tool("write_chapter_fields"),
+            {"chapter_ref": "vol-1-ch-2", "fields": {"premise": "x"}},
+            SimpleNamespace(id="n1"),
+            {},
+        )
+    assert "premise" in str(ei.value)
+    assert "概要" in str(ei.value)

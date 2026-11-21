@@ -197,6 +197,98 @@
   overflow-y: auto;
 }
 
+/* 授权卡字段前后对比（c-agent-page-ops）：中文标签 + 「现在 / 改成」两行——
+   长文本也不挤成一行；只在授权卡 changes 预览用（2026-11-21 补样式） */
+.cd-preview-fields {
+  margin: 0;
+  padding: 10px 12px;
+  display: grid;
+  gap: 10px;
+  max-height: 220px;
+  overflow-y: auto;
+  font-size: 12px;
+  text-align: left;
+}
+
+.cd-preview-field {
+  display: grid;
+  gap: 3px;
+}
+
+.cd-field-name {
+  font-size: 12px;
+  color: var(--fg);
+}
+
+.cd-diff-line {
+  display: grid;
+  grid-template-columns: 2.6em 1fr;
+  gap: 8px;
+  line-height: 1.55;
+}
+
+.cd-diff-tag {
+  color: var(--muted);
+  font-size: 11px;
+  padding-top: 1px;
+}
+
+.cd-before,
+.cd-after {
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.cd-before {
+  color: var(--muted);
+}
+
+.cd-after {
+  color: var(--fg);
+}
+
+/* 展开看全文（boss 2026-11-21：推送缩减、点开看全）——限高滚动，超大值不撑爆 dock */
+.cd-field-full {
+  display: block;
+  max-height: 260px;
+  overflow-y: auto;
+  padding: 6px 8px;
+  border-radius: 6px;
+  background: color-mix(in oklch, var(--fg) 4%, transparent);
+}
+
+.cd-expand-btn {
+  justify-self: start;
+  padding: 0;
+  border: none;
+  background: none;
+  color: var(--accent);
+  font: inherit;
+  font-size: 11px;
+  cursor: pointer;
+}
+
+/* 没有字段级对比时的授权摘要（write_gate 给所有写工具的人话兜底） */
+.cd-gate-summary {
+  padding: 10px 12px;
+  font-size: 12px;
+  line-height: 1.6;
+  color: var(--fg);
+  text-align: left;
+}
+
+/* 未知形状才收进折叠——作家面前不摊裸 JSON */
+.cd-raw {
+  padding: 8px 12px;
+  font-size: 12px;
+  color: var(--muted);
+  text-align: left;
+}
+
+.cd-raw > summary {
+  cursor: pointer;
+}
+
 .cd-btn {
   padding: 5px 12px;
   border-radius: 8px;
