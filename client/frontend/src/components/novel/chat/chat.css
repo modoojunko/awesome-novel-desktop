@@ -777,9 +777,13 @@
   flex: none;
 }
 /* ChatAnywhere 消息列表 wrapper 撑满 sender 上方空间（缺省不带高度——列表
-   内容溢出贴底、空态 welcome 占满全高，dock 内出现大段留白＝boss 截图实锤） */
+   内容溢出贴底、空态 welcome 占满全高，dock 内出现大段留白＝boss 截图实锤）
+   ⚠ 库会给 wrapper 写内联 `height:0px; flex:0 1 0%`——无 !important 会被内联压过：
+   空会话（无历史也无开场白）列表塌成 0 高，输入框被顶到 dock 最上方、下方留白
+   半屏（11-21 实锤 sender y=357 / 底部空 506px）。!important 才能吃满剩余空间，
+   让输入框默认贴底（消息仍顶对齐、内部滚动不变）。 */
 .chatdock.aui2 .ant-bubble-list-wrapper {
-  flex: 1;
+  flex: 1 1 auto !important;
   min-height: 0;
 }
 /* 空态 welcome 区与注入历史并存会叠布局（boss 截图实锤）——dock 场景禁用
