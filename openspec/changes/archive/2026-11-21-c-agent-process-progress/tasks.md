@@ -15,5 +15,5 @@
 
 ## 4. 评审与合入
 
-- [ ] 4.1 合前 `review-agent` 审 diff，findings 修完再合
-- [ ] 4.2 建 PR，CI 双绿 squash 合 main，清 worktree/分支
+- [x] 4.1 合前 `review-agent` 审 diff，findings 修完再合。证据：review 3 findings（回放中断态/状态行溢出/空参数一致性）已修，无剩余
+- [x] 4.2 建 PR，CI 双绿 squash 合 main，清 worktree/分支。证据：PR #1114 squash=`607d13c8`，CI check 3m32s＋test 9m37s 双绿；worktree/分支已清

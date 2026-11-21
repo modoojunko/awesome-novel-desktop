@@ -43,4 +43,4 @@
 ## 8. 评审与合入
 
 - [x] 8.1 合前跑 `review-agent` 审 diff，findings 修完再合（判例：feature PR 合前必过 review）——审出 1 项 P2（工具卡「模型调用」行漏模型名，spec 要求次数/操作名/模型三件），已修（`apiModels` 进同一行）＋测试断言；其余无 findings
-- [ ] 8.2 建 PR（说明根因/方案/门禁输出），CI 双绿后 squash 合 main，清理 worktree/分支；本地重建装机覆盖 `/Applications` 另行向 boss 确认
+- [x] 8.2 建 PR（说明根因/方案/门禁输出），CI 双绿后 squash 合 main，清理 worktree/分支；本地重建装机覆盖 `/Applications` 另行向 boss 确认。证据：PR #1108 squash=`6b81bb01`，CI 双绿；worktree/分支已清，装机仍待确认

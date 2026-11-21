@@ -14,4 +14,4 @@
 ## 3. 评审与合入
 
 - [x] 3.1 合前 `review-agent` 审 diff，findings 修完再合——审查 No findings；全量回归揪出的 `__new__` 测试实例缺 `_vendor` 已修（getattr 兜底）；残余风险：GLM 真机 429 未跑、DeepSeek 跨轮 native/prime 行不在保证范围（design 已登记）
-- [ ] 3.2 建 PR（根因/修法/门禁），CI 双绿 squash 合 main，清 worktree/分支
+- [x] 3.2 建 PR（根因/修法/门禁），CI 双绿 squash 合 main，清 worktree/分支。证据：PR #1110 squash=`444ddc10`，CI `test` 绿；worktree/分支已清

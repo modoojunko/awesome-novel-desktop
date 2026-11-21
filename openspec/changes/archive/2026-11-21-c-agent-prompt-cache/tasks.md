@@ -15,4 +15,4 @@
 ## 4. 评审与合入
 
 - [x] 4.1 合前 `review-agent` 审 diff，findings 修完再合——审查 No findings；残余风险：note 不持久化使缓存命中点在上一条 user 原文处截断（既有页面新鲜度取舍，design 已登记）
-- [ ] 4.2 建 PR（根因/改法/门禁），CI 双绿 squash 合 main，清 worktree/分支
+- [x] 4.2 建 PR（根因/改法/门禁），CI 双绿 squash 合 main，清 worktree/分支。证据：PR #1111 squash=`ddc97a32`，CI `test` 绿；真实两轮 cache_hit 128→8064；worktree/分支已清
