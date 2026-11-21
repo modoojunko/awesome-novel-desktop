@@ -580,3 +580,21 @@ async def test_final_streamed_tail_completion_delta():
     # 整段 narration 事件照发（协议兼容；dock 去重口径不变）
     assert narration in narrations
     assert loop.result.final_reply == narration
+
+
+@pytest.mark.asyncio
+async def test_latest_reminder_inserted_before_current_user():
+    """c-agent-latest-reminder：文本协议窗口最后一条 user 前带提醒。"""
+    client = FakeClient([_final("好。")])
+    loop = AgentLoop(
+        client=client,
+        system="sys",
+        transcript=[{"role": "user", "content": "旧问题"}],
+        tool_ctx=None,
+        config=LoopConfig(latest_reminder="2026-11-09,星期一,,App,中文"),
+    )
+    _ = [e async for e in loop.run("新问题")]
+    msgs = client.calls[0]["messages"]
+    assert [m["role"] for m in msgs][-2:] == ["latest_reminder", "user"]
+    assert msgs[-2]["content"] == "2026-11-09,星期一,,App,中文"
+    assert msgs[-1]["content"] == "新问题"

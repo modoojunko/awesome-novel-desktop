@@ -285,3 +285,44 @@ async def test_book_brief_parts_stable_progress_separated(monkeypatch):
     assert stable_b == stable
     assert dynamic_b != dynamic
     assert "2,000 字" in dynamic_b
+
+
+def test_latest_reminder_text_fixed_date():
+    """c-agent-latest-reminder：日期/星期按 Asia/Shanghai、中文星期、空 location。"""
+    from datetime import datetime
+    from zoneinfo import ZoneInfo
+
+    from assistant.context import latest_reminder_text
+
+    text = latest_reminder_text(
+        datetime(2026, 11, 9, 12, 0, tzinfo=ZoneInfo("Asia/Shanghai"))
+    )
+    assert text == "2026-11-09,星期一,,App,中文"
+
+
+def test_outbound_window_inserts_reminder_before_last_user():
+    """提醒只插在最后一条 user 前；历史 user 不补插；无提醒零变化。"""
+    from assistant.context import build_outbound_window
+
+    transcript = [
+        {"role": "user", "content": "旧问题"},
+        {"role": "assistant", "content": "旧回答"},
+        {"role": "user", "content": "新问题"},
+    ]
+    msgs, _ = build_outbound_window(
+        transcript, compaction_state=None, reminder="2026-11-09,星期一,,App,中文"
+    )
+    assert [m["role"] for m in msgs] == [
+        "user", "assistant", "latest_reminder", "user"
+    ]
+    assert msgs[2]["content"] == "2026-11-09,星期一,,App,中文"
+
+    native_msgs, _ = build_outbound_window(
+        transcript, compaction_state=None, native=True, reminder="R"
+    )
+    assert [m["role"] for m in native_msgs] == [
+        "user", "assistant", "latest_reminder", "user"
+    ]
+
+    plain, _ = build_outbound_window(transcript, compaction_state=None)
+    assert all(m["role"] != "latest_reminder" for m in plain)

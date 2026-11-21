@@ -465,3 +465,18 @@ async def test_native_reasoning_not_echoed_for_other_vendors(monkeypatch):
     asst = next(m for m in sent if m.get("role") == "assistant" and m.get("tool_calls"))
     assert asst["tool_calls"][0]["id"] == "call_0"
     assert all("reasoning_content" not in row for row in loop.transcript)
+
+
+@pytest.mark.asyncio
+async def test_latest_reminder_in_native_window(monkeypatch):
+    """c-agent-latest-reminder：native 窗口同样在最后一条 user 前带提醒。"""
+    _fake_tool(monkeypatch)
+    client = FakeNativeClient([("收口。", [])])
+    loop = AgentLoop(
+        client=client, system="sys", transcript=[], tool_ctx=None,
+        config=LoopConfig(latest_reminder="2026-11-09,星期一,,App,中文"),
+    )
+    _ = [e async for e in loop.run("看看进度")]
+    msgs = client.calls[0]["messages"]
+    assert [m["role"] for m in msgs][-2:] == ["latest_reminder", "user"]
+    assert msgs[-2]["content"] == "2026-11-09,星期一,,App,中文"

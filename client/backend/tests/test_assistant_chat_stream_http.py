@@ -102,7 +102,7 @@ class _FakeClient:
         return False
 
 
-def _patch_loop(monkeypatch, events, crash_after: int | None = None):
+def _patch_loop(monkeypatch, events, crash_after: int | None = None, client_factory=None):
     """替换 AgentLoop.run 为脚本化事件流；crash_after=N 表示第 N 个事件后抛。
 
     返回 client 构造调用账（project_id/kwargs）——按次模型覆盖对断言用。
@@ -115,7 +115,7 @@ def _patch_loop(monkeypatch, events, crash_after: int | None = None):
 
     async def _fake_get_client(project_id, **kwargs):
         client_calls.append({"project_id": project_id, **kwargs})
-        return _FakeClient()
+        return client_factory() if client_factory else _FakeClient()
 
     async def _fake_has_key(db, user_id):
         return True
@@ -589,3 +589,42 @@ def test_system_prefix_stable_and_progress_in_user_tail(monkeypatch):
     assert "进度：" not in system, "动态进度不得进系统前缀"
     user_input = str(rec["runs"][0]["input"])
     assert "进度：空书" in user_input, "动态进度应拼在当前 user 消息尾部"
+
+
+class _ReminderClient(_FakeClient):
+    def supports_latest_reminder(self) -> bool:
+        return True
+
+
+def test_router_sets_latest_reminder_for_deepseek(monkeypatch):
+    """c-agent-latest-reminder：能力位为真时 router 生成当前日期提醒并进 LoopConfig。"""
+    import re
+
+    import assistant.router as router_mod
+
+    bid = _mk_book()
+    _patch_loop(
+        monkeypatch,
+        [
+            {"type": "run_start", "runId": "lr1"},
+            {"type": "narration", "text": "好。"},
+            {"type": "run_end", "runId": "lr1", "steps": 0, "toolCalls": 0,
+             "degraded": False, "error": ""},
+        ],
+        client_factory=_ReminderClient,
+    )
+    captured: dict = {}
+    orig_init = router_mod.AgentLoop.__init__
+
+    def _capture_init(self, **kwargs):
+        captured.update(kwargs)
+        orig_init(self, **kwargs)
+
+    monkeypatch.setattr(router_mod.AgentLoop, "__init__", _capture_init)
+    _read_sse(bid, "看看主线")
+
+    reminder = captured["config"].latest_reminder
+    assert "latest_reminder" in str(captured.get("system") or "")
+    assert re.match(
+        r"^\d{4}-\d{2}-\d{2},星期[一二三四五六日],,App,中文$", reminder
+    ), reminder
