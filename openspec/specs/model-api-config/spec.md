@@ -315,7 +315,10 @@ NOT 随「关」下发。「添加/编辑 API Key」弹窗 SHALL 提供两控件
 思考强度（低 low/高 high/深 max，关闭时灰置且保留已选值），编辑态 SHALL 回读已存值。
 
 判定/短答复类调用（`_judge_chat` 漏斗，volume-plan-ai 口径）SHALL 恒以显式关思考传参
-压过配置；调用方显式传 `thinking` 时配置强度 SHALL NOT 搭车下发。端点打回思考参数时
+压过配置；调用方显式传 `thinking` 时——disabled 形态 SHALL NOT 搭车配置强度；enabled
+且未自带 effort 时 SHALL 按该配置的 `thinking_effort` 下发（GLM 嵌套进 `thinking{}`，
+其余 vendor 随顶层 `reasoning_effort`；Gemini/opencode-go-claude 按既有 vendor 映射），
+自带 effort 时以显式为准。端点打回思考参数时
 SHALL 去参（`thinking`＋`reasoning_effort`）重试一次并记住该 base 不再主动发——判据
 SHALL 含中文「思考」与 `reasoning`/`effort` 字样（GLM-5.3 拒关思考的报错是纯中文，仅
 匹配英文 `thinking` 会漏判）；连接探针的触发 SHALL NOT 依赖文案措辞（带思考参数的 400
@@ -344,6 +347,12 @@ SHALL 含中文「思考」与 `reasoning`/`effort` 字样（GLM-5.3 拒关思�
 - **WHEN** 配置开思考后触发 JSON 判定/短答复类调用（卷规划等 `_judge_chat` 路径）
 - **THEN** 请求显式携带 `thinking:{type:disabled}` 且不携带 `reasoning_effort`，
   判定类延迟与预算口径不变
+
+#### Scenario: 助手显式开思考按配置强度
+
+- **WHEN** 助手底栏开「深度思考」（显式 `thinking:{type:enabled}`），配置 `thinking_effort="low"`
+- **THEN** 请求携带 `thinking:{type:enabled}`＋`reasoning_effort:"low"`（GLM 嵌套），
+  不再吃供应商默认 high；显式自带 effort 时以显式为准
 
 #### Scenario: 表单两控件与编辑回读
 

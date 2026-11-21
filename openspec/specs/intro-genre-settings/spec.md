@@ -29,7 +29,6 @@
 - **WHEN** 一本刚创建的书进入设定视图（无外部跳转载荷）
 - **THEN** 默认显示题材面板
 
-
 ### Requirement: 设定左栏菜单的顺序与命名（用户 2026-09-10 拍板）
 
 - 左栏设定菜单 SHALL 按此序（`SETTINGS_ITEMS` 数组即单一事实源）：**00 模型设定（工具项，恒在最前、不参与进度）→ 01 题材 → 02 简介 → 03 世界 → 04 角色 → 05 主线 → 06 文风 → 07 伏笔**（前两步序为用户 2026-10-26 拍板对调；其余沿 2026-09-10 口径）。
@@ -215,7 +214,6 @@
 
 - **WHEN** 一本刚创建、简介未写的书在题材面板点「主要看什么」
 - **THEN** AI 正常返回候选并可采纳写回 02 格，不出现简介为空的报错
-
 
 ### Requirement: 题材面板（五格 + 四行 AI）
 
@@ -431,11 +429,11 @@
 - Then 仍以 `project.ai_model`（经解析层 `effective_model`）为准，字面覆盖被忽略
 
 ### Requirement: 模型选择的三层粒度与绑定
-- **粒度**：供应商/API 配置 SHALL 为 **C端用户级**（一次配置、所有书共用同一批供应商）；模型 SHALL 为 **书级**（一本书一个，全书所有 AI 助手共用同一 `effective_model`——简介四能力、题材五行、章写作/续写、章纲起草、归档摘要（原「提示词润色」随 c-retire-prompt-polish 退役））；提示词/能力 SHALL 为 **页面级**（每助手一套模板，模板**模型无关**、不写模型名）。
-- **绑定**：模型与其供应商 SHALL 绑定——`project.ai_config_id` 与 `project.ai_model` 须来自**同一配置**；后端 `set_project_model`（函数名以现状为准）SHALL 校验 `model ∈ json.loads(config.models)`（处理 JSON 文本/`None`/空串/非法 JSON），**空列表拒绝**、**部分 null 拒绝**（不成对即拒，除非显式 clear）；失败返 **400**（Pydantic 缺字段才 422）。**跨配置混搭在 UI 上不可达**（每行携带所属配置）；**组内换模型＝同配置换 model，允许**。前端确认键遇 400 SHALL **保留 draft 选中态 + 行内报错**（不清空、不禁用）。
+- **粒度**：供应商/API 配置 SHALL 为 **C端用户级**（一次配置、所有书共用同一批供应商）；模型 SHALL 为 **书级**（一本书一个，全书所有 AI 助手共用同一 `effective_model`——简介四能力、题材五行、章写作/续写、章纲起草、归档摘要（原「提示词润色」随 c-retire-prompt-polish 退役））；提示词/能力 SHALL 为 **页面级**（每助手一套模板，模板**模型无关**、不写模型名）。**唯一按会话例外**：助手对话 MAY 在输入底栏按会话临时覆盖模型（默认本书模型、只作用于该助手线程、不改本书绑定；见 `assistant-chat-ui`「输入区控制条」），其余能力 SHALL NOT 使用按会话覆盖。
+- **绑定**：模型与其供应商 SHALL 绑定——`project.ai_config_id` 与 `project.ai_model` 须来自**同一配置**；后端 `set_project_model`（函数名以现状为准）SHALL 校验 `model ∈ json.loads(config.models)`（处理 JSON 文本/`None`/空串/非法 JSON），**空列表拒绝**、**部分 null 拒绝**（不成对即拒，除非显式 clear）；失败返 **400**（Pydantic 缺字段才 422）。**跨配置混搭在 UI 上不可达**（每行携带所属配置）；**组内换模型＝同配置换 model，允许**。前端确认键遇 400 SHALL **保留 draft 选中态 + 行内报错**（不清空、不禁用）。助手对话的按会话覆盖对 SHALL 经同一谓词校验（配置存在、归属用户、Key 可用、模型在清单内），失败在流内给可读提示。
 - **存量错配与失效边界**（流程审查 O-7/O-8）：`ai_model` 存在但**不在**该配置 `models` 列表（存量/手工改库）时，`ai_state` SHALL NOT 为 `ready`（**已定：并入 `invalid`**，不派生第 6 个枚举值），前端按「重选模型」引导——D12 校验只挡写入、不挡存量读取，须在判定层兜住。**配置被删且用户无其他可用配置**时 SHALL NOT 死路：模型窗须给「去「模型配置」新建配置」入口（而非仅隐藏选择区）。
 - **清除本书模型**（O-12）：`(None, None)` 的显式 clear SHALL 被支持（API 层保留现有 `change_type="clear"` 语义）；**UI 不提供「清除」入口**（仅 API 保留），且**不得**让 `(config_id, None)`/`(None, model)` 这种**不成对**状态落库。
-- 换模型 SHALL 对全书 AI 助手同时生效（一处改、全书生效）。
+- 换本书模型 SHALL 对全书 AI 助手同时生效（一处改、全书生效）；助手对话的按会话覆盖不改变本书模型，新线程默认回落本书模型。
 - **页面级调用参数（本清单即参数表，design D12 引用它）** SHALL 与 prompt 一并页面化：JSON 判定类（`introspect`/`fill`/`settings_genre_{field}`）`temperature ≤ 0.3`、`max_tokens` 足量（≥2048，防 introspect 六段+禁忌+verdict 被截断）；长文生成类（章写作/续写/章纲）`0.7–1.0`、`max_tokens 4000`。`AIClient.chat` SHALL 支持透传 `temperature`。
 - **`json_mode` 分层归属**：业务层 SHALL 只传语义参数 `json_mode: bool`；SHALL NOT 直接传 provider 专有参数（`response_format`）——由客户端层按 `api_format` 决定是否落地（Anthropic 分支忽略，否则 400），不支持者靠 prompt + 归一化兜底。
 - **模型能力门槛**：本书模型 SHALL 支持 system 消息与 ≥8k 上下文；不支持 JSON mode 的模型由归一化兜底并给**非阻断**提示。
@@ -449,6 +447,11 @@
 - Given 本书选了模型 x
 - When 分别调简介体检 / 题材五行 / 章写作
 - Then 三者都走 x（`effective_model` 全书唯一）
+
+#### Scenario: 助手按会话覆盖不改本书模型
+- Given 本书选了模型 x，作家在助手底栏临时选了模型 y
+- When 继续对话并随后写作正文
+- Then 助手回合走 y，正文写作仍走 x；本书绑定与 `effective_model` 不变，其它页签新线程默认 x
 
 - **幂等性**：同值重复写 SHALL 幂等——`PUT /novels/{id}/ai-model` 重复提交同 `(config_id, model)` → 均 200、状态不变、**审计不重复写**；`PUT /settings/story`/`PUT /settings/genre` 重复提交同 payload → 幂等；`PUT /settings/status/{type}` 重复 confirm → 幂等；**AI 重试/换候选不重复计 usage**。
 - **边界与等价类**：`synopsis` 界 **500**（0/1/499/500/501，**501 尾部截断**——与 D16「500 字截断」一致）；`cost_ratio` 界 **[1,10]**（0/11 拒）；模型列表 0/1/多（0 → 任意 model 拒）；空串/纯空白/`None` SHALL 视为「未填」（三者等价，不得只判 `None`）。
