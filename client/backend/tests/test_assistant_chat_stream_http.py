@@ -284,3 +284,94 @@ def test_failed_switch_tab_no_effect(monkeypatch):
     ])
     events = _read_sse(bid, "切到不存在的页")
     assert all(e.get("type") != "effect" for e in events), events
+
+
+def test_write_gate_card_reaches_client_before_approval(monkeypatch):
+    """授权卡必须先到客户端再停车等批复（2026-11-21 真机「进行中」空等实锤）。
+
+    旧实现把 permission_required 攒在 gate_fn 返回值里、等批复完才交给 SSE：
+    客户端永远看不到卡 → 没法批 → 默认档每写必确认只能空等 300s 超时，界面
+    一直「进行中」。这里钉死：卡在批复之前到达（批复动作必须由「看到卡」驱动）。
+    """
+    import threading
+
+    bid = _mk_book()
+    import ai_client
+    import ai_state
+    import assistant.router as router_mod
+
+    async def _fake_get_client(project_id):
+        return _FakeClient()
+
+    async def _fake_has_key(db, user_id):
+        return True
+
+    async def _fake_run(self, user_input, prime=None):
+        yield {"type": "run_start", "runId": "gw1"}
+        async for ev in self.gate_fn(
+            "write_settings_field",
+            {"stype": "story", "field": "premise", "value": "授权卡先到的回归前提"},
+        ):
+            yield ev
+        yield {
+            "type": "run_end",
+            "runId": "gw1",
+            "steps": 0,
+            "toolCalls": 0,
+            "degraded": False,
+            "error": "",
+        }
+
+    monkeypatch.setattr(ai_client, "get_ai_client_for_novel", _fake_get_client)
+    monkeypatch.setattr(ai_state, "user_has_ai_key", _fake_has_key)
+    monkeypatch.setattr(router_mod.AgentLoop, "run", _fake_run)
+
+    events: list[dict] = []
+    card_seen = threading.Event()
+    gate_id: dict[str, str] = {}
+
+    def _consume():
+        with client.stream(
+            "POST",
+            f"/api/novels/{bid}/assistant/chat",
+            json={"message": "把前提写进去", "page": "set:genre", "thread": "set:genre"},
+            headers={"Authorization": "Bearer tok-chathttp"},
+        ) as resp:
+            assert resp.status_code == 200, resp.status_code
+            for line in resp.iter_lines():
+                if not line.startswith("data: "):
+                    continue
+                try:
+                    ev = json.loads(line[len("data: "):])
+                except ValueError:
+                    continue
+                events.append(ev)
+                if ev.get("type") == "permission_required":
+                    gate_id["id"] = str(ev.get("gateId") or "")
+                    card_seen.set()
+
+    reader = threading.Thread(target=_consume, daemon=True)
+    reader.start()
+    try:
+        # 卡必须在停车等待期间就到（批复只能由「看到卡」驱动）；旧实现这里超时
+        assert card_seen.wait(10), f"授权卡没有在批复前到达：{events}"
+        assert gate_id["id"]
+        r = client.post(
+            f"/api/novels/{bid}/assistant/approve",
+            json={"gateId": gate_id["id"], "decision": "denied"},
+            headers={"Authorization": "Bearer tok-chathttp"},
+        )
+        assert r.status_code == 200, r.text
+    finally:
+        # 失败兜底：停止在跑 run，避免停车 300s 拖住测试
+        client.post(
+            f"/api/novels/{bid}/assistant/stop",
+            json={"thread": "set:genre"},
+            headers={"Authorization": "Bearer tok-chathttp"},
+        )
+        reader.join(15)
+    types = [e.get("type") for e in events]
+    assert "permission_required" in types
+    assert "gate_result" in types
+    assert types.index("permission_required") < types.index("gate_result")
+    assert "run_end" in types

@@ -407,17 +407,23 @@ async def _stream_chat(
     grants = json.loads(session.grants_json or "{}")
     tier = str(grants.get("tier") or write_gate.TIER_CONFIRM_EACH)
 
-    async def _gate_fn(tool_name: str, args: dict[str, Any]) -> list[dict[str, Any]] | None:
-        """工具闸统一入口：
+    async def _gate_fn(
+        tool_name: str, args: dict[str, Any]
+    ) -> AsyncIterator[dict[str, Any]]:
+        """工具闸统一入口（异步生成器：yield 即下发）：
         - 读类：放行（登录即可）；
         - 产卡类：档位闸（ai-plan 系 PRO / assistant-diverge MAX）——无权出升级
           引导事件（不停车），有权放行执行；
-        - 写类：档位闸 ＋ write_gate 三档梯度（停车弹授权卡）。"""
+        - 写类：档位闸 ＋ write_gate 三档梯度（停车弹授权卡）。
+
+        停车口径：permission_required **先 yield 再等批复**——SSE 客户端拿到卡
+        才有得批；旧实现等批复完才把事件交出去，授权卡永远晚于停车结果，前端
+        只看见「进行中」空等 300s 超时（2026-11-21 真机实锤）。"""
         from assistant.tools import get_tool
 
         tool = get_tool(tool_name)
         if tool is None or tool.kind == "read":
-            return None
+            return
 
         # 档位闸（产卡/写类都有 feature_key；发散=max，干活=pro 系）
         tier_required = {"ai-plan": "pro", "settings-ai-fields": "standard"}.get(
@@ -433,31 +439,29 @@ async def _stream_chat(
                 tool.feature_key,
                 "这个要 PRO 档才能让我动手。升级后我就能自己干活了。",
             )
-            return [
-                {
-                    "type": "gate",
-                    "feature": tool.feature_key,
-                    "tier_required": "max" if tool.feature_key == "assistant-diverge" else tier_required,
-                    "approved": False,
-                    "refusal": upgrade_copy,
-                }
-            ]
+            yield {
+                "type": "gate",
+                "feature": tool.feature_key,
+                "tier_required": "max" if tool.feature_key == "assistant-diverge" else tier_required,
+                "approved": False,
+                "refusal": upgrade_copy,
+            }
+            return
 
         if tool.kind != "write":
-            return None
+            return
 
         decision = write_gate.evaluate(tool_name, args, tier=tier)
         if decision.allowed:
-            return None
+            return
         if not decision.needs_user:
-            return [
-                {
-                    "type": "gate_result",
-                    "gateId": "",
-                    "approved": False,
-                    "refusal": "这个操作没有通过授权检查。",
-                }
-            ]
+            yield {
+                "type": "gate_result",
+                "gateId": "",
+                "approved": False,
+                "refusal": "这个操作没有通过授权检查。",
+            }
+            return
 
         # 停车：发授权卡，等作家批复（超时/关应用＝未批；待决记录已持久化可审计）
         # preview 增强（c-agent-page-ops）：写工具可挂 preview_builder（读现值构造
@@ -488,15 +492,14 @@ async def _stream_chat(
             },
             status="streaming",
         )
-        events: list[dict[str, Any]] = [
-            {
-                "type": "permission_required",
-                "gateId": gate_id,
-                "preview": preview,
-                "humanOnly": decision.human_only,
-                "reason": decision.reason,
-            }
-        ]
+        # 先下发授权卡（SSE 立刻可见），再停车等批复
+        yield {
+            "type": "permission_required",
+            "gateId": gate_id,
+            "preview": preview,
+            "humanOnly": decision.human_only,
+            "reason": decision.reason,
+        }
         # 停车等待与取消赛跑：停止/打断到达时不再傻等 300s 批复（openworker 同款）
         wait_task = asyncio.ensure_future(write_gate.PARKING.wait(gate_id))
         cancel_wait = (
@@ -512,25 +515,21 @@ async def _stream_chat(
                 cancel_wait.cancel()
         if cancel_wait is not None and cancel_wait.done() and not wait_task.done():
             write_gate.PARKING.discard(gate_id)
-            return events + [
-                {
-                    "type": "gate_result",
-                    "gateId": gate_id,
-                    "approved": False,
-                    "refusal": "已停止——这一步没有执行。",
-                }
-            ]
-        approved = wait_task.result() == "approved"
-        write_gate.PARKING.discard(gate_id)
-        events.append(
-            {
+            yield {
                 "type": "gate_result",
                 "gateId": gate_id,
-                "approved": approved,
-                "refusal": None if approved else "作家没有授权这个操作，我不做了。",
+                "approved": False,
+                "refusal": "已停止——这一步没有执行。",
             }
-        )
-        return events
+            return
+        approved = wait_task.result() == "approved"
+        write_gate.PARKING.discard(gate_id)
+        yield {
+            "type": "gate_result",
+            "gateId": gate_id,
+            "approved": approved,
+            "refusal": None if approved else "作家没有授权这个操作，我不做了。",
+        }
 
     # 协同取消（停止/打断/断连即停——openworker 语义）：每会话线程一个取消事件，
     # stop 路由/新消息打断/断连收尸都只置位，循环在最近检查点自己收口（工具与
