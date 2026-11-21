@@ -32,6 +32,8 @@ export type AgentEvent = {
   domain?: string;
   label?: string;
   resultNote?: string;
+  /** 本步是否成功（step_end）——过程泡泡绿勾/红叉 */
+  ok?: boolean;
   /** 本步内模型 API 调用记录（coding agent 反馈口径，boss 拍板 2026-11-15） */
   apiCalls?: { op: string; model: string; ms: number; tokens_in: number; tokens_out: number; ok: boolean }[];
   text?: string;
@@ -186,6 +188,11 @@ export function streamAssistantChat(
     tool_hint?: { tool: string; args: Record<string, unknown> };
     /** 页面未保存标记（c-agent-page-ops）：只进模型提示词（界面零渲染） */
     page_state?: { unsaved: string[] };
+    /** 深度思考开关（c-agent-thinking-bubbles）：显式覆盖 API 配置的思考开关 */
+    thinking?: boolean;
+    /** 助手本轮按次模型覆盖对（c-agent-thinking-bubbles）：不改本书绑定 */
+    api_config_id?: string;
+    model?: string;
   },
   handlers: AssistantStreamHandlers,
 ): () => void {

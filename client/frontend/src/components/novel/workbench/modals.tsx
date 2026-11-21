@@ -455,6 +455,7 @@ export function ModelPicker({
   triggerClass = "input mp-trigger",
   flagLabel = "本书模型",
   panelWidth,
+  triggerTitle,
 }: {
   options: PickerOption[];
   /** 当前选择键 `${api_config_id}::${model}` */
@@ -471,6 +472,8 @@ export function ModelPicker({
   flagLabel?: string;
   /** 弹层定宽（布局 px；触发位过窄的复用场景），右缘对齐触发位；缺省＝触发位宽 */
   panelWidth?: number;
+  /** 触发位原生 title（窄触发位显示截断时补全信息） */
+  triggerTitle?: string;
 }) {
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState("");
@@ -636,6 +639,7 @@ export function ModelPicker({
         aria-controls="ai-model-panel"
         aria-activedescendant={open && flat[cursor] ? `ai-model-opt-${cursor}` : undefined}
         aria-label={label}
+        title={triggerTitle}
         data-testid="ai-model-select"
         onClick={() => (open ? setOpen(false) : openAt())}
         onKeyDown={onKeyDown}
