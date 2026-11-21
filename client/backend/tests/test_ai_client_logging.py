@@ -207,3 +207,102 @@ def test_stream_midway_failure_logs_warning(cap_ai):
         asyncio.run(_consume())
     lines = [r.getMessage() for r in cap_ai.records if r.name == "ai_client"]
     assert any("op=unit_stream_fail" in m and "result=timeout" in m for m in lines), lines
+
+
+def test_stream_success_logs_cache_hit_miss(cap_ai):
+    """c-agent-prompt-cache：DeepSeek usage 的缓存统计进 ai_call 行。"""
+    import asyncio
+
+    c = _make_openai_client()
+
+    class _FakeStream:
+        def __init__(self):
+            self._i = 0
+
+        def __aiter__(self):
+            return self
+
+        async def __anext__(self):
+            self._i += 1
+            if self._i == 1:
+                return SimpleNamespace(
+                    usage=None,
+                    choices=[SimpleNamespace(delta=SimpleNamespace(content="片段"))],
+                )
+            if self._i == 2:
+                return SimpleNamespace(
+                    usage=SimpleNamespace(
+                        prompt_tokens=100,
+                        completion_tokens=10,
+                        prompt_cache_hit_tokens=80,
+                        prompt_cache_miss_tokens=20,
+                    ),
+                    choices=[],
+                )
+            raise StopAsyncIteration
+
+    async def _create(**kw):
+        return _FakeStream()
+
+    c._client = SimpleNamespace(
+        chat=SimpleNamespace(completions=SimpleNamespace(create=_create))
+    )
+
+    async def _consume():
+        async for _ev in c.chat_stream(
+            model="haiku", system="s", messages=[{"role": "user", "content": "x"}],
+            operation="unit_stream_cache",
+        ):
+            pass
+
+    asyncio.run(_consume())
+    line = [
+        r.getMessage() for r in cap_ai.records
+        if r.name == "ai_client" and "op=unit_stream_cache" in r.getMessage()
+    ][-1]
+    assert "cache_hit=80" in line and "cache_miss=20" in line, line
+    assert "tokens_in=100" in line and "tokens_out=10" in line
+
+
+def test_stream_without_cache_fields_omits_cache_meta(cap_ai):
+    """供应商不返回缓存字段时，ai_call 行不出现 cache_hit/cache_miss。"""
+    import asyncio
+
+    c = _make_openai_client()
+
+    class _FakeStream:
+        def __init__(self):
+            self._i = 0
+
+        def __aiter__(self):
+            return self
+
+        async def __anext__(self):
+            self._i += 1
+            if self._i == 1:
+                return SimpleNamespace(
+                    usage=SimpleNamespace(prompt_tokens=5, completion_tokens=3),
+                    choices=[],
+                )
+            raise StopAsyncIteration
+
+    async def _create(**kw):
+        return _FakeStream()
+
+    c._client = SimpleNamespace(
+        chat=SimpleNamespace(completions=SimpleNamespace(create=_create))
+    )
+
+    async def _consume():
+        async for _ev in c.chat_stream(
+            model="haiku", system="s", messages=[{"role": "user", "content": "x"}],
+            operation="unit_stream_nocache",
+        ):
+            pass
+
+    asyncio.run(_consume())
+    line = [
+        r.getMessage() for r in cap_ai.records
+        if r.name == "ai_client" and "op=unit_stream_nocache" in r.getMessage()
+    ][-1]
+    assert "cache_hit" not in line and "cache_miss" not in line, line

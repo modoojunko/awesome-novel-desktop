@@ -24,23 +24,29 @@ BOOK_BRIEF_BUDGET_CHARS = 300
 WINDOW_BUDGET_CHARS = 120_000
 
 
-async def build_book_brief(novel: Any, db: Any) -> str:
-    """≤300 字书级 brief：书名/题材/进度（frontier）。失败降级为仅书名。"""
+async def build_book_brief_parts(novel: Any, db: Any) -> tuple[str, str]:
+    """书级 brief 拆两段（c-agent-prompt-cache）：(稳定, 动态)。
+
+    - 稳定段＝书名/题材：跨轮不变，进系统前缀（前缀缓存可复用）；
+    - 动态段＝进度（frontier 三态真值/字数）：随写作变化，拼到当前 user 消息尾部。
+    任一段失败降级为空串；`build_book_brief` 保持两段拼接的旧出口。
+    """
     from chapters.frontier import frontier_info
 
     name = str(getattr(novel, "name", "") or "")
-    lines = [f"书名：{name}"]
+    stable_lines = [f"书名：{name}"]
     try:
         from genres.service import resolve_genre_context
 
         gctx = await resolve_genre_context(getattr(novel, "root_path", ""), novel.id)
         genre_name = str(gctx.get("genre") or gctx.get("genre_name") or "")
         if genre_name:
-            lines.append(f"题材：{genre_name}")
+            stable_lines.append(f"题材：{genre_name}")
     except Exception as e:  # brief 缺题材不致命（BLE001 豁免）
         import logging
 
         logging.getLogger(__name__).debug("genre brief skipped: %s", e)
+    dynamic_lines: list[str] = []
     try:
         info = await frontier_info(db, novel.id)
         chapters = info.get("chapters")
@@ -59,12 +65,29 @@ async def build_book_brief(novel: Any, db: Any) -> str:
                 progress = f"第 {fr.get('global_no')} 章 已排定·正文未写·未归档"
             else:  # pending 占位：主线全部归档
                 progress = f"各章均已归档；下一章 第 {fr.get('global_no')} 章（待拆纲）"
-            lines.append(f"进度：全书 {len(chapters)} 章（已归档 {archived}）；{progress}")
+            dynamic_lines.append(
+                f"进度：全书 {len(chapters)} 章（已归档 {archived}）；{progress}"
+            )
         else:
-            lines.append("进度：空书（还没有章节）")
+            dynamic_lines.append("进度：空书（还没有章节）")
     except Exception:  # noqa: BLE001
         pass
-    brief = "；".join(lines)
+    stable = "；".join(stable_lines)
+    dynamic = "；".join(dynamic_lines)
+    if len(stable) > BOOK_BRIEF_BUDGET_CHARS:
+        stable = stable[: BOOK_BRIEF_BUDGET_CHARS - 1] + "…"
+    if len(dynamic) > BOOK_BRIEF_BUDGET_CHARS:
+        dynamic = dynamic[: BOOK_BRIEF_BUDGET_CHARS - 1] + "…"
+    return stable, dynamic
+
+
+async def build_book_brief(novel: Any, db: Any) -> str:
+    """≤300 字书级 brief：书名/题材/进度（frontier）。失败降级为仅书名。
+
+    旧出口（两段拼接）；新调用方按稳定/动态分注入（c-agent-prompt-cache）。
+    """
+    stable, dynamic = await build_book_brief_parts(novel, db)
+    brief = "；".join(p for p in (stable, dynamic) if p)
     if len(brief) > BOOK_BRIEF_BUDGET_CHARS:
         brief = brief[: BOOK_BRIEF_BUDGET_CHARS - 1] + "…"
     return brief
