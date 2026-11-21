@@ -575,11 +575,11 @@
 }
 .cd-plan-item[data-state="done"] .cd-plan-st { color: var(--ok); }
 .cd-plan-item[data-state="active"] .cd-plan-dot {
-  background: var(--accent-soft);
-  border-color: color-mix(in oklch, var(--accent) 35%, var(--border));
-  color: var(--accent-strong);
+  background: color-mix(in oklch, var(--warn) 14%, transparent);
+  border-color: color-mix(in oklch, var(--warn) 32%, var(--border));
+  color: var(--warn);
 }
-.cd-plan-item[data-state="active"] .cd-plan-st { color: var(--accent-strong); }
+.cd-plan-item[data-state="active"] .cd-plan-st { color: var(--warn); }
 .cd-plan-item[data-state="pending"] { opacity: 0.7; }
 .cd-plan-item[data-state="failed"] .cd-plan-dot {
   background: color-mix(in oklch, var(--err) 12%, transparent);
