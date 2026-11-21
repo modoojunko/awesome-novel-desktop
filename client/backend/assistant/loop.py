@@ -578,6 +578,17 @@ class AgentLoop:
                 yield {"type": "narration", "text": fallback}
                 break
 
+            # 工具步叙述入账（c-agent-narration-persist）：正文此前只走
+            # narration_delta（流式直出），不补整段 narration——reply_parts 收不到，
+            # 整轮收尾/中断定稿时这段文字丢失（2026-11-21 真机实锤：截图有、
+            # 会话存档无）。dock 端按前缀对账，不会与已流 delta 翻倍。
+            # 只取已流的干净前缀（stream_slice 冻结在哨兵/JSON 嫌疑处）——SHALL NOT
+            # 用 action.reply 整段，否则混排输出的裸协议 JSON 会借这条路上屏。
+            # 未知工具分支不走此径（上面的 fallback 已含 reply，避免双份）。
+            visible = full_text[:streamed_upto].strip()
+            if visible:
+                yield {"type": "narration", "text": visible}
+
             # 域外工具＝页签独立流程（c-agent-fleet）：不执行，引导切对应页签
             allowed = self._allowed_tools()
             if allowed is not None and action.tool not in allowed:

@@ -375,3 +375,60 @@ def test_write_gate_card_reaches_client_before_approval(monkeypatch):
     assert "gate_result" in types
     assert types.index("permission_required") < types.index("gate_result")
     assert "run_end" in types
+
+
+def test_tool_step_narration_persisted(monkeypatch):
+    """工具步叙述入账（c-agent-narration-persist）：text harness 的流式正文
+    必须在会话里落盘——真机实锤「截图有、存档无」；走真实 loop＋落盘链路。"""
+    bid = _mk_book()
+    import ai_client
+    import ai_state
+    import assistant.loop as loop_mod
+    from ai_client import StreamEvent
+    from assistant.tools import ToolResult
+
+    class _ScriptedClient(_FakeClient):
+        """先吐 v2 工具动作、再收口；正文走 delta（与生产几何同形）。"""
+
+        def __init__(self):
+            self.turns = [
+                "我先看一眼设定。\n===ACT===\n"
+                + json.dumps({"action": "tool", "tool": "read_progress", "args": {}}),
+                json.dumps(
+                    {"action": "final", "tool": "", "args": {}, "reply": "设定是空的，我来搭。"},
+                    ensure_ascii=False,
+                ),
+            ]
+
+        async def chat_stream(self, **kwargs):
+            text = self.turns.pop(0) if self.turns else ""
+            yield StreamEvent(text=text, is_done=True, tokens=5, tokens_in=5)
+
+        async def chat(self, **kwargs):
+            return "摘要"
+
+    async def _fake_get_client(project_id):
+        return _ScriptedClient()
+
+    async def _fake_has_key(db, user_id):
+        return True
+
+    async def fake_run_tool(ctx, name, args):
+        return ToolResult(ok=True, summary="（主线还没有内容）")
+
+    monkeypatch.setattr(loop_mod, "tools_for_thread", lambda thread: None)
+    monkeypatch.setattr(loop_mod, "run_tool", fake_run_tool)
+    monkeypatch.setattr(ai_client, "get_ai_client_for_novel", _fake_get_client)
+    monkeypatch.setattr(ai_state, "user_has_ai_key", _fake_has_key)
+
+    events = _read_sse(bid, "看看设定")
+    assert any(e.get("type") == "step_end" for e in events), events
+    r = client.get(
+        f"/api/novels/{bid}/assistant/session?thread=ch:og",
+        headers={"Authorization": "Bearer tok-chathttp"},
+    )
+    assert r.status_code == 200
+    contents = [m.get("content") or "" for m in r.json().get("messages", [])]
+    joined = "\n".join(contents)
+    assert "我先看一眼设定。" in joined, joined
+    assert "设定是空的，我来搭。" in joined, joined

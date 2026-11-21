@@ -120,6 +120,69 @@ async def test_tool_step_path_with_trace_and_observation(monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_tool_step_narration_event_for_persistence(monkeypatch):
+    """工具步叙述补整段 narration（c-agent-narration-persist）：text harness 的
+    正文只走 narration_delta 流式直出，旧路径不补整段——reply_parts 收不到，
+    收尾/中断定稿时这段文字从会话里丢失（2026-11-21 真机实锤）。"""
+    import json
+
+    async def fake_run_tool(ctx, name, args):
+        return ToolResult(ok=True, summary="（主线还没有内容）")
+
+    fake = Tool(
+        name="read_progress", kind="read", args_hint="{}", description="读进度",
+        fn=fake_run_tool,
+    )
+    monkeypatch.setattr(loop_mod, "get_tool", lambda n: fake if n == "read_progress" else None)
+    monkeypatch.setattr(loop_mod, "run_tool", fake_run_tool)
+
+    tool_out = "我先看一眼设定。\n===ACT===\n" + json.dumps(
+        {"action": "tool", "tool": "read_progress", "args": {}}, ensure_ascii=False
+    )
+    client = FakeClient([tool_out, _final("看完了，设定是空的。")])
+    loop = AgentLoop(
+        client=client, system="sys", transcript=[], tool_ctx=None, config=LoopConfig()
+    )
+    events = [e async for e in loop.run("看看设定")]
+    narrs = [e for e in events if e["type"] == "narration" and e["text"] == "我先看一眼设定。"]
+    assert len(narrs) == 1, events
+    # 叙述在工具步之前（落盘 reply_parts 的顺序与界面一致）
+    idx = events.index(narrs[0])
+    assert any(e["type"] == "step_start" for e in events[idx + 1 :])
+
+
+@pytest.mark.asyncio
+async def test_tool_step_narration_skips_frozen_raw_json(monkeypatch):
+    """混排输出（正文后裸协议 JSON 再哨兵）：工具步叙述入账只取已流的干净
+    前缀——冻结区的裸 JSON SHALL NOT 借这条路上屏/入库（2026-11-16 红线）。"""
+    import json
+
+    async def fake_run_tool(ctx, name, args):
+        return ToolResult(ok=True, summary="ok")
+
+    fake = Tool(
+        name="read_progress", kind="read", args_hint="{}", description="读进度",
+        fn=fake_run_tool,
+    )
+    monkeypatch.setattr(loop_mod, "get_tool", lambda n: fake if n == "read_progress" else None)
+    monkeypatch.setattr(loop_mod, "run_tool", fake_run_tool)
+
+    tool_out = (
+        '我先看一眼。\n{"action": "draft_arc", "tool": "", "args": {}}\n'
+        "===ACT===\n"
+        + json.dumps({"action": "tool", "tool": "read_progress", "args": {}}, ensure_ascii=False)
+    )
+    client = FakeClient([tool_out, _final("看完了。")])
+    loop = AgentLoop(
+        client=client, system="sys", transcript=[], tool_ctx=None, config=LoopConfig()
+    )
+    events = [e async for e in loop.run("看看设定")]
+    narr_texts = [e["text"] for e in events if e["type"] == "narration"]
+    assert "我先看一眼。" in narr_texts
+    assert all('"action"' not in t for t in narr_texts), narr_texts
+
+
+@pytest.mark.asyncio
 async def test_unknown_tool_falls_back_to_final():
     client = FakeClient([_tool("nuke_everything", {})])
     loop = AgentLoop(
