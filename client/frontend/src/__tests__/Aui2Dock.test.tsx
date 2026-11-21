@@ -591,7 +591,7 @@ describe("Aui2Dock GateCard 字段级前后对比（c-agent-page-ops）", () => 
     chatApiState.approveGate.mockResolvedValue({ ok: true });
   });
 
-  it("preview 带 changes 时渲染字段前后人话行（空值/长文/数组都有人话）", async () => {
+  it("preview 带 changes 时渲染字段前后人话行（默认缩减、长值可展开看全文）", async () => {
     render(<Aui2Dock projectId="p1" page="工作台 · 卷纲" scope={SCOPE} />);
     await screen.findByTestId("aui2-dock");
     const sse = captureStream();
@@ -617,11 +617,23 @@ describe("Aui2Dock GateCard 字段级前后对比（c-agent-page-ops）", () => 
     expect(fields.textContent).toContain("碰到的挑战");
     expect(fields.textContent).toContain("旧挑战");
     expect(fields.textContent).toContain("新挑战");
-    // 空值/超长截断/非字符串值都不出 [object Object]
+    // 默认缩减：空值/超长截断/非字符串值都不出 [object Object]
     expect(fields.textContent).toContain("（空）");
     expect(fields.textContent).toContain("…");
     expect(fields.textContent).toContain('["林七","白鹤"]');
     expect(fields.textContent).not.toContain("[object Object]");
+    // 推送缩减、点开看全文（boss 2026-11-21）：只有长值字段有展开钮，
+    // 展开见全文、收起回缩减
+    expect(screen.getAllByTestId("gate-preview-expand")).toHaveLength(1);
+    expect(fields.textContent).not.toContain("长".repeat(100));
+    fireEvent.click(screen.getByTestId("gate-preview-expand"));
+    await waitFor(() => expect(fields.textContent).toContain("长".repeat(100)));
+    expect(screen.getByTestId("gate-preview-expand").textContent).toBe("收起");
+    fireEvent.click(screen.getByTestId("gate-preview-expand"));
+    await waitFor(() =>
+      expect(screen.getByTestId("gate-preview-expand").textContent).toBe("展开全部"),
+    );
+    expect(fields.textContent).not.toContain("长".repeat(100));
   });
 });
 
