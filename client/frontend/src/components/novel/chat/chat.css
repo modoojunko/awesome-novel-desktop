@@ -734,6 +734,26 @@
   box-shadow: 0 0 0 3px color-mix(in oklch, var(--accent) 14%, transparent);
 }
 
+/* 过程进度行（c-agent-process-progress）：列表首一行，真实步数/计时 */
+.cd-trace-status {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 2px 2px 4px;
+  font-size: 12px;
+  line-height: 18px;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+.cd-trace-status > span {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.cd-trace-status svg { flex: none; width: 14px; height: 14px; }
+
 /* 过程泡泡（思考/工具各一张 OperateCard）：默认单行，点开看全文/详情 */
 .cd-proc-card {
   width: 100%;

@@ -33,6 +33,8 @@ export type AgentEvent = {
   domain?: string;
   label?: string;
   resultNote?: string;
+  /** 本步工具入参（step_end）——工具卡展开的参数预览 */
+  args?: Record<string, unknown>;
   /** 本步是否成功（step_end）——过程泡泡绿勾/红叉 */
   ok?: boolean;
   /** 本步内模型 API 调用记录（coding agent 反馈口径，boss 拍板 2026-11-15） */

@@ -673,10 +673,19 @@ async def _stream_chat(
         if etype == "step_end":
             step_id = str(event.get("stepId") or "")
             note = str(event.get("resultNote", ""))
+            # 参数预览（c-agent-process-progress）：工具卡展开可见，截 600 防大字段
+            args_raw = event.get("args")
+            args_preview = (
+                _clip(json.dumps(args_raw, ensure_ascii=False), 600)
+                if isinstance(args_raw, dict) and args_raw
+                else ""
+            )
             for item in process_items:
                 if item.get("kind") == "tool" and item.get("stepId") == step_id:
                     item["running"] = False
                     item["note"] = note
+                    if args_preview:
+                        item["args"] = args_preview
                     if "ok" in event:
                         item["ok"] = bool(event.get("ok"))
                     if event.get("apiCalls"):
@@ -691,6 +700,8 @@ async def _stream_chat(
                     "running": False,
                     "note": note,
                 }
+                if args_preview:
+                    fallback["args"] = args_preview
                 if "ok" in event:
                     fallback["ok"] = bool(event.get("ok"))
                 if event.get("apiCalls"):
