@@ -88,5 +88,11 @@ def test_ai_client_thinking_params_doubao_default_path():
     assert c._thinking_params() == {"thinking": {"type": "disabled"}}
     # 显式 disabled（判定类路径）同口径：不带档位
     assert c._explicit_thinking_params({"type": "disabled"}) == {"thinking": {"type": "disabled"}}
-    # 显式 thinking 形态原样透传（拼档位只在配置驱动路径 _thinking_params）
-    assert c._explicit_thinking_params({"type": "enabled"}) == {"thinking": {"type": "enabled"}}
+    # 显式 enabled 未带 effort：按配置强度补齐（c-agent-thinking-effort）；显式 effort 优先
+    assert c._explicit_thinking_params({"type": "enabled"}) == {
+        "thinking": {"type": "enabled"},
+        "reasoning_effort": "low",
+    }
+    assert c._explicit_thinking_params(
+        {"type": "enabled", "reasoning_effort": "max"}
+    ) == {"thinking": {"type": "enabled", "reasoning_effort": "max"}}
