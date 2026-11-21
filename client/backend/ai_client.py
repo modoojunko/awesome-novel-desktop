@@ -489,6 +489,8 @@ class AIClient:
         thinking_ms: float | None = None,
         first_char_ms: float | None = None,
         thinking_chars: int | None = None,
+        cache_hit: int | None = None,
+        cache_miss: int | None = None,
     ) -> None:
         """一次 provider 调用出口的留痕行（D7）：成功 INFO / 失败 WARNING。
 
@@ -524,11 +526,17 @@ class AIClient:
                     f" first_char_ms={first_char_ms or 0.0:.0f}"
                     f" thinking_chars={thinking_chars or 0}"
                 )
+            # 缓存命中留痕（c-agent-prompt-cache）：DeepSeek 等返回才记，未返回不加
+            cache_meta = (
+                f" cache_hit={int(cache_hit)} cache_miss={int(cache_miss)}"
+                if cache_hit is not None and cache_miss is not None
+                else ""
+            )
             logger.info(
                 "event=ai_call op=%s model=%s vendor=%s host=%s attempt=%s duration_ms=%.0f"
-                " tokens_in=%d tokens_out=%d result=ok%s%s",
+                " tokens_in=%d tokens_out=%d result=ok%s%s%s",
                 op, mdl, vendor, host, attempt, duration_ms,
-                tokens_in or 0, tokens_out or 0, meta, task_ctx_tag(),
+                tokens_in or 0, tokens_out or 0, meta, cache_meta, task_ctx_tag(),
             )
         else:
             # 判死失败行带思考元数据（c-thinking-display 评审 P3a）：思考时长/字数
@@ -1049,6 +1057,10 @@ class AIClient:
                     )
                 done_out, done_in = 0, 0
                 done_fr = ""  # 终止原因（c-shortfall-refill 遥测）
+                # 缓存命中统计（c-agent-prompt-cache）：DeepSeek usage 顶层的
+                # prompt_cache_* 字段；SDK 未声明时落 model_extra。
+                cache_hit: int | None = None
+                cache_miss: int | None = None
                 # 思考呈现可观测（c-thinking-display 2.5）：思考时长/首字时刻/
                 # 思考字符数——只进 ai_call 行元数据，思考全文不落日志
                 stream_t0 = time.perf_counter()
@@ -1078,6 +1090,12 @@ class AIClient:
                     if usage is not None:
                         done_out = getattr(usage, "completion_tokens", 0) or 0
                         done_in = getattr(usage, "prompt_tokens", 0) or 0
+                        cache_hit = getattr(usage, "prompt_cache_hit_tokens", None)
+                        cache_miss = getattr(usage, "prompt_cache_miss_tokens", None)
+                        if cache_hit is None and cache_miss is None:
+                            extra_usage = getattr(usage, "model_extra", None) or {}
+                            cache_hit = extra_usage.get("prompt_cache_hit_tokens")
+                            cache_miss = extra_usage.get("prompt_cache_miss_tokens")
                     if not chunk.choices:
                         continue
                     fr = getattr(chunk.choices[0], "finish_reason", None)
@@ -1156,6 +1174,8 @@ class AIClient:
                         (first_text_at - start) * 1000 if first_text_at else 0.0
                     ),
                     thinking_chars=thinking_chars,
+                    cache_hit=cache_hit,
+                    cache_miss=cache_miss,
                 )
                 yield StreamEvent(
                     is_done=True, tokens=done_out, tokens_in=done_in,

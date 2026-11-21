@@ -121,7 +121,10 @@ def _patch_loop(monkeypatch, events, crash_after: int | None = None):
         return True
 
     async def _fake_run(self, user_input, prime=None):
-        run_calls.append({"thinking": getattr(self.cfg, "thinking", None)})
+        run_calls.append({
+            "thinking": getattr(self.cfg, "thinking", None),
+            "input": user_input,
+        })
         yielded = 0
         for ev in events:
             if crash_after is not None and yielded >= crash_after:
@@ -410,3 +413,31 @@ def test_unfinished_step_marked_interrupted_on_finalize(monkeypatch):
     item = assistant["payload"]["process"][0]
     assert item["kind"] == "tool"
     assert item["running"] is False and item["interrupted"] is True
+
+
+def test_system_prefix_stable_and_progress_in_user_tail(monkeypatch):
+    """c-agent-prompt-cache：系统前缀只放稳定书情（书名/题材），动态进度拼在
+    当前 user 消息尾部——进度变化不废前缀缓存。"""
+    import assistant.router as router_mod
+
+    bid = _mk_book()
+    rec = _patch_loop(monkeypatch, [
+        {"type": "run_start", "runId": "pc1"},
+        {"type": "narration", "text": "好。"},
+        {"type": "run_end", "runId": "pc1", "steps": 0, "toolCalls": 0, "degraded": False, "error": ""},
+    ])
+    captured: dict = {}
+    orig_init = router_mod.AgentLoop.__init__
+
+    def _capture_init(self, **kwargs):
+        captured.update(kwargs)
+        orig_init(self, **kwargs)
+
+    monkeypatch.setattr(router_mod.AgentLoop, "__init__", _capture_init)
+    _read_sse(bid, "看看主线")
+
+    system = str(captured.get("system") or "")
+    assert "书名：" in system
+    assert "进度：" not in system, "动态进度不得进系统前缀"
+    user_input = str(rec["runs"][0]["input"])
+    assert "进度：空书" in user_input, "动态进度应拼在当前 user 消息尾部"

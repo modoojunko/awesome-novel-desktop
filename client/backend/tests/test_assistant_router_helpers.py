@@ -240,3 +240,48 @@ async def test_book_brief_planned_and_pending_states(monkeypatch):
         },
     )
     assert "各章均已归档；下一章 第 8 章（待拆纲）" in pending
+
+
+async def _brief_parts_with_frontier(monkeypatch, info: dict):
+    import chapters.frontier as _fr
+    from assistant.context import build_book_brief_parts
+
+    async def _fake_frontier(db, novel_id):
+        return info
+
+    monkeypatch.setattr(_fr, "frontier_info", _fake_frontier)
+    return await build_book_brief_parts(_BriefNovel(), None)
+
+
+@pytest.mark.asyncio
+async def test_book_brief_parts_stable_progress_separated(monkeypatch):
+    """c-agent-prompt-cache：书名/题材（稳定）与进度（动态）分段——进度变化
+    不改稳定段，稳定段才能留在系统前缀吃缓存。"""
+    info_a = {
+        "chapters": [
+            {"ref": f"vol-1-ch-{i}", "has_prose": True, "archived": i < 6,
+             "word_count": 700 if i < 6 else 1000}
+            for i in range(1, 7)
+        ],
+        "frontier": {"ref": "vol-1-ch-6", "global_no": 6, "state": "draft",
+                     "has_prose": True, "word_count": 1000, "writable": True},
+    }
+    stable, dynamic = await _brief_parts_with_frontier(monkeypatch, info_a)
+    assert stable.startswith("书名：夜行录")
+    assert "进度" not in stable
+    assert dynamic.startswith("进度：")
+    assert "正文已写 1,000 字" in dynamic
+
+    info_b = {
+        **info_a,
+        "chapters": [
+            {"ref": f"vol-1-ch-{i}", "has_prose": True, "archived": i < 6,
+             "word_count": 700 if i < 6 else 2000}
+            for i in range(1, 7)
+        ],
+        "frontier": {**info_a["frontier"], "word_count": 2000},
+    }
+    stable_b, dynamic_b = await _brief_parts_with_frontier(monkeypatch, info_b)
+    assert stable_b == stable
+    assert dynamic_b != dynamic
+    assert "2,000 字" in dynamic_b
