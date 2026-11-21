@@ -22,6 +22,7 @@ import { entitlementFor } from "./tier-features";
 // ④门控卡在对话流 ⑤跨页对话保留 ⑥流中断错误卡 ⑦HTTP 500 可读错误 ⑧工具轨迹
 // 折叠 ⑨多卡并出 ⑩停止可再发 ⑪采纳与 run 并发 ⑫发散过目不自动建卡
 // ⑬长会话历史 40 条 ⑭窄屏 FAB（批F-2 步⑤未落地——skip 挂账）
+// ⑮思考/工具各自单行过程泡泡（c-agent-thinking-bubbles）
 // =========================================================================
 
 const S_API = process.env.E2E_S_API || "http://127.0.0.1:19001/api/web";
@@ -432,6 +433,26 @@ function sse(events: string[]): string {
 }
 const runStart = (id: string) => JSON.stringify({ type: "run_start", runId: id });
 const narration = (text: string) => JSON.stringify({ type: "narration", text });
+const thinking = (text: string) => JSON.stringify({ type: "thinking", text });
+const stepStart = (id: string, stepId: string, tool: string, label = "") =>
+  JSON.stringify({ type: "step_start", runId: id, stepId, tool, label });
+const stepEnd = (
+  id: string,
+  stepId: string,
+  tool: string,
+  resultNote: string,
+  ok = true,
+  apiCalls?: { op: string; model: string; ms: number; tokens_in: number; tokens_out: number; ok: boolean }[],
+) =>
+  JSON.stringify({
+    type: "step_end",
+    runId: id,
+    stepId,
+    tool,
+    resultNote,
+    ok,
+    ...(apiCalls ? { apiCalls } : {}),
+  });
 const artifact = (id: string, cardId: string, kind: string, payload: unknown) =>
   JSON.stringify({ type: "artifact", runId: id, cardId, kind, payload });
 const runEnd = (id: string) => JSON.stringify({ type: "run_end", runId: id });
@@ -592,17 +613,61 @@ test.describe("chat-dock 界面测试（c-writing-agent 批G）", () => {
     await restore();
   });
 
-  test("⑧工具轨迹：全链两步→折叠回看", async ({ page }) => {
+  test("⑧工具轨迹：全链两步→各自单行泡泡可展开", async ({ page }) => {
     const { restore, token } = await setupSession(page, "max");
     await seedBook(page, token, `e2e-agt-trace-${Date.now()}`);
     await sendViaDock(page, "查查进度，看看设定再说话");
-    // 全链两步：read_progress＋read_settings 都真实执行
-    await expect(page.getByTestId("chat-trace")).toBeVisible({ timeout: 30000 });
-    // 两步轨迹：read_progress＋read_settings 都真实执行后折叠
-    await expect(page.getByTestId("chat-trace")).toContainText("运行轨迹（2 步：read_progress、read_settings）");
-    await page.getByTestId("chat-trace").locator("summary").click();
-    await expect(page.getByText("read_progress", { exact: true })).toBeVisible();
-    await expect(page.getByText("read_settings", { exact: true })).toBeVisible();
+    // 全链两步：read_progress＋read_settings 各一张单行工具泡泡
+    await expect
+      .poll(() => page.getByTestId("chat-proc-tool").count(), { timeout: 30000 })
+      .toBe(2);
+    const cards = page.getByTestId("chat-proc-tool");
+    await expect(cards.nth(0)).toContainText("read_progress");
+    await expect(cards.nth(1)).toContainText("read_settings");
+    // 点开第一步看详情（打算/结果），再收起状态不回退
+    await cards.nth(0).getByText("read_progress").click();
+    await expect(cards.nth(0)).toContainText("打算");
+    await restore();
+  });
+
+  test("⑮思考与工具各自单行泡泡（点开看全文/详情；正文不混 ● tool）", async ({ page }) => {
+    const { restore, token } = await setupSession(page, "max");
+    await seedBook(page, token, `e2e-agt-bubbles-${Date.now()}`);
+    await mockChat(page, [
+      [
+        runStart("b1"),
+        thinking("先看看主线再动手"),
+        stepStart("b1", "b1-1", "read_settings", "先读主线设定"),
+        stepEnd("b1", "b1-1", "read_settings", "主线还没写", true, [
+          { op: "assistant_step", model: "m", ms: 3, tokens_in: 1, tokens_out: 2, ok: true },
+        ]),
+        thinking("还是先补一句"),
+        narration("看完了，主线还没写。"),
+        runEnd("b1"),
+      ],
+    ]);
+    await sendViaDock(page, "看看主线");
+
+    // 两段思考 = 两张独立思考泡泡，默认单行折叠
+    const thinkCards = page.getByTestId("chat-proc-thinking");
+    await expect(thinkCards).toHaveCount(2);
+    await expect(thinkCards.first()).toContainText("思考过程");
+    await expect(page.getByText("先看看主线再动手")).toBeHidden();
+    await thinkCards.first().getByText("思考过程").click();
+    await expect(page.getByText("先看看主线再动手")).toBeVisible();
+
+    // 一次工具调用 = 一张工具泡泡；点开看打算/结果/模型调用
+    const toolCards = page.getByTestId("chat-proc-tool");
+    await expect(toolCards).toHaveCount(1);
+    await expect(toolCards.first()).toContainText("read_settings");
+    await expect(page.getByText("结果")).toBeHidden();
+    await toolCards.first().getByText("read_settings").click();
+    await expect(toolCards.first()).toContainText("结果");
+    await expect(toolCards.first()).toContainText("模型调用");
+
+    // 正文只剩助手说的话，不再混 ● tool 行
+    await expect(page.getByText("看完了，主线还没写。")).toBeVisible();
+    await expect(page.locator("body")).not.toContainText("● read_settings");
     await restore();
   });
 

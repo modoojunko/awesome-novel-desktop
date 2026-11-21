@@ -263,6 +263,9 @@ async def _stream_chat(
     page_unsaved: list[str] | None = None,
     thread: str = "",
     tool_hint: dict[str, Any] | None = None,
+    api_config_id: str = "",
+    model: str = "",
+    thinking_override: dict[str, Any] | None = None,
 ) -> AsyncIterator[str]:
     """SSE generator：no-key 引导 → 组装 → 循环 → 逐步落盘。"""
 
@@ -355,9 +358,22 @@ async def _stream_chat(
     try:
         from ai_client import get_ai_client_for_novel
 
-        client = await get_ai_client_for_novel(project.id)
+        # 按次模型覆盖对（c-agent-thinking-bubbles）：与正文生成弹窗同源机制——
+        # 仅本轮生效、不改本书绑定；校验失败在流内给可读出口。
+        if api_config_id or model:
+            client = await get_ai_client_for_novel(
+                project.id,
+                api_config_id=api_config_id or None,
+                model=model or None,
+            )
+        else:
+            client = await get_ai_client_for_novel(project.id)
     except ValueError as e:
-        msg = f"模型的钥匙配了但用不了：{e}"
+        msg = (
+            f"你选的助手模型用不了：{e}"
+            if (api_config_id or model)
+            else f"模型的钥匙配了但用不了：{e}"
+        )
         yield _sse({"type": "gate", "reason": "client_error", "message": msg})
         await session_store.append_message(
             session,
@@ -544,7 +560,7 @@ async def _stream_chat(
         transcript=transcript,
         tool_ctx=tool_ctx,
         compaction_state=compaction_state,
-        config=LoopConfig(),
+        config=LoopConfig(thinking=thinking_override),
         on_compaction=_on_compaction,
         on_usage=_on_usage,
         gate_fn=_gate_fn,
@@ -565,6 +581,9 @@ async def _stream_chat(
     # 2026-11-18 boss 走查实锤：只写消费不写收集＝NameError 在 _drive 里炸掉
     # → _STOP 永不入队 → SSE 永挂（前端「进行中」卡死）。收集与消费必须同侧成对。
     run_effects: list[dict[str, Any]] = []
+    # 过程轨迹（c-agent-thinking-bubbles）：思考/工具按发生顺序收集，收尾并入
+    # assistant 行 payload——前端重开书/切页签按同样顺序复原独立过程泡泡。
+    process_items: list[dict[str, Any]] = []
 
     async def _consume(event: dict[str, Any]) -> list[dict[str, Any]]:
         """落盘分支（消费副作用）：narration 攒回执、tool/授权卡/产物卡落行。
@@ -578,7 +597,54 @@ async def _stream_chat(
         if etype == "narration":
             reply_parts.append(str(event.get("text", "")))
             return []
+        if etype == "thinking":
+            chunk = str(event.get("text") or "")
+            if chunk:
+                last = process_items[-1] if process_items else None
+                if last is not None and last.get("kind") == "thinking":
+                    last["text"] = str(last.get("text") or "") + chunk
+                else:
+                    process_items.append({"kind": "thinking", "text": chunk})
+            return []
+        if etype == "step_start":
+            step_id = str(event.get("stepId") or "")
+            item: dict[str, Any] = {
+                "kind": "tool",
+                "stepId": step_id,
+                "tool": str(event.get("tool") or ""),
+                "running": True,
+            }
+            label = str(event.get("label") or "")
+            if label:
+                item["label"] = label[:80]
+            process_items.append(item)
+            return []
         if etype == "step_end":
+            step_id = str(event.get("stepId") or "")
+            note = str(event.get("resultNote", ""))
+            for item in process_items:
+                if item.get("kind") == "tool" and item.get("stepId") == step_id:
+                    item["running"] = False
+                    item["note"] = note
+                    if "ok" in event:
+                        item["ok"] = bool(event.get("ok"))
+                    if event.get("apiCalls"):
+                        item["apiCalls"] = event["apiCalls"]
+                    break
+            else:
+                # 未先收到 step_start（旧桩/极端乱序）：补一条已完成的工具项
+                fallback: dict[str, Any] = {
+                    "kind": "tool",
+                    "stepId": step_id,
+                    "tool": str(event.get("tool") or ""),
+                    "running": False,
+                    "note": note,
+                }
+                if "ok" in event:
+                    fallback["ok"] = bool(event.get("ok"))
+                if event.get("apiCalls"):
+                    fallback["apiCalls"] = event["apiCalls"]
+                process_items.append(fallback)
             await session_store.append_message(
                 session,
                 role="tool",
@@ -654,10 +720,16 @@ async def _stream_chat(
         content = full_reply or pending_assistant.content
         if final_status == "done" and not content:
             content = "（停止时这一轮还没有产出文字。）"
+        # 未收口的工具项标打断（停止/断连时步已开始但没拿到结果）——回看如实
+        for item in process_items:
+            if item.get("kind") == "tool" and item.get("running"):
+                item["running"] = False
+                item["interrupted"] = True
         await session_store.update_message_status(
             pending_assistant,
             status=final_status,
             content=content,
+            payload={"process": process_items} if process_items else None,
         )
 
     async def _drive() -> None:
@@ -946,12 +1018,25 @@ async def assistant_chat(
     tool_hint = body.get("tool_hint")
     if not (isinstance(tool_hint, dict) and isinstance(tool_hint.get("tool"), str) and tool_hint.get("tool").strip()):
         tool_hint = None
+    # 按次模型覆盖对（c-agent-thinking-bubbles）：前端底栏选择才带；缺一半即交给
+    # get_ai_client_for_novel 报「选择不完整」的可读错误。
+    body_api_config_id = body.get("api_config_id")
+    body_model = body.get("model")
+    api_config_id = body_api_config_id.strip() if isinstance(body_api_config_id, str) else ""
+    model = body_model.strip() if isinstance(body_model, str) else ""
+    # 深度思考开关：显式按次覆盖 API 配置（缺省＝沿用配置）
+    body_thinking = body.get("thinking")
+    thinking_override: dict[str, Any] | None = None
+    if isinstance(body_thinking, bool):
+        thinking_override = {"type": "enabled" if body_thinking else "disabled"}
     return StreamingResponse(
         _stream_chat(
             db, project, user, session, message, page,
             user_message_id=user_row.id, body_focus=body_focus,
             page_unsaved=page_unsaved,
             thread=thread, tool_hint=tool_hint,
+            api_config_id=api_config_id, model=model,
+            thinking_override=thinking_override,
         ),
         media_type="text/event-stream",
         headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},

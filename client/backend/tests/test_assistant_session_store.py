@@ -107,6 +107,33 @@ async def test_touch_session_updates_meta_independently():
 
 
 @pytest.mark.asyncio
+async def test_update_message_status_merges_payload():
+    """c-agent-thinking-bubbles：收尾合并 process 时既有 payload 键不得丢。"""
+    session = await ss.get_or_create_session(user_id="u_pay", novel_id="n_pay")
+    row = await ss.append_message(
+        session,
+        role="assistant",
+        content="",
+        payload={"cardId": "c1", "keep": {"x": 1}},
+        status="streaming",
+    )
+    await ss.update_message_status(
+        row,
+        status="done",
+        content="答完了",
+        payload={"process": [{"kind": "thinking", "text": "想过"}]},
+    )
+    rows = await ss.load_messages(session)
+    saved = next(r for r in rows if r.id == row.id)
+    assert saved.status == "done" and saved.content == "答完了"
+    assert json.loads(saved.payload_json) == {
+        "cardId": "c1",
+        "keep": {"x": 1},
+        "process": [{"kind": "thinking", "text": "想过"}],
+    }
+
+
+@pytest.mark.asyncio
 async def test_new_session_creates_file_and_keeps_old():
     """coding agent 语义：/new＝新文件旧留档；grants 继承、compact 清零、消息清空。"""
     session = await ss.get_or_create_session(user_id="u_reset", novel_id="n_reset")

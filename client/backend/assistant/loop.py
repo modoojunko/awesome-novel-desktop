@@ -63,7 +63,9 @@ def _env_int(name: str, default: int) -> int:
 
 WALL_CLOCK_SECONDS = _env_float("ASSISTANT_TURN_DEADLINE", 1800.0)
 STEP_FIRST_CONTENT_TIMEOUT = _env_float("ASSISTANT_STEP_FIRST_CONTENT_TIMEOUT", 90.0)
-STEP_MAX_TOKENS = _env_int("ASSISTANT_STEP_MAX_TOKENS", 2048)
+# 4096：默认开思考后 reasoning 与动作 JSON 共用 max_tokens——2048 可能被思考吃掉
+# 导致 JSON 截断（c-agent-thinking-bubbles）。env 仍可收紧。
+STEP_MAX_TOKENS = _env_int("ASSISTANT_STEP_MAX_TOKENS", 4096)
 
 _RETRY_NUDGE = (
     "你上一步的输出不是合法的动作 JSON。只输出一个 JSON 对象，不要输出任何其他文字："
@@ -81,6 +83,9 @@ class LoopConfig:
     step_timeout: float = STEP_FIRST_CONTENT_TIMEOUT
     step_max_tokens: int = STEP_MAX_TOKENS
     model_alias: str = "haiku"  # resolve() 落到本书绑定模型（业务层不传字面模型名）
+    # 思考覆盖（c-agent-thinking-bubbles）：None＝沿用 API 配置；dict＝显式按次
+    # {"type": "enabled"} / {"type": "disabled"}（显式传时配置强度不搭车）
+    thinking: dict[str, Any] | None = None
 
 
 @dataclass
@@ -450,6 +455,7 @@ class AgentLoop:
                         max_tokens=self.cfg.step_max_tokens,
                         operation="assistant_step",
                         first_content_timeout=self.cfg.step_timeout,
+                        **({"thinking": self.cfg.thinking} if self.cfg.thinking else {}),
                     ):
                         if ev.error:
                             stream_error = ev.error
@@ -713,6 +719,7 @@ class AgentLoop:
                         operation="assistant_step",
                         first_content_timeout=self.cfg.step_timeout,
                         tools=schemas,
+                        **({"thinking": self.cfg.thinking} if self.cfg.thinking else {}),
                     )
                 ):
                     if ev.error:

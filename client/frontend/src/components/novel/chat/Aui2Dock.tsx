@@ -1,11 +1,12 @@
 // Aui2Dock——@agentscope-ai/chat（阿里 Spark Chat）正式版 dock（c-agent-chat-memory
 // 批1/批6 定版）。ChatAnywhere 容器＋ref.updateMessage 流式直控＋内置 Markdown。
-// 契约保持（writing-assistant spec 全项）：产物卡/授权卡/错误卡/轨迹卡真卡面
+// 契约保持（writing-assistant spec 全项）：产物卡/授权卡/错误卡真卡面
 // （cardConfig）；产物卡「采纳 · 写入」过目写回＋同目标 stale＋已采纳徽标；
-// 思考增量＋工具轨迹＝trace 卡（生成中展开、完成后折叠回看）；斜杠命令 /new、
+// 思考与工具过程＝回合气泡内独立过程泡泡（思考/每次工具各一张，默认单行折叠、
+// 点开看全文/详情）；底栏模型/深度思考/授权三控件同排；斜杠命令 /new、
 // /compact（命令不进对话历史——后端收口，clear 事件清屏）；线程本地镜像
 // （每页签装载一次，切页不丢 live 内容——ChatDock 每线程桶同款语义）；页面切换
-// 分隔标记；容量条（≥80% 警示＋/compact 提示）；授权档位芯片三档；停止钮断流保底；
+// 分隔标记；容量条（≥80% 警示＋/compact 提示）；停止钮断流保底；
 // 崩溃兜底由宿主 AuiErrorBoundary 承担。
 import {
   createContext,
@@ -26,11 +27,20 @@ import {
   writeBackWorld,
 } from "@/lib/dockWriteBack";
 import { ConfigProvider } from "@agentscope-ai/design";
-import { ChatAnywhere, uuid } from "@agentscope-ai/chat";
+import { ChatAnywhere, OperateCard, uuid } from "@agentscope-ai/chat";
 import type { ChatAnywhereRef } from "@agentscope-ai/chat";
+import {
+  SparkErrorCircleFill,
+  SparkLoadingLine,
+  SparkMemoryLine,
+  SparkStopCircleLine,
+  SparkTrueLine,
+} from "@agentscope-ai/icons";
 import { threadKeyOf, matchRegistration, type ChatPageScope } from "@/lib/chatRegistry";
 import type { FeatureKey } from "@/lib/features";
 import { useFeature } from "@/hooks/useTier";
+import { useModelStatus } from "@/hooks/useModelStatus";
+import { ModelPicker } from "@/components/novel/workbench/modals";
 import {
   streamAssistantChat,
   loadAssistantSession,
@@ -378,6 +388,218 @@ function TraceCard({ data }: { data: TraceCardData }) {
   );
 }
 
+/** 过程泡泡（c-agent-thinking-bubbles）：思考与每次工具调用各自一张 OperateCard——
+ *  默认单行折叠、点开看全文/详情，和正文区分。挂在本回合 assistant 消息的 cards 上，
+ *  库先渲染卡片再渲染正文（过程在上、回答在下，coding agent 同款顺序）。 */
+export type ProcApiCall = {
+  op: string;
+  model: string;
+  ms: number;
+  tokens_in: number;
+  tokens_out: number;
+  ok: boolean;
+};
+
+export type TraceThinkingData = {
+  text: string;
+  /** 仍在流式思考→头「思考中」+ 转圈 */
+  live?: boolean;
+};
+
+export type TraceToolData = {
+  tool: string;
+  /** 模型这一步的打算（step_start.label） */
+  label?: string;
+  /** 结果摘要（step_end.resultNote） */
+  note?: string;
+  ok?: boolean;
+  running?: boolean;
+  interrupted?: boolean;
+  apiCalls?: ProcApiCall[];
+};
+
+type ProcThinkingItem = { kind: "thinking"; id: string; text: string; live?: boolean };
+type ProcToolItem = {
+  kind: "tool";
+  id: string;
+  stepId?: string;
+  tool: string;
+  label?: string;
+  note?: string;
+  ok?: boolean;
+  running?: boolean;
+  interrupted?: boolean;
+  apiCalls?: ProcApiCall[];
+};
+type ProcItem = ProcThinkingItem | ProcToolItem;
+
+type ProcCard = { code: string; id: string; data: unknown };
+
+/** 过程项 → ChatAnywhere 卡片（思考/工具各一张；顺序＝发生顺序） */
+function toProcCards(items: ProcItem[]): ProcCard[] {
+  return items.map((item) =>
+    item.kind === "thinking"
+      ? {
+          code: "trace_thinking",
+          id: item.id,
+          data: { text: item.text, live: item.live } satisfies TraceThinkingData,
+        }
+      : {
+          code: "trace_tool",
+          id: item.id,
+          data: {
+            tool: item.tool,
+            label: item.label,
+            note: item.note,
+            ok: item.ok,
+            running: item.running,
+            interrupted: item.interrupted,
+            apiCalls: item.apiCalls,
+          } satisfies TraceToolData,
+        },
+  );
+}
+
+/** 历史回放：assistant 行 payload.process → 同序过程卡；无该键＝旧会话走旧轨迹卡 */
+function processCardsFromPayload(payload: Record<string, unknown>): ProcCard[] | null {
+  const raw = payload?.process;
+  if (!Array.isArray(raw) || raw.length === 0) return null;
+  const cards: ProcCard[] = [];
+  raw.forEach((it, i) => {
+    if (!it || typeof it !== "object") return;
+    const item = it as Record<string, unknown>;
+    if (item.kind === "thinking" && typeof item.text === "string" && item.text.trim()) {
+      cards.push({
+        code: "trace_thinking",
+        id: `think-${i}`,
+        data: { text: item.text, live: false } satisfies TraceThinkingData,
+      });
+    } else if (item.kind === "tool" && typeof item.tool === "string" && item.tool) {
+      cards.push({
+        code: "trace_tool",
+        id: `tool-${String(item.stepId || i)}`,
+        data: {
+          tool: item.tool,
+          label: typeof item.label === "string" ? item.label : undefined,
+          note: typeof item.note === "string" ? item.note : undefined,
+          ok: typeof item.ok === "boolean" ? item.ok : undefined,
+          running: false,
+          interrupted: Boolean(item.interrupted || item.running),
+          apiCalls: Array.isArray(item.apiCalls) ? (item.apiCalls as ProcApiCall[]) : undefined,
+        } satisfies TraceToolData,
+      });
+    }
+  });
+  return cards.length ? cards : null;
+}
+
+function TraceThinkingCard({ data }: { data: TraceThinkingData }) {
+  const { text, live } = data;
+  return (
+    <div className="cd-proc-card" data-testid="chat-proc-thinking">
+      <OperateCard
+        header={{
+          icon: live ? <SparkLoadingLine spin /> : <SparkMemoryLine />,
+          title: live ? "思考中" : "思考过程",
+        }}
+        body={{
+          defaultOpen: false,
+          children: (
+            <OperateCard.LineBody>
+              <div className="cd-proc-think">{text}</div>
+            </OperateCard.LineBody>
+          ),
+        }}
+      />
+    </div>
+  );
+}
+
+/** 工具结果摘要里的人话头：读类返回结构化 JSON 时不把裸 JSON 顶在单行头上 */
+function toolNoteHead(tool: string, note: string): string {
+  const t = note.trim();
+  if (!t) return "";
+  if (t.startsWith("{") || t.startsWith("[")) {
+    return tool.startsWith("read_") ? "已读取" : "已返回";
+  }
+  return note;
+}
+
+function isJsonNote(note: string): boolean {
+  const t = note.trim();
+  return t.startsWith("{") || t.startsWith("[");
+}
+
+function TraceToolCard({ data }: { data: TraceToolData }) {
+  const { tool, label, note, ok, running, interrupted, apiCalls } = data;
+  const failed = ok === false;
+  const noteHead = toolNoteHead(tool, note ?? "");
+  const icon = running ? (
+    <SparkLoadingLine spin />
+  ) : interrupted ? (
+    <SparkStopCircleLine />
+  ) : failed ? (
+    <SparkErrorCircleFill />
+  ) : (
+    <SparkTrueLine />
+  );
+  const summary = running
+    ? label || "正在执行…"
+    : interrupted
+      ? "被打断"
+      : noteHead || (failed ? "没成功" : "已完成");
+  const hasDetail = Boolean(label || note || apiCalls?.length);
+  const apiOps = apiCalls?.length
+    ? [...new Set(apiCalls.map((c) => c.op))].join("、")
+    : "";
+  const apiModels = apiCalls?.length
+    ? [...new Set(apiCalls.map((c) => c.model))].join("、")
+    : "";
+  return (
+    <div className="cd-proc-card" data-testid="chat-proc-tool">
+      <OperateCard
+        header={{ icon, title: tool, description: summary }}
+        body={
+          hasDetail
+            ? {
+                defaultOpen: false,
+                children: (
+                  <OperateCard.LineBody>
+                    <div className="cd-proc-detail">
+                      {label ? (
+                        <div className="cd-proc-line">
+                          <b>打算</b>
+                          <span>{label}</span>
+                        </div>
+                      ) : null}
+                      {note ? (
+                        <div className="cd-proc-line">
+                          <b>结果</b>
+                          <span className={isJsonNote(note) ? "cd-proc-json" : undefined}>
+                            {note}
+                          </span>
+                        </div>
+                      ) : null}
+                      {apiCalls?.length ? (
+                        <div className="cd-proc-line">
+                          <b>模型调用</b>
+                          <span>
+                            {apiCalls.length} 次 · {apiOps}
+                            {apiModels ? ` · ${apiModels}` : ""}
+                          </span>
+                        </div>
+                      ) : null}
+                    </div>
+                  </OperateCard.LineBody>
+                ),
+              }
+            : undefined
+        }
+      />
+    </div>
+  );
+}
+
 /** 错误卡（cardConfig 注册：code="error"）——错误以卡收尾并保留已产出内容 */
 function ErrorCard({ data }: { data: { message: string } }) {
   return (
@@ -410,6 +632,8 @@ const CARD_REGISTRY = {
   artifact: ArtifactCard,
   gate: GateCard,
   trace: TraceCard,
+  trace_thinking: TraceThinkingCard,
+  trace_tool: TraceToolCard,
   error: ErrorCard,
   sys_action: SysActionCard,
 };
@@ -489,6 +713,67 @@ export function Aui2Dock({
   /** scope 镜像（开场白取 greeting 用；scope 是内联对象——进 deps 会循环重装载） */
   const scopeRef = useRef(scope);
   scopeRef.current = scope;
+  /** 助手模型候选（底栏模型 pill；默认回落本书模型，不改本书绑定） */
+  const modelStatus = useModelStatus(projectId);
+  const bookModelKey =
+    modelStatus.currentConfigId && modelStatus.currentModel
+      ? `${modelStatus.currentConfigId}::${modelStatus.currentModel}`
+      : "";
+  const bookModelKeyRef = useRef(bookModelKey);
+  bookModelKeyRef.current = bookModelKey;
+  /** 深度思考开关（默认开；按线程记 localStorage——coding agent 底栏语义） */
+  const prefsKey = `${projectId}:${threadKey}`;
+  const [thinkingOn, setThinkingOn] = useState(true);
+  const thinkingOnRef = useRef(true);
+  /** 助手模型按会话覆盖（`${api_config_id}::${model}`；空/等于本书模型＝不覆盖） */
+  const [modelKey, setModelKey] = useState("");
+  useEffect(() => {
+    let think = true;
+    let savedModel = "";
+    try {
+      const t = window.localStorage.getItem(`assistant:think:${prefsKey}`);
+      think = t !== "0";
+      savedModel = window.localStorage.getItem(`assistant:model:${prefsKey}`) ?? "";
+    } catch {
+      /* localStorage 不可用（隐私模式等）：用默认值，不打断对话 */
+    }
+    thinkingOnRef.current = think;
+    setThinkingOn(think);
+    setModelKey(savedModel);
+  }, [prefsKey]);
+  const optionKeys = new Set(
+    modelStatus.modelOptions.map((o) => `${o.api_config_id}::${o.model}`),
+  );
+  // 失效选择（配置被删/模型不在清单）回退本书模型——请求也不得发旧覆盖对
+  const validModelKey = modelKey && optionKeys.has(modelKey) ? modelKey : "";
+  const modelKeyRef = useRef(validModelKey);
+  modelKeyRef.current = validModelKey;
+  const effectiveModelKey = validModelKey || bookModelKey;
+  const modelLabel =
+    modelStatus.modelOptions.find(
+      (o) => `${o.api_config_id}::${o.model}` === effectiveModelKey,
+    )?.model || "选模型";
+  const toggleThinking = useCallback(() => {
+    const next = !thinkingOnRef.current;
+    thinkingOnRef.current = next;
+    setThinkingOn(next);
+    try {
+      window.localStorage.setItem(`assistant:think:${prefsKey}`, next ? "1" : "0");
+    } catch {
+      /* 记不住也不打断：本次生效 */
+    }
+  }, [prefsKey]);
+  const chooseModel = useCallback(
+    (key: string) => {
+      setModelKey(key);
+      try {
+        window.localStorage.setItem(`assistant:model:${prefsKey}`, key);
+      } catch {
+        /* 记不住也不打断：本次生效 */
+      }
+    },
+    [prefsKey],
+  );
   /** chips 结构化触发（c-tool-flow 批2）：下一次 submit 携带的 tool_hint */
   const pendingHintRef = useRef<{ tool: string; args: Record<string, unknown> } | null>(null);
   /** 授权档位芯片（会话级 grants；切换即时生效＋持久化，失败回滚上一档） */
@@ -544,8 +829,8 @@ export function Aui2Dock({
    */
   const mirrorRef = useRef<Map<string, MirrorEntry[]>>(new Map());
   const loadedThreadsRef = useRef<Set<string>>(new Set());
-  /** trace 卡本地账（按 traceId 累计——避免 getMessage 读回的丢更新） */
-  const traceBufRef = useRef<Map<string, TraceCardData>>(new Map());
+  /** 过程泡泡本地账（按 assistant 消息 id：卡片随正文更新不丢步） */
+  const procBufRef = useRef<Map<string, { items: ProcItem[] }>>(new Map());
   /** 当前 delta 段已流文本（narration 收口按内容前缀对账补尾——缺尾修复） */
   const deltaTailRef = useRef<string>("");
 
@@ -582,18 +867,21 @@ export function Aui2Dock({
     [threadUp, markAdopted, refreshDomain],
   );
 
-  /** trace 卡：本地账累计（同帧多次事件不丢步）＋镜像 upsert */
-  const upsertTrace = useCallback(
-    (traceId: string, mutate: (d: TraceCardData) => TraceCardData) => {
-      const prev = traceBufRef.current.get(traceId) ?? { thinking: "", steps: [], live: true };
-      const next = mutate({ ...prev });
-      traceBufRef.current.set(traceId, next);
+  /** 过程泡泡：思考/工具卡挂本轮 assistant 消息（正文之上，coding agent 顺序） */
+  const upsertProc = useCallback(
+    (assistantId: string, mutate: (items: ProcItem[]) => ProcItem[]) => {
+      const prev = procBufRef.current.get(assistantId)?.items ?? [];
+      const items = mutate(prev.map((it) => ({ ...it })));
+      procBufRef.current.set(assistantId, { items });
+      const cur = mirrorRef.current
+        .get(threadKeyRef.current)
+        ?.find((x) => x.id === assistantId);
       threadUp({
-        id: traceId,
+        id: assistantId,
         role: "assistant",
-        content: "",
-        msgStatus: next.live ? "generating" : "finished",
-        cards: [{ code: "trace", data: next }],
+        content: cur?.content ?? "",
+        msgStatus: cur?.msgStatus ?? "generating",
+        cards: toProcCards(items),
       });
     },
     [threadUp],
@@ -684,11 +972,16 @@ export function Aui2Dock({
           const sess = await loadAssistantSession(projectId, threadKey);
           if (cancelled) return;
           const bucket = mirrorRef.current.get(threadKey) ?? [];
-          const seen = new Set(bucket.map((e) => e.id));
+          // 装载期间新提交的活体消息（ref 就绪前点了发送／chip）：服务端装载会
+          // removeAllMessages，不补放就被吞掉（c-agent-thinking-bubbles 竞态实锤）
+          const liveEntries = bucket.filter((e) => !e.id.startsWith("greet-"));
           api.removeAllMessages();
           let serverCount = 0;
           let lastPage = "";
           let pendingTrace: { id: string; data: TraceCardData } | null = null;
+          // 新会话回合带 payload.process（思考/工具过程卡）——该回合后续旧 tool
+          // 行不再折叠成旧轨迹卡，避免同一段过程回放两次
+          let suppressLegacyTrace = false;
           // 回放去重账（签名→首张卡）：同签名轨迹合并计数，不另起新卡
           const traceSigs = new Map<string, { id: string; data: TraceCardData }>();
           const pushEntry = (e: MirrorEntry) => {
@@ -750,12 +1043,19 @@ export function Aui2Dock({
             if (p) lastPage = p;
             if ((m.role === "user" || m.role === "assistant") && m.content) {
               flushTrace();
+              if (m.role === "user") suppressLegacyTrace = false;
+              const procCards =
+                m.role === "assistant"
+                  ? processCardsFromPayload((m.payload ?? {}) as Record<string, unknown>)
+                  : null;
               pushEntry({
                 id: String(m.id ?? uuid()),
                 role: m.role,
                 content: m.content,
                 history: true,
+                ...(procCards ? { cards: procCards } : {}),
               });
+              if (m.role === "assistant") suppressLegacyTrace = Boolean(procCards);
               serverCount += 1;
               estCharsRef.current += m.content.length;
             } else if (m.cardKind === "gate" && m.role === "assistant") {
@@ -810,13 +1110,26 @@ export function Aui2Dock({
               });
               serverCount += 1;
             } else if ((m.role === "tool" || m.role === "event") && m.content?.trim()) {
-              if (!pendingTrace)
-                pendingTrace = { id: `trace-${m.id}`, data: { thinking: "", steps: [], live: true } };
-              pendingTrace.data.steps.push(m.content.trim());
+              if (!suppressLegacyTrace) {
+                if (!pendingTrace)
+                  pendingTrace = { id: `trace-${m.id}`, data: { thinking: "", steps: [], live: true } };
+                pendingTrace.data.steps.push(m.content.trim());
+              }
             }
             // 空 event 行（授权挂起载荷等）不进流
           }
           flushTrace();
+          // 装载期间产生的活体消息补放（服务端历史之后；夹具/真机都不丢）
+          for (const e of liveEntries) {
+            api.updateMessage({
+              id: e.id,
+              role: e.role,
+              content: e.content,
+              ...(e.history ? { history: true } : {}),
+              ...(e.msgStatus ? { msgStatus: e.msgStatus } : {}),
+              ...(e.cards ? { cards: e.cards } : {}),
+            });
+          }
           if (serverCount === 0 && bucket.every((e) => e.id.startsWith("greet-"))) greet();
           mirrorRef.current.set(threadKey, bucket);
           loadedThreadsRef.current.add(threadKey);
@@ -892,7 +1205,6 @@ export function Aui2Dock({
         estCharsRef.current += query.length;
       }
       const assistantId = uuid();
-      const traceId = `trace-${assistantId}`;
       threadUp({ id: assistantId, role: "assistant", content: "", msgStatus: "generating" });
 
       setStreaming(true);
@@ -901,6 +1213,15 @@ export function Aui2Dock({
       // 发送携带」（assistant-chat-ui）——读走即清，不得随后续消息重放强制执行旧工具。
       const pendingHint = pendingHintRef.current;
       pendingHintRef.current = null;
+      // 模型按会话覆盖：只有选了非本书模型才随请求发（等于本书模型＝不覆盖）
+      const picked = modelKeyRef.current;
+      let modelSel: { api_config_id: string; model: string } | undefined;
+      if (picked && picked !== bookModelKeyRef.current) {
+        const cut = picked.indexOf("::");
+        if (cut > 0) {
+          modelSel = { api_config_id: picked.slice(0, cut), model: picked.slice(cut + 2) };
+        }
+      }
       abortRef.current = streamAssistantChat(
         projectId,
         {
@@ -910,6 +1231,10 @@ export function Aui2Dock({
           focus: scope.chapterRef ? { ref: scope.chapterRef } : undefined,
           page_state: pageUnsaved?.length ? { unsaved: pageUnsaved } : undefined,
           tool_hint: pendingHint ?? undefined,
+          ...(modelSel
+            ? { api_config_id: modelSel.api_config_id, model: modelSel.model }
+            : {}),
+          thinking: thinkingOnRef.current,
         },
         {
           onEvent: (e) => {
@@ -970,21 +1295,72 @@ export function Aui2Dock({
                 });
               }
             } else if (e.type === "thinking") {
-              // 思考增量 → trace 卡实时展开（收口折叠回看）
+              // 思考增量 → 独立思考泡泡（默认单行；点开看全文）——不占正文、
+              // 不计入上下文容量（思考不进外发窗口）
               const chunk = String(e.text ?? "");
-              estCharsRef.current += chunk.length;
-              upsertTrace(traceId, (d) => ({ ...d, thinking: d.thinking + chunk }));
-            } else if (e.type === "step_end") {
-              // 工具步：轻量轨迹行（过程信息用文本）＋trace 卡步列表（回看）
+              if (chunk) {
+                upsertProc(assistantId, (items) => {
+                  const last = items[items.length - 1];
+                  if (last?.kind === "thinking") {
+                    return [
+                      ...items.slice(0, -1),
+                      { ...last, text: last.text + chunk, live: true },
+                    ];
+                  }
+                  return [
+                    ...items,
+                    { kind: "thinking", id: `think-${items.length}`, text: chunk, live: true },
+                  ];
+                });
+              }
+            } else if (e.type === "step_start") {
+              // 工具调用 → 独立工具泡泡（运行中：转圈 + 这一步的打算）
               const tool = String(e.tool ?? "tool");
-              const note = e.resultNote ? ` — ${_clip(String(e.resultNote), 80)}` : "";
-              threadUp({
-                id: assistantId,
-                role: "assistant",
-                content: base + `\n\n● ${tool} ✓`,
-                msgStatus: "generating",
+              const stepId = String(e.stepId ?? "");
+              upsertProc(assistantId, (items) => [
+                ...items.map((it) =>
+                  it.kind === "thinking" ? { ...it, live: false } : it,
+                ),
+                {
+                  kind: "tool",
+                  id: `tool-${stepId || items.length}`,
+                  stepId,
+                  tool,
+                  label: e.label ? String(e.label) : undefined,
+                  running: true,
+                },
+              ]);
+            } else if (e.type === "step_end") {
+              // 原位补该步结果/模型调用（不新起卡；不在正文追加 ● tool ✓）
+              const tool = String(e.tool ?? "tool");
+              const stepId = String(e.stepId ?? "");
+              const note = String(e.resultNote ?? "");
+              upsertProc(assistantId, (items) => {
+                const idx = items.findIndex(
+                  (it) => it.kind === "tool" && it.stepId === stepId,
+                );
+                const patch: Partial<ProcToolItem> = {
+                  running: false,
+                  note,
+                  ...(typeof e.ok === "boolean" ? { ok: e.ok } : {}),
+                  ...(Array.isArray(e.apiCalls) ? { apiCalls: e.apiCalls } : {}),
+                };
+                if (idx >= 0) {
+                  const next = [...items];
+                  next[idx] = { ...(next[idx] as ProcToolItem), ...patch };
+                  return next;
+                }
+                return [
+                  ...items,
+                  {
+                    kind: "tool",
+                    id: `tool-${stepId || items.length}`,
+                    stepId,
+                    tool,
+                    ...patch,
+                  },
+                ];
               });
-              upsertTrace(traceId, (d) => ({ ...d, steps: [...d.steps, `${tool} ✓${note}`] }));
             } else if (e.type === "run_end") {
               // run_end 携带本轮写操作 effects → 缓存待 onDone 回调宿主
               if (Array.isArray(e.effects)) {
@@ -1002,14 +1378,13 @@ export function Aui2Dock({
             } else if (e.type === "clear") {
               // /new：服务端已清，前端同步清屏（命令与旧对话都不留）
               mirrorRef.current.set(threadKeyRef.current, []);
+              procBufRef.current.clear();
               apiRef.current?.removeAllMessages();
               estCharsRef.current = 0;
               setCtx(null);
             } else if (e.type === "artifact") {
               // 产物卡＝独立卡消息（cardConfig 按 code 渲染 CardBody 原卡面）；
-              // 交付前把挂着的 trace 卡收口（交付物与过程分离）。
               // 同目标旧卡标 stale（过目采纳链：一目标一版有效）
-              upsertTrace(traceId, (d) => ({ ...d, live: false }));
               const payload = (e.payload ?? {}) as Record<string, unknown>;
               const cardData: ArtifactCardData = {
                 kind: String(e.kind ?? payload.kind ?? "text"), // kind 在事件层（后端契约；payload.kind 兼容旧桩）
@@ -1115,6 +1490,15 @@ export function Aui2Dock({
           },
           onError: (msg) => {
             // 错误卡收尾（已产出内容保留在原气泡——错误独立成卡）
+            upsertProc(assistantId, (items) =>
+              items.map((it) =>
+                it.kind === "thinking"
+                  ? { ...it, live: false }
+                  : it.running
+                    ? { ...it, running: false, interrupted: true }
+                    : it,
+              ),
+            );
             threadUp({
               id: `err-${assistantId}`,
               role: "assistant",
@@ -1130,14 +1514,22 @@ export function Aui2Dock({
             const cur = mirrorRef.current
               .get(threadKeyRef.current)
               ?.find((x) => x.id === assistantId);
+            // 过程收口：思考停转、未完成的工具步标打断（回看如实）
+            upsertProc(assistantId, (items) =>
+              items.map((it) =>
+                it.kind === "thinking"
+                  ? { ...it, live: false }
+                  : it.running
+                    ? { ...it, running: false, interrupted: true }
+                    : it,
+              ),
+            );
             threadUp({
               id: assistantId,
               role: "assistant",
               content: cur?.content ?? "",
               msgStatus: "finished",
             });
-            // trace 卡收口折叠（思考回看不丢——coding agent 口径）
-            upsertTrace(traceId, (d) => ({ ...d, live: false }));
             // 容量条即时续算（服务端口径 chars/4；下一轮装载以服务端回读校准）
             setCtx((c) => {
               if (!c) return c;
@@ -1160,7 +1552,7 @@ export function Aui2Dock({
         },
       );
     },
-    [projectId, page, scope.chapterRef, pageUnsaved, upsertTrace, onStreamingChange, onEffects, onEffect],
+    [projectId, page, scope.chapterRef, pageUnsaved, upsertProc, onStreamingChange, onEffects, onEffect],
   );
 
   // 面板「让助手办」自动提交（c-agent-panel-consolidate）：seq 消费一次即记账
@@ -1264,11 +1656,53 @@ export function Aui2Dock({
               // 位置——pill 与发送按钮同一行；footer 插槽会渲染在 actions 行之下另起
               // 一行（实测 pill y=907 vs 发送 y=875），morePrefixActions 才是底栏左端）
               morePrefixActions: (
-                <div
-                  className="cd-authwrap"
-                  ref={authWrapRef}
-                  data-testid="aui2-authbar"
-                >
+                <div className="cd-footbar" data-testid="aui2-footbar">
+                  {modelStatus.modelOptions.length > 0 ? (
+                    <ModelPicker
+                      options={modelStatus.modelOptions}
+                      value={effectiveModelKey}
+                      bookValue={bookModelKey}
+                      onPick={chooseModel}
+                      label="助手模型"
+                      triggerLabel={modelLabel}
+                      triggerTitle={`助手模型：${modelLabel}（只影响助手对话，不改本书写作模型）`}
+                      triggerClass="cd-auth-pill cd-model-pill"
+                      panelWidth={300}
+                    />
+                  ) : (
+                    <button
+                      type="button"
+                      className="cd-auth-pill cd-model-pill"
+                      disabled
+                      title={
+                        modelStatus.loading
+                          ? "正在读模型配置"
+                          : "还没有可用的模型配置"
+                      }
+                    >
+                      {modelStatus.loading ? "模型加载中…" : "未配模型"}
+                    </button>
+                  )}
+                  <button
+                    type="button"
+                    className={`cd-auth-pill cd-think-pill${thinkingOn ? " on" : ""}`}
+                    data-testid="aui2-think-pill"
+                    aria-pressed={thinkingOn}
+                    title={
+                      thinkingOn
+                        ? "深度思考已开——助手先想再动手，慢一点但更稳；点一下关掉"
+                        : "深度思考已关——直接答更快；点一下打开"
+                    }
+                    onClick={toggleThinking}
+                  >
+                    <span className="cd-think-dot" aria-hidden />
+                    深度思考
+                  </button>
+                  <div
+                    className="cd-authwrap"
+                    ref={authWrapRef}
+                    data-testid="aui2-authbar"
+                  >
                   <button
                     type="button"
                     className="cd-auth-pill"
@@ -1298,6 +1732,7 @@ export function Aui2Dock({
                       ▾
                     </span>
                   </button>
+                  </div>
                 </div>
               ),
             }}

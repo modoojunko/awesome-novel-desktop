@@ -14,6 +14,24 @@ const chatApiState = vi.hoisted(() => ({
   stopAssistantRun: vi.fn(),
 }));
 
+const modelState = vi.hoisted(() => ({
+  options: [
+    { api_config_id: "cfg1", config_name: "写作", model: "deepseek-flash", vendor: "deepseek" },
+    { api_config_id: "cfg2", config_name: "qwen", model: "qwen-max", vendor: "qwen" },
+  ],
+  currentConfigId: "cfg1" as string | null,
+  currentModel: "deepseek-flash" as string | null,
+}));
+
+vi.mock("@/hooks/useModelStatus", () => ({
+  useModelStatus: () => ({
+    modelOptions: modelState.options,
+    currentConfigId: modelState.currentConfigId,
+    currentModel: modelState.currentModel,
+    loading: false,
+  }),
+}));
+
 vi.mock("@/lib/chatApi", async (importOriginal) => {
   const actual = await importOriginal<Record<string, unknown>>();
   return {
@@ -63,6 +81,7 @@ function captureStream() {
 
 beforeEach(() => {
   vi.clearAllMocks();
+  window.localStorage.clear();
   chatApiState.loadAssistantSession.mockResolvedValue(sess());
   chatApiState.setPermissionTier.mockResolvedValue(undefined);
   chatApiState.approveGate.mockResolvedValue({ ok: true });
@@ -166,7 +185,7 @@ describe("Aui2Dock 历史装载与折叠", () => {
 });
 
 describe("Aui2Dock 流式契约", () => {
-  it("思考增量进 trace 卡（live 展开收口折叠）；产物卡渲染 CardBody；clear 清屏", async () => {
+  it("思考增量进独立思考泡泡（默认单行折叠，点开全文）；收口转「思考过程」；clear 清屏", async () => {
     render(<Aui2Dock projectId="p1" page="工作台 · 卷纲" scope={SCOPE} />);
     await screen.findByTestId("aui2-dock");
     const sse = captureStream();
@@ -174,16 +193,20 @@ describe("Aui2Dock 流式契约", () => {
     fireEvent.click(screen.getByTestId("aui2-chip-draft_volume_expand"));
     await waitFor(() => expect(chatApiState.streamAssistantChat).toHaveBeenCalled());
     sse.drive({ type: "thinking", text: "我先想想主线…" });
-    // coverage 负载下 trace 卡挂载慢于 waitFor 窗口（CI 实锤）——findBy 自带重试
-    const trace = await screen.findByTestId("chat-trace");
-    expect(trace.textContent).toContain("我先想想主线…");
-    expect(trace.textContent).toContain("进行中");
-    // 收口折叠
+    const card = await screen.findByTestId("chat-proc-thinking");
+    expect(card.textContent).toContain("思考中");
+    // 默认单行：全文不在 DOM，点开才出现
+    expect(screen.queryByText("我先想想主线…")).toBeNull();
+    fireEvent.click(screen.getByText("思考中"));
+    await waitFor(() => expect(screen.getByText("我先想想主线…")).toBeTruthy());
+    // 收口：标题转「思考过程」，展开态保留
     sse.done();
-    await waitFor(() => expect(screen.getByTestId("chat-trace").textContent).toContain("运行轨迹"));
-    // clear 事件清屏（/new 链）——消息区（trace 卡与思考文本）清空；芯片行不属消息区
+    await waitFor(() =>
+      expect(screen.getByTestId("chat-proc-thinking").textContent).toContain("思考过程"),
+    );
+    // clear 事件清屏（/new 链）——消息区（过程卡与思考文本）清空；芯片行不属消息区
     sse.drive({ type: "clear" });
-    await waitFor(() => expect(screen.queryByTestId("chat-trace")).toBeNull());
+    await waitFor(() => expect(screen.queryByTestId("chat-proc-thinking")).toBeNull());
     expect(screen.queryByText("我先想想主线…")).toBeNull();
   });
 
@@ -556,5 +579,291 @@ describe("Aui2Dock pageUnsaved 上行时效（c-agent-page-ops review P1）", ()
     };
     expect(body.page_state?.unsaved).toEqual(["设定面板"]);
     void sse;
+  });
+});
+
+describe("Aui2Dock 底栏控制条（c-agent-thinking-bubbles）", () => {
+  it("默认本书模型＋思考默认开；换模型/关思考后请求带覆盖对与 thinking:false", async () => {
+    render(<Aui2Dock projectId="p1" page="工作台 · 卷纲" scope={SCOPE} />);
+    await screen.findByTestId("aui2-dock");
+    // 模型 pill 默认显示本书模型；思考 pill 默认开
+    expect(screen.getByTestId("ai-model-select").textContent).toContain("deepseek-flash");
+    const think = screen.getByTestId("aui2-think-pill");
+    expect(think.getAttribute("aria-pressed")).toBe("true");
+
+    // 换到 qwen-max + 关思考
+    fireEvent.click(screen.getByTestId("ai-model-select"));
+    fireEvent.click(await screen.findByText("qwen-max"));
+    fireEvent.click(think);
+    expect(think.getAttribute("aria-pressed")).toBe("false");
+
+    const sse = captureStream();
+    fireEvent.click(screen.getByTestId("aui2-chip-draft_volume_expand"));
+    await waitFor(() => expect(chatApiState.streamAssistantChat).toHaveBeenCalled());
+    const body = chatApiState.streamAssistantChat.mock.calls[0][1] as Record<string, unknown>;
+    expect(body.api_config_id).toBe("cfg2");
+    expect(body.model).toBe("qwen-max");
+    expect(body.thinking).toBe(false);
+    void sse;
+  });
+
+  it("选回本书模型不带覆盖对；思考开关按线程记住（切回仍关）", async () => {
+    const first = render(<Aui2Dock projectId="p1" page="工作台 · 卷纲" scope={SCOPE} />);
+    await screen.findByTestId("aui2-dock");
+    // 先换出去再选回本书模型
+    fireEvent.click(screen.getByTestId("ai-model-select"));
+    fireEvent.click(await screen.findByText("qwen-max"));
+    fireEvent.click(screen.getByTestId("ai-model-select"));
+    fireEvent.click(await screen.findByText("deepseek-flash"));
+    // 关思考（记住）
+    fireEvent.click(screen.getByTestId("aui2-think-pill"));
+    const sse = captureStream();
+    fireEvent.click(screen.getByTestId("aui2-chip-draft_volume_expand"));
+    await waitFor(() => expect(chatApiState.streamAssistantChat).toHaveBeenCalled());
+    const body = chatApiState.streamAssistantChat.mock.calls[0][1] as Record<string, unknown>;
+    expect(body.api_config_id).toBeUndefined();
+    expect(body.model).toBeUndefined();
+    expect(body.thinking).toBe(false);
+    void sse;
+
+    // 重新挂载（模拟切页回来）：按线程记忆恢复关
+    first.unmount();
+    render(<Aui2Dock projectId="p1" page="工作台 · 卷纲" scope={SCOPE} />);
+    await screen.findByTestId("aui2-dock");
+    await waitFor(() =>
+      expect(screen.getByTestId("aui2-think-pill").getAttribute("aria-pressed")).toBe("false"),
+    );
+  });
+});
+
+describe("Aui2Dock 过程泡泡（思考/工具各自独立）", () => {
+  it("工具调用一张单行卡；step_end 原位更新；正文不混 ● tool 行", async () => {
+    render(<Aui2Dock projectId="p1" page="工作台 · 卷纲" scope={SCOPE} />);
+    await screen.findByTestId("aui2-dock");
+    const sse = captureStream();
+    fireEvent.click(screen.getByTestId("aui2-chip-draft_volume_expand"));
+    await waitFor(() => expect(chatApiState.streamAssistantChat).toHaveBeenCalled());
+
+    sse.drive({ type: "step_start", stepId: "s1", tool: "read_settings", label: "先读主线" });
+    const card = await screen.findByTestId("chat-proc-tool");
+    expect(card.textContent).toContain("read_settings");
+    expect(card.textContent).toContain("先读主线");
+
+    sse.drive({
+      type: "step_end",
+      stepId: "s1",
+      tool: "read_settings",
+      resultNote: "主线还没写",
+      ok: true,
+      apiCalls: [
+        { op: "assistant_step", model: "m", ms: 12, tokens_in: 1, tokens_out: 2, ok: true },
+      ],
+    });
+    await waitFor(() =>
+      expect(screen.getByTestId("chat-proc-tool").textContent).toContain("主线还没写"),
+    );
+    // 原位更新，不新起第二张卡
+    expect(screen.getAllByTestId("chat-proc-tool").length).toBe(1);
+    // 默认单行：body 的「结果」不在 DOM，点开才出现
+    expect(screen.queryByText("结果")).toBeNull();
+    fireEvent.click(screen.getByText("read_settings"));
+    await waitFor(() => expect(screen.getByText("结果")).toBeTruthy());
+    expect(screen.getByText(/1 次 · assistant_step · m/)).toBeTruthy();
+
+    sse.drive({ type: "narration", text: "看完了。" });
+    await waitFor(() => expect(screen.getByText("看完了。")).toBeTruthy());
+    expect(document.body.textContent).not.toContain("● read_settings");
+  });
+
+  it("历史回放：payload.process 生成同序思考/工具卡；旧 tool 行不再叠轨迹卡", async () => {
+    chatApiState.loadAssistantSession.mockResolvedValue(
+      sess([
+        { id: "u1", role: "user", content: "看看主线", page: "ch:og" },
+        {
+          id: "a1",
+          role: "assistant",
+          content: "看完了。",
+          page: "ch:og",
+          payload: {
+            process: [
+              { kind: "thinking", text: "先看看" },
+              {
+                kind: "tool",
+                stepId: "s1",
+                tool: "read_settings",
+                running: false,
+                note: "主线还没写",
+                ok: true,
+              },
+            ],
+          },
+        },
+        { id: "t1", role: "tool", content: "read_settings ✓ — 主线还没写", page: "ch:og" },
+      ]),
+    );
+    render(<Aui2Dock projectId="p1" page="工作台 · 卷纲" scope={SCOPE} />);
+    await waitFor(() => expect(screen.getByText("看完了。")).toBeTruthy());
+
+    expect(screen.getByTestId("chat-proc-thinking").textContent).toContain("思考过程");
+    expect(screen.getByTestId("chat-proc-tool").textContent).toContain("read_settings");
+    // 新回合的过程卡替代旧轨迹卡，不重复
+    expect(screen.queryByTestId("chat-trace")).toBeNull();
+    // 默认折叠，点开看全文
+    expect(screen.queryByText("先看看")).toBeNull();
+    fireEvent.click(screen.getByText("思考过程"));
+    await waitFor(() => expect(screen.getByText("先看看")).toBeTruthy());
+  });
+});
+
+describe("Aui2Dock 模型选择失效回退（c-agent-thinking-bubbles）", () => {
+  it("localStorage 里的历史模型已不在清单 → 显示本书模型且请求不带覆盖对", async () => {
+    window.localStorage.setItem("assistant:model:p1:vol", "cfgX::gone");
+    render(<Aui2Dock projectId="p1" page="工作台 · 卷纲" scope={SCOPE} />);
+    await screen.findByTestId("aui2-dock");
+    await waitFor(() =>
+      expect(screen.getByTestId("ai-model-select").textContent).toContain("deepseek-flash"),
+    );
+    const sse = captureStream();
+    fireEvent.click(screen.getByTestId("aui2-chip-draft_volume_expand"));
+    await waitFor(() => expect(chatApiState.streamAssistantChat).toHaveBeenCalled());
+    const body = chatApiState.streamAssistantChat.mock.calls[0][1] as Record<string, unknown>;
+    expect(body.api_config_id).toBeUndefined();
+    expect(body.model).toBeUndefined();
+    void sse;
+  });
+});
+
+describe("Aui2Dock 过程泡泡边界（失败/打断/缺省）", () => {
+  it("失败步显示「没成功」；无打算/结果时不可展开", async () => {
+    render(<Aui2Dock projectId="p1" page="工作台 · 卷纲" scope={SCOPE} />);
+    await screen.findByTestId("aui2-dock");
+    const sse = captureStream();
+    fireEvent.click(screen.getByTestId("aui2-chip-draft_volume_expand"));
+    await waitFor(() => expect(chatApiState.streamAssistantChat).toHaveBeenCalled());
+
+    // 未先 step_start 的 step_end：补一条已完成卡；ok=false + 空 note
+    sse.drive({ type: "step_end", stepId: "s1", tool: "read_settings", resultNote: "", ok: false });
+    const card = await screen.findByTestId("chat-proc-tool");
+    expect(card.textContent).toContain("read_settings");
+    await waitFor(() => expect(card.textContent).toContain("没成功"));
+    // 无详情 → 没有 body（点了也不出现「结果」）
+    fireEvent.click(screen.getByText("read_settings"));
+    expect(screen.queryByText("结果")).toBeNull();
+  });
+
+  it("运行中无 label 显示「正在执行…」；收口未完成标「被打断」", async () => {
+    render(<Aui2Dock projectId="p1" page="工作台 · 卷纲" scope={SCOPE} />);
+    await screen.findByTestId("aui2-dock");
+    const sse = captureStream();
+    fireEvent.click(screen.getByTestId("aui2-chip-draft_volume_expand"));
+    await waitFor(() => expect(chatApiState.streamAssistantChat).toHaveBeenCalled());
+
+    sse.drive({ type: "step_start", stepId: "s2", tool: "draft_volume_expand" });
+    const card = await screen.findByTestId("chat-proc-tool");
+    expect(card.textContent).toContain("正在执行…");
+    sse.done();
+    await waitFor(() => expect(screen.getByTestId("chat-proc-tool").textContent).toContain("被打断"));
+  });
+
+  it("流中断（onError）收口未完成步 → 「被打断」＋错误卡", async () => {
+    render(<Aui2Dock projectId="p1" page="工作台 · 卷纲" scope={SCOPE} />);
+    await screen.findByTestId("aui2-dock");
+    const sse = captureStream();
+    fireEvent.click(screen.getByTestId("aui2-chip-draft_volume_expand"));
+    await waitFor(() => expect(chatApiState.streamAssistantChat).toHaveBeenCalled());
+    sse.drive({ type: "step_start", stepId: "s3", tool: "read_settings" });
+    await screen.findByTestId("chat-proc-tool");
+    sse.fail("连接中断");
+    await waitFor(() => expect(screen.getByTestId("chat-proc-tool").textContent).toContain("被打断"));
+    expect(screen.getByTestId("chat-error")).toBeTruthy();
+  });
+
+  it("读类结果返回 JSON：单行头说人话，点开看原文", async () => {
+    render(<Aui2Dock projectId="p1" page="工作台 · 卷纲" scope={SCOPE} />);
+    await screen.findByTestId("aui2-dock");
+    const sse = captureStream();
+    fireEvent.click(screen.getByTestId("aui2-chip-draft_volume_expand"));
+    await waitFor(() => expect(chatApiState.streamAssistantChat).toHaveBeenCalled());
+    sse.drive({ type: "step_start", stepId: "sj", tool: "read_settings", label: "先读主线" });
+    sse.drive({
+      type: "step_end",
+      stepId: "sj",
+      tool: "read_settings",
+      resultNote: '{"fullstory": "林野是夜班巡护员"}',
+      ok: true,
+    });
+    const card = await screen.findByTestId("chat-proc-tool");
+    await waitFor(() => expect(card.textContent).toContain("已读取"));
+    expect(card.textContent).not.toContain("fullstory");
+    fireEvent.click(screen.getByText("read_settings"));
+    await waitFor(() => expect(screen.getByText(/"fullstory"/)).toBeTruthy());
+  });
+
+  it("历史 process 有 running 项 → 回放标「被打断」", async () => {
+    chatApiState.loadAssistantSession.mockResolvedValue(
+      sess([
+        { id: "u1", role: "user", content: "铺一下", page: "ch:og" },
+        {
+          id: "a1",
+          role: "assistant",
+          content: "好。",
+          page: "ch:og",
+          payload: {
+            process: [
+              { kind: "tool", stepId: "s1", tool: "draft_volume_expand", running: true },
+            ],
+          },
+        },
+      ]),
+    );
+    render(<Aui2Dock projectId="p1" page="工作台 · 卷纲" scope={SCOPE} />);
+    await waitFor(() => expect(screen.getByText("好。")).toBeTruthy());
+    expect(screen.getByTestId("chat-proc-tool").textContent).toContain("被打断");
+  });
+
+  it("历史 process 为空/形状不对 → 不生成过程卡", async () => {
+    chatApiState.loadAssistantSession.mockResolvedValue(
+      sess([
+        { id: "u1", role: "user", content: "看看", page: "ch:og" },
+        {
+          id: "a1",
+          role: "assistant",
+          content: "看完了。",
+          page: "ch:og",
+          payload: { process: [null, { kind: "thinking", text: " " }, { kind: "tool" }, { kind: "x" }] },
+        },
+        { id: "a2", role: "assistant", content: "还是空的。", page: "ch:og", payload: { process: [] } },
+      ]),
+    );
+    render(<Aui2Dock projectId="p1" page="工作台 · 卷纲" scope={SCOPE} />);
+    await waitFor(() => expect(screen.getByText("还是空的。")).toBeTruthy());
+    expect(screen.queryByTestId("chat-proc-thinking")).toBeNull();
+    expect(screen.queryByTestId("chat-proc-tool")).toBeNull();
+  });
+});
+
+describe("Aui2Dock 底栏空模型兜底", () => {
+  it("没有可用模型配置 → 「未配模型」禁用 pill；本书模型不在清单 → 显示「选模型」", async () => {
+    const originalOptions = modelState.options;
+    try {
+      modelState.options = [];
+      const first = render(<Aui2Dock projectId="p1" page="工作台 · 卷纲" scope={SCOPE} />);
+      await screen.findByTestId("aui2-dock");
+      expect(screen.getByText("未配模型")).toBeTruthy();
+      first.unmount();
+
+      modelState.options = originalOptions;
+      modelState.currentConfigId = "cfgX";
+      modelState.currentModel = "gone";
+      render(<Aui2Dock projectId="p1" page="工作台 · 卷纲" scope={SCOPE} />);
+      await screen.findByTestId("aui2-dock");
+      await waitFor(() =>
+        expect(screen.getByTestId("ai-model-select").textContent).toContain("选模型"),
+      );
+    } finally {
+      modelState.options = originalOptions;
+      modelState.currentConfigId = "cfg1";
+      modelState.currentModel = "deepseek-flash";
+    }
   });
 });
