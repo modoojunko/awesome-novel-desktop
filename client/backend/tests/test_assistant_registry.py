@@ -60,6 +60,22 @@ def test_write_surface_is_fenced():
     assert not (names & forbidden), f"硬地板操作不得进入工具清单：{names & forbidden}"
 
 
+def test_write_tools_have_human_preview_summary():
+    """写类授权卡必须有人话摘要——作家看不懂裸 JSON（2026-11-21 实锤）。
+
+    preview_builder 之外的兜底形状由 write_gate._preview 生成；新增写工具漏挂
+    中文动作名时，卡面会退回 {"tool","args"} 裸 JSON，本钉子拦住。"""
+    from assistant.write_gate import _preview
+
+    missing = [
+        t.name
+        for t in TOOL_REGISTRY
+        if t.kind == "write"
+        and not _preview(t.name, {"chapter_ref": "vol-1-ch-2"}).get("summary")
+    ]
+    assert missing == [], f"授权卡缺人话摘要的写工具：{missing}"
+
+
 def test_get_tool_strips_whitespace():
     assert get_tool("  read_progress  ") is not None
     assert get_tool("不存在的工具") is None

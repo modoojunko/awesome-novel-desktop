@@ -63,7 +63,21 @@ def test_set_permission_tier_is_hard_floor():
 def test_preview_carries_tool_and_args():
     args = {"ref": "vol-2", "fields": {"ending": "海边的告别"}}
     d = evaluate("write_volume_fields", args, tier=TIER_CONFIRM_EACH)
-    assert d.preview == {"tool": "write_volume_fields", "args": args}
+    assert d.preview["tool"] == "write_volume_fields"
+    assert d.preview["args"] == args
+    # 人话摘要（2026-11-21）：卡面不再只有内部 key；章节 ref 转「第 N 卷 · 第 M 章」
+    assert d.preview["summary"] == "改卷纲：第 2 卷"
+
+
+def test_preview_humanizes_chapter_ref():
+    d = evaluate("confirm_chapter", {"chapter_ref": "vol-1-ch-7"}, tier=TIER_CONFIRM_EACH)
+    assert d.preview["summary"] == "确认章纲：第 1 卷 · 第 7 章"
+
+
+def test_preview_summary_survives_unknown_args():
+    # 认不出的目标也不得让 summary 消失（动作名兜底）；硬地板工具同样有人话
+    d = evaluate("delete_book", {}, tier=TIER_CONFIRM_EACH)
+    assert d.preview["summary"] == "删掉这本书"
 
 
 @pytest.mark.asyncio

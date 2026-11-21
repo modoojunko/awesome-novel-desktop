@@ -312,7 +312,7 @@ describe("写授权卡（permission_required 事件）", () => {
     chatApiState.approveGate.mockResolvedValue({ ok: true });
   });
 
-  it("permission_required 事件渲染授权卡（含预览与批复按钮）", async () => {
+  it("permission_required 事件渲染授权卡（人话摘要，不摊裸 JSON）", async () => {
     render(<Aui2Dock projectId="p1" page="工作台 · 卷纲" scope={SCOPE} />);
     await screen.findByTestId("aui2-dock");
     const sse = captureStream();
@@ -321,14 +321,40 @@ describe("写授权卡（permission_required 事件）", () => {
     sse.drive({
       type: "permission_required",
       gateId: "g9",
-      preview: { tool: "confirm_chapter", args: { chapter_ref: "vol-1-ch-7" } },
+      preview: {
+        tool: "confirm_chapter",
+        args: { chapter_ref: "vol-1-ch-7" },
+        summary: "确认章纲：第 1 卷 · 第 7 章",
+      },
       humanOnly: false,
     });
     await screen.findByTestId("aui2-gate-approve");
-    // 事件数据完整进卡（preview 可见＝作家批前看得见改什么）；点击批复链路由 e2e 钉
-    // coverage 负载下渲染批次慢于按钮挂载（CI 实锤）——findBy 自带重试
-    await screen.findByText(/confirm_chapter/);
-    expect(screen.getByText(/vol-1-ch-7/)).toBeTruthy();
+    // 卡面给作家看人话（2026-11-21 实锤：裸 JSON 作家看不懂）；内部工具名不上卡面
+    const card = screen.getByTestId("aui2-auth-card");
+    expect(screen.getByTestId("gate-preview-summary").textContent).toContain(
+      "确认章纲：第 1 卷 · 第 7 章",
+    );
+    expect(card.textContent).not.toContain("confirm_chapter");
+    expect(card.querySelector("details.cd-raw")).toBeNull();
+  });
+
+  it("旧形状 preview（无 changes/summary）收进折叠，默认不展开", async () => {
+    render(<Aui2Dock projectId="p1" page="工作台 · 卷纲" scope={SCOPE} />);
+    await screen.findByTestId("aui2-dock");
+    const sse = captureStream();
+    fireEvent.click(screen.getByTestId("aui2-chip-draft_volume_expand"));
+    await waitFor(() => expect(chatApiState.streamAssistantChat).toHaveBeenCalled());
+    sse.drive({
+      type: "permission_required",
+      gateId: "g10",
+      preview: { tool: "legacy_write", args: { foo: "bar" } },
+      humanOnly: false,
+    });
+    await screen.findByTestId("aui2-gate-approve");
+    const raw = screen.getByTestId("aui2-auth-card").querySelector("details.cd-raw");
+    expect(raw).not.toBeNull();
+    expect((raw as HTMLDetailsElement).open).toBe(false);
+    expect(raw!.textContent).toContain("看看这一步要改什么");
   });
 });
 
@@ -565,7 +591,7 @@ describe("Aui2Dock GateCard 字段级前后对比（c-agent-page-ops）", () => 
     chatApiState.approveGate.mockResolvedValue({ ok: true });
   });
 
-  it("preview 带 changes 时渲染字段前后人话行（旧形状走 JSON pre 分支）", async () => {
+  it("preview 带 changes 时渲染字段前后人话行（空值/长文/数组都有人话）", async () => {
     render(<Aui2Dock projectId="p1" page="工作台 · 卷纲" scope={SCOPE} />);
     await screen.findByTestId("aui2-dock");
     const sse = captureStream();
@@ -577,7 +603,11 @@ describe("Aui2Dock GateCard 字段级前后对比（c-agent-page-ops）", () => 
       preview: {
         tool: "write_chapter_fields",
         entity: "chapter:vol-1-ch-7",
-        changes: [{ field: "challenge", label: "碰到的挑战", before: "旧挑战", after: "新挑战" }],
+        changes: [
+          { field: "challenge", label: "碰到的挑战", before: "旧挑战", after: "新挑战" },
+          { field: "summary", label: "概要", before: "", after: "长".repeat(100) },
+          { field: "characters", label: "出场角色", before: null, after: ["林七", "白鹤"] },
+        ],
       },
       humanOnly: false,
       reason: "",
@@ -587,6 +617,11 @@ describe("Aui2Dock GateCard 字段级前后对比（c-agent-page-ops）", () => 
     expect(fields.textContent).toContain("碰到的挑战");
     expect(fields.textContent).toContain("旧挑战");
     expect(fields.textContent).toContain("新挑战");
+    // 空值/超长截断/非字符串值都不出 [object Object]
+    expect(fields.textContent).toContain("（空）");
+    expect(fields.textContent).toContain("…");
+    expect(fields.textContent).toContain('["林七","白鹤"]');
+    expect(fields.textContent).not.toContain("[object Object]");
   });
 });
 

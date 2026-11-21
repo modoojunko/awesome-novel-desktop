@@ -266,8 +266,9 @@ function GateCard(props: { data: GateCardData; id?: string }) {
       <div className="cd-card-head">
         <b>{data.humanOnly ? "需要你确认" : "授权写入"}</b>
       </div>
-      {/* 字段级前后对比（c-agent-page-ops）：写工具 preview 带 changes 时渲染
-          人话行（OpenWorker ApprovalCard permissionLines 同思路）；旧形状走 pre */}
+      {/* 授权卡正文（c-agent-page-ops）：优先字段级前后对比（label＝中文名），
+          其次人话摘要（write_gate 兜底给所有写工具），都没有才把原始参数收进
+          「看看这一步要改什么」折叠——作家面前不摊裸 JSON（2026-11-21 实锤）。 */}
       {(() => {
         const pv = data.preview as
           | {
@@ -277,32 +278,49 @@ function GateCard(props: { data: GateCardData; id?: string }) {
                 before?: unknown;
                 after?: unknown;
               }[];
+              summary?: string;
             }
           | undefined;
         if (pv && Array.isArray(pv.changes) && pv.changes.length > 0) {
           return (
-            <div className="cd-preview cd-preview-fields" data-testid="gate-preview-fields">
+            <div className="cd-preview-fields" data-testid="gate-preview-fields">
               {pv.changes.map((c, i) => {
                 // 长值截断（review P3）：超 80 字撑卡——预览只求可判断，不求全文
                 const clip = (v: unknown) => {
-                  const t = String(v ?? "").trim();
-                  return t === "" ? "（空）" : t.length > 80 ? `${t.slice(0, 80)}…` : t;
+                  const raw =
+                    v == null ? "" : typeof v === "string" ? v.trim() : JSON.stringify(v);
+                  return raw === "" ? "（空）" : raw.length > 80 ? `${raw.slice(0, 80)}…` : raw;
                 };
                 return (
                   <div className="cd-preview-field" key={`${c.field ?? c.label ?? i}`}>
-                    <b>{c.label || c.field}</b>
-                    <span className="cd-before">{clip(c.before)}</span>
-                    <span className="cd-sep" aria-hidden>
-                      →
-                    </span>
-                    <span className="cd-after">{clip(c.after)}</span>
+                    <b className="cd-field-name">{c.label || c.field}</b>
+                    <div className="cd-diff-line">
+                      <span className="cd-diff-tag">现在</span>
+                      <span className="cd-before">{clip(c.before)}</span>
+                    </div>
+                    <div className="cd-diff-line">
+                      <span className="cd-diff-tag">改成</span>
+                      <span className="cd-after">{clip(c.after)}</span>
+                    </div>
                   </div>
                 );
               })}
             </div>
           );
         }
-        return <pre className="cd-preview">{JSON.stringify(data.preview, null, 1)}</pre>;
+        if (pv?.summary) {
+          return (
+            <div className="cd-gate-summary" data-testid="gate-preview-summary">
+              {pv.summary}
+            </div>
+          );
+        }
+        return (
+          <details className="cd-raw">
+            <summary>看看这一步要改什么</summary>
+            <pre className="cd-preview">{JSON.stringify(data.preview ?? {}, null, 1)}</pre>
+          </details>
+        );
       })()}
       {data.expired ? (
         <div className="cd-dim" style={{ padding: "6px 10px" }}>
