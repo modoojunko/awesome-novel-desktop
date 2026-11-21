@@ -615,10 +615,31 @@ class AIClient:
             return {"thinking": {"type": "enabled"}, "reasoning_effort": "low"}
         return {"thinking": dict(_THINKING_DISABLED)}
 
+    def _enabled_thinking_params(self, explicit: Any) -> dict[str, Any] | None:
+        """显式 enabled 的完整参数组（c-agent-thinking-effort）：未自带 effort 时按
+        该配置的 `thinking_effort` 补齐——GLM 嵌套进 thinking{}（顶层会被静默吞掉），
+        其余 vendor 随顶层 reasoning_effort（与配置开思考同款）。显式自带 effort 原样
+        优先；已实证不支持思考参数的 base 直接不发（不再多打一次被拒请求）。"""
+        base = getattr(self, "_base_url", "") or ""
+        if base in _THINKING_UNSUPPORTED_BASES:
+            return None
+        if not isinstance(explicit, dict):
+            return {"thinking": explicit}
+        if explicit.get("reasoning_effort") or explicit.get("effort"):
+            return {"thinking": explicit}
+        effort = getattr(self, "_thinking_effort", "low") or "low"
+        vendor = str(getattr(self, "_vendor", "") or "").strip().lower()
+        if vendor == "glm":
+            return {"thinking": {**explicit, "reasoning_effort": effort}}
+        return {"thinking": explicit, "reasoning_effort": effort}
+
     def _explicit_thinking_params(self, explicit: Any) -> dict[str, Any] | None:
-        """调用方显式传的 thinking 的完整参数组：非 disabled 形态原样；disabled 按
-        端点记忆折算——FORCED＝enabled＋low（判定类保「短平快出文本」），
-        UNSPORTED＝None（发了也必被拒）。"""
+        """调用方显式传的 thinking 的完整参数组。
+
+        c-agent-thinking-effort 起：非 disabled 形态按 `_enabled_thinking_params`
+        补齐配置强度（显式自带 effort 优先）；disabled 按端点记忆折算——FORCED＝
+        enabled＋low（判定类保「短平快出文本」），UNSPORTED＝None（发了也必被拒）。
+        """
         if getattr(self, "_vendor", "") == "gemini":
             if self._is_disabled_shaped(explicit):
                 return {"reasoning_effort": "none"}
@@ -628,7 +649,7 @@ class AIClient:
                 return {"thinking": dict(_THINKING_DISABLED)}
             return {"thinking": {"type": "adaptive"}}
         if not self._is_disabled_shaped(explicit):
-            return {"thinking": explicit}
+            return self._enabled_thinking_params(explicit)
         base = self._base_url or ""
         if base in _THINKING_FORCED_BASES:
             return self._off_thinking_params()
@@ -643,7 +664,8 @@ class AIClient:
     def _with_thinking_disabled(self, kwargs: dict) -> dict:
         """anthropic 直参路径的思考参数落位：thinking 走形参，reasoning_effort
         SDK 无此形参、随 extra_body 透传（GLM anthropic 兼容端点认；端点不认时
-        去参重试兜底）。调用方显式传的 thinking 最优先——此时配置强度不搭车。"""
+        去参重试兜底）。调用方显式传的 thinking 最优先——显式 disabled 不搭车配置
+        强度；显式 enabled 未带 effort 时按配置强度补齐（_enabled_thinking_params）。"""
         if "thinking" in kwargs:
             params = self._explicit_thinking_params(kwargs.pop("thinking")) or {}
         else:
@@ -659,7 +681,8 @@ class AIClient:
 
     def _openai_thinking_extra(self, kwargs: dict) -> dict[str, Any]:
         """openai 路径的思考参数落位（extra_body）。调用方显式传的 thinking
-        最优先——此时配置强度不搭车（判定类恒关思考，带 effort 自相矛盾）。"""
+        最优先——显式 disabled 不搭车配置强度（判定类恒关思考）；显式 enabled
+        未带 effort 时按配置强度补齐（_enabled_thinking_params）。"""
         if "thinking" in kwargs:
             return self._explicit_thinking_params(kwargs.pop("thinking")) or {}
         return self._thinking_params()

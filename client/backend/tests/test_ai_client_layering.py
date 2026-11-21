@@ -785,3 +785,91 @@ class TestThinkingShapeVendorSplit:
             assert c._thinking_params() == {"thinking": {"type": "enabled"}, "reasoning_effort": "low"}
         finally:
             mod._THINKING_FORCED_BASES.discard(base)
+
+
+class TestExplicitThinkingEffort:
+    """c-agent-thinking-effort：显式 enabled 未带 effort 时按配置强度下发。"""
+
+    def test_enabled_uses_config_low(self, monkeypatch):
+        import ai_client as mod
+
+        mod._THINKING_UNSUPPORTED_BASES.clear()
+        monkeypatch.setattr(mod, "AsyncOpenAI", _FakeOpenAI)
+        c = AIClient(
+            api_key="sk-x", base_url="https://api.example.com/v1", model="m",
+            thinking_enabled=False, thinking_effort="low",
+        )
+        _run_async(
+            c.chat(
+                model="haiku", system="",
+                messages=[{"role": "user", "content": "x"}],
+                thinking={"type": "enabled"},
+            )
+        )
+        extra = c._client.recorder.kwargs["extra_body"]
+        assert extra["thinking"] == {"type": "enabled"}
+        assert extra["reasoning_effort"] == "low"
+
+    def test_glm_enabled_nests_config_effort(self, monkeypatch):
+        import ai_client as mod
+
+        mod._THINKING_UNSUPPORTED_BASES.clear()
+        monkeypatch.setattr(mod, "AsyncOpenAI", _FakeOpenAI)
+        c = AIClient(
+            api_key="sk-x", base_url="https://glm.example/v4", model="m",
+            vendor="glm", thinking_enabled=False, thinking_effort="high",
+        )
+        _run_async(
+            c.chat(
+                model="haiku", system="",
+                messages=[{"role": "user", "content": "x"}],
+                thinking={"type": "enabled"},
+            )
+        )
+        extra = c._client.recorder.kwargs["extra_body"]
+        assert extra["thinking"] == {"type": "enabled", "reasoning_effort": "high"}
+        assert "reasoning_effort" not in extra  # GLM 顶层会被吞，必须嵌套
+
+    def test_explicit_effort_wins_over_config(self, monkeypatch):
+        import ai_client as mod
+
+        mod._THINKING_UNSUPPORTED_BASES.clear()
+        monkeypatch.setattr(mod, "AsyncOpenAI", _FakeOpenAI)
+        c = AIClient(
+            api_key="sk-x", base_url="https://api.example.com/v1", model="m",
+            thinking_enabled=True, thinking_effort="low",
+        )
+        _run_async(
+            c.chat(
+                model="haiku", system="",
+                messages=[{"role": "user", "content": "x"}],
+                thinking={"type": "enabled", "reasoning_effort": "max"},
+            )
+        )
+        extra = c._client.recorder.kwargs["extra_body"]
+        assert extra["thinking"] == {"type": "enabled", "reasoning_effort": "max"}
+        assert "reasoning_effort" not in extra
+
+    def test_known_unsupported_base_sends_nothing(self, monkeypatch):
+        import ai_client as mod
+
+        base = "https://unsupported.example/v1"
+        mod._THINKING_UNSUPPORTED_BASES.add(base)
+        try:
+            monkeypatch.setattr(mod, "AsyncOpenAI", _FakeOpenAI)
+            c = AIClient(
+                api_key="sk-x", base_url=base, model="m",
+                thinking_enabled=False, thinking_effort="low",
+            )
+            _run_async(
+                c.chat(
+                    model="haiku", system="",
+                    messages=[{"role": "user", "content": "x"}],
+                    thinking={"type": "enabled"},
+                )
+            )
+            extra = c._client.recorder.kwargs.get("extra_body") or {}
+            assert "thinking" not in extra
+            assert "reasoning_effort" not in extra
+        finally:
+            mod._THINKING_UNSUPPORTED_BASES.discard(base)
