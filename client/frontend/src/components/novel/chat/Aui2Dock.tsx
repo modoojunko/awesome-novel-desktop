@@ -1260,9 +1260,10 @@ export function Aui2Dock({
             ref={apiRef}
             onInput={{
               onSubmit,
-              // 授权模式选择器进输入框底栏（c-agent-page-ops review 整改：ZCode
-              // 位置——pill 命名当前档，点开向上弹两档；写改照授权策略过闸）
-              footer: (
+              // 授权模式选择器进输入框底栏左端（c-agent-page-ops review 整改：ZCode
+              // 位置——pill 与发送按钮同一行；footer 插槽会渲染在 actions 行之下另起
+              // 一行（实测 pill y=907 vs 发送 y=875），morePrefixActions 才是底栏左端）
+              morePrefixActions: (
                 <div
                   className="cd-authwrap"
                   ref={authWrapRef}
