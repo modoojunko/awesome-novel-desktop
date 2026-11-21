@@ -26,7 +26,7 @@
 
 ## 5. 前端 dock 与卡面
 
-- [x] 5.1 `Aui2Dock` 消费 `plan` 事件并注册 `plan` 卡（按 `planId` upsert，位于当前回合轨迹组上方）；验证：`Aui2Dock.test.tsx` 事件驱动四态更新用例通过
+- [x] 5.1 `Aui2Dock` 消费 `plan` 事件并注册 `plan` 卡（按 `planId` upsert，作为独立卡面接在当前回合消息之后）；验证：`Aui2Dock.test.tsx` 事件驱动四态更新用例通过
 - [x] 5.2 历史 `card_kind="plan"` 行折叠恢复，空 content 旧事件行照旧跳过；验证：恢复用例 + 旧行兼容用例通过
 - [x] 5.3 收口未完成呈现「还有 N 件没做」，没做成项按阻断缺项语气；验证：三件完成两件用例文案与状态正确
 - [x] 5.4 `CardBody` 回显 `constraints_used`（标签「写法约束」）；验证：`CardBody` 测试出现该行，未知键兜底不变
