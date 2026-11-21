@@ -3,7 +3,7 @@
 // 页面切换标记／clear 事件清屏／思考增量 trace 卡／产物卡渲染／崩溃兜底由宿主承担
 // （AuiErrorBoundary 独立测：NovelWorkspace.test 覆盖挂载）。
 // @vitest-environment jsdom
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const chatApiState = vi.hoisted(() => ({
@@ -44,7 +44,7 @@ vi.mock("@/lib/chatApi", async (importOriginal) => {
   };
 });
 
-import { Aui2Dock } from "@/components/novel/chat/Aui2Dock";
+import { Aui2Dock, TraceStatusCard } from "@/components/novel/chat/Aui2Dock";
 import type { ChatPageScope } from "@/lib/chatRegistry";
 
 const SCOPE: ChatPageScope = {
@@ -222,6 +222,10 @@ describe("Aui2Dock 流式契约", () => {
       preview: { entity: "volume:vol-1", fields: { summary: "新概要" } },
       humanOnly: false,
     });
+    // 授权卡停车：进度行明确「等待授权」，不装成还在思考
+    await waitFor(() =>
+      expect(screen.getByTestId("chat-trace-status").textContent).toContain("等待授权"),
+    );
     // coverage 负载下点击时序会抖（按钮就位≠当前帧可点）——点击进 waitFor 重试
     await waitFor(() => {
       fireEvent.click(screen.getByTestId("aui2-gate-approve"));
@@ -855,6 +859,10 @@ describe("Aui2Dock 过程泡泡边界（失败/打断/缺省）", () => {
     render(<Aui2Dock projectId="p1" page="工作台 · 卷纲" scope={SCOPE} />);
     await waitFor(() => expect(screen.getByText("好。")).toBeTruthy());
     expect(screen.getByTestId("chat-proc-tool").textContent).toContain("被打断");
+    // 进度行不得把被打断的回合谎报成「完成」
+    const status = screen.getByTestId("chat-trace-status");
+    expect(status.textContent).toContain("已停止");
+    expect(status.textContent).toContain("1 步");
   });
 
   it("历史 process 为空/形状不对 → 不生成过程卡", async () => {
@@ -978,5 +986,125 @@ describe("Aui2Dock 任务计划卡（c-agent-action-contract）", () => {
       expect(card.querySelectorAll('[data-state="active"]').length).toBe(0);
       expect(card.textContent).toContain("还有 1 件没做");
     });
+  });
+});
+
+describe("Aui2Dock 过程进度行与工具参数（c-agent-process-progress）", () => {
+  it("提交即运行中；工具执行/完成更新步数；收口停表；参数可展开", async () => {
+    render(<Aui2Dock projectId="p1" page="工作台 · 卷纲" scope={SCOPE} />);
+    await screen.findByTestId("aui2-dock");
+    const sse = captureStream();
+    fireEvent.click(screen.getByTestId("aui2-chip-draft_volume_expand"));
+    await waitFor(() => expect(chatApiState.streamAssistantChat).toHaveBeenCalled());
+    const status = await screen.findByTestId("chat-trace-status");
+    expect(status.textContent).toContain("运行中");
+    expect(status.textContent).toContain("第 1 步");
+    expect(status.textContent).toContain("已等");
+
+    sse.drive({ type: "step_start", stepId: "s1", tool: "read_settings", label: "先读主线" });
+    await waitFor(() =>
+      expect(screen.getByTestId("chat-trace-status").textContent).toContain(
+        "正在执行 read_settings",
+      ),
+    );
+    sse.drive({
+      type: "step_end",
+      stepId: "s1",
+      tool: "read_settings",
+      resultNote: "主线还没写",
+      ok: true,
+      args: { area: "premise" },
+    });
+    await waitFor(() =>
+      expect(screen.getByTestId("chat-trace-status").textContent).toContain("第 2 步"),
+    );
+    // 工具参数：展开可见
+    fireEvent.click(screen.getByText("read_settings"));
+    await waitFor(() => expect(screen.getByText("参数")).toBeTruthy());
+    expect(screen.getByText(/area/)).toBeTruthy();
+
+    sse.done();
+    await waitFor(() => {
+      const t = screen.getByTestId("chat-trace-status").textContent || "";
+      expect(t).toContain("完成");
+      expect(t).toContain("1 步");
+      expect(t).toContain("用时");
+    });
+  });
+
+  it("纯正文回合：状态从「等待模型」切到「整理回答」", async () => {
+    render(<Aui2Dock projectId="p1" page="工作台 · 卷纲" scope={SCOPE} />);
+    await screen.findByTestId("aui2-dock");
+    const sse = captureStream();
+    fireEvent.click(screen.getByTestId("aui2-chip-draft_volume_expand"));
+    await waitFor(() => expect(chatApiState.streamAssistantChat).toHaveBeenCalled());
+    await waitFor(() =>
+      expect(screen.getByTestId("chat-trace-status").textContent).toContain("等待模型"),
+    );
+    sse.drive({ type: "narration_delta", text: "我先把这一卷" });
+    await waitFor(() =>
+      expect(screen.getByTestId("chat-trace-status").textContent).toContain("整理回答"),
+    );
+  });
+
+  it("回放：状态行只给完成步数（不伪造时长），参数照常可展开", async () => {
+    chatApiState.loadAssistantSession.mockResolvedValue(
+      sess([
+        { id: "u1", role: "user", content: "看看主线", page: "ch:og" },
+        {
+          id: "a1",
+          role: "assistant",
+          content: "看完了。",
+          page: "ch:og",
+          payload: {
+            process: [
+              { kind: "thinking", text: "先看看" },
+              {
+                kind: "tool",
+                stepId: "s1",
+                tool: "read_settings",
+                running: false,
+                note: "主线还没写",
+                ok: true,
+                args: '{"area": "premise"}',
+              },
+            ],
+          },
+        },
+      ]),
+    );
+    render(<Aui2Dock projectId="p1" page="工作台 · 卷纲" scope={SCOPE} />);
+    await waitFor(() => expect(screen.getByText("看完了。")).toBeTruthy());
+    const status = screen.getByTestId("chat-trace-status");
+    expect(status.textContent).toContain("完成");
+    expect(status.textContent).toContain("1 步");
+    expect(status.textContent).not.toContain("用时");
+    fireEvent.click(screen.getByText("read_settings"));
+    await waitFor(() => expect(screen.getByText("参数")).toBeTruthy());
+    expect(screen.getByText(/area/)).toBeTruthy();
+  });
+
+  it("live 计时每秒走表（组件单测）", async () => {
+    vi.useFakeTimers();
+    try {
+      render(
+        <TraceStatusCard
+          data={{
+            live: true,
+            startedAt: Date.now(),
+            stepCount: 0,
+            stepNo: 1,
+            current: "思考中",
+          }}
+        />,
+      );
+      expect(screen.getByText(/已等 0 秒/)).toBeTruthy();
+      act(() => {
+        vi.advanceTimersByTime(2000);
+      });
+      expect(screen.getByText(/已等 2 秒/)).toBeTruthy();
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });

@@ -516,6 +516,7 @@ def test_process_persisted_and_replayed_in_order(monkeypatch):
             "tool": "read_settings",
             "resultNote": "主线还没有内容",
             "ok": True,
+            "args": {"area": "premise"},
             "apiCalls": [{"op": "assistant_step", "model": "m", "ms": 12, "tokens_in": 1, "tokens_out": 2, "ok": True}],
         },
         {"type": "thinking", "text": "再顺手看看卷纲"},
@@ -542,6 +543,7 @@ def test_process_persisted_and_replayed_in_order(monkeypatch):
         "note": "主线还没有内容",
         "ok": True,
         "label": "先读主线设定",
+        "args": '{"area": "premise"}',
         "apiCalls": [{"op": "assistant_step", "model": "m", "ms": 12, "tokens_in": 1, "tokens_out": 2, "ok": True}],
     }
     assert process[2]["text"] == "再顺手看看卷纲"

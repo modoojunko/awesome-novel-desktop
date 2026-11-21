@@ -412,10 +412,26 @@ export type TraceToolData = {
   label?: string;
   /** 结果摘要（step_end.resultNote） */
   note?: string;
+  /** 本步参数 JSON 预览（截断 ≤600 字） */
+  args?: string;
   ok?: boolean;
   running?: boolean;
   interrupted?: boolean;
   apiCalls?: ProcApiCall[];
+};
+
+/** 过程进度行（列表首）：真实事件/计时派生，不渲染假进度 */
+export type TraceStatusData = {
+  live: boolean;
+  startedAt?: number;
+  endedAt?: number;
+  failed?: boolean;
+  /** 已完成的工具步数 */
+  stepCount: number;
+  /** 当前步序（运行中从 1 起；收口不用） */
+  stepNo?: number;
+  /** 当前动作：思考中/正在执行 X/整理回答/等待授权 */
+  current?: string;
 };
 
 type ProcThinkingItem = { kind: "thinking"; id: string; text: string; live?: boolean };
@@ -426,6 +442,7 @@ type ProcToolItem = {
   tool: string;
   label?: string;
   note?: string;
+  args?: string;
   ok?: boolean;
   running?: boolean;
   interrupted?: boolean;
@@ -433,31 +450,88 @@ type ProcToolItem = {
 };
 type ProcItem = ProcThinkingItem | ProcToolItem;
 
+type ProcBuf = {
+  items: ProcItem[];
+  live: boolean;
+  startedAt: number;
+  endedAt?: number;
+  failed?: boolean;
+  /** 授权卡停车等待作家批复（状态行显示「等待授权」） */
+  waiting?: boolean;
+  /** 正文已开流（状态行「整理回答」，不再是「等待模型」） */
+  replying?: boolean;
+};
+
 type ProcCard = { code: string; id: string; data: unknown };
 
-/** 过程项 → ChatAnywhere 卡片（思考/工具各一张；顺序＝发生顺序） */
-function toProcCards(items: ProcItem[]): ProcCard[] {
-  return items.map((item) =>
-    item.kind === "thinking"
-      ? {
-          code: "trace_thinking",
-          id: item.id,
-          data: { text: item.text, live: item.live } satisfies TraceThinkingData,
-        }
-      : {
-          code: "trace_tool",
-          id: item.id,
-          data: {
-            tool: item.tool,
-            label: item.label,
-            note: item.note,
-            ok: item.ok,
-            running: item.running,
-            interrupted: item.interrupted,
-            apiCalls: item.apiCalls,
-          } satisfies TraceToolData,
-        },
+function fmtElapsed(sec: number): string {
+  return sec < 60 ? `${sec} 秒` : `${Math.floor(sec / 60)} 分 ${sec % 60} 秒`;
+}
+
+/** 过程缓冲 → 卡片：列首进度行 + 思考/工具卡（顺序＝发生顺序） */
+function toProcCards(buf: ProcBuf): ProcCard[] {
+  const items = buf.items;
+  if (!items.length && !buf.live) return [];
+  const toolCount = items.filter((it) => it.kind === "tool").length;
+  const running = items.find(
+    (it): it is ProcToolItem => it.kind === "tool" && Boolean(it.running),
   );
+  const last = items[items.length - 1];
+  const thinkingLive = last?.kind === "thinking" && Boolean(last.live);
+  const hasInterrupted = items.some(
+    (it) => it.kind === "tool" && Boolean(it.interrupted),
+  );
+  const current = buf.waiting
+    ? "等待授权"
+    : running
+      ? `正在执行 ${running.tool}`
+      : thinkingLive
+        ? "思考中"
+        : buf.live
+          ? buf.replying || items.length
+            ? "整理回答"
+            : "等待模型"
+          : undefined;
+  const cards: ProcCard[] = [
+    {
+      code: "trace_status",
+      id: "status",
+      data: {
+        live: buf.live,
+        startedAt: buf.startedAt,
+        endedAt: buf.endedAt,
+        failed: Boolean(buf.failed || (!buf.live && hasInterrupted)),
+        stepCount: toolCount,
+        stepNo: toolCount + (running ? 0 : 1),
+        current,
+      } satisfies TraceStatusData,
+    },
+  ];
+  for (const item of items) {
+    cards.push(
+      item.kind === "thinking"
+        ? {
+            code: "trace_thinking",
+            id: item.id,
+            data: { text: item.text, live: item.live } satisfies TraceThinkingData,
+          }
+        : {
+            code: "trace_tool",
+            id: item.id,
+            data: {
+              tool: item.tool,
+              label: item.label,
+              note: item.note,
+              args: item.args,
+              ok: item.ok,
+              running: item.running,
+              interrupted: item.interrupted,
+              apiCalls: item.apiCalls,
+            } satisfies TraceToolData,
+          },
+    );
+  }
+  return cards;
 }
 
 /** 历史回放：assistant 行 payload.process → 同序过程卡；无该键＝旧会话走旧轨迹卡 */
@@ -465,6 +539,8 @@ function processCardsFromPayload(payload: Record<string, unknown>): ProcCard[] |
   const raw = payload?.process;
   if (!Array.isArray(raw) || raw.length === 0) return null;
   const cards: ProcCard[] = [];
+  let toolCount = 0;
+  let interruptedCount = 0;
   raw.forEach((it, i) => {
     if (!it || typeof it !== "object") return;
     const item = it as Record<string, unknown>;
@@ -475,6 +551,8 @@ function processCardsFromPayload(payload: Record<string, unknown>): ProcCard[] |
         data: { text: item.text, live: false } satisfies TraceThinkingData,
       });
     } else if (item.kind === "tool" && typeof item.tool === "string" && item.tool) {
+      toolCount += 1;
+      if (item.interrupted || item.running) interruptedCount += 1;
       cards.push({
         code: "trace_tool",
         id: `tool-${String(item.stepId || i)}`,
@@ -482,6 +560,7 @@ function processCardsFromPayload(payload: Record<string, unknown>): ProcCard[] |
           tool: item.tool,
           label: typeof item.label === "string" ? item.label : undefined,
           note: typeof item.note === "string" ? item.note : undefined,
+          args: typeof item.args === "string" ? item.args : undefined,
           ok: typeof item.ok === "boolean" ? item.ok : undefined,
           running: false,
           interrupted: Boolean(item.interrupted || item.running),
@@ -490,7 +569,51 @@ function processCardsFromPayload(payload: Record<string, unknown>): ProcCard[] |
       });
     }
   });
-  return cards.length ? cards : null;
+  if (!cards.length) return null;
+  return [
+    {
+      code: "trace_status",
+      id: "status",
+      data: {
+        live: false,
+        failed: interruptedCount > 0,
+        stepCount: toolCount,
+      } satisfies TraceStatusData,
+    },
+    ...cards,
+  ];
+}
+
+/** 进度行（非折叠）：运行中实时走秒；收口/回放只给步数/用时 */
+export function TraceStatusCard({ data }: { data: TraceStatusData }) {
+  const { live, startedAt, endedAt, failed, stepCount, stepNo, current } = data;
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    if (!live || !startedAt) return;
+    const t = window.setInterval(() => setNow(Date.now()), 1000);
+    return () => window.clearInterval(t);
+  }, [live, startedAt]);
+  const secs =
+    startedAt != null
+      ? Math.max(0, Math.round(((endedAt ?? now) - startedAt) / 1000))
+      : null;
+  const time = secs != null ? fmtElapsed(secs) : "";
+  const text = live
+    ? `运行中${current ? ` · ${current}` : ""} · 第 ${stepNo ?? 1} 步${time ? ` · 已等 ${time}` : ""}`
+    : `${failed ? "已停止" : "完成"} · ${stepCount} 步${time ? ` · 用时 ${time}` : ""}`;
+  const icon = live ? (
+    <SparkLoadingLine spin />
+  ) : failed ? (
+    <SparkStopCircleLine />
+  ) : (
+    <SparkTrueLine />
+  );
+  return (
+    <div className="cd-trace-status" data-testid="chat-trace-status">
+      {icon}
+      <span>{text}</span>
+    </div>
+  );
 }
 
 function TraceThinkingCard({ data }: { data: TraceThinkingData }) {
@@ -531,7 +654,7 @@ function isJsonNote(note: string): boolean {
 }
 
 function TraceToolCard({ data }: { data: TraceToolData }) {
-  const { tool, label, note, ok, running, interrupted, apiCalls } = data;
+  const { tool, label, note, args, ok, running, interrupted, apiCalls } = data;
   const failed = ok === false;
   const noteHead = toolNoteHead(tool, note ?? "");
   const icon = running ? (
@@ -548,7 +671,7 @@ function TraceToolCard({ data }: { data: TraceToolData }) {
     : interrupted
       ? "被打断"
       : noteHead || (failed ? "没成功" : "已完成");
-  const hasDetail = Boolean(label || note || apiCalls?.length);
+  const hasDetail = Boolean(label || note || args || apiCalls?.length);
   const apiOps = apiCalls?.length
     ? [...new Set(apiCalls.map((c) => c.op))].join("、")
     : "";
@@ -570,6 +693,12 @@ function TraceToolCard({ data }: { data: TraceToolData }) {
                         <div className="cd-proc-line">
                           <b>打算</b>
                           <span>{label}</span>
+                        </div>
+                      ) : null}
+                      {args ? (
+                        <div className="cd-proc-line">
+                          <b>参数</b>
+                          <span className="cd-proc-json">{args}</span>
                         </div>
                       ) : null}
                       {note ? (
@@ -683,6 +812,7 @@ const CARD_REGISTRY = {
   artifact: ArtifactCard,
   gate: GateCard,
   trace: TraceCard,
+  trace_status: TraceStatusCard,
   trace_thinking: TraceThinkingCard,
   trace_tool: TraceToolCard,
   error: ErrorCard,
@@ -882,7 +1012,7 @@ export function Aui2Dock({
   const mirrorRef = useRef<Map<string, MirrorEntry[]>>(new Map());
   const loadedThreadsRef = useRef<Set<string>>(new Set());
   /** 过程泡泡本地账（按 assistant 消息 id：卡片随正文更新不丢步） */
-  const procBufRef = useRef<Map<string, { items: ProcItem[] }>>(new Map());
+  const procBufRef = useRef<Map<string, ProcBuf>>(new Map());
   /** 当前 delta 段已流文本（narration 收口按内容前缀对账补尾——缺尾修复） */
   const deltaTailRef = useRef<string>("");
 
@@ -921,10 +1051,14 @@ export function Aui2Dock({
 
   /** 过程泡泡：思考/工具卡挂本轮 assistant 消息（正文之上，coding agent 顺序） */
   const upsertProc = useCallback(
-    (assistantId: string, mutate: (items: ProcItem[]) => ProcItem[]) => {
-      const prev = procBufRef.current.get(assistantId)?.items ?? [];
-      const items = mutate(prev.map((it) => ({ ...it })));
-      procBufRef.current.set(assistantId, { items });
+    (assistantId: string, mutate: (s: ProcBuf) => ProcBuf) => {
+      const prev = procBufRef.current.get(assistantId) ?? {
+        items: [],
+        live: true,
+        startedAt: Date.now(),
+      };
+      const next = mutate({ ...prev, items: prev.items.map((it) => ({ ...it })) });
+      procBufRef.current.set(assistantId, next);
       const cur = mirrorRef.current
         .get(threadKeyRef.current)
         ?.find((x) => x.id === assistantId);
@@ -933,7 +1067,7 @@ export function Aui2Dock({
         role: "assistant",
         content: cur?.content ?? "",
         msgStatus: cur?.msgStatus ?? "generating",
-        cards: toProcCards(items),
+        cards: toProcCards(next),
       });
     },
     [threadUp],
@@ -1273,6 +1407,13 @@ export function Aui2Dock({
       }
       const assistantId = uuid();
       threadUp({ id: assistantId, role: "assistant", content: "", msgStatus: "generating" });
+      // 过程进度行立即出现（不等第一个 thinking/step）；起始时刻=本轮提交
+      procBufRef.current.set(assistantId, {
+        items: [],
+        live: true,
+        startedAt: Date.now(),
+      });
+      upsertProc(assistantId, (s) => s);
 
       // delta 段对账账本按轮清零（c-agent-narration-persist）：上一轮的尾巴不能
       // 参与本轮前缀对账，否则本轮收口整段会被误判「非覆盖」而重复上屏。
@@ -1312,7 +1453,19 @@ export function Aui2Dock({
               .get(threadKeyRef.current)
               ?.find((x) => x.id === assistantId);
             const base = cur?.content ?? "";
+            // 正文开流：撤销「等待授权」、从「等待模型」切到「整理回答」
+            const markReplying = () => {
+              const buf = procBufRef.current.get(assistantId);
+              if (buf && (buf.waiting || !buf.replying)) {
+                upsertProc(assistantId, (s) => ({
+                  ...s,
+                  waiting: false,
+                  replying: true,
+                }));
+              }
+            };
             if (e.type === "narration_delta") {
+              markReplying();
               const chunk = String(e.text ?? "");
               deltaTailRef.current += chunk;
               estCharsRef.current += chunk.length;
@@ -1323,6 +1476,7 @@ export function Aui2Dock({
                 msgStatus: "generating",
               });
             } else if (e.type === "narration") {
+              markReplying();
               // 整段 narration 与 delta 段按内容前缀对账（缺尾修复
               // c-agent-narration-tail-loss）：整段覆盖已流 delta 时只补未流
               // 尾巴（旧口径 seenDelta 整段跳过会把扣尾/冻结窗尾巴吞掉——生产
@@ -1369,67 +1523,94 @@ export function Aui2Dock({
               // 不计入上下文容量（思考不进外发窗口）
               const chunk = String(e.text ?? "");
               if (chunk) {
-                upsertProc(assistantId, (items) => {
+                upsertProc(assistantId, (s) => {
+                  const items = s.items;
                   const last = items[items.length - 1];
                   if (last?.kind === "thinking") {
-                    return [
-                      ...items.slice(0, -1),
-                      { ...last, text: last.text + chunk, live: true },
-                    ];
+                    return {
+                      ...s,
+                      waiting: false,
+                      items: [
+                        ...items.slice(0, -1),
+                        { ...last, text: last.text + chunk, live: true },
+                      ],
+                    };
                   }
-                  return [
-                    ...items,
-                    { kind: "thinking", id: `think-${items.length}`, text: chunk, live: true },
-                  ];
+                  return {
+                    ...s,
+                    waiting: false,
+                    items: [
+                      ...items,
+                      { kind: "thinking", id: `think-${items.length}`, text: chunk, live: true },
+                    ],
+                  };
                 });
               }
             } else if (e.type === "step_start") {
               // 工具调用 → 独立工具泡泡（运行中：转圈 + 这一步的打算）
               const tool = String(e.tool ?? "tool");
               const stepId = String(e.stepId ?? "");
-              upsertProc(assistantId, (items) => [
-                ...items.map((it) =>
-                  it.kind === "thinking" ? { ...it, live: false } : it,
-                ),
-                {
-                  kind: "tool",
-                  id: `tool-${stepId || items.length}`,
-                  stepId,
-                  tool,
-                  label: e.label ? String(e.label) : undefined,
-                  running: true,
-                },
-              ]);
+              upsertProc(assistantId, (s) => ({
+                ...s,
+                waiting: false,
+                items: [
+                  ...s.items.map((it) =>
+                    it.kind === "thinking" ? { ...it, live: false } : it,
+                  ),
+                  {
+                    kind: "tool",
+                    id: `tool-${stepId || s.items.length}`,
+                    stepId,
+                    tool,
+                    label: e.label ? String(e.label) : undefined,
+                    running: true,
+                  },
+                ],
+              }));
             } else if (e.type === "step_end") {
               // 原位补该步结果/模型调用（不新起卡；不在正文追加 ● tool ✓）
               const tool = String(e.tool ?? "tool");
               const stepId = String(e.stepId ?? "");
               const note = String(e.resultNote ?? "");
-              upsertProc(assistantId, (items) => {
+              const argsRaw =
+                e.args &&
+                typeof e.args === "object" &&
+                Object.keys(e.args).length > 0
+                  ? JSON.stringify(e.args)
+                  : "";
+              const args =
+                argsRaw.length > 600 ? `${argsRaw.slice(0, 600)}…` : argsRaw;
+              upsertProc(assistantId, (s) => {
+                const items = s.items;
                 const idx = items.findIndex(
                   (it) => it.kind === "tool" && it.stepId === stepId,
                 );
                 const patch: Partial<ProcToolItem> = {
                   running: false,
                   note,
+                  ...(args ? { args } : {}),
                   ...(typeof e.ok === "boolean" ? { ok: e.ok } : {}),
                   ...(Array.isArray(e.apiCalls) ? { apiCalls: e.apiCalls } : {}),
                 };
                 if (idx >= 0) {
                   const next = [...items];
                   next[idx] = { ...(next[idx] as ProcToolItem), ...patch };
-                  return next;
+                  return { ...s, waiting: false, items: next };
                 }
-                return [
-                  ...items,
-                  {
-                    kind: "tool",
-                    id: `tool-${stepId || items.length}`,
-                    stepId,
-                    tool,
-                    ...patch,
-                  },
-                ];
+                return {
+                  ...s,
+                  waiting: false,
+                  items: [
+                    ...items,
+                    {
+                      kind: "tool",
+                      id: `tool-${stepId || items.length}`,
+                      stepId,
+                      tool,
+                      ...patch,
+                    },
+                  ],
+                };
               });
               // delta 段按步分段（c-agent-narration-persist）：上一模型的叙述尾巴
               // 不得带进下一步的前缀对账——否则下一步收口整段被误判「非覆盖」，
@@ -1531,6 +1712,9 @@ export function Aui2Dock({
                   },
                 ],
               });
+              if (e.gateId) {
+                upsertProc(assistantId, (s) => ({ ...s, waiting: true }));
+              }
             } else if (e.type === "gate") {
               // 系统提示类 gate（no_key/client_error——无 gateId 带 message）：
               // 引导语按助手话术呈现，SHALL NOT 兜进授权卡渲染成空预览卡
@@ -1580,8 +1764,25 @@ export function Aui2Dock({
                   },
                 ],
               });
+              if (e.gateId) {
+                upsertProc(assistantId, (s) => ({ ...s, waiting: true }));
+              }
             } else if (e.type === "error") {
-              // 错误卡收尾（保留已产出内容——错误独立成卡不覆写正文）
+              // 错误卡收尾（保留已产出内容——错误独立成卡不覆写正文）；
+              // 进度行同步停表标「已停止」
+              upsertProc(assistantId, (s) => ({
+                ...s,
+                live: false,
+                endedAt: Date.now(),
+                failed: true,
+                items: s.items.map((it) =>
+                  it.kind === "thinking"
+                    ? { ...it, live: false }
+                    : it.running
+                      ? { ...it, running: false, interrupted: true }
+                      : it,
+                ),
+              }));
               threadUp({
                 id: `err-${assistantId}`,
                 role: "assistant",
@@ -1593,15 +1794,20 @@ export function Aui2Dock({
           },
           onError: (msg) => {
             // 错误卡收尾（已产出内容保留在原气泡——错误独立成卡）
-            upsertProc(assistantId, (items) =>
-              items.map((it) =>
+            upsertProc(assistantId, (s) => ({
+              ...s,
+              live: false,
+              waiting: false,
+              endedAt: Date.now(),
+              failed: true,
+              items: s.items.map((it) =>
                 it.kind === "thinking"
                   ? { ...it, live: false }
                   : it.running
                     ? { ...it, running: false, interrupted: true }
                     : it,
               ),
-            );
+            }));
             threadUp({
               id: `err-${assistantId}`,
               role: "assistant",
@@ -1617,16 +1823,20 @@ export function Aui2Dock({
             const cur = mirrorRef.current
               .get(threadKeyRef.current)
               ?.find((x) => x.id === assistantId);
-            // 过程收口：思考停转、未完成的工具步标打断（回看如实）
-            upsertProc(assistantId, (items) =>
-              items.map((it) =>
+            // 过程收口：思考停转、未完成的工具步标打断（回看如实）；进度行停表
+            upsertProc(assistantId, (s) => ({
+              ...s,
+              live: false,
+              waiting: false,
+              endedAt: Date.now(),
+              items: s.items.map((it) =>
                 it.kind === "thinking"
                   ? { ...it, live: false }
                   : it.running
                     ? { ...it, running: false, interrupted: true }
                     : it,
               ),
-            );
+            }));
             threadUp({
               id: assistantId,
               role: "assistant",
