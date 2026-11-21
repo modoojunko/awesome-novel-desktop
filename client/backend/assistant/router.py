@@ -58,7 +58,11 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from assistant import compact as compact_mod
 from assistant import identity as identity_mod
 from assistant import session_store, write_gate
-from assistant.context import build_book_brief, build_outbound_window, build_page_note
+from assistant.context import (
+    build_book_brief_parts,
+    build_outbound_window,
+    build_page_note,
+)
 from assistant.loop import AgentLoop, LoopConfig
 from assistant.prompts import build_system_prompt
 from assistant.tools import ToolContext, _clip, get_tool
@@ -292,9 +296,11 @@ async def _stream_chat(
 
     # ── 组装 ────────────────────────────────────────────────────────────────
     identity = await identity_mod.load_identity_for_user(db, user["id"])
-    brief = await build_book_brief(project, db)
-    # 书级记忆段（c-agent-chat-memory 批4）：agent 记忆＋项目决策，按书装载
-    # 全页签生效；空书空段（前缀缓存友好）。缺席不致命（fail-soft）。
+    # 书级 brief 拆稳定/动态（c-agent-prompt-cache）：稳定段（书名/题材）进
+    # 系统前缀；动态进度拼到当前 user 消息尾部——写作进度一变不会废掉整段前缀缓存。
+    stable_brief, dynamic_brief = await build_book_brief_parts(project, db)
+    # 书级记忆段（c-agent-chat-memory 批4）：agent 记忆＋项目决策，按书装载；
+    # 动态段不进系统前缀（前缀缓存），与页面注入一起拼当前 user 消息尾部。
     try:
         from assistant.memory import load_book_memory_section
 
@@ -306,10 +312,10 @@ async def _stream_chat(
     thread = session_store.sanitize_thread_key(thread)
     system = build_system_prompt(
         identity_mod.identity_system_section(identity),
-        brief,
+        stable_brief,
         thread=thread,
         domain_discipline=discipline_of_thread(thread),
-        memory_section=memory_section,
+        memory_section="",
     )
     rows = await session_store.load_messages(session)
     transcript = _history_transcript(rows, exclude_message_id=user_message_id)
@@ -344,6 +350,11 @@ async def _stream_chat(
     _cur_tab = _THREAD_TAB_ZH.get(thread.split(":", 1)[1], "") if thread.startswith("ch:") else ""
     if _cur_tab:
         note = (note + " " if note else "") + f"［当前页签：{_cur_tab}］"
+    # 动态书情/记忆拼当前 user 消息尾部（c-agent-prompt-cache）：系统前缀只留
+    # 稳定段（书名/题材/身份/协议/工具目录），进度变化不废前缀缓存。
+    for part in (dynamic_brief, memory_section):
+        if part:
+            note = (note + "\n\n" if note else "") + part
     # L2 注入随当前消息进提示词（不落库不进 UI）——历史已排除当前消息
     # （_history_transcript），旧「拼到末条 user 行」锚点不复存在
     message_for_model = f"{message}\n{note}" if note else message
