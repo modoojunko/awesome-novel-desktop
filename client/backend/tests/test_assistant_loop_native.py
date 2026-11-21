@@ -194,6 +194,50 @@ async def test_native_denied_gate_feed_back(monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_native_gate_card_emitted_before_approval(monkeypatch):
+    """授权卡先到、停车在后（2026-11-21 真机实锤回归）：gate_fn 是异步生成器时，
+    permission_required 必须在等批复**之前**下发——批复端看到卡才可能批准。
+    旧契约（等批复完才返回事件）会让本用例死等超时。"""
+    import asyncio
+
+    _fake_tool(monkeypatch)
+    gate_id = "g-early"
+    approved = asyncio.Event()
+
+    async def stream_gate(tool, args):
+        yield {"type": "permission_required", "gateId": gate_id, "preview": {}}
+        await approved.wait()  # 消费端看到卡后才会置位
+        yield {"type": "gate_result", "gateId": gate_id, "approved": True}
+
+    client = FakeNativeClient(
+        [
+            ("", [_tc(0, "read_progress", {})]),
+            ("批完了，办好了。", []),
+        ]
+    )
+    loop = AgentLoop(
+        client=client, system="sys", transcript=[], tool_ctx=None,
+        config=LoopConfig(), gate_fn=stream_gate,
+    )
+
+    events: list[dict] = []
+
+    async def drive():
+        async for e in loop.run("hi"):
+            events.append(e)
+            if e["type"] == "permission_required":
+                # 卡已送达：此刻才模拟作家点「允许」
+                approved.set()
+
+    await asyncio.wait_for(drive(), timeout=2)
+    kinds = [e["type"] for e in events]
+    assert "permission_required" in kinds
+    assert kinds.index("step_end") > kinds.index("permission_required")
+    assert loop.result.tool_calls == 1
+    assert loop.result.final_reply == "批完了，办好了。"
+
+
+@pytest.mark.asyncio
 async def test_routing_force_overrides(monkeypatch):
     """env 强制路由（tasks 4.1）：ASSISTANT_HARNESS=native 把文本客户端抬进
     native；=text 把 native 客户端压回 text。"""

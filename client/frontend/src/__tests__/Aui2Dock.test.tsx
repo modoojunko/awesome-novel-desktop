@@ -517,6 +517,42 @@ describe("Aui2Dock 流式过覆盖对账（c-agent-narration-tail-loss）", () =
   });
 });
 
+describe("Aui2Dock 工具步叙述入账（c-agent-narration-persist）", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    chatApiState.loadAssistantSession.mockResolvedValue(sess());
+    chatApiState.approveGate.mockResolvedValue({ ok: true });
+  });
+
+  it("工具步整段 narration 不重复上屏（delta 段按步重置）", async () => {
+    render(<Aui2Dock projectId="p1" page="工作台 · 卷纲" scope={SCOPE} />);
+    await screen.findByTestId("aui2-dock");
+    const sse = captureStream();
+    fireEvent.click(screen.getByTestId("aui2-chip-draft_volume_expand"));
+    await waitFor(() => expect(chatApiState.streamAssistantChat).toHaveBeenCalled());
+    // 生产几何：工具步叙述 delta 后跟整段 narration（落库口径），随后 step_end、
+    // 下一模型步再流 delta＋收口整段——收口段不得被上一步的 delta 尾巴带偏翻倍。
+    sse.drive({ type: "narration_delta", text: "第一段叙述。" });
+    sse.drive({ type: "narration", text: "第一段叙述。" });
+    sse.drive({
+      type: "step_end",
+      tool: "read_settings",
+      stepId: "s-1",
+      runId: "r3",
+      resultNote: "（主线还没有内容）",
+    });
+    sse.drive({ type: "narration_delta", text: "第二段收口。" });
+    sse.drive({ type: "narration", text: "第二段收口。" });
+    sse.drive({ type: "run_end", runId: "r3", steps: 2, toolCalls: 1, degraded: false, error: "" });
+    sse.done();
+    await waitFor(() => expect(screen.queryByTestId("chat-stop")).toBeNull());
+    const body = document.body.textContent || "";
+    expect(body.split("第一段叙述").length - 1).toBe(1);
+    expect(body.split("第二段收口").length - 1).toBe(1);
+  });
+
+});
+
 describe("Aui2Dock GateCard 字段级前后对比（c-agent-page-ops）", () => {
   beforeEach(() => {
     vi.clearAllMocks();

@@ -1207,6 +1207,9 @@ export function Aui2Dock({
       const assistantId = uuid();
       threadUp({ id: assistantId, role: "assistant", content: "", msgStatus: "generating" });
 
+      // delta 段对账账本按轮清零（c-agent-narration-persist）：上一轮的尾巴不能
+      // 参与本轮前缀对账，否则本轮收口整段会被误判「非覆盖」而重复上屏。
+      deltaTailRef.current = "";
       setStreaming(true);
       onStreamingChange?.(true);
       // hint 一次性（c-agent-writing-flow-context）：spec 语义＝「tool_hint 随下一次
@@ -1361,6 +1364,10 @@ export function Aui2Dock({
                   },
                 ];
               });
+              // delta 段按步分段（c-agent-narration-persist）：上一模型的叙述尾巴
+              // 不得带进下一步的前缀对账——否则下一步收口整段被误判「非覆盖」，
+              // 已流 delta 与整段 narration 双份上屏（回归钉实锤）。
+              deltaTailRef.current = "";
             } else if (e.type === "run_end") {
               // run_end 携带本轮写操作 effects → 缓存待 onDone 回调宿主
               if (Array.isArray(e.effects)) {

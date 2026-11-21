@@ -18,6 +18,7 @@ story/character_agent.py:261）。不进 job_runner——全局单飞槽会被 8
 from __future__ import annotations
 
 import asyncio
+import inspect
 import os
 import time
 import uuid
@@ -117,9 +118,16 @@ class AgentLoop:
         tool_ctx: ToolContext,
         compaction_state: Any = None,
         config: LoopConfig | None = None,
-        # 批A 传 None；批B 接 write_gate——返回 None=放行；返回事件列表（末项含
-        # approved 布尔）＝先逐个下发再按批准与否继续/拒绝
-        gate_fn: Callable[[str, dict], Awaitable[list[dict] | None]] | None = None,
+        # 批A 传 None；批B 接 write_gate——两种契约（向后兼容）：
+        #   1) 协程返回 None=放行；返回事件列表（末项含 approved 布尔）＝先逐个
+        #      下发再按批准与否继续/拒绝；
+        #   2) 异步生成器逐个 yield 事件——yield 即下发（授权卡必须在停车等待
+        #      批复**之前**到达作家眼前，否则默认档每写必确认会空等 300s 超时）。
+        gate_fn: (
+            Callable[[str, dict], Awaitable[list[dict] | None]]
+            | Callable[[str, dict], AsyncIterator[dict[str, Any]]]
+            | None
+        ) = None,
         # compact 状态持久化回调（session_store.save_compaction_state 适配）
         on_compaction: Callable[[Any], Awaitable[None]] | None = None,
         # 每步用量回调（router 注入 record_usage 适配，短事务）
@@ -358,14 +366,25 @@ class AgentLoop:
         # 下发（授权卡/升级卡），末项 gate_result.approved 决定是否执行。denied 时
         # 只给 agent 非诊断性拒绝语（完整理由仅在授权卡上给作家）。
         if self.gate_fn is not None:
-            gate_events = await self.gate_fn(tool_name, args)
-            if gate_events:
-                for ge in gate_events:
+            gate = self.gate_fn(tool_name, args)
+            last: dict[str, Any] | None = None
+            if inspect.isasyncgen(gate):
+                # 流式闸（授权卡先到再停车）：生成器 yield 的事件立即下发——
+                # 批复端收到卡才有得批；生成器内部停在批复等待上，末项
+                # gate_result 定去留（2026-11-21 实锤：旧契约等批复才返回事件，
+                # 授权卡永远晚于停车结果，客户端只见「进行中」空等 300s）。
+                async for ge in gate:
+                    last = ge
                     yield ("event", ge)
-                last = gate_events[-1]
-                if not last.get("approved", False):
-                    yield ("denied", last.get("refusal") or "作家没有授权这个操作，我先不做了。")
-                    return
+            else:
+                gate_events = await gate
+                if gate_events:
+                    for ge in gate_events:
+                        yield ("event", ge)
+                    last = gate_events[-1]
+            if last is not None and not last.get("approved", False):
+                yield ("denied", last.get("refusal") or "作家没有授权这个操作，我先不做了。")
+                return
         if self._cancelled():
             # 停止/打断在 gate 等待后到达：不执行工具，直接收口（步界检查点接力）
             yield ("denied", "已停止——这一步没有执行。")
@@ -568,6 +587,17 @@ class AgentLoop:
                 self.result.final_reply = fallback
                 yield {"type": "narration", "text": fallback}
                 break
+
+            # 工具步叙述入账（c-agent-narration-persist）：正文此前只走
+            # narration_delta（流式直出），不补整段 narration——reply_parts 收不到，
+            # 整轮收尾/中断定稿时这段文字丢失（2026-11-21 真机实锤：截图有、
+            # 会话存档无）。dock 端按前缀对账，不会与已流 delta 翻倍。
+            # 只取已流的干净前缀（stream_slice 冻结在哨兵/JSON 嫌疑处）——SHALL NOT
+            # 用 action.reply 整段，否则混排输出的裸协议 JSON 会借这条路上屏。
+            # 未知工具分支不走此径（上面的 fallback 已含 reply，避免双份）。
+            visible = full_text[:streamed_upto].strip()
+            if visible:
+                yield {"type": "narration", "text": visible}
 
             # 域外工具＝页签独立流程（c-agent-fleet）：不执行，引导切对应页签
             allowed = self._allowed_tools()
