@@ -62,6 +62,7 @@ from assistant.context import (
     build_book_brief_parts,
     build_outbound_window,
     build_page_note,
+    latest_reminder_text,
 )
 from assistant.loop import AgentLoop, LoopConfig
 from assistant.prompts import build_system_prompt
@@ -407,6 +408,21 @@ async def _stream_chat(
     # 记账必须记真实模型（test_ai_prompt_and_boundary 护栏：符号别名不得落账）——
     # client.resolve("haiku") 落到本书绑定模型（AIClient.resolve 单源）
     used_model = client.resolve("haiku")
+    # DeepSeek 当前日期标记（c-agent-latest-reminder）：能力位门控，只 openai+deepseek
+    _supports_reminder = getattr(client, "supports_latest_reminder", None)
+    latest_reminder = (
+        latest_reminder_text()
+        if callable(_supports_reminder) and _supports_reminder()
+        else ""
+    )
+    if latest_reminder:
+        # 静态纪律行（不含动态日期，前缀稳定）：告诉模型 latest_reminder 是可信
+        # 当前日期来源——否则长人设下模型会按训练记忆/「没有日历」拒答。
+        system += (
+            "\n\n── 当前时间 ──\n"
+            "当前日期/星期由 latest_reminder 消息提供（格式：YYYY-MM-DD,星期X,...）；"
+            "问到或用到「今天」时以它为准，不要凭训练记忆猜。"
+        )
     compaction_state = await session_store.load_compaction_state(session)
     # 跨轮重映射（compact.py remap_boundary）：持久化边界是轮内转写的裸索引，下一轮
     # 转写由落库投影重建、构成不同——先映射回本列表再进循环（映射不上则作废重建）
@@ -570,7 +586,7 @@ async def _stream_chat(
         transcript=transcript,
         tool_ctx=tool_ctx,
         compaction_state=compaction_state,
-        config=LoopConfig(thinking=thinking_override),
+        config=LoopConfig(thinking=thinking_override, latest_reminder=latest_reminder),
         on_compaction=_on_compaction,
         on_usage=_on_usage,
         gate_fn=_gate_fn,

@@ -792,6 +792,13 @@ class AIClient:
             and str(getattr(self, "_vendor", "") or "").strip().lower() == "deepseek"
         )
 
+    def supports_latest_reminder(self) -> bool:
+        """是否支持 DeepSeek 的 latest_reminder 用户元信息消息（c-agent-latest-reminder）。
+
+        仅 openai 协议的 DeepSeek：其它端点可能拒未知 role；anthropic 协议不在口径。
+        """
+        return self.requires_reasoning_echo()
+
     @staticmethod
     def _openai_message(m: dict[str, Any], *, echo_reasoning: bool) -> dict[str, Any]:
         """openai 消息组包：保留工具历史字段（native 多步循环必需）。

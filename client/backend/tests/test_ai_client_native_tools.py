@@ -298,3 +298,18 @@ def test_requires_reasoning_echo_matrix():
         api_key="k", base_url="https://x/anthropic", model="m",
         api_format="anthropic", vendor="deepseek",
     ).requires_reasoning_echo() is False
+
+
+def test_supports_latest_reminder_matrix():
+    """c-agent-latest-reminder：仅 openai 协议的 DeepSeek 支持 latest_reminder。"""
+    assert AIClient(
+        api_key="k", base_url="https://api.deepseek.com", model="deepseek-flash",
+        vendor="deepseek",
+    ).supports_latest_reminder() is True
+    assert AIClient(
+        api_key="k", base_url="https://x/v1", model="m", vendor="glm",
+    ).supports_latest_reminder() is False
+    assert AIClient(
+        api_key="k", base_url="https://x/anthropic", model="m",
+        api_format="anthropic", vendor="deepseek",
+    ).supports_latest_reminder() is False

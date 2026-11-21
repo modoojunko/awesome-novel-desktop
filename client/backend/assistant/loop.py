@@ -85,8 +85,12 @@ class LoopConfig:
     step_max_tokens: int = STEP_MAX_TOKENS
     model_alias: str = "haiku"  # resolve() 落到本书绑定模型（业务层不传字面模型名）
     # 思考覆盖（c-agent-thinking-bubbles）：None＝沿用 API 配置；dict＝显式按次
-    # {"type": "enabled"} / {"type": "disabled"}（显式传时配置强度不搭车）
+    # {"type": "enabled"} / {"type": "disabled"}（disabled 不搭车；enabled 未带
+    # effort 时按模型配置强度补齐，见 c-agent-thinking-effort）
     thinking: dict[str, Any] | None = None
+    # DeepSeek 当前日期标记（c-agent-latest-reminder）：非空＝当前外发窗口最后一条
+    # user 前插 latest_reminder；不落库不进 compact。空＝不发（其它 vendor）。
+    latest_reminder: str = ""
 
 
 @dataclass
@@ -464,7 +468,9 @@ class AgentLoop:
             action, retry_left, stream_error = None, 1, ""
             full_text = ""
             messages, _ = build_outbound_window(
-                self.transcript, compaction_state=self.compaction_state
+                self.transcript,
+                compaction_state=self.compaction_state,
+                reminder=self.cfg.latest_reminder,
             )
             cancelled_hit = False
             for attempt in range(1 + retry_left):
@@ -737,7 +743,10 @@ class AgentLoop:
                 yield {"type": "narration", "text": notice}
 
             messages, _ = build_outbound_window(
-                self.transcript, compaction_state=self.compaction_state, native=True
+                self.transcript,
+                compaction_state=self.compaction_state,
+                native=True,
+                reminder=self.cfg.latest_reminder,
             )
             full_text = ""
             step_reasoning = ""

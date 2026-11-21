@@ -13,6 +13,7 @@
 
 from __future__ import annotations
 
+from datetime import datetime
 from typing import Any
 
 from assistant.compact import apply_to_outbound
@@ -107,25 +108,52 @@ def build_page_note(page: str, focus: dict[str, Any] | None = None) -> str:
     return " ".join(p for p in parts if p.strip())
 
 
+def latest_reminder_text(now: datetime | None = None) -> str:
+    """DeepSeek 用户元信息标记（c-agent-latest-reminder）。
+
+    格式 `<date>,<weekday>,<location>,<platform>,<language>`：日期/星期取
+    Asia/Shanghai 本地日期、星期中文、location 留空、platform=App、language=中文。
+    """
+    from zoneinfo import ZoneInfo
+
+    if now is None:
+        now = datetime.now(ZoneInfo("Asia/Shanghai"))
+    weekdays = "一二三四五六日"  # Monday=0
+    return f"{now:%Y-%m-%d},星期{weekdays[now.weekday()]},,App,中文"
+
+
 def build_outbound_window(
     transcript: list[dict[str, Any]],
     *,
     compaction_state: Any,
     keep_tokens: int | None = None,
     native: bool = False,
+    reminder: str = "",
 ) -> tuple[list[dict[str, Any]], int]:
     """L3：转写 → 外发窗口（compact 应用）＋返回估算 tokens（供下一步触发判定）。
 
     native=True（c-agent-harness tasks 4.2）：保留 openai 原生形态——assistant 的
     tool_calls 与 role=tool 结果行原样携带（API 校验链必需）；文本协议口径不变
     （只留 user/assistant 的 role+content）。
+    reminder 非空（c-agent-latest-reminder）：在**最后一条 user 消息之前**插入
+    `{"role":"latest_reminder","content":...}`——只进当前外发窗口，不进历史/compact。
     """
     outbound = apply_to_outbound(transcript, compaction_state)
+    if reminder:
+        row = {"role": "latest_reminder", "content": reminder}
+        last_user = -1
+        for i, m in enumerate(outbound):
+            if m.get("role") == "user":
+                last_user = i
+        if last_user >= 0:
+            outbound = [*outbound[:last_user], row, *outbound[last_user:]]
+        else:
+            outbound = [*outbound, row]
     if native:
         clean: list[dict[str, Any]] = []
         for m in outbound:
             role = str(m.get("role"))
-            if role not in ("user", "assistant", "tool"):
+            if role not in ("user", "assistant", "tool", "latest_reminder"):
                 continue
             entry: dict[str, Any] = {"role": role, "content": m.get("content") or ""}
             if role == "assistant" and m.get("tool_calls"):
@@ -142,5 +170,6 @@ def build_outbound_window(
         {"role": str(m.get("role")), "content": str(m.get("content", ""))}
         for m in outbound
         if m.get("role") in ("user", "assistant")
+        or (reminder and m.get("role") == "latest_reminder")
     ]
     return clean, _estimate_tokens(clean)
