@@ -21,6 +21,7 @@ from __future__ import annotations
 
 import json
 import re
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -29,6 +30,11 @@ ACTION_VERBS = ("tool", "final")
 
 # v2 哨兵行（叙述与动作 JSON 的物理分界；流式切分与解析共用同一常量）
 ACT_SENTINEL = "===ACT==="
+
+# 无哨兵裸片段形态（2026-11-21 真机实录：模型漏了哨兵，只吐
+# `"action": "draft_arc", "tool": "", "args": {}}`）。协议键出现在叙述任意
+# 位置都视为协议形状起点——宁可晚点显示，不可把协议原文当正文上屏。
+_PROTOCOL_KEY_RE = re.compile(r'"(?:action|tool|args)"\s*:')
 
 _REPLY_FALLBACK = "（我这一步没想明白，先直接回答：\n{snippet}）"
 
@@ -56,7 +62,7 @@ def _human_reply_from_raw(raw: str) -> str | None:
 class Action:
     """一步动作的解析结果。degraded=True 表示协议没服从、走了降级路径。"""
 
-    kind: str  # "tool" | "final" | "degraded"
+    kind: str  # "tool" | "final" | "degraded" | "protocol_error"
     thought: str = ""
     tool: str = ""
     args: dict[str, Any] = field(default_factory=dict)
@@ -162,11 +168,46 @@ def _extract_json(text: str) -> dict | None:
     return None
 
 
-def _action_from_parsed(parsed: dict, reply: str, raw: str) -> Action:
+def protocol_shape_at(text: str, start: int = 0) -> int:
+    """协议形状片段起点（无哨兵裸动作声明）；-1＝没有。"""
+    m = _PROTOCOL_KEY_RE.search(text or "", max(0, start))
+    return m.start() if m else -1
+
+
+def _parse_protocol_fragment(text: str) -> dict | None:
+    """抢救无哨兵裸片段：补前花括号／去尾部多余花括号后再走通用提取。
+
+    真机形态 `"action": "draft_arc", "tool": "", "args": {}}` 原样不是 JSON；
+    补一个 `{` 即成合法对象。绝不抛。
+    """
+    frag = (text or "").strip()
+    if not frag:
+        return None
+    bases = [frag] if frag.startswith("{") else ["{" + frag, frag]
+    for base in bases:
+        trimmed = base.rstrip()
+        for cut in range(3):
+            cand = trimmed[: len(trimmed) - cut] if cut else trimmed
+            if not cand.endswith("}"):
+                cand += "}"
+            parsed = _extract_json(cand)
+            if parsed is not None:
+                return parsed
+    return None
+
+
+def _action_from_parsed(
+    parsed: dict,
+    reply: str,
+    raw: str,
+    tool_exists: Callable[[str], bool] | None = None,
+    protocol_shaped: bool = False,
+) -> Action:
     """从解析出的 JSON（v2 尾部或旧版整段）＋已知 reply 组装 Action。
 
-    语义判定与旧版一致：action=tool 需带工具名；final 收口；非法/缺字段
-    按「有 reply 自愿收口，否则降级」处理。
+    语义判定：action=tool 需带工具名；final 收口；action 槽误填已注册工具名
+    时确定性修复为工具调用；其余非法动作在协议形状路径下判 protocol_error
+    （由循环重试），旧版单 JSON 兼容路径保持「有 reply 自愿收口」。
     """
     action = str(parsed.get("action", "")).strip().lower()
     thought = str(parsed.get("thought", ""))
@@ -195,7 +236,25 @@ def _action_from_parsed(parsed: dict, reply: str, raw: str) -> Action:
             raw=raw,
             degraded=True,
         )
-    # action 字段非法：有 reply 当 final（模型自愿收口），否则降级
+    # action 槽误填工具名（真机：{"action":"draft_arc","args":{...}}）——
+    # 确定性修复为该工具调用，不再静默收口。
+    if action and tool_exists is not None and tool_exists(action):
+        args = parsed.get("args")
+        if not isinstance(args, dict):
+            args = {}
+        return Action(
+            kind="tool",
+            thought=thought,
+            tool=action,
+            args=args,
+            reply=reply,
+            raw=raw,
+        )
+    if protocol_shaped:
+        # 协议形状路径（哨兵/裸片段）里的非法动作＝协议错误：交循环重试，
+        # 不把「一句承诺」当 final 交付。
+        return Action(kind="protocol_error", thought=thought, reply=reply, raw=raw)
+    # 旧版单 JSON：action 字段非法／缺失——有 reply 当 final（模型自愿收口），否则降级
     if reply:
         return Action(kind="final", thought=thought, reply=reply, raw=raw)
     return Action(
@@ -215,6 +274,8 @@ def stream_slice(buf: str, emitted: int, frozen: bool) -> tuple[int, bool]:
     - 未流式区出现哨兵 → 哨兵前全部直通，之后冻结
     - 未流式区出现 ``{`` 或 `` ``` `` → 从该处冻结（叙述后混入 JSON/围栏＝
       旧版抢救形态，其后静默攒）
+    - 未流式区出现协议键裸片段（`"action"`／`"tool"`／`"args"`）→ 从该处冻结
+      （2026-11-21 真机：模型漏哨兵直吐键值对，不能逐字流给作家）
     - 无任何危险信号 → 发到 len-扣尾（哨兵可能跨 chunk，扣 len(SENTINEL)-1）
     冻结后调用方不再调用；返回位置只前进不回退。
     """
@@ -228,6 +289,7 @@ def stream_slice(buf: str, emitted: int, frozen: bool) -> tuple[int, bool]:
             buf.find(ACT_SENTINEL, emitted),
             buf.find("{", emitted),
             buf.find("```", emitted),
+            protocol_shape_at(buf, emitted),
         )
         if i >= 0
     ]
@@ -238,12 +300,16 @@ def stream_slice(buf: str, emitted: int, frozen: bool) -> tuple[int, bool]:
     return safe, False
 
 
-def parse_action(text: str) -> Action:
+def parse_action(
+    text: str, tool_exists: Callable[[str], bool] | None = None
+) -> Action:
     """把一步模型输出解析为 Action（v2 哨兵分节优先，旧版单 JSON 兼容）。
 
     - v2：哨兵行分节——哨兵前＝叙述正文（reply），哨兵后＝动作 JSON；
-      尾部 JSON 解析不出且有正文 → 按自愿收口 final（正文已完整，动作缺省
-      不拦作家内容）；尾部解析不出且无正文 → degraded。
+      尾部 JSON 解析不出且无协议形状 → 按自愿收口 final（正文已完整，动作
+      缺省不拦作家内容）；尾部是协议形状但解析不出 → protocol_error。
+    - 无哨兵但出现协议键裸片段：切「叙述前缀＋片段」抢救；解析成功走动作
+      （含 action 槽误填工具名的修复），失败或无叙述 → protocol_error。
     - 旧版：整段单 JSON（{"thought"...,"reply"}）——提示词包未升级时的兼容路径。
     - 无哨兵且非 JSON：模型直接回答了 → 整段按 final 交付（协议没服从但内容
       完整，degraded 供遥测；不再包「没想明白」外壳——那是把好回答当故障）。
@@ -256,14 +322,25 @@ def parse_action(text: str) -> Action:
         reply = narration.strip()
         parsed = _extract_json(tail)
         if parsed is not None:
-            act = _action_from_parsed(parsed, reply, raw)
+            act = _action_from_parsed(
+                parsed, reply, raw, tool_exists, protocol_shaped=True
+            )
             # 降级组装（action 字段烂了）但有正文 → 正文已完整，按收口交付
             if act.kind == "degraded" and reply:
                 return Action(kind="final", reply=reply, raw=raw, degraded=True)
             return act
+        stray = tail.strip()
+        if protocol_shape_at(stray) >= 0:
+            frag = _parse_protocol_fragment(stray)
+            if frag is not None:
+                act = _action_from_parsed(
+                    frag, reply, raw, tool_exists, protocol_shaped=True
+                )
+                if act.kind != "protocol_error":
+                    return act
+            return Action(kind="protocol_error", reply=reply, raw=raw)
         if reply:
             # 尾部不是 JSON（哨兵误触发或格式烂）：哨兵后有散文则并入回答不丢内容
-            stray = tail.strip()
             return Action(
                 kind="final",
                 reply=f"{reply}\n{stray}" if stray else reply,
@@ -277,11 +354,38 @@ def parse_action(text: str) -> Action:
             degraded=True,
         )
 
-    # ── 旧版兼容：整段单 JSON ────────────────────────────────────────
+    # ── 旧版兼容：整段单 JSON（先于形状检测——完整对象不该被切成裸片段）──
     parsed = _extract_json(raw)
     if parsed is not None:
-        act = _action_from_parsed(parsed, str(parsed.get("reply", "")), raw)
+        # 叙述＋JSON 混排：JSON 前的人话要交付，不能只回 reply 字段
+        json_start = raw.find("{")
+        prefix = raw[:json_start].strip() if json_start > 0 else ""
+        prefix = re.sub(r"```[A-Za-z0-9_-]*\s*$", "", prefix).strip()
+        act = _action_from_parsed(
+            parsed, str(parsed.get("reply", "")) or prefix, raw, tool_exists
+        )
         return act
+
+    # ── 无哨兵但出现协议键裸片段（真机 2026-11-21）──────────────────
+    shape = protocol_shape_at(raw)
+    if shape >= 0:
+        head = raw[:shape].rstrip()
+        if head.endswith("{"):
+            # 键前面是对象开括号——括号归片段，别留在叙述里
+            shape = len(head) - 1
+        prefix = re.sub(r"```[A-Za-z0-9_-]*\s*$", "", raw[:shape].strip()).strip()
+        frag = _parse_protocol_fragment(raw[shape:])
+        if frag is not None:
+            act = _action_from_parsed(
+                frag,
+                prefix or str(frag.get("reply", "")),
+                raw,
+                tool_exists,
+                protocol_shaped=True,
+            )
+            if act.kind != "protocol_error":
+                return act
+        return Action(kind="protocol_error", reply=prefix, raw=raw)
 
     # ── 纯文本兜底：整段视为 final 回答 ─────────────────────────────
     human = _human_reply_from_raw(raw)

@@ -25,6 +25,7 @@ export type AgentEvent = {
     | "gate_result"
     | "run_end"
     | "effect"
+    | "plan"
     | "error";
   runId?: string;
   stepId?: string;
@@ -54,6 +55,9 @@ export type AgentEvent = {
   steps?: number;
   toolCalls?: number;
   degraded?: boolean;
+  /** 任务计划快照（c-agent-action-contract；plan 事件与 run_end 最终态） */
+  plan?: unknown;
+  planIncomplete?: number;
   /** run_end 携带本轮写操作 effects（NovelWorkspace 按域刷新） */
   effects?: { action: string; domain: string; target?: string; description?: string }[];
   /** 单条即时 effect 事件（c-agent-nav：navigate 中途翻页，不等 run_end） */

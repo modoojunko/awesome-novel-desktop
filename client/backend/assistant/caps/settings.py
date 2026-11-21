@@ -73,9 +73,16 @@ async def intro_ai_action(
 
 
 async def arc_ai_action(
-    novel_id: str, action: str, user_id: str, input_text: str = ""
+    novel_id: str,
+    action: str,
+    user_id: str,
+    input_text: str = "",
+    constraints: str = "",
 ) -> dict:
-    """主线四能力核（draft/calibrate/check/tone）。失败抛 CapabilityError。"""
+    """主线四能力核（draft/calibrate/check/tone）。失败抛 CapabilityError。
+
+    input_text＝故事素材；constraints＝写法约束（只影响怎么写，不是故事内容），
+    由 ai_router 在格式化 {input} 前拼成带标题的分隔块。"""
     from db import async_session
     from settings.ai_router import run_arc_ai
 
@@ -84,7 +91,10 @@ async def arc_ai_action(
             return await run_arc_ai(
                 project_id=novel_id,
                 action=action,
-                body={"input": str(input_text or "")},
+                body={
+                    "input": str(input_text or ""),
+                    "constraints": str(constraints or ""),
+                },
                 user={"id": user_id},
                 _=True,
                 __=True,

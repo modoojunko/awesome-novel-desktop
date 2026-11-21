@@ -1183,6 +1183,22 @@ async def _arc_material(db, project) -> dict:
     }
 
 
+def _compose_arc_input(author_input: str, constraints: str) -> str:
+    """素材与写法约束分块（c-agent-action-contract）。
+
+    约束只影响怎么写，不是故事内容；拼在素材后单独成段，提示词模板的
+    {input} 语义不变（不需要发新提示词包）。
+    """
+    composed = author_input or "（无——按已填内容处理）"
+    if constraints:
+        composed = (
+            f"{composed}\n\n"
+            "【写法约束（只影响怎么写，不是故事内容）】\n"
+            f"{constraints}"
+        )
+    return composed
+
+
 @router.post("/ai/arc/{action}")
 @ai_feature("settings-ai-fields")
 async def run_arc_ai(
@@ -1211,6 +1227,7 @@ async def run_arc_ai(
         # 行内基调维持轻量（单格建议不需要法典）——c-arc-check-against-settings
         ctx.update(await _arc_material(db, project))
     author_input = str(body.get("input", "") or "").strip()
+    constraints = str(body.get("constraints", "") or "").strip()
     # 素材门槛按行语义（2026-09-13 实测修正：draft 的主输入是「简介」——
     # 行描述即「把你的简介扩写成完整故事」，此前只认 fullstory 会把有简介的书拦成 400）
     has_synopsis = bool(ctx["synopsis"].strip())
@@ -1220,13 +1237,17 @@ async def run_arc_ai(
     if action == "calibrate" and not (author_input or has_arc):
         raise HTTPException(400, "先把主线或结局三问写两句，AI 才有校准的依据")
 
+    # 素材与写法约束分块（c-agent-action-contract）：约束只影响怎么写，不是
+    # 故事内容；在格式化 {input} 前拼好，提示词模板零改动。
+    composed_input = _compose_arc_input(author_input, constraints)
+
     # 提示词名走字面量白名单字典取值（勿用 f-string 拼 action：CodeQL 会把 URL 参数
     # 直接拼进文件路径判为高危 path injection——PR #355 CI 实测，此形态永不告警）
     # 分层协议（2026-09-27）：每个模板自带 system/user 两段——system＝角色＋优先级＋禁止项
     # ＋输出契约（恒定，吃供应商 prompt 缓存），user＝设定素材与本次输入（每次替换）。
     system_tpl, user_tpl = load_layers(_ARC_ACTIONS[action])
     _vals = dict(
-        input=author_input or "（无——按已填内容处理）",
+        input=composed_input,
         fullstory=arc["fullstory"] or "（未填）",
         scene=arc["ending"]["scene"] or "（未填）",
         hero=arc["ending"]["hero"] or "（未填）",

@@ -397,6 +397,7 @@ async def _stream_chat(
         )
         return
 
+    prior_plan = session_store.latest_plan(rows)
     tool_ctx = ToolContext(
         novel_id=project.id,
         root_path=project.root_path,
@@ -404,6 +405,7 @@ async def _stream_chat(
         page=page,
         focus_ref=(body_focus or {}).get("ref", ""),
         thread=thread,
+        scratch={"plan": prior_plan} if prior_plan else {},
     )
     # 记账必须记真实模型（test_ai_prompt_and_boundary 护栏：符号别名不得落账）——
     # client.resolve("haiku") 落到本书绑定模型（AIClient.resolve 单源）
@@ -622,6 +624,29 @@ async def _stream_chat(
         etype = event.get("type")
         if etype == "narration":
             reply_parts.append(str(event.get("text", "")))
+            return []
+        if etype == "plan" and isinstance(event.get("plan"), dict):
+            # 计划快照逐步落盘（c-agent-action-contract）：append-only，
+            # 恢复按最近一条；旧前端对空 content event 行天然跳过
+            await session_store.append_message(
+                session,
+                role="event",
+                content="",
+                page=page,
+                payload={"plan": event.get("plan")},
+                card_kind="plan",
+            )
+            return []
+        if etype == "run_end" and isinstance(event.get("plan"), dict):
+            # 收口安全网后的最终快照（active 已降级）也要落盘
+            await session_store.append_message(
+                session,
+                role="event",
+                content="",
+                page=page,
+                payload={"plan": event.get("plan")},
+                card_kind="plan",
+            )
             return []
         if etype == "thinking":
             chunk = str(event.get("text") or "")

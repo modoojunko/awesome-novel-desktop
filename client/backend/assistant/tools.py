@@ -1206,21 +1206,52 @@ TOOL_REGISTRY: tuple[Tool, ...] = TOOL_REGISTRY + NAV_TOOLS
 
 TOOL_REGISTRY: tuple[Tool, ...] = TOOL_REGISTRY + STRUCTURE_TOOLS + WORLD_TOOLS + MEMORY_TOOLS
 
+from assistant.tools_plan import PLAN_TOOLS  # noqa: E402
+
+TOOL_REGISTRY: tuple[Tool, ...] = TOOL_REGISTRY + PLAN_TOOLS
+
+
+
+_KIND_LABEL = {"read": "读", "card": "产卡·不写书", "write": "写·授权"}
+
+# 能力边界块：与注册表同源注入（c-agent-action-contract）。字节稳定，不依赖
+# 提示词包更新——缺包/旧包在位时同样生效。
+_BOUNDARY_LINES = (
+    "清单外不存在：不得声称调用或承诺清单外的工具。",
+    "正文生成不在对话里：正文页写作流负责，对话不代笔。",
+    (
+        "产卡类工具只出草稿，不写书：不得说「已落库／已保存／我写完了」；"
+        "写入走对应面板或授权卡。"
+    ),
+)
 
 
 def tool_catalog_text(thread: str = "") -> str:
     """进动作协议 system 段的工具清单文本（封闭集——协议模板引用它）。
 
     thread 非空＝按页签域收窄（c-agent-fleet：每页签独立流程——共享读＋域内
-    清单）；空＝全量（兼容旧调用与启动校验路径）。"""
+    清单）；空＝全量（兼容旧调用与启动校验路径）。清单末尾附能力边界块
+    （c-agent-action-contract）：负向能力与产卡语义不靠模型自行推断。"""
     allowed = tools_for_thread(thread) if thread else None
     lines = []
+    has_plan = False
     for t in TOOL_REGISTRY:
         if allowed is not None and t.name not in allowed:
             continue
         gate = f"（{t.feature_key}）" if t.feature_key else ""
-        lines.append(f"- {t.name}{gate}：{t.description} 入参示例：{t.args_hint}")
-    return "\n".join(lines)
+        kind = _KIND_LABEL.get(t.kind, t.kind)
+        lines.append(
+            f"- {t.name}〔{kind}〕{gate}：{t.description} 入参示例：{t.args_hint}"
+        )
+        if t.name == "update_plan":
+            has_plan = True
+    boundary = list(_BOUNDARY_LINES)
+    if has_plan:
+        boundary.append(
+            "一条消息有多件独立交付物时，先调 update_plan 建清单，再逐件做；"
+            "收口说清哪几件没做。"
+        )
+    return "\n".join(lines) + "\n\n边界：\n" + "\n".join(f"- {b}" for b in boundary)
 
 
 async def run_tool(ctx: ToolContext, name: str, args: dict) -> ToolResult:

@@ -480,3 +480,54 @@ async def test_latest_reminder_in_native_window(monkeypatch):
     msgs = client.calls[0]["messages"]
     assert [m["role"] for m in msgs][-2:] == ["latest_reminder", "user"]
     assert msgs[-2]["content"] == "2026-11-09,星期一,,App,中文"
+
+
+@pytest.mark.asyncio
+async def test_update_plan_native_emits_plan_event(monkeypatch):
+    """native 分支同样发 plan 事件（与 text 分支同构；review 实锤缺口）。"""
+    from assistant.tools import ToolContext
+    from assistant.tools_plan import _update_plan
+
+    async def fake_run_tool(ctx, name, args):
+        return await _update_plan(ctx, **args)
+
+    fake = Tool(
+        name="update_plan", kind="read", description="任务计划", fn=fake_run_tool
+    )
+    monkeypatch.setattr(
+        loop_mod, "get_tool", lambda n: fake if n == "update_plan" else None
+    )
+    monkeypatch.setattr(loop_mod, "run_tool", fake_run_tool)
+
+    client = FakeNativeClient(
+        [
+            (
+                "先列个计划。",
+                [
+                    _tc(
+                        0,
+                        "update_plan",
+                        {
+                            "items": [
+                                {"title": "主线前提", "status": "active"},
+                                {"title": "主角陆沉"},
+                            ]
+                        },
+                    )
+                ],
+            ),
+            ("列好了。", []),
+        ]
+    )
+    ctx = ToolContext(novel_id="n", root_path="", user_id="u")
+    loop = AgentLoop(
+        client=client, system="sys", transcript=[], tool_ctx=ctx, config=LoopConfig()
+    )
+    events = [e async for e in loop.run("三件事")]
+    plans = [e for e in events if e["type"] == "plan"]
+    assert len(plans) == 1
+    assert len(plans[0]["plan"]["items"]) == 2
+    run_end = next(e for e in events if e["type"] == "run_end")
+    assert run_end["planIncomplete"] == 2
+    # 收口安全网：active 降为 pending
+    assert [i["status"] for i in run_end["plan"]["items"]] == ["pending", "pending"]

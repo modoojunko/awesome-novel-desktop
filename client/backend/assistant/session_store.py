@@ -349,6 +349,21 @@ async def load_session(session_id: str, *, user_id: str) -> SessionMeta | None:
     return None
 
 
+def latest_plan(rows: list[MsgRow]) -> dict | None:
+    """最近一条 plan 快照（c-agent-action-contract：重启/续聊恢复计划）。"""
+    for m in reversed(rows):
+        if getattr(m, "card_kind", "") != "plan":
+            continue
+        try:
+            payload = json.loads(m.payload_json or "{}")
+        except (ValueError, TypeError):
+            continue
+        plan = payload.get("plan") if isinstance(payload, dict) else None
+        if isinstance(plan, dict):
+            return plan
+    return None
+
+
 async def load_messages(session: SessionMeta, *, heal: bool = True) -> list[MsgRow]:
     """按 seq 有序取全量消息；自愈：超墙钟仍悬挂的 streaming 行收尾为 error。"""
     path = Path(session.path or _session_path(session))

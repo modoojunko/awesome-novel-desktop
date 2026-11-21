@@ -13,7 +13,7 @@ import pytest
 import ai_client as ai_client_mod
 from assistant import loop as loop_mod
 from assistant.loop import AgentLoop, LoopConfig
-from assistant.tools import Tool, ToolResult
+from assistant.tools import Tool, ToolContext, ToolResult
 
 
 class FakeClient:
@@ -598,3 +598,181 @@ async def test_latest_reminder_inserted_before_current_user():
     assert [m["role"] for m in msgs][-2:] == ["latest_reminder", "user"]
     assert msgs[-2]["content"] == "2026-11-09,星期一,,App,中文"
     assert msgs[-1]["content"] == "新问题"
+
+
+# ── 协议硬化（c-agent-action-contract）─────────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_protocol_error_retries_once_then_final():
+    """无哨兵裸片段 → protocol_error 重试一次；坏原文不入转写。"""
+    bad = '"action": "write_prose", "tool": "", "args": {}}'
+    client = FakeClient([bad, _final("主线草稿已经出好了。")])
+    loop = AgentLoop(
+        client=client,
+        system="sys",
+        transcript=[{"role": "user", "content": "三件事"}],
+        tool_ctx=None,
+        config=LoopConfig(),
+    )
+    events = [e async for e in loop.run("三件事")]
+    assert len(client.calls) == 2
+    assert loop.result.final_reply == "主线草稿已经出好了。"
+    narrations = "".join(e["text"] for e in events if e["type"] == "narration")
+    assert '"action"' not in narrations
+    assistant_rows = [m["content"] for m in loop.transcript if m["role"] == "assistant"]
+    assert all('"action"' not in c for c in assistant_rows)
+
+
+@pytest.mark.asyncio
+async def test_protocol_error_after_retry_delivers_cleaned_narration():
+    bad = '抱歉，那行格式错了。\n"action": "write_prose", "tool": "", "args": {}}'
+    client = FakeClient([bad, bad])
+    loop = AgentLoop(
+        client=client,
+        system="sys",
+        transcript=[{"role": "user", "content": "三件事"}],
+        tool_ctx=None,
+        config=LoopConfig(),
+    )
+    events = [e async for e in loop.run("三件事")]
+    assert len(client.calls) == 2
+    assert loop.result.final_reply == "抱歉，那行格式错了。"
+    narrations = "".join(e["text"] for e in events if e["type"] == "narration")
+    assert '"action"' not in narrations
+    assert loop.result.degraded is True
+
+
+@pytest.mark.asyncio
+async def test_protocol_error_without_narration_uses_failure_copy():
+    bad = '"action": "write_prose", "args": {}}'
+    client = FakeClient([bad, bad])
+    loop = AgentLoop(
+        client=client,
+        system="sys",
+        transcript=[],
+        tool_ctx=None,
+        config=LoopConfig(),
+    )
+    events = [e async for e in loop.run("三件事")]
+    assert loop.result.final_reply == loop_mod._PROTOCOL_FAIL_REPLY
+    assert any(e.get("text") == loop_mod._PROTOCOL_FAIL_REPLY for e in events if e["type"] == "narration")
+
+
+@pytest.mark.asyncio
+async def test_action_slot_tool_name_repairs_and_executes(monkeypatch):
+    async def fake_run_tool(ctx, name, args):
+        assert name == "draft_arc"
+        return ToolResult(ok=True, summary="主线草稿已出（还没写进书里）。")
+
+    fake = Tool(
+        name="draft_arc", kind="card", args_hint="{}", description="起草主线",
+        fn=fake_run_tool,
+    )
+    monkeypatch.setattr(loop_mod, "get_tool", lambda n: fake if n == "draft_arc" else None)
+    monkeypatch.setattr(loop_mod, "run_tool", fake_run_tool)
+
+    client = FakeClient([
+        '{"action": "draft_arc", "args": {"action": "draft", "input": "素材"}}',
+        _final("草稿在卡上了。"),
+    ])
+    loop = AgentLoop(
+        client=client,
+        system="sys",
+        transcript=[],
+        tool_ctx=None,
+        config=LoopConfig(),
+    )
+    events = [e async for e in loop.run("起草主线")]
+    assert "step_start" in [e["type"] for e in events]
+    assert loop.result.steps >= 1
+    assert loop.result.final_reply == "草稿在卡上了。"
+
+
+# ── 计划对象（c-agent-action-contract）────────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_update_plan_emits_plan_event_and_run_end(monkeypatch):
+    """计划步发 plan 事件；run_end 带未完成计数；残留 active 收口降为 pending。"""
+    from assistant.tools_plan import _update_plan
+
+    async def fake_run_tool(ctx, name, args):
+        assert name == "update_plan"
+        return await _update_plan(ctx, **args)
+
+    fake = Tool(
+        name="update_plan", kind="read", args_hint="{}", description="任务计划",
+        fn=fake_run_tool,
+    )
+    monkeypatch.setattr(loop_mod, "get_tool", lambda n: fake if n == "update_plan" else None)
+    monkeypatch.setattr(loop_mod, "run_tool", fake_run_tool)
+
+    ctx = ToolContext(novel_id="n", root_path="", user_id="u")
+    client = FakeClient([
+        _tool("update_plan", {
+            "items": [
+                {"title": "主线前提", "status": "done"},
+                {"title": "主角陆沉", "status": "active"},
+                {"title": "卷一开头", "status": "pending"},
+            ],
+        }),
+        _final("两件做完了，卷一开头是正文，去正文页写。"),
+    ])
+    loop = AgentLoop(
+        client=client, system="sys", transcript=[], tool_ctx=ctx,
+        config=LoopConfig(),
+    )
+    events = [e async for e in loop.run("三件事")]
+    plan_events = [e for e in events if e["type"] == "plan"]
+    assert len(plan_events) == 1
+    assert [i["status"] for i in plan_events[0]["plan"]["items"]] == [
+        "done", "active", "pending",
+    ]
+    run_end = next(e for e in events if e["type"] == "run_end")
+    assert run_end["planIncomplete"] == 2
+    # 正常收口：残留 active 降为 pending（不永远卡在做）
+    assert [i["status"] for i in run_end["plan"]["items"]] == [
+        "done", "pending", "pending",
+    ]
+    assert loop.result.plan == run_end["plan"]
+
+
+@pytest.mark.asyncio
+async def test_update_plan_merge_by_title(monkeypatch):
+    from assistant.tools_plan import _update_plan
+
+    async def fake_run_tool(ctx, name, args):
+        return await _update_plan(ctx, **args)
+
+    fake = Tool(
+        name="update_plan", kind="read", args_hint="{}", description="任务计划",
+        fn=fake_run_tool,
+    )
+    monkeypatch.setattr(loop_mod, "get_tool", lambda n: fake if n == "update_plan" else None)
+    monkeypatch.setattr(loop_mod, "run_tool", fake_run_tool)
+
+    ctx = ToolContext(novel_id="n", root_path="", user_id="u")
+    client = FakeClient([
+        _tool("update_plan", {"items": [{"title": "主线前提"}, {"title": "主角陆沉"}]}),
+        _tool("update_plan", {"items": [{"title": "主线前提", "status": "done"}]}),
+        _final("第一件做完了。"),
+    ])
+    loop = AgentLoop(
+        client=client, system="sys", transcript=[], tool_ctx=ctx,
+        config=LoopConfig(),
+    )
+    events = [e async for e in loop.run("两件事")]
+    plans = [e["plan"] for e in events if e["type"] == "plan"]
+    assert len(plans) == 2
+    assert len(plans[-1]["items"]) == 2
+    assert plans[-1]["items"][0]["status"] == "done"
+    assert plans[-1]["items"][1]["status"] == "pending"
+
+
+def test_finalize_plan_error_marks_active_failed():
+    plan = {"items": [{"title": "a", "status": "active"}, {"title": "b", "status": "done"}]}
+    out = loop_mod._finalize_plan(plan, failed=True)
+    assert out["items"][0]["status"] == "failed"
+    assert out["items"][1]["status"] == "done"
+    assert loop_mod._finalize_plan(None, failed=True) is None

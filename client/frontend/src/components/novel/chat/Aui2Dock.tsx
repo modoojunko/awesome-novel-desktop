@@ -609,6 +609,57 @@ function ErrorCard({ data }: { data: { message: string } }) {
   );
 }
 
+/** 任务计划卡（cardConfig 注册：code="plan"）——多件交付物的逐项进度；
+ *  四态映射 §5 状态语言：还没动/在做/做完了/没做成。 */
+export type PlanItem = {
+  id?: string;
+  title: string;
+  status: "pending" | "active" | "done" | "failed";
+};
+export type PlanCardData = {
+  plan: { id?: string; items?: PlanItem[]; note?: string };
+  incomplete?: number;
+};
+
+const PLAN_LABEL: Record<string, string> = {
+  pending: "还没动",
+  active: "在做",
+  done: "做完了",
+  failed: "没做成",
+};
+
+function PlanCard({ data }: { data: PlanCardData }) {
+  const items = data.plan?.items ?? [];
+  if (!items.length) return null;
+  const done = items.filter((it) => it.status === "done").length;
+  const undone = data.incomplete ?? items.length - done;
+  return (
+    <div className="cd-card cd-plan" data-testid="chat-plan">
+      <div className="cd-card-head">
+        <b>这次要做的事</b>
+        <span className="cd-dim">
+          {undone > 0 ? `做完 ${done} 件 · 还有 ${undone} 件没做` : "都做完了"}
+        </span>
+      </div>
+      <div className="cd-plan-list">
+        {items.map((it, i) => {
+          const st = PLAN_LABEL[it.status] ? it.status : "pending";
+          return (
+            <div className="cd-plan-item" data-state={st} key={it.id ?? i}>
+              <span className="cd-plan-dot">
+                {st === "done" ? "✓" : st === "failed" ? "!" : st === "active" ? "·" : ""}
+              </span>
+              <span className="cd-plan-name">{it.title}</span>
+              <span className="cd-plan-st">{PLAN_LABEL[st]}</span>
+            </div>
+          );
+        })}
+      </div>
+      {data.plan.note && <p className="cd-plan-note">{data.plan.note}</p>}
+    </div>
+  );
+}
+
 /** 系统引导动作卡（code="sys_action"）——no_key 等系统 gate 的可点击出口
  *  （action: config_model → 模型配置页；2026-11-18 boss 走查口径：引导要给出口） */
 function SysActionCard({ data }: { data: { action?: string; label?: string } }) {
@@ -636,6 +687,7 @@ const CARD_REGISTRY = {
   trace_tool: TraceToolCard,
   error: ErrorCard,
   sys_action: SysActionCard,
+  plan: PlanCard,
 };
 
 type ArtifactCardData = {
@@ -1109,6 +1161,21 @@ export function Aui2Dock({
                 cards: [{ code: "artifact", data: cardData }],
               });
               serverCount += 1;
+            } else if (m.role === "event" && m.cardKind === "plan") {
+              // 计划快照回放（c-agent-action-contract）：同一计划 id 原地覆盖，
+              // 取最新快照；旧前端对空 content event 行本就直接跳过
+              const plan = (m.payload as { plan?: PlanCardData["plan"] })?.plan;
+              if (plan) {
+                flushTrace();
+                pushEntry({
+                  id: `plan-${plan.id ?? "current"}`,
+                  role: "assistant",
+                  content: "",
+                  msgStatus: "finished",
+                  cards: [{ code: "plan", data: { plan } }],
+                });
+                serverCount += 1;
+              }
             } else if ((m.role === "tool" || m.role === "event") && m.content?.trim()) {
               if (!suppressLegacyTrace) {
                 if (!pendingTrace)
@@ -1368,10 +1435,39 @@ export function Aui2Dock({
               // 不得带进下一步的前缀对账——否则下一步收口整段被误判「非覆盖」，
               // 已流 delta 与整段 narration 双份上屏（回归钉实锤）。
               deltaTailRef.current = "";
+            } else if (e.type === "plan" && e.plan) {
+              // 计划快照实时更新（c-agent-action-contract）：同一计划原地翻态
+              const plan = e.plan as PlanCardData["plan"];
+              threadUp({
+                id: `plan-${plan.id ?? "current"}`,
+                role: "assistant",
+                content: "",
+                msgStatus: "finished",
+                cards: [{ code: "plan", data: { plan } }],
+              });
             } else if (e.type === "run_end") {
               // run_end 携带本轮写操作 effects → 缓存待 onDone 回调宿主
               if (Array.isArray(e.effects)) {
                 pendingEffectsRef.current = e.effects;
+              }
+              // 收口安全网后的最终计划快照（active 已降级）＋未完成计数
+              if (e.plan) {
+                const plan = e.plan as PlanCardData["plan"];
+                threadUp({
+                  id: `plan-${plan.id ?? "current"}`,
+                  role: "assistant",
+                  content: "",
+                  msgStatus: "finished",
+                  cards: [
+                    {
+                      code: "plan",
+                      data: {
+                        plan,
+                        incomplete: Number(e.planIncomplete ?? 0),
+                      },
+                    },
+                  ],
+                });
               }
             } else if (e.type === "effect") {
               // 即时 effect（c-agent-nav：navigate 中途翻页）——直接回调宿主；

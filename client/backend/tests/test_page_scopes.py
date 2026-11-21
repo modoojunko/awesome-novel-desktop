@@ -46,6 +46,21 @@ def test_declared_tools_narrowed_per_thread():
     assert len(tool_catalog_text()) == len(full)
 
 
+def test_catalog_has_kind_labels_and_boundary_block():
+    """能力边界与产卡语义由注册表派生注入（c-agent-action-contract）。"""
+    from assistant.tools import tool_catalog_text
+
+    text = tool_catalog_text()
+    assert "〔读〕" in text and "〔产卡·不写书〕" in text and "〔写·授权〕" in text
+    assert "清单外不存在" in text
+    assert "正文生成不在对话里" in text
+    assert "不得说「已落库" in text
+    # 字节稳定（前缀缓存）：同注册表快照两次输出一致
+    assert text == tool_catalog_text()
+    # 域收窄仍带边界块
+    assert "正文生成不在对话里" in tool_catalog_text("ch:og")
+
+
 def test_discipline_per_thread():
     """域纪律分节随域切换；共享段（身份）不受影响。"""
     assert discipline_of_thread("ch:og").startswith("章纲纪律")

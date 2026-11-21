@@ -903,3 +903,80 @@ describe("Aui2Dock 底栏空模型兜底", () => {
     }
   });
 });
+
+describe("Aui2Dock 任务计划卡（c-agent-action-contract）", () => {
+  it("历史 plan 快照按最近一条恢复：四态、未完成数、计划卡唯一", async () => {
+    const p1 = {
+      id: "pl1",
+      items: [{ id: "a", title: "主线前提", status: "done" }],
+    };
+    const p2 = {
+      id: "pl1",
+      items: [
+        { id: "a", title: "主线前提", status: "done" },
+        { id: "b", title: "主角陆沉", status: "active" },
+        { id: "c", title: "卷一开头", status: "pending" },
+        { id: "d", title: "旧版主线对照", status: "failed" },
+      ],
+      note: "卷一开头是正文——对话不代笔，去正文页走写作流。",
+    };
+    chatApiState.loadAssistantSession.mockResolvedValue(
+      sess([
+        { id: "u1", role: "user", content: "三件事", page: "chapter" },
+        { id: "e1", role: "event", content: "", cardKind: "plan", payload: { plan: p1 }, page: "chapter" },
+        { id: "e2", role: "event", content: "", cardKind: "plan", payload: { plan: p2 }, page: "chapter" },
+      ]),
+    );
+    render(<Aui2Dock projectId="p1" page="工作台 · 章节" scope={SCOPE} />);
+    await waitFor(() => expect(screen.getByTestId("chat-plan")).toBeTruthy());
+    const cards = screen.getAllByTestId("chat-plan");
+    expect(cards.length).toBe(1);
+    const card = cards[0];
+    expect(card.textContent).toContain("主角陆沉");
+    expect(card.textContent).toContain("在做");
+    expect(card.textContent).toContain("没做成");
+    expect(card.textContent).toContain("还有 3 件没做");
+    expect(card.querySelectorAll('[data-state="done"]').length).toBe(1);
+    expect(card.querySelectorAll('[data-state="failed"]').length).toBe(1);
+    expect(card.textContent).toContain("卷一开头是正文");
+  });
+
+  it("SSE plan 事件实时翻态；run_end 用最终快照与未完成计数", async () => {
+    render(<Aui2Dock projectId="p1" page="工作台 · 卷纲" scope={SCOPE} />);
+    await screen.findByTestId("aui2-dock");
+    const sse = captureStream();
+    fireEvent.click(screen.getByTestId("aui2-chip-draft_volume_expand"));
+    await waitFor(() => expect(chatApiState.streamAssistantChat).toHaveBeenCalled());
+    sse.drive({
+      type: "plan",
+      plan: {
+        id: "pl2",
+        items: [
+          { id: "a", title: "主线前提", status: "done" },
+          { id: "b", title: "主角陆沉", status: "active" },
+        ],
+      },
+    });
+    await waitFor(() => {
+      const card = screen.getByTestId("chat-plan");
+      expect(card.textContent).toContain("在做");
+      expect(card.textContent).toContain("还有 1 件没做");
+    });
+    sse.drive({
+      type: "run_end",
+      plan: {
+        id: "pl2",
+        items: [
+          { id: "a", title: "主线前提", status: "done" },
+          { id: "b", title: "主角陆沉", status: "pending" },
+        ],
+      },
+      planIncomplete: 1,
+    });
+    await waitFor(() => {
+      const card = screen.getByTestId("chat-plan");
+      expect(card.querySelectorAll('[data-state="active"]').length).toBe(0);
+      expect(card.textContent).toContain("还有 1 件没做");
+    });
+  });
+});

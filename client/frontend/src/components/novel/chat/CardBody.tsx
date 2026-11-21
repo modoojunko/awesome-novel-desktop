@@ -13,6 +13,7 @@ const GENERIC_LABELS: Record<string, string> = {
   rows: "逐段盘点", verdict: "判定", echo: "段落原文", role: "角色",
   persona: "人设", duty: "差事", entrance: "进场", exit_note: "退场",
   checks: "自检", warnings: "提醒", diff: "差异", one_liner: "一句话",
+  constraints_used: "写法约束",
 };
 
 function genericLabel(k: string): string {
