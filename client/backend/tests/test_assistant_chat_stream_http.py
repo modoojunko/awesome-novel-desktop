@@ -331,9 +331,11 @@ def test_write_gate_card_reaches_client_before_approval(monkeypatch):
 
     async def _fake_run(self, user_input, prime=None):
         yield {"type": "run_start", "runId": "gw1"}
+        # field 须合法（synopsis）：#1106 起非法字段（如 premise）不弹卡直接拒，
+        # 「卡先到」路径只能用真实可写的字段驱动
         async for ev in self.gate_fn(
             "write_settings_field",
-            {"stype": "story", "field": "premise", "value": "授权卡先到的回归前提"},
+            {"stype": "story", "field": "synopsis", "value": "授权卡先到的回归前提"},
         ):
             yield ev
         yield {
@@ -725,3 +727,52 @@ def test_disconnect_finalizes_plan_snapshot(monkeypatch):
         time.sleep(0.05)
     assert latest is not None, "断连也必须留下计划快照"
     assert latest["items"][0]["status"] == "pending"
+
+
+def test_write_gate_invalid_field_no_card_and_no_wait(monkeypatch):
+    """非法字段不弹卡、不等批复（#1106 port 钉，review P1）。
+
+    PreviewRejected 在异步闸（#1105）下必须 yield 裸 gate_result＋return：
+    - 写成 `return [...]` ＝ async generator 里 SyntaxError（文本合并零冲突也
+      炸，实编译实锤）；
+    - 漏 yield 或误等批复 ＝ 本用例挂起（_read_sse 30s 超时即红）。
+    语义：拒绝语回喂模型/作家，permission_required 永不出现在流里。"""
+    bid = _mk_book()
+    import ai_client
+    import ai_state
+    import assistant.router as router_mod
+
+    async def _fake_get_client(project_id):
+        return _FakeClient()
+
+    async def _fake_has_key(db, user_id):
+        return True
+
+    async def _fake_run(self, user_input, prime=None):
+        yield {"type": "run_start", "runId": "gx1"}
+        async for ev in self.gate_fn(
+            "write_settings_field",
+            {"stype": "story", "field": "premise", "value": "不该弹卡的前提"},
+        ):
+            yield ev
+        yield {
+            "type": "run_end",
+            "runId": "gx1",
+            "steps": 0,
+            "toolCalls": 0,
+            "degraded": False,
+            "error": "",
+        }
+
+    monkeypatch.setattr(ai_client, "get_ai_client_for_novel", _fake_get_client)
+    monkeypatch.setattr(ai_state, "user_has_ai_key", _fake_has_key)
+    monkeypatch.setattr(router_mod.AgentLoop, "run", _fake_run)
+
+    events = _read_sse(bid, "把 premise 写进去", {"page": "set:genre", "thread": "set:genre"})
+    types = [e.get("type") for e in events]
+    assert "run_end" in types, f"流未收口：{types}"
+    assert "permission_required" not in types, f"非法字段不该弹卡：{types}"
+    result = next(e for e in events if e.get("type") == "gate_result")
+    assert result.get("approved") is False
+    assert "premise" in str(result.get("refusal") or "")
+    assert types.index("gate_result") < types.index("run_end")

@@ -536,14 +536,16 @@ async def _stream_chat(
         try:
             preview = await _build_gate_preview(tool, args, project, decision.preview)
         except PreviewRejected as e:
-            return [
-                {
-                    "type": "gate_result",
-                    "gateId": "",
-                    "approved": False,
-                    "refusal": str(e),
-                }
-            ]
+            # 异步闸契约：只能 yield＋裸 return（带值 return 在 async generator 里
+            # 是 SyntaxError——#1105 改造后合并曾踩，review P1 实编译实锤）。
+            # 裸 gate_result：loop 末项 approved=False 即拒，不发卡不等批复。
+            yield {
+                "type": "gate_result",
+                "gateId": "",
+                "approved": False,
+                "refusal": str(e),
+            }
+            return
         gate_id = write_gate.PARKING.register()
         await session_store.append_message(
             session,
