@@ -498,6 +498,67 @@ function dlgPack(){
   </div>`;
 }
 
+/* 整理旧版数据（c-carry-candidates-perf）：结果卡「查看旧文件」的展开面。
+   两个出口：归档＝移动到数据目录 archive 子文件夹（可逆，文件保留）；删除＝原
+   retention 语义不变（仅本次带回且完整的件，默认保留最近 2 份）。判定都在后端，
+   前端只展示；确认走二步：展开清单 → 确认，全程可关。 */
+const TIDY = {
+  archive: [
+    { name: '10月30日 的数据', books: 9, size: '81 MB' },
+    { name: '11月20日 的数据', books: 11, size: '81 MB' },
+    { name: '11月22日 的数据', books: 11, size: '82 MB' },
+  ],
+  deletable: [
+    { name: '11月22日 的数据（刚带回的那份）', books: 11, size: '82 MB' },
+  ],
+};
+function tidyRow(r){
+  return `<li class="mv"><span class="mv-n">${r.name}</span><span class="mv-w num">${r.books} 本 · ${r.size}</span></li>`;
+}
+function dlgTidy(){
+  if (S.tidyDone) {
+    return `<div class="mcard-head"><span class="mh">旧文件已整理</span></div>
+    <div class="mcard-body">
+      <p class="lead">归档的文件都挪到了应用数据文件夹的 archive 子文件夹里，作品一直都在书架上。想彻底删除时再来这里。</p>
+    </div>
+    <div class="mcard-foot">
+      <button class="btn btn-primary" data-act="tidy-close">好</button>
+    </div>`;
+  }
+  return `<div class="mcard-head"><span class="mh">整理旧文件</span></div>
+  <div class="mcard-body">
+    <p class="lead">这些旧版本文件里的作品都已经带过来了。归档只是把它们挪进 archive 文件夹，书架不受影响。</p>
+    ${(S.tidyConfirmArchive || S.tidyConfirmDelete) ? `
+      <div class="warn-block" data-od-id="tidy-confirm">
+        ${S.tidyConfirmArchive
+          ? `将归档 <span class="num">${TIDY.archive.length}</span> 份旧文件（移动，不删除，可随时放回原处）。`
+          : `将删除 <span class="num">${TIDY.deletable.length}</span> 份旧文件——删除不可撤销，已带回的内容不受影响。建议先<button class="text-btn" data-act="tidy-backup">备份一份</button>。`}
+      </div>
+      <div class="mcard-foot" style="padding:12px 0 0">
+        <button class="btn btn-secondary btn-sm" data-act="tidy-cancel">取消</button>
+        <button class="btn ${S.tidyConfirmArchive ? 'btn-primary' : 'btn-secondary'} btn-sm" data-act="${S.tidyConfirmArchive ? 'tidy-archive-go' : 'tidy-delete-go'}">
+          ${S.tidyConfirmArchive ? '归档这些旧文件' : '删除（不可撤销）'}
+        </button>
+      </div>`
+    : `
+      ${TIDY.archive.length ? `<section class="carry-sec">
+        <h3 class="sec-h"><b>可归档</b><span class="num">${TIDY.archive.length}</span> 份 · 数据已在新版本里</h3>
+        <ul class="mv-list">${TIDY.archive.map(tidyRow).join('')}</ul>
+        <div class="acts"><button class="btn btn-primary btn-sm" data-act="tidy-archive">归档旧文件</button></div>
+      </section>` : ''}
+      ${TIDY.deletable.length ? `<section class="carry-sec">
+        <h3 class="sec-h"><b>可删除</b><span class="num">${TIDY.deletable.length}</span> 份 · 默认保留最近 2 份</h3>
+        <ul class="mv-list">${TIDY.deletable.map(tidyRow).join('')}</ul>
+        <div class="acts"><button class="btn btn-secondary btn-sm" data-act="tidy-delete">删除旧文件</button></div>
+      </section>` : ''}
+      <p class="mv-sum">拿不准就先归档——文件还在原电脑上，随时能找回来。</p>
+    `}
+  </div>
+  ${!(S.tidyConfirmArchive || S.tidyConfirmDelete) ? `<div class="mcard-foot">
+    <button class="btn btn-secondary" data-act="tidy-close">先不整理</button>
+  </div>` : ''}`;
+}
+
 function toast(text){
   $('toasts').innerHTML = `<div class="toast">${I.check}<span>${text}</span></div>`;
   setTimeout(() => { $('toasts').innerHTML = ''; }, 2600);
@@ -508,8 +569,9 @@ function toast(text){
           result 完成确认 / done 已带回 / later 稍后带）
    触发面：只在登录后的书架（用户拍板 10-08「就是要登录后才执行」）——
    登录页不出卡、不带；登录态不受搬运影响。 */
-const S = { phase:'card', packQueued:false, muted:false, partialDemo:false };
-const PHASES = ['none','fresh','card','progress','result','done','later','partial'];
+const S = { phase:'card', packQueued:false, muted:false, partialDemo:false,
+            tidyDone:false, tidyConfirmArchive:false, tidyConfirmDelete:false };
+const PHASES = ['none','fresh','card','progress','result','done','later','partial','tidy'];
 function applyHash(){
   const h = location.hash.slice(1).split('/').pop();
   if (PHASES.includes(h)) S.phase = h;
@@ -537,7 +599,7 @@ function render(){
   // 'partial'＝结果卡「不完整」变体的演示态：渲染上等同 result，只是带上不完整标记。
   // 标记跨阶段保持（确认之后常驻行还要继续提醒），只在演示条切阶段时重置。
   const isPartial = S.partialDemo;
-  const eff = (phase === 'partial') ? 'result' : phase;
+  const eff = (phase === 'partial' || phase === 'tidy') ? 'result' : phase;
   const showBooks = (eff === 'done' || eff === 'result');
 
   $('cards').style.display = showBooks ? '' : 'none';
@@ -562,7 +624,7 @@ function render(){
   if (eff === 'fresh') dlg = dlgPack();  // 首次安装：没有可带的东西，只有能力包提醒
   else if (eff === 'card') dlg = dlgCard();
   else if (eff === 'progress') dlg = dlgProgress();
-  else if (eff === 'result') dlg = dlgResult(isPartial);
+  else if (eff === 'result') dlg = (phase === 'tidy') ? dlgTidy() : dlgResult(isPartial);
   else if (eff === 'done' && S.packQueued) dlg = dlgPack();
   if (dlg) openModal(dlg); else closeModal();
   bindDialogActs();
@@ -585,7 +647,14 @@ function bindDialogActs(){
       if (a === 'carry') setPhase('progress');
       else if (a === 'later') setPhase('later');
       else if (a === 'confirm') setPhase('done');
-      else if (a === 'files') toast('旧文件位置：设置 › 本机旧版本数据');
+      else if (a === 'files') { S.tidyConfirmArchive = false; S.tidyConfirmDelete = false; setPhase('tidy'); }
+      else if (a === 'tidy-archive') { S.tidyConfirmArchive = true; S.tidyConfirmDelete = false; render(); }
+      else if (a === 'tidy-delete') { S.tidyConfirmDelete = true; S.tidyConfirmArchive = false; render(); }
+      else if (a === 'tidy-cancel') { S.tidyConfirmArchive = false; S.tidyConfirmDelete = false; render(); }
+      else if (a === 'tidy-backup') toast('（示意）已发起备份，备份完成后文件在「设置 › 备份」里');
+      else if (a === 'tidy-archive-go') { S.tidyDone = true; S.tidyConfirmArchive = false; render(); toast('已归档 ' + TIDY.archive.length + ' 份旧文件（移动，没删除）'); }
+      else if (a === 'tidy-delete-go') { S.tidyConfirmDelete = false; render(); toast('（示意）已删除旧文件，已带回的内容不受影响'); }
+      else if (a === 'tidy-close') setPhase('done');
       else if (a === 'pack-close') { S.packQueued = false; render(); toast('写作能力包可以稍后在设置里更新'); }
       else if (a === 'pack-start') { S.packQueued = false; render(); toast('（示意）开始更新写作能力，后台下载'); }
     });

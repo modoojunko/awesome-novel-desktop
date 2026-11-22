@@ -156,6 +156,52 @@ describe("带回向导：清理清单与只读隔离件", () => {
     });
   });
 
+  it("整理区：链上带回候选给出归档出口（展开 → 确认 → 调 archive 端点）", async () => {
+    routeApi();
+    render(
+      <LegacyMigrateModal
+        open
+        candidates={[
+          cand({ chain_carried: true }),
+          cand({ chain_carried: true, filename: "novel-v0.23.db", version: "0.23",
+                 kind: "semver", legacy_generation: null, book_count: 5 }),
+        ]}
+        onClose={vi.fn()}
+        onDone={vi.fn()}
+      />,
+    );
+    // 双候选：停在发现步，手点「下一步」进预演再启动
+    fireEvent.click(await screen.findByRole("button", { name: "下一步" }));
+    fireEvent.click(await screen.findByRole("button", { name: "立即迁移" }));
+    await screen.findByText(/已迁移 \d+ 本书/, {}, { timeout: 5000 });
+    // 主出口展开 → 清单 → 确认 → POST /archive（判定单源在后端，前端只提交名字）
+    fireEvent.click(await screen.findByTestId("tidy-open"));
+    expect(screen.getByText(/都已经带过来了/)).toBeTruthy();
+    fireEvent.click(screen.getByTestId("tidy-archive"));
+    expect(screen.getByText(/只是移动到/)).toBeTruthy();
+    fireEvent.click(screen.getByTestId("tidy-confirm"));
+    await waitFor(() => {
+      const call = postMock.mock.calls.find((c) => String(c[0]).includes("/archive"));
+      expect(call).toBeTruthy();
+      expect((call![1] as { filenames: string[] }).filenames).toEqual([
+        "novel-v1.db", "novel-v0.23.db",
+      ]);
+    });
+    // 归档后强制拉新候选快照（归档件退出清单）
+    await waitFor(() => {
+      expect(getMock.mock.calls.some((c) => String(c[0]).includes("/candidates"))).toBe(true);
+    });
+  });
+
+  it("整理区：无链上带回候选时不出现，不吞删除出口", async () => {
+    await renderToResult({
+      status: "ok", book_count_source: 2, book_count_migrated: 2,
+      book_count_target_after: 2, fk_violations: [],
+    });
+    expect(screen.queryByTestId("migrate-tidy")).toBeNull();
+    expect(await screen.findByRole("button", { name: /清理旧文件/ })).toBeTruthy();
+  });
+
   it("部分失败（有书没带回）：结果页不出现清理入口", async () => {
     await renderToResult({
       status: "ok", book_count_source: 5, book_count_migrated: 2,

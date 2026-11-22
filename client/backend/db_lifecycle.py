@@ -24,7 +24,9 @@ import logging
 import shutil
 import sqlite3
 import tempfile
+import threading
 import time
+from collections import OrderedDict
 from datetime import UTC, datetime
 from pathlib import Path
 
@@ -36,6 +38,7 @@ from schema_version import (
     candidate_stamp_legacy,
     data_file_mtime,
     data_file_size,
+    data_identity_key,
     is_newer,
     is_release_version,
     parse_db_filename,
@@ -260,6 +263,126 @@ def probe_library(db_path: Path) -> dict:
     return info
 
 
+# ── 盘点缓存（c-carry-candidates-perf）：候选盘点在 Worker 线程执行，多槽 LRU ──
+
+_SCAN_CACHE_CAP = 64
+_probe_cache: OrderedDict[tuple, dict] = OrderedDict()
+_probe_cache_lock = threading.Lock()
+_migration_last_cache: OrderedDict[tuple, dict | None] = OrderedDict()
+_migration_last_cache_lock = threading.Lock()
+
+
+def _cache_get(cache: OrderedDict, lock: threading.Lock, key: tuple) -> object | None:
+    with lock:
+        hit = cache.get(key)
+        if hit is not None:
+            cache.move_to_end(key)
+        return hit
+
+
+def _cache_put(cache: OrderedDict, lock: threading.Lock, key: tuple, value: object) -> None:
+    with lock:
+        cache[key] = value
+        while len(cache) > _SCAN_CACHE_CAP:
+            cache.popitem(last=False)
+
+
+def probe_library_cached(db_path: Path) -> dict:
+    """probe_library 的多槽缓存皮（c-carry-candidates-perf）。
+
+    键＝`data_identity_key`（主文件＋`-wal` 的 mtime_ns/size）——字节未变即复用。
+    probe 对 WAL 库要整库拷贝暂存复检（源目录零痕迹纪律），真机 43 槽一次盘点
+    就是数 GB 的拷贝＋哈希；缓存后重复盘点降到 stat 级。结果按键原样缓存
+    （键未变＝探活结论不变，与 stamp_hash 同一假设）。"""
+    key = data_identity_key(db_path)
+    if key is None:
+        return probe_library(db_path)
+    hit = _cache_get(_probe_cache, _probe_cache_lock, key)
+    if hit is not None:
+        return dict(hit)
+    info = probe_library(db_path)
+    if info.get("exists", True):
+        _cache_put(_probe_cache, _probe_cache_lock, key, dict(info))
+    return info
+
+
+def migration_last_cached(db_path: Path) -> dict | None:
+    """读候选槽自身 `app_meta['migration.last']`（链上溯源证据，c-carry-candidates-perf）。
+
+    **immutable 只读口**：只读主文件、不建 `-shm`、不读 `-wal`——绝不碰源目录
+    （与 probe 的暂存纪律同向）。代价：`-wal` 里未 checkpoint 的完成记录读不到
+    → 返回 None＝链证据缺失，回溯保守断链（少归档优于误归档）。完成记录由
+    迁移完成时直连写入并已 checkpoint，正常都在主文件里。"""
+    key = data_identity_key(db_path)
+    if key is None:
+        return None
+    hit = _cache_get(_migration_last_cache, _migration_last_cache_lock, key)
+    if hit is not None:
+        return dict(hit) if isinstance(hit, dict) else None
+    last: dict | None = None
+    try:
+        con = sqlite3.connect(
+            f"file:{db_path}?mode=ro&immutable=1", uri=True, timeout=3)
+        try:
+            row = con.execute(
+                "SELECT value FROM app_meta WHERE key='migration.last'").fetchone()
+            if row and row[0]:
+                loaded = json.loads(row[0])
+                last = loaded if isinstance(loaded, dict) else None
+        finally:
+            con.close()
+    except (sqlite3.Error, json.JSONDecodeError, ValueError):
+        last = None
+    _cache_put(_migration_last_cache, _migration_last_cache_lock, key, last)
+    return dict(last) if isinstance(last, dict) else None
+
+
+def trace_carry_chain(data_root: Path, active_db_path: Path | None) -> dict[str, bool]:
+    """迁移链回溯（c-carry-candidates-perf）：活跃槽沿 `migration.last.source_filename`
+    逐跳回溯，返回 `{源文件名: 链上完整}`——True＝从活跃槽到该源的**每一跳**都
+    「完整达成」（单源判定，惰性导入防 engine→db_lifecycle 循环）；任一跳缺证/
+    断链即止（更早的槽不再标 True，少归档优于误归档）。visited 防环，深度封顶。"""
+    if active_db_path is None:
+        return {}
+    try:
+        from migration.engine import is_complete_report
+    except Exception:  # noqa: BLE001 — 判定函数不可得＝无法证明完整，全链保守不标
+        return {}
+    chain: dict[str, bool] = {}
+    visited: set[str] = set()
+    cur = Path(active_db_path)
+    ok_so_far = True
+    for _hop in range(64):  # 深度封顶：库文件名一代一槽，链长不可能到 64
+        if cur.name in visited:
+            break  # 环＝数据异常，保守停走
+        visited.add(cur.name)
+        last = migration_last_cached(cur)
+        if not last:
+            break  # 缺证据（未迁移/老库/记录读不到）——链到此为止
+        src_name = str(last.get("source_filename") or "")
+        if not src_name:
+            break
+        # 数据件复写守卫：跳记录的 stamp 必须仍与源文件现行指纹对拍命中（三形态），
+        # 不命中＝迁移后源又被写过（或记录失效）——该源断链，不再标 True。
+        src = Path(data_root) / src_name
+        if not src.exists():
+            break
+        stamp = str(last.get("source_stamp") or "")
+        current = {candidate_stamp(src_name, src), candidate_stamp_hash(src_name, src),
+                   candidate_stamp_legacy(src_name, src)}
+        if not stamp or stamp not in current:
+            ok_so_far = False
+        if ok_so_far and not is_complete_report(last.get("report")
+                                                if isinstance(last.get("report"), dict)
+                                                else None):
+            ok_so_far = False  # 本跳缺证/不完整：该源不标，更早的也断
+        chain[src_name] = ok_so_far
+        if not ok_so_far:
+            break  # 断链：更早的槽一律不再标（少归档优于误归档）
+        cur = src
+    return chain
+
+
 # ── 首启状态机 ────────────────────────────────────────────────────────────
 
 
@@ -448,8 +571,14 @@ def _manifest_rows(con: sqlite3.Connection, book_cap: int) -> dict | None:
 # ── 候选扫描 ──────────────────────────────────────────────────────────────
 
 def scan_migration_candidates(data_root: Path, current_version: str | None = None,
-                              active_db_path: Path | None = None) -> list[dict]:
-    """迁入候选：白名单形状枚举＋活跃库按路径排除＋数据件 max(mtime) 排序。"""
+                              active_db_path: Path | None = None,
+                              chain_map: dict[str, bool] | None = None) -> list[dict]:
+    """迁入候选：白名单形状枚举＋活跃库按路径排除＋数据件 max(mtime) 排序。
+
+    c-carry-candidates-perf：探活走多槽缓存（`probe_library_cached`）；`chain_map`
+    （`trace_carry_chain` 产物）在场时逐项标注 `chain_carried`（链上且完整带回，
+    归档白名单的呈现源——判定单源在后端，前端只展示）。归档子目录（`archive/`）
+    不参与盘点：`iterdir` 只取文件已天然排除，此处显式拒一点名防将来改成递归。"""
     root = Path(data_root)
     items: list[dict] = []
     if not root.is_dir():
@@ -463,6 +592,8 @@ def scan_migration_candidates(data_root: Path, current_version: str | None = Non
     for f in sorted(root.iterdir()):
         if not f.is_file():
             continue
+        if f.name == ARCHIVE_DIRNAME:
+            continue  # 归档件退出盘点（防御式点名；子目录本就进不了 is_file）
         parsed = parse_db_filename(f.name)
         if not parsed.is_candidate:
             continue
@@ -473,7 +604,7 @@ def scan_migration_candidates(data_root: Path, current_version: str | None = Non
             continue
         mtime = data_file_mtime(f)
         size = data_file_size(f)
-        info = probe_library(f)
+        info = probe_library_cached(f)
         book_count = info.get("book_count")
         if book_count in (None, 0) and not (info.get("unreadable") and size > 0):
             continue  # 空库/空壳不进候选
@@ -487,6 +618,9 @@ def scan_migration_candidates(data_root: Path, current_version: str | None = Non
             "book_count": book_count,
             "unreadable": bool(info.get("unreadable")),
             "recommended": False,
+            # 链上完整带回态（c-carry-candidates-perf）：归档白名单的呈现源；判定
+            # 单源在 trace_carry_chain（每跳完整性单源判定＋指纹对拍），前端只展示
+            "chain_carried": bool(chain_map) and bool(chain_map.get(f.name)),
             # stamp＝现行指纹（数据件）；stamp_legacy＝旧三件套形态，供完成/抑制
             # 存量记录兼容对拍（c-carry-modal-reshow——升级前写入的记录可能是旧形）；
             # stamp_hash＝内容指纹（c-carry-completion-robust）：mtime 分量在不可靠
@@ -631,3 +765,32 @@ def delete_candidate(data_root: Path, filename: str,
             logger.warning("db_lifecycle: cleanup failed for %s: %s", p.name, exc)
             return False
     return True
+
+
+# 归档子目录（c-carry-candidates-perf）：数据目录下的固定名，链上旧槽移入此处
+# 退出盘点。移动不删除——回滚/找回承诺不破（旧版 App 扫描同样跳过子目录）。
+ARCHIVE_DIRNAME = "archive"
+
+
+def archive_candidate(data_root: Path, filename: str,
+                      active_db_path: Path | None = None) -> bool:
+    """把单个候选三件套移入归档子目录（移动可逆，绝不删除）。
+
+    路径校验与删除同源收口（`validate_candidate_filename`：白名单形状＋resolve
+    收敛在数据目录根＋非活跃库）——归档目录里的件本身因带路径分隔天然过不了
+    校验，MUST NOT 二次归档。三件（主文件＋`-wal`/`-shm`）整体搬运，字节不动。
+    """
+    target = validate_candidate_filename(data_root, filename, active_db_path)
+    if target is None:
+        return False
+    dest_dir = Path(data_root) / ARCHIVE_DIRNAME
+    try:
+        dest_dir.mkdir(exist_ok=True)
+        for p in (target, *sidecar_paths(target)):
+            if not p.exists():
+                continue
+            p.replace(dest_dir / p.name)
+        return True
+    except OSError as exc:
+        logger.warning("db_lifecycle: archive failed for %s: %s", filename, exc)
+        return False

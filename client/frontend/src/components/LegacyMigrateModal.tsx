@@ -27,7 +27,7 @@ async function downloadMigrationDiagnostics(): Promise<void> {
 }
 import { api } from '@/lib/api';
 import { toast } from '@/lib/toast';
-import { ackCarryReceipt } from '@/lib/carryStore';
+import { ackCarryReceipt, archiveCarryCandidates } from '@/lib/carryStore';
 import type { LegacyCandidate, QuarantinedLibrary } from '@/hooks/useLegacyDb';
 
 interface ProgressEvent {
@@ -75,6 +75,17 @@ const STAGE_LABEL: Record<string, string> = {
   verify: '正在核对写入结果…',
 };
 
+/** 整理区行（c-carry-candidates-perf）：与清理清单同款「N 本 · 体积 · 日期」版式 */
+function TidyRow({ c }: { c: LegacyCandidate }) {
+  return (
+    <li style={{ fontSize: 12.5, display: 'flex', gap: 10, padding: '2px 0' }}>
+      <span className="num">{c.book_count ?? '?'} 本</span>
+      <span style={{ color: 'var(--muted)' }}>{Math.round(c.size_bytes / 1024)} KB</span>
+      <span style={{ color: 'var(--muted)' }}>{new Date(c.mtime * 1000).toLocaleDateString()}</span>
+    </li>
+  );
+}
+
 export default function LegacyMigrateModal({
   open,
   candidates,
@@ -104,6 +115,10 @@ export default function LegacyMigrateModal({
   const [retention, setRetention] = useState<RetentionItem[] | null>(null);
   const [cleanupOpen, setCleanupOpen] = useState(false);
   const [confirmingDelete, setConfirmingDelete] = useState(false);
+  /* 整理旧文件（c-carry-candidates-perf）：归档出口＝链上完整带回的旧槽，
+     移动不删除；判定单源在后端（chain_carried 后端下发），前端只展示与提交。 */
+  const [archiveOpen, setArchiveOpen] = useState(false);
+  const [confirmingArchive, setConfirmingArchive] = useState(false);
   const [busy, setBusy] = useState(false);
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const failCountRef = useRef(0);
@@ -163,6 +178,7 @@ export default function LegacyMigrateModal({
       clearPoll();
       setStep('detect'); setPreview(null); setProgress(null);
       setProgressPct(0); setResult(null); setErrorMsg(''); failCountRef.current = 0;
+      setArchiveOpen(false); setConfirmingArchive(false);
       return;
     }
     (async () => {
@@ -261,6 +277,22 @@ export default function LegacyMigrateModal({
     }
   };
 
+  /** 归档旧文件：移动不删除；后端白名单二次收口（链外件拒绝）。成功后强制拉新
+   *  快照——归档件退出候选清单，本区随之消失。 */
+  const runArchive = async () => {
+    setBusy(true);
+    try {
+      const archived = await archiveCarryCandidates(archivable.map((c) => c.filename));
+      toast.success(`已归档 ${archived.length} 份旧文件（只是移动，没有删除）`);
+      setArchiveOpen(false);
+      setConfirmingArchive(false);
+    } catch {
+      toast.error('归档没有完成，可稍后重试');
+    } finally {
+      setBusy(false);
+    }
+  };
+
   const startMigrate = async () => {
     setErrorMsg('');
     setStep('working');
@@ -299,6 +331,16 @@ export default function LegacyMigrateModal({
       </ul>
     </div>
   ) : null;
+
+  /* 整理入口数据面（c-carry-candidates-perf）：链上完整带回的旧槽——数据已随链
+     到现行库，归档＝移动不删除；不可读件不参与。判定单源在后端（chain_carried
+     字段后端下发），前端只展示与提交名字，后端二次收口。 */
+  const archivable = candidates.filter((c) => c.chain_carried && !c.unreadable);
+  const tidyList = (
+    <ul style={{ margin: '0 0 10px', padding: 0, listStyle: 'none' }}>
+      {archivable.map((c) => <TidyRow key={c.filename} c={c} />)}
+    </ul>
+  );
 
   const pct = progressPct;
   const stageText = progress ? STAGE_LABEL[progress.stage] || progress.stage : '准备中…';
@@ -413,6 +455,40 @@ export default function LegacyMigrateModal({
           <div style={{ display: 'flex', justifyContent: 'center' }}>
             <button className="btn btn-primary" onClick={() => finishToShelf(result)}>去书架看看</button>
           </div>
+          {archivable.length > 0 && (
+            <div style={{ marginTop: 16, borderTop: '1px solid var(--line, #2a2a2a)', paddingTop: 12 }} data-testid="migrate-tidy">
+              {!archiveOpen ? (
+                <button className="text-btn" data-testid="tidy-open" disabled={busy} onClick={() => setArchiveOpen(true)}>
+                  整理旧文件（{archivable.length} 份已带回）
+                </button>
+              ) : confirmingArchive ? (
+                <div>
+                  <p style={{ fontSize: 12.5, color: 'var(--warn)', margin: '0 0 8px' }}>
+                    将归档 <span className="num">{archivable.length}</span> 份旧文件——只是移动到
+                    archive 文件夹，不删除，随时可以放回。建议先
+                    <button className="text-btn" onClick={() => finishToShelf(result)}>备份一份</button>。
+                  </p>
+                  {tidyList}
+                  <div style={{ display: 'flex', gap: 8 }}>
+                    <button className="btn btn-sm" onClick={() => setConfirmingArchive(false)}>取消</button>
+                    <button className="btn btn-primary btn-sm" data-testid="tidy-confirm" disabled={busy} onClick={() => void runArchive()}>
+                      归档这些旧文件
+                    </button>
+                  </div>
+                </div>
+              ) : (
+                <div>
+                  <p style={{ fontSize: 12.5, color: 'var(--muted)', margin: '0 0 8px' }}>
+                    这些旧文件里的作品都已经带过来了。归档只是把它们挪进 archive 文件夹，书架不受影响。
+                  </p>
+                  {tidyList}
+                  <button className="btn btn-primary btn-sm" data-testid="tidy-archive" disabled={busy} onClick={() => setConfirmingArchive(true)}>
+                    归档旧文件
+                  </button>
+                </div>
+              )}
+            </div>
+          )}
           {cleanupEligible(result) && (
             <div style={{ marginTop: 16, borderTop: '1px solid var(--line, #2a2a2a)', paddingTop: 12 }}>
               {!cleanupOpen ? (

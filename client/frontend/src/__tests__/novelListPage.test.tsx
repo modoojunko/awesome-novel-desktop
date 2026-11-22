@@ -139,8 +139,12 @@ const renderPage = () => {
   );
 };
 
-beforeEach(() => {
+beforeEach(async () => {
   vi.clearAllMocks();
+  // c-carry-candidates-perf：carryStore 是模块单例且挂载走 auto 降频——每个用例
+  // 复位「快照无待办」标记，保证各自的首挂载都真实拉取自己的 mock 数据。
+  const { resetCarryStoreForTests } = await import("@/lib/carryStore");
+  resetCarryStoreForTests();
   localStorage.setItem("auth_token", "tok-shelf");
   localStorage.setItem("auth_username", "u1");
   getMock.mockResolvedValue([novel()]);

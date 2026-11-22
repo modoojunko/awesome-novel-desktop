@@ -10,6 +10,8 @@ from __future__ import annotations
 
 import os
 import re
+import threading
+from collections import OrderedDict
 from pathlib import Path
 from typing import NamedTuple
 
@@ -216,27 +218,55 @@ def three_file_size(db_path: Path) -> int:
 
 
 def candidate_stamp_hash(filename: str, db_path: Path) -> str:
-    """候选身份**内容指纹**：main＋`-wal` 字节的 sha256（前 32 hex），单槽缓存。
+    """候选身份**内容指纹**：main＋`-wal` 字节的 sha256（前 32 hex），多槽缓存。
 
     mtime/size 指纹（candidate_stamp）在健康本地盘稳定，但在不可靠文件系统上随
     触碰漂移——Docker Desktop virtiofs 实锤（2026-10-24 demo 栈）：完成记录按迁移
     时刻 mtime 落笔，之后 `-wal` 的 mtime 被读侧推走，指纹对不上＝「已迁移」状态
-    失效、告知卡每次首页复弹。内容哈希只随数据字节变化；缓存只保留最近一条
-    （身份判定只需要当前态，漂移 FS 上多键会无界增长），哈希分块流式读
-    （demo 栈最大候选 35MB，整读入内存不可取）。"""
-    main = db_path.stat()
-    wal = Path(f"{db_path}-wal")
-    wal_stat = wal.stat() if wal.exists() else None
-    cache_key = (str(db_path), main.st_mtime_ns, main.st_size,
-                 wal_stat.st_mtime_ns if wal_stat else 0,
-                 wal_stat.st_size if wal_stat else 0)
-    global _stamp_hash_cache
-    if _stamp_hash_cache is not None and _stamp_hash_cache[0] == cache_key:
-        return _stamp_hash_cache[1]
-    digest = _hash_data_files(db_path, wal)
+    失效、告知卡每次首页复弹。内容哈希只随数据字节变化；哈希分块流式读
+    （整读入内存不可取）。
+
+    缓存＝按「路径＋数据件 mtime_ns/size」键的多槽 LRU（c-carry-candidates-perf）：
+    旧版是单槽（只存最近一次），真机 43 槽场景每次候选盘点都要重哈希约 1GB——
+    书架打开卡顿的主因之一。键含 mtime_ns/size（字节未变即命中，与旧单槽同一
+    假设），容量封顶防漂移 FS 上无界增长；候选盘点在 Worker 线程执行，访问须持锁。"""
+    cache_key = data_identity_key(db_path)
+    if cache_key is not None:
+        with _stamp_hash_cache_lock:
+            hit = _stamp_hash_cache.get(cache_key)
+            if hit is not None:
+                _stamp_hash_cache.move_to_end(cache_key)
+                return hit
+    digest = _hash_data_files(db_path, Path(f"{db_path}-wal"))
     stamp = f"{filename}:h{digest}"
-    _stamp_hash_cache = (cache_key, stamp)
+    if cache_key is not None:
+        with _stamp_hash_cache_lock:
+            _stamp_hash_cache[cache_key] = stamp
+            while len(_stamp_hash_cache) > _STAMP_HASH_CACHE_CAP:
+                _stamp_hash_cache.popitem(last=False)
     return stamp
+
+
+def data_identity_key(db_path: Path) -> tuple | None:
+    """缓存键：主文件＋`-wal` 的 (mtime_ns, size)。主文件不可 stat（不存在/无权）
+    返回 None＝调用方跳过缓存直算。与 candidate_stamp 同一假设：键未变＝字节未变。"""
+    try:
+        main = db_path.stat()
+    except OSError:
+        return None
+    wal = Path(f"{db_path}-wal")
+    try:
+        wal_stat = wal.stat() if wal.exists() else None
+    except OSError:
+        wal_stat = None
+    return (str(db_path), main.st_mtime_ns, main.st_size,
+            wal_stat.st_mtime_ns if wal_stat else 0,
+            wal_stat.st_size if wal_stat else 0)
+
+
+_STAMP_HASH_CACHE_CAP = 64
+_stamp_hash_cache: OrderedDict[tuple, str] = OrderedDict()
+_stamp_hash_cache_lock = threading.Lock()
 
 
 def _hash_data_files(db_path: Path, wal: Path) -> str:
@@ -250,9 +280,6 @@ def _hash_data_files(db_path: Path, wal: Path) -> str:
             for chunk in iter(lambda: fh.read(1 << 20), b""):
                 h.update(chunk)
     return h.hexdigest()[:32]
-
-
-_stamp_hash_cache: tuple[tuple, str] | None = None
 
 
 def candidate_stamp(filename: str, db_path: Path) -> str:
