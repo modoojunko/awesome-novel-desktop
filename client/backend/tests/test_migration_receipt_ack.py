@@ -27,7 +27,7 @@ def _run_candidates(monkeypatch, *, last, acked, scanned=None):
                          "stamp_legacy": "S1-legacy",
                          "recommended": True, "unreadable": False}]
 
-    def fake_scan(root, ver, active):
+    def fake_scan(root, ver, active, chain_map=None):
         return [dict(it) for it in items]
 
     monkeypatch.setattr(router, "scan_migration_candidates", fake_scan)

@@ -121,7 +121,7 @@ def test_carried_survives_wal_mtime_drift(tmp_path, monkeypatch):
 
     _drift_wal_mtime(src)  # 迁移完成之后，读侧把 -wal mtime 推走
 
-    def fake_scan(r, ver, a):
+    def fake_scan(r, ver, a, chain_map=None):
         return [{"filename": src.name, "stamp": candidate_stamp(src.name, src),
                  "stamp_legacy": f"{src.name}:legacy", "stamp_hash": stamp,
                  "book_count": 5, "unreadable": False, "recommended": True}]

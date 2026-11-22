@@ -32,6 +32,9 @@ export interface CarryCandidate {
   /** c-carry-receipt-ack：完成回执已被用户收起（持久化已阅；数据件变化自动重开） */
   receipt_acked?: boolean;
   suppressed?: boolean;
+  /** c-carry-candidates-perf：链上完整带回（数据已随链到现行库）＝整理入口可归档；
+   *  判定单源在后端（链回溯＋每跳完整性），前端只展示 */
+  chain_carried?: boolean;
   unreadable: boolean;
   book_count: number | null;
   manifest?: CarryManifest | null;
@@ -74,6 +77,9 @@ interface CarryState {
 let state: CarryState = { status: null, job: null };
 let inflightCandidates: Promise<void> | null = null;
 let pollTimer: ReturnType<typeof setInterval> | null = null;
+// c-carry-candidates-perf：会话级「快照无待办」标记——书架挂载自动刷新跳过请求；
+// 用户动作/搬运终局 force 绕过。新进程＝新会话，升级换版不受影响。
+let snapshotIdle = false;
 const listeners = new Set<() => void>();
 
 const emit = () => listeners.forEach((l) => l());
@@ -82,10 +88,22 @@ const set = (patch: Partial<CarryState>) => {
   emit();
 };
 
+/** 快照是否「有待办」：存在未带回且未被抑制的可搬运候选（不可读件只作只读展示，
+ *  不算待办）。真值＝告知卡/常驻行有理由出现的最小条件——降频只吞「确定无事」
+ *  的挂载刷新，不吞任何提醒路径。 */
+export function hasCarryActionable(status: LegacyStatus | null): boolean {
+  return !!(status && status.candidates.some(
+    (c) => !c.unreadable && !c.carried && !c.suppressed));
+}
+
 /** 取候选快照。并发去重（书架+账户菜单同时挂载只发一请求）；
  *  force＝用户动作（本版静音/已阅/搬运终局）后必须拿到最新态——若恰好有
- *  请求在途，等它落地后再补一发，避免沿用静音前的旧快照让按钮看起来没反应。 */
-export async function refreshCarry(opts: { force?: boolean } = {}): Promise<void> {
+ *  请求在途，等它落地后再补一发，避免沿用静音前的旧快照让按钮看起来没反应。
+ *  auto＝挂载自动刷新（c-carry-candidates-perf）：快照已确认无待办时跳过请求。 */
+export async function refreshCarry(
+  opts: { force?: boolean; auto?: boolean } = {},
+): Promise<void> {
+  if (opts.auto && !opts.force && snapshotIdle) return;
   if (inflightCandidates) {
     await inflightCandidates;
     if (!opts.force) return;
@@ -93,9 +111,13 @@ export async function refreshCarry(opts: { force?: boolean } = {}): Promise<void
   const run = (async () => {
     try {
       const res = await api.get('/backup/db-migration/candidates', { quiet: true });
-      if (res.code === 0) set({ status: res.data as LegacyStatus });
+      if (res.code === 0) {
+        const st = res.data as LegacyStatus;
+        snapshotIdle = !hasCarryActionable(st);
+        set({ status: st });
+      }
     } catch {
-      /* 静默降级：旧数据检测失败不阻塞书架 */
+      /* 静默降级：旧数据检测失败不阻塞书架（降频标记保持原值，不吞后续提醒） */
     }
   })();
   inflightCandidates = run;
@@ -175,6 +197,18 @@ export function ackCarryReceipt(filename: string) {
     .then(() => refreshCarry({ force: true }));
 }
 
+/** 归档旧文件（c-carry-candidates-perf）：把链上完整带回的旧槽移进应用数据
+ *  文件夹的 archive 子文件夹——移动不删除，书架不受影响。白名单单源在后端
+ *  （链外件/断链件后端拒绝），前端只提交整理入口勾选的名字。成功后强制拉新
+ *  快照（归档件退出候选清单）。 */
+export async function archiveCarryCandidates(filenames: string[]): Promise<string[]> {
+  const res = await api.post(
+    '/backup/db-migration/archive', { filenames }, { quiet: true });
+  await refreshCarry({ force: true });
+  const data = res.data as { archived?: string[] } | undefined;
+  return data?.archived ?? [];
+}
+
 export function subscribeCarry(cb: () => void): () => void {
   listeners.add(cb);
   return () => listeners.delete(cb);
@@ -192,5 +226,6 @@ export function useCarryStore(): CarryState {
 export function resetCarryStoreForTests() {
   stopPoll();
   state = { status: null, job: null };
+  snapshotIdle = false;
   emit();
 }

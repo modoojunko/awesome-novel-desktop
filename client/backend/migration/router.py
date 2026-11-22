@@ -16,6 +16,7 @@ main.py 注册本前缀）；与导出/下载 job_runner 跨 kind 单飞互斥�
 """
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 import os
@@ -30,12 +31,14 @@ from pydantic import BaseModel
 
 from config import DATA_ROOT
 from db_lifecycle import (
+    archive_candidate,
     candidate_manifest,
     clean_stale_staging,
     deletable_candidates,
     delete_candidate,
     list_quarantined,
     scan_migration_candidates,
+    trace_carry_chain,
 )
 from migration.engine import completeness_from_history, is_complete_report
 from schema_version import (
@@ -77,6 +80,10 @@ class DismissBody(BaseModel):
 
 
 class CleanupBody(BaseModel):
+    filenames: list[str]
+
+
+class ArchiveBody(BaseModel):
     filenames: list[str]
 
 
@@ -226,9 +233,26 @@ def _validated_source(filename: str) -> Path:
 
 @router.get("/candidates")
 async def candidates():
-    """候选列表＋隔离件只读展示＋提示抑制状态（登录前可调——登录页计数行同源）。"""
+    """候选列表＋隔离件只读展示＋提示抑制状态（登录前可调——登录页计数行同源）。
+
+    c-carry-candidates-perf：盘点（链回溯＋候选扫描＋推荐位内容清单）整体下放
+    Worker 线程——真机 43 槽场景盘点要读 GB 级字节，在事件循环上同步跑会拖住
+    全部并发请求（app.log 排队指纹实锤）；offload 后书架打开不再被盘点拖累。"""
     root = Path(DATA_ROOT)
-    items = scan_migration_candidates(root, app_version(), _active_db_path())
+    ver = app_version()
+    active = _active_db_path()
+
+    def _scan_all() -> list[dict]:
+        items = scan_migration_candidates(root, ver, active,
+                                          chain_map=trace_carry_chain(root, active))
+        # 只读清单只挂 recommended（免登端点返回面收敛；密钥永不返回）——
+        # 清单读取同样是盘活（开库读 books/configs），与扫描同线程
+        for it in items:
+            if it.get("recommended") and not it["unreadable"]:
+                it["manifest"] = candidate_manifest(root / it["filename"])
+        return items
+
+    items = await asyncio.to_thread(_scan_all)
     done_stamp = ""
     done_complete = False
     done_partial = False
@@ -265,9 +289,6 @@ async def candidates():
             and done_stamp in stamps
         it["suppressed"] = it["carried"] or snoozed_stamp in stamps
         it["receipt_acked"] = bool(acked_stamp) and acked_stamp in stamps
-        # 只读清单只挂 recommended（免登端点返回面收敛；密钥永不返回）
-        if it.get("recommended") and not it["unreadable"]:
-            it["manifest"] = candidate_manifest(root / it["filename"])
     return {"code": 0, "data": {"candidates": items, "quarantined": list_quarantined(root),
                                 "current_version": app_version()}}
 
@@ -367,8 +388,9 @@ async def retention():
     root = Path(DATA_ROOT)
     # keep 保留窗口随白名单收窄（c-db-version-hardening）失去意义：可删集至多一项，
     # 再套 keep=2 会把唯一可删项也保住＝清理功能死亡。置 0，保留窗口由白名单本身承载。
-    items = deletable_candidates(root, _migrated_stamps(), keep=0,
-                                 active_db_path=_active_db_path())
+    # c-carry-candidates-perf：待删判定内含候选扫描（重活）——下放 Worker 线程。
+    items = await asyncio.to_thread(
+        deletable_candidates, root, _migrated_stamps(), 0, _active_db_path())
     return {"code": 0, "data": {"items": items, "keep": 0}}
 
 
@@ -376,8 +398,9 @@ async def retention():
 async def cleanup(body: CleanupBody):
     """删除用户勾选的旧库（服务端再次收口：只认待删清单内的名字）。"""
     root = Path(DATA_ROOT)
-    allowed = {it["filename"] for it in deletable_candidates(
-        root, _migrated_stamps(), keep=0, active_db_path=_active_db_path())}
+    allowed = await asyncio.to_thread(
+        deletable_candidates, root, _migrated_stamps(), 0, _active_db_path())
+    allowed = {it["filename"] for it in allowed}
     deleted: list[str] = []
     refused: list[str] = []
     for name in body.filenames:
@@ -387,6 +410,39 @@ async def cleanup(body: CleanupBody):
         (deleted if delete_candidate(root, name, _active_db_path()) else refused).append(name)
     logger.info("event=migration_cleanup deleted=%s refused=%s", deleted, refused)
     return {"code": 0, "data": {"deleted": deleted, "refused": refused}}
+
+
+def _archivable_names(root: Path, active: Path) -> set[str]:
+    """归档白名单（c-carry-candidates-perf）：链上且完整带回的候选名，判定单源在后端。
+
+    候选扫描（含链回溯与探活缓存）同盘一次出——整理入口的呈现（chain_carried
+    字段）与动作白名单同键，前端 SHALL NOT 各算一套。"""
+    chain = trace_carry_chain(root, active)
+    items = scan_migration_candidates(root, app_version(), active, chain_map=chain)
+    return {it["filename"] for it in items if it.get("chain_carried")}
+
+
+@router.post("/archive")
+async def archive(body: ArchiveBody):
+    """归档用户勾选的旧库（c-carry-candidates-perf）：**移动到 `data/archive/`，绝不删除**。
+
+    服务端再次收口：只认「链上且完整带回」白名单内的名字（链外件/断链件/复写件
+    一律拒绝——少归档优于误归档）；路径校验在 `db_lifecycle.archive_candidate`
+    与删除同源（白名单形状＋resolve 收敛＋非活跃库，归档件带路径分隔天然不可二次
+    归档）。归档件退出候选/待删/隔离盘点；文件字节不动，可手工放回原处。"""
+    root = Path(DATA_ROOT)
+    active = _active_db_path()
+    allowed = await asyncio.to_thread(_archivable_names, root, active)
+    archived: list[str] = []
+    refused: list[str] = []
+    for name in body.filenames:
+        if name not in allowed:
+            refused.append(name)
+            continue
+        (archived if await asyncio.to_thread(archive_candidate, root, name, active)
+         else refused).append(name)
+    logger.info("event=migration_archive archived=%s refused=%s", archived, refused)
+    return {"code": 0, "data": {"archived": archived, "refused": refused}}
 
 
 @router.post("/preview")

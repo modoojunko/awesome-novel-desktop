@@ -31,6 +31,8 @@ export interface LegacyCandidate {
   carried_partial?: boolean;
   /** c-carry-receipt-ack：完成回执已被用户收起（持久化已阅，刷新/重开不复现） */
   receipt_acked?: boolean;
+  /** c-carry-candidates-perf：链上完整带回（数据已随链到现行库）＝整理入口可归档 */
+  chain_carried?: boolean;
   /** c-lossless-upgrade：recommended 候选的只读内容清单（后端只挂 recommended） */
   manifest?: {
     books: Array<{ name: string; words: number }>;
@@ -71,8 +73,12 @@ export function recommendedCandidate(status: LegacyStatus | null): LegacyCandida
 /**
  * c-lossless-upgrade 5.1：本 hook 已收敛为 carryStore 单例的薄壳——书架与账户
  * 菜单共享同一份 candidates 请求（此前两处挂载各发一次，挤占书架请求预算）。
+ *
+ * c-carry-candidates-perf：`refresh: 'auto'`（书架挂载）走降频——快照已确认
+ * 无待办（全部带回/抑制）时会话内跳过请求；默认 'force'（账户菜单＝用户动作）
+ * 恒拉新，不吞任何主动提醒路径。
  */
-export function useLegacyDb(): {
+export function useLegacyDb(opts: { refresh?: 'auto' | 'force' } = {}): {
   status: LegacyStatus | null;
   refresh: () => Promise<void>;
   dismiss: (filename: string) => Promise<void>;
@@ -80,7 +86,8 @@ export function useLegacyDb(): {
   const { status } = useCarryStore();
 
   useEffect(() => {
-    void refreshCarry();
+    void refreshCarry(opts.refresh === 'auto' ? { auto: true } : {});
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- 挂载拉取一次；刷新走返回的 refresh
   }, []);
 
   const refresh = useCallback(async () => {

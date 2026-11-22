@@ -174,7 +174,8 @@ function NovelList() {
   const [supportLink, setSupportLink] = useState('');
   const navigate = useNavigate();
   // db-generation：旧库检测（免登端点；空书架开口行→AcctMenu 弹窗）
-  const legacyDb = useLegacyDb();
+  // c-carry-candidates-perf：书架挂载走 auto——快照无待办时会话内不再重复拉
+  const legacyDb = useLegacyDb({ refresh: 'auto' });
   // c-lossless-upgrade：带回四步卡 + 常驻行（数据层＝carryStore 单例，useLegacyDb 是薄壳）
   const { job } = useCarryStore();
   // 推荐位单源（后端 recommended）；更早候选＝其余未带回的可搬运份

@@ -25,7 +25,7 @@ def _run_candidates(monkeypatch, *, last, snoozed, dismissed=""):
     monkeypatch.setattr(router, "_app_meta_value", fake_get)
     scanned = _items(["S1", "S2"])
 
-    def fake_scan(root, ver, active):
+    def fake_scan(root, ver, active, chain_map=None):
         return [dict(it) for it in scanned]
 
     monkeypatch.setattr(router, "scan_migration_candidates", fake_scan)
@@ -110,7 +110,7 @@ def test_olderstamp_record_still_carries(monkeypatch):
     scanned = [{"filename": "novel-v0.30.2.db", "stamp": "S1", "stamp_legacy": "S1-legacy",
                 "recommended": True, "unreadable": False}]
 
-    def fake_scan(root, ver, active):
+    def fake_scan(root, ver, active, chain_map=None):
         return [dict(it) for it in scanned]
 
     monkeypatch.setattr(router, "scan_migration_candidates", fake_scan)
@@ -138,7 +138,7 @@ def test_data_drift_breaks_both_forms(monkeypatch):
     scanned = [{"filename": "novel-v0.30.2.db", "stamp": "S1-new", "stamp_legacy": "S1-legacy-new",
                 "recommended": True, "unreadable": False}]
 
-    def fake_scan(root, ver, active):
+    def fake_scan(root, ver, active, chain_map=None):
         return [dict(it) for it in scanned]
 
     monkeypatch.setattr(router, "scan_migration_candidates", fake_scan)
@@ -163,7 +163,7 @@ def test_partial_state_flag(monkeypatch):
                     "stamp_legacy": scanned_stamp + "-l",
                     "recommended": True, "unreadable": False}]
 
-        def fake_scan(root, ver, active):
+        def fake_scan(root, ver, active, chain_map=None):
             return [dict(it) for it in scanned]
 
         monkeypatch.setattr(router, "scan_migration_candidates", fake_scan)
