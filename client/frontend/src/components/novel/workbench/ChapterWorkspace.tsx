@@ -1216,7 +1216,10 @@ const [ogForm, setOgForm] = useState<OgForm>(EMPTY_OG_FORM);
     });
     return () => onRailDataRef.current(null);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [wordCount, targetWords, setTargetWords, archived, bookWords, chTab, ogForm, chapterRef, gapsLoading, promptSavedSignal, handleFillGaps, handlePlotDraw, openCastReview, castEmpty, castReview.state.phase, castReview.state.writing, writeBlock]);
+  }, [wordCount, targetWords, setTargetWords, archived, bookWords, chTab, ogForm, chapterRef, gapsLoading, promptSavedSignal, handleFillGaps, handlePlotDraw, openCastReview, castEmpty, castReview.state.phase, castReview.state.writing, writeBlock,
+    // dirty 里的保存态/章纲编辑态：autosave 翻转时字数不变，漏这两项＝页面态永远
+    // 停在「正文未保存」（真机：状态栏已「已自动保存」，助手仍劝作者先保存）
+    saveState, ogEditing]);
 
   // ── 文风建议信号（右栏 AI 助手触发 → StyleShadowPane 内执行拉取；2026-09-20
   //    AI 入口收口右栏：页签 body 不再设 AI 按钮，建议结果仍在页签内逐项采纳） ──
