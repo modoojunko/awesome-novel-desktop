@@ -33,6 +33,25 @@ _NAV_INTENT_RE = re.compile(
 )
 
 
+_GENRE_INTENT_RE = re.compile(
+    r"(?:根据|按|照着).{0,8}(?:书名|标题|题目).{0,10}(?:选|定|判断|推荐|给).{0,6}题材"
+    r"|(?:帮我|给我|你).{0,6}(?:选|定|判断|推荐).{0,6}题材"
+    r"|(?:这|本).{0,4}书.{0,8}(?:算|是|属于).{0,4}(?:什么|哪个)题材"
+)
+
+
+def genre_prime_hint(thread: str, message: str, existing: dict | None = None) -> dict | None:
+    """选题材意图 → read_genre_catalog prime（c-agent-genre-pick）。
+
+    设定域内窄正则命中才 prime：先把封闭目录放进当轮上下文，模型再选大类/子类；
+    显式 tool_hint 优先。纯读、零副作用——误命中最多多读一次目录。"""
+    if existing is not None or not (thread or "").strip().startswith("set:"):
+        return existing
+    if not _GENRE_INTENT_RE.search(message or ""):
+        return None
+    return {"tool": "read_genre_catalog", "args": {}}
+
+
 def nav_prime_hint(thread: str, message: str, existing: dict | None = None) -> dict | None:
     """导航意图 → switch_tab prime（c-agent-nav 走查实锤补刀）。
 
@@ -387,6 +406,7 @@ async def _stream_chat(
     # 请求由页签真值注入兜住（模型如实回答「已在正文」）。读类零风险，误命中代价
     # ＝一次无副作用翻页。
     tool_hint = nav_prime_hint(thread, message, tool_hint)
+    tool_hint = genre_prime_hint(thread, message, tool_hint)
 
     try:
         from ai_client import get_ai_client_for_novel

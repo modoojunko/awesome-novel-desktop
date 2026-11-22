@@ -182,3 +182,29 @@ describe("CardBody 写法约束回显（c-agent-action-contract）", () => {
     expect(screen.getByText(/冷硬短句/)).toBeTruthy();
   });
 });
+
+describe("CardBody 题材采纳卡（c-agent-genre-pick）", () => {
+  it("catalog 卡显示题材/子类/理由，不露裸键", () => {
+    renderBody("text", {
+      stype: "genre",
+      field: "catalog",
+      value: { theme: "都市", sub_genre: "都市职场", note: "书名带夜班与异能组织" },
+    });
+    expect(screen.getByTestId("genre-pick-card")).toBeTruthy();
+    expect(screen.getByText("题材")).toBeTruthy();
+    expect(screen.getByText("都市职场")).toBeTruthy();
+    expect(screen.getByText("理由")).toBeTruthy();
+    expect(screen.queryByText("value")).toBeNull();
+  });
+
+  it("core_promise 字段卡用字段中文名＋备注，不露裸 value", () => {
+    renderBody("text", {
+      stype: "genre",
+      field: "core_promise",
+      value: { value: "以弱破强的痛快", note: "读者要看到弱者翻盘" },
+    });
+    expect(screen.getByText("主要看什么")).toBeTruthy();
+    expect(screen.getByText("备注")).toBeTruthy();
+    expect(screen.queryByText("value")).toBeNull();
+  });
+});

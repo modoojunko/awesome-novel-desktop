@@ -52,6 +52,22 @@ describe("settings 字段卡写回", () => {
     expect(putBody.forbidden_list).toEqual([]); // 既有字段不被破坏
   });
 
+  it("catalog 卡成对写 theme/sub_genre，保留其余字段", async () => {
+    apiState.get.mockResolvedValue({
+      theme: "悬疑", sub_genre: "", core_promise: "旧承诺", forbidden_list: ["x"],
+    });
+    const receipt = await writeBackSettingsField(P, {
+      stype: "genre", field: "catalog",
+      value: { theme: "都市", sub_genre: "都市职场", note: "标题带夜班" },
+    });
+    const putBody = apiState.put.mock.calls[0][1] as Record<string, unknown>;
+    expect(putBody.theme).toBe("都市");
+    expect(putBody.sub_genre).toBe("都市职场");
+    expect(putBody.core_promise).toBe("旧承诺");
+    expect(putBody.forbidden_list).toEqual(["x"]);
+    expect(receipt).toContain("01 题材");
+  });
+
   it("数值/数组字段原样直写（cost_ratio）", async () => {
     apiState.get.mockResolvedValue({ cost_ratio: 5 });
     await writeBackSettingsField(P, { stype: "genre", field: "cost_ratio", value: 7 });

@@ -487,7 +487,7 @@ class AgentLoop:
     # -- 文本协议分支（tasks 4.4＝原循环原样迁移；解析器＋抢救函数保留）───────
 
     async def _run_text(self, run_id: str, started: float) -> AsyncIterator[dict[str, Any]]:
-        step_no = 0
+        step_no = self.result.steps
         while True:
             if not self._wall_clock_left(started):
                 yield self._wall_clock_message()
@@ -810,7 +810,7 @@ class AgentLoop:
             for t in TOOL_REGISTRY
             if allowed is None or t.name in allowed
         ]
-        step_no = 0
+        step_no = self.result.steps
         while True:
             if not self._wall_clock_left(started):
                 yield self._wall_clock_message()
