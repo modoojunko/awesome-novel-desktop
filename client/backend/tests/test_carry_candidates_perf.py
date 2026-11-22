@@ -272,23 +272,26 @@ class TestTraceCarryChain:
         assert chain["novel-v0.24.db"] is True
         assert chain["novel-v0.23.db"] is False
 
-    def test_immutable_read_leaves_no_sidecar(self, tmp_path):
-        """链证据读取零痕迹：不建 `-shm`、不动源件；`-wal` 未 checkpoint 的记录
-        读不到＝None（保守断链，不假装读到了）。"""
+    def test_wal_candidate_staged_read_no_sidecar(self, tmp_path):
+        """WAL 候选未 checkpoint 记录走暂存副本读（真机两连实锤后的修正）：
+        读得到记录、源目录零痕迹（不新建/不改写 sidecar）。"""
         p = tmp_path / "w.db"
         con = sqlite3.connect(p)
         con.execute("PRAGMA journal_mode=wal")
         con.execute("CREATE TABLE IF NOT EXISTS app_meta (key TEXT PRIMARY KEY, value TEXT)")
-        con.execute("INSERT INTO app_meta VALUES ('migration.last', '{}')")
+        con.execute("INSERT INTO app_meta VALUES ('migration.last', ?)",
+                    (json.dumps({"source_filename": "novel-v0.24.db"}),))
         con.commit()
         con2 = sqlite3.connect(p)  # 第二连接挡住「最后连接关闭即删 -wal」
-        before = {x.name for x in tmp_path.iterdir()}
+        before = {x.name: (x.stat().st_mtime_ns, x.stat().st_size)
+                  for x in tmp_path.iterdir()}
         last = migration_last_cached(p)
-        during = {x.name for x in tmp_path.iterdir()}  # 关闭前对拍（关连接会清 sidecar）
+        during = {x.name: (x.stat().st_mtime_ns, x.stat().st_size)
+                  for x in tmp_path.iterdir()}  # 关闭前对拍（关连接会清 sidecar）
         con2.close()
         con.close()
-        assert before == during  # 零痕迹：链证据读取不新建任何 sidecar
-        assert last is None      # -wal 里的记录 immutable 口读不到＝证据缺失
+        assert before == during  # 零痕迹：链证据读取不新建/不改写任何 sidecar
+        assert last == {"source_filename": "novel-v0.24.db"}  # -wal 里的记录经暂存副本读到
 
     def test_migration_last_reads_main_file(self, tmp_path):
         """主文件已落盘的完成记录照常读到（immutable 口）。"""
@@ -308,13 +311,15 @@ class TestTraceCarryChain:
         con.commit()
         con2 = sqlite3.connect(p)  # 挡住「最后连接关闭即 checkpoint+删 -wal」
         try:
-            # immutable 口：主文件里没有 → None（证据缺失）
-            assert migration_last_cached(p) is None
-            # WAL 可见口：读得到（真机第一跳的正确姿势）
+            # 候选口（WAL 非空 → 暂存副本）：未 checkpoint 记录读得到（真机修正）
+            assert migration_last_cached(p) == {"source_filename": "novel-v0.24.db"}
+            # WAL 可见口（活跃槽第一跳）：同样读得到
             assert migration_last_cached(p, wal_aware=True) == {
                 "source_filename": "novel-v0.24.db"}
-            # 两口同文件不同键，互不串
-            assert migration_last_cached(p) is None
+            # 两口同文件不同键，互不串（改数据后各自重算不互染）
+            con.execute("INSERT INTO app_meta VALUES ('probe', 'x')")
+            con.commit()
+            assert migration_last_cached(p) == {"source_filename": "novel-v0.24.db"}
             assert migration_last_cached(p, wal_aware=True) == {
                 "source_filename": "novel-v0.24.db"}
         finally:
