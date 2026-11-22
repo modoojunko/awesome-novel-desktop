@@ -1498,6 +1498,35 @@ describe("收进知识库出口（c-deconstruct-collect-all-dims）", () => {
     expect(toastState.error).toHaveBeenLastCalledWith("收进知识库失败");
   });
 
+  it("提交失败重取候选：保留用户勾选与题材，不悄悄换一批", async () => {
+    const mixed = () =>
+      candidates({
+        groups: [
+          { dim: "techniques", label: "写作技法", count: 3, collected: 1 },
+          { dim: "style", label: "写作文风", count: 1, collected: 0 },
+        ],
+      });
+    state.collectCandidates.mockResolvedValueOnce(mixed()).mockResolvedValueOnce(mixed());
+    state.collectToKb.mockRejectedValue(new Error("库写不进去"));
+    await openExit();
+    await waitFor(() => expect(screen.getAllByTestId("collect-group-row")).toHaveLength(2));
+
+    // 用户主动取消写作技法组、改选都市题材
+    const rows = screen.getAllByTestId("collect-group-row");
+    fireEvent.click(rows[0].querySelector("input") as HTMLInputElement);
+    fireEvent.change(screen.getByTestId("collect-genre"), { target: { value: "都市" } });
+    fireEvent.click(screen.getByTestId("library-submit"));
+    await waitFor(() => expect(toastState.error).toHaveBeenCalledWith("库写不进去"));
+
+    // 失败后重取只刷新灰态：未勾的仍不勾、已勾的仍勾、题材不丢
+    await waitFor(() => expect(screen.getAllByTestId("collect-group-row")).toHaveLength(2));
+    const after = screen.getAllByTestId("collect-group-row");
+    expect((after[0].querySelector("input") as HTMLInputElement).checked).toBe(false);
+    expect((after[1].querySelector("input") as HTMLInputElement).checked).toBe(true);
+    expect((screen.getByTestId("collect-genre") as HTMLSelectElement).value).toBe("都市");
+    expect(screen.getByTestId("library-submit").textContent).toContain("1 条内容");
+  });
+
   it("内容已收、角色失败：报已收部分并留面板", async () => {
     state.collectCandidates.mockResolvedValue(candidates());
     state.collectToKb.mockResolvedValue({

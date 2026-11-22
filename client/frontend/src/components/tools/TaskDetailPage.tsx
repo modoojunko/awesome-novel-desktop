@@ -398,15 +398,34 @@ export default function TaskDetailPage() {
     }
   };
 
-  const loadCollectCandidates = async () => {
+  const loadCollectCandidates = async (preserve = false) => {
     setCollectCandidates(null);
     setCollectErr("");
     try {
       const r = await getCollectCandidates(task.id);
       setCollectCandidates(r);
-      setLibPicks(new Set(r.characters.filter((i) => !i.collected).map((i) => i.key)));
-      setCollectDims(new Set(r.groups.filter((g) => g.count > g.collected).map((g) => g.dim)));
-      setCollectGenre("");
+      if (preserve) {
+        // 提交失败后重取只为刷新灰态：保留用户已勾的角色/分组/题材，
+        // 别把「重试」悄悄换成本想收的另一批内容。
+        setLibPicks((prev) =>
+          new Set(
+            [...prev].filter((key) =>
+              r.characters.some((c) => c.key === key && !c.collected),
+            ),
+          ),
+        );
+        setCollectDims((prev) =>
+          new Set(
+            [...prev].filter((dim) =>
+              r.groups.some((g) => g.dim === dim && g.count > g.collected),
+            ),
+          ),
+        );
+      } else {
+        setLibPicks(new Set(r.characters.filter((i) => !i.collected).map((i) => i.key)));
+        setCollectDims(new Set(r.groups.filter((g) => g.count > g.collected).map((g) => g.dim)));
+        setCollectGenre("");
+      }
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "可收内容加载失败");
       setCollectErr("可收内容加载失败，稍后重试");
@@ -459,7 +478,7 @@ export default function TaskDetailPage() {
             (done.length > 0 ? `已收进知识库：${done.join("、")}；` : "") +
               (failed instanceof Error ? failed.message : "收进知识库失败"),
           );
-          void loadCollectCandidates(); // 重取候选：已收的即时灰掉，可继续补收
+          void loadCollectCandidates(true); // 重取候选：已收的即时灰掉；保留用户勾选与题材
         } else {
           toast.success(
             `已收进知识库：${done.join("、")}` +
