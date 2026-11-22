@@ -306,23 +306,33 @@ def probe_library_cached(db_path: Path) -> dict:
     return info
 
 
-def migration_last_cached(db_path: Path) -> dict | None:
-    """读候选槽自身 `app_meta['migration.last']`（链上溯源证据，c-carry-candidates-perf）。
+def migration_last_cached(db_path: Path, wal_aware: bool = False) -> dict | None:
+    """读槽自身 `app_meta['migration.last']`（链上溯源证据，c-carry-candidates-perf）。
 
-    **immutable 只读口**：只读主文件、不建 `-shm`、不读 `-wal`——绝不碰源目录
-    （与 probe 的暂存纪律同向）。代价：`-wal` 里未 checkpoint 的完成记录读不到
-    → 返回 None＝链证据缺失，回溯保守断链（少归档优于误归档）。完成记录由
-    迁移完成时直连写入并已 checkpoint，正常都在主文件里。"""
+    两种只读口（按槽角色分）：候选槽默认 **immutable**——只读主文件、不建 `-shm`、
+    不读 `-wal`，绝不碰源目录（与 probe 的暂存纪律同向）；代价是 `-wal` 里未
+    checkpoint 的记录读不到 → None＝证据缺失，回溯保守断链（少归档优于误归档）。
+    活跃槽走 `wal_aware=True`（mode=ro 可见 WAL）——它是应用自己的库、`-shm` 本就
+    在，而迁移完成记录是直连写入、引擎连接池长持不关，**可能长期躺在 WAL 里没
+    checkpoint**（真机 0.49.2 实锤：immutable 读不到当日迁移记录）；链回溯第一跳
+    MUST 走此口，否则整链断、归档白名单恒空。
+    缓存键带模式维度（同一文件两种口读到的可见集不同，MUST NOT 互串）。"""
     key = data_identity_key(db_path)
     if key is None:
         return None
-    hit = _cache_get(_migration_last_cache, _migration_last_cache_lock, key)
+    cache_key = (*key, "w" if wal_aware else "i")
+    hit = _cache_get(_migration_last_cache, _migration_last_cache_lock, cache_key)
     if hit is not None:
         return dict(hit) if isinstance(hit, dict) else None
     last: dict | None = None
+    # 路径百分号编码（router._ro_uri 同判例）：数据目录含空格（Application Support）
+    # 等字符时裸 f-string 拼 URI 会被截断/误读。
+    from urllib.parse import quote
+
+    enc = quote(str(db_path))
+    uri = f"file:{enc}?mode=ro" if wal_aware else f"file:{enc}?mode=ro&immutable=1"
     try:
-        con = sqlite3.connect(
-            f"file:{db_path}?mode=ro&immutable=1", uri=True, timeout=3)
+        con = sqlite3.connect(uri, uri=True, timeout=3)
         try:
             row = con.execute(
                 "SELECT value FROM app_meta WHERE key='migration.last'").fetchone()
@@ -333,7 +343,7 @@ def migration_last_cached(db_path: Path) -> dict | None:
             con.close()
     except (sqlite3.Error, json.JSONDecodeError, ValueError):
         last = None
-    _cache_put(_migration_last_cache, _migration_last_cache_lock, key, last)
+    _cache_put(_migration_last_cache, _migration_last_cache_lock, cache_key, last)
     return dict(last) if isinstance(last, dict) else None
 
 
@@ -356,7 +366,9 @@ def trace_carry_chain(data_root: Path, active_db_path: Path | None) -> dict[str,
         if cur.name in visited:
             break  # 环＝数据异常，保守停走
         visited.add(cur.name)
-        last = migration_last_cached(cur)
+        # 第一跳＝活跃槽（应用自己的库）：走 WAL 可见口——迁移完成记录可能未
+        # checkpoint（真机实锤）；后续跳＝候选槽（源只读纪律）：immutable 零痕迹。
+        last = migration_last_cached(cur, wal_aware=(cur == Path(active_db_path)))
         if not last:
             break  # 缺证据（未迁移/老库/记录读不到）——链到此为止
         src_name = str(last.get("source_filename") or "")

@@ -296,6 +296,31 @@ class TestTraceCarryChain:
         _write_db(p, books=1, migration_last={"source_filename": "x.db"})
         assert migration_last_cached(p) == {"source_filename": "x.db"}
 
+    def test_wal_aware_read_sees_uncheckpointed_record(self, tmp_path):
+        """活跃槽走 WAL 可见口：未 checkpoint 的完成记录能读到（真机 0.49.2 实锤
+        ——迁移记录躺 WAL、immutable 读不到）；缓存键按模式分域不互串。"""
+        p = tmp_path / "active.db"
+        con = sqlite3.connect(p)
+        con.execute("PRAGMA journal_mode=wal")
+        con.execute("CREATE TABLE app_meta (key TEXT PRIMARY KEY, value TEXT)")
+        con.execute("INSERT INTO app_meta VALUES ('migration.last', ?)",
+                    (json.dumps({"source_filename": "novel-v0.24.db"}),))
+        con.commit()
+        con2 = sqlite3.connect(p)  # 挡住「最后连接关闭即 checkpoint+删 -wal」
+        try:
+            # immutable 口：主文件里没有 → None（证据缺失）
+            assert migration_last_cached(p) is None
+            # WAL 可见口：读得到（真机第一跳的正确姿势）
+            assert migration_last_cached(p, wal_aware=True) == {
+                "source_filename": "novel-v0.24.db"}
+            # 两口同文件不同键，互不串
+            assert migration_last_cached(p) is None
+            assert migration_last_cached(p, wal_aware=True) == {
+                "source_filename": "novel-v0.24.db"}
+        finally:
+            con2.close()
+            con.close()
+
 
 # ── 4.2/4.3 扫描标注＋归档 ────────────────────────────────────────────────
 
