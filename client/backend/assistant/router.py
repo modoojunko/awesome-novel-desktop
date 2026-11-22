@@ -100,7 +100,6 @@ from assistant import identity as identity_mod
 from assistant import session_store, write_gate
 from assistant.context import (
     build_book_brief_parts,
-    build_genre_panel_note,
     build_outbound_window,
     build_page_note,
     latest_reminder_text,
@@ -328,8 +327,6 @@ async def _stream_chat(
     user_message_id: str = "",
     body_focus: dict[str, Any] | None = None,
     page_unsaved: list[str] | None = None,
-    page_panel: str = "",
-    chapter_tab: str = "",
     thread: str = "",
     tool_hint: dict[str, Any] | None = None,
     api_config_id: str = "",
@@ -393,25 +390,6 @@ async def _stream_chat(
             (note + " " if note else "")
             + f"［未保存：{'、'.join(page_unsaved)}——写改该页前先提醒作家，避免覆盖其未保存内容］"
         )
-    # 页面字段上下文（c-agent-page-context）：设定页带 panel，注入本页字段名＋当前值。
-    # 作家说「这格/这个」时模型能对上号；读失败 fail-soft，不影响对话。
-    if chapter_tab:
-        from assistant.page_context import CHAPTER_TAB_LABELS
-
-        tab_label = CHAPTER_TAB_LABELS.get(chapter_tab)
-        if tab_label:
-            note = (note + " " if note else "") + f"［当前页签：{tab_label}］"
-    if page_panel:
-        try:
-            from assistant.page_context import build_page_field_note
-
-            field_note = await build_page_field_note(project, page_panel)
-        except Exception as e:  # noqa: BLE001——增强面失败不打断对话
-            _log.warning("page field context skipped: %s", e)
-            field_note = ""
-        if field_note:
-            note = (note + " " if note else "") + field_note
-
     # L2 画像注入（批C 3.3）：口味/雷点裁一段拼进页面注入——起草/发散先懂作家
     try:
         from assistant.profile import load_sections
@@ -440,13 +418,6 @@ async def _stream_chat(
         # 后端无人解析——模型不知道作家在题材页还是角色页（page 字符串不分面板）。
         _tab_label = settings_tab_label(thread)
         note = (note + " " if note else "") + f"［当前页签：{_tab_label}］"
-    # 题材面板字段真值（c-agent-page-field-truth）：五格填空状态随轮注入——作家问
-    # 「当前页面有什么问题」模型免工具即答（read_settings genre 区做按需细读互补）。
-    # 仅 set:genre 线程（01-05 逐一对应 UI 字段）；fail-soft 由构造方兜底。
-    if thread == "set:genre":
-        _fields_note = await build_genre_panel_note(project.root_path, project.id)
-        if _fields_note:
-            note = (note + " " if note else "") + _fields_note
     # 动态书情/记忆拼当前 user 消息尾部（c-agent-prompt-cache）：系统前缀只留
     # 稳定段（书名/题材/身份/协议/工具目录），进度变化不废前缀缓存。
     for part in (dynamic_brief, memory_section):
@@ -502,6 +473,7 @@ async def _stream_chat(
         page=page,
         focus_ref=(body_focus or {}).get("ref", ""),
         thread=thread,
+        page_unsaved=tuple(page_unsaved or ()),
         scratch={"plan": prior_plan} if prior_plan else {},
     )
     # 记账必须记真实模型（test_ai_prompt_and_boundary 护栏：符号别名不得落账）——
@@ -1184,17 +1156,6 @@ async def assistant_chat(
         if isinstance(body_page_state, dict) and isinstance(body_page_state.get("unsaved"), list)
         else []
     )
-    # 页面字段上下文（c-agent-page-context）：设定面板 / 章内页签
-    page_panel = (
-        str(body_page_state.get("panel") or "").strip()[:32]
-        if isinstance(body_page_state, dict)
-        else ""
-    )
-    chapter_tab = (
-        str(body_page_state.get("chapter_tab") or "").strip()[:32]
-        if isinstance(body_page_state, dict)
-        else ""
-    )
     user_row = await session_store.append_message(
         session,
         role="user",
@@ -1221,7 +1182,6 @@ async def assistant_chat(
             db, project, user, session, message, page,
             user_message_id=user_row.id, body_focus=body_focus,
             page_unsaved=page_unsaved,
-            page_panel=page_panel, chapter_tab=chapter_tab,
             thread=thread, tool_hint=tool_hint,
             api_config_id=api_config_id, model=model,
             thinking_override=thinking_override,

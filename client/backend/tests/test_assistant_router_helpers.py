@@ -453,44 +453,6 @@ async def test_book_brief_genre_line_skips_when_empty(monkeypatch):
     assert "题材" not in stable
 
 
-@pytest.mark.asyncio
-async def test_genre_panel_note_lists_five_fields(monkeypatch):
-    """set:genre 字段真值：五格逐格点名/给值，一行式 note（作家问「页面有什么
-    问题」模型免工具即答——「看不到你页面」事故根修）。"""
-    import genres.service as _gs
-    from assistant.context import build_genre_panel_note
-
-    async def _fake_ctx(root_path, novel_id):
-        return {
-            "theme": "都市",
-            "sub_genre": "",
-            "promise_note": "夜班守护者的绝境求生",
-            "forbidden": ["禁天降外援"],
-        }
-
-    monkeypatch.setattr(_gs, "resolve_genre_context", _fake_ctx)
-    note = await build_genre_panel_note("/root", "n1")
-    assert note.startswith("［本页字段真值：")
-    assert "01 题材=都市" in note
-    assert "02 主要看什么=夜班守护者的绝境求生" in note
-    assert "03 绝对禁止=禁天降外援" in note
-    assert "04 吃苦指数=未定" in note
-    assert "05 本小说斗什么=未填" in note
-
-
-@pytest.mark.asyncio
-async def test_genre_panel_note_fail_soft(monkeypatch):
-    """resolve 炸了返回空串——丢注入不打断对话（fail-soft，与 brief 同风格）。"""
-    import genres.service as _gs
-    from assistant.context import build_genre_panel_note
-
-    async def _boom(root_path, novel_id):
-        raise RuntimeError("db down")
-
-    monkeypatch.setattr(_gs, "resolve_genre_context", _boom)
-    assert await build_genre_panel_note("/root", "n1") == ""
-
-
 def test_settings_tab_label_panels():
     """set:* 面板真值标签：已知面板带后缀；default/未知回退「设定」；
     非 set: 线程空串（ch:/vol 走各自分支，不串味）。"""
