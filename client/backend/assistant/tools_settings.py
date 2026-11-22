@@ -134,6 +134,80 @@ def _make_genre_tool(field: str, desc: str) -> Tool:
 
 
 
+# ── 01 题材目录（c-agent-genre-pick）──────────────────────────────────────
+# 「题材」有两层：01 目录（theme/sub_genre）与 02-05 四格。四问工具不能代替
+# 选题材——模型没有目录时只能拿 core_promise 顶替（2026-11-21 真机实锤）。
+
+
+async def _read_genre_catalog(ctx: ToolContext, **_model_extra: Any) -> ToolResult:
+    """读封闭题材目录（大类+子类+解读/案例）——供模型按标题判断，读类不落库。"""
+    from genres.theme_catalog import THEMES
+
+    lines: list[str] = []
+    for theme in THEMES:
+        lines.append(f"{theme['name']}：{theme['desc']}")
+        for sub in theme["sub_types"]:
+            lines.append(
+                f"  - {sub['name']}：{sub['desc']}（例：{sub['example']}）"
+            )
+    return ToolResult(
+        ok=True,
+        summary=(
+            "题材目录（只能从这里选）：\n"
+            + "\n".join(lines)
+            + "\n\n下一步：从上面选一个最贴合书名的 theme（可带 sub_genre），"
+            "调 settings_genre_pick 出采纳卡；不要用题材四问代替选题材。"
+        ),
+    )
+
+
+async def _settings_genre_pick(
+    ctx: ToolContext,
+    theme: str = "",
+    sub_genre: str = "",
+    note: str = "",
+) -> ToolResult:
+    """题材目录推荐卡：只产卡不写库；theme/sub_genre 按封闭目录校验。"""
+    from genres.theme_catalog import THEMES, sub_type_entry, theme_entry
+
+    th = str(theme or "").strip()
+    sub = str(sub_genre or "").strip()
+    why = _clip(str(note or "").strip(), 400)
+    entry = theme_entry(th)
+    if entry is None:
+        names = "、".join(t["name"] for t in THEMES)
+        return ToolResult(
+            ok=False,
+            summary=(
+                f"没有「{th or '空'}」这个题材。只能从目录里选：{names}。"
+                "先调 read_genre_catalog 看每类写的是什么，再选一个。"
+            ),
+        )
+    if sub and sub_type_entry(th, sub) is None:
+        subs = "、".join(s["name"] for s in entry["sub_types"])
+        return ToolResult(
+            ok=False,
+            summary=(
+                f"「{th}」下没有「{sub}」这个子类。可选：{subs}；"
+                "也可以只定大类（sub_genre 留空）。"
+            ),
+        )
+    label = f"{th} / {sub}" if sub else th
+    tail = f"。{why}" if why else ""
+    return ToolResult(
+        ok=True,
+        summary=f"题材建议：{label}{tail}（过目后采纳写入 01 题材）",
+        card={
+            "kind": "text",
+            "payload": {
+                "stype": "genre",
+                "field": "catalog",
+                "value": {"theme": th, "sub_genre": sub, "note": why},
+            },
+        },
+    )
+
+
 # ── 章纲补全缺失（#5 样板：agent 识别→直调 fill-gaps 核→产物卡）──────────────
 
 _FILLABLE = ("summary", "characters", "changes", "prohibitions", "mood")
@@ -334,6 +408,36 @@ DRAFT_CHARACTER_TOOL = _make_draft_character_tool()
 SETTINGS_FIELD_TOOLS: tuple[Tool, ...] = (
     DRAFT_CHARACTER_TOOL,
     OG_FILL_TOOL,
+    Tool(
+        name="read_genre_catalog",
+        kind="read",
+        parameters={"type": "object", "properties": {}},
+        description=(
+            "读题材目录（36 个大类+子类，含每类的解读与案例）。作家说「根据标题选/定/"
+            "判断题材」「这本书算什么题材」「推荐个题材」时，先调本工具看目录，再用 "
+            "settings_genre_pick 出采纳卡。不要用题材四问（爽点/红线/代价/斗什么）代替选题材。"
+        ),
+        fn=_read_genre_catalog,
+    ),
+    Tool(
+        name="settings_genre_pick",
+        kind="card",
+        feature_key="settings-ai-fields",
+        parameters={
+            "type": "object",
+            "properties": {
+                "theme": {"type": "string", "description": "题材大类（必须来自 read_genre_catalog）"},
+                "sub_genre": {"type": "string", "description": "子类（可空；必须属于该大类）"},
+                "note": {"type": "string", "description": "推荐理由（一句话，给作家看）"},
+            },
+            "required": ["theme"],
+        },
+        description=(
+            "把选定的 01 题材（大类+子类）做成采纳卡，作家点「采纳·写入」后落到题材面板。"
+            "只用于选题材；爽点/红线/吃苦/战场用对应的题材四问工具。"
+        ),
+        fn=_settings_genre_pick,
+    ),
     _make_genre_tool("core_promise", "题材·主要看什么：给几个核心看点候选（勾选采纳）"),
     _make_genre_tool("forbidden_list", "题材·绝对禁止：这本书绝不出现什么（红线清单候选）"),
     _make_genre_tool("cost_ratio", "题材·吃苦指数：主角得到好处要付多大代价（代价配比建议）"),

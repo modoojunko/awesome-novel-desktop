@@ -13,7 +13,27 @@ const GENERIC_LABELS: Record<string, string> = {
   rows: "逐段盘点", verdict: "判定", echo: "段落原文", role: "角色",
   persona: "人设", duty: "差事", entrance: "进场", exit_note: "退场",
   checks: "自检", warnings: "提醒", diff: "差异", one_liner: "一句话",
-  constraints_used: "写法约束",
+  constraints_used: "写法约束", value: "内容", theme: "题材", sub_genre: "子类",
+  reason: "理由",
+};
+
+/** 设定字段 → 人话标签（设定卡主键是 stype/field，不能再露 value 裸键）。 */
+const SETTINGS_FIELD_LABELS: Record<string, string> = {
+  core_promise: "主要看什么",
+  forbidden_list: "绝对禁止",
+  cost_ratio: "吃苦指数",
+  battlefield: "本小说斗什么",
+  theme: "题材",
+  sub_genre: "子类",
+  synopsis: "简介",
+  no_power: "现实向开关",
+  stage: "世界舞台",
+  power: "力量体系",
+  cost: "力量的代价",
+  history: "历史与旧账",
+  factions: "势力",
+  constraints: "世界铁律",
+  extra: "更多世界细节",
 };
 
 function genericLabel(k: string): string {
@@ -224,6 +244,72 @@ export function CardBody({ kind, payload }: { kind: string; payload: unknown }) 
         <p className="cd-dim">产物不落库——到章纲表单核对后采纳保存。</p>
       </div>
     );
+  }
+  // 设定字段卡（settings_genre_* / write_settings_field 产物）：按字段中文名渲染。
+  // c-agent-genre-pick：01 题材目录卡单独走「题材/子类/理由」，其余字段也不再露裸 value。
+  if (data.stype != null && data.field != null) {
+    const field = String(data.field);
+    if (field === "catalog") {
+      const v = (data.value ?? {}) as Record<string, unknown>;
+      const theme = String(v.theme ?? "").trim();
+      const sub = String(v.sub_genre ?? "").trim();
+      const note = String(v.note ?? "").trim();
+      return (
+        <div className="cd-draft" data-testid="genre-pick-card">
+          <div className="cd-draft-row">
+            <b>题材</b>
+            <span>{theme || "（未定）"}</span>
+          </div>
+          {sub ? (
+            <div className="cd-draft-row">
+              <b>子类</b>
+              <span>{sub}</span>
+            </div>
+          ) : null}
+          {note ? (
+            <div className="cd-draft-row">
+              <b>理由</b>
+              <span>{_clip(note, 300)}</span>
+            </div>
+          ) : null}
+        </div>
+      );
+    }
+    const label = SETTINGS_FIELD_LABELS[field] ?? field;
+    const value = data.value;
+    const rows: [string, string][] = [];
+    if (value && typeof value === "object" && !Array.isArray(value)) {
+      const v = value as Record<string, unknown>;
+      const main = v.value ?? v.text ?? v.draft ?? "";
+      const note = v.note ?? v.remark ?? "";
+      if (main !== "") rows.push([label, String(main)]);
+      if (note !== "") rows.push(["备注", String(note)]);
+    } else if (Array.isArray(value)) {
+      const texts = value
+        .map((x) => {
+          if (x && typeof x === "object") {
+            const o = x as Record<string, unknown>;
+            return String(o.text ?? o.tagId ?? "");
+          }
+          return String(x ?? "");
+        })
+        .filter(Boolean);
+      if (texts.length) rows.push([label, texts.join("、")]);
+    } else if (value != null) {
+      rows.push([label, String(value)]);
+    }
+    if (rows.length) {
+      return (
+        <div className="cd-draft">
+          {rows.map(([k, v]) => (
+            <div key={k} className="cd-draft-row">
+              <b>{k}</b>
+              <span>{_clip(v, 300)}</span>
+            </div>
+          ))}
+        </div>
+      );
+    }
   }
   // 设定字段 AI 卡（settings_* 工具）：字符串值直渲染；对象值走通用人话渲染
   // （禁 JSON.stringify 上对话框——boss 红线 2026-11-16，简介卡 result 曾整段裸 JSON）

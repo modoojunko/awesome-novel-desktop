@@ -40,6 +40,17 @@ export async function writeBackSettingsField(
   const { api } = await import("@/lib/api");
   const cur = (await api.get(`/novels/${projectId}/settings/${stype}`)) as Record<string, unknown> | null;
   const data = { ...(cur ?? {}) };
+  // 01 题材目录卡（c-agent-genre-pick）：theme/sub_genre 成对写，其余字段保持。
+  if (field === "catalog") {
+    const one = (payload.value ?? {}) as Record<string, unknown>;
+    const theme = String(one.theme ?? "").trim();
+    const sub = String(one.sub_genre ?? "").trim();
+    if (!theme) throw new Error("这张卡没带题材——回题材面板手动选一下。");
+    data.theme = theme;
+    data.sub_genre = sub;
+    await api.put(`/novels/${projectId}/settings/${stype}`, data);
+    return `已写进 01 题材：${theme}${sub ? ` / ${sub}` : ""}。`;
+  }
   // core_promise 特例（review P2）：生成核出 {value, note}——value→短标签字段、
   // note→promise_note（面板同款映射，GenreSettingForm 250 行同构）；其余字段原样直写
   // （forbidden_list/battlefield 为归一化数组、cost_ratio 为数值——形状即契约）。

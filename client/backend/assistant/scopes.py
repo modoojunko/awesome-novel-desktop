@@ -68,6 +68,8 @@ _DOMAIN_TOOLS: dict[str, dict[str, frozenset[str]]] = {
         "label": "设定助手",
         "tools": frozenset(
             {
+                "read_genre_catalog",  # 01 题材目录（c-agent-genre-pick）
+                "settings_genre_pick",
                 "settings_genre_core_promise",
                 "settings_genre_forbidden_list",
                 "settings_genre_cost_ratio",
@@ -205,7 +207,7 @@ def out_of_scope_guidance(tool: str, thread: str) -> str:
 PAGE_DISCIPLINE: dict[str, str] = {
     "章纲": "章纲纪律：概要/角色/变化/悬念/阶段五项口径；节奏档位以书级设定为准；产物一律过目，不直接落库。",
     "正文": "正文纪律：人味红线（短句、口语、禁 AI 腔）；对话只做诊断与建议——正文生成走既有写作流，不在对话里代笔。",
-    "设定": "设定纪律：题材词表口径优先；改动一律产卡过目；不得与既有设定冲突。",
+    "设定": "设定纪律：题材词表口径优先；作家说「选/定/判断/推荐题材」默认指 01 题材目录（大类+子类）——先 read_genre_catalog 再 settings_genre_pick 出卡，不要用四问工具顶替；说「爽点/红线/代价/斗什么」才用题材四问。改动一律产卡过目；不得与既有设定冲突。",
     "卷纲": "卷纲纪律：六段口径（目标/冲突/结局/章数/反派类型/反派线）；写回前必过目。",
 }
 
