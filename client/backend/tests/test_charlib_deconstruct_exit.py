@@ -177,6 +177,17 @@ class TestToLibrary:
         card = c.get("/api/character-library").json()["data"]["items"][0]
         assert card["genre"] == "仙侠/修真"
 
+    def test_genre_override_falls_back_when_unnormalizable(self, client):
+        """目录外自由文本归一为空时回落产物题材（review P3），不清成「未定题材」。"""
+        c, seed = client
+        r = c.post(
+            f"/api/deconstruct/tasks/{seed['task_id']}/to-library",
+            json={"picks": ["秦重霄"], "rename": False, "genre": "量子力学笔记"},
+        )
+        assert r.status_code == 200, r.text
+        card = c.get("/api/character-library").json()["data"]["items"][0]
+        assert card["genre"] == "玄幻"
+
     def test_status_codes(self, client):
         c, seed = client
         assert c.post(f"/api/deconstruct/tasks/{seed['task_id']}/to-library",

@@ -1041,11 +1041,10 @@ async def import_from_deconstruct(
     for idx, card in enumerate(cards, start=1):
         by_key[deconstruct_source_key(card, idx)] = (idx, card)
 
-    genre = (
-        normalize_theme(str(genre_override).strip())[:GENRE_MAX]
-        if str(genre_override or "").strip()
-        else _deconstruct_genre(task)
-    )
+    # 面板补选题材：归一命中即用；目录外自由文本归一为空时回落产物题材，
+    # 别把产物本可推出的题材清成「未定题材」（review P3；UI 只发目录名，API 直调可触发）
+    override_genre = normalize_theme(str(genre_override or "").strip())[:GENRE_MAX]
+    genre = override_genre or _deconstruct_genre(task)
     collected = await collected_source_keys(db, user_id, task.id)
     created = 0
     skipped = 0

@@ -79,9 +79,12 @@ DIM_LABELS: dict[str, str] = {
     "characters": "角色设定",
 }
 
-# SDK src_key 前缀 → 拆书维度（mapping.py 的 add(prefix, ...)；style./world. 带点）
+# SDK src_key 前缀 → 拆书维度（mapping.py 的 add(prefix, ...)；style./world./craft. 带点）。
+# craft.craft/craft.taboo（文笔）与 style.*（文风）同出 products["style"]——
+# 漏掉 craft 前缀会让「写作文风」组少算条数、按维过滤时文笔条目静默不收（review P1）。
 _DIM_PREFIXES: tuple[tuple[str, str], ...] = (
     ("style.", "style"),
+    ("craft", "style"),
     ("world.", "world"),
     ("technique", "techniques"),
     ("character", "characters"),

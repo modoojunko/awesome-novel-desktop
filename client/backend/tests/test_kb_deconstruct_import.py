@@ -17,6 +17,7 @@ from sqlalchemy import select as sel
 from db import async_session
 from kb.deconstruct_import import (
     collect_task_to_kb,
+    entry_dim,
     genre_from_products,
     map_deconstruct_products,
 )
@@ -496,7 +497,8 @@ def test_collect_lands_material_not_knowledge_instances():
 
 def test_collect_dims_filter_keeps_src_key_stability():
     """界面按勾选维度收：先全量映射再过滤——src_key 序号不因裁维前移
-    （与全量映射同键，幂等判重才不会错位）。"""
+    （与全量映射同键，幂等判重才不会错位）。期望集走生产 entry_dim 单源，
+    并钉死 craft 前缀（文笔条目同出写作文风.md，漏掉即静默不收——review P1）。"""
     uid = f"kb-dims-{uuid.uuid4()}"
     task = SimpleNamespace(
         id=f"task-{uuid.uuid4()}",
@@ -504,8 +506,9 @@ def test_collect_dims_filter_keeps_src_key_stability():
         products_json=json.dumps(PRODUCTS, ensure_ascii=False),
     )
     full, _ = _map(genre="志怪/民俗灵异")
-    style_keys = [e.src_key for e in full if e.src_key.startswith("style.")]
-    assert style_keys
+    style_keys = [e.src_key for e in full if entry_dim(e.src_key) == "style"]
+    assert any(k.startswith("style.") for k in style_keys)
+    assert any(k.startswith("craft.") for k in style_keys)
 
     result = _collect(uid, task, dims=["style"], genre_override="志怪/民俗灵异")
     assert result["collected"] == result["total_mapped"] == len(style_keys)
@@ -518,7 +521,7 @@ def test_collect_dims_filter_keeps_src_key_stability():
 
     rows = asyncio.run(_rows())
     assert {r.src_key for r in rows} == set(style_keys)
-    assert {r.concept for r in rows} <= {"文风", "文笔"}
+    assert {r.concept for r in rows} == {"文风", "文笔"}
 
 
 def test_collect_dims_filter_ignores_unknown_dims():
