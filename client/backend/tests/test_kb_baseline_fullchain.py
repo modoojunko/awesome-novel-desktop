@@ -37,14 +37,19 @@ _PUB = {_KID: _PRIV.public_key().public_bytes(Encoding.Raw, PublicFormat.Raw)}
 
 
 def _content_repo() -> Path | None:
+    # 2026-11-22：真实仓基线 v5 起条目量到 8197 条（331 本），build 分钟级——
+    # 单测内嵌不可行（本机实矿 >10 分钟，pytest 超时必杀）。测试**默认走内联包**
+    # （自含、秒级、恒绿，链路口径一致）；跨仓口径改由 v5 发包流程单独验收。
+    # 需要手动跨仓验证时显式设 KNOWLEDGE_FULLCHAIN_REAL=1 走回真实仓分支。
+    if not os.environ.get("KNOWLEDGE_FULLCHAIN_REAL"):
+        return None
     env = os.environ.get("KNOWLEDGE_REPO_DIR")
     cand = [Path(env)] if env else []
     cand.append(Path(__file__).resolve().parents[4] / "awesome-novel-knowledge")
     for p in cand:
         if p and (p / "tools" / "build.py").is_file():
             # 2026-11-11 撤回硬闸（WITHDRAWN.md）：真实仓处于撤回态时 build 拒真打
-            # 包、在途条目也无仓内侧车——全链测试退回内联打包分支（自含、恒绿）；
-            # 将来删除 WITHDRAWN.md 重建后，真实仓分支自动恢复。
+            # 包、在途条目也无仓内侧车——全链测试退回内联打包分支（自含、恒绿）。
             if (p / "WITHDRAWN.md").is_file():
                 continue
             return p
