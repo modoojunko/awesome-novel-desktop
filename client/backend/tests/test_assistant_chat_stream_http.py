@@ -575,6 +575,29 @@ def test_unfinished_step_marked_interrupted_on_finalize(monkeypatch):
     assert item["running"] is False and item["interrupted"] is True
 
 
+def test_page_panel_and_chapter_tab_injected(monkeypatch):
+    """c-agent-page-context：设定页带 panel → 本页字段进当轮 user 尾；
+    章内页签只报页签名。"""
+    bid = _mk_book()
+    rec = _patch_loop(monkeypatch, [
+        {"type": "run_start", "runId": "pcx"},
+        {"type": "narration", "text": "好。"},
+        {"type": "run_end", "runId": "pcx", "steps": 0, "toolCalls": 0, "degraded": False, "error": ""},
+    ])
+    _read_sse(
+        bid, "这个改一下",
+        {
+            "page": "初始设定",
+            "thread": "set:genre",
+            "page_state": {"panel": "genre", "chapter_tab": "og"},
+        },
+    )
+    user_input = str(rec["runs"][0]["input"])
+    assert "当前设定面板：题材" in user_input
+    assert "本页字段" in user_input and "01 题材" in user_input
+    assert "当前页签：章纲" in user_input
+
+
 def test_system_prefix_stable_and_progress_in_user_tail(monkeypatch):
     """c-agent-prompt-cache：系统前缀只放稳定书情（书名/题材），动态进度拼在
     当前 user 消息尾部——进度变化不废前缀缓存。"""

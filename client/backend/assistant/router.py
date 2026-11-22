@@ -306,6 +306,8 @@ async def _stream_chat(
     user_message_id: str = "",
     body_focus: dict[str, Any] | None = None,
     page_unsaved: list[str] | None = None,
+    page_panel: str = "",
+    chapter_tab: str = "",
     thread: str = "",
     tool_hint: dict[str, Any] | None = None,
     api_config_id: str = "",
@@ -369,6 +371,25 @@ async def _stream_chat(
             (note + " " if note else "")
             + f"［未保存：{'、'.join(page_unsaved)}——写改该页前先提醒作家，避免覆盖其未保存内容］"
         )
+    # 页面字段上下文（c-agent-page-context）：设定页带 panel，注入本页字段名＋当前值。
+    # 作家说「这格/这个」时模型能对上号；读失败 fail-soft，不影响对话。
+    if chapter_tab:
+        from assistant.page_context import CHAPTER_TAB_LABELS
+
+        tab_label = CHAPTER_TAB_LABELS.get(chapter_tab)
+        if tab_label:
+            note = (note + " " if note else "") + f"［当前页签：{tab_label}］"
+    if page_panel:
+        try:
+            from assistant.page_context import build_page_field_note
+
+            field_note = await build_page_field_note(project, page_panel)
+        except Exception as e:  # noqa: BLE001——增强面失败不打断对话
+            _log.warning("page field context skipped: %s", e)
+            field_note = ""
+        if field_note:
+            note = (note + " " if note else "") + field_note
+
     # L2 画像注入（批C 3.3）：口味/雷点裁一段拼进页面注入——起草/发散先懂作家
     try:
         from assistant.profile import load_sections
@@ -1128,6 +1149,17 @@ async def assistant_chat(
         if isinstance(body_page_state, dict) and isinstance(body_page_state.get("unsaved"), list)
         else []
     )
+    # 页面字段上下文（c-agent-page-context）：设定面板 / 章内页签
+    page_panel = (
+        str(body_page_state.get("panel") or "").strip()[:32]
+        if isinstance(body_page_state, dict)
+        else ""
+    )
+    chapter_tab = (
+        str(body_page_state.get("chapter_tab") or "").strip()[:32]
+        if isinstance(body_page_state, dict)
+        else ""
+    )
     user_row = await session_store.append_message(
         session,
         role="user",
@@ -1154,6 +1186,7 @@ async def assistant_chat(
             db, project, user, session, message, page,
             user_message_id=user_row.id, body_focus=body_focus,
             page_unsaved=page_unsaved,
+            page_panel=page_panel, chapter_tab=chapter_tab,
             thread=thread, tool_hint=tool_hint,
             api_config_id=api_config_id, model=model,
             thinking_override=thinking_override,
