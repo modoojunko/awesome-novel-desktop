@@ -23,6 +23,8 @@ import {
   probeModel,
   retryUploadDeconstructTask,
   getLibraryCandidates,
+  getCollectCandidates,
+  collectToKb,
   toLibrary,
 } from "@/lib/deconstructApi";
 
@@ -247,6 +249,47 @@ describe("角色库第三出口（c-charlib-deconstruct-exit）", () => {
     const [url, init] = state.fetch.mock.calls[0];
     expect(String(url)).toContain("/to-library");
     expect(JSON.parse(init.body)).toEqual({ picks: ["沈青崖"], rename: true });
+  });
+
+  it("补选题材随角色提交带 genre", async () => {
+    state.fetch.mockResolvedValue(jsonResponse(200, { created: 1, skipped: 0, library_ids: ["x"] }));
+    await toLibrary("t1", ["沈青崖"], false, "仙侠");
+    expect(JSON.parse(state.fetch.mock.calls[0][1].body)).toEqual({
+      picks: ["沈青崖"], rename: false, genre: "仙侠",
+    });
+  });
+});
+
+describe("收进知识库全维（c-deconstruct-collect-all-dims）", () => {
+  it("候选走 collect-candidates 裸形状", async () => {
+    state.fetch.mockResolvedValue(jsonResponse(200, {
+      can_collect: true, reason: "", genre: "",
+      groups: [{ dim: "techniques", label: "写作技法", count: 3, collected: 1 }],
+      characters: [],
+    }));
+    const r = await getCollectCandidates("t1");
+    expect(r.groups[0].label).toBe("写作技法");
+    expect(String(state.fetch.mock.calls[0][0])).toContain("/api/deconstruct/tasks/t1/collect-candidates");
+  });
+
+  it("收录提交带 dims/genre 并解包 data 信封", async () => {
+    state.fetch.mockResolvedValue(jsonResponse(200, {
+      ok: true,
+      data: { collected: 3, skipped: 1, total_mapped: 4, warnings: [], genre: "仙侠/修真" },
+    }));
+    const r = await collectToKb("t1", ["techniques", "style"], "仙侠");
+    expect(r.collected).toBe(3);
+    const [url, init] = state.fetch.mock.calls[0];
+    expect(String(url)).toContain("/collect-to-kb");
+    expect(JSON.parse(init.body)).toEqual({ dims: ["techniques", "style"], genre: "仙侠" });
+  });
+
+  it("不选题材时不带 genre 键", async () => {
+    state.fetch.mockResolvedValue(jsonResponse(200, {
+      ok: true, data: { collected: 1, skipped: 0, total_mapped: 1, warnings: [], genre: "" },
+    }));
+    await collectToKb("t1", ["style"]);
+    expect(JSON.parse(state.fetch.mock.calls[0][1].body)).toEqual({ dims: ["style"] });
   });
 });
 

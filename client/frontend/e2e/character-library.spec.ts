@@ -42,23 +42,34 @@ function card(over: Partial<StubCard> = {}): StubCard {
   };
 }
 
-async function stubApi(page: Page, opts: { items?: StubCard[] } = {}) {
+async function stubApi(
+  page: Page,
+  opts: { items?: StubCard[]; candidates?: unknown; task?: Record<string, unknown> } = {},
+) {
   const state = { items: opts.items ?? [card(), card({ id: "c2", name: "苏晚晴", role: "配角", kind: "挚友", dossier: { gender: "女", age: "17" }, cog: {}, src: { kind: "manual", novel_name: "", ref: "", character_id: "" } })] };
   const applied: { url: string; body: unknown }[] = [];
   const toLibraryBodies: unknown[] = [];
+  const collectBodies: unknown[] = [];
+  const candidates = opts.candidates ?? {
+    can_collect: true,
+    reason: "",
+    genre: "武侠",
+    groups: [],
+    characters: [
+      { key: "沈青崖", name: "沈青崖", role: "主角", persona: "看山人独子", gender: "男", age: "16", collected: false },
+      { key: "秦重霄", name: "秦重霄", role: "反派", persona: "暴躁记仇", gender: "男", age: "42", collected: true },
+    ],
+  };
   await page.route("**/api/**", async (route) => {
     const url = route.request().url();
     const method = route.request().method();
-    if (url.includes("/library-candidates")) {
+    if (url.includes("/collect-candidates")) {
+      return route.fulfill({ json: candidates });
+    }
+    if (url.includes("/collect-to-kb")) {
+      collectBodies.push(route.request().postDataJSON());
       return route.fulfill({
-        json: {
-          can_import: true,
-          reason: "",
-          items: [
-            { key: "沈青崖", name: "沈青崖", role: "主角", persona: "看山人独子", gender: "男", age: "16", collected: false },
-            { key: "秦重霄", name: "秦重霄", role: "反派", persona: "暴躁记仇", gender: "男", age: "42", collected: true },
-          ],
-        },
+        json: { ok: true, data: { collected: 3, skipped: 0, total_mapped: 3, warnings: [], genre: "都市" } },
       });
     }
     if (url.includes("/to-library")) {
@@ -87,6 +98,7 @@ async function stubApi(page: Page, opts: { items?: StubCard[] } = {}) {
           book_id: null,
           created_at: null,
           finished_at: null,
+          ...(opts.task ?? {}),
         },
       });
     }
@@ -149,7 +161,7 @@ async function stubApi(page: Page, opts: { items?: StubCard[] } = {}) {
     }
     return route.fulfill({ json: { ok: true, data: {} } });
   });
-  return { state, applied, toLibraryBodies };
+  return { state, applied, toLibraryBodies, collectBodies };
 }
 
 test.describe("角色库（UI 桩）", () => {
@@ -215,8 +227,8 @@ test.describe("角色库（UI 桩）", () => {
     expect(applied[0].body).toMatchObject({ novel_id: "n1", rename: true });
   });
 
-  test("拆书完成 → 收进知识库：第三卡→清单（已收录灰态）→提交参数", async ({ page }) => {
-    const { toLibraryBodies } = await stubApi(page);
+  test("拆书完成 → 收进知识库：第三卡→角色清单（已收录灰态）→提交参数", async ({ page }) => {
+    const { toLibraryBodies, collectBodies } = await stubApi(page);
     await page.goto(`${BASE}/#/tools/deconstruct/t1`);
     await expect(page.getByText("选择去向")).toBeVisible();
     await page.getByText("选择去向").click();
@@ -225,10 +237,86 @@ test.describe("角色库（UI 桩）", () => {
     await expect(page.getByTestId("library-row")).toHaveCount(2);
     // 已收录行不可勾且标注
     await expect(page.getByText("已在库里")).toBeVisible();
-    await expect(page.getByTestId("library-submit")).toContainText("（1）");
+    await expect(page.getByTestId("library-submit")).toContainText("1 个角色");
     await page.getByTestId("library-rename").uncheck();
     await page.getByTestId("library-submit").click();
     await expect.poll(() => toLibraryBodies.length).toBe(1);
     expect(toLibraryBodies[0]).toMatchObject({ picks: ["沈青崖"], rename: false });
+    expect(collectBodies).toHaveLength(0);
+  });
+
+  test("只拆了文风/技法：分组可收、补选题材随提交带 dims", async ({ page }) => {
+    const { collectBodies, toLibraryBodies } = await stubApi(page, {
+      task: {
+        selected_dims: ["style", "techniques"],
+        dims: {
+          style: { state: "completed", seg_done: 1, seg_total: 1, error: "" },
+          techniques: { state: "completed", seg_done: 1, seg_total: 1, error: "" },
+        },
+        products: [
+          { filename: "写作文风.md", size: 100, dim: "写作文风" },
+          { filename: "写作技法.md", size: 200, dim: "写作技法" },
+        ],
+      },
+      candidates: {
+        can_collect: true,
+        reason: "",
+        genre: "",
+        groups: [
+          { dim: "techniques", label: "写作技法", count: 2, collected: 0 },
+          { dim: "style", label: "写作文风", count: 1, collected: 0 },
+        ],
+        characters: [],
+      },
+    });
+    await page.goto(`${BASE}/#/tools/deconstruct/t1`);
+    await page.getByText("选择去向").click();
+    await page.getByTestId("exit-opt-library").click();
+    await expect(page.getByTestId("collect-group-row")).toHaveCount(2);
+    await expect(page.getByTestId("library-submit")).toContainText("3 条内容");
+    await page.getByTestId("collect-genre").selectOption("都市");
+    await page.getByTestId("library-submit").click();
+    await expect.poll(() => collectBodies.length).toBe(1);
+    expect(collectBodies[0]).toMatchObject({
+      dims: ["techniques", "style"],
+      genre: "都市",
+    });
+    expect(toLibraryBodies).toHaveLength(0);
+  });
+
+  test("结果目录不勾的产物不录进知识库", async ({ page }) => {
+    const { collectBodies } = await stubApi(page, {
+      task: {
+        selected_dims: ["style", "techniques"],
+        dims: {
+          style: { state: "completed", seg_done: 1, seg_total: 1, error: "" },
+          techniques: { state: "completed", seg_done: 1, seg_total: 1, error: "" },
+        },
+        products: [
+          { filename: "写作文风.md", size: 100, dim: "写作文风" },
+          { filename: "写作技法.md", size: 200, dim: "写作技法" },
+        ],
+      },
+      candidates: {
+        can_collect: true,
+        reason: "",
+        genre: "都市",
+        groups: [
+          { dim: "techniques", label: "写作技法", count: 2, collected: 0 },
+          { dim: "style", label: "写作文风", count: 1, collected: 0 },
+        ],
+        characters: [],
+      },
+    });
+    await page.goto(`${BASE}/#/tools/deconstruct/t1`);
+    // 结果目录里先取消写作文风——不勾的不进知识库
+    await page.getByLabel("写作文风.md").uncheck();
+    await page.getByText("选择去向").click();
+    await page.getByTestId("exit-opt-library").click();
+    await expect(page.getByTestId("collect-group-row")).toHaveCount(1);
+    await expect(page.getByTestId("library-submit")).toContainText("2 条内容");
+    await page.getByTestId("library-submit").click();
+    await expect.poll(() => collectBodies.length).toBe(1);
+    expect(collectBodies[0]).toMatchObject({ dims: ["techniques"] });
   });
 });

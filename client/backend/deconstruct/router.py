@@ -570,32 +570,27 @@ async def export_task(
     return result
 
 
-@router.get("/tasks/{task_id}/library-candidates")
-async def library_candidates(
-    task_id: str,
-    user: dict = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db),
-):
-    """角色库收录候选（c-charlib-deconstruct-exit）：投影角色＋已收录集合＋可用性。"""
-    from deconstruct.cards import cards_from_products
-    from library import service as library_service
-
-    task = await service.get_task(db, task_id, _user_id(user))
-    _require(task, user)
-    if task.status not in service.RESULT_READY:
-        # 建书三态仍可收录（RESULT_READY）；这里只剩拆解中/排队/取消/待重传的真拒因
-        reason = "任务还没拆完" if task.status in ("queued", "running") else "任务在这个状态下没有可收录的产物"
-        return {"can_import": False, "reason": reason, "items": []}
+def _task_products(task) -> dict:
     try:
         products = json.loads(task.products_json or "{}")
     except ValueError:
-        products = {}
-    product = products.get("characters") if isinstance(products, dict) else None
+        return {}
+    return products if isinstance(products, dict) else {}
+
+
+async def _character_candidate_items(
+    db: AsyncSession, user_id: str, task, products: dict
+) -> list[dict]:
+    """characters 维度 → 收录清单行（角色库/知识库两出口共用，已收录标记同源）。"""
+    from deconstruct.cards import cards_from_products
+    from library import service as library_service
+
+    product = products.get("characters")
     data = product.get("data") if isinstance(product, dict) else None
     cards = cards_from_products(data or {})
     if not cards:
-        return {"can_import": False, "reason": "这批产物里没有角色设定", "items": []}
-    collected = await library_service.collected_source_keys(db, _user_id(user), task.id)
+        return []
+    collected = await library_service.collected_source_keys(db, user_id, task.id)
     items = []
     for idx, card in enumerate(cards, start=1):
         key = library_service.deconstruct_source_key(card, idx)
@@ -610,6 +605,25 @@ async def library_candidates(
                 "collected": key in collected,
             }
         )
+    return items
+
+
+@router.get("/tasks/{task_id}/library-candidates")
+async def library_candidates(
+    task_id: str,
+    user: dict = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """角色库收录候选（c-charlib-deconstruct-exit）：投影角色＋已收录集合＋可用性。"""
+    task = await service.get_task(db, task_id, _user_id(user))
+    _require(task, user)
+    if task.status not in service.RESULT_READY:
+        # 建书三态仍可收录（RESULT_READY）；这里只剩拆解中/排队/取消/待重传的真拒因
+        reason = "任务还没拆完" if task.status in ("queued", "running") else "任务在这个状态下没有可收录的产物"
+        return {"can_import": False, "reason": reason, "items": []}
+    items = await _character_candidate_items(db, _user_id(user), task, _task_products(task))
+    if not items:
+        return {"can_import": False, "reason": "这批产物里没有角色设定", "items": []}
     return {"can_import": True, "reason": "", "items": items}
 
 
@@ -646,6 +660,8 @@ async def to_library(
         task,
         picks=picks,
         rename=bool(body.get("rename")),
+        # 面板里选了题材时角色实例同归该题材（产物没有题材维度时不留「未定题材」半截）
+        genre_override=str(body.get("genre") or "").strip(),
     )
     task.exported_at = datetime.now(UTC).replace(tzinfo=None)  # 已取标记：badge 不再计数
     await db.commit()
@@ -657,30 +673,104 @@ async def to_library(
     return result
 
 
+@router.get("/tasks/{task_id}/collect-candidates")
+async def collect_candidates(
+    task_id: str,
+    user: dict = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """收进知识库候选：本批可收的维度分组＋角色清单＋题材。
+
+    分组只含非角色维（角色走富实例清单，经 to-library 入角色设定）；
+    count＝映射条数，collected＝同任务已入库条数——前端据此默认勾选与灰态。
+    """
+    from kb.deconstruct_import import (
+        DIM_LABELS,
+        entry_dim,
+        find_collected_keys,
+        genre_from_products,
+        map_deconstruct_products,
+    )
+
+    task = await service.get_task(db, task_id, _user_id(user))
+    _require(task, user)
+    _require_not_withdrawn(task)
+    if task.status not in service.RESULT_READY:
+        reason = "任务还没拆完" if task.status in ("queued", "running") else "任务在这个状态下没有可收录的产物"
+        return {"can_collect": False, "reason": reason, "genre": "", "groups": [], "characters": []}
+
+    uid = _user_id(user)
+    products = _task_products(task)
+    genre = genre_from_products(products)
+    entries, _warnings = map_deconstruct_products(uid, str(task.id), genre, products)
+    by_dim: dict[str, list[str]] = {}
+    for entry in entries:
+        dim = entry_dim(entry.src_key)
+        if dim and dim != "characters":
+            by_dim.setdefault(dim, []).append(entry.src_key)
+    collected = await find_collected_keys(
+        db, uid, {str(task.id)}, [key for keys in by_dim.values() for key in keys]
+    )
+    groups = [
+        {
+            "dim": dim,
+            "label": DIM_LABELS[dim],
+            "count": len(keys),
+            "collected": sum(1 for key in keys if key in collected),
+        }
+        for dim, keys in by_dim.items()
+    ]
+    characters = await _character_candidate_items(db, uid, task, products)
+    if not groups and not characters:
+        return {
+            "can_collect": False,
+            "reason": "这批产物里没有能收进知识库的内容——下次拆书勾上「写作技法」「写作文风」「世界设定」或「角色设定」再试。",
+            "genre": genre,
+            "groups": [],
+            "characters": [],
+        }
+    return {"can_collect": True, "reason": "", "genre": genre, "groups": groups, "characters": characters}
+
+
 @router.post("/tasks/{task_id}/collect-to-kb")
 async def collect_to_kb(
     task_id: str,
+    body: dict | None = None,
     user: dict = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
     """收进知识库：拆书产物 → 知识条目（手法/文风/文笔/世界/角色，幂等）。
 
-    映射/去重/默认库/标签物化单源在 kb.deconstruct_import.collect_task_to_kb
-    ——离线批量脚本走同一个函数，两条入口不会漂移。
+    body 可带 {dims: [...], genre: "..."}：界面按勾选的维度收并让作家补一次题材；
+    不带 body＝全量收录（离线批量脚本/版本 reconcile 口径不变）。
+    映射/去重/默认库/标签物化单源在 kb.deconstruct_import.collect_task_to_kb。
     """
     from kb.deconstruct_import import collect_task_to_kb
 
     task = await service.get_task(db, task_id, _user_id(user))
     _require(task, user)
     _require_not_withdrawn(task)
-    if task.status != "completed":
+    if task.status not in service.RESULT_READY:
         raise HTTPException(409, "任务未完成，无法收录")
+
+    dims: list[str] | None = None
+    genre_override = ""
+    if isinstance(body, dict):
+        raw_dims = body.get("dims")
+        if isinstance(raw_dims, list):
+            dims = [str(d) for d in raw_dims if isinstance(d, str)]
+        genre_override = str(body.get("genre") or "").strip()
 
     uid = _user_id(user)
     try:
-        result = await collect_task_to_kb(db, uid, task)
+        result = await collect_task_to_kb(
+            db, uid, task, dims=dims, genre_override=genre_override
+        )
     except ValueError as e:
         raise HTTPException(422, str(e)) from e
+
+    task.exported_at = datetime.now(UTC).replace(tzinfo=None)  # 已取标记：badge 不再计数
+    await db.commit()
 
     # c-kb-organize：拆书入库后该题材自动整理一次（fire-and-forget）
     from kb.organize import trigger_after_collect

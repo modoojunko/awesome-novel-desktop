@@ -1019,9 +1019,11 @@ async def import_from_deconstruct(
     *,
     picks: list[str],
     rename: bool = False,
+    genre_override: str = "",
 ) -> dict:
     """拆书产物角色收进库：走 cards 单源投影；provenance 幂等；只写库不动书。
-    软删过的卡重新收录＝同键复活。"""
+    软删过的卡重新收录＝同键复活。genre_override＝收录面板里作家补选的题材
+    （产物无题材维度时用它，避免角色实例落「未定题材」）。"""
     from deconstruct.cards import (
         card_to_book_payload,
         cards_from_products,
@@ -1039,7 +1041,11 @@ async def import_from_deconstruct(
     for idx, card in enumerate(cards, start=1):
         by_key[deconstruct_source_key(card, idx)] = (idx, card)
 
-    genre = _deconstruct_genre(task)
+    genre = (
+        normalize_theme(str(genre_override).strip())[:GENRE_MAX]
+        if str(genre_override or "").strip()
+        else _deconstruct_genre(task)
+    )
     collected = await collected_source_keys(db, user_id, task.id)
     created = 0
     skipped = 0

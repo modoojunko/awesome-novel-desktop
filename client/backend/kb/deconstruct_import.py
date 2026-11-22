@@ -71,6 +71,48 @@ def map_deconstruct_products(
     return [_to_orm(e) for e in entries], warnings
 
 
+# 可收录维度（与 deconstruct 维度键一一对应；简介/主线/章卷等暂无条目映射）
+DIM_LABELS: dict[str, str] = {
+    "techniques": "写作技法",
+    "style": "写作文风",
+    "world": "世界设定",
+    "characters": "角色设定",
+}
+
+# SDK src_key 前缀 → 拆书维度（mapping.py 的 add(prefix, ...)；style./world. 带点）
+_DIM_PREFIXES: tuple[tuple[str, str], ...] = (
+    ("style.", "style"),
+    ("world.", "world"),
+    ("technique", "techniques"),
+    ("character", "characters"),
+)
+
+
+def entry_dim(src_key: str) -> str:
+    """映射条目的来源维度；未知前缀返回空串（不进任何分组）。"""
+    for prefix, dim in _DIM_PREFIXES:
+        if str(src_key or "").startswith(prefix):
+            return dim
+    return ""
+
+
+async def find_collected_keys(
+    db: AsyncSession,
+    user_id: str,
+    refs: set[str],
+    keys: list[str],
+) -> set[str]:
+    """已入库的来源键（收录去重与候选预览共用同一口径）。"""
+    if not refs or not keys:
+        return set()
+    stmt = select(KbKnowledge.src_key).where(
+        KbKnowledge.user_id == user_id,
+        KbKnowledge.src_ref.in_(refs),
+        KbKnowledge.src_key.in_(keys),
+    )
+    return set((await db.execute(stmt)).scalars().all())
+
+
 async def collect_task_to_kb(
     db: AsyncSession,
     user_id: str,
@@ -78,9 +120,11 @@ async def collect_task_to_kb(
     *,
     genre_override: str = "",
     src_ref: str = "",
+    dims: list[str] | None = None,
 ) -> dict:
     """拆书任务 → 知识库（幂等）：映射＋去重＋默认库＋标签物化。
 
+    dims 非 None 时只收所选维度（界面按勾选收）；None＝全量（批量脚本/reconcile）。
     返回 {collected, skipped, total_mapped, warnings, genre}；
     产物为空抛 ValueError（端点转 422，脚本按失败记账）。
     """
@@ -101,6 +145,11 @@ async def collect_task_to_kb(
     entries, warnings = map_deconstruct_products(
         user_id, str(task.id), genre, products, src_ref=src_ref or None
     )
+    if dims is not None:
+        # 先全量映射再按维过滤：SDK 的 src_key 是全局自增序号（prefix:seq），
+        # 先裁产物再映射会让剩余维度序号前移，与已入库键错位（判重会误跳/重写）。
+        keep = {str(d) for d in dims if str(d) in DIM_LABELS}
+        entries = [e for e in entries if entry_dim(e.src_key) in keep]
 
     existing_keys: set[str] = set()
     if entries:
@@ -109,12 +158,9 @@ async def collect_task_to_kb(
         refs = {src_ref or str(task.id)}
         if src_ref:
             refs.add(str(task.id))
-        stmt = select(KbKnowledge.src_key).where(
-            KbKnowledge.user_id == user_id,
-            KbKnowledge.src_ref.in_(refs),
-            KbKnowledge.src_key.in_([e.src_key for e in entries]),
+        existing_keys = await find_collected_keys(
+            db, user_id, refs, [e.src_key for e in entries]
         )
-        existing_keys = set((await db.execute(stmt)).scalars().all())
 
     new_entries = [e for e in entries if e.src_key not in existing_keys]
     for entry in new_entries:

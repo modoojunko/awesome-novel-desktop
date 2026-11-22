@@ -494,6 +494,45 @@ def test_collect_lands_material_not_knowledge_instances():
     assert origins == {"material"}, "收录产物全部落素材态"
 
 
+def test_collect_dims_filter_keeps_src_key_stability():
+    """界面按勾选维度收：先全量映射再过滤——src_key 序号不因裁维前移
+    （与全量映射同键，幂等判重才不会错位）。"""
+    uid = f"kb-dims-{uuid.uuid4()}"
+    task = SimpleNamespace(
+        id=f"task-{uuid.uuid4()}",
+        user_id=uid,
+        products_json=json.dumps(PRODUCTS, ensure_ascii=False),
+    )
+    full, _ = _map(genre="志怪/民俗灵异")
+    style_keys = [e.src_key for e in full if e.src_key.startswith("style.")]
+    assert style_keys
+
+    result = _collect(uid, task, dims=["style"], genre_override="志怪/民俗灵异")
+    assert result["collected"] == result["total_mapped"] == len(style_keys)
+
+    async def _rows():
+        async with async_session() as db:
+            return (
+                await db.execute(sel(KbKnowledge).where(KbKnowledge.user_id == uid))
+            ).scalars().all()
+
+    rows = asyncio.run(_rows())
+    assert {r.src_key for r in rows} == set(style_keys)
+    assert {r.concept for r in rows} <= {"文风", "文笔"}
+
+
+def test_collect_dims_filter_ignores_unknown_dims():
+    uid = f"kb-dims-{uuid.uuid4()}"
+    task = SimpleNamespace(
+        id=f"task-{uuid.uuid4()}",
+        user_id=uid,
+        products_json=json.dumps(PRODUCTS, ensure_ascii=False),
+    )
+    result = _collect(uid, task, dims=["bogus"])
+    assert result["collected"] == 0
+    assert result["total_mapped"] == 0
+
+
 def test_双前缀自愈_星币星币实锤形态():
     """boss 2026-11-09「星币：星币：…」实锤：旧映射 content 自带名字头时
     重复拼名——自愈把实例正文与知识行 instruction 去重。"""

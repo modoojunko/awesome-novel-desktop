@@ -428,6 +428,12 @@ def test_result_endpoints_reject_unfinished_states(client, status, tmp_path):
     ).status_code == 409
     body = client.get(f"/api/deconstruct/tasks/imp-mx-no-{status}/library-candidates").json()
     assert body["can_import"] is False and body["reason"]
+    body = client.get(f"/api/deconstruct/tasks/imp-mx-no-{status}/collect-candidates").json()
+    assert body["can_collect"] is False and body["reason"]
+    assert client.post(
+        f"/api/deconstruct/tasks/imp-mx-no-{status}/collect-to-kb",
+        json={"dims": ["world"]},
+    ).status_code == 409
 
 
 @pytest.mark.parametrize("status", _MATRIX_STATUS)
@@ -445,6 +451,94 @@ def test_to_library_available_in_every_result_ready_state(client, status):
         json={"picks": ["林晚"], "rename": False},
     )
     assert r.status_code == 200, r.text
+
+
+# ── 收进知识库全维（c-deconstruct-collect-all-dims）：只拆文风/技法也能收 ──
+
+_STYLE_ONLY_PRODS = {
+    "style": _product(
+        "style",
+        "写作文风.md",
+        {
+            "role": "第三人称限知",
+            "rules": [
+                {"name": "短句收尾", "how": "结尾用短句砸一下", "evidence_ch": "第3章"},
+            ],
+        },
+    ),
+    "techniques": _product(
+        "techniques",
+        "写作技法.md",
+        {
+            "techniques": [
+                {
+                    "name": "信息差强派任务",
+                    "repro_steps": ["先抛补助", "再说是夜班"],
+                    "evidence_ch": "第1章",
+                }
+            ],
+        },
+    ),
+}
+
+
+@pytest.mark.parametrize("status", _MATRIX_STATUS)
+def test_collect_to_kb_available_in_every_result_ready_state(client, status):
+    _mk(f"imp-mx-col-{status}", status=status,
+        book_id="b-x" if status == "imported" else None)
+    r = client.post(
+        f"/api/deconstruct/tasks/imp-mx-col-{status}/collect-to-kb",
+        json={"dims": ["world"]},
+    )
+    assert r.status_code == 200, r.text
+    assert r.json()["ok"] is True
+
+
+def test_collect_candidates_style_only_batch(client):
+    """本次报障场景：只拆文风/技法——没有角色也能收，分组给条数。"""
+    tid = "imp-col-style"
+    _mk(tid, products=_STYLE_ONLY_PRODS, selected=["style", "techniques"])
+    r = client.get(f"/api/deconstruct/tasks/{tid}/collect-candidates")
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert body["can_collect"] is True and body["reason"] == ""
+    assert body["characters"] == []
+    assert body["genre"] == ""
+    groups = {g["dim"]: g for g in body["groups"]}
+    assert groups["techniques"]["count"] == 1
+    assert groups["style"]["count"] == 2  # 叙事身份 1＋场景规则 1
+    assert all(g["collected"] == 0 for g in groups.values())
+
+    r = client.post(
+        f"/api/deconstruct/tasks/{tid}/collect-to-kb",
+        json={"dims": ["techniques", "style"], "genre": "仙侠"},
+    )
+    assert r.status_code == 200, r.text
+    data = r.json()["data"]
+    assert data["collected"] == 3
+    assert data["genre"] == "仙侠/修真"
+
+    again = client.get(f"/api/deconstruct/tasks/{tid}/collect-candidates").json()
+    assert all(g["collected"] == g["count"] for g in again["groups"])
+
+
+def test_collect_candidates_without_mappable_dims(client):
+    tid = "imp-col-none"
+    _mk(tid, products={"intro": _product("intro", "简介.md", {"intro": "只有简介"})},
+        selected=["intro"])
+    body = client.get(f"/api/deconstruct/tasks/{tid}/collect-candidates").json()
+    assert body["can_collect"] is False
+    assert "没有能收进知识库" in body["reason"]
+
+
+def test_collect_marks_task_picked(client):
+    tid = "imp-col-badge"
+    _mk(tid)
+    before = client.get("/api/deconstruct/tasks").json()["badge"]
+    r = client.post(f"/api/deconstruct/tasks/{tid}/collect-to-kb", json={"dims": ["world"]})
+    assert r.status_code == 200, r.text
+    after = client.get("/api/deconstruct/tasks").json()["badge"]
+    assert after == before - 1
 
 
 # ── 评审整改的回归钉（取消落在写入阶段 / 取消响应体 / 额度不可重试）──

@@ -166,6 +166,17 @@ class TestToLibrary:
         assert 16 <= int(card["dossier"]["age"]) <= 55
         assert card["persona"] == "暴躁记仇"  # 其余格不动
 
+    def test_genre_override_applies_to_instances(self, client):
+        """收录面板补选题材时，角色实例同归该题材（产物题材缺失也不落「未定」）。"""
+        c, seed = client
+        r = c.post(
+            f"/api/deconstruct/tasks/{seed['task_id']}/to-library",
+            json={"picks": ["沈青崖"], "rename": False, "genre": "仙侠"},
+        )
+        assert r.status_code == 200, r.text
+        card = c.get("/api/character-library").json()["data"]["items"][0]
+        assert card["genre"] == "仙侠/修真"
+
     def test_status_codes(self, client):
         c, seed = client
         assert c.post(f"/api/deconstruct/tasks/{seed['task_id']}/to-library",
