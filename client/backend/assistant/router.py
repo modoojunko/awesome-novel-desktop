@@ -46,6 +46,8 @@ def settings_tab_label(thread: str) -> str:
         return ""
     panel = _SET_PANEL_ZH.get(thread.split(":", 1)[1], "")
     return f"设定·{panel}" if panel else "设定"
+
+
 _NAV_INTENT_RE = re.compile(
     r"(?:把页面|页面|页签)?(?:切|换|跳)(?:到|去|至)\s*(正文|章纲|设定|文风|角色关系|伏笔|操作)"
     r"|(?:看看|看一下|看下)\s*(正文|章纲|设定|文风|角色关系|伏笔|操作)"
