@@ -252,6 +252,44 @@ describe("RenweiMarginNotes（左右分边注）", () => {
     document.body.removeChild(editor.parentElement as HTMLElement);
   });
 
+  it("窄栏圆点锚＝段尾实测：left/top 跟末字后缘走，不钉列缘/层缘（11-22 判例）", () => {
+    const editor = makeEditor();
+    editor.dataset.bodyRight = "625";
+    const rect = (el: Element) => {
+      const h = el as HTMLElement;
+      const isLayer = h.classList.contains("rw-marginlayer");
+      const right = isLayer ? 700 : Number(h.dataset.bodyRight ?? 0);
+      const width = isLayer ? 700 : right;
+      return { top: 0, bottom: 0, left: 0, right, width, height: 0, x: 0, y: 0 } as DOMRect;
+    };
+    const spy = vi
+      .spyOn(Element.prototype, "getBoundingClientRect")
+      .mockImplementation(function (this: Element) {
+        return rect(this);
+      });
+    // jsdom 的 Range 没有 getBoundingClientRect：直接 stub——
+    // 段尾插入位（末字后缘）视觉 right=430 / top=520 / 行盒高 34（zoom=1）
+    const rangeProto = Range.prototype as unknown as Record<string, unknown>;
+    const origRangeRect = rangeProto.getBoundingClientRect;
+    rangeProto.getBoundingClientRect = () =>
+      ({ left: 430, right: 430, top: 520, bottom: 554, width: 0, height: 34, x: 430, y: 520 }) as DOMRect;
+    mockHtmlZoom.value = 1;
+    render(
+      <RenweiMarginNotes editorEl={editor} findings={findings} settled={{}} onDone={vi.fn()} onSkip={vi.fn()} />,
+    );
+    const layer = document.querySelector(".rw-marginlayer") as HTMLElement;
+    expect(layer.classList.contains("rw-notes-narrow")).toBe(true);
+    // left ＝ 430（末字后缘）＋ 3（盒内衬）→ 点与末字视觉间距 6px
+    expect((screen.getByTestId("rw-note-1") as HTMLElement).style.left).toBe("433px");
+    // top ＝ 520 ＋ (34−18)/2 → 圆点盒按末行行高中点对齐
+    expect((screen.getByTestId("rw-note-1") as HTMLElement).style.top).toBe("528px");
+    spy.mockRestore();
+    if (typeof origRangeRect === "function") rangeProto.getBoundingClientRect = origRangeRect;
+    else delete rangeProto.getBoundingClientRect;
+    mockHtmlZoom.value = 1;
+    document.body.removeChild(editor.parentElement as HTMLElement);
+  });
+
   it("已处理的段不再渲染边注", () => {
     const editor = makeEditor();
     render(
