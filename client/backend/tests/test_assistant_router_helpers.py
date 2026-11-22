@@ -405,3 +405,173 @@ async def test_gate_preview_rejects_unknown_chapter_field():
         )
     assert "premise" in str(ei.value)
     assert "概要" in str(ei.value)
+
+
+# ── 页面字段真值（c-agent-page-field-truth）─────────────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_book_brief_genre_line_reads_theme_keys(monkeypatch):
+    """题材行真值：resolve 返回键是 theme/sub_genre——旧代码读 genre/genre_name
+    ＝死代码，「题材：X」从未注入过（键名回归钉）。"""
+    import genres.service as _gs
+    from assistant.context import build_book_brief_parts
+
+    async def _fake_ctx(root_path, novel_id):
+        return {"theme": "玄幻", "sub_genre": "凡人流"}
+
+    monkeypatch.setattr(_gs, "resolve_genre_context", _fake_ctx)
+    stable, _ = await build_book_brief_parts(_BriefNovel(), None)
+    assert "题材：玄幻（凡人流）" in stable
+
+
+@pytest.mark.asyncio
+async def test_book_brief_genre_line_theme_only(monkeypatch):
+    import genres.service as _gs
+    from assistant.context import build_book_brief_parts
+
+    async def _fake_ctx(root_path, novel_id):
+        return {"theme": "都市"}
+
+    monkeypatch.setattr(_gs, "resolve_genre_context", _fake_ctx)
+    stable, _ = await build_book_brief_parts(_BriefNovel(), None)
+    assert "题材：都市" in stable
+
+
+@pytest.mark.asyncio
+async def test_book_brief_genre_line_skips_when_empty(monkeypatch):
+    """五格全空（resolve 返回 None）：brief 不给空题材行——未填点名归 set:genre 真值。"""
+    import genres.service as _gs
+    from assistant.context import build_book_brief_parts
+
+    async def _none_ctx(root_path, novel_id):
+        return None
+
+    monkeypatch.setattr(_gs, "resolve_genre_context", _none_ctx)
+    stable, _ = await build_book_brief_parts(_BriefNovel(), None)
+    assert stable.startswith("书名：夜行录")
+    assert "题材" not in stable
+
+
+@pytest.mark.asyncio
+async def test_genre_panel_note_lists_five_fields(monkeypatch):
+    """set:genre 字段真值：五格逐格点名/给值，一行式 note（作家问「页面有什么
+    问题」模型免工具即答——「看不到你页面」事故根修）。"""
+    import genres.service as _gs
+    from assistant.context import build_genre_panel_note
+
+    async def _fake_ctx(root_path, novel_id):
+        return {
+            "theme": "都市",
+            "sub_genre": "",
+            "promise_note": "夜班守护者的绝境求生",
+            "forbidden": ["禁天降外援"],
+        }
+
+    monkeypatch.setattr(_gs, "resolve_genre_context", _fake_ctx)
+    note = await build_genre_panel_note("/root", "n1")
+    assert note.startswith("［本页字段真值：")
+    assert "01 题材=都市" in note
+    assert "02 主要看什么=夜班守护者的绝境求生" in note
+    assert "03 绝对禁止=禁天降外援" in note
+    assert "04 吃苦指数=未定" in note
+    assert "05 本小说斗什么=未填" in note
+
+
+@pytest.mark.asyncio
+async def test_genre_panel_note_fail_soft(monkeypatch):
+    """resolve 炸了返回空串——丢注入不打断对话（fail-soft，与 brief 同风格）。"""
+    import genres.service as _gs
+    from assistant.context import build_genre_panel_note
+
+    async def _boom(root_path, novel_id):
+        raise RuntimeError("db down")
+
+    monkeypatch.setattr(_gs, "resolve_genre_context", _boom)
+    assert await build_genre_panel_note("/root", "n1") == ""
+
+
+def test_settings_tab_label_panels():
+    """set:* 面板真值标签：已知面板带后缀；default/未知回退「设定」；
+    非 set: 线程空串（ch:/vol 走各自分支，不串味）。"""
+    from assistant.router import settings_tab_label
+
+    assert settings_tab_label("set:genre") == "设定·题材"
+    assert settings_tab_label("set:world") == "设定·世界"
+    assert settings_tab_label("set:foreshadow") == "设定·伏笔"
+    assert settings_tab_label("set:default") == "设定"
+    assert settings_tab_label("set:mystery") == "设定"
+    assert settings_tab_label("ch:og") == ""
+    assert settings_tab_label("vol") == ""
+    assert settings_tab_label("") == ""
+
+
+@pytest.mark.asyncio
+async def test_read_settings_genre_area_lists_truth(monkeypatch):
+    """read_settings genre 区：五格现值＋未填点名（与题材目录工具分工：
+    本区读「这本书现在填了什么」）。"""
+    import genres.service as _gs
+    from assistant.tools import ToolContext, run_tool
+
+    async def _fake_ctx(root_path, novel_id):
+        return {
+            "theme": "玄幻",
+            "sub_genre": "凡人流",
+            "cost_ratio": 7,
+            "forbidden": ["禁天降外援"],
+            "battlefield": ["抢资源"],
+        }
+
+    monkeypatch.setattr(_gs, "resolve_genre_context", _fake_ctx)
+    r = await run_tool(
+        ToolContext(novel_id="n", root_path="/r", user_id="u"), "read_settings", {"area": "genre"}
+    )
+    assert "01 题材=玄幻（凡人流）" in r.summary
+    assert "03 绝对禁止=禁天降外援" in r.summary
+    assert "04 吃苦指数=7" in r.summary
+    assert "05 本小说斗什么=抢资源" in r.summary
+
+
+@pytest.mark.asyncio
+async def test_read_settings_genre_area_all_unfilled(monkeypatch):
+    import genres.service as _gs
+    from assistant.tools import ToolContext, run_tool
+
+    async def _none_ctx(root_path, novel_id):
+        return None
+
+    monkeypatch.setattr(_gs, "resolve_genre_context", _none_ctx)
+    r = await run_tool(
+        ToolContext(novel_id="n", root_path="/r", user_id="u"), "read_settings", {"area": "genre"}
+    )
+    assert "01 题材=未填" in r.summary
+    assert "04 吃苦指数=未定" in r.summary
+
+
+@pytest.mark.asyncio
+async def test_read_settings_intro_area(monkeypatch):
+    """read_settings intro 区：简介现值；空给「还没有内容」（同区空态口径）。"""
+    import filesystem.storage as _st
+    from assistant.tools import ToolContext, run_tool
+
+    class _Storage:
+        def __init__(self, files: dict):
+            self.files = files
+
+        async def read_yaml(self, root, path):
+            return self.files.get(path, {}) or {}
+
+    monkeypatch.setattr(
+        _st, "get_storage",
+        lambda: _Storage({"story.yaml": {"synopsis": "一个夜班守护者的故事"}}),
+    )
+    r = await run_tool(
+        ToolContext(novel_id="n", root_path="/r", user_id="u"), "read_settings", {"area": "intro"}
+    )
+    assert r.summary == "一个夜班守护者的故事"
+
+    monkeypatch.setattr(_st, "get_storage", lambda: _Storage({}))
+    r = await run_tool(
+        ToolContext(novel_id="n", root_path="/r", user_id="u"), "read_settings", {"area": "intro"}
+    )
+    assert r.summary == "（简介还没有内容）"

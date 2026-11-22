@@ -27,6 +27,25 @@ _THREAD_TAB_ZH = {
     "hooks": "伏笔", "actions": "操作", "style": "文风",
 }
 _NAV_TAB_KEY = {v: k for k, v in _THREAD_TAB_ZH.items()}
+# 设定面板名（c-agent-page-field-truth）：thread set:<panel> 后缀 ↔ 中文名。键集
+# 对齐前端设定左栏（SettingsView SETTINGS_ITEMS / chatRegistry.threadKeyOf）；面板
+# 名此前只编码在 thread 键里、后端无人解析——模型不知道作家在题材页还是角色页。
+# default 与未知键回退空串（注入「设定」不带面板后缀）。
+_SET_PANEL_ZH = {
+    "genre": "题材", "intro": "简介", "world": "世界", "chars": "角色",
+    "arc": "主线", "style": "文风", "foreshadow": "伏笔",
+}
+
+
+def settings_tab_label(thread: str) -> str:
+    """set:* 线程 → 页签真值标签（c-agent-page-field-truth）：「设定·题材」形；
+    set:default/未知面板键回退「设定」；非 set: 线程返回空串（调用方走 ch: 分支）。
+    纯函数——钉子好写。"""
+    thread = (thread or "").strip()
+    if not thread.startswith("set:"):
+        return ""
+    panel = _SET_PANEL_ZH.get(thread.split(":", 1)[1], "")
+    return f"设定·{panel}" if panel else "设定"
 _NAV_INTENT_RE = re.compile(
     r"(?:把页面|页面|页签)?(?:切|换|跳)(?:到|去|至)\s*(正文|章纲|设定|文风|角色关系|伏笔|操作)"
     r"|(?:看看|看一下|看下)\s*(正文|章纲|设定|文风|角色关系|伏笔|操作)"
@@ -79,6 +98,7 @@ from assistant import identity as identity_mod
 from assistant import session_store, write_gate
 from assistant.context import (
     build_book_brief_parts,
+    build_genre_panel_note,
     build_outbound_window,
     build_page_note,
     latest_reminder_text,
@@ -388,9 +408,22 @@ async def _stream_chat(
         note = (note + " " if note else "") + gap_note
     # 页签真值注入（c-agent-nav 走查实锤）：thread 即当前页签，服务端是唯一真值源
     # ——不注入模型就信被污染的历史（「页签已经在正文了」幻觉实锤 0/3 服从）
-    _cur_tab = _THREAD_TAB_ZH.get(thread.split(":", 1)[1], "") if thread.startswith("ch:") else ""
-    if _cur_tab:
-        note = (note + " " if note else "") + f"［当前页签：{_cur_tab}］"
+    if thread.startswith("ch:"):
+        _cur_tab = _THREAD_TAB_ZH.get(thread.split(":", 1)[1], "")
+        if _cur_tab:
+            note = (note + " " if note else "") + f"［当前页签：{_cur_tab}］"
+    elif thread.startswith("set:"):
+        # 面板真值（c-agent-page-field-truth）：设定面板名原只编码在 thread 键里，
+        # 后端无人解析——模型不知道作家在题材页还是角色页（page 字符串不分面板）。
+        _tab_label = settings_tab_label(thread)
+        note = (note + " " if note else "") + f"［当前页签：{_tab_label}］"
+    # 题材面板字段真值（c-agent-page-field-truth）：五格填空状态随轮注入——作家问
+    # 「当前页面有什么问题」模型免工具即答（read_settings genre 区做按需细读互补）。
+    # 仅 set:genre 线程（01-05 逐一对应 UI 字段）；fail-soft 由构造方兜底。
+    if thread == "set:genre":
+        _fields_note = await build_genre_panel_note(project.root_path, project.id)
+        if _fields_note:
+            note = (note + " " if note else "") + _fields_note
     # 动态书情/记忆拼当前 user 消息尾部（c-agent-prompt-cache）：系统前缀只留
     # 稳定段（书名/题材/身份/协议/工具目录），进度变化不废前缀缓存。
     for part in (dynamic_brief, memory_section):

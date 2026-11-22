@@ -40,9 +40,15 @@ async def build_book_brief_parts(novel: Any, db: Any) -> tuple[str, str]:
         from genres.service import resolve_genre_context
 
         gctx = await resolve_genre_context(getattr(novel, "root_path", ""), novel.id)
-        genre_name = str(gctx.get("genre") or gctx.get("genre_name") or "")
-        if genre_name:
-            stable_lines.append(f"题材：{genre_name}")
+        # 题材行真值（c-agent-page-field-truth）：resolve 返回键是 theme/sub_genre——
+        # 旧代码读不存在的键（genre/genre_name）＝死代码，题材行从未注入过。
+        # 全空（gctx=None）跳过——brief 的语义是「没填就不说」，未填点名由
+        # set:genre 字段真值注入承担。
+        theme = str((gctx or {}).get("theme") or "").strip()
+        sub_genre = str((gctx or {}).get("sub_genre") or "").strip()
+        if theme:
+            label = f"{theme}（{sub_genre}）" if sub_genre else theme
+            stable_lines.append(f"题材：{label}")
     except Exception as e:  # brief 缺题材不致命（BLE001 豁免）
         import logging
 
@@ -106,6 +112,29 @@ def build_page_note(page: str, focus: dict[str, Any] | None = None) -> str:
         if label:
             parts.append(f"［聚焦对象：{label}］")
     return " ".join(p for p in parts if p.strip())
+
+
+# 题材面板字段真值预算（字符）：promise_note ≤200 是大头，其余格极短
+GENRE_PANEL_NOTE_BUDGET_CHARS = 400
+
+
+async def build_genre_panel_note(root_path: str, novel_id: Any) -> str:
+    """设定·题材面板的字段真值注入（c-agent-page-field-truth，L2 页面级注入）。
+
+    作家正看题材面板时，模型免工具调用即知五格填空状态——「看不到你页面」事故的
+    根修（页签真值注入同判例：服务端是唯一真值源）。动态数据进 user 尾不进系统
+    前缀（c-agent-prompt-cache）。fail-soft：读取失败返回空串，丢注入不打断对话。
+    """
+    from genres.service import build_genre_truth_segments, resolve_genre_context
+
+    try:
+        gctx = await resolve_genre_context(root_path, novel_id)
+        body = "；".join(build_genre_truth_segments(gctx))
+    except Exception:  # noqa: BLE001——真值缺席不致命（BLE001 豁免）
+        return ""
+    if len(body) > GENRE_PANEL_NOTE_BUDGET_CHARS:
+        body = body[: GENRE_PANEL_NOTE_BUDGET_CHARS - 1] + "…"
+    return f"［本页字段真值：{body}——作家正在看这页，可对症帮他填］"
 
 
 def latest_reminder_text(now: datetime | None = None) -> str:

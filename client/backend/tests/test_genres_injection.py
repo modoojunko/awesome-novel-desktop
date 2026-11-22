@@ -28,7 +28,11 @@ from genres.novel_genre_service import (  # noqa: E402
     ensure_seed_genre_vocab,
     put_novel_genre,
 )
-from genres.service import build_genre_section, resolve_genre_context  # noqa: E402
+from genres.service import (  # noqa: E402
+    build_genre_section,
+    build_genre_truth_segments,
+    resolve_genre_context,
+)
 from models.project import Novel  # noqa: E402
 from write.chapter_writer import build_chapter_context  # noqa: E402
 
@@ -190,6 +194,49 @@ class TestChapterWriterInjection:
         assert ctx.style_setting.get("banned_words") == []
         assert "## 题材设定" not in ctx.build_system_prompt()
         assert "禁止使用以下词汇" not in ctx.build_system_prompt()
+
+
+# ── build_genre_truth_segments 面板真值渲染（c-agent-page-field-truth）──────
+
+
+class TestBuildGenreTruthSegments:
+    """题材五格真值段：01-05 逐格「现值或未填」——空格点名是存在理由。"""
+
+    def test_none_writes_all_unfilled(self):
+        segs = build_genre_truth_segments(None)
+        assert segs == [
+            "01 题材=未填",
+            "02 主要看什么=未填",
+            "03 绝对禁止=未填",
+            "04 吃苦指数=未定",
+            "05 本小说斗什么=未填",
+        ]
+
+    def test_filled_gives_values(self):
+        segs = build_genre_truth_segments(
+            {
+                "theme": "玄幻",
+                "sub_genre": "凡人流",
+                "promise_note": "夜班守护者的绝境求生",
+                "cost_ratio": 7,
+                "forbidden": ["禁天降外援", "禁白捡神器"],
+                "battlefield": ["抢资源"],
+            }
+        )
+        assert "01 题材=玄幻（凡人流）" in segs
+        assert "02 主要看什么=夜班守护者的绝境求生" in segs
+        assert "03 绝对禁止=禁天降外援、禁白捡神器" in segs
+        assert "04 吃苦指数=7" in segs
+        assert "05 本小说斗什么=抢资源" in segs
+        assert "未填" not in "".join(segs)
+
+    def test_partial_fill_names_the_gaps(self):
+        segs = build_genre_truth_segments({"theme": "都市", "cost_ratio": 1})
+        assert "01 题材=都市" in segs
+        assert "02 主要看什么=未填" in segs
+        assert "03 绝对禁止=未填" in segs
+        assert "04 吃苦指数=1" in segs
+        assert "05 本小说斗什么=未填" in segs
 
 
 async def _put(novel_id: str) -> None:
