@@ -211,7 +211,8 @@ async def _read_outline(ctx: ToolContext, scope: str = "volume", ref: str = "") 
 
 
 async def _read_settings(ctx: ToolContext, area: str = "cast") -> ToolResult:
-    """书内设定分区读取：premise（主线）/world（世界）/cast（名册）/hooks（伏笔）。"""
+    """书内设定分区读取：premise（主线）/world（世界）/cast（名册）/hooks（伏笔）/
+    genre（题材五格现值含未填点名）/intro（简介）。"""
     area = str(area or "cast").strip()
     if area == "cast":
         from db import async_session
@@ -229,10 +230,24 @@ async def _read_settings(ctx: ToolContext, area: str = "cast") -> ToolResult:
             return ToolResult(ok=True, summary="（名册为空）")
         return ToolResult(ok=True, summary=_clip("\n".join(lines), READ_SETTINGS_BUDGET_CHARS * 2))
 
+    if area == "genre":
+        # 题材五格现值＋未填点名（c-agent-page-field-truth）——读「这本书现在填了
+        # 什么」；可选值目录走 read_genre_catalog，分工不混。
+        from genres.service import build_genre_truth_segments, resolve_genre_context
+
+        gctx = await resolve_genre_context(ctx.root_path, ctx.novel_id)
+        return ToolResult(ok=True, summary="\n".join(build_genre_truth_segments(gctx)))
+
     from filesystem.storage import get_storage
     from volumes.ai_plan import render_red_lines, world_summary_text
 
     storage = get_storage()
+    if area == "intro":
+        story = await storage.read_yaml(ctx.root_path, "story.yaml") or {}
+        synopsis = str(story.get("synopsis", "") or "").strip()
+        if not synopsis:
+            return ToolResult(ok=True, summary="（简介还没有内容）")
+        return ToolResult(ok=True, summary=_clip(synopsis, READ_SETTINGS_BUDGET_CHARS))
     if area == "premise":
         story = await storage.read_yaml(ctx.root_path, "story.yaml") or {}
         arc = story.get("story_arc") or {}
@@ -258,7 +273,10 @@ async def _read_settings(ctx: ToolContext, area: str = "cast") -> ToolResult:
             return ToolResult(ok=True, summary="（没有在途伏笔）")
         text = json.dumps(hooks, ensure_ascii=False, default=str)
         return ToolResult(ok=True, summary=_clip(text, READ_SETTINGS_BUDGET_CHARS))
-    return ToolResult(ok=False, summary=f"未知的设定分区：{area}（可选 premise/world/cast/hooks）")
+    return ToolResult(
+        ok=False,
+        summary=f"未知的设定分区：{area}（可选 premise/world/cast/hooks/genre/intro）",
+    )
 
 
 async def _read_story_state(ctx: ToolContext, upto_chapter_ref: str = "") -> ToolResult:
@@ -425,12 +443,15 @@ TOOL_REGISTRY: tuple[Tool, ...] = (
             "properties": {
                 "area": {
                     "type": "string",
-                    "enum": ["premise", "world", "cast", "hooks"],
+                    "enum": ["premise", "world", "cast", "hooks", "genre", "intro"],
                 },
             },
             "required": ["area"],
         },
-        description="读书内设定分区：主线前提/世界与铁律/角色名册/在途伏笔。",
+        description=(
+            "读书内设定分区：主线前提/世界与铁律/角色名册/在途伏笔/"
+            "题材五格现值（含哪些没填）/简介。"
+        ),
         fn=_read_settings,
     ),
     Tool(

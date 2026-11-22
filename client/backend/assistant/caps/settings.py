@@ -108,9 +108,12 @@ async def arc_ai_action(
 # 粒度：单字段。白名单外的 stype/field 一律 CapabilityError（不静默扩权）。
 
 # 字段 → 作家看得懂的标签（授权卡/回执共用；键名是内部契约，绝不上卡面）
+# genre 不含 theme/sub_genre（c-agent-page-field-truth）：题材目录写走
+# settings_genre_pick 采纳卡单一通道（前端成对写整包 PUT），不在此开第二写路。
 SETTINGS_FIELD_WRITE: dict[str, dict[str, str]] = {
     "genre": {
         "core_promise": "核心承诺",
+        "promise_note": "主要看什么",
         "forbidden_list": "禁忌",
         "cost_ratio": "代价设定",
         "battlefield": "战场",

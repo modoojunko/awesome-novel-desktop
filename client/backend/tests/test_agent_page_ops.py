@@ -459,3 +459,40 @@ def test_navigate_tool_target_validation(monkeypatch):
     assert not bad_ref.ok and "workbench" in bad_ref.summary
     bad_tab = _run(tool.fn(ctx, "workbench:vol-1-ch-3:胡写"))
     assert not bad_tab.ok and "页签" in bad_tab.summary
+
+
+def test_write_settings_field_cap_promise_note_and_theme_gate(monkeypatch):
+    """白名单加 promise_note（c-agent-page-field-truth）：作家口述转写落 02 主框；
+    theme/sub_genre 不进白名单——题材目录写走 catalog 采纳卡单一通道（spec 钉）。"""
+    from assistant.caps.settings import SETTINGS_FIELD_WRITE, write_settings_field_cap
+
+    assert SETTINGS_FIELD_WRITE["genre"]["promise_note"] == "主要看什么"
+
+    card = {
+        "core_promise": "旧承诺",
+        "promise_note": "旧主要看什么",
+        "forbidden_list": [{"tagId": "t1", "text": "不能写成爽文"}],
+        "cost_ratio": 3,
+        "battlefield": ["旧战场"],
+    }
+    storage = _FakeStorage({})
+    put_capture: dict = {}
+    _patch_settings_env(monkeypatch, storage, card, put_capture)
+
+    res = _run(
+        write_settings_field_cap("n1", "genre", "promise_note", "主角用脑子翻盘", "u1")
+    )
+    payload = put_capture["payload"]
+    assert payload["promise_note"] == "主角用脑子翻盘"
+    assert payload["core_promise"] == "旧承诺"  # merge 不 clobber
+    assert payload["battlefield"] == ["旧战场"]
+    assert res["entity"] == "settings:genre:promise_note"
+    assert res["before"] == "旧主要看什么" and res["after"] == "主角用脑子翻盘"
+
+    with pytest.raises(Exception) as ei:
+        _run(write_settings_field_cap("n1", "genre", "theme", "玄幻", "u1"))
+    assert "不支持的字段" in str(ei.value)
+
+    with pytest.raises(Exception) as ei:
+        _run(write_settings_field_cap("n1", "genre", "sub_genre", "凡人流", "u1"))
+    assert "不支持的字段" in str(ei.value)

@@ -245,6 +245,26 @@ def _fmt(v) -> str:
     return ""
 
 
+def build_genre_truth_segments(ctx: dict | None) -> list[str]:
+    """题材五格真值段（c-agent-page-field-truth）：01-05 逐格「现值或未填」。
+
+    与 build_genre_section（只渲染已填项，喂整章写作）不同：助手要对作家逐格说清
+    「哪些空着」——空格点名是本函数的存在理由。ctx=None（五格全空）＝全点名。
+    调用方自行拼接：面板真值 note 用「；」连一行，工具回执用「\\n」逐行。"""
+    ctx = ctx or {}
+    theme = str(ctx.get("theme") or "").strip()
+    sub = str(ctx.get("sub_genre") or "").strip()
+    theme_seg = f"{theme}（{sub}）" if theme and sub else (theme or "未填")
+    cost = ctx.get("cost_ratio")
+    return [
+        f"01 题材={theme_seg}",
+        f"02 主要看什么={str(ctx.get('promise_note') or '').strip() or '未填'}",
+        "03 绝对禁止=" + ("、".join(ctx.get("forbidden") or []) or "未填"),
+        f"04 吃苦指数={cost if cost is not None else '未定'}",
+        "05 本小说斗什么=" + ("、".join(ctx.get("battlefield") or []) or "未填"),
+    ]
+
+
 def build_genre_section(ctx: dict | None) -> str:
     """Render the '## 题材设定' markdown block for prompt injection.
 
