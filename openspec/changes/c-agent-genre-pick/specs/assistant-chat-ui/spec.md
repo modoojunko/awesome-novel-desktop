@@ -17,6 +17,10 @@
 - **WHEN** 助手产出 `core_promise` 卡，value 为 `{value:"以弱破强的痛快", note:"…"}`
 - **THEN** 卡面显示「主要看什么」与「备注」两行，不显示 `value`
 
+#### Scenario: 读目录与出卡两步都可见
+- **WHEN** 助手先 prime 读题材目录、再由模型出题材卡
+- **THEN** 过程区出现两张工具卡（read_genre_catalog 与 settings_genre_pick），stepId 不同，不互相覆盖
+
 #### Scenario: 采纳不破坏其它设定
 - **WHEN** 当前书已有 forbidden_list/cost_ratio/battlefield 与简介，作家采纳题材卡
 - **THEN** 只更新 theme/sub_genre，其余字段保持原值，回执说明写到 01 题材

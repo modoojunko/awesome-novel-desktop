@@ -10,6 +10,7 @@
 - 设定字段卡（core_promise 等）统一按字段映射中文标签，`value` 不再原样上屏。
 - 设定域纪律补一句：作家说「选/定/判断题材」默认指 01 题材目录；「爽点/红线/代价/斗什么」才用题材四问。
 - 设定域窄意图 prime：命中「根据标题选/定/判断题材」时首步确定性调用 `read_genre_catalog`，先把封闭目录放进当轮上下文（显式 chip tool_hint 优先；纯读零副作用）。
+- 修 prime 与模型首步共用 stepId 的老问题：prime 步与模型工具步 SHALL 各用独立 stepId，否则前端同 id 工具卡合并、目录步在过程区消失（真机 smoke 实锤）。
 
 ## Capabilities
 

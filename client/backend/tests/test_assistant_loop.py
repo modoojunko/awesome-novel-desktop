@@ -106,6 +106,48 @@ async def test_thinking_override_reaches_chat_stream():
 
 
 @pytest.mark.asyncio
+async def test_prime_and_model_steps_get_distinct_ids(monkeypatch):
+    """prime 首步与模型第一步不得共用 stepId（c-agent-genre-pick 实锤）。
+
+    read_genre_catalog 走 prime（step 1），模型紧接着 settings_genre_pick——旧实现
+    两循环各自从 0 起，两个步骤都发 run-1，前端工具卡同 id 合并、目录步丢失。"""
+    async def fake_run_tool(ctx, name, args):
+        return ToolResult(ok=True, summary=f"{name} 完成")
+
+    tools = {
+        "read_genre_catalog": Tool(
+            name="read_genre_catalog", kind="read", args_hint="{}",
+            description="读目录", fn=fake_run_tool,
+        ),
+        "settings_genre_pick": Tool(
+            name="settings_genre_pick", kind="card", args_hint="{}",
+            description="出卡", fn=fake_run_tool,
+        ),
+    }
+    monkeypatch.setattr(loop_mod, "get_tool", lambda n: tools.get(n))
+    monkeypatch.setattr(loop_mod, "run_tool", fake_run_tool)
+
+    client = FakeClient(
+        [_tool("settings_genre_pick", {"theme": "都市"}), _final("卡出好了。")]
+    )
+    loop = AgentLoop(
+        client=client, system="sys", transcript=[], tool_ctx=None,
+        config=LoopConfig(),
+    )
+    events = [
+        e async for e in loop.run(
+            "根据标题帮我选定题材",
+            prime={"tool": "read_genre_catalog", "args": {}},
+        )
+    ]
+    starts = [e for e in events if e["type"] == "step_start"]
+    assert [e["tool"] for e in starts] == ["read_genre_catalog", "settings_genre_pick"]
+    assert len({e["stepId"] for e in starts}) == 2
+    # prime 1 ＋ 工具步 2 ＋ 收口 3（步数按模型轮次，不按工具数）
+    assert loop.result.steps == 3
+
+
+@pytest.mark.asyncio
 async def test_tool_step_path_with_trace_and_observation(monkeypatch):
     async def fake_run_tool(ctx, name, args):
         assert name == "read_progress"

@@ -157,6 +157,8 @@ async def _read_genre_catalog(ctx: ToolContext, **_model_extra: Any) -> ToolResu
             + "\n".join(lines)
             + "\n\n下一步：从上面选一个最贴合书名的 theme（可带 sub_genre），"
             "调 settings_genre_pick 出采纳卡；不要用题材四问代替选题材。"
+            "作家只让『根据标题选』时直接给一张首选卡（可附一句备选），"
+            "不要先追问世界观；拿不准的假设写进 note，让作家在卡上改。"
         ),
     )
 
