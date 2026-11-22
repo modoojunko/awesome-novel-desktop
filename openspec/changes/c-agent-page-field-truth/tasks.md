@@ -1,6 +1,8 @@
 # c-agent-page-field-truth Tasks
 
 > **2026-11-22 修订**：1.3/2.2/3.5 的页面字段自动注入已由 `c-agent-page-context`（PR #1123）撤除；字段值改由 `read_page_fields` 工具按需读。归档时按更新后的 delta，不要恢复 `build_genre_panel_note`。
+>
+> **归档顺序**：先归档 #1123（`c-agent-page-context`），再归档本 change——本 delta 的 `read_settings` 分工引用了 `read_page_fields` 要求。
 
 ## 1. 真值读取与渲染（genres/service.py + context.py）
 

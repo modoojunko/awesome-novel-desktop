@@ -109,27 +109,45 @@ async def _style_fields(root_path: str) -> str:
     return "；".join(rows)
 
 
+def format_char_fields(items: list[dict[str, Any]]) -> str:
+    """角色名册摘要：总数＋前 12 人；超量时明确指向 read_settings(cast)。"""
+    total = len(items)
+    if not total:
+        return "角色＝（暂无）"
+    rows = [f"{it.get('name', '')}（{it.get('role', '')}）" for it in items[:12]]
+    head = f"角色（共 {total} 人" + ("，显示前 12" if total > 12 else "") + "）＝"
+    text = head + "、".join(r for r in rows if r.strip())
+    if total > 12:
+        text += "；全文用 read_settings(cast)"
+    return text
+
+
+def format_hook_fields(hooks: list[dict[str, Any]]) -> str:
+    """在途伏笔摘要：总数＋前 10 条；超量时明确指向 read_settings(hooks)。"""
+    total = len(hooks)
+    if not total:
+        return "伏笔＝（暂无在途）"
+    rows = [str(h.get("title") or h.get("name") or "") for h in hooks[:10]]
+    head = f"伏笔（共 {total} 条" + ("，显示前 10" if total > 10 else "") + "）＝"
+    text = head + "、".join(r for r in rows if r)
+    if total > 10:
+        text += "；全文用 read_settings(hooks)"
+    return text
+
+
 async def _chars_fields(novel_id: str) -> str:
     from db import async_session
     from settings.character_service import list_characters
 
     async with async_session() as session:
         data = await list_characters(session, novel_id)
-    items = data.get("items") or []
-    if not items:
-        return "角色＝（暂无）"
-    rows = [f"{it.get('name', '')}（{it.get('role', '')}）" for it in items[:12]]
-    return "角色＝" + "、".join(r for r in rows if r.strip())
+    return format_char_fields(data.get("items") or [])
 
 
 async def _hooks_fields(novel_id: str) -> str:
     from prompt.context import load_active_hooks
 
-    hooks = await load_active_hooks(novel_id)
-    if not hooks:
-        return "伏笔＝（暂无在途）"
-    rows = [str(h.get("title") or h.get("name") or "") for h in hooks[:10]]
-    return "伏笔＝" + "、".join(r for r in rows if r)
+    return format_hook_fields(await load_active_hooks(novel_id))
 
 
 async def build_panel_fields(

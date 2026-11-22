@@ -2,7 +2,12 @@
 
 import pytest
 
-from assistant.page_context import build_panel_fields, format_world_fields
+from assistant.page_context import (
+    build_panel_fields,
+    format_char_fields,
+    format_hook_fields,
+    format_world_fields,
+)
 from assistant.scopes import tools_for_thread
 from assistant.tools import ToolContext
 from assistant.tools_settings import _read_page_fields
@@ -97,6 +102,29 @@ async def test_style_fields_use_migrated_reader(monkeypatch):
     assert "叙事身份（role）＝冷硬短句" in text
     assert "硬约束（rules）＝少形容词" in text
     assert "禁用词（banned_words）＝很" in text
+
+
+def test_char_hook_lists_disclose_total_and_full_read():
+    chars = [{"name": f"角色{i}", "role": "配角"} for i in range(15)]
+    text = format_char_fields(chars)
+    assert "共 15 人" in text and "显示前 12" in text
+    assert "全文用 read_settings(cast)" in text
+    assert "角色0" in text and "角色11" in text
+    assert "角色12" not in text
+
+    hooks = [{"title": f"伏笔{i}"} for i in range(12)]
+    htext = format_hook_fields(hooks)
+    assert "共 12 条" in htext and "显示前 10" in htext
+    assert "全文用 read_settings(hooks)" in htext
+    assert "伏笔0" in htext and "伏笔9" in htext
+    assert "伏笔10" not in htext
+
+
+def test_short_lists_show_total_without_truncation_note():
+    assert "共 2 人" in format_char_fields([{"name": "甲"}, {"name": "乙"}])
+    assert "显示前" not in format_char_fields([{"name": "甲"}, {"name": "乙"}])
+    assert "共 2 条" in format_hook_fields([{"title": "甲"}, {"title": "乙"}])
+    assert "显示前" not in format_hook_fields([{"title": "甲"}, {"title": "乙"}])
 
 
 def test_read_page_fields_only_in_settings_scope():
