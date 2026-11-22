@@ -1485,14 +1485,7 @@ export function Aui2Dock({
           page,
           thread: threadKeyRef.current,
           focus: scope.chapterRef ? { ref: scope.chapterRef } : undefined,
-          page_state: (() => {
-            const sc = scopeRef.current;
-            const state: { unsaved?: string[]; panel?: string; chapter_tab?: string } = {};
-            if (pageUnsaved?.length) state.unsaved = pageUnsaved;
-            if (sc.view === "advanced-settings" && sc.settingPanel) state.panel = sc.settingPanel;
-            if (sc.chapterRef && sc.chapterTab) state.chapter_tab = sc.chapterTab;
-            return Object.keys(state).length ? state : undefined;
-          })(),
+          page_state: pageUnsaved?.length ? { unsaved: pageUnsaved } : undefined,
           tool_hint: pendingHint ?? undefined,
           ...(modelSel
             ? { api_config_id: modelSel.api_config_id, model: modelSel.model }

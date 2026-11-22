@@ -114,29 +114,6 @@ def build_page_note(page: str, focus: dict[str, Any] | None = None) -> str:
     return " ".join(p for p in parts if p.strip())
 
 
-# 题材面板字段真值预算（字符）：promise_note ≤200 是大头，其余格极短
-GENRE_PANEL_NOTE_BUDGET_CHARS = 400
-
-
-async def build_genre_panel_note(root_path: str, novel_id: Any) -> str:
-    """设定·题材面板的字段真值注入（c-agent-page-field-truth，L2 页面级注入）。
-
-    作家正看题材面板时，模型免工具调用即知五格填空状态——「看不到你页面」事故的
-    根修（页签真值注入同判例：服务端是唯一真值源）。动态数据进 user 尾不进系统
-    前缀（c-agent-prompt-cache）。fail-soft：读取失败返回空串，丢注入不打断对话。
-    """
-    from genres.service import build_genre_truth_segments, resolve_genre_context
-
-    try:
-        gctx = await resolve_genre_context(root_path, novel_id)
-        body = "；".join(build_genre_truth_segments(gctx))
-    except Exception:  # noqa: BLE001——真值缺席不致命（BLE001 豁免）
-        return ""
-    if len(body) > GENRE_PANEL_NOTE_BUDGET_CHARS:
-        body = body[: GENRE_PANEL_NOTE_BUDGET_CHARS - 1] + "…"
-    return f"［本页字段真值：{body}——作家正在看这页，可对症帮他填］"
-
-
 def latest_reminder_text(now: datetime | None = None) -> str:
     """DeepSeek 用户元信息标记（c-agent-latest-reminder）。
 

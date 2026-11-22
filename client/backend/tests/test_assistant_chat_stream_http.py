@@ -575,27 +575,27 @@ def test_unfinished_step_marked_interrupted_on_finalize(monkeypatch):
     assert item["running"] is False and item["interrupted"] is True
 
 
-def test_page_panel_and_chapter_tab_injected(monkeypatch):
-    """c-agent-page-context：设定页带 panel → 本页字段进当轮 user 尾；
-    章内页签只报页签名。"""
+def test_page_fields_not_injected_into_prompt(monkeypatch):
+    """c-agent-page-fields-tool：页面字段只走工具，不自动拼进 user 提示词。"""
     bid = _mk_book()
     rec = _patch_loop(monkeypatch, [
-        {"type": "run_start", "runId": "pcx"},
+        {"type": "run_start", "runId": "pcf"},
         {"type": "narration", "text": "好。"},
-        {"type": "run_end", "runId": "pcx", "steps": 0, "toolCalls": 0, "degraded": False, "error": ""},
+        {"type": "run_end", "runId": "pcf", "steps": 0, "toolCalls": 0, "degraded": False, "error": ""},
     ])
     _read_sse(
         bid, "这个改一下",
         {
             "page": "初始设定",
             "thread": "set:genre",
-            "page_state": {"panel": "genre", "chapter_tab": "og"},
+            "page_state": {"unsaved": ["设定面板"]},
         },
     )
     user_input = str(rec["runs"][0]["input"])
-    assert "当前设定面板：题材" in user_input
-    assert "本页字段" in user_input and "01 题材" in user_input
-    assert "当前页签：章纲" in user_input
+    assert "当前页签：设定·题材" in user_input      # 页面身份保留
+    assert "未保存：设定面板" in user_input        # 未保存提醒保留
+    assert "01 题材=" not in user_input            # 字段值不注入
+    assert "本页字段真值" not in user_input
 
 
 def test_system_prefix_stable_and_progress_in_user_tail(monkeypatch):

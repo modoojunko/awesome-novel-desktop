@@ -1037,22 +1037,6 @@ describe("Aui2Dock 任务计划卡（c-agent-action-contract）", () => {
 });
 
 describe("Aui2Dock 过程进度行与工具参数（c-agent-process-progress）", () => {
-  it("设定页随消息带当前面板与章内页签（页面上下文）", async () => {
-    render(
-      <Aui2Dock
-        projectId="p1"
-        page="初始设定"
-        scope={{ ...SCOPE, view: "advanced-settings", chapterRef: "vol-1-ch-1", settingPanel: "genre", chapterTab: "og" }}
-        autoAsk={{ seq: 1, message: "这个改成什么" }}
-      />,
-    );
-    await waitFor(() => expect(chatApiState.streamAssistantChat).toHaveBeenCalled());
-    const body = chatApiState.streamAssistantChat.mock.calls[0][1] as {
-      page_state?: Record<string, unknown>;
-    };
-    expect(body.page_state).toMatchObject({ panel: "genre", chapter_tab: "og" });
-  });
-
   it("提交即运行中；工具执行/完成更新步数；收口停表；参数可展开", async () => {
     render(<Aui2Dock projectId="p1" page="工作台 · 卷纲" scope={SCOPE} />);
     await screen.findByTestId("aui2-dock");

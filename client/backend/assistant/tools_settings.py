@@ -134,6 +134,25 @@ def _make_genre_tool(field: str, desc: str) -> Tool:
 
 
 
+# ── 当前设定页字段（c-agent-page-fields-tool）────────────────────────────
+# 只读工具：agent 在作家说「这个/这格/这里」时自己调；不自动注入提示词。
+# 当前面板由请求 thread（set:<panel>）决定，模型零参数。
+
+
+async def _read_page_fields(ctx: ToolContext) -> ToolResult:
+    from assistant.page_context import build_panel_fields
+
+    thread = str(getattr(ctx, "thread", "") or "").strip()
+    panel = thread.split(":", 1)[1] if thread.startswith("set:") else ""
+    text = await build_panel_fields(
+        ctx.root_path,
+        ctx.novel_id,
+        panel,
+        tuple(getattr(ctx, "page_unsaved", ()) or ()),
+    )
+    return ToolResult(ok=True, summary=text)
+
+
 # ── 01 题材目录（c-agent-genre-pick）──────────────────────────────────────
 # 「题材」有两层：01 目录（theme/sub_genre）与 02-05 四格。四问工具不能代替
 # 选题材——模型没有目录时只能拿 core_promise 顶替（2026-11-21 真机实锤）。
@@ -410,6 +429,20 @@ DRAFT_CHARACTER_TOOL = _make_draft_character_tool()
 SETTINGS_FIELD_TOOLS: tuple[Tool, ...] = (
     DRAFT_CHARACTER_TOOL,
     OG_FILL_TOOL,
+    Tool(
+        name="read_page_fields",
+        kind="read",
+        parameters={"type": "object", "properties": {}},
+        description=(
+            "读当前设定页的面板字段清单与已保存现值（题材五格/简介/世界八格/主线/文风/"
+            "角色/伏笔）。作家说「这个/这格/这里/这一项」没点名字段、要按现值改/补、"
+            "问本页哪些填了哪些没填、或写前不确定写哪个字段时，先调它。"
+            "不返回别的面板/书、正文或章纲全文、未保存的输入、选中的文字、题材可选目录；"
+            "这些用 read_settings/read_chapter/read_outline/read_genre_catalog。"
+            "只在需要本页字段现值时调，不要当开场例行读取。"
+        ),
+        fn=_read_page_fields,
+    ),
     Tool(
         name="read_genre_catalog",
         kind="read",
