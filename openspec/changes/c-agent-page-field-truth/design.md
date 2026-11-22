@@ -9,7 +9,7 @@
 ## Goals / Non-Goals
 
 **Goals:**
-- 模型在 `set:genre` 线程免工具调用即知五格填空状态；在任意 `set:*` 线程知面板名；brief 题材行复活。
+- 模型在任意 `set:*` 线程知面板名；需要题材五格等字段现值时调 `read_page_fields`，工具结果给已保存值与未保存提醒；brief 题材行复活。
 - 模型按需可细读五格现值（含未填点名）与简介现值。
 - 作家口述可经授权卡转写进「主要看什么」（promise_note）。
 
@@ -20,8 +20,8 @@
 
 ## Decisions
 
-1. **注入层＝user 尾 note，不进系统前缀**：五格值随作家保存变化，属动态数据——进前缀会废缓存（判例 c-agent-prompt-cache）。面板名虽准静态，但与页签真值（`ch:*` 同机制）同点注入成本为零、代码同构，一并进 note。
-2. **渲染单源放 genres/service.py**：新增五格真值渲染函数（含未填点名）紧邻 `resolve_genre_context`/`build_genre_section`，note 构造与 read_settings genre 分区共用；label 解析直接复用 resolve 的产物（不二次查表）。
+1. **注入层只放页面身份**：面板名虽准静态，但与页签真值（`ch:*` 同机制）同点注入成本为零、代码同构，进 user 尾 note；五格等字段值随作家保存变化，不进 note/前缀，由 `read_page_fields` 工具按需返回（判例 c-agent-prompt-cache）。
+2. **渲染单源放 genres/service.py**：新增五格真值渲染函数（含未填点名）紧邻 `resolve_genre_context`/`build_genre_section`，`read_page_fields` 与 read_settings genre 分区共用；label 解析直接复用 resolve 的产物（不二次查表）。
 3. **（已被 #1123 取代）note 构造**：原 `build_genre_panel_note` 已删除；字段值改由 `read_page_fields` 工具返回，router 只保留 `settings_tab_label` 的面板名一行。
 4. **面板名映射放 router.py**：`_SET_PANEL_ZH` 与 `_THREAD_TAB_ZH` 同处——键集对齐前端 `SETTINGS_ITEMS`（chatRegistry），default/未知键回退「设定」；不共享前端词表（后端独立封闭集，parity 由测试钉）。
 5. **brief 题材行修复取 `theme`/`sub_genre`**：`resolve_genre_context` 返回 None（全空）时跳过——语义是「没填就不说」，不是「说未填」（未填状态由 `read_page_fields` 工具结果承担，brief 保持 ≤300 字稳定段纪律）。
@@ -30,10 +30,10 @@
 
 ## Risks / Trade-offs
 
-- [note 变长挤占上下文] → promise_note ≤200 是大头，整段预算截断 ~400 字符；只在 set:genre 线程注入，其他线程零增量。
-- [真值与未保存草稿不一致] → 真值=落库值，未保存编辑由既有「［未保存：设定面板…］」标记兜住（模型先提醒再动）；两标记同轮并存语义互补。
+- [工具结果变长挤占上下文] → 只在需要时调用；结果值裁短、总预算 800 字符；截断项指明用 read_settings 读全文。
+- [真值与未保存草稿不一致] → `read_page_fields` 结果头标「已保存值」并带「本页有未保存修改」；模型先提醒再动，两标记同轮并存语义互补。
 - [题材目录写歧义（模型拿四问顶替选题材）] → c-agent-genre-pick 已在设定纪律钉两层「题材」分工；本改动 read_settings(genre) 的 description 明确「现值」语义、与目录工具划清界线。
-- [resolve 异常打断对话] → note 构造 try/except fail-soft（与 brief 题材行同风格），失败仅丢注入段。
+- [resolve 异常打断对话] → 工具构造 try/except fail-soft（与 brief 题材行同风格），失败返回可读提示，不抛断流。
 
 ## Migration Plan
 
