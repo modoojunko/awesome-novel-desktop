@@ -106,6 +106,10 @@ def test_三出口命中撤回书一律403(client):
     assert r.status_code == 403
     assert "撤回" in r.json()["detail"]
 
+    r = app_tc.get(f"/api/deconstruct/tasks/{jid}/collect-candidates")
+    assert r.status_code == 403
+    assert "撤回" in r.json()["detail"]
+
 
 def test_试拆后缀书名同样命中(client):
     tc = client["bind"]

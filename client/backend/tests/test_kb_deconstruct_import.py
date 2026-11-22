@@ -17,6 +17,7 @@ from sqlalchemy import select as sel
 from db import async_session
 from kb.deconstruct_import import (
     collect_task_to_kb,
+    entry_dim,
     genre_from_products,
     map_deconstruct_products,
 )
@@ -492,6 +493,47 @@ def test_collect_lands_material_not_knowledge_instances():
     inst_count, origins = asyncio.run(_check())
     assert inst_count == 0, "收录 SHALL NOT 建实例——实例由总结采纳产生"
     assert origins == {"material"}, "收录产物全部落素材态"
+
+
+def test_collect_dims_filter_keeps_src_key_stability():
+    """界面按勾选维度收：先全量映射再过滤——src_key 序号不因裁维前移
+    （与全量映射同键，幂等判重才不会错位）。期望集走生产 entry_dim 单源，
+    并钉死 craft 前缀（文笔条目同出写作文风.md，漏掉即静默不收——review P1）。"""
+    uid = f"kb-dims-{uuid.uuid4()}"
+    task = SimpleNamespace(
+        id=f"task-{uuid.uuid4()}",
+        user_id=uid,
+        products_json=json.dumps(PRODUCTS, ensure_ascii=False),
+    )
+    full, _ = _map(genre="志怪/民俗灵异")
+    style_keys = [e.src_key for e in full if entry_dim(e.src_key) == "style"]
+    assert any(k.startswith("style.") for k in style_keys)
+    assert any(k.startswith("craft.") for k in style_keys)
+
+    result = _collect(uid, task, dims=["style"], genre_override="志怪/民俗灵异")
+    assert result["collected"] == result["total_mapped"] == len(style_keys)
+
+    async def _rows():
+        async with async_session() as db:
+            return (
+                await db.execute(sel(KbKnowledge).where(KbKnowledge.user_id == uid))
+            ).scalars().all()
+
+    rows = asyncio.run(_rows())
+    assert {r.src_key for r in rows} == set(style_keys)
+    assert {r.concept for r in rows} == {"文风", "文笔"}
+
+
+def test_collect_dims_filter_ignores_unknown_dims():
+    uid = f"kb-dims-{uuid.uuid4()}"
+    task = SimpleNamespace(
+        id=f"task-{uuid.uuid4()}",
+        user_id=uid,
+        products_json=json.dumps(PRODUCTS, ensure_ascii=False),
+    )
+    result = _collect(uid, task, dims=["bogus"])
+    assert result["collected"] == 0
+    assert result["total_mapped"] == 0
 
 
 def test_双前缀自愈_星币星币实锤形态():

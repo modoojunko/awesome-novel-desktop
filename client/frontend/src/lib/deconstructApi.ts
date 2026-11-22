@@ -490,14 +490,62 @@ export async function getLibraryCandidates(taskId: string): Promise<LibraryCandi
   return request<LibraryCandidates>(`/deconstruct/tasks/${taskId}/library-candidates`);
 }
 
-/** 收进角色库（第三出口）：只写库不动书；成功后任务记为「已取结果」。 */
+/** 收进角色库（第三出口）：只写库不动书；成功后任务记为「已取结果」。
+ * genre＝收录面板里补选的题材（产物无题材维度时传）。 */
 export async function toLibrary(
   taskId: string,
   picks: string[],
   rename: boolean,
+  genre?: string,
 ): Promise<ToLibraryResult> {
   return request<ToLibraryResult>(`/deconstruct/tasks/${taskId}/to-library`, {
     method: "POST",
-    body: JSON.stringify({ picks, rename }),
+    body: JSON.stringify({ picks, rename, ...(genre ? { genre } : {}) }),
   });
+}
+
+// ── 收进知识库（c-deconstruct-collect-all-dims） ──────────────────────────
+
+/** 非角色维度分组：count＝映射条数，collected＝同任务已入库条数 */
+export interface CollectGroupItem {
+  dim: string;
+  label: string;
+  count: number;
+  collected: number;
+}
+
+export interface CollectCandidates {
+  can_collect: boolean;
+  reason: string;
+  /** 产物题材维度算出的题材；空串＝未定题材（面板让作家补选一次） */
+  genre: string;
+  groups: CollectGroupItem[];
+  /** 角色走富实例清单（to-library），不进 groups */
+  characters: LibraryCandidateItem[];
+}
+
+export interface CollectResult {
+  collected: number;
+  skipped: number;
+  total_mapped: number;
+  warnings: string[];
+  genre: string;
+}
+
+/** 本批能收进知识库的内容（维度分组＋角色清单；与 collectToKb 同一映射源） */
+export async function getCollectCandidates(taskId: string): Promise<CollectCandidates> {
+  return request<CollectCandidates>(`/deconstruct/tasks/${taskId}/collect-candidates`);
+}
+
+/** 收进知识库：按勾选的维度收（角色另走 toLibrary）；后端幂等，重复项跳过。 */
+export async function collectToKb(
+  taskId: string,
+  dims: string[],
+  genre?: string,
+): Promise<CollectResult> {
+  const r = await request<{ ok: boolean; data: CollectResult }>(
+    `/deconstruct/tasks/${taskId}/collect-to-kb`,
+    { method: "POST", body: JSON.stringify({ dims, ...(genre ? { genre } : {}) }) },
+  );
+  return r.data;
 }

@@ -19,6 +19,8 @@ const state = vi.hoisted(() => ({
   export: vi.fn(),
   modelOpts: vi.fn(),
   candidates: vi.fn(),
+  collectCandidates: vi.fn(),
+  collectToKb: vi.fn(),
   toLibrary: vi.fn(),
   retryConsent: vi.fn(),
 }));
@@ -38,11 +40,15 @@ vi.mock("@/lib/deconstructApi", () => ({
   exportTaskProducts: state.export,
   fetchModelOptions: state.modelOpts,
   getLibraryCandidates: state.candidates,
+  getCollectCandidates: state.collectCandidates,
+  collectToKb: state.collectToKb,
   toLibrary: state.toLibrary,
   retryDeconstructConsent: state.retryConsent,
   DECONSTRUCT_DIMS: [
     { key: "intro", name: "简介", file: "简介.md", setting: true },
     { key: "world", name: "世界设定", file: "世界设定.md", setting: true },
+    { key: "characters", name: "角色设定", file: "角色设定.md", setting: true },
+    { key: "style", name: "写作文风", file: "写作文风.md", setting: true },
     { key: "techniques", name: "写作技法", file: "写作技法.md", setting: false, book: true },
   ],
 }));
@@ -901,16 +907,16 @@ describe("建书勾选导入", () => {
     await waitFor(() => expect(screen.getByText("选择去向")).toBeInTheDocument());
     fireEvent.click(screen.getByText("选择去向"));
     await waitFor(() => expect(screen.getByText("灌入新书的内容")).toBeInTheDocument());
-    expect(screen.getByText(/写入勾选的 3\/3 项/)).toBeInTheDocument(); // mock 口径：intro/world/techniques 全默认勾
+    expect(screen.getByText(/写入勾选的 5\/5 项/)).toBeInTheDocument(); // mock 口径：5 个 setting/book 维全默认勾
     expect(screen.getAllByText(/并入文风/).length).toBeGreaterThan(0); // 技法行标注＋说明文案，不再显示「默认不勾」
     // 取消「简介」
     fireEvent.click(document.querySelector('[data-od-id="bi-intro"]') as HTMLInputElement);
-    expect(screen.getByText(/写入勾选的 2\/3 项/)).toBeInTheDocument();
+    expect(screen.getByText(/写入勾选的 4\/5 项/)).toBeInTheDocument();
     ackBuild();
     fireEvent.click(screen.getByText("就建这本书"));
     await waitFor(() => expect(state.importBook).toHaveBeenCalledOnce());
     const items = state.importBook.mock.calls[0][1] as string[];
-    expect(items).toEqual(["world", "techniques"]);
+    expect(items).toEqual(["world", "characters", "style", "techniques"]);
     expect(items).not.toContain("intro");
   });
 });
@@ -1186,90 +1192,354 @@ describe("进度可视二阶（边界臂）", () => {
   });
 });
 
-describe("拆书收录出口（c-charlib-deconstruct-exit；c-charlib-into-kb 改口）", () => {
+describe("收进知识库出口（c-deconstruct-collect-all-dims）", () => {
   beforeEach(() => {
     toastState.error.mockClear();
     toastState.success.mockClear();
+    state.collectCandidates.mockReset();
+    state.collectToKb.mockReset();
+    state.toLibrary.mockReset();
   });
-  const items = [
+
+  const characterRows = [
     { key: "沈青崖", name: "沈青崖", role: "主角", persona: "看山人独子", gender: "男", age: "16", collected: false },
     { key: "秦重霄", name: "秦重霄", role: "反派", persona: "暴躁", gender: "男", age: "42", collected: true },
   ];
 
-  async function openExit() {
-    state.get.mockResolvedValue(detailOf("completed"));
+  function candidates(over: Record<string, unknown> = {}) {
+    return {
+      can_collect: true,
+      reason: "",
+      genre: "",
+      groups: [{ dim: "techniques", label: "写作技法", count: 3, collected: 1 }],
+      characters: characterRows,
+      ...over,
+    };
+  }
+
+  const allProducts = [
+    { filename: "简介.md", size: 100, dim: "简介" },
+    { filename: "世界设定.md", size: 200, dim: "世界设定" },
+    { filename: "角色设定.md", size: 200, dim: "角色设定" },
+    { filename: "写作文风.md", size: 200, dim: "写作文风" },
+    { filename: "写作技法.md", size: 300, dim: "写作技法" },
+  ];
+
+  function collectDetail(products = allProducts) {
+    return detailOf("completed", {
+      selected_dims: ["intro", "world", "characters", "style", "techniques"],
+      dims: Object.fromEntries(
+        ["intro", "world", "characters", "style", "techniques"].map((k) => [
+          k,
+          { state: "completed", seg_done: 1, seg_total: 1, error: "" },
+        ]),
+      ),
+      products,
+    });
+  }
+
+  async function openExit(detail = collectDetail()) {
+    state.get.mockResolvedValue(detail);
     renderPage();
     await waitFor(() => expect(screen.getByText("选择去向")).toBeInTheDocument());
     fireEvent.click(screen.getByText("选择去向"));
     fireEvent.click(screen.getByTestId("exit-opt-library"));
   }
 
-  it("候选清单：已收录灰态不可勾、默认勾未收录、开关换名、提交成功", async () => {
-    state.candidates.mockResolvedValue({ can_import: true, reason: "", items });
-    state.toLibrary.mockResolvedValue({ created: 1, skipped: 0, library_ids: ["x"] });
+  it("混合批次：分组默认勾未收部分、角色灰态、补选题材、两次提交后关层", async () => {
+    state.collectCandidates.mockResolvedValue(candidates());
+    state.collectToKb.mockResolvedValue({
+      collected: 2, skipped: 1, total_mapped: 3, warnings: [], genre: "都市",
+    });
+    state.toLibrary.mockResolvedValue({ created: 1, skipped: 1, library_ids: ["x"] });
     await openExit();
-    await waitFor(() => expect(screen.getAllByTestId("library-row")).toHaveLength(2));
-    // 已收录行禁用 + 标注
+    await waitFor(() => expect(screen.getByTestId("collect-group-row")).toBeInTheDocument());
+
+    const groupRow = screen.getByTestId("collect-group-row");
+    expect(groupRow.textContent).toContain("写作技法");
+    expect(groupRow.textContent).toContain("3 条 · 1 条已在库里");
     const rows = screen.getAllByTestId("library-row");
-    const collectedBox = rows[1].querySelector("input") as HTMLInputElement;
-    expect(collectedBox.disabled).toBe(true);
+    expect((rows[1].querySelector("input") as HTMLInputElement).disabled).toBe(true);
     expect(rows[1].textContent).toContain("已在库里");
-    // 默认只勾未收录
-    expect(screen.getByTestId("library-submit").textContent).toContain("（1）");
-    // 关换名后提交
+    // 默认：角色只勾未收录＋分组只算未收条数（3-1=2）
+    expect(screen.getByTestId("library-submit").textContent).toContain("1 个角色、2 条内容");
+
+    fireEvent.change(screen.getByTestId("collect-genre"), { target: { value: "都市" } });
     fireEvent.click(screen.getByTestId("library-rename"));
     fireEvent.click(screen.getByTestId("library-submit"));
+    await waitFor(() => expect(state.collectToKb).toHaveBeenCalledWith("t2", ["techniques"], "都市"));
+    await waitFor(() => expect(state.toLibrary).toHaveBeenCalledWith("t2", ["沈青崖"], false, "都市"));
     await waitFor(() =>
-      expect(state.toLibrary).toHaveBeenCalledWith("t2", ["沈青崖"], false),
+      expect(toastState.success).toHaveBeenCalledWith(
+        "已收进知识库：内容 2 条、角色 1 个（2 条已在库里，跳过）",
+      ),
     );
-    expect(toastState.success).toHaveBeenCalled();
+    expect(screen.queryByTestId("library-panel")).not.toBeInTheDocument();
   });
 
-  it("取消最后勾选后按钮禁用；勾上第二个未收录计数变化", async () => {
-    state.candidates.mockResolvedValue({ can_import: true, reason: "", items });
+  it("只拆了文风/技法（无角色）：分组可收、不调角色接口；有题材不出补选", async () => {
+    state.collectCandidates.mockResolvedValue(
+      candidates({ characters: [], genre: "都市" }),
+    );
+    state.collectToKb.mockResolvedValue({
+      collected: 2, skipped: 0, total_mapped: 2, warnings: [], genre: "都市",
+    });
+    await openExit();
+    await waitFor(() => expect(screen.getByTestId("collect-group-row")).toBeInTheDocument());
+    expect(screen.queryByTestId("library-rows")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("collect-genre")).not.toBeInTheDocument();
+    expect(screen.getByTestId("library-submit").textContent).toContain("2 条内容");
+
+    fireEvent.click(screen.getByTestId("library-submit"));
+    await waitFor(() =>
+      expect(state.collectToKb).toHaveBeenCalledWith("t2", ["techniques"], undefined),
+    );
+    expect(state.toLibrary).not.toHaveBeenCalled();
+    await waitFor(() =>
+      expect(toastState.success).toHaveBeenCalledWith("已收进知识库：内容 2 条"),
+    );
+  });
+
+  it("纯角色批次：只调角色接口，计数按张数", async () => {
+    state.collectCandidates.mockResolvedValue(
+      candidates({ groups: [], genre: "古装玄幻" }),
+    );
+    state.toLibrary.mockResolvedValue({ created: 1, skipped: 1, library_ids: ["x"] });
     await openExit();
     await waitFor(() => expect(screen.getAllByTestId("library-row")).toHaveLength(2));
-    const first = screen.getAllByTestId("library-row")[0].querySelector("input") as HTMLInputElement;
-    fireEvent.click(first); // 取消唯一勾选
-    expect((screen.getByTestId("library-submit") as HTMLButtonElement).disabled).toBe(true);
-    fireEvent.click(first);
-    expect(screen.getByTestId("library-submit").textContent).toContain("（1）");
+    expect(screen.queryByTestId("collect-group-row")).not.toBeInTheDocument();
+    expect(screen.getByTestId("library-submit").textContent).toContain("1 个角色");
+
+    fireEvent.click(screen.getByTestId("library-submit"));
+    await waitFor(() =>
+      expect(state.toLibrary).toHaveBeenCalledWith("t2", ["沈青崖"], true, undefined),
+    );
+    expect(state.collectToKb).not.toHaveBeenCalled();
+    await waitFor(() =>
+      expect(toastState.success).toHaveBeenCalledWith(
+        "已收进知识库：角色 1 个（1 条已在库里，跳过）",
+      ),
+    );
   });
 
-  it("无角色产物：显示原因，不出清单", async () => {
-    state.candidates.mockResolvedValue({ can_import: false, reason: "这批产物里没有角色设定", items: [] });
+  it("没有可收内容：只给原因，不出清单/提交钮", async () => {
+    state.collectCandidates.mockResolvedValue({
+      can_collect: false,
+      reason: "这批产物里没有能收进知识库的内容——下次拆书勾上「写作技法」再试。",
+      genre: "",
+      groups: [],
+      characters: [],
+    });
     await openExit();
     await waitFor(() => expect(screen.getByTestId("library-reason")).toBeInTheDocument());
-    expect(screen.queryByTestId("library-rows")).not.toBeInTheDocument();
+    expect(screen.getByTestId("library-reason").textContent).toContain("下次拆书");
+    expect(screen.queryByTestId("collect-group-row")).not.toBeInTheDocument();
     expect(screen.queryByTestId("library-submit")).not.toBeInTheDocument();
   });
 
-  it("候选加载失败：提示原因并可重开", async () => {
-    state.candidates.mockRejectedValue(new Error("网络炸了"));
+  it("原因文案缺席走兜底句", async () => {
+    state.collectCandidates.mockResolvedValue({
+      can_collect: false, reason: "", genre: "", groups: [], characters: [],
+    });
     await openExit();
-    await waitFor(() => expect(toastState.error).toHaveBeenCalled());
-    await waitFor(() => expect(screen.getByTestId("library-reason").textContent).toContain("加载失败"));
+    await waitFor(() => expect(screen.getByTestId("library-reason")).toBeInTheDocument());
+    expect(screen.getByTestId("library-reason").textContent).toBe(
+      "这批产物里没有能收进知识库的内容",
+    );
   });
 
-  it("提交失败给提示；成功后关闭去向弹层", async () => {
-    state.candidates.mockResolvedValue({ can_import: true, reason: "", items });
-    state.toLibrary.mockRejectedValue(new Error("库写不进去"));
+  it("读取中给过渡态；加载失败可重开重试", async () => {
+    let resolve!: (v: unknown) => void;
+    state.collectCandidates.mockReturnValueOnce(
+      new Promise((r) => {
+        resolve = r;
+      }),
+    );
+    await openExit();
+    expect(screen.getByText("正在清点这批能收的内容…")).toBeInTheDocument();
+    await act(async () => resolve(candidates()));
+    await waitFor(() => expect(screen.getByTestId("collect-group-row")).toBeInTheDocument());
+
+    cleanup();
+    state.collectCandidates.mockRejectedValueOnce(new Error("网络炸了")).mockResolvedValueOnce(candidates());
+    await openExit();
+    await waitFor(() => expect(toastState.error).toHaveBeenCalledWith("网络炸了"));
+    expect(screen.getByTestId("library-reason").textContent).toContain("加载失败");
+    // 关层再开：重取候选
+    fireEvent.click(screen.getByText("稍后再说"));
+    fireEvent.click(screen.getByText("选择去向"));
+    fireEvent.click(screen.getByTestId("exit-opt-library"));
+    await waitFor(() => expect(screen.getByTestId("collect-group-row")).toBeInTheDocument());
+  });
+
+  it("分组勾选联动计数；已全部收过的组置灰不可勾", async () => {
+    state.collectCandidates.mockResolvedValue(
+      candidates({
+        groups: [
+          { dim: "techniques", label: "写作技法", count: 3, collected: 0 },
+          { dim: "world", label: "世界设定", count: 2, collected: 2 },
+        ],
+        characters: [],
+      }),
+    );
+    await openExit();
+    await waitFor(() => expect(screen.getAllByTestId("collect-group-row")).toHaveLength(2));
+    const rows = screen.getAllByTestId("collect-group-row");
+    expect((rows[1].querySelector("input") as HTMLInputElement).disabled).toBe(true);
+    expect(screen.getByTestId("library-submit").textContent).toContain("3 条内容");
+    // 取消唯一勾选 → 禁用＋回裸按钮文案
+    fireEvent.click(rows[0].querySelector("input") as HTMLInputElement);
+    expect((screen.getByTestId("library-submit") as HTMLButtonElement).disabled).toBe(true);
+    expect(screen.getByTestId("library-submit").textContent).toBe("收进知识库");
+    // 没勾选不问题材
+    expect(screen.queryByTestId("collect-genre")).not.toBeInTheDocument();
+  });
+
+  it("结果目录取消勾选某维产物：该组不出现、提交不含它", async () => {
+    state.collectCandidates.mockResolvedValue(
+      candidates({
+        characters: [],
+        groups: [
+          { dim: "techniques", label: "写作技法", count: 2, collected: 0 },
+          { dim: "style", label: "写作文风", count: 1, collected: 0 },
+        ],
+      }),
+    );
+    state.collectToKb.mockResolvedValue({
+      collected: 2, skipped: 0, total_mapped: 2, warnings: [], genre: "",
+    });
+    await openExit();
+    await waitFor(() => expect(screen.getAllByTestId("collect-group-row")).toHaveLength(2));
+    expect(screen.getByTestId("library-submit").textContent).toContain("3 条内容");
+
+    // boss 2026-11-21：结果目录不勾的产物不录进知识库——面板同步收窄
+    fireEvent.click(screen.getByLabelText("写作文风.md"));
+    await waitFor(() => expect(screen.getAllByTestId("collect-group-row")).toHaveLength(1));
+    expect(screen.getByTestId("library-submit").textContent).toContain("2 条内容");
+
+    fireEvent.click(screen.getByTestId("library-submit"));
+    await waitFor(() =>
+      expect(state.collectToKb).toHaveBeenCalledWith("t2", ["techniques"], undefined),
+    );
+  });
+
+  it("角色设定.md 未勾：角色区不出现、不调 to-library", async () => {
+    state.collectCandidates.mockResolvedValue(
+      candidates({ groups: [{ dim: "techniques", label: "写作技法", count: 3, collected: 1 }] }),
+    );
+    state.collectToKb.mockResolvedValue({
+      collected: 2, skipped: 0, total_mapped: 2, warnings: [], genre: "",
+    });
+    await openExit();
+    await waitFor(() => expect(screen.getAllByTestId("library-row")).toHaveLength(2));
+
+    fireEvent.click(screen.getByLabelText("角色设定.md"));
+    await waitFor(() => expect(screen.queryByTestId("library-rows")).not.toBeInTheDocument());
+    expect(screen.getByTestId("library-submit").textContent).toContain("2 条内容");
+
+    fireEvent.click(screen.getByTestId("library-submit"));
+    await waitFor(() =>
+      expect(state.collectToKb).toHaveBeenCalledWith("t2", ["techniques"], undefined),
+    );
+    expect(state.toLibrary).not.toHaveBeenCalled();
+  });
+
+  it("勾中的产物都不可收：给原因并禁用提交", async () => {
+    state.collectCandidates.mockResolvedValue(
+      candidates({
+        characters: [],
+        groups: [{ dim: "techniques", label: "写作技法", count: 2, collected: 0 }],
+      }),
+    );
+    await openExit(
+      collectDetail([
+        { filename: "简介.md", size: 100, dim: "简介" },
+        { filename: "写作技法.md", size: 300, dim: "写作技法" },
+      ]),
+    );
+    await waitFor(() => expect(screen.getByTestId("collect-group-row")).toBeInTheDocument());
+    fireEvent.click(screen.getByLabelText("写作技法.md"));
+    await waitFor(() =>
+      expect(screen.getByTestId("library-reason").textContent).toContain("还没勾中"),
+    );
+    expect(screen.queryByTestId("collect-group-row")).not.toBeInTheDocument();
+    expect((screen.getByTestId("library-submit") as HTMLButtonElement).disabled).toBe(true);
+  });
+
+  it("全都收过：默认无勾选、提交禁用", async () => {
+    state.collectCandidates.mockResolvedValue(
+      candidates({
+        groups: [{ dim: "techniques", label: "写作技法", count: 2, collected: 2 }],
+        characters: [{ ...characterRows[1] }],
+      }),
+    );
+    await openExit();
+    await waitFor(() => expect(screen.getByTestId("collect-group-row")).toBeInTheDocument());
+    expect((screen.getByTestId("library-submit") as HTMLButtonElement).disabled).toBe(true);
+    expect(screen.queryByTestId("collect-genre")).not.toBeInTheDocument();
+  });
+
+  it("内容收录失败：报错留面板；字符串拒绝走兜底文案", async () => {
+    state.collectCandidates.mockResolvedValue(candidates({ characters: [] }));
+    state.collectToKb.mockRejectedValueOnce(new Error("库写不进去"));
     await openExit();
     await waitFor(() => expect(screen.getByTestId("library-submit")).toBeInTheDocument());
     fireEvent.click(screen.getByTestId("library-submit"));
-    await waitFor(() => expect(toastState.error).toHaveBeenCalled());
+    await waitFor(() => expect(toastState.error).toHaveBeenCalledWith("库写不进去"));
+    expect(screen.getByTestId("library-panel")).toBeInTheDocument();
+
     cleanup();
-    // 非 Error 拒绝（字符串）走兜底文案
-    state.toLibrary.mockRejectedValue("炸");
+    state.collectCandidates.mockResolvedValue(candidates({ characters: [] }));
+    state.collectToKb.mockRejectedValueOnce("炸");
     await openExit();
     await waitFor(() => expect(screen.getByTestId("library-submit")).toBeInTheDocument());
     fireEvent.click(screen.getByTestId("library-submit"));
     await waitFor(() => expect(toastState.error).toHaveBeenCalledTimes(2));
-    state.toLibrary.mockResolvedValue({ created: 1, skipped: 1, library_ids: [] });
+    expect(toastState.error).toHaveBeenLastCalledWith("收进知识库失败");
+  });
+
+  it("提交失败重取候选：保留用户勾选与题材，不悄悄换一批", async () => {
+    const mixed = () =>
+      candidates({
+        groups: [
+          { dim: "techniques", label: "写作技法", count: 3, collected: 1 },
+          { dim: "style", label: "写作文风", count: 1, collected: 0 },
+        ],
+      });
+    state.collectCandidates.mockResolvedValueOnce(mixed()).mockResolvedValueOnce(mixed());
+    state.collectToKb.mockRejectedValue(new Error("库写不进去"));
+    await openExit();
+    await waitFor(() => expect(screen.getAllByTestId("collect-group-row")).toHaveLength(2));
+
+    // 用户主动取消写作技法组、改选都市题材
+    const rows = screen.getAllByTestId("collect-group-row");
+    fireEvent.click(rows[0].querySelector("input") as HTMLInputElement);
+    fireEvent.change(screen.getByTestId("collect-genre"), { target: { value: "都市" } });
+    fireEvent.click(screen.getByTestId("library-submit"));
+    await waitFor(() => expect(toastState.error).toHaveBeenCalledWith("库写不进去"));
+
+    // 失败后重取只刷新灰态：未勾的仍不勾、已勾的仍勾、题材不丢
+    await waitFor(() => expect(screen.getAllByTestId("collect-group-row")).toHaveLength(2));
+    const after = screen.getAllByTestId("collect-group-row");
+    expect((after[0].querySelector("input") as HTMLInputElement).checked).toBe(false);
+    expect((after[1].querySelector("input") as HTMLInputElement).checked).toBe(true);
+    expect((screen.getByTestId("collect-genre") as HTMLSelectElement).value).toBe("都市");
+    expect(screen.getByTestId("library-submit").textContent).toContain("1 条内容");
+  });
+
+  it("内容已收、角色失败：报已收部分并留面板", async () => {
+    state.collectCandidates.mockResolvedValue(candidates());
+    state.collectToKb.mockResolvedValue({
+      collected: 2, skipped: 1, total_mapped: 3, warnings: [], genre: "",
+    });
+    state.toLibrary.mockRejectedValue(new Error("角色写不进去"));
     await openExit();
     await waitFor(() => expect(screen.getByTestId("library-submit")).toBeInTheDocument());
     fireEvent.click(screen.getByTestId("library-submit"));
-    await waitFor(() => expect(screen.queryByTestId("library-panel")).not.toBeInTheDocument());
+    await waitFor(() =>
+      expect(toastState.error).toHaveBeenCalledWith("已收进知识库：内容 2 条；角色写不进去"),
+    );
+    expect(screen.getByTestId("library-panel")).toBeInTheDocument();
   });
 });
 

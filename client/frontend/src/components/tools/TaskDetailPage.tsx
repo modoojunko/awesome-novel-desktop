@@ -19,10 +19,12 @@ import type { FeatureKey } from "@/lib/features";
 import { toast } from "../../lib/toast";
 import {
   cancelImportBook,
-  getLibraryCandidates,
+  collectToKb,
+  getCollectCandidates,
   toLibrary,
-  type LibraryCandidateItem,
+  type CollectCandidates,
 } from "../../lib/deconstructApi";
+import { THEMES } from "../../lib/themeCatalog";
 import { serverTimeMs } from "../../lib/serverTime";
 import { markTasksSeen } from "../../lib/toolsBadgeSeen";
 import { queryKeys } from "../../lib/queryKeys";
@@ -156,10 +158,12 @@ export default function TaskDetailPage() {
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [exitOpen, setExitOpen] = useState(false);
   const [exitOpt, setExitOpt] = useState<"book" | "files" | "library">("book");
-  // 收进角色库（c-charlib-deconstruct-exit）：清单＝候选端点唯一数据源；默认全选未收录
-  const [libCandidates, setLibCandidates] = useState<LibraryCandidateItem[] | null>(null);
-  const [libCanImport, setLibCanImport] = useState(true);
-  const [libReason, setLibReason] = useState("");
+  // 收进知识库（c-deconstruct-collect-all-dims）：候选＝本批能收的维度分组＋角色清单；
+  // 非角色维按组勾选（默认全选未收过的组），角色仍逐张勾选可换名。
+  const [collectCandidates, setCollectCandidates] = useState<CollectCandidates | null>(null);
+  const [collectErr, setCollectErr] = useState("");
+  const [collectDims, setCollectDims] = useState<Set<string>>(new Set());
+  const [collectGenre, setCollectGenre] = useState("");
   const [libPicks, setLibPicks] = useState<Set<string>>(new Set());
   const [libRename, setLibRename] = useState(true);
   const [libBusy, setLibBusy] = useState(false);
@@ -394,6 +398,40 @@ export default function TaskDetailPage() {
     }
   };
 
+  const loadCollectCandidates = async (preserve = false) => {
+    setCollectCandidates(null);
+    setCollectErr("");
+    try {
+      const r = await getCollectCandidates(task.id);
+      setCollectCandidates(r);
+      if (preserve) {
+        // 提交失败后重取只为刷新灰态：保留用户已勾的角色/分组/题材，
+        // 别把「重试」悄悄换成本想收的另一批内容。
+        setLibPicks((prev) =>
+          new Set(
+            [...prev].filter((key) =>
+              r.characters.some((c) => c.key === key && !c.collected),
+            ),
+          ),
+        );
+        setCollectDims((prev) =>
+          new Set(
+            [...prev].filter((dim) =>
+              r.groups.some((g) => g.dim === dim && g.count > g.collected),
+            ),
+          ),
+        );
+      } else {
+        setLibPicks(new Set(r.characters.filter((i) => !i.collected).map((i) => i.key)));
+        setCollectDims(new Set(r.groups.filter((g) => g.count > g.collected).map((g) => g.dim)));
+        setCollectGenre("");
+      }
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "可收内容加载失败");
+      setCollectErr("可收内容加载失败，稍后重试");
+    }
+  };
+
   const doExit = () => {
     if (exitOpt === "book" && !hasDeconstructImport) {
       setTierNeed("deconstruct-import");
@@ -406,26 +444,53 @@ export default function TaskDetailPage() {
     }
     /* v8 ignore stop */
     if (exitOpt === "library") {
-      // 提交钮在 0 勾选时 disabled——这里必有至少一个勾选
-      const picks = [...libPicks];
+      // 未勾产物不入库：只提交结果目录里勾中的维度与角色产物
+      const picks = collectCharacters.length > 0 ? [...libPicks] : [];
+      const dims = [...collectActiveDims];
+      // 提交钮在 0 勾选时 disabled——这里必有至少一项
+      const genre = collectGenre || undefined;
       setLibBusy(true);
       void (async () => {
-        try {
-          const r = await toLibrary(task.id, picks, libRename);
+        const done: string[] = [];
+        let skipped = 0;
+        let failed: unknown = null;
+        // 非角色维先收（本次报障主路径），角色随后；任一步失败保留面板可重试
+        if (dims.length > 0) {
+          try {
+            const r = await collectToKb(task.id, dims, genre);
+            done.push(`内容 ${r.collected} 条`);
+            skipped += r.skipped;
+          } catch (e) {
+            failed = e;
+          }
+        }
+        if (picks.length > 0 && failed === null) {
+          try {
+            const r = await toLibrary(task.id, picks, libRename, genre);
+            done.push(`角色 ${r.created} 个`);
+            skipped += r.skipped;
+          } catch (e) {
+            failed = e;
+          }
+        }
+        if (failed !== null) {
+          toast.error(
+            (done.length > 0 ? `已收进知识库：${done.join("、")}；` : "") +
+              (failed instanceof Error ? failed.message : "收进知识库失败"),
+          );
+          void loadCollectCandidates(true); // 重取候选：已收的即时灰掉；保留用户勾选与题材
+        } else {
           toast.success(
-            `已把 ${r.created} 个角色收进知识库` +
-              (r.skipped > 0 ? `（${r.skipped} 个已在库里，跳过）` : ""),
+            `已收进知识库：${done.join("、")}` +
+              (skipped > 0 ? `（${skipped} 条已在库里，跳过）` : ""),
           );
           setExitOpen(false);
-          setLibCandidates(null); // 下次打开重取候选（已收录灰态即时正确）
-          void queryClient.invalidateQueries({ queryKey: queryKeys.characterLibrary });
-          void queryClient.invalidateQueries({ queryKey: queryKeys.deconstructTasks });
-          void queryClient.invalidateQueries({ queryKey: queryKeys.deconstructTask(task.id) });
-        } catch (e) {
-          toast.error(e instanceof Error ? e.message : "收进知识库失败");
-        } finally {
-          setLibBusy(false);
+          setCollectCandidates(null); // 下次打开重取候选（已收录灰态即时正确）
         }
+        void queryClient.invalidateQueries({ queryKey: queryKeys.characterLibrary });
+        void queryClient.invalidateQueries({ queryKey: queryKeys.deconstructTasks });
+        void queryClient.invalidateQueries({ queryKey: queryKeys.deconstructTask(task.id) });
+        setLibBusy(false);
       })();
       return;
     }
@@ -474,6 +539,37 @@ export default function TaskDetailPage() {
       });
     }
   };
+
+  // 收录范围跟随结果目录勾选（boss 2026-11-21：不勾选的不录入知识库）——
+  // 维度 → 产物文件名走 DECONSTRUCT_DIMS 单源；未勾的组/角色区从面板与提交里一起拿掉。
+  const collectFileOf = (dim: string) =>
+    DECONSTRUCT_DIMS.find((d) => d.key === dim)?.file ?? "";
+  const collectGroups = collectCandidates
+    ? collectCandidates.groups.filter((g) => {
+        const file = collectFileOf(g.dim);
+        return !!file && selectedFiles.includes(file);
+      })
+    : [];
+  const collectCharacters = collectCandidates
+    ? selectedFiles.includes(collectFileOf("characters"))
+      ? collectCandidates.characters
+      : []
+    : [];
+  const collectActiveDims = new Set(
+    [...collectDims].filter((dim) => collectGroups.some((g) => g.dim === dim)),
+  );
+  const collectActivePicks = collectCharacters.length > 0 ? libPicks.size : 0;
+
+  // 提交钮计数：角色按张数、非角色维按「还没进库的条数」累计
+  const collectSelectedCount = collectGroups
+    .filter((g) => collectActiveDims.has(g.dim))
+    .reduce((sum, g) => sum + Math.max(0, g.count - g.collected), 0);
+  const collectSubmitLabel = (() => {
+    const parts: string[] = [];
+    if (collectActivePicks > 0) parts.push(`${collectActivePicks} 个角色`);
+    if (collectSelectedCount > 0) parts.push(`${collectSelectedCount} 条内容`);
+    return parts.length > 0 ? `收进知识库（${parts.join("、")}）` : "收进知识库";
+  })();
 
   const importElapsed = (() => {
     const started = task.import?.started_at;
@@ -1200,26 +1296,12 @@ export default function TaskDetailPage() {
                     data-testid="exit-opt-library"
                     onClick={() => {
                       setExitOpt("library");
-                      if (libCandidates === null) {
-                        void (async () => {
-                          try {
-                            const r = await getLibraryCandidates(task.id);
-                            setLibCandidates(r.items);
-                            setLibCanImport(r.can_import);
-                            setLibReason(r.reason);
-                            setLibPicks(new Set(r.items.filter((i) => !i.collected).map((i) => i.key)));
-                          } catch (e) {
-                            toast.error(e instanceof Error ? e.message : "候选角色加载失败");
-                            setLibCanImport(false);
-                            setLibReason("候选角色加载失败，稍后重试");
-                          }
-                        })();
-                      }
+                      if (collectCandidates === null) void loadCollectCandidates();
                     }}
                   >
                     <span className="ex-txt">
                       <b>收进知识库</b>
-                      <span>把拆出来的角色收进知识库——不动这本书；之后开任何新书都能取用。</span>
+                      <span>把这次拆出来的写法、设定和角色收进知识库——不动这本书；之后开任何新书都能取用。</span>
                     </span>
                   </button>
                 </div>
@@ -1257,96 +1339,194 @@ export default function TaskDetailPage() {
                 )}
                 {exitOpt === "library" && (
                   <div style={{ marginTop: 12 }} data-testid="library-panel">
-                    {!libCanImport ? (
+                    {collectErr ? (
                       <div className="alt" data-testid="library-reason">
-                        {libReason || "这批产物里没有角色设定"}
+                        {collectErr}
                       </div>
-                    ) : libCandidates === null ? (
-                      <div className="alt">正在读取拆出来的角色…</div>
+                    ) : collectCandidates === null ? (
+                      <div className="alt">正在清点这批能收的内容…</div>
+                    ) : !collectCandidates.can_collect ? (
+                      <div className="alt" data-testid="library-reason">
+                        {collectCandidates.reason || "这批产物里没有能收进知识库的内容"}
+                      </div>
                     ) : (
                       <>
-                        <div className="alt" style={{ marginTop: 0 }}>
-                          勾选收进知识库——性格和说话方式原样带走；这本书本身不受影响。
-                        </div>
-                        <div
-                          style={{
-                            border: "1px solid var(--border)",
-                            borderRadius: 10,
-                            marginTop: 8,
-                            maxHeight: 240,
-                            overflowY: "auto",
-                          }}
-                          data-testid="library-rows"
-                        >
-                          {libCandidates.map((item) => (
-                            <label
-                              key={item.key}
-                              data-testid="library-row"
+                        {collectGroups.length === 0 && collectCharacters.length === 0 ? (
+                          <div className="alt" data-testid="library-reason">
+                            结果目录里还没勾中能收进知识库的产物——勾上「写作技法」「写作文风」「世界设定」或「角色设定」再收。
+                          </div>
+                        ) : null}
+                        {collectGroups.length > 0 && (
+                          <>
+                            <div className="alt" style={{ marginTop: 0 }}>
+                              只收结果目录里勾中的产物——原文证据和出处一起带走；这本书本身不受影响。
+                            </div>
+                            <div
                               style={{
-                                display: "flex",
-                                gap: 10,
-                                alignItems: "flex-start",
-                                padding: "9px 12px",
-                                borderBottom: "1px solid var(--border)",
-                                opacity: item.collected ? 0.55 : 1,
-                                cursor: item.collected ? "default" : "pointer",
+                                border: "1px solid var(--border)",
+                                borderRadius: 10,
+                                marginTop: 8,
                               }}
+                              data-testid="collect-groups"
                             >
+                              {collectGroups.map((g) => {
+                                const allCollected = g.count <= g.collected;
+                                return (
+                                  <label
+                                    key={g.dim}
+                                    data-testid="collect-group-row"
+                                    style={{
+                                      display: "flex",
+                                      gap: 10,
+                                      alignItems: "flex-start",
+                                      padding: "9px 12px",
+                                      borderBottom: "1px solid var(--border)",
+                                      opacity: allCollected ? 0.55 : 1,
+                                      cursor: allCollected ? "default" : "pointer",
+                                    }}
+                                  >
+                                    <input
+                                      type="checkbox"
+                                      disabled={allCollected}
+                                      checked={collectDims.has(g.dim)}
+                                      onChange={(e) => {
+                                        setCollectDims((prev) => {
+                                          const next = new Set(prev);
+                                          if (e.target.checked) next.add(g.dim);
+                                          else next.delete(g.dim);
+                                          return next;
+                                        });
+                                      }}
+                                    />
+                                    <span style={{ minWidth: 0, flex: 1 }}>
+                                      <b style={{ fontFamily: "var(--font-display)", fontSize: 13.5 }}>
+                                        {g.label}
+                                      </b>{" "}
+                                      <span style={{ fontSize: 11, color: "var(--muted)" }}>
+                                        {g.count} 条
+                                        {g.collected > 0 ? ` · ${g.collected} 条已在库里` : ""}
+                                      </span>
+                                    </span>
+                                  </label>
+                                );
+                              })}
+                            </div>
+                          </>
+                        )}
+                        {collectCharacters.length > 0 && (
+                          <>
+                            <div
+                              className="alt"
+                              style={{ marginTop: collectGroups.length > 0 ? 12 : 0 }}
+                            >
+                              {collectGroups.length > 0
+                                ? "角色——性格和说话方式原样带走。"
+                                : "勾选收进知识库——性格和说话方式原样带走；这本书本身不受影响。"}
+                            </div>
+                            <div
+                              style={{
+                                border: "1px solid var(--border)",
+                                borderRadius: 10,
+                                marginTop: 8,
+                                maxHeight: 240,
+                                overflowY: "auto",
+                              }}
+                              data-testid="library-rows"
+                            >
+                              {collectCharacters.map((item) => (
+                                <label
+                                  key={item.key}
+                                  data-testid="library-row"
+                                  style={{
+                                    display: "flex",
+                                    gap: 10,
+                                    alignItems: "flex-start",
+                                    padding: "9px 12px",
+                                    borderBottom: "1px solid var(--border)",
+                                    opacity: item.collected ? 0.55 : 1,
+                                    cursor: item.collected ? "default" : "pointer",
+                                  }}
+                                >
+                                  <input
+                                    type="checkbox"
+                                    disabled={item.collected}
+                                    checked={libPicks.has(item.key)}
+                                    onChange={(e) => {
+                                      setLibPicks((prev) => {
+                                        const next = new Set(prev);
+                                        if (e.target.checked) next.add(item.key);
+                                        else next.delete(item.key);
+                                        return next;
+                                      });
+                                    }}
+                                  />
+                                  <span style={{ minWidth: 0, flex: 1 }}>
+                                    <b style={{ fontFamily: "var(--font-display)", fontSize: 13.5 }}>
+                                      {item.name}
+                                    </b>{" "}
+                                    <span style={{ fontSize: 11, color: "var(--muted)" }}>
+                                      {item.role}
+                                      {item.collected ? " · 已在库里" : ""}
+                                    </span>
+                                    <span
+                                      style={{ display: "block", fontSize: 12, color: "var(--muted)", marginTop: 2 }}
+                                    >
+                                      {item.persona || "（没有人设摘要）"}
+                                      {item.gender || item.age
+                                        ? ` · ${item.gender}${item.age ? ` · ${item.age} 岁` : ""}`
+                                        : ""}
+                                    </span>
+                                  </span>
+                                </label>
+                              ))}
+                            </div>
+                            <label style={{ display: "flex", gap: 8, marginTop: 10, fontSize: 13 }}>
                               <input
                                 type="checkbox"
-                                disabled={item.collected}
-                                checked={libPicks.has(item.key)}
-                                onChange={(e) => {
-                                  setLibPicks((prev) => {
-                                    const next = new Set(prev);
-                                    if (e.target.checked) next.add(item.key);
-                                    else next.delete(item.key);
-                                    return next;
-                                  });
-                                }}
+                                checked={libRename}
+                                onChange={(e) => setLibRename(e.target.checked)}
+                                data-testid="library-rename"
                               />
-                              <span style={{ minWidth: 0, flex: 1 }}>
-                                <b style={{ fontFamily: "var(--font-display)", fontSize: 13.5 }}>
-                                  {item.name}
-                                </b>{" "}
-                                <span style={{ fontSize: 11, color: "var(--muted)" }}>
-                                  {item.role}
-                                  {item.collected ? " · 已在库里" : ""}
-                                </span>
-                                <span
-                                  style={{ display: "block", fontSize: 12, color: "var(--muted)", marginTop: 2 }}
-                                >
-                                  {item.persona || "（没有人设摘要）"}
-                                  {item.gender || item.age
-                                    ? ` · ${item.gender}${item.age ? ` · ${item.age} 岁` : ""}`
-                                    : ""}
+                              <span>
+                                收进来时换个新名字和年龄
+                                <span className="alt" style={{ display: "block", marginTop: 2 }}>
+                                  想留原名也行；进了库随时能改，用到新书时还能再换一次
                                 </span>
                               </span>
                             </label>
-                          ))}
-                        </div>
-                        <label style={{ display: "flex", gap: 8, marginTop: 10, fontSize: 13 }}>
-                          <input
-                            type="checkbox"
-                            checked={libRename}
-                            onChange={(e) => setLibRename(e.target.checked)}
-                            data-testid="library-rename"
-                          />
-                          <span>
-                            收进来时换个新名字和年龄
-                            <span className="alt" style={{ display: "block", marginTop: 2 }}>
-                              想留原名也行；进了库随时能改，用到新书时还能再换一次
-                            </span>
-                          </span>
-                        </label>
+                          </>
+                        )}
+                        {!collectCandidates.genre &&
+                          (collectActiveDims.size > 0 || collectActivePicks > 0) && (
+                            <div className="field" style={{ marginTop: 12 }}>
+                              <label htmlFor="collect-genre">这些内容归到哪个题材？</label>
+                              <select
+                                id="collect-genre"
+                                className="input"
+                                data-testid="collect-genre"
+                                value={collectGenre}
+                                onChange={(e) => setCollectGenre(e.target.value)}
+                              >
+                                <option value="">先不归题材（之后也能改）</option>
+                                {THEMES.map((t) => (
+                                  <option key={t.name} value={t.name}>
+                                    {t.name}
+                                  </option>
+                                ))}
+                              </select>
+                              <span className="alt" style={{ display: "block", marginTop: 4 }}>
+                                没选题材就先放「未定题材」，之后在知识库里也能归。
+                              </span>
+                            </div>
+                          )}
                         <button
                           className="btn btn-primary"
                           style={{ marginTop: 12 }}
-                          disabled={libBusy || libPicks.size === 0}
+                          disabled={libBusy || (collectActivePicks === 0 && collectActiveDims.size === 0)}
                           onClick={doExit}
                           data-testid="library-submit"
                         >
-                          {libBusy ? "正在收进知识库…" : `收进知识库（${libPicks.size}）`}
+                          {libBusy ? "正在收进知识库…" : collectSubmitLabel}
                         </button>
                       </>
                     )}
