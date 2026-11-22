@@ -266,8 +266,17 @@ async def lifespan(app: FastAPI):
     except Exception as _e:  # noqa: BLE001 — 自愈失败不挡启动（下次启动重试）
         _log.warning("kb auto library heal failed: %s", _e)
 
-    # ── 官方基线撤回（2026-11-11 版权合规）：清官方层与派生副本，保留用户拆书；
-    #    失败不挡启动，下次启动/读面重试 ──
+    # ── 官方基线接回过渡（c-kb-baseline-reconnect）：一次性清 retired 戳——
+    #    必须先于撤回钩子执行（先解锁再收窄清理）；幂等，无 retired 戳＝零动作 ──
+    try:
+        from kb.revocation import ensure_reconnected
+
+        await ensure_reconnected()
+    except Exception as _e:  # noqa: BLE001 — 过渡失败不挡启动（下次启动重试）
+        _log.warning("kb baseline reconnect transition failed: %s", _e)
+
+    # ── 官方基线撤回清理（2026-11-11 版权合规；c-kb-baseline-reconnect 起收窄为
+    #    只清低于接回版本的行）：保留用户拆书；失败不挡启动，下次启动/读面重试 ──
     try:
         from kb.revocation import revoke_official_baseline
 
