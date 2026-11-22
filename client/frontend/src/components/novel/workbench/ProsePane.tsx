@@ -48,6 +48,7 @@ import {
 } from "@/lib/prefs";
 import { docToProse, linesToParagraphs, proseToDoc, normalizeStreamedProse, proseDelta} from "./proseDoc";
 import { RenweiMarks, applyRenweiMarks } from "./renweiMarks";
+import { useRenweiChapterMemory } from "./useRenweiChapterMemory";
 import RenweiCheckModal from "./RenweiCheckModal";
 import type { WriteBlockPayload } from "@/lib/ai";
 import RenweiMarginNotes from "./RenweiMarginNotes";
@@ -971,8 +972,15 @@ const ProsePane = forwardRef<ProseHandle, ProsePaneProps>(function ProsePane(
   // c-renwei-check：人味检测（本地体检）。报告弹窗→「标记到正文」才上边注；
   // 段落标色走 TipTap decoration，边注走覆盖层（正文锁死，不占布局流）。
   const [renweiOpen, setRenweiOpen] = useState(false);
-  const [renweiReport, setRenweiReport] = useState<RenweiReport | null>(null);
-  const [renweiSettled, setRenweiSettled] = useState<Record<number, "done" | "skip">>({});
+  // 人味标注记忆换挂章作用域 hook（c-renwei-chapter-reset）：切章清账＋在途重扫
+  // 判章；report/settled 及其 setter 名字原样保留，消费点零改动。
+  const {
+    report: renweiReport,
+    settled: renweiSettled,
+    setReport: setRenweiReport,
+    setSettled: setRenweiSettled,
+    staleResult: renweiStaleResult,
+  } = useRenweiChapterMemory(chapterRef);
   const renweiFindings = renweiReport?.findings ?? [];
   // 需要标色的段落＝有 finding 且未处理的（0-based 非空段序）
   const renweiParas = Array.from(new Set(
@@ -1013,6 +1021,8 @@ const ProsePane = forwardRef<ProseHandle, ProsePaneProps>(function ProsePane(
           .flush?.()
           .then(() => renweiCheck(projectId, chapterRef))
           .then((next) => {
+            // 在途已切章：闭包章号过期，结果按旧章算——丢弃，不消卡不上屏
+            if (renweiStaleResult(chapterRef)) return;
             const prevParas = new Set(prevReport.findings.map((f) => f.para));
             const nextParas = new Set(next.findings.map((f) => f.para));
             const cleared = [...prevParas].filter((p) => !nextParas.has(p));
