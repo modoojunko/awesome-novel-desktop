@@ -94,12 +94,11 @@ async def _arc_fields(root_path: str) -> str:
 
 
 async def _style_fields(root_path: str) -> str:
-    from filesystem.paths import KEY_TO_PATH
-    from filesystem.storage import get_storage
-    from settings.style_model import read_style
+    # 与设定页 GET 同源：先补旧 anti_ai 词表迁移，再读文风文档——否则老书
+    # 禁用词/句式会让 read_page_fields 报「未填」，和面板显示打架。
+    from settings.style_model import read_style_migrated
 
-    raw = await get_storage().read_yaml(root_path, KEY_TO_PATH["style"]) or {}
-    style = read_style(raw)
+    style = await read_style_migrated(root_path)
     rows = [
         f"叙事身份（role）＝{_clip(style.get('role'), 100)}",
         f"硬约束（rules）＝{_list_text(style.get('rules'), 100)}",

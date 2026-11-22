@@ -78,6 +78,27 @@ def test_world_fields_humanize_lists_and_bool():
     assert "['" not in text
 
 
+@pytest.mark.asyncio
+async def test_style_fields_use_migrated_reader(monkeypatch):
+    import settings.style_model as sm
+
+    async def _fake(root_path):
+        assert root_path == "/root"
+        return {
+            "role": "冷硬短句",
+            "rules": ["少形容词"],
+            "craft": [],
+            "banned_words": ["很"],
+            "tic_patterns": [],
+        }
+
+    monkeypatch.setattr(sm, "read_style_migrated", _fake)
+    text = await build_panel_fields("/root", "n1", "style")
+    assert "叙事身份（role）＝冷硬短句" in text
+    assert "硬约束（rules）＝少形容词" in text
+    assert "禁用词（banned_words）＝很" in text
+
+
 def test_read_page_fields_only_in_settings_scope():
     assert "read_page_fields" in set(tools_for_thread("set:genre"))
     assert "read_page_fields" in set(tools_for_thread("set:world"))
