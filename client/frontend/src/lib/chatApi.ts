@@ -192,8 +192,14 @@ export function streamAssistantChat(
     thread?: string;
     focus?: { ref: string };
     tool_hint?: { tool: string; args: Record<string, unknown> };
-    /** 页面未保存标记（c-agent-page-ops）：只进模型提示词（界面零渲染） */
-    page_state?: { unsaved: string[] };
+    /** 页面状态（c-agent-page-ops/page-context）：只进模型提示词（界面零渲染） */
+    page_state?: {
+      unsaved?: string[];
+      /** 设定面板键（genre/intro/world/…）：后端注入本页字段＋当前值 */
+      panel?: string;
+      /** 章内页签键（og/prose/…）：后端只报页签名 */
+      chapter_tab?: string;
+    };
     /** 深度思考开关（c-agent-thinking-bubbles）：显式覆盖 API 配置的思考开关 */
     thinking?: boolean;
     /** 助手本轮按次模型覆盖对（c-agent-thinking-bubbles）：不改本书绑定 */
