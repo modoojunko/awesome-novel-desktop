@@ -309,14 +309,16 @@ def probe_library_cached(db_path: Path) -> dict:
 def migration_last_cached(db_path: Path, wal_aware: bool = False) -> dict | None:
     """读槽自身 `app_meta['migration.last']`（链上溯源证据，c-carry-candidates-perf）。
 
-    两种只读口（按槽角色分）：候选槽默认 **immutable**——只读主文件、不建 `-shm`、
-    不读 `-wal`，绝不碰源目录（与 probe 的暂存纪律同向）；代价是 `-wal` 里未
-    checkpoint 的记录读不到 → None＝证据缺失，回溯保守断链（少归档优于误归档）。
-    活跃槽走 `wal_aware=True`（mode=ro 可见 WAL）——它是应用自己的库、`-shm` 本就
-    在，而迁移完成记录是直连写入、引擎连接池长持不关，**可能长期躺在 WAL 里没
-    checkpoint**（真机 0.49.2 实锤：immutable 读不到当日迁移记录）；链回溯第一跳
-    MUST 走此口，否则整链断、归档白名单恒空。
-    缓存键带模式维度（同一文件两种口读到的可见集不同，MUST NOT 互串）。"""
+    两种只读口（按槽角色分）：候选槽默认走 **零痕迹口**——immutable 只读主文件，
+    绝不碰源目录（与 probe 的暂存纪律同向）；但迁移完成记录是直连写入、引擎连接
+    池长持不关，**可能长期躺在 `-wal` 里没 checkpoint**（真机实锤两连：活跃槽
+    0.49.2 当日记录 immutable 读不到；退位成候选后它的记录同样读不到，链只走到
+    第一跳）。故候选槽若头部是 WAL 模式且 `-wal` 非空 → 走**暂存副本**读
+    （copy_sidecars＋prepare_staged：零痕迹且看得见未 checkpoint 记录；身份键
+    缓存＝每份数据只拷一次）；`-wal` 空/缺失或非 WAL 库 → immutable 直读足矣
+    （无未落盘提交可言）。活跃槽走 `wal_aware=True`（mode=ro 可见 WAL）——它是
+    应用自己的库、`-shm` 本就在，链回溯第一跳 MUST 走此口，否则整链断。
+    缓存键带模式维度（同一文件多种口读到的可见集不同，MUST NOT 互串）。"""
     key = data_identity_key(db_path)
     if key is None:
         return None
@@ -329,20 +331,42 @@ def migration_last_cached(db_path: Path, wal_aware: bool = False) -> dict | None
     # 等字符时裸 f-string 拼 URI 会被截断/误读。
     from urllib.parse import quote
 
-    enc = quote(str(db_path))
-    uri = f"file:{enc}?mode=ro" if wal_aware else f"file:{enc}?mode=ro&immutable=1"
-    try:
-        con = sqlite3.connect(uri, uri=True, timeout=3)
+    def _read(ro_path: Path) -> dict | None:
         try:
-            row = con.execute(
-                "SELECT value FROM app_meta WHERE key='migration.last'").fetchone()
-            if row and row[0]:
-                loaded = json.loads(row[0])
-                last = loaded if isinstance(loaded, dict) else None
-        finally:
-            con.close()
-    except (sqlite3.Error, json.JSONDecodeError, ValueError):
-        last = None
+            con = sqlite3.connect(
+                f"file:{quote(str(ro_path))}?mode=ro", uri=True, timeout=3)
+            try:
+                row = con.execute(
+                    "SELECT value FROM app_meta WHERE key='migration.last'").fetchone()
+                if row and row[0]:
+                    loaded = json.loads(row[0])
+                    return loaded if isinstance(loaded, dict) else None
+            finally:
+                con.close()
+        except (sqlite3.Error, json.JSONDecodeError, ValueError):
+            return None
+        return None
+
+    if not wal_aware and _is_wal_mode(db_path):
+        wal = Path(f"{db_path}-wal")
+        wal_size = wal.stat().st_size if wal.exists() else 0
+        if wal_size > 0:
+            # WAL 模式且 -wal 非空：未 checkpoint 记录可能在 -wal 里——暂存副本
+            # 整备后读（零痕迹；身份键缓存＝每份数据只拷一次）
+            try:
+                with tempfile.TemporaryDirectory(prefix="migchain-") as tmp:
+                    staged = Path(tmp) / db_path.name
+                    copy_sidecars(db_path, staged)
+                    if prepare_staged(staged):
+                        last = _read(staged)
+            except OSError as exc:
+                logger.warning("db_lifecycle: chain staged read failed for %s: %s",
+                               db_path.name, exc)
+                last = None
+        else:
+            last = _read(db_path)
+    else:
+        last = _read(db_path)
     _cache_put(_migration_last_cache, _migration_last_cache_lock, cache_key, last)
     return dict(last) if isinstance(last, dict) else None
 
