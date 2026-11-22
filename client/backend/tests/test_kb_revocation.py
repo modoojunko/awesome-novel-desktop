@@ -380,7 +380,8 @@ def test_撤回官方派生_保留用户拆书且幂等():
 
     r1 = _run(apply_revocations(force=True))
     assert r1["status"] == "revoked"
-    assert _run(is_retired()) is True
+    # c-kb-baseline-reconnect：retired 戳退役自动打点（合规急刹走手动置位）
+    assert _run(is_retired()) is False
 
     async def _state():
         async with async_session() as db:
@@ -474,21 +475,28 @@ def test_撤回官方派生_保留用户拆书且幂等():
     members = json.loads(state["bindings"][0].snapshot_json)["members"]
     assert [m["entry_id"] for m in members] == [ids["user_book_id"]]
 
-    # 幂等：第二次零删除，用户侧仍不变
+    # 幂等：第二次零删除，用户侧仍不变（无低版本行可清＝不再重复 revoke 语义）
     r2 = _run(apply_revocations(force=True))
-    assert r2["status"] == "revoked"
-    assert r2["baseline_entries_deleted"] == 0
+    assert r2["status"] in ("already", "revoked")
+    assert r2.get("baseline_entries_deleted", 0) == 0
     assert r2["promoted_deleted"] == 0
     assert _run(_count(KbEntry, KbEntry.id == ids["material_id"])) == 1
 
 
 def test_停用基线同步():
+    """合规急刹（c-kb-baseline-reconnect 起 retired 由手动置位）：戳在＝全局停同步，
+    同步入口在触碰网络前即跳过。"""
     from kb.baseline import sync_baseline
-    from kb.revocation import apply_revocations
+    from kb.revocation import RETIRED_KEY
 
     _create_tables()
-    _seed()
-    _run(apply_revocations(force=True))
+
+    async def _stamp():
+        async with async_session() as db:
+            db.add(AppMeta(key=RETIRED_KEY, value="1"))
+            await db.commit()
+
+    _run(_stamp())
     result = _run(sync_baseline())
     assert result["status"] == "skipped"
     assert result["reason"] == "retired"

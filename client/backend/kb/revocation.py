@@ -58,6 +58,17 @@ VERSION_KEY = "kb_baseline_version"
 LAST_SYNC_KEY = "kb_baseline_last_sync"
 RETIRED_KEY = "kb_baseline_retired"
 MARKER_KEY = "kb_revocation_v1"
+RECONNECT_DONE_KEY = "kb_baseline_reconnect_done"
+
+# 接回版本界（c-kb-baseline-reconnect，2026-11-22）：官方基线 v5（8197 条蒸馏
+# 写法，audit 全 clean、rights 全 distilled_ideas_only）已过 CI 签名上 CDN——
+# 11-11 撤回时代的「见官方层即清」收窄为「只清低于本版本的行」：
+#   - v1-v4 行＝撤回内容，任何自动路径仍清（合规）；
+#   - v5+ 行＝合法内容，boot/迁移搬运后/备份恢复后 SHALL NOT 删除；
+#   - `kb_baseline_retired` 戳退役自动打点（is_retired 保留为手动合规急刹：
+#     手动置 1 全局停同步）。
+# 未来再撤某版时的人工口径：改本常量→手动置 retired=1→（可选）force 清理。
+RECONNECT_PACK_VERSION = 5
 PROMOTED_SRC = "官方精选（已下架）"
 
 # 用户自有知识的溯源白名单：这些 origin 永不删。
@@ -141,14 +152,70 @@ def hooks_enabled() -> bool:
     return (os.environ.get("KB_REVOCATION") or "").strip() != "0"
 
 
+async def ensure_reconnected(db=None) -> bool:
+    """一次性接回过渡（c-kb-baseline-reconnect）：存量客户端清 retired 戳＋落
+    接回标记。幂等（标记在/本来没戳＝零动作）；v5 起同步由此恢复消费。
+
+    合规急刹不受影响：手动重置 `kb_baseline_retired=1` 后，本函数因接回标记
+    已在而不再清除——急刹需要解除时同样手动操作。
+    `KB_REVOCATION=0` 同闸（测试/诊断用）：与撤回家族共享同一测试开关。"""
+    if not hooks_enabled():
+        return False
+    from db import async_session
+
+    async def _ensure(session) -> bool:
+        row = await session.get(AppMeta, RETIRED_KEY)
+        done = await session.get(AppMeta, RECONNECT_DONE_KEY)
+        if done is not None or row is None or str(row.value) != "1":
+            return False
+        await session.delete(row)
+        session.add(AppMeta(key=RECONNECT_DONE_KEY, value="1"))
+        await session.commit()
+        logger.info("event=kb_baseline_reconnect applied")
+        return True
+
+    if db is not None:
+        return await _ensure(db)
+    async with async_session() as session:
+        return await _ensure(session)
+
+
 async def plan_revocations(db) -> dict[str, Any]:
     """只读计划：算出官方派生 id 集与计数，不删任何行。
 
     测试与 dry-run 都走这里；`apply_revocations` 复用同一口径。
+
+    c-kb-baseline-reconnect：计划只覆盖**低于接回版本**的官方基线行（v1-v4＝
+    撤回内容）；v5+ 行是合法内容， SHALL NOT 进删除集——书级副本的 uuid5 兜底
+    同步排除接回行的 src_key（否则改名兜底会误杀 v5 派生副本）。
     """
     local_baseline_ids = set(
-        (await db.execute(select(KbBaselineEntry.entry_id))).scalars().all()
+        (
+            await db.execute(
+                select(KbBaselineEntry.entry_id).where(
+                    KbBaselineEntry.pack_version < RECONNECT_PACK_VERSION
+                )
+            )
+        ).scalars().all()
     )
+    reconnected_ids = set(
+        (
+            await db.execute(
+                select(KbBaselineEntry.entry_id).where(
+                    KbBaselineEntry.pack_version >= RECONNECT_PACK_VERSION
+                )
+            )
+        ).scalars().all()
+    ) - set(REVOKED_ENTRY_IDS)  # 硬闸优先：撤回清单命中行即使版本达标也照清
+    stale_src_keys = set(
+        (
+            await db.execute(
+                select(KbBaselineEntry.src_key).where(
+                    KbBaselineEntry.pack_version < RECONNECT_PACK_VERSION
+                )
+            )
+        ).scalars().all()
+    ) | set(REVOKED_SRC_KEYS)
     baseline_ids = set(REVOKED_ENTRY_IDS) | local_baseline_ids
 
     # 提升副本：哨兵名 + promoted_from 溯源（后者防哨兵被改名）。
@@ -199,6 +266,7 @@ async def plan_revocations(db) -> dict[str, Any]:
         row.id
         for row in book_rows
         if row.src_key not in protected_ids
+        and row.src_key not in reconnected_ids
         and (
             row.src_key in official_ids
             or _promoted_from(row.evidence_json) in REVOKED_SRC_KEYS
@@ -220,6 +288,8 @@ async def plan_revocations(db) -> dict[str, Any]:
     }
     return {
         "baseline_ids": baseline_ids,
+        "reconnected_ids": reconnected_ids,
+        "stale_src_keys": stale_src_keys,
         "promoted_ids": promoted_ids,
         "protected_ids": protected_ids,
         "book_copy_ids": book_copy_ids,
@@ -281,10 +351,30 @@ async def _clean_findings(db, deleted_ids: set[str], counts: dict) -> None:
     counts["organize_findings"] = counts.get("organize_findings", 0) + total
 
 
+def _marker_reconnect_version(marker: AppMeta | None) -> int:
+    """marker 记录的接回版本界：旧撤回态 marker（无该字段）按 0 读＝必然重入
+    一次以落新语义（真清 0 行＋写新 marker）。"""
+    if marker is None:
+        return 0
+    try:
+        return int(json.loads(str(marker.value)).get("reconnect_version") or 0)
+    except (json.JSONDecodeError, ValueError, TypeError):
+        return 0
+
+
 async def _apply(db, *, force: bool) -> dict[str, Any]:
     marker = await db.get(AppMeta, MARKER_KEY)
-    baseline_left = int(
-        (await db.execute(select(func.count()).select_from(KbBaselineEntry))).scalar() or 0
+    # 幂等跳过＝marker 已是本接回版本界＋低于界的行已清零＋无晋升残留。
+    # v5+ 行在库（baseline_left>0）不再阻止跳过——它们不是撤回对象。
+    stale = int(
+        (
+            await db.execute(
+                select(func.count())
+                .select_from(KbBaselineEntry)
+                .where(KbBaselineEntry.pack_version < RECONNECT_PACK_VERSION)
+            )
+        ).scalar()
+        or 0
     )
     promoted_left = int(
         (
@@ -296,7 +386,13 @@ async def _apply(db, *, force: bool) -> dict[str, Any]:
         ).scalar()
         or 0
     )
-    if marker is not None and not force and not baseline_left and not promoted_left:
+    if (
+        marker is not None
+        and not force
+        and _marker_reconnect_version(marker) >= RECONNECT_PACK_VERSION
+        and not stale
+        and not promoted_left
+    ):
         return {"status": "already", "marker": marker.value}
 
     plan = await plan_revocations(db)
@@ -357,28 +453,47 @@ async def _apply(db, *, force: bool) -> dict[str, Any]:
     # 3) 提升副本本身（级联实例/别名/版本；上面已显式删过）。
     await _delete_by_ids(db, KbEntry, KbEntry.id, account_ids, "promoted_deleted", counts)
 
-    # 4) 官方层三表全撤。
-    for model, label in (
-        (KbBaselineTag, "baseline_tags_deleted"),
-        (KbBaselineOverlay, "baseline_overlays_deleted"),
-        (KbBaselineEntry, "baseline_entries_deleted"),
+    # 4) 官方层三表撤低版本行（c-kb-baseline-reconnect）：v1-v4＝撤回内容照清
+    #    （含撤回清单命中行）；v5+ 行（含其用户 overlay/标签——合法数据）SHALL
+    #    NOT 被自动路径删除。overlay 按 src_key 关联（无 entry_id 列）。
+    stale_baseline_ids = set(baseline_ids)
+    for model, id_col, label in (
+        (KbBaselineTag, KbBaselineTag.entry_id, "baseline_tags_deleted"),
+        (KbBaselineOverlay, KbBaselineOverlay.src_key, "baseline_overlays_deleted"),
+        (KbBaselineEntry, KbBaselineEntry.entry_id, "baseline_entries_deleted"),
     ):
-        result = await db.execute(delete(model))
+        result = await db.execute(
+            delete(model).where(id_col.in_(stale_baseline_ids | plan["stale_src_keys"]))
+        )
         counts[label] = int(result.rowcount or 0)
 
-    # 5) 标记：停用同步、版本归零、留审计计数。
-    await _set_meta(db, VERSION_KEY, "0")
-    await _set_meta(
-        db,
-        LAST_SYNC_KEY,
-        json.dumps({"status": "revoked", "version": 0, "counts": counts}, ensure_ascii=False),
+    # 5) 标记：只有真清了低于接回版本的行才重置基线层版本记账（触发重同步拉
+    #    新版）；`kb_baseline_retired` 退役自动打点（c-kb-baseline-reconnect）——
+    #    合规急刹走手动置位，代码 SHALL NOT 自动盖戳。
+    purged_any = any(
+        counts.get(k, 0) > 0
+        for k in ("baseline_entries_deleted", "promoted_deleted", "book_copies_deleted")
     )
-    await _set_meta(db, RETIRED_KEY, "1")
+    if purged_any:
+        await _set_meta(db, VERSION_KEY, "0")
+        await _set_meta(
+            db,
+            LAST_SYNC_KEY,
+            json.dumps(
+                {"status": "revoked", "version": 0, "counts": counts}, ensure_ascii=False
+            ),
+        )
     await _set_meta(
         db,
         MARKER_KEY,
         json.dumps(
-            {"at": "v0.47.4", "src_keys": len(REVOKED_SRC_KEYS), "counts": counts},
+            {
+                "at": f"reconnect-{RECONNECT_PACK_VERSION}",
+                "reconnect_version": RECONNECT_PACK_VERSION,
+                "src_keys": len(REVOKED_SRC_KEYS),
+                "purged_below": counts.get("baseline_entries_deleted", 0),
+                "counts": counts,
+            },
             ensure_ascii=False,
         ),
     )
@@ -386,7 +501,8 @@ async def _apply(db, *, force: bool) -> dict[str, Any]:
 
     global _applied_in_process
     _applied_in_process = True
-    return {"status": "revoked", **counts}
+    status = "revoked" if purged_any else "already"
+    return {"status": status, **counts}
 
 
 async def apply_revocations(db=None, *, force: bool = False) -> dict[str, Any]:
