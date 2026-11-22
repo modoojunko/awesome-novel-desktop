@@ -337,6 +337,7 @@ describe("TaskDetailPage", () => {
     fireEvent.click(screen.getByText("选择去向"));
     // 切「存本地文件夹」→ 摘要联动＋目录字段出现
     fireEvent.click(screen.getByText("存本地文件夹"));
+    expect(screen.getByText(/将导出所选 3 份产物（＋README 目录页）/)).toBeInTheDocument();
     expect(screen.getByLabelText(/导出到文件夹/)).toBeInTheDocument();
     // scrim 点击关闭
     fireEvent.click(document.querySelector(".scrim")!);
@@ -1288,6 +1289,9 @@ describe("收进知识库出口（c-deconstruct-collect-all-dims）", () => {
     await waitFor(() => expect(screen.getByTestId("collect-group-row")).toBeInTheDocument());
     expect(screen.queryByTestId("library-rows")).not.toBeInTheDocument();
     expect(screen.queryByTestId("collect-genre")).not.toBeInTheDocument();
+    // ex-sum 三分支：library 页签给收录摘要，不再串台导出文案
+    expect(screen.getByText(/将把勾选的内容收进知识库/)).toBeInTheDocument();
+    expect(screen.queryByText(/将导出所选/)).not.toBeInTheDocument();
     expect(screen.getByTestId("library-submit").textContent).toContain("2 条内容");
 
     fireEvent.click(screen.getByTestId("library-submit"));

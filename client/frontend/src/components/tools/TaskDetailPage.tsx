@@ -1606,7 +1606,9 @@ export default function TaskDetailPage() {
                 <div className="ex-sum" data-od-id="exit-sum">
                   {exitOpt === "book"
                     ? `将创建新书《${buildName.trim() || task.book_name}》，写入勾选的 ${bookItems.length}/${DECONSTRUCT_DIMS.length} 项（未勾的不写入）。`
-                    : `将导出所选 ${selectedFiles.length} 份产物（＋README 目录页）到选择的文件夹。`}
+                    : exitOpt === "library"
+                      ? `将把勾选的内容收进知识库（原文证据一起带走；已收过的自动跳过）。`
+                      : `将导出所选 ${selectedFiles.length} 份产物（＋README 目录页）到选择的文件夹。`}
                 </div>
                 {exitOpt === "files" && task.consent?.sync_state !== "synced" && (
                   <div className="notice" style={{ borderStyle: "dashed", marginTop: 12 }} data-od-id="export-softgate">
