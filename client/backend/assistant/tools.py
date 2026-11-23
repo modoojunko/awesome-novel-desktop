@@ -533,6 +533,46 @@ def _jsonable(value: Any) -> Any:
         return str(value)
 
 
+# ── 正文方案读侧（c-agent-dialog-prose）：服务端组装稿＝结论卡提示词基底 ──────
+
+
+async def _read_write_prompt(ctx: ToolContext, chapter_ref: str) -> ToolResult:
+    """读服务端组装的本章用户提示词全文（c-agent-dialog-prose）。
+
+    与 GET /write/prompt、生成端点同调 assemble_write_prompt 单源——卡上展示的
+    提示词与实际发给正文模型的东西永不漂移。对话流恒 fresh（按当前素材重组，
+    不读 write-prompt 存稿）。"""
+    from db import async_session
+    from novels.service import get_novel
+    from write.chapter_writer import assemble_write_prompt
+
+    chapter_ref = str(chapter_ref or "").strip()
+    if not chapter_ref:
+        return ToolResult(ok=False, summary="缺 chapter_ref——先确认要生成哪一章。")
+    async with async_session() as db:
+        project = await get_novel(db, ctx.novel_id, ctx.user_id)
+        if project is None:
+            return ToolResult(ok=False, summary="书不存在或不属于当前作家。")
+    data = await assemble_write_prompt(
+        project.root_path, chapter_ref, project.name, novel_id=project.id, fresh=True
+    )
+    prompt = str(data.get("prompt") or "")
+    if not prompt.strip():
+        return ToolResult(
+            ok=False, summary="提示词组装结果为空（章纲可能还没拆）——先补章纲再生成。"
+        )
+    warns = list(data.get("warnings") or [])
+    lines = [f"本章用户提示词（{len(prompt)} 字，服务端组装稿——方案卡提示词的基底）：", prompt]
+    if not data.get("has_outline"):
+        # 章纲空信号透出（review P2）：agent 据此先补章纲再出卡，别对空章纲硬生成
+        lines.append("注意：本章章纲还是空的（概要/剧情条目都没有）——先补章纲再出方案卡。")
+    if warns:
+        lines.append("组装告警：" + "；".join(str(w) for w in warns))
+    # 读侧余量 ≥ 方案卡上限（c-agent-dialog-prose：卡上限 20000）——转录里拿到全文，
+    # 代理才能按需精简；曾 18000 与卡 16000 两套口径不一（review 残余风险）
+    return ToolResult(ok=True, summary=_clip("\n".join(lines), 24000))
+
+
 # ── 注册表（封闭清单；扩展只准书内/知识库域，见能力围栏）─────────────────────
 
 TOOL_REGISTRY: tuple[Tool, ...] = (
@@ -626,6 +666,24 @@ TOOL_REGISTRY: tuple[Tool, ...] = (
             "「下一章／继续写／规划」类请求拿不准落点时先查这个。"
         ),
         fn=_read_progress,
+    ),
+    Tool(
+        name="read_write_prompt",
+        kind="read",
+        risk_level="low",
+        parameters={
+            "type": "object",
+            "properties": {
+                "chapter_ref": {"type": "string", "description": "章 ref（如 vol-1-ch-3）"},
+            },
+            "required": ["chapter_ref"],
+        },
+        description=(
+            "读服务端组装的本章用户提示词全文（与写作端点同源；可带组装告警）。"
+            "出正文方案卡前必调——方案卡里展示给作家的提示词以这份为基底，"
+            "只做增改，不凭空拼装全文。"
+        ),
+        fn=_read_write_prompt,
     ),
     Tool(
         name="write_volume_fields",
@@ -1397,7 +1455,11 @@ _KIND_LABEL = {"read": "读", "card": "产卡·不写书", "write": "写·授权
 # 提示词包更新——缺包/旧包在位时同样生效。
 _BOUNDARY_LINES = (
     "清单外不存在：不得声称调用或承诺清单外的工具。",
-    "正文生成不在对话里：正文页写作流负责，对话不代笔。",
+    (
+        "生成正文走方案卡：先按本章剧情取材（read_chapter＋kb_search_craft 匹配写法条目），"
+        "再 read_write_prompt 取提示词基底，draft_prose_plan 出卡（含提示词全文与选中条目）；"
+        "作家点卡上「开始生成」才生成——不得在对话里直接输出章节正文代笔。"
+    ),
     (
         "产卡类工具只出草稿，不写书：不得说「已落库／已保存／我写完了」；"
         "写入走对应面板或授权卡。"

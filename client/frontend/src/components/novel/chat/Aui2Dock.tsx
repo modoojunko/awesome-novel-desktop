@@ -36,7 +36,12 @@ import {
   SparkStopCircleLine,
   SparkTrueLine,
 } from "@agentscope-ai/icons";
-import { threadKeyOf, matchRegistration, type ChatPageScope } from "@/lib/chatRegistry";
+import {
+  threadKeyOf,
+  matchRegistration,
+  setDialogProseEnabled,
+  type ChatPageScope,
+} from "@/lib/chatRegistry";
 import type { FeatureKey } from "@/lib/features";
 import { useFeature } from "@/hooks/useTier";
 import { useModelStatus } from "@/hooks/useModelStatus";
@@ -48,6 +53,7 @@ import {
   setPermissionTier,
   adoptAssistantMessage,
   stopAssistantRun,
+  getAssistantCapabilities,
 } from "@/lib/chatApi";
 import { CardBody, _clip } from "./CardBody";
 import { conversationToMarkdown } from "@/lib/chatCopy";
@@ -105,6 +111,9 @@ const DockCtx = createContext<{
   markAdopted: (cardId: string) => void;
   /** 采纳写回后的域刷新上抛（宿主走 dirty 守卫再重载面板） */
   refreshDomain?: (domain: "settings" | "chapters") => void;
+  /** 正文方案卡「开始生成」宿主桥（c-agent-dialog-prose）：确认弹窗与开流在宿主；
+   *  onStarted 只在真正开流后回调（弹窗取消则永不回调——卡面不得提前翻「已开始」） */
+  proseStart?: (payload: Record<string, unknown>, onStarted?: () => void) => void;
 } | null>(null);
 
 /** 产物卡（cardConfig 注册：code="artifact"）——复用既有 CardBody，视觉零变化；
@@ -112,6 +121,68 @@ const DockCtx = createContext<{
  *  settings 字段卡 GET+merge+PUT settings/<stype>／世界观卡（文本格）merge world／
  *  角色草案卡建卡＋写 name/persona（其余字段在卡上照着补）。
  *  adopted 翻已建卡徽标、同目标新卡把旧卡标 stale。 */
+
+/** 正文方案卡体（c-agent-dialog-prose）：选中写法条目（含理由）＋用户提示词全文
+ *  （折叠展示、可展开——作家过目的就是要发给正文模型的东西）。 */
+function ProsePlanBody({ payload }: { payload: Record<string, unknown> }) {
+  const [expanded, setExpanded] = useState(false);
+  const picks = Array.isArray(payload.picks)
+    ? (payload.picks as Array<Record<string, unknown>>)
+    : [];
+  const promptText = typeof payload.prompt === "string" ? payload.prompt : "";
+  const hasProse = payload.has_existing_prose === true;
+  const title = typeof payload.chapter_title === "string" ? payload.chapter_title : "";
+  const target = typeof payload.word_target === "number" ? payload.word_target : 2500;
+  const PREVIEW_CHARS = 400;
+  const preview = expanded ? promptText : promptText.slice(0, PREVIEW_CHARS);
+  return (
+    <div className="cd-plan" data-testid="prose-plan-body">
+      <div className="cd-plan-title">
+        《{title}》· 目标 {target} 字
+      </div>
+      {picks.length ? (
+        <ul className="cd-plan-picks" data-testid="prose-plan-picks">
+          {picks.map((p, i) => (
+            <li key={i}>
+              <span
+                className={`cd-plan-concept${p.concept === "手法" ? " tech" : ""}`}
+              >
+                {String(p.concept ?? "")}
+              </span>
+              <b>{String(p.title ?? "")}</b>
+              {p.reason ? <span className="cd-plan-reason">{String(p.reason)}</span> : null}
+            </li>
+          ))}
+        </ul>
+      ) : (
+        <div className="cd-dim" data-testid="prose-plan-nomatch">
+          写法条目未命中——将按本书文风设定生成。
+        </div>
+      )}
+      {hasProse && (
+        <div className="cd-plan-warn">本章已有正文——点「开始生成」会清空重写（旧稿先进版本历史）。</div>
+      )}
+      <div className="cd-plan-prompt">
+        <div className="cd-plan-prompt-head">
+          <b>用户提示词</b>
+          <span className="cd-dim">{promptText.length} 字</span>
+          {promptText.length > PREVIEW_CHARS && (
+            <button
+              type="button"
+              className="cd-expand-btn"
+              aria-expanded={expanded}
+              data-testid="prose-plan-toggle"
+              onClick={() => setExpanded((v) => !v)}
+            >
+              {expanded ? "收起" : "展开全部"}
+            </button>
+          )}
+        </div>
+        <pre className={`cd-plan-prompt-text${expanded ? " full" : ""}`}>{preview}</pre>
+      </div>
+    </div>
+  );
+}
 
 function ArtifactCard(props: { data: ArtifactCardData; id?: string }) {
   const { data, id } = props;
@@ -128,6 +199,8 @@ function ArtifactCard(props: { data: ArtifactCardData; id?: string }) {
   const isWorldCard =
     data.kind === "text" && payload.topic != null && payload.draft != null && payload.vol_no == null;
   const isCharacterDraft = payload.character_draft != null;
+  // 正文方案卡（c-agent-dialog-prose）：不写书——「开始生成」宿主桥开流
+  const isProsePlan = data.kind === "prose_plan";
   const adoptable = isVolumeDraft || isSettingsField || isWorldCard || isCharacterDraft;
 
   const adopt = async () => {
@@ -179,16 +252,60 @@ function ArtifactCard(props: { data: ArtifactCardData; id?: string }) {
     }
   };
 
+  /** 方案卡「开始生成」（c-agent-dialog-prose）：桥接宿主（归档拦截/确认弹窗/
+   *  开流都在宿主）。**翻卡与回执只在 onStarted 回调里做**——宿主弹确认框被取消
+   *  时生成没发生，卡面必须停在草稿态（review P1：曾同步翻「已开始」）。 */
+  const startProse = () => {
+    if (!id || !ctx?.proseStart) return;
+    setBusy(true);
+    try {
+      ctx.proseStart(payload, () => {
+        ctx.markAdopted(id);
+        if (data.cardId && data.projectId) {
+          const cardId = data.cardId;
+          const projectId = data.projectId;
+          void (async () => {
+            for (let i = 0; i < 3; i += 1) {
+              await new Promise((r) => setTimeout(r, 400 * (i + 1)));
+              try {
+                await adoptAssistantMessage(projectId, cardId);
+                return;
+              } catch {
+                /* 404 竞态重试；三连败放弃（徽标本地已翻，仅回执落库缺失） */
+              }
+            }
+          })();
+        }
+        ctx.up({ id, role: "assistant", content: "", msgStatus: "finished", cards: [{ code: "artifact", data: { ...data, status: "adopted" } }] });
+      });
+    } finally {
+      setBusy(false);
+    }
+  };
+
   return (
     <div className="cd-card" data-testid={`chat-card-${data.kind}`}>
       <div className="cd-card-head">
-        <b>产物</b>
-        {status === "adopted" && <span className="cd-badge ok">已建卡 ✓</span>}
+        <b>{isProsePlan ? "正文方案" : "产物"}</b>
+        {status === "adopted" && (
+          <span className="cd-badge ok">{isProsePlan ? "已开始生成 ✓" : "已建卡 ✓"}</span>
+        )}
         {status === "stale" && <span className="cd-badge">旧版</span>}
       </div>
-      <CardBody kind={data.kind} payload={payload} />
+      {isProsePlan ? <ProsePlanBody payload={payload} /> : <CardBody kind={data.kind} payload={payload} />}
       {(status === "draft" || status === "stale") && (
         <div className="cd-card-foot">
+          {isProsePlan && (
+            <button
+              type="button"
+              className="cd-btn primary"
+              disabled={busy}
+              data-testid="prose-plan-start"
+              onClick={startProse}
+            >
+              开始生成
+            </button>
+          )}
           {adoptable && (
             <button
               type="button"
@@ -201,9 +318,13 @@ function ArtifactCard(props: { data: ArtifactCardData; id?: string }) {
             </button>
           )}
           {status === "stale" ? (
-            <span className="cd-dim">已有一版采纳过——点采纳就换成这一版。</span>
+            <span className="cd-dim">
+              {isProsePlan ? "已有新方案开生成过——点「开始生成」换成这一版。" : "已有一版采纳过——点采纳就换成这一版。"}
+            </span>
           ) : (
-            <span className="cd-dim">初稿——觉得哪里要改，直接说。</span>
+            <span className="cd-dim">
+              {isProsePlan ? "过目提示词与写法条目——要改就在对话里说，我重出一张。" : "初稿——觉得哪里要改，直接说。"}
+            </span>
           )}
         </div>
       )}
@@ -912,6 +1033,7 @@ export function Aui2Dock({
   pageUnsaved,
   getPageProse,
   autoAsk,
+  onProsePlanStart,
 }: {
   projectId: string;
   page: string;
@@ -936,6 +1058,10 @@ export function Aui2Dock({
   /** 面板「让助手办」命令式触发（c-agent-panel-consolidate）：seq 变更即自动
    *  提交 message——与手输同一条 submit 链，键校验/域校验/授权梯度零绕过 */
   autoAsk?: { seq: number; message: string };
+  /** 正文方案卡「开始生成」宿主桥（c-agent-dialog-prose）：payload.prompt=卡上
+   *  提示词全文、payload.picks=选中写法条目——宿主走归档拦截/确认弹窗/开流；
+   *  onStarted 真开流后才回调（取消/拦截不回调，卡面停留草稿态） */
+  onProsePlanStart?: (payload: Record<string, unknown>, onStarted?: () => void) => void;
 }) {
   const threadKey = threadKeyOf(scope);
   const apiRef = useRef<ChatAnywhereRef | null>(null);
@@ -972,6 +1098,21 @@ export function Aui2Dock({
     setThinkingOn(think);
     setModelKey(savedModel);
   }, [prefsKey]);
+  // 编排形态探测（c-agent-dialog-prose）：env 熔断（ASSISTANT_PROSE_FLOW=off）
+  // → 「生成正文」chip 回退直开。探测失败保持缺省开启（fail-open）。
+  // 本地 state 镜像仅为了触发重渲染（chips 在渲染期读注册表模块旗标）。
+  const [dialogProseOn, setDialogProseOn] = useState(true);
+  useEffect(() => {
+    void getAssistantCapabilities(projectId)
+      .then((c) => {
+        setDialogProseEnabled(c.dialog_prose);
+        setDialogProseOn(c.dialog_prose);
+      })
+      .catch(() => {
+        setDialogProseEnabled(true);
+        setDialogProseOn(true);
+      });
+  }, [projectId]);
   const optionKeys = new Set(
     modelStatus.modelOptions.map((o) => `${o.api_config_id}::${o.model}`),
   );
@@ -1094,8 +1235,8 @@ export function Aui2Dock({
     [onEffects],
   );
   const dockCtx = useMemo(
-    () => ({ apiRef, up: threadUp, markAdopted, refreshDomain }),
-    [threadUp, markAdopted, refreshDomain],
+    () => ({ apiRef, up: threadUp, markAdopted, refreshDomain, proseStart: onProsePlanStart }),
+    [threadUp, markAdopted, refreshDomain, onProsePlanStart],
   );
 
   /** 过程泡泡：思考/工具卡挂本轮 assistant 消息（正文之上，coding agent 顺序） */
@@ -1942,7 +2083,7 @@ export function Aui2Dock({
   const ctxHot = ctxPct >= 80;
 
   return (
-    <div className="chatdock aui2" data-testid="aui2-dock">
+    <div className="chatdock aui2" data-testid="aui2-dock" data-dialog-prose={dialogProseOn ? "on" : "off"}>
       <div className="chatdock-head">
         <span className="chatdock-avatar">助</span>
         <b>写作助手</b>

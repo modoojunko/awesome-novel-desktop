@@ -122,6 +122,7 @@ async def _stream_chapter(
     override_client=None,
     override_model: str = "",
     override_config_id: str = "",
+    kb_picks: list[dict] | None = None,
 ):
     """Generate chapter text via AI streaming, save on completion (BE-01: 写完刷新 DB 元数据).
 
@@ -222,14 +223,24 @@ async def _stream_chapter(
 
     # 符号别名：模型由构造期 self._model 决定（D12，不再读 writing_model）
     model = "haiku"
-    # 本章写法块（c-kb-write-block）：启用库的书按章纲信号选块注入——
-    # 存储稿选定之后、收尾行之前；不落库不进预览；同章同素材重试复用 run（字节一致）；
-    # 任何异常在 prepare_write_block 内部吞掉（无块＝零变化）
-    from write.write_block import prepare_write_block
+    # 本章写法块（c-kb-write-block / c-agent-dialog-prose）：agent 模式（body 含
+    # kb_picks 键，空数组也算）按助手挑选条目组装、跳过规则选择器——零有效条目
+    # ＝无块，回退本书文风设定；不含键走章纲信号规则选块（今日路径逐字不变）。
+    # 存储稿选定之后、收尾行之前；不落库不进预览；重试复用 run（字节一致）；
+    # 任何异常在组装函数内部吞掉（无块＝零变化）
+    if kb_picks is not None:
+        from write.write_block import build_block_from_picks
 
-    block_text, run_id, block_items = await prepare_write_block(
-        db, novel_id=project.id, chapter_ref=chapter_ref, user_id=project.user_id
-    )
+        block_text, run_id, block_items = await build_block_from_picks(
+            db, novel_id=project.id, chapter_ref=chapter_ref, user_id=project.user_id,
+            picks=kb_picks, prompt=prompt,
+        )
+    else:
+        from write.write_block import prepare_write_block
+
+        block_text, run_id, block_items = await prepare_write_block(
+            db, novel_id=project.id, chapter_ref=chapter_ref, user_id=project.user_id
+        )
     if block_text:
         prompt = f"{prompt.rstrip()}\n\n{block_text}"
         yield (
@@ -385,44 +396,19 @@ async def get_write_prompt(
 
     fresh=True（弹窗「刷新提示词」）：忽略存量行按当前素材重新组装，只回新稿
     不动存量行——落库走「存为本章提示词」与生成时的自动留存。
+    组装单源 assemble_write_prompt（c-agent-dialog-prose：助手 read_write_prompt
+    工具同调一层——弹窗/对话框两侧永不漂移）。
     """
     project = await get_novel(db, project_id, user["id"])
     if not project:
         raise HTTPException(404, "Project not found")
     _validate_ref(chapter_ref)
 
-    from prompt.store import load_prompt
-    from write.chapter_writer import (
-        build_chapter_context,
-        legacy_prompt_kind,
-        should_refresh_stored_prompt,
-    )
+    from write.chapter_writer import assemble_write_prompt
 
-    ctx = await build_chapter_context(
-        project.root_path, chapter_ref, project.name, novel_id=project.id
+    return await assemble_write_prompt(
+        project.root_path, chapter_ref, project.name, novel_id=project.id, fresh=fresh
     )
-    outline = ctx.chapter_outline or {}
-    # c-og-slim-v2：关键事件/段落规划退役 → 有章纲的判定＝概要或剧情条目
-    has_outline = bool(outline.get("summary") or ctx.plot_items)
-    if not fresh:
-        existing = await load_prompt(project.root_path, chapter_ref, "write-prompt")
-        if existing.strip() and not should_refresh_stored_prompt(existing, ctx):
-            # legacy：旧版整包行（含恒定设定）→ 弹窗分级提示（旧润色行信息性、旧粗组行建议刷新）
-            return {
-                "prompt": existing,
-                "has_outline": has_outline,
-                "polished": True,
-                "legacy": bool(legacy_prompt_kind(existing)),
-                "legacy_kind": legacy_prompt_kind(existing),
-                "warnings": ctx.lint_warnings,
-            }
-    return {
-        "prompt": ctx.to_user_material(),
-        "has_outline": has_outline,
-        "polished": False,
-        "legacy": False,
-        "warnings": ctx.lint_warnings,
-    }
 
 
 # 路径为空串：本 router 的 prefix 已以 /write 结尾，再写 "/write" 会注册成
@@ -444,6 +430,9 @@ async def write_chapter(
     可选 body {"api_config_id": "...", "model": "..."}：**按次模型对**（c-prose-model-select
     「生成模型」选择位）——成对给出时本次生成用该配置+模型（不落库、不改本书绑定），
     开流前按绑定同源谓词校验，失败 400 可读错因；缺省 = 本书模型（今日路径逐字不变）。
+    可选 body {"kb_picks": [{"entry_id", "reason"?}]}：**agent 模式**（c-agent-dialog-prose）
+    ——含键即跳过规则选择器，写法块按助手挑选条目组装（空数组＝零命中无块，回退文风
+    设定）；不含键走规则选块（今日路径逐字不变）。
     """
     project = await get_novel(db, project_id, user["id"])
     if not project:
@@ -459,17 +448,24 @@ async def write_chapter(
     prompt_override = ""
     api_config_id = ""
     model_override = ""
+    kb_picks: list[dict] | None = None
     try:
         body = await request.json()
         if isinstance(body, dict):
             prompt_override = str(body.get("prompt") or "").strip()
             api_config_id = str(body.get("api_config_id") or "").strip()
             model_override = str(body.get("model") or "").strip()
+            if "kb_picks" in body:
+                # agent 模式闸（c-agent-dialog-prose）：含键即 agent 模式（空数组也算）
+                # ——写法块按助手挑选组装、跳过规则选择器；形状非法按空处理（无块）
+                raw_picks = body.get("kb_picks")
+                kb_picks = [p for p in (raw_picks or []) if isinstance(p, dict)]
     except (ValueError, UnicodeDecodeError):
         # 空体/非法 JSON = 无覆盖，走自动组装
         prompt_override = ""
         api_config_id = ""
         model_override = ""
+        kb_picks = None
 
     # 按次模型对：开流前解析覆盖客户端——非法对 400（可读错因、可换模型重试），
     # 不产生流式响应、不发起调用、不落任何副作用；缺省时保持今日路径（流内按本书绑定构造）
@@ -499,6 +495,7 @@ async def write_chapter(
             override_client=override_client,
             override_model=model_override,
             override_config_id=api_config_id,
+            kb_picks=kb_picks,
         ),
         media_type="text/event-stream",
         headers={

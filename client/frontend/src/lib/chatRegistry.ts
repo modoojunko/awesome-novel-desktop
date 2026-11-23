@@ -83,6 +83,14 @@ const CHIP_KEYS = [
   "draft_character",
 ] as const;
 
+/** 正文生成编排形态（c-agent-dialog-prose）：true＝「生成正文」chip 发指令进
+ *  对话框（agent 取材→方案卡）；false＝env 熔断（ASSISTANT_PROSE_FLOW=off）
+ *  回退直开（确认弹窗→直接流式，规则选块旧路）。dock 挂载时按能力端点翻转。 */
+let DIALOG_PROSE_ENABLED = true;
+export function setDialogProseEnabled(v: boolean): void {
+  DIALOG_PROSE_ENABLED = v;
+}
+
 const REGISTRATIONS: ChatPageRegistration[] = [
   {
     id: "workbench.volume",
@@ -128,7 +136,17 @@ const REGISTRATIONS: ChatPageRegistration[] = [
           { key: "settings_og_fill", label: "补全缺失", command: "帮我补全这一章章纲缺失的字段。" },
         ],
         prose: [
-          { key: "ai_write", label: "生成正文", command: "", open: "ai_write", feature: "ai-generate" },
+          // 生成正文（c-agent-dialog-prose）：对话框编排为主（agent 按剧情取材出
+          // 方案卡）；env 熔断回退直开（宿主确认弹窗→直接流式）
+          DIALOG_PROSE_ENABLED
+            ? {
+                key: "ai_write",
+                label: "生成正文",
+                command: "生成本章正文。",
+                feature: "ai-generate",
+                hint: "我先按本章剧情取材、匹配文风条目，出方案卡给你过目后再生成",
+              }
+            : { key: "ai_write", label: "生成正文", command: "", open: "ai_write", feature: "ai-generate" },
           { key: "renwei", label: "人味检测", command: "", open: "renwei" },
           { key: "seam", label: "接上一章", command: "", open: "seam" },
           {

@@ -999,6 +999,23 @@ async def _profile_summary_task(user_id: str, novel_id: str) -> None:
         logging.getLogger(__name__).info("assistant profile summarize skipped: %s", e)
 
 
+@router.get("/capabilities")
+async def assistant_capabilities(
+    project_id: str,
+    user: dict = Depends(get_current_user),
+):
+    """助手能力面（c-agent-dialog-prose）：前端按此切 chip 形态，env 熔断回退直开。
+
+    ASSISTANT_PROSE_FLOW=off → dialog_prose=false（正文页「生成正文」回退直开路径，
+    不进对话框编排）；缺省/其他值恒 true。轻端点：不查书（chip 形态判定与书无关）。
+    """
+    import os
+
+    return {
+        "dialog_prose": os.environ.get("ASSISTANT_PROSE_FLOW", "").strip().lower() != "off"
+    }
+
+
 @router.post("/stop")
 async def assistant_stop(
     project_id: str,

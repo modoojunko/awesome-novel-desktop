@@ -98,7 +98,6 @@ const wb = {
 function mount(opts: {
   server: Record<string, unknown>;
   isPro?: boolean;
-  onOpenAiModal?: () => void;
   /** 树行归档态（c-archived-readonly）：true＝本章已归档 */
   archived?: boolean;
   /** 前置章（排队门禁用例：已验证空导入历史章不锁本章） */
@@ -143,7 +142,6 @@ function mount(opts: {
         aiWriteSignal={0}
         onRevert={() => {}}
         onTreeRefresh={async () => {}}
-        onOpenAiModal={opts.onOpenAiModal}
       />
     </MemoryRouter>,
   );
@@ -336,51 +334,6 @@ describe("采纳与撤销（拍板②）", () => {
         expect.stringContaining("剧情已由 AI 填好（3 条）"),
         expect.anything(),
       ),
-    );
-  });
-});
-
-describe("存量稿章改剧情软提示（拍板⑥，c-retire-prompt-polish：出口指向刷新提示词）", () => {
-  it("存量稿＋剧情被编辑 → 软提示带「去刷新提示词」出口，不自动重算", async () => {
-    mockReq.mockResolvedValue({ polished: true });
-    const onOpenAiModal = vi.fn();
-    const { railData } = mount({ server: { ...FULL }, onOpenAiModal });
-    await waitFor(() => expect(railData()).not.toBeNull());
-    await enterOgEdit();
-    fireEvent.change(screen.getByLabelText("第 1 条剧情"), {
-      target: { value: "新剧情" },
-    });
-    await waitFor(
-      () =>
-        expect(mockToast.info).toHaveBeenCalledWith(
-          expect.stringContaining("可以刷新提示词"),
-          expect.objectContaining({
-            action: expect.objectContaining({ label: "去刷新提示词" }),
-          }),
-        ),
-      { timeout: 3000 },
-    );
-    // 不自动重算：没有发出任何生成请求
-    expect(mockApi.post).not.toHaveBeenCalled();
-    // 出口可点
-    const action = mockToast.info.mock.calls.at(-1)![1].action;
-    act(() => action.onClick());
-    expect(onOpenAiModal).toHaveBeenCalled();
-  });
-
-  it("非存量稿（本次组装稿）不提示", async () => {
-    mockReq.mockResolvedValue({ polished: false });
-    const { railData } = mount({ server: { ...FULL } });
-    await waitFor(() => expect(railData()).not.toBeNull());
-    await enterOgEdit();
-    fireEvent.change(screen.getByLabelText("第 1 条剧情"), {
-      target: { value: "新剧情" },
-    });
-    await waitFor(() => expect(mockReq).toHaveBeenCalled(), { timeout: 3000 });
-    await new Promise((r) => setTimeout(r, 100));
-    expect(mockToast.info).not.toHaveBeenCalledWith(
-      expect.stringContaining("可以刷新提示词"),
-      expect.anything(),
     );
   });
 });

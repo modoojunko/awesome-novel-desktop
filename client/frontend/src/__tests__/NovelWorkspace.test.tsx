@@ -51,6 +51,16 @@ vi.mock("@/lib/ai", async (importOriginal) => {
   };
 });
 
+vi.mock("@/lib/chatApi", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/chatApi")>();
+  return {
+    ...actual,
+    // 正文生成 chip 固定 open 型（c-agent-dialog-prose 熔断回退语义）——
+    // 对话框编排链在 dialogProse.test 独测；本文件的直开链走 requestAi
+    getAssistantCapabilities: vi.fn(async () => ({ dialog_prose: false })),
+  };
+});
+
 function TierProvider({ tier, children }: { tier: string; children: ReactNode }) {
   const isMember = tier !== "none";
   const value: TierState = {
@@ -602,9 +612,9 @@ describe("页签回默认主页（c-write-home-rail-anchor）", () => {
     await selectFirstChapter();
     // 生成正文入口在正文页签面板（c-prose-write-entry：右栏常驻工具卡退役）
     fireEvent.click(screen.getByRole("tab", { name: /^正文/ }));
-    // 右栏「生成正文」→ AiModal 确认 → 流式开始（@/lib/ai 的 streamChapterWrite 已桩为挂起）
+    // 右栏「生成正文」→ 空章直开流（c-agent-dialog-prose：提示词弹窗退役）
     fireEvent.click(screen.getByTestId("aui2-chip-ai_write"));
-    fireEvent.click(await screen.findByTestId("ai-confirm"));
+    await waitFor(() => expect(writeMock).toHaveBeenCalled());
 
     const confirmSpy = vi.spyOn(window, "confirm").mockReturnValue(false);
     fireEvent.click(screen.getByRole("button", { name: /^写作/ }));
@@ -820,14 +830,13 @@ describe("正文生成中的现场保护（c-prose-stream-guard）", () => {
     apiState.post.mockResolvedValue({});
   }
 
-  /** 选第一章 → 正文页签 → 右栏「生成正文」→ AiModal 确认 → 流式启动（writeMock 挂起） */
+  /** 选第一章 → 正文页签 → 右栏「生成正文」直开流（writeMock 挂起） */
   async function startStreaming() {
     mockTwoChapterTreePro();
     renderWorkspace("monthly");
     await selectFirstChapter();
     fireEvent.click(screen.getByRole("tab", { name: /^正文/ }));
     fireEvent.click(screen.getByTestId("aui2-chip-ai_write"));
-    fireEvent.click(await screen.findByTestId("ai-confirm"));
     await waitFor(() => expect(writeMock).toHaveBeenCalled());
   }
 
@@ -860,7 +869,6 @@ describe("正文生成中的现场保护（c-prose-stream-guard）", () => {
       return new AbortController();
     }) as unknown as typeof streamChapterWrite);
     fireEvent.click(screen.getByTestId("aui2-chip-ai_write"));
-    fireEvent.click(await screen.findByTestId("ai-confirm"));
     await waitFor(() => expect(captured).toBeTruthy());
 
     const body = () => document.querySelector(".prose-body") as HTMLElement;
@@ -897,14 +905,11 @@ describe("正文生成中的现场保护（c-prose-stream-guard）", () => {
       captured = cbs;
       return new AbortController();
     }) as unknown as typeof streamChapterWrite);
-    fireEvent.click(screen.getByTestId("aui2-chip-ai_write"));
-    await screen.findByTestId("ai-confirm");
-
-    // 先装假时钟再点确认：秒表 interval 随 effect 在假时钟下创建（先前注册的
-    // 真实 interval 推不动——顺序即判据）
+    // 先装假时钟再点「生成正文」：秒表 interval 随 effect 在假时钟下创建
+    // （先前注册的真实 interval 推不动——顺序即判据）。空章直开流，无确认弹窗。
     vi.useFakeTimers();
     try {
-      fireEvent.click(screen.getByTestId("ai-confirm"));
+      fireEvent.click(screen.getByTestId("aui2-chip-ai_write"));
       expect(captured).toBeTruthy();
       const secsEl = () => screen.getByTestId("gen-line-sec");
       const secs = () =>
@@ -963,7 +968,6 @@ describe("正文生成中的现场保护（c-prose-stream-guard）", () => {
       return new AbortController();
     }) as unknown as typeof streamChapterWrite);
     fireEvent.click(screen.getByTestId("aui2-chip-ai_write"));
-    fireEvent.click(await screen.findByTestId("ai-confirm"));
     await waitFor(() => expect(captured).toBeTruthy());
     captured!.onChunk("雨落在铁皮屋顶上，像一场迟到的道歉。");
 
@@ -1235,24 +1239,29 @@ function mockProseChapterTree() {
   apiState.post.mockResolvedValue({});
 }
 
-describe("重新生成确认门禁（c-prose-regen-replace）", () => {
-  it("有正文章：先出「重新生成正文」确认，AiModal 不直接开；文案点名清空与版本历史", async () => {
+describe("重新生成确认门禁（c-prose-regen-replace × c-agent-dialog-prose）", () => {
+  it("有正文章：先出「重新生成正文」确认；文案点名清空与版本历史；确认后直接开流", async () => {
+    writeMock.mockClear();
     mockProseChapterTree();
     renderWorkspace("monthly");
     await selectFirstChapter();
     fireEvent.click(screen.getByRole("tab", { name: /^正文/ }));
-    // dock「生成正文」chip 常驻（requestAi 内部自判字数门禁→regen-confirm/ai-confirm）
+    // dock「生成正文」chip 常驻（requestAi 内部自判字数门禁→regen-confirm/直开）
     fireEvent.click(screen.getByTestId("aui2-chip-ai_write"));
     expect(await screen.findByTestId("regen-confirm")).toBeTruthy();
-    expect(screen.queryByTestId("ai-confirm")).toBeNull();
+    expect(screen.queryByTestId("ai-confirm")).toBeNull(); // 提示词弹窗已退役
     const dlg = screen.getByTestId("regen-confirm").closest(
       "[role='dialog']",
     ) as HTMLElement;
     expect(dlg.textContent).toContain("清空当前正文");
     expect(dlg.textContent).toContain("版本历史");
+    // 确认 → 不再进 AiModal，直接开流
+    fireEvent.click(screen.getByTestId("regen-confirm"));
+    await waitFor(() => expect(writeMock).toHaveBeenCalled());
   });
 
-  it("取消：两弹窗都不开（零副作用，可再点）", async () => {
+  it("取消：零副作用可再点；再确认走直开链（无一次性锁死）", async () => {
+    writeMock.mockClear();
     mockProseChapterTree();
     renderWorkspace("monthly");
     await selectFirstChapter();
@@ -1263,24 +1272,22 @@ describe("重新生成确认门禁（c-prose-regen-replace）", () => {
     ) as HTMLElement;
     fireEvent.click(within(dlg).getByRole("button", { name: "取消" }));
     await waitFor(() => expect(screen.queryByTestId("regen-confirm")).toBeNull());
-    expect(screen.queryByTestId("ai-confirm")).toBeNull();
+    expect(writeMock).not.toHaveBeenCalled();
     // 再点入口仍能走完整链（无一次性锁死）
     fireEvent.click(screen.getByTestId("aui2-chip-ai_write"));
     fireEvent.click(await screen.findByTestId("regen-confirm"));
-    expect(await screen.findByTestId("ai-confirm")).toBeTruthy();
-    // AiModal 提示行为替换口径（c-prose-regen-replace）
-    expect(screen.getByText(/清空并替换本章现有正文/)).toBeTruthy();
-    expect(screen.queryByText(/追加到本章末尾/)).toBeNull();
+    await waitFor(() => expect(writeMock).toHaveBeenCalled());
   });
 
-  it("空章：不拦，直接进 AiModal（原路径不变）", async () => {
+  it("空章：不拦，确认弹窗都不出，直接开流", async () => {
     mockOneChapterTreePro();
     renderWorkspace("monthly");
     await selectFirstChapter();
     fireEvent.click(screen.getByRole("tab", { name: /^正文/ }));
     fireEvent.click(screen.getByTestId("aui2-chip-ai_write"));
-    expect(await screen.findByTestId("ai-confirm")).toBeTruthy();
+    await waitFor(() => expect(writeMock).toHaveBeenCalled());
     expect(screen.queryByTestId("regen-confirm")).toBeNull();
+    expect(screen.queryByTestId("ai-confirm")).toBeNull();
   });
 });
 
