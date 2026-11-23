@@ -165,3 +165,116 @@ dock SHALL 在对话流内渲染任务计划卡，数据来自服务端 `plan` �
 #### Scenario: 回放不伪造计时
 - **WHEN** 重开书回看该回合
 - **THEN** 过程列首显示完成/已停止·N 步；工具参数预览仍在，不显示虚构的已等/用时秒数
+
+### Requirement: 页面身份与字段注入边界
+
+助手 SHALL 保留最小的页面身份上下文，但页面字段值 SHALL NOT 自动拼进 system/user 提示词：
+
+- 页面身份（当前页面名、`set:*` 面板名、`ch:*` 页签）MAY 继续随轮注入，用于让模型知道「作家在哪一页」。
+- 页面字段清单与当前值 SHALL NOT 自动注入；模型需要时 SHALL 调只读工具 `read_page_fields`（见 `assistant-tools`「当前设定页字段按需查询」）。
+- 前端 `page_state` SHALL 只带未保存标记（外加「页面态可携带屏上正文文本」的屏上正文文本）；SHALL NOT 为页面字段新增 `panel`/`chapter_tab` 请求字段（当前面板由 `thread` 决定）。
+- 同一字段的自动注入与工具结果 SHALL NOT 同时存在（去重），避免模型看到两份口径不同的值。
+- 工具结果 SHALL 明确标注「已保存值」；页面有未保存修改时 SHALL 如实提醒，避免把落库值当成屏幕值。
+
+#### Scenario: 调工具前没有字段值
+- **WHEN** 作家在题材页发消息，助手尚未调 `read_page_fields`
+- **THEN** 当轮 system/user 提示词里只有页面身份，没有 01-05 的字段值；模型需要时自己调工具
+
+#### Scenario: 页面身份仍可用
+- **WHEN** 作家在 `set:world` 线程说话
+- **THEN** 提示词可含「当前页签：设定·世界」，但不含世界八格的当前值
+
+#### Scenario: 重复注入已移除
+- **WHEN** 作家在题材页说话
+- **THEN** 提示词中不再出现自动生成的五格字段真值；字段值只出现在 `read_page_fields` 的工具结果里
+
+#### Scenario: 前端不新增页面字段
+- **WHEN** 前端提交助手消息
+- **THEN** `page_state` 只带未保存标记（外加屏上正文文本）；不因本能力新增 panel/chapter_tab 字段
+
+### Requirement: 页面态可携带屏上正文文本
+
+前端 `page_state` MAY 额外携带当前章屏上正文全文 `prose_text`，用于只读工具 `read_prose_checks` 现算：
+
+- 取值 SHALL 在发送时刻从正文编辑器取（与自动保存同一序列化单源），SHALL NOT 在装载时缓存。
+- `prose_text` SHALL 只进入后端工具上下文（`ToolContext.page_prose`），SHALL NOT 拼进 system/user 提示词，SHALL NOT 落库。
+- SHALL 仅在章视图提供（getter 缺失时不带该键）；空串 SHALL NOT 带键。
+- 后端 SHALL 对超长文本设上限（50000 字）丢弃并以已保存正文兜底。
+- 本字段不属于页面字段值：与「页面身份与字段注入边界」中页面字段禁令不冲突，`panel`/`chapter_tab` 仍 SHALL NOT 新增。
+
+#### Scenario: 章视图发送消息
+- **WHEN** 作家在正文页发送消息
+- **THEN** 请求 `page_state` 带 `prose_text`（编辑器当前全文）；提示词中不出现正文全文
+
+#### Scenario: 非章视图
+- **WHEN** 作家在卷纲页/设定页发送消息
+- **THEN** 请求不带 `prose_text`
+
+### Requirement: 题材推荐采纳卡
+
+助手产物卡 SHALL 正确呈现「01 题材目录」推荐，不得把程序字段名直接上屏：
+
+- `payload.stype="genre"` 且 `field="catalog"` 时，卡面 SHALL 以中文行标签显示「题材」「子类」「理由」；`sub_genre` 为空时显示「（只定大类）」或省略该行，SHALL NOT 显示 `value`/`theme`/`sub_genre` 等裸键。
+- 题材推荐卡 SHALL 可采纳：点「采纳 · 写入」后读取当前题材设置，写入 `theme`/`sub_genre` 并整包保存，其余题材四格、简介、世界等字段 SHALL NOT 被清空或覆盖。
+- 设定字段卡（`stype`/`field` 存在，如 `core_promise`）SHALL 使用字段中文名（主要看什么/绝对禁止/吃苦指数/本小说斗什么/简介/世界各格）作为行标签；对象形 `{value,note}` SHALL 拆成主值与「备注」两行，SHALL NOT 显示裸 `value`。
+- 写回成功回执 SHALL 说人话（如「已写进 01 题材：都市 / 都市职场」），并触发设定域刷新。
+
+#### Scenario: 题材卡显示人话
+- **WHEN** 助手产出 `field="catalog"`、`value={theme:"都市", sub_genre:"都市职场", note:"书名带城市夜班与职场冲突"}` 的卡
+- **THEN** 卡面显示「题材：都市」「子类：都市职场」「理由：书名带城市夜班与职场冲突」，且没有 `value` 字样
+
+#### Scenario: 爽点字段卡也不再露裸键
+- **WHEN** 助手产出 `core_promise` 卡，value 为 `{value:"以弱破强的痛快", note:"…"}`
+- **THEN** 卡面显示「主要看什么」与「备注」两行，不显示 `value`
+
+#### Scenario: 读目录与出卡两步都可见
+- **WHEN** 助手先 prime 读题材目录、再由模型出题材卡
+- **THEN** 过程区出现两张工具卡（read_genre_catalog 与 settings_genre_pick），stepId 不同，不互相覆盖
+
+#### Scenario: 采纳不破坏其它设定
+- **WHEN** 当前书已有 forbidden_list/cost_ratio/battlefield 与简介，作家采纳题材卡
+- **THEN** 只更新 theme/sub_genre，其余字段保持原值，回执说明写到 01 题材
+
+### Requirement: 设定页签与字段读取边界
+
+对话线程落在设定域（`set:*`）时，服务端 SHALL 随当轮 user 消息尾注入页签身份，但 SHALL NOT 自动注入设定字段值：
+
+- 面板名真值：`set:*` 线程 SHALL 注入「［当前页签：设定·<面板名>］」——面板键（genre/intro/world/chars/arc/style/foreshadow）映射中文名（题材/简介/世界/角色/主线/文风/伏笔）；`set:default` 与未知面板键 SHALL 回退「设定」。
+- 字段值 SHALL NOT 随提示词自动注入；模型需要本页字段与已保存现值时 SHALL 调 `read_page_fields`（见 `c-agent-page-context` / `assistant-tools`「当前设定页字段按需查询」）。题材五格、简介、世界八格等字段值只应出现在工具结果里。
+- 工具结果 SHALL 标注「已保存值」；页面有未保存修改时 SHALL 如实提醒，避免模型把落库值当屏幕值。
+- 章节页签线程（`ch:*`）与其它线程 SHALL NOT 带设定字段真值（不串味）。
+
+#### Scenario: 设定面板页签真值
+
+- **WHEN** 作家在世界面板对助手说话（线程 `set:world`）
+- **THEN** 本轮提示词含「［当前页签：设定·世界］」，但不含世界八格的当前值
+
+#### Scenario: 题材面板字段按需读
+
+- **WHEN** 新书五格全空，作家在题材面板问「当前页面有几个问题」
+- **THEN** 提示词只有「［当前页签：设定·题材］」；助手调 `read_page_fields` 后，工具结果逐格点名「未填/未定」
+
+#### Scenario: 已填给值只在工具结果
+
+- **WHEN** 五格已填（题材=玄幻（凡人流）、主要看什么=一句话、禁忌两条、吃苦指数 7、战场一个）
+- **THEN** `read_page_fields` 结果逐格给现值，未填项仍点名；提示词本身不出现这些值
+
+#### Scenario: 章节页签不串味
+
+- **WHEN** 作家在章纲页签（`ch:og`）对话
+- **THEN** 注入「［当前页签：章纲］」照旧，SHALL NOT 出现设定字段真值
+
+
+### Requirement: 书情 brief 题材行
+
+书情 brief（系统前缀稳定段）的题材行 SHALL 反映题材目录现值：题材大类已填时 SHALL 注入「题材：<大类>（<子类>）」（子类空时只给大类）；题材未填或读取失败 SHALL 跳过该行，SHALL NOT 注入空行或占位符。题材行数据键 SHALL 与题材上下文解析结果的实际键名一致（回归钉：不得再读不存在于返回结构的键）。
+
+#### Scenario: 题材已填进 brief
+
+- **WHEN** 书的题材目录已存「玄幻／凡人流」，任意页签发起对话
+- **THEN** 系统前缀书情段含「题材：玄幻（凡人流）」
+
+#### Scenario: 题材全空不给空行
+
+- **WHEN** 题材五格全空
+- **THEN** 书情 brief 只含书名（与进度动态段），无「题材：」空行
