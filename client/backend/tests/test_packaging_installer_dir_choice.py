@@ -165,3 +165,40 @@ def test_dir_page_tells_user_where_books_live():
         message = line.split("=", 1)[1]
         assert message.startswith(original), f"{lang} 标准句被改动（须原样保留再追加提示）"
         assert "data" in message, f"{lang} 提示必须点名 data 子目录"
+
+
+# ── c-update-fail-safe §4：安装目录连续性＋快捷方式 ─────────────────────────
+
+
+def test_desktop_icon_uses_autodesktop():
+    """桌面图标走 {autodesktop}：/CURRENTUSER 静默更新下写不了公用桌面（死图标根因）。"""
+    text = INSTALLER_ISS.read_text(encoding="utf-8")
+    icons = [line for _no, line in _active_lines(text) if line.startswith("Name:") and ".lnk" not in line]
+    desktop = [line for line in icons if "desktopicon" in line]
+    assert desktop, "缺桌面快捷方式条目"
+    assert any("{autodesktop}" in line for line in desktop), "桌面图标必须用 {autodesktop}"
+    assert not any("{commondesktop}" in line for line in desktop), (
+        "不得再用 {commondesktop}——自动更新 /CURRENTUSER 时不可写，会留下指向旧目录的死图标"
+    )
+
+
+def test_install_dir_pointer_and_registry_prefill_in_code():
+    """[Code] 目录预填链：指针文件 → 双 hive（含 32 位视图）→ 覆盖 DirEdit；/DIR 优先。"""
+    text = INSTALLER_ISS.read_text(encoding="utf-8")
+    assert "install_dir.txt" in text, "必须读应用写的安装目录指针"
+    assert "Inno Setup: App Path" in text and "InstallLocation" in text
+    for root in ("HKEY_CURRENT_USER_64", "HKEY_CURRENT_USER_32",
+                 "HKEY_LOCAL_MACHINE_64", "HKEY_LOCAL_MACHINE_32"):
+        assert root in text, f"缺 {root} 视图（跨安装模式看不到旧目录的根因）"
+    assert "WizardForm.DirEdit.Text" in text
+    assert "ExpandConstant('{param:DIR|}')" in text, "/DIR 显式给出时必须优先"
+    assert "procedure InitializeWizard;" in text
+    assert "procedure CurPageChanged" in text
+
+
+def test_shortcut_target_fixed_for_existing_link_only():
+    """ssPostInstall 只修已存在的用户桌面 .lnk（尊重用户取消勾选），不强行创建。"""
+    text = INSTALLER_ISS.read_text(encoding="utf-8")
+    assert "procedure CurStepChanged" in text and "ssPostInstall" in text
+    assert "WScript.Shell" in text and "TargetPath" in text
+    assert "if FileExists(Lnk)" in text, "只修复已存在的快捷方式"

@@ -1,8 +1,8 @@
 # c-update-fail-safe · 任务
 
-> **本批（2026-11-23）＝记录切片**：只做 §2（执行体三段留痕＋出口侧启动确认回退）。
-> §1 的部分准备项（真机复现/假安装器本地夹具）与 §3-§6 仍待后续批次；§3-§6 的快照/
-> 回滚/目录/快捷方式/CI 属于「批二」。
+> **进度**：2026-11-23 已落两批——「记录切片」（§2，PR #1137）与「救援/连续性」
+> （§3/§4，本批）。待：§5 Windows CI 假安装器、§6 真机验收（装包另批）。
+> §1 的真机复现/本地夹具与 §6 的真机证据仍随真机批次补齐。
 
 ## 1. 设计影响与现场复现
 
@@ -19,17 +19,17 @@
 
 ## 3. 安装结果验收、重试、快照与可见失败
 
-- [ ] 3.1 实现安装前快照：`%LOCALAPPDATA%\AwesomeNovel\rollback\<from_version>\`，复制程序树并排除 `data\`/`logs\`；按程序树大小 ×1.2 做空间预检；快照失败则放弃静默安装并写可见提示；用临时目录夹具验证排除项与失败分支
-- [ ] 3.2 实现安装结果验收：exit code=0 且 `{app}\AwesomeNovel.exe` 存在且大小>0；失败自动重试一次；仍失败用 `robocopy /MIR` 从快照恢复程序树（排除 `data\`/`logs\`）；用假安装器验证“首次失败→重试成功”“两次失败→快照恢复后旧 exe 存在”两臂
-- [ ] 3.3 实现用户可见失败说明：`System.Windows.Forms.MessageBox`（Yes=打开数据目录）＋桌面 `爱小说更新失败-<timestamp>.txt`；`AINOVEL_RUNNER_HEADLESS=1` 时只写文件；断言异常路径（try/finally）也必写说明与日志
-- [ ] 3.4 快照清理挂在 `_reconcile_pending` 的“pending.version == current”分支（新版首次运行确认后删除 `rollback/<version>`）；单测覆盖“未确认不删 / 确认后删”
-- [ ] 3.5 更新 `auto-skip`/清理逻辑的保留清单与注释，确保快照目录不在“暂不”清理的误删范围；测试通过
+- [x] 3.1 安装前快照：runner 内 `robocopy /E` 把程序树复制到 `%LOCALAPPDATA%\AwesomeNovel\rollback\<目标版本>`，显式 `/XD` 排除 `data`、`logs`（书稿永不复制）；robocopy 退出码 ≥8（空间/权限不足等）＝`snapshot_failed`，放弃静默安装并走可见失败；脚本结构钉（本机无 Windows，robocopy 实跑证据随 6.6 真机臂）
+- [x] 3.2 安装结果验收＋重试＋回滚：验收＝退出码 0 且 `{app}\<程序名>` 存在且大小 >0；失败在同一次退出链内重试安装器一次（`retry` 真实计数进 finished/metrics）；仍失败→用快照 `robocopy /MIR`（同排除）恢复程序树，状态记 `rollback_restored`/`rollback_failed`；结构钉＋`retry` 计数断言
+- [x] 3.3 用户可见失败说明：finally 内 `System.Windows.Forms.MessageBox`（含版本/状态/退出码/错误/数据目录/手动下载地址）＋桌面 `爱小说更新失败-<时间戳>.txt`；`AINOVEL_RUNNER_HEADLESS=1` 时只写文件；脚本结构钉（headless 开关随 env 进脚本）
+- [x] 3.4 快照清理挂在 `_reconcile_pending` 的「pending.version == current」分支：新版首次运行确认后删 `rollback/<版本>`；「装完但新版没起来」时快照保留（下次退出链仍可用）；单测覆盖确认后删除
+- [x] 3.5 快照目录在 `data\updates\` 之外（`%LOCALAPPDATA%\AwesomeNovel\rollback`），不在用户「暂不」清理的误删范围；卸载器 [UninstallRun] 补清 `{localappdata}\AwesomeNovel`（指针＋快照）
 
 ## 4. 安装目录连续性与快捷方式
 
-- [ ] 4.1 应用启动时原子写 `%LOCALAPPDATA%\AwesomeNovel\install_dir.txt`（内容为 `get_install_dir()` 绝对路径）；写失败只留日志不阻断启动；单测覆盖写入与失败分支
-- [ ] 4.2 安装器 `[Code]`：读指针文件 → 校验目录存在且可写；否则读 HKCU/HKLM（含 `WOW6432Node` 视图）的 `Inno Setup: App Path`/`InstallLocation`；在 `InitializeWizard`/`CurPageChanged(wpSelectDir)` 覆盖 `WizardForm.DirEdit.Text`；`/DIR` 明确给出时保持其优先级；stub 安装器或真机验证 per-user→admin 沿用旧目录
-- [ ] 4.3 桌面快捷方式：`[Icons]` 桌面项改 `{autodesktop}`；自动更新参数去掉 `/MERGETASKS=!desktopicon`（按 `checkedonce`/`UsePreviousTasks` 语义处理）；`[Code]` 在 `ssPostInstall` 只修复已存在的 `.lnk`，不强行创建；Windows 验证 admin/per-user 两种模式无重复图标、旧快捷方式目标被修正
+- [x] 4.1 应用启动时原子写 `%LOCALAPPDATA%\AwesomeNovel\install_dir.txt`（仅冻结态，内容为 `get_install_dir()` 绝对路径）；写失败只留日志不阻断启动；单测覆盖写入（tmp 目录隔离）
+- [x] 4.2 安装器 `[Code]`：读指针文件 → 校验目录存在且可写（写探针文件）→ 否则读 HKCU/HKLM 的 64/32 位视图卸载登记项 `Inno Setup: App Path`/`InstallLocation`；在 `InitializeWizard`/`CurPageChanged(wpSelectDir)` 覆盖 `WizardForm.DirEdit.Text`；`/DIR` 明确给出时保持其优先级；结构钉（真机 per-user→admin 证据随 4.4）
+- [x] 4.3 桌面快捷方式：`[Icons]` 桌面项改 `{autodesktop}`；自动更新参数去掉 `/MERGETASKS=!desktopicon`；`[Code]` 在 `ssPostInstall` 只修复已存在的 `.lnk`，不强行创建；结构钉＋回归（argv 不含 MERGETASKS）
 - [ ] 4.4 记录一条真机证据：0.37 per-user 装于 `D:\AwesomeNovel` → 双击 0.38 admin 安装器，目录页预填 `D:\AwesomeNovel`；把 `installer.log` 与截图路径写入任务
 
 ## 5. Windows CI 真执行

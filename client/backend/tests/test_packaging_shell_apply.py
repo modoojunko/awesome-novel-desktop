@@ -52,8 +52,13 @@ def shell(monkeypatch, tmp_path):
     monkeypatch.setattr(module, "get_install_dir", lambda: install_dir)
     monkeypatch.setattr(module, "get_resource_root", lambda: install_dir)
     monkeypatch.setattr(module, "_load_release_json", lambda _root: {"client_version": "0.99.5"})
+    # 快照根/安装目录指针落点（c-update-fail-safe）：测试内收进 tmp，绝不写真实用户目录
+    local_appdata = tmp_path / "localappdata"
+    local_appdata.mkdir()
+    monkeypatch.setattr(module, "get_local_appdata_dir", lambda: local_appdata)
     monkeypatch.setattr(module.sys, "platform", "win32")
     module.__test_install_dir = install_dir
+    module.__test_local_appdata = local_appdata
     yield module
 
 
@@ -324,8 +329,11 @@ def test_normal_path_argv_and_attempts_bookkeeping(shell, tmp_path, monkeypatch)
     # 等待段结果必须落盘（评审 P3：弹回旧版类事故判读的第一分辨点）
     assert "$waitMs" in script and "$parentAlive" in script
     assert "parent_alive_after_wait=" in script
-    for flag in ("/VERYSILENT", "/CURRENTUSER", "/AUTOLAUNCH=1", "/MERGETASKS=!desktopicon"):
+    for flag in ("/VERYSILENT", "/CURRENTUSER", "/AUTOLAUNCH=1"):
         assert flag in script, flag
+    # c-update-fail-safe §4.3：不再强制取消桌面图标任务（快捷方式改由 [Icons] 与
+    # ssPostInstall 修复承接）；该参数留在 argv 会把用户已勾选的图标任务也砍掉
+    assert "/MERGETASKS=!desktopicon" not in script
     assert f"/DIR={module.__test_install_dir}" in script
     assert "/LOG=" in script
     assert str(pkg) in script
@@ -443,8 +451,8 @@ def test_win_runner_started_line_before_wait(shell, tmp_path, monkeypatch):
     module.apply_pending_update(tmp_path)
 
     script = _runner_script_of(calls)
-    assert script.index("$log =") < script.index("runner: started")
-    assert script.index("runner: started") < script.index("Wait-Process -Id $parent")
+    assert script.index("$log =") < script.index("started (runner_pid")
+    assert script.index("started (runner_pid") < script.index("Wait-Process -Id $parent")
 
 
 def test_mac_runner_started_line_before_wait(shell, tmp_path, monkeypatch):
@@ -764,7 +772,7 @@ def test_version_selfreport_wiring(shell):
 
 
 def test_win_runner_script_three_stage_markers(shell, tmp_path, monkeypatch):
-    """三段留痕形状：started →（等尸）→ installer_start → finished。
+    """三段留痕形状：started →（等尸）→ 快照 → installer_start → finished。
 
     installer_start 必须在真正调用安装器之前；finished 在 finally 里（异常路径也写），
     含 status/exit/retry/错误摘要——「装了没装、谁失败」事后可判读。
@@ -777,15 +785,20 @@ def test_win_runner_script_three_stage_markers(shell, tmp_path, monkeypatch):
     module.apply_pending_update(tmp_path)
 
     script = _runner_script_of(calls)
-    assert script.index("runner: started") < script.index("Wait-Process -Id $parent")
-    assert script.index("Wait-Process -Id $parent") < script.index("runner: installer_start")
-    assert script.index("runner: installer_start") < script.index("& $installer")
-    # 终局痕在 finally：catch 之后仍必写；异常两臂各记专属 status
+    assert script.index("started (runner_pid") < script.index("Wait-Process -Id $parent")
+    assert script.index("Wait-Process -Id $parent") < script.index("installer_start (attempt=")
+    assert script.index("installer_start (attempt=") < script.index("& $installer")
+    # 终局痕在 finally：catch 之后仍必写；异常路径记专属 status
     assert "finally {" in script
-    assert script.index("} catch {") < script.index("runner: finished")
-    assert "status={1} exit={2} retry=0 error={3}" in script
-    assert "installer_exception" in script
+    assert script.index("} catch {") < script.index("finished (status=")
+    assert "status={0} exit={1} retry={2} error={3}" in script
     assert "runner_exception" in script
+    # 批二：快照在安装之前、回滚分支、失败可见（headless 开关）都在脚本里
+    assert script.index("snapshot_ready") < script.index("installer_start")
+    assert "$rollbackRoot" in script and "$version" in script
+    assert "rollback_restored" in script and "snapshot_failed" in script
+    assert "$headless" in script and "爱小说更新失败-" in script
+    assert "MessageBox" in script
 
 
 def test_mac_runner_finished_line(shell):
@@ -848,3 +861,58 @@ def test_runner_started_timeout_falls_back_direct(shell, tmp_path, monkeypatch):
     startup = (tmp_path / "logs" / "startup.log").read_text("utf-8")
     assert "fallback to direct installer" in startup
     assert _pending_body(module)["attempts"] == 1
+
+
+# ── c-update-fail-safe 批二：安装目录指针 / 快照清理 / 失败可见开关 ──────────
+
+
+def test_install_dir_pointer_written_atomically(shell, tmp_path):
+    r"""启动时原子写 {localappdata}\AwesomeNovel\install_dir.txt（安装器预填第一优先）。"""
+    module = shell
+    module._write_install_dir_pointer(tmp_path)
+    pointer = module.__test_local_appdata / "install_dir.txt"
+    assert pointer.read_text(encoding="utf-8") == str(module.__test_install_dir)
+    assert not (module.__test_local_appdata / "install_dir.txt.tmp").exists()
+
+
+def test_reconcile_cleans_rollback_snapshot_on_confirm(shell):
+    """新版首次运行确认后清 rollback/<版本>（「装完但新版没起来」时快照保留）。"""
+    module = shell
+    snap = module.__test_local_appdata / "rollback" / "0.99.5"
+    snap.mkdir(parents=True)
+    (snap / "AwesomeNovel.exe").write_bytes(b"old")
+    (module.__test_install_dir / "data" / "updates" / "pending.json").write_text(
+        json.dumps({"version": "0.99.5"}), encoding="utf-8")
+    module._reconcile_pending(module.__test_install_dir)
+    assert not snap.exists()
+
+
+def test_runner_script_carries_install_context(shell, tmp_path, monkeypatch):
+    """脚本携带版本/安装目录/主程序名/headless 开关（快照与验收的输入）。"""
+    module = shell
+    monkeypatch.setattr(module.sys, "executable",
+                        str(module.__test_install_dir / "AwesomeNovel.exe"))
+    _write_pending(module, tmp_path, sha=hashlib.sha256(b"PKG-PAYLOAD").hexdigest())
+    calls = _popens(monkeypatch)
+    module.apply_pending_update(tmp_path)
+
+    script = _runner_script_of(calls)
+    assert "$headless = 0" in script
+    assert "$version = '0.99.5'" in script
+    assert f"$installDir = '{module.__test_install_dir}'" in script
+    assert "$exeName = 'AwesomeNovel.exe'" in script
+    assert "$rollbackRoot" in script
+
+
+def test_runner_script_headless_env_sets_flag(shell, tmp_path, monkeypatch):
+    """AINOVEL_RUNNER_HEADLESS=1 → 失败只写桌面说明、不弹 MessageBox。"""
+    module = shell
+    monkeypatch.setattr(module.sys, "executable",
+                        str(module.__test_install_dir / "AwesomeNovel.exe"))
+    monkeypatch.setenv("AINOVEL_RUNNER_HEADLESS", "1")
+    _write_pending(module, tmp_path, sha=hashlib.sha256(b"PKG-PAYLOAD").hexdigest())
+    calls = _popens(monkeypatch)
+    module.apply_pending_update(tmp_path)
+
+    script = _runner_script_of(calls)
+    assert "$headless = 1" in script
