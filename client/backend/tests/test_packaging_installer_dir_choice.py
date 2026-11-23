@@ -214,9 +214,15 @@ def test_install_dir_prefill_is_one_shot():
 
 
 def test_global_var_declared_before_routines_in_code():
-    """[Code] 全局 var 必须声明在首个函数/过程之前（Pascal 块结构；iscc 编译要求，review P2）。"""
+    """[Code] 全局 var 必须声明在首个函数/过程之前（Pascal 块结构；iscc 编译要求，review P2）。
+
+    段头按行锚定切（`^[Code]$`）——注释里出现过「[Code]」字样，按子串 split 会从
+    注释处裹头假绿（判例：delta 提取器须以 section 头为边界）。
+    """
     text = INSTALLER_ISS.read_text(encoding="utf-8")
-    code = text.split("[Code]", 1)[1]
+    sections = re.split(r"(?m)^\[Code\]\s*$", text)
+    assert len(sections) >= 2, "installer.iss 缺行首 [Code] 段头"
+    code = sections[-1]
     var_at = code.find("InstallDirPrefilled: Boolean;")
     assert var_at != -1, "缺 InstallDirPrefilled 声明"
     first_routine = min(
