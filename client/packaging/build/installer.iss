@@ -253,22 +253,37 @@ begin
   if Result = '' then Result := UninstallDirFrom(HKEY_LOCAL_MACHINE_32);
 end;
 
-procedure ApplyInstallDir;
+// 位置页只「首次进入」应用一次解析结果：用户手动改目录后点「上一步/下一步」
+// 回来不得再被覆盖（review P3）。InitializeWizard 的预填不记账（Inno 的
+// UsePreviousAppDir 会在页面激活时再写一次，真正生效的是 CurPageChanged）。
+var
+  InstallDirPrefilled: Boolean;
+
+procedure ApplyInstallDir(MarkDone: Boolean);
 var Dir: String;
 begin
-  if ExpandConstant('{param:DIR|}') <> '' then exit;  // /DIR 显式优先
+  if MarkDone and InstallDirPrefilled then exit;
+  if ExpandConstant('{param:DIR|}') <> '' then  // /DIR 显式优先
+  begin
+    if MarkDone then InstallDirPrefilled := True;
+    exit;
+  end;
   Dir := ResolveInstallDir;
-  if Dir <> '' then WizardForm.DirEdit.Text := Dir;
+  if Dir <> '' then
+  begin
+    WizardForm.DirEdit.Text := Dir;
+    if MarkDone then InstallDirPrefilled := True;
+  end;
 end;
 
 procedure InitializeWizard;
 begin
-  ApplyInstallDir;
+  ApplyInstallDir(False);
 end;
 
 procedure CurPageChanged(CurPageID: Integer);
 begin
-  if CurPageID = wpSelectDir then ApplyInstallDir;
+  if CurPageID = wpSelectDir then ApplyInstallDir(True);
 end;
 
 // ── 桌面快捷方式连续性（c-update-fail-safe §4.3）─────────────────────────

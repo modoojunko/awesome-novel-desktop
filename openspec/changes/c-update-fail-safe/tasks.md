@@ -19,7 +19,7 @@
 
 ## 3. 安装结果验收、重试、快照与可见失败
 
-- [x] 3.1 安装前快照：runner 内 `robocopy /E` 把程序树复制到 `%LOCALAPPDATA%\AwesomeNovel\rollback\<目标版本>`，显式 `/XD` 排除 `data`、`logs`（书稿永不复制）；robocopy 退出码 ≥8（空间/权限不足等）＝`snapshot_failed`，放弃静默安装并走可见失败；脚本结构钉（本机无 Windows，robocopy 实跑证据随 6.6 真机臂）
+- [x] 3.1 安装前快照：runner 内 `robocopy /MIR`（严格镜像程序树，防重复失败留幽灵文件）复制到 `%LOCALAPPDATA%\AwesomeNovel\rollback\<目标版本>`，显式 `/XD` 排除 `data`、`logs`（书稿永不复制）；robocopy 退出码 ≥8（空间/权限不足等）＝`snapshot_failed`，放弃静默安装并走可见失败；脚本结构钉＋**真 Windows 自检实跑 robocopy**（runner_selftest 三臂）
 - [x] 3.2 安装结果验收＋重试＋回滚：验收＝退出码 0 且 `{app}\<程序名>` 存在且大小 >0；失败在同一次退出链内重试安装器一次（`retry` 真实计数进 finished/metrics）；仍失败→用快照 `robocopy /MIR`（同排除）恢复程序树，状态记 `rollback_restored`/`rollback_failed`；结构钉＋`retry` 计数断言
 - [x] 3.3 用户可见失败说明：finally 内 `System.Windows.Forms.MessageBox`（含版本/状态/退出码/错误/数据目录/手动下载地址）＋桌面 `爱小说更新失败-<时间戳>.txt`；`AINOVEL_RUNNER_HEADLESS=1` 时只写文件；脚本结构钉（headless 开关随 env 进脚本）
 - [x] 3.4 快照清理挂在 `_reconcile_pending` 的「pending.version == current」分支：新版首次运行确认后删 `rollback/<版本>`；「装完但新版没起来」时快照保留（下次退出链仍可用）；单测覆盖确认后删除

@@ -105,7 +105,8 @@
    - 快照位置：`%LOCALAPPDATA%\AwesomeNovel\rollback\<from_version>\`（安装目录之外，
      与数据目录分离）。快照只复制程序树（exe、`_internal`、许可文本等），**排除**
      `data\`、`logs\` 与运行时文件，避免把书稿复制一遍。
-   - 快照方式：第一版用 `robocopy /E` 完整复制（简单、可验证）；检查可用空间 ≥ 程序树
+   - 快照方式：用 `robocopy /MIR` 严格镜像程序树（重复失败不残留幽灵文件；review P3
+     由 `/E` 改 `/MIR`）；检查可用空间 ≥ 程序树
      大小 × 1.2，不足则放弃本次静默安装并给出可见提示。硬链接快照作为后续优化项，
      不阻塞本 change。
    - 验收：安装器退出码为 0 **且** `{app}\AwesomeNovel.exe` 存在（可启动性以

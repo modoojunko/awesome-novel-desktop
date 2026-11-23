@@ -202,3 +202,12 @@ def test_shortcut_target_fixed_for_existing_link_only():
     assert "procedure CurStepChanged" in text and "ssPostInstall" in text
     assert "WScript.Shell" in text and "TargetPath" in text
     assert "if FileExists(Lnk)" in text, "只修复已存在的快捷方式"
+
+
+def test_install_dir_prefill_is_one_shot():
+    """位置页只「首次进入」应用解析结果：用户手改目录后返回该页不得被再次覆盖（review P3）。"""
+    text = INSTALLER_ISS.read_text(encoding="utf-8")
+    assert "InstallDirPrefilled" in text, "缺一次性标志——每次回到位置页都会覆盖用户手选目录"
+    assert "if MarkDone and InstallDirPrefilled then exit;" in text
+    assert "ApplyInstallDir(True)" in text, "CurPageChanged 的页面级应用必须记账"
+    assert "ApplyInstallDir(False)" in text, "InitializeWizard 预填不记账（Inno 页面激活会再写）"

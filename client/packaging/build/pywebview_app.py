@@ -1750,8 +1750,14 @@ def _reconcile_pending(runtime_dir: Path) -> None:
                 root = _rollback_root()
                 if root.is_dir() and not any(root.iterdir()):
                     root.rmdir()
-                log_line(runtime_dir,
-                         f"auto-update: rollback snapshot v{pending['version']} cleaned")
+                # ignore_errors=True 会吞掉删除失败——按「还在不在」如实记日志
+                if snap.exists():
+                    log_line(runtime_dir,
+                             f"auto-update: rollback snapshot v{pending['version']} "
+                             "cleanup failed")
+                else:
+                    log_line(runtime_dir,
+                             f"auto-update: rollback snapshot v{pending['version']} cleaned")
             except OSError:
                 log_line(runtime_dir, "auto-update: rollback snapshot cleanup failed")
         except OSError:
@@ -1867,7 +1873,7 @@ def _install_runner_script(parent_pid: int, installer_argv: list[str], runner_lo
         "  $exclude = @('/XD', (Join-Path $installDir 'data'), (Join-Path $installDir 'logs'))",
         "  $snap = Join-Path $rollbackRoot $version",
         "  New-Item -ItemType Directory -Force -Path $rollbackRoot | Out-Null",
-        ("  & $robo $installDir $snap '/E' @exclude '/NFL' '/NDL' '/NJH' '/NJS' '/NP' "
+        ("  & $robo $installDir $snap '/MIR' @exclude '/NFL' '/NDL' '/NJH' '/NJS' '/NP' "
          "'/R:1' '/W:1' | Out-Null"),
         "  $snapCode = $LASTEXITCODE",
         "  if ($snapCode -ge 8) {",
