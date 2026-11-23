@@ -294,18 +294,16 @@ def test_macos_install_dir_not_writable_skips(shell, tmp_path, monkeypatch):
     不 spawn 执行体、pending 保留。"""
     module = shell
     bundle, _exe = _mac_setup(module, monkeypatch)
-    bundle.parent.chmod(0o555)
-    try:
-        pkg, _ = _write_pending(module, tmp_path,
-                                sha=hashlib.sha256(b"PKG-PAYLOAD").hexdigest())
-        calls = _popens(monkeypatch)
-        module.apply_pending_update(tmp_path)
-        assert calls == []
-        assert pkg.exists()
-        assert "install dir not writable" in _log_text_of(module, tmp_path)
-        assert _pending_body(module)["attempts"] == 0
-    finally:
-        bundle.parent.chmod(0o755)
+    # 用探针桩表达「不可写」：POSIX chmod 在 Windows/管理员下不生效（Windows CI 判例）
+    monkeypatch.setattr(module, "_install_dir_writable", lambda _p: False)
+    pkg, _ = _write_pending(module, tmp_path,
+                            sha=hashlib.sha256(b"PKG-PAYLOAD").hexdigest())
+    calls = _popens(monkeypatch)
+    module.apply_pending_update(tmp_path)
+    assert calls == []
+    assert pkg.exists()
+    assert "install dir not writable" in _log_text_of(module, tmp_path)
+    assert _pending_body(module)["attempts"] == 0
 
 
 def test_normal_path_argv_and_attempts_bookkeeping(shell, tmp_path, monkeypatch):
