@@ -293,7 +293,7 @@ def test_macos_install_dir_not_writable_skips(shell, tmp_path, monkeypatch):
     """安装目录探针不可写（典型：非 admin 装于 /Applications）：spawn 前跳过回手动链，
     不 spawn 执行体、pending 保留。"""
     module = shell
-    bundle, _exe = _mac_setup(module, monkeypatch)
+    _mac_setup(module, monkeypatch)
     # 用探针桩表达「不可写」：POSIX chmod 在 Windows/管理员下不生效（Windows CI 判例）
     monkeypatch.setattr(module, "_install_dir_writable", lambda _p: False)
     pkg, _ = _write_pending(module, tmp_path,
