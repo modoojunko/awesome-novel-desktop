@@ -669,6 +669,51 @@ describe("Aui2Dock pageUnsaved 上行时效（c-agent-page-ops review P1）", ()
   });
 });
 
+describe("Aui2Dock page_state.prose_text 上行（c-agent-prose-checks）", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    chatApiState.loadAssistantSession.mockResolvedValue(sess());
+    chatApiState.setPermissionTier.mockResolvedValue(undefined);
+    chatApiState.approveGate.mockResolvedValue({ ok: true });
+  });
+
+  it("getPageProse 变更后随下一条消息上行（发送时刻取值，不用装载时旧闭包）", async () => {
+    const { rerender } = render(
+      <Aui2Dock projectId="p1" page="工作台 · 卷纲" scope={SCOPE} getPageProse={() => ""} />,
+    );
+    await screen.findByTestId("aui2-dock");
+    const sse = captureStream();
+    rerender(
+      <Aui2Dock
+        projectId="p1"
+        page="工作台 · 卷纲"
+        scope={SCOPE}
+        getPageProse={() => "第一段。\n第二段。"}
+      />,
+    );
+    fireEvent.click(screen.getByTestId("aui2-chip-draft_volume_expand"));
+    await waitFor(() => expect(chatApiState.streamAssistantChat).toHaveBeenCalled());
+    const body = chatApiState.streamAssistantChat.mock.calls[0][1] as {
+      page_state?: { unsaved?: string[]; prose_text?: string };
+    };
+    expect(body.page_state?.prose_text).toBe("第一段。\n第二段。");
+    void sse;
+  });
+
+  it("getPageProse 缺省/空串→page_state 不带 prose_text", async () => {
+    render(<Aui2Dock projectId="p1" page="工作台 · 卷纲" scope={SCOPE} />);
+    await screen.findByTestId("aui2-dock");
+    const sse = captureStream();
+    fireEvent.click(screen.getByTestId("aui2-chip-draft_volume_expand"));
+    await waitFor(() => expect(chatApiState.streamAssistantChat).toHaveBeenCalled());
+    const body = chatApiState.streamAssistantChat.mock.calls[0][1] as {
+      page_state?: { unsaved?: string[]; prose_text?: string };
+    };
+    expect(body.page_state?.prose_text).toBeUndefined();
+    void sse;
+  });
+});
+
 describe("Aui2Dock 底栏控制条（c-agent-thinking-bubbles）", () => {
   it("默认本书模型＋思考默认开；换模型/关思考后请求带覆盖对与 thinking:false", async () => {
     render(<Aui2Dock projectId="p1" page="工作台 · 卷纲" scope={SCOPE} />);
