@@ -653,6 +653,22 @@ async def resolve_pick_entries(
     return resolved, invalid
 
 
+async def _chapter_pk(
+    db: AsyncSession, *, novel_id: str, chapter_ref: str
+) -> int | None:
+    """章主键（ghost 过滤口径同 prepare）；无章 → None（agent 模式零变化）。"""
+    ch = (
+        await db.execute(
+            select(Chapter).where(
+                Chapter.project_id == novel_id,
+                Chapter.ref == chapter_ref,
+                Chapter.ghost_of.is_(None),
+            )
+        )
+    ).scalar_one_or_none()
+    return ch.id if ch is not None else None
+
+
 def _agent_brief_hash(
     novel_id: str, chapter_ref: str, prompt_sha: str, picks: list[tuple[str, str]]
 ) -> str:
@@ -686,6 +702,12 @@ async def build_block_from_picks(
             seen.add(eid)
             norm.append((eid, str((p or {}).get("reason") or "").strip()))
         if not norm:
+            # 零挑选＝回退本书文风设定：旧「知识库·」影子行必须清掉
+            # （prepare 零命中同口径；review P2：曾残留旧量化约束继续注入）
+            ch = await _chapter_pk(db, novel_id=novel_id, chapter_ref=chapter_ref)
+            if ch is not None:
+                await _clear_kb_shadow_rows(db, ch)
+                await db.commit()
             return None, None, None
         ch = (
             await db.execute(
@@ -723,6 +745,9 @@ async def build_block_from_picks(
                 db, novel_id=novel_id, user_id=user_id, picks=norm
             )
             if not resolved:
+                # 条目全失效＝零命中：同清旧影子（不兜底凑数）
+                await _clear_kb_shadow_rows(db, chapter_pk)
+                await db.commit()
                 return None, None, None
             picked = [
                 SelectedItem(entry=e, score=0.0, reason=reason or "助手·剧情匹配")

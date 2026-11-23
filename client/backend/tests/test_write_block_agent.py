@@ -136,6 +136,57 @@ def test_混合有效无效_只注有效():
     assert [it["entry_id"] for it in listing] == [ids[0]]
 
 
+def _set_shadow(novel_id: str) -> None:
+    import json as _json
+
+    async def _go():
+        async with async_session() as db:
+            ch = (
+                await db.execute(sel(Chapter).where(Chapter.project_id == novel_id))
+            ).scalar_one()
+            ch.style_shadow = _json.dumps(
+                {
+                    "rows": {
+                        "syntax": {"value": "句长≤12字", "reason": "知识库·旧条目", "source": "kb"},
+                        "tone": {"value": "作者手填", "reason": "自己定的"},
+                    }
+                },
+                ensure_ascii=False,
+            )
+            await db.commit()
+
+    _run(_go())
+
+
+def _shadow_rows(novel_id: str) -> dict:
+    import json as _json
+
+    async def _go():
+        async with async_session() as db:
+            ch = (
+                await db.execute(sel(Chapter).where(Chapter.project_id == novel_id))
+            ).scalar_one()
+            return _json.loads(ch.style_shadow or "{}").get("rows", {})
+
+    return _run(_go())
+
+
+def test_空picks_清旧知识库影子行_作者行不动():
+    uid, novel_id, _ids = _run(_seed())
+    _set_shadow(novel_id)
+    assert _run(_call(novel_id, uid, [])) == (None, None, None)
+    rows = _shadow_rows(novel_id)
+    assert "syntax" not in rows  # 旧「知识库·」行已清
+    assert rows["tone"]["value"] == "作者手填"  # 作者手填行不动
+
+
+def test_全无效id_清旧知识库影子行():
+    uid, novel_id, _ids = _run(_seed())
+    _set_shadow(novel_id)
+    assert _run(_call(novel_id, uid, [{"entry_id": "ghost-1"}])) == (None, None, None)
+    assert "syntax" not in _shadow_rows(novel_id)
+
+
 def test_resolve_pick_entries_无效清单与clause():
     _uid, novel_id, ids = _run(_seed())
 

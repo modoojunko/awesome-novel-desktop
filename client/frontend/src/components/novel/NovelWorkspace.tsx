@@ -26,6 +26,7 @@ import { useVolumePlan } from "@/hooks/useVolumePlan";
 import type { VolumeExpandDraft } from "@/lib/volumePlanApi";
 import { RegenConfirmModal } from "@/components/novel/workbench/modals";
 import type { ProseWriteExtras } from "@/lib/ai";
+import { isForeignProsePlan } from "@/lib/prosePlan";
 import UpgradeModal from "@/components/novel/UpgradeModal";
 import { runZhuqueCheck } from "@/hooks/useZhuqueCheck";
 import AcctMenu from "@/components/AcctMenu";
@@ -332,11 +333,13 @@ export default function NovelWorkspace() {
   // 先确认；确认后按待启动参数开流。取消＝零副作用。
   const [showRegenConfirm, setShowRegenConfirm] = useState(false);
   // 待启动参数（直开 chip 与方案卡「开始生成」共用）：确认弹窗批准后按它开流；
-  // onStarted＝方案卡回调（真开流后才翻「已开始」——取消则卡面留草稿态）
+  // onStarted＝方案卡回调（真开流后才翻「已开始」——取消则卡面留草稿态）；
+  // chapterRef＝点击时刻的章——确认期间切章则作废（方案卡/确认框不得跨章开流）
   const pendingStartRef = useRef<{
     prompt?: string;
     extras?: ProseWriteExtras;
     onStarted?: () => void;
+    chapterRef?: string | null;
   } | null>(null);
   // 生成已启动的信号（计数器）：ChapterWorkspace 收到即切正文页签 + 聚焦（真 bug #2）
   const [aiWriteSignal, setAiWriteSignal] = useState(0);
@@ -357,22 +360,28 @@ export default function NovelWorkspace() {
   const doProseStart = useCallback(() => {
     const pending = pendingStartRef.current;
     pendingStartRef.current = null;
+    if (!pending) return;
+    // 确认期间切了章：作废（否则旧章提示词/条目会清空重写新章——review P1）
+    if (isForeignProsePlan({ chapter_ref: pending.chapterRef }, chapterRef)) {
+      toast.info("章已经切走了——切回那一章再生成。");
+      return;
+    }
     setAiWriteSignal((n) => n + 1);
-    proseRef.current?.startWriting(pending?.prompt || undefined, undefined, pending?.extras);
-    pending?.onStarted?.();
-  }, []);
+    proseRef.current?.startWriting(pending.prompt || undefined, undefined, pending.extras);
+    pending.onStarted?.();
+  }, [chapterRef]);
 
   /** 启动闸：已有正文先进确认弹窗（取消＝零副作用），确认后按待启动参数开流。 */
   const beginProseWrite = useCallback(
     (prompt?: string, extras?: ProseWriteExtras, onStarted?: () => void) => {
-      pendingStartRef.current = { prompt, extras, onStarted };
+      pendingStartRef.current = { prompt, extras, onStarted, chapterRef };
       if ((railData?.wordCount ?? 0) > 0) {
         setShowRegenConfirm(true);
         return;
       }
       doProseStart();
     },
-    [railData?.wordCount, doProseStart],
+    [railData?.wordCount, chapterRef, doProseStart],
   );
 
   const runAiAction = useCallback(
@@ -405,6 +414,12 @@ export default function NovelWorkspace() {
         toast.info("本章已归档 · 恢复编辑后可用");
         return;
       }
+      // 方案卡按章持久（ch:prose 线程跨章共享）——别的章的卡不得在本章开流
+      // （会清空重写当前章；review P1）
+      if (isForeignProsePlan(payload, chapterRef)) {
+        toast.info("这张方案卡是另一章的——先切回那一章再生成。");
+        return;
+      }
       const prompt = typeof payload.prompt === "string" ? payload.prompt : "";
       const picksRaw = Array.isArray(payload.picks) ? payload.picks : [];
       const kbPicks = picksRaw
@@ -418,7 +433,7 @@ export default function NovelWorkspace() {
         }));
       beginProseWrite(prompt || undefined, { kbPicks }, onStarted);
     },
-    [railData?.archived, beginProseWrite],
+    [railData?.archived, chapterRef, beginProseWrite],
   );
 
   // PreviewView 挂载即调 onRefresh 且以它为 effect 依赖——内联箭头每次渲染都是

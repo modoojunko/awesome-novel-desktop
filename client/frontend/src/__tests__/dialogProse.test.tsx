@@ -51,6 +51,7 @@ vi.mock("@/lib/chatApi", async (importOriginal) => {
 import { Aui2Dock } from "@/components/novel/chat/Aui2Dock";
 import { matchRegistration, setDialogProseEnabled, type ChatPageScope } from "@/lib/chatRegistry";
 import { streamChapterWrite } from "@/lib/ai";
+import { isForeignProsePlan } from "@/lib/prosePlan";
 
 const PROSE_SCOPE: ChatPageScope = {
   view: "workbench",
@@ -207,6 +208,16 @@ describe("生成正文 chip 编排形态（能力端点驱动）", () => {
     fireEvent.click(screen.getByTestId("aui2-chip-ai_write"));
     await waitFor(() => expect(onOpenAction).toHaveBeenCalledWith("ai_write"));
     expect(chatApiState.streamAssistantChat).not.toHaveBeenCalled();
+  });
+});
+
+describe("方案卡跨章防护（review P1）", () => {
+  it("卡上 chapter_ref 与当前章不一致 → 视为别章卡（禁止开流）；空值不误伤", () => {
+    expect(isForeignProsePlan({ chapter_ref: "vol-1-ch-5" }, "vol-1-ch-6")).toBe(true);
+    expect(isForeignProsePlan({ chapter_ref: "vol-1-ch-6" }, "vol-1-ch-6")).toBe(false);
+    expect(isForeignProsePlan({ chapter_ref: "" }, "vol-1-ch-6")).toBe(false);
+    expect(isForeignProsePlan({}, "vol-1-ch-6")).toBe(false);
+    expect(isForeignProsePlan({ chapter_ref: "vol-1-ch-5" }, null)).toBe(false);
   });
 });
 
