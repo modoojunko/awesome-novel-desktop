@@ -185,6 +185,11 @@ Filename: "{cmd}"; Parameters: "/C rmdir /S /Q ""{userappdata}\AI Novel"""; Flag
 Filename: "{cmd}"; Parameters: "/C rmdir /S /Q ""{localappdata}\AwesomeNovel"""; Flags: runhidden; RunOnceId: "CleanLocalAppdataDir"
 
 [Code]
+// 全局变量必须声明在首个函数/过程之前（Pascal 块结构；iscc 编译要求，review P2）。
+// 位置页一次性预填标志：首次应用解析结果后记账，用户手改目录再返回不得被覆盖。
+var
+  InstallDirPrefilled: Boolean;
+
 // 自动升级链（silent-upgrade-lab 实验分支）：安装器据此决定是否在静默装完后拉起新版 GUI。
 // 注意本段注释必须用 //（Pascal 语法）——`;` 是 Inno 配置段注释、在 [Code] 里会被当语句解析，
 // 首编实锤报 "'BEGIN' expected"（docker iscc 判例 2026-10-13）。
@@ -256,9 +261,6 @@ end;
 // 位置页只「首次进入」应用一次解析结果：用户手动改目录后点「上一步/下一步」
 // 回来不得再被覆盖（review P3）。InitializeWizard 的预填不记账（Inno 的
 // UsePreviousAppDir 会在页面激活时再写一次，真正生效的是 CurPageChanged）。
-var
-  InstallDirPrefilled: Boolean;
-
 procedure ApplyInstallDir(MarkDone: Boolean);
 var Dir: String;
 begin

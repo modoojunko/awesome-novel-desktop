@@ -211,3 +211,15 @@ def test_install_dir_prefill_is_one_shot():
     assert "if MarkDone and InstallDirPrefilled then exit;" in text
     assert "ApplyInstallDir(True)" in text, "CurPageChanged 的页面级应用必须记账"
     assert "ApplyInstallDir(False)" in text, "InitializeWizard 预填不记账（Inno 页面激活会再写）"
+
+
+def test_global_var_declared_before_routines_in_code():
+    """[Code] 全局 var 必须声明在首个函数/过程之前（Pascal 块结构；iscc 编译要求，review P2）。"""
+    text = INSTALLER_ISS.read_text(encoding="utf-8")
+    code = text.split("[Code]", 1)[1]
+    var_at = code.find("InstallDirPrefilled: Boolean;")
+    assert var_at != -1, "缺 InstallDirPrefilled 声明"
+    first_routine = min(
+        i for i in (code.find("function "), code.find("procedure ")) if i != -1
+    )
+    assert var_at < first_routine, "全局 var 必须先于首个函数/过程（否则 iscc 可能编译失败）"
