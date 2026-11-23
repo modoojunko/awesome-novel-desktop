@@ -1,6 +1,7 @@
 # client/packaging/pywebview_app.py
 """Awesome Novel 桌面应用入口 — pywebview 壳"""
 
+import contextlib
 import json
 import os
 import random
@@ -1576,6 +1577,11 @@ def main():
 # c-mac-autoupdate；其余平台留 pending 不动手回手动链）。
 _PENDING_TTL_SECONDS = 600.0
 _PENDING_MAX_ATTEMPTS = 2
+# c-update-fail-safe：runner 启动确认（有界等待）。PowerShell 冷启动 ~1s；默认 3s 内
+# 看不到 `runner: started` 即视为执行体被拦/静默死，退出链回退直接安装（design §2）。
+# 测试可 monkeypatch 缩短；100ms 轮询节奏与设计稿一致。
+_RUNNER_START_TIMEOUT_SECONDS = 3.0
+_RUNNER_START_POLL_SECONDS = 0.1
 
 
 def _sha256_of_file(path: Path) -> str:
@@ -1708,6 +1714,60 @@ def _ps_single_quoted(text: str) -> str:
     return "'" + str(text).replace("'", "''") + "'"
 
 
+def _append_runner_marker(runner_log: Path, text: str) -> None:
+    """向执行日志追加一行 runner 标记（写失败不阻断派发）。"""
+    try:
+        with open(runner_log, "a", encoding="utf-8") as f:
+            f.write(f"{time.strftime('%Y-%m-%d %H:%M:%S')} runner: {text}\n")
+    except OSError:
+        pass
+
+
+def _runner_started_since_dispatch(runner_log: Path) -> bool:
+    """最近一次派发标记之后是否出现 `runner: started`（历史行不冒充本次）。
+
+    与 `_read_last_attempt` 同一分段口径：跨版本永久追加的执行日志按
+    `runner: dispatched` 取末段，避免上一版本的 started 行把本次误判为已启动。
+    """
+    try:
+        text = runner_log.read_text(encoding="utf-8", errors="replace")
+    except OSError:
+        return False
+    marker = text.rfind("runner: dispatched")
+    segment = text[marker:] if marker != -1 else text
+    return "runner: started" in segment
+
+
+def _wait_runner_started(runner_log: Path, timeout: float, interval: float) -> bool:
+    """有界等待 runner 启动痕（默认 3s、100ms 节奏）；超时返回 False。"""
+    deadline = time.monotonic() + max(timeout, 0.0)
+    while True:
+        if _runner_started_since_dispatch(runner_log):
+            return True
+        if time.monotonic() >= deadline:
+            return False
+        time.sleep(max(interval, 0.01))
+
+
+def _spawn_installer_direct(installer_argv: list[str], runner_log: Path,
+                            runtime_dir: Path, reason: str) -> None:
+    """回退：直接 detached 拉起安装器（runner 不可创建/未启动时）。
+
+    参数与闸门完全一致；双处留痕（执行日志 `runner_fallback=direct`＋startup.log）。
+    DETACHED_PROCESS=0x8（GUI 子系统安装器对无控制台免疫；getattr 仅为 POSIX 导入
+    安全，兜底用字面 Win32 常量——值不随平台漂移，测试可对拍）。
+    """
+    import subprocess
+
+    _append_runner_marker(runner_log, f"runner_fallback=direct ({reason})")
+    log_line(runtime_dir, f"auto-update: fallback to direct installer ({reason})")
+    subprocess.Popen(
+        installer_argv, close_fds=True,
+        creationflags=getattr(subprocess, "DETACHED_PROCESS", 0x8)
+        | getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0x200),
+    )
+
+
 def _install_runner_script(parent_pid: int, installer_argv: list[str], runner_log: Path) -> str:
     """runner 脚本文本：等旧进程死透（等待段留痕）→同步跑安装器→退出码留痕。
 
@@ -1728,23 +1788,42 @@ def _install_runner_script(parent_pid: int, installer_argv: list[str], runner_lo
         ("Add-Content -Path $log -Value (\"{0} runner: started (runner_pid={1} "
          "parent={2})\" -f (Get-Date -Format 'yyyy-MM-dd HH:mm:ss'), $PID, $parent) "
          "-ErrorAction SilentlyContinue"),
-        "$w0 = Get-Date",
-        "Wait-Process -Id $parent -Timeout 60 -ErrorAction SilentlyContinue",
-        "$waitMs = [int]((Get-Date) - $w0).TotalMilliseconds",
-        "$parentAlive = [bool](Get-Process -Id $parent -ErrorAction SilentlyContinue)",
-        "$t0 = Get-Date",
+        # 终局痕（第三判据）：无论成功/失败/异常，finally 必写 finished（含 status/exit）
+        "$status = 'runner_error'",
         "$code = 1",
+        "$detail = ''",
         "try {",
-        f"  & $installer {flags}",
-        "  $code = $LASTEXITCODE",
-        "} catch {",
-        "  $code = 1",
-        "}",
-        "$secs = [int]((Get-Date) - $t0).TotalSeconds",
-        ("Add-Content -Path $log -Value (\"{0} runner: wait_ms={1} "
+        "  $w0 = Get-Date",
+        "  Wait-Process -Id $parent -Timeout 60 -ErrorAction SilentlyContinue",
+        "  $waitMs = [int]((Get-Date) - $w0).TotalMilliseconds",
+        "  $parentAlive = [bool](Get-Process -Id $parent -ErrorAction SilentlyContinue)",
+        # 安装器调用痕（第二判据：等尸通过、真正开始装）
+        ("  Add-Content -Path $log -Value (\"{0} runner: installer_start "
+         "(installer={1})\" -f (Get-Date -Format 'yyyy-MM-dd HH:mm:ss'), $installer) "
+         "-ErrorAction SilentlyContinue"),
+        "  $t0 = Get-Date",
+        "  try {",
+        f"    & $installer {flags}",
+        "    $code = $LASTEXITCODE",
+        "    if ($code -eq 0) { $status = 'ok' } else { $status = 'installer_failed' }",
+        "  } catch {",
+        "    $code = 1",
+        "    $status = 'installer_exception'",
+        "    $detail = $_.Exception.Message",
+        "  }",
+        "  $secs = [int]((Get-Date) - $t0).TotalSeconds",
+        ("  Add-Content -Path $log -Value (\"{0} runner: wait_ms={1} "
          "parent_alive_after_wait={2} installer_exit={3} install_seconds={4}\" "
          "-f (Get-Date -Format 'yyyy-MM-dd HH:mm:ss'), $waitMs, $parentAlive, $code, $secs)"
          " -ErrorAction SilentlyContinue"),
+        "} catch {",
+        "  $status = 'runner_exception'",
+        "  $detail = $_.Exception.Message",
+        "} finally {",
+        ("  Add-Content -Path $log -Value (\"{0} runner: finished (status={1} exit={2} "
+         "retry=0 error={3})\" -f (Get-Date -Format 'yyyy-MM-dd HH:mm:ss'), $status, "
+         "$code, ($detail -replace '\\r?\\n', ' ')) -ErrorAction SilentlyContinue"),
+        "}",
         "exit $code",
     ])
 
@@ -1774,7 +1853,7 @@ def _spawn_install_runner(parent_pid: int, installer_argv: list[str],
     new_group = getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0x200)
     no_window = getattr(subprocess, "CREATE_NO_WINDOW", 0x08000000)
     try:
-        subprocess.Popen(
+        proc = subprocess.Popen(
             [str(ps_exe) if ps_exe.exists() else "powershell.exe",
              "-NoProfile", "-NonInteractive", "-WindowStyle", "Hidden",
              "-EncodedCommand", encoded],
@@ -1782,15 +1861,29 @@ def _spawn_install_runner(parent_pid: int, installer_argv: list[str],
             env=_without_baked_env(os.environ),
         )
     except OSError as exc:
-        log_line(runtime_dir,
-                 f"auto-update: runner spawn failed ({exc}), "
-                 "fallback to direct installer")
-        subprocess.Popen(
-            installer_argv, close_fds=True,
-            # DETACHED_PROCESS=0x8：GUI 子系统安装器对无控制台免疫（getattr 仅为
-            # POSIX 导入安全，兜底用字面 Win32 常量——值不随平台漂移，测试可对拍）
-            creationflags=getattr(subprocess, "DETACHED_PROCESS", 0x8) | new_group,
-        )
+        # 执行体建不出来：回退直连（有代价的降级，仅此一路；回退再失败才上抛）
+        _spawn_installer_direct(
+            installer_argv, runner_log, runtime_dir, f"spawn failed: {exc}")
+        return
+    log_line(runtime_dir,
+             "auto-update: runner spawned "
+             f"(pid={getattr(proc, 'pid', '?')}), waiting for started marker")
+    # c-update-fail-safe：有界等待启动痕——「进程建出」≠「脚本真的在跑」（2026-10-24
+    # DETACHED_PROCESS 形态即引擎初始化后静默死、脚本零执行）。3s 内没看到
+    # `runner: started` 一律视为不可用：先杀掉可能迟起的残余 PowerShell（它若迟到会
+    # 在等尸后自己装，和直连安装器双装），再回退直接拉起安装器。
+    if _wait_runner_started(runner_log, _RUNNER_START_TIMEOUT_SECONDS,
+                            _RUNNER_START_POLL_SECONDS):
+        log_line(runtime_dir, "auto-update: runner started (marker confirmed)")
+        return
+    with contextlib.suppress(Exception):  # 尽力而为：杀不掉让 OS 回收，不阻断回退
+        if getattr(proc, "poll", lambda: 0)() is None:
+            kill = getattr(proc, "kill", None)
+            if kill:
+                kill()
+    _spawn_installer_direct(
+        installer_argv, runner_log, runtime_dir,
+        f"started timeout after {_RUNNER_START_TIMEOUT_SECONDS:.1f}s")
 
 
 def _mac_app_bundle() -> Path | None:
@@ -1884,6 +1977,11 @@ if [ "$ok" -eq 1 ] && [ "${UPD_RELAUNCH:-0}" = "1" ]; then
   if open "$UPD_BUNDLE" 2>/dev/null; then relaunched=1; fi
 fi
 log "wait_s=$wait_s parent_alive_after_wait=$parent_alive install_ok=$ok detail=$detail install_seconds=$install_s relaunched=$relaunched"
+# 终局痕（与 Windows 同串 runner: finished）：whatever 分支都先落一行再退出
+status=failed
+exit_code=1
+if [ "$ok" -eq 1 ]; then status=ok; exit_code=0; fi
+log "finished (status=$status exit=$exit_code detail=$detail)"
 [ "$ok" -eq 1 ] && exit 0
 exit 1
 '''.strip()
