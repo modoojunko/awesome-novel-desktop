@@ -413,8 +413,9 @@ async def _draft_names(ctx: ToolContext, kind: str = "主角", context: str = ""
 
 # ── 正文方案卡（c-agent-dialog-prose）：三段式编排的结论出口 ─────────────────
 
-# 卡上提示词上限（服务端组装稿 3~6K 字＋增改余量；超限＝基底被塞爆，回话精简）
-_PROSE_PROMPT_MAX_CHARS = 16000
+# 卡上提示词上限（服务端组装稿 3~6K 字＋增改余量，留到 20K 防长书素材误伤；
+# 超限＝基底被塞爆，回话精简。读侧 read_write_prompt 上限 24000 恒高于本值）
+_PROSE_PROMPT_MAX_CHARS = 20000
 
 
 async def _draft_prose_plan(

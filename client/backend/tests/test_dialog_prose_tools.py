@@ -203,11 +203,21 @@ def test_draft_prose_plan_超长prompt拒收():
     _uid, _nid, ctx, _ids = _run(_seed())
 
     async def _go():
-        return await _draft_prose_plan(ctx, "vol-1-ch-1", "字" * 16001)
+        return await _draft_prose_plan(ctx, "vol-1-ch-1", "字" * 20001)
 
     res = _run(_go())
     assert not res.ok
     assert "超长" in res.summary
+
+
+def test_draft_prose_plan_上限边界_两万放行():
+    _uid, _nid, ctx, _ids = _run(_seed())
+
+    async def _go():
+        return await _draft_prose_plan(ctx, "vol-1-ch-1", "字" * 20000)
+
+    res = _run(_go())
+    assert res.ok and len(res.card["payload"]["prompt"]) == 20000
 
 
 def test_域收口_三工具全登记():

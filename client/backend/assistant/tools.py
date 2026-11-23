@@ -568,7 +568,9 @@ async def _read_write_prompt(ctx: ToolContext, chapter_ref: str) -> ToolResult:
         lines.append("注意：本章章纲还是空的（概要/剧情条目都没有）——先补章纲再出方案卡。")
     if warns:
         lines.append("组装告警：" + "；".join(str(w) for w in warns))
-    return ToolResult(ok=True, summary=_clip("\n".join(lines), 18000))
+    # 读侧余量 ≥ 方案卡上限（c-agent-dialog-prose：卡上限 20000）——转录里拿到全文，
+    # 代理才能按需精简；曾 18000 与卡 16000 两套口径不一（review 残余风险）
+    return ToolResult(ok=True, summary=_clip("\n".join(lines), 24000))
 
 
 # ── 注册表（封闭清单；扩展只准书内/知识库域，见能力围栏）─────────────────────
