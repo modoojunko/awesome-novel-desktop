@@ -411,6 +411,113 @@ async def _draft_names(ctx: ToolContext, kind: str = "主角", context: str = ""
 
 # ── 产卡工具注册（并入 tools.TOOL_REGISTRY；封闭清单）──────────────────────
 
+# ── 正文方案卡（c-agent-dialog-prose）：三段式编排的结论出口 ─────────────────
+
+# 卡上提示词上限（服务端组装稿 3~6K 字＋增改余量；超限＝基底被塞爆，回话精简）
+_PROSE_PROMPT_MAX_CHARS = 16000
+
+
+async def _draft_prose_plan(
+    ctx: ToolContext, chapter_ref: str, prompt: str, picks: list[dict] | None = None
+) -> ToolResult:
+    """出「正文方案」结论卡：选中文笔/写法条目＋用户提示词全文（不生成正文）。
+
+    生成由作家点卡上「开始生成」触发（宿主桥到写作链，上下文独立）——本工具
+    只出卡。条目经 resolve_pick_entries 三域解析（与 write 链同源——卡上展示
+    与实际注入永不漂移）；无效 id 如实回话不静默丢弃。"""
+    from sqlalchemy import select
+
+    from chapters.store import load_chapter
+    from db import async_session
+    from models.chapter import Chapter
+    from novels.service import get_novel
+    from write.write_block import resolve_pick_entries
+
+    chapter_ref = str(chapter_ref or "").strip()
+    prompt = str(prompt or "").strip()
+    picks = picks if isinstance(picks, list) else []
+    if not chapter_ref:
+        return ToolResult(ok=False, summary="缺 chapter_ref——先确认要生成哪一章。")
+    if not prompt:
+        return ToolResult(
+            ok=False,
+            summary="缺 prompt——先调 read_write_prompt 取服务端组装稿作基底，再出方案卡。",
+        )
+    if len(prompt) > _PROSE_PROMPT_MAX_CHARS:
+        return ToolResult(
+            ok=False,
+            summary=f"提示词超长（{len(prompt)} 字，上限 {_PROSE_PROMPT_MAX_CHARS}）——精简后再出卡。",
+        )
+    norm: list[tuple[str, str]] = []
+    seen: set[str] = set()
+    for p in picks[:10]:
+        if not isinstance(p, dict):
+            continue
+        eid = str(p.get("entry_id") or p.get("id") or "").strip()
+        if not eid or eid in seen:
+            continue
+        seen.add(eid)
+        norm.append((eid, " ".join(str(p.get("reason") or "").split())[:60]))
+
+    async with async_session() as db:
+        project = await get_novel(db, ctx.novel_id, ctx.user_id)
+        if project is None:
+            return ToolResult(ok=False, summary="书不存在或不属于当前作家。")
+        ch = (
+            await db.execute(
+                select(Chapter).where(
+                    Chapter.project_id == ctx.novel_id,
+                    Chapter.ref == chapter_ref,
+                    Chapter.ghost_of.is_(None),
+                )
+            )
+        ).scalar_one_or_none()
+        if ch is None:
+            return ToolResult(ok=False, summary=f"章不存在：{chapter_ref}。")
+        if ch.archived_at is not None:
+            return ToolResult(
+                ok=False, summary="这一章已归档（完结）——解档后再生成。"
+            )
+        resolved, invalid = await resolve_pick_entries(
+            db, novel_id=ctx.novel_id, user_id=ctx.user_id, picks=norm
+        )
+    chapter_data = await load_chapter(ctx.root_path, chapter_ref) or {}
+    has_prose = bool(str(chapter_data.get("prose") or "").strip())
+    payload = {
+        "chapter_ref": chapter_ref,
+        "chapter_title": str(ch.title or ""),
+        "prompt": prompt,
+        "picks": [
+            {
+                "entry_id": e.id,
+                "title": str(getattr(e, "title", "") or ""),
+                "concept": str(getattr(e, "concept", "") or ""),
+                "reason": reason,
+            }
+            for e, reason, _clause in resolved
+        ],
+        "invalid_entry_ids": invalid,
+        "has_existing_prose": has_prose,
+        "word_target": ch.word_target or 2500,
+    }
+    title = str(ch.title or "") or chapter_ref
+    head = f"正文方案已出（{title}）"
+    note = ""
+    if invalid:
+        note += f"（{len(invalid)} 个条目 id 无效已剔除，别再引用）"
+    if resolved:
+        names = "、".join(str(getattr(e, "title", "") or "") for e, _r, _c in resolved[:3])
+        more = f" 等 {len(resolved)} 条" if len(resolved) > 3 else ""
+        note += f"：写法条目带 {names}{more}"
+    else:
+        note += "：写法条目未命中——正文将按本书文风设定生成"
+    return _tool_result_from_card(
+        "prose_plan",
+        payload,
+        _clip(f"{head}{note}。作家过目提示词与条目，点卡上「开始生成」后才开始。", 400),
+    )
+
+
 CARD_TOOLS: tuple[Tool, ...] = (
     Tool(
         name="draft_volume_plan",
@@ -564,5 +671,38 @@ CARD_TOOLS: tuple[Tool, ...] = (
             "过目采纳才落）。仅当作家明示「发散/多给几条路」时使用。"
         ),
         fn=_diverge_plot_branches,
+    ),
+    Tool(
+        name="draft_prose_plan",
+        kind="card",
+        feature_key="ai-generate",  # 卡是生成的预览闸——与下游 /write 端点同 key
+        risk_level="high",
+        parameters={
+            "type": "object",
+            "properties": {
+                "chapter_ref": {"type": "string", "description": "章 ref（如 vol-1-ch-3）"},
+                "prompt": {"type": "string", "description": "用户提示词全文（以 read_write_prompt 的组装稿为基底增改）"},
+                "picks": {
+                    "type": "array",
+                    "description": "选中的写法条目（来自 kb_search_craft）：[{entry_id, reason}]，reason=入选理由一句",
+                    "items": {
+                        "type": "object",
+                        "properties": {
+                            "entry_id": {"type": "string"},
+                            "reason": {"type": "string"},
+                        },
+                        "required": ["entry_id"],
+                    },
+                },
+            },
+            "required": ["chapter_ref", "prompt"],
+        },
+        description=(
+            "出「正文方案」结论卡（不生成正文）：选中的写法条目（含理由）＋用户提示词全文，"
+            "作家过目点「开始生成」后才在正文区流式生成。对话内容不会进正文模型调用。"
+            "流程：取材（read_chapter/kb_search_craft）→ read_write_prompt 拿提示词基底"
+            " → 本工具出卡。没命中写法条目就不带 picks，正文按本书文风设定生成。"
+        ),
+        fn=_draft_prose_plan,
     ),
 )

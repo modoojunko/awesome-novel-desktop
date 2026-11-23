@@ -587,3 +587,219 @@ async def prepare_write_block(
     except Exception as e:  # noqa: BLE001 — 写法块任何异常不阻断生成主链
         logger.warning("event=write_block_failed novel=%s ref=%s err=%s", novel_id, chapter_ref, e)
         return None, None, None
+
+
+# ── agent 模式（c-agent-dialog-prose）：助手按剧情挑选条目直接组装写法块 ──────
+
+
+async def resolve_pick_entries(
+    db: AsyncSession, *, novel_id: str, user_id: str, picks: list[tuple[str, str]]
+) -> tuple[list[tuple[object, str, str]], list[str]]:
+    """agent 挑选条目 → [(entry, reason, clause)]（保挑选顺序）＋无效 id 清单。
+
+    三域解析（同 _load_run_items 口径）：书级副本 → 账号条目 → 官方基线
+    （hide 已排、edit 副本已套＝merged 视图）；concept 限写法块三概念、
+    status=active；同 id 去重保序。draft_prose_plan 与 build_block_from_picks
+    同调一层——卡上展示的条目与实际注入的条目永不漂移。
+    """
+    norm: list[tuple[str, str]] = []
+    seen: set[str] = set()
+    for eid, reason in picks or []:
+        eid = str(eid or "").strip()
+        if not eid or eid in seen:
+            continue
+        seen.add(eid)
+        norm.append((eid, str(reason or "").strip()))
+    if not norm:
+        return [], []
+    ids = [eid for eid, _r in norm]
+    entries: dict[str, object] = {}
+    for e in (
+        await db.execute(
+            select(KbBookEntry).where(KbBookEntry.novel_id == novel_id, KbBookEntry.id.in_(ids))
+        )
+    ).scalars():
+        entries[e.id] = e
+    miss = [i for i in ids if i not in entries]
+    if miss:
+        for e in (
+            await db.execute(
+                select(KbKnowledge).where(
+                    KbKnowledge.id.in_(miss),
+                    KbKnowledge.user_id == user_id,
+                    KbKnowledge.status == "active",
+                )
+            )
+        ).scalars():
+            entries[e.id] = e
+        miss = [i for i in ids if i not in entries]
+        if miss:
+            from kb.merged import load_baseline_entries
+
+            for b in await load_baseline_entries(db, user_id=user_id, ids=miss):
+                entries[b.id] = b
+    resolved: list[tuple[object, str, str]] = []
+    invalid: list[str] = []
+    for eid, reason in norm:
+        e = entries.get(eid)
+        if (
+            e is None
+            or str(getattr(e, "concept", "") or "") not in _BLOCK_CONCEPTS
+            or str(getattr(e, "status", "active") or "") != "active"
+        ):
+            invalid.append(eid)
+            continue
+        resolved.append((e, reason, "手法" if e.concept == "手法" else "写法"))
+    return resolved, invalid
+
+
+def _agent_brief_hash(
+    novel_id: str, chapter_ref: str, prompt_sha: str, picks: list[tuple[str, str]]
+) -> str:
+    payload = json.dumps(
+        {"novel": novel_id, "ref": chapter_ref, "prompt_sha": prompt_sha, "picks": picks},
+        ensure_ascii=False, sort_keys=True,
+    )
+    return hashlib.sha256(payload.encode("utf-8")).hexdigest()
+
+
+async def build_block_from_picks(
+    db: AsyncSession, *, novel_id: str, chapter_ref: str, user_id: str,
+    picks: list[dict], prompt: str = "",
+) -> tuple[str | None, str | None, list[dict] | None]:
+    """agent 模式写法块（c-agent-dialog-prose）：助手挑选的条目直接组装。
+
+    - 跳过规则选择器：块内容＝kb_picks 三域解析结果（保挑选顺序）；
+      零有效条目 → (None, None, None)——回退本书文风设定，SHALL NOT 兜底凑数
+    - run 缓存：brief_hash=章＋prompt 摘要＋picks——同章同挑选同提示词的重试
+      复用同 run（text_snapshot 固化，字节一致）；并发撞唯一键回读赢家（F1 同款）
+    - run 落 selector="agent"；brief_json={picks, prompt_sha}（审计）
+    - 量化条目照 prepare 口径拆章级文风影子；任何异常吞掉返回 None（不阻断主链）
+    """
+    try:
+        norm: list[tuple[str, str]] = []
+        seen: set[str] = set()
+        for p in picks or []:
+            eid = str((p or {}).get("entry_id") or "").strip()
+            if not eid or eid in seen:
+                continue
+            seen.add(eid)
+            norm.append((eid, str((p or {}).get("reason") or "").strip()))
+        if not norm:
+            return None, None, None
+        ch = (
+            await db.execute(
+                select(Chapter).where(
+                    Chapter.project_id == novel_id,
+                    Chapter.ref == chapter_ref,
+                    Chapter.ghost_of.is_(None),
+                )
+            )
+        ).scalar_one_or_none()
+        if ch is None:
+            return None, None, None
+        chapter_pk = ch.id
+        prompt_sha = hashlib.sha256((prompt or "").encode("utf-8")).hexdigest()[:16]
+        brief_hash = _agent_brief_hash(novel_id, chapter_ref, prompt_sha, norm)
+
+        async def _find_run():
+            return (
+                await db.execute(
+                    select(KbMatchRun)
+                    .where(
+                        KbMatchRun.novel_id == novel_id,
+                        KbMatchRun.chapter_ref == chapter_ref,
+                        KbMatchRun.brief_hash == brief_hash,
+                        KbMatchRun.status == "completed",
+                    )
+                    .order_by(KbMatchRun.created_at.desc())
+                    .limit(1)
+                )
+            ).scalars().first()
+
+        run = await _find_run()
+        if run is None:
+            resolved, _invalid = await resolve_pick_entries(
+                db, novel_id=novel_id, user_id=user_id, picks=norm
+            )
+            if not resolved:
+                return None, None, None
+            picked = [
+                SelectedItem(entry=e, score=0.0, reason=reason or "助手·剧情匹配")
+                for e, reason, _clause in resolved
+            ]
+            # 先清旧影子再拆量化（顺序反了会把刚写的量化行自己清掉——prepare 同口径）
+            await _clear_kb_shadow_rows(db, chapter_pk)
+            selr = await _split_quantitative(
+                db, chapter_id=chapter_pk, selection=Selection(signals=None, items=picked)
+            )
+            await db.flush()
+            if selr is None or not selr.items:
+                await db.commit()
+                return None, None, None
+            run = KbMatchRun(
+                novel_id=novel_id,
+                chapter_ref=chapter_ref,
+                brief_hash=brief_hash,
+                scene="",
+                emotion="",
+                chapter_pos="",
+                status="completed",
+                domain_fingerprint="",
+                selector="agent",
+                brief_json=json.dumps(
+                    {"picks": [{"entry_id": eid, "reason": reason} for eid, reason in norm],
+                     "prompt_sha": prompt_sha},
+                    ensure_ascii=False,
+                ),
+            )
+            try:
+                db.add(run)
+                await db.flush()
+                for it in selr.items:
+                    db.add(KbMatchItem(
+                        run_id=run.id,
+                        clause="手法" if it.entry.concept == "手法" else "写法",
+                        entry_id=it.entry.id, decision="included",
+                        score=it.score, reason=it.reason,
+                        text_snapshot=(it.entry.instruction or ""),
+                    ))
+                await db.commit()
+            except IntegrityError:
+                # F1 竞态：并发首生成撞唯一键 → 回读赢家 run（同挑选同块）
+                await db.rollback()
+                run = await _find_run()
+                if run is None:
+                    raise
+                quant = []
+                for it, entry in await _load_run_items(db, run, user_id=user_id):
+                    dim = is_quantitative(entry) if entry else None
+                    if dim and it.decision == "included":
+                        quant.append((dim, SelectedItem(
+                            entry=entry, score=it.score or 0.0, reason=it.reason or "",
+                        )))
+                await _apply_quant_shadow(db, chapter_pk, quant)
+                await db.commit()
+
+        pair = await _load_run_items(db, run, user_id=user_id)
+        selr = _rebuild_selection(pair)
+        if selr is None:
+            return None, None, None
+        block, _skipped = build_block(selr)
+        listing = [
+            {
+                "entry_id": it.entry_id,
+                "clause": it.clause,
+                "reason": it.reason,
+                "score": it.score,
+                "text": it.text_snapshot or ((entry.instruction or "") if entry else ""),
+            }
+            for it, entry in pair
+            if it.decision == "included"
+        ]
+        return block, run.id, listing
+    except Exception as e:  # noqa: BLE001 — 写法块任何异常不阻断生成主链
+        logger.warning(
+            "event=write_block_agent_failed novel=%s ref=%s err=%s", novel_id, chapter_ref, e
+        )
+        return None, None, None

@@ -146,8 +146,6 @@ interface ChapterWorkspaceProps {
   onRevert: (ref: string) => void;
   /** chapter-rewrite：树刷新（useWorkbench.refresh——旧稿分组与角标只在树 hook 里） */
   onTreeRefresh: () => Promise<void> | void;
-  /** 刷新提示词出口（存量稿章改剧情软提示）：打开 AI 生成正文弹窗（可刷新提示词） */
-  onOpenAiModal?: () => void;
 }
 
 const fmt = (n: number) => n.toLocaleString("zh-CN");
@@ -173,7 +171,6 @@ export default function ChapterWorkspace({
   onWriteProgress,
   onRevert,
   onTreeRefresh,
-  onOpenAiModal,
 }: ChapterWorkspaceProps) {
   const store = useChapterData(projectId, chapterRef);
   const { wordCount, saveState, targetWords, setTargetWords } = store;
@@ -724,48 +721,12 @@ const [ogForm, setOgForm] = useState<OgForm>(EMPTY_OG_FORM);
     toast.info("已恢复到这批剧情写入前的列表");
   }, [killPlotReceipt]);
 
-  // 存量稿章改剧情软提示（拍板⑥；c-retire-prompt-polish 后出口指向「刷新提示词」）：
-  // quiet 探提示词，存量稿才提示，不自动重算
-  const promptHintShownRef = useRef(false);
-  const promptHintTimerRef = useRef<number | null>(null);
-  // 切章/卸载：清挂起的软提示 timer、重置「已提示」（新章要重新判定）
-  useEffect(() => {
-    promptHintShownRef.current = false;
-    return () => {
-      if (promptHintTimerRef.current) clearTimeout(promptHintTimerRef.current);
-      promptHintTimerRef.current = null;
-    };
-  }, [chapterRef]);
-  const maybeHintPromptRefresh = useCallback(() => {
-    if (!isPro || promptHintShownRef.current) return;
-    if (promptHintTimerRef.current) clearTimeout(promptHintTimerRef.current);
-    promptHintTimerRef.current = window.setTimeout(() => {
-      void (async () => {
-        try {
-          const d = (await request(
-            `/novels/${projectId}/chapters/${chapterRef}/write/prompt`,
-            { quiet: true },
-          )) as { polished?: boolean };
-          if (!d?.polished || promptHintShownRef.current) return;
-          promptHintShownRef.current = true;
-          toast.info("提示词还是旧版、没带上新剧情——可以刷新提示词", {
-            action: {
-              label: "去刷新提示词",
-              onClick: () => {
-                promptHintShownRef.current = false; // 刷新后下次改动还能再提示
-                onOpenAiModal?.();
-              },
-            },
-          });
-        } catch {
-          /* 静默：探测失败不打扰 */
-        }
-      })();
-    }, 1200);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [projectId, chapterRef, isPro, onOpenAiModal]);
+  // 存量稿章改剧情软提示（拍板⑥）随 AiModal 退役（c-agent-dialog-prose）：
+  // 对话框编排每次按当前素材 fresh 组装提示词（read_write_prompt 单源），
+  // 「旧提示词没带上新剧情」的前提不再成立；env 熔断直开路径由后端
+  // should_refresh_stored_prompt 自动重组兜底，无需前端软提示。
 
-  // 剧情编辑（输入/加/删任一动作，OgPane 上抛）：下次编辑即收回执（拍板②）＋提示词软提示
+  // 剧情编辑（输入/加/删任一动作，OgPane 上抛）：下次编辑即收回执（拍板②）
   const saveOgRef = useRef(saveOg);
   saveOgRef.current = saveOg;
   const outlineRef = useRef(outline);
@@ -774,8 +735,7 @@ const [ogForm, setOgForm] = useState<OgForm>(EMPTY_OG_FORM);
   ogFormRef.current = ogForm;
   const handlePlotEdit = useCallback(() => {
     killPlotReceipt();
-    maybeHintPromptRefresh();
-  }, [killPlotReceipt, maybeHintPromptRefresh]);
+  }, [killPlotReceipt]);
 
   /** 「剧情抽卡」（右栏动作）：先 flush 表单，门槛读服务端值（拍板⑦三样） */
   const handlePlotDraw = useCallback(async () => {
@@ -842,10 +802,9 @@ const [ogForm, setOgForm] = useState<OgForm>(EMPTY_OG_FORM);
       }),
     };
     adoptingRef.current = false;
-    maybeHintPromptRefresh();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [plotDraw, ogForm, outline.saveChapter, outline.chaptersMap, chapterRef,
-      killPlotReceipt, handlePlotUndo, maybeHintPromptRefresh]);
+      killPlotReceipt, handlePlotUndo]);
 
   // ── 剧情推演（plot-sim）：弹窗按回合走一遍；收进章纲＝追加一条剧情条目后走既有保存链
   // （c-og-slim-v2：原落点「预期策略」已退役，改追加剧情条目，既有条目不动）──

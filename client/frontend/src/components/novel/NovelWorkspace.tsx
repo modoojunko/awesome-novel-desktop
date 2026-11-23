@@ -24,8 +24,8 @@ import { ChapterPlanModal } from "@/components/novel/workbench/ChapterPlanModal"
 import { useChapterPlan } from "@/hooks/useChapterPlan";
 import { useVolumePlan } from "@/hooks/useVolumePlan";
 import type { VolumeExpandDraft } from "@/lib/volumePlanApi";
-import type { ModelSelection } from "@/types/api-config";
-import { AiModal, RegenConfirmModal } from "@/components/novel/workbench/modals";
+import { RegenConfirmModal } from "@/components/novel/workbench/modals";
+import type { ProseWriteExtras } from "@/lib/ai";
 import UpgradeModal from "@/components/novel/UpgradeModal";
 import { runZhuqueCheck } from "@/hooks/useZhuqueCheck";
 import AcctMenu from "@/components/AcctMenu";
@@ -321,17 +321,18 @@ export default function NovelWorkspace() {
     setShowUpgrade(true);
   }, []);
 
-  // ── 右栏 AI 写入工具链（生成正文经 AiModal 提示词预览） ────
-  // 归档章全面只读（c-archived-readonly）：写入动作在 AiAssistPanel 置灰＋hint
-  // （恢复编辑后可用）；requestAi 兜底 toast，原「解除只读」解锁链保持退役。
+  // ── 正文生成入口（c-agent-dialog-prose）：对话框编排为主、直开为熔断回退 ────
+  // 归档章全面只读（c-archived-readonly）：requestAi 兜底 toast，原「解除只读」
+  // 解锁链保持退役。
   type AiAction =
     | { kind: "write" }
     ;
 
-  const [showAiModal, setShowAiModal] = useState(false);
-  // 重新生成确认（c-prose-regen-replace）：已有正文章再生成＝清空重写，
-  // 进提示词弹窗前先确认；确认后才进 AiModal。取消＝零副作用。
+  // 重新生成确认（c-prose-regen-replace）：已有正文章再生成＝清空重写，开流前
+  // 先确认；确认后按待启动参数开流。取消＝零副作用。
   const [showRegenConfirm, setShowRegenConfirm] = useState(false);
+  // 待启动参数（直开 chip 与方案卡「开始生成」共用）：确认弹窗批准后按它开流
+  const pendingStartRef = useRef<{ prompt?: string; extras?: ProseWriteExtras } | null>(null);
   // 生成已启动的信号（计数器）：ChapterWorkspace 收到即切正文页签 + 聚焦（真 bug #2）
   const [aiWriteSignal, setAiWriteSignal] = useState(0);
   // 助手导航信号（c-agent-nav）：agent switch_tab → 中途真实切章节页签。
@@ -347,42 +348,71 @@ export default function NovelWorkspace() {
   // 采纳写回后的面板刷新（dirty 守卫在 onEffects 分派侧）；提示条状态给 SettingsView
   const [settingsRefreshSeq, setSettingsRefreshSeq] = useState(0);
   const [settingsRefreshNote, setSettingsRefreshNote] = useState(false);
-  // 提示词落库信号（c-prompt-tab-retire）：弹窗存稿后右栏提示词状态行刷新
-  const [promptSavedSignal, setPromptSavedSignal] = useState(0);
+
+  const doProseStart = useCallback(() => {
+    const pending = pendingStartRef.current;
+    pendingStartRef.current = null;
+    setAiWriteSignal((n) => n + 1);
+    proseRef.current?.startWriting(pending?.prompt || undefined, undefined, pending?.extras);
+  }, []);
+
+  /** 启动闸：已有正文先进确认弹窗（取消＝零副作用），确认后按待启动参数开流。 */
+  const beginProseWrite = useCallback(
+    (prompt?: string, extras?: ProseWriteExtras) => {
+      pendingStartRef.current = { prompt, extras };
+      if ((railData?.wordCount ?? 0) > 0) {
+        setShowRegenConfirm(true);
+        return;
+      }
+      doProseStart();
+    },
+    [railData?.wordCount, doProseStart],
+  );
 
   const runAiAction = useCallback(
-    (action: AiAction, opts?: { skipRegenConfirm?: boolean }) => {
+    (action: AiAction) => {
       if (action.kind === "write") {
-        // 生成意图入口先过确认（右栏「生成正文」等）；skip 仅用于「去刷新提示词」
-        // 软提示出口——只看/刷新意图不拦（AiModal 内提示行仍告知替换后果）
-        if (!opts?.skipRegenConfirm && (railData?.wordCount ?? 0) > 0) {
-          setShowRegenConfirm(true);
-          return;
-        }
-        setShowAiModal(true);
+        // env 熔断直开路径（ASSISTANT_PROSE_FLOW=off）：无提示词覆盖，规则选块旧路
+        beginProseWrite();
         return;
       }
     },
-    [railData?.wordCount],
+    [beginProseWrite],
   );
 
   const requestAi = useCallback(
-    (action: AiAction, opts?: { skipRegenConfirm?: boolean }) => {
+    (action: AiAction) => {
       if (railData?.archived) {
         toast.info("本章已归档 · 恢复编辑后可用");
         return;
       }
-      runAiAction(action, opts);
+      runAiAction(action);
     },
     [railData?.archived, runAiAction],
   );
 
-  const handleAiConfirm = useCallback(
-    (prompt: string, modelSelection?: ModelSelection) => {
-      setAiWriteSignal((n) => n + 1);
-      proseRef.current?.startWriting(prompt || undefined, modelSelection);
+  // 方案卡「开始生成」宿主桥（c-agent-dialog-prose）：卡上提示词全文＝发给正文
+  // 模型的 user 素材（所见即所发）；picks 随 body.kb_picks 下发（键存在＝agent 模式）
+  const handleProsePlanStart = useCallback(
+    (payload: Record<string, unknown>) => {
+      if (railData?.archived) {
+        toast.info("本章已归档 · 恢复编辑后可用");
+        return;
+      }
+      const prompt = typeof payload.prompt === "string" ? payload.prompt : "";
+      const picksRaw = Array.isArray(payload.picks) ? payload.picks : [];
+      const kbPicks = picksRaw
+        .filter(
+          (p): p is Record<string, unknown> => p != null && typeof p === "object",
+        )
+        .filter((p) => typeof p.entry_id === "string" && p.entry_id)
+        .map((p) => ({
+          entry_id: p.entry_id as string,
+          ...(typeof p.reason === "string" && p.reason ? { reason: p.reason } : {}),
+        }));
+      beginProseWrite(prompt || undefined, { kbPicks });
     },
-    [],
+    [railData?.archived, beginProseWrite],
   );
 
   // PreviewView 挂载即调 onRefresh 且以它为 effect 依赖——内联箭头每次渲染都是
@@ -1243,8 +1273,6 @@ export default function NovelWorkspace() {
               aiWriteSignal={aiWriteSignal}
               chatNavSeq={chatNav.seq}
               chatNavTab={chatNav.tab}
-              promptSavedSignal={promptSavedSignal}
-              onOpenAiModal={() => requestAi({ kind: "write" }, { skipRegenConfirm: true })}
             />
           ) : volumeSelId ? (
             <VolumeWorkspace
@@ -1470,6 +1498,7 @@ export default function NovelWorkspace() {
               if (action === "renwei") proseRef.current?.openRenweiCheck?.();
               if (action === "seam") proseRef.current?.openSeamWizard?.();
             }}
+            onProsePlanStart={handleProsePlanStart}
             onStreamingChange={(v) => {
               // 流式存活上抛（树锁定守卫；Aui2 契约与 ChatDock 同款）
               chatStreamingRef.current = v;
@@ -1657,27 +1686,15 @@ export default function NovelWorkspace() {
       )}
 
 
-      {/* PR 5 弹窗群：升级引导 / 重新生成确认（c-prose-regen-replace）/ AI 生成（提示词预览） */}
+      {/* 弹窗群：升级引导 / 重新生成确认（c-prose-regen-replace）——AI 提示词弹窗
+          随 c-agent-dialog-prose 退役：方案卡在对话框里承担预览确认 */}
       <UpgradeModal open={showUpgrade} required={upgradeRequired} onClose={() => { setShowUpgrade(false); setUpgradeRequired(undefined); }} />
       <RegenConfirmModal
         open={showRegenConfirm}
         onClose={() => setShowRegenConfirm(false)}
-        onConfirm={() => setShowAiModal(true)}
+        onConfirm={() => doProseStart()}
         words={railData?.wordCount ?? 0}
       />
-      {chapterRef && (
-        <>
-          <AiModal
-            open={showAiModal}
-            onClose={() => setShowAiModal(false)}
-            projectId={projectId}
-            chapterRef={chapterRef}
-            hasProse={(railData?.wordCount ?? 0) > 0}
-            onConfirm={handleAiConfirm}
-            onPromptSaved={() => setPromptSavedSignal((n) => n + 1)}
-          />
-        </>
-      )}
       </WorkbenchBootProvider>
     </div>
   );

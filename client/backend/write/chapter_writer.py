@@ -316,6 +316,48 @@ def should_refresh_stored_prompt(stored: str, ctx: "ChapterContext") -> bool:
     return SCENE_SHARE_ANCHOR not in stored
 
 
+async def assemble_write_prompt(
+    root_path: str,
+    chapter_ref: str,
+    project_name: str,
+    *,
+    novel_id: str = "",
+    fresh: bool = False,
+) -> dict:
+    """本章用户提示词组装单源（c-agent-dialog-prose）：`GET /write/prompt` 端点与
+    助手 `read_write_prompt` 工具同调一层——弹窗/对话框两侧永不漂移。
+
+    fresh=True 忽略存量 write-prompt 行按当前素材重组（助手对话流恒 fresh：
+    提示词以当前素材为准，作家过目的就是这份）；False 时存量行有效则优先
+    （legacy 分级提示照旧，AI 弹窗语义）。返回
+    {prompt, has_outline, polished, legacy, legacy_kind, warnings}。
+    """
+    ctx = await build_chapter_context(root_path, chapter_ref, project_name, novel_id=novel_id)
+    outline = ctx.chapter_outline or {}
+    # c-og-slim-v2：关键事件/段落规划退役 → 有章纲的判定＝概要或剧情条目
+    has_outline = bool(outline.get("summary") or ctx.plot_items)
+    if not fresh:
+        from prompt.store import load_prompt
+
+        existing = await load_prompt(root_path, chapter_ref, "write-prompt")
+        if existing.strip() and not should_refresh_stored_prompt(existing, ctx):
+            return {
+                "prompt": existing,
+                "has_outline": has_outline,
+                "polished": True,
+                "legacy": bool(legacy_prompt_kind(existing)),
+                "legacy_kind": legacy_prompt_kind(existing),
+                "warnings": ctx.lint_warnings,
+            }
+    return {
+        "prompt": ctx.to_user_material(),
+        "has_outline": has_outline,
+        "polished": False,
+        "legacy": False,
+        "warnings": ctx.lint_warnings,
+    }
+
+
 def lint_assembled_prompt(
     required_changes: list[str], plot_items: list[str], hooks: list[dict]
 ) -> list[str]:

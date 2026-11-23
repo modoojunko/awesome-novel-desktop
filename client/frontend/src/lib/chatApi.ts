@@ -74,6 +74,24 @@ export interface AssistantStreamHandlers {
   onDone?: () => void;
 }
 
+/** 助手能力面（c-agent-dialog-prose）：前端按 dialog_prose 切正文「生成正文」chip
+ *  形态——true=command 型进对话框编排；false=env 熔断（ASSISTANT_PROSE_FLOW=off）
+ *  直开。探测失败 fail-open（缺省开启；旧后端没有该端点也不挡直开）。 */
+export async function getAssistantCapabilities(
+  projectId: string,
+): Promise<{ dialog_prose: boolean }> {
+  try {
+    const r = await fetch(`${API_BASE}/novels/${projectId}/assistant/capabilities`, {
+      headers: { Authorization: `Bearer ${getToken()}` },
+    });
+    if (!r.ok) return { dialog_prose: true };
+    const j = await r.json();
+    return { dialog_prose: j?.dialog_prose !== false };
+  } catch {
+    return { dialog_prose: true };
+  }
+}
+
 /** 后端 AssistantSession 序列化（GET /session 回看）。 */
 export interface AssistantSessionMessage {
   id: string;
