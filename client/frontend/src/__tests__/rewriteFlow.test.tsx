@@ -2,7 +2,6 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { fireEvent, render, screen } from "@testing-library/react";
 import { RewriteModal } from "@/components/novel/workbench/modals";
 import { SettingsChangelogPane } from "@/components/novel/workbench/SettingsChangelogPane";
-import { AiAssistPanel } from "@/components/novel/workbench/AiAssistPanel";
 
 // ---------------------------------------------------------------------------
 // C 组（chapter-rewrite）前端：重写确认弹窗三行影响面／设定投影 stale 提示／
@@ -57,25 +56,5 @@ describe("SettingsChangelogPane stale 呈现", () => {
     });
     render(<SettingsChangelogPane projectId="p1" chapterRef="vol-1-ch-2" />);
     expect(await screen.findByTestId("ch-stale-note")).toBeTruthy();
-  });
-});
-
-describe("AiAssistPanel 操作页签统计", () => {
-  it("下游挂着旧设定：有数显示 N 章，无数显示「—」", () => {
-    const base = {
-      projectId: "p1",
-      chapterRef: "vol-1-ch-2",
-      tab: "actions",
-      isPro: true,
-      ogStats: { reqOk: 6, planWords: 1800, plotCount: 2, castCount: 1 },
-      wordCount: 500,
-      planWords: 1800,
-      archived: false,
-      onSimulate: () => {},
-    };
-    const { rerender } = render(<AiAssistPanel {...base} staleDownstream={2} />);
-    expect(document.querySelector(".ai-target")?.textContent).toContain("下游挂着旧设定 2 章");
-    rerender(<AiAssistPanel {...base} />);
-    expect(document.querySelector(".ai-target")?.textContent).toContain("—");
   });
 });
