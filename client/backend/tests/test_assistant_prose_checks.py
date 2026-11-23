@@ -156,12 +156,15 @@ async def test_zhuque_read_failure_is_soft(monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_budget_truncates_with_hidden_count(monkeypatch):
+async def test_budget_truncates_from_first_overflow(monkeypatch):
     many = "\n".join(f"第{i}段他站着——手里有东西。" for i in range(30))
     _patch_chapter(monkeypatch, many)
     _patch_zhuque(monkeypatch, {"stored": False})
     res = await _read_prose_checks(_ctx(), "vol-1-ch-2")
-    assert "条略" in res.summary
+    assert "第1段〔一票否决〕破折号" in res.summary  # 首条明细在
+    assert "（后面" in res.summary and "先不展开" in res.summary
+    # 预算放不下即整体停：不跳过首条去捞后面的行，末段明细不出现
+    assert "第30段〔" not in res.summary
 
 
 def test_scopes_mount_prose_and_style_domains():

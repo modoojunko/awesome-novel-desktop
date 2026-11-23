@@ -1454,7 +1454,7 @@ export default function NovelWorkspace() {
               ...(volumeDirty ? ["卷纲"] : []),
               ...(railData?.dirty ?? []),
             ]}
-            getPageProse={chapterRef ? getPageProse : undefined}
+            getPageProse={view === "workbench" && chapterRef ? getPageProse : undefined}
             onUpgrade={onUpgrade}
             onCloseDrawer={assistantNarrow ? () => setAssistantOpen(false) : undefined}
             onOpenAction={(action) => {

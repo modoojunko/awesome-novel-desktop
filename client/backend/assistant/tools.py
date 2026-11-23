@@ -289,10 +289,11 @@ async def _read_prose_checks(ctx: ToolContext, chapter_ref: str = "") -> ToolRes
     else:
         human = f"人味检测：{score_line}；没查出问题行。"
 
-    # 明细按预算收敛（findings 已按段号、err 优先排序——先给一票否决）
+    # 明细按预算收敛：findings 按文档顺序排（段号＋段内 err 优先）。预算放不下
+    # 就从第一条放不下的起整体停——不跳过首条去捞后面的短行，否则会「跳过 err
+    # 收进 warn」，与「先看上面的」的文案相悖（review P3 判例）
     detail: list[str] = []
     used = 0
-    hidden = 0
     for f in findings:
         para = int(f.get("para") or 0)
         text = paras[para] if 0 <= para < len(paras) else str(f.get("hit") or "")
@@ -302,12 +303,12 @@ async def _read_prose_checks(ctx: ToolContext, chapter_ref: str = "") -> ToolRes
             f"  为什么：{f.get('why')}｜改法：{f.get('fix')}"
         )
         if used + len(line) > READ_PROSE_CHECKS_BUDGET_CHARS:
-            hidden += 1
-            continue
+            break
         detail.append(line)
         used += len(line)
-    if hidden:
-        detail.append(f"（其余 {hidden} 条略——优先级低的提示先不展开）")
+    omitted = len(findings) - len(detail)
+    if omitted:
+        detail.append(f"（后面 {omitted} 条先不展开——先改上面的，重扫后看剩下的）")
 
     zq_lines = await _render_zhuque_checks(ctx, ref, prose, paras)
     head = f"《{title}》（{ref}）检测问题行·{source}"

@@ -24,4 +24,4 @@
 
 #### Scenario: 前端不新增页面字段
 - **WHEN** 前端提交助手消息
-- **THEN** `page_state` 只带未保存标记；不因本能力新增 panel/chapter_tab 字段
+- **THEN** `page_state` 只带未保存标记（外加 `c-agent-prose-checks` 的屏上正文文本）；不因本能力新增 panel/chapter_tab 字段
