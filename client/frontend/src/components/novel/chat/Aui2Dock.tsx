@@ -13,6 +13,7 @@ import {
   useCallback,
   useContext,
   useEffect,
+  useLayoutEffect,
   useMemo,
   useRef,
   useState,
@@ -661,6 +662,30 @@ export function TraceStatusCard({ data }: { data: TraceStatusData }) {
   );
 }
 
+/** 思考正文（展开才挂载）：点开即贴最新一行；流式中作家没往上翻就继续跟到底 */
+function ThinkingScrollBody({ text }: { text: string }) {
+  const ref = useRef<HTMLDivElement | null>(null);
+  const stickRef = useRef(true);
+  useLayoutEffect(() => {
+    const el = ref.current;
+    if (el && stickRef.current) el.scrollTop = el.scrollHeight;
+  }, [text]);
+  return (
+    <div
+      className="cd-proc-think"
+      data-testid="chat-proc-thinking-body"
+      ref={ref}
+      onScroll={(e) => {
+        const el = e.currentTarget;
+        // 离底 ≤24px 视为仍在跟读；往上翻读旧内容时不抢滚动位置
+        stickRef.current = el.scrollHeight - el.scrollTop - el.clientHeight <= 24;
+      }}
+    >
+      {text}
+    </div>
+  );
+}
+
 function TraceThinkingCard({ data }: { data: TraceThinkingData }) {
   const { text, live } = data;
   return (
@@ -674,7 +699,7 @@ function TraceThinkingCard({ data }: { data: TraceThinkingData }) {
           defaultOpen: false,
           children: (
             <OperateCard.LineBody>
-              <div className="cd-proc-think">{text}</div>
+              <ThinkingScrollBody text={text} />
             </OperateCard.LineBody>
           ),
         }}
