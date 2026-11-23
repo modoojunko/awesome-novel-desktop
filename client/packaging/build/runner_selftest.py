@@ -31,8 +31,9 @@ set DIR=%~dp0
 set /a N=0
 if exist "%DIR%count.txt" set /p N=<"%DIR%count.txt"
 set /a N=%N%+1
-echo %N%>"%DIR%count.txt"
-echo call %N%>>"%DIR%calls.txt"
+rem 前缀式重定向 + echo(：避免 `echo 1>...` 的 1 被 cmd 当成句柄重定向
+> "%DIR%count.txt" echo(%N%
+>> "%DIR%calls.txt" echo call %N%
 rem 模拟「装到一半」：删掉程序树里的一个文件（回滚臂断言它被恢复）
 del "%DIR%..\app\marker.txt" >nul 2>&1
 if "%FAKE_MODE%"=="success_first" exit /b 0
@@ -127,7 +128,7 @@ def main() -> int:
         # ── 臂 2：首败重试成功 ─────────────────────────────────────────
         arm = "fail_once"
         proc, text, app = _run_arm(shell, root / arm, arm)
-        calls = (root / arm / "installer" / "calls.txt").read_text().count("call ")
+        calls = (root / arm / "installer" / "calls.txt").read_text().count("call")
         _check(proc.returncode == 0, f"exit={proc.returncode}", text, arm)
         _check(calls == 2, f"安装器应被调 2 次，实得 {calls}", text, arm)
         _check("finished (status=ok exit=0 retry=1" in text, "重试计数不符", text, arm)
