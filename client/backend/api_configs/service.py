@@ -64,6 +64,73 @@ def _normalize_models(raw: list[str], *, truncate: bool = False) -> list[str]:
     return cleaned
 
 
+# ── 保存前连通门禁（c-api-config-save-gate）─────────────────────────────────
+
+
+class ProbeFailed(Exception):
+    """保存前探测判败：携带探测原始结论。
+
+    router 统一转 422 detail {code: "probe_failed", status, message}——message
+    即探测原文案，前端经 lib/api.ts 既有 detail.message 提取路径直达表单。
+    """
+
+    def __init__(self, status: str, message: str) -> None:
+        super().__init__(message)
+        self.status = status
+        self.message = message
+
+
+def _probe_payload(outcome: dict[str, Any] | None) -> dict[str, Any] | None:
+    """保存响应里嵌套 probe 的形状（与配置对象顶层 status/models 防撞名）。"""
+    if outcome is None:
+        return None
+    return {
+        "ok": bool(outcome.get("ok")),
+        "status": outcome.get("status"),
+        "models": outcome.get("models"),
+        "error": outcome.get("error"),
+    }
+
+
+async def _probe_for_save(**kwargs: Any) -> dict[str, Any]:
+    """保存门禁探测：与「测试连接」同一实现同一判据；非 ok 一律 ProbeFailed。
+
+    按「非 ok 即拦」实现（endpoint_mismatch/auth_error/timeout/network_error/
+    rate_limited/unknown 均拦），不按白名单枚举。
+    """
+    outcome = await _test_connection(**kwargs)
+    if not outcome.get("ok"):
+        raise ProbeFailed(
+            str(outcome.get("status") or "unknown"),
+            str(outcome.get("error") or "连接测试未通过，请检查地址与 Key"),
+        )
+    return outcome
+
+
+def _persist_probe_result(
+    config: ApiConfig, outcome: dict[str, Any]
+) -> dict[str, Any]:
+    """把探测结果写进测试结果字段（test_api_config 与保存门禁共用同一口径）。
+
+    写 last_test_status/last_test_error/last_tested_at；探测带回模型清单时按
+    _normalize_models(truncate=True) 归一/截断并保已选首项在头（评审 P1-2），
+    返回的 outcome 与落库同一份清单（评审 P1-1）。不 commit——调用方负责。
+    """
+    config.last_test_status = outcome.get("status")
+    config.last_test_error = outcome.get("error")
+    config.last_tested_at = datetime.now(UTC)
+    if outcome.get("models"):
+        fetched = outcome["models"]
+        preferred = _first_model(config.models)
+        if preferred and preferred in fetched:
+            fetched = [preferred] + [m for m in fetched if m != preferred]
+        normalized = _normalize_models(fetched, truncate=True)
+        config.models = json.dumps(normalized, ensure_ascii=False)
+        config.models_updated_at = datetime.now(UTC)
+        outcome = {**outcome, "models": normalized}
+    return outcome
+
+
 async def _assert_name_available(db: AsyncSession, user_id: str, name: str) -> None:
     """重名校验＋软删占名让位。
 
@@ -135,6 +202,19 @@ async def create_api_config(
         )
     )
 
+    # c-api-config-save-gate：保存前连通门禁（创建恒测）——探测在任何写库之前，
+    # 非 ok 抛 ProbeFailed（router 转 422），与「测试连接」同一判据（含思考参数）
+    normalized_models = _normalize_models(models) if models else []
+    outcome = await _probe_for_save(
+        vendor_id=resolved_vendor_id,
+        api_key=api_key,
+        base_url=base_url,
+        api_format=resolved_format,
+        preferred_model=(normalized_models[0] if normalized_models else None),
+        thinking_enabled=bool(thinking_enabled),
+        thinking_effort=thinking_effort or "low",
+    )
+
     config = ApiConfig(
         user_id=user_id,
         name=name,
@@ -149,13 +229,15 @@ async def create_api_config(
         status="active",
     )
     # 预填的模型名称（models 首项）随创建落库（c-api-config-vendor-defaults）
-    if models:
-        config.models = json.dumps(_normalize_models(models), ensure_ascii=False)
+    if normalized_models:
+        config.models = json.dumps(normalized_models, ensure_ascii=False)
         config.models_updated_at = datetime.now(UTC)
+    # 判过：探测结果按测试连接同款持久化（探测带回清单时覆盖为归一结果）
+    outcome = _persist_probe_result(config, outcome)
     db.add(config)
     await db.commit()
     await db.refresh(config)
-    return _config_to_dict(config)
+    return {**_config_to_dict(config), "probe": _probe_payload(outcome)}
 
 
 async def get_user_api_configs(db: AsyncSession, user_id: str) -> list[dict[str, Any]]:
@@ -227,25 +309,8 @@ async def test_api_config(
         thinking_effort=thinking_effort or (getattr(config, "thinking_effort", None) or "low"),
     )
 
-    # Persist results
-    config.last_test_status = outcome["status"]
-    config.last_test_error = outcome.get("error")
-    config.last_tested_at = datetime.now(UTC)
-    if outcome.get("models"):
-        fetched = outcome["models"]
-        # 截断保头（评审 P1-2）：配置当前默认模型（models 首项＝用户登记/手选值）若在
-        # 清单内必须保留——绑定校验只认落库清单，丢头会让用户刚选的/已绑定的模型被
-        # 静默截掉，重绑被「不属于该配置模型列表」拒
-        preferred = _first_model(config.models)
-        if preferred and preferred in fetched:
-            fetched = [preferred] + [m for m in fetched if m != preferred]
-        # 自动落库走与手写路径一致的归一化（去空白/去重），超限截断而非原样超限
-        # （c-api-config-auto-models：百炼清单可逾百条，超限落库会堵死后续手动 PUT）；
-        # 响应体与落库同一份清单——两口径分叉会让前端态与 DB 不一致（评审 P1-1）
-        normalized = _normalize_models(fetched, truncate=True)
-        config.models = json.dumps(normalized, ensure_ascii=False)
-        config.models_updated_at = datetime.now(UTC)
-        outcome = {**outcome, "models": normalized}
+    # Persist results（与保存门禁共用同一写库口径，c-api-config-save-gate）
+    outcome = _persist_probe_result(config, outcome)
     await db.commit()
     await db.refresh(config)
 
@@ -270,13 +335,79 @@ async def update_api_config(
     if "name" in updates and updates["name"] != config.name:
         await _assert_name_available(db, user_id, updates["name"])
 
+    # c-api-config-save-gate：编辑按「连接相关字段值变化」触发门禁——探测在任何
+    # setattr 之前，判败（非 ok）抛 ProbeFailed，router 转 422、本次更新不落库。
+    # 触发集＝base_url / api_format / api_key(非空) / thinking_enabled /
+    # thinking_effort（探测判据含思考参数）；name / models / vendor_override
+    # 单独变更不触网（vendor_override 仅在 base_url 变更时影响探测输入，已在触发内）。
+    new_format = (
+        updates.get("api_format")
+        if updates.get("api_format") is not None
+        else config.api_format
+    )
+    trigger = (
+        ("base_url" in updates and updates["base_url"] != config.base_url)
+        or (
+            updates.get("api_format") is not None
+            and updates["api_format"] != config.api_format
+        )
+        or bool(updates.get("api_key"))
+        or (
+            updates.get("thinking_enabled") is not None
+            and bool(updates["thinking_enabled"]) != bool(config.thinking_enabled)
+        )
+        or (
+            updates.get("thinking_effort") is not None
+            and updates["thinking_effort"] != (config.thinking_effort or "low")
+        )
+    )
+    outcome: dict[str, Any] | None = None
+    if trigger:
+        eff_base_url = updates.get("base_url", config.base_url)
+        eff_vendor, _, _ = resolve_vendor(
+            eff_base_url, updates.get("vendor_override", config.vendor_override)
+        )
+        # 编辑态 Key 留空＝未提供（router 不放入 updates）：探测用已存密钥解密值
+        eff_key = (
+            updates["api_key"]
+            if updates.get("api_key")
+            else decrypt_api_key(config.api_key)
+        )
+        eff_thinking_enabled = (
+            updates["thinking_enabled"]
+            if updates.get("thinking_enabled") is not None
+            else bool(config.thinking_enabled or False)
+        )
+        eff_thinking_effort = (
+            updates["thinking_effort"]
+            if updates.get("thinking_effort") is not None
+            else (config.thinking_effort or "low")
+        )
+        raw_models = updates.get("models")
+        preferred = (
+            next(
+                (m.strip() for m in raw_models if isinstance(m, str) and m.strip()),
+                None,
+            )
+            if isinstance(raw_models, list)
+            else _first_model(config.models)
+        )
+        outcome = await _probe_for_save(
+            vendor_id=eff_vendor,
+            api_key=eff_key,
+            base_url=eff_base_url,
+            api_format=new_format,
+            preferred_model=preferred,
+            thinking_enabled=bool(eff_thinking_enabled),
+            thinking_effort=str(eff_thinking_effort),
+        )
+
     # models 是 JSON 文本列：手动写入须归一化（去空白/去重保序/上限）后序列化
     if updates.get("models") is not None:
         updates["models"] = json.dumps(_normalize_models(updates["models"]), ensure_ascii=False)
         updates["models_updated_at"] = datetime.now(UTC)
 
     # Apply updates
-    old_api_format = config.api_format
     if "api_key" in updates:
         updates["api_key"] = encrypt_api_key(updates["api_key"])
     for field in (
@@ -297,21 +428,18 @@ async def update_api_config(
         config.vendor = resolved_vendor_id
         config.vendor_display_name = resolved_display_name
 
-    # 改接口格式 = 报文契约变化：已拉取的模型列表与测试结果立即失效（须重测）
-    if (
-        "api_format" in updates
-        and updates["api_format"] is not None
-        and updates["api_format"] != old_api_format
-    ):
-        config.models = None
-        config.models_updated_at = None
-        config.last_test_status = None
-        config.last_test_error = None
-        config.last_tested_at = None
+    # 改接口格式让位（c-api-config-save-gate）：门禁判过＝本次重测已完成——写入
+    # 本次探测结果；未触发（仅改名/改 models）时保持既有测试态不动。原「改格式
+    # 清空 models/测试态」分支退役：判败在上方已抛、不落库，不存在清空路径。
+    if outcome is not None:
+        outcome = _persist_probe_result(config, outcome)
 
     await db.commit()
     await db.refresh(config)
-    return _config_to_dict(config)
+    result = _config_to_dict(config)
+    if outcome is not None:
+        result["probe"] = _probe_payload(outcome)
+    return result
 
 
 async def delete_api_config(

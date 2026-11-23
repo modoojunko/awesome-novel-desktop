@@ -90,17 +90,13 @@ export default function ApiKeyConfigPage() {
       setEditConfig(null);
       toast.success(`已保存「${data.name}」`);
     } else {
-      const newConfig = await addConfig({ ...rest, models: model ? [model] : [] });
-      // 创建后自动测试，让卡片带上真实状态（原型同款行为）
-      let ok = false;
-      try {
-        const r = await testConfig(newConfig.id);
-        ok = r.ok;
-      } catch { /* non-blocking */ }
+      await addConfig({ ...rest, models: model ? [model] : [] });
+      // c-api-config-save-gate：探测已在后端保存入口完成——判败会以 422 抛出、
+      // 由表单内联 error 位呈现（弹窗不关）；走到这里即判过，不再二次测试
       setShowForm(false);
-      toast.success(`已添加「${data.name}」${ok ? " · 连接正常" : " · 请检查 Key"}`);
+      toast.success(`已添加「${data.name}」 · 连接正常`);
     }
-  }, [editConfig, updateConfig, addConfig, testConfig]);
+  }, [editConfig, updateConfig, addConfig]);
 
   const handleDelete = useCallback(async () => {
     /* v8 ignore start -- 防御分支：确认对话框只在 deleteTarget 非空时渲染，按钮无法在空态触发 */
