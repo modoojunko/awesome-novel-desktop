@@ -3,7 +3,7 @@
 //   ArchiveModal        归档本章
 //   HistoryModal        版本历史（wide · ver-rows + 恢复；产品扩展=行内对比）
 //   RegenConfirmModal   重新生成确认（c-prose-regen-replace：有正文章再生成＝清空重写）
-//   AiModal             AI 生成正文（tall · 提示词预览可编辑；生成＝替换本章正文）
+//   （AiModal 提示词预览弹窗随 c-retire-prose-aimodal 退役——预览/确认在对话框方案卡）
 // 文案与结构与原型 modalDelete/modalArchive/modalHistory/modalAi 逐字对齐
 // （modalUnlock 随「解除只读」解锁链退役，c-archived-readonly）；
 // 产品化差异（升级跳 S端 等）见 docs/design-c/prototypes/ADJUSTMENTS.md。
@@ -12,7 +12,7 @@ import { createPortal } from "react-dom";
 import Modal from "@/components/design/Modal";
 import VersionDiff from "@/components/novel/VersionDiff";
 import { Ico, P } from "@/components/icons";
-import { api, request } from "@/lib/api";
+import { api } from "@/lib/api";
 import { cnNum } from "@/lib/nodeTitle";
 import { toast } from "@/lib/toast";
 import { useModelStatus } from "@/hooks/useModelStatus";
@@ -781,7 +781,7 @@ function ModelField({
 
 // ---------------------------------------------------------------------------
 // 重新生成确认（c-prose-regen-replace）：已有正文章再点「生成正文」→ 先确认
-// 「重复生成将清空当前正文」，找回只有版本历史；确认后才进 AiModal 提示词预览。
+// 「重复生成将清空当前正文」，找回只有版本历史；确认后直接开流（提示词预览在对话框方案卡）。
 // ---------------------------------------------------------------------------
 export function RegenConfirmModal({
   open,
@@ -829,271 +829,6 @@ export function RegenConfirmModal({
       <p style={{ margin: "8px 0 0", fontSize: 12.5, color: "var(--muted)" }}>
         被清空的正文无法在编辑器撤销找回，只能通过页签行右端「版本历史」恢复。
       </p>
-    </Modal>
-  );
-}
-
-// ---------------------------------------------------------------------------
-// AI 生成正文（tall）：打开展示存量/本次组装稿 → 作家过目/编辑 →「生成正文」
-// 流式写入。c-prompt-tab-retire：提示词页签退役后本弹窗兼任「查看/编辑/存稿」
-// 入口——「存为本章提示词」把编辑稿落库（PUT prompts/write），此后每次生成本弹窗
-// 打开即显示这一版；只查看不生成＝打开后取消（零副作用）。
-// 「刷新提示词」＝GET ?fresh=1 忽略存量行按当前素材重新组装（只换预览稿，
-// 不动存量行）；章纲/设定改过之后用它拿到新组装稿。
-// c-retire-prompt-polish：原「AI 润色」两段式第二段退役（组装稿直接可编辑用），
-// 弹窗内不再有润色入口。
-// c-prose-regen-replace：写入语义由「追加到本章末尾」改「清空并替换本章正文」；
-// 已有正文章的再生成在入口层先过 RegenConfirmModal（「去刷新提示词」软提示
-// 出口除外——只看/刷新意图不拦，生成后果由弹窗内提示行告知）。
-// ---------------------------------------------------------------------------
-
-export function AiModal({
-  open,
-  onClose,
-  projectId,
-  chapterRef,
-  hasProse,
-  onConfirm,
-  onPromptSaved,
-}: {
-  open: boolean;
-  onClose: () => void;
-  projectId: string;
-  chapterRef: string;
-  /** 本章已有正文（c-prose-regen-replace）：提示行按「替换」口径出文案 */
-  hasProse?: boolean;
-  /** 携带编辑后的提示词启动生成；modelSelection＝按次模型对（c-prose-model-select：
-   *  未换模型/与本书模型相同＝undefined，走本书模型路径） */
-  onConfirm: (prompt: string, modelSelection?: ModelSelection) => void;
-  /** 提示词落库成功（「存为本章提示词」）→ 右栏状态行刷新 */
-  onPromptSaved?: () => void;
-}) {
-  const [prompt, setPrompt] = useState("");
-  const [hasOutline, setHasOutline] = useState(true);
-  // polished：true = 存量提示词（作家编辑落库）；false = 程序本次组装稿
-  const [polished, setPolished] = useState<boolean | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-  const [reloadKey, setReloadKey] = useState(0);
-  const [saving, setSaving] = useState(false);
-  const [refreshing, setRefreshing] = useState(false);
-  // 旧版整包分型（c-write-prompt-layering）：raw=粗组存稿旧行（建议刷新）、
-  // polished=润色旧行（只信息性，不引导覆盖）；"" = 新分层口径
-  const [legacyKind, setLegacyKind] = useState("");
-  const [lintWarnings, setLintWarnings] = useState<string[]>([]);
-  // 按次模型对（c-prose-model-select）：每次打开回到本书模型（按次语义，不记忆）
-  const [modelSel, setModelSel] = useState<ModelSelection | null>(null);
-
-  useEffect(() => {
-    if (!open) return;
-    let cancelled = false;
-    setLoading(true);
-    setError(null);
-    setModelSel(null);
-    request(`/novels/${projectId}/chapters/${chapterRef}/write/prompt`, {
-      quiet: true,
-    })
-      .then(
-        (d: {
-          prompt?: string;
-          has_outline?: boolean;
-          polished?: boolean;
-          legacy_kind?: string;
-          warnings?: string[];
-        }) => {
-          if (cancelled) return;
-          setPrompt(d?.prompt ?? "");
-          setHasOutline(!!d?.has_outline);
-          setPolished(!!d?.polished);
-          setLegacyKind(d?.legacy_kind ?? "");
-          setLintWarnings(
-            Array.isArray(d?.warnings) ? d.warnings.filter(Boolean) : [],
-          );
-        },
-      )
-      .catch((e: Error) => {
-        if (!cancelled) setError(e?.message || "提示词组装失败");
-      })
-      .finally(() => {
-        if (!cancelled) setLoading(false);
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [open, projectId, chapterRef, reloadKey]);
-
-  /** 「刷新提示词」：fresh=1 绕过存量行重新组装；成功清错误态（初始失败后可当
-   *  恢复路径），失败不动当前稿也不动错误标志 */
-  const handleRefresh = async () => {
-    if (refreshing || loading) return;
-    setRefreshing(true);
-    try {
-      const d = await request(
-        `/novels/${projectId}/chapters/${chapterRef}/write/prompt?fresh=1`,
-        { quiet: true },
-      );
-      setPrompt(d?.prompt ?? "");
-      setHasOutline(!!d?.has_outline);
-      setPolished(false);
-      setLegacyKind("");
-      setLintWarnings(Array.isArray(d?.warnings) ? d.warnings.filter(Boolean) : []);
-      setError(null);
-    } catch (e) {
-      toast.error((e as Error)?.message || "刷新失败，请重试");
-    } finally {
-      setRefreshing(false);
-    }
-  };
-
-  /** 「存为本章提示词」（c-prompt-tab-retire）：编辑稿落库，此后每次生成沿用 */
-  const handleSavePrompt = async () => {
-    if (saving || !prompt.trim()) return;
-    setSaving(true);
-    try {
-      await api.put(`/novels/${projectId}/chapters/${chapterRef}/prompts/write`, {
-        content: prompt,
-      });
-      setPolished(true);
-      toast.success("已存为本章提示词");
-      onPromptSaved?.();
-    } catch (e) {
-      toast.error((e as Error)?.message || "保存失败，请重试");
-    } finally {
-      setSaving(false);
-    }
-  };
-
-  return (
-    <Modal
-      open={open}
-      onClose={onClose}
-      title="AI 生成正文"
-      wbStyle
-      width={560}
-      afterTitle={
-        <span className="ai-tag">
-          <svg viewBox="0 0 24 24" fill="currentColor">
-            <path d="M12 2l2.4 6.2L21 9l-5 4.4 1.6 6.6L12 16.6 6.4 20 8 13.4 3 9l6.6-.8z" />
-          </svg>
-          PRO
-        </span>
-      }
-      footer={
-        <>
-          <button className="btn btn-secondary" onClick={onClose}>
-            取消
-          </button>
-          <button
-            className="btn btn-primary"
-            data-testid="ai-confirm"
-            disabled={loading || !!error || refreshing}
-            onClick={() => {
-              onClose();
-              onConfirm(prompt, modelSel ?? undefined);
-            }}
-          >
-            生成正文
-          </button>
-        </>
-      }
-    >
-      <div className="field">
-        <label>
-          本章提示词{" "}
-          {polished === false ? (
-            <span className="badge warn" data-testid="ai-raw-tag">
-              本次组装
-            </span>
-          ) : polished === true ? (
-            <span className="badge ok" data-testid="ai-polished-tag">
-              本章已存稿
-            </span>
-          ) : null}{" "}
-          <span className="opt">由「设定 + 章纲」组装，可直接编辑</span>
-        </label>
-        <textarea
-          className="ai-prompt"
-          value={prompt}
-          disabled={loading || refreshing}
-          placeholder={loading ? "组装中…" : ""}
-          onChange={(e) => setPrompt(e.target.value)}
-          data-testid="ai-prompt"
-        />
-        {legacyKind ? (
-          legacyKind === "polished" ? (
-            <p
-              style={{ margin: "8px 0 0", fontSize: 12, color: "var(--muted)" }}
-              data-testid="ai-legacy-note"
-            >
-              恒定设定（题材/文风/世界观/铁律）已由系统按本书设定注入，与本稿并存；可继续编辑。
-            </p>
-          ) : (
-            <p
-              style={{ margin: "8px 0 0", fontSize: 12, color: "var(--warn)" }}
-              data-testid="ai-legacy-note"
-            >
-              旧版整包稿：恒定设定已由系统注入，点「刷新提示词」可按新分层重组为本章素材。
-            </p>
-          )
-        ) : null}
-        {lintWarnings.length > 0 ? (
-          <p
-            style={{ margin: "8px 0 0", fontSize: 12, color: "var(--warn)" }}
-            data-testid="ai-lint-warnings"
-          >
-            {lintWarnings.join("；")}
-          </p>
-        ) : null}
-        {/* 刷新＋存稿行：刷新＝fresh 组装稿仅换预览（不动存量行）；生成＝本次所用稿落库；
-            存稿＝不生成只落库 */}
-        <div className="ai-prompt-save">
-          <span>
-            「刷新提示词」按最新章纲重新组装章级素材（恒定设定由系统按本书设定注入，不动已存稿）；点「生成正文」＝本次用的这一版同时记为本章提示词，只想先存不生成用「存为本章提示词」。
-          </span>
-          <div style={{ display: "flex", gap: 8, flex: "none" }}>
-            <button
-              className="btn btn-ghost btn-sm"
-              data-testid="ai-prompt-refresh"
-              title="按最新章纲重新组装章级素材；不改动已存稿，可再编辑"
-              disabled={loading || refreshing}
-              onClick={() => void handleRefresh()}
-            >
-              {refreshing ? "刷新中…" : "刷新提示词"}
-            </button>
-            <button
-              className="btn btn-ghost btn-sm"
-              data-testid="ai-prompt-save"
-              disabled={loading || refreshing || saving || !!error || !prompt.trim()}
-              onClick={() => void handleSavePrompt()}
-            >
-              {saving ? "保存中…" : "存为本章提示词"}
-            </button>
-          </div>
-        </div>
-      </div>
-      {/* 生成模型（c-prose-model-select）：仅弹窗打开时挂载取数；单选/未就绪不渲染 */}
-      {open && (
-        <ModelField projectId={projectId} modelSel={modelSel} onChange={setModelSel} />
-      )}
-      {error ? (
-        <p style={{ margin: 0, fontSize: 12.5, color: "var(--err)" }}>
-          {error}·
-          <button
-            className="btn btn-ghost btn-sm"
-            onClick={() => setReloadKey((k) => k + 1)}
-          >
-            重试
-          </button>
-        </p>
-      ) : (
-        <p style={{ margin: 0, fontSize: 12.5, color: "var(--muted)" }}>
-          {hasProse
-            ? "过目／编辑后点「生成正文」；本次生成将清空并替换本章现有正文，旧正文可从版本历史找回。"
-            : hasOutline
-              ? "过目／编辑后点「生成正文」；生成内容将写入本章。"
-              : "本章尚未配置章纲，将仅依据设定生成。建议先去「大纲」补章纲（不强制）。"}
-        </p>
-      )}
     </Modal>
   );
 }

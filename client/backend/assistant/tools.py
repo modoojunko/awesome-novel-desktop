@@ -539,7 +539,7 @@ def _jsonable(value: Any) -> Any:
 async def _read_write_prompt(ctx: ToolContext, chapter_ref: str) -> ToolResult:
     """读服务端组装的本章用户提示词全文（c-agent-dialog-prose）。
 
-    与 GET /write/prompt、生成端点同调 assemble_write_prompt 单源——卡上展示的
+    与生成路径同调 assemble_write_prompt 单源——卡上展示的
     提示词与实际发给正文模型的东西永不漂移。对话流恒 fresh（按当前素材重组，
     不读 write-prompt 存稿）。"""
     from db import async_session

@@ -45,8 +45,7 @@ import ProsePane, {
 } from "./ProsePane";
 import { DataEnter } from "./DataEnter";
 import { ArchiveModal, HistoryModal, RewriteModal } from "./modals";
-import type { RailChapterData } from "./Rail";
-import type { WriteBlockPayload } from "@/lib/ai";
+import type { RailChapterData } from "./railData";
 import {
   EMPTY_OG_FORM,
   GAP_TO_FILL_KEY,
@@ -136,8 +135,6 @@ interface ChapterWorkspaceProps {
   chatNavTab?: string;
   /** agent 字段级写后的章数据刷新信号（c-agent-page-ops）：seq 递增触发 reload（isDirty 守卫不覆盖作家未保存内容） */
   chatRefreshSeq?: number;
-  /** 提示词落库信号（c-prompt-tab-retire）：弹窗存稿后右栏提示词状态行刷新 */
-  promptSavedSignal?: number;
   /** 续写恢复信号（顶栏 CTA）：n 递增触发，落正文页签并滚回上次位置 */
   resumeSignal?: { ref: string; scroll: number; n: number };
   /** 写作进度上抛（顶栏 bar-here 跟随显示上次写到的章） */
@@ -166,7 +163,6 @@ export default function ChapterWorkspace({
   chatNavSeq,
   chatNavTab,
   chatRefreshSeq,
-  promptSavedSignal,
   resumeSignal,
   onWriteProgress,
   onRevert,
@@ -325,8 +321,6 @@ export default function ChapterWorkspace({
   // 章纲查看/编辑两态（对齐卷纲）：默认查看态，切章回落查看
   const [ogEditing, setOgEditing] = useState(false);
   // 正文查看/编辑两态（c-prose-edit-gate）：默认只读阅读，切章回落查看
-  // 本章写法块（c-kb-write-block）：ProsePane SSE 事件上抛，经 onRailData 透传右栏
-  const [writeBlock, setWriteBlock] = useState<WriteBlockPayload | null>(null);
   const [proseEditing, setProseEditing] = useState(false);
   useEffect(() => {
     setChTab("og");
@@ -337,7 +331,7 @@ export default function ChapterWorkspace({
     setTabBubbles({ settings: 0, relations: 0 });
   }, [chapterRef]);
 
-  // 生成启动信号（页面解锁链/AiModal 确认后递增）：切正文页签 + 进编辑态 + 聚焦（真 bug #2）
+  // 生成启动信号（方案卡/直开确认后递增）：切正文页签 + 进编辑态 + 聚焦（真 bug #2）
   useEffect(() => {
     if (!aiWriteSignal) return;
     setChTab("prose");
@@ -1158,8 +1152,7 @@ const [ogForm, setOgForm] = useState<OgForm>(EMPTY_OG_FORM);
         castCount: castLines.length,
         missingLabels: ogGaps(ogForm).map((g) => g.label),
       },
-      promptSavedSignal,
-      onSimulate: () => setShowSim(true),
+          onSimulate: () => setShowSim(true),
       onPlotDraw: () => void handlePlotDraw(),
       onCastReview: () => openCastReview(),
       castEmpty,
@@ -1171,11 +1164,10 @@ const [ogForm, setOgForm] = useState<OgForm>(EMPTY_OG_FORM);
       onFillGaps: () => void handleFillGaps(),
       gapsLoading,
       onAiCheck: setAiCheckKind,
-      writeBlock,
     });
     return () => onRailDataRef.current(null);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [wordCount, targetWords, setTargetWords, archived, bookWords, chTab, ogForm, chapterRef, gapsLoading, promptSavedSignal, handleFillGaps, handlePlotDraw, openCastReview, castEmpty, castReview.state.phase, castReview.state.writing, writeBlock,
+  }, [wordCount, targetWords, setTargetWords, archived, bookWords, chTab, ogForm, chapterRef, gapsLoading, handleFillGaps, handlePlotDraw, openCastReview, castEmpty, castReview.state.phase, castReview.state.writing,
     // dirty 里的保存态/章纲编辑态：autosave 翻转时字数不变，漏这两项＝页面态永远
     // 停在「正文未保存」（真机：状态栏已「已自动保存」，助手仍劝作者先保存）
     saveState, ogEditing]);
@@ -1345,7 +1337,6 @@ const [ogForm, setOgForm] = useState<OgForm>(EMPTY_OG_FORM);
         lh={typo.lh}
         hidden={chTab !== "prose"}
         onAIStateChange={onAIStateChange}
-        onWriteBlock={setWriteBlock}
         resumeScroll={resumeScrollMemo}
         onWriteProgress={onWriteProgress}
         historical={imported}

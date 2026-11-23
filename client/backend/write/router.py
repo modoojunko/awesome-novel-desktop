@@ -11,7 +11,6 @@ from auth_local.deps import (
     ai_feature,
     require_ai_access,
     require_novel_model,
-    require_tier_access,
 )
 from auth_local.middleware import get_current_user
 from db import get_db
@@ -380,35 +379,6 @@ async def _stream_chapter(
             force=True,
         )
         yield f"data: {json.dumps({'type': 'error', 'error': f'AI 生成失败，可重试：{e!s}'}, ensure_ascii=False)}\n\n"
-
-
-@router.get("/prompt")
-@ai_feature("prompt-panel")
-async def get_write_prompt(
-    project_id: str,
-    chapter_ref: str,
-    fresh: bool = False,
-    user: dict = Depends(get_current_user),
-    _: bool = Depends(require_tier_access),
-    db: AsyncSession = Depends(get_db),
-):
-    """AI 弹窗提示词预览：存量 write-prompt 行优先（作家存稿/历史润色行），无则组装兜底。
-
-    fresh=True（弹窗「刷新提示词」）：忽略存量行按当前素材重新组装，只回新稿
-    不动存量行——落库走「存为本章提示词」与生成时的自动留存。
-    组装单源 assemble_write_prompt（c-agent-dialog-prose：助手 read_write_prompt
-    工具同调一层——弹窗/对话框两侧永不漂移）。
-    """
-    project = await get_novel(db, project_id, user["id"])
-    if not project:
-        raise HTTPException(404, "Project not found")
-    _validate_ref(chapter_ref)
-
-    from write.chapter_writer import assemble_write_prompt
-
-    return await assemble_write_prompt(
-        project.root_path, chapter_ref, project.name, novel_id=project.id, fresh=fresh
-    )
 
 
 # 路径为空串：本 router 的 prefix 已以 /write 结尾，再写 "/write" 会注册成

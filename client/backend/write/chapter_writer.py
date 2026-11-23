@@ -324,8 +324,8 @@ async def assemble_write_prompt(
     novel_id: str = "",
     fresh: bool = False,
 ) -> dict:
-    """本章用户提示词组装单源（c-agent-dialog-prose）：`GET /write/prompt` 端点与
-    助手 `read_write_prompt` 工具同调一层——弹窗/对话框两侧永不漂移。
+    """本章用户提示词组装单源（c-agent-dialog-prose）：助手 `read_write_prompt`
+    工具与生成路径同调一层（c-retire-prose-aimodal 后 GET /write/prompt 端点退役）。
 
     fresh=True 忽略存量 write-prompt 行按当前素材重组（助手对话流恒 fresh：
     提示词以当前素材为准，作家过目的就是这份）；False 时存量行有效则优先

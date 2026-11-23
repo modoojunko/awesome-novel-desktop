@@ -1224,7 +1224,7 @@ function mockProseChapterTree() {
       });
     return Promise.resolve({});
   });
-  // AiModal 提示词 GET：has_outline=true 才渲染「替换」口径提示行
+  // 旧提示词 GET 桩保留（弹窗已退役，无消费者；不删免动大段桩代码）
   apiState.request.mockImplementation((url: string) => {
     if (typeof url === "string" && url.includes("/write/prompt"))
       return Promise.resolve({

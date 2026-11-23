@@ -9,7 +9,7 @@ import ChapterWorkspace from "@/components/novel/workbench/ChapterWorkspace";
 import SettingsView from "@/components/novel/workbench/SettingsView";
 import PreviewView from "@/components/novel/workbench/PreviewView";
 import ManuscriptDownloadModal from "@/components/novel/workbench/ManuscriptDownloadModal";
-import type { RailChapterData } from "@/components/novel/workbench/Rail";
+import type { RailChapterData } from "@/components/novel/workbench/railData";
 import { Aui2Dock } from "@/components/novel/chat/Aui2Dock";
 import { WorkbenchBootProvider } from "@/components/novel/workbench/DataEnter";
 import { AuiErrorBoundary } from "@/components/novel/chat/AuiErrorBoundary";
