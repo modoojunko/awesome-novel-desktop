@@ -1,5 +1,9 @@
 # c-update-fail-safe · 任务
 
+> **本批（2026-11-23）＝记录切片**：只做 §2（执行体三段留痕＋出口侧启动确认回退）。
+> §1 的部分准备项（真机复现/假安装器本地夹具）与 §3-§6 仍待后续批次；§3-§6 的快照/
+> 回滚/目录/快捷方式/CI 属于「批二」。
+
 ## 1. 设计影响与现场复现
 
 - [ ] 1.1 界面影响判定：本 change 无 React 屏改动，失败提示为 OS 级 MessageBox/桌面文本（应用可能不可启动），依据 proposal「Design Impact」免原型先行；在 change 目录记录判定（含“若改应用内横幅则另补原型”的边界）
@@ -8,10 +12,10 @@
 
 ## 2. 执行体三段留痕与出口回退
 
-- [ ] 2.1 重构 `_install_runner_script`：在任何等待前写 `started`，调用安装器前写 `installer_start`，用 `try/finally` 写 `finished`（含 status/exit/retry/错误摘要）；`$ErrorActionPreference` 与日志函数在异常路径仍可写；更新 `client/backend/tests/test_packaging_shell_apply.py` 的解码断言并通过
-- [ ] 2.2 `apply_pending_update` 在 `Popen` 前后写 `runner_spawned` 日志；`Popen` 后以 100ms 节奏等待 `started` 最多 3 秒；超时回退 `_spawn_installer_direct`（同一组闸门与 argv，`DETACHED_PROCESS`）并写 `runner_fallback=direct`；单测覆盖“有 started 不回退 / 无 started 回退 / Popen 失败”三臂并通过
-- [ ] 2.3 macOS runner 补 `started` 与 `finished` 两行（不改换装算法）；解码/结构测试通过
-- [ ] 2.4 复核闸门（TTL/存在性/sha/平台）与 pending 语义未变；`pytest client/backend/tests/test_packaging_shell_apply.py client/backend/tests/test_update_check.py` 全绿并把输出摘要记入任务
+- [x] 2.1 重构 `_install_runner_script`：`started`（既有，保留）＋调用安装器前 `installer_start`＋`finally` 写 `finished (status/exit/retry/error)`（异常路径必写；`installer_exception`/`runner_exception` 两臂各记专属 status；保留 wait_ms 行供三态回读）；`test_packaging_shell_apply.py` 解码断言更新并通过（三段顺序＋finally 位置）
+- [x] 2.2 `_spawn_install_runner`：Popen 成功写 `runner_spawned` 日志（startup.log）；`_wait_runner_started` 以 100ms 节奏等待 `runner: started` 最多 3s（按 `dispatched` 分段，历史行不冒充本次）；超时先杀残余 runner（防与直连双装）再回退 `_spawn_installer_direct`（同 argv/闸门，`DETACHED_PROCESS`）并双处写 `runner_fallback=direct`（执行日志＋startup.log）；「有 started 不回退 / 无 started 回退（含 kill 断言） / Popen 抛错回退 / 双失败上抛」四臂单测通过
+- [x] 2.3 macOS runner 补 `finished (status/exit/detail)` 终局行（`started` 既有；换装算法零改动）；结构断言通过
+- [x] 2.4 复核闸门（TTL/存在性/sha/平台）与 pending 语义未变；`pytest client/backend/tests/test_packaging_shell_apply.py client/backend/tests/test_update_check.py -q` → **98 passed**；backend 目录 ruff（CI 口径）全绿
 
 ## 3. 安装结果验收、重试、快照与可见失败
 

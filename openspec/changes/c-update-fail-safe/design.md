@@ -7,9 +7,18 @@
 - `client/packaging/build/pywebview_app.py` 的 `apply_pending_update` 在退出链尾部
   spawn detached PowerShell runner，然后立刻 `_force_exit`；Python 侧**不等待、不检查**
   执行体是否真的开始。
-- runner 脚本（`_install_runner_script`）只在安装器退出后写一行 `installer-runner.log`；
-  脚本开头没有落痕，`Add-Content` 也不在 `finally` 里。PowerShell 被拦截或脚本在
-  `Wait-Process` 阶段终止时，磁盘上没有任何“执行体已运行”的证据。
+- 现状复核（2026-11-23，记录切片起点）：#945（c-update-detached-ps-fix）与 2026-10-24
+  WMI 事故修复之后，`runner: started` 启动痕、`runner: dispatched` 分段标记、三态回读
+  （`_read_last_attempt`）与「Popen 抛错→回退直连」已在位。**本批仍缺并补齐**：
+  ① `installer_start`＋`finally` 终局痕 `finished`（异常路径目前无终局记录）；
+  ② Python 侧 `runner_spawned` 留痕与「Popen 成功但脚本零执行」的有界等待（3s）超时
+  回退——这正是 0.37→0.38 事故的形态（进程建出 ≠ 脚本在跑；#945 只覆盖了「建不出」）；
+  ③ macOS runner 的 `finished` 终局行（`started` 已有）。
+- 实现差异注（对 Decisions 1 的模板）：`$ErrorActionPreference` 维持既有 `'Stop'`，
+  所有 `Add-Content` 逐行 `-ErrorAction SilentlyContinue`——异常路径仍能写终局痕，
+  不改既有错误语义；等待实现落在 `_spawn_install_runner` 内部（apply 侧调用），
+  常量 `_RUNNER_START_TIMEOUT_SECONDS=3.0`／`_RUNNER_START_POLL_SECONDS=0.1`
+  供测试缩短。
 - 本次真机日志事实：runner 被拉起但 `installer-runner.log` 与 `installer.log` 均缺失，
   安装器未执行；重装前旧 `AwesomeNovel.exe` 与 `data\` 仍在，桌面图标失效是陈旧快捷
   方式而非安装器删文件。Inno 的“删目标再改名”风险仍在，作为失败兜底的设计对象。

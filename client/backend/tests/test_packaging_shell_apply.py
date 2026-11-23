@@ -70,13 +70,35 @@ def _write_pending(shell, tmp_path, *, version="0.99.5", sha="deadbeef", attempt
     return pkg, body
 
 
-def _popens(monkeypatch):
+def _simulate_runner_started(argv: list[str]) -> None:
+    """模拟真 runner 的首动作：把 `runner: started` 写进执行日志。
+
+    c-update-fail-safe 起，`_spawn_install_runner` 在 Popen 后会有界等待这行；
+    正常路径用例默认模拟启动，超时/回退用例显式关掉（simulate_started=False）。
+    """
+    import contextlib
+    import re
+
+    if "-EncodedCommand" not in argv:
+        return
+    with contextlib.suppress(Exception):  # 模拟失败不改变被测契约
+        encoded = argv[argv.index("-EncodedCommand") + 1]
+        script = base64.b64decode(encoded).decode("utf-16-le")
+        m = re.search(r"\$log = '([^']+)'", script)
+        if m:
+            with open(m.group(1), "a", encoding="utf-8") as f:
+                f.write("2026-11-23 00:00:00 runner: started (runner_pid=1 parent=1)\n")
+
+
+def _popens(monkeypatch, *, simulate_started: bool = True):
     calls = []
     import subprocess as _subprocess
 
     class _FakePopen:
         def __init__(self, argv, **kwargs):
             calls.append(argv)
+            if simulate_started:
+                _simulate_runner_started(argv)
 
     monkeypatch.setattr(_subprocess, "Popen", _FakePopen)
     return calls
@@ -372,7 +394,7 @@ def test_reconcile_keeps_pending_on_mismatch(shell, tmp_path, monkeypatch):
 # ── c-update-detached-ps-fix：创建形态／启动痕／回退直连／安装结果回读 ──────────
 
 
-def _popens_kw(monkeypatch):
+def _popens_kw(monkeypatch, *, simulate_started: bool = True):
     """记录 (argv, kwargs) 的 Popen 桩（creationflags 形状对拍用；_popens 只记 argv）。"""
     calls = []
     import subprocess as _subprocess
@@ -380,6 +402,8 @@ def _popens_kw(monkeypatch):
     class _FakePopen:
         def __init__(self, argv, **kwargs):
             calls.append((argv, kwargs))
+            if simulate_started:
+                _simulate_runner_started(argv)
 
     monkeypatch.setattr(_subprocess, "Popen", _FakePopen)
     return calls
@@ -734,3 +758,93 @@ def test_version_selfreport_wiring(shell):
             ' or "dev"') in src
     assert "_without_baked_env(os.environ)" in src
     assert "env=_without_baked_env(" in src
+
+
+# ── c-update-fail-safe：三段留痕＋启动确认回退（记录切片）────────────────────
+
+
+def test_win_runner_script_three_stage_markers(shell, tmp_path, monkeypatch):
+    """三段留痕形状：started →（等尸）→ installer_start → finished。
+
+    installer_start 必须在真正调用安装器之前；finished 在 finally 里（异常路径也写），
+    含 status/exit/retry/错误摘要——「装了没装、谁失败」事后可判读。
+    """
+    module = shell
+    monkeypatch.setattr(module.sys, "executable",
+                        str(module.__test_install_dir / "AwesomeNovel.exe"))
+    _write_pending(module, tmp_path, sha=hashlib.sha256(b"PKG-PAYLOAD").hexdigest())
+    calls = _popens(monkeypatch)
+    module.apply_pending_update(tmp_path)
+
+    script = _runner_script_of(calls)
+    assert script.index("runner: started") < script.index("Wait-Process -Id $parent")
+    assert script.index("Wait-Process -Id $parent") < script.index("runner: installer_start")
+    assert script.index("runner: installer_start") < script.index("& $installer")
+    # 终局痕在 finally：catch 之后仍必写；异常两臂各记专属 status
+    assert "finally {" in script
+    assert script.index("} catch {") < script.index("runner: finished")
+    assert "status={1} exit={2} retry=0 error={3}" in script
+    assert "installer_exception" in script
+    assert "runner_exception" in script
+
+
+def test_mac_runner_finished_line(shell):
+    """macOS runner 补终局痕（与 Windows 同串 runner: finished），在退出前必写。"""
+    script = shell._install_runner_script_macos()
+    assert 'log "finished (status=$status exit=$exit_code detail=$detail)"' in script
+    assert script.index("runner: started") < script.index("finished (status=")
+    assert script.rindex("finished (status=") < script.rindex("exit 1")
+
+
+def test_runner_started_marker_segments_by_dispatch(shell, tmp_path):
+    """回读按派发标记分段：历史 started 不冒充本次（跨版本累积日志同口径）。"""
+    log = tmp_path / "r.log"
+    log.write_text(
+        "t runner: dispatched (version=a attempt=1)\n"
+        "t runner: started (runner_pid=1 parent=1)\n"
+        "t runner: dispatched (version=b attempt=1)\n",
+        encoding="utf-8")
+    assert shell._runner_started_since_dispatch(log) is False
+    with open(log, "a", encoding="utf-8") as f:
+        f.write("t runner: started (runner_pid=2 parent=1)\n")
+    assert shell._runner_started_since_dispatch(log) is True
+    assert shell._runner_started_since_dispatch(tmp_path / "missing.log") is False
+
+
+def test_runner_started_timeout_falls_back_direct(shell, tmp_path, monkeypatch):
+    """有界等待内无 started → 先杀残余进程（防双装）→ 回退直连 → 双处留痕。"""
+    module = shell
+    monkeypatch.setattr(module.sys, "executable",
+                        str(module.__test_install_dir / "AwesomeNovel.exe"))
+    monkeypatch.setattr(module, "_RUNNER_START_TIMEOUT_SECONDS", 0.02)
+    monkeypatch.setattr(module, "_RUNNER_START_POLL_SECONDS", 0.005)
+    payload = b"PKG-PAYLOAD"
+    pkg, _ = _write_pending(module, tmp_path, sha=hashlib.sha256(payload).hexdigest())
+    import subprocess as _subprocess
+    calls = []
+    killed = []
+
+    class _FakeProc:
+        def __init__(self, argv, **kwargs):
+            calls.append((argv, kwargs))
+            self.pid = 4242
+
+        def poll(self):
+            return None  # 进程建出来了但脚本没跑（被拦形态）
+
+        def kill(self):
+            killed.append(True)
+
+    monkeypatch.setattr(_subprocess, "Popen", _FakeProc)
+    module.apply_pending_update(tmp_path)
+
+    assert len(calls) == 2, calls
+    argv, kwargs = calls[1]
+    assert argv[0] == str(pkg)
+    assert kwargs["creationflags"] & 0x8  # DETACHED_PROCESS
+    assert killed  # 迟起的残余 runner 被杀，避免与直连安装器双装
+    runner_log = tmp_path / "installer-runner.log"  # 暂存目录＝pkg 同级（apply 的 updates_dir）
+    assert "runner_fallback=direct" in runner_log.read_text("utf-8")
+    startup = (tmp_path / "logs" / "startup.log").read_text("utf-8")
+    assert "fallback to direct installer" in startup
+    assert _pending_body(module)["attempts"] == 1
