@@ -83,6 +83,9 @@ const GEN_STAGE_LABELS: Record<string, string> = {
 export interface ProseHandle {
   focus(): void;
   captureNow(): SelectionCapture | null;
+  /** 当前编辑器正文全文（\n 分段纯文本，含未保存改动）——c-agent-prose-checks：
+   *  聊天请求随 page_state 上行给 read_prose_checks 现算，保证与屏上同口径 */
+  getProse(): string;
   /** promptOverride：AI 弹窗编辑后的提示词（空 = 后端自动组装）
    *  modelSelection：按次模型对（c-prose-model-select；未传 = 本书模型）
    *  写入语义＝替换本章正文（c-prose-regen-replace）：开始前清空现有正文，
@@ -1122,6 +1125,8 @@ const ProsePane = forwardRef<ProseHandle, ProsePaneProps>(function ProsePane(
     () => ({
       focus: () => editor?.commands.focus("end"), // 落文末：进入写作的继续位置
       captureNow,
+      // 屏上正文全文（c-agent-prose-checks）：与 onUpdate 同一序列化单源
+      getProse: () => (editor && !editor.isDestroyed ? docToProse(editor.getJSON()) : ""),
       startWriting: (prompt?: string, modelSelection?: ModelSelection) =>
         startStream(prompt, modelSelection),
       stopWriting: () => {

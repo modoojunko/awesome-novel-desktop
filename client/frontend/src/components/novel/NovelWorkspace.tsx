@@ -182,6 +182,12 @@ export default function NovelWorkspace() {
 
   // ── AI ref 链：正文编辑器实例 + 状态（右栏 AI 工具与中栏共用） ─────────
   const proseRef = useRef<ProseHandle | null>(null);
+  // 屏上正文全文 getter（c-agent-prose-checks）：聊天发送时读取随 page_state 上行，
+  // 只进后端工具上下文（read_prose_checks），不进提示词；稳定引用防 onSubmit 频繁重建
+  const getPageProse = useCallback(
+    () => proseRef.current?.getProse() ?? "",
+    [],
+  );
   const [aiState, setAIState] = useState<ProseAIState>(INITIAL_PROSE_AI_STATE);
   // c-writing-agent：助手流式存活（并入树锁定/切页守卫；与正文流式互斥语义一致）
   const [chatStreaming, setChatStreaming] = useState(false);
@@ -1448,6 +1454,7 @@ export default function NovelWorkspace() {
               ...(volumeDirty ? ["卷纲"] : []),
               ...(railData?.dirty ?? []),
             ]}
+            getPageProse={chapterRef ? getPageProse : undefined}
             onUpgrade={onUpgrade}
             onCloseDrawer={assistantNarrow ? () => setAssistantOpen(false) : undefined}
             onOpenAction={(action) => {

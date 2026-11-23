@@ -910,6 +910,7 @@ export function Aui2Dock({
   onEffects,
   onEffect,
   pageUnsaved,
+  getPageProse,
   autoAsk,
 }: {
   projectId: string;
@@ -929,6 +930,9 @@ export function Aui2Dock({
   onEffect?: (effect: { action: string; domain: string; target?: string; description?: string }) => void;
   /** 页面未保存标记（c-agent-page-ops）：随消息上行进提示词（界面零渲染） */
   pageUnsaved?: string[];
+  /** 屏上正文全文 getter（c-agent-prose-checks）：发送时取，随 page_state 上行，
+   *  只进后端工具上下文（read_prose_checks），不进提示词 */
+  getPageProse?: () => string;
   /** 面板「让助手办」命令式触发（c-agent-panel-consolidate）：seq 变更即自动
    *  提交 message——与手输同一条 submit 链，键校验/域校验/授权梯度零绕过 */
   autoAsk?: { seq: number; message: string };
@@ -1478,6 +1482,16 @@ export function Aui2Dock({
           modelSel = { api_config_id: picked.slice(0, cut), model: picked.slice(cut + 2) };
         }
       }
+      // 屏上正文随行（c-agent-prose-checks）：只进后端工具上下文（read_prose_checks
+      // 现算用），不进提示词；发送时刻取值＝与屏上标注同口径
+      const pageProseText = getPageProse?.() ?? "";
+      const pageState =
+        pageUnsaved?.length || pageProseText
+          ? {
+              ...(pageUnsaved?.length ? { unsaved: pageUnsaved } : {}),
+              ...(pageProseText ? { prose_text: pageProseText } : {}),
+            }
+          : undefined;
       abortRef.current = streamAssistantChat(
         projectId,
         {
@@ -1485,7 +1499,7 @@ export function Aui2Dock({
           page,
           thread: threadKeyRef.current,
           focus: scope.chapterRef ? { ref: scope.chapterRef } : undefined,
-          page_state: pageUnsaved?.length ? { unsaved: pageUnsaved } : undefined,
+          page_state: pageState,
           tool_hint: pendingHint ?? undefined,
           ...(modelSel
             ? { api_config_id: modelSel.api_config_id, model: modelSel.model }
@@ -1910,7 +1924,7 @@ export function Aui2Dock({
         },
       );
     },
-    [projectId, page, scope.chapterRef, pageUnsaved, upsertProc, onStreamingChange, onEffects, onEffect],
+    [projectId, page, scope.chapterRef, pageUnsaved, getPageProse, upsertProc, onStreamingChange, onEffects, onEffect],
   );
 
   // 面板「让助手办」自动提交（c-agent-panel-consolidate）：seq 消费一次即记账

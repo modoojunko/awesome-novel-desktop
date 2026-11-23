@@ -36,6 +36,8 @@ from assistant.scopes import tools_for_thread
 # 转写预算（write/chapter_writer.py 判例同风格：按中文字符预算，不按 token）
 READ_CHAPTER_BUDGET_CHARS = 1500
 READ_SETTINGS_BUDGET_CHARS = 800
+# 检测问题行明细预算（人味 findings 的段号/原句/why/fix；朱雀段另列）
+READ_PROSE_CHECKS_BUDGET_CHARS = 2000
 
 
 @dataclass
@@ -52,6 +54,8 @@ class ToolContext:
     thread: str = ""
     # 页面未保存标记（c-agent-page-fields-tool：read_page_fields 结果头如实标注）
     page_unsaved: tuple[str, ...] = ()
+    # 屏上正文（c-agent-prose-checks：页面态上行；只进工具上下文，绝不进提示词）
+    page_prose: str = ""
     # 本 run 私有暂存（抽卡排除上次卡名等跨调用协作；随请求生灭）
     scratch: dict = field(default_factory=dict)
 
@@ -184,6 +188,130 @@ async def _read_chapter(ctx: ToolContext, chapter_ref: str) -> ToolResult:
     else:
         lines.append("（正文未写）")
     return ToolResult(ok=True, summary="\n".join(lines))
+
+
+async def _render_zhuque_checks(
+    ctx: ToolContext, ref: str, prose: str, paras: list[str]
+) -> list[str]:
+    """朱雀存档段（c-agent-prose-checks）：零额度只读存档，判 AI/疑似的段列原句。
+
+    存档只是「检测时刻」的结论：正文改过（指纹不一致）就标过期——段号与原句
+    都可能对不上，只出段号/级别不出原句，防模型按错句改。
+    """
+    from db import async_session
+    from zhuque.segmentation import fingerprint
+    from zhuque.service import get_stored_result
+
+    try:
+        async with async_session() as session:
+            stored = await get_stored_result(
+                session, project_id=ctx.novel_id, chapter_ref=ref
+            )
+    except Exception:  # noqa: BLE001 — 读档失败不挡人味主体
+        return ["朱雀检测：读存档失败（不影响上面的现算结果）。"]
+    if not stored.get("stored"):
+        return ["朱雀检测：这章没有存档（没测过或已清除）。"]
+    segments = (stored.get("result") or {}).get("segments") or []
+    flagged = [s for s in segments if int(s.get("label") or 0) in (1, 2)]
+    checked = str(stored.get("checked_at") or "")[:16].replace("T", " ")
+    stale = fingerprint(prose) != str(stored.get("prose_hash") or "")
+    verdict = (
+        "正文改过，结果已过期——要看准的请重新检测"
+        if stale
+        else "与当前正文一致"
+    )
+    if not flagged:
+        return [f"朱雀检测（{checked} 存档｜{verdict}）：没有判 AI/疑似的段。"]
+    lines = [f"朱雀检测（{checked} 存档｜{verdict}）：{len(flagged)} 段被判 AI/疑似"]
+    for s in flagged:
+        label = "AI" if int(s.get("label") or 0) == 1 else "疑似"
+        para = int(s.get("paragraph_index") or 0)
+        if stale:
+            lines.append(f"- 第{para + 1}段〔{label}〕（过期档，原句不可靠，只给段号）")
+        else:
+            text = paras[para] if 0 <= para < len(paras) else ""
+            lines.append(f"- 第{para + 1}段〔{label}〕：「{_clip(text, 120)}」")
+    return lines
+
+
+async def _read_prose_checks(ctx: ToolContext, chapter_ref: str = "") -> ToolResult:
+    """读一章正文的检测问题行：人味检测现算＋朱雀检测存档（c-agent-prose-checks）。
+
+    正文源：请求的正是屏上这章（focus_ref）且有屏上文本 → 用未保存文本现算，
+    保证与作家屏上标注同口径；跨章问别章时只用已保存正文（绝不拿屏上文本
+    冒充别章）。只读低风险；不写库、不耗额度、不外发。
+    """
+    from chapters.store import load_chapter
+    from write.renwei_check import check_prose, split_paragraphs
+
+    ref = str(chapter_ref or "").strip() or ctx.focus_ref.strip()
+    if not ref:
+        return ToolResult(
+            ok=False,
+            summary="没指明是哪一章——告诉我是第几章，或先打开那一章再问。",
+        )
+    data = await load_chapter(ctx.root_path, ref)
+    if not data:
+        return ToolResult(ok=False, summary=f"章节 {ref} 不存在或为空。")
+    title = str(data.get("title") or "")
+    saved = str(data.get("prose") or "")
+
+    # 屏上文本只属于 focus_ref 那章：跨章请求一律回落到已保存正文
+    screen = ctx.page_prose.strip() if ctx.focus_ref.strip() == ref else ""
+    prose = screen or saved
+    if screen:
+        source = "按屏上当前正文现算（可能有未保存改动）"
+    elif "正文未保存" in ctx.page_unsaved:
+        source = "按已保存正文现算（屏上有未保存改动，结果可能与屏上标注不一致）"
+    else:
+        source = "按已保存正文现算"
+    if not prose:
+        return ToolResult(
+            ok=True, summary=f"《{title}》（{ref}）正文还是空的，没有可检的问题行。"
+        )
+
+    paras = split_paragraphs(prose)
+    report = check_prose(prose)
+    findings = report.get("findings") or []
+    n_err = sum(1 for f in findings if f.get("sev") == "err")
+    n_warn = len(findings) - n_err
+    score = report.get("score")
+    score_line = (
+        f"人味率 {score.get('rate')} / 100（{score.get('band')}）"
+        if score
+        else "短章，打不了分（先写完再测）"
+    )
+    if findings:
+        human = (
+            f"人味检测：{score_line}；问题 {len(findings)} 条"
+            f"（一票否决 {n_err} · 提示 {n_warn}）"
+        )
+    else:
+        human = f"人味检测：{score_line}；没查出问题行。"
+
+    # 明细按预算收敛（findings 已按段号、err 优先排序——先给一票否决）
+    detail: list[str] = []
+    used = 0
+    hidden = 0
+    for f in findings:
+        para = int(f.get("para") or 0)
+        text = paras[para] if 0 <= para < len(paras) else str(f.get("hit") or "")
+        level = "一票否决" if f.get("sev") == "err" else "提示"
+        line = (
+            f"- 第{para + 1}段〔{level}〕{f.get('rule')}：「{_clip(text, 120)}」\n"
+            f"  为什么：{f.get('why')}｜改法：{f.get('fix')}"
+        )
+        if used + len(line) > READ_PROSE_CHECKS_BUDGET_CHARS:
+            hidden += 1
+            continue
+        detail.append(line)
+        used += len(line)
+    if hidden:
+        detail.append(f"（其余 {hidden} 条略——优先级低的提示先不展开）")
+
+    zq_lines = await _render_zhuque_checks(ctx, ref, prose, paras)
+    head = f"《{title}》（{ref}）检测问题行·{source}"
+    return ToolResult(ok=True, summary="\n".join([head, human, *detail, *zq_lines]))
 
 
 async def _read_outline(ctx: ToolContext, scope: str = "volume", ref: str = "") -> ToolResult:
@@ -420,6 +548,24 @@ TOOL_REGISTRY: tuple[Tool, ...] = (
         },
         description="读一章的章纲与正文（截断到预算）。回答涉及具体章节内容前先调它。",
         fn=_read_chapter,
+    ),
+    Tool(
+        name="read_prose_checks",
+        kind="read",
+        risk_level="low",
+        parameters={
+            "type": "object",
+            "properties": {
+                "chapter_ref": {"type": "string", "description": "第1章 或 ref；不填＝当前章"},
+            },
+        },
+        description=(
+            "看一章正文被检测标出的问题行：人味检测（本地现算：段号/原句/"
+            "为什么/改法）＋朱雀检测存档（判 AI/疑似的段、结果是否过期）。"
+            "作家提到人味检测、朱雀检测、标红/标黄/标记的问题行，要你复述、"
+            "解释或按这几行改时，先调它。缺省当前章；要整章正文用 read_chapter。"
+        ),
+        fn=_read_prose_checks,
     ),
     Tool(
         name="read_outline",

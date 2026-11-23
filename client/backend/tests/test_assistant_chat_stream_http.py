@@ -125,6 +125,9 @@ def _patch_loop(monkeypatch, events, crash_after: int | None = None, client_fact
         run_calls.append({
             "thinking": getattr(self.cfg, "thinking", None),
             "input": user_input,
+            # 工具上下文随请求真实构造（c-agent-prose-checks：page_state.prose_text
+            # 应落在 ToolContext.page_prose，且不进提示词）
+            "ctx_page_prose": getattr(getattr(self, "tool_ctx", None), "page_prose", None),
         })
         yielded = 0
         for ev in events:
@@ -596,6 +599,32 @@ def test_page_fields_not_injected_into_prompt(monkeypatch):
     assert "未保存：设定面板" in user_input        # 未保存提醒保留
     assert "01 题材=" not in user_input            # 字段值不注入
     assert "本页字段真值" not in user_input
+
+
+def test_prose_text_reaches_tool_context_not_prompt(monkeypatch):
+    """c-agent-prose-checks：屏上正文只进 ToolContext（read_prose_checks 用），
+    绝不拼进 user 提示词。"""
+    bid = _mk_book()
+    rec = _patch_loop(monkeypatch, [
+        {"type": "run_start", "runId": "pct"},
+        {"type": "narration", "text": "好。"},
+        {"type": "run_end", "runId": "pct", "steps": 0, "toolCalls": 0, "degraded": False, "error": ""},
+    ])
+    secret_line = "他站住了，没动——手里的纸袋还没拆。"
+    _read_sse(
+        bid, "人味检测标红的行你看得见么",
+        {
+            "page": "工作台 · 正文",
+            "thread": "ch:prose",
+            "focus": {"ref": "vol-1-ch-1"},
+            "page_state": {"unsaved": ["正文未保存"], "prose_text": secret_line},
+        },
+    )
+    user_input = str(rec["runs"][0]["input"])
+    assert secret_line not in user_input        # 正文全文不注入提示词
+    assert "纸袋" not in user_input
+    assert "未保存：正文未保存" in user_input   # 未保存提醒仍在（只带标签）
+    assert rec["runs"][0]["ctx_page_prose"] == secret_line  # 但落进工具上下文
 
 
 def test_system_prefix_stable_and_progress_in_user_tail(monkeypatch):
