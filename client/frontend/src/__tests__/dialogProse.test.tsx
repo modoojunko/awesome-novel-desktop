@@ -233,7 +233,10 @@ describe("正文方案卡（prose_plan）渲染与开始生成宿主桥", () => 
   }
 
   it("条目清单＋理由＋提示词折叠全文＋已有正文警示；开始生成桥接宿主并翻已开始", async () => {
-    const onProsePlanStart = vi.fn();
+    // 宿主确认通过后回调 onStarted（同步路径：无已有正文时宿主立即开流）
+    const onProsePlanStart = vi.fn(
+      (_payload: Record<string, unknown>, started?: () => void) => started?.(),
+    );
     render(
       <Aui2Dock
         projectId="p1"
@@ -272,6 +275,33 @@ describe("正文方案卡（prose_plan）渲染与开始生成宿主桥", () => 
     // 卡面翻「已开始生成」
     await waitFor(() => expect(screen.getByText(/已开始生成/)).toBeTruthy());
     expect(screen.queryByTestId("prose-plan-start")).toBeNull();
+  });
+
+  it("宿主未确认（onStarted 未回调，如再生成确认框被取消）→ 卡面停留草稿态", async () => {
+    const onProsePlanStart = vi.fn(); // 模拟宿主弹确认框：暂不回调 onStarted
+    render(
+      <Aui2Dock
+        projectId="p1"
+        page="工作台 · 章节"
+        scope={PROSE_SCOPE}
+        onProsePlanStart={onProsePlanStart}
+      />,
+    );
+    await waitFor(() =>
+      expect(screen.getByTestId("aui2-dock").getAttribute("data-dialog-prose")).toBe("on"),
+    );
+    const sse = captureStream();
+    fireEvent.click(screen.getByTestId("aui2-chip-ai_write"));
+    await waitFor(() => expect(chatApiState.streamAssistantChat).toHaveBeenCalled());
+    act(() => sse.drive(planCardEvent()));
+    await screen.findByTestId("prose-plan-body");
+    await waitFor(() => {
+      fireEvent.click(screen.getByTestId("prose-plan-start"));
+      expect(onProsePlanStart).toHaveBeenCalledTimes(1);
+    });
+    // 确认未通过：不翻「已开始」、按钮仍在（clearing 之前曾同步翻卡的回归钉）
+    expect(screen.queryByText(/已开始生成/)).toBeNull();
+    expect(screen.queryByTestId("prose-plan-start")).toBeTruthy();
   });
 
   it("未命中（picks 空）明示回退文风设定", async () => {

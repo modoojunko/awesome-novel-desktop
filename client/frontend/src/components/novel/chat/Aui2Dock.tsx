@@ -111,8 +111,9 @@ const DockCtx = createContext<{
   markAdopted: (cardId: string) => void;
   /** 采纳写回后的域刷新上抛（宿主走 dirty 守卫再重载面板） */
   refreshDomain?: (domain: "settings" | "chapters") => void;
-  /** 正文方案卡「开始生成」宿主桥（c-agent-dialog-prose）：确认弹窗与开流在宿主 */
-  proseStart?: (payload: Record<string, unknown>) => void;
+  /** 正文方案卡「开始生成」宿主桥（c-agent-dialog-prose）：确认弹窗与开流在宿主；
+   *  onStarted 只在真正开流后回调（弹窗取消则永不回调——卡面不得提前翻「已开始」） */
+  proseStart?: (payload: Record<string, unknown>, onStarted?: () => void) => void;
 } | null>(null);
 
 /** 产物卡（cardConfig 注册：code="artifact"）——复用既有 CardBody，视觉零变化；
@@ -252,28 +253,31 @@ function ArtifactCard(props: { data: ArtifactCardData; id?: string }) {
   };
 
   /** 方案卡「开始生成」（c-agent-dialog-prose）：桥接宿主（归档拦截/确认弹窗/
-   *  开流都在宿主）；卡面原地翻 adopted＋采纳回执落库（同 adopt 语义——
-   *  同章新卡到货判 stale）。 */
+   *  开流都在宿主）。**翻卡与回执只在 onStarted 回调里做**——宿主弹确认框被取消
+   *  时生成没发生，卡面必须停在草稿态（review P1：曾同步翻「已开始」）。 */
   const startProse = () => {
     if (!id || !ctx?.proseStart) return;
     setBusy(true);
     try {
-      ctx.proseStart(payload);
-      ctx.markAdopted(id);
-      if (data.cardId && data.projectId) {
-        void (async () => {
-          for (let i = 0; i < 3; i += 1) {
-            await new Promise((r) => setTimeout(r, 400 * (i + 1)));
-            try {
-              await adoptAssistantMessage(data.projectId!, data.cardId!);
-              return;
-            } catch {
-              /* 404 竞态重试；三连败放弃（徽标本地已翻，仅回执落库缺失） */
+      ctx.proseStart(payload, () => {
+        ctx.markAdopted(id);
+        if (data.cardId && data.projectId) {
+          const cardId = data.cardId;
+          const projectId = data.projectId;
+          void (async () => {
+            for (let i = 0; i < 3; i += 1) {
+              await new Promise((r) => setTimeout(r, 400 * (i + 1)));
+              try {
+                await adoptAssistantMessage(projectId, cardId);
+                return;
+              } catch {
+                /* 404 竞态重试；三连败放弃（徽标本地已翻，仅回执落库缺失） */
+              }
             }
-          }
-        })();
-      }
-      ctx.up({ id, role: "assistant", content: "", msgStatus: "finished", cards: [{ code: "artifact", data: { ...data, status: "adopted" } }] });
+          })();
+        }
+        ctx.up({ id, role: "assistant", content: "", msgStatus: "finished", cards: [{ code: "artifact", data: { ...data, status: "adopted" } }] });
+      });
     } finally {
       setBusy(false);
     }
@@ -1055,8 +1059,9 @@ export function Aui2Dock({
    *  提交 message——与手输同一条 submit 链，键校验/域校验/授权梯度零绕过 */
   autoAsk?: { seq: number; message: string };
   /** 正文方案卡「开始生成」宿主桥（c-agent-dialog-prose）：payload.prompt=卡上
-   *  提示词全文、payload.picks=选中写法条目——宿主走归档拦截/确认弹窗/开流 */
-  onProsePlanStart?: (payload: Record<string, unknown>) => void;
+   *  提示词全文、payload.picks=选中写法条目——宿主走归档拦截/确认弹窗/开流；
+   *  onStarted 真开流后才回调（取消/拦截不回调，卡面停留草稿态） */
+  onProsePlanStart?: (payload: Record<string, unknown>, onStarted?: () => void) => void;
 }) {
   const threadKey = threadKeyOf(scope);
   const apiRef = useRef<ChatAnywhereRef | null>(null);

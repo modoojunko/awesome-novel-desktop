@@ -82,7 +82,7 @@ import { isNameTaken } from "@/lib/charactersApi";
 import { fillOutlineGaps, type AiCheckKind } from "@/lib/aiCheck";
 import type { useOutline } from "@/hooks/useOutline";
 import type { useWorkbench } from "@/hooks/useWorkbench";
-import { api, errMessage, request } from "@/lib/api";
+import { api, errMessage } from "@/lib/api";
 import {
   getCachedChapterWordTarget,
   loadChapterWordTarget,

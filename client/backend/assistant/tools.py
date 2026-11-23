@@ -563,6 +563,9 @@ async def _read_write_prompt(ctx: ToolContext, chapter_ref: str) -> ToolResult:
         )
     warns = list(data.get("warnings") or [])
     lines = [f"本章用户提示词（{len(prompt)} 字，服务端组装稿——方案卡提示词的基底）：", prompt]
+    if not data.get("has_outline"):
+        # 章纲空信号透出（review P2）：agent 据此先补章纲再出卡，别对空章纲硬生成
+        lines.append("注意：本章章纲还是空的（概要/剧情条目都没有）——先补章纲再出方案卡。")
     if warns:
         lines.append("组装告警：" + "；".join(str(w) for w in warns))
     return ToolResult(ok=True, summary=_clip("\n".join(lines), 18000))

@@ -331,8 +331,13 @@ export default function NovelWorkspace() {
   // 重新生成确认（c-prose-regen-replace）：已有正文章再生成＝清空重写，开流前
   // 先确认；确认后按待启动参数开流。取消＝零副作用。
   const [showRegenConfirm, setShowRegenConfirm] = useState(false);
-  // 待启动参数（直开 chip 与方案卡「开始生成」共用）：确认弹窗批准后按它开流
-  const pendingStartRef = useRef<{ prompt?: string; extras?: ProseWriteExtras } | null>(null);
+  // 待启动参数（直开 chip 与方案卡「开始生成」共用）：确认弹窗批准后按它开流；
+  // onStarted＝方案卡回调（真开流后才翻「已开始」——取消则卡面留草稿态）
+  const pendingStartRef = useRef<{
+    prompt?: string;
+    extras?: ProseWriteExtras;
+    onStarted?: () => void;
+  } | null>(null);
   // 生成已启动的信号（计数器）：ChapterWorkspace 收到即切正文页签 + 聚焦（真 bug #2）
   const [aiWriteSignal, setAiWriteSignal] = useState(0);
   // 助手导航信号（c-agent-nav）：agent switch_tab → 中途真实切章节页签。
@@ -354,12 +359,13 @@ export default function NovelWorkspace() {
     pendingStartRef.current = null;
     setAiWriteSignal((n) => n + 1);
     proseRef.current?.startWriting(pending?.prompt || undefined, undefined, pending?.extras);
+    pending?.onStarted?.();
   }, []);
 
   /** 启动闸：已有正文先进确认弹窗（取消＝零副作用），确认后按待启动参数开流。 */
   const beginProseWrite = useCallback(
-    (prompt?: string, extras?: ProseWriteExtras) => {
-      pendingStartRef.current = { prompt, extras };
+    (prompt?: string, extras?: ProseWriteExtras, onStarted?: () => void) => {
+      pendingStartRef.current = { prompt, extras, onStarted };
       if ((railData?.wordCount ?? 0) > 0) {
         setShowRegenConfirm(true);
         return;
@@ -394,7 +400,7 @@ export default function NovelWorkspace() {
   // 方案卡「开始生成」宿主桥（c-agent-dialog-prose）：卡上提示词全文＝发给正文
   // 模型的 user 素材（所见即所发）；picks 随 body.kb_picks 下发（键存在＝agent 模式）
   const handleProsePlanStart = useCallback(
-    (payload: Record<string, unknown>) => {
+    (payload: Record<string, unknown>, onStarted?: () => void) => {
       if (railData?.archived) {
         toast.info("本章已归档 · 恢复编辑后可用");
         return;
@@ -410,7 +416,7 @@ export default function NovelWorkspace() {
           entry_id: p.entry_id as string,
           ...(typeof p.reason === "string" && p.reason ? { reason: p.reason } : {}),
         }));
-      beginProseWrite(prompt || undefined, { kbPicks });
+      beginProseWrite(prompt || undefined, { kbPicks }, onStarted);
     },
     [railData?.archived, beginProseWrite],
   );
