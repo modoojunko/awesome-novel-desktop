@@ -32,8 +32,10 @@ jobs:
       - name: Runner self-test (real PowerShell + fake installer)
         run: python client/packaging/build/runner_selftest.py
       - name: Packaging gate unit tests
+        # --noconftest：这 4 个文件自包含（自带 webview stub/临时目录），不依赖
+        # backend 的 conftest（那里要 sqlalchemy 等整套后端依赖，本 workflow 不装）
         run: >
-          python -m pytest
+          python -m pytest --noconftest
           client/backend/tests/test_packaging_shell_apply.py
           client/backend/tests/test_packaging_installer_dir_choice.py
           client/backend/tests/test_packaging_installer_silent_upgrade.py
