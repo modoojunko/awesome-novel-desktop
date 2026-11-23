@@ -34,10 +34,10 @@
 
 ## 5. Windows CI 真执行
 
-- [ ] 5.1 在 `client-package.yml` 的 Windows job（或独立 workflow）增加 runner self-test：假安装器返回 0/1，断言 `started → installer_start → finished` 顺序、exit code 透传、失败重试 ≤1、快照恢复、headless 说明文件
-- [ ] 5.2 增加“PowerShell 不可用”臂：把 `WINDIR` 指向无 `powershell.exe` 的临时目录（或桩掉 `_spawn_install_runner`），断言 Python 走 direct fallback 且日志含 `runner_fallback=direct`
-- [ ] 5.3 增加 stub 安装器目录继承测试：per-user 装临时目录 → admin 无 `/DIR` 再装，断言第二遍仍用第一遍目录；若 CI 权限/Inno 限制不可行，降级为真机验收项并在任务里注明原因
-- [ ] 5.4 把 Windows self-test 接入 PR 门禁（不依赖签名 secret），记录一次实际 run URL 与结论
+- [x] 5.1 独立 workflow（`.github/workflows/client-packaging-selftest.yml`）＋`client/packaging/build/runner_selftest.py`：windows-latest 上用**真 PowerShell** 跑生成脚本＋假安装器（.cmd，计次/删标记模拟装半截），三臂断言——一次成功（ok/retry=0/快照在/data 未动）、首败重试成功（安装器 2 次/retry=1/不做恢复）、两次失败（`rollback_restored`/程序树被 /MIR 恢复/data 未动）＋headless 桌面失败说明文件
+- [x] 5.2 「PowerShell 不可用」→ direct fallback 由既有单测覆盖（`test_runner_spawn_failure_falls_back_to_direct_installer` 断言 `runner_fallback=direct` 双处留痕；WINDIR 置空仍会回落到 PATH 的 powershell，无法在 CI 稳定伪造「完全不可用」，e2e 臂不做）
+- [ ] 5.3 stub 安装器目录继承测试：需 iscc 编译安装器＋PyInstaller dist（CI 成本高）——**降级为真机验收项**（4.4/6.7 同臂）
+- [x] 5.4 workflow 以 `pull_request` paths 触发（client/packaging/** 与打包测试）＝PR 门禁，不依赖签名 secret；实际 run 记录见 PR 描述
 
 ## 6. 回归与真机验收
 
