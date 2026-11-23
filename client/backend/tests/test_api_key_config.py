@@ -217,6 +217,22 @@ def setup_session_overrides():
     # Keep overrides in place for the entire session (they point at the same DB).
 
 
+@pytest.fixture(autouse=True)
+def _probe_stub(monkeypatch):
+    """保存门禁默认桩（c-api-config-save-gate）：成功、无模型清单——存量 CRUD 免触网。
+
+    打桩点必须走 service 的别名（`from .connection import test_connection as
+    _test_connection`）：patch `api_configs.connection.test_connection` 不生效。
+    需要判败/清单/入参断言的用例在自己的 monkeypatch 里再覆盖（后者生效）。
+    """
+    import api_configs.service as service_mod
+
+    async def _fake(**kwargs):
+        return {"ok": True, "status": "ok", "models": None, "error": None}
+
+    monkeypatch.setattr(service_mod, "_test_connection", _fake)
+
+
 async def _override_get_db():
     async with async_session() as session:
         yield session
@@ -2484,3 +2500,281 @@ class TestFirstModelHelper:
         assert _first_model('{"a": 1}') is None
         assert _first_model("[1, 2]") is None
         assert _first_model('[null]') is None
+
+# ═══════════════════════════════════════════════════════════════════════════
+#  保存前连通门禁（c-api-config-save-gate）
+# ═══════════════════════════════════════════════════════════════════════════
+
+
+class TestSaveGate:
+    """非 ok 即拦、判过持久化、值变化触发、豁免面。"""
+
+    GATE_USER_ID = "save-gate-user"
+    _user_created = False
+
+    @pytest.fixture(autouse=True)
+    def _setup_gate_user(self, client):
+        if not TestSaveGate._user_created:
+            _run_async(_create_user(user_id=self.GATE_USER_ID))
+            TestSaveGate._user_created = True
+        app.dependency_overrides[get_current_user] = _make_current_user_override(
+            self.GATE_USER_ID
+        )
+        _run_async(_clean_user_configs(self.GATE_USER_ID))
+        yield
+
+    def _post(self, client, **over):
+        body = {
+            "name": "门禁配置",
+            "vendor_id": "openai",
+            "base_url": "https://api.openai.com",
+            "api_key": _test_api_key("gate"),
+            "api_format": "openai",
+        }
+        body.update(over)
+        return client.post("/api/v1/api-configs", json=body)
+
+    def _stub(self, monkeypatch, outcome, calls=None):
+        import api_configs.service as service_mod
+
+        async def _fake(**kwargs):
+            if calls is not None:
+                calls.append(kwargs)
+            return outcome
+
+        monkeypatch.setattr(service_mod, "_test_connection", _fake)
+
+    def _row(self, config_id):
+        from models.api_config import ApiConfig
+
+        async def _fetch():
+            async with async_session() as session:
+                return (
+                    await session.execute(
+                        select(ApiConfig).where(ApiConfig.id == config_id)
+                    )
+                ).scalar_one_or_none()
+
+        return _run_async(_fetch())
+
+    def _count(self):
+        from models.api_config import ApiConfig
+
+        async def _fetch():
+            async with async_session() as session:
+                rows = (
+                    await session.execute(
+                        select(ApiConfig).where(ApiConfig.user_id == self.GATE_USER_ID)
+                    )
+                ).scalars().all()
+                return len(rows)
+
+        return _run_async(_fetch())
+
+    def test_create_bad_url_blocked_422_no_row(self, client, monkeypatch):
+        calls: list[dict] = []
+        self._stub(
+            monkeypatch,
+            {
+                "ok": False,
+                "status": "endpoint_mismatch",
+                "models": None,
+                "error": "该地址返回的不是 API 数据",
+            },
+            calls,
+        )
+        resp = self._post(client, base_url="https://platform.deepseek.com/api_keys")
+        assert resp.status_code == 422, resp.text
+        detail = resp.json()["detail"]
+        assert detail["code"] == "probe_failed"
+        assert detail["status"] == "endpoint_mismatch"
+        assert "不是 API 数据" in detail["message"]
+        assert self._count() == 0
+        # 探测拿的是明文 Key 与生效参数（与「测试连接」同判据）
+        assert calls[0]["api_key"] == _test_api_key("gate")
+        assert calls[0]["api_format"] == "openai"
+
+    def test_create_ok_persists_probe_and_keeps_preferred_head(self, client, monkeypatch):
+        self._stub(
+            monkeypatch,
+            {"ok": True, "status": "ok", "models": ["m1", "m2"], "error": None},
+        )
+        resp = self._post(client, models=["m2"])
+        assert resp.status_code == 201, resp.text
+        data = resp.json()
+        assert data["probe"] == {
+            "ok": True,
+            "status": "ok",
+            "models": ["m2", "m1"],
+            "error": None,
+        }
+        assert data["last_test_status"] == "ok"
+        assert data["models"] == ["m2", "m1"]
+        row = self._row(data["id"])
+        assert row.last_test_status == "ok"
+        assert json.loads(row.models) == ["m2", "m1"]
+
+    def test_create_without_models_keeps_empty(self, client, monkeypatch):
+        self._stub(
+            monkeypatch,
+            {"ok": True, "status": "ok", "models": None, "error": None},
+        )
+        resp = self._post(client)
+        assert resp.status_code == 201, resp.text
+        data = resp.json()
+        assert data["models"] == []
+        assert data["last_test_status"] == "ok"
+
+    def test_update_rename_only_never_probes(self, client, monkeypatch):
+        created = self._post(client).json()
+        calls: list[dict] = []
+        self._stub(
+            monkeypatch,
+            {"ok": True, "status": "ok", "models": None, "error": None},
+            calls,
+        )
+        resp = client.put(
+            f"/api/v1/api-configs/{created['id']}", json={"name": "换个名"}
+        )
+        assert resp.status_code == 200, resp.text
+        assert calls == []
+        assert "probe" not in resp.json()
+
+    def test_update_base_url_probe_fail_keeps_row(self, client, monkeypatch):
+        created = self._post(client).json()
+        self._stub(
+            monkeypatch,
+            {"ok": False, "status": "network_error", "models": None, "error": "连不上"},
+        )
+        resp = client.put(
+            f"/api/v1/api-configs/{created['id']}",
+            json={"base_url": "http://127.0.0.1:1"},
+        )
+        assert resp.status_code == 422, resp.text
+        assert resp.json()["detail"]["status"] == "network_error"
+        row = self._row(created["id"])
+        assert row.base_url == "https://api.openai.com"
+        assert row.last_test_status == "ok"  # 创建时判过留下的态不变
+
+    def test_update_empty_key_uses_stored_secret(self, client, monkeypatch):
+        created = self._post(client).json()
+        calls: list[dict] = []
+        self._stub(
+            monkeypatch,
+            {"ok": True, "status": "ok", "models": None, "error": None},
+            calls,
+        )
+        resp = client.put(
+            f"/api/v1/api-configs/{created['id']}",
+            json={"base_url": "https://api.openai.com/v1"},
+        )
+        assert resp.status_code == 200, resp.text
+        assert calls and calls[0]["api_key"] == _test_api_key("gate")
+
+    def test_update_thinking_change_triggers_probe(self, client, monkeypatch):
+        created = self._post(client).json()
+        calls: list[dict] = []
+        self._stub(
+            monkeypatch,
+            {"ok": True, "status": "ok", "models": None, "error": None},
+            calls,
+        )
+        resp = client.put(
+            f"/api/v1/api-configs/{created['id']}",
+            json={"thinking_enabled": True, "thinking_effort": "high"},
+        )
+        assert resp.status_code == 200, resp.text
+        assert calls, "改思考参数应触发门禁探测"
+        assert calls[0]["thinking_enabled"] is True
+        assert calls[0]["thinking_effort"] == "high"
+
+    def test_update_format_change_probe_ok_writes_results(self, client, monkeypatch):
+        created = self._post(client, models=["m0"]).json()
+        self._stub(
+            monkeypatch,
+            {"ok": True, "status": "ok", "models": ["a", "b"], "error": None},
+        )
+        resp = client.put(
+            f"/api/v1/api-configs/{created['id']}", json={"api_format": "anthropic"}
+        )
+        assert resp.status_code == 200, resp.text
+        data = resp.json()
+        assert data["api_format"] == "anthropic"
+        assert data["last_test_status"] == "ok"
+        assert data["models"] == ["a", "b"]  # 判过＝清单更新为本次探测结果（m0 不在新清单）
+
+    def test_update_format_change_probe_fail_keeps_original(self, client, monkeypatch):
+        created = self._post(client, models=["m0"]).json()
+        self._stub(
+            monkeypatch,
+            {"ok": False, "status": "auth_error", "models": None, "error": "认证失败"},
+        )
+        resp = client.put(
+            f"/api/v1/api-configs/{created['id']}", json={"api_format": "anthropic"}
+        )
+        assert resp.status_code == 422, resp.text
+        row = self._row(created["id"])
+        assert row.api_format == "openai"
+        assert json.loads(row.models) == ["m0"]
+        assert row.last_test_status == "ok"
+
+    @pytest.mark.parametrize(
+        "status",
+        [
+            "endpoint_mismatch",
+            "auth_error",
+            "timeout",
+            "network_error",
+            "rate_limited",
+            "unknown",
+        ],
+    )
+    def test_non_ok_statuses_all_blocked(self, client, monkeypatch, status):
+        self._stub(
+            monkeypatch,
+            {"ok": False, "status": status, "models": None, "error": f"{status} 失败"},
+        )
+        resp = self._post(client)
+        assert resp.status_code == 422, resp.text
+        assert resp.json()["detail"]["code"] == "probe_failed"
+        assert self._count() == 0
+
+    def test_migration_path_is_exempt(self, client, monkeypatch):
+        """旧字段迁移是豁免直建路径（不经保存门禁）。"""
+        from api_configs.service import migrate_user_configs
+
+        _run_async(
+            _create_user(
+                user_id="save-gate-legacy",
+                api_key=_test_api_key("legacy"),
+                api_base_url="https://legacy.example.com/v1",
+                api_model="legacy-model",
+            )
+        )
+        calls: list[dict] = []
+        self._stub(
+            monkeypatch,
+            {"ok": True, "status": "ok", "models": None, "error": None},
+            calls,
+        )
+
+        async def _run():
+            async with async_session() as session:
+                await migrate_user_configs(session)
+
+        _run_async(_run())
+        assert calls == []
+        _run_async(_clean_user_data("save-gate-legacy"))
+
+    def test_restore_path_is_exempt(self, client, monkeypatch):
+        created = self._post(client).json()
+        calls: list[dict] = []
+        self._stub(
+            monkeypatch,
+            {"ok": True, "status": "ok", "models": None, "error": None},
+            calls,
+        )
+        assert client.delete(f"/api/v1/api-configs/{created['id']}").status_code == 200
+        resp = client.post(f"/api/v1/api-configs/{created['id']}/restore")
+        assert resp.status_code == 200, resp.text
+        assert calls == []

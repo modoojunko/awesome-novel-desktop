@@ -152,3 +152,30 @@ describe("importParse() 错误文案", () => {
     expect(err.message).toBe("导入失败（HTTP 500）");
   });
 });
+
+describe("对象 detail（c-api-config-save-gate 保存门禁 422）", () => {
+  it("detail={code,status,message}：message 透出为 Error.message、code 挂 ApiError、HTTP 状态附带", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue({
+        ok: false,
+        status: 422,
+        json: async () => ({
+          detail: {
+            code: "probe_failed",
+            status: "endpoint_mismatch",
+            message: "该地址返回的不是 API 数据",
+          },
+        }),
+      }),
+    );
+    const err = (await request("/api-configs", {
+      apiBase: "/api/v1",
+      method: "POST",
+      body: "{}",
+    }).catch((e) => e)) as Error & { status?: number; code?: string };
+    expect(err.message).toBe("该地址返回的不是 API 数据");
+    expect(err.status).toBe(422);
+    expect(err.code).toBe("probe_failed");
+  });
+});

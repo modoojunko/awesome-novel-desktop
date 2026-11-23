@@ -40,6 +40,7 @@ from .schemas import (
     UpdateApiConfigBody,
 )
 from .service import (
+    ProbeFailed,
     apply_model_to_all_projects,
     create_api_config,
     delete_api_config,
@@ -135,6 +136,12 @@ async def create_config(
             thinking_effort=body.thinking_effort,
         )
         return result
+    except ProbeFailed as e:
+        # c-api-config-save-gate：保存前连通门禁判败——不落库，结构化 422 直达表单
+        raise HTTPException(
+            422,
+            detail={"code": "probe_failed", "status": e.status, "message": e.message},
+        )
     except ValueError as e:
         if "名称已被使用" in str(e):
             raise HTTPException(409, "名称已被使用")
@@ -255,6 +262,12 @@ async def update_config(
         if not result:
             raise HTTPException(404, "配置不存在")
         return result
+    except ProbeFailed as e:
+        # c-api-config-save-gate：保存前连通门禁判败——本次更新不落库，结构化 422
+        raise HTTPException(
+            422,
+            detail={"code": "probe_failed", "status": e.status, "message": e.message},
+        )
     except ValueError as e:
         if "名称已被使用" in str(e):
             raise HTTPException(409, "名称已被使用")

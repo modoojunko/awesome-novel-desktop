@@ -250,6 +250,7 @@ export function ApiConfigForm({ open, config, onSubmit, onCancel, onTest, onFetc
     if (isEdit) return;
     /* v8 ignore stop */
     setVendorId(id);
+    setError(null); // 改连接相关输入即清过期保存错误（c-api-config-save-gate）
     onVendorChange?.(id); // 指南页签定位（c-modelconfig-help-guide）
     const lock = VENDOR_FORMAT_LOCK[id as keyof typeof VENDOR_FORMAT_LOCK];
     const fmt = lock ?? apiFormat;
@@ -265,6 +266,7 @@ export function ApiConfigForm({ open, config, onSubmit, onCancel, onTest, onFetc
 
   const handleFormatSelect = (fmt: ApiFormat) => {
     if (formatLock || fmt === apiFormat) return;
+    setError(null); // 改连接相关输入即清过期保存错误
     setApiFormat(fmt);
     setTestResult(null);
     invalidateModelList();
@@ -574,7 +576,7 @@ export function ApiConfigForm({ open, config, onSubmit, onCancel, onTest, onFetc
             className="input mono"
             id="cfBase"
             value={baseUrl}
-            onChange={(e) => setBaseUrl(e.target.value)}
+            onChange={(e) => { setError(null); setBaseUrl(e.target.value); }}
             onBlur={() => {
               // Base URL 敲定即拉清单（ollama 免 Key 的主触发点；其他供应商 Key 已填时同样生效）
               if (baseUrl.trim() && (vendorId === "ollama" || apiKey.trim())) {
@@ -620,7 +622,7 @@ export function ApiConfigForm({ open, config, onSubmit, onCancel, onTest, onFetc
             type="password"
             autoComplete="off"
             value={apiKey}
-            onChange={(e) => setApiKey(e.target.value)}
+            onChange={(e) => { setError(null); setApiKey(e.target.value); }}
             onBlur={() => {
               // Key 失焦且非空＝自动拉清单的主触发点（2026-10-07 拍板：配完 Key 自动弹清单；编辑态重填 Key 同样生效）
               if (vendorId !== "ollama" && apiKey.trim()) {
@@ -645,7 +647,7 @@ export function ApiConfigForm({ open, config, onSubmit, onCancel, onTest, onFetc
                 className={thinkingEnabled ? "on" : ""}
                 aria-pressed={thinkingEnabled}
                 disabled={saving}
-                onClick={() => setThinkingEnabled(true)}
+                onClick={() => { setError(null); setThinkingEnabled(true); }}
               >
                 开启
               </button>
@@ -654,7 +656,7 @@ export function ApiConfigForm({ open, config, onSubmit, onCancel, onTest, onFetc
                 className={!thinkingEnabled ? "on" : ""}
                 aria-pressed={!thinkingEnabled}
                 disabled={saving}
-                onClick={() => setThinkingEnabled(false)}
+                onClick={() => { setError(null); setThinkingEnabled(false); }}
               >
                 关闭
               </button>
@@ -670,7 +672,7 @@ export function ApiConfigForm({ open, config, onSubmit, onCancel, onTest, onFetc
                   className={thinkingEffort === e.value ? "on" : ""}
                   aria-pressed={thinkingEffort === e.value}
                   disabled={saving || !thinkingEnabled}
-                  onClick={() => setThinkingEffort(e.value)}
+                  onClick={() => { setError(null); setThinkingEffort(e.value); }}
                 >
                   {e.label}
                 </button>

@@ -59,6 +59,21 @@ def _tables():
     yield
 
 
+@pytest.fixture(autouse=True)
+def _probe_stub(monkeypatch):
+    """保存门禁默认桩（c-api-config-save-gate）：service 直调用例免触网。
+
+    打桩点必须走 service 的别名（`from .connection import test_connection as
+    _test_connection`）；需要断言探测入参/结果的用例自带覆盖。
+    """
+    import api_configs.service as service_mod
+
+    async def _fake(**kwargs):
+        return {"ok": True, "status": "ok", "models": None, "error": None}
+
+    monkeypatch.setattr(service_mod, "_test_connection", _fake)
+
+
 async def _create_tables():
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
@@ -1184,11 +1199,24 @@ class TestContract:
             out = await update_api_config(db, user_id, cid, updates)
         return out
 
-    def test_update_format_clears_models_and_test_state(self):
+    def test_update_format_reruns_probe_instead_of_clearing(self, monkeypatch):
+        """c-api-config-save-gate（MODIFIED 让位）：改格式经保存入口＝门禁以新格式重测，
+        判过即把清单/测试态更新为本次探测结果（不再清空为「未测试」）。"""
+        import api_configs.service as service_mod
+
+        seen: dict = {}
+
+        async def _fake(**kwargs):
+            seen.update(kwargs)
+            return {"ok": True, "status": "ok", "models": ["gpt-4o"], "error": None}
+
+        monkeypatch.setattr(service_mod, "_test_connection", _fake)
         out = _run_async(self._seed_and_update({"api_format": "openai"}))
+        assert seen["api_format"] == "openai"  # 以新格式重测
         assert out["api_format"] == "openai"
-        assert out["models"] == []
-        assert out["last_test_status"] is None
+        assert out["models"] == ["gpt-4o"]  # 判过＝清单更新为本次结果（不清空）
+        assert out["last_test_status"] == "ok"
+        assert out["probe"]["models"] == ["gpt-4o"]
 
     def test_update_without_format_touches_nothing(self):
         out = _run_async(self._seed_and_update({"name": "改名"}))
