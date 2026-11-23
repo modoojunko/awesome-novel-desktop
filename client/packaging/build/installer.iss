@@ -22,6 +22,8 @@
 #define MyAppPublisher "星纬（海口）投资有限公司"
 #define MyAppURL "https://www.awesomenovel.com"
 #define MyAppExeName "AwesomeNovel.exe"
+; AppId 的裸 GUID（[Code] 读卸载登记项用；上面 [Setup] 那行因 Inno 转义写双花括号）
+#define MyAppId "{B8F1A2D3-4E5F-6A7B-8C9D-0E1F2A3B4C5D}"
 
 [Setup]
 ; 基础设置
@@ -150,7 +152,9 @@ Name: "{app}\data"; Permissions: users-modify
 
 [Icons]
 Name: "{group}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"
-Name: "{commondesktop}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"; Tasks: desktopicon
+; {autodesktop}：按安装模式解析到公用/用户桌面（c-update-fail-safe §4.3）——自动更新
+; 走 /CURRENTUSER 时写公用桌面不可用，旧实现会留下指向旧目录的死图标
+Name: "{autodesktop}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"; Tasks: desktopicon
 
 [Run]
 ; ⚠️ 勿再重命名 unins000.exe（v0.26 卸载事故成因）：Inno 卸载器按「自身文件名」推导
@@ -177,8 +181,15 @@ Filename: "{app}\{#MyAppExeName}"; Check: AutoLaunchRequested; Flags: postinstal
 ; 注意 Windows 的**书稿数据**不在这个目录——它在 {app}\data（便携式），随 [Files] 一并移除。
 Filename: "{cmd}"; Parameters: "/C rmdir /S /Q ""{userappdata}\AwesomeNovel"""; Flags: runhidden; RunOnceId: "CleanRuntimeDir"
 Filename: "{cmd}"; Parameters: "/C rmdir /S /Q ""{userappdata}\AI Novel"""; Flags: runhidden; RunOnceId: "CleanLegacyRuntimeDir"
+; 本地目录只放安装目录指针与更新快照（c-update-fail-safe §4.1/§3.1），随卸载清掉
+Filename: "{cmd}"; Parameters: "/C rmdir /S /Q ""{localappdata}\AwesomeNovel"""; Flags: runhidden; RunOnceId: "CleanLocalAppdataDir"
 
 [Code]
+// 全局变量必须声明在首个函数/过程之前（Pascal 块结构；iscc 编译要求，review P2）。
+// 位置页一次性预填标志：首次应用解析结果后记账，用户手改目录再返回不得被覆盖。
+var
+  InstallDirPrefilled: Boolean;
+
 // 自动升级链（silent-upgrade-lab 实验分支）：安装器据此决定是否在静默装完后拉起新版 GUI。
 // 注意本段注释必须用 //（Pascal 语法）——`;` 是 Inno 配置段注释、在 [Code] 里会被当语句解析，
 // 首编实锤报 "'BEGIN' expected"（docker iscc 判例 2026-10-13）。
@@ -187,4 +198,120 @@ Filename: "{cmd}"; Parameters: "/C rmdir /S /Q ""{userappdata}\AI Novel"""; Flag
 function AutoLaunchRequested: Boolean;
 begin
   Result := ExpandConstant('{param:AUTOLAUNCH|}') = '1';
+end;
+
+// ── 安装目录连续性（c-update-fail-safe §4.2）──────────────────────────────
+// 自动链一直 /CURRENTUSER（HKCU），用户手动双击走 admin（HKLM）：Inno 的
+// UsePreviousAppDir 只读「当前安装模式对应的 hive」，跨模式时看不到旧路径，
+// 回落到 DefaultDirName → 数据目录跟着变、看起来像「书没了」。解法（优先级）：
+//   1. 应用启动写的指针 {localappdata}\AwesomeNovel\install_dir.txt（原子写）；
+//   2. HKCU/HKLM 的 64/32 位卸载登记项 Inno Setup: App Path / InstallLocation；
+//   3. 都不行 → 保留 Inno 默认。
+// /DIR 显式给出时一律不覆盖（命令行优先级最高）。
+function DirWritable(const Dir: String): Boolean;
+var Probe: String;
+begin
+  Result := False;
+  if Dir = '' then exit;
+  if not DirExists(Dir) then exit;
+  Probe := AddBackslash(Dir) + '.awesome-novel-write-probe';
+  Result := SaveStringToFile(Probe, 'x', False);
+  if Result then DeleteFile(Probe);
+end;
+
+function ReadInstallDirPointer: String;
+var S: AnsiString;
+begin
+  Result := '';
+  if FileExists(ExpandConstant('{localappdata}\AwesomeNovel\install_dir.txt')) then
+  begin
+    if LoadStringFromFile(ExpandConstant('{localappdata}\AwesomeNovel\install_dir.txt'), S) then
+      Result := Trim(String(S));
+  end;
+end;
+
+function UninstallDirFrom(const RootKey: Integer): String;
+var Value: String;
+begin
+  Result := '';
+  if RegQueryStringValue(RootKey, 'Software\Microsoft\Windows\CurrentVersion\Uninstall\{#MyAppId}',
+                         'Inno Setup: App Path', Value) and DirWritable(Value) then
+    Result := Value
+  else if RegQueryStringValue(RootKey, 'Software\Microsoft\Windows\CurrentVersion\Uninstall\{#MyAppId}',
+                              'InstallLocation', Value) and DirWritable(Value) then
+    Result := Value;
+end;
+
+function ResolveInstallDir: String;
+var Dir: String;
+begin
+  Result := '';
+  Dir := ReadInstallDirPointer;
+  if DirWritable(Dir) then
+  begin
+    Result := Dir;
+    exit;
+  end;
+  Result := UninstallDirFrom(HKEY_CURRENT_USER_64);
+  if Result = '' then Result := UninstallDirFrom(HKEY_CURRENT_USER_32);
+  if Result = '' then Result := UninstallDirFrom(HKEY_LOCAL_MACHINE_64);
+  if Result = '' then Result := UninstallDirFrom(HKEY_LOCAL_MACHINE_32);
+end;
+
+// 位置页只「首次进入」应用一次解析结果：用户手动改目录后点「上一步/下一步」
+// 回来不得再被覆盖（review P3）。InitializeWizard 的预填不记账（Inno 的
+// UsePreviousAppDir 会在页面激活时再写一次，真正生效的是 CurPageChanged）。
+procedure ApplyInstallDir(MarkDone: Boolean);
+var Dir: String;
+begin
+  if MarkDone and InstallDirPrefilled then exit;
+  if ExpandConstant('{param:DIR|}') <> '' then  // /DIR 显式优先
+  begin
+    if MarkDone then InstallDirPrefilled := True;
+    exit;
+  end;
+  Dir := ResolveInstallDir;
+  if Dir <> '' then
+  begin
+    WizardForm.DirEdit.Text := Dir;
+    if MarkDone then InstallDirPrefilled := True;
+  end;
+end;
+
+procedure InitializeWizard;
+begin
+  ApplyInstallDir(False);
+end;
+
+procedure CurPageChanged(CurPageID: Integer);
+begin
+  if CurPageID = wpSelectDir then ApplyInstallDir(True);
+end;
+
+// ── 桌面快捷方式连续性（c-update-fail-safe §4.3）─────────────────────────
+// 只修复「已存在」的用户桌面快捷方式目标，不强行创建（尊重用户取消勾选）。
+procedure FixShortcutTarget(const LnkPath, Target: String);
+var
+  Shell: Variant;
+  Shortcut: Variant;
+begin
+  try
+    Shell := CreateOleObject('WScript.Shell');
+    Shortcut := Shell.CreateShortcut(LnkPath);
+    Shortcut.TargetPath := Target;
+    Shortcut.Save;
+  except
+    // 尽力而为：快捷方式修复失败不阻断安装
+  end;
+end;
+
+procedure CurStepChanged(CurStep: TSetupStep);
+var Lnk: String;
+begin
+  if CurStep = ssPostInstall then
+  begin
+    Lnk := ExpandConstant('{autodesktop}\{#MyAppName}.lnk');
+    if FileExists(Lnk) then
+      FixShortcutTarget(Lnk, ExpandConstant('{app}\{#MyAppExeName}'));
+  end;
 end;
