@@ -445,7 +445,9 @@ async def test_gate_preview_genre_shape_gate():
     tool = get_tool("write_settings_field")
     cases = [
         ({"stype": "genre", "field": "forbidden_list", "value": ["禁天降外援"]}, "条目数组"),
-        ({"stype": "genre", "field": "battlefield", "value": "抢资源"}, "字符串数组"),
+        # 长字符串：列表字段的「条数上限」不能抢先报「最多 10 字」
+        ({"stype": "genre", "field": "battlefield", "value": "抢资源" * 5}, "字符串数组"),
+        ({"stype": "genre", "field": "forbidden_list", "value": "禁" * 51}, "条目数组"),
         ({"stype": "genre", "field": "cost_ratio", "value": 11}, "1-10"),
     ]
     for args, fragment in cases:
