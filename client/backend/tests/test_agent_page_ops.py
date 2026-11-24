@@ -653,6 +653,27 @@ def test_write_chapter_fields_cap_word_target_human_error(monkeypatch):
     assert saved == {}
 
 
+def test_write_chapter_fields_cap_rejects_over_limits(monkeypatch):
+    """章纲上限进写链：超限拒绝而不是让 store 静默截断/丢条（review 2026-11-24）。"""
+    from assistant.caps.chapter import write_chapter_fields_cap
+
+    saved: dict = {}
+    _patch_chapter_store(monkeypatch, _assembled(), saved)
+    cases = [
+        ({"summary": "长" * 301}, "最多 300 字"),
+        ({"challenge": "长" * 151}, "最多 150 字"),
+        ({"primary_mood": "长" * 51}, "最多 50 字"),
+        ({"characters": ["名" * 51]}, "每名最多 50 字"),
+        ({"plot_items": ["场景"] * 13}, "最多 12 条"),
+        ({"plot_items": ["长" * 201]}, "每项最多 200 字"),
+    ]
+    for fields, fragment in cases:
+        with pytest.raises(Exception) as ei:
+            _run(write_chapter_fields_cap("n1", "vol-1-ch-2", "u1", fields))
+        assert fragment in str(ei.value), (fields, str(ei.value))
+    assert saved == {}  # 一个字段都没写
+
+
 def test_chapter_field_labels_match_outline_page():
     """章纲卡面字段名逐字等于章纲页各格名（OgPane）。"""
     from assistant.caps.chapter import CHAPTER_FIELD_WRITE_KEYS

@@ -107,7 +107,7 @@ def _chapter_fields() -> list[FieldMeta]:
                   write="write_chapter_fields",
                   aliases=("概要", "这一章写什么")),
         FieldMeta("characters", labels["characters"], "字符串数组（角色名）",
-                  write="write_chapter_fields"),
+                  "每名≤50 字", write="write_chapter_fields"),
         FieldMeta("challenge", labels["challenge"], "一段文字", "≤150 字",
                   write="write_chapter_fields"),
         FieldMeta("plot_stage", labels["plot_stage"], "六档之一",

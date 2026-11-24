@@ -465,6 +465,7 @@ async def test_gate_preview_chapter_value_gate():
         ({"plot_stage": "不存在的阶段"}, "阶段"),
         ({"plot_items": "不是数组"}, "字符串数组"),
         ({"word_target": "三千"}, "数字"),
+        ({"summary": "长" * 301}, "最多 300 字"),
     ]
     for fields, fragment in cases:
         with pytest.raises(PreviewRejected) as ei:
@@ -565,6 +566,25 @@ async def test_gate_preview_volume_fields_and_validation(monkeypatch):
             {},
         )
     assert "空字符串" in str(ei.value)
+
+    # VolumeUpdate 超限/空标题错误人话化（不把 pydantic 英文甩给模型）
+    with pytest.raises(PreviewRejected) as ei:
+        await _build_gate_preview(
+            tool,
+            {"ref": "vol-1", "fields": {"summary": "长" * 301}},
+            SimpleNamespace(id="n1"),
+            {},
+        )
+    assert "最多 300 字" in str(ei.value)
+
+    with pytest.raises(PreviewRejected) as ei:
+        await _build_gate_preview(
+            tool,
+            {"ref": "vol-1", "fields": {"title": ""}},
+            SimpleNamespace(id="n1"),
+            {},
+        )
+    assert "至少 1 字" in str(ei.value)
 
 
 @pytest.mark.asyncio

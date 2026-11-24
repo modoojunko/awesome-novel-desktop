@@ -29,6 +29,7 @@
 - [x] 5.4 02 标签退出 agent 字段写白名单（`SETTINGS_FIELD_AGENT_WRITE` 不含 `core_promise`）：写核/preview 人话拒绝、工具 enum 不含它、页面目录与说明书标注「只展示、不直接写（走出爽点采纳卡）」；验证：`core_promise` 直接写被拒＋enum 断言＋规则单测通过
 - [x] 5.5 review 整改：移除标签上的旧叫法「核心承诺」别名；`read_chapter`/`read_outline` 按字段表逐格读值（补 memo/情绪/剧情/卷名/章数）；`write_volume_fields` 补 preview（VolumeUpdate 同源）；非法字段拒绝语只列 agent 可写集；验证：新增读值/卷纲 preview/别名断言单测通过，assistant 296 passed
 - [x] 5.6 二轮 review 整改：读值文本格预算 200（卷纲 300、列表 120），长字段不再 80 字截断；卷纲 `title/summary` 显式 null 在 preview 拒绝（service 是 no-op，不弹假清空卡）；说明书补齐卷纲/章纲上限与 `antagonist_type` 闭集；验证：长字段读值/ null 拒绝/元数据断言单测通过
+- [x] 5.7 三轮 review 整改：章纲上限进写链（超限拒绝而非 store 静默截断/丢条）；卷纲 `VolumeUpdate` 校验错误人话化；验证：超限（summary/challenge/mood/角色名/剧情条数与单条）全部被拒且不落库，卷纲错误含「最多 300 字/至少 1 字」
 
 ## 6. 回归
 

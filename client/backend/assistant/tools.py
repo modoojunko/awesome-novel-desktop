@@ -545,8 +545,10 @@ async def _preview_write_volume_fields(args: dict, project):
     try:
         VolumeUpdate(**fields)
     except ValidationError as e:
-        msg = str(e.errors()[0].get("msg", "字段值不合法")) if e.errors() else "字段值不合法"
-        raise PreviewRejected(f"卷纲字段校验不过：{msg}") from e
+        from assistant.caps.settings import _human_pydantic_msg
+
+        raw = str(e.errors()[0].get("msg", "字段值不合法")) if e.errors() else "字段值不合法"
+        raise PreviewRejected(f"卷纲字段校验不过：{_human_pydantic_msg(raw)}") from e
     if project is None:
         return {}
     clean_ref = ref if ref.startswith("vol-") else f"vol-{ref}"

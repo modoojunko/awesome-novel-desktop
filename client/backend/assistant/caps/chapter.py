@@ -204,6 +204,20 @@ CHAPTER_FIELD_WRITE_KEYS: dict[str, str] = {
     "word_target": "本章目标字数",
 }
 
+# 章纲写入口的落库上限（与 models/chapter 列宽/页面输入同口径）：超限拒绝而不是
+# 让 save_chapter 静默截断（review 2026-11-24：卡面显示全文、落库被截）。
+CHAPTER_FIELD_LIMITS: dict[str, int] = {
+    "summary": 300,
+    "challenge": 150,
+    "ladder_exit": 300,
+    "primary_mood": 50,
+}
+CHAPTER_LIST_ITEM_LIMITS: dict[str, int] = {
+    "characters": 50,  # 角色名
+    "plot_items": 200,  # 单条场景
+}
+CHAPTER_PLOT_ITEMS_MAX = 12
+
 
 def _chapter_prev_value(assembled: dict, key: str):
     outline = assembled.get("outline") if isinstance(assembled.get("outline"), dict) else {}
@@ -294,6 +308,22 @@ def build_chapter_patch(fields: dict) -> dict:
     for key, value in fields.items():
         if key not in CHAPTER_FIELD_WRITE_KEYS:
             raise CapabilityError(f"不支持的章纲字段：{key}")
+        label = CHAPTER_FIELD_WRITE_KEYS[key]
+        limit = CHAPTER_FIELD_LIMITS.get(key)
+        if limit is not None and isinstance(value, str) and len(value) > limit:
+            raise CapabilityError(f"「{label}」最多 {limit} 字，这次给了 {len(value)} 字。")
+        item_limit = CHAPTER_LIST_ITEM_LIMITS.get(key)
+        if item_limit is not None and isinstance(value, list):
+            unit = "名" if key == "characters" else "项"
+            for item in value:
+                if len(str(item)) > item_limit:
+                    raise CapabilityError(
+                        f"「{label}」每{unit}最多 {item_limit} 字，超了。"
+                    )
+            if key == "plot_items" and len(value) > CHAPTER_PLOT_ITEMS_MAX:
+                raise CapabilityError(
+                    f"「{label}」最多 {CHAPTER_PLOT_ITEMS_MAX} 条，这次给了 {len(value)} 条。"
+                )
         probe = _chapter_data_for(key, value)
         try:
             validate_chapter_fields(probe)

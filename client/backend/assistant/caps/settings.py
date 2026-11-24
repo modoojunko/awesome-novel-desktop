@@ -309,12 +309,23 @@ def _human_pydantic_msg(msg: str) -> str:
     """Pydantic 常见长度/条数英文消息 → 人话（其余原样）。"""
     import re
 
-    m = re.search(r"String should have at most (\d+) characters", msg)
+    m = re.search(r"String should have at most (\d+) characters?", msg)
     if m:
         return f"内容太长（最多 {m.group(1)} 字）"
+    m = re.search(r"String should have at least (\d+) characters?", msg)
+    if m:
+        return f"内容太短（至少 {m.group(1)} 字）"
     m = re.search(r"List should have at most (\d+) items", msg)
     if m:
         return f"条目太多（最多 {m.group(1)} 条）"
+    m = re.search(r"Input should be less than or equal to (\d+)", msg)
+    if m:
+        return f"不能大于 {m.group(1)}"
+    m = re.search(r"Input should be greater than or equal to (\d+)", msg)
+    if m:
+        return f"不能小于 {m.group(1)}"
+    if "valid integer" in msg:
+        return "要填整数"
     if "Field required" in msg:
         return "缺少必填内容"
     return msg

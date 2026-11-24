@@ -37,6 +37,7 @@ def test_chapter_schema_matches_outline_page():
     text = render_page_schema("ch:og")
     assert "当前页面：章纲" in text
     assert "章纲概要" in text and "summary" in text and "≤300 字" in text
+    assert "出场角色" in text and "characters" in text and "每名≤50 字" in text
     assert "禁止事项" in text and "prohibitions" in text
     assert "剧情" in text and "plot_items" in text and "≤12 条，每条≤200 字" in text
     assert "六档" in text and "plot_stage" in text

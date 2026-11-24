@@ -76,6 +76,7 @@
 - **卷纲 preview**：`write_volume_fields` 补 `preview_builder`，按页面名呈现字段前后，并与 `VolumeUpdate` 同源校验。
 - **拒绝语收口**：非法字段文案只列 `SETTINGS_FIELD_AGENT_WRITE`（不再把 `core_promise` 说成可写）。
 - **二轮 review**：读值文本格预算 200 字（卷纲 300，列表 120），不再一律 80；卷纲 `title/summary` 的显式 null 在 service 是 no-op，preview 直接拒绝而非显示「改成空」；说明书补齐卷纲/章纲上限与 `antagonist_type` 闭集。
+- **三轮 review**：章纲上限进写链（summary 300/challenge 150/ladder_exit 300/mood 50、角色名 50、剧情 ≤12 条/每条 200），超限拒绝而不是让 `save_chapter` 静默截断；卷纲 `VolumeUpdate` 校验错误复用 `_human_pydantic_msg`（不再甩英文）。
 
 ## Risks / Trade-offs
 
