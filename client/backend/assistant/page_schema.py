@@ -103,18 +103,21 @@ def _chapter_fields() -> list[FieldMeta]:
 
     labels = CHAPTER_FIELD_WRITE_KEYS
     return [
-        FieldMeta("summary", labels["summary"], "一段文字", write="write_chapter_fields",
+        FieldMeta("summary", labels["summary"], "一段文字", "≤300 字",
+                  write="write_chapter_fields",
                   aliases=("概要", "这一章写什么")),
         FieldMeta("characters", labels["characters"], "字符串数组（角色名）",
                   write="write_chapter_fields"),
-        FieldMeta("challenge", labels["challenge"], "一段文字", write="write_chapter_fields"),
+        FieldMeta("challenge", labels["challenge"], "一段文字", "≤150 字",
+                  write="write_chapter_fields"),
         FieldMeta("plot_stage", labels["plot_stage"], "六档之一",
                   write="write_chapter_fields",
                   aliases=("开局铺垫", "冲突初现", "矛盾升级", "重要转折", "高潮爆发", "卷末收束")),
-        FieldMeta("ladder_exit", labels["ladder_exit"], "一段文字",
+        FieldMeta("ladder_exit", labels["ladder_exit"], "一段文字", "≤300 字",
                   write="write_chapter_fields", aliases=("落点", "结尾停在哪")),
         FieldMeta("plot_items", labels["plot_items"], "字符串数组（一条一段场景）",
-                  write="write_chapter_fields", aliases=("剧情条目", "场景")),
+                  "≤12 条，每条≤200 字", "write_chapter_fields",
+                  aliases=("剧情条目", "场景")),
         FieldMeta("required_changes", labels["required_changes"], "字符串数组",
                   write="write_chapter_fields", aliases=("变化", "必须发生")),
         FieldMeta("prohibitions", labels["prohibitions"], "字符串数组",
@@ -128,19 +131,22 @@ def _chapter_fields() -> list[FieldMeta]:
 
 def _volume_fields() -> list[FieldMeta]:
     return [
-        FieldMeta("title", "卷名", "一段文字", write="write_volume_fields"),
-        FieldMeta("summary", "本卷主旨", "一段文字", write="write_volume_fields",
-                  aliases=("这一卷讲什么", "主旨")),
-        FieldMeta("core_conflict", "主要冲突", "一段文字", write="write_volume_fields",
-                  aliases=("核心矛盾", "冲突")),
-        FieldMeta("ending", "卷末收在哪里", "一段文字", write="write_volume_fields",
-                  aliases=("卷末", "结局")),
+        FieldMeta("title", "卷名", "一段文字", "1-200 字", write="write_volume_fields"),
+        FieldMeta("summary", "本卷主旨", "一段文字", "≤300 字",
+                  write="write_volume_fields", aliases=("这一卷讲什么", "主旨")),
+        FieldMeta("core_conflict", "主要冲突", "一段文字", "≤150 字",
+                  write="write_volume_fields", aliases=("核心矛盾", "冲突")),
+        FieldMeta("ending", "卷末收在哪里", "一段文字", "≤300 字",
+                  write="write_volume_fields", aliases=("卷末", "结局")),
         FieldMeta("chapter_target", "章数目标", "数字", "1-9999",
                   write="write_volume_fields", aliases=("章数", "几章")),
-        FieldMeta("antagonist_type", "坎的类型", "一段文字", write="write_volume_fields",
-                  aliases=("反派类型", "坎")),
-        FieldMeta("antagonist_line", "坎的一句话", "一段文字", write="write_volume_fields",
-                  aliases=("反派线", "反派的一句话")),
+        FieldMeta(
+            "antagonist_type", "坎的类型", "闭集（人物/难题/环境/自我/势力）", "≤20 字",
+            write="write_volume_fields",
+            aliases=("人物", "难题", "环境", "自我", "势力", "反派类型", "坎"),
+        ),
+        FieldMeta("antagonist_line", "坎的一句话", "一段文字", "≤150 字",
+                  write="write_volume_fields", aliases=("反派线", "反派的一句话")),
     ]
 
 

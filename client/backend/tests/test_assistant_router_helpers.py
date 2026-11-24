@@ -556,6 +556,16 @@ async def test_gate_preview_volume_fields_and_validation(monkeypatch):
         )
     assert "人物" in str(ei.value)
 
+    # title/summary 的 null 在 update_volume 是 no-op——不能弹「改成空」的卡
+    with pytest.raises(PreviewRejected) as ei:
+        await _build_gate_preview(
+            tool,
+            {"ref": "vol-1", "fields": {"summary": None}},
+            SimpleNamespace(id="n1"),
+            {},
+        )
+    assert "空字符串" in str(ei.value)
+
 
 @pytest.mark.asyncio
 async def test_gate_preview_rejects_unknown_setting_field():

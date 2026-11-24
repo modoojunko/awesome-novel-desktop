@@ -40,6 +40,10 @@ from assistant.scopes import tools_for_thread
 
 # 转写预算（write/chapter_writer.py 判例同风格：按中文字符预算，不按 token）
 READ_CHAPTER_BUDGET_CHARS = 1500
+# 读值逐格预算（c-agent-field-write-parity review）：文本格给足，列表/短字段另裁
+READ_CHAPTER_FIELD_CLIP = 200
+READ_CHAPTER_LIST_CLIP = 120
+READ_VOLUME_FIELD_CLIP = 300
 READ_SETTINGS_BUDGET_CHARS = 800
 # 检测问题行明细预算（人味 findings 的段号/原句/why/fix；朱雀段另列）
 READ_PROSE_CHECKS_BUDGET_CHARS = 2000
@@ -196,7 +200,8 @@ async def _read_chapter(ctx: ToolContext, chapter_ref: str) -> ToolResult:
             shown = ""
         else:
             shown = str(val).strip()
-        lines.append(f"- {label}：{_clip(shown, 80) if shown else '未填'}")
+        budget = READ_CHAPTER_LIST_CLIP if isinstance(val, list) else READ_CHAPTER_FIELD_CLIP
+        lines.append(f"- {label}：{_clip(shown, budget) if shown else '未填'}")
     if prose:
         lines.append(f"正文：{_clip(prose, READ_CHAPTER_BUDGET_CHARS)}")
     else:
@@ -355,7 +360,9 @@ async def _read_outline(ctx: ToolContext, scope: str = "volume", ref: str = "") 
             for key, label in labels.items():
                 val = getattr(v, key, None)
                 shown = "" if val is None else str(val).strip()
-                rows.append(f"- {label}：{_clip(shown, 80) if shown else '未填'}")
+                rows.append(
+                    f"- {label}：{_clip(shown, READ_VOLUME_FIELD_CLIP) if shown else '未填'}"
+                )
             blocks.append("\n".join(rows))
         return ToolResult(ok=True, summary=_clip("\n\n".join(blocks), 2000))
     # chapter：章纲字段在章全量里
@@ -525,6 +532,16 @@ async def _preview_write_volume_fields(args: dict, project):
             + "、".join(labels.values())
             + "。"
         )
+    # update_volume 对 title/summary 的显式 null 是 no-op（不写）——卡面不能显示
+    # 「改成空」骗作家批准（c-agent-field-write-parity review）。
+    for key in ("title", "summary"):
+        if key in fields and fields[key] is None:
+            hint = (
+                "卷名不能为空。"
+                if key == "title"
+                else "要清空本卷主旨请传空字符串，不要传 null。"
+            )
+            raise PreviewRejected(f"「{labels[key]}」不能用空值（null）改——{hint}")
     try:
         VolumeUpdate(**fields)
     except ValidationError as e:

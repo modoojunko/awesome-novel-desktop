@@ -75,6 +75,7 @@
 - **读值逐格**：`read_chapter` 按章纲字段表逐格人话（memo/情绪/剧情条目全部出现，不再 `str(outline)` repr）；`read_outline` 卷纲按卷纲字段表逐格（补上卷名/章数目标）。
 - **卷纲 preview**：`write_volume_fields` 补 `preview_builder`，按页面名呈现字段前后，并与 `VolumeUpdate` 同源校验。
 - **拒绝语收口**：非法字段文案只列 `SETTINGS_FIELD_AGENT_WRITE`（不再把 `core_promise` 说成可写）。
+- **二轮 review**：读值文本格预算 200 字（卷纲 300，列表 120），不再一律 80；卷纲 `title/summary` 的显式 null 在 service 是 no-op，preview 直接拒绝而非显示「改成空」；说明书补齐卷纲/章纲上限与 `antagonist_type` 闭集。
 
 ## Risks / Trade-offs
 

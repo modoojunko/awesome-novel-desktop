@@ -36,18 +36,20 @@ def test_world_schema_documents_native_types():
 def test_chapter_schema_matches_outline_page():
     text = render_page_schema("ch:og")
     assert "当前页面：章纲" in text
-    assert "章纲概要" in text and "summary" in text
+    assert "章纲概要" in text and "summary" in text and "≤300 字" in text
     assert "禁止事项" in text and "prohibitions" in text
-    assert "剧情" in text and "plot_items" in text
+    assert "剧情" in text and "plot_items" in text and "≤12 条，每条≤200 字" in text
     assert "六档" in text and "plot_stage" in text
     assert "write_chapter_fields" in text
 
 
 def test_volume_schema_lists_writable_fields():
     text = render_page_schema("vol")
-    assert "本卷主旨" in text and "summary" in text
-    assert "主要冲突" in text and "core_conflict" in text
+    assert "本卷主旨" in text and "summary" in text and "≤300 字" in text
+    assert "主要冲突" in text and "core_conflict" in text and "≤150 字" in text
     assert "章数目标" in text and "chapter_target" in text
+    assert "闭集（人物/难题/环境/自我/势力）" in text
+    assert "1-200 字" in text  # 卷名
     assert "write_volume_fields" in text
 
     from assistant.page_schema import volume_field_labels
@@ -67,7 +69,7 @@ def test_read_chapter_renders_all_chapter_fields(monkeypatch):
             "outline": {"summary": "新概要", "characters": ["林野"]},
             "memo": {"required_changes": ["必须变"], "prohibitions": ["别这样"]},
             "emotional_design": {"primary_mood": "紧绷"},
-            "challenge": "旧挑战",
+            "challenge": "长挑战" * 40,
             "plot_stage": "冲突初现",
             "ladder_exit": "停在门口",
             "plot_items": ["场景一"],
@@ -85,6 +87,7 @@ def test_read_chapter_renders_all_chapter_fields(monkeypatch):
         "剧情", "必须完成的变化", "禁止事项", "主情绪", "本章目标字数",
     ):
         assert label in text, label
+    assert "长挑战" * 40 in text  # 文本格 200 字预算：120 字不截
     assert "必须完成的变化：必须变" in text
     assert "禁止事项：别这样" in text
     assert "主情绪：紧绷" in text
@@ -107,7 +110,7 @@ def test_read_outline_volume_renders_all_fields(monkeypatch):
         return [
             SimpleNamespace(
                 volume_no=1, title="第一卷", summary="本卷主旨",
-                core_conflict="主要冲突", ending="卷末结局", chapter_target=12,
+                core_conflict="主要冲突", ending="结局" * 100, chapter_target=12,
                 antagonist_type="人物", antagonist_line="反派的一句话",
             )
         ]
@@ -122,6 +125,7 @@ def test_read_outline_volume_renders_all_fields(monkeypatch):
     assert "章数目标：12" in text
     assert "本卷主旨：本卷主旨" in text
     assert "坎的类型：人物" in text
+    assert "结局" * 100 in text  # 卷纲文本格 300 字预算：200 字不截
 
 
 def test_unsupported_pages_say_so():
