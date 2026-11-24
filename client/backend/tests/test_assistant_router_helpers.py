@@ -387,6 +387,16 @@ async def test_gate_preview_settings_page_labels_and_overlong_guard(monkeypatch)
     msg = str(ei.value)
     assert "60" in msg and "promise_note" in msg
 
+    # 首尾空白计入原始长度（Pydantic 不 strip）——同样不弹卡
+    with pytest.raises(PreviewRejected) as ei:
+        await _build_gate_preview(
+            tool,
+            {"stype": "genre", "field": "core_promise", "value": "长" * 59 + "  "},
+            SimpleNamespace(id="n1"),
+            {},
+        )
+    assert "这次给了 61 字" in str(ei.value)
+
 
 @pytest.mark.asyncio
 async def test_gate_preview_rejects_unknown_setting_field():

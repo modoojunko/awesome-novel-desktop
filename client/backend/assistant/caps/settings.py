@@ -163,6 +163,23 @@ def settings_field_maxlen(stype: str, field: str) -> int | None:
     )
 
 
+def settings_field_overlong(
+    stype: str, field: str, value: object
+) -> tuple[int, int] | None:
+    """值超落库上限时返回 (上限, 原始长度)；否则 None。
+
+    与 NovelGenreIn.max_length 同口径按**原始字符串**计数——Pydantic 不忽略
+    首尾空白，strip 后再比会漏放行「批了也写不进」的值（review P2，2026-11-24）。
+    授权卡 preview 与写核共用本函数，避免两处判断再漂移。
+    """
+    if not isinstance(value, str):
+        return None
+    limit = settings_field_maxlen(stype, field)
+    if limit is not None and len(value) > limit:
+        return limit, len(value)
+    return None
+
+
 async def read_settings_field(
     novel_id: str, stype: str, field: str, user_id: str
 ) -> str:
@@ -220,12 +237,12 @@ async def write_settings_field_cap(
             raise CapabilityError("书不存在或不属于当前作家。")
 
         if stype == "genre":
-            limit = settings_field_maxlen(stype, field)
-            text = value.strip() if isinstance(value, str) else ""
-            if limit is not None and len(text) > limit:
+            over = settings_field_overlong(stype, field, value)
+            if over is not None:
+                limit, length = over
                 label = SETTINGS_FIELD_WRITE[stype][field]
                 raise CapabilityError(
-                    f"「{label}」最多 {limit} 字，这次给了 {len(text)} 字，写不进去。"
+                    f"「{label}」最多 {limit} 字，这次给了 {length} 字，写不进去。"
                 )
             from genres.novel_genre_service import (
                 NovelGenreIn,

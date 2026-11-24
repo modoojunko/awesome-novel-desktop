@@ -1576,7 +1576,7 @@ async def _preview_write_settings_field(args: dict, project):
     字段回喂模型改对再来——作家不该看到一张写不成的授权单（2026-11-21 实锤：
     story.premise 弹卡裸 JSON）。读现值失败才回落（闸不受影响）。
     """
-    from assistant.caps.settings import read_settings_field, settings_field_maxlen
+    from assistant.caps.settings import read_settings_field, settings_field_overlong
 
     stype = str(args.get("stype") or "")
     field = str(args.get("field") or "")
@@ -1598,9 +1598,9 @@ async def _preview_write_settings_field(args: dict, project):
             + "。"
         )
     # 超长值不弹卡：批了也落不了库，只会让作家看到一张空头授权单。
-    limit = settings_field_maxlen(stype, field)
-    text = value.strip() if isinstance(value, str) else ""
-    if limit is not None and len(text) > limit:
+    over = settings_field_overlong(stype, field, value)
+    if over is not None:
+        limit, length = over
         hint = ""
         if field == "core_promise":
             hint = (
@@ -1608,7 +1608,7 @@ async def _preview_write_settings_field(args: dict, project):
                 "core_promise 只放一句短标签。"
             )
         raise PreviewRejected(
-            f"「{label}」最多 {limit} 字，这次给了 {len(text)} 字，写不进去。{hint}"
+            f"「{label}」最多 {limit} 字，这次给了 {length} 字，写不进去。{hint}"
         )
     before = ""
     if project is not None:

@@ -513,7 +513,7 @@ def test_settings_field_labels_match_settings_page():
 
 def test_write_settings_field_cap_rejects_overlong_text(monkeypatch):
     """超长值人话拦下（core_promise 60 字上限）——不落库，也不把 pydantic 英文
-    原样甩给模型。"""
+    原样甩给模型。原始长度计（首尾空白不豁免，与 NovelGenreIn 同口径）。"""
     from assistant.caps.settings import write_settings_field_cap
 
     storage = _FakeStorage({})
@@ -525,3 +525,9 @@ def test_write_settings_field_cap_rejects_overlong_text(monkeypatch):
     msg = str(ei.value)
     assert "主要看什么 · 标签" in msg and "60" in msg
     assert "payload" not in put_capture  # 一个字段都没写
+
+    # 59 个正文字 + 2 个尾空格 = 原始 61 字：Pydantic 不 strip，闸必须同口径拦
+    with pytest.raises(Exception) as ei:
+        _run(write_settings_field_cap("n1", "genre", "core_promise", "长" * 59 + "  ", "u1"))
+    assert "这次给了 61 字" in str(ei.value)
+    assert "payload" not in put_capture
