@@ -376,6 +376,7 @@ KB_TOOLS: tuple[Tool, ...] = (
         name="kb_create_entry",
         kind="write",
         feature_key="ai-plan",
+        requires_feature="assistant-execute",
         parameters={
             "type": "object",
             "properties": {
@@ -394,6 +395,7 @@ KB_TOOLS: tuple[Tool, ...] = (
         name="kb_update_entry",
         kind="write",
         feature_key="ai-plan",
+        requires_feature="assistant-execute",
         parameters={
             "type": "object",
             "properties": {

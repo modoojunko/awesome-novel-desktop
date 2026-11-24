@@ -89,6 +89,9 @@ class Tool:
     args_hint: str = ""  # 派生缓存：__post_init__ 自 parameters 生成（入参示例）
     discipline: str = "anchored"  # anchored | divergent
     feature_key: str = ""  # 读类空串；对齐 frontend/src/lib/features.ts
+    # 执行门（c-writing-agent-tier）：写类工具必需（assistant-execute，标准起）；
+    # 启动校验缺声明即 fail loud；读类/产卡类恒空。
+    requires_feature: str = ""
     fn: Callable[..., Awaitable[ToolResult]] | None = None
     # 调度元数据（openworker _parallel_safe 同款）：low=只读低风险可并行，
     # 写类/发散类串行保序（boss 拍板 2026-11-15 调度对齐 openworker）
@@ -688,6 +691,7 @@ TOOL_REGISTRY: tuple[Tool, ...] = (
     Tool(
         name="write_volume_fields",
         kind="write",
+        requires_feature="assistant-execute",
         parameters={
             "type": "object",
             "properties": {
@@ -1207,33 +1211,33 @@ _lore_suggest_fn = _lore_suggest
 
 STRUCTURE_TOOLS: tuple = (
     Tool(
-        name="confirm_chapter", kind="write", risk_level="high", effect_domain="chapters",
+        name="confirm_chapter", kind="write", risk_level="high", effect_domain="chapters", requires_feature="assistant-execute",
         parameters={"type": "object", "properties": {"chapter_ref": {"type": "string", "description": "章 ref（例：vol-1-ch-7）"}}, "required": ["chapter_ref"]},
         description="确认一章的章纲（作家说「确认章纲」类要求时代办）。授权卡批复后执行。",
         fn=_confirm_chapter_fn,
     ),
     Tool(
-        name="unconfirm_chapter", kind="write", risk_level="high", effect_domain="chapters",
+        name="unconfirm_chapter", kind="write", risk_level="high", effect_domain="chapters", requires_feature="assistant-execute",
         parameters={"type": "object", "properties": {"chapter_ref": {"type": "string", "description": "章 ref"}}, "required": ["chapter_ref"]},
         description="撤回一章的章纲确认（回到草稿态，改完可再确认）。", fn=_unconfirm_chapter_fn,
     ),
     Tool(
-        name="archive_chapter", kind="write", risk_level="high", effect_domain="chapters",
+        name="archive_chapter", kind="write", risk_level="high", effect_domain="chapters", requires_feature="assistant-execute",
         parameters={"type": "object", "properties": {"chapter_ref": {"type": "string", "description": "章 ref"}}, "required": ["chapter_ref"]},
         description="归档一章（有正文的章才能归档；归档后进已归档列表）。", fn=_archive_chapter_fn,
     ),
     Tool(
-        name="unarchive_chapter", kind="write", risk_level="high", effect_domain="chapters",
+        name="unarchive_chapter", kind="write", risk_level="high", effect_domain="chapters", requires_feature="assistant-execute",
         parameters={"type": "object", "properties": {"chapter_ref": {"type": "string", "description": "章 ref"}}, "required": ["chapter_ref"]},
         description="取消一章的归档（恢复为可编辑态）。", fn=_unarchive_chapter_fn,
     ),
     Tool(
-        name="add_volume", kind="write", risk_level="high", effect_domain="volumes",
+        name="add_volume", kind="write", risk_level="high", effect_domain="volumes", requires_feature="assistant-execute",
         parameters={"type": "object", "properties": {"title": {"type": "string", "description": "卷名（可空，服务端兜底「第N卷」）"}}, "required": []},
         description="新建一卷（作家说「开新卷/新增一卷」类要求时代办）。", fn=_add_volume_fn,
     ),
     Tool(
-        name="add_chapter", kind="write", risk_level="high", effect_domain="chapters",
+        name="add_chapter", kind="write", risk_level="high", effect_domain="chapters", requires_feature="assistant-execute",
         parameters={"type": "object", "properties": {"volume_ref": {"type": "string", "description": "卷 ref（例：vol-1；缺省 vol-1）"}, "title": {"type": "string", "description": "章名（可空）"}}, "required": []},
         description="新增一章（排到指定卷的下一章）。", fn=_add_chapter_fn,
     ),
@@ -1647,7 +1651,7 @@ async def _write_settings_field(ctx, stype: str = "", field: str = "", value=Non
 
 PAGE_OPS_TOOLS: tuple[Tool, ...] = (
     Tool(
-        name="write_chapter_fields", kind="write", risk_level="high",
+        name="write_chapter_fields", kind="write", risk_level="high", requires_feature="assistant-execute",
         effect_domain="chapters",
         parameters={
             "type": "object",
@@ -1675,7 +1679,7 @@ PAGE_OPS_TOOLS: tuple[Tool, ...] = (
         preview_builder=_preview_write_chapter_fields,
     ),
     Tool(
-        name="write_settings_field", kind="write", risk_level="high",
+        name="write_settings_field", kind="write", risk_level="high", requires_feature="assistant-execute",
         effect_domain="settings",
         parameters={
             "type": "object",
@@ -1705,6 +1709,23 @@ TOOL_REGISTRY: tuple[Tool, ...] = TOOL_REGISTRY + PAGE_OPS_TOOLS
 
 
 _TOOLS_BY_NAME: dict[str, Tool] = {t.name: t for t in TOOL_REGISTRY}
+
+# 启动校验（c-writing-agent-tier）：执行类工具必须声明 requires_feature，缺声明 fail loud。
+_UNDECLARED_EXECUTE_TOOLS = [
+    t.name for t in TOOL_REGISTRY if t.kind == "write" and not t.requires_feature
+]
+if _UNDECLARED_EXECUTE_TOOLS:  # pragma: no cover - 启动即失败
+    raise RuntimeError(
+        f"执行类工具缺 requires_feature 声明（应填 assistant-execute）：{_UNDECLARED_EXECUTE_TOOLS}"
+    )
+# 反向守护：读类/产卡类不得声明执行键（spec：读类 MUST NOT 要求）。
+_NON_WRITE_WITH_EXECUTE = [
+    t.name for t in TOOL_REGISTRY if t.kind != "write" and t.requires_feature
+]
+if _NON_WRITE_WITH_EXECUTE:  # pragma: no cover - 启动即失败
+    raise RuntimeError(
+        f"读类/产卡类工具不应声明 requires_feature：{_NON_WRITE_WITH_EXECUTE}"
+    )
 
 
 def get_tool(name: str) -> Tool | None:
