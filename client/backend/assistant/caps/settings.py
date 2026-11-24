@@ -144,19 +144,28 @@ SETTINGS_PANEL_ZH: dict[str, str] = {
 
 
 def settings_field_maxlen(stype: str, field: str) -> int | None:
-    """字符串字段的落库上限（与 NovelGenreIn 单一源）。
+    """文本字段的落库上限（与 NovelGenreIn 单一源）。
 
     超长值在授权卡之前就说不清楚＝作家批了也写不进去（2026-11-24 实锤：
     core_promise 60 字上限，模型却把 200 字主句塞进来，连弹两张卡）。
+    只认**文本字段**：列表字段的 MaxLen 是「条数」不是「字数」，误用会把
+    「战场传成字符串」拒成「最多 10 字」（review 2026-11-24）。
     """
     if stype != "genre":
         return None
+    from typing import get_args, get_origin
+
     from annotated_types import MaxLen
 
     from genres.novel_genre_service import NovelGenreIn
 
     info = NovelGenreIn.model_fields.get(field)
     if info is None:
+        return None
+    # list[...] 的 get_args 也含 str——先排除容器类型，再看联合/裸 str。
+    if get_origin(info.annotation) in (list, tuple, set, dict):
+        return None
+    if info.annotation is not str and str not in get_args(info.annotation):
         return None
     return next(
         (meta.max_length for meta in info.metadata if isinstance(meta, MaxLen)), None

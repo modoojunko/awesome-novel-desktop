@@ -531,3 +531,18 @@ def test_write_settings_field_cap_rejects_overlong_text(monkeypatch):
         _run(write_settings_field_cap("n1", "genre", "core_promise", "长" * 59 + "  ", "u1"))
     assert "这次给了 61 字" in str(ei.value)
     assert "payload" not in put_capture
+
+
+def test_settings_field_maxlen_only_text_fields():
+    """长度闸只认文本字段：列表字段的 MaxLen 是条数，不能当字数拒字符串。"""
+    from assistant.caps.settings import settings_field_maxlen, settings_field_overlong
+
+    assert settings_field_maxlen("genre", "core_promise") == 60
+    assert settings_field_maxlen("genre", "promise_note") == 200
+    assert settings_field_maxlen("genre", "battlefield") is None
+    assert settings_field_maxlen("genre", "forbidden_list") is None
+    assert settings_field_maxlen("genre", "cost_ratio") is None
+    # 列表字段被误传成长字符串时，长度闸不接（让形状校验给人话）
+    assert settings_field_overlong("genre", "battlefield", "抢" * 11) is None
+    assert settings_field_overlong("genre", "forbidden_list", "禁" * 51) is None
+
