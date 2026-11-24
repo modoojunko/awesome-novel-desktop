@@ -69,6 +69,13 @@
   标签现值与「不直接写」的写入口。
 - 备选：保留可写 + 卡面标「标签」——短句仍可能进标签槽，拍板选确定性。
 
+### D8：review 整改（2026-11-24）
+
+- **旧叫法不挂标签**：`核心承诺` 历史上指 02 主字段，不作为 `core_promise` 别名（否则又把人指向标签）；匹配不唯一时按规则问一句。
+- **读值逐格**：`read_chapter` 按章纲字段表逐格人话（memo/情绪/剧情条目全部出现，不再 `str(outline)` repr）；`read_outline` 卷纲按卷纲字段表逐格（补上卷名/章数目标）。
+- **卷纲 preview**：`write_volume_fields` 补 `preview_builder`，按页面名呈现字段前后，并与 `VolumeUpdate` 同源校验。
+- **拒绝语收口**：非法字段文案只列 `SETTINGS_FIELD_AGENT_WRITE`（不再把 `core_promise` 说成可写）。
+
 ## Risks / Trade-offs
 
 - [世界写行为收紧：以前「看似成功」的字符串列表写会改为报错] → 报错文案给出可用形状与页面字段名；不静默吞。

@@ -175,19 +175,28 @@ def _clip(text: str, budget: int) -> str:
 
 
 async def _read_chapter(ctx: ToolContext, chapter_ref: str) -> ToolResult:
+    from assistant.caps.chapter import CHAPTER_FIELD_WRITE_KEYS, _chapter_prev_value
     from chapters.store import load_chapter
 
     data = await load_chapter(ctx.root_path, str(chapter_ref or "").strip())
     if not data:
         return ToolResult(ok=False, summary=f"章节 {chapter_ref} 不存在或为空。")
     # 字段对齐 assemble_chapter 实际键（review 判例 2026-11-15：曾读 content——
-    # 真键是顶层 prose（outline 本就正确），模型被喂「正文未写」假象）
+    # 真键是顶层 prose（outline 本就正确），模型被喂「正文未写」假象）。
+    # 章纲逐格人话（c-agent-field-write-parity）：此前 str(outline) 是 Python repr，
+    # 且 memo/情绪/剧情条目根本不出现，agent 写前看不到现值。
     title = str(data.get("title") or "")
-    outline = str(data.get("outline") or "")
     prose = str(data.get("prose") or "")
-    lines = [f"《{title}》（{chapter_ref}）"]
-    if outline:
-        lines.append(f"章纲：{_clip(outline, 300)}")
+    lines = [f"《{title}》（{chapter_ref}）", "章纲："]
+    for key, label in CHAPTER_FIELD_WRITE_KEYS.items():
+        val = _chapter_prev_value(data, key)
+        if isinstance(val, list):
+            shown = "、".join(str(x).strip() for x in val if str(x).strip())
+        elif val is None:
+            shown = ""
+        else:
+            shown = str(val).strip()
+        lines.append(f"- {label}：{_clip(shown, 80) if shown else '未填'}")
     if prose:
         lines.append(f"正文：{_clip(prose, READ_CHAPTER_BUDGET_CHARS)}")
     else:
@@ -322,9 +331,9 @@ async def _read_prose_checks(ctx: ToolContext, chapter_ref: str = "") -> ToolRes
 
 async def _read_outline(ctx: ToolContext, scope: str = "volume", ref: str = "") -> ToolResult:
     """卷纲（六段文本）或章纲。scope=volume|chapter。"""
+    from assistant.page_schema import volume_field_labels
     from db import async_session
     from repositories import volume_repo
-    from volumes.render import volume_outline_text
 
     scope = str(scope or "volume")
     if scope == "volume":
@@ -339,7 +348,15 @@ async def _read_outline(ctx: ToolContext, scope: str = "volume", ref: str = "") 
         ]
         if not picked:
             return ToolResult(ok=False, summary="还没有任何卷。")
-        blocks = [f"第{v.volume_no}卷·{v.title or ''}\n{volume_outline_text(v)}" for v in picked]
+        labels = volume_field_labels()
+        blocks: list[str] = []
+        for v in picked:
+            rows = [f"第{v.volume_no}卷"]
+            for key, label in labels.items():
+                val = getattr(v, key, None)
+                shown = "" if val is None else str(val).strip()
+                rows.append(f"- {label}：{_clip(shown, 80) if shown else '未填'}")
+            blocks.append("\n".join(rows))
         return ToolResult(ok=True, summary=_clip("\n\n".join(blocks), 2000))
     # chapter：章纲字段在章全量里
     result = await _read_chapter(ctx, ref)
@@ -483,9 +500,63 @@ VOLUME_FIELD_WHITELIST = (
 )
 
 
+async def _preview_write_volume_fields(args: dict, project):
+    """卷纲授权卡：字段前后对比（与 VolumeUpdate 同源校验）。"""
+    from pydantic import ValidationError
+    from sqlalchemy import select
+
+    from assistant.page_schema import volume_field_labels
+    from db import async_session
+    from models.project import Novel
+    from repositories import volume_repo
+    from volumes.schemas import VolumeUpdate
+
+    ref = str(args.get("ref") or "").strip()
+    fields = args.get("fields") if isinstance(args.get("fields"), dict) else {}
+    if not ref:
+        raise PreviewRejected("没说要改哪一卷，这一步先不写（如 vol-1）。")
+    if not fields:
+        raise PreviewRejected("没说要改这一卷的哪些字段，这一步先不写。")
+    labels = volume_field_labels()
+    unknown = [k for k in fields if k not in labels]
+    if unknown:
+        raise PreviewRejected(
+            f"卷纲里没有这些字段：{'、'.join(map(str, unknown))}，这一步先不写。能写的是："
+            + "、".join(labels.values())
+            + "。"
+        )
+    try:
+        VolumeUpdate(**fields)
+    except ValidationError as e:
+        msg = str(e.errors()[0].get("msg", "字段值不合法")) if e.errors() else "字段值不合法"
+        raise PreviewRejected(f"卷纲字段校验不过：{msg}") from e
+    if project is None:
+        return {}
+    clean_ref = ref if ref.startswith("vol-") else f"vol-{ref}"
+    try:
+        vol_no = int(clean_ref.replace("vol-", ""))
+    except ValueError:
+        raise PreviewRejected(f"卷 ref 认不出来：{ref}（如 vol-1）。") from None
+    async with async_session() as db:
+        project_row = (
+            await db.scalars(select(Novel).where(Novel.id == project.id))
+        ).first()
+        if project_row is None:
+            return {}
+        vol = await volume_repo.get_by_volume_no(db, project_row.id, vol_no)
+    if vol is None:
+        raise PreviewRejected(f"没找到 {clean_ref} 这一卷——先确认卷 ref 再来。")
+    changes = [
+        {"field": key, "label": labels[key], "before": getattr(vol, key, None), "after": value}
+        for key, value in fields.items()
+    ]
+    return {"tool": "write_volume_fields", "entity": f"volume:{clean_ref}", "changes": changes}
+
+
 async def _write_volume_fields(ctx: ToolContext, ref: str, fields: dict[str, Any]) -> ToolResult:
     """改一卷的字段（白名单内）。走 volumes.service.update_volume 既有校验链；
     写前抓 previous 值进 write_log（撤销=按 previous 回写）。"""
+    from assistant.page_schema import volume_field_labels
     from db import async_session
     from novels.service import get_novel
     from volumes.schemas import VolumeUpdate
@@ -495,10 +566,11 @@ async def _write_volume_fields(ctx: ToolContext, ref: str, fields: dict[str, Any
     if not clean_ref.startswith("vol-"):
         clean_ref = f"vol-{clean_ref}"
     fields = fields or {}
+    labels = volume_field_labels()
     bad = [k for k in fields if k not in VOLUME_FIELD_WHITELIST]
     if bad:
         return ToolResult(
-            ok=False, summary=f"字段不在白名单：{bad}（可写：{list(VOLUME_FIELD_WHITELIST)}）"
+            ok=False, summary=f"字段不在白名单：{bad}（可写：{list(labels.values())}）"
         )
     if not fields:
         return ToolResult(ok=False, summary="没有给出要写的字段。")
@@ -518,7 +590,7 @@ async def _write_volume_fields(ctx: ToolContext, ref: str, fields: dict[str, Any
         await update_volume(session, project, clean_ref, body)
     return ToolResult(
         ok=True,
-        summary=f"已写入 {clean_ref}：{'、'.join(fields)}",
+        summary=f"已写入 {clean_ref}：{'、'.join(labels.get(k, k) for k in fields)}",
         meta={
             "write_log": {
                 "entity": f"volume:{clean_ref}",
@@ -714,11 +786,13 @@ TOOL_REGISTRY: tuple[Tool, ...] = (
             "required": ["ref", "fields"],
         },
         description=(
-            "改一卷的字段（可写：title/summary/core_conflict/ending/chapter_target/"
-            "antagonist_type/antagonist_line）。受作家授权梯度管控；写入后有回执可撤销。"
+            "改一卷的字段（卷名/本卷主旨/主要冲突/卷末收在哪里/章数目标/坎的类型/"
+            "坎的一句话；单字段合并写）。不确定字段键先 read_page_schema。"
+            "受作家授权梯度管控；确认档先弹授权卡过目字段前后，写入后有回执可撤销。"
         ),
         feature_key="ai-plan",
         fn=_write_volume_fields,
+        preview_builder=_preview_write_volume_fields,
     ),
 )
 
@@ -1617,7 +1691,9 @@ async def _preview_write_settings_field(args: dict, project):
     if label is None:
         raise PreviewRejected(
             f"{panel}面板里没有「{field}」这个字段，这一步先不写。这一页能写的是："
-            + "、".join(f"{zh}（{key}）" for key, zh in SETTINGS_FIELD_WRITE[stype].items())
+            + "、".join(
+                f"{zh}（{key}）" for key, zh in SETTINGS_FIELD_AGENT_WRITE[stype].items()
+            )
             + "。"
         )
     blocked = agent_write_error(stype, field)

@@ -27,9 +27,10 @@
 - [x] 5.2 注册零参数只读工具 `read_page_schema`（按 `ctx.thread` 取页面），挂到 `set:` / `ch:og` / `vol` 页签；无字段级写入口的页面如实说明；验证：`validate_scopes` 无漏配，`test_assistant_page_schema.py` 8 passed
 - [x] 5.3 写工具说明与页签纪律指向 `read_page_schema`（先按页面说法找键，再按写入口写；不唯一就问一句）；验证：scope 可见性单测与描述断言通过
 - [x] 5.4 02 标签退出 agent 字段写白名单（`SETTINGS_FIELD_AGENT_WRITE` 不含 `core_promise`）：写核/preview 人话拒绝、工具 enum 不含它、页面目录与说明书标注「只展示、不直接写（走出爽点采纳卡）」；验证：`core_promise` 直接写被拒＋enum 断言＋规则单测通过
+- [x] 5.5 review 整改：移除标签上的旧叫法「核心承诺」别名；`read_chapter`/`read_outline` 按字段表逐格读值（补 memo/情绪/剧情/卷名/章数）；`write_volume_fields` 补 preview（VolumeUpdate 同源）；非法字段拒绝语只列 agent 可写集；验证：新增读值/卷纲 preview/别名断言单测通过，assistant 296 passed
 
 ## 6. 回归
 
-- [x] 6.1 后端：`pytest tests/ -q -k "assistant"` → 292 passed；scope/registry 31 passed；world/genre/chapter 相关 → 172 passed / 36 skipped
+- [x] 6.1 后端：`pytest tests/ -q -k "assistant"` → 296 passed；scope/registry 31 passed；world/genre/chapter/volume 相关 → 145 passed / 17 skipped
 - [ ] 6.2 前端：`npx tsc --noEmit` 零错；`npm run design:lint` 仅存量红（`docs/design-c/prototypes/preview.html` emoji，与本变更无关、未触碰该文件）；本变更无前端文件改动，`design:check` 免跑（proposal Design Impact）
 - [ ] 6.3 真机走查（随装包）：世界开关写「关」后刷新仍关、history 条目写入后可见；章纲一次改概要+出场角色两者都落库；授权卡显示章纲概要/禁止事项/剧情；agent 写前会先 read_page_schema 找字段键；记录结论与截图路径

@@ -477,6 +477,85 @@ async def test_gate_preview_chapter_value_gate():
         assert fragment in str(ei.value), (fields, str(ei.value))
 
 
+@pytest.mark.asyncio
+async def test_gate_preview_unknown_field_lists_only_agent_writable():
+    """非法字段拒绝语只列 agent 可写字段（不含已退出的 core_promise）。"""
+    from assistant.router import _build_gate_preview
+    from assistant.tools import PreviewRejected, get_tool
+
+    with pytest.raises(PreviewRejected) as ei:
+        await _build_gate_preview(
+            get_tool("write_settings_field"),
+            {"stype": "genre", "field": "theme", "value": "x"},
+            SimpleNamespace(id="n1"),
+            {},
+        )
+    msg = str(ei.value)
+    assert "promise_note" in msg
+    assert "core_promise" not in msg
+
+
+@pytest.mark.asyncio
+async def test_gate_preview_volume_fields_and_validation(monkeypatch):
+    """卷纲授权卡按页面名呈现字段前后；非法字段/闭集值不弹卡。"""
+    import db as db_mod
+    import repositories.volume_repo as vrepo
+    from assistant.router import _build_gate_preview
+    from assistant.tools import PreviewRejected, get_tool
+
+    class _Scalars:
+        def first(self):
+            return SimpleNamespace(id="n1")
+
+    class _Session:
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *a):
+            return False
+
+        async def scalars(self, stmt):
+            return _Scalars()
+
+    async def _fake_get(db, project_id, vol_no):
+        assert (project_id, vol_no) == ("n1", 1)
+        return SimpleNamespace(
+            title="第一卷", summary="旧主旨", core_conflict="旧冲突",
+            ending="旧结局", chapter_target=10,
+            antagonist_type="人物", antagonist_line="旧反派",
+        )
+
+    monkeypatch.setattr(db_mod, "async_session", lambda: _Session())
+    monkeypatch.setattr(vrepo, "get_by_volume_no", _fake_get)
+    tool = get_tool("write_volume_fields")
+    pv = await _build_gate_preview(
+        tool,
+        {"ref": "vol-1", "fields": {"summary": "新主旨"}},
+        SimpleNamespace(id="n1"),
+        {},
+    )
+    change = pv["changes"][0]
+    assert change["label"] == "本卷主旨"
+    assert change["before"] == "旧主旨" and change["after"] == "新主旨"
+
+    with pytest.raises(PreviewRejected) as ei:
+        await _build_gate_preview(
+            tool,
+            {"ref": "vol-1", "fields": {"plants": []}},
+            SimpleNamespace(id="n1"),
+            {},
+        )
+    assert "本卷主旨" in str(ei.value)
+
+    with pytest.raises(PreviewRejected) as ei:
+        await _build_gate_preview(
+            tool,
+            {"ref": "vol-1", "fields": {"antagonist_type": "外星人"}},
+            SimpleNamespace(id="n1"),
+            {},
+        )
+    assert "人物" in str(ei.value)
+
 
 @pytest.mark.asyncio
 async def test_gate_preview_rejects_unknown_setting_field():

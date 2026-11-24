@@ -45,7 +45,9 @@ def _genre_fields() -> list[FieldMeta]:
         FieldMeta(
             "core_promise", labels["core_promise"], "短标签", "≤60 字",
             write="settings_genre_core_promise 采纳卡（页面标签，不直接写）",
-            aliases=("标签", "核心承诺", "短标签"),
+            # 旧页面叫法「核心承诺」不挂这里：它历史上指 02 主字段，挂标签会重演
+            # 「主句写进标签槽」；不唯一时按匹配规则问作家。
+            aliases=("标签", "短标签"),
         ),
         FieldMeta(
             "forbidden_list", labels["forbidden_list"], "条目数组（[{tagId} 或 {text}]）",
@@ -140,6 +142,11 @@ def _volume_fields() -> list[FieldMeta]:
         FieldMeta("antagonist_line", "坎的一句话", "一段文字", write="write_volume_fields",
                   aliases=("反派线", "反派的一句话")),
     ]
+
+
+def volume_field_labels() -> dict[str, str]:
+    """卷纲字段键 → 页面名（授权卡/回执/读值共用同一份）。"""
+    return {f.key: f.label for f in _volume_fields()}
 
 
 _PAGES: dict[str, tuple[str, Callable[[], list[FieldMeta]]]] = {

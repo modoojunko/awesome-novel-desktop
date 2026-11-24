@@ -224,8 +224,10 @@ def _chapter_prev_value(assembled: dict, key: str):
         "required_changes": memo.get("required_changes", []),
         "prohibitions": memo.get("prohibitions", []),
         "primary_mood": emo.get("primary_mood", ""),
-        "word_target": ch.get("word_target"),
-        "title": ch.get("title", ""),
+        # assemble_chapter 的 title/word_target 在顶层（不在 chapter 子 dict）——
+        # 旧实现只读 ch.* → 真机授权卡「现在」永远显示未填（review 2026-11-24）。
+        "word_target": assembled.get("word_target", ch.get("word_target")),
+        "title": assembled.get("title") or ch.get("title", ""),
     }.get(key)
 
 
