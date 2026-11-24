@@ -61,7 +61,7 @@ async def test_genre_page_fields_list_keys_and_tag(monkeypatch):
     text = await build_panel_fields("/root", "n1", "genre")
     assert "本页字段：" in text
     assert "主要看什么（promise_note）" in text
-    assert "主要看什么 · 标签（core_promise）" in text
+    assert "02 标签（core_promise）只展示、不直接写" in text
     assert "02 主要看什么=靠算计翻盘（标签：以弱破强）" in text
 
 

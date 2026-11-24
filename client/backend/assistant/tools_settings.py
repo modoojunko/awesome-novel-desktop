@@ -153,6 +153,13 @@ async def _read_page_fields(ctx: ToolContext) -> ToolResult:
     return ToolResult(ok=True, summary=text)
 
 
+async def _read_page_schema(ctx: ToolContext) -> ToolResult:
+    from assistant.page_schema import render_page_schema
+
+    thread = str(getattr(ctx, "thread", "") or "").strip()
+    return ToolResult(ok=True, summary=render_page_schema(thread))
+
+
 # ── 01 题材目录（c-agent-genre-pick）──────────────────────────────────────
 # 「题材」有两层：01 目录（theme/sub_genre）与 02-05 四格。四问工具不能代替
 # 选题材——模型没有目录时只能拿 core_promise 顶替（2026-11-21 真机实锤）。
@@ -439,9 +446,22 @@ SETTINGS_FIELD_TOOLS: tuple[Tool, ...] = (
             "问本页哪些填了哪些没填、或写前不确定写哪个字段时，先调它。"
             "不返回别的面板/书、正文或章纲全文、未保存的输入、选中的文字、题材可选目录；"
             "这些用 read_settings/read_chapter/read_outline/read_genre_catalog。"
-            "只在需要本页字段现值时调，不要当开场例行读取。"
+            "字段键/类型/写入口用 read_page_schema；本工具只给现值，不要当开场例行读取。"
         ),
         fn=_read_page_fields,
+    ),
+    Tool(
+        name="read_page_schema",
+        kind="read",
+        parameters={"type": "object", "properties": {}},
+        description=(
+            "读当前页面的字段说明书：页面说法（含别名）→ 字段键、类型/上限、写入口"
+            "（题材/简介/世界/章纲/卷纲）。作家点名某个字段要写/改、或说「这个/这格」"
+            "时，先调本工具把说法对到字段键，再按写入口调对应写工具；精确匹配页面说法，"
+            "近义走路名/别名，仍不唯一就按字段名问一句，不猜。只给元数据；"
+            "现值用 read_page_fields（设定）/read_chapter（章纲）/read_outline（卷纲）。"
+        ),
+        fn=_read_page_schema,
     ),
     Tool(
         name="read_genre_catalog",

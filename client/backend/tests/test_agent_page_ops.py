@@ -500,8 +500,11 @@ def test_write_settings_field_cap_promise_note_and_theme_gate(monkeypatch):
 
 def test_settings_field_labels_match_settings_page():
     """标签表逐字等于设定页 02-05 小标题（2026-11-24 实锤：旧名 核心承诺/禁忌/
-    代价设定/战场 在设定页上找不到，作家授权后对不上）。"""
-    from assistant.caps.settings import SETTINGS_FIELD_WRITE
+    代价设定/战场 在设定页上找不到，作家授权后对不上）；02 标签不进 agent 可写集。"""
+    from assistant.caps.settings import (
+        SETTINGS_FIELD_AGENT_WRITE,
+        SETTINGS_FIELD_WRITE,
+    )
 
     genre = SETTINGS_FIELD_WRITE["genre"]
     assert genre["promise_note"] == "主要看什么"
@@ -510,10 +513,13 @@ def test_settings_field_labels_match_settings_page():
     assert genre["cost_ratio"] == "吃苦指数"
     assert genre["battlefield"] == "本小说斗什么"
 
+    writable = SETTINGS_FIELD_AGENT_WRITE["genre"]
+    assert "core_promise" not in writable
+    assert writable["promise_note"] == "主要看什么"
 
-def test_write_settings_field_cap_rejects_overlong_text(monkeypatch):
-    """超长值人话拦下（core_promise 60 字上限）——不落库，也不把 pydantic 英文
-    原样甩给模型。原始长度计（首尾空白不豁免，与 NovelGenreIn 同口径）。"""
+
+def test_write_settings_field_cap_rejects_tag_direct_write(monkeypatch):
+    """02 标签不通过字段写改（给作家省字的短标签，走出爽点采纳卡）。"""
     from assistant.caps.settings import write_settings_field_cap
 
     storage = _FakeStorage({})
@@ -521,15 +527,31 @@ def test_write_settings_field_cap_rejects_overlong_text(monkeypatch):
     _patch_settings_env(monkeypatch, storage, {"core_promise": "旧标签"}, put_capture)
 
     with pytest.raises(Exception) as ei:
-        _run(write_settings_field_cap("n1", "genre", "core_promise", "长" * 61, "u1"))
+        _run(write_settings_field_cap("n1", "genre", "core_promise", "以弱破强", "u1"))
     msg = str(ei.value)
-    assert "主要看什么 · 标签" in msg and "60" in msg
+    assert "标签" in msg and "promise_note" in msg and "出爽点" in msg
+    assert "payload" not in put_capture
+
+
+def test_write_settings_field_cap_rejects_overlong_text(monkeypatch):
+    """超长值人话拦下（promise_note 200 字上限）——不落库，也不把 pydantic 英文
+    原样甩给模型。原始长度计（首尾空白不豁免，与 NovelGenreIn 同口径）。"""
+    from assistant.caps.settings import write_settings_field_cap
+
+    storage = _FakeStorage({})
+    put_capture: dict = {}
+    _patch_settings_env(monkeypatch, storage, {"promise_note": "旧主句"}, put_capture)
+
+    with pytest.raises(Exception) as ei:
+        _run(write_settings_field_cap("n1", "genre", "promise_note", "长" * 201, "u1"))
+    msg = str(ei.value)
+    assert "主要看什么" in msg and "200" in msg
     assert "payload" not in put_capture  # 一个字段都没写
 
-    # 59 个正文字 + 2 个尾空格 = 原始 61 字：Pydantic 不 strip，闸必须同口径拦
+    # 199 个正文字 + 2 个尾空格 = 原始 201 字：Pydantic 不 strip，闸必须同口径拦
     with pytest.raises(Exception) as ei:
-        _run(write_settings_field_cap("n1", "genre", "core_promise", "长" * 59 + "  ", "u1"))
-    assert "这次给了 61 字" in str(ei.value)
+        _run(write_settings_field_cap("n1", "genre", "promise_note", "长" * 199 + "  ", "u1"))
+    assert "这次给了 201 字" in str(ei.value)
     assert "payload" not in put_capture
 
 
@@ -545,4 +567,119 @@ def test_settings_field_maxlen_only_text_fields():
     # 列表字段被误传成长字符串时，长度闸不接（让形状校验给人话）
     assert settings_field_overlong("genre", "battlefield", "抢" * 11) is None
     assert settings_field_overlong("genre", "forbidden_list", "禁" * 51) is None
+
+
+def test_write_settings_field_cap_world_keeps_native_types(monkeypatch):
+    """世界字段写保留页面契约类型：no_power 布尔、history 条目数组
+    （c-agent-field-write-parity：旧实现 str(value) → 开关写反/列表读回空）。"""
+    from assistant.caps.settings import write_settings_field_cap
+
+    storage = _FakeStorage({
+        "settings/world-setting.yaml": {
+            "no_power": True,
+            "history": [{"key": "旧朝", "value": "旧事"}],
+        },
+    })
+    _patch_settings_env(monkeypatch, storage, {}, {})
+
+    res = _run(write_settings_field_cap("n1", "world", "no_power", False, "u1"))
+    world = storage.files["settings/world-setting.yaml"]
+    assert world["no_power"] is False
+    assert res["before"] is True and res["after"] is False
+
+    _run(write_settings_field_cap(
+        "n1", "world", "history", [{"key": "新朝", "value": "新事"}], "u1"
+    ))
+    world = storage.files["settings/world-setting.yaml"]
+    assert world["history"] == [{"key": "新朝", "value": "新事"}]
+    assert isinstance(world["history"], list)
+
+    # 「关」也接受，落布尔而不是字符串
+    _run(write_settings_field_cap("n1", "world", "no_power", "关", "u1"))
+    assert storage.files["settings/world-setting.yaml"]["no_power"] is False
+
+
+def test_write_settings_field_cap_world_rejects_bad_shapes(monkeypatch):
+    """世界非法开关/条目形状人话拦下，不落库。"""
+    from assistant.caps.settings import write_settings_field_cap
+
+    storage = _FakeStorage({"settings/world-setting.yaml": {}})
+    _patch_settings_env(monkeypatch, storage, {}, {})
+
+    with pytest.raises(Exception) as ei:
+        _run(write_settings_field_cap("n1", "world", "no_power", "也许", "u1"))
+    assert "开/关" in str(ei.value)
+
+    with pytest.raises(Exception) as ei:
+        _run(write_settings_field_cap("n1", "world", "history", "不是数组", "u1"))
+    assert "条目数组" in str(ei.value)
+    assert storage.files["settings/world-setting.yaml"] == {}
+
+
+def test_write_chapter_fields_cap_merges_same_family(monkeypatch):
+    """同族多字段一次写全部落库：outline 的 summary+characters、memo 的
+    required_changes+prohibitions 不再浅合并互覆。"""
+    from assistant.caps.chapter import write_chapter_fields_cap
+
+    saved: dict = {}
+    _patch_chapter_store(monkeypatch, _assembled(), saved)
+    res = _run(write_chapter_fields_cap(
+        "n1", "vol-1-ch-2", "u1",
+        {
+            "summary": "新概要",
+            "characters": ["甲"],
+            "required_changes": ["新变化"],
+            "prohibitions": ["新禁止"],
+        },
+    ))
+    outline = saved["data"]["outline"]
+    memo = saved["data"]["memo"]
+    assert outline["summary"] == "新概要" and outline["characters"] == ["甲"]
+    assert memo["required_changes"] == ["新变化"] and memo["prohibitions"] == ["新禁止"]
+    assert {c["field"] for c in res["changes"]} == {
+        "summary", "characters", "required_changes", "prohibitions",
+    }
+
+
+def test_write_chapter_fields_cap_word_target_human_error(monkeypatch):
+    """目标字数非数字 → 人话，不落库（旧实现漏 ValueError 英文原文）。"""
+    from assistant.caps.chapter import write_chapter_fields_cap
+
+    saved: dict = {}
+    _patch_chapter_store(monkeypatch, _assembled(), saved)
+    with pytest.raises(Exception) as ei:
+        _run(write_chapter_fields_cap("n1", "vol-1-ch-2", "u1", {"word_target": "三千"}))
+    assert "本章目标字数要填数字" in str(ei.value)
+    assert saved == {}
+
+
+def test_chapter_field_labels_match_outline_page():
+    """章纲卡面字段名逐字等于章纲页各格名（OgPane）。"""
+    from assistant.caps.chapter import CHAPTER_FIELD_WRITE_KEYS
+
+    assert CHAPTER_FIELD_WRITE_KEYS["summary"] == "章纲概要"
+    assert CHAPTER_FIELD_WRITE_KEYS["prohibitions"] == "禁止事项"
+    assert CHAPTER_FIELD_WRITE_KEYS["plot_items"] == "剧情"
+
+
+def test_write_tool_descriptions_document_page_shapes():
+    """工具说明与页面形态一致：题材列表/数值、世界布尔/条目、章纲六档。"""
+    from assistant.tools import get_tool
+
+    settings = get_tool("write_settings_field")
+    field_desc = settings.parameters["properties"]["field"]["description"]
+    assert "[{tagId}" in field_desc
+    assert "字符串数组" in field_desc
+    assert "1-10" in field_desc
+    assert "no_power（开/关，布尔）" in field_desc
+    assert "条目数组" in field_desc
+    assert "core_promise" in field_desc and "不在本工具写" in field_desc
+    assert "core_promise" not in settings.parameters["properties"]["field"]["enum"]
+
+    chapter = get_tool("write_chapter_fields")
+    chapter_desc = chapter.parameters["properties"]["fields"]["description"]
+    assert "章纲概要" in chapter_desc
+    assert "禁止事项" in chapter_desc
+    assert "剧情(字符串数组)" in chapter_desc
+    assert "六档" in chapter_desc
 

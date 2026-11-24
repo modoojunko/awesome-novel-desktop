@@ -358,8 +358,8 @@ async def test_gate_preview_passes_project_to_builder(monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_gate_preview_settings_page_labels_and_overlong_guard(monkeypatch):
-    """授权卡字段名＝设定页小标题；超 60 字的「标签」不弹卡，引导写 promise_note。"""
+async def test_gate_preview_settings_page_labels_and_length_guard(monkeypatch):
+    """授权卡字段名＝设定页小标题；02 标签不直接写；超 200 字的主句不弹卡。"""
     import assistant.caps.settings as caps_settings
     from assistant.router import _build_gate_preview
     from assistant.tools import PreviewRejected, get_tool
@@ -377,25 +377,105 @@ async def test_gate_preview_settings_page_labels_and_overlong_guard(monkeypatch)
     )
     assert pv["changes"][0]["label"] == "主要看什么"
 
+    # 02 标签退出 agent 字段写：不弹卡，指向 promise_note / 出爽点
     with pytest.raises(PreviewRejected) as ei:
         await _build_gate_preview(
             tool,
-            {"stype": "genre", "field": "core_promise", "value": "长" * 61},
+            {"stype": "genre", "field": "core_promise", "value": "以弱破强"},
             SimpleNamespace(id="n1"),
             {},
         )
     msg = str(ei.value)
-    assert "60" in msg and "promise_note" in msg
+    assert "标签" in msg and "promise_note" in msg and "出爽点" in msg
 
     # 首尾空白计入原始长度（Pydantic 不 strip）——同样不弹卡
     with pytest.raises(PreviewRejected) as ei:
         await _build_gate_preview(
             tool,
-            {"stype": "genre", "field": "core_promise", "value": "长" * 59 + "  "},
+            {"stype": "genre", "field": "promise_note", "value": "长" * 199 + "  "},
             SimpleNamespace(id="n1"),
             {},
         )
-    assert "这次给了 61 字" in str(ei.value)
+    assert "这次给了 201 字" in str(ei.value)
+
+
+@pytest.mark.asyncio
+async def test_gate_preview_world_native_display_and_shape_gate():
+    """世界值按页面口径显示（开关 开/关）；非法开关/条目形状不弹卡。"""
+    from assistant.router import _build_gate_preview
+    from assistant.tools import PreviewRejected, get_tool
+
+    tool = get_tool("write_settings_field")
+    pv = await _build_gate_preview(
+        tool,
+        {"stype": "world", "field": "no_power", "value": False},
+        SimpleNamespace(id="n1"),
+        {},
+    )
+    change = pv["changes"][0]
+    assert change["label"] == "现实向开关"
+    assert change["after"] == "关"
+    assert "False" not in str(change["after"])
+
+    with pytest.raises(PreviewRejected) as ei:
+        await _build_gate_preview(
+            tool,
+            {"stype": "world", "field": "no_power", "value": "也许"},
+            SimpleNamespace(id="n1"),
+            {},
+        )
+    assert "开/关" in str(ei.value)
+
+    with pytest.raises(PreviewRejected) as ei:
+        await _build_gate_preview(
+            tool,
+            {"stype": "world", "field": "history", "value": "不是数组"},
+            SimpleNamespace(id="n1"),
+            {},
+        )
+    assert "条目数组" in str(ei.value)
+
+
+@pytest.mark.asyncio
+async def test_gate_preview_genre_shape_gate():
+    """题材列表/数值形状不合规 → 不弹卡，人话回喂。"""
+    from assistant.router import _build_gate_preview
+    from assistant.tools import PreviewRejected, get_tool
+
+    tool = get_tool("write_settings_field")
+    cases = [
+        ({"stype": "genre", "field": "forbidden_list", "value": ["禁天降外援"]}, "条目数组"),
+        ({"stype": "genre", "field": "battlefield", "value": "抢资源"}, "字符串数组"),
+        ({"stype": "genre", "field": "cost_ratio", "value": 11}, "1-10"),
+    ]
+    for args, fragment in cases:
+        with pytest.raises(PreviewRejected) as ei:
+            await _build_gate_preview(tool, args, SimpleNamespace(id="n1"), {})
+        assert fragment in str(ei.value), (args, str(ei.value))
+
+
+@pytest.mark.asyncio
+async def test_gate_preview_chapter_value_gate():
+    """章纲值校验与写链同源：非法阶段/非数组/非数字 → 不弹卡。"""
+    from assistant.router import _build_gate_preview
+    from assistant.tools import PreviewRejected, get_tool
+
+    tool = get_tool("write_chapter_fields")
+    cases = [
+        ({"plot_stage": "不存在的阶段"}, "阶段"),
+        ({"plot_items": "不是数组"}, "字符串数组"),
+        ({"word_target": "三千"}, "数字"),
+    ]
+    for fields, fragment in cases:
+        with pytest.raises(PreviewRejected) as ei:
+            await _build_gate_preview(
+                tool,
+                {"chapter_ref": "vol-1-ch-2", "fields": fields},
+                SimpleNamespace(id="n1"),
+                {},
+            )
+        assert fragment in str(ei.value), (fields, str(ei.value))
+
 
 
 @pytest.mark.asyncio

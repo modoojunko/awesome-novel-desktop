@@ -162,19 +162,22 @@ async def build_panel_fields(
     if panel == "genre":
         # 题材单源：与 read_settings(genre)/面板真值共用 build_genre_truth_segments，
         # 避免 02/03/04 两套渲染口径打架（c-agent-page-field-truth 判例）。
-        from assistant.caps.settings import SETTINGS_FIELD_WRITE
+        from assistant.caps.settings import SETTINGS_FIELD_AGENT_WRITE
         from genres.service import build_genre_truth_segments, resolve_genre_context
 
         try:
             gctx = await resolve_genre_context(root_path, novel_id)
-            # 先报「本页有哪些字段、各对应哪个键」——agent 据此把页面上的说法
+            # 先报「本页哪些字段可写、各对应哪个键」——agent 据此把页面上的说法
             # 对到写入口（2026-11-24：只给值不给键，02 主句被写进了 core_promise 标签）。
+            # 02 标签只展示不直接写：它是给作家省字的短标签，走「出爽点」采纳卡。
             fields = "；".join(
-                f"{zh}（{key}）" for key, zh in SETTINGS_FIELD_WRITE["genre"].items()
+                f"{zh}（{key}）"
+                for key, zh in SETTINGS_FIELD_AGENT_WRITE["genre"].items()
             )
             body = (
                 "本页字段：01 题材（theme/sub_genre，走 settings_genre_pick 采纳卡）；"
                 + fields
+                + "；02 标签（core_promise）只展示、不直接写（用「出爽点」采纳卡）"
                 + "\n"
                 + "\n".join(build_genre_truth_segments(gctx))
             )
