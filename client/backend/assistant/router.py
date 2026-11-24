@@ -137,10 +137,20 @@ def execute_gate_event(tool: Any) -> dict[str, Any] | None:
     return {
         "type": "gate",
         "feature": feature,
-        "tier_required": "standard",
+        "tier_required": _execute_tier_required(feature),
         "approved": False,
         "refusal": "动手的活要标准档起我才能接。升级后我就能替你改设定、建章纲、收知识库。",
     }
+
+
+def _execute_tier_required(feature: str) -> str:
+    """执行键 → 最低档（与档位目录兜底表同源，未知键回落 standard）。"""
+    from auth_local.service import STANDARD_FALLBACK
+
+    for tier in ("standard", "pro", "max"):
+        if feature in STANDARD_FALLBACK.get(tier, {}).get("features", []):
+            return tier
+    return "standard"
 
 
 async def _build_gate_preview(tool: Any, args: dict[str, Any], project: Any, fallback: dict) -> dict:

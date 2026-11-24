@@ -1718,6 +1718,14 @@ if _UNDECLARED_EXECUTE_TOOLS:  # pragma: no cover - 启动即失败
     raise RuntimeError(
         f"执行类工具缺 requires_feature 声明（应填 assistant-execute）：{_UNDECLARED_EXECUTE_TOOLS}"
     )
+# 反向守护：读类/产卡类不得声明执行键（spec：读类 MUST NOT 要求）。
+_NON_WRITE_WITH_EXECUTE = [
+    t.name for t in TOOL_REGISTRY if t.kind != "write" and t.requires_feature
+]
+if _NON_WRITE_WITH_EXECUTE:  # pragma: no cover - 启动即失败
+    raise RuntimeError(
+        f"读类/产卡类工具不应声明 requires_feature：{_NON_WRITE_WITH_EXECUTE}"
+    )
 
 
 def get_tool(name: str) -> Tool | None:

@@ -65,7 +65,7 @@ _TIER_RANK = {"none": 0, "free": 1, "standard": 2, "pro": 3, "trial": 3, "max": 
 
 # 新 key 上线早于快照刷新的隐式放行（c-image-generation / c-deconstruct-tier）：
 # 完整旧快照不含新 key 时，按 key 的最低档放行（未过期）——与前端 useTier 同口径；
-# standard/free/过期不适用。max key 不给 trial/pro 放行。
+# standard 键按 rank≥standard 隐式放行；free/过期不适用；max key 不给 trial/pro 放行。
 _LEGACY_IMPLICIT_FEATURES: dict[str, int] = {
     "image-generate": _TIER_RANK["pro"],
     "deconstruct": _TIER_RANK["pro"],

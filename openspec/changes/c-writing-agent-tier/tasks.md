@@ -14,8 +14,8 @@
 ## 3. 后端执行门
 
 - [x] 3.1 `Tool` 增 `requires_feature` 字段；11 个写类工具（结构写/页面字段写/知识库写）全部声明 `assistant-execute`；读/产卡类为空
-- [x] 3.2 `assistant/router.py` 新增 `execute_gate_event()`，在 `_gate_fn` 读类早退后、feature_key 闸前判定：无权 yield gate 事件后收口（不调用工具、不弹授权卡）；单测覆盖
-- [x] 3.3 启动校验：`tools.py` 模块尾对 `TOOL_REGISTRY` 断言写类工具必须声明 `requires_feature`，缺声明 RuntimeError fail loud；`test_registry_declares_execute_for_all_write_tools` 双向断言
+- [x] 3.2 `assistant/router.py` 新增 `execute_gate_event()`，在 `_gate_fn` 读类早退后、feature_key 闸前判定：无权 yield gate 事件后收口（不调用工具、不弹授权卡）；`tier_required` 由档位兜底表推导；单测覆盖
+- [x] 3.3 启动校验：`tools.py` 模块尾双向断言（写类必须有声明、读/卡类必须无），违规 RuntimeError fail loud；测试同断言
 - [x] 3.4 标准档放行：`execute_gate_event` 在 `ai_access_granted("assistant-execute")=True` 时返回 None，后续走既有授权梯度（`test_assistant_write_gate.py` 既有默认档弹卡用例覆盖）
 
 ## 4. 前端交互
