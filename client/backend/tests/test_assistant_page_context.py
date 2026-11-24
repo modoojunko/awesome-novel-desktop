@@ -46,6 +46,26 @@ async def test_unknown_panel_lists_readable_panels():
 
 
 @pytest.mark.asyncio
+async def test_genre_page_fields_list_keys_and_tag(monkeypatch):
+    """read_page_fields 先报本页字段键（页面说法→写入口）；02 主句/标签分开。"""
+    import genres.service as gs
+
+    async def _fake_ctx(root_path, novel_id):
+        return {
+            "theme": "都市",
+            "promise_note": "靠算计翻盘",
+            "core_promise": "以弱破强",
+        }
+
+    monkeypatch.setattr(gs, "resolve_genre_context", _fake_ctx)
+    text = await build_panel_fields("/root", "n1", "genre")
+    assert "本页字段：" in text
+    assert "主要看什么（promise_note）" in text
+    assert "主要看什么 · 标签（core_promise）" in text
+    assert "02 主要看什么=靠算计翻盘（标签：以弱破强）" in text
+
+
+@pytest.mark.asyncio
 async def test_ai_model_panel_never_reads_config():
     text = await build_panel_fields("/root", "n1", "aiModel")
     assert "模型设定" in text

@@ -112,11 +112,15 @@ async def arc_ai_action(
 # settings_genre_pick 采纳卡单一通道（前端成对写整包 PUT），不在此开第二写路。
 SETTINGS_FIELD_WRITE: dict[str, dict[str, str]] = {
     "genre": {
-        "core_promise": "核心承诺",
+        # 设定页字段目录（单一源）：标签逐字等于页面 02-05 的可见小标题，顺序即
+        # 页面顺序（02 主句 → 02 标签 → 03-05）。read_page_fields 也读这份目录
+        # ——agent 先看页面有哪些字段，再按对应键请求作家授权（2026-11-24 实锤：
+        # 旧名 核心承诺/禁忌/代价设定/战场 在设定页上根本找不到）。
         "promise_note": "主要看什么",
-        "forbidden_list": "禁忌",
-        "cost_ratio": "代价设定",
-        "battlefield": "战场",
+        "core_promise": "主要看什么 · 标签",
+        "forbidden_list": "绝对禁止",
+        "cost_ratio": "吃苦指数",
+        "battlefield": "本小说斗什么",
     },
     "story": {"synopsis": "简介"},
     "world": {
@@ -137,6 +141,26 @@ SETTINGS_PANEL_ZH: dict[str, str] = {
     "story": "简介",
     "world": "世界",
 }
+
+
+def settings_field_maxlen(stype: str, field: str) -> int | None:
+    """字符串字段的落库上限（与 NovelGenreIn 单一源）。
+
+    超长值在授权卡之前就说不清楚＝作家批了也写不进去（2026-11-24 实锤：
+    core_promise 60 字上限，模型却把 200 字主句塞进来，连弹两张卡）。
+    """
+    if stype != "genre":
+        return None
+    from annotated_types import MaxLen
+
+    from genres.novel_genre_service import NovelGenreIn
+
+    info = NovelGenreIn.model_fields.get(field)
+    if info is None:
+        return None
+    return next(
+        (meta.max_length for meta in info.metadata if isinstance(meta, MaxLen)), None
+    )
 
 
 async def read_settings_field(
@@ -196,6 +220,13 @@ async def write_settings_field_cap(
             raise CapabilityError("书不存在或不属于当前作家。")
 
         if stype == "genre":
+            limit = settings_field_maxlen(stype, field)
+            text = value.strip() if isinstance(value, str) else ""
+            if limit is not None and len(text) > limit:
+                label = SETTINGS_FIELD_WRITE[stype][field]
+                raise CapabilityError(
+                    f"「{label}」最多 {limit} 字，这次给了 {len(text)} 字，写不进去。"
+                )
             from genres.novel_genre_service import (
                 NovelGenreIn,
                 get_novel_genre,

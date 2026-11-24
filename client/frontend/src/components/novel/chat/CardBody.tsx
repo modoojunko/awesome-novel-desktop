@@ -19,7 +19,8 @@ const GENERIC_LABELS: Record<string, string> = {
 
 /** 设定字段 → 人话标签（设定卡主键是 stype/field，不能再露 value 裸键）。 */
 const SETTINGS_FIELD_LABELS: Record<string, string> = {
-  core_promise: "主要看什么",
+  core_promise: "主要看什么 · 标签",
+  promise_note: "主要看什么",
   forbidden_list: "绝对禁止",
   cost_ratio: "吃苦指数",
   battlefield: "本小说斗什么",

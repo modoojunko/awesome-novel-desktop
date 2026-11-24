@@ -1576,7 +1576,7 @@ async def _preview_write_settings_field(args: dict, project):
     字段回喂模型改对再来——作家不该看到一张写不成的授权单（2026-11-21 实锤：
     story.premise 弹卡裸 JSON）。读现值失败才回落（闸不受影响）。
     """
-    from assistant.caps.settings import read_settings_field
+    from assistant.caps.settings import read_settings_field, settings_field_maxlen
 
     stype = str(args.get("stype") or "")
     field = str(args.get("field") or "")
@@ -1596,6 +1596,19 @@ async def _preview_write_settings_field(args: dict, project):
             f"{panel}面板里没有「{field}」这个字段，这一步先不写。这一页能写的是："
             + "、".join(f"{zh}（{key}）" for key, zh in SETTINGS_FIELD_WRITE[stype].items())
             + "。"
+        )
+    # 超长值不弹卡：批了也落不了库，只会让作家看到一张空头授权单。
+    limit = settings_field_maxlen(stype, field)
+    text = value.strip() if isinstance(value, str) else ""
+    if limit is not None and len(text) > limit:
+        hint = ""
+        if field == "core_promise":
+            hint = (
+                "这段更像「主要看什么」的主句——改写到 promise_note（最多 200 字），"
+                "core_promise 只放一句短标签。"
+            )
+        raise PreviewRejected(
+            f"「{label}」最多 {limit} 字，这次给了 {len(text)} 字，写不进去。{hint}"
         )
     before = ""
     if project is not None:
@@ -1680,20 +1693,28 @@ PAGE_OPS_TOOLS: tuple[Tool, ...] = (
         parameters={
             "type": "object",
             "properties": {
-                "stype": {"type": "string", "enum": ["genre", "story", "world"], "description": "面板：genre=题材四格、story=简介、world=世界观条目"},
+                "stype": {"type": "string", "enum": ["genre", "story", "world"], "description": "面板：genre=题材、story=简介、world=世界观条目"},
                 "field": {
                     "type": "string",
                     "enum": [
                         k for fields in SETTINGS_FIELD_WRITE.values() for k in fields
                     ],
-                    "description": "字段名（必须与 stype 匹配）：genre→core_promise/forbidden_list/cost_ratio/battlefield；story→synopsis；world→no_power/stage/power/cost/history/factions/constraints/extra。没有 premise——简介用 story.synopsis。",
+                    "description": (
+                        "字段名（必须与 stype 匹配）：genre→promise_note（02 主要看什么的主句，"
+                        "最多 200 字）/core_promise（02 的短标签，最多 60 字）/forbidden_list"
+                        "（03 绝对禁止）/cost_ratio（04 吃苦指数，1-10）/battlefield"
+                        "（05 本小说斗什么）；story→synopsis；world→no_power/stage/power/"
+                        "cost/history/factions/constraints/extra。没有 premise——简介用 story.synopsis。"
+                    ),
                 },
                 "value": {"description": "字段新值（文本；genre.cost_ratio 为 1-10 数字）"},
             },
             "required": ["stype", "field", "value"],
         },
         description=(
-            "写/改设定面板的某个字段（题材四格、简介、世界观条目；单字段合并写，其余不动）。"
+            "写/改设定面板的某个字段（题材、简介、世界观条目；单字段合并写，其余不动）。"
+            "不确定字段键时先 read_page_fields 看本页有哪些字段——按页面列出的键写；"
+            "题材 02 的主句写 promise_note，core_promise 只是那句话下面的短标签。"
             "写操作：确认档先弹授权卡给你过目字段前后，自动档直接落库并带回执。"
             "作家没明确要写就别调。"
         ),

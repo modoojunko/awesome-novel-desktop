@@ -496,3 +496,32 @@ def test_write_settings_field_cap_promise_note_and_theme_gate(monkeypatch):
     with pytest.raises(Exception) as ei:
         _run(write_settings_field_cap("n1", "genre", "sub_genre", "凡人流", "u1"))
     assert "不支持的字段" in str(ei.value)
+
+
+def test_settings_field_labels_match_settings_page():
+    """标签表逐字等于设定页 02-05 小标题（2026-11-24 实锤：旧名 核心承诺/禁忌/
+    代价设定/战场 在设定页上找不到，作家授权后对不上）。"""
+    from assistant.caps.settings import SETTINGS_FIELD_WRITE
+
+    genre = SETTINGS_FIELD_WRITE["genre"]
+    assert genre["promise_note"] == "主要看什么"
+    assert genre["core_promise"] == "主要看什么 · 标签"
+    assert genre["forbidden_list"] == "绝对禁止"
+    assert genre["cost_ratio"] == "吃苦指数"
+    assert genre["battlefield"] == "本小说斗什么"
+
+
+def test_write_settings_field_cap_rejects_overlong_text(monkeypatch):
+    """超长值人话拦下（core_promise 60 字上限）——不落库，也不把 pydantic 英文
+    原样甩给模型。"""
+    from assistant.caps.settings import write_settings_field_cap
+
+    storage = _FakeStorage({})
+    put_capture: dict = {}
+    _patch_settings_env(monkeypatch, storage, {"core_promise": "旧标签"}, put_capture)
+
+    with pytest.raises(Exception) as ei:
+        _run(write_settings_field_cap("n1", "genre", "core_promise", "长" * 61, "u1"))
+    msg = str(ei.value)
+    assert "主要看什么 · 标签" in msg and "60" in msg
+    assert "payload" not in put_capture  # 一个字段都没写

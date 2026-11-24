@@ -358,6 +358,37 @@ async def test_gate_preview_passes_project_to_builder(monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_gate_preview_settings_page_labels_and_overlong_guard(monkeypatch):
+    """授权卡字段名＝设定页小标题；超 60 字的「标签」不弹卡，引导写 promise_note。"""
+    import assistant.caps.settings as caps_settings
+    from assistant.router import _build_gate_preview
+    from assistant.tools import PreviewRejected, get_tool
+
+    async def _fake_read(novel_id: str, stype: str, field: str, user_id: str) -> str:
+        return "旧值"
+
+    monkeypatch.setattr(caps_settings, "read_settings_field", _fake_read)
+    tool = get_tool("write_settings_field")
+    pv = await _build_gate_preview(
+        tool,
+        {"stype": "genre", "field": "promise_note", "value": "主角用脑子翻盘"},
+        SimpleNamespace(id="n1"),
+        {},
+    )
+    assert pv["changes"][0]["label"] == "主要看什么"
+
+    with pytest.raises(PreviewRejected) as ei:
+        await _build_gate_preview(
+            tool,
+            {"stype": "genre", "field": "core_promise", "value": "长" * 61},
+            SimpleNamespace(id="n1"),
+            {},
+        )
+    msg = str(ei.value)
+    assert "60" in msg and "promise_note" in msg
+
+
+@pytest.mark.asyncio
 async def test_gate_preview_rejects_unknown_setting_field():
     """字段名不存在→不弹卡（PreviewRejected），回喂模型可选字段改对再来。"""
     from assistant.router import _build_gate_preview
