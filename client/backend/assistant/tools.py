@@ -30,11 +30,20 @@ from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
 from typing import Any
 
-from assistant.caps.settings import SETTINGS_FIELD_WRITE, SETTINGS_PANEL_ZH
+from assistant.caps.settings import (
+    SETTINGS_FIELD_AGENT_WRITE,
+    SETTINGS_FIELD_WRITE,
+    SETTINGS_PANEL_ZH,
+    agent_write_error,
+)
 from assistant.scopes import tools_for_thread
 
 # 转写预算（write/chapter_writer.py 判例同风格：按中文字符预算，不按 token）
 READ_CHAPTER_BUDGET_CHARS = 1500
+# 读值逐格预算（c-agent-field-write-parity review）：文本格给足，列表/短字段另裁
+READ_CHAPTER_FIELD_CLIP = 200
+READ_CHAPTER_LIST_CLIP = 120
+READ_VOLUME_FIELD_CLIP = 300
 READ_SETTINGS_BUDGET_CHARS = 800
 # 检测问题行明细预算（人味 findings 的段号/原句/why/fix；朱雀段另列）
 READ_PROSE_CHECKS_BUDGET_CHARS = 2000
@@ -170,19 +179,29 @@ def _clip(text: str, budget: int) -> str:
 
 
 async def _read_chapter(ctx: ToolContext, chapter_ref: str) -> ToolResult:
+    from assistant.caps.chapter import CHAPTER_FIELD_WRITE_KEYS, _chapter_prev_value
     from chapters.store import load_chapter
 
     data = await load_chapter(ctx.root_path, str(chapter_ref or "").strip())
     if not data:
         return ToolResult(ok=False, summary=f"章节 {chapter_ref} 不存在或为空。")
     # 字段对齐 assemble_chapter 实际键（review 判例 2026-11-15：曾读 content——
-    # 真键是顶层 prose（outline 本就正确），模型被喂「正文未写」假象）
+    # 真键是顶层 prose（outline 本就正确），模型被喂「正文未写」假象）。
+    # 章纲逐格人话（c-agent-field-write-parity）：此前 str(outline) 是 Python repr，
+    # 且 memo/情绪/剧情条目根本不出现，agent 写前看不到现值。
     title = str(data.get("title") or "")
-    outline = str(data.get("outline") or "")
     prose = str(data.get("prose") or "")
-    lines = [f"《{title}》（{chapter_ref}）"]
-    if outline:
-        lines.append(f"章纲：{_clip(outline, 300)}")
+    lines = [f"《{title}》（{chapter_ref}）", "章纲："]
+    for key, label in CHAPTER_FIELD_WRITE_KEYS.items():
+        val = _chapter_prev_value(data, key)
+        if isinstance(val, list):
+            shown = "、".join(str(x).strip() for x in val if str(x).strip())
+        elif val is None:
+            shown = ""
+        else:
+            shown = str(val).strip()
+        budget = READ_CHAPTER_LIST_CLIP if isinstance(val, list) else READ_CHAPTER_FIELD_CLIP
+        lines.append(f"- {label}：{_clip(shown, budget) if shown else '未填'}")
     if prose:
         lines.append(f"正文：{_clip(prose, READ_CHAPTER_BUDGET_CHARS)}")
     else:
@@ -317,9 +336,9 @@ async def _read_prose_checks(ctx: ToolContext, chapter_ref: str = "") -> ToolRes
 
 async def _read_outline(ctx: ToolContext, scope: str = "volume", ref: str = "") -> ToolResult:
     """卷纲（六段文本）或章纲。scope=volume|chapter。"""
+    from assistant.page_schema import volume_field_labels
     from db import async_session
     from repositories import volume_repo
-    from volumes.render import volume_outline_text
 
     scope = str(scope or "volume")
     if scope == "volume":
@@ -334,7 +353,17 @@ async def _read_outline(ctx: ToolContext, scope: str = "volume", ref: str = "") 
         ]
         if not picked:
             return ToolResult(ok=False, summary="还没有任何卷。")
-        blocks = [f"第{v.volume_no}卷·{v.title or ''}\n{volume_outline_text(v)}" for v in picked]
+        labels = volume_field_labels()
+        blocks: list[str] = []
+        for v in picked:
+            rows = [f"第{v.volume_no}卷"]
+            for key, label in labels.items():
+                val = getattr(v, key, None)
+                shown = "" if val is None else str(val).strip()
+                rows.append(
+                    f"- {label}：{_clip(shown, READ_VOLUME_FIELD_CLIP) if shown else '未填'}"
+                )
+            blocks.append("\n".join(rows))
         return ToolResult(ok=True, summary=_clip("\n\n".join(blocks), 2000))
     # chapter：章纲字段在章全量里
     result = await _read_chapter(ctx, ref)
@@ -478,9 +507,75 @@ VOLUME_FIELD_WHITELIST = (
 )
 
 
+async def _preview_write_volume_fields(args: dict, project):
+    """卷纲授权卡：字段前后对比（与 VolumeUpdate 同源校验）。"""
+    from pydantic import ValidationError
+    from sqlalchemy import select
+
+    from assistant.page_schema import volume_field_labels
+    from db import async_session
+    from models.project import Novel
+    from repositories import volume_repo
+    from volumes.schemas import VolumeUpdate
+
+    ref = str(args.get("ref") or "").strip()
+    fields = args.get("fields") if isinstance(args.get("fields"), dict) else {}
+    if not ref:
+        raise PreviewRejected("没说要改哪一卷，这一步先不写（如 vol-1）。")
+    if not fields:
+        raise PreviewRejected("没说要改这一卷的哪些字段，这一步先不写。")
+    labels = volume_field_labels()
+    unknown = [k for k in fields if k not in labels]
+    if unknown:
+        raise PreviewRejected(
+            f"卷纲里没有这些字段：{'、'.join(map(str, unknown))}，这一步先不写。能写的是："
+            + "、".join(labels.values())
+            + "。"
+        )
+    # update_volume 对 title/summary 的显式 null 是 no-op（不写）——卡面不能显示
+    # 「改成空」骗作家批准（c-agent-field-write-parity review）。
+    for key in ("title", "summary"):
+        if key in fields and fields[key] is None:
+            hint = (
+                "卷名不能为空。"
+                if key == "title"
+                else "要清空本卷主旨请传空字符串，不要传 null。"
+            )
+            raise PreviewRejected(f"「{labels[key]}」不能用空值（null）改——{hint}")
+    try:
+        VolumeUpdate(**fields)
+    except ValidationError as e:
+        from assistant.caps.settings import _human_pydantic_msg
+
+        raw = str(e.errors()[0].get("msg", "字段值不合法")) if e.errors() else "字段值不合法"
+        raise PreviewRejected(f"卷纲字段校验不过：{_human_pydantic_msg(raw)}") from e
+    if project is None:
+        return {}
+    clean_ref = ref if ref.startswith("vol-") else f"vol-{ref}"
+    try:
+        vol_no = int(clean_ref.replace("vol-", ""))
+    except ValueError:
+        raise PreviewRejected(f"卷 ref 认不出来：{ref}（如 vol-1）。") from None
+    async with async_session() as db:
+        project_row = (
+            await db.scalars(select(Novel).where(Novel.id == project.id))
+        ).first()
+        if project_row is None:
+            return {}
+        vol = await volume_repo.get_by_volume_no(db, project_row.id, vol_no)
+    if vol is None:
+        raise PreviewRejected(f"没找到 {clean_ref} 这一卷——先确认卷 ref 再来。")
+    changes = [
+        {"field": key, "label": labels[key], "before": getattr(vol, key, None), "after": value}
+        for key, value in fields.items()
+    ]
+    return {"tool": "write_volume_fields", "entity": f"volume:{clean_ref}", "changes": changes}
+
+
 async def _write_volume_fields(ctx: ToolContext, ref: str, fields: dict[str, Any]) -> ToolResult:
     """改一卷的字段（白名单内）。走 volumes.service.update_volume 既有校验链；
     写前抓 previous 值进 write_log（撤销=按 previous 回写）。"""
+    from assistant.page_schema import volume_field_labels
     from db import async_session
     from novels.service import get_novel
     from volumes.schemas import VolumeUpdate
@@ -490,10 +585,11 @@ async def _write_volume_fields(ctx: ToolContext, ref: str, fields: dict[str, Any
     if not clean_ref.startswith("vol-"):
         clean_ref = f"vol-{clean_ref}"
     fields = fields or {}
+    labels = volume_field_labels()
     bad = [k for k in fields if k not in VOLUME_FIELD_WHITELIST]
     if bad:
         return ToolResult(
-            ok=False, summary=f"字段不在白名单：{bad}（可写：{list(VOLUME_FIELD_WHITELIST)}）"
+            ok=False, summary=f"字段不在白名单：{bad}（可写：{list(labels.values())}）"
         )
     if not fields:
         return ToolResult(ok=False, summary="没有给出要写的字段。")
@@ -513,7 +609,7 @@ async def _write_volume_fields(ctx: ToolContext, ref: str, fields: dict[str, Any
         await update_volume(session, project, clean_ref, body)
     return ToolResult(
         ok=True,
-        summary=f"已写入 {clean_ref}：{'、'.join(fields)}",
+        summary=f"已写入 {clean_ref}：{'、'.join(labels.get(k, k) for k in fields)}",
         meta={
             "write_log": {
                 "entity": f"volume:{clean_ref}",
@@ -709,11 +805,13 @@ TOOL_REGISTRY: tuple[Tool, ...] = (
             "required": ["ref", "fields"],
         },
         description=(
-            "改一卷的字段（可写：title/summary/core_conflict/ending/chapter_target/"
-            "antagonist_type/antagonist_line）。受作家授权梯度管控；写入后有回执可撤销。"
+            "改一卷的字段（卷名/本卷主旨/主要冲突/卷末收在哪里/章数目标/坎的类型/"
+            "坎的一句话；单字段合并写）。不确定字段键先 read_page_schema。"
+            "受作家授权梯度管控；确认档先弹授权卡过目字段前后，写入后有回执可撤销。"
         ),
         feature_key="ai-plan",
         fn=_write_volume_fields,
+        preview_builder=_preview_write_volume_fields,
     ),
 )
 
@@ -1526,7 +1624,13 @@ async def _preview_write_chapter_fields(args: dict, project):
     """
     from sqlalchemy import select
 
-    from assistant.caps.chapter import CHAPTER_FIELD_WRITE_KEYS, _chapter_prev_value
+    from assistant.caps.chapter import (
+        CHAPTER_FIELD_WRITE_KEYS,
+        CapabilityError,
+        _chapter_after_value,
+        _chapter_prev_value,
+        build_chapter_patch,
+    )
     from chapters.store import load_chapter
     from db import async_session
     from models.project import Novel
@@ -1544,6 +1648,11 @@ async def _preview_write_chapter_fields(args: dict, project):
             + "、".join(CHAPTER_FIELD_WRITE_KEYS.values())
             + "。"
         )
+    # 与写核同源校验：形状/阶段/数字过不了的请求不弹卡。
+    try:
+        data = build_chapter_patch(fields)
+    except CapabilityError as e:
+        raise PreviewRejected(e.message) from e
     if project is None:
         return {}
     async with async_session() as db:
@@ -1556,16 +1665,15 @@ async def _preview_write_chapter_fields(args: dict, project):
     if not current:
         raise PreviewRejected(f"没找到 {ref} 这一章——先确认章 ref 再来。")
 
-    changes = []
-    for key, value in fields.items():
-        changes.append(
-            {
-                "field": key,
-                "label": CHAPTER_FIELD_WRITE_KEYS[key],
-                "before": _chapter_prev_value(current, key),
-                "after": value,
-            }
-        )
+    changes = [
+        {
+            "field": key,
+            "label": CHAPTER_FIELD_WRITE_KEYS[key],
+            "before": _chapter_prev_value(current, key),
+            "after": _chapter_after_value(data, key),
+        }
+        for key in fields
+    ]
     return {"tool": "write_chapter_fields", "entity": f"chapter:{ref}", "changes": changes}
 
 
@@ -1576,7 +1684,15 @@ async def _preview_write_settings_field(args: dict, project):
     字段回喂模型改对再来——作家不该看到一张写不成的授权单（2026-11-21 实锤：
     story.premise 弹卡裸 JSON）。读现值失败才回落（闸不受影响）。
     """
-    from assistant.caps.settings import read_settings_field, settings_field_overlong
+    from assistant.caps.settings import (
+        CapabilityError,
+        format_world_field_value,
+        read_settings_field,
+        settings_field_overlong,
+        validate_genre_field_value,
+        validate_world_field_value,
+        validate_world_field_write,
+    )
 
     stype = str(args.get("stype") or "")
     field = str(args.get("field") or "")
@@ -1594,22 +1710,34 @@ async def _preview_write_settings_field(args: dict, project):
     if label is None:
         raise PreviewRejected(
             f"{panel}面板里没有「{field}」这个字段，这一步先不写。这一页能写的是："
-            + "、".join(f"{zh}（{key}）" for key, zh in SETTINGS_FIELD_WRITE[stype].items())
+            + "、".join(
+                f"{zh}（{key}）" for key, zh in SETTINGS_FIELD_AGENT_WRITE[stype].items()
+            )
             + "。"
         )
+    blocked = agent_write_error(stype, field)
+    if blocked is not None:
+        raise PreviewRejected(blocked.message)
     # 超长值不弹卡：批了也落不了库，只会让作家看到一张空头授权单。
     over = settings_field_overlong(stype, field, value)
     if over is not None:
         limit, length = over
-        hint = ""
-        if field == "core_promise":
-            hint = (
-                "这段更像「主要看什么」的主句——改写到 promise_note（最多 200 字），"
-                "core_promise 只放一句短标签。"
-            )
         raise PreviewRejected(
-            f"「{label}」最多 {limit} 字，这次给了 {length} 字，写不进去。{hint}"
+            f"「{label}」最多 {limit} 字，这次给了 {length} 字，写不进去。"
         )
+    # preview 与写链同源校验：写不进去的值不弹卡（只校验，不落库）。
+    after = value
+    try:
+        if stype == "genre":
+            after = validate_genre_field_value(field, value)
+        elif stype == "world":
+            if project is not None and getattr(project, "root_path", ""):
+                after = await validate_world_field_write(project.root_path, field, value)
+            else:
+                after = validate_world_field_value(field, value)
+            after = format_world_field_value(field, after)
+    except CapabilityError as e:
+        raise PreviewRejected(e.message) from e
     before = ""
     if project is not None:
         try:
@@ -1619,7 +1747,7 @@ async def _preview_write_settings_field(args: dict, project):
     return {
         "tool": "write_settings_field",
         "entity": f"settings:{stype}:{field}",
-        "changes": [{"field": field, "label": label, "before": before, "after": value}],
+        "changes": [{"field": field, "label": label, "before": before, "after": after}],
     }
 
 
@@ -1669,18 +1797,20 @@ PAGE_OPS_TOOLS: tuple[Tool, ...] = (
                 "fields": {
                     "type": "object",
                     "description": (
-                        "要写的章纲字段与值（只写给出的键，其余不动）：summary=概要、"
-                        "characters=出场角色(字符串数组)、challenge=碰到的挑战、plot_stage=阶段、"
-                        "ladder_exit=章末落点、plot_items=剧情条目(字符串数组)、"
-                        "required_changes=必须完成的变化(字符串数组)、prohibitions=禁则(字符串数组)、"
-                        "primary_mood=主情绪、word_target=目标字数(数字)。"
+                        "要写的章纲字段与值（只写给出的键，其余不动）：summary=章纲概要、"
+                        "characters=出场角色(字符串数组)、challenge=碰到的挑战、plot_stage=阶段"
+                        "（六档：开局铺垫/冲突初现/矛盾升级/重要转折/高潮爆发/卷末收束）、"
+                        "ladder_exit=章末落点、plot_items=剧情(字符串数组)、"
+                        "required_changes=必须完成的变化(字符串数组)、prohibitions=禁止事项"
+                        "(字符串数组)、primary_mood=主情绪、word_target=本章目标字数(数字)。"
                     ),
                 },
             },
             "required": ["chapter_ref", "fields"],
         },
         description=(
-            "写/改某一章的章纲字段（概要、挑战、落点、主情绪等；逐字段 patch，未提及的不动）。"
+            "写/改某一章的章纲字段（章纲概要、挑战、落点、主情绪等；逐字段 patch，未提及的不动；"
+            "同族多字段一起写也全部落库）。不确定字段键时先 read_page_schema 按页面说法找键。"
             "写操作：确认档先弹授权卡给你过目字段前后，自动档直接落库并带回执。"
             "作家没明确要写就别调。"
         ),
@@ -1697,23 +1827,32 @@ PAGE_OPS_TOOLS: tuple[Tool, ...] = (
                 "field": {
                     "type": "string",
                     "enum": [
-                        k for fields in SETTINGS_FIELD_WRITE.values() for k in fields
+                        k for fields in SETTINGS_FIELD_AGENT_WRITE.values() for k in fields
                     ],
                     "description": (
                         "字段名（必须与 stype 匹配）：genre→promise_note（02 主要看什么的主句，"
-                        "最多 200 字）/core_promise（02 的短标签，最多 60 字）/forbidden_list"
-                        "（03 绝对禁止）/cost_ratio（04 吃苦指数，1-10）/battlefield"
-                        "（05 本小说斗什么）；story→synopsis；world→no_power/stage/power/"
-                        "cost/history/factions/constraints/extra。没有 premise——简介用 story.synopsis。"
+                        "最多 200 字）/forbidden_list（03 绝对禁止，[{tagId} 或 {text}] 数组）/"
+                        "cost_ratio（04 吃苦指数，1-10 整数）/battlefield（05 本小说斗什么，"
+                        "字符串数组、自定义项≤20 字）；story→synopsis；world→no_power（开/关，"
+                        "布尔）/stage/power/cost（一段文字）/history/constraints/extra（条目数组，"
+                        "每条 {key,value}）/factions（条目数组，每条 {name,note}）。"
+                        "core_promise（02 短标签）不在本工具写——标签用 "
+                        "settings_genre_core_promise 采纳卡。没有 premise——简介用 story.synopsis。"
                     ),
                 },
-                "value": {"description": "字段新值（文本；genre.cost_ratio 为 1-10 数字）"},
+                "value": {
+                    "description": (
+                        "字段新值：题材 forbidden_list 为条目数组、battlefield 为字符串数组、"
+                        "cost_ratio 为 1-10 数字；世界 no_power 为布尔、history 等为条目数组、"
+                        "stage/power/cost 为文本；其余为文本。"
+                    )
+                },
             },
             "required": ["stype", "field", "value"],
         },
         description=(
             "写/改设定面板的某个字段（题材、简介、世界观条目；单字段合并写，其余不动）。"
-            "不确定字段键时先 read_page_fields 看本页有哪些字段——按页面列出的键写；"
+            "不确定字段键时先 read_page_schema 按页面说法找键（现值用 read_page_fields 查）——"
             "题材 02 的主句写 promise_note，core_promise 只是那句话下面的短标签。"
             "写操作：确认档先弹授权卡给你过目字段前后，自动档直接落库并带回执。"
             "作家没明确要写就别调。"

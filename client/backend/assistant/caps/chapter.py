@@ -191,17 +191,32 @@ async def add_chapter_cap(novel_id: str, user_id: str, volume_ref: str, title: s
 # 只传 provided 键映射出的 data，未提及字段零触碰。
 
 CHAPTER_FIELD_WRITE_KEYS: dict[str, str] = {
-    "summary": "概要",
+    # 标签逐字对齐章纲页各格名（OgPane）：卡面不再出现「概要/禁则/剧情条目」旧名。
+    "summary": "章纲概要",
     "characters": "出场角色",
     "challenge": "碰到的挑战",
     "plot_stage": "阶段",
     "ladder_exit": "章末落点",
-    "plot_items": "剧情条目",
+    "plot_items": "剧情",
     "required_changes": "必须完成的变化",
-    "prohibitions": "禁则",
+    "prohibitions": "禁止事项",
     "primary_mood": "主情绪",
     "word_target": "本章目标字数",
 }
+
+# 章纲写入口的落库上限（与 models/chapter 列宽/页面输入同口径）：超限拒绝而不是
+# 让 save_chapter 静默截断（review 2026-11-24：卡面显示全文、落库被截）。
+CHAPTER_FIELD_LIMITS: dict[str, int] = {
+    "summary": 300,
+    "challenge": 150,
+    "ladder_exit": 300,
+    "primary_mood": 50,
+}
+CHAPTER_LIST_ITEM_LIMITS: dict[str, int] = {
+    "characters": 50,  # 角色名
+    "plot_items": 200,  # 单条场景
+}
+CHAPTER_PLOT_ITEMS_MAX = 12
 
 
 def _chapter_prev_value(assembled: dict, key: str):
@@ -223,8 +238,10 @@ def _chapter_prev_value(assembled: dict, key: str):
         "required_changes": memo.get("required_changes", []),
         "prohibitions": memo.get("prohibitions", []),
         "primary_mood": emo.get("primary_mood", ""),
-        "word_target": ch.get("word_target"),
-        "title": ch.get("title", ""),
+        # assemble_chapter 的 title/word_target 在顶层（不在 chapter 子 dict）——
+        # 旧实现只读 ch.* → 真机授权卡「现在」永远显示未填（review 2026-11-24）。
+        "word_target": assembled.get("word_target", ch.get("word_target")),
+        "title": assembled.get("title") or ch.get("title", ""),
     }.get(key)
 
 
@@ -239,7 +256,7 @@ def _chapter_data_for(key: str, value) -> dict:
         return {key: str(value)}
     if key == "plot_items":
         if not isinstance(value, list):
-            raise CapabilityError("剧情条目必须是字符串数组（一条一段场景描述）")
+            raise CapabilityError("剧情必须是字符串数组（一条一段场景描述）")
         return {"plot_items": [str(x) for x in value]}
     if key == "required_changes":
         if not isinstance(value, list):
@@ -247,15 +264,73 @@ def _chapter_data_for(key: str, value) -> dict:
         return {"memo": {"required_changes": [str(x) for x in value]}}
     if key == "prohibitions":
         if not isinstance(value, list):
-            raise CapabilityError("「禁则」必须是字符串数组")
+            raise CapabilityError("「禁止事项」必须是字符串数组")
         return {"memo": {"prohibitions": [str(x) for x in value]}}
     if key == "primary_mood":
         return {"emotional_design": {"primary_mood": str(value)}}
     if key == "word_target":
-        return {"word_target": int(value)}
+        try:
+            return {"word_target": int(value)}
+        except (TypeError, ValueError) as e:
+            raise CapabilityError("本章目标字数要填数字（如 3000）") from e
     if key == "title":
         return {"title": str(value)}
     raise CapabilityError(f"不支持的章纲字段：{key}")
+
+
+# 字段族：同族多字段必须深合并（summary+characters 都在 outline 族）。
+_CHAPTER_FAMILY_KEYS = ("outline", "memo", "emotional_design")
+
+
+def _merge_patch(data: dict, probe: dict) -> None:
+    """按字段族深合并——浅 update 会让后写的同族字段覆盖前一个（静默丢字段）。"""
+    for key, value in probe.items():
+        if key in _CHAPTER_FAMILY_KEYS and isinstance(value, dict):
+            family = data.get(key)
+            if isinstance(family, dict):
+                family.update(value)
+            else:
+                data[key] = dict(value)
+        else:
+            data[key] = value
+
+
+def build_chapter_patch(fields: dict) -> dict:
+    """逐字段构造 patch 并按写入链校验；返回合并后的 data；失败抛 CapabilityError。
+
+    preview 与写核共用——授权卡能弹的卡必须能落库（c-agent-field-write-parity）。
+    """
+    from fastapi import HTTPException
+
+    from chapters.schemas import validate_chapter_fields
+
+    data: dict = {}
+    for key, value in fields.items():
+        if key not in CHAPTER_FIELD_WRITE_KEYS:
+            raise CapabilityError(f"不支持的章纲字段：{key}")
+        label = CHAPTER_FIELD_WRITE_KEYS[key]
+        limit = CHAPTER_FIELD_LIMITS.get(key)
+        if limit is not None and isinstance(value, str) and len(value) > limit:
+            raise CapabilityError(f"「{label}」最多 {limit} 字，这次给了 {len(value)} 字。")
+        item_limit = CHAPTER_LIST_ITEM_LIMITS.get(key)
+        if item_limit is not None and isinstance(value, list):
+            unit = "名" if key == "characters" else "项"
+            for item in value:
+                if len(str(item)) > item_limit:
+                    raise CapabilityError(
+                        f"「{label}」每{unit}最多 {item_limit} 字，超了。"
+                    )
+            if key == "plot_items" and len(value) > CHAPTER_PLOT_ITEMS_MAX:
+                raise CapabilityError(
+                    f"「{label}」最多 {CHAPTER_PLOT_ITEMS_MAX} 条，这次给了 {len(value)} 条。"
+                )
+        probe = _chapter_data_for(key, value)
+        try:
+            validate_chapter_fields(probe)
+        except HTTPException as e:  # 422 归一为人话（CapabilityError）
+            raise _cap_error_from_http(e) from e
+        _merge_patch(data, probe)
+    return data
 
 
 def _chapter_after_value(data: dict, key: str):
@@ -289,10 +364,8 @@ async def write_chapter_fields_cap(
     （人话）。plot_stage 闭集/plot_items 形状校验复用 validate_chapter_fields
     （HTTP 422 归一 CapabilityError）。
     """
-    from fastapi import HTTPException
     from sqlalchemy import select
 
-    from chapters.schemas import validate_chapter_fields
     from chapters.store import load_chapter, save_chapter
     from db import async_session
     from models.project import Novel
@@ -315,23 +388,16 @@ async def write_chapter_fields_cap(
     if not current:
         raise CapabilityError(f"章节 {chapter_ref} 不存在。")
 
-    data: dict = {}
-    changes: list[dict] = []
-    for key, value in fields.items():
-        body_probe = _chapter_data_for(key, value)
-        try:
-            validate_chapter_fields(body_probe)
-        except HTTPException as e:  # 422 归一为人话（CapabilityError）
-            raise _cap_error_from_http(e) from e
-        data.update(body_probe)
-        changes.append(
-            {
-                "field": key,
-                "label": CHAPTER_FIELD_WRITE_KEYS[key],
-                "before": _chapter_prev_value(current, key),
-                "after": _chapter_after_value(data, key),
-            }
-        )
+    data = build_chapter_patch(fields)
+    changes = [
+        {
+            "field": key,
+            "label": CHAPTER_FIELD_WRITE_KEYS[key],
+            "before": _chapter_prev_value(current, key),
+            "after": _chapter_after_value(data, key),
+        }
+        for key in fields
+    ]
     await save_chapter(root, chapter_ref, data)
     return {
         "entity": f"chapter:{chapter_ref}",
