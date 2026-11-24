@@ -24,6 +24,7 @@ export type FeatureKey =
   | "advanced-config-entry"
   | "settings-7-items"
   | "settings-ai-fields"
+  | "assistant-execute"
   | "outline-advanced-fields"
   | "ai-plan"
   | "chapter-review"
@@ -54,6 +55,9 @@ export const FEATURES: Record<FeatureKey, { minTier: TierKey }> = {
   "ai-model": { minTier: "free" },
   // 标准：AI 管流程（正文自己写）
   "settings-ai-fields": { minTier: "standard" },
+  // c-writing-agent-tier：助理可执行写操作（改设定/建章纲/收录知识库），标准起发放；
+  // 执行仍受授权梯度管控；free 只读陪聊（快照缺失按未授权兜底）。
+  "assistant-execute": { minTier: "standard" },
   "outline-advanced-fields": { minTier: "standard" },
   "ai-plan": { minTier: "standard" },
   "chapter-review": { minTier: "standard" },

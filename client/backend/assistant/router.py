@@ -122,6 +122,27 @@ def _sse(event: dict[str, Any]) -> str:
     return f"data: {json.dumps(event, ensure_ascii=False)}\n\n"
 
 
+def execute_gate_event(tool: Any) -> dict[str, Any] | None:
+    """执行门（c-writing-agent-tier）：写类工具按声明要求 assistant-execute（标准起）。
+
+    读类/产卡类不在此门管辖（产卡类走各自 feature_key 档位闸）。
+    返回 None＝放行到后续授权梯度；返回 gate 事件＝无权（调用方 yield 后 return，
+    不 403、不停车、不弹授权卡）。
+    """
+    feature = getattr(tool, "requires_feature", "")
+    if not feature:
+        return None
+    if ai_access_granted(feature):
+        return None
+    return {
+        "type": "gate",
+        "feature": feature,
+        "tier_required": "standard",
+        "approved": False,
+        "refusal": "动手的活要标准档起我才能接。升级后我就能替你改设定、建章纲、收知识库。",
+    }
+
+
 async def _build_gate_preview(tool: Any, args: dict[str, Any], project: Any, fallback: dict) -> dict:
     """授权卡 preview 装配（c-agent-page-ops 增强的接线点）。
 
@@ -539,6 +560,13 @@ async def _stream_chat(
 
         tool = get_tool(tool_name)
         if tool is None or tool.kind == "read":
+            return
+
+        # 执行门（c-writing-agent-tier）：写类先过 assistant-execute（标准起）。
+        # 无权 → 升级引导事件后收口；不走后续 feature_key 闸与授权停车。
+        gate_event = execute_gate_event(tool)
+        if gate_event is not None:
+            yield gate_event
             return
 
         # 档位闸（产卡/写类都有 feature_key；发散=max，干活=pro 系）

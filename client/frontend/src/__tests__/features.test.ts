@@ -16,6 +16,7 @@ const FREE_FEATURES: FeatureKey[] = [
 // 四档 AI 矩阵（2026-10-05 拍板）：标准=管流程；PRO=正文＋朱雀＋AI 拆书；MAX=推演/蒸馏/拆书建书
 const STANDARD_FEATURES: FeatureKey[] = [
   "settings-ai-fields",
+  "assistant-execute",
   "outline-advanced-fields",
   "ai-plan",
   "chapter-review",

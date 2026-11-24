@@ -70,6 +70,8 @@ _LEGACY_IMPLICIT_FEATURES: dict[str, int] = {
     "image-generate": _TIER_RANK["pro"],
     "deconstruct": _TIER_RANK["pro"],
     "deconstruct-import": _TIER_RANK["max"],
+    # c-writing-agent-tier：新 key 上线早于快照刷新——旧快照不含时按标准起隐式放行
+    "assistant-execute": _TIER_RANK["standard"],
 }
 
 
