@@ -695,7 +695,7 @@ def test_generation_endpoint_is_gated_and_creates_job(client, monkeypatch):
     assert r.json()["data"]["mock"] is True
 
 
-def test_generation_tier_matrix_standard_blocked_trial_allowed(monkeypatch):
+def test_generation_tier_matrix_standard_blocked_max_allowed(monkeypatch):
     novel_id, _, _ = _run(_seed())
 
     async def _fake_create(db, **kw):
@@ -724,11 +724,11 @@ def test_generation_tier_matrix_standard_blocked_trial_allowed(monkeypatch):
             r = c.post(f"/api/novels/{novel_id}/image-jobs", json={"kind": "cover", "n": 2})
         assert r.status_code == 403, r.text
         assert r.json()["detail"]["reason"] == "feature_required"
-        assert r.json()["detail"]["tier_required"] == "pro"
+        assert r.json()["detail"]["tier_required"] == "max"
 
         monkeypatch.setattr(
             auth_deps, "check_permission",
-            _permission("trial", ["ai-model", "image-generate"]),
+            _permission("max", ["ai-model", "image-generate"]),
         )
         with TestClient(app) as c:
             r = c.post(f"/api/novels/{novel_id}/image-jobs", json={"kind": "cover", "n": 2})
@@ -739,7 +739,7 @@ def test_generation_tier_matrix_standard_blocked_trial_allowed(monkeypatch):
 
 
 def test_generation_legacy_snapshot_implicit_allow_and_denies(monkeypatch):
-    """旧快照缺 image-generate：未过期 trial/pro/max 隐式放行；standard/过期仍拒。"""
+    """旧快照缺 image-generate：仅未过期 max/lifetime 隐式放行；pro/trial/standard/过期拒。"""
     novel_id, _, _ = _run(_seed())
 
     async def _fake_create(db, **kw):
@@ -760,7 +760,7 @@ def test_generation_legacy_snapshot_implicit_allow_and_denies(monkeypatch):
         }
 
     try:
-        for tier in ("trial", "pro", "max", "monthly"):
+        for tier in ("max", "lifetime"):
             monkeypatch.setattr(
                 auth_deps, "check_permission", _permission(tier, ["ai-model"]),
             )
@@ -771,13 +771,14 @@ def test_generation_legacy_snapshot_implicit_allow_and_denies(monkeypatch):
                 )
             assert r.status_code == 201, (tier, r.text)
 
-        monkeypatch.setattr(
-            auth_deps, "check_permission", _permission("standard", ["ai-model"]),
-        )
-        with TestClient(app) as c:
-            r = c.post(f"/api/novels/{novel_id}/image-jobs", json={"kind": "cover", "n": 2})
-        assert r.status_code == 403, r.text
-        assert r.json()["detail"]["reason"] == "feature_required"
+        for tier in ("trial", "pro", "standard", "monthly"):
+            monkeypatch.setattr(
+                auth_deps, "check_permission", _permission(tier, ["ai-model"]),
+            )
+            with TestClient(app) as c:
+                r = c.post(f"/api/novels/{novel_id}/image-jobs", json={"kind": "cover", "n": 2})
+            assert r.status_code == 403, (tier, r.text)
+            assert r.json()["detail"]["reason"] == "feature_required"
 
         monkeypatch.setattr(
             auth_deps, "check_permission",
@@ -1046,7 +1047,7 @@ def test_config_test_endpoint_validations(client, monkeypatch, _img_test_throttl
 
 
 def test_config_test_endpoint_tier_matrix(monkeypatch, _img_test_throttle):
-    """免费档 403 feature_required；trial 放行；旧快照隐式放行继承生成端点语义。"""
+    """免费/PRO 403 feature_required；MAX 放行；旧快照隐式放行仅 MAX。"""
     from image_assets import service as img_svc
 
     _fake_svc_generate(monkeypatch)
@@ -1072,25 +1073,39 @@ def test_config_test_endpoint_tier_matrix(monkeypatch, _img_test_throttle):
             r = c.post("/api/image-configs/test", json={"default_model": "m", "provider": "volcengine"})
         assert r.status_code == 403, r.text
         assert r.json()["detail"]["reason"] == "feature_required"
-        assert r.json()["detail"]["tier_required"] == "pro"
+        assert r.json()["detail"]["tier_required"] == "max"
 
-        monkeypatch.setattr(auth_deps, "check_permission",
-                            _permission("trial", ["image-generate"]))
-        img_svc.reset_image_test_throttle()
-        with TestClient(app) as c:
-            r = c.post("/api/image-configs/test", json={"default_model": "m", "provider": "volcengine"})
-        assert r.status_code == 200, r.text
-
-        # 旧快照无 image-generate：未过期 pro 隐式放行；过期拒绝
         monkeypatch.setattr(auth_deps, "check_permission",
                             _permission("pro", ["ai-model"]))
         img_svc.reset_image_test_throttle()
         with TestClient(app) as c:
             r = c.post("/api/image-configs/test", json={"default_model": "m", "provider": "volcengine"})
+        assert r.status_code == 403, r.text
+
+        monkeypatch.setattr(auth_deps, "check_permission",
+                            _permission("max", ["image-generate"]))
+        img_svc.reset_image_test_throttle()
+        with TestClient(app) as c:
+            r = c.post("/api/image-configs/test", json={"default_model": "m", "provider": "volcengine"})
+        assert r.status_code == 200, r.text
+
+        # 旧快照无 image-generate：未过期 max 隐式放行；pro/过期拒绝
+        monkeypatch.setattr(auth_deps, "check_permission",
+                            _permission("pro", ["ai-model"]))
+        img_svc.reset_image_test_throttle()
+        with TestClient(app) as c:
+            r = c.post("/api/image-configs/test", json={"default_model": "m", "provider": "volcengine"})
+        assert r.status_code == 403, r.text
+
+        monkeypatch.setattr(auth_deps, "check_permission",
+                            _permission("max", ["ai-model"]))
+        img_svc.reset_image_test_throttle()
+        with TestClient(app) as c:
+            r = c.post("/api/image-configs/test", json={"default_model": "m", "provider": "volcengine"})
         assert r.status_code == 200, r.text
 
         monkeypatch.setattr(auth_deps, "check_permission",
-                            _permission("pro", ["ai-model"], expired=True))
+                            _permission("max", ["ai-model"], expired=True))
         img_svc.reset_image_test_throttle()
         with TestClient(app) as c:
             r = c.post("/api/image-configs/test", json={"default_model": "m", "provider": "volcengine"})

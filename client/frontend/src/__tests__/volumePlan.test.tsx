@@ -410,8 +410,8 @@ render(<FreeHarness />);
     fireEvent.click(screen.getByTestId("open"));
     const expand = screen.getByTestId("desk-expand") as HTMLButtonElement;
     expect(expand.disabled).toBe(true);
-    expect(expand.title).toContain("需开通（标准档起）");
-    expect(document.querySelector(".pill-pro")?.textContent).toBe("标准"); // 规划台弹窗自带档位徽（非右栏 AI 卡）
+    expect(expand.title).toContain("PRO 专属");
+    expect(document.querySelector(".pill-pro")?.textContent).toBe("PRO"); // 规划台弹窗自带档位徽（非右栏 AI 卡）
     const create = screen.getByTestId("desk-create") as HTMLButtonElement;
     expect(create.disabled).toBeFalsy();
     // 出口带 tier_required（铺空缺＝ai-plan）→ 升级弹窗出「标准」口径

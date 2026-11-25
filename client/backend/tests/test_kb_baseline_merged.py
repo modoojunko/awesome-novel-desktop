@@ -14,6 +14,7 @@ from fastapi.testclient import TestClient
 from sqlalchemy import delete
 from sqlalchemy import select as sel
 
+from auth_local import service as _service
 from auth_local.middleware import get_current_user
 from db import async_session
 from kb.baseline import VERSION_KEY, content_sha, proxy_id
@@ -33,6 +34,11 @@ CONCEPTS = ("手法", "文风", "文笔")
 
 def _run(coro):
     return asyncio.run(coro)
+
+
+def _set_pro():
+    """官方库读取/覆盖端点 PRO 起；本模块夹具直接给 PRO。"""
+    _service.save_local_config({"tier": "pro", "expires_at": "2099-01-01"})
 
 
 def _b(src_key: str, title: str, *, concept: str = "手法", genre: str = "",
@@ -236,6 +242,7 @@ def test_详情与覆盖端点_动作矩阵(base_env):
             await db.commit()
 
     _run(_setup())
+    _set_pro()
 
     def _override():
         return {"id": uid, "email": f"{uid}@t.local"}
@@ -649,6 +656,7 @@ def test_已隐藏列表可回读_恢复默认回到精选(base_env):
             await db.commit()
 
     _run(_setup())
+    _set_pro()
     app.dependency_overrides[get_current_user] = lambda: {"id": uid, "email": f"{uid}@t.local"}
     try:
         with TestClient(app) as c:

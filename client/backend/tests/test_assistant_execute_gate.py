@@ -61,5 +61,6 @@ def test_fallback_member_tiers_include_key():
         assert "assistant-execute" not in STANDARD_FALLBACK[tier]["features"], tier
 
 
-def test_legacy_implicit_allows_standard():
-    assert _LEGACY_IMPLICIT_FEATURES["assistant-execute"] == _TIER_RANK["standard"]
+def test_legacy_implicit_allows_pro():
+    # 三档会员：assistant-execute 标准免费不再发放，隐式放行最低 PRO。
+    assert _LEGACY_IMPLICIT_FEATURES["assistant-execute"] == _TIER_RANK["pro"]
