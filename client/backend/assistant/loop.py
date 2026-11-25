@@ -98,7 +98,9 @@ def _step_note(summary: str, budget: int = 220) -> str:
         first_item = " ".join(lines[1].split())
         if len(first_item) > 60:
             first_item = first_item[:59].rstrip() + "…"
-        note += first_item
+        # 首行不以句读结尾就补空格：否则「正常 2 条」和「1. …」会粘成「2 条1.」
+        sep = "" if note.endswith(("：", ":", "。", "！", "？", "；", "…")) else " "
+        note = f"{note}{sep}{first_item}"
     if len(note) <= budget:
         return note
     return note[: budget - 1].rstrip() + "…"

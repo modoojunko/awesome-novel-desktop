@@ -30,3 +30,4 @@
 - [x] 5.3 「无章可提」改为 `ok=false`，与「正文为空」同一失败语义；验证：`test_lore_suggest_no_chapter_returns_human_message` 断言 `ok is False`
 - [x] 5.4 顺手修存量：`_as_check_items` 对 `{name,status,note}` 出参按「name：note」收口，不再把 dict repr 画到报告卡；验证：`test_as_check_items_humanizes_name_note` 通过
 - [x] 5.5 定向回归：`pytest tests/test_assistant_card_digest.py -q` → **28 passed**；`ruff check` 改动文件全过；`openspec validate --strict` → valid
+- [x] 5.6 二轮评审 P2：折叠行首行不以句读结尾时补分隔空格（修「正常 2 条1.」粘连）；验证：`test_step_note_takes_first_line_and_marks_clip` 覆盖无标点首行

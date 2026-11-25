@@ -475,6 +475,13 @@ def test_step_note_takes_first_line_and_marks_clip():
     assert len(clipped) == 220
     assert clipped.endswith("…")
 
+    # 首行不以句读结尾时补空格（否则「正常 2 条」和「1. …」粘成「2 条1.」）
+    report = "世界观体检完成：问题 1 条，正常 2 条\n1. 力量体系：与铁律冲突"
+    assert (
+        _step_note(report)
+        == "世界观体检完成：问题 1 条，正常 2 条 1. 力量体系：与铁律冲突"
+    )
+
 
 def test_as_check_items_humanizes_name_note():
     """世界体检出参 {name,status,note} 不再以 str(dict) 画到报告卡上。"""
