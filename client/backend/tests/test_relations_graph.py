@@ -3,7 +3,10 @@
 模式沿既有 API 测试：async_session 直种，asyncio.run 包服务调用。
 """
 import asyncio
+import itertools
 import uuid
+
+_CHAR_SEQ = itertools.count(1000)
 
 
 def _seed_user() -> str:
@@ -52,7 +55,7 @@ def _seed_character(novel_id: str, name: str, role: str = "配角"):
         async with async_session() as session:
             c = Character(
                 novel_id=novel_id,
-                seq=int(uuid.uuid4().hex[:4], 16) % 900 + 100,
+                seq=next(_CHAR_SEQ),
                 name=name,
                 role=role,
             )
