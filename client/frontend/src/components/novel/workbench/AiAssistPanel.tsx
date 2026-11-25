@@ -509,6 +509,8 @@ export function AiAssistPanel({
           ? "先写正文，再让本地规则圈出像 AI 的句子——不花朱雀额度"
           : "朱雀说 AI 味重？用它圈出具体哪里像 AI、怎么改；正文不出本机",
       badge: <span className="pill pill-accent">{renweiMaxlk ? "MAX 专属" : "本地 · MAX"}</span>,
+      // 行级 MAX gate 优先于整卡 PRO 锁：免费/PRO 点这行都应弹 MAX 升级，而不是 PRO。
+      ungated: true,
       variant: renweiMaxlk ? "maxlk" : undefined,
       onClick: () => {
         if (renweiMaxlk) {

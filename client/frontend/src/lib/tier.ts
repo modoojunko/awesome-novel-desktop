@@ -22,7 +22,10 @@ const TIER_DISPLAY_FALLBACK: Record<string, string> = {
 };
 
 function memberLabel(r: TierJudgment): string {
-  if (r.display_name) return `${r.display_name}会员`;
+  if (r.display_name) {
+    // S 端 display_name 可能已经带「会员」（如“标准会员（旧）”），避免重复追加。
+    return r.display_name.includes("会员") ? r.display_name : `${r.display_name}会员`;
+  }
   return TIER_DISPLAY_FALLBACK[r.tier ?? ""] ?? "PRO 会员";
 }
 

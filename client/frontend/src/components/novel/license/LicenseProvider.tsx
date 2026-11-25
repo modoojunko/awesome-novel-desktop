@@ -212,7 +212,8 @@ export function LicenseProvider({ children }: { children: React.ReactNode }) {
     expired,
     expiresAt,
     projectLimit,
-    isStandard: tier === "standard",
+    // 标准（免费）与存量 standard 都算“标准档”；功能门控仍走 useFeature。
+    isStandard: tier === "free" || tier === "standard",
     isPro: tier === "pro" || tier === "max",
     isMax: tier === "max",
     trialRemainingDays,
