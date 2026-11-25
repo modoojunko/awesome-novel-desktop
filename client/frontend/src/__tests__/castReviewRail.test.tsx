@@ -87,7 +87,7 @@ describe("章纲页签行级门控（只作用 og 页签）", () => {
     expect(document.querySelector(".rail-assist.locked")).toBeNull();
     // 说明文案已删（行级 hint 自解释）：免费仍保留升级出口，卡头角标＝当前档位
     expect(screen.queryByText(/按套餐逐档解锁/)).toBeNull();
-    expect(screen.getByTestId("plan-badge").textContent).toBe("免费版");
+    expect(screen.getByTestId("plan-badge").textContent).toBe("标准");
     fireEvent.click(screen.getByTestId("og-upgrade-btn"));
     expect(cb.onUpgrade).toHaveBeenCalled();
     // 盘点行免费不触发回调

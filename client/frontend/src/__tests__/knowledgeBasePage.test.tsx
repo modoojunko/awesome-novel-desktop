@@ -50,6 +50,7 @@ vi.mock("@/lib/kbApi", async (orig) => {
 });
 
 import KnowledgeBasePage, { fieldsOf, payloadRows } from "@/pages/KnowledgeBasePage";
+import { resetLicenseCache, setVerifyCache } from "@/lib/licenseCache";
 import type { KbEntry } from "@/lib/kbApi";
 
 // c-charlib-into-kb：页组件引入 useSearchParams/useCharacterLibrary 后，
@@ -99,6 +100,13 @@ const ENTRY: KbEntry = {
 };
 
 beforeEach(() => {
+  // 官方库 PRO 起；页面测试统一给 PRO 快照。
+  resetLicenseCache();
+  setVerifyCache({
+    tier: "pro",
+    is_member: true,
+    entitlement: { v: 4, features: ["kb-official"], limits: { max_projects: null } },
+  });
   libApi.listLibrary.mockResolvedValue({ count: 0, items: [] });
   api.entries.mockResolvedValue({ entries: [ENTRY], next_cursor: "" });
   api.libraries.mockResolvedValue([]);

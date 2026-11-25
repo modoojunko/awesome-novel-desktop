@@ -98,11 +98,11 @@ describe("CreateTaskPage", () => {
       expect((screen.getByText("创建任务（PRO）") as HTMLButtonElement).disabled).toBe(false),
     );
     fireEvent.click(screen.getByText("创建任务（PRO）"));
-    await waitFor(() => expect(screen.getByText("升级 PRO · 解锁 AI 能力")).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByText("升级 PRO · AI 写手")).toBeInTheDocument());
     expect(state.create).not.toHaveBeenCalled();
     fireEvent.click(screen.getByText("暂不"));
     await waitFor(() =>
-      expect(screen.queryByText("升级 PRO · 解锁 AI 能力")).not.toBeInTheDocument(),
+      expect(screen.queryByText("升级 PRO · AI 写手")).not.toBeInTheDocument(),
     );
   });
 

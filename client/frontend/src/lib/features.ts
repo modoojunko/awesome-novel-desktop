@@ -38,12 +38,14 @@ export type FeatureKey =
   | "assistant-diverge"
   | "image-generate"
   | "deconstruct"
-  | "deconstruct-import";
+  | "deconstruct-import"
+  | "kb-official"
+  | "human-taste";
 
 const TIER_ORDER: Record<TierKey, number> = { free: 0, standard: 1, pro: 2, max: 3 };
 
 export const FEATURES: Record<FeatureKey, { minTier: TierKey }> = {
-  // 免费：完整人工写作能力
+  // 标准（免费）：完整创作流程 + 自己的库 + AI 头脑风暴（读/聊；不生成/不写）
   "tree-crud": { minTier: "free" },
   "prose-edit": { minTier: "free" },
   "version-history": { minTier: "free" },
@@ -51,34 +53,27 @@ export const FEATURES: Record<FeatureKey, { minTier: TierKey }> = {
   "volume-chapter-config": { minTier: "free" },
   "advanced-config-entry": { minTier: "free" },
   "settings-7-items": { minTier: "free" },
-  // 模型配置＝人工路径能力（免费版也能配、配好升级后直接用，D4/7.1）
+  // 模型配置＝基础能力：标准免费也能配，配好升级后直接用
   "ai-model": { minTier: "free" },
-  // 标准：AI 管流程（正文自己写）
-  "settings-ai-fields": { minTier: "standard" },
-  // c-writing-agent-tier：助理可执行写操作（改设定/建章纲/收录知识库），标准起发放；
-  // 执行仍受授权梯度管控；free 只读陪聊（快照缺失按未授权兜底）。
-  "assistant-execute": { minTier: "standard" },
-  "outline-advanced-fields": { minTier: "standard" },
-  "ai-plan": { minTier: "standard" },
-  "chapter-review": { minTier: "standard" },
-  "style-suggest": { minTier: "standard" },
-  // PRO：正文 AI＋朱雀检测
+  // PRO：AI 写手——规划/章纲/正文/执行
+  "settings-ai-fields": { minTier: "pro" },
+  "assistant-execute": { minTier: "pro" },
+  "outline-advanced-fields": { minTier: "pro" },
+  "ai-plan": { minTier: "pro" },
+  "chapter-review": { minTier: "pro" },
+  "style-suggest": { minTier: "pro" },
   "ai-generate": { minTier: "pro" },
   "prompt-panel": { minTier: "pro" },
-  // 朱雀 AI 检测：PRO 起发放、trial 同权（2026-10-05 拍板留 PRO——撤销「上收 MAX」
-  // 草案）；快照单源——S端 entitlement 对 pro/max 发放本 key；快照缺失按兜底口径
-  // 一律未授权（锁定）。
   "ai-detect": { minTier: "pro" },
-  // 图像生成/试画/批量头像：图像 Key 作者自持，不查写作大模型；trial 同权
-  "image-generate": { minTier: "pro" },
-  // MAX：剧情推演＋文风蒸馏（去AI味加工已随 c-renwei-check 退役）
+  "deconstruct": { minTier: "pro" },
+  // 官方写作知识库（官方层）；本地库不挂 key，标准免费
+  "kb-official": { minTier: "pro" },
+  // MAX：写作秘书——质量/图像/建书/效率/放手
+  "image-generate": { minTier: "max" },
+  "human-taste": { minTier: "max" },
   "ai-plot": { minTier: "max" },
-  // c-writing-agent：发散起草（添人添事）MAX（boss 拍板 2026-11-14）
   "assistant-diverge": { minTier: "max" },
   "style-quant": { minTier: "max" },
-  // 拆书/导入（c-deconstruct-tier，2026-10-23 拍板）：正文导入免费；
-  // AI 拆书＋产物查看＋导出 markdown 归 PRO（trial 同权）；拆书产物一键建书归 MAX（trial 不含）
-  "deconstruct": { minTier: "pro" },
   "deconstruct-import": { minTier: "max" },
 };
 
@@ -94,15 +89,13 @@ export function minTierOf(key: FeatureKey): TierKey {
 
 /** 档位短名（徽标/角标用；档位名唯一来源，升级弹窗/门槛徽标等都取这里） */
 export function tierLabel(tier: TierKey): string {
-  return { free: "免费", standard: "标准", pro: "PRO", max: "MAX" }[tier];
+  return { free: "标准", standard: "标准会员（旧）", pro: "PRO", max: "MAX" }[tier];
 }
 
-/** 升级引导短文案（按 key 最低档单源）：锁定行/-toast/徽标统一出口用，
- *  替代散落的「升级 PRO」硬编码（tier-plan-four-tiers 5.5）；
- *  徽标只需档位名时用 tierLabel(minTierOf(key))。 */
+/** 升级引导短文案（按 key 最低档单源）：锁定行/-toast/徽标统一出口用。 */
 export function upgradeHintOf(key: FeatureKey): string {
   const t = FEATURES[key].minTier;
-  if (t === "standard") return "需开通（标准档起）";
+  if (t === "standard") return "标准会员（旧）专属";
   return `${tierLabel(t)} 专属`;
 }
 

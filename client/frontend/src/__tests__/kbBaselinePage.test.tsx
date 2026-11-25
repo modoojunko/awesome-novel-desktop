@@ -60,6 +60,7 @@ vi.mock("force-graph", () => ({
 }));
 
 import KnowledgeBasePage from "@/pages/KnowledgeBasePage";
+import { resetLicenseCache, setVerifyCache } from "@/lib/licenseCache";
 
 // c-charlib-into-kb：页组件引入 useSearchParams/useCharacterLibrary 后，
 // 渲染必须挂 Router＋QueryClient 上下文（既有裸渲染统一走这里）。
@@ -83,6 +84,13 @@ const BASE_ENTRY = {
 };
 
 beforeEach(() => {
+  // 官方库 PRO 起；KB 页测试统一用 PRO 快照（useFeature 无 Provider 时读 verify 缓存）。
+  resetLicenseCache();
+  setVerifyCache({
+    tier: "pro",
+    is_member: true,
+    entitlement: { v: 4, features: ["kb-official"], limits: { max_projects: null } },
+  });
   libApi.listLibrary.mockResolvedValue({ count: 0, items: [] });
   api.genres.mockResolvedValue([{ name: "玄幻", count: 1 }]);
   api.entries.mockResolvedValue({ entries: [BASE_ENTRY], next_cursor: "" });
@@ -103,6 +111,7 @@ beforeEach(() => {
 
 afterEach(() => {
   cleanup();
+  resetLicenseCache();
   vi.clearAllMocks();
 });
 

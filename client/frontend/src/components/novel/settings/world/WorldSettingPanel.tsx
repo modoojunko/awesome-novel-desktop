@@ -404,7 +404,7 @@ const WorldSettingPanel = forwardRef<WorldPanelHandle, WorldPanelProps>(function
       const reason = aiBlockReason(e);
       const msg =
         reason === "member_required"
-          ? (e as Error).message || "这是会员功能——开通后可用；免费版写作能力完整"
+          ? (e as Error).message || "这是会员功能——开通后可用；标准（免费）写作能力完整"
           : reason === "no_key"
             ? (e as Error).message || "先去「模型配置」添加 API Key"
             : reason === "missing_model" || reason === "invalid"

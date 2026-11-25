@@ -63,15 +63,17 @@ def _tier_required_for(feature: str) -> str | None:
 _TIER_RANK = {"none": 0, "free": 1, "standard": 2, "pro": 3, "trial": 3, "max": 4,
               "monthly": 3, "quarterly": 3, "yearly": 3, "lifetime": 4}  # trial=pro 同权（含朱雀）
 
-# 新 key 上线早于快照刷新的隐式放行（c-image-generation / c-deconstruct-tier）：
+# 新 key 上线早于快照刷新的隐式放行（三档会员）：
 # 完整旧快照不含新 key 时，按 key 的最低档放行（未过期）——与前端 useTier 同口径；
-# standard 键按 rank≥standard 隐式放行；free/过期不适用；max key 不给 trial/pro 放行。
+# 标准（免费）/过期不适用；MAX key 不给 PRO/trial 放行。
 _LEGACY_IMPLICIT_FEATURES: dict[str, int] = {
-    "image-generate": _TIER_RANK["pro"],
+    "image-generate": _TIER_RANK["max"],
+    "human-taste": _TIER_RANK["max"],
     "deconstruct": _TIER_RANK["pro"],
     "deconstruct-import": _TIER_RANK["max"],
-    # c-writing-agent-tier：新 key 上线早于快照刷新——旧快照不含时按标准起隐式放行
-    "assistant-execute": _TIER_RANK["standard"],
+    "kb-official": _TIER_RANK["pro"],
+    # assistant-execute 三档起改 PRO（标准免费不再发放）
+    "assistant-execute": _TIER_RANK["pro"],
 }
 
 

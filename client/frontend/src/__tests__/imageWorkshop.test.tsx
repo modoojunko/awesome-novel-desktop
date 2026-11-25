@@ -99,7 +99,7 @@ describe("ImageWorkshopModal（上传型工坊）", () => {
     const free = render(
       <ImageWorkshopModal open novelId="n1" kind="cover" onClose={() => {}} onChanged={onChanged} />,
     );
-    await waitFor(() => expect(screen.getByText("AI 生成（PRO 以上）")).toBeTruthy());
+    await waitFor(() => expect(screen.getByText("AI 生成（MAX 专属）")).toBeTruthy());
     const generate = screen.getByRole("button", { name: "生成 2 张候选" }) as HTMLButtonElement;
     expect(generate.disabled).toBeTruthy();
     free.unmount();

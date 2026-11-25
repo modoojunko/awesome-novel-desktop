@@ -247,7 +247,7 @@ export default function ImageConfigPanel() {
         <Ico d={P.info} sw={1.8} />
         <span>
           图像模型与写作模型分开管理；Key 只用于封面/头像。<b>免费用户可上传</b>，
-          AI 生成需 PRO 以上。「测试连接」会真实生成一张小图来验证 Key、地址与模型 id。
+          AI 生成需 MAX。「测试连接」会真实生成一张小图来验证 Key、地址与模型 id。
         </span>
       </div>
 

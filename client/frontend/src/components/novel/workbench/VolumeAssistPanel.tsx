@@ -457,7 +457,7 @@ function VolumeVerifyPanel({
             }]
           : []),
       ]}
-      footNote="卷体检与拆章需开通（标准档起）；规划台输入与手写全免费。体检随时可重复，不会改动任何内容。"
+      footNote="卷体检与拆章需开通 PRO；规划台输入与手写全免费。体检随时可重复，不会改动任何内容。"
       data-od-id="volume-verify-panel"
       data-testid="volume-verify-panel"
     >
@@ -668,7 +668,7 @@ export function VolumeAssistPanel({
             testid: "plan-first-volume",
           },
         ]}
-        footNote="免费版：体检与建议只读；生成、改写与归档需开通（标准档起）。规划台里材料与规则随时可看，输入也能先写。"
+        footNote="标准（免费）：体检与建议只读；生成、改写需开通 PRO；归档随时可用。规划台里材料与规则随时可看，输入也能先写。"
         data-od-id="plan-entry-empty"
       >
         <div data-testid="plan-entry-empty">
@@ -697,7 +697,7 @@ export function VolumeAssistPanel({
           testid: "plan-next-volume",
         },
       ]}
-      footNote="卷体检需开通（标准档起）。点一卷立刻体检，只读不拦。"
+      footNote="卷体检需开通 PRO。点一卷立刻体检，只读不拦。"
       data-od-id="plan-entry-next"
     >
       <div data-testid="plan-entry-next">

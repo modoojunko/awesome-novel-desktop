@@ -1,6 +1,6 @@
 // VolumePlanModal — 四问手写页（c-volume-antagonist 免费路径/付费转手写）。
 // 四问：①讲什么②主要冲突③这一卷的坎（类型＋一句话）④卷末收在哪里；
-// 底部两动作：「让 AI 铺完剩下的问题」（门禁＝ai-plan，标准档起）＋「直接创建这一卷」（免费）。
+// 底部两动作：「让 AI 铺完剩下的问题」（门禁＝ai-plan，PRO 起）＋「直接创建这一卷」（免费）。
 // 手动入口（各处「＋ 新增一卷」，state.openMode==="manual"）下 SHALL NOT 出现 AI 动作：
 // 手写页只留「直接创建这一卷」，AI 铺空缺改由右栏 AI 助手入口进（用户 2026-09-22 拍板）。
 // 生成中 genbox 进度只在弹窗内；关弹窗不中断（完成后中栏自动回填）。
@@ -37,7 +37,7 @@ export function VolumePlanModal({
 }: {
   projectId: string;
   plan: VolumePlanController;
-  /** 拥有 ai-plan（标准档起）：铺空缺是标准档能力（后端 /ai/expand 即 ai-plan） */
+  /** 拥有 ai-plan（PRO 起）：铺空缺是 PRO 能力（后端 /ai/expand 即 ai-plan） */
   hasAiPlan: boolean;
   onUpgrade: (required?: FeatureKey) => void;
   /** 免费路：答多少建多少（外层走 createVolume 四问扩展） */

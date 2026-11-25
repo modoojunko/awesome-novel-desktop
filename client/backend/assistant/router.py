@@ -118,6 +118,18 @@ _log = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/novels/{project_id}/assistant", tags=["assistant"])
 
 
+def _is_max_member() -> bool:
+    """当前用户是否有效 MAX（allow_book 自动执行仅有效 MAX）。
+
+    只看 tier 标签会把已过期/注销中的 MAX 仍判成 MAX——check_permission 对这些
+    状态保留原 tier 但 is_member=False；自动执行授权必须同时要求有效会员。
+    """
+    from auth_local.service import check_permission
+
+    perm = check_permission()
+    return bool(perm.get("is_member")) and str(perm.get("tier") or "") in ("max", "lifetime")
+
+
 def _sse(event: dict[str, Any]) -> str:
     return f"data: {json.dumps(event, ensure_ascii=False)}\n\n"
 
@@ -139,12 +151,18 @@ def execute_gate_event(tool: Any) -> dict[str, Any] | None:
         "feature": feature,
         "tier_required": _execute_tier_required(feature),
         "approved": False,
-        "refusal": "动手的活要标准档起我才能接。升级后我就能替你改设定、建章纲、收知识库。",
+        "refusal": "动手的活要 PRO 档起我才能接。升级后我就能替你改设定、建章纲、收知识库。",
     }
 
 
 def _execute_tier_required(feature: str) -> str:
-    """执行键 → 最低档（与档位目录兜底表同源，未知键回落 standard）。"""
+    """执行键 → 最低档；assistant-execute 三档起已收归 PRO。
+
+    兜底表 standard 行是存量 legacy（仍含 assistant-execute），不能按
+    「首个含键的档」回推新售档位，否则 gate 事件会把 PRO 说成 standard。
+    """
+    if feature == "assistant-execute":
+        return "pro"
     from auth_local.service import STANDARD_FALLBACK
 
     for tier in ("standard", "pro", "max"):
@@ -579,24 +597,36 @@ async def _stream_chat(
             yield gate_event
             return
 
-        # 档位闸（产卡/写类都有 feature_key；发散=max，干活=pro 系）
-        tier_required = {"ai-plan": "pro", "settings-ai-fields": "standard"}.get(
-            tool.feature_key, "pro"
-        )
+        # 档位闸（三档：标准免费只读；PRO=AI 写手；MAX=写作秘书）
+        _MAX_ONLY = {
+            "human-taste", "image-generate", "assistant-diverge",
+            "ai-plot", "style-quant", "deconstruct-import",
+        }
+        tier_required = "max" if tool.feature_key in _MAX_ONLY else "pro"
         if tool.feature_key and not ai_access_granted(tool.feature_key):
             upgrade_copy = {
                 "assistant-diverge": (
                     "发散造人是 MAX 档的能力。升级后告诉我大概剧情，"
                     "我就能自己添人添事给你出草案。"
                 ),
+                "human-taste": (
+                    "人味检测和逐行改法是 MAX 档的能力。升级后我就能替你查人味、给改法。"
+                ),
+                "kb-official": (
+                    "官方写作知识库是 PRO 档的能力。升级后我就能用 331 本书的写法帮你。"
+                ),
+                "ai-generate": (
+                    "写正文是 PRO 档的能力。升级后我就能在对话里出正文方案、整章生成。"
+                ),
             }.get(
                 tool.feature_key,
-                "这个要 PRO 档才能让我动手。升级后我就能自己干活了。",
+                "这个要 MAX 档才能让我接。" if tier_required == "max"
+                else "这个要 PRO 档才能让我接。",
             )
             yield {
                 "type": "gate",
                 "feature": tool.feature_key,
-                "tier_required": "max" if tool.feature_key == "assistant-diverge" else tier_required,
+                "tier_required": tier_required,
                 "approved": False,
                 "refusal": upgrade_copy,
             }
@@ -605,7 +635,11 @@ async def _stream_chat(
         if tool.kind != "write":
             return
 
-        decision = write_gate.evaluate(tool_name, args, tier=tier)
+        # allow_book 自动执行仅 MAX；非 MAX 即使存量 grants 为自动档也回退每写必确认
+        effective_tier = tier
+        if effective_tier in (write_gate.TIER_ALLOW_BOOK, write_gate.TIER_ALLOW_ALL) and not _is_max_member():
+            effective_tier = write_gate.TIER_CONFIRM_EACH
+        decision = write_gate.evaluate(tool_name, args, tier=effective_tier)
         if decision.allowed:
             return
         if not decision.needs_user:
@@ -1390,6 +1424,16 @@ async def set_permission_tier(
     tier = str(body.get("tier") or "")
     if tier not in KNOWN_TIERS:
         raise HTTPException(422, f"tier 必须是 {list(KNOWN_TIERS)} 之一")
+    if tier in ("allow_book", "allow_all") and not _is_max_member():
+        raise HTTPException(
+            403,
+            detail={
+                "reason": "feature_required",
+                "feature": "assistant-execute",
+                "tier_required": "max",
+                "message": "自动执行是 MAX 专属；升级后我就能在本书内放手干活。",
+            },
+        )
     # 授权档位书级语义（boss 拍板：切页签/线程不重置授权）——更新本书全部会话文件
     metas = [
         m

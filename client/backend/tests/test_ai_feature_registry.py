@@ -58,9 +58,17 @@ def _iter_api_routes(routes):
 
 # 允许挂「键自持门」的 key 白名单：端点用的是作者自持的第三方 Key，不需要写作大模型
 # （`ai-detect`＝朱雀检测；`prompt-panel`＝提示词取数与编辑，2026-10-08 拍板；
-#  `image-generate`＝封面/头像生成，图像 Key 独立于写作大模型，c-image-generation）。
+#  `image-generate`＝封面/头像生成，图像 Key 独立于写作大模型，c-image-generation；
+#  `human-taste`＝本地人味检测，0 模型/0 Key，MAX 专属；
+#  `kb-official`＝官方库读取，0 模型）。
 # 其余 key 一律要求 require_ai_access——防「LLM 端点错挂键自持门」凭空放行未配模型的作者。
-KEYLESS_GATE_KEYS = ("ai-detect", "prompt-panel", "image-generate")
+KEYLESS_GATE_KEYS = ("ai-detect", "prompt-panel", "image-generate", "human-taste", "kb-official")
+
+# 按端点例外：deconstruct 主体是 LLM 拆书（必须 require_ai_access）；仅 collect-to-kb
+# 是 0 模型后处理，允许键自持门。按端点白名单避免把整个 deconstruct key 放行。
+KEYLESS_ENDPOINT_KEYS = {
+    ("/api/deconstruct/tasks/{task_id}/collect-to-kb", "deconstruct"),
+}
 
 
 def _has_gate_named(dep, name: str) -> bool:
@@ -75,13 +83,15 @@ def _has_key_gate(route) -> bool:
 
     两种门分工：`require_ai_access`（会员＋档位＋已配写作大模型 Key）为 LLM 类端点的
     唯一合法门；`require_tier_access`（会员＋档位）**仅** `KEYLESS_GATE_KEYS` 内的
-    键自持端点可用——LLM 端点若只剩键自持门，等于把「未配模型」放行到深处才炸。
+    键自持端点或 `KEYLESS_ENDPOINT_KEYS` 按端点例外可用——LLM 端点若只剩键自持门，
+    等于把「未配模型」放行到深处才炸。
     """
     deps = route.dependant.dependencies
     if any(_has_gate_named(d, "require_ai_access") for d in deps):
         return True
     key = getattr(route.endpoint, "__ai_feature__", None)
-    return key in KEYLESS_GATE_KEYS and any(
+    keyless = key in KEYLESS_GATE_KEYS or (route.path, key) in KEYLESS_ENDPOINT_KEYS
+    return keyless and any(
         _has_gate_named(d, "require_tier_access") for d in deps
     )
 

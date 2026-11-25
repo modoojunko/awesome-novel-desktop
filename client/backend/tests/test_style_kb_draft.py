@@ -11,6 +11,7 @@ import uuid
 
 from fastapi.testclient import TestClient
 
+from auth_local import service as _service
 from auth_local.middleware import get_current_user
 from db import async_session
 from kb.service import create_entry
@@ -94,6 +95,8 @@ def _set_status(entry_id: str, status: str) -> None:
 
 
 def _get(c: TestClient, seed: dict) -> dict:
+    # 按题材填文风读官方库，PRO 起；夹具直接给 PRO。
+    _service.save_local_config({"tier": "pro", "expires_at": "2099-01-01"})
     r = c.get(f"/api/novels/{seed['novel_id']}/settings/style/kb-draft")
     assert r.status_code == 200, r.text
     return r.json()

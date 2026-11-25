@@ -477,9 +477,12 @@ def test_并发双开导入_唯一索引冲突自动重算(monkeypatch):
     real = bs.load_import_state
     calls = {"n": 0}
 
-    async def _stale_then_real(db, *, novel_id, user_id, genre):
+    async def _stale_then_real(db, *, novel_id, user_id, genre, include_baseline=True):
         calls["n"] += 1
-        rows, todo = await real(db, novel_id=novel_id, user_id=user_id, genre=genre)
+        rows, todo = await real(
+            db, novel_id=novel_id, user_id=user_id, genre=genre,
+            include_baseline=include_baseline,
+        )
         return (rows, rows) if calls["n"] == 1 else (rows, todo)  # 首轮装作没看见
 
     monkeypatch.setattr(bs, "load_import_state", _stale_then_real)
@@ -703,14 +706,15 @@ def test_基线层纳入开书导入_merged快照():
             await db.commit()
     _run(_seed_baseline())
 
-    async def _todo_ids():
+    async def _todo_ids(include_baseline: bool = True):
         from kb.book_scope import load_import_state, novel_genre
 
         async with async_session() as db:
             novel = (await db.execute(sel(Novel).where(Novel.id == novel_id))).scalar_one()
             genre = await novel_genre(novel.root_path)
             _sources, todo = await load_import_state(
-                db, novel_id=novel_id, user_id=uid, genre=genre
+                db, novel_id=novel_id, user_id=uid, genre=genre,
+                include_baseline=include_baseline,
             )
             return {s.id for s in todo}
     async def _cleanup():
@@ -726,6 +730,8 @@ def test_基线层纳入开书导入_merged快照():
 
     try:
         assert _run(_todo_ids()) == {"bl-hit", "bl-gen"}  # 悬疑基线不进
+        # 标准/免费档只导入本地层：官方基线不得进书副本
+        assert _run(_todo_ids(include_baseline=False)) == set()
 
         r = _run(_import(novel_id, uid))
         assert r["imported"] == 2

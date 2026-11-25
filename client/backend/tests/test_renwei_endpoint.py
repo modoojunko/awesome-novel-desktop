@@ -1,7 +1,7 @@
 """人味检测端点（c-renwei-check）：POST /api/novels/{id}/chapters/{ref}/renwei-check。
 
-门禁口径是本能力的关键契约：**只挂登录**——不挂档位门、不挂 Key 门、无配置态；
-0 模型 0 额度 0 外发。用例覆盖：200 契约、短章打不了分、空正文 400、404、免档位。
+门禁口径：MAX 专属（human-taste），不挂 Key 门；0 模型 0 额度 0 外发。
+用例覆盖：200 契约、短章打不了分、空正文 400、404、MAX 可用。
 """
 
 import asyncio
@@ -11,6 +11,7 @@ import tempfile
 from fastapi.testclient import TestClient
 from sqlalchemy import select
 
+from auth_local import service as _service
 from auth_local.middleware import get_current_user
 from db import async_session
 from main import app
@@ -122,6 +123,8 @@ async def _seed(prose: str, *, ref: str = "vol-1-ch-1", chapter_no: int = 1) -> 
 
 
 def _post(nid: str, ref: str = "vol-1-ch-1"):
+    # 人味检测 MAX 专属；本地夹具直接给 MAX（无 Key 前置）。
+    _service.save_local_config({"tier": "max", "expires_at": "2099-01-01"})
     c = TestClient(app)
     c.__enter__()
     app.dependency_overrides[get_current_user] = lambda: {"id": _UIDS[nid]}
@@ -172,8 +175,8 @@ def test_endpoint_missing_chapter_404():
     assert r.status_code == 404
 
 
-def test_endpoint_has_no_tier_or_key_gate():
-    """只挂登录：不注入任何档位/Key 依赖也不 403/503（免费作家直接可用）。"""
+def test_endpoint_max_available_without_key():
+    """MAX 专属：不要求写作模型 Key，配好档位即可用。"""
     nid = asyncio.run(_seed(LONG_PROSE))
     r = _post(nid)
     assert r.status_code == 200, r.text

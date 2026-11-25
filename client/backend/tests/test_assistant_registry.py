@@ -21,10 +21,16 @@ def test_every_tool_has_fn():
     assert missing == [], f"注册未挂 fn 的工具：{missing}"
 
 
-def test_read_tools_are_free():
+def test_read_tools_have_no_execute_gate():
     reads = [t for t in TOOL_REGISTRY if t.kind == "read"]
     assert reads, "读类工具不应为空"
-    assert all(t.feature_key == "" for t in reads), "读类工具必须免费（feature_key 空）"
+    # 读类不声明执行键；少数读类可挂档位 key（官方库/人味检测），其余读类免费。
+    assert all(t.requires_feature == "" for t in reads), "读类工具不应声明 requires_feature"
+    gated = {t.name: t.feature_key for t in reads if t.feature_key}
+    assert gated.get("read_prose_checks") == "human-taste"
+    assert gated.get("kb_search_craft") == "kb-official"
+    free_names = {t.name for t in reads if not t.feature_key}
+    assert {"read_chapter", "kb_search", "kb_read"} <= free_names
 
 
 def test_card_tools_have_feature_gate():

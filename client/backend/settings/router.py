@@ -1,6 +1,7 @@
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from auth_local.deps import ai_feature, require_tier_access
 from auth_local.middleware import get_current_user
 from db import get_db
 from filesystem.paths import KEY_TO_PATH, MULTI_FILE_SETTING_KEYS
@@ -51,12 +52,14 @@ async def update_character(
 
 
 @router.get("/style/kb-draft")
+@ai_feature("kb-official")
 async def get_style_kb_draft(
     project_id: str,
     user: dict = Depends(get_current_user),
+    _gate: bool = Depends(require_tier_access),
     db: AsyncSession = Depends(get_db),
 ):
-    """按本书题材从知识库取文风草稿（c-style-kb-fill）——只读，不写任何 KV。
+    """按本书题材从知识库取文风草稿（c-style-kb-fill）——只读；官方库 PRO 起。
 
     两段路径，与通用 `/{type}`（单段）不冲突。没定题材时返回 `theme: ""` ＋空数组，
     由前端给「先定题材」的引导（不 400：面板进页就要拿它渲染右栏行）。

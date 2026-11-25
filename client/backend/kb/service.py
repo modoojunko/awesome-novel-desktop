@@ -395,6 +395,7 @@ async def list_entries(
     cursor: str = "",
     limit: int = 30,
     include_material: bool = True,
+    include_baseline: bool = True,
 ) -> tuple[list, str]:
     """条目列表——merged 视图游标分页。返回 (entries, next_cursor)。
 
@@ -403,6 +404,7 @@ async def list_entries(
     保证跨表分页不重不漏。来源筛选："官方精选" 只取基线；手录/拆书 只取用户条目。
     include_material=False 排除素材行（origin='material'，c-kb-summarize）——
     知识列表是素材展示面默认含；星图下钻等消费端传 False。
+    include_baseline=False 只返回本地层（标准/免费档；官方层需 kb-official）。
     """
     from kb.merged import load_baseline_entries, load_hidden_entries
 
@@ -415,6 +417,8 @@ async def list_entries(
 
     entries: list = []
     next_cursor = ""
+    if not include_baseline and (src_hidden_only or src_base_only):
+        return [], ""
     if src_hidden_only:
         # 「已隐藏」＝hide 白名单回读（恢复默认的唯一入口，否则隐藏不可逆）
         rows = await load_hidden_entries(
@@ -465,8 +469,11 @@ async def list_entries(
         next_cursor = entries[-1].id if has_more and entries else ""
         return entries, next_cursor
 
-    base_rows = await load_baseline_entries(
-        db, user_id=user_id, genre=g, concept=c, q=q, cursor=cursor, limit=limit + 1,
+    base_rows = (
+        await load_baseline_entries(
+            db, user_id=user_id, genre=g, concept=c, q=q, cursor=cursor, limit=limit + 1,
+        )
+        if include_baseline else []
     )
     merged = sorted(user_rows + base_rows, key=lambda e: e.id)
     has_more = len(merged) > limit
@@ -502,8 +509,14 @@ async def list_libraries(
     return list((await db.execute(stmt)).scalars().all())
 
 
-async def genre_counts(db: AsyncSession, *, user_id: str) -> dict[str, int]:
-    """题材→条目计数（只算 active）；merged 口径＝用户段∪基线段（已排 hide）。"""
+async def genre_counts(
+    db: AsyncSession, *, user_id: str, include_baseline: bool = True,
+) -> dict[str, int]:
+    """题材→条目计数（只算 active）；include_baseline=False 只算本地层。
+
+    merged 口径＝用户段∪基线段（已排 hide）；官方基线属 PRO 层，标准/免费档
+    调用方须传 False，避免侧栏/图谱计数泄露官方层规模。
+    """
     from kb.merged import baseline_genre_counts
 
     stmt = (
@@ -513,8 +526,9 @@ async def genre_counts(db: AsyncSession, *, user_id: str) -> dict[str, int]:
     )
     rows = (await db.execute(stmt)).all()
     counts = {r[0]: r[1] for r in rows}
-    for g, n in (await baseline_genre_counts(db, user_id=user_id)).items():
-        counts[g] = counts.get(g, 0) + n
+    if include_baseline:
+        for g, n in (await baseline_genre_counts(db, user_id=user_id)).items():
+            counts[g] = counts.get(g, 0) + n
     return counts
 
 

@@ -4,7 +4,7 @@ import { useFeature } from "@/hooks/useTier";
 import { resetLicenseCache, setVerifyCache } from "@/lib/licenseCache";
 
 /** 旧快照（S端 尚未下发新 key）：按 key 最低档隐式放行，standard/过期仍锁。
- *  image-generate/deconstruct=PRO 起（trial 同权）；deconstruct-import=仅 MAX。 */
+ *  deconstruct=PRO 起（trial 同权）；image-generate/human-taste/deconstruct-import=仅 MAX。 */
 function snapshot(tier: string, extra: Record<string, unknown> = {}) {
   setVerifyCache({
     tier,
@@ -21,23 +21,23 @@ const allowedFor = (key: Parameters<typeof useFeature>[0]) =>
 describe("useFeature · 旧快照隐式放行（c-image-generation / c-deconstruct-tier）", () => {
   beforeEach(() => resetLicenseCache());
 
-  it("PRO 键（image-generate/deconstruct）：trial/pro/max 与 legacy 别名放行", () => {
-    for (const key of ["image-generate", "deconstruct"] as const) {
-      for (const tier of ["trial", "pro", "max", "monthly", "quarterly", "yearly", "lifetime"]) {
-        snapshot(tier);
-        expect(allowedFor(key), `${key} @ ${tier}`).toBe(true);
-      }
+  it("PRO 键（deconstruct）：trial/pro/max 与 legacy 别名放行", () => {
+    for (const tier of ["trial", "pro", "max", "monthly", "quarterly", "yearly", "lifetime"]) {
+      snapshot(tier);
+      expect(allowedFor("deconstruct"), `deconstruct @ ${tier}`).toBe(true);
     }
   });
 
-  it("MAX 键（deconstruct-import）：仅 max/lifetime 放行，trial/pro 不放行", () => {
-    for (const tier of ["max", "lifetime"]) {
-      snapshot(tier);
-      expect(allowedFor("deconstruct-import"), tier).toBe(true);
-    }
-    for (const tier of ["trial", "pro", "monthly", "quarterly", "yearly", "standard"]) {
-      snapshot(tier);
-      expect(allowedFor("deconstruct-import"), tier).toBe(false);
+  it("MAX 键（image-generate/deconstruct-import）：仅 max/lifetime 放行，trial/pro 不放行", () => {
+    for (const key of ["image-generate", "deconstruct-import"] as const) {
+      for (const tier of ["max", "lifetime"]) {
+        snapshot(tier);
+        expect(allowedFor(key), `${key} @ ${tier}`).toBe(true);
+      }
+      for (const tier of ["trial", "pro", "monthly", "quarterly", "yearly", "standard"]) {
+        snapshot(tier);
+        expect(allowedFor(key), `${key} @ ${tier}`).toBe(false);
+      }
     }
   });
 

@@ -224,7 +224,7 @@ export default function ImageWorkshopModal({
 
   const startGeneration = async (purpose: "generate" | "test") => {
     if (!canGenerate) {
-      toast.info("AI 生成是 PRO 功能；上传封面/头像免费可用");
+      toast.info("AI 生成是 MAX 专属；上传封面/头像免费可用");
       return;
     }
     setGenErr(null);
@@ -264,7 +264,7 @@ export default function ImageWorkshopModal({
 
   const extractScene = async () => {
     if (!canGenerate) {
-      toast.info("AI 提取是 PRO 功能；也可以直接手写画面描述");
+      toast.info("AI 提取是 MAX 专属；也可以直接手写画面描述");
       return;
     }
     setExtracting(true);
@@ -281,7 +281,7 @@ export default function ImageWorkshopModal({
 
   const draftAvatarLook = async () => {
     if (!canGenerate) {
-      toast.info("AI 起草是 PRO 功能；也可以直接手写头像描述");
+      toast.info("AI 起草是 MAX 专属；也可以直接手写头像描述");
       return;
     }
     if (!characterId) return;
@@ -397,7 +397,7 @@ export default function ImageWorkshopModal({
 
           <div className="img-gen-note">
             <div className="img-gen-head">
-              <b>AI 生成{canGenerate ? "" : "（PRO 以上）"}</b>
+              <b>AI 生成{canGenerate ? "" : "（MAX 专属）"}</b>
               {job && (
                 <span className={`img-job-status ${job.status}`}>
                   {job.status === "queued" ? "排队中" :
@@ -421,7 +421,7 @@ export default function ImageWorkshopModal({
                 <button
                   className="btn btn-primary btn-sm"
                   disabled={!canGenerate || !!job}
-                  title={canGenerate ? "按当前设置生成 2 张候选" : "PRO 以上可用；上传免费"}
+                  title={canGenerate ? "按当前设置生成 2 张候选" : "MAX 专属；上传免费"}
                   onClick={() => void startGeneration("generate")}
                 >
                   生成 2 张候选
@@ -441,7 +441,7 @@ export default function ImageWorkshopModal({
               </div>
             )}
             {!canGenerate && (
-              <span className="img-hint">免费版可上传图片；开通 PRO 后可用 AI 生成/试画/批量头像。</span>
+              <span className="img-hint">标准（免费）可上传图片；开通 MAX 后可用 AI 生成/试画/批量头像。</span>
             )}
           </div>
         </section>
@@ -463,7 +463,7 @@ export default function ImageWorkshopModal({
                     type="button"
                     className="btn btn-ghost btn-sm"
                     disabled={!canGenerate || extracting || busy}
-                    title={canGenerate ? "根据本书选题/主线/世界观提取画面描述草稿" : "PRO 以上可用；也可直接手写"}
+                    title={canGenerate ? "根据本书选题/主线/世界观提取画面描述草稿" : "MAX 专属；也可直接手写"}
                     onClick={() => void extractScene()}
                   >
                     {extracting ? "提取中…" : "AI 提取"}
@@ -483,7 +483,7 @@ export default function ImageWorkshopModal({
                   type="button"
                   className="btn btn-ghost btn-sm"
                   disabled={!canGenerate || extracting || busy}
-                  title={canGenerate ? "根据角色卡外貌/身份起草头像描述草稿" : "PRO 以上可用；也可直接手写"}
+                  title={canGenerate ? "根据角色卡外貌/身份起草头像描述草稿" : "MAX 专属；也可直接手写"}
                   onClick={() => void draftAvatarLook()}
                 >
                   {extracting ? "起草中…" : "AI 起草"}
@@ -507,7 +507,7 @@ export default function ImageWorkshopModal({
               ? "画面描述保存后随下一张候选生效；画风、脱敏与种子由系统在生成时处理。"
               : "头像描述保存后随下一张候选生效；脱敏与种子由系统在生成时处理。"}
           </p>
-          {isFree && <p className="img-hint">免费用户可使用上传；AI 生成需 PRO 以上。</p>}
+          {isFree && <p className="img-hint">标准（免费）可使用上传；AI 生成需 MAX。</p>}
         </aside>
       </div>
     </Modal>

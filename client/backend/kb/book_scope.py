@@ -35,13 +35,15 @@ _CONCEPT_ORDER = ("手法", "文风", "文笔", "世界设定", "角色设定")
 
 
 async def load_import_state(
-    db: AsyncSession, *, novel_id: str, user_id: str, genre: str
+    db: AsyncSession, *, novel_id: str, user_id: str, genre: str,
+    include_baseline: bool = True,
 ) -> tuple[list, list]:
     """导入差集（merged 视图）：(可导入源, 尚未复制进本书的源)。
 
     源＝用户 active 条目（题材命中＋通用）∪ 官方基线层（kb.merged：hide 已排、
     edit 副本已套）——开书复制是对 merged 视图的一次性值快照（c-kb-baseline 口径）；
-    书副本自包含，之后基线层再同步不自动进老书（走差异行显式补平）。"""
+    书副本自包含，之后基线层再同步不自动进老书（走差异行显式补平）。
+    include_baseline=False 只导入作家自己的条目（标准/免费档；官方层需 kb-official）。"""
     from kb.merged import load_baseline_entries
 
     rows = (
@@ -54,8 +56,11 @@ async def load_import_state(
             )
         )
     ).scalars().all()
-    base_rows = await load_baseline_entries(
-        db, user_id=user_id, genre=genre, match_generic=bool(genre)
+    base_rows = (
+        await load_baseline_entries(
+            db, user_id=user_id, genre=genre, match_generic=bool(genre)
+        )
+        if include_baseline else []
     )
     if not genre:
         # load_baseline_entries 的 genre="" 语义是「不过滤」——无题材书只要通用条目
@@ -76,7 +81,8 @@ async def load_import_state(
 
 
 async def stream_import_genre_knowledge(
-    db: AsyncSession, *, novel_id: str, user_id: str, genre: str
+    db: AsyncSession, *, novel_id: str, user_id: str, genre: str,
+    include_baseline: bool = True,
 ) -> AsyncIterator[dict]:
     """流式导入（async generator）：逐概念组复制并 yield 进度事件，收尾基线面。
 
@@ -88,7 +94,8 @@ async def stream_import_genre_knowledge(
     并发双开（两个标签页同时点导入）：唯一索引冲突时回滚重算差集重来一次，
     不把 UNIQUE 错误丢给用户（对方已落库的条目按 skipped 计）。"""
     rows, todo = await load_import_state(
-        db, novel_id=novel_id, user_id=user_id, genre=genre
+        db, novel_id=novel_id, user_id=user_id, genre=genre,
+        include_baseline=include_baseline,
     )
     total = len(todo)
     skipped = len(rows) - total  # 幂等跳过数（已复制过）
@@ -195,7 +202,8 @@ async def stream_import_genre_knowledge(
                 raise
             attempt += 1
             rows, todo = await load_import_state(
-                db, novel_id=novel_id, user_id=user_id, genre=genre
+                db, novel_id=novel_id, user_id=user_id, genre=genre,
+                include_baseline=include_baseline,
             )
             total = len(todo)
             skipped = len(rows) - total
@@ -225,12 +233,14 @@ async def stream_import_genre_knowledge(
 
 
 async def import_genre_knowledge(
-    db: AsyncSession, *, novel_id: str, user_id: str, genre: str
+    db: AsyncSession, *, novel_id: str, user_id: str, genre: str,
+    include_baseline: bool = True,
 ) -> dict:
     """非流式包装：跑完流式导入，返回最终汇总（测试/存量调用方用）。"""
     summary: dict = {}
     async for ev in stream_import_genre_knowledge(
-        db, novel_id=novel_id, user_id=user_id, genre=genre
+        db, novel_id=novel_id, user_id=user_id, genre=genre,
+        include_baseline=include_baseline,
     ):
         if ev["type"] == "done":
             summary = {

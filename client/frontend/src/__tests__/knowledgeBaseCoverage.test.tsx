@@ -63,6 +63,7 @@ vi.mock("force-graph", () => ({
 }));
 
 import KnowledgeBasePage, { fieldsOf, prettyFieldValue } from "@/pages/KnowledgeBasePage";
+import { resetLicenseCache, setVerifyCache } from "@/lib/licenseCache";
 import type { KbInstanceFlatRow } from "@/lib/kbApi";
 
 // c-charlib-into-kb：页组件引入 useSearchParams/useCharacterLibrary 后，
@@ -111,6 +112,13 @@ const SEVEN_GENRES = [
 ];
 
 beforeEach(() => {
+  // 官方库 PRO 起；页面测试统一给 PRO 快照。
+  resetLicenseCache();
+  setVerifyCache({
+    tier: "pro",
+    is_member: true,
+    entitlement: { v: 4, features: ["kb-official"], limits: { max_projects: null } },
+  });
   libApi.listLibrary.mockResolvedValue({ count: 0, items: [] });
   api.genres.mockResolvedValue(SEVEN_GENRES);
   api.libraries.mockResolvedValue([
@@ -764,5 +772,22 @@ describe("实例行列表（c-kb-instance-list）", () => {
     expect(instRows[0].textContent).toContain("传功口诀实例");
     expect(instRows[instRows.length - 1].textContent).toContain("先写结果，再倒回去拆折。");
     expect(screen.getByTestId("kb-material-row").textContent).toContain("未定题材素材");
+  });
+
+  it("标准（免费）官方来源锁定；点开通弹 PRO 升级窗，关闭复位", async () => {
+    resetLicenseCache();
+    setVerifyCache({
+      tier: "free",
+      is_member: false,
+      entitlement: { v: 4, features: [], limits: { max_projects: 1 } },
+    });
+    renderPage();
+    fireEvent.click(await screen.findByTestId("kb-src-官方"));
+    expect(await screen.findByTestId("kb-official-locked")).toBeTruthy();
+    expect(api.entries.mock.calls.some((c) => c[0]?.src === "官方精选")).toBe(false);
+    fireEvent.click(screen.getByTestId("kb-official-upgrade"));
+    expect(await screen.findByText("升级 PRO · AI 写手")).toBeTruthy();
+    fireEvent.click(screen.getByText("暂不"));
+    await waitFor(() => expect(screen.queryByText("升级 PRO · AI 写手")).toBeNull());
   });
 });

@@ -22,9 +22,9 @@ describe("tierShort（触发钮短档四态）", () => {
     expect(tierShort({ tier: "trial", expired: false, trial_remaining_days: 0 })?.text).toBe("试用 · 剩 0 天");
   });
 
-  it("已过期与从未付费同为免费版（合并单档，muted）", () => {
-    expect(tierShort({ tier: "pro", is_member: false, expired: true })).toEqual({ text: "免费版", tone: "muted" });
-    expect(tierShort({ tier: "none", is_member: false, expired: false })).toEqual({ text: "免费版", tone: "muted" });
+  it("已过期与从未付费同为标准档（合并单档，muted）", () => {
+    expect(tierShort({ tier: "pro", is_member: false, expired: true })).toEqual({ text: "标准", tone: "muted" });
+    expect(tierShort({ tier: "none", is_member: false, expired: false })).toEqual({ text: "标准", tone: "muted" });
   });
 
   it("无判定数据返回 null（不硬造档位）", () => {
@@ -34,24 +34,24 @@ describe("tierShort（触发钮短档四态）", () => {
 
 describe("tierLabel（面板头完整档）", () => {
   it("判定优先级：expired 先于 is_member/trial", () => {
-    expect(tierLabel({ tier: "pro", is_member: true, expired: true })).toBe("套餐已过期 · 免费待遇");
+    expect(tierLabel({ tier: "pro", is_member: true, expired: true })).toBe("套餐已过期 · 标准待遇");
   });
 
   it("试用无天数不硬造「剩 0 天」", () => {
     expect(tierLabel({ tier: "trial", expired: false })).toBe("试用中");
   });
 
-  it("会员文案统一「PRO 会员」（归一 BookPrefsModal 旧「PRO 版 · AI 能力已解锁」）", () => {
+  it("会员文案统一「PRO 会员」", () => {
     expect(tierLabel({ tier: "pro", is_member: true, expired: false })).toBe("PRO 会员");
-    expect(tierLabel({ tier: "none", is_member: false, expired: false })).toBe("免费版 · 单机使用");
+    expect(tierLabel({ tier: "none", is_member: false, expired: false })).toBe("标准 · 免费");
   });
 });
 
 describe("display_name 单源（tier-catalog）", () => {
-  it("standard 显示「标准会员」（修复错标 PRO 会员）", () => {
-    expect(tierLabel({ tier: "standard", is_member: true, expired: false })).toBe("标准会员");
+  it("standard 显示「标准会员（旧）」（存量档）", () => {
+    expect(tierLabel({ tier: "standard", is_member: true, expired: false })).toBe("标准会员（旧）");
     expect(tierShort({ tier: "standard", is_member: true })).toEqual({
-      text: "标准会员",
+      text: "标准会员（旧）",
       tone: "accent",
     });
   });

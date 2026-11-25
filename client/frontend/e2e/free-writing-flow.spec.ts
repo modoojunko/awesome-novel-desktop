@@ -130,8 +130,8 @@ test("免费建书直达写作工作台：零 phase-status，无阶段催促，m
         "自己动手：先建一卷、排上第一章就能开写；想让 AI 按主线拆分卷，用右侧的 AI 助手。",
       ),
     ).toBeVisible();
-    // 免费标识（行头归一后 = 顶栏账户胶囊档位徽「免费版」）
-    await expect(page.locator('[data-od-id="acct-badge"]')).toHaveText("免费版");
+    // 标准标识（行头归一后 = 顶栏账户胶囊档位徽「标准」）
+    await expect(page.locator('[data-od-id="acct-badge"]')).toHaveText("标准");
     // ⑦ modnav 三态（PR3 设计稿）：设定 / 写作 / 预览
     await expect(page.getByRole("button", { name: /^设定/ })).toBeVisible();
     await expect(page.getByRole("button", { name: /^写作/ })).toBeVisible();

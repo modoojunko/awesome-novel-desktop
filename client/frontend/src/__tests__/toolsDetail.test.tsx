@@ -162,12 +162,12 @@ describe("TaskDetailPage", () => {
     ackBuild();
     fireEvent.click(screen.getByText("就建这本书"));
     await waitFor(() =>
-      expect(screen.getByText("升级 MAX · 解锁剧情推演与文风蒸馏")).toBeInTheDocument(),
+      expect(screen.getByText("升级 MAX · 写作秘书")).toBeInTheDocument(),
     );
     expect(state.importBook).not.toHaveBeenCalled();
     // 切到导出选项：未升级 PRO → 弹 PRO 升级
     fireEvent.click(screen.getByText(/存本地文件夹/));
-    await waitFor(() => expect(screen.getByText("升级 PRO · 解锁 AI 能力")).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByText("升级 PRO · AI 写手")).toBeInTheDocument());
     expect(state.export).not.toHaveBeenCalled();
   });
 

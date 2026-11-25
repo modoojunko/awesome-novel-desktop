@@ -18,7 +18,8 @@ _KB_ITEM_BUDGET = 500
 
 
 async def _kb_search(ctx: ToolContext, q: str = "", genre: str = "", concept: str = "") -> ToolResult:
-    """按关键词/题材/概念检索知识库条目（只读）。"""
+    """按关键词/题材/概念检索知识库条目（只读；官方层需 kb-official）。"""
+    from auth_local.deps import ai_access_granted
     from db import async_session
     from kb.router import _entry_dict
     from kb.service import list_entries
@@ -31,6 +32,7 @@ async def _kb_search(ctx: ToolContext, q: str = "", genre: str = "", concept: st
             concept=str(concept or "").strip(),
             q=str(q or "").strip(),
             limit=10,
+            include_baseline=ai_access_granted("kb-official"),
         )
     if not entries:
         return ToolResult(ok=True, summary="（知识库没有匹配的条目）")
@@ -419,6 +421,7 @@ Tool(
         name="kb_search_craft",
         kind="read",
         risk_level="low",
+        feature_key="kb-official",
         parameters={
             "type": "object",
             "properties": {
