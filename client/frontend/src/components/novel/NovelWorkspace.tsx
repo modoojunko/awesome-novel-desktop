@@ -699,7 +699,7 @@ export default function NovelWorkspace() {
     "vol-1";
   const [planVolRef, setPlanVolRef] = useState<string | null>(null);
   const planTargetVolRef = planVolRef ?? activeVolRef;
-  // 自检归 chapter-review（标准档起，c-tier-gating-completion）：免费点「AI 看一眼」
+  // 自检归 chapter-review（PRO 起，c-tier-gating-completion）：免费点「AI 看一眼」
   // 不发请求，走全局升级引导（member-block → UpgradeModal）
   const hasChapterReview = useFeature("chapter-review");
   const chapterPlan = useChapterPlan(
@@ -710,7 +710,7 @@ export default function NovelWorkspace() {
       hasChapterReview,
       onUpgrade: () =>
         window.dispatchEvent(
-          new CustomEvent("member-block", { detail: { message: "章纲自检需开通（标准档起）——开通后 AI 帮你看这一章" } }),
+          new CustomEvent("member-block", { detail: { message: "章纲自检需开通 PRO——开通后 AI 帮你看这一章" } }),
         ),
     },
   );

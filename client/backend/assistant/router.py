@@ -119,10 +119,15 @@ router = APIRouter(prefix="/api/novels/{project_id}/assistant", tags=["assistant
 
 
 def _is_max_member() -> bool:
-    """当前用户是否 MAX（allow_book 自动执行仅 MAX）。"""
+    """当前用户是否有效 MAX（allow_book 自动执行仅有效 MAX）。
+
+    只看 tier 标签会把已过期/注销中的 MAX 仍判成 MAX——check_permission 对这些
+    状态保留原 tier 但 is_member=False；自动执行授权必须同时要求有效会员。
+    """
     from auth_local.service import check_permission
 
-    return str(check_permission().get("tier") or "") in ("max", "lifetime")
+    perm = check_permission()
+    return bool(perm.get("is_member")) and str(perm.get("tier") or "") in ("max", "lifetime")
 
 
 def _sse(event: dict[str, Any]) -> str:
@@ -151,7 +156,13 @@ def execute_gate_event(tool: Any) -> dict[str, Any] | None:
 
 
 def _execute_tier_required(feature: str) -> str:
-    """执行键 → 最低档（与档位目录兜底表同源，未知键回落 standard）。"""
+    """执行键 → 最低档；assistant-execute 三档起已收归 PRO。
+
+    兜底表 standard 行是存量 legacy（仍含 assistant-execute），不能按
+    「首个含键的档」回推新售档位，否则 gate 事件会把 PRO 说成 standard。
+    """
+    if feature == "assistant-execute":
+        return "pro"
     from auth_local.service import STANDARD_FALLBACK
 
     for tier in ("standard", "pro", "max"):
@@ -1418,7 +1429,7 @@ async def set_permission_tier(
             403,
             detail={
                 "reason": "feature_required",
-                "feature": "assistant-diverge",
+                "feature": "assistant-execute",
                 "tier_required": "max",
                 "message": "自动执行是 MAX 专属；升级后我就能在本书内放手干活。",
             },

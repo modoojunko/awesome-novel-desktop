@@ -1,10 +1,14 @@
 """执行门测试（c-writing-agent-tier）。
 
-口径：写类工具先过 assistant-execute（标准起），无权回升级 gate 事件；
-读类/产卡类不在此门；兜底表按档含键、旧快照隐式放行按标准档。
+口径：写类工具先过 assistant-execute（PRO 起），无权回升级 gate 事件；
+读类/产卡类不在此门；兜底表按档含键、旧快照隐式放行按 PRO。
 """
 
+import asyncio
 from types import SimpleNamespace
+
+import pytest
+from fastapi import HTTPException
 
 import assistant.router as router_mod
 from auth_local.deps import _LEGACY_IMPLICIT_FEATURES, _TIER_RANK
@@ -25,7 +29,7 @@ def test_write_tool_gated_when_not_granted(monkeypatch):
     assert ev is not None
     assert ev["type"] == "gate"
     assert ev["feature"] == "assistant-execute"
-    assert ev["tier_required"] == "standard"
+    assert ev["tier_required"] == "pro"
     assert ev["approved"] is False
     assert calls == ["assistant-execute"]
 
@@ -64,3 +68,44 @@ def test_fallback_member_tiers_include_key():
 def test_legacy_implicit_allows_pro():
     # 三档会员：assistant-execute 标准免费不再发放，隐式放行最低 PRO。
     assert _LEGACY_IMPLICIT_FEATURES["assistant-execute"] == _TIER_RANK["pro"]
+
+
+def test_is_max_member_requires_active_membership(monkeypatch):
+    """过期/注销中的 MAX 不得通过自动执行授权门。"""
+    from auth_local import service as auth_service
+
+    monkeypatch.setattr(
+        auth_service, "check_permission",
+        lambda: {"tier": "max", "is_member": False, "expired": True},
+    )
+    assert router_mod._is_max_member() is False
+
+    monkeypatch.setattr(
+        auth_service, "check_permission",
+        lambda: {"tier": "max", "is_member": True, "expired": False},
+    )
+    assert router_mod._is_max_member() is True
+
+    monkeypatch.setattr(
+        auth_service, "check_permission",
+        lambda: {"tier": "lifetime", "is_member": True, "expired": False},
+    )
+    assert router_mod._is_max_member() is True
+
+
+def test_permission_tier_auto_403_names_execute_feature(monkeypatch):
+    """自动执行 403 的 feature 不得冒用 assistant-diverge。"""
+    class _Req:
+        async def json(self):
+            return {"tier": "allow_book"}
+
+    async def _fake_novel(db, project_id, user_id):
+        return object()
+
+    monkeypatch.setattr(router_mod, "get_novel", _fake_novel)
+    monkeypatch.setattr(router_mod, "_is_max_member", lambda: False)
+    with pytest.raises(HTTPException) as ei:
+        asyncio.run(router_mod.set_permission_tier("p1", _Req(), {"id": "u"}, None))
+    assert ei.value.status_code == 403
+    assert ei.value.detail["feature"] == "assistant-execute"
+    assert ei.value.detail["tier_required"] == "max"

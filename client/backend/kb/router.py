@@ -155,7 +155,9 @@ async def get_genres(
     # 题材回填挂点（c-library-genre-gate 跟进）：本端点与条目列表并行发起，计数
     # 若先算会漏掉刚回填的条目——这里同挂一次，保证首屏计数与列表同口径（幂等自熄）
     await ensure_genre_backfill(db, uid)
-    counts = await genre_counts(db, user_id=uid)
+    counts = await genre_counts(
+        db, user_id=uid, include_baseline=ai_access_granted("kb-official"),
+    )
     items = []
     for t in THEMES:
         items.append({"name": t, "count": counts.get(t, 0)})
@@ -415,11 +417,9 @@ async def graph_aggregate_api(
 ):
     """聚合视图：题材×概念格子节点（默认首屏 ≤80 节点内）＋题材—格子层级边。"""
     uid = _user(user)
-    counts = await genre_counts(db, user_id=uid)
-    # 格子计数：用户条目 ∪ 基线层（与题材栏/下钻同口径；只算用户段会让纯基线
-    # 账号的图谱空白、混合账号的节点数与格子和对不上）
-    from kb.merged import baseline_cell_counts
-
+    official = ai_access_granted("kb-official")
+    counts = await genre_counts(db, user_id=uid, include_baseline=official)
+    # 格子计数：用户条目 ∪ 基线层（PRO 起；标准/免费档只看自己的条目）
     rows = (
         await db.execute(
             select(KbEntry.genre, KbEntry.concept, func.count(KbEntry.id)).where(
@@ -428,8 +428,11 @@ async def graph_aggregate_api(
         )
     ).all()
     cells: dict[tuple[str, str], int] = {(g, c): int(n) for g, c, n in rows}
-    for key, n in (await baseline_cell_counts(db, user_id=uid)).items():
-        cells[key] = cells.get(key, 0) + n
+    if official:
+        from kb.merged import baseline_cell_counts
+
+        for key, n in (await baseline_cell_counts(db, user_id=uid)).items():
+            cells[key] = cells.get(key, 0) + n
     nodes = []
     links = []
     for (genre, concept), n in cells.items():
@@ -462,6 +465,7 @@ async def graph_cell_api(
     uid = _user(user)
     entries, _cursor = await list_entries(
         db, user_id=uid, genre=genre, concept=concept, limit=100, include_material=False,
+        include_baseline=ai_access_granted("kb-official"),
     )
     nodes = [
         {
@@ -1013,7 +1017,8 @@ async def import_book_scope_api(
     from kb.book_scope import import_genre_knowledge, novel_genre
 
     result = await import_genre_knowledge(
-        db, novel_id=novel_id, user_id=uid, genre=await novel_genre(novel.root_path)
+        db, novel_id=novel_id, user_id=uid, genre=await novel_genre(novel.root_path),
+        include_baseline=ai_access_granted("kb-official"),
     )
     return {"ok": True, "data": result}
 
@@ -1044,7 +1049,8 @@ async def import_book_scope_stream_api(
     async def _gen():
         try:
             async for ev in stream_import_genre_knowledge(
-                db, novel_id=novel_id, user_id=uid, genre=genre
+                db, novel_id=novel_id, user_id=uid, genre=genre,
+                include_baseline=ai_access_granted("kb-official"),
             ):
                 yield f"data: {json.dumps(ev, ensure_ascii=False)}\n\n"
         except Exception as e:  # noqa: BLE001 —— 流内失败以事件收尾，不静默断流
@@ -1103,9 +1109,10 @@ async def book_scope_diff_api(
     from kb.book_scope import load_import_state, novel_genre, read_import_declined
 
     genre = await novel_genre(novel.root_path)
-    # 差异＝merged 视图（用户条目∪基线层）里尚未复制进本书的条数——与导入同一口径
+    # 差异＝merged 视图（用户条目∪基线层，PRO 起）里尚未复制进本书的条数——与导入同一口径
     _sources, todo = await load_import_state(
-        db, novel_id=novel_id, user_id=uid, genre=genre
+        db, novel_id=novel_id, user_id=uid, genre=genre,
+        include_baseline=ai_access_granted("kb-official"),
     )
     new_count = len(todo)
     declined = await read_import_declined(novel.root_path)

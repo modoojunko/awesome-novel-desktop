@@ -684,7 +684,7 @@ def test_已隐藏列表可回读_恢复默认回到精选(base_env):
 
 
 def test_图谱聚合含基线格子(base_env):
-    """P2 修复钉：格子计数与题材栏/下钻同口径（纯基线账号图谱不再空白）。"""
+    """P2 修复钉：官方库 PRO 起——PRO 的格子计数与题材栏/下钻同口径。"""
     _run(_seed_pack([
         _b("baseline:玄幻:tech-a", "官方手法A", genre="玄幻"),
         _b("baseline:都市:tech-b", "官方手法B", genre="都市"),
@@ -697,6 +697,7 @@ def test_图谱聚合含基线格子(base_env):
             await db.commit()
 
     _run(_setup())
+    _set_pro()
     app.dependency_overrides[get_current_user] = lambda: {"id": uid, "email": f"{uid}@t.local"}
     try:
         with TestClient(app) as c:
@@ -710,6 +711,32 @@ def test_图谱聚合含基线格子(base_env):
             assert len(cell.json()["data"]["nodes"]) == cells["cell:玄幻:手法"]
     finally:
         app.dependency_overrides.clear()
+
+
+def test_图谱_免费档不返回基线(base_env):
+    """官方层图谱节点 PRO 起：标准/免费档的聚合与下钻都只能看到本地层。"""
+    _run(_seed_pack([
+        _b("baseline:玄幻:tech-a", "官方手法A", genre="玄幻"),
+    ]))
+    uid = f"mg-{uuid.uuid4().hex[:8]}"
+
+    async def _setup():
+        async with async_session() as db:
+            db.add(User(id=uid, email=f"{uid}@t.local", password_hash="x"))
+            await db.commit()
+
+    _run(_setup())
+    _service.save_local_config({"tier": "free", "expires_at": ""})
+    app.dependency_overrides[get_current_user] = lambda: {"id": uid, "email": f"{uid}@t.local"}
+    try:
+        with TestClient(app) as c:
+            agg = c.get("/api/kb/graph/aggregate").json()["data"]
+            assert agg["nodes"] == [] and agg["links"] == []
+            cell = c.get("/api/kb/graph/cell", params={"genre": "玄幻", "concept": "手法"})
+            assert cell.json()["data"]["nodes"] == []
+    finally:
+        app.dependency_overrides.clear()
+        _set_pro()
 
 
 def test_set覆盖_并发撞唯一键_回滚后改写(base_env):

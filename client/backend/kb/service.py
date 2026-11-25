@@ -509,8 +509,14 @@ async def list_libraries(
     return list((await db.execute(stmt)).scalars().all())
 
 
-async def genre_counts(db: AsyncSession, *, user_id: str) -> dict[str, int]:
-    """题材→条目计数（只算 active）；merged 口径＝用户段∪基线段（已排 hide）。"""
+async def genre_counts(
+    db: AsyncSession, *, user_id: str, include_baseline: bool = True,
+) -> dict[str, int]:
+    """题材→条目计数（只算 active）；include_baseline=False 只算本地层。
+
+    merged 口径＝用户段∪基线段（已排 hide）；官方基线属 PRO 层，标准/免费档
+    调用方须传 False，避免侧栏/图谱计数泄露官方层规模。
+    """
     from kb.merged import baseline_genre_counts
 
     stmt = (
@@ -520,8 +526,9 @@ async def genre_counts(db: AsyncSession, *, user_id: str) -> dict[str, int]:
     )
     rows = (await db.execute(stmt)).all()
     counts = {r[0]: r[1] for r in rows}
-    for g, n in (await baseline_genre_counts(db, user_id=user_id)).items():
-        counts[g] = counts.get(g, 0) + n
+    if include_baseline:
+        for g, n in (await baseline_genre_counts(db, user_id=user_id)).items():
+            counts[g] = counts.get(g, 0) + n
     return counts
 
 

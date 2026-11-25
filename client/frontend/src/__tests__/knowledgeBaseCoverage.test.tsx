@@ -773,4 +773,21 @@ describe("实例行列表（c-kb-instance-list）", () => {
     expect(instRows[instRows.length - 1].textContent).toContain("先写结果，再倒回去拆折。");
     expect(screen.getByTestId("kb-material-row").textContent).toContain("未定题材素材");
   });
+
+  it("标准（免费）官方来源锁定；点开通弹 PRO 升级窗，关闭复位", async () => {
+    resetLicenseCache();
+    setVerifyCache({
+      tier: "free",
+      is_member: false,
+      entitlement: { v: 4, features: [], limits: { max_projects: 1 } },
+    });
+    renderPage();
+    fireEvent.click(await screen.findByTestId("kb-src-官方"));
+    expect(await screen.findByTestId("kb-official-locked")).toBeTruthy();
+    expect(api.entries.mock.calls.some((c) => c[0]?.src === "官方精选")).toBe(false);
+    fireEvent.click(screen.getByTestId("kb-official-upgrade"));
+    expect(await screen.findByText("升级 PRO · AI 写手")).toBeTruthy();
+    fireEvent.click(screen.getByText("暂不"));
+    await waitFor(() => expect(screen.queryByText("升级 PRO · AI 写手")).toBeNull());
+  });
 });

@@ -79,7 +79,7 @@ export default function BatchAvatarModal({
 
   const start = async () => {
     if (!canGenerate) {
-      toast.info("批量头像是 PRO 功能；单个头像可免费上传");
+      toast.info("批量头像是 MAX 专属；单个头像可免费上传");
       return;
     }
     if (!selected.size) {
@@ -145,7 +145,7 @@ export default function BatchAvatarModal({
       <div className="img-batch">
         <p className="img-hint">
           按角色卡白名单逐个生成一张头像候选；已生成的候选不会因取消丢失，可在角色页逐一采用。
-          {!canGenerate && " 批量生成是 PRO 功能；免费版可逐个上传头像。"}
+          {!canGenerate && " 批量生成是 MAX 专属；标准（免费）可逐个上传头像。"}
         </p>
         {error && <div className="ferr">{error}</div>}
         {job?.error_message && <div className="ferr">{job.error_message}</div>}

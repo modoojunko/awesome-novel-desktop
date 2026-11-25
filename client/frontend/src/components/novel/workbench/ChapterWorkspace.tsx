@@ -971,7 +971,7 @@ const [ogForm, setOgForm] = useState<OgForm>(EMPTY_OG_FORM);
     // 统一升级出口（member-block 全局升级引导；NovelWorkspace 零改动）
     onUpgrade: () =>
       window.dispatchEvent(
-        new CustomEvent("member-block", { detail: { message: "AI 抽人需开通（标准档起）——开通后一次给 3 个方向" } }),
+        new CustomEvent("member-block", { detail: { message: "AI 抽人需开通 PRO——开通后一次给 3 个方向" } }),
       ),
     onOpenConfig: () => navigate("/config"),
   });
@@ -1661,7 +1661,7 @@ const [ogForm, setOgForm] = useState<OgForm>(EMPTY_OG_FORM);
         hasAiPlan={aiPlan}
         onUpgrade={() =>
           window.dispatchEvent(
-            new CustomEvent("member-block", { detail: { message: "AI 抽人需开通（标准档起）——开通后一次给 3 个方向" } }),
+            new CustomEvent("member-block", { detail: { message: "AI 抽人需开通 PRO——开通后一次给 3 个方向" } }),
           )
         }
         onOpenConfig={() => navigate("/config")}

@@ -297,9 +297,14 @@ export default function SettingsView({
   }, []);
   const [charCtx, setCharCtx] = useState<CharAiCtx | null>(null);
   /** 按题材填文风（c-style-kb-fill）：进文风面板取一次草稿摘要，只用于右栏行的描述与置灰。 */
+  const kbOfficial = useFeature("kb-official");
   const [styleKb, setStyleKb] = useState<StyleKbDraft | null>(null);
   useEffect(() => {
     if (panel !== "style") return;
+    if (!kbOfficial) {
+      setStyleKb(null);
+      return;
+    }
     let alive = true;
     styleKbApi
       .draft(projectId)
@@ -313,7 +318,7 @@ export default function SettingsView({
     return () => {
       alive = false;
     };
-  }, [panel, projectId]);
+  }, [panel, projectId, kbOfficial]);
   /** 角色列表已载入且一张卡都没有（右栏空态「从简介立主角」入口判据） */
   const [charEmpty, setCharEmpty] = useState(false);
   /** 角色列表已载入且至少有一张卡（右栏「起草角色」新建分支判据） */
@@ -347,7 +352,7 @@ export default function SettingsView({
       setPanel("aiModel");
       return;
     }
-    toast.info("这是会员功能——开通后可用；免费版写作能力完整");
+    toast.info("这是会员功能——开通后可用；标准（免费）写作能力完整");
   }, []);
   // 简介右栏 AI 四能力（并列，非先后流程）——onClick 经 introRef 调面板内 runAi
   // 前置守卫（D14/O-3）：补缺失未体检 → 置灰 + 「先体检」
@@ -516,8 +521,9 @@ export default function SettingsView({
   );
 
   // 文风右栏五行（style-settings-v2；data-aiact s1-s4；c-style-kb-fill 增首行）：
-  // 首行「按题材填文风」读知识库、不调模型（ungated：无 Key/免费版照常可用）；
-  // 蒸馏＝style-quant（MAX 专属，四档拆 key）——maxlk 锁视觉但保持可点，非 MAX 点击
+  // 首行「按题材填文风」读官方写作知识库＝kb-official（PRO 起）；标准/免费档
+  // 行级锁定并走 PRO 升级出口，不请求 kb-draft（避免进面板即被 403 弹窗）。
+  // 蒸馏＝style-quant（MAX 专属，三档拆 key）——maxlk 锁视觉但保持可点，非 MAX 点击
   // 端内直出升级口（member-block），不发请求；前端快照误放行时后端 style-quant 门
   // 403 兜底。（AiWriterAssistant 行契约：锁定行 SHALL NOT disabled——吞 click 即无出口）
   const styleQuant = useFeature("style-quant");
@@ -529,19 +535,33 @@ export default function SettingsView({
       {
         key: "kb",
         name: "按题材填文风",
-        desc: !styleKb
-          ? "按这本书的题材，从知识库里找一份文风起点。"
-          : !kbTheme
-            ? "还没定题材，不知道该按哪个题材取。"
-            : kbTotal === 0
-              ? `知识库里还没有${kbTheme}的写法——先拆一本同题材的书，或者去知识库记几条。`
-              : `这本书是${kbTheme}，库里有 ${kbTotal} 条同题材的写法。点开挑一挑，采纳就填进文风页。`,
-        disabled: kbEmpty,
-        hint: !kbTheme ? "先定题材" : "库是空的",
+        desc: !kbOfficial
+          ? "官方写作知识库是 PRO 权益；升级后可按题材取文风草稿，采纳才进表单。"
+          : !styleKb
+            ? "按这本书的题材，从知识库里找一份文风起点。"
+            : !kbTheme
+              ? "还没定题材，不知道该按哪个题材取。"
+              : kbTotal === 0
+                ? `知识库里还没有${kbTheme}的写法——先拆一本同题材的书，或者去知识库记几条。`
+                : `这本书是${kbTheme}，库里有 ${kbTotal} 条同题材的写法。点开挑一挑，采纳就填进文风页。`,
+        badge: kbOfficial ? undefined : <span className="pill pill-warn">{upgradeHintOf("kb-official")}</span>,
+        disabled: kbOfficial && kbEmpty,
+        hint: !kbOfficial ? undefined : !kbTheme ? "先定题材" : "库是空的",
         ungated: true,
+        variant: kbOfficial ? undefined : "maxlk",
         runningHint: "正在翻知识库…",
         odId: "ai-style-kb",
-        onClick: () => runStyleAi("kb"),
+        onClick: () => {
+          if (!kbOfficial) {
+            window.dispatchEvent(
+              new CustomEvent("member-block", {
+                detail: { message: `按题材填文风为 ${upgradeHintOf("kb-official")}——升级后解锁` },
+              }),
+            );
+            return;
+          }
+          runStyleAi("kb");
+        },
       },
       {
         key: "distill",
@@ -582,7 +602,7 @@ export default function SettingsView({
         onClick: () => runStyleAi("fewshot"),
       },
     ];
-  }, [runStyleAi, styleQuant, styleKb]);
+  }, [runStyleAi, styleQuant, styleKb, kbOfficial]);
 
   useEffect(() => {
     if (initialPanel) setPanel(normalizePanel(initialPanel));

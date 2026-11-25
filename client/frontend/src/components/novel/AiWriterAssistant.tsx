@@ -79,7 +79,7 @@ export interface AiWriterAssistantProps {
 
 const BLOCK_TEXT: Record<string, string> = {
   // member_required 的 message 由 403 detail 透传（分档口径），此处为兜底文案
-  member_required: "这是会员功能——开通后可用；免费版写作能力完整",
+  member_required: "这是会员功能——开通后可用；标准（免费）写作能力完整",
   no_key: "先去「模型配置」添加 API Key",
   missing_model: "先在本书选择模型",
   invalid: "本书绑定的模型已失效，重新选择模型",
