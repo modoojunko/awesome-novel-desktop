@@ -49,30 +49,44 @@ def _sign_pointer(version: int, sha: str, size: int, *, bad_sig: bool = False) -
     return latest
 
 
-class _FakeCDN:
+class _FakeServer:
+    """假 S 端：sign 只回 scope URL；fetch_signed 按 URL 回指针/树字节。"""
+
     def __init__(self):
         self.latest: dict | None = None
         self.tree_raw: bytes | None = None
-        self.dead: set[str] = set()
+        self.dead = False
+        self.verdict = "ok"
         self.tree_fetches = 0
 
-    async def get_json(self, client=None, url="", **kw):
-        if any(d in url for d in self.dead):
-            return None
-        if url.endswith("latest.json"):
-            return self.latest
-        return None
+    def reset(self):
+        self.latest = None
+        self.tree_raw = None
+        self.dead = False
+        self.verdict = "ok"
+        self.tree_fetches = 0
 
-    async def get_bytes(self, client=None, url="", **kw):
-        if any(d in url for d in self.dead):
-            return None
-        if url.endswith("taxonomy.json"):
+    async def sign(self, scope, *, version=None, path="", genre=""):
+        if self.dead:
+            return {"code": -1, "msg": "unreachable"}
+        return {"code": 0, "data": {"url": f"fake://{scope}/{version or 0}"}}
+
+    async def fetch_signed(self, url, max_bytes):
+        if self.dead:
+            return None, self.verdict
+        if self.verdict != "ok":
+            return None, self.verdict
+        if "tree_pointer" in url:
+            if self.latest is None:
+                return None, "ok"
+            return json.dumps(self.latest).encode(), "ok"
+        if "tree_data" in url:
             self.tree_fetches += 1
-            return self.tree_raw
-        return None
+            return self.tree_raw, "ok"
+        return None, "ok"
 
 
-_CDN = _FakeCDN()
+_CDN = _FakeServer()
 
 
 def _publish(version: int, *, tree_raw: bytes | None = None, bad_sig: bool = False):
@@ -87,36 +101,25 @@ def _run(coro):
     return asyncio.run(coro)
 
 
-async def _fetch_none(client, url):
-    """探测必空桩：verdict 由 _validate_outbound 桩控制，fetch 恒 None。"""
-    return
-
-
-async def _fetch_unsigned(client, url):
-    """取到包但验签不过的形态：latest 有载荷、无有效签名。"""
-    return {"version": 5}
-
-
 import pytest  # noqa: E402
 
+from kb import (
+    server_api,  # noqa: E402
+    tree_sync,  # noqa: E402
+)
 from kb import taxonomy as taxonomy_mod  # noqa: E402
-from kb import tree_sync  # noqa: E402
 
 
 @pytest.fixture
 def tree_env(tmp_path, monkeypatch):
     monkeypatch.setenv("DATA_ROOT", str(tmp_path / "data"))
     monkeypatch.setattr(tree_sync, "_TRUST_PUBKEYS", _TEST_PUBKEYS)
-    monkeypatch.setattr(tree_sync, "_cdn_bases", lambda: [_BASE])
-    monkeypatch.setattr(tree_sync, "_validate_outbound", lambda url: (True, "ok"))
-    monkeypatch.setattr(tree_sync, "_fetch_json", _CDN.get_json)
-    monkeypatch.setattr(tree_sync, "_fetch_bytes", _CDN.get_bytes)
+    monkeypatch.setattr(server_api, "sign", _CDN.sign)
+    monkeypatch.setattr(server_api, "fetch_signed", _CDN.fetch_signed)
     taxonomy_mod.reload()
-    _CDN.dead = set()
-    _CDN.tree_fetches = 0
+    _CDN.reset()
     yield tmp_path
-    _CDN.dead = set()
-    _CDN.tree_fetches = 0
+    _CDN.reset()
     taxonomy_mod.reload()
 
 
@@ -163,7 +166,7 @@ def test_签名坏_保旧层(tree_env):
     assert _run(tree_sync.sync_tree())["status"] == "synced"
     _CDN.latest = _sign_pointer(3, _TREE_SHA, _TREE_SIZE, bad_sig=True)
     r = _run(tree_sync.sync_tree())
-    assert r["status"] == "failed" and r["reason"] == "latest_invalid"
+    assert r["status"] == "failed" and r["reason"] == "pointer_invalid"
     assert tree_sync.read_receipt()["version"] == 2  # 旧层未动
 
 
@@ -214,13 +217,11 @@ def test_回退拒绝(tree_env):
     assert tree_sync.read_receipt()["version"] == 3
 
 
-def test_主域死_兜底域可用(tree_env, monkeypatch):
-    real_bases = [_BASE, "http://127.0.0.1:2/knowledge/tree"]
-    monkeypatch.setattr(tree_sync, "_cdn_bases", lambda: real_bases)
-    _CDN.dead.add("127.0.0.1:1")
+def test_S端不可达_失败(tree_env):
+    _CDN.dead = True
     _publish(2)
     r = _run(tree_sync.sync_tree())
-    assert r["status"] == "synced" and r["version"] == 2
+    assert r["status"] == "failed" and r["reason"] == "s_unreachable"
 
 
 def test_无信任钥_skipped(tree_env, monkeypatch):
@@ -320,18 +321,15 @@ def test_receipt缺_可从meta恢复(tree_env):
 # ── fake-ip 代理环境失败细分（c-proxy-fakeip-compat）────────────────────────
 
 
-def test_fakeip环境同步失败记proxy_fake_ip(tree_env, monkeypatch):
-    """TUN fake-ip（解析全落 198.18.0.0/15，放行但代理节点不通）→ 失败原因
-    proxy_fake_ip，与 latest_invalid 可区分。"""
-    monkeypatch.setattr(tree_sync, "_validate_outbound", lambda url: (True, "fakeip"))
-    monkeypatch.setattr(tree_sync, "_fetch_json", _fetch_none)
+def test_proxy_fakeip_下载失败记proxy_fake_ip(tree_env):
+    """TUN fake-ip 放行但代理节点不通 → proxy_fake_ip。"""
+    _CDN.verdict = "fakeip"
     r = _run(tree_sync.sync_tree())
     assert r["status"] == "failed" and r["reason"] == "proxy_fake_ip"
 
 
-def test_fakeip环境验签失败不误记proxy_fake_ip(tree_env, monkeypatch):
-    """fake-ip 环境下 fetch 成功但验签不过＝CDN 内容问题：维持 latest_invalid。"""
-    monkeypatch.setattr(tree_sync, "_validate_outbound", lambda url: (True, "fakeip"))
-    monkeypatch.setattr(tree_sync, "_fetch_json", _fetch_unsigned)
+def test_验签失败不误记proxy_fake_ip(tree_env):
+    """下载成功但指针验签不过＝内容问题：pointer_invalid，不出代理误诊。"""
+    _CDN.latest = {"version": 5}  # 无 signature
     r = _run(tree_sync.sync_tree())
-    assert r["status"] == "failed" and r["reason"] == "latest_invalid"
+    assert r["status"] == "failed" and r["reason"] == "pointer_invalid"

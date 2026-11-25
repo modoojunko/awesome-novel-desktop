@@ -611,12 +611,12 @@ def test_同步状态与手动重试端点(base_env):
 
     calls: list[int] = []
 
-    async def _fake_sync(db=None):
+    async def _fake_sync(genre, db=None):
         calls.append(1)
-        return {"status": "current", "version": 1}
+        return {"status": "current", "version": 1, "genre": genre}
 
-    orig = bl.sync_baseline
-    bl.sync_baseline = _fake_sync
+    orig = bl.sync_genre
+    bl.sync_genre = _fake_sync
     try:
         with TestClient(app) as c:
             # lifespan 的启动补偿也会调一次（A3 挂接实证）——从这里开始数
@@ -627,14 +627,15 @@ def test_同步状态与手动重试端点(base_env):
             assert d["version"] == 1 and d["entries"] == 1
             # last_sync 摘要内容取决于共享测试库里的历史同步（只钉形状，不钉具体值）
             assert isinstance(d["last_sync"], dict)
+            assert isinstance(d["genres"], dict)
             assert eid
 
-            r = c.post("/api/kb/baseline/sync")
+            r = c.post("/api/kb/baseline/sync", json={"genre": "玄幻"})
             assert r.status_code == 200, r.text
             assert r.json()["data"]["status"] == "current"
             assert calls == [1]
     finally:
-        bl.sync_baseline = orig
+        bl.sync_genre = orig
         app.dependency_overrides.clear()
 
 

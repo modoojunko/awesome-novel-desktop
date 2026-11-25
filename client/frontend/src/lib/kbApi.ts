@@ -2,6 +2,7 @@
 import { request } from "./api";
 import { getToken } from "./auth";
 import { getApiBaseUrl } from "./env";
+import type { KbProbe, KbQuota } from "./kbProbe";
 
 export interface KbEntry {
   id: string;
@@ -495,21 +496,34 @@ export const kbApi = {
       }),
     ),
 
-  // ── 官方精选同步（c-kb-baseline）：启动补偿失败后的重试面 ──
+  // ── 官方精选同步（s-kb-signed-delivery）：按题材手动同步 ──
 
   baselineStatus: () =>
-    unwrap<{ version: number; entries: number }>(request(`${BASE}/baseline/status`)),
+    unwrap<{
+      version: number;
+      entries: number;
+      last_sync?: Record<string, unknown>;
+      genres?: Record<string, { version: number; sha256: string; entries: number; synced_at: string }>;
+    }>(request(`${BASE}/baseline/status`)),
 
-  /** 官方知识版本探测（c-kb-baseline-update-ux）：只读探测，不触发同步 */
+  /** 官方知识探测（免费）：返回题材清单/已同步状态/今日配额/resume */
   baselineProbe: () =>
-    unwrap<{ installed: number; latest: number; update_available: boolean; reason?: string }>(
-      request(`${BASE}/baseline/probe`),
-    ),
+    unwrap<KbProbe>(request(`${BASE}/baseline/probe`)),
 
-  baselineSync: () =>
-    unwrap<{ status: string; version?: number; reason?: string }>(
-      request(`${BASE}/baseline/sync`, { method: "POST" }),
-    ),
+  /** 同步单个题材（一次扣 1 次/天）；返回 S 端结果信封 */
+  baselineSync: (genre: string) =>
+    unwrap<{
+      status: string;
+      version?: number;
+      genre?: string;
+      reason?: string;
+      entries?: number;
+      skipped?: number;
+      quota?: KbQuota;
+    }>(request(`${BASE}/baseline/sync`, {
+      method: "POST",
+      body: JSON.stringify({ genre }),
+    })),
 
   /** 恢复默认／恢复官方版：删覆盖记录，原件重新透出 */
   clearBaselineOverride: (entryId: string) =>

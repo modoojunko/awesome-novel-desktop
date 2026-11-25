@@ -163,17 +163,9 @@ async def _baseline_domain(
     genre 取书题材（story KV），concepts 恒为可进块三类，fingerprint 由
     pack_version 派生——官方升级即换域重选（不误复用旧 run）。
     """
-    from kb.baseline import VERSION_KEY
+    from kb.baseline import GENRES_KEY, VERSION_KEY
     from models.app_meta import AppMeta
     from models.kb import KbBaselineEntry
-
-    probe = (
-        await db.execute(select(KbBaselineEntry.entry_id).limit(1))
-    ).scalar_one_or_none()
-    if not probe:
-        return None
-    meta = await db.get(AppMeta, VERSION_KEY)
-    version = int(meta.value) if meta and str(meta.value).isdigit() else 0
 
     genre = ""
     try:
@@ -194,8 +186,29 @@ async def _baseline_domain(
         # 空题材在 digest 语义里是「不过滤」——会把所有题材的基线条目混进本书
         # （跨题材串味）。宁可不回退：与「零绑定且无题材」的旧行为一致。
         return None
+    # 按题材同步（s-kb-signed-delivery）：只认该书题材自己的官方层；没同步过＝不出现。
+    probe = (
+        await db.execute(
+            select(KbBaselineEntry.entry_id)
+            .where(KbBaselineEntry.genre == genre)
+            .limit(1)
+        )
+    ).scalar_one_or_none()
+    if not probe:
+        return None
+    states_row = await db.get(AppMeta, GENRES_KEY)
+    try:
+        states = json.loads(states_row.value) if states_row and states_row.value else {}
+    except ValueError:
+        states = {}
+    state = states.get(genre) if isinstance(states.get(genre), dict) else {}
+    version = int(state.get("version") or 0)
+    if not version:
+        meta = await db.get(AppMeta, VERSION_KEY)
+        version = int(meta.value) if meta and str(meta.value).isdigit() else 0
+    baseline_sha = str(state.get("sha256") or "")
     fingerprint = hashlib.sha256(
-        f"baseline:{version}:{genre}".encode()
+        f"baseline:{version}:{genre}:{baseline_sha}".encode()
     ).hexdigest()[:64]
     return genre, list(_BLOCK_CONCEPTS), fingerprint
 

@@ -231,11 +231,12 @@ describe("kbApi", () => {
     expect(String(fetchMock.mock.calls[0][0])).toBe("/api/kb/baseline/status");
 
     fetchMock.mockReturnValueOnce(json({ status: "synced", version: 4 }));
-    const r = await baselineSync();
+    const r = await baselineSync("玄幻");
     expect(r.status).toBe("synced");
     const [u, init] = fetchMock.mock.calls[1];
     expect(String(u)).toBe("/api/kb/baseline/sync");
     expect(init.method).toBe("POST");
+    expect(JSON.parse(String(init.body))).toEqual({ genre: "玄幻" });
   });
 
   describe("题材知识导入进度流（c-kb-book-scope 弹窗二选一）", () => {

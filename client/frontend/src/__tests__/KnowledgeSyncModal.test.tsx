@@ -3,8 +3,8 @@ import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-libra
 import KnowledgeSyncModal from "@/components/kb/KnowledgeSyncModal";
 import { readKbDismissal } from "@/lib/kbProbe";
 
-// c-kb-baseline-update-ux：官方知识弹窗两模式状态机——update 开窗即确认、
-// manual 检查更新；点「立即更新」await 同步直回（无轮询）；暂不更新记版本锚。
+// s-kb-signed-delivery：按题材同步弹窗——清单/配额/逐题材同步；
+// update 模式自动弹、manual 自己 probe；关闭 update 记 release 版本锚。
 const { syncMock, probeMock, toastState } = vi.hoisted(() => ({
   syncMock: vi.fn(),
   probeMock: vi.fn(),
@@ -20,167 +20,155 @@ vi.mock("@/lib/toast", () => ({
   toast: toastState,
 }));
 
+const SHA_A = "a".repeat(64);
+const SHA_B = "b".repeat(64);
+
+const PROBE = {
+  installed: 0,
+  latest: 5,
+  update_available: true,
+  genres: {
+    玄幻: { path: "genres/a.jsonl", sha256: SHA_A, bytes: 10, entry_count: 2 },
+    都市: { path: "genres/b.jsonl", sha256: SHA_B, bytes: 10, entry_count: 1 },
+  },
+  installed_genres: {},
+  quota: { limit: 2, used: 0, remaining: 2, reset_at: "2026-11-22T00:00:00+08:00" },
+};
+
 function openKbSync(detail: Record<string, unknown>) {
   act(() => {
     window.dispatchEvent(new CustomEvent("kb-sync-modal:open", { detail }));
   });
 }
 
-describe("KnowledgeSyncModal（c-kb-baseline-update-ux）", () => {
+describe("KnowledgeSyncModal（s-kb-signed-delivery 按题材同步）", () => {
   beforeEach(() => {
     window.localStorage.removeItem("kb-sync-dismissed");
-    syncMock.mockReset().mockResolvedValue({ status: "synced", version: 4 });
-    probeMock.mockReset().mockResolvedValue({ installed: 3, latest: 3, update_available: false });
+    syncMock.mockReset().mockResolvedValue({
+      status: "synced",
+      version: 5,
+      genre: "玄幻",
+      entries: 2,
+      quota: { limit: 2, used: 1, remaining: 1, reset_at: "2026-11-22T00:00:00+08:00" },
+    });
+    probeMock.mockReset().mockResolvedValue(PROBE);
     toastState.info.mockClear();
     toastState.success.mockClear();
   });
   afterEach(cleanup);
 
-  it("update 模式：开窗即确认（当前→最新），确认后同步直回并 toast", async () => {
+  it("update 模式：清单按题材列出；点某题材才同步并扣 1 次", async () => {
     render(<KnowledgeSyncModal />);
-    openKbSync({ mode: "update", from: 3, to: 4 });
-    expect(screen.getByText("官方知识有更新")).toBeTruthy();
-    const ver = screen.getByTestId("kb-sync-versions").textContent ?? "";
-    expect(ver).toContain("v3");
-    expect(ver).toContain("v4");
+    openKbSync({ mode: "update", probe: PROBE });
+
+    expect(screen.getByText("官方知识")).toBeTruthy();
+    expect(screen.getByTestId("kb-genre-row-玄幻")).toBeTruthy();
+    expect(screen.getByTestId("kb-genre-row-都市")).toBeTruthy();
+    expect(screen.getByTestId("kb-genre-quota").textContent).toContain("今日还可同步 2 个题材");
     expect(syncMock).not.toHaveBeenCalled();
 
-    fireEvent.click(screen.getByTestId("kb-sync-confirm"));
-    await waitFor(() => expect(syncMock).toHaveBeenCalled());
-    await waitFor(() => expect(screen.getByText("官方知识已更新")).toBeTruthy());
-    expect(screen.getByTestId("kb-sync-done").textContent).toContain("v4");
-    expect(toastState.success).toHaveBeenCalledWith("官方知识已更新到 v4");
+    fireEvent.click(screen.getByTestId("kb-genre-sync-玄幻"));
+    await waitFor(() => expect(syncMock).toHaveBeenCalledWith("玄幻"));
+    await waitFor(() =>
+      expect(screen.getByTestId("kb-genre-state-玄幻").textContent).toContain("已同步"),
+    );
+    expect(toastState.success).toHaveBeenCalledWith("「玄幻」已同步");
+    expect(screen.getByTestId("kb-genre-quota").textContent).toContain("今日还可同步 1 个题材");
   });
 
-  it("暂不更新：确认态关窗记版本锚（同版不重弹的锚点）", () => {
-    render(<KnowledgeSyncModal />);
-    openKbSync({ mode: "update", from: 3, to: 4 });
-    fireEvent.click(screen.getByTestId("kb-sync-later"));
-    expect(readKbDismissal().updateVersion).toBe("4");
-    expect(syncMock).not.toHaveBeenCalled();
-  });
-
-  it("manual 模式：检查更新无新版→toast 已是最新；有新版→转确认", async () => {
+  it("manual 模式无快照：先 probe 一次（免费）再出清单", async () => {
     render(<KnowledgeSyncModal />);
     openKbSync({ mode: "manual" });
-    expect(screen.getByText("官方知识")).toBeTruthy();
-    fireEvent.click(screen.getByTestId("kb-sync-check"));
     await waitFor(() => expect(probeMock).toHaveBeenCalled());
-    await waitFor(() => expect(toastState.info).toHaveBeenCalledWith("已是最新"));
-
-    probeMock.mockResolvedValue({ installed: 3, latest: 5, update_available: true });
-    fireEvent.click(screen.getByTestId("kb-sync-check"));
-    await waitFor(() => expect(screen.getByText("官方知识有更新")).toBeTruthy());
-    expect((screen.getByTestId("kb-sync-versions").textContent ?? "")).toContain("v5");
+    await waitFor(() => expect(screen.getByTestId("kb-genre-list")).toBeTruthy());
   });
 
-  it("同步失败→失败态给「再试一次」，重试成功转完成", async () => {
-    syncMock.mockRejectedValueOnce(new Error("cdn"));
+  it("额度用完：按钮禁用并说明明天恢复", () => {
     render(<KnowledgeSyncModal />);
-    openKbSync({ mode: "update", from: 3, to: 4 });
-    fireEvent.click(screen.getByTestId("kb-sync-confirm"));
-    await waitFor(() => expect(screen.getByText("更新没有完成")).toBeTruthy());
-    expect(screen.getByTestId("kb-sync-fail-note").textContent).toContain("稍后可以再试");
+    openKbSync({
+      mode: "update",
+      probe: {
+        ...PROBE,
+        quota: { limit: 2, used: 2, remaining: 0, reset_at: "2026-11-22T00:00:00+08:00" },
+      },
+    });
+    expect(screen.getByTestId("kb-genre-quota").textContent).toContain("用完了");
+    expect((screen.getByTestId("kb-genre-sync-玄幻") as HTMLButtonElement).disabled).toBe(true);
+  });
+
+  it("skipped/quota_exceeded：不谎报成功，info 说明" , async () => {
+    syncMock.mockResolvedValue({ status: "skipped", reason: "quota_exceeded" });
+    render(<KnowledgeSyncModal />);
+    openKbSync({ mode: "update", probe: PROBE });
+    fireEvent.click(screen.getByTestId("kb-genre-sync-玄幻"));
+    await waitFor(() =>
+      expect(toastState.info).toHaveBeenCalledWith("今天的题材同步次数用完了，明天再来吧。"),
+    );
+    expect(toastState.success).not.toHaveBeenCalled();
+  });
+
+  it("skipped/tier_denied：说明套餐不含官方知识库", async () => {
+    syncMock.mockResolvedValue({ status: "skipped", reason: "tier_denied" });
+    render(<KnowledgeSyncModal />);
+    openKbSync({ mode: "update", probe: PROBE });
+    fireEvent.click(screen.getByTestId("kb-genre-sync-玄幻"));
+    await waitFor(() =>
+      expect(toastState.info).toHaveBeenCalledWith("当前套餐不包含官方知识库。"),
+    );
+  });
+
+  it("同步失败→失败态「再试一次」；重试走 probe 自查", async () => {
+    syncMock.mockRejectedValueOnce(new Error("net"));
+    render(<KnowledgeSyncModal />);
+    openKbSync({ mode: "update", probe: PROBE });
+    fireEvent.click(screen.getByTestId("kb-genre-sync-玄幻"));
+    await waitFor(() => expect(screen.getByTestId("kb-sync-fail-note")).toBeTruthy());
 
     fireEvent.click(screen.getByTestId("kb-sync-retry"));
-    await waitFor(() => expect(screen.getByText("官方知识已更新")).toBeTruthy());
-    expect(syncMock).toHaveBeenCalledTimes(2);
+    await waitFor(() => expect(probeMock).toHaveBeenCalled());
+    expect(syncMock).toHaveBeenCalledTimes(1);
   });
 
-  it("竞态下他路已装同版（status=current）同样算更新完成", async () => {
-    syncMock.mockResolvedValue({ status: "current", version: 4 });
+  it("写作提示带入 focusGenre：高亮该题材并给一句说明", () => {
     render(<KnowledgeSyncModal />);
-    openKbSync({ mode: "update", from: 3, to: 4 });
-    fireEvent.click(screen.getByTestId("kb-sync-confirm"));
-    await waitFor(() => expect(screen.getByText("官方知识已更新")).toBeTruthy());
-    expect(toastState.success).toHaveBeenCalledWith("官方知识已更新到 v4");
+    openKbSync({ mode: "manual", probe: PROBE, focusGenre: "玄幻" });
+    expect(screen.getByTestId("kb-genre-focus-note").textContent).toContain("「玄幻」");
+  });
+
+  it("关闭 update 模式：记 release 版本锚（同版不重弹）", () => {
+    render(<KnowledgeSyncModal />);
+    openKbSync({ mode: "update", probe: PROBE });
+    fireEvent.click(screen.getByTestId("kb-sync-close"));
+    expect(readKbDismissal().updateVersion).toBe("5");
+    expect(syncMock).not.toHaveBeenCalled();
   });
 
   it("进度期收到新开启事件被忽略（不降级不重开）", async () => {
     let release: (() => void) | null = null;
     syncMock.mockImplementationOnce(
-      () => new Promise((res) => { release = () => res({ status: "synced", version: 4 }); }),
+      () =>
+        new Promise((res) => {
+          release = () =>
+            res({ status: "synced", version: 5, genre: "玄幻", entries: 2 });
+        }),
     );
     render(<KnowledgeSyncModal />);
-    openKbSync({ mode: "update", from: 3, to: 4 });
-    fireEvent.click(screen.getByTestId("kb-sync-confirm"));
-    await waitFor(() => expect(screen.getByText("正在更新官方知识")).toBeTruthy());
-    // running 期再发 manual 开启事件：不应翻回 idle
+    openKbSync({ mode: "update", probe: PROBE });
+    fireEvent.click(screen.getByTestId("kb-genre-sync-玄幻"));
+    await waitFor(() => expect(screen.getByText("正在同步官方知识")).toBeTruthy());
+    openKbSync({ mode: "manual", probe: PROBE });
+    expect(screen.getByText("正在同步官方知识")).toBeTruthy();
+    await act(async () => {
+      release?.();
+    });
+    await waitFor(() => expect(screen.getByTestId("kb-genre-list")).toBeTruthy());
+  });
+
+  it("probe 失败→失败态；不会误开清单", async () => {
+    probeMock.mockRejectedValueOnce(new Error("net"));
+    render(<KnowledgeSyncModal />);
     openKbSync({ mode: "manual" });
-    expect(screen.getByText("正在更新官方知识")).toBeTruthy();
-    await act(async () => { release?.(); });
-    await waitFor(() => expect(screen.getByText("官方知识已更新")).toBeTruthy());
-  });
-});
-
-describe("同步跳过结果诚实反馈（c-kb-baseline-periodic-recheck）", () => {
-  beforeEach(() => {
-    window.localStorage.removeItem("kb-sync-dismissed");
-    toastState.info.mockClear();
-    toastState.success.mockClear();
-  });
-  afterEach(cleanup);
-
-  it("后台同步在途（skipped/syncing）：不谎报成功，info 说明＋关窗＋记版本锚", async () => {
-    syncMock.mockResolvedValue({ status: "skipped", reason: "syncing" });
-    render(<KnowledgeSyncModal />);
-    openKbSync({ mode: "update", from: 3, to: 4 });
-    fireEvent.click(screen.getByTestId("kb-sync-confirm"));
-    await waitFor(() =>
-      expect(toastState.info).toHaveBeenCalledWith("后台正在更新，稍后会自动完成。"),
-    );
-    expect(toastState.success).not.toHaveBeenCalled();
-    expect(screen.queryByTestId("kb-sync-done")).toBeNull();
-    expect(readKbDismissal().updateVersion).toBe("4");
-    await waitFor(() => expect(screen.queryByText("官方知识有更新")).toBeNull());
-  });
-
-  it("格式代际不兼容（skipped/format_newer）：说明需要新版客户端，不谎报成功", async () => {
-    syncMock.mockResolvedValue({ status: "skipped", reason: "format_newer" });
-    render(<KnowledgeSyncModal />);
-    openKbSync({ mode: "update", from: 3, to: 4 });
-    fireEvent.click(screen.getByTestId("kb-sync-confirm"));
-    await waitFor(() =>
-      expect(toastState.info).toHaveBeenCalledWith(
-        "这份知识要用新版客户端才能装上；本机的官方知识保持现状。",
-      ),
-    );
-    expect(toastState.success).not.toHaveBeenCalled();
-    expect(screen.queryByTestId("kb-sync-done")).toBeNull();
-    expect(readKbDismissal().updateVersion).toBe("4");
-  });
-
-  it("其他跳过原因：给「没有可更新的内容」，不落到成功态", async () => {
-    syncMock.mockResolvedValue({ status: "skipped", reason: "retired" });
-    render(<KnowledgeSyncModal />);
-    openKbSync({ mode: "update", from: 3, to: 4 });
-    fireEvent.click(screen.getByTestId("kb-sync-confirm"));
-    await waitFor(() =>
-      expect(toastState.info).toHaveBeenCalledWith("这次没有可更新的内容。"),
-    );
-    expect(toastState.success).not.toHaveBeenCalled();
-  });
-});
-
-describe("失败原因细分（c-proxy-fakeip-compat）", () => {
-  it("reason=proxy_fake_ip：失败态给代理 TUN 指路文案", async () => {
-    syncMock.mockResolvedValue({ status: "failed", reason: "proxy_fake_ip" });
-    render(<KnowledgeSyncModal />);
-    openKbSync({ mode: "update", from: 3, to: 4 });
-    fireEvent.click(screen.getByTestId("kb-sync-confirm"));
-    await waitFor(() => expect(screen.getByText("更新没有完成")).toBeTruthy());
-    const note = screen.getByTestId("kb-sync-fail-note").textContent ?? "";
-    expect(note).toContain("TUN 模式");
-    expect(note).toContain("白名单");
-    expect(screen.getByTestId("kb-sync-retry")).toBeTruthy();
-  });
-
-  it("其他失败 reason：维持既有网络文案", async () => {
-    syncMock.mockResolvedValue({ status: "failed", reason: "manifest_invalid" });
-    render(<KnowledgeSyncModal />);
-    openKbSync({ mode: "update", from: 3, to: 4 });
-    fireEvent.click(screen.getByTestId("kb-sync-confirm"));
-    await waitFor(() => expect(screen.getByText("更新没有完成")).toBeTruthy());
-    expect(screen.getByTestId("kb-sync-fail-note").textContent).toContain("稍后可以再试");
+    await waitFor(() => expect(screen.getByTestId("kb-sync-fail-note")).toBeTruthy());
+    expect(screen.queryByTestId("kb-genre-list")).toBeNull();
   });
 });

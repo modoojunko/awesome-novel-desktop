@@ -202,7 +202,7 @@ export default function KnowledgeBasePage() {
         setLastKbProbe(p);
         setKbProbe(p);
         if (p.update_available && readKbDismissal().updateVersion !== String(p.latest)) {
-          openKbSyncModal({ mode: "update", from: p.installed, to: p.latest });
+          openKbSyncModal({ mode: "update", probe: p });
         }
       } catch {
         /* 探测失败＝无更新静默 */
@@ -418,6 +418,10 @@ export default function KnowledgeBasePage() {
     }
   };
 
+  const kbGenreMeta = genre !== "全部题材" ? kbProbe?.genres?.[genre] : undefined;
+  const kbGenreMissing =
+    !!kbGenreMeta && kbProbe?.installed_genres?.[genre]?.sha256 !== kbGenreMeta.sha256;
+
   return (
     // 版式对齐写作工具系各页（c-kb-header-align）：共用 .main 居中容器＋.page-head
     // 标题行（h1 30px/副标题 .sub/右侧动作），不再用整幅通栏大标题
@@ -430,7 +434,12 @@ export default function KnowledgeBasePage() {
         <div className="flex flex-none items-center gap-2">
           <button
             data-testid="kb-baseline-entry"
-            onClick={() => openKbSyncModal({ mode: "manual" })}
+            onClick={() =>
+              openKbSyncModal({
+                mode: "manual",
+                probe: getLastKbProbe() ?? undefined,
+              })
+            }
             className="rounded-md border border-[var(--border)] px-3 py-1.5 text-[12px] text-[var(--muted)] hover:text-[var(--fg)]"
           >
             官方知识{kbProbe?.installed ? ` v${kbProbe.installed}` : ""}
@@ -554,6 +563,7 @@ export default function KnowledgeBasePage() {
                 <button
                   key={g.key ?? g.name}
                   onClick={() => setGenre(g.key ?? g.name)}
+                  data-testid={`kb-genre-pick-${g.key ?? g.name}`}
                   className={`flex w-full items-center justify-between rounded-md px-3 py-1.5 text-[13px] ${genre === (g.key ?? g.name) ? "bg-[var(--accent-soft)] font-medium text-[var(--accent)]" : "text-[var(--muted)] hover:text-[var(--fg)]"}`}
                 >
                   <span>{g.name}</span><span className="font-mono text-[10px] opacity-70">{g.count}</span>
@@ -639,6 +649,29 @@ export default function KnowledgeBasePage() {
                 className="w-full max-w-xs rounded-lg border border-[var(--border)] bg-[var(--surface)] px-3 py-2 text-[13px] text-[var(--fg)] placeholder:text-[var(--faint)] focus:border-[var(--accent)] focus:outline-none"
               />
             </div>
+
+            {/* 当前题材未同步官方知识：就地给口子（S 端按题材签 URL，用户主动扣额度） */}
+            {kbGenreMissing && (
+                <p
+                  className="mb-2 flex items-center gap-2 text-[12px] text-[var(--muted)]"
+                  data-testid="kb-genre-nudge"
+                >
+                  「{genre}」的官方知识还没同步。
+                  <button
+                    className="text-[var(--accent)] hover:underline"
+                    data-testid="kb-genre-nudge-sync"
+                    onClick={() =>
+                      openKbSyncModal({
+                        mode: "manual",
+                        probe: kbProbe ?? undefined,
+                        focusGenre: genre,
+                      })
+                    }
+                  >
+                    去同步
+                  </button>
+                </p>
+              )}
 
             {/* 列表主体：统一实例行（全臂同构——官方条目也是实例） */}
             <>

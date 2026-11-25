@@ -1,7 +1,7 @@
-"""基线更新探测与触达测试（c-kb-baseline-update-ux）：probe 三态＋maybe_sync 补装钩子。
+"""基线探测与触达测试（s-kb-signed-delivery）：probe 三态＋登录/周期只探测不下载。
 
-网络面全注入（照 test_kb_baseline_sync.py 同款 FakeCDN/签名工具模式）；
-maybe_sync 走 asyncio 驱动器让 create_task 任务体真跑完再断言。
+网络面全注入（server_api.sign/fetch_signed monkeypatch）；题材下载由用户手动触发，
+登录钩子/周期复查只做免费探测——不静默扣每日题材配额。
 """
 
 import asyncio
@@ -16,6 +16,7 @@ from sqlalchemy import delete
 from sqlalchemy import select as sel
 
 from db import async_session, engine
+from kb import server_api
 from manifest_crypto import sign_manifest
 from models.app_meta import AppMeta
 from models.kb import KbBaselineEntry
@@ -24,7 +25,6 @@ _ed_key = Ed25519PrivateKey.from_private_bytes(bytes(range(32)))
 _TEST_PRIV = base64.b64encode(bytes(range(32))).decode()
 _TEST_KID = "test-k"
 _TEST_PUBKEYS = {_TEST_KID: _ed_key.public_key().public_bytes(Encoding.Raw, PublicFormat.Raw)}
-_BASE = "http://127.0.0.1:1/knowledge/baseline"
 
 
 def _entry(src_key: str) -> dict:
@@ -37,50 +37,87 @@ def _entry(src_key: str) -> dict:
     }
 
 
-class _FakeCDN:
+class _FakeServer:
     def __init__(self):
         self.latest = None
+        self.manifest_raw = b"{}"
+        self.files: dict[str, bytes] = {}
         self.hits: list[str] = []
+        self.dead = False
+        self.verdict = "ok"
 
-    async def get_json(self, client=None, url="", **kw):
+    def reset(self):
+        self.latest = None
+        self.manifest_raw = b"{}"
+        self.files = {}
+        self.hits = []
+        self.dead = False
+        self.verdict = "ok"
+
+    async def sign(self, scope, *, version=None, path="", genre=""):
+        self.hits.append(scope)
+        if self.dead:
+            return {"code": -1, "msg": "unreachable"}
+        return {
+            "code": 0,
+            "data": {
+                "url": f"fake://{scope}/{version or 0}/{path}",
+                "quota": {"limit": 2, "used": 0, "remaining": 2},
+            },
+        }
+
+    async def fetch_signed(self, url, max_bytes):
         self.hits.append(url)
-        return self.latest if url.endswith("latest.json") else None
+        if self.dead:
+            return None, self.verdict
+        if self.verdict != "ok":
+            return None, self.verdict
+        if "baseline_pointer" in url:
+            if self.latest is None:
+                return None, "ok"
+            return json.dumps(self.latest).encode(), "ok"
+        if "baseline_manifest" in url:
+            return self.manifest_raw, "ok"
+        if "baseline_genre" in url:
+            for path, data in self.files.items():
+                if path in url:
+                    return data, "ok"
+        return None, "ok"
 
-    async def get_bytes(self, client=None, url="", **kw):
-        return None
+
+_CDN = _FakeServer()
 
 
-_CDN = _FakeCDN()
-
-
-def _publish(version: int, entries: list[dict]):
+def _publish(version: int, entries: list[dict], genre: str = "玄幻"):
     body = "\n".join(json.dumps(e, ensure_ascii=False) for e in entries).encode()
+    rel = f"genres/{hashlib.sha1(genre.encode()).hexdigest()[:16]}.jsonl"
     manifest = {
-        "version": version, "entry_count": len(entries),
+        "version": version,
+        "entry_count": len(entries),
         "generated_at": "2026-11-02T00:00:00Z",
-        "files": [{"path": "entries.jsonl", "sha256": hashlib.sha256(body).hexdigest()}],
+        "genres": {
+            genre: {
+                "path": rel,
+                "sha256": hashlib.sha256(body).hexdigest(),
+                "bytes": len(body),
+                "entry_count": len(entries),
+            }
+        },
     }
     signed = sign_manifest(manifest, _TEST_PRIV, _TEST_KID)
     _CDN.latest = sign_manifest(
-        {"version": version,
-         "manifest_sha256": hashlib.sha256(json.dumps(signed, ensure_ascii=False).encode()).hexdigest()},
-        _TEST_PRIV, _TEST_KID,
+        {
+            "version": version,
+            "manifest_sha256": hashlib.sha256(
+                json.dumps(signed, ensure_ascii=False).encode()
+            ).hexdigest(),
+            "resume_baseline": False,
+        },
+        _TEST_PRIV,
+        _TEST_KID,
     )
-    # entries 面由兄弟测试的注入负责；本文件只测 probe/maybe_sync（不拉包体），
-    # 但 maybe_sync 触发的全量同步会走 _fetch_bytes——直接给它一份对得上的包体。
-    async def _fake_bytes(client=None, url="", **kw):
-        if url.endswith("entries.jsonl"):
-            return body
-        if url.endswith("tombstones.json"):
-            return b'{"removed": []}'
-        if url.endswith("manifest.json"):
-            return json.dumps(signed, ensure_ascii=False).encode()
-        return None
-
-    _FAKE_BYTES_HOLDER["fn"] = _fake_bytes
-
-
-_FAKE_BYTES_HOLDER: dict = {"fn": None}
+    _CDN.manifest_raw = json.dumps(signed, ensure_ascii=False).encode()
+    _CDN.files = {rel: body}
 
 
 @pytest.fixture
@@ -88,11 +125,8 @@ def sync_env(monkeypatch):
     from kb import baseline as bl
 
     monkeypatch.setattr(bl, "_TRUST_PUBKEYS", _TEST_PUBKEYS)
-    monkeypatch.setattr(bl, "_cdn_base", lambda: _BASE)
-    monkeypatch.setattr(bl, "_cdn_bases", lambda: [_BASE])
-    monkeypatch.setattr(bl, "_validate_outbound", lambda url: (True, "ok"))
-    monkeypatch.setattr(bl, "_fetch_json", _CDN.get_json)
-    monkeypatch.setattr(bl, "_fetch_bytes", lambda *a, **kw: _FAKE_BYTES_HOLDER["fn"](*a, **kw))
+    monkeypatch.setattr(server_api, "sign", _CDN.sign)
+    monkeypatch.setattr(server_api, "fetch_signed", _CDN.fetch_signed)
 
     from db import Base as _B
     from models.kb import KbBaselineEntry as _E
@@ -112,26 +146,27 @@ def sync_env(monkeypatch):
                 await db.execute(delete(_T))
                 await db.execute(delete(_E))
                 await db.execute(delete(_O))
-                meta = await db.get(AppMeta, bl.VERSION_KEY)
-                if meta:
-                    await db.delete(meta)
+                for key in (bl.VERSION_KEY, bl.GENRES_KEY, bl.LAST_SYNC_KEY):
+                    meta = await db.get(AppMeta, key)
+                    if meta:
+                        await db.delete(meta)
                 await db.commit()
 
         asyncio.run(_go())
 
+    _CDN.reset()
     _reset()
-    _CDN.hits.clear()
     yield bl
+    _CDN.reset()
     _reset()
 
 
 def _sync(bl, version: int, entries: list[dict]):
     _publish(version, entries)
-    return asyncio.run(bl.sync_baseline())
+    return asyncio.run(bl.sync_genre("玄幻"))
 
 
 def _drive_maybe_sync(bl) -> None:
-    """同步上下文里触发 maybe_sync 并等 create_task 的任务体跑完。"""
     async def _go():
         bl.maybe_sync()
         for _ in range(50):
@@ -148,28 +183,37 @@ def _layer_count() -> int:
     return asyncio.run(_go())
 
 
+def _hits(*needles: str) -> list[str]:
+    return [h for h in _CDN.hits if any(n in h for n in needles)]
+
+
 # ─── probe_latest：三态 ───────────────────────────────────────────────
 
 
 def test_probe_同版_不可更新(sync_env):
     _sync(sync_env, 1, [_entry("baseline:玄幻:a")])
     r = asyncio.run(sync_env.probe_latest())
-    assert r == {"installed": 1, "latest": 1, "update_available": False}
+    assert r["installed"] == 1 and r["latest"] == 1
+    assert r["update_available"] is False
+    assert r["installed_genres"]["玄幻"]["version"] == 1
+    assert r["quota"]["limit"] == 2
 
 
 def test_probe_新版_可更新(sync_env):
     _sync(sync_env, 1, [_entry("baseline:玄幻:a")])
     _publish(2, [_entry("baseline:玄幻:a"), _entry("baseline:玄幻:b")])
     r = asyncio.run(sync_env.probe_latest())
-    assert r == {"installed": 1, "latest": 2, "update_available": True}
+    assert r["installed"] == 1 and r["latest"] == 2
+    assert r["update_available"] is True
+    assert r["updates"] == ["玄幻"]
 
 
-def test_probe_CDN不可达_不可更新带原因(sync_env):
+def test_probe_S端不可达_不可更新带原因(sync_env):
     _sync(sync_env, 1, [_entry("baseline:玄幻:a")])
     _CDN.latest = None
     r = asyncio.run(sync_env.probe_latest())
     assert r["update_available"] is False
-    assert r["reason"] == "latest_invalid"
+    assert r["reason"] == "pointer_fetch"
     assert r["installed"] == 1
 
 
@@ -178,7 +222,7 @@ def test_probe_验签失败_不可更新(sync_env):
     _CDN.latest = {"version": 2}  # 未签名
     r = asyncio.run(sync_env.probe_latest())
     assert r["update_available"] is False
-    assert r["reason"] == "latest_invalid"
+    assert r["reason"] == "pointer_invalid"
 
 
 def test_probe_未配置信任钥_静默(sync_env, monkeypatch):
@@ -188,24 +232,29 @@ def test_probe_未配置信任钥_静默(sync_env, monkeypatch):
     assert r["reason"] == "not_configured"
 
 
-# ─── maybe_sync：补装钩子 ─────────────────────────────────────────────
+# ─── maybe_sync：登录钩子只探测，不静默下载 ───────────────────────────
 
 
-def test_maybe_sync_层空_触发补装(sync_env, monkeypatch):
-    monkeypatch.setenv("KB_BASELINE_SYNC", "1")  # conftest 默认 0，这里开闸
+def test_maybe_sync_层空_只探测不下载(sync_env, monkeypatch):
+    monkeypatch.setenv("KB_BASELINE_SYNC", "1")
     _publish(1, [_entry("baseline:玄幻:a")])
     assert _layer_count() == 0
+    _CDN.hits.clear()
     _drive_maybe_sync(sync_env)
-    assert _layer_count() == 1
+    assert _layer_count() == 0, "登录钩子不得静默下载题材"
+    assert _hits("baseline_pointer"), "应做免费指针探测"
+    assert _hits("baseline_genre") == []
 
 
-def test_maybe_sync_已装_零外呼(sync_env, monkeypatch):
+def test_maybe_sync_已装_仍只探测(sync_env, monkeypatch):
     monkeypatch.setenv("KB_BASELINE_SYNC", "1")
     _sync(sync_env, 1, [_entry("baseline:玄幻:a")])
     assert _layer_count() == 1
     _CDN.hits.clear()
     _drive_maybe_sync(sync_env)
-    assert _CDN.hits == []  # 已装早退：不发任何网络请求
+    assert _layer_count() == 1
+    assert _hits("baseline_pointer")
+    assert _hits("baseline_genre") == []
 
 
 def test_maybe_sync_测试闸_短路(sync_env, monkeypatch):
@@ -216,12 +265,12 @@ def test_maybe_sync_测试闸_短路(sync_env, monkeypatch):
     assert _CDN.hits == [] and _layer_count() == 0
 
 
-# ─── 会话内周期复查（c-kb-baseline-periodic-recheck） ──────────────────
+# ─── 会话内周期复查：只探测（免费），不自动下载 ────────────────────────
 
 
 def test_周期复查_失败缩短间隔其余常规(sync_env):
     assert sync_env._next_recheck_delay({"status": "failed"}) == sync_env.RECHECK_RETRY_INTERVAL
-    for status in ("synced", "current", "skipped"):
+    for status in ("probed", "skipped", "current"):
         assert sync_env._next_recheck_delay({"status": status}) == sync_env.RECHECK_INTERVAL
 
 
@@ -251,14 +300,15 @@ def test_周期复查_重复挂接单实例(sync_env, monkeypatch):
     asyncio.run(_go())
 
 
-def test_周期复查_到点自动同步新版(sync_env, monkeypatch):
-    """常驻期间无需重启/开知识库页：到点自己把 CDN 新版落层。"""
+def test_周期复查_到点只探测不下载(sync_env, monkeypatch):
+    """常驻期间到点只刷指针（免费）；题材仍由用户手动同步。"""
     monkeypatch.setenv("KB_BASELINE_SYNC", "1")
     monkeypatch.setattr(sync_env, "_recheck_task", None)
     monkeypatch.setattr(sync_env, "RECHECK_INTERVAL", 0.05)
     monkeypatch.setattr(sync_env, "RECHECK_RETRY_INTERVAL", 0.05)
     _sync(sync_env, 1, [_entry("baseline:玄幻:a")])
     _publish(2, [_entry("baseline:玄幻:a"), _entry("baseline:玄幻:b")])
+    _CDN.hits.clear()
 
     async def _go():
         async def _count():
@@ -266,12 +316,11 @@ def test_周期复查_到点自动同步新版(sync_env, monkeypatch):
                 return len((await db.execute(sel(KbBaselineEntry))).scalars().all())
 
         sync_env.schedule_periodic_recheck()
-        for _ in range(80):
-            await asyncio.sleep(0.02)
-            if await _count() == 2:
-                break
+        await asyncio.sleep(0.2)
         sync_env._recheck_task.cancel()
-        assert await _count() == 2
+        assert await _count() == 1, "周期复查不得自动下载题材"
+        assert _hits("baseline_pointer"), "应做免费指针探测"
+        assert _hits("baseline_genre") == []
 
     asyncio.run(_go())
 
@@ -283,6 +332,7 @@ def test_周期复查_失败保持旧层并继续重试(sync_env, monkeypatch):
     monkeypatch.setattr(sync_env, "RECHECK_RETRY_INTERVAL", 0.05)
     _sync(sync_env, 1, [_entry("baseline:玄幻:a")])
     _CDN.latest = None  # 下一跳必失败
+    _CDN.hits.clear()
 
     async def _go():
         async def _count():
@@ -290,15 +340,10 @@ def test_周期复查_失败保持旧层并继续重试(sync_env, monkeypatch):
                 return len((await db.execute(sel(KbBaselineEntry))).scalars().all())
 
         sync_env.schedule_periodic_recheck()
-        await asyncio.sleep(0.12)  # 至少一跳失败
+        await asyncio.sleep(0.2)
         assert await _count() == 1  # 失败保持旧层
-        _publish(2, [_entry("baseline:玄幻:a"), _entry("baseline:玄幻:b")])
-        for _ in range(80):
-            await asyncio.sleep(0.02)
-            if await _count() == 2:
-                break
+        assert len(_hits("baseline_pointer")) >= 2, "失败应按短间隔继续探测"
         sync_env._recheck_task.cancel()
-        assert await _count() == 2  # 短间隔重试把新版追了回来
 
     asyncio.run(_go())
 
@@ -315,8 +360,7 @@ def test_lifespan_挂载周期复查():
 # ─── 登录钩子挂点（源级钉：挂载在 browser_auth 成功段） ────────────────
 
 
-def test_browser_auth_成功段挂基线补装钩子():
-    """源级钉（轻量）：maybe_after_auth 之后并排挂 kb.baseline.maybe_sync。"""
+def test_browser_auth_成功段挂基线与树钩子():
     import inspect
 
     from auth_local import service
@@ -324,8 +368,9 @@ def test_browser_auth_成功段挂基线补装钩子():
     src = inspect.getsource(service.browser_auth)
     assert "from kb.baseline import maybe_sync" in src
     assert "maybe_sync()" in src
-    # 顺序：挂在提示词包钩子之后（同款 try/except S110 不阻塞登录）
+    assert "from kb.tree_sync import maybe_sync as tree_maybe_sync" in src
     assert src.index("maybe_after_auth()") < src.index("maybe_sync()")
+    assert src.index("maybe_sync()") < src.index("tree_maybe_sync()")
 
 
 # ─── probe 端点（router 装配） ────────────────────────────────────────
@@ -338,7 +383,6 @@ def test_probe_端点_信封与只读():
 
     src = inspect.getsource(router)
     assert '@router.get("/baseline/probe")' in src
-    # 只读探测：端点体只调 probe_latest，不触发 sync_baseline
     fn = router.baseline_probe_api
     body = inspect.getsource(fn)
     assert "probe_latest" in body and "sync_baseline" not in body

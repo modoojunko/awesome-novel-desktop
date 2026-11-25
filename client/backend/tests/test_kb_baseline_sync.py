@@ -1,6 +1,6 @@
-"""基线包同步测试（c-kb-baseline 批A）：整层替换/幂等/保旧层/升级演练/双账号隔离。
+"""基线包同步测试（s-kb-signed-delivery）：按题材替换/幂等/保旧层/overlay/双账号。
 
-同步器网络面全注入（_fetch_json/_fetch_bytes monkeypatch）——无真实 CDN 依赖；
+网络面全注入（kb.server_api.sign/fetch_signed monkeypatch）——无真实 S端/COS；
 签名用测试密钥对（打包期烘焙公钥的先例口径）。
 
 断言口径：不只信 status，必须回读库内真实行（曾出过 db.execute 漏 await 导致
@@ -20,6 +20,7 @@ from sqlalchemy import event
 from sqlalchemy import select as sel
 
 from db import async_session, engine
+from kb import server_api
 from kb.baseline import proxy_id
 from manifest_crypto import sign_manifest
 from models.app_meta import AppMeta
@@ -29,22 +30,10 @@ _ed_key = Ed25519PrivateKey.from_private_bytes(bytes(range(32)))
 _TEST_PRIV = base64.b64encode(bytes(range(32))).decode()
 _TEST_KID = "test-k"
 _TEST_PUBKEYS = {_TEST_KID: _ed_key.public_key().public_bytes(Encoding.Raw, PublicFormat.Raw)}
-_BASE = "http://127.0.0.1:1/knowledge/baseline"
 
 
 def _run(coro):
     return asyncio.run(coro)
-
-
-async def _fetch_none(client, url):
-    """探测必空桩：verdict 由 _validate_outbound 桩控制，fetch 恒 None。"""
-    return
-
-
-async def _fetch_unsigned(client, url):
-    """取到包但验签不过的形态：latest 有载荷、无有效签名。"""
-    return {"version": 5}
-
 
 
 def _entry(src_key: str, title: str = "条目", *, instruction: str | None = None,
@@ -60,39 +49,66 @@ def _entry(src_key: str, title: str = "条目", *, instruction: str | None = Non
     }
 
 
-def _signed_latest(version: int, manifest_sha: str) -> dict:
+def _signed_latest(version: int, manifest_sha: str, *, resume: bool = False) -> dict:
     return sign_manifest(
-        {"version": version, "manifest_sha256": manifest_sha}, _TEST_PRIV, _TEST_KID
+        {
+            "version": version,
+            "manifest_sha256": manifest_sha,
+            "resume_baseline": resume,
+        },
+        _TEST_PRIV,
+        _TEST_KID,
     )
 
 
-class _FakeCDN:
+class _FakeServer:
+    """假 S 端：sign 只回 scope URL；fetch_signed 按 URL 回包字节。"""
+
     def __init__(self):
         self.latest = None
         self.manifest_raw = b"{}"
-        self.entries_raw = b"[]"
-        self.dead: set[str] = set()  # 含这些片段的主机一律失败（兜底域用例）
+        self.files: dict[str, bytes] = {}
+        self.dead = False
+        self.verdict = "ok"
 
-    async def get_json(self, client=None, url="", **kw):
-        if any(d in url for d in self.dead):
-            return None
-        if url.endswith("latest.json"):
-            return self.latest
-        if url.endswith("manifest.json"):
-            return json.loads(self.manifest_raw)
-        return None
+    def reset(self):
+        self.latest = None
+        self.manifest_raw = b"{}"
+        self.files = {}
+        self.dead = False
+        self.verdict = "ok"
 
-    async def get_bytes(self, client=None, url="", **kw):
-        if any(d in url for d in self.dead):
-            return None
-        if url.endswith("entries.jsonl"):
-            return self.entries_raw
-        if url.endswith("manifest.json"):
-            return self.manifest_raw
-        return None
+    async def sign(self, scope, *, version=None, path="", genre=""):
+        if self.dead:
+            return {"code": -1, "msg": "unreachable"}
+        return {
+            "code": 0,
+            "data": {
+                "url": f"fake://{scope}/{version or 0}/{path}",
+                "quota": {"limit": 2, "used": 0, "remaining": 2},
+            },
+        }
+
+    async def fetch_signed(self, url, max_bytes):
+        if self.dead:
+            return None, self.verdict
+        if self.verdict != "ok":
+            return None, self.verdict
+        if "baseline_pointer" in url:
+            if self.latest is None:
+                return None, "ok"
+            return json.dumps(self.latest).encode(), "ok"
+        if "baseline_manifest" in url:
+            return self.manifest_raw, "ok"
+        if "baseline_genre" in url:
+            for path, data in self.files.items():
+                if path in url:
+                    return data, "ok"
+            return None, "ok"
+        return None, "ok"
 
 
-_CDN = _FakeCDN()
+_CDN = _FakeServer()
 
 
 def _publish(
@@ -103,20 +119,25 @@ def _publish(
     bad_hash: bool = False,
     count: int | None = None,
     extra_lines: list[str] | None = None,
+    genre: str = "玄幻",
 ):
-    """打包并挂到假 CDN。count 默认＝有效条目数；extra_lines 追加原始坏行。
-
-    包里只有内容包 version 与 format_client（按哪代客户端写）两个版本概念。
-    """
+    """按题材打包并挂到假 S 端；manifest 只有 genres 映射（无整包 files）。"""
     lines = [json.dumps(e, ensure_ascii=False) for e in entries] + list(extra_lines or [])
     body = "\n".join(lines).encode()
     digest = hashlib.sha256(body).hexdigest()
+    rel = f"genres/{hashlib.sha1(genre.encode()).hexdigest()[:16]}.jsonl"
     manifest = {
         "version": version,
-        "entry_count": len(entries) if count is None else count,
+        "entry_count": len(entries),
         "generated_at": "2026-11-02T00:00:00Z",
-        "files": [{"path": "entries.jsonl",
-                   "sha256": ("deadbeef" + digest[8:]) if bad_hash else digest}],
+        "genres": {
+            genre: {
+                "path": rel,
+                "sha256": ("deadbeef" + digest[8:]) if bad_hash else digest,
+                "bytes": len(body),
+                "entry_count": len(entries) if count is None else count,
+            }
+        },
     }
     if format_client:
         manifest["format_client"] = format_client
@@ -126,7 +147,7 @@ def _publish(
         hashlib.sha256(json.dumps(signed, ensure_ascii=False).encode()).hexdigest(),
     )
     _CDN.manifest_raw = json.dumps(signed, ensure_ascii=False).encode()
-    _CDN.entries_raw = body
+    _CDN.files = {rel: body}
 
 
 def _layer_state() -> tuple[dict[str, KbBaselineEntry], int, int]:
@@ -181,10 +202,8 @@ def sync_env(monkeypatch):
     from models.kb import KbBaselineTag as _T
 
     monkeypatch.setattr(bl, "_TRUST_PUBKEYS", _TEST_PUBKEYS)
-    monkeypatch.setattr(bl, "_cdn_base", lambda: _BASE)
-    monkeypatch.setattr(bl, "_validate_outbound", lambda url: (True, "ok"))
-    monkeypatch.setattr(bl, "_fetch_json", _CDN.get_json)
-    monkeypatch.setattr(bl, "_fetch_bytes", _CDN.get_bytes)
+    monkeypatch.setattr(server_api, "sign", _CDN.sign)
+    monkeypatch.setattr(server_api, "fetch_signed", _CDN.fetch_signed)
 
     async def _setup():
         async with engine.begin() as conn:
@@ -201,22 +220,23 @@ def sync_env(monkeypatch):
                 await db.execute(delete(_T))
                 await db.execute(delete(_E))
                 await db.execute(delete(_O))
-                meta = await db.get(AppMeta, bl.VERSION_KEY)
-                if meta:
-                    await db.delete(meta)
+                for key in (bl.VERSION_KEY, bl.GENRES_KEY, bl.LAST_SYNC_KEY):
+                    meta = await db.get(AppMeta, key)
+                    if meta:
+                        await db.delete(meta)
                 await db.commit()
 
         _run(_go())
 
+    _CDN.reset()
     _reset()
-    _CDN.dead = set()
     yield bl
-    _CDN.dead = set()
+    _CDN.reset()
     _reset()
 
 
-def _sync(bl, *, db=None):
-    return _run(bl.sync_baseline(db))
+def _sync(bl, *, genre: str = "玄幻", db=None):
+    return _run(bl.sync_genre(genre, db))
 
 
 def test_首装_整层落库_标签物化(sync_env):
@@ -258,7 +278,7 @@ def test_坏哈希保旧层(sync_env):
 
     _publish(2, [_entry("baseline:玄幻:tech-b", "玄幻手法B")], bad_hash=True)
     r = _sync(bl)
-    assert r["status"] == "failed" and r["reason"] == "entries_hash"
+    assert r["status"] == "failed" and r["reason"] == "genre_hash"
     rows, _, ver = _layer_state()
     assert set(rows) == {old["src_key"]}  # 旧层原样
     assert rows[old["src_key"]].pack_version == 1 and ver == 1
@@ -307,7 +327,7 @@ def test_断网保旧层(sync_env):
 
     _CDN.latest = None
     r = _sync(bl)
-    assert r["status"] == "failed" and r["reason"] == "latest_invalid"
+    assert r["status"] == "failed" and r["reason"] == "pointer_fetch"
     rows, _, ver = _layer_state()
     assert set(rows) == {old["src_key"]} and ver == 1
 
@@ -510,11 +530,12 @@ def test_升级演练_双哈希_孤儿hide_重同步_回退(sync_env):
     assert not [s for s in stmts if s.lstrip().upper().startswith(("DELETE", "INSERT", "UPDATE"))]
     assert _overlays(a["src_key"])[uid].content == "用户改写的交手心法。"
 
-    # 回退到 v1（允许回退）：旧版原文透明，副本仍遮蔽
+    # 回退到 v1：按题材高水位拒绝降级（旧层保持 v2）
     _publish(1, [a, b])
-    assert _sync(bl)["status"] == "synced"
+    r3 = _sync(bl)
+    assert r3["status"] == "skipped" and r3["reason"] == "older_than_installed"
     rows, _, ver = _layer_state()
-    assert rows[a["src_key"]].instruction == a["instruction"] and ver == 1
+    assert rows[a["src_key"]].instruction == a2["instruction"] and ver == 2
     assert _overlays(a["src_key"])[uid].action == "edit"
 
 
@@ -555,19 +576,23 @@ def test_未配置信任钥静默跳过(sync_env, monkeypatch):
     assert r["status"] == "skipped" and r["reason"] == "not_configured"
 
 
-def test_生产默认_静态托管同域与烘焙公钥(monkeypatch):
-    """不另造 CDN/钥：基线走 www.awesomenovel.com 静态托管 + 提示词包 pack-k1 同一把钥。"""
+def test_生产默认_COS桶域与烘焙公钥(monkeypatch):
+    """不另造伞：知识文件走 COS 私有桶域名 + 提示词包 pack-k1 同一把钥。"""
     from kb import baseline as bl
+    from kb import server_api as api
 
     monkeypatch.delenv("CLIENT_KB_PUBKEYS", raising=False)
     monkeypatch.delenv("CLIENT_PACK_PUBKEYS", raising=False)
+    monkeypatch.delenv("KB_STORAGE_HOSTS", raising=False)
     monkeypatch.setattr(bl, "_TRUST_PUBKEYS", {})
-    assert bl._DEFAULT_CDN_BASE == "https://www.awesomenovel.com/knowledge/baseline"
+    assert (
+        "ai-novel-knowledge-1468883265.cos.ap-shanghai.myqcloud.com"
+        in api.storage_hosts()
+    )
     keys = bl._trust_keys()
     assert set(keys) == {"pack-k1"}
     assert len(keys["pack-k1"]) == 32
     assert base64.b64encode(keys["pack-k1"]).decode() == "UaJFasM5PBIB3Tg1o03cjG6Opeq5CaKtPv2ooLyNPPM="
-    assert "www.awesomenovel.com" in bl._trusted_hosts()
 
 
 def test_烘焙公钥与打包常量同源(monkeypatch):
@@ -597,16 +622,18 @@ def test_环境钥优先于烘焙默认(monkeypatch):
     assert keys[_TEST_KID] == _TEST_PUBKEYS[_TEST_KID]
 
 
-def test_主域失败自动走兜底域(sync_env):
-    """主域挂掉（DNS/超时/404）→ 兜底域取同一份签名清单，同步照常成功。"""
+def test_S端不可达_失败保旧层(sync_env):
+    """sign 失败（S 端不可达）→ failed/s_unreachable，旧层原样。"""
     bl = sync_env
-    _CDN.dead = {"www.awesomenovel.com"}
-    e = _entry("baseline:玄幻:tech-a", "玄幻手法A")
-    _publish(1, [e])
+    old = _entry("baseline:玄幻:tech-a", "玄幻手法A")
+    _publish(1, [old])
+    assert _sync(bl)["status"] == "synced"
+
+    _CDN.dead = True
     r = _sync(bl)
-    assert r["status"] == "synced" and r["entries"] == 1, f"got {r}"
+    assert r["status"] == "failed" and r["reason"] == "s_unreachable", f"got {r}"
     rows, _, ver = _layer_state()
-    assert set(rows) == {e["src_key"]} and ver == 1
+    assert set(rows) == {old["src_key"]} and ver == 1
 
 
 def test_启动补偿_无事件循环静默跳过():
@@ -725,9 +752,9 @@ def test_下架孤儿edit提升为用户条目(sync_env):
     assert len(tags) >= 3  # concept/scope/scene 物化
     assert any(t.dim == "scene" and t.value == "打斗" for t in tags)
 
-    # 再同步（同版本）零写；升 v3 不重复提升
+    # 再同步（同版本）零写；升 v3 内容未变＝current（不重复扣配额/不重复提升）
     _publish(3, [keep])
-    assert _sync(bl)["status"] == "synced"
+    assert _sync(bl)["status"] == "current"
     rows2, _tags2 = _run(_user_entries())
     assert len(rows2) == 1
 
@@ -799,7 +826,7 @@ def test_回退再上架_提升副本与复活原件不重复(sync_env):
 
     _run(_restore())
     _publish(4, [a])
-    assert _sync(bl)["status"] == "synced"
+    assert _sync(bl)["status"] == "current"  # 题材内容未变：不重同步/不重建 auto-hide
 
     async def _after_restore():
         async with async_session() as db:
@@ -919,33 +946,25 @@ def test_再次下架_已提升副本原地更新不重复(sync_env):
 # ── fake-ip 代理环境失败细分（c-proxy-fakeip-compat）────────────────────────
 
 
-def test_fakeip环境同步失败记proxy_fake_ip(sync_env, monkeypatch):
-    """TUN fake-ip（解析全落 198.18.0.0/15，放行但代理节点不通）→ 失败原因
-    proxy_fake_ip，与 latest_invalid 可区分——弹窗据此呈现代理指路文案。"""
-    from kb import baseline as bl
-
-    monkeypatch.setattr(bl, "_validate_outbound", lambda url: (True, "fakeip"))
-    monkeypatch.setattr(bl, "_fetch_json", _fetch_none)
-    r = _run(bl.sync_baseline())
+def test_proxy_fakeip_下载失败记proxy_fake_ip(sync_env):
+    """TUN fake-ip 放行但代理节点不通 → proxy_fake_ip（与普通网络失败可区分）。"""
+    bl = sync_env
+    _CDN.verdict = "fakeip"
+    r = _sync(bl)
     assert r["status"] == "failed" and r["reason"] == "proxy_fake_ip"
 
 
-def test_blocked解析仍记latest_invalid(sync_env, monkeypatch):
-    """混合/私网解析（verdict=blocked）维持既有失败原因，行为不变。"""
-    from kb import baseline as bl
-
-    monkeypatch.setattr(bl, "_validate_outbound", lambda url: (False, "blocked"))
-    monkeypatch.setattr(bl, "_fetch_json", _fetch_none)
-    r = _run(bl.sync_baseline())
-    assert r["status"] == "failed" and r["reason"] == "latest_invalid"
+def test_blocked解析仍记普通网络失败(sync_env):
+    """混合/私网解析（verdict=blocked）→ 出站守卫拒绝，按 pointer_fetch 记。"""
+    bl = sync_env
+    _CDN.verdict = "blocked"
+    r = _sync(bl)
+    assert r["status"] == "failed" and r["reason"] == "pointer_fetch"
 
 
-def test_fakeip环境验签失败不误记proxy_fake_ip(sync_env, monkeypatch):
-    """fake-ip 环境下 fetch 成功但验签不过＝CDN 内容问题：维持 latest_invalid，
-    不出「代理接管网络」的误导指路。"""
-    from kb import baseline as bl
-
-    monkeypatch.setattr(bl, "_validate_outbound", lambda url: (True, "fakeip"))
-    monkeypatch.setattr(bl, "_fetch_json", _fetch_unsigned)
-    r = _run(bl.sync_baseline())
-    assert r["status"] == "failed" and r["reason"] == "latest_invalid"
+def test_验签失败不误记proxy_fake_ip(sync_env):
+    """下载成功但指针验签不过＝内容问题：pointer_invalid，不出代理误诊。"""
+    bl = sync_env
+    _CDN.latest = {"version": 5}  # 无 signature
+    r = _sync(bl)
+    assert r["status"] == "failed" and r["reason"] == "pointer_invalid"

@@ -1,23 +1,58 @@
-// 官方知识版本探测的会话内缓存与弹窗开启事件（c-kb-baseline-update-ux）。
-// 照 lib/packProbe.ts 同构剪裁：KnowledgeBasePage 挂载探测写入，弹窗手动
-// 模式读取——内存缓存不落盘（探测廉价幂等，刷新页面后重新探测即可）。
+// 官方知识探测的会话内缓存与弹窗开启事件（s-kb-signed-delivery）。
+// KnowledgeBasePage 挂载探测写入，弹窗读取——内存缓存不落盘。
 
 import { enqueueDialog } from "@/lib/dialogQueue";
+
+/** 单个题材数据对象（S 端签名 manifest 里的 genres 映射值）。 */
+export interface KbGenreMeta {
+  path: string;
+  sha256: string;
+  bytes: number;
+  entry_count: number;
+}
+
+/** 本机已同步的题材状态（AppMeta kb_baseline_genres 的镜像）。 */
+export interface KbGenreState {
+  version: number;
+  sha256: string;
+  path: string;
+  entries: number;
+  synced_at: string;
+}
+
+/** 今日题材同步配额（S 端按档位算；tree 为 {free:true}）。 */
+export interface KbQuota {
+  limit: number;
+  used: number;
+  remaining: number;
+  reset_at: string;
+  free?: boolean;
+}
 
 export interface KbProbe {
   installed: number;
   latest: number;
   update_available: boolean;
   reason?: string;
+  /** release manifest 的题材映射（未知/失败时缺省） */
+  genres?: Record<string, KbGenreMeta>;
+  /** 本机已同步题材（sha 与 genres 对拍得出可更新/未同步） */
+  installed_genres?: Record<string, KbGenreState>;
+  /** 内容有变化/未同步的题材 */
+  updates?: string[];
+  quota?: KbQuota;
+  /** latest.json 的 resume_baseline（撤回后显式放行） */
+  resume?: boolean;
 }
 
 export type KbSyncModalMode = "update" | "manual";
 
 export interface KbSyncModalDetail {
   mode: KbSyncModalMode;
-  /** update 模式：确认行展示 当前 from → 最新 to */
-  from?: number;
-  to?: number;
+  /** 页面已探测到的快照；缺省时弹窗自己 probe 一次（免费） */
+  probe?: KbProbe;
+  /** 写作提示带入的题材（弹窗内高亮） */
+  focusGenre?: string;
 }
 
 let lastProbe: KbProbe | null = null;
@@ -56,10 +91,9 @@ export const resetKbProbeState = () => {
   probeInFlight = false;
 };
 
-// ── 「暂不更新」锚（c-kb-baseline-update-ux，照 pack-modal-dismiss 同构） ──
-// 单 key JSON：updateVersion＝「暂不更新」时所见的 CDN 版本锚（同版不重弹，
-// 版本变化自动重臂）。纯本机 UX 偏好，不进服务端；写失败静默——最坏退回
-// 现状「每次重弹」。
+// ── 「暂不更新」锚（照 pack-modal-dismiss 同构） ──────────────────────
+// 单 key JSON：updateVersion＝「暂不更新」时所见的 release 版本锚（同版不重弹，
+// 版本变化自动重臂）。纯本机 UX 偏好，不进服务端；写失败静默。
 const DISMISS_KEY = "kb-sync-dismissed";
 
 interface KbDismissal {
@@ -77,7 +111,7 @@ export const readKbDismissal = (): KbDismissal => {
   }
 };
 
-/** 暂不更新：记当下 CDN 版本锚——同版不再弹，probe 版本号变化即重臂 */
+/** 暂不更新：记当下 release 版本锚——同版不再弹，probe 版本号变化即重臂 */
 export const writeKbUpdateDismissed = (version: number) => {
   try {
     window.localStorage.setItem(DISMISS_KEY, JSON.stringify({ updateVersion: String(version) }));

@@ -102,7 +102,7 @@ async def baseline_status_api(
     """
     import json as _json
 
-    from kb.baseline import LAST_SYNC_KEY, VERSION_KEY
+    from kb.baseline import GENRES_KEY, LAST_SYNC_KEY, VERSION_KEY
     from models.app_meta import AppMeta
     from models.kb import KbBaselineEntry
 
@@ -116,9 +116,19 @@ async def baseline_status_api(
         last_sync = _json.loads(last.value) if last and last.value else {}
     except ValueError:
         last_sync = {}
+    genres_row = await db.get(AppMeta, GENRES_KEY)
+    try:
+        genres = _json.loads(genres_row.value) if genres_row and genres_row.value else {}
+    except ValueError:
+        genres = {}
     return {
         "ok": True,
-        "data": {"version": version, "entries": int(n or 0), "last_sync": last_sync},
+        "data": {
+            "version": version,
+            "entries": int(n or 0),
+            "last_sync": last_sync,
+            "genres": genres if isinstance(genres, dict) else {},
+        },
     }
 
 
@@ -132,16 +142,23 @@ async def baseline_probe_api(
     return {"ok": True, "data": await probe_latest()}
 
 
+class BaselineSyncBody(BaseModel):
+    """按题材同步请求（s-kb-signed-delivery）：一次只同步一个题材。"""
+    genre: str = ""
+
+
 @router.post("/baseline/sync")
 async def baseline_sync_api(
+    body: BaselineSyncBody,
     user: dict = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    """手动重试同步（启动补偿失败后的重试面；幂等，失败保旧层）。"""
-    from kb.baseline import sync_baseline
+    """手动同步单个题材（用户主动触发；S 端按档位扣 1 次/天）。"""
+    from kb.baseline import sync_genre
 
-    result = await sync_baseline(db)
-    return {"ok": True, "data": result}
+    if not body.genre.strip():
+        return {"ok": False, "error": "genre_required"}
+    return {"ok": True, "data": await sync_genre(body.genre, db)}
 
 
 # ─── 题材栏 ──────────────────────────────────────────────

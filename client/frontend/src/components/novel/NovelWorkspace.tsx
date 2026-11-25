@@ -43,6 +43,13 @@ import { useProject } from "@/hooks/useProject";
 import { useNovelState } from "@/hooks/useNovelState";
 import { useOnboarding } from "@/hooks/useOnboarding";
 import { GENRE_PENDING_LABEL } from "@/lib/genreVocab";
+import { kbApi } from "@/lib/kbApi";
+import {
+  getLastKbProbe,
+  openKbSyncModal,
+  setLastKbProbe,
+  type KbProbe,
+} from "@/lib/kbProbe";
 import { useTier, useFeature } from "@/hooks/useTier";
 import type { FeatureKey } from "@/lib/features";
 import { toast } from "@/lib/toast";
@@ -179,6 +186,44 @@ export default function NovelWorkspace() {
   // 题材标签与书架卡片胶囊同源（后端 `genre_label`：新契约核心承诺 → 老书历史来源）；
   // 空值＝题材未设定 → 「待定题材」占位（用户 2026-09-10 拍板），标签位恒在。
   const genreLabel = (project?.genre_label || GENRE_PENDING_LABEL) as string;
+
+  // 写作时的官方知识提示（s-kb-signed-delivery）：本书题材还没同步时给一个
+  // 「去同步本题材」入口——只探测（免费），绝不静默扣每日题材额度。
+  const kbTheme = String(project?.theme || "").trim();
+  const [kbNudge, setKbNudge] = useState<{ genre: string; probe: KbProbe } | null>(null);
+  useEffect(() => {
+    let alive = true;
+    const apply = (p: KbProbe | null) => {
+      if (!alive) return;
+      if (!p || !kbTheme) {
+        setKbNudge(null);
+        return;
+      }
+      const meta = p.genres?.[kbTheme];
+      const state = p.installed_genres?.[kbTheme];
+      setKbNudge(meta && state?.sha256 !== meta.sha256 ? { genre: kbTheme, probe: p } : null);
+    };
+    const cached = getLastKbProbe();
+    if (cached) {
+      apply(cached);
+    } else if (kbTheme) {
+      kbApi
+        .baselineProbe()
+        .then((p) => {
+          setLastKbProbe(p);
+          apply(p);
+        })
+        .catch(() => apply(null));
+    } else {
+      apply(null);
+    }
+    const onDone = () => apply(getLastKbProbe());
+    window.addEventListener("kb-sync-completed", onDone);
+    return () => {
+      alive = false;
+      window.removeEventListener("kb-sync-completed", onDone);
+    };
+  }, [kbTheme]);
 
   // ── AI ref 链：正文编辑器实例 + 状态（右栏 AI 工具与中栏共用） ─────────
   const proseRef = useRef<ProseHandle | null>(null);
@@ -1047,6 +1092,23 @@ export default function NovelWorkspace() {
         >
           {genreLabel}
         </span>
+        {kbNudge && (
+          <button
+            type="button"
+            data-testid="kb-genre-nudge"
+            className="genre-tag pending"
+            title={`这本书的题材「${kbNudge.genre}」还没同步官方知识；同步后写作时就能用上`}
+            onClick={() =>
+              openKbSyncModal({
+                mode: "manual",
+                probe: kbNudge.probe,
+                focusGenre: kbNudge.genre,
+              })
+            }
+          >
+            去同步本题材
+          </button>
+        )}
         <span className="sep" />
         <div className="bar-here" data-od-id="current-position">
           {hereBar}

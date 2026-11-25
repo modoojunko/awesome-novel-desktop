@@ -336,7 +336,10 @@ describe("官方知识更新探测（c-kb-baseline-update-ux）", () => {
     try {
       renderPage();
       await waitFor(() => expect(w.seen.length).toBe(1));
-      expect(w.seen[0]).toEqual({ mode: "update", from: 3, to: 4 });
+      expect(w.seen[0]).toEqual({
+        mode: "update",
+        probe: { installed: 3, latest: 4, update_available: true },
+      });
       expect((screen.getByTestId("kb-baseline-entry").textContent ?? "")).toContain("v3");
     } finally {
       w.off();
@@ -364,7 +367,7 @@ describe("官方知识更新探测（c-kb-baseline-update-ux）", () => {
       // 手动入口不受锚影响
       fireEvent.click(screen.getByTestId("kb-baseline-entry"));
       expect(w.seen.length).toBe(1);
-      expect(w.seen[0]).toEqual({ mode: "manual" });
+      expect(w.seen[0]).toMatchObject({ mode: "manual" });
     } finally {
       w.off();
     }
@@ -389,6 +392,37 @@ describe("官方知识更新探测（c-kb-baseline-update-ux）", () => {
       renderPage();
       await waitFor(() => expect(w.seen.length).toBe(1));
       expect((screen.getByTestId("kb-baseline-entry").textContent ?? "")).not.toContain("v");
+    } finally {
+      w.off();
+    }
+  });
+
+  it("选中题材未同步→给「去同步」入口并携 focusGenre 开弹窗", async () => {
+    const { clearDialogQueue } = await import("@/lib/dialogQueue");
+    const { resetKbProbeState } = await import("@/lib/kbProbe");
+    clearDialogQueue();
+    resetKbProbeState();
+    api.baselineProbe.mockResolvedValue({
+      installed: 0,
+      latest: 5,
+      update_available: false,
+      genres: {
+        玄幻: { path: "genres/x.jsonl", sha256: "a".repeat(64), bytes: 1, entry_count: 1 },
+      },
+      installed_genres: {},
+      quota: { limit: 2, used: 0, remaining: 2, reset_at: "2026-11-22T00:00:00+08:00" },
+    });
+    api.genres.mockResolvedValue([{ name: "玄幻", count: 1 }]);
+    const w = watchKbSyncEvents();
+    try {
+      renderPage();
+      fireEvent.click(await screen.findByTestId("kb-genre-pick-玄幻"));
+      const nudge = await screen.findByTestId("kb-genre-nudge");
+      expect(nudge.textContent).toContain("还没同步");
+      fireEvent.click(screen.getByTestId("kb-genre-nudge-sync"));
+      expect(w.seen).toContainEqual(
+        expect.objectContaining({ mode: "manual", focusGenre: "玄幻" }),
+      );
     } finally {
       w.off();
     }

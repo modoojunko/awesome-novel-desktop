@@ -368,6 +368,8 @@ async def _apply(db, *, force: bool) -> dict[str, Any]:
 
     # 5) 标记：停用同步、版本归零、留审计计数。
     await _set_meta(db, VERSION_KEY, "0")
+    # 按题材同步状态（s-kb-signed-delivery）：一并清空，避免撤回后仍显示已同步题材。
+    await _set_meta(db, "kb_baseline_genres", "{}")
     await _set_meta(
         db,
         LAST_SYNC_KEY,
