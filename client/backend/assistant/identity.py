@@ -1,10 +1,8 @@
 """助手身份定义（c-writing-agent 批C 3.1）。
 
-结构化身份（openwriter persona manifest 思路：字段化＋fail-loud 校验），提示词包
-下发优先（assistant_identity 模板的 system 段＝JSON 字段集），包缺失/字段缺失时
-行为分两态：
-  - 包内身份但字段残缺 → fail loud（RuntimeError，拒绝以残缺身份上线）
-  - 无包（dev/包未含该模板）→ 内置兜底稿（本文件 DEFAULT_IDENTITY），日志记一行
+结构化身份（openwriter persona manifest 思路：字段化＋fail-loud 校验）。
+身份是 C 端单一事实源：默认身份在本文件 DEFAULT_IDENTITY，用户可经顶栏覆盖；
+提示词包只提供 assistant_system/assistant_act 壳，不承载身份正文。
 
 身份字段注入 L1 系统前缀（context.build_system_prompt），全部助手话术按语气规范执行。
 """
@@ -24,7 +22,7 @@ logger = logging.getLogger(__name__)
 # 必需字段（缺一即视为残缺身份）
 REQUIRED_FIELDS = ("name", "persona", "voice_rules", "fence_rules")
 
-# 内置兜底稿（批D 迁提示词包 assistant_identity 模板后，此处为最后防线）
+# C 端唯一默认身份（用户覆盖之上；不再从提示词包读 assistant_identity）
 DEFAULT_IDENTITY: dict[str, str] = {
     "name": "写作助手",
     "persona": (
@@ -62,25 +60,8 @@ def validate_identity(raw: Any) -> dict[str, str]:
 
 
 async def load_identity() -> dict[str, str]:
-    """包内 assistant_identity（system 段＝JSON 字段集）优先；无包/解析失败回落内置。
-
-    区分两态：包在但身份坏 → fail loud；无包 → 兜底稿＋日志。
-    """
-    try:
-        from prompts import load_layers
-
-        sys_tpl, _usr_tpl = load_layers("assistant_identity")
-    except Exception as e:  # noqa: BLE001——无包路径（含 PromptPackMissing 族）
-        logger.info("assistant identity: pack missing, using builtin (%s)", e)
-        return dict(DEFAULT_IDENTITY)
-    # 模板 system 段可能是 JSON 字段集，也可能是「已是成文身份段」——JSON 优先
-    text = (sys_tpl or "").strip()
-    try:
-        raw = json.loads(text)
-        return validate_identity(raw)
-    except json.JSONDecodeError:
-        logger.warning("assistant_identity 模板 system 段不是 JSON——以 fail loud 拒载")
-        raise RuntimeError("assistant_identity 模板格式非法（system 段需为 JSON 字段集）")
+    """返回 C 端默认身份（身份不随提示词包分发，避免包版本改人格）。"""
+    return dict(DEFAULT_IDENTITY)
 
 
 def identity_system_section(identity: dict[str, str]) -> str:
@@ -96,7 +77,7 @@ def identity_system_section(identity: dict[str, str]) -> str:
 
 
 async def load_persona(db: AsyncSession, user_id: str) -> dict[str, str] | None:
-    """用户自定义人格（None＝无覆盖——走提示词包/内置兜底）。坏 JSON 视同无覆盖。"""
+    """用户自定义人格（None＝无覆盖——走 C 端内置默认）。坏 JSON 视同无覆盖。"""
     from models.assistant import AssistantPersona
 
     row = (
@@ -132,7 +113,7 @@ async def save_persona(db: AsyncSession, user_id: str, raw: Any) -> dict[str, st
 
 
 async def clear_persona(db: AsyncSession, user_id: str) -> None:
-    """恢复默认（删除覆盖 → 回到提示词包/内置）。"""
+    """恢复默认（删除覆盖 → 回到 C 端内置默认）。"""
     from models.assistant import AssistantPersona
 
     row = (
@@ -144,7 +125,7 @@ async def clear_persona(db: AsyncSession, user_id: str) -> None:
 
 
 async def load_identity_for_user(db: AsyncSession, user_id: str) -> dict[str, str]:
-    """人格解析链（优先级：用户覆盖 > 提示词包 > 内置兜底）。
+    """人格解析链（优先级：用户覆盖 > C 端内置默认）。
 
     覆盖残缺（历史脏数据）→ 记一行警告后照常回落，SHALL NOT 拒载。"""
     persona = await load_persona(db, user_id)

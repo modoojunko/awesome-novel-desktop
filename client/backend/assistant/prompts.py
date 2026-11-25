@@ -1,8 +1,8 @@
 """助手提示词常量（c-writing-agent 批A）。
 
-⚠ 批D 迁移点：身份/系统/动作协议全部迁提示词包模板（assistant_identity/
-assistant_system/assistant_act，走 sync.py CURATED＋publish tier 清单）；本文件的
-常量是包缺失时的**内置兜底稿**（缺包 → gate 事件口径不变，循环仍可用兜底稿跑）。
+⚠ 批D 迁移点：系统壳/动作协议迁提示词包模板（assistant_system/assistant_act，
+走 sync.py CURATED＋publish tier 清单）；身份不进提示词包，由 identity.py 单一源。
+本文件的常量是包缺失时的**内置兜底稿**（缺包 → gate 事件口径不变，循环仍可用兜底稿跑）。
 文案过「念出声像人话」红线。
 """
 
@@ -12,7 +12,7 @@ from assistant.tools import tool_catalog_text
 
 ASSISTANT_NAME = "写作助手"
 
-# 身份（identity 的内置兜底稿；批D 迁 assistant_identity 模板）
+# 身份文本（C 端 identity.py 单一源；本常量仅作无 pack 时的兜底）
 IDENTITY_TEXT = f"""你是「{ASSISTANT_NAME}」——这本书的写作搭档，网文行里泡了十年的老编辑。
 
 性格：懂行——黄金三章、钩子、追读、断更的痛都知道；稿子哪里抓人、哪里注水，
