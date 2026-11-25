@@ -625,9 +625,10 @@ async def _stream_chat(
             return
 
         # allow_book 自动执行仅 MAX；非 MAX 即使存量 grants 为自动档也回退每写必确认
-        if tier in (write_gate.TIER_ALLOW_BOOK, write_gate.TIER_ALLOW_ALL) and not _is_max_member():
-            tier = write_gate.TIER_CONFIRM_EACH
-        decision = write_gate.evaluate(tool_name, args, tier=tier)
+        effective_tier = tier
+        if effective_tier in (write_gate.TIER_ALLOW_BOOK, write_gate.TIER_ALLOW_ALL) and not _is_max_member():
+            effective_tier = write_gate.TIER_CONFIRM_EACH
+        decision = write_gate.evaluate(tool_name, args, tier=effective_tier)
         if decision.allowed:
             return
         if not decision.needs_user:
