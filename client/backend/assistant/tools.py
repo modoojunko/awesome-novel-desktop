@@ -43,6 +43,9 @@ READ_CHAPTER_BUDGET_CHARS = 1500
 # 设定分区读取预算（2026-11-25 boss 拍板 800→2000）：800 字读世界/主线长文会截半，
 # 且本工具没有续读参数——截了模型就再也拿不到后半段（read_settings spec 同源）。
 READ_SETTINGS_BUDGET_CHARS = 2000
+# 名册单独上限（不跟随主基数漂移）：diverge_character_group 会把这段原样拼进生成
+# 提示词，2000×2 会把名册注入从 1600 抬到 4000，属于改预算时不该顺带发生的事。
+READ_SETTINGS_CAST_BUDGET_CHARS = 1600
 # 检测问题行明细预算（人味 findings 的段号/原句/why/fix；朱雀段另列）
 READ_PROSE_CHECKS_BUDGET_CHARS = 2000
 
@@ -366,7 +369,7 @@ async def _read_settings(ctx: ToolContext, area: str = "cast") -> ToolResult:
         ]
         if not lines:
             return ToolResult(ok=True, summary="（名册为空）")
-        return ToolResult(ok=True, summary=_clip("\n".join(lines), READ_SETTINGS_BUDGET_CHARS * 2))
+        return ToolResult(ok=True, summary=_clip("\n".join(lines), READ_SETTINGS_CAST_BUDGET_CHARS))
 
     if area == "genre":
         # 题材五格现值＋未填点名（c-agent-page-field-truth）——读「这本书现在填了
@@ -1228,8 +1231,9 @@ async def _lore_suggest(ctx, chapter_ref: str = ""):
 
     ref = str(chapter_ref or "").strip() or await _default_chapter_ref(ctx)
     if not ref:
+        # 与「正文为空」同一种失败语义（ok=False）：都是「现在提不了」，只差下一步
         return ToolResult(
-            ok=True,
+            ok=False,
             summary="全书还没有写过正文的章——先去正文页写一章，再来提世界要素。",
         )
     try:
@@ -1287,7 +1291,14 @@ def _as_check_items(items):
         for it in items:
             if isinstance(it, dict):
                 status = str(it.get("status") or it.get("level") or "warn")
-                out.append({"status": status, "text": str(it.get("text") or it.get("msg") or it)})
+                text = str(it.get("text") or it.get("msg") or "").strip()
+                if not text:
+                    # 世界体检出参是 {name,status,note}——旧兜底 str(it) 会把 dict
+                    # repr 直接画到报告卡上（人话红线）；按 name：note 收口
+                    name = str(it.get("name") or "").strip()
+                    note = str(it.get("note") or "").strip()
+                    text = f"{name}：{note}" if name and note else name or note
+                out.append({"status": status, "text": text})
             else:
                 out.append({"status": "warn", "text": str(it)})
     return out

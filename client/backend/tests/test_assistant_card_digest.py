@@ -457,12 +457,47 @@ def test_step_note_takes_first_line_and_marks_clip():
     from assistant.loop import _step_note
 
     summary = "简介候选已出（共 3 条）：\n1. 候选一：正文\n2. 候选二：正文"
-    assert _step_note(summary) == "简介候选已出（共 3 条）："
+    # 首行标题＋首个条目作区分位（回放去重不会把两次不同产出并成一步）
+    assert _step_note(summary) == "简介候选已出（共 3 条）：1. 候选一：正文"
 
-    long_line = "候选" + "字" * 400
-    note = _step_note(long_line)
-    assert len(note) == 220
+    # 单行摘要行为不变
+    assert _step_note("（世界设定还没有内容）") == "（世界设定还没有内容）"
+
+    long_item = "候选" + "字" * 400
+    note = _step_note(f"简介候选已出（共 3 条）：\n{long_item}")
+    # 首条目只带 60 字作区分位，不把整段正文塞回折叠行
+    assert len(note) <= 80
     assert note.endswith("…")
+
+    # 单行超长摘要仍按 220 上限裁并加省略号
+    long_line = "候选" + "字" * 400
+    clipped = _step_note(long_line)
+    assert len(clipped) == 220
+    assert clipped.endswith("…")
+
+
+def test_as_check_items_humanizes_name_note():
+    """世界体检出参 {name,status,note} 不再以 str(dict) 画到报告卡上。"""
+    from assistant.tools import _as_check_items
+
+    out = _as_check_items(
+        [
+            {"name": "力量体系", "status": "warn", "note": "与铁律冲突"},
+            {"name": "势力", "status": "ok", "note": ""},
+        ]
+    )
+    assert out[0] == {"status": "warn", "text": "力量体系：与铁律冲突"}
+    assert out[1] == {"status": "ok", "text": "势力"}
+    assert all("{" not in it["text"] for it in out)
+
+
+def test_step_note_distinguishes_two_generations():
+    """同工具同标题、不同产出 → 折叠行必须不同（否则回放合并成「同样步骤 ×2」）。"""
+    from assistant.loop import _step_note
+
+    a = "简介候选已出（共 3 条）：\n1. 铁匠：第一个方案"
+    b = "简介候选已出（共 3 条）：\n1. 仓管：第二个方案"
+    assert _step_note(a) != _step_note(b)
 
 
 # ── lore_suggest：章引用 / 卡面字段 ─────────────────────────────────────
@@ -554,7 +589,7 @@ async def test_lore_suggest_no_chapter_returns_human_message(monkeypatch):
     monkeypatch.setattr("chapters.frontier.frontier_info", fake_frontier)
 
     res = await _lore_suggest(ToolContext(novel_id="n", root_path="", user_id="u"))
-    assert res.ok is True
+    assert res.ok is False
     assert "先去正文页写一章" in res.summary
     assert res.card is None
 

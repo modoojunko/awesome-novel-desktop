@@ -83,16 +83,25 @@ _PROTOCOL_FAIL_REPLY = "（刚才那一步没走通，我先停住。你再说�
 
 
 def _step_note(summary: str, budget: int = 220) -> str:
-    """工具步折叠行：取摘要首行（标题/计数行），放不下再按 220 字裁并加省略号。
+    """工具步折叠行：摘要首行（标题/计数行）＋首个条目作区分位，放不下再按 220 裁。
 
     c-card-digest（2026-11-25）：摘要已改多行（候选逐条），折叠行不再硬切正文——
     硬切会把「候选二」切半，界面和会话存档都像是坏了。
+    区分位（评审 P3）：多行摘要只留标题时，两次不同产出的 note 完全相同，前端
+    回放去重会把它们并成「同样步骤 ×N」——带上一行开头即可区分。
     """
-    first_line = str(summary or "").split("\n", 1)[0]
-    first_line = " ".join(first_line.split())
-    if len(first_line) <= budget:
-        return first_line
-    return first_line[: budget - 1].rstrip() + "…"
+    lines = [ln.strip() for ln in str(summary or "").splitlines() if ln.strip()]
+    if not lines:
+        return ""
+    note = " ".join(lines[0].split())
+    if len(lines) > 1:
+        first_item = " ".join(lines[1].split())
+        if len(first_item) > 60:
+            first_item = first_item[:59].rstrip() + "…"
+        note += first_item
+    if len(note) <= budget:
+        return note
+    return note[: budget - 1].rstrip() + "…"
 
 
 def _finalize_plan(plan: dict | None, failed: bool) -> dict | None:
