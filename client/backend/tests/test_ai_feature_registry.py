@@ -58,9 +58,12 @@ def _iter_api_routes(routes):
 
 # 允许挂「键自持门」的 key 白名单：端点用的是作者自持的第三方 Key，不需要写作大模型
 # （`ai-detect`＝朱雀检测；`prompt-panel`＝提示词取数与编辑，2026-10-08 拍板；
-#  `image-generate`＝封面/头像生成，图像 Key 独立于写作大模型，c-image-generation）。
+#  `image-generate`＝封面/头像生成，图像 Key 独立于写作大模型，c-image-generation；
+#  `human-taste`＝本地人味检测，0 模型/0 Key，MAX 专属；
+#  `deconstruct` 的 collect-to-kb＝拆书产物入库后处理，0 模型；
+#  `kb-official`＝官方库读取，0 模型）。
 # 其余 key 一律要求 require_ai_access——防「LLM 端点错挂键自持门」凭空放行未配模型的作者。
-KEYLESS_GATE_KEYS = ("ai-detect", "prompt-panel", "image-generate")
+KEYLESS_GATE_KEYS = ("ai-detect", "prompt-panel", "image-generate", "human-taste", "deconstruct", "kb-official")
 
 
 def _has_gate_named(dep, name: str) -> bool:

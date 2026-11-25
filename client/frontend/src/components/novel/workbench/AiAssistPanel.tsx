@@ -127,6 +127,7 @@ export function AiAssistPanel({
   const [loreStats, setLoreStats] = useState<{ here: number; until: number } | null>(null);
   // c-zhuque-ai-detect：检测行三事实（权益/Key 配置/显示开关）＋编排状态
   const aiDetect = useFeature("ai-detect");
+  const humanTaste = useFeature("human-taste");
   // 行级 key（tier-plan-four-tiers 5.2）：每行按其能力域挂 feature，行锁自带档位提示
   const aiPlan = useFeature("ai-plan");
   const aiGenerate = useFeature("ai-generate");
@@ -497,18 +498,27 @@ export function AiAssistPanel({
         disabled: (!maxlk && !guide && wordCountEmpty) || !!streaming,
       });
     }
-    // c-renwei-check：人味检测行（本地指纹体检——零额度、不上传、无门控无配置态）
+    // c-renwei-check：人味检测行（MAX 专属；本地指纹体检、零额度、不上传）
+    const renweiMaxlk = !humanTaste;
     rows.push({
       key: "renwei",
       name: "人味检测 · 查哪里像 AI",
-      desc: wordCount === 0
-        ? "先写正文，再让本地规则圈出像 AI 的句子——免费、不花朱雀额度"
-        : "朱雀说 AI 味重？用它圈出具体哪里像 AI、怎么改；免费，正文不出本机",
-      badge: <span className="pill pill-accent">本地 · 免费</span>,
-      ungated: true,
-      onClick: () => proseRef?.current?.openRenweiCheck?.(),
-      disabled: streaming || wordCount === 0,
-      hint: streaming ? "生成中" : wordCount === 0 ? "先写正文" : undefined,
+      desc: renweiMaxlk
+        ? "MAX 专属：本地 19 项指标，圈出像 AI 的句子并给逐行改法"
+        : wordCount === 0
+          ? "先写正文，再让本地规则圈出像 AI 的句子——不花朱雀额度"
+          : "朱雀说 AI 味重？用它圈出具体哪里像 AI、怎么改；正文不出本机",
+      badge: <span className="pill pill-accent">{renweiMaxlk ? "MAX 专属" : "本地 · MAX"}</span>,
+      variant: renweiMaxlk ? "maxlk" : undefined,
+      onClick: () => {
+        if (renweiMaxlk) {
+          onUpgrade?.("human-taste");
+          return;
+        }
+        proseRef?.current?.openRenweiCheck?.();
+      },
+      disabled: !renweiMaxlk && (streaming || wordCount === 0),
+      hint: renweiMaxlk ? undefined : streaming ? "生成中" : wordCount === 0 ? "先写正文" : undefined,
       testid: "rail-renwei-check",
       odId: "rail-renwei-check",
     });
@@ -524,7 +534,7 @@ export function AiAssistPanel({
       disabled: wordCount === 0 || !!streaming,
     });
     footNote =
-      "人味检测与朱雀检测作用于正文：人味检测本地免费、圈出像 AI 的句子并在正文边上给改法；朱雀整章送检看概率，需在「模型配置 → 朱雀」配好 Key（PRO 会员权益）。";
+      "人味检测与朱雀检测作用于正文：人味检测是 MAX 专属（本地 19 项，圈出像 AI 的句子并给改法）；朱雀整章送检看概率，需在「模型配置 → 朱雀」配好 Key（PRO 会员权益）。";
   } else if (tab === "settings") {
     targetLine = loreStats ? (
       <>本章变化 {loreStats.here} 条 · 截至本章条目 {loreStats.until} 条</>

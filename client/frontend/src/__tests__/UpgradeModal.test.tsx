@@ -49,49 +49,48 @@ function renderModal(extra: { required?: FeatureKey } = {}, tier = "free") {
 }
 
 describe("UpgradeModal · 目标档（tier_required）", () => {
-  it("出口带 ai-plan（标准档件）：免费用户看到标准档口径", () => {
+  it("出口带 ai-plan（PRO 档件）：免费用户看到 PRO 档口径", () => {
     resetVerifyCache();
     seed([]);
     renderModal({ required: "ai-plan" });
-    expect(screen.getByText("升级标准 · 解锁 AI 能力")).toBeTruthy();
-    expect(screen.getByText(/大纲到章纲的 AI 流程/)).toBeTruthy(); // 标准档权益行
-    expect(screen.queryByText(/AI 生成正文（流式输出）/)).toBeNull();
+    expect(screen.getByText("升级 PRO · AI 写手")).toBeTruthy();
+    expect(screen.getByText(/AI 写手：规划、章纲、正文初稿/)).toBeTruthy();
+    expect(screen.queryByText(/人味检测 \+ 逐行修改指引/)).toBeNull();
   });
 
-  it("出口带 ai-detect（PRO 档件）：标准用户看到 PRO 档口径", () => {
+  it("出口带 ai-detect（PRO 档件）：存量 standard 用户看到 PRO 档口径", () => {
     seed(["ai-plan", "chapter-review", "settings-ai-fields", "style-suggest",
       "outline-advanced-fields", "ai-model"], "standard");
     renderModal({ required: "ai-detect" }, "standard");
-    expect(screen.getByText("升级 PRO · 解锁 AI 能力")).toBeTruthy();
-    expect(screen.getByText(/AI 生成正文（流式输出）/)).toBeTruthy();
+    expect(screen.getByText("升级 PRO · AI 写手")).toBeTruthy();
+    expect(screen.getByText(/AI 写手：规划、章纲、正文初稿/)).toBeTruthy();
   });
 
-  it("全局入口不带 key：免费→PRO；已有 PRO→MAX（不重复喊 PRO）", () => {
+  it("全局入口不带 key：标准（免费）→PRO；已有 PRO→MAX（不重复喊 PRO）", () => {
     resetVerifyCache();
     seed([]);
     const free = renderModal();
-    expect(screen.getByText("升级 PRO · 解锁 AI 能力")).toBeTruthy();
+    expect(screen.getByText("升级 PRO · AI 写手")).toBeTruthy();
     free.unmount();
 
     seed(V2_PRO);
     renderModal({}, "pro");
-    expect(screen.getByText("升级 MAX · 解锁剧情推演与文风蒸馏")).toBeTruthy();
-    expect(screen.getAllByText(/文风蒸馏/).length).toBeGreaterThan(0);
-    expect(screen.queryByText(/AI 生成正文（流式输出）/)).toBeNull();
+    expect(screen.getByText("升级 MAX · 写作秘书")).toBeTruthy();
+    expect(screen.getAllByText(/人味检测 \+ 逐行修改指引/).length).toBeGreaterThan(0);
+    expect(screen.queryByText(/AI 写手：规划、章纲、正文初稿/)).toBeNull();
   });
 
   it("试用档（PRO 同权，ownRank 需认 hasPro）：被点件若已含 → 走下一档不重复喊", () => {
     seed(V2_PRO, "trial");
     renderModal({ required: "ai-plan" }, "trial");
-    // trial 已含 ai-plan（标准件）→ 不出「升级标准」，按下一档＝MAX
-    expect(screen.getByText("升级 MAX · 解锁剧情推演与文风蒸馏")).toBeTruthy();
-    expect(screen.queryByText("升级标准 · 解锁 AI 能力")).toBeNull();
+    expect(screen.getByText("升级 MAX · 写作秘书")).toBeTruthy();
+    expect(screen.queryByText("升级 PRO · AI 写手")).toBeNull();
   });
 
   it("防御：required 不是登记 key（如误把事件对象传进来）→ 按无 key 回退，不炸", () => {
     resetVerifyCache();
     seed([]);
     renderModal({ required: {} as unknown as FeatureKey });
-    expect(screen.getByText("升级 PRO · 解锁 AI 能力")).toBeTruthy();
+    expect(screen.getByText("升级 PRO · AI 写手")).toBeTruthy();
   });
 });

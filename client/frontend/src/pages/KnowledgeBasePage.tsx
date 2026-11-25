@@ -11,6 +11,8 @@ import {
   setLastKbProbe,
 } from "@/lib/kbProbe";
 import KnowledgeTreePanel from "@/components/tools/KnowledgeTreePanel";
+import UpgradeModal from "@/components/novel/UpgradeModal";
+import { useFeature } from "@/hooks/useTier";
 import { kbFieldDesc, kbFieldLabel, kbValueLabel } from "@/lib/kbFieldLabels";
 import KbEntryRelations from "@/components/tools/KbEntryRelations";
 import KbMaterialCard from "@/components/tools/KbMaterialCard";
@@ -134,6 +136,8 @@ const SOURCE_FILTERS = [
 ] as const;
 
 export default function KnowledgeBasePage() {
+  const hasOfficialKb = useFeature("kb-official");
+  const [upgradeOpen, setUpgradeOpen] = useState(false);
   const [searchParams, setSearchParams] = useSearchParams();
   const [genre, setGenre] = useState("全部题材");
   // ?concept= 深链（c-charlib-into-kb）：/tools/characters 重定向落位用；消费后即清，
@@ -215,6 +219,10 @@ export default function KnowledgeBasePage() {
   // 官方条目常取（boss 2026-11-08：无特权臂——官方与自有实例合并单列表）；
   // 原始 KbEntry 留存供抽屉「关联知识」本地查找与映射
   const loadOfficial = useCallback(async () => {
+    if (!hasOfficialKb) {
+      setEntries([]);
+      return;
+    }
     try {
       const sp = new URLSearchParams();
       sp.set("src", "官方精选");
@@ -225,7 +233,7 @@ export default function KnowledgeBasePage() {
       const r = await kbApi.entries(Object.fromEntries(sp));
       setEntries(r.entries);
     } catch { setEntries([]); }
-  }, [genre, concept, q]);
+  }, [genre, concept, q, hasOfficialKb]);
 
 
 
@@ -664,6 +672,18 @@ export default function KnowledgeBasePage() {
               </select>
             </div>
             <div>
+              {src === "官方" && !hasOfficialKb ? (
+                <div data-testid="kb-official-locked" className="rounded-lg border border-dashed border-[var(--border)] p-6 text-center">
+                  <p className="text-[13px] font-medium text-[var(--fg)]">官方写作知识库是 PRO 权益</p>
+                  <p className="mt-1 text-[12px] text-[var(--muted)]">331 本书 / 8197 条写作门道 / 36 个题材；开通 PRO 后可查、可引用。</p>
+                  <button
+                    data-testid="kb-official-upgrade"
+                    onClick={() => setUpgradeOpen(true)}
+                    className="mt-3 rounded-lg bg-[var(--accent)] px-4 py-2 text-[13px] font-medium text-[var(--on-accent)] hover:bg-[var(--accent-strong)]"
+                  >开通 PRO</button>
+                </div>
+              ) : (
+                <>
               {visibleRows.map((r) => {
                 const openRow = () => {
                   if (r.row_kind === "material" || (r as { official?: boolean }).official) {
@@ -740,6 +760,8 @@ export default function KnowledgeBasePage() {
                   >清空筛选</button>
                 </div>
               ))}
+                </>
+              )}
             </div>
             </>
           </div>
@@ -1058,6 +1080,11 @@ export default function KnowledgeBasePage() {
         </div>,
         document.body,
       )}
+      <UpgradeModal
+        open={upgradeOpen}
+        onClose={() => setUpgradeOpen(false)}
+        required="kb-official"
+      />
     </main>
   );
 }

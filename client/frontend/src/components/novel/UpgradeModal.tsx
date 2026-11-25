@@ -33,69 +33,79 @@ interface Benefit {
   desc: string;
 }
 
-/** PRO 档权益（book.html benefit 三行逐字复刻） */
+/** PRO 档权益（AI 写手） */
 const PRO_BENEFITS: Benefit[] = [
   {
     icon: ICON_STAR,
-    title: "AI 生成正文（流式输出）",
-    desc: "工具栏「AI 生成正文」→ 提示词由设定与章纲自动组装、可编辑 → 流式写入正文。",
+    title: "AI 写手：规划、章纲、正文初稿",
+    desc: "卷规划/拆章/章纲/人物/体检出卡你挑；正文方案卡过目后整章生成、逐行采纳。",
   },
   {
     icon: ICON_BOOK,
     stroke: true,
-    title: "设定作为 AI 上下文",
-    desc: "6 项世界观设定（题材/简介/世界/风格/伏笔/角色）参与提示词组装。",
+    title: "官方写作知识库 331 本",
+    desc: "331 本 / 8197 条 / 36 题材；助理可查可引用，按题材填文风。",
   },
   {
     icon: ICON_SHIELD,
     stroke: true,
-    title: "卷/章高级字段",
-    desc: "结构模板、冲突阶梯、剧情条目、情绪设计——作为生成上下文与创作规范。",
+    title: "AI 拆书 / 导入已有书",
+    desc: "把一本书拆成世界观/人物/大纲/文风/技法，产物可导出、可收进本地知识库。",
+  },
+  {
+    icon: ICON_STAR,
+    title: "朱雀 AI 味检测 + 提示词页签",
+    desc: "腾讯朱雀段落级标注（自配 Key）；写作提示词自己调。",
   },
 ];
 
-/** 标准档权益（口径＝四档矩阵：AI 管流程——卷规划/拆章/章纲/体检/设定域，正文自己写） */
+/** 存量标准档权益（grandfathered）：旧标准 keys 的说明；新售不再提供 */
 const STANDARD_BENEFITS: Benefit[] = [
   {
     icon: ICON_STAR,
-    title: "大纲到章纲的 AI 流程",
-    desc: "卷规划（铺空缺）、拆下一章三方向、章纲抽卡与补缺——落笔前的这一段交给 AI。",
+    title: "存量标准会员权益",
+    desc: "原标准档已停售；到期前按原权益使用，到期后可回标准（免费）或升级 PRO。",
+  },
+];
+
+/** MAX 档权益（写作秘书） */
+const MAX_BENEFITS: Benefit[] = [
+  {
+    icon: ICON_STAR,
+    title: "人味检测 + 逐行修改指引",
+    desc: "本地 19 项指标；哪句像 AI、哪段人味不够，标到行并给改法。",
   },
   {
     icon: ICON_BOOK,
     stroke: true,
-    title: "体检与自检",
-    desc: "卷体检、章自检、与卷纲冲突检测：只给判断与建议，不代笔。",
+    title: "AI 封面 / 头像 / 试画 / 批量头像",
+    desc: "自配图像 Key；书的第一眼也交给它。",
   },
   {
     icon: ICON_SHIELD,
     stroke: true,
-    title: "设定域 AI 与文风建议",
-    desc: "人物、世界、简介、题材一次拟一稿，采纳才写入；文风建议随章给调整项。",
+    title: "拆书产物一键建书",
+    desc: "勾选拆书里的设定/文风，直接生成一本可写的新书。",
   },
-];
-
-/** MAX 档权益（＝PRO 之上的三件 MAX 专属能力，文案沿用各处既有一句口径） */
-const MAX_BENEFITS: Benefit[] = [
   {
     icon: ICON_STAR,
-    title: "剧情推演 · 按回合走一遍",
-    desc: "先定走法再逐步推演；走法可收进本章剧情条目。",
+    title: "发散起草 / 剧情推演 / 文风蒸馏",
+    desc: "卡文时它添人添事、演一回合、学你的文风。",
   },
   {
     icon: ICON_SHIELD,
     stroke: true,
-    title: "文风蒸馏",
-    desc: "交 3,000–10,000 字你认可的样本，AI 学出六行基线。",
+    title: "全权托管 + 5 台设备",
+    desc: "本书内自动执行（硬地板仍弹卡）；5 台设备 + 飞书内测群。",
   },
 ];
 
-/** 各档权益与标题（标题逐档写全，避免「升级PRO」这类空格/字距问题） */
+/** 各档权益与标题 */
 const TIER_PITCH: Record<TierKey, { title: string; rows: Benefit[] }> = {
-  free: { title: "升级 PRO · 解锁 AI 能力", rows: PRO_BENEFITS },
-  standard: { title: "升级标准 · 解锁 AI 能力", rows: STANDARD_BENEFITS },
-  pro: { title: "升级 PRO · 解锁 AI 能力", rows: PRO_BENEFITS },
-  max: { title: "升级 MAX · 解锁剧情推演与文风蒸馏", rows: MAX_BENEFITS },
+  free: { title: "升级 PRO · AI 写手", rows: PRO_BENEFITS },
+  standard: { title: "升级 PRO · AI 写手", rows: PRO_BENEFITS },
+  pro: { title: "升级 PRO · AI 写手", rows: PRO_BENEFITS },
+  max: { title: "升级 MAX · 写作秘书", rows: MAX_BENEFITS },
 };
 
 export default function UpgradeModal({

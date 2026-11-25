@@ -66,15 +66,17 @@ scan_router = APIRouter(
 
 
 @scan_router.post("/renwei-check")
+@ai_feature("human-taste")
 async def renwei_check(
     project_id: str,
     chapter_ref: str,
     user: dict = Depends(get_current_user),
+    _gate: bool = Depends(require_tier_access),
     db: AsyncSession = Depends(get_db),
 ):
     """人味检测（c-renwei-check）：纯本地确定性体检——19 项指纹＋人味率＋定位 findings。
 
-    0 模型 0 额度 0 外发：只挂登录（无档位门、无 Key 门、无配置态），读盘正文同步计算；
+    0 模型 0 额度 0 外发；MAX 专属（human-taste），标准/PRO 返回 feature_required。
     不写 TokenLog。短章（<1500 字）score=null＝「打不了分」，findings/不计分项照常。
     """
     project = await get_novel(db, project_id, user["id"])

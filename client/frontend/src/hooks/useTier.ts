@@ -32,9 +32,12 @@ export function useTier(): TierState {
  *  新 key 上线早于快照版本刷新——旧快照不含该 key，按 key 的最低档隐式放行
  *  （standard/free/过期仍锁；MAX 键不给 trial/pro 放行）。S端 快照刷新后该表可清空。 */
 const LEGACY_IMPLICIT_FEATURES: Partial<Record<FeatureKey, "pro" | "max">> = {
-  "image-generate": "pro",
+  "image-generate": "max",
+  "human-taste": "max",
   "deconstruct": "pro",
   "deconstruct-import": "max",
+  "kb-official": "pro",
+  "assistant-execute": "pro",
 };
 
 /** legacy 档名归一（与后端 _TIER_RANK 同口径）：月/季/年=PRO、终身=MAX */

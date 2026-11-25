@@ -11,7 +11,7 @@ from pydantic import BaseModel
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from auth_local.deps import get_current_user
+from auth_local.deps import ai_access_granted, get_current_user
 from db import get_db
 from genres.theme_catalog import THEME_NAMES
 from kb import service as knowledge_service
@@ -186,6 +186,7 @@ async def list_entries_api(
     entries, next_cursor = await list_entries(
         db, user_id=uid, genre=genre, concept=concept,
         src=src, q=q, cursor=cursor, limit=limit,
+        include_baseline=ai_access_granted("kb-official"),
     )
     from library.service import avatar_presence
 
@@ -219,6 +220,16 @@ async def get_entry_api(
         base = await get_merged_entry(db, user_id=uid, entry_id=entry_id)
         if not base:
             raise HTTPException(404, "Entry not found")
+        if not ai_access_granted("kb-official"):
+            raise HTTPException(
+                403,
+                detail={
+                    "reason": "feature_required",
+                    "feature": "kb-official",
+                    "tier_required": "pro",
+                    "message": "官方写作知识库是 PRO 权益；升级后即可查看。",
+                },
+            )
         return {"ok": True, "data": _entry_dict(base)}
     from library.service import avatar_presence
 

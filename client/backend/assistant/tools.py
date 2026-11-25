@@ -597,6 +597,7 @@ TOOL_REGISTRY: tuple[Tool, ...] = (
         name="read_prose_checks",
         kind="read",
         risk_level="low",
+        feature_key="human-taste",
         parameters={
             "type": "object",
             "properties": {

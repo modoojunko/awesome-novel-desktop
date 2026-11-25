@@ -16,7 +16,7 @@ from fastapi.responses import JSONResponse
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from auth_local.deps import ai_feature, require_ai_access
+from auth_local.deps import ai_feature, require_ai_access, require_tier_access
 from auth_local.middleware import get_current_user
 from db import get_db
 from deconstruct import apply, imports, service
@@ -733,10 +733,12 @@ async def collect_candidates(
 
 
 @router.post("/tasks/{task_id}/collect-to-kb")
+@ai_feature("deconstruct")
 async def collect_to_kb(
     task_id: str,
     body: dict | None = None,
     user: dict = Depends(get_current_user),
+    _gate: bool = Depends(require_tier_access),
     db: AsyncSession = Depends(get_db),
 ):
     """收进知识库：拆书产物 → 知识条目（手法/文风/文笔/世界/角色，幂等）。

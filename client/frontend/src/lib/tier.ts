@@ -16,7 +16,7 @@ export interface TierJudgment {
 /** 档位中文名兜底映射（tier-catalog 评审：display_name 缺省时的静态回退，
  * 与 ENTITLEMENT_DEFAULTS 档位键一一对应——standard 不得错标「PRO 会员」） */
 const TIER_DISPLAY_FALLBACK: Record<string, string> = {
-  standard: "标准会员",
+  standard: "标准会员（旧）",
   pro: "PRO 会员",
   max: "MAX 会员",
 };
@@ -31,13 +31,13 @@ export type TierTone = "accent" | "muted" | "warn";
 /** 面板头完整档原文（账号区头「用户名 · 完整档」用） */
 export function tierLabel(r: TierJudgment | null): string {
   if (!r) return "…";
-  if (r.expired) return "套餐已过期 · 免费待遇";
+  if (r.expired) return "套餐已过期 · 标准待遇";
   if (r.tier === "trial")
     return r.trial_remaining_days != null && r.trial_remaining_days > 0
       ? `试用中 · 剩 ${r.trial_remaining_days} 天`
       : "试用中";
   if (r.is_member) return memberLabel(r);
-  return "免费版 · 单机使用";
+  return "标准 · 免费";
 }
 
 export interface TierShort {
@@ -48,11 +48,11 @@ export interface TierShort {
 /** 触发钮短档（四态投影，允许缩短措辞）：免费版含过期合并单档 */
 export function tierShort(r: TierJudgment | null): TierShort | null {
   if (!r || r.tier === undefined) return null;
-  if (r.expired) return { text: "免费版", tone: "muted" };
+  if (r.expired) return { text: "标准", tone: "muted" };
   if (r.tier === "trial") {
     const n = r.trial_remaining_days ?? 0;
     return { text: `试用 · 剩 ${n} 天`, tone: n <= 3 ? "warn" : "muted" };
   }
   if (r.is_member) return { text: memberLabel(r), tone: "accent" };
-  return { text: "免费版", tone: "muted" };
+  return { text: "标准", tone: "muted" };
 }
