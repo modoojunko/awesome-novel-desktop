@@ -82,6 +82,30 @@ _RETRY_NUDGE = (
 _PROTOCOL_FAIL_REPLY = "（刚才那一步没走通，我先停住。你再说一句，我重来。）"
 
 
+def _step_note(summary: str, budget: int = 220) -> str:
+    """工具步折叠行：摘要首行（标题/计数行）＋首个条目作区分位，放不下再按 220 裁。
+
+    c-card-digest（2026-11-25）：摘要已改多行（候选逐条），折叠行不再硬切正文——
+    硬切会把「候选二」切半，界面和会话存档都像是坏了。
+    区分位（评审 P3）：多行摘要只留标题时，两次不同产出的 note 完全相同，前端
+    回放去重会把它们并成「同样步骤 ×N」——带上一行开头即可区分。
+    """
+    lines = [ln.strip() for ln in str(summary or "").splitlines() if ln.strip()]
+    if not lines:
+        return ""
+    note = " ".join(lines[0].split())
+    if len(lines) > 1:
+        first_item = " ".join(lines[1].split())
+        if len(first_item) > 60:
+            first_item = first_item[:59].rstrip() + "…"
+        # 首行不以句读结尾就补空格：否则「正常 2 条」和「1. …」会粘成「2 条1.」
+        sep = "" if note.endswith(("：", ":", "。", "！", "？", "；", "…")) else " "
+        note = f"{note}{sep}{first_item}"
+    if len(note) <= budget:
+        return note
+    return note[: budget - 1].rstrip() + "…"
+
+
 def _finalize_plan(plan: dict | None, failed: bool) -> dict | None:
     """收口安全网：残留「在做」按收口结果降级，避免计划永远卡在进行中。"""
     if not isinstance(plan, dict):
@@ -452,7 +476,7 @@ class AgentLoop:
         api_calls_begin()
         result = await run_tool(self.tool_ctx, tool_name, args)
         api_calls = api_calls_drain()
-        note = " ".join(result.summary.split())[:220]
+        note = _step_note(result.summary)
         step_end: dict[str, Any] = {
             "type": "step_end",
             "runId": run_id,
@@ -728,7 +752,7 @@ class AgentLoop:
             # tool 结果作为 user 观察行进窗口（文本协议的 ReAct 惯例）。
             # apiCalls 只进 step_end 事件（前端轨迹卡）——SHALL NOT 回填模型
             # 历史（openwriter _display 侧车同款：反馈流元数据 agent 不可见）
-            note = " ".join((step_result.summary if step_result else "").split())[:220]
+            note = _step_note(step_result.summary if step_result else "")
             self.transcript[-1]["_tool"] = {
                 "name": action.tool,
                 "args": action.args,

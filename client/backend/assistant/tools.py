@@ -31,11 +31,21 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from assistant.caps.settings import SETTINGS_FIELD_WRITE, SETTINGS_PANEL_ZH
+from assistant.card_digest import (
+    digest_candidates,
+    digest_report,
+    digest_text,
+)
 from assistant.scopes import tools_for_thread
 
 # 转写预算（write/chapter_writer.py 判例同风格：按中文字符预算，不按 token）
 READ_CHAPTER_BUDGET_CHARS = 1500
-READ_SETTINGS_BUDGET_CHARS = 800
+# 设定分区读取预算（2026-11-25 boss 拍板 800→2000）：800 字读世界/主线长文会截半，
+# 且本工具没有续读参数——截了模型就再也拿不到后半段（read_settings spec 同源）。
+READ_SETTINGS_BUDGET_CHARS = 2000
+# 名册单独上限（不跟随主基数漂移）：diverge_character_group 会把这段原样拼进生成
+# 提示词，2000×2 会把名册注入从 1600 抬到 4000，属于改预算时不该顺带发生的事。
+READ_SETTINGS_CAST_BUDGET_CHARS = 1600
 # 检测问题行明细预算（人味 findings 的段号/原句/why/fix；朱雀段另列）
 READ_PROSE_CHECKS_BUDGET_CHARS = 2000
 
@@ -362,7 +372,7 @@ async def _read_settings(ctx: ToolContext, area: str = "cast") -> ToolResult:
         ]
         if not lines:
             return ToolResult(ok=True, summary="（名册为空）")
-        return ToolResult(ok=True, summary=_clip("\n".join(lines), READ_SETTINGS_BUDGET_CHARS * 2))
+        return ToolResult(ok=True, summary=_clip("\n".join(lines), READ_SETTINGS_CAST_BUDGET_CHARS))
 
     if area == "genre":
         # 题材五格现值＋未填点名（c-agent-page-field-truth）——读「这本书现在填了
@@ -395,10 +405,12 @@ async def _read_settings(ctx: ToolContext, area: str = "cast") -> ToolResult:
             return ToolResult(ok=True, summary="（世界设定还没有内容）")
         rules = "\n".join(render_red_lines(world))
         brief = world_summary_text(world)
-        return ToolResult(
-            ok=True,
-            summary=_clip((f"铁律：\n{rules}\n\n" if rules else "") + brief, READ_SETTINGS_BUDGET_CHARS),
-        )
+        text = (f"铁律：\n{rules}\n\n" if rules else "") + brief
+        # 世界 yaml 存在但八格全空时 rules/brief 都是空串——不能回空结果给模型
+        # （2026-11-25 真机：工具行空白，模型只能猜「世界观空白」）
+        if not text.strip():
+            return ToolResult(ok=True, summary="（世界设定还没有内容）")
+        return ToolResult(ok=True, summary=_clip(text, READ_SETTINGS_BUDGET_CHARS))
     if area == "hooks":
         from prompt.context import load_active_hooks
 
@@ -1148,23 +1160,127 @@ async def _draft_worldbuilding(ctx, topic: str = "", shape: str = "text", curren
         except (ValueError, TypeError):
             pass
     text = draft if isinstance(draft, str) else _json_dump(draft)
-    return _struct_card("text", {"topic": str(topic).strip(), "draft": text, "origin": "divergent"})
+    topic_text = str(topic).strip()
+    return ToolResult(
+        ok=True,
+        summary=digest_text(f"世界观「{topic_text}」候选已出", text),
+        card={"kind": "text", "payload": {"topic": topic_text, "draft": text, "origin": "divergent"}},
+    )
+
+
+def _world_check_rows(result: dict) -> list[dict[str, str]]:
+    """世界体检行归一：{name,status,note}（各核出参名不同，摘要统一按这三键渲染）。"""
+    rows: list[dict[str, str]] = []
+    for item in result.get("items") or result.get("checks") or []:
+        if isinstance(item, dict):
+            rows.append(
+                {
+                    "name": str(item.get("name") or item.get("code") or "检查项"),
+                    "status": str(item.get("status") or item.get("level") or "warn"),
+                    "note": str(item.get("note") or item.get("text") or item.get("msg") or ""),
+                }
+            )
+        else:
+            rows.append({"name": "检查项", "status": "warn", "note": str(item)})
+    return rows
+
+
+def _world_check_digest(result: dict) -> str:
+    """世界观体检摘要：问题条目逐条（带判定），达标条目只计数。"""
+    rows = _world_check_rows(result)
+    verdict = str(result.get("verdict") or "").strip()
+    head = f"世界观体检完成（{verdict}）" if verdict else "世界观体检完成"
+    return digest_report(
+        head,
+        rows,
+        status_of=lambda it: it["status"],
+        render=lambda it: f"{it['name']}：{it['note'] or '需要处理'}",
+    )
 
 
 async def _check_worldbuilding(ctx):
     from assistant.caps.world import check_world_cap
 
     result = await check_world_cap(ctx.novel_id, ctx.user_id, {})
-    items = result.get("items") or result.get("checks") or []
-    return _struct_card("report", {"report": [{"name": "世界观一致性", "items": _as_check_items(items)}]})
+    payload_items = _as_check_items(result.get("items") or result.get("checks") or [])
+    return ToolResult(
+        ok=True,
+        summary=_world_check_digest(result),
+        card={
+            "kind": "report",
+            "payload": {"report": [{"name": "世界观一致性", "items": payload_items}]},
+        },
+    )
 
 
-async def _lore_suggest(ctx):
+async def _default_chapter_ref(ctx: ToolContext) -> str:
+    """当前写作章 ref：先聚焦对象，再前沿章；都没有回空串（调用方给人话出口）。"""
+    ref = str(ctx.focus_ref or "").strip()
+    if ref:
+        return ref
+    from chapters.frontier import frontier_info
+    from db import async_session
+
+    async with async_session() as db:
+        info = await frontier_info(db, ctx.novel_id)
+    frontier = info.get("frontier") if isinstance(info, dict) else {}
+    return str((frontier or {}).get("ref") or "")
+
+
+async def _lore_suggest(ctx, chapter_ref: str = ""):
+    """从指定章（缺省当前写作章）提世界要素建议；只出卡过目，写回走世界面板。"""
+    from fastapi import HTTPException
+
     from assistant.caps.world import lore_suggest_cap
 
-    result = await lore_suggest_cap(ctx.novel_id, ctx.user_id, {})
-    lore = result.get("lore") or result.get("suggestions") or []
-    return _struct_card("pick", {"candidates": _as_candidates(lore)})
+    ref = str(chapter_ref or "").strip() or await _default_chapter_ref(ctx)
+    if not ref:
+        # 与「正文为空」同一种失败语义（ok=False）：都是「现在提不了」，只差下一步
+        return ToolResult(
+            ok=False,
+            summary="全书还没有写过正文的章——先去正文页写一章，再来提世界要素。",
+        )
+    try:
+        result = await lore_suggest_cap(ctx.novel_id, ctx.user_id, {"chapter_ref": ref})
+    except HTTPException as e:
+        detail = str(e.detail)
+        # 空章是常见入口（刚建章还没写），给可执行的下一步而不是接口原话
+        if "正文为空" in detail:
+            return ToolResult(
+                ok=False,
+                summary=f"「{ref}」这章正文还是空的——先写一章正文，再来提世界要素。",
+            )
+        return ToolResult(ok=False, summary=detail)
+    lore = [it for it in (result.get("lore") or result.get("suggestions") or []) if isinstance(it, dict)]
+    # pick 卡渲染要 name/rationale；key/value/set/origin 一并保留——
+    # 展示映射不许丢数据（写回 /settings/world/lore-apply 认的是这四个键）
+    candidates = [
+        {
+            "name": f"{it.get('set') or '世界'}·{it.get('key') or '要素'}",
+            "rationale": str(it.get("value") or ""),
+            "key": str(it.get("key") or ""),
+            "value": str(it.get("value") or ""),
+            "set": str(it.get("set") or ""),
+            **({"origin": str(it["origin"])} if it.get("origin") else {}),
+        }
+        for it in lore
+    ]
+    if not candidates:
+        return ToolResult(
+            ok=True,
+            summary=f"「{ref}」这章没提出新的世界要素。",
+            card={"kind": "pick", "payload": {"candidates": [], "chapter_ref": ref}},
+        )
+    summary = digest_candidates(
+        f"「{ref}」世界要素建议",
+        candidates,
+        lambda c: f"{c['name']}：{c['rationale']}",
+    )
+    return ToolResult(
+        ok=True,
+        summary=summary,
+        card={"kind": "pick", "payload": {"candidates": candidates, "chapter_ref": ref}},
+    )
 
 
 def _json_dump(v):
@@ -1179,22 +1295,18 @@ def _as_check_items(items):
         for it in items:
             if isinstance(it, dict):
                 status = str(it.get("status") or it.get("level") or "warn")
-                out.append({"status": status, "text": str(it.get("text") or it.get("msg") or it)})
+                text = str(it.get("text") or it.get("msg") or "").strip()
+                if not text:
+                    # 世界体检出参是 {name,status,note}——旧兜底 str(it) 会把 dict
+                    # repr 直接画到报告卡上（人话红线）；按 name：note 收口
+                    name = str(it.get("name") or "").strip()
+                    note = str(it.get("note") or "").strip()
+                    text = f"{name}：{note}" if name and note else name or note
+                out.append({"status": status, "text": text})
             else:
                 out.append({"status": "warn", "text": str(it)})
     return out
 
-
-def _as_candidates(lore):
-    out = []
-    if isinstance(lore, list):
-        for it in lore:
-            if isinstance(it, dict):
-                out.append({"name": str(it.get("name") or it.get("title") or "候选"),
-                            "rationale": str(it.get("rationale") or it.get("summary") or it.get("text") or "")})
-            else:
-                out.append({"name": str(it)[:20], "rationale": str(it)})
-    return out
 
 # ── fn 绑定（延迟到模块底——工具函数已全量定义）────────────────────────
 
@@ -1256,8 +1368,17 @@ WORLD_TOOLS: tuple = (
     ),
     Tool(
         name="lore_suggest", kind="card", risk_level="high", feature_key="settings-ai-fields",
-        parameters={"type": "object", "properties": {}},
-        description="从已归档章提世界观要素建议（传说/设定候选，不落库，采纳走面板）。", fn=_lore_suggest_fn,
+        parameters={
+            "type": "object",
+            "properties": {
+                "chapter_ref": {
+                    "type": "string",
+                    "description": "章 ref（例：vol-1-ch-7；缺省＝当前写作章）",
+                },
+            },
+        },
+        description="从指定章（缺省当前写作章）提世界观要素建议（传说/设定候选，不落库，写回走世界面板）。",
+        fn=_lore_suggest_fn,
     ),
 )
 
@@ -1270,9 +1391,6 @@ def _struct_fail(msg: str):
 def _struct_ok(msg: str):
     return ToolResult(ok=True, summary=msg)
 
-
-def _struct_card(kind: str, payload: dict):
-    return ToolResult(ok=True, summary="已出卡，过目后采纳。", card={"kind": kind, "payload": payload})
 
 # 书结构总览读工具并入（零内容元数据——agent 不拉全文也能答进度/状态问题）
 from assistant.tools import Tool as _ToolCls  # noqa: E402

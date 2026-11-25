@@ -17,6 +17,13 @@ from typing import Any
 
 from fastapi import HTTPException
 
+from assistant.card_digest import (
+    digest_candidates,
+    digest_report,
+    digest_text,
+    flatten_fields,
+    one_line,
+)
 from assistant.tools import Tool, ToolContext, ToolResult
 from db import async_session
 from novels.service import get_novel
@@ -32,6 +39,58 @@ async def _project_ok(ctx: ToolContext) -> bool:
     async with async_session() as db:
         project = await get_novel(db, ctx.novel_id, ctx.user_id)
         return project is not None
+
+
+def _vocab_labels(kind: str) -> dict[str, str]:
+    """候选池 id → 中文标签（题材四问的 forbidden/battlefield 出参只带 tagId）。"""
+    from genres.vocab_presets import VOCAB_PRESETS
+
+    return {str(e["id"]): str(e["label"]) for e in VOCAB_PRESETS if e["kind"] == kind}
+
+
+def _field_digest(summary_head: str, field: str, value: Any) -> str:
+    """题材四问的人话摘要（c-card-digest）：四种出参形状各自逐条渲染，绝不 str(dict)。"""
+    if field == "cost_ratio":
+        return (
+            f"{summary_head}建议：{value}（1 最轻、10 最重）。"
+            "还没写进书里，过目后在题材面板填回。"
+        )
+    if field == "core_promise":
+        raw_items = value if isinstance(value, list) else [value]
+        items: list[str] = []
+        for item in raw_items:
+            if isinstance(item, dict):
+                head = str(item.get("value") or "").strip()
+                note = str(item.get("note") or "").strip()
+                text = f"{head}（{note}）" if head and note else head or note
+            else:
+                text = str(item or "").strip()
+            if text:
+                items.append(text)
+        if not items:
+            return f"{summary_head}没有给出可用候选，可重试。"
+        return digest_candidates(
+            f"{summary_head}候选已出", items, lambda x: x,
+            tail="（还没写进书里，在题材面板勾选采纳后才生效）",
+        )
+    if field in ("forbidden_list", "battlefield"):
+        labels = _vocab_labels("forbidden" if field == "forbidden_list" else "battlefield")
+        items = []
+        for item in value if isinstance(value, list) else []:
+            if isinstance(item, dict):
+                tag = str(item.get("tagId") or "")
+                items.append(labels.get(tag) or str(item.get("text") or "") or tag)
+            else:
+                items.append(str(item or ""))
+        items = [x for x in items if x.strip()]
+        if not items:
+            return f"{summary_head}没有给出可用候选，可重试。"
+        return digest_candidates(
+            f"{summary_head}候选已出", items, lambda x: x,
+            tail="（还没写进书里，在题材面板勾选采纳后才生效）",
+        )
+    body = flatten_fields(value) if isinstance(value, dict) else one_line(value)
+    return digest_text(f"{summary_head}候选已出", body, tail="（还没写进书里，过目后填回对应设置项）")
 
 
 async def _settings_field(
@@ -51,13 +110,60 @@ async def _settings_field(
         return ToolResult(ok=False, summary=e.message)
     value = result.get("value")
     payload = {"stype": stype, "field": field, "value": value}
-    head_text = (
-        value.get("value") if isinstance(value, dict) and value.get("value") else str(value)
-    )
     return ToolResult(
         ok=True,
-        summary=f"{summary_head} 候选已出：{_clip(head_text, 400)}（过目后填回对应设置项）",
+        summary=_field_digest(summary_head, field, value),
         card={"kind": "text", "payload": payload},
+    )
+
+
+_INTRO_VERDICT = {"strong": "稳", "ok": "过得去", "weak": "偏弱"}
+
+
+def _intro_check_digest(result: dict) -> str:
+    """简介体检：六段缺口＋禁忌触线逐条，达标段只计数。"""
+    items: list[dict[str, Any]] = []
+    for seg in result.get("six_segments") or []:
+        if not isinstance(seg, dict):
+            continue
+        items.append(
+            {
+                "status": seg.get("status"),
+                "name": seg.get("name") or "未命名段",
+                "note": seg.get("note") or seg.get("excerpt") or "",
+            }
+        )
+    taboo = result.get("taboo") if isinstance(result.get("taboo"), dict) else {}
+    for hit in taboo.get("hits") or []:
+        if not isinstance(hit, dict):
+            continue
+        excerpts = "；".join(str(x) for x in (hit.get("excerpts") or []) if str(x).strip())
+        items.append(
+            {
+                "status": "warn",
+                "name": f"触线·{hit.get('rule') or '禁忌'}",
+                "note": excerpts or "踩到简介禁忌",
+            }
+        )
+    verdict = _INTRO_VERDICT.get(str(result.get("verdict") or ""), "")
+    head = f"简介体检完成（判定：{verdict}）" if verdict else "简介体检完成"
+    return digest_report(
+        head,
+        items,
+        status_of=lambda it: str(it.get("status") or ""),
+        render=lambda it: f"{it['name']}：{it['note'] or '需要补'}",
+    )
+
+
+def _intro_draft_digest(result: dict) -> str:
+    """简介起草：三条候选逐条全文（c-card-digest 的主因场景）。"""
+    candidates = [c for c in result.get("candidates") or [] if isinstance(c, dict)]
+    if not candidates:
+        return digest_text("简介候选已出", flatten_fields(result))
+    return digest_candidates(
+        "简介候选已出",
+        candidates,
+        lambda c: f"{c.get('label') or '候选'}：{c.get('synopsis') or ''}",
     )
 
 
@@ -71,13 +177,46 @@ async def _settings_intro(ctx: ToolContext, action: str) -> ToolResult:
         result = await intro_ai_action(ctx.novel_id, action, ctx.user_id)
     except CapabilityError as e:
         return ToolResult(ok=False, summary=e.message)
-    head = "简介体检完成" if action == "check" else "简介候选已出"
     payload = {"action": action, "result": result}
+    summary = _intro_check_digest(result) if action == "check" else _intro_draft_digest(result)
     return ToolResult(
         ok=True,
-        summary=f"{head}：{_clip(str(result), 400)}（过目后填回简介栏）",
+        summary=summary,
         card={"kind": "text", "payload": payload},
     )
+
+
+def _hooks_draft_lines(result: dict) -> list[str]:
+    """伏笔候选逐条（[类型·优先级] 描述）——摘要与卡面共用同一份人话行。"""
+    from settings.hooks_model import priority_label, type_label
+
+    lines: list[str] = []
+    for i, c in enumerate(result.get("candidates") or [], 1):
+        if not isinstance(c, dict):
+            continue
+        head = str(c.get("label") or c.get("name") or "").strip()
+        desc = str(c.get("description") or c.get("synopsis") or "").strip()
+        tag = "·".join(
+            x for x in (type_label(c.get("type")), priority_label(c.get("priority"))) if x
+        )
+        tag_text = f"[{tag}] " if tag else ""
+        if head and desc:
+            lines.append(f"{tag_text}{head}：{desc}")
+        else:
+            lines.append(f"{tag_text}{desc or head or f'候选{i}'}")
+    return [x for x in lines if x.strip()]
+
+
+def _hooks_check_lines(result: dict) -> list[str]:
+    """伏笔体检逐条（code：note）——卡面看全量，摘要只给问题条目。"""
+    lines: list[str] = []
+    for c in result.get("checks") or []:
+        if not isinstance(c, dict):
+            continue
+        code = str(c.get("code") or c.get("name") or "伏笔")
+        note = str(c.get("note") or "").strip()
+        lines.append(f"{code}：{note}" if note else code)
+    return [x for x in lines if x]
 
 
 def _make_hooks_tool(action: str, desc: str) -> Tool:
@@ -91,17 +230,26 @@ def _make_hooks_tool(action: str, desc: str) -> Tool:
         except CapabilityError as e:
             return ToolResult(ok=False, summary=e.message)
 
-        # 人话卡面：候选逐条（description 优先），禁 str(dict) 上对话（boss 红线）
-        lines: list[str] = []
-        for i, c in enumerate(result.get("candidates") or [], 1):
-            if not isinstance(c, dict):
-                continue
-            head = str(c.get("label") or c.get("name") or f"候选{i}")
-            lines.append(f"{head} · {c.get('description') or c.get('synopsis') or ''}".strip())
-        draft = "\n".join(x for x in lines if x.strip()) or _clip(str(result), 600)
+        if action == "check":
+            checks = [c for c in result.get("checks") or [] if isinstance(c, dict)]
+            summary = digest_report(
+                "伏笔体检完成",
+                checks,
+                status_of=lambda c: str(c.get("status") or ""),
+                render=lambda c: f"{c.get('code') or '伏笔'}：{c.get('note') or '需处理'}",
+            )
+            draft = "\n".join(_hooks_check_lines(result)) or "体检完成，没有要处理的问题。"
+        else:
+            lines = _hooks_draft_lines(result)
+            summary = (
+                digest_candidates("伏笔候选已出", lines, lambda x: x)
+                if lines
+                else digest_text("伏笔 AI 完成", flatten_fields(result))
+            )
+            draft = "\n".join(lines) or "AI 没有给出可用候选，可重试。"
         return ToolResult(
             ok=True,
-            summary=f"伏笔 AI（{action}）完成：{_clip(str(result), 300)}（候选过目后填回伏笔面板）",
+            summary=summary,
             card={"kind": "text", "payload": {"action": action, "draft": draft}},
         )
 
@@ -260,10 +408,15 @@ async def _settings_og_fill(ctx: ToolContext, chapter_ref: str) -> ToolResult:
     fills = result.get("fills") or {}
     if not fills:
         return ToolResult(ok=True, summary=f"{chapter_ref} 章纲五项齐全，没有要补的。")
-    lines = [f"{_GAP_LABELS.get(k, k)}：{_clip(str(v), 160)}" for k, v in fills.items()]
+    lines = [f"{_GAP_LABELS.get(k, k)}：{_clip(str(v), 300)}" for k, v in fills.items()]
     return ToolResult(
         ok=True,
-        summary=f"{chapter_ref} 补了 {len(fills)} 项：{_clip('；'.join(lines), 400)}（过目后在章纲表单采纳）",
+        summary=digest_candidates(
+            f"{chapter_ref} 章纲补全",
+            lines,
+            lambda x: x,
+            tail="（还没写进书里，过目后在章纲表单采纳）",
+        ),
         card={"kind": "text", "payload": {"chapter_ref": chapter_ref, "fills": fills}},
     )
 
