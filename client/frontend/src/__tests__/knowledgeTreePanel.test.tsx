@@ -94,6 +94,8 @@ describe("KnowledgeTreePanel", () => {
     const insts = screen.getAllByTestId("kb-tree-instance");
     expect(insts.length).toBe(1);
     expect(screen.getByText(/风铃/)).toBeTruthy();
+    // 出处标签＝案例书（合规口径），书名与章号照旧
+    expect(screen.getByText(/案例书：测试书 · 第1章/)).toBeTruthy();
     // 关抽屉
     fireEvent.click(screen.getByText("✕"));
     await waitFor(() => expect(screen.queryByTestId("kb-tree-drawer")).toBeNull());
