@@ -175,13 +175,13 @@ describe("KnowledgeBasePage 详情抽屉", () => {
     expect(screen.queryByText("blank_arr")).toBeNull();
     expect(screen.getByText("custom_note")).toBeTruthy();
     expect(screen.getByText("字段字典未收录的键")).toBeTruthy();
-    // 其余四段照旧；证据＝章锚、小说名住「源自小说」专行
+    // 其余四段照旧；证据＝章锚、小说名住「案例书」专行
     expect(screen.getByText("知识定义")).toBeTruthy();
     expect(screen.getByText(/分类：类别/)).toBeTruthy();
     expect(screen.getAllByText(/实例/).length).toBeGreaterThan(0);
     expect(screen.getByText("证据")).toBeTruthy();
     expect(screen.getByText("第9章")).toBeTruthy();
-    expect(screen.getByText("源自小说")).toBeTruthy();
+    expect(screen.getByText("案例书")).toBeTruthy();
     expect(screen.getByText("怪字书")).toBeTruthy();
   });
 

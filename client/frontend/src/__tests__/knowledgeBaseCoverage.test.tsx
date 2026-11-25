@@ -375,7 +375,7 @@ describe("KnowledgeBasePage 手录表单", () => {
     expect(screen.getByText("市井司机卷入冤魂案")).toBeTruthy();
     expect(screen.getByText(/身份反差：/)).toBeTruthy();
     expect(screen.getByText(/嘴贫胆小却重情义/)).toBeTruthy();
-    expect(screen.getByText(/源自小说：13路末班车/)).toBeTruthy();
+    expect(screen.getAllByText(/案例书：13路末班车/).length).toBeGreaterThan(0);
   });
 
   it("schema 为空不渲染字段段（c-kb-summarize）", async () => {
@@ -542,20 +542,20 @@ describe("实例行列表（c-kb-instance-list）", () => {
     expect(segs).toHaveLength(2);
     expect(segs[0].textContent).toBe("场面手法");
     expect(segs[1].textContent).toBe("开篇钩子");
-    // 实例内容一句话＋摘句、出处行、收录日期＋来源标
+    // 实例内容一句话＋摘句、出处行（标签＝案例书）、收录日期＋来源标
     expect(row.textContent).toContain("先写结果，再倒回去拆折。");
     expect(row.textContent).toContain("——留半拍空白让台词自己落地");
-    expect(row.textContent).toContain("源自：13路末班车 · 第3章");
+    expect(row.textContent).toContain("案例书：13路末班车 · 第3章");
     expect(row.textContent).toContain("2026-11-07 收录");
     expect(row.textContent).toContain("拆书");
     // 素材行：待归属标；无出处（空片段不渲染）；链区无知识级
     const mat = screen.getAllByTestId("kb-material-row")[0];
     expect(screen.getAllByTestId("kb-row-material-badge").length).toBe(2);
-    expect(mat.textContent).not.toContain("源自：");
+    expect(mat.textContent).not.toContain("案例书：");
     expect(mat.querySelectorAll("[data-testid='kb-chain-seg']")).toHaveLength(0);
     // 出处行变体：有书名无章号（空片段不渲染）＋空日期收录
     const mat2 = screen.getAllByTestId("kb-material-row")[1]; // inst-mat2（有书名无章号变体）
-    expect(mat2.textContent).toContain("源自：旧城书");
+    expect(mat2.textContent).toContain("案例书：旧城书");
     expect(mat2.textContent).not.toContain(" · ");
     expect(mat2.textContent).toContain("收录");
     expect(container).toBeTruthy();
@@ -633,12 +633,12 @@ describe("实例行列表（c-kb-instance-list）", () => {
     fireEvent.change(screen.getByPlaceholderText("搜名字、内容、来源书名"), { target: { value: "裸行" } });
     await waitFor(() => expect(api.instancesFlat.mock.calls.at(-1)![0].q).toBe("裸行"));
     await waitFor(() => expect(screen.getAllByTestId("kb-inst-row")).toHaveLength(3));
-    expect(screen.getAllByTestId("kb-inst-row")[0].textContent).not.toContain("源自：");
-    // 只有书名无章号：出处段渲染、无「 · 」
+    expect(screen.getAllByTestId("kb-inst-row")[0].textContent).not.toContain("案例书：");
+    // 只有书名无章号：出处段渲染（标签＝案例书）、无「 · 」
     fireEvent.click(screen.getAllByTestId("kb-inst-row")[1]);
     await screen.findByTestId("kb-inst-drawer-close");
-    expect(screen.getAllByText(/源自：旧城书/).length).toBeGreaterThan(0);
-    expect(screen.queryByText(/源自：旧城书 · /)).toBeNull(); // 无章号不拼「 · 」
+    expect(screen.getAllByText(/案例书：旧城书/).length).toBeGreaterThan(0);
+    expect(screen.queryByText(/案例书：旧城书 · /)).toBeNull(); // 无章号不拼「 · 」
     fireEvent.click(screen.getByTestId("kb-inst-drawer-close"));
     // 跨题材通用行（genre=''）：抽屉头行显示「跨题材通用」
     fireEvent.click(screen.getAllByTestId("kb-inst-row")[2]);

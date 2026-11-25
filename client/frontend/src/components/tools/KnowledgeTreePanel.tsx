@@ -175,7 +175,7 @@ export default function KnowledgeTreePanel({
                     {row.quote && <span className="text-[var(--muted)]"> ——{row.quote.slice(0, 40)}</span>}
                   </div>
                   <div className="mt-1 text-[11px] text-[var(--faint)]">
-                    源自：{row.source_novel}{row.source_chapter ? ` · ${row.source_chapter}` : ""}
+                    案例书：{row.source_novel}{row.source_chapter ? ` · ${row.source_chapter}` : ""}
                   </div>
                 </div>
               ))}

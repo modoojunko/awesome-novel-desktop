@@ -709,10 +709,10 @@ export default function KnowledgeBasePage() {
                     {r.text}
                     {r.quote && <span className="text-[var(--muted)]">——{r.quote}</span>}
                   </p>
-                  {/* 出处行按值渲染：空片段不渲染、整行无值不渲染出处行 */}
+                  {/* 出处行按值渲染：空片段不渲染、整行无值不渲染出处行；标签用「案例书」不用「源自」（合规口径） */}
                   {(r.source_novel || r.source_chapter) && (
                     <p className="mt-1 text-[11px] text-[var(--faint)]">
-                      源自：{r.source_novel}{r.source_novel && r.source_chapter ? " · " : ""}{r.source_chapter}
+                      案例书：{r.source_novel}{r.source_novel && r.source_chapter ? " · " : ""}{r.source_chapter}
                     </p>
                   )}
                   <p className="mt-1 text-right text-[11px] text-[var(--muted)]">
@@ -888,7 +888,7 @@ export default function KnowledgeBasePage() {
               <div className="mt-4">
                 <p className="text-[10.5px] font-mono tracking-[0.12em] text-[var(--muted)]">出处</p>
                 <p className="mt-1 text-[12px] text-[var(--muted)]">
-                  源自：{selectedInstance.source_novel}{selectedInstance.source_novel && selectedInstance.source_chapter ? " · " : ""}{selectedInstance.source_chapter}
+                  案例书：{selectedInstance.source_novel}{selectedInstance.source_novel && selectedInstance.source_chapter ? " · " : ""}{selectedInstance.source_chapter}
                 </p>
               </div>
             )}
@@ -933,7 +933,7 @@ export default function KnowledgeBasePage() {
                         </p>
                       ))}
                       {r.source_novel && (
-                        <p className="mt-0.5 text-[10.5px] text-[var(--faint)]">源自小说：{r.source_novel}</p>
+                        <p className="mt-0.5 text-[10.5px] text-[var(--faint)]">案例书：{r.source_novel}</p>
                       )}
                     </li>
                   ))}
@@ -1049,7 +1049,7 @@ export default function KnowledgeBasePage() {
             )}
             {selected.src_novel_name && (
               <div className="mt-4">
-                <p className="text-[10.5px] font-mono tracking-[0.12em] text-[var(--muted)]">源自小说</p>
+                <p className="text-[10.5px] font-mono tracking-[0.12em] text-[var(--muted)]">案例书</p>
                 <p className="mt-1 text-[12px] text-[var(--muted)]">{selected.src_novel_name}</p>
               </div>
             )}
