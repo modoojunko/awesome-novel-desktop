@@ -55,6 +55,23 @@ def _setup_db():
     yield
 
 
+@pytest.fixture(scope="session", autouse=True)
+def _no_tier_gate():
+    """本模块只测卷 CRUD：固定 none 档走 tier_bypass，避免前序测试留下的 PRO 配置
+    触发设定门。
+
+    PRO 门的 readiness 读会顺带迁移文风（独立 session 写入）；本模块外层
+    session 持有事务时 SQLite 会报 database is locked。none 档正是本模块要验证
+    的建卷路径，不掩盖卷门控逻辑。
+    """
+    from auth_local.service import get_local_config, save_local_config
+
+    before = get_local_config()
+    save_local_config({"tier": "none"})
+    yield
+    save_local_config(before)
+
+
 async def _new_project(name: str) -> Novel:
     """建一个空项目（root_path 已建 volumes/chapters 目录）。"""
     root = os.path.join(_tmp_data_root, name)
