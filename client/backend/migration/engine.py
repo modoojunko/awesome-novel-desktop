@@ -620,9 +620,41 @@ def run_migration(data_root: Path, source_filename: str, active_db_path: Path,
 
         report["complete"] = is_complete_report(report)
 
-    except Exception:
+    except Exception as exc:
         logger.exception("event=migration_error source=%s", source_filename)
         report["status"] = "error"
+        # 失败现场留存（c-migration-worker 诊断）：sqlite 错误码＋work 文件态＋两端
+        # journal 模式＋fd 数；work_dir 失败时保留供离线取证（成功路径仍即用即删）。
+        try:
+            diag = {
+                "exc_type": type(exc).__name__,
+                "sqlite_errorcode": getattr(exc, "sqlite_errorcode", None),
+                "sqlite_errorname": getattr(exc, "sqlite_errorname", None),
+                "work_dir": str(work_dir) if work_dir else None,
+            }
+            if work_dir is not None:
+                w = work_dir / source_filename
+                diag["work_exists"] = w.exists()
+                if w.exists():
+                    diag["work_size"] = w.stat().st_size
+                    dcon = _sqlite_ro(w)
+                    try:
+                        diag["work_journal"] = dcon.execute("PRAGMA journal_mode").fetchone()[0]
+                        diag["work_integrity"] = dcon.execute("PRAGMA integrity_check(1)").fetchone()[0]
+                    finally:
+                        dcon.close()
+            if active_db_path.exists():
+                tcon = _sqlite_ro(active_db_path)
+                try:
+                    diag["tgt_journal"] = tcon.execute("PRAGMA journal_mode").fetchone()[0]
+                finally:
+                    tcon.close()
+            fd_dir = Path("/proc/self/fd")
+            if fd_dir.is_dir():
+                diag["fd_count"] = sum(1 for _ in fd_dir.iterdir())
+            logger.error("event=migration_failure_diag %s", json.dumps(diag, ensure_ascii=False, default=str))
+        except Exception:  # noqa: BLE001 — 诊断本身不得掩盖原异常
+            logger.warning("event=migration_failure_diag_error", exc_info=True)
     finally:
         # 终局单行＝整份 report JSON（specs：终局行整份单行落迁移报告 JSON）——
         # 与 app_meta.migration.last 存的 payload 同源，失败现场一份行即可复盘。
