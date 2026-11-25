@@ -15,6 +15,13 @@ from __future__ import annotations
 from fastapi import HTTPException
 
 from assistant.actions import _extract_json
+from assistant.card_digest import (
+    digest_candidates,
+    digest_report,
+    digest_text,
+    flatten_fields,
+    one_line,
+)
 from assistant.tools import Tool, ToolContext, ToolResult, _clip
 
 # 发散单次候选上限（评估纪要：发散频控，防刷屏）
@@ -234,6 +241,47 @@ def _constraint_lines(raw: str) -> list[str]:
     return lines or [str(raw).strip()]
 
 
+_ARC_ENDING_LABELS = {"scene": "结局画面", "hero": "主角终态", "tone": "结局基调"}
+
+
+def _arc_digest(action: str, value) -> str:
+    """主线四能力的人话摘要（c-card-digest）：体检给问题条目，其余给正文要点。"""
+    if action == "check":
+        checks = [
+            c for c in (value.get("checks") if isinstance(value, dict) else None) or []
+            if isinstance(c, dict)
+        ]
+        return digest_report(
+            "主线体检完成",
+            checks,
+            status_of=lambda c: str(c.get("status") or ""),
+            render=lambda c: f"{c.get('name') or '检查项'}：{c.get('note') or '需要处理'}",
+        )
+    if not isinstance(value, dict):
+        return digest_text("主线 AI 已出稿", value, tail="（已出卡，还没写进书里；作家在卡上过目后填回主线面板）")
+    if action == "tone":
+        tone = str(value.get("tone") or value.get("value") or "").strip()
+        return digest_text(
+            "基调建议已出", tone, tail="（已出卡，还没写进书里；作家在卡上过目后填回）"
+        )
+    ending = value.get("ending") if isinstance(value.get("ending"), dict) else {}
+    lines: list[str] = []
+    fullstory = str(value.get("fullstory") or "").strip()
+    if fullstory:
+        lines.append(f"全书走向：{one_line(fullstory)}")
+    for key, label in _ARC_ENDING_LABELS.items():
+        source = ending or value
+        text = str(source.get(key) or "").strip()
+        if text:
+            lines.append(f"{label}：{one_line(text)}")
+    warnings = value.get("name_warnings")
+    if isinstance(warnings, list) and warnings:
+        lines.append("名册外专名：" + "、".join(str(x) for x in warnings[:8]))
+    head = "主线草稿已出" if action == "draft" else "主线校准建议已出"
+    body = "\n".join(lines) or flatten_fields(value)
+    return digest_text(head, body, tail="（已出卡，还没写进书里；作家在卡上过目后填回主线面板）")
+
+
 async def _draft_arc(
     ctx: ToolContext,
     action: str = "draft",
@@ -273,12 +321,28 @@ async def _draft_arc(
         value["constraints_used"] = _constraint_lines(constraints_text)
         result = {**result, "value": value}
     kind = "report" if action == "check" else "text"
-    summary = {
-        "check": "主线体检结果已出（只读，没动书里的内容）。",
-        "calibrate": "主线校准建议已出（还没写进书里；到主线面板核对后填写）。",
-        "tone": "基调建议已出（还没写进书里；到主线面板核对后填写）。",
-    }.get(action, "主线草稿已出（还没写进书里；到主线面板核对后填写）。")
-    return _tool_result_from_card(kind, result, summary)
+    return _tool_result_from_card(kind, result, _arc_digest(action, result.get("value")))
+
+
+def _volume_check_rows(result: dict) -> list[dict[str, str]]:
+    """卷级体检归一：分组名并进判据名，问题条目逐条给模型（c-card-digest）。"""
+    rows: list[dict[str, str]] = []
+    for group in result.get("report") or []:
+        if not isinstance(group, dict):
+            continue
+        group_name = str(group.get("name") or "").strip()
+        for item in group.get("items") or []:
+            if not isinstance(item, dict):
+                continue
+            text = str(item.get("text") or "").strip()
+            rows.append(
+                {
+                    "status": str(item.get("status") or ""),
+                    "name": f"{group_name}·{text}" if group_name and text else text or group_name,
+                    "evidence": str(item.get("evidence") or "").strip(),
+                }
+            )
+    return rows
 
 
 async def _check_consistency(ctx: ToolContext, ref: str = "") -> ToolResult:
@@ -308,7 +372,26 @@ async def _check_consistency(ctx: ToolContext, ref: str = "") -> ToolResult:
             )
         except HTTPException as e:
             return ToolResult(ok=False, summary=str(e.detail))
-    return _tool_result_from_card("report", result, f"「{ref}」体检完成（只读报告）。")
+    return _tool_result_from_card("report", result, _volume_check_digest(ref, result))
+
+
+def _volume_check_digest(ref: str, result: dict) -> str:
+    """卷级体检摘要：问题条目逐条（分组名并入判据名），达标只计数；降级给纯文本。"""
+    if str(result.get("text") or "").strip() and not result.get("report"):
+        # 结构化失败降级纯文本（volumes/ai_plan 的 degraded 出口）——照样给模型看
+        return digest_text(
+            f"「{ref}」体检完成",
+            result.get("text"),
+            tail="（只读体检，没动书里的内容；完整报告在卡上）",
+        )
+    return digest_report(
+        f"「{ref}」体检完成",
+        _volume_check_rows(result),
+        status_of=lambda it: it["status"],
+        render=lambda it: (
+            f"{it['name']}（依据：{it['evidence']}）" if it["evidence"] else it["name"]
+        ),
+    )
 
 
 async def _ai_json(client, system: str, user_text: str, *, max_tokens: int = 2048) -> dict | None:
@@ -353,7 +436,18 @@ async def _diverge_character_group(
         ch["origin"] = "divergent"  # 发散标记（前端出「草案·发散」徽标）
     payload = {"characters": characters, "divergent": True, "premise": premise_line}
     return _tool_result_from_card(
-        "struct", payload, f"派生了 {len(characters)} 个新角色草案（发散·过目采纳才建卡）。"
+        "struct",
+        payload,
+        digest_candidates(
+            "派生角色草案",
+            characters,
+            lambda c: (
+                f"{c.get('name') or '新角色'}（{c.get('role') or '配角'}）："
+                f"{c.get('persona') or ''}"
+                + (f"｜锚点：{c.get('origin_note')}" if c.get("origin_note") else "")
+            ),
+            tail="（发散草案，作家在卡上过目后才建卡）",
+        ),
     )
 
 
@@ -379,7 +473,17 @@ async def _diverge_plot_branches(
         return ToolResult(ok=False, summary="发散没出结果——换个说法再试一次。")
     payload = {"branches": branches, "divergent": True}
     return _tool_result_from_card(
-        "text", payload, f"派生了 {len(branches)} 条支线候选（发散·过目采纳才落）。"
+        "text",
+        payload,
+        digest_candidates(
+            "支线候选已出",
+            [b for b in branches if isinstance(b, dict)],
+            lambda b: (
+                f"{b.get('title') or '支线'}：{b.get('line') or ''}"
+                + (f"｜锚点：{b.get('origin_note')}" if b.get("origin_note") else "")
+            ),
+            tail="（发散候选，作家在卡上过目后才落）",
+        ),
     )
 
 
@@ -403,7 +507,12 @@ async def _draft_names(ctx: ToolContext, kind: str = "主角", context: str = ""
     return _tool_result_from_card(
         "pick",
         {"candidates": candidates, "kind": kind},
-        f"出了 {len(candidates)} 个命名候选（选中的才采纳）。"
+        digest_candidates(
+            f"{kind}命名候选",
+            [c for c in candidates if isinstance(c, dict)],
+            lambda c: f"{c.get('name') or '候选'}——{c.get('rationale') or ''}",
+            tail="（已出卡，选中哪个才采纳）",
+        ),
     )
 
 

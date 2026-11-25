@@ -82,6 +82,19 @@ _RETRY_NUDGE = (
 _PROTOCOL_FAIL_REPLY = "（刚才那一步没走通，我先停住。你再说一句，我重来。）"
 
 
+def _step_note(summary: str, budget: int = 220) -> str:
+    """工具步折叠行：取摘要首行（标题/计数行），放不下再按 220 字裁并加省略号。
+
+    c-card-digest（2026-11-25）：摘要已改多行（候选逐条），折叠行不再硬切正文——
+    硬切会把「候选二」切半，界面和会话存档都像是坏了。
+    """
+    first_line = str(summary or "").split("\n", 1)[0]
+    first_line = " ".join(first_line.split())
+    if len(first_line) <= budget:
+        return first_line
+    return first_line[: budget - 1].rstrip() + "…"
+
+
 def _finalize_plan(plan: dict | None, failed: bool) -> dict | None:
     """收口安全网：残留「在做」按收口结果降级，避免计划永远卡在进行中。"""
     if not isinstance(plan, dict):
@@ -452,7 +465,7 @@ class AgentLoop:
         api_calls_begin()
         result = await run_tool(self.tool_ctx, tool_name, args)
         api_calls = api_calls_drain()
-        note = " ".join(result.summary.split())[:220]
+        note = _step_note(result.summary)
         step_end: dict[str, Any] = {
             "type": "step_end",
             "runId": run_id,
@@ -728,7 +741,7 @@ class AgentLoop:
             # tool 结果作为 user 观察行进窗口（文本协议的 ReAct 惯例）。
             # apiCalls 只进 step_end 事件（前端轨迹卡）——SHALL NOT 回填模型
             # 历史（openwriter _display 侧车同款：反馈流元数据 agent 不可见）
-            note = " ".join((step_result.summary if step_result else "").split())[:220]
+            note = _step_note(step_result.summary if step_result else "")
             self.transcript[-1]["_tool"] = {
                 "name": action.tool,
                 "args": action.args,
