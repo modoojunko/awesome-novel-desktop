@@ -93,7 +93,7 @@ class WriterProfileEvent(Base):
 class AssistantPersona(Base):
     """助手人格的用户覆盖（c-writing-agent：顶栏控制中心可查看/编辑/恢复默认）。
 
-    None＝无覆盖（走提示词包 assistant_identity / 内置兜底）；有值＝四字段
+    None＝无覆盖（走 C 端 identity.py 内置默认）；有值＝四字段
     结构化人格（name/persona/voice_rules/fence_rules，fail-loud 校验后落库）。
     """
 

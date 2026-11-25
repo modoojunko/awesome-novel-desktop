@@ -6,7 +6,10 @@
 「兜底协议必须含真实工具名、不得含函数 repr」钉死。
 """
 
-from assistant import prompts
+import asyncio
+
+import prompts as prompt_pack
+from assistant import identity, prompts
 
 
 def test_fallback_act_protocol_contains_real_tool_names():
@@ -37,3 +40,12 @@ def test_build_system_prompt_pack_path_still_has_tools(monkeypatch):
     system = prompts.build_system_prompt("身份段", "书名：测试")
     assert "read_progress" in system
     assert "<function" not in system
+
+
+def test_load_identity_does_not_read_prompt_pack(monkeypatch):
+    """身份正文由 C 端单一维护：即使提示词包有 load_layers，也不得被读取。"""
+    def _forbidden(*args, **kwargs):
+        raise AssertionError("assistant identity must not read prompt pack")
+
+    monkeypatch.setattr(prompt_pack, "load_layers", _forbidden)
+    assert asyncio.run(identity.load_identity()) == identity.DEFAULT_IDENTITY
