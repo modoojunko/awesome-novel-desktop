@@ -63,6 +63,7 @@ vi.mock("force-graph", () => ({
 }));
 
 import KnowledgeBasePage, { fieldsOf, prettyFieldValue } from "@/pages/KnowledgeBasePage";
+import { resetLicenseCache, setVerifyCache } from "@/lib/licenseCache";
 import type { KbInstanceFlatRow } from "@/lib/kbApi";
 
 // c-charlib-into-kb：页组件引入 useSearchParams/useCharacterLibrary 后，
@@ -111,6 +112,13 @@ const SEVEN_GENRES = [
 ];
 
 beforeEach(() => {
+  // 官方库 PRO 起；页面测试统一给 PRO 快照。
+  resetLicenseCache();
+  setVerifyCache({
+    tier: "pro",
+    is_member: true,
+    entitlement: { v: 4, features: ["kb-official"], limits: { max_projects: null } },
+  });
   libApi.listLibrary.mockResolvedValue({ count: 0, items: [] });
   api.genres.mockResolvedValue(SEVEN_GENRES);
   api.libraries.mockResolvedValue([
