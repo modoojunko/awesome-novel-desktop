@@ -41,10 +41,10 @@ describe("AiWriterAssistant", () => {
     expect(screen.getByText(/输入：书名 \+ 简介本文/)).toBeTruthy();
   });
 
-  it("免费会话：角标「免费版」；卡头不出套餐文案（档位差异只看能力行可用性）", () => {
+  it("标准（免费）会话：角标「标准」；卡头不出套餐文案（档位差异只看能力行可用性）", () => {
     seedTier("free", false);
     render(<AiWriterAssistant rows={ROWS} footNote="x" aiState="member_required" />);
-    expect(screen.getByTestId("plan-badge").textContent).toBe("免费版");
+    expect(screen.getByTestId("plan-badge").textContent).toBe("标准");
     expect(screen.queryByText(/会员功能|你的 PRO 已包含|未解锁 · 开通后/)).toBeNull();
   });
 

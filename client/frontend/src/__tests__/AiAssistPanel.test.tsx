@@ -138,7 +138,7 @@ describe("AiAssistPanel（随页签，ra-* 统一布局）", () => {
     expect(screen.getByRole("button", { name: /生成正文/ })).toBeTruthy();
   });
 
-  it("人味检测行免门控：免费档点击直达检测（不弹升级）", async () => {
+  it("人味检测行 MAX gate：免费档点击弹 MAX 升级（不直达检测）", async () => {
     apiState.get.mockImplementation(async (p: string) => {
       if (p.endsWith("/prompt-sources")) return { total_chars: 1234, cast_count: 3 };
       if (p.endsWith("/zhuque/config")) return { configured: false };
@@ -149,16 +149,16 @@ describe("AiAssistPanel（随页签，ra-* 统一布局）", () => {
       throw new Error("unexpected " + p);
     });
     const proseRef = { current: { openRenweiCheck: vi.fn() } } as never;
-    // 免费档：features=[] → 整卡 member_required；人味检测行 ungated 必须照常执行
-    renderPanel("prose", { proseRef }, []);
+    const onUpgrade = vi.fn();
+    // 免费档：人味是 MAX 专属；行级 gate 优先于整卡 PRO 锁。
+    renderPanel("prose", { proseRef, onUpgrade }, []);
     const row = screen.getByTestId("rail-renwei-check");
     await act(async () => {
       fireEvent.click(row);
     });
     expect((proseRef as { current: { openRenweiCheck: ReturnType<typeof vi.fn> } }).current.openRenweiCheck)
-      .toHaveBeenCalledTimes(1);
-    // 升级弹窗不得弹出（面板层只有 onUpgrade 回调，不在此处渲染弹窗；
-    // 断言「点击后没有落到 onBlocked toast」由回调未被触发间接覆盖）
+      .not.toHaveBeenCalled();
+    expect(onUpgrade).toHaveBeenCalledWith("human-taste");
     expect(screen.queryByTestId("rw-score")).toBeNull();
   });
 
@@ -232,8 +232,8 @@ describe("AiAssistPanel（随页签，ra-* 统一布局）", () => {
     renderPanel("style", { isPro: false, onAiCheck, onUpgrade }, V2.free);
     // 免费档文风页签主 key=style-suggest（标准）→ 整卡 member_required 锁
     expect(document.querySelector(".rail-assist.locked")).toBeTruthy();
-    // 卡头角标＝当前档位（免费版）；套餐文案不进卡头——锁定由 .locked＋点击升级出口承载
-    expect(screen.getByTestId("plan-badge").textContent).toBe("免费版");
+    // 卡头角标＝当前档位（标准）；套餐文案不进卡头——锁定由 .locked＋点击升级出口承载
+    expect(screen.getByTestId("plan-badge").textContent).toBe("标准");
     expect(screen.queryByText(/开通.*AI 即可用|未解锁/)).toBeNull();
     await clickRow(/文风一致性检查/);
     expect(onAiCheck).not.toHaveBeenCalled();
