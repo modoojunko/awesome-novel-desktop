@@ -238,6 +238,16 @@ class TestBuildGenreTruthSegments:
         assert "04 吃苦指数=1" in segs
         assert "05 本小说斗什么=未填" in segs
 
+    def test_promise_tag_reported_like_the_page(self):
+        """02 行带出设定页「标签：…」那行的现值——页面上看得见的都要报。"""
+        segs = build_genre_truth_segments(
+            {"promise_note": "夜班守护者的绝境求生", "core_promise": "以弱破强的痛快"}
+        )
+        assert "02 主要看什么=夜班守护者的绝境求生（标签：以弱破强的痛快）" in segs
+
+        tag_only = build_genre_truth_segments({"core_promise": "以弱破强的痛快"})
+        assert "02 主要看什么=未填（标签：以弱破强的痛快）" in tag_only
+
 
 async def _put(novel_id: str) -> None:
     async with async_session() as session:

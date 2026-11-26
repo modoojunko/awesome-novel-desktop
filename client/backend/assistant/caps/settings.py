@@ -112,11 +112,15 @@ async def arc_ai_action(
 # settings_genre_pick 采纳卡单一通道（前端成对写整包 PUT），不在此开第二写路。
 SETTINGS_FIELD_WRITE: dict[str, dict[str, str]] = {
     "genre": {
-        "core_promise": "核心承诺",
+        # 设定页字段目录（单一源）：标签逐字等于页面 02-05 的可见小标题，顺序即
+        # 页面顺序（02 主句 → 02 标签 → 03-05）。read_page_fields 也读这份目录
+        # ——agent 先看页面有哪些字段，再按对应键请求作家授权（2026-11-24 实锤：
+        # 旧名 核心承诺/禁忌/代价设定/战场 在设定页上根本找不到）。
         "promise_note": "主要看什么",
-        "forbidden_list": "禁忌",
-        "cost_ratio": "代价设定",
-        "battlefield": "战场",
+        "core_promise": "主要看什么 · 标签",
+        "forbidden_list": "绝对禁止",
+        "cost_ratio": "吃苦指数",
+        "battlefield": "本小说斗什么",
     },
     "story": {"synopsis": "简介"},
     "world": {
@@ -137,6 +141,52 @@ SETTINGS_PANEL_ZH: dict[str, str] = {
     "story": "简介",
     "world": "世界",
 }
+
+
+def settings_field_maxlen(stype: str, field: str) -> int | None:
+    """文本字段的落库上限（与 NovelGenreIn 单一源）。
+
+    超长值在授权卡之前就说不清楚＝作家批了也写不进去（2026-11-24 实锤：
+    core_promise 60 字上限，模型却把 200 字主句塞进来，连弹两张卡）。
+    只认**文本字段**：列表字段的 MaxLen 是「条数」不是「字数」，误用会把
+    「战场传成字符串」拒成「最多 10 字」（review 2026-11-24）。
+    """
+    if stype != "genre":
+        return None
+    from typing import get_args, get_origin
+
+    from annotated_types import MaxLen
+
+    from genres.novel_genre_service import NovelGenreIn
+
+    info = NovelGenreIn.model_fields.get(field)
+    if info is None:
+        return None
+    # list[...] 的 get_args 也含 str——先排除容器类型，再看联合/裸 str。
+    if get_origin(info.annotation) in (list, tuple, set, dict):
+        return None
+    if info.annotation is not str and str not in get_args(info.annotation):
+        return None
+    return next(
+        (meta.max_length for meta in info.metadata if isinstance(meta, MaxLen)), None
+    )
+
+
+def settings_field_overlong(
+    stype: str, field: str, value: object
+) -> tuple[int, int] | None:
+    """值超落库上限时返回 (上限, 原始长度)；否则 None。
+
+    与 NovelGenreIn.max_length 同口径按**原始字符串**计数——Pydantic 不忽略
+    首尾空白，strip 后再比会漏放行「批了也写不进」的值（review P2，2026-11-24）。
+    授权卡 preview 与写核共用本函数，避免两处判断再漂移。
+    """
+    if not isinstance(value, str):
+        return None
+    limit = settings_field_maxlen(stype, field)
+    if limit is not None and len(value) > limit:
+        return limit, len(value)
+    return None
 
 
 async def read_settings_field(
@@ -196,6 +246,13 @@ async def write_settings_field_cap(
             raise CapabilityError("书不存在或不属于当前作家。")
 
         if stype == "genre":
+            over = settings_field_overlong(stype, field, value)
+            if over is not None:
+                limit, length = over
+                label = SETTINGS_FIELD_WRITE[stype][field]
+                raise CapabilityError(
+                    f"「{label}」最多 {limit} 字，这次给了 {length} 字，写不进去。"
+                )
             from genres.novel_genre_service import (
                 NovelGenreIn,
                 get_novel_genre,

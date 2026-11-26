@@ -203,7 +203,7 @@ describe("CardBody 题材采纳卡（c-agent-genre-pick）", () => {
       field: "core_promise",
       value: { value: "以弱破强的痛快", note: "读者要看到弱者翻盘" },
     });
-    expect(screen.getByText("主要看什么")).toBeTruthy();
+    expect(screen.getByText("主要看什么 · 标签")).toBeTruthy();
     expect(screen.getByText("备注")).toBeTruthy();
     expect(screen.queryByText("value")).toBeNull();
   });
