@@ -5,6 +5,11 @@ import { Link, useNavigate } from "react-router-dom";
 import UpgradeModal from "@/components/novel/UpgradeModal";
 import { useFeature } from "@/hooks/useTier";
 import {
+  useEnsureModelsFresh,
+  useModelCatalog,
+  useModelCatalogVersion,
+} from "@/lib/modelCatalog";
+import {
   createDeconstructTask,
   DECONSTRUCT_DIMS,
   fetchModelOptions,
@@ -133,6 +138,10 @@ export default function CreateTaskPage() {
   const [options, setOptions] = useState<ModelOption[]>([]);
   const [optionsLoaded, setOptionsLoaded] = useState(false);
   const [modelKey, setModelKey] = useState("");
+  // 进拆书创建页即后台保鲜；清单内容一变（version+1）重取选项，不改用户已选
+  useEnsureModelsFresh();
+  const catalog = useModelCatalog();
+  const catalogVersion = useModelCatalogVersion();
   const [probeOk, setProbeOk] = useState<boolean | null>(null);
   const [probing, setProbing] = useState(false);
   // 拆解模式（c-deconstruct-knowledge）：smart=智能拆书（默认）/ full=全书拆。
@@ -179,11 +188,21 @@ export default function CreateTaskPage() {
     void fetchModelOptions()
       .then((opts) => {
         setOptions(opts);
-        if (opts.length > 0) setModelKey(`${opts[0].api_config_id}::${opts[0].model}`);
+        setModelKey((prev) => {
+          // 后台保鲜刷新后：已选模型仍在清单就保留，否则回落首项
+          if (prev && opts.some((o) => `${o.api_config_id}::${o.model}` === prev)) return prev;
+          return opts.length > 0 ? `${opts[0].api_config_id}::${opts[0].model}` : prev;
+        });
         setOptionsLoaded(true);
       })
       .catch(() => setOptionsLoaded(true));
-  }, []);
+  }, [catalogVersion]);
+
+  const catalogStale =
+    !!catalog.ensureError ||
+    options.some((o) => !!catalog.lastErrors[o.api_config_id]);
+  const staleKey =
+    !!modelKey && !options.some((o) => `${o.api_config_id}::${o.model}` === modelKey);
 
   const grouped = useMemo(() => {
     const by = new Map<string, { name: string; vendor: string; opts: ModelOption[] }>();
@@ -401,6 +420,9 @@ export default function CreateTaskPage() {
             value={modelKey}
             onChange={(e) => setModelKey(e.target.value)}
           >
+            {staleKey && (
+              <option value={modelKey}>{modelKey.split("::")[1]}（已不在最新清单）</option>
+            )}
             {grouped.map((g) => (
               <optgroup key={g.name + g.vendor} label={`${g.name} · ${g.vendor}`}>
                 {g.opts.map((o) => (
@@ -411,6 +433,11 @@ export default function CreateTaskPage() {
               </optgroup>
             ))}
           </select>
+          {(catalog.refreshing || catalogStale) && (
+            <span style={{ fontSize: 11.5, color: "var(--muted)" }} data-testid="model-catalog-note">
+              {catalog.refreshing ? "正在更新模型清单…" : "清单可能不是最新（上次刷新失败）"}
+            </span>
+          )}
         </div>
       ) : null}
       {hasModels ? (

@@ -452,6 +452,40 @@ describe("ApiConfigForm 编辑态", () => {
     expect(screen.getByText("连接超时")).toBeTruthy();
   });
 
+  it("后台保鲜更新编辑目标清单：弹窗内清单就地刷新，已选模型不被覆盖", () => {
+    const props = {
+      onSubmit: vi.fn(async () => {}),
+      onCancel: vi.fn(),
+    };
+    const { rerender } = render(
+      <ApiConfigForm open config={editCfg({ models: ["glm-5.3-flash"] })} {...props} />,
+    );
+    const input = () => document.getElementById("cfModel") as HTMLInputElement;
+    expect(input().value).toBe("glm-5.3-flash");
+    // 页面同步了新鲜清单（同 id、同 formKey）：只换选项，不动已选
+    rerender(
+      <ApiConfigForm
+        open
+        config={editCfg({ models: ["glm-5.3-flash", "glm-5.4"] })}
+        {...props}
+      />,
+    );
+    expect(input().value).toBe("glm-5.3-flash");
+    fireEvent.focus(input());
+    fireEvent.change(input(), { target: { value: "" } });
+    expect(screen.getByText("glm-5.4")).toBeTruthy();
+  });
+
+  it("已选模型不在最新清单：面板标「已不在最新清单」", () => {
+    const props = { onSubmit: vi.fn(async () => {}), onCancel: vi.fn() };
+    const { rerender } = render(
+      <ApiConfigForm open config={editCfg({ models: ["glm-5.4"] })} {...props} />,
+    );
+    rerender(<ApiConfigForm open config={editCfg({ models: ["glm-5.3"] })} {...props} />);
+    fireEvent.focus(document.getElementById("cfModel")!);
+    expect(screen.getByText("当前选择「glm-5.4」已不在最新清单")).toBeTruthy();
+  });
+
   it("编辑态测试连接带改选模型；空清单种子给手填引导文案", async () => {
     const onTest = vi.fn(async () => ({ ok: true, status: "ok", models: ["gpt-4o"] }));
     render(

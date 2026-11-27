@@ -3,7 +3,14 @@ import "@testing-library/jest-dom";
 // c-lossless-upgrade：壳层弹窗队列是模块级全局——用例间必须清（登出同款口径），
 // 否则前一个用例的 carry 条目占队，后续用例的 pack 弹窗事件全被挡
 import { clearDialogQueue } from "@/lib/dialogQueue";
-import { afterEach } from "vitest";
+// c-model-list-auto-refresh：模型清单是模块级 store——用例间重置，避免串味。
+// 走无依赖的注册桥（不直接 import modelCatalog：部分用例 mock 了 lib/api，
+// setup 提前实例化会把真实 request 绑死）
+import { resetRegisteredModelCatalog } from "@/lib/modelCatalogReset";
+import { beforeEach, afterEach } from "vitest";
+beforeEach(() => {
+  resetRegisteredModelCatalog();
+});
 afterEach(() => {
   clearDialogQueue();
 });

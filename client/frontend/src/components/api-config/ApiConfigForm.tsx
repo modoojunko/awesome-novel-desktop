@@ -6,6 +6,7 @@ import { Ico, P } from "../icons";
 import { FORMAT_PLACEHOLDER, VENDOR_FORMAT_LOCK, VENDOR_TABS, VENDORS, VENDOR_LABELS, VendorGlyph, type VendorTab } from "./ProviderIcon";
 import { applyPreset, defaultsFor, type PrefillFields } from "./vendorDefaults";
 import { placePanel, type PanelPlacement } from "../../lib/panelAnchor";
+import { useEnsureModelsFresh } from "../../lib/modelCatalog";
 
 interface ApiConfigFormProps {
   open: boolean;
@@ -33,7 +34,7 @@ interface ApiConfigFormProps {
     note?: string;
     error?: string;
   }>;
-  /** 已存密钥轻探针（c-api-config-refresh-stored-key）：编辑态 Key 未重填时
+  /** 已存密钥轻探针（c-model-list-auto-refresh）：编辑态 Key 未重填时
    *  「获取模型」/清单失败重试走这里——后端用落库密钥拉清单（零生成调用）。 */
   onRefreshStoredModels?: () => Promise<{
     ok: boolean;
@@ -71,6 +72,8 @@ const THINKING_EFFORTS: Array<{ value: ThinkingEffort; label: string }> = [
 /** 添加/编辑配置弹窗（model-config.html modalConfig 原样：520px（ADJUSTMENTS 登记加宽）、vgrid 供应商格、编辑态 vfix） */
 export function ApiConfigForm({ open, config, onSubmit, onCancel, onTest, onFetchModels, onRefreshStoredModels, onOpenGuide, onVendorChange }: ApiConfigFormProps) {
   const isEdit = !!config;
+  // 打开编辑弹窗即后台保鲜（服务端 TTL 内不出网）：清单在用户点开选择前已更新
+  useEnsureModelsFresh(open && isEdit);
   const [name, setName] = useState(config?.name || "");
   const [vendorId, setVendorId] = useState(config?.vendor || "");
   const [apiFormat, setApiFormat] = useState<ApiFormat>(config?.api_format || "openai");
@@ -83,6 +86,9 @@ export function ApiConfigForm({ open, config, onSubmit, onCancel, onTest, onFetc
   // 编辑态模型选择位（修复「编辑页没有模型可选、测试连接却要用模型」）：
   // 初值＝已存 models 首项（＝该配置已选模型/探针优先模型），清单种子＝已存 models
   const [modelName, setModelName] = useState(config?.models?.[0] ?? "");
+  // 已选模型（打开时的种子/弹层里的选择）：清单刷新后据此判断「已不在最新清单」。
+  // 输入框同时是搜索框，不能拿实时输入值判——打字打到一半会误报。
+  const [seedModel, setSeedModel] = useState(config?.models?.[0] ?? "");
   const [apiKey, setApiKey] = useState("");
   // 模型清单自动拉取（c-api-config-auto-models）
   const [modelList, setModelList] = useState<string[]>(config?.models ?? []);
@@ -134,6 +140,7 @@ export function ApiConfigForm({ open, config, onSubmit, onCancel, onTest, onFetc
     setThinkingEffort(config?.thinking_effort ?? "low");
     setBaseUrl(config?.base_url || "");
     setModel(config?.models?.[0] ?? "");
+    setSeedModel(config?.models?.[0] ?? "");
     setApiKey("");
     setError(null);
     setTestResult(null);
@@ -150,6 +157,14 @@ export function ApiConfigForm({ open, config, onSubmit, onCancel, onTest, onFetc
     fetchSeqRef.current += 1; // 在途响应作废
     lastFetchRef.current = ""; // 拉取指纹随表单重置
   }
+
+  // 后台保鲜把新清单写进 store → 页面同步编辑目标 → 这里就地刷新可选清单；
+  // 已选模型名不动（只换选项，用户的选择不被覆盖）
+  const configModelsKey = (config?.models ?? []).join("|");
+  useEffect(() => {
+    if (!isEdit) return;
+    setModelList(config?.models ?? []);
+  }, [configModelsKey, isEdit]);
 
   // 接口格式锁定矩阵：单格式厂商锁定（openai/anthropic/ollama），双格式可切换
   const formatLock = VENDOR_FORMAT_LOCK[vendorId as keyof typeof VENDOR_FORMAT_LOCK];
@@ -233,7 +248,7 @@ export function ApiConfigForm({ open, config, onSubmit, onCancel, onTest, onFetc
     }
   };
 
-  /** 已存密钥轻探针（c-api-config-refresh-stored-key）：编辑态 Key 未重填时的
+  /** 已存密钥轻探针（c-model-list-auto-refresh）：编辑态 Key 未重填时的
    *  「获取模型」出口——后端用落库密钥拉清单（零生成调用）。
    *  与 raw 路共用序号作废与结果落地；不写拉取指纹（供应商/地址/格式未变，
    *  后续重填 Key 时按新 Key 走 raw 路另计）。 */
@@ -278,7 +293,7 @@ export function ApiConfigForm({ open, config, onSubmit, onCancel, onTest, onFetc
 
   /** 「获取模型」按钮可用性＝轻探针前置条件（未就绪禁用，不点了才静默跳过）。
    *  编辑态 Key 未重填时走「已存密钥轻探针」（页面提供 onRefreshStoredModels 即可用——
-   *  c-api-config-refresh-stored-key：新模型上线后不必重敲 Key 才能刷新清单）。
+   *  c-model-list-auto-refresh：新模型上线后不必重敲 Key 才能刷新清单）。
    *  该端点只用落库的连接参数：表单改了 Base URL / 接口格式（未保存）时清单会与
    *  当前填写值错位，故只在「连接参数字面未改」时放开，与「未重敲 Key 试连走已存
    *  配置」同口径；改了参数要拿新端点清单仍须重填 Key（raw 路）。 */
@@ -434,6 +449,7 @@ export function ApiConfigForm({ open, config, onSubmit, onCancel, onTest, onFetc
 
   const pickModel = (m: string) => {
     setModel(m);
+    setSeedModel(m);
     modelPickedRef.current = true;
     setPickerOpen(false);
   };
@@ -843,6 +859,11 @@ export function ApiConfigForm({ open, config, onSubmit, onCancel, onTest, onFetc
                   onMouseDown={(e) => e.preventDefault()} // 滚动条/说明区拖点不抢焦点不误关（评审 P1）
                 >
                   {modelNote && <div className="mp-note">{modelNote}</div>}
+                  {isEdit && seedModel && modelList.length > 0 && !modelList.includes(seedModel) && (
+                    <div className="mp-note" data-testid="cf-model-stale">
+                      当前选择「{seedModel}」已不在最新清单
+                    </div>
+                  )}
                   {modelCandidates.length > 0 && (
                     <div className="mp-chips">
                       {modelCandidates.map((c) => (

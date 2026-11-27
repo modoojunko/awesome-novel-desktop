@@ -2,13 +2,17 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
+import os
+import time
 from datetime import UTC, datetime
 from typing import Any
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from db import async_session
 from models.api_config import ApiConfig
 from models.audit_log import ProjectModelAuditLog
 from models.project import Novel
@@ -41,6 +45,32 @@ def _first_model(models_json: str | None) -> str | None:
 # 落库＋手动 PUT 超限确定性）与全量可见的平衡点——火山方舟 /models 现返回 137 条
 # 且最老在前（2026-10-24 实测），上限 100 会把在役新模型整段截掉。
 MODELS_MAX = 300
+
+# 清单保鲜（c-model-list-auto-refresh）：ensure 端点按「上次成功时间」判断要不要真出网。
+# TTL 10 分钟＝用户在任何选择器里看到的最旧程度；失败退避 5 分钟防止坏端点被反复重试。
+# 自动刷新超时压到 5 秒（后台保鲜不值得让一次请求挂 10 秒）。
+MODEL_LIST_TTL_SECONDS = int(os.environ.get("MODEL_LIST_TTL_SECONDS", "600"))
+MODEL_LIST_FAIL_BACKOFF_SECONDS = int(
+    os.environ.get("MODEL_LIST_FAIL_BACKOFF_SECONDS", "300")
+)
+MODEL_LIST_REFRESH_TIMEOUT = int(os.environ.get("MODEL_LIST_REFRESH_TIMEOUT", "5"))
+MODEL_LIST_REFRESH_CONCURRENCY = int(
+    os.environ.get("MODEL_LIST_REFRESH_CONCURRENCY", "3")
+)
+
+# 进程内保鲜状态：同一配置的单飞锁＋失败退避。单用户桌面后端单进程，内存态足够；
+# 成功与否的持久事实仍以 models_updated_at 为准（重启后按 TTL 重新判断）。
+_REFRESH_LOCKS: dict[str, asyncio.Lock] = {}
+_REFRESH_FAILED_AT: dict[str, float] = {}
+_REFRESH_LAST_ERROR: dict[str, str] = {}
+
+
+def _reset_model_refresh_state() -> None:
+    """清空进程内保鲜状态（测试隔离用）。"""
+    _REFRESH_LOCKS.clear()
+    _REFRESH_FAILED_AT.clear()
+    _REFRESH_LAST_ERROR.clear()
+
 
 
 def _normalize_models(raw: list[str], *, truncate: bool = False) -> list[str]:
@@ -322,14 +352,16 @@ async def refresh_models_with_stored_key(
     db: AsyncSession,
     user_id: str,
     config_id: str,
+    timeout: int | None = None,
 ) -> dict[str, Any] | None:
-    """用已存密钥重拉模型清单（c-api-config-refresh-stored-key）。
+    """用已存密钥重拉模型清单（c-model-list-auto-refresh）。
 
-    编辑态 Key 未重填时「获取模型」的出口（此前 raw 轻探针无明文 Key 只能禁用）：
-    走 fetch_models 同款「只拉清单轻探针」——GET 清单端点，零生成调用。
-    成功且带回**非空**清单时按「已选首项保头」归一写库（与 test 落库同一口径）；
-    清单为空（端点不提供）或探针失败一律原样透传，SHALL NOT 覆盖已存清单。
-    轻探针不证对话可用，SHALL NOT 改动连接测试结果字段（last_test_*）。
+    编辑态 Key 未重填时「获取模型」的出口（此前 raw 轻探针无明文 Key 只能禁用），
+    也是后台保鲜（ensure）的单配置执行体：走 fetch_models 同款「只拉清单轻探针」——
+    GET 清单端点，零生成调用。成功且带回**非空**清单时按「已选首项保头」归一写库
+    （与 test 落库同一口径）；清单为空（端点不提供）或探针失败一律原样透传，
+    SHALL NOT 覆盖已存清单。轻探针不证对话可用，SHALL NOT 改动连接测试结果字段
+    （last_test_*）。timeout 仅影响本次出网（后台保鲜用更短的 5 秒）。
     """
     result = await db.execute(
         select(ApiConfig).where(ApiConfig.id == config_id, ApiConfig.user_id == user_id)
@@ -343,6 +375,7 @@ async def refresh_models_with_stored_key(
         api_key=decrypt_api_key(config.api_key),
         base_url=config.base_url,
         api_format=getattr(config, "api_format", None) or "openai",
+        **({"timeout": timeout} if timeout else {}),
     )
     fetched = outcome.get("models")
     if outcome.get("ok") and isinstance(fetched, list) and fetched:
@@ -357,8 +390,178 @@ async def refresh_models_with_stored_key(
             config.models_updated_at = datetime.now(UTC)
             await db.commit()
             await db.refresh(config)
-            outcome = {**outcome, "models": normalized}
+            outcome = {
+                **outcome,
+                "models": normalized,
+                "models_updated_at": config.models_updated_at.isoformat(),
+            }
     return outcome
+
+
+# ── 清单后台保鲜（c-model-list-auto-refresh）─────────────────────────────────
+
+
+def _models_list(raw: str | None) -> list[str]:
+    """models JSON 文本 → 字符串列表（坏文/非列表 → 空）。"""
+    if not raw:
+        return []
+    try:
+        parsed = json.loads(raw)
+    except (ValueError, TypeError):
+        return []
+    if not isinstance(parsed, list):
+        return []
+    return [m for m in parsed if isinstance(m, str)]
+
+
+def _utcnow_naive() -> datetime:
+    """SQLite DateTime 列无时区：统一按 naive UTC 比较。"""
+    return datetime.now(UTC).replace(tzinfo=None)
+
+
+def _as_naive_utc(dt: datetime) -> datetime:
+    return dt.replace(tzinfo=None) if dt.tzinfo else dt
+
+
+def _models_are_stale(updated_at: datetime | None, now: datetime) -> bool:
+    if updated_at is None:
+        return True
+    return (now - _as_naive_utc(updated_at)).total_seconds() >= MODEL_LIST_TTL_SECONDS
+
+
+def _ensure_result(
+    config_id: str,
+    models: list[str],
+    updated_at: datetime | None,
+    *,
+    refreshed: bool,
+    ok: bool,
+    error: str | None = None,
+) -> dict[str, Any]:
+    return {
+        "id": config_id,
+        "models": models,
+        "models_updated_at": updated_at.isoformat() if updated_at else None,
+        "refreshed": refreshed,
+        "ok": ok,
+        "error": error,
+    }
+
+
+async def _latest_models_state(config_id: str, user_id: str) -> tuple[list[str], datetime | None] | None:
+    """锁内复核：另一调用可能刚刷完（新会话读，避免共享 session 并发）。"""
+    async with async_session() as session:
+        row = (
+            await session.execute(
+                select(ApiConfig.models, ApiConfig.models_updated_at).where(
+                    ApiConfig.id == config_id, ApiConfig.user_id == user_id
+                )
+            )
+        ).first()
+        if row is None:
+            return None
+        return _models_list(row[0]), row[1]
+
+
+async def ensure_models_fresh(
+    user_id: str,
+    config_ids: list[str] | None = None,
+    force: bool = False,
+) -> dict[str, Any]:
+    """后台保鲜：让模型清单在「用户看之前」就是新的（c-model-list-auto-refresh）。
+
+    对每个活跃写作配置判断 `models_updated_at` 是否超过 TTL（默认 10 分钟）：过期才
+    用已存密钥走只拉清单轻探针（零生成，单次超时 5 秒），成功按「已选首项保头」
+    写库；未过期直接回快照。失败记 5 分钟退避（force 绕过），已存清单不清空。
+    同一配置单飞（并发调用只出一次网），跨配置并发上限 3。
+
+    每个配置用独立 session（网络等待期间不占住请求 session，也避免 AsyncSession
+    并发使用）；成功/失败都以 models_updated_at 与进程内退避表为准。
+    """
+    async with async_session() as session:
+        stmt = select(ApiConfig).where(
+            ApiConfig.user_id == user_id,
+            ApiConfig.status != "deleted",
+            ApiConfig.vendor != "zhuque",
+        )
+        if config_ids:
+            stmt = stmt.where(ApiConfig.id.in_(config_ids))
+        rows = (await session.execute(stmt.order_by(ApiConfig.created_at))).scalars().all()
+        snapshots = [
+            {
+                "id": row.id,
+                "vendor": row.vendor,
+                "status": row.status,
+                "has_key": bool(row.api_key),
+                "models": _models_list(row.models),
+                "models_updated_at": row.models_updated_at,
+            }
+            for row in rows
+        ]
+
+    now = _utcnow_naive()
+    sem = asyncio.Semaphore(MODEL_LIST_REFRESH_CONCURRENCY)
+
+    def skipped(snap: dict[str, Any], *, ok: bool = True, error: str | None = None) -> dict[str, Any]:
+        return _ensure_result(
+            snap["id"], snap["models"], snap["models_updated_at"],
+            refreshed=False, ok=ok, error=error,
+        )
+
+    async def one(snap: dict[str, Any]) -> dict[str, Any]:
+        config_id = snap["id"]
+        if snap["status"] != "active":
+            return skipped(snap)  # 禁用/非活跃配置不动（与 refresh-models 400 同口径）
+        if not force and not _models_are_stale(snap["models_updated_at"], now):
+            return skipped(snap)
+        if not force:
+            failed_at = _REFRESH_FAILED_AT.get(config_id)
+            if failed_at is not None and time.monotonic() - failed_at < MODEL_LIST_FAIL_BACKOFF_SECONDS:
+                return skipped(
+                    snap, ok=False,
+                    error=_REFRESH_LAST_ERROR.get(config_id) or "清单刷新失败，稍后重试",
+                )
+        if not snap["has_key"] and snap["vendor"] != "ollama":
+            return skipped(snap, ok=False, error="未配置 API Key")
+
+        async with _REFRESH_LOCKS.setdefault(config_id, asyncio.Lock()):
+            if not force:
+                latest = await _latest_models_state(config_id, user_id)
+                if latest is None:
+                    return skipped(snap, ok=False, error="配置不存在")
+                latest_models, latest_updated = latest
+                if not _models_are_stale(latest_updated, _utcnow_naive()):
+                    return _ensure_result(
+                        config_id, latest_models, latest_updated,
+                        refreshed=False, ok=True,
+                    )
+            async with sem, async_session() as session:
+                outcome = await refresh_models_with_stored_key(
+                    session, user_id, config_id, timeout=MODEL_LIST_REFRESH_TIMEOUT
+                )
+            if outcome is None:
+                return skipped(snap, ok=False, error="配置不存在")
+            if outcome.get("ok"):
+                _REFRESH_FAILED_AT.pop(config_id, None)
+                _REFRESH_LAST_ERROR.pop(config_id, None)
+                updated = outcome.get("models_updated_at")
+                return {
+                    "id": config_id,
+                    "models": outcome.get("models") or snap["models"],
+                    "models_updated_at": updated or (
+                        snap["models_updated_at"].isoformat() if snap["models_updated_at"] else None
+                    ),
+                    "refreshed": updated is not None,
+                    "ok": True,
+                    "error": None,
+                }
+            error = str(outcome.get("error") or "清单刷新失败")
+            _REFRESH_FAILED_AT[config_id] = time.monotonic()
+            _REFRESH_LAST_ERROR[config_id] = error
+            return skipped(snap, ok=False, error=error)
+
+    results = await asyncio.gather(*(one(s) for s in snapshots))
+    return {"configs": results}
 
 
 async def update_api_config(

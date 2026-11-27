@@ -33,6 +33,7 @@ from .connection import test_connection as _test_raw_connection
 from .schemas import (
     ApplyModelToAllBody,
     CreateApiConfigBody,
+    EnsureModelsBody,
     FetchModelsBody,
     SetAiModelBody,
     TestConfigBody,
@@ -44,6 +45,7 @@ from .service import (
     apply_model_to_all_projects,
     create_api_config,
     delete_api_config,
+    ensure_models_fresh,
     get_api_config,
     get_batch_status,
     get_config_usage,
@@ -207,6 +209,24 @@ async def fetch_raw_models(
     )
 
 
+@router.post("/api-configs/ensure-models-fresh")
+async def ensure_models_fresh_endpoint(
+    body: EnsureModelsBody,
+    user: dict = Depends(get_current_user),
+):
+    """后台保鲜：返回各配置的最新模型清单（c-model-list-auto-refresh）。
+
+    前端在启动/进页面/定时/选择器打开时调用；服务端按 `models_updated_at` 的
+    TTL（默认 10 分钟）决定是否真出网，失败退避 5 分钟。只拉清单轻探针，零生成；
+    不改连接测试结果。
+    """
+    return await ensure_models_fresh(
+        _user_id(user),
+        config_ids=body.config_ids,
+        force=body.force,
+    )
+
+
 @router.get("/api-configs/usage-summary")
 async def usage_summary(
     user: dict = Depends(get_current_user),
@@ -340,7 +360,7 @@ async def refresh_models(
     user: dict = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    """用已存密钥重拉模型清单（c-api-config-refresh-stored-key）。
+    """用已存密钥重拉模型清单（c-model-list-auto-refresh）。
 
     编辑态 Key 未重填时「获取模型」走这里：只拉清单轻探针（零生成调用），
     成功按「已选首项保头」写库、失败不覆盖已存清单、不动连接测试结果。

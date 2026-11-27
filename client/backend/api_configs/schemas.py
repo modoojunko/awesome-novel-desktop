@@ -249,6 +249,16 @@ class FetchModelsBody(BaseModel):
     api_format: ApiFormat = "openai"
 
 
+class EnsureModelsBody(BaseModel):
+    """后台保鲜请求体（c-model-list-auto-refresh）。
+
+    config_ids 缺省＝当前用户全部活跃写作配置；force 供手动刷新绕过 TTL/退避。
+    """
+
+    config_ids: list[str] | None = None
+    force: bool = False
+
+
 class TestResultResponse(BaseModel):
     ok: bool
     status: str
