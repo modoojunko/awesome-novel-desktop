@@ -66,11 +66,15 @@ const DOT_GAP_TO_BOX = 3;
 /** 段落末字后缘（插入位）的实测矩形；无文本或无布局环境（测试/jsdom）返回 null 走 CSS 兜底。 */
 function textEndRect(p: HTMLElement): DOMRect | null {
   try {
-    // 取最后一个含可见字的文本节点折叠到末尾——不用段尾整体 collapse（段尾 <br> 会把插入位
-    // 落到下一行行首，right 变成行左缘，圆点会跳行）；尾部空白/零宽字符同理，先剥掉。
+    // 取最后一个含可见字的**正文**文本节点折叠到末尾——不用段尾整体 collapse（段尾 <br>
+    // 会把插入位落到下一行行首，right 变成行左缘，圆点会跳行）；尾部空白/零宽字符同理。
+    // 段内装饰/控件（朱雀判定章 .zq-mark、ProseMirror widget、contenteditable=false）
+    // 的文字不是正文：不跳过会量到左边距里的「AI/疑似」章，圆点被劫持到段落开头。
+    const DECO = ".zq-mark, .ProseMirror-widget, [contenteditable='false']";
     const texts: Text[] = [];
     const walk = (n: Node) => {
       for (let c = n.firstChild; c; c = c.nextSibling) {
+        if (c.nodeType === Node.ELEMENT_NODE && (c as Element).matches(DECO)) continue;
         if (c.nodeType === Node.TEXT_NODE && (c.textContent ?? "").length > 0) {
           texts.push(c as Text);
         } else {

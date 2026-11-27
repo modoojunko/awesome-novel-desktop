@@ -396,6 +396,26 @@ describe("RenweiMarginNotes（左右分边注）", () => {
     document.body.removeChild(editor.parentElement as HTMLElement);
   });
 
+  it("段尾是朱雀判定章（装饰文字）：锚仍取正文末字，不量章里的 AI/疑似", () => {
+    const editor = makeEditor();
+    const p = editor.querySelectorAll("p")[1];
+    p.textContent = "第二段";
+    const mark = document.createElement("span");
+    mark.className = "zq-mark m-warn";
+    mark.setAttribute("contenteditable", "false");
+    mark.textContent = "疑似"; // 朱雀 band 尾章：DOM 上是段内最后一个文本节点
+    p.appendChild(mark);
+    stubLayout(625, 700);
+    stubTextEnd({ left: 200, right: 200, top: 520, bottom: 554, height: 34, x: 200, y: 520 });
+    const setStart = vi.spyOn(Range.prototype, "setStart");
+    render(
+      <RenweiMarginNotes editorEl={editor} findings={findings} settled={{}} onDone={vi.fn()} onSkip={vi.fn()} />,
+    );
+    expect(setStart.mock.calls.find((c) => (c[0] as Text).data === "第二段")?.[1]).toBe(3);
+    expect(setStart.mock.calls.find((c) => (c[0] as Text).data === "疑似")).toBeUndefined();
+    document.body.removeChild(editor.parentElement as HTMLElement);
+  });
+
   it("窄栏兜底 CSS：列缘 min() ＋ 只有 8px 圆点吃事件（防 right:2px 回潮/点击抢光标）", () => {
     const css = readFileSync(path.resolve(process.cwd(), "src/design/book.css"), "utf8");
     const flat = (re: RegExp) => (re.exec(css)?.[1] ?? "").replace(/\s+/g, " ");
