@@ -61,15 +61,19 @@ export interface ModelCatalogState {
   version: number;
 }
 
-let state: ModelCatalogState = {
-  configs: [],
-  loading: true,
-  error: null,
-  refreshing: false,
-  lastErrors: {},
-  ensureError: null,
-  version: 0,
-};
+function initialState(): ModelCatalogState {
+  return {
+    configs: [],
+    loading: true,
+    error: null,
+    refreshing: false,
+    lastErrors: {},
+    ensureError: null,
+    version: 0,
+  };
+}
+
+let state: ModelCatalogState = initialState();
 
 const listeners = new Set<() => void>();
 
@@ -90,14 +94,18 @@ export function getModelCatalog(): ModelCatalogState {
 let loadPromise: Promise<void> | null = null;
 /** 保鲜结果先于配置列表到达时的暂存（启动竞态）：load 完成后合并进来。 */
 let pendingModels: Record<string, { models: string[]; models_updated_at: string | null }> = {};
+/** 代际号：登出清空后 +1，旧账号在途响应据此丢弃（防跨账号串台）。 */
+let epoch = 0;
 
 /** 取配置列表（多实例共用单飞）。每次调用都重新取——与旧 useApiConfigs 挂载取数同口径。 */
 export function loadModelCatalog(): Promise<void> {
   if (loadPromise) return loadPromise;
+  const ep = epoch;
   emit({ loading: true, error: null });
   loadPromise = (async () => {
     try {
       const data = await request<ApiConfig[]>("/api-configs", { apiBase: V1 });
+      if (ep !== epoch) return; // 登出/换号：旧账号的响应作废
       let changed = false;
       const configs = data.map((c) => {
         const pending = pendingModels[c.id];
@@ -116,6 +124,7 @@ export function loadModelCatalog(): Promise<void> {
         version: changed ? state.version + 1 : state.version,
       });
     } catch (e) {
+      if (ep !== epoch) return;
       // 本页就是 /config：503 只会是云托管冷启动，就地报错不强跳
       const msg =
         (e as { status?: number })?.status === 503
@@ -123,7 +132,7 @@ export function loadModelCatalog(): Promise<void> {
           : catalogErrMessage(e, "加载配置失败");
       emit({ loading: false, error: msg });
     } finally {
-      loadPromise = null;
+      if (ep === epoch) loadPromise = null;
     }
   })();
   return loadPromise;
@@ -212,6 +221,7 @@ export function ensureModelsFresh(opts?: {
     return Promise.resolve(null);
   }
   lastEnsureAt = now;
+  const ep = epoch;
   emit({ refreshing: true });
   ensurePromise = (async () => {
     try {
@@ -223,34 +233,36 @@ export function ensureModelsFresh(opts?: {
         method: "POST",
         body: JSON.stringify(body),
       });
+      if (ep !== epoch) return null; // 登出/换号：旧账号的清单不落地
       applyEnsureResult(result);
       return result;
     } catch (e) {
-      emit({ ensureError: catalogErrMessage(e, "模型清单更新失败") });
+      if (ep === epoch) emit({ ensureError: catalogErrMessage(e, "模型清单更新失败") });
       return null;
     } finally {
-      ensurePromise = null;
-      emit({ refreshing: false });
+      if (ep === epoch) {
+        ensurePromise = null;
+        emit({ refreshing: false });
+      }
     }
   })();
   return ensurePromise;
 }
 
-/** 测试隔离：清空进程内状态与节流计时（须在渲染前调用）。 */
-export function resetModelCatalogForTest() {
-  state = {
-    configs: [],
-    loading: true,
-    error: null,
-    refreshing: false,
-    lastErrors: {},
-    ensureError: null,
-    version: 0,
-  };
+/** 清空模型清单 store（登出/换号用：旧账号配置与清单不得留给下一位）。 */
+export function clearModelCatalog() {
+  epoch += 1;
+  state = initialState();
   loadPromise = null;
   ensurePromise = null;
   pendingModels = {};
   lastEnsureAt = 0;
+  for (const l of listeners) l();
+}
+
+/** 测试隔离：清空进程内状态与节流计时（须在渲染前调用）。 */
+export function resetModelCatalogForTest() {
+  clearModelCatalog();
 }
 
 export function useModelCatalog(): ModelCatalogState {
