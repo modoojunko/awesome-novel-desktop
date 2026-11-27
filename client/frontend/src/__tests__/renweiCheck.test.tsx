@@ -5,7 +5,9 @@
  *  边注悬停详情与「标为已改/跳过」动作、以及「去AI味」入口的退役缺席。
  */
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { readFileSync } from "node:fs";
+import path from "node:path";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const mockCheck = vi.fn();
 vi.mock("@/lib/renwei", () => ({
@@ -139,6 +141,12 @@ describe("RenweiCheckModal（人味检测四拍）", () => {
 });
 
 describe("RenweiMarginNotes（左右分边注）", () => {
+  // 断言失败也收回原型桩：否则 430/520 的假 Range 会漏给后续用例
+  afterEach(() => {
+    vi.restoreAllMocks();
+    mockHtmlZoom.value = 1;
+  });
+
   const findings: RenweiFinding[] = [
     { rule_id: "dash", rule: "破折号", sev: "err", para: 1, before: "", hit: "——", after: "", why: "机器味", fix: "改逗号。" },
     { rule_id: "run_len", rule: "句长趋同连串", sev: "warn", para: 3, before: "", hit: "x", after: "", why: "太齐", fix: "拆一句。" },
@@ -252,28 +260,40 @@ describe("RenweiMarginNotes（左右分边注）", () => {
     document.body.removeChild(editor.parentElement as HTMLElement);
   });
 
-  it("窄栏圆点锚＝段尾实测：left/top 跟末字后缘走，不钉列缘/层缘（11-22 判例）", () => {
-    const editor = makeEditor();
-    editor.dataset.bodyRight = "625";
-    const rect = (el: Element) => {
-      const h = el as HTMLElement;
-      const isLayer = h.classList.contains("rw-marginlayer");
-      const right = isLayer ? 700 : Number(h.dataset.bodyRight ?? 0);
-      const width = isLayer ? 700 : right;
-      return { top: 0, bottom: 0, left: 0, right, width, height: 0, x: 0, y: 0 } as DOMRect;
-    };
-    const spy = vi
+  /** 层/正文的矩形桩：层宽 layerW，正文右缘 bodyRight（布局 px 由 zoom 折算） */
+  function stubLayout(bodyRight: number, layerW: number, zoom = 1) {
+    mockHtmlZoom.value = zoom;
+    return vi
       .spyOn(Element.prototype, "getBoundingClientRect")
       .mockImplementation(function (this: Element) {
-        return rect(this);
+        const h = this as HTMLElement;
+        const isLayer = h.classList.contains("rw-marginlayer");
+        const right = isLayer ? layerW : bodyRight;
+        const width = isLayer ? layerW : right;
+        return { top: 0, bottom: 0, left: 0, right, width, height: 0, x: 0, y: 0 } as DOMRect;
       });
-    // jsdom 的 Range 没有 getBoundingClientRect：直接 stub——
+  }
+
+  /** 段尾插入位桩（test-setup 默认给全零矩形，这里按用例覆写） */
+  function stubTextEnd(rect: Partial<DOMRect> = {}) {
+    return vi.spyOn(Range.prototype, "getBoundingClientRect").mockReturnValue({
+      left: 0,
+      right: 0,
+      top: 0,
+      bottom: 0,
+      width: 0,
+      height: 0,
+      x: 0,
+      y: 0,
+      ...rect,
+    } as DOMRect);
+  }
+
+  it("窄栏圆点锚＝段尾实测：left/top 跟末字后缘走，不钉列缘/层缘（11-22 判例）", () => {
+    const editor = makeEditor();
+    stubLayout(625, 700);
     // 段尾插入位（末字后缘）视觉 right=430 / top=520 / 行盒高 34（zoom=1）
-    const rangeProto = Range.prototype as unknown as Record<string, unknown>;
-    const origRangeRect = rangeProto.getBoundingClientRect;
-    rangeProto.getBoundingClientRect = () =>
-      ({ left: 430, right: 430, top: 520, bottom: 554, width: 0, height: 34, x: 430, y: 520 }) as DOMRect;
-    mockHtmlZoom.value = 1;
+    stubTextEnd({ left: 430, right: 430, top: 520, bottom: 554, height: 34, x: 430, y: 520 });
     render(
       <RenweiMarginNotes editorEl={editor} findings={findings} settled={{}} onDone={vi.fn()} onSkip={vi.fn()} />,
     );
@@ -283,34 +303,74 @@ describe("RenweiMarginNotes（左右分边注）", () => {
     expect((screen.getByTestId("rw-note-1") as HTMLElement).style.left).toBe("433px");
     // top ＝ 520 ＋ (34−18)/2 → 圆点盒按末行行高中点对齐
     expect((screen.getByTestId("rw-note-1") as HTMLElement).style.top).toBe("528px");
-    spy.mockRestore();
-    if (typeof origRangeRect === "function") rangeProto.getBoundingClientRect = origRangeRect;
-    else delete rangeProto.getBoundingClientRect;
-    mockHtmlZoom.value = 1;
+    document.body.removeChild(editor.parentElement as HTMLElement);
+  });
+
+  it("大屏 zoom：圆点锚 left/top 同样折算回布局 px（1.25 倍下 433/528 → 347/421）", () => {
+    const editor = makeEditor();
+    stubLayout(625, 700, 1.25);
+    stubTextEnd({ left: 430, right: 430, top: 520, bottom: 554, height: 34, x: 430, y: 520 });
+    render(
+      <RenweiMarginNotes editorEl={editor} findings={findings} settled={{}} onDone={vi.fn()} onSkip={vi.fn()} />,
+    );
+    const note = screen.getByTestId("rw-note-1") as HTMLElement;
+    // 层 700/1.25=560、正文右缘 625/1.25=500 → 仍是窄栏
+    expect((document.querySelector(".rw-marginlayer") as HTMLElement).classList.contains("rw-notes-narrow")).toBe(true);
+    expect(note.style.left).toBe("347px"); // 430/1.25 ＋ 3
+    expect(note.style.top).toBe("421px"); // 520/1.25 ＋ (34/1.25−18)/2 ＝ 420.6
+    document.body.removeChild(editor.parentElement as HTMLElement);
+  });
+
+  it("极窄列：内联锚也钳在覆盖层内（盒宽 18＋2px 内缩）", () => {
+    const editor = makeEditor();
+    stubLayout(625, 700);
+    // 段尾贴到层右缘：left 本应 703，钳到 700−18−2＝680
+    stubTextEnd({ left: 700, right: 700, top: 520, bottom: 554, height: 34, x: 700, y: 520 });
+    render(
+      <RenweiMarginNotes editorEl={editor} findings={findings} settled={{}} onDone={vi.fn()} onSkip={vi.fn()} />,
+    );
+    expect((screen.getByTestId("rw-note-1") as HTMLElement).style.left).toBe("680px");
+    document.body.removeChild(editor.parentElement as HTMLElement);
+  });
+
+  it("宽栏文字列：即使量到段尾也不写内联 left（仍走 --rw-notes-left）", () => {
+    const editor = makeEditor();
+    stubLayout(900, 1200); // 1200 − (900＋16) = 284 ≥ 136 → 宽栏
+    stubTextEnd({ left: 430, right: 430, top: 520, bottom: 554, height: 34, x: 430, y: 520 });
+    render(
+      <RenweiMarginNotes editorEl={editor} findings={findings} settled={{}} onDone={vi.fn()} onSkip={vi.fn()} />,
+    );
+    const layer = document.querySelector(".rw-marginlayer") as HTMLElement;
+    expect(layer.classList.contains("rw-notes-narrow")).toBe(false);
+    const note = screen.getByTestId("rw-note-1") as HTMLElement;
+    expect(note.style.left).toBe("");
+    expect(note.style.top).toBe("0px");
+    document.body.removeChild(editor.parentElement as HTMLElement);
+  });
+
+  it("窄→宽切换：上一档的段尾锚不跟进文字列（stale dots 由 narrow 门挡住）", async () => {
+    const editor = makeEditor();
+    stubLayout(625, 700);
+    stubTextEnd({ left: 430, right: 430, top: 520, bottom: 554, height: 34, x: 430, y: 520 });
+    render(
+      <RenweiMarginNotes editorEl={editor} findings={findings} settled={{}} onDone={vi.fn()} onSkip={vi.fn()} />,
+    );
+    const layer = document.querySelector(".rw-marginlayer") as HTMLElement;
+    const note = screen.getByTestId("rw-note-1") as HTMLElement;
+    expect(note.style.left).toBe("433px");
+    // 窗口拉宽：ResizeObserver 之外的 resize 监听经 rAF 重算 → 宽栏
+    stubLayout(900, 1200);
+    window.dispatchEvent(new Event("resize"));
+    await waitFor(() => expect(layer.classList.contains("rw-notes-narrow")).toBe(false));
+    // dots 仍是上一档的 433，但窄栏门必须把它挡在文字列之外
+    expect(note.style.left).toBe("");
     document.body.removeChild(editor.parentElement as HTMLElement);
   });
 
   it("量测缺席（Range 矩形全零）：窄栏圆点不给内联 left，回落 CSS 列缘兜底", () => {
     const editor = makeEditor();
-    editor.dataset.bodyRight = "625";
-    const rect = (el: Element) => {
-      const h = el as HTMLElement;
-      const isLayer = h.classList.contains("rw-marginlayer");
-      const right = isLayer ? 700 : Number(h.dataset.bodyRight ?? 0);
-      const width = isLayer ? 700 : right;
-      return { top: 0, bottom: 0, left: 0, right, width, height: 0, x: 0, y: 0 } as DOMRect;
-    };
-    const spy = vi
-      .spyOn(Element.prototype, "getBoundingClientRect")
-      .mockImplementation(function (this: Element) {
-        return rect(this);
-      });
-    // 无布局环境（jsdom / 首帧）Range 量不到插入位：全零矩形 → textEndRect 返回 null
-    const rangeProto = Range.prototype as unknown as Record<string, unknown>;
-    const origRangeRect = rangeProto.getBoundingClientRect;
-    rangeProto.getBoundingClientRect = () =>
-      ({ left: 0, right: 0, top: 0, bottom: 0, width: 0, height: 0, x: 0, y: 0 }) as DOMRect;
-    mockHtmlZoom.value = 1;
+    stubLayout(625, 700);
+    stubTextEnd(); // 全零 → textEndRect 返回 null
     render(
       <RenweiMarginNotes editorEl={editor} findings={findings} settled={{}} onDone={vi.fn()} onSkip={vi.fn()} />,
     );
@@ -318,11 +378,37 @@ describe("RenweiMarginNotes（左右分边注）", () => {
     expect(layer.classList.contains("rw-notes-narrow")).toBe(true);
     // 不给内联 left → book.css 窄栏 min(--rw-notes-left, 100%−20px) 兜底
     expect((screen.getByTestId("rw-note-1") as HTMLElement).style.left).toBe("");
-    spy.mockRestore();
-    if (typeof origRangeRect === "function") rangeProto.getBoundingClientRect = origRangeRect;
-    else delete rangeProto.getBoundingClientRect;
-    mockHtmlZoom.value = 1;
     document.body.removeChild(editor.parentElement as HTMLElement);
+  });
+
+  it("段尾带空格/零宽：插入位跳过尾部空白（落回末字后，不折到下一行）", () => {
+    const editor = makeEditor();
+    const ps = editor.querySelectorAll("p");
+    ps[1].textContent = "第二段  \u200b"; // 尾部 2 空格＋零宽
+    stubLayout(625, 700);
+    stubTextEnd({ left: 200, right: 200, top: 520, bottom: 554, height: 34, x: 200, y: 520 });
+    const setStart = vi.spyOn(Range.prototype, "setStart");
+    render(
+      <RenweiMarginNotes editorEl={editor} findings={findings} settled={{}} onDone={vi.fn()} onSkip={vi.fn()} />,
+    );
+    const call = setStart.mock.calls.find((c) => (c[0] as Text).data === "第二段  \u200b");
+    expect(call?.[1]).toBe(3); // 「第二段」3 字后＝末字后；不取 6（含空白）
+    document.body.removeChild(editor.parentElement as HTMLElement);
+  });
+
+  it("窄栏兜底 CSS：列缘 min() ＋ 只有 8px 圆点吃事件（防 right:2px 回潮/点击抢光标）", () => {
+    const css = readFileSync(path.resolve(process.cwd(), "src/design/book.css"), "utf8");
+    const flat = (re: RegExp) => (re.exec(css)?.[1] ?? "").replace(/\s+/g, " ");
+    const box = flat(/\.rw-marginlayer\.rw-notes-narrow \.rw-mnote\s*\{([^}]*)\}/);
+    expect(box).toContain("left: min(var(--rw-notes-left), calc(100% - 20px));");
+    expect(box).toContain("pointer-events: none;");
+    expect(box).not.toContain("right: 2px");
+    expect(flat(/\.rw-marginlayer\.rw-notes-narrow \.rw-mnote \.nt \.dot\s*\{([^}]*)\}/)).toContain(
+      "pointer-events: auto;",
+    );
+    expect(flat(/\.rw-marginlayer\.rw-notes-narrow \.rw-mnote \.dtl\s*\{([^}]*)\}/)).toContain(
+      "pointer-events: auto;",
+    );
   });
 
   it("已处理的段不再渲染边注", () => {

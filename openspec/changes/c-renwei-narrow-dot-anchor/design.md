@@ -42,26 +42,46 @@
 - 理由：每段末字 x 不同（短行可差几百 px），一个 CSS 变量无法表达；内联值也让单测可直接断言。
 - 备选：CSS `left: min(...)` 单一锚——只能表达列缘，正是被否决的形态；仅保留作量测缺席兜底。
 
-### D3：量测缺席回落列缘兜底，且永远不溢出
+### D3：量测缺席回落列缘兜底，两条路径都钳在层内
 
-- 选择：`textEndRect()` 失败（首帧、jsdom/无布局）时不给内联 left；CSS 窄栏规则 `left: min(var(--rw-notes-left), calc(100% - 20px))` 兜底（盒宽 18＋2px 内缩；层已有 `overflow-x:hidden`）。
-- 理由：首帧不能把圆点甩到 0 或层外；极窄列（正文右缘＋16px 放不下 18px 盒）时向左收 4px，8px 圆点仍完整、距正文 ≥15px。
+- 选择：`textEndRect()` 失败（首帧、无布局）时不给内联 left；CSS 窄栏规则 `left: min(var(--rw-notes-left), calc(100% - 20px))` 兜底。有内联锚时组件同样 `Math.min(计算值, layerW − DOT_BOX_W − 2)`（盒宽 18＋2px 内缩；层已有 `overflow-x:hidden`）。
+- 理由：首帧不能把圆点甩到 0 或层外；极窄列（正文右缘＋16px 放不下 18px 盒）时向左收 4px，8px 圆点仍完整、距正文 ≥15px。两条路径同一钳制口径，未来纸边距改动也不会让内联锚越界。
 - 备选：量测失败就隐藏圆点——丢指路入口；弃。
 
-### D4：取最后一个文本节点，而不是段落末尾整体 collapse
+### D4：取最后一个含可见字的文本节点，跳过尾部空白
 
-- 选择：递归收集段内非空 `Text` 节点，取最后一个 `setStart/setEnd(last, last.length)`；Range 新建后起止都显式落到末字后。
-- 理由：段落末尾若有 `<br>` 等空节点，整体 collapse 会把插入位落到下一行行首，圆点跳行；Range 新建默认折叠在 `(document,0)`，设置不全也会量到错误位置。
+- 选择：递归收集段内非空 `Text` 节点，从尾往前找第一个 `trim()` 非空的节点；再剥掉尾部空白/零宽字符（`/[\s\u200b]+$/`），`setStart/setEnd(last, end)`。
+- 理由：段落末尾若有 `<br>` 等空节点，整体 collapse 会把插入位落到下一行行首，圆点跳行；尾部空格/零宽字符也会让插入位在满行时折到下一行行首。Range 新建默认折叠在 `(document,0)`，起止都要显式落到末字后。
 
 ### D5：顺带修 RO 闭包的 stale `groups`
 
 - 选择：`groupsRef.current = groups` 每次渲染同步；`measure()` 从 ref 取当轮问题段。
 - 理由：ResizeObserver 的 deps 只挂 `editorEl`（避免每次 findings 变化重挂观察器），闭包里的 `groups` 会过期；圆点锚依赖 findings，按旧组重算会互相覆盖/残留。
 
+### D6：窄栏整盒不吃事件，只有圆点与详情卡可交互
+
+- 选择：`.rw-notes-narrow .rw-mnote { pointer-events:none }`，`.nt .dot` 与 `.dtl` 恢复 `auto`。
+- 理由：18px 盒从末字后 3px 起压住纸边距，正是「点段尾落光标/继续打字」的点击带；整盒吃事件会抢走 contenteditable 的 mousedown/focus。`hover` 会命中祖先，悬停圆点仍亮详情卡；卡内按钮在 `.dtl` 上恢复 auto，操作不受影响。
+- 验证：真 Chromium 探针——末字右侧 +1/+16px 的 `elementFromPoint` 均命中 `<p>`；悬停圆点 `.dtl display=block`；点卡内按钮回调触发。
+- 备选：`onMouseDown` 转发焦点到 editor——要处理 caret 落点/选区，复杂且易与编辑器手势冲突；弃。
+
+### D7：逐字编辑用 MutationObserver（rAF 合并）重锚
+
+- 选择：在既有 `[editorEl]` 观察器 effect 里加 `MutationObserver`（`subtree/characterData/childList`），与 RO 共用一个 rAF；清理时 `disconnect()`。
+- 理由：圆点 x 现在依赖末行内容，而输入不改变尺寸、RO 抓不到；不重算会停在旧文字末尾直到 0.7s 重扫回来（期间可能压在刚打的字上）。rAF 合并避免每个字符都测量。
+- 备选：每次 findings 重扫才重锚——有最长 ~1s 的错位窗口；弃。
+
+### D8：宽栏不算段尾锚
+
+- 选择：先算 `isNarrow`，只有窄栏才遍历问题段做 Range 量测并 `setDots`；宽栏沿用 `--rw-notes-left` 文字列，`dots` 不更新。
+- 理由：滚动 rAF 里宽栏白跑 N 次 Range 读取＋state churn；`narrow ? dots[g.para] : undefined` 的门同时挡住「窄→宽」切换时上一档的 stale 段尾锚。
+- 验证：单测覆盖宽栏无内联 left，以及窄→宽切换后 stale dots 不跟进。
+
 ## Risks / Trade-offs
 
-- [每个滚动帧都要为每段做 Range 量测，成本高于纯 top 测量] → 既有 measure 已按 rAF 节流、只在滚动/resize/布局变化触发；问题段数量级为个位数（人味 findings 按段聚合），Range 量测在毫秒级；宽栏不渲染内联锚但仍复用同一次循环，成本不变。
-- [jsdom 不实现 `Range.getBoundingClientRect`] → 单测显式 stub 该原型方法并恢复；真实浏览器用探针验证 Range 插入位矩形行为（Chrome）。
+- [每次滚动帧为每个问题段做 Range 量测，成本高于纯 top 测量] → 只在窄栏做（D8），measure 已按 rAF 节流；问题段数量级为个位数（按段聚合），Range 量测在毫秒级。逐字输入另加 MutationObserver，同样 rAF 合并。
+- [jsdom 的 Range 几何由 test-setup 给全零桩] → 单测用 `vi.spyOn` 覆写并 `afterEach` 收桩（断言失败也不漏桩）；真 Chromium 探针验证插入位矩形/collapsed range 行为。
+- [非 Chromium 的 WebKit 对 collapsed Range 可能返回 height 0] → 桌面端是 WebView2/Chromium，探针覆盖该目标；height 0 时圆点会偏上 9px（已知残留，不阻塞）。
 - [详情卡仍朝左展开，圆点更靠左时覆盖更多正文] → 窄栏本来就没有右侧空间；详情卡是 hover 浮层，不改布局；圆点仍离正文 ≥6px，覆盖在预期内。
 - [内联 left 与 CSS 兜底并存，可能出现一帧跳位] → `useLayoutEffect` 在绘制前完成测量与状态提交；首帧兜底本身就是可接受的「列缘位置」，不会甩到层外。
 

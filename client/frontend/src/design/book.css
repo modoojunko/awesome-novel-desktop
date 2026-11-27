@@ -2241,10 +2241,14 @@ button.dep-row:hover{background:var(--hl)}
    末行写满贴列缘；都不写死。判例（11-22 两次真机）：钉层右缘＝脱离段落飘到滚动
    条旁；钉列缘＝短行时离文字太远（「行的最右侧」）。
    下面的 min() 只是量测缺席（首帧/无布局环境）的兜底——窄到连 18px 圆点都
-   放不下时收到层右缘，防被 overflow-x 裁没。 */
-.rw-marginlayer.rw-notes-narrow .rw-mnote { left: min(var(--rw-notes-left), calc(100% - 20px)); width: 18px; padding: 5px 3px; }
+   放不下时收到层右缘，防被 overflow-x 裁没（有内联锚时组件自己钳同一边界）。
+   交互：整盒 pointer-events:none——18px 盒压在末字后侧，若吃点击会抢掉
+   「点段尾落光标/继续打字」；只有 8px 圆点与展开后的详情卡接事件
+   （:hover 仍会命中父节点，卡片按钮照常可点）。 */
+.rw-marginlayer.rw-notes-narrow .rw-mnote { left: min(var(--rw-notes-left), calc(100% - 20px)); width: 18px; padding: 5px 3px; pointer-events: none; }
 .rw-marginlayer.rw-notes-narrow .rw-mnote .nt { border-top: none; font-size: 0; line-height: 0; padding: 0; }
-.rw-marginlayer.rw-notes-narrow .rw-mnote .nt .dot { margin: 0; width: 8px; height: 8px; vertical-align: 0; }
+.rw-marginlayer.rw-notes-narrow .rw-mnote .nt .dot { margin: 0; width: 8px; height: 8px; vertical-align: 0; pointer-events: auto; }
+.rw-marginlayer.rw-notes-narrow .rw-mnote .dtl { pointer-events: auto; }
 .rw-mnote:hover { z-index: 70; }
 .rw-mnote:hover .dtl { display: block; }
 .rw-mnote .dtl .d-r { font-size: 11.5px; color: var(--muted); line-height: 1.65; padding: 5px 0; }
