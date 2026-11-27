@@ -407,3 +407,31 @@ def test_域收口_三工具全登记():
     assert validate_scopes(names) == []
     thread_tools = tools_for_thread("ch:prose")
     assert {"kb_search_craft", "read_write_prompt", "draft_prose_plan"} <= thread_tools
+
+
+def test_书副本全书级条目计入草稿来源():
+    """c-agent-prose-kb-picks review 修复：启用库的书（书级副本）也要算全书级
+    文笔/文风，不能因为 load_style_entries 只查账号库＋基线就误报「没有条目」。"""
+    from models.kb import KbBookEntry
+
+    uid, nid, _ctx, _ids = _run(_seed())
+
+    async def _add():
+        async with async_session() as db:
+            db.add(KbBookEntry(
+                novel_id=nid, user_id=uid, genre="都市异能", concept="文笔",
+                title="白描克制", instruction="白描克制：叙述只写看得见的动作。",
+                payload_json="{}", when_json="{}", status="active",
+            ))
+            await db.commit()
+
+    _run(_add())
+
+    async def _go():
+        from assistant.tools_kb import _book_base_style_entries
+
+        async with async_session() as db:
+            return await _book_base_style_entries(db, nid, "都市异能")
+
+    rows = _run(_go())
+    assert [getattr(r, "title", "") for r in rows] == ["白描克制"]

@@ -549,6 +549,9 @@ async def _draft_prose_plan(
     title = str(ch.title or "") or chapter_ref
     head = f"正文方案已出（{title}）"
     note = ""
+    # 三区提示前置：回执按 400 字截尾，放最后会被 invalid/条目名挤掉
+    if style_gap:
+        note += "（本书文风三区未配置，建议先到设定·文风按题材填文风）"
     if invalid:
         named = "、".join(invalid[:3])
         note += f"（{len(invalid)} 个条目 id 无效已剔除：{named}）"
@@ -566,8 +569,6 @@ async def _draft_prose_plan(
         note += "：未带有效写法条目——核对提示词里引用的条目 id"
     else:
         note += "：未带写法条目——提示词里若引用了知识库条目，请把 entry_id 放进 picks"
-    if style_gap:
-        note += "；本书文风三区未配置，建议先到设定·文风按题材填文风"
     return _tool_result_from_card(
         "prose_plan",
         payload,

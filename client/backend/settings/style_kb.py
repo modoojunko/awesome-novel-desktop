@@ -124,7 +124,21 @@ async def load_style_entries(
     entries = [e for e in rows if not _when_of(e)]
     # 同题材在前；两段内用户条目在前、基线在后（sorted 稳定，语义明确）
     entries.sort(key=lambda e: 0 if e.genre == theme else 1)
-    return entries
+    # 条目级去重：用户副本与基线同文时只留先出现的（用户在前）——草稿出口
+    # 不再依赖下游 members 的文本去重，避免同一句在草稿里出现两次。
+    seen: set[tuple[str, str, str]] = set()
+    out: list[Any] = []
+    for e in entries:
+        key = (
+            str(getattr(e, "concept", "") or ""),
+            str(getattr(e, "title", "") or ""),
+            str(getattr(e, "instruction", "") or ""),
+        )
+        if key in seen:
+            continue
+        seen.add(key)
+        out.append(e)
+    return out
 
 
 async def style_draft_from_kb(

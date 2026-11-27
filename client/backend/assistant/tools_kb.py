@@ -206,6 +206,38 @@ def _book_style_draft_lines(entries: list, *, theme: str, limit: int = 6) -> lis
     ]
 
 
+async def _book_base_style_entries(db, novel_id: str, genre: str) -> list:
+    """书级副本里的全书级文风/文笔条目（when 空）——草稿与计数用。
+
+    书副本（kb_book_entries）是开书时的快照，`load_style_entries` 只查账号库＋基线，
+    不覆盖副本；这里补上，避免启用库的书被误报「库内没有文笔/文风条目」。
+    """
+    from models.kb import KbBookEntry
+
+    rows = (
+        await db.execute(
+            select(KbBookEntry).where(
+                KbBookEntry.novel_id == novel_id,
+                KbBookEntry.status == "active",
+                KbBookEntry.concept.in_(("文风", "文笔")),
+            )
+        )
+    ).scalars().all()
+    out = []
+    for e in rows:
+        try:
+            when = json.loads(e.when_json or "{}")
+        except ValueError:
+            when = {}
+        if isinstance(when, dict) and when:
+            continue
+        if str(getattr(e, "genre", "") or "") not in (genre, ""):
+            continue
+        out.append(e)
+    out.sort(key=lambda e: 0 if str(getattr(e, "genre", "") or "") == genre else 1)
+    return out
+
+
 async def _kb_search_craft(
     ctx: ToolContext,
     chapter_ref: str = "",
@@ -346,7 +378,7 @@ async def _kb_search_craft(
             from settings.style_kb import load_style_entries
 
             base_entries = (
-                []
+                await _book_base_style_entries(db, book_scope, genre)
                 if book_scope
                 else await load_style_entries(db, user_id=ctx.user_id, theme=genre)
             )
@@ -399,8 +431,11 @@ async def _kb_search_craft(
         )
 
     def _fmt(scored: list) -> list[str]:
+        # 每段上限 6：两段候选＋草稿合计要落进 2600 字回执预算，否则段头/草稿
+        # 会被 _clip 从尾部截掉（分桶就白分了）。
+        cap = min(limit, 6)
         out = []
-        for _score, e in scored[:limit]:
+        for _score, e in scored[:cap]:
             when = _when_zh(e)
             line = f"- [{e.concept}] {e.title or e.id}（id: {e.id}）"
             line += f"｜{_clip(str(e.instruction or ''), 90)}"
