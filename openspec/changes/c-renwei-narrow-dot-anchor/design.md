@@ -76,7 +76,7 @@
 
 - 选择：先算 `isNarrow`，只有窄栏才遍历问题段做 Range 量测并 `setDots`；宽栏沿用 `--rw-notes-left` 文字列，`dots` 不更新。
 - 理由：滚动 rAF 里宽栏白跑 N 次 Range 读取＋state churn；`narrow ? dots[g.para] : undefined` 的门同时挡住「窄→宽」切换时上一档的 stale 段尾锚。
-- 验证：单测覆盖宽栏无内联 left、窄→宽切换后 stale dots 不跟进，以及「段内续写 → MutationObserver 重锚 → left 更新」。
+- 验证：单测覆盖宽栏无内联 left、窄→宽切换后 stale dots 不跟进，以及「characterData（真实打字）与 childList（IME/粘贴）两种变更都触发重锚、left 更新」。
 
 ## Risks / Trade-offs
 

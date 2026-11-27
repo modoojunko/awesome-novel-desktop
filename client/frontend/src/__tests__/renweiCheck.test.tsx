@@ -4,7 +4,7 @@
  *  说明页先讲清流程（不直接出结果）、结果页字段齐全、短章「打不了分」、
  *  边注悬停详情与「标为已改/跳过」动作、以及「去AI味」入口的退役缺席。
  */
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { readFileSync } from "node:fs";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -141,8 +141,11 @@ describe("RenweiCheckModal（人味检测四拍）", () => {
 });
 
 describe("RenweiMarginNotes（左右分边注）", () => {
-  // 断言失败也收回原型桩：否则 430/520 的假 Range 会漏给后续用例
+  // 断言失败也收回原型桩：否则 430/520 的假 Range 会漏给后续用例。
+  // cleanup 卸载组件，连带断开 MutationObserver/window 监听（否则旧组件留在进程里
+  // 一起响应后续 dispatch 的 resize）。
   afterEach(() => {
+    cleanup();
     vi.restoreAllMocks();
     mockHtmlZoom.value = 1;
   });
@@ -416,7 +419,7 @@ describe("RenweiMarginNotes（左右分边注）", () => {
     document.body.removeChild(editor.parentElement as HTMLElement);
   });
 
-  it("逐字编辑：MutationObserver 触发重锚，圆点跟到新的末字", async () => {
+  it("逐字编辑：characterData/childList 变更都触发重锚（rAF 合并）", async () => {
     const editor = makeEditor();
     stubLayout(625, 700);
     const rangeSpy = stubTextEnd({ left: 430, right: 430, top: 520, bottom: 554, height: 34, x: 430, y: 520 });
@@ -424,8 +427,9 @@ describe("RenweiMarginNotes（左右分边注）", () => {
       <RenweiMarginNotes editorEl={editor} findings={findings} settled={{}} onDone={vi.fn()} onSkip={vi.fn()} />,
     );
     const note = screen.getByTestId("rw-note-1") as HTMLElement;
+    const p = editor.querySelectorAll("p")[1];
     expect(note.style.left).toBe("433px");
-    // 模拟在段内续写：末字后缘移到 500，MutationObserver 应经 rAF 重算
+    // ① 真实打字：改已有文本节点 data（characterData 变更）
     rangeSpy.mockReturnValue({
       left: 500,
       right: 500,
@@ -436,8 +440,21 @@ describe("RenweiMarginNotes（左右分边注）", () => {
       x: 500,
       y: 520,
     } as DOMRect);
-    editor.querySelectorAll("p")[1].appendChild(document.createTextNode("又多写了一句。"));
+    (p.firstChild as Text).data = "第二段又多了几字";
     await waitFor(() => expect(note.style.left).toBe("503px"));
+    // ② IME/粘贴：新增文本节点（childList 变更）
+    rangeSpy.mockReturnValue({
+      left: 600,
+      right: 600,
+      top: 520,
+      bottom: 554,
+      width: 0,
+      height: 34,
+      x: 600,
+      y: 520,
+    } as DOMRect);
+    p.appendChild(document.createTextNode("再补一句。"));
+    await waitFor(() => expect(note.style.left).toBe("603px"));
     document.body.removeChild(editor.parentElement as HTMLElement);
   });
 
