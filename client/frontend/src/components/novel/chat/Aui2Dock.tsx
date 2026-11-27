@@ -47,7 +47,7 @@ import type { FeatureKey } from "@/lib/features";
 import { useFeature } from "@/hooks/useTier";
 import { useModelStatus } from "@/hooks/useModelStatus";
 import { ModelPicker } from "@/components/novel/workbench/modals";
-import type { ModelSelection } from "@/types/api-config";
+import type { FlatModelOption, ModelSelection } from "@/types/api-config";
 import {
   streamAssistantChat,
   loadAssistantSession,
@@ -116,6 +116,13 @@ const DockCtx = createContext<{
   /** 正文方案卡「开始生成」宿主桥（c-agent-dialog-prose）：确认弹窗与开流在宿主；
    *  onStarted 只在真正开流后回调（弹窗取消则永不回调——卡面不得提前翻「已开始」） */
   proseStart?: (payload: Record<string, unknown>, onStarted?: () => void) => void;
+  /** 方案卡生成模型行（c-prose-plan-review-model）：复用 dock 顶层单次取数的
+   *  模型状态——历史回放多张卡时不再各自请求 /ai-model。 */
+  proseModel?: {
+    options: FlatModelOption[];
+    bookKey: string;
+    aiState: string;
+  };
 } | null>(null);
 
 /** 产物卡（cardConfig 注册：code="artifact"）——复用既有 CardBody，视觉零变化；
@@ -130,27 +137,23 @@ const DockCtx = createContext<{
  *  不继承对话底栏模型；选择只作用于本次生成（卡内本地态，重开卡回本书模型）。 */
 function ProsePlanBody({
   payload,
-  projectId,
   modelSel,
   onModelChange,
 }: {
   payload: Record<string, unknown>;
-  projectId?: string;
   modelSel: ModelSelection | null;
   onModelChange: (sel: ModelSelection | null) => void;
 }) {
   const [expanded, setExpanded] = useState(false);
-  const modelStatus = useModelStatus(projectId);
-  const bookKey =
-    modelStatus.currentConfigId && modelStatus.currentModel
-      ? `${modelStatus.currentConfigId}::${modelStatus.currentModel}`
-      : "";
+  // 模型状态来自 dock 顶层（单次取数）——历史回放多张卡不各自请求 /ai-model
+  const modelInfo = useContext(DockCtx)?.proseModel;
+  const bookKey = modelInfo?.bookKey ?? "";
   const modelKey = modelSel
     ? `${modelSel.api_config_id}::${modelSel.model}`
     : bookKey;
   // 单模型/未就绪不渲染（与 AiModal 的 ModelField 同口径）
   const showModel =
-    modelStatus.aiState === "ready" && modelStatus.modelOptions.length >= 2;
+    modelInfo?.aiState === "ready" && (modelInfo?.options.length ?? 0) >= 2;
   const picks = Array.isArray(payload.picks)
     ? (payload.picks as Array<Record<string, unknown>>)
     : [];
@@ -209,11 +212,11 @@ function ProsePlanBody({
         <div className="cd-plan-model" data-testid="prose-plan-model">
           <span className="cd-plan-model-label">生成模型</span>
           <ModelPicker
-            options={modelStatus.modelOptions}
+            options={modelInfo?.options ?? []}
             value={modelKey}
             bookValue={bookKey}
             onPick={(k) => {
-              const o = modelStatus.modelOptions.find(
+              const o = modelInfo?.options.find(
                 (m) => `${m.api_config_id}::${m.model}` === k,
               );
               if (!o) return;
@@ -358,7 +361,6 @@ function ArtifactCard(props: { data: ArtifactCardData; id?: string }) {
       {isProsePlan ? (
         <ProsePlanBody
           payload={payload}
-          projectId={data.projectId}
           modelSel={proseModel}
           onModelChange={setProseModel}
         />
@@ -1331,8 +1333,27 @@ export function Aui2Dock({
     [onEffects],
   );
   const dockCtx = useMemo(
-    () => ({ apiRef, up: threadUp, markAdopted, refreshDomain, proseStart: onProsePlanStart }),
-    [threadUp, markAdopted, refreshDomain, onProsePlanStart],
+    () => ({
+      apiRef,
+      up: threadUp,
+      markAdopted,
+      refreshDomain,
+      proseStart: onProsePlanStart,
+      proseModel: {
+        options: modelStatus.modelOptions,
+        bookKey: bookModelKey,
+        aiState: modelStatus.aiState,
+      },
+    }),
+    [
+      threadUp,
+      markAdopted,
+      refreshDomain,
+      onProsePlanStart,
+      modelStatus.modelOptions,
+      bookModelKey,
+      modelStatus.aiState,
+    ],
   );
 
   /** 过程泡泡：思考/工具卡挂本轮 assistant 消息（正文之上，coding agent 顺序） */

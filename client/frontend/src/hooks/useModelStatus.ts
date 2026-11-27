@@ -1,6 +1,6 @@
 // 模型就绪态与选型（c-fetch-unify 收编）：手写 fetch 迁回中心栈 request()。
 // fetchModel 失败不再静默停留旧值——错误态可见（c-silent-data-guards 同型口径）。
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import type { AiState, FlatModelOption, ModelStatus } from "../types/api-config";
 import { useApiConfigs } from "./useApiConfigs";
 import { errMessage, request } from "../lib/api";
@@ -63,20 +63,24 @@ export function useModelStatus(projectId: string | undefined) {
   };
   const status: ModelStatus = statusMap[aiState] ?? "no_key";
 
-  // Build flat model options
-  const modelOptions: FlatModelOption[] = [];
-  for (const config of configs) {
-    if (config.models && config.models.length > 0) {
-      for (const model of config.models) {
-        modelOptions.push({
-          api_config_id: config.id,
-          config_name: config.name,
-          model,
-          vendor: config.vendor,
-        });
+  // Build flat model options（引用稳定：dock/方案卡把它放进 context 依赖，
+  // 每次 render 新数组会让整棵对话树白重渲染）
+  const modelOptions: FlatModelOption[] = useMemo(() => {
+    const out: FlatModelOption[] = [];
+    for (const config of configs) {
+      if (config.models && config.models.length > 0) {
+        for (const model of config.models) {
+          out.push({
+            api_config_id: config.id,
+            config_name: config.name,
+            model,
+            vendor: config.vendor,
+          });
+        }
       }
     }
-  }
+    return out;
+  }, [configs]);
 
   const selectModel = async (
     apiConfigId: string | null,
