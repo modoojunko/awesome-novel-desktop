@@ -46,6 +46,7 @@ import {
 import type { FeatureKey } from "@/lib/features";
 import { useFeature } from "@/hooks/useTier";
 import { useModelStatus } from "@/hooks/useModelStatus";
+import { useEnsureModelsFresh } from "@/lib/modelCatalog";
 import { ModelPicker } from "@/components/novel/workbench/modals";
 import {
   streamAssistantChat,
@@ -1097,6 +1098,8 @@ export function Aui2Dock({
   scopeRef.current = scope;
   /** 助手模型候选（底栏模型 pill；默认回落本书模型，不改本书绑定） */
   const modelStatus = useModelStatus(projectId);
+  // 进工作台（dock 常驻）即后台保鲜：底栏模型 pill 与弹层清单都跟着 store 更新
+  useEnsureModelsFresh();
   const bookModelKey =
     modelStatus.currentConfigId && modelStatus.currentModel
       ? `${modelStatus.currentConfigId}::${modelStatus.currentModel}`

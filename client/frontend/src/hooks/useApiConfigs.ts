@@ -1,36 +1,28 @@
 // 模型配置域数据源（c-fetch-unify 收编）：原 9 处手写 fetch + 自拼 authHeaders
 // 全部迁回中心栈 request()——401 踢出／503 全局提示／member_required 广播不再缺位。
-import { useCallback, useEffect, useState } from "react";
+//
+// c-model-list-auto-refresh：状态收进 lib/modelCatalog 模块级 store（多实例共享同一份
+// 配置与清单）。后台保鲜（ensure-models-fresh）成功后所有订阅者一起更新——本书模型、
+// 助手底栏、拆书页不再各自读一份过期快照。
+import { useCallback, useEffect } from "react";
 import type { ApiConfig, FetchModelsResult, ThinkingEffort } from "../types/api-config";
-import { errMessage, request } from "../lib/api";
+import { request } from "../lib/api";
+import {
+  loadModelCatalog,
+  patchModelCatalogStatus,
+  removeModelCatalogConfig,
+  upsertModelCatalogConfig,
+  useModelCatalog,
+} from "../lib/modelCatalog";
 
 const V1 = "/api/v1";
 
 export function useApiConfigs() {
-  const [configs, setConfigs] = useState<ApiConfig[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-
-  const fetchConfigs = useCallback(async () => {
-    setLoading(true);
-    setError(null);
-    try {
-      const data = await request<ApiConfig[]>(`/api-configs`, { apiBase: V1 });
-      setConfigs(data);
-    } catch (e) {
-      // 本页就是 /config：503 只会是云托管冷启动，就地报错不强跳
-      const msg = (e as { status?: number })?.status === 503
-        ? "云端服务唤醒中，请稍后重试"
-        : errMessage(e, "加载配置失败");
-      setError(msg);
-    } finally {
-      setLoading(false);
-    }
-  }, []);
+  const { configs, loading, error } = useModelCatalog();
 
   useEffect(() => {
-    fetchConfigs();
-  }, [fetchConfigs]);
+    void loadModelCatalog();
+  }, []);
 
   const addConfig = async (body: {
     name: string;
@@ -53,7 +45,7 @@ export function useApiConfigs() {
       if ((e as { status?: number })?.status === 409) throw new Error("名称已被使用");
       throw e;
     }
-    setConfigs((prev) => [config, ...prev]);
+    upsertModelCatalogConfig(config);
     return config;
   };
 
@@ -72,7 +64,7 @@ export function useApiConfigs() {
       if ((e as { status?: number })?.status === 409) throw new Error("名称已被使用");
       throw e;
     }
-    setConfigs((prev) => prev.map((c) => (c.id === id ? config : c)));
+    upsertModelCatalogConfig(config);
     return config;
   };
 
@@ -83,7 +75,7 @@ export function useApiConfigs() {
       `/api-configs/${id}`,
       { apiBase: V1, method: "DELETE" },
     );
-    setConfigs((prev) => prev.filter((c) => c.id !== id));
+    removeModelCatalogConfig(id);
     return result;
   };
 
@@ -93,11 +85,11 @@ export function useApiConfigs() {
       apiBase: V1,
       method: "POST",
     });
-    setConfigs((prev) => [config, ...prev]);
+    upsertModelCatalogConfig(config);
     return config;
   };
 
-  const refresh = fetchConfigs;
+  const refresh = loadModelCatalog;
 
   // 后台状态探针（挂载/轮询形态）：保持静默降级——非 ok/网络失败不惊动用户
   const refreshStatus = useCallback(async () => {
@@ -106,25 +98,37 @@ export function useApiConfigs() {
         `/api-configs/status`,
         { apiBase: V1, quiet: true },
       );
-      setConfigs((prev) =>
-        prev.map((c) => {
-          const statusEntry = data.find((s) => s.id === c.id);
-          return statusEntry
-            ? {
-                ...c,
-                last_test_status: statusEntry.last_test_status ?? null,
-                models: statusEntry.models ?? c.models,
-              }
-            : c;
-        }),
+      patchModelCatalogStatus(
+        data.map((entry) => ({
+          id: entry.id,
+          last_test_status: entry.last_test_status ?? null,
+          models: entry.models ?? undefined,
+        })),
       );
     } catch {
-      /* 探测失败保持静默（原口径）；真实故障由 fetchConfigs 的错误态兜底 */
+      /* 探测失败保持静默（原口径）；真实故障由 loadModelCatalog 的错误态兜底 */
     }
   }, []);
 
-  const refreshModels = async (id: string) => {
-    return request(`/api-configs/${id}/refresh-models`, { apiBase: V1, method: "POST" });
+  // 已存密钥轻探针（c-model-list-auto-refresh）：编辑态 Key 未重填时拉清单。
+  // 成功带清单就顺手回填列表卡片（弹窗内的提交拼装另由页面用返回值更新 editConfig）。
+  const refreshModels = async (id: string): Promise<FetchModelsResult> => {
+    const result = await request<FetchModelsResult>(`/api-configs/${id}/refresh-models`, {
+      apiBase: V1,
+      method: "POST",
+    });
+    if (result.ok && result.models) {
+      patchModelCatalogStatus([
+        {
+          id,
+          models: result.models,
+          ...(result.models_updated_at
+            ? { models_updated_at: result.models_updated_at }
+            : {}),
+        },
+      ]);
+    }
+    return result;
   };
 
   // model 可选（编辑弹窗改选模型后试连）：探针优先模型覆盖，缺省用已存 models 首项
@@ -146,19 +150,17 @@ export function useApiConfigs() {
         ? { body: JSON.stringify(overrides) }
         : {}),
     });
-    // Refresh configs to pick up persisted test status
+    // 持久化的连接状态/清单回填共享 store（其它选择器一起看到）
     if (result.ok || result.status) {
-      setConfigs((prev) =>
-        prev.map((c) =>
-          c.id === id
-            ? {
-                ...c,
-                last_test_status: (result.status ?? c.last_test_status) as ApiConfig["last_test_status"],
-                models: result.models ?? c.models,
-              }
-            : c,
-        ),
-      );
+      patchModelCatalogStatus([
+        {
+          id,
+          last_test_status: (result.status ?? undefined) as
+            | ApiConfig["last_test_status"]
+            | undefined,
+          models: result.models ?? undefined,
+        },
+      ]);
     }
     return result;
   };

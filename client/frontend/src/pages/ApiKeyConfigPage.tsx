@@ -18,11 +18,14 @@ import { relTime } from "../lib/reltime";
 import { toast } from "../lib/toast";
 import ZhuquePanel from "../components/api-config/ZhuquePanel";
 import ImageConfigPanel from "../components/image/ImageConfigPanel";
+import { useEnsureModelsFresh } from "../lib/modelCatalog";
 
 /** 模型配置屏（model-config.html parity：notice + 用量面板 + cfg-cards + 弹窗群） */
 export default function ApiKeyConfigPage() {
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
+  // 进配置页即后台保鲜（服务端 TTL 内不出网）——用户点开编辑弹窗前清单已更新
+  useEnsureModelsFresh();
   // 页签：写作大模型 / 朱雀 / 图像模型；?tab=zhuque|image 深链；?add 强制大模型
   const [cfgTab, setCfgTab] = useState<"llm" | "zhuque" | "image">(() => {
     const tab = searchParams.get("tab");
@@ -36,7 +39,7 @@ export default function ApiKeyConfigPage() {
       navigate("/login", { replace: true });
     }
   }, [navigate]);
-  const { configs, loading, error, refresh, addConfig, updateConfig, deleteConfig, restoreConfig, refreshStatus, testConfig, testRawConfig, fetchRawModels } = useApiConfigs();
+  const { configs, loading, error, refresh, addConfig, updateConfig, deleteConfig, restoreConfig, refreshStatus, testConfig, testRawConfig, fetchRawModels, refreshModels } = useApiConfigs();
   const { data: usageData, loading: usageLoading, refresh: refreshUsage } = useUsageStats({});
   const [showForm, setShowForm] = useState(false);
   const [editConfig, setEditConfig] = useState<ApiConfig | null>(null);
@@ -143,6 +146,17 @@ export default function ApiKeyConfigPage() {
     }
     refreshUsage();
   }, [configs.length, refreshStatus, refreshUsage]);
+
+  // 后台保鲜把清单更新进 store 后，正在编辑的目标同步跟上（弹窗里模型列表就地刷新；
+  // 保存时 models 由 editConfig 拼装，不同步会把新清单按旧快照覆盖回去）
+  useEffect(() => {
+    if (!editConfig) return;
+    const latest = configs.find((c) => c.id === editConfig.id);
+    if (!latest) return;
+    if ((latest.models ?? []).join("|") !== (editConfig.models ?? []).join("|")) {
+      setEditConfig(latest);
+    }
+  }, [configs, editConfig]);
 
   const usage = usageData as UsageSummary | null;
 
@@ -297,6 +311,22 @@ export default function ApiKeyConfigPage() {
               })
         }
         onFetchModels={async (data) => fetchRawModels(data)}
+        onRefreshStoredModels={
+          // 编辑态 Key 未重填：用已存密钥拉清单（c-model-list-auto-refresh）。
+          // 落库清单变了要把 editConfig 一并更新——保存时 models 由它拼（漏更新会把
+          // 刚拉到的清单按旧快照覆盖回去）。
+          editConfig
+            ? async () => {
+                const r = await refreshModels(editConfig.id);
+                if (r.ok && r.models) {
+                  setEditConfig((prev) =>
+                    prev && prev.id === editConfig.id ? { ...prev, models: r.models! } : prev,
+                  );
+                }
+                return r;
+              }
+            : undefined
+        }
         onOpenGuide={() => { setGuideTab(guideTabForVendor(formVendorRef.current)); setGuideOpen(true); }}
         onVendorChange={(id) => { formVendorRef.current = id; }}
       />

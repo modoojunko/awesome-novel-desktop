@@ -61,6 +61,8 @@ export interface FetchModelsResult {
   ok: boolean;
   status: ConnectionStatus | 'ok';
   models?: string[] | null;
+  /** 成功落库时的清单时间戳（c-model-list-auto-refresh；失败/空清单不出现） */
+  models_updated_at?: string | null;
   candidates?: string[];
   note?: string;
   error?: string;

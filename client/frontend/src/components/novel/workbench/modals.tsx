@@ -17,6 +17,7 @@ import { cnNum } from "@/lib/nodeTitle";
 import { toast } from "@/lib/toast";
 import { useModelStatus } from "@/hooks/useModelStatus";
 import { htmlZoom, placePanel, type PanelPlacement } from "@/lib/panelAnchor";
+import { useEnsureModelsFresh, useModelCatalog } from "@/lib/modelCatalog";
 import type { ModelSelection } from "@/types/api-config";
 
 const fmt = (n: number) => n.toLocaleString("zh-CN");
@@ -484,6 +485,19 @@ export function ModelPicker({
   const searchRef = useRef<HTMLInputElement | null>(null);
   const triggerRef = useRef<HTMLButtonElement | null>(null);
 
+  // 清单保鲜（c-model-list-auto-refresh）：打开弹层时兜底触发一次（服务端 TTL 内
+  // 不出网），并订阅全局保鲜态显示「正在更新/可能不是最新」轻提示。
+  useEnsureModelsFresh(open);
+  const catalog = useModelCatalog();
+  const configIds = useMemo(
+    () => [...new Set(options.map((o) => o.api_config_id))],
+    [options],
+  );
+  const catalogStale =
+    !!catalog.ensureError || configIds.some((cid) => !!catalog.lastErrors[cid]);
+  const staleSelection =
+    !!value && !options.some((o) => `${o.api_config_id}::${o.model}` === value);
+
   // 分组：以配置为组（组头＝配置名 + 供应商）——跨供应商可辨（沿 ModelSettingForm 分组语义）。
   // 搜索过滤（c-prose-model-search）：模型 id 或配置名命中，大小写不敏感；空组整组隐藏
   const q = query.trim().toLowerCase();
@@ -693,6 +707,15 @@ export function ModelPicker({
                 data-testid="ai-model-search"
               />
             </div>
+            {(catalog.refreshing || catalogStale || staleSelection) && (
+              <div className="mp-note" data-testid="ai-model-catalog-note">
+                {catalog.refreshing
+                  ? "正在更新清单…"
+                  : staleSelection
+                    ? "当前选择已不在最新清单"
+                    : "清单可能不是最新"}
+              </div>
+            )}
             {flat.length === 0 ? (
               <div className="mp-empty">没有匹配的模型，换个词试试</div>
             ) : (
@@ -755,6 +778,7 @@ function ModelField({
   onChange: (sel: ModelSelection | null) => void;
 }) {
   const { modelOptions, currentConfigId, currentModel, aiState } = useModelStatus(projectId);
+
   const bookKey =
     currentConfigId && currentModel ? `${currentConfigId}::${currentModel}` : "";
   const key = modelSel ? `${modelSel.api_config_id}::${modelSel.model}` : bookKey;

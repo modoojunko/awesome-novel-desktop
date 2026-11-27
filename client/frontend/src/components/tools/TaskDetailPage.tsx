@@ -27,6 +27,7 @@ import {
 import { THEMES } from "../../lib/themeCatalog";
 import { serverTimeMs } from "../../lib/serverTime";
 import { markTasksSeen } from "../../lib/toolsBadgeSeen";
+import { useEnsureModelsFresh, useModelCatalogVersion } from "../../lib/modelCatalog";
 import { queryKeys } from "../../lib/queryKeys";
 import {
   cancelDeconstructTask,
@@ -195,6 +196,10 @@ export default function TaskDetailPage() {
   // 才取一次，失败/空回落 /config 链接）；stagedModel＝泡泡里选定待续拆携带的新模型对。
   const [modelOptions, setModelOptions] = useState<ModelOption[] | null>(null);
   const [stagedModel, setStagedModel] = useState<ModelOption | null>(null);
+  // 进详情即后台保鲜；清单内容变化后（version+1）已加载的换模型选项重取一次
+  useEnsureModelsFresh();
+  const catalogVersion = useModelCatalogVersion();
+  const loadedVersionRef = useRef(catalogVersion);
   // 合规（c-deconstruct-compliance-guard）：建书确认与书名、承诺同步重试
   const [buildAck, setBuildAck] = useState(false);
   const [buildName, setBuildName] = useState("");
@@ -255,6 +260,22 @@ export default function TaskDetailPage() {
       alive = false;
     };
   }, [switchable, modelOptions]);
+
+  // 后台保鲜刷新了清单且清单已加载：重取一次换模型选项（保留已暂存选择）
+  useEffect(() => {
+    if (!switchable || modelOptions === null) return;
+    if (loadedVersionRef.current === catalogVersion) return;
+    loadedVersionRef.current = catalogVersion;
+    let alive = true;
+    fetchModelOptions()
+      .then((opts) => {
+        if (alive) setModelOptions(opts);
+      })
+      .catch(() => {});
+    return () => {
+      alive = false;
+    };
+  }, [catalogVersion, switchable, modelOptions]);
 
   useEffect(() => {
     if (task?.status !== "importing") return;

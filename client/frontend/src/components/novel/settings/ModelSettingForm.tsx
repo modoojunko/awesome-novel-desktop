@@ -10,6 +10,7 @@ import { toast } from "@/lib/toast";
 import { useChangeReceipt } from "./ChangeReceipt";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useModelStatus } from "@/hooks/useModelStatus";
+import { useEnsureModelsFresh, useModelCatalog } from "@/lib/modelCatalog";
 import { Cfg } from "./FormField";
 import { ChangeTimeline } from "./ChangeTimeline";
 import { NovelUsagePanel } from "./NovelUsagePanel";
@@ -63,6 +64,14 @@ export default function ModelSettingForm({
     addModelToConfig,
     fetchCandidates,
   } = useModelStatus(projectId);
+  // 进模型面板即后台保鲜（服务端 TTL 内不出网）：打开选择前清单已更新
+  useEnsureModelsFresh();
+  const catalog = useModelCatalog();
+  const catalogStale = configs.some((c) => !!catalog.lastErrors[c.id]);
+  const selectedGone =
+    !!currentModel &&
+    !!currentConfigId &&
+    !(configs.find((c) => c.id === currentConfigId)?.models ?? []).includes(currentModel);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
   const { record: recordChange } = useChangeReceipt(onReceiptChange);
@@ -248,6 +257,20 @@ export default function ModelSettingForm({
           <span className="opt" style={{ fontSize: 12, color: "var(--muted)" }}>
             当前绑定的 API 配置已删除，且没有其他可用配置——
             <a href="#/config">去「模型配置」新建配置</a>
+          </span>
+        )}
+        {selectedGone && (
+          <span className="opt" style={{ fontSize: 12, color: "var(--err)" }}>
+            当前模型「{currentModel}」已不在最新清单，建议重选一个
+          </span>
+        )}
+        {(catalog.refreshing || catalogStale) && (
+          <span
+            className="opt"
+            style={{ fontSize: 12, color: "var(--muted)" }}
+            data-testid="model-catalog-note"
+          >
+            {catalog.refreshing ? "正在更新模型清单…" : "清单可能不是最新（上次刷新失败）"}
           </span>
         )}
       </div>

@@ -6,6 +6,7 @@ import { Ico, P } from "../icons";
 import { FORMAT_PLACEHOLDER, VENDOR_FORMAT_LOCK, VENDOR_TABS, VENDORS, VENDOR_LABELS, VendorGlyph, type VendorTab } from "./ProviderIcon";
 import { applyPreset, defaultsFor, type PrefillFields } from "./vendorDefaults";
 import { placePanel, type PanelPlacement } from "../../lib/panelAnchor";
+import { useEnsureModelsFresh } from "../../lib/modelCatalog";
 
 interface ApiConfigFormProps {
   open: boolean;
@@ -26,6 +27,16 @@ interface ApiConfigFormProps {
     api_key: string;
     api_format: ApiFormat;
   }) => Promise<{
+    ok: boolean;
+    status?: string;
+    models?: string[] | null;
+    candidates?: string[];
+    note?: string;
+    error?: string;
+  }>;
+  /** 已存密钥轻探针（c-model-list-auto-refresh）：编辑态 Key 未重填时
+   *  「获取模型」/清单失败重试走这里——后端用落库密钥拉清单（零生成调用）。 */
+  onRefreshStoredModels?: () => Promise<{
     ok: boolean;
     status?: string;
     models?: string[] | null;
@@ -59,8 +70,10 @@ const THINKING_EFFORTS: Array<{ value: ThinkingEffort; label: string }> = [
 ];
 
 /** 添加/编辑配置弹窗（model-config.html modalConfig 原样：520px（ADJUSTMENTS 登记加宽）、vgrid 供应商格、编辑态 vfix） */
-export function ApiConfigForm({ open, config, onSubmit, onCancel, onTest, onFetchModels, onOpenGuide, onVendorChange }: ApiConfigFormProps) {
+export function ApiConfigForm({ open, config, onSubmit, onCancel, onTest, onFetchModels, onRefreshStoredModels, onOpenGuide, onVendorChange }: ApiConfigFormProps) {
   const isEdit = !!config;
+  // 打开编辑弹窗即后台保鲜（服务端 TTL 内不出网）：清单在用户点开选择前已更新
+  useEnsureModelsFresh(open && isEdit);
   const [name, setName] = useState(config?.name || "");
   const [vendorId, setVendorId] = useState(config?.vendor || "");
   const [apiFormat, setApiFormat] = useState<ApiFormat>(config?.api_format || "openai");
@@ -73,6 +86,9 @@ export function ApiConfigForm({ open, config, onSubmit, onCancel, onTest, onFetc
   // 编辑态模型选择位（修复「编辑页没有模型可选、测试连接却要用模型」）：
   // 初值＝已存 models 首项（＝该配置已选模型/探针优先模型），清单种子＝已存 models
   const [modelName, setModelName] = useState(config?.models?.[0] ?? "");
+  // 已选模型（打开时的种子/弹层里的选择）：清单刷新后据此判断「已不在最新清单」。
+  // 输入框同时是搜索框，不能拿实时输入值判——打字打到一半会误报。
+  const [seedModel, setSeedModel] = useState(config?.models?.[0] ?? "");
   const [apiKey, setApiKey] = useState("");
   // 模型清单自动拉取（c-api-config-auto-models）
   const [modelList, setModelList] = useState<string[]>(config?.models ?? []);
@@ -124,6 +140,7 @@ export function ApiConfigForm({ open, config, onSubmit, onCancel, onTest, onFetc
     setThinkingEffort(config?.thinking_effort ?? "low");
     setBaseUrl(config?.base_url || "");
     setModel(config?.models?.[0] ?? "");
+    setSeedModel(config?.models?.[0] ?? "");
     setApiKey("");
     setError(null);
     setTestResult(null);
@@ -140,6 +157,14 @@ export function ApiConfigForm({ open, config, onSubmit, onCancel, onTest, onFetc
     fetchSeqRef.current += 1; // 在途响应作废
     lastFetchRef.current = ""; // 拉取指纹随表单重置
   }
+
+  // 后台保鲜把新清单写进 store → 页面同步编辑目标 → 这里就地刷新可选清单；
+  // 已选模型名不动（只换选项，用户的选择不被覆盖）
+  const configModelsKey = (config?.models ?? []).join("|");
+  useEffect(() => {
+    if (!isEdit) return;
+    setModelList(config?.models ?? []);
+  }, [configModelsKey, isEdit]);
 
   // 接口格式锁定矩阵：单格式厂商锁定（openai/anthropic/ollama），双格式可切换
   const formatLock = VENDOR_FORMAT_LOCK[vendorId as keyof typeof VENDOR_FORMAT_LOCK];
@@ -170,8 +195,30 @@ export function ApiConfigForm({ open, config, onSubmit, onCancel, onTest, onFetc
     setModel(models[0]);
   };
 
-  /** 只拉清单轻探针：precondition 不满足时静默跳过；同参数成功后不重复拉（force 重拉）。
-   *  编辑态同样可拉（需重填 Key 或 Ollama 免 Key）——拉回清单刷新选择器选项。 */
+  /** 清单响应落地（raw 轻探针与已存密钥轻探针共用）：成功刷新清单/候选/说明，
+   *  失败只记错误（重试口见 mp-retry）；默认选中仍受「手选值不覆盖」守卫。 */
+  const applyModelsOutcome = (r: {
+    ok: boolean;
+    models?: string[] | null;
+    candidates?: string[];
+    note?: string;
+    error?: string;
+  }) => {
+    if (r.ok) {
+      const models = r.models ?? [];
+      setModelList(models);
+      setModelCandidates(r.candidates ?? []);
+      setModelNote(r.note ?? null);
+      setListFresh(true);
+      applyAutoSelect(models);
+      return;
+    }
+    setFetchErr(r.error || "模型清单获取失败");
+  };
+
+  /** 只拉清单轻探针（raw 路）：precondition 不满足时静默跳过；同参数成功后不重复拉
+   *  （force 重拉）。编辑态只在重填了 Key（或 Ollama 免 Key）时走这里——未重填 Key 的
+   *  编辑态由已存密钥轻探针承接（见 runStoredRefresh）。 */
   const runFetchModels = async (
     params: { vendor_id: string; base_url: string; api_key: string; api_format: ApiFormat },
     opts?: { force?: boolean },
@@ -190,17 +237,31 @@ export function ApiConfigForm({ open, config, onSubmit, onCancel, onTest, onFetc
     try {
       const r = await onFetchModels(params);
       if (seq !== fetchSeqRef.current) return; // 过期响应：参数已变，丢弃
-      if (r.ok) {
-        const models = r.models ?? [];
-        setModelList(models);
-        setModelCandidates(r.candidates ?? []);
-        setModelNote(r.note ?? null);
-        setListFresh(true);
-        applyAutoSelect(models);
-      } else {
-        lastFetchRef.current = ""; // 失败允许原参数重试
-        setFetchErr(r.error || "模型清单获取失败");
-      }
+      if (!r.ok) lastFetchRef.current = ""; // 失败允许原参数重试
+      applyModelsOutcome(r);
+    } catch {
+      if (seq !== fetchSeqRef.current) return;
+      lastFetchRef.current = "";
+      setFetchErr("模型清单获取失败");
+    } finally {
+      if (seq === fetchSeqRef.current) setFetching(false);
+    }
+  };
+
+  /** 已存密钥轻探针（c-model-list-auto-refresh）：编辑态 Key 未重填时的
+   *  「获取模型」出口——后端用落库密钥拉清单（零生成调用）。
+   *  与 raw 路共用序号作废与结果落地；不写拉取指纹（供应商/地址/格式未变，
+   *  后续重填 Key 时按新 Key 走 raw 路另计）。 */
+  const runStoredRefresh = async () => {
+    if (!onRefreshStoredModels) return;
+    const seq = ++fetchSeqRef.current;
+    setFetching(true);
+    setFetchErr(null);
+    try {
+      const r = await onRefreshStoredModels();
+      if (seq !== fetchSeqRef.current) return; // 过期响应：参数已变，丢弃
+      if (!r.ok) lastFetchRef.current = ""; // 失败后允许同 Key 的 raw 路重拉
+      applyModelsOutcome(r);
     } catch {
       if (seq !== fetchSeqRef.current) return;
       lastFetchRef.current = "";
@@ -231,9 +292,32 @@ export function ApiConfigForm({ open, config, onSubmit, onCancel, onTest, onFetc
   });
 
   /** 「获取模型」按钮可用性＝轻探针前置条件（未就绪禁用，不点了才静默跳过）。
-   *  编辑态同口径（Key 未重填时不可拉——raw 轻探针需要明文 Key；已存清单已在选择器里）。 */
+   *  编辑态 Key 未重填时走「已存密钥轻探针」（页面提供 onRefreshStoredModels 即可用——
+   *  c-model-list-auto-refresh：新模型上线后不必重敲 Key 才能刷新清单）。
+   *  该端点只用落库的连接参数：表单改了 Base URL / 接口格式（未保存）时清单会与
+   *  当前填写值错位，故只在「连接参数字面未改」时放开，与「未重敲 Key 试连走已存
+   *  配置」同口径；改了参数要拿新端点清单仍须重填 Key（raw 路）。 */
+  const storedRefreshAvailable =
+    isEdit &&
+    !apiKey.trim() &&
+    !!onRefreshStoredModels &&
+    baseUrl.trim() === (config?.base_url ?? "").trim() &&
+    apiFormat === (config?.api_format ?? "openai");
   const canFetchModels =
-    !!vendorId && !!baseUrl.trim() && (vendorId === "ollama" || !!apiKey.trim());
+    !!vendorId &&
+    !!baseUrl.trim() &&
+    (vendorId === "ollama" || !!apiKey.trim() || storedRefreshAvailable);
+
+  /** 清单重拉分流：编辑态未重填 Key → 已存密钥轻探针；其余 → raw 轻探针。
+   *  「获取模型」显式点击与失败重试共用（force 语义只对 raw 路有意义）。 */
+  const refetchModels = () => {
+    if (fetching) return;
+    if (storedRefreshAvailable) {
+      void runStoredRefresh();
+      return;
+    }
+    void runFetchModels(curFetchParams(), { force: true });
+  };
 
   /** 显式触发口（2026-10-08 拍板）：点击强拉清单（同参数也重拉）＋展开选择器弹层——
    *  下拉正对「模型名称」框，不依赖失焦自动拉取也能拿到清单。 */
@@ -242,7 +326,7 @@ export function ApiConfigForm({ open, config, onSubmit, onCancel, onTest, onFetc
     if (!canFetchModels || fetching) return;
     /* v8 ignore stop */
     setPickerOpen(true);
-    void runFetchModels(curFetchParams(), { force: true });
+    refetchModels();
   };
 
   const handleVendorSelect = (id: string) => {
@@ -365,6 +449,7 @@ export function ApiConfigForm({ open, config, onSubmit, onCancel, onTest, onFetc
 
   const pickModel = (m: string) => {
     setModel(m);
+    setSeedModel(m);
     modelPickedRef.current = true;
     setPickerOpen(false);
   };
@@ -702,7 +787,9 @@ export function ApiConfigForm({ open, config, onSubmit, onCancel, onTest, onFetc
                 disabled={!canFetchModels || fetching || saving}
                 title={
                   canFetchModels
-                    ? "重新拉取模型清单"
+                    ? storedRefreshAvailable
+                      ? "用已存 API Key 重新拉取清单"
+                      : "重新拉取模型清单"
                     : isEdit
                       ? "重填 API Key 后可重新拉取清单"
                       : "先选供应商并填 Base URL 与 API Key"
@@ -746,13 +833,17 @@ export function ApiConfigForm({ open, config, onSubmit, onCancel, onTest, onFetc
             {fetchErr && !fetching && (
               <div className="mp-err" role="alert">
                 <span>{fetchErr}</span>
-                <button
-                  type="button"
-                  className="mp-retry"
-                  onClick={() => void runFetchModels(curFetchParams(), { force: true })}
-                >
-                  重新拉取
-                </button>
+                {/* 重试口只在「获取模型」本身可用时给：改了连接参数又清空 Key 后重试
+                    无路可走，留着就是死按钮（错误文案照常显示，引导看按钮 title） */}
+                {canFetchModels && (
+                  <button
+                    type="button"
+                    className="mp-retry"
+                    onClick={refetchModels}
+                  >
+                    重新拉取
+                  </button>
+                )}
               </div>
             )}
             {pickerOpen &&
@@ -768,6 +859,11 @@ export function ApiConfigForm({ open, config, onSubmit, onCancel, onTest, onFetc
                   onMouseDown={(e) => e.preventDefault()} // 滚动条/说明区拖点不抢焦点不误关（评审 P1）
                 >
                   {modelNote && <div className="mp-note">{modelNote}</div>}
+                  {isEdit && seedModel && modelList.length > 0 && !modelList.includes(seedModel) && (
+                    <div className="mp-note" data-testid="cf-model-stale">
+                      当前选择「{seedModel}」已不在最新清单
+                    </div>
+                  )}
                   {modelCandidates.length > 0 && (
                     <div className="mp-chips">
                       {modelCandidates.map((c) => (

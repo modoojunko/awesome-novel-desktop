@@ -594,6 +594,107 @@ class TestApiKeyCRUD:
         assert resp.status_code == 200, resp.text
         assert "preferred_model" not in captured
 
+    def _seed_cfg_with_models(self, client, monkeypatch, name: str, models: list[str]) -> str:
+        """建一条带已存清单的配置（保存门禁探测打桩），返回 id。"""
+
+        async def fake_test(**kwargs):
+            return {"ok": True, "status": "ok", "models": [], "error": None}
+
+        monkeypatch.setattr("api_configs.service._test_connection", fake_test)
+        resp = client.post(
+            "/api/v1/api-configs",
+            json={
+                "name": name,
+                "vendor_id": "glm",
+                "base_url": "https://open.bigmodel.cn/api/coding/paas/v4",
+                "api_key": _test_api_key("refresh-models"),
+                "models": models,
+            },
+        )
+        assert resp.status_code == 201, resp.text
+        return resp.json()["id"]
+
+    def test_refresh_models_uses_stored_key_and_keeps_preferred_first(self, client, monkeypatch):
+        """已存密钥轻探针（c-model-list-auto-refresh）：编辑态 Key 未重填也能拉清单——
+        透传已存明文密钥与已存连接参数，成功按「已选首项保头」归一写库并回显同一份清单。"""
+        captured: dict = {}
+
+        async def fake_fetch(**kwargs):
+            captured.update(kwargs)
+            return {
+                "ok": True,
+                "status": "ok",
+                "models": ["glm-4.5", "glm-5.4", "glm-5.3-flash", "glm-5.3"],
+                "error": None,
+            }
+
+        cid = self._seed_cfg_with_models(client, monkeypatch, "刷新清单", ["glm-5.3-flash"])
+        monkeypatch.setattr("api_configs.service._fetch_models", fake_fetch)
+        resp = client.post(f"/api/v1/api-configs/{cid}/refresh-models")
+        assert resp.status_code == 200, resp.text
+        # 已存密钥解密后透传（不是掩码、不是空），连接参数取已存值
+        assert captured == {
+            "vendor_id": "glm",
+            "api_key": _test_api_key("refresh-models"),
+            "base_url": "https://open.bigmodel.cn/api/coding/paas/v4",
+            "api_format": "openai",
+        }
+        expected = ["glm-5.3-flash", "glm-4.5", "glm-5.4", "glm-5.3"]
+        assert resp.json()["models"] == expected  # 已选首项保头
+        stored = client.get(f"/api/v1/api-configs/{cid}").json()
+        assert stored["models"] == expected  # 响应与落库同一份
+        assert stored["models_updated_at"] is not None
+
+    def test_refresh_models_failure_keeps_stored_models(self, client, monkeypatch):
+        """轻探针失败原样透传，不覆盖已存清单（清单快照仍是可用兜底）。"""
+        async def fake_fetch(**kwargs):
+            return {"ok": False, "status": "timeout", "models": None, "error": "连接超时"}
+
+        cid = self._seed_cfg_with_models(client, monkeypatch, "刷新失败", ["glm-5.3-flash"])
+        monkeypatch.setattr("api_configs.service._fetch_models", fake_fetch)
+        resp = client.post(f"/api/v1/api-configs/{cid}/refresh-models")
+        assert resp.status_code == 200, resp.text
+        assert resp.json()["ok"] is False
+        assert resp.json()["error"] == "连接超时"
+        assert client.get(f"/api/v1/api-configs/{cid}").json()["models"] == ["glm-5.3-flash"]
+
+    def test_refresh_models_empty_list_keeps_stored_models(self, client, monkeypatch):
+        """端点不提供清单（空清单）同样不覆盖已存清单，说明/候选项照常回传。"""
+        async def fake_fetch(**kwargs):
+            return {
+                "ok": True,
+                "status": "ok",
+                "models": [],
+                "error": None,
+                "candidates": ["glm-5.4"],
+                "note": "该端点不提供模型列表",
+            }
+
+        cid = self._seed_cfg_with_models(client, monkeypatch, "无清单端点", ["glm-5.3-flash"])
+        monkeypatch.setattr("api_configs.service._fetch_models", fake_fetch)
+        resp = client.post(f"/api/v1/api-configs/{cid}/refresh-models")
+        assert resp.status_code == 200, resp.text
+        body = resp.json()
+        assert body["models"] == []
+        assert body["candidates"] == ["glm-5.4"]
+        assert body["note"] == "该端点不提供模型列表"
+        assert client.get(f"/api/v1/api-configs/{cid}").json()["models"] == ["glm-5.3-flash"]
+
+    def test_refresh_models_unknown_config_404(self, client):
+        resp = client.post("/api/v1/api-configs/no-such-config/refresh-models")
+        assert resp.status_code == 404
+
+    def test_refresh_models_junk_list_keeps_stored_models(self, client, monkeypatch):
+        """归一后为空（全空白等畸形项）视同没拿到可用清单：不写库，已存清单保持。"""
+        async def fake_fetch(**kwargs):
+            return {"ok": True, "status": "ok", "models": ["  ", ""], "error": None}
+
+        cid = self._seed_cfg_with_models(client, monkeypatch, "畸形清单", ["glm-5.3-flash"])
+        monkeypatch.setattr("api_configs.service._fetch_models", fake_fetch)
+        resp = client.post(f"/api/v1/api-configs/{cid}/refresh-models")
+        assert resp.status_code == 200, resp.text
+        assert client.get(f"/api/v1/api-configs/{cid}").json()["models"] == ["glm-5.3-flash"]
+
     def test_test_config_persist_normalizes_and_truncates(self, client, monkeypatch):
         """自动落库走归一化（去空白/去重）且超限截断（c-model-list-cap-300 上限 300）——
         供应商长清单不再堵死手动 PUT；响应体与落库同一份清单（评审 P1：两口径分叉
@@ -1132,6 +1233,219 @@ class TestApiKeyCRUD:
         app.dependency_overrides[get_current_user] = _make_current_user_override(
             self.CRUD_USER_ID
         )
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+#  P0 — 清单后台保鲜（c-model-list-auto-refresh）
+# ═══════════════════════════════════════════════════════════════════════════
+
+
+class TestEnsureModelsFresh:
+    """ensure-models-fresh：TTL 跳过 / 过期刷新 / force / 失败退避 / 不清快照。"""
+
+    USER_ID = "ensure-models-user"
+    _user_created = False
+
+    @pytest.fixture(autouse=True)
+    def _setup(self, client, monkeypatch):
+        if not TestEnsureModelsFresh._user_created:
+            _run_async(_create_user(user_id=self.USER_ID))
+            TestEnsureModelsFresh._user_created = True
+        app.dependency_overrides[get_current_user] = _make_current_user_override(
+            self.USER_ID
+        )
+        _run_async(_clean_user_configs(self.USER_ID))
+        from api_configs import service as svc
+
+        svc._reset_model_refresh_state()
+
+        async def fake_test(**kwargs):
+            return {"ok": True, "status": "ok", "models": [], "error": None}
+
+        monkeypatch.setattr("api_configs.service._test_connection", fake_test)
+        yield
+
+    def _create(self, client, name: str, models: list[str], key: str = "sk-ensure") -> str:
+        resp = client.post(
+            "/api/v1/api-configs",
+            json={
+                "name": name,
+                "vendor_id": "glm",
+                "base_url": "https://open.bigmodel.cn/api/coding/paas/v4",
+                "api_key": key,
+                "models": models,
+            },
+        )
+        assert resp.status_code == 201, resp.text
+        return resp.json()["id"]
+
+    def _set_updated_at(self, config_id: str, value: str | None) -> None:
+        async def _do():
+            async with async_session() as session:
+                await session.execute(
+                    text("UPDATE api_configs SET models_updated_at=:v WHERE id=:i"),
+                    {"v": value, "i": config_id},
+                )
+                await session.commit()
+
+        _run_async(_do())
+
+    def _ensure(self, client, **body):
+        resp = client.post("/api/v1/api-configs/ensure-models-fresh", json=body)
+        assert resp.status_code == 200, resp.text
+        return resp.json()
+
+    def test_fresh_config_skips_network(self, client, monkeypatch):
+        self._create(client, "保鲜跳过", ["glm-5.3-flash"])
+        called: list = []
+
+        async def fake_fetch(**kwargs):
+            called.append(kwargs)
+            return {"ok": True, "status": "ok", "models": ["ignored"], "error": None}
+
+        monkeypatch.setattr("api_configs.service._fetch_models", fake_fetch)
+        body = self._ensure(client)
+        assert called == []  # 刚创建（models_updated_at=now）→ TTL 内不出网
+        row = body["configs"][0]
+        assert row["refreshed"] is False
+        assert row["ok"] is True
+        assert row["models"] == ["glm-5.3-flash"]
+        assert row["models_updated_at"] is not None
+
+    def test_stale_config_refreshes_and_keeps_preferred(self, client, monkeypatch):
+        cid = self._create(client, "保鲜刷新", ["glm-5.3-flash"])
+        self._set_updated_at(cid, None)  # 从未刷新 → 过期
+        self._set_test_status(cid, "timeout")
+        captured: dict = {}
+
+        async def fake_fetch(**kwargs):
+            captured.update(kwargs)
+            return {
+                "ok": True,
+                "status": "ok",
+                "models": ["glm-4.5", "glm-5.4", "glm-5.3-flash"],
+                "error": None,
+            }
+
+        monkeypatch.setattr("api_configs.service._fetch_models", fake_fetch)
+        body = self._ensure(client)
+        assert captured == {
+            "vendor_id": "glm",
+            "api_key": "sk-ensure",
+            "base_url": "https://open.bigmodel.cn/api/coding/paas/v4",
+            "api_format": "openai",
+            "timeout": 5,
+        }
+        row = body["configs"][0]
+        assert row["refreshed"] is True
+        assert row["models"] == ["glm-5.3-flash", "glm-4.5", "glm-5.4"]  # 已选首项保头
+        stored = client.get(f"/api/v1/api-configs/{cid}").json()
+        assert stored["models"] == row["models"]
+        assert stored["models_updated_at"] is not None
+        # 轻探针不证对话可用：连接测试状态原样
+        assert stored["last_test_status"] == "timeout"
+
+    def test_force_bypasses_ttl(self, client, monkeypatch):
+        self._create(client, "保鲜强制", ["glm-5.3-flash"])
+        called: list = []
+
+        async def fake_fetch(**kwargs):
+            called.append(kwargs)
+            return {"ok": True, "status": "ok", "models": ["glm-5.4"], "error": None}
+
+        monkeypatch.setattr("api_configs.service._fetch_models", fake_fetch)
+        body = self._ensure(client, force=True)
+        assert len(called) == 1
+        assert body["configs"][0]["refreshed"] is True
+        assert body["configs"][0]["models"] == ["glm-5.4"]
+
+    def test_failure_backoff_then_force_retries(self, client, monkeypatch):
+        cid = self._create(client, "保鲜退避", ["glm-5.3-flash"])
+        self._set_updated_at(cid, None)
+        calls: list = []
+
+        async def fake_fetch(**kwargs):
+            calls.append(kwargs)
+            return {"ok": False, "status": "timeout", "models": None, "error": "连接超时"}
+
+        monkeypatch.setattr("api_configs.service._fetch_models", fake_fetch)
+        first = self._ensure(client)["configs"][0]
+        assert first["ok"] is False
+        assert first["error"] == "连接超时"
+        second = self._ensure(client)["configs"][0]  # 退避期内：不再出网
+        assert len(calls) == 1
+        assert second["ok"] is False
+        assert second["error"] == "连接超时"
+        forced = self._ensure(client, force=True)["configs"][0]  # 手动绕过退避
+        assert len(calls) == 2
+        assert forced["ok"] is False
+        # 失败不清已存快照
+        assert client.get(f"/api/v1/api-configs/{cid}").json()["models"] == ["glm-5.3-flash"]
+
+    def test_empty_list_keeps_snapshot(self, client, monkeypatch):
+        cid = self._create(client, "保鲜空清单", ["glm-5.3-flash"])
+        self._set_updated_at(cid, None)
+
+        async def fake_fetch(**kwargs):
+            return {"ok": True, "status": "ok", "models": [], "error": None}
+
+        monkeypatch.setattr("api_configs.service._fetch_models", fake_fetch)
+        row = self._ensure(client)["configs"][0]
+        assert row["ok"] is True
+        assert row["refreshed"] is False
+        assert row["models"] == ["glm-5.3-flash"]
+        assert client.get(f"/api/v1/api-configs/{cid}").json()["models"] == ["glm-5.3-flash"]
+
+    def test_empty_list_marks_checked_and_skips_retry(self, client, monkeypatch):
+        """端点不提供清单（空清单）也算「已检查」：TTL 内不重复出网，force 可强制重试。"""
+        cid = self._create(client, "空清单不重试", ["glm-5.3-flash"])
+        self._set_updated_at(cid, None)
+        calls: list = []
+
+        async def fake_fetch(**kwargs):
+            calls.append(1)
+            return {"ok": True, "status": "ok", "models": [], "error": None}
+
+        monkeypatch.setattr("api_configs.service._fetch_models", fake_fetch)
+        first = self._ensure(client)["configs"][0]
+        assert len(calls) == 1
+        assert first["ok"] is True and first["refreshed"] is False
+        second = self._ensure(client)["configs"][0]  # TTL 内：视为已检查
+        assert len(calls) == 1
+        assert second["ok"] is True and second["refreshed"] is False
+        forced = self._ensure(client, force=True)["configs"][0]
+        assert len(calls) == 2  # 手动动作绕过
+        assert forced["refreshed"] is False
+
+    def test_empty_config_ids_refreshes_nothing(self, client, monkeypatch):
+        """config_ids=[] ＝不刷新任何配置（区别于 None＝全部）。"""
+        self._create(client, "保鲜空选", ["m-a"])
+        calls: list = []
+
+        async def fake_fetch(**kwargs):
+            calls.append(1)
+            return {"ok": True, "status": "ok", "models": ["m-b"], "error": None}
+
+        monkeypatch.setattr("api_configs.service._fetch_models", fake_fetch)
+        body = self._ensure(client, config_ids=[])
+        assert body["configs"] == []
+        assert calls == []
+
+    def test_config_ids_filter_and_unknown_ignored(self, client):
+        self._create(client, "保鲜甲", ["m-a"])
+        body = self._ensure(client, config_ids=["no-such-config"])
+        assert body["configs"] == []
+
+    def _set_test_status(self, config_id: str, value: str) -> None:
+        async def _do():
+            async with async_session() as session:
+                await session.execute(
+                    text("UPDATE api_configs SET last_test_status=:v WHERE id=:i"),
+                    {"v": value, "i": config_id},
+                )
+                await session.commit()
+
+        _run_async(_do())
 
 
 # ═══════════════════════════════════════════════════════════════════════════

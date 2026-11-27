@@ -16,6 +16,7 @@ import PromptPackModal from "@/components/novel/license/PromptPackModal";
 import KnowledgeSyncModal from "@/components/kb/KnowledgeSyncModal";
 import AuthGuard from "@/components/auth/AuthGuard";
 import { isLoggedIn } from "@/lib/auth";
+import { useModelCatalogScheduler } from "@/lib/modelCatalog";
 
 /** 301 过渡：旧路由 /project/:id → /novel/:id */
 function RedirectToNovel() {
@@ -43,6 +44,8 @@ export function RedirectToKbCharView() {
 
 export default function App() {
   const location = useLocation();
+  // 模型清单后台保鲜（c-model-list-auto-refresh）：启动/定时/回焦触发，登录后才出网
+  useModelCatalogScheduler();
 
   return (
     <ClientShell>

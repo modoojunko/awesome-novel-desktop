@@ -28,7 +28,24 @@ const CONFIG = {
 type Call = { url: string; method: string; body?: unknown };
 let calls: Call[] = [];
 
-function stubApi(over: { putStatus?: number } = {}) {
+function stubApi(
+  over: {
+    putStatus?: number;
+    /** 已存密钥轻探针返回（c-model-list-auto-refresh） */
+    refreshModels?: { ok: boolean; status: string; models?: string[]; error?: string };
+    /** 后台保鲜返回（c-model-list-auto-refresh） */
+    ensure?: {
+      configs: Array<{
+        id: string;
+        models: string[];
+        models_updated_at: string | null;
+        refreshed: boolean;
+        ok: boolean;
+        error?: string | null;
+      }>;
+    };
+  } = {},
+) {
   const fetchMock = vi.fn(async (url: string, init?: RequestInit) => {
     const method = init?.method ?? "GET";
     calls.push({ url: String(url), method, body: init?.body ? JSON.parse(String(init.body)) : undefined });
@@ -37,10 +54,20 @@ function stubApi(over: { putStatus?: number } = {}) {
     if (u.includes("/api-configs/usage-summary")) {
       return { ok: true, json: async () => ({ total_all_time: 0, total_this_month: 0, total_today: 0, by_config: [] }) };
     }
+    if (u.includes("/api-configs/ensure-models-fresh")) {
+      return { ok: true, json: async () => over.ensure ?? { configs: [] } };
+    }
     if (u.includes("/image-configs")) return { ok: true, json: async () => ({ ok: true, data: [] }) };
     if (u.includes("/api-configs/status")) return { ok: true, json: async () => [] };
     if (u.includes("/api-configs/fetch-models")) return { ok: true, json: async () => ({ ok: true, status: "ok", models: ["gpt-4o", "gpt-4o-mini"] }) };
     if (u.includes("/api-configs/test-connection")) return { ok: true, json: async () => ({ ok: true, status: "ok", models: ["gpt-4o"] }) };
+    if (/\/api-configs\/c1\/refresh-models$/.test(u)) {
+      return {
+        ok: true,
+        json: async () =>
+          over.refreshModels ?? { ok: true, status: "ok", models: ["gpt-4o", "glm-5.4"] },
+      };
+    }
     if (/\/api-configs\/c1\/test$/.test(u)) return { ok: true, json: async () => ({ ok: true, status: "ok", models: ["gpt-4o"] }) };
     if (method === "PUT") {
       if (over.putStatus && over.putStatus !== 200) return { ok: false, status: over.putStatus, json: async () => ({}) };
@@ -141,6 +168,61 @@ describe("ApiKeyConfigPage · 编辑态模型选择位", () => {
     await waitFor(() => expect(calls.find((c) => c.method === "PUT")).toBeTruthy());
     expect((calls.find((c) => c.method === "PUT")!.body as { models?: string[] }).models).toEqual([
       "claude-opus-5.5",
+      "gpt-4o",
+    ]);
+  });
+
+  it("Key 留空点「获取模型」：走已存密钥刷新端点，拉回的清单随保存回写（不按旧快照覆盖）", async () => {
+    stubApi({ refreshModels: { ok: true, status: "ok", models: ["gpt-4o", "glm-5.4"] } });
+    renderPage();
+    await openEditForm();
+    const btn = screen.getByText("获取模型").closest("button") as HTMLButtonElement;
+    expect(btn.disabled).toBe(false); // 编辑态不再要求重敲 Key 才能刷新清单
+    fireEvent.click(btn);
+    await waitFor(() =>
+      expect(calls.some((c) => c.url.includes("/api-configs/c1/refresh-models"))).toBe(true),
+    );
+    expect(calls.some((c) => c.url.includes("/api-configs/fetch-models"))).toBe(false);
+    await waitFor(() => expect(screen.getByText("已拉到 2 个模型")).toBeTruthy());
+    // 未改模型直接保存：PUT models 用刷新后的清单（旧快照会把新模型吞掉）
+    fireEvent.submit(document.getElementById("api-config-form")!);
+    await waitFor(() => expect(calls.find((c) => c.method === "PUT")).toBeTruthy());
+    expect((calls.find((c) => c.method === "PUT")!.body as { models?: string[] }).models).toEqual([
+      "gpt-4o",
+      "glm-5.4",
+    ]);
+  });
+
+  it("进页面后台保鲜：编辑弹窗直接可选新模型，保存按新清单落库", async () => {
+    stubApi({
+      ensure: {
+        configs: [
+          {
+            id: "c1",
+            models: ["gpt-4o", "glm-5.4"],
+            models_updated_at: "2026-11-27T10:00:00",
+            refreshed: true,
+            ok: true,
+            error: null,
+          },
+        ],
+      },
+    });
+    renderPage();
+    await waitFor(() =>
+      expect(calls.some((c) => c.url.includes("/api-configs/ensure-models-fresh"))).toBe(true),
+    );
+    await openEditForm();
+    const input = document.getElementById("cfModel") as HTMLInputElement;
+    fireEvent.focus(input);
+    fireEvent.change(input, { target: { value: "" } });
+    // 保鲜清单已进 store → 弹层可选（卡片 chips 也有同名文本，按 listbox 取）
+    const listbox = screen.getByRole("listbox", { name: "模型清单" });
+    fireEvent.click(within(listbox).getByText("glm-5.4"));
+    fireEvent.submit(document.getElementById("api-config-form")!);
+    await waitFor(() => expect(calls.find((c) => c.method === "PUT")).toBeTruthy());
+    expect((calls.find((c) => c.method === "PUT")!.body as { models?: string[] }).models).toEqual([
+      "glm-5.4",
       "gpt-4o",
     ]);
   });

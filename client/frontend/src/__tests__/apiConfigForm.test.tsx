@@ -324,6 +324,168 @@ describe("ApiConfigForm 编辑态", () => {
     });
   });
 
+  it("编辑态 Key 未重填：获取模型走已存密钥轻探针，新模型可选且已存首项不被覆盖", async () => {
+    const onRefreshStoredModels = vi.fn(async () => ({
+      ok: true,
+      status: "ok",
+      models: ["glm-5.3-flash", "glm-5.4", "glm-5.3"],
+    }));
+    const onFetchModels = vi.fn(async () => ({ ok: true, status: "ok", models: ["raw-only"] }));
+    render(
+      <ApiConfigForm
+        open
+        config={editCfg({
+          vendor: "glm",
+          base_url: "https://open.bigmodel.cn/api/coding/paas/v4",
+          models: ["glm-5.3-flash"],
+        })}
+        onSubmit={vi.fn(async () => {})}
+        onCancel={vi.fn()}
+        onFetchModels={onFetchModels}
+        onRefreshStoredModels={onRefreshStoredModels}
+      />,
+    );
+    const fetchBtn = () => screen.getByText("获取模型").closest("button") as HTMLButtonElement;
+    const input = () => document.getElementById("cfModel") as HTMLInputElement;
+    expect(fetchBtn().disabled).toBe(false); // 已存密钥轻探针不再要求重敲 Key
+    expect(fetchBtn().title).toBe("用已存 API Key 重新拉取清单");
+    fireEvent.click(fetchBtn());
+    await waitFor(() => expect(onRefreshStoredModels).toHaveBeenCalledTimes(1));
+    expect(onFetchModels).not.toHaveBeenCalled();
+    expect(screen.getByText("已拉到 3 个模型")).toBeTruthy();
+    expect(input().value).toBe("glm-5.3-flash"); // 已存已选不被清单首项默认选中覆盖
+    // 弹层里可选新模型（清空过滤词看全量）
+    fireEvent.change(input(), { target: { value: "" } });
+    fireEvent.click(screen.getByText("glm-5.4"));
+    expect(input().value).toBe("glm-5.4");
+  });
+
+  it("已存密钥轻探针失败：错误可重试，重试仍走已存密钥路", async () => {
+    const onRefreshStoredModels = vi
+      .fn()
+      .mockResolvedValueOnce({ ok: false, status: "timeout", error: "连接超时" })
+      .mockResolvedValueOnce({ ok: true, status: "ok", models: ["glm-5.4"] });
+    const onFetchModels = vi.fn();
+    render(
+      <ApiConfigForm
+        open
+        config={editCfg({ models: ["glm-5.3-flash"] })}
+        onSubmit={vi.fn(async () => {})}
+        onCancel={vi.fn()}
+        onFetchModels={onFetchModels}
+        onRefreshStoredModels={onRefreshStoredModels}
+      />,
+    );
+    fireEvent.click(screen.getByText("获取模型").closest("button") as HTMLButtonElement);
+    expect(await screen.findByText("连接超时")).toBeTruthy();
+    fireEvent.click(screen.getByText("重新拉取"));
+    await waitFor(() => expect(onRefreshStoredModels).toHaveBeenCalledTimes(2));
+    expect(onFetchModels).not.toHaveBeenCalled();
+    expect(await screen.findByText("已拉到 1 个模型")).toBeTruthy();
+  });
+
+  it("编辑态重填 Key 后：获取模型改走 raw 轻探针（已存密钥让位）", async () => {
+    const onRefreshStoredModels = vi.fn(async () => ({
+      ok: true,
+      status: "ok",
+      models: ["stored"],
+    }));
+    const onFetchModels = vi.fn(async () => ({ ok: true, status: "ok", models: ["raw-1"] }));
+    render(
+      <ApiConfigForm
+        open
+        config={editCfg({ models: ["stored-1"] })}
+        onSubmit={vi.fn(async () => {})}
+        onCancel={vi.fn()}
+        onFetchModels={onFetchModels}
+        onRefreshStoredModels={onRefreshStoredModels}
+      />,
+    );
+    const fetchBtn = () => screen.getByText("获取模型").closest("button") as HTMLButtonElement;
+    setField("cfKey", "sk-typed");
+    expect(fetchBtn().title).toBe("重新拉取模型清单");
+    fireEvent.click(fetchBtn());
+    await waitFor(() => expect(onFetchModels).toHaveBeenCalledTimes(1));
+    expect(onRefreshStoredModels).not.toHaveBeenCalled();
+  });
+
+  it("编辑态改了 Base URL 未保存：已存密钥刷新禁用（清单会与填写值错位）", () => {
+    const onRefreshStoredModels = vi.fn(async () => ({ ok: true, status: "ok", models: ["m"] }));
+    render(
+      <ApiConfigForm
+        open
+        config={editCfg({ models: ["stored-1"] })}
+        onSubmit={vi.fn(async () => {})}
+        onCancel={vi.fn()}
+        onRefreshStoredModels={onRefreshStoredModels}
+      />,
+    );
+    const fetchBtn = () => screen.getByText("获取模型").closest("button") as HTMLButtonElement;
+    expect(fetchBtn().disabled).toBe(false); // 未改连接参数：已存密钥可刷
+    setField("cfBase", "https://api.openai.com/v1"); // 未保存的连接参数变更
+    expect(fetchBtn().disabled).toBe(true);
+    expect(fetchBtn().title).toBe("重填 API Key 后可重新拉取清单");
+    expect(onRefreshStoredModels).not.toHaveBeenCalled();
+  });
+
+  it("已存密钥轻探针失败后改了 Base URL：重试口收起（不留死按钮）", async () => {
+    const onRefreshStoredModels = vi.fn(async () => ({
+      ok: false,
+      status: "timeout",
+      error: "连接超时",
+    }));
+    render(
+      <ApiConfigForm
+        open
+        config={editCfg({ models: ["stored-1"] })}
+        onSubmit={vi.fn(async () => {})}
+        onCancel={vi.fn()}
+        onRefreshStoredModels={onRefreshStoredModels}
+      />,
+    );
+    fireEvent.click(screen.getByText("获取模型").closest("button") as HTMLButtonElement);
+    expect(await screen.findByText("连接超时")).toBeTruthy();
+    expect(screen.getByText("重新拉取")).toBeTruthy();
+    // 未保存的参数变更 → 已存密钥路失效、Key 仍空：重试无路可走，收起按钮只留文案
+    setField("cfBase", "https://api.openai.com/v1");
+    expect(screen.queryByText("重新拉取")).toBeNull();
+    expect(screen.getByText("连接超时")).toBeTruthy();
+  });
+
+  it("后台保鲜更新编辑目标清单：弹窗内清单就地刷新，已选模型不被覆盖", () => {
+    const props = {
+      onSubmit: vi.fn(async () => {}),
+      onCancel: vi.fn(),
+    };
+    const { rerender } = render(
+      <ApiConfigForm open config={editCfg({ models: ["glm-5.3-flash"] })} {...props} />,
+    );
+    const input = () => document.getElementById("cfModel") as HTMLInputElement;
+    expect(input().value).toBe("glm-5.3-flash");
+    // 页面同步了新鲜清单（同 id、同 formKey）：只换选项，不动已选
+    rerender(
+      <ApiConfigForm
+        open
+        config={editCfg({ models: ["glm-5.3-flash", "glm-5.4"] })}
+        {...props}
+      />,
+    );
+    expect(input().value).toBe("glm-5.3-flash");
+    fireEvent.focus(input());
+    fireEvent.change(input(), { target: { value: "" } });
+    expect(screen.getByText("glm-5.4")).toBeTruthy();
+  });
+
+  it("已选模型不在最新清单：面板标「已不在最新清单」", () => {
+    const props = { onSubmit: vi.fn(async () => {}), onCancel: vi.fn() };
+    const { rerender } = render(
+      <ApiConfigForm open config={editCfg({ models: ["glm-5.4"] })} {...props} />,
+    );
+    rerender(<ApiConfigForm open config={editCfg({ models: ["glm-5.3"] })} {...props} />);
+    fireEvent.focus(document.getElementById("cfModel")!);
+    expect(screen.getByText("当前选择「glm-5.4」已不在最新清单")).toBeTruthy();
+  });
+
   it("编辑态测试连接带改选模型；空清单种子给手填引导文案", async () => {
     const onTest = vi.fn(async () => ({ ok: true, status: "ok", models: ["gpt-4o"] }));
     render(
