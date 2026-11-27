@@ -15,6 +15,7 @@ from models.project import Novel
 from models.token_log import TokenLog
 from models.user import User
 
+from .connection import fetch_models as _fetch_models
 from .connection import test_connection as _test_connection
 from .crypto import decrypt_api_key, encrypt_api_key
 from .schemas import mask_api_key
@@ -314,6 +315,49 @@ async def test_api_config(
     await db.commit()
     await db.refresh(config)
 
+    return outcome
+
+
+async def refresh_models_with_stored_key(
+    db: AsyncSession,
+    user_id: str,
+    config_id: str,
+) -> dict[str, Any] | None:
+    """用已存密钥重拉模型清单（c-api-config-refresh-stored-key）。
+
+    编辑态 Key 未重填时「获取模型」的出口（此前 raw 轻探针无明文 Key 只能禁用）：
+    走 fetch_models 同款「只拉清单轻探针」——GET 清单端点，零生成调用。
+    成功且带回**非空**清单时按「已选首项保头」归一写库（与 test 落库同一口径）；
+    清单为空（端点不提供）或探针失败一律原样透传，SHALL NOT 覆盖已存清单。
+    轻探针不证对话可用，SHALL NOT 改动连接测试结果字段（last_test_*）。
+    """
+    result = await db.execute(
+        select(ApiConfig).where(ApiConfig.id == config_id, ApiConfig.user_id == user_id)
+    )
+    config = result.scalar_one_or_none()
+    if not config:
+        return None
+
+    outcome = await _fetch_models(
+        vendor_id=config.vendor,
+        api_key=decrypt_api_key(config.api_key),
+        base_url=config.base_url,
+        api_format=getattr(config, "api_format", None) or "openai",
+    )
+    fetched = outcome.get("models")
+    if outcome.get("ok") and isinstance(fetched, list) and fetched:
+        preferred = _first_model(config.models)
+        if preferred and preferred in fetched:
+            fetched = [preferred] + [m for m in fetched if m != preferred]
+        normalized = _normalize_models(fetched, truncate=True)
+        # 归一后为空（全是空白/非字符串等畸形项）视同「没拿到可用清单」：不写库，
+        # 免得把可用快照清成空
+        if normalized:
+            config.models = json.dumps(normalized, ensure_ascii=False)
+            config.models_updated_at = datetime.now(UTC)
+            await db.commit()
+            await db.refresh(config)
+            outcome = {**outcome, "models": normalized}
     return outcome
 
 

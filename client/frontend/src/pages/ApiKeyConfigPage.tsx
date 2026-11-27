@@ -36,7 +36,7 @@ export default function ApiKeyConfigPage() {
       navigate("/login", { replace: true });
     }
   }, [navigate]);
-  const { configs, loading, error, refresh, addConfig, updateConfig, deleteConfig, restoreConfig, refreshStatus, testConfig, testRawConfig, fetchRawModels } = useApiConfigs();
+  const { configs, loading, error, refresh, addConfig, updateConfig, deleteConfig, restoreConfig, refreshStatus, testConfig, testRawConfig, fetchRawModels, refreshModels } = useApiConfigs();
   const { data: usageData, loading: usageLoading, refresh: refreshUsage } = useUsageStats({});
   const [showForm, setShowForm] = useState(false);
   const [editConfig, setEditConfig] = useState<ApiConfig | null>(null);
@@ -297,6 +297,22 @@ export default function ApiKeyConfigPage() {
               })
         }
         onFetchModels={async (data) => fetchRawModels(data)}
+        onRefreshStoredModels={
+          // 编辑态 Key 未重填：用已存密钥拉清单（c-api-config-refresh-stored-key）。
+          // 落库清单变了要把 editConfig 一并更新——保存时 models 由它拼（漏更新会把
+          // 刚拉到的清单按旧快照覆盖回去）。
+          editConfig
+            ? async () => {
+                const r = await refreshModels(editConfig.id);
+                if (r.ok && r.models) {
+                  setEditConfig((prev) =>
+                    prev && prev.id === editConfig.id ? { ...prev, models: r.models! } : prev,
+                  );
+                }
+                return r;
+              }
+            : undefined
+        }
         onOpenGuide={() => { setGuideTab(guideTabForVendor(formVendorRef.current)); setGuideOpen(true); }}
         onVendorChange={(id) => { formVendorRef.current = id; }}
       />

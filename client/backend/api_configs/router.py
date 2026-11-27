@@ -52,6 +52,7 @@ from .service import (
     get_project_usage,
     get_usage_summary,
     get_user_api_configs,
+    refresh_models_with_stored_key,
     restore_api_config,
     restore_model_history,
     set_project_model,
@@ -339,13 +340,20 @@ async def refresh_models(
     user: dict = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    """Refresh models for a config."""
+    """用已存密钥重拉模型清单（c-api-config-refresh-stored-key）。
+
+    编辑态 Key 未重填时「获取模型」走这里：只拉清单轻探针（零生成调用），
+    成功按「已选首项保头」写库、失败不覆盖已存清单、不动连接测试结果。
+    """
     config = await get_api_config(db, _user_id(user), config_id)
     if not config:
         raise HTTPException(404, "配置不存在")
     if config.get("status") == "disabled":
         raise HTTPException(400, "已禁用的配置无法刷新模型")
-    return {"ok": False, "status": "untested", "models": []}
+    result = await refresh_models_with_stored_key(db, _user_id(user), config_id)
+    if result is None:
+        raise HTTPException(404, "配置不存在")
+    return result
 
 
 @router.get("/api-configs/{config_id}/model-candidates")

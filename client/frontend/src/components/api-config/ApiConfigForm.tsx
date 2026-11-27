@@ -33,6 +33,16 @@ interface ApiConfigFormProps {
     note?: string;
     error?: string;
   }>;
+  /** 已存密钥轻探针（c-api-config-refresh-stored-key）：编辑态 Key 未重填时
+   *  「获取模型」/清单失败重试走这里——后端用落库密钥拉清单（零生成调用）。 */
+  onRefreshStoredModels?: () => Promise<{
+    ok: boolean;
+    status?: string;
+    models?: string[] | null;
+    candidates?: string[];
+    note?: string;
+    error?: string;
+  }>;
   /** 打开配置指南（c-modelconfig-help-guide）：vgrid 下引导行点击时回调；
    *  未传不渲染引导行（编辑态由页面侧不传即隐）。 */
   onOpenGuide?: () => void;
@@ -59,7 +69,7 @@ const THINKING_EFFORTS: Array<{ value: ThinkingEffort; label: string }> = [
 ];
 
 /** 添加/编辑配置弹窗（model-config.html modalConfig 原样：520px（ADJUSTMENTS 登记加宽）、vgrid 供应商格、编辑态 vfix） */
-export function ApiConfigForm({ open, config, onSubmit, onCancel, onTest, onFetchModels, onOpenGuide, onVendorChange }: ApiConfigFormProps) {
+export function ApiConfigForm({ open, config, onSubmit, onCancel, onTest, onFetchModels, onRefreshStoredModels, onOpenGuide, onVendorChange }: ApiConfigFormProps) {
   const isEdit = !!config;
   const [name, setName] = useState(config?.name || "");
   const [vendorId, setVendorId] = useState(config?.vendor || "");
@@ -170,8 +180,30 @@ export function ApiConfigForm({ open, config, onSubmit, onCancel, onTest, onFetc
     setModel(models[0]);
   };
 
-  /** 只拉清单轻探针：precondition 不满足时静默跳过；同参数成功后不重复拉（force 重拉）。
-   *  编辑态同样可拉（需重填 Key 或 Ollama 免 Key）——拉回清单刷新选择器选项。 */
+  /** 清单响应落地（raw 轻探针与已存密钥轻探针共用）：成功刷新清单/候选/说明，
+   *  失败只记错误（重试口见 mp-retry）；默认选中仍受「手选值不覆盖」守卫。 */
+  const applyModelsOutcome = (r: {
+    ok: boolean;
+    models?: string[] | null;
+    candidates?: string[];
+    note?: string;
+    error?: string;
+  }) => {
+    if (r.ok) {
+      const models = r.models ?? [];
+      setModelList(models);
+      setModelCandidates(r.candidates ?? []);
+      setModelNote(r.note ?? null);
+      setListFresh(true);
+      applyAutoSelect(models);
+      return;
+    }
+    setFetchErr(r.error || "模型清单获取失败");
+  };
+
+  /** 只拉清单轻探针（raw 路）：precondition 不满足时静默跳过；同参数成功后不重复拉
+   *  （force 重拉）。编辑态只在重填了 Key（或 Ollama 免 Key）时走这里——未重填 Key 的
+   *  编辑态由已存密钥轻探针承接（见 runStoredRefresh）。 */
   const runFetchModels = async (
     params: { vendor_id: string; base_url: string; api_key: string; api_format: ApiFormat },
     opts?: { force?: boolean },
@@ -190,17 +222,31 @@ export function ApiConfigForm({ open, config, onSubmit, onCancel, onTest, onFetc
     try {
       const r = await onFetchModels(params);
       if (seq !== fetchSeqRef.current) return; // 过期响应：参数已变，丢弃
-      if (r.ok) {
-        const models = r.models ?? [];
-        setModelList(models);
-        setModelCandidates(r.candidates ?? []);
-        setModelNote(r.note ?? null);
-        setListFresh(true);
-        applyAutoSelect(models);
-      } else {
-        lastFetchRef.current = ""; // 失败允许原参数重试
-        setFetchErr(r.error || "模型清单获取失败");
-      }
+      if (!r.ok) lastFetchRef.current = ""; // 失败允许原参数重试
+      applyModelsOutcome(r);
+    } catch {
+      if (seq !== fetchSeqRef.current) return;
+      lastFetchRef.current = "";
+      setFetchErr("模型清单获取失败");
+    } finally {
+      if (seq === fetchSeqRef.current) setFetching(false);
+    }
+  };
+
+  /** 已存密钥轻探针（c-api-config-refresh-stored-key）：编辑态 Key 未重填时的
+   *  「获取模型」出口——后端用落库密钥拉清单（零生成调用）。
+   *  与 raw 路共用序号作废与结果落地；不写拉取指纹（供应商/地址/格式未变，
+   *  后续重填 Key 时按新 Key 走 raw 路另计）。 */
+  const runStoredRefresh = async () => {
+    if (!onRefreshStoredModels) return;
+    const seq = ++fetchSeqRef.current;
+    setFetching(true);
+    setFetchErr(null);
+    try {
+      const r = await onRefreshStoredModels();
+      if (seq !== fetchSeqRef.current) return; // 过期响应：参数已变，丢弃
+      if (!r.ok) lastFetchRef.current = ""; // 失败后允许同 Key 的 raw 路重拉
+      applyModelsOutcome(r);
     } catch {
       if (seq !== fetchSeqRef.current) return;
       lastFetchRef.current = "";
@@ -231,9 +277,32 @@ export function ApiConfigForm({ open, config, onSubmit, onCancel, onTest, onFetc
   });
 
   /** 「获取模型」按钮可用性＝轻探针前置条件（未就绪禁用，不点了才静默跳过）。
-   *  编辑态同口径（Key 未重填时不可拉——raw 轻探针需要明文 Key；已存清单已在选择器里）。 */
+   *  编辑态 Key 未重填时走「已存密钥轻探针」（页面提供 onRefreshStoredModels 即可用——
+   *  c-api-config-refresh-stored-key：新模型上线后不必重敲 Key 才能刷新清单）。
+   *  该端点只用落库的连接参数：表单改了 Base URL / 接口格式（未保存）时清单会与
+   *  当前填写值错位，故只在「连接参数字面未改」时放开，与「未重敲 Key 试连走已存
+   *  配置」同口径；改了参数要拿新端点清单仍须重填 Key（raw 路）。 */
+  const storedRefreshAvailable =
+    isEdit &&
+    !apiKey.trim() &&
+    !!onRefreshStoredModels &&
+    baseUrl.trim() === (config?.base_url ?? "").trim() &&
+    apiFormat === (config?.api_format ?? "openai");
   const canFetchModels =
-    !!vendorId && !!baseUrl.trim() && (vendorId === "ollama" || !!apiKey.trim());
+    !!vendorId &&
+    !!baseUrl.trim() &&
+    (vendorId === "ollama" || !!apiKey.trim() || storedRefreshAvailable);
+
+  /** 清单重拉分流：编辑态未重填 Key → 已存密钥轻探针；其余 → raw 轻探针。
+   *  「获取模型」显式点击与失败重试共用（force 语义只对 raw 路有意义）。 */
+  const refetchModels = () => {
+    if (fetching) return;
+    if (storedRefreshAvailable) {
+      void runStoredRefresh();
+      return;
+    }
+    void runFetchModels(curFetchParams(), { force: true });
+  };
 
   /** 显式触发口（2026-10-08 拍板）：点击强拉清单（同参数也重拉）＋展开选择器弹层——
    *  下拉正对「模型名称」框，不依赖失焦自动拉取也能拿到清单。 */
@@ -242,7 +311,7 @@ export function ApiConfigForm({ open, config, onSubmit, onCancel, onTest, onFetc
     if (!canFetchModels || fetching) return;
     /* v8 ignore stop */
     setPickerOpen(true);
-    void runFetchModels(curFetchParams(), { force: true });
+    refetchModels();
   };
 
   const handleVendorSelect = (id: string) => {
@@ -702,7 +771,9 @@ export function ApiConfigForm({ open, config, onSubmit, onCancel, onTest, onFetc
                 disabled={!canFetchModels || fetching || saving}
                 title={
                   canFetchModels
-                    ? "重新拉取模型清单"
+                    ? storedRefreshAvailable
+                      ? "用已存 API Key 重新拉取清单"
+                      : "重新拉取模型清单"
                     : isEdit
                       ? "重填 API Key 后可重新拉取清单"
                       : "先选供应商并填 Base URL 与 API Key"
@@ -749,7 +820,7 @@ export function ApiConfigForm({ open, config, onSubmit, onCancel, onTest, onFetc
                 <button
                   type="button"
                   className="mp-retry"
-                  onClick={() => void runFetchModels(curFetchParams(), { force: true })}
+                  onClick={refetchModels}
                 >
                   重新拉取
                 </button>

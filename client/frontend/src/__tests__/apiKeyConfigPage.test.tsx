@@ -28,7 +28,13 @@ const CONFIG = {
 type Call = { url: string; method: string; body?: unknown };
 let calls: Call[] = [];
 
-function stubApi(over: { putStatus?: number } = {}) {
+function stubApi(
+  over: {
+    putStatus?: number;
+    /** 已存密钥轻探针返回（c-api-config-refresh-stored-key） */
+    refreshModels?: { ok: boolean; status: string; models?: string[]; error?: string };
+  } = {},
+) {
   const fetchMock = vi.fn(async (url: string, init?: RequestInit) => {
     const method = init?.method ?? "GET";
     calls.push({ url: String(url), method, body: init?.body ? JSON.parse(String(init.body)) : undefined });
@@ -41,6 +47,13 @@ function stubApi(over: { putStatus?: number } = {}) {
     if (u.includes("/api-configs/status")) return { ok: true, json: async () => [] };
     if (u.includes("/api-configs/fetch-models")) return { ok: true, json: async () => ({ ok: true, status: "ok", models: ["gpt-4o", "gpt-4o-mini"] }) };
     if (u.includes("/api-configs/test-connection")) return { ok: true, json: async () => ({ ok: true, status: "ok", models: ["gpt-4o"] }) };
+    if (/\/api-configs\/c1\/refresh-models$/.test(u)) {
+      return {
+        ok: true,
+        json: async () =>
+          over.refreshModels ?? { ok: true, status: "ok", models: ["gpt-4o", "glm-5.4"] },
+      };
+    }
     if (/\/api-configs\/c1\/test$/.test(u)) return { ok: true, json: async () => ({ ok: true, status: "ok", models: ["gpt-4o"] }) };
     if (method === "PUT") {
       if (over.putStatus && over.putStatus !== 200) return { ok: false, status: over.putStatus, json: async () => ({}) };
@@ -142,6 +155,27 @@ describe("ApiKeyConfigPage · 编辑态模型选择位", () => {
     expect((calls.find((c) => c.method === "PUT")!.body as { models?: string[] }).models).toEqual([
       "claude-opus-5.5",
       "gpt-4o",
+    ]);
+  });
+
+  it("Key 留空点「获取模型」：走已存密钥刷新端点，拉回的清单随保存回写（不按旧快照覆盖）", async () => {
+    stubApi({ refreshModels: { ok: true, status: "ok", models: ["gpt-4o", "glm-5.4"] } });
+    renderPage();
+    await openEditForm();
+    const btn = screen.getByText("获取模型").closest("button") as HTMLButtonElement;
+    expect(btn.disabled).toBe(false); // 编辑态不再要求重敲 Key 才能刷新清单
+    fireEvent.click(btn);
+    await waitFor(() =>
+      expect(calls.some((c) => c.url.includes("/api-configs/c1/refresh-models"))).toBe(true),
+    );
+    expect(calls.some((c) => c.url.includes("/api-configs/fetch-models"))).toBe(false);
+    await waitFor(() => expect(screen.getByText("已拉到 2 个模型")).toBeTruthy());
+    // 未改模型直接保存：PUT models 用刷新后的清单（旧快照会把新模型吞掉）
+    fireEvent.submit(document.getElementById("api-config-form")!);
+    await waitFor(() => expect(calls.find((c) => c.method === "PUT")).toBeTruthy());
+    expect((calls.find((c) => c.method === "PUT")!.body as { models?: string[] }).models).toEqual([
+      "gpt-4o",
+      "glm-5.4",
     ]);
   });
 

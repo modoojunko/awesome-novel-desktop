@@ -594,6 +594,107 @@ class TestApiKeyCRUD:
         assert resp.status_code == 200, resp.text
         assert "preferred_model" not in captured
 
+    def _seed_cfg_with_models(self, client, monkeypatch, name: str, models: list[str]) -> str:
+        """建一条带已存清单的配置（保存门禁探测打桩），返回 id。"""
+
+        async def fake_test(**kwargs):
+            return {"ok": True, "status": "ok", "models": [], "error": None}
+
+        monkeypatch.setattr("api_configs.service._test_connection", fake_test)
+        resp = client.post(
+            "/api/v1/api-configs",
+            json={
+                "name": name,
+                "vendor_id": "glm",
+                "base_url": "https://open.bigmodel.cn/api/coding/paas/v4",
+                "api_key": _test_api_key("refresh-models"),
+                "models": models,
+            },
+        )
+        assert resp.status_code == 201, resp.text
+        return resp.json()["id"]
+
+    def test_refresh_models_uses_stored_key_and_keeps_preferred_first(self, client, monkeypatch):
+        """已存密钥轻探针（c-api-config-refresh-stored-key）：编辑态 Key 未重填也能拉清单——
+        透传已存明文密钥与已存连接参数，成功按「已选首项保头」归一写库并回显同一份清单。"""
+        captured: dict = {}
+
+        async def fake_fetch(**kwargs):
+            captured.update(kwargs)
+            return {
+                "ok": True,
+                "status": "ok",
+                "models": ["glm-4.5", "glm-5.4", "glm-5.3-flash", "glm-5.3"],
+                "error": None,
+            }
+
+        cid = self._seed_cfg_with_models(client, monkeypatch, "刷新清单", ["glm-5.3-flash"])
+        monkeypatch.setattr("api_configs.service._fetch_models", fake_fetch)
+        resp = client.post(f"/api/v1/api-configs/{cid}/refresh-models")
+        assert resp.status_code == 200, resp.text
+        # 已存密钥解密后透传（不是掩码、不是空），连接参数取已存值
+        assert captured == {
+            "vendor_id": "glm",
+            "api_key": _test_api_key("refresh-models"),
+            "base_url": "https://open.bigmodel.cn/api/coding/paas/v4",
+            "api_format": "openai",
+        }
+        expected = ["glm-5.3-flash", "glm-4.5", "glm-5.4", "glm-5.3"]
+        assert resp.json()["models"] == expected  # 已选首项保头
+        stored = client.get(f"/api/v1/api-configs/{cid}").json()
+        assert stored["models"] == expected  # 响应与落库同一份
+        assert stored["models_updated_at"] is not None
+
+    def test_refresh_models_failure_keeps_stored_models(self, client, monkeypatch):
+        """轻探针失败原样透传，不覆盖已存清单（清单快照仍是可用兜底）。"""
+        async def fake_fetch(**kwargs):
+            return {"ok": False, "status": "timeout", "models": None, "error": "连接超时"}
+
+        cid = self._seed_cfg_with_models(client, monkeypatch, "刷新失败", ["glm-5.3-flash"])
+        monkeypatch.setattr("api_configs.service._fetch_models", fake_fetch)
+        resp = client.post(f"/api/v1/api-configs/{cid}/refresh-models")
+        assert resp.status_code == 200, resp.text
+        assert resp.json()["ok"] is False
+        assert resp.json()["error"] == "连接超时"
+        assert client.get(f"/api/v1/api-configs/{cid}").json()["models"] == ["glm-5.3-flash"]
+
+    def test_refresh_models_empty_list_keeps_stored_models(self, client, monkeypatch):
+        """端点不提供清单（空清单）同样不覆盖已存清单，说明/候选项照常回传。"""
+        async def fake_fetch(**kwargs):
+            return {
+                "ok": True,
+                "status": "ok",
+                "models": [],
+                "error": None,
+                "candidates": ["glm-5.4"],
+                "note": "该端点不提供模型列表",
+            }
+
+        cid = self._seed_cfg_with_models(client, monkeypatch, "无清单端点", ["glm-5.3-flash"])
+        monkeypatch.setattr("api_configs.service._fetch_models", fake_fetch)
+        resp = client.post(f"/api/v1/api-configs/{cid}/refresh-models")
+        assert resp.status_code == 200, resp.text
+        body = resp.json()
+        assert body["models"] == []
+        assert body["candidates"] == ["glm-5.4"]
+        assert body["note"] == "该端点不提供模型列表"
+        assert client.get(f"/api/v1/api-configs/{cid}").json()["models"] == ["glm-5.3-flash"]
+
+    def test_refresh_models_unknown_config_404(self, client):
+        resp = client.post("/api/v1/api-configs/no-such-config/refresh-models")
+        assert resp.status_code == 404
+
+    def test_refresh_models_junk_list_keeps_stored_models(self, client, monkeypatch):
+        """归一后为空（全空白等畸形项）视同没拿到可用清单：不写库，已存清单保持。"""
+        async def fake_fetch(**kwargs):
+            return {"ok": True, "status": "ok", "models": ["  ", ""], "error": None}
+
+        cid = self._seed_cfg_with_models(client, monkeypatch, "畸形清单", ["glm-5.3-flash"])
+        monkeypatch.setattr("api_configs.service._fetch_models", fake_fetch)
+        resp = client.post(f"/api/v1/api-configs/{cid}/refresh-models")
+        assert resp.status_code == 200, resp.text
+        assert client.get(f"/api/v1/api-configs/{cid}").json()["models"] == ["glm-5.3-flash"]
+
     def test_test_config_persist_normalizes_and_truncates(self, client, monkeypatch):
         """自动落库走归一化（去空白/去重）且超限截断（c-model-list-cap-300 上限 300）——
         供应商长清单不再堵死手动 PUT；响应体与落库同一份清单（评审 P1：两口径分叉

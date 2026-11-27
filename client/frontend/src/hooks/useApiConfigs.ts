@@ -123,8 +123,19 @@ export function useApiConfigs() {
     }
   }, []);
 
-  const refreshModels = async (id: string) => {
-    return request(`/api-configs/${id}/refresh-models`, { apiBase: V1, method: "POST" });
+  // 已存密钥轻探针（c-api-config-refresh-stored-key）：编辑态 Key 未重填时拉清单。
+  // 成功带清单就顺手回填列表卡片（弹窗内的提交拼装另由页面用返回值更新 editConfig）。
+  const refreshModels = async (id: string): Promise<FetchModelsResult> => {
+    const result = await request<FetchModelsResult>(`/api-configs/${id}/refresh-models`, {
+      apiBase: V1,
+      method: "POST",
+    });
+    if (result.ok && result.models) {
+      setConfigs((prev) =>
+        prev.map((c) => (c.id === id ? { ...c, models: result.models! } : c)),
+      );
+    }
+    return result;
   };
 
   // model 可选（编辑弹窗改选模型后试连）：探针优先模型覆盖，缺省用已存 models 首项
