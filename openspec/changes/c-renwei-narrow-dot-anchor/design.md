@@ -68,7 +68,7 @@
 
 ### D7：逐字编辑用 MutationObserver（rAF 合并）重锚
 
-- 选择：在既有 `[editorEl]` 观察器 effect 里加 `MutationObserver`（`subtree/characterData/childList`），与 RO 共用一个 rAF；清理时 `disconnect()`。
+- 选择：独立一条 `[editorEl]` effect 装 `MutationObserver`（`subtree/characterData/childList`），rAF 合并测量；不依赖 `ResizeObserver` 是否存在（jsdom/旧环境也能装）；清理时 `disconnect()`。
 - 理由：圆点 x 现在依赖末行内容，而输入不改变尺寸、RO 抓不到；不重算会停在旧文字末尾直到 0.7s 重扫回来（期间可能压在刚打的字上）。rAF 合并避免每个字符都测量。
 - 备选：每次 findings 重扫才重锚——有最长 ~1s 的错位窗口；弃。
 
@@ -76,13 +76,13 @@
 
 - 选择：先算 `isNarrow`，只有窄栏才遍历问题段做 Range 量测并 `setDots`；宽栏沿用 `--rw-notes-left` 文字列，`dots` 不更新。
 - 理由：滚动 rAF 里宽栏白跑 N 次 Range 读取＋state churn；`narrow ? dots[g.para] : undefined` 的门同时挡住「窄→宽」切换时上一档的 stale 段尾锚。
-- 验证：单测覆盖宽栏无内联 left，以及窄→宽切换后 stale dots 不跟进。
+- 验证：单测覆盖宽栏无内联 left、窄→宽切换后 stale dots 不跟进，以及「段内续写 → MutationObserver 重锚 → left 更新」。
 
 ## Risks / Trade-offs
 
 - [每次滚动帧为每个问题段做 Range 量测，成本高于纯 top 测量] → 只在窄栏做（D8），measure 已按 rAF 节流；问题段数量级为个位数（按段聚合），Range 量测在毫秒级。逐字输入另加 MutationObserver，同样 rAF 合并。
 - [jsdom 的 Range 几何由 test-setup 给全零桩] → 单测用 `vi.spyOn` 覆写并 `afterEach` 收桩（断言失败也不漏桩）；真 Chromium 探针验证插入位矩形/collapsed range 行为。
-- [非 Chromium 的 WebKit 对 collapsed Range 可能返回 height 0] → 桌面端是 WebView2/Chromium，探针覆盖该目标；height 0 时圆点会偏上 9px（已知残留，不阻塞）。
+- [非 Chromium 的 WebKit 对 collapsed Range 可能返回 height 0] → `measure()` 在 height 0 时回落到段落 computed line-height 补足（单测已钉）；桌面端仍是 WebView2/Chromium。
 - [详情卡仍朝左展开，圆点更靠左时覆盖更多正文] → 窄栏本来就没有右侧空间；详情卡是 hover 浮层，不改布局；圆点仍离正文 ≥6px，覆盖在预期内。
 - [内联 left 与 CSS 兜底并存，可能出现一帧跳位] → `useLayoutEffect` 在绘制前完成测量与状态提交；首帧兜底本身就是可接受的「列缘位置」，不会甩到层外。
 

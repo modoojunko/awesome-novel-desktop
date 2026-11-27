@@ -38,10 +38,10 @@
 
 ## Impact
 
-- `client/frontend/src/components/novel/workbench/RenweiMarginNotes.tsx`：新增 `textEndRect()`（最后一个含可见字的正文文本节点末字后缘 Range 矩形；跳过朱雀判定章等装饰/控件子树与尾部空白/零宽字符）、`DOT_BOX_H/DOT_BOX_W/DOT_GAP_TO_BOX` 常量、`dots`/`narrow` 状态、`groupsRef` 防 stale；窄栏才计算并内联 `left/top`（含覆盖层钳制），量测缺席走 CSS 兜底；MutationObserver（rAF 合并）在逐字编辑时重锚。
+- `client/frontend/src/components/novel/workbench/RenweiMarginNotes.tsx`：新增 `textEndRect()`（最后一个含可见字的正文文本节点末字后缘 Range 矩形；跳过朱雀判定章等装饰/控件子树与尾部空白/零宽字符）、`DOT_BOX_H/DOT_BOX_W/DOT_GAP_TO_BOX` 常量、`dots`/`narrow` 状态、`groupsRef` 防 stale；窄栏才计算并内联 `left/top`（含覆盖层钳制），量测缺席走 CSS 兜底；MutationObserver（rAF 合并、独立 effect 不依赖 ResizeObserver）在逐字编辑时重锚；collapsed Range 高 0 时按段落行高补足。
 - `client/frontend/src/design/book.css`：窄栏规则删除 `right:2px`，改 `left: min(var(--rw-notes-left), calc(100% - 20px))` 作量测兜底；整盒 `pointer-events:none`、只有圆点与详情卡接事件；注释记录 11-22 两连判例、11-27 截图与点击穿透理由。
 - `client/frontend/src/__tests__/renweiCheck.test.tsx`：锚点/zoom 折算/极窄钳制/宽栏不写内联锚/窄→宽切换/量测缺席/窄栏 CSS 源守卫共 7 条用例；`afterEach` 统一收原型桩。
 - `docs/design-c/prototypes/ADJUSTMENTS.md`：补实现层形态、锚点与交互口径登记。
 - 行为面：后端、检测算法、报告弹窗、数据存储零改动；宽栏带文字边注位置不变。
-- 验证证据：真 Chromium 几何探针（短行点距末字 6.39px、满行 6px；点中心＝末行中心；段尾挂朱雀判定章时 picked 从 `疑似`(x=127) 纠正为正文末字(x=259.6)）；点击穿透探针（末字右侧 +1/+16px 命中 `<p>`，悬停圆点出卡、卡内按钮可点）；单测 20/20；变异验证（去 zoom 折算/去窄栏门/去钳制/去装饰跳过/回退 `right:2px` 均红）；全量 2356 passed / 1 skipped；`tsc` 0；CI `check` 绿。
+- 验证证据：真 Chromium 几何探针（短行点距末字 6.39px、满行 6px；点中心＝末行中心；段尾挂朱雀判定章时 picked 从 `疑似`(x=127) 纠正为正文末字(x=259.6)）；点击穿透探针（末字右侧 +1/+16px 命中 `<p>`，悬停圆点出卡、卡内按钮可点）；单测 22/22；变异验证（去 zoom 折算/去窄栏门/去钳制/去装饰跳过/去 Observer/去行高补足/回退 `right:2px` 均红）；全量 2358 passed / 1 skipped；`tsc` 0；CI `check` 绿。
 - 流程：按老板立规，代码与测试齐备后只报 diff，commit/PR/打包/发版逐次等批准。

@@ -158,8 +158,15 @@ export default function RenweiMarginNotes({ editorEl, findings, settled, onDone,
         if (!p) return;
         const r = textEndRect(p);
         if (!r) return;
+        // collapsed Range 的 height：Chromium 给字形盒高，WebKit 可能给 0——0 时按段落
+        // 行高补足，否则圆点会按「高 0」居中、偏上半个盒高（桌面端是 WebView2，
+        // 这里只是防未来/测试浏览器退化）。
+        const win = p.ownerDocument.defaultView;
+        const lineH =
+          r.height / zoom ||
+          (win ? parseFloat(win.getComputedStyle(p).lineHeight) || 0 : 0);
         dotNext[g.para] = {
-          top: Math.round((r.top - layerRect.top) / zoom + (r.height / zoom - DOT_BOX_H) / 2),
+          top: Math.round((r.top - layerRect.top) / zoom + (lineH - DOT_BOX_H) / 2),
           left: Math.min(
             Math.round((r.right - layerRect.left) / zoom) + DOT_GAP_TO_BOX,
             maxLeft,
@@ -204,16 +211,29 @@ export default function RenweiMarginNotes({ editorEl, findings, settled, onDone,
     ro.observe(editorEl);
     const wrap = editorEl.closest(".editor-wrap");
     if (wrap) ro.observe(wrap);
-    // 逐字输入/删改不改变尺寸，RO 抓不到；圆点 x 依赖末行内容，不重算会停在
-    // 旧文字末尾直到 0.7s 重扫回来（期间可能压在刚打的字上）。rAF 合并防抖。
-    const mo = new MutationObserver(schedule);
-    mo.observe(editorEl, { subtree: true, characterData: true, childList: true });
     return () => {
       cancelAnimationFrame(raf);
       ro.disconnect();
-      mo.disconnect();
     };
     // measure 只读 editorEl/layerRef（均稳定），无需随 findings 重挂观察器
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [editorEl]);
+
+  // 逐字输入/删改不改变尺寸，RO 抓不到；圆点 x 依赖末行内容，不重算会停在
+  // 旧文字末尾直到 0.7s 重扫回来（期间可能压在刚打的字上）。rAF 合并防抖。
+  // 单独一条 effect：不依赖 ResizeObserver 是否存在（jsdom/旧环境也能装）。
+  useEffect(() => {
+    if (!editorEl || typeof MutationObserver === "undefined") return;
+    let raf = 0;
+    const mo = new MutationObserver(() => {
+      cancelAnimationFrame(raf);
+      raf = requestAnimationFrame(measure);
+    });
+    mo.observe(editorEl, { subtree: true, characterData: true, childList: true });
+    return () => {
+      cancelAnimationFrame(raf);
+      mo.disconnect();
+    };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [editorEl]);
 

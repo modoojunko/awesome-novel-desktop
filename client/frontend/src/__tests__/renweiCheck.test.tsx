@@ -416,6 +416,44 @@ describe("RenweiMarginNotes（左右分边注）", () => {
     document.body.removeChild(editor.parentElement as HTMLElement);
   });
 
+  it("逐字编辑：MutationObserver 触发重锚，圆点跟到新的末字", async () => {
+    const editor = makeEditor();
+    stubLayout(625, 700);
+    const rangeSpy = stubTextEnd({ left: 430, right: 430, top: 520, bottom: 554, height: 34, x: 430, y: 520 });
+    render(
+      <RenweiMarginNotes editorEl={editor} findings={findings} settled={{}} onDone={vi.fn()} onSkip={vi.fn()} />,
+    );
+    const note = screen.getByTestId("rw-note-1") as HTMLElement;
+    expect(note.style.left).toBe("433px");
+    // 模拟在段内续写：末字后缘移到 500，MutationObserver 应经 rAF 重算
+    rangeSpy.mockReturnValue({
+      left: 500,
+      right: 500,
+      top: 520,
+      bottom: 554,
+      width: 0,
+      height: 34,
+      x: 500,
+      y: 520,
+    } as DOMRect);
+    editor.querySelectorAll("p")[1].appendChild(document.createTextNode("又多写了一句。"));
+    await waitFor(() => expect(note.style.left).toBe("503px"));
+    document.body.removeChild(editor.parentElement as HTMLElement);
+  });
+
+  it("collapsed Range 无高度（WebKit）：按段落行高补足，圆点不偏上", () => {
+    const editor = makeEditor();
+    editor.querySelectorAll("p")[1].style.lineHeight = "34px";
+    stubLayout(625, 700);
+    stubTextEnd({ left: 430, right: 430, top: 520, bottom: 520, width: 0, height: 0, x: 430, y: 520 });
+    render(
+      <RenweiMarginNotes editorEl={editor} findings={findings} settled={{}} onDone={vi.fn()} onSkip={vi.fn()} />,
+    );
+    // height=0 → 取段落行高 34：520 ＋ (34−18)/2 ＝ 528（不取 520−9）
+    expect((screen.getByTestId("rw-note-1") as HTMLElement).style.top).toBe("528px");
+    document.body.removeChild(editor.parentElement as HTMLElement);
+  });
+
   it("窄栏兜底 CSS：列缘 min() ＋ 只有 8px 圆点吃事件（防 right:2px 回潮/点击抢光标）", () => {
     const css = readFileSync(path.resolve(process.cwd(), "src/design/book.css"), "utf8");
     const flat = (re: RegExp) => (re.exec(css)?.[1] ?? "").replace(/\s+/g, " ");
