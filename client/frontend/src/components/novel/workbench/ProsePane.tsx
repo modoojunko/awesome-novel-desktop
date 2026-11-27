@@ -36,6 +36,7 @@ import {
   fetchEffectiveModel,
   streamChapterRefill,
   streamChapterWrite,
+  type ProseWriteExtras,
   type StreamDoneMeta,
 } from "@/lib/ai";
 import type { SelectionCapture } from "@/lib/selection";
@@ -48,6 +49,7 @@ import {
 } from "@/lib/prefs";
 import { docToProse, linesToParagraphs, proseToDoc, normalizeStreamedProse, proseDelta} from "./proseDoc";
 import { RenweiMarks, applyRenweiMarks } from "./renweiMarks";
+import { useRenweiChapterMemory } from "./useRenweiChapterMemory";
 import RenweiCheckModal from "./RenweiCheckModal";
 import type { WriteBlockPayload } from "@/lib/ai";
 import RenweiMarginNotes from "./RenweiMarginNotes";
@@ -82,11 +84,16 @@ const GEN_STAGE_LABELS: Record<string, string> = {
 export interface ProseHandle {
   focus(): void;
   captureNow(): SelectionCapture | null;
-  /** promptOverride：AI 弹窗编辑后的提示词（空 = 后端自动组装）
+  /** 当前编辑器正文全文（\n 分段纯文本，含未保存改动）——c-agent-prose-checks：
+   *  聊天请求随 page_state 上行给 read_prose_checks 现算，保证与屏上同口径 */
+  getProse(): string;
+  /** promptOverride：方案卡/AI 弹窗定稿的提示词（空 = 后端自动组装）
    *  modelSelection：按次模型对（c-prose-model-select；未传 = 本书模型）
+   *  extras：agent 模式载荷（c-agent-dialog-prose）——kbPicks 键存在即 agent 模式，
+   *  写法块按助手挑选条目组装（未传 = 规则选块旧路径）
    *  写入语义＝替换本章正文（c-prose-regen-replace）：开始前清空现有正文，
    *  旧正文经「先 flush 后清空」进版本历史；入口层确认见 RegenConfirmModal */
-  startWriting(prompt?: string, modelSelection?: ModelSelection): void;
+  startWriting(prompt?: string, modelSelection?: ModelSelection, extras?: ProseWriteExtras): void;
   stopWriting(): void;
   /** 打开「人味检测」报告弹窗（c-renwei-check；入口在右栏检测区） */
   openRenweiCheck?: () => void;
@@ -253,6 +260,8 @@ const ProsePane = forwardRef<ProseHandle, ProsePaneProps>(function ProsePane(
   const [thinkModel, setThinkModel] = useState("");
   const lastPromptRef = useRef<string | undefined>(undefined);
   const lastModelSelRef = useRef<ModelSelection | undefined>(undefined);
+  // 助手挑选的写法条目（c-agent-dialog-prose）：重试按钮须原样携带（键在＝agent 模式）
+  const lastExtrasRef = useRef<ProseWriteExtras | undefined>(undefined);
   // 模型名懒取守卫（评审 P2b）：闭包里的 thinkModel 恒为 startStream 时刻值，
   // 不加守卫＝每个思考增量都打一次 /ai-model
   const thinkModelFetchedRef = useRef(false);
@@ -700,7 +709,11 @@ const ProsePane = forwardRef<ProseHandle, ProsePaneProps>(function ProsePane(
   );
 
   const startStream = useCallback(
-    (promptOverride?: string, modelSelection?: ModelSelection) => {
+    (
+      promptOverride?: string,
+      modelSelection?: ModelSelection,
+      extras?: ProseWriteExtras,
+    ) => {
       if (!editor || editor.isDestroyed || streamingRef.current) return;
       if (archived) {
         toast.error("已归档章节不可生成");
@@ -730,6 +743,7 @@ const ProsePane = forwardRef<ProseHandle, ProsePaneProps>(function ProsePane(
       thinkModelFetchedRef.current = false;
       lastPromptRef.current = promptOverride;
       lastModelSelRef.current = modelSelection;
+      lastExtrasRef.current = extras;
       // 判死/失败零产物时回填旧稿的底稿（评审 P1：清空重写下「正文保持原样」
       // 的兑现面——否则空稿会被自动保存覆盖）
       preStreamProseRef.current = lastSyncedRef.current ?? "";
@@ -840,6 +854,7 @@ const ProsePane = forwardRef<ProseHandle, ProsePaneProps>(function ProsePane(
         cbs,
         promptOverride,
         modelSelection,
+        extras,
       );
     },
     [projectId, chapterRef, archived, editor, appendChunk, finishStream, scrollInsertIntoView, onAIStateChange, store],
@@ -971,8 +986,15 @@ const ProsePane = forwardRef<ProseHandle, ProsePaneProps>(function ProsePane(
   // c-renwei-check：人味检测（本地体检）。报告弹窗→「标记到正文」才上边注；
   // 段落标色走 TipTap decoration，边注走覆盖层（正文锁死，不占布局流）。
   const [renweiOpen, setRenweiOpen] = useState(false);
-  const [renweiReport, setRenweiReport] = useState<RenweiReport | null>(null);
-  const [renweiSettled, setRenweiSettled] = useState<Record<number, "done" | "skip">>({});
+  // 人味标注记忆换挂章作用域 hook（c-renwei-chapter-reset）：切章清账＋在途重扫
+  // 判章；report/settled 及其 setter 名字原样保留，消费点零改动。
+  const {
+    report: renweiReport,
+    settled: renweiSettled,
+    setReport: setRenweiReport,
+    setSettled: setRenweiSettled,
+    staleResult: renweiStaleResult,
+  } = useRenweiChapterMemory(chapterRef);
   const renweiFindings = renweiReport?.findings ?? [];
   // 需要标色的段落＝有 finding 且未处理的（0-based 非空段序）
   const renweiParas = Array.from(new Set(
@@ -1013,6 +1035,8 @@ const ProsePane = forwardRef<ProseHandle, ProsePaneProps>(function ProsePane(
           .flush?.()
           .then(() => renweiCheck(projectId, chapterRef))
           .then((next) => {
+            // 在途已切章：闭包章号过期，结果按旧章算——丢弃，不消卡不上屏
+            if (renweiStaleResult(chapterRef)) return;
             const prevParas = new Set(prevReport.findings.map((f) => f.para));
             const nextParas = new Set(next.findings.map((f) => f.para));
             const cleared = [...prevParas].filter((p) => !nextParas.has(p));
@@ -1112,8 +1136,10 @@ const ProsePane = forwardRef<ProseHandle, ProsePaneProps>(function ProsePane(
     () => ({
       focus: () => editor?.commands.focus("end"), // 落文末：进入写作的继续位置
       captureNow,
-      startWriting: (prompt?: string, modelSelection?: ModelSelection) =>
-        startStream(prompt, modelSelection),
+      // 屏上正文全文（c-agent-prose-checks）：与 onUpdate 同一序列化单源
+      getProse: () => (editor && !editor.isDestroyed ? docToProse(editor.getJSON()) : ""),
+      startWriting: (prompt?: string, modelSelection?: ModelSelection, extras?: ProseWriteExtras) =>
+        startStream(prompt, modelSelection, extras),
       stopWriting: () => {
         // 中断 + 立即收尾（fetch abort 不回调 onDone/onError）
         abortRef.current?.abort();
@@ -1427,7 +1453,7 @@ const ProsePane = forwardRef<ProseHandle, ProsePaneProps>(function ProsePane(
                 onClick={() => {
                   setTimeoutCard(false);
                   setThinkOpen(false);
-                  startStream(lastPromptRef.current, lastModelSelRef.current);
+                  startStream(lastPromptRef.current, lastModelSelRef.current, lastExtrasRef.current);
                 }}
               >
                 重新生成

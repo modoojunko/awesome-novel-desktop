@@ -327,6 +327,7 @@ async def _stream_chat(
     user_message_id: str = "",
     body_focus: dict[str, Any] | None = None,
     page_unsaved: list[str] | None = None,
+    page_prose: str = "",
     thread: str = "",
     tool_hint: dict[str, Any] | None = None,
     api_config_id: str = "",
@@ -474,6 +475,7 @@ async def _stream_chat(
         focus_ref=(body_focus or {}).get("ref", ""),
         thread=thread,
         page_unsaved=tuple(page_unsaved or ()),
+        page_prose=page_prose,
         scratch={"plan": prior_plan} if prior_plan else {},
     )
     # 记账必须记真实模型（test_ai_prompt_and_boundary 护栏：符号别名不得落账）——
@@ -997,6 +999,23 @@ async def _profile_summary_task(user_id: str, novel_id: str) -> None:
         logging.getLogger(__name__).info("assistant profile summarize skipped: %s", e)
 
 
+@router.get("/capabilities")
+async def assistant_capabilities(
+    project_id: str,
+    user: dict = Depends(get_current_user),
+):
+    """助手能力面（c-agent-dialog-prose）：前端按此切 chip 形态，env 熔断回退直开。
+
+    ASSISTANT_PROSE_FLOW=off → dialog_prose=false（正文页「生成正文」回退直开路径，
+    不进对话框编排）；缺省/其他值恒 true。轻端点：不查书（chip 形态判定与书无关）。
+    """
+    import os
+
+    return {
+        "dialog_prose": os.environ.get("ASSISTANT_PROSE_FLOW", "").strip().lower() != "off"
+    }
+
+
 @router.post("/stop")
 async def assistant_stop(
     project_id: str,
@@ -1156,6 +1175,14 @@ async def assistant_chat(
         if isinstance(body_page_state, dict) and isinstance(body_page_state.get("unsaved"), list)
         else []
     )
+    # 屏上正文随行（c-agent-prose-checks）：只进 ToolContext（read_prose_checks 用），
+    # 绝不进提示词；长度上限防御（正常一章几千字，超限视为异常丢弃）
+    body_prose = body_page_state.get("prose_text") if isinstance(body_page_state, dict) else None
+    page_prose = (
+        body_prose.strip()
+        if isinstance(body_prose, str) and len(body_prose) <= 50000
+        else ""
+    )
     user_row = await session_store.append_message(
         session,
         role="user",
@@ -1182,6 +1209,7 @@ async def assistant_chat(
             db, project, user, session, message, page,
             user_message_id=user_row.id, body_focus=body_focus,
             page_unsaved=page_unsaved,
+            page_prose=page_prose,
             thread=thread, tool_hint=tool_hint,
             api_config_id=api_config_id, model=model,
             thinking_override=thinking_override,

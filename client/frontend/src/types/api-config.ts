@@ -35,6 +35,8 @@ export interface ApiConfig {
   last_test_error: string | null;
   last_tested_at: string | null;
   models: string[];
+  /** 保存门禁探测结果（c-api-config-save-gate）：仅保存响应携带，卡片状态以落库字段为准 */
+  probe?: { ok: boolean; status: string; models?: string[] | null; error?: string | null } | null;
   models_updated_at: string | null;
   created_at: string;
   updated_at: string;

@@ -69,21 +69,35 @@ export interface StreamDoneMeta {
 // Streaming SSE helpers
 // ---------------------------------------------------------------------------
 
+/** 正文流式生成的按次附加载荷（c-agent-dialog-prose）：
+ *  kbPicks 键存在（空数组也算）＝agent 模式——写法块按助手挑选条目组装，
+ *  跳过规则选择器；未传＝旧路径（规则选块）。 */
+export interface ProseWriteExtras {
+  kbPicks?: Array<{ entry_id: string; reason?: string }>;
+}
+
 export function streamChapterWrite(
   projectId: string,
   chapterRef: string,
   callbacks: StreamCallbacks,
   promptOverride?: string,
   modelSelection?: ModelSelection,
+  extras?: ProseWriteExtras,
 ): AbortController {
-  // promptOverride：AI 弹窗编辑后的提示词覆盖（空串/未传 = 后端自动组装）
-  // modelSelection：按次模型对（c-prose-model-select；未传 = 本书模型）——两覆盖皆缺时
-  // 不带 body，与旧链路逐字一致
+  // promptOverride：方案卡/AI 弹窗定稿的提示词覆盖（空串/未传 = 后端自动组装）
+  // modelSelection：按次模型对（c-prose-model-select；未传 = 本书模型）
+  // extras.kbPicks：agent 模式闸（键存在即发，空数组也发）——三覆盖皆缺时不带 body，
+  // 与旧链路逐字一致
   const body: Record<string, unknown> = {};
   if (promptOverride) body.prompt = promptOverride;
   if (modelSelection) {
     body.api_config_id = modelSelection.api_config_id;
     body.model = modelSelection.model;
+  }
+  if (extras?.kbPicks !== undefined) {
+    body.kb_picks = extras.kbPicks.map((p) =>
+      p.reason ? { entry_id: p.entry_id, reason: p.reason } : { entry_id: p.entry_id },
+    );
   }
   return doStreamFetch(
     `${API_BASE}/novels/${projectId}/chapters/${chapterRef}/write`,

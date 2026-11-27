@@ -33,7 +33,8 @@ const CONFIG_PATH = path.join(
   "config.json",
 );
 const TEST_PASSWORD = ["TestPass", "789!"].join("");
-const STUB_PORT = 45991;
+// 桩模型端口可覆盖：并行会话/残留进程各用各的，避免 45991 被占即整轮挂
+const STUB_PORT = Number(process.env.E2E_STUB_PORT || 45991);
 const STUB_BASE = `http://host.docker.internal:${STUB_PORT}/v1`;
 
 const EXPAND_DRAFT = {
@@ -668,6 +669,32 @@ test.describe("chat-dock 界面测试（c-writing-agent 批G）", () => {
     // 正文只剩助手说的话，不再混 ● tool 行
     await expect(page.getByText("看完了，主线还没写。")).toBeVisible();
     await expect(page.locator("body")).not.toContainText("● read_settings");
+    await restore();
+  });
+
+  test("⑯思考泡泡点开贴最新一行（长思考默认看结尾，不用手滚）", async ({ page }) => {
+    const { restore, token } = await setupSession(page, "max");
+    await seedBook(page, token, `e2e-agt-think-scroll-${Date.now()}`);
+    const longThink = Array.from({ length: 30 }, (_, i) => `第 ${i + 1} 行走查用的思考内容`).join("\n");
+    await mockChat(page, [
+      [runStart("sc1"), thinking(longThink), narration("想完了。"), runEnd("sc1")],
+    ]);
+    await sendViaDock(page, "想一下");
+    const card = page.getByTestId("chat-proc-thinking");
+    await expect(card).toHaveCount(1);
+    await expect(card).toContainText("思考过程");
+    await card.getByText("思考过程").click();
+    const body = page.getByTestId("chat-proc-thinking-body");
+    await expect(body).toBeVisible();
+    await expect(body).toContainText("第 30 行");
+    const pos = await body.evaluate((el) => ({
+      top: el.scrollTop,
+      height: el.scrollHeight,
+      client: el.clientHeight,
+    }));
+    // 长思考超出容器：点开即贴底，最新一行在视口内（底部留 2px 取整余量）
+    expect(pos.height).toBeGreaterThan(pos.client);
+    expect(pos.top + pos.client).toBeGreaterThanOrEqual(pos.height - 2);
     await restore();
   });
 

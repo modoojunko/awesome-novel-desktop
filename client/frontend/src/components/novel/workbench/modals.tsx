@@ -791,7 +791,7 @@ export function RegenConfirmModal({
 }: {
   open: boolean;
   onClose: () => void;
-  /** 确认后进 AiModal 提示词预览（本弹窗自身零副作用，不触发生成） */
+  /** 确认后按待启动参数直接开流（c-agent-dialog-prose：提示词预览在对话框方案卡） */
   onConfirm: () => void;
   /** 当前正文字数（提示语带数量；0＝不显字数） */
   words: number;

@@ -4,7 +4,7 @@
 // （AuiErrorBoundary 独立测：NovelWorkspace.test 覆盖挂载）。
 // @vitest-environment jsdom
 import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 
 const chatApiState = vi.hoisted(() => ({
   loadAssistantSession: vi.fn(),
@@ -248,6 +248,95 @@ describe("Aui2Dock 流式契约", () => {
     // 契约：开始 true → 终态 false（树锁定守卫依据）；过程不崩
     await waitFor(() => expect(onStreamingChange).toHaveBeenLastCalledWith(false));
     expect(onStreamingChange).toHaveBeenCalledWith(true);
+  });
+});
+
+describe("思考泡泡点开贴最新一行（c-agent-thinking-scroll-latest）", () => {
+  // jsdom 无布局：给思考正文补 scrollHeight/clientHeight/scrollTop，让贴底行为可断言
+  const proto = window.HTMLElement.prototype;
+  const saved = {
+    scrollHeight: Object.getOwnPropertyDescriptor(proto, "scrollHeight"),
+    clientHeight: Object.getOwnPropertyDescriptor(proto, "clientHeight"),
+    scrollTop: Object.getOwnPropertyDescriptor(proto, "scrollTop"),
+  };
+  const tops = new WeakMap<Element, number>();
+  const isThinkBody = (el: Element) =>
+    (el as HTMLElement).dataset.testid === "chat-proc-thinking-body";
+
+  beforeAll(() => {
+    Object.defineProperty(proto, "scrollHeight", {
+      configurable: true,
+      get(this: HTMLElement) {
+        return isThinkBody(this) ? 400 + (this.textContent?.length ?? 0) : 0;
+      },
+    });
+    Object.defineProperty(proto, "clientHeight", {
+      configurable: true,
+      get(this: HTMLElement) {
+        return isThinkBody(this) ? 260 : 0;
+      },
+    });
+    Object.defineProperty(proto, "scrollTop", {
+      configurable: true,
+      get(this: HTMLElement) {
+        return tops.get(this) ?? 0;
+      },
+      set(this: HTMLElement, v: number) {
+        tops.set(this, v);
+      },
+    });
+  });
+
+  afterAll(() => {
+    for (const k of ["scrollHeight", "clientHeight", "scrollTop"] as const) {
+      const d = saved[k];
+      if (d) Object.defineProperty(proto, k, d);
+      else delete (proto as unknown as Record<string, unknown>)[k];
+    }
+  });
+
+  it("点开历史思考即滚到最新一行（不停在开头）", async () => {
+    chatApiState.loadAssistantSession.mockResolvedValue(
+      sess([
+        { id: "u1", role: "user", content: "想想", page: "ch:og" },
+        {
+          id: "a1",
+          role: "assistant",
+          content: "好了。",
+          page: "ch:og",
+          payload: { process: [{ kind: "thinking", text: "第一段\n第二段\n第三段" }] },
+        },
+      ]),
+    );
+    render(<Aui2Dock projectId="p1" page="工作台 · 卷纲" scope={SCOPE} />);
+    await waitFor(() => expect(screen.getByText("好了。")).toBeTruthy());
+    fireEvent.click(screen.getByText("思考过程"));
+    const body = await screen.findByTestId("chat-proc-thinking-body");
+    await waitFor(() => expect(body.scrollTop).toBe(body.scrollHeight));
+  });
+
+  it("流式中跟最新；作家往上翻读旧内容后不再抢滚动", async () => {
+    render(<Aui2Dock projectId="p1" page="工作台 · 卷纲" scope={SCOPE} />);
+    await screen.findByTestId("aui2-dock");
+    const sse = captureStream();
+    fireEvent.click(screen.getByTestId("aui2-chip-draft_volume_expand"));
+    await waitFor(() => expect(chatApiState.streamAssistantChat).toHaveBeenCalled());
+    sse.drive({ type: "thinking", text: "第一段" });
+    await screen.findByTestId("chat-proc-thinking");
+    fireEvent.click(screen.getByText("思考中"));
+    const body = await screen.findByTestId("chat-proc-thinking-body");
+    await waitFor(() => expect(body.scrollTop).toBe(body.scrollHeight));
+
+    // 新输出继续贴底
+    sse.drive({ type: "thinking", text: "第一段\n第二段" });
+    await waitFor(() => expect(body.scrollTop).toBe(body.scrollHeight));
+
+    // 作家往上翻：贴底关掉，后续增量不再拽回
+    tops.set(body, 10);
+    fireEvent.scroll(body);
+    sse.drive({ type: "thinking", text: "第一段\n第二段\n第三段" });
+    await waitFor(() => expect(body.textContent).toContain("第三段"));
+    expect(body.scrollTop).toBe(10);
   });
 });
 
@@ -665,6 +754,51 @@ describe("Aui2Dock pageUnsaved 上行时效（c-agent-page-ops review P1）", ()
       page_state?: { unsaved: string[] };
     };
     expect(body.page_state?.unsaved).toEqual(["设定面板"]);
+    void sse;
+  });
+});
+
+describe("Aui2Dock page_state.prose_text 上行（c-agent-prose-checks）", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    chatApiState.loadAssistantSession.mockResolvedValue(sess());
+    chatApiState.setPermissionTier.mockResolvedValue(undefined);
+    chatApiState.approveGate.mockResolvedValue({ ok: true });
+  });
+
+  it("getPageProse 变更后随下一条消息上行（发送时刻取值，不用装载时旧闭包）", async () => {
+    const { rerender } = render(
+      <Aui2Dock projectId="p1" page="工作台 · 卷纲" scope={SCOPE} getPageProse={() => ""} />,
+    );
+    await screen.findByTestId("aui2-dock");
+    const sse = captureStream();
+    rerender(
+      <Aui2Dock
+        projectId="p1"
+        page="工作台 · 卷纲"
+        scope={SCOPE}
+        getPageProse={() => "第一段。\n第二段。"}
+      />,
+    );
+    fireEvent.click(screen.getByTestId("aui2-chip-draft_volume_expand"));
+    await waitFor(() => expect(chatApiState.streamAssistantChat).toHaveBeenCalled());
+    const body = chatApiState.streamAssistantChat.mock.calls[0][1] as {
+      page_state?: { unsaved?: string[]; prose_text?: string };
+    };
+    expect(body.page_state?.prose_text).toBe("第一段。\n第二段。");
+    void sse;
+  });
+
+  it("getPageProse 缺省/空串→page_state 不带 prose_text", async () => {
+    render(<Aui2Dock projectId="p1" page="工作台 · 卷纲" scope={SCOPE} />);
+    await screen.findByTestId("aui2-dock");
+    const sse = captureStream();
+    fireEvent.click(screen.getByTestId("aui2-chip-draft_volume_expand"));
+    await waitFor(() => expect(chatApiState.streamAssistantChat).toHaveBeenCalled());
+    const body = chatApiState.streamAssistantChat.mock.calls[0][1] as {
+      page_state?: { unsaved?: string[]; prose_text?: string };
+    };
+    expect(body.page_state?.prose_text).toBeUndefined();
     void sse;
   });
 });

@@ -209,7 +209,7 @@ import { relTime } from "@/lib/reltime";
 
 const CONFIG2 = { ...CONFIG, id: "c2", name: "备用 · DeepSeek", vendor: "deepseek" };
 
-function stubFull(over: { listError?: string; empty?: boolean; createOk?: boolean; usageAt?: string } = {}) {
+function stubFull(over: { listError?: string; empty?: boolean; createOk?: boolean; createBlocked?: string; usageAt?: string } = {}) {
   const fetchMock = vi.fn(async (url: string, init?: RequestInit) => {
     const method = init?.method ?? "GET";
     calls.push({ url: String(url), method, body: init?.body ? JSON.parse(String(init.body)) : undefined });
@@ -227,7 +227,23 @@ function stubFull(over: { listError?: string; empty?: boolean; createOk?: boolea
     if (u.includes("/image-configs")) return { ok: true, json: async () => ({ ok: true, data: [] }) };
     if (u.includes("/api-configs/status")) return { ok: true, json: async () => [] };
     if (u.includes("/api-configs/fetch-models")) return { ok: true, json: async () => ({ ok: true, status: "ok", models: ["deepseek-flash", "deepseek-v4-pro"] }) };
-    if (method === "POST" && u.endsWith("/api-configs")) return { ok: true, json: async () => CONFIG2 };
+    if (method === "POST" && u.endsWith("/api-configs")) {
+      // c-api-config-save-gate：门禁判败 = 结构化 422（code/status/message）
+      if (over.createBlocked) {
+        return {
+          ok: false,
+          status: 422,
+          json: async () => ({
+            detail: {
+              code: "probe_failed",
+              status: "endpoint_mismatch",
+              message: over.createBlocked,
+            },
+          }),
+        };
+      }
+      return { ok: true, json: async () => CONFIG2 };
+    }
     if (method === "POST" && u.includes("/restore")) return { ok: true, json: async () => CONFIG2 };
     if (method === "DELETE") return { ok: true, json: async () => ({ affected_projects: 0, affected_names: [] }) };
     if (/\/api-configs\/c2\/test$/.test(u)) {
@@ -281,21 +297,39 @@ describe("ApiKeyConfigPage 覆盖补齐", () => {
     await waitFor(() => expect(document.querySelector(".mcard")).toBeNull()); // 表单已关（等退场动画）
   }
 
-  it("新建流程：POST 后自动测试 → toast 报「连接正常」（成功臂）", async () => {
+  it("新建流程：保存即门禁（只发一次 POST，不再二次测试）→ toast 报「连接正常」", async () => {
     stubFull({ createOk: true });
     renderPage();
     await waitFor(() => expect(screen.getByText("添加 API Key")).toBeTruthy());
     await createConfig();
     // toast 需要 Toaster 宿主（页面单独渲染没有）→ 断言 spy 调用（仓库既有范式）
     await waitFor(() => expect(toast.success).toHaveBeenCalledWith("已添加「新配置」 · 连接正常"));
+    // 创建后不再发 /api-configs/{id}/test（探测由后端保存入口完成）
+    expect(calls.some((c) => /\/api-configs\/[^/]+\/test$/.test(c.url))).toBe(false);
   });
 
-  it("新建流程：自动测试失败 → toast 报「请检查 Key」（失败臂）", async () => {
-    stubFull({ createOk: false });
+  it("新建流程：门禁判败（422）→ 弹窗不关＋表单内联错误文案，不发二次测试", async () => {
+    stubFull({ createBlocked: "该地址返回的不是 API 数据——请检查 Base URL" });
     renderPage();
     await waitFor(() => expect(screen.getByText("添加 API Key")).toBeTruthy());
-    await createConfig();
-    await waitFor(() => expect(toast.success).toHaveBeenCalledWith("已添加「新配置」 · 请检查 Key"));
+    fireEvent.click(screen.getByText("添加 API Key"));
+    fireEvent.change(document.getElementById("cfName")!, { target: { value: "坏地址配置" } });
+    fireEvent.click(screen.getByText("DeepSeek"));
+    fireEvent.change(document.getElementById("cfBase")!, { target: { value: "https://platform.deepseek.com/api_keys" } });
+    fireEvent.change(document.getElementById("cfKey")!, { target: { value: "sk-x" } });
+    fireEvent.submit(document.getElementById("api-config-form")!);
+    // 422 detail.message 经 lib/api.ts 直达表单内联 error 位；弹窗保持打开
+    await waitFor(() => expect(screen.getByText("该地址返回的不是 API 数据——请检查 Base URL")).toBeTruthy());
+    expect(document.querySelector(".mcard")).toBeTruthy();
+    expect(calls.some((c) => /\/api-configs\/[^/]+\/test$/.test(c.url))).toBe(false);
+    expect(toast.success).not.toHaveBeenCalledWith("已添加「坏地址配置」 · 连接正常");
+    // 改连接相关输入即清过期保存错误（c-api-config-save-gate）
+    fireEvent.change(document.getElementById("cfBase")!, {
+      target: { value: "https://api.deepseek.com" },
+    });
+    await waitFor(() =>
+      expect(screen.queryByText("该地址返回的不是 API 数据——请检查 Base URL")).toBeNull(),
+    );
   });
 
   it("新建：预填模型进 POST body models 首项；无预填（OpenAI 兼容）为空数组", async () => {

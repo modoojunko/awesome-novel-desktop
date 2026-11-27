@@ -7,9 +7,24 @@
 - `client/packaging/build/pywebview_app.py` 的 `apply_pending_update` 在退出链尾部
   spawn detached PowerShell runner，然后立刻 `_force_exit`；Python 侧**不等待、不检查**
   执行体是否真的开始。
-- runner 脚本（`_install_runner_script`）只在安装器退出后写一行 `installer-runner.log`；
-  脚本开头没有落痕，`Add-Content` 也不在 `finally` 里。PowerShell 被拦截或脚本在
-  `Wait-Process` 阶段终止时，磁盘上没有任何“执行体已运行”的证据。
+- 现状复核（2026-11-23，记录切片起点）：#945（c-update-detached-ps-fix）与 2026-10-24
+  WMI 事故修复之后，`runner: started` 启动痕、`runner: dispatched` 分段标记、三态回读
+  （`_read_last_attempt`）与「Popen 抛错→回退直连」已在位。**本批仍缺并补齐**：
+  ① `installer_start`＋`finally` 终局痕 `finished`（异常路径目前无终局记录）；
+  ② Python 侧 `runner_spawned` 留痕与「Popen 成功但脚本零执行」的有界等待（3s）超时
+  回退——这正是 0.37→0.38 事故的形态（进程建出 ≠ 脚本在跑；#945 只覆盖了「建不出」）；
+  ③ macOS runner 的 `finished` 终局行（`started` 已有）。
+- 实现差异注（对 Decisions 1 的模板）：`$ErrorActionPreference` 维持既有 `'Stop'`，
+  所有 `Add-Content` 逐行 `-ErrorAction SilentlyContinue`——异常路径仍能写终局痕，
+  不改既有错误语义；等待实现落在 `_spawn_install_runner` 内部（apply 侧调用），
+  常量 `_RUNNER_START_TIMEOUT_SECONDS=3.0`／`_RUNNER_START_POLL_SECONDS=0.1`
+  供测试缩短。
+- 批二实现差异注（2026-11-23）：① 快照目录以**目标版本**命名
+  （`rollback\<pending.version>`）——`_reconcile_pending` 的「版本对拍成功」分支
+  可直接按 pending.version 清理，无需另记 from_version；② 不做显式空间预检
+  （×1.2），改以「robocopy 退出码 ≥8 即 `snapshot_failed`、放弃静默装并可见失败」
+  为等价判据（预检属优化项）；③ 失败 MessageBox 用 OK 单键（数据目录路径与下载
+  地址写进正文与桌面 txt），不做「打开目录」按钮——runner 无 UI 上下文，单键最稳。
 - 本次真机日志事实：runner 被拉起但 `installer-runner.log` 与 `installer.log` 均缺失，
   安装器未执行；重装前旧 `AwesomeNovel.exe` 与 `data\` 仍在，桌面图标失效是陈旧快捷
   方式而非安装器删文件。Inno 的“删目标再改名”风险仍在，作为失败兜底的设计对象。
@@ -90,7 +105,8 @@
    - 快照位置：`%LOCALAPPDATA%\AwesomeNovel\rollback\<from_version>\`（安装目录之外，
      与数据目录分离）。快照只复制程序树（exe、`_internal`、许可文本等），**排除**
      `data\`、`logs\` 与运行时文件，避免把书稿复制一遍。
-   - 快照方式：第一版用 `robocopy /E` 完整复制（简单、可验证）；检查可用空间 ≥ 程序树
+   - 快照方式：用 `robocopy /MIR` 严格镜像程序树（重复失败不残留幽灵文件；review P3
+     由 `/E` 改 `/MIR`）；检查可用空间 ≥ 程序树
      大小 × 1.2，不足则放弃本次静默安装并给出可见提示。硬链接快照作为后续优化项，
      不阻塞本 change。
    - 验收：安装器退出码为 0 **且** `{app}\AwesomeNovel.exe` 存在（可启动性以

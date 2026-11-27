@@ -74,6 +74,24 @@ export interface AssistantStreamHandlers {
   onDone?: () => void;
 }
 
+/** 助手能力面（c-agent-dialog-prose）：前端按 dialog_prose 切正文「生成正文」chip
+ *  形态——true=command 型进对话框编排；false=env 熔断（ASSISTANT_PROSE_FLOW=off）
+ *  直开。探测失败 fail-open（缺省开启；旧后端没有该端点也不挡直开）。 */
+export async function getAssistantCapabilities(
+  projectId: string,
+): Promise<{ dialog_prose: boolean }> {
+  try {
+    const r = await fetch(`${API_BASE}/novels/${projectId}/assistant/capabilities`, {
+      headers: { Authorization: `Bearer ${getToken()}` },
+    });
+    if (!r.ok) return { dialog_prose: true };
+    const j = await r.json();
+    return { dialog_prose: j?.dialog_prose !== false };
+  } catch {
+    return { dialog_prose: true };
+  }
+}
+
 /** 后端 AssistantSession 序列化（GET /session 回看）。 */
 export interface AssistantSessionMessage {
   id: string;
@@ -192,8 +210,9 @@ export function streamAssistantChat(
     thread?: string;
     focus?: { ref: string };
     tool_hint?: { tool: string; args: Record<string, unknown> };
-    /** 页面未保存标记（c-agent-page-ops）：只进模型提示词（界面零渲染） */
-    page_state?: { unsaved?: string[] };
+    /** 页面态（c-agent-page-ops）：unsaved 进提示词；prose_text 只进工具上下文
+     *  （c-agent-prose-checks：read_prose_checks 现算用），绝不进提示词 */
+    page_state?: { unsaved?: string[]; prose_text?: string };
     /** 深度思考开关（c-agent-thinking-bubbles）：显式覆盖 API 配置的思考开关 */
     thinking?: boolean;
     /** 助手本轮按次模型覆盖对（c-agent-thinking-bubbles）：不改本书绑定 */

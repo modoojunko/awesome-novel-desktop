@@ -1,6 +1,7 @@
 # client/packaging/pywebview_app.py
 """Awesome Novel 桌面应用入口 — pywebview 壳"""
 
+import contextlib
 import json
 import os
 import random
@@ -92,6 +93,41 @@ def get_appdata() -> Path:
     if sys.platform == "darwin":
         return _migrate_legacy_appdata(base)
     return base / APP_DIR_NAME
+
+
+def get_local_appdata_dir() -> Path:
+    """Windows 用户本地目录（%LOCALAPPDATA%\\AwesomeNovel）——安装器可计算的固定点。
+
+    c-update-fail-safe：安装目录指针（install_dir.txt）与安装前快照（rollback\\）
+    都放这里——不用 roaming（%APPDATA%），因为 Inno 的 `{localappdata}` 恒可解析，
+    且两侧必须同源。非 Windows/缺 env 时回落到 appdata（测试环境可 monkeypatch）。
+    """
+    base = os.environ.get("LOCALAPPDATA")
+    if base:
+        return Path(base) / APP_DIR_NAME
+    return get_appdata()
+
+
+def _write_install_dir_pointer(runtime_dir: Path) -> None:
+    """启动时原子写安装目录指针（安装器目录预填的第一优先，c-update-fail-safe §4.1）。
+
+    写失败只留日志、不阻断启动。仅冻结态写——dev 态写指针会让安装器把仓库目录
+    当成「上次安装位置」。
+    """
+    try:
+        base = get_local_appdata_dir()
+        base.mkdir(parents=True, exist_ok=True)
+        path = base / "install_dir.txt"
+        tmp = path.with_name("install_dir.txt.tmp")
+        tmp.write_text(str(get_install_dir()), encoding="utf-8")
+        os.replace(tmp, path)
+    except OSError as exc:
+        log_line(runtime_dir, f"auto-update: install dir pointer write failed ({exc})")
+
+
+def _rollback_root() -> Path:
+    """安装前快照根（Windows 更新链用）：%LOCALAPPDATA%\\AwesomeNovel\\rollback。"""
+    return get_local_appdata_dir() / "rollback"
 
 
 def get_install_dir() -> Path:
@@ -1434,6 +1470,10 @@ def main():
     log_line(runtime_dir, "shell main() entered: version=%s exe=%s frozen=%s data_dir=%s runtime_dir=%s"
              % (client_version_at_boot, sys.executable, getattr(sys, "frozen", False),
                 get_install_dir(), runtime_dir))
+    # 安装目录指针（c-update-fail-safe §4.1）：安装器目录预填的第一优先来源；
+    # 仅冻结态写（dev 态写指针会把仓库目录冒充成「上次安装位置」）。
+    if _is_frozen():
+        _write_install_dir_pointer(runtime_dir)
 
     # 调参文件与安全模式（shell-render-resilience）：必须在 create_window 之前——
     # WebView2 环境每次进程只建一次，事后再设参数无效。
@@ -1576,6 +1616,11 @@ def main():
 # c-mac-autoupdate；其余平台留 pending 不动手回手动链）。
 _PENDING_TTL_SECONDS = 600.0
 _PENDING_MAX_ATTEMPTS = 2
+# c-update-fail-safe：runner 启动确认（有界等待）。PowerShell 冷启动 ~1s；默认 3s 内
+# 看不到 `runner: started` 即视为执行体被拦/静默死，退出链回退直接安装（design §2）。
+# 测试可 monkeypatch 缩短；100ms 轮询节奏与设计稿一致。
+_RUNNER_START_TIMEOUT_SECONDS = 3.0
+_RUNNER_START_POLL_SECONDS = 0.1
 
 
 def _sha256_of_file(path: Path) -> str:
@@ -1694,6 +1739,27 @@ def _reconcile_pending(runtime_dir: Path) -> None:
             pending_path.unlink(missing_ok=True)
             (data_root / "updates" / "last-install-attempt.json").unlink(missing_ok=True)
             log_line(runtime_dir, f"auto-update: applied v{current} confirmed (reconcile)")
+            # 快照清理（c-update-fail-safe §3.4）：新版首次运行确认后删 rollback/<版本>；
+            # 「装完但新版没起来」时快照保留，下次退出链仍可用
+            try:
+                import shutil
+
+                snap = _rollback_root() / str(pending["version"])
+                if snap.is_dir():
+                    shutil.rmtree(snap, ignore_errors=True)
+                root = _rollback_root()
+                if root.is_dir() and not any(root.iterdir()):
+                    root.rmdir()
+                # ignore_errors=True 会吞掉删除失败——按「还在不在」如实记日志
+                if snap.exists():
+                    log_line(runtime_dir,
+                             f"auto-update: rollback snapshot v{pending['version']} "
+                             "cleanup failed")
+                else:
+                    log_line(runtime_dir,
+                             f"auto-update: rollback snapshot v{pending['version']} cleaned")
+            except OSError:
+                log_line(runtime_dir, "auto-update: rollback snapshot cleanup failed")
         except OSError:
             log_line(runtime_dir, "auto-update: reconcile marker write failed")
     else:
@@ -1708,14 +1774,69 @@ def _ps_single_quoted(text: str) -> str:
     return "'" + str(text).replace("'", "''") + "'"
 
 
-def _install_runner_script(parent_pid: int, installer_argv: list[str], runner_log: Path) -> str:
-    """runner 脚本文本：等旧进程死透（等待段留痕）→同步跑安装器→退出码留痕。
+def _append_runner_marker(runner_log: Path, text: str) -> None:
+    """向执行日志追加一行 runner 标记（写失败不阻断派发）。"""
+    try:
+        with open(runner_log, "a", encoding="utf-8") as f:
+            f.write(f"{time.strftime('%Y-%m-%d %H:%M:%S')} runner: {text}\n")
+    except OSError:
+        pass
 
-    整段文本经 -EncodedCommand（UTF-16LE base64）下发，不经过任何 shell 解析器，
-    路径里的空格/中文/撇号零转义面。等待有界 60s：父 pid 复用属理论路径，超时放行
-    不卡链（Inno 自带 4 次重试兜住残余锁窗口）。等待段结果（时长＋超时后父进程是否
-    仍活着）随 installer-runner.log 落盘——「弹回旧版」类时序事故事后判读的第一
-    分辨点：秒回＝锁源在父进程之外；超时仍活＝安装器跑在活进程身上。
+
+def _runner_started_since_dispatch(runner_log: Path) -> bool:
+    """最近一次派发标记之后是否出现 `runner: started`（历史行不冒充本次）。
+
+    与 `_read_last_attempt` 同一分段口径：跨版本永久追加的执行日志按
+    `runner: dispatched` 取末段，避免上一版本的 started 行把本次误判为已启动。
+    """
+    try:
+        text = runner_log.read_text(encoding="utf-8", errors="replace")
+    except OSError:
+        return False
+    marker = text.rfind("runner: dispatched")
+    segment = text[marker:] if marker != -1 else text
+    return "runner: started" in segment
+
+
+def _wait_runner_started(runner_log: Path, timeout: float, interval: float) -> bool:
+    """有界等待 runner 启动痕（默认 3s、100ms 节奏）；超时返回 False。"""
+    deadline = time.monotonic() + max(timeout, 0.0)
+    while True:
+        if _runner_started_since_dispatch(runner_log):
+            return True
+        if time.monotonic() >= deadline:
+            return False
+        time.sleep(max(interval, 0.01))
+
+
+def _spawn_installer_direct(installer_argv: list[str], runner_log: Path,
+                            runtime_dir: Path, reason: str) -> None:
+    """回退：直接 detached 拉起安装器（runner 不可创建/未启动时）。
+
+    参数与闸门完全一致；双处留痕（执行日志 `runner_fallback=direct`＋startup.log）。
+    DETACHED_PROCESS=0x8（GUI 子系统安装器对无控制台免疫；getattr 仅为 POSIX 导入
+    安全，兜底用字面 Win32 常量——值不随平台漂移，测试可对拍）。
+    """
+    import subprocess
+
+    _append_runner_marker(runner_log, f"runner_fallback=direct ({reason})")
+    log_line(runtime_dir, f"auto-update: fallback to direct installer ({reason})")
+    subprocess.Popen(
+        installer_argv, close_fds=True,
+        creationflags=getattr(subprocess, "DETACHED_PROCESS", 0x8)
+        | getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0x200),
+    )
+
+
+def _install_runner_script(parent_pid: int, installer_argv: list[str], runner_log: Path,
+                           *, version: str, install_dir: Path, rollback_root: Path,
+                           exe_name: str, headless: bool) -> str:
+    """runner 脚本文本：等旧进程死透→快照→跑安装器（失败重试一次）→验收/回滚→留痕。
+
+    c-update-fail-safe 批二（§3）：快照只复制程序树（排除 data\\/logs\\，书稿永不
+    复制）到 rollback\\<目标版本>；安装验收＝退出码 0 且主程序存在非空；失败重试一次
+    仍不行→从快照 /MIR 恢复程序树（同排除）并给出用户可见失败说明（桌面 txt＋
+    MessageBox；headless 环境只写文件）。三段留痕与 tail 判读口径不变。
     """
     flags = " ".join(_ps_single_quoted(a) for a in installer_argv[1:])
     return "\n".join([
@@ -1723,34 +1844,103 @@ def _install_runner_script(parent_pid: int, installer_argv: list[str], runner_lo
         f"$parent = {int(parent_pid)}",
         f"$installer = {_ps_single_quoted(installer_argv[0])}",
         f"$log = {_ps_single_quoted(str(runner_log))}",
-        # 启动痕（第一判据：脚本是否真的运行过）——必须晚于 $log/$parent 赋值、
-        # 早于任何等待；插早了求得空串，Add-Content 在 SilentlyContinue 下静默失败
-        ("Add-Content -Path $log -Value (\"{0} runner: started (runner_pid={1} "
-         "parent={2})\" -f (Get-Date -Format 'yyyy-MM-dd HH:mm:ss'), $PID, $parent) "
-         "-ErrorAction SilentlyContinue"),
-        "$w0 = Get-Date",
-        "Wait-Process -Id $parent -Timeout 60 -ErrorAction SilentlyContinue",
-        "$waitMs = [int]((Get-Date) - $w0).TotalMilliseconds",
-        "$parentAlive = [bool](Get-Process -Id $parent -ErrorAction SilentlyContinue)",
-        "$t0 = Get-Date",
+        f"$version = {_ps_single_quoted(version)}",
+        f"$installDir = {_ps_single_quoted(str(install_dir))}",
+        f"$rollbackRoot = {_ps_single_quoted(str(rollback_root))}",
+        f"$exeName = {_ps_single_quoted(exe_name)}",
+        f"$headless = {1 if headless else 0}",
+        # 日志函数：Add-Content 逐行 SilentlyContinue——日志写失败绝不改动主链状态
+        ("function Write-RunnerLog([string]$m) { Add-Content -Path $log -Value "
+         "(\"{0} runner: {1}\" -f (Get-Date -Format 'yyyy-MM-dd HH:mm:ss'), $m) "
+         "-ErrorAction SilentlyContinue }"),
+        # 启动痕（第一判据）：必须早于任何等待（等待前 $log 已赋值）
+        "Write-RunnerLog (\"started (runner_pid={0} parent={1})\" -f $PID, $parent)",
+        # 终局痕（第三判据）：无论成功/失败/异常，finally 必写 finished
+        "$status = 'runner_error'",
         "$code = 1",
+        "$detail = ''",
+        "$retry = 0",
         "try {",
-        f"  & $installer {flags}",
-        "  $code = $LASTEXITCODE",
+        "  $w0 = Get-Date",
+        "  Wait-Process -Id $parent -Timeout 60 -ErrorAction SilentlyContinue",
+        "  $waitMs = [int]((Get-Date) - $w0).TotalMilliseconds",
+        "  $parentAlive = [bool](Get-Process -Id $parent -ErrorAction SilentlyContinue)",
+        # 安装前快照（程序树；data\\/logs\\ 永不复制）——失败即放弃静默安装
+        "  $winDir = $env:WINDIR",
+        "  if (-not $winDir) { $winDir = 'C:\\Windows' }",
+        "  $robo = Join-Path $winDir 'System32\\Robocopy.exe'",
+        "  if (-not (Test-Path $robo)) { $robo = 'robocopy.exe' }",
+        "  $exclude = @('/XD', (Join-Path $installDir 'data'), (Join-Path $installDir 'logs'))",
+        "  $snap = Join-Path $rollbackRoot $version",
+        "  New-Item -ItemType Directory -Force -Path $rollbackRoot | Out-Null",
+        ("  & $robo $installDir $snap '/MIR' @exclude '/NFL' '/NDL' '/NJH' '/NJS' '/NP' "
+         "'/R:1' '/W:1' | Out-Null"),
+        "  $snapCode = $LASTEXITCODE",
+        "  if ($snapCode -ge 8) {",
+        "    $status = 'snapshot_failed'",
+        "    $code = 1",
+        "    $detail = \"snapshot robocopy=$snapCode\"",
+        "  } else {",
+        "    Write-RunnerLog (\"snapshot_ready (snap={0})\" -f $snap)",
+        "    $t0 = Get-Date",
+        "    while ($true) {",
+        ("      Write-RunnerLog (\"installer_start (attempt={0} installer={1})\" "
+         "-f ($retry + 1), $installer)"),
+        "      $code = 1",
+        "      try {",
+        f"        & $installer {flags}",
+        "        $code = $LASTEXITCODE",
+        "      } catch {",
+        "        $code = 1",
+        "        $detail = $_.Exception.Message",
+        "      }",
+        ("      $exeItem = Get-Item (Join-Path $installDir $exeName) "
+         "-ErrorAction SilentlyContinue"),
+        ("      if (($code -eq 0) -and $exeItem -and ($exeItem.Length -gt 0)) "
+         "{ $status = 'ok'; break }"),
+        "      if ($retry -ge 1) { break }",
+        "      $retry += 1",
+        "    }",
+        "    $secs = [int]((Get-Date) - $t0).TotalSeconds",
+        "    if ($status -ne 'ok') {",
+        ("      & $robo $snap $installDir '/MIR' @exclude '/NFL' '/NDL' '/NJH' '/NJS' "
+         "'/NP' '/R:1' '/W:1' | Out-Null"),
+        "      $restoreCode = $LASTEXITCODE",
+        ("      if ($restoreCode -lt 8) { $status = 'rollback_restored' } else { "
+         "$status = 'rollback_failed'; if (-not $detail) { "
+         "$detail = \"restore robocopy=$restoreCode\" } }"),
+        "    }",
+        ("    Write-RunnerLog (\"wait_ms={0} parent_alive_after_wait={1} installer_exit={2} "
+         "install_seconds={3} retry={4}\" -f $waitMs, $parentAlive, $code, $secs, $retry)"),
+        "  }",
         "} catch {",
+        "  $status = 'runner_exception'",
         "  $code = 1",
+        "  $detail = $_.Exception.Message",
+        "} finally {",
+        "  if ($status -ne 'ok') {",
+        "    $ts = Get-Date -Format 'yyyyMMdd-HHmmss'",
+        "    $dataDir = Join-Path $installDir 'data'",
+        ("    $msg = \"版本: $version`n状态: $status`n退出码: $code`n错误: $detail`n"
+         "数据目录: $dataDir`n手动下载: https://www.awesomenovel.com/download/\""),
+        ("    try { $desk = [Environment]::GetFolderPath('Desktop'); Set-Content -Path "
+         "(Join-Path $desk \"爱小说更新失败-$ts.txt\") -Value $msg -Encoding UTF8 "
+         "-ErrorAction SilentlyContinue } catch {}"),
+        ("    if ($headless -ne 1) { try { Add-Type -AssemblyName System.Windows.Forms; "
+         "[System.Windows.Forms.MessageBox]::Show($msg, '爱小说更新失败', 'OK', 'Error') "
+         "| Out-Null } catch {} }"),
+        "  }",
+        ("  Write-RunnerLog (\"finished (status={0} exit={1} retry={2} error={3})\" "
+         "-f $status, $code, $retry, ($detail -replace '\\r?\\n', ' '))"),
         "}",
-        "$secs = [int]((Get-Date) - $t0).TotalSeconds",
-        ("Add-Content -Path $log -Value (\"{0} runner: wait_ms={1} "
-         "parent_alive_after_wait={2} installer_exit={3} install_seconds={4}\" "
-         "-f (Get-Date -Format 'yyyy-MM-dd HH:mm:ss'), $waitMs, $parentAlive, $code, $secs)"
-         " -ErrorAction SilentlyContinue"),
         "exit $code",
     ])
 
 
 def _spawn_install_runner(parent_pid: int, installer_argv: list[str],
-                          runner_log: Path, runtime_dir: Path) -> None:
+                          runner_log: Path, runtime_dir: Path, *,
+                          version: str, install_dir: Path, rollback_root: Path,
+                          exe_name: str, headless: bool) -> None:
     """detached PowerShell runner：接管「先退出再安装」的时序（见文件尾段注释）。
 
     runner 必须是 {app} 之外的程序（安装器要覆写 {app} 里的每个文件，runner 自己
@@ -1767,14 +1957,17 @@ def _spawn_install_runner(parent_pid: int, installer_argv: list[str],
     import base64
     import subprocess
 
-    script = _install_runner_script(parent_pid, installer_argv, runner_log)
+    script = _install_runner_script(
+        parent_pid, installer_argv, runner_log,
+        version=version, install_dir=install_dir, rollback_root=rollback_root,
+        exe_name=exe_name, headless=headless)
     encoded = base64.b64encode(script.encode("utf-16-le")).decode("ascii")
     ps_exe = (Path(os.environ.get("WINDIR", r"C:\Windows"))
               / "System32" / "WindowsPowerShell" / "v1.0" / "powershell.exe")
     new_group = getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0x200)
     no_window = getattr(subprocess, "CREATE_NO_WINDOW", 0x08000000)
     try:
-        subprocess.Popen(
+        proc = subprocess.Popen(
             [str(ps_exe) if ps_exe.exists() else "powershell.exe",
              "-NoProfile", "-NonInteractive", "-WindowStyle", "Hidden",
              "-EncodedCommand", encoded],
@@ -1782,15 +1975,29 @@ def _spawn_install_runner(parent_pid: int, installer_argv: list[str],
             env=_without_baked_env(os.environ),
         )
     except OSError as exc:
-        log_line(runtime_dir,
-                 f"auto-update: runner spawn failed ({exc}), "
-                 "fallback to direct installer")
-        subprocess.Popen(
-            installer_argv, close_fds=True,
-            # DETACHED_PROCESS=0x8：GUI 子系统安装器对无控制台免疫（getattr 仅为
-            # POSIX 导入安全，兜底用字面 Win32 常量——值不随平台漂移，测试可对拍）
-            creationflags=getattr(subprocess, "DETACHED_PROCESS", 0x8) | new_group,
-        )
+        # 执行体建不出来：回退直连（有代价的降级，仅此一路；回退再失败才上抛）
+        _spawn_installer_direct(
+            installer_argv, runner_log, runtime_dir, f"spawn failed: {exc}")
+        return
+    log_line(runtime_dir,
+             "auto-update: runner spawned "
+             f"(pid={getattr(proc, 'pid', '?')}), waiting for started marker")
+    # c-update-fail-safe：有界等待启动痕——「进程建出」≠「脚本真的在跑」（2026-10-24
+    # DETACHED_PROCESS 形态即引擎初始化后静默死、脚本零执行）。3s 内没看到
+    # `runner: started` 一律视为不可用：先杀掉可能迟起的残余 PowerShell（它若迟到会
+    # 在等尸后自己装，和直连安装器双装），再回退直接拉起安装器。
+    if _wait_runner_started(runner_log, _RUNNER_START_TIMEOUT_SECONDS,
+                            _RUNNER_START_POLL_SECONDS):
+        log_line(runtime_dir, "auto-update: runner started (marker confirmed)")
+        return
+    with contextlib.suppress(Exception):  # 尽力而为：杀不掉让 OS 回收，不阻断回退
+        if getattr(proc, "poll", lambda: 0)() is None:
+            kill = getattr(proc, "kill", None)
+            if kill:
+                kill()
+    _spawn_installer_direct(
+        installer_argv, runner_log, runtime_dir,
+        f"started timeout after {_RUNNER_START_TIMEOUT_SECONDS:.1f}s")
 
 
 def _mac_app_bundle() -> Path | None:
@@ -1884,6 +2091,11 @@ if [ "$ok" -eq 1 ] && [ "${UPD_RELAUNCH:-0}" = "1" ]; then
   if open "$UPD_BUNDLE" 2>/dev/null; then relaunched=1; fi
 fi
 log "wait_s=$wait_s parent_alive_after_wait=$parent_alive install_ok=$ok detail=$detail install_seconds=$install_s relaunched=$relaunched"
+# 终局痕（与 Windows 同串 runner: finished）：whatever 分支都先落一行再退出
+status=failed
+exit_code=1
+if [ "$ok" -eq 1 ]; then status=ok; exit_code=0; fi
+log "finished (status=$status exit=$exit_code detail=$detail)"
 [ "$ok" -eq 1 ] && exit 0
 exit 1
 '''.strip()
@@ -1965,12 +2177,16 @@ def apply_pending_update(runtime_dir: Path) -> None:
             os.getpid(),
             [str(installer),
              "/VERYSILENT", "/SUPPRESSMSGBOXES", "/NORESTART", "/CURRENTUSER",
-             "/MERGETASKS=!desktopicon",
              f"/DIR={install_dir}",
              f"/LOG={updates_dir / 'installer.log'}",
              "/AUTOLAUNCH=1"],
             runner_log,
             runtime_dir,
+            version=version,
+            install_dir=install_dir,
+            rollback_root=_rollback_root(),
+            exe_name=Path(sys.executable).name,
+            headless=os.environ.get("AINOVEL_RUNNER_HEADLESS") == "1",
         )
     elif sys.platform == "darwin":
         bundle = _mac_app_bundle()

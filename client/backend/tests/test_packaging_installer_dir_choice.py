@@ -165,3 +165,67 @@ def test_dir_page_tells_user_where_books_live():
         message = line.split("=", 1)[1]
         assert message.startswith(original), f"{lang} 标准句被改动（须原样保留再追加提示）"
         assert "data" in message, f"{lang} 提示必须点名 data 子目录"
+
+
+# ── c-update-fail-safe §4：安装目录连续性＋快捷方式 ─────────────────────────
+
+
+def test_desktop_icon_uses_autodesktop():
+    """桌面图标走 {autodesktop}：/CURRENTUSER 静默更新下写不了公用桌面（死图标根因）。"""
+    text = INSTALLER_ISS.read_text(encoding="utf-8")
+    icons = [line for _no, line in _active_lines(text) if line.startswith("Name:") and ".lnk" not in line]
+    desktop = [line for line in icons if "desktopicon" in line]
+    assert desktop, "缺桌面快捷方式条目"
+    assert any("{autodesktop}" in line for line in desktop), "桌面图标必须用 {autodesktop}"
+    assert not any("{commondesktop}" in line for line in desktop), (
+        "不得再用 {commondesktop}——自动更新 /CURRENTUSER 时不可写，会留下指向旧目录的死图标"
+    )
+
+
+def test_install_dir_pointer_and_registry_prefill_in_code():
+    """[Code] 目录预填链：指针文件 → 双 hive（含 32 位视图）→ 覆盖 DirEdit；/DIR 优先。"""
+    text = INSTALLER_ISS.read_text(encoding="utf-8")
+    assert "install_dir.txt" in text, "必须读应用写的安装目录指针"
+    assert "Inno Setup: App Path" in text and "InstallLocation" in text
+    for root in ("HKEY_CURRENT_USER_64", "HKEY_CURRENT_USER_32",
+                 "HKEY_LOCAL_MACHINE_64", "HKEY_LOCAL_MACHINE_32"):
+        assert root in text, f"缺 {root} 视图（跨安装模式看不到旧目录的根因）"
+    assert "WizardForm.DirEdit.Text" in text
+    assert "ExpandConstant('{param:DIR|}')" in text, "/DIR 显式给出时必须优先"
+    assert "procedure InitializeWizard;" in text
+    assert "procedure CurPageChanged" in text
+
+
+def test_shortcut_target_fixed_for_existing_link_only():
+    """ssPostInstall 只修已存在的用户桌面 .lnk（尊重用户取消勾选），不强行创建。"""
+    text = INSTALLER_ISS.read_text(encoding="utf-8")
+    assert "procedure CurStepChanged" in text and "ssPostInstall" in text
+    assert "WScript.Shell" in text and "TargetPath" in text
+    assert "if FileExists(Lnk)" in text, "只修复已存在的快捷方式"
+
+
+def test_install_dir_prefill_is_one_shot():
+    """位置页只「首次进入」应用解析结果：用户手改目录后返回该页不得被再次覆盖（review P3）。"""
+    text = INSTALLER_ISS.read_text(encoding="utf-8")
+    assert "InstallDirPrefilled" in text, "缺一次性标志——每次回到位置页都会覆盖用户手选目录"
+    assert "if MarkDone and InstallDirPrefilled then exit;" in text
+    assert "ApplyInstallDir(True)" in text, "CurPageChanged 的页面级应用必须记账"
+    assert "ApplyInstallDir(False)" in text, "InitializeWizard 预填不记账（Inno 页面激活会再写）"
+
+
+def test_global_var_declared_before_routines_in_code():
+    """[Code] 全局 var 必须声明在首个函数/过程之前（Pascal 块结构；iscc 编译要求，review P2）。
+
+    段头按行锚定切（`^[Code]$`）——注释里出现过「[Code]」字样，按子串 split 会从
+    注释处裹头假绿（判例：delta 提取器须以 section 头为边界）。
+    """
+    text = INSTALLER_ISS.read_text(encoding="utf-8")
+    sections = re.split(r"(?m)^\[Code\]\s*$", text)
+    assert len(sections) >= 2, "installer.iss 缺行首 [Code] 段头"
+    code = sections[-1]
+    var_at = code.find("InstallDirPrefilled: Boolean;")
+    assert var_at != -1, "缺 InstallDirPrefilled 声明"
+    first_routine = min(
+        i for i in (code.find("function "), code.find("procedure ")) if i != -1
+    )
+    assert var_at < first_routine, "全局 var 必须先于首个函数/过程（否则 iscc 可能编译失败）"

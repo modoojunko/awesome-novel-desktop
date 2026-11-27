@@ -4,15 +4,15 @@
 
 ### Requirement: 保存前连通门禁
 
-创建或编辑模型配置 SHALL 在落库前执行连接探测——与「测试连接」同一探测实现、同一判据（判据单源见「按接口格式探测连接」需求，此处不复述）；探测判败 SHALL NOT 落库（含覆盖更新），并 SHALL 在保存入口（弹窗）原位展示探测错误、保持编辑态不关闭。判败＝探测结果非 ok 的**一切**形态（endpoint_mismatch、auth_error、timeout、network_error、rate_limited、unknown 等，枚举不封闭，实现 SHALL 按「非 ok 即拦」而非白名单）。
+创建或编辑模型配置 SHALL 在落库前执行连接探测——与「测试连接」同一探测实现、同一判据（判据单源见「按接口格式探测连接」需求，此处不复述；含思考参数与探针模型优先序）；探测判败 SHALL NOT 落库或改动任何已存配置，并 SHALL 在保存入口（弹窗）原位展示探测错误、保持编辑态不关闭。判败＝探测结果非 ok 的**一切**形态（endpoint_mismatch、auth_error、timeout、network_error、rate_limited、unknown 等，枚举不封闭，实现 SHALL 按「非 ok 即拦」而非白名单）。
 
-门禁适用面＝经 `POST/PUT /api-configs` 保存入口的创建与编辑；备份包导入、库迁移回填、朱雀配置 upsert 等非保存入口的建行路径 SHALL 豁免（旧数据恢复/固定端点，不因离线或上游抖动不可用）。创建 SHALL 恒触发；编辑更新 SHALL 仅在连接相关字段（`base_url`、`api_format`、`api_key`）**值与已存值不同**时触发（`api_key` 以非空为变更；仅更新名称或模型列表等非连接字段 SHALL NOT 触发探测）；编辑态 Key 留空（保留当前密钥）时探测 SHALL 使用已存密钥，SHALL NOT 报「API Key 为空」。
+门禁适用面＝经 `POST/PUT /api-configs` 保存入口的创建与编辑；备份包导入、库迁移回填、朱雀配置 upsert 等非保存入口的建行路径 SHALL 豁免（旧数据恢复/固定端点，不因离线或上游抖动不可用）。创建 SHALL 恒触发；编辑更新 SHALL 仅在连接相关字段（`base_url`、`api_format`、`api_key`、`thinking_enabled`、`thinking_effort`）**值与已存值不同**时触发（`api_key` 以非空为变更；仅更新名称或模型列表等非连接字段 SHALL NOT 触发探测）；编辑态 Key 留空（保留当前密钥）时探测 SHALL 使用已存密钥，SHALL NOT 报「API Key 为空」。
 
-落库成功时系统 SHALL 将本次探测结果持久化到该配置的测试结果字段（`last_test_status`/`last_test_error`/`last_tested_at`/`models`，与连接测试同源写库），保存响应 SHALL 携带嵌套探测结果 `probe`（ok/status/models/note），SHALL NOT 与配置对象顶层既有字段（`status`/`models`）撞名；前端据此呈现卡片状态（刷新后经库列回读保持一致），SHALL NOT 在保存成功后再发第二次探测。
+落库成功时系统 SHALL 将本次探测结果持久化到该配置的测试结果字段（`last_test_status`/`last_test_error`/`last_tested_at`/`models`，与连接测试同源写库），保存响应 SHALL 携带嵌套探测结果 `probe`（`ok`/`status`/`models`/`error`），SHALL NOT 与配置对象顶层既有字段（`status`/`models`）撞名；前端据此呈现卡片状态（刷新后经库列回读保持一致），SHALL NOT 在保存成功后再发第二次探测。
 
 #### Scenario: 创建时坏 URL 当场拦下
 - **WHEN** 用户在添加弹窗填入网站地址（如 `https://platform.deepseek.com/api_keys`）作为 Base URL 并点「保存并测试连接」
-- **THEN** 配置不落库，弹窗保持打开，连接测试结果位原位显示探测错误（说明该地址返回的不是 API 数据/请检查 Base URL），用户修正后可重新保存
+- **THEN** 配置不落库，弹窗保持打开，保存错误位原位显示探测错误（说明该地址返回的不是 API 数据/请检查 Base URL），用户修正后可重新保存
 
 #### Scenario: 创建判过才落库
 - **WHEN** 用户填入真实 API 端点与有效 Key 并保存
@@ -33,6 +33,10 @@
 #### Scenario: 编辑 Key 留空用已存密钥
 - **WHEN** 用户编辑配置只改 Base URL、API Key 留空（保留当前密钥）后保存
 - **THEN** 门禁探测使用已存密钥执行（不报「API Key 为空」），判败不落库、判过照常持久化
+
+#### Scenario: 改思考参数触发重测
+- **WHEN** 用户编辑配置只改思考开关或思考强度后保存（其余连接字段未变）
+- **THEN** 门禁以新思考参数执行探测（与「测试连接」同判据），判败不落库、判过照常持久化
 
 ## MODIFIED Requirements
 
