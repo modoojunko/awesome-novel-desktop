@@ -4,7 +4,7 @@
 
 ### Requirement: 模型清单后台保鲜
 
-系统 SHALL 提供 `POST /api-configs/ensure-models-fresh`（body：`config_ids?`、`force?`）作为清单保鲜入口：对当前用户的活跃写作配置（排除已删除与朱雀），按 `models_updated_at` 判断新鲜度——距上次成功超过 TTL（SHALL 默认 10 分钟，可配置）才用已存密钥执行「只拉清单」轻探针（与 `fetch-models` 同一实现，零生成调用；单次出网超时 SHALL 不超过 5 秒）；未过期 SHALL 直接返回已存快照。成功且清单非空 SHALL 按「已选首项保头」归一写库并回显同一份清单与 `models_updated_at`；清单为空或探针失败 SHALL 原样透传，SHALL NOT 覆盖已存清单、SHALL NOT 改动连接测试结果字段（`last_test_*`——轻探针不证对话可用）。失败后 SHALL 进入退避（默认 5 分钟），退避期内 SHALL NOT 自动重试；`force=true` SHALL 绕过 TTL 与退避（用户显式动作）。同一配置的并发 ensure SHALL 单飞；跨配置出网并发 SHALL 有上限（默认 3）。响应 SHALL 为 `{configs: [{id, models, models_updated_at, refreshed, ok, error}]}`。
+系统 SHALL 提供 `POST /api-configs/ensure-models-fresh`（body：`config_ids?`、`force?`）作为清单保鲜入口：对当前用户的活跃写作配置（排除已删除与朱雀），按 `models_updated_at` 判断新鲜度——距上次成功超过 TTL（SHALL 默认 10 分钟，可配置）才用已存密钥执行「只拉清单」轻探针（与 `fetch-models` 同一实现，零生成调用；单次出网超时 SHALL 不超过 5 秒）；未过期 SHALL 直接返回已存快照。成功且清单非空 SHALL 按「已选首项保头」归一写库并回显同一份清单与 `models_updated_at`；清单为空或探针失败 SHALL 原样透传，SHALL NOT 覆盖已存清单、SHALL NOT 改动连接测试结果字段（`last_test_*`——轻探针不证对话可用）。失败后 SHALL 进入退避（默认 5 分钟），退避期内 SHALL NOT 自动重试；端点不提供清单（空清单）SHALL 视为「已检查」——同一 TTL 内 SHALL NOT 重复出网，响应保持 `ok=true`（SHALL NOT 标失败），`force=true` 可强制重试；`force=true` SHALL 绕过 TTL 与退避（用户显式动作）。`config_ids` 缺省 SHALL 表示全部活跃配置，空数组 SHALL 表示不刷新任何配置。同一配置的并发 ensure SHALL 单飞；跨配置出网并发 SHALL 有上限（默认 3）。响应 SHALL 为 `{configs: [{id, models, models_updated_at, refreshed, ok, error}]}`。
 
 前端 SHALL 维护模型清单的全局单一数据源（配置与清单一份、选择器共享）：任何一次保鲜成功的清单 SHALL 推送给所有选择器，SHALL NOT 由各页面各持一份快照。前端 SHALL 在应用启动（登录后）、前台定时（SHALL 默认 5 分钟）、窗口回焦/可见、进入含模型选择的页面/面板（模型配置页、本书模型、写作助手、拆书创建/详情）、以及任何模型选择器打开时触发保鲜；客户端 SHALL 有触发节流（SHALL 默认 30 秒），未登录 SHALL NOT 触网。选择器打开 SHALL NOT 阻塞等待保鲜结果：先展示缓存清单，在途时显示更新提示，返回后就地合并（SHALL NOT 重置搜索词、光标或已选值）。
 
@@ -34,6 +34,16 @@
 
 - **WHEN** 保鲜时端点不提供模型清单（空清单）
 - **THEN** 响应 `ok=true, refreshed=false` 并回已存清单，SHALL NOT 把配置清单清空
+
+#### Scenario: 空清单不重复出网
+
+- **WHEN** 端点不提供清单（空清单）后，TTL 内再次触发保鲜（启动/定时/选择器打开/进页面）
+- **THEN** 不再请求供应商清单端点（视同已检查），响应保持 `ok=true, refreshed=false`；用户点「获取模型」等 force 动作仍可立即重试
+
+#### Scenario: 显式空 config_ids 不刷新
+
+- **WHEN** 调用 ensure 时显式传 `config_ids: []`
+- **THEN** 不刷新任何配置、不出网，响应 `configs: []`（与缺省 `config_ids`＝全部配置区分）
 
 #### Scenario: 失效选中保留并标记
 

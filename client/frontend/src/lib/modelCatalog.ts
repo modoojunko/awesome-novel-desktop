@@ -287,7 +287,8 @@ export function useModelCatalogScheduler() {
     if (typeof window === "undefined") return;
     let disposed = false;
     const tick = () => {
-      if (disposed || !isLoggedIn()) return;
+      // 前台才保鲜：窗口隐藏/最小化时定时器空转不出网；重新可见由 visibilitychange 补
+      if (disposed || document.hidden || !isLoggedIn()) return;
       void ensureModelsFresh();
     };
     tick(); // 启动即保鲜（用户走到选择器之前就完成）

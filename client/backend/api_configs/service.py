@@ -58,11 +58,15 @@ MODEL_LIST_REFRESH_CONCURRENCY = int(
     os.environ.get("MODEL_LIST_REFRESH_CONCURRENCY", "3")
 )
 
-# 进程内保鲜状态：同一配置的单飞锁＋失败退避。单用户桌面后端单进程，内存态足够；
-# 成功与否的持久事实仍以 models_updated_at 为准（重启后按 TTL 重新判断）。
+# 进程内保鲜状态：同一配置的单飞锁＋失败退避＋「已检查但无清单」时间。
+# 单用户桌面后端单进程，内存态足够；成功与否的持久事实仍以 models_updated_at 为准
+# （重启后按 TTL 重新判断）。空清单不写 models_updated_at（没清单可落），但也要按
+# TTL 记为「已检查」——否则不提供 /models 的端点（anthropic 兼容口等）会在每次
+# 触发时都重新出网，TTL 形同虚设。
 _REFRESH_LOCKS: dict[str, asyncio.Lock] = {}
 _REFRESH_FAILED_AT: dict[str, float] = {}
 _REFRESH_LAST_ERROR: dict[str, str] = {}
+_REFRESH_EMPTY_AT: dict[str, float] = {}
 
 
 def _reset_model_refresh_state() -> None:
@@ -70,7 +74,16 @@ def _reset_model_refresh_state() -> None:
     _REFRESH_LOCKS.clear()
     _REFRESH_FAILED_AT.clear()
     _REFRESH_LAST_ERROR.clear()
+    _REFRESH_EMPTY_AT.clear()
 
+
+def _recently_checked_empty(config_id: str) -> bool:
+    """空清单结果在 TTL 内视同「已检查」——不再重复出网。"""
+    checked_at = _REFRESH_EMPTY_AT.get(config_id)
+    return (
+        checked_at is not None
+        and time.monotonic() - checked_at < MODEL_LIST_TTL_SECONDS
+    )
 
 
 def _normalize_models(raw: list[str], *, truncate: bool = False) -> list[str]:
@@ -484,7 +497,8 @@ async def ensure_models_fresh(
             ApiConfig.status != "deleted",
             ApiConfig.vendor != "zhuque",
         )
-        if config_ids:
+        if config_ids is not None:
+            # 空集＝不刷新任何配置（区别于 None＝全部）；.in_([]) 天然返回空
             stmt = stmt.where(ApiConfig.id.in_(config_ids))
         rows = (await session.execute(stmt.order_by(ApiConfig.created_at))).scalars().all()
         snapshots = [
@@ -515,6 +529,9 @@ async def ensure_models_fresh(
         if not force and not _models_are_stale(snap["models_updated_at"], now):
             return skipped(snap)
         if not force:
+            # 端点不提供清单：TTL 内算「已检查」，不重复出网
+            if _recently_checked_empty(config_id):
+                return skipped(snap)
             failed_at = _REFRESH_FAILED_AT.get(config_id)
             if failed_at is not None and time.monotonic() - failed_at < MODEL_LIST_FAIL_BACKOFF_SECONDS:
                 return skipped(
@@ -535,6 +552,11 @@ async def ensure_models_fresh(
                         config_id, latest_models, latest_updated,
                         refreshed=False, ok=True,
                     )
+                if _recently_checked_empty(config_id):
+                    return _ensure_result(
+                        config_id, latest_models, latest_updated,
+                        refreshed=False, ok=True,
+                    )
             async with sem, async_session() as session:
                 outcome = await refresh_models_with_stored_key(
                     session, user_id, config_id, timeout=MODEL_LIST_REFRESH_TIMEOUT
@@ -545,6 +567,12 @@ async def ensure_models_fresh(
                 _REFRESH_FAILED_AT.pop(config_id, None)
                 _REFRESH_LAST_ERROR.pop(config_id, None)
                 updated = outcome.get("models_updated_at")
+                if updated is None:
+                    # 成功但无清单（端点不提供/空列表）：没时间戳可落，按 TTL 记
+                    # 「已检查」，避免每次触发都重打供应商
+                    _REFRESH_EMPTY_AT[config_id] = time.monotonic()
+                else:
+                    _REFRESH_EMPTY_AT.pop(config_id, None)
                 return {
                     "id": config_id,
                     "models": outcome.get("models") or snap["models"],
@@ -558,6 +586,7 @@ async def ensure_models_fresh(
             error = str(outcome.get("error") or "清单刷新失败")
             _REFRESH_FAILED_AT[config_id] = time.monotonic()
             _REFRESH_LAST_ERROR[config_id] = error
+            _REFRESH_EMPTY_AT.pop(config_id, None)  # 最近一次是失败：交给失败退避
             return skipped(snap, ok=False, error=error)
 
     results = await asyncio.gather(*(one(s) for s in snapshots))

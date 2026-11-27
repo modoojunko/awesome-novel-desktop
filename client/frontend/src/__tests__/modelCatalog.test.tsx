@@ -1,13 +1,15 @@
 // 模型清单全局数据源与后台保鲜（c-model-list-auto-refresh）：ensure 合并/失败提示/
 // 客户端节流/加载。清单「什么时候真出网」由后端 TTL 决定，这里钉前端契约。
 import { describe, expect, it, vi, beforeEach, afterEach } from "vitest";
-import { render, waitFor } from "@testing-library/react";
+import { act, render, waitFor } from "@testing-library/react";
 import {
+  CATALOG_POLL_MS,
   ensureModelsFresh,
   getModelCatalog,
   loadModelCatalog,
   resetModelCatalogForTest,
   useEnsureModelsFresh,
+  useModelCatalogScheduler,
 } from "@/lib/modelCatalog";
 import type { ApiConfig } from "@/types/api-config";
 
@@ -207,5 +209,46 @@ describe("modelCatalog · 进入页面保鲜", () => {
     await waitFor(() =>
       expect(calls.some((c) => c.url.includes("/ensure-models-fresh"))).toBe(true),
     );
+  });
+
+  it("调度器：窗口隐藏时定时保鲜不出网，重新可见后恢复", async () => {
+    vi.useFakeTimers();
+    const { calls } = stubApi({ configs: [cfg()], ensure: () => ({ configs: [] }) });
+    let hidden = true;
+    Object.defineProperty(document, "hidden", { configurable: true, get: () => hidden });
+    const ensureCalls = () =>
+      calls.filter((c) => c.url.includes("/ensure-models-fresh")).length;
+    const Probe = () => {
+      useModelCatalogScheduler();
+      return null;
+    };
+    let unmount = () => {};
+    try {
+      ({ unmount } = render(<Probe />));
+      await act(async () => {});
+      expect(ensureCalls()).toBe(0); // 隐藏：启动 tick 也不出网
+
+      hidden = false;
+      await act(async () => {
+        document.dispatchEvent(new Event("visibilitychange"));
+      });
+      expect(ensureCalls()).toBe(1);
+
+      hidden = true;
+      await act(async () => {
+        vi.advanceTimersByTime(CATALOG_POLL_MS);
+      });
+      expect(ensureCalls()).toBe(1); // 隐藏：定时器空转
+
+      hidden = false;
+      await act(async () => {
+        vi.advanceTimersByTime(CATALOG_POLL_MS);
+      });
+      expect(ensureCalls()).toBe(2); // 可见：定时恢复
+    } finally {
+      unmount();
+      delete (document as unknown as { hidden?: boolean }).hidden;
+      vi.useRealTimers();
+    }
   });
 });

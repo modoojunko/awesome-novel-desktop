@@ -1396,6 +1396,41 @@ class TestEnsureModelsFresh:
         assert row["models"] == ["glm-5.3-flash"]
         assert client.get(f"/api/v1/api-configs/{cid}").json()["models"] == ["glm-5.3-flash"]
 
+    def test_empty_list_marks_checked_and_skips_retry(self, client, monkeypatch):
+        """端点不提供清单（空清单）也算「已检查」：TTL 内不重复出网，force 可强制重试。"""
+        cid = self._create(client, "空清单不重试", ["glm-5.3-flash"])
+        self._set_updated_at(cid, None)
+        calls: list = []
+
+        async def fake_fetch(**kwargs):
+            calls.append(1)
+            return {"ok": True, "status": "ok", "models": [], "error": None}
+
+        monkeypatch.setattr("api_configs.service._fetch_models", fake_fetch)
+        first = self._ensure(client)["configs"][0]
+        assert len(calls) == 1
+        assert first["ok"] is True and first["refreshed"] is False
+        second = self._ensure(client)["configs"][0]  # TTL 内：视为已检查
+        assert len(calls) == 1
+        assert second["ok"] is True and second["refreshed"] is False
+        forced = self._ensure(client, force=True)["configs"][0]
+        assert len(calls) == 2  # 手动动作绕过
+        assert forced["refreshed"] is False
+
+    def test_empty_config_ids_refreshes_nothing(self, client, monkeypatch):
+        """config_ids=[] ＝不刷新任何配置（区别于 None＝全部）。"""
+        self._create(client, "保鲜空选", ["m-a"])
+        calls: list = []
+
+        async def fake_fetch(**kwargs):
+            calls.append(1)
+            return {"ok": True, "status": "ok", "models": ["m-b"], "error": None}
+
+        monkeypatch.setattr("api_configs.service._fetch_models", fake_fetch)
+        body = self._ensure(client, config_ids=[])
+        assert body["configs"] == []
+        assert calls == []
+
     def test_config_ids_filter_and_unknown_ignored(self, client):
         self._create(client, "保鲜甲", ["m-a"])
         body = self._ensure(client, config_ids=["no-such-config"])

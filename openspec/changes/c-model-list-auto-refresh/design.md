@@ -88,11 +88,13 @@ TTL/退避/单飞/并发/超时。手动刷新不经过 TTL（用户显式动作
 
 `POST /api/v1/api-configs/ensure-models-fresh`（body：`{config_ids?: string[], force?: boolean}`）
 
-- 仅当前用户的活跃写作配置（排除 deleted / zhuque）；`config_ids` 可选收窄。
+- 仅当前用户的活跃写作配置（排除 deleted / zhuque）；`config_ids` 可选收窄（缺省＝全部；
+  空数组＝不刷新任何配置）。
 - 每个配置：TTL 内 → 跳过（`refreshed:false, ok:true`）；过期 → 已存密钥轻探针；
-  失败 → 记退避并回 `ok:false, error`；非 active / 无 Key 非 ollama → 跳过并说明。
+  失败 → 记退避并回 `ok:false, error`；空清单（端点不提供）→ 记「已检查」（同一 TTL
+  内不再出网）并回 `ok:true, refreshed:false`；非 active / 无 Key 非 ollama → 跳过并说明。
 - 200：`{configs:[{id, models, models_updated_at, refreshed, ok, error}]}`。
-- 同一配置单飞；跨配置并发 ≤3；单次出网超时 5 秒。
+- 同一配置单飞；跨配置并发 ≤3；单次出网超时 5 秒；`force` 绕过 TTL/退避/空清单检查。
 
 `POST /api/v1/api-configs/{id}/refresh-models`
 
@@ -110,9 +112,11 @@ TTL/退避/单飞/并发/超时。手动刷新不经过 TTL（用户显式动作
 
 ## 测试
 
-- 后端：refresh 5 例（已存密钥透传＋保头/失败/空清单/畸形清单/未知 id）＋ensure 6 例
-  （TTL 跳过/过期刷新且不动 last_test_*/force/失败退避/空清单/未知 ids 过滤）。
-- 前端：`modelCatalog` 7 例（加载/合并/lastErrors/version/节流/请求失败/启动竞态/挂载触发）；
+- 后端：refresh 5 例（已存密钥透传＋保头/失败/空清单/畸形清单/未知 id）＋ensure 8 例
+  （TTL 跳过/过期刷新且不动 last_test_*/force/失败退避/空清单不重复出网/空 config_ids/
+  未知 ids 过滤）。
+- 前端：`modelCatalog` 8 例（加载/合并/lastErrors/version/节流/请求失败/启动竞态/挂载触发/
+  隐藏窗口不保鲜）；
   `ApiConfigForm` 3 例（已存密钥刷新可选新模型/失败重试同路/改参数回 raw/清单就地刷新/
   失效标记）；`ApiKeyConfigPage` 2 例（手动刷新保存不吞清单/进页面保鲜后弹窗直接可选新模型）。
 - 现有 188 文件 2364 用例全绿（模块级 store 在 test-setup 通过注册桥逐用例重置）。

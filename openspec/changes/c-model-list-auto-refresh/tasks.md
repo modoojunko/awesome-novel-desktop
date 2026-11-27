@@ -40,12 +40,13 @@
 
 ## 6. 前端测试
 
-- [x] 6.1 `modelCatalog.test.tsx`：加载/合并与 version/lastErrors/节流/请求失败/启动竞态/挂载触发（7 例）
+- [x] 6.1 `modelCatalog.test.tsx`：加载/合并与 version/lastErrors/节流/请求失败/启动竞态/挂载触发/隐藏窗口不保鲜（8 例）
 - [x] 6.2 `apiConfigForm.test.tsx`：已存密钥路可拉到新模型、失败重试同路、改参数回 raw、清单就地刷新、失效标记（新增 5 例）
 - [x] 6.3 `apiKeyConfigPage.test.tsx`：Key 留空点「获取模型」命中 `refresh-models`；刷新后保存不吞清单；进页面保鲜后弹窗直接可选新模型（新增 2 例）
 
 ## 7. 回归
 
-- [x] 7.1 后端：`tests/test_api_key_config.py` 122 passed；ruff 全绿
+- [x] 7.1 后端：`tests/test_api_key_config.py` 124 passed；ruff 全绿
 - [x] 7.2 前端：vitest 全量 188 文件 / 2364 passed（1 skipped）；`tsc --noEmit` 零错
-- [ ] 7.3 真机走查（待装包）：不开任何刷新按钮——启动后进入 GLM 配置编辑/本书模型/助手底栏，清单已含 `glm-5.4`；断网/坏端点时选择器显示「可能不是最新」且旧清单仍可选；选中被下架的模型显示「已不在最新清单」
+- [x] 7.3 review 收口：空清单按 TTL 记为已检查（不重复出网）、定时保鲜跳过隐藏窗口、`config_ids=[]` 不刷新——各补钉子用例
+- [ ] 7.4 真机走查（待装包）：不开任何刷新按钮——启动后进入 GLM 配置编辑/本书模型/助手底栏，清单已含 `glm-5.4`；断网/坏端点时选择器显示「可能不是最新」且旧清单仍可选；选中被下架的模型显示「已不在最新清单」
