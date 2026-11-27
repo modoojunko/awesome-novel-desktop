@@ -114,6 +114,35 @@ def test_sdk_文风文笔_quote接入evidence():
                for e in entries), [e.title for e in entries]
 
 
+def test_sdk_文风文笔_场景适用条件进when_json():
+    """c-kb-scene-tagging：rules/craft 明确给出 scene/emotion/chapter_pos 时
+    写 when_json（归一封闭值）；没给的留空＝全书适用，不硬填默认场面。"""
+    products = {
+        "style": {"file": "文风.md", "data": {
+            "rules": [
+                {"name": "对峙短句", "how": "对峙段压短句", "scene": "对峙", "emotion": "冷"},
+                {"name": "开篇铺垫", "how": "开篇用长句铺", "scene": "开篇", "chapter_pos": "开头"},
+                {"name": "全书规则", "how": "叙述统一短句"},
+            ],
+            "craft": [
+                {"name": "打斗动作快切", "how": "打斗用动作快切", "scene": "打斗"},
+                {"name": "白描克制", "how": "叙述只写看得见"},
+            ],
+        }},
+    }
+    entries, warnings = sdk.map_deconstruct_products("u1", "t1", "志怪/民俗灵异", products)
+    assert warnings == [], warnings
+    by_title = {e.title: e for e in entries}
+
+    assert json.loads(by_title["对峙短句"].when_json) == {"scene": "对峙", "emotion": "冷"}
+    assert json.loads(by_title["开篇铺垫"].when_json) == {
+        "scene": "开篇", "chapter_pos": "开头",
+    }
+    assert json.loads(by_title["全书规则"].when_json) == {}
+    assert json.loads(by_title["打斗动作快切"].when_json) == {"scene": "打斗"}
+    assert json.loads(by_title["白描克制"].when_json) == {}
+
+
 def test_sdk_去冗余_拼装份与名字头():
     """2026-11-11 真机实锤：详情页 实例/内容/怎么写 三字段同值（payload 拼装份
     text 第三份拷贝）＋「温柔说狠话：温柔说狠话：」双前缀——rules payload 停写
