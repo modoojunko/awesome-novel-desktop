@@ -2151,7 +2151,11 @@ export function Aui2Dock({
           <div className="chatdock-chips" data-testid="aui2-chips">
             {(matchRegistration(scope)?.chips(scope) ?? []).map((c) => (
               <button
-                key={c.key}
+                /* React key 必须列表内唯一：世界五格 chips 共用工具 key
+                   draft_worldbuilding（点击要拿它做 tool_hint），拿 c.key 当
+                   key 会撞——切页时旧 chips 残留、越切越多（实锤：世界页切
+                   3 次即堆成 4 枚一循环的 chip 墙，末枚钉铁律被吃掉）。 */
+                key={`${c.key}:${c.label}`}
                 type="button"
                 className="chatchip"
                 disabled={c.disabled}
