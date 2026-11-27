@@ -177,6 +177,35 @@ def _when_zh(entry) -> str:
     return "；".join(parts)
 
 
+def _book_style_draft_lines(entries: list, *, theme: str, limit: int = 6) -> list[str]:
+    """全书级文风/文笔草稿行（c-agent-prose-kb-picks）。
+
+    只在本书文风三区未配置时使用：同题材优先，文风/文笔按概念交替取（各占一半），
+    不做剧情词打分——全书级声音不是本章场景条目，按剧情筛会挑出不贴调性的条目。
+    行格式与检索候选同形，但明确「不进 picks」。只读，不写设定。
+    """
+    same = [e for e in entries if str(getattr(e, "genre", "") or "") == theme]
+    pool = same or entries
+    by_concept: dict[str, list] = {}
+    for e in pool:
+        by_concept.setdefault(str(getattr(e, "concept", "") or ""), []).append(e)
+    concepts = sorted(by_concept)  # 稳定：文风/文笔各一桶
+    picked: list = []
+    idx = 0
+    while len(picked) < limit and any(by_concept[c] for c in concepts):
+        bucket = by_concept[concepts[idx % len(concepts)]]
+        if bucket:
+            picked.append(bucket.pop(0))
+        idx += 1
+        if idx > limit * len(concepts) * 2:  # 防御空桶死循环
+            break
+    return [
+        f"- [{getattr(e, 'concept', '')}] {getattr(e, 'title', '') or getattr(e, 'id', '')}"
+        f"｜{_clip(str(getattr(e, 'instruction', '') or ''), 120)}"
+        for e in picked
+    ]
+
+
 async def _kb_search_craft(
     ctx: ToolContext,
     chapter_ref: str = "",
@@ -306,21 +335,61 @@ async def _kb_search_craft(
                 )
             ).scalars()
         }
+        # 分桶说明与书级草稿（c-agent-prose-kb-picks）：style 段为零时给出原因；
+        # 本书文风三区未配置时附全书级草稿（只读、不进 picks）。
+        include_tech = concept in ("", "手法")
+        include_style = concept in ("", "文风", "文笔")
+        base_style_count = 0
+        draft_lines: list[str] = []
+        if include_style:
+            from assistant.style_gap import style_three_zones_empty
+            from settings.style_kb import load_style_entries
+
+            base_entries = (
+                []
+                if book_scope
+                else await load_style_entries(db, user_id=ctx.user_id, theme=genre)
+            )
+            base_style_count = len(base_entries)
+            if base_entries and await style_three_zones_empty(db, ctx.root_path):
+                draft_lines = _book_style_draft_lines(base_entries, theme=genre)
 
     import datetime as _dt
 
     now = _dt.datetime.utcnow()
     q_terms = _craft_terms(query_text)
-    scored = []
-    for e in rows:
-        et = _craft_terms(f"{getattr(e, 'title', '') or ''} {getattr(e, 'instruction', '') or ''}")
-        overlap = len(q_terms & et)
-        if overlap == 0:
-            continue  # 零重合＝纯噪声（不进候选——宁缺毋滥，未命中如实回话）
-        score = (overlap / max(1, len(q_terms))) * _usefulness(prefs.get(e.id)) * _freshness(e, now)
-        scored.append((score, e))
-    scored.sort(key=lambda t: (-t[0], str(getattr(t[1], "title", "") or ""), str(getattr(t[1], "id", ""))))
-    if not scored:
+
+    def _scored(rows_: list) -> list:
+        out = []
+        for e in rows_:
+            et = _craft_terms(
+                f"{getattr(e, 'title', '') or ''} {getattr(e, 'instruction', '') or ''}"
+            )
+            overlap = len(q_terms & et)
+            if overlap == 0:
+                continue  # 零重合＝纯噪声（不进候选——宁缺毋滥，未命中如实回话）
+            score = (
+                (overlap / max(1, len(q_terms)))
+                * _usefulness(prefs.get(e.id))
+                * _freshness(e, now)
+            )
+            out.append((score, e))
+        out.sort(
+            key=lambda t: (
+                -t[0],
+                str(getattr(t[1], "title", "") or ""),
+                str(getattr(t[1], "id", "")),
+            )
+        )
+        return out
+
+    # 分桶（c-agent-prose-kb-picks）：手法与场面级文笔/文风分开打分与呈现，
+    # 避免手法按剧情词天然霸榜后把文笔/文风整段挤掉。
+    tech_scored = _scored([e for e in rows if getattr(e, "concept", "") == "手法"])
+    style_scored = _scored(
+        [e for e in rows if getattr(e, "concept", "") in ("文风", "文笔")]
+    )
+    if not tech_scored and not style_scored:
         return ToolResult(
             ok=True,
             summary=(
@@ -328,19 +397,47 @@ async def _kb_search_craft(
                 "正文会按本书文风设定生成。）"
             ),
         )
+
+    def _fmt(scored: list) -> list[str]:
+        out = []
+        for _score, e in scored[:limit]:
+            when = _when_zh(e)
+            line = f"- [{e.concept}] {e.title or e.id}（id: {e.id}）"
+            line += f"｜{_clip(str(e.instruction or ''), 90)}"
+            if when:
+                line += f"｜适用：{when}"
+            out.append(line)
+        return out
+
     lines = [
         (
-            f"写法候选（题材{genre or '书内副本'}，按与剧情重合度排序，前 {min(limit, len(scored))} 条；"
+            f"写法候选（题材{genre or '书内副本'}，按与剧情重合度排序；"
             "选中后在方案卡 picks 里给条目 id 与一句理由）："
         )
     ]
-    for score, e in scored[:limit]:
-        when = _when_zh(e)
-        line = f"- [{e.concept}] {e.title or e.id}（id: {e.id}）"
-        line += f"｜{_clip(str(e.instruction or ''), 90)}"
-        if when:
-            line += f"｜适用：{when}"
-        lines.append(line)
+    if include_tech:
+        lines.append("【手法候选】")
+        lines.extend(_fmt(tech_scored) or ["（本轮没有与剧情相关的手法候选）"])
+    if include_style:
+        lines.append("【场面级文笔/文风候选】")
+        if style_scored:
+            lines.extend(_fmt(style_scored))
+        elif base_style_count:
+            lines.append(
+                f"（无场面级文笔/文风条目；库内 {base_style_count} 条文笔/文风均为全书级，"
+                "不参与写章检索）"
+            )
+        else:
+            lines.append("（库内没有文笔/文风条目）")
+        if draft_lines:
+            lines.append("")
+            lines.append("【本书文风三区未配置】")
+            lines.append(
+                "知识库里的全书级文笔/文风草稿（按题材列出，需按本书基调筛选；"
+                "与基调撕裂的不选；非写章块条目、不进 picks；"
+                "建议在设定·文风 → 按题材填文风采纳，长期生效）："
+            )
+            lines.extend(draft_lines)
     return ToolResult(ok=True, summary=_clip("\n".join(lines), 2600))
 
 
@@ -427,9 +524,10 @@ Tool(
             },
         },
         description=(
-            "按本章剧情检索知识库里的写法/笔法候选条目（题材内；返回条目 id 供方案卡 picks 用）。"
-            "生成正文前必调：先 read_chapter 看本章素材，再拿剧情调本工具匹配文风文笔条目。"
-            "没命中会明说——正文将按本书文风设定生成。"
+            "按本章剧情检索知识库里的写法候选（题材内；返回条目 id 供方案卡 picks 用）。"
+            "结果分「手法候选」与「场面级文笔/文风候选」两段；全书级文笔/文风不进写章检索"
+            "（走本书设定·文风三区），本书三区未配置时本工具会附全书级草稿提示（不进 picks）。"
+            "生成正文前必调：先 read_chapter 看本章素材，再拿剧情调本工具；没命中会明说。"
         ),
         fn=_kb_search_craft,
     ),

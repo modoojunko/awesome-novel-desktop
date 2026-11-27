@@ -12,6 +12,8 @@ volume_options_core / volume_expand_core / volume_check_core / run_arc_ai），
 
 from __future__ import annotations
 
+import json
+
 from fastapi import HTTPException
 
 from assistant.actions import _extract_json
@@ -417,17 +419,57 @@ async def _draft_names(ctx: ToolContext, kind: str = "主角", context: str = ""
 # 超限＝基底被塞爆，回话精简。读侧 read_write_prompt 上限 24000 恒高于本值）
 _PROSE_PROMPT_MAX_CHARS = 20000
 
+# picks 形态归一上限（c-agent-prose-kb-picks）：模型可能把数组序列化成 JSON
+# 字符串传进来；超过此长度视为异常输入（正常 picks ≤10 条、每条一句理由）。
+_PICKS_MAX_CHARS = 8000
+
+
+def _normalize_picks(picks: object) -> tuple[list | None, str]:
+    """picks 形态归一：数组原样；JSON 字符串剥壳；其他形态报错（不静默清空）。
+
+    返回 (picks, error)。error 非空＝入参非法，调用方须回 ok=False，SHALL NOT
+    降级成空数组——本轮实锤「agent 传了有效 id、被 isinstance 静默吞掉」。
+    """
+    if picks is None:
+        return [], ""
+    if isinstance(picks, str):
+        raw = picks.strip()
+        if not raw:
+            return [], ""
+        if len(raw) > _PICKS_MAX_CHARS:
+            return None, (
+                f"picks 过长（{len(raw)} 字，上限 {_PICKS_MAX_CHARS}）"
+                "——只放 entry_id 与一句理由。"
+            )
+        try:
+            picks = json.loads(raw)
+        except ValueError:
+            return None, (
+                "picks 不是合法 JSON——期望数组 "
+                "[{\"entry_id\": \"…\", \"reason\": \"…\"}]。"
+            )
+    if not isinstance(picks, list):
+        return None, (
+            "picks 必须是数组 [{\"entry_id\": \"…\", \"reason\": \"…\"}]"
+            "（或同形状 JSON 字符串）。"
+        )
+    return picks, ""
+
 
 async def _draft_prose_plan(
-    ctx: ToolContext, chapter_ref: str, prompt: str, picks: list[dict] | None = None
+    ctx: ToolContext, chapter_ref: str, prompt: str, picks: object = None
 ) -> ToolResult:
     """出「正文方案」结论卡：选中文笔/写法条目＋用户提示词全文（不生成正文）。
 
     生成由作家点卡上「开始生成」触发（宿主桥到写作链，上下文独立）——本工具
     只出卡。条目经 resolve_pick_entries 三域解析（与 write 链同源——卡上展示
-    与实际注入永不漂移）；无效 id 如实回话不静默丢弃。"""
+    与实际注入永不漂移）；无效 id 如实回话不静默丢弃。
+
+    picks 接受数组或 JSON 字符串形态（c-agent-prose-kb-picks）；非法形态回
+    ok=False，SHALL NOT 静默当空数组。"""
     from sqlalchemy import select
 
+    from assistant.style_gap import style_three_zones_empty
     from chapters.store import load_chapter
     from db import async_session
     from models.chapter import Chapter
@@ -436,7 +478,6 @@ async def _draft_prose_plan(
 
     chapter_ref = str(chapter_ref or "").strip()
     prompt = str(prompt or "").strip()
-    picks = picks if isinstance(picks, list) else []
     if not chapter_ref:
         return ToolResult(ok=False, summary="缺 chapter_ref——先确认要生成哪一章。")
     if not prompt:
@@ -449,9 +490,12 @@ async def _draft_prose_plan(
             ok=False,
             summary=f"提示词超长（{len(prompt)} 字，上限 {_PROSE_PROMPT_MAX_CHARS}）——精简后再出卡。",
         )
+    picks_norm, picks_err = _normalize_picks(picks)
+    if picks_err:
+        return ToolResult(ok=False, summary=picks_err)
     norm: list[tuple[str, str]] = []
     seen: set[str] = set()
-    for p in picks[:10]:
+    for p in picks_norm[:10]:
         if not isinstance(p, dict):
             continue
         eid = str(p.get("entry_id") or p.get("id") or "").strip()
@@ -479,6 +523,7 @@ async def _draft_prose_plan(
             return ToolResult(
                 ok=False, summary="这一章已归档（完结）——解档后再生成。"
             )
+        style_gap = await style_three_zones_empty(db, project.root_path)
         resolved, invalid = await resolve_pick_entries(
             db, novel_id=ctx.novel_id, user_id=ctx.user_id, picks=norm
         )
@@ -505,13 +550,24 @@ async def _draft_prose_plan(
     head = f"正文方案已出（{title}）"
     note = ""
     if invalid:
-        note += f"（{len(invalid)} 个条目 id 无效已剔除，别再引用）"
+        named = "、".join(invalid[:3])
+        note += f"（{len(invalid)} 个条目 id 无效已剔除：{named}）"
     if resolved:
         names = "、".join(str(getattr(e, "title", "") or "") for e, _r, _c in resolved[:3])
         more = f" 等 {len(resolved)} 条" if len(resolved) > 3 else ""
-        note += f"：写法条目带 {names}{more}"
+        note += f"：已解析 {len(resolved)} 条写法条目（{names}{more}）"
+        missing_reason = sum(1 for _e, reason, _c in resolved if not reason)
+        if missing_reason:
+            note += (
+                f"；{missing_reason} 条没写入选理由——补一句为什么选它、"
+                "或与书级哪条重复让位（裁决要能让作家看懂）"
+            )
+    elif norm:
+        note += "：未带有效写法条目——核对提示词里引用的条目 id"
     else:
-        note += "：写法条目未命中——正文将按本书文风设定生成"
+        note += "：未带写法条目——提示词里若引用了知识库条目，请把 entry_id 放进 picks"
+    if style_gap:
+        note += "；本书文风三区未配置，建议先到设定·文风按题材填文风"
     return _tool_result_from_card(
         "prose_plan",
         payload,
