@@ -415,23 +415,38 @@ def test_书副本全书级条目计入草稿来源():
     from models.kb import KbBookEntry
 
     uid, nid, _ctx, _ids = _run(_seed())
+    # src_key 必须非空且唯一：kb_baseline_reconnect 的用例查全表副本集合，
+    # 残留一行 src_key='' 会让它的集合断言多出一个空串（CI 全量顺序实锤）。
+    copy_key = f"selftest:{uuid.uuid4().hex[:8]}"
 
     async def _add():
         async with async_session() as db:
-            db.add(KbBookEntry(
+            row = KbBookEntry(
                 novel_id=nid, user_id=uid, genre="都市异能", concept="文笔",
                 title="白描克制", instruction="白描克制：叙述只写看得见的动作。",
                 payload_json="{}", when_json="{}", status="active",
-            ))
+                src_kind="book_copy", src_ref="", src_key=copy_key,
+            )
+            db.add(row)
             await db.commit()
+            return row.id
 
-    _run(_add())
+    row_id = _run(_add())
+    try:
+        async def _go():
+            from assistant.tools_kb import _book_base_style_entries
 
-    async def _go():
-        from assistant.tools_kb import _book_base_style_entries
+            async with async_session() as db:
+                return await _book_base_style_entries(db, nid, "都市异能")
 
-        async with async_session() as db:
-            return await _book_base_style_entries(db, nid, "都市异能")
+        rows = _run(_go())
+        assert [getattr(r, "title", "") for r in rows] == ["白描克制"]
+    finally:
+        async def _clean():
+            async with async_session() as db:
+                row = await db.get(KbBookEntry, row_id)
+                if row is not None:
+                    await db.delete(row)
+                    await db.commit()
 
-    rows = _run(_go())
-    assert [getattr(r, "title", "") for r in rows] == ["白描克制"]
+        _run(_clean())
