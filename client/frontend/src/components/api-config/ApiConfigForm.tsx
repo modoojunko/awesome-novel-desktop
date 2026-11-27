@@ -817,13 +817,17 @@ export function ApiConfigForm({ open, config, onSubmit, onCancel, onTest, onFetc
             {fetchErr && !fetching && (
               <div className="mp-err" role="alert">
                 <span>{fetchErr}</span>
-                <button
-                  type="button"
-                  className="mp-retry"
-                  onClick={refetchModels}
-                >
-                  重新拉取
-                </button>
+                {/* 重试口只在「获取模型」本身可用时给：改了连接参数又清空 Key 后重试
+                    无路可走，留着就是死按钮（错误文案照常显示，引导看按钮 title） */}
+                {canFetchModels && (
+                  <button
+                    type="button"
+                    className="mp-retry"
+                    onClick={refetchModels}
+                  >
+                    重新拉取
+                  </button>
+                )}
               </div>
             )}
             {pickerOpen &&

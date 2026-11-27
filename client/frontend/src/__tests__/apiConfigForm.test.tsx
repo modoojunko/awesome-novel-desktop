@@ -428,6 +428,30 @@ describe("ApiConfigForm 编辑态", () => {
     expect(onRefreshStoredModels).not.toHaveBeenCalled();
   });
 
+  it("已存密钥轻探针失败后改了 Base URL：重试口收起（不留死按钮）", async () => {
+    const onRefreshStoredModels = vi.fn(async () => ({
+      ok: false,
+      status: "timeout",
+      error: "连接超时",
+    }));
+    render(
+      <ApiConfigForm
+        open
+        config={editCfg({ models: ["stored-1"] })}
+        onSubmit={vi.fn(async () => {})}
+        onCancel={vi.fn()}
+        onRefreshStoredModels={onRefreshStoredModels}
+      />,
+    );
+    fireEvent.click(screen.getByText("获取模型").closest("button") as HTMLButtonElement);
+    expect(await screen.findByText("连接超时")).toBeTruthy();
+    expect(screen.getByText("重新拉取")).toBeTruthy();
+    // 未保存的参数变更 → 已存密钥路失效、Key 仍空：重试无路可走，收起按钮只留文案
+    setField("cfBase", "https://api.openai.com/v1");
+    expect(screen.queryByText("重新拉取")).toBeNull();
+    expect(screen.getByText("连接超时")).toBeTruthy();
+  });
+
   it("编辑态测试连接带改选模型；空清单种子给手填引导文案", async () => {
     const onTest = vi.fn(async () => ({ ok: true, status: "ok", models: ["gpt-4o"] }));
     render(
