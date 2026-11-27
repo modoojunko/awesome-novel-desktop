@@ -420,8 +420,12 @@ describe("正文方案卡 · 生成模型选择位", () => {
     modelState.currentModel = "deepseek-v4-pro";
     const onProsePlanStart = await renderPlanCard();
     const row = screen.getByTestId("prose-plan-model");
-    fireEvent.click(within(row).getByTestId("ai-model-select"));
+    const trigger = within(row).getByTestId("ai-model-select");
+    fireEvent.click(trigger);
     const panel = await screen.findByTestId("ai-model-panel");
+    // 同页还有底栏「助手模型」选择位：卡上 combobox 的 aria 引用必须指向自己的弹层
+    // （弹层/选项 id 按实例派生——review P3 回归钉）
+    expect(trigger.getAttribute("aria-controls")).toBe(panel.id);
     // 跨配置分组：两个配置名都在弹层里
     expect(panel.textContent).toContain("深度求索");
     expect(panel.textContent).toContain("本地 · Ollama");

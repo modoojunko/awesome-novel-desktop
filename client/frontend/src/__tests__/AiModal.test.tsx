@@ -439,12 +439,13 @@ describe("AiModal · 生成模型选择位", () => {
     await screen.findByTestId("ai-prompt");
     const trigger = await screen.findByTestId("ai-model-select");
     fireEvent.click(trigger);
-    await screen.findByTestId("ai-model-panel");
+    const panel = await screen.findByTestId("ai-model-panel");
+    // 选项 id 按实例派生（同页可并存多个选择位，c-prose-plan-model-select）：前缀从弹层 id 取
     // 首项即本书模型（c1::deepseek-v4-pro）
-    expect(trigger.getAttribute("aria-activedescendant")).toBe("ai-model-opt-0");
+    expect(trigger.getAttribute("aria-activedescendant")).toBe(`${panel.id}-opt-0`);
     fireEvent.keyDown(trigger, { key: "ArrowDown" });
-    expect(trigger.getAttribute("aria-activedescendant")).toBe("ai-model-opt-1");
-    const active = document.getElementById("ai-model-opt-1");
+    expect(trigger.getAttribute("aria-activedescendant")).toBe(`${panel.id}-opt-1`);
+    const active = document.getElementById(`${panel.id}-opt-1`);
     expect(active?.getAttribute("role")).toBe("option");
     expect(active?.textContent).toContain("deepseek-v4-flash");
     // 收起后不再指向已卸载的选项
@@ -527,8 +528,10 @@ describe("AiModal · 生成模型搜索", () => {
     expect(reopened.querySelector('[data-model="c1::deepseek-v4-pro"]')).toBeTruthy();
     // 光标钉在当前选中项的**全量**下标（flash＝1）——按旧过滤表取下标会错钉到首项
     const trigger = screen.getByTestId("ai-model-select");
-    expect(trigger.getAttribute("aria-activedescendant")).toBe("ai-model-opt-1");
-    expect(document.getElementById("ai-model-opt-1")?.textContent).toContain("deepseek-v4-flash");
+    expect(trigger.getAttribute("aria-activedescendant")).toBe(`${reopened.id}-opt-1`);
+    expect(document.getElementById(`${reopened.id}-opt-1`)?.textContent).toContain(
+      "deepseek-v4-flash",
+    );
   });
 
   it("选完或收层焦点回到触发位：弹层卸载不把焦点丢进 body", async () => {

@@ -7,7 +7,7 @@
 // 文案与结构与原型 modalDelete/modalArchive/modalHistory/modalAi 逐字对齐
 // （modalUnlock 随「解除只读」解锁链退役，c-archived-readonly）；
 // 产品化差异（升级跳 S端 等）见 docs/design-c/prototypes/ADJUSTMENTS.md。
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useId, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import Modal from "@/components/design/Modal";
 import VersionDiff from "@/components/novel/VersionDiff";
@@ -483,6 +483,9 @@ export function ModelPicker({
   const panelRef = useRef<HTMLDivElement | null>(null);
   const searchRef = useRef<HTMLInputElement | null>(null);
   const triggerRef = useRef<HTMLButtonElement | null>(null);
+  // 同页可并存多个选择位（工作台底栏「助手模型」＋正文方案卡「生成模型」，
+  // c-prose-plan-model-select）：弹层/选项 id 按实例派生，aria-controls 不串实例
+  const panelId = useId();
 
   // 分组：以配置为组（组头＝配置名 + 供应商）——跨供应商可辨（沿 ModelSettingForm 分组语义）。
   // 搜索过滤（c-prose-model-search）：模型 id 或配置名命中，大小写不敏感；空组整组隐藏
@@ -636,8 +639,8 @@ export function ModelPicker({
         role="combobox"
         aria-haspopup="listbox"
         aria-expanded={open}
-        aria-controls="ai-model-panel"
-        aria-activedescendant={open && flat[cursor] ? `ai-model-opt-${cursor}` : undefined}
+        aria-controls={panelId}
+        aria-activedescendant={open && flat[cursor] ? `${panelId}-opt-${cursor}` : undefined}
         aria-label={label}
         title={triggerTitle}
         data-testid="ai-model-select"
@@ -654,7 +657,7 @@ export function ModelPicker({
         createPortal(
           <div
             className="mp-panel"
-            id="ai-model-panel"
+            id={panelId}
             role="listbox"
             aria-label={label}
             data-testid="ai-model-panel"
@@ -679,8 +682,8 @@ export function ModelPicker({
                 ref={searchRef}
                 type="text"
                 aria-label="搜索模型"
-                aria-controls="ai-model-panel"
-                aria-activedescendant={flat[cursor] ? `ai-model-opt-${cursor}` : undefined}
+                aria-controls={panelId}
+                aria-activedescendant={flat[cursor] ? `${panelId}-opt-${cursor}` : undefined}
                 placeholder="搜索模型或配置名"
                 autoComplete="off"
                 spellCheck={false}
@@ -711,7 +714,7 @@ export function ModelPicker({
                           <button
                             type="button"
                             role="option"
-                            id={`ai-model-opt-${i}`}
+                            id={`${panelId}-opt-${i}`}
                             aria-selected={on}
                             tabIndex={-1}
                             className={
