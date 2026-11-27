@@ -208,3 +208,24 @@ def test_genre_scalar_evidence_moves_to_report():
     assert set(sections) == {"说明", "承诺说明"}
     assert sections["承诺说明"]["items"][0]["cells"][0]["value"].startswith("第1-2章")
     assert view["confidence"] == "高"
+
+
+def test_style_and_technique_scene_labels_by_dimension():
+    """c-kb-scene-tagging 评审修复：文风/技法条目的 scene 是「场面」，不能沿用
+    mainplot 的「结尾场景」；emotion 有中文标签。"""
+    data = {"rules": [{
+        "name": "物件特写", "how": "对峙时只写手中物件的变化",
+        "scene": "对峙", "emotion": "冷",
+    }]}
+    md = render_md("写作文风", data, "测试书", "第1-40章")
+    assert "场面：对峙" in md
+    assert "情绪：冷" in md
+    assert "结尾场景" not in md
+
+    tech = {"techniques": [{"name": "动作快切", "scene": "打斗"}]}
+    md2 = render_md("写作技法", tech, "测试书", "第1-40章")
+    assert "场面：打斗" in md2 and "结尾场景" not in md2
+
+    # mainplot.ending.scene 的「结尾场景」保持不动
+    md3 = render_md("主线剧情", {"ending": {"scene": "末班车驶向黎明"}}, "测试书", "第1-40章")
+    assert "结尾场景：末班车驶向黎明" in md3

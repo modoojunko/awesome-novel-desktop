@@ -144,6 +144,29 @@ class TestCheckGates:
         assert r.ok is False
         assert "when_json" in r.errors
 
+    def test_when_json角色设定拒收(self):
+        r = check_gates(
+            concept="角色设定", instruction="主角设定",
+            payload={"archetype": "剑客", "persona": "沉默"},
+            when_json={"scene": "对峙"},
+        )
+        assert r.ok is False
+        assert "when_json" in r.errors
+
+    def test_when_json写法类放行(self):
+        # c-kb-scene-tagging：文风/文笔/手法可带适用条件（场面/情绪/章位）
+        for concept, payload in (
+            ("文风", {"slot": "rule", "name": "对峙短句", "how": "对峙用短句"}),
+            ("文笔", {"slot": "craft", "craft": "对峙时短句清点资源"}),
+            ("手法", {"instruction": "逐件点名道具并写明失效"}),
+        ):
+            r = check_gates(
+                concept=concept, instruction="适用条件示例。",
+                payload=payload, when_json={"scene": "对峙", "emotion": "冷"},
+            )
+            assert r.ok is True, (concept, r.errors)
+            assert "when_json" not in r.errors
+
     def test_指令句末断_有句号通过(self):
         r = check_gates(concept="手法", instruction="先给果再补因。", payload={})
         assert r.ok is True

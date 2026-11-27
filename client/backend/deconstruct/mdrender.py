@@ -66,14 +66,18 @@ _MD_LABELS: dict[str, str] = {
     # 写作技法新契约（呈现说人话：不再裸出英文键）
     "reader_needs": "读者需求", "need": "读者需求", "transferable": "可迁移",
     "techniques": "可复现模块卡", "emotion_chain": "情绪链", "repro_steps": "复现步骤",
+    "emotion": "情绪",
     "swappable": "可替换", "no_copy": "勿照搬", "borrowable": "可借鉴套路",
     "avoid": "不建议模仿", "item": "条目",
 }
 _CONF_CN = {"high": "高", "mid": "中", "low": "低"}
-# 同键不同维度的标签：role 在角色卡是「定位」，在文风是「叙事身份」
+# 同键不同维度的标签：role 在角色卡是「定位」，在文风是「叙事身份」；
+# scene 在 mainplot.ending 是「结尾场景」，在文风/技法是「场面」（c-kb-scene-tagging）
 _DIM_LABEL_OVERRIDES: dict[str, dict[str, str]] = {
-    "写作文风": {"role": "叙事身份"},
-    "style": {"role": "叙事身份"},
+    "写作文风": {"role": "叙事身份", "scene": "场面", "emotion": "情绪"},
+    "style": {"role": "叙事身份", "scene": "场面", "emotion": "情绪"},
+    "写作技法": {"scene": "场面", "emotion": "情绪"},
+    "techniques": {"scene": "场面", "emotion": "情绪"},
 }
 # 维度 key → 中文名（DIMENSIONS 顺序即执行序；报告按此序呈现）
 _DIM_NAMES: dict[str, str] = {k: cn for k, cn, _ in DIMENSIONS}
@@ -103,12 +107,16 @@ def _cell_value(key: str, value) -> str:
     return text
 
 
-def _md_cell(key: str, value) -> str:
-    """单个字段 → 「中文标签：值」；confidence 值翻成高/中/低；空值不给。"""
+def _md_cell(dim: str, key: str, value) -> str:
+    """单个字段 → 「中文标签：值」；confidence 值翻成高/中/低；空值不给。
+
+    标签按维度取（同键不同维度不同义：scene 在 mainplot 是「结尾场景」，
+    在文风/技法是「场面」）——c-kb-scene-tagging。
+    """
     text = _cell_value(key, value)
     if not text:
         return ""
-    return f"{_MD_LABELS.get(key, key)}：{text}"
+    return f"{_label(dim, key)}：{text}"
 
 
 def _strip_evidence(item: dict) -> dict:
@@ -152,7 +160,7 @@ def render_md(dim_name: str, data, book_name: str, covered: str) -> str:
                     head = str(item.get(head_key, "")).strip() if head_key else ""
                     body = "；".join(
                         cell for cell in (
-                            _md_cell(k, v) for k, v in item.items()
+                            _md_cell(dim_name, k, v) for k, v in item.items()
                             if k not in ("name", "title") and v
                         ) if cell
                     )
@@ -163,7 +171,7 @@ def render_md(dim_name: str, data, book_name: str, covered: str) -> str:
             # 对象值（如 mainplot.ending 三格）：逐字段展开成中文标签行，
             # 不给 Python dict repr（评审 P1：作家看到 {'scene': …} 原文）
             for k, v in value.items():
-                cell = _md_cell(k, v)
+                cell = _md_cell(dim_name, k, v)
                 if cell:
                     lines.append(f"- {cell}")
         else:

@@ -14,7 +14,12 @@ import json
 import re
 from dataclasses import dataclass
 
-from .concepts import emotion_phrase, normalize_scene
+from .concepts import (
+    emotion_phrase,
+    normalize_chapter_pos,
+    normalize_emotion,
+    normalize_scene,
+)
 from .payloads import validate_payload
 
 
@@ -184,6 +189,27 @@ def _mk_entry(
         src_key=src_key,
         src_novel_name="",
     )
+
+
+def _style_when(item: object) -> dict:
+    """文风/文笔条目的适用条件（c-kb-scene-tagging）。
+
+    只收模型明确给出的 `scene` / `emotion` / `chapter_pos`（归一封闭词表）；
+    判不出留空——空 when＝全书适用，不硬填默认场面。
+    """
+    if not isinstance(item, dict):
+        return {}
+    when: dict[str, str] = {}
+    scene = normalize_scene(str(item.get("scene") or ""))
+    if scene:
+        when["scene"] = scene
+    emotion = normalize_emotion(str(item.get("emotion") or ""))
+    if emotion:
+        when["emotion"] = emotion
+    chapter_pos = normalize_chapter_pos(str(item.get("chapter_pos") or ""))
+    if chapter_pos:
+        when["chapter_pos"] = chapter_pos
+    return when
 
 
 # 世界正文里粘尾的元数据：可信度 token 与章证据锚（剥出分立落字段，正文保持干净案例）
@@ -444,6 +470,7 @@ def map_deconstruct_products(
             "style.rule", "文风", name or f"场景规则 {i + 1}",
             payload,
             instruction=text, evidence=evidence, evidence_json=ev_json,
+            when_json=_style_when(item),
         )
 
     # ─── 文笔（写法 / 忌用）── 2026-11-08 结构化：name/how/章证据/可信度分立
@@ -474,6 +501,7 @@ def map_deconstruct_products(
                 prefix, "文笔", name or f"{label} {i + 1}",
                 payload,
                 instruction=text, evidence=evidence, evidence_json=ev_json,
+                when_json=_style_when(item),
             )
 
     for i, item in enumerate(_items(style.get("taboo"))):

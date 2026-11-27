@@ -87,6 +87,31 @@ def normalize_emotion(text: str) -> str:
     return ""
 
 
+_CHAPTER_POS_ALIASES: dict[str, set[str]] = {
+    "开头": {"开头", "开篇", "卷首", "首章", "起手"},
+    "中段": {"中段", "中间", "中盘", "推进"},
+    "卷末": {"卷末", "结尾", "收尾", "尾声", "结局"},
+}
+
+
+def normalize_chapter_pos(text: str) -> str:
+    """章位文本 → 封闭值；未命中/any 返回空串（不写 when）。
+
+    `any` 与「判不出」同义：不落 when_json（全书适用由空 when 表达）。
+    """
+    t = str(text or "").strip()
+    if not t or t == "any":
+        return ""
+    for canonical, aliases in _CHAPTER_POS_ALIASES.items():
+        if t == canonical or t in aliases:
+            return canonical
+    for canonical, aliases in _CHAPTER_POS_ALIASES.items():
+        for a in aliases:
+            if a in t:
+                return canonical
+    return ""
+
+
 _EMOTION_LABELS = {"燃": "热血", "冷": "压抑", "虐": "虐心", "甜": "甜暖", "疑": "不安", "静": "沉静"}
 
 
