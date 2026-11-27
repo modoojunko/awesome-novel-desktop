@@ -38,5 +38,5 @@
 
 ## 6. 交付与归档
 
-- [ ] 6.1 只报 diff 等老板批准；批准后才 commit/push 更新 PR #1128；CI 绿后再逐次请示合入（不得自行 merge/打包/发版）
-- [ ] 6.2 合入后归档：`renwei-check` 主 spec「正文左右分边注与覆盖层」按本 change 同步；`openspec validate --specs` 通过
+- [x] 6.1 只报 diff 等老板批准；批准后 push 更新 PR #1128（head `4dba00cf`，CI 绿）；老板批准后 squash 合入 main＝`6c3f7388`（2026-11-27），合并后 main CI 绿（run 45936949336）
+- [x] 6.2 合入后归档：本 change 归档为 `2026-11-27-c-renwei-narrow-dot-anchor`；`renwei-check` 主 spec「正文左右分边注与覆盖层」同步（1 modified：塌缩态锚点/交互＋6 个场景）；`openspec validate --specs` **83 passed / 0 failed**
