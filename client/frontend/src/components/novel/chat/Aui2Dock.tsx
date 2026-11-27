@@ -1342,6 +1342,13 @@ export function Aui2Dock({
     },
     [onEffects],
   );
+  // DockCtx 里的模型候选要稳定引用：useModelStatus 每次渲染都新建 modelOptions
+  // 数组，直接进 context 会让每个流式 delta 重渲染全部卡面消费者（长会话卡多时
+  // 白掉帧）；候选由 configs 派生，按 configs 身份记忆
+  const proseModelOptions = useMemo(
+    () => modelStatus.modelOptions,
+    [modelStatus.configs],
+  );
   const dockCtx = useMemo(
     () => ({
       apiRef,
@@ -1351,7 +1358,7 @@ export function Aui2Dock({
       proseStart: onProsePlanStart,
       // 方案卡生成模型候选（c-prose-plan-model-select）：与底栏助手模型同一份状态
       proseModel: {
-        options: modelStatus.modelOptions,
+        options: proseModelOptions,
         bookKey: bookModelKey,
         ready: modelStatus.aiState === "ready",
       },
@@ -1361,7 +1368,7 @@ export function Aui2Dock({
       markAdopted,
       refreshDomain,
       onProsePlanStart,
-      modelStatus.modelOptions,
+      proseModelOptions,
       modelStatus.aiState,
       bookModelKey,
     ],
