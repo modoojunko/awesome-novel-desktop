@@ -1123,3 +1123,9 @@ aside.col-ai:not(.as-drawer) {
   max-height: 160px; overflow: hidden;
 }
 .cd-plan-prompt-text.full { max-height: 320px; overflow-y: auto; }
+/* c-prose-plan-review-model：方案卡生成模型行（默认本书模型，仅本次生成生效） */
+.cd-plan-model {
+  display: flex; flex-direction: column; gap: 5px;
+  border-top: 1px solid rgba(35, 48, 42, 0.08); padding-top: 8px;
+}
+.cd-plan-model-label { font-size: 12px; color: #8a948c; }

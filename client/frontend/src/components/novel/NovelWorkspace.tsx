@@ -26,6 +26,7 @@ import { useVolumePlan } from "@/hooks/useVolumePlan";
 import type { VolumeExpandDraft } from "@/lib/volumePlanApi";
 import { RegenConfirmModal } from "@/components/novel/workbench/modals";
 import type { ProseWriteExtras } from "@/lib/ai";
+import type { ModelSelection } from "@/types/api-config";
 import { isForeignProsePlan } from "@/lib/prosePlan";
 import UpgradeModal from "@/components/novel/UpgradeModal";
 import { runZhuqueCheck } from "@/hooks/useZhuqueCheck";
@@ -338,6 +339,8 @@ export default function NovelWorkspace() {
   const pendingStartRef = useRef<{
     prompt?: string;
     extras?: ProseWriteExtras;
+    /** 方案卡按次模型对（c-prose-plan-review-model）：选本书模型时 undefined */
+    modelSelection?: ModelSelection;
     onStarted?: () => void;
     chapterRef?: string | null;
   } | null>(null);
@@ -367,14 +370,29 @@ export default function NovelWorkspace() {
       return;
     }
     setAiWriteSignal((n) => n + 1);
-    proseRef.current?.startWriting(pending.prompt || undefined, undefined, pending.extras);
+    proseRef.current?.startWriting(
+      pending.prompt || undefined,
+      pending.modelSelection,
+      pending.extras,
+    );
     pending.onStarted?.();
   }, [chapterRef]);
 
   /** 启动闸：已有正文先进确认弹窗（取消＝零副作用），确认后按待启动参数开流。 */
   const beginProseWrite = useCallback(
-    (prompt?: string, extras?: ProseWriteExtras, onStarted?: () => void) => {
-      pendingStartRef.current = { prompt, extras, onStarted, chapterRef };
+    (
+      prompt?: string,
+      extras?: ProseWriteExtras,
+      onStarted?: () => void,
+      modelSelection?: ModelSelection,
+    ) => {
+      pendingStartRef.current = {
+        prompt,
+        extras,
+        modelSelection,
+        onStarted,
+        chapterRef,
+      };
       if ((railData?.wordCount ?? 0) > 0) {
         setShowRegenConfirm(true);
         return;
@@ -431,7 +449,22 @@ export default function NovelWorkspace() {
           entry_id: p.entry_id as string,
           ...(typeof p.reason === "string" && p.reason ? { reason: p.reason } : {}),
         }));
-      beginProseWrite(prompt || undefined, { kbPicks }, onStarted);
+      // 方案卡按次模型对（c-prose-plan-review-model）：卡面选了非本书模型才带；
+      // 形态不合法按「未换模型」处理（走本书模型路径，不静默猜）。
+      const msRaw = payload.model_selection;
+      let modelSelection: ModelSelection | undefined;
+      if (msRaw && typeof msRaw === "object") {
+        const ms = msRaw as Record<string, unknown>;
+        if (
+          typeof ms.api_config_id === "string" &&
+          ms.api_config_id &&
+          typeof ms.model === "string" &&
+          ms.model
+        ) {
+          modelSelection = { api_config_id: ms.api_config_id, model: ms.model };
+        }
+      }
+      beginProseWrite(prompt || undefined, { kbPicks }, onStarted, modelSelection);
     },
     [railData?.archived, chapterRef, beginProseWrite],
   );

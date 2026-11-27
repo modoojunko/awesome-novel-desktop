@@ -3,7 +3,7 @@
 // chips 编排形态按能力端点翻转（command 进对话 vs open 直开）／方案卡渲染
 // （条目清单＋提示词折叠全文＋已有正文警示）与「开始生成」宿主桥。
 // @vitest-environment jsdom
-import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const chatApiState = vi.hoisted(() => ({
@@ -19,6 +19,7 @@ const modelState = vi.hoisted(() => ({
   options: [] as Array<Record<string, unknown>>,
   currentConfigId: null as string | null,
   currentModel: null as string | null,
+  aiState: "ready" as string,
 }));
 
 vi.mock("@/hooks/useTier", () => ({
@@ -32,6 +33,7 @@ vi.mock("@/hooks/useModelStatus", () => ({
     currentConfigId: modelState.currentConfigId,
     currentModel: modelState.currentModel,
     loading: false,
+    aiState: modelState.aiState,
   }),
 }));
 
@@ -102,6 +104,10 @@ beforeEach(() => {
   setDialogProseEnabled(true);
   chatApiState.loadAssistantSession.mockResolvedValue(sess());
   chatApiState.getAssistantCapabilities.mockResolvedValue({ dialog_prose: true });
+  modelState.options = [];
+  modelState.currentConfigId = null;
+  modelState.currentModel = null;
+  modelState.aiState = "ready";
 });
 
 describe("streamChapterWrite kb_picks body 契约", () => {
@@ -344,5 +350,101 @@ describe("正文方案卡（prose_plan）渲染与开始生成宿主桥", () => 
     expect(screen.queryByTestId("prose-plan-picks")).toBeNull();
     // 无已有正文：不出现清空警示
     expect(screen.queryByTestId("prose-plan-body")!.textContent).not.toContain("本章已有正文");
+  });
+});
+
+describe("正文方案卡生成模型（c-prose-plan-review-model）", () => {
+  const OPTS = [
+    { api_config_id: "c1", model: "m1", config_name: "配置一", vendor: "deepseek" },
+    { api_config_id: "c2", model: "m2", config_name: "配置二", vendor: "ollama" },
+  ];
+  const PAYLOAD = {
+    chapter_ref: "vol-1-ch-1",
+    chapter_title: "第七章",
+    prompt: "提示词全文",
+    picks: [{ entry_id: "e1", title: "道具盘点否定法", concept: "手法", reason: "贴本章" }],
+    has_existing_prose: false,
+    word_target: 2500,
+  };
+
+  function stubRect() {
+    return vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockReturnValue({
+      top: 100, bottom: 140, left: 20, right: 540, width: 520, height: 40, x: 20, y: 100,
+      toJSON: () => ({}),
+    } as DOMRect);
+  }
+
+  async function openPlan(
+    onProsePlanStart: (payload: Record<string, unknown>, onStarted?: () => void) => void,
+  ) {
+    render(
+      <Aui2Dock
+        projectId="p1"
+        page="工作台 · 章节"
+        scope={PROSE_SCOPE}
+        onProsePlanStart={onProsePlanStart}
+      />,
+    );
+    await waitFor(() =>
+      expect(screen.getByTestId("aui2-dock").getAttribute("data-dialog-prose")).toBe("on"),
+    );
+    const sse = captureStream();
+    fireEvent.click(screen.getByTestId("aui2-chip-ai_write"));
+    await waitFor(() => expect(chatApiState.streamAssistantChat).toHaveBeenCalled());
+    act(() =>
+      sse.drive({ type: "artifact", cardId: "c1", kind: "prose_plan", payload: PAYLOAD }),
+    );
+    await screen.findByTestId("prose-plan-body");
+  }
+
+  function useTwoModels() {
+    modelState.options = OPTS;
+    modelState.currentConfigId = "c1";
+    modelState.currentModel = "m1";
+  }
+
+  it("模型行默认本书模型；未换模型时 payload 不带 model_selection", async () => {
+    useTwoModels();
+    const onStart = vi.fn((_p: Record<string, unknown>, started?: () => void) => started?.());
+    await openPlan(onStart);
+    const field = await screen.findByTestId("prose-plan-model");
+    expect(within(field).getByTestId("ai-model-name").textContent).toBe("配置一 · m1");
+    fireEvent.click(screen.getByTestId("prose-plan-start"));
+    expect(onStart).toHaveBeenCalledTimes(1);
+    const payload = onStart.mock.calls[0][0] as Record<string, unknown>;
+    expect("model_selection" in payload).toBe(false);
+  });
+
+  it("卡上换模型 → payload 带按次模型对", async () => {
+    useTwoModels();
+    const onStart = vi.fn((_p: Record<string, unknown>, started?: () => void) => started?.());
+    await openPlan(onStart);
+    const field = await screen.findByTestId("prose-plan-model");
+    const rectSpy = stubRect();
+    try {
+      fireEvent.click(within(field).getByTestId("ai-model-select"));
+      const panel = await screen.findByTestId("ai-model-panel");
+      fireEvent.click(within(panel).getByRole("option", { name: /m2/ }));
+    } finally {
+      rectSpy.mockRestore();
+    }
+    fireEvent.click(screen.getByTestId("prose-plan-start"));
+    const payload = onStart.mock.calls[0][0] as Record<string, unknown>;
+    expect(payload.model_selection).toEqual({ api_config_id: "c2", model: "m2" });
+  });
+
+  it("可选模型 < 2 不渲染模型行", async () => {
+    modelState.options = [OPTS[0]];
+    modelState.currentConfigId = "c1";
+    modelState.currentModel = "m1";
+    await openPlan(vi.fn());
+    expect(screen.queryByTestId("prose-plan-model")).toBeNull();
+  });
+
+  it("未点开始生成不调用宿主（评审闸）", async () => {
+    useTwoModels();
+    const onStart = vi.fn();
+    await openPlan(onStart);
+    expect(onStart).not.toHaveBeenCalled();
   });
 });

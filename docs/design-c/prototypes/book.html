@@ -524,6 +524,20 @@
   .mp-item.on { background: var(--accent-soft); color: var(--accent-strong); }
   .mp-item .mp-flag { margin-left: auto; font-size: 11px; color: var(--muted); }
   .mp-item.on .mp-flag { color: var(--accent); }
+  /* ─── 正文方案卡（c-prose-plan-review-model：对话 dock 内卡面 + 生成模型行）─── */
+  .cd-plan { border: 1px solid var(--border); border-radius: var(--radius); background: var(--surface); padding: 12px 14px; display: flex; flex-direction: column; gap: 10px; }
+  .cd-plan-title { font-size: 13px; color: var(--muted); }
+  .cd-plan-picks { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
+  .cd-plan-picks li { display: flex; align-items: baseline; gap: 8px; font-size: 13px; }
+  .cd-plan-concept { font-family: var(--font-mono); font-size: 11px; color: var(--muted); border: 1px solid var(--border); border-radius: 5px; padding: 0 5px; }
+  .cd-plan-picks b { font-weight: 500; }
+  .cd-plan-reason { color: var(--muted); font-size: 12.5px; }
+  .cd-plan-prompt { border-top: 1px solid var(--border); padding-top: 8px; display: flex; flex-direction: column; gap: 6px; }
+  .cd-plan-prompt-head { display: flex; align-items: center; gap: 8px; font-size: 12.5px; }
+  .cd-plan-prompt-text { margin: 0; font-family: var(--font-body); font-size: 12.5px; line-height: 1.6; color: var(--muted); white-space: pre-wrap; max-height: 76px; overflow: hidden; }
+  .cd-plan-model { display: flex; flex-direction: column; gap: 5px; border-top: 1px solid var(--border); padding-top: 8px; }
+  .cd-plan-model > label { font-size: 12.5px; color: var(--muted); }
+  .cd-plan-foot { display: flex; justify-content: flex-end; }
   .ai-tag { display: inline-flex; align-items: center; gap: 5px; padding: 2px 8px; border-radius: 999px; background: var(--accent-soft); color: var(--accent); font-size: 11px; }
   .ai-tag svg { width: 11px; height: 11px; }
   .benefit-row { display: flex; gap: 12px; padding: 10px 0; align-items: flex-start; }
@@ -1373,7 +1387,53 @@
       </div>
       <p style="margin:0; font-size:12.5px; color:var(--muted);" id="aiHint"></p>
     </div>
-    <div class="mcard-foot"><button class="btn btn-secondary" data-close="modalAi">取消</button><button class="btn btn-primary" id="aiConfirm">生成正文</button></div>
+    <div class="mcard-foot"><button class="btn btn-ghost" onclick="openModal('modalProsePlan')">看方案卡形态</button><button class="btn btn-secondary" data-close="modalAi">取消</button><button class="btn btn-primary" id="aiConfirm">生成正文</button></div>
+  </div>
+</div>
+
+<!-- c-prose-plan-review-model：正文方案卡（对话 dock 内卡面）——生成模型行在提示词之后、
+     「开始生成」之前；默认本书模型，不继承对话模型；可选 < 2 时整行不出现（演示态为多模型）。 -->
+<div class="modal" id="modalProsePlan" hidden>
+  <div class="mcard">
+    <div class="mcard-head">
+      <span class="mh serif">正文方案（对话内卡）</span>
+      <button class="icon-btn x" data-close="modalProsePlan"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M6 6l12 12M18 6L6 18"/></svg></button>
+    </div>
+    <div class="mcard-body">
+      <div class="cd-plan">
+        <div class="cd-plan-title">《第七章》· 目标 2500 字</div>
+        <ul class="cd-plan-picks">
+          <li><span class="cd-plan-concept">手法</span><b>道具盘点否定法</b><span class="cd-plan-reason">刃无柄、短铳一发、喊人自曝——逐件否完只剩等它先扑</span></li>
+        </ul>
+        <div class="cd-plan-prompt">
+          <div class="cd-plan-prompt-head"><b>用户提示词</b><span style="color:var(--muted)">5310 字</span><button class="btn btn-ghost btn-sm">展开全部</button></div>
+          <pre class="cd-plan-prompt-text">## 当前章节
+章纲：林野舔血之后，猎血短刃刀身震颤不止……（此处为方案卡提示词全文预览）</pre>
+        </div>
+        <!-- c-prose-plan-review-model：生成模型行（复用 .mp-* 族；默认本书模型，不继承对话模型） -->
+        <div class="cd-plan-model">
+          <label>生成模型 <span style="color:var(--muted)">仅本次生成生效，不改本书模型</span></label>
+          <div class="mp-wrap">
+            <button type="button" class="input mono mp-trigger" id="ppModel" role="combobox" aria-haspopup="listbox" aria-expanded="false" aria-controls="ppModelPanel">
+              <span class="mt-name" id="ppModelName">深度求索 · deepseek-v4-pro</span>
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M6 9l6 6 6-6"/></svg>
+            </button>
+            <div class="mp-panel" id="ppModelPanel" role="listbox" aria-label="生成模型" hidden>
+              <div class="mp-group">深度求索 <span class="mg-vendor">deepseek</span></div>
+              <ul class="mp-list">
+                <li><button type="button" role="option" aria-selected="true" class="mp-item on" data-model="深度求索 · deepseek-v4-pro" data-default="1">deepseek-v4-pro<span class="mp-flag">本书模型</span></button></li>
+                <li><button type="button" role="option" aria-selected="false" class="mp-item" data-model="深度求索 · deepseek-v4-flash">deepseek-v4-flash</button></li>
+              </ul>
+              <div class="mp-group">本地 · Ollama <span class="mg-vendor">ollama</span></div>
+              <ul class="mp-list">
+                <li><button type="button" role="option" aria-selected="false" class="mp-item" data-model="本地 · Ollama · qwen2.5:14b">qwen2.5:14b</button></li>
+              </ul>
+            </div>
+          </div>
+        </div>
+        <div class="cd-plan-foot"><button class="btn btn-primary" id="ppStart">开始生成</button></div>
+      </div>
+    </div>
   </div>
 </div>
 
@@ -3077,6 +3137,30 @@ function resetAiModelPicker() {
   });
   panel.querySelectorAll('.mp-item').forEach((b) => b.addEventListener('click', () => {
     /* 「本书模型」标记恒随本书绑定行（不随选择移动）；点选只改选中态与触发位 */
+    panel.querySelectorAll('.mp-item').forEach((x) => {
+      x.classList.remove('on');
+      x.setAttribute('aria-selected', 'false');
+    });
+    b.classList.add('on');
+    b.setAttribute('aria-selected', 'true');
+    name.textContent = b.dataset.model;
+    close();
+  }));
+  document.addEventListener('click', (e) => {
+    if (!panel.hidden && !btn.contains(e.target) && !panel.contains(e.target)) close();
+  });
+})();
+/* c-prose-plan-review-model：方案卡内生成模型行演示（复用 .mp-* 族；默认本书模型，
+   重开卡回到本书模型；实现侧单模型/未就绪整行不渲染）。 */
+(function prosePlanModelDemo() {
+  const btn = $('ppModel'), panel = $('ppModelPanel'), name = $('ppModelName');
+  if (!btn || !panel || !name) return;
+  const close = () => { panel.hidden = true; btn.setAttribute('aria-expanded', 'false'); };
+  btn.addEventListener('click', () => {
+    panel.hidden = !panel.hidden;
+    btn.setAttribute('aria-expanded', String(!panel.hidden));
+  });
+  panel.querySelectorAll('.mp-item').forEach((b) => b.addEventListener('click', () => {
     panel.querySelectorAll('.mp-item').forEach((x) => {
       x.classList.remove('on');
       x.setAttribute('aria-selected', 'false');

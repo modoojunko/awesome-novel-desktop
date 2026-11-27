@@ -47,6 +47,7 @@ import type { FeatureKey } from "@/lib/features";
 import { useFeature } from "@/hooks/useTier";
 import { useModelStatus } from "@/hooks/useModelStatus";
 import { ModelPicker } from "@/components/novel/workbench/modals";
+import type { ModelSelection } from "@/types/api-config";
 import {
   streamAssistantChat,
   loadAssistantSession,
@@ -124,9 +125,32 @@ const DockCtx = createContext<{
  *  adopted 翻已建卡徽标、同目标新卡把旧卡标 stale。 */
 
 /** 正文方案卡体（c-agent-dialog-prose）：选中写法条目（含理由）＋用户提示词全文
- *  （折叠展示、可展开——作家过目的就是要发给正文模型的东西）。 */
-function ProsePlanBody({ payload }: { payload: Record<string, unknown> }) {
+ *  （折叠展示、可展开——作家过目的就是要发给正文模型的东西）。
+ *  c-prose-plan-review-model：提示词之后加「生成模型」行——默认本书模型，
+ *  不继承对话底栏模型；选择只作用于本次生成（卡内本地态，重开卡回本书模型）。 */
+function ProsePlanBody({
+  payload,
+  projectId,
+  modelSel,
+  onModelChange,
+}: {
+  payload: Record<string, unknown>;
+  projectId?: string;
+  modelSel: ModelSelection | null;
+  onModelChange: (sel: ModelSelection | null) => void;
+}) {
   const [expanded, setExpanded] = useState(false);
+  const modelStatus = useModelStatus(projectId);
+  const bookKey =
+    modelStatus.currentConfigId && modelStatus.currentModel
+      ? `${modelStatus.currentConfigId}::${modelStatus.currentModel}`
+      : "";
+  const modelKey = modelSel
+    ? `${modelSel.api_config_id}::${modelSel.model}`
+    : bookKey;
+  // 单模型/未就绪不渲染（与 AiModal 的 ModelField 同口径）
+  const showModel =
+    modelStatus.aiState === "ready" && modelStatus.modelOptions.length >= 2;
   const picks = Array.isArray(payload.picks)
     ? (payload.picks as Array<Record<string, unknown>>)
     : [];
@@ -181,6 +205,30 @@ function ProsePlanBody({ payload }: { payload: Record<string, unknown> }) {
         </div>
         <pre className={`cd-plan-prompt-text${expanded ? " full" : ""}`}>{preview}</pre>
       </div>
+      {showModel && (
+        <div className="cd-plan-model" data-testid="prose-plan-model">
+          <span className="cd-plan-model-label">生成模型</span>
+          <ModelPicker
+            options={modelStatus.modelOptions}
+            value={modelKey}
+            bookValue={bookKey}
+            onPick={(k) => {
+              const o = modelStatus.modelOptions.find(
+                (m) => `${m.api_config_id}::${m.model}` === k,
+              );
+              if (!o) return;
+              onModelChange(
+                k === bookKey
+                  ? null
+                  : { api_config_id: o.api_config_id, model: o.model },
+              );
+            }}
+            label="生成模型"
+            triggerClass="input mp-trigger"
+            triggerTitle="仅本次生成生效，不改本书模型"
+          />
+        </div>
+      )}
     </div>
   );
 }
@@ -189,6 +237,9 @@ function ArtifactCard(props: { data: ArtifactCardData; id?: string }) {
   const { data, id } = props;
   const ctx = useContext(DockCtx);
   const [busy, setBusy] = useState(false);
+  // 方案卡生成模型（c-prose-plan-review-model）：卡内本地态，默认本书模型
+  // （null＝走本书模型）；只作用于本次生成，不继承对话底栏模型。
+  const [proseModel, setProseModel] = useState<ModelSelection | null>(null);
   const payload = (data.payload ?? {}) as Record<string, unknown>;
   const status = data.status ?? "draft";
   const isVolumeDraft =
@@ -260,7 +311,18 @@ function ArtifactCard(props: { data: ArtifactCardData; id?: string }) {
     if (!id || !ctx?.proseStart) return;
     setBusy(true);
     try {
-      ctx.proseStart(payload, () => {
+      // c-prose-plan-review-model：把卡面模型选择并进 payload（选本书模型则不带，
+      // 走宿主既有 effective_model 路径——与现状逐字一致）
+      const outPayload = proseModel
+        ? {
+            ...payload,
+            model_selection: {
+              api_config_id: proseModel.api_config_id,
+              model: proseModel.model,
+            },
+          }
+        : payload;
+      ctx.proseStart(outPayload, () => {
         ctx.markAdopted(id);
         if (data.cardId && data.projectId) {
           const cardId = data.cardId;
@@ -293,7 +355,16 @@ function ArtifactCard(props: { data: ArtifactCardData; id?: string }) {
         )}
         {status === "stale" && <span className="cd-badge">旧版</span>}
       </div>
-      {isProsePlan ? <ProsePlanBody payload={payload} /> : <CardBody kind={data.kind} payload={payload} />}
+      {isProsePlan ? (
+        <ProsePlanBody
+          payload={payload}
+          projectId={data.projectId}
+          modelSel={proseModel}
+          onModelChange={setProseModel}
+        />
+      ) : (
+        <CardBody kind={data.kind} payload={payload} />
+      )}
       {(status === "draft" || status === "stale") && (
         <div className="cd-card-foot">
           {isProsePlan && (
