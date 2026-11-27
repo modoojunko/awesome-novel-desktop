@@ -1289,3 +1289,38 @@ describe("Aui2Dock 过程进度行与工具参数（c-agent-process-progress）"
     }
   });
 });
+
+// 快捷 chips 切页不残留（11-27 用户截图：写作助手 chips 堆成一面墙）。
+// 世界五格 chips 共用工具 key draft_worldbuilding（点击要拿它做 tool_hint），
+// 曾直接拿 c.key 当 React key——重复 key 让协调器在切页时卸不干净旧 chips：
+// 世界页每切出一次就残留 4 枚（末枚钉铁律被吃掉），越切越多，直到撑满右栏。
+describe("Aui2Dock 快捷 chips 切页（React key 唯一性）", () => {
+  it("世界页 5 枚唯一渲染；切到卷纲后旧 chips 全卸、只剩卷纲 3 枚", async () => {
+    const world: ChatPageScope = {
+      view: "advanced-settings",
+      chapterRef: null,
+      volumeSelId: null,
+      emptyBook: false,
+      settingPanel: "world",
+    };
+    const volume: ChatPageScope = {
+      view: "workbench",
+      chapterRef: null,
+      volumeSelId: null,
+      emptyBook: false,
+    };
+    const { container, rerender } = render(
+      <Aui2Dock projectId="p1" page="设定 · 世界" scope={world} />,
+    );
+    await waitFor(() =>
+      expect(container.querySelectorAll(".chatchip").length).toBe(5),
+    );
+    rerender(<Aui2Dock projectId="p1" page="工作台 · 卷纲" scope={volume} />);
+    await waitFor(() => {
+      const labels = Array.from(container.querySelectorAll(".chatchip")).map(
+        (el) => el.textContent,
+      );
+      expect(labels).toEqual(["铺这一卷", "拆下一章", "卷纲体检"]);
+    });
+  });
+});
