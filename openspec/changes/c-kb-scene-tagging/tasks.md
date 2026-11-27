@@ -1,6 +1,6 @@
 ## 1. 拆书契约（prompts 仓）
 
-- [x] 1.1 `deconstruct_style.prompt` 的 `rules`/`craft` 加可选 `scene`/`emotion`/`chapter_pos`（封闭词表、判不出省略、不硬填「日常」）＋最小形状示例；`deconstruct_techniques.prompt` 的 `techniques` 卡加可选 `scene`；`deconstruct_condense.prompt` 经查只压缩世界设定（不产文风/文笔），无需改。`sync.py all` 已跑（85 模板/未变）
+- [x] 1.1 `deconstruct_style.prompt` 的 `rules`/`craft` 加可选 `scene`/`emotion`（封闭词表、判不出省略、不硬填「日常」）＋「带条件/不带条件」两种示例；`deconstruct_techniques.prompt` 的 `techniques` 卡加可选 `scene`；`deconstruct_reduce.prompt` 登记适用条件字段并补「条件不同保留两条」；`deconstruct_condense.prompt` 经查只压缩世界设定（不产文风/文笔），无需改。提示词工程师评审后删 `chapter_pos`（材料无卷边界）、收紧「换场面也成立就不标」、示例 name 不带场面词。`pytest tests/` → 124 passed
 - [x] 1.2 提示词仓回归：`pytest tests/ -q` → **123 passed**。**样本拆书新产出验 when 未跑**（要整书拆书，成本高）——以存量回标样本（西式奇幻 44 条）替代验证；拆书新产出验证挂账
 
 ## 2. 入库贯通（本仓）

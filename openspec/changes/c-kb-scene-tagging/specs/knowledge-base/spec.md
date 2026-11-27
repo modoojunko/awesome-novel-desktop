@@ -2,7 +2,7 @@
 
 ### Requirement: 存量写法条目的适用条件回标与场景贯通
 
-系统 SHALL 对存量全书级（`when_json` 为空）的文风/文笔条目执行一次性适用条件回标：按条目 `instruction` 语义与既有封闭词表判定 `scene` / `emotion` / `chapter_pos`；只标 `rules` 与 `craft` 类条目，`role` 与 `sample` 类 SHALL 保持全书级（叙述身份与示范段不随场面变化）。
+系统 SHALL 对存量全书级（`when_json` 为空）的文风/文笔条目执行一次性适用条件回标：按条目 `instruction` 语义与既有封闭词表判定 `scene` / `emotion`（本轮不判章位——存量条目没有卷边界证据）；只标 `rules` 与 `craft` 类条目，`role` 与 `sample` 类 SHALL 保持全书级（叙述身份与示范段不随场面变化）。规则换到别的场面也成立、或材料只显示它出现过而不能证明专用于该场面时，SHALL 留空。
 
 回标 SHALL NOT 触碰世界设定、角色设定、情节与用户书级副本；SHALL NOT 修改条目标题与正文，只补 `when_json`。回标结果 SHALL 经人工抽检（每题材抽样，标准＝场景判定可复述、无明显错标）后随基线下一个版本发布；版本目录只增不改，旧版本保留可回滚。
 

@@ -16,10 +16,10 @@
 ## What Changes
 
 - **拆书产出契约补适用条件**（prompts 仓）：
-  - `deconstruct_style`：`rules`/`craft` 每项增加可选 `when`，键限 `scene`/`emotion`/`chapter_pos`，值限封闭词表；判不出就留空，**不硬填「日常」**（沿用既有判例）。`role`/`examples` 不标（全书恒定）。
-  - `deconstruct_techniques`：`techniques` 卡增加可选 `when`（手法本来就该有场景）。
-  - `deconstruct_condense`：归并时保留/合并 `when`，冲突取并集或标 low。
-- **入库贯通**（desktop）：C 端拆书管线把条目级 `when` 写进 `when_json`（`create_entry` 已支持该参数，接线即可）；内容仓 `deconstruct_batch.py` 接线（参数已有）。
+  - `deconstruct_style`：`rules`/`craft` 每项增加可选 `scene`/`emotion`，值限封闭词表；判不出、或规则换到别的场面也成立就留空，**不硬填「日常」**（沿用既有判例）。文风 rules 尽量标场面（留空进不了写章候选），文笔 craft 通用就不标。`role`/`examples` 不标（全书恒定）。章位本轮不产（材料没有卷边界）。
+  - `deconstruct_techniques`：`techniques` 卡增加可选 `scene`（与 kind 两个维度，不串填）。
+  - `deconstruct_reduce`：登记 `scene`/`emotion` 为随条目保留的适用条件；条件不同（含一条有、一条无）保留两条，不合并、不取并集、不把条件括注进 name。
+- **入库贯通**（desktop）：C 端拆书管线把条目级适用条件写进 `when_json`（`create_entry` 已支持该参数，接线即可）；内容仓 `deconstruct_batch.py` 接线（参数已有）。
 - **存量回标**（knowledge 仓）：对 3068 条 base 文笔/文风按 `instruction` 做一次场景分类（LLM＋封闭词表；只标 `rules`/`craft`，`role`/`sample` 保持 base），人工抽检后重打包基线 v6。
 - **验证**：西式奇幻抽一批看产出质量（能标出「对峙/打斗/日常」且不乱标）；回标后基线 scene 条目 > 0；消费端 `kb_search_craft` style 段出现候选。
 - **不做**：不标世界设定/角色设定（合规红线）；不做前端「适用场景」编辑器（本次靠拆书产出与回标；作者手写场景条目挂账）；不改书级三区与写法块的消费口径。
