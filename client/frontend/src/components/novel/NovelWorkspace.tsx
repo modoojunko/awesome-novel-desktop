@@ -26,6 +26,7 @@ import { useVolumePlan } from "@/hooks/useVolumePlan";
 import type { VolumeExpandDraft } from "@/lib/volumePlanApi";
 import { RegenConfirmModal } from "@/components/novel/workbench/modals";
 import type { ProseWriteExtras } from "@/lib/ai";
+import type { ModelSelection } from "@/types/api-config";
 import { isForeignProsePlan } from "@/lib/prosePlan";
 import UpgradeModal from "@/components/novel/UpgradeModal";
 import { runZhuqueCheck } from "@/hooks/useZhuqueCheck";
@@ -338,6 +339,8 @@ export default function NovelWorkspace() {
   const pendingStartRef = useRef<{
     prompt?: string;
     extras?: ProseWriteExtras;
+    /** 按次模型对（c-prose-plan-model-select）：方案卡上选了非本书模型才带 */
+    modelSelection?: ModelSelection;
     onStarted?: () => void;
     chapterRef?: string | null;
   } | null>(null);
@@ -367,14 +370,23 @@ export default function NovelWorkspace() {
       return;
     }
     setAiWriteSignal((n) => n + 1);
-    proseRef.current?.startWriting(pending.prompt || undefined, undefined, pending.extras);
+    proseRef.current?.startWriting(
+      pending.prompt || undefined,
+      pending.modelSelection,
+      pending.extras,
+    );
     pending.onStarted?.();
   }, [chapterRef]);
 
   /** 启动闸：已有正文先进确认弹窗（取消＝零副作用），确认后按待启动参数开流。 */
   const beginProseWrite = useCallback(
-    (prompt?: string, extras?: ProseWriteExtras, onStarted?: () => void) => {
-      pendingStartRef.current = { prompt, extras, onStarted, chapterRef };
+    (
+      prompt?: string,
+      extras?: ProseWriteExtras,
+      modelSelection?: ModelSelection,
+      onStarted?: () => void,
+    ) => {
+      pendingStartRef.current = { prompt, extras, modelSelection, onStarted, chapterRef };
       if ((railData?.wordCount ?? 0) > 0) {
         setShowRegenConfirm(true);
         return;
@@ -407,9 +419,14 @@ export default function NovelWorkspace() {
   );
 
   // 方案卡「开始生成」宿主桥（c-agent-dialog-prose）：卡上提示词全文＝发给正文
-  // 模型的 user 素材（所见即所发）；picks 随 body.kb_picks 下发（键存在＝agent 模式）
+  // 模型的 user 素材（所见即所发）；picks 随 body.kb_picks 下发（键存在＝agent
+  // 模式）；modelSelection＝卡上「生成模型」所选的按次模型对（c-prose-plan-model-select）
   const handleProsePlanStart = useCallback(
-    (payload: Record<string, unknown>, onStarted?: () => void) => {
+    (
+      payload: Record<string, unknown>,
+      onStarted?: () => void,
+      modelSelection?: ModelSelection,
+    ) => {
       if (railData?.archived) {
         toast.info("本章已归档 · 恢复编辑后可用");
         return;
@@ -431,7 +448,16 @@ export default function NovelWorkspace() {
           entry_id: p.entry_id as string,
           ...(typeof p.reason === "string" && p.reason ? { reason: p.reason } : {}),
         }));
-      beginProseWrite(prompt || undefined, { kbPicks }, onStarted);
+      // 形状兜底：半对/空串不随行（后端仍会整对校验）
+      const modelSel =
+        modelSelection &&
+        typeof modelSelection.api_config_id === "string" &&
+        modelSelection.api_config_id &&
+        typeof modelSelection.model === "string" &&
+        modelSelection.model
+          ? modelSelection
+          : undefined;
+      beginProseWrite(prompt || undefined, { kbPicks }, modelSel, onStarted);
     },
     [railData?.archived, chapterRef, beginProseWrite],
   );

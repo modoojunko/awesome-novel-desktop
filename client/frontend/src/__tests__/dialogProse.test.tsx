@@ -3,7 +3,7 @@
 // chips 编排形态按能力端点翻转（command 进对话 vs open 直开）／方案卡渲染
 // （条目清单＋提示词折叠全文＋已有正文警示）与「开始生成」宿主桥。
 // @vitest-environment jsdom
-import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const chatApiState = vi.hoisted(() => ({
@@ -19,6 +19,7 @@ const modelState = vi.hoisted(() => ({
   options: [] as Array<Record<string, unknown>>,
   currentConfigId: null as string | null,
   currentModel: null as string | null,
+  aiState: "ready" as string,
 }));
 
 vi.mock("@/hooks/useTier", () => ({
@@ -31,6 +32,7 @@ vi.mock("@/hooks/useModelStatus", () => ({
     modelOptions: modelState.options,
     currentConfigId: modelState.currentConfigId,
     currentModel: modelState.currentModel,
+    aiState: modelState.aiState,
     loading: false,
   }),
 }));
@@ -100,6 +102,11 @@ beforeEach(() => {
   vi.clearAllMocks();
   window.localStorage.clear();
   setDialogProseEnabled(true);
+  // 模型状态归零（各用例按需注入；默认就绪、无候选＝不渲染生成模型选择位）
+  modelState.options = [];
+  modelState.currentConfigId = null;
+  modelState.currentModel = null;
+  modelState.aiState = "ready";
   chatApiState.loadAssistantSession.mockResolvedValue(sess());
   chatApiState.getAssistantCapabilities.mockResolvedValue({ dialog_prose: true });
 });
@@ -344,5 +351,116 @@ describe("正文方案卡（prose_plan）渲染与开始生成宿主桥", () => 
     expect(screen.queryByTestId("prose-plan-picks")).toBeNull();
     // 无已有正文：不出现清空警示
     expect(screen.queryByTestId("prose-plan-body")!.textContent).not.toContain("本章已有正文");
+  });
+});
+
+// 生成模型按次选择位（c-prose-plan-model-select）：AiModal 退役后落在方案卡上——
+// 默认本书模型、换模型才带按次对、单模型/未就绪不渲染。
+describe("正文方案卡 · 生成模型选择位", () => {
+  const MODEL_OPTIONS = [
+    { api_config_id: "c1", config_name: "深度求索", model: "deepseek-v4-pro", vendor: "deepseek" },
+    { api_config_id: "c2", config_name: "本地 · Ollama", model: "qwen2.5:14b", vendor: "ollama" },
+  ];
+  const PLAN_PAYLOAD = {
+    chapter_ref: "vol-1-ch-1",
+    chapter_title: "第七章",
+    prompt: "提".repeat(500),
+    picks: [],
+    has_existing_prose: false,
+    word_target: 2500,
+  };
+
+  /** 渲染 dock → 让方案卡到货；返回宿主桥 mock（第三参＝按次模型对） */
+  async function renderPlanCard() {
+    const onProsePlanStart = vi.fn(
+      (
+        _payload: Record<string, unknown>,
+        started?: () => void,
+        _modelSelection?: { api_config_id: string; model: string },
+      ) => started?.(),
+    );
+    render(
+      <Aui2Dock
+        projectId="p1"
+        page="工作台 · 章节"
+        scope={PROSE_SCOPE}
+        onProsePlanStart={onProsePlanStart}
+      />,
+    );
+    await waitFor(() =>
+      expect(screen.getByTestId("aui2-dock").getAttribute("data-dialog-prose")).toBe("on"),
+    );
+    const sse = captureStream();
+    fireEvent.click(screen.getByTestId("aui2-chip-ai_write"));
+    await waitFor(() => expect(chatApiState.streamAssistantChat).toHaveBeenCalled());
+    act(() =>
+      sse.drive({ type: "artifact", cardId: "c1", kind: "prose_plan", payload: PLAN_PAYLOAD }),
+    );
+    await screen.findByTestId("prose-plan-body");
+    return onProsePlanStart;
+  }
+
+  it("默认本书模型：选择位显示「配置名 · 模型名」，开始生成不带按次模型对", async () => {
+    modelState.options = MODEL_OPTIONS;
+    modelState.currentConfigId = "c1";
+    modelState.currentModel = "deepseek-v4-pro";
+    const onProsePlanStart = await renderPlanCard();
+    const row = screen.getByTestId("prose-plan-model");
+    expect(within(row).getByTestId("ai-model-name").textContent).toBe(
+      "深度求索 · deepseek-v4-pro",
+    );
+    fireEvent.click(screen.getByTestId("prose-plan-start"));
+    expect(onProsePlanStart).toHaveBeenCalledTimes(1);
+    expect(onProsePlanStart.mock.calls[0][2]).toBeUndefined();
+  });
+
+  it("换成另一配置的模型：开始生成携带按次模型对（仅本次生效）", async () => {
+    modelState.options = MODEL_OPTIONS;
+    modelState.currentConfigId = "c1";
+    modelState.currentModel = "deepseek-v4-pro";
+    const onProsePlanStart = await renderPlanCard();
+    const row = screen.getByTestId("prose-plan-model");
+    fireEvent.click(within(row).getByTestId("ai-model-select"));
+    const panel = await screen.findByTestId("ai-model-panel");
+    // 跨配置分组：两个配置名都在弹层里
+    expect(panel.textContent).toContain("深度求索");
+    expect(panel.textContent).toContain("本地 · Ollama");
+    fireEvent.click(panel.querySelector('[data-model="c2::qwen2.5:14b"]')!);
+    expect(within(row).getByTestId("ai-model-name").textContent).toBe(
+      "本地 · Ollama · qwen2.5:14b",
+    );
+    fireEvent.click(screen.getByTestId("prose-plan-start"));
+    expect(onProsePlanStart.mock.calls[0][2]).toEqual({
+      api_config_id: "c2",
+      model: "qwen2.5:14b",
+    });
+  });
+
+  it("单选：不渲染选择位（单模型用户零变化），开始生成仍可用", async () => {
+    modelState.options = [MODEL_OPTIONS[0]];
+    modelState.currentConfigId = "c1";
+    modelState.currentModel = "deepseek-v4-pro";
+    const onProsePlanStart = await renderPlanCard();
+    expect(screen.queryByTestId("prose-plan-model")).toBeNull();
+    fireEvent.click(screen.getByTestId("prose-plan-start"));
+    expect(onProsePlanStart.mock.calls[0][2]).toBeUndefined();
+  });
+
+  it("本书模型未就绪：不渲染选择位（按次选择叠加在就绪之上）", async () => {
+    modelState.options = MODEL_OPTIONS;
+    modelState.currentConfigId = "c1";
+    modelState.currentModel = "deepseek-v4-pro";
+    modelState.aiState = "missing_model";
+    await renderPlanCard();
+    expect(screen.queryByTestId("prose-plan-model")).toBeNull();
+  });
+
+  it("已开始生成的卡（adopted）不再渲染选择位", async () => {
+    modelState.options = MODEL_OPTIONS;
+    modelState.currentConfigId = "c1";
+    modelState.currentModel = "deepseek-v4-pro";
+    await renderPlanCard();
+    fireEvent.click(screen.getByTestId("prose-plan-start"));
+    await waitFor(() => expect(screen.queryByTestId("prose-plan-model")).toBeNull());
   });
 });

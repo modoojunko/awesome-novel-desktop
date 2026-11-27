@@ -47,6 +47,7 @@ import type { FeatureKey } from "@/lib/features";
 import { useFeature } from "@/hooks/useTier";
 import { useModelStatus } from "@/hooks/useModelStatus";
 import { ModelPicker } from "@/components/novel/workbench/modals";
+import type { FlatModelOption, ModelSelection } from "@/types/api-config";
 import {
   streamAssistantChat,
   loadAssistantSession,
@@ -113,8 +114,20 @@ const DockCtx = createContext<{
   /** 采纳写回后的域刷新上抛（宿主走 dirty 守卫再重载面板） */
   refreshDomain?: (domain: "settings" | "chapters") => void;
   /** 正文方案卡「开始生成」宿主桥（c-agent-dialog-prose）：确认弹窗与开流在宿主；
-   *  onStarted 只在真正开流后回调（弹窗取消则永不回调——卡面不得提前翻「已开始」） */
-  proseStart?: (payload: Record<string, unknown>, onStarted?: () => void) => void;
+   *  onStarted 只在真正开流后回调（弹窗取消则永不回调——卡面不得提前翻「已开始」）；
+   *  modelSelection＝按次模型对（c-prose-plan-model-select：选了非本书模型才随行） */
+  proseStart?: (
+    payload: Record<string, unknown>,
+    onStarted?: () => void,
+    modelSelection?: ModelSelection,
+  ) => void;
+  /** 正文方案卡「生成模型」候选（c-prose-plan-model-select）：dock 已取的模型状态
+   *  ——默认本书模型、仅本次生效；单模型/未就绪由卡面隐藏选择位 */
+  proseModel?: {
+    options: FlatModelOption[];
+    bookKey: string;
+    ready: boolean;
+  };
 } | null>(null);
 
 /** 产物卡（cardConfig 注册：code="artifact"）——复用既有 CardBody，视觉零变化；
@@ -124,8 +137,21 @@ const DockCtx = createContext<{
  *  adopted 翻已建卡徽标、同目标新卡把旧卡标 stale。 */
 
 /** 正文方案卡体（c-agent-dialog-prose）：选中写法条目（含理由）＋用户提示词全文
- *  （折叠展示、可展开——作家过目的就是要发给正文模型的东西）。 */
-function ProsePlanBody({ payload }: { payload: Record<string, unknown> }) {
+ *  （折叠展示、可展开——作家过目的就是要发给正文模型的东西）＋按次生成模型
+ *  （c-prose-plan-model-select：单模型/未就绪不渲染，默认本书模型）。 */
+function ProsePlanBody({
+  payload,
+  model,
+}: {
+  payload: Record<string, unknown>;
+  /** 生成模型选择位（可选：宿主模型未就绪或卡已非草稿态时不传） */
+  model?: {
+    options: FlatModelOption[];
+    bookKey: string;
+    value: string;
+    onPick: (key: string) => void;
+  };
+}) {
   const [expanded, setExpanded] = useState(false);
   const picks = Array.isArray(payload.picks)
     ? (payload.picks as Array<Record<string, unknown>>)
@@ -181,6 +207,22 @@ function ProsePlanBody({ payload }: { payload: Record<string, unknown> }) {
         </div>
         <pre className={`cd-plan-prompt-text${expanded ? " full" : ""}`}>{preview}</pre>
       </div>
+      {model && model.options.length >= 2 && (
+        <div className="cd-plan-model" data-testid="prose-plan-model">
+          <b>生成模型</b>
+          <ModelPicker
+            options={model.options}
+            value={model.value}
+            bookValue={model.bookKey}
+            onPick={model.onPick}
+            label="生成模型"
+            triggerClass="cd-auth-pill cd-model-pill cd-plan-model-pill"
+            panelWidth={300}
+            triggerTitle="生成模型：仅本次生成生效，不改本书模型"
+          />
+          <span className="cd-dim">仅本次生成生效，不改本书模型</span>
+        </div>
+      )}
     </div>
   );
 }
@@ -203,6 +245,26 @@ function ArtifactCard(props: { data: ArtifactCardData; id?: string }) {
   // 正文方案卡（c-agent-dialog-prose）：不写书——「开始生成」宿主桥开流
   const isProsePlan = data.kind === "prose_plan";
   const adoptable = isVolumeDraft || isSettingsField || isWorldCard || isCharacterDraft;
+  // 生成模型选择位（c-prose-plan-model-select）：默认本书模型；失效选择（配置被删
+  // /模型不在清单）回退本书模型——请求也不得发旧按次对
+  const [proseModelKey, setProseModelKey] = useState("");
+  const proseModelOptions = ctx?.proseModel?.options ?? [];
+  const proseBookKey = ctx?.proseModel?.bookKey ?? "";
+  const proseModelValue =
+    proseModelKey &&
+    proseModelOptions.some((o) => `${o.api_config_id}::${o.model}` === proseModelKey)
+      ? proseModelKey
+      : proseBookKey;
+  /** 按次模型对：仅当所选与本书模型不同才携带（与本书相同＝走本书模型路径） */
+  const proseModelSelection = (): ModelSelection | undefined => {
+    if (!proseModelValue || proseModelValue === proseBookKey) return undefined;
+    const cut = proseModelValue.indexOf("::");
+    if (cut <= 0) return undefined;
+    return {
+      api_config_id: proseModelValue.slice(0, cut),
+      model: proseModelValue.slice(cut + 2),
+    };
+  };
 
   const adopt = async () => {
     if (!id || !data.projectId || !ctx) return;
@@ -278,7 +340,7 @@ function ArtifactCard(props: { data: ArtifactCardData; id?: string }) {
           })();
         }
         ctx.up({ id, role: "assistant", content: "", msgStatus: "finished", cards: [{ code: "artifact", data: { ...data, status: "adopted" } }] });
-      });
+      }, proseModelSelection());
     } finally {
       setBusy(false);
     }
@@ -293,7 +355,23 @@ function ArtifactCard(props: { data: ArtifactCardData; id?: string }) {
         )}
         {status === "stale" && <span className="cd-badge">旧版</span>}
       </div>
-      {isProsePlan ? <ProsePlanBody payload={payload} /> : <CardBody kind={data.kind} payload={payload} />}
+      {isProsePlan ? (
+        <ProsePlanBody
+          payload={payload}
+          model={
+            (status === "draft" || status === "stale") && ctx?.proseModel?.ready
+              ? {
+                  options: proseModelOptions,
+                  bookKey: proseBookKey,
+                  value: proseModelValue,
+                  onPick: setProseModelKey,
+                }
+              : undefined
+          }
+        />
+      ) : (
+        <CardBody kind={data.kind} payload={payload} />
+      )}
       {(status === "draft" || status === "stale") && (
         <div className="cd-card-foot">
           {isProsePlan && (
@@ -1085,8 +1163,13 @@ export function Aui2Dock({
   autoAsk?: { seq: number; message: string };
   /** 正文方案卡「开始生成」宿主桥（c-agent-dialog-prose）：payload.prompt=卡上
    *  提示词全文、payload.picks=选中写法条目——宿主走归档拦截/确认弹窗/开流；
-   *  onStarted 真开流后才回调（取消/拦截不回调，卡面停留草稿态） */
-  onProsePlanStart?: (payload: Record<string, unknown>, onStarted?: () => void) => void;
+   *  onStarted 真开流后才回调（取消/拦截不回调，卡面停留草稿态）；
+   *  modelSelection＝按次模型对（c-prose-plan-model-select：选了非本书模型才传） */
+  onProsePlanStart?: (
+    payload: Record<string, unknown>,
+    onStarted?: () => void,
+    modelSelection?: ModelSelection,
+  ) => void;
 }) {
   const threadKey = threadKeyOf(scope);
   const apiRef = useRef<ChatAnywhereRef | null>(null);
@@ -1260,8 +1343,28 @@ export function Aui2Dock({
     [onEffects],
   );
   const dockCtx = useMemo(
-    () => ({ apiRef, up: threadUp, markAdopted, refreshDomain, proseStart: onProsePlanStart }),
-    [threadUp, markAdopted, refreshDomain, onProsePlanStart],
+    () => ({
+      apiRef,
+      up: threadUp,
+      markAdopted,
+      refreshDomain,
+      proseStart: onProsePlanStart,
+      // 方案卡生成模型候选（c-prose-plan-model-select）：与底栏助手模型同一份状态
+      proseModel: {
+        options: modelStatus.modelOptions,
+        bookKey: bookModelKey,
+        ready: modelStatus.aiState === "ready",
+      },
+    }),
+    [
+      threadUp,
+      markAdopted,
+      refreshDomain,
+      onProsePlanStart,
+      modelStatus.modelOptions,
+      modelStatus.aiState,
+      bookModelKey,
+    ],
   );
 
   /** 过程泡泡：思考/工具卡挂本轮 assistant 消息（正文之上，coding agent 顺序） */
