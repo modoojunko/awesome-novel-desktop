@@ -955,3 +955,28 @@ def test_备份导入_hide带正文孤儿也计数(base_env):
             await db.commit()
 
     _run(_cleanup())
+
+
+def test_文风场景规则条带when进写章候选择集():
+    """c-kb-scene-tagging：文风 slot=rule（拆书场景规则）带 when 时进 style 组；
+    无 when 仍是全书级（base），不进候选。"""
+    _run(_reset_baseline())
+    _run(_seed_pack([
+        _b("baseline:玄幻:style-rule-scene", "对峙短句", concept="文风", genre="玄幻",
+           slot="rule", when={"scene": "对峙"}),
+        _b("baseline:玄幻:style-tone-scene", "对峙基调", concept="文风", genre="玄幻",
+           slot="tone", when={"scene": "对峙"}),
+        _b("baseline:玄幻:style-rule-base", "全书短句", concept="文风", genre="玄幻",
+           slot="rule", when={}),
+    ]))
+
+    async def _go():
+        from kb.match import digest_candidates
+
+        async with async_session() as db:
+            return await digest_candidates(db, user_id="u1", genre="玄幻")
+
+    groups = _run(_go())
+    assert proxy_id("baseline:玄幻:style-rule-scene") in groups["style"]
+    assert proxy_id("baseline:玄幻:style-tone-scene") in groups["style"]
+    assert proxy_id("baseline:玄幻:style-rule-base") not in groups["style"]

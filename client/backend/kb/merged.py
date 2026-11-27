@@ -23,7 +23,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from models.kb import KbBaselineEntry, KbBaselineOverlay
 
 # 文风 slot 白名单（进块的定性槽位；match.digest_candidates 与本模块单源）
-STYLE_SLOTS_IN_BLOCK = ("tone", "register", "sample")
+# c-kb-scene-tagging：`rule`＝拆书场景规则（一条场面规则一条文风实例），带 when 时
+# 属于「场面定性文风」，应与 tone/register/sample 同权进写章候选；无 when 仍是 base。
+STYLE_SLOTS_IN_BLOCK = ("tone", "register", "sample", "rule")
 
 
 @dataclass(slots=True)
