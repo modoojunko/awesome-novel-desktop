@@ -83,6 +83,11 @@ def test_discipline_per_thread():
                                     domain_discipline=discipline_of_thread("ch:prose"))
     assert "章纲纪律" in og_sys and "章纲纪律" not in prose_sys
     assert "正文纪律" in prose_sys and "人味红线" in prose_sys
+    # 书级通用 vs 章级场景的裁决口径（c-agent-prose-kb-picks）：去重与剧情判断、
+    # 作者影子优先——纪律层可见，agent 出卡时照此写理由。
+    prose_disc = discipline_of_thread("ch:prose")
+    for kw in ("书级三区是全书通用基线", "同义/近义", "贴场面节奏", "章级文风影子优先"):
+        assert kw in prose_disc
     assert "身份" in og_sys  # 共享身份段不变
 
 

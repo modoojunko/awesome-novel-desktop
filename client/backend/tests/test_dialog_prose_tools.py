@@ -6,6 +6,7 @@
 """
 
 import asyncio
+import json
 import tempfile
 import uuid
 
@@ -16,6 +17,7 @@ from db import async_session
 from kb.service import create_entry
 from models.chapter import Chapter
 from models.project import Novel
+from models.project_setting import ProjectSetting
 from models.user import User
 from models.volume import Volume
 
@@ -66,6 +68,28 @@ async def _seed(genre: str = "都市异能", archived: bool = False):
     await get_storage().write_yaml(root, "story.yaml", {"genre": genre, "synopsis": "血族试探"})
     ctx = ToolContext(novel_id=novel_id, root_path=root, user_id=uid)
     return uid, novel_id, ctx, [id_a, id_b]
+
+
+async def _add_entry(*, uid: str, genre: str, concept: str, title: str,
+                     instruction: str, payload: dict, when: dict | None = None) -> str:
+    """补一条知识条目（文风/文笔/手法）——分桶与书级草稿用例用。"""
+    async with async_session() as db:
+        entry = (await create_entry(
+            db, user_id=uid, genre=genre, concept=concept, title=title,
+            payload=payload, instruction=instruction, when_json=when or {},
+        ))[0]
+        await db.commit()
+        return entry.id
+
+
+async def _write_style(root: str, style: dict) -> None:
+    """写本书文风三区（project_settings.style）——三区已配置/未配置对照用。"""
+    async with async_session() as db:
+        db.add(ProjectSetting(
+            root_path=root, key="style",
+            content=json.dumps(style, ensure_ascii=False),
+        ))
+        await db.commit()
 
 
 def test_kb_search_craft_按剧情重合排序_题材内():
@@ -173,8 +197,163 @@ def test_draft_prose_plan_零picks_未命中语义():
 
     res = _run(_go())
     assert res.ok
-    assert "未命中" in res.summary
+    assert "未带写法条目" in res.summary
+    assert "entry_id 放进 picks" in res.summary
     assert res.card["payload"]["picks"] == []
+
+
+def test_draft_prose_plan_picks_JSON字符串形态剥壳():
+    _uid, _nid, ctx, ids = _run(_seed())
+
+    async def _go():
+        return await _draft_prose_plan(
+            ctx, "vol-1-ch-1", "提示词全文",
+            picks=json.dumps([{"entry_id": ids[0], "reason": "章纲桥段"}], ensure_ascii=False),
+        )
+
+    res = _run(_go())
+    assert res.ok and res.card is not None
+    assert len(res.card["payload"]["picks"]) == 1
+    assert res.card["payload"]["picks"][0]["entry_id"] == ids[0]
+    assert "已解析 1 条" in res.summary
+
+
+def test_draft_prose_plan_picks_坏JSON明确报错不出卡():
+    _uid, _nid, ctx, _ids = _run(_seed())
+
+    async def _go():
+        return await _draft_prose_plan(ctx, "vol-1-ch-1", "提示词全文", picks="{not-json")
+
+    res = _run(_go())
+    assert not res.ok
+    assert res.card is None
+    assert "JSON" in res.summary
+
+
+def test_draft_prose_plan_picks_非数组形态报错():
+    _uid, _nid, ctx, ids = _run(_seed())
+
+    async def _go():
+        return await _draft_prose_plan(
+            ctx, "vol-1-ch-1", "提示词全文", picks={"entry_id": ids[0]}
+        )
+
+    res = _run(_go())
+    assert not res.ok
+    assert res.card is None
+    assert "数组" in res.summary
+
+
+def test_draft_prose_plan_无效id点名():
+    _uid, _nid, ctx, ids = _run(_seed())
+
+    async def _go():
+        return await _draft_prose_plan(
+            ctx, "vol-1-ch-1", "提示词全文",
+            picks=[{"entry_id": "no-such-id"}, {"entry_id": ids[0]}],
+        )
+
+    res = _run(_go())
+    assert res.ok
+    assert "no-such-id" in res.summary
+
+
+def test_draft_prose_plan_三区空回执提示():
+    _uid, _nid, ctx, ids = _run(_seed())
+
+    async def _go():
+        return await _draft_prose_plan(
+            ctx, "vol-1-ch-1", "提示词全文", picks=[{"entry_id": ids[0]}]
+        )
+
+    res = _run(_go())
+    assert res.ok
+    assert "本书文风三区未配置" in res.summary
+
+
+def test_draft_prose_plan_reason缺失提示补裁决理由():
+    _uid, _nid, ctx, ids = _run(_seed())
+
+    async def _go():
+        return await _draft_prose_plan(
+            ctx, "vol-1-ch-1", "提示词全文", picks=[{"entry_id": ids[0]}]
+        )
+
+    res = _run(_go())
+    assert res.ok
+    assert "没写入选理由" in res.summary
+
+
+def test_kb_search_craft_分桶_手法与场面级文笔文风():
+    uid, _nid, ctx, _ids = _run(_seed())
+    _run(_add_entry(
+        uid=uid, genre="都市异能", concept="文笔", title="短句清点",
+        instruction="短句清点：对峙时用短句逐项清点可用资源。",
+        payload={"slot": "craft", "craft": "对峙时短句逐项清点资源", "name": "短句清点"},
+        when={"scene": "对峙"},
+    ))
+    _run(_add_entry(
+        uid=uid, genre="都市异能", concept="文风", title="压短句",
+        instruction="压短句：对峙段压短句、少形容。",
+        payload={"slot": "tone", "text": "对峙段压短句、少形容", "name": "压短句"},
+        when={"scene": "对峙"},
+    ))
+
+    res = _run(_kb_search_craft(ctx, query="对峙 体温计"))
+    assert res.ok
+    assert "【手法候选】" in res.summary
+    assert "【场面级文笔/文风候选】" in res.summary
+    assert "短句清点" in res.summary and "压短句" in res.summary
+
+
+def test_kb_search_craft_场面级为空_说明全书级不参与():
+    uid, _nid, ctx, _ids = _run(_seed())
+    _run(_add_entry(
+        uid=uid, genre="都市异能", concept="文笔", title="白描克制",
+        instruction="白描克制：叙述只写看得见的动作与物件。",
+        payload={"slot": "craft", "craft": "叙述只写看得见的动作与物件", "name": "白描克制"},
+        when={},
+    ))
+
+    res = _run(_kb_search_craft(ctx, query="体温计 动作"))
+    assert res.ok
+    assert "无场面级文笔/文风条目" in res.summary
+    assert "全书级" in res.summary
+
+
+def test_kb_search_craft_三区空_附书级草稿():
+    uid, _nid, ctx, _ids = _run(_seed())
+    _run(_add_entry(
+        uid=uid, genre="都市异能", concept="文笔", title="白描克制",
+        instruction="白描克制：叙述只写看得见的动作与物件。",
+        payload={"slot": "craft", "craft": "叙述只写看得见的动作与物件", "name": "白描克制"},
+        when={},
+    ))
+
+    res = _run(_kb_search_craft(ctx, query="体温计 动作"))
+    assert res.ok
+    assert "本书文风三区未配置" in res.summary
+    assert "白描克制" in res.summary
+    assert "不进 picks" in res.summary
+    # 预算：分桶＋草稿合计仍受回执 2600 字上限
+    assert len(res.summary) <= 2600
+
+
+def test_kb_search_craft_三区已配置_不附草稿():
+    uid, _nid, ctx, _ids = _run(_seed())
+    _run(_add_entry(
+        uid=uid, genre="都市异能", concept="文笔", title="白描克制",
+        instruction="白描克制：叙述只写看得见的动作与物件。",
+        payload={"slot": "craft", "craft": "叙述只写看得见的动作与物件", "name": "白描克制"},
+        when={},
+    ))
+    _run(_write_style(ctx.root_path, {
+        "role": "冷硬第三人称限知", "rules": ["短句"], "craft": [], "few_shot_examples": [],
+    }))
+
+    res = _run(_kb_search_craft(ctx, query="体温计 动作"))
+    assert res.ok
+    assert "本书文风三区未配置" not in res.summary
 
 
 def test_draft_prose_plan_归档拒做():
@@ -228,3 +407,46 @@ def test_域收口_三工具全登记():
     assert validate_scopes(names) == []
     thread_tools = tools_for_thread("ch:prose")
     assert {"kb_search_craft", "read_write_prompt", "draft_prose_plan"} <= thread_tools
+
+
+def test_书副本全书级条目计入草稿来源():
+    """c-agent-prose-kb-picks review 修复：启用库的书（书级副本）也要算全书级
+    文笔/文风，不能因为 load_style_entries 只查账号库＋基线就误报「没有条目」。"""
+    from models.kb import KbBookEntry
+
+    uid, nid, _ctx, _ids = _run(_seed())
+    # src_key 必须非空且唯一：kb_baseline_reconnect 的用例查全表副本集合，
+    # 残留一行 src_key='' 会让它的集合断言多出一个空串（CI 全量顺序实锤）。
+    copy_key = f"selftest:{uuid.uuid4().hex[:8]}"
+
+    async def _add():
+        async with async_session() as db:
+            row = KbBookEntry(
+                novel_id=nid, user_id=uid, genre="都市异能", concept="文笔",
+                title="白描克制", instruction="白描克制：叙述只写看得见的动作。",
+                payload_json="{}", when_json="{}", status="active",
+                src_kind="book_copy", src_ref="", src_key=copy_key,
+            )
+            db.add(row)
+            await db.commit()
+            return row.id
+
+    row_id = _run(_add())
+    try:
+        async def _go():
+            from assistant.tools_kb import _book_base_style_entries
+
+            async with async_session() as db:
+                return await _book_base_style_entries(db, nid, "都市异能")
+
+        rows = _run(_go())
+        assert [getattr(r, "title", "") for r in rows] == ["白描克制"]
+    finally:
+        async def _clean():
+            async with async_session() as db:
+                row = await db.get(KbBookEntry, row_id)
+                if row is not None:
+                    await db.delete(row)
+                    await db.commit()
+
+        _run(_clean())

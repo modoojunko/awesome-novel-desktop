@@ -78,32 +78,17 @@ def _dedupe(items: list[str]) -> list[str]:
     return out
 
 
-async def style_draft_from_kb(
+async def load_style_entries(
     db: AsyncSession, *, user_id: str, theme: str
-) -> dict[str, Any]:
-    """题材 → 文风草稿。无题材/无条目时返回空数组（不抛错）。"""
-    theme = (theme or "").strip()
-    empty = {
-        "theme": theme,
-        "role": "",
-        "rules": [],
-        "craft": [],
-        "banned_words": [],
-        "tic_patterns": [],
-        "style_samples": [],
-        "counts": {
-            "role": 0,
-            "rules": 0,
-            "craft": 0,
-            "banned_words": 0,
-            "tic_patterns": 0,
-            "style_samples": 0,
-            "total": 0,
-        },
-    }
-    if not theme:
-        return empty
+) -> list[Any]:
+    """全书级文风/文笔条目（同题材＋跨题材通用、`when_json` 空、同题材优先）。
 
+    单一取数口径（c-agent-prose-kb-picks 抽出）：kb-draft 端点与编排工具
+    （书级草稿附注）共用，避免两处各写一套查询。无题材返回空列表。
+    """
+    theme = (theme or "").strip()
+    if not theme:
+        return []
     user_rows = (
         (
             await db.execute(
@@ -139,6 +124,50 @@ async def style_draft_from_kb(
     entries = [e for e in rows if not _when_of(e)]
     # 同题材在前；两段内用户条目在前、基线在后（sorted 稳定，语义明确）
     entries.sort(key=lambda e: 0 if e.genre == theme else 1)
+    # 条目级去重：用户副本与基线同文时只留先出现的（用户在前）——草稿出口
+    # 不再依赖下游 members 的文本去重，避免同一句在草稿里出现两次。
+    seen: set[tuple[str, str, str]] = set()
+    out: list[Any] = []
+    for e in entries:
+        key = (
+            str(getattr(e, "concept", "") or ""),
+            str(getattr(e, "title", "") or ""),
+            str(getattr(e, "instruction", "") or ""),
+        )
+        if key in seen:
+            continue
+        seen.add(key)
+        out.append(e)
+    return out
+
+
+async def style_draft_from_kb(
+    db: AsyncSession, *, user_id: str, theme: str
+) -> dict[str, Any]:
+    """题材 → 文风草稿。无题材/无条目时返回空数组（不抛错）。"""
+    theme = (theme or "").strip()
+    empty = {
+        "theme": theme,
+        "role": "",
+        "rules": [],
+        "craft": [],
+        "banned_words": [],
+        "tic_patterns": [],
+        "style_samples": [],
+        "counts": {
+            "role": 0,
+            "rules": 0,
+            "craft": 0,
+            "banned_words": 0,
+            "tic_patterns": 0,
+            "style_samples": 0,
+            "total": 0,
+        },
+    }
+    if not theme:
+        return empty
+
+    entries = await load_style_entries(db, user_id=user_id, theme=theme)
     if not entries:
         return empty
 
