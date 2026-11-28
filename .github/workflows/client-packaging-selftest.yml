@@ -1,7 +1,8 @@
 name: C端 更新 runner 自检
 
 # c-update-fail-safe §5：PR 门禁（不依赖签名 secret，不编译安装包）
-# - runner 端到端：真 PowerShell + 假安装器（一次成功 / 首败重试 / 两次失败回滚）
+# - runner 端到端：真 PowerShell + 假安装器（一次成功 / 首败重试 / 两次失败回滚，
+#   另含 GUI 子系统假安装器臂——钉「runner 必须同步等安装器退出再判读」）
 # - 打包门禁单测：脚本三段留痕、目录预填链、autodesktop、argv 无 MERGETASKS
 on:
   pull_request:
