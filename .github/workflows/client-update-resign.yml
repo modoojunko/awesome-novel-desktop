@@ -39,7 +39,10 @@ jobs:
         run: |
           PRIVATE="${UPDATE_SIGNING_PRIVATE_KEY}"
           [ -n "$PRIVATE" ] || { echo "::error::UPDATE_SIGNING_PRIVATE_KEY 未配置"; exit 1; }
-          BASE="${RELEASE_DOWNLOAD_FALLBACK_BASE%/}/download"
+          # 变量是「下载基址」且已含 /download（与 client-update-promote 同口径），
+          # 这里不能再拼一段——否则兜底域会请求 /download/download/latest.json，
+          # 静态托管 SPA 兜底返回 200+HTML，json.load 必红（2026-11-28 实锤）。
+          BASE="${RELEASE_DOWNLOAD_FALLBACK_BASE%/}"
           npm install -g @cloudbase/cli
           pip install cryptography -q
           tcb login --cloudbase-api-key "$TCB_API_KEY" -e "$TCB_ENV_ID"
