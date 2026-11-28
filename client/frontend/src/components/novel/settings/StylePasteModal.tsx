@@ -8,8 +8,11 @@
  *
  * 形态照 workbench AiModal 先例（Modal wbStyle＋PRO 标＋大 textarea）；
  * .ai-prompt/.btn/.paste-* 为全局类，portal 到 body 后样式仍生效。
+ *
+ * 有草稿时遮罩/Esc 不关（dismissable=false）：几千字贴进来，误点一下周围就全没了
+ * 是最伤的丢稿路径；只有取消/X 能关，误点被动关闭时在页脚提示草稿还在。
  */
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import Modal from "@/components/design/Modal";
 import { minTierOf, tierLabel } from "@/lib/features";
 import { SAMPLE_MAX, SAMPLE_MIN, countSampleChars } from "@/lib/styleApi";
@@ -26,11 +29,27 @@ const RAW_OVER_LIMIT = SAMPLE_MAX * 4;
 
 export default function StylePasteModal({ open, onClose, onSubmit }: Props) {
   const [text, setText] = useState("");
+  // 有草稿时误点周围被拦下的提示（页脚临时换一句，2.6s 后还原）
+  const [guardHint, setGuardHint] = useState(false);
+  const guardTimer = useRef<number | undefined>(undefined);
 
   // 关闭即清空：半截草稿不跨开合残留（重开一贴即新样本）
   useEffect(() => {
-    if (!open) setText("");
+    if (!open) {
+      setText("");
+      setGuardHint(false);
+    }
   }, [open]);
+
+  useEffect(() => () => window.clearTimeout(guardTimer.current), []);
+
+  function flashGuard() {
+    setGuardHint(true);
+    window.clearTimeout(guardTimer.current);
+    guardTimer.current = window.setTimeout(() => setGuardHint(false), 2600);
+  }
+
+  const dirty = text.length > 0;
 
   const rawOver = text.length > RAW_OVER_LIMIT;
   const n = rawOver ? text.length : countSampleChars(text);
@@ -56,12 +75,20 @@ export default function StylePasteModal({ open, onClose, onSubmit }: Props) {
       title="粘贴文风样本"
       width={560}
       wbStyle
+      dismissable={!dirty}
+      onDismissBlocked={dirty ? flashGuard : undefined}
       afterTitle={<span className="ai-tag">{tierLabel(minTierOf("style-quant"))}</span>}
       footer={
         <>
-          <span className="paste-note" style={{ marginRight: "auto" }}>
-            样本只用于这一次蒸馏；之后可随时「重新蒸馏」换掉。
-          </span>
+          {guardHint ? (
+            <span className="paste-note" style={{ marginRight: "auto" }} data-od-id="paste-draft-guard">
+              样本还在——不想蒸馏了就点「取消」。
+            </span>
+          ) : (
+            <span className="paste-note" style={{ marginRight: "auto" }}>
+              样本只用于这一次蒸馏；之后可随时「重新蒸馏」换掉。
+            </span>
+          )}
           <button className="btn btn-ghost" type="button" data-od-id="btn-paste-cancel" onClick={onClose}>
             取消
           </button>

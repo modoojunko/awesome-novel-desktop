@@ -2,6 +2,7 @@
 //   · 字数实时提示：空态默认提示 / 不足报还差多少 / 区间内可提交 / 超限劝挑代表性
 //   · 区间外禁用「开始蒸馏」；区间内提交回调携带原文
 //   · 关闭即清空：半截草稿不跨开合残留
+//   · 有草稿时遮罩/Esc 不关（防误点周围丢稿），并提示草稿还在；空草稿照常关
 //   · 超限 fast-path：原始长度超 4 倍上限时跳过精确计数（提示为超限方向）
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { configure, fireEvent, render, screen } from "@testing-library/react";
@@ -77,5 +78,32 @@ describe("关闭与取消", () => {
     view.rerender(<StylePasteModal open onClose={onClose} onSubmit={onSubmit} />);
     expect((screen.getByTestId("input-paste-sample") as HTMLTextAreaElement).value).toBe("");
     expect(start().disabled).toBe(true);
+  });
+
+  it("有草稿时点遮罩不关、提示样本还在（空草稿时照常关）", () => {
+    const { onClose } = openModal();
+    type("字".repeat(3200));
+    fireEvent.click(document.querySelector(".scrim")!);
+    expect(onClose).not.toHaveBeenCalled();
+    expect(screen.getByTestId("paste-draft-guard").textContent).toContain("样本还在");
+    // 点弹窗与卡片之间的空白（.modal 自身）同样拦下
+    fireEvent.click(document.querySelector(".modal")!);
+    expect(onClose).not.toHaveBeenCalled();
+  });
+
+  it("有草稿时 Esc 不关（草稿不丢）", () => {
+    const { onClose } = openModal();
+    type("字".repeat(3200));
+    fireEvent.keyDown(window, { key: "Escape" });
+    expect(onClose).not.toHaveBeenCalled();
+    expect((screen.getByTestId("input-paste-sample") as HTMLTextAreaElement).value).toHaveLength(3200);
+  });
+
+  it("空草稿时点遮罩/Esc 照常关（无可丢内容）", () => {
+    const { onClose } = openModal();
+    fireEvent.click(document.querySelector(".scrim")!);
+    expect(onClose).toHaveBeenCalledTimes(1);
+    fireEvent.keyDown(window, { key: "Escape" });
+    expect(onClose).toHaveBeenCalledTimes(2);
   });
 });

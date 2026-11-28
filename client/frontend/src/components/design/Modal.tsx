@@ -3,7 +3,7 @@
  * scrim + .modal/.mcard 进出场、Esc 关闭、Tab 焦点圈、关闭后还原焦点。
  * locked=true（提交中）时禁止关闭，与旧 CreateProjectModal 行为一致。
  */
-import { useEffect, useId, useRef, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useId, useRef, useState, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import { Ico, P } from "@/components/icons";
 
@@ -22,6 +22,11 @@ interface ModalProps {
   hideClose?: boolean;
   /** 关闭后是否还原焦点（默认还原；关闭后将跳转到别处聚焦时传 false，防 200ms 还原抢走焦点） */
   restoreFocus?: boolean;
+  /** 遮罩点击/Esc 这类「顺手关」是否生效（默认 true）。false 时只有取消/X 能关——
+   *  长文草稿型弹窗用，防误点周围把输入丢了 */
+  dismissable?: boolean;
+  /** 被动关闭被拦下时回调（弹窗可提示「草稿还在」） */
+  onDismissBlocked?: () => void;
   children: ReactNode;
   /** 头部标题与关闭钮之间的扩展区（原型 mcard-head 的 text-btn 等） */
   headExtra?: ReactNode;
@@ -30,7 +35,7 @@ interface ModalProps {
   footer?: ReactNode;
 }
 
-export default function Modal({ open, onClose, title, locked, width = 420, wbStyle, hideClose, restoreFocus, children, headExtra, afterTitle, footer }: ModalProps) {
+export default function Modal({ open, onClose, title, locked, width = 420, wbStyle, hideClose, restoreFocus, dismissable = true, onDismissBlocked, children, headExtra, afterTitle, footer }: ModalProps) {
   const [shown, setShown] = useState(false); // 控制 .show 进出场
   const [render, setRender] = useState(false); // 200ms 退场后再卸载
   const lastFocus = useRef<Element | null>(null);
@@ -38,6 +43,16 @@ export default function Modal({ open, onClose, title, locked, width = 420, wbSty
   restoreRef.current = restoreFocus !== false;
   const rootRef = useRef<HTMLDivElement>(null);
   const labelId = useId();
+
+  // 遮罩/Esc 的被动关闭统一入口：dismissable=false 时拦下并通告（草稿型弹窗）
+  const softClose = useCallback(() => {
+    if (locked) return;
+    if (!dismissable) {
+      onDismissBlocked?.();
+      return;
+    }
+    onClose();
+  }, [locked, dismissable, onDismissBlocked, onClose]);
 
   useEffect(() => {
     if (open) {
@@ -59,7 +74,7 @@ export default function Modal({ open, onClose, title, locked, width = 420, wbSty
     if (!render) return;
     const onKey = (e: KeyboardEvent) => {
       if (e.key === "Escape") {
-        if (!locked) onClose();
+        softClose();
         return;
       }
       if (e.key !== "Tab") return;
@@ -81,7 +96,7 @@ export default function Modal({ open, onClose, title, locked, width = 420, wbSty
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [render, locked, onClose]);
+  }, [render, softClose]);
 
   if (!render) return null;
 
@@ -89,7 +104,7 @@ export default function Modal({ open, onClose, title, locked, width = 420, wbSty
   // 留在组件树内会被任意 transform 祖先（含 identity matrix）劫持 containing block
   return createPortal(
     <>
-      <div className={"scrim" + (shown ? " show" : "")} onClick={() => !locked && onClose()} />
+      <div className={"scrim" + (shown ? " show" : "")} onClick={softClose} />
       <div
         ref={rootRef}
         className={"modal" + (shown ? " show" : "")}
@@ -97,7 +112,7 @@ export default function Modal({ open, onClose, title, locked, width = 420, wbSty
         aria-modal="true"
         aria-labelledby={labelId}
         onClick={(e) => {
-          if (e.target === e.currentTarget && !locked) onClose();
+          if (e.target === e.currentTarget) softClose();
         }}
       >
         <div
