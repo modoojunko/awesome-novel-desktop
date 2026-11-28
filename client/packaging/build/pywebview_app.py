@@ -1859,6 +1859,7 @@ def _install_runner_script(parent_pid: int, installer_argv: list[str], runner_lo
         "$status = 'runner_error'",
         "$code = 1",
         "$detail = ''",
+        "$installedVersion = ''",
         "$retry = 0",
         "try {",
         "  $w0 = Get-Date",
@@ -1881,19 +1882,30 @@ def _install_runner_script(parent_pid: int, installer_argv: list[str], runner_lo
         "    $code = 1",
         "    $detail = \"snapshot robocopy=$snapCode\"",
         "  } else {",
-        "    Write-RunnerLog (\"snapshot_ready (snap={0})\" -f $snap)",
+        "    Write-RunnerLog (\"snapshot_ready (snap={0} robocopy={1})\" -f $snap, $snapCode)",
         "    $t0 = Get-Date",
         "    while ($true) {",
         ("      Write-RunnerLog (\"installer_start (attempt={0} installer={1})\" "
          "-f ($retry + 1), $installer)"),
         "      $code = 1",
         "      try {",
-        f"        & $installer {flags}",
+        # 必须接管道：Inno 安装器是 GUI 子系统，PowerShell 对 GUI 程序默认丢后台
+        # 不等（NativeCommandProcessor），$LASTEXITCODE 会停留在上一条快照
+        # robocopy 的旧值。2026-11-28 生产实锤：快照 robocopy=1 被当成安装器退出码，
+        # 每台 Windows 自动更新都被判失败→重试（双开安装器）→快照回滚。
+        f"        & $installer {flags} | Out-Null",
         "        $code = $LASTEXITCODE",
+        "        if ($null -eq $code) { $code = 1 }",
         "      } catch {",
         "        $code = 1",
         "        $detail = $_.Exception.Message",
         "      }",
+        # 已装版本诊断（只读）：退出码之外再给出「盘上现在是什么版本」，
+        # 「装完了但退出码非 0」与「根本没装」事后可判读（不影响验收判据）。
+        "      $installedVersion = ''",
+        ("      try { $installedVersion = (Get-Content (Join-Path $installDir "
+         "'_internal\\release.json') -Raw -ErrorAction Stop | ConvertFrom-Json)"
+         ".client_version } catch {}"),
         ("      $exeItem = Get-Item (Join-Path $installDir $exeName) "
          "-ErrorAction SilentlyContinue"),
         ("      if (($code -eq 0) -and $exeItem -and ($exeItem.Length -gt 0)) "
@@ -1911,7 +1923,8 @@ def _install_runner_script(parent_pid: int, installer_argv: list[str], runner_lo
          "$detail = \"restore robocopy=$restoreCode\" } }"),
         "    }",
         ("    Write-RunnerLog (\"wait_ms={0} parent_alive_after_wait={1} installer_exit={2} "
-         "install_seconds={3} retry={4}\" -f $waitMs, $parentAlive, $code, $secs, $retry)"),
+         "install_seconds={3} retry={4} installed_version={5}\" "
+         "-f $waitMs, $parentAlive, $code, $secs, $retry, $installedVersion)"),
         "  }",
         "} catch {",
         "  $status = 'runner_exception'",
@@ -1922,7 +1935,8 @@ def _install_runner_script(parent_pid: int, installer_argv: list[str], runner_lo
         "    $ts = Get-Date -Format 'yyyyMMdd-HHmmss'",
         "    $dataDir = Join-Path $installDir 'data'",
         ("    $msg = \"版本: $version`n状态: $status`n退出码: $code`n错误: $detail`n"
-         "数据目录: $dataDir`n手动下载: https://www.awesomenovel.com/download/\""),
+         "已装版本: $installedVersion`n数据目录: $dataDir`n安装日志: $log`n"
+         "手动下载: https://www.awesomenovel.com/download/\""),
         ("    try { $desk = [Environment]::GetFolderPath('Desktop'); Set-Content -Path "
          "(Join-Path $desk \"爱小说更新失败-$ts.txt\") -Value $msg -Encoding UTF8 "
          "-ErrorAction SilentlyContinue } catch {}"),

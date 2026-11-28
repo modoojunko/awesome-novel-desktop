@@ -799,6 +799,34 @@ def test_win_runner_script_three_stage_markers(shell, tmp_path, monkeypatch):
     assert "MessageBox" in script
 
 
+def test_win_runner_waits_for_installer_process(shell, tmp_path, monkeypatch):
+    """安装器调用必须同步等待并取真实退出码（2026-11-28 生产更新误判根因）。
+
+    Inno 安装器是 GUI 子系统：PowerShell 对 GUI 程序默认丢后台、不等待，
+    `$LASTEXITCODE` 会停留在快照 robocopy 的旧值（快照复制成功恒为 1）。不接管道
+    就永远读不到安装器真实退出码 → 每台 Windows 都被判失败、重试（双开安装器）
+    并回滚。管道（| Out-Null）是强制同步等待的判据，删掉即回归本 bug。
+    """
+    module = shell
+    monkeypatch.setattr(module.sys, "executable",
+                        str(module.__test_install_dir / "AwesomeNovel.exe"))
+    _write_pending(module, tmp_path, sha=hashlib.sha256(b"PKG-PAYLOAD").hexdigest())
+    calls = _popens(monkeypatch)
+    module.apply_pending_update(tmp_path)
+
+    script = _runner_script_of(calls)
+    call_lines = [ln.strip() for ln in script.splitlines()
+                  if ln.strip().startswith("& $installer")]
+    assert len(call_lines) == 1, f"安装器调用应恰一处，实得 {call_lines}"
+    assert call_lines[0].endswith("| Out-Null"), (
+        "安装器调用必须接管道同步等待；GUI 子系统不接管道会被 PowerShell 丢后台，"
+        "$LASTEXITCODE 变成快照 robocopy 的旧值")
+    assert "if ($null -eq $code) { $code = 1 }" in script
+    # 盘上已装版本只做诊断留痕，不作验收判据
+    assert "installed_version={5}" in script
+    assert "_internal\\release.json" in script
+
+
 def test_mac_runner_finished_line(shell):
     """macOS runner 补终局痕（与 Windows 同串 runner: finished），在退出前必写。"""
     script = shell._install_runner_script_macos()
