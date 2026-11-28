@@ -1122,8 +1122,14 @@ aside.col-ai:not(.as-drawer) {
   background: rgba(35, 48, 42, 0.04); border-radius: 8px; padding: 8px 10px;
   max-height: 160px; overflow: hidden;
 }
-/* 展开全部＝真全文：不再给 max-height 内滚动（2993 字提示词曾只能看 320px 窗口） */
-.cd-plan-prompt-text.full { max-height: none; overflow: visible; }
+/* 展开全部＝全文进固定高的内滚动窗：卡面/窗口高度不被长提示词撑高，
+   里面自带滑块滚到底（内容短于上限时自然贴内容，不出滑块） */
+.cd-plan-prompt-text.full {
+  max-height: min(360px, 50vh);
+  overflow-y: auto;
+  scrollbar-width: thin;
+  scrollbar-color: rgba(35, 48, 42, 0.25) transparent;
+}
 /* 生成模型选择位（c-prose-plan-model-select）：默认本书模型、仅本次生成生效 */
 .cd-plan-model { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
 .cd-plan-model .mp-wrap { width: auto; }
